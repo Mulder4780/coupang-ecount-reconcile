@@ -83,6 +83,24 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .legend span{display:flex;align-items:center;gap:5px;font-weight:600;font-variant-numeric:tabular-nums}
 .legend b{width:9px;height:9px;border-radius:3px;flex:none}
 
+/* ═══ 월별 현황 차트 ═══ */
+.pctrl{display:flex;gap:8px;margin-bottom:12px}
+.pctrl select{padding:8px 12px;border:1.5px solid var(--line);border-radius:10px;font-size:13.5px;
+  background:var(--surface);font-weight:700;color:var(--ink)}
+.mbars{display:flex;gap:4px;align-items:flex-end;height:96px;margin:6px 0 2px}
+.mbar{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;min-width:0}
+.mbar i{display:block;width:100%;max-width:34px;border-radius:4px 4px 0 0;background:#B9CBF7;
+  transition:background .15s,height .2s;min-height:2px}
+.mbar.on i{background:var(--brand)}
+.mbar:hover i{background:var(--brand-dk)}
+.mbar b{font-size:10px;color:var(--ink-3);font-weight:600;white-space:nowrap}
+.mbar.on b{color:var(--brand);font-weight:800}
+.pkpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.pk{background:#F8FAFD;border:1px solid #EEF2F7;border-radius:10px;padding:10px 12px}
+.pk .v{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.4px}
+.pk .l{font-size:10.5px;color:var(--ink-3);font-weight:600;margin-top:1px}
+@media(min-width:900px){.pkpis{grid-template-columns:repeat(6,1fr)}}
+
 /* ═══ 상태 칩 (색+점+라벨 — 색맹 안전) ═══ */
 .chip{display:inline-flex;align-items:center;gap:5px;padding:2.5px 9px;border-radius:99px;
   font-size:11px;font-weight:700;white-space:nowrap}
@@ -125,7 +143,12 @@ table.grid td{padding:10.5px 13px;border-bottom:1px solid #F0F3F7;font-size:13px
 table.grid tr:last-child td{border-bottom:none}
 table.grid tbody tr{transition:background .1s}
 table.grid tr:hover td{background:#F6F9FE}
+table.grid tr:active td{background:#E8F0FE}
+table.grid th[data-sk]{cursor:pointer;user-select:none;transition:color .12s}
+table.grid th[data-sk]:hover{color:var(--brand)}
+table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var(--line);font-size:12.5px}
 .num{text-align:right}
+.srow:active{transform:scale(.985)}
 
 /* ═══ 실행 버튼 ═══ */
 .actions{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
@@ -269,6 +292,15 @@ table.grid tr:hover td{background:#F6F9FE}
       <h3>🌐 외부 접속 주소 (LTE/5G에서도)</h3>
       <div style="font-size:13.5px;word-break:break-all"><a id="tunnelurl" href="#" target="_blank"></a></div>
       <div style="font-size:11.5px;color:var(--muted);margin-top:4px">터널 재시작 시 주소가 바뀝니다. 폰 브라우저로 열고 "홈 화면에 추가" 하세요.</div></div>
+    <div class="card"><h3>월별·연도별 현황 <span class="norm" id="ptitle"></span></h3>
+      <div class="pctrl">
+        <select id="pyear" onchange="pickYear()"></select>
+        <select id="pmonth" onchange="renderPeriod()">
+          <option value="">연간 전체</option>
+        </select>
+      </div>
+      <div class="mbars" id="mbars"></div>
+      <div class="pkpis" id="pkpis"></div></div>
     <div class="card"><h3>정산 상태 분포</h3>
       <div class="distbar" id="distbar"></div>
       <div class="legend" id="distlegend"></div></div>
@@ -431,7 +463,7 @@ async function loadSettle(){
   try{ works = await api('/api/works'); }catch(e){}
   try{ issuesData = await api('/api/issues'); }catch(e){}
   try{ checks = await api('/api/checks'); }catch(e){}
-  fillStatOptions(); renderSettle();
+  fillStatOptions(); renderSettle(); periodInit();
 }
 function setMode(m){
   mode = m;
@@ -467,11 +499,31 @@ function chip(st){
   const cls = ok.includes(st)?'c-ok': st==='무상/보험'?'c-skip': warn.includes(st)?'c-warn':'c-danger';
   return `<span class="chip ${cls}">${st||'-'}</span>`;
 }
+/* 컬럼 정렬 (전문 그리드): 헤더 클릭 → ▲/▼ 토글 */
+window._sk = ''; window._sd = -1;
+function setSort(k){
+  if(window._sk===k) window._sd*=-1; else { window._sk=k; window._sd=-1; }
+  renderSettle();
+}
+function thx(label, key, num){
+  const on = window._sk===key;
+  return `<th data-sk="1" ${num?'class="num"':''} onclick="setSort('${key}')">${label}${on?(window._sd>0?' ▲':' ▼'):''}</th>`;
+}
+function sortRows(rows){
+  const k = window._sk;
+  if(!k) return rows;
+  return [...rows].sort((a,b)=>{
+    const av=a[k], bv=b[k];
+    const an=parseFloat(String(av).replace(/[^0-9.-]/g,'')), bn=parseFloat(String(bv).replace(/[^0-9.-]/g,''));
+    const r = (!isNaN(an)&&!isNaN(bn)&&String(av).match(/\d/)) ? an-bn : String(av||'').localeCompare(String(bv||''),'ko');
+    return r*window._sd;
+  });
+}
 function renderSettle(){
   const q = ($('q').value||'').toLowerCase(), f = $('fstat').value;
-  const rows = curRows().filter(r =>
+  const rows = sortRows(curRows().filter(r =>
     (!f || statOf(r)===f) &&
-    (!q || Object.values(r).join('').toLowerCase().includes(q)));
+    (!q || Object.values(r).join('').toLowerCase().includes(q))));
   if(mode==='settle'){
     const need = rows.filter(r=>!['정상','무상/보험'].includes(r.상태));
     const 미수 = rows.reduce((a,r)=>a+(+r.미수금||0),0);
@@ -487,13 +539,15 @@ function renderSettle(){
           <span>명세서 ${r.명세서번호||r.명세서}</span><span>계산서 ${r.계산서}</span>
           ${r.입금일?`<span>입금 ${r.입금일}</span>`:''} ${vbadge(r.정산ID)}</div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
-    $('sgrid').innerHTML = `<tr><th>정산ID</th><th>구분</th><th>캠프</th><th>프로젝트</th>
-      <th class="num">공급가액</th><th>명세서번호</th><th>계산서</th><th>입금일</th><th class="num">미수금</th><th>완료일</th><th>상태</th></tr>` +
+    $('sgrid').innerHTML = `<tr>${thx('정산ID','정산ID')}${thx('구분','업무구분')}${thx('캠프','캠프명')}${thx('프로젝트','프로젝트NO')}
+      ${thx('공급가액','공급가액',1)}${thx('명세서번호','명세서번호')}${thx('계산서','계산서발행일')}${thx('PO','PO번호')}${thx('입금일','입금일')}${thx('미수금','미수금',1)}${thx('완료일','완료일')}${thx('상태','상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('settle',${i},'${r.정산ID}')" style="cursor:pointer">
         <td><b>${r.정산ID}</b></td><td>${r.업무구분}</td><td>${r.캠프명}</td>
         <td>${r.프로젝트NO}</td><td class="num">${fmt(r.공급가액)}</td><td>${r.명세서번호||'-'}</td>
-        <td>${r.계산서}${r.계산서발행일?' '+r.계산서발행일:''}</td><td>${r.입금일||'-'}</td>
-        <td class="num">${r.미수금===''?'-':fmt(r.미수금)}</td><td>${r.완료일||'-'}</td><td>${chip(r.상태)}</td></tr>`).join('');
+        <td>${r.계산서}${r.계산서발행일?' '+r.계산서발행일:''}</td><td>${r.PO번호||'-'}</td><td>${r.입금일||'-'}</td>
+        <td class="num">${r.미수금===''?'-':fmt(r.미수금)}</td><td>${r.완료일||'-'}</td><td>${chip(r.상태)}</td></tr>`).join('') +
+      `<tr class="tot"><td colspan="4">합계 ${rows.length}건</td><td class="num">${fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))}</td>
+       <td colspan="4"></td><td class="num">${fmt(rows.reduce((a,r)=>a+(+r.미수금||0),0))}</td><td colspan="2"></td></tr>`;
   } else if(mode==='as'){
     const done = rows.filter(r=>r.진행상태==='작업완료').length;
     $('skpis').innerHTML = `
@@ -508,7 +562,7 @@ function renderSettle(){
           ${r.긴급도==='긴급'?'<span style="color:var(--danger);font-weight:700">긴급</span>':''}
           <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</span></div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
-    $('sgrid').innerHTML = `<tr><th>접수ID</th><th>캠프</th><th>접수일</th><th>기사</th><th>유·무상</th><th>내용</th><th>완료일</th><th>상태</th></tr>` +
+    $('sgrid').innerHTML = `<tr>${thx('접수ID','접수ID')}${thx('캠프','캠프명')}${thx('접수일','접수일자')}${thx('기사','담당기사')}${thx('유·무상','유상·무상·보험')}<th>내용</th>${thx('완료일','작업완료일')}${thx('상태','진행상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('as',${i},'${r.접수ID}')" style="cursor:pointer">
         <td><b>${r.접수ID}</b></td><td>${r.캠프명}</td><td>${r.접수일자||'-'}</td><td>${r.담당기사||'-'}</td>
         <td>${r['유상·무상·보험']||'-'}</td><td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</td>
@@ -546,7 +600,7 @@ function renderSettle(){
         <div class="meta"><span>예정 ${r.점검예정일||'-'}</span><span>실제 ${r.실제점검일||'-'}</span>
           ${r.이상발견여부==='있음'?'<span style="color:var(--danger);font-weight:700">이상발견</span>':''}</div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
-    $('sgrid').innerHTML = `<tr><th>점검ID</th><th>캠프</th><th>예정일</th><th>실제점검일</th><th>기사</th><th>이상</th><th>AS전환</th><th>상태</th></tr>` +
+    $('sgrid').innerHTML = `<tr>${thx('점검ID','점검ID')}${thx('캠프','캠프명')}${thx('예정일','점검예정일')}${thx('실제점검일','실제점검일')}${thx('기사','담당기사')}${thx('이상','이상발견여부')}${thx('AS전환','돌발AS전환여부')}${thx('상태','점검상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('pm',${i},'${r.점검ID}')" style="cursor:pointer">
         <td><b>${r.점검ID}</b></td><td>${r.캠프명}</td><td>${r.점검예정일||'-'}</td><td>${r.실제점검일||'-'}</td>
         <td>${r.담당기사||'-'}</td><td>${r.이상발견여부||'-'}</td><td>${r.돌발AS전환여부||'-'}</td><td>${chip(r.점검상태)}</td></tr>`).join('');
@@ -657,6 +711,64 @@ async function saveInputs(kind, id, n){
   } else {
     loadStatus();
   }
+}
+
+/* ── 월별·연도별 현황 ── */
+function dateOf(r, kind){
+  if(kind==='settle') return r.완료일||'';
+  if(kind==='as') return r.작업완료일||r.접수일자||'';
+  return r.실제점검일||r.점검예정일||'';
+}
+function periodInit(){
+  const years = new Set();
+  settleRows.forEach(r=>{ const d=dateOf(r,'settle'); if(d.length>=4) years.add(d.slice(0,4)); });
+  (works.as||[]).forEach(r=>{ const d=dateOf(r,'as'); if(d.length>=4) years.add(d.slice(0,4)); });
+  (works.pm||[]).forEach(r=>{ const d=dateOf(r,'pm'); if(d.length>=4) years.add(d.slice(0,4)); });
+  const ys = [...years].sort().reverse();
+  if(!ys.length) return;
+  const py = $('pyear'), pm = $('pmonth');
+  const keepY = py.value, keepM = pm.value;
+  py.innerHTML = ys.map(y=>`<option>${y}</option>`).join('');
+  pm.innerHTML = '<option value="">연간 전체</option>' +
+    Array.from({length:12},(_,i)=>`<option value="${String(i+1).padStart(2,'0')}">${i+1}월</option>`).join('');
+  py.value = ys.includes(keepY) ? keepY : ys[0];
+  if(!keepM && !window.__pinit){
+    // 최초: 데이터가 있는 최신 월 자동 선택
+    const mm = settleRows.map(r=>dateOf(r,'settle')).filter(d=>d.startsWith(py.value)).map(d=>d.slice(5,7)).sort().pop();
+    pm.value = mm || '';
+    window.__pinit = true;
+  } else pm.value = keepM;
+  renderPeriod();
+}
+function pickYear(){ renderPeriod(); }
+function inPeriod(d, y, m){ return d.startsWith(y) && (!m || d.slice(5,7)===m); }
+function renderPeriod(){
+  const y = $('pyear').value, m = $('pmonth').value;
+  if(!y) return;
+  // 12개월 막대 (정산 공급가액 기준)
+  const byM = Array.from({length:12},()=>({amt:0,cnt:0}));
+  settleRows.forEach(r=>{ const d=dateOf(r,'settle');
+    if(d.startsWith(y)){ const i=+d.slice(5,7)-1; if(i>=0&&i<12){ byM[i].amt+=(+r.공급가액||0); byM[i].cnt++; } } });
+  const max = Math.max(1, ...byM.map(x=>x.amt));
+  $('mbars').innerHTML = byM.map((x,i)=>{
+    const mm = String(i+1).padStart(2,'0');
+    return `<div class="mbar ${m===mm?'on':''}" onclick="$('pmonth').value='${m===mm?'':mm}';renderPeriod()"
+      title="${i+1}월: ${fmt(x.amt)}원 · ${x.cnt}건">
+      <i style="height:${Math.round(x.amt/max*82)+2}px"></i><b>${i+1}월</b></div>`;
+  }).join('');
+  // 선택 기간 KPI
+  const S = settleRows.filter(r=>inPeriod(dateOf(r,'settle'),y,m));
+  const A = (works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,m));
+  const P = (works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m));
+  const 공급 = S.reduce((a,r)=>a+(+r.공급가액||0),0);
+  const 입금 = S.reduce((a,r)=>a+(+r.입금액||0),0);
+  const 미수 = S.reduce((a,r)=>a+(+r.미수금||0),0);
+  const 문제 = S.filter(r=>!['정상','무상/보험'].includes(r.상태)).length;
+  $('ptitle').textContent = ` — ${y}년 ${m?+m+'월':'전체'}`;
+  $('pkpis').innerHTML = [
+    ['정산',`${S.length}건`],['공급가액',fmt(공급)],['입금',fmt(입금)],
+    ['미수금',fmt(미수)],['조치필요',`${문제}건`],['AS·점검',`${A.length}·${P.length}건`]
+  ].map(([l,v])=>`<div class="pk"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
 }
 
 /* ── 실행 ── */

@@ -107,6 +107,7 @@ def start_task(key):
 
 # ───────────────────────── 데이터 ─────────────────────────
 _cache = {"t": 0, "settle": None, "status": None}
+_readlock = threading.Lock()   # Z:드라이브 엑셀 동시 읽기 직렬화(스레드 충돌 방지)
 
 
 def demo_settlements():
@@ -244,12 +245,13 @@ def _fresh(key):
 def get_works():
     if DEMO:
         return demo_works()
-    w = _fresh("works")
-    if w:
+    with _readlock:
+        w = _fresh("works")
+        if w:
+            return w
+        w = real_works()
+        _cache["works"] = w
         return w
-    w = real_works()
-    _cache["works"] = w
-    return w
 
 
 def get_issues():
@@ -349,11 +351,13 @@ def get_checks():
 def get_settlements():
     if DEMO:
         return demo_settlements()
-    if time.time() - _cache["t"] < 60 and _cache["settle"]:
-        return _cache["settle"]
-    rows = real_settlements()
-    _cache["settle"], _cache["t"] = rows, time.time()
-    return rows
+    with _readlock:
+        r = _fresh("settle")
+        if r:
+            return r
+        rows = real_settlements()
+        _cache["settle"] = rows
+        return rows
 
 
 def get_status():
@@ -410,6 +414,18 @@ def latest_reports():
 
 # ───────────────────────── HTTP ─────────────────────────
 class H(BaseHTTPRequestHandler):
+    def handle_one_request(self):
+        # 어떤 예외도 소켓을 조용히 죽이지 않게(ERR_EMPTY_RESPONSE 방지) 전역 가드
+        try:
+            super().handle_one_request()
+        except (ConnectionError, BrokenPipeError):
+            pass
+        except Exception as e:
+            try:
+                self._send(500, {"error": str(e)[:300]})
+            except Exception:
+                pass
+
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
