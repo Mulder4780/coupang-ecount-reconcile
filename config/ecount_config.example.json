@@ -1,0 +1,48 @@
+{
+  "_주의": "이 파일은 공개용 템플릿입니다. 복사해서 ecount_config.json 을 만들고 실제 값을 채우세요. 인증키가 든 ecount_config.json 은 .gitignore 로 제외되어 절대 공개되지 않습니다.",
+
+  "auth": {
+    "API_CERT_KEY": "여기에_이카운트_API_인증키",
+    "발급인": "",
+    "발급일": "",
+    "유효기간_시작": "",
+    "유효기간_만료": "",
+    "만료경고_남은일수": 30,
+
+    "COM_CODE": "",
+    "USER_ID": "",
+    "_필수_설명": "COM_CODE=이카운트 로그인 회사코드(숫자), USER_ID=로그인 ID. 두 값 필수.",
+
+    "LAN_TYPE": "ko-KR",
+    "IS_TEST": false,
+    "_IS_TEST_설명": "true=테스트키(sboapi), false=실서비스 API키(oapi).",
+    "ZONE": "",
+    "_ZONE_설명": "비워두면 COM_CODE로 Zone API를 호출해 자동 설정."
+  },
+
+  "network": {
+    "allowed_ip_확인필요": true,
+    "_IP_설명": "이카운트 [IP등록]에서 이 PC 공인 IP를 먼저 등록해야 동작.",
+    "timeout_sec": 30,
+    "retry": 2
+  },
+
+  "endpoints": {
+    "_설명": "조회 method 이름은 계정/버전에 따라 다름. 이카운트 [API매뉴얼]에서 확인해 맞출 것. 인증(Zone/OAPILogin)은 확정값.",
+    "zone":   { "path": "/OAPI/V2/Zone" },
+    "login":  { "path": "/OAPI/V2/OAPILogin" },
+    "sale":         { "domain": "Sale",       "method": "GetListSale",        "확정여부": "확인필요" },
+    "tax_invoice":  { "domain": "TaxInvoice", "method": "GetListTaxInvoice",  "확정여부": "확인필요" },
+    "receipt":      { "domain": "AR",         "method": "GetListReceivable",  "확정여부": "확인필요" }
+  },
+
+  "reconcile": {
+    "master_xlsx": "관리대장_xlsx_경로",
+    "거래처_필터": "쿠팡",
+    "매칭키_우선순위": ["프로젝트NO", "금액+일자"],
+    "금액허용오차": 0,
+    "일자허용오차_일": 3,
+    "조회_시작일": "2026-07-01",
+    "조회_종료일": "2026-07-31"
+  }
+}
