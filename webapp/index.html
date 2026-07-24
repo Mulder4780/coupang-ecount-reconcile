@@ -311,6 +311,7 @@ table.grid tr:hover td{background:#F6F9FE}
         <button class="abtn" onclick="runTask('synthetic')"><span class="em">🧪</span>합성검증</button>
         <button class="abtn" onclick="runTask('kakao')"><span class="em">💬</span>카톡 대조</button>
         <button class="abtn" onclick="runTask('erp_ledger')"><span class="em">🧾</span>ERP원장 대조</button>
+        <button class="abtn" onclick="runTask('po')"><span class="em">📦</span>쿠팡 PO 대조</button>
         <button class="abtn" onclick="runTask('writer_prev')"><span class="em">✏</span>자동입력 미리보기</button>
         <button class="abtn" onclick="confirmRun('writer_apply','확정 대기 항목을 관리대장 새 버전(vN+1)에 입력합니다.\n빈 칸만 채우며 이전 버전은 보존됩니다.')"><span class="em">✏</span>자동입력 반영</button>
         <button class="abtn" onclick="runTask('upload_dry')"><span class="em">📤</span>전표 전송대기</button>
@@ -354,6 +355,7 @@ async function login(){
   const pin = $('pin').value.trim();
   const r = await fetch('/api/login',{method:'POST',body:JSON.stringify({pin})});
   if(r.ok){ PIN=pin; localStorage.setItem('cw_pin',pin); $('gate').style.display='none'; refreshAll(); }
+  else if(r.status===429) $('pinerr').textContent = '시도 초과로 잠금 — 10분 후 다시 시도하세요';
   else $('pinerr').textContent = 'PIN이 올바르지 않습니다';
 }
 $('pin').addEventListener('keyup',e=>{ if(e.key==='Enter'||$('pin').value.length===4) login(); });
@@ -563,6 +565,10 @@ function openSheet(kind, idx, id){
       <dt>비용구분</dt><dd>${r.비용구분||'-'}</dd>
       <dt>공급가액</dt><dd>${fmt(r.공급가액)}원</dd>
       <dt>합계(VAT포함)</dt><dd>${fmt(r.합계)}원</dd>
+      <div class="sec">쿠팡 PO</div>
+      <dt>PO 필요여부</dt><dd>${r.PO필요||'-'}</dd>
+      <dt>PO 번호</dt><dd>${r.PO번호||'없음'}</dd>
+      <dt>PO 발행일</dt><dd>${r.PO발행일||'-'}</dd>
       <div class="sec">거래명세서 / ERP</div>
       <dt>명세서번호</dt><dd>${r.명세서번호||'없음'}</dd>
       <dt>발행일</dt><dd>${r.명세서발행일||'-'}</dd>
@@ -593,6 +599,8 @@ function closeSheet(){
 
 /* ── 앱 → 엑셀 입력 (빈 칸만, ledger_writer 큐 경유) ── */
 const INPUT_FIELDS = [
+  {label:'PO번호', col:'PO번호', vtype:'text', cur:r=>r.PO번호, ph:'예: PO367787'},
+  {label:'PO발행일', col:'PO발행일', vtype:'date', cur:r=>r.PO발행일, ph:'YYYY-MM-DD'},
   {label:'명세서번호', col:'거래명세서번호', vtype:'text',  cur:r=>r.명세서번호, ph:'예: 2026/07/24-1'},
   {label:'명세서발행일', col:'거래명세서발행일', vtype:'date', cur:r=>r.명세서발행일, ph:'YYYY-MM-DD'},
   {label:'세금계산서발행일', col:'세금계산서발행일', vtype:'date', cur:r=>r.계산서발행일, ph:'YYYY-MM-DD'},

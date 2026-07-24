@@ -68,6 +68,7 @@ TASKS = {
     "upload_post":   ("전표 실전송", [os.path.join(ROOT, "ecount_upload.py"), "--post"]),
     "kakao":         ("카톡 대조", [os.path.join(ROOT, "kakao", "kakao_reconcile.py")]),
     "erp_ledger":    ("ERP원장 대조", [os.path.join(ROOT, "erp_ledger_check.py")]),
+    "po":            ("쿠팡 PO 대조", [os.path.join(ROOT, "po_reconcile.py")]),
 }
 runner = {"busy": False, "task": "", "log": deque(maxlen=3000), "done_at": None}
 _rlock = threading.Lock()
@@ -165,6 +166,9 @@ def real_settlements():
                      "입금액": r.get("원장_입금액") or 0,
                      "미수금": r.get("원장_미수금액") if r.get("원장_미수금액") is not None else "",
                      "비용구분": r.get("비용구분"),
+                     "PO필요": r.get("원장_PO필요여부") or "",
+                     "PO번호": r.get("원장_PO번호") or "",
+                     "PO발행일": str(r.get("원장_PO발행일") or "")[:10],
                      "상태": st, "완료일": str(r.get("작업완료일") or "")[:10]})
     return rows
 

@@ -54,6 +54,13 @@ def main():
     else:
         steps.append({"name": "ERP원장 4유형 대조", "ok": None, "out": "스킵 — inbox/에 계정별원장 파일 없음"})
 
+    # 2.5 쿠팡 PO 대조 (inbox에 'PO' 파일 있을 때만)
+    if [f for f in glob.glob(os.path.join(ROOT, "inbox", "*.xlsx"))
+            if "PO" in os.path.basename(f).upper() and "원장" not in os.path.basename(f)]:
+        steps.append(run("쿠팡 PO 대조", [os.path.join(ROOT, "po_reconcile.py")]))
+    else:
+        steps.append({"name": "쿠팡 PO 대조", "ok": None, "out": "스킵 — inbox/에 쿠팡 PO 목록 파일 없음(파일명에 PO 포함)"})
+
     # 3. 밴드 수집·대조 (토큰 있을 때만)
     if os.path.exists(os.path.join(ROOT, "band", ".band_token.json")):
         steps.append(run("밴드 수집", [os.path.join(ROOT, "band", "band_sync.py")]))

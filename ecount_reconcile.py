@@ -92,7 +92,8 @@ def read_ledger(xlsx_path):
     c = col_index(ws, ["정산ID", "업무구분", "원천업무ID", "프로젝트NO", "캠프명", "작업완료일",
                        "비용구분", "실제작업공급가액", "실제작업부가세", "실제작업합계",
                        "거래명세서번호", "거래명세서발행일", "거래명세서공급가액", "거래명세서합계",
-                       "세금계산서발행일", "세금계산서합계", "입금일", "입금액"])
+                       "세금계산서발행일", "세금계산서합계", "입금일", "입금액",
+                       "PO필요여부", "PO번호", "PO발행일"])
     for row in ws.iter_rows(min_row=FIRST_DATA, values_only=True):
         sid = row[c["정산ID"]] if c["정산ID"] is not None else None
         if not sid:
@@ -114,6 +115,9 @@ def read_ledger(xlsx_path):
             "원장_세금계산서합계": _num(row[c["세금계산서합계"]]),
             "원장_입금일": _d(row[c["입금일"]]),
             "원장_입금액": _num(row[c["입금액"]]),
+            "원장_PO필요여부": _d(row[c["PO필요여부"]]) if c["PO필요여부"] is not None else "",
+            "원장_PO번호": _d(row[c["PO번호"]]) if c["PO번호"] is not None else "",
+            "원장_PO발행일": _d(row[c["PO발행일"]]) if c["PO발행일"] is not None else "",
         }
 
     # 15 세금계산서관리 : 승인번호·실제발행일 보강

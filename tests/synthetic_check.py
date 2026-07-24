@@ -31,18 +31,22 @@ def make_ledger(path):
     ws6 = wb.active; ws6.title = "06_거래서류청구수금"
     h6 = ["정산ID", "업무구분", "원천업무ID", "프로젝트NO", "캠프명", "작업완료일", "비용구분",
           "실제작업공급가액", "실제작업부가세", "실제작업합계", "거래명세서번호", "거래명세서발행일",
-          "거래명세서공급가액", "거래명세서합계", "세금계산서발행일", "세금계산서합계", "입금일", "입금액"]
+          "거래명세서공급가액", "거래명세서합계", "세금계산서발행일", "세금계산서합계", "입금일", "입금액",
+          "PO필요여부", "PO번호", "PO발행일"]
     for _ in range(3): ws6.append([])
     ws6.append(h6)
-    # JS-1: ERP 일치 + 세금계산서 미발행 → C
+    # JS-1: ERP 일치 + 세금계산서 미발행 → C / PO111 쿠팡 일치
     ws6.append(["JS-1", "돌발AS", "AS-1", "UJ0001", "테스트캠프A", "2026-07-01", "유상",
-                100000, 10000, 110000, "2026/07/01-4", "2026-07-01", 100000, 110000, None, 0, None, None])
-    # JS-2: ERP 금액불일치 → D (세금계산서는 발행됨)
+                100000, 10000, 110000, "2026/07/01-4", "2026-07-01", 100000, 110000, None, 0, None, None,
+                "필요", "PO111", "2026-07-03"])
+    # JS-2: ERP 금액불일치 → D / PO333은 쿠팡 목록에 없음 → PO-B
     ws6.append(["JS-2", "정기점검", "PM-1", "UJ0002", "테스트캠프B", "2026-07-02", "유상",
-                200000, 20000, 220000, "2026/07/02-1", "2026-07-02", 200000, 220000, "2026-07-03", 220000, None, None])
-    # JS-3: 명세서번호 없음 → B (ERP 미반영·미청구)
+                200000, 20000, 220000, "2026/07/02-1", "2026-07-02", 200000, 220000, "2026-07-03", 220000, None, None,
+                "필요", "PO333", "2026-07-04"])
+    # JS-3: 명세서번호 없음 → B / PO필요·번호없음 → PO444 유일매칭 → PO-D
     ws6.append(["JS-3", "돌발AS", "AS-2", "UJ0003", "테스트캠프C", "2026-07-05", "유상",
-                300000, 30000, 330000, None, None, None, 0, None, 0, None, None])
+                300000, 30000, 330000, None, None, None, 0, None, 0, None, None,
+                "필요", None, None])
     ws15 = wb.create_sheet("15_세금계산서관리")
     for _ in range(3): ws15.append([])
     ws15.append(["정산ID", "실제발행일", "발행금액", "승인번호"])
@@ -164,6 +168,33 @@ def t5_writer(tmp):
     print("  [5] 자동입력 엔진(빈칸만·날짜·덮어쓰기금지·인수인계 기록) ✅")
 
 
+def t7_po(tmp):
+    ledger = os.path.join(tmp, "ledger_po.xlsx")
+    make_ledger(ledger)
+    pof = os.path.join(tmp, "쿠팡PO목록_테스트.xlsx")
+    wb = openpyxl.Workbook(); ws = wb.active
+    ws.append(["쿠팡 PO 발행 목록"])
+    ws.append(["발행일자", "PO번호", "금액"])
+    ws.append(["2026-07-03", "PO111", 100000])   # JS-1 일치
+    ws.append(["2026-07-05", "PO222", 999000])   # 원장 미등록 → A
+    ws.append(["2026-07-06", "PO444", 300000])   # JS-3 유일매칭 → A+D
+    wb.save(pof)
+    r = subprocess.run([PY, os.path.join(ROOT, "po_reconcile.py"),
+                        "--file", pof, "--master", ledger, "--no-queue"],
+                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT)
+    m = re.search(r"A\(원장미등록\) (\d+) / B\(쿠팡목록에없음\) (\d+) / C\(금액불일치\) (\d+) / D\(연결제안\) (\d+) / 정상 (\d+)", r.stdout)
+    assert m, f"PO 결과 파싱 실패:\n{r.stdout}\n{r.stderr}"
+    a, b, c, d, ok = map(int, m.groups())
+    assert (a, b, c, d, ok) == (2, 1, 0, 1, 1), f"PO 판정 불일치: A{a} B{b} C{c} D{d} OK{ok} (기대 2,1,0,1,1)"
+    assert "유일 매칭" in open(sorted(glob_reports("PO대조_*.md"))[-1], encoding="utf-8").read()
+    print("  [7] 쿠팡 PO 대조(원장미등록·오기입·금액·유일매칭 제안) ✅")
+
+
+def glob_reports(pat):
+    import glob as _g
+    return _g.glob(os.path.join(ROOT, "reports", pat))
+
+
 def t6_webapp():
     import time, json, urllib.request
     port = 18899
@@ -220,6 +251,7 @@ if __name__ == "__main__":
         t1_erp_check(tmp)
         t4_kakao(tmp)
         t5_writer(tmp)
+        t7_po(tmp)
     t2_payload()
     t3_match()
     t6_webapp()
