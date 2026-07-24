@@ -61,12 +61,16 @@ def main():
     else:
         steps.append({"name": "쿠팡 PO 대조", "ok": None, "out": "스킵 — inbox/에 쿠팡 PO 목록 파일 없음(파일명에 PO 포함)"})
 
-    # 3. 밴드 수집·대조 (토큰 있을 때만)
+    # 3. 밴드 수집·대조 — 공식 API 토큰이 있으면 수집+대조, 브라우저 수집 캐시만 있으면 대조만
+    band_cache = [f for f in glob.glob(os.path.join(ROOT, "band", "cache", "*.json"))
+                  if not os.path.basename(f).startswith(("raw_", "dump_"))]
     if os.path.exists(os.path.join(ROOT, "band", ".band_token.json")):
         steps.append(run("밴드 수집", [os.path.join(ROOT, "band", "band_sync.py")]))
         steps.append(run("밴드 대조", [os.path.join(ROOT, "band", "band_reconcile.py")]))
+    elif band_cache:
+        steps.append(run("밴드 대조(캐시)", [os.path.join(ROOT, "band", "band_reconcile.py")]))
     else:
-        steps.append({"name": "밴드 수집·대조", "ok": None, "out": "스킵 — 밴드 미인증(앱 심사 대기)"})
+        steps.append({"name": "밴드 수집·대조", "ok": None, "out": "스킵 — 밴드 미인증·캐시 없음(앱 심사 대기)"})
 
     # 4. 카톡 대조 (kakao/inbox에 txt 있을 때만)
     if glob.glob(os.path.join(ROOT, "kakao", "inbox", "*.txt")):
