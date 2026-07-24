@@ -32,7 +32,8 @@
 | `workbook_patch.py` | 관리대장 vN→vN+1 안전 버전업(인수인계 행 추가) | `python workbook_patch.py --b 제목 --c 내용` |
 | `band/band_auth.py → band_sync.py → band_reconcile.py` | 밴드 게시글 수집·원장 대조 | 순서대로 |
 | `kakao/kakao_reconcile.py` | 카톡 [대화 내보내기] .txt ↔ 원장 대조 (읽기 API 없음 — 내보내기가 공식 경로, PC 클라이언트 후킹은 약관위반이라 금지) | `kakao/inbox/*.txt` 투입 후 실행 |
-| `daily_run.py` (+`daily_run.bat`) | 일일 에이전트 오케스트레이터: 합성검증→전체 대조→종합리포트 1장. ERP 쓰기는 절대 자동 실행 안 함 | 작업 스케줄러 등록(bat 상단 명령) |
+| `ledger_writer.py` | **관리대장 자동입력 엔진**: 대조 모듈들이 적재한 확정 사실 큐(updates/pending_updates.json)를 zip 셀 패치로 반영. 정책: 빈 칸만·근거 필수·항상 vN+1 새 파일·19시트 자동 기록·calcChain 제거+fullCalcOnLoad. 덮어쓰기 기능은 의도적으로 미구현 | `--apply` (daily_run이 자동 호출) |
+| `daily_run.py` (+`daily_run.bat`) | 일일 에이전트 오케스트레이터: 합성검증→전체 대조→확정분 자동입력→종합리포트. ERP 쓰기(--post)만 자동 제외 | 작업 스케줄러 09:50 등록됨 |
 | `tests/synthetic_check.py` | 합성데이터 상시 검증(실서버 접촉 0) | 작업 전 필수 |
 
 - 데이터 흐름: 이카운트 화면 엑셀 내보내기 → `inbox/` → 대조기 → `reports/` (md·csv·xlsx). 관리대장은 절대 직접 수정하지 않음.
