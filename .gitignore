@@ -5,3 +5,5 @@ reports/
 __pycache__/
 *.pyc
 .session_cache.json
+inbox/*
+!inbox/.gitkeep

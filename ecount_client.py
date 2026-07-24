@@ -121,10 +121,12 @@ class EcountClient:
             if not (self.auth.get(field) or "").strip():
                 raise EcountError(f"{field} 가 비어 있습니다. config 를 확인하세요.")
         url = self._root() + self.endpoints["login"]["path"]
+        key = (self.auth.get("API_CERT_KEY_TEST") if self.auth.get("IS_TEST")
+               else self.auth.get("API_CERT_KEY")) or self.auth.get("API_CERT_KEY")
         body = {
             "COM_CODE": self.auth["COM_CODE"],
             "USER_ID": self.auth["USER_ID"],
-            "API_CERT_KEY": self.auth["API_CERT_KEY"],
+            "API_CERT_KEY": key,
             "LAN_TYPE": self.auth.get("LAN_TYPE", "ko-KR"),
             "ZONE": self.zone,
         }

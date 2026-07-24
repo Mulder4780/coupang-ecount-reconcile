@@ -32,10 +32,19 @@ cp config/ecount_config.example.json config/ecount_config.json   # 복사 후 �
 이카운트 → **Self-Customizing → 보안관리 → API인증키발급 → [IP등록]** 에서 **이 PC의 공인 IP**를 등록해야 API가 동작합니다. (발급 화면 안내문에 명시되어 있음)
 - 내 공인 IP 확인: 브라우저에서 `내 아이피 검색` 또는 아래 셀프테스트 실패 메시지 참고.
 
-### (3) 조회 엔드포인트 이름 확인 (계정별로 다를 수 있음)
-`config/ecount_config.json` 의 `endpoints` 에서 `sale·tax_invoice·receipt` 의 `domain/method` 를, 이카운트 발급화면 **[API매뉴얼]** 버튼의 조회 API 이름과 맞추세요.
-- 인증(`Zone`,`OAPILogin`)은 **확정값**이라 수정 불필요.
-- 조회 method 예시(기본값): `Sale/GetListSale`, `TaxInvoice/GetListTaxInvoice`, `AR/GetListReceivable` → 실제 이름은 API매뉴얼 기준으로 확정.
+### (3) ★ 중요 — 이카운트 OAPI의 조회 API 한계 (2026-07-24 실측 확인)
+**이카운트 OAPI에는 판매현황·세금계산서·수금 "조회" API가 존재하지 않습니다.**
+- 실서비스 키로 인증·세션·품목조회(7,281건 실데이터)까지 전부 성공했으나, 판매/세금계산서 조회 경로는 전수 탐침 결과 미존재(가짜 경로와 동일한 Not Found 응답).
+- GitHub 공개 코드 전수 검색에서도 Save(입력)·품목·재고현황 API만 확인됨 — [API인증현황] 화면의 목록과 일치.
+- 존재가 확인된 조회 API: `InventoryBasic/GetBasicProductsList`(품목), `InventoryBalance/GetListInventoryBalanceStatus(+ByLocation)`(재고), `Purchases/GetPurchasesOrderList`.
+
+### 따라서 대조 데이터는 inbox 방식으로 공급합니다 (반자동)
+이카운트 화면에서 목록을 엑셀로 내려받아 `inbox/` 폴더에 넣으면 자동 인식·대조합니다.
+1. **판매**: 재고 I → 판매현황(조회) → 기간 설정(예: 7/1~7/31) → 엑셀 저장 → 파일명에 `판매` 포함해 `inbox/`에 저장
+2. **세금계산서**: 세무 → 전자세금계산서 목록 → 엑셀 저장 → 파일명에 `세금계산서` 포함해 `inbox/`에 저장
+3. `python ecount_reconcile.py` 실행 → 자동으로 inbox 파일을 파싱해 67건 대조
+
+파서는 머리글 자동탐지(공급가액/합계금액/거래처/일자/승인번호)라 이카운트 기본 내보내기 형식 그대로 넣으면 됩니다. 합계행은 자동 제외.
 
 ---
 

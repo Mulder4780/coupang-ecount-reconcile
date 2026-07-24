@@ -182,6 +182,72 @@ def match_project(ledger_rec, ecount_rows, tol_amt, filter_cust):
     return None, None
 
 
+# ───────────────────────── inbox(수동 내보내기) 로더 ─────────────────────────
+INBOX_DIR = os.path.join(BASE_DIR, "inbox")
+
+def load_inbox(cfg):
+    """이카운트 화면에서 내려받은 판매현황/세금계산서 엑셀을 inbox/에서 읽어
+    API 조회 결과와 동일한 형태(CAND 키)로 정규화한다.
+    파일 분류: 파일명에 '판매'→sale, '세금계산서' 또는 '계산서'→tax_invoice."""
+    import openpyxl, glob
+    files = [f for f in glob.glob(os.path.join(INBOX_DIR, "*.xlsx")) if not os.path.basename(f).startswith("~$")]
+    if not files:
+        return None
+    out = {"sale": [], "tax_invoice": []}
+    used = []
+    for f in files:
+        name = os.path.basename(f)
+        kind = "tax_invoice" if ("세금계산서" in name or "계산서" in name) else "sale"
+        wb = openpyxl.load_workbook(f, read_only=True, data_only=True)
+        for ws in wb.worksheets:
+            rows = list(ws.iter_rows(values_only=True))
+            # 머리글 행 탐색: '공급가액' 또는 '합계' + '거래처'류가 있는 행
+            hdr_i, hdr = None, None
+            for i, r in enumerate(rows[:15]):
+                cells = [str(c) for c in r if c is not None]
+                joined = " ".join(cells)
+                if ("공급가액" in joined or "합계금액" in joined) and len(cells) >= 3:
+                    hdr_i, hdr = i, r
+                    break
+            if hdr_i is None:
+                continue
+            def col(*keys):
+                for j, h in enumerate(hdr):
+                    if h is None:
+                        continue
+                    hs = str(h)
+                    if any(k in hs for k in keys):
+                        return j
+                return None
+            j_amt  = col("공급가액")
+            j_tot  = col("합계금액", "합계")
+            j_date = col("일자", "날짜", "작성일")
+            j_no   = col("승인번호", "전표", "No", "번호")
+            j_cust = col("거래처")
+            for r in rows[hdr_i + 1:]:
+                if r is None or all(c is None for c in r):
+                    continue
+                amt = r[j_amt] if j_amt is not None else (r[j_tot] if j_tot is not None else None)
+                if amt is None or _num(amt) is None:
+                    continue
+                blob = " ".join(str(c) for c in r if c is not None)
+                if "합계" in blob[:10]:      # 합계행 제외
+                    continue
+                out[kind].append({
+                    "SUPPLY_AMT": _num(amt),
+                    "IO_DATE": _d(r[j_date]) if j_date is not None else "",
+                    "IO_NO": _d(r[j_no]) if j_no is not None else "",
+                    "CUST_DES": _d(r[j_cust]) if j_cust is not None else "",
+                    "REMARKS": blob,
+                })
+        wb.close()
+        used.append(f"{name}→{kind}")
+    if not (out["sale"] or out["tax_invoice"]):
+        return None
+    out["_files"] = used
+    return out
+
+
 # ───────────────────────── 대조 로직 ─────────────────────────
 def reconcile(recs, ecount, cfg):
     rc = cfg["reconcile"]
@@ -360,26 +426,25 @@ def main():
 
     ecount = {"_online": False}
     note = ""
-    offline = "--offline" in args or need
-    if offline:
+    # 1순위: inbox/ 의 이카운트 수동 내보내기 파일 (판매·세금계산서 조회 API는 이카운트가 미제공)
+    inbox = None if "--no-inbox" in args else load_inbox(cfg)
+    if inbox:
+        ecount["sale"] = inbox["sale"]
+        ecount["tax_invoice"] = inbox["tax_invoice"]
+        ecount["_online"] = True
+        note = "이카운트 내보내기 파일(inbox) 기준 대조: " + ", ".join(inbox["_files"])
+        print("inbox 로드:", note)
+        print(f"  판매 {len(inbox['sale'])}건 / 세금계산서 {len(inbox['tax_invoice'])}건")
+    elif "--offline" in args or need:
         note = ("이카운트 미조회 — " +
                 ("COM_CODE/USER_ID 미설정" if need else "offline 모드") +
                 ". 원장 기준 준비표만 생성.")
-        print("ℹ", note)
+        print("i", note)
     else:
-        try:
-            cli = EcountClient(cfg)
-            cli.login()
-            rc = cfg["reconcile"]
-            body = {"BASE_DATE_FROM": rc["조회_시작일"].replace("-", ""),
-                    "BASE_DATE_TO": rc["조회_종료일"].replace("-", "")}
-            ecount["sale"] = cli.inquiry("sale", body)
-            ecount["tax_invoice"] = cli.inquiry("tax_invoice", body)
-            ecount["_online"] = True
-            print(f"이카운트 조회: 판매 {len(ecount.get('sale',[]))}건 / 세금계산서 {len(ecount.get('tax_invoice',[]))}건")
-        except EcountError as e:
-            note = f"이카운트 호출 실패({e}). 원장 기준 준비표로 대체."
-            print("⚠", note)
+        note = ("이카운트 OAPI는 판매·세금계산서 '조회' API를 제공하지 않음(2026-07 확인). "
+                "이카운트 화면에서 판매현황/세금계산서 목록을 엑셀로 내려받아 inbox/ 폴더에 넣으면 자동 대조됩니다. "
+                "이번 실행은 원장 기준 준비표.")
+        print("i", note)
 
     results = reconcile(recs, ecount, cfg)
     base = write_reports(results, cfg, {"online": ecount["_online"], "expiry_days": expiry, "note": note})
