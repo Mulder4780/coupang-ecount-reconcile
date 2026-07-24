@@ -10,3 +10,5 @@ inbox/*
 band/.band_token.json
 band/cache/
 .uploaded_slips.json
+kakao/inbox/*
+!kakao/inbox/.gitkeep
