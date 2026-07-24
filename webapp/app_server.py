@@ -263,6 +263,19 @@ def get_issues():
     master = resolve_master(load_config()["reconcile"]["master_xlsx"])
     wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
     rows = []
+    # 1순위: 관리대장 통합 시트 23_확인필요현황 (에이전트가 매일 갱신 — 단일 엑셀 관리)
+    if "23_확인필요현황" in wb.sheetnames:
+        ws = wb["23_확인필요현황"]
+        hdr = [str(h).strip() for h in next(ws.iter_rows(min_row=4, max_row=4, values_only=True)) if h]
+        for row in ws.iter_rows(min_row=5, values_only=True):
+            vals = {hdr[i]: ("" if i >= len(row) or row[i] is None else str(row[i]))
+                    for i in range(len(hdr))}
+            if any(v for v in vals.values()):
+                rows.append(vals)
+        wb.close()
+        out = {"rows": rows, "cols": hdr, "source": "23_확인필요현황"}
+        _cache["issues"] = out
+        return out
     if "07_불일치누락현황" in wb.sheetnames:
         ws = wb["07_불일치누락현황"]
         hdr = next(ws.iter_rows(min_row=4, max_row=4, values_only=True))

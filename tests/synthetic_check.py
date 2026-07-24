@@ -191,6 +191,27 @@ def t7_po(tmp):
     print("  [7] 쿠팡 PO 대조(원장미등록·오기입·금액·유일매칭 제안) ✅")
 
 
+def t8_findings_sheet(tmp):
+    ledger = os.path.join(tmp, "합성대장F_v1.xlsx")
+    make_ledger(ledger)
+    env = {**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp}
+    r = subprocess.run([PY, os.path.join(ROOT, "findings_sheet.py"), "--master", ledger],
+                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env=env)
+    assert "시트 신규 추가" in r.stdout, f"{r.stdout}\n{r.stderr}"
+    v2 = ledger.replace("_v1.xlsx", "_v2.xlsx")
+    w = openpyxl.load_workbook(v2)
+    ws = w["23_확인필요현황"]
+    assert [c.value for c in ws[4][:3]] == ["구분", "ID", "문제유형"]
+    vals = [ws.cell(row=i, column=1).value for i in range(5, ws.max_row + 1)]
+    assert "정산" in vals, vals          # 합성 정산 조치필요가 들어와야 함
+    w.close()
+    # 멱등: 같은 내용으로 재실행 → v3 생성 안 됨
+    r2 = subprocess.run([PY, os.path.join(ROOT, "findings_sheet.py"), "--master", v2],
+                        capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env=env)
+    assert "변경 없음" in r2.stdout and not os.path.exists(ledger.replace("_v1", "_v3")), r2.stdout
+    print("  [8] 확인필요 시트 통합(신규 추가·머리글·멱등) ✅")
+
+
 def t6_webapp():
     import time, json, urllib.request
     port = 18899
@@ -248,6 +269,7 @@ if __name__ == "__main__":
         t4_kakao(tmp)
         t5_writer(tmp)
         t7_po(tmp)
+        t8_findings_sheet(tmp)
     t2_payload()
     t3_match()
     t6_webapp()
