@@ -67,7 +67,10 @@ def main():
     else:
         steps.append({"name": "카톡 대조", "ok": None, "out": "스킵 — kakao/inbox/에 대화 내보내기 txt 없음"})
 
-    # 5. 전표 전송 대기 현황 (dry-run만 — 실전송은 절대 자동화하지 않음)
+    # 5. 확정 업데이트 자동 반영 — 빈 칸만·근거 보유·항상 새 버전(vN+1) 생성이라 안전
+    steps.append(run("관리대장 자동입력(확정분)", [os.path.join(ROOT, "ledger_writer.py"), "--apply"]))
+
+    # 6. 전표 전송 대기 현황 (dry-run만 — 실전송은 절대 자동화하지 않음)
     steps.append(run("전표 전송대기(dry-run)", [os.path.join(ROOT, "ecount_upload.py")]))
 
     finish(steps)

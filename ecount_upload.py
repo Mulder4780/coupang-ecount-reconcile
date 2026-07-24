@@ -169,6 +169,22 @@ def main():
                                       "test": bool(cfg["auth"].get("IS_TEST"))}
                 save_state(state)
                 print(f"[{i+1}/{len(targets)}] {r['정산ID']} 등록 OK → ERP 전표번호 {slip_no or '(미회신)'}")
+                # 확정 사실 → 관리대장 자동입력 큐 (ledger_writer가 빈 칸만 채움)
+                try:
+                    from ledger_writer import queue_add
+                    t = build_payload(r, up)["InvoiceAutoList"][0]["BulkDatas"]["TRX_DATE"]
+                    ups = []
+                    if slip_no:
+                        ups.append({"sheet": "06_거래서류청구수금", "key_col": "정산ID", "key": r["정산ID"],
+                                    "col": "거래명세서번호", "value": slip_no, "vtype": "text",
+                                    "evidence": "ECOUNT SaveInvoiceAuto 응답 SlipNos", "only_if_empty": True})
+                        ups.append({"sheet": "06_거래서류청구수금", "key_col": "정산ID", "key": r["정산ID"],
+                                    "col": "거래명세서발행일", "value": f"{t[:4]}-{t[4:6]}-{t[6:8]}", "vtype": "date",
+                                    "evidence": "ECOUNT 전표 TRX_DATE", "only_if_empty": True})
+                    if ups:
+                        queue_add(ups)
+                except Exception as e:
+                    print("  (자동입력 큐 적재 실패:", e, ")")
             else:
                 consec_err += 1
                 detail = json.dumps({k: data.get(k) for k in ("FailCnt", "ResultDetails", "TRACE_ID")},

@@ -12,3 +12,4 @@ band/cache/
 .uploaded_slips.json
 kakao/inbox/*
 !kakao/inbox/.gitkeep
+updates/

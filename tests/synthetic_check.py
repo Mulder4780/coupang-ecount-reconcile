@@ -128,11 +128,48 @@ def t4_kakao(tmp):
     print("  [4] 카톡 내보내기 파싱·대조 (PC/모바일 형식·다중행 병합) ✅")
 
 
+def t5_writer(tmp):
+    import json
+    src = os.path.join(tmp, "합성대장_v1.xlsx")
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "06_거래서류청구수금"
+    for _ in range(3): ws.append([])
+    ws.append(["정산ID", "거래명세서번호", "거래명세서발행일", "비고"])
+    ws.append(["JS-W1", None, None, "빈칸 채움 대상"])
+    ws.append(["JS-W2", "기존값-유지", None, "덮어쓰기 금지 검증"])
+    h = wb.create_sheet("19_AI작업인수인계")
+    h.append(["헤더"]); h.append(["기존 인수인계 행"])
+    wb.save(src)
+    q = os.path.join(tmp, "q.json")
+    json.dump([
+        {"sheet": "06_거래서류청구수금", "key_col": "정산ID", "key": "JS-W1", "col": "거래명세서번호",
+         "value": "2026/07/24-9", "vtype": "text", "evidence": "합성", "only_if_empty": True},
+        {"sheet": "06_거래서류청구수금", "key_col": "정산ID", "key": "JS-W1", "col": "거래명세서발행일",
+         "value": "2026-07-24", "vtype": "date", "evidence": "합성", "only_if_empty": True},
+        {"sheet": "06_거래서류청구수금", "key_col": "정산ID", "key": "JS-W2", "col": "거래명세서번호",
+         "value": "덮어쓰기시도", "vtype": "text", "evidence": "합성", "only_if_empty": True},
+    ], open(q, "w", encoding="utf-8"), ensure_ascii=False)
+    r = subprocess.run([PY, os.path.join(ROOT, "ledger_writer.py"), "--apply",
+                        "--master", src, "--queue", q],
+                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT)
+    assert "반영 완료" in r.stdout and "입력 2건 / 건너뜀 1건" in r.stdout, f"{r.stdout}\n{r.stderr}"
+    dst = src.replace("_v1.xlsx", "_v2.xlsx")
+    w2 = openpyxl.load_workbook(dst)
+    ws2 = w2["06_거래서류청구수금"]
+    assert ws2["B5"].value == "2026/07/24-9", ws2["B5"].value          # 빈칸 채움
+    assert ws2["C5"].value is not None, "날짜 직렬값 기록 실패"          # date serial
+    assert ws2["B6"].value == "기존값-유지", ws2["B6"].value            # 덮어쓰기 금지
+    hand = w2["19_AI작업인수인계"]
+    assert any("자동 입력" in str(c.value) for row in hand.iter_rows() for c in row if c.value), "인수인계 기록 없음"
+    w2.close()
+    print("  [5] 자동입력 엔진(빈칸만·날짜·덮어쓰기금지·인수인계 기록) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
         t1_erp_check(tmp)
         t4_kakao(tmp)
+        t5_writer(tmp)
     t2_payload()
     t3_match()
     print("ALL GREEN — 실작업 진행 가능")

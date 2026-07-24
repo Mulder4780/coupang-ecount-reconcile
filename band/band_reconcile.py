@@ -154,6 +154,21 @@ def main():
     print(f"확인 {len(results)-len(miss)} / 미확인 {len(miss)} / 미연결 게시글 {len(unmatched)}")
     print("리포트:", base + ".md")
 
+    # 확정 사실 → 관리대장 자동입력 큐: 사진 있는 밴드 게시 확인 건의 02 사진등록(빈 칸만)
+    try:
+        sys.path.insert(0, ROOT)
+        from ledger_writer import queue_add
+        ups = [{"sheet": "02_돌발AS접수", "key_col": "접수ID", "key": r["ID"], "col": "사진등록",
+                "value": "등록", "vtype": "text", "only_if_empty": True,
+                "evidence": f"밴드 게시 {r['게시일']} {r['게시자']} 사진{r['사진수']}장"}
+               for r in results
+               if r["시트"] == "02_돌발AS접수" and r["밴드게시"] == "확인"
+               and str(r["사진수"]).isdigit() and int(r["사진수"]) > 0]
+        if ups:
+            print("자동입력 큐 적재:", queue_add(ups), "건 (02 사진등록)")
+    except Exception as e:
+        print("(자동입력 큐 적재 실패:", e, ")")
+
 
 if __name__ == "__main__":
     main()
