@@ -78,6 +78,12 @@ def main():
 
 def finish(steps, aborted=False):
     os.makedirs(REPORT_DIR, exist_ok=True)
+    # 동기화 백본: 앱(웹·워크벤치)이 읽는 기계 판독용 상태 파일 — 에이전트가 유일한 작성자
+    import json
+    json.dump({"time": datetime.now().isoformat(), "aborted": aborted,
+               "steps": [{"n": s["name"], "s": ("ok" if s["ok"] else ("skip" if s["ok"] is None else "fail"))}
+                          for s in steps]},
+              open(os.path.join(REPORT_DIR, "agent_status.json"), "w", encoding="utf-8"), ensure_ascii=False)
     base = os.path.join(REPORT_DIR, f"종합리포트_{datetime.now():%Y%m%d_%H%M}.md")
     with open(base, "w", encoding="utf-8") as f:
         f.write(f"# 쿠팡 업무 자동대조 종합리포트 — {datetime.now():%Y-%m-%d %H:%M}\n\n")

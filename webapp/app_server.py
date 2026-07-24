@@ -47,6 +47,17 @@ def load_pin():
 
 PIN = load_pin()
 
+# 브루트포스 차단: IP당 로그인 5회 실패 → 10분 잠금 (외부 터널 공개 대비)
+_fails = {}
+def _locked(ip):
+    c, until = _fails.get(ip, (0, 0))
+    return c >= 5 and time.time() < until
+def _fail(ip):
+    c, _ = _fails.get(ip, (0, 0))
+    _fails[ip] = (c + 1, time.time() + 600)
+def _ok_login(ip):
+    _fails.pop(ip, None)
+
 # ───────────────────────── 작업 러너 ─────────────────────────
 TASKS = {
     "daily":         ("전체 대조 실행", [os.path.join(ROOT, "daily_run.py")]),
@@ -105,12 +116,19 @@ def demo_settlements():
     for i in range(1, 16):
         amt = rnd.choice([380000, 418000, 470800, 760000, 1230000, 1472500])
         st = rnd.choice(["정상", "세금계산서 미발행", "ERP 미확인", "미청구", "입금 대기"])
+        d = (date(2026, 7, 1) + timedelta(days=i)).isoformat()
         rows.append({"정산ID": f"JS-2607-{i:03d}", "업무구분": rnd.choice(["돌발AS", "정기점검"]),
                      "캠프명": camps[i % len(camps)], "프로젝트NO": f"UJ26{1000+i}",
+                     "원천업무ID": f"AS-2607-{i:03d}",
                      "공급가액": amt, "합계": int(amt * 1.1),
                      "명세서": "있음" if st != "미청구" else "없음",
+                     "명세서번호": f"2026/07/{i:02d}-1" if st != "미청구" else "",
+                     "명세서발행일": d if st != "미청구" else "",
                      "계산서": "발행" if st == "정상" else "미발행",
-                     "상태": st, "완료일": (date(2026, 7, 1) + timedelta(days=i)).isoformat()})
+                     "계산서발행일": d if st == "정상" else "", "승인번호": "",
+                     "입금일": d if st == "정상" else "", "입금액": int(amt * 1.1) if st == "정상" else 0,
+                     "미수금": 0 if st == "정상" else int(amt * 1.1), "비용구분": "유상",
+                     "상태": st, "완료일": d})
     return rows
 
 
@@ -135,12 +153,155 @@ def real_settlements():
         else:
             st = "정상"
         rows.append({"정산ID": sid, "업무구분": r.get("업무구분"), "캠프명": r.get("캠프명"),
-                     "프로젝트NO": r.get("프로젝트NO"),
+                     "프로젝트NO": r.get("프로젝트NO"), "원천업무ID": r.get("원천업무ID"),
                      "공급가액": r.get("원장_공급가액") or 0, "합계": r.get("원장_합계") or 0,
                      "명세서": "있음" if has_stmt else "없음",
+                     "명세서번호": r.get("원장_거래명세서번호") or "",
+                     "명세서발행일": str(r.get("원장_거래명세서발행일") or "")[:10],
                      "계산서": "발행" if issued else "미발행",
+                     "계산서발행일": str(issued or "")[:10],
+                     "승인번호": r.get("원장_세금계산서승인번호") or "",
+                     "입금일": str(r.get("원장_입금일") or "")[:10],
+                     "입금액": r.get("원장_입금액") or 0,
+                     "미수금": r.get("원장_미수금액") if r.get("원장_미수금액") is not None else "",
+                     "비용구분": r.get("비용구분"),
                      "상태": st, "완료일": str(r.get("작업완료일") or "")[:10]})
     return rows
+
+
+def real_works():
+    """02 돌발AS·04 정기점검 현황 (앱 '업무' 데이터)"""
+    import openpyxl
+    from ecount_reconcile import load_config, resolve_master
+    master = resolve_master(load_config()["reconcile"]["master_xlsx"])
+    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    out = {"as": [], "pm": []}
+    spec = {
+        "02_돌발AS접수": ("as", ["접수ID", "캠프명", "접수일자", "담당기사", "진행상태", "작업완료일",
+                                "유상·무상·보험", "신청내용", "긴급도"]),
+        "04_정기점검": ("pm", ["점검ID", "캠프명", "점검예정일", "실제점검일", "점검상태", "담당기사",
+                              "이상발견여부", "돌발AS전환여부"]),
+    }
+    for sheet, (key, cols) in spec.items():
+        if sheet not in wb.sheetnames:
+            continue
+        ws = wb[sheet]
+        hdr = next(ws.iter_rows(min_row=4, max_row=4, values_only=True))
+        idx = {str(h).strip(): i for i, h in enumerate(hdr) if h is not None}
+        for row in ws.iter_rows(min_row=5, values_only=True):
+            rid = row[idx[cols[0]]] if cols[0] in idx else None
+            if not rid:
+                continue
+            rec = {}
+            for c in cols:
+                v = row[idx[c]] if c in idx and idx[c] < len(row) else None
+                rec[c] = str(v)[:10] if hasattr(v, "year") else ("" if v is None else str(v))
+            out[key].append(rec)
+    wb.close()
+    return out
+
+
+def demo_works():
+    rnd = random.Random(7)
+    camps = ["송파5MB(감일동)", "울산2캠프", "인천7MB(마곡동)", "대전1캠프", "구리1캠프"]
+    techs = ["김준형", "권오철", "김필우", "차동호"]
+    a = [{"접수ID": f"AS-2607-{i:03d}", "캠프명": rnd.choice(camps),
+          "접수일자": (date(2026, 7, 1) + timedelta(days=i)).isoformat(), "담당기사": rnd.choice(techs),
+          "진행상태": rnd.choice(["접수", "방문예정", "작업중", "작업완료"]),
+          "작업완료일": "", "유상·무상·보험": rnd.choice(["유상", "무상"]),
+          "신청내용": "도어 센서 교체 외", "긴급도": rnd.choice(["보통", "긴급"])} for i in range(1, 11)]
+    p = [{"점검ID": f"PM-2607-{i:03d}", "캠프명": rnd.choice(camps),
+          "점검예정일": (date(2026, 7, 5) + timedelta(days=i * 2)).isoformat(),
+          "실제점검일": "" if i % 3 == 0 else (date(2026, 7, 5) + timedelta(days=i * 2)).isoformat(),
+          "점검상태": "예정" if i % 3 == 0 else "완료", "담당기사": rnd.choice(techs),
+          "이상발견여부": rnd.choice(["없음", "있음"]), "돌발AS전환여부": "미전환"} for i in range(1, 8)]
+    return {"as": a, "pm": p}
+
+
+def _master_mtime():
+    try:
+        from ecount_reconcile import load_config, resolve_master
+        return os.path.getmtime(resolve_master(load_config()["reconcile"]["master_xlsx"]))
+    except Exception:
+        return 0
+
+
+def _fresh(key):
+    """엑셀이 바뀌면(mtime) 캐시 즉시 무효화 — '엑셀 변경 → 앱 자동 반영'"""
+    mt = _master_mtime()
+    if _cache.get("mt") != mt:
+        _cache.clear()
+        _cache["mt"] = mt
+    return _cache.get(key)
+
+
+def get_works():
+    if DEMO:
+        return demo_works()
+    w = _fresh("works")
+    if w:
+        return w
+    w = real_works()
+    _cache["works"] = w
+    return w
+
+
+def get_issues():
+    """07_불일치누락현황 — 엑셀의 '검증 안 된·확인해야 할' 항목 그대로"""
+    if DEMO:
+        return {"rows": [{"문제유형": "세금계산서 미발행", "업무ID": "JS-2607-002", "캠프명": "울산2캠프",
+                          "문제내용": "명세서 발행 후 계산서 미발행", "담당자": "유현민"}], "cols": []}
+    r = _fresh("issues")
+    if r:
+        return r
+    import openpyxl
+    from ecount_reconcile import load_config, resolve_master
+    master = resolve_master(load_config()["reconcile"]["master_xlsx"])
+    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    rows = []
+    if "07_불일치누락현황" in wb.sheetnames:
+        ws = wb["07_불일치누락현황"]
+        hdr = next(ws.iter_rows(min_row=4, max_row=4, values_only=True))
+        heads = [(i, str(h).strip()) for i, h in enumerate(hdr) if h is not None]
+        for row in ws.iter_rows(min_row=5, values_only=True):
+            vals = {h: ("" if i >= len(row) or row[i] is None else
+                        (str(row[i])[:10] if hasattr(row[i], "year") else str(row[i])))
+                    for i, h in heads}
+            if any(v for v in vals.values()):
+                rows.append(vals)
+            if len(rows) >= 300:
+                break
+    wb.close()
+    out = {"rows": rows, "cols": [h for _, h in heads] if rows else []}
+    _cache["issues"] = out
+    return out
+
+
+def get_checks():
+    """최근 카톡·밴드·ERP원장 대조 CSV를 ID별로 조인 — 3원천 검증 배지"""
+    import csv as _csv
+    out = {}
+    def latest(pat):
+        fs = sorted(glob.glob(os.path.join(ROOT, "reports", pat)))
+        return fs[-1] if fs else None
+    f = latest("카톡대조_*.csv")
+    if f:
+        for r in _csv.DictReader(open(f, encoding="utf-8-sig")):
+            out.setdefault(r.get("ID", ""), {})["kakao"] = r.get("카톡보고", "")
+    f = latest("밴드대조_*.csv")
+    if f:
+        for r in _csv.DictReader(open(f, encoding="utf-8-sig")):
+            out.setdefault(r.get("ID", ""), {})["band"] = r.get("밴드게시", "")
+    f = latest("ERP원장대조_*.csv")
+    if f:
+        for r in _csv.DictReader(open(f, encoding="utf-8-sig")):
+            sid = r.get("정산ID", "") or r.get("전표", "")
+            for one in str(sid).split(","):
+                if one.strip():
+                    out.setdefault(one.strip(), {})["erp"] = r.get("유형", "") + " " + r.get("판정", "")
+    if DEMO and not out:
+        out = {"JS-2607-002": {"kakao": "확인", "band": "미확인", "erp": "D 금액불일치"}}
+    return out
 
 
 def get_settlements():
@@ -165,17 +326,28 @@ def get_status():
     try:
         from coupang_workbench import get_status as ws
         st = ws()
-        steps = []
-        for s in st.get("report_summary", []):
-            mark = "ok" if "✅" in s else ("skip" if "스킵" in s else "fail")
-            steps.append({"n": re.sub(r"[✅❌⏭]|스킵|실패", "", s).strip(), "s": mark})
-        rt = st.get("report_time", "")
-        if rt:
-            rt = f"{rt[:4]}-{rt[4:6]}-{rt[6:8]} {rt[9:11]}:{rt[11:13]}"
+        # 동기화 백본: 에이전트가 쓴 agent_status.json 우선 (없으면 md 리포트 파싱)
+        steps, rt = [], ""
+        try:
+            aj = json.load(open(os.path.join(ROOT, "reports", "agent_status.json"), encoding="utf-8"))
+            steps = aj.get("steps", [])
+            rt = aj.get("time", "")[:16].replace("T", " ")
+        except Exception:
+            for s in st.get("report_summary", []):
+                mark = "ok" if "✅" in s else ("skip" if "스킵" in s else "fail")
+                steps.append({"n": re.sub(r"[✅❌⏭]|스킵|실패", "", s).strip(), "s": mark})
+            rt = st.get("report_time", "")
+            if rt:
+                rt = f"{rt[:4]}-{rt[4:6]}-{rt[6:8]} {rt[9:11]}:{rt[11:13]}"
+        tunnel = ""
+        try:
+            tunnel = open(os.path.join(ROOT, "reports", "tunnel_url.txt"), encoding="utf-8").read().strip()
+        except Exception:
+            pass
         return {"master": os.path.basename(st.get("master", "") or "") + "  " + st.get("master_label", ""),
                 "fork": st.get("fork", []), "agent_last": rt or "기록 없음", "steps": steps,
                 "pending_updates": st["pending_updates"], "inbox": st["inbox"],
-                "kakao": st["kakao"], "band": st["band_auth"], "demo": False}
+                "kakao": st["kakao"], "band": st["band_auth"], "demo": False, "tunnel": tunnel}
     except Exception as e:
         return {"error": str(e)}
 
@@ -206,7 +378,13 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _auth(self):
-        return self.headers.get("X-Pin", "") == PIN
+        ip = self.client_address[0]
+        if _locked(ip):
+            return False
+        ok = self.headers.get("X-Pin", "") == PIN
+        if not ok and self.headers.get("X-Pin"):
+            _fail(ip)
+        return ok
 
     def do_GET(self):
         p = self.path.split("?")[0]
@@ -221,6 +399,12 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, get_status())
         if p == "/api/settlements":
             return self._send(200, {"rows": get_settlements()})
+        if p == "/api/works":
+            return self._send(200, get_works())
+        if p == "/api/issues":
+            return self._send(200, get_issues())
+        if p == "/api/checks":
+            return self._send(200, get_checks())
         if p == "/api/reports":
             return self._send(200, {"reports": latest_reports()})
         if p == "/api/tasklog":
@@ -230,10 +414,14 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         p = self.path.split("?")[0]
+        ip = self.client_address[0]
         if p == "/api/login":
+            if _locked(ip):
+                return self._send(429, {"ok": False, "error": "시도 초과 — 10분 후 다시"})
             ln = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(ln) or b"{}")
             ok = body.get("pin", "") == PIN
+            (_ok_login if ok else _fail)(ip)
             return self._send(200 if ok else 401, {"ok": ok})
         if not self._auth():
             return self._send(401, {"error": "PIN"})
@@ -241,6 +429,23 @@ class H(BaseHTTPRequestHandler):
         if m:
             ok, msg = start_task(m.group(1))
             return self._send(200 if ok else 409, {"ok": ok, "msg": msg})
+        if p == "/api/input":
+            # 앱 → 엑셀 입력: ledger_writer 큐에 적재(빈 칸만 정책은 반영 단계에서 강제)
+            ln = int(self.headers.get("Content-Length", 0))
+            b = json.loads(self.rfile.read(ln) or b"{}")
+            ALLOW = {"02_돌발AS접수", "04_정기점검", "06_거래서류청구수금",
+                     "15_세금계산서관리", "16_입금수금관리"}
+            if b.get("sheet") not in ALLOW or not b.get("key") or not b.get("col") or b.get("value") in (None, ""):
+                return self._send(400, {"ok": False, "error": "sheet/key/col/value 필요"})
+            if b.get("vtype") not in ("text", "date", "number"):
+                b["vtype"] = "text"
+            if DEMO:
+                return self._send(200, {"ok": True, "queued": 1, "demo": True})
+            from ledger_writer import queue_add, load_queue
+            n = queue_add([{"sheet": b["sheet"], "key_col": b.get("key_col", "정산ID"), "key": b["key"],
+                            "col": b["col"], "value": b["value"], "vtype": b["vtype"],
+                            "evidence": f"앱 입력({ip}) {datetime.now():%m-%d %H:%M}", "only_if_empty": True}])
+            return self._send(200, {"ok": True, "queued": n, "pending": len(load_queue())})
         return self._send(404, {"error": "not found"})
 
     def log_message(self, *a):

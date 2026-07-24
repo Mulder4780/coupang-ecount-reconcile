@@ -195,6 +195,17 @@ def t6_webapp():
             urllib.request.urlopen(base + "/api/settlements"); assert False, "무인증 접근 허용됨"
         except urllib.error.HTTPError as e:
             assert e.code == 401
+        # 브루트포스 잠금: 5회 실패 후 429
+        for _ in range(5):
+            try:
+                urllib.request.urlopen(urllib.request.Request(base + "/api/login", data=b'{"pin":"1111"}', method="POST"))
+            except urllib.error.HTTPError:
+                pass
+        try:
+            urllib.request.urlopen(urllib.request.Request(base + "/api/login", data=b'{"pin":"0000"}', method="POST"))
+            assert False, "잠금 미작동"
+        except urllib.error.HTTPError as e:
+            assert e.code == 429, e.code
         # 메인 페이지 서빙
         html = urllib.request.urlopen(base + "/").read().decode("utf-8")
         assert "쿠팡 통합업무" in html and "tabbar" in html
