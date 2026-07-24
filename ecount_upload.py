@@ -151,16 +151,22 @@ def main():
         try:
             resp = cli._post(url, payload)
             data = resp.get("Data") or {}
-            success = str(data.get("SuccessCnt", "")) == "1" or (data.get("FailCnt") in (0, "0"))
+            # 공식 Result 스펙: SuccessCnt/FailCnt/SlipNos(전표번호, 실패시 공백)/TRACE_ID/QUANTITY_INFO/EXPIRE_DATE
+            success = str(data.get("SuccessCnt", "")).strip() == "1"
+            slip_no = str(data.get("SlipNos", "") or "").strip()
+            if data.get("EXPIRE_DATE"):
+                print(f"  ⚠ API 버전 서비스 종료 예정일: {data['EXPIRE_DATE']}")
             if success:
                 ok += 1; consec_err = 0
                 state[r["정산ID"]] = {"ts": datetime.now().isoformat(), "supply": r["원장_공급가액"],
-                                      "prj": r.get("프로젝트NO"), "test": bool(cfg["auth"].get("IS_TEST"))}
+                                      "prj": r.get("프로젝트NO"), "slip_no": slip_no,
+                                      "test": bool(cfg["auth"].get("IS_TEST"))}
                 save_state(state)
-                print(f"[{i+1}/{len(targets)}] {r['정산ID']} 등록 OK")
+                print(f"[{i+1}/{len(targets)}] {r['정산ID']} 등록 OK → ERP 전표번호 {slip_no or '(미회신)'}")
             else:
                 consec_err += 1
-                detail = json.dumps(data, ensure_ascii=False)[:200]
+                detail = json.dumps({k: data.get(k) for k in ("FailCnt", "ResultDetails", "TRACE_ID")},
+                                    ensure_ascii=False)[:300]
                 print(f"[{i+1}/{len(targets)}] {r['정산ID']} 실패: {detail}")
         except EcountError as e:
             consec_err += 1
@@ -170,7 +176,13 @@ def main():
             break
         if i < len(targets) - 1:
             time.sleep(interval)
-    print(f"\n완료: 성공 {ok}/{len(targets)}건 (성공 건은 .uploaded_slips.json 에 기록됨)")
+    try:
+        if data.get("QUANTITY_INFO"):
+            print("허용량 현황:", data["QUANTITY_INFO"])
+    except NameError:
+        pass
+    print(f"\n완료: 성공 {ok}/{len(targets)}건")
+    print("ERP 전표번호(SlipNos)는 .uploaded_slips.json 에 정산ID별로 기록됨 — 원장↔ERP 영구 연결키.")
 
 
 if __name__ == "__main__":
