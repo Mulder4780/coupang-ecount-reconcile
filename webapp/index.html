@@ -586,10 +586,11 @@ function openSheet(kind, idx, id){
       <div class="sec">3원천 검증 (카톡·밴드·ERP)</div>
       <dt>대조결과</dt><dd>${vbadge(r.정산ID)||'대조 데이터 없음 — inbox에 파일을 넣고 대조를 실행하세요'}</dd>
     </div>
-    ${inputForm(r)}`;
+    ${inputForm('settle', r, r.정산ID)}`;
   } else {
     html = `<h2>${id} ${chip(statOf(r))}</h2><div class="sub">${r.캠프명||''}</div><div class="dl">` +
-      Object.entries(r).map(([k,v])=>`<dt>${k}</dt><dd>${v||'-'}</dd>`).join('') + '</div>';
+      Object.entries(r).map(([k,v])=>`<dt>${k}</dt><dd>${v||'-'}</dd>`).join('') + '</div>' +
+      inputForm(kind, r, id);
   }
   $('sheetbody').innerHTML = html;
   $('sheetbg').style.display='block';
@@ -600,44 +601,62 @@ function closeSheet(){
   setTimeout(()=>$('sheetbg').style.display='none', 220);
 }
 
-/* ── 앱 → 엑셀 입력 (빈 칸만, ledger_writer 큐 경유) ── */
-const INPUT_FIELDS = [
-  {label:'PO번호', col:'PO번호', vtype:'text', cur:r=>r.PO번호, ph:'예: PO367787'},
-  {label:'PO발행일', col:'PO발행일', vtype:'date', cur:r=>r.PO발행일, ph:'YYYY-MM-DD'},
-  {label:'명세서번호', col:'거래명세서번호', vtype:'text',  cur:r=>r.명세서번호, ph:'예: 2026/07/24-1'},
-  {label:'명세서발행일', col:'거래명세서발행일', vtype:'date', cur:r=>r.명세서발행일, ph:'YYYY-MM-DD'},
-  {label:'세금계산서발행일', col:'세금계산서발행일', vtype:'date', cur:r=>r.계산서발행일, ph:'YYYY-MM-DD'},
-  {label:'입금일', col:'입금일', vtype:'date', cur:r=>r.입금일, ph:'YYYY-MM-DD'},
-  {label:'입금액', col:'입금액', vtype:'number', cur:r=>r.입금액, ph:'숫자만'},
-];
-function inputForm(r){
-  const empty = INPUT_FIELDS.filter(f=>!f.cur(r));
+/* ── 앱 ↔ 엑셀 양방향 입력 (빈 칸만·근거 기록·즉시 또는 09:50 반영) ── */
+const INPUT_SPEC = {
+  settle: { sheet:'06_거래서류청구수금', key_col:'정산ID', fields:[
+    {label:'PO번호', col:'PO번호', vtype:'text', cur:r=>r.PO번호, ph:'예: PO367787'},
+    {label:'PO발행일', col:'PO발행일', vtype:'date', cur:r=>r.PO발행일, ph:'YYYY-MM-DD'},
+    {label:'명세서번호', col:'거래명세서번호', vtype:'text',  cur:r=>r.명세서번호, ph:'예: 2026/07/24-1'},
+    {label:'명세서발행일', col:'거래명세서발행일', vtype:'date', cur:r=>r.명세서발행일, ph:'YYYY-MM-DD'},
+    {label:'세금계산서발행일', col:'세금계산서발행일', vtype:'date', cur:r=>r.계산서발행일, ph:'YYYY-MM-DD'},
+    {label:'청구일', col:'청구일', vtype:'date', cur:r=>r.청구일, ph:'YYYY-MM-DD'},
+    {label:'지급예정일', col:'지급예정일', vtype:'date', cur:r=>r.지급예정일, ph:'YYYY-MM-DD'},
+    {label:'입금일', col:'입금일', vtype:'date', cur:r=>r.입금일, ph:'YYYY-MM-DD'},
+    {label:'입금액', col:'입금액', vtype:'number', cur:r=>r.입금액, ph:'숫자만'},
+  ]},
+  as: { sheet:'02_돌발AS접수', key_col:'접수ID', fields:[
+    {label:'담당기사', col:'담당기사', vtype:'text', cur:r=>r.담당기사, ph:'김준형/권오철/김필우/차동호'},
+    {label:'방문예정일', col:'방문예정일', vtype:'date', cur:r=>r.방문예정일, ph:'YYYY-MM-DD'},
+    {label:'작업완료일', col:'작업완료일', vtype:'date', cur:r=>r.작업완료일, ph:'YYYY-MM-DD'},
+  ]},
+  pm: { sheet:'04_정기점검', key_col:'점검ID', fields:[
+    {label:'실제점검일', col:'실제점검일', vtype:'date', cur:r=>r.실제점검일, ph:'YYYY-MM-DD'},
+  ]},
+};
+function inputForm(kind, r, id){
+  const spec = INPUT_SPEC[kind];
+  if(!spec) return '';
+  const empty = spec.fields.filter(f=>!f.cur(r));
   if(!empty.length) return '';
-  return `<div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px;
-    font-size:12px;font-weight:800;color:var(--primary-dk)">빈 항목 입력 → 엑셀 반영 (빈 칸만 채워짐·새 버전 생성)</div>
+  return `<div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">빈 항목 입력 → 엑셀 반영 (빈 칸만·기존 값 보호·새 버전 생성)</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">` +
     empty.map((f,i)=>`<div style="display:flex;gap:8px;align-items:center">
-      <span style="width:110px;font-size:12.5px;color:var(--muted);font-weight:600">${f.label}</span>
+      <span style="width:110px;font-size:12.5px;color:var(--ink-3);font-weight:600">${f.label}</span>
       <input id="inp_${i}" placeholder="${f.ph}" data-col="${f.col}" data-vtype="${f.vtype}"
-        style="flex:1;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:14px">
+        style="flex:1;padding:9px 11px;border:1.5px solid var(--line);border-radius:9px;font-size:14px">
     </div>`).join('') +
-    `</div><button onclick="saveInputs('${r.정산ID}',${empty.length})" style="margin-top:10px;width:100%;
-      padding:12px;background:var(--primary);color:#fff;border-radius:11px;font-weight:700;font-size:14px">입력 저장 (자동입력 큐 적재)</button>
-    <div style="font-size:11px;color:var(--muted);margin-top:6px">저장 후 [실행]탭 → 자동입력 반영을 누르거나, 09:50 에이전트가 자동 반영합니다.</div>`;
+    `</div><button onclick="saveInputs('${kind}','${id}',${empty.length})" style="margin-top:10px;width:100%;
+      padding:12px;background:var(--brand);color:#fff;border-radius:11px;font-weight:700;font-size:14px">💾 입력 저장</button>
+    <div style="font-size:11px;color:var(--ink-3);margin-top:6px">저장 후 "지금 반영"을 선택하면 몇 초 안에 엑셀 새 버전에 기록됩니다. (아니면 09:50 에이전트가 자동 반영)</div>`;
 }
-async function saveInputs(sid, n){
+async function saveInputs(kind, id, n){
+  const spec = INPUT_SPEC[kind];
   let queued = 0;
   for(let i=0;i<n;i++){
     const el = $('inp_'+i);
     if(!el || !el.value.trim()) continue;
-    const body = {sheet:'06_거래서류청구수금', key_col:'정산ID', key:sid,
-      col:el.dataset.col, value:el.value.trim(), vtype:el.dataset.vtype};
-    if(el.dataset.col==='입금일'||el.dataset.col==='입금액'){ /* 16시트에도 동일 키 존재 — 06 기준 유지 */ }
-    const r = await api('/api/input',{method:'POST',body:JSON.stringify(body)});
+    const r = await api('/api/input',{method:'POST',body:JSON.stringify(
+      {sheet:spec.sheet, key_col:spec.key_col, key:id,
+       col:el.dataset.col, value:el.value.trim(), vtype:el.dataset.vtype})});
     if(r.ok) queued++;
   }
-  alert(queued ? `${queued}건 큐 적재 완료 — 자동입력 반영 시 엑셀 새 버전(vN+1)에 기록됩니다.` : '입력된 값이 없습니다');
-  if(queued){ closeSheet(); loadStatus(); }
+  if(!queued){ alert('입력된 값이 없습니다'); return; }
+  closeSheet();
+  if(confirm(`${queued}건 저장됨.\n\n지금 바로 엑셀에 반영할까요? (새 버전 vN+1 생성)\n[취소]하면 09:50 에이전트가 자동 반영합니다.`)){
+    runTask('writer_apply');
+  } else {
+    loadStatus();
+  }
 }
 
 /* ── 실행 ── */
