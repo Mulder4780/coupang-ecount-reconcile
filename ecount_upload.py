@@ -93,7 +93,8 @@ def main():
     # 1) 대상 선정: 유상 & 공급가액>0 & 작업완료일 존재 & 미업로드
     recs = read_ledger(cfg["reconcile"]["master_xlsx"])
     state = load_state()
-    targets, skipped = [], {"무상/보험": 0, "금액없음": 0, "완료일없음": 0, "업로드완료": 0}
+    targets, skipped = [], {"무상/보험": 0, "금액없음": 0, "완료일없음": 0, "업로드완료": 0,
+                            "ERP기등록추정(명세서번호있음)": 0}
     for sid, r in sorted(recs.items()):
         if r.get("비용구분") != "유상":
             skipped["무상/보험"] += 1; continue
@@ -103,6 +104,11 @@ def main():
             skipped["완료일없음"] += 1; continue
         if sid in state:
             skipped["업로드완료"] += 1; continue
+        # ★ 이중계상 방지: 06시트 거래명세서번호(=ERP 일자-No. 형식)가 이미 있으면
+        #   해당 건은 ERP에 전표가 존재할 가능성이 높아 전송에서 제외한다.
+        #   (실존 여부는 거래처별계정별원장 7월 내보내기를 inbox 대조로 확정 가능)
+        if str(r.get("원장_거래명세서번호") or "").strip() and "--include-billed" not in sys.argv:
+            skipped["ERP기등록추정(명세서번호있음)"] += 1; continue
         targets.append(r)
     if limit:
         targets = targets[:limit]

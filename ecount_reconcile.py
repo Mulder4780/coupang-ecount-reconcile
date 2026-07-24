@@ -52,9 +52,29 @@ def _d(v):
     return "" if v is None else str(v)
 
 
+def resolve_master(xlsx_path):
+    """설정된 경로가 없으면 같은 폴더에서 최신 v번호 파일을 자동 탐지한다
+    (관리대장은 v19→v20→v21…로 계속 버전업되며 구버전은 OLD로 이동됨)."""
+    import glob, re as _re
+    if os.path.exists(xlsx_path):
+        return xlsx_path
+    folder = os.path.dirname(xlsx_path)
+    cands = glob.glob(os.path.join(folder, "쿠팡_통합업무_일일보고_관리대장_v*.xlsx"))
+    def ver(p):
+        m = _re.search(r"_v(\d+)\.xlsx$", p)
+        return int(m.group(1)) if m else -1
+    cands = [c for c in cands if ver(c) >= 0 and "~$" not in c]
+    if not cands:
+        raise FileNotFoundError(f"관리대장을 찾을 수 없음: {xlsx_path} (폴더에 v*.xlsx 없음)")
+    best = max(cands, key=ver)
+    print(f"i 관리대장 최신본 자동 탐지: {os.path.basename(best)}")
+    return best
+
+
 def read_ledger(xlsx_path):
     """정산ID 기준으로 원장 예상값(3개 문서층)을 모은다."""
     import openpyxl
+    xlsx_path = resolve_master(xlsx_path)
     wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
 
     def col_index(ws, names):
