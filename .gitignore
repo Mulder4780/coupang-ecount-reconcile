@@ -7,3 +7,6 @@ __pycache__/
 .session_cache.json
 inbox/*
 !inbox/.gitkeep
+band/.band_token.json
+band/cache/
+.uploaded_slips.json

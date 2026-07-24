@@ -80,6 +80,24 @@ python ecount_reconcile.py
 
 ---
 
+## 3.5 밴드(BAND) 연동 — 작업 게시글 자동 수집·대조
+
+기사들이 밴드에 올리는 작업 게시글을 공식 Open API로 수집해, 관리대장 02(돌발AS)·04(정기점검)의 완료 건과 자동 대조합니다 (사진등록·밴드수정 검증 자동화).
+
+**최초 1회 설정 (클릭만):**
+1. https://developers.band.us 접속 → 밴드 계정 로그인 → 앱 등록(이름 자유)
+2. Redirect URI에 `http://localhost:8976/callback` 등록
+3. 발급된 `client_id`·`client_secret`을 config `band` 절에 입력
+4. `python band/band_auth.py` 실행 → 브라우저에서 [동의] 클릭 → 끝
+
+**이후 자동 실행:**
+```bash
+python band/band_sync.py        # 게시글 증분 수집 (0.7초/페이지, 예의 있는 트래픽)
+python band/band_reconcile.py   # 원장 대조 → reports/밴드대조_*.md
+```
+매칭: 프로젝트NO 1순위 → 캠프명+날짜(±3일) 2순위, 담당기사 일치 시 신뢰도 표기.
+토큰·게시글 캐시는 전부 로컬(.gitignore) — 공개 저장소에 올라가지 않습니다.
+
 ## 4. 파일 구성
 
 ```
