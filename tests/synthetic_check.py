@@ -164,6 +164,45 @@ def t5_writer(tmp):
     print("  [5] 자동입력 엔진(빈칸만·날짜·덮어쓰기금지·인수인계 기록) ✅")
 
 
+def t6_webapp():
+    import time, json, urllib.request
+    port = 18899
+    p = subprocess.Popen([PY, os.path.join(ROOT, "webapp", "app_server.py"), "--demo", "--port", str(port)],
+                         cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        base = f"http://127.0.0.1:{port}"
+        for _ in range(30):                       # 기동 대기
+            try:
+                urllib.request.urlopen(base + "/api/ping", timeout=1); break
+            except Exception:
+                time.sleep(0.3)
+        # 로그인(잘못된 PIN → 401, 데모 PIN 0000 → ok)
+        req = urllib.request.Request(base + "/api/login", data=b'{"pin":"9999"}', method="POST")
+        try:
+            urllib.request.urlopen(req); assert False, "잘못된 PIN이 통과됨"
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+        req = urllib.request.Request(base + "/api/login", data=b'{"pin":"0000"}', method="POST")
+        assert json.loads(urllib.request.urlopen(req).read())["ok"]
+        # 인증 상태·정산 API
+        h = {"X-Pin": "0000"}
+        st = json.loads(urllib.request.urlopen(urllib.request.Request(base + "/api/status", headers=h)).read())
+        assert st.get("demo") and st["steps"], st
+        se = json.loads(urllib.request.urlopen(urllib.request.Request(base + "/api/settlements", headers=h)).read())
+        assert len(se["rows"]) >= 10 and se["rows"][0]["정산ID"].startswith("JS-"), len(se.get("rows", []))
+        # 미인증 접근 차단
+        try:
+            urllib.request.urlopen(base + "/api/settlements"); assert False, "무인증 접근 허용됨"
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+        # 메인 페이지 서빙
+        html = urllib.request.urlopen(base + "/").read().decode("utf-8")
+        assert "쿠팡 통합업무" in html and "tabbar" in html
+        print("  [6] 웹앱 API(PIN 인증·상태·정산·페이지 서빙) ✅")
+    finally:
+        p.terminate()
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -172,4 +211,5 @@ if __name__ == "__main__":
         t5_writer(tmp)
     t2_payload()
     t3_match()
+    t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

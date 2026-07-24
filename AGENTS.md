@@ -35,6 +35,7 @@
 | `ledger_writer.py` | **관리대장 자동입력 엔진**: 대조 모듈들이 적재한 확정 사실 큐(updates/pending_updates.json)를 zip 셀 패치로 반영. 정책: 빈 칸만·근거 필수·항상 vN+1 새 파일·19시트 자동 기록·calcChain 제거+fullCalcOnLoad. 덮어쓰기 기능은 의도적으로 미구현 | `--apply` (daily_run이 자동 호출) |
 | `daily_run.py` (+`daily_run.bat`) | 일일 에이전트 오케스트레이터: 합성검증→전체 대조→확정분 자동입력→종합리포트. ERP 쓰기(--post)만 자동 제외 | 작업 스케줄러 09:50 등록됨 |
 | `coupang_workbench.py` (+`워크벤치실행.bat`, 바탕화면 바로가기) | PC 통합 앱(Tkinter): 상태판(최신버전·포크경고·에이전트 이력·대기건수)+클릭 실행(대조·자동입력·전표전송 승인·폴더 열기). 앱 없이도 에이전트는 독립 동작 | 더블클릭 / `--status` 콘솔 |
+| `webapp/app_server.py` + `webapp/index.html` (+`앱서버실행.bat`) | **반응형 웹앱(ERP형)** — PC·휴대폰 브라우저 접속(포트 8899, 같은 LAN). 4탭: 대시보드(KPI·에이전트 이력·포크경고)/정산 그리드(검색·필터·상태칩)/실행(작업+라이브 로그, 전표 실전송은 이중확인)/리포트(md 렌더). PIN 4자리 인증(config/webapp.json, gitignore), 표준 라이브러리만, --demo=합성데이터 모드, 데이터는 PC 밖으로 안 나감. LAN 전용 — 외부 인터넷 개방 금지 | `python webapp/app_server.py` / t6 합성테스트 |
 | `tests/synthetic_check.py` | 합성데이터 상시 검증(실서버 접촉 0) | 작업 전 필수 |
 
 - 데이터 흐름: 이카운트 화면 엑셀 내보내기 → `inbox/` → 대조기 → `reports/` (md·csv·xlsx). 관리대장은 절대 직접 수정하지 않음.

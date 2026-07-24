@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1E3A8A">
+<title>쿠팡 통합업무</title>
+<style>
+:root{
+  --primary:#2563EB; --primary-dk:#1E3A8A; --bg:#F1F5F9; --surface:#FFFFFF;
+  --text:#0F172A; --muted:#64748B; --line:#E2E8F0;
+  --ok:#16A34A; --warn:#D97706; --danger:#DC2626; --skip:#94A3B8;
+  --radius:14px; --shadow:0 1px 3px rgba(15,23,42,.08),0 4px 16px rgba(15,23,42,.06);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{font-family:Pretendard,-apple-system,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+  background:var(--bg);color:var(--text);font-size:15px;line-height:1.5}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+
+/* ── 앱바 ── */
+.appbar{position:sticky;top:0;z-index:20;background:linear-gradient(135deg,var(--primary-dk),var(--primary));
+  color:#fff;padding:calc(env(safe-area-inset-top) + 14px) 18px 14px;display:flex;align-items:center;gap:10px}
+.appbar h1{font-size:17px;font-weight:700;letter-spacing:-.2px;flex:1}
+.appbar .sub{font-size:11px;opacity:.85}
+.dot{width:9px;height:9px;border-radius:50%;background:#4ADE80;box-shadow:0 0 0 3px rgba(74,222,128,.25)}
+.dot.busy{background:#FBBF24;animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.4}}
+
+/* ── 레이아웃 ── */
+.shell{max-width:1180px;margin:0 auto;padding:14px 14px 90px}
+.view{display:none}.view.active{display:block;animation:fade .18s ease}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+
+/* ── 하단 탭 (모바일) ── */
+.tabbar{position:fixed;bottom:0;left:0;right:0;z-index:20;background:var(--surface);
+  border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom)}
+.tabbar button{flex:1;padding:9px 0 7px;display:flex;flex-direction:column;align-items:center;gap:2px;
+  font-size:10.5px;color:var(--muted);font-weight:600}
+.tabbar button.on{color:var(--primary)}
+.tabbar svg{width:23px;height:23px}
+
+/* ── 카드·KPI ── */
+.card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:12px}
+.card h3{font-size:13px;color:var(--muted);font-weight:700;margin-bottom:10px;letter-spacing:.2px}
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px}
+.kpi{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px}
+.kpi .v{font-size:22px;font-weight:800;letter-spacing:-.5px}
+.kpi .l{font-size:11.5px;color:var(--muted);font-weight:600;margin-top:2px}
+.kpi.accent .v{color:var(--primary)}
+.kpi.warn .v{color:var(--warn)} .kpi.danger .v{color:var(--danger)}
+
+/* ── 상태칩·스텝 ── */
+.chip{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:700}
+.c-ok{background:#DCFCE7;color:#15803D}.c-warn{background:#FEF3C7;color:#B45309}
+.c-danger{background:#FEE2E2;color:#B91C1C}.c-skip{background:#F1F5F9;color:#64748B}
+.steps{display:flex;flex-direction:column;gap:7px}
+.step{display:flex;align-items:center;gap:9px;font-size:13.5px}
+.step .ic{width:20px;text-align:center}
+
+/* ── 정산 테이블/카드 ── */
+.toolbar{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.toolbar input,.toolbar select{flex:1;min-width:120px;padding:10px 12px;border:1px solid var(--line);
+  border-radius:10px;font-size:14px;background:var(--surface)}
+.slist{display:flex;flex-direction:column;gap:9px}
+.srow{background:var(--surface);border-radius:12px;box-shadow:var(--shadow);padding:13px 15px}
+.srow .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.srow .id{font-weight:800;font-size:14px}
+.srow .camp{font-size:13px;color:var(--muted)}
+.srow .amt{font-weight:800;font-size:15px;text-align:right}
+.srow .meta{display:flex;gap:10px;font-size:11.5px;color:var(--muted);margin-top:6px;flex-wrap:wrap}
+table.grid{width:100%;border-collapse:collapse;background:var(--surface);border-radius:var(--radius);
+  overflow:hidden;box-shadow:var(--shadow);display:none}
+table.grid th{background:#F8FAFC;font-size:12px;color:var(--muted);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+table.grid td{padding:10px 12px;border-bottom:1px solid var(--line);font-size:13.5px}
+table.grid tr:hover td{background:#F8FAFC}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+
+/* ── 실행 버튼·로그 ── */
+.actions{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.abtn{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:15px 12px;
+  text-align:center;font-weight:700;font-size:13.5px;color:var(--text);transition:transform .08s}
+.abtn:active{transform:scale(.97)}
+.abtn .em{font-size:21px;display:block;margin-bottom:4px}
+.abtn.primary{background:var(--primary);color:#fff}
+.abtn.danger{background:#FFF1F2;color:var(--danger);border:1px solid #FECDD3}
+.logbox{background:#0F172A;color:#E2E8F0;border-radius:var(--radius);padding:13px;font:12px/1.55 Consolas,monospace;
+  height:300px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin-top:12px}
+
+/* ── 리포트 ── */
+.rtabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding-bottom:2px}
+.rtabs button{padding:7px 14px;border-radius:99px;background:var(--surface);box-shadow:var(--shadow);
+  font-size:12.5px;font-weight:700;color:var(--muted);white-space:nowrap}
+.rtabs button.on{background:var(--primary);color:#fff}
+.md{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;font-size:13.5px;overflow-x:auto}
+.md h1{font-size:17px;margin:6px 0}.md h2{font-size:14.5px;margin:14px 0 6px;color:var(--primary-dk)}
+.md table{border-collapse:collapse;margin:8px 0;min-width:280px}
+.md th,.md td{border:1px solid var(--line);padding:5px 9px;font-size:12.5px}
+.md th{background:#F8FAFC}
+.md li{margin-left:18px}
+
+/* ── PIN 게이트 ── */
+.gate{position:fixed;inset:0;z-index:50;background:linear-gradient(160deg,var(--primary-dk),var(--primary));
+  display:flex;align-items:center;justify-content:center;padding:24px}
+.gate .box{background:#fff;border-radius:20px;padding:30px 26px;width:100%;max-width:340px;text-align:center}
+.gate h2{font-size:18px;margin-bottom:4px}
+.gate p{font-size:12.5px;color:var(--muted);margin-bottom:18px}
+.gate input{width:100%;padding:13px;font-size:22px;text-align:center;letter-spacing:12px;
+  border:2px solid var(--line);border-radius:12px;margin-bottom:12px}
+.gate button{width:100%;padding:13px;background:var(--primary);color:#fff;border-radius:12px;font-size:15px;font-weight:700}
+.gate .err{color:var(--danger);font-size:12.5px;margin-top:8px;min-height:16px}
+
+/* ── 데스크톱 (≥900px): 사이드바 전환 ── */
+@media(min-width:900px){
+  .tabbar{top:0;bottom:auto;left:0;right:auto;width:200px;height:100vh;flex-direction:column;
+    border-top:none;border-right:1px solid var(--line);padding-top:76px;justify-content:flex-start}
+  .tabbar button{flex:0 0 auto;flex-direction:row;justify-content:flex-start;gap:12px;
+    padding:13px 22px;font-size:14px}
+  .shell{margin-left:200px;padding:22px 28px 40px;max-width:none}
+  .appbar{padding-left:24px}
+  .kpis{grid-template-columns:repeat(6,1fr)}
+  .actions{grid-template-columns:repeat(4,1fr)}
+  .slist{display:none}
+  table.grid{display:table}
+  .logbox{height:380px}
+}
+@media(max-width:899px){ table.grid{display:none!important} }
+</style>
+</head>
+<body>
+
+<div class="gate" id="gate">
+  <div class="box">
+    <div style="font-size:34px;margin-bottom:8px">🔐</div>
+    <h2>쿠팡 통합업무</h2>
+    <p>서버 콘솔에 표시된 PIN 4자리를 입력하세요</p>
+    <input id="pin" type="tel" maxlength="4" inputmode="numeric" placeholder="••••" autofocus>
+    <button onclick="login()">접속</button>
+    <div class="err" id="pinerr"></div>
+  </div>
+</div>
+
+<header class="appbar">
+  <div class="dot" id="livedot"></div>
+  <h1>쿠팡 통합업무 <span class="sub" id="demobadge"></span></h1>
+  <div class="sub" id="clock"></div>
+</header>
+
+<main class="shell">
+
+  <!-- 대시보드 -->
+  <section class="view active" id="v-dash">
+    <div class="kpis" id="kpis"></div>
+    <div class="card"><h3>에이전트 최근 실행 <span id="agentTime" style="font-weight:400"></span></h3>
+      <div class="steps" id="steps"></div></div>
+    <div class="card" id="forkcard" style="display:none;border:2px solid var(--danger)">
+      <h3 style="color:var(--danger)">⚠ 버전 충돌 경고</h3><div id="forkmsg" style="font-size:13.5px"></div></div>
+    <div class="card"><h3>빠른 실행</h3>
+      <div class="actions">
+        <button class="abtn primary" onclick="runTask('daily')"><span class="em">▶</span>전체 대조</button>
+        <button class="abtn" onclick="show('settle')"><span class="em">📋</span>정산 현황</button>
+        <button class="abtn" onclick="show('report')"><span class="em">📄</span>리포트</button>
+        <button class="abtn" onclick="refreshAll()"><span class="em">🔄</span>새로고침</button>
+      </div></div>
+  </section>
+
+  <!-- 정산 -->
+  <section class="view" id="v-settle">
+    <div class="toolbar">
+      <input id="q" placeholder="검색: 정산ID·캠프·프로젝트" oninput="renderSettle()">
+      <select id="fstat" onchange="renderSettle()"><option value="">상태 전체</option></select>
+    </div>
+    <div class="kpis" id="skpis" style="grid-template-columns:repeat(3,1fr)"></div>
+    <div class="slist" id="slist"></div>
+    <table class="grid" id="sgrid"></table>
+  </section>
+
+  <!-- 실행 -->
+  <section class="view" id="v-run">
+    <div class="card"><h3>작업 실행</h3>
+      <div class="actions">
+        <button class="abtn primary" onclick="runTask('daily')"><span class="em">▶</span>전체 대조</button>
+        <button class="abtn" onclick="runTask('synthetic')"><span class="em">🧪</span>합성검증</button>
+        <button class="abtn" onclick="runTask('kakao')"><span class="em">💬</span>카톡 대조</button>
+        <button class="abtn" onclick="runTask('erp_ledger')"><span class="em">🧾</span>ERP원장 대조</button>
+        <button class="abtn" onclick="runTask('writer_prev')"><span class="em">✏</span>자동입력 미리보기</button>
+        <button class="abtn" onclick="confirmRun('writer_apply','확정 대기 항목을 관리대장 새 버전(vN+1)에 입력합니다.\n빈 칸만 채우며 이전 버전은 보존됩니다.')"><span class="em">✏</span>자동입력 반영</button>
+        <button class="abtn" onclick="runTask('upload_dry')"><span class="em">📤</span>전표 전송대기</button>
+        <button class="abtn danger" onclick="confirmRun('upload_post','⚠ 이카운트 ERP에 매출전표를 실제 등록합니다.\n(10.5초/건, 이중계상 가드 적용)')"><span class="em">🚀</span>전표 실전송</button>
+      </div>
+      <div class="logbox" id="logbox">대기 중 — 작업을 실행하면 로그가 여기 표시됩니다.</div></div>
+  </section>
+
+  <!-- 리포트 -->
+  <section class="view" id="v-report">
+    <div class="rtabs" id="rtabs"></div>
+    <div class="md" id="mdbox">리포트 로딩...</div>
+  </section>
+
+</main>
+
+<nav class="tabbar" id="tabbar">
+  <button class="on" data-v="dash" onclick="show('dash')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>대시보드</button>
+  <button data-v="settle" onclick="show('settle')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>정산</button>
+  <button data-v="run" onclick="show('run')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="6,4 20,12 6,20"/></svg>실행</button>
+  <button data-v="report" onclick="show('report')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>리포트</button>
+</nav>
+
+<script>
+let PIN = localStorage.getItem('cw_pin') || '';
+let settleRows = [], reports = [], curReport = 0, polling = null;
+
+const $ = id => document.getElementById(id);
+const fmt = n => (n==null||n==='')?'-':Number(n).toLocaleString('ko-KR');
+async function api(path, opt={}){
+  opt.headers = Object.assign({'X-Pin': PIN}, opt.headers||{});
+  const r = await fetch(path, opt);
+  if(r.status===401){ localStorage.removeItem('cw_pin'); $('gate').style.display='flex'; throw 'PIN'; }
+  return r.json();
+}
+async function login(){
+  const pin = $('pin').value.trim();
+  const r = await fetch('/api/login',{method:'POST',body:JSON.stringify({pin})});
+  if(r.ok){ PIN=pin; localStorage.setItem('cw_pin',pin); $('gate').style.display='none'; refreshAll(); }
+  else $('pinerr').textContent = 'PIN이 올바르지 않습니다';
+}
+$('pin').addEventListener('keyup',e=>{ if(e.key==='Enter'||$('pin').value.length===4) login(); });
+
+function show(v){
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  $('v-'+v).classList.add('active');
+  document.querySelectorAll('.tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
+  if(v==='report' && !reports.length) loadReports();
+}
+
+/* ── 대시보드 ── */
+async function loadStatus(){
+  const s = await api('/api/status');
+  $('demobadge').textContent = s.demo ? '· 데모(합성데이터)' : '';
+  const rows = settleRows.length ? settleRows : [];
+  const paid = rows.filter(r=>r.상태==='정상').length;
+  const issues = rows.filter(r=>['세금계산서 미발행','미청구(전표 없음)','ERP 미확인','금액 미입력'].includes(r.상태)).length;
+  $('kpis').innerHTML = `
+    <div class="kpi accent"><div class="v">${rows.length||'-'}</div><div class="l">정산 건수</div></div>
+    <div class="kpi"><div class="v">${fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))}</div><div class="l">공급가액 합계(원)</div></div>
+    <div class="kpi ${issues?'warn':''}"><div class="v">${issues}</div><div class="l">조치 필요</div></div>
+    <div class="kpi"><div class="v">${paid}</div><div class="l">정상 완료</div></div>
+    <div class="kpi ${s.pending_updates?'warn':''}"><div class="v">${s.pending_updates}</div><div class="l">자동입력 대기</div></div>
+    <div class="kpi"><div class="v">${s.kakao+s.inbox}</div><div class="l">inbox 파일</div></div>`;
+  $('agentTime').textContent = '— ' + (s.agent_last||'');
+  const icon = {ok:'✅',skip:'⏭',fail:'❌'};
+  $('steps').innerHTML = (s.steps||[]).map(t=>`<div class="step"><span class="ic">${icon[t.s]||'·'}</span>${t.n}</div>`).join('') || '<span style="color:var(--muted)">아직 실행 기록 없음</span>';
+  if(s.fork && s.fork.length){ $('forkcard').style.display='block';
+    $('forkmsg').textContent = `구버전 ${s.fork.join(', ')} 이 최신본보다 나중에 수정되었습니다. 잘못된 파일에 입력 중일 수 있으니 확인하세요.`; }
+  else $('forkcard').style.display='none';
+}
+
+/* ── 정산 ── */
+async function loadSettle(){
+  const d = await api('/api/settlements');
+  settleRows = d.rows||[];
+  const stats = [...new Set(settleRows.map(r=>r.상태))];
+  $('fstat').innerHTML = '<option value="">상태 전체</option>' + stats.map(s=>`<option>${s}</option>`).join('');
+  renderSettle();
+}
+function chip(st){
+  const cls = st==='정상'?'c-ok': st==='무상/보험'?'c-skip': (st==='입금 대기'?'c-warn': 'c-danger');
+  return `<span class="chip ${cls}">${st}</span>`;
+}
+function renderSettle(){
+  const q = ($('q').value||'').toLowerCase(), f = $('fstat').value;
+  const rows = settleRows.filter(r =>
+    (!f || r.상태===f) &&
+    (!q || `${r.정산ID}${r.캠프명}${r.프로젝트NO}`.toLowerCase().includes(q)));
+  const need = rows.filter(r=>!['정상','무상/보험'].includes(r.상태));
+  $('skpis').innerHTML = `
+    <div class="kpi"><div class="v">${rows.length}</div><div class="l">표시 건수</div></div>
+    <div class="kpi accent"><div class="v">${fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))}</div><div class="l">공급가액(원)</div></div>
+    <div class="kpi ${need.length?'danger':''}"><div class="v">${need.length}</div><div class="l">조치 필요</div></div>`;
+  $('slist').innerHTML = rows.map(r=>`
+    <div class="srow">
+      <div class="top"><span class="id">${r.정산ID}</span>${chip(r.상태)}</div>
+      <div class="top"><span class="camp">${r.캠프명} · ${r.업무구분}</span><span class="amt">${fmt(r.공급가액)}원</span></div>
+      <div class="meta"><span>${r.프로젝트NO}</span><span>완료 ${r.완료일||'-'}</span>
+        <span>명세서 ${r.명세서}</span><span>계산서 ${r.계산서}</span></div>
+    </div>`).join('') || '<div class="card">조건에 맞는 정산이 없습니다</div>';
+  $('sgrid').innerHTML = `<tr><th>정산ID</th><th>구분</th><th>캠프</th><th>프로젝트</th>
+    <th class="num">공급가액</th><th>명세서</th><th>계산서</th><th>완료일</th><th>상태</th></tr>` +
+    rows.map(r=>`<tr><td><b>${r.정산ID}</b></td><td>${r.업무구분}</td><td>${r.캠프명}</td>
+      <td>${r.프로젝트NO}</td><td class="num">${fmt(r.공급가액)}</td><td>${r.명세서}</td>
+      <td>${r.계산서}</td><td>${r.완료일||'-'}</td><td>${chip(r.상태)}</td></tr>`).join('');
+}
+
+/* ── 실행 ── */
+function confirmRun(key,msg){ if(confirm(msg+'\n\n진행할까요?')) runTask(key); }
+async function runTask(key){
+  show('run');
+  const r = await api('/api/run/'+key,{method:'POST'});
+  if(!r.ok && r.msg!=='demo'){ alert(r.msg); return; }
+  if(!polling) polling = setInterval(pollLog, 1200);
+  pollLog();
+}
+async function pollLog(){
+  const d = await api('/api/tasklog');
+  $('livedot').className = 'dot' + (d.busy?' busy':'');
+  if(d.log.length) { $('logbox').textContent = d.log.join('\n'); $('logbox').scrollTop = 1e9; }
+  if(!d.busy && polling){ clearInterval(polling); polling=null; loadStatus(); loadSettle(); }
+}
+
+/* ── 리포트 ── */
+function mdRender(t){
+  const esc = s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  let html='', intbl=false;
+  for(const ln of t.split('\n')){
+    if(/^\|/.test(ln)){
+      if(/^\|[\s\-|]+\|$/.test(ln)) continue;
+      const cells = ln.split('|').slice(1,-1).map(c=>esc(c.trim()));
+      if(!intbl){ html+='<table><tr>'+cells.map(c=>`<th>${c}</th>`).join('')+'</tr>'; intbl=true; }
+      else html+='<tr>'+cells.map(c=>`<td>${c}</td>`).join('')+'</tr>';
+      continue;
+    }
+    if(intbl){ html+='</table>'; intbl=false; }
+    if(/^# /.test(ln)) html+=`<h1>${esc(ln.slice(2))}</h1>`;
+    else if(/^## /.test(ln)) html+=`<h2>${esc(ln.slice(3))}</h2>`;
+    else if(/^- /.test(ln)) html+=`<li>${esc(ln.slice(2))}</li>`;
+    else if(ln.trim()) html+=`<p>${esc(ln)}</p>`;
+  }
+  if(intbl) html+='</table>';
+  return html;
+}
+async function loadReports(){
+  const d = await api('/api/reports');
+  reports = d.reports||[];
+  $('rtabs').innerHTML = reports.map((r,i)=>`<button class="${i===curReport?'on':''}" onclick="pickReport(${i})">${r.kind}</button>`).join('') || '';
+  pickReport(Math.min(curReport, Math.max(0,reports.length-1)));
+}
+function pickReport(i){
+  curReport=i;
+  document.querySelectorAll('#rtabs button').forEach((b,j)=>b.classList.toggle('on',j===i));
+  $('mdbox').innerHTML = reports[i] ? mdRender(reports[i].text) : '리포트가 아직 없습니다';
+}
+
+/* ── 부트 ── */
+function tick(){ $('clock').textContent = new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}); }
+async function refreshAll(){ try{ await loadSettle(); await loadStatus(); }catch(e){} }
+(async function(){
+  tick(); setInterval(tick, 30000);
+  if(PIN){ $('gate').style.display='none'; refreshAll(); }
+  setInterval(()=>{ if(PIN && !runnerBusy()) loadStatus().catch(()=>{}); }, 30000);
+})();
+function runnerBusy(){ return !!polling; }
+</script>
+</body>
+</html>

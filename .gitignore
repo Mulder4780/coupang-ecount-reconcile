@@ -1,5 +1,6 @@
 # 비밀정보 보호 — 인증키가 담긴 설정과 리포트는 버전관리/공유 대상에서 제외
 config/ecount_config.json
+config/webapp.json
 config/*.local.json
 reports/
 __pycache__/
