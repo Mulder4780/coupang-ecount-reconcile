@@ -30,7 +30,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(BASE_DIR)
 CONFIG_PATH = os.path.join(ROOT, "config", "ecount_config.json")
 INBOX_DIR = os.path.join(BASE_DIR, "inbox")
-REPORT_DIR = os.path.join(ROOT, "reports")
+REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports")
 HDR_ROW, FIRST = 4, 5
 
 cfg = json.load(open(CONFIG_PATH, encoding="utf-8"))

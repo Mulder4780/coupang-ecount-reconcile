@@ -29,7 +29,7 @@ except Exception:
     pass
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-UPD_DIR = os.path.join(BASE_DIR, "updates")
+UPD_DIR = os.environ.get("COUPANG_UPDATES_DIR") or os.path.join(BASE_DIR, "updates")
 PENDING = os.path.join(UPD_DIR, "pending_updates.json")
 HDR_ROW, FIRST = 4, 5
 

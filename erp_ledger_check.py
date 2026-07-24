@@ -31,7 +31,7 @@ from ecount_reconcile import read_ledger, load_config, _num, _d
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INBOX_DIR = os.path.join(BASE_DIR, "inbox")
-REPORT_DIR = os.path.join(BASE_DIR, "reports")
+REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(BASE_DIR, "reports")
 
 
 def norm_slip(s):

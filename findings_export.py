@@ -1,0 +1,136 @@
+# -*- coding: utf-8 -*-
+"""
+findings_export.py — 확인필요 사항 통합 엑셀 생성기
+=====================================================
+모든 대조 결과(정산 조치필요·밴드·카톡·ERP원장·쿠팡PO)를 한 권의 엑셀로 모아
+관리대장 폴더에 『쿠팡_확인필요현황_최신.xlsx』로 저장한다(항상 덮어쓰기 = 항상 최신).
+관리대장 본체는 건드리지 않는다. 매일 에이전트(daily_run)가 자동 실행.
+
+시트: 요약 / 정산_조치필요 / 밴드_미확인 / 카톡_미확인 / ERP원장_문제 / 쿠팡PO_문제
+"""
+import sys, os, csv, glob
+from datetime import datetime
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+from ecount_reconcile import read_ledger, load_config, resolve_master
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+REPORT_DIR = os.path.join(BASE_DIR, "reports")
+OUT_NAME = "쿠팡_확인필요현황_최신.xlsx"
+
+
+def latest_csv(pat):
+    fs = sorted(glob.glob(os.path.join(REPORT_DIR, pat)))
+    if not fs:
+        return []
+    return list(csv.DictReader(open(fs[-1], encoding="utf-8-sig")))
+
+
+def settle_issues(master):
+    rows = []
+    for sid, r in sorted(read_ledger(master).items()):
+        issued = r.get("원장_세금계산서실제발행일") or r.get("원장_세금계산서발행일")
+        has_stmt = bool(str(r.get("원장_거래명세서번호") or "").strip())
+        if r.get("비용구분") != "유상":
+            continue
+        if not r.get("원장_공급가액"):
+            st = "금액 미입력"
+        elif not has_stmt:
+            st = "미청구(전표 없음)"
+        elif not issued:
+            st = "세금계산서 미발행"
+        elif not r.get("원장_입금일"):
+            st = "입금 대기"
+        else:
+            continue
+        rows.append({"정산ID": sid, "문제유형": st, "캠프명": r.get("캠프명"),
+                     "프로젝트NO": r.get("프로젝트NO"), "공급가액": r.get("원장_공급가액") or 0,
+                     "완료일": str(r.get("작업완료일") or "")[:10],
+                     "명세서번호": r.get("원장_거래명세서번호") or "", "PO번호": r.get("원장_PO번호") or ""})
+    return rows
+
+
+def collect(master):
+    data = {}
+    data["정산_조치필요"] = settle_issues(master)
+    data["밴드_미확인"] = [r for r in latest_csv("밴드대조_*.csv") if r.get("밴드게시") == "미확인"]
+    data["카톡_미확인"] = [r for r in latest_csv("카톡대조_*.csv") if r.get("카톡보고") == "미확인"]
+    data["ERP원장_문제"] = latest_csv("ERP원장대조_*.csv")
+    data["쿠팡PO_문제"] = latest_csv("PO대조_*.csv")
+    return data
+
+
+def write_xlsx(data, out_path):
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    wb = openpyxl.Workbook()
+    NAVY, LINE = "0E1B3F", "E4E9F0"
+    hd_font = Font(bold=True, color="FFFFFF", size=10)
+    hd_fill = PatternFill("solid", fgColor=NAVY)
+
+    # 요약 시트
+    ws = wb.active; ws.title = "요약"
+    ws["A1"] = "쿠팡 통합업무 — 확인필요 현황"
+    ws["A1"].font = Font(bold=True, size=15)
+    ws["A2"] = f"생성 {datetime.now():%Y-%m-%d %H:%M} · 에이전트 자동 생성(매일 갱신) · 관리대장 본체는 별도"
+    ws["A2"].font = Font(color="777777", size=9)
+    ws.append([]); ws.append(["구분", "건수", "설명"])
+    for c in ws[4]:
+        c.font, c.fill = hd_font, hd_fill
+    desc = {"정산_조치필요": "유상 정산 중 미청구·계산서미발행·입금대기·금액미입력",
+            "밴드_미확인": "작업완료인데 밴드 게시글을 찾지 못한 건",
+            "카톡_미확인": "작업완료인데 카톡 보고를 찾지 못한 건",
+            "ERP원장_문제": "ERP에만/원장에만/계산서X/금액차 (A~D)",
+            "쿠팡PO_문제": "원장미등록 PO·오기입·금액차·연결제안 (A~D)"}
+    for k, rows in data.items():
+        ws.append([k.replace("_", " "), len(rows), desc.get(k, "")])
+    for col, w in (("A", 22), ("B", 8), ("C", 62)):
+        ws.column_dimensions[col].width = w
+
+    # 상세 시트들
+    for name, rows in data.items():
+        s = wb.create_sheet(name)
+        if not rows:
+            s["A1"] = "해당 없음 ✅ (또는 대조 데이터 미투입 — inbox에 파일을 넣으면 채워짐)"
+            continue
+        cols = []
+        for r in rows:
+            for k in r:
+                if k not in cols:
+                    cols.append(k)
+        s.append(cols)
+        for c in s[1]:
+            c.font, c.fill = hd_font, hd_fill
+            c.alignment = Alignment(vertical="center")
+        for r in rows:
+            s.append([r.get(c, "") for c in cols])
+        s.freeze_panes = "A2"
+        s.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{len(rows)+1}"
+        for i, c in enumerate(cols, 1):
+            width = max(10, min(46, max([len(str(c))] + [len(str(r.get(c, ""))) for r in rows[:50]]) + 2))
+            s.column_dimensions[get_column_letter(i)].width = width
+    wb.save(out_path)
+
+
+def main():
+    cfg = load_config()
+    master = resolve_master(cfg["reconcile"]["master_xlsx"])
+    data = collect(master)
+    out = os.path.join(os.path.dirname(master), OUT_NAME)
+    try:
+        write_xlsx(data, out)
+    except PermissionError:
+        out = os.path.join(REPORT_DIR, OUT_NAME)   # 열려 있으면 reports/에 대체 저장
+        write_xlsx(data, out)
+    total = sum(len(v) for v in data.values())
+    print("확인필요 통합:", " / ".join(f"{k} {len(v)}" for k, v in data.items()))
+    print(f"총 {total}건 → {out}")
+
+
+if __name__ == "__main__":
+    main()

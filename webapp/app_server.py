@@ -231,11 +231,11 @@ def _master_mtime():
 
 
 def _fresh(key):
-    """엑셀이 바뀌면(mtime) 캐시 즉시 무효화 — '엑셀 변경 → 앱 자동 반영'"""
+    """엑셀이 바뀌면(mtime) 즉시 + 120초 TTL로 캐시 무효화 — '엑셀·대조 변경 → 앱 자동 반영'"""
     mt = _master_mtime()
-    if _cache.get("mt") != mt:
+    if _cache.get("mt") != mt or time.time() - _cache.get("ts", 0) > 120:
         _cache.clear()
-        _cache["mt"] = mt
+        _cache["mt"], _cache["ts"] = mt, time.time()
     return _cache.get(key)
 
 
@@ -276,7 +276,30 @@ def get_issues():
             if len(rows) >= 300:
                 break
     wb.close()
-    out = {"rows": rows, "cols": [h for _, h in heads] if rows else []}
+    # 대조 결과(밴드·카톡·ERP원장·쿠팡PO) 통합 — 07시트 위에 얹어 한 화면에서 전부 확인
+    merged = []
+    try:
+        from findings_export import latest_csv
+        for src, pat, filt in (("밴드 게시 미확인", "밴드대조_*.csv", lambda r: r.get("밴드게시") == "미확인"),
+                               ("카톡 보고 미확인", "카톡대조_*.csv", lambda r: r.get("카톡보고") == "미확인"),
+                               ("ERP원장 문제", "ERP원장대조_*.csv", lambda r: True),
+                               ("쿠팡PO 문제", "PO대조_*.csv", lambda r: True)):
+            for r in latest_csv(pat):
+                if filt(r):
+                    merged.append({"문제유형": src + (f"({r['유형']})" if r.get("유형") else ""),
+                                   "업무ID": r.get("ID") or r.get("정산ID") or r.get("전표") or r.get("PO번호") or "",
+                                   "캠프명": r.get("캠프명", ""), "담당자": r.get("담당기사", ""),
+                                   "문제내용": (r.get("판정") or r.get("내용") or
+                                                f"완료 {r.get('완료일','')}" ) [:100]})
+    except Exception:
+        pass
+    rows = merged + rows
+    cols = []
+    for r in rows[:50]:
+        for k in r:
+            if k not in cols:
+                cols.append(k)
+    out = {"rows": rows, "cols": cols}
     _cache["issues"] = out
     return out
 

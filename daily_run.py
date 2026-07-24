@@ -77,7 +77,10 @@ def main():
     # 5. 확정 업데이트 자동 반영 — 빈 칸만·근거 보유·항상 새 버전(vN+1) 생성이라 안전
     steps.append(run("관리대장 자동입력(확정분)", [os.path.join(ROOT, "ledger_writer.py"), "--apply"]))
 
-    # 6. 전표 전송 대기 현황 (dry-run만 — 실전송은 절대 자동화하지 않음)
+    # 6. 확인필요 통합 엑셀 생성 — 관리대장 폴더에 『쿠팡_확인필요현황_최신.xlsx』 (항상 최신 덮어쓰기)
+    steps.append(run("확인필요 통합엑셀 생성", [os.path.join(ROOT, "findings_export.py")]))
+
+    # 7. 전표 전송 대기 현황 (dry-run만 — 실전송은 절대 자동화하지 않음)
     steps.append(run("전표 전송대기(dry-run)", [os.path.join(ROOT, "ecount_upload.py")]))
 
     finish(steps)

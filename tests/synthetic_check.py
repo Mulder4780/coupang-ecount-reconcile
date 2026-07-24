@@ -78,7 +78,7 @@ def t1_erp_check(tmp):
     make_ledger(ledger); make_erp(erp)
     r = subprocess.run([PY, os.path.join(ROOT, "erp_ledger_check.py"),
                         "--file", erp, "--master", ledger],
-                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT)
+                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp})
     out = r.stdout
     m = re.search(r"A\(ERP에만\) (\d+) / B\(원장에만\) (\d+) / C\(계산서미발행\) (\d+) / D\(금액불일치\) (\d+) / 정상 (\d+)", out)
     assert m, f"결과 라인 파싱 실패:\n{out}\n{r.stderr}"
@@ -124,7 +124,7 @@ def t4_kakao(tmp):
         f.write("2026년 7월 3일 오후 4:01, 유현민 : 일반 공지 메시지\n")  # 모바일 형식 검증
     r = subprocess.run([PY, os.path.join(ROOT, "kakao", "kakao_reconcile.py"),
                         "--file", txt, "--master", ledger],
-                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT)
+                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp})
     m = re.search(r"확인 (\d+) / 미확인 (\d+)", r.stdout)
     assert m, f"카톡 결과 파싱 실패:\n{r.stdout}\n{r.stderr}"
     ok, miss = map(int, m.groups())
@@ -154,7 +154,7 @@ def t5_writer(tmp):
     ], open(q, "w", encoding="utf-8"), ensure_ascii=False)
     r = subprocess.run([PY, os.path.join(ROOT, "ledger_writer.py"), "--apply",
                         "--master", src, "--queue", q],
-                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT)
+                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp})
     assert "반영 완료" in r.stdout and "입력 2건 / 건너뜀 1건" in r.stdout, f"{r.stdout}\n{r.stderr}"
     dst = src.replace("_v1.xlsx", "_v2.xlsx")
     w2 = openpyxl.load_workbook(dst)
@@ -181,18 +181,14 @@ def t7_po(tmp):
     wb.save(pof)
     r = subprocess.run([PY, os.path.join(ROOT, "po_reconcile.py"),
                         "--file", pof, "--master", ledger, "--no-queue"],
-                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT)
+                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp})
     m = re.search(r"A\(원장미등록\) (\d+) / B\(쿠팡목록에없음\) (\d+) / C\(금액불일치\) (\d+) / D\(연결제안\) (\d+) / 정상 (\d+)", r.stdout)
     assert m, f"PO 결과 파싱 실패:\n{r.stdout}\n{r.stderr}"
     a, b, c, d, ok = map(int, m.groups())
     assert (a, b, c, d, ok) == (2, 1, 0, 1, 1), f"PO 판정 불일치: A{a} B{b} C{c} D{d} OK{ok} (기대 2,1,0,1,1)"
-    assert "유일 매칭" in open(sorted(glob_reports("PO대조_*.md"))[-1], encoding="utf-8").read()
-    print("  [7] 쿠팡 PO 대조(원장미등록·오기입·금액·유일매칭 제안) ✅")
-
-
-def glob_reports(pat):
     import glob as _g
-    return _g.glob(os.path.join(ROOT, "reports", pat))
+    assert "유일 매칭" in open(sorted(_g.glob(os.path.join(tmp, "PO대조_*.md")))[-1], encoding="utf-8").read()
+    print("  [7] 쿠팡 PO 대조(원장미등록·오기입·금액·유일매칭 제안) ✅")
 
 
 def t6_webapp():
