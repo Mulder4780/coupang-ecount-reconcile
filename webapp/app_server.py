@@ -425,6 +425,8 @@ class H(BaseHTTPRequestHandler):
             ok = body.get("pin", "") == PIN
             (_ok_login if ok else _fail)(ip)
             return self._send(200 if ok else 401, {"ok": ok})
+        if p == "/api/band_dump":
+            return self._band_dump()
         if not self._auth():
             return self._send(401, {"error": "PIN"})
         m = re.match(r"^/api/run/(\w+)$", p)
@@ -449,6 +451,24 @@ class H(BaseHTTPRequestHandler):
                             "evidence": f"앱 입력({ip}) {datetime.now():%m-%d %H:%M}", "only_if_empty": True}])
             return self._send(200, {"ok": True, "queued": n, "pending": len(load_queue())})
         return self._send(404, {"error": "not found"})
+
+    def _band_dump(self):
+        """브라우저 수집기가 밴드 게시글 원본을 직접 전송(no-cors POST) — PIN 쿼리로 보호"""
+        from urllib.parse import parse_qs, urlparse
+        q = parse_qs(urlparse(self.path).query)
+        if (q.get("pin") or [""])[0] != PIN:
+            return self._send(401, {"ok": False})
+        ln = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(ln)
+        try:
+            d = json.loads(raw.decode("utf-8"))
+            band = re.sub(r"\D", "", str(d.get("band", ""))) or "unknown"
+            os.makedirs(os.path.join(ROOT, "band", "cache"), exist_ok=True)
+            path = os.path.join(ROOT, "band", "cache", f"dump_{band}.json")
+            open(path, "w", encoding="utf-8").write(json.dumps(d, ensure_ascii=False))
+            return self._send(200, {"ok": True, "saved": len(d.get("posts", {}))})
+        except Exception as e:
+            return self._send(400, {"ok": False, "error": str(e)[:200]})
 
     def log_message(self, *a):
         pass

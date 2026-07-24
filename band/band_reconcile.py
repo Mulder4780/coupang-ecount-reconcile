@@ -38,7 +38,7 @@ def load_posts():
     if not os.path.isdir(CACHE_DIR):
         return posts
     for fn in os.listdir(CACHE_DIR):
-        if not fn.endswith(".json"):
+        if not fn.endswith(".json") or fn.startswith(("raw_", "dump_")):
             continue
         c = json.load(open(os.path.join(CACHE_DIR, fn), encoding="utf-8"))
         for pk, p in c.get("posts", {}).items():
@@ -66,7 +66,9 @@ def to_date(v):
 
 def read_rows():
     import openpyxl
-    wb = openpyxl.load_workbook(cfg["reconcile"]["master_xlsx"], read_only=True, data_only=True)
+    sys.path.insert(0, ROOT)
+    from ecount_reconcile import resolve_master
+    wb = openpyxl.load_workbook(resolve_master(cfg["reconcile"]["master_xlsx"]), read_only=True, data_only=True)
     out = []
     spec = {  # 시트: (ID, 프로젝트NO, 캠프명, 담당기사, 완료일, 사진등록, 완료보고서, 밴드수정, 상태)
         "02_돌발AS접수": ("접수ID", "프로젝트NO", "캠프명", "담당기사", "작업완료일", "사진등록", "완료보고서등록", "밴드수정", "진행상태"),

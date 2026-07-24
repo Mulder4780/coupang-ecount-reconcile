@@ -258,6 +258,18 @@ def main():
             (done if ok else skipped2).append({**p, "사유": why})
         xmls[fname] = xml
 
+    # 실제 입력이 0건이면 새 버전을 만들지 않는다 (전부 이미 값 있음 = 원장과 이미 일치)
+    if not done:
+        zin.close()
+        os.makedirs(UPD_DIR, exist_ok=True)
+        stamp0 = datetime.now().strftime("%Y%m%d_%H%M")
+        json.dump({"applied": [], "skipped": skips + skipped2, "version": "미생성(0건)"},
+                  open(os.path.join(UPD_DIR, f"applied_{stamp0}.json"), "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=1)
+        json.dump([], open(PENDING, "w", encoding="utf-8"))
+        print(f"\n입력할 빈 칸 없음(전부 기존 값 보유) — 새 버전 미생성, 큐 {len(skipped2)}건 정리 완료")
+        return
+
     # 인수인계 행도 같은 버전에 기록
     hand = smap.get("19_AI작업인수인계")
     if hand:
