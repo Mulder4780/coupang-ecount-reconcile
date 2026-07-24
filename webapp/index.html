@@ -348,7 +348,10 @@ const fmt = n => (n==null||n==='')?'-':Number(n).toLocaleString('ko-KR');
 async function api(path, opt={}){
   opt.headers = Object.assign({'X-Pin': PIN}, opt.headers||{});
   const r = await fetch(path, opt);
-  if(r.status===401){ localStorage.removeItem('cw_pin'); $('gate').style.display='flex'; throw 'PIN'; }
+  if(r.status===401){
+    PIN=''; localStorage.removeItem('cw_pin');   // 구 PIN 즉시 폐기 → 자동 폴링 중단(자기 잠금 방지)
+    $('gate').style.display='flex'; throw 'PIN';
+  }
   return r.json();
 }
 async function login(){

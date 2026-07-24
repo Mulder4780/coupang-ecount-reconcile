@@ -382,13 +382,11 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _auth(self):
-        ip = self.client_address[0]
-        if _locked(ip):
+        # 잠금 카운트는 /api/login 에서만 증가 — 구 PIN이 저장된 브라우저의
+        # 자동 폴링이 잠금을 유발하던 문제(자기 잠금) 방지
+        if _locked(self.client_address[0]):
             return False
-        ok = self.headers.get("X-Pin", "") == PIN
-        if not ok and self.headers.get("X-Pin"):
-            _fail(ip)
-        return ok
+        return self.headers.get("X-Pin", "") == PIN
 
     def do_GET(self):
         p = self.path.split("?")[0]
