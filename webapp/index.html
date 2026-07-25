@@ -565,6 +565,7 @@ async function loadSettle(){
   try{ works = await api('/api/works'); }catch(e){}
   try{ issuesData = await api('/api/issues'); }catch(e){}
   try{ checks = await api('/api/checks'); }catch(e){}
+  try{ execRep = await api('/api/exec_report'); }catch(e){}
   fillStatOptions(); renderSettle(); periodInit();
 }
 function setMode(m){
@@ -993,6 +994,32 @@ async function setDates(){
 /* ── 대표 보고서: 생성 → 캡처(PNG) → 공유 ── */
 let srcStats = {};                     // /api/status 의 sources (3원천 실집계)
 let _rptData = null;                   // 보고서 데이터(HTML·Canvas 공용)
+let execRep = {};                      // 01_대표보고 시트 원본(엑셀 수식 집계 결과)
+
+/* 01_대표보고 섹션을 보고서 HTML로 — 엑셀 대표보고와 동일한 항목·수치 */
+function execHtml(){
+  const secs = (execRep.sections||[]);
+  if(!secs.length) return '';
+  let h = '';
+  if((execRep.summary||[]).length){
+    h += `<h4>정리</h4><div style="font-size:13px;line-height:1.7">${
+      execRep.summary.map(s=>`<div>${s}</div>`).join('')}</div>`;
+  }
+  secs.forEach(s=>{
+    h += `<h4>${s.title}</h4>`;
+    if(s.items.length){
+      h += `<div class="rgrid" style="grid-template-columns:repeat(3,1fr)">` +
+        s.items.map(([l,v])=>`<div class="rcell" style="text-align:left">
+          <div class="l" style="font-size:10.5px">${l}</div>
+          <div class="v" style="font-size:16px">${v||'-'}</div></div>`).join('') + `</div>`;
+    }
+    if(s.lines.length){
+      h += `<div style="font-size:12.5px;line-height:1.75;margin-top:4px">${
+        s.lines.map(t=>`<div>${t}</div>`).join('')}</div>`;
+    }
+  });
+  return h;
+}
 function srcRow(label, s, emptyMsg){
   if(!s || !s.total) return `<tr><td>${label}</td><td colspan="2" style="color:#98A2B3">${emptyMsg}</td></tr>`;
   const pct = Math.round(s.ok/s.total*100);
@@ -1018,7 +1045,9 @@ function renderDaily(){
     <div class="rhead">
       <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.5 12h-11z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></div>
       <h2>쿠팡 통합업무 일일보고<small>(주)유니버셜리프트앤히타치코리아</small></h2>
-      <div class="rdate">보고일<b>${y}-${m}-${String(today.getDate()).padStart(2,'0')}</b></div>
+      <div class="rdate">보고일<b>${(execRep.meta&&execRep.meta['보고일'])||`${y}-${m}-${String(today.getDate()).padStart(2,'0')}`}</b>
+        <span style="font-size:10.5px;font-weight:600;color:var(--ink-3)">집계기준일 ${
+          (execRep.meta&&execRep.meta['집계기준일'])||'-'} · 보고자 ${(execRep.meta&&execRep.meta['보고자'])||'-'}</span></div>
     </div>
     <h4>핵심 지표 (누적)</h4>
     <div class="rgrid">
@@ -1038,6 +1067,7 @@ function renderDaily(){
       ${cell((works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m)).length+'건','정기점검')}
       ${cell(Sm.filter(r=>!['정상','무상/보험'].includes(r.상태)).length+'건','당월 조치필요')}
     </div>
+    ${execHtml()}
     <h4>조치 필요 — 유형별 (프로젝트NO)</h4>
     <table><tr><th>유형</th><th style="text-align:right">건수</th><th style="text-align:right">금액(원)</th><th>프로젝트NO</th></tr>
       ${Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>
@@ -1065,7 +1095,10 @@ function renderDaily(){
   addSrc('ERP 원장', S_.erp, '계정별원장 투입 시 자동');
   if(S_.po) addSrc('쿠팡 PO', S_.po, '');
   _rptData = {
-    date: `${y}-${m}-${String(today.getDate()).padStart(2,'0')}`,
+    date: (execRep.meta&&execRep.meta['보고일']) || `${y}-${m}-${String(today.getDate()).padStart(2,'0')}`,
+    meta: execRep.meta || {},
+    summary: execRep.summary || [],
+    exec: (execRep.sections||[]).map(s=>({title:s.title, items:s.items||[], lines:s.lines||[]})),
     kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)'],
           [fmt(미수),'미수금(원)', 미수?'#B54708':'#12813F'],
           [(유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율'],
@@ -1092,9 +1125,13 @@ async function reportToPng(){
   const F = (sz,w) => `${w||400} ${sz}px "Nanum Gothic","Malgun Gothic",sans-serif`;
   const cv = document.createElement('canvas');
   const ctx = cv.getContext('2d');
-  // ── 높이 선계산
+  // ── 높이 선계산 (대표보고 섹션 포함)
   const tiles = r => Math.ceil(r/3)*74;
-  let H = 108 + 34 + tiles(6) + 34 + tiles(6) + 34 + (D.issues.length+1)*30 + 34 + (D.srcs.length+1)*30 + 54;
+  const execH = (D.summary||[]).length ? 34 + (D.summary.length*20) : 0;
+  const execSecH = (D.exec||[]).reduce((a,s)=>a + 34 + (s.items.length?tiles(s.items.length):0)
+                                                 + (s.lines.length? s.lines.length*20 + 6 : 0), 0);
+  let H = 108 + execH + execSecH + 34 + tiles(6) + 34 + tiles(6)
+          + 34 + (D.issues.length+1)*30 + 34 + (D.srcs.length+1)*30 + 54;
   cv.width = W*S; cv.height = H*S;
   ctx.scale(S,S);
   ctx.textBaseline = 'middle';
@@ -1117,8 +1154,10 @@ async function reportToPng(){
   txt('UL',52,49,F(15,800),'#fff','center');
   txt('쿠팡 통합업무 일일보고',92,40,F(21,800),'#fff');
   txt('(주)유니버셜리프트앤히타치코리아',92,64,F(12),'#9FB4E8');
-  txt('보고일',W-30,38,F(11),'#9FB4E8','right');
-  txt(D.date,W-30,60,F(17,800),'#fff','right');
+  txt('보고일',W-30,32,F(11),'#9FB4E8','right');
+  txt(D.date,W-30,52,F(17,800),'#fff','right');
+  txt(`집계기준일 ${(D.meta&&D.meta['집계기준일'])||'-'} · 보고자 ${(D.meta&&D.meta['보고자'])||'-'}`,
+      W-30,72,F(10),'#9FB4E8','right');
 
   let y = 96;
   const section = t => { y += 34; txt(t,30,y-8,F(13,800),'#1B41BC');
@@ -1140,6 +1179,15 @@ async function reportToPng(){
       ctx.strokeStyle='#EEF2F7'; ctx.beginPath(); ctx.moveTo(30,y+30); ctx.lineTo(W-30,y+30); ctx.stroke();
       y+=30; });
   };
+
+  // ── 01_대표보고 섹션 (엑셀 대표보고와 동일 항목)
+  const lines = arr => { arr.forEach(t=>{ txt(clip(t, W-70), 34, y+8, F(12), '#475467'); y += 20; }); y += 6; };
+  if((D.summary||[]).length){ section('정리'); lines(D.summary); }
+  (D.exec||[]).forEach(s=>{
+    section(s.title);
+    if(s.items.length) grid(s.items.map(([l,v])=>[v||'-', l]));
+    if(s.lines.length) lines(s.lines);
+  });
 
   section('핵심 지표 (누적)');   grid(D.kpi);
   section(D.monthTitle);        grid(D.month);

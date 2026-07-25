@@ -258,6 +258,80 @@ def get_works():
         return w
 
 
+def _fmtv(v):
+    """01시트 값 표시용: 부동소수 오차 정리·천단위·날짜"""
+    if v is None or v == "":
+        return ""
+    if hasattr(v, "strftime"):
+        return v.strftime("%Y-%m-%d")
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        n = round(float(v), 2)
+        n = int(n) if abs(n - round(n)) < 0.01 else n
+        return f"{n:,}"
+    return str(v).strip()
+
+
+def read_exec_report(master):
+    """01_대표보고 시트를 구조 그대로 읽는다(엑셀 수식이 곧 집계 로직 — 앱에서 재계산하지 않음)."""
+    import openpyxl
+    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    if "01_대표보고" not in wb.sheetnames:
+        wb.close()
+        return {}
+    ws = wb["01_대표보고"]
+    rows = [r for r in ws.iter_rows(min_row=1, max_row=min(ws.max_row, 60), values_only=True)]
+    wb.close()
+    out = {"meta": {}, "summary": [], "sections": []}
+    cur = None
+    for i, row in enumerate(rows, 1):
+        g = lambda j: row[j] if j < len(row) else None
+        a = _fmtv(g(0))
+        if i == 4:                                     # 보고일·집계기준일·보고자
+            for li, vi in ((0, 1), (3, 4), (6, 7)):
+                lab, val = _fmtv(g(li)), _fmtv(g(vi))
+                if lab:
+                    out["meta"][lab] = val
+            continue
+        if a.startswith("■"):
+            out["summary"].append(a)
+            continue
+        # 섹션 헤더는 "2.  당일 업무 실적"처럼 숫자 뒤에 한글이 온다.
+        # "1. [돌발AS] …" 같은 TOP5 항목은 대괄호로 시작하므로 헤더가 아니다.
+        if re.match(r"^\d+\.\s*[가-힣]", a):
+            cur = {"title": re.sub(r"\s+", " ", a), "items": [], "lines": []}
+            out["sections"].append(cur)
+            continue
+        if not cur or a.startswith(("※", "[")):        # 안내문·블록 헤더는 건너뜀
+            continue
+        pairs, texts = [], []
+        for li, vi in ((0, 1), (3, 4), (6, 7)):        # 3열 그룹: 라벨|값
+            lab, val = _fmtv(g(li)), _fmtv(g(vi))
+            if not lab or lab.startswith("["):
+                continue
+            if val == "" and len(lab) > 20:            # 값 없는 긴 문장 = 서술형(TOP5 등)
+                texts.append(lab)
+            else:
+                pairs.append([lab, val])
+        cur["items"] += pairs
+        cur["lines"] += texts
+    return out
+
+
+def get_exec_report():
+    if DEMO:
+        return {"meta": {"보고일": "2026-07-25", "집계기준일": "2026-07-24", "보고자": "유현민"},
+                "summary": ["■ 데모 요약"], "sections": [
+                    {"title": "2. 당일 업무 실적", "items": [["신규 접수", "3"], ["작업 완료", "1"]], "lines": []}]}
+    with _readlock:
+        r = _fresh("exec")
+        if r:
+            return r
+        from ecount_reconcile import load_config, resolve_master
+        r = read_exec_report(resolve_master(load_config()["reconcile"]["master_xlsx"]))
+        _cache["exec"] = r
+        return r
+
+
 def get_issues():
     """07_불일치누락현황 — 엑셀의 '검증 안 된·확인해야 할' 항목 그대로"""
     if DEMO:
@@ -486,6 +560,8 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, get_works())
         if p == "/api/issues":
             return self._send(200, get_issues())
+        if p == "/api/exec_report":
+            return self._send(200, get_exec_report())
         if p == "/api/checks":
             return self._send(200, get_checks())
         if p == "/api/reports":
