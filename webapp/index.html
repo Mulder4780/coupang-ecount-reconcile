@@ -294,6 +294,10 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 .rpt h4::after{content:"";flex:1;height:1px;background:var(--line)}
 .rgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .rcell{background:#F8FAFD;border:1px solid #EEF2F7;border-radius:10px;padding:10px 12px;text-align:center}
+.rcell.clk{cursor:pointer;transition:border .15s,box-shadow .15s,transform .1s}
+.rcell.clk:hover{border-color:var(--brand);box-shadow:0 3px 10px rgba(36,82,230,.16)}
+.rcell.clk:active{transform:scale(.97)}
+.rcell .go{color:var(--brand);font-weight:800}
 .rcell .v{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.4px}
 .rcell .l{font-size:10px;color:var(--ink-3);font-weight:700;margin-top:1px}
 .rpt table{width:100%;border-collapse:collapse;font-size:12px}
@@ -1349,7 +1353,29 @@ function renderDaily(){
   const pmWait = (works.pm||[]).filter(r=>r.점검상태 && r.점검상태!=='완료');
   const byType = {};
   issues.forEach(r=>{ (byType[r.상태]=byType[r.상태]||[]).push(r); });
-  const cell = (v,l)=>`<div class="rcell"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+  // KPI를 누르면 그 숫자를 만든 실제 건들을 볼 수 있게 집합을 등록해 둔다
+  const KS = {}; window._kpiSets = KS;
+  const reg = (k, title, rows, kind) => { KS[k] = {title, rows: rows||[], kind: kind||'settle'}; return k; };
+  const AS_m = (works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,m));
+  const PM_m = (works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m));
+  reg('k_all',  `정산 총계 (${y}년 누적)`, S);
+  reg('k_amt',  `공급가액 (${y}년 누적)`, [...S].sort((a,b)=>(+b.공급가액||0)-(+a.공급가액||0)));
+  reg('k_due',  '미수금 보유 건', S.filter(r=>(+r.미수금||0)>0));
+  reg('k_tax',  '계산서 미발행 (유상 기준)', 유상.filter(r=>r.계산서!=='발행'));
+  reg('k_iss',  '조치 필요', issues);
+  reg('k_as',   '돌발AS 진행중', asOpen, 'as');
+  reg('k_pm',   '정기점검 대기', pmWait, 'pm');
+  reg('m_set',  `${+m}월 정산`, Sm);
+  reg('m_amt',  `${+m}월 공급가액`, [...Sm].sort((a,b)=>(+b.공급가액||0)-(+a.공급가액||0)));
+  reg('m_pay',  `${+m}월 입금`, Sm.filter(r=>(+r.입금액||0)>0));
+  reg('m_as',   `${+m}월 돌발AS`, AS_m, 'as');
+  reg('m_pm',   `${+m}월 정기점검`, PM_m, 'pm');
+  reg('m_iss',  `${+m}월 조치필요`, Sm.filter(r=>needAction(r)));
+  const cell = (v,l,k)=>{
+    const on = k && KS[k] && KS[k].rows.length;
+    return `<div class="rcell${on?' clk':''}"${on?` onclick="openKpi('${k}')"`:''}>` +
+      `<div class="v">${v}</div><div class="l">${l}${on?' <span class="go">▸</span>':''}</div></div>`;
+  };
   $('rpt').innerHTML = `
     <div class="rhead">
       <div class="logo"><svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lgm" x1=".08" y1="1" x2=".92" y2="0"><stop offset="0" stop-color="#fff"/><stop offset=".46" stop-color="#D6FBEA"/><stop offset="1" stop-color="#1FDD86"/></linearGradient></defs><path d="M122 262 L214 352 L396 116" fill="none" stroke="url(#lgm)" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/><rect x="136" y="404" width="240" height="30" rx="15" fill="#fff" opacity=".95"/><rect x="182" y="452" width="148" height="18" rx="9" fill="#fff" opacity=".4"/></svg></div>
@@ -1360,24 +1386,24 @@ function renderDaily(){
     </div>
     <h4>핵심 지표 (${y}년 누적 · ~${ytdTo})</h4>
     <div class="rgrid">
-      ${cell(S.length+'건','정산 총계')}
-      ${cell(fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)')}
-      ${cell(fmt(미수),'미수금(원)')}
-      ${cell((유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율')}
-      ${cell(issues.length+'건','조치 필요')}
-      ${cell(asOpen.length+'건','돌발AS 진행중')}
-      ${cell(pmWait.length+'건','정기점검 대기')}
+      ${cell(S.length+'건','정산 총계','k_all')}
+      ${cell(fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)','k_amt')}
+      ${cell(fmt(미수),'미수금(원)','k_due')}
+      ${cell((유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율','k_tax')}
+      ${cell(issues.length+'건','조치 필요','k_iss')}
+      ${cell(asOpen.length+'건','돌발AS 진행중','k_as')}
+      ${cell(pmWait.length+'건','정기점검 대기','k_pm')}
     </div>
     ${outYTD?`<div style="font-size:11px;color:var(--ink-3);margin-top:6px">
       ※ 완료일이 없거나 ${y}년·오늘 이후인 ${outYTD}건은 누적에서 제외</div>`:''}
     <h4>${+m}월 실적</h4>
     <div class="rgrid">
-      ${cell(Sm.length+'건','정산')}
-      ${cell(fmt(Sm.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)')}
-      ${cell(fmt(Sm.reduce((a,r)=>a+(+r.입금액||0),0)),'입금(원)')}
-      ${cell((works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,m)).length+'건','돌발AS')}
-      ${cell((works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m)).length+'건','정기점검')}
-      ${cell(Sm.filter(r=>needAction(r)).length+'건','당월 조치필요')}
+      ${cell(Sm.length+'건','정산','m_set')}
+      ${cell(fmt(Sm.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)','m_amt')}
+      ${cell(fmt(Sm.reduce((a,r)=>a+(+r.입금액||0),0)),'입금(원)','m_pay')}
+      ${cell(AS_m.length+'건','돌발AS','m_as')}
+      ${cell(PM_m.length+'건','정기점검','m_pm')}
+      ${cell(Sm.filter(r=>needAction(r)).length+'건','당월 조치필요','m_iss')}
     </div>
     ${erpHtml(y)}
     ${execHtml()}
@@ -1549,6 +1575,31 @@ function openPane(html){
   setTimeout(()=>$('sheet').classList.add('open'), 10);
 }
 
+/* KPI 숫자 → 그 숫자를 만든 실제 건 목록 */
+function openKpi(key){
+  const set = (window._kpiSets||{})[key]; if(!set) return;
+  const kind = set.kind, rows = set.rows;
+  const sum = rows.reduce((a,r)=>a+(+r.공급가액||0),0);
+  const line = r => {
+    if(kind==='as')  return {id:r.접수ID||r.프로젝트NO, camp:r.캠프명, who:r.담당기사||'',
+                             date:r.접수일자||'', st:r.진행상태||'', amt:0, prj:r.프로젝트NO};
+    if(kind==='pm')  return {id:r.점검ID||r.프로젝트NO, camp:r.캠프명, who:r.담당기사||'',
+                             date:r.점검예정일||'', st:r.점검상태||'', amt:0, prj:r.프로젝트NO};
+    return {id:r.정산ID, camp:`${r.캠프명||''} · ${r.업무구분||''}`, who:'',
+            date:r.완료일||'', st:r.상태||'', amt:+r.공급가액||0, prj:r.프로젝트NO||r.정산ID};
+  };
+  openPane(`<h2>${set.title} <span class="chip c-warn">${rows.length}건</span></h2>` +
+    `<div class="sub">${sum?fmt(sum)+'원 · ':''}누르면 해당 건 상세로 이동합니다</div>` +
+    `<div class="slist" style="margin-top:12px">` + (rows.map(r=>{
+      const v = line(r);
+      return `<div class="srow" onclick="openByPrj(${esc4(v.prj||v.id)})">
+        <div class="top"><span class="id">${v.id||'-'}</span>${v.amt?`<span class="amt">${fmt(v.amt)}원</span>`:chip(v.st)}</div>
+        <div class="top"><span class="camp">${v.camp||''}</span>
+          <span class="camp">${v.who||''} ${v.date||''}</span></div>
+        ${v.amt?`<div class="meta"><span>${chip(v.st)}</span><span>${r.명세서번호||''}</span></div>`:''}
+      </div>`;
+    }).join('') || '<div class="card">해당 건이 없습니다</div>') + `</div>`);
+}
 function openAssignee(name){
   const l = (window._board||{})[name]||[];
   window._curAssignee = name;
