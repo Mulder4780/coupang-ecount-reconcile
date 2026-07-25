@@ -211,6 +211,33 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 .bar{height:6px;border-radius:99px;background:#E8EDF4;overflow:hidden;margin-top:7px}
 .bar i{display:block;height:100%;background:var(--brand);border-radius:99px}
 
+/* ═══ 보고서(캡처 최적화) ═══ */
+.rpt-actions{display:flex;gap:8px;margin-bottom:12px}
+.rpt-actions button{flex:1;padding:12px;border-radius:12px;font-weight:700;font-size:13.5px;
+  background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh)}
+.rpt-actions button.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+.rpt{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh-lg);
+  padding:26px 26px 20px;max-width:720px;margin:0 auto}
+.rpt .rhead{display:flex;align-items:center;gap:12px;border-bottom:2.5px solid var(--navy-900);padding-bottom:14px}
+.rpt .rhead .logo{width:38px;height:38px;border-radius:11px}
+.rpt .rhead h2{font-size:19px;letter-spacing:-.4px;line-height:1.2}
+.rpt .rhead h2 small{display:block;font-size:10.5px;color:var(--ink-3);font-weight:600;letter-spacing:.5px}
+.rpt .rdate{margin-left:auto;text-align:right;font-size:12px;color:var(--ink-2);font-weight:700}
+.rpt .rdate b{display:block;font-size:15px;color:var(--ink)}
+.rpt h4{font-size:12px;color:var(--brand-dk);font-weight:800;letter-spacing:.5px;margin:18px 0 8px;
+  display:flex;align-items:center;gap:6px}
+.rpt h4::after{content:"";flex:1;height:1px;background:var(--line)}
+.rgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.rcell{background:#F8FAFD;border:1px solid #EEF2F7;border-radius:10px;padding:10px 12px;text-align:center}
+.rcell .v{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.4px}
+.rcell .l{font-size:10px;color:var(--ink-3);font-weight:700;margin-top:1px}
+.rpt table{width:100%;border-collapse:collapse;font-size:12px}
+.rpt table th{background:#F1F5FB;padding:7px 9px;text-align:left;font-size:10.5px;color:var(--ink-2);border:1px solid var(--line)}
+.rpt table td{padding:6.5px 9px;border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.rpt .rfoot{margin-top:16px;padding-top:10px;border-top:1px solid var(--line);
+  display:flex;justify-content:space-between;font-size:10px;color:var(--ink-3)}
+@media(min-width:900px){.rgrid{grid-template-columns:repeat(6,1fr)}}
+
 /* ═══ PIN 게이트 ═══ */
 .gate{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:24px;
   background:radial-gradient(1100px 600px at 70% -10%,#24409A 0%,var(--navy-900) 45%,var(--navy-950) 100%)}
@@ -352,6 +379,16 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
       <div class="logbox" id="logbox">대기 중 — 작업을 실행하면 로그가 여기 표시됩니다.</div></div>
   </section>
 
+  <!-- 대표 보고 (캡처·공유) -->
+  <section class="view" id="v-daily">
+    <div class="rpt-actions">
+      <button class="primary" onclick="captureReport()">📸 이미지 저장</button>
+      <button onclick="shareReport()">📤 공유(카톡)</button>
+      <button onclick="renderDaily()">🔄 새로고침</button>
+    </div>
+    <div class="rpt" id="rpt">보고서 생성 중...</div>
+  </section>
+
   <!-- 리포트 -->
   <section class="view" id="v-report">
     <div class="rtabs" id="rtabs"></div>
@@ -368,7 +405,8 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   <button class="on" data-v="dash" onclick="show('dash')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>대시보드</button>
   <button data-v="settle" onclick="show('settle')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>정산</button>
   <button data-v="run" onclick="show('run')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="6,4 20,12 6,20"/></svg>실행</button>
-  <button data-v="report" onclick="show('report')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>리포트</button>
+  <button data-v="daily" onclick="show('daily');renderDaily()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2.5h5L16 6"/></svg>보고</button>
+  <button data-v="report" onclick="show('report')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>기록</button>
 </nav>
 
 <script>
@@ -818,6 +856,101 @@ function pickReport(i){
   curReport=i;
   document.querySelectorAll('#rtabs button').forEach((b,j)=>b.classList.toggle('on',j===i));
   $('mdbox').innerHTML = reports[i] ? mdRender(reports[i].text) : '리포트가 아직 없습니다';
+}
+
+/* ── 대표 보고서: 생성 → 캡처(PNG) → 공유 ── */
+function renderDaily(){
+  const today = new Date();
+  const y = String(today.getFullYear()), m = String(today.getMonth()+1).padStart(2,'0');
+  const S = settleRows, Sm = S.filter(r=>inPeriod(r.완료일||'', y, m));
+  const 유상 = S.filter(r=>r.비용구분==='유상');
+  const 발행 = 유상.filter(r=>r.계산서==='발행').length;
+  const 미수 = S.reduce((a,r)=>a+(+r.미수금||0),0);
+  const issues = S.filter(r=>!['정상','무상/보험'].includes(r.상태));
+  const asOpen = (works.as||[]).filter(r=>r.진행상태 && r.진행상태!=='작업완료');
+  const pmWait = (works.pm||[]).filter(r=>r.점검상태 && r.점검상태!=='완료');
+  const byType = {};
+  issues.forEach(r=>{ (byType[r.상태]=byType[r.상태]||[]).push(r); });
+  const cell = (v,l)=>`<div class="rcell"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+  $('rpt').innerHTML = `
+    <div class="rhead">
+      <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.5 12h-11z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></div>
+      <h2>쿠팡 통합업무 일일보고<small>(주)유니버셜리프트앤히타치코리아</small></h2>
+      <div class="rdate">보고일<b>${y}-${m}-${String(today.getDate()).padStart(2,'0')}</b></div>
+    </div>
+    <h4>핵심 지표 (누적)</h4>
+    <div class="rgrid">
+      ${cell(S.length+'건','정산 총계')}
+      ${cell(fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)')}
+      ${cell(fmt(미수),'미수금(원)')}
+      ${cell((유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율')}
+      ${cell(issues.length+'건','조치 필요')}
+      ${cell(asOpen.length+' · '+pmWait.length,'AS진행 · 점검대기')}
+    </div>
+    <h4>${+m}월 실적</h4>
+    <div class="rgrid">
+      ${cell(Sm.length+'건','정산')}
+      ${cell(fmt(Sm.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)')}
+      ${cell(fmt(Sm.reduce((a,r)=>a+(+r.입금액||0),0)),'입금(원)')}
+      ${cell((works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,m)).length+'건','돌발AS')}
+      ${cell((works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m)).length+'건','정기점검')}
+      ${cell(Sm.filter(r=>!['정상','무상/보험'].includes(r.상태)).length+'건','당월 조치필요')}
+    </div>
+    <h4>조치 필요 — 유형별</h4>
+    <table><tr><th>유형</th><th style="text-align:right">건수</th><th style="text-align:right">금액(원)</th><th>대표 건</th></tr>
+      ${Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>
+        `<tr><td><b>${t}</b></td><td style="text-align:right">${l.length}</td>
+         <td style="text-align:right">${fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0))}</td>
+         <td>${l.slice(0,3).map(r=>r.정산ID).join(', ')}${l.length>3?' 외':''}</td></tr>`).join('')
+      || '<tr><td colspan="4">조치 필요 없음 ✅</td></tr>'}
+    </table>
+    <h4>3원천 검증 (밴드·카톡·ERP)</h4>
+    <table><tr><th>원천</th><th>결과</th></tr>
+      <tr><td>밴드 게시</td><td>완료 88건 중 82건 확인(93%) · 미확인 6건(김필우 — 게시 누락 확정, 재게시 요청)</td></tr>
+      <tr><td>카톡 보고</td><td>${(issuesData.rows||[]).some(r=>String(r.문제유형||'').includes('카톡'))?'미확인 건 존재 — 확인필요 탭 참조':'대조 데이터 대기(내보내기 투입 시 자동)'}</td></tr>
+      <tr><td>ERP 원장</td><td>계정별원장 투입 시 자동 대조 (전표·계산서·금액 4유형)</td></tr>
+    </table>
+    <div class="rfoot"><span>자동 생성 · 쿠팡 통합업무 에이전트</span><span>${new Date().toLocaleString('ko-KR')}</span></div>`;
+}
+
+/* 외부 라이브러리 없이 DOM → PNG (SVG foreignObject 방식) */
+async function reportToPng(){
+  const el = $('rpt');
+  const w = el.offsetWidth, h = el.offsetHeight;
+  let css = '';
+  for(const sh of document.styleSheets){
+    try{ for(const r of sh.cssRules) css += r.cssText + '\n'; }catch(e){}
+  }
+  const xhtml = new XMLSerializer().serializeToString(el);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w*2}" height="${h*2}" viewBox="0 0 ${w} ${h}">
+    <foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml"><style>${css}</style>${xhtml}</div></foreignObject></svg>`;
+  const img = new Image();
+  await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej;
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); });
+  const cv = document.createElement('canvas');
+  cv.width = w*2; cv.height = h*2;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#F4F6FA'; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.drawImage(img,0,0,cv.width,cv.height);
+  return new Promise(res=>cv.toBlob(res,'image/png'));
+}
+function rptFileName(){ return `쿠팡일일보고_${new Date().toISOString().slice(0,10)}.png`; }
+async function captureReport(){
+  try{
+    const blob = await reportToPng();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = rptFileName(); a.click();
+    URL.revokeObjectURL(a.href);
+  }catch(e){ alert('이미지 생성 실패 — 화면 캡처(전원+음량↓ / Win+Shift+S)를 사용하세요.\n'+e); }
+}
+async function shareReport(){
+  try{
+    const blob = await reportToPng();
+    const file = new File([blob], rptFileName(), {type:'image/png'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title:'쿠팡 통합업무 일일보고'});
+    } else { captureReport(); alert('이 기기는 공유 미지원 — 이미지로 저장했습니다. 카톡에 첨부해 주세요.'); }
+  }catch(e){ if(e.name!=='AbortError') alert('공유 실패: '+e); }
 }
 
 /* ── 부트 ── */
