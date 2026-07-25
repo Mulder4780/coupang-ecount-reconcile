@@ -697,7 +697,7 @@ function vbadge(id){
   const one = (label,v)=>{ if(!v) return '';
     const good = v.startsWith('확인')||v==='일치';
     return `<span class="chip ${good?'c-ok':'c-danger'}" style="font-size:10px">${label} ${good?'✓':'✗'}</span>`; };
-  return one('카톡',c.kakao)+one('밴드',c.band)+(c.erp?`<span class="chip c-warn" style="font-size:10px">ERP ${c.erp.slice(0,14)}</span>`:'');
+  return one('카톡',c.kakao)+one('밴드',c.band)+(c.erp?`<span class="chip c-warn" style="font-size:10px">ERP ${c.erp.slice(0,14)}</span>`:'')+(c.po?`<span class="chip c-warn" style="font-size:10px">PO ${c.po.slice(0,14)}</span>`:'');
 }
 function fillStatOptions(){
   const stats = [...new Set(curRows().map(statOf).filter(Boolean))];
@@ -894,7 +894,7 @@ function openSheet(kind, idx, id){
       <dt>입금일</dt><dd>${r.입금일||'-'}</dd>
       <dt>입금액</dt><dd>${r.입금액?fmt(r.입금액)+'원':'-'}</dd>
       <dt>미수금</dt><dd>${r.미수금===''?'-':fmt(r.미수금)+'원'}</dd>
-      <div class="sec">3원천 검증 (카톡·밴드·ERP)</div>
+      <div class="sec">4원천 검증 (카톡·밴드·ERP·쿠팡PO)</div>
       <dt>대조결과</dt><dd>${vbadge(r.정산ID)||'대조 데이터 없음 — inbox에 파일을 넣고 대조를 실행하세요'}</dd>
     </div>
     ${inputForm('settle', r, r.정산ID)}`;
@@ -1132,7 +1132,7 @@ async function setDates(){
 }
 
 /* ── 대표 보고서: 생성 → 캡처(PNG) → 공유 ── */
-let srcStats = {};                     // /api/status 의 sources (3원천 실집계)
+let srcStats = {};                     // /api/status 의 sources (4원천 실집계)
 let _rptData = null;                   // 보고서 데이터(HTML·Canvas 공용)
 let execRep = {};                      // 01_대표보고 시트 원본(엑셀 수식 집계 결과)
 
@@ -1241,14 +1241,14 @@ function renderDaily(){
          }).join('')}${l.length>5?`<span class="more">외 ${l.length-5}건</span>`:''}</div></td></tr>`;}).join('')
       || '<tr><td colspan="5">조치 필요 없음 ✅</td></tr>'}
     </table>
-    <h4>3원천 검증 (밴드·카톡·ERP)</h4>
+    <h4>4원천 검증 (밴드·카톡·ERP·쿠팡PO)</h4>
     <table class="stack">
       <colgroup><col style="width:16%"><col style="width:40%"><col style="width:44%"></colgroup>
       <tr><th>원천</th><th>결과</th><th>미확인 프로젝트NO</th></tr>
       ${srcRow('밴드 게시', S_.band, '게시글 수집 필요')}
       ${srcRow('카톡 보고', S_.kakao, '대화 내보내기 투입 시 자동 대조')}
       ${srcRow('ERP 원장', S_.erp, '계정별원장 투입 시 자동 대조(4유형)')}
-      ${S_.po ? srcRow('쿠팡 PO', S_.po, '') : ''}
+      ${srcRow('쿠팡 PO', S_.po, 'PO 목록 투입 시 자동 대조')}
     </table>
     <div class="rfoot"><span>자동 생성 · Coupang Service Operations System Agent</span><span>${new Date().toLocaleString('ko-KR')}</span></div>`;
 
@@ -1260,7 +1260,7 @@ function renderDaily(){
   addSrc('밴드 게시', S_.band, '게시글 수집 필요');
   addSrc('카톡 보고', S_.kakao, '대화 내보내기 투입 시 자동');
   addSrc('ERP 원장', S_.erp, '계정별원장 투입 시 자동');
-  if(S_.po) addSrc('쿠팡 PO', S_.po, '');
+  addSrc('쿠팡 PO', S_.po, 'PO 목록 투입 시 자동');
   _rptData = {
     date: (execRep.meta&&execRep.meta['보고일']) || `${y}-${m}-${String(today.getDate()).padStart(2,'0')}`,
     meta: execRep.meta || {},
@@ -1602,7 +1602,7 @@ async function reportToPng(){
   section('조치 필요 — 유형별 (프로젝트NO)');
   table(['유형','건수','금액(원)','프로젝트NO'],
         D.issues.length?D.issues:[['조치 필요 없음','-','-','-']], [200,70,130,440-100]);
-  section('3원천 검증 (밴드·카톡·ERP)');
+  section('4원천 검증 (밴드·카톡·ERP·쿠팡PO)');
   table(['원천','결과','미확인 프로젝트NO'], D.srcs, [110,360,330]);
 
   y += 20;

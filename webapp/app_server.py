@@ -477,7 +477,7 @@ def get_issues():
 
 
 def get_checks():
-    """최근 카톡·밴드·ERP원장 대조 CSV를 ID별로 조인 — 3원천 검증 배지"""
+    """최근 카톡·밴드·ERP원장·쿠팡PO 대조 CSV를 ID별로 조인 — 4원천 검증 배지"""
     import csv as _csv
     out = {}
     def latest(pat):
@@ -498,8 +498,16 @@ def get_checks():
             for one in str(sid).split(","):
                 if one.strip():
                     out.setdefault(one.strip(), {})["erp"] = r.get("유형", "") + " " + r.get("판정", "")
+    f = latest("PO대조_*.csv")
+    if f:
+        for r in _csv.DictReader(open(f, encoding="utf-8-sig")):
+            sid = r.get("정산ID", "") or r.get("ID", "")
+            for one in str(sid).split(","):
+                if one.strip():
+                    out.setdefault(one.strip(), {})["po"] = (r.get("판정", "") or r.get("유형", "")).strip()
     if DEMO and not out:
-        out = {"JS-2607-002": {"kakao": "확인", "band": "미확인", "erp": "D 금액불일치"}}
+        out = {"JS-2607-002": {"kakao": "확인", "band": "미확인", "erp": "D 금액불일치",
+                               "po": "PO 미발행"}}
     return out
 
 
