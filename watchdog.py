@@ -100,6 +100,19 @@ def heal_server(dry):
     return "서버 재시작 → " + ("성공" if ping() else "실패(다음 주기 재시도)")
 
 
+def tunnel_alive(url):
+    """프로세스 개수가 아니라 **실제 응답**으로 판정.
+    (Get-Process는 1개일 때 Count가 비어 나와 살아있는 터널을 죽었다고 오판 →
+     불필요한 재시작으로 공개 주소가 바뀌던 실사고가 있었다)"""
+    if not url:
+        return False
+    try:
+        with urllib.request.urlopen(url.rstrip("/") + "/api/ping", timeout=12) as r:
+            return b"coupang-work" in r.read()
+    except Exception:
+        return False
+
+
 def heal_tunnel(dry):
     url_f = os.path.join(ROOT, "reports", "tunnel_url.txt")
     url = ""
@@ -107,12 +120,11 @@ def heal_tunnel(dry):
         url = open(url_f, encoding="utf-8").read().strip()
     except Exception:
         pass
-    alive = proc_running("cloudflared")
-    if alive and url:
+    if tunnel_alive(url):
         return f"터널 정상 ({url[8:40]}...)"
     if dry:
         return "터널 죽음(dry)"
-    if not os.path.exists(os.path.join(ROOT, "webapp", "cloudflared.exe")) and not alive:
+    if not os.path.exists(os.path.join(ROOT, "webapp", "cloudflared.exe")):
         return "터널 스킵 — cloudflared 없음"
     start_hidden(os.path.join("webapp", "tunnel_run.py"))
     return "터널 재시작 지시(주소는 tunnel_url.txt·앱 대시보드에 갱신됨)"
