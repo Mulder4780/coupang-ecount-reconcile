@@ -991,6 +991,7 @@ async function setDates(){
 
 /* ── 대표 보고서: 생성 → 캡처(PNG) → 공유 ── */
 let srcStats = {};                     // /api/status 의 sources (3원천 실집계)
+let _rptData = null;                   // 보고서 데이터(HTML·Canvas 공용)
 function srcRow(label, s, emptyMsg){
   if(!s || !s.total) return `<tr><td>${label}</td><td colspan="2" style="color:#98A2B3">${emptyMsg}</td></tr>`;
   const pct = Math.round(s.ok/s.total*100);
@@ -1052,46 +1053,165 @@ function renderDaily(){
       ${S_.po ? srcRow('쿠팡 PO', S_.po, '') : ''}
     </table>
     <div class="rfoot"><span>자동 생성 · 쿠팡 통합업무 에이전트</span><span>${new Date().toLocaleString('ko-KR')}</span></div>`;
+
+  // 캡처(Canvas)용 동일 데이터 — HTML과 이미지가 항상 같은 내용을 보이도록 한 곳에서 구성
+  const srcRows = [];
+  const addSrc = (label,s,empty)=> srcRows.push(!s||!s.total ? [label, empty, '-']
+    : [label, `대상 ${s.total}건 중 ${s.ok}건 확인(${Math.round(s.ok/s.total*100)}%) · 미확인 ${s.miss}건`,
+       (s.miss_prj||[]).filter(Boolean).join(', ')||'-']);
+  addSrc('밴드 게시', S_.band, '게시글 수집 필요');
+  addSrc('카톡 보고', S_.kakao, '대화 내보내기 투입 시 자동');
+  addSrc('ERP 원장', S_.erp, '계정별원장 투입 시 자동');
+  if(S_.po) addSrc('쿠팡 PO', S_.po, '');
+  _rptData = {
+    date: `${y}-${m}-${String(today.getDate()).padStart(2,'0')}`,
+    kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)'],
+          [fmt(미수),'미수금(원)', 미수?'#B54708':'#12813F'],
+          [(유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율'],
+          [issues.length+'건','조치 필요', issues.length?'#C0212E':'#12813F'],
+          [asOpen.length+' · '+pmWait.length,'AS진행 · 점검대기']],
+    monthTitle: `${+m}월 실적`,
+    month: [[Sm.length+'건','정산'], [fmt(Sm.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)'],
+            [fmt(Sm.reduce((a,r)=>a+(+r.입금액||0),0)),'입금(원)'],
+            [(works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,m)).length+'건','돌발AS'],
+            [(works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m)).length+'건','정기점검'],
+            [Sm.filter(r=>!['정상','무상/보험'].includes(r.상태)).length+'건','당월 조치필요']],
+    issues: Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>
+      [t, l.length+'건', fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0)),
+       l.slice(0,5).map(r=>r.프로젝트NO||r.정산ID).join(', ')+(l.length>5?` 외 ${l.length-5}건`:'')]),
+    srcs: srcRows
+  };
 }
 
-/* 외부 라이브러리 없이 DOM → PNG (SVG foreignObject 방식) */
+/* Canvas 직접 렌더 — 외부 리소스를 쓰지 않아 taint(오염)가 없고 PC·태블릿·폰에서 동일하게 동작.
+   (이전 SVG foreignObject 방식은 웹폰트 때문에 canvas가 오염되어 toBlob이 null을 반환했다) */
 async function reportToPng(){
-  const el = $('rpt');
-  const w = el.offsetWidth, h = el.offsetHeight;
-  let css = '';
-  for(const sh of document.styleSheets){
-    try{ for(const r of sh.cssRules) css += r.cssText + '\n'; }catch(e){}
-  }
-  const xhtml = new XMLSerializer().serializeToString(el);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w*2}" height="${h*2}" viewBox="0 0 ${w} ${h}">
-    <foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml"><style>${css}</style>${xhtml}</div></foreignObject></svg>`;
-  const img = new Image();
-  await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej;
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); });
+  const D = _rptData || {};
+  const S = 2, W = 860;                       // 논리 폭 860, 2배 해상도
+  const F = (sz,w) => `${w||400} ${sz}px "Nanum Gothic","Malgun Gothic",sans-serif`;
   const cv = document.createElement('canvas');
-  cv.width = w*2; cv.height = h*2;
   const ctx = cv.getContext('2d');
-  ctx.fillStyle = '#F4F6FA'; ctx.fillRect(0,0,cv.width,cv.height);
-  ctx.drawImage(img,0,0,cv.width,cv.height);
+  // ── 높이 선계산
+  const tiles = r => Math.ceil(r/3)*74;
+  let H = 108 + 34 + tiles(6) + 34 + tiles(6) + 34 + (D.issues.length+1)*30 + 34 + (D.srcs.length+1)*30 + 54;
+  cv.width = W*S; cv.height = H*S;
+  ctx.scale(S,S);
+  ctx.textBaseline = 'middle';
+  const txt = (s,x,y,font,color,align)=>{ ctx.font=font; ctx.fillStyle=color||'#101828';
+    ctx.textAlign=align||'left'; ctx.fillText(s==null?'':String(s),x,y); ctx.textAlign='left'; };
+  const box = (x,y,w,h,fill,stroke,r=10)=>{ ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(x,y,w,h,r); else ctx.rect(x,y,w,h);
+    if(fill){ctx.fillStyle=fill;ctx.fill();} if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke();} };
+  const clip = (s,max)=>{ s=String(s==null?'':s); ctx.font=F(12);
+    if(ctx.measureText(s).width<=max) return s;
+    while(s.length>1 && ctx.measureText(s+'…').width>max) s=s.slice(0,-1);
+    return s+'…'; };
+
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+  // ── 헤더
+  const g = ctx.createLinearGradient(0,0,W,96);
+  g.addColorStop(0,'#0E1B3F'); g.addColorStop(1,'#2452E6');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,96);
+  box(30,26,44,44,'rgba(255,255,255,.16)',null,12);
+  txt('UL',52,49,F(15,800),'#fff','center');
+  txt('쿠팡 통합업무 일일보고',92,40,F(21,800),'#fff');
+  txt('(주)유니버셜리프트앤히타치코리아',92,64,F(12),'#9FB4E8');
+  txt('보고일',W-30,38,F(11),'#9FB4E8','right');
+  txt(D.date,W-30,60,F(17,800),'#fff','right');
+
+  let y = 96;
+  const section = t => { y += 34; txt(t,30,y-8,F(13,800),'#1B41BC');
+    ctx.strokeStyle='#E4E9F0'; ctx.beginPath(); ctx.moveTo(30+ctx.measureText(t).width+12,y-8);
+    ctx.lineTo(W-30,y-8); ctx.stroke(); };
+  const grid = arr => { const cw=(W-60-16)/3;
+    arr.forEach((t,i)=>{ const cx=30+(i%3)*(cw+8), cy=y+Math.floor(i/3)*74;
+      box(cx,cy,cw,64,'#F8FAFD','#EEF2F7');
+      txt(t[1],cx+14,cy+22,F(11,700),'#98A2B3');
+      txt(t[0],cx+14,cy+44,F(19,800),t[2]||'#101828'); });
+    y += tiles(arr.length); };
+  const table = (cols,rows,widths)=>{
+    const xs=[]; let cx=30; widths.forEach(w=>{xs.push(cx); cx+=w;});
+    box(30,y,W-60,28,'#F1F5FB','#E4E9F0',8);
+    cols.forEach((c,i)=>txt(c,xs[i]+10,y+14,F(11,800),'#475467'));
+    y+=28;
+    rows.forEach((r,ri)=>{ if(ri%2) { ctx.fillStyle='#FAFCFF'; ctx.fillRect(30,y,W-60,30); }
+      r.forEach((c,i)=>txt(clip(c,widths[i]-20),xs[i]+10,y+15,F(12,i===0?700:400),i===0?'#101828':'#475467'));
+      ctx.strokeStyle='#EEF2F7'; ctx.beginPath(); ctx.moveTo(30,y+30); ctx.lineTo(W-30,y+30); ctx.stroke();
+      y+=30; });
+  };
+
+  section('핵심 지표 (누적)');   grid(D.kpi);
+  section(D.monthTitle);        grid(D.month);
+  section('조치 필요 — 유형별 (프로젝트NO)');
+  table(['유형','건수','금액(원)','프로젝트NO'],
+        D.issues.length?D.issues:[['조치 필요 없음','-','-','-']], [200,70,130,440-100]);
+  section('3원천 검증 (밴드·카톡·ERP)');
+  table(['원천','결과','미확인 프로젝트NO'], D.srcs, [110,360,330]);
+
+  y += 20;
+  txt('자동 생성 · 쿠팡 통합업무 에이전트',30,y,F(10),'#98A2B3');
+  txt(new Date().toLocaleString('ko-KR'),W-30,y,F(10),'#98A2B3','right');
+
   return new Promise(res=>cv.toBlob(res,'image/png'));
 }
 function rptFileName(){ return `쿠팡일일보고_${new Date().toISOString().slice(0,10)}.png`; }
+function isIOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1); }
+
+/* 이미지 저장 — PC는 즉시 다운로드, iOS/미지원 기기는 새 창에 띄워 길게 눌러 저장 */
 async function captureReport(){
+  let blob;
   try{
-    const blob = await reportToPng();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = rptFileName(); a.click();
-    URL.revokeObjectURL(a.href);
-  }catch(e){ alert('이미지 생성 실패 — 화면 캡처(전원+음량↓ / Win+Shift+S)를 사용하세요.\n'+e); }
+    if(!_rptData) renderDaily();
+    blob = await reportToPng();
+    if(!blob) throw new Error('이미지 생성 결과가 비어 있습니다');
+  }catch(e){ alert('이미지 생성 실패: '+e+'\n화면 캡처(Win+Shift+S / 전원+음량↓)를 사용해 주세요.'); return; }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const canDownload = ('download' in a) && !isIOS();
+  if(canDownload){
+    a.href = url; a.download = rptFileName();
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 60000);
+    toast('이미지를 저장했습니다 · ' + Math.round(blob.size/1024) + 'KB');
+  } else {
+    const w = window.open();
+    if(w){
+      w.document.write(`<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>${rptFileName()}</title><style>body{margin:0;background:#111;font-family:sans-serif}
+        p{color:#fff;text-align:center;padding:12px;font-size:14px;margin:0}img{width:100%;display:block}</style></head>
+        <body><p>이미지를 길게 눌러 <b>사진에 저장</b>하세요</p><img src="${url}"></body></html>`);
+      w.document.close();
+    } else { alert('팝업이 차단됐습니다. 팝업을 허용하거나 [공유] 버튼을 사용해 주세요.'); }
+  }
 }
 async function shareReport(){
+  let blob;
   try{
-    const blob = await reportToPng();
-    const file = new File([blob], rptFileName(), {type:'image/png'});
+    if(!_rptData) renderDaily();
+    blob = await reportToPng();
+    if(!blob) throw new Error('empty');
+  }catch(e){ alert('이미지 생성 실패: '+e); return; }
+  const file = new File([blob], rptFileName(), {type:'image/png'});
+  try{
     if(navigator.canShare && navigator.canShare({files:[file]})){
-      await navigator.share({files:[file], title:'쿠팡 통합업무 일일보고'});
-    } else { captureReport(); alert('이 기기는 공유 미지원 — 이미지로 저장했습니다. 카톡에 첨부해 주세요.'); }
-  }catch(e){ if(e.name!=='AbortError') alert('공유 실패: '+e); }
+      await navigator.share({files:[file], title:'쿠팡 통합업무 일일보고',
+                             text:'쿠팡 통합업무 일일보고'});
+      return;
+    }
+  }catch(e){ if(e.name==='AbortError') return; }
+  captureReport();     // 공유 미지원 → 저장/새창 경로로 폴백
+}
+function toast(msg){
+  let t = document.getElementById('_toast');
+  if(!t){ t = document.createElement('div'); t.id='_toast';
+    t.style.cssText='position:fixed;left:50%;bottom:80px;transform:translateX(-50%);z-index:60;'+
+      'background:#101828;color:#fff;padding:11px 18px;border-radius:11px;font-size:13.5px;'+
+      'font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.3);opacity:0;transition:opacity .2s';
+    document.body.appendChild(t); }
+  t.textContent = msg; t.style.opacity='1';
+  clearTimeout(t._h); t._h = setTimeout(()=>t.style.opacity='0', 2600);
 }
 
 /* ── 부트 ── */

@@ -268,6 +268,29 @@ def t11_backfill():
     print("  [11] 백필 로직(중복통합·상태변환·완료일·수식열 제외) ✅")
 
 
+def t12_dedupe(tmp):
+    """중복 정리: 값만 비우고 수식 셀은 반드시 보존 (합성 워크북)"""
+    import zipfile
+    from dedupe_rows import blank_cells
+    src = os.path.join(tmp, "합성중복_v1.xlsx")
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "02_돌발AS접수"
+    for _ in range(3): ws.append([])
+    ws.append(["접수ID", "프로젝트NO", "캠프명", "비고"])
+    ws.append(["=IF(B5=\"\",\"\",\"AS-1\")", "UJ1", "캠프A", "유지"])
+    ws.append(["=IF(B6=\"\",\"\",\"AS-2\")", "UJ1", "캠프A", "중복"])
+    wb.save(src)
+    dst, cleared, kept, _ = blank_cells(src, [("02_돌발AS접수", 6, ["A", "B", "C", "D"])])
+    w = openpyxl.load_workbook(dst)
+    ws2 = w["02_돌발AS접수"]
+    assert ws2["B6"].value is None and ws2["D6"].value is None, (ws2["B6"].value, ws2["D6"].value)  # 값 제거
+    assert str(ws2["A6"].value).startswith("="), ws2["A6"].value      # ★수식 셀은 보존
+    assert ws2["B5"].value == "UJ1" and ws2["D5"].value == "유지"      # 유지 행 무손상
+    w.close()
+    assert cleared >= 2 and kept >= 1, (cleared, kept)
+    assert zipfile.ZipFile(dst).testzip() is None
+    print("  [12] 중복정리(값만 비움·수식 보존·유지행 무손상) ✅")
+
+
 def t9_watchdog():
     import time as _t
     from watchdog import pick_archive, pick_old_reports
@@ -345,6 +368,7 @@ if __name__ == "__main__":
         t5_writer(tmp)
         t7_po(tmp)
         t8_findings_sheet(tmp)
+        t12_dedupe(tmp)
     t2_payload()
     t3_match()
     t9_watchdog()
