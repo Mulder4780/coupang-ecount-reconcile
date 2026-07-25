@@ -485,6 +485,36 @@ def t19_workbook_integrity(tmp):
     print("  [19] 워크북 무결성(수식 캐시값·행열 순서·스타일 범위) ✅")
 
 
+def t20_rep_no():
+    """대표 프로젝트NO — 모든 건이 번호로 식별되어야 한다.
+    실사고: 정규식의 \b가 파일에 **백스페이스 문자**로 저장돼 UJ 번호를 하나도 못 찾았다."""
+    import sys as _s
+    _s.path.insert(0, os.path.join(ROOT, "webapp"))
+    from app_server import rep_no, _UJ_RE, apply_rep_no, build_prj_index
+    assert "" not in _UJ_RE.pattern, "정규식에 백스페이스 문자가 섞임"
+    assert _UJ_RE.search("명세서 2026/07/01-4 · PO PO367787 · UJ2600975").group() == "UJ2600975"
+    assert not _UJ_RE.search("XUJ2600975"), "앞에 글자가 붙으면 잡으면 안 됨"
+    # 1) 원본 우선
+    assert rep_no({"프로젝트NO": "UJ2601138"}) == ("UJ2601138", "")
+    # 2) 본문에서 복원
+    assert rep_no({"내용·근거": "명세서 2026/07/01-4 · UJ2600975"}) == ("UJ2600975", "본문")
+    # 3) 같은 캠프·같은 달의 실제 작업에서
+    idx = build_prj_index({"as": [{"캠프명": "울산2캠프", "접수일자": "2026-05-03",
+                                   "프로젝트NO": "UJ2600777"}], "pm": []})
+    assert rep_no({"캠프명": "울산2캠프", "완료일": "2026-05-20"}, idx) == ("UJ2600777", "동일캠프·동월")
+    # 4) 전표 기반(UJ처럼 보이지 않게)
+    n, how = rep_no({"캠프명": "x"}, None, "2026/01/10-2")
+    assert (n, how) == ("ERP-260110-2", "전표"), (n, how)
+    assert not n.startswith("UJ"), "없는 UJ 번호를 지어내면 안 된다"
+    # 5) 최후엔 자체 ID
+    assert rep_no({"정산ID": "JS-2607-001"}) == ("JS-2607-001", "자체ID")
+    # 6) 일괄 적용 시 빈 건이 남지 않는다
+    rows = [{"프로젝트NO": "UJ2601138"}, {"내용·근거": "UJ2600975"}, {"ID": "JS-9"}]
+    apply_rep_no(rows)
+    assert all(str(r.get("프로젝트NO") or "").strip() for r in rows), rows
+    print("  [20] 대표 프로젝트NO(원본·본문·동일캠프·전표·자체ID) ✅")
+
+
 def t16_status():
     """상태 수식 캐시 보정 — 새로 넣은 행은 상태열(수식)이 None이라 완료된 점검이
     전부 '미점검'으로 보였다. 원본 열로 직접 판정하는 로직 검증."""
@@ -599,5 +629,6 @@ if __name__ == "__main__":
     t17_expand()
     t18_erp_docs()
     t19_workbook_integrity(None)
+    t20_rep_no()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

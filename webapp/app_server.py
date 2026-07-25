@@ -112,7 +112,9 @@ def start_task(key):
 
 # ───────────────────────── 데이터 ─────────────────────────
 _cache = {"t": 0, "settle": None, "status": None}
-_readlock = threading.Lock()   # Z:드라이브 엑셀 동시 읽기 직렬화(스레드 충돌 방지)
+_readlock = threading.RLock()  # Z:드라이브 엑셀 동시 읽기 직렬화(스레드 충돌 방지)
+# ★ RLock이어야 한다: 정산 조회가 락을 쥔 채 업무 조회(대표번호 색인용)를 부르므로
+#   일반 Lock이면 같은 스레드에서 자기 자신을 기다리다 멈춘다(실제로 응답 없음 발생)
 
 
 # ── 날짜 정렬 공통 규칙 ────────────────────────────────────────
@@ -255,6 +257,9 @@ def real_works():
     try:
         out["as"] += erp_work_rows(out["as"], "as")
         out["pm"] += erp_work_rows(out["pm"], "pm")
+        idx = build_prj_index(out)
+        apply_rep_no(out["as"], idx, "접수ID")
+        apply_rep_no(out["pm"], idx, "점검ID")
     except Exception:
         pass
     out["as"] = sort_by_date(out["as"], "as", "접수ID")
@@ -437,7 +442,7 @@ def get_issues():
             if any(v for v in vals.values()):
                 rows.append(vals)
         wb.close()
-        out = {"rows": sort_by_date(rows, "check"), "cols": hdr, "source": "23_확인필요현황"}
+        out = {"rows": sort_by_date(apply_rep_no(rows), "check"), "cols": hdr, "source": "23_확인필요현황"}
         _cache["issues"] = out
         return out
     if "07_불일치누락현황" in wb.sheetnames:
@@ -470,7 +475,7 @@ def get_issues():
                                                 f"완료 {r.get('완료일','')}" ) [:100]})
     except Exception:
         pass
-    rows = sort_by_date(merged + rows, "check")
+    rows = sort_by_date(apply_rep_no(merged + rows), "check")
     cols = []
     for r in rows[:50]:
         for k in r:
@@ -564,7 +569,7 @@ def get_checks():
     return out
 
 
-_UJ_RE = re.compile(r"UJ\d{6,}")
+_UJ_RE = re.compile(r"(?<![A-Za-z0-9])UJ\d{6,}(?![0-9])")
 # 계산서 제목에서 캠프명만 뽑는다: '쿠팡신규_송파1MB(감일동)-이동식…' → '송파1MB(감일동)'
 _CAMP_RE = re.compile(r"[가-힣A-Za-z]+\d*(?:BMB|MB|캠프|Sub-?FC|Sub-?hub|FC)(?:\([^)]*\))?",
                       re.I)   # sub-hub / Sub-Hub 표기가 섞여 있어 대소문자 무시
@@ -617,6 +622,71 @@ def erp_settlement_rows(ledger_rows):
     return out
 
 
+# ── 대표 프로젝트NO ────────────────────────────────────────────
+# 모든 건이 번호로 식별되게 한다. 우선순위:
+#   1) 행에 이미 있는 프로젝트NO
+#   2) 행 안 어딘가(내용·근거 등)에 적힌 UJ 번호
+#   3) 같은 캠프·같은 달의 실제 작업에서 찾은 대표 번호
+#   4) 그래도 없으면 ERP 전표번호 기반 식별자(UJ처럼 보이지 않게 'ERP-' 접두)
+#      — 없는 UJ 번호를 지어내면 실제 번호와 헷갈리므로 절대 만들지 않는다.
+def _camp_key(v):
+    return re.sub(r"[\s()·]", "", str(v or "")).lower()[:14]
+
+
+def build_prj_index(works):
+    idx = {}
+    for kind, dk in (("as", "접수일자"), ("pm", "점검예정일")):
+        for r in works.get(kind, []):
+            if r.get("출처") == "ERP":
+                continue
+            prj = str(r.get("프로젝트NO") or "").strip()
+            if not prj:
+                continue
+            mo = norm_date(r.get(dk) or r.get("작업완료일") or r.get("실제점검일"))[:7]
+            idx.setdefault((_camp_key(r.get("캠프명")), mo), []).append(prj)
+    return idx
+
+
+def rep_no(rec, idx=None, slip=""):
+    """대표 프로젝트NO를 정한다(순수 함수 — 합성검증 대상)"""
+    cur = str(rec.get("프로젝트NO") or "").strip()
+    if cur:
+        return cur, ""
+    for v in rec.values():                       # 내용·근거 등 본문에 적힌 UJ
+        m = _UJ_RE.search(str(v or ""))
+        if m:
+            return m.group(), "본문"
+    if idx:
+        mo = ""
+        for k in ("완료일", "접수일자", "점검예정일", "일자", "작업완료일"):
+            mo = norm_date(rec.get(k))[:7]
+            if mo:
+                break
+        hits = idx.get((_camp_key(rec.get("캠프명")), mo))
+        if hits:
+            return sorted(hits)[0], "동일캠프·동월"
+    if slip:
+        m = re.match(r"(\d{2})(\d{2})/(\d{2})/(\d{2})\s*-\s*(\d+)", str(slip))
+        if m:
+            return f"ERP-{m.group(2)}{m.group(3)}{m.group(4)}-{m.group(5)}", "전표"
+        return "ERP-" + re.sub(r"[^0-9A-Za-z-]", "", str(slip))[-10:], "전표"
+    # 최후: 그 행 자신의 ID를 대표번호로 쓴다 — 번호 없는 행이 하나도 남지 않게
+    for k in ("정산ID", "접수ID", "점검ID", "업무ID", "ID"):
+        v = str(rec.get(k) or "").strip()
+        if v:
+            return v, "자체ID"
+    return "", ""
+
+
+def apply_rep_no(rows, idx=None, slipkey=None):
+    for r in rows:
+        no, how = rep_no(r, idx, str(r.get(slipkey) or "") if slipkey else "")
+        if no and not str(r.get("프로젝트NO") or "").strip():
+            r["프로젝트NO"] = no
+            r["대표번호출처"] = how
+    return rows
+
+
 def erp_work_rows(existing, kind):
     """02/04 시트에 자료가 **아예 없는 달**만 ERP 계산서로 보완한다(정산과 같은 규칙).
     ERP 계산서 1장 = 작업 여러 건 묶음이므로 '건수'가 아니라 '그 달에 이런 업무가 있었다'는
@@ -660,7 +730,10 @@ def get_settlements():
             return r
         rows = real_settlements()
         try:
-            rows = sort_by_date(rows + erp_settlement_rows(rows), "settle", "정산ID")
+            rows = rows + erp_settlement_rows(rows)
+            idx = build_prj_index(get_works())
+            apply_rep_no(rows, idx, "명세서번호")
+            rows = sort_by_date(rows, "settle", "정산ID")
         except Exception:
             pass
         _cache["settle"] = rows
