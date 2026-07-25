@@ -97,7 +97,7 @@ def main():
  display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}}
 .card{{background:#fff;color:#101828;border-radius:20px;padding:28px;max-width:430px;width:100%;text-align:center;
  box-shadow:0 20px 60px rgba(0,0,0,.4)}}
-h1{{font-size:19px;margin:0 0 4px}} .sub{{font-size:12.5px;color:#667085;margin-bottom:18px}}
+h1{{font-size:16px;margin:0 0 5px;letter-spacing:-.2px}} .sub{{font-size:12.5px;color:#667085;margin-bottom:18px}}
 .qr{{background:#fff;border:1px solid #E4E9F0;border-radius:14px;padding:10px;display:inline-block}}
 .qr svg{{width:230px;height:230px;display:block}}
 .pin{{font-size:34px;font-weight:800;letter-spacing:10px;color:#2452E6;margin:14px 0 2px}}
@@ -107,8 +107,8 @@ h1{{font-size:19px;margin:0 0 4px}} .sub{{font-size:12.5px;color:#667085;margin-
 .s{{margin-top:14px;font-size:11.5px;color:#98A2B3;line-height:1.6}}
 .warn{{background:#FEF1E2;color:#B54708;border-radius:9px;padding:9px;font-size:12px;margin-top:10px}}</style></head>
 <body><div class="card">
-<h1>📱 휴대폰으로 접속</h1>
-<div class="sub">카메라로 QR을 찍으세요 · 어디서나(LTE/5G) 접속됩니다</div>
+<h1>Coupang Service Operations System</h1>
+<div class="sub">📱 카메라로 QR을 찍으세요 · 어디서나(LTE/5G) 접속됩니다</div>
 <div class="qr">{qr_svg(url)}</div>
 <div style="font-size:12px;color:#667085;margin-top:14px">접속 PIN</div>
 <div class="pin">{pin()}</div>

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-app_server.py — 쿠팡 통합업무 앱 서버 (반응형 웹앱 백엔드)
+app_server.py — Coupang Service Operations System 앱 서버 (반응형 웹앱 백엔드)
 ============================================================
 PC에서 실행하면 같은 와이파이의 휴대폰·다른 PC가 브라우저로 접속하는 ERP형 앱.
 표준 라이브러리만 사용(설치 0). 데이터는 전부 사내 PC에 남는다(클라우드 전송 없음).
@@ -677,7 +677,7 @@ def lan_ip():
 def main():
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
     mode = "데모(합성데이터)" if DEMO else "실서비스"
-    print(f"쿠팡 통합업무 앱 서버 [{mode}] 시작")
+    print(f"Coupang Service Operations System 앱 서버 [{mode}] 시작")
     print(f"  PC:      http://localhost:{PORT}")
     print(f"  휴대폰:  http://{lan_ip()}:{PORT}   (같은 와이파이)")
     print(f"  PIN:     {PIN}")

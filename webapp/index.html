@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1E3A8A">
-<title>쿠팡 통합업무</title>
+<title>Coupang Service Operations System</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700;800&display=swap" rel="stylesheet">
 <style>
@@ -32,7 +32,9 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--brand),#5B8CFF);
   display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 6px rgba(36,82,230,.45)}
 .logo svg{width:17px;height:17px}
-.appbar h1{font-size:16px;font-weight:800;letter-spacing:-.3px;flex:1;line-height:1.15}
+.appbar h1{font-size:15px;font-weight:800;letter-spacing:-.2px;flex:1;line-height:1.2;min-width:0}
+.brandfull{display:none} .brandshort{display:inline}
+@media(min-width:600px){.brandfull{display:inline} .brandshort{display:none}}
 .appbar h1 small{display:block;font-size:10px;font-weight:600;color:#8FA3D9;letter-spacing:.4px}
 .appbar .sub{font-size:11px;color:#8FA3D9;font-variant-numeric:tabular-nums}
 .dot{width:8px;height:8px;border-radius:50%;background:#3DDC84;box-shadow:0 0 0 3px rgba(61,220,132,.22);flex:none}
@@ -320,7 +322,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 <div class="gate" id="gate">
   <div class="box">
     <div class="glogo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.5 12h-11z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></div>
-    <h2>쿠팡 통합업무</h2>
+    <h2>Coupang Service Operations System</h2>
     <p>PIN 4자리를 입력하세요</p>
     <input id="pin" type="tel" maxlength="4" inputmode="numeric" placeholder="••••" autofocus>
     <button onclick="login()">접속</button>
@@ -330,7 +332,8 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 
 <header class="appbar">
   <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.5 12h-11z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></div>
-  <h1>쿠팡 통합업무<small>UNIVERSAL LIFT · 일일보고 관리</small></h1>
+  <h1><span class="brandfull">Coupang Service Operations System</span><span class="brandshort">CSOS</span>
+    <small>UNIVERSAL LIFT · 쿠팡 통합업무</small></h1>
   <span class="sub" id="demobadge"></span>
   <div class="dot" id="livedot"></div>
   <div class="sub" id="clock"></div>
@@ -343,7 +346,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
     <div class="hero">
       <div class="badge"><span class="dot" style="box-shadow:none"></span><span id="heroAgent">에이전트 대기</span></div>
       <div class="hi" id="heroDate"></div>
-      <h2>쿠팡 통합업무 현황</h2>
+      <h2>Coupang Service Operations System — 현황</h2>
       <div class="hstats" id="heroStats"></div>
     </div>
     <div class="kpis" id="kpis"></div>
@@ -445,7 +448,8 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 <nav class="tabbar" id="tabbar">
   <div class="brand">
     <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.5 12h-11z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></div>
-    <div class="bt">쿠팡 통합업무<small>UNIVERSAL LIFT ERP</small></div>
+    <div class="bt" style="font-size:12.5px;line-height:1.35">Coupang Service<br>Operations System
+      <small>CSOS · UNIVERSAL LIFT</small></div>
   </div>
   <button class="on" data-v="dash" onclick="show('dash')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>대시보드</button>
   <button data-v="settle" onclick="show('settle')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>정산</button>
@@ -1058,7 +1062,7 @@ function renderDaily(){
   $('rpt').innerHTML = `
     <div class="rhead">
       <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.5 12h-11z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></div>
-      <h2>쿠팡 통합업무 일일보고<small>(주)유니버셜리프트앤히타치코리아</small></h2>
+      <h2 style="font-size:17px">Coupang Service Operations System<small>일일보고 · (주)유니버셜리프트앤히타치코리아</small></h2>
       <div class="rdate">보고일<b>${(execRep.meta&&execRep.meta['보고일'])||`${y}-${m}-${String(today.getDate()).padStart(2,'0')}`}</b>
         <span style="font-size:10.5px;font-weight:600;color:var(--ink-3)">집계기준일 ${
           (execRep.meta&&execRep.meta['집계기준일'])||'-'} · 보고자 ${(execRep.meta&&execRep.meta['보고자'])||'-'}</span></div>
@@ -1101,7 +1105,7 @@ function renderDaily(){
       ${srcRow('ERP 원장', S_.erp, '계정별원장 투입 시 자동 대조(4유형)')}
       ${S_.po ? srcRow('쿠팡 PO', S_.po, '') : ''}
     </table>
-    <div class="rfoot"><span>자동 생성 · 쿠팡 통합업무 에이전트</span><span>${new Date().toLocaleString('ko-KR')}</span></div>`;
+    <div class="rfoot"><span>자동 생성 · Coupang Service Operations System Agent</span><span>${new Date().toLocaleString('ko-KR')}</span></div>`;
 
   // 캡처(Canvas)용 동일 데이터 — HTML과 이미지가 항상 같은 내용을 보이도록 한 곳에서 구성
   const srcRows = [];
@@ -1177,7 +1181,8 @@ async function reportToPng(){
   ctx.fillStyle=g; ctx.fillRect(0,0,W,96);
   box(30,26,44,44,'rgba(255,255,255,.16)',null,12);
   txt('UL',52,49,F(15,800),'#fff','center');
-  txt('쿠팡 통합업무 일일보고',92,40,F(21,800),'#fff');
+  txt('Coupang Service Operations System',92,36,F(17,800),'#fff');
+  txt('일일보고 · (주)유니버셜리프트앤히타치코리아',92,60,F(11.5),'#9FB4E8');
   txt('(주)유니버셜리프트앤히타치코리아',92,64,F(12),'#9FB4E8');
   txt('보고일',W-30,32,F(11),'#9FB4E8','right');
   txt(D.date,W-30,52,F(17,800),'#fff','right');
@@ -1242,7 +1247,7 @@ async function reportToPng(){
   table(['원천','결과','미확인 프로젝트NO'], D.srcs, [110,360,330]);
 
   y += 20;
-  txt('자동 생성 · 쿠팡 통합업무 에이전트',30,y,F(10),'#98A2B3');
+  txt('자동 생성 · Coupang Service Operations System Agent',30,y,F(10),'#98A2B3');
   txt(new Date().toLocaleString('ko-KR'),W-30,y,F(10),'#98A2B3','right');
 
   return new Promise(res=>cv.toBlob(res,'image/png'));
@@ -1285,7 +1290,8 @@ async function dashToPng(){
   ctx.fillStyle=g; ctx.fillRect(0,0,W,96);
   box(30,26,44,44,'rgba(255,255,255,.16)',null,12);
   txt('UL',52,49,F(15,800),'#fff','center');
-  txt('쿠팡 통합업무 현황',92,40,F(21,800),'#fff');
+  txt('Coupang Service Operations System',92,36,F(17,800),'#fff');
+  txt('통합 현황 · UNIVERSAL LIFT',92,60,F(11.5),'#9FB4E8');
   txt(new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'}),
       92,64,F(12),'#9FB4E8');
   txt('에이전트 '+($('heroAgent').textContent||'').replace('에이전트 ',''),W-30,40,F(11),'#9FB4E8','right');
@@ -1347,11 +1353,11 @@ async function dashToPng(){
     txt(s.n,52,yy+4,F(12),'#475467'); yy+=22;});
 
   yy+=18;
-  txt('자동 생성 · 쿠팡 통합업무 에이전트',30,yy,F(10),'#98A2B3');
+  txt('자동 생성 · Coupang Service Operations System Agent',30,yy,F(10),'#98A2B3');
   txt(new Date().toLocaleString('ko-KR'),W-30,yy,F(10),'#98A2B3','right');
   return new Promise(res=>cv.toBlob(res,'image/png'));
 }
-function dashFileName(){ return `쿠팡대시보드_${new Date().toISOString().slice(0,10)}.png`; }
+function dashFileName(){ return `CSOS_대시보드_${new Date().toISOString().slice(0,10)}.png`; }
 async function captureDash(){
   let blob;
   try{ blob = await dashToPng(); if(!blob) throw new Error('빈 이미지'); }
@@ -1376,7 +1382,7 @@ function saveOrOpen(blob, filename){
     } else alert('팝업이 차단됐습니다. 팝업을 허용해 주세요.');
   }
 }
-function rptFileName(){ return `쿠팡일일보고_${new Date().toISOString().slice(0,10)}.png`; }
+function rptFileName(){ return `CSOS_일일보고_${new Date().toISOString().slice(0,10)}.png`; }
 function isIOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1); }
 
@@ -1401,8 +1407,8 @@ async function shareReport(){
   const file = new File([blob], rptFileName(), {type:'image/png'});
   try{
     if(navigator.canShare && navigator.canShare({files:[file]})){
-      await navigator.share({files:[file], title:'쿠팡 통합업무 일일보고',
-                             text:'쿠팡 통합업무 일일보고'});
+      await navigator.share({files:[file], title:'Coupang Service Operations System — 일일보고',
+                             text:'Coupang Service Operations System — 일일보고'});
       return;
     }
   }catch(e){ if(e.name==='AbortError') return; }

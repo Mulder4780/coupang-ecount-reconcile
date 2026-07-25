@@ -382,7 +382,7 @@ def t6_webapp():
             assert e.code == 429, e.code
         # 메인 페이지 서빙
         html = urllib.request.urlopen(base + "/").read().decode("utf-8")
-        assert "쿠팡 통합업무" in html and "tabbar" in html and "d_report" in html
+        assert "Coupang Service Operations System" in html and "tabbar" in html and "d_report" in html
         print("  [6] 웹앱 API(PIN 인증·상태·정산·페이지 서빙) ✅")
     finally:
         p.terminate()

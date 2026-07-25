@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-coupang_workbench.py — 쿠팡 통합업무 워크벤치 (PC 데스크톱 앱)
+coupang_workbench.py — Coupang Service Operations System — Workbench (PC 데스크톱 앱)
 ================================================================
 관리대장·에이전트·이카운트·밴드·카톡 대조를 한 화면에서 다루는 통합 프로그램.
 표준 라이브러리(Tkinter)만 사용 — 어떤 PC든 파이썬만 있으면 실행.
@@ -90,7 +90,7 @@ def gui():
     from tkinter import messagebox, scrolledtext
 
     app = tk.Tk()
-    app.title("쿠팡 통합업무 워크벤치")
+    app.title("Coupang Service Operations System — Workbench")
     app.geometry("900x640")
     logq = queue.Queue()
     running = {"flag": False}

@@ -75,7 +75,7 @@ def write_xlsx(data, out_path):
 
     # 요약 시트
     ws = wb.active; ws.title = "요약"
-    ws["A1"] = "쿠팡 통합업무 — 확인필요 현황"
+    ws["A1"] = "Coupang Service Operations System — 확인필요 현황"
     ws["A1"].font = Font(bold=True, size=15)
     ws["A2"] = f"생성 {datetime.now():%Y-%m-%d %H:%M} · 에이전트 자동 생성(매일 갱신) · 관리대장 본체는 별도"
     ws["A2"].font = Font(color="777777", size=9)
