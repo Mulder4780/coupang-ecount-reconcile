@@ -510,7 +510,8 @@ async function loadStatus(){
       "goList('settle','세금계산서 미발행')") +
     tile(issues.length?'danger':'ok','⚠️','정산 조치 필요', issues.length, issues.length?'클릭해 아래 유형 확인':'모두 정상',
       "flashTop()") +
-    tile(asOpen?'warn':'','🔧','AS · 점검', `${asOpen} · ${pmWait}`, '클릭=AS 목록', "goList('as','')");
+    tile(asOpen?'warn':'','🔧','돌발AS 진행중', asOpen, `전체 ${(works.as||[]).length}건 · 클릭=목록`, "goList('as','')") +
+    tile(pmWait?'warn':'','🗓','정기점검 대기', pmWait, `전체 ${(works.pm||[]).length}건 · 클릭=목록`, "goList('pm','')");
   // 상태 분포 바 (2px 간격 마크)
   const SCOLOR = {'정상':'#12813F','입금 대기':'#B54708','세금계산서 미발행':'#C0212E',
     '미청구(전표 없음)':'#8B1E68','금액 미입력':'#5B6B82','무상/보험':'#B9C3D3'};
@@ -1005,13 +1006,26 @@ function execHtml(){
     h += `<h4>정리</h4><div style="font-size:13px;line-height:1.7">${
       execRep.summary.map(s=>`<div>${s}</div>`).join('')}</div>`;
   }
+  const cell = ([l,v])=>`<div class="rcell" style="text-align:left">
+      <div class="l" style="font-size:10.5px">${l}</div>
+      <div class="v" style="font-size:16px">${v||'-'}</div></div>`;
   secs.forEach(s=>{
     h += `<h4>${s.title}</h4>`;
+    // 블록 그룹(돌발AS·현장 / 정기점검 / 거래서류·청구)이 있으면 구분해 표시
+    if((s.groups||[]).length){
+      h += `<div style="display:grid;grid-template-columns:repeat(${Math.min(s.groups.length,3)},1fr);gap:10px">` +
+        s.groups.map(g=>`<div style="border:1px solid var(--line);border-radius:11px;overflow:hidden">
+          <div style="background:#EEF3FC;color:var(--brand-dk);font-size:11px;font-weight:800;
+            padding:6px 10px;border-bottom:1px solid var(--line)">${g.name}</div>
+          <div style="padding:8px;display:flex;flex-direction:column;gap:6px">${
+            g.items.map(([l,v])=>`<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px">
+              <span style="color:var(--ink-2)">${l}</span>
+              <b style="font-variant-numeric:tabular-nums">${v||'-'}</b></div>`).join('')}</div>
+        </div>`).join('') + `</div>`;
+    }
     if(s.items.length){
-      h += `<div class="rgrid" style="grid-template-columns:repeat(3,1fr)">` +
-        s.items.map(([l,v])=>`<div class="rcell" style="text-align:left">
-          <div class="l" style="font-size:10.5px">${l}</div>
-          <div class="v" style="font-size:16px">${v||'-'}</div></div>`).join('') + `</div>`;
+      h += `<div class="rgrid" style="grid-template-columns:repeat(3,1fr)${(s.groups||[]).length?';margin-top:8px':''}">` +
+        s.items.map(cell).join('') + `</div>`;
     }
     if(s.lines.length){
       h += `<div style="font-size:12.5px;line-height:1.75;margin-top:4px">${
@@ -1056,7 +1070,8 @@ function renderDaily(){
       ${cell(fmt(미수),'미수금(원)')}
       ${cell((유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율')}
       ${cell(issues.length+'건','조치 필요')}
-      ${cell(asOpen.length+' · '+pmWait.length,'AS진행 · 점검대기')}
+      ${cell(asOpen.length+'건','돌발AS 진행중')}
+      ${cell(pmWait.length+'건','정기점검 대기')}
     </div>
     <h4>${+m}월 실적</h4>
     <div class="rgrid">
@@ -1068,13 +1083,16 @@ function renderDaily(){
       ${cell(Sm.filter(r=>!['정상','무상/보험'].includes(r.상태)).length+'건','당월 조치필요')}
     </div>
     ${execHtml()}
-    <h4>조치 필요 — 유형별 (프로젝트NO)</h4>
-    <table><tr><th>유형</th><th style="text-align:right">건수</th><th style="text-align:right">금액(원)</th><th>프로젝트NO</th></tr>
-      ${Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>
-        `<tr><td><b>${t}</b></td><td style="text-align:right">${l.length}</td>
+    <h4>조치 필요 — 유형별 (돌발AS / 정기점검 구분)</h4>
+    <table><tr><th>유형</th><th style="text-align:right">건수</th><th>돌발AS · 정기점검</th><th style="text-align:right">금액(원)</th><th>프로젝트NO</th></tr>
+      ${Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>{
+        const as=l.filter(r=>String(r.업무구분||'').includes('돌발')).length;
+        const pm=l.filter(r=>String(r.업무구분||'').includes('점검')).length;
+        return `<tr><td><b>${t}</b></td><td style="text-align:right">${l.length}</td>
+         <td>AS ${as} · 점검 ${pm}${l.length-as-pm?` · 기타 ${l.length-as-pm}`:''}</td>
          <td style="text-align:right">${fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0))}</td>
-         <td>${l.slice(0,5).map(r=>r.프로젝트NO||r.정산ID).join(', ')}${l.length>5?` 외 ${l.length-5}건`:''}</td></tr>`).join('')
-      || '<tr><td colspan="4">조치 필요 없음 ✅</td></tr>'}
+         <td>${l.slice(0,5).map(r=>r.프로젝트NO||r.정산ID).join(', ')}${l.length>5?` 외 ${l.length-5}건`:''}</td></tr>`;}).join('')
+      || '<tr><td colspan="5">조치 필요 없음 ✅</td></tr>'}
     </table>
     <h4>3원천 검증 (밴드·카톡·ERP)</h4>
     <table><tr><th>원천</th><th>결과</th><th>미확인 프로젝트NO</th></tr>
@@ -1098,21 +1116,24 @@ function renderDaily(){
     date: (execRep.meta&&execRep.meta['보고일']) || `${y}-${m}-${String(today.getDate()).padStart(2,'0')}`,
     meta: execRep.meta || {},
     summary: execRep.summary || [],
-    exec: (execRep.sections||[]).map(s=>({title:s.title, items:s.items||[], lines:s.lines||[]})),
+    exec: (execRep.sections||[]).map(s=>({title:s.title, items:s.items||[],
+                                          groups:s.groups||[], lines:s.lines||[]})),
     kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)'],
           [fmt(미수),'미수금(원)', 미수?'#B54708':'#12813F'],
           [(유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율'],
           [issues.length+'건','조치 필요', issues.length?'#C0212E':'#12813F'],
-          [asOpen.length+' · '+pmWait.length,'AS진행 · 점검대기']],
+          [asOpen.length+'건','돌발AS 진행중'], [pmWait.length+'건','정기점검 대기']],
     monthTitle: `${+m}월 실적`,
     month: [[Sm.length+'건','정산'], [fmt(Sm.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)'],
             [fmt(Sm.reduce((a,r)=>a+(+r.입금액||0),0)),'입금(원)'],
             [(works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,m)).length+'건','돌발AS'],
             [(works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m)).length+'건','정기점검'],
             [Sm.filter(r=>!['정상','무상/보험'].includes(r.상태)).length+'건','당월 조치필요']],
-    issues: Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>
-      [t, l.length+'건', fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0)),
-       l.slice(0,5).map(r=>r.프로젝트NO||r.정산ID).join(', ')+(l.length>5?` 외 ${l.length-5}건`:'')]),
+    issues: Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>{
+      const as=l.filter(r=>String(r.업무구분||'').includes('돌발')).length;
+      const pm=l.filter(r=>String(r.업무구분||'').includes('점검')).length;
+      return [t, `${l.length}건 (AS ${as}·점검 ${pm})`, fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0)),
+       l.slice(0,5).map(r=>r.프로젝트NO||r.정산ID).join(', ')+(l.length>5?` 외 ${l.length-5}건`:'')];}),
     srcs: srcRows
   };
 }
@@ -1128,8 +1149,12 @@ async function reportToPng(){
   // ── 높이 선계산 (대표보고 섹션 포함)
   const tiles = r => Math.ceil(r/3)*74;
   const execH = (D.summary||[]).length ? 34 + (D.summary.length*20) : 0;
-  const execSecH = (D.exec||[]).reduce((a,s)=>a + 34 + (s.items.length?tiles(s.items.length):0)
-                                                 + (s.lines.length? s.lines.length*20 + 6 : 0), 0);
+  const execSecH = (D.exec||[]).reduce((a,s)=>{
+    const gh = (s.groups||[]).length
+      ? 26 + Math.max(...s.groups.map(g=>g.items.length))*20 + 16 : 0;
+    return a + 34 + gh + (s.items.length?tiles(s.items.length):0)
+             + (s.lines.length? s.lines.length*20 + 6 : 0);
+  }, 0);
   let H = 108 + execH + execSecH + 34 + tiles(6) + 34 + tiles(6)
           + 34 + (D.issues.length+1)*30 + 34 + (D.srcs.length+1)*30 + 54;
   cv.width = W*S; cv.height = H*S;
@@ -1183,8 +1208,27 @@ async function reportToPng(){
   // ── 01_대표보고 섹션 (엑셀 대표보고와 동일 항목)
   const lines = arr => { arr.forEach(t=>{ txt(clip(t, W-70), 34, y+8, F(12), '#475467'); y += 20; }); y += 6; };
   if((D.summary||[]).length){ section('정리'); lines(D.summary); }
+  // 블록 그룹(돌발AS·현장 / 정기점검 / 거래서류·청구)을 칼럼으로 구분해 그린다
+  const groupCols = gs => {
+    const n = Math.min(gs.length, 3), gw = (W - 60 - (n-1)*8) / n;
+    const rowsMax = Math.max(...gs.map(g=>g.items.length));
+    const bh = 26 + rowsMax*20 + 10;
+    gs.slice(0,n).forEach((g,i)=>{
+      const gx = 30 + i*(gw+8);
+      box(gx, y, gw, bh, '#FFF', '#E4E9F0');
+      box(gx, y, gw, 26, '#EEF3FC', '#E4E9F0');
+      txt(g.name, gx+10, y+13, F(11,800), '#1B41BC');
+      g.items.forEach(([l,v],j)=>{
+        const ry = y + 26 + 12 + j*20;
+        txt(clip(l, gw-70), gx+10, ry, F(11.5), '#475467');
+        txt(v||'-', gx+gw-10, ry, F(12,800), '#101828', 'right');
+      });
+    });
+    y += bh + 6;
+  };
   (D.exec||[]).forEach(s=>{
     section(s.title);
+    if((s.groups||[]).length) groupCols(s.groups);
     if(s.items.length) grid(s.items.map(([l,v])=>[v||'-', l]));
     if(s.lines.length) lines(s.lines);
   });

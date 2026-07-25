@@ -301,19 +301,29 @@ def read_exec_report(master):
             cur = {"title": re.sub(r"\s+", " ", a), "items": [], "lines": []}
             out["sections"].append(cur)
             continue
-        if not cur or a.startswith(("※", "[")):        # 안내문·블록 헤더는 건너뜀
+        if not cur or a.startswith("※"):
             continue
-        pairs, texts = [], []
+        # 블록 헤더 행: "[ 돌발 AS · 현장 ]  [ 정기점검 ]  [ 거래서류 · 청구 ]"
+        # → 열 위치별 그룹을 만들어 이후 행의 항목을 각 그룹에 담는다(AS/점검 구분 유지)
+        heads = {li: _fmtv(g(li)).strip("[] ") for li in (0, 3, 6) if _fmtv(g(li)).startswith("[")}
+        if heads:
+            cur["colgroups"] = {}
+            for li, name in heads.items():
+                grp = {"name": name, "items": []}
+                cur.setdefault("groups", []).append(grp)
+                cur["colgroups"][li] = grp
+            continue
         for li, vi in ((0, 1), (3, 4), (6, 7)):        # 3열 그룹: 라벨|값
             lab, val = _fmtv(g(li)), _fmtv(g(vi))
             if not lab or lab.startswith("["):
                 continue
             if val == "" and len(lab) > 20:            # 값 없는 긴 문장 = 서술형(TOP5 등)
-                texts.append(lab)
+                cur["lines"].append(lab)
             else:
-                pairs.append([lab, val])
-        cur["items"] += pairs
-        cur["lines"] += texts
+                grp = (cur.get("colgroups") or {}).get(li)
+                (grp["items"] if grp else cur["items"]).append([lab, val])
+    for s in out["sections"]:
+        s.pop("colgroups", None)                       # 내부 매핑은 응답에서 제외
     return out
 
 
