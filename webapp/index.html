@@ -1536,8 +1536,11 @@ function buildMine(){
      push(x[0], x[1], x[2], settleRows.filter(r=>r.상태===x[0]), ()=>goList('settle',x[0])); });
   push('PO 미발행','쿠팡에 PO 요청','warn',
        settleRows.filter(r=>String(r.PO필요||'').includes('필요') && !r.PO번호), ()=>goList('settle',''));
+  // 아직 진행 중인 건만 배정이 필요하다. 이미 끝난 건·ERP 보완 행은 제외.
   push('담당자 미지정','기사 배정 필요','warn',
-       (works.as||[]).concat(works.pm||[]).filter(r=>!(r.담당기사||'').trim()), ()=>goList('as',''));
+       (works.as||[]).concat(works.pm||[]).filter(r=>
+         !(r.담당기사||'').trim() && r.출처!=='ERP' && !_fin(r.진행상태||r.점검상태)),
+       ()=>goList('as',''));
   /* 원천 데이터가 안 들어와 대조를 못 하는 것도 '내가 할 일'이다 */
   const src = srcStats || {};
   [['band','밴드 게시','밴드 수집 실행 필요'],

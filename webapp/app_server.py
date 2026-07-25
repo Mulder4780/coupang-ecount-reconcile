@@ -252,6 +252,11 @@ def real_works():
             derive_status(rec, key)
             out[key].append(rec)
     wb.close()
+    try:
+        out["as"] += erp_work_rows(out["as"], "as")
+        out["pm"] += erp_work_rows(out["pm"], "pm")
+    except Exception:
+        pass
     out["as"] = sort_by_date(out["as"], "as", "접수ID")
     out["pm"] = sort_by_date(out["pm"], "pm", "점검ID")
     return out
@@ -609,6 +614,40 @@ def erp_settlement_rows(ledger_rows):
             "비용구분": "유상", "PO필요": "", "PO번호": "", "PO발행일": "",
             "상태": "ERP 계산서(묶음)", "완료일": iso,
             "출처": "ERP", "적요": title})
+    return out
+
+
+def erp_work_rows(existing, kind):
+    """02/04 시트에 자료가 **아예 없는 달**만 ERP 계산서로 보완한다(정산과 같은 규칙).
+    ERP 계산서 1장 = 작업 여러 건 묶음이므로 '건수'가 아니라 '그 달에 이런 업무가 있었다'는
+    사실을 보여주는 용도다. 자료가 있는 달은 건드리지 않아 이중 계상이 없다."""
+    dk = {"as": ("접수일자", "작업완료일"), "pm": ("점검예정일", "실제점검일")}[kind]
+    want = {"as": "돌발AS", "pm": "정기점검"}[kind]
+    have = {norm_date(r.get(dk[0]) or r.get(dk[1]))[:7] for r in existing}
+    have = {h.replace("-", "/") for h in have if h}
+    out = []
+    for d in get_erpdocs().get("rows", []):
+        if (d.get("유형") or "") != want:
+            continue
+        mo = d.get("월") or ""
+        if not mo or mo in have:
+            continue
+        slip = d.get("전표") or ""
+        iso = slip[:10].replace("/", "-")
+        title = d.get("프로젝트명") or ""
+        prj = _UJ_RE.search(title)
+        base = {"프로젝트NO": prj.group() if prj else "", "캠프명": camp_of(title),
+                "담당기사": "", "유상·무상·보험": "유상", "비고": "ERP 계산서 기준(작업 묶음)",
+                "출처": "ERP", "적요": title}
+        if kind == "as":
+            base.update({"접수ID": "ERP-" + slip.replace("/", ""), "접수일자": iso,
+                         "작업완료일": iso, "진행상태": "작업완료", "신청내용": title,
+                         "긴급도": "", "방문예정일": ""})
+        else:
+            base.update({"점검ID": "ERP-" + slip.replace("/", ""), "점검예정일": iso,
+                         "실제점검일": iso, "점검상태": "완료",
+                         "이상발견여부": "", "돌발AS전환여부": ""})
+        out.append(base)
     return out
 
 
