@@ -624,6 +624,10 @@ def t6_webapp():
         assert "앱에서 찾은 건" in html, "보고 숫자와 불일치 알림 누락"
         for k in ("신규접수", "점검완료", "거래명세서발행", "입금건수"):
             assert f"'{k}'" in html, f"{k} 매핑 누락"
+        # 문제 코드는 축약어가 아니라 '무엇이 비었고 무엇을 해야 하는지'로 풀어 써야 한다
+        assert "관리자검증상태" in html and "중복판정(선택)" in html, "문제 코드 해설 누락"
+        assert "이미 정리(중복 통합" in html, "삭제된 건 표시 누락"
+        assert "codeHtml(" in html and "topLine(" in html, "코드 해설 함수 누락"
         print("  [6] 웹앱 API(PIN 인증·상태·정산·페이지 서빙) ✅")
     finally:
         p.terminate()
