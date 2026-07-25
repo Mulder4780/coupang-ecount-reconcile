@@ -25,6 +25,10 @@ PORT = 8899
 
 
 def find_cloudflared():
+    # 1순위: 포터블(webapp/cloudflared.exe — 관리자 권한 불필요)
+    local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cloudflared.exe")
+    if os.path.exists(local):
+        return local
     p = shutil.which("cloudflared")
     if p:
         return p

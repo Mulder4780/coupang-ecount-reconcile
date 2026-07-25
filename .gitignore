@@ -14,3 +14,4 @@ band/cache/
 kakao/inbox/*
 !kakao/inbox/.gitkeep
 updates/
+webapp/cloudflared.exe
