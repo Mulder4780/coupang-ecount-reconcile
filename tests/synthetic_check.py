@@ -482,7 +482,25 @@ def t19_workbook_integrity(tmp):
     assert any("행 7 안에" in b for b in bad2), bad2      # 셀 참조/행 불일치 검출
     bad3, _ = scan_sheet('<sheetData><row r="5"><c r="A5" s="99"/></row></sheetData>', "t", 10)
     assert any("스타일" in b for b in bad3), bad3         # 스타일 인덱스 초과 검출
-    print("  [19] 워크북 무결성(수식 캐시값·행열 순서·스타일 범위) ✅")
+    # ★ 실사고 회귀: 속성이 붙은 <v>를 못 알아보고 <v/>를 하나 더 넣으면
+    #   한 셀에 <v>가 2개가 되고, 엑셀이 그 시트를 통째로 비워 버린다(313셀 피해)
+    from fix_workbook import remove_dup_v, count_dup_v, _V_RE
+    keep = ('<sheetData><row r="5">'
+            '<c r="A5" s="1" t="str"><f>X()</f><v xml:space="preserve">값 </v></c>'
+            '</row></sheetData>')
+    _, n2 = add_missing_v(keep)
+    assert n2 == 0, "xml:space 붙은 <v>를 못 알아봄 — 중복 <v>를 또 만든다"
+    assert _V_RE.search('<v xml:space="preserve">a</v>'), "정규식이 속성 있는 <v>를 놓침"
+    dup = ('<sheetData><row r="5">'
+           '<c r="A5" s="1" t="str"><f>X()</f><v xml:space="preserve">값 </v><v/></c>'
+           '<c r="B5" s="1" t="str"><f>Y()</f><v/></c>'
+           '</row></sheetData>')
+    assert count_dup_v(dup) == 1, count_dup_v(dup)
+    fixed3, n3 = remove_dup_v(dup)
+    assert n3 == 1 and count_dup_v(fixed3) == 0, fixed3
+    assert '<v xml:space="preserve">값 </v></c>' in fixed3, fixed3   # 원래 값은 보존
+    assert '<c r="B5" s="1" t="str"><f>Y()</f><v/></c>' in fixed3, fixed3  # 정상 셀은 유지
+    print("  [19] 워크북 무결성(수식 캐시값·<v> 중복·행열 순서·스타일 범위) ✅")
 
 
 def t20_rep_no():

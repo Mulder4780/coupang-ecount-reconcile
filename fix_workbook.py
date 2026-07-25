@@ -33,6 +33,10 @@ except Exception:
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+# ★ 캐시값 존재 판정은 반드시 이 정규식으로. '<v>' 문자열만 찾으면
+#   <v xml:space="preserve">…</v> 를 놓쳐 <v>를 하나 더 넣게 되고,
+#   한 셀에 <v>가 2개면 엑셀이 그 시트를 통째로 버린다(2026-07-26 실사고, 313셀).
+_V_RE = re.compile(r"<v[\s/>]")
 
 
 def iter_tags(xml, name):
@@ -107,7 +111,7 @@ def scan_sheet(xml, label, style_max):
             if sm and style_max is not None and int(sm.group(1)) >= style_max:
                 bad.append(f"{label}: {ref} 스타일 인덱스 {sm.group(1)} 범위 초과")
             if cinner and "<f" in cinner:
-                has_v = "<v>" in cinner or "<v/>" in cinner
+                has_v = bool(_V_RE.search(cinner))
                 t = re.search(r'\st="([^"]+)"', ctag)
                 if t and not has_v:
                     fixable += 1     # ★ 복구 대화상자 주원인
@@ -120,7 +124,7 @@ def add_missing_v(xml):
     for s, e, ctag, cinner in iter_tags(xml, "c"):
         if cinner is None or "<f" not in cinner:
             continue
-        if "<v>" in cinner or "<v/>" in cinner:
+        if _V_RE.search(cinner):        # <v>, <v/>, <v xml:space="preserve"> 전부 포함
             continue
         if not re.search(r'\st="[^"]+"', ctag):
             continue
@@ -132,8 +136,30 @@ def add_missing_v(xml):
     return "".join(out), n
 
 
+def remove_dup_v(xml):
+    """한 셀에 <v>가 2개 이상이면 뒤에 붙은 빈 <v/>를 걷어낸다(잘못 넣은 것 되돌리기)."""
+    out, last, n = [], 0, 0
+    for s, e, ctag, cinner in iter_tags(xml, "c"):
+        if cinner is None or len(_V_RE.findall(cinner)) < 2:
+            continue
+        fixed = re.sub(r"<v\s*/>(?=(?:<[^v]|$))", "", cinner)   # 값 없는 <v/>만 제거
+        if fixed == cinner:
+            fixed = re.sub(r"<v\s*/>", "", cinner, count=1)
+        out.append(xml[last:s])
+        out.append(ctag + fixed + "</c>")
+        last = e
+        n += 1
+    out.append(xml[last:])
+    return "".join(out), n
+
+
+def count_dup_v(xml):
+    return sum(1 for s, e, ct, ci in iter_tags(xml, "c")
+               if ci and len(_V_RE.findall(ci)) > 1)
+
+
 def check(path, verbose=True):
-    problems, fix_total = [], 0
+    problems, fix_total, dup_total = [], 0, [0]
     z = zipfile.ZipFile(path)
     if z.testzip() is not None:
         problems.append("zip 무결성 실패")
@@ -154,9 +180,15 @@ def check(path, verbose=True):
     for n in sorted(names):
         if not re.match(r"xl/worksheets/sheet\d+\.xml$", n):
             continue
-        b, f = scan_sheet(z.read(n).decode("utf-8"), n.split("/")[-1], style_max)
+        x = z.read(n).decode("utf-8")
+        b, f = scan_sheet(x, n.split("/")[-1], style_max)
         problems += b
         fix_total += f
+        d = count_dup_v(x)
+        if d:
+            problems.append(f"{n.split('/')[-1]}: 한 셀에 <v>가 2개인 셀 {d}개 "
+                            f"— 엑셀이 시트를 통째로 버린다")
+            dup_total[0] += d
     z.close()
     if verbose:
         print(f"검사: {os.path.basename(path)}")
@@ -179,10 +211,11 @@ def repair(src, dst):
         if not re.match(r"xl/worksheets/sheet\d+\.xml$", n):
             continue
         x = zin.read(n).decode("utf-8")
-        y, cnt = add_missing_v(x)
-        if cnt:
+        y, d = remove_dup_v(x)          # 잘못 넣은 <v/> 먼저 걷어내고
+        y, cnt = add_missing_v(y)       # 진짜 빠진 곳만 채운다
+        if cnt or d:
             patched[n] = y.encode("utf-8")
-            total += cnt
+            total += cnt + d
     if not total:
         zin.close()
         return 0, 0

@@ -1659,14 +1659,16 @@ function renderDaily(){
     </div>
     ${erpHtml(y)}
     ${execHtml()}
-    <h4>조치 필요 — 유형별 (돌발AS / 정기점검 구분)</h4>
+    ${(()=>{ window._issueSets = {}; Object.entries(byType).forEach(([t,l])=>window._issueSets[t]=l); return ''; })()}
+    <h4>조치 필요 — 유형별 (돌발AS / 정기점검 구분) <span class="norm">— 유형을 누르면 담당자별 전달</span></h4>
     <table class="stack">
       <colgroup><col style="width:23%"><col style="width:9%"><col style="width:17%"><col style="width:16%"><col style="width:35%"></colgroup>
       <tr><th>유형</th><th style="text-align:right">건수</th><th>돌발AS · 정기점검</th><th style="text-align:right">금액(원)</th><th>프로젝트NO</th></tr>
       ${Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>{
         const as=l.filter(r=>String(r.업무구분||'').includes('돌발')).length;
         const pm=l.filter(r=>String(r.업무구분||'').includes('점검')).length;
-        return `<tr><td class="hd"><b>${t}</b></td><td data-l="건수" style="text-align:right">${l.length}</td>
+        return `<tr style="cursor:pointer" onclick="openIssueType(${esc4(t)})">
+         <td class="hd"><b>${t}</b> <span class="go">▸</span></td><td data-l="건수" style="text-align:right">${l.length}</td>
          <td data-l="구분">AS ${as} · 점검 ${pm}${l.length-as-pm?` · 기타 ${l.length-as-pm}`:''}</td>
          <td data-l="금액(원)" style="text-align:right">${fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0))}</td>
          <td class="prjs" data-l="프로젝트NO"><div class="chips">${l.slice(0,5).map(r=>{
@@ -1985,6 +1987,38 @@ function openPane(html){
 }
 
 /* KPI 숫자 → 그 숫자를 만든 실제 건 목록 */
+/* 조치 필요 유형(세금계산서 미발행 등) → 담당자별로 묶어 이미지 전달 */
+function openIssueType(t){
+  const list = (window._issueSets||{})[t] || [];
+  const by = {};
+  list.forEach(r=>{
+    (owners(r.담당기사 || r.담당자).forEach(w=>{
+      (by[w] = by[w] || []).push({
+        id: r.정산ID || r.접수ID || r.점검ID || '', prj: r.프로젝트NO || '',
+        camp: r.캠프명 || '', kind: r.업무구분 || '', issue: t,
+        date: r.완료일 || r.접수일자 || r.점검예정일 || '',
+        desc: r.공급가액 ? fmt(r.공급가액) + '원' : ''
+      });
+    }));
+  });
+  const names = Object.keys(by).sort((a,b)=>by[b].length-by[a].length);
+  window._board = Object.assign(window._board||{}, by);   // 전달 이미지가 이 집합을 씀
+  openPane(`<h2>${t} <span class="chip c-danger">${list.length}건</span></h2>
+    <div class="sub">담당자별로 나눠 이미지를 만들어 전달할 수 있습니다</div>
+    ${helpBox(t)}
+    <div class="toplist" style="margin-top:12px">${names.map(n=>`
+      <div class="topitem">
+        <span style="min-width:0"><b>${n}</b>
+          <div style="font-size:11.5px;color:var(--ink-3);margin-top:3px">${by[n].length}건 · ${
+            by[n].slice(0,2).map(x=>x.prj||x.id).join(', ')}${by[n].length>2?' 외':''}</div></span>
+        <span style="flex:none;display:flex;gap:6px">
+          <button class="abtn" style="padding:7px 10px;font-size:12px"
+            onclick="event.stopPropagation();openAssignee(${esc4(n)})">내역</button>
+          <button class="abtn primary" style="padding:7px 10px;font-size:12px"
+            onclick="event.stopPropagation();window._curAssignee=${esc4(n)};shareAssignee()">📤 전달</button>
+        </span></div>`).join('') ||
+      '<div class="card">담당자 정보가 없는 건입니다</div>'}</div>`);
+}
 function openKpi(key){
   const set = (window._kpiSets||{})[key]; if(!set) return;
   const kind = set.kind, rows = set.rows;
