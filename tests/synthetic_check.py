@@ -242,6 +242,32 @@ def t10_band_extract():
     print("  [10] 밴드 업무 추출(유형·유상무상·미정일자·템플릿/비업무 제외) ✅")
 
 
+def t11_backfill():
+    """백필 핵심 로직: 중복 제거·코드값 변환·용량 판단 (실데이터·실파일 접촉 없음)"""
+    from backfill_rows import dedupe, enrich, SPEC
+    base = {"프로젝트NO": "", "업무유형": "정기점검", "비용구분": "유상", "작업일": "", "담당기사": "김필우",
+            "캠프명": "테스트캠프", "진행상태": "", "문서상태": "", "사진": 0, "게시일": "", "밴드": "B"}
+    recs = [
+        {**base, "프로젝트NO": "UJ1", "진행상태": "접수·예정", "게시일": "2026-06-01"},
+        {**base, "프로젝트NO": "UJ1", "진행상태": "작업완료", "작업일": "2026-06-05", "게시일": "2026-06-05"},
+        {**base, "프로젝트NO": "UJ2", "진행상태": "작업완료", "작업일": "2026-06-03", "게시일": "2026-06-03"},
+    ]
+    d = dedupe(recs)
+    assert len(d) == 2, d                                   # UJ1 2건 → 1건
+    u1 = [x for x in d if x["프로젝트NO"] == "UJ1"][0]
+    assert u1["진행상태"] == "작업완료" and u1["_중복"] == 2, u1   # 완료본이 대표
+    e = enrich(u1)
+    assert e["_진행상태"] == "작업완료" and e["_완료일"] == "2026-06-05", e
+    assert "게시 2건 통합" in e["_출처"], e
+    e2 = enrich({**base, "프로젝트NO": "UJ3", "진행상태": "접수·예정", "작업일": "", "게시일": "2026-06-09"})
+    assert e2["_진행상태"] == "접수" and e2["_완료일"] == "", e2   # 미완료는 완료일 비움
+    # 매핑에 ID·자동계산 열이 없어야 함(수식 보호)
+    for kind, spec in SPEC.items():
+        assert not any(c.endswith("ID") for c in spec["map"]), spec["map"]
+        assert "점검상태" not in spec["map"] and "기사배정상태" not in spec["map"], spec["map"]
+    print("  [11] 백필 로직(중복통합·상태변환·완료일·수식열 제외) ✅")
+
+
 def t9_watchdog():
     import time as _t
     from watchdog import pick_archive, pick_old_reports
@@ -323,5 +349,6 @@ if __name__ == "__main__":
     t3_match()
     t9_watchdog()
     t10_band_extract()
+    t11_backfill()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

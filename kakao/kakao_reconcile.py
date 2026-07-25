@@ -110,7 +110,9 @@ def read_rows(master):
         def gv(row, name):
             return row[idx[name]] if name in idx and idx[name] < len(row) else None
         for row in ws.iter_rows(min_row=FIRST, values_only=True):
-            rid = gv(row, cols[0])
+            # ID 열은 수식이라 새로 추가된 행은 엑셀을 열기 전까지 캐시값이 없다(None).
+            # 그런 행도 대조 대상이어야 하므로 프로젝트NO를 대체 키로 쓴다.
+            rid = gv(row, cols[0]) or gv(row, cols[1])
             done = to_date(gv(row, cols[4]))
             if not rid or not done:
                 continue

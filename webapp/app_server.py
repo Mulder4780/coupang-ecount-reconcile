@@ -184,10 +184,10 @@ def real_works():
     wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
     out = {"as": [], "pm": []}
     spec = {
-        "02_돌발AS접수": ("as", ["접수ID", "캠프명", "접수일자", "담당기사", "진행상태", "작업완료일",
-                                "유상·무상·보험", "신청내용", "긴급도", "방문예정일"]),
-        "04_정기점검": ("pm", ["점검ID", "캠프명", "점검예정일", "실제점검일", "점검상태", "담당기사",
-                              "이상발견여부", "돌발AS전환여부"]),
+        "02_돌발AS접수": ("as", ["접수ID", "프로젝트NO", "캠프명", "접수일자", "담당기사", "진행상태",
+                                "작업완료일", "유상·무상·보험", "신청내용", "긴급도", "방문예정일"]),
+        "04_정기점검": ("pm", ["점검ID", "프로젝트NO", "캠프명", "점검예정일", "실제점검일", "점검상태",
+                              "담당기사", "이상발견여부", "돌발AS전환여부"]),
     }
     for sheet, (key, cols) in spec.items():
         if sheet not in wb.sheetnames:
@@ -196,7 +196,11 @@ def real_works():
         hdr = next(ws.iter_rows(min_row=4, max_row=4, values_only=True))
         idx = {str(h).strip(): i for i, h in enumerate(hdr) if h is not None}
         for row in ws.iter_rows(min_row=5, values_only=True):
+            # ID 열은 수식 — 새로 추가된 행은 엑셀을 열기 전까지 캐시값이 없다.
+            # 프로젝트NO를 대체 키로 써서 백필 행도 앱에 표시한다.
             rid = row[idx[cols[0]]] if cols[0] in idx else None
+            if not rid and "프로젝트NO" in idx and idx["프로젝트NO"] < len(row):
+                rid = row[idx["프로젝트NO"]]
             if not rid:
                 continue
             rec = {}

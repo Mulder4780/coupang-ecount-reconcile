@@ -81,7 +81,9 @@ def read_rows():
         def gv(row, name):
             return row[idx[name]] if name and name in idx and idx[name] < len(row) else None
         for row in ws.iter_rows(min_row=FIRST, values_only=True):
-            rid = gv(row, cols[0])
+            # ID 열은 수식이라 새로 추가된 행은 엑셀을 열기 전까지 캐시값이 없다(None).
+            # 그런 행도 대조 대상이어야 하므로 프로젝트NO를 대체 키로 쓴다.
+            rid = gv(row, cols[0]) or gv(row, cols[1])
             if not rid:
                 continue
             done = to_date(gv(row, cols[4]))
@@ -160,7 +162,10 @@ def main():
     try:
         sys.path.insert(0, ROOT)
         from ledger_writer import queue_add
-        ups = [{"sheet": "02_돌발AS접수", "key_col": "접수ID", "key": r["ID"], "col": "사진등록",
+        # ID가 수식 미계산으로 프로젝트NO로 대체된 행은 조회 키도 프로젝트NO를 써야 한다
+        ups = [{"sheet": "02_돌발AS접수",
+                "key_col": "접수ID" if str(r["ID"]).startswith("AS-") else "프로젝트NO",
+                "key": r["ID"], "col": "사진등록",
                 "value": "등록", "vtype": "text", "only_if_empty": True,
                 "evidence": f"밴드 게시 {r['게시일']} {r['게시자']} 사진{r['사진수']}장"}
                for r in results
