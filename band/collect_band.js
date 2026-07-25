@@ -54,14 +54,19 @@
       const text = card.innerText.trim();
       const tm = text.match(/(\d{4}년\s*\d{1,2}월\s*\d{1,2}일\s*(?:오전|오후)?\s*\d{1,2}:\d{2})/);
       const author = (card.querySelector('.userName, ._authorName, strong') || {}).innerText || '';
-      const photo = card.querySelectorAll('img[src*="coolenjoy"], .imgList img, ._postPhoto img').length;
+      // 사진 URL까지 담는다(거래명세서·계산서 사진을 OCR로 읽기 위해)
+      const imgs = [...card.querySelectorAll('img')]
+        .map(i => i.currentSrc || i.src || '')
+        .filter(u => /^https?:/.test(u) && !/profile|emoticon|sticker|icon/i.test(u));
+      const photo = imgs.length;
       const cmt = (text.match(/댓글\s*(\d+)/) || [0, 0])[1];
       posts[id] = {
         author: (author || '').trim(),
         timeText: tm ? tm[1].replace(/\s+/g, ' ') : '',
         content: text,
         photo_count: photo,
-        comment_count: Number(cmt) || 0
+        comment_count: Number(cmt) || 0,
+        images: imgs.slice(0, 12)
       };
       added++;
       const d = text.match(ABS);
@@ -87,6 +92,27 @@
     if (stall >= 8) { say(`⛔ 더 이상 불러오지 않음(끝)<br>총 <b>${Object.keys(posts).length}</b>개 · 최고참 ${oldest}`); break; }
   }
   harvest();
+
+  // 명세서·계산서로 보이는 글의 사진은 **본문(base64)까지** 담아 바로 OCR에 넘긴다.
+  // (밴드 이미지 URL은 로그인 쿠키가 있어야 열리므로, 여기서 받아 두는 게 확실하다)
+  const DOC = /명세서|계산서|견적|청구|세금/;
+  const targets = Object.entries(posts).filter(([,p]) => DOC.test(p.content || ''));
+  say(`💾 문서 사진 내려받는 중… 대상 글 ${targets.length}개`);
+  let got = 0;
+  for (const [id, p] of targets) {
+    for (const url of (p.images || []).slice(0, 4)) {
+      try {
+        const b = await (await fetch(url, { credentials: 'include' })).blob();
+        if (b.size > 3 * 1024 * 1024) continue;                 // 3MB 초과는 건너뜀
+        p.imageData = p.imageData || [];
+        p.imageData.push(await new Promise(r => {
+          const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(b);
+        }));
+        got++;
+      } catch (e) { /* 실패한 사진은 URL만 남긴다 */ }
+    }
+    say(`💾 문서 사진 ${got}장 확보 (${targets.length}개 글 중 진행)`);
+  }
 
   const dump = { band: bandId, name: bandName.trim(), capturedAt: Date.now(), posts };
   const blob = new Blob([JSON.stringify(dump, null, 1)], { type: 'application/json' });

@@ -533,6 +533,27 @@ def t20_rep_no():
     print("  [20] 대표 프로젝트NO(원본·본문·동일캠프·전표·자체ID) ✅")
 
 
+def t21_reorder():
+    """행 재배치 — 과거→최근 정렬 + 수식 상대참조가 함께 이동하는가.
+    실사고 회귀: 자기닫힘 <f .../> 를 게으른 정규식으로 잡아 다음 셀의 r=\"B5\"까지
+    숫자를 바꿔 'B-3' 같은 잘못된 셀 참조가 만들어졌다."""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    from reorder_rows import shift_rows, move_row, self_test
+    self_test()
+    assert shift_rows("$B5+E4", 3) == "$B8+E7"                 # 상대행만 이동
+    assert shift_rows("$E$4:E9", 2) == "$E$4:E11"              # 절대행 고정
+    row = ('<row r="9"><c r="A9" s="1" t="str"><f t="shared" si="3"/><v/></c>'
+           '<c r="B9" s="1"><v>7</v></c>'
+           '<c r="C9" s="1" t="str"><f>SUM($B$4:B8)</f><v/></c></row>')
+    out = move_row(row, 5)
+    assert '<c r="B5" s="1"><v>7</v></c>' in out, out           # ★ 셀 참조가 망가지면 안 됨
+    assert '<c r="A5"' in out and '<c r="C5"' in out, out
+    assert "SUM($B$4:B4)" in out, out                           # 직전행 참조가 따라 이동
+    assert "B-" not in out, out
+    print("  [21] 행 재배치(정렬·상대참조 이동·자기닫힘 f 안전) ✅")
+
+
 def t16_status():
     """상태 수식 캐시 보정 — 새로 넣은 행은 상태열(수식)이 None이라 완료된 점검이
     전부 '미점검'으로 보였다. 원본 열로 직접 판정하는 로직 검증."""
@@ -673,5 +694,6 @@ if __name__ == "__main__":
     t18_erp_docs()
     t19_workbook_integrity(None)
     t20_rep_no()
+    t21_reorder()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

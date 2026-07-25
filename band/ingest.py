@@ -37,6 +37,35 @@ def run(args, label):
     return r.returncode == 0, out
 
 
+def extract_images():
+    """수집 덤프에 담겨 온 문서 사진(base64)을 docs_inbox/ 로 풀어 놓는다.
+    밴드 이미지 URL은 로그인 쿠키가 있어야 열려서, 브라우저에서 받아 온 본문을 그대로 쓴다."""
+    import base64
+    out = os.path.join(HERE, "docs_inbox")
+    os.makedirs(out, exist_ok=True)
+    n = 0
+    for f in glob.glob(os.path.join(CACHE, "raw_*.json")) + glob.glob(os.path.join(CACHE, "dump_*.json")):
+        try:
+            d = json.load(open(f, encoding="utf-8"))
+        except Exception:
+            continue
+        posts = d.get("posts") or {}
+        for pid, v in (posts.items() if isinstance(posts, dict) else enumerate(posts)):
+            for i, data in enumerate(v.get("imageData") or []):
+                m = re.match(r"data:image/(\w+);base64,(.+)$", str(data), re.S)
+                if not m:
+                    continue
+                dst = os.path.join(out, f"band_{d.get('band','x')}_{pid}_{i}.{m.group(1)}")
+                if os.path.exists(dst):
+                    continue
+                try:
+                    open(dst, "wb").write(base64.b64decode(m.group(2)))
+                    n += 1
+                except Exception:
+                    pass
+    return n
+
+
 def cache_months():
     """캐시에 들어 있는 게시글의 월별 분포"""
     out = {}
@@ -67,6 +96,10 @@ def main():
     else:
         print("새 덤프 없음 — 기존 캐시로 진행 "
               "(밴드에서 새로 수집하려면 band/collect_band.js 를 브라우저 콘솔에 붙여넣으세요)")
+
+    got = extract_images()
+    if got:
+        print(f"문서 사진 {got}장 → band/docs_inbox/ (다음 단계에서 OCR로 읽습니다)")
 
     months = cache_months()
     allm = collections.Counter()
