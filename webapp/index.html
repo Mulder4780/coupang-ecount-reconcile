@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1E3A8A">
 <title>쿠팡 통합업무</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
   --navy-950:#0A1430; --navy-900:#0E1B3F; --navy-800:#152660;
@@ -18,8 +20,8 @@
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
-body{font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;
-  background:var(--bg);color:var(--ink);font-size:14.5px;line-height:1.5;letter-spacing:-.1px}
+body{font-family:"Nanum Gothic","나눔고딕",NanumGothic,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+  background:var(--bg);color:var(--ink);font-size:14.5px;line-height:1.55;letter-spacing:-.2px}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
 ::selection{background:var(--brand-tint)}
 
@@ -63,8 +65,14 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 /* ═══ KPI 타일 ═══ */
 .kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:13px}
 .kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
-  box-shadow:var(--sh);padding:14px 15px;transition:box-shadow .15s,transform .15s}
-.kpi:hover{box-shadow:var(--sh-lg)}
+  box-shadow:var(--sh);padding:14px 15px;cursor:pointer;
+  transition:box-shadow .18s,transform .18s,border-color .18s}
+.kpi:hover{box-shadow:var(--sh-lg);transform:translateY(-2px);border-color:#C7D4F0}
+.kpi:active{transform:scale(.955);box-shadow:var(--sh)}
+@keyframes tapPop{0%{transform:scale(1)}40%{transform:scale(.955)}100%{transform:scale(1)}}
+.kpi.tapped{animation:tapPop .28s ease}
+@keyframes flashCard{0%,100%{background:var(--surface)}45%{background:var(--brand-tint);border-color:var(--brand)}}
+.card.flash{animation:flashCard .9s ease 2}
 .kpi .head{display:flex;align-items:center;gap:8px;margin-bottom:9px}
 .kpi .ico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;
   font-size:15px;background:var(--brand-tint);flex:none}
@@ -460,18 +468,20 @@ async function loadStatus(){
   const issues = rows.filter(r=>!['정상','무상/보험'].includes(r.상태));
   const asOpen = (works.as||[]).filter(r=>r.진행상태 && r.진행상태!=='작업완료').length;
   const pmWait = (works.pm||[]).filter(r=>r.점검상태 && r.점검상태!=='완료').length;
-  const tile=(cls,ico,label,val,sub)=>`<div class="kpi ${cls}">
+  const tile=(cls,ico,label,val,sub,click)=>`<div class="kpi ${cls}" onclick="kTap(this);${click||''}">
     <div class="head"><div class="ico">${ico}</div><div class="l">${label}</div></div>
     <div class="v">${val}</div>${sub?`<div class="s">${sub}</div>`:''}</div>`;
   $('kpis').innerHTML =
-    tile('accent','📋','정산 건수', rows.length||'-', `유상 ${유상.length}건`) +
-    tile('','💰','공급가액 합계', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원') +
-    tile(미수?'warn':'ok','⏳','미수금', fmt(미수), '원') +
+    tile('accent','📋','정산 건수', rows.length||'-', `유상 ${유상.length}건 · 클릭=목록`, "goList('settle','')") +
+    tile('','💰','공급가액 합계', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원 · 클릭=내역', "goList('settle','')") +
+    tile(미수?'warn':'ok','⏳','미수금', fmt(미수), '원 · 클릭=입금대기 목록', "goList('settle','입금 대기')") +
     tile(발행===유상.length&&유상.length?'ok':'','🧾','계산서 발행율',
       (유상.length?Math.round(발행/유상.length*100):0)+'%',
-      `${발행}/${유상.length}건 <span class="bar"><i style="width:${유상.length?발행/유상.length*100:0}%"></i></span>`) +
-    tile(issues.length?'danger':'ok','⚠️','정산 조치 필요', issues.length, issues.length?'클릭해 아래 유형 확인':'모두 정상') +
-    tile(asOpen?'warn':'','🔧','AS · 점검', `${asOpen} · ${pmWait}`, 'AS 진행중 · 점검 대기');
+      `${발행}/${유상.length}건 <span class="bar"><i style="width:${유상.length?발행/유상.length*100:0}%"></i></span>`,
+      "goList('settle','세금계산서 미발행')") +
+    tile(issues.length?'danger':'ok','⚠️','정산 조치 필요', issues.length, issues.length?'클릭해 아래 유형 확인':'모두 정상',
+      "flashTop()") +
+    tile(asOpen?'warn':'','🔧','AS · 점검', `${asOpen} · ${pmWait}`, '클릭=AS 목록', "goList('as','')");
   // 상태 분포 바 (2px 간격 마크)
   const SCOLOR = {'정상':'#12813F','입금 대기':'#B54708','세금계산서 미발행':'#C0212E',
     '미청구(전표 없음)':'#8B1E68','금액 미입력':'#5B6B82','무상/보험':'#B9C3D3'};
@@ -516,6 +526,18 @@ function setMode(m){
   mode = m;
   document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on', b.dataset.m===m));
   fillStatOptions(); renderSettle();
+}
+function kTap(el){ el.classList.remove('tapped'); void el.offsetWidth; el.classList.add('tapped'); }
+function goList(mode, filter){
+  setTimeout(()=>{
+    show('settle'); setMode(mode);
+    if(filter){ $('fstat').value = filter; renderSettle(); }
+  }, 140);   // 탭 애니메이션 보이고 전환
+}
+function flashTop(){
+  const card = $('toplist').closest('.card');
+  card.scrollIntoView({behavior:'smooth', block:'center'});
+  card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash');
 }
 function jumpIssue(t){
   show('settle'); mode='settle';

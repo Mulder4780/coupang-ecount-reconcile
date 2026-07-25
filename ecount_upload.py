@@ -159,7 +159,13 @@ def main():
             data = resp.get("Data") or {}
             # 공식 Result 스펙: SuccessCnt/FailCnt/SlipNos(전표번호, 실패시 공백)/TRACE_ID/QUANTITY_INFO/EXPIRE_DATE
             success = str(data.get("SuccessCnt", "")).strip() == "1"
-            slip_no = str(data.get("SlipNos", "") or "").strip()
+            raw_slip = data.get("SlipNos", "")
+            if isinstance(raw_slip, list):
+                raw_slip = raw_slip[0] if raw_slip else ""
+            slip_no = str(raw_slip or "").strip()
+            m = __import__("re").match(r"^(\d{4})(\d{2})(\d{2})-(\d+)$", slip_no)
+            if m:                                   # 20260720-2 → 2026/07/20-2 (원장 표기 규격)
+                slip_no = f"{m.group(1)}/{m.group(2)}/{m.group(3)}-{m.group(4)}"
             if data.get("EXPIRE_DATE"):
                 print(f"  ⚠ API 버전 서비스 종료 예정일: {data['EXPIRE_DATE']}")
             if success:
@@ -187,9 +193,8 @@ def main():
                     print("  (자동입력 큐 적재 실패:", e, ")")
             else:
                 consec_err += 1
-                detail = json.dumps({k: data.get(k) for k in ("FailCnt", "ResultDetails", "TRACE_ID")},
-                                    ensure_ascii=False)[:300]
-                print(f"[{i+1}/{len(targets)}] {r['정산ID']} 실패: {detail}")
+                print(f"[{i+1}/{len(targets)}] {r['정산ID']} 실패 — 원문 응답:")
+                print(json.dumps(resp, ensure_ascii=False)[:1200])
         except EcountError as e:
             consec_err += 1
             print(f"[{i+1}/{len(targets)}] {r['정산ID']} 오류: {str(e)[:150]}")

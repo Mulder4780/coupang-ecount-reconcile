@@ -175,7 +175,22 @@ def apply_to_xml(xml, plan):
         head, body, tail = mrow.groups()
         newrow_span = mrow.span()
 
-    mcell = re.search(r'<c r="%s%d"[^>]*(?:/>|>.*?</c>)' % (colL, rown), body, re.S)
+    # 셀 태그를 2단계로 정확히 잡는다: 여는 태그 → 자기닫힘(/>)이면 그 자체, 아니면 </c>까지.
+    # (기존 단일 정규식은 <c r="M45" s="43"/> 의 '/'를 [^>]*가 삼켜 다음 셀까지 오매칭 — 실사고 원인)
+    mopen = re.search(r'<c r="%s%d"[^>]*>' % (colL, rown), body)
+    mcell = None
+    if mopen:
+        if mopen.group(0).endswith("/>"):
+            span = mopen.span()
+        else:
+            mclose = body.find("</c>", mopen.end())
+            span = (mopen.start(), mclose + 4)
+        class _M:  # re.Match 인터페이스 최소 구현
+            def __init__(s, a, b): s._a, s._b = a, b
+            def group(s, i=0): return body[s._a:s._b]
+            def start(s): return s._a
+            def end(s): return s._b
+        mcell = _M(*span)
     if mcell:
         cxml = mcell.group(0)
         has_val = ("<v>" in cxml) or ("<is>" in cxml) or ('t="s"' in cxml and "<v>" in cxml) or ("<f" in cxml)

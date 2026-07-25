@@ -165,7 +165,17 @@ def t5_writer(tmp):
     hand = w2["19_AI작업인수인계"]
     assert any("자동 입력" in str(c.value) for row in hand.iter_rows() for c in row if c.value), "인수인계 기록 없음"
     w2.close()
-    print("  [5] 자동입력 엔진(빈칸만·날짜·덮어쓰기금지·인수인계 기록) ✅")
+    # 회귀: 스타일만 있는 자기닫힘 빈 셀(<c s=.../>) 바로 뒤에 수식 셀 — 오매칭으로 '값 있음' 오판했던 실사고
+    from ledger_writer import apply_to_xml
+    xml = ('<worksheet><dimension ref="A1:C5"/><sheetData>'
+           '<row r="5"><c r="A5" t="inlineStr"><is><t>K</t></is></c>'
+           '<c r="B5" s="43"/><c r="C5" s="53"><f t="shared" si="1"/><v>0</v></c></row>'
+           '</sheetData></worksheet>')
+    ok, nx, why = apply_to_xml(xml, {"row": 5, "colL": "B", "value": "값", "vtype": "text", "only_if_empty": True})
+    assert ok and '<c r="B5" s="43" t="inlineStr"><is><t>값</t></is></c>' in nx, (ok, why, nx)
+    ok2, _, why2 = apply_to_xml(nx, {"row": 5, "colL": "C", "value": "X", "vtype": "text", "only_if_empty": True})
+    assert not ok2 and "이미" in why2, (ok2, why2)     # 수식 셀은 여전히 보호
+    print("  [5] 자동입력 엔진(빈칸만·날짜·덮어쓰기금지·자기닫힘셀 회귀·인수인계 기록) ✅")
 
 
 def t7_po(tmp):
