@@ -611,6 +611,10 @@ def t6_webapp():
         # 대표보고: 빈 절을 건너뛰고 요약이 '정리' 절 안으로 들어가야 한다(목차 중복 방지)
         assert "usedSum" in html and "empty(s) && !isSum" in html, "빈 절 건너뛰기 로직 누락"
         assert ".esec" in html and ".esum" in html and ".egroup" in html, "대표보고 스타일 누락"
+        # 목록 카드·표에서 프로젝트NO가 맨 앞·굵게 나와야 한다(4개 탭 전부)
+        assert html.count('class="prjno"') >= 6, "프로젝트NO 강조 표기 부족"
+        assert '<b class="prjno">' in html, "표에서 프로젝트NO 굵게 표기 누락"
+        assert 'class="sid"' in html, "보조 ID 표기 누락"
         print("  [6] 웹앱 API(PIN 인증·상태·정산·페이지 서빙) ✅")
     finally:
         p.terminate()

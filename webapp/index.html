@@ -238,6 +238,11 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .srow:active{border-color:var(--brand)}
 .srow .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;gap:8px}
 .srow .id{font-weight:800;font-size:14px;font-variant-numeric:tabular-nums}
+/* 프로젝트NO를 카드 맨 위에 크고 굵게 — 모든 건을 이 번호로 찾는다 */
+.srow .prjno{font-size:16.5px;font-weight:800;letter-spacing:-.3px;color:var(--navy-900);
+  font-variant-numeric:tabular-nums;word-break:break-all;line-height:1.25;min-width:0}
+.srow .sid{color:var(--ink-3);font-weight:700}
+b.prjno{font-weight:800;font-variant-numeric:tabular-nums;color:var(--navy-900)}
 .srow .camp{font-size:12.5px;color:var(--ink-2)}
 .srow .amt{font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
 .srow .meta{display:flex;gap:6px 11px;font-size:11px;color:var(--ink-3);margin-top:7px;flex-wrap:wrap;align-items:center}
@@ -960,18 +965,18 @@ function renderSettle(){
       <div class="kpi ${need.length?'danger':''}"><div class="v">${need.length}/${rows.length}</div><div class="l">조치 필요</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('settle',${i},'${r.정산ID}')">
-        <div class="top"><span class="id">${r.정산ID}</span>${chip(r.상태)}</div>
+        <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${chip(r.상태)}</div>
         <div class="top"><span class="camp">${r.캠프명} · ${r.업무구분}</span><span class="amt">${fmt(r.공급가액)}원</span></div>
-        <div class="meta"><span>${r.프로젝트NO || (r.출처==='ERP' ? 'ERP 계산서' : '')}</span><span>완료 ${r.완료일||'-'}</span>
+        <div class="meta"><span class="sid">${r.정산ID}</span><span>완료 ${r.완료일||'-'}</span>
           <span>명세서 ${r.명세서번호||r.명세서}</span><span>계산서 ${r.계산서}</span>
           ${r.입금일?`<span>입금 ${r.입금일}</span>`:''} ${vbadge(r.정산ID)}
           ${r.적요?`<span style="flex:1 1 100%;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.적요}</span>`:''}</div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
-    $('sgrid').innerHTML = `<tr>${thx('정산ID','정산ID')}${thx('구분','업무구분')}${thx('캠프','캠프명')}${thx('프로젝트','프로젝트NO')}
+    $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('정산ID','정산ID')}${thx('구분','업무구분')}${thx('캠프','캠프명')}
       ${thx('공급가액','공급가액',1)}${thx('명세서번호','명세서번호')}${thx('계산서','계산서발행일')}${thx('PO','PO번호')}${thx('입금일','입금일')}${thx('미수금','미수금',1)}${thx('완료일','완료일')}${thx('상태','상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('settle',${i},'${r.정산ID}')" style="cursor:pointer">
-        <td><b>${r.정산ID}</b></td><td>${r.업무구분}</td><td>${r.캠프명}</td>
-        <td>${r.프로젝트NO}</td><td class="num">${fmt(r.공급가액)}</td><td>${r.명세서번호||'-'}</td>
+        <td><b class="prjno">${r.프로젝트NO||'-'}</b></td><td>${r.정산ID}</td><td>${r.업무구분}</td>
+        <td>${r.캠프명}</td><td class="num">${fmt(r.공급가액)}</td><td>${r.명세서번호||'-'}</td>
         <td>${r.계산서}${r.계산서발행일?' '+r.계산서발행일:''}</td><td>${r.PO번호||'-'}</td><td>${r.입금일||'-'}</td>
         <td class="num">${r.미수금===''?'-':fmt(r.미수금)}</td><td>${r.완료일||'-'}</td><td>${chip(r.상태)}</td></tr>`).join('') +
       `<tr class="tot"><td colspan="4">합계 ${rows.length}건</td><td class="num">${fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))}</td>
@@ -984,15 +989,15 @@ function renderSettle(){
       <div class="kpi ${rows.length-done?'warn':''}"><div class="v">${rows.length-done}</div><div class="l">진행중</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('as',${i},'${r.접수ID}')">
-        <div class="top"><span class="id">${r.접수ID}</span>${chip(r.진행상태)}</div>
+        <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${chip(r.진행상태)}</div>
         <div class="top"><span class="camp">${r.캠프명}</span><span class="camp">${r.담당기사||'-'}</span></div>
-        <div class="meta"><span>접수 ${r.접수일자||'-'}</span><span>${r['유상·무상·보험']||''}</span>
+        <div class="meta"><span class="sid">${r.접수ID||''}</span><span>접수 ${r.접수일자||'-'}</span><span>${r['유상·무상·보험']||''}</span>
           ${r.긴급도==='긴급'?'<span style="color:var(--danger);font-weight:700">긴급</span>':''}
           <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</span></div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
-    $('sgrid').innerHTML = `<tr>${thx('접수ID','접수ID')}${thx('캠프','캠프명')}${thx('접수일','접수일자')}${thx('기사','담당기사')}${thx('유·무상','유상·무상·보험')}<th>내용</th>${thx('완료일','작업완료일')}${thx('상태','진행상태')}</tr>` +
+    $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('접수ID','접수ID')}${thx('캠프','캠프명')}${thx('접수일','접수일자')}${thx('기사','담당기사')}${thx('유·무상','유상·무상·보험')}<th>내용</th>${thx('완료일','작업완료일')}${thx('상태','진행상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('as',${i},'${r.접수ID}')" style="cursor:pointer">
-        <td><b>${r.접수ID}</b></td><td>${r.캠프명}</td><td>${r.접수일자||'-'}</td><td>${r.담당기사||'-'}</td>
+        <td><b class="prjno">${r.프로젝트NO||'-'}</b></td><td>${r.접수ID||'-'}</td><td>${r.캠프명}</td><td>${r.접수일자||'-'}</td><td>${r.담당기사||'-'}</td>
         <td>${r['유상·무상·보험']||'-'}</td><td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</td>
         <td>${r.작업완료일||'-'}</td><td>${chip(r.진행상태)}</td></tr>`).join('');
   } else if(mode==='check'){
@@ -1007,9 +1012,9 @@ function renderSettle(){
     const descOf = r => r.문제내용||r.경고내용||r.검증문제코드||r.누락서류||r['내용·근거']||'';
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openByPrj('${keyOf(r)}')">
-        <div class="top"><span class="id">${keyOf(r)}</span>${chip(statOf(r))}</div>
+        <div class="top"><span class="prjno">${r.프로젝트NO||keyOf(r)}</span>${chip(statOf(r))}</div>
         <div class="top"><span class="camp">${r.캠프명||''}</span><span class="camp">${r.담당자||r.담당기사||''}</span></div>
-        <div class="meta"><span style="flex:1">${descOf(r)}</span></div>
+        <div class="meta"><span class="sid">${keyOf(r)}</span><span style="flex:1">${descOf(r)}</span></div>
       </div>`).join('') || '<div class="card">확인필요 항목이 없습니다 🎉</div>';
     const cols = (issuesData.cols||[]).filter(c=>rows.some(r=>r[c])).slice(0,9);
     $('sgrid').innerHTML = `<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>` +
@@ -1023,14 +1028,14 @@ function renderSettle(){
       <div class="kpi ${rows.length-done?'warn':''}"><div class="v">${rows.length-done}</div><div class="l">예정·미점검</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('pm',${i},'${r.점검ID}')">
-        <div class="top"><span class="id">${r.점검ID}</span>${chip(r.점검상태)}</div>
+        <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${chip(r.점검상태)}</div>
         <div class="top"><span class="camp">${r.캠프명}</span><span class="camp">${r.담당기사||'-'}</span></div>
-        <div class="meta"><span>예정 ${r.점검예정일||'-'}</span><span>실제 ${r.실제점검일||'-'}</span>
+        <div class="meta"><span class="sid">${r.점검ID||''}</span><span>예정 ${r.점검예정일||'-'}</span><span>실제 ${r.실제점검일||'-'}</span>
           ${r.이상발견여부==='있음'?'<span style="color:var(--danger);font-weight:700">이상발견</span>':''}</div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
-    $('sgrid').innerHTML = `<tr>${thx('점검ID','점검ID')}${thx('캠프','캠프명')}${thx('예정일','점검예정일')}${thx('실제점검일','실제점검일')}${thx('기사','담당기사')}${thx('이상','이상발견여부')}${thx('AS전환','돌발AS전환여부')}${thx('상태','점검상태')}</tr>` +
+    $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('점검ID','점검ID')}${thx('캠프','캠프명')}${thx('예정일','점검예정일')}${thx('실제점검일','실제점검일')}${thx('기사','담당기사')}${thx('이상','이상발견여부')}${thx('AS전환','돌발AS전환여부')}${thx('상태','점검상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('pm',${i},'${r.점검ID}')" style="cursor:pointer">
-        <td><b>${r.점검ID}</b></td><td>${r.캠프명}</td><td>${r.점검예정일||'-'}</td><td>${r.실제점검일||'-'}</td>
+        <td><b class="prjno">${r.프로젝트NO||'-'}</b></td><td>${r.점검ID||'-'}</td><td>${r.캠프명}</td><td>${r.점검예정일||'-'}</td><td>${r.실제점검일||'-'}</td>
         <td>${r.담당기사||'-'}</td><td>${r.이상발견여부||'-'}</td><td>${r.돌발AS전환여부||'-'}</td><td>${chip(r.점검상태)}</td></tr>`).join('');
   }
   window._lastRows = rows;
