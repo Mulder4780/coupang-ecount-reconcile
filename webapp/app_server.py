@@ -69,6 +69,8 @@ TASKS = {
     "kakao":         ("카톡 대조", [os.path.join(ROOT, "kakao", "kakao_reconcile.py")]),
     "erp_ledger":    ("ERP원장 대조", [os.path.join(ROOT, "erp_ledger_check.py")]),
     "po":            ("쿠팡 PO 대조", [os.path.join(ROOT, "po_reconcile.py")]),
+    "band_docs":     ("밴드 문서 이미지 대조", [os.path.join(ROOT, "band", "doc_ocr.py"), "--scan"]),
+    "band_docs_apply": ("밴드 문서 → 대장 입력", [os.path.join(ROOT, "band", "doc_ocr.py"), "--scan", "--apply"]),
 }
 runner = {"busy": False, "task": "", "log": deque(maxlen=3000), "done_at": None}
 _rlock = threading.Lock()
@@ -671,6 +673,7 @@ class H(BaseHTTPRequestHandler):
             targets = {"master": master, "master_dir": os.path.dirname(master),
                        "inbox": os.path.join(ROOT, "inbox"),
                        "kakao": os.path.join(ROOT, "kakao", "inbox"),
+                       "band_docs": os.path.join(ROOT, "band", "docs_inbox"),
                        "reports": os.path.join(ROOT, "reports")}
             path = targets.get(what)
             if not path or not os.path.exists(path):

@@ -36,9 +36,9 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .appbar{position:sticky;top:0;z-index:20;background:var(--navy-900);color:#fff;
   padding:calc(env(safe-area-inset-top) + 13px) 18px 13px;display:flex;align-items:center;gap:11px;
   box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 2px 8px rgba(10,20,48,.35)}
-.logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--brand),#5B8CFF);
-  display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 6px rgba(36,82,230,.45)}
-.logo svg{width:17px;height:17px}
+.logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#3D68FF,#1533A3 46%,#060D2B);
+  display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 6px rgba(21,51,163,.5)}
+.logo svg{width:22px;height:22px}
 .appbar h1{font-size:15px;font-weight:800;letter-spacing:-.2px;flex:1;line-height:1.2;min-width:0}
 .brandfull{display:none} .brandshort{display:inline}
 @media(min-width:600px){.brandfull{display:inline} .brandshort{display:none}}
@@ -285,6 +285,37 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 .rpt .rfoot{margin-top:16px;padding-top:10px;border-top:1px solid var(--line);
   display:flex;justify-content:space-between;font-size:10px;color:var(--ink-3)}
 @media(min-width:900px){.rgrid{grid-template-columns:repeat(6,1fr)}}
+/* 보고 표 — 열 너비 고정 + 한글 단어 보존(어절 단위로만 줄바꿈) */
+.rpt table{table-layout:fixed;word-break:keep-all;overflow-wrap:anywhere}
+.rpt table td.prjs{font-size:11px;color:var(--ink-2);line-height:1.55}
+/* 프로젝트NO는 칩으로 — flex-wrap이 항상 줄을 접어주므로 좁은 폰에서도 절대 넘치지 않는다 */
+.chips{display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-width:0}
+.chips .more{font-size:11px;color:var(--ink-3);font-weight:700;align-self:center}
+/* 폰: 열이 눌려 글자가 세로로 쪼개지므로 한 행을 카드로 펼친다 */
+@media(max-width:640px){
+  /* 보고서 머리말: flex 항목은 기본 min-width:auto라 긴 영문 제목이 줄지 못하고
+     페이지 전체를 넓혀 표까지 화면 밖으로 밀어냈다 → min-width:0으로 줄어들게 한다 */
+  .rpt{padding:16px 14px 14px;max-width:100%;overflow-x:hidden}
+  .rpt .rhead{flex-wrap:wrap;gap:9px}
+  .rpt .rhead h2{min-width:0;flex:1;font-size:15px;word-break:keep-all}
+  .rpt .rdate{margin-left:0;width:100%;text-align:left;
+    border-top:1px solid var(--line);padding-top:8px}
+  /* tbody까지 block으로 풀어야 카드가 전체 폭을 쓴다(안 그러면 내용 폭에 맞춰 쪼그라듦) */
+  .rpt table.stack,.rpt table.stack tbody,.rpt table.stack tr,.rpt table.stack td{
+    display:block;width:100%;max-width:100%}
+  .rpt table.stack colgroup{display:none}
+  .rpt table.stack tr{border:1px solid var(--line);border-radius:11px;
+    padding:10px 12px;margin-bottom:8px;background:#FBFCFE}
+  .rpt table.stack tr:first-child{display:none}          /* 머리글 행 */
+  .rpt table.stack td{border:0;padding:2.5px 0;text-align:left!important;font-size:12.5px;
+    overflow-wrap:anywhere;word-break:break-word}
+  .rpt table.stack td::before{content:attr(data-l);display:inline-block;min-width:70px;
+    color:var(--ink-3);font-size:10.5px;font-weight:800;letter-spacing:.2px}
+  .rpt table.stack td.hd{font-size:14.5px;font-weight:800;margin-bottom:5px;color:var(--ink)}
+  .rpt table.stack td.hd::before{content:none}
+  .rpt table.stack td.prjs{padding-top:5px;margin-top:4px;border-top:1px dashed var(--line)}
+  .rpt table.stack td.prjs::before{display:block;min-width:0;margin-bottom:2px}
+}
 
 /* ═══ PIN 게이트 ═══ */
 .gate{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:24px;
@@ -337,7 +368,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 
 <div class="gate" id="gate">
   <div class="box">
-    <div class="glogo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.5 12h-11z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></div>
+    <div class="glogo"><svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lgm" x1=".08" y1="1" x2=".92" y2="0"><stop offset="0" stop-color="#fff"/><stop offset=".46" stop-color="#D6FBEA"/><stop offset="1" stop-color="#1FDD86"/></linearGradient></defs><path d="M122 262 L214 352 L396 116" fill="none" stroke="url(#lgm)" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/><rect x="136" y="404" width="240" height="30" rx="15" fill="#fff" opacity=".95"/><rect x="182" y="452" width="148" height="18" rx="9" fill="#fff" opacity=".4"/></svg></div>
     <h2>Coupang Service Operations System</h2>
     <p>PIN 4자리를 입력하세요</p>
     <input id="pin" type="tel" maxlength="4" inputmode="numeric" placeholder="••••" autofocus>
@@ -347,7 +378,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 </div>
 
 <header class="appbar">
-  <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.5 12h-11z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></div>
+  <div class="logo"><svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lgm" x1=".08" y1="1" x2=".92" y2="0"><stop offset="0" stop-color="#fff"/><stop offset=".46" stop-color="#D6FBEA"/><stop offset="1" stop-color="#1FDD86"/></linearGradient></defs><path d="M122 262 L214 352 L396 116" fill="none" stroke="url(#lgm)" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/><rect x="136" y="404" width="240" height="30" rx="15" fill="#fff" opacity=".95"/><rect x="182" y="452" width="148" height="18" rx="9" fill="#fff" opacity=".4"/></svg></div>
   <h1><span class="brandfull">Coupang Service Operations System</span><span class="brandshort">CSOS</span>
     <small>UNIVERSAL LIFT · 쿠팡 통합업무</small></h1>
   <span class="sub" id="demobadge"></span>
@@ -443,6 +474,10 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
         <button class="abtn" onclick="runTask('kakao')"><span class="em">💬</span>카톡 대조</button>
         <button class="abtn" onclick="runTask('erp_ledger')"><span class="em">🧾</span>ERP원장 대조</button>
         <button class="abtn" onclick="runTask('po')"><span class="em">📦</span>쿠팡 PO 대조</button>
+        <button class="abtn" onclick="runTask('band_docs')"><span class="em">🖼</span>밴드 문서 이미지 대조</button>
+        <button class="abtn" onclick="confirmRun('band_docs_apply','밴드에 올라온 거래명세서·세금계산서 사진을 읽어
+확실한 건만(금액 일치) 관리대장 빈칸에 넣습니다.
+이미 값이 있는 칸은 덮어쓰지 않습니다.')"><span class="em">🖼</span>밴드 문서 → 대장 입력</button>
         <button class="abtn" onclick="runTask('writer_prev')"><span class="em">✏</span>자동입력 미리보기</button>
         <button class="abtn" onclick="confirmRun('writer_apply','확정 대기 항목을 관리대장 새 버전(vN+1)에 입력합니다.\n빈 칸만 채우며 이전 버전은 보존됩니다.')"><span class="em">✏</span>자동입력 반영</button>
         <button class="abtn" onclick="runTask('upload_dry')"><span class="em">📤</span>전표 전송대기</button>
@@ -454,6 +489,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
         <button class="abtn" onclick="openLocal('master')"><span class="em">📂</span>관리대장(최신)</button>
         <button class="abtn" onclick="openLocal('inbox')"><span class="em">📥</span>ERP·PO inbox</button>
         <button class="abtn" onclick="openLocal('kakao')"><span class="em">💬</span>카톡 inbox</button>
+        <button class="abtn" onclick="openLocal('band_docs')"><span class="em">🖼</span>밴드 문서 사진함</button>
         <button class="abtn" onclick="openLocal('reports')"><span class="em">📊</span>리포트 폴더</button>
       </div></div>
   </section>
@@ -478,7 +514,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 
 <nav class="tabbar" id="tabbar">
   <div class="brand">
-    <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.5 12h-11z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></div>
+    <div class="logo"><svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lgm" x1=".08" y1="1" x2=".92" y2="0"><stop offset="0" stop-color="#fff"/><stop offset=".46" stop-color="#D6FBEA"/><stop offset="1" stop-color="#1FDD86"/></linearGradient></defs><path d="M122 262 L214 352 L396 116" fill="none" stroke="url(#lgm)" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/><rect x="136" y="404" width="240" height="30" rx="15" fill="#fff" opacity=".95"/><rect x="182" y="452" width="148" height="18" rx="9" fill="#fff" opacity=".4"/></svg></div>
     <div class="bt" style="font-size:12.5px;line-height:1.35">Coupang Service<br>Operations System
       <small>CSOS · UNIVERSAL LIFT</small></div>
   </div>
@@ -1130,11 +1166,14 @@ function execHtml(){
   return h;
 }
 function srcRow(label, s, emptyMsg){
-  if(!s || !s.total) return `<tr><td>${label}</td><td colspan="2" style="color:#98A2B3">${emptyMsg}</td></tr>`;
+  if(!s || !s.total) return `<tr><td class="hd">${label}</td><td data-l="결과" colspan="2" style="color:#98A2B3">${emptyMsg}</td></tr>`;
   const pct = Math.round(s.ok/s.total*100);
   const res = s.ok ? `대상 ${s.total}건 중 <b>${s.ok}건 확인(${pct}%)</b> · 미확인 ${s.miss}건`
                    : `검출 ${s.total}건 — 확인필요`;
-  return `<tr><td>${label}</td><td>${res}</td><td>${(s.miss_prj||[]).filter(Boolean).join(', ')||'-'}</td></tr>`;
+  return `<tr><td class="hd">${label}</td><td data-l="결과">${res}</td>
+    <td class="prjs" data-l="미확인 프로젝트NO"><div class="chips">${
+      (s.miss_prj||[]).filter(Boolean).map(k=>
+        `<span class="prj" onclick="openByPrj('${k}')">${k}</span>`).join('') || '-'}</div></td></tr>`;
 }
 function renderDaily(){
   const S_ = srcStats || {};
@@ -1152,7 +1191,7 @@ function renderDaily(){
   const cell = (v,l)=>`<div class="rcell"><div class="v">${v}</div><div class="l">${l}</div></div>`;
   $('rpt').innerHTML = `
     <div class="rhead">
-      <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.5 12h-11z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></div>
+      <div class="logo"><svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lgm" x1=".08" y1="1" x2=".92" y2="0"><stop offset="0" stop-color="#fff"/><stop offset=".46" stop-color="#D6FBEA"/><stop offset="1" stop-color="#1FDD86"/></linearGradient></defs><path d="M122 262 L214 352 L396 116" fill="none" stroke="url(#lgm)" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/><rect x="136" y="404" width="240" height="30" rx="15" fill="#fff" opacity=".95"/><rect x="182" y="452" width="148" height="18" rx="9" fill="#fff" opacity=".4"/></svg></div>
       <h2 style="font-size:17px">Coupang Service Operations System<small>일일보고 · (주)유니버셜리프트앤히타치코리아</small></h2>
       <div class="rdate">보고일<b>${(execRep.meta&&execRep.meta['보고일'])||`${y}-${m}-${String(today.getDate()).padStart(2,'0')}`}</b>
         <span style="font-size:10.5px;font-weight:600;color:var(--ink-3)">집계기준일 ${
@@ -1179,18 +1218,25 @@ function renderDaily(){
     </div>
     ${execHtml()}
     <h4>조치 필요 — 유형별 (돌발AS / 정기점검 구분)</h4>
-    <table><tr><th>유형</th><th style="text-align:right">건수</th><th>돌발AS · 정기점검</th><th style="text-align:right">금액(원)</th><th>프로젝트NO</th></tr>
+    <table class="stack">
+      <colgroup><col style="width:23%"><col style="width:9%"><col style="width:17%"><col style="width:16%"><col style="width:35%"></colgroup>
+      <tr><th>유형</th><th style="text-align:right">건수</th><th>돌발AS · 정기점검</th><th style="text-align:right">금액(원)</th><th>프로젝트NO</th></tr>
       ${Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>{
         const as=l.filter(r=>String(r.업무구분||'').includes('돌발')).length;
         const pm=l.filter(r=>String(r.업무구분||'').includes('점검')).length;
-        return `<tr><td><b>${t}</b></td><td style="text-align:right">${l.length}</td>
-         <td>AS ${as} · 점검 ${pm}${l.length-as-pm?` · 기타 ${l.length-as-pm}`:''}</td>
-         <td style="text-align:right">${fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0))}</td>
-         <td>${l.slice(0,5).map(r=>r.프로젝트NO||r.정산ID).join(', ')}${l.length>5?` 외 ${l.length-5}건`:''}</td></tr>`;}).join('')
+        return `<tr><td class="hd"><b>${t}</b></td><td data-l="건수" style="text-align:right">${l.length}</td>
+         <td data-l="구분">AS ${as} · 점검 ${pm}${l.length-as-pm?` · 기타 ${l.length-as-pm}`:''}</td>
+         <td data-l="금액(원)" style="text-align:right">${fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0))}</td>
+         <td class="prjs" data-l="프로젝트NO"><div class="chips">${l.slice(0,5).map(r=>{
+           const k = r.프로젝트NO||r.정산ID;
+           return `<span class="prj" onclick="event.stopPropagation();openByPrj('${k}')" title="${r.정산ID||''} ${r.캠프명||''} — 클릭해 상세">${k}</span>`;
+         }).join('')}${l.length>5?`<span class="more">외 ${l.length-5}건</span>`:''}</div></td></tr>`;}).join('')
       || '<tr><td colspan="5">조치 필요 없음 ✅</td></tr>'}
     </table>
     <h4>3원천 검증 (밴드·카톡·ERP)</h4>
-    <table><tr><th>원천</th><th>결과</th><th>미확인 프로젝트NO</th></tr>
+    <table class="stack">
+      <colgroup><col style="width:16%"><col style="width:40%"><col style="width:44%"></colgroup>
+      <tr><th>원천</th><th>결과</th><th>미확인 프로젝트NO</th></tr>
       ${srcRow('밴드 게시', S_.band, '게시글 수집 필요')}
       ${srcRow('카톡 보고', S_.kakao, '대화 내보내기 투입 시 자동 대조')}
       ${srcRow('ERP 원장', S_.erp, '계정별원장 투입 시 자동 대조(4유형)')}
@@ -1233,6 +1279,18 @@ function renderDaily(){
   };
 }
 
+/* 캡처 이미지용 CSOS 마크 — 앱 아이콘과 같은 도형을 캔버스로 직접 그린다(외부 리소스 0) */
+function drawMark(ctx,x,y,size){
+  const p = v => v*size/512;
+  ctx.save(); ctx.translate(x,y);
+  ctx.strokeStyle='#fff'; ctx.lineWidth=p(56); ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath(); ctx.moveTo(p(122),p(262)); ctx.lineTo(p(214),p(352)); ctx.lineTo(p(396),p(116)); ctx.stroke();
+  ctx.fillStyle='#fff';
+  ctx.beginPath(); ctx.roundRect(p(136),p(398),p(240),p(28),p(14)); ctx.fill();
+  ctx.globalAlpha=.42;
+  ctx.beginPath(); ctx.roundRect(p(182),p(444),p(148),p(18),p(9)); ctx.fill();
+  ctx.restore();
+}
 /* Canvas 직접 렌더 — 외부 리소스를 쓰지 않아 taint(오염)가 없고 PC·태블릿·폰에서 동일하게 동작.
    (이전 SVG foreignObject 방식은 웹폰트 때문에 canvas가 오염되어 toBlob이 null을 반환했다) */
 async function reportToPng(){
@@ -1271,10 +1329,9 @@ async function reportToPng(){
   g.addColorStop(0,'#0E1B3F'); g.addColorStop(1,'#2452E6');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,96);
   box(30,26,44,44,'rgba(255,255,255,.16)',null,12);
-  txt('UL',52,49,F(15,800),'#fff','center');
+  drawMark(ctx,30,26,44);
   txt('Coupang Service Operations System',92,36,F(17,800),'#fff');
   txt('일일보고 · (주)유니버셜리프트앤히타치코리아',92,60,F(11.5),'#9FB4E8');
-  txt('(주)유니버셜리프트앤히타치코리아',92,64,F(12),'#9FB4E8');
   txt('보고일',W-30,32,F(11),'#9FB4E8','right');
   txt(D.date,W-30,52,F(17,800),'#fff','right');
   txt(`집계기준일 ${(D.meta&&D.meta['집계기준일'])||'-'} · 보고자 ${(D.meta&&D.meta['보고자'])||'-'}`,
@@ -1380,11 +1437,11 @@ async function dashToPng(){
   const g=ctx.createLinearGradient(0,0,W,96); g.addColorStop(0,'#0E1B3F'); g.addColorStop(1,'#2452E6');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,96);
   box(30,26,44,44,'rgba(255,255,255,.16)',null,12);
-  txt('UL',52,49,F(15,800),'#fff','center');
+  drawMark(ctx,30,26,44);
   txt('Coupang Service Operations System',92,36,F(17,800),'#fff');
-  txt('통합 현황 · UNIVERSAL LIFT',92,60,F(11.5),'#9FB4E8');
+  txt('통합 현황 · UNIVERSAL LIFT',92,58,F(11.5),'#9FB4E8');
   txt(new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'}),
-      92,64,F(12),'#9FB4E8');
+      92,77,F(11),'#9FB4E8');
   txt('에이전트 '+($('heroAgent').textContent||'').replace('에이전트 ',''),W-30,40,F(11),'#9FB4E8','right');
   txt(rows.length+'건 · '+fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))+'원',W-30,62,F(14,800),'#fff','right');
 
