@@ -608,6 +608,9 @@ def t6_webapp():
         for k in ("금액 미입력", "세금계산서 미발행", "PO 미발행", "ERP 계산서(묶음)"):
             assert f"'{k}'" in html or f'"{k}"' in html, f"{k} 안내 누락"
         assert "band/docs_inbox" in html and "처리 방법 · 용어 설명" in html, "도움말 항목 누락"
+        # 대표보고: 빈 절을 건너뛰고 요약이 '정리' 절 안으로 들어가야 한다(목차 중복 방지)
+        assert "usedSum" in html and "empty(s) && !isSum" in html, "빈 절 건너뛰기 로직 누락"
+        assert ".esec" in html and ".esum" in html and ".egroup" in html, "대표보고 스타일 누락"
         print("  [6] 웹앱 API(PIN 인증·상태·정산·페이지 서빙) ✅")
     finally:
         p.terminate()
