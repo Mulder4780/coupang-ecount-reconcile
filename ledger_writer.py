@@ -90,6 +90,13 @@ def resolve_targets(master, queue):
         sh = u["sheet"]
         if sh not in wb.sheetnames:
             skips.append({**u, "사유": "시트 없음"}); continue
+        # 셀 직접 지정 모드 (예: 00_대시보드 B3 보고일) — 키 조회 없이 좌표로
+        if u.get("cell"):
+            mc = re.match(r"^([A-Z]+)(\d+)$", str(u["cell"]).upper())
+            if not mc:
+                skips.append({**u, "사유": f"셀 주소 오류 {u['cell']}"}); continue
+            plans.append({**u, "row": int(mc.group(2)), "colL": mc.group(1)})
+            continue
         if sh not in cache:
             ws = wb[sh]
             hdr = next(ws.iter_rows(min_row=HDR_ROW, max_row=HDR_ROW, values_only=True))

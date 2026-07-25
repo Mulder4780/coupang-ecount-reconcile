@@ -319,6 +319,14 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
       <h3>🌐 외부 접속 주소 (LTE/5G에서도)</h3>
       <div style="font-size:13.5px;word-break:break-all"><a id="tunnelurl" href="#" target="_blank"></a></div>
       <div style="font-size:11.5px;color:var(--muted);margin-top:4px">터널 재시작 시 주소가 바뀝니다. 폰 브라우저로 열고 "홈 화면에 추가" 하세요.</div></div>
+    <div class="card"><h3>보고 기준일 <span class="norm">— 엑셀 00_대시보드 B3·B4에 반영</span></h3>
+      <div class="pctrl" style="margin-bottom:0;flex-wrap:wrap">
+        <label style="flex:1;min-width:150px;font-size:11.5px;color:var(--ink-3);font-weight:700">보고일
+          <input type="date" id="d_report" style="width:100%;padding:9px 11px;border:1.5px solid var(--line);border-radius:10px;font-size:14px;margin-top:3px"></label>
+        <label style="flex:1;min-width:150px;font-size:11.5px;color:var(--ink-3);font-weight:700">집계기준일
+          <input type="date" id="d_base" style="width:100%;padding:9px 11px;border:1.5px solid var(--line);border-radius:10px;font-size:14px;margin-top:3px"></label>
+        <button onclick="setDates()" style="align-self:flex-end;padding:10px 18px;background:var(--brand);color:#fff;border-radius:10px;font-weight:700;font-size:13.5px;box-shadow:0 4px 12px rgba(36,82,230,.3)">엑셀 반영</button>
+      </div></div>
     <div class="card"><h3>월별·연도별 현황 <span class="norm" id="ptitle"></span></h3>
       <div class="pctrl">
         <select id="pyear" onchange="pickYear()"></select>
@@ -327,7 +335,8 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
         </select>
       </div>
       <div class="mbars" id="mbars"></div>
-      <div class="pkpis" id="pkpis"></div></div>
+      <div class="pkpis" id="pkpis"></div>
+      <div id="ptable" style="margin-top:12px;overflow-x:auto"></div></div>
     <div class="card"><h3>정산 상태 분포</h3>
       <div class="distbar" id="distbar"></div>
       <div class="legend" id="distlegend"></div></div>
@@ -790,10 +799,33 @@ function renderPeriod(){
   const max = Math.max(1, ...byM.map(x=>x.amt));
   $('mbars').innerHTML = byM.map((x,i)=>{
     const mm = String(i+1).padStart(2,'0');
-    return `<div class="mbar ${m===mm?'on':''}" onclick="$('pmonth').value='${m===mm?'':mm}';renderPeriod()"
+    const sel = m===mm;
+    return `<div class="mbar ${sel?'on':''}" onclick="$('pmonth').value='${sel?'':mm}';renderPeriod()"
       title="${i+1}월: ${fmt(x.amt)}원 · ${x.cnt}건">
-      <i style="height:${Math.round(x.amt/max*82)+2}px"></i><b>${i+1}월</b></div>`;
+      ${sel&&x.amt?`<span style="font-size:9px;font-weight:800;color:var(--brand);white-space:nowrap">${Math.round(x.amt/10000).toLocaleString()}만</span>`:''}
+      <i style="height:${Math.round(x.amt/max*76)+2}px"></i><b>${i+1}월</b></div>`;
   }).join('');
+  // 연간 전체 선택 시: 월별 통계표
+  if(!m){
+    const mt = byM.map((x,i)=>{
+      const mm2 = String(i+1).padStart(2,'0');
+      const Si = settleRows.filter(r=>inPeriod(dateOf(r,'settle'),y,mm2));
+      return {월:(i+1)+'월', 건수:x.cnt, 공급가액:x.amt,
+        입금:Si.reduce((a,r)=>a+(+r.입금액||0),0),
+        미수:Si.reduce((a,r)=>a+(+r.미수금||0),0),
+        AS:(works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,mm2)).length,
+        점검:(works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,mm2)).length};
+    }).filter(r=>r.건수||r.AS||r.점검);
+    $('ptable').innerHTML = mt.length ? `<table class="grid" style="display:table">
+      <tr><th>월</th><th class="num">정산</th><th class="num">공급가액</th><th class="num">입금</th><th class="num">미수</th><th class="num">AS</th><th class="num">점검</th></tr>` +
+      mt.map(r=>`<tr onclick="$('pmonth').value='${r.월.replace('월','').padStart(2,'0')}';renderPeriod()" style="cursor:pointer">
+        <td><b>${r.월}</b></td><td class="num">${r.건수}</td><td class="num">${fmt(r.공급가액)}</td>
+        <td class="num">${fmt(r.입금)}</td><td class="num">${fmt(r.미수)}</td><td class="num">${r.AS}</td><td class="num">${r.점검}</td></tr>`).join('') +
+      `<tr class="tot"><td>합계</td><td class="num">${mt.reduce((a,r)=>a+r.건수,0)}</td>
+       <td class="num">${fmt(mt.reduce((a,r)=>a+r.공급가액,0))}</td><td class="num">${fmt(mt.reduce((a,r)=>a+r.입금,0))}</td>
+       <td class="num">${fmt(mt.reduce((a,r)=>a+r.미수,0))}</td><td class="num">${mt.reduce((a,r)=>a+r.AS,0)}</td>
+       <td class="num">${mt.reduce((a,r)=>a+r.점검,0)}</td></tr></table>` : '';
+  } else $('ptable').innerHTML = '';
   // 선택 기간 KPI
   const S = settleRows.filter(r=>inPeriod(dateOf(r,'settle'),y,m));
   const A = (works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,m));
@@ -856,6 +888,24 @@ function pickReport(i){
   curReport=i;
   document.querySelectorAll('#rtabs button').forEach((b,j)=>b.classList.toggle('on',j===i));
   $('mdbox').innerHTML = reports[i] ? mdRender(reports[i].text) : '리포트가 아직 없습니다';
+}
+
+/* ── 보고 기준일 → 엑셀 00_대시보드 B3·B4 ── */
+function initDates(){
+  const t = new Date();
+  const iso = d => d.toISOString().slice(0,10);
+  $('d_report').value = iso(t);
+  const prev = new Date(t);                       // 집계기준일 = 전 영업일
+  do { prev.setDate(prev.getDate()-1); } while([0,6].includes(prev.getDay()));
+  $('d_base').value = iso(prev);
+}
+async function setDates(){
+  const 보고일 = $('d_report').value, 집계기준일 = $('d_base').value;
+  if(!보고일 && !집계기준일){ alert('날짜를 선택하세요'); return; }
+  if(!confirm(`엑셀 00_대시보드에 반영합니다 (새 버전 생성):\n보고일 ${보고일||'-'} · 집계기준일 ${집계기준일||'-'}\n\n진행할까요?`)) return;
+  const r = await api('/api/set_dates',{method:'POST',body:JSON.stringify({보고일, 집계기준일})});
+  if(r.ok){ show('run'); if(!polling) polling = setInterval(pollLog, 1200); pollLog(); }
+  else alert(r.error||'실패');
 }
 
 /* ── 대표 보고서: 생성 → 캡처(PNG) → 공유 ── */
@@ -957,7 +1007,7 @@ async function shareReport(){
 function tick(){ $('clock').textContent = new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}); }
 async function refreshAll(){ try{ await loadSettle(); await loadStatus(); }catch(e){} }
 (async function(){
-  tick(); setInterval(tick, 30000);
+  tick(); setInterval(tick, 30000); initDates();
   if(PIN){ $('gate').style.display='none'; refreshAll(); }
   setInterval(()=>{ if(PIN && !runnerBusy()) loadStatus().catch(()=>{}); }, 30000);
 })();

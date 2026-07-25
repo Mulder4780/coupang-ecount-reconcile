@@ -252,6 +252,11 @@ def t6_webapp():
         assert st.get("demo") and st["steps"], st
         se = json.loads(urllib.request.urlopen(urllib.request.Request(base + "/api/settlements", headers=h)).read())
         assert len(se["rows"]) >= 10 and se["rows"][0]["정산ID"].startswith("JS-"), len(se.get("rows", []))
+        # 기준일 설정(데모: 시뮬레이션 응답) — 잠금 테스트 이전에 수행
+        req = urllib.request.Request(base + "/api/set_dates", data='{"보고일":"2026-07-25"}'.encode("utf-8"),
+                                     headers={"X-Pin": "0000"}, method="POST")
+        d2 = json.loads(urllib.request.urlopen(req).read())
+        assert d2.get("ok") and d2.get("demo"), d2
         # 미인증 접근 차단
         try:
             urllib.request.urlopen(base + "/api/settlements"); assert False, "무인증 접근 허용됨"
@@ -270,7 +275,7 @@ def t6_webapp():
             assert e.code == 429, e.code
         # 메인 페이지 서빙
         html = urllib.request.urlopen(base + "/").read().decode("utf-8")
-        assert "쿠팡 통합업무" in html and "tabbar" in html
+        assert "쿠팡 통합업무" in html and "tabbar" in html and "d_report" in html
         print("  [6] 웹앱 API(PIN 인증·상태·정산·페이지 서빙) ✅")
     finally:
         p.terminate()

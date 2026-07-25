@@ -487,6 +487,27 @@ class H(BaseHTTPRequestHandler):
         if m:
             ok, msg = start_task(m.group(1))
             return self._send(200 if ok else 409, {"ok": ok, "msg": msg})
+        if p == "/api/set_dates":
+            # 보고일·집계기준일 → 00_대시보드 B3·B4 (일일 갱신 입력칸 — 덮어쓰기 허용 화이트리스트)
+            ln = int(self.headers.get("Content-Length", 0))
+            b = json.loads(self.rfile.read(ln) or b"{}")
+            items = []
+            for cell, key, label in (("B3", "보고일", "보고일"), ("B4", "집계기준일", "집계기준일")):
+                v = str(b.get(key, "")).strip()
+                if v:
+                    if not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
+                        return self._send(400, {"ok": False, "error": f"{label} 형식 오류(YYYY-MM-DD)"})
+                    items.append({"sheet": "00_대시보드", "cell": cell, "key": cell, "key_col": "-",
+                                  "col": label, "value": v, "vtype": "date",
+                                  "evidence": f"앱 기준일 설정({ip})", "only_if_empty": False})
+            if not items:
+                return self._send(400, {"ok": False, "error": "날짜 없음"})
+            if DEMO:
+                return self._send(200, {"ok": True, "demo": True})
+            from ledger_writer import queue_add
+            queue_add(items)
+            ok, msg = start_task("writer_apply")     # 즉시 반영(vN+1)
+            return self._send(200, {"ok": True, "applying": ok, "msg": msg})
         if p == "/api/input":
             # 앱 → 엑셀 입력: ledger_writer 큐에 적재(빈 칸만 정책은 반영 단계에서 강제)
             ln = int(self.headers.get("Content-Length", 0))
