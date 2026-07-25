@@ -247,6 +247,12 @@ def real_works():
                 rid = row[idx["프로젝트NO"]]
             if not rid:
                 continue
+            # 행 확장(expand_rows)으로 만들어 둔 **빈 예비행**은 ID 수식이 값을 내므로
+            # rid만으로는 걸러지지 않는다. 날짜도 캠프명도 없으면 실제 업무가 아니다.
+            _d = row[idx[cols[3]]] if cols[3] in idx and idx[cols[3]] < len(row) else None
+            _c = row[idx["캠프명"]] if "캠프명" in idx and idx["캠프명"] < len(row) else None
+            if not _d and not _c:
+                continue
             rec = {}
             for c in cols:
                 v = row[idx[c]] if c in idx and idx[c] < len(row) else None
@@ -844,6 +850,8 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
         self.end_headers()
         self.wfile.write(data)
 
@@ -853,6 +861,17 @@ class H(BaseHTTPRequestHandler):
         if _locked(self.client_address[0]):
             return False
         return self.headers.get("X-Pin", "") == PIN
+
+    def do_OPTIONS(self):
+        """브라우저 수집기(band.us 페이지)에서 보내는 사전 요청 허용 — 로컬에서만 쓴다"""
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Pin")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        # Chrome의 Private Network Access: 공개 사이트(https)에서 로컬 주소로 보낼 때 필요
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.end_headers()
 
     def do_GET(self):
         p = self.path.split("?")[0]

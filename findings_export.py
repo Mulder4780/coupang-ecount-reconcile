@@ -61,7 +61,31 @@ def collect(master):
     data["카톡_미확인"] = [r for r in latest_csv("카톡대조_*.csv") if r.get("카톡보고") == "미확인"]
     data["ERP원장_문제"] = latest_csv("ERP원장대조_*.csv")
     data["쿠팡PO_문제"] = latest_csv("PO대조_*.csv")
+    data["날짜_미상"] = dateless(master)
     return data
+
+
+def dateless(master):
+    """날짜가 비어 있는 업무 행 — 밴드·카톡 어디에도 근거가 없어 사람이 확인해야 한다.
+    (밴드에 글이 있는 건은 ledger_writer 로 이미 자동으로 채워진다)"""
+    import openpyxl
+    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    out = []
+    for sheet, dcol in (("02_돌발AS접수", "접수일자"), ("04_정기점검", "점검예정일")):
+        if sheet not in wb.sheetnames:
+            continue
+        ws = wb[sheet]
+        hdr = next(ws.iter_rows(min_row=4, max_row=4, values_only=True))
+        idx = {str(h).strip(): i for i, h in enumerate(hdr) if h is not None}
+        for row in ws.iter_rows(min_row=5, values_only=True):
+            g = lambda c: (row[idx[c]] if c in idx and idx[c] < len(row) else None)
+            if g(dcol) or not g("캠프명"):
+                continue
+            out.append({"시트": sheet, "프로젝트NO": g("프로젝트NO"), "캠프명": g("캠프명"),
+                        "담당기사": g("담당기사"), "빈칸": dcol,
+                        "확인방법": "밴드 게시글·카톡 보고에서 실제 작업일을 찾아 해당 셀에 입력"})
+    wb.close()
+    return out
 
 
 def write_xlsx(data, out_path):
@@ -86,7 +110,8 @@ def write_xlsx(data, out_path):
             "밴드_미확인": "작업완료인데 밴드 게시글을 찾지 못한 건",
             "카톡_미확인": "작업완료인데 카톡 보고를 찾지 못한 건",
             "ERP원장_문제": "ERP에만/원장에만/계산서X/금액차 (A~D)",
-            "쿠팡PO_문제": "원장미등록 PO·오기입·금액차·연결제안 (A~D)"}
+            "쿠팡PO_문제": "원장미등록 PO·오기입·금액차·연결제안 (A~D)",
+            "날짜_미상": "작업일·점검일이 비어 있어 밴드·카톡에서 날짜를 찾아 채워야 하는 건"}
     for k, rows in data.items():
         ws.append([k.replace("_", " "), len(rows), desc.get(k, "")])
     for col, w in (("A", 22), ("B", 8), ("C", 62)):

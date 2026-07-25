@@ -48,6 +48,9 @@ def flatten(data):
         rows.append(("PO", r.get("PO번호") or r.get("정산ID"), f"PO {r.get('유형','')}",
                      "", "", r.get("쿠팡금액", ""), r.get("발행일", ""),
                      (r.get("판정") or "") + " " + (r.get("후보정산") or r.get("내용") or "")[:60]))
+    for r in data.get("날짜_미상", []):
+        rows.append(("날짜", r.get("프로젝트NO"), f"{r.get('빈칸')} 비어 있음", r.get("캠프명"),
+                     r.get("담당기사"), "", "", r.get("확인방법") or ""))
     return rows
 
 
