@@ -89,11 +89,12 @@ def main():
     if "--file" in args:
         files = [args[args.index("--file") + 1]]
     else:
-        files = [f for f in glob.glob(os.path.join(INBOX_DIR, "*.xlsx"))
-                 if ("원장" in os.path.basename(f) or "계정" in os.path.basename(f))
-                 and not os.path.basename(f).startswith("~$")]
+        # 파일명이 아니라 **내용**으로 고른다 — 이카운트 다운로드는 이름이 무작위다
+        from inbox_scan import pick
+        files = pick("ledger", INBOX_DIR)
     if not files:
-        sys.exit("inbox/ 에 거래처별계정별원장 파일이 없습니다. 이카운트에서 엑셀로 내려받아 파일명에 '원장'을 포함해 넣어주세요.")
+        sys.exit("inbox/ 에 거래처별계정별원장이 없습니다. 이카운트 [거래처별계정별원장]을 "
+                 "엑셀로 내려받아 inbox/ 에 넣어주세요(파일명은 아무거나 괜찮습니다).")
 
     slips, totals = [], {}
     for f in files:

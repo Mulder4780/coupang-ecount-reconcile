@@ -432,6 +432,29 @@ def t17_expand():
     print("  [17] 시트 행 확장(수식 재배치·표/검증 범위·기존행 보존) ✅")
 
 
+def t18_erp_docs():
+    """ERP 매출서류 분류·inbox 내용판별 — 파일명이 무작위여도 잡히는가"""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    from erp_docs_check import work_kind, norm_slip
+    from inbox_scan import classify_rows
+    assert work_kind("돌발AS_울산2캠프 테이블리프트 작동 멈춤") == "돌발AS"
+    assert work_kind("26년 2분기 정기점검 - 서초1MB(양재동B)") == "정기점검"
+    assert work_kind("쿠팡신규납품_부산4캠프 2R/T Mobile-lift 2EA") == "신규납품"
+    assert work_kind("쿠팡철거_창원1MB 매립형 1EA 철거") == "철거"
+    assert work_kind("쿠팡_구리3캠프 전면 연장형 A형 계단 1EA") == "계단"
+    assert norm_slip("2026/07/25 -11") == "2026/07/25-11"       # 공백 정규화
+    # 내용 판별(파일명 무관)
+    assert classify_rows([["회사명 : (주)유니버셜"], ["일자-No.", "거래처명", "담당자 이메일주소",
+                          "프로젝트명", "공급가액", "매출부가세", "매출합계"]]) == "tax"
+    assert classify_rows([["회사명"], ["일자 - 번호", "거래처명", "담당자 이메일주소",
+                          "공급가액", "부가세", "합 계"]]) == "stmt"
+    assert classify_rows([["회사명"], ["전표번호", "입력메뉴", "금액", "거래처명", "적요명"]]) == "slips"
+    assert classify_rows([["아무 표"], ["가", "나"]]) == "unknown"
+    assert classify_rows([["일자", "적요", "차변금액", "대변금액"]]) == "ledger"
+    print("  [18] ERP 매출서류 유형분류·inbox 내용판별 ✅")
+
+
 def t16_status():
     """상태 수식 캐시 보정 — 새로 넣은 행은 상태열(수식)이 None이라 완료된 점검이
     전부 '미점검'으로 보였다. 원본 열로 직접 판정하는 로직 검증."""
@@ -534,5 +557,6 @@ if __name__ == "__main__":
     t15_doc_ocr()
     t16_status()
     t17_expand()
+    t18_erp_docs()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

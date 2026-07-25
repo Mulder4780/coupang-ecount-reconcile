@@ -105,11 +105,11 @@ def main():
     if "--file" in args:
         files = [args[args.index("--file") + 1]]
     else:
-        files = [f for f in glob.glob(os.path.join(INBOX_DIR, "*.xlsx"))
-                 if "PO" in os.path.basename(f).upper() and not os.path.basename(f).startswith("~$")
-                 and "원장" not in os.path.basename(f)]
+        from inbox_scan import pick
+        files = pick("po", INBOX_DIR)          # 파일명 대신 내용으로 판별
     if not files:
-        sys.exit("inbox/ 에 쿠팡 PO 목록 파일이 없습니다. 파일명에 'PO'를 포함해 넣어주세요. (예: 쿠팡PO목록_7월.xlsx)")
+        sys.exit("inbox/ 에 쿠팡 PO 목록이 없습니다. PO 목록 엑셀을 inbox/ 에 넣어주세요"
+                 "(파일명은 아무거나 괜찮습니다).")
 
     coupang = []
     for f in files:

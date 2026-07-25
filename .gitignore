@@ -15,3 +15,7 @@ kakao/inbox/*
 !kakao/inbox/.gitkeep
 updates/
 webapp/cloudflared.exe
+
+# 밴드 문서 사진(거래명세서·세금계산서) — 금융 문서라 커밋 금지
+band/docs_inbox/*
+!band/docs_inbox/README.txt
