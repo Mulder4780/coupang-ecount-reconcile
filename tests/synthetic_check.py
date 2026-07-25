@@ -222,6 +222,26 @@ def t8_findings_sheet(tmp):
     print("  [8] 확인필요 시트 통합(신규 추가·머리글·멱등) ✅")
 
 
+def t10_band_extract():
+    from band_extract import parse_post
+    mk = lambda c: {"content": c, "created_at": 1780000000000, "photo_count": 4}
+    r = parse_post("1", mk(
+        "2026년 6월 1일 오전 8:08 게시글\n\n☑️판매전표 +거래명세서 +견적서 = 메일발송 完 ⭕\n"
+        "♣ ［ 2026년 02분기 3개월 유료 A/S 완료 ]\n● A/S 일자 : 2026.06.01 (월요일)\n"
+        "● A/S 담당 : 김필우\n● 프로젝트NO : UJ2600931\n● 캠프이름 : 양주1캠프\n\n...더보기"), "밴드A")
+    assert r["프로젝트NO"] == "UJ2600931" and r["업무유형"] == "정기점검", r
+    assert r["비용구분"] == "유상" and r["작업일"] == "2026-06-01" and r["진행상태"] == "작업완료", r
+    assert r["담당기사"] == "김필우" and r["캠프명"] == "양주1캠프", r
+    assert "판매전표" in r["문서상태"] and "메일발송" in r["문서상태"], r
+    r2 = parse_post("2", mk("♣ ［ 돌발무료 A/S 안내 ]\n● A/S 일자 : 2026.00.00 (요일)\n"
+                            "● 프로젝트NO : UJ2601999\n● 캠프이름 : 테스트캠프"), "밴드A")
+    assert r2["업무유형"] == "돌발AS" and r2["비용구분"] == "무상", r2
+    assert r2["작업일"] == "" and r2["진행상태"] == "접수·예정", r2      # 2026.00.00 = 미정
+    assert parse_post("3", mk("● 프로젝트NO : UJ000000\n♣ ［ 돌발유료 A/S 안내 ]"), "밴드A") is None  # 템플릿 제외
+    assert parse_post("4", mk("안녕하세요 일반 공지입니다"), "밴드A") is None                          # 비업무 제외
+    print("  [10] 밴드 업무 추출(유형·유상무상·미정일자·템플릿/비업무 제외) ✅")
+
+
 def t9_watchdog():
     import time as _t
     from watchdog import pick_archive, pick_old_reports
@@ -302,5 +322,6 @@ if __name__ == "__main__":
     t2_payload()
     t3_match()
     t9_watchdog()
+    t10_band_extract()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

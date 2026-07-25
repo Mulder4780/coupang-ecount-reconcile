@@ -51,7 +51,8 @@ def flatten(data):
     return rows
 
 
-def build_sheet_xml(rows):
+def build_generic_sheet(sheet_name, headers, widths, rows, usage_text, empty_text="해당 없음 ✅"):
+    """워크북 규약(1행 제목·2행 사용법·4행 머리글·5행부터 데이터·필터·틀고정) 시트 XML 생성."""
     def cell(cL, rn, v):
         if v is None or v == "":
             return ""
@@ -59,7 +60,7 @@ def build_sheet_xml(rows):
             return f'<c r="{cL}{rn}"><v>{v}</v></c>'
         return f'<c r="{cL}{rn}" t="inlineStr"><is><t>{esc(v)}</t></is></c>'
 
-    n_cols = len(HEADERS)
+    n_cols = len(headers)
     last = 4 + max(1, len(rows))
     x = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
          '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
@@ -67,11 +68,11 @@ def build_sheet_xml(rows):
          '<sheetViews><sheetView workbookViewId="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>',
          '<sheetFormatPr defaultRowHeight="15"/>',
          '<cols>' + "".join(f'<col min="{i+1}" max="{i+1}" width="{w}" customWidth="1"/>'
-                            for i, w in enumerate(WIDTHS)) + '</cols>',
+                            for i, w in enumerate(widths)) + '</cols>',
          '<sheetData>']
-    x.append(f'<row r="1">{cell("A",1, SHEET_NAME + " (에이전트 자동 갱신 — 수기 입력 금지)")}</row>')
-    x.append(f'<row r="2">{cell("A",2, "[사용법] 모든 대조(정산·밴드·카톡·ERP·쿠팡PO)의 확인필요 건이 여기 모입니다. 4행 필터로 구분·유형별 조회. 처리 후 다음 에이전트 실행 때 자동 반영·소멸. 원본 근거는 reports/ 리포트 참조.")}</row>')
-    hdr = "".join(cell(col_letter(i + 1), 4, h) for i, h in enumerate(HEADERS))
+    x.append(f'<row r="1">{cell("A",1, sheet_name + " (에이전트 자동 갱신 — 수기 입력 금지)")}</row>')
+    x.append(f'<row r="2">{cell("A",2, usage_text)}</row>')
+    hdr = "".join(cell(col_letter(i + 1), 4, h) for i, h in enumerate(headers))
     x.append(f'<row r="4">{hdr}</row>')
     if rows:
         for j, r in enumerate(rows):
@@ -79,18 +80,27 @@ def build_sheet_xml(rows):
             x.append('<row r="%d">%s</row>' % (rn, "".join(cell(col_letter(i + 1), rn, v)
                                                            for i, v in enumerate(r))))
     else:
-        x.append(f'<row r="5">{cell("A",5,"확인필요 없음")}{cell("C",5,"전부 정상 ✅")}</row>')
+        x.append(f'<row r="5">{cell("A",5,empty_text)}</row>')
     x.append('</sheetData>')
     x.append(f'<autoFilter ref="A4:{col_letter(n_cols)}{last}"/>')
     x.append('</worksheet>')
     return "".join(x)
 
 
-def upsert(master, new_xml):
+def build_sheet_xml(rows):
+    return build_generic_sheet(
+        SHEET_NAME, HEADERS, WIDTHS, rows,
+        "[사용법] 모든 대조(정산·밴드·카톡·ERP·쿠팡PO)의 확인필요 건이 여기 모입니다. 4행 필터로 구분·유형별 조회. "
+        "처리 후 다음 에이전트 실행 때 자동 반영·소멸. 원본 근거는 reports/ 리포트 참조.",
+        empty_text="확인필요 없음 — 전부 정상 ✅")
+
+
+def upsert(master, new_xml, sheet_name=SHEET_NAME, headers=None):
+    headers = headers or HEADERS
     zin = zipfile.ZipFile(master)
     smap = sheet_file_map(zin)
-    exists = SHEET_NAME in smap
-    if exists and zin.read(smap[SHEET_NAME]).decode("utf-8") == new_xml:
+    exists = sheet_name in smap
+    if exists and zin.read(smap[sheet_name]).decode("utf-8") == new_xml:
         zin.close()
         return None, "변경 없음(멱등) — 새 버전 미생성"
 
@@ -103,7 +113,7 @@ def upsert(master, new_xml):
 
     edits = {}
     if exists:
-        target = smap[SHEET_NAME]
+        target = smap[sheet_name]
         edits[target] = new_xml.encode("utf-8")
     else:
         wbx = zin.read("xl/workbook.xml").decode("utf-8")
@@ -115,7 +125,7 @@ def upsert(master, new_xml):
         target = f"xl/worksheets/sheet{new_n}.xml"
         edits[target] = new_xml.encode("utf-8")
         edits["xl/workbook.xml"] = wbx.replace(
-            "</sheets>", f'<sheet name="{SHEET_NAME}" sheetId="{new_sid}" r:id="rId{new_rid}"/></sheets>', 1).encode("utf-8")
+            "</sheets>", f'<sheet name="{sheet_name}" sheetId="{new_sid}" r:id="rId{new_rid}"/></sheets>', 1).encode("utf-8")
         edits["xl/_rels/workbook.xml.rels"] = rels.replace(
             "</Relationships>",
             f'<Relationship Id="rId{new_rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{new_n}.xml"/></Relationships>', 1).encode("utf-8")
@@ -137,10 +147,10 @@ def upsert(master, new_xml):
     assert z.testzip() is None, "zip 무결성 실패"
     import openpyxl
     w = openpyxl.load_workbook(dst, read_only=True)
-    assert SHEET_NAME in w.sheetnames, "시트 미생성"
-    ws = w[SHEET_NAME]
-    hdr = [c.value for c in next(ws.iter_rows(min_row=4, max_row=4, max_col=len(HEADERS)))]
-    assert hdr == HEADERS, f"머리글 불일치: {hdr}"
+    assert sheet_name in w.sheetnames, "시트 미생성"
+    ws = w[sheet_name]
+    hdr = [c.value for c in next(ws.iter_rows(min_row=4, max_row=4, max_col=len(headers)))]
+    assert hdr == headers, f"머리글 불일치: {hdr}"
     w.close()
     zsrc = zipfile.ZipFile(master)
     diff = [n for n in zsrc.namelist() if n not in edits and zsrc.read(n) != z.read(n)]

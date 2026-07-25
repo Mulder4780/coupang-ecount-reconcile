@@ -81,6 +81,10 @@ def main():
     # 5. 확정 업데이트 자동 반영 — 빈 칸만·근거 보유·항상 새 버전(vN+1) 생성이라 안전
     steps.append(run("관리대장 자동입력(확정분)", [os.path.join(ROOT, "ledger_writer.py"), "--apply"]))
 
+    # 5.5 밴드 업무 추출 → 24_밴드업무추출 시트 (월별 백필 원천, 캐시 있을 때만)
+    if band_cache:
+        steps.append(run("밴드 업무추출(24시트)", [os.path.join(ROOT, "band_extract.py"), "--sheet"]))
+
     # 6. 확인필요현황 시트 갱신 — 관리대장 본체 23_확인필요현황 (변경 시에만 vN+1, 단일 엑셀 통합관리)
     steps.append(run("확인필요 시트 갱신(23시트)", [os.path.join(ROOT, "findings_sheet.py")]))
 
