@@ -110,6 +110,43 @@ _cache = {"t": 0, "settle": None, "status": None}
 _readlock = threading.Lock()   # Z:드라이브 엑셀 동시 읽기 직렬화(스레드 충돌 방지)
 
 
+# ── 날짜 정렬 공통 규칙 ────────────────────────────────────────
+# 앱·리포트 어디서나 **과거가 맨 위, 최근이 맨 아래**(오름차순)로 통일한다.
+# 새로 추가되는 행도 반드시 이 함수를 거치므로 따로 정렬해 줄 필요가 없다.
+DATE_KEYS = {
+    "settle": ("완료일", "계산서발행일", "명세서발행일", "입금일"),
+    "as":     ("접수일자", "작업완료일", "방문예정일"),
+    "pm":     ("점검예정일", "실제점검일"),
+}
+_DATE_RE = re.compile(r"(\d{4})[-./](\d{1,2})[-./](\d{1,2})")
+
+
+def norm_date(v):
+    """'2026.6.3' · '2026-06-03 00:00' → '2026-06-03' (문자열 비교로 시간순이 되게)"""
+    m = _DATE_RE.search(str(v or ""))
+    return "%s-%02d-%02d" % (m.group(1), int(m.group(2)), int(m.group(3))) if m else ""
+
+
+def row_date(rec, keys=()):
+    """행의 대표 날짜. 지정 키를 우선 보고, 없으면 아무 날짜 값이나 찾아 쓴다."""
+    for k in keys:
+        d = norm_date(rec.get(k))
+        if d:
+            return d
+    for v in rec.values():
+        d = norm_date(v)
+        if d:
+            return d
+    return ""
+
+
+def sort_by_date(rows, kind, idkey=None):
+    """과거 → 최근. 날짜가 없는 행은 맨 뒤(=가장 최근으로 취급), 동률은 ID순."""
+    keys = DATE_KEYS.get(kind, ())
+    return sorted(rows, key=lambda r: ((d := row_date(r, keys)) == "", d,
+                                       str(r.get(idkey) or "") if idkey else ""))
+
+
 def demo_settlements():
     camps = ["송파5MB(감일동)", "울산2캠프", "인천7MB(마곡동)", "부천3(BUC3)", "대전1캠프",
              "구리1캠프", "제주1Sub-hub", "창원1MB(팔용동)", "군포1Sub-Hub", "광주2Sub-hub"]
@@ -131,7 +168,7 @@ def demo_settlements():
                      "입금일": d if st == "정상" else "", "입금액": int(amt * 1.1) if st == "정상" else 0,
                      "미수금": 0 if st == "정상" else int(amt * 1.1), "비용구분": "유상",
                      "상태": st, "완료일": d})
-    return rows
+    return sort_by_date(rows, "settle", "정산ID")
 
 
 def real_settlements():
@@ -173,7 +210,7 @@ def real_settlements():
                      "PO번호": r.get("원장_PO번호") or "",
                      "PO발행일": str(r.get("원장_PO발행일") or "")[:10],
                      "상태": st, "완료일": str(r.get("작업완료일") or "")[:10]})
-    return rows
+    return sort_by_date(rows, "settle", "정산ID")
 
 
 def real_works():
@@ -209,6 +246,8 @@ def real_works():
                 rec[c] = str(v)[:10] if hasattr(v, "year") else ("" if v is None else str(v))
             out[key].append(rec)
     wb.close()
+    out["as"] = sort_by_date(out["as"], "as", "접수ID")
+    out["pm"] = sort_by_date(out["pm"], "pm", "점검ID")
     return out
 
 
@@ -365,7 +404,7 @@ def get_issues():
             if any(v for v in vals.values()):
                 rows.append(vals)
         wb.close()
-        out = {"rows": rows, "cols": hdr, "source": "23_확인필요현황"}
+        out = {"rows": sort_by_date(rows, "check"), "cols": hdr, "source": "23_확인필요현황"}
         _cache["issues"] = out
         return out
     if "07_불일치누락현황" in wb.sheetnames:
@@ -398,7 +437,7 @@ def get_issues():
                                                 f"완료 {r.get('완료일','')}" ) [:100]})
     except Exception:
         pass
-    rows = merged + rows
+    rows = sort_by_date(merged + rows, "check")
     cols = []
     for r in rows[:50]:
         for k in r:

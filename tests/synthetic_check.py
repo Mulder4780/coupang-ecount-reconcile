@@ -333,6 +333,28 @@ def t9_watchdog():
     print("  [9] 워치독 판단 로직(버전 보존 3개·보호파일·30일 기준) ✅")
 
 
+def t14_datesort():
+    """날짜 정렬 규칙 — 과거가 위, 최근이 아래. 새 데이터도 자동으로 이 순서를 따라야 한다."""
+    import sys as _s
+    _s.path.insert(0, os.path.join(ROOT, "webapp"))
+    from app_server import norm_date, row_date, sort_by_date
+    assert norm_date("2026.6.3") == "2026-06-03", norm_date("2026.6.3")        # 형식 혼재 흡수
+    assert norm_date("2026-06-03 00:00:00") == "2026-06-03"
+    assert norm_date("") == "" and norm_date(None) == ""
+    rows = [{"접수ID": "B", "접수일자": "2026-07-02"},
+            {"접수ID": "C", "접수일자": ""},                                    # 날짜 없음 → 맨 뒤
+            {"접수ID": "A", "접수일자": "2026.6.3"},
+            {"접수ID": "D", "접수일자": "2025-12-31"}]
+    got = [r["접수ID"] for r in sort_by_date(rows, "as", "접수ID")]
+    assert got == ["D", "A", "B", "C"], got
+    # 대표 날짜 열이 없는 시트(확인필요)는 행 안의 아무 날짜나 찾아 쓴다
+    assert row_date({"메모": "발생 2026-03-05"}) == "2026-03-05"
+    # 같은 날짜면 ID순 — 실행할 때마다 순서가 흔들리면 안 된다
+    same = [{"접수ID": "Z", "접수일자": "2026-01-01"}, {"접수ID": "A", "접수일자": "2026-01-01"}]
+    assert [r["접수ID"] for r in sort_by_date(same, "as", "접수ID")] == ["A", "Z"]
+    print("  [14] 날짜 정렬(과거→최근·빈값 맨뒤·형식혼재·동률ID) ✅")
+
+
 def t6_webapp():
     import time, json, urllib.request
     port = 18899
@@ -359,6 +381,8 @@ def t6_webapp():
         assert st.get("demo") and st["steps"], st
         se = json.loads(urllib.request.urlopen(urllib.request.Request(base + "/api/settlements", headers=h)).read())
         assert len(se["rows"]) >= 10 and se["rows"][0]["정산ID"].startswith("JS-"), len(se.get("rows", []))
+        ds = [r.get("완료일", "") for r in se["rows"] if r.get("완료일")]
+        assert ds == sorted(ds), "정산 목록이 과거→최근 순이 아님: " + str(ds[:5])
         # 기준일 설정(데모: 시뮬레이션 응답) — 잠금 테스트 이전에 수행
         req = urllib.request.Request(base + "/api/set_dates", data='{"보고일":"2026-07-25"}'.encode("utf-8"),
                                      headers={"X-Pin": "0000"}, method="POST")
@@ -403,5 +427,6 @@ if __name__ == "__main__":
     t9_watchdog()
     t10_band_extract()
     t11_backfill()
+    t14_datesort()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

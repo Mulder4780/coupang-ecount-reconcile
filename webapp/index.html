@@ -153,6 +153,15 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .toolbar input,.toolbar select{flex:1;min-width:130px;padding:10px 13px;border:1.5px solid var(--line);
   border-radius:11px;font-size:14px;background:var(--surface);transition:border .15s;color:var(--ink)}
 .toolbar input:focus,.toolbar select:focus{outline:none;border-color:var(--brand)}
+.toolbar #fsort{flex:0 0 auto;min-width:104px}
+.dirbtn{flex:0 0 auto;padding:10px 13px;border:1.5px solid var(--brand);border-radius:11px;
+  font-size:13px;font-weight:700;color:var(--brand);background:var(--surface);white-space:nowrap;
+  transition:background .15s,color .15s}
+.dirbtn::before{content:"↓ ";font-weight:800}
+.dirbtn.desc{border-color:var(--warn,#B54708);color:var(--warn,#B54708)}
+.dirbtn.desc::before{content:"↑ "}
+.dirbtn:hover{background:var(--brand);color:#fff}
+.dirbtn.desc:hover{background:var(--warn,#B54708);color:#fff}
 .seg{display:flex;background:#E8EDF4;border-radius:12px;padding:3px;margin-bottom:11px}
 .seg button{flex:1;padding:8.5px 0;border-radius:9px;font-size:12.5px;font-weight:700;color:var(--ink-2);transition:all .15s}
 .seg button.on{background:var(--surface);color:var(--brand);box-shadow:0 1px 3px rgba(16,24,40,.12)}
@@ -407,6 +416,14 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
     <div class="toolbar">
       <input id="q" placeholder="검색: ID·캠프·기사·프로젝트" oninput="renderSettle()">
       <select id="fstat" onchange="renderSettle()"><option value="">상태 전체</option></select>
+      <select id="fsort" onchange="sortPick()" title="정렬 기준">
+        <option value="__date">날짜순</option>
+        <option value="__id">ID순</option>
+        <option value="__amt">금액순</option>
+        <option value="__stat">상태순</option>
+        <option value="__col" hidden>표 열 지정</option>
+      </select>
+      <button id="fdir" class="dirbtn" onclick="toggleDir()">과거 → 최근</button>
     </div>
     <div class="kpis" id="skpis" style="grid-template-columns:repeat(3,1fr)"></div>
     <div class="slist" id="slist"></div>
@@ -585,11 +602,12 @@ async function loadSettle(){
   try{ issuesData = await api('/api/issues'); }catch(e){}
   try{ checks = await api('/api/checks'); }catch(e){}
   try{ execRep = await api('/api/exec_report'); }catch(e){}
-  fillStatOptions(); renderSettle(); periodInit();
+  syncSortUI(); fillStatOptions(); renderSettle(); periodInit();
 }
 function setMode(m){
   mode = m;
   document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on', b.dataset.m===m));
+  resetSort();                       // 탭을 바꾸면 항상 기본 순서(과거→최근)로 복귀
   fillStatOptions(); renderSettle();
 }
 function kTap(el){ el.classList.remove('tapped'); void el.offsetWidth; el.classList.add('tapped'); }
@@ -646,23 +664,70 @@ function chip(st){
   const cls = ok.includes(st)?'c-ok': st==='무상/보험'?'c-skip': warn.includes(st)?'c-warn':'c-danger';
   return `<span class="chip ${cls}">${st||'-'}</span>`;
 }
-/* 컬럼 정렬 (전문 그리드): 헤더 클릭 → ▲/▼ 토글 */
-window._sk = ''; window._sd = -1;
-function setSort(k){
-  if(window._sk===k) window._sd*=-1; else { window._sk=k; window._sd=-1; }
-  renderSettle();
+/* ── 정렬 ──────────────────────────────────────────────────────
+   기본은 언제나 "과거 → 최근": 오래된 날짜가 맨 위, 최근 날짜가 맨 아래.
+   서버도 같은 규칙으로 내려주므로 새로 추가되는 건도 자동으로 이 순서를 따른다.
+   기준(날짜/ID/금액/상태)과 방향은 툴바에서 바꿀 수 있고, 표 헤더 클릭으로도 된다. */
+const SORTKEYS = ['__date','__id','__amt','__stat'];
+window._sk = '__date';   // 정렬 기준 (특수키 또는 실제 열 이름)
+window._sd = 1;          // 1 = 과거→최근(오름차순), -1 = 최근→과거
+
+function normDate(v){
+  const m = String(v==null?'':v).match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+  return m ? `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}` : '';
+}
+function anyDate(r){                       // 날짜 열 이름을 모르는 시트(확인필요)용
+  for(const v of Object.values(r||{})){ const d = normDate(v); if(d) return d; }
+  return '';
+}
+function idOf(r){ return r.정산ID||r.접수ID||r.점검ID||r.프로젝트NO||r.업무ID||r.ID||''; }
+function sortVal(r, k){
+  if(k==='__date') return (mode==='check' ? anyDate(r) : normDate(dateOf(r, mode))) || anyDate(r);
+  if(k==='__id')   return idOf(r);
+  if(k==='__stat') return statOf(r)||'';
+  if(k==='__amt')  return +r.공급가액||0;
+  return r[k];
+}
+function setSort(k){                       // 표 헤더 클릭
+  if(window._sk===k) window._sd*=-1; else { window._sk=k; window._sd=1; }
+  syncSortUI(); renderSettle();
+}
+function sortPick(){ window._sk = $('fsort').value; window._sd = 1; syncSortUI(); renderSettle(); }
+function toggleDir(){ window._sd*=-1; syncSortUI(); renderSettle(); }
+function resetSort(){ window._sk='__date'; window._sd=1; syncSortUI(); }
+function syncSortUI(){
+  const sel = $('fsort'); if(!sel) return;
+  const std = SORTKEYS.includes(window._sk);
+  sel.querySelector('option[value="__col"]').hidden = std;
+  sel.value = std ? window._sk : '__col';
+  const asc = window._sd>0;
+  $('fdir').textContent = asc ? '과거 → 최근' : '최근 → 과거';
+  $('fdir').title = asc ? '오래된 항목이 맨 위, 최근 항목이 맨 아래(기본)' : '최근 항목이 맨 위';
+  $('fdir').classList.toggle('desc', !asc);
 }
 function thx(label, key, num){
   const on = window._sk===key;
   return `<th data-sk="1" ${num?'class="num"':''} onclick="setSort('${key}')">${label}${on?(window._sd>0?' ▲':' ▼'):''}</th>`;
 }
 function sortRows(rows){
-  const k = window._sk;
-  if(!k) return rows;
+  const k = window._sk || '__date';
+  const blank = window._sd>0 ? 1 : -1;      // 값이 빈 행은 방향과 무관하게 항상 맨 뒤
   return [...rows].sort((a,b)=>{
-    const av=a[k], bv=b[k];
-    const an=parseFloat(String(av).replace(/[^0-9.-]/g,'')), bn=parseFloat(String(bv).replace(/[^0-9.-]/g,''));
-    const r = (!isNaN(an)&&!isNaN(bn)&&String(av).match(/\d/)) ? an-bn : String(av||'').localeCompare(String(bv||''),'ko');
+    const av = sortVal(a,k), bv = sortVal(b,k);
+    const ae = av===''||av==null, be = bv===''||bv==null;
+    if(ae&&be) return String(idOf(a)).localeCompare(String(idOf(b)),'ko');
+    if(ae) return blank;
+    if(be) return -blank;
+    let r;
+    if(typeof av==='number' && typeof bv==='number') r = av-bv;
+    else if(normDate(av) && normDate(bv)) r = normDate(av).localeCompare(normDate(bv));
+    else {
+      const pure = s => /^[\d,.\s-]+$/.test(String(s));
+      r = (pure(av)&&pure(bv))
+        ? parseFloat(String(av).replace(/[^0-9.-]/g,'')) - parseFloat(String(bv).replace(/[^0-9.-]/g,''))
+        : String(av).localeCompare(String(bv),'ko');
+    }
+    if(!r) r = String(idOf(a)).localeCompare(String(idOf(b)),'ko');
     return r*window._sd;
   });
 }
@@ -864,23 +929,27 @@ async function saveInputs(kind, id, n){
 
 /* ── 월별·연도별 현황 ── */
 function dateOf(r, kind){
-  if(kind==='settle') return r.완료일||'';
-  if(kind==='as') return r.작업완료일||r.접수일자||'';
-  return r.실제점검일||r.점검예정일||'';
+  // 표기 형식이 섞여 있어도(2026.6.3 / 2026-06-03) 항상 YYYY-MM-DD로 맞춘다 —
+  // 그래야 문자열 비교만으로 정확한 시간순 정렬·월별 집계가 된다.
+  const v = kind==='settle' ? (r.완료일||'')
+          : kind==='as'     ? (r.작업완료일||r.접수일자||'')
+          : kind==='check'  ? anyDate(r)
+          : (r.실제점검일||r.점검예정일||'');
+  return normDate(v) || String(v||'').slice(0,10);
 }
 function periodInit(){
   const years = new Set();
   settleRows.forEach(r=>{ const d=dateOf(r,'settle'); if(d.length>=4) years.add(d.slice(0,4)); });
   (works.as||[]).forEach(r=>{ const d=dateOf(r,'as'); if(d.length>=4) years.add(d.slice(0,4)); });
   (works.pm||[]).forEach(r=>{ const d=dateOf(r,'pm'); if(d.length>=4) years.add(d.slice(0,4)); });
-  const ys = [...years].sort().reverse();
+  const ys = [...years].sort();          // 과거 → 최근 (목록 맨 아래가 최신 연도)
   if(!ys.length) return;
   const py = $('pyear'), pm = $('pmonth');
   const keepY = py.value, keepM = pm.value;
   py.innerHTML = ys.map(y=>`<option>${y}</option>`).join('');
   pm.innerHTML = '<option value="">연간 전체</option>' +
     Array.from({length:12},(_,i)=>`<option value="${String(i+1).padStart(2,'0')}">${i+1}월</option>`).join('');
-  py.value = ys.includes(keepY) ? keepY : ys[0];
+  py.value = ys.includes(keepY) ? keepY : ys[ys.length-1];   // 기본 선택은 최신 연도
   if(!keepM && !window.__pinit){
     // 최초: 데이터가 있는 최신 월 자동 선택
     const mm = settleRows.map(r=>dateOf(r,'settle')).filter(d=>d.startsWith(py.value)).map(d=>d.slice(5,7)).sort().pop();
