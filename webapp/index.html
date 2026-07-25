@@ -382,7 +382,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
         <button class="abtn primary" onclick="runTask('daily')"><span class="em">▶</span>전체 대조</button>
         <button class="abtn" onclick="show('settle')"><span class="em">📋</span>정산 현황</button>
         <button class="abtn" onclick="show('report')"><span class="em">📄</span>리포트</button>
-        <button class="abtn" onclick="refreshAll()"><span class="em">🔄</span>새로고침</button>
+        <button class="abtn" onclick="captureDash()"><span class="em">📸</span>대시보드 캡처</button>
       </div></div>
   </section>
 
@@ -546,6 +546,7 @@ async function loadStatus(){
     hs('조치 필요', issues.length+'건') +
     (srcStats.band ? hs('밴드 검증', `${srcStats.band.ok}/${srcStats.band.total}`) : '') +
     (s.tunnel ? hs('외부접속', '연결됨') : '');
+  window._agentSteps = s.steps || [];          // 대시보드 캡처용
   const icon = {ok:'✅',skip:'⏭',fail:'❌'};
   $('steps').innerHTML = (s.steps||[]).map(t=>`<div class="step"><span class="ic">${icon[t.s]||'·'}</span>${t.n}</div>`).join('') || '<span style="color:var(--muted)">아직 실행 기록 없음</span>';
   if(s.fork && s.fork.length){ $('forkcard').style.display='block';
@@ -1154,6 +1155,135 @@ async function reportToPng(){
 
   return new Promise(res=>cv.toBlob(res,'image/png'));
 }
+/* 대시보드 전체를 이미지로 — 보고서와 동일한 Canvas 직접 렌더(외부 리소스 0) */
+async function dashToPng(){
+  const S = 2, W = 900;
+  const F = (sz,w) => `${w||400} ${sz}px "Nanum Gothic","Malgun Gothic",sans-serif`;
+  const rows = settleRows, 유상 = rows.filter(r=>r.비용구분==='유상');
+  const 발행 = 유상.filter(r=>r.계산서==='발행').length;
+  const 미수 = rows.reduce((a,r)=>a+(+r.미수금||0),0);
+  const issues = rows.filter(r=>!['정상','무상/보험'].includes(r.상태));
+  const asOpen = (works.as||[]).filter(r=>r.진행상태 && r.진행상태!=='작업완료').length;
+  const pmWait = (works.pm||[]).filter(r=>r.점검상태 && r.점검상태!=='완료').length;
+  const y = $('pyear').value || String(new Date().getFullYear());
+  const byM = Array.from({length:12},()=>0);
+  rows.forEach(r=>{ const d=r.완료일||''; if(d.startsWith(y)){ const i=+d.slice(5,7)-1; if(i>=0&&i<12) byM[i]+=(+r.공급가액||0); } });
+  const dist = {}; rows.forEach(r=>{ dist[r.상태]=(dist[r.상태]||0)+1; });
+  const distE = Object.entries(dist).sort((a,b)=>b[1]-a[1]);
+  const SCOLOR = {'정상':'#12813F','입금 대기':'#B54708','세금계산서 미발행':'#C0212E',
+    '미청구(전표 없음)':'#8B1E68','금액 미입력':'#5B6B82','무상/보험':'#B9C3D3'};
+  const byType = {}; issues.forEach(r=>{ (byType[r.상태]=byType[r.상태]||[]).push(r); });
+  const typeE = Object.entries(byType).sort((a,b)=>b[1].length-a[1].length);
+  const steps = (window._agentSteps||[]);
+
+  const H = 104 + 34 + 148 + 34 + 190 + 34 + 76 + 34 + (typeE.length+1)*30 + 34 + (steps.length*22+10) + 50;
+  const cv = document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
+  const ctx = cv.getContext('2d'); ctx.scale(S,S); ctx.textBaseline='middle';
+  const txt=(s,x,yy,f,c,a)=>{ctx.font=f;ctx.fillStyle=c||'#101828';ctx.textAlign=a||'left';
+    ctx.fillText(s==null?'':String(s),x,yy);ctx.textAlign='left';};
+  const box=(x,yy,w,h,fill,stroke,r=10)=>{ctx.beginPath();
+    if(ctx.roundRect)ctx.roundRect(x,yy,w,h,r);else ctx.rect(x,yy,w,h);
+    if(fill){ctx.fillStyle=fill;ctx.fill();}if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke();}};
+  const clip=(s,max)=>{s=String(s==null?'':s);ctx.font=F(12);
+    if(ctx.measureText(s).width<=max)return s;
+    while(s.length>1&&ctx.measureText(s+'…').width>max)s=s.slice(0,-1);return s+'…';};
+
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+  const g=ctx.createLinearGradient(0,0,W,96); g.addColorStop(0,'#0E1B3F'); g.addColorStop(1,'#2452E6');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,96);
+  box(30,26,44,44,'rgba(255,255,255,.16)',null,12);
+  txt('UL',52,49,F(15,800),'#fff','center');
+  txt('쿠팡 통합업무 현황',92,40,F(21,800),'#fff');
+  txt(new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'}),
+      92,64,F(12),'#9FB4E8');
+  txt('에이전트 '+($('heroAgent').textContent||'').replace('에이전트 ',''),W-30,40,F(11),'#9FB4E8','right');
+  txt(rows.length+'건 · '+fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))+'원',W-30,62,F(14,800),'#fff','right');
+
+  let yy=96;
+  const section=t=>{yy+=34;txt(t,30,yy-8,F(13,800),'#1B41BC');
+    ctx.strokeStyle='#E4E9F0';ctx.beginPath();ctx.moveTo(30+ctx.measureText(t).width+12,yy-8);
+    ctx.lineTo(W-30,yy-8);ctx.stroke();};
+
+  section('핵심 지표');
+  const kpi=[[rows.length+'건','정산 건수','#2452E6'],[fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)'],
+    [fmt(미수),'미수금(원)',미수?'#B54708':'#12813F'],
+    [(유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율'],
+    [issues.length+'건','조치 필요',issues.length?'#C0212E':'#12813F'],
+    [asOpen+' · '+pmWait,'AS진행 · 점검대기']];
+  const cw=(W-60-16)/3;
+  kpi.forEach((t,i)=>{const cx=30+(i%3)*(cw+8), cy=yy+Math.floor(i/3)*74;
+    box(cx,cy,cw,64,'#F8FAFD','#EEF2F7');
+    txt(t[1],cx+14,cy+22,F(11,700),'#98A2B3'); txt(t[0],cx+14,cy+44,F(19,800),t[2]||'#101828');});
+  yy+=148;
+
+  section(y+'년 월별 공급가액');
+  const maxV=Math.max(1,...byM), bw=(W-60)/12-8;
+  byM.forEach((v,i)=>{const bx=30+i*((W-60)/12), bh=Math.round(v/maxV*120)+2;
+    box(bx,yy+130-bh,bw,bh,v?'#2452E6':'#E8EDF4',null,5);
+    txt((i+1)+'월',bx+bw/2,yy+146,F(10,600),'#98A2B3','center');
+    if(v) txt(Math.round(v/10000).toLocaleString()+'만',bx+bw/2,yy+130-bh-9,F(9,700),'#475467','center');});
+  yy+=190;
+
+  section('정산 상태 분포');
+  let dx=30; const tot=distE.reduce((a,e)=>a+e[1],0)||1;
+  distE.forEach(([k,v])=>{const w=(W-60)*v/tot;
+    box(dx,yy,Math.max(w-2,4),14,SCOLOR[k]||'#5B6B82',null,4); dx+=w;});
+  let lx=30, ly=yy+30;
+  distE.forEach(([k,v])=>{const label=`${k} ${v}`; ctx.font=F(11,600);
+    const wd=ctx.measureText(label).width+20;
+    if(lx+wd>W-30){lx=30;ly+=20;}
+    box(lx,ly-4,9,9,SCOLOR[k]||'#5B6B82',null,2);
+    txt(label,lx+14,ly,F(11,600),'#475467'); lx+=wd+10;});
+  yy+=76;
+
+  section('조치 필요 — 유형별 (프로젝트NO)');
+  const xs=[30,260,340,470]; const wds=[230,80,130,W-30-470];
+  box(30,yy,W-60,28,'#F1F5FB','#E4E9F0',8);
+  ['유형','건수','금액(원)','프로젝트NO'].forEach((c,i)=>txt(c,xs[i]+10,yy+14,F(11,800),'#475467'));
+  yy+=28;
+  (typeE.length?typeE:[['조치 필요 없음',[]]]).forEach(([t,l],ri)=>{
+    if(ri%2){ctx.fillStyle='#FAFCFF';ctx.fillRect(30,yy,W-60,30);}
+    const cells=[t,l.length?l.length+'건':'-',l.length?fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0)):'-',
+      l.slice(0,4).map(r=>r.프로젝트NO||r.정산ID).join(', ')+(l.length>4?` 외 ${l.length-4}`:'')];
+    cells.forEach((c,i)=>txt(clip(c,wds[i]-20),xs[i]+10,yy+15,F(12,i===0?700:400),i===0?'#101828':'#475467'));
+    ctx.strokeStyle='#EEF2F7';ctx.beginPath();ctx.moveTo(30,yy+30);ctx.lineTo(W-30,yy+30);ctx.stroke();
+    yy+=30;});
+
+  section('에이전트 최근 실행');
+  steps.forEach(s=>{const ic=s.s==='ok'?'✔':(s.s==='skip'?'−':'✕');
+    txt(ic,34,yy+4,F(12,800),s.s==='ok'?'#12813F':(s.s==='skip'?'#98A2B3':'#C0212E'));
+    txt(s.n,52,yy+4,F(12),'#475467'); yy+=22;});
+
+  yy+=18;
+  txt('자동 생성 · 쿠팡 통합업무 에이전트',30,yy,F(10),'#98A2B3');
+  txt(new Date().toLocaleString('ko-KR'),W-30,yy,F(10),'#98A2B3','right');
+  return new Promise(res=>cv.toBlob(res,'image/png'));
+}
+function dashFileName(){ return `쿠팡대시보드_${new Date().toISOString().slice(0,10)}.png`; }
+async function captureDash(){
+  let blob;
+  try{ blob = await dashToPng(); if(!blob) throw new Error('빈 이미지'); }
+  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  saveOrOpen(blob, dashFileName());
+}
+/* PC=다운로드 / iOS·미지원=새 창 표시 (공통) */
+function saveOrOpen(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  if(('download' in a) && !isIOS()){
+    a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 60000);
+    toast('이미지를 저장했습니다 · '+Math.round(blob.size/1024)+'KB');
+  } else {
+    const w = window.open();
+    if(w){ w.document.write(`<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+      <title>${filename}</title><style>body{margin:0;background:#111;font-family:sans-serif}
+      p{color:#fff;text-align:center;padding:12px;font-size:14px;margin:0}img{width:100%;display:block}</style></head>
+      <body><p>이미지를 길게 눌러 <b>사진에 저장</b>하세요</p><img src="${url}"></body></html>`);
+      w.document.close();
+    } else alert('팝업이 차단됐습니다. 팝업을 허용해 주세요.');
+  }
+}
 function rptFileName(){ return `쿠팡일일보고_${new Date().toISOString().slice(0,10)}.png`; }
 function isIOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1); }
@@ -1167,24 +1297,7 @@ async function captureReport(){
     if(!blob) throw new Error('이미지 생성 결과가 비어 있습니다');
   }catch(e){ alert('이미지 생성 실패: '+e+'\n화면 캡처(Win+Shift+S / 전원+음량↓)를 사용해 주세요.'); return; }
 
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const canDownload = ('download' in a) && !isIOS();
-  if(canDownload){
-    a.href = url; a.download = rptFileName();
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url), 60000);
-    toast('이미지를 저장했습니다 · ' + Math.round(blob.size/1024) + 'KB');
-  } else {
-    const w = window.open();
-    if(w){
-      w.document.write(`<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>${rptFileName()}</title><style>body{margin:0;background:#111;font-family:sans-serif}
-        p{color:#fff;text-align:center;padding:12px;font-size:14px;margin:0}img{width:100%;display:block}</style></head>
-        <body><p>이미지를 길게 눌러 <b>사진에 저장</b>하세요</p><img src="${url}"></body></html>`);
-      w.document.close();
-    } else { alert('팝업이 차단됐습니다. 팝업을 허용하거나 [공유] 버튼을 사용해 주세요.'); }
-  }
+  saveOrOpen(blob, rptFileName());
 }
 async function shareReport(){
   let blob;

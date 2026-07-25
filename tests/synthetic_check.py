@@ -291,6 +291,34 @@ def t12_dedupe(tmp):
     print("  [12] 중복정리(값만 비움·수식 보존·유지행 무손상) ✅")
 
 
+def t13_fix_ids(tmp):
+    """ID 확정: 수식 규칙 재현·데이터 행만·빈 행 수식 보존"""
+    from fix_ids import make_id, scan, apply_ids
+    from datetime import date as _d
+    assert make_id("AS", _d(2026, 6, 1), 66) == "AS-2606-062", make_id("AS", _d(2026, 6, 1), 66)
+    assert make_id("PM", _d(2026, 7, 13), 45) == "PM-2607-041"
+    src = os.path.join(tmp, "합성ID_v1.xlsx")
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "02_돌발AS접수"
+    for _ in range(3): ws.append([])
+    ws.append(["접수ID", "프로젝트NO", "캠프명", "접수일자"])
+    ws.append(["AS-2607-001", "UJ1", "캠프A", _d(2026, 7, 1)])          # 기존 ID → 보존
+    ws["A6"] = '=IF($B6="","","AS-"&TEXT($D6,"yymm")&"-"&TEXT(ROW()-4,"000"))'
+    ws["B6"], ws["C6"], ws["D6"] = "UJ2", "캠프B", _d(2026, 6, 1)        # 데이터 있음 → 확정 대상
+    ws["A7"] = '=IF($B7="","","AS-"&TEXT($D7,"yymm")&"-"&TEXT(ROW()-4,"000"))'  # 빈 행 → 수식 유지
+    wb.save(src)
+    plans, dups = scan(src)
+    assert not dups and len(plans) == 1 and plans[0]["row"] == 6, (plans, dups)
+    assert plans[0]["id"] == "AS-2606-002", plans[0]
+    dst, done, _ = apply_ids(src, plans)
+    w = openpyxl.load_workbook(dst)
+    ws2 = w["02_돌발AS접수"]
+    assert ws2["A5"].value == "AS-2607-001", ws2["A5"].value            # 기존 무손상
+    assert ws2["A6"].value == "AS-2606-002", ws2["A6"].value            # 확정됨
+    assert str(ws2["A7"].value).startswith("="), ws2["A7"].value        # ★빈 행 수식 보존
+    w.close()
+    print("  [13] ID 확정(수식규칙 재현·기존보존·빈행 수식유지) ✅")
+
+
 def t9_watchdog():
     import time as _t
     from watchdog import pick_archive, pick_old_reports
@@ -369,6 +397,7 @@ if __name__ == "__main__":
         t7_po(tmp)
         t8_findings_sheet(tmp)
         t12_dedupe(tmp)
+        t13_fix_ids(tmp)
     t2_payload()
     t3_match()
     t9_watchdog()
