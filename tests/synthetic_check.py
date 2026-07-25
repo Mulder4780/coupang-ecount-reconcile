@@ -540,6 +540,9 @@ def t6_webapp():
         assert 'id="fperiod"' in html and 'id="fd1"' in html and 'id="fd2"' in html, "기간 선택 UI 누락"
         assert "최근 3개월" in html and "직접 지정" in html, "기간 프리셋 누락"
         assert "날짜 없는" in html, "기간 제외 건수 알림 누락"
+        # 통계 탭 월별표는 폰에서도 보여야 한다(카드 대체본이 없어 숨기면 화면이 빈다)
+        assert "table.grid.ptbl{display:table!important" in html.replace(" ", ""), "폰에서 월별표가 숨겨짐"
+        assert "erpHtml(" in html and "api/erpdocs" in html, "ERP 매출 반영 누락"
         print("  [6] 웹앱 API(PIN 인증·상태·정산·페이지 서빙) ✅")
     finally:
         p.terminate()
