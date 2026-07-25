@@ -154,6 +154,14 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
   border-radius:11px;font-size:14px;background:var(--surface);transition:border .15s;color:var(--ink)}
 .toolbar input:focus,.toolbar select:focus{outline:none;border-color:var(--brand)}
 .toolbar #fsort{flex:0 0 auto;min-width:104px}
+.toolbar #fperiod{flex:0 0 auto;min-width:112px}
+.fdates{display:none;gap:6px;align-items:center;flex:1 1 100%}
+.fdates.on{display:flex}
+.fdates input{flex:1;min-width:0;padding:9px 10px;border:1.5px solid var(--line);border-radius:10px;
+  font-size:13px;background:var(--surface);color:var(--ink)}
+.fdates .tilde{color:var(--ink-3);font-weight:800}
+.fnote{font-size:11.5px;color:var(--ink-3);margin:-4px 0 9px;line-height:1.5}
+.fnote b{color:var(--brand)}
 .dirbtn{flex:0 0 auto;padding:10px 13px;border:1.5px solid var(--brand);border-radius:11px;
   font-size:13px;font-weight:700;color:var(--brand);background:var(--surface);white-space:nowrap;
   transition:background .15s,color .15s}
@@ -459,7 +467,18 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
         <option value="__col" hidden>표 열 지정</option>
       </select>
       <button id="fdir" class="dirbtn" onclick="toggleDir()">과거 → 최근</button>
+      <select id="fperiod" onchange="periodPick()" title="기간">
+        <option value="">기간 전체</option>
+        <option value="m0">이번 달</option>
+        <option value="m1">지난 달</option>
+        <option value="m3">최근 3개월</option>
+        <option value="y0">올해</option>
+        <option value="custom">직접 지정…</option>
+      </select>
+      <span id="fdates" class="fdates"><input type="date" id="fd1" onchange="renderSettle()">
+        <span class="tilde">~</span><input type="date" id="fd2" onchange="renderSettle()"></span>
     </div>
+    <div id="fnote" class="fnote"></div>
     <div class="kpis" id="skpis" style="grid-template-columns:repeat(3,1fr)"></div>
     <div class="slist" id="slist"></div>
     <table class="grid" id="sgrid"></table>
@@ -699,6 +718,39 @@ function vbadge(id){
     return `<span class="chip ${good?'c-ok':'c-danger'}" style="font-size:10px">${label} ${good?'✓':'✗'}</span>`; };
   return one('카톡',c.kakao)+one('밴드',c.band)+(c.erp?`<span class="chip c-warn" style="font-size:10px">ERP ${c.erp.slice(0,14)}</span>`:'')+(c.po?`<span class="chip c-warn" style="font-size:10px">PO ${c.po.slice(0,14)}</span>`:'');
 }
+/* ── 기간 필터 ────────────────────────────────────────────────
+   탭마다 기준 날짜가 다르므로(정산=완료일, AS=접수일, 점검=예정일)
+   정렬과 같은 dateOf()를 그대로 쓴다 — 화면에 보이는 날짜와 필터가 어긋나지 않게. */
+function periodPick(){
+  const v = $('fperiod').value;
+  $('fdates').classList.toggle('on', v === 'custom');
+  if(v === 'custom' && !$('fd1').value){
+    const ds = curRows().map(r=>dateOf(r, mode)).filter(Boolean).sort();
+    if(ds.length){ $('fd1').value = ds[0]; $('fd2').value = ds[ds.length-1]; }
+  }
+  renderSettle();
+}
+function periodRange(){
+  const v = ($('fperiod')||{}).value || '';
+  if(!v) return null;
+  if(v === 'custom') return [$('fd1').value || '0000-01-01', $('fd2').value || '9999-12-31'];
+  const t = new Date();
+  const ym = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  if(v === 'm0') return [ym(t)+'-01', ym(t)+'-31'];
+  if(v === 'm1'){ const d = new Date(t.getFullYear(), t.getMonth()-1, 1); return [ym(d)+'-01', ym(d)+'-31']; }
+  if(v === 'm3'){ const d = new Date(t.getFullYear(), t.getMonth()-2, 1); return [ym(d)+'-01', ym(t)+'-31']; }
+  if(v === 'y0') return [t.getFullYear()+'-01-01', t.getFullYear()+'-12-31'];
+  return null;
+}
+function showPeriodNote(pr, shown, undated){
+  const el = $('fnote'); if(!el) return;
+  if(!pr){ el.innerHTML = ''; return; }
+  const label = {m0:'이번 달', m1:'지난 달', m3:'최근 3개월', y0:'올해',
+                 custom:'직접 지정'}[$('fperiod').value] || '';
+  // 날짜 없는 건이 조용히 사라지지 않게 몇 건이 빠졌는지 반드시 알린다
+  el.innerHTML = `기간 <b>${label} (${pr[0]} ~ ${pr[1]})</b> · ${shown}건 표시` +
+    (undated ? ` · <b>날짜 없는 ${undated}건은 제외</b>` : '');
+}
 function fillStatOptions(){
   const stats = [...new Set(curRows().map(statOf).filter(Boolean))];
   $('fstat').innerHTML = '<option value="">상태 전체</option>' + stats.map(s=>`<option>${s}</option>`).join('');
@@ -777,9 +829,20 @@ function sortRows(rows){
 }
 function renderSettle(){
   const q = ($('q').value||'').toLowerCase(), f = $('fstat').value;
-  const rows = sortRows(curRows().filter(r =>
-    (!f || statOf(r)===f) &&
-    (!q || Object.values(r).join('').toLowerCase().includes(q))));
+  const pr = periodRange();
+  let undated = 0;
+  const base = curRows().filter(r => {
+    if(f && statOf(r)!==f) return false;
+    if(q && !Object.values(r).join('').toLowerCase().includes(q)) return false;
+    if(pr){
+      const d = dateOf(r, mode);
+      if(!d){ undated++; return false; }     // 날짜 없는 건은 기간으로 판단 불가 → 제외하고 아래에 알림
+      if(d < pr[0] || d > pr[1]) return false;
+    }
+    return true;
+  });
+  const rows = sortRows(base);
+  showPeriodNote(pr, rows.length, undated);
   if(mode==='settle'){
     const need = rows.filter(r=>!['정상','무상/보험'].includes(r.상태));
     const 미수 = rows.reduce((a,r)=>a+(+r.미수금||0),0);

@@ -536,6 +536,10 @@ def t6_webapp():
         # 원천 검증은 밴드·카톡·ERP·쿠팡PO 4종이 **자료 유무와 무관하게** 항상 표시돼야 한다
         assert "4원천 검증" in html, "원천 검증 제목이 4원천이 아님"
         assert "쿠팡 PO" in html and "PO 목록 투입 시 자동 대조" in html, "PO 원천 행 누락"
+        # 기간 필터: 프리셋 + 직접 지정 + 제외 건수 알림
+        assert 'id="fperiod"' in html and 'id="fd1"' in html and 'id="fd2"' in html, "기간 선택 UI 누락"
+        assert "최근 3개월" in html and "직접 지정" in html, "기간 프리셋 누락"
+        assert "날짜 없는" in html, "기간 제외 건수 알림 누락"
         print("  [6] 웹앱 API(PIN 인증·상태·정산·페이지 서빙) ✅")
     finally:
         p.terminate()
