@@ -84,12 +84,21 @@ def pin():
         return "----"
 
 
+FIXED = "https://mulder4780.github.io/coupang-ecount-reconcile/"   # 바뀌지 않는 진입점
+
+
 def main():
     print("터널 확인 중…")
     url, restarted = ensure_tunnel()
     if not url:
         sys.exit("터널을 띄우지 못했습니다. webapp/cloudflared.exe 존재 여부를 확인하세요.")
     ok = alive(url)
+    # 현재 주소를 고정 진입점에 게시(변경 시에만 커밋)
+    try:
+        subprocess.run([sys.executable, os.path.join(BASE, "publish_endpoint.py")],
+                       cwd=BASE, capture_output=True, timeout=120)
+    except Exception:
+        pass
     lan = f"http://{local_ip()}:{PORT}"
     html = f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>폰 접속</title>
@@ -108,15 +117,15 @@ h1{{font-size:16px;margin:0 0 5px;letter-spacing:-.2px}} .sub{{font-size:12.5px;
 .warn{{background:#FEF1E2;color:#B54708;border-radius:9px;padding:9px;font-size:12px;margin-top:10px}}</style></head>
 <body><div class="card">
 <h1>Coupang Service Operations System</h1>
-<div class="sub">📱 카메라로 QR을 찍으세요 · 어디서나(LTE/5G) 접속됩니다</div>
-<div class="qr">{qr_svg(url)}</div>
+<div class="sub">📱 QR을 한 번만 찍으세요 · 이 주소는 <b>바뀌지 않습니다</b></div>
+<div class="qr">{qr_svg(FIXED)}</div>
 <div style="font-size:12px;color:#667085;margin-top:14px">접속 PIN</div>
 <div class="pin">{pin()}</div>
-<div class="u">{url}</div>
-<a class="b" href="{url}" target="_blank">이 PC에서 열기</a>
-{'' if ok else '<div class="warn">주소 응답이 없습니다. 잠시 후 이 페이지를 다시 실행해 주세요.</div>'}
-<div class="s">주소는 터널이 재시작되면 바뀝니다 —<br>바탕화면 <b>[폰 접속 QR]</b>을 다시 실행하면 항상 최신 QR이 나옵니다.<br>
-사내 와이파이 전용: <b>{lan}</b></div>
+<div class="u">{FIXED}</div>
+<a class="b" href="{FIXED}" target="_blank">이 PC에서 열기</a>
+{'' if ok else '<div class="warn">현재 접속 주소가 응답하지 않습니다. 잠시 후 다시 실행해 주세요.</div>'}
+<div class="s">폰에서 열면 <b>현재 주소로 자동 연결</b>됩니다 — 홈 화면에 추가해 두고 쓰세요.<br>
+지금 연결 주소: {url[:46]}…<br>사내 와이파이 전용: <b>{lan}</b></div>
 </div></body></html>"""
     os.makedirs(os.path.dirname(OUT_HTML), exist_ok=True)
     open(OUT_HTML, "w", encoding="utf-8").write(html)
