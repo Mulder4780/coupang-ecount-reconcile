@@ -628,7 +628,7 @@ async function loadStatus(){
   const 유상 = rows.filter(r=>r.비용구분==='유상');
   const 발행 = 유상.filter(r=>r.계산서==='발행').length;
   const 미수 = rows.reduce((a,r)=>a+(+r.미수금||0),0);
-  const issues = rows.filter(r=>!['정상','무상/보험'].includes(r.상태));
+  const issues = rows.filter(r=>needAction(r));
   const asOpen = (works.as||[]).filter(r=>r.진행상태 && r.진행상태!=='작업완료').length;
   const pmWait = (works.pm||[]).filter(r=>r.점검상태 && r.점검상태!=='완료').length;
   const tile=(cls,ico,label,val,sub,click)=>`<div class="kpi ${cls}" onclick="kTap(this);${click||''}">
@@ -796,9 +796,14 @@ function fillStatOptions(){
   const stats = [...new Set(curRows().map(statOf).filter(Boolean))];
   $('fstat').innerHTML = '<option value="">상태 전체</option>' + stats.map(s=>`<option>${s}</option>`).join('');
 }
+/* 조치가 필요한 건인가 — ERP 계산서(묶음)는 이미 발행된 서류라 조치 대상이 아니다 */
+function needAction(r){
+  return !['정상','무상/보험','ERP 계산서(묶음)'].includes(r.상태);
+}
 function chip(st){
   const ok=['정상','작업완료','완료','없음'], warn=['입금 대기','방문예정','작업중','예정','접수'];
-  const cls = ok.includes(st)?'c-ok': st==='무상/보험'?'c-skip': warn.includes(st)?'c-warn':'c-danger';
+  const skip=['무상/보험','ERP 계산서(묶음)'];
+  const cls = ok.includes(st)?'c-ok': skip.includes(st)?'c-skip': warn.includes(st)?'c-warn':'c-danger';
   return `<span class="chip ${cls}">${st||'-'}</span>`;
 }
 /* ── 정렬 ──────────────────────────────────────────────────────
@@ -885,7 +890,7 @@ function renderSettle(){
   const rows = sortRows(base);
   showPeriodNote(pr, rows.length, undated);
   if(mode==='settle'){
-    const need = rows.filter(r=>!['정상','무상/보험'].includes(r.상태));
+    const need = rows.filter(r=>needAction(r));
     const 미수 = rows.reduce((a,r)=>a+(+r.미수금||0),0);
     $('skpis').innerHTML = `
       <div class="kpi accent"><div class="v">${fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))}</div><div class="l">공급가액(원)</div></div>
@@ -895,9 +900,10 @@ function renderSettle(){
       <div class="srow" onclick="openSheet('settle',${i},'${r.정산ID}')">
         <div class="top"><span class="id">${r.정산ID}</span>${chip(r.상태)}</div>
         <div class="top"><span class="camp">${r.캠프명} · ${r.업무구분}</span><span class="amt">${fmt(r.공급가액)}원</span></div>
-        <div class="meta"><span>${r.프로젝트NO}</span><span>완료 ${r.완료일||'-'}</span>
+        <div class="meta"><span>${r.프로젝트NO || (r.출처==='ERP' ? 'ERP 계산서' : '')}</span><span>완료 ${r.완료일||'-'}</span>
           <span>명세서 ${r.명세서번호||r.명세서}</span><span>계산서 ${r.계산서}</span>
-          ${r.입금일?`<span>입금 ${r.입금일}</span>`:''} ${vbadge(r.정산ID)}</div>
+          ${r.입금일?`<span>입금 ${r.입금일}</span>`:''} ${vbadge(r.정산ID)}
+          ${r.적요?`<span style="flex:1 1 100%;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.적요}</span>`:''}</div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
     $('sgrid').innerHTML = `<tr>${thx('정산ID','정산ID')}${thx('구분','업무구분')}${thx('캠프','캠프명')}${thx('프로젝트','프로젝트NO')}
       ${thx('공급가액','공급가액',1)}${thx('명세서번호','명세서번호')}${thx('계산서','계산서발행일')}${thx('PO','PO번호')}${thx('입금일','입금일')}${thx('미수금','미수금',1)}${thx('완료일','완료일')}${thx('상태','상태')}</tr>` +
@@ -1164,7 +1170,7 @@ function renderPeriod(){
   const 공급 = S.reduce((a,r)=>a+(+r.공급가액||0),0);
   const 입금 = S.reduce((a,r)=>a+(+r.입금액||0),0);
   const 미수 = S.reduce((a,r)=>a+(+r.미수금||0),0);
-  const 문제 = S.filter(r=>!['정상','무상/보험'].includes(r.상태)).length;
+  const 문제 = S.filter(r=>needAction(r)).length;
   $('ptitle').textContent = ` — ${y}년 ${m?+m+'월':'전체'}`;
   $('pkpis').innerHTML = [
     ['정산',`${S.length}건`],['공급가액',fmt(공급)],['입금',fmt(입금)],
@@ -1338,7 +1344,7 @@ function renderDaily(){
   const 유상 = S.filter(r=>r.비용구분==='유상');
   const 발행 = 유상.filter(r=>r.계산서==='발행').length;
   const 미수 = S.reduce((a,r)=>a+(+r.미수금||0),0);
-  const issues = S.filter(r=>!['정상','무상/보험'].includes(r.상태));
+  const issues = S.filter(r=>needAction(r));
   const asOpen = (works.as||[]).filter(r=>r.진행상태 && r.진행상태!=='작업완료');
   const pmWait = (works.pm||[]).filter(r=>r.점검상태 && r.점검상태!=='완료');
   const byType = {};
@@ -1371,7 +1377,7 @@ function renderDaily(){
       ${cell(fmt(Sm.reduce((a,r)=>a+(+r.입금액||0),0)),'입금(원)')}
       ${cell((works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,m)).length+'건','돌발AS')}
       ${cell((works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m)).length+'건','정기점검')}
-      ${cell(Sm.filter(r=>!['정상','무상/보험'].includes(r.상태)).length+'건','당월 조치필요')}
+      ${cell(Sm.filter(r=>needAction(r)).length+'건','당월 조치필요')}
     </div>
     ${erpHtml(y)}
     ${execHtml()}
@@ -1428,7 +1434,7 @@ function renderDaily(){
             [fmt(Sm.reduce((a,r)=>a+(+r.입금액||0),0)),'입금(원)'],
             [(works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,m)).length+'건','돌발AS'],
             [(works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m)).length+'건','정기점검'],
-            [Sm.filter(r=>!['정상','무상/보험'].includes(r.상태)).length+'건','당월 조치필요']],
+            [Sm.filter(r=>needAction(r)).length+'건','당월 조치필요']],
     issues: Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>{
       const as=l.filter(r=>String(r.업무구분||'').includes('돌발')).length;
       const pm=l.filter(r=>String(r.업무구분||'').includes('점검')).length;
@@ -1774,7 +1780,7 @@ async function dashToPng(){
   const rows = settleRows, 유상 = rows.filter(r=>r.비용구분==='유상');
   const 발행 = 유상.filter(r=>r.계산서==='발행').length;
   const 미수 = rows.reduce((a,r)=>a+(+r.미수금||0),0);
-  const issues = rows.filter(r=>!['정상','무상/보험'].includes(r.상태));
+  const issues = rows.filter(r=>needAction(r));
   const asOpen = (works.as||[]).filter(r=>r.진행상태 && r.진행상태!=='작업완료').length;
   const pmWait = (works.pm||[]).filter(r=>r.점검상태 && r.점검상태!=='완료').length;
   const y = $('pyear').value || String(new Date().getFullYear());

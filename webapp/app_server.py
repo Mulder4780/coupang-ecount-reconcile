@@ -547,6 +547,59 @@ def get_checks():
     return out
 
 
+_UJ_RE = re.compile(r"UJ\d{6,}")
+# 계산서 제목에서 캠프명만 뽑는다: '쿠팡신규_송파1MB(감일동)-이동식…' → '송파1MB(감일동)'
+_CAMP_RE = re.compile(r"[가-힣A-Za-z]+\d*(?:BMB|MB|캠프|Sub-?FC|Sub-?hub|FC)(?:\([^)]*\))?",
+                      re.I)   # sub-hub / Sub-Hub 표기가 섞여 있어 대소문자 무시
+
+
+def camp_of(title):
+    m = _CAMP_RE.search(str(title or ""))
+    if m:
+        return m.group()
+    t = re.sub(r"^(쿠팡\S*|돌발AS|정기점검)[_\s-]*", "", str(title or "")).strip()
+    return (t or str(title or ""))[:28]
+
+
+def erp_settlement_rows(ledger_rows):
+    """관리대장에 정산 행이 **아예 없는 달**만 ERP 계산서로 채워 넣는다.
+
+    왜 이렇게 하나
+      · 06시트는 '작업 1건 = 1행' 구조다(업무구분이 원천업무ID 기반 수식).
+        ERP 계산서는 여러 작업을 묶은 것이라 그 시트에 그대로 넣으면 수식이 어긋난다.
+      · 그렇다고 1~6월을 비워두면 앱에서 그 달 매출이 0으로 보인다(사실과 다름).
+      → 대장에 자료가 있는 달은 대장 우선, 없는 달만 ERP로 보완하고 출처를 표시한다.
+        (같은 달을 양쪽에서 세지 않으므로 이중 계상이 없다)
+    """
+    have = {str(r.get("완료일") or "")[:7].replace("-", "/") for r in ledger_rows
+            if r.get("공급가액")}
+    docs = get_erpdocs()
+    out = []
+    for d in docs.get("rows", []):
+        mo = d.get("월") or ""
+        if not mo or mo in have:
+            continue
+        slip = d.get("전표") or ""
+        iso = slip[:10].replace("/", "-")
+        title = d.get("프로젝트명") or ""
+        prj = (_UJ_RE.search(title) or [""])
+        prj = prj.group() if hasattr(prj, "group") else ""
+
+        sup = int(d.get("공급가액") or 0)
+        out.append({
+            "정산ID": "ERP-" + slip.replace("/", "").replace("-", "-"),
+            "업무구분": d.get("유형") or "", "캠프명": camp_of(title),
+            "프로젝트NO": prj, "원천업무ID": "",
+            "공급가액": sup, "합계": sup + round(sup * 0.1),
+            "명세서": "있음", "명세서번호": slip, "명세서발행일": iso,
+            "계산서": "발행", "계산서발행일": iso, "승인번호": "",
+            "청구일": "", "지급예정일": "", "입금일": "", "입금액": 0, "미수금": "",
+            "비용구분": "유상", "PO필요": "", "PO번호": "", "PO발행일": "",
+            "상태": "ERP 계산서(묶음)", "완료일": iso,
+            "출처": "ERP", "적요": title})
+    return out
+
+
 def get_settlements():
     if DEMO:
         return demo_settlements()
@@ -555,6 +608,10 @@ def get_settlements():
         if r:
             return r
         rows = real_settlements()
+        try:
+            rows = sort_by_date(rows + erp_settlement_rows(rows), "settle", "정산ID")
+        except Exception:
+            pass
         _cache["settle"] = rows
         return rows
 
