@@ -1,43 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="CSOS">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512"
+     role="img" aria-label="Coupang Service Operations System">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1B3A8F"/>
-      <stop offset="55%" stop-color="#2452E6"/>
-      <stop offset="100%" stop-color="#5B8CFF"/>
+    <linearGradient id="bg" x1=".08" y1="0" x2=".92" y2="1">
+      <stop offset="0" stop-color="#3D68FF"/>
+      <stop offset=".46" stop-color="#1533A3"/>
+      <stop offset="1" stop-color="#060D2B"/>
     </linearGradient>
-    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="mk" x1=".08" y1="1" x2=".92" y2="0">
       <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="100%" stop-color="#D9E4FF"/>
+      <stop offset=".46" stop-color="#D6FBEA"/>
+      <stop offset="1" stop-color="#1FDD86"/>
     </linearGradient>
-    <filter id="sh" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#06102C" flood-opacity=".35"/>
+    <radialGradient id="gl" cx=".26" cy=".12" r=".82">
+      <stop offset="0" stop-color="#fff" stop-opacity=".32"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="sh" x="-35%" y="-35%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="11" stdDeviation="15" flood-color="#01060F" flood-opacity=".55"/>
     </filter>
   </defs>
 
-  <rect width="512" height="512" rx="114" fill="url(#bg)"/>
-  <circle cx="392" cy="104" r="150" fill="#7FA5FF" opacity=".18"/>
-  <circle cx="120" cy="430" r="130" fill="#0A1430" opacity=".16"/>
+  <!-- 배경 -->
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="116" fill="url(#gl)"/>
+  <rect x="3" y="3" width="506" height="506" rx="113" fill="none"
+        stroke="#fff" stroke-opacity=".18" stroke-width="6"/>
 
+  <!-- 상승하는 체크 : 대조 완료 + 실적 상승 -->
   <g filter="url(#sh)">
-    <!-- 마스트(기둥) -->
-    <rect x="112" y="120" width="26" height="270" rx="12" fill="#0E1B3F" opacity=".55"/>
-    <!-- 리프트 플랫폼 -->
-    <rect x="104" y="342" width="304" height="34" rx="17" fill="url(#plate)"/>
-    <!-- 시저 링크 -->
-    <path d="M150 342 L266 262 M266 342 L150 262" stroke="#DCE6FF" stroke-width="15"
-          stroke-linecap="round" opacity=".85"/>
-    <!-- 적재 화물 -->
-    <rect x="196" y="176" width="150" height="90" rx="18" fill="#fff"/>
-    <path d="M271 176 v90" stroke="#C7D6FA" stroke-width="9" stroke-linecap="round"/>
-    <!-- 상승 화살표 -->
-    <path d="M300 150 v-52 M300 90 l-26 26 M300 90 l26 26" stroke="#8FE3B4" stroke-width="19"
-          stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M122 262 L214 352 L396 116" fill="none" stroke="url(#mk)" stroke-width="54"
+          stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
-  <!-- 검증 완료 배지 -->
-  <g transform="translate(352,352)">
-    <circle r="66" fill="#12B76A" stroke="#fff" stroke-width="13"/>
-    <path d="M-28 2 l19 21 l38 -44" stroke="#fff" stroke-width="19" fill="none"
-          stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 리프트 상판 2단 -->
+  <g filter="url(#sh)">
+    <rect x="136" y="398" width="240" height="27" rx="13.5" fill="#FFFFFF" opacity=".95"/>
+    <rect x="182" y="442" width="148" height="17" rx="8.5" fill="#FFFFFF" opacity=".38"/>
   </g>
 </svg>

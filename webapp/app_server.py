@@ -558,19 +558,22 @@ class H(BaseHTTPRequestHandler):
         if p in ("/", "/index.html"):
             html = open(os.path.join(BASE, "index.html"), encoding="utf-8").read()
             return self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
-        if p == "/icon.svg":
+        if re.fullmatch(r"/icon(?:-\d+)?\.(svg|png)", p):      # 아이콘(벡터/래스터 공용)
             try:
-                return self._send(200, open(os.path.join(BASE, "icon.svg"), "rb").read(),
-                                  "image/svg+xml")
+                return self._send(200, open(os.path.join(BASE, p.lstrip("/")), "rb").read(),
+                                  "image/svg+xml" if p.endswith(".svg") else "image/png")
             except Exception:
                 return self._send(404, {"error": "no icon"})
         if p == "/manifest.json":                      # 홈 화면에 추가 시 앱처럼 보이게
             return self._send(200, {
                 "name": "Coupang Service Operations System", "short_name": "CSOS",
                 "start_url": "/", "display": "standalone",
-                "background_color": "#0E1B3F", "theme_color": "#0E1B3F",
-                "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml",
-                           "purpose": "any maskable"}]},
+                "background_color": "#060D2B", "theme_color": "#060D2B",
+                "icons": [
+                    {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
+                    {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]},
                 "application/manifest+json")
         if p == "/api/ping":
             return self._send(200, {"app": "coupang-work", "demo": DEMO})
