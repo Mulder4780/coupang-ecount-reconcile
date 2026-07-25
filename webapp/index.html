@@ -55,6 +55,23 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .tabbar button.on::before{content:"";position:absolute;top:0;width:26px;height:3px;border-radius:0 0 4px 4px;background:var(--brand)}
 .tabbar svg{width:22px;height:22px}
 
+/* ═══ 히어로 배너 ═══ */
+.hero{position:relative;border-radius:18px;overflow:hidden;margin-bottom:14px;color:#fff;
+  background:linear-gradient(120deg,#0E1B3F 0%,#1B3A8F 55%,#2452E6 100%);
+  padding:22px 22px 20px;box-shadow:0 10px 30px -8px rgba(14,27,63,.45)}
+.hero::before{content:"";position:absolute;right:-60px;top:-70px;width:240px;height:240px;border-radius:50%;
+  background:radial-gradient(circle,rgba(91,140,255,.35),transparent 70%)}
+.hero::after{content:"";position:absolute;right:60px;bottom:-90px;width:200px;height:200px;border-radius:50%;
+  background:radial-gradient(circle,rgba(61,220,132,.18),transparent 70%)}
+.hero .hi{font-size:12px;color:#9FB4E8;font-weight:700;letter-spacing:.4px}
+.hero h2{font-size:21px;font-weight:800;letter-spacing:-.4px;margin:3px 0 10px;position:relative;z-index:1}
+.hero .hstats{display:flex;gap:18px;flex-wrap:wrap;position:relative;z-index:1}
+.hero .hstat{font-size:11.5px;color:#9FB4E8;font-weight:700}
+.hero .hstat b{display:block;font-size:16px;color:#fff;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+.hero .badge{position:absolute;top:18px;right:20px;z-index:1;display:flex;align-items:center;gap:6px;
+  background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:99px;
+  padding:5px 12px;font-size:11px;font-weight:700;backdrop-filter:blur(4px)}
+
 /* ═══ 카드 ═══ */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
   box-shadow:var(--sh);padding:18px;margin-bottom:13px}
@@ -318,6 +335,12 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 
   <!-- 대시보드 -->
   <section class="view active" id="v-dash">
+    <div class="hero">
+      <div class="badge"><span class="dot" style="box-shadow:none"></span><span id="heroAgent">에이전트 대기</span></div>
+      <div class="hi" id="heroDate"></div>
+      <h2>쿠팡 통합업무 현황</h2>
+      <div class="hstats" id="heroStats"></div>
+    </div>
     <div class="kpis" id="kpis"></div>
     <div class="card"><h3>에이전트 최근 실행 <span id="agentTime" style="font-weight:400"></span></h3>
       <div class="steps" id="steps"></div></div>
@@ -502,6 +525,17 @@ async function loadStatus(){
       <span style="text-align:right"><b>${list.length}건</b><br><span style="font-size:11.5px;color:var(--muted)">${fmt(amt)}원</span></span></div>`;
   }).join('') || '<div style="color:var(--muted);font-size:13px">조치 필요 건이 없습니다 🎉</div>';
   $('agentTime').textContent = '— ' + (s.agent_last||'');
+  // 히어로 배너
+  const now = new Date();
+  $('heroDate').textContent = now.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
+  $('heroAgent').textContent = '에이전트 ' + (s.agent_last ? s.agent_last.slice(5,16) + ' 실행' : '대기');
+  const hs = (l,v)=>`<div class="hstat">${l}<b>${v}</b></div>`;
+  $('heroStats').innerHTML =
+    hs('정산 누적', (rows.length||0)+'건') +
+    hs('공급가액', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))+'원') +
+    hs('조치 필요', issues.length+'건') +
+    hs('밴드 검증', '87/88') +
+    (s.tunnel ? hs('외부접속', '연결됨') : '');
   const icon = {ok:'✅',skip:'⏭',fail:'❌'};
   $('steps').innerHTML = (s.steps||[]).map(t=>`<div class="step"><span class="ic">${icon[t.s]||'·'}</span>${t.n}</div>`).join('') || '<span style="color:var(--muted)">아직 실행 기록 없음</span>';
   if(s.fork && s.fork.length){ $('forkcard').style.display='block';
