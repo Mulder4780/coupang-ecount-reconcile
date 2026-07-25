@@ -615,6 +615,10 @@ def t6_webapp():
         assert html.count('class="prjno"') >= 6, "프로젝트NO 강조 표기 부족"
         assert '<b class="prjno">' in html, "표에서 프로젝트NO 굵게 표기 누락"
         assert 'class="sid"' in html, "보조 ID 표기 누락"
+        # 구버전 감지: 폰에 켜 둔 앱이 예전 화면을 계속 쓰지 않도록
+        assert "checkBuild" in html and "hardReload" in html, "구버전 자동 갱신 누락"
+        pg = json.loads(urllib.request.urlopen(base + "/api/ping", timeout=5).read())
+        assert pg.get("build"), "ping 응답에 build 값 없음"
         print("  [6] 웹앱 API(PIN 인증·상태·정산·페이지 서빙) ✅")
     finally:
         p.terminate()

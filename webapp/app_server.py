@@ -486,6 +486,15 @@ def get_issues():
     return out
 
 
+def build_id():
+    """index.html이 바뀌면 값이 달라진다. 폰에 열려 있는 앱이 구버전인지 판별하는 기준."""
+    try:
+        st = os.stat(os.path.join(BASE, "index.html"))
+        return hashlib.md5(f"{int(st.st_mtime)}-{st.st_size}".encode()).hexdigest()[:10]
+    except Exception:
+        return "0"
+
+
 def brand_logo():
     """webapp/brand/ 에 넣어 둔 고객사 로고 파일명. 없으면 빈 문자열(기본 CSOS 마크 사용).
     파일은 gitignore 대상 — 상표 자산을 공개 저장소에 올리지 않기 위해서다."""
@@ -796,7 +805,7 @@ def get_status():
                 "fork": st.get("fork", []), "agent_last": rt or "기록 없음", "steps": steps,
                 "pending_updates": st["pending_updates"], "inbox": st["inbox"],
                 "kakao": st["kakao"], "band": st["band_auth"], "demo": False, "tunnel": tunnel,
-                "sources": srcs}
+                "sources": srcs, "build": build_id()}
     except Exception as e:
         return {"error": str(e)}
 
@@ -879,7 +888,7 @@ class H(BaseHTTPRequestHandler):
                     {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]},
                 "application/manifest+json")
         if p == "/api/ping":
-            return self._send(200, {"app": "coupang-work", "demo": DEMO})
+            return self._send(200, {"app": "coupang-work", "demo": DEMO, "build": build_id()})
         if not self._auth():
             return self._send(401, {"error": "PIN"})
         if p == "/api/status":

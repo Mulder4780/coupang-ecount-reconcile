@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#060D2B">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <title>Coupang Service Operations System</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/icon-32.png" sizes="32x32" type="image/png">
@@ -669,10 +671,38 @@ function show(v){
   window.__view = v;
 }
 function curView(){ return window.__view || localStorage.getItem('cw_view') || 'dash'; }
+/* ── 구버전 감지 ─────────────────────────────────────────────
+   폰에서 앱을 켜 두면 화면은 그대로라 서버가 바뀌어도 예전 HTML·JS가 계속 돈다.
+   (데이터만 새로 받는 새로고침으로는 화면 구조가 안 바뀐다)
+   서버의 build 값이 달라지면 문서 자체를 다시 읽는다. */
+let BUILD = '';
+async function checkBuild(auto){
+  try{
+    const r = await fetch('/api/ping?t=' + Date.now(), {cache:'no-store'});
+    const d = await r.json();
+    if(!d.build) return false;
+    if(!BUILD){ BUILD = d.build; return false; }
+    if(d.build === BUILD) return false;
+    if(auto){
+      if(polling || $('sheetbg').style.display === 'block') return true;  // 작업 중엔 미룸
+      toast('새 버전을 받았습니다 · 화면을 갱신합니다');
+      setTimeout(hardReload, 700);
+    }
+    return true;
+  }catch(e){ return false; }
+}
+/* 캐시를 확실히 비우고 문서를 다시 읽는다 */
+function hardReload(){
+  const u = new URL(location.href);
+  u.searchParams.set('v', Date.now());
+  location.replace(u.toString());
+}
 /* 새로고침: 데이터를 다시 읽고 **보고 있던 화면 그대로** 다시 그린다 */
 async function reloadHere(btn){
   const v = curView();
   if(btn){ btn.disabled = true; btn.dataset.t = btn.textContent; btn.textContent = '🔄 새로고침 중…'; }
+  // 서버가 새 버전이면 데이터만 받아선 화면이 안 바뀐다 → 문서를 다시 읽는다
+  if(await checkBuild(false)){ hardReload(); return; }
   try{ await refreshAll(); }catch(e){}
   try{ renderDaily(); }catch(e){}
   try{ renderBoard(); }catch(e){}
@@ -2286,6 +2316,9 @@ async function refreshAll(){ try{ await loadSettle(); await loadStatus(); }catch
   show(curView());                       // 새로고침 전에 보던 화면으로 복귀
   if(PIN){ $('gate').style.display='none'; refreshAll(); }
   setInterval(()=>{ if(PIN && !runnerBusy()) loadStatus().catch(()=>{}); }, 30000);
+  checkBuild(false);                                  // 최초 기준값 기록
+  setInterval(()=>checkBuild(true), 20000);           // 새 버전 나오면 자동 갱신
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) checkBuild(true); });
 })();
 function runnerBusy(){ return !!polling; }
 </script>
