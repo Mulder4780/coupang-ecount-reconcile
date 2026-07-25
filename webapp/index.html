@@ -39,6 +39,11 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#3D68FF,#1533A3 46%,#060D2B);
   display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 6px rgba(21,51,163,.5)}
 .logo svg{width:22px;height:22px}
+/* 고객사 CI를 넣은 경우: 배경 없이 원본 그대로 (가이드라인상 변형 금지) */
+.logo.brand{background:none;box-shadow:none;border-radius:0;width:auto;min-width:34px;height:30px}
+.logo.brand img{height:100%;width:auto;max-width:130px;object-fit:contain;display:block}
+.rpt .rhead .logo.brand{height:38px;width:auto}
+.appbar .logo.brand{filter:brightness(0) invert(1)}   /* 남색 바 위에서는 흰색 로고 사용 */
 .appbar h1{font-size:15px;font-weight:800;letter-spacing:-.2px;flex:1;line-height:1.2;min-width:0}
 .brandfull{display:none} .brandshort{display:inline}
 @media(min-width:600px){.brandfull{display:inline} .brandshort{display:none}}
@@ -709,6 +714,8 @@ async function loadSettle(){
   try{ checks = await api('/api/checks'); }catch(e){}
   try{ execRep = await api('/api/exec_report'); }catch(e){}
   try{ erpDocs = await api('/api/erpdocs'); }catch(e){ erpDocs = {rows:[],months:{},kinds:{},total:0}; }
+  try{ brandLogo = (await api('/api/brand')).logo || ''; }catch(e){ brandLogo=''; }
+  applyBrand();
   syncSortUI(); fillStatOptions(); renderSettle(); periodInit();
   try{ renderBoard(); }catch(e){ console.warn('board', e); }
 }
@@ -1258,6 +1265,7 @@ async function setDates(){
 }
 
 /* ── 대표 보고서: 생성 → 캡처(PNG) → 공유 ── */
+let brandLogo = '';      // webapp/brand/ 에 넣은 고객사 CI 파일명(없으면 기본 마크)
 let erpDocs = {rows:[],months:{},kinds:{},total:0};   // 25_ERP매출서류 (이카운트 계산서 원본)
 let srcStats = {};                     // /api/status 의 sources (4원천 실집계)
 let _rptData = null;                   // 보고서 데이터(HTML·Canvas 공용)
@@ -1376,9 +1384,10 @@ function renderDaily(){
     return `<div class="rcell${on?' clk':''}"${on?` onclick="openKpi('${k}')"`:''}>` +
       `<div class="v">${v}</div><div class="l">${l}${on?' <span class="go">▸</span>':''}</div></div>`;
   };
+  const rptLogo = brandLogo ? `<div class="logo brand">${brandImg()}</div>` : null;
   $('rpt').innerHTML = `
     <div class="rhead">
-      <div class="logo"><svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lgm" x1=".08" y1="1" x2=".92" y2="0"><stop offset="0" stop-color="#fff"/><stop offset=".46" stop-color="#D6FBEA"/><stop offset="1" stop-color="#1FDD86"/></linearGradient></defs><path d="M122 262 L214 352 L396 116" fill="none" stroke="url(#lgm)" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/><rect x="136" y="404" width="240" height="30" rx="15" fill="#fff" opacity=".95"/><rect x="182" y="452" width="148" height="18" rx="9" fill="#fff" opacity=".4"/></svg></div>
+      ${rptLogo || `<div class="logo"><svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lgm" x1=".08" y1="1" x2=".92" y2="0"><stop offset="0" stop-color="#fff"/><stop offset=".46" stop-color="#D6FBEA"/><stop offset="1" stop-color="#1FDD86"/></linearGradient></defs><path d="M122 262 L214 352 L396 116" fill="none" stroke="url(#lgm)" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/><rect x="136" y="404" width="240" height="30" rx="15" fill="#fff" opacity=".95"/><rect x="182" y="452" width="148" height="18" rx="9" fill="#fff" opacity=".4"/></svg></div>`}
       <h2 style="font-size:17px">Coupang Service Operations System<small>일일보고 · (주)유니버셜리프트앤히타치코리아</small></h2>
       <div class="rdate">보고일<b>${(execRep.meta&&execRep.meta['보고일'])||`${y}-${m}-${String(today.getDate()).padStart(2,'0')}`}</b>
         <span style="font-size:10.5px;font-weight:600;color:var(--ink-3)">집계기준일 ${
@@ -1569,6 +1578,22 @@ function renderBoard(){
 /* onclick 속성에 안전하게 문자열 넣기 */
 function esc4(s){ return "'" + String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;') + "'"; }
 
+/* 고객사 CI가 있으면 상단·보고서 로고를 그 파일로 바꾼다.
+   가이드라인상 변형이 금지되어 있으므로 색·비율을 건드리지 않고 원본을 그대로 넣는다. */
+function brandImg(cls){
+  return brandLogo
+    ? `<img src="/brand/${encodeURIComponent(brandLogo)}" alt="쿠팡" class="${cls||''}">`
+    : '';
+}
+function applyBrand(){
+  document.querySelectorAll('.logo').forEach(el=>{
+    if(!brandLogo){ el.classList.remove('brand'); return; }
+    if(el.dataset.b === brandLogo) return;
+    el.dataset.b = brandLogo;
+    el.classList.add('brand');
+    el.innerHTML = brandImg();
+  });
+}
 function openPane(html){
   $('sheetbody').innerHTML = html;
   $('sheetbg').style.display='block';
@@ -1653,7 +1678,7 @@ async function assigneeToPng(name){
   ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
   const g=ctx.createLinearGradient(0,0,W,headH); g.addColorStop(0,'#0E1B3F'); g.addColorStop(1,'#2452E6');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,headH);
-  box(26,20,44,44,'rgba(255,255,255,.16)',12); drawMark(ctx,26,20,44);
+  await drawLogo(ctx,26,24,36,true);
   txt('확인 요청 · '+name, 86, 44, F(20,800), '#fff');
   txt('Coupang Service Operations System · 확인 필요 '+l.length+'건', 86, 68, F(11.5), '#9FB4E8');
   txt(new Date().toLocaleDateString('ko-KR'), W-26, 44, F(12.5,700), '#fff','right');
@@ -1704,6 +1729,28 @@ async function shareAssignee(){
 }
 
 /* 캡처 이미지용 CSOS 마크 — 앱 아이콘과 같은 도형을 캔버스로 직접 그린다(외부 리소스 0) */
+/* 캡처 이미지에 고객사 CI를 그린다(있을 때). 같은 출처 이미지라 canvas 오염 없음.
+   실패하면 기본 마크로 자동 대체 — 보고 이미지가 비는 일이 없게. */
+let _brandImg = null;
+function loadBrandImg(){
+  if(!brandLogo) return Promise.resolve(null);
+  if(_brandImg) return Promise.resolve(_brandImg);
+  return new Promise(res=>{
+    const im = new Image();
+    im.onload = ()=>{ _brandImg = im; res(im); };
+    im.onerror = ()=>res(null);
+    im.src = '/brand/' + encodeURIComponent(brandLogo);
+  });
+}
+async function drawLogo(ctx, x, y, size, onDark){
+  const im = await loadBrandImg();
+  if(!im){ drawMark(ctx, x, y, size); return; }
+  const w = Math.min(size * 3.2, im.width * (size / im.height));
+  ctx.save();
+  if(onDark){ ctx.filter = 'brightness(0) invert(1)'; }   // 남색 헤더 위에서는 흰색 로고
+  ctx.drawImage(im, x, y + (size - size * im.height / im.height) / 2, w, size);
+  ctx.restore();
+}
 function drawMark(ctx,x,y,size){
   const p = v => v*size/512;
   ctx.save(); ctx.translate(x,y);
@@ -1752,8 +1799,8 @@ async function reportToPng(){
   const g = ctx.createLinearGradient(0,0,W,96);
   g.addColorStop(0,'#0E1B3F'); g.addColorStop(1,'#2452E6');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,96);
-  box(30,26,44,44,'rgba(255,255,255,.16)',null,12);
-  drawMark(ctx,30,26,44);
+  if(!brandLogo) box(30,26,44,44,'rgba(255,255,255,.16)',null,12);   // CI가 있으면 배경 사각형 없이
+  await drawLogo(ctx,30,30,36,true);
   txt('Coupang Service Operations System',92,36,F(17,800),'#fff');
   txt('일일보고 · (주)유니버셜리프트앤히타치코리아',92,60,F(11.5),'#9FB4E8');
   txt('보고일',W-30,32,F(11),'#9FB4E8','right');
@@ -1860,8 +1907,8 @@ async function dashToPng(){
   ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
   const g=ctx.createLinearGradient(0,0,W,96); g.addColorStop(0,'#0E1B3F'); g.addColorStop(1,'#2452E6');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,96);
-  box(30,26,44,44,'rgba(255,255,255,.16)',null,12);
-  drawMark(ctx,30,26,44);
+  if(!brandLogo) box(30,26,44,44,'rgba(255,255,255,.16)',null,12);   // CI가 있으면 배경 사각형 없이
+  await drawLogo(ctx,30,30,36,true);
   txt('Coupang Service Operations System',92,36,F(17,800),'#fff');
   txt('통합 현황 · UNIVERSAL LIFT',92,58,F(11.5),'#9FB4E8');
   txt(new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'}),

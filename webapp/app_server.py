@@ -476,6 +476,18 @@ def get_issues():
     return out
 
 
+def brand_logo():
+    """webapp/brand/ 에 넣어 둔 고객사 로고 파일명. 없으면 빈 문자열(기본 CSOS 마크 사용).
+    파일은 gitignore 대상 — 상표 자산을 공개 저장소에 올리지 않기 위해서다."""
+    d = os.path.join(BASE, "brand")
+    if not os.path.isdir(d):
+        return ""
+    for f in sorted(os.listdir(d)):
+        if os.path.splitext(f)[1].lower() in (".png", ".svg", ".jpg", ".jpeg", ".webp"):
+            return f
+    return ""
+
+
 def get_erpdocs():
     """25_ERP매출서류 — 이카운트 매출(세금)계산서 원본(2026년 전체).
     ERP는 여러 작업을 한 장으로 묶어 발행하므로 1행 = 작업 1건이 아니다."""
@@ -726,6 +738,17 @@ class H(BaseHTTPRequestHandler):
         if p in ("/", "/index.html"):
             html = open(os.path.join(BASE, "index.html"), encoding="utf-8").read()
             return self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
+        if p.startswith("/brand/"):                    # 고객사 CI(쿠팡 로고) — 로컬 파일만 서빙
+            fn = os.path.basename(p)
+            fp = os.path.join(BASE, "brand", fn)
+            ext = os.path.splitext(fn)[1].lower()
+            ct = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                  ".svg": "image/svg+xml", ".webp": "image/webp"}.get(ext)
+            if not ct or not os.path.exists(fp):
+                return self._send(404, {"error": "no brand asset"})
+            return self._send(200, open(fp, "rb").read(), ct)
+        if p == "/api/brand":
+            return self._send(200, {"logo": brand_logo()})
         if re.fullmatch(r"/icon(?:-\d+)?\.(svg|png)", p):      # 아이콘(벡터/래스터 공용)
             try:
                 return self._send(200, open(os.path.join(BASE, p.lstrip("/")), "rb").read(),
