@@ -619,6 +619,11 @@ def t6_webapp():
         assert "checkBuild" in html and "hardReload" in html, "구버전 자동 갱신 누락"
         pg = json.loads(urllib.request.urlopen(base + "/api/ping", timeout=5).read())
         assert pg.get("build"), "ping 응답에 build 값 없음"
+        # 당일 업무 실적: 항목마다 어떤 건인지 상세가 붙고, 숫자가 어긋나면 알려야 한다
+        assert "dayDetail(" in html and "dayRows(" in html, "당일 실적 상세 누락"
+        assert "앱에서 찾은 건" in html, "보고 숫자와 불일치 알림 누락"
+        for k in ("신규접수", "점검완료", "거래명세서발행", "입금건수"):
+            assert f"'{k}'" in html, f"{k} 매핑 누락"
         print("  [6] 웹앱 API(PIN 인증·상태·정산·페이지 서빙) ✅")
     finally:
         p.terminate()

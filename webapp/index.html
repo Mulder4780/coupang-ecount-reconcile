@@ -209,7 +209,18 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .egroup .gb{padding:6px 14px 10px}
 .gi{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
   font-size:14px;padding:6px 0;border-bottom:1px dashed #EEF2F7}
+.gitem{border-bottom:1px dashed #EEF2F7}
+.gitem:last-child{border-bottom:0}
 .gi:last-child{border-bottom:0}
+.gitem .gi{border-bottom:0}
+/* 항목 바로 아래 상세 — 무슨 건인지 바로 보이게 */
+.gd{padding:0 0 8px 2px}
+.gd.note{font-size:11.5px;color:var(--ink-3);line-height:1.55;padding-top:2px;word-break:keep-all}
+.gd .chips{gap:5px}
+.gd .prj{font-size:11px;padding:2px 7px}
+.gd .dc{font-size:11px;color:var(--ink-3);align-self:center;margin-right:4px}
+.gd .more{font-size:11px;color:var(--ink-3);font-weight:700;align-self:center}
+.gd .dw{display:block;margin-top:3px;font-size:10.5px;color:var(--warn,#B54708);font-weight:700}
 .gi span{color:var(--ink-2);word-break:keep-all}
 .gi b{font-variant-numeric:tabular-nums;font-size:15px;white-space:nowrap}
 /* 숫자 칸: 폰 2열 → 넓은 화면 3열 */
@@ -1359,6 +1370,81 @@ let _rptData = null;                   // 보고서 데이터(HTML·Canvas 공�
 let execRep = {};                      // 01_대표보고 시트 원본(엑셀 수식 집계 결과)
 
 /* 01_대표보고 섹션을 보고서 HTML로 — 엑셀 대표보고와 동일한 항목·수치 */
+
+/* ══ 당일 업무 실적 — 항목별 상세 ══════════════════════════════
+   '신규 접수 3'이 어떤 건인지 바로 아래에 보여 준다.
+   대표보고 엑셀에는 숫자만 있어서, 같은 기준일로 앱 데이터에서 직접 찾아 붙인다. */
+function baseDate(){
+  const m = (execRep.meta||{});
+  return normDate(m['집계기준일'] || m['보고일']) || todayISO();
+}
+const _k = s => String(s||'').replace(/[\s·()]/g,'');
+
+/* 라벨 → 그 숫자를 만든 실제 건 목록 */
+function dayRows(label){
+  const d = baseDate();
+  const as = works.as||[], pm = works.pm||[], st = settleRows||[];
+  const on = (v)=> normDate(v) === d;
+  const paid = r => String(r['유상·무상·보험']||r.비용구분||'').includes('유상');
+  const M = {
+    '신규접수':      ()=>[as.filter(r=>on(r.접수일자)), 'as'],
+    '작업완료':      ()=>[as.filter(r=>on(r.작업완료일)), 'as'],
+    '현장작업':      ()=>[[], 'as'],
+    '유상발생':      ()=>[as.filter(r=>on(r.접수일자)&&paid(r)), 'as'],
+    '재방문예정금일': ()=>[as.filter(r=>on(r.방문예정일)), 'as'],
+    '점검완료':      ()=>[pm.filter(r=>on(r.실제점검일)), 'pm'],
+    '점검예정금일':   ()=>[pm.filter(r=>on(r.점검예정일)), 'pm'],
+    '이상발견':      ()=>[pm.filter(r=>on(r.실제점검일)&&String(r.이상발견여부||'').trim()&&r.이상발견여부!=='없음'), 'pm'],
+    '돌발AS전환':    ()=>[pm.filter(r=>on(r.실제점검일)&&String(r.돌발AS전환여부||'').trim()&&r.돌발AS전환여부!=='없음'), 'pm'],
+    '유상점검':      ()=>[pm.filter(r=>on(r.실제점검일)&&paid(r)), 'pm'],
+    '거래명세서발행':  ()=>[st.filter(r=>on(r.명세서발행일)), 'settle'],
+    '세금계산서발행':  ()=>[st.filter(r=>on(r.계산서발행일)), 'settle'],
+    'ERP등록작업완료기준': ()=>[st.filter(r=>on(r.완료일)&&r.명세서번호), 'settle'],
+    '청구진행':      ()=>[st.filter(r=>on(r.청구일)), 'settle'],
+    '입금건수':      ()=>[st.filter(r=>on(r.입금일)), 'settle'],
+  };
+  const f = M[_k(label)];
+  return f ? f() : [null, ''];
+}
+
+/* 0건일 때 '무슨 뜻인지'를 대신 보여 준다 */
+const DAYNOTE = {
+  '신규접수': '그날 새로 접수된 돌발AS 건',
+  '작업완료': '그날 작업이 끝난 것으로 기록된 건',
+  '현장작업': '03_현장작업실적 시트 기준 — 앱에는 아직 연결 안 됨',
+  '유상발생': '그날 접수 중 유상(청구 대상)인 건',
+  '재방문예정금일': '그날 재방문이 예정된 건',
+  '점검완료': '그날 실제점검일이 기록된 정기점검',
+  '점검예정금일': '그날 점검 예정으로 잡힌 건',
+  '이상발견': '점검에서 이상이 발견돼 조치가 필요한 건',
+  '돌발AS전환': '점검 중 발견돼 돌발AS로 넘어간 건',
+  '유상점검': '그날 점검 중 유상(청구 대상)인 건',
+  '거래명세서발행': '그날 거래명세서를 발행한 건',
+  '세금계산서발행': '그날 세금계산서를 발행한 건',
+  'ERP등록작업완료기준': '작업완료일이 그날이고 명세서번호가 있는 건',
+  '청구진행': '그날 청구가 진행된 건',
+  '입금건수': '그날 입금이 확인된 건',
+};
+
+function dayDetail(label, val){
+  const [rows, kind] = dayRows(label);
+  const note = DAYNOTE[_k(label)] || '';
+  if(!rows) return note ? `<div class="gd note">${note}</div>` : '';
+  // 대표보고 숫자는 엑셀에서, 목록은 앱 데이터에서 온다. 두 값이 다르면 숨기지 않고 알린다.
+  const n = parseInt(String(val).replace(/[^0-9]/g,''), 10);
+  const diff = Number.isFinite(n) && n !== rows.length;
+  const warn = diff ? `<span class="dw">앱에서 찾은 건 ${rows.length}건 (보고 숫자 ${n})</span>` : '';
+  if(!rows.length) return `<div class="gd note">${note}${note?' — ':''}해당 없음${warn}</div>`;
+  const chips = rows.slice(0,3).map(r=>{
+    const no = r.프로젝트NO || r.정산ID || r.접수ID || r.점검ID || '';
+    const camp = String(r.캠프명||'').slice(0,12);
+    return `<span class="prj" onclick="event.stopPropagation();openByPrj(${esc4(no)})">${no}</span>` +
+           (camp?`<span class="dc">${camp}</span>`:'');
+  }).join('');
+  const more = rows.length>3 ? `<span class="more">외 ${rows.length-3}건</span>` : '';
+  return `<div class="gd"><div class="chips">${chips}${more}</div>${warn}</div>`;
+}
+
 function execHtml(){
   const secs = (execRep.sections||[]);
   if(!secs.length) return '';
@@ -1382,7 +1468,8 @@ function execHtml(){
       h += `<div class="egrid">` + s.groups.map(g=>`<div class="egroup">
         <div class="gh">${g.name}</div>
         <div class="gb">${g.items.map(([l,v])=>
-          `<div class="gi"><span>${l}</span><b>${v||'-'}</b></div>`).join('')}</div></div>`).join('') + `</div>`;
+          `<div class="gitem"><div class="gi"><span>${l}</span><b>${v||'-'}</b></div>${dayDetail(l,v)}</div>`
+        ).join('')}</div></div>`).join('') + `</div>`;
     }
     if((s.items||[]).length){
       h += `<div class="ecells">` + s.items.map(([l,v])=>
