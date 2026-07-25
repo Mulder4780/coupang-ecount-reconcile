@@ -29,7 +29,11 @@ def run(name, args, timeout=600):
         r = subprocess.run([PY] + args, capture_output=True, text=True, encoding="utf-8",
                            errors="replace", cwd=ROOT, timeout=timeout, env=ENV)
         out = (r.stdout or "") + (("\n[stderr] " + r.stderr[:500]) if r.returncode != 0 and r.stderr else "")
-        return {"name": name, "ok": r.returncode == 0, "out": out.strip()[-1500:]}
+        # 토큰 절약: 노이즈 제거 후 요약만 보존(상세는 각 모듈이 reports/에 파일로 남긴다)
+        keep = [ln for ln in out.splitlines()
+                if ln.strip() and not any(x in ln for x in
+                    ("UserWarning", "warn(msg)", "  [예정]", "  [건너뜀]", "i 관리대장 최신본"))]
+        return {"name": name, "ok": r.returncode == 0, "out": "\n".join(keep[-12:]).strip()}
     except subprocess.TimeoutExpired:
         return {"name": name, "ok": False, "out": f"시간초과({timeout}s)"}
 
