@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1E3A8A">
 <title>Coupang Service Operations System</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CSOS">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700;800&display=swap" rel="stylesheet">
 <style>
@@ -425,6 +431,13 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
         <button class="abtn danger" onclick="confirmRun('upload_post','⚠ 이카운트 ERP에 매출전표를 실제 등록합니다.\n(10.5초/건, 이중계상 가드 적용)')"><span class="em">🚀</span>전표 실전송</button>
       </div>
       <div class="logbox" id="logbox">대기 중 — 작업을 실행하면 로그가 여기 표시됩니다.</div></div>
+    <div class="card"><h3>파일·폴더 열기 <span class="norm">— 사무실 PC에서 접속했을 때만 동작</span></h3>
+      <div class="actions">
+        <button class="abtn" onclick="openLocal('master')"><span class="em">📂</span>관리대장(최신)</button>
+        <button class="abtn" onclick="openLocal('inbox')"><span class="em">📥</span>ERP·PO inbox</button>
+        <button class="abtn" onclick="openLocal('kakao')"><span class="em">💬</span>카톡 inbox</button>
+        <button class="abtn" onclick="openLocal('reports')"><span class="em">📊</span>리포트 폴더</button>
+      </div></div>
   </section>
 
   <!-- 대표 보고 (캡처·공유) -->
@@ -931,6 +944,14 @@ function renderPeriod(){
 
 /* ── 실행 ── */
 function confirmRun(key,msg){ if(confirm(msg+'\n\n진행할까요?')) runTask(key); }
+/* 워크벤치 대체: 로컬 파일·폴더 열기 (서버가 도는 PC에서만 허용) */
+async function openLocal(what){
+  try{
+    const r = await api('/api/open',{method:'POST',body:JSON.stringify({what})});
+    if(r.ok) toast('열었습니다 · ' + (r.opened||what));
+    else alert(r.error || '열지 못했습니다');
+  }catch(e){ alert('사무실 PC에서만 사용할 수 있는 기능입니다.'); }
+}
 async function runTask(key){
   show('run');
   const r = await api('/api/run/'+key,{method:'POST'});

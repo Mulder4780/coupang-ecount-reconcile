@@ -172,9 +172,23 @@ def clean_reports(dry):
     return f"오래된 리포트 {len(targets)}개 정리{'(dry)' if dry else ''}"
 
 
+def publish_endpoint(dry):
+    """터널 주소가 바뀌면 고정 주소(GitHub Pages)에 자동 게시 — 폰 북마크 불변"""
+    if dry:
+        return "게시(dry)"
+    try:
+        r = subprocess.run([PY, os.path.join(ROOT, "publish_endpoint.py")], cwd=ROOT,
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=120)
+        return (r.stdout or "").strip().splitlines()[-1][:60] if r.stdout.strip() else "게시 무응답"
+    except Exception as e:
+        return f"게시 오류: {str(e)[:40]}"
+
+
 def main():
     dry = "--dry" in sys.argv
-    results = [heal_server(dry), heal_tunnel(dry), archive_versions(dry), clean_reports(dry)]
+    results = [heal_server(dry), heal_tunnel(dry), publish_endpoint(dry),
+               archive_versions(dry), clean_reports(dry)]
     log(" | ".join(results))
 
 

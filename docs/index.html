@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0E1B3F">
+<title>Coupang Service Operations System</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+:root{--navy:#0E1B3F;--brand:#2452E6}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Nanum Gothic","Malgun Gothic",-apple-system,sans-serif;
+ background:radial-gradient(900px 500px at 70% -10%,#24409A,var(--navy) 55%,#0A1430);
+ min-height:100vh;display:flex;align-items:center;justify-content:center;padding:22px;color:#fff}
+.card{background:#fff;color:#101828;border-radius:22px;padding:30px 26px;max-width:380px;width:100%;
+ text-align:center;box-shadow:0 22px 60px rgba(0,0,0,.45)}
+.logo{width:64px;height:64px;margin:0 auto 14px;border-radius:18px;
+ background:linear-gradient(135deg,var(--brand),#5B8CFF);display:flex;align-items:center;justify-content:center;
+ box-shadow:0 10px 24px rgba(36,82,230,.42)}
+.logo svg{width:34px;height:34px}
+h1{font-size:16.5px;letter-spacing:-.3px;margin-bottom:4px}
+.sub{font-size:12px;color:#667085;margin-bottom:20px}
+.state{font-size:13.5px;color:#475467;min-height:44px;display:flex;align-items:center;justify-content:center;gap:8px}
+.spin{width:15px;height:15px;border:2.5px solid #E4E9F0;border-top-color:var(--brand);
+ border-radius:50%;animation:s .8s linear infinite;display:inline-block}
+@keyframes s{to{transform:rotate(360deg)}}
+a.btn{display:block;margin-top:12px;background:var(--brand);color:#fff;text-decoration:none;
+ padding:13px;border-radius:12px;font-weight:800;font-size:14.5px;box-shadow:0 6px 16px rgba(36,82,230,.32)}
+.err{background:#FDEBEC;color:#B91C1C;border-radius:11px;padding:11px;font-size:12.5px;line-height:1.6;margin-top:12px}
+.tip{font-size:11px;color:#98A2B3;margin-top:14px;line-height:1.65}
+</style></head>
+<body><div class="card">
+  <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 8h14l-1.5 12h-11z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></div>
+  <h1>Coupang Service Operations System</h1>
+  <div class="sub">CSOS · UNIVERSAL LIFT</div>
+  <div class="state" id="st"><span class="spin"></span> 접속 주소를 확인하는 중…</div>
+  <div id="act"></div>
+  <div class="tip">이 주소는 <b>바뀌지 않습니다</b>. 홈 화면에 추가해 두고 쓰세요.<br>
+    사무실 PC가 켜져 있어야 접속됩니다.</div>
+</div>
+<script>
+/* 고정 진입점: 현재 살아있는 터널 주소(endpoint.json)를 읽어 자동 이동한다.
+   터널 주소가 바뀌어도 이 페이지 주소는 그대로이므로 폰 북마크를 고칠 필요가 없다. */
+(async () => {
+  const st = document.getElementById('st'), act = document.getElementById('act');
+  try{
+    const r = await fetch('endpoint.json?t=' + Date.now(), {cache:'no-store'});
+    const d = await r.json();
+    if(!d.url) throw new Error('no url');
+    const age = d.updated ? Math.round((Date.now() - new Date(d.updated).getTime())/60000) : null;
+    st.innerHTML = '접속합니다…';
+    act.innerHTML = `<a class="btn" href="${d.url}">바로 열기</a>`;
+    setTimeout(()=>{ location.replace(d.url); }, 700);
+  }catch(e){
+    st.textContent = '';
+    act.innerHTML = `<div class="err"><b>접속 주소를 찾지 못했습니다.</b><br>
+      사무실 PC가 꺼져 있거나 아직 갱신 전일 수 있습니다.<br>
+      PC에서 <b>[CSOS 폰 접속 QR]</b>을 한 번 실행하면 주소가 갱신됩니다.</div>`;
+  }
+})();
+</script>
+</body></html>

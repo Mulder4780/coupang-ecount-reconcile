@@ -558,6 +558,20 @@ class H(BaseHTTPRequestHandler):
         if p in ("/", "/index.html"):
             html = open(os.path.join(BASE, "index.html"), encoding="utf-8").read()
             return self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
+        if p == "/icon.svg":
+            try:
+                return self._send(200, open(os.path.join(BASE, "icon.svg"), "rb").read(),
+                                  "image/svg+xml")
+            except Exception:
+                return self._send(404, {"error": "no icon"})
+        if p == "/manifest.json":                      # 홈 화면에 추가 시 앱처럼 보이게
+            return self._send(200, {
+                "name": "Coupang Service Operations System", "short_name": "CSOS",
+                "start_url": "/", "display": "standalone",
+                "background_color": "#0E1B3F", "theme_color": "#0E1B3F",
+                "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml",
+                           "purpose": "any maskable"}]},
+                "application/manifest+json")
         if p == "/api/ping":
             return self._send(200, {"app": "coupang-work", "demo": DEMO})
         if not self._auth():
@@ -600,6 +614,30 @@ class H(BaseHTTPRequestHandler):
         if m:
             ok, msg = start_task(m.group(1))
             return self._send(200 if ok else 409, {"ok": ok, "msg": msg})
+        if p == "/api/open":
+            # 워크벤치 대체: 관리대장·폴더 열기. 원격(터널)에서는 의미가 없고 위험하므로
+            # 서버가 도는 PC에서 접속했을 때만 허용한다.
+            if ip not in ("127.0.0.1", "::1", "localhost"):
+                return self._send(403, {"ok": False, "error": "이 기능은 사무실 PC에서만 됩니다"})
+            ln = int(self.headers.get("Content-Length", 0))
+            what = json.loads(self.rfile.read(ln) or b"{}").get("what", "")
+            try:
+                from ecount_reconcile import load_config, resolve_master
+                master = resolve_master(load_config()["reconcile"]["master_xlsx"])
+            except Exception:
+                master = ""
+            targets = {"master": master, "master_dir": os.path.dirname(master),
+                       "inbox": os.path.join(ROOT, "inbox"),
+                       "kakao": os.path.join(ROOT, "kakao", "inbox"),
+                       "reports": os.path.join(ROOT, "reports")}
+            path = targets.get(what)
+            if not path or not os.path.exists(path):
+                return self._send(404, {"ok": False, "error": f"경로 없음: {what}"})
+            try:
+                os.startfile(path)
+                return self._send(200, {"ok": True, "opened": os.path.basename(path) or path})
+            except Exception as e:
+                return self._send(500, {"ok": False, "error": str(e)[:200]})
         if p == "/api/set_dates":
             # 보고일·집계기준일 → 00_대시보드 B3·B4 (일일 갱신 입력칸 — 덮어쓰기 허용 화이트리스트)
             ln = int(self.headers.get("Content-Length", 0))

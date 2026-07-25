@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="CSOS">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1B3A8F"/>
+      <stop offset="55%" stop-color="#2452E6"/>
+      <stop offset="100%" stop-color="#5B8CFF"/>
+    </linearGradient>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#D9E4FF"/>
+    </linearGradient>
+    <filter id="sh" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#06102C" flood-opacity=".35"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="114" fill="url(#bg)"/>
+  <circle cx="392" cy="104" r="150" fill="#7FA5FF" opacity=".18"/>
+  <circle cx="120" cy="430" r="130" fill="#0A1430" opacity=".16"/>
+
+  <g filter="url(#sh)">
+    <!-- 마스트(기둥) -->
+    <rect x="112" y="120" width="26" height="270" rx="12" fill="#0E1B3F" opacity=".55"/>
+    <!-- 리프트 플랫폼 -->
+    <rect x="104" y="342" width="304" height="34" rx="17" fill="url(#plate)"/>
+    <!-- 시저 링크 -->
+    <path d="M150 342 L266 262 M266 342 L150 262" stroke="#DCE6FF" stroke-width="15"
+          stroke-linecap="round" opacity=".85"/>
+    <!-- 적재 화물 -->
+    <rect x="196" y="176" width="150" height="90" rx="18" fill="#fff"/>
+    <path d="M271 176 v90" stroke="#C7D6FA" stroke-width="9" stroke-linecap="round"/>
+    <!-- 상승 화살표 -->
+    <path d="M300 150 v-52 M300 90 l-26 26 M300 90 l26 26" stroke="#8FE3B4" stroke-width="19"
+          stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+
+  <!-- 검증 완료 배지 -->
+  <g transform="translate(352,352)">
+    <circle r="66" fill="#12B76A" stroke="#fff" stroke-width="13"/>
+    <path d="M-28 2 l19 21 l38 -44" stroke="#fff" stroke-width="19" fill="none"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
