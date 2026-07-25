@@ -70,6 +70,8 @@ TASKS = {
     "erp_ledger":    ("ERP원장 대조", [os.path.join(ROOT, "erp_ledger_check.py")]),
     "po":            ("쿠팡 PO 대조", [os.path.join(ROOT, "po_reconcile.py")]),
     "erp_docs":      ("ERP 매출서류 대조", [os.path.join(ROOT, "erp_docs_check.py")]),
+    "band_ingest":   ("밴드 수집분 반영(24시트+백필)",
+                      [os.path.join(ROOT, "band", "ingest.py"), "--sheet", "--backfill"]),
     "band_docs":     ("밴드 문서 이미지 대조", [os.path.join(ROOT, "band", "doc_ocr.py"), "--scan"]),
     "band_docs_apply": ("밴드 문서 → 대장 입력", [os.path.join(ROOT, "band", "doc_ocr.py"), "--scan", "--apply"]),
 }
@@ -698,6 +700,7 @@ class H(BaseHTTPRequestHandler):
                        "inbox": os.path.join(ROOT, "inbox"),
                        "kakao": os.path.join(ROOT, "kakao", "inbox"),
                        "band_docs": os.path.join(ROOT, "band", "docs_inbox"),
+                       "band_cache": os.path.join(ROOT, "band", "cache"),
                        "reports": os.path.join(ROOT, "reports")}
             path = targets.get(what)
             if not path or not os.path.exists(path):
