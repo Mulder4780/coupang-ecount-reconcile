@@ -310,7 +310,13 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 .rpt table td{padding:6.5px 9px;border:1px solid var(--line);font-variant-numeric:tabular-nums}
 .rpt .rfoot{margin-top:16px;padding-top:10px;border-top:1px solid var(--line);
   display:flex;justify-content:space-between;font-size:10px;color:var(--ink-3)}
-@media(min-width:900px){.rgrid{grid-template-columns:repeat(6,1fr)}}
+@media(min-width:900px){.rgrid{grid-template-columns:repeat(6,1fr)}
+  /* 핵심 지표는 7칸이라 6칸 격자에선 마지막 하나가 아래로 떨어진다 → 한 줄에 7칸 */
+  .rgrid.k7{grid-template-columns:repeat(7,1fr)}
+  .rgrid.k7 .rcell{padding:10px 8px}
+  .rgrid.k7 .rcell .v{font-size:16px;letter-spacing:-.5px}
+  .rgrid.k7 .rcell .l{font-size:9.5px}}
+@media(min-width:600px) and (max-width:899px){.rgrid{grid-template-columns:repeat(4,1fr)}}
 /* 보고 표 — 열 너비 고정 + 한글 단어 보존(어절 단위로만 줄바꿈) */
 .rpt table{table-layout:fixed;word-break:keep-all;overflow-wrap:anywhere}
 .rpt table td.prjs{font-size:11px;color:var(--ink-2);line-height:1.55}
@@ -1394,7 +1400,7 @@ function renderDaily(){
           (execRep.meta&&execRep.meta['집계기준일'])||'-'} · 보고자 ${(execRep.meta&&execRep.meta['보고자'])||'-'}</span></div>
     </div>
     <h4>핵심 지표 (${y}년 누적 · ~${ytdTo})</h4>
-    <div class="rgrid">
+    <div class="rgrid k7">
       ${cell(S.length+'건','정산 총계','k_all')}
       ${cell(fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)','k_amt')}
       ${cell(fmt(미수),'미수금(원)','k_due')}
@@ -1459,6 +1465,12 @@ function renderDaily(){
     exec: (execRep.sections||[]).map(s=>({title:s.title, items:s.items||[],
                                           groups:s.groups||[], lines:s.lines||[]})),
     kpiTitle: `핵심 지표 (${y}년 누적 · ~${ytdTo})`,
+    kpiNote: outYTD ? `※ 완료일이 없거나 ${y}년·오늘 이후인 ${outYTD}건은 누적에서 제외` : '',
+    erpTitle: `${y}년 ERP 매출 (세금계산서 발행 기준)`,
+    erpTotal: Object.entries(erpDocs.months||{}).filter(([k])=>k.startsWith(y))
+                .reduce((a,[,v])=>a+v.합계,0),
+    erpMonths: Object.entries(erpDocs.months||{}).filter(([k])=>k.startsWith(y)).sort()
+                .map(([k,v])=>[k.slice(5)+'월', v.합계, v.건수+'장']),
     kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)'],
           [fmt(미수),'미수금(원)', 미수?'#B54708':'#12813F'],
           [(유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율'],
@@ -1782,7 +1794,12 @@ async function reportToPng(){
     return a + 34 + gh + (s.items.length?tiles(s.items.length):0)
              + (s.lines.length? s.lines.length*20 + 6 : 0);
   }, 0);
-  let H = 108 + execH + execSecH + 34 + tiles(6) + 34 + tiles(6)
+  // ★ 타일 개수를 하드코딩(6)하면 지표가 7개일 때 마지막 타일이 캔버스 밖으로 잘린다
+  const erpM = D.erpMonths || [];
+  const erpH = erpM.length ? 34 + (erpM.length+1)*28 + 20 : 0;
+  let H = 108 + execH + execSecH
+          + 34 + tiles((D.kpi||[]).length) + (D.kpiNote ? 18 : 0)
+          + 34 + tiles((D.month||[]).length) + erpH
           + 34 + (D.issues.length+1)*30 + 34 + (D.srcs.length+1)*30 + 54;
   cv.width = W*S; cv.height = H*S;
   ctx.scale(S,S);
@@ -1861,7 +1878,33 @@ async function reportToPng(){
   });
 
   section(D.kpiTitle || '핵심 지표 (누적)');   grid(D.kpi);
+  if(D.kpiNote){ txt(D.kpiNote, 30, y+8, F(10), '#98A2B3'); y += 18; }
   section(D.monthTitle);        grid(D.month);
+  if(erpM.length){
+    section(D.erpTitle || 'ERP 매출');
+    const cw2 = [90, 200, 80, 300];
+    const hx = [30, 120, 320, 400];
+    box(30,y-2,W-60,26,'#F1F5FB',null,6);
+    txt('월', hx[0]+10, y+11, F(10.5,800), '#475467');
+    txt('공급가액(원)', hx[1]+cw2[1]-10, y+11, F(10.5,800), '#475467', 'right');
+    txt('장수', hx[2]+cw2[2]-10, y+11, F(10.5,800), '#475467', 'right');
+    txt('비중', hx[3]+10, y+11, F(10.5,800), '#475467');
+    y += 26;
+    const mx = Math.max(1, ...erpM.map(r=>r[1]));
+    erpM.forEach((r,i)=>{
+      if(i%2) box(30,y,W-60,28,'#F8FAFD',null,0);
+      txt(r[0], hx[0]+10, y+15, F(12,800), '#101828');
+      txt(fmt(r[1]), hx[1]+cw2[1]-10, y+15, F(12), '#101828', 'right');
+      txt(r[2], hx[2]+cw2[2]-10, y+15, F(12), '#475467', 'right');
+      const bw = Math.max(2, Math.round(r[1]/mx*230));
+      box(hx[3]+10, y+10, bw, 8, '#2452E6', null, 4);
+      txt(Math.round(r[1]/(D.erpTotal||1)*100)+'%', hx[3]+bw+18, y+15, F(10.5), '#98A2B3');
+      y += 28;
+    });
+    txt('※ ERP는 여러 작업을 한 장으로 묶어 발행합니다 — 장수는 계산서 매수입니다.',
+        30, y+12, F(10), '#98A2B3');
+    y += 20;
+  }
   section('조치 필요 — 유형별 (프로젝트NO)');
   table(['유형','건수','금액(원)','프로젝트NO'],
         D.issues.length?D.issues:[['조치 필요 없음','-','-','-']], [200,70,130,440-100]);
