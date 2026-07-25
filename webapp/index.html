@@ -233,6 +233,11 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   cursor:pointer;transition:all .15s}
 .topitem:hover{border-color:var(--brand);background:var(--brand-tint)}
 .topitem b{font-size:13px}
+.prj{display:inline-block;padding:3px 8px;border-radius:7px;background:var(--brand-tint);color:var(--brand-dk);
+  font-size:11px;font-weight:800;font-variant-numeric:tabular-nums;cursor:pointer;
+  border:1px solid #D6E0FA;transition:all .13s}
+.prj:hover{background:var(--brand);color:#fff;border-color:var(--brand);transform:translateY(-1px)}
+.prj:active{transform:scale(.94)}
 .bar{height:6px;border-radius:99px;background:#E8EDF4;overflow:hidden;margin-top:7px}
 .bar i{display:block;height:100%;background:var(--brand);border-radius:99px}
 
@@ -483,6 +488,7 @@ function show(v){
 /* ── 대시보드 ── */
 async function loadStatus(){
   const s = await api('/api/status');
+  srcStats = s.sources || {};
   $('demobadge').textContent = s.demo ? '· 데모(합성데이터)' : '';
   const rows = settleRows.length ? settleRows : [];
   const 유상 = rows.filter(r=>r.비용구분==='유상');
@@ -520,10 +526,14 @@ async function loadStatus(){
   issues.forEach(r=>{ (byType[r.상태]=byType[r.상태]||[]).push(r); });
   $('toplist').innerHTML = Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,list])=>{
     const amt = list.reduce((a,r)=>a+(+r.공급가액||0),0);
-    return `<div class="topitem" onclick="jumpIssue('${t}')"><span><b>${t}</b><br>
-      <span style="color:var(--muted);font-size:11.5px">${list.slice(0,3).map(r=>r.정산ID).join(', ')}${list.length>3?' 외':''}</span></span>
-      <span style="text-align:right"><b>${list.length}건</b><br><span style="font-size:11.5px;color:var(--muted)">${fmt(amt)}원</span></span></div>`;
-  }).join('') || '<div style="color:var(--muted);font-size:13px">조치 필요 건이 없습니다 🎉</div>';
+    const chips = list.slice(0,4).map(r=>
+      `<span class="prj" onclick="event.stopPropagation();openByPrj('${r.프로젝트NO||r.정산ID}')"
+        title="${r.정산ID} · ${r.캠프명||''} — 클릭해 상세">${r.프로젝트NO||r.정산ID}</span>`).join('');
+    return `<div class="topitem" onclick="jumpIssue('${t}')">
+      <span style="min-width:0"><b>${t}</b><div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">${chips}${
+        list.length>4?`<span style="font-size:11px;color:var(--ink-3);align-self:center">외 ${list.length-4}건</span>`:''}</div></span>
+      <span style="text-align:right;flex:none"><b>${list.length}건</b><br><span style="font-size:11.5px;color:var(--ink-3)">${fmt(amt)}원</span></span></div>`;
+  }).join('') || '<div style="color:var(--ink-3);font-size:13px">조치 필요 건이 없습니다 🎉</div>';
   $('agentTime').textContent = '— ' + (s.agent_last||'');
   // 히어로 배너
   const now = new Date();
@@ -534,7 +544,7 @@ async function loadStatus(){
     hs('정산 누적', (rows.length||0)+'건') +
     hs('공급가액', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))+'원') +
     hs('조치 필요', issues.length+'건') +
-    hs('밴드 검증', '87/88') +
+    (srcStats.band ? hs('밴드 검증', `${srcStats.band.ok}/${srcStats.band.total}`) : '') +
     (s.tunnel ? hs('외부접속', '연결됨') : '');
   const icon = {ok:'✅',skip:'⏭',fail:'❌'};
   $('steps').innerHTML = (s.steps||[]).map(t=>`<div class="step"><span class="ic">${icon[t.s]||'·'}</span>${t.n}</div>`).join('') || '<span style="color:var(--muted)">아직 실행 기록 없음</span>';
@@ -562,6 +572,19 @@ function setMode(m){
   fillStatOptions(); renderSettle();
 }
 function kTap(el){ el.classList.remove('tapped'); void el.offsetWidth; el.classList.add('tapped'); }
+/* 프로젝트NO(또는 ID)로 해당 건 상세 열기 — 정산·AS·점검 어디에 있든 찾아서 표시 */
+function openByPrj(key){
+  const k = String(key||'').trim();
+  let i = settleRows.findIndex(r=>r.프로젝트NO===k || r.정산ID===k);
+  if(i>=0){ show('settle'); setMode('settle'); window._lastRows = settleRows;
+            openSheet('settle', i, settleRows[i].정산ID); return; }
+  for(const [m,list] of [['as',works.as||[]],['pm',works.pm||[]]]){
+    const j = list.findIndex(r=>r.프로젝트NO===k || r.접수ID===k || r.점검ID===k);
+    if(j>=0){ show('settle'); setMode(m); window._lastRows = list;
+              openSheet(m, j, list[j].접수ID||list[j].점검ID||k); return; }
+  }
+  alert(`${k} 를 찾지 못했습니다 (다른 월 데이터이거나 아직 미등록)`);
+}
 function goList(mode, filter){
   setTimeout(()=>{
     show('settle'); setMode(mode);
@@ -678,17 +701,17 @@ function renderSettle(){
       <div class="kpi danger"><div class="v">${rows.length}</div><div class="l">확인필요 건수</div></div>
       <div class="kpi"><div class="v">${Object.keys(types).length}</div><div class="l">문제 유형 수</div></div>
       <div class="kpi"><div class="v">${(issuesData.cols||[]).length}</div><div class="l">검증 항목(열)</div></div>`;
-    const keyOf = r => r.업무ID||r.정산ID||r.접수ID||Object.values(r)[0]||'';
-    const descOf = r => r.문제내용||r.경고내용||r.검증문제코드||r.누락서류||'';
+    const keyOf = r => r.프로젝트NO||r.업무ID||r.정산ID||r.접수ID||r.ID||Object.values(r)[0]||'';
+    const descOf = r => r.문제내용||r.경고내용||r.검증문제코드||r.누락서류||r['내용·근거']||'';
     $('slist').innerHTML = rows.map((r,i)=>`
-      <div class="srow" onclick="openSheet('check',${i},'${keyOf(r)}')">
+      <div class="srow" onclick="openByPrj('${keyOf(r)}')">
         <div class="top"><span class="id">${keyOf(r)}</span>${chip(statOf(r))}</div>
         <div class="top"><span class="camp">${r.캠프명||''}</span><span class="camp">${r.담당자||r.담당기사||''}</span></div>
         <div class="meta"><span style="flex:1">${descOf(r)}</span></div>
       </div>`).join('') || '<div class="card">확인필요 항목이 없습니다 🎉</div>';
     const cols = (issuesData.cols||[]).filter(c=>rows.some(r=>r[c])).slice(0,9);
     $('sgrid').innerHTML = `<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>` +
-      rows.map((r,i)=>`<tr onclick="openSheet('check',${i},'${keyOf(r)}')" style="cursor:pointer">${
+      rows.map((r,i)=>`<tr onclick="openByPrj('${keyOf(r)}')" style="cursor:pointer">${
         cols.map(c=>`<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r[c]||'-'}</td>`).join('')}</tr>`).join('');
   } else {
     const done = rows.filter(r=>r.점검상태==='완료').length;
@@ -720,6 +743,7 @@ function openSheet(kind, idx, id){
     html = `<h2>${r.정산ID} ${chip(r.상태)}</h2><div class="sub">${r.캠프명} · ${r.업무구분} · ${r.프로젝트NO}</div>
     <div class="dl">
       <div class="sec">작업</div>
+      <dt>프로젝트NO</dt><dd>${r.프로젝트NO||'-'}</dd>
       <dt>원천업무</dt><dd>${r.원천업무ID||'-'}</dd>
       <dt>작업완료일</dt><dd>${r.완료일||'-'}</dd>
       <dt>비용구분</dt><dd>${r.비용구분||'-'}</dd>
@@ -751,7 +775,8 @@ function openSheet(kind, idx, id){
   }
   $('sheetbody').innerHTML = html;
   $('sheetbg').style.display='block';
-  requestAnimationFrame(()=>$('sheet').classList.add('open'));
+  // rAF는 화면이 가려진 탭에서 실행되지 않아 시트가 안 열릴 수 있다 → 타이머 사용
+  setTimeout(()=>$('sheet').classList.add('open'), 10);
 }
 function closeSheet(){
   $('sheet').classList.remove('open');
@@ -965,7 +990,16 @@ async function setDates(){
 }
 
 /* ── 대표 보고서: 생성 → 캡처(PNG) → 공유 ── */
+let srcStats = {};                     // /api/status 의 sources (3원천 실집계)
+function srcRow(label, s, emptyMsg){
+  if(!s || !s.total) return `<tr><td>${label}</td><td colspan="2" style="color:#98A2B3">${emptyMsg}</td></tr>`;
+  const pct = Math.round(s.ok/s.total*100);
+  const res = s.ok ? `대상 ${s.total}건 중 <b>${s.ok}건 확인(${pct}%)</b> · 미확인 ${s.miss}건`
+                   : `검출 ${s.total}건 — 확인필요`;
+  return `<tr><td>${label}</td><td>${res}</td><td>${(s.miss_prj||[]).filter(Boolean).join(', ')||'-'}</td></tr>`;
+}
 function renderDaily(){
+  const S_ = srcStats || {};
   const today = new Date();
   const y = String(today.getFullYear()), m = String(today.getMonth()+1).padStart(2,'0');
   const S = settleRows, Sm = S.filter(r=>inPeriod(r.완료일||'', y, m));
@@ -1002,19 +1036,20 @@ function renderDaily(){
       ${cell((works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m)).length+'건','정기점검')}
       ${cell(Sm.filter(r=>!['정상','무상/보험'].includes(r.상태)).length+'건','당월 조치필요')}
     </div>
-    <h4>조치 필요 — 유형별</h4>
-    <table><tr><th>유형</th><th style="text-align:right">건수</th><th style="text-align:right">금액(원)</th><th>대표 건</th></tr>
+    <h4>조치 필요 — 유형별 (프로젝트NO)</h4>
+    <table><tr><th>유형</th><th style="text-align:right">건수</th><th style="text-align:right">금액(원)</th><th>프로젝트NO</th></tr>
       ${Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>
         `<tr><td><b>${t}</b></td><td style="text-align:right">${l.length}</td>
          <td style="text-align:right">${fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0))}</td>
-         <td>${l.slice(0,3).map(r=>r.정산ID).join(', ')}${l.length>3?' 외':''}</td></tr>`).join('')
+         <td>${l.slice(0,5).map(r=>r.프로젝트NO||r.정산ID).join(', ')}${l.length>5?` 외 ${l.length-5}건`:''}</td></tr>`).join('')
       || '<tr><td colspan="4">조치 필요 없음 ✅</td></tr>'}
     </table>
     <h4>3원천 검증 (밴드·카톡·ERP)</h4>
-    <table><tr><th>원천</th><th>결과</th></tr>
-      <tr><td>밴드 게시</td><td>완료 88건 중 82건 확인(93%) · 미확인 6건(김필우 — 게시 누락 확정, 재게시 요청)</td></tr>
-      <tr><td>카톡 보고</td><td>${(issuesData.rows||[]).some(r=>String(r.문제유형||'').includes('카톡'))?'미확인 건 존재 — 확인필요 탭 참조':'대조 데이터 대기(내보내기 투입 시 자동)'}</td></tr>
-      <tr><td>ERP 원장</td><td>계정별원장 투입 시 자동 대조 (전표·계산서·금액 4유형)</td></tr>
+    <table><tr><th>원천</th><th>결과</th><th>미확인 프로젝트NO</th></tr>
+      ${srcRow('밴드 게시', S_.band, '게시글 수집 필요')}
+      ${srcRow('카톡 보고', S_.kakao, '대화 내보내기 투입 시 자동 대조')}
+      ${srcRow('ERP 원장', S_.erp, '계정별원장 투입 시 자동 대조(4유형)')}
+      ${S_.po ? srcRow('쿠팡 PO', S_.po, '') : ''}
     </table>
     <div class="rfoot"><span>자동 생성 · 쿠팡 통합업무 에이전트</span><span>${new Date().toLocaleString('ko-KR')}</span></div>`;
 }

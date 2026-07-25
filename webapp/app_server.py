@@ -394,10 +394,33 @@ def get_status():
             tunnel = open(os.path.join(ROOT, "reports", "tunnel_url.txt"), encoding="utf-8").read().strip()
         except Exception:
             pass
+        # 3원천 검증 실집계 (최신 대조 CSV) — 보고서·대시보드가 하드코딩 없이 실데이터를 쓰도록
+        srcs = {}
+        try:
+            from findings_export import latest_csv
+            for key, pat, col, okv in (("band", "밴드대조_*.csv", "밴드게시", "확인"),
+                                       ("kakao", "카톡대조_*.csv", "카톡보고", "확인")):
+                rows = latest_csv(pat)
+                if rows:
+                    ok = sum(1 for r in rows if r.get(col) == okv)
+                    miss = [r for r in rows if r.get(col) != okv]
+                    srcs[key] = {"total": len(rows), "ok": ok, "miss": len(miss),
+                                 "miss_prj": [r.get("프로젝트NO") or r.get("ID") for r in miss[:8]]}
+            erp = latest_csv("ERP원장대조_*.csv")
+            if erp:
+                srcs["erp"] = {"total": len(erp), "ok": 0, "miss": len(erp),
+                               "miss_prj": [r.get("정산ID") or r.get("전표") for r in erp[:8]]}
+            po = latest_csv("PO대조_*.csv")
+            if po:
+                srcs["po"] = {"total": len(po), "ok": 0, "miss": len(po),
+                              "miss_prj": [r.get("PO번호") or r.get("정산ID") for r in po[:8]]}
+        except Exception:
+            pass
         return {"master": os.path.basename(st.get("master", "") or "") + "  " + st.get("master_label", ""),
                 "fork": st.get("fork", []), "agent_last": rt or "기록 없음", "steps": steps,
                 "pending_updates": st["pending_updates"], "inbox": st["inbox"],
-                "kakao": st["kakao"], "band": st["band_auth"], "demo": False, "tunnel": tunnel}
+                "kakao": st["kakao"], "band": st["band_auth"], "demo": False, "tunnel": tunnel,
+                "sources": srcs}
     except Exception as e:
         return {"error": str(e)}
 
