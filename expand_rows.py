@@ -121,7 +121,8 @@ def clone_row(row_xml, src_row, dst_row, smap):
             f = shift_formula(master[0], master[1], dst_row)
         else:
             f = shift_formula(ftext or "", src_row, dst_row)
-        cells.append(f'<c r="{col}{dst_row}"{style} t="str"><f{ca}>{f}</f></c>')
+        # ★ <v/>를 빠뜨리면 t="str" 선언과 내용이 어긋나 엑셀이 복구 대화상자를 띄운다
+        cells.append(f'<c r="{col}{dst_row}"{style} t="str"><f{ca}>{f}</f><v/></c>')
     return f'<row r="{dst_row}"{attrs}>{"".join(cells)}</row>'
 
 
@@ -165,7 +166,7 @@ def put_id_formula(row_xml, sheet, row):
         return row_xml
     style = re.search(r'\ss="\d+"', m.group(1))
     style = style.group(0) if style else ""
-    return pat.sub(f'<c r="{col}{row}"{style} t="str"><f>{f}</f></c>', row_xml, count=1)
+    return pat.sub(f'<c r="{col}{row}"{style} t="str"><f>{f}</f><v/></c>', row_xml, count=1)
 
 
 def expand_sheet_xml(xml, add, sheet=""):
@@ -308,6 +309,16 @@ def self_test():
     f = ws2["A13"].value
     assert f and f.startswith("=") and "$B13" in f and "$D13" in f, f   # 행번호 이동
     assert "ROW()-4" in f, f                                     # ROW()는 그대로
+    # 수식 셀에는 캐시값이 반드시 있어야 한다(엑셀 손상 판정 방지)
+    import zipfile as _z, re as _re
+    zz = _z.ZipFile(dst)
+    for nm in zz.namelist():
+        if not _re.match(r"xl/worksheets/sheet\d+\.xml$", nm):
+            continue
+        for ctag, cin in iter_tags(zz.read(nm).decode("utf-8"), "c"):
+            if cin and "<f" in cin and _re.search(r'\st="[^"]+"', ctag):
+                assert "<v>" in cin or "<v/>" in cin, f"캐시값 없는 수식 셀: {ctag}"
+    zz.close()
     w.close(); shutil.rmtree(tmp, ignore_errors=True)
     # 범위 확장 유틸
     assert bump("A5:AG104", 104, 164) == "A5:AG164"

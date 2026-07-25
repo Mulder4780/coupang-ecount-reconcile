@@ -83,7 +83,32 @@ def main():
         steps.append({"name": "카톡 대조", "ok": None, "out": "스킵 — kakao/inbox/에 대화 내보내기 txt 없음"})
 
     # 5. 확정 업데이트 자동 반영 — 빈 칸만·근거 보유·항상 새 버전(vN+1) 생성이라 안전
+    # ERP 매출서류(계산서·명세서 현황) — 있으면 대조 + 25시트 반영
+    try:
+        sys.path.insert(0, ROOT)
+        from inbox_scan import pick as _pick
+        _has_tax = bool(_pick("tax"))
+    except Exception:
+        _has_tax = False
+    if _has_tax:
+        steps.append(run("ERP 매출서류 대조(25시트)", [os.path.join(ROOT, "erp_docs_check.py"), "--sheet"]))
+    else:
+        steps.append({"name": "ERP 매출서류 대조", "ok": None,
+                      "out": "스킵 — inbox/에 매출(세금)계산서현황 없음"})
+
+    # 밴드 문서 사진(거래명세서·세금계산서) OCR → 확실한 건은 빈칸 입력 큐에 적재
+    _docs = os.path.join(ROOT, "band", "docs_inbox")
+    if os.path.isdir(_docs) and any(f.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp"))
+                                    for f in os.listdir(_docs)):
+        steps.append(run("밴드 문서 이미지 대조·입력", [os.path.join(ROOT, "band", "doc_ocr.py"),
+                                                       "--scan", "--apply"]))
+    else:
+        steps.append({"name": "밴드 문서 이미지 대조", "ok": None,
+                      "out": "스킵 — band/docs_inbox/에 사진 없음"})
+
     steps.append(run("관리대장 자동입력(확정분)", [os.path.join(ROOT, "ledger_writer.py"), "--apply"]))
+    # 입력 직후 무결성 확인 — 엑셀이 '복구' 대화상자를 띄우는 파일을 만들지 않기 위해
+    steps.append(run("워크북 무결성 검사·복구", [os.path.join(ROOT, "fix_workbook.py"), "--apply"]))
 
     # 5.5 밴드 업무 추출 → 24_밴드업무추출 시트 (월별 백필 원천, 캐시 있을 때만)
     if band_cache:

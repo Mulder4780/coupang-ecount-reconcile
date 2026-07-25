@@ -455,6 +455,36 @@ def t18_erp_docs():
     print("  [18] ERP 매출서류 유형분류·inbox 내용판별 ✅")
 
 
+def t19_workbook_integrity(tmp):
+    """엑셀 손상 판정 방지 — 수식 셀의 t 선언과 캐시값(<v>) 정합성.
+    실사고: expand_rows가 만든 셀 1,573개가 t="str"인데 <v>가 없어
+    엑셀이 열 때마다 '내용에 문제가 있습니다' 복구 대화상자를 띄웠다."""
+    import sys as _s, zipfile as _z
+    _s.path.insert(0, ROOT)
+    from fix_workbook import add_missing_v, scan_sheet, iter_tags
+    broken = ('<sheetData><row r="5">'
+              '<c r="A5" s="1" t="str"><f>IF(1,2,3)</f></c>'          # ← 캐시값 없음(문제)
+              '<c r="B5" s="1" t="str"><f>NOW()</f><v/></c>'          # 정상
+              '<c r="C5" s="1"><f>SUM(A1:A2)</f></c>'                 # t 없음 → 대상 아님
+              '</row></sheetData>')
+    fixed, n = add_missing_v(broken)
+    assert n == 1, n
+    assert '<c r="A5" s="1" t="str"><f>IF(1,2,3)</f><v/></c>' in fixed, fixed
+    assert fixed.count("<v/>") == 2, fixed          # 기존 정상 셀을 건드리지 않음
+    _, again = add_missing_v(fixed)
+    assert again == 0, "재실행 시 또 고치면 안 됨(멱등)"
+
+    _, fixable = scan_sheet(broken, "t", 10)
+    assert fixable == 1, fixable
+    bad, _ = scan_sheet('<sheetData><row r="5"><c r="B5"/><c r="A5"/></row></sheetData>', "t", 10)
+    assert any("열 순서" in b for b in bad), bad          # 열 역순 검출
+    bad2, _ = scan_sheet('<sheetData><row r="7"><c r="A5"/></row></sheetData>', "t", 10)
+    assert any("행 7 안에" in b for b in bad2), bad2      # 셀 참조/행 불일치 검출
+    bad3, _ = scan_sheet('<sheetData><row r="5"><c r="A5" s="99"/></row></sheetData>', "t", 10)
+    assert any("스타일" in b for b in bad3), bad3         # 스타일 인덱스 초과 검출
+    print("  [19] 워크북 무결성(수식 캐시값·행열 순서·스타일 범위) ✅")
+
+
 def t16_status():
     """상태 수식 캐시 보정 — 새로 넣은 행은 상태열(수식)이 None이라 완료된 점검이
     전부 '미점검'으로 보였다. 원본 열로 직접 판정하는 로직 검증."""
@@ -568,5 +598,6 @@ if __name__ == "__main__":
     t16_status()
     t17_expand()
     t18_erp_docs()
+    t19_workbook_integrity(None)
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")
