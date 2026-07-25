@@ -603,6 +603,11 @@ def t6_webapp():
         # 통계 탭 월별표는 폰에서도 보여야 한다(카드 대체본이 없어 숨기면 화면이 빈다)
         assert "table.grid.ptbl{display:table!important" in html.replace(" ", ""), "폰에서 월별표가 숨겨짐"
         assert "erpHtml(" in html and "api/erpdocs" in html, "ERP 매출 반영 누락"
+        # 처리 안내: 확인 필요 건마다 '어디서 확인·어떻게 반영'이 붙어야 한다
+        assert "이 건은 어떻게 처리하나요?" in html, "처리 안내 카드 누락"
+        for k in ("금액 미입력", "세금계산서 미발행", "PO 미발행", "ERP 계산서(묶음)"):
+            assert f"'{k}'" in html or f'"{k}"' in html, f"{k} 안내 누락"
+        assert "band/docs_inbox" in html and "처리 방법 · 용어 설명" in html, "도움말 항목 누락"
         print("  [6] 웹앱 API(PIN 인증·상태·정산·페이지 서빙) ✅")
     finally:
         p.terminate()
