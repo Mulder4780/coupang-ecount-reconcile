@@ -525,7 +525,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
     <div class="rpt-actions">
       <button class="primary" onclick="captureReport()">📸 이미지 저장</button>
       <button onclick="shareReport()">📤 공유(카톡)</button>
-      <button onclick="renderDaily()">🔄 새로고침</button>
+      <button onclick="reloadHere(this)">🔄 새로고침</button>
     </div>
     <div class="rpt" id="rpt">보고서 생성 중...</div>
   </section>
@@ -569,7 +569,8 @@ async function api(path, opt={}){
 async function login(){
   const pin = $('pin').value.trim();
   const r = await fetch('/api/login',{method:'POST',body:JSON.stringify({pin})});
-  if(r.ok){ PIN=pin; localStorage.setItem('cw_pin',pin); $('gate').style.display='none'; refreshAll(); }
+  if(r.ok){ PIN=pin; localStorage.setItem('cw_pin',pin); $('gate').style.display='none';
+            show(curView()); refreshAll(); }
   else if(r.status===429) $('pinerr').textContent = '시도 초과로 잠금 — 10분 후 다시 시도하세요';
   else $('pinerr').textContent = 'PIN이 올바르지 않습니다';
 }
@@ -580,6 +581,22 @@ function show(v){
   $('v-'+v).classList.add('active');
   document.querySelectorAll('.tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
   if(v==='report' && !reports.length) loadReports();
+  try{ localStorage.setItem('cw_view', v); }catch(e){}   // 새로고침 후 같은 화면으로 복귀
+  window.__view = v;
+}
+function curView(){ return window.__view || localStorage.getItem('cw_view') || 'dash'; }
+/* 새로고침: 데이터를 다시 읽고 **보고 있던 화면 그대로** 다시 그린다 */
+async function reloadHere(btn){
+  const v = curView();
+  if(btn){ btn.disabled = true; btn.dataset.t = btn.textContent; btn.textContent = '🔄 새로고침 중…'; }
+  try{ await refreshAll(); }catch(e){}
+  try{ renderDaily(); }catch(e){}
+  try{ renderBoard(); }catch(e){}
+  try{ if(typeof renderPeriod==='function' && $('pyear').value) renderPeriod(); }catch(e){}
+  renderSettle();
+  show(v);
+  if(btn){ btn.disabled = false; btn.textContent = btn.dataset.t || '🔄 새로고침'; }
+  toast('최신 자료로 새로고침했습니다');
 }
 
 /* ── 대시보드 ── */
@@ -664,6 +681,7 @@ async function loadSettle(){
   try{ issuesData = await api('/api/issues'); }catch(e){}
   try{ checks = await api('/api/checks'); }catch(e){}
   try{ execRep = await api('/api/exec_report'); }catch(e){}
+  try{ erpDocs = await api('/api/erpdocs'); }catch(e){ erpDocs = {rows:[],months:{},kinds:{},total:0}; }
   syncSortUI(); fillStatOptions(); renderSettle(); periodInit();
   try{ renderBoard(); }catch(e){ console.warn('board', e); }
 }
@@ -1195,6 +1213,7 @@ async function setDates(){
 }
 
 /* ── 대표 보고서: 생성 → 캡처(PNG) → 공유 ── */
+let erpDocs = {rows:[],months:{},kinds:{},total:0};   // 25_ERP매출서류 (이카운트 계산서 원본)
 let srcStats = {};                     // /api/status 의 sources (4원천 실집계)
 let _rptData = null;                   // 보고서 데이터(HTML·Canvas 공용)
 let execRep = {};                      // 01_대표보고 시트 원본(엑셀 수식 집계 결과)
@@ -1236,6 +1255,31 @@ function execHtml(){
   });
   return h;
 }
+/* 2026년 ERP 실제 매출(세금계산서 발행 기준) — 관리대장 25_ERP매출서류
+   ERP는 여러 작업을 한 장으로 묶어 발행하므로 '건수'는 계산서 장수다(작업 건수가 아님). */
+function erpHtml(y){
+  const M = erpDocs.months || {}, K = erpDocs.kinds || {};
+  const mos = Object.keys(M).filter(k=>k.startsWith(y)).sort();
+  if(!mos.length) return '';
+  const tot = mos.reduce((a,k)=>a+M[k].합계, 0);
+  const cnt = mos.reduce((a,k)=>a+M[k].건수, 0);
+  const kinds = Object.entries(K).sort((a,b)=>b[1]-a[1]);
+  const max = Math.max(1, ...mos.map(k=>M[k].합계));
+  return `<h4>${y}년 ERP 매출 (세금계산서 발행 기준 · 계산서 ${cnt}장 / ${fmt(tot)}원)</h4>
+    <table class="stack">
+      <colgroup><col style="width:14%"><col style="width:22%"><col style="width:10%"><col style="width:54%"></colgroup>
+      <tr><th>월</th><th style="text-align:right">공급가액(원)</th><th style="text-align:right">장수</th><th>비중</th></tr>
+      ${mos.map(k=>`<tr><td class="hd">${k.slice(5)}월</td>
+        <td data-l="공급가액" style="text-align:right">${fmt(M[k].합계)}</td>
+        <td data-l="장수" style="text-align:right">${M[k].건수}</td>
+        <td data-l="비중"><span style="display:inline-block;height:8px;border-radius:4px;background:var(--brand);
+          width:${Math.round(M[k].합계/max*58)}%;min-width:3px;vertical-align:middle"></span>
+          <span style="font-size:10.5px;color:var(--ink-3);margin-left:6px">${Math.round(M[k].합계/tot*100)}%</span></td></tr>`).join('')}
+    </table>
+    <div style="font-size:11px;color:var(--ink-3);margin-top:6px">
+      유형별: ${kinds.map(([k,v])=>`${k} ${fmt(v)}`).join(' · ')}<br>
+      ※ ERP는 여러 작업을 한 장으로 묶어 발행합니다 — 장수는 계산서 매수이지 작업 건수가 아닙니다.</div>`;
+}
 function srcRow(label, s, emptyMsg){
   if(!s || !s.total) return `<tr><td class="hd">${label}</td><td data-l="결과" colspan="2" style="color:#98A2B3">${emptyMsg}</td></tr>`;
   const pct = Math.round(s.ok/s.total*100);
@@ -1250,7 +1294,12 @@ function renderDaily(){
   const S_ = srcStats || {};
   const today = new Date();
   const y = String(today.getFullYear()), m = String(today.getMonth()+1).padStart(2,'0');
-  const S = settleRows, Sm = S.filter(r=>inPeriod(r.완료일||'', y, m));
+  // 누적은 **올해 1/1 ~ 오늘**까지만 (작년 자료나 미래 날짜가 섞이지 않게)
+  const ytdFrom = y + '-01-01', ytdTo = todayISO();
+  const inYTD = r => { const d = dateOf(r,'settle'); return d && d >= ytdFrom && d <= ytdTo; };
+  const S = settleRows.filter(inYTD);
+  const outYTD = settleRows.length - S.length;
+  const Sm = S.filter(r=>inPeriod(r.완료일||'', y, m));
   const 유상 = S.filter(r=>r.비용구분==='유상');
   const 발행 = 유상.filter(r=>r.계산서==='발행').length;
   const 미수 = S.reduce((a,r)=>a+(+r.미수금||0),0);
@@ -1268,7 +1317,7 @@ function renderDaily(){
         <span style="font-size:10.5px;font-weight:600;color:var(--ink-3)">집계기준일 ${
           (execRep.meta&&execRep.meta['집계기준일'])||'-'} · 보고자 ${(execRep.meta&&execRep.meta['보고자'])||'-'}</span></div>
     </div>
-    <h4>핵심 지표 (누적)</h4>
+    <h4>핵심 지표 (${y}년 누적 · ~${ytdTo})</h4>
     <div class="rgrid">
       ${cell(S.length+'건','정산 총계')}
       ${cell(fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)')}
@@ -1278,6 +1327,8 @@ function renderDaily(){
       ${cell(asOpen.length+'건','돌발AS 진행중')}
       ${cell(pmWait.length+'건','정기점검 대기')}
     </div>
+    ${outYTD?`<div style="font-size:11px;color:var(--ink-3);margin-top:6px">
+      ※ 완료일이 없거나 ${y}년·오늘 이후인 ${outYTD}건은 누적에서 제외</div>`:''}
     <h4>${+m}월 실적</h4>
     <div class="rgrid">
       ${cell(Sm.length+'건','정산')}
@@ -1287,6 +1338,7 @@ function renderDaily(){
       ${cell((works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m)).length+'건','정기점검')}
       ${cell(Sm.filter(r=>!['정상','무상/보험'].includes(r.상태)).length+'건','당월 조치필요')}
     </div>
+    ${erpHtml(y)}
     ${execHtml()}
     <h4>조치 필요 — 유형별 (돌발AS / 정기점검 구분)</h4>
     <table class="stack">
@@ -1330,6 +1382,7 @@ function renderDaily(){
     summary: execRep.summary || [],
     exec: (execRep.sections||[]).map(s=>({title:s.title, items:s.items||[],
                                           groups:s.groups||[], lines:s.lines||[]})),
+    kpiTitle: `핵심 지표 (${y}년 누적 · ~${ytdTo})`,
     kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)'],
           [fmt(미수),'미수금(원)', 미수?'#B54708':'#12813F'],
           [(유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율'],
@@ -1355,6 +1408,11 @@ function renderDaily(){
    현장 기사에게 물어봐야 할 것과, 내가(관리) 처리해야 할 것을 갈라서 보여준다.
    담당자 항목은 눌러 내역을 보고, 그대로 이미지로 만들어 전달할 수 있다. */
 const _today = () => new Date().toISOString().slice(0,10);
+/* 로컬 기준 오늘(YYYY-MM-DD). toISOString은 UTC라 한국 시간대에서 하루 밀릴 수 있다 */
+function todayISO(){
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+}
 /* 끝난 건 = 더 물어볼 것 없음. '취소'도 종결로 본다(기사에게 확인 요청할 대상이 아니다) */
 const _fin = s => ['작업완료','완료','정상','취소','종결','철회','AS전환'].includes(String(s||'').trim());
 /* 담당기사 칸에 '김준형, 김필우'처럼 여러 명이 들어있으면 각자에게 나눠 붙인다 */
@@ -1660,7 +1718,7 @@ async function reportToPng(){
     if(s.lines.length) lines(s.lines);
   });
 
-  section('핵심 지표 (누적)');   grid(D.kpi);
+  section(D.kpiTitle || '핵심 지표 (누적)');   grid(D.kpi);
   section(D.monthTitle);        grid(D.month);
   section('조치 필요 — 유형별 (프로젝트NO)');
   table(['유형','건수','금액(원)','프로젝트NO'],
@@ -1852,6 +1910,7 @@ function tick(){ $('clock').textContent = new Date().toLocaleTimeString('ko-KR',
 async function refreshAll(){ try{ await loadSettle(); await loadStatus(); }catch(e){} }
 (async function(){
   tick(); setInterval(tick, 30000); initDates();
+  show(curView());                       // 새로고침 전에 보던 화면으로 복귀
   if(PIN){ $('gate').style.display='none'; refreshAll(); }
   setInterval(()=>{ if(PIN && !runnerBusy()) loadStatus().catch(()=>{}); }, 30000);
 })();

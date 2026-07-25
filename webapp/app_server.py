@@ -476,6 +476,42 @@ def get_issues():
     return out
 
 
+def get_erpdocs():
+    """25_ERP매출서류 — 이카운트 매출(세금)계산서 원본(2026년 전체).
+    ERP는 여러 작업을 한 장으로 묶어 발행하므로 1행 = 작업 1건이 아니다."""
+    if DEMO:
+        return {"rows": [], "months": {}, "total": 0}
+    r = _fresh("erpdocs")
+    if r:
+        return r
+    import openpyxl
+    from ecount_reconcile import load_config, resolve_master
+    master = resolve_master(load_config()["reconcile"]["master_xlsx"])
+    out = {"rows": [], "months": {}, "total": 0, "kinds": {}}
+    try:
+        wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+        if "25_ERP매출서류" in wb.sheetnames:
+            for row in wb["25_ERP매출서류"].iter_rows(min_row=5, values_only=True):
+                if not row or not row[0]:
+                    continue
+                slip, mo, kind, sup = row[0], row[1], row[2], int(row[3] or 0)
+                out["rows"].append({"전표": str(slip), "월": str(mo), "유형": str(kind or ""),
+                                    "공급가액": sup, "거래처": str(row[6] or ""),
+                                    "프로젝트명": str(row[7] or "")})
+                m = out["months"].setdefault(str(mo), {"합계": 0, "건수": 0})
+                m["합계"] += sup
+                m["건수"] += 1
+                m[str(kind)] = m.get(str(kind), 0) + sup
+                out["kinds"][str(kind)] = out["kinds"].get(str(kind), 0) + sup
+                out["total"] += sup
+        wb.close()
+    except Exception as e:
+        out["error"] = str(e)
+    out["rows"] = sort_by_date(out["rows"], "erpdocs")
+    _cache["erpdocs"] = out
+    return out
+
+
 def get_checks():
     """최근 카톡·밴드·ERP원장·쿠팡PO 대조 CSV를 ID별로 조인 — 4원천 검증 배지"""
     import csv as _csv
@@ -664,6 +700,8 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, get_issues())
         if p == "/api/exec_report":
             return self._send(200, get_exec_report())
+        if p == "/api/erpdocs":
+            return self._send(200, get_erpdocs())
         if p == "/api/checks":
             return self._send(200, get_checks())
         if p == "/api/reports":

@@ -179,6 +179,27 @@ def main():
     md_p = os.path.join(REPORT_DIR, f"ERP서류대조_{stamp}.md")
     open(md_p, "w", encoding="utf-8").write("\n".join(L) + "\n")
 
+    # 관리대장에 원본을 남긴다 — 앱·보고가 2026년 전체 매출을 실제 자료로 보게
+    if "--sheet" in args:
+        from findings_sheet import upsert, build_generic_sheet
+        from ecount_reconcile import load_config as _lc, resolve_master
+        HDR = ["일자-No.", "월", "유형", "공급가액", "부가세", "합계", "거래처", "프로젝트명"]
+        W = [14, 9, 10, 14, 12, 14, 26, 60]
+        smap = {d["slip"]: d for d in stmtd}
+        rows = []
+        for d in sorted(taxd, key=lambda x: x["slip"]):
+            vat = round(d["amt"] * 0.1)
+            rows.append([d["slip"], d["slip"][:7], work_kind(d["title"]), d["amt"], vat,
+                         d["amt"] + vat, d["cust"], d["title"]])
+        xml = build_generic_sheet(
+            "25_ERP매출서류", HDR, W, rows,
+            "이카운트 [매출(세금)계산서현황] 원본. ERP는 여러 작업을 한 장으로 묶어 발행하므로 "
+            "이 시트의 1행 = 작업 1건이 아니다(건별 배분은 품목 단위 판매현황 필요). "
+            "erp_docs_check.py 가 자동 갱신 — 수기 입력 금지.")
+        master = resolve_master(_lc()["reconcile"]["master_xlsx"])
+        dst, msg = upsert(master, xml, sheet_name="25_ERP매출서류", headers=HDR)
+        print(f"25_ERP매출서류 시트: {msg}")
+
     print(f"ERP 계산서 {len(taxd)}건 · 명세서 {len(stmtd)}건 (쿠팡) | "
           f"대장 미등록 {len(gaps)}개월 {sum(a for _, a in gaps):,}원")
     for mo in sorted(amt):
