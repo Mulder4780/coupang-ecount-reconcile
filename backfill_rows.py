@@ -77,7 +77,8 @@ def enrich(r):
 
 
 def sheet_state(master, sheet):
-    """(첫 빈 행, 열이름→열번호)"""
+    """(첫 빈 행, 열이름→열번호, 실제 용량행)
+    용량은 하드코딩하지 않는다 — expand_rows.py로 행을 늘리면 바로 반영되어야 한다."""
     import openpyxl
     wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
     ws = wb[sheet]
@@ -88,8 +89,9 @@ def sheet_state(master, sheet):
     for i, row in enumerate(ws.iter_rows(min_row=5, min_col=j, max_col=j, values_only=True)):
         if row[0] not in (None, ""):
             last = 5 + i
+    cap = ws.max_row                      # 수식이 깔린 마지막 행 = 입력 가능한 마지막 행
     wb.close()
-    return last + 1, cols
+    return last + 1, cols, cap
 
 
 def col_letter(n):
@@ -126,11 +128,11 @@ def main():
         rows = groups.get(kind, [])
         if not rows:
             continue
-        start, cols = sheet_state(master, spec["sheet"])
-        need, room = len(rows), spec["cap"] - start + 1
+        start, cols, cap = sheet_state(master, spec["sheet"])
+        need, room = len(rows), cap - start + 1
         if need > room:
-            skipped.append(f"{spec['sheet']}: {need}건 필요 / 여유 {room}행 — 용량 초과로 전량 보류"
-                           f"(엑셀에서 마지막 행 복사→아래 붙여넣기로 확장 후 재실행)")
+            skipped.append(f"{spec['sheet']}: {need}건 필요 / 여유 {room}행 — 용량 초과로 전량 보류 "
+                           f"(python expand_rows.py --sheet {spec['sheet']} --add {need-room+10} --apply 로 확장 후 재실행)")
             continue
         for i, r in enumerate(rows):
             rn = start + i

@@ -246,11 +246,34 @@ def real_works():
             for c in cols:
                 v = row[idx[c]] if c in idx and idx[c] < len(row) else None
                 rec[c] = str(v)[:10] if hasattr(v, "year") else ("" if v is None else str(v))
+            derive_status(rec, key)
             out[key].append(rec)
     wb.close()
     out["as"] = sort_by_date(out["as"], "as", "접수ID")
     out["pm"] = sort_by_date(out["pm"], "pm", "점검ID")
     return out
+
+
+def derive_status(rec, kind):
+    """상태 열은 **수식**이라 새로 넣은 행은 엑셀을 한 번 열기 전까지 캐시값이 없다(None).
+    그대로 두면 완료된 점검 90여 건이 전부 '미점검'으로 보인다 → 원본 열로 직접 판정한다.
+    (판정 규칙은 시트 수식과 동일: 완료일 있으면 완료, 예정일이 지났으면 미점검)"""
+    today = date.today().isoformat()
+    if kind == "pm":
+        if str(rec.get("점검상태") or "").strip():
+            return
+        if str(rec.get("실제점검일") or "").strip():
+            rec["점검상태"] = "완료"
+        elif str(rec.get("돌발AS전환여부") or "").strip():
+            rec["점검상태"] = "AS전환"
+        elif not str(rec.get("점검예정일") or "").strip():
+            rec["점검상태"] = ""
+        else:
+            rec["점검상태"] = "미점검" if str(rec["점검예정일"])[:10] < today else "예정"
+    else:
+        if str(rec.get("진행상태") or "").strip():
+            return
+        rec["진행상태"] = "작업완료" if str(rec.get("작업완료일") or "").strip() else "접수"
 
 
 def demo_works():

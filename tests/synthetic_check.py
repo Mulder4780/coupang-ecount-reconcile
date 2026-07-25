@@ -423,6 +423,41 @@ U]2601138 인&2Sub
     print("  [15] 밴드 문서 OCR 파서(오인식 보정·금액정합·자동입력 게이트) ✅")
 
 
+def t17_expand():
+    """행 확장 — 수식 이동·범위 확장·기존행 보존(합성 워크북)"""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    from expand_rows import self_test
+    self_test()
+    print("  [17] 시트 행 확장(수식 재배치·표/검증 범위·기존행 보존) ✅")
+
+
+def t16_status():
+    """상태 수식 캐시 보정 — 새로 넣은 행은 상태열(수식)이 None이라 완료된 점검이
+    전부 '미점검'으로 보였다. 원본 열로 직접 판정하는 로직 검증."""
+    import sys as _s
+    _s.path.insert(0, os.path.join(ROOT, "webapp"))
+    from app_server import derive_status
+    from datetime import date as _d, timedelta as _td
+    past = (_d.today() - _td(days=10)).isoformat()
+    future = (_d.today() + _td(days=10)).isoformat()
+    r = {"점검상태": "", "실제점검일": "2026-05-27", "점검예정일": past}
+    derive_status(r, "pm"); assert r["점검상태"] == "완료", r          # 완료일 있으면 완료
+    r = {"점검상태": "", "실제점검일": "", "돌발AS전환여부": "Y", "점검예정일": past}
+    derive_status(r, "pm"); assert r["점검상태"] == "AS전환", r
+    r = {"점검상태": "", "실제점검일": "", "점검예정일": past}
+    derive_status(r, "pm"); assert r["점검상태"] == "미점검", r        # 예정일 경과
+    r = {"점검상태": "", "실제점검일": "", "점검예정일": future}
+    derive_status(r, "pm"); assert r["점검상태"] == "예정", r          # 아직 안 지남
+    r = {"점검상태": "완료", "실제점검일": ""}
+    derive_status(r, "pm"); assert r["점검상태"] == "완료", r          # 기존 값은 안 건드림
+    r = {"진행상태": "", "작업완료일": "2026-06-02"}
+    derive_status(r, "as"); assert r["진행상태"] == "작업완료", r
+    r = {"진행상태": "", "작업완료일": ""}
+    derive_status(r, "as"); assert r["진행상태"] == "접수", r
+    print("  [16] 상태 수식 캐시 보정(완료·AS전환·미점검·예정·기존값 보존) ✅")
+
+
 def t6_webapp():
     import time, json, urllib.request
     port = 18899
@@ -497,5 +532,7 @@ if __name__ == "__main__":
     t11_backfill()
     t14_datesort()
     t15_doc_ocr()
+    t16_status()
+    t17_expand()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

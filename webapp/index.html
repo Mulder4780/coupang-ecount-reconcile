@@ -427,6 +427,10 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
       <div class="distbar" id="distbar"></div>
       <div class="legend" id="distlegend"></div></div>
     <div class="card"><h3>조치 필요 — 유형별</h3><div class="toplist" id="toplist">로딩...</div></div>
+    <div class="card"><h3>담당자별 확인 필요 <span class="norm">— 누르면 내역·전달용 이미지</span></h3>
+      <div class="toplist" id="assignlist">로딩...</div></div>
+    <div class="card"><h3>내가 확인할 사항 <span class="norm">— 유현민 (관리·청구·원천데이터)</span></h3>
+      <div class="toplist" id="mylist">로딩...</div></div>
     <div class="card"><h3>빠른 실행</h3>
       <div class="actions">
         <button class="abtn primary" onclick="runTask('daily')"><span class="em">▶</span>전체 대조</button>
@@ -639,6 +643,7 @@ async function loadSettle(){
   try{ checks = await api('/api/checks'); }catch(e){}
   try{ execRep = await api('/api/exec_report'); }catch(e){}
   syncSortUI(); fillStatOptions(); renderSettle(); periodInit();
+  try{ renderBoard(); }catch(e){ console.warn('board', e); }
 }
 function setMode(m){
   mode = m;
@@ -1277,6 +1282,209 @@ function renderDaily(){
        l.slice(0,5).map(r=>r.프로젝트NO||r.정산ID).join(', ')+(l.length>5?` 외 ${l.length-5}건`:'')];}),
     srcs: srcRows
   };
+}
+
+
+/* ══ 담당자별 확인 필요 / 내가 확인할 사항 ══════════════════════════
+   현장 기사에게 물어봐야 할 것과, 내가(관리) 처리해야 할 것을 갈라서 보여준다.
+   담당자 항목은 눌러 내역을 보고, 그대로 이미지로 만들어 전달할 수 있다. */
+const _today = () => new Date().toISOString().slice(0,10);
+/* 끝난 건 = 더 물어볼 것 없음. '취소'도 종결로 본다(기사에게 확인 요청할 대상이 아니다) */
+const _fin = s => ['작업완료','완료','정상','취소','종결','철회','AS전환'].includes(String(s||'').trim());
+/* 담당기사 칸에 '김준형, 김필우'처럼 여러 명이 들어있으면 각자에게 나눠 붙인다 */
+function owners(v){
+  const l = String(v||'').split(/[,·/]|\s{2,}/).map(x=>x.trim()).filter(Boolean);
+  return l.length ? l : ['담당 미지정'];
+}
+
+function buildBoard(){
+  const by = {}, add = (whos,it) => owners(whos).forEach(w=>{ (by[w] = by[w]||[]).push(it); });
+  (works.as||[]).forEach(r=>{
+    const id = r.접수ID || r.프로젝트NO, base = {id, prj:r.프로젝트NO, camp:r.캠프명, kind:'돌발AS'};
+    if(!_fin(r.진행상태))
+      add(r.담당기사, Object.assign({}, base, {issue:r.진행상태||'접수', date:r.접수일자||'', desc:(r.신청내용||'').slice(0,60)}));
+    else if(String(r.진행상태||'').trim()==='작업완료' && !r.작업완료일)
+      add(r.담당기사, Object.assign({}, base, {issue:'완료일 누락', date:r.접수일자||'', desc:'작업완료인데 완료일이 비어 있음'}));
+    const c = checks[id];
+    if(c && c.band === '미확인')
+      add(r.담당기사, Object.assign({}, base, {issue:'밴드 게시 누락', date:r.작업완료일||r.접수일자||'', desc:'밴드에 작업 게시가 없음'}));
+  });
+  (works.pm||[]).forEach(r=>{
+    const id = r.점검ID || r.프로젝트NO, base = {id, prj:r.프로젝트NO, camp:r.캠프명, kind:'정기점검'};
+    if(!_fin(r.점검상태)){
+      // 아직 예정일이 안 지난 점검은 '확인할 것'이 아니다 — 지났거나 미점검인 것만 올린다
+      const late = r.점검예정일 && String(r.점검예정일) < _today();
+      const miss = String(r.점검상태||'').trim() === '미점검';
+      if(!late && !miss) return;
+      add(r.담당기사, Object.assign({}, base, {issue: late?'점검 지연':'미점검', date:r.점검예정일||'',
+                desc: late?('예정일 '+r.점검예정일+' 경과'):''}));
+    } else if(String(r.점검상태||'').trim()==='완료' && !r.실제점검일)
+      add(r.담당기사, Object.assign({}, base, {issue:'점검일 누락', date:r.점검예정일||'', desc:'완료인데 실제점검일이 비어 있음'}));
+  });
+  Object.values(by).forEach(l=>l.sort((a,b)=>String(a.date||'9999').localeCompare(String(b.date||'9999'))));
+  return by;
+}
+
+function buildMine(){
+  const out = [];
+  const push = (cat,todo,lv,items,go)=>{ if(items.length) out.push({cat:cat,todo:todo,lv:lv,items:items,go:go,
+    n:items.length, amt:items.reduce((a,r)=>a+(+r.공급가액||0),0)}); };
+  [['세금계산서 미발행','발행 처리 필요','danger'],
+   ['미청구(전표 없음)','거래명세서 발행 필요','danger'],
+   ['금액 미입력','금액 확인 후 입력','warn'],
+   ['입금 대기','입금 확인 필요','warn']].forEach(function(x){
+     push(x[0], x[1], x[2], settleRows.filter(r=>r.상태===x[0]), ()=>goList('settle',x[0])); });
+  push('PO 미발행','쿠팡에 PO 요청','warn',
+       settleRows.filter(r=>String(r.PO필요||'').includes('필요') && !r.PO번호), ()=>goList('settle',''));
+  push('담당자 미지정','기사 배정 필요','warn',
+       (works.as||[]).concat(works.pm||[]).filter(r=>!(r.담당기사||'').trim()), ()=>goList('as',''));
+  /* 원천 데이터가 안 들어와 대조를 못 하는 것도 '내가 할 일'이다 */
+  const src = srcStats || {};
+  [['band','밴드 게시','밴드 수집 실행 필요'],
+   ['kakao','카톡 보고','카톡 대화 내보내기를 kakao/inbox 에'],
+   ['erp','ERP 원장','거래처별계정별원장 엑셀을 inbox 에'],
+   ['po','쿠팡 PO','PO 목록을 inbox 에']].forEach(function(x){
+     if(!src[x[0]] || !src[x[0]].total)
+       out.push({cat:x[1]+' 원천 없음', todo:x[2], lv:'info', n:0, amt:0, items:[], go:()=>show('run')}); });
+  return out;
+}
+
+function renderBoard(){
+  const by = buildBoard(); window._board = by;
+  const names = Object.keys(by).sort((a,b)=>by[b].length-by[a].length);
+  $('assignlist').innerHTML = names.map(function(n){
+    const l = by[n], t = {};
+    l.forEach(i=>t[i.issue]=(t[i.issue]||0)+1);
+    const chips = Object.entries(t).sort((a,b)=>b[1]-a[1]).slice(0,3)
+      .map(e=>'<span class="chip c-warn" style="font-size:10.5px">'+e[0]+' '+e[1]+'</span>').join('');
+    return '<div class="topitem" onclick="openAssignee('+esc4(n)+')">'+
+      '<span style="min-width:0"><b>'+n+'</b>'+
+      '<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">'+chips+'</div></span>'+
+      '<span style="text-align:right;flex:none"><b>'+l.length+'건</b><br>'+
+      '<span style="font-size:11px;color:var(--brand);font-weight:800">내역·전달 ▸</span></span></div>';
+  }).join('') || '<div style="color:var(--ink-3);font-size:13px">담당자에게 확인할 사항이 없습니다 🎉</div>';
+
+  const mine = buildMine(); window._mine = mine;
+  $('mylist').innerHTML = mine.map(function(m,i){
+    const col = m.lv==='danger' ? 'var(--danger)' : m.lv==='warn' ? 'var(--warn)' : 'var(--ink-3)';
+    return '<div class="topitem" onclick="openMine('+i+')">'+
+      '<span style="min-width:0"><b>'+m.cat+'</b>'+
+      '<div style="font-size:11.5px;color:var(--ink-3);margin-top:3px">'+m.todo+'</div></span>'+
+      '<span style="text-align:right;flex:none"><b style="color:'+col+'">'+(m.n?m.n+'건':'투입 대기')+'</b>'+
+      (m.amt?'<br><span style="font-size:11px;color:var(--ink-3)">'+fmt(m.amt)+'원</span>':'')+'</span></div>';
+  }).join('') || '<div style="color:var(--ink-3);font-size:13px">확인할 사항이 없습니다 🎉</div>';
+}
+
+/* onclick 속성에 안전하게 문자열 넣기 */
+function esc4(s){ return "'" + String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;') + "'"; }
+
+function openPane(html){
+  $('sheetbody').innerHTML = html;
+  $('sheetbg').style.display='block';
+  setTimeout(()=>$('sheet').classList.add('open'), 10);
+}
+
+function openAssignee(name){
+  const l = (window._board||{})[name]||[];
+  window._curAssignee = name;
+  openPane('<h2>'+name+' <span class="chip c-danger">'+l.length+'건</span></h2>'+
+    '<div class="sub">확인·조치가 필요한 항목입니다. 이미지로 만들어 담당자에게 보내세요.</div>'+
+    '<div class="actions" style="margin:12px 0">'+
+      '<button class="abtn primary" onclick="shareAssignee()"><span class="em">📤</span>이미지로 전달</button>'+
+      '<button class="abtn" onclick="captureAssignee()"><span class="em">💾</span>이미지 저장</button></div>'+
+    '<div class="slist">' + (l.map(function(i){
+      return '<div class="srow" onclick="openByPrj('+esc4(i.prj||i.id)+')">'+
+        '<div class="top"><span class="id">'+(i.prj||i.id)+'</span><span class="chip c-warn">'+i.issue+'</span></div>'+
+        '<div class="top"><span class="camp">'+(i.camp||'')+' · '+i.kind+'</span>'+
+        '<span class="camp">'+(i.date||'-')+'</span></div>'+
+        (i.desc?'<div class="meta"><span style="flex:1">'+i.desc+'</span></div>':'')+'</div>';
+    }).join('') || '<div class="card">항목 없음</div>') + '</div>');
+}
+
+function openMine(idx){
+  const m = (window._mine||[])[idx]; if(!m) return;
+  const rows = (m.items||[]).slice(0, 200);
+  const body = rows.length
+    ? '<div class="slist" style="margin-top:12px">' + rows.map(function(r){
+        const key = r.프로젝트NO||r.정산ID||r.접수ID||r.점검ID||'';
+        return '<div class="srow" onclick="openByPrj('+esc4(key)+')">'+
+          '<div class="top"><span class="id">'+key+'</span>'+
+          (r.공급가액?'<span class="amt">'+fmt(r.공급가액)+'원</span>':'')+'</div>'+
+          '<div class="top"><span class="camp">'+(r.캠프명||'')+'</span>'+
+          '<span class="camp">'+(r.완료일||r.접수일자||r.점검예정일||'')+'</span></div></div>';
+      }).join('') + '</div>'
+    : '<div class="card" style="margin-top:12px">이 항목은 원천 데이터를 넣어야 대조가 됩니다.<br><b>'+
+      m.todo+'</b><br><br>[실행] 탭의 <b>파일·폴더 열기</b>에서 해당 폴더를 열 수 있습니다.</div>';
+  openPane('<h2>'+m.cat+' <span class="chip '+(m.lv==='danger'?'c-danger':'c-warn')+'">'+
+    (m.n?m.n+'건':'대기')+'</span></h2><div class="sub">'+m.todo+
+    (m.amt?' · '+fmt(m.amt)+'원':'')+'</div>'+body);
+}
+
+/* 담당자 전달용 이미지 — 캔버스 직접 렌더(외부 리소스 0, 폰·PC 동일) */
+async function assigneeToPng(name){
+  const l = (window._board||{})[name]||[];
+  const S=2, W=760, rowH=52, headH=100;
+  const H = headH + 40 + Math.max(1,l.length)*rowH + 52;
+  const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
+  const ctx=cv.getContext('2d'); ctx.scale(S,S);
+  const F=(s,w)=>(w||400)+' '+s+'px "Nanum Gothic","Malgun Gothic",sans-serif';
+  const txt=(t,x,y,f,c,a)=>{ctx.font=f;ctx.fillStyle=c;ctx.textAlign=a||'left';
+    ctx.fillText(String(t==null?'':t),x,y);ctx.textAlign='left';};
+  const box=(x,y,w,h,fill,r)=>{ctx.beginPath();ctx.roundRect(x,y,w,h,r||8);ctx.fillStyle=fill;ctx.fill();};
+  const clip=(t,max)=>{let s=String(t==null?'':t);
+    if(ctx.measureText(s).width<=max)return s;
+    while(s.length>1&&ctx.measureText(s+'…').width>max)s=s.slice(0,-1);return s+'…';};
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+  const g=ctx.createLinearGradient(0,0,W,headH); g.addColorStop(0,'#0E1B3F'); g.addColorStop(1,'#2452E6');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,headH);
+  box(26,20,44,44,'rgba(255,255,255,.16)',12); drawMark(ctx,26,20,44);
+  txt('확인 요청 · '+name, 86, 44, F(20,800), '#fff');
+  txt('Coupang Service Operations System · 확인 필요 '+l.length+'건', 86, 68, F(11.5), '#9FB4E8');
+  txt(new Date().toLocaleDateString('ko-KR'), W-26, 44, F(12.5,700), '#fff','right');
+  let y = headH + 30;
+  txt('프로젝트NO',26,y,F(10.5,800),'#667085'); txt('구분 · 캠프',176,y,F(10.5,800),'#667085');
+  txt('확인 사항',432,y,F(10.5,800),'#667085'); txt('일자',W-26,y,F(10.5,800),'#667085','right');
+  y+=10; ctx.strokeStyle='#D0D8E6'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(26,y); ctx.lineTo(W-26,y); ctx.stroke();
+  const list = l.length?l:[{prj:'—',camp:'확인할 항목이 없습니다',kind:'',issue:'',date:''}];
+  list.forEach(function(i,n){
+    const t = y + n*rowH;
+    if(n%2) box(26,t+4,W-52,rowH-8,'#F6F9FD',8);
+    txt(i.prj||i.id||'', 26, t+26, F(13,800), '#101828');
+    txt(clip((i.kind||'')+' · '+(i.camp||''), 244), 176, t+26, F(12), '#475467');
+    txt(clip(i.issue||'', 236), 432, t+26, F(12,800), '#B42318');
+    txt(i.date||'-', W-26, t+26, F(11.5), '#667085','right');
+    if(i.desc) txt(clip(i.desc, 380), 176, t+42, F(10.5), '#98A2B3');
+  });
+  y += list.length*rowH + 22;
+  txt('※ 처리 후 밴드에 게시하거나 회신해 주세요.', 26, y, F(11), '#98A2B3');
+  txt('자동 생성 · CSOS Agent', W-26, y, F(10), '#98A2B3','right');
+  return new Promise(res=>cv.toBlob(res,'image/png'));
+}
+function assigneeFileName(){
+  return 'CSOS_확인요청_'+(window._curAssignee||'담당자')+'_'+new Date().toISOString().slice(0,10)+'.png';
+}
+async function captureAssignee(){
+  let b;
+  try{ b = await assigneeToPng(window._curAssignee); if(!b) throw new Error('빈 이미지'); }
+  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  saveOrOpen(b, assigneeFileName());
+}
+async function shareAssignee(){
+  let b;
+  try{ b = await assigneeToPng(window._curAssignee); if(!b) throw new Error('empty'); }
+  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  const f = new File([b], assigneeFileName(), {type:'image/png'});
+  const name = window._curAssignee||'';
+  const n = ((window._board||{})[name]||[]).length;
+  try{
+    if(navigator.canShare && navigator.canShare({files:[f]})){
+      await navigator.share({files:[f], title:'확인 요청 · '+name,
+                             text:'[CSOS] '+name+'님 확인 요청 '+n+'건'});
+      return;
+    }
+  }catch(e){ if(e.name==='AbortError') return; }
+  captureAssignee();
 }
 
 /* 캡처 이미지용 CSOS 마크 — 앱 아이콘과 같은 도형을 캔버스로 직접 그린다(외부 리소스 0) */
