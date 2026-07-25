@@ -212,6 +212,20 @@ def t8_findings_sheet(tmp):
     print("  [8] 확인필요 시트 통합(신규 추가·머리글·멱등) ✅")
 
 
+def t9_watchdog():
+    import time as _t
+    from watchdog import pick_archive, pick_old_reports
+    vers = [(19, "v19"), (25, "v25"), (21, "v21"), (24, "v24"), (23, "v23")]
+    assert set(pick_archive(vers, keep=3)) == {"v19", "v21"}, pick_archive(vers, 3)   # 최신 3(25,24,23) 보존
+    assert pick_archive(vers[:3], keep=3) == []                                        # 3개 이하면 이동 없음
+    now = _t.time()
+    files = [("old.md", now - 40*86400), ("new.md", now - 5*86400),
+             ("agent_status.json", now - 90*86400), ("tunnel_url.txt", now - 90*86400)]
+    dele = pick_old_reports(files, days=30)
+    assert dele == ["old.md"], dele                                                    # 보호파일·최근파일 제외
+    print("  [9] 워치독 판단 로직(버전 보존 3개·보호파일·30일 기준) ✅")
+
+
 def t6_webapp():
     import time, json, urllib.request
     port = 18899
@@ -272,5 +286,6 @@ if __name__ == "__main__":
         t8_findings_sheet(tmp)
     t2_payload()
     t3_match()
+    t9_watchdog()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

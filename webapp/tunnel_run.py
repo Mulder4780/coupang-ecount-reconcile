@@ -41,6 +41,15 @@ def find_cloudflared():
 
 
 def main():
+    # 싱글톤 락: 이미 다른 tunnel_run이 돌고 있으면 즉시 종료(중복 터널·주소 회전 방지)
+    import socket
+    global _lock_sock
+    _lock_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        _lock_sock.bind(("127.0.0.1", 8977))
+    except OSError:
+        print("이미 실행 중 — 종료")
+        return
     exe = find_cloudflared()
     if not exe:
         sys.exit("cloudflared 미설치. 먼저:  winget install Cloudflare.cloudflared")
