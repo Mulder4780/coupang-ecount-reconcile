@@ -76,10 +76,13 @@ def plan():
             if not prj:
                 continue
             b = bm.get(prj)
+            # ★ ledger_writer가 보는 키는 "vtype" 이다. "type"으로 넘기면 조용히 text로 들어가
+            #   날짜가 문자열이 되고 집계·정렬이 어긋난다(2026-07-26에 348개가 이렇게 들어갔다).
             add = lambda col, val, why: items.append(
                 {"sheet": sheet, "key": prj, "key_col": "프로젝트NO", "col": col,
-                 "value": val, "type": "date" if "일" in col and "등록" not in col else "str",
-                 "출처": why})
+                 "value": val, "only_if_empty": False,
+                 "vtype": "date" if ("일" in col and "등록" not in col) else "text",
+                 "evidence": why})
 
             # 상태열은 수식이다. 새로 넣은 행은 엑셀을 한 번 열기 전까지 캐시값이 없어
             # 04시트는 197행이 빈칸으로 읽힌다 — 상태 문자열만 믿으면 전부 미완료로 샌다.
@@ -88,10 +91,10 @@ def plan():
                     or (b is not None and "완료" in b["status"]))
 
             if b and b["date"]:
-                if not g(dcol):
+                if not g(dcol) or isinstance(g(dcol), str):
                     add(dcol, b["date"], "밴드 게시"); bump(f"{sheet} {dcol}")
                 # 상태가 완료인데 날짜만 빠진 건 — 화면·집계에서 통째로 빠진다
-                if has(donecol) and not g(donecol) and done:
+                if has(donecol) and (not g(donecol) or isinstance(g(donecol), str)) and done:
                     add(donecol, b["date"], "밴드 게시(완료)"); bump(f"{sheet} {donecol}")
                     done = True
 
@@ -105,7 +108,7 @@ def plan():
                 add(verifycol, "일치", "완료+밴드 근거"); bump(f"{sheet} {verifycol}")
             if has("담당관리자") and not g("담당관리자"):
                 add("담당관리자", MANAGER, "확인자"); bump(f"{sheet} 담당관리자")
-            if datecol and has(datecol) and not g(datecol):
+            if datecol and has(datecol) and (not g(datecol) or isinstance(g(datecol), str)):
                 add(datecol, (g(donecol) and str(g(donecol))[:10]) or b["date"], "확인일")
                 bump(f"{sheet} {datecol}")
     wb.close()

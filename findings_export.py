@@ -63,7 +63,35 @@ def collect(master):
     data["쿠팡PO_문제"] = latest_csv("PO대조_*.csv")
     data["날짜_미상"] = dateless(master)
     data["문서_원장미등록"] = doc_unregistered(master)
+    data["금액_불일치"] = amount_gap(master)
     return data
+
+
+def amount_gap(master):
+    """실제 작업금액과 거래명세서 금액이 다른 건.
+    신규·납품·설치는 제외한다(사용자 지시 2026-07-26 — 별도 절차로 관리).
+    명세서를 아직 안 끊은 건도 제외한다 — 그건 '미청구'로 이미 따로 잡힌다."""
+    import openpyxl
+    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    out = []
+    if "06_거래서류청구수금" in wb.sheetnames:
+        ws = wb["06_거래서류청구수금"]
+        hdr = next(ws.iter_rows(min_row=4, max_row=4, values_only=True))
+        idx = {str(h).strip(): i for i, h in enumerate(hdr) if h is not None}
+        for row in ws.iter_rows(min_row=5, values_only=True):
+            g = lambda c: (row[idx[c]] if c in idx and idx[c] < len(row) else None)
+            if not g("정산ID") or "신규" in str(g("업무구분") or ""):
+                continue
+            work, inv = g("실제작업합계") or 0, g("거래명세서합계") or 0
+            if not inv or work == inv:
+                continue
+            out.append({"정산ID": g("정산ID"), "프로젝트NO": g("프로젝트NO"), "캠프명": g("캠프명"),
+                        "업무구분": g("업무구분"), "작업금액": work, "명세서금액": inv,
+                        "차액": work - inv, "명세서번호": g("거래명세서번호"),
+                        "확인방법": "밴드 거래명세서 사진 또는 이카운트 전표에서 실제 청구금액을 확인해 "
+                                    "작업금액·명세서금액 중 틀린 쪽을 고치세요"})
+    wb.close()
+    return out
 
 
 def doc_unregistered(master):
@@ -157,7 +185,8 @@ def write_xlsx(data, out_path):
             "ERP원장_문제": "ERP에만/원장에만/계산서X/금액차 (A~D)",
             "쿠팡PO_문제": "원장미등록 PO·오기입·금액차·연결제안 (A~D)",
             "날짜_미상": "작업일·점검일 또는 캠프명이 비어 있어 밴드·카톡에서 찾아 채워야 하는 건",
-            "문서_원장미등록": "밴드 문서 사진에는 있는데 관리대장 어디에도 없는 프로젝트NO"}
+            "문서_원장미등록": "밴드 문서 사진에는 있는데 관리대장 어디에도 없는 프로젝트NO",
+            "금액_불일치": "실제 작업금액과 거래명세서 금액이 다른 건(신규·납품 제외, 미청구 제외)"}
     for k, rows in data.items():
         ws.append([k.replace("_", " "), len(rows), desc.get(k, "")])
     for col, w in (("A", 22), ("B", 8), ("C", 62)):

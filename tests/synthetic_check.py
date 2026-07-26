@@ -630,6 +630,35 @@ def t23_formulas():
     print("  [23] 수식 복구(음수행·굳은오류·공유수식본·범위확장·셀위치) ✅")
 
 
+def t24_reorder_safety():
+    """행 재배치가 **엑셀이 못 여는 파일**을 만들지 않는지.
+    2026-07-26 v101~v104가 이 두 가지로 열리지 않았다. 구조 검사로는 안 잡힌다 —
+    XML은 멀쩡하고 '의미'만 어긋나기 때문에 여기서 못 박아 둔다."""
+    import reorder_rows as R
+    # (1) 배열수식 ref 는 자기 셀 주소다 — 행을 옮기면 함께 가야 한다
+    row = ('<row r="69"><c r="Q69" s="53"><f t="array" ref="Q69" aca="1">SUM($A69:$B69)</f>'
+           '<v>1</v></c></row>')
+    moved = R.move_row(row, 5)
+    assert 'ref="Q5"' in moved, moved
+    assert '<row r="5"' in moved and '<c r="Q5"' in moved, moved
+    assert 'SUM($A5:$B5)' in moved, moved
+    # 범위형 ref 도 양끝이 따라간다
+    row2 = '<row r="10"><c r="A10"><f t="array" ref="A10:B10">1</f><v>1</v></c></row>'
+    assert 'ref="A12:B12"' in R.move_row(row2, 12), R.move_row(row2, 12)
+    # (2) 공유수식은 '연속한 행' 전제라 섞기 전에 반드시 펼쳐야 한다
+    xml = ('<sheetData>'
+           '<row r="5"><c r="B5"><f t="shared" ref="B5:B7" si="3">IF($A5="","",1)</f><v>1</v></c></row>'
+           '<row r="6"><c r="B6"><f t="shared" si="3"/><v>1</v></c></row>'
+           '<row r="7"><c r="B7"><f t="shared" si="3"/><v>1</v></c></row>'
+           '</sheetData>')
+    out, n = R.unshare(xml)
+    assert n == 3, n
+    assert 't="shared"' not in out and 'si="3"' not in out, out
+    assert 'IF($A6="","",1)' in out and 'IF($A7="","",1)' in out, out   # 각 행 수식이 생겼다
+    assert '<c r="B6"' in out and '<v>1</v>' in out, out                # 셀·캐시는 그대로
+    print("  [24] 재배치 안전성(배열수식 ref 이동·공유수식 펼침) ✅")
+
+
 def t16_status():
     """상태 수식 캐시 보정 — 새로 넣은 행은 상태열(수식)이 None이라 완료된 점검이
     전부 '미점검'으로 보였다. 원본 열로 직접 판정하는 로직 검증."""
@@ -773,5 +802,6 @@ if __name__ == "__main__":
     t21_reorder()
     t22_bundle()
     t23_formulas()
+    t24_reorder_safety()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

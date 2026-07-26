@@ -59,6 +59,48 @@ def shift_rows(text, delta):
     return re.sub(r"(\$?[A-Z]{1,3})(\$?)(\d+)", rep, text)
 
 
+def unshare(xml):
+    """공유수식(<f t="shared" si="3"/>)을 **평범한 수식으로 펼친다**.
+
+    왜 필요한가 — 공유수식은 '이 그룹은 연속한 행'이라는 전제를 깔고 있다(master가 맨 위,
+    ref 범위 안에 follower가 전부 들어 있어야 한다). 행을 섞으면 그 전제가 깨지고
+    엑셀은 파일을 아예 열지 않는다("Workbooks.Open 실패", 2026-07-26 v101 실사고).
+    구조 검사(fix_workbook)로는 안 잡힌다 — XML은 멀쩡하고 의미만 깨지기 때문이다.
+    그래서 재배치 전에 공유를 풀어 각 셀이 자기 수식을 갖게 만든다.
+    """
+    from fix_formulas import parse_cells, normalize, instantiate, esc, unesc
+    cells = parse_cells(xml)
+    master = {}                      # si → (행, 수식)
+    for rn, col, f, s, e in cells:
+        m = re.search(r'si="(\d+)"', xml[s:e])
+        if m and f.strip() and 'ref="' in xml[s:e]:
+            master[m.group(1)] = (rn, f)
+    edits = []
+    for rn, col, f, s, e in cells:
+        chunk = xml[s:e]
+        m = re.search(r'si="(\d+)"', chunk)
+        if not m:
+            continue
+        si = m.group(1)
+        body = f
+        if not body.strip():                       # follower — master 수식을 이 행으로
+            if si not in master:
+                continue
+            mr, mf = master[si]
+            body = instantiate(normalize(mf, mr), rn)
+        # t="shared"·si·ref 를 떼고 평범한 <f>로 만든다
+        new_f = "<f>" + esc(body) + "</f>"
+        fixed = re.sub(r"<f(?:\s[^>]*)?(?:/>|>.*?</f>)", new_f, chunk, count=1, flags=re.S)
+        edits.append((s, e, fixed))
+    if not edits:
+        return xml, 0
+    out, last = [], 0
+    for s, e, fixed in sorted(edits):
+        out.append(xml[last:s]); out.append(fixed); last = e
+    out.append(xml[last:])
+    return "".join(out), len(edits)
+
+
 def move_row(row_xml, new_r):
     """<row> 하나를 new_r 위치로 옮긴 XML을 만든다."""
     old_r = int(ROW_RE.search(row_xml).group(1))
@@ -72,10 +114,20 @@ def move_row(row_xml, new_r):
     #   r="B5" 같은 셀 참조까지 숫자를 바꿔 버린다(실제로 B-3 이 만들어졌다). 2단계 파싱 필수.
     parts, last = [], 0
     for fs, fe, ftag, finner in iter_tags(out, "f"):
-        if finner is None:          # <f .../> 자기닫힘 → 본문 없음, 건드릴 것 없음
+        # ★ 배열수식 <f t="array" ref="Q69">…</f> 의 ref는 **자기 셀 주소**다.
+        #   행을 옮기면서 이걸 안 따라가면 ref가 엉뚱한 행을 가리키고,
+        #   엑셀은 그 파일을 아예 열지 않는다(2026-07-26 v101~v104 실사고, 108개).
+        #   구조 검사로는 안 잡힌다 — XML은 멀쩡하고 의미만 어긋나기 때문이다.
+        tag = re.sub(r'(ref=")([A-Z]{1,3})(\d+)((?::[A-Z]{1,3})?)(\d*)(")',
+                     lambda m: (m.group(1) + m.group(2) + str(int(m.group(3)) + d) + m.group(4)
+                                + (str(int(m.group(5)) + d) if m.group(5) else "") + m.group(6)),
+                     ftag)
+        if finner is None:          # <f .../> 자기닫힘 → 본문 없음, 태그만 고친다
+            if tag != ftag:
+                parts.append(out[last:fs]); parts.append(tag); last = fe
             continue
         parts.append(out[last:fs])
-        parts.append(ftag + shift_rows(finner, d) + "</f>")
+        parts.append(tag + shift_rows(finner, d) + "</f>")
         last = fe
     parts.append(out[last:])
     return "".join(parts)
@@ -237,19 +289,26 @@ def main():
     zin = zipfile.ZipFile(master)
     smap = sheet_file_map(zin)
     sst = shared_strings(zin)
-    patched, report = {}, []
+    patched, report, report_unshare = {}, [], []
     for sh, (idc, dcs) in TARGETS.items():
         if only and sh != only:
             continue
         if sh not in smap:
             continue
         xml = zin.read(smap[sh]).decode("utf-8")
+        # ★ 재배치 전에 공유수식을 반드시 푼다 — 안 풀면 엑셀이 파일을 못 연다
+        xml, nun = unshare(xml)
         head, ordered, moved, bad = plan(xml, dcs, idc, sst)
+        if nun:
+            report_unshare.append((sh, nun))
         report.append((sh, len(ordered), moved, bad))
-        if moved:
+        # 공유를 푼 것만으로도 파일은 바뀐다 — 움직인 행이 없어도 저장해 둔다
+        if moved or nun:
             patched[smap[sh]] = rebuild(xml, head, ordered).encode("utf-8")
     zin.close()
 
+    for sh, n in report_unshare:
+        print(f"{sh}: 공유수식 {n}개 펼침(재배치 안전화)")
     for sh, n, moved, bad in report:
         print(f"{sh}: {n}행 중 {moved}행 위치 변경")
         if bad:

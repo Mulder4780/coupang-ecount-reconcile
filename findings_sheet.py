@@ -51,6 +51,11 @@ def flatten(data):
     for r in data.get("문서_원장미등록", []):
         rows.append(("문서", r.get("프로젝트NO"), "원장 미등록", "", "",
                      r.get("공급가액") or "", r.get("발행일") or "", r.get("확인방법") or ""))
+    for r in data.get("금액_불일치", []):
+        rows.append(("금액", r.get("정산ID"), "작업금액 불일치", r.get("캠프명"), "",
+                     r.get("차액"), "",
+                     f"작업 {r.get('작업금액'):,}원 / 명세서 {r.get('명세서금액'):,}원 · "
+                     f"{r.get('프로젝트NO','')} · {r.get('확인방법','')}"))
     for r in data.get("날짜_미상", []):
         rows.append(("빈칸", r.get("프로젝트NO"), f"{r.get('빈칸')} 비어 있음", r.get("캠프명"),
                      r.get("담당기사"), "", "", r.get("확인방법") or ""))

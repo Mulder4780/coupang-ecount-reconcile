@@ -41,18 +41,40 @@ def main():
         cap = d.get("capturedAt")
         posts = {}
         for no, p in d.get("posts", {}).items():
-            dt = parse_dt((p.get("content") or "").split("\n")[0], cap) \
-                 or parse_dt(p.get("timeText"), cap)
-            posts[no] = {"created_at": int(dt.timestamp() * 1000) if dt else None,
+            # 밴드 API로 받은 덤프는 created_at(ms)을 이미 갖고 있다 — 본문에서 다시 캐낼 필요가 없다.
+            # (화면 긁기 덤프만 본문·timeText에서 시각을 파싱한다)
+            ms = p.get("created_at")
+            dt = None if ms else (parse_dt((p.get("content") or "").split("\n")[0], cap)
+                                  or parse_dt(p.get("timeText"), cap))
+            posts[no] = {"created_at": int(ms) if ms else (int(dt.timestamp() * 1000) if dt else None),
                          "author": p.get("author", ""),
                          "content": (p.get("content") or "")[:2000],
                          "photo_count": p.get("photo_count", 0),
                          "comment_count": p.get("comment_count", 0)}
-        out = {"band_name": d.get("name", band), "posts": posts}
-        json.dump(out, open(os.path.join(CACHE, f"{band}.json"), "w", encoding="utf-8"), ensure_ascii=False)
-        os.replace(f, os.path.join(CACHE, f"raw_{band}.json"))
-        dated = sum(1 for p in posts.values() if p["created_at"])
-        print(f"{d.get('name', band)}: {len(posts)}건 변환 (날짜 파싱 {dated}건)")
+        # ★ 기존 캐시에 **덮어쓰지 않고 합친다**.
+        #   수집 방식마다 커버하는 기간이 달라(화면 긁기=과거, API=최근) 덮어쓰면
+        #   한쪽 기간이 통째로 사라진다(2026-07-26에 12~4월이 날아갔다).
+        dst = os.path.join(CACHE, f"{band}.json")
+        merged, before = {}, 0
+        if os.path.exists(dst):
+            try:
+                old = json.load(open(dst, encoding="utf-8"))
+                merged = old.get("posts") or {}
+                before = len(merged)
+            except Exception:
+                merged = {}
+        for no, rec in posts.items():
+            cur = merged.get(no)
+            # 날짜가 있는 쪽·본문이 긴 쪽을 남긴다
+            if not cur or (rec["created_at"] and not cur.get("created_at"))                or len(rec["content"]) > len(cur.get("content") or ""):
+                merged[no] = rec
+        out = {"band_name": d.get("name", band), "posts": merged}
+        json.dump(out, open(dst, "w", encoding="utf-8"), ensure_ascii=False)
+        raw = os.path.join(CACHE, f"raw_{os.path.basename(f)[5:-5]}.json")
+        os.replace(f, raw)
+        dated = sum(1 for p in merged.values() if p["created_at"])
+        print(f"{d.get('name', band)}: {len(posts)}건 반영 → 캐시 {before}→{len(merged)}건 "
+              f"(날짜 있는 글 {dated}건)")
 
 
 if __name__ == "__main__":
