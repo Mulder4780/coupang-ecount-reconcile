@@ -541,6 +541,19 @@ def get_erpdocs():
                 m[str(kind)] = m.get(str(kind), 0) + sup
                 out["kinds"][str(kind)] = out["kinds"].get(str(kind), 0) + sup
                 out["total"] += sup
+        # 26_계산서구성 — 계산서 1장에 어떤 프로젝트가 묶였는지(추정). 전표번호로 붙인다.
+        if "26_계산서구성" in wb.sheetnames:
+            comp = {}
+            for row in wb["26_계산서구성"].iter_rows(min_row=5, values_only=True):
+                if not row or not row[0]:
+                    continue
+                comp[str(row[0])] = {"포함건수": int(row[5] or 0),
+                                     "포함프로젝트": str(row[6] or ""),
+                                     "후보합계": int(row[7] or 0),
+                                     "판정": str(row[8] or "")}
+            for r in out["rows"]:
+                r.update(comp.get(r["전표"], {"포함건수": 0, "포함프로젝트": "",
+                                             "후보합계": 0, "판정": "미상"}))
         wb.close()
     except Exception as e:
         out["error"] = str(e)

@@ -117,11 +117,18 @@ def dateless(master):
         idx = {str(h).strip(): i for i, h in enumerate(hdr) if h is not None}
         for row in ws.iter_rows(min_row=5, values_only=True):
             g = lambda c: (row[idx[c]] if c in idx and idx[c] < len(row) else None)
-            if g(dcol) or not g("캠프명"):
-                continue
-            out.append({"시트": sheet, "프로젝트NO": g("프로젝트NO"), "캠프명": g("캠프명"),
-                        "담당기사": g("담당기사"), "빈칸": dcol,
-                        "확인방법": "밴드 게시글·카톡 보고에서 실제 작업일을 찾아 해당 셀에 입력"})
+            date, camp = g(dcol), g("캠프명")
+            if not date and camp:
+                out.append({"시트": sheet, "프로젝트NO": g("프로젝트NO"), "캠프명": camp,
+                            "담당기사": g("담당기사"), "빈칸": dcol,
+                            "확인방법": "밴드 게시글·카톡 보고에서 실제 작업일을 찾아 해당 셀에 입력"})
+            # 캠프명이 없으면 어느 현장인지 알 수 없다 — 앱 카드에도 '캠프 미상'으로 뜬다.
+            # 문서 발행 알림 글(판매전표·명세서)만 밴드에 있고 작업 글이 없는 건들이 여기 해당.
+            elif date and not camp:
+                out.append({"시트": sheet, "프로젝트NO": g("프로젝트NO"), "캠프명": "",
+                            "담당기사": g("담당기사"), "빈칸": "캠프명",
+                            "확인방법": "밴드에서 그 프로젝트NO로 검색해 어느 캠프 작업인지 확인 후 "
+                                        "캠프명 칸에 입력(앱 카드에 '캠프 미상'으로 표시됩니다)"})
     wb.close()
     return out
 
@@ -149,7 +156,7 @@ def write_xlsx(data, out_path):
             "카톡_미확인": "작업완료인데 카톡 보고를 찾지 못한 건",
             "ERP원장_문제": "ERP에만/원장에만/계산서X/금액차 (A~D)",
             "쿠팡PO_문제": "원장미등록 PO·오기입·금액차·연결제안 (A~D)",
-            "날짜_미상": "작업일·점검일이 비어 있어 밴드·카톡에서 날짜를 찾아 채워야 하는 건",
+            "날짜_미상": "작업일·점검일 또는 캠프명이 비어 있어 밴드·카톡에서 찾아 채워야 하는 건",
             "문서_원장미등록": "밴드 문서 사진에는 있는데 관리대장 어디에도 없는 프로젝트NO"}
     for k, rows in data.items():
         ws.append([k.replace("_", " "), len(rows), desc.get(k, "")])

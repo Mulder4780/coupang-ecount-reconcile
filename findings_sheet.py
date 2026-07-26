@@ -52,7 +52,7 @@ def flatten(data):
         rows.append(("문서", r.get("프로젝트NO"), "원장 미등록", "", "",
                      r.get("공급가액") or "", r.get("발행일") or "", r.get("확인방법") or ""))
     for r in data.get("날짜_미상", []):
-        rows.append(("날짜", r.get("프로젝트NO"), f"{r.get('빈칸')} 비어 있음", r.get("캠프명"),
+        rows.append(("빈칸", r.get("프로젝트NO"), f"{r.get('빈칸')} 비어 있음", r.get("캠프명"),
                      r.get("담당기사"), "", "", r.get("확인방법") or ""))
     return rows
 

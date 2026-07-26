@@ -554,6 +554,44 @@ def t21_reorder():
     print("  [21] 행 재배치(정렬·상대참조 이동·자기닫힘 f 안전) ✅")
 
 
+def t22_bundle():
+    """ERP 계산서 구성 추정 — 캠프 표기 흔들림·분기 제목·금액 정합 판정.
+    추정을 확정으로 올려버리면 틀린 배분이 대장에 굳으므로 판정 경계를 못 박아 둔다."""
+    import erp_bundle as B
+    # 괄호 안 지명이 달라도 같은 캠프
+    assert B.camp_key("송파1MB(감일동)") == B.camp_key("송파1MB"), B.camp_key("송파1MB(감일동)")
+    assert B.camp_key("송파3Sub-hub") == B.camp_key("송파3subhub")
+    assert B.camp_key("양주2캠프") != B.camp_key("양주1캠프")
+    # 제목 → 유형
+    assert B.kind_of("25년 4분기 정기점검 - 양주2캠프") == "정기점검"
+    assert B.kind_of("돌발AS 인천8MB") == "돌발AS"
+    assert B.kind_of("쿠팡신규_송파1MB-이동식상하차리프트 2RT") == "신규납품"
+    # 제목에 분기가 적혀 있으면 발행월이 아니라 그 분기를 본다
+    assert B.window({"month": "2026/01", "title": "25년 4분기 정기점검"}) == ("2025-10", "2025-12")
+    assert B.window({"month": "2026/05", "title": "돌발AS"}) == ("2026-02", "2026-05")
+    assert B.window({"month": "2026/02", "title": "돌발AS"}) == ("2025-11", "2026-02")  # 연 넘김
+    W = [{"prj": "UJ2600001", "camp": "양주2캠프", "kind": "정기점검",
+          "date": "2026-04-10", "amt": 600000, "src": "06"},
+         {"prj": "UJ2600002", "camp": "양주2캠프", "kind": "정기점검",
+          "date": "2026-05-11", "amt": 400000, "src": "06"}]
+    doc = {"camp": "양주2캠프", "kind": "정기점검", "month": "2026/05",
+           "title": "정기점검 - 양주2캠프", "amt": 1000000}
+    prjs, v, tot = B.bundle(doc, W)
+    assert prjs == ["UJ2600001", "UJ2600002"] and v == "확정" and tot == 1000000, (prjs, v, tot)
+    prjs, v, _ = B.bundle({**doc, "amt": 1020000}, W)      # 2% 차이 → 유력
+    assert v == "유력", v
+    prjs, v, _ = B.bundle({**doc, "amt": 2000000}, W)      # 100% 차이 → 추정
+    assert v == "추정", v
+    # 후보를 못 찾으면 **이유**가 남아야 한다("미상" 한 마디는 조치를 못 한다)
+    _, v, _ = B.bundle({**doc, "camp": "없는캠프"}, W)
+    assert v.startswith("미상(") and "캠프" in v, v
+    _, v, _ = B.bundle({**doc, "kind": "철거"}, W)
+    assert v.startswith("미상(") and "철거" in v, v
+    _, v, _ = B.bundle({**doc, "month": "2026/01"}, W)     # 기간 밖
+    assert v.startswith("미상(") and "보유" in v, v
+    print("  [22] ERP 계산서 구성 추정(캠프정규화·분기창·금액정합·미상사유) ✅")
+
+
 def t16_status():
     """상태 수식 캐시 보정 — 새로 넣은 행은 상태열(수식)이 None이라 완료된 점검이
     전부 '미점검'으로 보였다. 원본 열로 직접 판정하는 로직 검증."""
@@ -695,5 +733,6 @@ if __name__ == "__main__":
     t19_workbook_integrity(None)
     t20_rep_no()
     t21_reorder()
+    t22_bundle()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

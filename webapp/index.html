@@ -264,6 +264,10 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .srow .sid{color:var(--ink-3);font-weight:700}
 b.prjno{font-weight:800;font-variant-numeric:tabular-nums;color:var(--navy-900)}
 .srow .camp{font-size:12.5px;color:var(--ink-2)}
+/* 프로젝트NO 옆 캠프 이름 — 번호와 붙여 읽히도록 같은 줄, 조금 작고 진하게 */
+.srow .camptag{font-size:13.5px;font-weight:700;color:var(--ink-1);line-height:1.25;
+  word-break:break-all;min-width:0;flex:1;margin-left:2px}
+.srow .camptag.none{color:var(--danger);font-weight:600;font-size:12px}
 .srow .amt{font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
 .srow .meta{display:flex;gap:6px 11px;font-size:11px;color:var(--ink-3);margin-top:7px;flex-wrap:wrap;align-items:center}
 
@@ -867,6 +871,14 @@ function curRows(){
 }
 function statOf(r){ return mode==='as' ? r.진행상태 : mode==='pm' ? r.점검상태 :
   mode==='check' ? (r.문제유형||r.검증결과||r.우선순위||'확인필요') : r.상태; }
+/* 프로젝트NO 바로 옆에 붙는 캠프 이름.
+   어느 현장인지가 번호만큼 중요해서 카드 첫 줄로 올렸다(2026-07-26 요청).
+   캠프를 모르는 건은 빈칸으로 두지 않고 '캠프 미상'이라고 적어 조치 대상임을 보이게 한다. */
+function campTag(v){
+  const s = String(v||'').trim();
+  return s ? `<span class="camptag">${s}</span>`
+           : `<span class="camptag none">캠프 미상</span>`;
+}
 function vbadge(id){
   const c = checks[id]; if(!c) return '';
   const one = (label,v)=>{ if(!v) return '';
@@ -1013,8 +1025,8 @@ function renderSettle(){
       <div class="kpi ${need.length?'danger':''}"><div class="v">${need.length}/${rows.length}</div><div class="l">조치 필요</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('settle',${i},'${r.정산ID}')">
-        <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${chip(r.상태)}</div>
-        <div class="top"><span class="camp">${r.캠프명} · ${r.업무구분}</span><span class="amt">${fmt(r.공급가액)}원</span></div>
+        <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${campTag(r.캠프명)}${chip(r.상태)}</div>
+        <div class="top"><span class="camp">${r.업무구분||''}</span><span class="amt">${fmt(r.공급가액)}원</span></div>
         <div class="meta"><span class="sid">${r.정산ID}</span><span>완료 ${r.완료일||'-'}</span>
           <span>명세서 ${r.명세서번호||r.명세서}</span><span>계산서 ${r.계산서}</span>
           ${r.입금일?`<span>입금 ${r.입금일}</span>`:''} ${vbadge(r.정산ID)}
@@ -1037,8 +1049,8 @@ function renderSettle(){
       <div class="kpi ${rows.length-done?'warn':''}"><div class="v">${rows.length-done}</div><div class="l">진행중</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('as',${i},'${r.접수ID}')">
-        <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${chip(r.진행상태)}</div>
-        <div class="top"><span class="camp">${r.캠프명}</span><span class="camp">${r.담당기사||'-'}</span></div>
+        <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${campTag(r.캠프명)}${chip(r.진행상태)}</div>
+        <div class="top"><span class="camp">${r.담당기사||'-'}</span></div>
         <div class="meta"><span class="sid">${r.접수ID||''}</span><span>접수 ${r.접수일자||'-'}</span><span>${r['유상·무상·보험']||''}</span>
           ${r.긴급도==='긴급'?'<span style="color:var(--danger);font-weight:700">긴급</span>':''}
           <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</span></div>
@@ -1060,8 +1072,8 @@ function renderSettle(){
     const descOf = r => r.문제내용||r.경고내용||r.검증문제코드||r.누락서류||r['내용·근거']||'';
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openByPrj('${keyOf(r)}')">
-        <div class="top"><span class="prjno">${r.프로젝트NO||keyOf(r)}</span>${chip(statOf(r))}</div>
-        <div class="top"><span class="camp">${r.캠프명||''}</span><span class="camp">${r.담당자||r.담당기사||''}</span></div>
+        <div class="top"><span class="prjno">${r.프로젝트NO||keyOf(r)}</span>${campTag(r.캠프명)}${chip(statOf(r))}</div>
+        <div class="top"><span class="camp">${r.담당자||r.담당기사||''}</span></div>
         <div class="meta"><span class="sid">${keyOf(r)}</span><span style="flex:1">${descOf(r)}</span></div>
       </div>`).join('') || '<div class="card">확인필요 항목이 없습니다 🎉</div>';
     const cols = (issuesData.cols||[]).filter(c=>rows.some(r=>r[c])).slice(0,9);
@@ -1076,8 +1088,8 @@ function renderSettle(){
       <div class="kpi ${rows.length-done?'warn':''}"><div class="v">${rows.length-done}</div><div class="l">예정·미점검</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('pm',${i},'${r.점검ID}')">
-        <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${chip(r.점검상태)}</div>
-        <div class="top"><span class="camp">${r.캠프명}</span><span class="camp">${r.담당기사||'-'}</span></div>
+        <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${campTag(r.캠프명)}${chip(r.점검상태)}</div>
+        <div class="top"><span class="camp">${r.담당기사||'-'}</span></div>
         <div class="meta"><span class="sid">${r.점검ID||''}</span><span>예정 ${r.점검예정일||'-'}</span><span>실제 ${r.실제점검일||'-'}</span>
           ${r.이상발견여부==='있음'?'<span style="color:var(--danger);font-weight:700">이상발견</span>':''}</div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
@@ -1405,6 +1417,8 @@ const CODE = {
                        '밴드 게시글이나 카톡 보고에서 실제 날짜를 찾아 <b>02_돌발AS접수</b>의 접수일자 칸에 입력하세요. 날짜가 없으면 월별 실적에서 빠집니다'],
   '점검예정일 비어 있음': ['언제 점검할 건인지 날짜가 없음',
                        '밴드 게시글이나 점검 일정표에서 날짜를 찾아 <b>04_정기점검</b>의 점검예정일 칸에 입력하세요'],
+  '캠프명 비어 있음': ['어느 현장 작업인지 캠프명이 비어 있음 — 앱 카드에 <b>캠프 미상</b>으로 표시됩니다',
+                       '밴드에서 그 프로젝트NO로 검색해 어느 캠프인지 확인한 뒤 <b>02_돌발AS접수</b>·<b>04_정기점검</b>의 캠프명 칸에 입력하세요'],
   '원장 미등록':      ['밴드에 올라온 명세서·계산서 사진에는 있는데 관리대장 어디에도 없는 프로젝트NO',
                        '견적·판매전표처럼 AS·점검이 아닌 업무일 수 있습니다. 밴드 해당 게시글을 열어 캠프·업무유형·금액을 확인한 뒤 알맞은 시트(02·04·13_PO발주관리)에 등록하세요'],
 };
@@ -1580,7 +1594,38 @@ function erpHtml(y){
     </table>
     <div style="font-size:11px;color:var(--ink-3);margin-top:6px">
       유형별: ${kinds.map(([k,v])=>`${k} ${fmt(v)}`).join(' · ')}<br>
-      ※ ERP는 여러 작업을 한 장으로 묶어 발행합니다 — 장수는 계산서 매수이지 작업 건수가 아닙니다.</div>`;
+      ※ ERP는 여러 작업을 한 장으로 묶어 발행합니다 — 장수는 계산서 매수이지 작업 건수가 아닙니다.</div>
+    ${bundleHtml(y)}`;
+}
+/* 계산서 1장에 어떤 프로젝트가 묶였는지 (26_계산서구성 추정) */
+function bundleHtml(y){
+  const rows = (erpDocs.rows||[]).filter(r=>String(r.월||'').startsWith(y));
+  if(!rows.length) return '';
+  const ok = rows.filter(r=>r.판정==='확정'||r.판정==='유력').length;
+  const est = rows.filter(r=>r.판정==='추정').length;
+  const unk = rows.length - ok - est;
+  return `<h4 style="margin-top:14px">계산서별 포함 프로젝트
+      <span class="norm">— 확정·유력 ${ok} · 추정 ${est} · 미상 ${unk} (번호를 누르면 그 건으로 이동)</span></h4>
+    <table class="stack">
+      <colgroup><col style="width:15%"><col style="width:11%"><col style="width:19%"><col style="width:55%"></colgroup>
+      <tr><th>전표</th><th>판정</th><th style="text-align:right">공급가액(원)</th><th>포함 프로젝트NO</th></tr>
+      ${rows.map(r=>{
+        const v = String(r.판정||'미상');
+        const col = v==='확정'?'#12813F' : v==='유력'?'#0B6BCB' : v==='추정'?'#B25E09' : '#98A2B3';
+        const list = String(r.포함프로젝트||'').split(',').map(s=>s.trim()).filter(Boolean);
+        return `<tr><td class="hd">${r.전표}</td>
+          <td data-l="판정"><span style="color:${col};font-weight:700">${v.split('(')[0]}</span></td>
+          <td data-l="공급가액" style="text-align:right">${fmt(r.공급가액)}</td>
+          <td class="prjs" data-l="포함 프로젝트NO"><div class="chips">${
+            list.map(k=>`<span class="prj" onclick="openByPrj('${k}')">${k}</span>`).join('')
+            || `<span style="color:var(--ink-3);font-size:11px">${v.includes('(')?v.slice(v.indexOf('(')+1,-1):'후보 없음'}</span>`}
+            </div>${r.후보합계 && r.후보합계!==r.공급가액
+              ? `<div style="font-size:10.5px;color:var(--ink-3);margin-top:2px">후보합계 ${fmt(r.후보합계)}원 — 계산서와 ${fmt(Math.abs(r.공급가액-r.후보합계))}원 차이</div>` : ''}
+          </td></tr>`;}).join('')}
+    </table>
+    <div style="font-size:11px;color:var(--ink-3);margin-top:6px">
+      ※ 캠프·유형·기간으로 좁힌 <b>추정</b>입니다. 금액 합이 계산서와 맞으면 '확정'.
+      품목 단위 판매현황이 들어오면 건별로 정확히 배분됩니다.</div>`;
 }
 function srcRow(label, s, emptyMsg){
   if(!s || !s.total) return `<tr><td class="hd">${label}</td><td data-l="결과" colspan="2" style="color:#98A2B3">${emptyMsg}</td></tr>`;
