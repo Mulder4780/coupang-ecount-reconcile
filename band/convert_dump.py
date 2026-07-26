@@ -37,7 +37,9 @@ def parse_dt(text, captured_ms):
 def main():
     for f in glob.glob(os.path.join(CACHE, "dump_*.json")):
         d = json.load(open(f, encoding="utf-8"))
-        band = re.sub(r"\D", "", os.path.basename(f))
+        # 밴드번호는 **파일명 맨 뒤 숫자 덩어리**다. 전체에서 숫자만 뽑으면
+        # dump_api2_90610953 → "290610953" 처럼 앞의 버전 숫자가 섞여 다른 밴드가 된다.
+        band = re.findall(r"(\d{6,})", os.path.basename(f))[-1]
         cap = d.get("capturedAt")
         posts = {}
         for no, p in d.get("posts", {}).items():
