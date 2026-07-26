@@ -198,8 +198,10 @@ def proposals(rec, sid, recs):
     else:
         if rec["승인번호"] and not str(r.get("원장_세금계산서승인번호") or "").strip():
             out["세금계산서승인번호"] = rec["승인번호"]
-        if rec["발행일"] and not r.get("원장_세금계산서실제발행일"):
-            out["세금계산서실제발행일"] = rec["발행일"]
+        # 06시트의 실제 열 이름은 '세금계산서발행일'이다('…실제발행일'이 아니다).
+        # 이름이 틀리면 ledger_writer가 "열 없음"으로 조용히 걸러낸다.
+        if rec["발행일"] and not r.get("원장_세금계산서발행일"):
+            out["세금계산서발행일"] = rec["발행일"]
     if rec["공급가액"] and not r.get("원장_공급가액"):
         out["공급가액"] = rec["공급가액"]
     return out
@@ -251,7 +253,7 @@ def scan(folder=INBOX, apply=False):
     return rows
 
 
-VTYPE = {"거래명세서발행일": "date", "세금계산서실제발행일": "date", "공급가액": "number"}
+VTYPE = {"거래명세서발행일": "date", "세금계산서발행일": "date", "공급가액": "number"}
 
 
 def build_updates(rows):

@@ -62,7 +62,45 @@ def collect(master):
     data["ERP원장_문제"] = latest_csv("ERP원장대조_*.csv")
     data["쿠팡PO_문제"] = latest_csv("PO대조_*.csv")
     data["날짜_미상"] = dateless(master)
+    data["문서_원장미등록"] = doc_unregistered(master)
     return data
+
+
+def doc_unregistered(master):
+    """밴드 문서 사진 OCR에서 읽힌 프로젝트NO 중 관리대장 어디에도 없는 건.
+    견적·판매전표처럼 AS/점검이 아닌 업무라 02·04 백필 대상이 아니어서 자동 등록하지 않는다."""
+    rows = latest_csv("밴드문서OCR_*.csv")
+    if not rows:
+        return []
+    import openpyxl
+    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    known = set()
+    for sh in wb.sheetnames:
+        ws = wb[sh]
+        try:
+            hdr = next(ws.iter_rows(min_row=4, max_row=4, values_only=True))
+        except StopIteration:
+            continue
+        idx = {str(h).strip(): i for i, h in enumerate(hdr) if h is not None}
+        if "프로젝트NO" not in idx:
+            continue
+        i = idx["프로젝트NO"]
+        for r in ws.iter_rows(min_row=5, values_only=True):
+            v = r[i] if i < len(r) else None
+            if v:
+                known.add(str(v).strip())
+    wb.close()
+    out, seen = [], set()
+    for r in rows:
+        p = (r.get("프로젝트NO") or "").strip()
+        if not p or p in known or p in seen:
+            continue
+        seen.add(p)
+        out.append({"프로젝트NO": p, "발행일": r.get("발행일"), "유형": r.get("유형"),
+                    "문서파일": r.get("파일"), "공급가액": r.get("공급가액"),
+                    "확인방법": "밴드 해당 게시글을 열어 캠프·업무유형·금액을 확인한 뒤 "
+                                "알맞은 시트(02·04·13_PO발주관리)에 등록"})
+    return out
 
 
 def dateless(master):
@@ -111,7 +149,8 @@ def write_xlsx(data, out_path):
             "카톡_미확인": "작업완료인데 카톡 보고를 찾지 못한 건",
             "ERP원장_문제": "ERP에만/원장에만/계산서X/금액차 (A~D)",
             "쿠팡PO_문제": "원장미등록 PO·오기입·금액차·연결제안 (A~D)",
-            "날짜_미상": "작업일·점검일이 비어 있어 밴드·카톡에서 날짜를 찾아 채워야 하는 건"}
+            "날짜_미상": "작업일·점검일이 비어 있어 밴드·카톡에서 날짜를 찾아 채워야 하는 건",
+            "문서_원장미등록": "밴드 문서 사진에는 있는데 관리대장 어디에도 없는 프로젝트NO"}
     for k, rows in data.items():
         ws.append([k.replace("_", " "), len(rows), desc.get(k, "")])
     for col, w in (("A", 22), ("B", 8), ("C", 62)):
