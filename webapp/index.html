@@ -272,6 +272,10 @@ b.prjno{font-weight:800;font-variant-numeric:tabular-nums;color:var(--navy-900)}
   border-radius:999px;padding:1px 7px;white-space:nowrap}
 .srow .oktag.warn{color:#B25E09;background:#FFF3E4}
 .srow .oktag.bad{color:#C0212E;background:#FDECEE}
+.ecell.has-help,.gi .has-help{cursor:pointer}
+.qm{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
+  border-radius:50%;background:var(--brand);color:#fff;font-size:9.5px;font-weight:800;
+  font-style:normal;margin-left:5px;vertical-align:middle}
 .srow .amt{font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
 .srow .meta{display:flex;gap:6px 11px;font-size:11px;color:var(--ink-3);margin-top:7px;flex-wrap:wrap;align-items:center}
 
@@ -1586,13 +1590,18 @@ function execHtml(){
     if((s.groups||[]).length){
       h += `<div class="egrid">` + s.groups.map(g=>`<div class="egroup">
         <div class="gh">${g.name}</div>
-        <div class="gb">${g.items.map(([l,v])=>
-          `<div class="gitem"><div class="gi"><span>${l}</span><b>${v||'-'}</b></div>${dayDetail(l,v)}</div>`
-        ).join('')}</div></div>`).join('') + `</div>`;
+        <div class="gb">${g.items.map(([l,v])=>{
+          const k = helpKey(l);
+          return `<div class="gitem"><div class="gi"><span${k?` class="has-help" onclick="openHelp('${k}')"`:''}>${l}${k?'<i class="qm">?</i>':''}</span><b>${v||'-'}</b></div>${dayDetail(l,v)}</div>`;
+        }).join('')}</div></div>`).join('') + `</div>`;
     }
     if((s.items||[]).length){
-      h += `<div class="ecells">` + s.items.map(([l,v])=>
-        `<div class="ecell"><div class="l">${l}</div><div class="v">${v||'-'}</div></div>`).join('') + `</div>`;
+      // 설명이 있는 지표는 라벨에 물음표를 붙여 눌러서 볼 수 있게 한다
+      h += `<div class="ecells">` + s.items.map(([l,v])=>{
+        const k = helpKey(l);
+        return `<div class="ecell${k?' has-help':''}"${k?` onclick="openHelp('${k}')"`:''}>
+          <div class="l">${l}${k?'<i class="qm">?</i>':''}</div><div class="v">${v||'-'}</div></div>`;
+      }).join('') + `</div>`;
     }
     if((s.lines||[]).length){
       h += `<ol class="elines">` + s.lines.map(t=>
@@ -1827,6 +1836,81 @@ function renderDaily(){
    "이건 어디서 확인해서 어떻게 넣어야 프로그램·엑셀에 반영되나"를
    건마다 붙여 준다. 상태·문제유형 이름을 키로 쓴다. */
 const HELP = {
+  '잔여 미청구액': {
+    what: '작업은 끝났는데 <b>거래명세서로 아직 청구하지 못한 금액</b>입니다.<br>'
+        + '계산식: <code>실제작업합계 − 거래명세서합계</code> 중 <b>양수만</b> 더한 값 '
+        + '(06_거래서류청구수금 시트 「미청구액」 열).<br>'
+        + '작업금액보다 명세서 금액이 작으면 그만큼 덜 청구한 것이므로 여기 잡힙니다. '
+        + '<b>「작업금액 불일치」와 같은 건을 금액으로 본 것</b>입니다 — 건수로 보면 불일치, 돈으로 보면 미청구액.',
+    where: ['06_거래서류청구수금 시트에서 <b>미청구액</b> 열이 0보다 큰 행',
+            '앱 [확인필요] 탭의 <b>금액 불일치</b> 항목',
+            '밴드 그 작업 게시글의 거래명세서 사진 / 이카운트 [판매 → 거래명세서]'],
+    how: ['작업금액과 명세서 금액 중 <b>어느 쪽이 맞는지</b> 확인합니다',
+          '<b>명세서가 맞으면</b>: 실제작업 공급가액을 명세서 금액에 맞춰 고칩니다',
+          '<b>작업금액이 맞으면</b>: 차액만큼 <b>추가 청구</b>하고 명세서를 다시 끊습니다',
+          '고치면 이 숫자는 자동으로 0이 됩니다(수기 조정 불필요)'],
+    who: '유현민 (금액 확인 후 정정 또는 추가 청구)'
+  },
+  '작업금액 불일치': {
+    what: '실제 작업금액과 거래명세서 금액이 <b>서로 다른 건수</b>입니다.<br>'
+        + '금액이 아직 안 채워진 건(미청구)과 신규납품·계단 같은 <b>별도 공사는 세지 않습니다</b> — '
+        + '그건 각각 따로 관리합니다.',
+    where: ['06_거래서류청구수금 시트 「작업대비거래명세서차액」 열이 0이 아닌 행',
+            '앱 [확인필요] 탭 → 구분 <b>금액</b>'],
+    how: ['「잔여 미청구액」과 같은 건입니다 — 그쪽 설명대로 처리하면 함께 사라집니다'],
+    who: '유현민'
+  },
+  '잔여 미수금액': {
+    what: '세금계산서까지 발행했는데 <b>아직 입금되지 않은 금액</b>입니다.<br>'
+        + '계산식: <code>세금계산서합계 − 입금액</code>. 청구는 끝났고 돈만 안 들어온 상태입니다.',
+    where: ['06_거래서류청구수금 시트 「세금계산서대비입금차액」 열',
+            '통장 입금 내역 / 쿠팡 아리바 지급 예정일'],
+    how: ['입금이 확인되면 <b>입금일·입금액</b>을 앱이나 대장에 입력하면 자동으로 줄어듭니다',
+          '지급예정일이 지났는데 미입금이면 쿠팡 담당자에게 확인'],
+    who: '유현민'
+  },
+  '청구액 (당일)': {
+    what: '<b>오늘 날짜로 발행된 거래명세서</b>의 합계입니다. 오늘 청구한 금액이 없으면 0입니다.',
+    where: ['06_거래서류청구수금 시트에서 거래명세서 발행일이 오늘인 행'],
+    how: ['오늘 발행한 명세서가 있는데 0으로 나오면 <b>발행일이 대장에 안 적힌 것</b>입니다 — 발행일을 입력하세요'],
+    who: '류지영 매니저 / 유현민'
+  },
+  '문제 업무 건수(중복 제거)': {
+    what: '검증에서 걸린 업무를 <b>같은 건은 한 번만</b> 세어 정리한 수입니다.<br>'
+        + '한 건에 문제 코드가 여러 개 붙어 있어도(사진 미첨부 + ERP 미등록 …) 1건으로 셉니다. '
+        + '아래 「문서 경고」와 겹쳐 보이는 이유가 이것입니다.',
+    where: ['앱 [확인필요] 탭', '23_확인필요현황 시트'],
+    how: ['건별로 열어 문제 코드마다 안내된 대로 처리하면 줄어듭니다'],
+    who: '유현민 / 담당기사'
+  },
+  '세금계산서 기한 임박·초과': {
+    what: '세금계산서는 <b>공급일이 속한 달의 다음 달 10일까지</b> 발행해야 합니다. '
+        + '그 기한이 가까워졌거나 이미 지난 건수입니다. 넘기면 가산세가 붙습니다.',
+    where: ['06_거래서류청구수금 시트에서 작업완료일 대비 세금계산서발행일이 빈 행'],
+    how: ['이카운트에서 즉시 발행 → [매출(세금)계산서현황] 엑셀을 <code>inbox/</code>에 넣으면 자동 반영'],
+    who: '유현민 (발행)'
+  },
+  'PO 미발행 · 확인필요': {
+    what: '쿠팡 발주번호(PO)가 있어야 청구가 되는 건인데 <b>PO 번호가 비어 있거나 확인이 안 된</b> 건수입니다.',
+    where: ['쿠팡 아리바(Ariba) 발주 화면', '밴드 「구매 오더 전송」 게시글의 PO 번호'],
+    how: ['PO 목록 엑셀을 <code>inbox/</code>에 넣으면 자동으로 대조·연결됩니다',
+          'PO가 아직 안 나왔으면 쿠팡 담당자에게 발주 요청'],
+    who: '유현민'
+  },
+  '거래명세서 미작성': {
+    what: '작업은 끝났는데 <b>거래명세서를 아직 안 끊은</b> 건수입니다. 청구의 첫 단계가 안 된 상태입니다.',
+    where: ['06_거래서류청구수금 시트에서 거래명세서번호가 빈 행'],
+    how: ['이카운트에서 명세서 발행 후 번호·발행일을 앱이나 대장에 입력'],
+    who: '류지영 매니저 / 유현민'
+  },
+  '아리바 청구 미등록': {
+    what: '세금계산서는 발행했는데 <b>쿠팡 아리바에 청구 등록을 안 한</b> 건수입니다. '
+        + '등록하지 않으면 지급 절차가 시작되지 않습니다.',
+    where: ['쿠팡 아리바 → 송장(Invoice) 등록 화면'],
+    how: ['아리바에 청구 등록 후 대장의 아리바승인일을 입력'],
+    who: '유현민'
+  },
+
   '금액 미입력': {
     what: '작업은 끝났는데 공급가액이 비어 있습니다. 금액이 없으면 거래명세서·세금계산서를 만들 수 없어 청구가 멈춥니다.',
     where: ['밴드 해당 작업 게시글의 <b>견적서·거래명세서 사진</b>',
@@ -1929,6 +2013,19 @@ function helpBox(key){
 }
 
 /* 용어·처리방법 전체 목록 (실행 탭 도움말) */
+/* 보고 화면 라벨 → HELP 열쇠. 괄호·공백 표기가 흔들려도 찾아낸다. */
+function helpKey(label){
+  const raw = String(label||'').trim();
+  if(HELP[raw]) return raw;
+  const norm = t => String(t).replace(/[\s()（）·]/g,'').toLowerCase();
+  const n = norm(raw);
+  let k = Object.keys(HELP).find(x => norm(x) === n);
+  if(k) return k;
+  // '작업금액 불일치 (현재)'·'청구액 (당일)'처럼 뒤에 (현재)·(당일)이 붙은 표기도 같은 항목이다
+  const base = norm(raw.replace(/\((현재|당일|누적|금월|전체)\)\s*$/,''));
+  k = Object.keys(HELP).find(x => norm(x) === base || norm(x).startsWith(base) && base.length >= 4);
+  return k || '';
+}
 function helpAll(){
   const terms = [
     ['대표 프로젝트NO', '모든 건이 번호로 식별되게 붙인 번호입니다. 원본 번호가 없으면 ①본문에서 찾은 UJ번호 ②같은 캠프·같은 달의 실제 작업 번호 ③ERP 전표번호(<code>ERP-260110-2</code> 형태) ④자체 ID 순으로 정합니다. <b>없는 UJ 번호를 지어내지는 않습니다.</b>'],
