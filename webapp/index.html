@@ -268,6 +268,9 @@ b.prjno{font-weight:800;font-variant-numeric:tabular-nums;color:var(--navy-900)}
 .srow .camptag{font-size:13.5px;font-weight:700;color:var(--ink-1);line-height:1.25;
   word-break:break-all;min-width:0;flex:1;margin-left:2px}
 .srow .camptag.none{color:var(--danger);font-weight:600;font-size:12px}
+.srow .oktag{font-size:10.5px;font-weight:700;color:#12813F;background:#E7F5EC;
+  border-radius:999px;padding:1px 7px;white-space:nowrap}
+.srow .oktag.warn{color:#B25E09;background:#FFF3E4}
 .srow .amt{font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
 .srow .meta{display:flex;gap:6px 11px;font-size:11px;color:var(--ink-3);margin-top:7px;flex-wrap:wrap;align-items:center}
 
@@ -874,6 +877,13 @@ function statOf(r){ return mode==='as' ? r.진행상태 : mode==='pm' ? r.점검
 /* 프로젝트NO 바로 옆에 붙는 캠프 이름.
    어느 현장인지가 번호만큼 중요해서 카드 첫 줄로 올렸다(2026-07-26 요청).
    캠프를 모르는 건은 빈칸으로 두지 않고 '캠프 미상'이라고 적어 조치 대상임을 보이게 한다. */
+/* 관리자 확인이 끝난 건에 붙는 체크 표시 — 무엇이 남았는지 한눈에 보이게 한다. */
+function okTag(state, when){
+  const st = String(state||'').trim();
+  if(!st) return '';
+  const good = st==='일치';
+  return `<span class="oktag ${good?'':'warn'}">${good?'✓ 확인완료':st}${when?` ${String(when).slice(5)}`:''}</span>`;
+}
 function campTag(v){
   const s = String(v||'').trim();
   return s ? `<span class="camptag">${s}</span>`
@@ -1051,7 +1061,7 @@ function renderSettle(){
       <div class="srow" onclick="openSheet('as',${i},'${r.접수ID}')">
         <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${campTag(r.캠프명)}${chip(r.진행상태)}</div>
         <div class="top"><span class="camp">${r.담당기사||'-'}</span></div>
-        <div class="meta"><span class="sid">${r.접수ID||''}</span><span>접수 ${r.접수일자||'-'}</span><span>${r['유상·무상·보험']||''}</span>
+        <div class="meta"><span class="sid">${r.접수ID||''}</span><span>접수 ${r.접수일자||'-'}</span>${r.작업완료일?`<span>완료 ${r.작업완료일}</span>`:''}<span>${r['유상·무상·보험']||''}</span>${okTag(r.관리자검증상태, r.최종확인일)}
           ${r.긴급도==='긴급'?'<span style="color:var(--danger);font-weight:700">긴급</span>':''}
           <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</span></div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
@@ -1090,7 +1100,7 @@ function renderSettle(){
       <div class="srow" onclick="openSheet('pm',${i},'${r.점검ID}')">
         <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${campTag(r.캠프명)}${chip(r.점검상태)}</div>
         <div class="top"><span class="camp">${r.담당기사||'-'}</span></div>
-        <div class="meta"><span class="sid">${r.점검ID||''}</span><span>예정 ${r.점검예정일||'-'}</span><span>실제 ${r.실제점검일||'-'}</span>
+        <div class="meta"><span class="sid">${r.점검ID||''}</span><span>예정 ${r.점검예정일||'-'}</span><span>실제 ${r.실제점검일||'-'}</span>${okTag(r['최종확인일(유현민 체크)']?'일치':'', r['최종확인일(유현민 체크)'])}
           ${r.이상발견여부==='있음'?'<span style="color:var(--danger);font-weight:700">이상발견</span>':''}</div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
     $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('점검ID','점검ID')}${thx('캠프','캠프명')}${thx('예정일','점검예정일')}${thx('실제점검일','실제점검일')}${thx('기사','담당기사')}${thx('이상','이상발견여부')}${thx('AS전환','돌발AS전환여부')}${thx('상태','점검상태')}</tr>` +
