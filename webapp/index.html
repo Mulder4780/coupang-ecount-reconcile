@@ -1635,20 +1635,26 @@ function erpHtml(y){
 function bundleHtml(y){
   const rows = (erpDocs.rows||[]).filter(r=>String(r.월||'').startsWith(y));
   if(!rows.length) return '';
-  const ok = rows.filter(r=>r.판정==='확정'||r.판정==='유력').length;
-  const est = rows.filter(r=>r.판정==='추정').length;
-  const unk = rows.length - ok - est;
+  const kind = r => String(r.판정||'').split('(')[0];
+  const ok  = rows.filter(r=>['확정','유력'].includes(kind(r))).length;
+  const est = rows.filter(r=>kind(r)==='추정').length;
+  const out = rows.filter(r=>kind(r)==='대상외').length;
+  const unk = rows.length - ok - est - out;
   return `<h4 style="margin-top:14px">계산서별 포함 프로젝트
-      <span class="norm">— 확정·유력 ${ok} · 추정 ${est} · 미상 ${unk} (번호를 누르면 그 건으로 이동)</span></h4>
+      <span class="norm">— 확정 ${ok} · 추정 ${est} · 대상외 ${out}${unk?` · 미상 ${unk}`:''} (번호를 누르면 그 건으로 이동)</span></h4>
+    <div style="font-size:11px;color:var(--ink-3);margin:-4px 0 6px">
+      대상외 = 계단·철거·신규납품처럼 AS·점검이 아닌 별도 공사(원장에 작업 행이 없습니다)</div>
     <table class="stack">
       <colgroup><col style="width:15%"><col style="width:11%"><col style="width:19%"><col style="width:55%"></colgroup>
       <tr><th>전표</th><th>판정</th><th style="text-align:right">공급가액(원)</th><th>포함 프로젝트NO</th></tr>
       ${rows.map(r=>{
-        const v = String(r.판정||'미상');
-        const col = v==='확정'?'#12813F' : v==='유력'?'#0B6BCB' : v==='추정'?'#B25E09' : '#98A2B3';
+        const v = String(r.판정||'미상'), k = v.split('(')[0];
+        const col = k==='확정'?'#12813F' : k==='유력'?'#0B6BCB' : k==='추정'?'#B25E09'
+                  : k==='대상외'?'#667085' : k==='밴드확인'?'#0B6BCB' : '#98A2B3';
         const list = String(r.포함프로젝트||'').split(',').map(s=>s.trim()).filter(Boolean);
         return `<tr><td class="hd">${r.전표}</td>
-          <td data-l="판정"><span style="color:${col};font-weight:700">${v.split('(')[0]}</span></td>
+          <td data-l="판정"><span style="color:${col};font-weight:700">${k}</span>${
+            v.includes('(') && k==='확정' ? `<div style="font-size:10px;color:var(--ink-3)">${v.slice(v.indexOf('(')+1,-1)}</div>` : ''}</td>
           <td data-l="공급가액" style="text-align:right">${fmt(r.공급가액)}</td>
           <td class="prjs" data-l="포함 프로젝트NO"><div class="chips">${
             list.map(k=>`<span class="prj" onclick="openByPrj('${k}')">${k}</span>`).join('')

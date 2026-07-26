@@ -123,6 +123,106 @@ def load_works(master):
     return out
 
 
+# ── 밴드 '세금계산서 발행 완료' 목록글 = 계산서 구성 원본 ────────────────────
+# 매출처 밴드에는 계산서 한 장이 어떤 건들로 이뤄졌는지 사람이 직접 적어 둔 글이 있다.
+#   1. 송파1MB(감일동)(1/10) : 2R/T Mobile-lift 2EA 19,780,000원 / PO326259
+#      UJ2501950 - 발행완료
+#   6. 김해2MB외 철거 및 이전 설치(1/25) : 4,558,500원 / PO330304
+#      1. 김해2MB(장유동) … : 906,000원 UJ2600136      ← 묶인 하위 건들
+# 추정보다 이게 훨씬 정확하다. 발행일+금액으로 ERP 전표와 맞춰 '확정(밴드)'으로 쓴다.
+_ITEM_RE = re.compile(r"^\s*(\d{1,2})\.\s*(.+?)\((\d{1,2})/(\d{1,2})\)\s*[:：]\s*(.*)$")
+_AMT_RE = re.compile(r"([\d,]{4,})\s*원")
+_UJ_RE = re.compile(r"UJ\d{7}")
+
+
+def band_invoice_index():
+    """(발행일 'YYYY-MM-DD', 공급가액) → {프로젝트들, 캠프, PO}"""
+    import json, glob
+    cache = os.path.join(ROOT, "band", "cache")
+    idx = {}
+    for f in glob.glob(os.path.join(cache, "*.json")):
+        b = os.path.basename(f)
+        if b.startswith(("dump_", "raw_")):
+            continue
+        try:
+            d = json.load(open(f, encoding="utf-8"))
+        except Exception:
+            continue
+        for p in (d.get("posts") or {}).values():
+            ts = p.get("created_at")
+            if not ts:
+                continue
+            year = datetime.fromtimestamp(ts / 1000).year
+            pm = datetime.fromtimestamp(ts / 1000).month
+            lines = (p.get("content") or "").splitlines()
+            cur = None
+            for ln in lines:
+                m = _ITEM_RE.match(ln)
+                if m:
+                    mo, day = int(m.group(3)), int(m.group(4))
+                    # 1월에 올린 글이 12월 건을 적기도 한다 — 그때는 작년으로 본다
+                    y = year - 1 if (pm <= 2 and mo >= 11) else year
+                    am = _AMT_RE.search(m.group(5))
+                    if not am:
+                        cur = None
+                        continue
+                    amt = int(am.group(1).replace(",", ""))
+                    po = re.search(r"PO\d+", m.group(5))
+                    cur = idx.setdefault(("%04d-%02d-%02d" % (y, mo, day), amt),
+                                         {"프로젝트": [], "캠프": m.group(2).strip(),
+                                          "PO": po.group() if po else ""})
+                    for x in _UJ_RE.findall(m.group(5)):
+                        if x not in cur["프로젝트"]:
+                            cur["프로젝트"].append(x)
+                elif cur is not None:
+                    # 다음 항목이 나오기 전까지의 줄(하위 건 포함)에서 프로젝트NO를 줍는다
+                    for x in _UJ_RE.findall(ln):
+                        if x not in cur["프로젝트"]:
+                            cur["프로젝트"].append(x)
+    return idx
+
+
+_TOTAL_RE = re.compile(r"총\s*금\s*액\s*[:：]?\s*([\d,]{4,})\s*원")
+
+
+def band_po_index():
+    """쿠팡 PO 발주 글 → 금액별 프로젝트NO.
+
+        ★ 총금액 : 50,400,000 원
+        ★ 품  목 : M_무안1 4R/T Mobile-lift 3EA
+        ★ 프로젝트 No. : UJ2600232 (리프트만)
+
+    계산서 목록글에 프로젝트NO가 안 적힌 건들은 여기서 채운다(금액이 같으면 같은 건).
+    """
+    import json, glob
+    cache = os.path.join(ROOT, "band", "cache")
+    idx = {}
+    for f in glob.glob(os.path.join(cache, "*.json")):
+        b = os.path.basename(f)
+        if b.startswith(("dump_", "raw_")):
+            continue
+        try:
+            d = json.load(open(f, encoding="utf-8"))
+        except Exception:
+            continue
+        for p in (d.get("posts") or {}).values():
+            body = p.get("content") or ""
+            m = _TOTAL_RE.search(body)
+            if not m:
+                continue
+            prjs = _UJ_RE.findall(body)
+            if not prjs:
+                continue
+            amt = int(m.group(1).replace(",", ""))
+            # 총금액은 부가세 포함일 수도, 공급가일 수도 있다 — 둘 다 열쇠로 넣는다
+            for k in (amt, round(amt / 1.1)):
+                cur = idx.setdefault(k, [])
+                for x in prjs:
+                    if x not in cur:
+                        cur.append(x)
+    return idx
+
+
 _QTR_RE = re.compile(r"(\d{2})년\s*(\d)\s*분기")
 
 
@@ -144,27 +244,52 @@ def window(doc):
     return lo, mo
 
 
-def bundle(doc, works):
+def bundle(doc, works, binx=None, poinx=None):
     """계산서 1장 → (후보 프로젝트 목록, 판정, 합계)
 
     후보를 못 찾으면 판정 자리에 **왜 못 찾았는지**를 적는다.
     '미상' 한 마디로는 사람이 무엇을 해야 할지 알 수 없다.
     """
+    band_camp = ""
+    # ① 밴드에 사람이 적어 둔 계산서 목록이 최우선이다 — 추정이 아니라 기록이다.
+    if binx:
+        got = binx.get((doc["slip"][:10].replace("/", "-"), doc["amt"]))
+        if got:
+            if got["프로젝트"]:
+                return got["프로젝트"], "확정(밴드)", doc["amt"]
+            # 번호가 없으면 캠프라도 쓴다. 다만 목록글의 이름은 'A/S_1'·'정기점검_2' 같은
+            # **묶음 라벨**인 경우가 많아, 캠프 형태일 때만 갈아끼운다.
+            band_camp = got["캠프"][:18]
+            if _CAMP_RE.search(got["캠프"]):
+                doc = {**doc, "camp": got["캠프"]}
+    # ② 쿠팡 PO 발주 글은 계산서 목록에 없는 건도 커버한다 — 금액만 같으면 같은 발주다.
+    #    (목록글이 있을 때만 보면 PO365213 처럼 목록에 안 실린 건을 놓친다)
+    po = (poinx or {}).get(doc["amt"]) or []
+    if po:
+        return po, "확정(밴드PO)", doc["amt"]
     ck, kind = camp_key(doc["camp"]), doc["kind"]
+    # 계단·철거·신규납품·기타는 AS/점검이 아니라 **별도 공사**다. 02·04 시트에 작업 행이
+    # 아예 없으므로 '미상'으로 두면 영원히 안 풀린다. 대상 아님으로 분명히 적는다.
+    # (신규 납품건 제외는 사용자 지시 2026-07-26)
+    if kind in ("계단", "철거", "신규납품", "기타"):
+        return [], f"대상외({kind} — 별도 공사, 원장에 작업 행 없음)", 0
     lo, hi = window(doc)
+    tail = f" · 밴드캠프 {band_camp}" if band_camp else ""
     if not ck or not lo:
-        return [], "미상(캠프 못 읽음)", 0
+        return [], "미상(캠프 못 읽음)" , 0
     same_camp = [w for w in works if camp_key(w["camp"]) == ck]
     if not same_camp:
+        if band_camp:
+            return [], f"밴드확인({band_camp})", 0
         return [], "미상(그 캠프 작업이 대장에 없음)", 0
     same_kind = [w for w in same_camp
                  if not kind or kind == "기타" or kind in w["kind"] or w["kind"] in kind]
     if not same_kind:
-        return [], f"미상({kind} 자료 없음)", 0
+        return [], (f"밴드확인({band_camp})" if band_camp else f"미상({kind} 자료 없음)"), 0
     hits = [w for w in same_kind if w["date"] and lo <= w["date"][:7] <= hi]
     if not hits:
-        got = sorted({w["date"][:7] for w in same_kind if w["date"]})
-        return [], f"미상(기간 {lo}~{hi} 밖 · 보유 {','.join(got[:3])})", 0
+        gotm = sorted({w["date"][:7] for w in same_kind if w["date"]})
+        return [], f"미상(기간 {lo}~{hi} 밖 · 보유 {','.join(gotm[:3])})", 0
     seen, prjs = set(), []
     for w in hits:
         if w["prj"] not in seen:
@@ -189,9 +314,11 @@ def main():
     if not docs:
         sys.exit("25_ERP매출서류 시트가 비어 있습니다 — 먼저 erp_docs_check.py --sheet 를 돌리세요")
     works = load_works(master)
+    binx, poinx = band_invoice_index(), band_po_index()
+    print(f"밴드 근거: 계산서 목록 {len(binx)}항목 · PO 발주글 {len(poinx)}금액")
     rows, stat, why = [], {}, {}
     for d in sorted(docs, key=lambda x: x["slip"]):
-        prjs, verdict, tot = bundle(d, works)
+        prjs, verdict, tot = bundle(d, works, binx, poinx)
         stat[verdict.split("(")[0]] = stat.get(verdict.split("(")[0], 0) + 1
         why[verdict] = why.get(verdict, 0) + 1
         rows.append([d["slip"], d["month"], d["kind"], d["camp"], d["amt"],

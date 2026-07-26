@@ -585,8 +585,17 @@ def t22_bundle():
     # 후보를 못 찾으면 **이유**가 남아야 한다("미상" 한 마디는 조치를 못 한다)
     _, v, _ = B.bundle({**doc, "camp": "없는캠프"}, W)
     assert v.startswith("미상(") and "캠프" in v, v
+    # 계단·철거·신규납품·기타는 AS/점검이 아니라 별도 공사다 — 02·04에 작업 행이 아예 없으므로
+    # '미상'이 아니라 **대상외**로 못 박는다(그래야 영원히 미해결로 남지 않는다).
     _, v, _ = B.bundle({**doc, "kind": "철거"}, W)
-    assert v.startswith("미상(") and "철거" in v, v
+    assert v.startswith("대상외(") and "철거" in v, v
+    # 밴드에 사람이 적어 둔 계산서 목록·PO 발주글이 추정보다 우선한다
+    binx = {("2026-05-11", 1000000): {"프로젝트": ["UJ2600009"], "캠프": "양주2캠프", "PO": ""}}
+    prjs, v, _ = B.bundle({**doc, "slip": "2026/05/11-3", "amt": 1000000}, W, binx)
+    assert v == "확정(밴드)" and prjs == ["UJ2600009"], (v, prjs)
+    poinx = {777000: ["UJ2600077", "UJ2600078"]}
+    prjs, v, _ = B.bundle({**doc, "amt": 777000}, W, None, poinx)
+    assert v == "확정(밴드PO)" and len(prjs) == 2, (v, prjs)
     _, v, _ = B.bundle({**doc, "month": "2026/01"}, W)     # 기간 밖
     assert v.startswith("미상(") and "보유" in v, v
     print("  [22] ERP 계산서 구성 추정(캠프정규화·분기창·금액정합·미상사유) ✅")
