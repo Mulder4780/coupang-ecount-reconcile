@@ -668,6 +668,25 @@ def t24_reorder_safety():
     print("  [24] 재배치 안전성(배열수식 ref 이동·공유수식 펼침) ✅")
 
 
+def t25_attachments():
+    """행에 **붙어 있는 것들**이 함께 움직이는가 / 범위 확장이 시작행을 밀지 않는가.
+    둘 다 2026-07-26 합성 점검에서 찾은 구멍이다."""
+    import reorder_rows as R, expand_rows as E
+    # (1) 하이퍼링크는 sheetData 밖에 적혀 있어 행만 정렬하면 제자리에 남는다 →
+    #     9행이 다른 건으로 바뀌었는데 링크는 원래 건의 밴드 글을 가리킨다.
+    post = '<hyperlinks><hyperlink ref="AM9" r:id="rId1"/><hyperlink ref="AM12" r:id="rId2"/></hyperlinks>'
+    out, n = R.move_hyperlinks(post, {9: 300, 12: 7})
+    assert n == 2 and 'ref="AM300"' in out and 'ref="AM7"' in out, out
+    out2, n2 = R.move_hyperlinks(post, {})          # 옮길 행이 없으면 그대로
+    assert n2 == 0 and out2 == post
+    # (2) 범위 확장은 **끝행만** 늘려야 한다. 시작행까지 밀면 구간이 통째로 벗어난다.
+    assert E.bump("A5:A5", 5, 8) == "A5:A8", E.bump("A5:A5", 5, 8)
+    assert E.bump("V5:V31 V33:V474", 474, 500) == "V5:V31 V33:V500"
+    assert E.bump("V31", 31, 60) == "V31", "단일 셀은 범위가 아니다"
+    assert E.bump("A5:AG104", 104, 164) == "A5:AG164"
+    print("  [25] 행 부속물(하이퍼링크 이동·범위 끝행만 확장) ✅")
+
+
 def t16_status():
     """상태 수식 캐시 보정 — 새로 넣은 행은 상태열(수식)이 None이라 완료된 점검이
     전부 '미점검'으로 보였다. 원본 열로 직접 판정하는 로직 검증."""
@@ -812,5 +831,6 @@ if __name__ == "__main__":
     t22_bundle()
     t23_formulas()
     t24_reorder_safety()
+    t25_attachments()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

@@ -28,6 +28,9 @@ CACHE = os.path.join(ROOT, "band", "cache")
 CAMP_RE = re.compile(r"캠프\s*이?름?\s*[:：]\s*([^\n●♣\[]{2,30})")
 PRJ_RE = re.compile(r"UJ\d{7}")
 LIST_RE = re.compile(r"\d+\.\s*(.+?)\(\d{1,2}/\d{1,2}\)\s*[:：][^\n]*?(UJ\d{7})")
+# 'A/S_1'·'정기점검_2' 같은 **묶음 라벨**은 캠프가 아니다. 계산서 목록글에서 이런 이름이
+# 캠프명 칸으로 들어가면 캠프별 집계와 계산서 구성 추정이 통째로 어긋난다.
+LABEL_RE = re.compile(r"^(A/?S|돌발\S*|정기점검|신규\S*|철거|계단|기타)[_\s]*\d*$", re.I)
 
 
 def camp_book():
@@ -47,13 +50,18 @@ def camp_book():
                 ps, cs = PRJ_RE.findall(blk), CAMP_RE.findall(blk)
                 if ps and cs:
                     camp = cs[0].strip().rstrip("=·-").strip()
+                    if LABEL_RE.match(camp):
+                        continue
                     for x in ps:
                         book.setdefault(x, camp)
             # 매출처 밴드의 "세금계산서 발행 완료" 목록 글은 형식이 다르다:
             #   3. 송파1MB(감일동)(1/10) : 2R/T Mobile-lift 2EA 19,780,000원 / PO326259 UJ2501950
             # 캠프 이름 자체에 괄호가 있어 **맨 끝 (월/일)** 을 기준으로 잘라야 한다.
             for m in LIST_RE.finditer(body):
-                book.setdefault(m.group(2), m.group(1).strip())
+                camp = m.group(1).strip()
+                if LABEL_RE.match(camp):
+                    continue
+                book.setdefault(m.group(2), camp)
     return book
 
 

@@ -233,11 +233,37 @@ def plan(xml, date_cols, id_col, sst=None):
     return head, ordered, moved, bad
 
 
+def move_hyperlinks(post, mapping):
+    """<hyperlink ref="AM9"/> 도 그 행을 따라 옮긴다.
+
+    링크는 셀에 붙어 있는데 sheetData 밖(꼬리)에 적혀 있어서, 행만 정렬하면
+    링크가 제자리에 남아 **다른 건의 밴드 글로 연결된다**(2026-07-26 AM9 실사례:
+    9행이 UJ2501886으로 바뀌었는데 링크는 원래 있던 건의 게시글 5243을 그대로 가리켰다).
+    """
+    n = [0]
+
+    def rep(m):
+        col, r = m.group(2), int(m.group(3))
+        new = mapping.get(r)
+        if not new or new == r:
+            return m.group(0)
+        n[0] += 1
+        return f'{m.group(1)}"{col}{new}"'
+
+    out = re.sub(r'(<hyperlink\b[^>]*?\sref=)"([A-Z]{1,3})(\d+)"', rep, post)
+    return out, n[0]
+
+
 def rebuild(xml, head, ordered):
     rows, (pre, post) = sheet_rows(xml)
     parts = [seg for _, seg in head]
-    for i, (_, seg) in enumerate(ordered):
+    mapping = {}
+    for i, (old_r, seg) in enumerate(ordered):
+        mapping[old_r] = 5 + i
         parts.append(move_row(seg, 5 + i))
+    post, moved = move_hyperlinks(post, mapping)
+    if moved:
+        print(f"   하이퍼링크 {moved}개도 함께 이동")
     return pre + "".join(parts) + post
 
 

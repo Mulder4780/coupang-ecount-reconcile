@@ -127,9 +127,20 @@ def clone_row(row_xml, src_row, dst_row, smap):
 
 
 def bump(text, last, newlast):
-    """범위 문자열에서 끝행 last → newlast (A5:AG104 → A5:AG164)"""
-    return re.sub(r'(\$?[A-Z]{1,3}\$?)' + str(last) + r'(?!\d)',
-                  lambda m: m.group(1) + str(newlast), text)
+    """범위 문자열에서 **끝행만** last → newlast (A5:AG104 → A5:AG164)
+
+    ★ 예전에는 문자열 안의 last를 전부 바꿨다. 그래서 시작행이 마침 last와 같은 범위
+      (예: 마지막 행 하나만 덮는 A5:A5)가 A8:A8 처럼 **시작까지 밀려** 원래 구간을
+      벗어났다(2026-07-26 합성 점검에서 발견). 콜론 뒤(=끝) 좌표만 손댄다.
+    """
+    def one(part):
+        if ":" not in part:
+            return part      # 단일 셀 참조는 범위가 아니다 — 건드리지 않는다
+        a, b = part.split(":", 1)
+        b2 = re.sub(r'(\$?[A-Z]{1,3}\$?)' + str(last) + r'(?!\d)',
+                    lambda m: m.group(1) + str(newlast), b)
+        return a + ":" + b2
+    return " ".join(one(p) for p in text.split(" "))
 
 
 def bump_attr(xml, tag_pat, attr, last, newlast):
