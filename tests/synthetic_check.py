@@ -592,6 +592,44 @@ def t22_bundle():
     print("  [22] ERP 계산서 구성 추정(캠프정규화·분기창·금액정합·미상사유) ✅")
 
 
+def t23_formulas():
+    """깨진 수식 복구 — 음수 행 참조·굳어버린 오류값·좁아진 범위.
+    이 셋이 엑셀에서 #N/A 691개로 나타났다(2026-07-26). 다시 새지 않게 못 박는다."""
+    import fix_formulas as F
+    # 상대 행 오프셋을 유지한 채 다른 행에 재생산되는가
+    tmpl = F.normalize('IF($B5="","",COUNT($AO$4:AO4)+1)', 5)
+    assert F.instantiate(tmpl, 5) == 'IF($B5="","",COUNT($AO$4:AO4)+1)'
+    assert F.instantiate(tmpl, 130) == 'IF($B130="","",COUNT($AO$4:AO129)+1)'
+    # 깨짐 판정
+    assert F.is_broken('COUNT($AO$4:AO-120)+1')      # 음수 행
+    assert F.is_broken('#N/A')                       # 오류값이 수식으로 굳음
+    assert F.is_broken('SUM(#REF!)')
+    assert not F.is_broken('IF($A5="","",1)')
+    # ★ 공유수식 참조 셀은 본문이 비어 있다. 이걸 본으로 뽑으면 열 전체가 못 고쳐진다.
+    cells = [(5, 'Q', 'IF($A5="","",N($O5))', 0, 0),
+             (6, 'Q', '', 0, 0), (7, 'Q', '', 0, 0), (8, 'Q', '', 0, 0)]
+    tm = F.templates(cells)
+    assert tm.get('Q'), '빈 수식이 최다 득표로 뽑히면 안 된다'
+    assert F.instantiate(tm['Q'], 9) == 'IF($A9="","",N($O9))'
+    # 범위 확장: 실제 마지막 행까지 늘어나되, 이미 충분하면 건드리지 않는다
+    xml = "<f>COUNTIF('02_돌발AS접수'!$A$5:$A$154,1)</f>"
+    y, n = F.widen(xml, {'02_돌발AS접수': 344})
+    assert '$A$344' in y and n == 1, y
+    y2, n2 = F.widen(y, {'02_돌발AS접수': 344})
+    assert n2 == 0, '이미 맞는 범위를 또 건드리면 안 됨'
+    # 셀 위치 계산: <row> 여는 태그 길이를 빼먹으면 엉뚱한 자리를 덮어쓴다
+    sx = ('<sheetData><row r="5" spans="1:3"><c r="A5"><v>1</v></c>'
+          '<c r="B5" t="e"><f>#N/A</f><v>#N/A</v></c></row>'
+          '<row r="6"><c r="B6"><f>IF($A6="","",2)</f><v>2</v></c></row></sheetData>')
+    cells = F.parse_cells(sx)
+    b5 = [c for c in cells if c[1] == 'B' and c[0] == 5][0]
+    assert sx[b5[3]:b5[4]].startswith('<c r="B5"'), sx[b5[3]:b5[4]][:30]
+    fixed, k = F.fix_sheet(sx)
+    assert k == 1 and 'IF($A5="","",2)' in fixed and '#N/A' not in fixed, fixed
+    assert '<c r="A5"><v>1</v></c>' in fixed, '옆 셀이 망가지면 안 됨'
+    print("  [23] 수식 복구(음수행·굳은오류·공유수식본·범위확장·셀위치) ✅")
+
+
 def t16_status():
     """상태 수식 캐시 보정 — 새로 넣은 행은 상태열(수식)이 None이라 완료된 점검이
     전부 '미점검'으로 보였다. 원본 열로 직접 판정하는 로직 검증."""
@@ -734,5 +772,6 @@ if __name__ == "__main__":
     t20_rep_no()
     t21_reorder()
     t22_bundle()
+    t23_formulas()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

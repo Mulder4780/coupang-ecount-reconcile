@@ -271,6 +271,7 @@ b.prjno{font-weight:800;font-variant-numeric:tabular-nums;color:var(--navy-900)}
 .srow .oktag{font-size:10.5px;font-weight:700;color:#12813F;background:#E7F5EC;
   border-radius:999px;padding:1px 7px;white-space:nowrap}
 .srow .oktag.warn{color:#B25E09;background:#FFF3E4}
+.srow .oktag.bad{color:#C0212E;background:#FDECEE}
 .srow .amt{font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
 .srow .meta{display:flex;gap:6px 11px;font-size:11px;color:var(--ink-3);margin-top:7px;flex-wrap:wrap;align-items:center}
 
@@ -884,6 +885,15 @@ function okTag(state, when){
   const good = st==='일치';
   return `<span class="oktag ${good?'':'warn'}">${good?'✓ 확인완료':st}${when?` ${String(when).slice(5)}`:''}</span>`;
 }
+/* 엑셀 검증결과(수식)를 그대로 띄운다 — 앱이 따로 계산하지 않고 대장을 그대로 보여주는 것이
+   숫자가 어긋나지 않는 유일한 방법이다. 문제코드는 눌러서 설명을 볼 수 있게 넘긴다. */
+function verTag(res, codes){
+  const r = String(res||'').trim();
+  if(!r) return '';
+  if(r==='정상') return `<span class="oktag">✓ 검증 정상</span>`;
+  const n = String(codes||'').split(/[,·]/).map(x=>x.trim()).filter(Boolean).length;
+  return `<span class="oktag ${r==='누락·지연'?'bad':'warn'}">${r}${n?` ${n}`:''}</span>`;
+}
 function campTag(v){
   const s = String(v||'').trim();
   return s ? `<span class="camptag">${s}</span>`
@@ -1061,7 +1071,7 @@ function renderSettle(){
       <div class="srow" onclick="openSheet('as',${i},'${r.접수ID}')">
         <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${campTag(r.캠프명)}${chip(r.진행상태)}</div>
         <div class="top"><span class="camp">${r.담당기사||'-'}</span></div>
-        <div class="meta"><span class="sid">${r.접수ID||''}</span><span>접수 ${r.접수일자||'-'}</span>${r.작업완료일?`<span>완료 ${r.작업완료일}</span>`:''}<span>${r['유상·무상·보험']||''}</span>${okTag(r.관리자검증상태, r.최종확인일)}
+        <div class="meta"><span class="sid">${r.접수ID||''}</span><span>접수 ${r.접수일자||'-'}</span>${r.작업완료일?`<span>완료 ${r.작업완료일}</span>`:''}<span>${r['유상·무상·보험']||''}</span>${okTag(r.관리자검증상태, r.최종확인일)}${verTag(r.검증결과, r.검증문제코드)}
           ${r.긴급도==='긴급'?'<span style="color:var(--danger);font-weight:700">긴급</span>':''}
           <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</span></div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
@@ -1100,7 +1110,7 @@ function renderSettle(){
       <div class="srow" onclick="openSheet('pm',${i},'${r.점검ID}')">
         <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${campTag(r.캠프명)}${chip(r.점검상태)}</div>
         <div class="top"><span class="camp">${r.담당기사||'-'}</span></div>
-        <div class="meta"><span class="sid">${r.점검ID||''}</span><span>예정 ${r.점검예정일||'-'}</span><span>실제 ${r.실제점검일||'-'}</span>${okTag(r['최종확인일(유현민 체크)']?'일치':'', r['최종확인일(유현민 체크)'])}
+        <div class="meta"><span class="sid">${r.점검ID||''}</span><span>예정 ${r.점검예정일||'-'}</span><span>실제 ${r.실제점검일||'-'}</span>${okTag(r['최종확인일(유현민 체크)']?'일치':'', r['최종확인일(유현민 체크)'])}${verTag(r.검증결과, r.검증문제코드)}
           ${r.이상발견여부==='있음'?'<span style="color:var(--danger);font-weight:700">이상발견</span>':''}</div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
     $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('점검ID','점검ID')}${thx('캠프','캠프명')}${thx('예정일','점검예정일')}${thx('실제점검일','실제점검일')}${thx('기사','담당기사')}${thx('이상','이상발견여부')}${thx('AS전환','돌발AS전환여부')}${thx('상태','점검상태')}</tr>` +
@@ -1147,7 +1157,16 @@ function openSheet(kind, idx, id){
     ${helpBox(r.상태)}
     ${inputForm('settle', r, r.정산ID)}`;
   } else {
-    html = `<h2>${id} ${chip(statOf(r))}</h2><div class="sub">${r.캠프명||''}</div><div class="dl">` +
+    // 엑셀 검증결과를 맨 위에 놓고, 문제코드마다 "무엇이 왜 문제이고 어떻게 처리하는지"를 편다.
+    const vres = r.검증결과||'', vcodes = r.검증문제코드||'';
+    const vbox = vres ? `<div class="card" style="margin:0 0 10px">
+        <div style="font-weight:800;margin-bottom:4px">엑셀 검증결과 — ${vres}
+          ${r.관리자검증상태==='일치'?'<span class="oktag">✓ 관리자 확인완료</span>':''}</div>
+        ${vcodes?`<div style="font-size:12px;color:var(--ink-2);margin-bottom:6px">${vcodes}</div>${codeHtml(vcodes)}`
+                :'<div style="font-size:12px;color:var(--ink-3)">문제 없음</div>'}
+      </div>` : '';
+    html = `<h2>${id} ${chip(statOf(r))}</h2><div class="sub">${r.캠프명||'캠프 미상'}</div>` + vbox +
+      '<div class="dl">' +
       Object.entries(r).map(([k,v])=>`<dt>${k}</dt><dd>${v||'-'}</dd>`).join('') + '</div>' +
       inputForm(kind, r, id);
   }
@@ -1178,9 +1197,14 @@ const INPUT_SPEC = {
     {label:'담당기사', col:'담당기사', vtype:'text', cur:r=>r.담당기사, ph:'김준형/권오철/김필우/차동호'},
     {label:'방문예정일', col:'방문예정일', vtype:'date', cur:r=>r.방문예정일, ph:'YYYY-MM-DD'},
     {label:'작업완료일', col:'작업완료일', vtype:'date', cur:r=>r.작업완료일, ph:'YYYY-MM-DD'},
+    {label:'관리자검증상태', col:'관리자검증상태', vtype:'text', cur:r=>r.관리자검증상태,
+     ph:'일치 / 추가작업발생 / 작업내용누락 / 확인필요'},
+    {label:'최종확인일', col:'최종확인일', vtype:'date', cur:r=>r.최종확인일, ph:'YYYY-MM-DD'},
   ]},
   pm: { sheet:'04_정기점검', key_col:'점검ID', fields:[
     {label:'실제점검일', col:'실제점검일', vtype:'date', cur:r=>r.실제점검일, ph:'YYYY-MM-DD'},
+    {label:'최종확인일(유현민 체크)', col:'최종확인일(유현민 체크)', vtype:'date',
+     cur:r=>r['최종확인일(유현민 체크)'], ph:'YYYY-MM-DD'},
   ]},
 };
 function inputForm(kind, r, id){
