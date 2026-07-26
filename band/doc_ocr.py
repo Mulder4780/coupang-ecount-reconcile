@@ -36,8 +36,39 @@ REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports
 IMG_EXT = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp")
 
 # ── OCR ────────────────────────────────────────────────────────────────
+OCR_CACHE = os.path.join(HERE, "ocr_cache")
+
+
+def _cache_path(path):
+    """같은 사진을 두 번 읽지 않는다. 사진 1,458장 OCR에 25분이 걸려
+    daily_run의 600초 제한에 걸렸다(2026-07-26). 파일이 바뀌면 키도 바뀐다."""
+    try:
+        st = os.stat(path)
+        key = f"{os.path.basename(path)}|{st.st_size}|{int(st.st_mtime)}"
+    except OSError:
+        key = os.path.basename(path)
+    import hashlib
+    return os.path.join(OCR_CACHE, hashlib.md5(key.encode()).hexdigest() + ".txt")
+
+
 def ocr_image(path, lang="ko", timeout=120):
     """Windows 내장 OCR → 줄 단위 텍스트. 실패하면 빈 문자열."""
+    cp = _cache_path(path)
+    if os.path.exists(cp):
+        try:
+            return open(cp, encoding="utf-8").read()
+        except OSError:
+            pass
+    text = _ocr_run(path, lang, timeout)
+    try:
+        os.makedirs(OCR_CACHE, exist_ok=True)
+        open(cp, "w", encoding="utf-8").write(text)
+    except OSError:
+        pass
+    return text
+
+
+def _ocr_run(path, lang="ko", timeout=120):
     try:
         r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
                             "-File", PS1, "-Path", path, "-Lang", lang],

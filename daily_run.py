@@ -100,8 +100,10 @@ def main():
     _docs = os.path.join(ROOT, "band", "docs_inbox")
     if os.path.isdir(_docs) and any(f.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp"))
                                     for f in os.listdir(_docs)):
+        # 사진 1장에 OCR 1초 남짓. 첫 회는 1,458장에 25분이 걸려 600초 제한에 걸렸다(2026-07-26).
+        # doc_ocr가 결과를 band/ocr_cache/에 저장하므로 두 번째 실행부터는 몇 초로 끝난다.
         steps.append(run("밴드 문서 이미지 대조·입력", [os.path.join(ROOT, "band", "doc_ocr.py"),
-                                                       "--scan", "--apply"]))
+                                                       "--scan", "--apply"], timeout=3600))
     else:
         steps.append({"name": "밴드 문서 이미지 대조", "ok": None,
                       "out": "스킵 — band/docs_inbox/에 사진 없음"})
