@@ -140,6 +140,16 @@ def main():
         a = int(amount)
         return a in erp_amts or round(a / 1.1) in erp_amts
 
+    # 밴드에 사람이 적어 둔 PO별 처리 상태를 읽는다.
+    # 오종현 매니저 확인(2026-07-27): "PO 작업 내역은 밴드 매출처업무에 1월부터 다 적어 둔다."
+    # 이걸 안 보면 **이미 발행한 PO를 미청구로 보고**하게 된다(PO344599가 실제로 그랬다).
+    try:
+        import po_band_status as _PB
+        band_po = _PB.scan()
+    except Exception as e:
+        print(f"  (밴드 PO 상태 읽기 생략: {e})")
+        band_po = {}
+
     A, B, C, OK, D = [], [], [], [], []
     billed = 0
     for po, p in sorted(cp_by_no.items()):
@@ -148,8 +158,20 @@ def main():
             if invoiced(p["amount"]):
                 billed += 1          # 계산서는 끊었다 — 06시트에 PO번호만 안 적힌 것
                 continue
+            b = band_po.get(po) or {}
+            st = b.get("상태") or []
+            if "발행완료" in st:
+                billed += 1          # 밴드에 발행 완료라고 적혀 있다 — 미청구가 아니다
+                continue
+            note = ""
+            if st:
+                note = " · 밴드: " + ",".join(st)
+            if b.get("프로젝트"):
+                note += " · " + ",".join(b["프로젝트"][:2])
             A.append({"PO번호": po, "쿠팡금액": p["amount"], "발행일": p["date"], "내용": p["desc"][:60],
-                      "판정": "미청구 — 쿠팡 PO는 받았는데 계산서가 발행되지 않았습니다"})
+                      "프로젝트NO": ",".join(b.get("프로젝트", [])[:3]),
+                      "밴드상태": ",".join(st),
+                      "판정": "미청구 — 쿠팡 PO는 받았는데 계산서가 발행되지 않았습니다" + note})
             continue
         led_sum = sum((r.get("원장_공급가액") or 0) for r in lrows)
         ids = ",".join(r["정산ID"] for r in lrows)

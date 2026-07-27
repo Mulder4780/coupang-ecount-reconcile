@@ -791,6 +791,30 @@ def t27_po():
     assert "erp_amts" in src and "invoiced(" in src, "ERP 계산서 대조 없이 미등록으로 단정한다"
     assert "미청구 — 쿠팡 PO는 받았는데" in src, "판정 문구가 조치로 이어지지 않는다"
     assert "billed" in src, "계산서 발행된 PO를 따로 세지 않는다"
+    # 밴드에 '세금계산서 발행 완료'라고 적힌 PO를 미청구로 보고하면 안 된다
+    # (오종현 매니저 확인: PO 내역은 밴드 매출처업무에 1월부터 전부 기재한다)
+    assert "band_po" in src and "발행완료" in src, "밴드에 적힌 PO 처리 상태를 안 본다"
+
+    import po_band_status as PB
+    body = "\n".join([
+        "Coupang이(가) 새 구매 오더(PO344599)를 전송했습니다.",
+        "⭐ 세금계산서 발행 2건 발행",
+        "★오더번호 : PO344599",
+        "2026.03.25 세금계산서 발행 완료",
+        "★ 프로젝트 No. : UJ2600211",
+    ])
+    got = None
+    for blk in __import__("re").split(r"(?=Coupang이\(가\) 새 구매 오더|⭐|✅)", body):
+        if "PO344599" not in blk:
+            continue
+        st = [n for n, rx in PB.STATES if rx.search(blk)]
+        if "발행완료" in st:
+            got = st
+    assert got and "발행완료" in got, ("발행 완료 문구를 못 읽는다", got)
+    st2 = [n for n, rx in PB.STATES if rx.search("✅ 쿠팡오더처리 + 세금계산서 발행대기")]
+    assert "발행대기" in st2, st2
+    st3 = [n for n, rx in PB.STATES if rx.search("※쿠팡오더 금액 안맞아도 처리해도 된다고 확인 받음")]
+    assert "금액이상" in st3, st3
 
     # PO 번호 정규화 — 표기가 흔들려도 같은 PO로 본다
     for t_, want in (("PO326234", "PO326234"), ("po 326234", "PO326234"),
