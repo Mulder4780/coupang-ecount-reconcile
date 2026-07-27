@@ -76,6 +76,7 @@ def payload():
     except Exception as e:
         print("  ! 기사 정리 건너뜀:", e)
 
+    d["unbilled"] = unbilled()        # 미청구 — 앱이 열릴 때 경과일을 계산해 띄운다
     d["codes"] = codes
     d["tail"] = ev["tail"]
     d["cap"] = ev["cap"]
@@ -83,33 +84,34 @@ def payload():
     return d
 
 
-def aging(path=None):
-    """미청구 건의 **경과일만** 공개 파일로 낸다 → GitHub Actions가 매일 늙는 걸 본다.
+def unbilled():
+    """미청구 PO를 **잠긴 사본 안에** 담는다 — 금액·PO번호까지 그대로.
 
-    ★ 여기에는 금액·PO번호·캠프명을 절대 넣지 않는다. 저장소가 공개라서다.
-      날짜만 있어도 '90일 넘은 게 3건' 은 계산되고, 그거면 알림으로 충분하다.
-      상세는 잠긴 사본(data.enc)에 들어 있고 폰에서 PIN을 넣어야 보인다.
-
-    이걸 PC가 아니라 Actions가 보는 이유: 출장으로 **PC를 며칠 못 켜도** 미청구는
-    계속 늙기 때문이다. 경과일은 새 데이터 없이 날짜만으로 계산된다.
+    ★ 예전에는 날짜만 담은 공개 파일(docs/aging.json)을 만들어 GitHub Actions가 매일 보고
+      기준을 넘으면 메일을 보내게 했다. 사용자가 메일을 원하지 않아 그 경로는 걷어냈다.
+      대신 여기 담아 두고 **앱을 열 때 화면 맨 위에 띄운다** — 경과일은 앱이 그 자리에서
+      오늘 날짜로 계산하므로, 사본이 며칠 묵어도 '몇 일 지났는지'는 항상 정확하다.
     """
     import csv as _csv, glob as _g
-    path = path or os.path.join(DOCS, "aging.json")
     rep = sorted(_g.glob(os.path.join(ROOT, "reports", "PO대조_*.csv")))
-    items = []
-    if rep:
-        with open(rep[-1], encoding="utf-8-sig") as f:
-            for r in _csv.DictReader(f):
-                if r.get("유형") != "A":            # A = 미청구(계산서 미발행)
-                    continue
-                d = (r.get("발행일") or "")[:10]
-                if re.match(r"\d{4}-\d{2}-\d{2}", d):
-                    items.append({"k": "po", "since": d})
-    doc = {"generated": datetime.now().strftime("%Y-%m-%d"),
-           "note": "경과일 계산용. 금액·번호·현장명은 담지 않는다(공개 저장소).",
-           "warn_days": 90, "crit_days": 120, "items": sorted(items, key=lambda x: x["since"])}
-    json.dump(doc, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-    return len(items)
+    if not rep:
+        return []
+    out = []
+    with open(rep[-1], encoding="utf-8-sig") as f:
+        for r in _csv.DictReader(f):
+            if r.get("유형") != "A":            # A = 미청구(계산서 미발행)
+                continue
+            d = (r.get("발행일") or "")[:10]
+            if not re.match(r"\d{4}-\d{2}-\d{2}", d):
+                continue
+            try:
+                amt = int(float(r.get("쿠팡금액") or 0))
+            except ValueError:
+                amt = 0
+            out.append({"PO": r.get("PO번호", ""), "발행일": d, "금액": amt,
+                        "내용": (r.get("내용") or "")[:40],
+                        "프로젝트NO": r.get("프로젝트NO", "")})
+    return sorted(out, key=lambda x: x["발행일"])
 
 
 def main():
@@ -128,13 +130,12 @@ def main():
 
     os.makedirs(DOCS, exist_ok=True)
     json.dump(sealed, open(OUT, "w", encoding="utf-8"), separators=(",", ":"))
-    n_age = aging()          # 공개(날짜만) — Actions가 매일 경과일을 본다
     kb, rkb = os.path.getsize(OUT) / 1024, len(raw) / 1024
 
     print(f"  프로젝트코드 {len(d['codes'])} · 확인필요 {len(d['issues'])} · "
           f"AS {len(d['as'])} · 점검 {len(d['pm'])} · 정산 {len(d['settle'])} · 계산서 {len(d['erp'])}")
     print(f"  {rkb:.0f}KB → 줄여서 {len(packed)/1024:.0f}KB → 잠근 뒤 {kb:.0f}KB  ({OUT})")
-    print(f"  경과일 공개파일 aging.json — 미청구 {n_age}건 (금액·번호는 담지 않음)")
+    print(f"  미청구 {len(d.get('unbilled', []))}건 — 잠긴 사본 안에(앱 상단에 뜹니다)")
 
     if "--push" not in sys.argv:
         print("\n로컬 생성만 했습니다 — 고정 주소 반영: python cloud_publish.py --push")
@@ -142,7 +143,7 @@ def main():
 
     # 잠근 파일만 올린다. 원본(raw)은 디스크에도 남기지 않는다.
     for cmd in (["git", "add", "docs/data.enc", "docs/app.html", "docs/index.html",
-                 "docs/sw.js", "docs/resolve_index.json", "docs/aging.json"],
+                 "docs/sw.js", "docs/resolve_index.json"],
                 ["git", "commit", "-q", "-m",
                  f"폰 사본 갱신 {d['gen']} (프로젝트코드 {len(d['codes'])}·확인필요 {len(d['issues'])})"],
                 ["git", "push", "-q"]):

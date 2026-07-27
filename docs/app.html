@@ -82,6 +82,7 @@ input,button,select{font-family:inherit;font-size:15px}
   </div>
 
   <div id="app" style="display:none">
+    <div id="alertbox"></div>
     <div class="card">
       <h3>🔎 프로젝트 코드로 찾기 <span class="norm">— 코드만 넣으면 나머지가 따라옵니다</span></h3>
       <div class="row">
@@ -242,6 +243,43 @@ function renderList(){
   $('list').innerHTML = h;
 }
 
+/* ── 미청구 경과 ──
+   ★ 경과일은 **여기서 오늘 날짜로 계산한다**. 사본이 며칠 묵어도 '몇 일 지났는지'는
+     항상 정확하다. (예전에는 GitHub Actions가 매일 세어 메일을 보냈지만, 메일을 원하지
+     않으셔서 앱을 열 때 화면에서 보이도록 옮겼다.) */
+const DAYS = iso => Math.floor((Date.now() - new Date(iso + 'T00:00:00').getTime()) / 86400000);
+
+function renderAlert(){
+  const box = $('alertbox'); if(!box) return;
+  const rows = (D.unbilled || []).map(u => ({...u, d: DAYS(u['발행일'])}))
+                                 .sort((a,b) => b.d - a.d);
+  if(!rows.length){ box.innerHTML = ''; return; }
+  const old90 = rows.filter(r => r.d >= 90);
+  const sum = rows.reduce((a,r) => a + (r['금액']||0), 0);
+  const sum90 = old90.reduce((a,r) => a + (r['금액']||0), 0);
+  const lvl = old90.length ? 'bad' : 'warn';
+  box.innerHTML =
+    `<div class="card" style="border-color:var(--${lvl});border-width:2px">
+       <h3 style="color:var(--${lvl})">미청구 ${rows.length}건 · ${fmt(sum)}원</h3>
+       ${old90.length ? `<div style="font-weight:800;color:var(--bad);font-size:13.5px">
+           90일 넘은 것 ${old90.length}건 · ${fmt(sum90)}원</div>` : ''}
+       <div id="ublist" style="margin-top:6px"></div>
+       <button id="ubmore" class="btn ghost" style="width:100%;margin-top:8px;padding:9px">
+         ${rows.length > 3 ? '전체 ' + rows.length + '건 보기' : ''}</button>
+     </div>`;
+  const draw = (n) => {
+    $('ublist').innerHTML = rows.slice(0, n).map(r => {
+      const tag = r.d >= 120 ? 'p-bad' : (r.d >= 90 ? 'p-warn' : '');
+      return line(fmt(r['금액']) + '원 <span class="pill ' + tag + '">' + r.d + '일</span>',
+                  esc(r['발행일']) + ' · ' + esc(r['PO']) + (r['내용'] ? ' · ' + esc(r['내용']) : ''));
+    }).join('');
+  };
+  draw(3);
+  const b = $('ubmore');
+  if(rows.length > 3){ b.onclick = () => { draw(rows.length); b.remove(); }; }
+  else b.remove();
+}
+
 /* ── 기사별 방문 ──
    '이 캠프 누가 갔었지?'를 현장에서 바로 본다. 캠프명·기사명 아무거나 넣으면 걸린다. */
 function renderTech(){
@@ -286,7 +324,7 @@ async function boot(pin){
   $('gate').style.display = 'none'; $('app').style.display = '';
   $('hsub').textContent = '오프라인 사본 · ' + (D.gen || D['기준'] || '');
   $('stamp').textContent = '사본 기준 ' + (D.gen || D['기준'] || '') + ' · 코드 ' + Object.keys(D.codes||{}).length;
-  renderTabs(); renderList(); syncQueue();
+  renderAlert(); renderTabs(); renderList(); syncQueue();
   return true;
 }
 
