@@ -12,7 +12,7 @@ reports/tunnel_url.txt 에 저장되어 앱 대시보드에 표시된다.
 ★ 보안: 공개 주소 + PIN 4자리 구조다. 로그인 5회 실패 시 10분 잠금이 있지만,
   장기적으로는 Tailscale(사설망) 방식이 더 안전하다 — README 참고.
 """
-import sys, os, re, time, subprocess, shutil
+import sys, os, re, json, time, subprocess, shutil
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -21,7 +21,11 @@ except Exception:
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 URL_FILE = os.path.join(ROOT, "reports", "tunnel_url.txt")
+ENDPOINT = os.path.join(ROOT, "docs", "endpoint.json")
 PORT = 8899
+# ★ 대상은 반드시 **127.0.0.1**. 'localhost'로 주면 윈도우에서 IPv6(::1)로 먼저 풀리는데
+#   앱은 IPv4(0.0.0.0)로만 듣기 때문에 연결이 거부돼 폰에는 **HTTP 530**만 돌아온다.
+#   터널은 살아 있는데 아무것도 안 열리는 그 증상의 정체다(2026-07-27 원인 확정).
 
 
 def find_cloudflared():
@@ -40,16 +44,36 @@ def find_cloudflared():
     return None
 
 
-MAX_PER_HOUR = 4
+MAX_PER_HOUR = 4       # 터널이 **살아 있을 때** 갈아치우는 한도
+HARD_MAX = 10          # 죽어 있어도 이 이상은 안 만든다(폭주 방지)
 STAMP = os.path.join(ROOT, "reports", "tunnel_starts.txt")
 
 
-def _throttle():
-    """1시간에 MAX_PER_HOUR번까지만 새 터널을 만든다.
+def _ping(u, t=8):
+    """회사 DNS가 trycloudflare를 막고 있어 직접 찔러 보면 늘 실패한다 — 공개 DNS로 우회."""
+    sys.path.insert(0, ROOT)
+    from net_probe import probe
+    return probe(u, t)[0]
 
-    주소를 새로 받을 때마다 폰·PC 북마크가 가리키는 곳이 바뀐다. 자주 만들면
-    고정 주소가 따라가기도 전에 또 바뀌고, 심하면 **DNS에 등록되지 않은 주소**를
-    받는다(2026-07-27 실사고). 한도를 넘으면 가장 오래된 기록이 1시간을 넘길 때까지 기다린다.
+
+def _endpoint_alive():
+    """지금 고정 주소가 가리키는 터널이 실제로 응답하는가."""
+    try:
+        u = json.load(open(ENDPOINT, encoding="utf-8")).get("url", "")
+    except Exception:
+        u = ""
+    return bool(u) and _ping(u.rstrip("/") + "/api/ping")
+
+
+def _throttle():
+    """새 터널 생성 한도. 주소가 바뀔 때마다 폰·PC 북마크가 가리키는 곳이 달라지므로
+    살아 있는 터널을 자주 갈아치우면 안 된다(심하면 DNS에 없는 주소를 받는다).
+
+    ★ 단, 한도는 '주소가 자꾸 바뀌는 것'을 막으려는 것이지 **아무 서비스도 없는 상태**를
+      지키려는 게 아니다. 지금 게시된 주소가 죽어 있으면 기다릴 이유가 없다 — 기다리는
+      동안 폰은 아예 못 들어온다(2026-07-27: 재시작 몇 번에 한도가 차서 접속 주소 없이
+      멈춰 있었다). 그래서 **살아 있을 때만** 기다리고, 죽어 있으면 즉시 새로 만든다.
+      그래도 HARD_MAX를 넘으면 진짜 폭주이므로 그때는 기다린다.
     """
     now = time.time()
     try:
@@ -57,13 +81,20 @@ def _throttle():
     except Exception:
         hist = []
     hist = [t for t in hist if now - t < 3600]
-    while len(hist) >= MAX_PER_HOUR:
-        wait = int(3600 - (now - hist[0])) + 5
-        print(f"터널을 너무 자주 새로 만들고 있습니다 — {wait}초 기다립니다"
-              f" (최근 1시간 {len(hist)}회)")
-        time.sleep(min(wait, 300))
-        now = time.time()
-        hist = [t for t in hist if now - t < 3600]
+
+    down = len(hist) >= MAX_PER_HOUR and not _endpoint_alive()
+    if down and len(hist) < HARD_MAX:
+        print(f"한도({MAX_PER_HOUR}회/시간)를 넘었지만 **접속 주소가 죽어 있어** "
+              f"바로 새로 만듭니다 (최근 1시간 {len(hist)}회)")
+    else:
+        while len(hist) >= MAX_PER_HOUR:
+            wait = int(3600 - (now - hist[0])) + 5
+            why = "폭주로 판단" if len(hist) >= HARD_MAX else "너무 자주 새로 만들고 있습니다"
+            print(f"터널 {why} — {wait}초 기다립니다 (최근 1시간 {len(hist)}회)")
+            time.sleep(min(wait, 300))
+            now = time.time()
+            hist = [t for t in hist if now - t < 3600]
+
     hist.append(now)
     try:
         os.makedirs(os.path.dirname(STAMP), exist_ok=True)
@@ -98,11 +129,11 @@ def watch(proc, url):
     import threading, urllib.request
 
     def ping(u, t=20):
-        try:
-            with urllib.request.urlopen(u, timeout=t) as r:
-                return r.status == 200
-        except Exception:
-            return False
+        # ★ 사내망은 *.trycloudflare.com 을 안 풀어 준다 — 그대로 믿으면 멀쩡한 터널을
+        #   '죽었다'며 계속 갈아치운다(그게 폰이 못 들어온 진짜 이유였다).
+        sys.path.insert(0, ROOT)
+        from net_probe import probe
+        return probe(u, t)[0]
 
     def loop():
         fail = 0
@@ -113,7 +144,7 @@ def watch(proc, url):
                 continue
             # 앱 자체가 죽었으면 터널을 갈아도 소용없다 — 주소만 쓸데없이 바뀐다.
             # (주소가 바뀔 때마다 직접 북마크한 사람은 다시 못 들어온다)
-            if not ping(f"http://localhost:{PORT}/api/ping", 8):
+            if not ping(f"http://127.0.0.1:{PORT}/api/ping", 8):
                 print("앱이 응답하지 않음 — 터널은 그대로 두고 기다립니다")
                 fail = 0
                 continue
@@ -148,8 +179,8 @@ def main():
     _throttle()
     os.makedirs(os.path.dirname(URL_FILE), exist_ok=True)
     while True:
-        print(f"터널 시작... (대상 http://localhost:{PORT})")
-        p = subprocess.Popen([exe, "tunnel", "--url", f"http://localhost:{PORT}"],
+        print(f"터널 시작... (대상 http://127.0.0.1:{PORT})")
+        p = subprocess.Popen([exe, "tunnel", "--url", f"http://127.0.0.1:{PORT}"],
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, encoding="utf-8", errors="replace")
         url = None

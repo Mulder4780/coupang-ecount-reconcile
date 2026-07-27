@@ -49,15 +49,17 @@ def main():
     if not _re.fullmatch(r"https://[a-z0-9]+(?:-[a-z0-9]+){2,}\.trycloudflare\.com/?", url):
         print(f"게시 취소 — 터널 주소 형식이 아님: {url}")
         return
-    # 정말 살아 있는지 확인하고 올린다(죽은 주소를 게시하면 폰이 그대로 막힌다)
-    try:
-        import urllib.request
-        with urllib.request.urlopen(url.rstrip("/") + "/api/ping", timeout=20) as r:
-            if r.status != 200:
-                raise RuntimeError(f"status {r.status}")
-    except Exception as e:
-        print(f"게시 취소 — 주소가 응답하지 않음({type(e).__name__}): {url}")
+    # 정말 살아 있는지 확인하고 올린다(죽은 주소를 게시하면 폰이 그대로 막힌다).
+    # ★ 단 **회사 DNS로 판단하면 안 된다** — 사내망은 *.trycloudflare.com 을 풀어 주지 않아
+    #   멀쩡한 주소도 늘 '죽음'으로 나온다. 그 오판 때문에 게시가 계속 취소되고 터널만
+    #   새로 만들어져, 폰은 영영 못 들어왔다(2026-07-27 원인 확정). net_probe가 공개 DNS로
+    #   우회해 **바깥에서 보이는 진짜 상태**를 본다.
+    from net_probe import probe
+    ok, why = probe(url.rstrip("/") + "/api/ping")
+    if not ok:
+        print(f"게시 취소 — {why}: {url}")
         return
+    print(f"   살아 있음 확인 — {why}")
 
     prev = ""
     try:
