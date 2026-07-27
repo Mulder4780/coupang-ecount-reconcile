@@ -1179,6 +1179,7 @@ function openSheet(kind, idx, id){
       <dt>작업완료일</dt><dd>${r.완료일||'-'}</dd>
       <dt>비용구분</dt><dd>${r.비용구분||'-'}</dd>
       <dt>공급가액</dt><dd>${fmt(r.공급가액)}원</dd>
+      <dt>부가세</dt><dd>${vatLine(r)}</dd>
       <dt>합계(VAT포함)</dt><dd>${fmt(r.합계)}원</dd>
       <div class="sec">쿠팡 PO</div>
       <dt>PO 필요여부</dt><dd>${r.PO필요||'-'}</dd>
@@ -1298,6 +1299,23 @@ function byUsage(list){
   const used = list.filter(v=>cnt[v]).sort((a,b)=>cnt[b]-cnt[a]);
   const rest = list.filter(v=>!cnt[v]);          // 한 번도 안 나온 이름은 뒤로
   return used.concat(rest);
+}
+
+/* 부가세 표기.
+   ★ 원장에 적힌 값을 그대로 쓴다. 공급가액×10%로 계산해 버리면 반올림 때문에 서류와
+     1원씩 어긋날 수 있고, 화면 숫자가 거래명세서와 다르면 그 순간 앱을 못 믿게 된다.
+   원장이 비어 있을 때만 합계−공급가액으로 되짚고, 그 사실을 화면에 밝힌다.
+   셋이 안 맞으면(공급가+부가세≠합계) 숨기지 않고 빨갛게 알린다 — 원장이 틀린 것이다. */
+function vatLine(r){
+  const sup = +r.공급가액 || 0, tot = +r.합계 || 0;
+  const has = r.부가세 !== null && r.부가세 !== undefined && r.부가세 !== '';
+  const vat = has ? (+r.부가세 || 0) : (tot ? tot - sup : 0);
+  if(!has && !tot) return '-';
+  let out = fmt(vat) + '원';
+  if(!has) out += ' <span class="norm">(합계−공급가액)</span>';
+  if(tot && Math.abs(sup + vat - tot) > 1)
+    out += ` <span style="color:var(--danger);font-weight:800">⚠ 공급가+부가세 ${fmt(sup+vat)}원 ≠ 합계</span>`;
+  return out;
 }
 
 function esc2(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }

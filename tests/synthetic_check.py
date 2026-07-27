@@ -1408,7 +1408,23 @@ def t36_mobile_input():
     names = [str(r[i]).strip() for r in rows[1:] if i < len(r) and r[i] not in (None, "")]
     for who in ("김준형", "권오철", "김필우", "차동호"):      # AGENTS.md 규칙 6의 기준 4인
         assert who in names, f"코드 시트 담당기사에 {who} 가 없다"
-    print("  [36] 폰 입력(달력·드롭다운·16px·시트연동·사용순 정렬) ✅")
+    # (6) 부가세는 **원장 값**을 쓴다 — 10%로 계산하면 반올림 때문에 서류와 어긋난다
+    assert "function vatLine" in idx, "부가세 표기 함수가 없다"
+    _v = idx[idx.index("function vatLine"):][:900]
+    assert "r.부가세" in _v, "원장 부가세를 안 읽고 계산해 버린다"
+    assert "합계−공급가액" in _v, "원장이 비었을 때 되짚은 값이라는 표시가 없다"
+    assert "≠ 합계" in _v, "공급가+부가세가 합계와 안 맞을 때 알리지 않는다"
+    er = open(os.path.join(ROOT, "ecount_reconcile.py"), encoding="utf-8").read()
+    assert '"원장_부가세"' in er and "실제작업부가세" in er, "원장에서 부가세를 안 읽는다"
+
+    # 실데이터 정합 — 공급가+부가세=합계 가 깨진 행이 있으면 원장이 틀린 것이다
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as _A
+    bad = [r["정산ID"] for r in _A.real_settlements()
+           if r.get("부가세") not in (None, "") and r.get("합계")
+           and abs((r["공급가액"] or 0) + (r["부가세"] or 0) - (r["합계"] or 0)) > 1]
+    assert not bad, "원장 공급가+부가세≠합계: " + ", ".join(bad[:5])
+    print("  [36] 폰 입력(달력·드롭다운·16px·시트연동) · 부가세 원장값 표기 ✅")
 
 
 if __name__ == "__main__":
