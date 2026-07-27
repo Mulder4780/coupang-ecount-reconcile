@@ -83,6 +83,45 @@ runner = {"busy": False, "task": "", "log": deque(maxlen=3000), "done_at": None}
 _rlock = threading.Lock()
 
 
+_codes_cache = {"t": 0, "v": None}
+
+
+def get_codes():
+    """드롭다운 선택지를 **10_코드관리 시트에서** 읽어 온다.
+
+    화면에 목록을 박아 두면 사람이 바뀔 때마다 코드를 고쳐야 하고, 결국 시트와 어긋난다.
+    시트가 진실이므로 거기서 읽는다(류지영 매니저가 시트만 고치면 앱도 따라간다).
+    관리자검증상태는 10시트에 없어 기본값을 함께 준다.
+    """
+    if _codes_cache["v"] and time.time() - _codes_cache["t"] < 300:
+        return _codes_cache["v"]
+    out = {"관리자검증상태": ["일치", "추가작업발생", "작업내용누락", "확인필요"]}
+    try:
+        import openpyxl
+        from ecount_reconcile import load_config, resolve_master
+        wb = openpyxl.load_workbook(resolve_master(load_config()["reconcile"]["master_xlsx"]),
+                                    read_only=True, data_only=True)
+        ws = wb["10_코드관리"]
+        rows = list(ws.iter_rows(min_row=4, values_only=True))
+        if rows:
+            hdr = [str(h).strip() if h else "" for h in rows[0]]
+            for i, name in enumerate(hdr):
+                if not name:
+                    continue
+                vals = []
+                for r in rows[1:]:
+                    v = r[i] if i < len(r) else None
+                    if v not in (None, "") and str(v).strip() not in vals:
+                        vals.append(str(v).strip())
+                if vals:
+                    out[name] = vals
+        wb.close()
+    except Exception as e:
+        out["_error"] = str(e)[:80]
+    _codes_cache.update({"t": time.time(), "v": out})
+    return out
+
+
 def enqueue_codes(codes):
     """폰이 예약한 프로젝트 코드를 실제 원장 행으로 등록한다.
     쓰기는 전부 ledger_writer(빈 칸만·근거 필수·vN+1)를 거치므로 기존 값은 덮이지 않는다."""
@@ -971,6 +1010,8 @@ class H(BaseHTTPRequestHandler):
             if not ct or not os.path.exists(fp):
                 return self._send(404, {"error": "no brand asset"})
             return self._send(200, open(fp, "rb").read(), ct)
+        if p == "/api/codes":
+            return self._send(200, get_codes())
         if p == "/api/brand":
             return self._send(200, {"logo": brand_logo()})
         if re.fullmatch(r"/icon(?:-\d+)?\.(svg|png)", p):      # 아이콘(벡터/래스터 공용)

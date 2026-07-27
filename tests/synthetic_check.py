@@ -1365,6 +1365,52 @@ def t35_confirm_evidence():
     print("  [35] 확인 체크 근거 정합(완료 글 우선·불일치 0·빈칸만·상태 불변) ✅")
 
 
+def t36_mobile_input():
+    """[36] 폰에서 빈 항목을 편하게 채울 수 있는가 — 달력·드롭다운·확대 방지."""
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # (1) 날짜는 손으로 치지 않는다 — 폰 달력이 뜨는 type="date"
+    assert "function fieldInput" in idx, "입력칸 렌더 함수가 없다"
+    _fi = idx[idx.index("function fieldInput"):][:1600]
+    assert "type=\"date\"" in _fi, "날짜 칸이 달력으로 안 뜬다"
+    assert 'inputmode="numeric"' in _fi, "숫자 칸에 숫자 키패드가 안 뜬다"
+    assert "<select" in _fi, "선택지가 드롭다운이 아니다"
+    # ★ 16px 미만이면 iOS 사파리가 입력할 때 화면을 확대해 버린다
+    m = re.search(r"font-size:(\d+)px", _fi)
+    assert m and int(m.group(1)) >= 16, f"입력 글자 크기 {m.group(1) if m else '?'}px — iOS에서 화면이 확대된다"
+
+    # (2) 선택지는 **시트에서** 온다 — 화면에 박아 두면 사람이 바뀔 때 어긋난다
+    assert "/api/codes" in idx and "loadCodes()" in idx, "코드 목록을 시트에서 안 읽는다"
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "def get_codes(" in srv and "10_코드관리" in srv, "서버가 코드 시트를 안 읽는다"
+    # 담당기사·관리자검증상태는 자유 입력이 아니어야 한다(오타·표기흔들림 방지)
+    _spec = idx[idx.index("const INPUT_SPEC"):][:2000]
+    assert "opts:'담당기사'" in _spec, "담당기사가 아직 자유 입력이다"
+    assert "opts:'관리자검증상태'" in _spec, "관리자검증상태가 아직 자유 입력이다"
+
+    # (3) 코드 목록을 못 받아도 입력 자체가 막히면 안 된다
+    assert "자유 입력으로 떨어뜨린다" in _fi or "list.length" in _fi, "폴백이 없다"
+
+    # (4) 기사 목록은 실제 배정 횟수 순 — 폰에서 자주 쓰는 사람이 위로
+    assert "function byUsage" in idx, "기사 정렬이 없다"
+
+    # (5) 실제 코드 시트에서 목록이 나오는가
+    import openpyxl
+    from ecount_reconcile import load_config, resolve_master
+    wb = openpyxl.load_workbook(resolve_master(load_config()["reconcile"]["master_xlsx"]),
+                                read_only=True, data_only=True)
+    assert "10_코드관리" in wb.sheetnames, "코드 시트가 없다"
+    rows = list(wb["10_코드관리"].iter_rows(min_row=4, values_only=True))
+    wb.close()
+    hdr = [str(h).strip() if h else "" for h in rows[0]]
+    assert "담당기사" in hdr, "코드 시트에 담당기사 열이 없다"
+    i = hdr.index("담당기사")
+    names = [str(r[i]).strip() for r in rows[1:] if i < len(r) and r[i] not in (None, "")]
+    for who in ("김준형", "권오철", "김필우", "차동호"):      # AGENTS.md 규칙 6의 기준 4인
+        assert who in names, f"코드 시트 담당기사에 {who} 가 없다"
+    print("  [36] 폰 입력(달력·드롭다운·16px·시트연동·사용순 정렬) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1402,5 +1448,6 @@ if __name__ == "__main__":
     t33_unbilled_banner()
     t34_capture_and_no_send()
     t35_confirm_evidence()
+    t36_mobile_input()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

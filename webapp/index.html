@@ -1238,11 +1238,11 @@ const INPUT_SPEC = {
     {label:'입금액', col:'입금액', vtype:'number', cur:r=>r.입금액, ph:'숫자만'},
   ]},
   as: { sheet:'02_돌발AS접수', key_col:'접수ID', fields:[
-    {label:'담당기사', col:'담당기사', vtype:'text', cur:r=>r.담당기사, ph:'김준형/권오철/김필우/차동호'},
+    {label:'담당기사', col:'담당기사', vtype:'text', cur:r=>r.담당기사, opts:'담당기사'},
     {label:'방문예정일', col:'방문예정일', vtype:'date', cur:r=>r.방문예정일, ph:'YYYY-MM-DD'},
     {label:'작업완료일', col:'작업완료일', vtype:'date', cur:r=>r.작업완료일, ph:'YYYY-MM-DD'},
     {label:'관리자검증상태', col:'관리자검증상태', vtype:'text', cur:r=>r.관리자검증상태,
-     ph:'일치 / 추가작업발생 / 작업내용누락 / 확인필요'},
+     opts:'관리자검증상태'},
     {label:'최종확인일', col:'최종확인일', vtype:'date', cur:r=>r.최종확인일, ph:'YYYY-MM-DD'},
   ]},
   pm: { sheet:'04_정기점검', key_col:'점검ID', fields:[
@@ -1251,6 +1251,57 @@ const INPUT_SPEC = {
      cur:r=>r['최종확인일(유현민 체크)'], ph:'YYYY-MM-DD'},
   ]},
 };
+/* 코드 목록(드롭다운 선택지)은 10_코드관리 시트에서 온다 — 화면에 박아 두면 시트와 어긋난다 */
+let CODES = {};
+async function loadCodes(){
+  try{ CODES = await api('/api/codes'); }catch(e){ CODES = {}; }
+}
+
+/* 폰에서 치기 편해야 한다.
+   · 날짜  → type="date"  : 폰이 **달력**을 띄운다(YYYY-MM-DD를 손으로 칠 일이 없다)
+   · 선택지 → <select>    : 오타·표기흔들림이 사라진다(시트 드롭다운과 같은 값만 들어간다)
+   · 숫자  → inputmode="numeric" : 숫자 키패드가 뜬다
+   ★ 글자 크기를 16px 미만으로 두면 iOS 사파리가 입력할 때 화면을 확대해 버린다 — 16px 유지. */
+function fieldInput(f, i){
+  const base = 'flex:1;min-width:0;padding:12px 11px;border:1.5px solid var(--line);' +
+               'border-radius:10px;font-size:16px;background:var(--card);color:var(--ink-1);' +
+               'font-family:inherit';
+  const attr = `id="inp_${i}" data-col="${f.col}" data-vtype="${f.vtype}"`;
+  if(f.opts){
+    let list = CODES[f.opts] || [];
+    /* 시트 순서 그대로 두면 폰에서 **관리자 이름 6개를 지나야** 실제 기사가 나온다.
+       실제로 배정된 횟수가 많은 사람을 위로 올린다 — 시트는 그대로 두고 보여주는 순서만
+       바꾸는 것이라, 사람이 바뀌면 다음 날 자동으로 따라간다. */
+    if(f.opts === '담당기사') list = byUsage(list);
+    if(list.length){
+      return `<select ${attr} style="${base}">` +
+             `<option value="">— 선택 —</option>` +
+             list.map(v=>`<option value="${esc2(v)}">${esc2(v)}</option>`).join('') +
+             `</select>`;
+    }
+    // 코드 목록을 못 받았으면 자유 입력으로 떨어뜨린다(입력 자체를 막으면 안 된다)
+  }
+  if(f.vtype === 'date')
+    return `<input ${attr} type="date" style="${base}">`;
+  if(f.vtype === 'number')
+    return `<input ${attr} type="text" inputmode="numeric" placeholder="${f.ph||'숫자만'}" style="${base}">`;
+  return `<input ${attr} placeholder="${f.ph||''}" style="${base}">`;
+}
+/* 원장에 실제로 배정된 횟수 순으로 정렬(한 칸에 두 명인 건도 각각 센다) */
+function byUsage(list){
+  const cnt = {};
+  ((works.as||[]).concat(works.pm||[])).forEach(r=>{
+    String(r.담당기사||'').split(/[,./·]| 및 /).forEach(t=>{
+      t=t.trim(); if(t) cnt[t]=(cnt[t]||0)+1;
+    });
+  });
+  const used = list.filter(v=>cnt[v]).sort((a,b)=>cnt[b]-cnt[a]);
+  const rest = list.filter(v=>!cnt[v]);          // 한 번도 안 나온 이름은 뒤로
+  return used.concat(rest);
+}
+
+function esc2(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
 function inputForm(kind, r, id){
   const spec = INPUT_SPEC[kind];
   if(!spec) return '';
@@ -1260,8 +1311,7 @@ function inputForm(kind, r, id){
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">` +
     empty.map((f,i)=>`<div style="display:flex;gap:8px;align-items:center">
       <span style="width:110px;font-size:12.5px;color:var(--ink-3);font-weight:600">${f.label}</span>
-      <input id="inp_${i}" placeholder="${f.ph}" data-col="${f.col}" data-vtype="${f.vtype}"
-        style="flex:1;padding:9px 11px;border:1.5px solid var(--line);border-radius:9px;font-size:14px">
+      ${fieldInput(f, i)}
     </div>`).join('') +
     `</div><button onclick="saveInputs('${kind}','${id}',${empty.length})" style="margin-top:10px;width:100%;
       padding:12px;background:var(--brand);color:#fff;border-radius:11px;font-weight:700;font-size:14px">💾 입력 저장</button>
@@ -2922,6 +2972,7 @@ async function refreshAll(){ try{ await loadSettle(); await loadStatus(); }catch
 (async function(){
   tick(); setInterval(tick, 30000); initDates();
   showFixedEntry();          // 고정 주소는 로그인·데이터 로딩과 무관하게 **항상** 보인다
+  loadCodes();               // 드롭다운 선택지(10_코드관리)
   show(curView());                       // 새로고침 전에 보던 화면으로 복귀
   if(PIN){ $('gate').style.display='none'; refreshAll(); }
   setInterval(()=>{ if(PIN && !runnerBusy()) loadStatus().catch(()=>{}); }, 30000);
