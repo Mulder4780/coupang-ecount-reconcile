@@ -61,6 +61,21 @@ def payload():
             rec["why"] = r.get("reason", "")
         codes[c] = rec
 
+    # 기사별 방문 — '이 캠프 누가 갔었지'를 현장에서 바로 확인한다
+    try:
+        import tech_report as TR
+        visits, pending, unknown, _m = TR.collect()
+        by = TR.summary(visits)
+        d["tech"] = [{"기사": t, "총": v["총"], "돌발AS": v["돌발AS"],
+                      "정기점검": v["정기점검"], "캠프수": len(v["캠프"]), "최근": v["최근"]}
+                     for t, v in sorted(by.items(), key=lambda x: -x[1]["총"])]
+        # 전부 담으면 사본이 커진다 — 최근 것부터 필요한 만큼만
+        d["visits"] = [{k: v[k] for k in ("기사", "방문일", "업무", "캠프명", "프로젝트NO")}
+                       for v in sorted(visits, key=lambda x: x["방문일"], reverse=True)[:1200]]
+        d["tech_gap"] = {"미방문": len(pending), "기사미기입": len(unknown)}
+    except Exception as e:
+        print("  ! 기사 정리 건너뜀:", e)
+
     d["codes"] = codes
     d["tail"] = ev["tail"]
     d["cap"] = ev["cap"]

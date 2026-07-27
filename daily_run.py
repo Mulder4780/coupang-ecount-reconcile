@@ -134,6 +134,13 @@ def main():
     #    이동이 잦아 PC를 켜 둘 수 없을 때 이게 유일하게 확실한 방법이다.
     steps.append(run("폰용 사본 만들기", [os.path.join(ROOT, "mobile_snapshot.py")]))
 
+    # 10. 고정 주소 사본 — PC를 꺼도 폰·태블릿이 이걸로 조회·자동채움을 한다(잠가서 올린다)
+    steps.append(run("고정 주소 사본 올리기", [os.path.join(ROOT, "cloud_publish.py"), "--push"]))
+
+    # 11. 버전 파일 정리 — 원장 수정 도구가 전부 vN+1을 만들어서 하루만 돌려도 대여섯 개가
+    #     쌓인다. 지우지 않고 _이전버전/ 으로 접어 두어 어느 게 최신인지 헷갈리지 않게 한다.
+    steps.append(run("관리대장 버전 정리", [os.path.join(ROOT, "ledger_versions.py"), "--prune"]))
+
     finish(steps)
 
 

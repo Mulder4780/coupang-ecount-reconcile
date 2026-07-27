@@ -197,11 +197,11 @@ async function syncQueue(){
 }
 
 /* ── 목록 ── */
-const TABS = [['issues','확인필요'],['as','돌발AS'],['pm','정기점검'],
+const TABS = [['issues','확인필요'],['tech','기사'],['as','돌발AS'],['pm','정기점검'],
               ['settle','정산'],['erp','계산서'],['queue','예약']];
 function renderTabs(){
   $('tabs').innerHTML = TABS.map(([k,l])=>{
-    const n = k==='queue' ? Q().length : (D[k]||[]).length;
+    const n = k==='queue' ? Q().length : (D[k]||[]).length;   // 기사 탭은 인원 수
     return '<button data-k="' + k + '" class="' + (k===TAB?'on':'') + '">' + l + ' ' + n + '</button>';
   }).join('');
   $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => setTab(b.dataset.k));
@@ -220,6 +220,7 @@ function renderList(){
       : '<div class="empty">예약한 등록이 없습니다.</div>';
     return;
   }
+  if(TAB === 'tech'){ renderTech(); return; }
   const rows = D[TAB] || [];
   if(!rows.length){ $('list').innerHTML = '<div class="empty">항목이 없습니다.</div>'; return; }
   const R = rows.slice(0, 300);
@@ -239,6 +240,36 @@ function renderList(){
                         esc(r['판정']||'') + (r['포함프로젝트'] ? ' · ' + esc(r['포함프로젝트']) : ''))).join('');
   if(rows.length > R.length) h += '<div class="note">' + (rows.length - R.length) + '건 더 있습니다 — PC 앱에서 전체를 봅니다.</div>';
   $('list').innerHTML = h;
+}
+
+/* ── 기사별 방문 ──
+   '이 캠프 누가 갔었지?'를 현장에서 바로 본다. 캠프명·기사명 아무거나 넣으면 걸린다. */
+function renderTech(){
+  const T = D.tech || [], V = D.visits || [], g = D.tech_gap || {};
+  const q = (window._techQ || '').trim();
+  let h = '<input class="in" id="tq" placeholder="캠프명 또는 기사명" value="' + esc(q) + '"' +
+          ' style="margin-bottom:10px">';
+  if(q){
+    const hit = V.filter(v => (v['캠프명']||'').includes(q) || (v['기사']||'').includes(q));
+    const who = {};
+    hit.forEach(v => { who[v['기사']] = (who[v['기사']]||0) + 1; });
+    h += '<div class="note" style="margin:0 0 8px"><b>' + hit.length + '건</b> — ' +
+         Object.entries(who).sort((a,b)=>b[1]-a[1]).map(([k,n])=>esc(k)+' '+n).join(' · ') + '</div>';
+    h += hit.slice(0,120).map(v => line(esc(v['방문일']) + '  ' + esc(v['기사']),
+           esc(v['업무']) + ' · ' + esc(v['캠프명']) + ' · ' + esc(v['프로젝트NO']))).join('')
+         || '<div class="empty">해당 방문 기록이 없습니다.</div>';
+  } else {
+    h += T.map(t => line(esc(t['기사']) + '  <span class="norm">' + t['총'] + '건</span>',
+          '돌발AS ' + t['돌발AS'] + ' · 정기점검 ' + t['정기점검'] +
+          ' · 캠프 ' + t['캠프수'] + '곳 · 최근 ' + esc(t['최근']))).join('');
+    h += '<div class="note">아직 안 간 건 ' + (g['미방문']||0) +
+         ' · 다녀왔는데 기사 미기입 <b>' + (g['기사미기입']||0) + '</b></div>';
+  }
+  $('list').innerHTML = h;
+  const box = $('tq');
+  box.oninput = e => { window._techQ = e.target.value;
+                       clearTimeout(window._tqT);
+                       window._tqT = setTimeout(()=>{ renderTech(); $('tq').focus(); }, 250); };
 }
 
 /* ── 시작 ── */

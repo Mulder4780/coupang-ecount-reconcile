@@ -1106,6 +1106,75 @@ def t29_cloud():
     print("  [29] 폰 단독 사용(잠금·오프라인 폴백·예약 반영·PIN 비노출) ✅")
 
 
+def t30_dns_and_versions():
+    """[30] 오래 끌던 접속 불가의 진짜 원인과, 버전 파일이 쌓이는 문제.
+
+    사내 DNS가 *.trycloudflare.com 을 안 풀어 준다. 그래서 PC에서 터널을 찔러 보면
+    늘 실패했고, publish는 게시를 취소하고 watch는 멀쩡한 터널을 계속 갈아치웠다.
+    폰에서는 살아 있던 주소인데 PC 혼자 못 보고 있었다."""
+    import net_probe as N
+
+    # 공개 DNS 우회가 실제로 동작하는가(회사 DNS가 막아도 이름을 얻어야 한다)
+    ips = N.resolve_public("www.cloudflare.com")
+    assert ips and all(re.fullmatch(r"[\d.]+", i) for i in ips), ips
+
+    # 판정이 정직한가 — 없는 이름은 살아있다고 하면 안 된다
+    ok, why = N.probe("https://this-name-does-not-exist-csos.trycloudflare.com/api/ping", timeout=6)
+    assert not ok and "풀지 못함" in why, why
+
+    # 게시·감시가 **회사 DNS에 속지 않는 경로**를 쓰는가
+    pe = open(os.path.join(ROOT, "publish_endpoint.py"), encoding="utf-8").read()
+    assert "from net_probe import probe" in pe, "게시가 여전히 회사 DNS로 판단한다"
+    tr = open(os.path.join(ROOT, "webapp", "tunnel_run.py"), encoding="utf-8").read()
+    assert tr.count("from net_probe import probe") >= 2, "감시 루프가 멀쩡한 터널을 죽었다고 본다"
+    # 터널 대상은 127.0.0.1이어야 한다(localhost면 IPv6로 풀려 HTTP 530)
+    assert 'f"http://127.0.0.1:{PORT}"' in tr, "localhost로 주면 IPv6(::1)로 풀려 앱에 못 닿는다"
+    assert "localhost:{PORT}" not in tr, "localhost가 남아 있다"
+    # 서비스가 죽어 있으면 생성 한도가 복구를 막으면 안 된다
+    assert "_endpoint_alive" in tr and "HARD_MAX" in tr, "한도가 복구까지 막는다"
+
+    # 버전 정리: 최신본은 어떤 경우에도 남아야 한다
+    import ledger_versions as V
+    from ecount_reconcile import load_config, resolve_master
+    master = resolve_master(load_config()["reconcile"]["master_xlsx"])
+    keep, move = V.plan(master)
+    kept = {k["path"] for k in keep}
+    assert master in kept, "최신본을 접으려 한다 — 모든 도구가 멈춘다"
+    assert len(keep) >= min(V.KEEP_LATEST, len(keep) + len(move)), (len(keep), len(move))
+    assert not (set(m["path"] for m in move) & kept), "같은 파일이 남김·접기 양쪽에 있다"
+    # 지우지 않는다(옮기기만 한다)
+    src = open(os.path.join(ROOT, "ledger_versions.py"), encoding="utf-8").read()
+    assert "shutil.move" in src and "삭제하지 않는다" in src
+    print("  [30] 사내 DNS 우회 판정 · 터널 대상 IPv4 · 버전 파일 정리(최신본 보호) ✅")
+
+
+def t31_tech():
+    """[31] 누가 어디를 다녀왔는가 — 세는 기준이 흔들리면 실적이 부풀거나 빠진다."""
+    import tech_report as T
+
+    # 동행 건은 양쪽 다 센다. 이름이 아닌 조각은 버린다.
+    assert T.split_tech("김준형, 김필우") == ["김준형", "김필우"]
+    assert T.split_tech("문상국. 최일파") == ["문상국", "최일파"]
+    assert T.split_tech("000 (캠프상태확인 및 스케쥴 세팅)") == []
+    assert T.split_tech("") == [] and T.split_tech(None) == []
+
+    visits, pending, unknown, _m = T.collect()
+    assert visits, "방문 기록이 하나도 안 잡힌다"
+    # **완료된 것만** 방문으로 센다 — 예정만 있는 건은 pending 이어야 한다
+    assert all(v["방문일"] for v in visits), "완료일 없는 건이 방문으로 세어졌다"
+    assert all(not p["방문일"] for p in pending), "완료된 건이 미방문으로 빠졌다"
+    assert all(u["방문일"] and not u["기사"] for u in unknown), unknown[:1]
+    # 한 사람씩 펼쳐 담는다(집계할 때 다시 쪼갤 필요가 없게)
+    assert all("," not in v["기사"] for v in visits), "동행 건이 안 펼쳐졌다"
+
+    by = T.summary(visits)
+    assert sum(d["총"] for d in by.values()) == len(visits)
+    for t, d in by.items():
+        assert d["돌발AS"] + d["정기점검"] == d["총"], (t, d)
+        assert d["최근"] and re.fullmatch(r"\d{4}-\d{2}-\d{2}", d["최근"]), (t, d["최근"])
+    print("  [31] 기사별 방문(동행 분리·완료분만·합계 정합) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1137,5 +1206,7 @@ if __name__ == "__main__":
     t27_po()
     t28_resolve()
     t29_cloud()
+    t30_dns_and_versions()
+    t31_tech()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")
