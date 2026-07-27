@@ -917,6 +917,15 @@ class H(BaseHTTPRequestHandler):
                                   "image/svg+xml" if p.endswith(".svg") else "image/png")
             except Exception:
                 return self._send(404, {"error": "no icon"})
+        if p == "/sw.js":
+            # 크롬이 [설치 및 바로가기 만들기]로 진짜 앱 설치를 해 주려면
+            # fetch 핸들러를 가진 서비스 워커가 필요하다. 캐시는 하지 않는다 —
+            # 이 앱은 매일 바뀌는 실데이터를 보여주므로 옛 화면이 남으면 안 된다.
+            js = ("self.addEventListener('install',e=>self.skipWaiting());\n"
+                  "self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));\n"
+                  "self.addEventListener('fetch',e=>{e.respondWith(fetch(e.request));});\n")
+            # ★ _send 는 str을 받으면 JSON으로 감싼다 — 반드시 bytes로 넘겨야 스크립트가 된다
+            return self._send(200, js.encode("utf-8"), "application/javascript; charset=utf-8")
         if p == "/manifest.json":                      # 홈 화면에 추가 시 앱처럼 보이게
             # ★ start_url 은 **이 페이지와 같은 출처**여야 한다. 다른 도메인을 넣으면
             #   크롬이 매니페스트를 통째로 무시해 [설치 및 바로가기 만들기]가 먹통이 된다

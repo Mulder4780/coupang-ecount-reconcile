@@ -523,10 +523,18 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
       <div class="steps" id="steps"></div></div>
     <div class="card" id="forkcard" style="display:none;border:2px solid var(--danger)">
       <h3 style="color:var(--danger)">⚠ 버전 충돌 경고</h3><div id="forkmsg" style="font-size:13.5px"></div></div>
-    <div class="card" id="tunnelcard" style="display:none">
-      <h3>🌐 외부 접속 주소 (LTE/5G에서도)</h3>
-      <div style="font-size:13.5px;word-break:break-all"><a id="tunnelurl" href="#" target="_blank"></a></div>
-      <div style="font-size:11.5px;color:var(--muted);margin-top:4px">터널 재시작 시 주소가 바뀝니다. 폰 브라우저로 열고 "홈 화면에 추가" 하세요.</div></div>
+    <div class="card" id="entrycard">
+      <h3>📱 고정 접속 주소 <span class="norm">— 바뀌지 않습니다</span></h3>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <a id="fixedurl" href="#" target="_blank"
+           style="flex:1;min-width:200px;font-size:13.5px;font-weight:800;word-break:break-all"></a>
+        <button id="copyfixed" style="background:#EEF2FF;color:#1C3FA8;border:0;border-radius:9px;
+          padding:8px 13px;font-weight:800;font-size:12.5px;font-family:inherit;cursor:pointer">복사</button></div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:6px">
+        폰에서는 이 주소만 쓰면 됩니다. 홈 화면 아이콘도 이 주소로 만드세요.</div>
+      <div id="tunnelrow" style="display:none;font-size:11.5px;color:var(--muted);margin-top:6px;
+        padding-top:6px;border-top:1px solid var(--line);word-break:break-all">
+        현재 경유 주소(수시 변동) <a id="tunnelurl" href="#" target="_blank"></a></div></div>
     <div class="card"><h3>보고 기준일 <span class="norm">— 엑셀 00_대시보드 B3·B4에 반영</span></h3>
       <div class="pctrl" style="margin-bottom:0;flex-wrap:wrap">
         <label style="flex:1;min-width:150px;font-size:11.5px;color:var(--ink-3);font-weight:700">보고일
@@ -668,6 +676,10 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 </nav>
 
 <script>
+/* 크롬의 [설치 및 바로가기 만들기]는 fetch 핸들러를 가진 서비스 워커가 있어야 동작한다.
+   매니페스트만으로는 단순 북마크가 되거나 메뉴가 아예 반응하지 않는다. */
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
 let PIN = localStorage.getItem('cw_pin') || '';
 let settleRows = [], reports = [], curReport = 0, polling = null;
 
@@ -814,35 +826,31 @@ async function loadStatus(){
   if(s.fork && s.fork.length){ $('forkcard').style.display='block';
     $('forkmsg').textContent = `구버전 ${s.fork.join(', ')} 이 최신본보다 나중에 수정되었습니다. 잘못된 파일에 입력 중일 수 있으니 확인하세요.`; }
   else $('forkcard').style.display='none';
-  if(s.tunnel){ $('tunnelcard').style.display='block';
+  if(s.tunnel){ $('tunnelrow').style.display='block';
     $('tunnelurl').textContent = s.tunnel; $('tunnelurl').href = s.tunnel; }
-  else $('tunnelcard').style.display='none';
+  else $('tunnelrow').style.display='none';
 }
 
 /* ── 정산·업무 ── */
 let works = {as:[], pm:[]}, mode = 'settle', issuesData = {rows:[],cols:[]}, checks = {};
-/* 터널 주소로 들어온 사람에게 "여기서 설치하면 내일 죽는다"를 알린다.
-   터널 주소는 띄울 때마다 새로 받으므로, 홈 화면 아이콘은 반드시 고정 주소에서 만들어야 한다.
-   (매니페스트 start_url을 다른 도메인으로 바꾸면 크롬이 설치 자체를 막아버려서 그 방법은 못 쓴다) */
+/* ★ 이 주소는 **어떤 일이 있어도 바뀌지 않는다**(2026-07-27 확정).
+   경유하는 터널 주소는 띄울 때마다 새로 받지만, 폰이 아는 주소는 늘 이것 하나다.
+   배너로 띄워 닫게 하지 않고, 대시보드에 **항상 보이게** 박아 둔다. */
 const FIXED_ENTRY = "https://mulder4780.github.io/coupang-ecount-reconcile/";
-function tunnelNotice(){
-  if(!/trycloudflare\.com$/.test(location.hostname)) return;
-  if(window.matchMedia('(display-mode: standalone)').matches) return;  // 이미 설치해 쓰는 중
-  if(sessionStorage.getItem('csos_notice')) return;
-  const d = document.createElement('div');
-  d.style.cssText = 'position:fixed;left:10px;right:10px;bottom:74px;z-index:9999;background:#0E1B3F;'
-    + 'color:#fff;border-radius:14px;padding:13px 14px;box-shadow:0 12px 34px rgba(0,0,0,.45);'
-    + 'font-size:13px;line-height:1.55';
-  d.innerHTML = '<b>홈 화면에 추가는 고정 주소에서 하세요.</b><br>'
-    + '<span style="color:#9FB0D4;font-size:12px">지금 주소는 수시로 바뀌어, 여기서 만든 아이콘은 곧 열리지 않습니다.</span>'
-    + '<div style="display:flex;gap:8px;margin-top:10px">'
-    + '<a href="' + FIXED_ENTRY + '?stay=1" style="flex:1;text-align:center;background:#2452E6;color:#fff;'
-    + 'text-decoration:none;padding:10px;border-radius:10px;font-weight:800">고정 주소에서 설치</a>'
-    + '<button id="csosNoticeX" style="background:#1B2C56;color:#C9D8FF;border:0;border-radius:10px;'
-    + 'padding:10px 14px;font-weight:700;font-family:inherit;font-size:13px">닫기</button></div>';
-  document.body.appendChild(d);
-  document.getElementById('csosNoticeX').onclick = () => {
-    sessionStorage.setItem('csos_notice','1'); d.remove();
+function showFixedEntry(){
+  const a = $('fixedurl'); if(!a) return;
+  a.textContent = FIXED_ENTRY.replace(/^https:\/\//,'').replace(/\/$/,'');
+  a.href = FIXED_ENTRY;
+  const b = $('copyfixed');
+  b.onclick = async () => {
+    try{ await navigator.clipboard.writeText(FIXED_ENTRY); }
+    catch(e){ /* http 출처에서는 clipboard API가 막힌다 — 옛 방식으로 되돌린다 */
+      const t = document.createElement('textarea');
+      t.value = FIXED_ENTRY; document.body.appendChild(t); t.select();
+      try{ document.execCommand('copy'); }catch(_){}
+      t.remove();
+    }
+    b.textContent = '복사됨'; setTimeout(()=>{ b.textContent = '복사'; }, 1600);
   };
 }
 async function loadSettle(){
@@ -856,7 +864,6 @@ async function loadSettle(){
   try{ brandLogo = (await api('/api/brand')).logo || ''; }catch(e){ brandLogo=''; }
   applyBrand();
   syncSortUI(); fillStatOptions(); renderSettle(); periodInit();
-  try{ tunnelNotice(); }catch(e){}
   try{ renderBoard(); }catch(e){ console.warn('board', e); }
   try{ $('helpcard').innerHTML = helpAll(); }catch(e){ console.warn('help', e); }
 }
@@ -2714,6 +2721,7 @@ function tick(){ $('clock').textContent = new Date().toLocaleTimeString('ko-KR',
 async function refreshAll(){ try{ await loadSettle(); await loadStatus(); }catch(e){} }
 (async function(){
   tick(); setInterval(tick, 30000); initDates();
+  showFixedEntry();          // 고정 주소는 로그인·데이터 로딩과 무관하게 **항상** 보인다
   show(curView());                       // 새로고침 전에 보던 화면으로 복귀
   if(PIN){ $('gate').style.display='none'; refreshAll(); }
   setInterval(()=>{ if(PIN && !runnerBusy()) loadStatus().catch(()=>{}); }, 30000);

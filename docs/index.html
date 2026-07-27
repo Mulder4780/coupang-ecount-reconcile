@@ -32,6 +32,8 @@ a.btn{display:block;margin-top:12px;background:var(--brand);color:#fff;text-deco
  padding:13px;border-radius:12px;font-weight:800;font-size:14.5px;box-shadow:0 6px 16px rgba(36,82,230,.32)}
 .err{background:#FDEBEC;color:#B91C1C;border-radius:11px;padding:11px;font-size:12.5px;line-height:1.6;margin-top:12px}
 .tip{font-size:11px;color:#98A2B3;margin-top:14px;line-height:1.65}
+.addr{margin-top:16px;background:#F2F5FB;border:1px solid #E1E8F5;border-radius:11px;padding:10px 12px;
+ font-size:12px;font-weight:800;color:#1C3FA8;word-break:break-all;letter-spacing:-.2px}
 </style></head>
 <body><div class="card">
   <div class="logo"><svg viewBox="0 0 512 512" aria-hidden="true">
@@ -46,12 +48,19 @@ a.btn{display:block;margin-top:12px;background:var(--brand);color:#fff;text-deco
   <div class="sub">CSOS · UNIVERSAL LIFT</div>
   <div class="state" id="st"><span class="spin"></span> 접속 주소를 확인하는 중…</div>
   <div id="act"></div>
+  <div class="addr">mulder4780.github.io/coupang-ecount-reconcile</div>
   <div class="tip">이 주소는 <b>바뀌지 않습니다</b>. 홈 화면에 추가해 두고 쓰세요.<br>
     사무실 PC가 켜져 있어야 접속됩니다.</div>
 </div>
 <script>
 /* 고정 진입점: 현재 살아있는 터널 주소(endpoint.json)를 읽어 자동 이동한다.
    터널 주소가 바뀌어도 이 페이지 주소는 그대로이므로 폰 북마크를 고칠 필요가 없다. */
+/* 크롬이 [설치 및 바로가기 만들기]로 진짜 앱 설치를 해 주려면 서비스 워커가 있어야 한다.
+   없으면 메뉴를 눌러도 아무 일이 안 일어나거나 단순 북마크만 생긴다. */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
 (async () => {
   const st = document.getElementById('st'), act = document.getElementById('act');
 

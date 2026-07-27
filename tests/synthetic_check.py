@@ -729,16 +729,31 @@ def t26_mobile():
     #   (2026-07-27에 고정 주소를 넣었다가 폰에서 설치가 막혔다).
     assert '"start_url": "/"' in blk, "앱 매니페스트 start_url은 같은 출처(/)여야 설치가 된다"
     assert "FIXED_ENTRY" not in blk, "다른 도메인을 start_url에 넣으면 크롬이 설치를 거부한다"
-    # 대신 앱 화면이 '터널 주소에서 설치하면 안 된다'를 사용자에게 알려야 한다
+    # 대신 앱 화면이 **고정 주소를 항상 보여줘야** 한다(닫히는 배너가 아니라 상시 표기).
     idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
-    assert "tunnelNotice" in idx and "trycloudflare" in idx, "터널 주소 안내 배너가 없다"
-    assert FIX in idx, "안내 배너가 고정 주소를 알려주지 않는다"
+    assert FIX in idx, "앱이 고정 주소를 표기하지 않는다"
+    assert "showFixedEntry" in idx and 'id="entrycard"' in idx, "고정 주소 상시 표기 카드가 없다"
+    assert "tunnelNotice" not in idx, "닫히는 안내 배너는 상시 표기로 대체됐다"
+    # 카드가 숨겨져 있으면 표기한 의미가 없다
+    _card = idx[idx.index('id="entrycard"'):idx.index('id="entrycard"') + 60]
+    assert "display:none" not in _card, "고정 주소 카드가 숨겨져 있다"
+
+    # (1-b) 크롬 [설치 및 바로가기 만들기]는 fetch 핸들러를 가진 서비스 워커가 있어야 뜬다.
+    #       고정 주소 쪽과 앱(터널) 쪽 **양쪽 출처 모두** 필요하다 — 설치는 출처 단위다.
+    assert "serviceWorker" in idx and "/sw.js" in idx, "앱에 서비스 워커 등록이 없다 — 설치가 안 된다"
+    assert 'p == "/sw.js"' in src, "앱 서버가 /sw.js 를 내주지 않는다"
+    _swblk = src[src.index('p == "/sw.js"'):][:700]
+    assert "addEventListener('fetch'" in _swblk, "fetch 핸들러가 없으면 크롬이 설치를 제안하지 않는다"
+    _dsw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
+    assert "addEventListener('fetch'" in _dsw, "고정 주소 쪽 서비스 워커에 fetch 핸들러가 없다"
 
     # (2) 고정 진입점 페이지: 매니페스트를 걸고, 죽은 주소로 그냥 넘기지 않는가
     doc = open(os.path.join(ROOT, "docs", "index.html"), encoding="utf-8").read()
     assert 'rel="manifest"' in doc, "고정 페이지에 매니페스트가 없으면 홈 화면 추가가 앱으로 안 붙는다"
     assert "/api/ping" in doc, "살아 있는지 확인하지 않고 넘기면 폰에는 브라우저 오류만 뜬다"
     assert "cache:'no-store'" in doc or 'cache: "no-store"' in doc, "주소를 캐시하면 옛 주소로 간다"
+    assert "serviceWorker" in doc and "sw.js" in doc, "고정 페이지에 서비스 워커 등록이 없다 — 설치가 안 된다"
+    assert "stay" in doc, "즉시 넘겨 버리면 설치 메뉴를 누를 틈이 없다"
 
     mf = _j.load(open(os.path.join(ROOT, "docs", "manifest.json"), encoding="utf-8"))
     assert mf["start_url"] == FIX and mf.get("scope", FIX).startswith(FIX.rstrip("/")), mf
@@ -944,6 +959,14 @@ def t6_webapp():
         assert "관리자검증상태" in html and "중복판정(선택)" in html, "문제 코드 해설 누락"
         assert "이미 정리(중복 통합" in html, "삭제된 건 표시 누락"
         assert "codeHtml(" in html and "topLine(" in html, "코드 해설 함수 누락"
+        # 서비스 워커는 **진짜 자바스크립트**로 나가야 한다.
+        # _send 가 str을 JSON으로 감싸는 바람에 "self.add..." 처럼 따옴표에 싸여 나가면
+        # 브라우저가 등록을 거부하고 [설치 및 바로가기 만들기]가 그대로 먹통이 된다.
+        _r = urllib.request.urlopen(base + "/sw.js", timeout=5)
+        _sw = _r.read().decode("utf-8")
+        assert "javascript" in _r.headers.get("Content-Type", ""), _r.headers.get("Content-Type")
+        assert _sw.startswith("self.addEventListener"), "sw.js가 JSON으로 감싸여 나간다: " + _sw[:40]
+        assert "addEventListener('fetch'" in _sw, "fetch 핸들러 없이는 설치가 제안되지 않는다"
         print("  [6] 웹앱 API(PIN 인증·상태·정산·페이지 서빙) ✅")
     finally:
         p.terminate()
