@@ -124,8 +124,34 @@ if __name__ == "__main__":
     rows = scan()
     if not rows:
         print(f"inbox 비어 있음 — {INBOX_DIR}")
+    # ★ 파일이 있어도 **내용이 비어 있으면** 대조가 안 된다. 2026-07-27에 ERP 내보내기
+    #   3개가 '회사명' 한 줄만 있는 빈 파일이었는데, 크기(13KB·20KB)만 보면 정상처럼 보여
+    #   아무도 몰랐다. 그래서 행 수를 세어 같이 보여준다.
+    def rowcount(path):
+        try:
+            import openpyxl
+            w = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            n = 0
+            for sn in w.sheetnames:
+                n += sum(1 for r in w[sn].iter_rows(values_only=True)
+                         if sum(1 for x in r if x not in (None, "")) >= 3)
+            w.close()
+            return n
+        except Exception:
+            return -1
+    empty = []
     for p, k in rows:
-        print(f"  [{LABEL[k]:14s}] {os.path.basename(p)}  ({os.path.getsize(p)//1024}KB)")
+        n = rowcount(p)
+        mark = ""
+        if n == 0:
+            mark = "  ★ 비어 있음 — 다시 내보내세요"
+            empty.append(os.path.basename(p))
+        elif n > 0:
+            mark = f"  {n}행"
+        print(f"  [{LABEL[k]:14s}] {os.path.basename(p)}  ({os.path.getsize(p)//1024}KB){mark}")
+    if empty:
+        print(f"\n★ 내용이 없는 파일 {len(empty)}개: " + ", ".join(empty))
+        print("  이카운트에서 조회 조건(기간·거래처)을 넣고 **화면에 행이 보이는 상태**에서 내보내세요.")
     if rows:
         from collections import Counter
         c = Counter(k for _, k in rows)
