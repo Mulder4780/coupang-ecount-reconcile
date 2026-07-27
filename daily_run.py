@@ -122,6 +122,14 @@ def main():
     # 7. 전표 전송 대기 현황 (dry-run만 — 실전송은 절대 자동화하지 않음)
     steps.append(run("전표 전송대기(dry-run)", [os.path.join(ROOT, "ecount_upload.py")]))
 
+    # 8. 클라우드 사본 갱신 — PC가 꺼져도 폰에서 오늘 자료를 볼 수 있게.
+    #    config/cloud.json 이 없으면 조용히 건너뛴다(설정 전에는 아무 일도 안 함).
+    if os.path.exists(os.path.join(ROOT, "config", "cloud.json")):
+        steps.append(run("클라우드 사본 올리기", [os.path.join(ROOT, "cloud_export.py"), "--upload"]))
+    else:
+        steps.append({"name": "클라우드 사본 올리기", "ok": None,
+                      "out": "스킵 — config/cloud.json 미설정(CLOUD_SETUP.md 참고)"})
+
     finish(steps)
 
 

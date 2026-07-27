@@ -110,7 +110,48 @@ def load_records():
             r = parse_post(no, p, band)
             if r:
                 out.append(r)
+    out += load_kakao_records()
     out.sort(key=lambda r: (r["작업일"] or r["게시일"], r["프로젝트NO"]))
+    return out
+
+
+def load_kakao_records():
+    """카톡 내보내기(.txt)도 같은 양식(♣ ［…] ● 프로젝트NO / ● 캠프이름)을 쓴다.
+
+    밴드에 안 올라오고 카톡에만 보고된 건이 있어(2026-07-27 기준 39건) 함께 읽는다.
+    한 메시지에 여러 건이 담기므로 ♣ 로 덩어리를 나눠 게시글처럼 취급한다.
+    """
+    inbox = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kakao", "inbox")
+    if not os.path.isdir(inbox):
+        return []
+    DAY = re.compile(r"-{3,}\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일")
+    out, seen = [], set()
+    for f in sorted(glob.glob(os.path.join(inbox, "*.txt"))):
+        room = os.path.splitext(os.path.basename(f))[0]
+        try:
+            txt = open(f, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        day = ""
+        for chunk in re.split(r"(?=-{3,}\s*\d{4}년)", txt):
+            m = DAY.search(chunk)
+            if m:
+                day = "%s-%02d-%02d" % (m.group(1), int(m.group(2)), int(m.group(3)))
+            for i, blk in enumerate(re.split(r"♣", chunk)[1:]):
+                if "프로젝트NO" not in blk:
+                    continue
+                key = (day, blk[:200])
+                if key in seen:
+                    continue
+                seen.add(key)
+                r = parse_post(f"kakao-{room}-{day}-{i}",
+                               {"content": "♣" + blk[:2000], "author": room,
+                                "created_at": None, "photo_count": 0, "comment_count": 0},
+                               f"카톡 {room}")
+                if r:
+                    if not r.get("게시일"):
+                        r["게시일"] = day
+                    out.append(r)
     return out
 
 

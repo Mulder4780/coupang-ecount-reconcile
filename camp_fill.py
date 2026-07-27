@@ -25,6 +25,7 @@ except Exception:
     pass
 
 CACHE = os.path.join(ROOT, "band", "cache")
+KAKAO = os.path.join(ROOT, "kakao", "inbox")   # 카톡 내보내기도 같은 양식으로 캠프를 적는다
 CAMP_RE = re.compile(r"캠프\s*이?름?\s*[:：]\s*([^\n●♣\[]{2,30})")
 PRJ_RE = re.compile(r"UJ\d{7}")
 LIST_RE = re.compile(r"\d+\.\s*(.+?)\(\d{1,2}/\d{1,2}\)\s*[:：][^\n]*?(UJ\d{7})")
@@ -62,6 +63,23 @@ def camp_book():
                 if LABEL_RE.match(camp):
                     continue
                 book.setdefault(m.group(2), camp)
+
+    # 카톡 대화방도 밴드와 같은 양식(● 프로젝트NO / ● 캠프이름)을 쓴다.
+    # 밴드에 안 올라온 건이 카톡에는 있는 경우가 있어 같이 훑는다.
+    for f in glob.glob(os.path.join(KAKAO, "*.txt")):
+        try:
+            txt = open(f, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for blk in re.split(r"[♣✅]", txt):
+            ps, cs = PRJ_RE.findall(blk), CAMP_RE.findall(blk)
+            if not (ps and cs):
+                continue
+            camp = cs[0].strip().rstrip("=·-").strip()
+            if LABEL_RE.match(camp):
+                continue
+            for x in ps:
+                book.setdefault(x, camp)
     return book
 
 

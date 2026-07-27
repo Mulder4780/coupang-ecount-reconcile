@@ -125,7 +125,11 @@ def read_rows(master):
 
 def main():
     args = sys.argv[1:]
-    master = cfg["reconcile"]["master_xlsx"]
+    # config에는 처음 만든 파일명(v20)이 그대로 적혀 있다. 실제로 봐야 할 건 **최신본**이다.
+    # 다른 도구들은 전부 resolve_master를 쓰는데 여기만 빠져 있어 파일 없음으로 죽었다.
+    sys.path.insert(0, ROOT)
+    from ecount_reconcile import resolve_master
+    master = resolve_master(cfg["reconcile"]["master_xlsx"])
     if "--master" in args:
         master = args[args.index("--master") + 1]
     if "--file" in args:

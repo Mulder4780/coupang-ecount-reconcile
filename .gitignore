@@ -24,3 +24,7 @@ band/docs_inbox/*
 webapp/brand/*
 !webapp/brand/README.txt
 band/ocr_cache/*
+webapp/data/*
+config/cloud.json
+reports/cloud_bundle.json
+kakao/inbox/*.txt
