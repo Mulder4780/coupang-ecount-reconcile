@@ -1527,6 +1527,62 @@ async function setDates(){
   else alert(r.error||'실패');
 }
 
+/* 보고일·집계기준일을 **보고 화면에서 바로** 고친다.
+   기존에는 대시보드 맨 아래 카드에만 있어서, 보고서를 보다가 날짜가 틀린 걸 발견하면
+   탭을 옮겨 찾아가야 했다. 값은 엑셀 00_대시보드 B3·B4가 진실이므로 거기에 쓴다. */
+function openRptDates(){
+  const meta = (execRep && execRep.meta) || {};
+  const cur = normDate(meta['보고일']) || todayISO();
+  const base = normDate(meta['집계기준일']) || '';
+  openPane(`<h2>보고 기준일 변경</h2>
+    <div class="sub">엑셀 00_대시보드 B3·B4에 기록됩니다 (새 버전 생성)</div>
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:16px">
+      <label style="font-size:12.5px;color:var(--ink-3);font-weight:700">보고일
+        <input type="date" id="rd_report" value="${cur}" style="width:100%;padding:12px;margin-top:5px;
+          border:1.5px solid var(--line);border-radius:10px;font-size:16px;font-family:inherit;
+          background:var(--card);color:var(--ink-1)"></label>
+      <label style="font-size:12.5px;color:var(--ink-3);font-weight:700">집계기준일
+        <input type="date" id="rd_base" value="${base}" style="width:100%;padding:12px;margin-top:5px;
+          border:1.5px solid var(--line);border-radius:10px;font-size:16px;font-family:inherit;
+          background:var(--card);color:var(--ink-1)"></label>
+      <button onclick="saveRptDates()" style="width:100%;padding:13px;background:var(--brand);color:#fff;
+        border:0;border-radius:11px;font-weight:800;font-size:15px;font-family:inherit;cursor:pointer">
+        저장하고 엑셀에 반영</button>
+      <button onclick="rptDatesToday()" style="width:100%;padding:11px;background:transparent;
+        color:var(--brand);border:1.5px solid var(--line);border-radius:11px;font-weight:700;
+        font-size:13.5px;font-family:inherit;cursor:pointer">오늘 · 전 영업일로 맞추기</button>
+    </div>`);
+}
+
+/* 가장 흔한 입력을 한 번에 — 보고일=오늘, 집계기준일=직전 영업일(주말 건너뜀) */
+function rptDatesToday(){
+  const t = new Date(), iso = d => d.toISOString().slice(0,10);
+  const prev = new Date(t);
+  do { prev.setDate(prev.getDate()-1); } while([0,6].includes(prev.getDay()));
+  $('rd_report').value = iso(t);
+  $('rd_base').value = iso(prev);
+}
+
+async function saveRptDates(){
+  const 보고일 = $('rd_report').value, 집계기준일 = $('rd_base').value;
+  if(!보고일 && !집계기준일){ alert('날짜를 선택하세요'); return; }
+  // 집계기준일이 보고일보다 뒤면 십중팔구 잘못 고른 것이다 — 그대로 쓰면 보고서가 어긋난다
+  if(보고일 && 집계기준일 && 집계기준일 > 보고일 &&
+     !confirm(`집계기준일(${집계기준일})이 보고일(${보고일})보다 뒤입니다.
+그대로 진행할까요?`)) return;
+  if(!confirm(`엑셀 00_대시보드에 반영합니다 (새 버전 생성):
+보고일 ${보고일||'-'} · 집계기준일 ${집계기준일||'-'}
+
+진행할까요?`)) return;
+  const r = await api('/api/set_dates',{method:'POST',body:JSON.stringify({보고일, 집계기준일})});
+  if(!r.ok){ alert(r.error||'실패'); return; }
+  closeSheet();
+  // 대시보드 카드도 같은 값으로 맞춰 둔다(두 곳이 다르면 헷갈린다)
+  try{ if($('d_report')) $('d_report').value = 보고일; if($('d_base')) $('d_base').value = 집계기준일; }catch(e){}
+  toast('반영 중 — 엑셀 새 버전이 만들어집니다');
+  show('run'); if(!polling) polling = setInterval(pollLog, 1200); pollLog();
+}
+
 /* ── 대표 보고서: 생성 → 캡처(PNG) → 공유 ── */
 let brandLogo = '';      // webapp/brand/ 에 넣은 고객사 CI 파일명(없으면 기본 마크)
 let erpDocs = {rows:[],months:{},kinds:{},total:0};   // 25_ERP매출서류 (이카운트 계산서 원본)
@@ -1844,7 +1900,10 @@ function renderDaily(){
       <h2 style="font-size:17px">Coupang Service Operations System<small>일일보고 · (주)유니버셜리프트앤히타치코리아</small></h2>
       <div class="rdate">보고일<b>${(execRep.meta&&execRep.meta['보고일'])||`${y}-${m}-${String(today.getDate()).padStart(2,'0')}`}</b>
         <span style="font-size:10.5px;font-weight:600;color:var(--ink-3)">집계기준일 ${
-          (execRep.meta&&execRep.meta['집계기준일'])||'-'} · 보고자 ${(execRep.meta&&execRep.meta['보고자'])||'-'}</span></div>
+          (execRep.meta&&execRep.meta['집계기준일'])||'-'} · 보고자 ${(execRep.meta&&execRep.meta['보고자'])||'-'}</span>
+        <button onclick="openRptDates()" style="margin-top:5px;background:#EEF2FF;color:#1C3FA8;border:0;
+          border-radius:8px;padding:5px 10px;font-size:11px;font-weight:800;font-family:inherit;
+          cursor:pointer">📅 날짜 변경</button></div>
     </div>
     <h4>핵심 지표 (${y}년 누적 · ~${ytdTo})</h4>
     <div class="rgrid k7">

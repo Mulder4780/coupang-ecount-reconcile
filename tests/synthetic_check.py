@@ -1424,7 +1424,22 @@ def t36_mobile_input():
            if r.get("부가세") not in (None, "") and r.get("합계")
            and abs((r["공급가액"] or 0) + (r["부가세"] or 0) - (r["합계"] or 0)) > 1]
     assert not bad, "원장 공급가+부가세≠합계: " + ", ".join(bad[:5])
-    print("  [36] 폰 입력(달력·드롭다운·16px·시트연동) · 부가세 원장값 표기 ✅")
+    # (7) 보고일·집계기준일을 **보고 화면에서 바로** 고칠 수 있는가
+    #     예전에는 대시보드 맨 아래 카드에만 있어, 보고서를 보다 날짜가 틀린 걸 발견하면
+    #     탭을 옮겨 찾아가야 했다.
+    for fn in ("openRptDates", "saveRptDates", "rptDatesToday"):
+        assert "function " + fn in idx, f"{fn} 없음"
+    assert 'onclick="openRptDates()"' in idx, "보고 화면에 날짜 변경 버튼이 없다"
+    _rd = idx[idx.index("function openRptDates"):][:1500]
+    assert 'type="date"' in _rd, "보고 날짜가 달력으로 안 뜬다"
+    _sv = idx[idx.index("function saveRptDates"):][:1200]
+    assert "/api/set_dates" in _sv, "엑셀 00_대시보드에 안 쓴다"
+    # 집계기준일이 보고일보다 뒤면 잘못 고른 것이다 — 그대로 쓰면 보고서가 어긋난다
+    assert "집계기준일 > 보고일" in _sv.replace("집계기준일 &gt; 보고일", "집계기준일 > 보고일"),         "집계기준일이 보고일보다 뒤인 경우를 안 막는다"
+    # 전 영업일 계산은 주말을 건너뛰어야 한다
+    _td = idx[idx.index("function rptDatesToday"):][:600]
+    assert "[0,6].includes" in _td.replace(" ", ""), "전 영업일 계산이 주말을 안 건너뛴다"
+    print("  [36] 폰 입력(달력·드롭다운·16px·시트연동) · 부가세 원장값 · 보고일 즉시수정 ✅")
 
 
 if __name__ == "__main__":
