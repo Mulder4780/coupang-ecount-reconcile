@@ -1001,6 +1001,16 @@ class H(BaseHTTPRequestHandler):
         p = self.path.split("?")[0]
         if p in ("/", "/index.html"):
             html = open(os.path.join(BASE, "index.html"), encoding="utf-8").read()
+            # ★★ 터널 주소로 들어온 경우에는 **설치 가능하게 만들지 않는다**.
+            #   터널 호스트는 띄울 때마다 바뀌는데, 여기서 [설치]를 하면 그 임시 호스트가
+            #   앱 아이콘에 **영구히 박힌다**. 주소가 바뀌는 순간 그 아이콘은 영영
+            #   'ERR_FAILED'만 띄운다 — PC·폰 둘 다 그렇게 죽었다(2026-07-28 실사고).
+            #   설치는 오직 고정 주소에서만 되게 하고, 여기서는 매니페스트·서비스워커를 뺀다.
+            host = (self.headers.get("Host") or "").lower()
+            if "trycloudflare.com" in host:
+                html = html.replace('<link rel="manifest" href="/manifest.json">', "")
+                html = html.replace("navigator.serviceWorker.register('/sw.js')",
+                                    "Promise.reject()")
             return self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
         if p.startswith("/brand/"):                    # 고객사 CI(쿠팡 로고) — 로컬 파일만 서빙
             fn = os.path.basename(p)

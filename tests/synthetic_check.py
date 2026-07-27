@@ -790,7 +790,14 @@ def t26_mobile():
     assert "게시 취소" in pe and "/api/ping" in pe, "죽은 주소를 그대로 게시할 수 있다"
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
     assert "kill_stale_tunnel" in wd, "워치독이 좀비를 정리하지 않으면 재시작이 무효가 된다"
-    print("  [26] 모바일 접속 경로(고정 진입점·매니페스트·자가복구) ✅")
+    # ★★ 터널 주소에서는 **설치가 되면 안 된다**. 터널 호스트는 매번 바뀌는데 거기서
+    #   설치하면 그 임시 주소가 아이콘에 영구히 박혀, 주소가 바뀌는 순간 영영 안 열린다
+    #   (2026-07-28: PC·폰의 설치된 앱이 둘 다 옛 터널 주소로 죽었다).
+    i = src.index('if p in ("/", "/index.html")')
+    blk2 = src[i:i + 1200]
+    assert "trycloudflare.com" in blk2 and 'rel="manifest"' in blk2,         "터널 출처에서 매니페스트를 빼지 않는다 — 거기서 설치하면 아이콘이 곧 죽는다"
+    assert "serviceWorker.register" in blk2, "터널 출처에서 서비스워커도 빼야 설치가 안 뜬다"
+    print("  [26] 모바일 접속 경로(고정 진입점·터널출처 설치차단·자가복구) ✅")
 
 
 def t27_po():
