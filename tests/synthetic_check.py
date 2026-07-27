@@ -757,6 +757,22 @@ def t26_mobile():
     import webapp.tunnel_run as T  # noqa: F401
     tr = open(os.path.join(ROOT, "webapp", "tunnel_run.py"), encoding="utf-8").read()
     assert "def watch(" in tr and "def publish(" in tr, "터널 자가점검·주소게시가 빠졌다"
+
+    # ★ cloudflared 로그에는 api.trycloudflare.com(내부 API)도 나온다.
+    #   그걸 터널 주소로 잘못 잡으면 고정 주소가 엉뚱한 곳을 가리켜 폰이 통째로 막힌다.
+    import re as _re2
+    m = _re2.search(r"m = re\.search\(r\"\((https[^\"]+)\)\"", tr)
+    assert m, "터널 주소 정규식을 못 찾음"
+    rx = _re2.compile(m.group(1))
+    assert not rx.search("https://api.trycloudflare.com"), "api.trycloudflare.com을 걸러내지 못한다"
+    assert rx.search("INF | https://mold-restored-flags-earthquake.trycloudflare.com |"), "정상 주소를 못 잡는다"
+
+    # 주소를 너무 자주 새로 만들면 등록조차 안 되는 주소를 받는다 — 한도가 있어야 한다
+    assert "_throttle" in tr and "MAX_PER_HOUR" in tr, "터널 재생성 한도가 없다"
+
+    # 게시 직전에 형식·생존을 한 번 더 본다(죽은 주소를 올리면 폰이 막힌다)
+    pe = open(os.path.join(ROOT, "publish_endpoint.py"), encoding="utf-8").read()
+    assert "게시 취소" in pe and "/api/ping" in pe, "죽은 주소를 그대로 게시할 수 있다"
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
     assert "kill_stale_tunnel" in wd, "워치독이 좀비를 정리하지 않으면 재시작이 무효가 된다"
     print("  [26] 모바일 접속 경로(고정 진입점·매니페스트·자가복구) ✅")

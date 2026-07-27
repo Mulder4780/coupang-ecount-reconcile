@@ -42,6 +42,23 @@ def main():
         print("게시할 주소 없음 (터널 미가동)")
         return
 
+    # ★ 마지막 안전장치. 여기서 한 번 더 거르지 않으면 잘못된 주소가 그대로 게시돼
+    #   폰에서 '사이트에 연결할 수 없습니다'만 뜬다(2026-07-27에 api.trycloudflare.com이 실렸다).
+    #   무료 터널 주소는 '단어-단어-단어-단어.trycloudflare.com' 꼴이다.
+    import re as _re
+    if not _re.fullmatch(r"https://[a-z0-9]+(?:-[a-z0-9]+){2,}\.trycloudflare\.com/?", url):
+        print(f"게시 취소 — 터널 주소 형식이 아님: {url}")
+        return
+    # 정말 살아 있는지 확인하고 올린다(죽은 주소를 게시하면 폰이 그대로 막힌다)
+    try:
+        import urllib.request
+        with urllib.request.urlopen(url.rstrip("/") + "/api/ping", timeout=20) as r:
+            if r.status != 200:
+                raise RuntimeError(f"status {r.status}")
+    except Exception as e:
+        print(f"게시 취소 — 주소가 응답하지 않음({type(e).__name__}): {url}")
+        return
+
     prev = ""
     try:
         prev = json.load(open(EP_FILE, encoding="utf-8")).get("url", "")

@@ -40,6 +40,38 @@ def find_cloudflared():
     return None
 
 
+MAX_PER_HOUR = 4
+STAMP = os.path.join(ROOT, "reports", "tunnel_starts.txt")
+
+
+def _throttle():
+    """1시간에 MAX_PER_HOUR번까지만 새 터널을 만든다.
+
+    주소를 새로 받을 때마다 폰·PC 북마크가 가리키는 곳이 바뀐다. 자주 만들면
+    고정 주소가 따라가기도 전에 또 바뀌고, 심하면 **DNS에 등록되지 않은 주소**를
+    받는다(2026-07-27 실사고). 한도를 넘으면 가장 오래된 기록이 1시간을 넘길 때까지 기다린다.
+    """
+    now = time.time()
+    try:
+        hist = [float(x) for x in open(STAMP, encoding="utf-8").read().split()]
+    except Exception:
+        hist = []
+    hist = [t for t in hist if now - t < 3600]
+    while len(hist) >= MAX_PER_HOUR:
+        wait = int(3600 - (now - hist[0])) + 5
+        print(f"터널을 너무 자주 새로 만들고 있습니다 — {wait}초 기다립니다"
+              f" (최근 1시간 {len(hist)}회)")
+        time.sleep(min(wait, 300))
+        now = time.time()
+        hist = [t for t in hist if now - t < 3600]
+    hist.append(now)
+    try:
+        os.makedirs(os.path.dirname(STAMP), exist_ok=True)
+        open(STAMP, "w", encoding="utf-8").write("\n".join(str(t) for t in hist))
+    except OSError:
+        pass
+
+
 def publish(url):
     """고정 주소(GitHub Pages)가 지금 주소를 가리키게 한다.
 
@@ -110,6 +142,10 @@ def main():
     exe = find_cloudflared()
     if not exe:
         sys.exit("cloudflared 미설치. 먼저:  winget install Cloudflare.cloudflared")
+    # 터널을 너무 자주 새로 만들면 주소만 계속 바뀌고(폰 북마크가 무용지물),
+    # 새로 받은 주소가 아예 등록되지 않는 일도 생긴다(2026-07-27에 한 시간에 12개를
+    # 만들다가 DNS에 없는 주소를 받았다). 1시간에 4번까지만 새로 만든다.
+    _throttle()
     os.makedirs(os.path.dirname(URL_FILE), exist_ok=True)
     while True:
         print(f"터널 시작... (대상 http://localhost:{PORT})")
@@ -118,7 +154,11 @@ def main():
                              text=True, encoding="utf-8", errors="replace")
         url = None
         for ln in p.stdout:
-            m = re.search(r"(https://[a-z0-9-]+\.trycloudflare\.com)", ln)
+            # ★ cloudflared 로그에는 우리 터널 주소 말고 **api.trycloudflare.com**(내부 API)도
+            #   나온다. 그냥 잡으면 그게 먼저 걸려 고정 주소가 엉뚱한 곳을 가리키고,
+            #   폰에서는 '사이트에 연결할 수 없습니다'만 뜬다(2026-07-27 실사고).
+            #   무료 터널 주소는 언제나 '단어-단어-단어-단어' 꼴이라 하이픈으로 걸러낸다.
+            m = re.search(r"(https://[a-z0-9]+(?:-[a-z0-9]+){2,}\.trycloudflare\.com)", ln)
             if m and not url:
                 url = m.group(1)
                 open(URL_FILE, "w", encoding="utf-8").write(url)
