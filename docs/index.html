@@ -49,20 +49,48 @@ a.btn{display:block;margin-top:12px;background:var(--brand);color:#fff;text-deco
    터널 주소가 바뀌어도 이 페이지 주소는 그대로이므로 폰 북마크를 고칠 필요가 없다. */
 (async () => {
   const st = document.getElementById('st'), act = document.getElementById('act');
+
+  /* 살아 있는지 **직접 찔러 보고** 넘어간다.
+     예전에는 주소만 읽고 바로 이동해서, 터널이 죽어 있으면 폰에는 브라우저 기본 오류
+     ("사이트에 연결할 수 없습니다")만 뜨고 왜 안 되는지 알 길이 없었다. */
+  const alive = async (url) => {
+    try{
+      const c = new AbortController();
+      const timer = setTimeout(()=>c.abort(), 8000);
+      await fetch(url.replace(/\/$/,'') + '/api/ping?t=' + Date.now(),
+                  {cache:'no-store', mode:'no-cors', signal:c.signal});
+      clearTimeout(timer);
+      return true;                       // no-cors라 내용은 못 읽지만, 응답이 오면 살아 있다
+    }catch(e){ return false; }
+  };
+
+  const fail = (title, body, url) => {
+    st.textContent = '';
+    act.innerHTML = `<div class="err"><b>${title}</b><br>${body}</div>` +
+      (url ? `<a class="btn" href="${url}">그래도 열어보기</a>` : '');
+  };
+
+  let d;
   try{
     const r = await fetch('endpoint.json?t=' + Date.now(), {cache:'no-store'});
-    const d = await r.json();
+    d = await r.json();
     if(!d.url) throw new Error('no url');
-    const age = d.updated ? Math.round((Date.now() - new Date(d.updated).getTime())/60000) : null;
-    st.innerHTML = '접속합니다…';
-    act.innerHTML = `<a class="btn" href="${d.url}">바로 열기</a>`;
-    setTimeout(()=>{ location.replace(d.url); }, 700);
   }catch(e){
-    st.textContent = '';
-    act.innerHTML = `<div class="err"><b>접속 주소를 찾지 못했습니다.</b><br>
-      사무실 PC가 꺼져 있거나 아직 갱신 전일 수 있습니다.<br>
-      PC에서 <b>[CSOS 폰 접속 QR]</b>을 한 번 실행하면 주소가 갱신됩니다.</div>`;
+    return fail('접속 주소를 찾지 못했습니다.',
+      '사무실 PC가 꺼져 있거나 아직 갱신 전일 수 있습니다.<br>' +
+      'PC에서 <b>[CSOS 폰 접속 QR]</b>을 한 번 실행하면 갱신됩니다.');
   }
+
+  st.innerHTML = '<span class="spin"></span> 연결을 확인하는 중…';
+  if(!(await alive(d.url))){
+    const min = d.updated ? Math.round((Date.now() - new Date(d.updated).getTime())/60000) : null;
+    return fail('사무실 PC가 꺼져 있는 것 같습니다.',
+      '주소는 정상인데 응답이 없습니다' + (min!=null ? ` (주소 갱신 ${min}분 전)` : '') + '.<br>' +
+      'PC를 켜면 1~2분 안에 자동으로 다시 연결됩니다.', d.url);
+  }
+  st.innerHTML = '접속합니다…';
+  act.innerHTML = `<a class="btn" href="${d.url}">바로 열기</a>`;
+  location.replace(d.url);
 })();
 </script>
 </body></html>
