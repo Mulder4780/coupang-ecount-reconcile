@@ -1673,10 +1673,12 @@ function bundleHtml(y){
   const ok  = rows.filter(r=>['확정','유력'].includes(kind(r))).length;
   const est = rows.filter(r=>kind(r)==='추정').length;
   const out = rows.filter(r=>kind(r)==='대상외').length;
-  const unk = rows.length - ok - est - out;
+  const poc = rows.filter(r=>kind(r)==='PO확인').length;
+  const unk = rows.length - ok - est - out - poc;
   return `<h4 style="margin-top:14px">계산서별 포함 프로젝트
-      <span class="norm">— 확정 ${ok} · 추정 ${est} · 대상외 ${out}${unk?` · 미상 ${unk}`:''} (번호를 누르면 그 건으로 이동)</span></h4>
+      <span class="norm">— 확정 ${ok}${poc?` · PO확인 ${poc}`:''}${est?` · 추정 ${est}`:''} · 대상외 ${out}${unk?` · 미상 ${unk}`:''} (번호를 누르면 그 건으로 이동)</span></h4>
     <div style="font-size:11px;color:var(--ink-3);margin:-4px 0 6px">
+      확정 = 밴드에 적힌 구성 그대로 · PO확인 = 쿠팡 PO 번호까지 확인(품목은 아리바에서 조회)<br>
       대상외 = 계단·철거·신규납품처럼 AS·점검이 아닌 별도 공사(원장에 작업 행이 없습니다)</div>
     <table class="stack">
       <colgroup><col style="width:15%"><col style="width:11%"><col style="width:19%"><col style="width:55%"></colgroup>
@@ -1684,7 +1686,7 @@ function bundleHtml(y){
       ${rows.map(r=>{
         const v = String(r.판정||'미상'), k = v.split('(')[0];
         const col = k==='확정'?'#12813F' : k==='유력'?'#0B6BCB' : k==='추정'?'#B25E09'
-                  : k==='대상외'?'#667085' : k==='밴드확인'?'#0B6BCB' : '#98A2B3';
+                  : k==='대상외'?'#667085' : (k==='밴드확인'||k==='PO확인')?'#0B6BCB' : '#98A2B3';
         const list = String(r.포함프로젝트||'').split(',').map(s=>s.trim()).filter(Boolean);
         return `<tr><td class="hd">${r.전표}</td>
           <td data-l="판정"><span style="color:${col};font-weight:700">${k}</span>${

@@ -596,6 +596,21 @@ def t22_bundle():
     poinx = {777000: ["UJ2600077", "UJ2600078"]}
     prjs, v, _ = B.bundle({**doc, "amt": 777000}, W, None, poinx)
     assert v == "확정(밴드PO)" and len(prjs) == 2, (v, prjs)
+    # PO 발주글의 총금액 표기는 제각각이다 — '원'만 보면 KRW로 적힌 글을 통째로 놓친다
+    for t, want in (("★ 총금액 : 25,223,400원", "25,223,400"),
+                    ("★ 총금액 :8,626,500원", "8,626,500"),
+                    ("★ 총금액 : 13,866,500 KRW", "13,866,500"),
+                    ("★ 총금액 :14,803,300 KRW", "14,803,300")):
+        m = B._TOTAL_RE.search(t)
+        assert m and m.group(1) == want, (t, m.group(1) if m else None)
+    # 프로젝트NO가 안 적힌 PO는 번호·건수라도 알려 준다(추정으로 뭉개지 않는다)
+    meta = {900000: {"PO": "PO364055", "품목": "정기점검 29건", "건수": 29, "유형": "정기점검"}}
+    _, v2, _ = B.bundle({**doc, "amt": 900000}, [], None, None, meta)
+    assert v2.startswith("PO확인(PO364055"), v2
+    # 계단·철거는 PO를 알아도 '별도 공사'라는 사실이 유지돼야 한다
+    _, v3, _ = B.bundle({**doc, "kind": "계단", "amt": 900000}, [], None, None,
+                        {900000: {"PO": "PO111", "품목": "계단 1EA", "건수": 1, "유형": "계단"}})
+    assert v3.startswith("대상외(계단") and "PO111" in v3, v3
     _, v, _ = B.bundle({**doc, "month": "2026/01"}, W)     # 기간 밖
     assert v.startswith("미상(") and "보유" in v, v
     print("  [22] ERP 계산서 구성 추정(캠프정규화·분기창·금액정합·미상사유) ✅")

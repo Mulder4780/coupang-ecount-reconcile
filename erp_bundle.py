@@ -182,7 +182,10 @@ def band_invoice_index():
     return idx
 
 
-_TOTAL_RE = re.compile(r"총\s*금\s*액\s*[:：]?\s*([\d,]{4,})\s*원")
+# 쿠팡 PO 발주글의 총금액 표기가 제각각이다:
+#   '★ 총금액 : 25,223,400원'  '★ 총금액 :8,626,500원'  '★ 총금액 : 13,866,500 KRW'
+# '원'만 찾으면 KRW로 적힌 글을 통째로 놓친다(2026-07-27에 추정 23건이 이 때문이었다).
+_TOTAL_RE = re.compile(r"총\s*금\s*액\s*[:：]?\s*([\d,]{4,})\s*(?:원|KRW|₩)?", re.I)
 
 
 def band_po_index():
@@ -223,6 +226,61 @@ def band_po_index():
     return idx
 
 
+_ITEM_LINE = re.compile(r"품\s*목\s*[:：]\s*([^\n★]{2,60})")
+_PO_NO = re.compile(r"PO\d{5,}")
+_CNT = re.compile(r"(\d{1,3})\s*건")
+
+
+def band_po_meta():
+    """PO 발주글에서 **프로젝트NO가 안 적힌** 건의 단서를 모은다.
+
+    이런 글이 대부분이다:
+        ★ 총금액 : 25,223,400원
+        ★ 품  목 : 정기점검 29건 (5/21-30 6건, 6/1-10 23건)
+        ★ 쿠팡오더 No. : PO364055/PR511170
+    개별 프로젝트NO는 없지만 **PO번호·유형·건수**는 확실하다.
+    이것만 알아도 아리바에서 품목을 조회할 수 있어, '추정'보다 훨씬 쓸모 있다.
+    """
+    import json, glob
+    cache = os.path.join(ROOT, "band", "cache")
+    kakao = os.path.join(ROOT, "kakao", "inbox")
+    bodies = []
+    for f in glob.glob(os.path.join(cache, "*.json")):
+        b = os.path.basename(f)
+        if b.startswith(("dump_", "raw_")):
+            continue
+        try:
+            d = json.load(open(f, encoding="utf-8"))
+        except Exception:
+            continue
+        bodies += [(p.get("content") or "") for p in (d.get("posts") or {}).values()]
+    for f in glob.glob(os.path.join(kakao, "*.txt")):
+        try:
+            bodies.append(open(f, encoding="utf-8", errors="replace").read())
+        except OSError:
+            pass
+
+    idx = {}
+    for body in bodies:
+        # 한 글에 여러 발주가 담기기도 한다 — '구매 오더' 단위로 쪼갠다
+        for blk in re.split(r"(?=Coupang이\(가\) 새 구매 오더)", body):
+            m = _TOTAL_RE.search(blk)
+            if not m:
+                continue
+            amt = int(m.group(1).replace(",", ""))
+            po = _PO_NO.search(blk)
+            item = _ITEM_LINE.search(blk)
+            item_s = item.group(1).strip() if item else ""
+            cnt = _CNT.search(item_s)
+            rec = {"PO": po.group() if po else "",
+                   "품목": item_s,
+                   "건수": int(cnt.group(1)) if cnt else 0,
+                   "유형": kind_of(item_s)}
+            for k in (amt, round(amt / 1.1)):
+                idx.setdefault(k, rec)
+    return idx
+
+
 _QTR_RE = re.compile(r"(\d{2})년\s*(\d)\s*분기")
 
 
@@ -244,7 +302,7 @@ def window(doc):
     return lo, mo
 
 
-def bundle(doc, works, binx=None, poinx=None):
+def bundle(doc, works, binx=None, poinx=None, pometa=None):
     """계산서 1장 → (후보 프로젝트 목록, 판정, 합계)
 
     후보를 못 찾으면 판정 자리에 **왜 못 찾았는지**를 적는다.
@@ -267,6 +325,27 @@ def bundle(doc, works, binx=None, poinx=None):
     po = (poinx or {}).get(doc["amt"]) or []
     if po:
         return po, "확정(밴드PO)", doc["amt"]
+
+    # ③ 프로젝트NO는 없어도 **쿠팡 PO 번호와 건수**는 밴드에 적혀 있다.
+    #    추정으로 뭉개지 말고 그 사실을 그대로 알려 준다 — 아리바에서 품목을 볼 수 있다.
+    meta = (pometa or {}).get(doc["amt"])
+    # 계단·철거·신규납품은 AS/점검이 아니라 별도 공사다. PO 번호를 알아도 그 사실은 그대로다 —
+    # 둘 다 적어 준다(어디서 확인할지 + 왜 작업 행이 없는지).
+    if doc["kind"] in ("계단", "철거", "신규납품", "기타"):
+        po = f" · {meta['PO']}" if (meta and meta.get("PO")) else ""
+        return [], f"대상외({doc['kind']} — 별도 공사, 원장에 작업 행 없음{po})", 0
+    if meta and meta.get("PO"):
+        kd = meta.get("유형") or doc["kind"]
+        n = meta.get("건수") or 0
+        cand = [w["prj"] for w in works
+                if w["date"] and w["kind"] and kd in w["kind"]
+                and window(doc)[0] <= w["date"][:7] <= window(doc)[1]]
+        tag = f"PO확인({meta['PO']} · {meta['품목'][:24]})"
+        # 후보 건수가 PO 건수와 딱 맞으면 그 목록을 그대로 쓴다
+        if n and len(set(cand)) == n:
+            return sorted(set(cand)), f"유력({meta['PO']} · {n}건 일치)", doc["amt"]
+        return [], tag, doc["amt"]
+
     ck, kind = camp_key(doc["camp"]), doc["kind"]
     # 계단·철거·신규납품·기타는 AS/점검이 아니라 **별도 공사**다. 02·04 시트에 작업 행이
     # 아예 없으므로 '미상'으로 두면 영원히 안 풀린다. 대상 아님으로 분명히 적는다.
@@ -314,11 +393,12 @@ def main():
     if not docs:
         sys.exit("25_ERP매출서류 시트가 비어 있습니다 — 먼저 erp_docs_check.py --sheet 를 돌리세요")
     works = load_works(master)
-    binx, poinx = band_invoice_index(), band_po_index()
-    print(f"밴드 근거: 계산서 목록 {len(binx)}항목 · PO 발주글 {len(poinx)}금액")
+    binx, poinx, pometa = band_invoice_index(), band_po_index(), band_po_meta()
+    print(f"밴드 근거: 계산서 목록 {len(binx)}항목 · PO(프로젝트 포함) {len(poinx)}금액 · "
+          f"PO(번호·건수만) {len(pometa)}금액")
     rows, stat, why = [], {}, {}
     for d in sorted(docs, key=lambda x: x["slip"]):
-        prjs, verdict, tot = bundle(d, works, binx, poinx)
+        prjs, verdict, tot = bundle(d, works, binx, poinx, pometa)
         stat[verdict.split("(")[0]] = stat.get(verdict.split("(")[0], 0) + 1
         why[verdict] = why.get(verdict, 0) + 1
         rows.append([d["slip"], d["month"], d["kind"], d["camp"], d["amt"],
