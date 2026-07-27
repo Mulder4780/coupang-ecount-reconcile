@@ -192,7 +192,8 @@ def t7_po(tmp):
     r = subprocess.run([PY, os.path.join(ROOT, "po_reconcile.py"),
                         "--file", pof, "--master", ledger, "--no-queue"],
                        capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp})
-    m = re.search(r"A\(원장미등록\) (\d+) / B\(쿠팡목록에없음\) (\d+) / C\(금액불일치\) (\d+) / D\(연결제안\) (\d+) / 정상 (\d+)", r.stdout)
+    # 판정 이름이 '원장미등록' → '미청구'로 바뀌었다(ERP 계산서 대조 후 진짜 미청구만 남김)
+    m = re.search(r"A\((?:원장미등록|미청구)\) (\d+) / B\(쿠팡목록에없음\) (\d+) / C\(금액불일치\) (\d+) / D\(연결제안\) (\d+) / 정상 (\d+)", r.stdout)
     assert m, f"PO 결과 파싱 실패:\n{r.stdout}\n{r.stderr}"
     a, b, c, d, ok = map(int, m.groups())
     assert (a, b, c, d, ok) == (2, 1, 0, 1, 1), f"PO 판정 불일치: A{a} B{b} C{c} D{d} OK{ok} (기대 2,1,0,1,1)"
@@ -761,6 +762,35 @@ def t26_mobile():
     print("  [26] 모바일 접속 경로(고정 진입점·매니페스트·자가복구) ✅")
 
 
+def t27_po():
+    """쿠팡 PO 대조 — **계산서가 끊긴 PO를 '누락'이라 부르지 않는다**.
+
+    쿠팡 PO는 '정기점검 24건'처럼 여러 작업을 묶은 것이라 06시트 PO번호 칸에 안 적힌다.
+    그걸 전부 '원장 미등록'으로 세면 96건 중 94건이 쏟아져 나와, 무엇이 진짜 미청구인지
+    묻혀 버린다(2026-07-27 실제로 그랬다). ERP 계산서 금액과 맞춰 본 뒤,
+    **계산서가 없는 PO만** 미청구로 올린다.
+    """
+    import po_reconcile as P, inspect
+    src = inspect.getsource(P.main)
+    assert "erp_amts" in src and "invoiced(" in src, "ERP 계산서 대조 없이 미등록으로 단정한다"
+    assert "미청구 — 쿠팡 PO는 받았는데" in src, "판정 문구가 조치로 이어지지 않는다"
+    assert "billed" in src, "계산서 발행된 PO를 따로 세지 않는다"
+
+    # PO 번호 정규화 — 표기가 흔들려도 같은 PO로 본다
+    for t_, want in (("PO326234", "PO326234"), ("po 326234", "PO326234"),
+                     ("PO-326234", "PO326234"), ("발주 PO326234 건", "PO326234")):
+        assert P.norm_po(t_) == want, (t_, P.norm_po(t_))
+    assert P.norm_po("PROJECT") == "" and P.norm_po("") == ""
+
+    # 총금액이 부가세 포함으로 적힌 PO도 공급가 기준 계산서와 맞아야 한다
+    erp = {1000000, 1100000}
+    def invoiced(a):
+        return int(a) in erp or round(int(a) / 1.1) in erp
+    assert invoiced(1100000) and invoiced(1000000)
+    assert not invoiced(999999)
+    print("  [27] 쿠팡 PO 대조(계산서 발행분 제외·번호 정규화·부가세 표기) ✅")
+
+
 def t16_status():
     """상태 수식 캐시 보정 — 새로 넣은 행은 상태열(수식)이 None이라 완료된 점검이
     전부 '미점검'으로 보였다. 원본 열로 직접 판정하는 로직 검증."""
@@ -907,5 +937,6 @@ if __name__ == "__main__":
     t24_reorder_safety()
     t25_attachments()
     t26_mobile()
+    t27_po()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

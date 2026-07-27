@@ -121,12 +121,35 @@ def main():
     by_po, no_po = ledger_po_view(master)
     tol = cfg["reconcile"].get("금액허용오차", 0)
 
+    # ERP가 이미 계산서를 끊었는지부터 본다.
+    # 쿠팡 PO 대부분은 '정기점검 24건'처럼 여러 건을 묶은 것이라 06시트 PO번호 칸에
+    # 안 적힌다. 그걸 전부 '원장 미등록'이라고 하면 94건이 쏟아져 무엇이 진짜 누락인지
+    # 알 수 없다(2026-07-27). **계산서가 안 끊긴 PO만** 진짜 미청구다.
+    erp_amts = set()
+    try:
+        import erp_bundle as _EB
+        for _d in _EB.load_erp()[1]:
+            erp_amts.add(_d["amt"])
+            erp_amts.add(round(_d["amt"] * 1.1))
+    except Exception as e:
+        print(f"  (ERP 계산서 대조 생략: {e})")
+
+    def invoiced(amount):
+        if not amount or not erp_amts:
+            return False
+        a = int(amount)
+        return a in erp_amts or round(a / 1.1) in erp_amts
+
     A, B, C, OK, D = [], [], [], [], []
+    billed = 0
     for po, p in sorted(cp_by_no.items()):
         lrows = by_po.get(po)
         if not lrows:
+            if invoiced(p["amount"]):
+                billed += 1          # 계산서는 끊었다 — 06시트에 PO번호만 안 적힌 것
+                continue
             A.append({"PO번호": po, "쿠팡금액": p["amount"], "발행일": p["date"], "내용": p["desc"][:60],
-                      "판정": "원장 미등록 — 관리대장에 옮겨지지 않은 PO"})
+                      "판정": "미청구 — 쿠팡 PO는 받았는데 계산서가 발행되지 않았습니다"})
             continue
         led_sum = sum((r.get("원장_공급가액") or 0) for r in lrows)
         ids = ",".join(r["정산ID"] for r in lrows)
@@ -175,7 +198,7 @@ def main():
         f.write("# 쿠팡 PO ↔ 관리대장 대조\n\n")
         f.write(f"- 생성 {datetime.now():%Y-%m-%d %H:%M} / 쿠팡 PO {len(coupang)}건 · 원장 PO {len(by_po)}건 · 정상 일치 {len(OK)}건\n")
         f.write(f"- PO필요·번호없는 유상 정산: {len(no_po)}건\n")
-        for title, rows_ in [("A. 원장 미등록 PO (누락 ★)", A), ("B. 쿠팡 목록에 없는 원장 PO (오기입 의심)", B),
+        for title, rows_ in [("A. 미청구 PO — 계산서 미발행 (★)", A), ("B. 쿠팡 목록에 없는 원장 PO (오기입 의심)", B),
                              ("C. 금액 불일치", C), ("D. 연결 제안 (미등록 PO ↔ 무PO 정산)", D)]:
             f.write(f"\n## {title} — {len(rows_)}건\n\n")
             if rows_:
@@ -193,7 +216,8 @@ def main():
                     keys.append(k)
         with open(base + ".csv", "w", encoding="utf-8-sig", newline="") as f:
             w = csv.DictWriter(f, fieldnames=keys); w.writeheader(); w.writerows(allrows)
-    print(f"A(원장미등록) {len(A)} / B(쿠팡목록에없음) {len(B)} / C(금액불일치) {len(C)} / D(연결제안) {len(D)} / 정상 {len(OK)}")
+    print(f"A(미청구) {len(A)} / B(쿠팡목록에없음) {len(B)} / C(금액불일치) {len(C)} / "
+          f"D(연결제안) {len(D)} / 정상 {len(OK)} / 계산서발행됨 {billed}")
     print("리포트:", base + ".md")
 
 
