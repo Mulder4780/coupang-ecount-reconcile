@@ -687,6 +687,58 @@ def t25_attachments():
     print("  [25] 행 부속물(하이퍼링크 이동·범위 끝행만 확장) ✅")
 
 
+def t26_mobile():
+    """폰에서 여는 경로가 **끊기지 않는 구조인지** 합성으로 확인한다.
+
+    실제로 반복해서 겪은 고장은 전부 '주소가 어딘가에 박혀 있어서'였다:
+      · 폰 홈 화면 아이콘  → 추가할 때의 터널 주소가 매니페스트 start_url에 박힘
+      · PC 앱(크롬 PWA)   → 설치할 때의 터널 주소가 app-id에 박힘
+    터널 주소는 띄울 때마다 새로 받으므로 다음 날이면 전부 죽는다.
+    그래서 **바깥으로 내보내는 주소는 언제나 고정 진입점**이어야 한다.
+    """
+    import json as _j, re as _re
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as A
+
+    FIX = A.FIXED_ENTRY
+    assert FIX.startswith("https://"), FIX
+    assert "trycloudflare" not in FIX, "고정 진입점에 터널 주소를 넣으면 안 된다"
+
+    # (1) 앱이 내주는 매니페스트: 홈 화면 아이콘이 고정 주소를 향하는가
+    src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    i = src.index('if p == "/manifest.json"')
+    blk = src[i:i + 900]
+    assert '"start_url": FIXED_ENTRY' in blk, "start_url이 고정 진입점이 아니다(아이콘이 터널 주소에 묶인다)"
+    assert '"start_url": "/"' not in blk, "start_url이 '/'이면 그때의 터널 주소가 박힌다"
+
+    # (2) 고정 진입점 페이지: 매니페스트를 걸고, 죽은 주소로 그냥 넘기지 않는가
+    doc = open(os.path.join(ROOT, "docs", "index.html"), encoding="utf-8").read()
+    assert 'rel="manifest"' in doc, "고정 페이지에 매니페스트가 없으면 홈 화면 추가가 앱으로 안 붙는다"
+    assert "/api/ping" in doc, "살아 있는지 확인하지 않고 넘기면 폰에는 브라우저 오류만 뜬다"
+    assert "cache:'no-store'" in doc or 'cache: "no-store"' in doc, "주소를 캐시하면 옛 주소로 간다"
+
+    mf = _j.load(open(os.path.join(ROOT, "docs", "manifest.json"), encoding="utf-8"))
+    assert mf["start_url"] == FIX and mf.get("scope", FIX).startswith(FIX.rstrip("/")), mf
+    assert "trycloudflare" not in _j.dumps(mf)
+
+    # (3) 터널 주소는 어디에도 하드코딩돼 있으면 안 된다(리포트·설정 파일은 예외)
+    hard = []
+    for fn in ("webapp/app_server.py", "webapp/index.html", "docs/index.html",
+               "phone_access.py", "publish_endpoint.py"):
+        txt = open(os.path.join(ROOT, fn), encoding="utf-8").read()
+        for m in _re.finditer(r"https://[a-z0-9-]+\.trycloudflare\.com", txt):
+            hard.append(f"{fn}: {m.group()}")
+    assert not hard, "터널 주소가 코드에 박혀 있다 — 주소가 바뀌면 그대로 죽는다: " + "; ".join(hard[:3])
+
+    # (4) 자가복구가 붙어 있는가 — 죽은 주소를 붙들고 있으면 아무도 못 고친다
+    import webapp.tunnel_run as T  # noqa: F401
+    tr = open(os.path.join(ROOT, "webapp", "tunnel_run.py"), encoding="utf-8").read()
+    assert "def watch(" in tr and "def publish(" in tr, "터널 자가점검·주소게시가 빠졌다"
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    assert "kill_stale_tunnel" in wd, "워치독이 좀비를 정리하지 않으면 재시작이 무효가 된다"
+    print("  [26] 모바일 접속 경로(고정 진입점·매니페스트·자가복구) ✅")
+
+
 def t16_status():
     """상태 수식 캐시 보정 — 새로 넣은 행은 상태열(수식)이 None이라 완료된 점검이
     전부 '미점검'으로 보였다. 원본 열로 직접 판정하는 로직 검증."""
@@ -832,5 +884,6 @@ if __name__ == "__main__":
     t23_formulas()
     t24_reorder_safety()
     t25_attachments()
+    t26_mobile()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

@@ -32,6 +32,10 @@ DEMO = "--demo" in sys.argv
 PORT = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else 8899
 WEBCFG = os.path.join(ROOT, "config", "webapp.json")
 
+# 폰 홈 화면 아이콘이 가리켜야 할 **바뀌지 않는 주소**.
+# 터널 주소(trycloudflare)는 띄울 때마다 새로 받으므로 아이콘에 박으면 안 된다.
+FIXED_ENTRY = "https://mulder4780.github.io/coupang-ecount-reconcile/"
+
 
 def load_pin():
     if DEMO:
@@ -914,9 +918,13 @@ class H(BaseHTTPRequestHandler):
             except Exception:
                 return self._send(404, {"error": "no icon"})
         if p == "/manifest.json":                      # 홈 화면에 추가 시 앱처럼 보이게
+            # ★ start_url 은 반드시 **고정 주소**여야 한다.
+            #   "/" 로 두면 홈 화면 아이콘에 그때의 터널 주소가 박히고, 터널 주소는 매번
+            #   바뀌므로 다음 날 아이콘이 죽는다("사이트에 연결할 수 없습니다").
+            #   폰·PC에서 반복해서 겪은 문제의 근원이 이것이었다(2026-07-27).
             return self._send(200, {
                 "name": "Coupang Service Operations System", "short_name": "CSOS",
-                "start_url": "/", "display": "standalone",
+                "start_url": FIXED_ENTRY, "id": FIXED_ENTRY, "display": "standalone",
                 "background_color": "#060D2B", "theme_color": "#060D2B",
                 "icons": [
                     {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
