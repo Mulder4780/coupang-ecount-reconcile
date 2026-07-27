@@ -1324,6 +1324,47 @@ def t34_capture_and_no_send():
     print("  [34] 확인목록 캡처(요약·건별) · 자동 전송 경로 없음 · 자료판정 순서 ✅")
 
 
+def t35_confirm_evidence():
+    """[35] '확인 완료' 체크는 **근거가 완료라고 말할 때만** 찍혀야 한다.
+
+    한 건에 글이 여러 개 올라온다(접수 안내 → 작업완료). band_map 이 **먼저 나온 것**만
+    집던 탓에 접수 글이 잡혀 완료 글을 놓쳤다 — 전체로 '첫 기록이 완료' 382 vs
+    '완료 기록이 하나라도 있음' 859. 그 상태로 확인 체크를 돌리면 근거가 '접수·예정'인
+    행에 '일치·확인완료'가 찍힌다. 확인하지 않은 것을 확인했다고 남기는 것이라 가장 나쁘다.
+    (2026-07-27: 대상 40건 중 37건이 그랬다)"""
+    import confirm_fill as C
+
+    # (1) 완료 글을 우선으로 고르는가 — 합성 레코드로 직접 확인
+    fake = [{"프로젝트NO": "UJ9000001", "진행상태": "접수·예정", "작업일": "2026-06-01", "업무유형": "돌발AS"},
+            {"프로젝트NO": "UJ9000001", "진행상태": "작업완료", "작업일": "2026-06-03", "업무유형": "돌발AS"},
+            {"프로젝트NO": "UJ9000002", "진행상태": "접수·예정", "작업일": "2026-06-02", "업무유형": "돌발AS"}]
+    import band_extract as B
+    _orig = B.load_records
+    try:
+        B.load_records = lambda *a, **k: fake
+        bm = C.band_map()
+    finally:
+        B.load_records = _orig
+    assert bm["UJ9000001"]["status"] == "작업완료", "접수 글이 완료 글을 가린다"
+    assert bm["UJ9000001"]["date"] == "2026-06-03", bm["UJ9000001"]
+    assert bm["UJ9000002"]["status"] == "접수·예정", "없는 완료를 지어내면 안 된다"
+
+    # (2) 실제 계획 — 확인 체크가 붙는 건은 **전부** 근거가 '작업완료'여야 한다
+    real = C.band_map()
+    _m, items, _stat = C.plan()
+    VCOLS = ("관리자검증상태", "담당관리자", "최종확인일", "최종확인일(유현민 체크)")
+    bad = [i["key"] for i in items if i["col"] in VCOLS
+           and (real.get(i["key"]) or {}).get("status") != "작업완료"]
+    assert not bad, ("근거가 완료가 아닌데 확인 체크를 찍으려 한다: " + ", ".join(sorted(set(bad))[:5]))
+
+    # (3) 기존 값을 덮지 않는가 — 확인 기록을 덮어쓰면 되돌릴 수 없다
+    assert all(i.get("only_if_empty") for i in items), "빈칸만 채우는 규칙이 빠졌다"
+    # (4) 상태 열 자체는 건드리지 않는다(완료 여부는 사람이 정한다)
+    assert not any(i["col"] in ("진행상태", "점검상태") for i in items), \
+        "도구가 진행상태를 바꾸려 한다 — 완료 판정은 사람 몫이다"
+    print("  [35] 확인 체크 근거 정합(완료 글 우선·불일치 0·빈칸만·상태 불변) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1360,5 +1401,6 @@ if __name__ == "__main__":
     t32_band_sheet()
     t33_unbilled_banner()
     t34_capture_and_no_send()
+    t35_confirm_evidence()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

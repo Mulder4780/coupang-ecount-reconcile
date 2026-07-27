@@ -32,17 +32,30 @@ MANAGER = "유현민"
 
 
 def band_map():
-    """프로젝트NO → {날짜, 사진}"""
+    """프로젝트NO → {날짜, 사진, 상태}
+
+    ★ 한 건에 글이 여러 개 올라온다(접수 안내 → 작업완료). 예전에는 **먼저 나온 것 하나만**
+      집었는데, 그러면 접수 글이 잡혀 완료 글을 통째로 놓친다.
+      전체로 보면 '첫 기록이 완료' 382건 vs '완료 기록이 하나라도 있음' 859건 —
+      477건을 미완료로 잘못 본다. 완료 확인 체크가 여기에 걸려 있어 그대로 두면
+      **완료된 건을 확인 못 했다고 넘기거나, 반대로 근거를 잘못 읽는다**(2026-07-27).
+      그래서 완료 글을 우선으로, 정보가 많은 쪽을 고른다(project_resolve와 같은 규칙).
+    """
     import band_extract as B
     out = {}
     for r in B.load_records():
         p = (r.get("프로젝트NO") or "").strip()
-        if not p or p in out:
+        if not p:
             continue
-        out[p] = {"date": (r.get("작업일") or r.get("게시일") or "")[:10],
-                  "photo": bool(r.get("사진수") or r.get("photo_count") or r.get("사진")),
-                  "kind": r.get("업무유형") or "",
-                  "status": str(r.get("진행상태") or "")}
+        cur = {"date": (r.get("작업일") or r.get("게시일") or "")[:10],
+               "photo": bool(r.get("사진수") or r.get("photo_count") or r.get("사진")),
+               "kind": r.get("업무유형") or "",
+               "status": str(r.get("진행상태") or "")}
+        cur["_score"] = (3 if cur["status"] == "작업완료" else 0) + \
+                        sum(1 for k in ("date", "photo", "kind") if cur[k])
+        old = out.get(p)
+        if not old or cur["_score"] > old["_score"]:
+            out[p] = cur
     return out
 
 
@@ -80,7 +93,10 @@ def plan():
             #   날짜가 문자열이 되고 집계·정렬이 어긋난다(2026-07-26에 348개가 이렇게 들어갔다).
             add = lambda col, val, why: items.append(
                 {"sheet": sheet, "key": prj, "key_col": "프로젝트NO", "col": col,
-                 "value": val, "only_if_empty": False,
+                 # ★ 계획 단계에서 빈칸만 고르지만, **쓰기 단계에서도** 한 번 더 막는다.
+                 #   수식 셀은 캐시가 비어 보일 수 있어 계획만 믿으면 남의 확인 기록을 덮는다.
+                 #   확인 기록을 덮는 것은 되돌릴 수 없다.
+                 "value": val, "only_if_empty": True,
                  "vtype": "date" if ("일" in col and "등록" not in col) else "text",
                  "evidence": why})
 
