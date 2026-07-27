@@ -836,8 +836,8 @@ function tunnelNotice(){
   d.innerHTML = '<b>홈 화면에 추가는 고정 주소에서 하세요.</b><br>'
     + '<span style="color:#9FB0D4;font-size:12px">지금 주소는 수시로 바뀌어, 여기서 만든 아이콘은 곧 열리지 않습니다.</span>'
     + '<div style="display:flex;gap:8px;margin-top:10px">'
-    + '<a href="' + FIXED_ENTRY + '" style="flex:1;text-align:center;background:#2452E6;color:#fff;'
-    + 'text-decoration:none;padding:10px;border-radius:10px;font-weight:800">고정 주소로 이동</a>'
+    + '<a href="' + FIXED_ENTRY + '?stay=1" style="flex:1;text-align:center;background:#2452E6;color:#fff;'
+    + 'text-decoration:none;padding:10px;border-radius:10px;font-weight:800">고정 주소에서 설치</a>'
     + '<button id="csosNoticeX" style="background:#1B2C56;color:#C9D8FF;border:0;border-radius:10px;'
     + 'padding:10px 14px;font-weight:700;font-family:inherit;font-size:13px">닫기</button></div>';
   document.body.appendChild(d);

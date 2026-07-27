@@ -93,9 +93,35 @@ a.btn{display:block;margin-top:12px;background:var(--brand);color:#fff;text-deco
       '주소는 정상인데 응답이 없습니다' + (min!=null ? ` (주소 갱신 ${min}분 전)` : '') + '.<br>' +
       'PC를 켜면 1~2분 안에 자동으로 다시 연결됩니다.', d.url);
   }
-  st.innerHTML = '접속합니다…';
-  act.innerHTML = `<a class="btn" href="${d.url}">바로 열기</a>`;
-  location.replace(d.url);
+  /* ★ 바로 넘겨 버리면 이 화면에서 [설치 및 바로가기 만들기]를 누를 틈이 없다.
+       홈 화면 아이콘은 **이 주소에서** 만들어야 오래 가는데, 페이지가 즉시 사라지니
+       설치를 할 수가 없었다(2026-07-27 실제 증상).
+       그래서 설치된 앱으로 열었을 때만 즉시 넘기고, 브라우저에서 그냥 열었을 때는
+       잠깐 멈춰 설치할 기회를 준다. ?stay=1 을 붙이면 아예 안 넘어간다. */
+  const installed = window.matchMedia('(display-mode: standalone)').matches
+                 || window.navigator.standalone === true;
+  const stay = new URLSearchParams(location.search).has('stay');
+  act.innerHTML = `<a class="btn" href="${d.url}">지금 열기</a>`;
+  if (installed) { location.replace(d.url); return; }
+  if (stay) { st.textContent = '이 화면에 머무릅니다. 메뉴에서 [설치 및 바로가기 만들기]를 누르세요.'; return; }
+
+  let left = 4;
+  const tick = () => {
+    st.textContent = `${left}초 후 접속합니다`;
+    if (left-- <= 0) { clearInterval(iv); location.replace(d.url); }
+  };
+  const iv = setInterval(tick, 1000); tick();
+  act.insertAdjacentHTML('beforeend',
+    `<button id="stayBtn" style="width:100%;margin-top:8px;background:#EEF2FF;color:#1C3FA8;
+      border:0;border-radius:12px;padding:12px;font-weight:800;font-size:14px;
+      font-family:inherit;cursor:pointer">여기서 홈 화면에 추가하기</button>
+     <div class="tip" style="margin-top:8px">
+       홈 화면 아이콘은 <b>이 주소로</b> 만들어야 나중에도 열립니다.</div>`);
+  document.getElementById('stayBtn').onclick = () => {
+    clearInterval(iv);
+    st.innerHTML = '<b>메뉴(⋮) → 설치 및 바로가기 만들기</b>를 누르세요.';
+    document.getElementById('stayBtn').remove();
+  };
 })();
 </script>
 </body></html>
