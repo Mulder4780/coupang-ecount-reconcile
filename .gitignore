@@ -28,3 +28,4 @@ webapp/data/*
 config/cloud.json
 reports/cloud_bundle.json
 kakao/inbox/*.txt
+reports/mobile_snapshot.html

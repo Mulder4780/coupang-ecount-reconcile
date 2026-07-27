@@ -130,6 +130,10 @@ def main():
         steps.append({"name": "클라우드 사본 올리기", "ok": None,
                       "out": "스킵 — config/cloud.json 미설정(CLOUD_SETUP.md 참고)"})
 
+    # 9. 폰용 사본 — PC가 꺼져 있어도 열리는 HTML 한 장(서버·인터넷 불필요).
+    #    이동이 잦아 PC를 켜 둘 수 없을 때 이게 유일하게 확실한 방법이다.
+    steps.append(run("폰용 사본 만들기", [os.path.join(ROOT, "mobile_snapshot.py")]))
+
     finish(steps)
 
 
