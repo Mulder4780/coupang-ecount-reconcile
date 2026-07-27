@@ -15,7 +15,7 @@ PC를 못 켜 두면 폰에는 크롬 기본 오류만 떴다. 그래서 데이�
   python cloud_publish.py            # 사본 생성(로컬 확인)
   python cloud_publish.py --push     # 생성 + git commit·push (고정 주소에 실제 반영)
 """
-import sys, os, json, zlib, subprocess
+import sys, os, re, json, zlib, subprocess
 from datetime import datetime
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -83,6 +83,35 @@ def payload():
     return d
 
 
+def aging(path=None):
+    """미청구 건의 **경과일만** 공개 파일로 낸다 → GitHub Actions가 매일 늙는 걸 본다.
+
+    ★ 여기에는 금액·PO번호·캠프명을 절대 넣지 않는다. 저장소가 공개라서다.
+      날짜만 있어도 '90일 넘은 게 3건' 은 계산되고, 그거면 알림으로 충분하다.
+      상세는 잠긴 사본(data.enc)에 들어 있고 폰에서 PIN을 넣어야 보인다.
+
+    이걸 PC가 아니라 Actions가 보는 이유: 출장으로 **PC를 며칠 못 켜도** 미청구는
+    계속 늙기 때문이다. 경과일은 새 데이터 없이 날짜만으로 계산된다.
+    """
+    import csv as _csv, glob as _g
+    path = path or os.path.join(DOCS, "aging.json")
+    rep = sorted(_g.glob(os.path.join(ROOT, "reports", "PO대조_*.csv")))
+    items = []
+    if rep:
+        with open(rep[-1], encoding="utf-8-sig") as f:
+            for r in _csv.DictReader(f):
+                if r.get("유형") != "A":            # A = 미청구(계산서 미발행)
+                    continue
+                d = (r.get("발행일") or "")[:10]
+                if re.match(r"\d{4}-\d{2}-\d{2}", d):
+                    items.append({"k": "po", "since": d})
+    doc = {"generated": datetime.now().strftime("%Y-%m-%d"),
+           "note": "경과일 계산용. 금액·번호·현장명은 담지 않는다(공개 저장소).",
+           "warn_days": 90, "crit_days": 120, "items": sorted(items, key=lambda x: x["since"])}
+    json.dump(doc, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    return len(items)
+
+
 def main():
     import csos_crypto as C
     assert C.self_test(), "암호 자체검증 실패 — 올리면 폰에서 못 연다"
@@ -99,11 +128,13 @@ def main():
 
     os.makedirs(DOCS, exist_ok=True)
     json.dump(sealed, open(OUT, "w", encoding="utf-8"), separators=(",", ":"))
+    n_age = aging()          # 공개(날짜만) — Actions가 매일 경과일을 본다
     kb, rkb = os.path.getsize(OUT) / 1024, len(raw) / 1024
 
     print(f"  프로젝트코드 {len(d['codes'])} · 확인필요 {len(d['issues'])} · "
           f"AS {len(d['as'])} · 점검 {len(d['pm'])} · 정산 {len(d['settle'])} · 계산서 {len(d['erp'])}")
     print(f"  {rkb:.0f}KB → 줄여서 {len(packed)/1024:.0f}KB → 잠근 뒤 {kb:.0f}KB  ({OUT})")
+    print(f"  경과일 공개파일 aging.json — 미청구 {n_age}건 (금액·번호는 담지 않음)")
 
     if "--push" not in sys.argv:
         print("\n로컬 생성만 했습니다 — 고정 주소 반영: python cloud_publish.py --push")
@@ -111,7 +142,7 @@ def main():
 
     # 잠근 파일만 올린다. 원본(raw)은 디스크에도 남기지 않는다.
     for cmd in (["git", "add", "docs/data.enc", "docs/app.html", "docs/index.html",
-                 "docs/sw.js", "docs/resolve_index.json"],
+                 "docs/sw.js", "docs/resolve_index.json", "docs/aging.json"],
                 ["git", "commit", "-q", "-m",
                  f"폰 사본 갱신 {d['gen']} (프로젝트코드 {len(d['codes'])}·확인필요 {len(d['issues'])})"],
                 ["git", "push", "-q"]):

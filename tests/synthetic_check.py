@@ -1221,6 +1221,68 @@ def t32_band_sheet():
     print("  [32] 24시트 전체 보존(월별 덮어쓰기 차단·행수 급감 감지) ✅")
 
 
+def t33_aging_alert():
+    """[33] 무료 알림(GitHub Actions) — 공개 파일에 민감정보가 새지 않는가, 판정이 맞는가."""
+    import json as _j
+    from datetime import date, datetime, timedelta
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import aging_check as A
+
+    # (1) 공개 파일에는 **날짜만** — 저장소가 공개다
+    ap = os.path.join(ROOT, "docs", "aging.json")
+    if os.path.exists(ap):
+        raw = open(ap, encoding="utf-8").read()
+        doc = _j.loads(raw)
+        for it in doc.get("items", []):
+            assert set(it) <= {"k", "since"}, f"공개 파일에 여분 필드가 있다: {it}"
+            assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", it["since"]), it
+        # 설명 문구(note)에는 '금액을 담지 않는다' 같은 말이 있어도 된다 — **항목**만 본다
+        body = _j.dumps(doc.get("items", []), ensure_ascii=False)
+        for leak in ("PO3", "UJ2", "캠프", "금액", "원"):
+            assert leak not in body, f"공개 aging.json 항목에 '{leak}' 이 들어 있다"
+        assert not re.search(r"\d{5,}", body), "항목에 금액으로 보이는 큰 숫자가 있다"
+
+    # (2) 판정 — 기준일을 바꿔 가며 경계를 확인한다
+    doc = {"generated": "2026-07-27", "warn_days": 90, "crit_days": 120,
+           "items": [{"k": "po", "since": "2026-01-01"},   # 아주 오래됨
+                     {"k": "po", "since": "2026-06-01"},   # 최근
+                     {"k": "po", "since": "2026-04-28"}]}  # 경계 근처
+    rows, worst, (w, c) = A.evaluate(doc, today=date(2026, 7, 27))
+    assert (w, c) == (90, 120)
+    assert [r["since"] for r in rows] == ["2026-01-01", "2026-04-28"], rows
+    assert rows[0]["level"] == "심각" and rows[1]["level"] == "경고", rows
+    assert worst == (date(2026, 7, 27) - date(2026, 1, 1)).days
+
+    # 딱 90일이면 포함, 89일이면 제외 — 경계에서 새거나 빠지면 안 된다
+    base = date(2026, 7, 27)
+    for days, want in ((90, 1), (89, 0), (120, 1)):
+        d = (base - timedelta(days=days)).isoformat()
+        r, _, _ = A.evaluate({**doc, "items": [{"k": "po", "since": d}]}, today=base)
+        assert len(r) == want, (days, r)
+
+    # 하나도 안 넘으면 알리지 않는다(쓸데없는 메일은 곧 무시당한다)
+    r, _, _ = A.evaluate({**doc, "items": [{"k": "po", "since": "2026-07-26"}]}, today=base)
+    assert not r
+
+    # 날짜가 깨져 있어도 죽지 않아야 한다(터지면 매일 헛알람이 온다)
+    r, _, _ = A.evaluate({**doc, "items": [{"k": "po", "since": "몰라"}, {"k": "po"}]}, today=base)
+    assert r == []
+
+    # (3) 워크플로가 제대로 걸려 있는가
+    wf = os.path.join(ROOT, ".github", "workflows", "aging-alert.yml")
+    assert os.path.exists(wf), "워크플로 파일이 없다"
+    y = open(wf, encoding="utf-8").read()
+    assert "schedule" in y and "cron" in y, "정기 실행이 없다"
+    assert "tools/aging_check.py" in y
+    assert "workflow_dispatch" in y, "손으로 돌릴 수단이 없으면 확인이 어렵다"
+    # 비밀키를 워크플로에 넣지 않는다 — 공개 저장소다
+    # 비밀값을 안 쓰는 게 이 방식의 핵심이다(공개 저장소 + 계정 추가 없음).
+    # 주석에 'PIN이 필요하다' 같은 설명은 있어도 되니, **실제 참조**만 본다.
+    assert "${{ secrets." not in y, "워크플로가 비밀값을 참조한다"
+    assert not re.search(r"^\s*(PIN|pin)\s*:", y, re.M), "워크플로에 PIN 환경변수가 있다"
+    print("  [33] 미청구 경과 알림(공개파일 무유출·경계 판정·워크플로) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1255,5 +1317,6 @@ if __name__ == "__main__":
     t30_dns_and_versions()
     t31_tech()
     t32_band_sheet()
+    t33_aging_alert()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

@@ -1,0 +1,38 @@
+# 미청구가 얼마나 늙었는지 매일 확인한다 (무료 · 계정 추가 없음)
+#
+# 왜 필요한가: 출장으로 사무실 PC를 며칠 못 켜도 미청구는 계속 늙는다.
+#   PC가 꺼져 있으면 아무도 세지 않는다. 경과일은 날짜만으로 계산되므로
+#   여기(클라우드)에서 매일 세는 게 맞다.
+#
+# 어떻게 알리는가: 기준(90일)을 넘으면 이 작업이 **실패로 끝난다**.
+#   그러면 GitHub가 저장소 주인에게 자동으로 메일을 보낸다.
+#   → 메일 비밀번호·외부 서비스·유료 요금제가 전혀 필요 없다.
+#   (메일이 안 오면 GitHub → Settings → Notifications 에서
+#    "Actions: send notifications for failed workflows only" 가 켜져 있는지 보면 된다)
+#
+# 다루는 자료: docs/aging.json — **날짜만** 들어 있다. 금액·PO번호·현장명은 없다.
+#   저장소가 공개라서 그렇게 만들었다. 상세는 잠긴 사본(data.enc)에 있고 폰에서 PIN이 필요하다.
+
+name: 미청구 경과 확인
+
+on:
+  schedule:
+    - cron: "0 23 * * 0-4"      # UTC 23:00 = 한국시간 평일 아침 8시 (월~금)
+  workflow_dispatch:            # 필요할 때 손으로도 돌릴 수 있게
+  push:
+    paths:
+      - "docs/aging.json"       # PC가 새 자료를 올리면 바로 한 번 본다
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 경과일 확인
+        run: python tools/aging_check.py
