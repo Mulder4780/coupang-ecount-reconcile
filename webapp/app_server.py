@@ -918,13 +918,14 @@ class H(BaseHTTPRequestHandler):
             except Exception:
                 return self._send(404, {"error": "no icon"})
         if p == "/manifest.json":                      # 홈 화면에 추가 시 앱처럼 보이게
-            # ★ start_url 은 반드시 **고정 주소**여야 한다.
-            #   "/" 로 두면 홈 화면 아이콘에 그때의 터널 주소가 박히고, 터널 주소는 매번
-            #   바뀌므로 다음 날 아이콘이 죽는다("사이트에 연결할 수 없습니다").
-            #   폰·PC에서 반복해서 겪은 문제의 근원이 이것이었다(2026-07-27).
+            # ★ start_url 은 **이 페이지와 같은 출처**여야 한다. 다른 도메인을 넣으면
+            #   크롬이 매니페스트를 통째로 무시해 [설치 및 바로가기 만들기]가 먹통이 된다
+            #   (2026-07-27에 고정 주소를 넣었다가 실제로 설치가 안 됐다).
+            #   그래서 여기는 "/" 로 두고, **오래 쓸 아이콘은 고정 주소에서 설치**한다.
+            #   터널 주소로 들어온 사람에게는 index.html이 배너로 그 사실을 알린다.
             return self._send(200, {
                 "name": "Coupang Service Operations System", "short_name": "CSOS",
-                "start_url": FIXED_ENTRY, "id": FIXED_ENTRY, "display": "standalone",
+                "start_url": "/", "scope": "/", "display": "standalone",
                 "background_color": "#060D2B", "theme_color": "#060D2B",
                 "icons": [
                     {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},

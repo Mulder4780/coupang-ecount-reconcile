@@ -708,8 +708,15 @@ def t26_mobile():
     src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     i = src.index('if p == "/manifest.json"')
     blk = src[i:i + 900]
-    assert '"start_url": FIXED_ENTRY' in blk, "start_url이 고정 진입점이 아니다(아이콘이 터널 주소에 묶인다)"
-    assert '"start_url": "/"' not in blk, "start_url이 '/'이면 그때의 터널 주소가 박힌다"
+    # ★ 매니페스트 start_url은 **그 페이지와 같은 출처**여야 한다.
+    #   다른 도메인을 넣으면 크롬이 매니페스트를 무시해 [설치 및 바로가기 만들기]가 아예 안 된다
+    #   (2026-07-27에 고정 주소를 넣었다가 폰에서 설치가 막혔다).
+    assert '"start_url": "/"' in blk, "앱 매니페스트 start_url은 같은 출처(/)여야 설치가 된다"
+    assert "FIXED_ENTRY" not in blk, "다른 도메인을 start_url에 넣으면 크롬이 설치를 거부한다"
+    # 대신 앱 화면이 '터널 주소에서 설치하면 안 된다'를 사용자에게 알려야 한다
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "tunnelNotice" in idx and "trycloudflare" in idx, "터널 주소 안내 배너가 없다"
+    assert FIX in idx, "안내 배너가 고정 주소를 알려주지 않는다"
 
     # (2) 고정 진입점 페이지: 매니페스트를 걸고, 죽은 주소로 그냥 넘기지 않는가
     doc = open(os.path.join(ROOT, "docs", "index.html"), encoding="utf-8").read()
