@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CSOS — 오프라인</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CSOS">
+<meta name="theme-color" content="#0E1B3F">
+<meta name="robots" content="noindex,nofollow">
+<style>
+:root{--ink-1:#111826;--ink-2:#414b60;--ink-3:#6b7686;--line:#dfe4ec;--bg:#f5f7fa;--card:#fff;
+ --navy:#0e1b3f;--brand:#1c4fd8;--ok:#0f7a3d;--warn:#a85a06;--bad:#b3202c;
+ --okbg:#e6f4ec;--warnbg:#fdf0e0;--badbg:#fbe9eb}
+@media (prefers-color-scheme:dark){:root{--ink-1:#e9edf5;--ink-2:#b3bccd;--ink-3:#8391a8;--line:#28324a;
+ --bg:#0b1020;--card:#131a2c;--navy:#070d1c;--brand:#7ba2ff;--ok:#5fd08a;--warn:#f0ad4e;--bad:#ff8189;
+ --okbg:#12321f;--warnbg:#33240d;--badbg:#3a1519}}
+:root[data-theme="dark"]{--ink-1:#e9edf5;--ink-2:#b3bccd;--ink-3:#8391a8;--line:#28324a;
+ --bg:#0b1020;--card:#131a2c;--navy:#070d1c;--brand:#7ba2ff;--ok:#5fd08a;--warn:#f0ad4e;--bad:#ff8189;
+ --okbg:#12321f;--warnbg:#33240d;--badbg:#3a1519}
+:root[data-theme="light"]{--ink-1:#111826;--ink-2:#414b60;--ink-3:#6b7686;--line:#dfe4ec;--bg:#f5f7fa;
+ --card:#fff;--navy:#0e1b3f;--brand:#1c4fd8;--ok:#0f7a3d;--warn:#a85a06;--bad:#b3202c;
+ --okbg:#e6f4ec;--warnbg:#fdf0e0;--badbg:#fbe9eb}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink-1);font-size:15px;line-height:1.55;
+ font-family:"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;-webkit-text-size-adjust:100%}
+.wrap{max-width:820px;margin:0 auto;padding:0 14px 80px}
+header{background:var(--navy);color:#fff;padding:13px 0 11px}
+header .wrap{padding-bottom:0;display:flex;align-items:center;gap:10px}
+h1{font-size:15.5px;margin:0;letter-spacing:-.3px}
+.sub{font-size:11px;color:#9fb0d4}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:12px}
+h3{margin:0 0 9px;font-size:13.5px;letter-spacing:-.2px}
+.norm{font-weight:400;color:var(--ink-3);font-size:11.5px}
+input,button,select{font-family:inherit;font-size:15px}
+.in{width:100%;padding:13px 14px;border:1.5px solid var(--line);border-radius:11px;
+ background:var(--card);color:var(--ink-1);font-weight:700;letter-spacing:.4px}
+.btn{background:var(--brand);color:#fff;border:0;border-radius:11px;padding:13px 16px;
+ font-weight:800;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--brand);border:1.5px solid var(--line);font-weight:700}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.kv{display:grid;grid-template-columns:84px 1fr;gap:4px 10px;font-size:13.5px;margin-top:8px}
+.kv b{font-weight:800}
+.kv .k{color:var(--ink-3);font-weight:700;font-size:12.5px}
+.kv .s{color:var(--ink-3);font-size:11px;display:block}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800}
+.p-ok{background:var(--okbg);color:var(--ok)}.p-warn{background:var(--warnbg);color:var(--warn)}
+.p-bad{background:var(--badbg);color:var(--bad)}
+.tabs{display:flex;gap:6px;overflow-x:auto;margin-top:12px;padding-bottom:2px}
+.tabs button{white-space:nowrap;background:var(--card);border:1px solid var(--line);
+ border-radius:999px;padding:8px 14px;font-size:13px;font-weight:700;color:var(--ink-2);cursor:pointer}
+.tabs button.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.item{border-top:1px solid var(--line);padding:10px 0;font-size:13.5px}
+.item:first-child{border-top:0}
+.item .t{font-weight:800}
+.item .m{color:var(--ink-3);font-size:12px}
+.empty{color:var(--ink-3);font-size:13px;padding:14px 0;text-align:center}
+.note{font-size:11.5px;color:var(--ink-3);margin-top:8px;line-height:1.6}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);
+ padding:9px 14px;font-size:11.5px;color:var(--ink-3);display:flex;gap:8px;align-items:center;
+ justify-content:space-between}
+.gate{max-width:340px;margin:12vh auto;text-align:center}
+.err{background:var(--badbg);color:var(--bad);border-radius:10px;padding:10px;font-size:12.5px;margin-top:10px}
+.tbl{width:100%;overflow-x:auto}
+</style></head>
+<body>
+<header><div class="wrap">
+  <div style="flex:1"><h1>Coupang Service Operations System</h1>
+  <div class="sub" id="hsub">오프라인 사본</div></div>
+  <button class="btn ghost" id="reload" style="padding:7px 11px;font-size:12px;color:#cfe0ff;border-color:#33436f">새로고침</button>
+</div></header>
+
+<div class="wrap">
+  <div id="gate" class="gate card">
+    <h3 style="font-size:15px">PIN 4자리</h3>
+    <div class="note" style="margin-bottom:10px">사무실 PC 없이 열립니다. 처음 한 번만 넣으면 기억합니다.</div>
+    <input class="in" id="pin" type="tel" inputmode="numeric" maxlength="4" placeholder="････"
+           autocomplete="off" style="text-align:center;font-size:26px;letter-spacing:12px">
+    <button class="btn" id="go" style="width:100%;margin-top:10px">열기</button>
+    <div id="gerr"></div>
+  </div>
+
+  <div id="app" style="display:none">
+    <div class="card">
+      <h3>🔎 프로젝트 코드로 찾기 <span class="norm">— 코드만 넣으면 나머지가 따라옵니다</span></h3>
+      <div class="row">
+        <input class="in" id="code" style="flex:1;min-width:170px" placeholder="UJ2601138"
+               autocomplete="off" autocapitalize="characters">
+        <button class="btn" id="find">조회</button>
+      </div>
+      <div id="res"></div>
+    </div>
+
+    <div class="tabs" id="tabs"></div>
+    <div class="card"><div id="list"></div></div>
+  </div>
+</div>
+
+<div class="bar"><span id="stamp"></span><span id="net"></span></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const FIXED = location.origin + location.pathname.replace(/app\.html$/, '');
+let D = null, TAB = 'issues', PIN = localStorage.getItem('csos_pin') || '';
+
+/* ── 잠긴 사본 열기 ─────────────────────────────────────────────
+   공개 저장소에 올려 둔 파일이라 잠겨 있다. 브라우저 내장 암호기능으로 그 자리에서 푼다.
+   PIN이 틀리면 HMAC 확인에서 걸러진다 — 엉뚱한 데이터를 그리는 일이 없다. */
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+async function unseal(enc, pin){
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(pin),
+                                           'PBKDF2', false, ['deriveBits']);
+  const bits = new Uint8Array(await crypto.subtle.deriveBits(
+    {name:'PBKDF2', salt:b64(enc.salt), iterations:enc.iter, hash:'SHA-256'}, km, 512));
+  const iv = b64(enc.iv), ct = b64(enc.ct);
+  const hk = await crypto.subtle.importKey('raw', bits.slice(32,64),
+                                           {name:'HMAC', hash:'SHA-256'}, false, ['verify']);
+  const signed = new Uint8Array(iv.length + ct.length);
+  signed.set(iv); signed.set(ct, iv.length);
+  if(!(await crypto.subtle.verify('HMAC', hk, b64(enc.tag), signed))) throw new Error('PIN');
+  const ck = await crypto.subtle.importKey('raw', bits.slice(0,32), {name:'AES-CBC'}, false, ['decrypt']);
+  let pt = new Uint8Array(await crypto.subtle.decrypt({name:'AES-CBC', iv}, ck, ct));
+  if(enc.zip === 'deflate'){
+    pt = await new Response(new Blob([pt]).stream()
+           .pipeThrough(new DecompressionStream('deflate'))).arrayBuffer();
+  }
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+async function open(pin){
+  const r = await fetch('data.enc?t=' + Date.now(), {cache:'no-store'});
+  if(!r.ok) throw new Error('사본을 받지 못했습니다 (' + r.status + ')');
+  return await unseal(await r.json(), pin);
+}
+
+/* ── 프로젝트 코드 조회 ── */
+const norm = s => { s = String(s||'').replace(/[\s-]/g,'').toUpperCase();
+                    if(/^\d{7}$/.test(s)) s = 'UJ' + s;
+                    return /^UJ\d{7}$/.test(s) ? s : null; };
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function findCode(){
+  const raw = $('code').value, c = norm(raw);
+  if(!c){ $('res').innerHTML = '<div class="err">프로젝트 코드 형식이 아닙니다 — UJ + 숫자 7자리 (예: UJ2601138)</div>'; return; }
+  const r = (D.codes||{})[c];
+  if(!r){ $('res').innerHTML = '<div class="err"><b>' + c + '</b> — 아직 어디에도 없는 코드입니다.<br>' +
+      '밴드에 글이 올라오면 다음 사본부터 잡힙니다.</div>'; return; }
+  const done = r.state === '등록됨';
+  let h = '<div class="kv" style="margin-top:12px">';
+  h += '<div class="k">코드</div><div><b>' + c + '</b> ' +
+       '<span class="pill ' + (done?'p-ok':'p-warn') + '">' + (done?'원장 등록됨':'신규 — 등록 대상') + '</span></div>';
+  if(r.sheet) h += '<div class="k">위치</div><div>' + esc(r.sheet) + ' ' + (r.row? r.row + '행':'') + '</div>';
+  for(const [k,v] of Object.entries(r.ids || {}))
+    h += '<div class="k">' + esc(k) + '</div><div><b>' + esc(v) + '</b></div>';
+  const F = [['camp','캠프명'],['kind','업무유형'],['date','일자'],['tech','담당기사'],
+             ['cost','비용구분'],['status','진행상태']];
+  for(const [k,lab] of F) if(r[k]) h += '<div class="k">' + lab + '</div><div>' + esc(r[k]) + '</div>';
+  h += '</div>';
+  if(r.miss && r.miss.length)
+    h += '<div class="note" style="color:var(--warn)">손으로 넣어야 하는 칸: <b>' + r.miss.join(', ') + '</b></div>';
+  if(r.why) h += '<div class="err">' + esc(r.why) + '</div>';
+  if(!done) h += '<button class="btn ghost" id="book" style="width:100%;margin-top:10px">이 건 등록 예약</button>';
+  $('res').innerHTML = h;
+  if(!done) $('book').onclick = () => queueAdd(c);
+}
+
+/* ── 등록 예약 — PC가 켜지면 자동으로 원장에 들어간다 ── */
+const Q = () => JSON.parse(localStorage.getItem('csos_queue') || '[]');
+const setQ = q => localStorage.setItem('csos_queue', JSON.stringify(q));
+
+function queueAdd(code){
+  const q = Q();
+  if(q.some(x => x.code === code)){ alert(code + ' 는 이미 예약되어 있습니다.'); return; }
+  q.push({code, at:new Date().toISOString().slice(0,16).replace('T',' ')});
+  setQ(q); renderTabs(); setTab('queue');
+  alert(code + ' 등록을 예약했습니다.\n사무실 PC가 켜지면 자동으로 원장에 반영됩니다.');
+}
+
+/* PC가 살아 있으면 예약분을 넘긴다. 죽어 있으면 그냥 놔둔다 — 다음에 다시 시도한다. */
+async function syncQueue(){
+  const q = Q(); if(!q.length) return;
+  let ep;
+  try{ ep = await (await fetch('endpoint.json?t=' + Date.now(), {cache:'no-store'})).json(); }
+  catch(e){ return; }
+  if(!ep || !ep.url) return;
+  try{
+    const r = await fetch(ep.url.replace(/\/$/,'') + '/api/enqueue', {
+      method:'POST', headers:{'Content-Type':'application/json','X-Pin':PIN},
+      body:JSON.stringify({codes:q.map(x=>x.code)})});
+    if(!r.ok) return;
+    const out = await r.json();
+    setQ([]); renderTabs(); if(TAB==='queue') renderList();
+    $('net').textContent = 'PC 연결됨 · 예약 ' + (out.applied||0) + '건 반영';
+  }catch(e){ /* PC가 꺼져 있다 — 조용히 넘어간다 */ }
+}
+
+/* ── 목록 ── */
+const TABS = [['issues','확인필요'],['as','돌발AS'],['pm','정기점검'],
+              ['settle','정산'],['erp','계산서'],['queue','예약']];
+function renderTabs(){
+  $('tabs').innerHTML = TABS.map(([k,l])=>{
+    const n = k==='queue' ? Q().length : (D[k]||[]).length;
+    return '<button data-k="' + k + '" class="' + (k===TAB?'on':'') + '">' + l + ' ' + n + '</button>';
+  }).join('');
+  $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => setTab(b.dataset.k));
+}
+function setTab(k){ TAB = k; renderTabs(); renderList(); }
+
+const fmt = n => (Number(n)||0).toLocaleString('ko-KR');
+function line(t, m){ return '<div class="item"><div class="t">' + t + '</div><div class="m">' + m + '</div></div>'; }
+
+function renderList(){
+  if(TAB === 'queue'){
+    const q = Q();
+    $('list').innerHTML = q.length
+      ? q.map(x => line(esc(x.code), '예약 ' + esc(x.at) + ' · PC가 켜지면 자동 반영')).join('') +
+        '<div class="note">예약은 이 기기에만 저장됩니다. 앱을 지우면 함께 사라집니다.</div>'
+      : '<div class="empty">예약한 등록이 없습니다.</div>';
+    return;
+  }
+  const rows = D[TAB] || [];
+  if(!rows.length){ $('list').innerHTML = '<div class="empty">항목이 없습니다.</div>'; return; }
+  const R = rows.slice(0, 300);
+  let h = '';
+  if(TAB === 'issues')
+    h = R.map(r => line(esc(r['프로젝트NO'] || r['정산ID'] || r['ID'] || '-') + ' ' + esc(r['캠프명']||''),
+                        esc(r['구분']||'') + ' · ' + esc(r['내용'] || r['문제'] || r['사유'] || ''))).join('');
+  else if(TAB === 'as' || TAB === 'pm')
+    h = R.map(r => line(esc(r['프로젝트NO']) + ' ' + esc(r['캠프명']||''),
+                        [r['접수일자']||r['점검예정일'], r['담당기사'], r['진행상태']||r['점검상태']]
+                          .filter(Boolean).map(esc).join(' · '))).join('');
+  else if(TAB === 'settle')
+    h = R.map(r => line(esc(r['정산ID']||'') + ' ' + esc(r['캠프명']||''),
+                        fmt(r['공급가액']) + '원 · ' + esc(r['상태']||''))).join('');
+  else
+    h = R.map(r => line(esc(r['전표']||'') + ' ' + fmt(r['공급가액']) + '원',
+                        esc(r['판정']||'') + (r['포함프로젝트'] ? ' · ' + esc(r['포함프로젝트']) : ''))).join('');
+  if(rows.length > R.length) h += '<div class="note">' + (rows.length - R.length) + '건 더 있습니다 — PC 앱에서 전체를 봅니다.</div>';
+  $('list').innerHTML = h;
+}
+
+/* ── 시작 ── */
+async function boot(pin){
+  $('gerr').innerHTML = '';
+  try{
+    D = await open(pin);
+  }catch(e){
+    $('gerr').innerHTML = '<div class="err">' +
+      (e.message === 'PIN' ? 'PIN이 맞지 않습니다.' : esc(e.message)) + '</div>';
+    return false;
+  }
+  PIN = pin; localStorage.setItem('csos_pin', pin);
+  $('gate').style.display = 'none'; $('app').style.display = '';
+  $('hsub').textContent = '오프라인 사본 · ' + (D.gen || D['기준'] || '');
+  $('stamp').textContent = '사본 기준 ' + (D.gen || D['기준'] || '') + ' · 코드 ' + Object.keys(D.codes||{}).length;
+  renderTabs(); renderList(); syncQueue();
+  return true;
+}
+
+$('go').onclick = () => boot($('pin').value.trim());
+$('pin').onkeydown = e => { if(e.key === 'Enter') $('go').click(); };
+$('pin').oninput = e => { if(e.target.value.length === 4) $('go').click(); };
+$('find').onclick = findCode;
+$('code').onkeydown = e => { if(e.key === 'Enter') findCode(); };
+$('reload').onclick = () => location.reload();
+
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+if(PIN) boot(PIN).then(ok => { if(!ok){ $('gate').style.display=''; $('pin').value=''; } });
+window.addEventListener('online', syncQueue);
+</script>
+</body></html>

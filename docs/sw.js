@@ -1,15 +1,50 @@
 /* CSOS 고정 진입점 서비스 워커
  * ============================================================
- * 크롬이 [설치 및 바로가기 만들기]로 **진짜 앱 설치(WebAPK)** 를 해 주려면
- * fetch 핸들러를 가진 서비스 워커가 있어야 한다. 이게 없으면 메뉴를 눌러도
- * 단순 북마크만 생기거나 아무 일도 안 일어난다.
- *
- * ★ 캐시는 하지 않는다. 이 페이지는 '지금 살아 있는 접속 주소'를 읽어 넘기는 곳이라
- *   옛 주소를 캐시해 두면 폰이 죽은 주소로 계속 들어가게 된다.
+ * 두 가지 일을 한다.
+ *  1) 크롬이 [설치 및 바로가기 만들기]로 **진짜 앱 설치(WebAPK)** 를 해 주게 한다.
+ *     fetch 핸들러가 있어야 설치를 제안한다 — 없으면 단순 북마크만 생긴다.
+ *  2) 오프라인 앱과 잠긴 사본을 손에 쥐고 있는다. 지하주차장·엘리베이터처럼
+ *     신호가 끊기는 곳에서도 열려야 하기 때문이다.
  */
-self.addEventListener('install', (e) => self.skipWaiting());
-self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+const CACHE = 'csos-v2';
+const HOLD = ['app.html', 'data.enc', 'manifest.json', 'icon.svg', 'icon-180.png'];
+
+self.addEventListener('install', (e) => {
+  // 미리 받아 둔다. 하나쯤 실패해도 설치는 계속한다(아이콘 하나 때문에 앱이 죽으면 안 된다).
+  e.waitUntil(caches.open(CACHE)
+    .then((c) => Promise.allSettled(HOLD.map((u) => c.add(u))))
+    .then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', (e) => {
+  e.waitUntil(caches.keys()
+    .then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+    .then(() => self.clients.claim()));
+});
+
 self.addEventListener('fetch', (e) => {
-  // 그대로 통과시킨다(설치 요건만 충족). 네트워크가 죽으면 브라우저 기본 오류가 뜬다.
-  e.respondWith(fetch(e.request));
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+
+  // ★ endpoint.json 은 절대 캐시하지 않는다. 지금 살아 있는 PC 주소를 담고 있어서
+  //   옛 값을 쥐고 있으면 폰이 죽은 터널로 계속 들어간다(실제로 겪은 증상).
+  if (url.pathname.endsWith('endpoint.json')) {
+    e.respondWith(fetch(e.request).catch(() => new Response('{}', {
+      headers: { 'Content-Type': 'application/json' } })));
+    return;
+  }
+
+  // 나머지는 **새 것 우선, 안 되면 손에 쥔 것**. 신호가 있으면 늘 최신 사본을 보고,
+  // 끊기면 마지막으로 받아 둔 사본으로 계속 일한다.
+  e.respondWith(
+    fetch(e.request)
+      .then((r) => {
+        if (r && r.ok) {
+          const copy = r.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+        }
+        return r;
+      })
+      .catch(() => caches.match(e.request, { ignoreSearch: true })
+        .then((hit) => hit || Response.error())));
 });

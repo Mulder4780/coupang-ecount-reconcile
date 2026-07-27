@@ -50,7 +50,7 @@ a.btn{display:block;margin-top:12px;background:var(--brand);color:#fff;text-deco
   <div id="act"></div>
   <div class="addr">mulder4780.github.io/coupang-ecount-reconcile</div>
   <div class="tip">이 주소는 <b>바뀌지 않습니다</b>. 홈 화면에 추가해 두고 쓰세요.<br>
-    사무실 PC가 켜져 있어야 접속됩니다.</div>
+    사무실 PC가 꺼져 있어도 <b>조회는 그대로</b> 됩니다.</div>
 </div>
 <script>
 /* 고정 진입점: 현재 살아있는 터널 주소(endpoint.json)를 읽어 자동 이동한다.
@@ -78,10 +78,15 @@ if ('serviceWorker' in navigator) {
     }catch(e){ return false; }
   };
 
-  const fail = (title, body, url) => {
+  /* ★ 예전에는 여기서 끝이었다 — PC가 꺼져 있으면 폰에 오류만 뜨고 아무것도 못 했다.
+       이제는 **잠긴 사본으로 넘긴다**. 조회·프로젝트코드 자동채움·등록 예약은 PC 없이 된다. */
+  const offline = (why) => {
     st.textContent = '';
-    act.innerHTML = `<div class="err"><b>${title}</b><br>${body}</div>` +
-      (url ? `<a class="btn" href="${url}">그래도 열어보기</a>` : '');
+    act.innerHTML =
+      `<a class="btn" href="app.html">오프라인으로 열기</a>` +
+      `<div class="tip" style="margin-top:10px">${why}<br>` +
+      `조회와 <b>프로젝트 코드 자동채움</b>은 그대로 됩니다. 등록은 예약해 두면 ` +
+      `PC가 켜질 때 자동으로 원장에 들어갑니다.</div>`;
   };
 
   let d;
@@ -90,17 +95,13 @@ if ('serviceWorker' in navigator) {
     d = await r.json();
     if(!d.url) throw new Error('no url');
   }catch(e){
-    return fail('접속 주소를 찾지 못했습니다.',
-      '사무실 PC가 꺼져 있거나 아직 갱신 전일 수 있습니다.<br>' +
-      'PC에서 <b>[CSOS 폰 접속 QR]</b>을 한 번 실행하면 갱신됩니다.');
+    return offline('사무실 PC가 꺼져 있습니다.');
   }
 
   st.innerHTML = '<span class="spin"></span> 연결을 확인하는 중…';
   if(!(await alive(d.url))){
     const min = d.updated ? Math.round((Date.now() - new Date(d.updated).getTime())/60000) : null;
-    return fail('사무실 PC가 꺼져 있는 것 같습니다.',
-      '주소는 정상인데 응답이 없습니다' + (min!=null ? ` (주소 갱신 ${min}분 전)` : '') + '.<br>' +
-      'PC를 켜면 1~2분 안에 자동으로 다시 연결됩니다.', d.url);
+    return offline('사무실 PC가 꺼져 있습니다' + (min!=null ? ` (주소 갱신 ${min}분 전)` : '') + '.');
   }
   /* ★ 바로 넘겨 버리면 이 화면에서 [설치 및 바로가기 만들기]를 누를 틈이 없다.
        홈 화면 아이콘은 **이 주소에서** 만들어야 오래 가는데, 페이지가 즉시 사라지니

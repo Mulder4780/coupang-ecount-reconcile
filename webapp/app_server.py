@@ -83,6 +83,36 @@ runner = {"busy": False, "task": "", "log": deque(maxlen=3000), "done_at": None}
 _rlock = threading.Lock()
 
 
+def enqueue_codes(codes):
+    """폰이 예약한 프로젝트 코드를 실제 원장 행으로 등록한다.
+    쓰기는 전부 ledger_writer(빈 칸만·근거 필수·vN+1)를 거치므로 기존 값은 덮이지 않는다."""
+    import project_resolve as P
+    ev = P.evidence()
+    items, done, skip = [], [], []
+    for c in codes:
+        r = P.resolve(c, ev)
+        if not r.get("ok"):
+            skip.append({"code": c, "why": r.get("reason", "형식 오류")})
+        elif r["state"] == "등록됨":
+            skip.append({"code": c, "why": f"이미 {r['sheet']} {r.get('row')}행에 있습니다"})
+        else:
+            items += P.row_items(r, ev)
+            done.append(c)
+            # 같은 요청에 두 건이 오면 뒤엣것이 같은 행을 노린다 — 자리를 미리 물린다
+            ev["tail"][r["sheet"]] = r["row"]
+    if not items:
+        return {"ok": True, "applied": 0, "skipped": skip}
+    import ledger_writer as L
+    L.queue_add(items)
+    p = subprocess.run([PY, os.path.join(ROOT, "ledger_writer.py"), "--apply"],
+                       cwd=ROOT, env=ENV, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    ok = p.returncode == 0
+    runner["log"].append(f"[폰 예약] {len(done)}건 등록 시도 — {'성공' if ok else '실패'}")
+    return {"ok": ok, "applied": len(done) if ok else 0, "codes": done, "skipped": skip,
+            "msg": (p.stdout or "").strip().splitlines()[-1:] or [""]}
+
+
 def start_task(key):
     with _rlock:
         if runner["busy"]:
@@ -982,6 +1012,14 @@ class H(BaseHTTPRequestHandler):
             return self._band_dump()
         if not self._auth():
             return self._send(401, {"error": "PIN"})
+        if p == "/api/enqueue":
+            # 폰이 **PC 꺼진 동안 예약해 둔** 프로젝트 코드를 받아 원장에 등록한다.
+            # 오프라인 앱이 PC가 살아난 걸 확인하는 즉시 스스로 보낸다(사람 개입 없음).
+            ln = int(self.headers.get("Content-Length", 0))
+            codes = (json.loads(self.rfile.read(ln) or b"{}").get("codes") or [])[:50]
+            if DEMO:
+                return self._send(200, {"ok": True, "applied": 0, "msg": "데모"})
+            return self._send(200, enqueue_codes(codes))
         m = re.match(r"^/api/run/(\w+)$", p)
         if m:
             ok, msg = start_task(m.group(1))

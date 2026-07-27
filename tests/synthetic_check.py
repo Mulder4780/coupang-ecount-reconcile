@@ -972,6 +972,140 @@ def t6_webapp():
         p.terminate()
 
 
+def t28_resolve():
+    """[28] 프로젝트 코드 하나로 나머지가 따라오는가.
+    이 알고리즘의 목숨은 **채번이 시트 수식과 똑같은가**에 달렸다. 어긋나면 사람이 엑셀을
+    연 순간 다시 계산돼 ID가 바뀌고, 03·06이 값으로 들고 있는 참조가 전부 끊긴다."""
+    import project_resolve as P
+    from datetime import datetime
+
+    # (1) 코드 정규화 — 사람이 어떻게 쳐도 같은 코드로 모여야 한다
+    for raw in ("UJ2601138", "uj2601138", " UJ 2601138 ", "2601138", "UJ-2601138"):
+        assert P.norm(raw) == "UJ2601138", raw
+    for bad in ("", None, "UJ260113", "UJ26011389", "AS-2607-001", "UJ260113X"):
+        assert P.norm(bad) is None, bad
+
+    # (2) 채번이 시트 수식과 같은가 — 수식: 접두어 & TEXT(날짜,"yymm") & TEXT(ROW()-4,"000")
+    assert P.mint("AS", "2026-06-03", 531) == "AS-2606-527", P.mint("AS", "2026-06-03", 531)
+    assert P.mint("PM", "2025-12-31", 9) == "PM-2512-005"
+    assert P.mint("JS", "2026-07-01", 1004) == "JS-2607-1000", "네 자리도 잘려선 안 된다"
+    assert P.mint("AS", "", 100) == "AS-%s-096" % datetime.now().strftime("%y%m")
+    assert P.mint("AS", None, 100).endswith("-096")
+
+    # (3) 실제 원장 수식과 대조 — 규칙을 코드에만 적어 두면 시트가 바뀌어도 모른다
+    import openpyxl, re as _re
+    from ecount_reconcile import load_config, resolve_master
+    m = resolve_master(load_config()["reconcile"]["master_xlsx"])
+    wb = openpyxl.load_workbook(m, data_only=False)
+    for sh, (idc, pfx, _dc, _kc) in P.SHEET_ID.items():
+        if sh not in wb.sheetnames:
+            continue
+        ws = wb[sh]
+        f = next((ws.cell(row=r, column=1).value for r in range(5, ws.max_row + 1)
+                  if isinstance(ws.cell(row=r, column=1).value, str)
+                  and str(ws.cell(row=r, column=1).value).startswith("=")), None)
+        if not f:
+            continue
+        got = _re.search(r'"(\w{2})-"', f)
+        assert got, "%s ID 수식에서 접두어를 못 찾음" % sh
+        assert got.group(1) == pfx, (
+            "%s: 시트 수식 접두어 '%s' != 코드 '%s' — 새 행 ID가 엉뚱한 이름으로 매겨진다"
+            % (sh, got.group(1), pfx))
+        assert "ROW()-4" in f.replace(" ", ""), "%s 채번이 ROW()-4가 아니다" % sh
+    wb.close()
+
+    # (4) 리졸브 — 이미 등록된 코드는 새로 만들지 않고 그 행을 가리켜야 한다
+    ev = P.evidence(m)
+    known = next(iter(ev["ledger"]))
+    r = P.resolve(known, ev)
+    assert r["ok"] and r["state"] == "등록됨" and r.get("row"), r
+    assert r["sheet"] in P.SHEET_ID, r["sheet"]
+
+    # 신규 코드는 **빈 행**을 받아야 한다 — 기존 행을 덮으면 실데이터가 날아간다
+    fake = "UJ9999999"
+    ev2 = dict(ev)
+    ev2["band"] = dict(ev["band"])
+    ev2["band"][fake] = {"camp": "합성캠프", "kind": "돌발AS", "cost": "유상",
+                         "tech": "홍길동", "date": "2026-06-03", "status": "작업완료",
+                         "posted": "2026-06-03", "_score": 9}
+    n = P.resolve(fake, ev2)
+    assert n["ok"] and n["state"] == "신규", n
+    assert n["row"] > ev["tail"]["02_돌발AS접수"], "새 행이 기존 데이터 위에 얹힌다"
+    assert n["row"] <= ev["cap"]["02_돌발AS접수"], "수식 없는 행에 값만 쓰면 채번이 죽는다"
+    assert n["ids"]["접수ID"] == P.mint("AS", "2026-06-03", n["row"])
+
+    # 쓰기 항목은 좌표 지정 + '빈 칸만'이어야 한다(키 조회로는 아직 없는 행을 못 찾는다)
+    items = P.row_items(n, ev2)
+    assert items and all(i.get("only_if_empty") and i.get("cell") for i in items), items[:1]
+    assert any(i["col"] == "프로젝트NO" and i["value"] == fake for i in items)
+    assert all(str(i["cell"]).endswith(str(n["row"])) for i in items), "행 번호가 섞였다"
+    # ID 열은 절대 쓰지 않는다 — 수식이 알아서 채운다
+    assert not any(i["col"] in ("접수ID", "점검ID", "작업ID", "정산ID") for i in items)
+
+    # 업무유형을 모르면 **찍지 말고 멈춰야** 한다
+    ev2["band"][fake] = dict(ev2["band"][fake], kind="기타")
+    assert not P.resolve(fake, ev2)["ok"], "시트를 모르면서 등록하면 엉뚱한 시트에 들어간다"
+    print("  [28] 프로젝트코드 리졸브(정규화·채번=수식·빈행 배치·ID열 보호) ✅")
+
+
+def t29_cloud():
+    """[29] PC가 꺼져도 폰이 열 수 있는가 — 잠금·오프라인 폴백·예약 반영."""
+    import csos_crypto as C, base64, hmac as _h, hashlib as _hl, zlib as _z, json as _j
+    assert C.self_test(), "AES 공식 시험벡터 실패 — 폰이 절대 못 연다"
+
+    raw = _j.dumps({"codes": {"UJ2601138": {"camp": "합성캠프"}}}, ensure_ascii=False).encode()
+    packed = _z.compress(raw, 9)
+    s = C.seal(packed, "0000", iters=1000)
+    assert s["cipher"] == "AES-256-CBC" and s["kdf"] == "PBKDF2-SHA256", s
+    k = C.derive("0000", base64.b64decode(s["salt"]), 1000)
+    tag = _h.new(k[32:], base64.b64decode(s["iv"]) + base64.b64decode(s["ct"]), _hl.sha256).digest()
+    assert _h.compare_digest(tag, base64.b64decode(s["tag"])), "무결성 태그 불일치"
+    # 틀린 PIN은 **복호 전에** 걸러져야 한다(엉뚱한 데이터를 그리면 안 된다)
+    kbad = C.derive("9999", base64.b64decode(s["salt"]), 1000)   # 일부러 다른 PIN
+    bad = _h.new(kbad[32:], base64.b64decode(s["iv"]) + base64.b64decode(s["ct"]), _hl.sha256).digest()
+    assert not _h.compare_digest(bad, base64.b64decode(s["tag"]))
+    assert C.ITERS >= 300000, "반복이 낮으면 4자리 PIN이 순식간에 뚫린다"
+    assert _z.decompress(packed) == raw
+
+    # 올라간 사본이 **평문이 아니어야** 한다 — 공개 저장소다
+    enc = os.path.join(ROOT, "docs", "data.enc")
+    if os.path.exists(enc):
+        d = _j.load(open(enc, encoding="utf-8"))
+        assert set(("salt", "iv", "ct", "tag")) <= set(d), list(d)
+        blob = open(enc, encoding="utf-8").read()
+        for leak in ("캠프", "UJ25", "UJ26", "프로젝트NO"):
+            assert leak not in blob, "사본에 평문 '%s' 이 그대로 있다" % leak
+
+    # 고정 페이지: PC가 죽었을 때 **막다른 오류가 아니라** 오프라인 앱으로 가야 한다
+    doc = open(os.path.join(ROOT, "docs", "index.html"), encoding="utf-8").read()
+    assert "app.html" in doc and "offline(" in doc, "PC가 꺼지면 폰이 아무것도 못 하게 된다"
+    app = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+    for need in ("PBKDF2", "AES-CBC", "DecompressionStream", "csos_queue", "/api/enqueue"):
+        assert need in app, "오프라인 앱에 %s 누락" % need
+    assert "X-Pin" in app, "서버가 보는 헤더 이름과 달라 예약이 영영 안 넘어간다"
+    sw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
+    assert "endpoint.json" in sw and "data.enc" in sw, "사본을 쥐거나 주소를 캐시하는 규칙이 없다"
+    assert "addEventListener('fetch'" in sw
+
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert '"/api/enqueue"' in srv and "def enqueue_codes(" in srv, "폰 예약을 받을 곳이 없다"
+
+    # ★ 실 PIN이 소스 어딘가에 박히면 공개 저장소에 그대로 남아 사본 잠금이 무의미해진다.
+    #   (실제로 자체검증 코드에 리터럴로 들어갔던 적이 있다 — 2026-07-27)
+    try:
+        real = str(_j.load(open(os.path.join(ROOT, "config", "webapp.json"),
+                                encoding="utf-8"))["pin"])
+    except Exception:
+        real = ""
+    if real:
+        import subprocess as _sp
+        r = _sp.run(["git", "grep", "-l", "--cached", real], cwd=ROOT,
+                    capture_output=True, text=True, encoding="utf-8", errors="replace")
+        hits = [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
+        assert not hits, "커밋된 파일에 실 PIN이 들어 있다: " + ", ".join(hits[:3])
+    print("  [29] 폰 단독 사용(잠금·오프라인 폴백·예약 반영·PIN 비노출) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1001,5 +1135,7 @@ if __name__ == "__main__":
     t25_attachments()
     t26_mobile()
     t27_po()
+    t28_resolve()
+    t29_cloud()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")
