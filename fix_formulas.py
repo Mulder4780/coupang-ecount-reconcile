@@ -32,7 +32,7 @@ try:
 except Exception:
     pass
 
-from fix_workbook import iter_tags, col_num          # 자기닫힘 태그 안전 파서
+from fix_workbook import iter_tags, col_num, _V_RE   # 자기닫힘 태그 안전 파서 · <v> 판정
 
 NEG_RE = re.compile(r"[A-Z]{1,3}-\d")
 DEAD_RE = re.compile(r"^#[A-Z/]+[!?]?$")
@@ -160,6 +160,133 @@ def fix_sheet(xml):
     return "".join(out), len(edits)
 
 
+def blank_value(ctag, cinner, sst):
+    """수식 없이 **빈 문자열로 굳어 있는** 셀인가.
+
+    엑셀에서 수식이 통째로 사라지고 빈 값만 남으면 화면에는 그냥 빈칸으로 보인다.
+    사람이 기사 이름을 넣어도 상태가 안 바뀌는데 원인을 알 길이 없다
+    (2026-07-27 02시트 기사배정상태 89칸이 이 상태였다).
+    '배정완료' 같은 **의미 있는 값은 손대지 않는다** — 사람이 고쳐 둔 것일 수 있다.
+    """
+    if not cinner or "<f" in cinner:
+        return False
+    m = re.search(r"<v[^>]*>(.*?)</v>", cinner, re.S)
+    if not m:
+        return True
+    raw = m.group(1).strip()
+    if 't="s"' in ctag and raw.isdigit():
+        return sst.get(int(raw), "") == ""
+    if 't="inlineStr"' in ctag or "<is>" in cinner:
+        return not "".join(re.findall(r"<t[^>]*>(.*?)</t>", cinner, re.S)).strip()
+    return raw == ""
+
+
+def shared_strings(z):
+    """공유문자열 인덱스 → 값 (빈 문자열 판정에 쓴다)"""
+    if "xl/sharedStrings.xml" not in z.namelist():
+        return {}
+    x = z.read("xl/sharedStrings.xml").decode("utf-8")
+    out = {}
+    for i, si in enumerate(re.findall(r"<si>(.*?)</si>", x, re.S)):
+        out[i] = "".join(re.findall(r"<t[^>]*>(.*?)</t>", si, re.S)).strip()
+    return out
+
+
+def fill_missing(xml, min_share=0.5, sst=None):
+    sst = sst or {}
+    """**수식 열인데 빈칸인 셀**에 그 열의 수식을 다시 넣는다.
+
+    왜 필요한가 — 행을 늘리거나 백필하면서 어떤 열은 수식이 안 따라붙는다.
+    그 행은 사람이 값을 입력해도 상태가 안 바뀐다("기사 넣었는데 배정완료로 안 변함",
+    2026-07-27 류지영 매니저 보고. 02시트 기사배정상태 89행이 빈칸이었다).
+    화면에는 그냥 비어 보여서 아무도 원인을 모른다.
+
+    판단 기준: 그 열의 데이터 행 중 **절반 이상이 수식**이면 수식 열로 본다.
+    사람이 직접 적는 열(방문일정상태처럼 수식이 아예 없는 열)은 건드리지 않는다.
+    이미 값이 들어 있는 칸도 그대로 둔다 — 사람이 손으로 고쳐 둔 것일 수 있다.
+    """
+    cells = parse_cells(xml)
+    tmpl = templates(cells)
+    if not tmpl:
+        return xml, 0
+    has_f = collections.Counter(c[1] for c in cells)
+    style = {}                                   # 열 → 수식 셀의 스타일(서식 유지용)
+    for rs, _e, rtag, rinner in iter_tags(xml, "row"):
+        if rinner is None:
+            continue
+        for _cs, _ce, ctag, cinner in iter_tags(rinner, "c"):
+            ref = re.search(r'r="([A-Z]{1,3})\d+"', ctag)
+            if ref and cinner and "<f" in cinner and ref.group(1) not in style:
+                sm = re.search(r'\ss="(\d+)"', ctag)
+                style[ref.group(1)] = sm.group(1) if sm else None
+
+    n_rows = collections.Counter()               # 열별 데이터 행 수(존재하는 셀 기준)
+    for rs, _e, rtag, rinner in iter_tags(xml, "row"):
+        if rinner is None:
+            continue
+        rm = re.search(r'r="(\d+)"', rtag)
+        if not rm or int(rm.group(1)) <= 4:
+            continue
+        for _cs, _ce, ctag, _ci in iter_tags(rinner, "c"):
+            ref = re.search(r'r="([A-Z]{1,3})\d+"', ctag)
+            if ref:
+                n_rows[ref.group(1)] += 1
+
+    want = {c for c in tmpl
+            if tmpl[c].strip() and n_rows[c] and has_f[c] / n_rows[c] >= min_share}
+    if not want:
+        return xml, 0
+
+    def new_cell(col, rn):
+        s = style.get(col)
+        return (f'<c r="{col}{rn}"' + (f' s="{s}"' if s else "") + ">"
+                + "<f>" + esc(instantiate(tmpl[col], rn)) + "</f><v/></c>")
+
+    out, last, n = [], 0, 0
+    for rs, re_, rtag, rinner in iter_tags(xml, "row"):
+        if rinner is None:
+            continue
+        rm = re.search(r'r="(\d+)"', rtag)
+        if not rm:
+            continue
+        rn = int(rm.group(1))
+        if rn <= 4:
+            continue
+        pieces, here, changed = [], {}, False
+        for cs, ce, ctag, cinner in iter_tags(rinner, "c"):
+            ref = re.search(r'r="([A-Z]{1,3})\d+"', ctag)
+            if ref:
+                here[ref.group(1)] = (cs, ce, ctag, cinner)
+        # ★ 엑셀은 빈 셀을 아예 안 적는다. 그래서 '비어 있는 칸'은 <c>가 없는 경우가 대부분이고,
+        #   기존 <c>만 훑으면 89칸 중 8칸밖에 못 찾는다. 없는 셀은 만들어 끼워 넣는다.
+        missing = [c for c in want
+                   if c not in here or (here[c][3] is None)
+                   or ("<f" not in (here[c][3] or "") and not _V_RE.search(here[c][3] or ""))
+                   or blank_value(here[c][2], here[c][3], sst)]
+        if not missing:
+            continue
+        body, cur = [], 0
+        allcols = sorted(set(list(here) + missing), key=col_num)
+        miss_set = set(missing)
+        for col in allcols:
+            # ★ 채울 대상(missing)으로 이미 판정된 칸을 여기서 '값이 있으니 그대로 둔다'고
+            #   되살리면 아무것도 안 고쳐진다(빈 문자열로 굳은 칸이 딱 이 경우다).
+            if col not in miss_set and col in here and here[col][3] is not None and (
+                    "<f" in here[col][3] or _V_RE.search(here[col][3])):
+                cs, ce, _t, _i = here[col]
+                body.append(rinner[cs:ce])
+            elif col in want:
+                body.append(new_cell(col, rn)); n += 1
+            elif col in here:
+                cs, ce, _t, _i = here[col]
+                body.append(rinner[cs:ce])
+        out.append(xml[last:rs])
+        out.append(rtag + "".join(body) + "</row>")
+        last = re_
+    out.append(xml[last:])
+    return ("".join(out), n) if n else (xml, 0)
+
+
 def widen(xml, ends, self_name=None, self_end=None):
     """참조 범위의 끝행을 시트의 실제 마지막 행까지 넓힌다"""
     n = [0]
@@ -192,6 +319,7 @@ def main():
     master = resolve_master(load_config()["reconcile"]["master_xlsx"])
     z = zipfile.ZipFile(master)
     smap = sheet_map(z)
+    sst = shared_strings(z)
     raw = {name: z.read(p).decode("utf-8") for name, p in smap.items()}
     ends = {name: sheet_last_row(x) for name, x in raw.items()}
 
@@ -208,17 +336,25 @@ def main():
         if oe and oe < ends[name]:
             print(f"  {name}: 실제 {ends[name]} / 수식 {oe}  ← {ends[name]-oe}행이 집계에서 빠짐")
 
-    patched, nfix, nwide = {}, 0, 0
+    patched, nfix, nwide, nmiss = {}, 0, 0, 0
+    miss_by = {}
     for name, path in smap.items():
         x = raw[name]
         y, k = fix_sheet(x)
         y, w = widen(y, ends, name, old_ends.get(name))
-        if k or w:
+        y, mm = fill_missing(y, sst=sst)
+        if k or w or mm:
             patched[path] = y.encode("utf-8")
             nfix += k
             nwide += w
+            nmiss += mm
+            if mm:
+                miss_by[name] = mm
     z.close()
-    print(f"\n깨진 수식 복구 {nfix}개 · 범위 확장 {nwide}곳 (시트 {len(patched)}개)")
+    print(f"\n깨진 수식 복구 {nfix}개 · 범위 확장 {nwide}곳 · 빠진 수식 채움 {nmiss}개 "
+          f"(시트 {len(patched)}개)")
+    for k, v in sorted(miss_by.items(), key=lambda x: -x[1]):
+        print(f"   빠진 수식 {k}: {v}개")
 
     if "--apply" not in sys.argv:
         print("반영하려면: python fix_formulas.py --apply")

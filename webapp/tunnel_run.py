@@ -65,18 +65,30 @@ def watch(proc, url):
     """
     import threading, urllib.request
 
+    def ping(u, t=20):
+        try:
+            with urllib.request.urlopen(u, timeout=t) as r:
+                return r.status == 200
+        except Exception:
+            return False
+
     def loop():
         fail = 0
         while proc.poll() is None:
-            time.sleep(60)
-            try:
-                with urllib.request.urlopen(url + "/api/ping", timeout=20) as r:
-                    ok = (r.status == 200)
-            except Exception:
-                ok = False
-            fail = 0 if ok else fail + 1
-            if fail >= 2:                      # 1분 간격 2회 연속 실패 → 죽은 것으로 본다
-                print("터널 주소가 응답하지 않음 — 새 주소로 다시 띄웁니다")
+            time.sleep(90)
+            if ping(url + "/api/ping"):
+                fail = 0
+                continue
+            # 앱 자체가 죽었으면 터널을 갈아도 소용없다 — 주소만 쓸데없이 바뀐다.
+            # (주소가 바뀔 때마다 직접 북마크한 사람은 다시 못 들어온다)
+            if not ping(f"http://localhost:{PORT}/api/ping", 8):
+                print("앱이 응답하지 않음 — 터널은 그대로 두고 기다립니다")
+                fail = 0
+                continue
+            fail += 1
+            print(f"터널 응답 없음 {fail}/3")
+            if fail >= 3:                      # 90초 간격 3회(=약 4분) 연속 실패에만 교체
+                print("터널이 죽은 것으로 판단 — 새 주소로 다시 띄웁니다")
                 try:
                     proc.kill()
                 except Exception:
