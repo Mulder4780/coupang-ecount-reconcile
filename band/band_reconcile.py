@@ -107,6 +107,18 @@ def main():
 
     matched_posts = set()
     results = []
+    # 밴드 수집이 닿는 가장 이른 날.
+    # ★ 밴드별로 따로 본 뒤 **가장 늦은 시작일**을 쓴다. 두 밴드를 합쳐 최소값을 잡으면
+    #   매출처 밴드(2025-11-10~)가 쿠팡AS 밴드(2025-12-16~)의 빈 구간을 덮어 버린다.
+    #   AS·점검 완료 보고는 쿠팡AS 밴드에 올라가므로, 그 밴드가 안 닿는 기간은
+    #   '게시 안 함'이라고 말할 수 없다 — 우리가 못 긁어온 것뿐이다.
+    _first = {}
+    for _p in posts:
+        if _p["date"] and (_p["band"] not in _first or _p["date"] < _first[_p["band"]]):
+            _first[_p["band"]] = _p["date"]
+    oldest = max(_first.values()) if _first else None
+    if oldest:
+        print(f"밴드 수집 시작일(가장 늦은 밴드 기준) {oldest} — 그 이전 작업은 '수집범위밖'으로 둔다")
     for r in rows:
         best, how = None, ""
         for p in posts:
@@ -125,7 +137,12 @@ def main():
             matched_posts.add(best["post_key"])
         results.append({**{k: r[k] for k in ("시트", "ID", "프로젝트NO", "캠프명", "담당기사")},
                         "완료일": r["완료일"].isoformat(),
-                        "밴드게시": "확인" if best else "미확인",
+                        # ★ 밴드 수집이 닿지 않는 **이전 기간**은 '미확인'이 아니다.
+                        #   캐시는 2025-12-16부터인데 12-08 작업까지 '게시 안 함'으로 몰면
+                        #   기사들을 헛되이 추궁하게 된다 — 우리가 못 긁어온 것뿐이다.
+                        #   (2026-07-28: 엑셀 저장으로 옛 행 상태가 드러나며 28건이 그렇게 떴다)
+                        "밴드게시": ("확인" if best else
+                                     ("수집범위밖" if (oldest and r["완료일"] < oldest) else "미확인")),
                         "매칭근거": how + ("+기사일치" if author_ok else ""),
                         "게시일": best["date"].isoformat() if best else "",
                         "게시자": best["author"] if best else "",

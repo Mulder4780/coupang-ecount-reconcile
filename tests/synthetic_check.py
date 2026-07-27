@@ -1449,6 +1449,56 @@ def t36_mobile_input():
     print("  [36] 폰 입력(달력·드롭다운·16px·시트연동) · 부가세 원장값 · 보고일 즉시수정 ✅")
 
 
+def t37_band_coverage():
+    """[37] 밴드 수집이 안 닿는 기간을 '기사가 안 올렸다'로 몰지 않는가.
+
+    2026-07-28: 류지영이 엑셀을 저장하면서 옛 행의 상태 수식이 계산됐고, 그 순간
+    2025-12-08·09 작업 28건이 '밴드 게시 미확인'으로 떴다. 그런데 쿠팡AS 밴드 캐시는
+    2025-12-16부터다 — 기사가 안 올린 게 아니라 우리가 그 이전을 못 긁어온 것이다.
+    이대로 두면 없는 잘못으로 기사들을 추궁하게 된다."""
+    src = open(os.path.join(ROOT, "band", "band_reconcile.py"), encoding="utf-8").read()
+    assert "수집범위밖" in src, "수집이 안 닿는 기간을 따로 구분하지 않는다"
+    # ★ 밴드별로 시작일을 보고 **가장 늦은 것**을 써야 한다. 합쳐서 최소값을 잡으면
+    #   매출처 밴드가 쿠팡AS 밴드의 빈 구간을 덮어 버린다.
+    assert "max(_first.values())" in src, "밴드별 시작일을 안 보고 합쳐서 판단한다"
+
+    # 하위 도구는 '미확인'만 문제로 올려야 한다(수집범위밖은 사람이 할 일이 아니다)
+    fe = open(os.path.join(ROOT, "findings_export.py"), encoding="utf-8").read()
+    assert '밴드게시") == "미확인"' in fe, "확인필요 목록이 수집범위밖까지 문제로 올린다"
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert 'r.get("밴드게시") == "미확인"' in srv, "앱이 수집범위밖까지 문제로 센다"
+
+    # 실제 리포트에 수집 시작일보다 앞선 건이 '미확인'으로 남아 있으면 안 된다
+    import glob as _g, csv as _csv, json as _j
+    from datetime import datetime as _dt
+    rep = sorted(_g.glob(os.path.join(ROOT, "reports", "밴드대조_*.csv")))
+    if rep:
+        first = {}
+        for f in _g.glob(os.path.join(ROOT, "band", "cache", "*.json")):
+            if os.path.basename(f).startswith(("dump_", "raw_")):
+                continue
+            try:
+                c = _j.load(open(f, encoding="utf-8"))
+            except Exception:
+                continue
+            ds = [_dt.fromtimestamp(p["created_at"] / 1000).date()
+                  for p in (c.get("posts") or {}).values() if p.get("created_at")]
+            if ds:
+                first[c.get("band_name", f)] = min(ds)
+        if first:
+            cut = max(first.values())
+            bad = []
+            for r in _csv.DictReader(open(rep[-1], encoding="utf-8-sig")):
+                if r.get("밴드게시") != "미확인":
+                    continue
+                d = (r.get("완료일") or "")[:10]
+                if d and _dt.strptime(d, "%Y-%m-%d").date() < cut:
+                    bad.append(r.get("ID"))
+            assert not bad, (f"수집 시작({cut}) 이전 건이 '미확인'으로 남아 있다: "
+                             + ", ".join(x for x in bad[:5] if x))
+    print("  [37] 밴드 수집범위 구분(밴드별 시작일·미확인만 문제로) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1487,5 +1537,6 @@ if __name__ == "__main__":
     t34_capture_and_no_send()
     t35_confirm_evidence()
     t36_mobile_input()
+    t37_band_coverage()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")
