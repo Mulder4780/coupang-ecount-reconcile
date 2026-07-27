@@ -124,10 +124,30 @@ def heal_tunnel(dry):
         return f"터널 정상 ({url[8:40]}...)"
     if dry:
         return "터널 죽음(dry)"
+    # ★ 좀비 정리를 먼저 한다.
+    #   tunnel_run은 포트 8977 싱글톤 락을 쓴다. 예전 tunnel_run이 살아 있으면
+    #   새로 띄워도 "이미 실행 중"으로 즉시 끝나 **아무것도 고쳐지지 않는다**.
+    #   실제로 cloudflared는 살아 있는데 주소만 만료된 채 이틀 방치됐다(2026-07-27).
+    killed = kill_stale_tunnel()
     if not os.path.exists(os.path.join(ROOT, "webapp", "cloudflared.exe")):
-        return "터널 스킵 — cloudflared 없음"
+        return f"터널 스킵 — cloudflared 없음{killed}"
     start_hidden(os.path.join("webapp", "tunnel_run.py"))
-    return "터널 재시작 지시(주소는 tunnel_url.txt·앱 대시보드에 갱신됨)"
+    return f"터널 재시작 지시{killed} (새 주소는 고정주소가 자동으로 따라감)"
+
+
+def kill_stale_tunnel():
+    """죽은 터널을 붙들고 있는 cloudflared·tunnel_run을 정리한다."""
+    import subprocess as sp
+    ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'cloudflared.exe' -or "
+          "$_.CommandLine -like '*tunnel_run*' } | ForEach-Object { "
+          "Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }")
+    try:
+        r = sp.run(["powershell", "-NoProfile", "-Command", ps],
+                   capture_output=True, text=True, timeout=60)
+        n = len([x for x in (r.stdout or "").split() if x.strip().isdigit()])
+        return f" (좀비 {n}개 정리)" if n else ""
+    except Exception:
+        return ""
 
 
 def archive_versions(dry):
