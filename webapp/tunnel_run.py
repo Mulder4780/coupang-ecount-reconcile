@@ -103,19 +103,39 @@ def _throttle():
         pass
 
 
+def published_url():
+    """고정 주소가 지금 가리키는 곳(끝 슬래시 제거)."""
+    try:
+        return (json.load(open(ENDPOINT, encoding="utf-8")).get("url") or "").rstrip("/")
+    except Exception:
+        return ""
+
+
 def publish(url):
     """고정 주소(GitHub Pages)가 지금 주소를 가리키게 한다.
 
     폰 북마크는 고정 주소 하나만 알면 되고, 실제 주소가 바뀌어도 여기서 따라간다.
     (trycloudflare 무료 터널은 **주소를 지정할 수 없다** — 매번 새로 받는다)
     """
-    try:
-        subprocess.run([sys.executable, os.path.join(ROOT, "publish_endpoint.py")],
-                       cwd=ROOT, timeout=120, capture_output=True,
-                       env={**os.environ, "PYTHONIOENCODING": "utf-8"})
-        print("   고정 주소 갱신 완료")
-    except Exception as e:
-        print(f"   고정 주소 갱신 실패: {type(e).__name__} {e}")
+    # ★ 예전에는 결과를 안 보고 무조건 "갱신 완료"를 찍었다. publish_endpoint 가 게시를
+    #   거절해도(주소가 아직 안 붙었을 때 흔하다) 성공처럼 보였고, 고정 주소는 **옛 죽은
+    #   주소를 그대로 가리킨 채** 남았다. 폰은 다음 날 아침 접속이 안 됐다(2026-07-28).
+    #   이제 실제로 게시됐는지 endpoint.json 으로 확인하고, 안 됐으면 다시 시도한다.
+    for attempt in range(1, 4):
+        try:
+            subprocess.run([sys.executable, os.path.join(ROOT, "publish_endpoint.py")],
+                           cwd=ROOT, timeout=180, capture_output=True,
+                           env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+        except Exception as e:
+            print(f"   고정 주소 갱신 오류: {type(e).__name__} {e}")
+        if published_url() == url.rstrip("/"):
+            print("   고정 주소 갱신 완료")
+            return True
+        wait = attempt * 20
+        print(f"   고정 주소가 아직 새 주소를 가리키지 않음 — {wait}초 후 재시도 ({attempt}/3)")
+        time.sleep(wait)
+    print("   ★ 고정 주소 갱신 실패 — 폰이 옛 주소로 들어가게 됩니다")
+    return False
 
 
 def watch(proc, url):
@@ -141,6 +161,11 @@ def watch(proc, url):
             time.sleep(90)
             if ping(url + "/api/ping"):
                 fail = 0
+                # ★ 터널은 멀쩡한데 **고정 주소만 딴 데를 가리키는** 경우가 실제로 있었다
+                #   (게시가 조용히 실패). 매 점검마다 맞는지 보고 어긋나면 다시 게시한다.
+                if published_url() != url.rstrip("/"):
+                    print("고정 주소가 현재 터널과 다릅니다 — 다시 게시합니다")
+                    publish(url)
                 continue
             # 앱 자체가 죽었으면 터널을 갈아도 소용없다 — 주소만 쓸데없이 바뀐다.
             # (주소가 바뀔 때마다 직접 북마크한 사람은 다시 못 들어온다)

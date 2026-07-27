@@ -322,7 +322,22 @@ async function boot(pin){
   }
   PIN = pin; localStorage.setItem('csos_pin', pin);
   $('gate').style.display = 'none'; $('app').style.display = '';
-  $('hsub').textContent = '오프라인 사본 · ' + (D.gen || D['기준'] || '');
+  /* PC가 꺼져 넘어온 경우 그 사실을 분명히 적는다 — 숫자가 언제 것인지 모르면
+     사람은 화면을 못 믿는다. 이유는 고정 페이지가 넘겨줄 때 남겨 둔다. */
+  let why = '';
+  try{ why = sessionStorage.getItem('csos_offline_why') || ''; }catch(e){}
+  $('hsub').textContent = (why ? '사무실 PC 꺼짐 · ' : '오프라인 사본 · ') + (D.gen || D['기준'] || '');
+  if(why){
+    const b = document.createElement('div');
+    b.className = 'card';
+    b.style.cssText = 'border-color:var(--warn);border-width:2px;margin-top:12px';
+    b.innerHTML = '<h3 style="color:var(--warn)">사무실 PC가 꺼져 있습니다</h3>' +
+      '<div class="note" style="margin-top:2px">' + esc(why) +
+      ' 아래 숫자는 <b>' + esc(D.gen || '') + '</b> 기준 사본입니다.<br>' +
+      '조회·프로젝트 코드 자동채움은 그대로 되고, 등록은 예약해 두면 PC가 켜질 때 자동 반영됩니다.</div>';
+    const box = $('alertbox');
+    if(box) box.parentNode.insertBefore(b, box);
+  }
   $('stamp').textContent = '사본 기준 ' + (D.gen || D['기준'] || '') + ' · 코드 ' + Object.keys(D.codes||{}).length;
   renderAlert(); renderTabs(); renderList(); syncQueue();
   return true;

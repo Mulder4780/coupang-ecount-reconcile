@@ -80,13 +80,15 @@ if ('serviceWorker' in navigator) {
 
   /* ★ 예전에는 여기서 끝이었다 — PC가 꺼져 있으면 폰에 오류만 뜨고 아무것도 못 했다.
        이제는 **잠긴 사본으로 넘긴다**. 조회·프로젝트코드 자동채움·등록 예약은 PC 없이 된다. */
+  /* ★ 예전에는 여기서 버튼을 하나 더 누르게 했다. 그런데 PC가 꺼져 있는 건
+       **예외가 아니라 흔한 상태**다(출장·퇴근 후). 매번 '열기'를 누르게 하면
+       사용자는 그냥 "또 안 되네"라고 느낀다. 그래서 바로 넘긴다.
+       왜 오프라인인지는 앱 안에서 알려 준다(사본 기준 시각과 함께). */
   const offline = (why) => {
-    st.textContent = '';
-    act.innerHTML =
-      `<a class="btn" href="app.html">오프라인으로 열기</a>` +
-      `<div class="tip" style="margin-top:10px">${why}<br>` +
-      `조회와 <b>프로젝트 코드 자동채움</b>은 그대로 됩니다. 등록은 예약해 두면 ` +
-      `PC가 켜질 때 자동으로 원장에 들어갑니다.</div>`;
+    st.textContent = '사무실 PC가 꺼져 있어 저장된 사본으로 엽니다…';
+    act.innerHTML = `<a class="btn" href="app.html">바로 열기</a>`;
+    try{ sessionStorage.setItem('csos_offline_why', why || ''); }catch(e){}
+    location.replace('app.html');
   };
 
   let d;

@@ -1198,8 +1198,35 @@ def lan_ip():
         return "127.0.0.1"
 
 
+PUBLISH_EVERY = 3 * 3600      # 폰이 보는 사본을 몇 초마다 새로 올릴지
+
+
+def publish_loop():
+    """PC가 켜져 있는 동안 **주기적으로** 폰용 사본을 올린다.
+
+    ★ PC가 꺼져도 폰이 쓰이려면 사본이 최신이어야 한다. 예전에는 daily_run 이 돌 때만
+      올려서, 아침에 한 번 돌리고 저녁에 PC를 끄면 폰은 **아침 숫자**를 보게 됐다.
+      그러면 '꺼져도 된다'는 말이 사실이 아니게 된다. 그래서 3시간마다 올린다.
+      (사본은 잠겨 있고 60~80KB라 부담이 없다)
+    """
+    if DEMO:
+        return
+    time.sleep(120)                        # 기동 직후 혼잡할 때는 피한다
+    while True:
+        try:
+            r = subprocess.run([PY, os.path.join(ROOT, "cloud_publish.py"), "--push"],
+                               cwd=ROOT, env=ENV, capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", timeout=900)
+            tail = [l for l in (r.stdout or "").splitlines() if l.strip()][-1:] or [""]
+            runner["log"].append(f"[사본 자동 게시] {tail[0][:120]}")
+        except Exception as e:
+            runner["log"].append(f"[사본 자동 게시] 실패 {type(e).__name__}")
+        time.sleep(PUBLISH_EVERY)
+
+
 def main():
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
+    threading.Thread(target=publish_loop, daemon=True).start()
     mode = "데모(합성데이터)" if DEMO else "실서비스"
     print(f"Coupang Service Operations System 앱 서버 [{mode}] 시작")
     print(f"  PC:      http://localhost:{PORT}")
