@@ -1175,6 +1175,52 @@ def t31_tech():
     print("  [31] 기사별 방문(동행 분리·완료분만·합계 정합) ✅")
 
 
+def t32_band_sheet():
+    """[32] 24_밴드업무추출이 통째로 잘리는 사고를 막는다.
+
+    band_extract 의 --sheet 는 시트를 **덮어쓴다**. --month 와 같이 쓰면 그 달 것만 남는다.
+    ingest 가 월별 루프로 이걸 반복해서 2026-07-27에 4,223행 → 506행으로 잘렸다
+    (2025-12~2026-05가 통째로 사라졌다). 두 겹으로 막는다."""
+    # ① ingest 는 --sheet 를 월별로 부르면 안 된다
+    ing = open(os.path.join(ROOT, "band", "ingest.py"), encoding="utf-8").read()
+    i = ing.index('if "--sheet" in args:')
+    blk = ing[i:i + 700]
+    assert '"--month", mo, "--sheet"' not in blk, (
+        "ingest 가 24시트를 월별로 덮어쓴다 — 마지막 달만 남고 나머지가 사라진다")
+    assert '"band_extract.py"), "--sheet"' in blk.replace("os.path.join(ROOT, ", ""), blk[:120]
+
+    # ② 시트가 캐시보다 훨씬 적으면 잘린 것이다
+    import json as _j, glob as _g
+    posts = 0
+    for f in _g.glob(os.path.join(ROOT, "band", "cache", "*.json")):
+        if os.path.basename(f).startswith(("dump_", "raw_")):
+            continue
+        try:
+            posts += len((_j.load(open(f, encoding="utf-8")).get("posts") or {}))
+        except Exception:
+            pass
+    if posts:
+        import openpyxl
+        from ecount_reconcile import load_config, resolve_master
+        wb = openpyxl.load_workbook(resolve_master(load_config()["reconcile"]["master_xlsx"]),
+                                    read_only=True, data_only=True)
+        ws = wb["24_밴드업무추출"]
+        hdr = [str(h).strip() if h else "" for h in
+               next(ws.iter_rows(min_row=4, max_row=4, values_only=True))]
+        ig = hdr.index("게시일")
+        days = sorted(str(r[ig])[:10] for r in ws.iter_rows(min_row=5, values_only=True)
+                      if ig < len(r) and r[ig])
+        wb.close()
+        assert days, "24시트가 비어 있다"
+        # 캐시는 1,200여 글인데 시트가 그 절반도 안 되면 잘린 것으로 본다
+        assert len(days) > posts * 0.5, (
+            f"24시트 {len(days)}행 vs 밴드 캐시 {posts}글 — 시트가 잘린 것으로 보인다")
+        # 밴드 시작(2025-12)부터 있어야 한다 — 최근 몇 달만 남아 있으면 덮어써진 것이다
+        assert days[0] <= "2026-01-31", (
+            f"24시트가 {days[0]} 부터 시작한다 — 앞부분이 덮어써졌다")
+    print("  [32] 24시트 전체 보존(월별 덮어쓰기 차단·행수 급감 감지) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1208,5 +1254,6 @@ if __name__ == "__main__":
     t29_cloud()
     t30_dns_and_versions()
     t31_tech()
+    t32_band_sheet()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

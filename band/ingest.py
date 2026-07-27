@@ -114,8 +114,11 @@ def main():
 
     todo = sorted(allm)
     if "--sheet" in args:
-        for mo in todo:
-            run([os.path.join(ROOT, "band_extract.py"), "--month", mo, "--sheet"], f"24시트 반영 {mo}")
+        # ★ **--month 를 붙여 월별로 돌리면 안 된다.** band_extract 의 --sheet 는 24시트를
+        #   그 달 것으로 **통째로 덮어쓴다**. 월별 반복이면 마지막 달만 남아 나머지가 사라진다
+        #   (2026-07-27 실사고: 4,223행 → 506행. 2025-12~2026-05가 통째로 날아갔다).
+        #   한 번만, 월 지정 없이 부른다 — 캐시 전체가 그대로 들어간다.
+        run([os.path.join(ROOT, "band_extract.py"), "--sheet"], "24시트 반영(전체)")
 
     if "--backfill" in args:
         print("\n■ 월별 백필")
