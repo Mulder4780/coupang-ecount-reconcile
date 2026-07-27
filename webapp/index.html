@@ -561,7 +561,11 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
     <div class="card"><h3>담당자별 확인 필요 <span class="norm">— 누르면 내역·전달용 이미지</span></h3>
       <div class="toplist" id="assignlist">로딩...</div></div>
     <div class="card"><h3>내가 확인할 사항 <span class="norm">— 유현민 (관리·청구·원천데이터)</span></h3>
-      <div class="toplist" id="mylist">로딩...</div></div>
+      <div class="toplist" id="mylist">로딩...</div>
+      <div class="actions" style="margin-top:10px">
+        <button class="abtn" onclick="captureMine()"><span class="em">📸</span>목록 캡처</button>
+        <button class="abtn" onclick="shareMine()"><span class="em">📤</span>이미지 공유</button>
+      </div></div>
     <div class="card"><h3>빠른 실행</h3>
       <div class="actions">
         <button class="abtn primary" onclick="runTask('daily')"><span class="em">▶</span>전체 대조</button>
@@ -759,6 +763,10 @@ async function reloadHere(btn){
 async function loadStatus(){
   const s = await api('/api/status');
   srcStats = s.sources || {};
+  /* ★ '내가 확인할 사항'은 loadSettle 에서 먼저 그려지는데, 그때는 srcStats 가 아직 비어 있다.
+     그대로 두면 밴드·카톡·PO 자료가 멀쩡히 있어도 **'아직 없음' 4건이 거짓으로** 뜬다
+     (2026-07-27에 실제로 그렇게 보였다). 상태가 도착했으니 다시 그린다. */
+  try{ renderBoard(); }catch(e){ console.warn('board', e); }
   $('demobadge').textContent = s.demo ? '· 데모(합성데이터)' : '';
   const rows = settleRows.length ? settleRows : [];
   const 유상 = rows.filter(r=>r.비용구분==='유상');
@@ -2146,14 +2154,16 @@ function buildMine(){
        (works.as||[]).concat(works.pm||[]).filter(r=>
          !(r.담당기사||'').trim() && r.출처!=='ERP' && !_fin(r.진행상태||r.점검상태)),
        ()=>goList('as',''));
-  /* 원천 데이터가 안 들어와 대조를 못 하는 것도 '내가 할 일'이다 */
+  /* 대조에 쓸 자료가 아직 안 들어온 것도 '내가 할 일'이다.
+     ★ 예전 문구는 'OO 원천 없음'이었는데 '원천'이 무슨 말인지 되물으셨다(2026-07-27).
+       화면 문구는 **그걸 처음 보는 사람이 바로 알아듣는 말**이어야 한다. */
   const src = srcStats || {};
-  [['band','밴드 게시','밴드 수집 실행 필요'],
-   ['kakao','카톡 보고','카톡 대화 내보내기를 kakao/inbox 에'],
-   ['erp','ERP 원장','거래처별계정별원장 엑셀을 inbox 에'],
-   ['po','쿠팡 PO','PO 목록을 inbox 에']].forEach(function(x){
+  [['band','밴드 게시글','밴드에서 글을 아직 못 가져왔습니다 — [실행] 탭에서 밴드 수집'],
+   ['kakao','카톡 대화','카톡 대화 내보내기(.txt)를 kakao/inbox 폴더에 넣어주세요'],
+   ['erp','ERP 거래처별계정별원장','이카운트에서 원장을 엑셀로 받아 inbox 폴더에 넣어주세요'],
+   ['po','쿠팡 PO 목록','쿠팡 PO 목록 엑셀을 inbox 폴더에 넣어주세요']].forEach(function(x){
      if(!src[x[0]] || !src[x[0]].total)
-       out.push({cat:x[1]+' 원천 없음', todo:x[2], lv:'info', n:0, amt:0, items:[], go:()=>show('run')}); });
+       out.push({cat:x[1]+' 아직 없음', todo:x[2], lv:'info', n:0, amt:0, items:[], go:()=>show('run')}); });
   return out;
 }
 
@@ -2295,11 +2305,17 @@ function openMine(idx){
           '<div class="top"><span class="camp">'+(r.캠프명||'')+'</span>'+
           '<span class="camp">'+(r.완료일||r.접수일자||r.점검예정일||'')+'</span></div></div>';
       }).join('') + '</div>'
-    : '<div class="card" style="margin-top:12px">이 항목은 원천 데이터를 넣어야 대조가 됩니다.<br><b>'+
+    : '<div class="card" style="margin-top:12px">이 자료가 있어야 대조를 할 수 있습니다.<br><b>'+
       m.todo+'</b><br><br>[실행] 탭의 <b>파일·폴더 열기</b>에서 해당 폴더를 열 수 있습니다.</div>';
+  window._mineIdx = idx;                      // 캡처가 어느 항목인지 알아야 한다
+  const cap = rows.length
+    ? '<div class="actions" style="margin-top:12px">'+
+      '<button class="abtn" onclick="captureMineDetail()"><span class="em">📸</span>이 목록 캡처</button>'+
+      '<button class="abtn" onclick="shareMineDetail()"><span class="em">📤</span>이미지 공유</button></div>'
+    : '';
   openPane('<h2>'+m.cat+' <span class="chip '+(m.lv==='danger'?'c-danger':'c-warn')+'">'+
     (m.n?m.n+'건':'대기')+'</span></h2><div class="sub">'+m.todo+
-    (m.amt?' · '+fmt(m.amt)+'원':'')+'</div>'+helpBox(m.cat)+body);
+    (m.amt?' · '+fmt(m.amt)+'원':'')+'</div>'+helpBox(m.cat)+cap+body);
 }
 
 /* 담당자 전달용 이미지 — 캔버스 직접 렌더(외부 리소스 0, 폰·PC 동일) */
@@ -2343,6 +2359,173 @@ async function assigneeToPng(name){
   txt('자동 생성 · CSOS Agent', W-26, y, F(10), '#98A2B3','right');
   return new Promise(res=>cv.toBlob(res,'image/png'));
 }
+/* ── '내가 확인할 사항' 캡처 ────────────────────────────────────────────
+   담당자별 카드와 같은 방식(Canvas 직접 렌더)이라 웹폰트 오염이 없고 폰·PC 동일하게 나온다.
+   ★ 보내는 건 **사람이 직접** 고른다 — 자동 전송은 하지 않는다.
+     쿠팡 담당자에게는 어떤 메시지도 보내지 않는다(유니버셜 내부에서 처리). */
+async function mineToPng(){
+  const l = window._mine || [];
+  const S=2, W=760, rowH=56, headH=100;
+  const H = headH + 40 + Math.max(1,l.length)*rowH + 56;
+  const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
+  const ctx=cv.getContext('2d'); ctx.scale(S,S);
+  const F=(s,w)=>(w||400)+' '+s+'px "Nanum Gothic","Malgun Gothic",sans-serif';
+  const txt=(t,x,y,f,c,a)=>{ctx.font=f;ctx.fillStyle=c;ctx.textAlign=a||'left';
+    ctx.fillText(String(t==null?'':t),x,y);ctx.textAlign='left';};
+  const box=(x,y,w,h,fill,r)=>{ctx.beginPath();ctx.roundRect(x,y,w,h,r||8);ctx.fillStyle=fill;ctx.fill();};
+  const clip=(t,max)=>{let s=String(t==null?'':t);
+    if(ctx.measureText(s).width<=max)return s;
+    while(s.length>1&&ctx.measureText(s+'…').width>max)s=s.slice(0,-1);return s+'…';};
+
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+  const g=ctx.createLinearGradient(0,0,W,headH); g.addColorStop(0,'#0E1B3F'); g.addColorStop(1,'#2452E6');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,headH);
+  await drawLogo(ctx,26,24,36,true);
+  const totN = l.reduce((a,m)=>a+(m.n||0),0), totA = l.reduce((a,m)=>a+(m.amt||0),0);
+  txt('내가 확인할 사항', 86, 44, F(20,800), '#fff');
+  txt('CSOS · 유현민 (관리·청구·원천데이터) · 총 '+totN+'건', 86, 68, F(11.5), '#9FB4E8');
+  txt(new Date().toLocaleDateString('ko-KR'), W-26, 44, F(12.5,700), '#fff','right');
+
+  let y = headH + 30;
+  txt('항목',26,y,F(10.5,800),'#667085');
+  txt('건수',W-150,y,F(10.5,800),'#667085','right');
+  txt('금액',W-26,y,F(10.5,800),'#667085','right');
+  y+=10; ctx.strokeStyle='#D0D8E6'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(26,y); ctx.lineTo(W-26,y); ctx.stroke();
+
+  const list = l.length?l:[{cat:'확인할 사항이 없습니다', todo:'', n:0, amt:0, lv:''}];
+  list.forEach(function(m,n){
+    const t = y + n*rowH;
+    if(n%2) box(26,t+4,W-52,rowH-8,'#F6F9FD',8);
+    const col = m.lv==='danger' ? '#B42318' : m.lv==='warn' ? '#A85A06' : '#667085';
+    txt(clip(m.cat, 480), 26, t+26, F(13.5,800), '#101828');
+    if(m.todo) txt(clip(m.todo, 500), 26, t+43, F(10.5), '#98A2B3');
+    txt(m.n ? m.n+'건' : '투입 대기', W-150, t+30, F(13,800), col, 'right');
+    if(m.amt) txt(fmt(m.amt)+'원', W-26, t+30, F(12,700), '#475467','right');
+  });
+  y += list.length*rowH + 24;
+  if(totA) txt('금액 합계 '+fmt(totA)+'원', 26, y, F(11.5,800), '#475467');
+  txt('유니버셜 내부 확인용 · 자동 생성 CSOS Agent', W-26, y, F(10), '#98A2B3','right');
+  return new Promise(res=>cv.toBlob(res,'image/png'));
+}
+
+/* ── 항목 하나의 **건별 목록** 캡처 ──
+   요약 캡처(mineToPng)는 '어떤 항목이 몇 건'만 보여준다. 실제로 처리하려면
+   '어느 프로젝트·어느 캠프·얼마'가 필요해서 건별 목록을 따로 그린다.
+   건수가 많으면 다 그리지 않고 **잘랐다고 이미지에 적는다** — 조용히 자르면
+   받는 사람이 그게 전부인 줄 안다. */
+const MINE_CAP = 60;
+
+async function mineDetailToPng(idx){
+  const m = (window._mine||[])[idx];
+  if(!m) throw new Error('항목 없음');
+  const all = m.items || [];
+  const l = all.slice(0, MINE_CAP);
+  const S=2, W=760, rowH=46, headH=100;
+  const cut = all.length > l.length;
+  const H = headH + 40 + Math.max(1,l.length)*rowH + (cut?26:0) + 56;
+  const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
+  const ctx=cv.getContext('2d'); ctx.scale(S,S);
+  const F=(s,w)=>(w||400)+' '+s+'px "Nanum Gothic","Malgun Gothic",sans-serif';
+  const txt=(t,x,y,f,c,a)=>{ctx.font=f;ctx.fillStyle=c;ctx.textAlign=a||'left';
+    ctx.fillText(String(t==null?'':t),x,y);ctx.textAlign='left';};
+  const box=(x,y,w,h,fill,r)=>{ctx.beginPath();ctx.roundRect(x,y,w,h,r||8);ctx.fillStyle=fill;ctx.fill();};
+  const clip=(t,max)=>{let s=String(t==null?'':t);
+    if(ctx.measureText(s).width<=max)return s;
+    while(s.length>1&&ctx.measureText(s+'…').width>max)s=s.slice(0,-1);return s+'…';};
+
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+  const g=ctx.createLinearGradient(0,0,W,headH); g.addColorStop(0,'#0E1B3F'); g.addColorStop(1,'#2452E6');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,headH);
+  await drawLogo(ctx,26,24,36,true);
+  txt(clip(m.cat, 520), 86, 44, F(20,800), '#fff');
+  txt((m.todo||'') + ' · ' + (m.n||all.length) + '건' + (m.amt? ' · '+fmt(m.amt)+'원' : ''),
+      86, 68, F(11.5), '#9FB4E8');
+  txt(new Date().toLocaleDateString('ko-KR'), W-26, 44, F(12.5,700), '#fff','right');
+
+  let y = headH + 30;
+  txt('프로젝트NO / ID',26,y,F(10.5,800),'#667085');
+  txt('캠프',232,y,F(10.5,800),'#667085');
+  txt('금액',W-140,y,F(10.5,800),'#667085','right');
+  txt('일자',W-26,y,F(10.5,800),'#667085','right');
+  y+=10; ctx.strokeStyle='#D0D8E6'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(26,y); ctx.lineTo(W-26,y); ctx.stroke();
+
+  const rows = l.length?l:[{}];
+  rows.forEach(function(r,n){
+    const t = y + n*rowH;
+    if(n%2) box(26,t+4,W-52,rowH-8,'#F6F9FD',8);
+    const key = r.프로젝트NO||r.정산ID||r.접수ID||r.점검ID||'—';
+    const dt  = r.완료일||r.접수일자||r.점검예정일||r.작업완료일||'-';
+    txt(clip(key,190), 26, t+28, F(12.5,800), '#101828');
+    txt(clip(r.캠프명||'', 300), 232, t+28, F(12), '#475467');
+    if(r.공급가액) txt(fmt(r.공급가액)+'원', W-140, t+28, F(12,700), '#101828','right');
+    txt(dt, W-26, t+28, F(11), '#667085','right');
+  });
+  y += rows.length*rowH + 18;
+  if(cut){
+    txt('※ 이 이미지에는 '+l.length+'건만 담겼습니다 (전체 '+all.length+'건) — 나머지는 앱에서 확인',
+        26, y, F(11,800), '#B42318');
+    y += 22;
+  }
+  txt('유니버셜 내부 확인용 · 자동 생성 CSOS Agent', W-26, y, F(10), '#98A2B3','right');
+  return new Promise(res=>cv.toBlob(res,'image/png'));
+}
+
+function mineDetailFileName(){
+  const m = (window._mine||[])[window._mineIdx] || {};
+  return 'CSOS_'+String(m.cat||'목록').replace(/[\/:*?"<>|\s]/g,'') +
+         '_'+new Date().toISOString().slice(0,10)+'.png';
+}
+async function captureMineDetail(){
+  let b;
+  try{ b = await mineDetailToPng(window._mineIdx); if(!b) throw new Error('빈 이미지'); }
+  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  saveOrOpen(b, mineDetailFileName());
+}
+async function shareMineDetail(){
+  let b;
+  try{ b = await mineDetailToPng(window._mineIdx); if(!b) throw new Error('empty'); }
+  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  const m = (window._mine||[])[window._mineIdx] || {};
+  const f = new File([b], mineDetailFileName(), {type:'image/png'});
+  try{
+    // 받는 사람은 **사람이 직접** 고른다(자동 전송 아님)
+    if(navigator.canShare && navigator.canShare({files:[f]})){
+      await navigator.share({files:[f], title:m.cat||'확인 목록',
+                             text:'[CSOS] '+(m.cat||'')+' '+(m.n||'')+'건'});
+      return;
+    }
+  }catch(e){ if(e.name==='AbortError') return; }
+  saveOrOpen(b, mineDetailFileName());
+}
+
+function mineFileName(){
+  return 'CSOS_내가확인할사항_'+new Date().toISOString().slice(0,10)+'.png';
+}
+async function captureMine(){
+  let b;
+  try{ b = await mineToPng(); if(!b) throw new Error('빈 이미지'); }
+  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  saveOrOpen(b, mineFileName());
+}
+async function shareMine(){
+  let b;
+  try{ b = await mineToPng(); if(!b) throw new Error('empty'); }
+  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  const f = new File([b], mineFileName(), {type:'image/png'});
+  const n = (window._mine||[]).reduce((a,m)=>a+(m.n||0),0);
+  try{
+    // 받는 사람은 **이 창에서 사람이 직접** 고른다(자동 전송 아님)
+    if(navigator.canShare && navigator.canShare({files:[f]})){
+      await navigator.share({files:[f], title:'내가 확인할 사항',
+                             text:'[CSOS] 내가 확인할 사항 '+n+'건'});
+      return;
+    }
+  }catch(e){ if(e.name==='AbortError') return; }
+  saveOrOpen(b, mineFileName());     // 공유를 못 쓰는 브라우저는 저장으로
+}
+
 function assigneeFileName(){
   return 'CSOS_확인요청_'+(window._curAssignee||'담당자')+'_'+new Date().toISOString().slice(0,10)+'.png';
 }

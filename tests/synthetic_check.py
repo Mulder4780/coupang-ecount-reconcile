@@ -1276,6 +1276,54 @@ def t33_unbilled_banner():
     print("  [33] 미청구 배너(메일 경로 제거·사본 내 보관·오늘 기준 경과일) ✅")
 
 
+def t34_capture_and_no_send():
+    """[34] 확인 목록 캡처 기능 + **쿠팡에 자동 전송 경로가 없는지**.
+
+    사용자 상시 지시(2026-07-27): 쿠팡 담당자에게는 어떤 메시지도 보내지 않는다.
+    유니버셜 내부에서 처리한다. 캡처·공유는 '파일을 만들어 줄 뿐'이고 받는 사람은 사람이 고른다."""
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # (1) 요약 캡처 + 건별 목록 캡처가 둘 다 있는가
+    for fn in ("mineToPng", "captureMine", "shareMine",
+               "mineDetailToPng", "captureMineDetail", "shareMineDetail"):
+        assert "function " + fn in idx, f"{fn} 없음"
+    assert 'onclick="captureMine()"' in idx and 'onclick="captureMineDetail()"' in idx, "버튼이 안 걸렸다"
+    assert "window._mineIdx" in idx, "건별 캡처가 어느 항목인지 모른다"
+    # 건수가 많을 때 조용히 자르면 받는 사람이 그게 전부인 줄 안다
+    assert "MINE_CAP" in idx and "이 이미지에는" in idx, "잘린 사실을 이미지에 안 적는다"
+
+    # (2) 자동 전송 경로가 없는가 — 공유는 navigator.share(사람이 수신자를 고름)만 허용
+    for bad in ("mailto:", "smtplib", "sendmail", "api.telegram", "hooks.slack",
+                "kakao.link", "openapi.kakao", "openapi.band", "band.us/api"):
+        assert bad not in idx, f"앱에 자동 전송 경로가 있다: {bad}"
+    # 밴드·카톡 모듈은 읽기 전용이어야 한다
+    import glob as _g
+    for f in _g.glob(os.path.join(ROOT, "band", "*.py")) + _g.glob(os.path.join(ROOT, "kakao", "*.py")):
+        src = open(f, encoding="utf-8").read()
+        for bad in ("create_post", "write_post", "post_comment", "mailto:", "smtplib"):
+            assert bad not in src, f"{os.path.basename(f)} 에 글쓰기·발송 경로가 있다: {bad}"
+
+    # (3) 메일 경로가 되살아나지 않았는가(2026-07-27 제거)
+    assert not os.path.exists(os.path.join(ROOT, ".github", "workflows")), \
+        "워크플로가 되살아났다 — 메일이 갈 수 있다"
+
+    # (4) 규칙이 문서에 남아 있는가 — 다음 AI가 이어받아도 지키게
+    ag = open(os.path.join(ROOT, "AGENTS.md"), encoding="utf-8").read()
+    assert "쿠팡 담당자에게 어떤 메시지도 보내지 않는다" in ag, "절대규칙에 안 적혀 있다"
+
+    # (5) '원천' 같은 속어를 화면 문구로 쓰지 않는다(사용자가 무슨 뜻인지 되물었다)
+    _vis = [ln for ln in idx.splitlines()
+            if "원천 없음" in ln and not ln.strip().startswith(("*", "/*", "//", "★"))]
+    assert not _vis, "화면에 '원천 없음'이 남아 있다: " + str(_vis[:1])
+
+    # (6) 자료 유무 판정이 상태 도착 뒤에 다시 그려지는가
+    #     (안 그러면 밴드·카톡·PO가 멀쩡한데 '아직 없음'으로 4건이 거짓 표시된다)
+    _ls = idx[idx.index("async function loadStatus()"):][:900]
+    assert "srcStats = s.sources" in _ls and "renderBoard()" in _ls, \
+        "상태를 받은 뒤 확인목록을 다시 그리지 않는다 — 자료가 있어도 '없음'으로 뜬다"
+    print("  [34] 확인목록 캡처(요약·건별) · 자동 전송 경로 없음 · 자료판정 순서 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1311,5 +1359,6 @@ if __name__ == "__main__":
     t31_tech()
     t32_band_sheet()
     t33_unbilled_banner()
+    t34_capture_and_no_send()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")
