@@ -84,6 +84,18 @@ def _s(v):
     return str(v).strip() if v not in (None, "") else ""
 
 
+def clean_tech(v):
+    """담당기사 칸에 이름이 아닌 게 들어오는 걸 막는다.
+    밴드 본문 파싱이 가끔 '000 (캠프상태확인 및 스케쥴 세팅)'·'자)' 같은 조각을 물어 온다.
+    '김준형, 김필우'처럼 **두 사람이 함께 간 건은 정상**이므로 쉼표는 살린다."""
+    t = _s(v)
+    if not t or len(t) > 14:
+        return ""
+    if re.search(r"[()\[\]:：/]|\d", t):        # 괄호·숫자가 섞이면 이름이 아니다
+        return ""
+    return t if re.fullmatch(r"[가-힣A-Za-z]{2,4}(\s*[,.]\s*[가-힣A-Za-z]{2,4})*", t) else ""
+
+
 def _d(v):
     """엑셀 날짜·문자열 → 'YYYY-MM-DD'"""
     if isinstance(v, (datetime, date)):
@@ -125,7 +137,7 @@ def evidence(master=None):
                 e["ids"][idc] = _s(r.get(idc))
             if sh in ("02_돌발AS접수", "04_정기점검", "05_신규납품설치"):
                 e.setdefault("camp", _s(r.get("캠프명")))
-                e.setdefault("tech", _s(r.get("담당기사")))
+                e.setdefault("tech", clean_tech(r.get("담당기사")))
                 e.setdefault("date", _d(r.get(SHEET_ID[sh][2])))
         tail[sh] = last          # 데이터가 있는 마지막 행 → 다음 행이 새 행 자리
 
@@ -139,7 +151,7 @@ def evidence(master=None):
         if not code:
             continue
         cur = {"camp": _s(r.get("캠프명")), "kind": _s(r.get("업무유형")),
-               "cost": _s(r.get("비용구분")), "tech": _s(r.get("담당기사")),
+               "cost": _s(r.get("비용구분")), "tech": clean_tech(r.get("담당기사")),
                "date": _d(r.get("작업일")), "status": _s(r.get("진행상태")),
                "posted": _d(r.get("게시일"))}
         old = band.get(code)
