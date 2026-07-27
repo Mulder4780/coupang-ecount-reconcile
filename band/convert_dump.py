@@ -50,7 +50,10 @@ def main():
                                   or parse_dt(p.get("timeText"), cap))
             posts[no] = {"created_at": int(ms) if ms else (int(dt.timestamp() * 1000) if dt else None),
                          "author": p.get("author", ""),
-                         "content": (p.get("content") or "")[:2000],
+                         # ★ 2000자로 자르면 **목록형 글이 통째로 잘린다**. 실제로 "미실시 및 AS 진행건 공유"
+                    #   글(4,288자)에서 프로젝트NO 36개 중 18개가 사라졌다(2026-07-27).
+                    #   한도는 폭주 방지용으로만 남긴다 — 실제 글은 1만 자를 넘지 않는다.
+                    "content": (p.get("content") or "")[:20000],
                          "photo_count": p.get("photo_count", 0),
                          "comment_count": p.get("comment_count", 0)}
         # ★ 기존 캐시에 **덮어쓰지 않고 합친다**.

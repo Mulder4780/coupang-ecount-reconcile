@@ -80,7 +80,10 @@ def main():
                 cache["posts"][pk] = {
                     "created_at": it.get("created_at"),
                     "author": (it.get("author") or {}).get("name", ""),
-                    "content": (it.get("content") or "")[:2000],
+                    # ★ 2000자로 자르면 **목록형 글이 통째로 잘린다**. 실제로 "미실시 및 AS 진행건 공유"
+                    #   글(4,288자)에서 프로젝트NO 36개 중 18개가 사라졌다(2026-07-27).
+                    #   한도는 폭주 방지용으로만 남긴다 — 실제 글은 1만 자를 넘지 않는다.
+                    "content": (it.get("content") or "")[:20000],
                     "photo_count": len(it.get("photos") or []),
                     "comment_count": it.get("comment_count", 0),
                 }

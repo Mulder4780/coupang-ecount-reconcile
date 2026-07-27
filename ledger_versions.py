@@ -8,10 +8,9 @@ ledger_versions.py — 관리대장 버전 파일이 쌓이는 걸 정리한다
 
 그래서 지우지 않고 **접어 둔다**:
 
-    남긴다  · 최신 KEEP_LATEST개                 (되돌리기용 — 가장 자주 쓴다)
-            · 지난 KEEP_DAYS일, 하루의 마지막 버전  (그날 결과를 보고 싶을 때)
+    남긴다  · **최신본 하나만** (사용자 지시 2026-07-27)
             · 사람이 표시해 둔 것(파일명에 '보관')
-    옮긴다  · 나머지 → `_이전버전/` 하위 폴더
+    옮긴다  · 나머지 → `OLD/` 하위 폴더
 
 **삭제하지 않는다.** 지우는 건 사람이 폴더를 보고 판단할 일이다.
 최신본은 어떤 경우에도 건드리지 않는다(resolve_master가 이걸 찾는다).
@@ -31,9 +30,12 @@ try:
 except Exception:
     pass
 
-KEEP_LATEST = 5       # 최신 몇 개는 무조건 남긴다
-KEEP_DAYS = 14        # 며칠 치의 '하루 마지막 버전'을 남길지
-ARCHIVE = "_이전버전"
+# 사용자 지시(2026-07-27): "최신 버전만 남기고 이전 버전은 전부 OLD 폴더에 저장".
+# 되돌리기가 필요하면 OLD에서 꺼내면 된다 — 폴더 하나 차이일 뿐 사라지지 않는다.
+KEEP_LATEST = 1       # 작업 폴더에는 최신본 하나만 둔다
+KEEP_DAYS = 0         # '하루의 마지막 버전'도 따로 남기지 않는다
+# 사용자 지정(2026-07-27): 이전 버전은 관리대장 폴더 아래 OLD 로 모은다.
+ARCHIVE = "OLD"
 VRE = re.compile(r"_v(\d+)\.xlsx$")
 
 
@@ -90,7 +92,7 @@ def main():
         days[v["day"]] += 1
     for d in sorted(days)[-5:]:
         print(f"  {d}  {days[d]}개")
-    print(f"\n  남김 {len(keep)}개 (최신 {KEEP_LATEST} + 하루 마지막 {KEEP_DAYS}일)"
+    print(f"\n  남김 {len(keep)}개 (최신본만 — 나머지는 OLD로)"
           f" · 접을 것 {len(move)}개 {sum(v['mb'] for v in move):.0f}MB")
     for v in move[:8]:
         print(f"    v{v['v']}  {v['day']}  {v['mb']:.1f}MB")
