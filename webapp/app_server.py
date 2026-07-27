@@ -859,6 +859,38 @@ def get_status():
                               "miss_prj": [r.get("PO번호") or r.get("정산ID") for r in po[:8]]}
         except Exception:
             pass
+
+        # ★ 대조 리포트만 보면 '자료가 있는데 왜 없다고 하냐'는 말이 나온다 — 리포트가
+        #   없는 이유가 (1) 파일을 안 넣었다 (2) 넣었는데 **파일이 비어 있다**
+        #   (3) 대조를 안 돌렸다 로 갈리기 때문이다. 2026-07-27에 실제로 ERP 파일 3개가
+        #   회사명 한 줄만 있는 빈 파일이었고, 아무도 그걸 몰랐다. 그래서 여기서 같이 본다.
+        try:
+            from inbox_scan import pick
+            import openpyxl as _ox
+            for key, kinds in (("erp", ("ledger", "slips")), ("po", ("po",)),
+                               ("tax", ("tax",)), ("stmt", ("stmt",))):
+                files = []
+                for kd in kinds:
+                    files += pick(kd) or []
+                info = {"files": len(files), "rows": 0, "empty": []}
+                for f in files[:6]:
+                    try:
+                        w = _ox.load_workbook(f, read_only=True, data_only=True)
+                        n = 0
+                        for sn in w.sheetnames:
+                            n += sum(1 for r in w[sn].iter_rows(values_only=True)
+                                     if sum(1 for x in r if x not in (None, "")) >= 3)
+                        w.close()
+                        info["rows"] += n
+                        if n < 2:                      # 회사명 한 줄만 있는 '빈 내보내기'
+                            info["empty"].append(os.path.basename(f))
+                    except Exception:
+                        pass
+                if files:
+                    srcs.setdefault(key, {})["inbox"] = info
+        except Exception:
+            pass
+
         return {"master": os.path.basename(st.get("master", "") or "") + "  " + st.get("master_label", ""),
                 "fork": st.get("fork", []), "agent_last": rt or "기록 없음", "steps": steps,
                 "pending_updates": st["pending_updates"], "inbox": st["inbox"],
