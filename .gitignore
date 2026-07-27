@@ -29,3 +29,4 @@ config/cloud.json
 reports/cloud_bundle.json
 kakao/inbox/*.txt
 reports/mobile_snapshot.html
+reports/csos_qr.html
