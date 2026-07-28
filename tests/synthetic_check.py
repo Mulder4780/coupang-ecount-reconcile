@@ -1692,6 +1692,27 @@ def t41_dates_explicit():
         assert getattr(SD, name).startswith(SD.ORIGIN_ROOT), f"{name} 이 원본 폴더 밖을 가리킨다"
     cs = open(os.path.join(ROOT, "collect_sources.py"), encoding="utf-8").read()
     assert "shutil.move" not in cs and "os.remove" not in cs, "취합 도구가 원본을 지우거나 옮긴다"
+
+    # (5) 대시보드 채우기 내림 잔해 — 관리대장에 닿을 때만 본다(네트워크가 끊겨도 검증은 돈다)
+    #     빈 구역에 수식이 흘러들면 화면이 지저분해질 뿐 아니라 입력칸(H46)이 0 으로 덮여
+    #     '당일 실적' 표가 통째로 죽는다(2026-07-28 실사고).
+    try:
+        import dashboard_clean as DC
+        from workbook_patch import latest_master
+        mm = latest_master()
+        src = mm[0] if isinstance(mm, tuple) else mm
+    except Exception:
+        src = None
+    if src and os.path.exists(src):
+        left = DC.survey(src)
+        assert not left, ("대시보드에 채우기 내림 잔해 %d칸 — python dashboard_clean.py 로 정리: %s"
+                          % (len(left), ", ".join(r for r, _v, _w in left[:8])))
+        import openpyxl
+        w = openpyxl.load_workbook(src, data_only=False)
+        assert w["00_대시보드"]["H46"].value in (None, ""), \
+            "H46(조회일 직접입력)이 비어 있지 않다 — 당일 실적 표가 죽는다"
+        w.close()
+        print("  [41] … 대시보드 잔해 0칸 · 입력칸 H46 정상")
     print("  [41] 날짜 명시(금일 금지·항목별 날짜)·서버 중복 방지·원본 취합 안전 ✅")
 
 
