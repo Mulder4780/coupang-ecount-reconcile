@@ -28,17 +28,25 @@ LEDGER_DIR = (r"Z:\2. Cost\★★★쿠팡 업무 폴더★★★"
               r"\00. 쿠팡 통합업무 일일보고 관리대장")
 ORIGIN_ROOT = os.path.join(LEDGER_DIR, "0. 원본 자료")
 
+# 종류별 보관 폴더 — 사람이 열었을 때 무엇이 무엇인지 바로 보이게 번호를 붙인다
+# (사용자 지시 2026-07-28: "구분해서 잘 보이게 깔끔하게 정리해줘")
+ERP_DIR = os.path.join(ORIGIN_ROOT, "1. ERP 내보내기")
+COUPANG_DIR = os.path.join(ORIGIN_ROOT, "2. 쿠팡 목록")
+KAKAO_DIR = os.path.join(ORIGIN_ROOT, "3. 카카오톡 내보내기")
+BAND_DIR = os.path.join(ORIGIN_ROOT, "4. 밴드 원본")
+
 # PO 원본 — 새 위치가 정본. 예전 공유 폴더도 계속 훑는다(오종현이 아직 거기 넣을 수 있다).
 PO_DIRS = [
     os.path.join(ORIGIN_ROOT, "26년도 PO 모음"),
     r"Z:\16. Share\유현민\오종현\26년도 PO 모음",
 ]
 
-# 엑셀 원본(ERP 내보내기·쿠팡 PO 목록 등)을 찾을 곳 — 원본 폴더 + 로컬 inbox
-EXCEL_DIRS = [ORIGIN_ROOT, os.path.join(ROOT, "inbox")]
+# 엑셀 원본을 찾을 곳. ORIGIN_ROOT 자체도 남겨 둔다 — 사람이 하위 폴더를 안 거치고
+# 루트에 바로 떨어뜨려도 잡히게 하기 위해서다(그게 제일 흔한 실수다).
+EXCEL_DIRS = [ERP_DIR, COUPANG_DIR, ORIGIN_ROOT, os.path.join(ROOT, "inbox")]
 
 # 카톡 내보내기 txt
-KAKAO_DIRS = [ORIGIN_ROOT, os.path.join(ROOT, "kakao", "inbox")]
+KAKAO_DIRS = [KAKAO_DIR, ORIGIN_ROOT, os.path.join(ROOT, "kakao", "inbox")]
 
 
 def existing(paths):

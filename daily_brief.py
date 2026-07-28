@@ -95,7 +95,11 @@ def brief(day=None, data=None):
         extra = _s(r.get("최초접수외추가작업")) or _s(r.get("추가작업내용")) or _s(w.get("추가작업내용"))
         return {"프로젝트NO": prj, "캠프명": _s(r.get("캠프명")), "담당기사": _s(r.get("담당기사")),
                 "왜": why, "무엇": did, "비용": cost, "추가작업": extra,
-                "일자": _d(r.get(donec)), "구분": kindc}
+                "일자": _d(r.get(donec)), "구분": kindc,
+                # ★ 사용자 지시(2026-07-28): "각 항목 옆에 날짜 붙여줘 — 금일이라고 하면
+                #   어떤 날짜인지 헷갈림." 완료건은 '언제 접수돼 언제 끝났는지'가 같이 보여야
+                #   대표가 "그거 언제 들어온 건데?" 를 되묻지 않는다.
+                "접수일": _d(r.get("접수일자")) or _d(r.get("점검예정일")) or _d(r.get("요청일"))}
 
     # ── 돌발AS ──
     as_new = [r for r in A if _d(r.get("접수일자")) == day]
@@ -149,26 +153,58 @@ def brief(day=None, data=None):
     }
 
 
+def md(s, base=""):
+    """2026-07-27 → 07-27. 기준일과 해가 다르면 연도까지 적는다."""
+    s = _s(s)
+    if not s:
+        return ""
+    return s[5:] if base and s[:4] == base[:4] else s
+
+
+def span(x, base=""):
+    """완료건 꼬리표 — 접수 → 완료 경과일. 묵은 건이 눈에 띄게 한다."""
+    a, b_ = x.get("접수일"), x.get("일자")
+    if not (a and b_) or a == b_:
+        return ""
+    try:
+        n = (datetime.strptime(b_, "%Y-%m-%d") - datetime.strptime(a, "%Y-%m-%d")).days
+    except ValueError:
+        return ""
+    return f" (접수 {md(a, base)} · {n}일 만)" if n > 0 else ""
+
+
+def tag(x, base=""):
+    """항목 머리표 — '날짜 · 프로젝트NO · 캠프' 순서로 고정한다.
+
+    ★ 사용자 지시(2026-07-28): "각 항목 옆에 날짜 붙여줘, 금일이라고 하면
+      어떤 날짜인지 헷갈림." 어느 줄을 읽어도 날짜가 먼저 나오게 한다."""
+    return f"{md(x.get('일자'), base) or '날짜미기입'} · {x.get('프로젝트NO') or '번호미기입'} · {x.get('캠프명') or '캠프미기입'}"
+
+
 def text(b):
     """대표에게 그대로 읽어 드릴 수 있는 문장."""
     L = []
     d, a, p = b["기준일"], b["돌발AS"], b["정기점검"]
-    L.append(f"[{d} 기준]")
+    wd = "월화수목금토일"[datetime.strptime(d, "%Y-%m-%d").weekday()]
+    # ★ '금일·당일'이라는 말은 읽는 사람마다 다른 날을 떠올린다. 맨 위에 날짜를 못 박는다.
+    L.append(f"[{d}({wd}) 실적 — 아래 날짜는 모두 실제 날짜입니다]")
     L.append(f"■ 돌발AS — 신규 접수 {a['신규접수']}건 · 완료 {a['완료']}건 · "
              f"미처리 {a['미처리']}건(최근 30일)")
     # ★ 신규와 완료가 같은 모양으로 나오면 어느 게 처리된 건지 안 보인다.
     #   대표가 묻는 건 "완료한 건 무슨 작업을 했느냐"이므로 완료는 따로, 더 자세히 적는다.
     if b["신규목록"]:
-        L.append(f"  ▸ 새로 접수 {len(b['신규목록'])}건")
+        L.append(f"  ▸ 새로 접수 {len(b['신규목록'])}건  (접수일 {md(d, d)})")
         for x in b["신규목록"][:6]:
-            L.append(f"      {x['캠프명']} · {x['왜'][:40]}"
+            L.append(f"      {tag(x, d)}"
                      + (f" · {x['담당기사']}" if x["담당기사"] else " · 기사 미배정"))
+            L.append(f"         내용 : {x['왜'][:52] or '접수내용 미기입'}")
 
     doneA = [y for y in b["완료내역"] if y["구분"] == "돌발AS"]
     if doneA:
-        L.append(f"  ▸ 완료 {len(doneA)}건 — 무엇 때문에 갔고 무슨 작업을 했는지")
+        L.append(f"  ▸ 완료 {len(doneA)}건 — 무엇 때문에 갔고 무슨 작업을 했는지  (완료일 {md(d, d)})")
         for x in doneA[:8]:
-            head = f"      {x['캠프명']} · {x['담당기사'] or '기사 미기입'} · {x['비용'] or '비용 미기입'}"
+            head = (f"      {tag(x, d)}{span(x, d)}"
+                    f" · {x['담당기사'] or '기사 미기입'} · {x['비용'] or '비용 미기입'}")
             L.append(head)
             L.append(f"         왜   : {x['왜'][:52] or '접수내용 미기입'}")
             # ★ 작업내용이 비었으면 조용히 넘기지 않는다. 대표가 그 자리에서 물어볼 항목이라
@@ -178,7 +214,7 @@ def text(b):
             if x["추가작업"]:
                 L.append(f"         추가 : {x['추가작업'][:48]}")
 
-    L.append(f"\n■ 정기점검 — 완료 {p['완료']}건 (예정 {p['예정']}건)")
+    L.append(f"\n■ 정기점검 — {md(d, d)} 완료 {p['완료']}건 (그날 예정 {p['예정']}건)")
     L.append(f"   {p['분기']} 진행률 {p['분기진행률']}% ({p['분기완료']}/{p['분기예정']}건)")
     if p["분기예정"]:
         L.append("   " + ("특별한 문제 없으면 분기 내 마무리 가능합니다."
@@ -187,24 +223,27 @@ def text(b):
     if b["점검중유상"]:
         L.append(f"\n■ 정기점검 갔다가 유상 발생 {len(b['점검중유상'])}건")
         for x in b["점검중유상"][:5]:
-            L.append(f"   {x['캠프명']} · {x['추가작업'][:40] or '내용 미기입'}")
+            L.append(f"   {tag(x, d)} · {x['추가작업'][:36] or '내용 미기입'}")
     if b["무상건"]:
         L.append(f"\n■ 무상·보험 처리 {len(b['무상건'])}건 — 사유 확인 필요")
         for x in b["무상건"][:5]:
-            L.append(f"   {x['캠프명']} · {x['왜'][:34]} [{x['비용']}]")
+            L.append(f"   {tag(x, d)} · {x['왜'][:30]} [{x['비용']}]")
     if b["추가작업건"]:
         L.append(f"\n■ 접수 외 추가작업 {len(b['추가작업건'])}건")
         for x in b["추가작업건"][:5]:
-            L.append(f"   {x['캠프명']} · {x['추가작업'][:44]}")
+            L.append(f"   {tag(x, d)} · {x['추가작업'][:40]}")
     if b["AS전환"]:
         L.append(f"\n■ 점검 중 돌발AS 전환 {len(b['AS전환'])}건")
     if a.get("완료일미기입"):
-        L.append(f"\n■ 완료일이 안 적힌 오래된 건 {a['완료일미기입']}건 (30일 이전 접수)")
+        # 접수일 범위를 적어 '언제부터 밀린 건지'를 한 줄로 보이게 한다
+        ds = sorted(x["일자"] for x in b.get("완료일미기입목록", []) if x.get("일자"))
+        rng = f" — 접수 {ds[0]} ~ {ds[-1]}" if ds else ""
+        L.append(f"\n■ 완료일이 안 적힌 오래된 건 {a['완료일미기입']}건 (접수 후 30일 넘음){rng}")
         L.append("   실제로는 끝났을 가능성이 큽니다 — 완료일만 채우면 정리됩니다.")
     if b["내용미기입"]:
         L.append(f"\n■ 작업 내용이 안 적힌 완료건 {len(b['내용미기입'])}건 — 기사에게 확인 필요")
         for x in b["내용미기입"][:5]:
-            L.append(f"   {x['캠프명']} · {x['프로젝트NO']} · {x['담당기사'] or '기사 미기입'}")
+            L.append(f"   {tag(x, d)} · {x['담당기사'] or '기사 미기입'} (완료 처리됨)")
     return "\n".join(L)
 
 

@@ -192,6 +192,14 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 /* ═══ 대표보고 절 — 목차가 또렷하고 글자가 읽히게 ═══ */
 .esec{margin-top:22px}
 .esec:first-child{margin-top:8px}
+/* 날짜 못 박기 띠 — '금일'이 어느 날인지 헷갈리지 않게 절 맨 위에 놓는다 */
+.dbanner{margin:10px 0 12px;padding:9px 12px;border-radius:10px;font-size:13px;
+  background:#eef2ff;border:1px solid #c7d2fe;color:#312e81;
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.dbanner b{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
+.dbanner span{color:#4f46e5;opacity:.85}
+.dbanner .rd{margin-left:auto;background:#fff;border:1px solid #c7d2fe;
+  border-radius:999px;padding:2px 9px;font-weight:700;opacity:1}
 .eh{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:800;color:var(--navy-900);
   letter-spacing:-.3px;padding-bottom:8px;border-bottom:2px solid var(--brand);margin-bottom:12px}
 .eh i{flex:none;font-style:normal;width:22px;height:22px;border-radius:7px;background:var(--brand);
@@ -1727,6 +1735,19 @@ function baseDate(){
 }
 const _k = s => String(s||'').replace(/[\s·()]/g,'');
 
+/* '(금일)'은 읽는 사람마다 다른 날을 떠올린다 — 타일은 전부 집계기준일로 세므로 그 날짜를 박는다.
+   사용자 지시(2026-07-28): "금일이라고 하면 어떤 날짜인지 헷갈림." */
+function dateLabel(l){
+  const d = baseDate();
+  if(!d) return l;
+  return String(l||'').replace(/\((금일|당일|오늘)\)/g, `(${d.slice(5)})`);
+}
+const WD = '월화수목금토일';
+function wdOf(iso){
+  const t = Date.parse(iso+'T00:00:00');
+  return Number.isFinite(t) ? WD[(new Date(t).getDay()+6)%7] : '';
+}
+
 /* 라벨 → 그 숫자를 만든 실제 건 목록 */
 function dayRows(label){
   const d = baseDate();
@@ -1809,7 +1830,16 @@ function execHtml(){
     h += `<div class="esec"><div class="eh">${no?`<i>${no}</i>`:''}<span>${tt}</span></div>`;
     // ★ 대표 지시(2026-07-28): "숫자를 나한테 보고하라는 게 아니야."
     //   숫자 타일 위에 **읽어서 그대로 전달할 수 있는 문장**을 먼저 놓는다.
-    if(/당일 업무 실적/.test(tt)) h += briefBlock();
+    if(/당일 업무 실적/.test(tt)){
+      // ★ 어느 날 숫자인지부터 못 박는다. 아래 타일은 전부 '집계기준일' 하루치다.
+      const bd = baseDate(), rd = normDate((execRep.meta||{})['보고일']);
+      h += `<div class="dbanner">
+        <b>${bd}${wdOf(bd)?`(${wdOf(bd)})`:''}</b> 하루치 실적입니다
+        <span>· 아래 모든 숫자·목록이 이 날짜 기준</span>
+        ${rd&&rd!==bd?`<span class="rd">보고일 ${rd}${wdOf(rd)?`(${wdOf(rd)})`:''}</span>`:''}
+      </div>`;
+      h += briefBlock();
+    }
     if(isSum){
       usedSum = true;
       h += `<div class="esum">${sum.map(t=>`<div>${t.replace(/^■\s*/,'')}</div>`).join('')}</div>`;
@@ -1819,7 +1849,7 @@ function execHtml(){
         <div class="gh">${g.name}</div>
         <div class="gb">${g.items.map(([l,v])=>{
           const k = helpKey(l);
-          return `<div class="gitem"><div class="gi"><span${k?` class="has-help" onclick="openHelp('${k}')"`:''}>${l}${k?'<i class="qm">?</i>':''}</span><b>${v||'-'}</b></div>${dayDetail(l,v)}</div>`;
+          return `<div class="gitem"><div class="gi"><span${k?` class="has-help" onclick="openHelp('${k}')"`:''}>${dateLabel(l)}${k?'<i class="qm">?</i>':''}</span><b>${v||'-'}</b></div>${dayDetail(l,v)}</div>`;
         }).join('')}</div></div>`).join('') + `</div>`;
     }
     if((s.items||[]).length){
@@ -1827,7 +1857,7 @@ function execHtml(){
       h += `<div class="ecells">` + s.items.map(([l,v])=>{
         const k = helpKey(l);
         return `<div class="ecell${k?' has-help':''}"${k?` onclick="openHelp('${k}')"`:''}>
-          <div class="l">${l}${k?'<i class="qm">?</i>':''}</div><div class="v">${v||'-'}</div></div>`;
+          <div class="l">${dateLabel(l)}${k?'<i class="qm">?</i>':''}</div><div class="v">${v||'-'}</div></div>`;
       }).join('') + `</div>`;
     }
     if((s.lines||[]).length){
@@ -2880,7 +2910,7 @@ async function reportToPng(){
       txt(g.name, gx+10, y+13, F(11,800), '#1B41BC');
       g.items.forEach(([l,v],j)=>{
         const ry = y + 26 + 12 + j*20;
-        txt(clip(l, gw-70), gx+10, ry, F(11.5), '#475467');
+        txt(clip(dateLabel(l), gw-70), gx+10, ry, F(11.5), '#475467');
         txt(v||'-', gx+gw-10, ry, F(12,800), '#101828', 'right');
       });
     });

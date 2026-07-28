@@ -253,6 +253,30 @@ def pdf_files(folder):
     return sorted(out)
 
 
+CACHE_FILE = os.path.join(REPORT_DIR, "po_pdf_cache.json")
+
+
+def _load_cache():
+    try:
+        import json
+        with open(CACHE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_cache(c):
+    try:
+        import json
+        os.makedirs(REPORT_DIR, exist_ok=True)
+        tmp = CACHE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(c, f, ensure_ascii=False)
+        os.replace(tmp, CACHE_FILE)
+    except Exception:
+        pass
+
+
 def scan(folder=None):
     """폴더 하나를 지정하면 그것만, 기본값이면 **PO_DIRS 전부**를 훑는다.
 
@@ -270,11 +294,27 @@ def scan(folder=None):
                 continue
             seen.add(key)
             picked.append((d, f))
-    recs = []
+    # ★ Z: 는 네트워크 드라이브라 574개를 매번 다시 읽으면 몇 분씩 걸린다.
+    #   (경로·크기·수정시각)이 그대로면 지난 파싱 결과를 그대로 쓴다.
+    cache = _load_cache()
+    recs, hit = [], 0
     for d, f in picked:
-        r = parse(f)
+        try:
+            st = os.stat(f)
+            key = f"{f}|{st.st_size}|{int(st.st_mtime)}"
+        except OSError:
+            key = None
+        if key and key in cache:
+            r = dict(cache[key]); hit += 1
+        else:
+            r = parse(f)
+            if key:
+                cache[key] = r
         r["출처폴더"] = d
         recs.append(r)
+    _save_cache(cache)
+    if hit:
+        print(f"(캐시 재사용 {hit}/{len(picked)}개 — 바뀐 파일만 다시 읽었습니다)")
     return recs, " + ".join(folders) if folders else str(folder)
 
 
