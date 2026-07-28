@@ -94,7 +94,15 @@ def evidence(path):
     return rep, doneposted, photo
 
 
-def plan(path):
+def plan(path, recheck=False):
+    """recheck=True 면 이미 '누락'으로 찍힌 칸도 다시 본다.
+
+    ★ 왜 필요한가(2026-07-28): 이 도구가 처음 돌 때는 밴드 1~3월 자료가 아직
+      수집되기 전이었다. 그래서 근거가 없어 **83건이 전부 '누락'** 으로 남았는데,
+      나중에 밴드 1~3월이 들어오면서 그 83건 전부에 '작업완료' 글이 확인됐다.
+      '빈 칸만' 정책 때문에 재실행해도 고쳐지지 않아 잘못된 값이 계속 남았다.
+    ★ 안전장치: **근거가 생겼을 때만** 덮어쓴다. '등록'을 '누락'으로 되돌리는 일은
+      절대 없고, 근거가 여전히 없으면 손대지 않는다(같은 값으로 버전만 늘리지 않는다)."""
     import openpyxl
     from openpyxl.utils import get_column_letter as GL
     rep, posted, photo = evidence(path)
@@ -111,20 +119,25 @@ def plan(path):
         if get("진행상태") != "작업완료":
             continue
         k = get("프로젝트NO")
-        if "완료보고서등록" in C and not get("완료보고서등록"):
+        cur_rep = get("완료보고서등록")
+        if "완료보고서등록" in C and (not cur_rep or (recheck and cur_rep == "누락")):
             if k in rep:
                 v, why = rep[k], "03시트 보고내용"
             elif k in posted:
                 v, why = "등록", "밴드 완료 글"
             else:
                 v, why = "누락", "근거 없음"
-            fills[f'{C["완료보고서등록"]}{n}'] = v
-            tally.setdefault("완료보고서등록", Counter())[v] += 1
-            src[why] += 1
-        if "사진등록" in C and not get("사진등록"):
+            # 재판정에서는 **근거가 생긴 것만** 바꾼다. 여전히 근거가 없으면 손대지 않는다.
+            if not (recheck and cur_rep == "누락" and v == "누락"):
+                fills[f'{C["완료보고서등록"]}{n}'] = v
+                tally.setdefault("완료보고서등록", Counter())[v] += 1
+                src[why + (" (재판정)" if cur_rep else "")] += 1
+        cur_pho = get("사진등록")
+        if "사진등록" in C and (not cur_pho or (recheck and cur_pho == "누락")):
             v = "등록" if photo.get(k, 0) > 0 else "누락"
-            fills[f'{C["사진등록"]}{n}'] = v
-            tally.setdefault("사진등록", Counter())[v] += 1
+            if not (recheck and cur_pho == "누락" and v == "누락"):
+                fills[f'{C["사진등록"]}{n}'] = v
+                tally.setdefault("사진등록", Counter())[v] += 1
     wb.close()
     for c in tally.values():
         for v in c:
@@ -134,10 +147,12 @@ def plan(path):
 
 def main():
     do = "--apply" in sys.argv
+    recheck = "--recheck" in sys.argv
     m = latest_master()
     src_path = m[0] if isinstance(m, tuple) else m
-    print(f"원본: {os.path.basename(src_path)}\n")
-    fills, tally, why = plan(src_path)
+    print(f"원본: {os.path.basename(src_path)}"
+          + ("  [재판정: 근거가 생긴 '누락'을 다시 본다]" if recheck else "") + "\n")
+    fills, tally, why = plan(src_path, recheck)
     print(f"채울 칸 {len(fills)}개")
     for k, c in tally.items():
         print(f"  {k:<14}{sum(c.values()):>5}  " + " · ".join(f"{v} {x}" for x, v in c.most_common()))
