@@ -1251,8 +1251,24 @@ def publish_loop():
         time.sleep(PUBLISH_EVERY)
 
 
+class _Server(ThreadingHTTPServer):
+    """★ 사고 #16의 진짜 원인 — 윈도우에서 SO_REUSEADDR 이 켜져 있으면 **이미 남이 쓰는
+    포트에도 바인드가 성공한다.** 그래서 새 서버가 '시작됨'을 찍고도 요청은 계속 옛
+    프로세스가 받아 갔다. 코드를 고쳐도 화면이 안 바뀌는 증상의 정체가 이것이다.
+    재사용을 끄면 두 번째 서버는 조용히 뜨는 대신 **에러로 죽는다** — 그게 옳다."""
+    allow_reuse_address = False
+
+
 def main():
-    srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
+    try:
+        srv = _Server(("0.0.0.0", PORT), H)
+    except OSError:
+        print(f"★ {PORT} 포트를 이미 다른 앱 서버가 쓰고 있습니다. 새로 뜨지 않았습니다.")
+        print("  옛 서버가 계속 응답하므로 **코드를 고쳐도 화면이 안 바뀝니다.**")
+        print("  먼저 정리하세요 (PowerShell):")
+        print("    Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" |"
+              " ? { $_.CommandLine -like '*app_server.py*' } | % { Stop-Process -Id $_.ProcessId -Force }")
+        return 1
     threading.Thread(target=publish_loop, daemon=True).start()
     mode = "데모(합성데이터)" if DEMO else "실서비스"
     print(f"Coupang Service Operations System 앱 서버 [{mode}] 시작")

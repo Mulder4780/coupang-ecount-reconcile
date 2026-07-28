@@ -1645,6 +1645,56 @@ def t39_realtime_monitor():
     print("  [39] 입력시간 완전정지·이슈 신규/지속/해결·점유 원자화 ✅")
 
 
+def t41_dates_explicit():
+    """[41] '금일'은 읽는 시점마다 다른 날이 된다 — 보고물에 남아 있으면 안 된다.
+
+    사고 #0(2026-07-28): 타일 라벨이 '점검 예정 (금일)'인데 숫자는 집계기준일(어제) 것이라
+    보고 자리에서 어긋났다. 화면·이미지·문장 세 곳 모두 **실제 날짜**로 말해야 한다.
+    덤으로 사고 #16(서버 두 개)의 진짜 원인인 포트 재사용도 여기서 함께 막는다."""
+    import daily_brief as DB
+
+    # (1) 브리핑 문장 — 항목 줄이 전부 날짜로 시작하는가
+    day = "2026-03-04"
+    b = {
+        "기준일": day,
+        "돌발AS": {"신규접수": 1, "완료": 1, "미처리": 0, "완료일미기입": 0},
+        "정기점검": {"예정": 0, "완료": 0, "분기": "2026년 1분기",
+                     "분기예정": 0, "분기완료": 0, "분기진행률": 0},
+        "완료내역": [], "무상건": [], "추가작업건": [],
+        "점검중유상": [], "AS전환": [], "이상발견": [], "내용미기입": [],
+        "완료일미기입목록": [],
+        "신규목록": [{"프로젝트NO": "UJ2600001", "캠프명": "시험캠프", "담당기사": "홍길동",
+                      "왜": "시험 접수내용", "무엇": "", "비용": "유상", "추가작업": "",
+                      "일자": day, "구분": "돌발AS", "접수일": day}],
+    }
+    b["완료내역"] = [dict(b["신규목록"][0], 일자=day, 접수일="2026-02-25", 무엇="시험 작업")]
+    out = DB.text(b)
+    assert day in out.splitlines()[0], "머리줄에 기준일이 없다"
+    assert "03-04 · UJ2600001 · 시험캠프" in out, "항목이 '날짜 · 프로젝트NO · 캠프'로 시작하지 않는다"
+    assert "접수 02-25 · 7일 만" in out, "완료건에 접수일·경과일이 안 붙는다"
+    assert "금일" not in out and "당일" not in out, "브리핑 문장에 '금일/당일'이 남아 있다"
+
+    # (2) 화면·이미지 — '(금일)' 라벨을 실제 날짜로 바꾸는 코드가 살아 있는가
+    src = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "function dateLabel(" in src, "dateLabel 이 없다"
+    assert src.count("dateLabel(l)") >= 3, "타일·셀·이미지 세 곳 모두 dateLabel 을 거쳐야 한다"
+    assert 'class="dbanner"' in src, "기준일 안내 띠가 없다"
+    # 도움말·목록 조회는 **원본 라벨**로 해야 한다(날짜를 박은 문자열로 찾으면 전부 어긋난다)
+    assert "helpKey(l)" in src and "dayDetail(l,v)" in src, "라벨 가공본으로 조회하고 있다"
+
+    # (3) 서버 두 개 방지 — 포트 재사용이 꺼져 있어야 새 서버가 조용히 묻히지 않는다
+    ap = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "allow_reuse_address = False" in ap, "포트 재사용이 켜져 있어 서버가 두 개 뜬다"
+
+    # (4) 원본 자료 취합 — 종류별 폴더가 한 곳에서만 정의돼야 한다
+    import source_dirs as SD
+    for name in ("ERP_DIR", "COUPANG_DIR", "KAKAO_DIR", "BAND_DIR"):
+        assert getattr(SD, name).startswith(SD.ORIGIN_ROOT), f"{name} 이 원본 폴더 밖을 가리킨다"
+    cs = open(os.path.join(ROOT, "collect_sources.py"), encoding="utf-8").read()
+    assert "shutil.move" not in cs and "os.remove" not in cs, "취합 도구가 원본을 지우거나 옮긴다"
+    print("  [41] 날짜 명시(금일 금지·항목별 날짜)·서버 중복 방지·원본 취합 안전 ✅")
+
+
 def t40_claim_enforced():
     """[40] 협업 규칙이 **문서로만** 있으면 잊는다 — 원장 도구가 실제로 막아야 한다.
 
@@ -1731,6 +1781,7 @@ if __name__ == "__main__":
     t37_band_coverage()
     t38_daily_brief()
     t40_claim_enforced()
+    t41_dates_explicit()
     t39_realtime_monitor()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")
