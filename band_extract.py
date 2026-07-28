@@ -46,18 +46,57 @@ TECH_ALIASES = {
 }
 
 
+# 사람 이름처럼 생겼지만 사람이 아닌 것들. 알고리즘으로는 '하이테크'와 '엄진언'을
+# 가를 수 없어 목록으로 둔다(2026-07-28 실데이터에서 확인).
+VENDORS = ("하이테크", "대신택배")
+# 이름에 붙여 쓴 직책 — '김승기기장' 처럼 띄어쓰기 없이 오는 경우가 있다
+TITLES = ("기장", "기사", "과장", "차장", "부장", "대리", "팀장", "소장", "실장", "반장")
+# 미배정을 뜻하는 자리표시자
+PLACEHOLDER = re.compile(r"^(0{2,}|-+|자\)|미배정|미정|없음)$")
+
+
+def _looks_like_name(t):
+    return bool(re.fullmatch(r"[가-힣]{2,4}", t))
+
+
 def normalize_tech(raw):
-    """기사명 오탈자를 기준 이름으로 정규화하고 지원 인원 설명은 제외한다."""
+    """기사명만 남긴다 — 설명·직책·업체·자리표시자는 걸러낸다.
+
+    ★ 2026-07-28 실사고: 이 함수가 '첫 조각'을 그대로 통과시켜
+      `000 (캠프상태확인 및 스케쥴 세팅)`·`자) - 각캠프담당자 …` 같은 **작업 메모가
+      담당기사 칸에 그대로 들어갔다.** 대표보고 'TOP 5' 에 `담당: 000 (…)` 로 노출됐고,
+      기사별 집계도 오염됐다. 걸러 주는 clean_tech 는 리포트에만 쓰이고 있었다.
+      버린 원문은 호출 쪽에서 비고에 남긴다(tech_note) — 정보를 없애지는 않는다."""
     cleaned = str(raw or "").strip()
     for wrong, right in TECH_ALIASES.items():
         cleaned = cleaned.replace(wrong, right)
     tech = ", ".join(t for t in TECHS if t in cleaned)
     if tech:
         return tech
-    # 사내 기사 목록 밖 이름도 증거로 보존하되 첫 이름 조각만 사용한다.
-    tech = re.split(r"[,·]", cleaned)[0].strip()
-    tech = re.sub(r"\.{2,}.*$", "", tech).strip()
-    return "" if tech in (".", "…", "...") else tech
+    # ★ 조각을 하나씩 보면 '스케쥴'·'체크' 같은 낱말도 이름처럼 생겨서 통과한다.
+    #   그래서 **칸 전체를 먼저 판단한다** — 낱말이 넷 이상이면 이름이 아니라 문장이다.
+    cleaned = re.sub(r"\(.*?\)", " ", cleaned)          # 괄호 설명은 통째로 뗀다
+    cleaned = re.sub(r"\.{2,}.*$", " ", cleaned)
+    tokens = [t for t in re.split(r"[,·+/\s]+", cleaned) if t]
+    if not tokens or len(tokens) > 3:
+        return ""
+    names = []
+    for part in tokens:
+        for t in TITLES:                                # 김승기기장 → 김승기
+            if part.endswith(t) and _looks_like_name(part[: -len(t)]):
+                part = part[: -len(t)]
+                break
+        if PLACEHOLDER.match(part) or part in VENDORS:
+            continue
+        if _looks_like_name(part):
+            names.append(part)
+    return ", ".join(dict.fromkeys(names))
+
+
+def tech_note(raw, kept):
+    """정규화하며 버린 부분 — 호출 쪽이 비고에 남겨 정보를 잃지 않게 한다."""
+    raw = str(raw or "").strip()
+    return "" if not raw or raw == kept else raw
 
 
 def parse_post(no, p, band):
