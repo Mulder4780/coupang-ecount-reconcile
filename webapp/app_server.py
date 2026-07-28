@@ -132,6 +132,8 @@ def enqueue_codes(codes):
         r = P.resolve(c, ev)
         if not r.get("ok"):
             skip.append({"code": c, "why": r.get("reason", "형식 오류")})
+        elif not app_project_result(c, r):
+            skip.append({"code": c, "why": "2026년 업무로 확인되지 않아 제외"})
         elif r["state"] == "등록됨":
             skip.append({"code": c, "why": f"이미 {r['sheet']} {r.get('row')}행에 있습니다"})
         else:
@@ -320,6 +322,29 @@ def app_year_rows(rows, kind=None):
             clean[k] = v
         out.append(clean)
     return out
+
+
+def app_project_result(code, result):
+    """프로젝트 자동조회 결과도 코드뿐 아니라 내부 날짜·ID까지 2026년인지 검사한다.
+
+    UJ26 코드에 과거 AS-25 작업이 잘못 연결된 실데이터가 있으므로 프로젝트 코드만
+    보고 통과시키면 오프라인 앱에서 2025년 내용이 다시 노출된다.
+    """
+    if not re.fullmatch(r"UJ26\d{5}", str(code or ""), re.I):
+        return False
+    if not isinstance(result, dict):
+        return False
+    blob = json.dumps(result, ensure_ascii=False, default=str)
+    date_years = set(re.findall(r"(?<!\d)(20\d{2})[-./]", blob))
+    id_years = {m.group("yy") for m in _APP_ID_RE.finditer(blob)}
+    project_years = {m.group("yy") for m in _APP_PROJECT_RE.finditer(blob)}
+    if date_years and date_years != {APP_YEAR}:
+        return False
+    if id_years and id_years != {APP_YEAR_SHORT}:
+        return False
+    if project_years and project_years != {APP_YEAR_SHORT}:
+        return False
+    return True
 
 
 def sort_by_date(rows, kind, idkey=None):

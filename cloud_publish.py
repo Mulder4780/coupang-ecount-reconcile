@@ -59,6 +59,8 @@ def payload():
         if not re.fullmatch(r"UJ26\d{5}", str(c or ""), re.I):
             continue
         r = P.resolve(c, ev)
+        if not A.app_project_result(c, r):
+            continue
         rec = {k: r.get(k) for k in ("camp", "kind", "cost", "tech", "date", "status",
                                      "sheet", "row", "state") if r.get(k)}
         if r.get("ids"):

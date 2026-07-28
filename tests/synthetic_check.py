@@ -2200,6 +2200,14 @@ def t46_app_2026_only():
     assert not app.app_year_record({"캠프명": "연도 확인 불가"}), "연도 미상 행이 2026 목록에 섞였다"
     assert not app.app_year_record(
         {"포함프로젝트": "UJ2500001, UJ2600001"}), "2025·2026 혼합 행이 통째로 표시됐다"
+    assert not app.app_project_result(
+        "UJ2600007", {"date": "2025-12-31", "ids": {"접수ID": "AS-2512-040"}}), \
+        "UJ26 코드만 보고 연결된 2025 작업을 앱에 노출했다"
+    assert not app.app_project_result(
+        "UJ2600008", {"date": "2026-01-02", "ids": {"접수ID": "AS-2512-041"}}), \
+        "2026 날짜와 2025 업무ID가 섞인 자동조회 결과를 통과시켰다"
+    assert app.app_project_result(
+        "UJ2600009", {"date": "2026-01-03", "ids": {"접수ID": "AS-2601-005"}})
 
     kept = app.app_year_rows([
         {"프로젝트NO": "UJ2500001"},
@@ -2212,8 +2220,10 @@ def t46_app_2026_only():
     phone = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
     sw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
     assert 're.fullmatch(r"UJ26\\d{5}"' in pub, "배포 프로젝트코드에 2025가 섞일 수 있다"
+    assert "A.app_project_result(c, r)" in pub, "UJ26에 연결된 2025 작업을 사본에서 거르지 않는다"
     assert 're.match(r"2026-' in pub, "미청구 배포에 2025가 섞일 수 있다"
     assert "function keep2026" in phone and "D = keep2026(await open(pin))" in phone
+    assert "codeIs2026(k,r)" in phone, "구 사본의 프로젝트 자동조회 2025 2차 방어가 없다"
     assert "2026-only" in sw, "구 서비스워커가 2025 포함 사본을 계속 쓸 수 있다"
 
     import daily_brief as db
