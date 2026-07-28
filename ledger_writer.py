@@ -20,7 +20,8 @@ ledger_writer.py — 관리대장 자동 입력 엔진 (확정 사실만, 빈 �
   python ledger_writer.py            # 큐 미리보기(무엇을 쓸지, 쓸 수 있는지)
   python ledger_writer.py --apply    # 실제 반영(vN+1 생성)
 """
-import sys, os, re, json, zipfile, glob
+import sys, os, re, json, zipfile, glob, tempfile, time, html
+from contextlib import contextmanager
 from datetime import datetime, date
 
 try:
@@ -66,18 +67,59 @@ def load_queue():
         return []
 
 
+@contextmanager
+def queue_lock(timeout=30):
+    """큐 읽기→수정→비우기를 한 임계구역으로 묶는 프로세스 간 잠금."""
+    os.makedirs(os.path.dirname(PENDING) or ".", exist_ok=True)
+    lock = PENDING + ".lock"
+    started = time.monotonic()
+    fd = None
+    while fd is None:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, f"{os.getpid()} {datetime.now().isoformat()}".encode("ascii"))
+        except FileExistsError:
+            if time.monotonic() - started >= timeout:
+                raise TimeoutError(f"자동입력 큐 잠금 대기 초과: {lock}")
+            time.sleep(0.1)
+    try:
+        yield
+    finally:
+        os.close(fd)
+        try:
+            os.unlink(lock)
+        except FileNotFoundError:
+            pass
+
+
+def atomic_json_dump(value, path):
+    """중간에 프로세스가 종료돼도 반쪽짜리 JSON이 남지 않게 교체한다."""
+    folder = os.path.dirname(path) or "."
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=os.path.basename(path) + ".", suffix=".tmp", dir=folder)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(value, f, ensure_ascii=False, indent=1)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
 def queue_add(items):
     """대조 모듈이 호출: 확정 업데이트를 큐에 중복 없이 추가"""
-    os.makedirs(UPD_DIR, exist_ok=True)
-    q = load_queue()
-    seen = {(u["sheet"], u["key"], u["col"]) for u in q}
-    added = 0
-    for it in items:
-        k = (it["sheet"], it["key"], it["col"])
-        if k not in seen:
-            q.append(it); seen.add(k); added += 1
-    json.dump(q, open(PENDING, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-    return added
+    with queue_lock():
+        q = load_queue()
+        seen = {(u["sheet"], u["key"], u["col"]) for u in q}
+        added = 0
+        for it in items:
+            k = (it["sheet"], it["key"], it["col"])
+            if k not in seen:
+                q.append(it); seen.add(k); added += 1
+        atomic_json_dump(q, PENDING)
+        return added
 
 
 def resolve_targets(master, queue):
@@ -160,6 +202,26 @@ def cell_xml(colL, rown, style, value, vtype):
     return f'<c r="{ref}"{s} t="inlineStr"><is><t>{esc(value)}</t></is></c>'
 
 
+def same_cell_value(cxml, value, vtype):
+    """현재 XML 값과 쓸 값이 같은지 판정한다(멱등 버전 생성 방지)."""
+    if "<f" in cxml:
+        return False
+    if vtype == "text":
+        if 't="inlineStr"' not in cxml and "<is>" not in cxml:
+            return False  # sharedStrings 인덱스는 이 함수만으로 원문을 알 수 없다.
+        current = "".join(html.unescape(t) for t in re.findall(r"<t[^>]*>(.*?)</t>", cxml, re.S))
+        return current == str(value)
+    mv = re.search(r"<v[^>]*>(.*?)</v>", cxml, re.S)
+    if not mv:
+        return False
+    current = mv.group(1).strip()
+    expected = str(date_serial(value) if vtype == "date" else value).strip()
+    try:
+        return float(current) == float(expected)
+    except ValueError:
+        return current == expected
+
+
 def apply_to_xml(xml, plan):
     """한 항목을 시트 XML에 반영. (성공여부, 새XML, 사유)"""
     rown, colL = plan["row"], plan["colL"]
@@ -193,7 +255,9 @@ def apply_to_xml(xml, plan):
         mcell = _M(*span)
     if mcell:
         cxml = mcell.group(0)
-        has_val = ("<v>" in cxml) or ("<is>" in cxml) or ('t="s"' in cxml and "<v>" in cxml) or ("<f" in cxml)
+        has_val = bool(re.search(r"<v[\s/>]", cxml)) or ("<is>" in cxml) or ("<f" in cxml)
+        if has_val and same_cell_value(cxml, plan["value"], plan.get("vtype", "text")):
+            return False, xml, "동일 값(변경 없음)"
         if has_val and plan.get("only_if_empty", True):
             return False, xml, "이미 값·수식 있음(빈 칸만 정책)"
         style = (re.search(r' s="(\d+)"', cxml) or [None, find_col_style(xml, colL)])[1]
@@ -233,11 +297,8 @@ def strip_calcchain(name, data, ct, rels):
     return data, ct, rels
 
 
-def main():
+def _main():
     apply_mode = "--apply" in sys.argv
-    global PENDING
-    if "--queue" in sys.argv:                     # 테스트용 큐 경로 오버라이드
-        PENDING = sys.argv[sys.argv.index("--queue") + 1]
     queue = load_queue()
     if not queue:
         print("큐 비어 있음 — 반영할 확정 업데이트가 없습니다."); return
@@ -285,10 +346,9 @@ def main():
         zin.close()
         os.makedirs(UPD_DIR, exist_ok=True)
         stamp0 = datetime.now().strftime("%Y%m%d_%H%M")
-        json.dump({"applied": [], "skipped": skips + skipped2, "version": "미생성(0건)"},
-                  open(os.path.join(UPD_DIR, f"applied_{stamp0}.json"), "w", encoding="utf-8"),
-                  ensure_ascii=False, indent=1)
-        json.dump([], open(PENDING, "w", encoding="utf-8"))
+        atomic_json_dump({"applied": [], "skipped": skips + skipped2, "version": "미생성(0건)"},
+                         os.path.join(UPD_DIR, f"applied_{stamp0}.json"))
+        atomic_json_dump([], PENDING)
         print(f"\n입력할 빈 칸 없음(전부 기존 값 보유) — 새 버전 미생성, 큐 {len(skipped2)}건 정리 완료")
         return
 
@@ -342,14 +402,23 @@ def main():
     # 큐 정리·보관
     os.makedirs(UPD_DIR, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    json.dump({"applied": done, "skipped": skips + skipped2, "version": f"v{v+1}"},
-              open(os.path.join(UPD_DIR, f"applied_{stamp}.json"), "w", encoding="utf-8"),
-              ensure_ascii=False, indent=1)
-    json.dump([], open(PENDING, "w", encoding="utf-8"))
+    atomic_json_dump({"applied": done, "skipped": skips + skipped2, "version": f"v{v+1}"},
+                     os.path.join(UPD_DIR, f"applied_{stamp}.json"))
+    atomic_json_dump([], PENDING)
     print(f"\n반영 완료: v{v} → v{v+1}, 입력 {len(done)}건 / 건너뜀 {len(skipped2)}건 (검증 통과)")
     print("   ", dst)
     for s in skipped2:
         print(f"  [건너뜀] {s['key']} {s['col']}: {s['사유']}")
+
+
+def main():
+    global PENDING
+    if "--queue" in sys.argv:                     # 테스트용 큐 경로 오버라이드
+        PENDING = sys.argv[sys.argv.index("--queue") + 1]
+    if "--apply" in sys.argv:
+        with queue_lock():
+            return _main()
+    return _main()
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ except Exception:
 DOCS = os.path.join(ROOT, "docs")
 OUT = os.path.join(DOCS, "data.enc")
 WEBCFG = os.path.join(ROOT, "config", "webapp.json")
+PUBLISH_FILES = ("docs/data.enc", "docs/app.html", "docs/index.html", "docs/sw.js")
 
 
 def pin():
@@ -123,6 +124,25 @@ def unbilled():
     return sorted(out, key=lambda x: x["발행일"])
 
 
+def git_publish(message, runner=subprocess.run):
+    """게시 파일을 커밋·푸시한다. 어느 단계든 실패하면 성공으로 보지 않는다."""
+    commands = (
+        ["git", "add", "--", *PUBLISH_FILES],
+        ["git", "commit", "-q", "-m", message],
+        ["git", "push", "-q"],
+    )
+    for cmd in commands:
+        r = runner(cmd, cwd=ROOT, capture_output=True, text=True,
+                   encoding="utf-8", errors="replace")
+        detail = ((r.stderr or "") + "\n" + (r.stdout or "")).strip()
+        if r.returncode:
+            # 변경이 없는 재실행은 오류가 아니다. 이미 커밋된 미푸시분은 계속 push한다.
+            if cmd[1] == "commit" and "nothing to commit" in detail.lower():
+                continue
+            return False, cmd[1], detail[:300]
+    return True, "", ""
+
+
 def main():
     import csos_crypto as C
     assert C.self_test(), "암호 자체검증 실패 — 올리면 폰에서 못 연다"
@@ -151,17 +171,11 @@ def main():
         return
 
     # 잠근 파일만 올린다. 원본(raw)은 디스크에도 남기지 않는다.
-    for cmd in (["git", "add", "docs/data.enc", "docs/app.html", "docs/index.html",
-                 "docs/sw.js", "docs/resolve_index.json"],
-                ["git", "commit", "-q", "-m",
-                 f"폰 사본 갱신 {d['gen']} (프로젝트코드 {len(d['codes'])}·확인필요 {len(d['issues'])})"],
-                ["git", "push", "-q"]):
-        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace")
-        if r.returncode and "nothing to commit" not in (r.stdout or ""):
-            print("  git:", (r.stderr or r.stdout or "").strip()[:200])
-            if cmd[1] == "push":
-                sys.exit(1)
+    ok, stage, detail = git_publish(
+        f"폰 사본 갱신 {d['gen']} (프로젝트코드 {len(d['codes'])}·확인필요 {len(d['issues'])})")
+    if not ok:
+        print(f"  git {stage} 실패:", detail)
+        sys.exit(1)
     print("\n고정 주소에 반영했습니다 — PC를 꺼도 폰에서 열립니다.")
     print("  https://mulder4780.github.io/coupang-ecount-reconcile/")
 

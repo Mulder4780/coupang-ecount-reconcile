@@ -166,6 +166,7 @@ def t5_writer(tmp):
     assert any("자동 입력" in str(c.value) for row in hand.iter_rows() for c in row if c.value), "인수인계 기록 없음"
     w2.close()
     # 회귀: 스타일만 있는 자기닫힘 빈 셀(<c s=.../>) 바로 뒤에 수식 셀 — 오매칭으로 '값 있음' 오판했던 실사고
+    import ledger_writer as LW
     from ledger_writer import apply_to_xml
     xml = ('<worksheet><dimension ref="A1:C5"/><sheetData>'
            '<row r="5"><c r="A5" t="inlineStr"><is><t>K</t></is></c>'
@@ -175,7 +176,23 @@ def t5_writer(tmp):
     assert ok and '<c r="B5" s="43" t="inlineStr"><is><t>값</t></is></c>' in nx, (ok, why, nx)
     ok2, _, why2 = apply_to_xml(nx, {"row": 5, "colL": "C", "value": "X", "vtype": "text", "only_if_empty": True})
     assert not ok2 and "이미" in why2, (ok2, why2)     # 수식 셀은 여전히 보호
-    print("  [5] 자동입력 엔진(빈칸만·날짜·덮어쓰기금지·자기닫힘셀 회귀·인수인계 기록) ✅")
+    # 같은 기준일을 다시 저장하면 버전만 하나 더 생기면 안 된다.
+    date_xml = ('<worksheet><sheetData><row r="3"><c r="B3" s="1"><v>46226</v></c>'
+                '</row></sheetData></worksheet>')
+    same, unchanged, why3 = apply_to_xml(
+        date_xml, {"row": 3, "colL": "B", "value": "2026-07-23",
+                   "vtype": "date", "only_if_empty": False})
+    assert not same and unchanged == date_xml and "동일 값" in why3, (same, why3)
+    # 큐 쓰기는 원자 교체 + 중복 방지여야 한다.
+    old_pending = LW.PENDING
+    try:
+        LW.PENDING = os.path.join(tmp, "atomic_queue.json")
+        item = {"sheet": "S", "key": "K", "col": "C"}
+        assert LW.queue_add([item, item]) == 1
+        assert LW.load_queue() == [item]
+    finally:
+        LW.PENDING = old_pending
+    print("  [5] 자동입력 엔진(빈칸만·동일값 멱등·큐잠금/원자쓰기·자기닫힘셀·인수인계) ✅")
 
 
 def t7_po(tmp):
@@ -224,7 +241,7 @@ def t8_findings_sheet(tmp):
 
 
 def t10_band_extract():
-    from band_extract import parse_post
+    from band_extract import parse_post, normalize_tech
     mk = lambda c: {"content": c, "created_at": 1780000000000, "photo_count": 4}
     r = parse_post("1", mk(
         "2026년 6월 1일 오전 8:08 게시글\n\n☑️판매전표 +거래명세서 +견적서 = 메일발송 完 ⭕\n"
@@ -240,7 +257,9 @@ def t10_band_extract():
     assert r2["작업일"] == "" and r2["진행상태"] == "접수·예정", r2      # 2026.00.00 = 미정
     assert parse_post("3", mk("● 프로젝트NO : UJ000000\n♣ ［ 돌발유료 A/S 안내 ]"), "밴드A") is None  # 템플릿 제외
     assert parse_post("4", mk("안녕하세요 일반 공지입니다"), "밴드A") is None                          # 비업무 제외
-    print("  [10] 밴드 업무 추출(유형·유상무상·미정일자·템플릿/비업무 제외) ✅")
+    assert normalize_tech("권오절") == "권오철"
+    assert normalize_tech("권오처르 + 1명 지원") == "권오철"
+    print("  [10] 밴드 업무 추출(유형·유상무상·기사명 오탈자 정규화·템플릿/비업무 제외) ✅")
 
 
 def t11_backfill():
@@ -652,7 +671,19 @@ def t23_formulas():
     fixed, k = F.fix_sheet(sx)
     assert k == 1 and 'IF($A5="","",2)' in fixed and '#N/A' not in fixed, fixed
     assert '<c r="A5"><v>1</v></c>' in fixed, '옆 셀이 망가지면 안 됨'
-    print("  [23] 수식 복구(음수행·굳은오류·공유수식본·범위확장·셀위치) ✅")
+    # 값이 보이는 상태열도 수식 전용 열이면 복구한다(첨부 화면의 '미배정' 고착 회귀).
+    owned = ('<sheetData>'
+             '<row r="5"><c r="B5" t="inlineStr"><is><t>UJ1</t></is></c>'
+             '<c r="M5" t="inlineStr"><is><t>미배정</t></is></c></row>'
+             '<row r="6"><c r="B6" t="inlineStr"><is><t>UJ2</t></is></c>'
+             '<c r="M6"><f>IF($B6="","",IF($L6="","미배정","배정완료"))</f><v>미배정</v></c>'
+             '</row></sheetData>')
+    restored, nr = F.restore_owned_formulas(owned, ("M",))
+    assert nr == 1 and '<c r="M5"><f>IF($B5="","",IF($L5="","미배정","배정완료"))</f><v/></c>' in restored, restored
+    assert not F.direct_self_refs(restored), F.direct_self_refs(restored)
+    direct = '<row r="5"><c r="M5"><f>IF(M5="","",1)</f><v/></c></row>'
+    assert F.direct_self_refs(direct) == ["M5"]
+    print("  [23] 수식 복구(굳은 상태값·순환참조 탐지·공유수식본·범위확장·셀위치) ✅")
 
 
 def t24_reorder_safety():
@@ -1110,6 +1141,25 @@ def t29_cloud():
     srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     assert '"/api/enqueue"' in srv and "def enqueue_codes(" in srv, "폰 예약을 받을 곳이 없다"
 
+    # git add부터 실패를 숨기면 실제 게시가 안 됐는데도 '반영했습니다'가 찍힌다.
+    import cloud_publish as CP
+    assert "docs/resolve_index.json" not in CP.PUBLISH_FILES, "존재하지 않는 파일을 git add 한다"
+    class _R:
+        def __init__(self, code=0, out="", err=""):
+            self.returncode, self.stdout, self.stderr = code, out, err
+    calls = []
+    def fail_add(cmd, **_kwargs):
+        calls.append(cmd)
+        return _R(1, err="pathspec missing") if cmd[1] == "add" else _R()
+    ok, stage, detail = CP.git_publish("합성", runner=fail_add)
+    assert not ok and stage == "add" and len(calls) == 1 and "pathspec" in detail, (ok, stage, calls)
+    calls.clear()
+    def no_changes(cmd, **_kwargs):
+        calls.append(cmd)
+        return _R(1, out="nothing to commit") if cmd[1] == "commit" else _R()
+    ok, stage, _ = CP.git_publish("합성", runner=no_changes)
+    assert ok and stage == "" and [c[1] for c in calls] == ["add", "commit", "push"], calls
+
     # ★ 실 PIN이 소스 어딘가에 박히면 공개 저장소에 그대로 남아 사본 잠금이 무의미해진다.
     #   (실제로 자체검증 코드에 리터럴로 들어갔던 적이 있다 — 2026-07-27)
     try:
@@ -1123,7 +1173,7 @@ def t29_cloud():
                     capture_output=True, text=True, encoding="utf-8", errors="replace")
         hits = [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
         assert not hits, "커밋된 파일에 실 PIN이 들어 있다: " + ", ".join(hits[:3])
-    print("  [29] 폰 단독 사용(잠금·오프라인 폴백·예약 반영·PIN 비노출) ✅")
+    print("  [29] 폰 단독 사용(잠금·오프라인 폴백·git 게시 실패감지·PIN 비노출) ✅")
 
 
 def t30_dns_and_versions():

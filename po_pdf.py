@@ -184,12 +184,26 @@ def _amount(t, po):
     return max(amts) if amts else None
 
 
+QUOTE_RE = re.compile(r"([\w가-힣()\-]+?)견적서_?([\d,]+)?원?")
+
+
 def parse(path):
     name = os.path.basename(path)
-    po = PO_RE.search(name.replace(" ", ""))
-    rec = {"파일": name, "PO번호": ("PO" + po.group(1)) if po else "",
-           "변경본": "변경" in name, "금액": None, "일자": "",
-           "프로젝트NO": "", "본문요약": ""}
+    parent = os.path.basename(os.path.dirname(path))
+    # PO번호는 파일명에 없으면 **상위 폴더명**에서 가져온다(첨부 견적서가 그렇다)
+    po = PO_RE.search(name.replace(" ", "")) or PO_RE.search(parent.replace(" ", ""))
+    quote = "견적서" in name
+    rec = {"파일": name, "상위폴더": parent, "종류": "견적서" if quote else "PO통지",
+           "PO번호": ("PO" + po.group(1)) if po else "",
+           "변경본": ("변경" in name) or ("변경" in parent),
+           "금액": None, "일자": "", "프로젝트NO": "", "본문요약": ""}
+    if quote:
+        # 견적서는 파일명이 이미 캠프·금액을 담고 있다: "1-1._부산4MB견적서_269,100원.pdf"
+        q = QUOTE_RE.search(name)
+        if q:
+            rec["캠프힌트"] = re.sub(r"^[\d._\-]+", "", q.group(1))[:20]
+            if q.group(2):
+                rec["금액"] = int(q.group(2).replace(",", ""))
     try:
         t = pdf_text(path)
     except Exception as e:
@@ -210,9 +224,36 @@ def parse(path):
     return rec
 
 
+def is_pdf(path):
+    """확장자만 믿지 않는다. 이 폴더에는 **.pdf 가 안 붙은 PDF**가 섞여 있다
+    (메일 본문을 저장하면서 확장자가 빠진 것으로 보인다). 머리 4바이트로 판별한다."""
+    if not os.path.isfile(path):
+        return False
+    if path.lower().endswith(".pdf"):
+        return True
+    try:
+        with open(path, "rb") as f:
+            return f.read(4) == b"%PDF"
+    except OSError:
+        return False
+
+
+def pdf_files(folder):
+    """하위 폴더까지 훑는다. PO별로 폴더가 나뉘고 그 안에 견적서 첨부가 들어 있다."""
+    out = []
+    for base, _dirs, files in os.walk(folder):
+        for fn in files:
+            if fn.lower() == "thumbs.db":
+                continue
+            p = os.path.join(base, fn)
+            if is_pdf(p):
+                out.append(p)
+    return sorted(out)
+
+
 def scan(folder=None):
     folder = folder or PO_DIR
-    return [parse(f) for f in sorted(glob.glob(os.path.join(folder, "*.pdf")))], folder
+    return [parse(f) for f in pdf_files(folder)], folder
 
 
 def latest_by_po(recs):

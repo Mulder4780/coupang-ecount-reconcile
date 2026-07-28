@@ -16,6 +16,23 @@
 - 이 저장소: https://github.com/Mulder4780/coupang-ecount-reconcile (공개)
 - Python: `C:\Users\hueng\AppData\Local\Programs\Python\Python312\python.exe` (PATH의 python은 Windows 스토어 스텁 — 사용 금지)
 
+## ★ 동시 작업 규칙 (Claude ↔ Codex 가 **같이** 일할 때)
+사용자 지시(2026-07-28): "동시 작업중일 때 둘이 대화해서 우선순위 정해서 협업해서 진행해."
+AI끼리 직접 대화할 수단은 없다. 이 프로젝트의 진실의 원천은 파일이므로 **조율도 파일로** 한다.
+
+1. **시작 전에 잡고, 끝나면 놓는다** — `python ai_claim.py --who <claude|codex> --take <lock> --why "이유"`
+   · 잡을 것: `ledger`(관리대장 쓰기) `band`(밴드 수집·반영) `publish`(고정주소·폰사본) — **배타**
+   · `report`·`read` 는 공유(동시 가능). 끝나면 `--free`, 세션 종료 시 `--free-all`.
+   · 45분간 안 놓으면 자동 해제된다(크레딧 소진·중단 대비). 현황: `python ai_claim.py`
+2. **관리대장 쓰기는 한 번에 하나만.** 둘이 동시에 vN+1을 만들면 **한쪽 작업이 통째로 묻힌다**
+   (둘 다 v204를 읽고 각자 v205를 만들면 하나는 사라진다). 이건 되돌릴 수 없다.
+3. **우선순위 — 충돌 시 이 순서로 양보한다**(사람이 매번 정하지 않아도 되게)
+   ① 사용자가 **지금 대화 중인** AI가 우선 — 상대는 조회·분석으로 돌린다
+   ② 원장 쓰기 > 밴드/게시 > 리포트·문서
+   ③ 같은 순위면 **먼저 잡은 쪽**. 늦게 온 쪽은 다른 일을 한다.
+4. **push 전에 `git pull --rebase`** — 상대가 먼저 올렸을 수 있다. 충돌하면 상대 것을 지우지 말고 합친다.
+5. 서로의 작업을 **되돌리지 않는다.** 상대 결정이 틀려 보이면 지우지 말고 19시트·AGENTS.md에 이유를 적고 남긴다.
+
 ## ★ 절대 규칙 (위반 시 실사고)
 1. **비밀정보**(이카운트 API키·밴드 토큰·비밀번호)는 `config/ecount_config.json`·`band/.band_token.json` 등 gitignore된 로컬 파일에만. 커밋·채팅·엑셀 입력 절대 금지. push 전 `git grep --cached`로 키 문자열 스캔.
 2. **관리대장을 openpyxl로 열어 save() 금지** — 차트·도형버튼·x14 검증이 파괴된다. 읽기는 `read_only=True`만. 수정은 `workbook_patch.py`(zip 단일파트 패치, 3중 검증 내장)로 vN+1 새 파일 생성. 원본 덮어쓰기 금지.

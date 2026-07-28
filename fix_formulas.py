@@ -39,6 +39,15 @@ DEAD_RE = re.compile(r"^#[A-Z/]+[!?]?$")
 # 상대 행번호(=$가 안 붙은 행). 열에 $가 붙어도 행에 없으면 상대다.
 REL_RE = re.compile(r"(\$?[A-Z]{1,3})(\d+)(?![\d(])")
 XML_ESC = {"&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'"}
+# 사람이 입력하는 열과 달리 아래 열은 값이 보이더라도 수식이 진실의 원천이다.
+# ID(A열)는 행 재배치 뒤 참조 보호를 위해 확정값일 수 있으므로 절대 포함하지 않는다.
+FORMULA_OWNED = {
+    "02_돌발AS접수": ("F", "G", "M", "AK", "AL", "AN"),
+}
+KNOWN_TEXT_FIXES = {
+    "권오절": "권오철",
+    "권오처르": "권오철",
+}
 
 
 def unesc(s):
@@ -170,14 +179,14 @@ def blank_value(ctag, cinner, sst):
     """
     if not cinner or "<f" in cinner:
         return False
+    if 't="inlineStr"' in ctag or "<is>" in cinner:
+        return not "".join(re.findall(r"<t[^>]*>(.*?)</t>", cinner, re.S)).strip()
     m = re.search(r"<v[^>]*>(.*?)</v>", cinner, re.S)
     if not m:
         return True
     raw = m.group(1).strip()
     if 't="s"' in ctag and raw.isdigit():
         return sst.get(int(raw), "") == ""
-    if 't="inlineStr"' in ctag or "<is>" in cinner:
-        return not "".join(re.findall(r"<t[^>]*>(.*?)</t>", cinner, re.S)).strip()
     return raw == ""
 
 
@@ -287,6 +296,103 @@ def fill_missing(xml, min_share=0.5, sst=None):
     return ("".join(out), n) if n else (xml, 0)
 
 
+def restore_owned_formulas(xml, columns, key_col="B", sst=None):
+    """수식 전용 열에 굳어버린 정적 값을 정상 수식으로 되돌린다.
+
+    2026-07-28 실제 사례: 02시트 L523에 김준형을 골랐지만 M523이 수식이 아닌
+    문자열 '미배정'으로 저장돼 상태가 바뀌지 않았다. 빈칸 복구만으로는 못 잡으므로
+    명시한 수식 전용 열만 복구한다.
+    """
+    sst = sst or {}
+    tmpl = templates(parse_cells(xml))
+    wanted = {c for c in columns if c in tmpl and tmpl[c].strip()}
+    if not wanted:
+        return xml, 0
+    edits = []
+    for rs, _re, rtag, rinner in iter_tags(xml, "row"):
+        if rinner is None:
+            continue
+        rm = re.search(r'r="(\d+)"', rtag)
+        if not rm or int(rm.group(1)) <= 4:
+            continue
+        rn = int(rm.group(1))
+        base = rs + len(rtag)
+        here = {}
+        for cs, ce, ctag, cinner in iter_tags(rinner, "c"):
+            ref = re.search(r'r="([A-Z]{1,3})\d+"', ctag)
+            if ref:
+                here[ref.group(1)] = (cs, ce, ctag, cinner)
+        key = here.get(key_col)
+        if not key or blank_value(key[2], key[3], sst):
+            continue
+        for col in wanted:
+            cur = here.get(col)
+            # 없는 셀·빈 셀은 기존 fill_missing이 스타일 본까지 고려해 만든다.
+            if not cur or cur[3] is None or "<f" in cur[3]:
+                continue
+            sm = re.search(r'\ss="(\d+)"', cur[2])
+            style = f' s="{sm.group(1)}"' if sm else ""
+            new = (f'<c r="{col}{rn}"{style}><f>{esc(instantiate(tmpl[col], rn))}</f>'
+                   f'<v/></c>')
+            edits.append((base + cur[0], base + cur[1], new))
+    if not edits:
+        return xml, 0
+    out, last = [], 0
+    for start, end, new in sorted(edits):
+        out.append(xml[last:start])
+        out.append(new)
+        last = end
+    out.append(xml[last:])
+    return "".join(out), len(edits)
+
+
+def normalize_known_text(xml):
+    """구조화 결과에 남은 확정 기사명 오탈자를 정확한 단일 텍스트 셀만 고친다."""
+    count = 0
+    for wrong, right in KNOWN_TEXT_FIXES.items():
+        rx = re.compile(r"(<t(?:\s[^>]*)?>)" + re.escape(wrong) + r"(</t>)")
+        xml, n = rx.subn(lambda m: m.group(1) + right + m.group(2), xml)
+        count += n
+    return xml, count
+
+
+def direct_self_refs(xml):
+    """A10 수식이 A10을 직접 참조하는 명백한 순환참조 목록."""
+    bad = []
+    for rn, col, formula, _s, _e in parse_cells(xml):
+        # 다른 시트의 같은 주소(A5 등)는 순환이 아니다. 범위의 뒤쪽 주소까지
+        # 통째로 제거해야 'Sheet'!$A$5:$A$154의 A154를 자기참조로 오인하지 않는다.
+        local = re.sub(
+            r"(?:'[^']+'|[A-Za-z0-9_가-힣]+)!"
+            r"\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?",
+            "", formula)
+        if re.search(rf"(?<![A-Z0-9_])\$?{re.escape(col)}\$?{rn}(?!\d)", local, re.I):
+            bad.append(f"{col}{rn}")
+    return bad
+
+
+def force_recalc_part(name, data):
+    """calcChain을 제거하고 Excel이 열 때 자동 전체 재계산하도록 한다."""
+    if name == "xl/calcChain.xml":
+        return None
+    text = None
+    if name == "[Content_Types].xml":
+        text = re.sub(r'<Override[^>]*calcChain[^>]*/>', "", data.decode("utf-8"))
+    elif name == "xl/_rels/workbook.xml.rels":
+        text = re.sub(r'<Relationship[^>]*calcChain[^>]*/>', "", data.decode("utf-8"))
+    elif name == "xl/workbook.xml":
+        text = data.decode("utf-8")
+        attrs = 'calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"'
+        if "<calcPr" in text:
+            def repl(m):
+                tag = re.sub(r'\s(?:calcMode|fullCalcOnLoad|forceFullCalc)="[^"]*"', "", m.group(0))
+                return tag.replace("<calcPr", "<calcPr " + attrs, 1)
+            text = re.sub(r"<calcPr\b[^>]*?/?>", repl, text, count=1)
+        else:
+            text = text.replace("</workbook>", f"<calcPr {attrs}/></workbook>", 1)
+    return text.encode("utf-8") if text is not None else data
+
+
 def widen(xml, ends, self_name=None, self_end=None):
     """참조 범위의 끝행을 시트의 실제 마지막 행까지 넓힌다"""
     n = [0]
@@ -336,22 +442,32 @@ def main():
         if oe and oe < ends[name]:
             print(f"  {name}: 실제 {ends[name]} / 수식 {oe}  ← {ends[name]-oe}행이 집계에서 빠짐")
 
-    patched, nfix, nwide, nmiss = {}, 0, 0, 0
+    patched, nfix, nwide, nmiss, nowned, ntext = {}, 0, 0, 0, 0, 0
     miss_by = {}
     for name, path in smap.items():
         x = raw[name]
         y, k = fix_sheet(x)
         y, w = widen(y, ends, name, old_ends.get(name))
+        y, owned = restore_owned_formulas(y, FORMULA_OWNED.get(name, ()), sst=sst)
         y, mm = fill_missing(y, sst=sst)
-        if k or w or mm:
+        y, nt = normalize_known_text(y)
+        if k or w or mm or owned or nt:
             patched[path] = y.encode("utf-8")
             nfix += k
             nwide += w
             nmiss += mm
+            nowned += owned
+            ntext += nt
             if mm:
                 miss_by[name] = mm
+    if "xl/sharedStrings.xml" in z.namelist():
+        sx, nt = normalize_known_text(z.read("xl/sharedStrings.xml").decode("utf-8"))
+        if nt:
+            patched["xl/sharedStrings.xml"] = sx.encode("utf-8")
+            ntext += nt
     z.close()
-    print(f"\n깨진 수식 복구 {nfix}개 · 범위 확장 {nwide}곳 · 빠진 수식 채움 {nmiss}개 "
+    print(f"\n깨진 수식 복구 {nfix}개 · 범위 확장 {nwide}곳 · 빠진 수식 채움 {nmiss}개 · "
+          f"정적 상태 수식화 {nowned}개 · 기사명 정규화 {ntext}개 "
           f"(시트 {len(patched)}개)")
     for k, v in sorted(miss_by.items(), key=lambda x: -x[1]):
         print(f"   빠진 수식 {k}: {v}개")
@@ -369,7 +485,12 @@ def main():
     zin = zipfile.ZipFile(master)
     zout = zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED)
     for it in zin.infolist():
-        zout.writestr(it.filename, patched.get(it.filename) or zin.read(it.filename))
+        data = patched.get(it.filename)
+        if data is None:
+            data = zin.read(it.filename)
+        data = force_recalc_part(it.filename, data)
+        if data is not None:
+            zout.writestr(it.filename, data)
     zout.close(); zin.close()
 
     # 검증: zip 무결성 + 음수행이 남아 있지 않은지
@@ -378,12 +499,16 @@ def main():
     # ★ XML 전체를 훑으면 'AS-2607-001' 같은 **접수ID 문자열**까지 세어 버린다.
     #   반드시 수식 본문만 본다(2026-07-26에 1,084개로 잘못 세었던 자리).
     left = 0
+    self_refs = []
     for p in smap.values():
-        for _, _, f, _, _ in parse_cells(zc.read(p).decode("utf-8")):
+        xml = zc.read(p).decode("utf-8")
+        self_refs.extend(direct_self_refs(xml))
+        for _, _, f, _, _ in parse_cells(xml):
             if is_broken(f):
                 left += 1
+    assert not self_refs, "직접 순환참조 발견: " + ", ".join(self_refs[:10])
     zc.close()
-    print(f"생성: {os.path.basename(dst)} · 남은 음수행 참조 {left}개")
+    print(f"생성: {os.path.basename(dst)} · 남은 음수행 참조 {left}개 · 직접 순환참조 0개")
 
 
 if __name__ == "__main__":

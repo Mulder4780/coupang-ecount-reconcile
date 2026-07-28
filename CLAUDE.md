@@ -13,6 +13,14 @@
 2. `python ecount/workbook_patch.py --b "제목" --c "상세"` 로 19시트 인수인계 행 추가(vN+1)
 3. git commit + push (푸시 전 `git grep --cached`로 비밀키 스캔 — AGENTS.md 규칙 1)
 
+## Claude Code ↔ Codex **동시 작업** 규칙 (2026-07-28 지시)
+- 시작 전 `python ecount/ai_claim.py --who claude --take <ledger|band|publish> --why "이유"` 로 잡는다.
+  이미 상대가 잡았으면 **배타 작업은 하지 않는다** — 조회·분석으로 돌리거나 다른 일을 한다.
+- **관리대장 쓰기는 절대 동시에 하지 않는다.** 각자 vN+1을 만들면 한쪽이 통째로 묻힌다.
+- 우선순위: ① 사용자와 지금 대화 중인 AI ② 원장 쓰기 > 밴드/게시 > 리포트 ③ 먼저 잡은 쪽.
+- push 전 `git pull --rebase`. 상대 작업을 지우지 말고 합친다.
+- 끝나면 `--free`, 세션 종료 시 `--free-all`.
+
 ## Claude Code ↔ Codex 교대 규칙
 - 진실의 원천은 **파일**이다: AGENTS.md(요약) + 19시트(원장) + git 이력. 특정 AI의 대화 기록·메모리에 의존하는 정보를 남기지 말 것.
 - 교대 시 추가 인수인계 절차는 없다 — 위 시작 체크리스트가 곧 인수인계다.

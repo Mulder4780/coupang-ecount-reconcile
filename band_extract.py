@@ -38,6 +38,26 @@ RE_TECH = re.compile(r"A/?S\s*담당\s*[:：]?\s*([^\n●]*)")
 RE_CAMP = re.compile(r"캠프\s*(?:이름|명)\s*[:：]?\s*([^\n●]*)")
 RE_TITLE = re.compile(r"♣\s*[［\[]([^\]］]+)[\]］]")
 TECHS = ("김준형", "권오철", "김필우", "차동호", "김경원")
+# 밴드 원문에서 실제 확인된 오탈자. 원문 캐시는 보존하되 구조화 결과에는
+# 기준 기사명만 기록해 관리대장·기사별 집계로 오탈자가 전파되지 않게 한다.
+TECH_ALIASES = {
+    "권오절": "권오철",
+    "권오처르": "권오철",
+}
+
+
+def normalize_tech(raw):
+    """기사명 오탈자를 기준 이름으로 정규화하고 지원 인원 설명은 제외한다."""
+    cleaned = str(raw or "").strip()
+    for wrong, right in TECH_ALIASES.items():
+        cleaned = cleaned.replace(wrong, right)
+    tech = ", ".join(t for t in TECHS if t in cleaned)
+    if tech:
+        return tech
+    # 사내 기사 목록 밖 이름도 증거로 보존하되 첫 이름 조각만 사용한다.
+    tech = re.split(r"[,·]", cleaned)[0].strip()
+    tech = re.sub(r"\.{2,}.*$", "", tech).strip()
+    return "" if tech in (".", "…", "...") else tech
 
 
 def parse_post(no, p, band):
@@ -58,11 +78,7 @@ def parse_post(no, p, band):
         return None
 
     tech_raw = (RE_TECH.search(c).group(1).strip() if RE_TECH.search(c) else "")
-    tech = ", ".join([t for t in TECHS if t in tech_raw])
-    if not tech:                                  # 사내 기사 목록 밖(외주·설치팀 등)
-        tech = re.split(r"[,·]", tech_raw)[0].strip()
-        tech = re.sub(r"\.{2,}.*$", "", tech).strip()      # '김민 ...' 꼬리 제거
-        tech = "" if tech in (".", "…", "...") else tech
+    tech = normalize_tech(tech_raw)
 
     camp = (RE_CAMP.search(c).group(1).strip() if RE_CAMP.search(c) else "")
     camp = re.sub(r"\s*\.{3}더보기.*$", "", camp).strip()
