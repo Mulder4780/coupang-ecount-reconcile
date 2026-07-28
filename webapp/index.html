@@ -426,6 +426,21 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 @media(min-width:900px){.sheet{left:50%;right:auto;width:540px;transform:translate(-50%,100%)}
   .sheet.open{transform:translate(-50%,0)}}
 
+/* 목록 머리 — '아래에 목록이 있다'를 놓치지 않게 구분선을 준다 */
+.lhead{display:flex;align-items:baseline;gap:7px;margin:14px 0 8px;padding-top:12px;
+  border-top:1px solid var(--line)}
+.lhead b{font-size:13px;font-weight:800}
+.lhead span{font-size:11.5px;font-weight:700;color:var(--brand);
+  background:#EEF2FF;border-radius:999px;padding:2px 8px;font-variant-numeric:tabular-nums}
+/* 밴드 원문 링크 — 행 클릭(상세 이동)과 겹치지 않게 따로 잡는다 */
+.blink{flex:none;font-size:11px;font-weight:800;color:#0F7B3E;background:#E6F6EC;
+  border:1px solid #BFE8CD;border-radius:999px;padding:2px 8px;text-decoration:none;white-space:nowrap}
+.blink:hover{background:#D6F0E0}
+/* 목록이 길어도 버튼에 항상 손이 닿게 — 시트 바닥에 붙인다 */
+.actions.sticky{position:sticky;bottom:0;margin:14px -20px -22px;padding:12px 20px
+  calc(14px + env(safe-area-inset-bottom));background:var(--surface);
+  border-top:1px solid var(--line);box-shadow:0 -6px 18px rgba(10,20,48,.06);z-index:2}
+
 /* ═══ TOP 리스트 ═══ */
 .toplist{display:flex;flex-direction:column;gap:8px}
 .topitem{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 13px;
@@ -2476,7 +2491,8 @@ function owners(v){
 function buildBoard(){
   const by = {}, add = (whos,it) => owners(whos).forEach(w=>{ (by[w] = by[w]||[]).push(it); });
   (works.as||[]).forEach(r=>{
-    const id = r.접수ID || r.프로젝트NO, base = {id, prj:r.프로젝트NO, camp:r.캠프명, kind:'돌발AS'};
+    const id = r.접수ID || r.프로젝트NO;
+    const base = {id, prj:r.프로젝트NO, camp:r.캠프명, kind:'돌발AS', band:r['밴드 바로가기']||''};
     if(!_fin(r.진행상태))
       add(r.담당기사, Object.assign({}, base, {issue:r.진행상태||'접수', date:r.접수일자||'', desc:(r.신청내용||'').slice(0,60)}));
     else if(String(r.진행상태||'').trim()==='작업완료' && !r.작업완료일)
@@ -2658,19 +2674,30 @@ function openKpi(key){
 function openAssignee(name){
   const l = (window._board||{})[name]||[];
   window._curAssignee = name;
+  // ★ 예전에는 도움말 카드와 버튼 아래에 목록을 놓아 **목록이 있는 줄도 몰랐다**
+  //   (사용자 지적 2026-07-28). 목록이 주인공이므로 위로 올리고, 버튼은 아래에
+  //   고정해 50건을 다 내려도 항상 손이 닿게 한다.
   openPane('<h2>'+name+' <span class="chip c-danger">'+l.length+'건</span></h2>'+
-    '<div class="sub">확인·조치가 필요한 항목입니다. 이미지로 만들어 담당자에게 보내세요.</div>'+
+    '<div class="sub">확인·조치가 필요한 항목입니다. 아래 목록에서 <b>누르면 그 건으로 이동</b>하고,'+
+    ' <b>밴드</b>를 누르면 원문 글이 열립니다.</div>'+
     (l.length?helpBox(l[0].issue):'')+
-    '<div class="actions" style="margin:12px 0">'+
-      '<button class="abtn primary" onclick="shareAssignee()"><span class="em">📤</span>이미지로 전달</button>'+
-      '<button class="abtn" onclick="captureAssignee()"><span class="em">💾</span>이미지 저장</button></div>'+
+    '<div class="lhead"><b>목록</b><span>'+l.length+'건</span></div>'+
     '<div class="slist">' + (l.map(function(i){
-      return '<div class="srow" onclick="openByPrj('+esc4(i.prj||i.id)+')">'+
-        '<div class="top"><span class="id">'+(i.prj||i.id)+'</span><span class="chip c-warn">'+i.issue+'</span></div>'+
+      const key = i.prj||i.id;
+      const band = i.band
+        ? '<a class="blink" href="'+i.band+'" target="_blank" rel="noopener"'+
+          ' onclick="event.stopPropagation()">밴드 ↗</a>' : '';
+      return '<div class="srow" onclick="openByPrj('+esc4(key)+')">'+
+        '<div class="top"><span class="id">'+key+'</span>'+
+        '<span style="display:flex;gap:5px;align-items:center">'+band+
+        '<span class="chip c-warn">'+i.issue+'</span></span></div>'+
         '<div class="top"><span class="camp">'+(i.camp||'')+' · '+i.kind+'</span>'+
         '<span class="camp">'+(i.date||'-')+'</span></div>'+
         (i.desc?'<div class="meta"><span style="flex:1">'+i.desc+'</span></div>':'')+'</div>';
-    }).join('') || '<div class="card">항목 없음</div>') + '</div>');
+    }).join('') || '<div class="card">항목 없음</div>') + '</div>'+
+    '<div class="actions sticky">'+
+      '<button class="abtn primary" onclick="shareAssignee()"><span class="em">📤</span>이미지로 전달</button>'+
+      '<button class="abtn" onclick="captureAssignee()"><span class="em">💾</span>이미지 저장</button></div>');
 }
 
 function openMine(idx){
