@@ -1,0 +1,307 @@
+# -*- coding: utf-8 -*-
+"""
+po_pdf.py — 쿠팡 PO 원본 PDF에서 값을 뽑아 대조한다 (설치 0 · 표준 라이브러리만)
+================================================================================
+오종현이 모아 둔 PO 알림 메일 PDF 묶음이 **원본 근거**다. 지금까지 PO 대조는 쿠팡이 준
+목록 엑셀에만 의존했는데, 목록은 사람이 만든 것이라 금액·날짜가 틀릴 수 있다.
+원본을 읽어 두면 미청구 7건(348,698,500원) 같은 건을 원본으로 확인할 수 있다.
+
+왜 직접 파서를 쓰나
+  · 이 프로젝트는 외부 패키지 설치 0이 원칙이고, pypdf·pdfminer 가 깔려 있지 않다.
+  · 이 PDF는 스캔본이 아니라 **글자가 들어 있는** 문서다(/Font 349개, ToUnicode 77개).
+    OCR이 필요 없다 — 금융 문서를 외부 OCR에 올리지 않는다는 규칙(AGENTS.md 9)에도 맞다.
+
+★ 한글·숫자는 CID 폰트라 바이트가 곧 글자가 아니다. **폰트별로** ToUnicode CMap을 읽어
+  CID → 유니코드로 바꿔야 한다. 전부 합쳐서 쓰면 같은 CID가 폰트마다 다른 글자라서
+  'Coupang'이 'Coupapg'가 되고 날짜 숫자가 통째로 어긋난다(2026-07-28 실제 증상).
+
+  python po_pdf.py                 # 폴더 전체 파싱 → 요약
+  python po_pdf.py --csv           # reports/PO원본_YYYYMMDD.csv
+  python po_pdf.py --check         # 쿠팡 목록과 대조(다른 것만 보고)
+"""
+import sys, os, re, csv, zlib, glob
+from datetime import datetime
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, ROOT)
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports")
+PO_DIR = r"Z:\16. Share\유현민\오종현\26년도 PO 모음"
+
+PO_RE = re.compile(r"PO\s*(\d{6})")
+UJ_RE = re.compile(r"UJ\d{7}")
+
+
+# ───────────────────────── PDF 텍스트 추출 ─────────────────────────
+def _objects(data):
+    """PDF 간접 객체: 번호 → 본문(바이트)."""
+    objs = {}
+    for m in re.finditer(rb"(\d+)\s+0\s+obj", data):
+        e = data.find(b"endobj", m.end())
+        objs[int(m.group(1))] = data[m.end(): e if e > 0 else len(data)]
+    return objs
+
+
+def _inflate(body):
+    """객체 안의 stream 을 푼다(압축이 아니면 원문 그대로)."""
+    m = re.search(rb"stream\r?\n", body)
+    if not m:
+        return b""
+    e = body.find(b"endstream", m.end())
+    raw = body[m.end(): e if e > 0 else len(body)]
+    try:
+        return zlib.decompress(raw)
+    except Exception:
+        return raw
+
+
+def _u(hexstr):
+    """UTF-16BE 16진 문자열 → 문자"""
+    try:
+        b = bytes.fromhex(hexstr if len(hexstr) % 2 == 0 else "0" + hexstr)
+        return b.decode("utf-16-be", "replace")
+    except Exception:
+        return ""
+
+
+def _parse_cmap(blob):
+    """ToUnicode CMap → {CID: 문자}"""
+    out = {}
+    t = blob.decode("latin-1", "replace")
+    for blk in re.findall(r"beginbfchar(.*?)endbfchar", t, re.S):
+        for a, b in re.findall(r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>", blk):
+            out[int(a, 16)] = _u(b)
+    for blk in re.findall(r"beginbfrange(.*?)endbfrange", t, re.S):
+        for a, b, c in re.findall(r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>", blk):
+            lo, hi, dst = int(a, 16), int(b, 16), int(c, 16)
+            for i in range(min(hi - lo + 1, 65536)):
+                out[lo + i] = _u(format(dst + i, "04x"))
+    return out
+
+
+def _font_maps(data, objs):
+    """폰트 이름(/F1 …) → CMap. 폰트별로 갈라야 글자가 안 어긋난다."""
+    name2obj = {}
+    for m in re.finditer(rb"/Font\s*<<(.+?)>>", data, re.S):
+        for fm in re.finditer(rb"/(\w+)\s+(\d+)\s+0\s+R", m.group(1)):
+            name2obj[fm.group(1).decode("latin-1")] = int(fm.group(2))
+    maps = {}
+    for name, onum in name2obj.items():
+        body = objs.get(onum, b"")
+        tu = re.search(rb"/ToUnicode\s+(\d+)\s+0\s+R", body)
+        if not tu:
+            df = re.search(rb"/DescendantFonts\s*\[\s*(\d+)\s+0\s+R", body)
+            if df:
+                tu = re.search(rb"/ToUnicode\s+(\d+)\s+0\s+R", objs.get(int(df.group(1)), b""))
+        if tu:
+            maps[name] = _parse_cmap(_inflate(objs.get(int(tu.group(1)), b"")))
+    return maps
+
+
+def _content(objs):
+    """텍스트 연산자가 들어 있는 content stream 들."""
+    out = []
+    for body in objs.values():
+        blob = _inflate(body)
+        if b"Tj" in blob or b"TJ" in blob:
+            out.append(blob)
+    return out
+
+
+TOK = re.compile(r"/(\w+)\s+[\d.]+\s+Tf|<([0-9A-Fa-f\s]+)>|\(((?:[^()\\]|\\.)*)\)")
+
+
+def _text(streams, fmaps):
+    """content stream 을 훑어 글자만 이어 붙인다. /Fx Tf 로 현재 폰트를 따라간다."""
+    out = []
+    for s in streams:
+        t = s.decode("latin-1", "replace")
+        cur = {}
+        for m in TOK.finditer(t):
+            if m.group(1) is not None:                  # 폰트 전환
+                cur = fmaps.get(m.group(1), {})
+            elif m.group(2) is not None:                # <hex> — CID 문자열
+                h = re.sub(r"\s", "", m.group(2))
+                step = 4 if (cur and len(h) % 4 == 0) else 2
+                for i in range(0, len(h) - step + 1, step):
+                    out.append(cur.get(int(h[i:i + step], 16), ""))
+            else:                                        # (문자열) — 보통 ASCII
+                out.append(re.sub(r"\\(.)", r"\1", m.group(3)))
+        out.append("\n")
+    return "".join(out)
+
+
+def pdf_text(path):
+    data = open(path, "rb").read()
+    objs = _objects(data)
+    return _text(_content(objs), _font_maps(data, objs))
+
+
+# ───────────────────────── PO 값 뽑기 ─────────────────────────
+# ★ 본문은 표를 그대로 이어 붙여서 나온다:
+#     "구매 오더 세부 사항 오더 번호 금액 PO3445994,200,000 KRW"
+#   PO번호와 금액 사이에 공백이 없다. 그래서 그냥 숫자를 긁으면 둘이 붙어
+#   3,445,994,200,000원 같은 값이 나온다(2026-07-28: 18건이 그렇게 어긋났다).
+#   PO번호 바로 뒤에 붙는 금액을 **그 구조 그대로** 읽는다.
+# ★★ 문서 안에는 PO번호가 여러 번 나오고 숫자도 여기저기 있다. **'금액:' 라벨이 붙은
+#   값만** 그 오더의 금액이다. 라벨을 안 보고 'PO번호 뒤 숫자'로 잡았더니 엉뚱한 값을
+#   집어 목록과 다르다고 4건을 잘못 신고할 뻔했다(2026-07-28).
+#   실제 원문: "구매 오더(신규)PO326234금액: 3,680,000 KRW"
+AMT_LABEL = re.compile(r"금\s*액\s*[:：]\s*([\d,]{5,})\s*(?:KRW|원)")
+AMT_AFTER_PO = re.compile(r"PO\d{6}\s*금\s*액\s*[:：]?\s*([\d,]{5,})\s*(?:KRW|원)")
+AMT_GLUED = re.compile(r"PO(\d{6})([\d,]{5,})\s*(?:KRW|원)")
+AMT_RE = re.compile(r"(?<!\d)(\d{1,3}(?:,\d{3})+)\s*(?:KRW|원)")
+AMT_MAX = 10 ** 11        # 1,000억 — 이보다 크면 붙어서 생긴 값이다
+DATE_RE = re.compile(r"(20\d{2})[-./년]\s*(\d{1,2})[-./월]\s*(\d{1,2})")
+
+
+def _amount(t, po):
+    """오더 금액. 이 PDF는 서식이 **두 가지**라 둘 다 봐야 한다.
+
+      ① 라벨형 : "구매 오더(신규)PO326234금액: 3,680,000 KRW"
+      ② 표  형 : "오더 번호금액PO3445994,200,000 KRW"   ← 번호와 금액이 붙어 있다
+
+    ②를 그냥 숫자로 긁으면 번호와 금액이 붙어 3,445,994,200,000원이 되고,
+    반대로 콤마 단위로만 끊으면 앞자리가 잘려 200,000원이 된다.
+    그래서 **PO번호를 떼어 내고 남은 부분**을 금액으로 읽고, 떼어 낸 번호가
+    파일의 PO번호와 같은지까지 확인한다(2026-07-28: 두 방식 모두에서 오판이 났다).
+    """
+    m = AMT_AFTER_PO.search(t) or AMT_LABEL.search(t)
+    if m:
+        return int(m.group(1).replace(",", ""))
+    for m in AMT_GLUED.finditer(t):
+        if not po or ("PO" + m.group(1)) == po:
+            v = int(m.group(2).replace(",", ""))
+            if 0 < v < AMT_MAX:
+                return v
+    amts = [int(a.replace(",", "")) for a in AMT_RE.findall(t)]
+    amts = [a for a in amts if a < AMT_MAX]
+    return max(amts) if amts else None
+
+
+def parse(path):
+    name = os.path.basename(path)
+    po = PO_RE.search(name.replace(" ", ""))
+    rec = {"파일": name, "PO번호": ("PO" + po.group(1)) if po else "",
+           "변경본": "변경" in name, "금액": None, "일자": "",
+           "프로젝트NO": "", "본문요약": ""}
+    try:
+        t = pdf_text(path)
+    except Exception as e:
+        rec["본문요약"] = "읽기실패 " + type(e).__name__
+        return rec
+    t = re.sub(r"[ \t]+", " ", t)
+    if not rec["PO번호"]:
+        m = PO_RE.search(t)
+        rec["PO번호"] = "PO" + m.group(1) if m else ""
+    rec["금액"] = _amount(t, rec["PO번호"])
+    d = DATE_RE.search(t)
+    if d:
+        rec["일자"] = "%s-%02d-%02d" % (d.group(1), int(d.group(2)), int(d.group(3)))
+    u = UJ_RE.search(t)
+    if u:
+        rec["프로젝트NO"] = u.group()
+    rec["본문요약"] = " ".join(t.split())[:140]
+    return rec
+
+
+def scan(folder=None):
+    folder = folder or PO_DIR
+    return [parse(f) for f in sorted(glob.glob(os.path.join(folder, "*.pdf")))], folder
+
+
+def latest_by_po(recs):
+    """PO번호별 최종본. **변경 통지가 있으면 그것이 최종**이다."""
+    out = {}
+    for r in recs:
+        if not r["PO번호"]:
+            continue
+        cur = out.get(r["PO번호"])
+        if cur is None or (r["변경본"] and not cur["변경본"]):
+            out[r["PO번호"]] = r
+    return out
+
+
+def check(byno):
+    """쿠팡 목록 엑셀과 원본 PDF 대조 — **다른 것만** 보고한다."""
+    from inbox_scan import pick
+    import openpyxl
+    files = pick("po")
+    if not files:
+        print("\ninbox 에 쿠팡 PO 목록이 없어 대조를 건너뜁니다.")
+        return
+    wb = openpyxl.load_workbook(files[0], read_only=True, data_only=True)
+    ws = wb[wb.sheetnames[0]]
+    rows = [r for r in ws.iter_rows(values_only=True) if any(x not in (None, "") for x in r)]
+    wb.close()
+
+    hdr, lst = None, {}
+    for r in rows:
+        v = [str(x).strip() if x is not None else "" for x in r]
+        if hdr is None:
+            if "오더 번호" in v:
+                hdr = {h: i for i, h in enumerate(v) if h}
+            continue
+        m = PO_RE.search(v[hdr["오더 번호"]].replace(" ", "")) if "오더 번호" in hdr else None
+        if not m:
+            continue
+        amt = None
+        if "금액" in hdr and v[hdr["금액"]]:
+            try:
+                amt = int(float(re.sub(r"[^\d.]", "", v[hdr["금액"]]) or 0))
+            except ValueError:
+                amt = None
+        lst["PO" + m.group(1)] = amt
+
+    only_pdf = sorted(set(byno) - set(lst))
+    only_lst = sorted(set(lst) - set(byno))
+    diff = [(k, lst[k], byno[k]["금액"]) for k in sorted(set(byno) & set(lst))
+            if lst[k] is not None and byno[k]["금액"] is not None and lst[k] != byno[k]["금액"]]
+
+    print(f"\n쿠팡 목록 {len(lst)}건  vs  원본 PDF {len(byno)}건")
+    print(f"  원본에만 있음 {len(only_pdf)} · 목록에만 있음 {len(only_lst)} · 금액 불일치 {len(diff)}")
+    for k in only_pdf[:10]:
+        a = byno[k]["금액"]
+        print(f"    [원본에만] {k} {format(a, ',') + '원' if a else '(금액 미추출)'} {byno[k]['일자']}")
+    for k in only_lst[:10]:
+        print(f"    [목록에만] {k}  ← 원본 PDF가 아직 없습니다")
+    for k, a, b in diff[:10]:
+        print(f"    [금액다름] {k} 목록 {a:,} / 원본 {b:,} (차 {b - a:+,})")
+    return {"only_pdf": only_pdf, "only_lst": only_lst, "diff": diff}
+
+
+def main():
+    args = sys.argv[1:]
+    folder = args[args.index("--dir") + 1] if "--dir" in args else None
+    recs, folder = scan(folder)
+    if not recs:
+        print("PDF를 찾지 못했습니다: " + str(folder))
+        return
+
+    ok = [r for r in recs if r["금액"]]
+    byno = latest_by_po(recs)
+    print(f"PO 원본 PDF {len(recs)}개 · 금액 추출 {len(ok)} · 실패 {len(recs) - len(ok)}")
+    print(f"고유 PO번호 {len(byno)}개 · 변경 통지 {sum(1 for r in recs if r['변경본'])}건")
+    for r in recs[:4]:
+        print(f"  {r['PO번호'] or '?':10} {str(r['금액'] or '-'):>12} {r['일자'] or '-':10} {r['본문요약'][:52]}")
+
+    if "--csv" in args:
+        os.makedirs(REPORT_DIR, exist_ok=True)
+        p = os.path.join(REPORT_DIR, f"PO원본_{datetime.now():%Y%m%d}.csv")
+        with open(p, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(recs[0].keys()))
+            w.writeheader()
+            w.writerows(recs)
+        print("리포트:", p)
+
+    if "--check" in args:
+        check(byno)
+
+
+if __name__ == "__main__":
+    main()
