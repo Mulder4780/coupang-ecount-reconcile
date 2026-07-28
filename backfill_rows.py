@@ -78,16 +78,21 @@ def enrich(r):
 
 def sheet_state(master, sheet):
     """(첫 빈 행, 열이름→열번호, 실제 용량행)
-    용량은 하드코딩하지 않는다 — expand_rows.py로 행을 늘리면 바로 반영되어야 한다."""
+    용량은 하드코딩하지 않는다 — expand_rows.py로 행을 늘리면 바로 반영되어야 한다.
+
+    ★ 2026-07-28 실사고: 첫 빈 행을 **프로젝트NO 열만 보고** 정했다. 사람이 번호 없이
+      내용만 적어 둔 행(02시트 547행: M_순천1·김필우)이 '빈 행'으로 잡혀 전혀 다른 건의
+      번호가 그 행에 얹혔다. 나머지 칸은 '빈 칸만' 정책이 막아 줘서 겉보기엔 조용했지만,
+      한 행에 서로 다른 두 건이 섞였다. 빈 행 판정은 **행 전체**로 한다.
+      ID(A열)는 수식이라 판정에서 뺀다."""
     import openpyxl
     wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
     ws = wb[sheet]
     hdr = next(ws.iter_rows(min_row=4, max_row=4, values_only=True))
     cols = {str(h).strip(): i + 1 for i, h in enumerate(hdr) if h}
     last = 4
-    j = cols["프로젝트NO"]
-    for i, row in enumerate(ws.iter_rows(min_row=5, min_col=j, max_col=j, values_only=True)):
-        if row[0] not in (None, ""):
+    for i, row in enumerate(ws.iter_rows(min_row=5, values_only=True)):
+        if any(v not in (None, "") for v in row[1:]):
             last = 5 + i
     cap = ws.max_row                      # 수식이 깔린 마지막 행 = 입력 가능한 마지막 행
     wb.close()

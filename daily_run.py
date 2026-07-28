@@ -69,6 +69,21 @@ def main():
     else:
         steps.append({"name": "쿠팡 PO 대조", "ok": None, "out": "스킵 — inbox/에 쿠팡 PO 목록 파일 없음(파일명에 PO 포함)"})
 
+    # 2.7 입금(수금) 자동입력 — 자료가 들어오면 사람 손 없이 채운다(사용자 지시 2026-07-28).
+    #     파일이 없으면 receipt_fill 이 스스로 안내만 하고 조용히 끝나므로 조건 없이 돌린다.
+    #     (계정별원장은 '0. 원본 자료' 에도 들어오므로 파일명 조건을 걸면 놓친다 — pick 이 내용으로 찾는다)
+    steps.append(run("입금 대조·자동입력", [os.path.join(ROOT, "receipt_fill.py"), "--queue"]))
+
+    # 2.8 카톡 신규 접수 등록 — 대화 내보내기가 들어오면 02·04 에 새 행으로 올린다.
+    #     유형이 확정된 것(돌발·정기)만 올리고 철거·납품은 보류한다 — 대상 시트가 없다.
+    if glob.glob(os.path.join(ROOT, "kakao", "inbox", "*.txt")):
+        #     ★ --days 7 로 **최근분만** 올린다. 과거분(현재 미등록 82건)은 파싱 품질을 사람이
+        #       한 번 보고 넣어야 해서 자동에 태우지 않는다: python kakao_extract.py --new
+        steps.append(run("카톡 신규 접수 등록",
+                         [os.path.join(ROOT, "kakao_extract.py"), "--new", "--days", "7", "--queue"]))
+    else:
+        steps.append({"name": "카톡 신규 접수 등록", "ok": None, "out": "스킵 — kakao/inbox/에 대화 내보내기 없음"})
+
     # 3. 밴드 수집·대조 — 공식 API 토큰이 있으면 수집+대조, 브라우저 수집 캐시만 있으면 대조만
     band_cache = [f for f in glob.glob(os.path.join(ROOT, "band", "cache", "*.json"))
                   if not os.path.basename(f).startswith(("raw_", "dump_"))]

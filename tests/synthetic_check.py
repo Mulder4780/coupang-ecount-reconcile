@@ -696,7 +696,23 @@ def t23_formulas():
     assert not F.direct_self_refs(restored), F.direct_self_refs(restored)
     direct = '<row r="5"><c r="M5"><f>IF(M5="","",1)</f><v/></c></row>'
     assert F.direct_self_refs(direct) == ["M5"]
-    print("  [23] 수식 복구(굳은 상태값·순환참조 탐지·공유수식본·범위확장·셀위치) ✅")
+    # 일반 수식열에서도 사람이 확정한 inlineStr 값은 <v>가 없다는 이유로 덮으면 안 된다.
+    mixed = ('<sheetData>'
+             '<row r="5"><c r="H5"><f>IF($B5="","",1)</f><v>1</v></c>'
+             '<c r="I5"><f>IF($B5="","",2)</f><v>2</v></c></row>'
+             '<row r="6"><c r="H6"><f>IF($B6="","",1)</f><v>1</v></c>'
+             '<c r="I6"><f>IF($B6="","",2)</f><v>2</v></c></row>'
+             '<row r="7"><c r="H7" t="inlineStr"><is><t>엄진언</t></is></c></row>'
+             '<row r="8"><c r="H8" t="inlineStr"><is><t></t></is></c>'
+             '<c r="I8"><f>IF($B8="","",2)</f><v>2</v></c></row>'
+             '</sheetData>')
+    mixed_out, mixed_n = F.fill_missing(mixed)
+    assert mixed_n == 2, mixed_n
+    assert '<c r="H7" t="inlineStr"><is><t>엄진언</t></is></c>' in mixed_out, mixed_out
+    assert '<c r="H8"><f>IF($B8="","",1)</f><v/></c>' in mixed_out, mixed_out
+    assert '<c r="I7"><f>IF($B7="","",2)</f><v/></c>' in mixed_out, mixed_out
+    assert "00_대시보드" in F.FILL_MISSING_EXCLUDE
+    print("  [23] 수식 복구(수기값 보존·빈칸 판정·대시보드 제외·순환참조·범위확장) ✅")
 
 
 def t24_reorder_safety():
@@ -1639,6 +1655,10 @@ def t39_realtime_monitor():
     assert "if is_input_window()" in endpoint and "if is_input_window()" in cloud
     formulas = open(os.path.join(ROOT, "fix_formulas.py"), encoding="utf-8").read()
     assert '"--file" in args' in formulas, "수식 검사가 임시 사본 대신 실원장을 열 수 있다"
+    dashboard = open(os.path.join(ROOT, "dashboard_clean.py"), encoding="utf-8").read()
+    monitor = open(os.path.join(ROOT, "realtime_monitor.py"), encoding="utf-8").read()
+    assert '"--file" in args' in dashboard, "대시보드 검사가 임시 사본 대신 실원장을 열 수 있다"
+    assert '"dashboard_clean.py"' in monitor and "dashboard_filldown_debris" in monitor
 
     claim = open(os.path.join(ROOT, "ai_claim.py"), encoding="utf-8").read()
     assert "os.mkdir(GUARD)" in claim and "os.replace(tmp, CLAIMS)" in claim
@@ -1782,6 +1802,14 @@ def t41_dates_explicit():
         src = mm[0] if isinstance(mm, tuple) else mm
     except Exception:
         src = None
+    # data_only=True에서는 캐시가 없는 수식이 None으로 보여 잔해를 놓친다.
+    # XML을 직접 봐서 캐시 없는 수식은 잡고, 스타일만 남은 셀은 통과시킨다.
+    _dash = ('<sheetData><row r="27">'
+             '<c r="B27" s="1"><f>COUNTIF($A$1:$A$2,1)</f><v/></c>'
+             '<c r="E27" s="1"/><c r="H27" s="1" t="inlineStr"><is><t>잔해</t></is></c>'
+             '</row></sheetData>')
+    _left = DC.survey_xml(_dash)
+    assert [r for r, _v, _w in _left] == ["B27", "H27"], _left
     # (6) 담당기사 칸에 사람 아닌 값이 들어가면 대표보고 TOP 5 에 그대로 노출되고
     #     기사별 집계가 오염된다(2026-07-28 실사고 10건). 뽑는 단계에서 막는다.
     from band_extract import normalize_tech as NT
@@ -1848,7 +1876,8 @@ def t40_claim_enforced():
     import claim_guard, ai_claim
 
     # (1) 원장을 쓰는 도구는 전부 가드를 거쳐야 한다
-    for fn in ("ledger_writer.py", "workbook_patch.py", "expand_rows.py", "confirm_fill.py"):
+    for fn in ("ledger_writer.py", "workbook_patch.py", "expand_rows.py", "confirm_fill.py",
+               "fix_formulas.py", "dashboard_clean.py"):
         src = open(os.path.join(ROOT, fn), encoding="utf-8").read()
         assert "claim_guard" in src and 'require("ledger"' in src, f"{fn} 이 점유를 확인하지 않는다"
 
@@ -1885,6 +1914,126 @@ def t40_claim_enforced():
     print("  [40] 점유 강제(원장 도구 차단·사람 실행 허용·자동 점유) ✅")
 
 
+def t42_first_empty_row(tmp):
+    """[42] '빈 행'을 프로젝트NO 한 열로 판정하면 **남의 행에 번호를 얹는다**.
+
+    2026-07-28 실사고: 02시트 547행은 사람이 번호 없이 내용만 적어 둔 행
+    (M_순천1·김필우·리모컨)이었는데, 프로젝트NO 가 비었다는 이유로 '빈 행'이 되어
+    전혀 다른 건(UJ2601347 중구1·경광등)의 번호가 그 행에 들어갔다.
+    나머지 칸은 '빈 칸만' 정책이 막아 줘서 겉으로는 조용했지만 한 행에 두 건이 섞였다.
+    → 빈 행 판정은 **행 전체**로 한다. 번호만 없는 행은 '새 행'이 아니라
+      내용으로 맞춰 **번호를 채워 줄 대상**이다(새 행을 만들면 같은 건이 두 행이 된다)."""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    import openpyxl
+    from datetime import date as _date
+    import kakao_extract as kx
+    import backfill_rows as bf
+
+    path = os.path.join(tmp, "합성_원장.xlsx")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "02_돌발AS접수"
+    hdr = ["접수ID", "프로젝트NO", "캠프명", "접수일자", "신청내용", "담당기사"]
+    for i, h in enumerate(hdr, start=1):
+        ws.cell(row=4, column=i, value=h)
+    for r, code in ((5, "UJ0000001"), (6, "UJ0000002")):
+        ws.cell(row=r, column=2, value=code)
+        ws.cell(row=r, column=3, value="캠프%d" % r)
+        ws.cell(row=r, column=4, value=_date(2026, 7, 20))
+    # 7행: 번호만 없는 기존 행(사람이 먼저 적어 둔 행) — 빈 행이 아니다
+    ws.cell(row=7, column=3, value="M_순천1")
+    ws.cell(row=7, column=4, value=_date(2026, 7, 27))
+    ws.cell(row=7, column=5, value="리프트 리모콘 작동 안함")
+    ws.cell(row=7, column=6, value="김필우")
+    ws.cell(row=12, column=1, value="")          # 용량만 넓힌다(빈 행)
+    wb.save(path)
+
+    start, cols, cap, orphans = kx.sheet_state(path, "02_돌발AS접수")
+    assert start == 8, "번호 없는 7행을 빈 행으로 봤다 — 남의 행에 번호를 얹는다 (start=%s)" % start
+    assert [o["행"] for o in orphans] == [7], orphans
+    assert orphans[0]["내용키"] == kx._key("리프트 리모콘 작동 안함"), orphans
+
+    b_start, _, _ = bf.sheet_state(path, "02_돌발AS접수")
+    assert b_start == 8, "backfill_rows 도 같은 함정에 빠진다 (start=%s)" % b_start
+
+    # 공지 일자와 원장 일자는 며칠 어긋난다(공지가 다음 날 올라온다) — ±3일은 같은 건
+    assert kx._near("2026-07-28", {_date(2026, 7, 27)}) is True
+    assert kx._near("2026-07-28", {_date(2026, 7, 20)}) is False
+    assert kx._near("", {_date(2026, 7, 27)}) is False
+
+    # 두 자리 연도('26.07.28')를 못 읽으면 신청일자가 통째로 빈칸이 된다(실제 UJ2601345)
+    assert kx.norm_date("26.07.28") == _date(2026, 7, 28)
+    assert kx.norm_date("2026.00.00 (요일)") is None          # 템플릿은 채우지 않는다
+    # 유형을 모르면 찍지 않는다 — 억지로 02·04 로 몰면 엉뚱한 시트에 등록된다
+    assert kx.kind_of("♣ ［ 돌발유료 A/S 안내 ]") == "02_돌발AS접수"
+    assert kx.kind_of("♣ ［ 2026년 03분기 3개월 유료 A/S 안내 ]") == "04_정기점검"
+    assert kx.kind_of("♣ ［쿠팡 철거보관 안내］") not in ("02_돌발AS접수", "04_정기점검")
+    assert kx.status_of("♣ ［ 돌발유료 A/S 완료 ]") == "완료"
+    assert kx.status_of("✅ 접수취소 ♣ ［ 돌발유료 A/S 안내 ]") == "취소"
+    # 담당기사 칸에 작업 메모가 들어가면 대표보고에 그대로 노출된다(2026-07-28 실사고)
+    from band_extract import normalize_tech
+    assert normalize_tech("000 (캠프상태확인 및 스케쥴 세팅)") == ""
+    print("  [42] 빈 행 판정(행 전체)·번호없는 행 채움·카톡 파싱(2자리연도·유형·상태) ✅")
+
+
+def t43_receipt_fill(tmp):
+    """[43] 입금 자동입력 — 합계행을 입금으로 세면 가짜 수금이 생긴다.
+
+    폰 앱 '빈 항목 입력'의 입금일·입금액만 사람이 손으로 넣고 있었다(사용자 지시 2026-07-28:
+    자료 확인되면 자동화). 근거는 거래처별계정별원장의 **대변**이다. 함정 셋:
+      · '월 계'·'누 계'·'전기이월' 행이 큰 금액을 갖고 있다 → 그대로 세면 가짜 입금 1건
+      · 차변은 매출 발생이지 입금이 아니다
+      · 쿠팡은 여러 건을 묶어 한 번에 넣는다 → 금액이 겹치면 엉뚱한 정산행에 붙는다"""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    import openpyxl
+    from datetime import date as _date
+    import receipt_fill as rf
+
+    path = os.path.join(tmp, "합성_계정별원장.xlsx")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["회사명 : 합성"])
+    ws.append(["일자", "일자-No.", "적요", "차변", "대변"])
+    ws.append([_date(2026, 1, 10), "2026/01/10 -3", "제품매출", 3043150, None])   # 차변=매출
+    ws.append([_date(2026, 2, 15), "2026/02/15 -1", "보통예금 입금", None, 3043150])
+    ws.append([_date(2026, 2, 20), "2026/02/20 -2", "보통예금 입금", None, 500000])
+    ws.append([None, None, "2026/02 월 계", 3043150, 3543150])                    # 합계행
+    ws.append([None, None, "누 계", 3043150, 3543150])                            # 합계행
+    wb.save(path)
+
+    got, ok = rf.parse_receipts(path)
+    assert ok, "적요+대변 머리글을 못 찾았다"
+    assert len(got) == 2, "합계행·차변행이 섞였다: %s" % got     # 차변 1 + 합계 2 는 빠져야 한다
+    assert {int(g["금액"]) for g in got} == {3043150, 500000}, got
+    assert got[0]["일자"] == _date(2026, 2, 15), got[0]
+
+    # 유일 일치만 자동입력 — 금액이 같은 후보가 둘이면 사람에게 넘긴다
+    rows = [
+        {"정산ID": "S1", "청구액": 3043150.0, "프로젝트NO": "UJ1", "캠프명": "양주2",
+         "발행일": _date(2026, 1, 10)},
+        {"정산ID": "S2", "청구액": 500000.0, "프로젝트NO": "UJ2", "캠프명": "부산1",
+         "발행일": _date(2026, 1, 11)},
+        {"정산ID": "S3", "청구액": 500000.0, "프로젝트NO": "UJ3", "캠프명": "창원1",
+         "발행일": _date(2026, 1, 12)},
+    ]
+    paired, spare = rf.match(got, rows)
+    assert [s["정산ID"] for _, s in paired] == ["S1"], paired      # 500000 은 후보 2건 → 보류
+    assert len(spare) == 1, spare
+
+    # 발행일보다 앞선 입금은 그 건의 입금이 아니다
+    early = [{"일자": _date(2025, 12, 1), "금액": 3043150.0, "전표": "", "적요": "", "출처": ""}]
+    assert rf.match(early, rows[:1])[0] == [], "청구 전에 들어온 돈을 그 건에 붙였다"
+
+    # 청구일·지급예정일은 채우지 않는다 — 산정 규칙이 확정되기 전엔 만들어 넣으면 안 된다
+    src = open(os.path.join(ROOT, "receipt_fill.py"), encoding="utf-8").read()
+    body = src.split('if __name__')[0]
+    assert '"col": "청구일"' not in body and '"col": "지급예정일"' not in body, \
+        "규칙이 확정되지 않은 청구일·지급예정일을 채우고 있다"
+    print("  [43] 입금 자동입력(합계행 제외·차변 제외·유일매칭·청구일 임의채움 금지) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1895,6 +2044,8 @@ if __name__ == "__main__":
         t8_findings_sheet(tmp)
         t12_dedupe(tmp)
         t13_fix_ids(tmp)
+        t42_first_empty_row(tmp)
+        t43_receipt_fill(tmp)
     t2_payload()
     t3_match()
     t9_watchdog()
