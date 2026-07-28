@@ -192,6 +192,78 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 /* ═══ 대표보고 절 — 목차가 또렷하고 글자가 읽히게 ═══ */
 .esec{margin-top:22px}
 .esec:first-child{margin-top:8px}
+/* ── 읽어 드릴 내용 ─────────────────────────────────────────────────────────
+   한 건이 어디서 끝나는지 눈에 바로 들어와야 한다. 구역은 색 띠로, 한 건은 카드로,
+   빠진 항목은 붉게. 숫자는 tabular-nums 로 세로줄을 맞춘다. */
+.ebrief{border:1.5px solid var(--line);border-radius:14px;background:var(--card);
+  padding:0 0 12px;margin-bottom:14px;overflow:hidden}
+.bhead{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:11px 14px;
+  border-bottom:1px solid var(--line);background:linear-gradient(180deg,#F7F9FF,transparent)}
+.bhead span{font-weight:800;font-size:13px;color:var(--brand)}
+.bhead em{font-style:normal;font-size:12px;color:var(--ink-3)}
+.bhead button{margin-left:auto;background:#EEF2FF;color:#1C3FA8;border:0;border-radius:9px;
+  padding:7px 12px;font-weight:800;font-size:12.5px;font-family:inherit;cursor:pointer}
+.bhead button:hover{background:#E0E7FF}
+
+.bsec{margin:12px 14px 0;padding-left:11px;border-left:3px solid #C7D2FE}
+.bsec.need{border-left-color:#FCD34D}
+.bst{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.bst b{font-size:14px;font-weight:800;margin-right:2px}
+.bpill{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;
+  background:#F1F5F9;color:#475569;font-variant-numeric:tabular-nums}
+.bpill em{font-style:normal;opacity:.7;margin-left:4px;font-weight:600}
+.bpill.new{background:#E0EAFF;color:#1E40AF}
+.bpill.done{background:#DCFCE7;color:#166534}
+.bpill.warn{background:#FEF3C7;color:#92400E}
+
+.bglab{font-size:12px;font-weight:800;margin:10px 0 6px;padding-left:2px;color:#475569}
+.bglab.new{color:#1E40AF}
+.bglab.done{color:#166534}
+
+.bcard{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:6px;
+  background:var(--card)}
+.bcard.slim{padding:7px 10px;margin-top:6px}
+.bc1{display:flex;align-items:center;flex-wrap:wrap;gap:6px;line-height:1.5}
+.bc1 b{font-size:13.5px;font-weight:800}
+.bd{font-size:11.5px;font-weight:800;color:#3730A3;background:#EEF2FF;border-radius:6px;
+  padding:2px 7px;font-variant-numeric:tabular-nums;flex:none}
+.bp{font-size:11.5px;font-weight:700;color:#475569;background:#F1F5F9;border-radius:6px;
+  padding:2px 7px;flex:none}
+.bm{font-size:12px;color:var(--ink-3)}
+.bm.none{color:#B45309}
+.btag{font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;
+  background:#F1F5F9;color:#475569}
+.btag.paid{background:#FEE2E2;color:#991B1B}
+.bage{display:inline-block;margin:4px 0 2px;font-size:11.5px;color:#6B7280;
+  background:#F8FAFC;border-radius:6px;padding:2px 8px}
+.bc2{display:flex;gap:8px;margin-top:5px;font-size:12.5px;line-height:1.6}
+.bc2 i{flex:none;width:30px;font-style:normal;font-weight:700;color:#94A3B8;font-size:11.5px;
+  padding-top:1px}
+.bc2 span{flex:1;min-width:0;word-break:break-word}
+.bmiss{color:#B91C1C;font-weight:700}
+.bnone{font-size:12.5px;color:var(--ink-3);padding:4px 0}
+
+.bbar{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--card)}
+.bbt{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:12.5px}
+.bbt b{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
+.bbt em{font-style:normal;font-size:11.5px;color:var(--ink-3);font-weight:600;margin-left:3px}
+.btrack{height:7px;border-radius:999px;background:#E9EEF6;margin:7px 0 6px;overflow:hidden}
+.bfill{height:100%;border-radius:999px;background:#16A34A}
+.bfill.low{background:#F59E0B}
+.bnote{font-size:12px;color:var(--ink-3)}
+
+.bneed{border:1px solid #FDE68A;background:#FFFBEB;border-radius:10px;
+  padding:9px 11px;margin-bottom:7px}
+.bnh{font-size:13px;font-weight:700;color:#78350F}
+.bnh b{font-weight:800;font-variant-numeric:tabular-nums}
+.bnd{font-size:12px;color:#92400E;margin-top:3px;opacity:.9}
+
+@media (max-width:520px){
+  .bsec{margin:12px 10px 0}
+  .bc2 i{width:26px}
+  .bhead button{margin-left:0}
+}
+
 /* 날짜 못 박기 띠 — '금일'이 어느 날인지 헷갈리지 않게 절 맨 위에 놓는다 */
 .dbanner{margin:10px 0 12px;padding:9px 12px;border-radius:10px;font-size:13px;
   background:#eef2ff;border:1px solid #c7d2fe;color:#312e81;
@@ -1695,25 +1767,96 @@ async function loadBrief(){
   try{ renderDaily(); }catch(e){}
 }
 
+/* ── 읽어 드릴 내용 ──────────────────────────────────────────────────────────
+   예전에는 서버가 만든 문장을 줄 단위로 그대로 흘려 놨더니 **어디서 어디까지가
+   한 건인지** 안 보였다(사용자 지적 2026-07-28). 같은 데이터를 카드로 끊어
+   그린다 — 날짜·번호·캠프는 한 줄에, 내용은 그 아래, 빠진 항목은 붉게.
+   복사 버튼은 그대로 서버 문장을 쓴다(대표께 그대로 보내는 용도라 형식이 중요). */
+const _e = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const _md = s => { s=String(s||''); return s.length>=10 ? s.slice(5) : s; };
+
+function bTag(x){
+  const paid = /유상/.test(x.비용||'') ? '<span class="btag paid">유상</span>'
+             : (x.비용 ? `<span class="btag">${_e(x.비용)}</span>` : '');
+  const who = x.담당기사 ? `<span class="bm">${_e(x.담당기사)}</span>`
+                         : '<span class="bm none">기사 미배정</span>';
+  return `<div class="bc1"><span class="bd">${_e(_md(x.일자))}</span>`
+       + `<span class="bp">${_e(x.프로젝트NO||'번호없음')}</span>`
+       + `<b>${_e(x.캠프명||'캠프 미기입')}</b>${who}${paid}</div>`;
+}
+function bSpan(x){
+  const a=x.접수일, b=x.일자;
+  if(!a||!b||a===b) return '';
+  const n=Math.round((Date.parse(b+'T00:00:00')-Date.parse(a+'T00:00:00'))/864e5);
+  return n>0 ? `<span class="bage">접수 ${_e(_md(a))} · ${n}일 만</span>` : '';
+}
+function bRow(lab, val, missNote){
+  return val ? `<div class="bc2"><i>${lab}</i><span>${_e(val)}</span></div>`
+             : `<div class="bc2"><i>${lab}</i><span class="bmiss">★ ${missNote}</span></div>`;
+}
+function bCard(x, kind){
+  if(kind==='new') return `<div class="bcard">${bTag(x)}${bRow('내용', x.왜, '접수내용 미기입')}</div>`;
+  if(kind==='done') return `<div class="bcard">${bTag(x)}${bSpan(x)}`
+      + bRow('왜', x.왜, '접수내용 미기입')
+      + bRow('작업', x.무엇, '미기입 — 기사에게 확인해 03_현장작업실적에 입력 필요')
+      + (x.추가작업 ? bRow('추가', x.추가작업, '') : '') + `</div>`;
+  return `<div class="bcard slim">${bTag(x)}</div>`;
+}
+
 function briefBlock(){
   if(!BRIEF || !BRIEF.ok) return '';
-  const t = String(BRIEF.text || '').trim();
-  if(!t) return '';
-  const body = t.split('\n').map(ln=>{
-    const s = ln.replace(/&/g,'&amp;').replace(/</g,'&lt;');
-    if(/^■/.test(s))  return `<div style="font-weight:800;margin-top:9px">${s}</div>`;
-    if(/^\[/.test(s)) return `<div style="color:var(--ink-3);font-size:12px">${s}</div>`;
-    return `<div style="padding-left:10px">${s}</div>`;
-  }).join('');
-  return `<div class="ebrief" style="border:1.5px solid var(--line);border-radius:12px;
-      padding:12px 14px;margin-bottom:12px;background:var(--card);font-size:13.5px;line-height:1.75">
-      <div style="font-weight:800;font-size:12.5px;color:var(--brand);margin-bottom:6px">
-        읽어 드릴 내용 <span class="norm">— 숫자가 아니라 무슨 일이 있었는지</span></div>
-      ${body}
-      <button onclick="copyBrief()" style="margin-top:10px;background:#EEF2FF;color:#1C3FA8;
-        border:0;border-radius:9px;padding:8px 13px;font-weight:800;font-size:12.5px;
-        font-family:inherit;cursor:pointer">📋 문장 복사</button>
-    </div>`;
+  const a = BRIEF['돌발AS']||{}, p = BRIEF['정기점검']||{};
+  const newL = BRIEF['신규목록']||[], doneL = (BRIEF['완료내역']||[]).filter(x=>x.구분==='돌발AS');
+  const blank = BRIEF['내용미기입']||[], stale = BRIEF['완료일미기입목록']||[];
+  const d = BRIEF['기준일']||'';
+  let h = '';
+
+  /* 돌발 AS */
+  h += `<div class="bsec"><div class="bst"><b>돌발 AS</b>
+    <span class="bpill new">신규 ${a.신규접수||0}</span>
+    <span class="bpill done">완료 ${a.완료||0}</span>
+    <span class="bpill warn">미처리 ${a.미처리||0}<em>최근 30일</em></span></div>`;
+  if(newL.length) h += `<div class="bglab new">새로 접수 ${newL.length}건 · 접수일 ${_md(d)}</div>`
+                     + newL.slice(0,6).map(x=>bCard(x,'new')).join('');
+  if(doneL.length) h += `<div class="bglab done">완료 ${doneL.length}건 · 무엇 때문에 갔고 무슨 작업을 했는지</div>`
+                     + doneL.slice(0,8).map(x=>bCard(x,'done')).join('');
+  if(!newL.length && !doneL.length) h += `<div class="bnone">그날 새로 접수되거나 완료된 건이 없습니다</div>`;
+  h += `</div>`;
+
+  /* 정기점검 — 분기 진행률은 막대로 보여 준다(숫자만 있으면 감이 안 온다) */
+  const pct = p.분기진행률||0;
+  h += `<div class="bsec"><div class="bst"><b>정기점검</b>
+    <span class="bpill done">완료 ${p.완료||0}</span>
+    <span class="bpill">그날 예정 ${p.예정||0}</span></div>
+    <div class="bbar"><div class="bbt"><span>${_e(p.분기||'')} 진행률</span>
+      <b>${pct}% <em>${p.분기완료||0}/${p.분기예정||0}건</em></b></div>
+      <div class="btrack"><div class="bfill${pct>=60?'':' low'}" style="width:${Math.min(pct,100)}%"></div></div>
+      <div class="bnote">${pct>=60?'특별한 문제 없으면 분기 내 마무리 가능합니다.'
+                                 :'진행률이 낮아 일정 관리가 필요합니다.'}</div></div></div>`;
+
+  /* 확인이 필요한 것 — 대표가 물어볼 항목만 모아 둔다 */
+  const staleN = a.완료일미기입||0;
+  if(staleN || blank.length){
+    h += `<div class="bsec need"><div class="bst"><b>확인이 필요합니다</b></div>`;
+    if(staleN){
+      const ds = stale.map(x=>x.일자).filter(Boolean).sort();
+      h += `<div class="bneed"><div class="bnh">완료일이 안 적힌 오래된 건 <b>${staleN}건</b></div>
+        <div class="bnd">접수 후 30일 넘음${ds.length?` · 접수 ${ds[0]} ~ ${ds[ds.length-1]}`:''}</div>
+        <div class="bnd">실제로는 끝났을 가능성이 큽니다 — 완료일만 채우면 정리됩니다.</div></div>`;
+    }
+    if(blank.length){
+      h += `<div class="bneed"><div class="bnh">작업 내용이 안 적힌 완료건 <b>${blank.length}건</b></div>
+        <div class="bnd">기사에게 확인해 03_현장작업실적에 입력해야 합니다</div>`
+        + blank.slice(0,5).map(x=>bCard(x,'slim')).join('') + `</div>`;
+    }
+    h += `</div>`;
+  }
+
+  return `<div class="ebrief">
+    <div class="bhead"><span>읽어 드릴 내용</span>
+      <em>숫자가 아니라 무슨 일이 있었는지</em>
+      <button onclick="copyBrief()">📋 문장 복사</button></div>
+    ${h}</div>`;
 }
 
 async function copyBrief(){

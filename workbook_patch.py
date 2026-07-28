@@ -40,6 +40,12 @@ def latest_master():
     if not cands:
         sys.exit("관리대장 v*.xlsx 를 찾을 수 없습니다.")
     best = max(cands, key=ver)
+    # 구 버전은 말 안 해도 OLD 로 접는다(사용자 지시 2026-07-28). 최신본은 손대지 않는다.
+    try:
+        from ledger_versions import autoprune
+        autoprune(best)
+    except Exception:
+        pass
     return best, ver(best)
 
 

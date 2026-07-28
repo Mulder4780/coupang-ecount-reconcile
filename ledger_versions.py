@@ -37,6 +37,8 @@ KEEP_DAYS = 0         # '하루의 마지막 버전'도 따로 남기지 않는�
 # 사용자 지정(2026-07-27): 이전 버전은 관리대장 폴더 아래 OLD 로 모은다.
 ARCHIVE = "OLD"
 VRE = re.compile(r"_v(\d+)\.xlsx$")
+# 자동 정리는 **이 이름에만** 손댄다. 넓게 잡으면 남의 파일을 옮긴다(2026-07-28 실사고).
+MASTER_RE = re.compile(r"^쿠팡_통합업무_일일보고_관리대장_v(\d+)\.xlsx$")
 
 
 def versions(master):
@@ -74,6 +76,65 @@ def plan(master):
 
     move = [v for v in vs if v["path"] not in keep]
     return [v for v in vs if v["path"] in keep], move
+
+
+_AUTODONE = False       # 한 프로세스에서 한 번만 — resolve_master 는 여러 번 불린다
+
+
+def autoprune(master, quiet=True):
+    """★ 사용자 지시(2026-07-28): "구 버전은 말 안 해도 OLD 폴더로 들어가게."
+
+    관리대장을 찾는 길목(resolve_master·latest_master)에서 저절로 불린다.
+    도구가 11개라 저장하는 쪽마다 붙이면 반드시 하나를 빠뜨린다 — **찾는 쪽**에 한 번만 건다.
+
+    조심할 것
+      · **절대 지우지 않는다.** OLD에 같은 이름이 있으면 그냥 둔다(수동 --prune 과 다른 점).
+      · 엑셀이 열어 둔 파일은 못 옮긴다 → 조용히 건너뛴다. 다음 실행에 다시 시도한다.
+      · 최신본은 어떤 경우에도 손대지 않는다 — 사라지면 모든 도구가 멈춘다.
+    """
+    global _AUTODONE
+    if _AUTODONE:
+        return 0
+    # ★ 2026-07-28: 처음엔 plan() 을 그대로 썼는데 그게 `*_v*.xlsx` 를 통째로 잡아
+    #   **합성검증용 임시 파일(합성대장F_v1.xlsx)까지 옮겨** 시험이 깨졌다.
+    #   자동으로 도는 것은 반드시 **관리대장 이름에만** 손대야 한다. 사람이 부르는
+    #   --prune 과 달리 여기는 아무도 안 보고 있다.
+    if not master or not os.path.isfile(master) or not MASTER_RE.search(os.path.basename(master)):
+        return 0
+    _AUTODONE = True
+    try:
+        folder = os.path.dirname(master)
+        cur = MASTER_RE.search(os.path.basename(master))
+        move = []
+        for p in glob.glob(os.path.join(folder, "*.xlsx")):
+            b = os.path.basename(p)
+            m = MASTER_RE.search(b)
+            if not m or b.startswith("~$") or "보관" in b:
+                continue
+            if int(m.group(1)) >= int(cur.group(1)):      # 최신본과 그 이후는 손대지 않는다
+                continue
+            move.append({"path": p})
+        if not move:
+            return 0
+        dst = os.path.join(folder, ARCHIVE)
+        os.makedirs(dst, exist_ok=True)
+        done = 0
+        for v in move:
+            target = os.path.join(dst, os.path.basename(v["path"]))
+            if os.path.exists(target):
+                continue                      # 이미 접혀 있다 — 원본은 사람이 판단할 몫
+            try:
+                shutil.move(v["path"], target)
+                done += 1
+            except OSError:
+                pass                          # 열려 있는 파일 등 — 다음에 다시
+        if done and not quiet:
+            print(f"i 구 버전 {done}개를 {ARCHIVE}/ 로 접었습니다")
+        if not os.path.exists(master):        # 있을 수 없는 일이지만 확인한다
+            raise RuntimeError("최신본이 사라졌다")
+        return done
+    except Exception:
+        return 0                              # 정리는 부수 작업이다 — 본 작업을 막지 않는다
 
 
 def main():

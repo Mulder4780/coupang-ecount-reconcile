@@ -52,10 +52,30 @@ def _d(v):
     return "" if v is None else str(v)
 
 
+def _latest_in(folder):
+    """폴더에서 v번호가 가장 큰 관리대장. 구 버전 정리의 기준점으로만 쓴다."""
+    import glob, re as _re
+    best, bv = None, -1
+    for p in glob.glob(os.path.join(folder, "쿠팡_통합업무_일일보고_관리대장_v*.xlsx")):
+        m = _re.search(r"_v(\d+)\.xlsx$", p)
+        if m and "~$" not in p and int(m.group(1)) > bv:
+            best, bv = p, int(m.group(1))
+    return best or folder
+
+
 def resolve_master(xlsx_path):
     """설정된 경로가 없으면 같은 폴더에서 최신 v번호 파일을 자동 탐지한다
     (관리대장은 v19→v20→v21…로 계속 버전업되며 구버전은 OLD로 이동됨)."""
     import glob, re as _re
+    # 구 버전을 OLD 로 접는다 — 사용자 지시(2026-07-28) "말 안 해도 들어가게".
+    # 저장하는 쪽이 11군데라 여기(찾는 쪽) 한 곳에만 건다. 실패해도 본 작업은 그대로 간다.
+    # autoprune 은 관리대장 이름이 아니면 스스로 아무것도 하지 않는다(합성검증 파일 보호).
+    try:
+        from ledger_versions import autoprune
+        autoprune(xlsx_path if os.path.exists(xlsx_path)
+                  else _latest_in(os.path.dirname(xlsx_path)))
+    except Exception:
+        pass
     if os.path.exists(xlsx_path):
         return xlsx_path
     folder = os.path.dirname(xlsx_path)

@@ -1674,6 +1674,56 @@ def t41_dates_explicit():
     assert "접수 02-25 · 7일 만" in out, "완료건에 접수일·경과일이 안 붙는다"
     assert "금일" not in out and "당일" not in out, "브리핑 문장에 '금일/당일'이 남아 있다"
 
+    # (1-2) 브리핑 화면은 **문장 줄바꿈이 아니라 구조화된 데이터**로 그려야 한다.
+    #       줄로 흘려 놓으면 어디서 어디까지가 한 건인지 안 보인다(사용자 지적 2026-07-28).
+    _ix = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for need in ("function bCard(", "function briefBlock(", "BRIEF['신규목록']",
+                 "BRIEF['완료내역']", 'class="bcard"', 'class="bmiss"'):
+        assert need in _ix, f"브리핑 카드 렌더링에 {need} 가 없다"
+    assert "BRIEF.text" in _ix, "복사 버튼이 서버 문장을 쓰지 않는다(대표 전달용 형식이 깨진다)"
+
+    # (1-3) 구 버전 자동 접기 — 사용자 지시(2026-07-28) "말 안 해도 OLD 로".
+    #       저장하는 도구가 11개라 **찾는 쪽**(resolve_master·latest_master)에 건다.
+    import ledger_versions as LV
+    assert hasattr(LV, "autoprune"), "autoprune 이 없다"
+    _lv = open(os.path.join(ROOT, "ledger_versions.py"), encoding="utf-8").read()
+    _auto = _lv[_lv.index("def autoprune("):_lv.index("def main(")]
+    assert "os.remove" not in _auto and "shutil.rmtree" not in _auto, \
+        "자동 정리가 파일을 지운다 — 접어 두기만 해야 한다"
+    assert "shutil.move" in _auto, "자동 정리가 옮기지 않는다"
+    for f in ("ecount_reconcile.py", "workbook_patch.py"):
+        s = open(os.path.join(ROOT, f), encoding="utf-8").read()
+        assert "autoprune" in s, f"{f} 가 구 버전을 자동으로 접지 않는다"
+    assert LV.KEEP_LATEST >= 1 and LV.ARCHIVE == "OLD", "보관 정책이 바뀌었다"
+
+    # ★ 자동으로 도는 정리는 아무도 안 보고 있다. **남의 파일을 옮기면 안 된다.**
+    #   처음 구현이 `*_v*.xlsx` 를 통째로 잡아 합성검증용 임시 파일까지 옮겨 시험이 깨졌다.
+    import tempfile as _tf, shutil as _sh
+    _d = _tf.mkdtemp()
+    try:
+        for _n in ("합성대장F_v1.xlsx", "합성대장F_v2.xlsx", "기타자료_v3.xlsx"):
+            open(os.path.join(_d, _n), "w").write("x")
+        LV._AUTODONE = False
+        assert LV.autoprune(os.path.join(_d, "합성대장F_v2.xlsx")) == 0, "남의 파일을 옮겼다"
+        assert len(os.listdir(_d)) == 3, "남의 폴더를 건드렸다"
+
+        for _v in (1, 2, 3):
+            open(os.path.join(_d, f"쿠팡_통합업무_일일보고_관리대장_v{_v}.xlsx"), "w").write("x")
+        open(os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v9_보관.xlsx"), "w").write("x")
+        LV._AUTODONE = False
+        assert LV.autoprune(os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v3.xlsx")) == 2, \
+            "옛 버전 2개가 접히지 않았다"
+        left = sorted(x for x in os.listdir(_d) if x.endswith(".xlsx"))
+        assert "쿠팡_통합업무_일일보고_관리대장_v3.xlsx" in left, "최신본이 접혔다"
+        assert "쿠팡_통합업무_일일보고_관리대장_v9_보관.xlsx" in left, "'보관' 표시본이 접혔다"
+        assert "기타자료_v3.xlsx" in left and "합성대장F_v1.xlsx" in left, "남의 파일이 접혔다"
+        assert sorted(os.listdir(os.path.join(_d, "OLD"))) == [
+            "쿠팡_통합업무_일일보고_관리대장_v1.xlsx",
+            "쿠팡_통합업무_일일보고_관리대장_v2.xlsx"], "접힌 목록이 다르다"
+    finally:
+        LV._AUTODONE = False
+        _sh.rmtree(_d, ignore_errors=True)
+
     # (2) 화면·이미지 — '(금일)' 라벨을 실제 날짜로 바꾸는 코드가 살아 있는가
     src = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     assert "function dateLabel(" in src, "dateLabel 이 없다"
