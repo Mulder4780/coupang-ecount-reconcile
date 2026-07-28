@@ -239,13 +239,41 @@ def proposals(rec, sid, recs):
 
 
 # ── 실행 ────────────────────────────────────────────────────────────────
-def scan(folder=INBOX, apply=False):
-    os.makedirs(folder, exist_ok=True)
-    imgs = [p for p in sorted(glob.glob(os.path.join(folder, "*")))
-            if p.lower().endswith(IMG_EXT)]
+def photo_dirs(folder=None):
+    """사진을 찾을 곳. 원본은 서버('0. 원본 자료/4. 밴드 원본/문서사진')에 두고,
+    PC 로컬 inbox 도 계속 본다 — 새로 받은 사진을 급히 떨어뜨리는 자리이고,
+    서버가 끊겨도 그건 읽을 수 있어야 한다(사용자 지시 2026-07-28: 원본은 서버로)."""
+    if folder:
+        return [folder]
+    try:
+        sys.path.insert(0, ROOT)
+        from source_dirs import doc_photo_dirs
+        dirs = doc_photo_dirs()
+    except Exception:
+        dirs = []
+    return dirs or [INBOX]
+
+
+def scan(folder=None, apply=False):
+    dirs = photo_dirs(folder)
+    imgs, seen = [], set()
+    for d in dirs:
+        for p in sorted(glob.glob(os.path.join(d, "*"))):
+            if not p.lower().endswith(IMG_EXT):
+                continue
+            name = os.path.basename(p)
+            if name in seen:          # 서버·로컬 양쪽에 같은 파일이 있으면 한 번만 본다
+                continue
+            seen.add(name)
+            imgs.append(p)
     if not imgs:
-        print(f"이미지 없음 — {folder} 에 밴드에서 저장한 명세서·계산서 사진을 넣으세요")
+        os.makedirs(INBOX, exist_ok=True)
+        print("이미지 없음 — 아래 중 한 곳에 밴드에서 저장한 명세서·계산서 사진을 넣으세요")
+        for d in dirs:
+            print("   ", d)
         return []
+    if len(dirs) > 1:
+        print("사진 %d장 (%d곳에서: %s)" % (len(imgs), len(dirs), " · ".join(dirs)))
     try:
         recs = load_ledger()
     except Exception as e:

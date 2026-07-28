@@ -86,6 +86,19 @@ def receipt_dirs():
     return existing(RECEIPT_DIRS)
 
 
+# 밴드 문서 사진(거래명세서·현장사진) — 1,459장 130MB. **원본이라 서버에 둔다**
+# (사용자 지시 2026-07-28: 용량 큰 원본은 '0. 원본 자료' 로). PC 로컬 inbox 도 계속 본다 —
+# 새로 받은 사진을 급히 떨어뜨리는 자리이고, 서버가 끊겨도 그건 읽을 수 있어야 한다.
+DOC_PHOTO_DIRS = [
+    os.path.join(BAND_DIR, "문서사진"),
+    os.path.join(ROOT, "band", "docs_inbox"),
+]
+
+
+def doc_photo_dirs():
+    return existing(DOC_PHOTO_DIRS)
+
+
 if __name__ == "__main__":
     import sys, glob
     try:
