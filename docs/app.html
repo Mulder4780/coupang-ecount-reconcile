@@ -190,6 +190,16 @@ function hide2025(r){
   return Object.fromEntries(Object.entries(r||{}).map(([k,v])=>
     [k,typeof v==='string'?v.replace(old,'').trim():v]));
 }
+function codeIs2026(k,r){
+  if(!/^UJ26\d{5}$/i.test(k) || !r || typeof r!=='object') return false;
+  const blob=JSON.stringify(r);
+  const dates=[...blob.matchAll(/(^|[^\d])(20\d{2})[-./]/g)].map(m=>m[2]);
+  const ids=[...blob.matchAll(/\b(?:AS|PM|JS)-(\d{2})\d{2}(?:-|$)/gi)].map(m=>m[1]);
+  const projects=[...blob.matchAll(/\bUJ(\d{2})\d{5}\b/gi)].map(m=>m[1]);
+  return (!dates.length || (new Set(dates).size===1 && dates[0]==='2026')) &&
+         (!ids.length || (new Set(ids).size===1 && ids[0]==='26')) &&
+         (!projects.length || (new Set(projects).size===1 && projects[0]==='26'));
+}
 function keep2026(d){
   const kinds = {issues:'issue',as:'as',pm:'pm',settle:'settle',erp:'erp',
                  visits:'visit',unbilled:'unbilled'};
@@ -197,7 +207,7 @@ function keep2026(d){
     d[k] = (d[k]||[]).filter(r=>is2026(r,kind)).map(hide2025);
   });
   if(d.app_year !== '2026') d.tech_gap = {'미방문':0,'기사미기입':0};
-  d.codes = Object.fromEntries(Object.entries(d.codes||{}).filter(([k])=>/^UJ26\d{5}$/i.test(k)));
+  d.codes = Object.fromEntries(Object.entries(d.codes||{}).filter(([k,r])=>codeIs2026(k,r)));
   const by = {};
   (d.visits||[]).forEach(v=>{
     const t = v['기사']||'미기입', x = by[t] ||= {'기사':t,'총':0,'돌발AS':0,'정기점검':0,'캠프':new Set(),'최근':''};
