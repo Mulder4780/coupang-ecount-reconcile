@@ -2509,8 +2509,20 @@ function owners(v){
   return l.length ? l : ['담당 미지정'];
 }
 
+/* ★ 사용자 지시(2026-07-28): "2025년도 자료는 보관만 하고, 지금 목표는 2026년 정리다."
+   원장에서 지우지 않는다 — **화면에서만** 뺀다. 나중에 정리할 때 FOCUS_YEAR 를 낮추거나
+   0 으로 두면 예전 건이 그대로 돌아온다. 자료를 잃지 않으면서 지금 볼 것만 보는 방법이다. */
+const FOCUS_YEAR = 2026;
+function inFocus(it){
+  if(!FOCUS_YEAR) return true;
+  const d = String((it&&it.date) || '').slice(0,4);
+  if(!/^\d{4}$/.test(d)) return true;        // 날짜를 모르면 숨기지 않는다
+  return +d >= FOCUS_YEAR;
+}
+
 function buildBoard(){
-  const by = {}, add = (whos,it) => owners(whos).forEach(w=>{ (by[w] = by[w]||[]).push(it); });
+  const by = {}, add = (whos,it) => { if(!inFocus(it)) return;
+    owners(whos).forEach(w=>{ (by[w] = by[w]||[]).push(it); }); };
   (works.as||[]).forEach(r=>{
     const id = r.접수ID || r.프로젝트NO;
     const base = {id, prj:r.프로젝트NO, camp:r.캠프명, kind:'돌발AS', band:r['밴드 바로가기']||''};
@@ -2540,7 +2552,12 @@ function buildBoard(){
 
 function buildMine(){
   const out = [];
-  const push = (cat,todo,lv,items,go)=>{ if(items.length) out.push({cat:cat,todo:todo,lv:lv,items:items,go:go,
+  // 2025년 건은 원장에 그대로 두고 화면에서만 뺀다(FOCUS_YEAR — 위 설명 참고).
+  const rowYear = r => String(r.접수일자||r.점검예정일||r.완료일||r.작업완료일||
+                             r.실제점검일||r.요청일||'').slice(0,4);
+  const focus = r => { const y = rowYear(r); return !FOCUS_YEAR || !/^\d{4}$/.test(y) || +y >= FOCUS_YEAR; };
+  const push = (cat,todo,lv,items,go)=>{ items = (items||[]).filter(focus);
+    if(items.length) out.push({cat:cat,todo:todo,lv:lv,items:items,go:go,
     n:items.length, amt:items.reduce((a,r)=>a+(+r.공급가액||0),0)}); };
   [['세금계산서 미발행','발행 처리 필요','danger'],
    ['미청구(전표 없음)','거래명세서 발행 필요','danger'],
