@@ -52,9 +52,10 @@ def collect():
     erp = safe(A.get_erpdocs, {"rows": []})
 
     W_AS = ["프로젝트NO", "캠프명", "접수일자", "작업완료일", "담당기사", "진행상태",
-            "유상·무상·보험", "검증결과", "검증문제코드", "관리자검증상태"]
+            "유상·무상·보험", "완료보고서등록", "사진등록", "ERP등록",
+            "검증결과", "검증문제코드", "관리자검증상태"]
     W_PM = ["프로젝트NO", "캠프명", "점검예정일", "실제점검일", "담당기사", "점검상태",
-            "검증결과", "검증문제코드"]
+            "ERP판매전표", "거래명세서", "검증결과", "검증문제코드"]
     S_K = ["정산ID", "프로젝트NO", "캠프명", "업무구분", "완료일", "공급가액",
            "상태", "명세서번호", "계산서발행일", "입금일"]
     E_K = ["전표", "월", "유형", "공급가액", "프로젝트명", "판정", "포함프로젝트"]
@@ -62,11 +63,11 @@ def collect():
     return {
         "기준": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "원본": os.path.basename(master),
-        "as": [pick(r, W_AS) for r in works.get("as", [])],
-        "pm": [pick(r, W_PM) for r in works.get("pm", [])],
-        "issues": issues.get("rows", []),
-        "settle": [pick(r, S_K) for r in settle],
-        "erp": [pick(r, E_K) for r in erp.get("rows", [])],
+        "as": [pick(r, W_AS) for r in A.app_year_rows(works.get("as", []), "as")],
+        "pm": [pick(r, W_PM) for r in A.app_year_rows(works.get("pm", []), "pm")],
+        "issues": A.app_year_rows(issues.get("rows", []), "issue"),
+        "settle": [pick(r, S_K) for r in A.app_year_rows(settle, "settle")],
+        "erp": [pick(r, E_K) for r in A.app_year_rows(erp.get("rows", []), "erp")],
     }
 
 

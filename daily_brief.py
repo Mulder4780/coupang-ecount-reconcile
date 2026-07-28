@@ -35,6 +35,7 @@ except Exception:
 
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports")
 FREE = ("무상", "보험")
+APP_YEAR = "2026"
 
 
 def _d(v):
@@ -76,7 +77,23 @@ def brief(day=None, data=None):
     """하루치 브리핑. 반환값은 화면·이미지·문서 어디서나 같은 내용을 쓰도록 구조화한다."""
     data = data or load()[0]
     day = day or (date.today() - timedelta(days=1)).isoformat()
-    A, P, F = data["as"], data["pm"], data["fw"]
+    if not str(day).startswith(APP_YEAR + "-"):
+        data = {"as": [], "pm": [], "fw": []}
+
+    def in_year(r, date_key, id_key):
+        d = _d(r.get(date_key))
+        if d:
+            return d.startswith(APP_YEAR + "-")
+        rid = _s(r.get(id_key))
+        m = re.search(r"(?<![A-Za-z0-9])(?:AS|PM)-(\d{2})\d{2}(?:-|$)", rid)
+        if m:
+            return m.group(1) == APP_YEAR[-2:]
+        return bool(re.fullmatch(r"UJ26\d{5}", _s(r.get("프로젝트NO")), re.I))
+
+    A = [r for r in data["as"] if in_year(r, "접수일자", "접수ID")]
+    P = [r for r in data["pm"] if in_year(r, "점검예정일", "점검ID")]
+    projects = {_s(r.get("프로젝트NO")) for r in A + P if _s(r.get("프로젝트NO"))}
+    F = [r for r in data["fw"] if _s(r.get("프로젝트NO")) in projects]
 
     # 03시트(실제 작업 내용)를 프로젝트별로 붙여 둔다 — '무슨 작업을 했는지'가 여기 있다
     work = {}

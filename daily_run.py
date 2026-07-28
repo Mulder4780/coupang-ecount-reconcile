@@ -56,6 +56,10 @@ def main():
     steps.append(run("판매·세금계산서 대조", [os.path.join(ROOT, "ecount_reconcile.py")]))
 
     # 2. ERP 계정별원장 4유형 대조 (inbox에 '원장' 파일 있을 때만)
+    # PC가 꺼진 동안 휴대폰에서 예약한 코드를 영구 큐에서 안전하게 가져온다.
+    # 반영 성공 확인 전에는 서버 항목을 지우지 않으며 입력 보호시간에는 이 단계도 멈춘다.
+    steps.append(run("휴대폰 클라우드 예약 반영", [os.path.join(ROOT, "cloud_queue_sync.py")]))
+
     if [f for f in glob.glob(os.path.join(ROOT, "inbox", "*.xlsx"))
             if "원장" in os.path.basename(f) or "계정" in os.path.basename(f)]:
         steps.append(run("ERP원장 4유형 대조", [os.path.join(ROOT, "erp_ledger_check.py")]))
@@ -126,6 +130,12 @@ def main():
     else:
         steps.append({"name": "밴드 문서 이미지 대조", "ok": None,
                       "out": "스킵 — band/docs_inbox/에 사진 없음"})
+
+    # 완료보고서와 문서발행 표시는 프로젝트NO가 정확히 일치하는 근거만 빈칸에 큐잉한다.
+    # 실제 ZIP 패치는 바로 아래 ledger_writer 한 번으로 합쳐 버전 난립과 충돌을 막는다.
+    steps.append(run("완료보고서 확정분 큐", [os.path.join(ROOT, "confirm_fill.py"), "--queue"]))
+    steps.append(run("ERP 판매전표·거래명세 확정분 큐",
+                     [os.path.join(ROOT, "fill_erp_documents.py"), "--queue"]))
 
     steps.append(run("관리대장 자동입력(확정분)", [os.path.join(ROOT, "ledger_writer.py"), "--apply"]))
     # 입력 직후 무결성 확인 — 엑셀이 '복구' 대화상자를 띄우는 파일을 만들지 않기 위해

@@ -239,6 +239,26 @@ def publish_endpoint(dry):
         return f"게시 오류: {str(e)[:40]}"
 
 
+def sync_cloud_queue(dry):
+    """PC 재가동 뒤 휴대폰 예약을 관리대장에 반영한다."""
+    if dry:
+        return "클라우드 예약 반영(dry)"
+    try:
+        r = subprocess.run(
+            [PY, os.path.join(ROOT, "cloud_queue_sync.py")],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=180,
+        )
+        line = (r.stdout or r.stderr or "").strip().splitlines()
+        return ("클라우드 예약 " + line[-1][:80]) if line else "클라우드 예약 확인"
+    except Exception as e:
+        return f"클라우드 예약 오류: {str(e)[:40]}"
+
+
 def main():
     # 류지영 매니저 입력 중에는 로그 파일조차 갱신하지 않고 즉시 종료한다.
     if is_input_window():
@@ -248,7 +268,7 @@ def main():
     # 원장 버전 정리는 daily_run의 ledger_versions.py 한 곳에서만 수행한다.
     # 워치독이 낮은 버전 포크를 OLD로 옮겨 증거를 숨기는 일을 막는다.
     gap = gap_note(last_log_line(), datetime.now())     # 기록은 healing 전에 읽는다
-    results = [heal_server(dry), heal_tunnel(dry), publish_endpoint(dry),
+    results = [sync_cloud_queue(dry), heal_server(dry), heal_tunnel(dry), publish_endpoint(dry),
                clean_reports(dry)]
     if gap:
         results.insert(0, gap)

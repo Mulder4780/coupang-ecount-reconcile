@@ -31,6 +31,7 @@ except Exception:
 DOCS = os.path.join(ROOT, "docs")
 OUT = os.path.join(DOCS, "data.enc")
 WEBCFG = os.path.join(ROOT, "config", "webapp.json")
+QUEUECFG = os.path.join(ROOT, "config", "cloud_queue.local.json")
 PUBLISH_FILES = (
     "docs/data.enc", "docs/app.html", "docs/index.html", "docs/manifest.json", "docs/sw.js"
 )
@@ -48,12 +49,15 @@ def payload():
     """폰이 필요로 하는 것만 담는다. 인증키·엑셀 원본·밴드 원문은 담지 않는다."""
     import mobile_snapshot as M
     import project_resolve as P
+    import app_server as A
 
     d = M.collect()                       # 확인필요·업무·정산·계산서 (앱과 같은 소스)
     ev = P.evidence()
 
     codes = {}
     for c in sorted(set(ev["band"]) | set(ev["ledger"]) | set(ev["book"])):
+        if not re.fullmatch(r"UJ26\d{5}", str(c or ""), re.I):
+            continue
         r = P.resolve(c, ev)
         rec = {k: r.get(k) for k in ("camp", "kind", "cost", "tech", "date", "status",
                                      "sheet", "row", "state") if r.get(k)}
@@ -69,6 +73,9 @@ def payload():
     try:
         import tech_report as TR
         visits, pending, unknown, _m = TR.collect()
+        visits = A.app_year_rows(visits, "visit")
+        pending = A.app_year_rows(pending, "visit_pending")
+        unknown = A.app_year_rows(unknown, "visit")
         by = TR.summary(visits)
         d["tech"] = [{"기사": t, "총": v["총"], "돌발AS": v["돌발AS"],
                       "정기점검": v["정기점검"], "캠프수": len(v["캠프"]), "최근": v["최근"]}
@@ -93,6 +100,18 @@ def payload():
     d["codes"] = codes
     d["tail"] = ev["tail"]
     d["cap"] = ev["cap"]
+    d["app_year"] = "2026"
+    # 휴대폰 입력 전용 토큰은 공개 소스가 아니라 PIN 암호화 사본 안에만 넣는다.
+    # PC 작업자 토큰은 이 사본에 절대 포함하지 않는다.
+    try:
+        qcfg = json.load(open(QUEUECFG, encoding="utf-8"))
+        if qcfg.get("api_base_url") and qcfg.get("enqueue_token"):
+            d["cloud_queue"] = {
+                "url": str(qcfg["api_base_url"]).rstrip("/"),
+                "token": str(qcfg["enqueue_token"]),
+            }
+    except Exception:
+        pass
     d["gen"] = datetime.now().strftime("%Y-%m-%d %H:%M")
     return d
 
@@ -115,7 +134,7 @@ def unbilled():
             if r.get("유형") != "A":            # A = 미청구(계산서 미발행)
                 continue
             d = (r.get("발행일") or "")[:10]
-            if not re.match(r"\d{4}-\d{2}-\d{2}", d):
+            if not re.match(r"2026-\d{2}-\d{2}", d):
                 continue
             try:
                 amt = int(float(r.get("쿠팡금액") or 0))

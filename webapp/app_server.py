@@ -199,6 +199,17 @@ DATE_KEYS = {
     "pm":     ("점검예정일", "실제점검일"),
 }
 _DATE_RE = re.compile(r"(\d{4})[-./](\d{1,2})[-./](\d{1,2})")
+APP_YEAR = "2026"
+APP_YEAR_SHORT = APP_YEAR[-2:]
+_APP_PROJECT_RE = re.compile(r"(?<![A-Za-z0-9])UJ(?P<yy>\d{2})\d{5}(?!\d)", re.I)
+_APP_ID_RE = re.compile(r"(?<![A-Za-z0-9])(?:AS|PM|JS)-(?P<yy>\d{2})\d{2}(?:-|$)", re.I)
+_APP_SLIP_RE = re.compile(r"(?<!\d)(?P<yy>\d{2})/\d{2}/\d{2}\s*-\s*\d+")
+_OLD_APP_REF_RE = re.compile(
+    r"(?<![A-Za-z0-9])UJ25\d{5}(?!\d)|"
+    r"(?<![A-Za-z0-9])(?:AS|PM|JS)-25\d{2}-\d{3}(?!\d)|"
+    r"(?<!\d)2025[-./]\d{1,2}(?:[-./]\d{1,2})?|2025년|(?<!\d)25(?:년도|년)",
+    re.I,
+)
 
 
 def norm_date(v):
@@ -218,6 +229,97 @@ def row_date(rec, keys=()):
         if d:
             return d
     return ""
+
+
+def app_year_record(rec, kind=None):
+    """앱에는 2026년 업무만 노출한다.
+
+    원본 엑셀은 그대로 두고 표시 경계에서만 판정한다. 프로젝트NO/업무ID가 있으면
+    그것을 날짜보다 우선하며, ERP 묶음처럼 번호가 없는 행은 월·전표·날짜로 판정한다.
+    연도를 확인할 수 없는 행도 섞어 보여 주지 않고 제외한다.
+    """
+    if not isinstance(rec, dict):
+        return False
+
+    def years(pattern, values):
+        return {m.group("yy") for v in values for m in pattern.finditer(str(v or ""))}
+
+    def date_year(keys):
+        vals = [rec.get(k) for k in keys]
+        found = {m.group(1) for v in vals
+                 for m in re.finditer(r"(?<!\d)(20\d{2})[-./]", str(v or ""))}
+        if found:
+            return APP_YEAR if found == {APP_YEAR} else "other"
+        short = years(_APP_SLIP_RE, vals)
+        if short:
+            return APP_YEAR if short == {APP_YEAR_SHORT} else "other"
+        return ""
+
+    def id_year(keys):
+        found = years(_APP_ID_RE, [rec.get(k) for k in keys])
+        if found:
+            return APP_YEAR if found == {APP_YEAR_SHORT} else "other"
+        return ""
+
+    def project_year():
+        found = years(_APP_PROJECT_RE,
+                      [rec.get(k) for k in ("프로젝트NO", "포함프로젝트", "프로젝트명")])
+        if found:
+            return APP_YEAR if found == {APP_YEAR_SHORT} else "other"
+        return ""
+
+    # 데이터 종류마다 '그 건의 연도'를 정하는 열이 다르다. 수정일·확인일에 2026이
+    # 찍혔다고 2025 업무를 되살리지 않도록 업무 발생일을 가장 먼저 본다.
+    rules = {
+        "as": (("접수일자",), ("접수ID", "업무ID")),
+        "pm": (("점검예정일",), ("점검ID", "업무ID")),
+        "settle": (("완료일",), ("원천업무ID", "정산ID", "업무ID")),
+        "erp": (("월", "전표"), ()),
+        "visit": (("방문일",), ()),
+        "visit_pending": (("예정일",), ()),
+        "unbilled": (("발행일",), ()),
+        "issue": (("기준일", "접수일자", "점검예정일", "완료일", "발행일", "일자"),
+                  ("업무ID", "접수ID", "점검ID", "정산ID", "ID")),
+    }
+    if kind in rules:
+        date_keys, id_keys = rules[kind]
+        y = date_year(date_keys)
+        if y:
+            return y == APP_YEAR
+        y = id_year(id_keys) if id_keys else ""
+        if y:
+            return y == APP_YEAR
+        y = project_year()
+        return y == APP_YEAR
+
+    # 표준 종류를 모르는 행은 실제 업무 날짜를 먼저 찾고, 없을 때만 ID·프로젝트로
+    # 보완한다. 여러 연도가 함께 든 혼합 행은 통째로 제외한다.
+    for keys in (("접수일자",), ("점검예정일",), ("완료일",), ("월", "전표"),
+                 ("방문일",), ("발행일",), ("기준일", "일자")):
+        y = date_year(keys)
+        if y:
+            return y == APP_YEAR
+    y = id_year(("업무ID", "접수ID", "점검ID", "정산ID", "원천업무ID", "ID"))
+    if y:
+        return y == APP_YEAR
+    y = project_year()
+    return y == APP_YEAR
+
+
+def app_year_rows(rows, kind=None):
+    """2026년으로 판정되는 행만 새 목록으로 돌려준다."""
+    out = []
+    for r in rows:
+        if not app_year_record(r, kind):
+            continue
+        clean = {}
+        for k, v in r.items():
+            if isinstance(v, str):
+                v = _OLD_APP_REF_RE.sub("", v)
+                v = re.sub(r"\s*[,·/]\s*(?=([,·/]|$))", "", v).strip(" ,·/")
+            clean[k] = v
+        out.append(clean)
+    return out
 
 
 def sort_by_date(rows, kind, idkey=None):
@@ -248,7 +350,7 @@ def demo_settlements():
                      "입금일": d if st == "정상" else "", "입금액": int(amt * 1.1) if st == "정상" else 0,
                      "미수금": 0 if st == "정상" else int(amt * 1.1), "비용구분": "유상",
                      "상태": st, "완료일": d})
-    return sort_by_date(rows, "settle", "정산ID")
+    return sort_by_date(app_year_rows(rows, "settle"), "settle", "정산ID")
 
 
 def real_settlements():
@@ -291,7 +393,7 @@ def real_settlements():
                      "PO번호": r.get("원장_PO번호") or "",
                      "PO발행일": str(r.get("원장_PO발행일") or "")[:10],
                      "상태": st, "완료일": str(r.get("작업완료일") or "")[:10]})
-    return sort_by_date(rows, "settle", "정산ID")
+    return sort_by_date(app_year_rows(rows, "settle"), "settle", "정산ID")
 
 
 def real_works():
@@ -305,13 +407,15 @@ def real_works():
         # 뒤쪽 3개는 '확인 완료' 표시 — 관리자가 검증한 건인지 카드에서 바로 보이게 한다.
         "02_돌발AS접수": ("as", ["접수ID", "프로젝트NO", "캠프명", "접수일자", "담당기사", "진행상태",
                                 "작업완료일", "유상·무상·보험", "신청내용", "긴급도", "방문예정일",
-                                "관리자검증상태", "최종확인일", "사진등록",
+                                "관리자검증상태", "최종확인일", "사진등록", "완료보고서등록",
+                                "ERP등록",
                                 # 밴드 원문 바로가기 — 목록에서 근거를 바로 열어 볼 수 있게 한다
                                 "밴드 바로가기",
                                 "검증결과", "검증문제코드"]),
         "04_정기점검": ("pm", ["점검ID", "프로젝트NO", "캠프명", "점검예정일", "실제점검일", "점검상태",
                               "담당기사", "이상발견여부", "돌발AS전환여부",
                               "최종확인일(유현민 체크)", "점검사진",
+                              "ERP판매전표", "거래명세서",
                               "검증결과", "검증문제코드"]),
     }
     for sheet, (key, cols) in spec.items():
@@ -349,8 +453,8 @@ def real_works():
         apply_rep_no(out["pm"], idx, "점검ID")
     except Exception:
         pass
-    out["as"] = sort_by_date(out["as"], "as", "접수ID")
-    out["pm"] = sort_by_date(out["pm"], "pm", "점검ID")
+    out["as"] = sort_by_date(app_year_rows(out["as"], "as"), "as", "접수ID")
+    out["pm"] = sort_by_date(app_year_rows(out["pm"], "pm"), "pm", "점검ID")
     return out
 
 
@@ -488,6 +592,15 @@ def read_exec_report(master):
                 (grp["items"] if grp else cur["items"]).append([lab, val])
     for s in out["sections"]:
         s.pop("colgroups", None)                       # 내부 매핑은 응답에서 제외
+    old = _OLD_APP_REF_RE
+    if any(old.search(str(v or "")) for v in out["meta"].values()):
+        return {}
+    out["summary"] = [x for x in out["summary"] if not old.search(str(x))]
+    for s in out["sections"]:
+        s["items"] = [x for x in s.get("items", []) if not old.search(" ".join(map(str, x)))]
+        s["lines"] = [x for x in s.get("lines", []) if not old.search(str(x))]
+        for g in s.get("groups", []):
+            g["items"] = [x for x in g.get("items", []) if not old.search(" ".join(map(str, x)))]
     return out
 
 
@@ -529,7 +642,8 @@ def get_issues():
             if any(v for v in vals.values()):
                 rows.append(vals)
         wb.close()
-        out = {"rows": sort_by_date(apply_rep_no(rows), "check"), "cols": hdr, "source": "23_확인필요현황"}
+        rows = app_year_rows(apply_rep_no(rows), "issue")
+        out = {"rows": sort_by_date(rows, "check"), "cols": hdr, "source": "23_확인필요현황"}
         _cache["issues"] = out
         return out
     if "07_불일치누락현황" in wb.sheetnames:
@@ -555,14 +669,18 @@ def get_issues():
                                ("쿠팡PO 문제", "PO대조_*.csv", lambda r: True)):
             for r in latest_csv(pat):
                 if filt(r):
-                    merged.append({"문제유형": src + (f"({r['유형']})" if r.get("유형") else ""),
-                                   "업무ID": r.get("ID") or r.get("정산ID") or r.get("전표") or r.get("PO번호") or "",
-                                   "캠프명": r.get("캠프명", ""), "담당자": r.get("담당기사", ""),
-                                   "문제내용": (r.get("판정") or r.get("내용") or
-                                                f"완료 {r.get('완료일','')}" ) [:100]})
+                    merged.append({
+                        "문제유형": src + (f"({r['유형']})" if r.get("유형") else ""),
+                        "업무ID": r.get("ID") or r.get("정산ID") or r.get("전표") or r.get("PO번호") or "",
+                        "프로젝트NO": r.get("프로젝트NO") or "",
+                        "기준일": (r.get("접수일자") or r.get("점검예정일") or r.get("완료일") or
+                                   r.get("발행일") or r.get("일자") or ""),
+                        "캠프명": r.get("캠프명", ""), "담당자": r.get("담당기사", ""),
+                        "문제내용": (r.get("판정") or r.get("내용") or
+                                     f"완료 {r.get('완료일','')}" ) [:100]})
     except Exception:
         pass
-    rows = sort_by_date(apply_rep_no(merged + rows), "check")
+    rows = sort_by_date(app_year_rows(apply_rep_no(merged + rows), "issue"), "check")
     cols = []
     for r in rows[:50]:
         for k in r:
@@ -613,9 +731,12 @@ def get_erpdocs():
                 if not row or not row[0]:
                     continue
                 slip, mo, kind, sup = row[0], row[1], row[2], int(row[3] or 0)
-                out["rows"].append({"전표": str(slip), "월": str(mo), "유형": str(kind or ""),
-                                    "공급가액": sup, "거래처": str(row[6] or ""),
-                                    "프로젝트명": str(row[7] or "")})
+                rec = {"전표": str(slip), "월": str(mo), "유형": str(kind or ""),
+                       "공급가액": sup, "거래처": str(row[6] or ""),
+                       "프로젝트명": str(row[7] or "")}
+                if not app_year_record(rec, "erp"):
+                    continue
+                out["rows"].append(rec)
                 m = out["months"].setdefault(str(mo), {"합계": 0, "건수": 0})
                 m["합계"] += sup
                 m["건수"] += 1
@@ -638,7 +759,7 @@ def get_erpdocs():
         wb.close()
     except Exception as e:
         out["error"] = str(e)
-    out["rows"] = sort_by_date(out["rows"], "erpdocs")
+    out["rows"] = sort_by_date(app_year_rows(out["rows"], "erp"), "erpdocs")
     _cache["erpdocs"] = out
     return out
 
@@ -675,7 +796,10 @@ def get_checks():
     if DEMO and not out:
         out = {"JS-2607-002": {"kakao": "확인", "band": "미확인", "erp": "D 금액불일치",
                                "po": "PO 미발행"}}
-    return out
+    return {
+        k: {a: _OLD_APP_REF_RE.sub("", str(b or "")) for a, b in v.items()}
+        for k, v in out.items() if app_year_record({"ID": k})
+    }
 
 
 _UJ_RE = re.compile(r"(?<![A-Za-z0-9])UJ\d{6,}(?![0-9])")
@@ -842,6 +966,7 @@ def get_settlements():
             rows = rows + erp_settlement_rows(rows)
             idx = build_prj_index(get_works())
             apply_rep_no(rows, idx, "명세서번호")
+            rows = app_year_rows(rows, "settle")
             rows = sort_by_date(rows, "settle", "정산ID")
         except Exception:
             pass
@@ -885,17 +1010,17 @@ def get_status():
             from findings_export import latest_csv
             for key, pat, col, okv in (("band", "밴드대조_*.csv", "밴드게시", "확인"),
                                        ("kakao", "카톡대조_*.csv", "카톡보고", "확인")):
-                rows = latest_csv(pat)
+                rows = app_year_rows(latest_csv(pat), "issue")
                 if rows:
                     ok = sum(1 for r in rows if r.get(col) == okv)
                     miss = [r for r in rows if r.get(col) != okv]
                     srcs[key] = {"total": len(rows), "ok": ok, "miss": len(miss),
                                  "miss_prj": [r.get("프로젝트NO") or r.get("ID") for r in miss[:8]]}
-            erp = latest_csv("ERP원장대조_*.csv")
+            erp = app_year_rows(latest_csv("ERP원장대조_*.csv"), "issue")
             if erp:
                 srcs["erp"] = {"total": len(erp), "ok": 0, "miss": len(erp),
                                "miss_prj": [r.get("정산ID") or r.get("전표") for r in erp[:8]]}
-            po = latest_csv("PO대조_*.csv")
+            po = app_year_rows(latest_csv("PO대조_*.csv"), "issue")
             if po:
                 srcs["po"] = {"total": len(po), "ok": 0, "miss": len(po),
                               "miss_prj": [r.get("PO번호") or r.get("정산ID") for r in po[:8]]}
@@ -914,6 +1039,8 @@ def get_status():
                 files = []
                 for kd in kinds:
                     files += pick(kd) or []
+                files = [f for f in files
+                         if not re.search(r"(?<!\d)2025(?!\d)|(?<!\d)25[/._-]\d{2}", os.path.basename(f))]
                 info = {"files": len(files), "rows": 0, "empty": []}
                 for f in files[:6]:
                     try:
@@ -944,12 +1071,15 @@ def get_status():
 
 def latest_reports():
     out = []
+    old_year = _OLD_APP_REF_RE
     for pat, name in [("종합리포트_*.md", "종합"), ("카톡대조_*.md", "카톡"), ("밴드대조_*.md", "밴드"),
                       ("ERP원장대조_*.md", "ERP원장"), ("이카운트대조_*.md", "판매·계산서")]:
         fs = sorted(glob.glob(os.path.join(ROOT, "reports", pat)))
         if fs:
+            text = open(fs[-1], encoding="utf-8").read()[:20000]
+            text = "\n".join(line for line in text.splitlines() if not old_year.search(line))
             out.append({"kind": name, "file": os.path.basename(fs[-1]),
-                        "text": open(fs[-1], encoding="utf-8").read()[:20000]})
+                        "text": text})
     if DEMO and not out:
         out = [{"kind": "종합", "file": "demo.md",
                 "text": "# 데모 리포트\n\n| 단계 | 결과 |\n|---|---|\n| 합성검증 | ✅ |\n| 카톡 대조 | ✅ |\n\n## 문제 예시\n- JS-2607-002 금액불일치(원장 620,000 / EC 500,000)"}]
@@ -1032,6 +1162,9 @@ class H(BaseHTTPRequestHandler):
                 m = re.search(r"[?&]date=(\d{4}-\d{2}-\d{2})", self.path)
                 if m:
                     day = m.group(1)
+                    if not day.startswith(APP_YEAR + "-"):
+                        return self._send(200, {"ok": False,
+                                               "error": f"앱 브리핑은 {APP_YEAR}년만 표시합니다"})
                 b = DB.brief(day, DB.load()[0])
                 return self._send(200, {"ok": True, "text": DB.text(b), **b})
             except Exception as e:

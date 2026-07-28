@@ -1177,11 +1177,12 @@ def t29_cloud():
     assert "app.html" in doc and "location.replace('app.html')" in doc, \
         "고정 주소가 PC 독립 앱으로 바로 들어가지 않는다"
     app = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
-    for need in ("PBKDF2", "AES-CBC", "DecompressionStream", "csos_queue", "/api/enqueue"):
+    for need in ("PBKDF2", "AES-CBC", "DecompressionStream", "csos_queue", "/api/queue"):
         assert need in app, "오프라인 앱에 %s 누락" % need
-    assert "X-Pin" in app, "서버가 보는 헤더 이름과 달라 예약이 영영 안 넘어간다"
-    assert "PC가 켜진 뒤 이 폰 앱을 열면" in app, \
-        "정적 페이지 예약은 폰 앱을 다시 열어야 전송되는데 안내가 사실과 다르다"
+    assert "Authorization" in app and "Bearer " in app, \
+        "클라우드 큐 인증 헤더가 없어 예약을 안전하게 보낼 수 없다"
+    assert "클라우드에 보관되며 PC가 켜지면 자동 반영" in app, \
+        "PC 독립 예약의 실제 동작 안내가 빠졌다"
     sw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
     assert "endpoint.json" in sw and "data.enc" in sw, "사본을 쥐거나 주소를 캐시하는 규칙이 없다"
     assert "addEventListener('fetch'" in sw
@@ -2127,6 +2128,114 @@ def t44_zscan():
     print("  [44] 쿠팡 폴더 조사(무관 폴더 제외·캠프키·1:1 확정만 인정) ✅")
 
 
+def t45_cloud_queue_and_erp_documents(tmp):
+    """[45] PC 독립 큐와 ERP 문서 완료는 근거가 있는 빈칸만 건드린다."""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    import fill_erp_documents as fed
+
+    book = os.path.join(tmp, "erp_docs.xlsx")
+    wb = openpyxl.Workbook()
+    a = wb.active
+    a.title = "02_돌발AS접수"
+    a.append([]); a.append([]); a.append([])
+    a.append(["접수ID", "프로젝트NO", "진행상태", "ERP등록"])
+    a.append(["AS-1", "UJ0000001", "작업완료", ""])
+    a.append(["AS-2", "UJ0000002", "접수", ""])
+    p = wb.create_sheet("04_정기점검")
+    p.append([]); p.append([]); p.append([])
+    p.append(["점검ID", "프로젝트NO", "점검상태", "ERP판매전표", "거래명세서"])
+    p.append(["PM-1", "UJ0000001", "완료", "", ""])
+    p.append(["PM-2", "UJ0000002", "완료", "", ""])
+    wb.save(book)
+    original = fed.document_evidence
+    fed.document_evidence = lambda: {
+        "UJ0000001": {"판매전표", "거래명세서"},
+        "UJ0000002": {"판매전표"},
+    }
+    try:
+        fills, counts, _ = fed.plan(book)
+    finally:
+        fed.document_evidence = original
+    assert fills == {
+        "02_돌발AS접수!D5": "완료",
+        "04_정기점검!D5": "완료",
+        "04_정기점검!E5": "발행완료",
+        "04_정기점검!D6": "완료",
+    }, fills
+    assert not any("C5" in ref or "C6" in ref for ref in fills), "업무 상태 셀을 직접 덮었다"
+    assert counts["04_정기점검:거래명세서"] == 1
+
+    app = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+    snap = open(os.path.join(ROOT, "mobile_snapshot.py"), encoding="utf-8").read()
+    sync = open(os.path.join(ROOT, "cloud_queue_sync.py"), encoding="utf-8").read()
+    for need in ("cloud_queue", "Authorization", "/api/queue", "accepted", "duplicate"):
+        assert need in app, f"폰 클라우드 큐 연결 누락: {need}"
+    for need in ("/api/queue/lease", "/api/queue/ack", "/api/queue/release",
+                 "is_input_window", 'take("cloud-sync", "ledger"'):
+        assert need in sync, f"로컬 큐 유실방지 누락: {need}"
+    for need in ("완료보고서등록", "ERP판매전표", "거래명세서"):
+        assert need in snap, f"폰 사본 상태 누락: {need}"
+    print("  [45] PC 독립 영구큐·ERP 문서근거 완료·앱 상태 전파 ✅")
+
+
+def t46_app_2026_only():
+    """[46] 앱 표시 경계는 2025년을 숨기고 2026년만 통과시킨다."""
+    import sys as _s
+    _s.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as app
+
+    assert not app.app_year_record(
+        {"프로젝트NO": "UJ2601234", "접수일자": "2025-12-31"}, "as"), \
+        "프로젝트 번호가 26이어도 실제 접수일이 2025면 2025 업무다"
+    assert app.app_year_record(
+        {"프로젝트NO": "UJ2501234", "접수일자": "2026-01-02"}, "as"), \
+        "2026 접수 건을 프로젝트 번호만 보고 숨겼다"
+    assert app.app_year_record({"업무ID": "AS-2607-001"}, "as")
+    assert not app.app_year_record({"업무ID": "PM-2512-099"}, "pm")
+    assert app.app_year_record({"월": "2026/07", "전표": "2026/07/24 - 3"}, "erp")
+    assert app.app_year_record({"전표": "26/07/24 - 3"}, "erp")
+    assert not app.app_year_record({"월": "2025/12", "전표": "25/12/30 - 1"}, "erp")
+    assert app.app_year_record({"기준일": "2026-07-28", "문제내용": "완료보고 확인"}, "issue")
+    assert not app.app_year_record({"캠프명": "연도 확인 불가"}), "연도 미상 행이 2026 목록에 섞였다"
+    assert not app.app_year_record(
+        {"포함프로젝트": "UJ2500001, UJ2600001"}), "2025·2026 혼합 행이 통째로 표시됐다"
+
+    kept = app.app_year_rows([
+        {"프로젝트NO": "UJ2500001"},
+        {"프로젝트NO": "UJ2600001"},
+        {"정산ID": "JS-2607-001"},
+    ])
+    assert len(kept) == 2 and all("25" not in str(r) for r in kept), kept
+
+    pub = open(os.path.join(ROOT, "cloud_publish.py"), encoding="utf-8").read()
+    phone = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+    sw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
+    assert 're.fullmatch(r"UJ26\\d{5}"' in pub, "배포 프로젝트코드에 2025가 섞일 수 있다"
+    assert 're.match(r"2026-' in pub, "미청구 배포에 2025가 섞일 수 있다"
+    assert "function keep2026" in phone and "D = keep2026(await open(pin))" in phone
+    assert "2026-only" in sw, "구 서비스워커가 2025 포함 사본을 계속 쓸 수 있다"
+
+    import daily_brief as db
+    brief = db.brief("2026-07-28", {
+        "as": [
+            {"접수ID": "AS-2512-001", "프로젝트NO": "UJ2500001",
+             "접수일자": "2025-12-01", "작업완료일": "", "진행상태": "접수"},
+            {"접수ID": "AS-2607-001", "프로젝트NO": "UJ2600001",
+             "접수일자": "2026-07-28", "작업완료일": "", "진행상태": "접수"},
+        ],
+        "pm": [], "fw": [],
+    })
+    assert brief["돌발AS"]["신규접수"] == 1
+    assert brief["돌발AS"]["완료일미기입"] == 0, "2025 미완료가 2026 브리핑에 섞였다"
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for need in ("const APP_YEAR = '2026'", "py.innerHTML = `<option>${APP_YEAR}</option>`",
+                 "return +d === FOCUS_YEAR", "const y = APP_YEAR"):
+        assert need in live, f"라이브 앱 2026 고정 누락: {need}"
+    print("  [46] 앱 전 화면 2026년 전용 필터·구 사본 2차 방어 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2139,6 +2248,7 @@ if __name__ == "__main__":
         t13_fix_ids(tmp)
         t42_first_empty_row(tmp)
         t43_receipt_fill(tmp)
+        t45_cloud_queue_and_erp_documents(tmp)
     t2_payload()
     t3_match()
     t9_watchdog()
@@ -2172,6 +2282,7 @@ if __name__ == "__main__":
     t40_claim_enforced()
     t41_dates_explicit()
     t44_zscan()
+    t46_app_2026_only()
     t39_realtime_monitor()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

@@ -118,6 +118,9 @@ def plan():
             confirmed = done and b is not None
             if not confirmed:
                 continue
+            if has("완료보고서등록") and not g("완료보고서등록"):
+                add("완료보고서등록", "등록", "완료보고서(밴드·카톡)")
+                bump(f"{sheet} 완료보고서등록")
             if photocol and has(photocol) and not g(photocol) and b["photo"]:
                 add(photocol, "등록", "밴드 사진"); bump(f"{sheet} {photocol}")
             if verifycol and has(verifycol) and not g(verifycol):
@@ -132,9 +135,16 @@ def plan():
 
 
 def main():
-    # 다른 AI가 원장을 잡고 있으면 여기서 멈춘다(동시 수정 시 한쪽이 통째로 묻힌다)
-    from claim_guard import require
-    require("ledger", "confirm_fill")
+    from operation_window import input_window_label, is_input_window
+    if is_input_window():
+        print(f"입력 보호시간({input_window_label()}) — 완료보고서 반영 생략")
+        return
+    do_apply = "--apply" in sys.argv
+    do_queue = "--queue" in sys.argv
+    if do_apply:
+        # 실제 원장 쓰기만 배타 점유를 요구한다. --queue는 기존 원자적 대기열에만 추가한다.
+        from claim_guard import require
+        require("ledger", "confirm_fill")
     master, items, stat = plan()
     if not items:
         print("채울 항목 없음 — 이미 전부 입력되어 있습니다")
@@ -142,12 +152,16 @@ def main():
     print(f"채울 셀 {len(items)}개")
     for k, v in sorted(stat.items(), key=lambda x: -x[1]):
         print(f"  {k}: {v}건")
-    if "--apply" not in sys.argv:
-        print("\n반영하려면: python confirm_fill.py --apply")
+    if not do_apply and not do_queue:
+        print("\n큐에 넣기: python confirm_fill.py --queue")
+        print("즉시 반영: python confirm_fill.py --apply")
         return
     import ledger_writer as L
     n = L.queue_add(items)
-    print(f"큐 추가 {n}건 → ledger_writer 실행")
+    print(f"큐 추가 {n}건")
+    if do_queue:
+        return
+    print("ledger_writer 실행")
     # os.system은 경로에 한글·공백이 섞이면 cmd 인코딩에서 깨진다 — subprocess로 직접 부른다.
     import subprocess
     r = subprocess.run([sys.executable, os.path.join(ROOT, "ledger_writer.py"), "--apply"],
