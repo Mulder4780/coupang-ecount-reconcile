@@ -14,6 +14,7 @@ watchdog.py — 자가치유 워치독 (무인 운영의 심장)
 """
 import sys, os, re, glob, json, time, subprocess, urllib.request
 from datetime import datetime, timedelta
+from operation_window import input_window_label, is_input_window
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -107,8 +108,8 @@ def tunnel_alive(url):
     if not url:
         return False
     try:
-        with urllib.request.urlopen(url.rstrip("/") + "/api/ping", timeout=12) as r:
-            return b"coupang-work" in r.read()
+        from net_probe import probe
+        return probe(url.rstrip("/") + "/api/ping", 12)[0]
     except Exception:
         return False
 
@@ -206,9 +207,15 @@ def publish_endpoint(dry):
 
 
 def main():
+    # 류지영 매니저 입력 중에는 로그 파일조차 갱신하지 않고 즉시 종료한다.
+    if is_input_window():
+        print(f"입력 보호시간({input_window_label()}) — 워치독 무동작 종료")
+        return
     dry = "--dry" in sys.argv
+    # 원장 버전 정리는 daily_run의 ledger_versions.py 한 곳에서만 수행한다.
+    # 워치독이 낮은 버전 포크를 OLD로 옮겨 증거를 숨기는 일을 막는다.
     results = [heal_server(dry), heal_tunnel(dry), publish_endpoint(dry),
-               archive_versions(dry), clean_reports(dry)]
+               clean_reports(dry)]
     log(" | ".join(results))
 
 

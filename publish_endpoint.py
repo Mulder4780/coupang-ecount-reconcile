@@ -16,6 +16,7 @@ docs/endpoint.json 에 써서 커밋·푸시한다. 폰은 고정 주소만 열�
 """
 import sys, os, json, subprocess
 from datetime import datetime
+from operation_window import input_window_label, is_input_window
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -33,6 +34,9 @@ def git(*args, timeout=90):
 
 
 def main():
+    if is_input_window():
+        print(f"입력 보호시간({input_window_label()}) — 접속주소 게시 생략")
+        return
     force = "--force" in sys.argv
     try:
         url = open(URL_FILE, encoding="utf-8").read().strip()

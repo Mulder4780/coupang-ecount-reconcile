@@ -1604,6 +1604,47 @@ def t38_daily_brief():
     print("  [38] 대표 브리핑(내용 중심·미처리/미기입 분리·분기 진행률) ✅")
 
 
+def t39_realtime_monitor():
+    """[39] 입력 보호시간·이슈 상태전이·자동 진입점 방어."""
+    from datetime import datetime
+    from operation_window import is_input_window
+    import realtime_monitor as R
+
+    assert not is_input_window(datetime(2026, 7, 28, 7, 59, 59))
+    assert is_input_window(datetime(2026, 7, 28, 8, 0, 0))
+    assert is_input_window(datetime(2026, 7, 28, 9, 29, 59))
+    assert not is_input_window(datetime(2026, 7, 28, 9, 30, 0))
+
+    issue = R._issue("sample", "P2", "샘플", "근거", "조치")
+    first, changes1 = R.reconcile_issues([issue], {}, datetime(2026, 7, 28, 10, 0))
+    assert first[0]["status"] == "provisional" and not changes1
+    second, changes2 = R.reconcile_issues(
+        [issue], {"issues": first}, datetime(2026, 7, 28, 10, 5)
+    )
+    assert second[0]["status"] == "new" and changes2[0]["transition"] == "new"
+    third, changes3 = R.reconcile_issues(
+        [], {"issues": second}, datetime(2026, 7, 28, 10, 10)
+    )
+    assert third[0]["status"] == "resolved" and changes3[0]["transition"] == "resolved"
+
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    watchdog = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    endpoint = open(os.path.join(ROOT, "publish_endpoint.py"), encoding="utf-8").read()
+    cloud = open(os.path.join(ROOT, "cloud_publish.py"), encoding="utf-8").read()
+    assert "if is_input_window()" in daily
+    assert "if is_input_window()" in watchdog
+    assert "from net_probe import probe" in watchdog
+    main_body = watchdog[watchdog.index("def main():"):]
+    assert "archive_versions(dry)" not in main_body
+    assert "if is_input_window()" in endpoint and "if is_input_window()" in cloud
+    formulas = open(os.path.join(ROOT, "fix_formulas.py"), encoding="utf-8").read()
+    assert '"--file" in args' in formulas, "수식 검사가 임시 사본 대신 실원장을 열 수 있다"
+
+    claim = open(os.path.join(ROOT, "ai_claim.py"), encoding="utf-8").read()
+    assert "os.mkdir(GUARD)" in claim and "os.replace(tmp, CLAIMS)" in claim
+    print("  [39] 입력시간 완전정지·이슈 신규/지속/해결·점유 원자화 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1644,5 +1685,6 @@ if __name__ == "__main__":
     t36_mobile_input()
     t37_band_coverage()
     t38_daily_brief()
+    t39_realtime_monitor()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

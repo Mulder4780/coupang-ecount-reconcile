@@ -71,6 +71,16 @@ def get_status():
     st["inbox"] = len([f for f in glob.glob(os.path.join(ROOT, "inbox", "*.xlsx"))])
     st["kakao"] = len(glob.glob(os.path.join(ROOT, "kakao", "inbox", "*.txt")))
     st["band_auth"] = os.path.exists(os.path.join(ROOT, "band", ".band_token.json"))
+    realtime = os.path.join(ROOT, "reports", "realtime_issues.json")
+    try:
+        rt = json.load(open(realtime, encoding="utf-8"))
+        st["realtime"] = rt
+        st["realtime_summary"] = rt.get("summary", {})
+        st["realtime_checked"] = rt.get("checked_at", "")
+    except Exception:
+        st["realtime"] = None
+        st["realtime_summary"] = {}
+        st["realtime_checked"] = ""
     return st
 
 
@@ -80,6 +90,15 @@ def status_text(st):
         lines.append(f"★ 경고: 구버전 {','.join(st['fork'])} 이 최신본보다 나중에 수정됨 — 입력 파일 확인 필요!")
     lines.append(f"마지막 에이전트 실행: {st.get('report_time','기록 없음')}")
     lines += ["  " + s for s in st.get("report_summary", [])]
+    rt = st.get("realtime_summary") or {}
+    if st.get("realtime"):
+        checked = (st.get("realtime_checked") or "")[11:16]
+        lines.append(
+            f"실시간 감시({checked}): 활성 {rt.get('active', 0)}건 · "
+            f"신규 {rt.get('new', 0)} · 지속 {rt.get('ongoing', 0)} · 확인중 {rt.get('provisional', 0)}"
+        )
+    else:
+        lines.append("실시간 감시: 아직 실행 기록 없음")
     lines.append(f"자동입력 대기: {st['pending_updates']}건 / ERP inbox: {st['inbox']}개 / 카톡 inbox: {st['kakao']}개 / 밴드: {'인증됨' if st['band_auth'] else '심사 대기'}")
     return "\n".join(lines)
 

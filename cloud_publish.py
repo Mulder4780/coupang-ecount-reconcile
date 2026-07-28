@@ -144,6 +144,10 @@ def git_publish(message, runner=subprocess.run):
 
 
 def main():
+    from operation_window import input_window_label, is_input_window
+    if is_input_window():
+        print(f"입력 보호시간({input_window_label()}) — 사본 생성·게시 생략")
+        return
     import csos_crypto as C
     assert C.self_test(), "암호 자체검증 실패 — 올리면 폰에서 못 연다"
 

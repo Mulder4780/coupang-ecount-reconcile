@@ -422,7 +422,11 @@ def widen(xml, ends, self_name=None, self_end=None):
 
 def main():
     from ecount_reconcile import load_config, resolve_master
-    master = resolve_master(load_config()["reconcile"]["master_xlsx"])
+    args = sys.argv[1:]
+    if "--file" in args:
+        master = args[args.index("--file") + 1]
+    else:
+        master = resolve_master(load_config()["reconcile"]["master_xlsx"])
     z = zipfile.ZipFile(master)
     smap = sheet_map(z)
     sst = shared_strings(z)

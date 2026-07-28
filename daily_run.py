@@ -2,7 +2,7 @@
 """
 daily_run.py — 쿠팡 업무 자동대조 에이전트 (일일 오케스트레이터)
 ==================================================================
-매일 1회(권장 07:50, 08:30 대표보고 전) 전체 파이프라인을 안전한 순서로 실행하고
+매일 1회(09:50, 류지영 입력 종료 후) 전체 파이프라인을 안전한 순서로 실행하고
 reports/종합리포트_*.md 한 장으로 요약한다. Windows 작업 스케줄러에 daily_run.bat 등록 시 완전 자동.
 
 원칙:
@@ -12,6 +12,7 @@ reports/종합리포트_*.md 한 장으로 요약한다. Windows 작업 스케�
 """
 import sys, os, glob, subprocess
 from datetime import datetime
+from operation_window import input_window_label, is_input_window
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -39,6 +40,9 @@ def run(name, args, timeout=600):
 
 
 def main():
+    if is_input_window():
+        print(f"입력 보호시간({input_window_label()}) — 일일 자동대조를 시작하지 않습니다.")
+        return
     steps = []
 
     # 0. 합성검증 — 실패 시 전체 중단

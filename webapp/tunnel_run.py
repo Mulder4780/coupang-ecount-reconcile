@@ -13,6 +13,8 @@ reports/tunnel_url.txt 에 저장되어 앱 대시보드에 표시된다.
   장기적으로는 Tailscale(사설망) 방식이 더 안전하다 — README 참고.
 """
 import sys, os, re, json, time, subprocess, shutil
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from operation_window import is_input_window
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -117,6 +119,9 @@ def publish(url):
     폰 북마크는 고정 주소 하나만 알면 되고, 실제 주소가 바뀌어도 여기서 따라간다.
     (trycloudflare 무료 터널은 **주소를 지정할 수 없다** — 매번 새로 받는다)
     """
+    if is_input_window():
+        print("입력 보호시간 — 고정 주소 게시 생략")
+        return False
     # ★ 예전에는 결과를 안 보고 무조건 "갱신 완료"를 찍었다. publish_endpoint 가 게시를
     #   거절해도(주소가 아직 안 붙었을 때 흔하다) 성공처럼 보였고, 고정 주소는 **옛 죽은
     #   주소를 그대로 가리킨 채** 남았다. 폰은 다음 날 아침 접속이 안 됐다(2026-07-28).
@@ -159,6 +164,9 @@ def watch(proc, url):
         fail = 0
         while proc.poll() is None:
             time.sleep(90)
+            if is_input_window():
+                fail = 0
+                continue
             if ping(url + "/api/ping"):
                 fail = 0
                 # ★ 터널은 멀쩡한데 **고정 주소만 딴 데를 가리키는** 경우가 실제로 있었다
@@ -186,6 +194,9 @@ def watch(proc, url):
 
 
 def main():
+    if is_input_window():
+        print("입력 보호시간 — 새 터널을 시작하지 않습니다.")
+        return
     # 싱글톤 락: 이미 다른 tunnel_run이 돌고 있으면 즉시 종료(중복 터널·주소 회전 방지)
     import socket
     global _lock_sock

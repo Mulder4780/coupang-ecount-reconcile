@@ -1236,6 +1236,10 @@ def publish_loop():
         return
     time.sleep(120)                        # 기동 직후 혼잡할 때는 피한다
     while True:
+        from operation_window import is_input_window
+        if is_input_window():
+            time.sleep(60)
+            continue
         try:
             r = subprocess.run([PY, os.path.join(ROOT, "cloud_publish.py"), "--push"],
                                cwd=ROOT, env=ENV, capture_output=True, text=True,
