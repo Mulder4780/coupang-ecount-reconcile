@@ -363,7 +363,18 @@ def t9_watchdog():
              ("agent_status.json", now - 90*86400), ("tunnel_url.txt", now - 90*86400)]
     dele = pick_old_reports(files, days=30)
     assert dele == ["old.md"], dele                                                    # 보호파일·최근파일 제외
-    print("  [9] 워치독 판단 로직(버전 보존 3개·보호파일·30일 기준) ✅")
+    # ★ 2026-07-28: 워치독이 16:27~20:43 안 돌았고 그 사이 터널 주소가 죽어 폰 접속이 끊겼다.
+    #   로그에는 '정상'만 남아 있어 아무도 몰랐다. 쉰 것보다 **쉰 걸 모르는 것**이 문제다.
+    from watchdog import gap_note
+    from datetime import datetime as _dt
+    now = _dt(2026, 7, 28, 20, 43)
+    assert "256분" in gap_note("[07-28 16:27] 서버 정상", now), gap_note("[07-28 16:27] x", now)
+    assert gap_note("[07-28 20:13] 서버 정상", now) == ""          # 정상 주기는 조용히
+    assert gap_note("[07-28 19:59] 서버 정상", now) == ""          # 44분은 여유 안(30+15)
+    assert gap_note("", now) == "" and gap_note("깨진 줄", now) == ""
+    # 해가 바뀌면 직전 기록은 작년이다 — 미래로 읽어 음수 공백이 나오면 안 된다
+    assert gap_note("[12-31 23:50] x", _dt(2026, 1, 1, 0, 10)) == ""
+    print("  [9] 워치독 판단 로직(버전 보존 3개·보호파일·30일 기준·실행 공백 감지) ✅")
 
 
 def t14_datesort():
@@ -811,16 +822,17 @@ def t26_mobile():
     _dsw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
     assert "addEventListener('fetch'" in _dsw, "고정 주소 쪽 서비스 워커에 fetch 핸들러가 없다"
 
-    # (2) 고정 진입점 페이지: 매니페스트를 걸고, 죽은 주소로 그냥 넘기지 않는가
+    # (2) 고정 진입점 페이지: 앱 시작 자체가 PC 터널과 무관한가
     doc = open(os.path.join(ROOT, "docs", "index.html"), encoding="utf-8").read()
     assert 'rel="manifest"' in doc, "고정 페이지에 매니페스트가 없으면 홈 화면 추가가 앱으로 안 붙는다"
-    assert "/api/ping" in doc, "살아 있는지 확인하지 않고 넘기면 폰에는 브라우저 오류만 뜬다"
-    assert "cache:'no-store'" in doc or 'cache: "no-store"' in doc, "주소를 캐시하면 옛 주소로 간다"
     assert "serviceWorker" in doc and "sw.js" in doc, "고정 페이지에 서비스 워커 등록이 없다 — 설치가 안 된다"
-    assert "stay" in doc, "즉시 넘겨 버리면 설치 메뉴를 누를 틈이 없다"
+    assert "location.replace('app.html')" in doc, "고정 주소가 PC 독립 앱으로 바로 들어가지 않는다"
+    assert "endpoint.json" not in doc and "/api/ping" not in doc, \
+        "앱 시작 전에 PC 터널을 확인하면 PC 종료 시 다시 막힌다"
 
     mf = _j.load(open(os.path.join(ROOT, "docs", "manifest.json"), encoding="utf-8"))
-    assert mf["start_url"] == FIX and mf.get("scope", FIX).startswith(FIX.rstrip("/")), mf
+    assert mf["start_url"] == FIX + "app.html", mf
+    assert mf.get("scope", FIX).startswith(FIX.rstrip("/")), mf
     assert "trycloudflare" not in _j.dumps(mf)
 
     # (3) 터널 주소는 어디에도 하드코딩돼 있으면 안 된다(리포트·설정 파일은 예외)
@@ -1162,11 +1174,14 @@ def t29_cloud():
 
     # 고정 페이지: PC가 죽었을 때 **막다른 오류가 아니라** 오프라인 앱으로 가야 한다
     doc = open(os.path.join(ROOT, "docs", "index.html"), encoding="utf-8").read()
-    assert "app.html" in doc and "offline(" in doc, "PC가 꺼지면 폰이 아무것도 못 하게 된다"
+    assert "app.html" in doc and "location.replace('app.html')" in doc, \
+        "고정 주소가 PC 독립 앱으로 바로 들어가지 않는다"
     app = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
     for need in ("PBKDF2", "AES-CBC", "DecompressionStream", "csos_queue", "/api/enqueue"):
         assert need in app, "오프라인 앱에 %s 누락" % need
     assert "X-Pin" in app, "서버가 보는 헤더 이름과 달라 예약이 영영 안 넘어간다"
+    assert "PC가 켜진 뒤 이 폰 앱을 열면" in app, \
+        "정적 페이지 예약은 폰 앱을 다시 열어야 전송되는데 안내가 사실과 다르다"
     sw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
     assert "endpoint.json" in sw and "data.enc" in sw, "사본을 쥐거나 주소를 캐시하는 규칙이 없다"
     assert "addEventListener('fetch'" in sw
@@ -1177,6 +1192,8 @@ def t29_cloud():
     # git add부터 실패를 숨기면 실제 게시가 안 됐는데도 '반영했습니다'가 찍힌다.
     import cloud_publish as CP
     assert "docs/resolve_index.json" not in CP.PUBLISH_FILES, "존재하지 않는 파일을 git add 한다"
+    assert "docs/manifest.json" in CP.PUBLISH_FILES, \
+        "PC 독립 시작 주소를 바꿔도 매니페스트가 게시되지 않는다"
     class _R:
         def __init__(self, code=0, out="", err=""):
             self.returncode, self.stdout, self.stderr = code, out, err

@@ -39,6 +39,39 @@ def log(msg):
 
 
 # ── 판단 로직 (합성 테스트 대상 — 순수 함수) ─────────────────────
+def gap_note(last_line, now, expect_min=30, slack_min=15):
+    """직전 기록과 지금 사이가 너무 벌어졌으면 그 사실을 남긴다.
+
+    ★ 2026-07-28: 워치독이 16:27~20:43 **4시간 넘게 안 돌았고**, 그 사이 터널 주소가
+      죽어 폰 접속이 끊겼다. 그런데 로그에는 '정상'만 줄줄이 남아 있어 아무도 몰랐다
+      (작업 스케줄러가 놓친 실행을 따라잡지 않는 설정이었다 — StartWhenAvailable=False).
+      쉰 것 자체보다 **쉰 걸 아무도 모르는 것**이 문제다. 공백은 로그에 적어 둔다."""
+    if not last_line:
+        return ""
+    m = re.match(r"\[(\d{2})-(\d{2}) (\d{2}):(\d{2})\]", last_line)
+    if not m:
+        return ""
+    mo, d, hh, mm = (int(x) for x in m.groups())
+    try:
+        prev = now.replace(month=mo, day=d, hour=hh, minute=mm, second=0, microsecond=0)
+    except ValueError:
+        return ""
+    if prev > now:                      # 해가 바뀌면 작년 기록이다
+        prev = prev.replace(year=prev.year - 1)
+    gap = (now - prev).total_seconds() / 60.0
+    if gap <= expect_min + slack_min:
+        return ""
+    return "★ 워치독이 %.0f분 쉬었다(예상 %d분) — 그 사이 터널이 죽어도 아무도 못 고친다" % (gap, expect_min)
+
+
+def last_log_line(path=None):
+    try:
+        lines = [l for l in open(path or LOG, encoding="utf-8").read().splitlines() if l.strip()]
+        return lines[-1] if lines else ""
+    except Exception:
+        return ""
+
+
 def pick_archive(version_files, keep=3):
     """[(버전, 경로)] → OLD로 옮길 경로 목록 (최신 keep개 제외)"""
     s = sorted(version_files, key=lambda x: x[0], reverse=True)
@@ -214,8 +247,11 @@ def main():
     dry = "--dry" in sys.argv
     # 원장 버전 정리는 daily_run의 ledger_versions.py 한 곳에서만 수행한다.
     # 워치독이 낮은 버전 포크를 OLD로 옮겨 증거를 숨기는 일을 막는다.
+    gap = gap_note(last_log_line(), datetime.now())     # 기록은 healing 전에 읽는다
     results = [heal_server(dry), heal_tunnel(dry), publish_endpoint(dry),
                clean_reports(dry)]
+    if gap:
+        results.insert(0, gap)
     log(" | ".join(results))
 
 
