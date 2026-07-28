@@ -1499,6 +1499,48 @@ def t37_band_coverage():
     print("  [37] 밴드 수집범위 구분(밴드별 시작일·미확인만 문제로) ✅")
 
 
+def t38_daily_brief():
+    """[38] 대표 보고는 **숫자가 아니라 내용**이어야 한다(2026-07-28 통화 지시).
+
+    "숫자를 나한테 보고하라는 게 아니야" — 왜 갔고 무슨 작업을 했고 유·무상은 어떻게
+    됐는지, 추가작업이 생겼는지, 정기점검 분기 진행률이 어떤지가 보고 내용이다."""
+    import daily_brief as D
+    from datetime import date, timedelta
+
+    data, _m = D.load()
+    b = D.brief("2026-07-27", data)
+    t = D.text(b)
+
+    # (1) 대표가 물은 항목이 전부 구조에 있는가
+    for k in ("돌발AS", "정기점검", "완료내역", "무상건", "추가작업건",
+              "점검중유상", "AS전환", "내용미기입"):
+        assert k in b, f"{k} 누락"
+    assert "분기진행률" in b["정기점검"] and 0 <= b["정기점검"]["분기진행률"] <= 100
+
+    # (2) ★ '완료일 없음'과 '아직 안 감'을 갈라야 한다.
+    #     뭉치면 미처리 84건이라고 보고하게 되고(대표가 놀란다), 반대로 '없다'고 하면
+    #     최근 건을 놓친다. 30일 기준으로 나눈다.
+    assert "완료일미기입" in b["돌발AS"], "완료일 미기입을 미처리와 안 나눴다"
+    assert b["돌발AS"]["미처리"] <= b["돌발AS"]["미처리"] + b["돌발AS"]["완료일미기입"]
+    assert "최근 30일" in t, "미처리 숫자가 어느 범위인지 문장에 없다"
+
+    # (3) 완료 건은 '왜 갔는지'가 있어야 보고가 된다
+    for x in b["완료내역"]:
+        assert set(("왜", "무엇", "비용", "추가작업")) <= set(x), x
+    # 내용이 없으면 지어내지 말고 미기입으로 남겨야 한다
+    assert all(x["무엇"] == "" for x in b["내용미기입"]), "미기입 판정이 틀렸다"
+
+    # (4) 분기 계산이 맞는가 — 7월은 3분기
+    assert b["정기점검"]["분기"].endswith("3분기"), b["정기점검"]["분기"]
+    b1 = D.brief("2026-02-10", data)
+    assert b1["정기점검"]["분기"].endswith("1분기"), b1["정기점검"]["분기"]
+
+    # (5) 없는 날을 넣어도 죽지 않아야 한다(보고가 매일 돌아간다)
+    empty = D.brief("2020-01-01", data)
+    assert empty["돌발AS"]["완료"] == 0 and isinstance(D.text(empty), str)
+    print("  [38] 대표 브리핑(내용 중심·미처리/미기입 분리·분기 진행률) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1538,5 +1580,6 @@ if __name__ == "__main__":
     t35_confirm_evidence()
     t36_mobile_input()
     t37_band_coverage()
+    t38_daily_brief()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

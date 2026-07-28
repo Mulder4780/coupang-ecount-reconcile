@@ -76,6 +76,15 @@ def payload():
     except Exception as e:
         print("  ! 기사 정리 건너뜀:", e)
 
+    # 대표 브리핑 — 폰에서 그대로 읽어 드릴 수 있게 담는다
+    try:
+        import daily_brief as DB
+        _b = DB.brief(data=DB.load()[0])
+        d["brief"] = {"기준일": _b["기준일"], "text": DB.text(_b),
+                      "돌발AS": _b["돌발AS"], "정기점검": _b["정기점검"]}
+    except Exception as e:
+        print("  ! 브리핑 건너뜀:", e)
+
     d["unbilled"] = unbilled()        # 미청구 — 앱이 열릴 때 경과일을 계산해 띄운다
     d["codes"] = codes
     d["tail"] = ev["tail"]

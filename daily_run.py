@@ -134,6 +134,9 @@ def main():
     #    이동이 잦아 PC를 켜 둘 수 없을 때 이게 유일하게 확실한 방법이다.
     steps.append(run("폰용 사본 만들기", [os.path.join(ROOT, "mobile_snapshot.py")]))
 
+    # 9-b. 대표 보고용 내용 브리핑 — 대표 지시(2026-07-28): 숫자가 아니라 '무슨 일이 있었나'
+    steps.append(run("대표 브리핑(내용)", [os.path.join(ROOT, "daily_brief.py"), "--md"]))
+
     # 10. 고정 주소 사본 — PC를 꺼도 폰·태블릿이 이걸로 조회·자동채움을 한다(잠가서 올린다)
     steps.append(run("고정 주소 사본 올리기", [os.path.join(ROOT, "cloud_publish.py"), "--push"]))
 
