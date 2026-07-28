@@ -110,6 +110,8 @@ input,button,select{font-family:inherit;font-size:15px}
 const $ = id => document.getElementById(id);
 const FIXED = location.origin + location.pathname.replace(/app\.html$/, '');
 let D = null, TAB = 'issues', PIN = localStorage.getItem('csos_pin') || '';
+const DEVICE = localStorage.getItem('csos_device') || crypto.randomUUID();
+localStorage.setItem('csos_device', DEVICE);
 
 /* ── 잠긴 사본 열기 ─────────────────────────────────────────────
    공개 저장소에 올려 둔 파일이라 잠겨 있다. 브라우저 내장 암호기능으로 그 자리에서 푼다.
@@ -148,6 +150,66 @@ const norm = s => { s = String(s||'').replace(/[\s-]/g,'').toUpperCase();
                     return /^UJ\d{7}$/.test(s) ? s : null; };
 const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
+/* 배포 사본 자체도 2026년만 남긴다. 서버가 이미 걸러서 보내지만, 예전 서비스워커나
+   브라우저 저장본을 연 경우에도 2025년 행이 다시 나타나지 않게 하는 2차 방어선이다. */
+function is2026(r, kind){
+  if(!r || typeof r !== 'object') return false;
+  const vals = keys => keys.map(k=>String(r[k]||''));
+  const dateYear = keys => {
+    const dv = vals(keys);
+    let y = dv.flatMap(v=>[...v.matchAll(/(^|[^\d])(20\d{2})[-./]/g)].map(m=>m[2]));
+    if(y.length) return new Set(y).size===1 && y[0]==='2026';
+    y = dv.flatMap(v=>[...v.matchAll(/(^|[^\d])(\d{2})\/\d{2}\/\d{2}\s*-\s*\d+/g)].map(m=>m[2]));
+    return y.length ? new Set(y).size===1 && y[0]==='26' : null;
+  };
+  const idYear = keys => {
+    const y = vals(keys).flatMap(v=>[...v.matchAll(/\b(?:AS|PM|JS)-(\d{2})\d{2}(?:-|$)/gi)].map(m=>m[1]));
+    return y.length ? new Set(y).size===1 && y[0]==='26' : null;
+  };
+  const projectYear = () => {
+    const y = vals(['프로젝트NO','포함프로젝트','프로젝트명'])
+      .flatMap(v=>[...v.matchAll(/\bUJ(\d{2})\d{5}\b/gi)].map(m=>m[1]));
+    return y.length ? new Set(y).size===1 && y[0]==='26' : null;
+  };
+  const rules = {
+    as:[['접수일자'],['접수ID','업무ID']],
+    pm:[['점검예정일'],['점검ID','업무ID']],
+    settle:[['완료일'],['원천업무ID','정산ID','업무ID']],
+    erp:[['월','전표'],[]], visit:[['방문일'],[]],
+    unbilled:[['발행일'],[]],
+    issue:[['기준일','접수일자','점검예정일','완료일','발행일','일자'],
+           ['업무ID','접수ID','점검ID','정산ID','ID']]
+  };
+  const rule = rules[kind] || [[],[]];
+  let y = dateYear(rule[0]); if(y!==null) return y;
+  y = idYear(rule[1]); if(y!==null) return y;
+  y = projectYear(); return y===true;
+}
+function hide2025(r){
+  const old=/\bUJ25\d{5}\b|\b(?:AS|PM|JS)-25\d{2}-\d{3}\b|(?<!\d)2025[-./]\d{1,2}(?:[-./]\d{1,2})?|2025년|(?<!\d)25(?:년도|년)/g;
+  return Object.fromEntries(Object.entries(r||{}).map(([k,v])=>
+    [k,typeof v==='string'?v.replace(old,'').trim():v]));
+}
+function keep2026(d){
+  const kinds = {issues:'issue',as:'as',pm:'pm',settle:'settle',erp:'erp',
+                 visits:'visit',unbilled:'unbilled'};
+  Object.entries(kinds).forEach(([k,kind])=>{
+    d[k] = (d[k]||[]).filter(r=>is2026(r,kind)).map(hide2025);
+  });
+  if(d.app_year !== '2026') d.tech_gap = {'미방문':0,'기사미기입':0};
+  d.codes = Object.fromEntries(Object.entries(d.codes||{}).filter(([k])=>/^UJ26\d{5}$/i.test(k)));
+  const by = {};
+  (d.visits||[]).forEach(v=>{
+    const t = v['기사']||'미기입', x = by[t] ||= {'기사':t,'총':0,'돌발AS':0,'정기점검':0,'캠프':new Set(),'최근':''};
+    x['총']++; x[v['업무']] = (x[v['업무']]||0)+1;
+    if(v['캠프명']) x['캠프'].add(v['캠프명']);
+    if((v['방문일']||'') > x['최근']) x['최근'] = v['방문일'];
+  });
+  d.tech = Object.values(by).map(x=>({...x,'캠프수':x['캠프'].size,'캠프':undefined}))
+          .sort((a,b)=>b['총']-a['총']);
+  return d;
+}
+
 function findCode(){
   const raw = $('code').value, c = norm(raw);
   if(!c){ $('res').innerHTML = '<div class="err">프로젝트 코드 형식이 아닙니다 — UJ + 숫자 7자리 (예: UJ2601138)</div>'; return; }
@@ -180,28 +242,32 @@ const setQ = q => localStorage.setItem('csos_queue', JSON.stringify(q));
 function queueAdd(code){
   const q = Q();
   if(q.some(x => x.code === code)){ alert(code + ' 는 이미 예약되어 있습니다.'); return; }
-  q.push({code, at:new Date().toISOString().slice(0,16).replace('T',' ')});
+  q.push({code, at:new Date().toISOString(), key:crypto.randomUUID()});
   setQ(q); renderTabs(); setTab('queue');
-  alert(code + ' 등록을 예약했습니다.\nPC가 켜진 뒤 이 폰 앱을 열면 자동 전송됩니다.');
+  syncQueue();
+  alert(code + ' 등록을 예약했습니다.\n클라우드에 보관되며 PC가 켜지면 자동 반영됩니다.');
 }
 
-/* GitHub Pages는 정적 호스팅이라 예약을 서버에 직접 저장할 수 없다.
-   PC가 살아 있을 때 이 폰 앱이 열리면 예약분을 넘긴다. 죽어 있으면 기기에 보관한다. */
+/* PC가 꺼져 있어도 클라우드 영구 큐에 먼저 저장한다.
+   서버가 접수한 뒤에만 기기 임시 큐를 비워 네트워크 끊김에도 예약을 잃지 않는다. */
 async function syncQueue(){
   const q = Q(); if(!q.length) return;
-  let ep;
-  try{ ep = await (await fetch('endpoint.json?t=' + Date.now(), {cache:'no-store'})).json(); }
-  catch(e){ return; }
-  if(!ep || !ep.url) return;
+  const cq = D && D.cloud_queue;
+  if(!cq || !cq.url || !cq.token) return;
   try{
-    const r = await fetch(ep.url.replace(/\/$/,'') + '/api/enqueue', {
-      method:'POST', headers:{'Content-Type':'application/json','X-Pin':PIN},
-      body:JSON.stringify({codes:q.map(x=>x.code)})});
+    const r = await fetch(cq.url.replace(/\/$/,'') + '/api/queue', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer ' + cq.token},
+      body:JSON.stringify({
+        clientId:DEVICE,
+        items:q.map(x=>({code:x.code, at:x.at, key:x.key || (DEVICE + ':' + x.code + ':' + x.at)}))
+      })});
     if(!r.ok) return;
     const out = await r.json();
+    if(!out.ok) return;
     setQ([]); renderTabs(); if(TAB==='queue') renderList();
-    $('net').textContent = 'PC 연결됨 · 예약 ' + (out.applied||0) + '건 반영';
-  }catch(e){ /* PC가 꺼져 있다 — 조용히 넘어간다 */ }
+    $('net').textContent = '클라우드 보관 완료 · ' + ((out.accepted||0) + (out.duplicate||0)) + '건';
+  }catch(e){ /* 통신 복구 시 online 이벤트와 다음 실행에서 다시 보낸다 */ }
 }
 
 /* ── 목록 ── */
@@ -223,9 +289,9 @@ function renderList(){
   if(TAB === 'queue'){
     const q = Q();
     $('list').innerHTML = q.length
-      ? q.map(x => line(esc(x.code), '예약 ' + esc(x.at) + ' · PC가 켜진 뒤 이 앱을 열면 전송')).join('') +
-        '<div class="note">예약은 이 기기에 저장됩니다. PC가 켜진 뒤 이 앱을 한 번 열어 주세요. 앱을 지우면 예약도 사라집니다.</div>'
-      : '<div class="empty">예약한 등록이 없습니다.</div>';
+      ? q.map(x => line(esc(x.code), '전송 대기 ' + esc(String(x.at||'').replace('T',' ').slice(0,16)))).join('') +
+        '<div class="note">네트워크가 연결되면 클라우드에 자동 보관됩니다. 접수 확인 전에는 이 기기에서도 지우지 않습니다.</div>'
+      : '<div class="empty">기기 전송 대기 예약이 없습니다. 접수된 예약은 클라우드에서 PC 재가동을 기다립니다.</div>';
     return;
   }
   if(TAB === 'tech'){ renderTech(); return; }
@@ -239,6 +305,11 @@ function renderList(){
   else if(TAB === 'as' || TAB === 'pm')
     h = R.map(r => line(esc(r['프로젝트NO']) + ' ' + esc(r['캠프명']||''),
                         [r['접수일자']||r['점검예정일'], r['담당기사'], r['진행상태']||r['점검상태']]
+                          .concat(TAB==='as'
+                            ? [r['완료보고서등록'] ? '완료보고서 ' + r['완료보고서등록'] : '',
+                               r['ERP등록'] ? 'ERP ' + r['ERP등록'] : '']
+                            : [r['ERP판매전표'] ? '판매전표 ' + r['ERP판매전표'] : '',
+                               r['거래명세서'] ? '거래명세서 ' + r['거래명세서'] : ''])
                           .filter(Boolean).map(esc).join(' · '))).join('');
   else if(TAB === 'settle')
     h = R.map(r => line(esc(r['정산ID']||'') + ' ' + esc(r['캠프명']||''),
@@ -323,6 +394,14 @@ async function updateMode(){
   const card = $('modecard');
   let timer;
   try{
+    const cq = D && D.cloud_queue;
+    if(!cq || !cq.url) throw new Error('클라우드 설정 없음');
+    const cloud = await fetch(cq.url.replace(/\/$/,'') + '/api/ping?t=' + Date.now(), {cache:'no-store'});
+    if(!cloud.ok) throw new Error('클라우드 연결 안 됨');
+    card.innerHTML =
+      '<h3 style="color:var(--ok)">PC 독립 모드 · 클라우드 보관 정상</h3>' +
+      '<div class="note" style="margin-top:2px">사무실 PC가 꺼져 있어도 등록 예약을 보관합니다. PC가 켜지면 관리대장에 자동 반영합니다.</div>';
+
     const ep = await (await fetch('endpoint.json?t=' + Date.now(), {cache:'no-store'})).json();
     if(!ep || !ep.url) throw new Error('주소 없음');
     const c = new AbortController();
@@ -341,9 +420,11 @@ async function updateMode(){
        새 창으로 띄우면 고정 주소 창은 늘 고정 주소에 남는다. */
     $('liveOpen').onclick = () => window.open(ep.url, '_blank', 'noopener');
   }catch(e){
-    card.innerHTML =
-      '<h3 style="color:var(--ok)">PC 독립 모드</h3>' +
-      '<div class="note" style="margin-top:2px">사무실 PC가 꺼져 있어도 조회·프로젝트 코드 확인·등록 예약을 계속할 수 있습니다.</div>';
+    if(!card.innerHTML.includes('클라우드 보관 정상')){
+      card.innerHTML =
+        '<h3 style="color:var(--ok)">PC 독립 모드</h3>' +
+        '<div class="note" style="margin-top:2px">조회는 계속할 수 있습니다. 클라우드 접속이 복구되면 예약이 자동 전송됩니다.</div>';
+    }
   }finally{
     clearTimeout(timer);
   }
@@ -353,7 +434,7 @@ async function updateMode(){
 async function boot(pin){
   $('gerr').innerHTML = '';
   try{
-    D = await open(pin);
+    D = keep2026(await open(pin));
   }catch(e){
     $('gerr').innerHTML = '<div class="err">' +
       (e.message === 'PIN' ? 'PIN이 맞지 않습니다.' : esc(e.message)) + '</div>';
@@ -365,7 +446,7 @@ async function boot(pin){
      사람은 화면을 못 믿는다. 이유는 고정 페이지가 넘겨줄 때 남겨 둔다. */
   let why = '';
   try{ why = sessionStorage.getItem('csos_offline_why') || ''; }catch(e){}
-  $('hsub').textContent = 'PC 독립 사본 · ' + (D.gen || D['기준'] || '');
+  $('hsub').textContent = 'PC 독립 사본 · 2026년 전용 · ' + (D.gen || D['기준'] || '');
   if(why){
     const b = document.createElement('div');
     b.className = 'card';
