@@ -306,6 +306,9 @@ def self_test():
 
 def main():
     args = sys.argv[1:]
+    if "--apply" in args:
+        from claim_guard import require
+        require("ledger", "reorder_rows 반영")
     if "--self-test" in args:
         self_test(); return
     self_test()
@@ -315,7 +318,7 @@ def main():
     zin = zipfile.ZipFile(master)
     smap = sheet_file_map(zin)
     sst = shared_strings(zin)
-    patched, report, report_unshare = {}, [], []
+    patched, report, report_unshare, report_counter = {}, [], [], []
     for sh, (idc, dcs) in TARGETS.items():
         if only and sh != only:
             continue
@@ -330,11 +333,18 @@ def main():
         report.append((sh, len(ordered), moved, bad))
         # 공유를 푼 것만으로도 파일은 바뀐다 — 움직인 행이 없어도 저장해 둔다
         if moved or nun:
-            patched[smap[sh]] = rebuild(xml, head, ordered).encode("utf-8")
+            from fix_formulas import fix_cumulative_counters
+            rebuilt = rebuild(xml, head, ordered)
+            rebuilt, ncounter = fix_cumulative_counters(rebuilt)
+            if ncounter:
+                report_counter.append((sh, ncounter))
+            patched[smap[sh]] = rebuilt.encode("utf-8")
     zin.close()
 
     for sh, n in report_unshare:
         print(f"{sh}: 공유수식 {n}개 펼침(재배치 안전화)")
+    for sh, n in report_counter:
+        print(f"{sh}: 누적번호 수식 {n}개를 목적행 기준으로 정렬")
     for sh, n, moved, bad in report:
         print(f"{sh}: {n}행 중 {moved}행 위치 변경")
         if bad:
@@ -350,19 +360,44 @@ def main():
     dst = re.sub(r"_v\d+\.xlsx$", f"_v{int(m.group(1))+1}.xlsx", master)
     if os.path.exists(dst):
         sys.exit(f"{os.path.basename(dst)} 이미 존재 — 중단")
-    zin = zipfile.ZipFile(master)
-    zout = zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED)
-    ct = None
-    for it in zin.infolist():
-        data = zin.read(it.filename)
-        data, ct = strip_calcchain(it.filename, data, ct)
-        if data is None:
-            continue
-        zout.writestr(it.filename, patched.get(it.filename, data))
-    zout.close(); zin.close()
+    tmp = dst + ".tmp"
+    if os.path.exists(tmp):
+        sys.exit(f"{os.path.basename(tmp)} 임시파일이 이미 존재 — 중단")
+    try:
+        zin = zipfile.ZipFile(master)
+        zout = zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED)
+        ct = None
+        for it in zin.infolist():
+            data = zin.read(it.filename)
+            data, ct = strip_calcchain(it.filename, data, ct)
+            if data is None:
+                continue
+            zout.writestr(it.filename, patched.get(it.filename, data))
+        zout.close(); zin.close()
+
+        from fix_workbook import check
+        problems, fixable = check(tmp)
+        if problems or fixable:
+            raise RuntimeError(f"재배치 결과 구조검사 실패: {problems[:3]}")
+        from fix_formulas import parse_cells, is_broken, direct_self_refs
+        with zipfile.ZipFile(tmp) as audit:
+            amap = sheet_file_map(audit)
+            bad_formula, self_refs = [], []
+            for sh, path in amap.items():
+                sx = audit.read(path).decode("utf-8")
+                bad_formula += [f"{sh}!{col}{rn}" for rn, col, f, _s, _e in parse_cells(sx)
+                                if is_broken(f)]
+                self_refs += [f"{sh}!{ref}" for ref in direct_self_refs(sx)]
+        if bad_formula or self_refs:
+            raise RuntimeError(
+                f"재배치 수식검사 실패: 깨진수식 {bad_formula[:5]}, 순환참조 {self_refs[:5]}"
+            )
+        os.replace(tmp, dst)
+    except Exception:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
     print(f"\n생성: {os.path.basename(dst)}")
-    from fix_workbook import check
-    p, f = check(dst)
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ import re
 import sys
 import shutil
 import zipfile
+import html
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -40,6 +41,7 @@ except Exception:
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
 from workbook_patch import latest_master, sheet_xml_path  # noqa: E402
+from fix_workbook import iter_tags  # noqa: E402
 
 SHEET = "00_대시보드"
 LAST_ROW = 83
@@ -76,23 +78,46 @@ VALUE_COLS = ("B", "C", "E", "F", "H", "K")
 INPUT_CELLS = {"H46": "조회일 직접입력(선택) — 비어 있어야 적용일이 집계기준일로 잡힌다"}
 
 
-def survey(path):
-    """지울 칸 목록 — (ref, 현재값, 사유)"""
-    import openpyxl
-    from openpyxl.utils import column_index_from_string as CI
-    wv = openpyxl.load_workbook(path, data_only=True)[SHEET]
+def _cell_content(cinner):
+    """셀의 실제 내용. 캐시가 없는 수식도 내용으로 판정한다."""
+    if cinner is None:
+        return None
+    if re.search(r"<f(?:\s|>|/)", cinner):
+        fm = re.search(r"<f[^>]*>(.*?)</f>", cinner, re.S)
+        return "=" + html.unescape((fm.group(1) if fm else "<formula>").strip())
+    texts = re.findall(r"<t[^>]*>(.*?)</t>", cinner, re.S)
+    if texts:
+        value = html.unescape("".join(texts)).strip()
+        return value or None
+    vm = re.search(r"<v[^>]*>(.*?)</v>", cinner, re.S)
+    if vm:
+        value = html.unescape(vm.group(1)).strip()
+        return value or None
+    return None
+
+
+def survey_xml(xml):
+    """대시보드 XML에서 지울 칸 목록 — 수식 캐시가 비어 있어도 놓치지 않는다."""
     out = []
-    for col in VALUE_COLS:
-        c = CI(col)
-        for r in range(1, LAST_ROW + 1):
-            ref = f"{col}{r}"
-            if ref in KEEP:
-                continue
-            v = wv.cell(r, c).value
-            if v in (None, ""):
-                continue
-            out.append((ref, v, INPUT_CELLS.get(ref, "채우기 내림 잔해")))
+    for _s, _e, ctag, cinner in iter_tags(xml, "c"):
+        rm = re.search(r'r="([A-Z]{1,3})(\d+)"', ctag)
+        if not rm:
+            continue
+        col, row = rm.group(1), int(rm.group(2))
+        ref = f"{col}{row}"
+        if col not in VALUE_COLS or row > LAST_ROW or ref in KEEP:
+            continue
+        value = _cell_content(cinner)
+        if value is not None:
+            out.append((ref, value, INPUT_CELLS.get(ref, "채우기 내림 잔해")))
     return out
+
+
+def survey(path):
+    """지울 칸 목록 — (ref, 현재값, 사유). 원본은 ZIP 읽기만 한다."""
+    with zipfile.ZipFile(path) as z:
+        sp = sheet_xml_path(z, SHEET)
+        return survey_xml(z.read(sp).decode("utf-8"))
 
 
 def blank_cells(xml, refs):
@@ -192,9 +217,16 @@ def verify(src, out, refs):
 
 
 def main():
-    do = "--apply" in sys.argv
-    m = latest_master()
-    src = m[0] if isinstance(m, tuple) else m
+    args = sys.argv[1:]
+    do = "--apply" in args
+    if do:
+        from claim_guard import require
+        require("ledger", "dashboard_clean 반영")
+    if "--file" in args:
+        src = args[args.index("--file") + 1]
+    else:
+        m = latest_master()
+        src = m[0] if isinstance(m, tuple) else m
     print(f"원본: {os.path.basename(src)}\n")
 
     refs = survey(src)

@@ -188,15 +188,32 @@ def audit_workbook(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 
         rc2, out2 = _run_audit("fix_formulas.py", snapshot)
         counts = [int(x) for x in re.findall(
-            r"(?:깨진 수식 복구|범위 확장|빠진 수식 채움|정적 상태 수식화|기사명 정규화)\s*(\d+)", out2
+            r"(?:깨진 수식 복구|누적번호 수식 정렬|범위 확장|빠진 수식 채움|"
+            r"정적 상태 수식화|기사명 정규화)\s*(\d+)", out2
         )]
-        formulas_ok = rc2 == 0 and len(counts) >= 5 and sum(counts) == 0
+        formulas_ok = rc2 == 0 and len(counts) >= 6 and sum(counts) == 0
         details["formulas"] = {"returncode": rc2, "ok": formulas_ok, "counts": counts, "tail": out2[-1200:]}
         if not formulas_ok:
             issues.append(_issue(
                 "workbook_formula_audit", "P1", "관리대장 수식 검사 이상",
                 out2[-500:] or f"fix_formulas 종료코드 {rc2}",
                 "자동 반영하지 말고 문제 셀과 수식 소유 열을 확인한 뒤 별도 보완",
+            ))
+
+        rc3, out3 = _run_audit("dashboard_clean.py", snapshot)
+        dashboard_count = re.search(r"합계\s+(\d+)칸", out3)
+        dashboard_ok = rc3 == 0 and dashboard_count is not None and int(dashboard_count.group(1)) == 0
+        details["dashboard"] = {
+            "returncode": rc3,
+            "ok": dashboard_ok,
+            "count": int(dashboard_count.group(1)) if dashboard_count else None,
+            "tail": out3[-1200:],
+        }
+        if not dashboard_ok:
+            issues.append(_issue(
+                "dashboard_filldown_debris", "P1", "대시보드 채우기 내림 잔해",
+                out3[-500:] or f"dashboard_clean 종료코드 {rc3}",
+                "자동 반영하지 말고 문제 셀을 확인한 뒤 ledger 잠금 하에 전용 ZIP 패치로 정리",
             ))
         details["ok"] = not issues
     except subprocess.TimeoutExpired as exc:

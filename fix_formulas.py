@@ -169,6 +169,39 @@ def fix_sheet(xml):
     return "".join(out), len(edits)
 
 
+def fix_cumulative_counters(xml):
+    """누적번호 수식은 반드시 자기 셀의 바로 윗행까지 세어야 한다.
+
+    행 재배치 전 확장행에 남아 있던 `COUNT($AO$4:AO153)` 같은 수식을 단순 이동하면
+    음수가 아니어도 엉뚱한 과거 행까지만 세는 조용한 오류가 된다. 같은 열의
+    `COUNT($열$4:열N)` 패턴만 목적행 기준 `N=현재행-1`로 정규화한다.
+    """
+    edits = []
+    for rn, col, formula, start, end in parse_cells(xml):
+        pattern = re.compile(rf"(COUNT\(\${re.escape(col)}\$4:{re.escape(col)})-?\d+(\))")
+        corrected, n = pattern.subn(
+            lambda m: f"{m.group(1)}{rn - 1}{m.group(2)}", formula
+        )
+        if n and corrected != formula:
+            edits.append((start, end, corrected))
+    if not edits:
+        return xml, 0
+    out, last = [], 0
+    for start, end, formula in sorted(edits):
+        chunk = xml[start:end]
+        fixed = re.sub(
+            r"(<f(?:\s[^>]*)?>)(.*?)(</f>)",
+            lambda m: m.group(1) + esc(formula) + m.group(3),
+            chunk, count=1, flags=re.S,
+        )
+        fixed = re.sub(r"<v[^>]*>.*?</v>|<v\s*/>", "<v/>", fixed, count=1, flags=re.S)
+        out.append(xml[last:start])
+        out.append(fixed)
+        last = end
+    out.append(xml[last:])
+    return "".join(out), len(edits)
+
+
 def blank_value(ctag, cinner, sst):
     """수식 없이 **빈 문자열로 굳어 있는** 셀인가.
 
@@ -268,10 +301,12 @@ def fill_missing(xml, min_share=0.5, sst=None):
                 here[ref.group(1)] = (cs, ce, ctag, cinner)
         # ★ 엑셀은 빈 셀을 아예 안 적는다. 그래서 '비어 있는 칸'은 <c>가 없는 경우가 대부분이고,
         #   기존 <c>만 훑으면 89칸 중 8칸밖에 못 찾는다. 없는 셀은 만들어 끼워 넣는다.
+        # 수식 자체가 있으면 캐시 <v/>가 비어 있어도 정상이다. 반대로 사람이 확정해 둔
+        # inlineStr 값은 <v>가 없으므로, <v> 유무만 보면 정상 값까지 수식으로 덮게 된다.
         missing = [c for c in want
-                   if c not in here or (here[c][3] is None)
-                   or ("<f" not in (here[c][3] or "") and not _V_RE.search(here[c][3] or ""))
-                   or blank_value(here[c][2], here[c][3], sst)]
+                   if c not in here or here[c][3] is None
+                   or ("<f" not in here[c][3]
+                       and blank_value(here[c][2], here[c][3], sst))]
         if not missing:
             continue
         body, cur = [], 0
@@ -281,7 +316,8 @@ def fill_missing(xml, min_share=0.5, sst=None):
             # ★ 채울 대상(missing)으로 이미 판정된 칸을 여기서 '값이 있으니 그대로 둔다'고
             #   되살리면 아무것도 안 고쳐진다(빈 문자열로 굳은 칸이 딱 이 경우다).
             if col not in miss_set and col in here and here[col][3] is not None and (
-                    "<f" in here[col][3] or _V_RE.search(here[col][3])):
+                    "<f" in here[col][3]
+                    or not blank_value(here[col][2], here[col][3], sst)):
                 cs, ce, _t, _i = here[col]
                 body.append(rinner[cs:ce])
             elif col in want:
@@ -294,6 +330,11 @@ def fill_missing(xml, min_share=0.5, sst=None):
         last = re_
     out.append(xml[last:])
     return ("".join(out), n) if n else (xml, 0)
+
+
+# 대시보드는 표가 아니라 제목·설명·공백 행이 섞인 배치 화면이다. 열의 수식 비율로
+# 빈칸을 추정하면 제목 행까지 수식으로 채우므로 일반 채움 대상에서 제외한다.
+FILL_MISSING_EXCLUDE = {"00_대시보드"}
 
 
 def restore_owned_formulas(xml, columns, key_col="B", sst=None):
@@ -423,6 +464,9 @@ def widen(xml, ends, self_name=None, self_end=None):
 def main():
     from ecount_reconcile import load_config, resolve_master
     args = sys.argv[1:]
+    if "--apply" in args:
+        from claim_guard import require
+        require("ledger", "fix_formulas 반영")
     if "--file" in args:
         master = args[args.index("--file") + 1]
     else:
@@ -446,18 +490,20 @@ def main():
         if oe and oe < ends[name]:
             print(f"  {name}: 실제 {ends[name]} / 수식 {oe}  ← {ends[name]-oe}행이 집계에서 빠짐")
 
-    patched, nfix, nwide, nmiss, nowned, ntext = {}, 0, 0, 0, 0, 0
+    patched, nfix, ncounter, nwide, nmiss, nowned, ntext = {}, 0, 0, 0, 0, 0, 0
     miss_by = {}
     for name, path in smap.items():
         x = raw[name]
         y, k = fix_sheet(x)
+        y, counter = fix_cumulative_counters(y)
         y, w = widen(y, ends, name, old_ends.get(name))
         y, owned = restore_owned_formulas(y, FORMULA_OWNED.get(name, ()), sst=sst)
-        y, mm = fill_missing(y, sst=sst)
+        y, mm = (y, 0) if name in FILL_MISSING_EXCLUDE else fill_missing(y, sst=sst)
         y, nt = normalize_known_text(y)
-        if k or w or mm or owned or nt:
+        if k or counter or w or mm or owned or nt:
             patched[path] = y.encode("utf-8")
             nfix += k
+            ncounter += counter
             nwide += w
             nmiss += mm
             nowned += owned
@@ -470,7 +516,8 @@ def main():
             patched["xl/sharedStrings.xml"] = sx.encode("utf-8")
             ntext += nt
     z.close()
-    print(f"\n깨진 수식 복구 {nfix}개 · 범위 확장 {nwide}곳 · 빠진 수식 채움 {nmiss}개 · "
+    print(f"\n깨진 수식 복구 {nfix}개 · 누적번호 수식 정렬 {ncounter}개 · "
+          f"범위 확장 {nwide}곳 · 빠진 수식 채움 {nmiss}개 · "
           f"정적 상태 수식화 {nowned}개 · 기사명 정규화 {ntext}개 "
           f"(시트 {len(patched)}개)")
     for k, v in sorted(miss_by.items(), key=lambda x: -x[1]):
