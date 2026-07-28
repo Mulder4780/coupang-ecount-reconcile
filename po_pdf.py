@@ -257,14 +257,29 @@ def scan(folder=None):
 
 
 def latest_by_po(recs):
-    """PO번호별 최종본. **변경 통지가 있으면 그것이 최종**이다."""
+    """PO번호별 최종 **통지문**. 변경 통지가 있으면 그것이 최종이다.
+
+    ★ 견적서 첨부를 섞으면 안 된다. 견적서는 그 PO를 **캠프별로 쪼갠 일부**라
+      금액이 훨씬 작다. 섞었더니 PO329774가 15,632,000 대신 506,000으로 잡혀
+      '금액 불일치 46건'이 났다(2026-07-28). 견적서는 quotes_by_po 로 따로 본다.
+    """
     out = {}
     for r in recs:
-        if not r["PO번호"]:
+        if not r["PO번호"] or r.get("종류") != "PO통지":
             continue
         cur = out.get(r["PO번호"])
         if cur is None or (r["변경본"] and not cur["변경본"]):
             out[r["PO번호"]] = r
+    return out
+
+
+def quotes_by_po(recs):
+    """PO번호 → 견적서 목록. 파일명이 캠프·금액을 담고 있어 **PO 내역**이 된다.
+       묶음 계산서 구성을 추정이 아니라 원본으로 확인할 수 있는 유일한 근거다."""
+    out = {}
+    for r in recs:
+        if r.get("종류") == "견적서" and r["PO번호"]:
+            out.setdefault(r["PO번호"], []).append(r)
     return out
 
 
@@ -301,11 +316,21 @@ def check(byno):
 
     only_pdf = sorted(set(byno) - set(lst))
     only_lst = sorted(set(lst) - set(byno))
-    diff = [(k, lst[k], byno[k]["금액"]) for k in sorted(set(byno) & set(lst))
-            if lst[k] is not None and byno[k]["금액"] is not None and lst[k] != byno[k]["금액"]]
+    # ★ 원본이 **부가세 포함** 금액을 적은 경우가 있다(정확히 목록×1.1).
+    #   이걸 '금액 다름'으로 올리면 멀쩡한 건을 조사하게 된다 — 실제로 미청구 7건 중
+    #   2건(PO354310·PO359404)이 여기 해당했다(2026-07-28). 단위 차이는 따로 표시한다.
+    def _vat(a, b):
+        return a and b and abs(b - round(a * 1.1)) <= 2
+    pairs = [(k, lst[k], byno[k]["금액"]) for k in sorted(set(byno) & set(lst))
+             if lst[k] is not None and byno[k]["금액"] is not None and lst[k] != byno[k]["금액"]]
+    vat = [(k, a, b) for k, a, b in pairs if _vat(a, b)]
+    diff = [(k, a, b) for k, a, b in pairs if not _vat(a, b)]
 
     print(f"\n쿠팡 목록 {len(lst)}건  vs  원본 PDF {len(byno)}건")
-    print(f"  원본에만 있음 {len(only_pdf)} · 목록에만 있음 {len(only_lst)} · 금액 불일치 {len(diff)}")
+    print(f"  원본에만 있음 {len(only_pdf)} · 목록에만 있음 {len(only_lst)} · "
+          f"금액 불일치 {len(diff)} · 부가세 표기차 {len(vat)}")
+    for k, a, b in vat[:6]:
+        print(f"    [부가세표기] {k} 목록 {a:,}(공급가) / 원본 {b:,}(VAT포함) — 같은 건")
     for k in only_pdf[:10]:
         a = byno[k]["금액"]
         print(f"    [원본에만] {k} {format(a, ',') + '원' if a else '(금액 미추출)'} {byno[k]['일자']}")
@@ -327,7 +352,9 @@ def main():
     ok = [r for r in recs if r["금액"]]
     byno = latest_by_po(recs)
     print(f"PO 원본 PDF {len(recs)}개 · 금액 추출 {len(ok)} · 실패 {len(recs) - len(ok)}")
-    print(f"고유 PO번호 {len(byno)}개 · 변경 통지 {sum(1 for r in recs if r['변경본'])}건")
+    q = quotes_by_po(recs)
+    print(f"고유 PO번호 {len(byno)}개(통지문 기준) · 변경 통지 {sum(1 for r in recs if r['변경본'])}건")
+    print(f"견적서 첨부 {sum(len(v) for v in q.values())}건 · PO {len(q)}개에 붙음")
     for r in recs[:4]:
         print(f"  {r['PO번호'] or '?':10} {str(r['금액'] or '-'):>12} {r['일자'] or '-':10} {r['본문요약'][:52]}")
 

@@ -1658,6 +1658,46 @@ function topLine(t){
   return `<li>${body}${gone?'':codeHtml(txt)}</li>`;
 }
 
+/* ── 대표에게 읽어 드릴 브리핑 문장 ──
+   출처는 daily_brief 하나뿐이다(/api/brief). 화면·PC 리포트·폰 사본이 같은 문장을 써야
+   "화면은 이런데 보고는 저렇다"가 안 생긴다. */
+let BRIEF = null;
+async function loadBrief(){
+  try{ BRIEF = await api('/api/brief'); }catch(e){ BRIEF = null; }
+  try{ renderDaily(); }catch(e){}
+}
+
+function briefBlock(){
+  if(!BRIEF || !BRIEF.ok) return '';
+  const t = String(BRIEF.text || '').trim();
+  if(!t) return '';
+  const body = t.split('\n').map(ln=>{
+    const s = ln.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    if(/^■/.test(s))  return `<div style="font-weight:800;margin-top:9px">${s}</div>`;
+    if(/^\[/.test(s)) return `<div style="color:var(--ink-3);font-size:12px">${s}</div>`;
+    return `<div style="padding-left:10px">${s}</div>`;
+  }).join('');
+  return `<div class="ebrief" style="border:1.5px solid var(--line);border-radius:12px;
+      padding:12px 14px;margin-bottom:12px;background:var(--card);font-size:13.5px;line-height:1.75">
+      <div style="font-weight:800;font-size:12.5px;color:var(--brand);margin-bottom:6px">
+        읽어 드릴 내용 <span class="norm">— 숫자가 아니라 무슨 일이 있었는지</span></div>
+      ${body}
+      <button onclick="copyBrief()" style="margin-top:10px;background:#EEF2FF;color:#1C3FA8;
+        border:0;border-radius:9px;padding:8px 13px;font-weight:800;font-size:12.5px;
+        font-family:inherit;cursor:pointer">📋 문장 복사</button>
+    </div>`;
+}
+
+async function copyBrief(){
+  const t = (BRIEF && BRIEF.text) || '';
+  try{ await navigator.clipboard.writeText(t); }
+  catch(e){
+    const a=document.createElement('textarea'); a.value=t; document.body.appendChild(a);
+    a.select(); try{ document.execCommand('copy'); }catch(_){} a.remove();
+  }
+  toast('보고 문장을 복사했습니다');
+}
+
 /* ══ 당일 업무 실적 — 항목별 상세 ══════════════════════════════
    '신규 접수 3'이 어떤 건인지 바로 아래에 보여 준다.
    대표보고 엑셀에는 숫자만 있어서, 같은 기준일로 앱 데이터에서 직접 찾아 붙인다. */
@@ -1747,6 +1787,9 @@ function execHtml(){
     const m = String(s.title||'').match(/^(\d+)\.\s*(.*)$/);
     const no = m ? m[1] : '', tt = m ? m[2] : s.title;
     h += `<div class="esec"><div class="eh">${no?`<i>${no}</i>`:''}<span>${tt}</span></div>`;
+    // ★ 대표 지시(2026-07-28): "숫자를 나한테 보고하라는 게 아니야."
+    //   숫자 타일 위에 **읽어서 그대로 전달할 수 있는 문장**을 먼저 놓는다.
+    if(/당일 업무 실적/.test(tt)) h += briefBlock();
     if(isSum){
       usedSum = true;
       h += `<div class="esum">${sum.map(t=>`<div>${t.replace(/^■\s*/,'')}</div>`).join('')}</div>`;
@@ -3050,6 +3093,7 @@ async function refreshAll(){ try{ await loadSettle(); await loadStatus(); }catch
   tick(); setInterval(tick, 30000); initDates();
   showFixedEntry();          // 고정 주소는 로그인·데이터 로딩과 무관하게 **항상** 보인다
   loadCodes();               // 드롭다운 선택지(10_코드관리)
+  loadBrief();               // 대표에게 읽어 드릴 브리핑 문장
   show(curView());                       // 새로고침 전에 보던 화면으로 복귀
   if(PIN){ $('gate').style.display='none'; refreshAll(); }
   setInterval(()=>{ if(PIN && !runnerBusy()) loadStatus().catch(()=>{}); }, 30000);

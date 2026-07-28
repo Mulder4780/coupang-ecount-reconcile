@@ -1021,6 +1021,19 @@ class H(BaseHTTPRequestHandler):
             if not ct or not os.path.exists(fp):
                 return self._send(404, {"error": "no brand asset"})
             return self._send(200, open(fp, "rb").read(), ct)
+        if p == "/api/brief":
+            # 대표 보고용 '내용' 브리핑. 화면·PC 리포트·폰 사본이 **같은 문장**을 쓰도록
+            # daily_brief 하나만 출처로 삼는다(따로 만들면 숫자가 갈린다).
+            try:
+                import daily_brief as DB
+                day = None
+                m = re.search(r"[?&]date=(\d{4}-\d{2}-\d{2})", self.path)
+                if m:
+                    day = m.group(1)
+                b = DB.brief(day, DB.load()[0])
+                return self._send(200, {"ok": True, "text": DB.text(b), **b})
+            except Exception as e:
+                return self._send(200, {"ok": False, "error": str(e)[:200]})
         if p == "/api/codes":
             return self._send(200, get_codes())
         if p == "/api/brand":
