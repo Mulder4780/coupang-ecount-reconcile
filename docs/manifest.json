@@ -2,7 +2,7 @@
   "name": "Coupang Service Operations System",
   "short_name": "CSOS",
   "id": "https://mulder4780.github.io/coupang-ecount-reconcile/",
-  "start_url": "https://mulder4780.github.io/coupang-ecount-reconcile/",
+  "start_url": "https://mulder4780.github.io/coupang-ecount-reconcile/app.html",
   "scope": "https://mulder4780.github.io/coupang-ecount-reconcile/",
   "display": "standalone",
   "background_color": "#060D2B",

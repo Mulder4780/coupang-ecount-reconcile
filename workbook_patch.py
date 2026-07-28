@@ -108,7 +108,8 @@ def replace_inline_cell(xml, ref, value):
     return xml[:m.start()] + new + xml[m.end():]
 
 
-def patch(src, dst, a, b, c, a2="", manual18="", manual20=""):
+def patch(src, dst, a, b, c, a2="", manual18="", manual20="",
+          manual20_title="", manual20_area=""):
     zin = zipfile.ZipFile(src)
     target = sheet_xml_path(zin, SHEET_NAME)
     xml, nr = append_row(zin.read(target).decode("utf-8"),
@@ -131,15 +132,16 @@ def patch(src, dst, a, b, c, a2="", manual18="", manual20=""):
         path = sheet_xml_path(zin, name)
         x0 = zin.read(path).decode("utf-8")
         rown = max(int(r) for r in re.findall(r'<row r="(\d+)"', x0)) + 1
+        title = manual20_title or "22-5. 수식·경고 대응(2026-07-28)"
+        area = manual20_area or "담당기사·자동상태"
         x, rown = append_row(x0, [
             ("A", rown, True),
-            ("B", "22-5. 수식·경고 대응(2026-07-28)", False),
-            ("C", "담당기사·자동상태", False),
+            ("B", title, False),
+            ("C", area, False),
             ("D", manual20, False),
         ])
         changed[path] = x.encode("utf-8")
-        verify[name] = (rown, [rown, "22-5. 수식·경고 대응(2026-07-28)",
-                               "담당기사·자동상태", manual20])
+        verify[name] = (rown, [rown, title, area, manual20])
 
     tmp = dst[:-5] + ".tmp.xlsx"
     if os.path.exists(tmp):
@@ -183,6 +185,8 @@ def main():
     ap.add_argument("--a2", default="", help="00_대시보드 A2 사용법 전체 문구 교체(선택)")
     ap.add_argument("--manual18", default="", help="18_문서발행업무매뉴얼 끝행 추가 문구(선택)")
     ap.add_argument("--manual20", default="", help="20_쿠팡통합업무상세매뉴얼 끝행 추가 설명(선택)")
+    ap.add_argument("--manual20-title", default="", help="20시트 추가 행 B열 제목(선택)")
+    ap.add_argument("--manual20-area", default="", help="20시트 추가 행 C열 분류(선택)")
     args = ap.parse_args()
 
     src, v = latest_master()
@@ -190,7 +194,8 @@ def main():
     if os.path.exists(dst):
         sys.exit(f"{os.path.basename(dst)} 이미 존재 — 중복 실행 방지를 위해 중단")
     a = args.a or f"{date.today().isoformat()} #auto"
-    nr = patch(src, dst, a, args.b, args.c, args.a2, args.manual18, args.manual20)
+    nr = patch(src, dst, a, args.b, args.c, args.a2, args.manual18, args.manual20,
+               args.manual20_title, args.manual20_area)
     print(f"OK: v{v} → v{v+1} 생성, {SHEET_NAME} {nr}행 추가, 검증 3종 통과")
     print("   ", dst)
 

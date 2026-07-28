@@ -5,9 +5,10 @@ cloud_publish.py — PC가 꺼져 있어도 폰·태블릿이 쓰는 사본을 �
 지금까지의 폰 접속은 전부 **사무실 PC가 살아 있어야** 했다(터널·로컬 서버). 이동이 잦아
 PC를 못 켜 두면 폰에는 크롬 기본 오류만 떴다. 그래서 데이터를 고정 주소에 얹는다.
 
-  PC 켜져 있을 때 : 고정 주소 → 실시간 앱(입력·대조·엑셀 반영까지 전부)
-  PC 꺼져 있을 때 : 고정 주소 → **오프라인 앱**(조회·프로젝트코드 자동채움·입력 예약)
-                    예약한 입력은 PC가 켜지는 순간 자동으로 원장에 반영된다.
+  항상              : 고정 주소 → **PC 독립 앱**(조회·프로젝트코드 자동채움·입력 예약)
+  PC 켜져 있을 때   : 독립 앱 안의 선택 버튼으로 실시간 앱 연결(입력·대조·엑셀 반영)
+  PC 꺼져 있을 때   : 잠긴 최신 사본으로 계속 사용
+                    예약은 PC가 켜진 뒤 같은 폰 앱을 열면 입력 큐로 전송된다.
 
 고정 주소 저장소는 공개다. 그래서 데이터는 **잠가서** 올린다(csos_crypto).
 폰에서 PIN을 넣으면 브라우저가 그 자리에서 푼다 — 서버도 계정도 필요 없다.
@@ -30,7 +31,9 @@ except Exception:
 DOCS = os.path.join(ROOT, "docs")
 OUT = os.path.join(DOCS, "data.enc")
 WEBCFG = os.path.join(ROOT, "config", "webapp.json")
-PUBLISH_FILES = ("docs/data.enc", "docs/app.html", "docs/index.html", "docs/sw.js")
+PUBLISH_FILES = (
+    "docs/data.enc", "docs/app.html", "docs/index.html", "docs/manifest.json", "docs/sw.js"
+)
 
 
 def pin():

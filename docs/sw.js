@@ -6,8 +6,8 @@
  *  2) 오프라인 앱과 잠긴 사본을 손에 쥐고 있는다. 지하주차장·엘리베이터처럼
  *     신호가 끊기는 곳에서도 열려야 하기 때문이다.
  */
-const CACHE = 'csos-v2';
-const HOLD = ['app.html', 'data.enc', 'manifest.json', 'icon.svg', 'icon-180.png'];
+const CACHE = 'csos-v3-pc-independent';
+const HOLD = ['index.html', 'app.html', 'data.enc', 'manifest.json', 'icon.svg', 'icon-180.png'];
 
 self.addEventListener('install', (e) => {
   // 미리 받아 둔다. 하나쯤 실패해도 설치는 계속한다(아이콘 하나 때문에 앱이 죽으면 안 된다).

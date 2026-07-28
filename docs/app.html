@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>CSOS — 오프라인</title>
+<title>CSOS — PC 독립</title>
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
@@ -67,14 +67,14 @@ input,button,select{font-family:inherit;font-size:15px}
 <body>
 <header><div class="wrap">
   <div style="flex:1"><h1>Coupang Service Operations System</h1>
-  <div class="sub" id="hsub">오프라인 사본</div></div>
+  <div class="sub" id="hsub">PC 독립 사본</div></div>
   <button class="btn ghost" id="reload" style="padding:7px 11px;font-size:12px;color:#cfe0ff;border-color:#33436f">새로고침</button>
 </div></header>
 
 <div class="wrap">
   <div id="gate" class="gate card">
     <h3 style="font-size:15px">PIN 4자리</h3>
-    <div class="note" style="margin-bottom:10px">사무실 PC 없이 열립니다. 처음 한 번만 넣으면 기억합니다.</div>
+    <div class="note" style="margin-bottom:10px">사무실 PC가 꺼져 있어도 열립니다. 처음 한 번만 넣으면 기억합니다.</div>
     <input class="in" id="pin" type="tel" inputmode="numeric" maxlength="4" placeholder="････"
            autocomplete="off" style="text-align:center;font-size:26px;letter-spacing:12px">
     <button class="btn" id="go" style="width:100%;margin-top:10px">열기</button>
@@ -82,6 +82,12 @@ input,button,select{font-family:inherit;font-size:15px}
   </div>
 
   <div id="app" style="display:none">
+    <div class="card" id="modecard">
+      <h3 style="color:var(--ok)">PC 독립 모드</h3>
+      <div class="note" style="margin-top:2px">
+        이 화면은 사무실 PC와 관계없이 열립니다. 실시간 PC 기능은 연결 가능할 때만 아래에 표시됩니다.
+      </div>
+    </div>
     <div id="alertbox"></div>
     <div class="card">
       <h3>🔎 프로젝트 코드로 찾기 <span class="norm">— 코드만 넣으면 나머지가 따라옵니다</span></h3>
@@ -167,7 +173,7 @@ function findCode(){
   if(!done) $('book').onclick = () => queueAdd(c);
 }
 
-/* ── 등록 예약 — PC가 켜지면 자동으로 원장에 들어간다 ── */
+/* ── 등록 예약 — PC가 켜진 뒤 이 폰 앱을 열면 원장으로 전송한다 ── */
 const Q = () => JSON.parse(localStorage.getItem('csos_queue') || '[]');
 const setQ = q => localStorage.setItem('csos_queue', JSON.stringify(q));
 
@@ -176,10 +182,11 @@ function queueAdd(code){
   if(q.some(x => x.code === code)){ alert(code + ' 는 이미 예약되어 있습니다.'); return; }
   q.push({code, at:new Date().toISOString().slice(0,16).replace('T',' ')});
   setQ(q); renderTabs(); setTab('queue');
-  alert(code + ' 등록을 예약했습니다.\n사무실 PC가 켜지면 자동으로 원장에 반영됩니다.');
+  alert(code + ' 등록을 예약했습니다.\nPC가 켜진 뒤 이 폰 앱을 열면 자동 전송됩니다.');
 }
 
-/* PC가 살아 있으면 예약분을 넘긴다. 죽어 있으면 그냥 놔둔다 — 다음에 다시 시도한다. */
+/* GitHub Pages는 정적 호스팅이라 예약을 서버에 직접 저장할 수 없다.
+   PC가 살아 있을 때 이 폰 앱이 열리면 예약분을 넘긴다. 죽어 있으면 기기에 보관한다. */
 async function syncQueue(){
   const q = Q(); if(!q.length) return;
   let ep;
@@ -216,8 +223,8 @@ function renderList(){
   if(TAB === 'queue'){
     const q = Q();
     $('list').innerHTML = q.length
-      ? q.map(x => line(esc(x.code), '예약 ' + esc(x.at) + ' · PC가 켜지면 자동 반영')).join('') +
-        '<div class="note">예약은 이 기기에만 저장됩니다. 앱을 지우면 함께 사라집니다.</div>'
+      ? q.map(x => line(esc(x.code), '예약 ' + esc(x.at) + ' · PC가 켜진 뒤 이 앱을 열면 전송')).join('') +
+        '<div class="note">예약은 이 기기에 저장됩니다. PC가 켜진 뒤 이 앱을 한 번 열어 주세요. 앱을 지우면 예약도 사라집니다.</div>'
       : '<div class="empty">예약한 등록이 없습니다.</div>';
     return;
   }
@@ -310,6 +317,33 @@ function renderTech(){
                        window._tqT = setTimeout(()=>{ renderTech(); $('tq').focus(); }, 250); };
 }
 
+/* ── 실시간 PC 앱은 선택 연결 ────────────────────────────────
+   앱 시작은 절대 터널에 의존하지 않는다. PC가 살아 있을 때만 선택 버튼을 보여 준다. */
+async function updateMode(){
+  const card = $('modecard');
+  let timer;
+  try{
+    const ep = await (await fetch('endpoint.json?t=' + Date.now(), {cache:'no-store'})).json();
+    if(!ep || !ep.url) throw new Error('주소 없음');
+    const c = new AbortController();
+    timer = setTimeout(() => c.abort(), 3500);
+    const r = await fetch(ep.url.replace(/\/$/,'') + '/api/ping?t=' + Date.now(),
+                          {cache:'no-store', mode:'no-cors', signal:c.signal});
+    if(!(r.ok || r.type === 'opaque')) throw new Error('연결 안 됨');
+    card.innerHTML =
+      '<h3 style="color:var(--ok)">PC 독립 모드 · 실시간 연결 가능</h3>' +
+      '<div class="note" style="margin-top:2px">지금은 사무실 PC의 전체 기능도 사용할 수 있습니다.</div>' +
+      '<button class="btn ghost" id="liveOpen" style="width:100%;margin-top:9px">실시간 PC 앱 열기</button>';
+    $('liveOpen').onclick = () => location.href = ep.url;
+  }catch(e){
+    card.innerHTML =
+      '<h3 style="color:var(--ok)">PC 독립 모드</h3>' +
+      '<div class="note" style="margin-top:2px">사무실 PC가 꺼져 있어도 조회·프로젝트 코드 확인·등록 예약을 계속할 수 있습니다.</div>';
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
 /* ── 시작 ── */
 async function boot(pin){
   $('gerr').innerHTML = '';
@@ -326,7 +360,7 @@ async function boot(pin){
      사람은 화면을 못 믿는다. 이유는 고정 페이지가 넘겨줄 때 남겨 둔다. */
   let why = '';
   try{ why = sessionStorage.getItem('csos_offline_why') || ''; }catch(e){}
-  $('hsub').textContent = (why ? '사무실 PC 꺼짐 · ' : '오프라인 사본 · ') + (D.gen || D['기준'] || '');
+  $('hsub').textContent = 'PC 독립 사본 · ' + (D.gen || D['기준'] || '');
   if(why){
     const b = document.createElement('div');
     b.className = 'card';
@@ -334,12 +368,12 @@ async function boot(pin){
     b.innerHTML = '<h3 style="color:var(--warn)">사무실 PC가 꺼져 있습니다</h3>' +
       '<div class="note" style="margin-top:2px">' + esc(why) +
       ' 아래 숫자는 <b>' + esc(D.gen || '') + '</b> 기준 사본입니다.<br>' +
-      '조회·프로젝트 코드 자동채움은 그대로 되고, 등록은 예약해 두면 PC가 켜질 때 자동 반영됩니다.</div>';
+      '조회·프로젝트 코드 자동채움은 그대로 되고, 등록은 예약해 둔 뒤 PC가 켜지면 이 앱을 다시 열어 전송합니다.</div>';
     const box = $('alertbox');
     if(box) box.parentNode.insertBefore(b, box);
   }
   $('stamp').textContent = '사본 기준 ' + (D.gen || D['기준'] || '') + ' · 코드 ' + Object.keys(D.codes||{}).length;
-  renderAlert(); renderTabs(); renderList(); syncQueue();
+  renderAlert(); renderTabs(); renderList(); updateMode(); syncQueue();
   return true;
 }
 

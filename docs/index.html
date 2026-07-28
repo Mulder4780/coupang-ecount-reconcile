@@ -46,94 +46,20 @@ a.btn{display:block;margin-top:12px;background:var(--brand);color:#fff;text-deco
     <rect x="182" y="452" width="148" height="18" rx="9" fill="#fff" opacity=".4"/></svg></div>
   <h1>Coupang Service Operations System</h1>
   <div class="sub">CSOS · UNIVERSAL LIFT</div>
-  <div class="state" id="st"><span class="spin"></span> 접속 주소를 확인하는 중…</div>
-  <div id="act"></div>
+  <div class="state" id="st"><span class="spin"></span> PC 독립 앱을 여는 중…</div>
+  <div id="act"><a class="btn" href="app.html">PC 없이 열기</a></div>
   <div class="addr">mulder4780.github.io/coupang-ecount-reconcile</div>
   <div class="tip">이 주소는 <b>바뀌지 않습니다</b>. 홈 화면에 추가해 두고 쓰세요.<br>
     사무실 PC가 꺼져 있어도 <b>조회는 그대로</b> 됩니다.</div>
 </div>
 <script>
-/* 고정 진입점: 현재 살아있는 터널 주소(endpoint.json)를 읽어 자동 이동한다.
-   터널 주소가 바뀌어도 이 페이지 주소는 그대로이므로 폰 북마크를 고칠 필요가 없다. */
-/* 크롬이 [설치 및 바로가기 만들기]로 진짜 앱 설치를 해 주려면 서비스 워커가 있어야 한다.
-   없으면 메뉴를 눌러도 아무 일이 안 일어나거나 단순 북마크만 생긴다. */
+/* 고정 진입점은 언제나 GitHub Pages의 잠긴 사본 앱으로 들어간다.
+   실시간 PC 앱은 app.html 안에서 살아 있을 때만 선택 연결한다.
+   시작 단계에서 터널을 먼저 확인하면 PC 종료·죽은 바로가기·느린 DNS 때문에
+   사용자는 고정 주소까지 죽었다고 느낀다. */
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
-
-(async () => {
-  const st = document.getElementById('st'), act = document.getElementById('act');
-
-  /* 살아 있는지 **직접 찔러 보고** 넘어간다.
-     예전에는 주소만 읽고 바로 이동해서, 터널이 죽어 있으면 폰에는 브라우저 기본 오류
-     ("사이트에 연결할 수 없습니다")만 뜨고 왜 안 되는지 알 길이 없었다. */
-  const alive = async (url) => {
-    try{
-      const c = new AbortController();
-      const timer = setTimeout(()=>c.abort(), 8000);
-      await fetch(url.replace(/\/$/,'') + '/api/ping?t=' + Date.now(),
-                  {cache:'no-store', mode:'no-cors', signal:c.signal});
-      clearTimeout(timer);
-      return true;                       // no-cors라 내용은 못 읽지만, 응답이 오면 살아 있다
-    }catch(e){ return false; }
-  };
-
-  /* ★ 예전에는 여기서 끝이었다 — PC가 꺼져 있으면 폰에 오류만 뜨고 아무것도 못 했다.
-       이제는 **잠긴 사본으로 넘긴다**. 조회·프로젝트코드 자동채움·등록 예약은 PC 없이 된다. */
-  /* ★ 예전에는 여기서 버튼을 하나 더 누르게 했다. 그런데 PC가 꺼져 있는 건
-       **예외가 아니라 흔한 상태**다(출장·퇴근 후). 매번 '열기'를 누르게 하면
-       사용자는 그냥 "또 안 되네"라고 느낀다. 그래서 바로 넘긴다.
-       왜 오프라인인지는 앱 안에서 알려 준다(사본 기준 시각과 함께). */
-  const offline = (why) => {
-    st.textContent = '사무실 PC가 꺼져 있어 저장된 사본으로 엽니다…';
-    act.innerHTML = `<a class="btn" href="app.html">바로 열기</a>`;
-    try{ sessionStorage.setItem('csos_offline_why', why || ''); }catch(e){}
-    location.replace('app.html');
-  };
-
-  let d;
-  try{
-    const r = await fetch('endpoint.json?t=' + Date.now(), {cache:'no-store'});
-    d = await r.json();
-    if(!d.url) throw new Error('no url');
-  }catch(e){
-    return offline('사무실 PC가 꺼져 있습니다.');
-  }
-
-  st.innerHTML = '<span class="spin"></span> 연결을 확인하는 중…';
-  if(!(await alive(d.url))){
-    const min = d.updated ? Math.round((Date.now() - new Date(d.updated).getTime())/60000) : null;
-    return offline('사무실 PC가 꺼져 있습니다' + (min!=null ? ` (주소 갱신 ${min}분 전)` : '') + '.');
-  }
-  /* ★ 바로 넘겨 버리면 이 화면에서 [설치 및 바로가기 만들기]를 누를 틈이 없다.
-       홈 화면 아이콘은 **이 주소에서** 만들어야 오래 가는데, 페이지가 즉시 사라지니
-       설치를 할 수가 없었다(2026-07-27 실제 증상).
-       그래서 설치된 앱으로 열었을 때만 즉시 넘기고, 브라우저에서 그냥 열었을 때는
-       잠깐 멈춰 설치할 기회를 준다. ?stay=1 을 붙이면 아예 안 넘어간다. */
-  const installed = window.matchMedia('(display-mode: standalone)').matches
-                 || window.navigator.standalone === true;
-  const stay = new URLSearchParams(location.search).has('stay');
-  act.innerHTML = `<a class="btn" href="${d.url}">지금 열기</a>`;
-  if (installed) { location.replace(d.url); return; }
-  if (stay) { st.textContent = '이 화면에 머무릅니다. 메뉴에서 [설치 및 바로가기 만들기]를 누르세요.'; return; }
-
-  let left = 4;
-  const tick = () => {
-    st.textContent = `${left}초 후 접속합니다`;
-    if (left-- <= 0) { clearInterval(iv); location.replace(d.url); }
-  };
-  const iv = setInterval(tick, 1000); tick();
-  act.insertAdjacentHTML('beforeend',
-    `<button id="stayBtn" style="width:100%;margin-top:8px;background:#EEF2FF;color:#1C3FA8;
-      border:0;border-radius:12px;padding:12px;font-weight:800;font-size:14px;
-      font-family:inherit;cursor:pointer">여기서 홈 화면에 추가하기</button>
-     <div class="tip" style="margin-top:8px">
-       홈 화면 아이콘은 <b>이 주소로</b> 만들어야 나중에도 열립니다.</div>`);
-  document.getElementById('stayBtn').onclick = () => {
-    clearInterval(iv);
-    st.innerHTML = '<b>메뉴(⋮) → 설치 및 바로가기 만들기</b>를 누르세요.';
-    document.getElementById('stayBtn').remove();
-  };
-})();
+location.replace('app.html');
 </script>
 </body></html>
