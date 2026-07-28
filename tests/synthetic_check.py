@@ -2236,6 +2236,39 @@ def t46_app_2026_only():
     print("  [46] 앱 전 화면 2026년 전용 필터·구 사본 2차 방어 ✅")
 
 
+def t47_back_nav():
+    """[47] 뒤로가기 — 바로 전 화면 → 없으면 대시보드 → 대시보드에서 종료(사용자 지시 2026-07-28).
+
+    시트(상세창)와 탭을 **한 스택**으로 다뤄야 한다. 따로 두면 시트를 닫는 뒤로가기와
+    탭을 되돌리는 뒤로가기가 어긋난다. 그리고 되돌린 뒤에는 반드시 여분 항목을 다시
+    쌓아야(navGuard) 다음 뒤로가기가 앱 밖으로 새지 않는다."""
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # 화면 전환과 기록을 분리했는가 — applyView 는 기록을 안 남기고, show 는 남긴다
+    assert "function applyView(" in live and "function show(v){" in live, "applyView/show 분리 누락"
+    assert "navPush({t:'tab', from:from})" in live, "탭 이동이 뒤로가기 기록에 안 쌓인다"
+    assert "navPush({t:'sheet'})" in live, "시트가 뒤로가기 기록에 안 쌓인다"
+
+    # 홈 판정과 종료
+    assert "curView() !== 'dash'" in live and "exitApp()" in live, "홈(대시보드) 폴백·종료 누락"
+    assert "function exitApp()" in live and "window.close()" in live, "종료 처리 누락"
+
+    # ★ 여분 항목이 없으면 첫 뒤로가기가 앱 밖으로 나간다
+    assert "function navGuard()" in live, "navGuard 누락"
+    assert live.count("navGuard()") >= 4, "되돌린 뒤 여분 항목을 다시 쌓지 않는 경로가 있다"
+
+    # ★ history.go(-n) 은 popstate 를 한 번만 낸다 — n 만큼 세면 다음 뒤로가기를 먹는다
+    assert "_navSkip += 1" in live, "history.go(-n) 의 popstate 를 n 번으로 세고 있다"
+    assert "_navSkip += back" not in live, "go(-n) popstate 를 n 번으로 세는 코드가 남아 있다"
+
+    # 시트를 통째로 닫아도 탭 기록은 남아야 한다(그래야 뒤로가기가 이전 탭으로 간다)
+    assert "while(_nav.length && _nav[_nav.length-1].t === 'sheet')" in live, \
+        "closeSheetAll 이 탭 기록까지 걷어낸다"
+    # 옛 분리 구현의 흔적이 남아 있으면 두 스택이 다시 어긋난다
+    assert "_sheetHist" not in live, "옛 _sheetHist 카운터가 남아 있다(스택 이원화)"
+    print("  [47] 뒤로가기(이전 화면→대시보드→종료)·시트/탭 단일 스택 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2283,6 +2316,7 @@ if __name__ == "__main__":
     t41_dates_explicit()
     t44_zscan()
     t46_app_2026_only()
+    t47_back_nav()
     t39_realtime_monitor()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")
