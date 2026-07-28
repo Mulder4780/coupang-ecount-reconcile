@@ -349,6 +349,9 @@ def self_test():
 
 
 def main():
+    # 다른 AI가 원장을 잡고 있으면 여기서 멈춘다(동시 수정 시 한쪽이 통째로 묻힌다)
+    from claim_guard import require
+    require("ledger", "expand_rows")
     if "--self-test" in sys.argv:
         self_test(); return
     sheet = sys.argv[sys.argv.index("--sheet") + 1] if "--sheet" in sys.argv else None

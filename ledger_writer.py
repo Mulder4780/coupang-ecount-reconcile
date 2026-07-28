@@ -412,6 +412,9 @@ def _main():
 
 
 def main():
+    # 다른 AI가 원장을 잡고 있으면 여기서 멈춘다(동시 수정 시 한쪽이 통째로 묻힌다)
+    from claim_guard import require
+    require("ledger", "ledger_writer")
     global PENDING
     if "--queue" in sys.argv:                     # 테스트용 큐 경로 오버라이드
         PENDING = sys.argv[sys.argv.index("--queue") + 1]

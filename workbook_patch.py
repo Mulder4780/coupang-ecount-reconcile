@@ -161,6 +161,9 @@ def patch(src, dst, a, b, c, a2="", manual18="", manual20=""):
 
 
 def main():
+    # 다른 AI가 원장을 잡고 있으면 여기서 멈춘다(동시 수정 시 한쪽이 통째로 묻힌다)
+    from claim_guard import require
+    require("ledger", "workbook_patch")
     ap = argparse.ArgumentParser()
     ap.add_argument("--a", default="", help="A열(날짜 #순번). 생략 시 자동")
     ap.add_argument("--b", required=True, help="B열(작업 제목)")

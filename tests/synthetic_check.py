@@ -1645,6 +1645,51 @@ def t39_realtime_monitor():
     print("  [39] 입력시간 완전정지·이슈 신규/지속/해결·점유 원자화 ✅")
 
 
+def t40_claim_enforced():
+    """[40] 협업 규칙이 **문서로만** 있으면 잊는다 — 원장 도구가 실제로 막아야 한다.
+
+    두 AI가 동시에 원장을 고치면 각자 vN+1을 만들어 한쪽이 통째로 묻힌다(되돌릴 수 없다).
+    ai_claim 은 규칙을 적는 곳이고, claim_guard 가 그 규칙을 강제한다."""
+    import claim_guard, ai_claim
+
+    # (1) 원장을 쓰는 도구는 전부 가드를 거쳐야 한다
+    for fn in ("ledger_writer.py", "workbook_patch.py", "expand_rows.py", "confirm_fill.py"):
+        src = open(os.path.join(ROOT, fn), encoding="utf-8").read()
+        assert "claim_guard" in src and 'require("ledger"' in src, f"{fn} 이 점유를 확인하지 않는다"
+
+    # (2) 남이 잡고 있으면 멈춰야 한다
+    #     ★ 먼저 비워 둔다 — 앞선 작업이 잡아 둔 게 남아 있으면 take 가 무시돼 시험이 헛돈다
+    for w in ("claude", "codex", "unknown"):
+        try:
+            ai_claim.free(w, "ledger")
+        except Exception:
+            pass
+    assert ai_claim.take("codex", "ledger", "합성검증"), "시험용 점유를 못 잡았다"
+    try:
+        os.environ["CSOS_AI"] = "claude"
+        try:
+            claim_guard.require("ledger", "test")
+            raise AssertionError("남이 잡았는데 그냥 진행했다 — 동시 수정이 일어난다")
+        except SystemExit as e:
+            assert e.code == 3, e.code
+        # (3) 사람이 직접 실행할 때(CSOS_AI 없음)는 막지 않는다 — 손을 묶으면 안 된다
+        os.environ.pop("CSOS_AI", None)
+        assert claim_guard.require("ledger", "test") is True
+    finally:
+        os.environ.pop("CSOS_AI", None)
+        ai_claim.free("codex", "ledger")
+
+    # (4) 아무도 안 잡았으면 자동으로 잡고 진행한다
+    os.environ["CSOS_AI"] = "claude"
+    try:
+        assert claim_guard.require("ledger", "test") is True
+        assert (ai_claim.load().get("ledger") or {}).get("who") == "claude"
+    finally:
+        ai_claim.free("claude", "ledger")
+        os.environ.pop("CSOS_AI", None)
+    print("  [40] 점유 강제(원장 도구 차단·사람 실행 허용·자동 점유) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1685,6 +1730,7 @@ if __name__ == "__main__":
     t36_mobile_input()
     t37_band_coverage()
     t38_daily_brief()
+    t40_claim_enforced()
     t39_realtime_monitor()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")

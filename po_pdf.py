@@ -31,7 +31,17 @@ except Exception:
     pass
 
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports")
-PO_DIR = r"Z:\16. Share\유현민\오종현\26년도 PO 모음"
+# 사용자 지시(2026-07-28): **두 폴더를 항상 같이** 본다.
+# 오종현이 어느 쪽에 넣을지 그때그때 달라서 한쪽만 보면 자료를 놓친다.
+#  · 관리대장 폴더 : PO별 하위 폴더 구조 + 견적서 첨부까지 (재귀 PDF 566개)
+#  · 공유 폴더     : 평면 구조 (PDF 70개)
+# 같은 파일이 양쪽에 있을 수 있으므로 파일명+종류로 한 번만 센다.
+PO_DIR = (r"Z:\2. Cost\★★★쿠팡 업무 폴더★★★"
+          r"\♣ 1000. 쿠팡 통합업무관리 전산화 프로젝트"
+          r"\00. 대시보드 (프로젝트 일정, 담당자, 진행현황, 문제사항)"
+          r"\00. 쿠팡 통합업무 일일보고 관리대장\26년도 PO 모음")
+PO_DIR_OLD = r"Z:\16. Share\유현민\오종현\26년도 PO 모음"
+PO_DIRS = [PO_DIR, PO_DIR_OLD]
 
 PO_RE = re.compile(r"PO\s*(\d{6})")
 UJ_RE = re.compile(r"UJ\d{7}")
@@ -252,8 +262,23 @@ def pdf_files(folder):
 
 
 def scan(folder=None):
-    folder = folder or PO_DIR
-    return [parse(f) for f in pdf_files(folder)], folder
+    """폴더 하나를 지정하면 그것만, 기본값이면 **PO_DIRS 전부**를 훑는다.
+
+    ★ 같은 파일이 양쪽 폴더에 다 있을 수 있다(자료를 옮기는 중이다). 파일명+종류로
+      한 번만 센다 — 중복을 그대로 두면 '고유 PO 개수'가 부풀고 대조 숫자가 어긋난다.
+    """
+    folders = [folder] if folder else [d for d in PO_DIRS if os.path.isdir(d)]
+    seen, recs = set(), []
+    for d in folders:
+        for f in pdf_files(d):
+            r = parse(f)
+            key = (r["PO번호"], r["종류"], r["파일"])
+            if key in seen:
+                continue
+            seen.add(key)
+            r["출처폴더"] = d
+            recs.append(r)
+    return recs, " + ".join(folders) if folders else str(folder)
 
 
 def latest_by_po(recs):
