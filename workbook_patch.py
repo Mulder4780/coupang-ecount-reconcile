@@ -86,8 +86,14 @@ def append_row(xml, values):
 
 
 def replace_inline_cell(xml, ref, value):
-    """기존 셀의 스타일을 보존하며 문자열 값을 교체한다."""
-    m = re.search(r'<c r="%s"[^>]*(?:/>|>.*?</c>)' % re.escape(ref), xml, re.S)
+    """기존 셀의 스타일을 보존하며 문자열 값을 교체한다.
+
+    ★ 2026-07-28 실사고: 예전 패턴은 `<c r="AJ33" s="5"/>` 처럼 **빈 셀(자기닫힘)** 에서
+      `[^>]*` 가 `/` 까지 삼킨 뒤 `>.*?</c>` 가 **다음 셀을 통째로 먹어치웠다.**
+      (03_현장작업실적 33행에서 비고를 채우려다 옆 칸 AK33 이 사라졌다 — 검증이 잡았다.)
+      속성은 `이름="값"` 형태만 받도록 좁혀 `/` 를 삼키지 못하게 한다."""
+    m = re.search(r'<c r="%s"(?:\s+[a-zA-Z:]+="[^"]*")*\s*(?:/>|>.*?</c>)' % re.escape(ref),
+                  xml, re.S)
     if not m:
         raise AssertionError(f"{ref} 셀 XML 없음")
     sm = re.search(r'\ss="(\d+)"', m.group(0))

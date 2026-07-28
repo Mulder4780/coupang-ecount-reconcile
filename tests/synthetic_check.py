@@ -1718,22 +1718,36 @@ def t41_dates_explicit():
         got = NT(raw)
         assert got == want, f"normalize_tech({raw!r}) = {got!r}, 기대 {want!r}"
 
+    # (7) 셀 교체가 **옆 칸을 먹어치우지 않는지**. 빈 셀은 자기닫힘(`<c .../>`)이라
+    #     느슨한 정규식이 `/` 를 삼키고 다음 `</c>` 까지 지운다(2026-07-28 실사고 — AK33 소실).
+    from workbook_patch import replace_inline_cell as _RC
+    _x = '<c r="AJ33" s="5"/><c r="AK33" s="7" t="inlineStr"><is><t>지켜야함</t></is></c>'
+    _o = _RC(_x, "AJ33", "메모")
+    assert "지켜야함" in _o and 'r="AK33"' in _o, "빈 셀을 교체하며 옆 칸을 삼켰다"
+    assert _o.count("<c ") == 2, f"셀 개수가 바뀌었다: {_o}"
+
     if src and os.path.exists(src):
         import openpyxl as _ox
         from project_resolve import clean_tech
         _w = _ox.load_workbook(src, read_only=True, data_only=True)
-        _s = _w["02_돌발AS접수"]
-        _h = [str(h or "") for h in next(_s.iter_rows(min_row=4, max_row=4, values_only=True))]
-        _i = _h.index("담당기사")
         junk = []
-        for _row in _s.iter_rows(min_row=5, values_only=True):
-            if not _row[0]:
+        # ★ 02시트만 보다가 03_현장작업실적에 같은 값이 남았다 — 기사 열이 있는 시트를 전부 본다
+        for _sn in ("02_돌발AS접수", "03_현장작업실적", "04_정기점검", "05_신규납품설치"):
+            if _sn not in _w.sheetnames:
                 continue
-            _v = str(_row[_i] or "").strip()
-            if _v and clean_tech(_v) != _v:
-                junk.append(_v)
+            _s = _w[_sn]
+            _h = [str(h or "").strip() for h in
+                  next(_s.iter_rows(min_row=4, max_row=4, values_only=True))]
+            _cs = [i for i, h in enumerate(_h) if h in ("담당기사", "담당자", "작업자")]
+            for _row in _s.iter_rows(min_row=5, values_only=True):
+                if not _row[0]:
+                    continue
+                for _i in _cs:
+                    _v = str(_row[_i] or "").strip() if _i < len(_row) else ""
+                    if _v and clean_tech(_v) != _v:
+                        junk.append(f"{_sn}:{_v}")
         _w.close()
-        assert not junk, ("02_돌발AS접수 담당기사에 사람 아닌 값 %d건 — "
+        assert not junk, ("담당기사 칸에 사람 아닌 값 %d건 — "
                           "python fix_tech_names.py 로 정정: %s" % (len(junk), junk[:3]))
         left = DC.survey(src)
         assert not left, ("대시보드에 채우기 내림 잔해 %d칸 — python dashboard_clean.py 로 정리: %s"
