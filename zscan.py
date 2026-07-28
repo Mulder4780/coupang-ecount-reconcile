@@ -232,7 +232,14 @@ def match_docs(docs, rows, tol_days=7):
         elif not cands:
             orphan.append(d)
         else:
-            ambiguous.append((d, cands))
+            # ★ 후보가 여럿이면 **날짜가 정확히 같은 것**을 먼저 본다. 그런 게 딱 하나면
+            #   그게 그 작업이다(같은 캠프를 같은 날 두 번 가는 일은 없다).
+            #   그래도 여럿이면 손대지 않는다 — 엉뚱한 행에 '발행완료'가 찍히면 되돌리기 어렵다.
+            exact = [r for r in cands if r["일자"][:10] == d["일자"]]
+            if len(exact) == 1:
+                paired.append((d, exact[0]))
+            else:
+                ambiguous.append((d, cands))
     return paired, orphan, ambiguous
 
 

@@ -98,6 +98,7 @@ def plan(path):
     erp, files = erp_projects()
     wb = openpyxl.load_workbook(path, data_only=True)
     fills, tally, skipped, notdone = {}, {}, Counter(), Counter()
+    contra = []          # ERP에 매출이 있는데 우리 상태는 아직 미완료인 건
     for sn, col, stcol, done_vals, costcol in TARGET:
         if sn not in wb.sheetnames:
             continue
@@ -115,8 +116,15 @@ def plan(path):
             if not k:
                 continue
             if get(stcol) not in done_vals:
-                notdone[sn] += 1
-                continue                       # 아직 안 끝난 건은 판단할 때가 아니다
+                if k not in erp:
+                    notdone[sn] += 1
+                    continue                   # 아직 안 끝난 건은 판단할 때가 아니다
+                # ★ 2026-07-28: ERP 판매조회에 그 프로젝트가 **있다**는 건 작업이 끝나고
+                #   전표까지 끊겼다는 뜻이다. 그런데 우리 상태 칸이 아직 '접수'·'미점검'이라면
+                #   그건 **상태 갱신이 누락된 것**이지 ERP 등록이 안 된 게 아니다.
+                #   ERP 칸은 사실대로 적고(전표는 실재한다), 모순은 따로 보고한다.
+                #   (상태 칸은 수식이 잡고 있어 여기서 건드리지 않는다 — 완료일이 들어와야 바뀐다)
+                contra.append((sn, n, k, get(stcol)))
             if get(col):
                 skipped[sn] += 1
                 continue                       # 사람이 적어 둔 값은 덮지 않는다
@@ -132,7 +140,7 @@ def plan(path):
     for c in tally.values():
         for v in c:
             assert v in ALLOWED, f"허용되지 않은 값 {v!r}"
-    return fills, tally, skipped, notdone, erp, files
+    return fills, tally, skipped, notdone, erp, files, contra
 
 
 def apply_cells(xml, fills):
@@ -156,7 +164,7 @@ def main():
     src = m[0] if isinstance(m, tuple) else m
     print(f"원본: {os.path.basename(src)}\n")
 
-    fills, tally, skipped, notdone, erp, files = plan(src)
+    fills, tally, skipped, notdone, erp, files, contra = plan(src)
     print(f"판매조회에서 모은 프로젝트 {len(erp)}개")
     for f, sn, n in files:
         print(f"   {f} [{sn}] {n}행")
@@ -164,6 +172,24 @@ def main():
     for sn, c in tally.items():
         print(f"  {sn:<14}{sum(c.values()):>5}  " + " · ".join(f"{v} {k}" for k, v in c.most_common())
               + f"   (기존값 유지 {skipped.get(sn,0)} · 미완료 제외 {notdone.get(sn,0)})")
+    if contra:
+        # ERP 에 매출이 잡혔는데 우리 상태는 아직 미완료 — 상태 갱신이 누락된 것이다.
+        # 상태 칸은 수식이라 여기서 못 고친다(완료일이 들어와야 바뀐다). 사람이 볼 목록으로 남긴다.
+        print(f"\n★ ERP 에 전표가 있는데 관리대장 상태는 아직 미완료 — {len(contra)}건")
+        for sn, n, k, st in contra[:10]:
+            print(f"    {sn[:2]} {n}행  {k}  상태={st}")
+        rp = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(BASE, "reports")
+        os.makedirs(rp, exist_ok=True)
+        out = os.path.join(rp, "ERP전표있는데_상태미완료.md")
+        with open(out, "w", encoding="utf-8") as fh:
+            fh.write("# ERP 판매전표는 있는데 관리대장 상태가 미완료인 건\n\n")
+            fh.write("판매조회에 프로젝트코드가 있다 = 작업이 끝나고 전표까지 끊겼다는 뜻이다.\n")
+            fh.write("그런데 관리대장 상태가 '접수'·'미점검'이면 **상태 갱신이 누락**된 것이다.\n")
+            fh.write("상태 칸은 수식이라 도구가 못 고친다 — **완료일(작업완료일·실제점검일)이 들어와야** 바뀐다.\n\n")
+            fh.write("| 시트 | 행 | 프로젝트NO | 현재 상태 |\n|---|---:|---|---|\n")
+            for sn, n, k, st in contra:
+                fh.write(f"| {sn} | {n} | {k} | {st} |\n")
+        print("    목록:", out)
     print("\n  ※ 검증결과는 수식이라 건드리지 않습니다 — 이 칸이 채워지면 저절로 정상이 됩니다.")
     if not do:
         print("\n실제로 채우려면:  python fill_erp_status.py --apply")
