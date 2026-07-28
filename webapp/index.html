@@ -1760,9 +1760,26 @@ function idMeta(id){
     : '';
 }
 
+/* ★ 사용자 지시(2026-07-28): "2025년도 건은 빼고, 기준일 ±10일 것만."
+   TOP5는 07_불일치누락현황의 맨 위 5행을 그대로 가져오는데, 그 시트가 옛 건부터 쌓여
+   2025-12 건이 먼저 나온다. 지금 손쓸 수 있는 건이 아니라 화면만 어지럽힌다.
+   ※ 엑셀 시트를 고치지 않고 화면에서 거른다 — 07시트는 자동수집 수식이라 건드리면
+     다른 집계가 같이 흔들린다. */
+const TOP_DAYS = 10;
+function topInRange(id){
+  const r = typeof rowById === 'function' ? rowById(id) : null;
+  if(!r) return true;                       // 날짜를 모르면 숨기지 않는다
+  const d = String(r.접수일자||r.점검예정일||r.완료일||r.작업완료일||r.실제점검일||'').slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return true;
+  const base = baseDate();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(base||''))) return true;
+  const diff = Math.abs(Date.parse(d+'T00:00:00') - Date.parse(base+'T00:00:00')) / 864e5;
+  return diff <= TOP_DAYS;
+}
 function topLine(t){
   const txt = String(t||'');
   const m = txt.match(/\b((?:AS|PM|JS)-\d{4}-\d{3})\b/);
+  if(m && !topInRange(m[1])) return '';     // 기준일에서 멀리 떨어진 건은 안 싣는다
   const live = liveIds();
   const gone = m && live.size && !live.has(m[1]);
   const body = gone
@@ -2019,8 +2036,12 @@ function execHtml(){
       }).join('') + `</div>`;
     }
     if((s.lines||[]).length){
-      h += `<ol class="elines">` + s.lines.map(t=>
-        topLine(String(t).replace(/^\s*\d+\.\s*/,''))).join('') + `</ol>`;
+      const li = s.lines.map(t=>topLine(String(t).replace(/^\s*\d+\.\s*/,''))).filter(Boolean);
+      // 전부 걸러졌으면 빈 목록을 남기지 않고 **왜 비었는지**를 적는다.
+      h += li.length
+        ? `<ol class="elines">${li.join('')}</ol>`
+        : `<div class="bnone">기준일 ${baseDate()} 앞뒤 ${TOP_DAYS}일 안에 해당하는 건이 없습니다`
+          + ` <span style="color:var(--ink-3)">(오래된 건은 07_불일치누락현황에서 보세요)</span></div>`;
     }
     h += `</div>`;
   });
