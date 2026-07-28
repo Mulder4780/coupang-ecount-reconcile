@@ -158,7 +158,12 @@ def main():
     sealed["zip"] = "deflate"
 
     os.makedirs(DOCS, exist_ok=True)
-    json.dump(sealed, open(OUT, "w", encoding="utf-8"), separators=(",", ":"))
+    tmp_out = OUT + ".tmp"
+    with open(tmp_out, "w", encoding="utf-8") as f:
+        json.dump(sealed, f, separators=(",", ":"))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_out, OUT)
     kb, rkb = os.path.getsize(OUT) / 1024, len(raw) / 1024
 
     print(f"  프로젝트코드 {len(d['codes'])} · 확인필요 {len(d['issues'])} · "

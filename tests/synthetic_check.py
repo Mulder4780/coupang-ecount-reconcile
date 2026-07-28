@@ -142,6 +142,9 @@ def t5_writer(tmp):
     ws.append(["JS-W2", "기존값-유지", None, "덮어쓰기 금지 검증"])
     h = wb.create_sheet("19_AI작업인수인계")
     h.append(["헤더"]); h.append(["기존 인수인계 행"])
+    dash = wb.create_sheet("00_대시보드"); dash["A2"] = "기존 사용법"
+    m18 = wb.create_sheet("18_문서발행업무매뉴얼"); m18["A1"] = "기존 매뉴얼"
+    m20 = wb.create_sheet("20_쿠팡통합업무상세매뉴얼"); m20.append([1, "기존 상세"])
     wb.save(src)
     q = os.path.join(tmp, "q.json")
     json.dump([
@@ -165,6 +168,16 @@ def t5_writer(tmp):
     hand = w2["19_AI작업인수인계"]
     assert any("자동 입력" in str(c.value) for row in hand.iter_rows() for c in row if c.value), "인수인계 기록 없음"
     w2.close()
+    # 종료 인수인계와 상시지시(00 A2·18·20)를 한 버전에 함께 반영한다.
+    import workbook_patch as WP
+    v3 = src.replace("_v1.xlsx", "_v3.xlsx")
+    WP.patch(dst, v3, "2026-07-28 #합성", "보완", "상세",
+             "새 사용법", "18 갱신", "20 갱신")
+    w3 = openpyxl.load_workbook(v3, read_only=True)
+    assert w3["00_대시보드"]["A2"].value == "새 사용법"
+    assert w3["18_문서발행업무매뉴얼"]["A2"].value == "18 갱신"
+    assert w3["20_쿠팡통합업무상세매뉴얼"]["D2"].value == "20 갱신"
+    w3.close()
     # 회귀: 스타일만 있는 자기닫힘 빈 셀(<c s=.../>) 바로 뒤에 수식 셀 — 오매칭으로 '값 있음' 오판했던 실사고
     import ledger_writer as LW
     from ledger_writer import apply_to_xml

@@ -43,53 +43,120 @@ def latest_master():
     return best, ver(best)
 
 
-def sheet_xml_path(z):
+def sheet_xml_path(z, sheet_name=SHEET_NAME):
     wb = z.read("xl/workbook.xml").decode("utf-8")
     rels = z.read("xl/_rels/workbook.xml.rels").decode("utf-8")
-    m = re.search(r'<sheet name="%s"[^>]*r:id="(rId\d+)"' % SHEET_NAME, wb)
-    if not m:
-        sys.exit(f"시트 '{SHEET_NAME}' 를 찾을 수 없습니다.")
-    m2 = re.search(r'<Relationship Id="%s"[^>]*Target="([^"]+)"' % m.group(1), rels)
-    t = m2.group(1)
-    return "xl/" + t if not t.startswith("/") else t[1:]
+    rid = None
+    for tag in re.findall(r"<sheet\b[^>]*/?>", wb):
+        mn = re.search(r'name="([^"]+)"', tag)
+        mr = re.search(r'r:id="([^"]+)"', tag)
+        if mn and mr and mn.group(1) == sheet_name:
+            rid = mr.group(1)
+            break
+    if not rid:
+        sys.exit(f"시트 '{sheet_name}' 를 찾을 수 없습니다.")
+    t = None
+    for tag in re.findall(r"<Relationship\b[^>]*/?>", rels):
+        mi = re.search(r'Id="([^"]+)"', tag)
+        mt = re.search(r'Target="([^"]+)"', tag)
+        if mi and mt and mi.group(1) == rid:
+            t = mt.group(1)
+            break
+    if not t:
+        sys.exit(f"시트 관계 '{sheet_name}' 를 찾을 수 없습니다.")
+    return t[1:] if t.startswith("/") else (t if t.startswith("xl/") else "xl/" + t)
 
 
-def patch(src, dst, a, b, c):
-    zin = zipfile.ZipFile(src)
-    target = sheet_xml_path(zin)
-    xml = zin.read(target).decode("utf-8")
+def append_row(xml, values):
+    """시트 마지막에 값 행 1개를 추가한다. values=[(열, 값, 숫자여부)]."""
     rows = [int(r) for r in re.findall(r'<row r="(\d+)"', xml)]
     nr = max(rows) + 1
-    assert f'<row r="{nr}"' not in xml
-    row = (f'<row r="{nr}" spans="1:3">'
-           f'<c r="A{nr}" s="93" t="inlineStr"><is><t>{esc(a)}</t></is></c>'
-           f'<c r="B{nr}" s="93" t="inlineStr"><is><t>{esc(b)}</t></is></c>'
-           f'<c r="C{nr}" s="93" t="inlineStr"><is><t>{esc(c)}</t></is></c></row>')
-    xml = xml.replace("</sheetData>", row + "</sheetData>", 1)
-    xml = re.sub(r'<dimension ref="A1:C\d+"/>', f'<dimension ref="A1:C{nr}"/>', xml, count=1)
+    cells = []
+    for col, value, number in values:
+        styles = re.findall(r'<c r="%s\d+"[^>]*\ss="(\d+)"' % col, xml)
+        s_attr = f' s="{styles[-1]}"' if styles else ""
+        if number:
+            cells.append(f'<c r="{col}{nr}"{s_attr}><v>{value}</v></c>')
+        else:
+            cells.append(f'<c r="{col}{nr}"{s_attr} t="inlineStr"><is><t>{esc(str(value))}</t></is></c>')
+    xml = xml.replace("</sheetData>", f'<row r="{nr}">{"".join(cells)}</row></sheetData>', 1)
+    xml = re.sub(r'(<dimension ref="[^"]*:[A-Z]{1,3})\d+("/>)',
+                 lambda m: f"{m.group(1)}{nr}{m.group(2)}", xml, count=1)
+    return xml, nr
 
-    zout = zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED)
+
+def replace_inline_cell(xml, ref, value):
+    """기존 셀의 스타일을 보존하며 문자열 값을 교체한다."""
+    m = re.search(r'<c r="%s"[^>]*(?:/>|>.*?</c>)' % re.escape(ref), xml, re.S)
+    if not m:
+        raise AssertionError(f"{ref} 셀 XML 없음")
+    sm = re.search(r'\ss="(\d+)"', m.group(0))
+    s_attr = f' s="{sm.group(1)}"' if sm else ""
+    new = f'<c r="{ref}"{s_attr} t="inlineStr"><is><t>{esc(value)}</t></is></c>'
+    return xml[:m.start()] + new + xml[m.end():]
+
+
+def patch(src, dst, a, b, c, a2="", manual18="", manual20=""):
+    zin = zipfile.ZipFile(src)
+    target = sheet_xml_path(zin, SHEET_NAME)
+    xml, nr = append_row(zin.read(target).decode("utf-8"),
+                         [("A", a, False), ("B", b, False), ("C", c, False)])
+    changed = {target: xml.encode("utf-8")}
+    verify = {SHEET_NAME: (nr, [a, b, c])}
+
+    if a2:
+        path = sheet_xml_path(zin, "00_대시보드")
+        x = zin.read(path).decode("utf-8")
+        changed[path] = replace_inline_cell(x, "A2", a2).encode("utf-8")
+    if manual18:
+        name = "18_문서발행업무매뉴얼"
+        path = sheet_xml_path(zin, name)
+        x, rown = append_row(zin.read(path).decode("utf-8"), [("A", manual18, False)])
+        changed[path] = x.encode("utf-8")
+        verify[name] = (rown, [manual18])
+    if manual20:
+        name = "20_쿠팡통합업무상세매뉴얼"
+        path = sheet_xml_path(zin, name)
+        x0 = zin.read(path).decode("utf-8")
+        rown = max(int(r) for r in re.findall(r'<row r="(\d+)"', x0)) + 1
+        x, rown = append_row(x0, [
+            ("A", rown, True),
+            ("B", "22-5. 수식·경고 대응(2026-07-28)", False),
+            ("C", "담당기사·자동상태", False),
+            ("D", manual20, False),
+        ])
+        changed[path] = x.encode("utf-8")
+        verify[name] = (rown, [rown, "22-5. 수식·경고 대응(2026-07-28)",
+                               "담당기사·자동상태", manual20])
+
+    tmp = dst[:-5] + ".tmp.xlsx"
+    if os.path.exists(tmp):
+        raise FileExistsError(f"임시 결과가 이미 존재: {tmp}")
+    zout = zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED)
     for it in zin.infolist():
-        d = zin.read(it.filename)
-        if it.filename == target:
-            d = xml.encode("utf-8")
+        d = changed.get(it.filename, zin.read(it.filename))
         # 주의: 원본 ZipInfo를 그대로 넘기면 writestr가 오프셋을 변조하므로 이름만 전달
         zout.writestr(it.filename, d)
     zout.close()
     zin.close()
 
     # 3중 검증 (원본·결과 모두 새로 열어서 — ZipInfo 오염 방지)
-    z = zipfile.ZipFile(dst)
+    z = zipfile.ZipFile(tmp)
     assert z.testzip() is None, "zip 무결성 실패"
     import openpyxl
-    w = openpyxl.load_workbook(dst, read_only=True)
-    vals = [cell.value for cell in next(w[SHEET_NAME].iter_rows(min_row=nr, max_row=nr, max_col=3))]
-    assert vals[0] == a and vals[1] == b, "새 행 판독 실패"
+    w = openpyxl.load_workbook(tmp, read_only=True)
+    for name, (rown, expected) in verify.items():
+        vals = [cell.value for cell in next(
+            w[name].iter_rows(min_row=rown, max_row=rown, max_col=len(expected)))]
+        assert vals == expected, f"{name} 행 재독 실패: {vals}"
+    if a2:
+        assert w["00_대시보드"]["A2"].value == a2, "00_대시보드 A2 재독 실패"
     w.close()
     zsrc = zipfile.ZipFile(src)
-    diff = [n for n in zsrc.namelist() if n != target and zsrc.read(n) != z.read(n)]
+    diff = [n for n in zsrc.namelist() if n not in changed and zsrc.read(n) != z.read(n)]
     assert not diff, f"의도치 않은 파트 변경: {diff}"
     zsrc.close(); z.close()
+    os.replace(tmp, dst)
     return nr
 
 
@@ -98,6 +165,9 @@ def main():
     ap.add_argument("--a", default="", help="A열(날짜 #순번). 생략 시 자동")
     ap.add_argument("--b", required=True, help="B열(작업 제목)")
     ap.add_argument("--c", required=True, help="C열(상세 내용)")
+    ap.add_argument("--a2", default="", help="00_대시보드 A2 사용법 전체 문구 교체(선택)")
+    ap.add_argument("--manual18", default="", help="18_문서발행업무매뉴얼 끝행 추가 문구(선택)")
+    ap.add_argument("--manual20", default="", help="20_쿠팡통합업무상세매뉴얼 끝행 추가 설명(선택)")
     args = ap.parse_args()
 
     src, v = latest_master()
@@ -105,7 +175,7 @@ def main():
     if os.path.exists(dst):
         sys.exit(f"{os.path.basename(dst)} 이미 존재 — 중복 실행 방지를 위해 중단")
     a = args.a or f"{date.today().isoformat()} #auto"
-    nr = patch(src, dst, a, args.b, args.c)
+    nr = patch(src, dst, a, args.b, args.c, args.a2, args.manual18, args.manual20)
     print(f"OK: v{v} → v{v+1} 생성, {SHEET_NAME} {nr}행 추가, 검증 3종 통과")
     print("   ", dst)
 

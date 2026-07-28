@@ -482,32 +482,41 @@ def main():
     dst = re.sub(r"_v\d+\.xlsx$", f"_v{int(mv.group(1))+1}.xlsx", master)
     if os.path.exists(dst):
         sys.exit(f"{os.path.basename(dst)} 이미 존재 — 중단")
-    zin = zipfile.ZipFile(master)
-    zout = zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED)
-    for it in zin.infolist():
-        data = patched.get(it.filename)
-        if data is None:
-            data = zin.read(it.filename)
-        data = force_recalc_part(it.filename, data)
-        if data is not None:
-            zout.writestr(it.filename, data)
-    zout.close(); zin.close()
+    tmp = dst + ".tmp"
+    if os.path.exists(tmp):
+        sys.exit(f"{os.path.basename(tmp)} 임시파일이 이미 존재 — 중단")
+    try:
+        zin = zipfile.ZipFile(master)
+        zout = zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED)
+        for it in zin.infolist():
+            data = patched.get(it.filename)
+            if data is None:
+                data = zin.read(it.filename)
+            data = force_recalc_part(it.filename, data)
+            if data is not None:
+                zout.writestr(it.filename, data)
+        zout.close(); zin.close()
 
-    # 검증: zip 무결성 + 음수행이 남아 있지 않은지
-    zc = zipfile.ZipFile(dst)
-    assert zc.testzip() is None, "zip 무결성 실패"
-    # ★ XML 전체를 훑으면 'AS-2607-001' 같은 **접수ID 문자열**까지 세어 버린다.
-    #   반드시 수식 본문만 본다(2026-07-26에 1,084개로 잘못 세었던 자리).
-    left = 0
-    self_refs = []
-    for p in smap.values():
-        xml = zc.read(p).decode("utf-8")
-        self_refs.extend(direct_self_refs(xml))
-        for _, _, f, _, _ in parse_cells(xml):
-            if is_broken(f):
-                left += 1
-    assert not self_refs, "직접 순환참조 발견: " + ", ".join(self_refs[:10])
-    zc.close()
+        # 검증을 모두 통과한 뒤에만 vN+1 정식 파일명으로 승격한다.
+        zc = zipfile.ZipFile(tmp)
+        assert zc.testzip() is None, "zip 무결성 실패"
+        # ★ XML 전체를 훑으면 'AS-2607-001' 같은 **접수ID 문자열**까지 세어 버린다.
+        #   반드시 수식 본문만 본다(2026-07-26에 1,084개로 잘못 세었던 자리).
+        left = 0
+        self_refs = []
+        for p in smap.values():
+            xml = zc.read(p).decode("utf-8")
+            self_refs.extend(direct_self_refs(xml))
+            for _, _, f, _, _ in parse_cells(xml):
+                if is_broken(f):
+                    left += 1
+        zc.close()
+        assert not self_refs, "직접 순환참조 발견: " + ", ".join(self_refs[:10])
+        os.replace(tmp, dst)
+    except Exception:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
     print(f"생성: {os.path.basename(dst)} · 남은 음수행 참조 {left}개 · 직접 순환참조 0개")
 
 
