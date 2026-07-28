@@ -2269,6 +2269,58 @@ def t47_back_nav():
     print("  [47] 뒤로가기(이전 화면→대시보드→종료)·시트/탭 단일 스택 ✅")
 
 
+def t48_excel_2026_stats_and_verified_completion():
+    """[48] Excel statistics are 2026-only; completion requires exact evidence."""
+    import stats_2026 as S
+
+    old = "=COUNTIF('02_돌발AS접수'!$Q$5:$Q$744,\"작업완료\")"
+    fixed = S.yearize_formula(old)
+    assert "COUNTIFS" in fixed
+    assert "'02_돌발AS접수'!$D$5:$D$744" in fixed
+    assert "DATE(2026,1,1)" in fixed and "DATE(2027,1,1)" in fixed
+
+    risk = "=COUNTIF('07_불일치누락현황'!$F$5:$F$304,\"*미배정*\")"
+    fixed_risk = S.yearize_formula(risk)
+    assert "'07_불일치누락현황'!$Q$5:$Q$304,2026" in fixed_risk
+
+    document = "=COUNTIF('17_문서대조현황'!$G$5:$G$154,\"미작성\")"
+    fixed_document = S.yearize_formula(document)
+    assert "'17_문서대조현황'!$A$5:$A$154,\"JS-26*\"" in fixed_document
+
+    top = S.top5_formula(1)
+    top_index = S._top_index(1)
+    assert "$P28" in top
+    assert "$Q$5:$Q$304=2026" in top_index
+    assert "$V$5:$V$304=\"포함\"" in top_index
+    assert "UJ25" not in top and "2025" not in top
+
+    helper = S.issue_year_formula(5)
+    assert "'02_돌발AS접수'!$D$5:$D$744" in helper
+    assert "'04_정기점검'!$D$5:$D$624" in helper
+    assert "'06_거래서류청구수금'!$L$5:$L$154" in helper
+
+    import complete_verified as C
+
+    assert C._year("2026-07-27") == 2026
+    assert C._year("2025-12-31") == 2025
+    ready = {
+        "작업완료일": "2026-07-27",
+        "관리자검증상태": "일치",
+        "완료보고서등록": "등록",
+        "사진등록": "등록",
+        "동영상등록": "",
+        "비용구분": "유상",
+        "ERP등록": "등록",
+        "재방문여부": "아니오",
+        "최초접수외추가작업": "",
+        "추가작업확인상태": "",
+    }
+    assert C._as_completion_ready(lambda name: ready.get(name))
+    ready["ERP등록"] = ""
+    assert not C._as_completion_ready(lambda name: ready.get(name))
+    print("  [48] Excel 2026-only statistics and evidence-gated completion OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2317,6 +2369,7 @@ if __name__ == "__main__":
     t44_zscan()
     t46_app_2026_only()
     t47_back_nav()
+    t48_excel_2026_stats_and_verified_completion()
     t39_realtime_monitor()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")
