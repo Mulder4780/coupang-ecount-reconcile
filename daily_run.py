@@ -138,6 +138,12 @@ def main():
     # 6. 확인필요현황 시트 갱신 — 관리대장 본체 23_확인필요현황 (변경 시에만 vN+1, 단일 엑셀 통합관리)
     steps.append(run("확인필요 시트 갱신(23시트)", [os.path.join(ROOT, "findings_sheet.py")]))
 
+    # 6.5 확인필요현황 **별도 엑셀** 갱신 — 23시트는 평면 목록이라 유형별 상세열
+    #     (명세서번호·PO번호·매칭근거·확인방법)을 담지 못한다. 그 상세는 이 파일에만 있다.
+    #     ★ 여기에 연결돼 있지 않아 2026-07-27 16:45 자로 하루 동안 멈춰 있었다 —
+    #       읽는 사람은 멈춘 줄 모르고 어제 숫자를 오늘 숫자로 본다. 반드시 매일 같이 돈다.
+    steps.append(run("확인필요현황 엑셀 갱신", [os.path.join(ROOT, "findings_export.py")]))
+
     # 7. 전표 전송 대기 현황 (dry-run만 — 실전송은 절대 자동화하지 않음)
     steps.append(run("전표 전송대기(dry-run)", [os.path.join(ROOT, "ecount_upload.py")]))
 

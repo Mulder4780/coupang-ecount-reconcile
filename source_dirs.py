@@ -41,6 +41,15 @@ PO_DIRS = [
     r"Z:\16. Share\유현민\오종현\26년도 PO 모음",
 ]
 
+# 입금(수금) 내역 — 오종현이 관리하는 공유 폴더가 정본이다(사용자 지시 2026-07-28:
+# "쿠팡 입금 내역은 여기서 항상 확인해서 정리해줘"). PO 모음과 같은 자리에 있다.
+# 이카운트 계정별원장으로는 캠프별 거래처 입금이 잡히지 않아 입금 0건으로 보였는데,
+# 이 파일에는 실제로 들어와 있다 — 미수 금액을 말할 때 반드시 이걸 같이 본다.
+RECEIPT_DIRS = [
+    r"Z:\16. Share\유현민\오종현\26년도 쿠팡 입금내역",
+    os.path.join(ORIGIN_ROOT, "5. 입금내역"),
+]
+
 # 엑셀 원본을 찾을 곳. ORIGIN_ROOT 자체도 남겨 둔다 — 사람이 하위 폴더를 안 거치고
 # 루트에 바로 떨어뜨려도 잡히게 하기 위해서다(그게 제일 흔한 실수다).
 EXCEL_DIRS = [ERP_DIR, COUPANG_DIR, ORIGIN_ROOT, os.path.join(ROOT, "inbox")]
@@ -71,6 +80,10 @@ def excel_dirs():
 
 def kakao_dirs():
     return existing(KAKAO_DIRS)
+
+
+def receipt_dirs():
+    return existing(RECEIPT_DIRS)
 
 
 if __name__ == "__main__":

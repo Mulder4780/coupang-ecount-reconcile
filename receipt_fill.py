@@ -112,6 +112,80 @@ def parse_receipts(path):
     return out, has_credit
 
 
+# 같은 거래처가 표기만 다르게 적힌다 — '쿠팡로지스틱스'/'쿠팡로지스틱',
+# '김진주(위더스)'/'김진주（위더스 )'(전각 괄호). 집계할 때 갈라지면 금액이 둘로 쪼개진다.
+def norm_cust(name):
+    s = str(name or "")
+    # ★ 법인격을 **괄호를 지우기 전에** 뗀다. 괄호부터 지우면 '(주)모벤티스'가 '주모벤티스'가
+    #   되어 '주식회사 모벤티스'와 영영 다른 거래처가 된다.
+    s = re.sub(r"[（(]\s*[주유재사]\s*[）)]|㈜|㈕|주식회사|유한회사|합자회사", "", s)
+    s = re.sub(r"[（）()\s\-·.]", "", s)
+    if s.startswith("쿠팡로지스틱"):
+        return "쿠팡로지스틱스"
+    return s or "(미기재)"
+
+
+def parse_deposit_list(path):
+    """오종현 관리 '26년도 쿠팡 입금내역' → [{일자, 거래처, 금액}]
+
+    머리글(날짜·거래처·입금액)이 몇 번째 행에 있는지는 사람이 제목·빈 줄을 넣는 만큼
+    바뀐다(현재 5행). 행 번호를 박아 두면 다음 달에 한 줄 밀리는 순간 0건이 된다
+    → **머리글을 찾아서** 시작 행을 정한다."""
+    import openpyxl
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    out = []
+    for ws in wb.worksheets:
+        rows = list(ws.iter_rows(values_only=True))
+        hdr_i, idx = None, {}
+        for i, r in enumerate(rows[:30]):
+            names = {str(c).strip(): j for j, c in enumerate(r) if c is not None}
+            if any(n in ("날짜", "일자", "입금일") for n in names) and \
+               any("입금" in n and "액" in n or n == "금액" for n in names):
+                hdr_i = i
+                for n, j in names.items():
+                    if n in ("날짜", "일자", "입금일"):
+                        idx["date"] = j
+                    elif "거래처" in n or "업체" in n or "입금자" in n:
+                        idx["cust"] = j
+                    elif ("입금" in n and "액" in n) or n == "금액":
+                        idx["amt"] = j
+                break
+        if hdr_i is None or "date" not in idx or "amt" not in idx:
+            continue
+        for r in rows[hdr_i + 1:]:
+            if r is None:
+                continue
+            d = _day(r[idx["date"]])
+            a = _num(r[idx["amt"]])
+            if d is None or not a:
+                continue
+            joined = " ".join(str(c) for c in r if c is not None)
+            if re.search(r"(합|총|누)\s*계", joined):
+                continue                      # 합계 행을 입금으로 세면 금액이 두 배가 된다
+            out.append({
+                "일자": d, "금액": a,
+                "거래처": norm_cust(r[idx["cust"]] if idx.get("cust") is not None else ""),
+                "전표": "", "적요": str(r[idx["cust"]] or "") if idx.get("cust") is not None else "",
+                "출처": os.path.basename(path),
+            })
+    wb.close()
+    return out
+
+
+def load_deposits():
+    """입금내역 폴더의 엑셀을 전부 읽는다(사용자 지시 — 여기가 정본)."""
+    import glob
+    from source_dirs import receipt_dirs
+    out, files = [], []
+    for d in receipt_dirs():
+        for f in sorted(glob.glob(os.path.join(d, "*.xlsx"))):
+            if os.path.basename(f).startswith("~$"):
+                continue                      # 엑셀이 열려 있을 때 생기는 잠금 파일
+            files.append(f)
+            out += parse_deposit_list(f)
+    return out, files
+
+
 def open_settlements(master):
     """입금일이 비어 있는 06시트 정산행 — 청구액(세금계산서합계 우선)과 함께."""
     from ecount_reconcile import read_ledger
@@ -145,34 +219,102 @@ def match(receipts, rows):
     return paired, spare
 
 
+def billing_totals(master):
+    """06시트 청구·입금 총액. 건별 귀속이 안 될 때 **총액으로는** 대사할 수 있다."""
+    from ecount_reconcile import read_ledger
+    billed = paid = 0.0
+    n_billed = n_paid = 0
+    biggest = 0.0
+    for _sid, r in read_ledger(master).items():
+        b = r.get("원장_세금계산서합계") or r.get("원장_거래명세서합계")
+        if b:
+            billed += float(b)
+            n_billed += 1
+            biggest = max(biggest, float(b))
+        if r.get("원장_입금액"):
+            paid += float(r["원장_입금액"])
+            n_paid += 1
+    return {"청구건": n_billed, "청구액": billed, "입금기록건": n_paid,
+            "입금기록액": paid, "최대1건": biggest}
+
+
+def summarize(receipts, files, master=None, save=True):
+    """입금 현황 정리 — 콘솔엔 집계만, 상세는 reports/ 로."""
+    import collections
+    by = collections.defaultdict(lambda: [0, 0.0])
+    for r in receipts:
+        b = by[r["거래처"]]
+        b[0] += 1
+        b[1] += r["금액"]
+    total = sum(r["금액"] for r in receipts)
+    days = [r["일자"] for r in receipts]
+    print("입금내역 %d건 · 합계 %s원 · %s ~ %s (파일 %d개)"
+          % (len(receipts), format(int(total), ","), min(days), max(days), len(files)))
+    for cust, (n, amt) in sorted(by.items(), key=lambda kv: -kv[1][1])[:8]:
+        print("  %-18s %3d건 %16s원" % (cust[:18], n, format(int(amt), ",")))
+    if len(by) > 8:
+        print("  … 외 %d개 거래처" % (len(by) - 8))
+    if not save:
+        return
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    out = os.path.join(REPORT_DIR, "입금현황.md")
+    with open(out, "w", encoding="utf-8") as f:
+        f.write("# 쿠팡 입금 현황\n\n")
+        f.write("- 원천: %s\n" % " · ".join(os.path.basename(x) for x in files))
+        f.write("- 입금 %d건 · 합계 %s원 · %s ~ %s\n\n" %
+                (len(receipts), format(int(total), ","), min(days), max(days)))
+        if master:
+            t = billing_totals(master)
+            gap = t["청구액"] - total
+            f.write("## 총액 대사 (건별 귀속은 불가 — 아래 주의 참고)\n\n")
+            f.write("| 항목 | 건 | 금액 |\n|---|---:|---:|\n")
+            f.write("| 관리대장 청구액(세금계산서·명세서) | %d | %s |\n"
+                    % (t["청구건"], format(int(t["청구액"]), ",")))
+            f.write("| 관리대장에 기록된 입금 | %d | %s |\n"
+                    % (t["입금기록건"], format(int(t["입금기록액"]), ",")))
+            f.write("| **실제 입금(이 폴더 기준)** | %d | **%s** |\n"
+                    % (len(receipts), format(int(total), ",")))
+            f.write("| 청구 − 실제입금 | | %s |\n\n" % format(int(gap), ","))
+            mid = sorted(r["금액"] for r in receipts)[len(receipts) // 2]
+            f.write("> ★ **이 차액을 미수로 확정 보고하지 말 것.** 입금은 여러 건을 묶어 들어온다\n"
+                    "> (입금 중앙값 %s원 vs 정산 1건 최대 %s원 — 한 번 입금에 여러 건이 섞여 있다).\n"
+                    "> 관리대장에 아직 청구가 안 올라온 건도 있다. 건별로 어느 계산서에 대한 입금인지는\n"
+                    "> **쿠팡 지급명세(remittance)가 있어야** 알 수 있다.\n\n"
+                    % (format(int(mid), ","), format(int(t["최대1건"]), ",")))
+        f.write("## 거래처별\n\n| 거래처 | 건수 | 금액 |\n|---|---:|---:|\n")
+        for cust, (n, amt) in sorted(by.items(), key=lambda kv: -kv[1][1]):
+            f.write("| %s | %d | %s |\n" % (cust, n, format(int(amt), ",")))
+        f.write("\n## 전체 내역(날짜 오름차순)\n\n| 날짜 | 거래처 | 금액 |\n|---|---|---:|\n")
+        for r in sorted(receipts, key=lambda x: (x["일자"], x["거래처"])):
+            f.write("| %s | %s | %s |\n" % (r["일자"], r["거래처"], format(int(r["금액"]), ",")))
+    print("  상세:", out)
+
+
 def main():
     queue_mode = "--queue" in sys.argv
     from ecount_reconcile import load_config, resolve_master
     from inbox_scan import pick
     master = resolve_master(load_config()["reconcile"]["master_xlsx"])
 
-    files = pick("ledger")
-    if not files:
-        print("거래처별계정별원장이 아직 없습니다 — 들어오면 자동으로 잡습니다.")
-        print("  넣는 곳: '0. 원본 자료/1. ERP 내보내기' 또는 inbox/ (파일명은 아무거나)")
-        print("  뽑는 곳: 회계 I > 출력물 > 장부 > 거래처별계정별원장")
-        print("           거래처=쿠팡로지스틱스 · 계정=1089(외상매출금) · ★개별거래처기준 · 기간지정 → Excel")
+    # 1순위: 오종현 관리 입금내역 폴더(사용자 지시 — 여기가 정본)
+    receipts, dep_files = load_deposits()
+    if receipts:
+        summarize(receipts, dep_files, master=master)
+
+    # 2순위: 이카운트 거래처별계정별원장의 대변. 있으면 보태서 본다.
+    for f in pick("ledger"):
+        part, ok = parse_receipts(f)
+        if ok:
+            receipts += part
+
+    if not receipts:
+        print("입금 자료가 아직 없습니다 — 들어오면 자동으로 잡습니다.")
+        for d in __import__("source_dirs").receipt_dirs() or ["(입금내역 폴더 없음)"]:
+            print("  넣는 곳:", d)
+        print("  또는 회계 I > 출력물 > 장부 > 거래처별계정별원장")
+        print("      거래처=쿠팡로지스틱스 · 계정=1089(외상매출금) · ★개별거래처기준 · 기간지정 → Excel")
         return 0
 
-    receipts, usable = [], []
-    for f in files:
-        part, ok = parse_receipts(f)
-        receipts += part
-        if ok:
-            usable.append(f)
-    if not usable:
-        # 여기서 멈추지 않으면 '입금 0건' 이라고 조용히 보고해 자료가 있는 줄 알게 된다.
-        print("★ 계정별원장 형식(적요+대변)이 있는 파일이 없습니다 — %d개를 봤지만 전부 다른 표입니다."
-              % len(files))
-        for f in files:
-            print("   -", os.path.basename(f))
-        print("  회계 I > 출력물 > 장부 > 거래처별계정별원장 에서 ★개별거래처기준★ 으로 뽑아 주세요.")
-        return 0
     rows = open_settlements(master)
     paired, spare = match(receipts, rows)
 

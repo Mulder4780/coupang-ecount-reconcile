@@ -696,6 +696,10 @@ def t23_formulas():
     assert not F.direct_self_refs(restored), F.direct_self_refs(restored)
     direct = '<row r="5"><c r="M5"><f>IF(M5="","",1)</f><v/></c></row>'
     assert F.direct_self_refs(direct) == ["M5"]
+    counter = ('<row r="130"><c r="AO130"><f>'
+               'IF($B130="","",COUNT($AO$4:AO153)+1)</f><v>1</v></c></row>')
+    counter_out, counter_n = F.fix_cumulative_counters(counter)
+    assert counter_n == 1 and 'COUNT($AO$4:AO129)' in counter_out, counter_out
     # 일반 수식열에서도 사람이 확정한 inlineStr 값은 <v>가 없다는 이유로 덮으면 안 된다.
     mixed = ('<sheetData>'
              '<row r="5"><c r="H5"><f>IF($B5="","",1)</f><v>1</v></c>'
@@ -1877,40 +1881,44 @@ def t40_claim_enforced():
 
     # (1) 원장을 쓰는 도구는 전부 가드를 거쳐야 한다
     for fn in ("ledger_writer.py", "workbook_patch.py", "expand_rows.py", "confirm_fill.py",
-               "fix_formulas.py", "dashboard_clean.py"):
+               "fix_formulas.py", "dashboard_clean.py", "reorder_rows.py"):
         src = open(os.path.join(ROOT, fn), encoding="utf-8").read()
         assert "claim_guard" in src and 'require("ledger"' in src, f"{fn} 이 점유를 확인하지 않는다"
 
-    # (2) 남이 잡고 있으면 멈춰야 한다
-    #     ★ 먼저 비워 둔다 — 앞선 작업이 잡아 둔 게 남아 있으면 take 가 무시돼 시험이 헛돈다
-    for w in ("claude", "codex", "unknown"):
+    # 실제 협업 점유 파일을 시험이 비우면, 합성검증 도중 다른 AI가 원장 쓰기에 진입한다.
+    # 독립 임시 점유 파일에서만 충돌·자동 점유를 검증하고 실제 점유는 그대로 보존한다.
+    real_claims, real_guard = ai_claim.CLAIMS, ai_claim.GUARD
+    with tempfile.TemporaryDirectory() as claim_tmp:
+        ai_claim.CLAIMS = os.path.join(claim_tmp, "claims.json")
+        ai_claim.GUARD = os.path.join(claim_tmp, ".guard")
         try:
-            ai_claim.free(w, "ledger")
-        except Exception:
-            pass
-    assert ai_claim.take("codex", "ledger", "합성검증"), "시험용 점유를 못 잡았다"
-    try:
-        os.environ["CSOS_AI"] = "claude"
-        try:
-            claim_guard.require("ledger", "test")
-            raise AssertionError("남이 잡았는데 그냥 진행했다 — 동시 수정이 일어난다")
-        except SystemExit as e:
-            assert e.code == 3, e.code
-        # (3) 사람이 직접 실행할 때(CSOS_AI 없음)는 막지 않는다 — 손을 묶으면 안 된다
-        os.environ.pop("CSOS_AI", None)
-        assert claim_guard.require("ledger", "test") is True
-    finally:
-        os.environ.pop("CSOS_AI", None)
-        ai_claim.free("codex", "ledger")
+            # (2) 남이 잡고 있으면 멈춰야 한다
+            assert ai_claim.take("codex", "ledger", "합성검증"), "시험용 점유를 못 잡았다"
+            try:
+                os.environ["CSOS_AI"] = "claude"
+                try:
+                    claim_guard.require("ledger", "test")
+                    raise AssertionError("남이 잡았는데 그냥 진행했다 — 동시 수정이 일어난다")
+                except SystemExit as e:
+                    assert e.code == 3, e.code
+                # (3) 사람이 직접 실행할 때(CSOS_AI 없음)는 막지 않는다 — 손을 묶으면 안 된다
+                os.environ.pop("CSOS_AI", None)
+                assert claim_guard.require("ledger", "test") is True
+            finally:
+                os.environ.pop("CSOS_AI", None)
+                ai_claim.free("codex", "ledger")
 
-    # (4) 아무도 안 잡았으면 자동으로 잡고 진행한다
-    os.environ["CSOS_AI"] = "claude"
-    try:
-        assert claim_guard.require("ledger", "test") is True
-        assert (ai_claim.load().get("ledger") or {}).get("who") == "claude"
-    finally:
-        ai_claim.free("claude", "ledger")
-        os.environ.pop("CSOS_AI", None)
+            # (4) 아무도 안 잡았으면 자동으로 잡고 진행한다
+            os.environ["CSOS_AI"] = "claude"
+            try:
+                assert claim_guard.require("ledger", "test") is True
+                assert (ai_claim.load().get("ledger") or {}).get("who") == "claude"
+            finally:
+                ai_claim.free("claude", "ledger")
+                os.environ.pop("CSOS_AI", None)
+        finally:
+            ai_claim.CLAIMS, ai_claim.GUARD = real_claims, real_guard
+            os.environ.pop("CSOS_AI", None)
     print("  [40] 점유 강제(원장 도구 차단·사람 실행 허용·자동 점유) ✅")
 
 
@@ -2031,7 +2039,30 @@ def t43_receipt_fill(tmp):
     body = src.split('if __name__')[0]
     assert '"col": "청구일"' not in body and '"col": "지급예정일"' not in body, \
         "규칙이 확정되지 않은 청구일·지급예정일을 채우고 있다"
-    print("  [43] 입금 자동입력(합계행 제외·차변 제외·유일매칭·청구일 임의채움 금지) ✅")
+    # 오종현 관리 '26년도 쿠팡 입금내역' — 사람이 만드는 표라 제목·빈 줄 수가 달라진다.
+    # 머리글 행을 박아 두면 다음 달에 한 줄 밀리는 순간 조용히 0건이 된다.
+    dep = os.path.join(tmp, "합성_입금내역.xlsx")
+    wb2 = openpyxl.Workbook()
+    w2 = wb2.active
+    w2.append([])
+    w2.append([None, "2026 쿠팡 입금 내역"])          # 제목 — 머리글이 아니다
+    w2.append([])
+    w2.append([None, "날짜", "거래처", "입금액"])       # 실제 머리글(4행)
+    w2.append([None, _date(2026, 7, 27), "쿠팡로지스틱스", 715000])
+    w2.append([None, _date(2026, 7, 27), "쿠팡로지스틱", 814000])      # 같은 거래처, 표기만 다름
+    w2.append([None, _date(2026, 5, 6), "김진주（위더스 )", 387200])   # 전각 괄호
+    w2.append([None, None, "합 계", 1916200])                          # 합계행
+    wb2.save(dep)
+
+    got2 = rf.parse_deposit_list(dep)
+    assert len(got2) == 3, "합계행이 입금으로 세어졌다: %s" % got2
+    assert sum(g["금액"] for g in got2) == 1916200, got2
+    custs = {g["거래처"] for g in got2}
+    assert "쿠팡로지스틱스" in custs and "쿠팡로지스틱" not in custs, \
+        "같은 거래처가 표기 차이로 갈라졌다 — 금액이 둘로 쪼개진다: %s" % custs
+    assert len(custs) == 2, custs                     # 쿠팡 + 김진주위더스
+    assert rf.norm_cust("(주)모벤티스") == rf.norm_cust("주식회사 모벤티스"), "법인격 표기 미정규화"
+    print("  [43] 입금 자동입력(합계행 제외·차변 제외·유일매칭·머리글 자동탐지·거래처 정규화) ✅")
 
 
 if __name__ == "__main__":
