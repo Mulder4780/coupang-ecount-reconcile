@@ -60,6 +60,19 @@ def classify_rows(rows):
     if "계정별원장" in joined or "거래처별계정별" in joined:
         return "ledger"
 
+    # 홈택스 전자(세금)계산서 리스트 — '승인번호'가 있으면 이것 말고 없다.
+    # (회계 I > 전자(세금)계산서 > 홈택스자료조회 에서 Excel 로 내려받은 것)
+    if has("승인번호") and has("공급자사업자번호", "공급받는자사업자번호", "공급자상호"):
+        return "hometax"
+
+    # 매출(세금)계산서조회(재고) — 재고 I > 영업관리 > 판매일괄회계반영.
+    # 거래명세서 현황과 머리글이 겹쳐(공급가액+부가세) 예전엔 'stmt' 로 잘못 잡혔다.
+    # '내역보기'·'합 계' 는 이 화면에만 있다.
+    if "매출(세금)계산서조회" in joined or "매출(세금)계산서현황" in joined:
+        return "taxinv"
+    if has("내역보기") and has("공급가액") and has("부가세"):
+        return "taxinv"
+
     # 이카운트 매출 관련 현황 3종 (파일명이 무작위라 머리글로만 구분된다)
     for r in rows:
         n = [c for c in r if c]
@@ -135,7 +148,9 @@ def pick(kind, folder=None):
 
 LABEL = {"ledger": "거래처별계정별원장", "po": "쿠팡 PO 목록",
          "sales": "판매·세금계산서 내보내기", "tax": "매출(세금)계산서현황",
-         "stmt": "거래명세서 현황", "slips": "회계거래(전표) 현황", "unknown": "판별 실패"}
+         "stmt": "거래명세서 현황", "slips": "회계거래(전표) 현황",
+         "taxinv": "매출(세금)계산서조회(재고)", "hometax": "홈택스 전자(세금)계산서",
+         "unknown": "판별 실패"}
 
 if __name__ == "__main__":
     rows = scan()

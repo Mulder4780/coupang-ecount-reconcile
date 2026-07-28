@@ -53,27 +53,52 @@ def _same(a, b):
     return sa.st_size == sb.st_size and int(sa.st_mtime) == int(sb.st_mtime)
 
 
+# 이카운트에서 'Excel' 을 누르면 파일이 Downloads 로 떨어지고 이름이 무작위다
+# (`8W1JR7MGB50PHOP.xlsx`). 사람이 옮기지 않아도 되게 여기서 직접 집어 온다.
+DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
+DOWNLOAD_DAYS = 14      # 오래된 건 이미 반영됐거나 무관하다
+# ★ Downloads 는 개인 폴더다. **아무 파일이나 퍼 오지 않는다** —
+#   내용을 열어 아는 종류로 판별된 것만 가져온다.
+KNOWN = ("ledger", "po", "sales", "tax", "stmt", "slips", "taxinv", "hometax")
+
+
 def plan():
     """[(원본, 대상, 분류)] — 어디서 어디로 갈지. 판단은 여기서만 한다."""
     jobs = []
 
     # ERP 내보내기 / 쿠팡 목록 — 파일명이 무작위일 수 있어 **내용으로** 가른다
     try:
-        from inbox_scan import scan, LABEL
+        from inbox_scan import classify, LABEL
     except Exception:
-        scan, LABEL = None, {}
+        classify, LABEL = None, {}
+
+    def kind_of(path):
+        try:
+            return classify(path) if classify else "unknown"
+        except Exception:
+            return "unknown"
+
     for src in sorted(glob.glob(os.path.join(BASE, "inbox", "*.xls*"))):
         if os.path.basename(src).startswith("~$"):
             continue
-        kind = "unknown"
-        if scan:
-            try:
-                from inbox_scan import classify
-                kind = classify(src)
-            except Exception:
-                pass
-        dst_dir = COUPANG_DIR if kind == "po" else ERP_DIR
-        jobs.append((src, dst_dir, LABEL.get(kind, "엑셀")))
+        k = kind_of(src)
+        jobs.append((src, COUPANG_DIR if k == "po" else ERP_DIR, LABEL.get(k, "엑셀")))
+
+    # Downloads 에 떨어진 이카운트 내보내기 — 아는 종류만, 최근 것만
+    cutoff = __import__("time").time() - DOWNLOAD_DAYS * 86400
+    for src in sorted(glob.glob(os.path.join(DOWNLOADS, "*.xls*"))):
+        if os.path.basename(src).startswith("~$"):
+            continue
+        try:
+            if os.path.getmtime(src) < cutoff:
+                continue
+        except OSError:
+            continue
+        k = kind_of(src)
+        if k not in KNOWN:
+            continue
+        jobs.append((src, COUPANG_DIR if k == "po" else ERP_DIR,
+                     LABEL.get(k, "엑셀") + " (Downloads)"))
 
     # 카카오톡 내보내기
     for src in sorted(glob.glob(os.path.join(BASE, "kakao", "inbox", "*.txt"))):
@@ -145,6 +170,15 @@ def write_guide(rows):
         "■ 자료를 새로 넣을 때",
         "  해당 폴더에 그냥 넣어 주시면 됩니다. 파일 이름은 아무래도 괜찮습니다 —",
         "  프로그램이 파일을 열어 내용으로 종류를 알아냅니다.",
+        "  ★ 이카운트에서 'Excel' 로 내려받으면 Downloads 에 떨어지는데, 옮기지 않으셔도",
+        "    됩니다. 최근 2주 안에 받은 것 중 아는 종류만 자동으로 가져옵니다.",
+        "",
+        "■ 이카운트에서 내보낼 화면 (매출 대조에 쓰는 것)",
+        "  1) 재고 I > 영업관리 > 판매일괄회계반영 > 매출(세금)계산서조회(재고)",
+        "  2) 재고 I > 영업관리 > 판매일괄회계반영 > 매출(세금)계산서현황(재고)  ← 품목·내역 단위",
+        "  3) 회계 I > 전자(세금)계산서 > 홈택스자료조회 > 전자(세금)계산서",
+        "     ('미반영'이 아니라 '전체' 를 고르고 기간을 올해로 잡아 주세요)",
+        "  4) 회계 I > 전자(세금)계산서 > 이카운트 vs 홈택스 자료비교  ← 차이가 바로 보이는 화면",
         "",
         "■ 주의",
         "  · 이카운트에서 내보낼 때는 조회 조건을 넣어 **화면에 행이 보이는 상태**에서",
