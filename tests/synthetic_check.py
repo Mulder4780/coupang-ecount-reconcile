@@ -2082,6 +2082,51 @@ def t43_receipt_fill(tmp):
     print("  [43] 입금 자동입력(합계행 제외·차변 제외·유일매칭·머리글 자동탐지·거래처 정규화) ✅")
 
 
+def t44_zscan():
+    """[44] 쿠팡 업무 폴더 2만 개 — **파일을 열지 않고** 파일명으로 고르고 대조한다.
+
+    사용자 지시(2026-07-28): "관련있는 자료는 전부 긁어와서 비교 검토, 관련 없는 자료는
+    db에 적용하지마." 지키는 방법은 쓰기 경로를 좁게 만드는 것이다 —
+    캠프명+날짜(±7일)가 **둘 다** 맞는 1:1 확정 건만 쓰고, 후보가 여럿이면 사람에게 넘긴다.
+    (같은 캠프에 한 달에 여러 건이 있고 같은 날 여러 캠프를 돈다 — 한쪽만으로는 못 잇는다)"""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    import zscan
+
+    # 안전·교육 폴더는 업무상 필요해도 관리대장에 들어갈 자리가 없다
+    assert zscan.classify("♣ 6. 설치공사 안전보건대장", "허가서.pdf").startswith("무관")
+    assert zscan.classify("♣ 7. 쿠팡 지게차 서류", "UJ2600136 지게차.pdf").startswith("무관")
+    assert zscan.classify("♣ 2. 쿠팡 돌발AS", "철거 906,000원 UJ2600136.PDF").startswith("관련")
+    assert zscan.classify("♣ 1. 쿠팡 정기점검", "2026-06-19 구로1MB 거래명세서.pdf").startswith("관련")
+    assert zscan.classify("♣ 100. 쿠팡 기타자료", "현장사진.jpg").startswith("무관")
+
+    # 캠프명 표기 흔들림 — 괄호 안 표기가 달라도 같은 캠프로 본다
+    assert zscan.camp_key("구로1MB(독산동B)") == zscan.camp_key("구로1MB (독산동A)")
+    assert zscan.camp_key("일산2MB(양평동4가B)") != zscan.camp_key("일산3MB(양평동6가B)")
+
+    docs = [{"일자": "2026-06-19", "캠프키": zscan.camp_key("구로1MB(독산동B)"),
+             "캠프원문": "구로1MB", "종류": "거래명세서", "파일": "a.pdf", "폴더": "x"},
+            {"일자": "2026-06-19", "캠프키": zscan.camp_key("없는캠프"),
+             "캠프원문": "없는캠프", "종류": "거래명세서", "파일": "b.pdf", "폴더": "x"}]
+    rows = [{"시트": "04_정기점검", "ID": "PM-1", "프로젝트NO": "UJ1", "캠프명": "구로1MB(독산동B)",
+             "캠프키": zscan.camp_key("구로1MB(독산동B)"), "일자": "2026-06-20"}]
+    paired, orphan, amb = zscan.match_docs(docs, rows)
+    assert len(paired) == 1 and paired[0][1]["프로젝트NO"] == "UJ1", paired   # 하루 차이는 같은 건
+    assert len(orphan) == 1 and not amb, (orphan, amb)
+
+    # 같은 캠프에 후보가 둘이면 **쓰지 않는다** — 엉뚱한 행에 발행완료가 찍힌다
+    rows2 = rows + [{"시트": "04_정기점검", "ID": "PM-2", "프로젝트NO": "UJ2",
+                     "캠프명": "구로1MB(독산동B)", "캠프키": zscan.camp_key("구로1MB(독산동B)"),
+                     "일자": "2026-06-18"}]
+    p2, _o2, a2 = zscan.match_docs(docs, rows2)
+    assert not p2 and len(a2) == 1, (p2, a2)
+
+    # 날짜가 멀면 다른 건이다
+    far = [dict(docs[0], 일자="2026-05-01")]
+    assert zscan.match_docs(far, rows)[0] == []
+    print("  [44] 쿠팡 폴더 조사(무관 폴더 제외·캠프키·1:1 확정만 인정) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2126,6 +2171,7 @@ if __name__ == "__main__":
     t38_daily_brief()
     t40_claim_enforced()
     t41_dates_explicit()
+    t44_zscan()
     t39_realtime_monitor()
     t6_webapp()
     print("ALL GREEN — 실작업 진행 가능")
