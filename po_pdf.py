@@ -31,17 +31,9 @@ except Exception:
     pass
 
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports")
-# 사용자 지시(2026-07-28): **두 폴더를 항상 같이** 본다.
-# 오종현이 어느 쪽에 넣을지 그때그때 달라서 한쪽만 보면 자료를 놓친다.
-#  · 관리대장 폴더 : PO별 하위 폴더 구조 + 견적서 첨부까지 (재귀 PDF 566개)
-#  · 공유 폴더     : 평면 구조 (PDF 70개)
-# 같은 파일이 양쪽에 있을 수 있으므로 파일명+종류로 한 번만 센다.
-PO_DIR = (r"Z:\2. Cost\★★★쿠팡 업무 폴더★★★"
-          r"\♣ 1000. 쿠팡 통합업무관리 전산화 프로젝트"
-          r"\00. 대시보드 (프로젝트 일정, 담당자, 진행현황, 문제사항)"
-          r"\00. 쿠팡 통합업무 일일보고 관리대장\26년도 PO 모음")
-PO_DIR_OLD = r"Z:\16. Share\유현민\오종현\26년도 PO 모음"
-PO_DIRS = [PO_DIR, PO_DIR_OLD]
+# 경로는 source_dirs 한 곳에서만 정한다 — 도구마다 하드코딩하면 자료가 옮겨질 때
+# 한쪽만 고쳐져 못 읽는 일이 생긴다(2026-07-28에 실제로 경로가 되돌아가 있었다).
+from source_dirs import po_dirs
 
 PO_RE = re.compile(r"PO\s*(\d{6})")
 UJ_RE = re.compile(r"UJ\d{7}")
@@ -267,17 +259,22 @@ def scan(folder=None):
     ★ 같은 파일이 양쪽 폴더에 다 있을 수 있다(자료를 옮기는 중이다). 파일명+종류로
       한 번만 센다 — 중복을 그대로 두면 '고유 PO 개수'가 부풀고 대조 숫자가 어긋난다.
     """
-    folders = [folder] if folder else [d for d in PO_DIRS if os.path.isdir(d)]
-    seen, recs = set(), []
+    folders = [folder] if folder else po_dirs()
+    # ★ 파싱 **전에** 중복을 거른다. 두 폴더가 같은 내용을 담고 있어(574개 동일)
+    #   나중에 걸러내면 같은 PDF를 두 번 여는 셈이라 느린 네트워크 드라이브에서 두 배 걸린다.
+    picked, seen = [], set()
     for d in folders:
         for f in pdf_files(d):
-            r = parse(f)
-            key = (r["PO번호"], r["종류"], r["파일"])
+            key = (os.path.basename(os.path.dirname(f)), os.path.basename(f))
             if key in seen:
                 continue
             seen.add(key)
-            r["출처폴더"] = d
-            recs.append(r)
+            picked.append((d, f))
+    recs = []
+    for d, f in picked:
+        r = parse(f)
+        r["출처폴더"] = d
+        recs.append(r)
     return recs, " + ".join(folders) if folders else str(folder)
 
 

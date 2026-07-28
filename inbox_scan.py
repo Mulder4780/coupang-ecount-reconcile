@@ -106,7 +106,24 @@ def scan(folder=None):
 
 
 def pick(kind, folder=None):
-    """해당 종류 파일 경로. 내용 판별이 우선이고, 판별 실패 시 파일명으로 한 번 더 본다."""
+    """해당 종류 파일 경로. 내용 판별이 우선이고, 판별 실패 시 파일명으로 한 번 더 본다.
+
+    ★ 폴더를 지정하지 않으면 **원본 자료 폴더 + 로컬 inbox** 를 모두 본다.
+      사용자 지시(2026-07-28)로 원본은 '0. 원본 자료' 폴더에 모으지만, 급할 때
+      PC inbox 에 바로 떨어뜨리는 경우가 있어 둘 다 훑는다."""
+    if folder is None:
+        try:
+            from source_dirs import excel_dirs
+            got, seen = [], set()
+            for d in excel_dirs():
+                for p_, k in scan(d):
+                    if k == kind and os.path.basename(p_) not in seen:
+                        seen.add(os.path.basename(p_))
+                        got.append(p_)
+            if got:
+                return got
+        except Exception:
+            pass
     got = [p for p, k in scan(folder) if k == kind]
     if got:
         return got

@@ -1645,6 +1645,26 @@ function liveIds(){
   (settleRows||[]).forEach(r=>{ if(r.정산ID) s.add(String(r.정산ID).trim()); });
   return s;
 }
+/* ID로 원장 행을 찾아 **날짜와 대표 프로젝트NO**를 붙인다.
+   보고서 줄에는 사내 ID(AS-2512-005)만 있어서, 대표가 "언제 건이냐 / 어느 프로젝트냐"를
+   물으면 바로 답을 못 했다. 프로젝트NO는 apply_rep_no 가 채운 **대표번호**를 쓴다. */
+function rowById(id){
+  const all = (works.as||[]).concat(works.pm||[], settleRows||[]);
+  return all.find(r => [r.접수ID, r.점검ID, r.정산ID].some(x => String(x||'') === id));
+}
+function idMeta(id){
+  const r = rowById(id);
+  if(!r) return '';
+  const d = r.접수일자 || r.점검예정일 || r.완료일 || r.작업완료일 || r.실제점검일 || '';
+  const prj = String(r.프로젝트NO||'').trim();
+  const bits = [];
+  if(d)   bits.push(String(d).slice(0,10));
+  if(prj) bits.push(prj);
+  return bits.length
+    ? '<span style="color:var(--ink-3);font-size:11.5px;margin-left:6px">· ' + bits.join(' · ') + '</span>'
+    : '';
+}
+
 function topLine(t){
   const txt = String(t||'');
   const m = txt.match(/\b((?:AS|PM|JS)-\d{4}-\d{3})\b/);
@@ -1655,7 +1675,7 @@ function topLine(t){
        <div class="ct warn">이 건은 지금 관리대장에 없습니다 — 이미 정리(중복 통합·삭제)된 건이
           엑셀 재계산 전이라 보고서에 남아 있는 것입니다. 엑셀을 한 번 열었다 저장하면 사라집니다.</div>`
     : txt;
-  return `<li>${body}${gone?'':codeHtml(txt)}</li>`;
+  return `<li>${body}${m?idMeta(m[1]):''}${gone?'':codeHtml(txt)}</li>`;
 }
 
 /* ── 대표에게 읽어 드릴 브리핑 문장 ──
