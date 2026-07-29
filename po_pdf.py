@@ -289,7 +289,17 @@ def scan(folder=None):
     picked, seen = [], set()
     for d in folders:
         for f in pdf_files(d):
-            key = (os.path.basename(os.path.dirname(f)), os.path.basename(f))
+            # 정본 폴더는 ``2026/PO번호``이고 예전 공유 폴더는 긴 메일 제목 폴더다.
+            # 부모 폴더명으로 중복을 가르면 같은 568개를 서로 다른 자료로 두 번 읽게 된다.
+            # 경로 전체의 PO번호 + 파일명 + 크기로 정본/공유본을 한 번만 센다.
+            joined = os.path.normpath(f).replace(" ", "")
+            m = PO_RE.search(joined)
+            try:
+                size = os.path.getsize(f)
+            except OSError:
+                size = -1
+            key = ((m.group(1) if m else os.path.basename(os.path.dirname(f)).lower()),
+                   os.path.basename(f).lower(), size)
             if key in seen:
                 continue
             seen.add(key)

@@ -3264,6 +3264,64 @@ def t76_source_organizer():
     print("  [76] 원본 자료 유형·연도·월·날짜·PO번호 자동정리와 최신 편집본 보존 ✅")
 
 
+def t79_work_log_source_sync_and_report_capture():
+    """[79] 현장 일지 대조는 완료를 추측하지 않고, 미실시 사유·대표 캡처까지 같은 원본을 쓴다."""
+    import work_log_sync as W
+    with tempfile.TemporaryDirectory() as tmp:
+        source = os.path.join(tmp, "정기점검, 돌발AS 일지 (7.1~).xlsx")
+        wb = openpyxl.Workbook()
+        pm = wb.active; pm.title = "2026년 정기점검 일지"
+        pm.append([]); pm.append([]); pm.append([])
+        pm.append(["No.", "점검일자", "A/S담당", "캠프이름", "프로젝트NO", "A/S내용"])
+        pm.append([1, "2026-07-10", "김기사", "점검캠프", "UJ2609001", "정기점검 완료"])
+        done = wb.create_sheet("2026년 돌발AS 일지")
+        done.append([]); done.append([]); done.append([])
+        done.append(["No.", "점검일자", "A/S담당", "캠프이름", "프로젝트NO", "A/S 요청", "A/S내용", "진행현황"])
+        done.append([1, "2026-07-11", "김기사", "AS캠프", "UJ2609002", "리모컨 불량", "리모컨 교체", "수리완료"])
+        wait = wb.create_sheet("2026년 돌발AS 미실시건")
+        wait.append([]); wait.append([]); wait.append([])
+        wait.append(["No.", "A/S요청일자", "캠프이름", "프로젝트NO", "A/S 신청내용", "진행현황", "미처리 사유"])
+        wait.append([1, "2026.07.12", "대기캠프", "UJ2609003", "모터 교체", "미실시", "자재 도착 후 방문 일정 조율 중"])
+        wait.append([2, "2026.07.12", "취소캠프", "UJ2609004", "점검", "접수취소", "정상작동 확인"])
+        wb.save(source)
+
+        master = os.path.join(tmp, "쿠팡_통합업무_일일보고_관리대장_v1.xlsx")
+        mw = openpyxl.Workbook(); asw = mw.active; asw.title = "02_돌발AS접수"
+        asw.append([]); asw.append([]); asw.append([])
+        asw.append(["접수ID", "프로젝트NO", "캠프명", "접수일자", "진행상태", "작업완료일"])
+        asw.append(["AS-1", "UJ2609002", "AS캠프", "2026-07-01", "", ""])
+        asw.append(["AS-2", "UJ2609003", "대기캠프", "2026-07-12", "접수", ""])
+        pmw = mw.create_sheet("04_정기점검")
+        pmw.append([]); pmw.append([]); pmw.append([])
+        pmw.append(["점검ID", "프로젝트NO", "캠프명", "점검예정일", "점검상태", "실제점검일"])
+        pmw.append(["PM-1", "UJ2609001", "점검캠프", "2026-07-10", "", ""])
+        mw.save(master)
+
+        payload = W.analyze(master, source)
+        as_summary = payload["요약"]["돌발AS"]
+        assert as_summary["발생"] == 3 and as_summary["처리완료"] == 1
+        assert as_summary["미처리"] == 1 and as_summary["취소"] == 1
+        assert as_summary["미처리사유"][0]["사유"] in ("자재·부품 대기", "방문 일정 조율")
+        assert payload["요약"]["정기점검"]["실행"] == 1
+        assert len(payload["updates"]) == 4, payload["updates"]  # 완료 일자가 명확하고 원장 상태가 빈 2건
+        xml = W.build_sheet(payload["records"], os.path.basename(source))
+        assert "미처리사유" in xml and "원장미매칭" not in xml
+
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    # Current progress counts only schedules through the report baseline.  The
+    # drilldown uses the same PM source, and a report opened early refreshes
+    # after its async data has arrived.
+    for marker in ("function pmRangeRows(state)", "const cutoff = baseDate() || todayISO();",
+                   "d <= cutoff", "const liveQuarter=pmRangeRows(_ps)",
+                   "if(window.__view==='daily')"):
+        assert marker in idx, f"PM progress/source synchronization missing: {marker}"
+    brief = open(os.path.join(ROOT, "daily_brief.py"), encoding="utf-8").read()
+    for marker in ("openWorkLogBrief", "돌발AS 현장 일지 대조", "정기점검 진행률 · 선택 기간", "pmProgress"):
+        assert marker in idx, f"일지/정기점검 대표 캡처 누락: {marker}"
+    assert '"일지대조": worklog' in brief, "대표 브리핑이 현장 일지 대조를 안 싣는다"
+    print("  [79] 현장 일지 대조·안전 빈칸입력·돌발AS 사유·정기점검/AS 대표 캡처 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -3328,6 +3386,7 @@ if __name__ == "__main__":
     t75_gcal_sync()
     t77_side_work_single_switch()
     t78_recalc_pending_visible()
+    t79_work_log_source_sync_and_report_capture()
     t76_source_organizer()
     t55_pm_brief_drilldown_and_capture()
     t58_check_hub_detail_and_capture()

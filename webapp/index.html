@@ -1298,6 +1298,9 @@ async function loadSettle(){
   try{ renderRepresentative(); }catch(e){ console.warn('representative report', e); }
   try{ renderCheckHub(); }catch(e){ console.warn('check hub', e); }
   try{ $('helpcard').innerHTML = helpAll(); }catch(e){ console.warn('help', e); }
+  // API 응답이 큰 경우 [보고]를 먼저 연 사용자가 0/0을 보지 않도록, 원천 업무가
+  // 모두 도착한 뒤 현재 열린 일일보고를 한 번 더 그린다.
+  if(window.__view==='daily') try{ renderDaily(); }catch(e){ console.warn('daily refresh', e); }
 }
 function setMode(m){
   mode = m;
@@ -2584,6 +2587,7 @@ function bCard(x, kind){
 function briefBlock(){
   if(!BRIEF || !BRIEF.ok) return '';
   const a = BRIEF['돌발AS']||{}, p = BRIEF['정기점검']||{};
+  const wl = BRIEF['일지대조']||{}, wla = wl['돌발AS']||{};
   const newL = BRIEF['신규목록']||[], doneL = (BRIEF['완료내역']||[]).filter(x=>x.구분==='돌발AS');
   const activityL = BRIEF['당일처리목록']||[];
   const pmPlanL = BRIEF['점검예정목록']||[], pmDoneL = BRIEF['점검실행목록']||[];
@@ -2597,6 +2601,20 @@ function briefBlock(){
     <span class="bpill done">완료 ${a.완료||0}</span>
     ${activityL.length?`<span class="bpill done">업무 처리 ${activityL.length}</span>`:''}
     <span class="bpill warn">미처리 ${a.미처리||0}<em>최근 30일</em></span></div>`;
+  if(Object.keys(wla).length){
+    const reasons=wla.미처리사유||[];
+    h += `<div class="bglab">현장 일지 대조 · 발생 ${wla.발생||0}건 · 처리완료 ${wla.처리완료||0}건 · 미처리 ${wla.미처리||0}건 · 취소 ${wla.취소||0}건</div>
+      <div class="pmstats">
+        <button class="done" onclick="openWorkLogBrief('done')">처리완료<b>${wla.처리완료||0}건</b></button>
+        <button class="warn" onclick="openWorkLogBrief('open')">미처리<b>${wla.미처리||0}건</b></button>
+        <button onclick="openWorkLogBrief('all')">전체 발생<b>${wla.발생||0}건</b></button>
+      </div>`;
+    if(reasons.length) h += `<div class="bneed actionable" role="button" tabindex="0" onclick="openWorkLogBrief('open')"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openWorkLogBrief('open')}">
+      <div class="bnh">미처리 사유 <b>${reasons.map(x=>`${_e(x.사유)} ${x.건수}건`).join(' · ')}</b></div>
+      <div class="bnd">눌러서 프로젝트번호·캠프·원문 사유 확인 · 이미지 저장·공유</div></div>`;
+    if(wla.처리완료일확인) h += `<div class="bnd">※ 처리완료 ${wla.처리완료일확인}건은 원본에 완료일이 없어 임의 입력하지 않았습니다.</div>`;
+  }
   if(newL.length) h += `<div class="bglab new">새로 접수 ${newL.length}건 · 접수일 ${_md(d)}</div>`
                      + newL.slice(0,6).map(x=>bCard(x,'new')).join('');
   if(doneL.length) h += `<div class="bglab done">완료 ${doneL.length}건 · 무엇 때문에 갔고 무슨 작업을 했는지</div>`
@@ -2675,6 +2693,24 @@ async function copyBrief(){
     a.select(); try{ document.execCommand('copy'); }catch(_){} a.remove();
   }
   toast('보고 문장을 복사했습니다');
+}
+
+/* 현장 일지 원본(정기점검·돌발AS 일지)의 처리/미처리 목록.
+   일지 행에는 원장 ID가 없을 수 있어 프로젝트NO로 상세를 연다. */
+function openWorkLogBrief(scope){
+  const wla=((BRIEF&&BRIEF['일지대조'])||{})['돌발AS']||{};
+  const open=wla.미처리목록||[], done=wla.처리완료목록||[], cancel=wla.취소목록||[];
+  const source=scope==='open'?open:scope==='done'?done:[...done,...open,...cancel];
+  const label=scope==='open'?'돌발AS 일지 미처리':scope==='done'?'돌발AS 일지 처리완료':'돌발AS 일지 전체 발생';
+  const rows=source.map(x=>({
+    프로젝트NO:x.프로젝트NO||'', 캠프명:x.캠프명||'', 일자:x.일자||'', 담당자:x.담당자||'담당 미기입',
+    문제:[x.요청내용?`요청: ${x.요청내용}`:'',x.미처리사유?`사유: ${x.미처리사유}`:'',
+          x.실제조치?`조치: ${x.실제조치}`:''].filter(Boolean).join(' · '),
+    상태:x.상태||x.원본상태||'', 종류:'', ID:x.프로젝트NO||''
+  }));
+  window._briefMetric={label,data:{rows,count:rows.length,kind:'work-log',
+    basis:'정기점검·돌발AS 일지(미실시건) 원본을 프로젝트번호로 원장과 대조한 결과'}};
+  openExecMetric(label);
 }
 
 /* ══ 당일 업무 실적 — 항목별 상세 ══════════════════════════════
@@ -3023,6 +3059,10 @@ function renderDaily(){
   addSrc('카톡 보고', S_.kakao, '대화 내보내기 투입 시 자동');
   addSrc('ERP 원장', S_.erp, '계정별원장 투입 시 자동');
   addSrc('쿠팡 PO', S_.po, 'PO 목록 투입 시 자동');
+  // 대표 캡처도 화면과 같은 현장 일지·정기점검 기간을 쓴다.
+  // 수치를 다시 계산하거나 분기 기본값으로 되돌리면 화면과 이미지가 달라진다.
+  const capturePm = pmStats();
+  const captureWorkLog = ((BRIEF&&BRIEF['일지대조'])||{});
   _rptData = {
     date: (execRep.meta&&execRep.meta['보고일']) || `${y}-${m}-${String(today.getDate()).padStart(2,'0')}`,
     meta: execRep.meta || {},
@@ -3036,6 +3076,13 @@ function renderDaily(){
                 .reduce((a,[,v])=>a+v.합계,0),
     erpMonths: Object.entries(erpDocs.months||{}).filter(([k])=>k.startsWith(y)).sort()
                 .map(([k,v])=>[k.slice(5)+'월', v.합계, v.건수+'장']),
+    pmProgress: [
+      [`${capturePm.예정}건`, `${capturePm.라벨} 예정`],
+      [`${capturePm.실행}건`, `${capturePm.라벨} 실행`, '#12813F'],
+      [`${capturePm.미실행}건`, `${capturePm.라벨} 미실행`, capturePm.미실행?'#B54708':'#12813F'],
+      [`${capturePm.진행률}%`, `${capturePm.라벨} 진행률`, capturePm.진행률>=60?'#12813F':'#B54708'],
+    ],
+    workLog: captureWorkLog,
     kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)'],
           [fmt(미수),'미수금(원)', 미수?'#B54708':'#12813F'],
           [(유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율'],
@@ -3757,13 +3804,32 @@ function setPmRange(a, b){
   PM_RANGE = [a, b];
   renderDaily();
 }
+function pmPlanDate(r){
+  const v = r['\uC810\uAC80\uC608\uC815\uC77C'];
+  return normDate(v) || String(v||'').slice(0,10);
+}
+function pmSourceRows(state){
+  const cutoff = baseDate() || todayISO();
+  return (works.pm||[]).filter(r=>{
+    const d = pmPlanDate(r);
+    return d.startsWith(APP_YEAR) && d.slice(5,7) >= state.from && d.slice(5,7) <= state.to
+      // 향후 일정은 보관하되, 기준일 현재 진행률의 분모에는 넣지 않는다.
+      && d <= cutoff;
+  });
+}
+function pmRangeRows(state){
+  // 대표 진행률은 프로젝트 단위 업무의 예정/실행을 비교한다. UJ 번호가 없는
+  // 류지영 원본 일정은 실행 탭의 원본 일정으로 보존하지만, 프로젝트 진행률을
+  // 부풀리지 않도록 별도 매칭 대상으로 둔다.
+  return pmSourceRows(state).filter(r=>String(r['\uD504\uB85C\uC81D\uD2B8NO']||'').trim());
+}
 function pmStats(){
   const [q0, q1] = pmQuarter();
   const [f, t] = PM_RANGE || [q0, q1];
   const y = APP_YEAR;
   const inR = d => { const s=String(d||''); if(!s.startsWith(y)) return false;
                      const mm=s.slice(5,7); return mm>=f && mm<=t; };
-  const rows = (works.pm||[]).filter(r=>inR(dateOf(r,'pm')));
+  const rows = pmRangeRows({from:f, to:t});
   const done = rows.filter(r=>/\d{4}-\d{2}-\d{2}/.test(String(r.실제점검일||''))).length;
   const label = (f==='01'&&t==='12') ? '연간' : (f===t ? `${+f}월` : `${+f}~${+t}월`);
   return {from:f, to:t, q0:q0, q1:q1, 라벨:label, 끝월:`${+t}월`,
@@ -3780,6 +3846,22 @@ function openPmBrief(scope){
   const quarter=((BRIEF&&BRIEF['분기점검목록'])||[]).filter(x=>{
     const s=String(x.예정일||x.일자||''); if(!s.startsWith(APP_YEAR)) return false;
     const mm=s.slice(5,7); return mm>=_ps.from && mm<=_ps.to; });
+  // 범위 버튼의 숫자와 상세 목록은 같은 원천(점검예정일·기준일까지)에서 만든다.
+  // BRIEF의 기본 분기는 그대로 두되, 월/반기/연간 선택 때 목록이 달라지는 문제를 막는다.
+  const liveQuarter=pmRangeRows(_ps).map(r=>{
+    const plan=pmPlanDate(r), actual=normDate(r['\uC2E4\uC81C\uC810\uAC80\uC77C'])||String(r['\uC2E4\uC81C\uC810\uAC80\uC77C']||'').slice(0,10);
+    return {
+      ['\uD504\uB85C\uC81D\uD2B8NO']:r['\uD504\uB85C\uC81D\uD2B8NO']||'',
+      ['\uCEA0\uD504\uBA85']:r['\uCEA0\uD504\uBA85']||'',
+      ['\uC77C\uC790']:plan,
+      ['\uC608\uC815\uC77C']:plan,
+      ['\uC2E4\uD589\uC77C']:actual,
+      ['\uB2F4\uB2F9\uAE30\uC0AC']:r['\uB2F4\uB2F9\uAE30\uC0AC']||'',
+      ['\uB0B4\uC6A9']:r['\uC810\uAC80\uB0B4\uC6A9']||'',
+      ['\uC0C1\uD0DC']:actual?'\uC2E4\uD589':'\uBBF8\uC2E4\uD589',
+      ['\uB808\uCF54\uB4DCID']:r['\uC810\uAC80ID']||''
+    };
+  });
   let source=[], label='', basis='';
   if(scope==='day-plan'){
     source=plan;label=`${d} 정기점검 예정`;
@@ -3788,8 +3870,8 @@ function openPmBrief(scope){
     source=done;label=`${d} 정기점검 실행`;
     basis=`${d} 실제점검일이 기록된 ${done.length}건`;
   }else{
-    source=scope==='quarter-done' ? quarter.filter(x=>x.상태==='실행')
-          : scope==='quarter-pending' ? quarter.filter(x=>x.상태!=='실행') : quarter;
+    source=scope==='quarter-done' ? liveQuarter.filter(x=>x.상태==='실행')
+          : scope==='quarter-pending' ? liveQuarter.filter(x=>x.상태!=='실행') : liveQuarter;
     label=`${APP_YEAR}년 ${_ps.라벨} 정기점검 ${
       scope==='quarter-done'?'실행':scope==='quarter-pending'?'미실행':'전체 예정'}`;
     basis=`${APP_YEAR}년 ${_ps.라벨} 예정 ${_ps.예정}건 · 실행 ${_ps.실행}건 · 미실행 ${_ps.미실행}건`;
@@ -4324,7 +4406,14 @@ async function reportToPng(){
   // ★ 타일 개수를 하드코딩(6)하면 지표가 7개일 때 마지막 타일이 캔버스 밖으로 잘린다
   const erpM = D.erpMonths || [];
   const erpH = erpM.length ? 34 + (erpM.length+1)*28 + 20 : 0;
+  const pmProgress = D.pmProgress || [];
+  const wlAs = ((D.workLog||{})['돌발AS']) || {};
+  const wlReasons = wlAs.미처리사유 || [];
+  const pmProgressH = pmProgress.length ? 34 + tiles(pmProgress.length) + 20 : 0;
+  const workLogH = Object.keys(wlAs).length
+    ? 34 + tiles(4) + (wlReasons.length ? 18 + wlReasons.length*20 : 0) + 16 : 0;
   let H = 108 + execH + execSecH
+          + pmProgressH + workLogH
           + 34 + tiles((D.kpi||[]).length) + (D.kpiNote ? 18 : 0)
           + 34 + tiles((D.month||[]).length) + erpH
           + 34 + (D.issues.length+1)*30 + 34 + (D.srcs.length+1)*30 + 54;
@@ -4403,6 +4492,36 @@ async function reportToPng(){
     if(s.items.length) grid(s.items.map(([l,v])=>[v||'-', l]));
     if(s.lines.length) lines(s.lines);
   });
+
+  // 화면에서 고른 기간(7~9월/상반기/연간)을 그대로 넣는다. 대표 캡처만 옛 분기
+  // 고정 숫자를 쓰면 화면과 다른 보고가 되므로, 위 _rptData의 pmStats 결과만 사용한다.
+  if(pmProgress.length){
+    section('정기점검 진행률 · 선택 기간');
+    grid(pmProgress);
+    txt('화면에서 선택한 기간 기준 · 예정/실행/미실행 모두 프로젝트별 상세 목록으로 확인 가능',
+        30, y+8, F(10), '#98A2B3');
+    y += 20;
+  }
+
+  // 유수비 대표 요청: 돌발AS는 단순 진행중 숫자가 아니라 원본 일지 기준으로
+  // 발생·처리·미처리·취소와 미처리 사유까지 한 화면/한 이미지에서 확인한다.
+  if(Object.keys(wlAs).length){
+    section('돌발AS 현장 일지 대조');
+    grid([
+      [String(wlAs.발생||0)+'건', '발생'],
+      [String(wlAs.처리완료||0)+'건', '처리완료', '#12813F'],
+      [String(wlAs.미처리||0)+'건', '미처리', (wlAs.미처리||0)?'#B54708':'#12813F'],
+      [String(wlAs.취소||0)+'건', '취소·정상작동'],
+    ]);
+    if(wlReasons.length){
+      txt('미처리 사유', 30, y+8, F(11,800), '#475467'); y += 18;
+      wlReasons.forEach(x=>{ txt(`${x.사유} ${x.건수}건`, 40, y+8, F(11.5), '#475467'); y += 20; });
+    }
+    if(wlAs.처리완료일확인){
+      txt(`※ 처리완료 ${wlAs.처리완료일확인}건은 원본에 완료일이 없어 임의로 완료 처리하지 않음`,
+          30, y+8, F(10), '#98A2B3'); y += 16;
+    }
+  }
 
   section(D.kpiTitle || '핵심 지표 (누적)');   grid(D.kpi);
   if(D.kpiNote){ txt(D.kpiNote, 30, y+8, F(10), '#98A2B3'); y += 18; }

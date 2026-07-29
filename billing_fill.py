@@ -108,7 +108,7 @@ def sales_rows():
     import openpyxl
     from source_dirs import ERP_DIR
     out, files = {}, []
-    for p in sorted(glob.glob(os.path.join(ERP_DIR, "판매조회*.xls*"))):
+    for p in sorted(glob.glob(os.path.join(ERP_DIR, "**", "판매조회*.xls*"), recursive=True)):
         if os.path.basename(p).startswith("~$"):
             continue
         wb = openpyxl.load_workbook(p, read_only=True, data_only=True)

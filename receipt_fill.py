@@ -178,7 +178,7 @@ def load_deposits():
     from source_dirs import receipt_dirs
     out, files = [], []
     for d in receipt_dirs():
-        for f in sorted(glob.glob(os.path.join(d, "*.xlsx"))):
+        for f in sorted(glob.glob(os.path.join(d, "**", "*.xlsx"), recursive=True)):
             if os.path.basename(f).startswith("~$"):
                 continue                      # 엑셀이 열려 있을 때 생기는 잠금 파일
             files.append(f)

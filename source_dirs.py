@@ -12,8 +12,9 @@ PO 경로가 한 번 되돌아가 자료를 못 읽은 적이 있다(2026-07-28)
 
 구조
   0. 원본 자료/                     ← 모든 원본이 모이는 곳(관리대장 폴더 아래)
-      26년도 PO 모음/               ← 쿠팡 PO 통지문·견적서 (PO별 하위 폴더)
-      (ERP 내보내기·카톡 내보내기 등도 여기 넣으면 자동으로 잡힌다)
+      1~5, 7. 자료유형/YYYY/MM/날짜/ ← 수집일 기준 장기보관
+      6. PO 원본/YYYY/PO번호/        ← 쿠팡 PO 통지문·견적서
+      (ERP 내보내기·카톡 내보내기 등은 수집 후 자동으로 날짜별 정리된다)
 
 로컬 inbox 도 계속 본다 — 사람이 급할 때 PC에 바로 떨어뜨리는 경우가 있어서다.
 """
@@ -37,9 +38,17 @@ BAND_DIR = os.path.join(ORIGIN_ROOT, "4. 밴드 원본")
 # 류지영 매니저가 정기점검 스케줄 원본을 계속 갱신하는 정본 폴더.
 # 파일명은 바뀔 수 있으므로 동기화 도구가 이 폴더의 최신 정기점검 xlsx를 고른다.
 PM_SCHEDULE_DIR = os.path.join(ORIGIN_ROOT, "5. 정기점검 스케쥴 원본")
+# 정기점검·돌발AS를 사람이 계속 수정하는 업무일지. 사용자가 지정한 최신 정본은
+# `8. 정기점검, 돌발AS 일지(미실시건)` 이며, 최신 편집본은 폴더 바로 아래에 둔다.
+# 이전 7번 폴더도 읽기 호환만 유지한다(새 반영은 모두 8번 정본을 우선한다).
+WORK_LOG_DIR = os.path.join(ORIGIN_ROOT, "8. 정기점검, 돌발AS 일지(미실시건)")
+LEGACY_WORK_LOG_DIR = os.path.join(ORIGIN_ROOT, "7. 정기점검, 돌발AS 일지")
 
-# PO 원본 — 새 위치가 정본. 예전 공유 폴더도 계속 훑는다(오종현이 아직 거기 넣을 수 있다).
+# PO 원본 — 새 위치가 정본. 예전 보관명과 공유 폴더도 계속 훑는다.
+PO_DIR = os.path.join(ORIGIN_ROOT, "6. PO 원본")
 PO_DIRS = [
+    PO_DIR,
+    os.path.join(ORIGIN_ROOT, "6. 26년도 PO 모음"),
     os.path.join(ORIGIN_ROOT, "26년도 PO 모음"),
     r"Z:\16. Share\유현민\오종현\26년도 PO 모음",
 ]
@@ -48,7 +57,9 @@ PO_DIRS = [
 # "쿠팡 입금 내역은 여기서 항상 확인해서 정리해줘"). PO 모음과 같은 자리에 있다.
 # 이카운트 계정별원장으로는 캠프별 거래처 입금이 잡히지 않아 입금 0건으로 보였는데,
 # 이 파일에는 실제로 들어와 있다 — 미수 금액을 말할 때 반드시 이걸 같이 본다.
+RECEIPT_DIR = os.path.join(ORIGIN_ROOT, "7. 입금내역")
 RECEIPT_DIRS = [
+    RECEIPT_DIR,
     r"Z:\16. Share\유현민\오종현\26년도 쿠팡 입금내역",
     os.path.join(ORIGIN_ROOT, "5. 입금내역"),
 ]
@@ -91,6 +102,11 @@ def receipt_dirs():
 
 def pm_schedule_dirs():
     return existing([PM_SCHEDULE_DIR])
+
+
+def work_log_dirs():
+    """정기점검·돌발AS 일지의 정본 우선 탐색 경로."""
+    return existing([WORK_LOG_DIR, LEGACY_WORK_LOG_DIR])
 
 
 # 밴드 문서 사진(거래명세서·현장사진) — 1,459장 130MB. **원본이라 서버에 둔다**

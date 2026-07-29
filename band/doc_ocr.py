@@ -258,7 +258,7 @@ def scan(folder=None, apply=False):
     dirs = photo_dirs(folder)
     imgs, seen = [], set()
     for d in dirs:
-        for p in sorted(glob.glob(os.path.join(d, "*"))):
+        for p in sorted(glob.glob(os.path.join(d, "**", "*"), recursive=True)):
             if not p.lower().endswith(IMG_EXT):
                 continue
             name = os.path.basename(p)

@@ -57,7 +57,7 @@ def erp_projects():
     """판매조회 파일에서 프로젝트코드를 모은다. 여러 개면 전부 합친다."""
     import openpyxl
     found, files = {}, []
-    for p in glob.glob(os.path.join(ERP_DIR, "*.xls*")):
+    for p in glob.glob(os.path.join(ERP_DIR, "**", "*.xls*"), recursive=True):
         if os.path.basename(p).startswith("~$"):
             continue
         try:

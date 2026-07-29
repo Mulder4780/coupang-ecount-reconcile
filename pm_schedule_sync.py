@@ -93,17 +93,18 @@ def find_latest_source(folder: str = PM_SCHEDULE_DIR) -> str:
     if not os.path.isdir(folder):
         raise FileNotFoundError(f"정기점검 원본 폴더가 없습니다: {folder}")
     found = []
-    for name in os.listdir(folder):
-        low = name.lower()
-        if name.startswith("~$") or not low.endswith(".xlsx"):
-            continue
-        if "정기점검" not in name or not any(x in name for x in ("스케줄", "스케쥴", "schedule")):
-            continue
-        path = os.path.join(folder, name)
-        try:
-            found.append((os.path.getmtime(path), os.path.getsize(path), path))
-        except OSError:
-            continue
+    for base, _dirs, files in os.walk(folder):
+        for name in files:
+            low = name.lower()
+            if name.startswith("~$") or not low.endswith(".xlsx"):
+                continue
+            if "정기점검" not in name or not any(x in name for x in ("스케줄", "스케쥴", "schedule")):
+                continue
+            path = os.path.join(base, name)
+            try:
+                found.append((os.path.getmtime(path), os.path.getsize(path), path))
+            except OSError:
+                continue
     if not found:
         raise FileNotFoundError(f"정기점검 스케줄 xlsx가 없습니다: {folder}")
     return max(found)[2]

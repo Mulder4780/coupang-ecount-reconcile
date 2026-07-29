@@ -11,11 +11,9 @@ PC가 꺼지거나 사람이 바뀌면 **무엇이 원본인지 아무도 모른
 
   0. 원본 자료/
       0. 수집안내.txt        ← 무엇이 언제 어디서 왔는지 (이 도구가 갱신)
-      1. ERP 내보내기/       ← 이카운트에서 내려받은 xlsx
-      2. 쿠팡 목록/          ← 쿠팡이 준 PO 목록 등
-      3. 카카오톡 내보내기/   ← 대화방 txt
-      4. 밴드 원본/          ← 밴드 API 원문 JSON
-      26년도 PO 모음/        ← 쿠팡 PO 통지문·견적서 (오종현 수집, 이미 있음)
+      1~4, 7. 자료유형/YYYY/MM/날짜/
+      5. 정기점검 스케쥴 원본/  ← 최신 편집본 + 이전본 날짜별 보관
+      6. PO 원본/YYYY/PO번호/  ← 쿠팡 PO 통지문·견적서
 
 원칙
   · **복사만 한다. 원본을 지우거나 옮기지 않는다.** PC 쪽은 그대로 둔다.
@@ -39,7 +37,11 @@ except Exception:
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
-from source_dirs import ORIGIN_ROOT, ERP_DIR, COUPANG_DIR, KAKAO_DIR, BAND_DIR, PO_DIRS  # noqa: E402
+from source_dirs import (  # noqa: E402
+    ORIGIN_ROOT, ERP_DIR, COUPANG_DIR, KAKAO_DIR, BAND_DIR,
+    PO_DIR, PO_DIRS, RECEIPT_DIR, RECEIPT_DIRS,
+)
+from source_organizer import dated_dir, po_dir_for  # noqa: E402
 
 GUIDE = os.path.join(ORIGIN_ROOT, "0. 수집안내.txt")
 
@@ -82,7 +84,8 @@ def plan():
         if os.path.basename(src).startswith("~$"):
             continue
         k = kind_of(src)
-        jobs.append((src, COUPANG_DIR if k == "po" else ERP_DIR, LABEL.get(k, "엑셀")))
+        base = COUPANG_DIR if k == "po" else ERP_DIR
+        jobs.append((src, dated_dir(base, src), LABEL.get(k, "엑셀")))
 
     # Downloads 에 떨어진 이카운트 내보내기 — 아는 종류만, 최근 것만
     cutoff = __import__("time").time() - DOWNLOAD_DAYS * 86400
@@ -97,16 +100,44 @@ def plan():
         k = kind_of(src)
         if k not in KNOWN:
             continue
-        jobs.append((src, COUPANG_DIR if k == "po" else ERP_DIR,
+        base = COUPANG_DIR if k == "po" else ERP_DIR
+        jobs.append((src, dated_dir(base, src),
                      LABEL.get(k, "엑셀") + " (Downloads)"))
 
     # 카카오톡 내보내기
     for src in sorted(glob.glob(os.path.join(BASE, "kakao", "inbox", "*.txt"))):
-        jobs.append((src, KAKAO_DIR, "카톡 대화 내보내기"))
+        jobs.append((src, dated_dir(KAKAO_DIR, src), "카톡 대화 내보내기"))
 
     # 밴드 원문 — 우리가 API로 받아 온 원본 그대로. 가공본(캐시)도 같이 둔다.
     for src in sorted(glob.glob(os.path.join(BASE, "band", "cache", "*.json"))):
-        jobs.append((src, BAND_DIR, "밴드 API 원문"))
+        jobs.append((src, dated_dir(os.path.join(BAND_DIR, "수집본"), src), "밴드 API 원문"))
+
+    # 오종현 공유 폴더도 매번 취합한다. 공유 폴더의 파일은 지우지 않고 정본 보관소에 복사한다.
+    # PO는 한 오더가 여러 프로젝트를 묶을 수 있어 프로젝트번호보다 PO번호가 안정적인 분류키다.
+    for folder in PO_DIRS:
+        try:
+            if not os.path.isdir(folder) or os.path.commonpath(
+                    [os.path.abspath(folder), os.path.abspath(ORIGIN_ROOT)]) == os.path.abspath(ORIGIN_ROOT):
+                continue
+        except (OSError, ValueError):
+            continue
+        for base, _dirs, files in os.walk(folder):
+            for name in sorted(files):
+                if name.startswith("~$") or name.lower() in ("thumbs.db", ".ds_store"):
+                    continue
+                src = os.path.join(base, name)
+                jobs.append((src, po_dir_for(src), "오종현 PO 원본"))
+
+    for folder in RECEIPT_DIRS:
+        try:
+            if not os.path.isdir(folder) or os.path.commonpath(
+                    [os.path.abspath(folder), os.path.abspath(ORIGIN_ROOT)]) == os.path.abspath(ORIGIN_ROOT):
+                continue
+        except (OSError, ValueError):
+            continue
+        for src in sorted(glob.glob(os.path.join(folder, "*.xls*"))):
+            if not os.path.basename(src).startswith("~$"):
+                jobs.append((src, dated_dir(RECEIPT_DIR, src), "오종현 입금내역"))
 
     return jobs
 
@@ -161,11 +192,10 @@ def write_guide(rows):
         f"마지막 정리: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
         "",
         "■ 폴더 구분",
-        "  1. ERP 내보내기    이카운트에서 내려받은 엑셀 (거래명세서·계산서·회계거래)",
-        "  2. 쿠팡 목록       쿠팡이 준 PO 목록 등",
-        "  3. 카카오톡 내보내기  대화방 '대화 내보내기' txt",
-        "  4. 밴드 원본       밴드에서 받아 온 게시글 원문(JSON) — 사람이 열 필요는 없습니다",
-        "  26년도 PO 모음     쿠팡 PO 통지문·견적서 (PO번호별 하위 폴더)",
+        "  1~4, 7번 폴더      자료유형 > 연도 > 월 > 수집일 순으로 자동 보관",
+        "  5. 정기점검         최신 편집본은 바로 아래, 이전본은 날짜별 보관",
+        "  6. PO 원본          연도 > PO번호 순으로 통지문·견적서 보관",
+        "  9. 미분류           루트에 바로 둔 자료 중 자동 분류 근거가 없는 파일",
         "",
         "■ 자료를 새로 넣을 때",
         "  해당 폴더에 그냥 넣어 주시면 됩니다. 파일 이름은 아무래도 괜찮습니다 —",
@@ -221,19 +251,19 @@ def main():
 
     # 정리 결과를 폴더별로 세어 안내문에 남긴다
     rows, empty = [], []
-    for d in (ERP_DIR, COUPANG_DIR, KAKAO_DIR, BAND_DIR):
+    for d in (ERP_DIR, COUPANG_DIR, KAKAO_DIR, BAND_DIR, RECEIPT_DIR):
         if not os.path.isdir(d):
             continue
         items = []
-        for name in sorted(os.listdir(d)):
-            p = os.path.join(d, name)
-            if os.path.isfile(p):
+        for base, _dirs, files in os.walk(d):
+            for name in sorted(files):
+                p = os.path.join(base, name)
                 n = count_rows(p)
-                items.append((name, n))
+                items.append((os.path.relpath(p, d), n))
                 if n == 0:
-                    empty.append(f"{os.path.basename(d)}/{name}")
+                    empty.append(f"{os.path.basename(d)}/{os.path.relpath(p, d)}")
         rows.append((d, items))
-    for d in PO_DIRS:
+    for d in (PO_DIR,):
         if os.path.isdir(d) and d.startswith(ORIGIN_ROOT):
             n = sum(len(f) for _b, _dd, f in os.walk(d))
             rows.append((d, [(f"(하위 폴더 포함 {n}개 파일)", -1)]))

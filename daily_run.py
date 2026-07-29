@@ -151,6 +151,10 @@ def main():
     steps.append(run("완료보고서 확정분 큐", [os.path.join(ROOT, "confirm_fill.py"), "--queue"]))
     steps.append(run("ERP 판매전표·거래명세 확정분 큐",
                      [os.path.join(ROOT, "fill_erp_documents.py"), "--queue"]))
+    # 정기점검·돌발AS 일지(미실시건) — 완료근거는 원장 빈 칸만 보완 큐에 넣고,
+    # 미실시 사유·취소·일자상이는 28_대조현황과 대표보고에 그대로 남긴다.
+    steps.append(run("정기점검·돌발AS 일지 대조 안전입력 큐",
+                     [os.path.join(ROOT, "work_log_sync.py"), "--queue"]))
 
     steps.append(run("관리대장 자동입력(확정분)", [os.path.join(ROOT, "ledger_writer.py"), "--apply"]))
     # 입력 직후 무결성 확인 — 엑셀이 '복구' 대화상자를 띄우는 파일을 만들지 않기 위해
@@ -161,6 +165,8 @@ def main():
     #     원본에 UJ번호가 없으므로 임의 프로젝트를 만들지 않고 04시트와 근거가 있는 건만 연결한다.
     steps.append(run("정기점검 스케줄 원본 자동반영",
                      [os.path.join(ROOT, "pm_schedule_sync.py"), "--apply"]))
+    steps.append(run("정기점검·돌발AS 일지 대조현황(28시트)",
+                     [os.path.join(ROOT, "work_log_sync.py"), "--apply"]))
 
     # 5.5 밴드 업무 추출 → 24_밴드업무추출 시트 (월별 백필 원천, 캐시 있을 때만)
     if band_cache:

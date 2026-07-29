@@ -89,7 +89,10 @@ def load(master=None):
         return out
 
     d = {"as": rows("02_돌발AS접수"), "pm": rows("04_정기점검"),
-         "fw": rows("03_현장작업실적"), "events": load_manual_events()}
+         "fw": rows("03_현장작업실적"), "events": load_manual_events(),
+         # 대표 브리핑이 일지 원본과 대조할 때 같은 관리대장만 읽게 한다.
+         # 합성 데이터로 직접 brief()를 부르는 검증은 이 키가 없어 원본 접근을 하지 않는다.
+         "_master": master}
     wb.close()
     return d, master
 
@@ -221,6 +224,18 @@ def brief(day=None, data=None):
     pm_done_rows = ordered([pm_line(r, "done") for r in pm_done])
     pm_quarter_rows = ordered([pm_line(r, "plan") for r in inq])
 
+    # 정기점검·돌발AS 일지는 완료 실적과 미실시 사유를 함께 적는 현장 정본이다.
+    # 원장만으로는 '왜 아직 안 됐는지'가 보이지 않으므로 대표 보고에는 이 대조 결과도
+    # 붙인다. 단 합성 검증처럼 master 경로가 없는 호출은 외부 원본에 닿지 않는다.
+    worklog = {}
+    master_hint = data.get("_master") if isinstance(data, dict) else None
+    if master_hint:
+        try:
+            import work_log_sync as WLS
+            worklog = WLS.analyze(master_hint).get("요약", {})
+        except Exception:
+            worklog = {}
+
     # 내용이 비어 있으면 숨기지 않고 '미기입'으로 남긴다 — 채워야 할 칸이다
     blank = [x for x in done if not x["무엇"]]
     handled = [event_line(r) for r in E]
@@ -247,6 +262,7 @@ def brief(day=None, data=None):
         "당일처리목록": handled,
         "완료일미기입목록": [line(r, "접수일자", "돌발AS") for r in as_stale],
         "신규목록": [line(r, "접수일자", "돌발AS") for r in as_new],
+        "일지대조": worklog,
     }
 
 
@@ -344,6 +360,18 @@ def text(b):
         rng = f" — 접수 {ds[0]} ~ {ds[-1]}" if ds else ""
         L.append(f"\n■ 완료일이 안 적힌 오래된 건 {a['완료일미기입']}건 (접수 후 30일 넘음){rng}")
         L.append("   실제로는 끝났을 가능성이 큽니다 — 완료일만 채우면 정리됩니다.")
+    log = b.get("일지대조", {}) if isinstance(b, dict) else {}
+    log_as = log.get("돌발AS", {}) if isinstance(log, dict) else {}
+    if log_as:
+        L.append("\n■ 정기점검·돌발AS 일지 대조 (7월 원본)")
+        L.append(f"   돌발AS 발생 {log_as.get('발생', 0)}건 · 처리완료 {log_as.get('처리완료', 0)}건 · "
+                 f"미처리 {log_as.get('미처리', 0)}건 · 취소 {log_as.get('취소', 0)}건")
+        reasons = log_as.get("미처리사유", []) or []
+        if reasons:
+            L.append("   미처리 사유 : " + " · ".join(
+                f"{x.get('사유', '기타')} {x.get('건수', 0)}건" for x in reasons[:5]))
+        if log_as.get("처리완료일확인"):
+            L.append(f"   ※ 일지상 처리완료이나 완료일이 없는 건 {log_as['처리완료일확인']}건은 임의 완료일을 넣지 않고 확인 목록에 보관")
     if b["내용미기입"]:
         L.append(f"\n■ 작업 내용이 안 적힌 완료건 {len(b['내용미기입'])}건 — 기사에게 확인 필요")
         for x in b["내용미기입"][:5]:

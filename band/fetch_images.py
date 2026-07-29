@@ -6,7 +6,8 @@ fetch_images.py — 밴드 게시글의 거래명세서·세금계산서 **사�
 이미지를 못 가져오지만(네이버 CDN), **서버에서 직접 요청하면 받아진다**(확인 완료).
 
   · 대상: 본문에 명세서·계산서·견적·청구·세금 이 들어간 글의 사진
-  · 저장: band/docs_inbox/  → doc_ocr.py 가 Windows 내장 OCR로 금액·번호를 읽는다
+  · 저장: 원본자료/4. 밴드 원본/문서사진/YYYY/MM/날짜/
+           → doc_ocr.py 가 Windows 내장 OCR로 금액·번호를 읽는다
   · 썸네일(type=s75)은 건너뛴다 — 75px라 글자가 안 읽힌다
 
 실행
@@ -110,7 +111,13 @@ def main():
     for i, (band, pid, day, url) in enumerate(t, 1):
         key = hashlib.md5(url.encode()).hexdigest()[:8]
         ext = ".png" if ".png" in url.lower() else ".jpg"
-        dst = os.path.join(OUT, f"band{band}_{day}_{pid}_{key}{ext}")
+        try:
+            dt = __import__("datetime").datetime.strptime(day, "%y%m%d")
+            dst_dir = os.path.join(OUT, f"{dt.year:04d}", f"{dt.month:02d}", dt.strftime("%Y-%m-%d"))
+        except ValueError:
+            dst_dir = os.path.join(OUT, "날짜미상")
+        os.makedirs(dst_dir, exist_ok=True)
+        dst = os.path.join(dst_dir, f"band{band}_{day}_{pid}_{key}{ext}")
         if os.path.exists(dst):
             skip += 1
             continue

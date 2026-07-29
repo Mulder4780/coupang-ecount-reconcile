@@ -111,7 +111,7 @@ def scan(folder=None):
     """[(경로, 종류)] — 임시파일(~$)은 제외"""
     folder = folder or INBOX_DIR
     out = []
-    for p in sorted(glob.glob(os.path.join(folder, "*.xls*"))):
+    for p in sorted(glob.glob(os.path.join(folder, "**", "*.xls*"), recursive=True)):
         if os.path.basename(p).startswith("~$"):
             continue
         out.append((p, classify(p)))
