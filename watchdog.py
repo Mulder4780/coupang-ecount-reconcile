@@ -184,6 +184,26 @@ def kill_stale_tunnel():
         return ""
 
 
+def snapshot_handoff(dry):
+    """세션 인계 스냅샷 — **세션이 갑자기 끊겨도 여기까지는 남는다.**
+
+    종료 체크리스트는 끝낼 시간이 있을 때만 지켜진다. 컨텍스트가 차거나 크레딧이 끊기면
+    그럴 기회가 없고, 그때 점유·큐·임시파일이 방치된 채 남는다. 워치독이 30분마다
+    상태를 적어 두면 다음 세션은 최대 30분 전 상태에서 이어받는다.
+    ★ 읽기 전용이다 — 무엇이 걸렸는지 적을 뿐, 점유를 풀거나 큐를 반영하지 않는다.
+      상대 AI 가 일하는 중일 수 있어 함부로 가로채면 안 된다."""
+    if dry:
+        return "세션인계(dry)"
+    try:
+        r = subprocess.run([PY, os.path.join(ROOT, "session_handoff.py"), "--snapshot"],
+                           cwd=ROOT, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=120)
+        line = [x for x in (r.stdout or "").splitlines() if "세션인계" in x]
+        return line[-1] if line else "세션인계 갱신"
+    except Exception as e:
+        return f"세션인계 실패: {str(e)[:40]}"
+
+
 def archive_versions(dry):
     try:
         sys.path.insert(0, ROOT)
@@ -269,7 +289,7 @@ def main():
     # 워치독이 낮은 버전 포크를 OLD로 옮겨 증거를 숨기는 일을 막는다.
     gap = gap_note(last_log_line(), datetime.now())     # 기록은 healing 전에 읽는다
     results = [sync_cloud_queue(dry), heal_server(dry), heal_tunnel(dry), publish_endpoint(dry),
-               clean_reports(dry)]
+               clean_reports(dry), snapshot_handoff(dry)]
     if gap:
         results.insert(0, gap)
     log(" | ".join(results))

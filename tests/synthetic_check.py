@@ -2544,6 +2544,66 @@ def t52_data_status():
     print("  [52] 자료현황 한 장(리포트 재활용·앱 노출·daily_run 순서) ✅")
 
 
+def t53_session_handoff():
+    """[53] 세션이 갑자기 끊겨도 다음 세션이 이어받는다(사용자 지시 2026-07-29).
+
+    ★ 종료 체크리스트는 **끝낼 시간이 있을 때만** 지켜진다. 컨텍스트가 차거나 크레딧이
+      끊기면 그럴 기회가 없고, 그때 점유·큐·임시파일이 방치된다.
+    ★ 죽은 점유는 **프로세스 생사**로 판정한다 — 시간(45분)만 보면 그동안 원장이 잠긴다.
+      ai_claim 은 `at` 을 **에포크 초(float)** 로 적는다(ISO 문자열 아님) — 이걸 틀리면
+      경과 시간이 '?' 로 나와 죽은 잠금을 못 가려낸다(실제로 처음에 그랬다).
+    ★ 이 도구는 **아무것도 고치지 않는다.** 상대 AI 가 일하는 중일 수 있어 자동으로
+      점유를 풀거나 큐를 반영하면 가로채게 된다."""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    import session_handoff as H
+
+    # 에포크 초를 제대로 읽는가 + 죽은 프로세스면 시간과 무관하게 잔재로 보는가
+    import time as _t
+    fake = {"ledger": {"who": "codex", "why": "테스트", "at": _t.time() - 120, "pid": 999999}}
+    orig = H.claims.__globals__.get("ai_claim")
+    class _Stub:
+        @staticmethod
+        def load():
+            return fake
+    H.claims.__globals__["ai_claim"] = _Stub
+    _s.modules["ai_claim"] = _Stub
+    try:
+        got = H.claims()
+        assert got and got[0]["mins"] == 2, "에포크 초 파싱 실패(ISO 로 읽고 있다): %s" % got
+        assert got[0]["stale"] is True, "죽은 프로세스인데 잔재로 안 본다 — 원장이 45분 잠긴다"
+        bl = H.blockers({"큐잔량": 0, "임시파일": [], "점유": got, "미푸시": []})
+        assert any("잔재" in w for w, _ in bl), bl
+        assert any("--free ledger" in c for _, c in bl), "풀 명령을 알려주지 않는다"
+        # 살아 있는 점유는 잔재가 아니다 — 상대가 일하는 중이다
+        fake["ledger"]["pid"] = os.getpid()
+        assert H.claims()[0]["stale"] is False, "살아 있는 점유를 잔재로 본다 — 상대 작업을 가로챈다"
+    finally:
+        if orig is not None:
+            H.claims.__globals__["ai_claim"] = orig
+        _s.modules.pop("ai_claim", None)
+
+    # 큐·임시파일도 막힌 것으로 잡는가
+    bl = H.blockers({"큐잔량": 7, "임시파일": ["x.tmp.xlsx"], "점유": [], "미푸시": ["a"]})
+    kinds = " ".join(w for w, _ in bl)
+    assert "입력 큐" in kinds and "임시파일" in kinds and "푸시" in kinds, kinds
+
+    # 고치지 않는다 — 자동 해제·자동 반영 코드가 있으면 안 된다
+    src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    body = src.split("if __name__")[0]
+    assert "ai_claim.free" not in body and "queue_add" not in body, \
+        "세션인계가 스스로 고치고 있다 — 상대 AI 작업을 가로챈다"
+
+    # 워치독이 30분마다 남기는가 · 시작 체크리스트 0번인가
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    assert "snapshot_handoff" in wd and "session_handoff.py" in wd, "워치독이 스냅샷을 안 남긴다"
+    cm = open(os.path.join(os.path.dirname(ROOT), "CLAUDE.md"), encoding="utf-8").read()
+    assert "session_handoff.py --check" in cm, "시작 체크리스트에 없다 — 아무도 안 읽는다"
+    assert cm.index("session_handoff.py --check") < cm.index("AGENTS.md` 전체 읽기"), \
+        "세션인계가 체크리스트 맨 앞이 아니다"
+    print("  [53] 세션 인계(죽은 점유 판정·큐/임시파일·워치독 스냅샷·체크리스트 0번) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2596,6 +2656,7 @@ if __name__ == "__main__":
     t46_app_2026_only()
     t47_back_nav()
     t52_data_status()
+    t53_session_handoff()
     t48_excel_2026_stats_and_verified_completion()
     t39_realtime_monitor()
     t6_webapp()
