@@ -315,10 +315,21 @@ def _main():
 
     plans, skips = resolve_targets(master, queue)
     print(f"큐 {len(queue)}건 → 반영 가능 {len(plans)} / 사전 제외 {len(skips)}")
+    # 셀 좌표 모드(`cell`)에는 key·col 이 없다. 미리보기 한 줄 때문에 반영이 통째로
+    # 죽지 않게 한다 — 실제로 06시트 636건(2,513셀) 적재가 여기서 KeyError로 멈췄다.
+    def _label(u):
+        return u.get("key") or u.get("cell") or ""
+
     for s in skips:
-        print(f"  [제외] {s['sheet']} {s['key']} {s['col']}: {s['사유']}")
-    for p in plans:
-        print(f"  [예정] {p['sheet']} {p['key']} → {p['col']}({p['colL']}{p['row']}) = {p['value']}  ⟵ {p.get('evidence','')}")
+        print(f"  [제외] {s['sheet']} {_label(s)} {s.get('col','')}: {s['사유']}")
+    # 좌표 모드 대량 적재는 한 줄씩 찍으면 콘솔이 수천 줄로 덮인다(토큰 절약 규칙).
+    verbose = len(plans) <= 60
+    for p in plans if verbose else []:
+        print(f"  [예정] {p['sheet']} {_label(p)} → {p.get('col','')}({p['colL']}{p['row']}) = {p['value']}  ⟵ {p.get('evidence','')}")
+    if not verbose:
+        from collections import Counter
+        c = Counter((p["sheet"], p["colL"]) for p in plans)
+        print("  [예정] " + ", ".join(f"{sh} {cl}열 {n}셀" for (sh, cl), n in sorted(c.items())))
     if not apply_mode:
         print("\n미리보기 모드 — 실제 반영: python ledger_writer.py --apply"); return
     if not plans:
@@ -357,7 +368,7 @@ def _main():
     if hand:
         hx = xmls.get(hand) or zin.read(hand).decode("utf-8")
         nr = max(int(r) for r in re.findall(r'<row r="(\d+)"', hx)) + 1
-        summary = "; ".join(f"{d['sheet'].split('_')[0]} {d['key']}.{d['col']}={d['value']}" for d in done[:10])
+        summary = "; ".join(f"{d['sheet'].split('_')[0]} {_label(d)}.{d.get('col', d.get('colL',''))}={d['value']}" for d in done[:10])
         if len(done) > 10:
             summary += f" 외 {len(done)-10}건"
         # 스타일은 직전 행 A셀에서 상속(하드코딩 금지 — 파일마다 스타일 표가 다름)
@@ -408,7 +419,7 @@ def _main():
     print(f"\n반영 완료: v{v} → v{v+1}, 입력 {len(done)}건 / 건너뜀 {len(skipped2)}건 (검증 통과)")
     print("   ", dst)
     for s in skipped2:
-        print(f"  [건너뜀] {s['key']} {s['col']}: {s['사유']}")
+        print(f"  [건너뜀] {_label(s)} {s.get('col', s.get('colL',''))}: {s['사유']}")
 
 
 def main():

@@ -2498,7 +2498,7 @@ def t50_stale_completion_drilldown_and_capture():
     assert '"완료일미기입목록": _b.get("완료일미기입목록", [])' in pub, \
         "암호화 사본에 완료일 누락 원천 목록이 없다"
     sw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
-    assert "csos-v11-confirmed-owner-rules-2026-only" in sw, \
+    assert "csos-v12-oh-owner-scope-2026-only" in sw, \
         "설치형 휴대폰 앱이 이전 화면 캐시를 계속 쥘 수 있다"
     print("  [50] 오래된 완료일 미기입 목록·정확 라우팅·담당자 캡처 ✅")
 
@@ -2960,6 +2960,10 @@ def t72_project_first_representative_report():
     assert confirmed_owner("캠프명 비어 있음", "빈칸", "김준형") == "류지영"
     assert confirmed_owner("세금계산서 미발행", "정산") == "변재선(회계)"
     assert confirmed_owner("작업금액 불일치", "금액") == "변재선(회계)"
+    assert confirmed_owner("PO 원본 누락", "원본자료") == "오종현"
+    assert confirmed_owner("견적서 원천자료 누락", "원본자료") == "오종현"
+    assert confirmed_owner("입금 원천자료 누락", "원본자료") == "오종현"
+    assert confirmed_owner("현장자료 누락", "현장", "김준형") == "류지영"
     assert confirmed_owner("PO A", "PO") == "유현민"
     assert confirmed_owner("원장 미등록", "문서") == "유현민"
     assert confirmed_owner("기타 현장 확인", "기타", "권오철") == "권오철"
@@ -2971,7 +2975,7 @@ def t72_project_first_representative_report():
     for token in ("function projectNoOf(", "function isRepresentativeProject(", "프로젝트 미확정",
                   "function renderRepresentative(",
                   "function openRepresentativeList(", 'id="checkpolicies"', "press-pop",
-                  "@keyframes viewEnter"):
+                  "@keyframes viewEnter", "PO 원본·견적서, 구매·입금 원천자료 취합·누락 확인"):
         assert token in live, token + " 누락"
     for route in ("/api/v1/reports/daily/exceptions", "/api/v1/as-requests/backlog-detail",
                   "/api/v1/inspections/quarter-progress", "/api/v1/statements/unissued"):
@@ -2979,7 +2983,8 @@ def t72_project_first_representative_report():
     assert "project, _ = rep_no(" in server and "candidate, rep_idx" in server, \
         "대표보고 원천행의 내부 JS 번호를 프로젝트번호로 복원하지 않는다"
     assert "r['프로젝트NO']||'프로젝트 미확정'" in phone
-    assert "csos-v11-confirmed-owner-rules-2026-only" in sw
+    assert "오종현 원천자료 취합" in phone
+    assert "csos-v12-oh-owner-scope-2026-only" in sw
     print("  [72] 프로젝트번호 대표표시·유수비 예외보고·정책확인·버튼/페이지 애니메이션 ✅")
 
 
