@@ -852,7 +852,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   color:var(--ink-3);margin-top:5px}
 @media(min-width:900px){ #ptable::after{display:none} }
 
-/* ═══ 류지영 업무방 — 조사·카톡 원본 투입을 한 화면에서 ═══ */
+/* ═══ 류지영 업무센터 — 대시보드·과거 목록·조사·카톡 원본 투입 ═══ */
 .ryu-hero{background:linear-gradient(135deg,#16265B,#3654D9);color:#fff;border-radius:20px;
   padding:24px;margin-bottom:14px;box-shadow:0 14px 30px rgba(20,43,125,.20)}
 .ryu-hero h2{font-size:22px;margin-bottom:5px}.ryu-hero p{color:#D5DDFC;font-size:13px}
@@ -880,16 +880,74 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   padding:14px 16px;border:1px solid #CAD5F4;border-radius:14px;background:#F5F7FF;margin-bottom:13px}
 .ryu-entry-link a{display:inline-flex;align-items:center;gap:6px;padding:9px 13px;border-radius:10px;
   background:var(--brand);color:#fff;text-decoration:none;font-weight:800;white-space:nowrap}
+.ryu-summary-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:0 0 14px}
+.ryu-summary-card{border:1px solid var(--line);border-radius:15px;background:#fff;padding:14px;
+  box-shadow:0 6px 16px rgba(29,45,95,.06);cursor:pointer;text-align:left;transition:.18s}
+.ryu-summary-card:hover{transform:translateY(-2px);border-color:#AFC0F3}
+.ryu-summary-card:active{transform:scale(.985)}
+.ryu-summary-card small{display:block;color:var(--ink-3);font-weight:800;font-size:11px;margin-bottom:6px}
+.ryu-summary-card strong{font-size:24px;letter-spacing:-.04em}
+.ryu-summary-card .attention{display:block;color:var(--danger);font-size:11px;font-weight:800;margin-top:4px}
+.ryu-category-tabs{display:flex;gap:8px;overflow-x:auto;padding:2px 1px 10px;scrollbar-width:thin}
+.ryu-category-tab{flex:1 0 145px;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  border:1px solid var(--line);border-radius:13px;background:#fff;padding:12px 13px;color:var(--ink-2);
+  font:inherit;font-weight:900;cursor:pointer;transition:.18s}
+.ryu-category-tab:hover{border-color:#AFC0F3;background:#F6F8FF}
+.ryu-category-tab.on{border-color:var(--brand);background:var(--brand);color:#fff;
+  box-shadow:0 8px 18px rgba(72,80,228,.2)}
+.ryu-category-tab em{font-style:normal;font-size:11px;opacity:.82}
+.ryu-workspace{display:grid;grid-template-columns:minmax(0,1.14fr) minmax(340px,.86fr);gap:14px;align-items:start}
+.ryu-history-card,.ryu-editor-card{min-width:0}
+.ryu-filterbar{display:grid;grid-template-columns:minmax(0,1fr) 150px 150px;gap:8px;margin:11px 0}
+.ryu-filterbar input,.ryu-filterbar select{width:100%;border:1px solid var(--line);border-radius:11px;
+  padding:10px 11px;background:#fff;color:var(--ink);font:inherit}
+.ryu-history-meta{display:flex;justify-content:space-between;gap:10px;align-items:center;color:var(--ink-3);
+  font-size:11px;font-weight:800;margin-bottom:8px}
+.ryu-history-list{display:grid;gap:8px;max-height:650px;overflow:auto;padding-right:3px;scrollbar-width:thin}
+.ryu-history-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;border:1px solid var(--line);
+  border-radius:13px;background:#fff;padding:12px;cursor:pointer;transition:.16s;text-align:left}
+.ryu-history-row:hover{border-color:#AFC0F3;background:#F8FAFF;transform:translateX(2px)}
+.ryu-history-row.on{border-color:var(--brand);background:#F1F4FF;box-shadow:inset 3px 0 var(--brand)}
+.ryu-history-row .main{min-width:0}.ryu-history-row .title{font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ryu-history-row .sub{color:var(--ink-2);font-size:11.5px;margin-top:4px;line-height:1.45}
+.ryu-history-row .date{color:var(--ink-3);font-size:11px;white-space:nowrap;text-align:right}
+.ryu-history-row .state{display:inline-flex;margin-top:5px;padding:3px 7px;border-radius:999px;
+  background:#EEF2FA;color:#42516E;font-size:10.5px;font-weight:900}
+.ryu-history-row .state.warn{background:var(--danger-bg);color:var(--danger)}
+.ryu-editor-card{position:sticky;top:86px}
+.ryu-editor-empty{padding:28px 12px;text-align:center;color:var(--ink-3);line-height:1.65}
+.ryu-selected{padding:13px;border:1px solid #C9D5F4;border-radius:13px;background:#F5F7FF;margin:10px 0 12px}
+.ryu-selected .key{font-size:18px;font-weight:950}.ryu-selected .camp{font-weight:800;color:var(--ink-2);margin-top:3px}
+.ryu-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:10px}
+.ryu-detail-item{padding:8px 9px;border-radius:9px;background:#fff;border:1px solid #E2E7F1;min-width:0}
+.ryu-detail-item small{display:block;color:var(--ink-3);font-size:10px;font-weight:800}
+.ryu-detail-item span{display:block;margin-top:3px;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ryu-entry-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.ryu-entry-fields label{display:grid;gap:5px;color:var(--ink-2);font-size:11px;font-weight:850}
+.ryu-entry-fields label.wide{grid-column:1/-1}
+.ryu-entry-fields input,.ryu-entry-fields select,.ryu-entry-fields textarea{width:100%;border:1px solid var(--line);
+  border-radius:10px;padding:10px 11px;background:#fff;color:var(--ink);font:inherit}
+.ryu-entry-fields textarea{min-height:74px;resize:vertical}
+.ryu-save-note{font-size:11px;line-height:1.55;color:var(--ink-3);margin:10px 0}
+.ryu-upload-panel{display:none}.ryu-upload-panel.on{display:block}
+.ryu-list-panel.hidden,.ryu-editor-card.hidden{display:none}
+.ryu-loading{padding:34px;text-align:center;color:var(--ink-3)}
 @media(max-width:640px){
   .ryu-upload-grid,.ryu-fields{grid-template-columns:1fr}
   .ryu-fields .wide{grid-column:auto}
   .ryu-entry-link{align-items:flex-start;flex-direction:column}
+  .ryu-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .ryu-summary-card{padding:11px}.ryu-summary-card strong{font-size:20px}
+  .ryu-category-tab{flex-basis:128px;padding:10px}
+  .ryu-workspace{grid-template-columns:1fr}
+  .ryu-filterbar{grid-template-columns:1fr 1fr}.ryu-filterbar input{grid-column:1/-1}
+  .ryu-history-list{max-height:55vh}
+  .ryu-editor-card{position:static}
+  .ryu-entry-fields,.ryu-detail-grid{grid-template-columns:1fr}
+  .ryu-entry-fields label.wide{grid-column:auto}
 }
-body.ryu-mode .tabbar{display:none}
-body.ryu-mode .shell{padding-bottom:40px}
-@media(min-width:900px){
-  body.ryu-mode .shell,body.ryu-mode .appbar{margin-left:0}
-}
+body.ryu-mode .tabbar button[data-v="run"]{display:none}
+body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";display:block;color:#B9C7F0;font-size:9px}
 
 </style>
 </head>
@@ -933,8 +991,8 @@ body.ryu-mode .shell{padding-bottom:40px}
 	      <div id="recalcmsg" style="font-size:13.5px;line-height:1.65"></div>
 	    </div>
 	    <div class="ryu-entry-link">
-	      <div><b>류지영 업무방</b><div class="muted">정기점검방·돌발점검방 카카오톡 원본과 조사 내용을 올리면 자동 대조를 시작합니다.</div></div>
-	      <a href="/ryu">전용 입력 화면 열기 ↗</a>
+	      <div><b>류지영 업무센터</b><div class="muted">카테고리별 현황·과거 목록·보충 입력·카카오톡 원본 대조를 한 화면에서 관리합니다.</div></div>
+	      <a href="/ryu">업무센터 열기 ↗</a>
 	    </div>
 	    <div class="card rep-card" id="repCard">
       <div class="rep-head">
@@ -1172,61 +1230,131 @@ body.ryu-mode .shell{padding-bottom:40px}
 	    <div class="md" id="mdbox">리포트 로딩...</div>
 	  </section>
 
-	  <!-- 류지영 전용 업무방: 두 카카오톡 원본 + 조사 결과를 사람 실수 없이 구분 투입 -->
+	  <!-- 류지영 업무센터: 대시보드형 요약 + 카테고리별 과거 목록 + 안전 보충입력 -->
 	  <section class="view" id="v-ryu">
 	    <div class="ryu-hero">
-	      <div class="eyebrow" style="color:#BFD0FF">RYU JIYOUNG WORK ROOM</div>
-	      <h2>류지영 업무방</h2>
-	      <p>카카오톡 원본과 조사 결과를 올리면 원본 보존 → 자동 분류 → 카톡 대조까지 이어집니다.</p>
-	      <a href="/" style="display:inline-block;margin-top:10px;color:#fff;font-weight:800">← 대시보드로 돌아가기</a>
+	      <div class="eyebrow" style="color:#BFD0FF">RYU JIYOUNG OPERATIONS CENTER</div>
+	      <h2>류지영 업무센터</h2>
+	      <p>2026년 업무를 카테고리별로 조회하고, 과거 목록을 보면서 확인한 빈 항목과 근거만 보충합니다.</p>
+	      <div style="margin-top:9px;font-size:11px;color:#C9D5FA">대시보드 · 정산 · 보고 · 확인 필요 · 기록 · 쿠팡 캘린더 메뉴를 함께 사용할 수 있습니다.</div>
 	    </div>
+
+	    <div class="ryu-summary-grid" id="ryuSummaryGrid">
+	      <div class="ryu-loading" style="grid-column:1/-1">업무 현황을 불러오는 중입니다.</div>
+	    </div>
+
 	    <div class="card">
-	      <h3>처리 순서 <span class="norm">— 아래 순서대로 하면 됩니다</span></h3>
-	      <ol class="ryu-guide">
-	        <li><div><b>정기점검방 대화 내보내기</b><br><span class="muted">★UNI★ 쿠팡정기점검 대화방에서 내보낸 .txt를 1번 칸에 넣습니다.</span></div></li>
-	        <li><div><b>돌발점검방 대화 내보내기</b><br><span class="muted">★UNI★ 쿠팡돌발점검 대화방에서 내보낸 .txt를 2번 칸에 넣습니다.</span></div></li>
-	        <li><div><b>조사한 내용만 보충</b><br><span class="muted">자동으로 알 수 없는 프로젝트·캠프·처리결과만 아래 항목별 칸에 적습니다.</span></div></li>
-	        <li><div><b>업로드 및 자동 대조</b><br><span class="muted">버튼을 한 번 누르면 두 파일을 원본 자료에 저장하고 자동 카톡 대조를 시작합니다.</span></div></li>
-	      </ol>
+	      <h3>업무 카테고리 <span class="norm">— 카테고리를 고르면 과거 목록과 입력칸이 함께 바뀝니다</span></h3>
+	      <div class="ryu-category-tabs" id="ryuCategoryTabs"></div>
 	    </div>
-	    <form class="card" id="ryuUploadForm" onsubmit="submitRyuUpload(event)">
-	      <h3>1. 카카오톡 원본 2개 <span class="norm">— 두 파일 모두 필수</span></h3>
-	      <div class="ryu-upload-grid">
-	        <label class="ryu-drop">
-	          <b>① ★UNI★ 쿠팡정기점검</b>
-	          <small>카카오톡 대화방 → 메뉴 → 대화 내용 → 대화 내보내기 → 텍스트 파일</small>
-	          <input type="file" name="kakao_regular" accept=".txt,text/plain" required>
-	        </label>
-	        <label class="ryu-drop">
-	          <b>② ★UNI★ 쿠팡돌발점검</b>
-	          <small>카카오톡 대화방 → 메뉴 → 대화 내용 → 대화 내보내기 → 텍스트 파일</small>
-	          <input type="file" name="kakao_emergency" accept=".txt,text/plain" required>
-	        </label>
+
+	    <div class="ryu-workspace" id="ryuWorkspace">
+	      <div class="card ryu-history-card ryu-list-panel" id="ryuHistoryPanel">
+	        <h3><span id="ryuHistoryTitle">과거 업무 목록</span> <span class="norm" id="ryuUpdatedAt"></span></h3>
+	        <div class="ryu-filterbar">
+	          <input id="ryuHistoryQuery" placeholder="검색: ID·프로젝트·캠프·담당자·내용" oninput="renderRyuHistory()">
+	          <select id="ryuHistoryStatus" onchange="renderRyuHistory()"><option value="">상태 전체</option></select>
+	          <select id="ryuHistoryPeriod" onchange="renderRyuHistory()">
+	            <option value="">기간 전체</option>
+	            <option value="month">이번 달</option>
+	            <option value="recent3">최근 3개월</option>
+	            <option value="older">3개월 이전</option>
+	          </select>
+	        </div>
+	        <div class="ryu-history-meta">
+	          <span id="ryuHistoryCount">0건</span>
+	          <span>과거 → 최근 · 항목을 누르면 입력 화면이 열립니다</span>
+	        </div>
+	        <div class="media-tools" role="toolbar" aria-label="류지영 업무 목록 도구" style="margin:0 0 9px">
+	          <button class="icon-btn primary" type="button" onclick="ryuCaptureList()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>
+	          <button class="icon-btn" type="button" onclick="ryuCopyList()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>
+	          <button class="icon-btn excel" type="button" onclick="ryuExportList()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button>
+	        </div>
+	        <div class="ryu-history-list" id="ryuHistoryList">
+	          <div class="ryu-loading">목록을 불러오는 중입니다.</div>
+	        </div>
 	      </div>
 
-	      <h3 style="margin-top:18px">2. 조사 기본정보 <span class="norm">— 확인한 만큼만 입력</span></h3>
-	      <div class="ryu-fields">
-	        <label>조사자<input name="submitter" value="류지영" readonly></label>
-	        <label>조사 기준일<input name="survey_date" type="date"></label>
-	        <label>업무 구분<select name="work_kind"><option value="">자동 판정</option><option>돌발AS</option><option>정기점검</option><option>거래서류</option><option>기타</option></select></label>
-	        <label>프로젝트 번호<input name="project_no" placeholder="예: UJ2600461"></label>
-	        <label>캠프명<input name="camp_name" placeholder="예: GWJ1 M_순천1"></label>
-	        <label>담당자<input name="assignee" placeholder="예: 김준형"></label>
-	      </div>
+	      <form class="card ryu-editor-card" id="ryuEntryForm" onsubmit="submitRyuEntry(event)">
+	        <h3>선택 업무 확인·입력 <span class="norm">— 기존 값은 덮어쓰지 않습니다</span></h3>
+	        <div class="ryu-editor-empty" id="ryuEditorEmpty">
+	          왼쪽 과거 목록에서 업무를 선택해 주세요.<br>선택한 건의 기존 내용과 보충 가능한 항목이 표시됩니다.
+	        </div>
+	        <div id="ryuEditorBody" style="display:none">
+	          <input type="hidden" name="category" id="ryuEntryCategory">
+	          <input type="hidden" name="record_key" id="ryuEntryKey">
+	          <input type="hidden" name="target_category" id="ryuTargetCategory">
+	          <input type="hidden" name="target_key" id="ryuTargetKey">
+	          <div class="ryu-selected" id="ryuSelectedSummary"></div>
+	          <details style="margin:0 0 12px">
+	            <summary style="cursor:pointer;font-weight:900;color:var(--brand)">기존 입력값 자세히 보기</summary>
+	            <div class="ryu-detail-grid" id="ryuSelectedDetail"></div>
+	          </details>
+	          <div class="ryu-entry-fields" id="ryuEntryFields"></div>
+	          <div class="ryu-entry-fields" style="margin-top:9px">
+	            <label class="wide">근거 파일
+	              <input name="evidence_file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.xlsx,.docx,.txt">
+	            </label>
+	            <label class="wide">조사 메모
+	              <textarea name="survey_note" placeholder="통화 확인 결과, 담당자 답변, 추가 확인이 필요한 내용을 적습니다. 이 메모는 입력 근거로 남습니다."></textarea>
+	            </label>
+	          </div>
+	          <p class="ryu-save-note">저장하면 관리대장의 해당 업무 ID를 찾아 <b>비어 있는 칸만</b> 반영합니다. 수식·검증결과·자동 상태는 직접 변경하지 않습니다.</p>
+	          <button class="abtn primary" id="ryuEntrySaveBtn" type="submit" style="width:100%;flex-direction:row;justify-content:center">
+	            <span class="em">✓</span>확인 내용 저장·반영
+	          </button>
+	          <div class="ryu-result" id="ryuEntryResult"></div>
+	        </div>
+	      </form>
+	    </div>
 
-	      <h3 style="margin-top:18px">3. 처리 결과·근거 <span class="norm">— 조사 결과가 있을 때 입력</span></h3>
-	      <div class="ryu-fields">
-	        <label>처리 상태<select name="work_status"><option value="">자동 판정</option><option>접수</option><option>진행중</option><option>작업완료</option><option>택배발송완료</option><option>취소</option><option>확인필요</option></select></label>
-	        <label>완료일<input name="completed_date" type="date"></label>
-	        <label class="wide">조치 내용<textarea name="action_note" placeholder="예: 리모컨 택배 발송 완료, 송장 확인"></textarea></label>
-	        <label class="wide">추가 근거 파일<input name="evidence_file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.xlsx,.docx,.txt"></label>
-	        <label class="wide">조사 메모<textarea name="survey_note" placeholder="자동 판정이 어려운 내용, 통화 확인 결과, 담당자에게 추가로 물어볼 내용을 적습니다."></textarea></label>
+	    <div class="ryu-upload-panel" id="ryuUploadPanel">
+	      <div class="card">
+	        <h3>카카오톡 원본 등록 안내 <span class="norm">— 두 대화방을 각각 내보내서 올립니다</span></h3>
+	        <ol class="ryu-guide">
+	          <li><div><b>정기점검방 대화 내보내기</b><br><span class="muted">★UNI★ 쿠팡정기점검 → 메뉴 → 대화 내용 → 대화 내보내기 → 텍스트 파일을 선택합니다.</span></div></li>
+	          <li><div><b>돌발점검방 대화 내보내기</b><br><span class="muted">★UNI★ 쿠팡돌발점검 → 메뉴 → 대화 내용 → 대화 내보내기 → 텍스트 파일을 선택합니다.</span></div></li>
+	          <li><div><b>조사 내용을 항목별로 입력</b><br><span class="muted">프로젝트·캠프·담당자·처리 결과 중 확인한 값만 입력합니다.</span></div></li>
+	          <li><div><b>원본 저장·자동 대조</b><br><span class="muted">원본 자료 폴더에 보존한 뒤 카카오톡 대조를 자동으로 시작합니다.</span></div></li>
+	        </ol>
 	      </div>
-	      <button class="abtn primary" id="ryuUploadBtn" type="submit" style="width:100%;margin-top:16px;flex-direction:row;justify-content:center">
-	        <span class="em">▶</span>원본 저장하고 자동 대조 시작
-	      </button>
-	      <div class="ryu-result" id="ryuUploadResult"></div>
-	    </form>
+	      <form class="card" id="ryuUploadForm" onsubmit="submitRyuUpload(event)">
+	        <h3>1. 카카오톡 원본 2개 <span class="norm">— 두 파일 모두 필수</span></h3>
+	        <div class="ryu-upload-grid">
+	          <label class="ryu-drop">
+	            <b>① ★UNI★ 쿠팡정기점검</b>
+	            <small>정기점검 대화방에서 내보낸 텍스트 파일</small>
+	            <input type="file" name="kakao_regular" accept=".txt,text/plain" required>
+	          </label>
+	          <label class="ryu-drop">
+	            <b>② ★UNI★ 쿠팡돌발점검</b>
+	            <small>돌발점검 대화방에서 내보낸 텍스트 파일</small>
+	            <input type="file" name="kakao_emergency" accept=".txt,text/plain" required>
+	          </label>
+	        </div>
+	        <h3 style="margin-top:18px">2. 조사 기본정보 <span class="norm">— 확인한 만큼만 입력</span></h3>
+	        <div class="ryu-fields">
+	          <label>조사자<input name="submitter" value="류지영" readonly></label>
+	          <label>조사 기준일<input name="survey_date" type="date"></label>
+	          <label>업무 구분<select name="work_kind"><option value="">자동 판정</option><option>돌발AS</option><option>정기점검</option><option>거래서류</option><option>기타</option></select></label>
+	          <label>프로젝트 번호<input name="project_no" placeholder="예: UJ2600461"></label>
+	          <label>캠프명<input name="camp_name" placeholder="예: GWJ1 M_순천1"></label>
+	          <label>담당자<input name="assignee" placeholder="예: 김준형"></label>
+	        </div>
+	        <h3 style="margin-top:18px">3. 처리 결과·근거 <span class="norm">— 조사 결과가 있을 때 입력</span></h3>
+	        <div class="ryu-fields">
+	          <label>처리 상태<select name="work_status"><option value="">자동 판정</option><option>접수</option><option>진행중</option><option>작업완료</option><option>택배발송완료</option><option>취소</option><option>확인필요</option></select></label>
+	          <label>완료일<input name="completed_date" type="date"></label>
+	          <label class="wide">조치 내용<textarea name="action_note" placeholder="예: 리모컨 택배 발송 완료, 송장 확인"></textarea></label>
+	          <label class="wide">추가 근거 파일<input name="evidence_file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.xlsx,.docx,.txt"></label>
+	          <label class="wide">조사 메모<textarea name="survey_note" placeholder="자동 판정이 어려운 내용, 통화 확인 결과, 담당자에게 추가로 물어볼 내용을 적습니다."></textarea></label>
+	        </div>
+	        <button class="abtn primary" id="ryuUploadBtn" type="submit" style="width:100%;margin-top:16px;flex-direction:row;justify-content:center">
+	          <span class="em">▶</span>원본 저장하고 자동 대조 시작
+	        </button>
+	        <div class="ryu-result" id="ryuUploadResult"></div>
+	      </form>
+	    </div>
 	  </section>
 
 	  <!-- 쿠팡 캘린더: Google 전체 보기 + 원장 대조 캐시 상세 + 사용자 확인형 일정 입력 -->
@@ -1297,14 +1425,14 @@ body.ryu-mode .shell{padding-bottom:40px}
     <div class="bt" style="font-size:12.5px;line-height:1.35">Coupang Service<br>Operations System
       <small>CSOS · UNIVERSAL LIFT</small></div>
   </div>
-  <button class="on" data-v="dash" onclick="show('dash')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>대시보드</button>
-  <button data-v="settle" onclick="show('settle')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>정산</button>
-  <button data-v="run" onclick="show('run')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="6,4 20,12 6,20"/></svg>실행</button>
-  <button data-v="daily" onclick="show('daily');renderDaily()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2.5h5L16 6"/></svg>보고</button>
-  <button data-v="check" onclick="show('check')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3L2.8 19h18.4L12 3z"/><path d="M12 9v4M12 16.5h.01"/></svg>확인 필요</button>
-  <button data-v="report" onclick="show('report')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>기록</button>
+  <button class="on" data-v="dash" onclick="routeNav('dash')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>대시보드</button>
+  <button data-v="settle" onclick="routeNav('settle')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>정산</button>
+  <button data-v="run" onclick="routeNav('run')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="6,4 20,12 6,20"/></svg>실행</button>
+  <button data-v="daily" onclick="routeNav('daily')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2.5h5L16 6"/></svg>보고</button>
+  <button data-v="check" onclick="routeNav('check')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3L2.8 19h18.4L12 3z"/><path d="M12 9v4M12 16.5h.01"/></svg>확인 필요</button>
+  <button data-v="report" onclick="routeNav('report')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>기록</button>
   <div class="nav-spacer" aria-hidden="true"></div>
-  <button class="calendar-nav" data-v="calendar" onclick="show('calendar')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>쿠팡 캘린더</button>
+  <button class="calendar-nav" data-v="calendar" onclick="routeNav('calendar')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>쿠팡 캘린더</button>
 </nav>
 
 <script>
@@ -1333,6 +1461,228 @@ async function api(path, opt={}){
   }
   return r.json();
 }
+let RYU=null, ryuCategory='as', ryuSelected=null, ryuVisible=[];
+async function loadRyuRecords(force=false){
+  if(RYU&&!force){ renderRyuCenter(); return; }
+  try{
+    RYU=await api('/api/ryu/records?ts='+Date.now());
+    renderRyuCenter();
+  }catch(e){
+    const list=$('ryuHistoryList');
+    if(list) list.innerHTML='<div class="ryu-result err" style="display:block">업무 목록을 불러오지 못했습니다.</div>';
+  }
+}
+function ryuCategoryInfo(key){
+  return ((RYU&&RYU.categories)||[]).find(x=>x.key===key)||{key,label:key,count:0,attention:0};
+}
+function renderRyuCenter(){
+  if(!RYU) return;
+  const summary=$('ryuSummaryGrid'), tabs=$('ryuCategoryTabs');
+  const mainCats=(RYU.categories||[]).filter(x=>x.key!=='upload');
+  if(summary) summary.innerHTML=mainCats.map(x=>`
+    <button class="ryu-summary-card" type="button" onclick="selectRyuCategory('${x.key}')">
+      <small>${esc2(x.label)}</small><strong>${fmt(x.count)}건</strong>
+      <span class="attention">${x.attention?`확인·진행 ${fmt(x.attention)}건`:'현재 특이사항 없음'}</span>
+    </button>`).join('');
+  if(tabs) tabs.innerHTML=(RYU.categories||[]).map(x=>`
+    <button class="ryu-category-tab ${x.key===ryuCategory?'on':''}" type="button"
+      onclick="selectRyuCategory('${x.key}')"><span>${esc2(x.label)}</span><em>${fmt(x.count)}건</em></button>`).join('');
+  if($('ryuUpdatedAt')) $('ryuUpdatedAt').textContent=`· 데이터 ${String(RYU.updated_at||'').replace('T',' ')}`;
+  selectRyuCategory(ryuCategory,true);
+}
+function selectRyuCategory(key,keep=false){
+  if(!RYU) return;
+  ryuCategory=key;
+  document.querySelectorAll('.ryu-category-tab').forEach(b=>b.classList.toggle('on',
+    (b.getAttribute('onclick')||'').includes(`'${key}'`)));
+  const upload=key==='upload';
+  if($('ryuWorkspace')) $('ryuWorkspace').style.display=upload?'none':'grid';
+  if($('ryuUploadPanel')) $('ryuUploadPanel').classList.toggle('on',upload);
+  if(upload) return;
+  const info=ryuCategoryInfo(key);
+  if($('ryuHistoryTitle')) $('ryuHistoryTitle').textContent=`${info.label} 과거 목록`;
+  const statuses=[...new Set(((RYU.rows||{})[key]||[]).map(x=>x.status).filter(Boolean))].sort();
+  const status=$('ryuHistoryStatus');
+  if(status){
+    const old=keep?status.value:'';
+    status.innerHTML='<option value="">상태 전체</option>'+statuses.map(x=>`<option>${esc2(x)}</option>`).join('');
+    if(statuses.includes(old)) status.value=old;
+  }
+  if(!keep){ ryuSelected=null; if($('ryuHistoryQuery')) $('ryuHistoryQuery').value=''; }
+  renderRyuHistory();
+  renderRyuEditor();
+}
+function ryuPeriodPass(day,period){
+  if(!period) return true;
+  if(!day) return false;
+  const now=new Date(), d=new Date(day+'T00:00:00');
+  if(Number.isNaN(d.getTime())) return false;
+  const monthStart=new Date(now.getFullYear(),now.getMonth(),1);
+  const recentStart=new Date(now.getFullYear(),now.getMonth()-2,1);
+  if(period==='month') return d>=monthStart;
+  if(period==='recent3') return d>=recentStart;
+  if(period==='older') return d<recentStart;
+  return true;
+}
+function ryuIsAttention(row){
+  return !['정상','완료','작업완료','발행완료','원본 저장'].includes(String(row.status||'').trim());
+}
+function renderRyuHistory(){
+  if(!RYU||ryuCategory==='upload') return;
+  const q=(($('ryuHistoryQuery')||{}).value||'').trim().toLowerCase();
+  const status=(($('ryuHistoryStatus')||{}).value||'');
+  const period=(($('ryuHistoryPeriod')||{}).value||'');
+  const rows=((RYU.rows||{})[ryuCategory]||[]);
+  ryuVisible=rows.filter(r=>{
+    if(status&&r.status!==status) return false;
+    if(!ryuPeriodPass(r.date,period)) return false;
+    if(!q) return true;
+    return JSON.stringify(r).toLowerCase().includes(q);
+  });
+  if($('ryuHistoryCount')) $('ryuHistoryCount').textContent=`표시 ${fmt(ryuVisible.length)}건 / 전체 ${fmt(rows.length)}건`;
+  const box=$('ryuHistoryList');
+  if(!box) return;
+  if(!ryuVisible.length){
+    box.innerHTML='<div class="ryu-editor-empty">조건에 맞는 업무가 없습니다.</div>';return;
+  }
+  box.innerHTML=ryuVisible.map((r,i)=>`
+    <button type="button" class="ryu-history-row ${ryuSelected&&ryuSelected.key===r.key?'on':''}"
+      onclick="selectRyuRecord(${i})">
+      <span class="main">
+        <span class="title">${esc2(r.project_no||r.key||'번호 없음')} · ${esc2(r.camp||'캠프 미입력')}</span>
+        <span class="sub">${esc2(r.key||'')} ${r.assignee?'· '+esc2(r.assignee):''}<br>${esc2(r.summary||'입력 내용 없음')}</span>
+        <span class="state ${ryuIsAttention(r)?'warn':''}">${esc2(r.status||'상태 미입력')}</span>
+      </span>
+      <span class="date">${esc2(r.date||'날짜 미입력')}</span>
+    </button>`).join('');
+}
+function ryuRowsForExport(){
+  const label=ryuCategoryInfo(ryuCategory).label||ryuCategory;
+  return ryuVisible.map(r=>({
+    프로젝트NO:r.project_no||'',업무ID:r.key||'',캠프명:r.camp||'',구분:label,
+    확인사항:r.summary||'',현재상태:r.status||'',기준일자:r.date||'',담당자:r.assignee||''
+  }));
+}
+function ryuListFileName(ext='png'){
+  const label=String(ryuCategoryInfo(ryuCategory).label||'업무목록').replace(/[\\/:*?"<>|\s·]+/g,'_');
+  return `CSOS_류지영_${label}_${todayISO()}.${ext}`;
+}
+async function ryuListToPng(){
+  const all=ryuVisible||[], cap=40, rows=all.slice(Math.max(0,all.length-cap));
+  const S=2,W=820,rowH=52,headH=104,footH=62,H=headH+42+Math.max(1,rows.length)*rowH+footH;
+  const cv=document.createElement('canvas');cv.width=W*S;cv.height=H*S;
+  const ctx=cv.getContext('2d');ctx.scale(S,S);
+  const F=(s,w)=>(w||400)+' '+s+'px "Nanum Gothic","Malgun Gothic",sans-serif';
+  const txt=(t,x,y,f,c,a)=>{ctx.font=f;ctx.fillStyle=c;ctx.textAlign=a||'left';
+    ctx.fillText(String(t==null?'':t),x,y);ctx.textAlign='left';};
+  const clip=(t,max)=>{let s=String(t==null?'':t);if(ctx.measureText(s).width<=max)return s;
+    while(s.length>1&&ctx.measureText(s+'…').width>max)s=s.slice(0,-1);return s+'…';};
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
+  const g=ctx.createLinearGradient(0,0,W,headH);g.addColorStop(0,'#101B47');g.addColorStop(1,'#4959E6');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,headH);await drawLogo(ctx,26,25,38,true);
+  const label=ryuCategoryInfo(ryuCategory).label||'업무 목록';
+  txt('류지영 업무센터 · '+label,82,46,F(20,900),'#fff');
+  txt(`2026년 · 현재 필터 ${all.length}건 · 과거 → 최근`,82,70,F(11.5,700),'#CAD5FF');
+  txt(todayISO(),W-26,46,F(12,800),'#fff','right');
+  let y=headH+28;
+  txt('프로젝트NO / 업무ID · 캠프 · 내용',26,y,F(10.5,800),'#667085');
+  txt('상태',W-150,y,F(10.5,800),'#667085','right');txt('일자',W-26,y,F(10.5,800),'#667085','right');
+  y+=14;ctx.strokeStyle='#D4DCEB';ctx.beginPath();ctx.moveTo(26,y);ctx.lineTo(W-26,y);ctx.stroke();
+  const list=rows.length?rows:[{project_no:'—',key:'',camp:'해당 건 없음',summary:'',status:'',date:'-'}];
+  list.forEach((r,i)=>{
+    const top=y+i*rowH;
+    if(i%2){ctx.fillStyle='#F6F8FC';ctx.fillRect(26,top+3,W-52,rowH-6);}
+    txt(clip(`${r.project_no||r.key||'번호 없음'} · ${r.camp||'캠프 미입력'}`,430),
+      30,top+22,F(12.5,850),'#101828');
+    txt(clip(`${r.key||''} ${r.assignee?'· '+r.assignee:''} ${r.summary?'· '+r.summary:''}`,430),
+      30,top+41,F(10.5),'#667085');
+    txt(clip(r.status||'상태 미입력',150),W-150,top+29,F(11.5,800),
+      ryuIsAttention(r)?'#B42318':'#16794A','right');
+    txt(r.date||'-',W-26,top+29,F(10.5),'#667085','right');
+  });
+  y+=list.length*rowH+24;
+  if(all.length>cap) txt(`※ 최근 ${cap}건 표시 · 전체 ${all.length}건은 엑셀 저장에서 확인`,26,y,F(10.5,800),'#B54708');
+  txt('데이터 업데이트 '+String((RYU&&RYU.updated_at)||'').replace('T',' '),W-26,y+20,F(10),'#98A2B3','right');
+  return new Promise(res=>cv.toBlob(res,'image/png'));
+}
+async function ryuCaptureList(){
+  try{const b=await ryuListToPng();if(!b)throw new Error('빈 이미지');saveOrOpen(b,ryuListFileName());}
+  catch(e){alert('이미지 저장 실패: '+e);}
+}
+async function ryuCopyList(){
+  try{const b=await ryuListToPng();if(!b)throw new Error('빈 이미지');await copyPngBlob(b);}
+  catch(e){alert('이미지 복사 실패: '+e);}
+}
+function ryuExportList(){
+  exportRowsXlsx(`류지영_${ryuCategoryInfo(ryuCategory).label||'업무목록'}`,ryuRowsForExport());
+}
+function selectRyuRecord(index){
+  ryuSelected=ryuVisible[index]||null;
+  renderRyuHistory();
+  renderRyuEditor();
+  if(window.innerWidth<900&&$('ryuEntryForm')) $('ryuEntryForm').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function ryuInputHtml(field,existing){
+  const name=esc2(field.name), label=esc2(field.label||field.name);
+  const has=existing!==undefined&&existing!==null&&String(existing).trim()!=='';
+  const disabled=has?' disabled':'';
+  const note=has?' · 기존 입력 완료':'';
+  if(field.type==='select'){
+    const opts=['',...(field.options||[])];
+    return `<label>${label}${note}<select name="${name}"${disabled}>${opts.map(x=>
+      `<option value="${esc2(x)}"${has&&String(existing)===String(x)?' selected':''}>${esc2(x||'선택 안 함')}</option>`).join('')}</select></label>`;
+  }
+  if(field.type==='textarea'){
+    return `<label class="wide">${label}${note}<textarea name="${name}"${disabled}
+      placeholder="${has?'':label+' 입력'}">${has?esc2(existing):''}</textarea></label>`;
+  }
+  return `<label>${label}${note}<input name="${name}" type="${field.type==='date'?'date':field.type==='number'?'number':'text'}"
+    ${field.type==='number'?'step="any" ':''}value="${has?esc2(existing):''}"${disabled} placeholder="${has?'':label+' 입력'}"></label>`;
+}
+function renderRyuEditor(){
+  const empty=$('ryuEditorEmpty'), body=$('ryuEditorBody');
+  if(!empty||!body) return;
+  if(!ryuSelected){
+    empty.style.display='block';body.style.display='none';return;
+  }
+  empty.style.display='none';body.style.display='block';
+  const r=ryuSelected, info=ryuCategoryInfo(ryuCategory);
+  $('ryuEntryCategory').value=ryuCategory;$('ryuEntryKey').value=r.key||'';
+  $('ryuTargetCategory').value=r.target_category||'';$('ryuTargetKey').value=r.target_key||'';
+  $('ryuSelectedSummary').innerHTML=`<div class="key">${esc2(r.project_no||r.key||'번호 없음')}</div>
+    <div class="camp">${esc2(r.camp||'캠프 미입력')} · ${esc2(r.date||'날짜 미입력')} · ${esc2(r.status||'상태 미입력')}</div>
+    <div class="muted" style="margin-top:6px">${esc2(r.summary||'')}</div>`;
+  const detail=r.detail||{};
+  $('ryuSelectedDetail').innerHTML=Object.entries(detail).map(([k,v])=>`
+    <div class="ryu-detail-item"><small>${esc2(k)}</small><span title="${esc2(v)}">${esc2(v)}</span></div>`).join('')
+    ||'<div class="muted">기존 입력값이 없습니다.</div>';
+  const schema=((RYU.schema||{})[ryuCategory]||{}).fields||[];
+  const fields=$('ryuEntryFields'), save=$('ryuEntrySaveBtn');
+  if(!r.editable){
+    fields.innerHTML='<div class="ryu-editor-empty" style="grid-column:1/-1">이 건은 ERP 보완·원본 일정·자동 집계 건이라 이 화면에서 직접 수정하지 않습니다. 목록 확인용으로만 표시합니다.</div>';
+    save.style.display='none';
+  }else{
+    fields.innerHTML=schema.map(f=>ryuInputHtml(f,detail[f.name])).join('');
+    save.style.display='flex';
+  }
+  const result=$('ryuEntryResult');result.className='ryu-result';result.textContent='';
+}
+async function submitRyuEntry(ev){
+  ev.preventDefault();
+  const form=$('ryuEntryForm'),btn=$('ryuEntrySaveBtn'),result=$('ryuEntryResult');
+  if(!ryuSelected||!ryuSelected.editable) return;
+  btn.disabled=true;btn.classList.add('busy');result.className='ryu-result';result.textContent='';
+  try{
+    const r=await fetch('/api/ryu/entry',{method:'POST',cache:'no-store',headers:{'X-Pin':PIN},body:new FormData(form)});
+    if(r.status===401){PIN='';localStorage.removeItem('cw_pin');$('gate').style.display='flex';throw new Error('PIN을 다시 입력해 주세요');}
+    const d=await r.json();if(!r.ok||!d.ok) throw new Error(d.error||`HTTP ${r.status}`);
+    result.className='ryu-result ok';
+    result.textContent=d.queued?`${d.queued}개 항목을 안전 입력 대기열에 넣었습니다. 관리대장 반영이 이어집니다.`:'근거 파일과 조사 기록을 저장했습니다.';
+    toast('류지영 업무센터 입력을 접수했습니다');
+  }catch(e){
+    result.className='ryu-result err';result.textContent='저장 실패 · '+String(e.message||e);
+  }finally{btn.disabled=false;btn.classList.remove('busy');}
+}
 async function submitRyuUpload(ev){
   ev.preventDefault();
   const form=$('ryuUploadForm'), btn=$('ryuUploadBtn'), result=$('ryuUploadResult');
@@ -1356,7 +1706,7 @@ async function submitRyuUpload(ev){
         (d.auto_check_queued?'현재 작업이 끝나는 즉시 자동 카톡 대조를 시작합니다.':
          '자동 대조 예약 상태를 확인해 주세요.')}`;
     [...form.querySelectorAll('input[type=file]')].forEach(x=>x.value='');
-    toast('류지영 원본 저장 및 자동 대조 접수 완료');
+    toast('류지영 업무센터 원본 저장 및 자동 대조 접수 완료');
   }catch(e){
     result.className='ryu-result err';result.textContent='업로드 실패 · '+String(e.message||e);
   }finally{
@@ -1377,8 +1727,10 @@ $('pin').addEventListener('keyup',e=>{ if(e.key==='Enter'||$('pin').value.length
 function applyView(v){
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   $('v-'+v).classList.add('active');
-  document.querySelectorAll('.tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
+  const navView=v==='ryu'?'dash':v;
+  document.querySelectorAll('.tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.v===navView));
   if(v==='report' && !reports.length) loadReports();
+  if(v==='ryu' && PIN && !RYU) loadRyuRecords();
   if(v==='dash' && !CAL) loadCalendar();
   if(v==='calendar'){
     if(!CAL) loadCalendar().then(renderCalendarPage);
@@ -1393,6 +1745,11 @@ function show(v){
   const from = curView();
   if(v !== from) navPush({t:'tab', from:from});
   applyView(v);
+}
+function routeNav(v){
+  if(document.body.classList.contains('ryu-mode')&&v==='dash'){show('ryu');return;}
+  show(v);
+  if(v==='daily') renderDaily();
 }
 function curView(){
   if(location.pathname.replace(/\/+$/,'')==='/ryu') return 'ryu';

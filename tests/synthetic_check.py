@@ -1062,8 +1062,20 @@ def t6_webapp():
                        "/api/ryu/upload", "★UNI★ 쿠팡정기점검", "★UNI★ 쿠팡돌발점검",
                        "auto_check_queued"):
             assert marker in html, "UI marker missing: " + marker
+        # 류지영 화면은 단순 업로드방이 아니라 대시보드형 업무센터다.
+        # 카테고리→과거목록→선택건 보충입력 흐름과 일반 메뉴(실행 제외)를 함께 제공한다.
+        for marker in ("류지영 업무센터", "업무센터 열기", 'id="ryuSummaryGrid"',
+                       'id="ryuCategoryTabs"', 'id="ryuHistoryList"', 'id="ryuEntryForm"',
+                       "/api/ryu/records", "/api/ryu/entry", "submitRyuEntry",
+                       "body.ryu-mode .tabbar button[data-v=\"run\"]{display:none}",
+                       "routeNav('dash')"):
+            assert marker in html, "류지영 업무센터 UI 누락: " + marker
         app_src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
         assert "def defer_task_until_free(" in app_src and '"auto_check_queued": queued' in app_src
+        for marker in ("RYU_ENTRY_CONFIG", "def get_ryu_records(", "def save_ryu_entry(",
+                       '"only_if_empty": True', 'if p == "/api/ryu/records"',
+                       'if p == "/api/ryu/entry"'):
+            assert marker in app_src, "류지영 업무센터 API 누락: " + marker
         assert "flex-wrap:nowrap!important" in html.replace(" ", "")
         assert not re.search(r'<button[^>]+onclick="(?:save\w*Journal|share\w*)', html), \
             "removed journal/share button is still exposed"

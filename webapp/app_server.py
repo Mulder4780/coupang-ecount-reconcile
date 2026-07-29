@@ -130,7 +130,7 @@ def _kakao_text_kind(data):
 
 
 def save_ryu_upload(fields, files):
-    """류지영 업무방 업로드를 원본 자료에 보존하고 카톡 자동대조 inbox로 넘긴다."""
+    """류지영 업무센터 업로드를 원본 자료에 보존하고 카톡 자동대조 inbox로 넘긴다."""
     from source_dirs import KAKAO_DIR
     needed = [files.get("kakao_regular"), files.get("kakao_emergency")]
     if any(not x for x in needed):
@@ -208,6 +208,496 @@ def save_ryu_upload(fields, files):
     with open(os.path.join(ROOT, "reports", "ryu_submissions.jsonl"), "a", encoding="utf-8") as out:
         out.write(json.dumps(manifest, ensure_ascii=False) + "\n")
     return manifest
+
+
+# 류지영 업무센터의 입력 항목은 원장의 수식·검증 열을 직접 건드리지 않는다.
+# 아래 화이트리스트에 있는 "사람이 확인해서 보충하는 원천 열"만 빈 칸에 한해 기록한다.
+RYU_ENTRY_CONFIG = {
+    "as": {
+        "label": "돌발AS", "sheet": "02_돌발AS접수", "key_col": "접수ID",
+        "date_col": "접수일자", "kind": "as",
+        "fields": [
+            {"name": "담당기사", "label": "담당기사", "type": "text"},
+            {"name": "방문예정일", "label": "방문예정일", "type": "date"},
+            {"name": "방문예정시간", "label": "방문예정시간", "type": "text"},
+            {"name": "작업완료일", "label": "작업완료일", "type": "date"},
+            {"name": "재방문여부", "label": "재방문 여부", "type": "select",
+             "options": ["예", "아니오"]},
+            {"name": "재방문예정일", "label": "재방문 예정일", "type": "date"},
+            {"name": "유상·무상·보험", "label": "비용 구분", "type": "select",
+             "options": ["유상", "무상", "보험"]},
+            {"name": "사진등록", "label": "사진 등록", "type": "select",
+             "options": ["있음", "없음"]},
+            {"name": "동영상등록", "label": "동영상 등록", "type": "select",
+             "options": ["있음", "없음"]},
+            {"name": "완료보고서등록", "label": "완료보고서 등록", "type": "select",
+             "options": ["있음", "없음"]},
+            {"name": "문제내용", "label": "문제 내용", "type": "textarea"},
+            {"name": "조치내용", "label": "조치 내용", "type": "textarea"},
+            {"name": "완료예정일", "label": "완료 예정일", "type": "date"},
+            {"name": "비고", "label": "비고", "type": "textarea"},
+        ],
+    },
+    "pm": {
+        "label": "정기점검", "sheet": "04_정기점검", "key_col": "점검ID",
+        "date_col": "점검예정일", "kind": "pm",
+        "fields": [
+            {"name": "점검예정일", "label": "점검 예정일", "type": "date"},
+            {"name": "점검예정시간", "label": "점검 예정시간", "type": "text"},
+            {"name": "담당기사", "label": "담당기사", "type": "text"},
+            {"name": "실제점검일", "label": "실제 점검일", "type": "date"},
+            {"name": "점검내용", "label": "점검 내용", "type": "textarea"},
+            {"name": "이상발견여부", "label": "이상 발견 여부", "type": "select",
+             "options": ["예", "아니오"]},
+            {"name": "이상내용", "label": "이상 내용", "type": "textarea"},
+            {"name": "돌발AS전환여부", "label": "돌발AS 전환 여부", "type": "select",
+             "options": ["예", "아니오"]},
+            {"name": "유상추가작업발생", "label": "유상 추가작업 발생", "type": "select",
+             "options": ["예", "아니오"]},
+            {"name": "추가작업내용", "label": "추가작업 내용", "type": "textarea"},
+            {"name": "유상·무상·보험", "label": "비용 구분", "type": "select",
+             "options": ["유상", "무상", "보험"]},
+            {"name": "점검사진", "label": "점검 사진", "type": "select",
+             "options": ["있음", "없음"]},
+            {"name": "점검동영상", "label": "점검 동영상", "type": "select",
+             "options": ["있음", "없음"]},
+            {"name": "점검보고서", "label": "점검 보고서", "type": "select",
+             "options": ["있음", "없음"]},
+            {"name": "문제내용", "label": "문제 내용", "type": "textarea"},
+            {"name": "조치내용", "label": "조치 내용", "type": "textarea"},
+            {"name": "비고", "label": "비고", "type": "textarea"},
+        ],
+    },
+    "field": {
+        "label": "현장작업", "sheet": "03_현장작업실적", "key_col": "작업ID",
+        "date_col": "작업일자", "kind": "field",
+        "fields": [
+            {"name": "작업일자", "label": "작업일자", "type": "date"},
+            {"name": "작업시작시간", "label": "작업 시작시간", "type": "text"},
+            {"name": "작업종료시간", "label": "작업 종료시간", "type": "text"},
+            {"name": "담당기사", "label": "담당기사", "type": "text"},
+            {"name": "실제작업항목", "label": "실제 작업항목", "type": "textarea"},
+            {"name": "실제작업상세", "label": "실제 작업상세", "type": "textarea"},
+            {"name": "접수외추가작업여부", "label": "접수 외 추가작업", "type": "select",
+             "options": ["예", "아니오"]},
+            {"name": "추가작업내용", "label": "추가작업 내용", "type": "textarea"},
+            {"name": "사용부품", "label": "사용 부품", "type": "text"},
+            {"name": "수량", "label": "수량", "type": "number"},
+            {"name": "비용구분", "label": "비용 구분", "type": "select",
+             "options": ["유상", "무상", "보험"]},
+            {"name": "완료여부", "label": "완료 여부", "type": "select",
+             "options": ["완료", "미완료"]},
+            {"name": "재방문필요", "label": "재방문 필요", "type": "select",
+             "options": ["예", "아니오"]},
+            {"name": "재방문사유", "label": "재방문 사유", "type": "textarea"},
+            {"name": "작업사진", "label": "작업 사진", "type": "select",
+             "options": ["있음", "없음"]},
+            {"name": "작업동영상", "label": "작업 동영상", "type": "select",
+             "options": ["있음", "없음"]},
+            {"name": "완료보고서", "label": "완료보고서", "type": "select",
+             "options": ["있음", "없음"]},
+            {"name": "기사보고내용", "label": "기사 보고내용", "type": "textarea"},
+            {"name": "문제내용", "label": "문제 내용", "type": "textarea"},
+            {"name": "조치내용", "label": "조치 내용", "type": "textarea"},
+            {"name": "완료예정일", "label": "완료 예정일", "type": "date"},
+            {"name": "비고", "label": "비고", "type": "textarea"},
+        ],
+    },
+    "settle": {
+        "label": "거래서류·청구", "sheet": "06_거래서류청구수금", "key_col": "정산ID",
+        "date_col": "작업완료일", "kind": "settle",
+        "fields": [
+            {"name": "거래명세서번호", "label": "거래명세서 번호", "type": "text"},
+            {"name": "거래명세서발행일", "label": "거래명세서 발행일", "type": "date"},
+            {"name": "PO필요여부", "label": "PO 필요 여부", "type": "select",
+             "options": ["예", "아니오"]},
+            {"name": "PO번호", "label": "PO 번호", "type": "text"},
+            {"name": "PO발행일", "label": "PO 발행일", "type": "date"},
+            {"name": "세금계산서발행일", "label": "세금계산서 발행일", "type": "date"},
+            {"name": "청구일", "label": "청구일", "type": "date"},
+            {"name": "지급예정일", "label": "지급 예정일", "type": "date"},
+            {"name": "입금일", "label": "입금일", "type": "date"},
+            {"name": "입금액", "label": "입금액", "type": "number"},
+            {"name": "담당자", "label": "담당자", "type": "text"},
+            {"name": "문제내용", "label": "문제 내용", "type": "textarea"},
+            {"name": "조치내용", "label": "조치 내용", "type": "textarea"},
+            {"name": "완료예정일", "label": "완료 예정일", "type": "date"},
+            {"name": "비고", "label": "비고", "type": "textarea"},
+        ],
+    },
+}
+
+
+def _ryu_display_value(value):
+    if value in (None, ""):
+        return ""
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d")
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+def _ryu_field_records():
+    """03_현장작업실적의 실제 행을 읽기 전용으로 반환한다."""
+    if DEMO:
+        return [
+            {
+                "작업ID": f"FW-2607-{i:03d}", "접수ID": f"AS-2607-{i:03d}",
+                "프로젝트NO": f"UJ26{2000+i:05d}", "캠프명": f"데모{i}캠프",
+                "작업일자": f"2026-07-{i+1:02d}", "담당기사": "김준형",
+                "실제작업항목": "현장 조치", "완료여부": "완료" if i < 4 else "미완료",
+                "검증결과": "정상" if i < 4 else "확인필요",
+            }
+            for i in range(1, 7)
+        ]
+    cached = _fresh("ryu_field")
+    if cached is not None:
+        return cached
+    import openpyxl
+    from ecount_reconcile import load_config, resolve_master
+    master = resolve_master(load_config()["reconcile"]["master_xlsx"])
+    wanted = [
+        "작업ID", "접수ID", "프로젝트NO", "캠프명", "작업일자", "작업시작시간",
+        "작업종료시간", "담당기사", "최초접수내용", "실제작업항목", "실제작업상세",
+        "접수외추가작업여부", "추가작업내용", "사용부품", "수량", "비용구분",
+        "완료여부", "재방문필요", "재방문사유", "작업사진", "작업동영상",
+        "완료보고서", "기사보고내용", "관리자검증", "거래명세서반영", "ERP반영",
+        "검증자", "검증일", "문제내용", "조치내용", "완료예정일", "비고", "검증결과",
+    ]
+    out = []
+    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    try:
+        if "03_현장작업실적" not in wb.sheetnames:
+            return _store_cache("ryu_field", out)
+        ws = wb["03_현장작업실적"]
+        header = next(ws.iter_rows(min_row=4, max_row=4, values_only=True))
+        idx = {str(v).strip(): i for i, v in enumerate(header) if v not in (None, "")}
+        for row in ws.iter_rows(min_row=5, values_only=True):
+            key = row[idx["작업ID"]] if "작업ID" in idx and idx["작업ID"] < len(row) else None
+            project = row[idx["프로젝트NO"]] if "프로젝트NO" in idx and idx["프로젝트NO"] < len(row) else None
+            work_date = row[idx["작업일자"]] if "작업일자" in idx and idx["작업일자"] < len(row) else None
+            camp = row[idx["캠프명"]] if "캠프명" in idx and idx["캠프명"] < len(row) else None
+            if not key or (not work_date and not camp):
+                continue
+            iso = norm_date(work_date)
+            id_blob = f"{key} {project}"
+            if iso:
+                if not iso.startswith(APP_YEAR + "-"):
+                    continue
+            elif not (re.search(r"(?:FW|AS|PM|JS)-?26", id_blob, re.I)
+                      or re.search(r"\bUJ26\d{5}\b", id_blob, re.I)):
+                continue
+            rec = {}
+            for name in wanted:
+                pos = idx.get(name)
+                rec[name] = _ryu_display_value(row[pos]) if pos is not None and pos < len(row) else ""
+            out.append(rec)
+    finally:
+        wb.close()
+    out.sort(key=lambda r: (norm_date(r.get("작업일자")) == "",
+                            norm_date(r.get("작업일자")), str(r.get("작업ID") or "")))
+    return _store_cache("ryu_field", out)
+
+
+def _ryu_upload_history():
+    path = os.path.join(ROOT, "reports", "ryu_submissions.jsonl")
+    rows = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    item = json.loads(line)
+                except Exception:
+                    continue
+                day = norm_date(item.get("등록일시") or item.get("조사기준일"))
+                if day and not day.startswith(APP_YEAR + "-"):
+                    continue
+                files = item.get("파일") if isinstance(item.get("파일"), list) else []
+                rows.append({
+                    "key": str(item.get("등록일시") or ""),
+                    "project_no": str(item.get("프로젝트NO") or ""),
+                    "camp": str(item.get("캠프명") or ""),
+                    "date": day,
+                    "status": "원본 저장",
+                    "assignee": str(item.get("담당자") or item.get("등록자") or "류지영"),
+                    "summary": str(item.get("조치내용") or item.get("조사메모") or
+                                   f"카카오톡 원본 {len(files)}개"),
+                    "detail": item,
+                    "editable": False,
+                })
+    except Exception:
+        pass
+    rows.sort(key=lambda r: (r["date"] == "", r["date"], r["key"]))
+    return rows
+
+
+def _ryu_issue_target(row):
+    key = str(row.get("업무ID") or row.get("ID") or row.get("원천업무ID") or "").strip()
+    upper = key.upper()
+    if upper.startswith("AS-"):
+        return "as", key
+    if upper.startswith("PM-"):
+        return "pm", key
+    if upper.startswith("FW-"):
+        return "field", key
+    if upper.startswith("JS-"):
+        return "settle", key
+    return "", ""
+
+
+def _ryu_row(rec, key_name, date_names, status_names, summary_names,
+             assignee_names=(), editable=True):
+    def first(names):
+        for name in names:
+            value = rec.get(name)
+            if value not in (None, ""):
+                return str(value)
+        return ""
+    detail = {str(k): _ryu_display_value(v) for k, v in rec.items() if v not in (None, "")}
+    return {
+        "key": first((key_name,)),
+        "project_no": first(("프로젝트NO",)),
+        "camp": first(("캠프명",)),
+        "date": norm_date(first(date_names)),
+        "status": first(status_names),
+        "assignee": first(assignee_names),
+        "summary": first(summary_names),
+        "detail": detail,
+        "editable": bool(editable),
+    }
+
+
+def get_ryu_records():
+    """류지영 업무센터: 2026년 업무를 카테고리별 과거→최근 목록으로 제공한다."""
+    works = get_works() or {"as": [], "pm": []}
+    settlements = get_settlements() or []
+    issues = get_issues() or {"rows": []}
+    as_rows = [
+        _ryu_row(r, "접수ID", ("접수일자", "작업완료일"),
+                 ("진행상태", "검증결과"), ("신청내용", "문제내용"),
+                 ("담당기사", "담당관리자"),
+                 editable=str(r.get("출처") or "") != "ERP")
+        for r in drop_side_work(works.get("as") or [])
+    ]
+    pm_rows = [
+        _ryu_row(r, "점검ID", ("점검예정일", "실제점검일"),
+                 ("점검상태", "검증결과"), ("점검내용", "이상내용"),
+                 ("담당기사", "담당관리자"),
+                 editable=str(r.get("출처") or "") not in ("ERP", "정기점검 스케줄 원본"))
+        for r in drop_side_work(works.get("pm") or [])
+    ]
+    field_rows = [
+        _ryu_row(r, "작업ID", ("작업일자",), ("완료여부", "검증결과"),
+                 ("실제작업항목", "기사보고내용"), ("담당기사",))
+        for r in drop_side_work(_ryu_field_records())
+    ]
+    settle_rows = [
+        _ryu_row(r, "정산ID", ("완료일", "명세서발행일", "계산서발행일"),
+                 ("상태",), ("업무구분", "적요"), ("담당자",),
+                 editable=str(r.get("출처") or "") != "ERP")
+        for r in drop_side_work(settlements)
+    ]
+    target_details = {
+        "as": {r["key"]: r.get("detail") or {} for r in as_rows if r.get("key")},
+        "pm": {r["key"]: r.get("detail") or {} for r in pm_rows if r.get("key")},
+        "field": {r["key"]: r.get("detail") or {} for r in field_rows if r.get("key")},
+        "settle": {r["key"]: r.get("detail") or {} for r in settle_rows if r.get("key")},
+    }
+    issue_rows = []
+    for rec in drop_side_work((issues or {}).get("rows") or []):
+        row = _ryu_row(rec, "업무ID", ("기준일", "일자", "접수일자", "점검예정일", "완료일"),
+                       ("상태", "심각도"), ("문제내용", "내용·근거", "문제유형"),
+                       ("담당자",))
+        target_category, target_key = _ryu_issue_target(rec)
+        if not row["key"]:
+            row["key"] = target_key or str(rec.get("ID") or rec.get("원천업무ID") or "")
+        if target_category and target_key:
+            row["detail"] = {**row["detail"],
+                             **target_details.get(target_category, {}).get(target_key, {})}
+        row["target_category"] = target_category
+        row["target_key"] = target_key
+        row["editable"] = bool(target_category and target_key)
+        issue_rows.append(row)
+    rows = {
+        "as": as_rows, "pm": pm_rows, "field": field_rows, "settle": settle_rows,
+        "issue": issue_rows, "upload": _ryu_upload_history(),
+    }
+    for items in rows.values():
+        items.sort(key=lambda r: (r.get("date", "") == "", r.get("date", ""), r.get("key", "")))
+    def needs_attention(row, completed):
+        verify = str((row.get("detail") or {}).get("검증결과") or "").strip()
+        if verify and verify != "정상":
+            return True
+        return str(row.get("status") or "").strip() not in completed
+    categories = [
+        {"key": "as", "label": "돌발AS", "count": len(as_rows),
+         "attention": sum(1 for r in as_rows
+                          if needs_attention(r, ("작업완료", "완료", "정상")))},
+        {"key": "pm", "label": "정기점검", "count": len(pm_rows),
+         "attention": sum(1 for r in pm_rows if needs_attention(r, ("완료", "정상")))},
+        {"key": "field", "label": "현장작업", "count": len(field_rows),
+         "attention": sum(1 for r in field_rows if needs_attention(r, ("완료", "정상")))},
+        {"key": "settle", "label": "거래서류·청구", "count": len(settle_rows),
+         "attention": sum(1 for r in settle_rows if needs_attention(
+             r, ("정상", "무상/보험", "ERP 계산서(묶음)")))},
+        {"key": "issue", "label": "확인 필요", "count": len(issue_rows),
+         "attention": len(issue_rows)},
+        {"key": "upload", "label": "자료 등록", "count": len(rows["upload"]), "attention": 0},
+    ]
+    schema = {
+        key: {"label": cfg["label"], "fields": cfg["fields"]}
+        for key, cfg in RYU_ENTRY_CONFIG.items()
+    }
+    schema["issue"] = {
+        "label": "확인 필요",
+        "fields": [
+            {"name": "조치내용", "label": "확인·조치 내용", "type": "textarea"},
+            {"name": "완료예정일", "label": "완료 예정일", "type": "date"},
+            {"name": "비고", "label": "비고", "type": "textarea"},
+        ],
+    }
+    if DEMO:
+        updated = datetime.now().isoformat(timespec="minutes")
+    else:
+        try:
+            updated = datetime.fromtimestamp(_master_mtime()).isoformat(timespec="minutes")
+        except Exception:
+            updated = datetime.now().isoformat(timespec="minutes")
+    return {"updated_at": updated, "year": APP_YEAR, "categories": categories,
+            "rows": rows, "schema": schema}
+
+
+def _ryu_find_master_record(category, record_key):
+    cfg = RYU_ENTRY_CONFIG[category]
+    import openpyxl
+    from ecount_reconcile import load_config, resolve_master
+    master = resolve_master(load_config()["reconcile"]["master_xlsx"])
+    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    try:
+        if cfg["sheet"] not in wb.sheetnames:
+            raise ValueError("대상 시트를 찾지 못했습니다")
+        ws = wb[cfg["sheet"]]
+        header = next(ws.iter_rows(min_row=4, max_row=4, values_only=True))
+        idx = {str(v).strip(): i for i, v in enumerate(header) if v not in (None, "")}
+        if cfg["key_col"] not in idx:
+            raise ValueError("업무 ID 열을 찾지 못했습니다")
+        for row in ws.iter_rows(min_row=5, values_only=True):
+            pos = idx[cfg["key_col"]]
+            if pos >= len(row) or str(row[pos] or "").strip() != str(record_key).strip():
+                continue
+            rec = {name: _ryu_display_value(row[i]) for name, i in idx.items() if i < len(row)}
+            day = norm_date(rec.get(cfg["date_col"]))
+            blob = f"{rec.get(cfg['key_col'], '')} {rec.get('프로젝트NO', '')}"
+            if not (day.startswith(APP_YEAR + "-")
+                    or re.search(r"(?:AS|PM|FW|JS)-?26", blob, re.I)
+                    or re.search(r"\bUJ26\d{5}\b", blob, re.I)):
+                raise ValueError(f"{APP_YEAR}년 업무만 입력할 수 있습니다")
+            return rec
+    finally:
+        wb.close()
+    raise ValueError("선택한 업무를 최신 관리대장에서 찾지 못했습니다")
+
+
+def _save_ryu_evidence(file_info, category, record_key):
+    if not file_info or not file_info.get("data"):
+        return ""
+    data = file_info["data"]
+    if len(data) > 25_000_000:
+        raise ValueError("근거 파일은 25MB 이하여야 합니다")
+    ext = os.path.splitext(file_info.get("filename") or "")[1].lower()
+    allowed = (".png", ".jpg", ".jpeg", ".webp", ".pdf", ".xlsx", ".docx", ".txt")
+    if ext not in allowed:
+        raise ValueError("근거는 이미지·PDF·Excel·Word·텍스트 파일만 가능합니다")
+    from source_dirs import KAKAO_DIR
+    now = datetime.now()
+    folder = os.path.join(KAKAO_DIR, f"{now:%Y}", f"{now:%m}", f"{now:%Y-%m-%d}")
+    os.makedirs(folder, exist_ok=True)
+    safe_key = re.sub(r"[^0-9A-Za-z가-힣_-]", "_", str(record_key))[:50]
+    name = (f"(류지영)_업무근거_{category}_{safe_key}_{now:%Y%m%d_%H%M%S}_"
+            f"{_safe_upload_name(file_info.get('filename'))}")
+    with open(os.path.join(folder, name), "wb") as out:
+        out.write(data)
+    return name
+
+
+def save_ryu_entry(fields, files, source_ip=""):
+    """선택한 기존 업무의 빈 원천 칸만 큐에 넣고, 첨부 근거는 원본 폴더에 보존한다."""
+    requested = str(fields.get("category") or "").strip()
+    category = requested
+    record_key = str(fields.get("record_key") or "").strip()
+    if requested == "issue":
+        category = str(fields.get("target_category") or "").strip()
+        record_key = str(fields.get("target_key") or "").strip()
+    if category not in RYU_ENTRY_CONFIG or not record_key:
+        raise ValueError("카테고리와 업무를 먼저 선택해 주세요")
+    if DEMO:
+        current = {}
+        for row in (get_ryu_records().get("rows") or {}).get(category, []):
+            if str(row.get("key") or "") == record_key:
+                current = row.get("detail") or {}
+                break
+        if not current:
+            raise ValueError("선택한 데모 업무를 찾지 못했습니다")
+    else:
+        current = _ryu_find_master_record(category, record_key)
+    cfg = RYU_ENTRY_CONFIG[category]
+    allowed = {item["name"]: item for item in cfg["fields"]}
+    if requested == "issue":
+        allowed = {k: v for k, v in allowed.items() if k in ("조치내용", "완료예정일", "비고")}
+    items = []
+    for name, spec in allowed.items():
+        raw = str(fields.get(name) or "").strip()
+        if raw == "":
+            continue
+        vtype = spec["type"] if spec["type"] in ("date", "number") else "text"
+        if vtype == "date" and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+            raise ValueError(f"{spec['label']}은 YYYY-MM-DD 형식이어야 합니다")
+        value = raw
+        if vtype == "number":
+            cleaned = raw.replace(",", "")
+            try:
+                number = float(cleaned)
+            except ValueError:
+                raise ValueError(f"{spec['label']}은 숫자로 입력해 주세요")
+            value = int(number) if number.is_integer() else number
+        items.append({
+            "sheet": cfg["sheet"], "key_col": cfg["key_col"], "key": record_key,
+            "col": name, "value": value, "vtype": vtype, "only_if_empty": True,
+        })
+    evidence_name = _save_ryu_evidence(files.get("evidence_file"), category, record_key)
+    note = str(fields.get("survey_note") or "").strip()
+    evidence = (f"류지영 업무센터 입력({source_ip or '앱'})"
+                f"{' · ' + note[:160] if note else ''}"
+                f"{' · 근거 ' + evidence_name if evidence_name else ''}")
+    for item in items:
+        item["evidence"] = evidence
+    manifest = {
+        "등록일시": datetime.now().isoformat(timespec="seconds"),
+        "등록자": "류지영", "입력유형": "업무 보충입력",
+        "카테고리": requested, "반영카테고리": category,
+        "업무ID": record_key, "프로젝트NO": str(current.get("프로젝트NO") or ""),
+        "캠프명": str(current.get("캠프명") or ""), "조사메모": note,
+        "추가근거": evidence_name, "입력항목": [item["col"] for item in items],
+    }
+    if DEMO:
+        return {"queued": len(items), "pending": len(items), "manifest": manifest,
+                "applying": False, "msg": "데모 입력"}
+    os.makedirs(os.path.join(ROOT, "reports"), exist_ok=True)
+    with open(os.path.join(ROOT, "reports", "ryu_submissions.jsonl"), "a", encoding="utf-8") as out:
+        out.write(json.dumps(manifest, ensure_ascii=False) + "\n")
+    if not items and not evidence_name:
+        raise ValueError("보충할 항목 또는 근거 파일을 입력해 주세요")
+    from ledger_writer import queue_add, load_queue
+    added = queue_add(items) if items else 0
+    applying = False
+    msg = "근거 파일만 저장했습니다"
+    if added:
+        applying, msg = start_task("writer_apply")
+        if not applying:
+            defer_task_until_free("writer_apply")
+    return {"queued": added, "pending": len(load_queue()), "manifest": manifest,
+            "applying": applying, "msg": msg}
 
 
 def rows_xlsx(payload):
@@ -2316,6 +2806,8 @@ class H(BaseHTTPRequestHandler):
             if isinstance(iss, dict) and isinstance(iss.get("rows"), list):
                 iss = {**iss, "rows": drop_side_work(iss["rows"])}
             return self._send(200, iss)
+        if p == "/api/ryu/records":
+            return self._send(200, get_ryu_records())
         if p == "/api/exec_report":
             m = re.search(r"[?&]date=(\d{4}-\d{2}-\d{2})", self.path)
             day = m.group(1) if m else None
@@ -2415,6 +2907,17 @@ class H(BaseHTTPRequestHandler):
                                         "auto_check_queued": queued, "msg": msg})
             except Exception as e:
                 return self._send(400, {"ok": False, "error": str(e)[:260]})
+        if p == "/api/ryu/entry":
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 30_000_000:
+                return self._send(400, {"ok": False, "error": "입력·첨부 용량은 합계 30MB 이하여야 합니다"})
+            try:
+                fields, files = multipart_parts(self.headers.get("Content-Type", ""),
+                                                self.rfile.read(ln))
+                result = save_ryu_entry(fields, files, ip)
+                return self._send(200, {"ok": True, **result})
+            except Exception as e:
+                return self._send(400, {"ok": False, "error": str(e)[:300]})
         if p == "/api/enqueue":
             # 폰이 **PC 꺼진 동안 예약해 둔** 프로젝트 코드를 받아 원장에 등록한다.
             # 오프라인 앱이 PC가 살아난 걸 확인하는 즉시 스스로 보낸다(사람 개입 없음).
