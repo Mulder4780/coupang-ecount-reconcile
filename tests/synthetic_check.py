@@ -2815,6 +2815,43 @@ def t70_quarter_as_months():
     print("  [70] 분기를 '7~9월' 처럼 월 범위로 표기(브리핑·앱·버튼·안내문) ✅")
 
 
+def t71_period_range():
+    """[71] 기간을 **월 단위 범위**로 고른다 — '7월' 도 '1~6월' 도(사용자 지시 2026-07-29).
+
+    ★ 시작이 끝보다 뒤면 오류를 띄우지 않는다. 사용자가 틀린 게 아니라 **아직 반대쪽을
+      못 옮긴 것**이다 — 방금 고른 쪽을 존중하고 반대쪽을 끌어와 맞춘다.
+    ★ 옛 호출부(`inPeriod(d, y, m)` 처럼 한 달만 넘기는 곳)가 남아 있다. '이번 달' 통계는
+      선택 기간이 아니라 늘 이번 달이어야 하므로, 인자 3개면 **그 한 달**로 동작해야 한다."""
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # 단일 월 선택이 아니라 시작~끝 두 칸이어야 한다
+    assert 'id="pfrom"' in live and 'id="pto"' in live, "기간 시작·끝 선택이 없다"
+    assert 'id="pmonth"' not in live, "옛 단일 월 선택이 남아 있다(둘이 어긋난다)"
+    for fn in ("function periodRange()", "function periodLabel()", "function fixRange(",
+               "function setRange("):
+        assert fn in live, "%s 가 없다" % fn
+    # 자주 쓰는 기간 바로가기
+    for label in ("연간 전체", "상반기", "하반기"):
+        assert 'onclick="setRange' in live and label in live, label
+
+    # 범위 필터가 실제로 쓰이는가 — 옛 단일 월 변수로 되돌아가면 안 된다
+    for anchor in ("dateOf(r,'settle'),y,pf,pt", "dateOf(r,'as'),y,pf,pt", "dateOf(r,'pm'),y,pf,pt"):
+        assert anchor in live, "기간 필터가 적용되지 않은 곳이 있다: %s" % anchor
+    # 하위호환: 인자 3개면 그 한 달
+    assert "if(to === undefined) to = from;" in live, "옛 호출부(단일 월) 호환이 깨졌다"
+    # 제목은 '7월'·'1~6월'·'연간 전체'
+    assert "${periodLabel()}" in live, "제목이 기간 이름을 쓰지 않는다"
+    assert "${m?+m+'월':'전체'}" not in live, "옛 제목 표기가 남아 있다"
+
+    # 라벨 규칙(파이썬으로 같은 계산을 재현해 확인)
+    def label(f, t):
+        return "연간 전체" if (f, t) == ("01", "12") else (
+            "%d월" % int(f) if f == t else "%d~%d월" % (int(f), int(t)))
+    assert label("07", "07") == "7월" and label("01", "06") == "1~6월"
+    assert label("01", "12") == "연간 전체" and label("10", "12") == "10~12월"
+    print("  [71] 기간 범위 선택(7월·1~6월·빠른선택·거꾸로 자동정렬·단일월 호환) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2871,6 +2908,7 @@ if __name__ == "__main__":
     t54_side_work_db_only()
     t56_work_detail_from_source()
     t70_quarter_as_months()
+    t71_period_range()
     t55_pm_brief_drilldown_and_capture()
     t58_check_hub_detail_and_capture()
     t48_excel_2026_stats_and_verified_completion()

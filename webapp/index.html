@@ -125,7 +125,11 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .legend b{width:9px;height:9px;border-radius:3px;flex:none}
 
 /* ═══ 월별 현황 차트 ═══ */
-.pctrl{display:flex;gap:8px;margin-bottom:12px}
+.pctrl{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+/* 자주 쓰는 기간을 한 번에 — 상반기/하반기는 매번 두 번 고르기 번거롭다 */
+.pbtn{padding:8px 12px;border:1.5px solid var(--line);border-radius:10px;font-size:12.5px;
+  font-weight:700;background:var(--card);color:var(--ink-2);cursor:pointer}
+.pbtn:hover{border-color:var(--brand);color:var(--brand)}
 .pctrl select{padding:8px 12px;border:1.5px solid var(--line);border-radius:10px;font-size:13.5px;
   background:var(--surface);font-weight:700;color:var(--ink)}
 .mbars{display:flex;gap:4px;align-items:flex-end;height:96px;margin:6px 0 2px}
@@ -740,9 +744,14 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
     <div class="card"><h3>월별·연도별 현황 <span class="norm" id="ptitle"></span></h3>
       <div class="pctrl">
         <select id="pyear" onchange="pickYear()"></select>
-        <select id="pmonth" onchange="renderPeriod()">
-          <option value="">연간 전체</option>
-        </select>
+        <!-- ★ 사용자 지시(2026-07-29): "7월만" 도 "1~6월" 도 볼 수 있어야 한다.
+             한 달만 보려면 시작·끝을 같게 두면 된다(끝을 고르면 자동으로 맞춰 준다). -->
+        <select id="pfrom" onchange="fixRange('from')"></select>
+        <span style="align-self:center;color:var(--ink-3);font-weight:700">~</span>
+        <select id="pto" onchange="fixRange('to')"></select>
+        <button class="pbtn" onclick="setRange(1,12)">연간 전체</button>
+        <button class="pbtn" onclick="setRange(1,6)">상반기</button>
+        <button class="pbtn" onclick="setRange(7,12)">하반기</button>
       </div>
       <div class="mbars" id="mbars"></div>
       <div class="blegend" id="blegend"></div>
@@ -1852,25 +1861,58 @@ function dateOf(r, kind){
   return normDate(v) || String(v||'').slice(0,10);
 }
 function periodInit(){
-  const py = $('pyear'), pm = $('pmonth');
-  const keepM = pm.value;
+  const py = $('pyear'), pf = $('pfrom'), pt = $('pto');
+  const keepF = pf.value, keepT = pt.value;
   py.innerHTML = `<option>${APP_YEAR}</option>`;
-  pm.innerHTML = '<option value="">연간 전체</option>' +
-    Array.from({length:12},(_,i)=>`<option value="${String(i+1).padStart(2,'0')}">${i+1}월</option>`).join('');
+  const opts = Array.from({length:12},(_,i)=>
+    `<option value="${String(i+1).padStart(2,'0')}">${i+1}월</option>`).join('');
+  pf.innerHTML = opts; pt.innerHTML = opts;
   py.value = APP_YEAR;
-  if(!keepM && !window.__pinit){
-    // 최초: 데이터가 있는 최신 월 자동 선택
-    const mm = settleRows.map(r=>dateOf(r,'settle')).filter(d=>d.startsWith(py.value)).map(d=>d.slice(5,7)).sort().pop();
-    pm.value = mm || '';
+  if(!keepF && !window.__pinit){
+    // 최초: 데이터가 있는 최신 월 한 달만 — 처음 열었을 때 가장 궁금한 게 이번 달이다
+    const mm = settleRows.map(r=>dateOf(r,'settle')).filter(d=>d.startsWith(py.value))
+                         .map(d=>d.slice(5,7)).sort().pop() || String(new Date().getMonth()+1).padStart(2,'0');
+    pf.value = mm; pt.value = mm;
     window.__pinit = true;
-  } else pm.value = keepM;
+  } else { pf.value = keepF || '01'; pt.value = keepT || '12'; }
   renderPeriod();
 }
 function pickYear(){ renderPeriod(); }
-function inPeriod(d, y, m){ return d.startsWith(y) && (!m || d.slice(5,7)===m); }
+/* 시작이 끝보다 뒤면 사용자가 틀린 게 아니라 **다른 쪽을 아직 못 옮긴 것**이다.
+   방금 고른 쪽을 존중하고 반대쪽을 끌어와 맞춘다 — 오류 메시지를 띄우지 않는다. */
+function fixRange(which){
+  const pf = $('pfrom'), pt = $('pto');
+  if(pf.value > pt.value){ if(which==='from') pt.value = pf.value; else pf.value = pt.value; }
+  renderPeriod();
+}
+function setRange(a, b){
+  $('pfrom').value = String(a).padStart(2,'0');
+  $('pto').value   = String(b).padStart(2,'0');
+  renderPeriod();
+}
+/* 기간 = [시작월, 끝월]. 한 달만 보려면 둘을 같게 둔다. */
+function periodRange(){
+  const f = ($('pfrom')||{}).value || '01', t = ($('pto')||{}).value || '12';
+  return f <= t ? [f, t] : [t, f];
+}
+function inPeriod(d, y, from, to){
+  if(!d || !d.startsWith(y)) return false;
+  if(from === undefined){ const r = periodRange(); from = r[0]; to = r[1]; }
+  if(to === undefined) to = from;              // 한 달만 넘긴 경우(옛 호출부 호환)
+  const mm = d.slice(5,7);
+  return mm >= from && mm <= to;
+}
+/* 화면에 적을 기간 이름 — '7월' 또는 '1~6월' 또는 '연간 전체' */
+function periodLabel(){
+  const [f, t] = periodRange();
+  if(f === '01' && t === '12') return '연간 전체';
+  return f === t ? `${+f}월` : `${+f}~${+t}월`;
+}
 function renderPeriod(){
-  const y = $('pyear').value, m = $('pmonth').value;
+  const y = $('pyear').value;
   if(!y) return;
+  const [pf, pt] = periodRange();          // 선택한 기간(같으면 한 달)
+  const m = (pf === pt) ? pf : '';         // 막대 강조는 한 달일 때만
   // 12개월 막대 — 관리대장 정산(파랑) + ERP 실매출(회색)을 함께 본다.
   // 06시트에 1~6월 정산 행이 없어 파랑만 보면 그 달이 '실적 0'처럼 보이기 때문.
   const byM = Array.from({length:12},()=>({amt:0,cnt:0,erp:0,ecnt:0}));
@@ -1885,7 +1927,7 @@ function renderPeriod(){
   $('mbars').innerHTML = byM.map((x,i)=>{
     const mm = String(i+1).padStart(2,'0');
     const sel = m===mm;
-    return `<div class="mbar ${sel?'on':''}" onclick="$('pmonth').value='${sel?'':mm}';renderPeriod()"
+    return `<div class="mbar ${sel?'on':''}" onclick="setRange(${sel?1:+mm},${sel?12:+mm})"
       title="${i+1}월 — 대장 정산 ${fmt(x.amt)}원(${x.cnt}건) / ERP 계산서 ${fmt(x.erp)}원(${x.ecnt}장)">
       ${sel&&(x.amt||x.erp)?`<span style="font-size:9px;font-weight:800;color:var(--brand);white-space:nowrap">${Math.round((x.amt||x.erp)/10000).toLocaleString()}만</span>`:''}
       <span class="bstack">
@@ -1908,7 +1950,7 @@ function renderPeriod(){
     }).filter(r=>r.건수||r.AS||r.점검||r.ERP);
     $('ptable').innerHTML = mt.length ? `<table class="grid ptbl" style="display:table">
       <tr><th>월</th><th class="num">정산</th><th class="num">공급가액</th><th class="num">ERP 계산서</th><th class="num">입금</th><th class="num">미수</th><th class="num">AS</th><th class="num">점검</th></tr>` +
-      mt.map(r=>`<tr onclick="$('pmonth').value='${r.월.replace('월','').padStart(2,'0')}';renderPeriod()" style="cursor:pointer">
+      mt.map(r=>`<tr onclick="setRange(+'${r.월.replace('월','')}',+'${r.월.replace('월','')}')" style="cursor:pointer">
         <td><b>${r.월}</b></td><td class="num">${r.건수}</td><td class="num">${fmt(r.공급가액)}</td>
         <td class="num">${r.ERP?fmt(r.ERP):'-'}</td><td class="num">${fmt(r.입금)}</td><td class="num">${fmt(r.미수)}</td><td class="num">${r.AS}</td><td class="num">${r.점검}</td></tr>`).join('') +
       `<tr class="tot"><td>합계</td><td class="num">${mt.reduce((a,r)=>a+r.건수,0)}</td>
@@ -1918,14 +1960,14 @@ function renderPeriod(){
        <td class="num">${mt.reduce((a,r)=>a+r.점검,0)}</td></tr></table>` : '';
   } else $('ptable').innerHTML = '';
   // 선택 기간 KPI
-  const S = settleRows.filter(r=>inPeriod(dateOf(r,'settle'),y,m));
-  const A = (works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,m));
-  const P = (works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m));
+  const S = settleRows.filter(r=>inPeriod(dateOf(r,'settle'),y,pf,pt));
+  const A = (works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,pf,pt));
+  const P = (works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,pf,pt));
   const 공급 = S.reduce((a,r)=>a+(+r.공급가액||0),0);
   const 입금 = S.reduce((a,r)=>a+(+r.입금액||0),0);
   const 미수 = S.reduce((a,r)=>a+(+r.미수금||0),0);
   const 문제 = S.filter(r=>needAction(r)).length;
-  $('ptitle').textContent = ` — ${y}년 ${m?+m+'월':'전체'}`;
+  $('ptitle').textContent = ` — ${y}년 ${periodLabel()}`;
   $('pkpis').innerHTML = [
     ['정산',`${S.length}건`],['공급가액',fmt(공급)],['입금',fmt(입금)],
     ['미수금',fmt(미수)],['조치필요',`${문제}건`],['AS·점검',`${A.length}·${P.length}건`]
