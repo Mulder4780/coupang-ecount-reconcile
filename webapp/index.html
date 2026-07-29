@@ -1231,8 +1231,11 @@ async function loadStatus(){
   }
   /* ★ '내가 확인할 사항'은 loadSettle 에서 먼저 그려지는데, 그때는 srcStats 가 아직 비어 있다.
      그대로 두면 밴드·카톡·PO 자료가 멀쩡히 있어도 **'아직 없음' 4건이 거짓으로** 뜬다
-     (2026-07-27에 실제로 그렇게 보였다). 상태가 도착했으니 다시 그린다. */
+  (2026-07-27에 실제로 그렇게 보였다). 상태가 도착했으니 다시 그린다. */
   try{ renderBoard(); }catch(e){ console.warn('board', e); }
+  // 보고 화면을 먼저 연 직후 상태 API가 도착하면 4원천 표도 즉시 실제 집계로 다시 그린다.
+  // 이 재렌더가 없으면 화면·캡처에 잠시 '자료 없음' 안내가 고정될 수 있다.
+  try{ if(window.__view==='daily') renderDaily(); }catch(e){ console.warn('daily sources',e); }
   $('demobadge').textContent = s.demo ? '· 데모(합성데이터)' : '';
   const rows = settleRows.length ? settleRows : [];
   const 유상 = rows.filter(r=>r.비용구분==='유상');
@@ -3257,10 +3260,16 @@ function renderDaily(){
     <div class="rfoot"><span>자동 생성 · Coupang Service Operations System Agent</span><span>${new Date().toLocaleString('ko-KR')}</span></div>`;
 
   // 캡처(Canvas)용 동일 데이터 — HTML과 이미지가 항상 같은 내용을 보이도록 한 곳에서 구성
-  const srcRows = [];
-  const addSrc = (label,s,empty)=> srcRows.push(!s||!s.total ? [label, empty, '-']
-    : [label, `대상 ${s.total}건 중 ${s.ok}건 확인(${Math.round(s.ok/s.total*100)}%) · 미확인 ${s.miss}건`,
-       (s.miss_prj||[]).filter(Boolean).join(', ')||'-']);
+  const srcRows = [], srcDetails = [];
+  const addSrc = (label,s,empty)=>{
+    const hasData = !!(s&&s.total);
+    const result = !hasData ? empty : s.ok
+      ? `대상 ${s.total}건 중 ${s.ok}건 확인(${Math.round(s.ok/s.total*100)}%) · 미확인 ${s.miss}건`
+      : `검출 ${s.total}건 — 확인필요`;
+    const missProjects = hasData ? (s.miss_prj||[]).filter(Boolean) : [];
+    srcRows.push([label, result, missProjects.join(', ')||'-']);
+    srcDetails.push({label, result, missProjects, empty:!hasData});
+  };
   addSrc('밴드 게시', S_.band, '게시글 수집 필요');
   addSrc('카톡 보고', S_.kakao, '대화 내보내기 투입 시 자동');
   addSrc('ERP 원장', S_.erp, '계정별원장 투입 시 자동');
@@ -3330,7 +3339,8 @@ function renderDaily(){
       const pm=l.filter(r=>String(r.업무구분||'').includes('점검')).length;
       return [t, `${l.length}건 (AS ${as}·점검 ${pm})`, fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0)),
         l.slice(0,5).map(r=>projectNoOf(r)||'프로젝트 미확정').join(', ')+(l.length>5?` 외 ${l.length-5}건`:'')];}),
-    srcs: srcRows
+    srcs: srcRows,
+    srcDetails
   };
 }
 
@@ -4654,11 +4664,20 @@ async function reportToPng(){
   const dailyBriefH = dailyBrief
     ? 34 + tiles((dailyBrief.metrics||[]).length) + (dailyActivities.length ? dailyActivities.length*90 : 28) + 10
     : 0;
+  // 화면의 4원천 표와 같은 구조로 캡처한다. 미확인 번호는 한 줄 문자열이 아니라
+  // 3열 칩으로 배치하므로 번호 수에 따라 행 높이도 함께 늘어나야 잘리지 않는다.
+  const sourceDetails = (D.srcDetails||[]).length ? D.srcDetails : (D.srcs||[]).map(r=>({
+    label:r[0], result:r[1],
+    missProjects:String(r[2]||'').split(/\s*,\s*/).filter(v=>v&&v!=='-'),
+    empty:false
+  }));
+  const sourceRowHeight = r => Math.max(44, 20 + Math.ceil(Math.max(1,(r.missProjects||[]).length)/3)*32);
+  const sourceTableH = 32 + sourceDetails.reduce((n,r)=>n+sourceRowHeight(r),0);
   let H = 108 + execH + execSecH
           + dailyBriefH + pmProgressH + workLogH
           + 34 + tiles((D.kpi||[]).length) + (D.kpiNote ? 18 : 0)
           + 34 + tiles((D.month||[]).length) + erpH
-          + 34 + (D.issues.length+1)*30 + 34 + (D.srcs.length+1)*30 + 54;
+          + 34 + (D.issues.length+1)*30 + 34 + sourceTableH + 54;
   cv.width = W*S; cv.height = H*S;
   ctx.scale(S,S);
   ctx.textBaseline = 'middle';
@@ -4706,6 +4725,50 @@ async function reportToPng(){
       r.forEach((c,i)=>txt(clip(c,widths[i]-20),xs[i]+10,y+15,F(12,i===0?700:400),i===0?'#101828':'#475467'));
       ctx.strokeStyle='#EEF2F7'; ctx.beginPath(); ctx.moveTo(30,y+30); ctx.lineTo(W-30,y+30); ctx.stroke();
       y+=30; });
+  };
+  const sourceTable = rows=>{
+    const widths=[130,330,340], xs=[30,160,490], headH=32;
+    const rule=(x1,y1,x2,y2,color='#DCE3EF')=>{
+      ctx.strokeStyle=color;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+    };
+    box(30,y,W-60,headH,'#F1F5FB','#DCE3EF',0);
+    ['원천','결과','미확인 프로젝트NO'].forEach((c,i)=>
+      txt(c,xs[i]+12,y+headH/2,F(11.5,800),'#344054'));
+    rule(xs[1],y,xs[1],y+headH); rule(xs[2],y,xs[2],y+headH);
+    y+=headH;
+    rows.forEach((r,ri)=>{
+      const rh=sourceRowHeight(r), mid=y+rh/2;
+      ctx.fillStyle=ri%2?'#FCFDFF':'#FFF';ctx.fillRect(30,y,W-60,rh);
+      rule(30,y,W-30,y); rule(30,y+rh,W-30,y+rh);
+      rule(30,y,30,y+rh); rule(W-30,y,W-30,y+rh); rule(xs[1],y,xs[1],y+rh);
+      txt(r.label,xs[0]+12,mid,F(12,500),'#101828');
+      if(r.empty){
+        // 자료가 없을 때는 첨부 화면처럼 결과·번호 칸을 합쳐 안내를 보여 준다.
+        txt(clip(r.result,W-xs[1]-54),xs[1]+12,mid,F(11.5),'#98A2B3');
+      }else{
+        rule(xs[2],y,xs[2],y+rh);
+        const m=String(r.result||'').match(/^(대상 \d+건 중 )(\d+건 확인\(\d+%\))(.*)$/);
+        if(m){
+          let tx=xs[1]+12;
+          [[m[1],400,'#101828'],[m[2],800,'#101828'],[m[3],400,'#101828']].forEach(p=>{
+            ctx.font=F(11.5,p[1]);txt(p[0],tx,mid,ctx.font,p[2]);tx+=ctx.measureText(p[0]).width;
+          });
+        }else txt(clip(r.result,widths[1]-24),xs[1]+12,mid,F(11.5),'#101828');
+        const ps=(r.missProjects||[]).filter(Boolean);
+        if(!ps.length){
+          txt('-',xs[2]+12,mid,F(11.5),'#475467');
+        }else{
+          const gap=6, chipW=(widths[2]-24-gap*2)/3;
+          ps.forEach((p,i)=>{
+            const cx=xs[2]+12+(i%3)*(chipW+gap);
+            const cy=y+10+Math.floor(i/3)*32;
+            box(cx,cy,chipW,26,'#EEF2FF','#D5DDFC',8);
+            txt(clip(p,chipW-16),cx+chipW/2,cy+13,F(11.5,800),'#3046C5','center');
+          });
+        }
+      }
+      y+=rh;
+    });
   };
 
   // ── 01_대표보고 섹션 (엑셀 대표보고와 동일 항목)
@@ -4845,7 +4908,7 @@ async function reportToPng(){
   table(['유형','건수','금액(원)','프로젝트NO'],
         D.issues.length?D.issues:[['조치 필요 없음','-','-','-']], [200,70,130,440-100]);
   section('4원천 검증 (밴드·카톡·ERP·쿠팡PO)');
-  table(['원천','결과','미확인 프로젝트NO'], D.srcs, [110,360,330]);
+  sourceTable(sourceDetails);
 
   y += 20;
   txt('자동 생성 · Coupang Service Operations System Agent',30,y,F(10),'#98A2B3');
@@ -4991,7 +5054,8 @@ function isIOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
 async function captureReport(){
   let blob;
   try{
-    if(!_rptData) renderDaily();
+    // 클릭 시점의 최신 4원천 집계를 다시 묶어 화면과 저장 이미지가 항상 같게 한다.
+    renderDaily();
     blob = await reportToPng();
     if(!blob) throw new Error('이미지 생성 결과가 비어 있습니다');
   }catch(e){ alert('이미지 생성 실패: '+e+'\n화면 캡처(Win+Shift+S / 전원+음량↓)를 사용해 주세요.'); return; }
@@ -5001,7 +5065,7 @@ async function captureReport(){
 async function shareReport(){
   let blob;
   try{
-    if(!_rptData) renderDaily();
+    renderDaily();
     blob = await reportToPng();
     if(!blob) throw new Error('empty');
   }catch(e){ alert('이미지 생성 실패: '+e); return; }
