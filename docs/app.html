@@ -67,7 +67,13 @@ input,button,select{font-family:inherit;font-size:15px}
  border:1.5px solid var(--line);border-radius:14px;padding:14px;margin-top:12px;cursor:pointer}
 .brief-card.warn{border-color:#e2b246;background:var(--warnbg)}
 .brief-card.activity{border-color:#8fb0ff;background:#eef4ff}
+.brief-card.pm{border-color:#a7d7b7;background:var(--okbg)}
 .brief-card .bt{font-size:14px;font-weight:900}.brief-card .bm{font-size:12px;color:var(--ink-2);margin-top:4px}
+.pmgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-top:9px}
+.pmgrid.quarter{grid-template-columns:repeat(3,1fr)}
+.pmgrid button{border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink-2);
+ padding:8px 5px;font-family:inherit;font-size:11.5px;cursor:pointer}
+.pmgrid button b{display:block;font-size:14px;color:var(--ink-1)}
 .sheetbg{position:fixed;inset:0;z-index:80;background:rgba(3,9,24,.52);display:none;
  align-items:flex-end;justify-content:center}
 .sheetbg.on{display:flex}
@@ -296,6 +302,7 @@ function renderBrief(){
   const box = $('briefbox'), b = D.brief || {};
   const activity = brief2026Rows(b['당일처리목록']);
   const stale = brief2026Rows(b['완료일미기입목록']);
+  const p = b['정기점검'] || {};
   let h = '';
   if(activity.length){
     h += `<div class="brief-card activity" aria-label="당일 업무 처리 ${activity.length}건">
@@ -304,6 +311,20 @@ function renderBrief(){
         esc((x['캠프명'] || '캠프 미기입') + ' — ' + (x['무엇'] || '처리내용 미기입'))).join('<br>')}</div>
     </div>`;
   }
+  h += `<div class="brief-card pm">
+    <div class="bt">${esc(b['기준일'] || '')} 정기점검</div>
+    <div class="pmgrid">
+      <button type="button" onclick="openPmCloud('day-plan')">예정<b>${p['예정'] || 0}건</b></button>
+      <button type="button" onclick="openPmCloud('day-done')">실행<b>${p['완료'] || 0}건</b></button>
+    </div>
+    <div class="bm">${esc(p['분기'] || '')} 진행률 ${p['분기진행률'] || 0}%</div>
+    <div class="pmgrid quarter">
+      <button type="button" onclick="openPmCloud('quarter-all')">예정<b>${p['분기예정'] || 0}건</b></button>
+      <button type="button" onclick="openPmCloud('quarter-done')">실행<b>${p['분기완료'] || 0}건</b></button>
+      <button type="button" onclick="openPmCloud('quarter-pending')">미실행<b>${p['분기미실행'] || 0}건</b></button>
+    </div>
+    <div class="bm">각 숫자를 눌러 목록 확인 · 이미지 저장/전달</div>
+  </div>`;
   if(stale.length){
     const dates = stale.map(x => x['일자'] || x['접수일']).filter(Boolean).sort();
     const range = dates.length ? `접수 ${esc(dates[0])} ~ ${esc(dates[dates.length-1])}` : '접수일 확인 필요';
@@ -321,16 +342,41 @@ function closeBriefSheet(){
 function openStaleCloud(){
   const rows = brief2026Rows((D.brief || {})['완료일미기입목록']);
   window._cloudStale = rows;
-  $('sheettitle').textContent = '완료일이 안 적힌 오래된 건 ' + rows.length + '건';
-  $('sheetnote').textContent = '프로젝트 번호를 누르면 해당 프로젝트를 조회합니다. · 기준일 ' +
-                               ((D.brief || {})['기준일'] || '');
+  openCloudBriefSheet('완료일이 안 적힌 오래된 건 ' + rows.length + '건',
+    '프로젝트 번호를 누르면 해당 프로젝트를 조회합니다. · 기준일 ' +
+      ((D.brief || {})['기준일'] || ''), rows);
+}
+function openPmCloud(scope){
+  const b=D.brief||{}, p=b['정기점검']||{}, d=b['기준일']||'';
+  const plan=brief2026Rows(b['점검예정목록']), done=brief2026Rows(b['점검실행목록']);
+  const quarter=brief2026Rows(b['분기점검목록']);
+  let rows=[], title='';
+  if(scope==='day-plan'){rows=plan;title=d+' 정기점검 예정 '+rows.length+'건';}
+  else if(scope==='day-done'){rows=done;title=d+' 정기점검 실행 '+rows.length+'건';}
+  else{
+    rows=scope==='quarter-done' ? quarter.filter(x=>x['상태']==='실행')
+        : scope==='quarter-pending' ? quarter.filter(x=>x['상태']!=='실행') : quarter;
+    title=(p['분기']||'분기')+' 정기점검 '+
+      (scope==='quarter-done'?'실행 ':scope==='quarter-pending'?'미실행 ':'전체 예정 ')+rows.length+'건';
+  }
+  openCloudBriefSheet(title,
+    `예정 ${p['분기예정']||0}건 · 실행 ${p['분기완료']||0}건 · 미실행 ${p['분기미실행']||0}건`, rows);
+}
+function openCloudBriefSheet(title, note, rows){
+  window._cloudSheetRows = rows;
+  window._cloudSheetTitle = title;
+  window._cloudSheetNote = note;
+  $('sheettitle').textContent = title;
+  $('sheetnote').textContent = note;
   $('sheetbody').innerHTML = rows.length ? rows.map((r, i) => {
     const prj = r['프로젝트NO'] || '';
     const head = (prj || '프로젝트 번호 미기입') + ' · ' + (r['캠프명'] || '캠프 미기입');
     const meta = [r['일자'] || r['접수일'] || '날짜 미기입', r['담당기사'] || '담당 미지정',
-                  r['레코드ID'] || '원천ID 미기입'].join(' · ');
+                  r['레코드ID'] || '원천ID 미기입', r['상태'] || ''].filter(Boolean).join(' · ');
     return `<button class="sheetrow" type="button" data-code="${esc(prj)}" data-i="${i}">
       <div class="t">${esc(head)}</div><div class="m">${esc(meta)}</div>
+      ${r['예정일']||r['실행일'] ? `<div class="m">${r['예정일']?'예정 '+esc(r['예정일']):''}${
+        r['실행일']?' · 실행 '+esc(r['실행일']):''}</div>` : ''}
       ${r['왜'] ? `<div class="m">${esc(r['왜'])}</div>` : ''}</button>`;
   }).join('') : '<div class="empty">확인할 항목이 없습니다.</div>';
   $('sheetbody').querySelectorAll('.sheetrow').forEach(el => el.onclick = () => {
@@ -345,20 +391,20 @@ function openStaleCloud(){
   $('sheetbg').classList.add('on');
   $('sheetbg').setAttribute('aria-hidden', 'false');
 }
-function staleToPng(){
-  const rows = window._cloudStale || [];
+function cloudSheetToPng(){
+  const rows = window._cloudSheetRows || [];
   const cap = 60, shown = rows.slice(0, cap), W = 1200, top = 170, rowH = 82;
   const H = top + Math.max(1, shown.length) * rowH + (rows.length > cap ? 68 : 28);
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const x = c.getContext('2d');
   x.fillStyle = '#f7f8fc'; x.fillRect(0,0,W,H);
   x.fillStyle = '#101828'; x.font = '800 34px "Malgun Gothic", sans-serif';
-  x.fillText('완료일이 안 적힌 오래된 건 ' + rows.length + '건', 52, 58);
+  x.fillText(window._cloudSheetTitle || ('확인 목록 ' + rows.length + '건'), 52, 58);
   x.fillStyle = '#667085'; x.font = '22px "Malgun Gothic", sans-serif';
   x.fillText('기준일 ' + (((D || {}).brief || {})['기준일'] || '-') +
-             ' · 프로젝트 / 캠프 / 접수일 / 담당 / 원천ID', 52, 100);
+             ' · 프로젝트 / 캠프 / 일자 / 담당 / 점검ID', 52, 100);
   x.fillStyle = '#8a4b08'; x.font = '20px "Malgun Gothic", sans-serif';
-  x.fillText('실제로 끝난 건은 관리대장 완료일 확인이 필요합니다.', 52, 137);
+  x.fillText(window._cloudSheetNote || '', 52, 137);
   shown.forEach((r,i) => {
     const y = top + i * rowH;
     x.fillStyle = i%2 ? '#f2f4f8' : '#ffffff'; x.fillRect(38,y-25,W-76,rowH-4);
@@ -366,7 +412,7 @@ function staleToPng(){
     x.fillText((r['프로젝트NO'] || '번호 미기입') + ' · ' + (r['캠프명'] || '캠프 미기입'), 55, y+6);
     x.fillStyle = '#667085'; x.font = '19px "Malgun Gothic", sans-serif';
     x.fillText([r['일자'] || r['접수일'] || '날짜 미기입', r['담당기사'] || '담당 미지정',
-                r['레코드ID'] || '원천ID 미기입'].join(' · '), 55, y+38);
+                r['레코드ID'] || '원천ID 미기입', r['상태'] || ''].filter(Boolean).join(' · '), 55, y+38);
   });
   if(rows.length > cap){
     x.fillStyle = '#8a4b08'; x.font = '20px "Malgun Gothic", sans-serif';
@@ -374,8 +420,10 @@ function staleToPng(){
   }
   return new Promise(resolve => c.toBlob(resolve, 'image/png'));
 }
+function staleToPng(){ return cloudSheetToPng(); }
 function briefFileName(){
-  return '완료일_미기입_' + (((D || {}).brief || {})['기준일'] || '기준일미상') + '.png';
+  const title=String(window._cloudSheetTitle||'확인목록').replace(/[\/:*?"<>|\s]/g,'_');
+  return title + '_' + (((D || {}).brief || {})['기준일'] || '기준일미상') + '.png';
 }
 function downloadBriefBlob(blob){
   const a = document.createElement('a'), u = URL.createObjectURL(blob);
@@ -389,7 +437,7 @@ async function shareStaleCloud(){
   const blob = await staleToPng(); if(!blob) return;
   const file = new File([blob], briefFileName(), {type:'image/png'});
   if(navigator.share && (!navigator.canShare || navigator.canShare({files:[file]}))){
-    try{ await navigator.share({title:'완료일 미기입 확인 목록', files:[file]}); return; }
+    try{ await navigator.share({title:window._cloudSheetTitle||'확인 목록', files:[file]}); return; }
     catch(e){ if(e && e.name === 'AbortError') return; }
   }
   downloadBriefBlob(blob);

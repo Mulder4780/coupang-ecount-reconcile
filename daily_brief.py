@@ -165,6 +165,25 @@ def brief(day=None, data=None):
             "레코드종류": _s(r.get("레코드종류")),
         }
 
+    def pm_line(r, primary="plan"):
+        """정기점검 한 건 — 예정일과 실행일을 함께 보존해 어느 목록에서도 같은 건을 연다."""
+        actual = _d(r.get("실제점검일"))
+        scheduled = _d(r.get("점검예정일"))
+        x = line(r, "실제점검일" if primary == "done" else "점검예정일", "정기점검")
+        raw = _s(r.get("점검상태"))
+        state = "실행" if actual else (raw if raw in ("취소", "보류") else "미실행")
+        x.update({
+            "예정일": scheduled,
+            "실행일": actual,
+            "상태": state,
+            "일자": actual if primary == "done" else scheduled,
+        })
+        return x
+
+    def ordered(rows):
+        """앱·캡처도 관리대장 원칙대로 과거→최근, 같은 날은 점검ID 순."""
+        return sorted(rows, key=lambda x: (x.get("일자") or "9999", x.get("레코드ID") or ""))
+
     # ── 돌발AS ──
     as_new = [r for r in A if _d(r.get("접수일자")) == day]
     as_done = [r for r in A if _d(r.get("작업완료일")) == day]
@@ -198,6 +217,9 @@ def brief(day=None, data=None):
     qs, qe = date(y, 3 * q - 2, 1), (date(y + (q == 4), (3 * q) % 12 + 1, 1) - timedelta(days=1))
     inq = [r for r in P if qs.isoformat() <= (_d(r.get("점검예정일")) or "9999") <= qe.isoformat()]
     inq_done = [r for r in inq if _d(r.get("실제점검일"))]
+    pm_plan_rows = ordered([pm_line(r, "plan") for r in pm_plan])
+    pm_done_rows = ordered([pm_line(r, "done") for r in pm_done])
+    pm_quarter_rows = ordered([pm_line(r, "plan") for r in inq])
 
     # 내용이 비어 있으면 숨기지 않고 '미기입'으로 남긴다 — 채워야 할 칸이다
     blank = [x for x in done if not x["무엇"]]
@@ -210,9 +232,13 @@ def brief(day=None, data=None):
                     "업무처리": len(handled)},
         "정기점검": {"예정": len(pm_plan), "완료": len(pm_done),
                      "분기": f"{y}년 {q}분기", "분기예정": len(inq), "분기완료": len(inq_done),
+                     "분기미실행": len(inq) - len(inq_done),
                      "분기진행률": round(len(inq_done) * 100 / len(inq)) if inq else 0},
         "완료내역": done, "무상건": free, "추가작업건": extra,
         "점검중유상": pm_paid, "AS전환": to_as, "이상발견": abnormal,
+        "점검예정목록": pm_plan_rows,
+        "점검실행목록": pm_done_rows,
+        "분기점검목록": pm_quarter_rows,
         "내용미기입": blank,
         "당일처리목록": handled,
         "완료일미기입목록": [line(r, "접수일자", "돌발AS") for r in as_stale],

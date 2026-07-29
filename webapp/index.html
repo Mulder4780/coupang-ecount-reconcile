@@ -215,6 +215,10 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .bpill.new{background:#E0EAFF;color:#1E40AF}
 .bpill.done{background:#DCFCE7;color:#166534}
 .bpill.warn{background:#FEF3C7;color:#92400E}
+.bpill.actionable{border:0;cursor:pointer;font-family:inherit;transition:transform .12s,box-shadow .12s}
+.bpill.actionable:hover,.bpill.actionable:focus-visible{outline:2px solid #A5B4FC;
+  outline-offset:2px;box-shadow:0 3px 9px rgba(30,64,175,.14)}
+.bpill.actionable:active{transform:scale(.96)}
 
 .bglab{font-size:12px;font-weight:800;margin:10px 0 6px;padding-left:2px;color:#475569}
 .bglab.new{color:#1E40AF}
@@ -251,6 +255,13 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .bfill{height:100%;border-radius:999px;background:#16A34A}
 .bfill.low{background:#F59E0B}
 .bnote{font-size:12px;color:var(--ink-3)}
+.pmstats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:8px}
+.pmstats button{border:1px solid var(--line);border-radius:9px;background:#F8FAFC;color:var(--ink-2);
+  padding:8px 7px;font-family:inherit;font-size:11.5px;cursor:pointer;text-align:center}
+.pmstats button b{display:block;color:var(--ink);font-size:14px;font-variant-numeric:tabular-nums}
+.pmstats button.done{background:#F0FDF4;border-color:#BBF7D0;color:#166534}
+.pmstats button.warn{background:#FFF7ED;border-color:#FED7AA;color:#9A3412}
+.pmstats button:hover,.pmstats button:focus-visible{outline:2px solid #A5B4FC;outline-offset:1px}
 
 .bneed{border:1px solid #FDE68A;background:#FFFBEB;border-radius:10px;
   padding:9px 11px;margin-bottom:7px}
@@ -2115,6 +2126,14 @@ function bCard(x, kind){
       + bRow('요청', x.왜, '신청내용 미기입')
       + bRow('처리', x.무엇, '처리내용 미기입')
       + (x.게시자 ? bRow('게시', x.게시자, '') : '') + `</div>`;
+  if(kind==='pm-plan') return `<div class="bcard">${bTag(x)}`
+      + bRow('상태', x.상태, '상태 미기입')
+      + bRow('점검', x.왜, '점검내용 미기입')
+      + (x.실행일 ? bRow('실행', x.실행일, '') : '') + `</div>`;
+  if(kind==='pm-done') return `<div class="bcard">${bTag(x)}`
+      + (x.예정일 ? bRow('예정', x.예정일, '') : '')
+      + bRow('점검', x.왜, '점검내용 미기입')
+      + (x.무엇 ? bRow('작업', x.무엇, '') : '') + `</div>`;
   return `<div class="bcard slim">${bTag(x)}</div>`;
 }
 
@@ -2123,6 +2142,7 @@ function briefBlock(){
   const a = BRIEF['돌발AS']||{}, p = BRIEF['정기점검']||{};
   const newL = BRIEF['신규목록']||[], doneL = (BRIEF['완료내역']||[]).filter(x=>x.구분==='돌발AS');
   const activityL = BRIEF['당일처리목록']||[];
+  const pmPlanL = BRIEF['점검예정목록']||[], pmDoneL = BRIEF['점검실행목록']||[];
   const blank = BRIEF['내용미기입']||[], stale = BRIEF['완료일미기입목록']||[];
   const d = BRIEF['기준일']||'';
   let h = '';
@@ -2146,13 +2166,23 @@ function briefBlock(){
   /* 정기점검 — 분기 진행률은 막대로 보여 준다(숫자만 있으면 감이 안 온다) */
   const pct = p.분기진행률||0;
   h += `<div class="bsec"><div class="bst"><b>정기점검</b>
-    <span class="bpill done">완료 ${p.완료||0}</span>
-    <span class="bpill">그날 예정 ${p.예정||0}</span></div>
+    <button class="bpill actionable" onclick="openPmBrief('day-plan')">예정 ${p.예정||0}</button>
+    <button class="bpill done actionable" onclick="openPmBrief('day-done')">실행 ${p.완료||0}</button></div>
+    ${pmPlanL.length?`<div class="bglab">기준일 예정 ${pmPlanL.length}건 · 눌러서 전체 목록 확인</div>`
+      +pmPlanL.slice(0,4).map(x=>bCard(x,'pm-plan')).join(''):''}
+    ${pmDoneL.length?`<div class="bglab done">기준일 실행 ${pmDoneL.length}건</div>`
+      +pmDoneL.slice(0,4).map(x=>bCard(x,'pm-done')).join(''):''}
+    ${!pmPlanL.length&&!pmDoneL.length?`<div class="bnone">기준일에 예정되거나 실행된 정기점검이 없습니다</div>`:''}
     <div class="bbar"><div class="bbt"><span>${_e(p.분기||'')} 진행률</span>
       <b>${pct}% <em>${p.분기완료||0}/${p.분기예정||0}건</em></b></div>
       <div class="btrack"><div class="bfill${pct>=60?'':' low'}" style="width:${Math.min(pct,100)}%"></div></div>
       <div class="bnote">${pct>=60?'특별한 문제 없으면 분기 내 마무리 가능합니다.'
-                                 :'진행률이 낮아 일정 관리가 필요합니다.'}</div></div></div>`;
+                                 :'진행률이 낮아 일정 관리가 필요합니다.'}</div>
+      <div class="pmstats">
+        <button onclick="openPmBrief('quarter-all')">분기 예정<b>${p.분기예정||0}건</b></button>
+        <button class="done" onclick="openPmBrief('quarter-done')">분기 실행<b>${p.분기완료||0}건</b></button>
+        <button class="warn" onclick="openPmBrief('quarter-pending')">분기 미실행<b>${p.분기미실행||0}건</b></button>
+      </div></div></div>`;
 
   /* 확인이 필요한 것 — 대표가 물어볼 항목만 모아 둔다 */
   const staleN = a.완료일미기입||0;
@@ -2281,10 +2311,10 @@ function dayDetail(label, val){
 
 function execHtml(){
   const secs = (execRep.sections||[]);
-  if(!secs.length) return '';
+  if(!secs.length) return briefBlock();
   const sum = execRep.summary||[];
   const empty = x => !(x.items||[]).length && !(x.groups||[]).length && !(x.lines||[]).length;
-  let usedSum = false, h = '';
+  let usedSum = false, usedBrief = false, h = '';
 
   secs.forEach(s=>{
     // '1. 정리'처럼 내용이 비어 있는 절에 요약을 넣는다.
@@ -2297,6 +2327,7 @@ function execHtml(){
     // ★ 대표 지시(2026-07-28): "숫자를 나한테 보고하라는 게 아니야."
     //   숫자 타일 위에 **읽어서 그대로 전달할 수 있는 문장**을 먼저 놓는다.
     if(/당일 업무 실적/.test(tt)){
+      usedBrief = true;
       // ★ 어느 날 숫자인지부터 못 박는다. 아래 타일은 전부 '집계기준일' 하루치다.
       const bd = baseDate(), rd = normDate((execRep.meta||{})['보고일']);
       h += `<div class="dbanner">
@@ -2345,6 +2376,9 @@ function execHtml(){
   if(sum.length && !usedSum){
     h = `<div class="esec"><div class="eh"><span>정리</span></div>
       <div class="esum">${sum.map(t=>`<div>${t.replace(/^■\s*/,'')}</div>`).join('')}</div></div>` + h;
+  }
+  if(!usedBrief){
+    h += `<div class="esec"><div class="eh"><span>당일 업무 실적</span></div>${briefBlock()}</div>`;
   }
   return h;
 }
@@ -2972,6 +3006,36 @@ function openStaleBrief(){
     rows, count:rows.length, kind:'brief-stale',
     basis:`${(BRIEF&&BRIEF['기준일'])||baseDate()} 기준, 접수 후 30일이 넘었지만 작업완료일이 빈 돌발AS`
   }};
+  openExecMetric(label);
+}
+function openPmBrief(scope){
+  const p=(BRIEF&&BRIEF['정기점검'])||{}, d=(BRIEF&&BRIEF['기준일'])||baseDate();
+  const plan=(BRIEF&&BRIEF['점검예정목록'])||[];
+  const done=(BRIEF&&BRIEF['점검실행목록'])||[];
+  const quarter=(BRIEF&&BRIEF['분기점검목록'])||[];
+  let source=[], label='', basis='';
+  if(scope==='day-plan'){
+    source=plan;label=`${d} 정기점검 예정`;
+    basis=`${d} 점검예정일이 기록된 ${plan.length}건`;
+  }else if(scope==='day-done'){
+    source=done;label=`${d} 정기점검 실행`;
+    basis=`${d} 실제점검일이 기록된 ${done.length}건`;
+  }else{
+    source=scope==='quarter-done' ? quarter.filter(x=>x.상태==='실행')
+          : scope==='quarter-pending' ? quarter.filter(x=>x.상태!=='실행') : quarter;
+    label=`${p.분기||'분기'} 정기점검 ${
+      scope==='quarter-done'?'실행':scope==='quarter-pending'?'미실행':'전체 예정'}`;
+    basis=`${p.분기||''} 예정 ${p.분기예정||0}건 · 실행 ${p.분기완료||0}건 · 미실행 ${p.분기미실행||0}건`;
+  }
+  const rows=source.map(x=>({
+    프로젝트NO:x.프로젝트NO||'', 캠프명:x.캠프명||'',
+    일자:x.일자||x.예정일||x.실행일||'', 담당자:x.담당기사||'기사 미배정',
+    문제:[x.예정일?`예정 ${x.예정일}`:'',x.실행일?`실행 ${x.실행일}`:'',
+          x.왜||'점검내용 미기입'].filter(Boolean).join(' · '),
+    상태:x.상태||'', 종류:'pm', 레코드ID:x.레코드ID||'',
+    ID:x.레코드ID||x.프로젝트NO||''
+  }));
+  window._briefMetric={label,data:{rows,count:rows.length,kind:'brief-pm',basis}};
   openExecMetric(label);
 }
 function metricOpenCall(r){
