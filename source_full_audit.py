@@ -36,7 +36,11 @@ def enumerate_files(root: str) -> list[dict]:
         "/NJH", "/NJS", "/NC", "/R:0", "/W:0",
     ]
     result = subprocess.run(
-        command, capture_output=True, text=True, errors="replace", timeout=600,
+        # robocopy writes through the Windows ANSI codepage.  Python UTF-8
+        # mode would otherwise replace every Korean path with U+FFFD and make
+        # the later file open fail even though enumeration itself succeeded.
+        command, capture_output=True, text=True, encoding="mbcs",
+        errors="replace", timeout=600,
         check=False,
     )
     # Robocopy 0..7 are non-fatal result bitmasks.  /L never copies a file.
@@ -101,12 +105,26 @@ def validate_file(item: dict) -> dict:
             return {"status": "error", "detail": "text decoding failed"}
         if ext in {".jpg", ".jpeg"}:
             head = _read_prefix(path)
-            ok = head.startswith(b"\xff\xd8\xff")
-            return {"status": "ok" if ok else "error", "detail": "jpeg signature"}
+            if head.startswith(b"\xff\xd8\xff"):
+                return {"status": "ok", "detail": "jpeg signature"}
+            if head.startswith(b"\x89PNG\r\n\x1a\n"):
+                return {
+                    "status": "warning",
+                    "detail": "확장자 불일치: PNG 데이터가 JPEG 확장자로 저장됨",
+                }
+            return {"status": "error", "detail": "jpeg signature missing"}
         if ext == ".png":
             head = _read_prefix(path)
-            ok = head.startswith(b"\x89PNG\r\n\x1a\n")
-            return {"status": "ok" if ok else "error", "detail": "png signature"}
+            if head.startswith(b"\x89PNG\r\n\x1a\n"):
+                return {"status": "ok", "detail": "png signature"}
+            if head.startswith(b"\xff\xd8\xff"):
+                # BAND/CDN은 JPEG 본문을 .png 이름으로 내려주는 경우가 있다.
+                # 읽을 수 있는 이미지이므로 파일 손상과 이름 불일치를 구분한다.
+                return {
+                    "status": "warning",
+                    "detail": "확장자 불일치: JPEG 데이터가 PNG 확장자로 저장됨",
+                }
+            return {"status": "error", "detail": "png signature missing"}
         if ext == ".pdf":
             with open(path, "rb") as stream:
                 head = stream.read(8)
@@ -190,6 +208,14 @@ def audit(root: str, workers: int, hash_scope: str = "collision") -> dict:
         for item in files
         if item["validation"]["status"] == "error"
     ]
+    warnings = [
+        {
+            "relative_path": item["relative_path"],
+            "detail": item["validation"]["detail"],
+        }
+        for item in files
+        if item["validation"]["status"] == "warning"
+    ]
     duplicates = exact_duplicates(files, workers, hash_scope) if hash_scope != "none" else []
     return {
         "schema_version": 1,
@@ -204,11 +230,13 @@ def audit(root: str, workers: int, hash_scope: str = "collision") -> dict:
             "top_level": dict(sorted(folder_counts.items())),
             "validation": dict(sorted(validation_counts.items())),
             "errors": len(errors),
+            "warnings": len(warnings),
             "duplicate_hash_scope": hash_scope,
             "exact_duplicate_groups": len(duplicates),
             "exact_duplicate_extra_files": sum(group["count"] - 1 for group in duplicates),
         },
         "errors": errors,
+        "warnings": warnings,
         "exact_duplicates": sorted(
             duplicates, key=lambda group: (-group["size"], group["sha256"])
         ),
@@ -259,6 +287,65 @@ def markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def markdown_readable(report: dict) -> str:
+    """사용자에게 전달할 수 있는 UTF-8 한국어 감사 보고서."""
+    summary = report["summary"]
+    lines = [
+        "# 원본 자료 전수 감사",
+        "",
+        f"- 생성: {report['generated_at']}",
+        f"- 원본: `{report['root']}`",
+        f"- 파일: **{summary['files']:,}개** / **{summary['bytes']:,} bytes**",
+        f"- 실제 형식 오류: **{summary['errors']}개** / "
+        f"확장자 등 경고: **{summary.get('warnings', 0)}개** / "
+        f"빈 파일: **{summary['zero_byte']}개**",
+        f"- 완전중복: **{summary['exact_duplicate_groups']}그룹** "
+        f"(추가 사본 {summary['exact_duplicate_extra_files']}개, "
+        f"해시범위: {summary['duplicate_hash_scope']})",
+        "",
+        "## 최상위 분류",
+        "",
+        "| 분류 | 파일 |",
+        "|---|---:|",
+    ]
+    lines.extend(
+        f"| {name} | {count:,} |" for name, count in summary["top_level"].items()
+    )
+    lines += ["", "## 확장자", "", "| 확장자 | 파일 |", "|---|---:|"]
+    lines.extend(
+        f"| {ext} | {count:,} |" for ext, count in summary["extensions"].items()
+    )
+    lines += ["", "## 실제 형식 오류", ""]
+    if report["errors"]:
+        lines += ["| 파일 | 오류 |", "|---|---|"]
+        lines.extend(
+            f"| {row['relative_path']} | {row['detail']} |"
+            for row in report["errors"]
+        )
+    else:
+        lines.append("- 없음")
+    lines += ["", "## 경고(파일은 읽을 수 있음)", ""]
+    if report.get("warnings"):
+        lines += ["| 파일 | 경고 |", "|---|---|"]
+        lines.extend(
+            f"| {row['relative_path']} | {row['detail']} |"
+            for row in report["warnings"]
+        )
+    else:
+        lines.append("- 없음")
+    lines += ["", "## 완전중복", ""]
+    if report["exact_duplicates"]:
+        for group in report["exact_duplicates"]:
+            lines.append(
+                f"- {group['size']:,} bytes · {group['count']}개 · "
+                f"`{group['sha256'][:12]}`"
+            )
+            lines.extend(f"  - `{name}`" for name in group["files"])
+    else:
+        lines.append("- 없음")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=ORIGIN_ROOT)
@@ -278,13 +365,17 @@ def main() -> int:
     Path(args.json).write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    Path(args.md).write_text(markdown(report), encoding="utf-8")
+    Path(args.md).write_text(markdown_readable(report), encoding="utf-8")
     summary = report["summary"]
     print(
         f"원본 전수감사: {summary['files']:,}개 · "
         f"형식오류 {summary['errors']} · 빈 파일 {summary['zero_byte']} · "
         f"완전중복 {summary['exact_duplicate_groups']}그룹/"
         f"{summary['exact_duplicate_extra_files']}추가사본"
+    )
+    print(
+        f"원본 전수감사 요약: 실제오류 {summary['errors']} · "
+        f"경고 {summary.get('warnings', 0)} · 빈 파일 {summary['zero_byte']}"
     )
     print(args.md)
     return 1 if summary["errors"] else 0

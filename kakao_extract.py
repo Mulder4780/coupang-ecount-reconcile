@@ -220,7 +220,11 @@ def extract(paths=None):
 
 
 def ledger_codes():
-    """최신 원장(02·04)에 이미 있는 프로젝트NO 집합."""
+    """최신 원장(02·04·05)에 이미 있는 프로젝트NO 집합.
+
+    철거·납품은 05시트에 넣으므로 여기서 빼면 다음 실행 때 같은 공지를 다시
+    신규로 보고 중복 등록한다.
+    """
     import warnings
     warnings.filterwarnings("ignore")
     import openpyxl
@@ -228,7 +232,7 @@ def ledger_codes():
     path, ver = latest_master()
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     codes = set()
-    for sn in ("02_돌발AS접수", "04_정기점검"):
+    for sn in ("02_돌발AS접수", "04_정기점검", "05_신규납품설치"):
         for row in wb[sn].iter_rows(min_row=5, min_col=2, max_col=2, values_only=True):
             if row[0]:
                 codes.add(str(row[0]).strip())
@@ -466,7 +470,10 @@ def main():
         from ecount_reconcile import load_config, resolve_master
         master = resolve_master(load_config()["reconcile"]["master_xlsx"])
         queue, plan, held = build_queue(rows, master)
-        unmapped = [r for r in rows if r["시트"] not in SHEET_MAP]
+        # 철거·납품은 build_queue에서 05시트로 정상 변환된다. 원래 라벨만 보고
+        # 다시 "대상 시트 없음"이라고 쓰면 실제 등록 성공 뒤에도 보류처럼 보인다.
+        unmapped = [r for r in rows
+                    if r["시트"] not in SHEET_MAP and r["시트"] not in SIDE_KIND]
         for r in unmapped:
             print("  [보류] %s %s — 대상 시트 없음(%s)" % (
                 r["프로젝트NO"], r["캠프명"][:20], r["시트"] or "유형미상"))

@@ -26,8 +26,12 @@
 import argparse
 import json
 import os
+import socket
+import ssl
 import subprocess
 import sys
+import time
+import urllib.request
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
@@ -79,12 +83,104 @@ def hostname():
     return name.rstrip(".")
 
 
+def public_ingress_ips(host: str, timeout: int = 8) -> list[str]:
+    """Resolve Funnel through public DNS, not this PC's tailnet DNS.
+
+    On the Tailscale PC the hostname resolves to its private 100.x address.
+    That can answer normally even while the public Funnel relays are failing,
+    which is exactly the state in which a phone without Tailscale cannot open
+    the app.  Google's DNS-over-HTTPS answer exposes the public ingress IPs.
+    """
+    if not host:
+        return []
+    url = "https://dns.google/resolve?name=%s&type=A" % host
+    try:
+        request = urllib.request.Request(url, headers={"Accept": "application/dns-json"})
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return []
+    found = []
+    for answer in payload.get("Answer") or []:
+        value = str(answer.get("data") or "").strip()
+        if answer.get("type") == 1 and value and value not in found:
+            found.append(value)
+    return found
+
+
+def _public_ping_ip(host: str, ip: str, timeout: int = 8) -> bool:
+    """TLS-ping one public Funnel relay while keeping SNI/cert host intact."""
+    request = (
+        f"GET /api/ping?public-funnel-check=1 HTTP/1.1\r\n"
+        f"Host: {host}\r\nConnection: close\r\nUser-Agent: CSOS-Funnel-Check\r\n\r\n"
+    ).encode("ascii")
+    try:
+        with socket.create_connection((ip, 443), timeout=timeout) as raw:
+            raw.settimeout(timeout)
+            with ssl.create_default_context().wrap_socket(raw, server_hostname=host) as tls:
+                tls.sendall(request)
+                chunks = []
+                total = 0
+                while total < 32768:
+                    chunk = tls.recv(min(4096, 32768 - total))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
+        response = b"".join(chunks)
+        status = response.split(b"\r\n", 1)[0]
+        return b" 200 " in status and b"coupang-work" in response
+    except Exception:
+        return False
+
+
+def public_funnel_alive(host: str | None = None, timeout: int = 8) -> bool:
+    """True only when at least one *public* Funnel ingress reaches the app."""
+    host = host or hostname()
+    ips = public_ingress_ips(host, timeout)
+    return bool(ips) and any(_public_ping_ip(host, ip, timeout) for ip in ips)
+
+
+def ensure_public_funnel(repair: bool = True) -> tuple[bool, bool]:
+    """Verify the phone path and re-register the same fixed URL when stale.
+
+    Returns ``(available, repaired)``.  Resetting Funnel does not change the
+    MagicDNS hostname; it only refreshes the public relay/TLS route.
+    """
+    host = hostname()
+    if not host:
+        return False, False
+    try:
+        from webapp.tunnel_run import ensure_local_app
+        if not ensure_local_app():
+            return False, False
+    except Exception:
+        pass
+    if public_funnel_alive(host):
+        return True, False
+    if not repair:
+        return False, False
+
+    # A stale relay can still be reported as "Funnel on".  Re-registering the
+    # existing mapping refreshes its public TLS route without changing the URL.
+    run("funnel", "reset", timeout=20)
+    code, _out, _err = run("funnel", "--bg", str(PORT), timeout=30)
+    if code:
+        return False, False
+    for _ in range(12):
+        time.sleep(1)
+        if public_funnel_alive(host, timeout=5):
+            return True, True
+    return False, True
+
+
 def status():
     host = hostname()
-    code, out, err = run("serve", "status")
+    code, out, err = run("funnel", "status")
     print("MagicDNS 이름 :", host or "(확인 실패 — Tailscale 로그인 상태를 보세요)")
     print("고정 주소     :", ("https://%s/" % host) if host else "-")
     print("현재 설정     :", (out or err or "(없음)").splitlines()[0] if (out or err) else "(없음)")
+    print("휴대폰 외부경로:", "정상" if public_funnel_alive(host) else "연결 실패")
     return 0
 
 
@@ -117,6 +213,12 @@ def enable(mode):
     print("켰습니다 —", ("인터넷 공개(Funnel)" if mode == "funnel" else "내 tailnet 전용(Serve)"))
     print("  고정 주소:", url)
     print("  ※ 이 주소는 재부팅해도 바뀌지 않습니다. 폰·문서에 이걸 적으세요.")
+    if mode == "funnel":
+        ok, repaired = ensure_public_funnel(repair=True)
+        print("  휴대폰 외부경로:", "정상" if ok else "연결 실패",
+              "(공개 경로 재등록)" if repaired else "")
+        if not ok:
+            return 1
     return 0
 
 
@@ -131,6 +233,7 @@ def main():
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--serve", action="store_true", help="내 tailnet 안에서만 열기")
     ap.add_argument("--funnel", action="store_true", help="인터넷에 공개")
+    ap.add_argument("--repair", action="store_true", help="휴대폰 외부경로 검사·자동복구")
     ap.add_argument("--off", action="store_true")
     a = ap.parse_args()
     if a.off:
@@ -139,6 +242,11 @@ def main():
         return enable("serve")
     if a.funnel:
         return enable("funnel")
+    if a.repair:
+        ok, repaired = ensure_public_funnel(repair=True)
+        print("휴대폰 외부경로:", "정상" if ok else "연결 실패",
+              "(공개 경로 재등록)" if repaired else "")
+        return 0 if ok else 1
     return status()
 
 

@@ -879,6 +879,8 @@ def t26_mobile():
     assert "게시 취소" in pe and "/api/ping" in pe, "죽은 주소를 그대로 게시할 수 있다"
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
     assert "kill_stale_tunnel" in wd, "워치독이 좀비를 정리하지 않으면 재시작이 무효가 된다"
+    assert "heal_fixed_funnel" in wd and "ensure_public_funnel" in wd, \
+        "워치독이 PC 내부 응답만 보고 휴대폰 공개 Funnel 장애를 놓친다"
     # ★★ 터널 주소에서는 **설치가 되면 안 된다**. 터널 호스트는 매번 바뀌는데 거기서
     #   설치하면 그 임시 주소가 아이콘에 영구히 박혀, 주소가 바뀌는 순간 영영 안 열린다
     #   (2026-07-28: PC·폰의 설치된 앱이 둘 다 옛 터널 주소로 죽었다).
@@ -2667,6 +2669,11 @@ def t54_side_work_db_only():
     assert "05_신규납품설치" in kx.SHEET_MAP, "철거·납품의 저장 자리가 없다"
     assert set(kx.SIDE_KIND.values()) <= {"철거", "납품", "설치", "이전"}, kx.SIDE_KIND
     assert kx.SIDE_KIND.get("(철거·보관)") == "철거" and kx.SIDE_KIND.get("(납품설치)") == "납품"
+    extract_src = open(os.path.join(ROOT, "kakao_extract.py"), encoding="utf-8").read()
+    assert 'r["시트"] not in SIDE_KIND' in extract_src, \
+        "05시트에 정상 등록한 철거·납품을 보류라고 잘못 표시한다"
+    assert '("02_돌발AS접수", "04_정기점검", "05_신규납품설치")' in extract_src, \
+        "05시트 철거·납품을 기존 프로젝트로 안 보면 매일 중복 등록된다"
     m = kx.SHEET_MAP["05_신규납품설치"]
     assert m.get("업무구분") == "_업무구분" and "프로젝트NO" in m, m
     for c in ("요청일", "철거·이전예정일", "납품예정일"):
@@ -3444,6 +3451,50 @@ def t83_agent_dispatch_and_calendar():
                 assert consumed["status"] == "done" and consumed["agent_returncode"] == 0, consumed
                 saved = json.load(open(ticket["_path"], encoding="utf-8"))
                 assert saved["status"] == "done" and saved["selected"] == "codex", saved
+
+            # Version probing may pass before Claude later rejects the real task
+            # because credits are exhausted.  That runtime failure must retry the
+            # AI follow-up with Codex without repeating the local business script.
+            runtime_path = A.REPORT_DIR / "runtime_fallback.json"
+            A._atomic_json(runtime_path, {
+                "id": "runtime_fallback",
+                "created_at": "2026-07-29T00:00:00",
+                "task_key": "synthetic",
+                "title": "runtime fallback",
+                "local_command": ["python", "already_ran.py"],
+                "primary": "claude",
+                "selected": "claude",
+                "status": "queued",
+            })
+
+            def claude_exec_then_codex(command, **_kwargs):
+                if "claude" in command[0].lower():
+                    return SimpleNamespace(
+                        returncode=1, stdout="", stderr="credit quota exhausted",
+                    )
+                return SimpleNamespace(returncode=0, stdout="codex completed", stderr="")
+
+            ready_route = {
+                "primary": "claude",
+                "selected": "claude",
+                "note": "Claude Code 우선",
+                "agents": {},
+                "checked_at": "2026-07-29T00:00:00",
+            }
+            with patch.object(A, "route_status", return_value=ready_route), \
+                 patch.object(A, "resolve_agent_executable",
+                              side_effect=lambda name: str(Path(td) / f"{name}.exe")), \
+                 patch.object(A.subprocess, "run", side_effect=claude_exec_then_codex):
+                consumed = A.run_ticket(runtime_path, 0)
+                assert consumed["status"] == "done", consumed
+                assert consumed["selected"] == "codex", consumed
+                assert consumed["fallback_from"] == "claude", consumed
+                assert consumed["local_command"] == ["python", "already_ran.py"], consumed
+
+            stale = A.REPORT_DIR / "stale.json"
+            A._atomic_json(stale, {"id": "stale", "status": "queued"})
+            assert A.supersede_queued("interactive completion") == 1
+            assert json.load(open(stale, encoding="utf-8"))["status"] == "superseded"
         finally:
             A.REPORT_DIR, A.STATUS_PATH = old_dir, old_status
 
@@ -3459,6 +3510,17 @@ def t83_agent_dispatch_and_calendar():
     for marker in ("resolve_agent_executable", "run_ticket", '"status": "running"',
                    '"status": "done"', "codex.exe"):
         assert marker in dispatch, f"실제 AI 폴백 소비기 누락: {marker}"
+    data_status = open(os.path.join(ROOT, "data_status.py"), encoding="utf-8").read()
+    assert 'startswith("2026-")' in data_status, "자료현황 통계에 2025년이 다시 섞인다"
+    assert "_source_mtimes" in data_status and "pick()을 유형별로 여섯 번" in data_status, \
+        "자료현황이 상태 조회마다 원본 Excel을 반복해서 열어 앱을 느리게 만든다"
+    tailscale = open(os.path.join(ROOT, "tailscale_serve.py"), encoding="utf-8").read()
+    phone = open(os.path.join(ROOT, "phone_access.py"), encoding="utf-8").read()
+    for marker in ("public_ingress_ips", "_public_ping_ip", "public_funnel_alive",
+                   "ensure_public_funnel", '"funnel", "reset"'):
+        assert marker in tailscale, f"휴대폰 공개 Funnel 자동복구 누락: {marker}"
+    assert "ensure_public_funnel(repair=True)" in phone, \
+        "폰 접속 도우미가 내부 연결만 보고 공개 Funnel 장애를 놓친다"
     print("  [83] Claude 우선·Codex 폴백 실제 소비기 및 쿠팡 캘린더(전체·상세·입력) ✅")
 
 

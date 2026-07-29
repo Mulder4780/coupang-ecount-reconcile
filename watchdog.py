@@ -134,6 +134,25 @@ def heal_server(dry):
     return "서버 재시작 → " + ("성공" if ping() else "실패(다음 주기 재시도)")
 
 
+def heal_fixed_funnel(dry):
+    """Check the same public path a phone uses and refresh stale Funnel TLS."""
+    try:
+        from tailscale_serve import ensure_public_funnel, hostname, public_funnel_alive
+        host = hostname()
+        if not host:
+            return "고정 Funnel 스킵 — Tailscale 로그인 없음"
+        if public_funnel_alive(host):
+            return "고정 Funnel 휴대폰 경로 정상"
+        if dry:
+            return "고정 Funnel 휴대폰 경로 죽음(dry)"
+        ok, repaired = ensure_public_funnel(repair=True)
+        if ok:
+            return "고정 Funnel 공개경로 재등록 → 성공" if repaired else "고정 Funnel 정상"
+        return "고정 Funnel 공개경로 재등록 → 실패(다음 주기 재시도)"
+    except Exception as exc:
+        return f"고정 Funnel 검사 오류: {str(exc)[:40]}"
+
+
 def tunnel_alive(url):
     """프로세스 개수가 아니라 **실제 응답**으로 판정.
     (Get-Process는 1개일 때 Count가 비어 나와 살아있는 터널을 죽었다고 오판 →
@@ -259,8 +278,9 @@ def main():
     # 원장 버전 정리는 daily_run의 ledger_versions.py 한 곳에서만 수행한다.
     # 워치독이 낮은 버전 포크를 OLD로 옮겨 증거를 숨기는 일을 막는다.
     gap = gap_note(last_log_line(), datetime.now())     # 기록은 healing 전에 읽는다
-    results = [sync_cloud_queue(dry), heal_server(dry), heal_tunnel(dry), publish_endpoint(dry),
-               clean_reports(dry), snapshot_handoff(dry)]
+    results = [sync_cloud_queue(dry), heal_server(dry), heal_fixed_funnel(dry),
+               heal_tunnel(dry), publish_endpoint(dry), clean_reports(dry),
+               snapshot_handoff(dry)]
     if gap:
         results.insert(0, gap)
     log(" | ".join(results))

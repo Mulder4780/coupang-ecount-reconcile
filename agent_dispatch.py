@@ -253,6 +253,39 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
             encoding="utf-8", errors="replace", timeout=AGENT_TIMEOUT_SECONDS,
         )
         combined = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+        # `claude --version` can succeed even when the account has exhausted its
+        # credits.  Detect that only after the real task starts and immediately
+        # hand the same review ticket to Codex once.  The deterministic local
+        # business script is not repeated; only the AI follow-up is retried.
+        if agent == "claude" and result.returncode != 0 and _UNAVAILABLE_RE.search(combined):
+            codex_executable = resolve_agent_executable("codex")
+            if codex_executable:
+                claude_output = combined
+                agent = "codex"
+                record.update({
+                    "selected": "codex",
+                    "fallback_from": "claude",
+                    "route_note": "Claude Code 실제 실행 불가 → Codex 즉시 인계",
+                    "fallback_at": datetime.now().isoformat(timespec="seconds"),
+                })
+                _atomic_json(path, record)
+                command = _agent_command(
+                    "codex", codex_executable,
+                    _ticket_prompt(record, local_returncode), last_message,
+                )
+                result = subprocess.run(
+                    command, cwd=ROOT, capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", timeout=AGENT_TIMEOUT_SECONDS,
+                )
+                codex_output = (result.stdout or "") + (
+                    "\n" + result.stderr if result.stderr else ""
+                )
+                combined = (
+                    "[Claude Code 실행 실패 — Codex로 자동 인계]\n"
+                    + claude_output
+                    + "\n\n[Codex 실행]\n"
+                    + codex_output
+                )
         log_path.write_text(combined[-200000:], encoding="utf-8")
         record.update({
             "status": "done" if result.returncode == 0 else "failed",
@@ -293,6 +326,27 @@ def dispatch_async(ticket: dict[str, Any], local_returncode: int = 0) -> bool:
     return True
 
 
+def supersede_queued(reason: str) -> int:
+    """Close stale queued tickets after the same work was finished interactively."""
+    count = 0
+    for path in sorted(REPORT_DIR.glob("*.json")):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if record.get("status") != "queued":
+            continue
+        record.update({
+            "status": "superseded",
+            "completed_at": datetime.now().isoformat(timespec="seconds"),
+            "error": "",
+            "superseded_reason": _clean_message(reason, 500),
+        })
+        _atomic_json(path, record)
+        count += 1
+    return count
+
+
 def status() -> dict[str, Any]:
     """Latest availability and pending request summary for desktop/web status."""
     route = route_status()
@@ -318,8 +372,13 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-ticket")
     ap.add_argument("--local-returncode", type=int, default=0)
+    ap.add_argument("--supersede-queued", metavar="REASON")
     ap.add_argument("--status", action="store_true")
     args = ap.parse_args(argv)
+    if args.supersede_queued:
+        count = supersede_queued(args.supersede_queued)
+        print(json.dumps({"superseded": count}, ensure_ascii=False))
+        return 0
     if args.run_ticket:
         result = run_ticket(args.run_ticket, args.local_returncode)
         print(json.dumps(result, ensure_ascii=False))

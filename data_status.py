@@ -64,7 +64,12 @@ def from_report(pattern, *patterns):
 def band_status():
     from band_extract import load_records
     from source_dirs import DOC_PHOTO_DIRS
-    recs = load_records()
+    # 앱·보고 통계는 사용자 지시대로 2026년만 집계한다. 과거 원본은
+    # 보존하되 레코드 수·기간·월별 숫자에 섞지 않는다.
+    recs = [
+        row for row in load_records()
+        if str(row.get("게시일") or "").startswith("2026-")
+    ]
     days = sorted(x.get("게시일", "") for x in recs if x.get("게시일"))
     months = Counter((x.get("게시일") or "")[:7] for x in recs if x.get("게시일"))
     kinds = Counter(x.get("업무유형", "") for x in recs)
@@ -82,17 +87,61 @@ def band_status():
 
 def inbox_status():
     """지금 어떤 원천 자료를 갖고 있나 — 없으면 뭘 넣어야 하는지 바로 보인다."""
-    out = {}
+    labels = {
+        "ledger": "계정별원장",
+        "tax": "세금계산서현황",
+        "stmt": "거래명세서현황",
+        "slips": "회계거래",
+        "taxinv": "매출계산서조회",
+        "po": "쿠팡PO·판매조회",
+    }
+    out = {label: 0 for label in labels.values()}
     try:
-        from inbox_scan import pick
-        for kind, label in (("ledger", "계정별원장"), ("tax", "세금계산서현황"), ("stmt", "거래명세서현황"),
-                            ("slips", "회계거래"), ("taxinv", "매출계산서조회"), ("po", "쿠팡PO·판매조회")):
-            try:
-                out[label] = len(pick(kind))
-            except Exception:
-                out[label] = None
+        from inbox_scan import scan, INBOX_DIR
+        from source_dirs import ORIGIN_ROOT, excel_dirs
+        watched = []
+        for folder in [*excel_dirs(), INBOX_DIR]:
+            if os.path.isdir(folder) and folder not in watched:
+                watched.append(folder)
+        source_mtimes = {
+            os.path.normcase(folder): os.stat(folder).st_mtime_ns for folder in watched
+        }
+
+        # 자료 개수는 내용 대조 결과가 아니라 "보유 여부" 안내용이다. 같은
+        # 네트워크 Excel을 상태 화면을 열 때마다 다시 여는 대신 폴더가 바뀌지
+        # 않았으면 직전 집계를 즉시 재사용한다.
+        previous_path = os.path.join(REPORT_DIR, "자료현황.json")
+        if os.path.exists(previous_path):
+            previous = json.load(open(previous_path, encoding="utf-8"))
+            cached = previous.get("보유자료") or {}
+            if cached and (
+                not cached.get("_source_mtimes")
+                or cached.get("_source_mtimes") == source_mtimes
+            ):
+                for label in labels.values():
+                    out[label] = cached.get(label, 0)
+                out["_source_mtimes"] = source_mtimes
+                out["카톡 내보내기"] = len(
+                    glob.glob(os.path.join(BASE, "kakao", "inbox", "*.txt"))
+                )
+                return out
+
+        # pick()을 유형별로 여섯 번 부르면 원본 네트워크 폴더의 같은 Excel을
+        # 여섯 번 다시 열어 1분 넘게 걸린다. 원본+로컬을 한 번씩만 분류한다.
+        seen = set()
+        for folder in (ORIGIN_ROOT, INBOX_DIR):
+            if not os.path.isdir(folder):
+                continue
+            for path, kind in scan(folder):
+                key = (os.path.basename(path).lower(), os.path.getsize(path))
+                if key in seen:
+                    continue
+                seen.add(key)
+                if kind in labels:
+                    out[labels[kind]] += 1
+        out["_source_mtimes"] = source_mtimes
     except Exception:
-        pass
+        out = {label: None for label in labels.values()}
     out["카톡 내보내기"] = len(glob.glob(os.path.join(BASE, "kakao", "inbox", "*.txt")))
     return out
 
@@ -194,6 +243,8 @@ def to_md(st):
 
     L += ["## 지금 갖고 있는 원천 자료", "", "| 자료 | 파일 수 |", "|---|---:|"]
     for k, v in (st.get("보유자료") or {}).items():
+        if str(k).startswith("_"):
+            continue
         L.append("| %s | %s |" % (k, "확인불가" if v is None else v))
     L.append("")
 
