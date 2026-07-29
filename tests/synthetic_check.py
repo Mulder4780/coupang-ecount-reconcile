@@ -115,6 +115,13 @@ def t3_match():
 def t4_kakao(tmp):
     ledger = os.path.join(tmp, "ledger_k.xlsx")
     make_ledger(ledger)
+    # 원문이 없어도 사용자가 해당 건을 개별 완료 처리한 기록은 다음 대조에서 되살아나면 안 된다.
+    wb = openpyxl.load_workbook(ledger)
+    ws = wb["02_돌발AS접수"]
+    ws["G4"] = "조치내용"
+    ws["G6"] = "카톡 보고 미확인 완료처리(사용자 지시 2026-07-29)"
+    wb.save(ledger)
+    wb.close()
     txt = os.path.join(tmp, "쿠팡AS방.txt")
     with open(txt, "w", encoding="utf-8") as f:
         f.write("쿠팡AS방 님과 카카오톡 대화\n저장한 날짜 : 2026-07-24 18:00:00\n\n")
@@ -128,8 +135,12 @@ def t4_kakao(tmp):
     m = re.search(r"확인 (\d+) / 미확인 (\d+)", r.stdout)
     assert m, f"카톡 결과 파싱 실패:\n{r.stdout}\n{r.stderr}"
     ok, miss = map(int, m.groups())
-    assert (ok, miss) == (1, 1), f"카톡 판정 불일치: 확인{ok} 미확인{miss} (기대 1,1)"
-    print("  [4] 카톡 내보내기 파싱·대조 (PC/모바일 형식·다중행 병합) ✅")
+    assert (ok, miss) == (2, 0), f"카톡 판정 불일치: 확인{ok} 미확인{miss} (기대 2,0)"
+    report = next(p for p in os.listdir(tmp) if p.startswith("카톡대조_") and p.endswith(".csv"))
+    rows = list(__import__("csv").DictReader(open(os.path.join(tmp, report), encoding="utf-8-sig")))
+    manual = next(x for x in rows if x["ID"] == "AS-K2")
+    assert manual["카톡보고"] == "확인" and manual["매칭근거"] == "사용자완료처리", manual
+    print("  [4] 카톡 내보내기 파싱·대조·사용자 개별 완료 유지 (PC/모바일·다중행) ✅")
 
 
 def t5_writer(tmp):

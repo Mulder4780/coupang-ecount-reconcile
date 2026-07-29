@@ -93,6 +93,18 @@ def to_date(v):
         return None
 
 
+def manual_kakao_done(v):
+    """원장 조치내용에 사용자가 명시한 카톡 확인 종료 기록이 있는지 본다.
+
+    원문을 찾지 못했더라도 사용자가 개별 건을 완료 처리하라고 확정한 경우,
+    그 지시를 02/04 시트의 빈 ``조치내용`` 칸에 남긴다. 이후 일일 대조가
+    다시 실행돼도 같은 건을 '미확인'으로 되살리지 않기 위한 영구 근거다.
+    """
+    text = re.sub(r"\s+", "", str(v or ""))
+    return ("카톡보고미확인완료처리" in text or
+            "카톡보고확인완료" in text)
+
+
 def read_rows(master):
     import openpyxl
     wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
@@ -118,7 +130,8 @@ def read_rows(master):
                 continue
             out.append({"시트": sheet, "ID": str(rid), "프로젝트NO": str(gv(row, cols[1]) or ""),
                         "캠프명": str(gv(row, cols[2]) or ""), "담당기사": str(gv(row, cols[3]) or ""),
-                        "완료일": done})
+                        "완료일": done,
+                        "수동완료": manual_kakao_done(gv(row, "조치내용"))})
     wb.close()
     return out
 
@@ -155,20 +168,24 @@ def main():
     results = []
     for r in rows:
         best, how = None, ""
+        manual_done = bool(r.get("수동완료"))
         core = camp_core(r["캠프명"])
-        for m in msgs:
-            near = abs((m["date"] - r["완료일"]).days) <= DATE_TOL
-            if r["프로젝트NO"] and r["프로젝트NO"] in m["text"]:
-                best, how = m, "프로젝트NO"
-                break
-            if near and core and len(core) >= 3 and core in m["text"] and best is None:
-                best, how = m, "캠프명+날짜"
+        if manual_done:
+            how = "사용자완료처리"
+        else:
+            for m in msgs:
+                near = abs((m["date"] - r["완료일"]).days) <= DATE_TOL
+                if r["프로젝트NO"] and r["프로젝트NO"] in m["text"]:
+                    best, how = m, "프로젝트NO"
+                    break
+                if near and core and len(core) >= 3 and core in m["text"] and best is None:
+                    best, how = m, "캠프명+날짜"
         sender_ok = bool(best and r["담당기사"] and r["담당기사"] in best["sender"])
         if best:
             matched_keys.add(id(best))
         results.append({**{k: r[k] for k in ("시트", "ID", "프로젝트NO", "캠프명", "담당기사")},
                         "완료일": r["완료일"].isoformat(),
-                        "카톡보고": "확인" if best else "미확인",
+                        "카톡보고": "확인" if (best or manual_done) else "미확인",
                         "매칭근거": how + ("+기사일치" if sender_ok else ""),
                         "메시지일": best["date"].isoformat() if best else "",
                         "발신자": best["sender"] if best else "",
