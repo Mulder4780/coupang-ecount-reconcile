@@ -306,6 +306,7 @@ def analyze(master: str, source: str | None = None) -> dict:
     as_open = [r for r in as_rows if r["종류"] == "as_open" and r["상태"] in ("미실시", "예정")]
     as_cancel = [r for r in as_rows if r["종류"] == "as_open" and r["상태"] == "취소"]
     as_done_unknown = [r for r in as_rows if r["종류"] == "as_open" and r["상태"] == "완료"]
+    as_dates = sorted({r["일자"] for r in as_rows if r.get("일자")})
     reason_counts = Counter(r["사유분류"] for r in as_open if r["사유분류"])
     reasons = [{"사유": key, "건수": count} for key, count in reason_counts.most_common()]
     unmatched = sum(r["대조결과"] == "원장 미매칭" for r in compared)
@@ -322,6 +323,8 @@ def analyze(master: str, source: str | None = None) -> dict:
             "돌발AS": {
                 "발생": len(as_rows), "처리완료": len(as_done), "미처리": len(as_open),
                 "취소": len(as_cancel), "처리완료일확인": len(as_done_unknown),
+                "기준시작일": as_dates[0] if as_dates else "",
+                "기준종료일": as_dates[-1] if as_dates else "",
                 "미처리사유": reasons, "미처리목록": as_open,
                 "처리완료목록": as_done, "취소목록": as_cancel,
                 "처리완료일확인목록": as_done_unknown,

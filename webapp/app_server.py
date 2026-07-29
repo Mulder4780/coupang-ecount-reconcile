@@ -166,6 +166,7 @@ def start_task(key):
             return True, "demo"
         # 작업 스크립트는 로컬에서 한 번만 실행한다. AI 연계는 검토·실패 후속조치용
         # 인수인계 큐로 분리해, Claude/Codex가 동시에 관리대장을 쓰지 못하게 한다.
+        ticket = None
         try:
             from agent_dispatch import enqueue as enqueue_agent, route_label
             ticket = enqueue_agent(key, TASKS[key][0], TASKS[key][1])
@@ -179,6 +180,7 @@ def start_task(key):
 
     def work():
         title, args = TASKS[key]
+        local_returncode = 1
         runner["log"].append(f"===== {title} 시작 {datetime.now():%H:%M:%S} =====")
         if runner.get("agent_route"):
             runner["log"].append(f"[AI 연계] {runner['agent_route']} · 로컬 업무 스크립트는 1회만 실행")
@@ -189,10 +191,18 @@ def start_task(key):
                 if "UserWarning" not in ln and "warn(msg)" not in ln:
                     runner["log"].append(ln.rstrip())
             p.wait()
+            local_returncode = p.returncode
             runner["log"].append(f"===== 종료 (코드 {p.returncode}) =====")
         except Exception as e:
             runner["log"].append(f"오류: {e}")
         finally:
+            if ticket:
+                try:
+                    from agent_dispatch import dispatch_async
+                    if dispatch_async(ticket, local_returncode):
+                        runner["log"].append("[AI 연계] 로컬 작업 결과를 후속 검토 에이전트에 인계")
+                except Exception as exc:
+                    runner["log"].append(f"[AI 연계] 후속 검토 실행 실패: {str(exc)[:160]}")
             runner["busy"], runner["done_at"] = False, datetime.now().isoformat()
     threading.Thread(target=work, daemon=True).start()
     return True, "started"
@@ -579,13 +589,73 @@ def _master_mtime():
         return 0
 
 
+_brief_cache = {"key": None, "value": None}
+_brief_lock = threading.Lock()
+
+
+def _brief_source_key(day):
+    """Cheap invalidation key for every source used by daily_brief."""
+    try:
+        from source_dirs import WORK_LOG_DIR
+        work_logs = glob.glob(os.path.join(WORK_LOG_DIR, "**", "*.xlsx"), recursive=True)
+        work_log_mt = max((os.path.getmtime(p) for p in work_logs), default=0)
+    except Exception:
+        work_log_mt = 0
+    try:
+        event_mt = os.path.getmtime(os.path.join(ROOT, "reports", "manual_daily_events.json"))
+    except Exception:
+        event_mt = 0
+    return day, _master_mtime(), work_log_mt, event_mt
+
+
+def get_daily_brief(day=None):
+    """Return the representative brief without re-reading the large workbook per request.
+
+    The first brief read includes the master workbook and the field work log.  When that
+    overlaps the other first-page API reads through Cloudflare, the browser can time out
+    and the saved report loses Yoo Subi's daily activity.  Cache the canonical result for
+    each exact source revision.  Do not take the global workbook read lock here: a slow
+    work-log read must never block settlements/status/works and freeze the whole app.
+    """
+    day = day or (date.today() - timedelta(days=1)).isoformat()
+    key = _brief_source_key(day)
+    with _brief_lock:
+        if _brief_cache["value"] is not None and _brief_cache["key"] == key:
+            return _brief_cache["value"]
+        import daily_brief as DB
+        result = DB.brief(day, DB.load()[0])
+        source_mtime = max((float(v or 0) for v in key[1:]), default=0)
+        result["데이터업데이트일시"] = (
+            datetime.fromtimestamp(source_mtime).isoformat(timespec="minutes")
+            if source_mtime else datetime.now().isoformat(timespec="minutes")
+        )
+        _brief_cache.update({"key": key, "value": result})
+        return result
+
+
 def _fresh(key):
-    """엑셀이 바뀌면(mtime) 즉시 + 120초 TTL로 캐시 무효화 — '엑셀·대조 변경 → 앱 자동 반영'"""
+    """원장이 바뀌면 전체 무효화하고, 그 외에는 항목별 TTL만 적용한다.
+
+    예전에는 120초마다 모든 대형 엑셀 캐시를 한꺼번에 지워 앱이 주기적으로
+    20~50초 멈췄다. 원장 변경은 mtime으로 즉시 잡고, 외부 리포트 의존 항목만
+    짧게 갱신한다.
+    """
     mt = _master_mtime()
-    if _cache.get("mt") != mt or time.time() - _cache.get("ts", 0) > 120:
+    if _cache.get("mt") != mt:
         _cache.clear()
-        _cache["mt"], _cache["ts"] = mt, time.time()
+        _cache["mt"] = mt
+    ttl = {"status": 300, "exec": 300, "issues": 300, "erpdocs": 300,
+           "works": 600, "settle": 600}.get(key, 600)
+    if key in _cache and time.time() - _cache.get(key + "_ts", 0) > ttl:
+        _cache.pop(key, None)
+        _cache.pop(key + "_ts", None)
     return _cache.get(key)
+
+
+def _store_cache(key, value):
+    _cache[key] = value
+    _cache[key + "_ts"] = time.time()
+    return value
 
 
 def get_works():
@@ -596,8 +666,7 @@ def get_works():
         if w:
             return w
         w = real_works()
-        _cache["works"] = w
-        return w
+        return _store_cache("works", w)
 
 
 def _fmtv(v):
@@ -1230,8 +1299,7 @@ def get_exec_report():
             master, norm_date((r.get("meta") or {}).get("집계기준일")
                               or (r.get("meta") or {}).get("보고일"))
         )
-        _cache["exec"] = r
-        return r
+        return _store_cache("exec", r)
 
 
 def get_issues():
@@ -1261,8 +1329,7 @@ def get_issues():
         rows = [assign_issue_row(row) for row in rows]
         rows = app_year_rows(apply_rep_no(rows), "issue")
         out = {"rows": sort_by_date(rows, "check"), "cols": hdr, "source": "23_확인필요현황"}
-        _cache["issues"] = out
-        return out
+        return _store_cache("issues", out)
     if "07_불일치누락현황" in wb.sheetnames:
         ws = wb["07_불일치누락현황"]
         hdr = next(ws.iter_rows(min_row=4, max_row=4, values_only=True))
@@ -1306,8 +1373,7 @@ def get_issues():
             if k not in cols:
                 cols.append(k)
     out = {"rows": rows, "cols": cols}
-    _cache["issues"] = out
-    return out
+    return _store_cache("issues", out)
 
 
 def build_id():
@@ -1379,8 +1445,7 @@ def get_erpdocs():
     except Exception as e:
         out["error"] = str(e)
     out["rows"] = sort_by_date(app_year_rows(out["rows"], "erp"), "erpdocs")
-    _cache["erpdocs"] = out
-    return out
+    return _store_cache("erpdocs", out)
 
 
 def get_recalc_pending():
@@ -1614,8 +1679,7 @@ def get_settlements():
             rows = sort_by_date(rows, "settle", "정산ID")
         except Exception:
             pass
-        _cache["settle"] = rows
-        return rows
+        return _store_cache("settle", rows)
 
 
 def get_status():
@@ -1630,7 +1694,7 @@ def get_status():
             return c
         c = _compute_status()
         if "error" not in c:
-            _cache["status"] = c
+            _store_cache("status", c)
         return c
 
 
@@ -1834,7 +1898,7 @@ class H(BaseHTTPRequestHandler):
                     if not day.startswith(APP_YEAR + "-"):
                         return self._send(200, {"ok": False,
                                                "error": f"앱 브리핑은 {APP_YEAR}년만 표시합니다"})
-                b = DB.brief(day, DB.load()[0])
+                b = get_daily_brief(day)
                 return self._send(200, {"ok": True, "text": DB.text(b), **b})
             except Exception as e:
                 return self._send(200, {"ok": False, "error": str(e)[:200]})

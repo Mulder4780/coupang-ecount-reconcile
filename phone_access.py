@@ -43,6 +43,13 @@ def read_url():
 
 def ensure_tunnel():
     """살아있는 터널 주소를 반환. 없으면 띄우고 최대 40초 대기."""
+    # 터널 프로세스만 살아 있고 8899 앱 서버가 죽으면 외부에서는 502로 보인다.
+    # QR/폰 접속 실행 자체가 로컬 앱도 함께 복구하도록 같은 진단 함수를 쓴다.
+    try:
+        from webapp.tunnel_run import ensure_local_app
+        ensure_local_app()
+    except Exception:
+        pass
     url = read_url()
     if url and alive(url):
         return url, False

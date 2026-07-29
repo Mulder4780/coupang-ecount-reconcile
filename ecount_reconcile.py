@@ -46,6 +46,16 @@ def _num(v):
         return None
 
 
+def _money(v):
+    """금액 표시는 모든 보고서에서 소수점 없이 천 단위 쉼표로 통일한다."""
+    if v in (None, "", "-"):
+        return ""
+    try:
+        return f"{int(round(float(v))):,}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
 def _d(v):
     if isinstance(v, (datetime, date)):
         return v.strftime("%Y-%m-%d")
@@ -321,7 +331,7 @@ def reconcile(recs, ecount, cfg):
                 elif m.get("금액") is None:
                     s1 = "이카운트금액없음"
                 else:
-                    s1 = f"금액불일치(원장 {r.get('원장_공급가액')} / EC {m.get('금액')})"
+                    s1 = f"금액불일치(원장 {_money(r.get('원장_공급가액'))} / EC {_money(m.get('금액'))})"
                 ec_sale_no = m.get("번호")
             else:
                 s1 = "이카운트미등록" if 유상 else "해당없음(무상)"
@@ -414,7 +424,7 @@ def write_reports(results, cfg, meta):
             return 0 if any(b in r["①판매/명세서_판정"] or b in r["②세금계산서_판정"] for b in bad) else 1
         for r in sorted(results, key=rank):
             f.write(f"| {r['정산ID']} | {r['프로젝트NO']} | {r['캠프명']} | "
-                    f"{r['원장_공급가액'] or ''} | {r['①판매/명세서_판정']} | {r['②세금계산서_판정']} |\n")
+                    f"{_money(r['원장_공급가액'])} | {r['①판매/명세서_판정']} | {r['②세금계산서_판정']} |\n")
 
     # 독립 xlsx(마스터와 무관한 별도 파일)
     try:

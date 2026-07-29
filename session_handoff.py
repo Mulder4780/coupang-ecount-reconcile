@@ -32,6 +32,7 @@ from datetime import datetime
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(BASE, "reports")
+CHECKPOINT_PATH = os.path.join(REPORT_DIR, "진행체크포인트.json")
 STALE_MIN = 45          # ai_claim 자동 해제 기준과 같게 — 넘으면 죽은 세션의 잔재로 본다
 
 try:
@@ -139,6 +140,47 @@ def next_tasks():
     return lines[:24]
 
 
+def read_checkpoint():
+    """대화 컨텍스트와 무관하게 현재 작업의 정확한 재개 지점을 읽는다."""
+    try:
+        value = json.load(open(CHECKPOINT_PATH, encoding="utf-8"))
+        return value if isinstance(value, dict) and value.get("상태") == "진행중" else {}
+    except Exception:
+        return {}
+
+
+def write_checkpoint(objective="", done=None, pending=None, notes=None):
+    """현재 작업을 원자적으로 저장한다.
+
+    같은 세션에서 여러 번 호출하면 전달된 항목만 갱신한다. `--pending`을 새로
+    주면 남은 작업 목록을 교체하고, `--done`·`--note`는 기존 내용 뒤에 보탠다.
+    """
+    old = read_checkpoint()
+    value = {
+        "상태": "진행중",
+        "갱신시각": datetime.now().isoformat(timespec="seconds"),
+        "목표": objective or old.get("목표", ""),
+        "완료": list(old.get("완료", [])),
+        "남은작업": list(old.get("남은작업", [])),
+        "메모": list(old.get("메모", [])),
+        "기준커밋": git("rev-parse", "HEAD"),
+        "작업트리": [l for l in git("status", "--short").splitlines() if l.strip()],
+    }
+    if pending is not None:
+        value["남은작업"] = [x for x in pending if x]
+    for key, items in (("완료", done or []), ("메모", notes or [])):
+        for item in items:
+            if item and item not in value[key]:
+                value[key].append(item)
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    temp = CHECKPOINT_PATH + ".tmp"
+    with open(temp, "w", encoding="utf-8") as fh:
+        json.dump(value, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    os.replace(temp, CHECKPOINT_PATH)
+    return value
+
+
 def collect():
     unstaged = [l for l in git("status", "--short").splitlines() if l.strip()]
     unpushed = [l for l in git("log", "origin/master..HEAD", "--oneline").splitlines() if l.strip()]
@@ -152,6 +194,7 @@ def collect():
         "미푸시": unpushed,
         "최근커밋": [l for l in git("log", "-5", "--oneline").splitlines() if l.strip()],
         "다음할일": next_tasks(),
+        "진행체크포인트": read_checkpoint(),
     }
 
 
@@ -190,6 +233,19 @@ def to_md(st, for_sol=False):
          "- 기준: %s · 관리대장 **v%s**(%s)" % (st["시각"], st["원장"].get("버전", "?"),
                                                st["원장"].get("수정", "")),
          "- 이 문서는 워치독이 30분마다 갱신한다. **세션이 갑자기 끊겨도 여기까지는 남는다.**", ""]
+    cp = st.get("진행체크포인트") or {}
+    if cp:
+        L += ["## ★ 진행 중 작업 — 여기서 바로 재개", "",
+              "- 목표: **%s**" % (cp.get("목표") or "미기입"),
+              "- 체크포인트: %s · 기준 커밋 `%s`" %
+              (cp.get("갱신시각", "?"), str(cp.get("기준커밋", "?"))[:12]), ""]
+        if cp.get("완료"):
+            L += ["### 완료", *["- %s" % x for x in cp["완료"]], ""]
+        if cp.get("남은작업"):
+            L += ["### 다음 순서", *["%d. %s" % (i + 1, x)
+                                    for i, x in enumerate(cp["남은작업"])], ""]
+        if cp.get("메모"):
+            L += ["### 재개 메모", *["- %s" % x for x in cp["메모"]], ""]
     bl = blockers(st, for_sol=for_sol)
     L += ["## 먼저 처리할 것 (%d)" % len(bl), ""]
     if not bl:
@@ -220,7 +276,29 @@ def main():
     ap.add_argument("--for-sol", action="store_true", help="Terra -> Sol 검토 관문도 함께 확인")
     ap.add_argument("--snapshot", action="store_true", help="상태를 파일로 남긴다(워치독용)")
     ap.add_argument("--check", action="store_true", help="새 세션 시작 시 읽는다")
+    ap.add_argument("--checkpoint", action="store_true", help="현재 작업 재개 지점을 저장한다")
+    ap.add_argument("--objective", default="", help="현재 작업 목표")
+    ap.add_argument("--done", action="append", default=[], help="완료 항목(여러 번 사용 가능)")
+    ap.add_argument("--pending", action="append", help="남은 작업(지정 시 기존 목록 교체)")
+    ap.add_argument("--note", action="append", default=[], help="재개 메모(여러 번 사용 가능)")
+    ap.add_argument("--clear-checkpoint", action="store_true", help="현재 작업이 끝났을 때 체크포인트를 닫는다")
     a = ap.parse_args()
+    if a.clear_checkpoint:
+        try:
+            value = json.load(open(CHECKPOINT_PATH, encoding="utf-8"))
+        except Exception:
+            value = {}
+        value.update({"상태": "완료", "완료시각": datetime.now().isoformat(timespec="seconds")})
+        os.makedirs(REPORT_DIR, exist_ok=True)
+        with open(CHECKPOINT_PATH, "w", encoding="utf-8") as fh:
+            json.dump(value, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        print("진행 체크포인트 완료 처리")
+        return 0
+    if a.checkpoint:
+        value = write_checkpoint(a.objective, a.done, a.pending, a.note)
+        print("진행 체크포인트 갱신 — 남은 작업 %d건" % len(value.get("남은작업", [])))
+        return 0
     st = collect()
     if a.for_sol:
         try:

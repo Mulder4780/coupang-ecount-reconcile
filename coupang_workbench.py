@@ -157,6 +157,7 @@ def gui():
             return
         running["flag"] = True
         log(f"\n===== {title} 시작 {datetime.now():%H:%M:%S} =====")
+        ticket = None
         try:
             from agent_dispatch import enqueue as enqueue_agent, route_label
             ticket = enqueue_agent(re.sub(r"\W+", "_", title).strip("_") or "manual", title, args)
@@ -165,6 +166,7 @@ def gui():
             log(f"[AI 연계] 요청 기록 실패(기존 실행은 계속): {str(e)[:160]}")
 
         def work():
+            local_returncode = 1
             try:
                 p = subprocess.Popen([PY] + args, cwd=ROOT, env=ENV,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -173,10 +175,18 @@ def gui():
                     if "UserWarning" not in ln and "warn(msg)" not in ln:
                         log(ln.rstrip())
                 p.wait()
+                local_returncode = p.returncode
                 log(f"===== {title} 종료 (코드 {p.returncode}) =====")
             except Exception as e:
                 log(f"오류: {e}")
             finally:
+                if ticket:
+                    try:
+                        from agent_dispatch import dispatch_async
+                        if dispatch_async(ticket, local_returncode):
+                            log("[AI 연계] 로컬 작업 결과를 후속 검토 에이전트에 인계")
+                    except Exception as e:
+                        log(f"[AI 연계] 후속 검토 실행 실패: {str(e)[:160]}")
                 running["flag"] = False
                 app.after(100, refresh)
         threading.Thread(target=work, daemon=True).start()

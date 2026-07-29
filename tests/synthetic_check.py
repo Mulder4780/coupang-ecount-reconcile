@@ -2638,6 +2638,9 @@ def t53_session_handoff():
     body = src.split("if __name__")[0]
     assert "ai_claim.free" not in body and "queue_add" not in body, \
         "세션인계가 스스로 고치고 있다 — 상대 AI 작업을 가로챈다"
+    for marker in ("CHECKPOINT_PATH", "def write_checkpoint(", "★ 진행 중 작업 — 여기서 바로 재개",
+                   "--checkpoint", "--clear-checkpoint"):
+        assert marker in src, f"새 세션 재개 체크포인트 누락: {marker}"
 
     # 워치독이 30분마다 남기는가 · 시작 체크리스트 0번인가
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
@@ -3305,6 +3308,8 @@ def t79_work_log_source_sync_and_report_capture():
         as_summary = payload["요약"]["돌발AS"]
         assert as_summary["발생"] == 3 and as_summary["처리완료"] == 1
         assert as_summary["미처리"] == 1 and as_summary["취소"] == 1
+        assert (as_summary["기준시작일"], as_summary["기준종료일"]) == (
+            "2026-07-11", "2026-07-12")
         assert as_summary["미처리사유"][0]["사유"] in ("자재·부품 대기", "방문 일정 조율")
         assert payload["요약"]["정기점검"]["실행"] == 1
         assert len(payload["updates"]) == 4, payload["updates"]  # 완료 일자가 명확하고 원장 상태가 빈 2건
@@ -3320,8 +3325,15 @@ def t79_work_log_source_sync_and_report_capture():
                    "if(window.__view==='daily')"):
         assert marker in idx, f"PM progress/source synchronization missing: {marker}"
     brief = open(os.path.join(ROOT, "daily_brief.py"), encoding="utf-8").read()
-    for marker in ("openWorkLogBrief", "돌발AS 현장 일지 대조", "정기점검 진행률 · 선택 기간", "pmProgress"):
+    for marker in ("openWorkLogBrief", "돌발AS 현장 일지 대조", "정기점검 진행률 · 선택 기간", "pmProgress",
+                   "dailyBrief", "대표 보고 · ${dailyBrief.date||D.date} 당일 업무 실적",
+                   "captureDailyTasks", "당일 별도 업무 처리", "BRIEF_LOADING", "BRIEF_RETRY",
+                   "기준시작일", "취소·정상작동 상세", "데이터 업데이트"):
         assert marker in idx, f"일지/정기점검 대표 캡처 누락: {marker}"
+    app = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    for marker in ("def get_daily_brief(day=None)", "_brief_cache", 'result["데이터업데이트일시"]'):
+        assert marker in app, f"대표 브리핑 캐시/업데이트 시각 누락: {marker}"
+    assert "threading.Thread(target=warm_brief" not in app, "느린 브리핑 선로딩이 첫 화면을 막는다"
     assert '"일지대조": worklog' in brief, "대표 브리핑이 현장 일지 대조를 안 싣는다"
     print("  [79] 현장 일지 대조·안전 빈칸입력·돌발AS 사유·정기점검/AS 대표 캡처 ✅")
 
@@ -3403,6 +3415,7 @@ def t82_daily_cutoff():
 
 def t83_agent_dispatch_and_calendar():
     """Claude 우선·Codex 폴백과 공개 캘린더 화면은 실CLI 없이도 검증한다."""
+    import json
     from pathlib import Path
     from types import SimpleNamespace
     from unittest.mock import patch
@@ -3413,15 +3426,13 @@ def t83_agent_dispatch_and_calendar():
         A.REPORT_DIR = Path(td) / "queue"
         A.STATUS_PATH = Path(td) / "status.json"
         try:
-            def fake_which(name):
-                return str(Path(td) / f"{name}.exe")
-
             def quota_then_codex(command, **_kwargs):
                 if "claude" in command[0].lower():
                     return SimpleNamespace(returncode=1, stdout="", stderr="credit quota exhausted")
                 return SimpleNamespace(returncode=0, stdout="codex 1.0", stderr="")
 
-            with patch.object(A.shutil, "which", side_effect=fake_which), \
+            with patch.object(A, "resolve_agent_executable",
+                              side_effect=lambda name: str(Path(td) / f"{name}.exe")), \
                  patch.object(A.subprocess, "run", side_effect=quota_then_codex):
                 route = A.route_status()
                 assert route["primary"] == "claude" and route["selected"] == "codex", route
@@ -3429,6 +3440,10 @@ def t83_agent_dispatch_and_calendar():
                 assert ticket["selected"] == "codex", ticket
                 assert list(A.REPORT_DIR.glob("*.json")), "AI 요청이 내구성 있는 큐에 남지 않음"
                 assert A.status()["last_request"]["id"] == ticket["id"]
+                consumed = A.run_ticket(ticket["_path"], 0)
+                assert consumed["status"] == "done" and consumed["agent_returncode"] == 0, consumed
+                saved = json.load(open(ticket["_path"], encoding="utf-8"))
+                assert saved["status"] == "done" and saved["selected"] == "codex", saved
         finally:
             A.REPORT_DIR, A.STATUS_PATH = old_dir, old_status
 
@@ -3438,9 +3453,13 @@ def t83_agent_dispatch_and_calendar():
     assert 'data-v="calendar"' in idx and "COUPANG_CALENDAR_ID" in idx
     assert "calendar.google.com/calendar/embed" in idx and "openGoogleCalendarDraft" in idx
     assert "previewCalendarDraft();" in idx and "runAgentNote" in idx
-    assert "agent_dispatch" in server and "로컬 업무 스크립트는 1회만 실행" in server
-    assert "agent_dispatch" in bench and "로컬 업무 스크립트는 1회만 실행" in bench
-    print("  [83] Claude 우선·Codex 폴백 큐 및 쿠팡 캘린더(전체·상세·입력) ✅")
+    assert "dispatch_async" in server and "로컬 업무 스크립트는 1회만 실행" in server
+    assert "dispatch_async" in bench and "로컬 업무 스크립트는 1회만 실행" in bench
+    dispatch = open(os.path.join(ROOT, "agent_dispatch.py"), encoding="utf-8").read()
+    for marker in ("resolve_agent_executable", "run_ticket", '"status": "running"',
+                   '"status": "done"', "codex.exe"):
+        assert marker in dispatch, f"실제 AI 폴백 소비기 누락: {marker}"
+    print("  [83] Claude 우선·Codex 폴백 실제 소비기 및 쿠팡 캘린더(전체·상세·입력) ✅")
 
 
 def t80_new_project_flow_db_only(tmp):

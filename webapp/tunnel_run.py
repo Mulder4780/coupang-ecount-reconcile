@@ -30,6 +30,47 @@ PORT = 8899
 #   터널은 살아 있는데 아무것도 안 열리는 그 증상의 정체다(2026-07-27 원인 확정).
 
 
+def _local_app_alive(timeout=5):
+    """Return True only when the local CSOS API is actually responding."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(
+                f"http://127.0.0.1:{PORT}/api/ping", timeout=timeout) as response:
+            return b"coupang-work" in response.read()
+    except Exception:
+        return False
+
+
+def ensure_local_app():
+    """Start the app server when the tunnel exists but its origin is down."""
+    if _local_app_alive():
+        return True
+    py = sys.executable
+    pythonw = py.replace("python.exe", "pythonw.exe")
+    if os.path.exists(pythonw):
+        py = pythonw
+    app = os.path.join(ROOT, "webapp", "app_server.py")
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        subprocess.Popen(
+            [py, "-u", app],
+            cwd=ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+        )
+    except OSError as exc:
+        print(f"앱 서버 자동 시작 실패: {exc}")
+        return False
+    for _ in range(30):
+        time.sleep(0.5)
+        if _local_app_alive(2):
+            print(f"앱 서버 자동 복구 완료: http://127.0.0.1:{PORT}")
+            return True
+    print("앱 서버를 시작했지만 응답 확인에 실패했습니다.")
+    return False
+
+
 def find_cloudflared():
     # 1순위: 포터블(webapp/cloudflared.exe — 관리자 권한 불필요)
     local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cloudflared.exe")
@@ -178,7 +219,8 @@ def watch(proc, url):
             # 앱 자체가 죽었으면 터널을 갈아도 소용없다 — 주소만 쓸데없이 바뀐다.
             # (주소가 바뀔 때마다 직접 북마크한 사람은 다시 못 들어온다)
             if not ping(f"http://127.0.0.1:{PORT}/api/ping", 8):
-                print("앱이 응답하지 않음 — 터널은 그대로 두고 기다립니다")
+                print("앱이 응답하지 않음 — 로컬 앱 서버를 자동 복구합니다")
+                ensure_local_app()
                 fail = 0
                 continue
             fail += 1
@@ -215,6 +257,10 @@ def main():
     _throttle()
     os.makedirs(os.path.dirname(URL_FILE), exist_ok=True)
     while True:
+        if not ensure_local_app():
+            print("앱 서버 복구 대기 — 10초 후 다시 시도합니다")
+            time.sleep(10)
+            continue
         print(f"터널 시작... (대상 http://127.0.0.1:{PORT})")
         p = subprocess.Popen([exe, "tunnel", "--url", f"http://127.0.0.1:{PORT}"],
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

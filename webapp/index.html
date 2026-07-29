@@ -54,6 +54,14 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .dot{width:8px;height:8px;border-radius:50%;background:#3DDC84;box-shadow:0 0 0 3px rgba(61,220,132,.22);flex:none}
 .dot.busy{background:#FFC53D;box-shadow:0 0 0 3px rgba(255,197,61,.22);animation:pulse 1s infinite}
 @keyframes pulse{50%{opacity:.35}}
+@keyframes agentGlow{
+  0%,100%{transform:translateY(0) scale(1);box-shadow:0 2px 6px rgba(21,51,163,.5)}
+  50%{transform:translateY(-2px) scale(1.06);box-shadow:0 0 0 7px rgba(61,104,255,.16),0 8px 20px rgba(21,51,163,.48)}
+}
+@keyframes agentRunIcon{0%{transform:translateX(-2px)}50%{transform:translateX(3px)}100%{transform:translateX(-2px)}}
+body.agent-running .appbar .logo{animation:agentGlow 1.15s ease-in-out infinite}
+body.agent-running .tabbar button[data-v="run"] svg{animation:agentRunIcon .72s ease-in-out infinite}
+body.agent-running .tabbar button[data-v="run"]{color:#fff;background:linear-gradient(135deg,#2E52D6,#243168)}
 
 /* ═══ 레이아웃 ═══ */
 .shell{max-width:1220px;margin:0 auto;padding:16px 14px 92px}
@@ -1118,7 +1126,13 @@ const APP_YEAR = '2026';
 let settleRows = [], reports = [], curReport = 0, polling = null;
 
 const $ = id => document.getElementById(id);
-const fmt = n => (n==null||n==='')?'-':Number(n).toLocaleString('ko-KR');
+const fmt = n => {
+  if(n==null || n==='') return '-';
+  const v = Number(n);
+  return Number.isFinite(v)
+    ? Math.round(v).toLocaleString('ko-KR',{maximumFractionDigits:0})
+    : '-';
+};
 async function api(path, opt={}){
   opt.headers = Object.assign({'X-Pin': PIN}, opt.headers||{});
   const r = await fetch(path, opt);
@@ -2268,6 +2282,11 @@ async function runTask(key){
 async function pollLog(){
   const d = await api('/api/tasklog');
   $('livedot').className = 'dot' + (d.busy?' busy':'');
+  document.body.classList.toggle('agent-running', !!d.busy);
+  if(d.busy){
+    $('heroAgent').textContent = `에이전트 실행 중${d.task?' · '+d.task:''}`;
+    if(!polling) polling = setInterval(pollLog, 1200);
+  }
   if(d.log.length) { $('logbox').textContent = d.log.join('\n'); $('logbox').scrollTop = 1e9; }
   if(!d.busy && polling){ clearInterval(polling); polling=null; loadStatus(); loadSettle(); }
 }
@@ -2701,9 +2720,22 @@ function topLine(t){
 /* ── 대표에게 읽어 드릴 브리핑 문장 ──
    출처는 daily_brief 하나뿐이다(/api/brief). 화면·PC 리포트·폰 사본이 같은 문장을 써야
    "화면은 이런데 보고는 저렇다"가 안 생긴다. */
-let BRIEF = null;
+let BRIEF = null, BRIEF_LOADING = false, BRIEF_RETRY = null;
 async function loadBrief(){
-  try{ BRIEF = await api('/api/brief'); }catch(e){ BRIEF = null; }
+  if(BRIEF_LOADING) return;
+  BRIEF_LOADING = true;
+  try{
+    const b = await api('/api/brief');
+    BRIEF = b && b.ok!==false ? b : null;
+    if(BRIEF_RETRY){ clearTimeout(BRIEF_RETRY); BRIEF_RETRY = null; }
+  }catch(e){
+    BRIEF = null;
+    // 첫 구동 때 Z: 원장/현장일지 사전 준비가 터널 제한시간보다 길어져도, 서버 캐시가
+    // 완성된 뒤 자동 재요청하여 저장 이미지가 빈 상태로 굳지 않게 한다.
+    if(!BRIEF_RETRY) BRIEF_RETRY = setTimeout(()=>{ BRIEF_RETRY=null; loadBrief(); }, 5000);
+  }finally{
+    BRIEF_LOADING = false;
+  }
   try{ renderDaily(); }catch(e){}
 }
 
@@ -3117,6 +3149,7 @@ function srcRow(label, s, emptyMsg){
         `<span class="prj" onclick="openByPrj('${k}')">${k}</span>`).join('') || '-'}</div></td></tr>`;
 }
 function renderDaily(){
+  if(!BRIEF && !BRIEF_LOADING) loadBrief();
   const S_ = srcStats || {};
   const today = new Date();
   const y = APP_YEAR, m = String(today.getMonth()+1).padStart(2,'0');
@@ -3165,6 +3198,8 @@ function renderDaily(){
       <div class="rdate">보고일<b>${(execRep.meta&&execRep.meta['보고일'])||`${y}-${m}-${String(today.getDate()).padStart(2,'0')}`}</b>
         <span style="font-size:10.5px;font-weight:600;color:var(--ink-3)">집계기준일 ${
           (execRep.meta&&execRep.meta['집계기준일'])||'-'} · 보고자 ${(execRep.meta&&execRep.meta['보고자'])||'-'}</span>
+        <span style="font-size:10.5px;font-weight:700;color:#2452E6">데이터 업데이트 ${
+          (BRIEF&&BRIEF['데이터업데이트일시'])||new Date().toISOString().slice(0,16).replace('T',' ')}</span>
         <button onclick="openRptDates()" style="margin-top:5px;background:#EEF2FF;color:#1C3FA8;border:0;
           border-radius:8px;padding:5px 10px;font-size:11px;font-weight:800;font-family:inherit;
           cursor:pointer">📅 날짜 변경</button></div>
@@ -3234,6 +3269,17 @@ function renderDaily(){
   // 수치를 다시 계산하거나 분기 기본값으로 되돌리면 화면과 이미지가 달라진다.
   const capturePm = pmStats();
   const captureWorkLog = ((BRIEF&&BRIEF['일지대조'])||{});
+  const captureBriefAs = ((BRIEF&&BRIEF['돌발AS'])||{});
+  const captureDailyTasks = ((BRIEF&&BRIEF['당일처리목록'])||[]).map(x=>({
+    project: x['프로젝트NO'] || '프로젝트 미확정',
+    camp: x['캠프명'] || '-',
+    date: x['일자'] || '',
+    requestDate: x['접수일'] || '',
+    poster: x['게시자'] || '',
+    handler: x['담당기사'] || '',
+    request: x['왜'] || '',
+    action: x['무엇'] || x['상태'] || ''
+  }));
   _rptData = {
     date: (execRep.meta&&execRep.meta['보고일']) || `${y}-${m}-${String(today.getDate()).padStart(2,'0')}`,
     meta: execRep.meta || {},
@@ -3254,6 +3300,20 @@ function renderDaily(){
       [`${capturePm.진행률}%`, `${capturePm.라벨} 진행률`, capturePm.진행률>=60?'#12813F':'#B54708'],
     ],
     workLog: captureWorkLog,
+    updatedAt: (BRIEF&&BRIEF['데이터업데이트일시']) ||
+      new Date().toISOString().slice(0,16).replace('T',' '),
+    // 유수비 대표가 올리고 류지영 매니저가 처리한 택배·부품발송처럼
+    // 현장 AS 완료와 별개인 당일 업무도 저장 이미지에서 빠지지 않게 싣는다.
+    dailyBrief: BRIEF ? {
+      date: BRIEF['기준일'] || '',
+      metrics: [
+        [`${captureBriefAs['신규접수']||0}건`, '돌발AS 신규 접수'],
+        [`${captureBriefAs['완료']||0}건`, '돌발AS 당일 완료', '#12813F'],
+        [`${captureBriefAs['업무처리']||captureDailyTasks.length}건`, '당일 별도 업무 처리',
+          captureDailyTasks.length?'#1B41BC':'#12813F']
+      ],
+      activities: captureDailyTasks
+    } : null,
     kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)'],
           [fmt(미수),'미수금(원)', 미수?'#B54708':'#12813F'],
           [(유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율'],
@@ -4580,11 +4640,22 @@ async function reportToPng(){
   const pmProgress = D.pmProgress || [];
   const wlAs = ((D.workLog||{})['돌발AS']) || {};
   const wlReasons = wlAs.미처리사유 || [];
+  const wlOpenRows = wlAs.미처리목록 || [];
+  const wlCancelRows = wlAs.취소목록 || [];
+  const wlUnknownRows = wlAs.처리완료일확인목록 || [];
+  const dailyBrief = D.dailyBrief || null;
+  const dailyActivities = (dailyBrief&&dailyBrief.activities) || [];
   const pmProgressH = pmProgress.length ? 34 + tiles(pmProgress.length) + 20 : 0;
+  const workDetailH = rows => rows.length ? 26 + rows.length*50 + 6 : 0;
   const workLogH = Object.keys(wlAs).length
-    ? 34 + tiles(4) + (wlReasons.length ? 18 + wlReasons.length*20 : 0) + 16 : 0;
+    ? 34 + tiles(4) + (wlReasons.length ? 18 + wlReasons.length*20 : 0)
+      + workDetailH(wlOpenRows) + workDetailH(wlCancelRows)
+      + workDetailH(wlUnknownRows) + 16 : 0;
+  const dailyBriefH = dailyBrief
+    ? 34 + tiles((dailyBrief.metrics||[]).length) + (dailyActivities.length ? dailyActivities.length*90 : 28) + 10
+    : 0;
   let H = 108 + execH + execSecH
-          + pmProgressH + workLogH
+          + dailyBriefH + pmProgressH + workLogH
           + 34 + tiles((D.kpi||[]).length) + (D.kpiNote ? 18 : 0)
           + 34 + tiles((D.month||[]).length) + erpH
           + 34 + (D.issues.length+1)*30 + 34 + (D.srcs.length+1)*30 + 54;
@@ -4614,6 +4685,7 @@ async function reportToPng(){
   txt(D.date,W-30,52,F(17,800),'#fff','right');
   txt(`집계기준일 ${(D.meta&&D.meta['집계기준일'])||'-'} · 보고자 ${(D.meta&&D.meta['보고자'])||'-'}`,
       W-30,72,F(10),'#9FB4E8','right');
+  txt(`데이터 업데이트 ${D.updatedAt||'-'}`,92,82,F(9.5,700),'#C9D7FA');
 
   let y = 96;
   const section = t => { y += 34; txt(t,30,y-8,F(13,800),'#1B41BC');
@@ -4664,6 +4736,32 @@ async function reportToPng(){
     if(s.lines.length) lines(s.lines);
   });
 
+  // 대표 요청: 카톡에서 올린 뒤 류지영 매니저가 처리한 M_순천1
+  // 택배 발송 같은 별도 업무를 대표 보고 PNG의 '당일 업무 실적'에 상세히 남긴다.
+  if(dailyBrief){
+    section(`대표 보고 · ${dailyBrief.date||D.date} 당일 업무 실적`);
+    if((dailyBrief.metrics||[]).length) grid(dailyBrief.metrics);
+    if(dailyActivities.length){
+      dailyActivities.forEach(a=>{
+        box(30,y,W-60,82,'#F8FAFD','#DCE5F5',10);
+        txt(clip(`${a.project} · ${a.camp}`, 560),44,y+17,F(12.5,800),'#101828');
+        txt(a.date||'-',W-44,y+17,F(11.5,700),'#475467','right');
+        txt(clip(`${a.poster||'게시자 미기입'} → ${a.handler||'처리자 미기입'}`, 720),
+            44,y+37,F(11.5,700),'#1B41BC');
+        const when = a.requestDate ? `접수 ${a.requestDate}` : '접수일 미기입';
+        txt(clip(`요청 · ${a.request||'신청내용 미기입'} (${when})`, 370),
+            44,y+61,F(10.8),'#475467');
+        txt(clip(`처리 · ${a.action||'처리내용 미기입'}`, 350),
+            430,y+61,F(10.8,700),'#12813F');
+        y += 90;
+      });
+    }else{
+      txt('별도 업무 처리 내역 없음',30,y+10,F(11),'#98A2B3');
+      y += 28;
+    }
+    y += 10;
+  }
+
   // 화면에서 고른 기간(7~9월/상반기/연간)을 그대로 넣는다. 대표 캡처만 옛 분기
   // 고정 숫자를 쓰면 화면과 다른 보고가 되므로, 위 _rptData의 pmStats 결과만 사용한다.
   if(pmProgress.length){
@@ -4677,7 +4775,9 @@ async function reportToPng(){
   // 유수비 대표 요청: 돌발AS는 단순 진행중 숫자가 아니라 원본 일지 기준으로
   // 발생·처리·미처리·취소와 미처리 사유까지 한 화면/한 이미지에서 확인한다.
   if(Object.keys(wlAs).length){
-    section('돌발AS 현장 일지 대조');
+    const rangeStart = wlAs.기준시작일 || '-';
+    const rangeEnd = wlAs.기준종료일 || '-';
+    section(`돌발AS 현장 일지 대조 · ${rangeStart} ~ ${rangeEnd}`);
     grid([
       [String(wlAs.발생||0)+'건', '발생'],
       [String(wlAs.처리완료||0)+'건', '처리완료', '#12813F'],
@@ -4688,8 +4788,27 @@ async function reportToPng(){
       txt('미처리 사유', 30, y+8, F(11,800), '#475467'); y += 18;
       wlReasons.forEach(x=>{ txt(`${x.사유} ${x.건수}건`, 40, y+8, F(11.5), '#475467'); y += 20; });
     }
+    const detailRows = (title, rows, accent) => {
+      if(!rows.length) return;
+      txt(`${title} · ${rows.length}건`, 30, y+10, F(11.5,800), accent); y += 26;
+      rows.forEach(r=>{
+        box(30,y,W-60,44,'#F8FAFD','#E4E9F0',8);
+        txt(clip(`${r.프로젝트NO||'프로젝트 미확정'} · ${r.캠프명||'-'}`, 500),
+            42,y+14,F(11.5,800),'#101828');
+        txt(`${r.일자||'-'} · ${r.원본상태||r.상태||'-'}`,
+            W-42,y+14,F(10.5,700),'#667085','right');
+        const why = r.미처리사유 || r.실제조치 || r.요청내용 || r.비고 || '세부 내용 미기입';
+        const owner = r.담당자 ? `담당 ${r.담당자} · ` : '';
+        txt(clip(`${owner}${why}`, W-92),42,y+33,F(10.5),'#475467');
+        y += 50;
+      });
+      y += 6;
+    };
+    detailRows('미실시 상세', wlOpenRows, '#B54708');
+    detailRows('취소·정상작동 상세', wlCancelRows, '#8B5E16');
+    detailRows('처리완료일 확인 상세', wlUnknownRows, '#1B41BC');
     if(wlAs.처리완료일확인){
-      txt(`※ 처리완료 ${wlAs.처리완료일확인}건은 원본에 완료일이 없어 임의로 완료 처리하지 않음`,
+      txt(`※ 위 ${wlAs.처리완료일확인}건은 원본 완료일 확인 전까지 임의 완료 처리하지 않습니다.`,
           30, y+8, F(10), '#98A2B3'); y += 16;
     }
   }
@@ -4914,12 +5033,11 @@ async function refreshAll(){ try{ await loadSettle(); await loadStatus(); }catch
   tick(); setInterval(tick, 30000); initDates(); previewCalendarDraft();
   showFixedEntry();          // 고정 주소는 로그인·데이터 로딩과 무관하게 **항상** 보인다
   loadCodes();               // 드롭다운 선택지(10_코드관리)
-  loadBrief();               // 대표에게 읽어 드릴 브리핑 문장
   applyView(curView());                  // 새로고침 전에 보던 화면으로 복귀(뒤로가기 기록은 안 쌓는다)
   // ★ 여분 항목 하나를 미리 쌓아 둔다. 이게 없으면 **첫 뒤로가기가 앱 밖으로 나가** 버려서
   //   홈에서 종료를 묻는 것도, 이전 화면으로 돌아가는 것도 할 수 없다.
   navGuard();
-  if(PIN){ $('gate').style.display='none'; refreshAll(); }
+  if(PIN){ $('gate').style.display='none'; refreshAll(); pollLog().catch(()=>{}); }
   setInterval(()=>{ if(PIN && !runnerBusy()) loadStatus().catch(()=>{}); }, 30000);
   checkBuild(false);                                  // 최초 기준값 기록
   setInterval(()=>checkBuild(true), 20000);           // 새 버전 나오면 자동 갱신

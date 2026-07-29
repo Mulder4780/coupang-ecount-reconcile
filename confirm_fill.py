@@ -103,8 +103,9 @@ def plan():
             # 상태열은 수식이다. 새로 넣은 행은 엑셀을 한 번 열기 전까지 캐시값이 없어
             # 04시트는 197행이 빈칸으로 읽힌다 — 상태 문자열만 믿으면 전부 미완료로 샌다.
             # 완료 날짜가 있으면 그것으로 완료라고 본다(= 앱의 derive_status와 같은 판단).
+            band_completed = b is not None and "완료" in b["status"]
             done = (str(g(statcol) or "") == donev or bool(g(donecol))
-                    or (b is not None and "완료" in b["status"]))
+                    or band_completed)
 
             if b and b["date"]:
                 if not g(dcol) or isinstance(g(dcol), str):
@@ -115,7 +116,7 @@ def plan():
                     done = True
 
             # 확인 체크는 **완료 + 밴드 근거**가 둘 다 있을 때만
-            confirmed = done and b is not None
+            confirmed = done and band_completed
             if not confirmed:
                 continue
             if has("완료보고서등록") and not g("완료보고서등록"):
