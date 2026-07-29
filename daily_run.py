@@ -168,6 +168,11 @@ def main():
     steps.append(run("정기점검·돌발AS 일지 대조현황(28시트)",
                      [os.path.join(ROOT, "work_log_sync.py"), "--apply"]))
 
+    # 신규 프로젝트 업무 흐름도는 관리대장·앱에 노출하지 않는다. 지정 원본 폴더의 최신본만
+    # 내부 DB로 안전하게 교체해, 이후 신규 업무 기준을 추가해도 원본 구조를 그대로 보관한다.
+    steps.append(run("신규 프로젝트 업무 흐름도 DB 동기화(앱 비표시)",
+                     [os.path.join(ROOT, "new_project_flow_sync.py"), "--apply"]))
+
     # 5.5 밴드 업무 추출 → 24_밴드업무추출 시트 (월별 백필 원천, 캐시 있을 때만)
     if band_cache:
         steps.append(run("밴드 업무추출(24시트)", [os.path.join(ROOT, "band_extract.py"), "--sheet"]))

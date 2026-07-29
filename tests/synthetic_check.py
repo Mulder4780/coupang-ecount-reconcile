@@ -3322,6 +3322,55 @@ def t79_work_log_source_sync_and_report_capture():
     print("  [79] 현장 일지 대조·안전 빈칸입력·돌발AS 사유·정기점검/AS 대표 캡처 ✅")
 
 
+def t80_new_project_flow_db_only(tmp):
+    """신규 프로젝트 흐름도는 최신본만 내부 DB로 갱신하고 앱에는 연결하지 않는다."""
+    import json
+    import time
+    import new_project_flow_sync as F
+    import source_organizer as O
+
+    origin = os.path.join(tmp, "0. 원본 자료")
+    flow_dir = os.path.join(origin, "50. 쿠팡 신규 프로젝트 업무 흐름도")
+    os.makedirs(flow_dir, exist_ok=True)
+
+    def make_flow(path, marker):
+        wb = openpyxl.Workbook()
+        process = wb.active; process.title = "납품취합"
+        process.append(["쿠팡 신규 프로젝트 프로세스", marker])
+        process.append(["조직 / 단계", "프로젝트 등록", "KPI 보고"])
+        process.append(["신규", "프로젝트 및 ERP 등록", "종료 보고"])
+        checklist = wb.create_sheet("체크시트")
+        checklist.append(["단계", "업무", "담당", "완료기준", "매일 확인사항(Daily Check)"])
+        checklist.append(["① 프로젝트 접수", "쿠팡 신규 PO 접수", "운영", "PO 접수 완료", "누락 확인"])
+        wb.save(path)
+
+    old = os.path.join(flow_dir, "쿠팡 신규 업무 흐름도_이전.xlsx")
+    current = os.path.join(flow_dir, "쿠팡 신규 업무 흐름도_최신.xlsx")
+    make_flow(old, "이전")
+    make_flow(current, "최신")
+    os.utime(old, (time.time() - 10, time.time() - 10))
+
+    assert F.find_latest_source(flow_dir) == current
+    db_path = os.path.join(tmp, "reports", F.DB_FILENAME)
+    first = F.sync(flow_dir, db_path)
+    assert first["status"] == "updated" and first["sheet_count"] == 2 and first["checklist_count"] == 1, first
+    saved = json.load(open(db_path, encoding="utf-8"))
+    assert saved["app_visible"] is False and saved["source"]["name"] == os.path.basename(current), saved
+    assert saved["checklist"][0]["업무"] == "쿠팡 신규 PO 접수", saved["checklist"]
+    assert F.sync(flow_dir, db_path)["status"] == "unchanged"
+
+    moves = O.planned_moves(root=origin)
+    flow_moves = [m for m in moves if os.path.normcase(m.src) == os.path.normcase(old)]
+    assert len(flow_moves) == 1 and "보관" in flow_moves[0].dst, flow_moves
+    assert not any(os.path.normcase(m.src) == os.path.normcase(current) for m in moves), moves
+
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    app_server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "new_project_flow_sync.py" in daily and "앱 비표시" in daily
+    assert "new_project_flow" not in app_server, "흐름도 DB가 앱 API에 노출되면 안 됩니다"
+    print("  [80] 신규 프로젝트 흐름도 최신본 DB 동기화·이전본 보관·앱 비표시 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -3387,6 +3436,8 @@ if __name__ == "__main__":
     t77_side_work_single_switch()
     t78_recalc_pending_visible()
     t79_work_log_source_sync_and_report_capture()
+    with tempfile.TemporaryDirectory() as tmp:
+        t80_new_project_flow_db_only(tmp)
     t76_source_organizer()
     t55_pm_brief_drilldown_and_capture()
     t58_check_hub_detail_and_capture()

@@ -38,6 +38,9 @@ BAND_DIR = os.path.join(ORIGIN_ROOT, "4. 밴드 원본")
 # 류지영 매니저가 정기점검 스케줄 원본을 계속 갱신하는 정본 폴더.
 # 파일명은 바뀔 수 있으므로 동기화 도구가 이 폴더의 최신 정기점검 xlsx를 고른다.
 PM_SCHEDULE_DIR = os.path.join(ORIGIN_ROOT, "5. 정기점검 스케쥴 원본")
+# 신규 프로젝트 업무 흐름도는 향후 신규 업무를 추가할 때의 내부 기준 DB 원본이다.
+# 앱·관리대장에는 직접 노출하지 않고, 이 폴더의 최신본만 별도 DB로 동기화한다.
+NEW_PROJECT_FLOW_DIR = os.path.join(ORIGIN_ROOT, "50. 쿠팡 신규 프로젝트 업무 흐름도")
 # 정기점검·돌발AS를 사람이 계속 수정하는 업무일지. 사용자가 지정한 최신 정본은
 # `8. 정기점검, 돌발AS 일지(미실시건)` 이며, 최신 편집본은 폴더 바로 아래에 둔다.
 # 이전 7번 폴더도 읽기 호환만 유지한다(새 반영은 모두 8번 정본을 우선한다).
@@ -102,6 +105,11 @@ def receipt_dirs():
 
 def pm_schedule_dirs():
     return existing([PM_SCHEDULE_DIR])
+
+
+def new_project_flow_dirs():
+    """신규 프로젝트 업무 흐름도 원본의 정본 탐색 경로(앱 비표시 DB 전용)."""
+    return existing([NEW_PROJECT_FLOW_DIR])
 
 
 def work_log_dirs():

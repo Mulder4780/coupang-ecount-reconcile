@@ -34,6 +34,7 @@ from source_dirs import (
     COUPANG_DIR,
     ERP_DIR,
     KAKAO_DIR,
+    NEW_PROJECT_FLOW_DIR,
     ORIGIN_ROOT,
     PM_SCHEDULE_DIR,
     PO_DIR,
@@ -223,9 +224,11 @@ def planned_moves(root: str = ORIGIN_ROOT) -> list[Move]:
             if m:
                 moves.append(m)
 
-    # 정기점검과 업무일지는 사람이 계속 편집하는 최신 파일 하나를 폴더 바로 아래에 둔다.
+    # 사람이 계속 편집하는 기준 원본은 최신 파일 하나를 폴더 바로 아래에 둔다.
+    # 신규 프로젝트 업무 흐름도는 앱 비표시 DB 동기화 원본이므로, 이전본만 보관함으로 옮긴다.
     for current_dir, label in (
         (os.path.join(root, "5. 정기점검 스케쥴 원본"), "정기점검"),
+        (os.path.join(root, "50. 쿠팡 신규 프로젝트 업무 흐름도"), "신규 프로젝트 업무 흐름도"),
         (os.path.join(root, "8. 정기점검, 돌발AS 일지(미실시건)"), "정기점검·돌발AS 일지"),
         # 이전 폴더는 호환 보관만 한다. 새 원본은 위 8번 폴더를 우선한다.
         (os.path.join(root, "7. 정기점검, 돌발AS 일지"), "정기점검·돌발AS 일지(이전)"),
@@ -304,6 +307,7 @@ def _remove_empty_dirs(root: str):
     keep = {
         os.path.abspath(root), os.path.abspath(ERP_DIR), os.path.abspath(COUPANG_DIR),
         os.path.abspath(KAKAO_DIR), os.path.abspath(BAND_DIR), os.path.abspath(PM_SCHEDULE_DIR),
+        os.path.abspath(NEW_PROJECT_FLOW_DIR),
         os.path.abspath(PO_DIR), os.path.abspath(RECEIPT_DIR), os.path.abspath(WORK_LOG_DIR),
         os.path.abspath(LEGACY_WORK_LOG_DIR),
         os.path.abspath(MISC_DIR),
@@ -326,7 +330,7 @@ def write_rules(root: str = ORIGIN_ROOT):
         "1. ERP·쿠팡목록·카카오톡·입금내역 = 자료유형 / 연도 / 월 / 수집일",
         "2. 밴드 문서사진 = 게시일, 밴드 JSON = 수집일 기준",
         "3. PO = 연도 / PO번호. PO번호가 없고 UJ번호만 확실하면 프로젝트번호로 분류",
-        "4. 정기점검·업무일지 = 최신 편집본은 해당 폴더 바로 아래, 이전본은 보관/연도/월/날짜",
+        "4. 정기점검·업무일지·신규 프로젝트 흐름도 = 최신 편집본은 해당 폴더 바로 아래, 이전본은 보관/연도/월/날짜",
         "5. 분류할 단서가 없는 루트 파일 = 9. 미분류/연도/월/날짜",
         "6. 파일은 삭제·덮어쓰기하지 않으며 충돌 시 __dup_내용해시를 붙여 모두 보존",
         "7. 이동 이력은 0. 정리이력.csv에서 원래 위치까지 확인 가능",
