@@ -509,7 +509,8 @@ function renderList(){
   let h = '';
   if(TAB === 'issues')
     h = R.map(r => line(esc(r['프로젝트NO'] || r['정산ID'] || r['ID'] || '-') + ' ' + esc(r['캠프명']||''),
-                        esc(r['구분']||'') + ' · ' + esc(r['내용'] || r['문제'] || r['사유'] || ''))).join('');
+                        [r['구분'], r['담당자'], r['내용'] || r['문제'] || r['사유']]
+                          .filter(Boolean).map(esc).join(' · '))).join('');
   else if(TAB === 'as' || TAB === 'pm')
     h = R.map(r => line(esc(r['프로젝트NO']) + ' ' + esc(r['캠프명']||''),
                         [r['접수일자']||r['점검예정일'], r['담당기사'], r['진행상태']||r['점검상태']]
