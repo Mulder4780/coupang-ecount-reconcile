@@ -1052,6 +1052,12 @@ def t6_webapp():
         assert 'class="logo app-icon"' in html and "loadAppIconImg" in html
         assert ".uni-app-brand{width:295px;height:42px" in html.replace(" ", "")
         assert "drawUniversalLogo" in html and "universal-lift-horizontal.png" in html
+        # 공통 헤더는 시스템 식별/회사 로고/상태의 3구역이며, 회사 로고는
+        # 유니버셜리프트를 위에 두고 쿠팡을 그 아래에 둔다.
+        assert 'class="appbar-identity"' in html
+        assert 'class="appbar-brand-stack"' in html and 'class="appbar-status"' in html
+        header = html[html.index('<header class="appbar">'):html.index("</header>", html.index('<header class="appbar">'))]
+        assert header.index('class="uni-app-brand"') < header.index('class="coupang-app-brand"')
         for asset in ("icon-32.png", "icon-180.png", "icon-192.png", "icon-512.png"):
             r = urllib.request.urlopen(base + "/" + asset)
             assert r.headers.get_content_type() == "image/png" and len(r.read()) > 1000

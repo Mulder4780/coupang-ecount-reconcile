@@ -36,8 +36,12 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 
 /* ═══ 앱바 (모바일 상단) ═══ */
 .appbar{position:sticky;top:0;z-index:20;background:var(--navy-900);color:#fff;
-  padding:calc(env(safe-area-inset-top) + 13px) 18px 13px;display:flex;align-items:center;gap:11px;
+  padding:calc(env(safe-area-inset-top) + 12px) 18px 12px;display:flex;align-items:center;gap:14px;
   box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 2px 8px rgba(10,20,48,.35)}
+.appbar-identity{display:flex;align-items:center;gap:11px;min-width:0;flex:1 1 auto}
+.appbar-brand-stack{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:3px;flex:none;line-height:1;padding:2px 0}
+.appbar-status{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:none;min-width:0}
 .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#3D68FF,#1533A3 46%,#060D2B);
   display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 6px rgba(21,51,163,.5)}
 .logo svg{width:22px;height:22px}
@@ -57,19 +61,22 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
   .rpt .rhead .report-uni-brand{width:116px;height:22px;margin-left:50px}
   .rpt .rhead .rdate{flex:1 0 100%;margin-left:0;text-align:left}
 }
-.appbar h1{font-size:15px;font-weight:800;letter-spacing:-.2px;flex:1;line-height:1.2;min-width:0}
+.appbar h1{font-size:15px;font-weight:800;letter-spacing:-.2px;line-height:1.2;min-width:0}
 .brandfull{display:none} .brandshort{display:inline}
 @media(min-width:600px){.brandfull{display:inline} .brandshort{display:none}}
 .appbar h1 small{display:block;font-size:10px;font-weight:600;color:#8FA3D9;letter-spacing:.4px}
 .appbar .sub{font-size:11px;color:#8FA3D9;font-variant-numeric:tabular-nums}
 .coupang-app-brand,.uni-app-brand{display:block;object-fit:contain;object-position:center;flex:none}
-.coupang-app-brand{width:78px;height:25px}
+.coupang-app-brand{width:78px;height:22px}
 .uni-app-brand{width:295px;height:42px;opacity:.82;border-radius:3px}
 @media(max-width:599px){
-  .appbar{gap:7px;padding-left:10px;padding-right:10px}
+  .appbar{gap:8px;padding-left:10px;padding-right:10px}
+  .appbar-identity{gap:8px}
+  .appbar-brand-stack{gap:1px}
   .coupang-app-brand{width:54px;height:20px}
   .uni-app-brand{width:96px;height:24px;opacity:.74}
-  .appbar #clock{display:none}
+  .appbar-status{gap:6px}
+  .appbar #clock,.appbar #demobadge{display:none}
 }
 .dot{width:8px;height:8px;border-radius:50%;background:#3DDC84;box-shadow:0 0 0 3px rgba(61,220,132,.22);flex:none}
 .dot.busy{background:#FFC53D;box-shadow:0 0 0 3px rgba(255,197,61,.22);animation:pulse 1s infinite}
@@ -830,7 +837,11 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   .tabbar button.calendar-nav.on{background:rgba(91,140,255,.22);border-color:rgba(143,163,255,.42)}
   .shell{margin-left:216px;padding:24px 30px 48px;max-width:none}
   .appbar{margin-left:216px;background:var(--surface);color:var(--ink);
-    box-shadow:0 1px 0 var(--line);padding:15px 30px}
+    box-shadow:0 1px 0 var(--line);padding:12px 30px;min-height:96px;gap:24px}
+  .appbar-identity{gap:14px}
+  .appbar h1{font-size:18px;line-height:1.18}
+  .appbar h1 .brandfull,.appbar h1 small{white-space:nowrap}
+  .appbar-brand-stack{min-width:295px}
   .appbar h1 small{color:var(--ink-3)}
   .appbar .sub{color:var(--ink-3)}
   .kpis{grid-template-columns:repeat(6,1fr)}
@@ -965,14 +976,20 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
 </div>
 
 <header class="appbar">
-	  <div class="logo app-icon"><img src="/icon-192.png?v=csos-20260729" alt="CSOS"></div>
-	  <img class="coupang-app-brand" src="/brand/coupang.png" alt="Coupang">
-	  <h1><span class="brandfull">Coupang Service Operations System</span><span class="brandshort">CSOS</span>
-	    <small>UNIVERSAL LIFT · 쿠팡 통합업무 · 2026년 전용</small></h1>
-	  <img class="uni-app-brand" src="/brand/universal-lift-horizontal.png" alt="UNIVERSAL LIFT &amp; HITACHI KOREA">
-	  <span class="sub" id="demobadge"></span>
-  <div class="dot" id="livedot"></div>
-  <div class="sub" id="clock"></div>
+  <div class="appbar-identity">
+    <div class="logo app-icon"><img src="/icon-192.png?v=csos-20260729" alt="CSOS"></div>
+    <h1><span class="brandfull">Coupang Service Operations System</span><span class="brandshort">CSOS</span>
+      <small>UNIVERSAL LIFT · 쿠팡 통합업무 · 2026년 전용</small></h1>
+  </div>
+  <div class="appbar-brand-stack" aria-label="UNIVERSAL LIFT · Coupang">
+    <img class="uni-app-brand" src="/brand/universal-lift-horizontal.png" alt="UNIVERSAL LIFT &amp; HITACHI KOREA">
+    <img class="coupang-app-brand" src="/brand/coupang.png" alt="Coupang">
+  </div>
+  <div class="appbar-status">
+    <span class="sub" id="demobadge"></span>
+    <div class="dot" id="livedot"></div>
+    <div class="sub" id="clock"></div>
+  </div>
 </header>
 
 <main class="shell">
