@@ -146,6 +146,12 @@ def main():
     # 입력 직후 무결성 확인 — 엑셀이 '복구' 대화상자를 띄우는 파일을 만들지 않기 위해
     steps.append(run("워크북 무결성 검사·복구", [os.path.join(ROOT, "fix_workbook.py"), "--apply"]))
 
+    # 5.3 류지영 정기점검 스케줄 원본 → 27_정기점검원본일정.
+    #     지정 폴더의 최신 xlsx를 매일 다시 읽으며, 내용이 같으면 새 버전을 만들지 않는다.
+    #     원본에 UJ번호가 없으므로 임의 프로젝트를 만들지 않고 04시트와 근거가 있는 건만 연결한다.
+    steps.append(run("정기점검 스케줄 원본 자동반영",
+                     [os.path.join(ROOT, "pm_schedule_sync.py"), "--apply"]))
+
     # 5.5 밴드 업무 추출 → 24_밴드업무추출 시트 (월별 백필 원천, 캐시 있을 때만)
     if band_cache:
         steps.append(run("밴드 업무추출(24시트)", [os.path.join(ROOT, "band_extract.py"), "--sheet"]))

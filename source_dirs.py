@@ -34,6 +34,9 @@ ERP_DIR = os.path.join(ORIGIN_ROOT, "1. ERP 내보내기")
 COUPANG_DIR = os.path.join(ORIGIN_ROOT, "2. 쿠팡 목록")
 KAKAO_DIR = os.path.join(ORIGIN_ROOT, "3. 카카오톡 내보내기")
 BAND_DIR = os.path.join(ORIGIN_ROOT, "4. 밴드 원본")
+# 류지영 매니저가 정기점검 스케줄 원본을 계속 갱신하는 정본 폴더.
+# 파일명은 바뀔 수 있으므로 동기화 도구가 이 폴더의 최신 정기점검 xlsx를 고른다.
+PM_SCHEDULE_DIR = os.path.join(ORIGIN_ROOT, "5. 정기점검 스케쥴 원본")
 
 # PO 원본 — 새 위치가 정본. 예전 공유 폴더도 계속 훑는다(오종현이 아직 거기 넣을 수 있다).
 PO_DIRS = [
@@ -86,6 +89,10 @@ def receipt_dirs():
     return existing(RECEIPT_DIRS)
 
 
+def pm_schedule_dirs():
+    return existing([PM_SCHEDULE_DIR])
+
+
 # 밴드 문서 사진(거래명세서·현장사진) — 1,459장 130MB. **원본이라 서버에 둔다**
 # (사용자 지시 2026-07-28: 용량 큰 원본은 '0. 원본 자료' 로). PC 로컬 inbox 도 계속 본다 —
 # 새로 받은 사진을 급히 떨어뜨리는 자리이고, 서버가 끊겨도 그건 읽을 수 있어야 한다.
@@ -107,7 +114,8 @@ if __name__ == "__main__":
         pass
     print("원본 자료 루트:", ORIGIN_ROOT)
     print("  존재:", os.path.isdir(ORIGIN_ROOT))
-    for name, fn in (("PO 원본", po_dirs), ("엑셀 원본", excel_dirs), ("카톡 원본", kakao_dirs)):
+    for name, fn in (("PO 원본", po_dirs), ("엑셀 원본", excel_dirs), ("카톡 원본", kakao_dirs),
+                     ("정기점검 스케줄 원본", pm_schedule_dirs)):
         print(f"\n{name}")
         for d in fn():
             n = sum(len(f) for _b, _d, f in os.walk(d))

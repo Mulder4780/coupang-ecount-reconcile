@@ -1403,7 +1403,7 @@ function periodPick(){
   }
   renderSettle();
 }
-function periodRange(){
+function workPeriodRange(){
   const v = ($('fperiod')||{}).value || '';
   if(!v) return null;
   if(v === 'custom') return [$('fd1').value || '0000-01-01', $('fd2').value || '9999-12-31'];
@@ -1541,7 +1541,7 @@ function sortRows(rows){
 }
 function renderSettle(){
   const q = ($('q').value||'').toLowerCase(), f = $('fstat').value;
-  const pr = periodRange();
+  const pr = workPeriodRange();
   let undated = 0;
   const base = curRows().filter(r => {
     if(f && statOf(r)!==f) return false;
@@ -1648,6 +1648,27 @@ function openSheet(kind, idx, id){
   if(!r) return;
   const displayProject=projectLabel(r), internalId=recordIdOf(r)||String(id||'');
   let html = '';
+  if(kind==='pm' && r.출처==='정기점검 스케줄 원본'){
+    html = `<h2>${esc2(displayProject)} ${chip(r.점검상태)}</h2>
+      <div class="sub">${esc2(r.캠프명||'캠프 미상')} · 류지영 정기점검 스케줄 원본</div>
+      <div class="card" style="margin:12px 0">
+        <b>원본 일정 안내</b>
+        <div class="sub" style="margin-top:5px">프로젝트번호가 확정되기 전의 캠프 일정입니다.
+        날짜가 월까지만 보이면 원본에도 정확한 점검일이 아직 없습니다.</div>
+      </div>
+      <div class="dl">
+        <dt>일정ID</dt><dd>${esc2(r.점검ID||'-')}</dd>
+        <dt>캠프명</dt><dd>${esc2(r.캠프명||'-')}</dd>
+        <dt>예정일·월</dt><dd>${esc2(r.점검예정일||'-')}</dd>
+        <dt>담당기사</dt><dd>${esc2(r.담당기사||'미배정')}</dd>
+        <dt>장비수</dt><dd>${esc2(r.장비수||'-')}</dd>
+        <dt>장비내역</dt><dd>${esc2(r.장비내역||'-')}</dd>
+        <dt>반영상태</dt><dd>${esc2(r.반영상태||'-')}</dd>
+        <dt>원본 위치</dt><dd>${esc2((r.원본파일||'')+' '+(r.원본행?`(${r.원본행}행)`:'')||'-')}</dd>
+      </div>`;
+    showSheet(html);
+    return;
+  }
   if(kind==='settle'){
     html = `<h2>${esc2(displayProject)} ${chip(r.상태)}</h2>
     <div class="sub">${esc2(r.캠프명||'캠프 미상')} · ${esc2(r.업무구분||'')} · 내부기록 ${esc2(internalId||'-')}</div>

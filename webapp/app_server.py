@@ -422,7 +422,7 @@ def real_settlements():
 
 
 def real_works():
-    """02 돌발AS·04 정기점검 현황 (앱 '업무' 데이터)"""
+    """02 돌발AS·04 정기점검 + 27 원본일정 현황 (앱 '업무' 데이터)"""
     import openpyxl
     from ecount_reconcile import load_config, resolve_master
     master = resolve_master(load_config()["reconcile"]["master_xlsx"])
@@ -469,6 +469,9 @@ def real_works():
                 rec[c] = str(v)[:10] if hasattr(v, "year") else ("" if v is None else str(v))
             derive_status(rec, key)
             out[key].append(rec)
+    # 류지영 원본 일정은 UJ번호가 없는 캠프·장비 일정이다. 04시트와 같은 캠프·같은 달이면
+    # 이미 프로젝트 행으로 표시되므로 중복하지 않고, 아직 04에 없는 미래 월만 읽기 전용으로 보탠다.
+    source_schedule = _sheet_records(wb, "27_정기점검원본일정")
     wb.close()
     try:
         out["as"] += erp_work_rows(out["as"], "as")
@@ -478,6 +481,39 @@ def real_works():
         apply_rep_no(out["pm"], idx, "점검ID")
     except Exception:
         pass
+    def pm_camp_key(v):
+        return re.sub(r"[^0-9A-Za-z가-힣]", "", re.split(r"[（(]", str(v or ""))[0]).lower()
+
+    represented = set()
+    for r in out["pm"]:
+        d = norm_date(r.get("점검예정일") or r.get("실제점검일"))
+        if d and r.get("캠프명"):
+            represented.add((pm_camp_key(r.get("캠프명")), d[:7]))
+    for s in source_schedule:
+        month = str(s.get("예정월") or "")[:7]
+        key = (pm_camp_key(s.get("캠프명")), month)
+        if not month.startswith(APP_YEAR + "-") or not key[0] or key in represented:
+            continue
+        projects = sorted(set(re.findall(r"\bUJ26\d{4,}\b", str(s.get("연결프로젝트NO") or ""),
+                                         flags=re.I)))
+        out["pm"].append({
+            "점검ID": str(s.get("일정ID") or ""),
+            "프로젝트NO": projects[0].upper() if len(projects) == 1 else "",
+            "캠프명": str(s.get("캠프명") or ""),
+            # 일자가 미확정이면 월까지만 보인다. 1일로 만들면 허위 지연 경고가 생긴다.
+            "점검예정일": str(s.get("점검예정일") or month),
+            "실제점검일": "",
+            "점검상태": "예정" if s.get("점검예정일") else "예정월",
+            "담당기사": str(s.get("담당기사") or ""),
+            "장비수": s.get("장비수") or 0,
+            "장비내역": str(s.get("장비내역") or ""),
+            "반영상태": str(s.get("반영상태") or ""),
+            "원본행": str(s.get("원본행") or ""),
+            "원본파일": str(s.get("원본파일") or ""),
+            "출처": "정기점검 스케줄 원본",
+        })
+        # 같은 캠프·같은 달이라도 담당기사/점검일이 다른 원본 그룹은 모두 보여 준다.
+        # represented 는 04·ERP의 기존 프로젝트 중복을 막는 용도이고 원본끼리는 합치지 않는다.
     out["as"] = sort_by_date(app_year_rows(out["as"], "as"), "as", "접수ID")
     out["pm"] = sort_by_date(app_year_rows(out["pm"], "pm"), "pm", "점검ID")
     return out

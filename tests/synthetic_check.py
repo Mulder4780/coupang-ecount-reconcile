@@ -3022,6 +3022,10 @@ def t73_pm_schedule_source_sync(tmp):
     assert la["연결프로젝트NO"] == "UJ2600001" and la["반영상태"] == "완료 실적 우선"
     assert lb["연결프로젝트NO"] == "" and lb["반영상태"] == "프로젝트 매칭 대기"
 
+    styled_xml = build_sheet(linked * 6, os.path.basename(source), styled=True)
+    assert '<mergeCell ref="A1:M1"/>' in styled_xml and '<mergeCell ref="A2:M2"/>' in styled_xml
+    assert re.search(r'<c r="A10" s="38"', styled_xml), "10~49행 입력 서식이 빠졌다"
+
     ledger = os.path.join(tmp, "쿠팡_통합업무_일일보고_관리대장_v1.xlsx")
     mwb = openpyxl.Workbook()
     mwb.active.title = "00_대시보드"
@@ -3037,8 +3041,10 @@ def t73_pm_schedule_source_sync(tmp):
 
     server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    phone = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert "27_정기점검원본일정" in server and "정기점검 스케줄 원본" in live
+    assert "프로젝트 매칭 대기" in phone and "원본 일정 · 장비 " in phone
     assert "pm_schedule_sync.py" in daily
     print("  [73] 류지영 정기점검 원본 현재분기·제외·완료우선·앱·멱등 자동반영 ✅")
 
