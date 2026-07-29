@@ -93,8 +93,17 @@ def payload():
     try:
         import daily_brief as DB
         _b = DB.brief(data=DB.load()[0])
-        d["brief"] = {"기준일": _b["기준일"], "text": DB.text(_b),
-                      "돌발AS": _b["돌발AS"], "정기점검": _b["정기점검"]}
+        d["brief"] = {
+            "기준일": _b["기준일"],
+            "text": DB.text(_b),
+            "돌발AS": _b["돌발AS"],
+            "정기점검": _b["정기점검"],
+            # 고정 주소의 PC 독립 앱에서도 숫자만 보이지 않고 원천 건을 열어야 한다.
+            # 이 필드들은 data.enc 안에만 들어가며 공개 HTML에는 업무 내용이 남지 않는다.
+            "당일처리목록": _b.get("당일처리목록", []),
+            "완료일미기입목록": _b.get("완료일미기입목록", []),
+            "내용미기입": _b.get("내용미기입", []),
+        }
     except Exception as e:
         print("  ! 브리핑 건너뜀:", e)
 

@@ -2445,6 +2445,16 @@ def t50_stale_completion_drilldown_and_capture():
                   "이미지 저장", "이미지로 전달", "r.담당자?' · '+r.담당자"):
         assert token in live, token + " 누락"
     assert ".bneed.actionable" in live and 'role="button"' in live
+
+    phone = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+    pub = open(os.path.join(ROOT, "cloud_publish.py"), encoding="utf-8").read()
+    for token in ("function openStaleCloud(", "function staleToPng(", "function shareStaleCloud(",
+                  "function saveStaleCloud(", 'id="sheetbody"', "프로젝트 번호를 누르면"):
+        assert token in phone, "고정 주소 앱 " + token + " 누락"
+    assert ".sheetbody{flex:1 1 auto;min-height:0;overflow-y:auto" in phone, \
+        "고정 주소 목록을 끝까지 스크롤할 수 없다"
+    assert '"완료일미기입목록": _b.get("완료일미기입목록", [])' in pub, \
+        "암호화 사본에 완료일 누락 원천 목록이 없다"
     print("  [50] 오래된 완료일 미기입 목록·정확 라우팅·담당자 캡처 ✅")
 
 
@@ -2478,6 +2488,12 @@ def t51_manual_daily_activity():
     for token in ("BRIEF['당일처리목록']", "업무 처리 ${activityL.length}",
                   "bCard(x,'activity')", "현장 AS 완료와 별도"):
         assert token in live, token + " 누락"
+    phone = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+    pub = open(os.path.join(ROOT, "cloud_publish.py"), encoding="utf-8").read()
+    assert "function renderBrief(" in phone and "D.brief || {}" in phone
+    assert "현장 AS 완료와 별도" in phone
+    assert '"당일처리목록": _b.get("당일처리목록", [])' in pub, \
+        "암호화 사본에 유수비 게시·류지영 택배 처리 실적이 없다"
     print("  [51] 유수비 대표 접수·류지영 택배 발송을 당일 업무 처리로 포함 ✅")
 
 
