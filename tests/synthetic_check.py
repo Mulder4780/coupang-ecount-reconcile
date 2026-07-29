@@ -3556,6 +3556,116 @@ def t83_agent_dispatch_and_calendar():
     print("  [83] Claude 우선·Codex 폴백 실제 소비기 및 쿠팡 캘린더(전체·상세·입력) ✅")
 
 
+def t84_evidence_verification_sync(tmp):
+    """확정 증빙만 02·03·04 원인 열에 반영하고 수식 열은 계획에 넣지 않는다."""
+    import verification_sync as V
+
+    path = os.path.join(tmp, "verification_sync.xlsx")
+    wb = openpyxl.Workbook()
+    ws02 = wb.active
+    ws02.title = "02_돌발AS접수"
+    h02 = [
+        "접수ID", "프로젝트NO", "캠프명", "접수일자", "진행상태", "작업완료일",
+        "사진등록", "완료보고서등록", "ERP등록", "밴드수정",
+        "최초접수외추가작업", "추가작업확인상태", "관리자검증상태",
+        "담당관리자", "최종확인일", "검증결과",
+    ]
+    ws02.append(["제목"]); ws02.append([]); ws02.append([]); ws02.append(h02)
+    ws02.append([
+        "AS-2607-001", "UJ2600001", "합성캠프", "2026-07-01", "작업완료",
+        "2026-07-02", "누락", "누락", "미등록", "", "", "", "작업내용누락",
+        "다른사람", "", "=IF(A5=\"\",\"\",IF(M5=\"일치\",\"정상\",\"확인필요\"))",
+    ])
+    # 근거 없는 두 번째 완료건은 변경 대상이 아니어야 한다.
+    ws02.append([
+        "AS-2607-002", "UJ2600002", "미확인캠프", "2026-07-03", "작업완료",
+        "2026-07-04", "", "", "미등록", "", "", "", "", "", "", "",
+    ])
+
+    ws03 = wb.create_sheet("03_현장작업실적")
+    h03 = [
+        "작업ID", "접수ID", "프로젝트NO", "캠프명", "실제작업항목",
+        "실제작업상세", "접수외추가작업여부", "추가작업내용", "기사보고내용",
+        "관리자검증", "거래명세서반영", "ERP반영", "검증자", "검증일", "검증결과",
+    ]
+    ws03.append(["제목"]); ws03.append([]); ws03.append([]); ws03.append(h03)
+    ws03.append([
+        "FW-2607-001", "", "", "", "리모컨", "리모컨 교체 완료", "없음", "",
+        "정상 작동", "작업내용누락", "확인필요", "확인필요", "다른사람", "",
+        "=IF(AND(J5=\"일치\",K5=\"반영완료\",L5=\"반영완료\"),\"정상\",\"확인\")",
+    ])
+    # 02의 두 번째 완료행에 대응하지만 실제 작업내용이 없는 예비행이다.
+    ws03.append(["FW-2607-002", "", "", "", "", "", "", "", "", "", "", "", "", "", ""])
+
+    ws04 = wb.create_sheet("04_정기점검")
+    h04 = [
+        "점검ID", "프로젝트NO", "캠프명", "점검예정일", "점검상태", "실제점검일",
+        "점검사진", "점검보고서", "ERP판매전표", "거래명세서", "담당관리자",
+        "최종확인일(유현민 체크)", "검증결과",
+    ]
+    ws04.append(["제목"]); ws04.append([]); ws04.append([]); ws04.append(h04)
+    ws04.append([
+        "PM-2607-001", "UJ2600001", "합성캠프", "2026-07-01", "완료",
+        "2026-07-02", "", "", "미등록", "", "다른사람", "",
+        "=IF(AND(I5=\"완료\",J5=\"발행완료\"),\"정상\",\"확인\")",
+    ])
+
+    ws06 = wb.create_sheet("06_거래서류청구수금")
+    h06 = ["정산ID", "업무구분", "원천업무ID", "프로젝트NO", "캠프명",
+           "작업완료일", "거래명세서번호", "거래명세서발행일"]
+    ws06.append(["제목"]); ws06.append([]); ws06.append([]); ws06.append(h06)
+    ws06.append([
+        "JS-2607-001", "돌발AS", "AS-2607-001", "UJ2600001", "합성캠프",
+        "2026-07-02", "2026/07/03-1", "2026-07-03",
+    ])
+    wb.save(path)
+
+    band = [{
+        "프로젝트NO": "UJ2600001", "진행상태": "작업완료",
+        "문서상태": "판매전표+거래명세서", "게시일": "2026-07-04",
+        "작업일": "2026-07-02", "사진": 2,
+    }]
+    erp = {
+        "UJ2600001": {
+            "statement": False, "erp": True, "completed": False, "photos": 0,
+            "statement_dates": set(), "erp_dates": {"2026-07-05"},
+            "completion_dates": set(), "sources": {"ERP 판매조회"},
+        }
+    }
+    items, _counts, profiles, _files = V.build_plan(
+        path, band_records=band, erp_evidence=erp, erp_files=[],
+    )
+    cells = {(x["sheet"], x["cell"]): x for x in items}
+    assert cells[("03_현장작업실적", "K5")]["value"] == "반영완료"
+    assert cells[("03_현장작업실적", "L5")]["value"] == "반영완료"
+    assert cells[("03_현장작업실적", "M5")]["value"] == "유현민"
+    assert cells[("03_현장작업실적", "N5")]["value"] == "2026-07-05"
+    assert cells[("03_현장작업실적", "J5")]["value"] == "일치"
+    assert cells[("02_돌발AS접수", "I5")]["value"] == "완료"
+    assert cells[("02_돌발AS접수", "M5")]["value"] == "일치"
+    assert cells[("04_정기점검", "I5")]["value"] == "완료"
+    assert cells[("04_정기점검", "J5")]["value"] == "발행완료"
+    assert cells[("04_정기점검", "K5")]["value"] == "유현민"
+    assert not any(x["cell"].endswith("6") for x in items), "빈 03 예비행/미확인 건을 쓰면 안 됨"
+    assert not any(x["col"] == "검증결과" for x in items), "검증 수식을 직접 덮으면 안 됨"
+    assert profiles["UJ2600001"]["statement"] and profiles["UJ2600001"]["erp"]
+    assert any(not x["only_if_empty"] for x in items if x["vtype"] == "text"), \
+        "확정 증빙으로 확인필요·미등록을 완료 상태로 승격하지 못함"
+
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    index = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    sync = open(os.path.join(ROOT, "verification_sync.py"), encoding="utf-8").read()
+    assert "verification_sync.py" in daily
+    assert "derived_field_status_map" in server
+    writer = open(os.path.join(ROOT, "ledger_writer.py"), encoding="utf-8").read()
+    assert "by_sheet_done" in writer and ".iter_rows(" in writer, \
+        "대량 검증이 read_only 셀 무작위 접근으로 되돌아가면 실반영이 멈춘다"
+    for marker in ("거래명세서반영", "ERP반영", "검증자", "검증일"):
+        assert marker in index and marker in sync, f"앱 현장검증 표시 누락: {marker}"
+    print("  [84] 밴드·ERP·거래명세서 증빙→02·03·04 검증완료·유현민·확인일 자동동기화 ✅")
+
+
 def t80_new_project_flow_db_only(tmp):
     """신규 프로젝트 흐름도는 최신본만 내부 DB로 갱신하고 앱에는 연결하지 않는다."""
     import json
@@ -3672,6 +3782,8 @@ if __name__ == "__main__":
     t79_work_log_source_sync_and_report_capture()
     with tempfile.TemporaryDirectory() as tmp:
         t80_new_project_flow_db_only(tmp)
+    with tempfile.TemporaryDirectory() as tmp:
+        t84_evidence_verification_sync(tmp)
     t81_terra_sol_handoff_review()
     t82_daily_cutoff()
     t83_agent_dispatch_and_calendar()

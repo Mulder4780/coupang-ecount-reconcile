@@ -149,8 +149,10 @@ def main():
     # 완료보고서와 문서발행 표시는 프로젝트NO가 정확히 일치하는 근거만 빈칸에 큐잉한다.
     # 실제 ZIP 패치는 바로 아래 ledger_writer 한 번으로 합쳐 버전 난립과 충돌을 막는다.
     steps.append(run("완료보고서 확정분 큐", [os.path.join(ROOT, "confirm_fill.py"), "--queue"]))
-    steps.append(run("ERP 판매전표·거래명세 확정분 큐",
-                     [os.path.join(ROOT, "fill_erp_documents.py"), "--queue"]))
+    # 밴드·카톡 완료보고 + ERP 판매조회 + 06 거래명세서 원장을 프로젝트NO로 함께 대조한다.
+    # 02·03·04의 원인 열만 채우므로 검증결과 수식은 보존되고 Excel에서 정상/확인으로 재계산된다.
+    steps.append(run("ERP·거래명세서·현장검증 확정분 큐",
+                     [os.path.join(ROOT, "verification_sync.py"), "--queue"]))
     # 정기점검·돌발AS 일지(미실시건) — 완료근거는 원장 빈 칸만 보완 큐에 넣고,
     # 미실시 사유·취소·일자상이는 28_대조현황과 대표보고에 그대로 남긴다.
     steps.append(run("정기점검·돌발AS 일지 대조 안전입력 큐",

@@ -447,23 +447,28 @@ def real_settlements():
 def real_works():
     """02 돌발AS·04 정기점검 + 27 원본일정 현황 (앱 '업무' 데이터)"""
     import openpyxl
+    from verification_sync import derived_field_status_map
     from ecount_reconcile import load_config, resolve_master
     master = resolve_master(load_config()["reconcile"]["master_xlsx"])
     wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    # 03시트는 접수ID·프로젝트NO가 02 완료행을 순서대로 끌어오는 배열수식이라
+    # 캐시가 비어도 같은 순서를 재현해 돌발AS 카드에 현장 검증 상태를 붙인다.
+    field_status = derived_field_status_map(wb)
     out = {"as": [], "pm": []}
     spec = {
         # 뒤쪽 3개는 '확인 완료' 표시 — 관리자가 검증한 건인지 카드에서 바로 보이게 한다.
         "02_돌발AS접수": ("as", ["접수ID", "프로젝트NO", "캠프명", "접수일자", "담당기사", "진행상태",
                                 "작업완료일", "유상·무상·보험", "신청내용", "긴급도", "방문예정일",
-                                "관리자검증상태", "최종확인일", "사진등록", "완료보고서등록",
-                                "ERP등록",
+                                "관리자검증상태", "최종확인일", "사진등록", "동영상등록",
+                                "완료보고서등록", "ERP등록", "재방문여부",
+                                "최초접수외추가작업", "추가작업확인상태",
                                 # 밴드 원문 바로가기 — 목록에서 근거를 바로 열어 볼 수 있게 한다
                                 "밴드 바로가기",
                                 "검증결과", "검증문제코드"]),
         "04_정기점검": ("pm", ["점검ID", "프로젝트NO", "캠프명", "점검예정일", "실제점검일", "점검상태",
                               "담당기사", "이상발견여부", "돌발AS전환여부",
-                              "최종확인일(유현민 체크)", "점검사진",
-                              "ERP판매전표", "거래명세서",
+                              "최종확인일(유현민 체크)", "점검사진", "점검보고서",
+                              "ERP판매전표", "거래명세서", "담당관리자",
                               "검증결과", "검증문제코드"]),
     }
     for sheet, (key, cols) in spec.items():
@@ -490,7 +495,13 @@ def real_works():
             for c in cols:
                 v = row[idx[c]] if c in idx and idx[c] < len(row) else None
                 rec[c] = str(v)[:10] if hasattr(v, "year") else ("" if v is None else str(v))
+            if key == "as":
+                rec.update(field_status.get(str(rec.get("프로젝트NO") or "").upper(), {}))
+            else:
+                rec["검증자"] = rec.get("담당관리자") or ""
+                rec["검증일"] = rec.get("최종확인일(유현민 체크)") or ""
             derive_status(rec, key)
+            derive_effective_verification(rec, key)
             out[key].append(rec)
     # 류지영 원본 일정은 UJ번호가 없는 캠프·장비 일정이다. 04시트와 같은 캠프·같은 달이면
     # 이미 프로젝트 행으로 표시되므로 중복하지 않고, 아직 04에 없는 미래 월만 읽기 전용으로 보탠다.
@@ -562,6 +573,60 @@ def derive_status(rec, kind):
         if str(rec.get("진행상태") or "").strip():
             return
         rec["진행상태"] = "작업완료" if str(rec.get("작업완료일") or "").strip() else "접수"
+
+
+def derive_effective_verification(rec, kind):
+    """ZIP 패치 뒤 Excel을 열기 전에도 확정 상태가 앱에서 즉시 정상으로 보이게 한다.
+
+    수식 캐시는 Excel 재계산 전까지 이전 결과를 유지한다. 여기서는 모든 필수 원인
+    값이 명확히 충족된 경우에만 ``정상``으로 승격하고, 하나라도 불명확하면 기존
+    검증결과를 그대로 둔다. 따라서 확인되지 않은 건을 정상으로 오판하지 않는다.
+    """
+    def text(name):
+        return str(rec.get(name) or "").strip()
+
+    if kind == "as" and text("진행상태") == "작업완료":
+        required = [
+            bool(text("담당기사")),
+            bool(text("방문예정일")),
+            bool(text("작업완료일")),
+            text("사진등록") == "등록",
+            text("동영상등록") != "누락",
+            text("완료보고서등록") == "등록",
+            text("유상·무상·보험") not in ("", "미확정"),
+            text("ERP등록") in ("완료", "등록완료"),
+            bool(text("재방문여부")),
+            text("관리자검증상태") in ("일치", "추가작업발생"),
+        ]
+        if text("최초접수외추가작업") == "있음":
+            required.append(text("추가작업확인상태") == "반영완료")
+        # 03 현장행이 연결된 건은 문서·ERP·검증자·검증일까지 전부 확인돼야 한다.
+        if rec.get("현장작업행"):
+            required.extend([
+                text("현장관리자검증") in ("일치", "추가작업발생"),
+                text("거래명세서반영") == "반영완료",
+                text("ERP반영") == "반영완료",
+                text("검증자") == "유현민",
+                bool(text("검증일")),
+            ])
+        if all(required):
+            rec["검증결과"] = "정상"
+            rec["검증문제코드"] = ""
+    elif kind == "pm" and text("점검상태") == "완료":
+        required = [
+            bool(text("실제점검일")),
+            text("점검사진") == "등록",
+            text("ERP판매전표") in ("완료", "등록완료"),
+            text("거래명세서") == "발행완료",
+            text("검증자") == "유현민",
+            bool(text("검증일")),
+        ]
+        # 점검보고서는 기존 앱 열 목록에 없던 열이라 새 파일에서는 반드시 등록돼야 한다.
+        if "점검보고서" in rec:
+            required.append(text("점검보고서") == "등록")
+        if all(required):
+            rec["검증결과"] = "정상"
+            rec["검증문제코드"] = ""
 
 
 def demo_works():

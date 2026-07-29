@@ -403,14 +403,40 @@ def _main():
     import openpyxl
     w = openpyxl.load_workbook(dst, read_only=True, data_only=False)
     bad = []
+    # read_only Worksheet.cell()은 호출할 때마다 시트 XML 처음부터 해당 행까지 다시
+    # 순회한다. 1,000건 이상 검증하면 수 시간 걸리므로 시트별 한 번의 순차 읽기로
+    # 바꾼다. openpyxl save는 하지 않으며 기존 ZIP 패치 안전규칙은 그대로다.
+    by_sheet_done = {}
     for d in done:
-        cell = w[d["sheet"]].cell(row=d["row"], column=col_num(d["colL"])).value
-        if d.get("vtype") == "date":
-            okv = cell is not None
-        else:
-            okv = str(cell) == str(d["value"]) or (d.get("vtype") == "number" and cell == d["value"])
-        if not okv:
-            bad.append((d["key"], d["col"], cell))
+        by_sheet_done.setdefault(d["sheet"], {})[(d["row"], col_num(d["colL"]))] = d
+    for sheet, wanted in by_sheet_done.items():
+        if not wanted:
+            continue
+        rows = [key[0] for key in wanted]
+        cols = [key[1] for key in wanted]
+        min_row, max_row = min(rows), max(rows)
+        min_col, max_col = min(cols), max(cols)
+        seen = set()
+        for row_no, values in enumerate(
+                w[sheet].iter_rows(min_row=min_row, max_row=max_row,
+                                   min_col=min_col, max_col=max_col, values_only=True),
+                start=min_row):
+            for offset, cell in enumerate(values):
+                key = (row_no, min_col + offset)
+                d = wanted.get(key)
+                if not d:
+                    continue
+                seen.add(key)
+                if d.get("vtype") == "date":
+                    okv = cell is not None
+                else:
+                    okv = (str(cell) == str(d["value"])
+                           or (d.get("vtype") == "number" and cell == d["value"]))
+                if not okv:
+                    bad.append((_label(d), d.get("col", d.get("colL", "")), cell))
+        for key in set(wanted) - seen:
+            d = wanted[key]
+            bad.append((_label(d), d.get("col", d.get("colL", "")), "셀 미검출"))
     w.close(); z.close()
     assert not bad, f"검증 실패: {bad}"
 

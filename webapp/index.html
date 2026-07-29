@@ -1739,14 +1739,16 @@ function renderSettle(){
         <div class="top"><span class="camp">${r.담당기사||'-'}</span></div>
         <div class="meta"><span class="sid">${r.접수ID||''}</span><span>접수 ${r.접수일자||'-'}</span>${r.작업완료일?`<span>완료 ${r.작업완료일}</span>`:''}<span>${r['유상·무상·보험']||''}</span>${okTag(r.관리자검증상태, r.최종확인일)}${verTag(r.검증결과, r.검증문제코드)}
           ${r.완료보고서등록?`<span>완료보고서 ${r.완료보고서등록}</span>`:''}${r.ERP등록?`<span>ERP ${r.ERP등록}</span>`:''}
+          ${r.거래명세서반영?`<span>명세서 ${r.거래명세서반영}</span>`:''}${r.ERP반영?`<span>현장ERP ${r.ERP반영}</span>`:''}
+          ${r.검증자?`<span>검증 ${r.검증자}${r.검증일?' · '+r.검증일:''}</span>`:''}
           ${r.긴급도==='긴급'?'<span style="color:var(--danger);font-weight:700">긴급</span>':''}
           <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</span></div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
-    $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('접수ID','접수ID')}${thx('캠프','캠프명')}${thx('접수일','접수일자')}${thx('기사','담당기사')}${thx('유·무상','유상·무상·보험')}<th>내용</th>${thx('완료일','작업완료일')}<th>완료보고서</th><th>ERP</th>${thx('상태','진행상태')}</tr>` +
+    $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('접수ID','접수ID')}${thx('캠프','캠프명')}${thx('접수일','접수일자')}${thx('기사','담당기사')}${thx('유·무상','유상·무상·보험')}<th>내용</th>${thx('완료일','작업완료일')}<th>완료보고서</th><th>명세서반영</th><th>ERP반영</th><th>검증자·일</th>${thx('상태','진행상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('as',${i},'${r.접수ID}')" style="cursor:pointer">
         <td><b class="prjno">${esc2(projectLabel(r))}</b></td><td>${r.접수ID||'-'}</td><td>${r.캠프명}</td><td>${r.접수일자||'-'}</td><td>${r.담당기사||'-'}</td>
         <td>${r['유상·무상·보험']||'-'}</td><td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</td>
-        <td>${r.작업완료일||'-'}</td><td>${r.완료보고서등록||'-'}</td><td>${r.ERP등록||'-'}</td><td>${chip(r.진행상태)}</td></tr>`).join('');
+        <td>${r.작업완료일||'-'}</td><td>${r.완료보고서등록||'-'}</td><td>${r.거래명세서반영||'-'}</td><td>${r.ERP반영||r.ERP등록||'-'}</td><td>${r.검증자?(r.검증자+(r.검증일?' · '+r.검증일:'')):'-'}</td><td>${chip(r.진행상태)}</td></tr>`).join('');
   } else if(mode==='check'){
     // 엑셀 07_불일치누락현황 — 검증 안 된·확인해야 할 항목 그대로
     const types = {};
@@ -1779,6 +1781,7 @@ function renderSettle(){
         <div class="top"><span class="camp">${r.담당기사||'-'}</span></div>
         <div class="meta"><span class="sid">${r.점검ID||''}</span><span>예정 ${r.점검예정일||'-'}</span><span>실제 ${r.실제점검일||'-'}</span>${okTag(r['최종확인일(유현민 체크)']?'일치':'', r['최종확인일(유현민 체크)'])}${verTag(r.검증결과, r.검증문제코드)}
           ${r.ERP판매전표?`<span>판매전표 ${r.ERP판매전표}</span>`:''}${r.거래명세서?`<span>거래명세서 ${r.거래명세서}</span>`:''}
+          ${r.검증자?`<span>검증 ${r.검증자}${r.검증일?' · '+r.검증일:''}</span>`:''}
           ${r.이상발견여부==='있음'?'<span style="color:var(--danger);font-weight:700">이상발견</span>':''}</div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
     $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('점검ID','점검ID')}${thx('캠프','캠프명')}${thx('예정일','점검예정일')}${thx('실제점검일','실제점검일')}${thx('기사','담당기사')}${thx('이상','이상발견여부')}${thx('AS전환','돌발AS전환여부')}<th>판매전표</th><th>거래명세서</th>${thx('상태','점검상태')}</tr>` +
