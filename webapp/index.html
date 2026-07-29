@@ -487,6 +487,58 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 .metric-row .metric-issue{font-size:11.5px;color:var(--ink-2);line-height:1.5;margin-top:4px;
   overflow-wrap:anywhere}
 
+/* ═══ 확인 필요 전용 화면 ═══ */
+.check-hero{display:flex;justify-content:space-between;align-items:center;gap:18px;
+  background:linear-gradient(120deg,#FFF 0%,#F7F9FF 62%,#EEF2FF 100%);
+  border:1px solid #DCE4F5;border-radius:18px;padding:21px 22px;margin-bottom:13px;box-shadow:var(--sh)}
+.check-hero .eyebrow{font-size:11px;color:var(--brand);font-weight:800;letter-spacing:.5px;margin-bottom:3px}
+.check-hero h2{font-size:22px;letter-spacing:-.5px;margin-bottom:4px}
+.check-hero p{font-size:12.5px;color:var(--ink-2);max-width:620px}
+.check-hero .actions{flex:0 0 310px}
+.check-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:13px}
+.check-kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--sh);padding:15px 16px;cursor:pointer;transition:all .15s}
+.check-kpi:hover{border-color:var(--brand);box-shadow:var(--sh-lg);transform:translateY(-1px)}
+.check-kpi .v{font-size:24px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
+.check-kpi .l{font-size:11.5px;color:var(--ink-2);font-weight:700;margin-top:5px}
+.check-kpi .s{font-size:10.5px;color:var(--ink-3);margin-top:3px}
+.check-kpi.danger .v{color:var(--danger)} .check-kpi.warn .v{color:var(--warn)}
+.check-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);gap:13px}
+.check-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.check-group{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;text-align:left;
+  background:#F8FAFD;border:1px solid #E8EDF5;border-radius:11px;padding:11px 12px;
+  min-height:66px;transition:all .15s}
+.check-group:hover{background:var(--brand-tint);border-color:#BFCDF3;transform:translateY(-1px)}
+.check-group .name{display:block;font-size:12.5px;font-weight:800;line-height:1.35}
+.check-group .hint{display:block;font-size:10.5px;color:var(--ink-3);margin-top:4px;line-height:1.35}
+.check-group .count{flex:none;font-size:14px;font-weight:800;color:var(--brand);font-variant-numeric:tabular-nums}
+.check-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) 180px 160px auto;gap:8px;margin-bottom:10px}
+.check-toolbar input,.check-toolbar select{min-width:0;padding:10px 12px;border:1.5px solid var(--line);
+  border-radius:10px;background:#fff;color:var(--ink);font:inherit}
+.check-toolbar input:focus,.check-toolbar select:focus{outline:none;border-color:var(--brand)}
+.check-toolbar button{padding:9px 13px;border:1px solid var(--line);border-radius:10px;background:#F8FAFD;
+  color:var(--ink-2);font-weight:800}
+.check-summary{font-size:11.5px;color:var(--ink-3);margin:-2px 0 9px}
+.check-summary b{color:var(--brand)}
+.check-row .check-desc{font-size:11.5px;color:var(--ink-2);line-height:1.55;margin-top:5px;
+  overflow-wrap:anywhere}
+.check-row .check-money{font-weight:800;color:var(--warn);white-space:nowrap}
+@media(max-width:899px){
+  .check-hero{align-items:flex-start;flex-direction:column}
+  .check-hero .actions{flex:0 0 auto;width:100%}
+  .check-kpis{grid-template-columns:repeat(2,1fr)}
+  .check-grid{grid-template-columns:1fr}
+  .check-toolbar{grid-template-columns:1fr 1fr}
+  .check-toolbar input{grid-column:1/-1}
+}
+@media(max-width:420px){
+  .tabbar button{font-size:9px;padding-left:1px;padding-right:1px}
+  .tabbar svg{width:20px;height:20px}
+  .check-groups{grid-template-columns:1fr}
+  .check-toolbar{grid-template-columns:1fr}
+  .check-toolbar input{grid-column:auto}
+}
+
 /* ═══ TOP 리스트 ═══ */
 .toplist{display:flex;flex-direction:column;gap:8px}
 .topitem{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 13px;
@@ -805,6 +857,47 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
     <div class="rpt" id="rpt">보고서 생성 중...</div>
   </section>
 
+  <!-- 확인 필요 — 원장 요약·유형/담당자별 조치·캡처 -->
+  <section class="view" id="v-check">
+    <div class="check-hero">
+      <div>
+        <div class="eyebrow">2026년 확인 업무 전용</div>
+        <h2>확인 필요</h2>
+        <p>문제유형과 담당자별로 건을 좁혀 보고, 프로젝트 번호를 눌러 정확한 업무 기록을 확인할 수 있습니다.</p>
+      </div>
+      <div class="actions">
+        <button class="abtn primary" onclick="openCheckFiltered()"><span class="em">📤</span>현재 목록 전달</button>
+        <button class="abtn" onclick="showCheckRaw()"><span class="em">📋</span>원본표 보기</button>
+      </div>
+    </div>
+    <div class="check-kpis" id="checkkpis"></div>
+    <div class="check-grid">
+      <div class="card">
+        <h3>문제유형별 <span class="norm">— 누르면 해당 목록과 캡처 기능이 열립니다</span></h3>
+        <div class="check-groups" id="checktypes">불러오는 중...</div>
+      </div>
+      <div class="card">
+        <h3>담당자별 <span class="norm">— 담당자 표기가 없는 건도 따로 표시</span></h3>
+        <div class="toplist" id="checkowners">불러오는 중...</div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>관리·청구 확인 <span class="norm">— 유현민이 직접 확인하거나 자료를 넣을 항목</span></h3>
+      <div class="toplist" id="checkmine">불러오는 중...</div>
+    </div>
+    <div class="card">
+      <h3>확인 필요 전체 목록 <span class="norm">— 프로젝트·캠프·담당자·근거 검색</span></h3>
+      <div class="check-toolbar">
+        <input id="checkq" placeholder="프로젝트·ID·캠프·담당자·근거 검색" oninput="renderCheckList()">
+        <select id="checktype" onchange="renderCheckList()"><option value="">문제유형 전체</option></select>
+        <select id="checkowner" onchange="renderCheckList()"><option value="">담당자 전체</option></select>
+        <button onclick="resetCheckFilters()">초기화</button>
+      </div>
+      <div class="check-summary" id="checksummary"></div>
+      <div class="slist" id="checklist"></div>
+    </div>
+  </section>
+
   <!-- 리포트 -->
   <section class="view" id="v-report">
     <div class="rtabs" id="rtabs"></div>
@@ -823,6 +916,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   <button data-v="settle" onclick="show('settle')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>정산</button>
   <button data-v="run" onclick="show('run')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="6,4 20,12 6,20"/></svg>실행</button>
   <button data-v="daily" onclick="show('daily');renderDaily()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2.5h5L16 6"/></svg>보고</button>
+  <button data-v="check" onclick="show('check')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3L2.8 19h18.4L12 3z"/><path d="M12 9v4M12 16.5h.01"/></svg>확인 필요</button>
   <button data-v="report" onclick="show('report')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>기록</button>
 </nav>
 
@@ -862,6 +956,7 @@ function applyView(v){
   $('v-'+v).classList.add('active');
   document.querySelectorAll('.tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
   if(v==='report' && !reports.length) loadReports();
+  if(v==='check') renderCheckHub();
   try{ localStorage.setItem('cw_view', v); }catch(e){}   // 새로고침 후 같은 화면으로 복귀
   window.__view = v;
 }
@@ -1097,6 +1192,7 @@ async function loadSettle(){
   applyBrand();
   syncSortUI(); fillStatOptions(); renderSettle(); periodInit();
   try{ renderBoard(); }catch(e){ console.warn('board', e); }
+  try{ renderCheckHub(); }catch(e){ console.warn('check hub', e); }
   try{ $('helpcard').innerHTML = helpAll(); }catch(e){ console.warn('help', e); }
 }
 function setMode(m){
@@ -2176,12 +2272,12 @@ function briefBlock(){
     <div class="bbar"><div class="bbt"><span>${_e(p.분기||'')} 진행률</span>
       <b>${pct}% <em>${p.분기완료||0}/${p.분기예정||0}건</em></b></div>
       <div class="btrack"><div class="bfill${pct>=60?'':' low'}" style="width:${Math.min(pct,100)}%"></div></div>
-      <div class="bnote">${pct>=60?'특별한 문제 없으면 분기 내 마무리 가능합니다.'
+      <div class="bnote">${pct>=60?`특별한 문제 없으면 ${_e(p.분기끝월||'분기')}까지 마무리 가능합니다.`
                                  :'진행률이 낮아 일정 관리가 필요합니다.'}</div>
       <div class="pmstats">
-        <button onclick="openPmBrief('quarter-all')">분기 예정<b>${p.분기예정||0}건</b></button>
-        <button class="done" onclick="openPmBrief('quarter-done')">분기 실행<b>${p.분기완료||0}건</b></button>
-        <button class="warn" onclick="openPmBrief('quarter-pending')">분기 미실행<b>${p.분기미실행||0}건</b></button>
+        <button onclick="openPmBrief('quarter-all')">${_e(p.분기범위||'분기')} 예정<b>${p.분기예정||0}건</b></button>
+        <button class="done" onclick="openPmBrief('quarter-done')">${_e(p.분기범위||'분기')} 실행<b>${p.분기완료||0}건</b></button>
+        <button class="warn" onclick="openPmBrief('quarter-pending')">${_e(p.분기범위||'분기')} 미실행<b>${p.분기미실행||0}건</b></button>
       </div></div></div>`;
 
   /* 확인이 필요한 것 — 대표가 물어볼 항목만 모아 둔다 */
@@ -2957,6 +3053,233 @@ function renderBoard(){
   }).join('') || '<div style="color:var(--ink-3);font-size:13px">확인할 사항이 없습니다 🎉</div>';
 }
 
+/* ══ 확인 필요 전용 화면 ═════════════════════════════════════════════════════
+   23_확인필요현황을 원본으로 삼되, 단순 표가 아니라
+   요약 → 유형/담당자 → 검색 목록 → 정확한 업무기록 → 전달 이미지로 이어 준다. */
+function checkTypeOf(r){ return String(r.문제유형||r.경고내용||r.검증결과||'기타 확인').trim(); }
+const CHECK_INTERNAL_OWNER={
+  '세금계산서 미발행':'유현민','입금 대기':'유현민','금액 미입력':'유현민',
+  'PO A':'유현민','PO 미발행':'유현민','작업금액 불일치':'유현민','원장 미등록':'유현민'
+};
+function checkOwnerOf(r){
+  const direct=String(r.담당자||r.담당기사||'').trim();
+  if(direct) return direct;
+  const internal=CHECK_INTERNAL_OWNER[checkTypeOf(r)];
+  if(internal) return internal;                     // 청구·입금·PO는 현장기사 업무가 아니다
+  const raw=checkIdOf(r), first=typeof rowById==='function' ? rowById(raw) : null;
+  const source=first&&first.원천업무ID ? rowById(first.원천업무ID) : first;
+  if(source&&String(source.담당기사||source.담당자||'').trim())
+    return String(source.담당기사||source.담당자).trim();
+  const project=checkProjectOf(r);
+  const linked=(works.as||[]).concat(works.pm||[]).filter(x=>
+    project&&String(x.프로젝트NO||'').trim()===project&&String(x.담당기사||'').trim());
+  const names=[...new Set(linked.flatMap(x=>owners(x.담당기사)).filter(x=>x!=='담당 미지정'))];
+  return names.length ? names.join(', ') : '담당 표기 없음';
+}
+function checkDateOf(r){ return String(r.일자||r.기준일||r.접수일자||r.점검예정일||r.완료일||'').slice(0,10); }
+function checkIdOf(r){ return String(r.ID||r.업무ID||r.정산ID||r.접수ID||r.점검ID||'').trim(); }
+function checkProjectOf(r){ return String(r.프로젝트NO||'').trim(); }
+function checkDescOf(r){ return String(r['내용·근거']||r.문제내용||r.경고내용||r.검증문제코드||'').trim(); }
+function checkDaysOld(r){
+  const d=normDate(checkDateOf(r)); if(!d) return -1;
+  const a=new Date(d+'T00:00:00'), b=new Date(todayISO()+'T00:00:00');
+  return Math.floor((b-a)/86400000);
+}
+function samePo(a,b){ return String(a||'').replace(/[^A-Z0-9]/gi,'').toUpperCase()===
+  String(b||'').replace(/[^A-Z0-9]/gi,'').toUpperCase(); }
+function checkLink(r){
+  const raw=checkIdOf(r);
+  let hit=typeof rowById==='function' ? rowById(raw) : null;
+  if(!hit&&/^PO/i.test(raw)) hit=settleRows.find(r=>samePo(r.PO번호,raw))||null;
+  const textProject=(checkDescOf(r).match(/\bUJ26\d{5}\b/i)||[])[0]||'';
+  let kind='';
+  if(/^AS-/i.test(raw) || (hit&&hit.접수ID)) kind='as';
+  else if(/^PM-/i.test(raw) || (hit&&hit.점검ID)) kind='pm';
+  else if(/^JS-/i.test(raw) || (hit&&hit.정산ID)) kind='settle';
+  const targetId=kind==='as'&&hit ? hit.접수ID : kind==='pm'&&hit ? hit.점검ID
+    : kind==='settle'&&hit ? hit.정산ID : raw;
+  return {
+    kind, id:String(targetId||raw).trim(), issueId:raw,
+    project:String((hit&&hit.프로젝트NO)||textProject||checkProjectOf(r)||raw).trim(),
+    camp:String((hit&&hit.캠프명)||r.캠프명||'').trim(),
+    title:String((hit&&hit.프로젝트명)||r.프로젝트명||'').trim()
+  };
+}
+function checkMetricRow(r){
+  const x=checkLink(r), amount=Number(String(r.금액||'').replace(/[^0-9.-]/g,''))||0;
+  return {
+    프로젝트NO:x.project, 프로젝트명:x.title, 캠프명:x.camp,
+    일자:checkDateOf(r), 담당자:checkOwnerOf(r),
+    문제:checkDescOf(r)||checkTypeOf(r), 상태:checkTypeOf(r), 금액:amount,
+    종류:x.kind||'check', 레코드ID:x.kind?x.id:x.issueId, ID:x.id||x.project
+  };
+}
+function checkRows(){
+  return (issuesData.rows||[]).filter(r=>rowIs2026(r,'issue')&&!isSideWork(r));
+}
+function groupCheck(rows, getter){
+  const out={};
+  rows.forEach(r=>{ const k=getter(r); (out[k]=out[k]||[]).push(r); });
+  return out;
+}
+function checkSortGroups(g){
+  return Object.keys(g).sort((a,b)=>g[b].length-g[a].length||a.localeCompare(b,'ko'));
+}
+function openCheckRows(title, rows, basis){
+  rows=Array.isArray(rows)?rows:[];
+  const label=title||'확인 필요 목록';
+  window._briefMetric={label,data:{
+    rows:rows.map(checkMetricRow), count:rows.length, kind:'check',
+    basis:basis||`${APP_YEAR}년 23_확인필요현황 · 현재 미해결 ${rows.length}건`
+  }};
+  openExecMetric(label);
+}
+function openCheckType(type){
+  const rows=checkRows().filter(r=>checkTypeOf(r)===type);
+  openCheckRows(type,rows,`${APP_YEAR}년 확인필요 원장 중 문제유형이 “${type}”인 건`);
+}
+function openCheckOwner(owner){
+  const rows=checkRows().filter(r=>checkOwnerOf(r)===owner);
+  openCheckRows(`${owner} 확인 요청`,rows,
+    `${APP_YEAR}년 확인필요 원장에서 담당자가 “${owner}”인 건 · 프로젝트 번호를 누르면 원기록으로 이동`);
+}
+function openCheckFiltered(){
+  const rows=window._checkVisible||checkRows();
+  const t=$('checktype')&&$('checktype').value, o=$('checkowner')&&$('checkowner').value;
+  const bits=[t,o].filter(Boolean), title=bits.length?bits.join(' · '):'확인 필요 전체';
+  openCheckRows(title,rows,`${APP_YEAR}년 확인필요 원장 · 현재 화면의 검색·필터 결과 ${rows.length}건`);
+}
+function openCheckStale(){
+  const rows=checkRows().filter(r=>checkDaysOld(r)>30);
+  openCheckRows('30일 초과 확인',rows,`${todayISO()} 기준, 확인필요 원장 일자가 30일을 넘긴 건`);
+}
+function checkTargetExists(project){
+  const p=String(project||'').trim(); if(!p) return false;
+  return settleRows.some(r=>String(r.프로젝트NO||'')===p) ||
+    (works.as||[]).some(r=>String(r.프로젝트NO||'')===p) ||
+    (works.pm||[]).some(r=>String(r.프로젝트NO||'')===p);
+}
+function openCheckSource(r){
+  const x=checkLink(r);
+  window._singleCheckRow=r;
+  const fields=Object.entries(r).filter(([,v])=>String(v==null?'':v).trim());
+  openPane(`<h2>${esc2(checkTypeOf(r))} ${chip('원장 연결 확인')}</h2>
+    <div class="sub">${esc2(x.project||x.issueId||'확인 항목')} · 연결된 AS·점검·정산 원장 행이 없어 확인 원문을 엽니다.</div>
+    <div class="metric-basis"><b>다음 조치</b> 프로젝트 번호·PO 번호로 원장을 확인한 뒤,
+      해당 업무가 등록되면 이 화면에서 자동으로 원기록과 연결됩니다.</div>
+    <div class="dl">${fields.map(([k,v])=>`<dt>${esc2(k)}</dt><dd>${esc2(v)}</dd>`).join('')}</div>
+    ${helpBox(checkTypeOf(r))}
+    <div class="actions sticky">
+      <button class="abtn primary" onclick="openSingleCheckCapture()"><span class="em">📤</span>이 항목 전달</button>
+      <button class="abtn" onclick="showCheckRaw()"><span class="em">📋</span>원본표 보기</button></div>`);
+}
+function openSingleCheckCapture(){
+  const r=window._singleCheckRow; if(r) openCheckRows(checkTypeOf(r),[r],'원장 연결을 확인할 단일 항목');
+}
+function openCheckByKey(id,project){
+  const rows=checkRows();
+  const r=rows.find(x=>checkIdOf(x)===String(id||'')) ||
+          rows.find(x=>checkProjectOf(x)===String(project||'')); if(!r) return;
+  const link=checkLink(r);
+  if(link.kind) openRecord(link.kind,link.id,link.project);
+  else if(checkTargetExists(link.project)) openByPrj(link.project);
+  else openCheckSource(r);
+}
+function openCheckItem(i){
+  const r=(window._checkVisible||[])[i]; if(!r) return;
+  const x=checkLink(r);
+  if(x.kind) openRecord(x.kind,x.id,x.project);
+  else if(checkTargetExists(x.project)) openByPrj(x.project);
+  else openCheckSource(r);
+}
+function showCheckRaw(){
+  show('settle'); setMode('check');
+}
+function resetCheckFilters(){
+  if($('checkq')) $('checkq').value='';
+  if($('checktype')) $('checktype').value='';
+  if($('checkowner')) $('checkowner').value='';
+  renderCheckList();
+}
+function renderCheckList(){
+  if(!$('checklist')) return;
+  const q=String(($('checkq')&&$('checkq').value)||'').trim().toLowerCase();
+  const type=String(($('checktype')&&$('checktype').value)||'');
+  const owner=String(($('checkowner')&&$('checkowner').value)||'');
+  const all=checkRows();
+  const rows=all.filter(r=>{
+    if(type&&checkTypeOf(r)!==type) return false;
+    if(owner&&checkOwnerOf(r)!==owner) return false;
+    return !q || Object.values(r).join(' ').toLowerCase().includes(q);
+  });
+  window._checkVisible=rows;
+  $('checksummary').innerHTML=`전체 ${all.length}건 중 <b>${rows.length}건</b> 표시 · 오래된 건부터 최근 순`;
+  $('checklist').innerHTML=rows.map((r,i)=>{
+    const x=checkLink(r), id=x.id||x.project||'-', prj=x.project||id;
+    const amount=Number(String(r.금액||'').replace(/[^0-9.-]/g,''))||0;
+    return `<div class="srow check-row metric-row" role="button" tabindex="0" onclick="openCheckItem(${i})"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCheckItem(${i})}">
+      <div class="top"><span class="project-line"><span class="prjno">${esc2(prj)}</span>
+        ${id!==prj?`<span class="sid">· ${esc2(id)}</span>`:''}
+        <span class="camp-name">${esc2(x.camp||'캠프 미상')}</span></span>
+        ${amount?`<span class="check-money">${fmt(Math.abs(amount))}원</span>`:chip(checkTypeOf(r))}</div>
+      <div class="meta"><span class="metric-date">${esc2(checkDateOf(r)||'-')}</span>
+        <span>${esc2(checkOwnerOf(r))}</span><span>${esc2(r.구분||'')}</span>
+        ${amount?chip(checkTypeOf(r)):''}</div>
+      ${checkDescOf(r)?`<div class="check-desc">${esc2(checkDescOf(r))}</div>`:''}
+    </div>`;
+  }).join('')||'<div class="card">조건에 맞는 확인 항목이 없습니다 🎉</div>';
+}
+function renderCheckHub(){
+  if(!$('checkkpis')) return;
+  const rows=checkRows(), byType=groupCheck(rows,checkTypeOf), byOwner=groupCheck(rows,checkOwnerOf);
+  const stale=rows.filter(r=>checkDaysOld(r)>30), unassigned=byOwner['담당 표기 없음']||[];
+  $('checkkpis').innerHTML=`
+    <div class="check-kpi danger" onclick="openCheckRows('확인 필요 전체',checkRows())">
+      <div class="v">${rows.length}</div><div class="l">전체 확인 필요</div><div class="s">누르면 전체 목록·캡처</div></div>
+    <div class="check-kpi" onclick="document.getElementById('checktypes').scrollIntoView({behavior:'smooth'})">
+      <div class="v">${Object.keys(byType).length}</div><div class="l">문제유형</div><div class="s">유형별로 바로 구분</div></div>
+    <div class="check-kpi ${unassigned.length?'warn':''}" onclick="openCheckOwner('담당 표기 없음')">
+      <div class="v">${unassigned.length}</div><div class="l">담당 표기 없음</div><div class="s">원장 담당자 칸 확인</div></div>
+    <div class="check-kpi ${stale.length?'warn':''}" onclick="openCheckStale()">
+      <div class="v">${stale.length}</div><div class="l">30일 초과</div><div class="s">오래된 확인 항목</div></div>`;
+  $('checktypes').innerHTML=checkSortGroups(byType).map(t=>{
+    const list=byType[t], ownersN=new Set(list.map(checkOwnerOf)).size;
+    return `<button class="check-group" onclick="openCheckType(${esc4(t)})">
+      <span><span class="name">${esc2(t)}</span><span class="hint">담당 ${ownersN}명 · 목록/전달 이미지</span></span>
+      <span class="count">${list.length}건</span></button>`;
+  }).join('')||'<div style="color:var(--ink-3)">확인할 항목이 없습니다 🎉</div>';
+  $('checkowners').innerHTML=checkSortGroups(byOwner).map(o=>{
+    const list=byOwner[o], typesN=new Set(list.map(checkTypeOf)).size;
+    return `<div class="topitem" onclick="openCheckOwner(${esc4(o)})">
+      <span style="min-width:0"><b>${esc2(o)}</b>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:3px">${typesN}개 유형 · ${
+          list.slice(0,2).map(r=>esc2(checkTypeOf(r))).join(', ')}${list.length>2?' 외':''}</div></span>
+      <span style="text-align:right;flex:none"><b>${list.length}건</b><br>
+        <span style="font-size:11px;color:var(--brand);font-weight:800">내역·전달 ▸</span></span></div>`;
+  }).join('')||'<div style="color:var(--ink-3)">담당자 확인 항목이 없습니다 🎉</div>';
+
+  const mine=buildMine(); window._mine=mine;
+  $('checkmine').innerHTML=mine.map((m,i)=>{
+    const col=m.lv==='danger'?'var(--danger)':m.lv==='warn'?'var(--warn)':'var(--ink-3)';
+    return `<div class="topitem" onclick="openMine(${i})">
+      <span style="min-width:0"><b>${esc2(m.cat)}</b>
+        <div style="font-size:11.5px;color:var(--ink-3);margin-top:3px">${esc2(m.todo)}</div></span>
+      <span style="text-align:right;flex:none"><b style="color:${col}">${m.n?m.n+'건':'투입 대기'}</b>
+        ${m.amt?`<br><span style="font-size:11px;color:var(--ink-3)">${fmt(m.amt)}원</span>`:''}</span></div>`;
+  }).join('')||'<div style="color:var(--ink-3)">관리·청구 확인 사항이 없습니다 🎉</div>';
+
+  const typeEl=$('checktype'), ownerEl=$('checkowner');
+  const keepT=typeEl.value, keepO=ownerEl.value;
+  typeEl.innerHTML='<option value="">문제유형 전체</option>'+
+    checkSortGroups(byType).map(t=>`<option value="${esc2(t)}">${esc2(t)} (${byType[t].length})</option>`).join('');
+  ownerEl.innerHTML='<option value="">담당자 전체</option>'+
+    checkSortGroups(byOwner).map(o=>`<option value="${esc2(o)}">${esc2(o)} (${byOwner[o].length})</option>`).join('');
+  if(byType[keepT]) typeEl.value=keepT;
+  if(byOwner[keepO]) ownerEl.value=keepO;
+  renderCheckList();
+}
+
 /* onclick 속성에 안전하게 문자열 넣기 */
 function esc4(s){ return "'" + String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;') + "'"; }
 
@@ -3040,6 +3363,7 @@ function openPmBrief(scope){
 }
 function metricOpenCall(r){
   const kind=String(r.종류||''), id=String(r.레코드ID||r.ID||''), prj=String(r.프로젝트NO||'');
+  if(kind==='check') return `openCheckByKey(${esc4(id)},${esc4(prj)})`;
   return kind ? `openRecord(${esc4(kind)},${esc4(id)},${esc4(prj)})`
               : `openByPrj(${esc4(prj||id)})`;
 }

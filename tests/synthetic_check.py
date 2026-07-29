@@ -1638,10 +1638,13 @@ def t38_daily_brief():
     # 내용이 없으면 지어내지 말고 미기입으로 남겨야 한다
     assert all(x["무엇"] == "" for x in b["내용미기입"]), "미기입 판정이 틀렸다"
 
-    # (4) 분기 계산이 맞는가 — 7월은 3분기
-    assert b["정기점검"]["분기"].endswith("3분기"), b["정기점검"]["분기"]
+    # (4) 분기 계산이 맞는가 — 7월은 7~9월 구간
+    #     ★ 사용자 지시(2026-07-29)로 'N분기' 대신 **월 범위**로 적는다(검증 [70] 참고).
+    assert b["정기점검"]["분기"].endswith("7~9월"), b["정기점검"]["분기"]
+    assert b["정기점검"]["분기끝월"] == "9월", b["정기점검"]["분기끝월"]
     b1 = D.brief("2026-02-10", data)
-    assert b1["정기점검"]["분기"].endswith("1분기"), b1["정기점검"]["분기"]
+    assert b1["정기점검"]["분기"].endswith("1~3월"), b1["정기점검"]["분기"]
+    assert b1["정기점검"]["분기범위"] == "1~3월", b1["정기점검"]["분기범위"]
 
     # (5) 없는 날을 넣어도 죽지 않아야 한다(보고가 매일 돌아간다)
     empty = D.brief("2020-01-01", data)
@@ -2747,6 +2750,71 @@ def t56_work_detail_from_source():
     print("  [56] 작업내용 자동기입(신청내용 금지·빈 양식 제외·▒ 절단 방지·행 생성 금지) ✅")
 
 
+def t58_check_hub_detail_and_capture():
+    """[58] 보고 아래 확인 필요 전용 화면은 유형·담당자·원기록·캡처까지 이어진다."""
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # 메뉴는 사용자가 지정한 위치(보고 바로 아래, 기록 위)에 있어야 한다.
+    daily = live.index('data-v="daily"')
+    check = live.index('data-v="check"', daily)
+    report = live.index('data-v="report"', check)
+    assert daily < check < report, "확인 필요 메뉴가 보고 아래·기록 위가 아니다"
+    assert 'id="v-check"' in live and "if(v==='check') renderCheckHub()" in live
+
+    # 숫자만 보여 주는 카드가 아니라 유형/담당자/전체 목록을 실제 행으로 좁혀야 한다.
+    for token in ("function renderCheckHub(", "function renderCheckList(",
+                  "function openCheckType(", "function openCheckOwner(",
+                  "function openCheckFiltered(", "function openCheckStale(",
+                  'id="checktypes"', 'id="checkowners"', 'id="checklist"',
+                  'id="checkq"', 'id="checktype"', 'id="checkowner"'):
+        assert token in live, token + " 누락"
+
+    # 2026년·별도공사 제외 규칙을 전용 화면에서도 다시 지키고, ID 종류로 정확한 원장 기록을 연다.
+    assert "rowIs2026(r,'issue')&&!isSideWork(r)" in live
+    assert "/^AS-/i.test(raw)" in live and "/^PM-/i.test(raw)" in live and "/^JS-/i.test(raw)" in live
+    assert "if(x.kind) openRecord(x.kind,x.id,x.project)" in live
+
+    # 현재 필터 결과를 기존 캡처 엔진에 넘겨 이미지 저장·전달 기능을 그대로 쓴다.
+    assert "rows:rows.map(checkMetricRow)" in live and "openExecMetric(label)" in live
+    assert "현재 목록 전달" in live and "이미지로 전달" in live and "이미지 저장" in live
+    assert "@media(max-width:420px)" in live and ".tabbar button{font-size:9px" in live
+
+    # PO번호만 있는 확인 행도 정산 PO번호 연결을 먼저 찾고, 없으면 경고창이 아닌 원문 상세를 연다.
+    for token in ("function samePo(", "settleRows.find(r=>samePo(r.PO번호,raw))",
+                  "function openCheckSource(", "function openCheckByKey(",
+                  "else openCheckSource(r)", "if(kind==='check')"):
+        assert token in live, "PO·미연결 확인행 처리 누락: " + token
+
+    # 정산·PO 확인은 내부 담당자로, 현장 확인은 원천 AS/PM의 담당기사로 보완한다.
+    assert "const CHECK_INTERNAL_OWNER" in live and "'PO A':'유현민'" in live
+    assert "first&&first.원천업무ID ? rowById(first.원천업무ID)" in live
+    assert "원장 담당자 칸 확인" in live
+    print("  [58] 확인 필요 전용 메뉴·PO/담당자 보완·정확 이동·현재목록 캡처 ✅")
+
+
+def t70_quarter_as_months():
+    """[70] '3분기' 가 아니라 '7~9월' 로 적는다(사용자 지시 2026-07-29).
+
+    분기 번호는 읽는 사람이 머릿속에서 다시 월로 환산해야 한다 — 대표 보고에서
+    "그게 몇 월부터냐" 를 되묻게 만든다. 화면·브리핑 어디에도 'N분기' 를 남기지 않는다."""
+    src = open(os.path.join(ROOT, "daily_brief.py"), encoding="utf-8").read()
+    assert '"분기": f"{y}년 {3 * q - 2}~{3 * q}월"' in src, "분기 라벨이 월 범위가 아니다"
+    assert '"분기범위"' in src and '"분기끝월"' in src, "월 범위·끝월 필드가 없다"
+    assert 'f"{y}년 {q}분기"' not in src, "옛 'N분기' 표기가 남아 있다"
+    assert "분기 내 마무리" not in src, "'분기 내' 문구가 남아 있다 — 몇 월인지 안 보인다"
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "p.분기범위" in live and "p.분기끝월" in live, "앱이 월 범위를 안 쓴다"
+    assert "분기 내 마무리" not in live, "앱에 '분기 내' 문구가 남아 있다"
+    # 버튼 라벨이 '분기 예정' 처럼 고정 문자열로 되돌아가면 안 된다
+    assert '">분기 예정<' not in live and '">분기 실행<' not in live, "버튼이 다시 '분기' 로 고정됐다"
+
+    # 실제 환산이 맞는가 — 3분기는 7~9월
+    for q, want in ((1, "1~3월"), (2, "4~6월"), (3, "7~9월"), (4, "10~12월")):
+        assert "%d~%d월" % (3 * q - 2, 3 * q) == want, q
+    print("  [70] 분기를 '7~9월' 처럼 월 범위로 표기(브리핑·앱·버튼·안내문) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2802,7 +2870,9 @@ if __name__ == "__main__":
     t53_session_handoff()
     t54_side_work_db_only()
     t56_work_detail_from_source()
+    t70_quarter_as_months()
     t55_pm_brief_drilldown_and_capture()
+    t58_check_hub_detail_and_capture()
     t48_excel_2026_stats_and_verified_completion()
     t39_realtime_monitor()
     t6_webapp()
