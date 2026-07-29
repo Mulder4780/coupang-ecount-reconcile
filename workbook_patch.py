@@ -13,7 +13,7 @@ workbook_patch.py — 관리대장 안전 버전업 도구 (vN → vN+1)
     (--a 생략 시 오늘 날짜 + 자동 순번, 원본은 보존되고 vN+1 파일이 새로 생성됨)
 """
 import sys, os, re, json, glob, zipfile, argparse
-from datetime import date, timedelta
+from datetime import date, time as clock_time, timedelta
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -120,15 +120,30 @@ def replace_number_cell(xml, ref, value):
     return xml[:m.start()] + new + xml[m.end():]
 
 
-def set_24_hour_cutoff(zin, changed, verify):
-    """Set dashboard B5 to the end of the aggregation day (24:00)."""
+def parse_cutoff(value):
+    """Return the Excel duration, display format, and normalized cutoff text."""
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})", str(value or "").strip())
+    if not m:
+        raise ValueError("집계마감시간은 HH:MM 형식이어야 합니다 (예: 23:59)")
+    hour, minute = int(m.group(1)), int(m.group(2))
+    if minute > 59 or hour > 24 or (hour == 24 and minute != 0):
+        raise ValueError("집계마감시간은 00:00~24:00 범위여야 합니다")
+    normalized = f"{hour:02d}:{minute:02d}"
+    serial = (hour * 60 + minute) / (24 * 60)
+    # Excel must use a bracketed format only for the one valid 24:00 duration.
+    return serial, ("[h]:mm" if hour == 24 else "hh:mm"), normalized
+
+
+def set_dashboard_cutoff(zin, changed, verify, cutoff):
+    """Set dashboard B5 to a real, calculation-safe aggregation cutoff."""
+    serial, number_format, display = parse_cutoff(cutoff)
     dash_name = "00_대시보드"
     dash_path = sheet_xml_path(zin, dash_name)
     dash_xml = zin.read(dash_path).decode("utf-8")
-    dash_xml = replace_number_cell(dash_xml, "B5", "1")
+    dash_xml = replace_number_cell(dash_xml, "B5", f"{serial:.12g}")
     dash_xml = replace_inline_cell(
         dash_xml, "C3",
-        "※ 집계 원칙: 당일 24:00(B5)까지 등록된 건은 집계기준일에 반영, 이후 등록건은 다음 업무일로 자동 이월(토·일·10_코드관리 공휴일 제외).",
+        f"※ 집계 원칙: 당일 {display}(B5)까지 등록된 건은 집계기준일에 반영, 이후 등록건은 다음 업무일로 자동 이월(토·일·10_코드관리 공휴일 제외).",
     )
     changed[dash_path] = dash_xml.encode("utf-8")
 
@@ -136,18 +151,18 @@ def set_24_hour_cutoff(zin, changed, verify):
     styles = zin.read("xl/styles.xml").decode("utf-8")
     updated, n = re.subn(
         r'<numFmt numFmtId="177" formatCode="[^"]*"/>',
-        '<numFmt numFmtId="177" formatCode="[h]:mm"/>',
+        f'<numFmt numFmtId="177" formatCode="{number_format}"/>',
         styles,
         count=1,
     )
     if n != 1:
         raise AssertionError("dashboard cutoff number format 177 not found")
     changed["xl/styles.xml"] = updated.encode("utf-8")
-    verify[dash_name] = ("cutoff24", None)
+    verify[dash_name] = ("cutoff", (display, number_format))
 
 
 def patch(src, dst, a, b, c, a2="", manual18="", manual20="",
-          manual20_title="", manual20_area="", cutoff24=False):
+          manual20_title="", manual20_area="", cutoff=""):
     zin = zipfile.ZipFile(src)
     target = sheet_xml_path(zin, SHEET_NAME)
     xml, nr = append_row(zin.read(target).decode("utf-8"),
@@ -159,8 +174,8 @@ def patch(src, dst, a, b, c, a2="", manual18="", manual20="",
         path = sheet_xml_path(zin, "00_대시보드")
         x = zin.read(path).decode("utf-8")
         changed[path] = replace_inline_cell(x, "A2", a2).encode("utf-8")
-    if cutoff24:
-        set_24_hour_cutoff(zin, changed, verify)
+    if cutoff:
+        set_dashboard_cutoff(zin, changed, verify, cutoff)
     if manual18:
         name = "18_문서발행업무매뉴얼"
         path = sheet_xml_path(zin, name)
@@ -200,11 +215,13 @@ def patch(src, dst, a, b, c, a2="", manual18="", manual20="",
     import openpyxl
     w = openpyxl.load_workbook(tmp, read_only=True)
     for name, (rown, expected) in verify.items():
-        if rown == "cutoff24":
+        if rown == "cutoff":
             dash = w[name]
-            assert dash["B5"].value == timedelta(days=1), "dashboard B5 is not 24:00"
-            assert dash["B5"].number_format == "[h]:mm", "dashboard B5 format is not [h]:mm"
-            assert dash["C3"].value and "24:00" in str(dash["C3"].value), "dashboard cutoff guide missing"
+            display, number_format = expected
+            expected_value = timedelta(days=1) if display == "24:00" else clock_time(*map(int, display.split(":")))
+            assert dash["B5"].value == expected_value, f"dashboard B5 is not {display}"
+            assert dash["B5"].number_format == number_format, "dashboard B5 number format mismatch"
+            assert dash["C3"].value and display in str(dash["C3"].value), "dashboard cutoff guide missing"
             continue
         vals = [cell.value for cell in next(
             w[name].iter_rows(min_row=rown, max_row=rown, max_col=len(expected)))]
@@ -233,8 +250,10 @@ def main():
     ap.add_argument("--manual20", default="", help="20_쿠팡통합업무상세매뉴얼 끝행 추가 설명(선택)")
     ap.add_argument("--manual20-title", default="", help="20시트 추가 행 B열 제목(선택)")
     ap.add_argument("--manual20-area", default="", help="20시트 추가 행 C열 분류(선택)")
+    ap.add_argument("--cutoff", default="", metavar="HH:MM",
+                    help="00_대시보드 집계마감시간 설정(예: 23:59)")
     ap.add_argument("--cutoff24", action="store_true",
-                    help="00_대시보드 집계마감시간을 당일 24:00으로 전환")
+                    help="호환용 별칭: --cutoff 24:00")
     args = ap.parse_args()
 
     src, v = latest_master()
@@ -242,8 +261,11 @@ def main():
     if os.path.exists(dst):
         sys.exit(f"{os.path.basename(dst)} 이미 존재 — 중복 실행 방지를 위해 중단")
     a = args.a or f"{date.today().isoformat()} #auto"
+    if args.cutoff and args.cutoff24:
+        ap.error("--cutoff과 --cutoff24는 함께 사용할 수 없습니다")
+    cutoff = args.cutoff or ("24:00" if args.cutoff24 else "")
     nr = patch(src, dst, a, args.b, args.c, args.a2, args.manual18, args.manual20,
-               args.manual20_title, args.manual20_area, args.cutoff24)
+               args.manual20_title, args.manual20_area, cutoff)
     print(f"OK: v{v} → v{v+1} 생성, {SHEET_NAME} {nr}행 추가, 검증 3종 통과")
     print("   ", dst)
 

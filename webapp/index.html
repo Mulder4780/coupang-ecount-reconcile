@@ -89,6 +89,36 @@ button:focus-visible,.topitem:focus-visible,.srow:focus-visible,.check-kpi:focus
 .tabbar button.on{color:var(--brand)}
 .tabbar button.on::before{content:"";position:absolute;top:0;width:26px;height:3px;border-radius:0 0 4px 4px;background:var(--brand)}
 .tabbar svg{width:22px;height:22px}
+.tabbar .nav-spacer{display:none}
+
+/* 쿠팡 캘린더 — 전체 월간 보기(Google)와 원장 대조 캐시 상세를 한 화면에 둔다. */
+.calendar-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  margin-bottom:14px;padding:20px 21px;border-radius:18px;color:#fff;
+  background:linear-gradient(120deg,#172554 0%,#2546A8 58%,#4F46E5 100%);
+  box-shadow:0 12px 28px -14px rgba(31,54,142,.6)}
+.calendar-hero h2{margin:3px 0 5px;font-size:23px;letter-spacing:-.6px}
+.calendar-hero p{margin:0;color:#DCE6FF;font-size:13px;line-height:1.55}
+.calendar-layout{display:grid;grid-template-columns:minmax(0,1.16fr) minmax(300px,.84fr);gap:14px;align-items:start}
+.calendar-frame{padding:0;overflow:hidden}
+.calendar-frame-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:17px 18px 13px}
+.calendar-frame-head h3{margin:0}.calendar-frame-head a{font-size:12.5px;font-weight:800;color:var(--brand);white-space:nowrap}
+.calendar-frame iframe{display:block;width:100%;height:690px;border:0;background:#fff}
+.calendar-hint{margin:0;padding:10px 17px 14px;color:var(--muted);font-size:11.5px;line-height:1.55;border-top:1px solid var(--line)}
+.calendar-side{display:grid;gap:14px}.calendar-meta{font-size:12.5px;color:var(--muted);margin:-3px 0 12px}
+.calendar-event-list{display:grid;gap:8px;max-height:372px;overflow:auto;padding-right:2px}
+.calendar-event{width:100%;display:grid;grid-template-columns:74px 1fr;gap:8px;text-align:left;padding:11px 12px;
+  border:1.5px solid var(--line);border-radius:12px;background:#fff;color:var(--ink)}
+.calendar-event:hover,.calendar-event.on{border-color:#A9B9FF;background:#F4F6FF;box-shadow:0 5px 13px rgba(53,76,185,.10)}
+.calendar-event .when{font-size:11.5px;font-weight:800;color:var(--brand);line-height:1.45}
+.calendar-event .what{font-size:13px;font-weight:800;line-height:1.42}.calendar-event .sub{font-size:11.5px;color:var(--muted);margin-top:2px;font-weight:600}
+.calendar-detail{border-radius:12px;padding:13px;background:#F7F8FC;border:1px solid #E6EAF2;line-height:1.6;font-size:12.5px;color:var(--ink-2)}
+.calendar-detail b{color:var(--ink)}.calendar-detail .detail-title{font-size:15px;margin-bottom:7px}.calendar-detail dl{display:grid;grid-template-columns:72px 1fr;gap:3px 8px;margin:0}.calendar-detail dt{color:var(--muted);font-weight:700}.calendar-detail dd{margin:0;word-break:break-word}
+.calendar-entry{margin-top:14px}.calendar-entry h3{margin-bottom:3px}.calendar-entry .entry-note{font-size:12px;color:var(--muted);line-height:1.55;margin:0 0 12px}
+.calendar-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.calendar-form label{display:grid;gap:4px;font-size:11.5px;font-weight:800;color:var(--ink-2)}
+.calendar-form label.wide{grid-column:1/-1}.calendar-form input,.calendar-form textarea{width:100%;min-width:0;padding:9px 10px;border:1.5px solid var(--line);border-radius:9px;font:inherit;font-size:13px;color:var(--ink);background:#fff}
+.calendar-form textarea{min-height:70px;resize:vertical}.calendar-preview{margin-top:11px;padding:10px 12px;border-radius:10px;background:#F7F8FC;font-size:12px;line-height:1.55;color:var(--ink-2);white-space:pre-line}
+@media(max-width:899px){.calendar-layout{grid-template-columns:1fr}.calendar-frame iframe{height:620px}.calendar-hero h2{font-size:20px}}
+@media(max-width:480px){.calendar-form{grid-template-columns:1fr}.calendar-frame iframe{height:570px}}
 
 /* ═══ 히어로 배너 ═══ */
 .hero{position:relative;border-radius:18px;overflow:hidden;margin-bottom:14px;color:#fff;
@@ -713,6 +743,9 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   .tabbar button:hover{background:rgba(255,255,255,.06);color:#fff}
   .tabbar button.on{color:#fff;background:rgba(91,140,255,.16)}
   .tabbar button.on::before{top:auto;left:-10px;width:3.5px;height:22px;border-radius:0 4px 4px 0}
+  .tabbar .nav-spacer{display:block;flex:1 1 auto}
+  .tabbar button.calendar-nav{margin-bottom:18px;background:rgba(255,255,255,.05);border:1px solid rgba(143,163,214,.22)}
+  .tabbar button.calendar-nav.on{background:rgba(91,140,255,.22);border-color:rgba(143,163,255,.42)}
   .shell{margin-left:216px;padding:24px 30px 48px;max-width:none}
   .appbar{margin-left:216px;background:var(--surface);color:var(--ink);
     box-shadow:0 1px 0 var(--line);padding:15px 30px}
@@ -922,6 +955,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
         <button class="abtn" onclick="runTask('upload_dry')"><span class="em">📤</span>전표 전송대기</button>
         <button class="abtn danger" onclick="confirmRun('upload_post','⚠ 이카운트 ERP에 매출전표를 실제 등록합니다.\n(10.5초/건, 이중계상 가드 적용)')"><span class="em">🚀</span>전표 실전송</button>
       </div>
+      <div class="fnote" id="runAgentNote">AI 실행 연계 상태를 확인 중입니다.</div>
       <div class="logbox" id="logbox">대기 중 — 작업을 실행하면 로그가 여기 표시됩니다.</div></div>
     <div id="helpcard"></div>
     <div class="card"><h3>파일·폴더 열기 <span class="norm">— 사무실 PC에서 접속했을 때만 동작</span></h3>
@@ -996,6 +1030,66 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
     <div class="md" id="mdbox">리포트 로딩...</div>
   </section>
 
+  <!-- 쿠팡 캘린더: Google 전체 보기 + 원장 대조 캐시 상세 + 사용자 확인형 일정 입력 -->
+  <section class="view" id="v-calendar">
+    <div class="calendar-hero">
+      <div>
+        <div class="eyebrow" style="color:#BFD0FF">COUPANG SCHEDULE</div>
+        <h2>쿠팡 캘린더</h2>
+        <p>전체 일정은 월간 화면으로 보고, 원장과 연결된 세부 정보는 오른쪽에서 확인합니다.</p>
+      </div>
+      <div class="actions" style="grid-template-columns:repeat(2,max-content);margin:0">
+        <button class="abtn" onclick="refreshCalendarPage()"><span class="em">🔄</span>목록 새로고침</button>
+        <button class="abtn primary" onclick="focusCalendarEntry()"><span class="em">＋</span>일정 입력</button>
+      </div>
+    </div>
+
+    <div class="calendar-layout">
+      <div class="card calendar-frame">
+        <div class="calendar-frame-head">
+          <h3>전체 캘린더</h3>
+          <a href="https://calendar.google.com/calendar/embed?src=053a21a7e074aac2e58c27f305247c1cd6481d50841c1dfc9b83cdad2d3e876b%40group.calendar.google.com&amp;ctz=Asia%2FSeoul" target="_blank" rel="noopener">새 창으로 보기 ↗</a>
+        </div>
+        <iframe id="coupangCalendarFrame"
+          title="쿠팡 설치·납품·AS 캘린더"
+          src="https://calendar.google.com/calendar/embed?src=053a21a7e074aac2e58c27f305247c1cd6481d50841c1dfc9b83cdad2d3e876b%40group.calendar.google.com&amp;ctz=Asia%2FSeoul"
+          loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+        <p class="calendar-hint">일정 수정·저장은 Google Calendar 권한이 있는 계정에서만 가능합니다. 아래 입력란은 내용을 확인한 뒤 Google Calendar의 새 일정 화면으로 전달합니다.</p>
+      </div>
+
+      <div class="calendar-side">
+        <div class="card">
+          <h3>원장 대조 일정</h3>
+          <div class="calendar-meta" id="calendarMeta">일정 캐시를 불러오는 중입니다.</div>
+          <div class="calendar-event-list" id="calendarEventList"></div>
+        </div>
+        <div class="card">
+          <h3>세부 사항</h3>
+          <div class="calendar-detail" id="calendarDetail">목록에서 일정을 선택하면 프로젝트·캠프·연결 상태를 확인할 수 있습니다.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card calendar-entry" id="calendarEntry">
+      <h3>일정 입력 확인</h3>
+      <p class="entry-note">입력 내용을 미리 확인한 뒤 <b>Google Calendar에 입력</b>을 누르세요. Google 화면에서 세부 사항을 검토하고 저장해야 반영됩니다.</p>
+      <div class="calendar-form">
+        <label class="wide">일정 제목<input id="calendarTitle" placeholder="예: UJ2601354 제주1Sub-hub 리프트 리모컨 교체" oninput="previewCalendarDraft()"></label>
+        <label>날짜<input id="calendarDate" type="date" oninput="previewCalendarDraft()"></label>
+        <label>시작 시간<input id="calendarStart" type="time" value="09:00" oninput="previewCalendarDraft()"></label>
+        <label>종료 시간<input id="calendarEnd" type="time" value="10:00" oninput="previewCalendarDraft()"></label>
+        <label>프로젝트 번호<input id="calendarProject" placeholder="UJ2601354" oninput="previewCalendarDraft()"></label>
+        <label>캠프명<input id="calendarCamp" placeholder="제주1Sub-hub" oninput="previewCalendarDraft()"></label>
+        <label class="wide">세부 내용·확인 사항<textarea id="calendarNote" placeholder="접수 내용, 담당자, 현장 확인 사항 등을 입력합니다." oninput="previewCalendarDraft()"></textarea></label>
+      </div>
+      <div class="calendar-preview" id="calendarDraftPreview">입력한 일정의 요약이 여기에 표시됩니다.</div>
+      <div class="actions" style="margin-top:11px">
+        <button class="abtn primary" onclick="openGoogleCalendarDraft()"><span class="em">📅</span>Google Calendar에 입력</button>
+        <button class="abtn" onclick="clearCalendarDraft()"><span class="em">↺</span>입력값 초기화</button>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <nav class="tabbar" id="tabbar">
@@ -1010,6 +1104,8 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   <button data-v="daily" onclick="show('daily');renderDaily()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2.5h5L16 6"/></svg>보고</button>
   <button data-v="check" onclick="show('check')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3L2.8 19h18.4L12 3z"/><path d="M12 9v4M12 16.5h.01"/></svg>확인 필요</button>
   <button data-v="report" onclick="show('report')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>기록</button>
+  <div class="nav-spacer" aria-hidden="true"></div>
+  <button class="calendar-nav" data-v="calendar" onclick="show('calendar')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>쿠팡 캘린더</button>
 </nav>
 
 <script>
@@ -1049,6 +1145,10 @@ function applyView(v){
   document.querySelectorAll('.tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
   if(v==='report' && !reports.length) loadReports();
   if(v==='dash' && !CAL) loadCalendar();
+  if(v==='calendar'){
+    if(!CAL) loadCalendar().then(renderCalendarPage);
+    else renderCalendarPage();
+  }
   if(v==='check') renderCheckHub();
   try{ localStorage.setItem('cw_view', v); }catch(e){}   // 새로고침 후 같은 화면으로 복귀
   window.__view = v;
@@ -1106,6 +1206,15 @@ async function reloadHere(btn){
 async function loadStatus(){
   const s = await api('/api/status');
   srcStats = s.sources || {};
+  const route = s.agent_dispatch || {};
+  const routeEl = $('runAgentNote');
+  if(routeEl){
+    const selected = route.selected || 'codex_pending';
+    const label = selected === 'claude' ? 'Claude Code 우선' :
+      selected === 'codex' ? 'Claude Code 사용 불가 · Codex 대행' :
+      'Claude Code 사용 불가 · Codex 요청 대기';
+    routeEl.innerHTML = `<b>AI 실행 연계</b> ${esc2(label)} · 실행 버튼은 기존 로컬 업무 스크립트를 한 번만 실행합니다.`;
+  }
   /* ★ '내가 확인할 사항'은 loadSettle 에서 먼저 그려지는데, 그때는 srcStats 가 아직 비어 있다.
      그대로 두면 밴드·카톡·PO 자료가 멀쩡히 있어도 **'아직 없음' 4건이 거짓으로** 뜬다
      (2026-07-27에 실제로 그렇게 보였다). 상태가 도착했으니 다시 그린다. */
@@ -2218,7 +2327,7 @@ function calHiddenCount(){
 async function loadCalendar(){
   try{ CAL = await api('/api/calendar'); }catch(e){ CAL = null; }
   const box = $('callist'), sub = $('calsub');
-  if(!box) return;
+  if(!box){ renderCalendarPage(); return; }
   const evs = calEvents(), 숨김 = calHiddenCount();
   if(!evs.length){
     /* 전부 철거·납품이라 걸러진 경우와 아예 안 들어온 경우는 다르다.
@@ -2227,6 +2336,7 @@ async function loadCalendar(){
     box.innerHTML = '<div class="muted">' + esc2(숨김
       ? `표시할 일정이 없습니다 (철거·납품 ${숨김}건은 관리대장에만 보관)`
       : ((CAL && CAL.안내) || '아직 수집된 일정이 없습니다')) + '</div>';
+    renderCalendarPage();
     return;
   }
   const today = new Date(); today.setHours(0,0,0,0);
@@ -2237,6 +2347,7 @@ async function loadCalendar(){
   box.innerHTML = soon.length
     ? soon.map(calLine).join('')
     : '<div class="muted">앞으로 예정된 일정이 없습니다</div>';
+  renderCalendarPage();
 }
 function calLine(e){
   const tag = e.원천업무ID
@@ -2247,17 +2358,77 @@ function calLine(e){
     <b style="min-width:112px">${esc2(e.날짜)}${e.시간 ? ' ' + esc2(e.시간) : ''}</b>
     <span style="flex:1;min-width:120px">${esc2(e.업무구분||'미상')} · ${esc2(e.제목)}</span>${tag}</div>`;
 }
-function openCalendar(){
-  const evs = calEvents();
-  const 미연결 = evs.filter(e=>!e.원천업무ID);
-  const 숨김 = calHiddenCount();
-  const head = `<h3>일정 (구글 캘린더)</h3>
-    <p class="muted">갱신 ${esc2((CAL&&CAL.갱신)||'-')} · 2026년 ${evs.length}건 · 원장 미연결 ${미연결.length}건${
-      숨김 ? ` · 철거·납품 ${숨김}건은 관리대장에만 보관` : ''}</p>`;
-  const body = evs.length
-    ? evs.map(calLine).join('')
-    : `<p class="muted">${esc2((CAL&&CAL.안내)||'아직 수집된 일정이 없습니다')}</p>`;
-  showSheet(head + body);
+let calendarSelected = 0;
+const COUPANG_CALENDAR_ID = '053a21a7e074aac2e58c27f305247c1cd6481d50841c1dfc9b83cdad2d3e876b@group.calendar.google.com';
+
+function calendarRows(){
+  return calEvents().slice().sort((a,b)=>{
+    const aa=`${a.날짜||''} ${a.시간||''}`, bb=`${b.날짜||''} ${b.시간||''}`;
+    return aa.localeCompare(bb, 'ko');
+  });
+}
+function calendarWhen(e){
+  return `${e.날짜||'-'}${e.시간 ? ` ${e.시간}` : ' 종일'}`;
+}
+function renderCalendarPage(){
+  const list=$('calendarEventList'), meta=$('calendarMeta'), detail=$('calendarDetail');
+  if(!list || !meta || !detail) return;
+  const rows=calendarRows(), hidden=calHiddenCount(), unmatched=rows.filter(e=>!e.원천업무ID).length;
+  meta.textContent = `갱신 ${(CAL&&CAL.갱신)||'-'} · 2026년 ${rows.length}건 · 원장 미연결 ${unmatched}건`+
+    (hidden ? ` · 철거·납품 ${hidden}건은 관리대장 보관` : '');
+  if(!rows.length){
+    list.innerHTML=`<div class="muted">${esc2((CAL&&CAL.안내)||'아직 수집된 원장 대조 일정이 없습니다.')}</div>`;
+    detail.textContent='Google Calendar의 전체 일정은 왼쪽 월간 화면에서 확인할 수 있습니다.';
+    return;
+  }
+  calendarSelected=Math.max(0, Math.min(calendarSelected, rows.length-1));
+  list.innerHTML=rows.map((e,i)=>`<button type="button" class="calendar-event ${i===calendarSelected?'on':''}" onclick="selectCalendarEvent(${i})">
+    <span class="when">${esc2(calendarWhen(e))}</span><span><span class="what">${esc2(e.제목||'제목 없음')}</span>
+    <span class="sub">${esc2(e.프로젝트NO||'프로젝트 미확정')} · ${esc2(e.캠프명||e.장소||e.업무구분||'캠프 미상')}</span></span></button>`).join('');
+  const e=rows[calendarSelected];
+  detail.innerHTML=`<div class="detail-title"><b>${esc2(e.제목||'제목 없음')}</b></div><dl>
+    <dt>일시</dt><dd>${esc2(calendarWhen(e))}</dd>
+    <dt>프로젝트</dt><dd>${esc2(e.프로젝트NO||'미확정')}</dd>
+    <dt>캠프·장소</dt><dd>${esc2(e.캠프명||e.장소||'미입력')}</dd>
+    <dt>업무구분</dt><dd>${esc2(e.업무구분||'미상')}</dd>
+    <dt>원장 연결</dt><dd>${esc2(e.원천업무ID||'미연결 — 확인 필요')}</dd>
+    <dt>연결 근거</dt><dd>${esc2(e.연결근거||'없음')}</dd></dl>`;
+}
+function selectCalendarEvent(index){ calendarSelected=index; renderCalendarPage(); }
+async function refreshCalendarPage(){ await loadCalendar(); toast('캘린더 대조 목록을 새로고침했습니다'); }
+function openCalendar(){ show('calendar'); }
+function focusCalendarEntry(){
+  if(curView()!=='calendar') show('calendar');
+  setTimeout(()=>$('calendarTitle') && $('calendarTitle').focus(), 80);
+}
+function calendarDraft(){
+  const value=id=>($(''+id)&&$(''+id).value.trim())||'';
+  return {title:value('calendarTitle'), date:value('calendarDate'), start:value('calendarStart'),
+          end:value('calendarEnd'), project:value('calendarProject'), camp:value('calendarCamp'), note:value('calendarNote')};
+}
+function previewCalendarDraft(){
+  const d=calendarDraft(), out=$('calendarDraftPreview'); if(!out) return;
+  const lines=[d.title||'일정 제목 미입력', `${d.date||'날짜 미입력'} ${d.start||'시작 시간 미입력'}${d.end?' ~ '+d.end:''}`,
+    d.project?`프로젝트: ${d.project}`:'', d.camp?`캠프: ${d.camp}`:'', d.note?`내용: ${d.note}`:''].filter(Boolean);
+  out.textContent=lines.join('\n');
+}
+function clearCalendarDraft(){
+  ['calendarTitle','calendarDate','calendarProject','calendarCamp','calendarNote'].forEach(id=>{ if($(id)) $(id).value=''; });
+  if($('calendarStart')) $('calendarStart').value='09:00';
+  if($('calendarEnd')) $('calendarEnd').value='10:00';
+  previewCalendarDraft();
+}
+function openGoogleCalendarDraft(){
+  const d=calendarDraft();
+  if(!d.title || !d.date){ alert('일정 제목과 날짜를 먼저 입력해 주세요.'); return; }
+  const date=d.date.replace(/-/g,''), start=(d.start||'09:00').replace(':',''), end=(d.end||'10:00').replace(':','');
+  const details=[d.project&&`프로젝트NO: ${d.project}`,d.camp&&`캠프명: ${d.camp}`,d.note].filter(Boolean).join('\n');
+  const u=new URL('https://calendar.google.com/calendar/render');
+  u.searchParams.set('action','TEMPLATE'); u.searchParams.set('src',COUPANG_CALENDAR_ID);
+  u.searchParams.set('text',d.title); u.searchParams.set('dates',`${date}T${start}00/${date}T${end}00`);
+  if(details) u.searchParams.set('details',details); if(d.camp) u.searchParams.set('location',d.camp);
+  window.open(u.toString(),'_blank','noopener');
+  toast('Google Calendar에서 세부 내용을 확인한 뒤 저장해 주세요.');
 }
 
 async function loadReports(){
@@ -4740,7 +4911,7 @@ function toast(msg){
 function tick(){ $('clock').textContent = new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}); }
 async function refreshAll(){ try{ await loadSettle(); await loadStatus(); }catch(e){} }
 (async function(){
-  tick(); setInterval(tick, 30000); initDates();
+  tick(); setInterval(tick, 30000); initDates(); previewCalendarDraft();
   showFixedEntry();          // 고정 주소는 로그인·데이터 로딩과 무관하게 **항상** 보인다
   loadCodes();               // 드롭다운 선택지(10_코드관리)
   loadBrief();               // 대표에게 읽어 드릴 브리핑 문장

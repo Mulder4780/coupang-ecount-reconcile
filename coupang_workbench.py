@@ -81,6 +81,11 @@ def get_status():
         st["realtime"] = None
         st["realtime_summary"] = {}
         st["realtime_checked"] = ""
+    try:
+        from agent_dispatch import status as agent_dispatch_status
+        st["agent_dispatch"] = agent_dispatch_status()
+    except Exception:
+        st["agent_dispatch"] = {}
     return st
 
 
@@ -99,6 +104,12 @@ def status_text(st):
         )
     else:
         lines.append("실시간 감시: 아직 실행 기록 없음")
+    try:
+        from agent_dispatch import route_label
+        if st.get("agent_dispatch"):
+            lines.append(f"AI 실행 연계: {route_label(st['agent_dispatch'])}")
+    except Exception:
+        pass
     lines.append(f"자동입력 대기: {st['pending_updates']}건 / ERP inbox: {st['inbox']}개 / 카톡 inbox: {st['kakao']}개 / 밴드: {'인증됨' if st['band_auth'] else '심사 대기'}")
     return "\n".join(lines)
 
@@ -146,6 +157,12 @@ def gui():
             return
         running["flag"] = True
         log(f"\n===== {title} 시작 {datetime.now():%H:%M:%S} =====")
+        try:
+            from agent_dispatch import enqueue as enqueue_agent, route_label
+            ticket = enqueue_agent(re.sub(r"\W+", "_", title).strip("_") or "manual", title, args)
+            log(f"[AI 연계] {route_label(ticket)} · 로컬 업무 스크립트는 1회만 실행")
+        except Exception as e:
+            log(f"[AI 연계] 요청 기록 실패(기존 실행은 계속): {str(e)[:160]}")
 
         def work():
             try:

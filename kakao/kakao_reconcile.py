@@ -142,9 +142,10 @@ def main():
     # 다른 도구들은 전부 resolve_master를 쓰는데 여기만 빠져 있어 파일 없음으로 죽었다.
     sys.path.insert(0, ROOT)
     from ecount_reconcile import resolve_master
-    master = resolve_master(cfg["reconcile"]["master_xlsx"])
-    if "--master" in args:
-        master = args[args.index("--master") + 1]
+    # 합성검증·명시 실행은 --master를 진실의 원천으로 쓴다. 기존처럼 설정파일을
+    # 먼저 해석하면 네트워크 원본 폴더가 잠시 끊긴 상황에서도 로컬 대조가 시작조차 못 한다.
+    master = (args[args.index("--master") + 1] if "--master" in args
+              else resolve_master(cfg["reconcile"]["master_xlsx"]))
     if "--file" in args:
         files = [args[args.index("--file") + 1]]
     else:

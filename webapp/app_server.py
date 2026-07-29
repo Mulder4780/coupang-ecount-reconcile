@@ -79,7 +79,8 @@ TASKS = {
     "band_docs":     ("밴드 문서 이미지 대조", [os.path.join(ROOT, "band", "doc_ocr.py"), "--scan"]),
     "band_docs_apply": ("밴드 문서 → 대장 입력", [os.path.join(ROOT, "band", "doc_ocr.py"), "--scan", "--apply"]),
 }
-runner = {"busy": False, "task": "", "log": deque(maxlen=3000), "done_at": None}
+runner = {"busy": False, "task": "", "log": deque(maxlen=3000), "done_at": None,
+          "agent_route": ""}
 _rlock = threading.Lock()
 
 
@@ -163,12 +164,24 @@ def start_task(key):
         if DEMO:
             runner["log"].append(f"[데모] '{TASKS[key][0]}' — 합성 환경에서는 실행을 시뮬레이션합니다.")
             return True, "demo"
+        # 작업 스크립트는 로컬에서 한 번만 실행한다. AI 연계는 검토·실패 후속조치용
+        # 인수인계 큐로 분리해, Claude/Codex가 동시에 관리대장을 쓰지 못하게 한다.
+        try:
+            from agent_dispatch import enqueue as enqueue_agent, route_label
+            ticket = enqueue_agent(key, TASKS[key][0], TASKS[key][1])
+            runner["agent_route"] = route_label(ticket)
+        except Exception as exc:
+            # AI CLI가 없거나 큐 작성에 실패해도, 사람이 누른 기존 업무 실행은 멈추지 않는다.
+            runner["agent_route"] = "AI 연계 상태 확인 실패"
+            runner["log"].append(f"[AI 연계] 요청 기록 실패: {str(exc)[:160]}")
         runner["busy"], runner["task"] = True, TASKS[key][0]
         runner["log"].clear()
 
     def work():
         title, args = TASKS[key]
         runner["log"].append(f"===== {title} 시작 {datetime.now():%H:%M:%S} =====")
+        if runner.get("agent_route"):
+            runner["log"].append(f"[AI 연계] {runner['agent_route']} · 로컬 업무 스크립트는 1회만 실행")
         try:
             p = subprocess.Popen([PY] + args, cwd=ROOT, env=ENV, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
@@ -1707,11 +1720,17 @@ def _compute_status():
         except Exception:
             pass
 
+        try:
+            from agent_dispatch import status as agent_dispatch_status
+            agent_route = agent_dispatch_status()
+        except Exception:
+            agent_route = {}
         return {"master": os.path.basename(st.get("master", "") or "") + "  " + st.get("master_label", ""),
                 "fork": st.get("fork", []), "agent_last": rt or "기록 없음", "steps": steps,
                 "pending_updates": st["pending_updates"], "inbox": st["inbox"],
                 "kakao": st["kakao"], "band": st["band_auth"], "demo": False, "tunnel": tunnel,
-                "sources": srcs, "build": build_id(), "recalc": get_recalc_pending()}
+                "sources": srcs, "build": build_id(), "recalc": get_recalc_pending(),
+                "agent_dispatch": agent_route}
     except Exception as e:
         return {"error": str(e)}
 

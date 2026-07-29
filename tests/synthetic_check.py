@@ -3130,10 +3130,14 @@ def t75_gcal_sync():
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert "/api/calendar" in server and "gcal_events.json" in server
-    assert "loadCalendar" in live and "openCalendar" in live and "showSheet(head + body)" in live
-    assert "calendar.google.com" not in live, "앱이 구글을 직접 부르면 폰에서 화면이 멈춘다"
+    # 캐시 목록은 앱에서 즉시 보이고, 사용자가 제공한 공개 임베드는 전체 일정 확인용으로만 쓴다.
+    # 비공개 iCal 주소/config는 절대 브라우저에 전달하지 않는다.
+    assert "loadCalendar" in live and "openCalendar" in live and "show('calendar')" in live
+    assert "calendar.google.com/calendar/embed" in live and "COUPANG_CALENDAR_ID" in live
+    assert "openGoogleCalendarDraft" in live and "calendarEventList" in live
+    assert "config/gcal.json" not in live and ".ics" not in live, "비공개 일정 원천이 앱에 노출됐다"
     assert "gcal_sync.py" in daily
-    print("  [75] 구글 캘린더 — 예정열만·구분일치·비밀주소 보호·앱 캐시경유 ✅")
+    print("  [75] 구글 캘린더 — 예정열만·구분일치·비밀주소 보호·캐시/공개전체보기 ✅")
 
 
 def t78_recalc_pending_visible():
@@ -3372,21 +3376,71 @@ def t81_terra_sol_handoff_review():
     print("  [81] Terra→Sol 검토 관문(범위 고정·비밀값/문법/합성검증·Sol 쓰기 점유 차단) OK")
 
 
-def t82_daily_cutoff_24h():
-    """The reporting cutoff is a numeric 24:00 duration, never the text 24:00."""
+def t82_daily_cutoff():
+    """The reporting cutoff remains numeric for every permitted HH:MM value."""
     import sys as _s
     _s.path.insert(0, ROOT)
     import workbook_patch as W
 
     xml = '<sheetData><row r="5"><c r="A5" s="3"/><c r="B5" s="10"><v>0.75</v></c></row></sheetData>'
-    out = W.replace_number_cell(xml, "B5", "1")
-    assert '<c r="B5" s="10"><v>1</v></c>' in out, out
+    out = W.replace_number_cell(xml, "B5", "0.999305555556")
+    assert '<c r="B5" s="10"><v>0.999305555556</v></c>' in out, out
     assert 'A5" s="3"' in out, "unrelated dashboard cells must be preserved"
+    assert W.parse_cutoff("23:59") == (1439 / 1440, "hh:mm", "23:59")
+    assert W.parse_cutoff("24:00") == (1, "[h]:mm", "24:00")
+    for invalid in ("24:01", "12:60", "text"):
+        try:
+            W.parse_cutoff(invalid)
+            raise AssertionError(f"invalid cutoff accepted: {invalid}")
+        except ValueError:
+            pass
 
     src = open(os.path.join(ROOT, "workbook_patch.py"), encoding="utf-8").read()
-    assert 'numFmtId="177"' in src and 'formatCode="[h]:mm"' in src
-    assert 'dash["B5"].value == timedelta(days=1)' in src
-    print("  [82] 집계마감 당일 24:00(숫자 1·[h]:mm) 안전 전환 ✅")
+    assert 'numFmtId="177"' in src and 'def parse_cutoff(value):' in src
+    assert 'ap.add_argument("--cutoff", default="", metavar="HH:MM"' in src
+    print("  [82] 집계마감 HH:MM(23:59·24:00) 숫자값 안전 전환 ✅")
+
+
+def t83_agent_dispatch_and_calendar():
+    """Claude 우선·Codex 폴백과 공개 캘린더 화면은 실CLI 없이도 검증한다."""
+    from pathlib import Path
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import agent_dispatch as A
+
+    old_dir, old_status = A.REPORT_DIR, A.STATUS_PATH
+    with tempfile.TemporaryDirectory() as td:
+        A.REPORT_DIR = Path(td) / "queue"
+        A.STATUS_PATH = Path(td) / "status.json"
+        try:
+            def fake_which(name):
+                return str(Path(td) / f"{name}.exe")
+
+            def quota_then_codex(command, **_kwargs):
+                if "claude" in command[0].lower():
+                    return SimpleNamespace(returncode=1, stdout="", stderr="credit quota exhausted")
+                return SimpleNamespace(returncode=0, stdout="codex 1.0", stderr="")
+
+            with patch.object(A.shutil, "which", side_effect=fake_which), \
+                 patch.object(A.subprocess, "run", side_effect=quota_then_codex):
+                route = A.route_status()
+                assert route["primary"] == "claude" and route["selected"] == "codex", route
+                ticket = A.enqueue("synthetic", "합성 AI 연계", ["tests/synthetic_check.py"])
+                assert ticket["selected"] == "codex", ticket
+                assert list(A.REPORT_DIR.glob("*.json")), "AI 요청이 내구성 있는 큐에 남지 않음"
+                assert A.status()["last_request"]["id"] == ticket["id"]
+        finally:
+            A.REPORT_DIR, A.STATUS_PATH = old_dir, old_status
+
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    bench = open(os.path.join(ROOT, "coupang_workbench.py"), encoding="utf-8").read()
+    assert 'data-v="calendar"' in idx and "COUPANG_CALENDAR_ID" in idx
+    assert "calendar.google.com/calendar/embed" in idx and "openGoogleCalendarDraft" in idx
+    assert "previewCalendarDraft();" in idx and "runAgentNote" in idx
+    assert "agent_dispatch" in server and "로컬 업무 스크립트는 1회만 실행" in server
+    assert "agent_dispatch" in bench and "로컬 업무 스크립트는 1회만 실행" in bench
+    print("  [83] Claude 우선·Codex 폴백 큐 및 쿠팡 캘린더(전체·상세·입력) ✅")
 
 
 def t80_new_project_flow_db_only(tmp):
@@ -3506,7 +3560,8 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmp:
         t80_new_project_flow_db_only(tmp)
     t81_terra_sol_handoff_review()
-    t82_daily_cutoff_24h()
+    t82_daily_cutoff()
+    t83_agent_dispatch_and_calendar()
     t76_source_organizer()
     t55_pm_brief_drilldown_and_capture()
     t58_check_hub_detail_and_capture()
