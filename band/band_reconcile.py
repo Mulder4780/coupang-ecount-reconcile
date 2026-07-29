@@ -98,6 +98,18 @@ def read_rows():
     return out
 
 
+def photo_updates(results):
+    """확인된 밴드 사진을 안정적인 프로젝트NO 키의 빈칸 입력 큐로 만든다."""
+    return [{"sheet": "02_돌발AS접수",
+             "key_col": "프로젝트NO" if r["프로젝트NO"] else "접수ID",
+             "key": r["프로젝트NO"] or r["ID"], "col": "사진등록",
+             "value": "등록", "vtype": "text", "only_if_empty": True,
+             "evidence": f"밴드 게시 {r['게시일']} {r['게시자']} 사진{r['사진수']}장"}
+            for r in results
+            if r["시트"] == "02_돌발AS접수" and r["밴드게시"] == "확인"
+            and str(r["사진수"]).isdigit() and int(r["사진수"]) > 0]
+
+
 def main():
     posts = load_posts()
     if not posts:
@@ -179,15 +191,9 @@ def main():
     try:
         sys.path.insert(0, ROOT)
         from ledger_writer import queue_add
-        # ID가 수식 미계산으로 프로젝트NO로 대체된 행은 조회 키도 프로젝트NO를 써야 한다
-        ups = [{"sheet": "02_돌발AS접수",
-                "key_col": "접수ID" if str(r["ID"]).startswith("AS-") else "프로젝트NO",
-                "key": r["ID"], "col": "사진등록",
-                "value": "등록", "vtype": "text", "only_if_empty": True,
-                "evidence": f"밴드 게시 {r['게시일']} {r['게시자']} 사진{r['사진수']}장"}
-               for r in results
-               if r["시트"] == "02_돌발AS접수" and r["밴드게시"] == "확인"
-               and str(r["사진수"]).isdigit() and int(r["사진수"]) > 0]
+        # ID는 수식 캐시라 행 재배치·엑셀 재계산 전후에 오래된 값일 수 있다.
+        # 원문과 원장을 이미 프로젝트NO로 정확히 연결했으므로 큐도 안정적인 프로젝트NO를 우선한다.
+        ups = photo_updates(results)
         if ups:
             print("자동입력 큐 적재:", queue_add(ups), "건 (02 사진등록)")
     except Exception as e:

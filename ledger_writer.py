@@ -127,6 +127,9 @@ def resolve_targets(master, queue):
     import openpyxl
     wb = openpyxl.load_workbook(master, read_only=True, data_only=False)
     plans, skips = [], []
+    # 같은 시트에도 접수ID·프로젝트NO처럼 서로 다른 조회 키가 섞여 들어온다.
+    # 시트명만 캐시 키로 쓰면 첫 항목의 열로 만든 사전을 뒤 항목에도 재사용해,
+    # 실제 행이 있어도 "행 없음"으로 버린다.
     cache = {}
     for u in queue:
         sh = u["sheet"]
@@ -139,7 +142,8 @@ def resolve_targets(master, queue):
                 skips.append({**u, "사유": f"셀 주소 오류 {u['cell']}"}); continue
             plans.append({**u, "row": int(mc.group(2)), "colL": mc.group(1)})
             continue
-        if sh not in cache:
+        cache_key = (sh, u["key_col"])
+        if cache_key not in cache:
             ws = wb[sh]
             hdr = next(ws.iter_rows(min_row=HDR_ROW, max_row=HDR_ROW, values_only=True))
             hmap = {str(h).strip(): i + 1 for i, h in enumerate(hdr) if h is not None}
@@ -149,8 +153,8 @@ def resolve_targets(master, queue):
                 for i, row in enumerate(ws.iter_rows(min_row=FIRST, min_col=kcol, max_col=kcol, values_only=True)):
                     if row[0] is not None:
                         keys[str(row[0]).strip()] = FIRST + i
-            cache[sh] = (hmap, keys)
-        hmap, keys = cache[sh]
+            cache[cache_key] = (hmap, keys)
+        hmap, keys = cache[cache_key]
         if u["col"] not in hmap:
             skips.append({**u, "사유": f"열 '{u['col']}' 없음"}); continue
         rown = keys.get(str(u["key"]).strip())

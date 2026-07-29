@@ -153,6 +153,10 @@ def t5_writer(tmp):
     ws.append(["정산ID", "거래명세서번호", "거래명세서발행일", "비고"])
     ws.append(["JS-W1", None, None, "빈칸 채움 대상"])
     ws.append(["JS-W2", "기존값-유지", None, "덮어쓰기 금지 검증"])
+    ws2 = wb.create_sheet("02_돌발AS접수")
+    for _ in range(3): ws2.append([])
+    ws2.append(["접수ID", "프로젝트NO", "완료보고서등록", "사진등록"])
+    ws2.append(["AS-MIX-1", "UJ-MIX-1", None, None])
     h = wb.create_sheet("19_AI작업인수인계")
     h.append(["헤더"]); h.append(["기존 인수인계 행"])
     dash = wb.create_sheet("00_대시보드"); dash["A2"] = "기존 사용법"
@@ -167,17 +171,25 @@ def t5_writer(tmp):
          "value": "2026-07-24", "vtype": "date", "evidence": "합성", "only_if_empty": True},
         {"sheet": "06_거래서류청구수금", "key_col": "정산ID", "key": "JS-W2", "col": "거래명세서번호",
          "value": "덮어쓰기시도", "vtype": "text", "evidence": "합성", "only_if_empty": True},
+        # 같은 시트에서 서로 다른 키 열을 연달아 써도 둘 다 정확한 행을 찾아야 한다.
+        {"sheet": "02_돌발AS접수", "key_col": "접수ID", "key": "AS-MIX-1", "col": "사진등록",
+         "value": "등록", "vtype": "text", "evidence": "합성", "only_if_empty": True},
+        {"sheet": "02_돌발AS접수", "key_col": "프로젝트NO", "key": "UJ-MIX-1", "col": "완료보고서등록",
+         "value": "등록", "vtype": "text", "evidence": "합성", "only_if_empty": True},
     ], open(q, "w", encoding="utf-8"), ensure_ascii=False)
     r = subprocess.run([PY, os.path.join(ROOT, "ledger_writer.py"), "--apply",
                         "--master", src, "--queue", q],
                        capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp})
-    assert "반영 완료" in r.stdout and "입력 2건 / 건너뜀 1건" in r.stdout, f"{r.stdout}\n{r.stderr}"
+    assert "반영 완료" in r.stdout and "입력 4건 / 건너뜀 1건" in r.stdout, f"{r.stdout}\n{r.stderr}"
     dst = src.replace("_v1.xlsx", "_v2.xlsx")
     w2 = openpyxl.load_workbook(dst)
     ws2 = w2["06_거래서류청구수금"]
     assert ws2["B5"].value == "2026/07/24-9", ws2["B5"].value          # 빈칸 채움
     assert ws2["C5"].value is not None, "날짜 직렬값 기록 실패"          # date serial
     assert ws2["B6"].value == "기존값-유지", ws2["B6"].value            # 덮어쓰기 금지
+    as2 = w2["02_돌발AS접수"]
+    assert as2["C5"].value == "등록" and as2["D5"].value == "등록", \
+        "같은 시트의 접수ID·프로젝트NO 혼합 키 조회 실패"
     hand = w2["19_AI작업인수인계"]
     assert any("자동 입력" in str(c.value) for row in hand.iter_rows() for c in row if c.value), "인수인계 기록 없음"
     w2.close()
@@ -218,6 +230,13 @@ def t5_writer(tmp):
         assert LW.load_queue() == [item]
     finally:
         LW.PENDING = old_pending
+    from band.band_reconcile import photo_updates
+    photo_q = photo_updates([{
+        "시트": "02_돌발AS접수", "ID": "AS-OLD-CACHE", "프로젝트NO": "UJ-STABLE",
+        "밴드게시": "확인", "사진수": 2, "게시일": "2026-07-29", "게시자": "합성",
+    }])
+    assert len(photo_q) == 1 and photo_q[0]["key_col"] == "프로젝트NO" \
+        and photo_q[0]["key"] == "UJ-STABLE", photo_q
     print("  [5] 자동입력 엔진(빈칸만·동일값 멱등·큐잠금/원자쓰기·자기닫힘셀·인수인계) ✅")
 
 
@@ -3333,10 +3352,11 @@ def t79_work_log_source_sync_and_report_capture():
         assert marker in idx, f"PM progress/source synchronization missing: {marker}"
     brief = open(os.path.join(ROOT, "daily_brief.py"), encoding="utf-8").read()
     for marker in ("openWorkLogBrief", "돌발AS 현장 일지 대조", "정기점검 진행률 · 선택 기간", "pmProgress",
-                   "dailyBrief", "대표 보고 · ${dailyBrief.date||D.date} 당일 업무 실적",
+                   "dailyBrief", "${dailyBrief.date||D.date} 당일 업무 실적",
                    "captureDailyTasks", "당일 별도 업무 처리", "BRIEF_LOADING", "BRIEF_RETRY",
                    "기준시작일", "취소·정상작동 상세", "데이터 업데이트"):
         assert marker in idx, f"일지/정기점검 대표 캡처 누락: {marker}"
+    assert "대표 보고 · ${dailyBrief.date||D.date}" not in idx, "캡처 제목에 삭제 대상 문구가 남아 있음"
     app = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     for marker in ("def get_daily_brief(day=None)", "_brief_cache", 'result["데이터업데이트일시"]'):
         assert marker in app, f"대표 브리핑 캐시/업데이트 시각 누락: {marker}"

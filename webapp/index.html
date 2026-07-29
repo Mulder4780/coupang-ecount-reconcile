@@ -4739,7 +4739,7 @@ async function reportToPng(){
   // 대표 요청: 카톡에서 올린 뒤 류지영 매니저가 처리한 M_순천1
   // 택배 발송 같은 별도 업무를 대표 보고 PNG의 '당일 업무 실적'에 상세히 남긴다.
   if(dailyBrief){
-    section(`대표 보고 · ${dailyBrief.date||D.date} 당일 업무 실적`);
+    section(`${dailyBrief.date||D.date} 당일 업무 실적`);
     if((dailyBrief.metrics||[]).length) grid(dailyBrief.metrics);
     if(dailyActivities.length){
       dailyActivities.forEach(a=>{
