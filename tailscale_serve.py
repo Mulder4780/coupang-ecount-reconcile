@@ -36,6 +36,10 @@ import urllib.request
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
 PORT = 8899
+# 사용자 확정 정본. 장치 이름이나 자동 탐지 결과가 달라져도 새 주소를
+# 자동 게시하지 않는다. 불일치는 주소 변경이 아니라 관리자 확인 대상이다.
+FIXED_HOST = "mulder.tailf14aae.ts.net"
+FIXED_URL = "https://mulder.tailf14aae.ts.net/"
 EXE_CANDIDATES = [
     r"C:\Program Files\Tailscale\tailscale.exe",
     r"C:\Program Files (x86)\Tailscale\tailscale.exe",
@@ -136,7 +140,7 @@ def _public_ping_ip(host: str, ip: str, timeout: int = 8) -> bool:
 
 def public_funnel_alive(host: str | None = None, timeout: int = 8) -> bool:
     """True only when at least one *public* Funnel ingress reaches the app."""
-    host = host or hostname()
+    host = host or FIXED_HOST
     ips = public_ingress_ips(host, timeout)
     return bool(ips) and any(_public_ping_ip(host, ip, timeout) for ip in ips)
 
@@ -147,9 +151,11 @@ def ensure_public_funnel(repair: bool = True) -> tuple[bool, bool]:
     Returns ``(available, repaired)``.  Resetting Funnel does not change the
     MagicDNS hostname; it only refreshes the public relay/TLS route.
     """
-    host = hostname()
-    if not host:
+    actual_host = hostname()
+    if not actual_host or actual_host != FIXED_HOST:
+        # Never follow a renamed device to a new public address silently.
         return False, False
+    host = FIXED_HOST
     try:
         from webapp.tunnel_run import ensure_local_app
         if not ensure_local_app():
@@ -175,19 +181,27 @@ def ensure_public_funnel(repair: bool = True) -> tuple[bool, bool]:
 
 
 def status():
-    host = hostname()
+    actual_host = hostname()
+    host = FIXED_HOST
     code, out, err = run("funnel", "status")
-    print("MagicDNS 이름 :", host or "(확인 실패 — Tailscale 로그인 상태를 보세요)")
-    print("고정 주소     :", ("https://%s/" % host) if host else "-")
+    print("MagicDNS 이름 :", actual_host or "(확인 실패 — Tailscale 로그인 상태를 보세요)")
+    print("고정 주소     :", FIXED_URL)
+    if actual_host and actual_host != FIXED_HOST:
+        print("주소 불일치   : 자동 변경 금지 — Tailscale 장치 이름을 원복해야 합니다")
     print("현재 설정     :", (out or err or "(없음)").splitlines()[0] if (out or err) else "(없음)")
-    print("휴대폰 외부경로:", "정상" if public_funnel_alive(host) else "연결 실패")
+    print("휴대폰 외부경로:", "정상" if public_funnel_alive(FIXED_HOST) else "연결 실패")
     return 0
 
 
 def enable(mode):
-    host = hostname()
-    if not host:
+    actual_host = hostname()
+    if not actual_host:
         print("Tailscale 이 로그인/실행 상태가 아닙니다. 먼저 Tailscale 을 켜 주세요.")
+        return 1
+    if actual_host != FIXED_HOST:
+        print("Tailscale 장치 이름이 고정주소와 다릅니다. 주소를 바꾸지 않고 중단합니다.")
+        print("  고정 주소:", FIXED_URL)
+        print("  현재 이름:", actual_host)
         return 1
     code, out, err = run(mode, "--bg", str(PORT), timeout=25)
     msg = (out + "\n" + err).strip()
@@ -209,7 +223,7 @@ def enable(mode):
     if code:
         print("실패:", msg or code)
         return 1
-    url = "https://%s/" % host
+    url = FIXED_URL
     print("켰습니다 —", ("인터넷 공개(Funnel)" if mode == "funnel" else "내 tailnet 전용(Serve)"))
     print("  고정 주소:", url)
     print("  ※ 이 주소는 재부팅해도 바뀌지 않습니다. 폰·문서에 이걸 적으세요.")

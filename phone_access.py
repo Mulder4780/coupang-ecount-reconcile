@@ -53,12 +53,10 @@ def ensure_tunnel():
     # 전체 기능 고정 주소를 우선 사용한다. 이 PC 내부에서만 여는 검사는
     # 공개 Funnel 장애를 놓치므로 public DNS의 실제 relay까지 검사·복구한다.
     try:
-        from tailscale_serve import ensure_public_funnel, hostname
-        fixed_host = hostname()
-        if fixed_host:
-            ok, repaired = ensure_public_funnel(repair=True)
-            if ok:
-                return "https://%s/" % fixed_host, repaired
+        from tailscale_serve import ensure_public_funnel, FIXED_URL
+        ok, repaired = ensure_public_funnel(repair=True)
+        if ok:
+            return FIXED_URL, repaired
     except Exception:
         pass
     url = read_url()

@@ -40,19 +40,13 @@ def tailscale_url():
       IP 가 바뀌어도, 회선을 갈아도 그대로다 — 주소가 매번 바뀌어 폰 북마크와
       창 복원이 죽던 문제(2026-07-28 종일)가 여기서 끝난다.
     Funnel 이 꺼져 있으면 빈 문자열을 돌려 기존 터널 경로로 흘러가게 둔다."""
+    # 사용자 확정: 이 주소는 어떤 자동 탐지 결과나 임시 터널 상태로도 바꾸지 않는다.
+    # 장애 시 같은 Funnel 경로를 복구할 뿐 endpoint.json을 Quick Tunnel로 돌리지 않는다.
     try:
-        from tailscale_serve import hostname, run as ts_run
+        from tailscale_serve import FIXED_URL
+        return FIXED_URL.rstrip("/")
     except Exception:
-        return ""
-    try:
-        code, out, err = ts_run("serve", "status", timeout=20)
-    except Exception:
-        return ""
-    blob = (out or "") + (err or "")
-    if "Funnel on" not in blob:
-        return ""                      # tailnet 안에서만 열린 상태는 폰이 못 들어온다
-    host = hostname()
-    return ("https://%s" % host) if host else ""
+        return "https://mulder.tailf14aae.ts.net"
 
 
 def publish(url, force, why=""):

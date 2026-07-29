@@ -3516,11 +3516,16 @@ def t83_agent_dispatch_and_calendar():
         "자료현황이 상태 조회마다 원본 Excel을 반복해서 열어 앱을 느리게 만든다"
     tailscale = open(os.path.join(ROOT, "tailscale_serve.py"), encoding="utf-8").read()
     phone = open(os.path.join(ROOT, "phone_access.py"), encoding="utf-8").read()
+    endpoint = open(os.path.join(ROOT, "publish_endpoint.py"), encoding="utf-8").read()
     for marker in ("public_ingress_ips", "_public_ping_ip", "public_funnel_alive",
-                   "ensure_public_funnel", '"funnel", "reset"'):
+                   "ensure_public_funnel", '"funnel", "reset"',
+                   'FIXED_HOST = "mulder.tailf14aae.ts.net"',
+                   'FIXED_URL = "https://mulder.tailf14aae.ts.net/"'):
         assert marker in tailscale, f"휴대폰 공개 Funnel 자동복구 누락: {marker}"
     assert "ensure_public_funnel(repair=True)" in phone, \
         "폰 접속 도우미가 내부 연결만 보고 공개 Funnel 장애를 놓친다"
+    assert "from tailscale_serve import FIXED_URL" in endpoint, \
+        "게시기가 Tailscale 이름/임시터널을 따라 고정주소를 바꿀 수 있다"
     print("  [83] Claude 우선·Codex 폴백 실제 소비기 및 쿠팡 캘린더(전체·상세·입력) ✅")
 
 

@@ -137,11 +137,15 @@ def heal_server(dry):
 def heal_fixed_funnel(dry):
     """Check the same public path a phone uses and refresh stale Funnel TLS."""
     try:
-        from tailscale_serve import ensure_public_funnel, hostname, public_funnel_alive
-        host = hostname()
-        if not host:
+        from tailscale_serve import (
+            FIXED_HOST, ensure_public_funnel, hostname, public_funnel_alive,
+        )
+        actual_host = hostname()
+        if not actual_host:
             return "고정 Funnel 스킵 — Tailscale 로그인 없음"
-        if public_funnel_alive(host):
+        if actual_host != FIXED_HOST:
+            return "고정 Funnel 주소 불일치 — 자동 주소변경 금지"
+        if public_funnel_alive(FIXED_HOST):
             return "고정 Funnel 휴대폰 경로 정상"
         if dry:
             return "고정 Funnel 휴대폰 경로 죽음(dry)"
