@@ -4,6 +4,7 @@
 사용자 확정(2026-07-29):
 - 류지영: 캠프·일정, 카톡/밴드, 현장자료, 완료일 확인
 - 변재선(회계): 거래명세서, 세금계산서, 입금, 금액 불일치 확인
+- 오종현: PO 원본·견적서, 구매·입금 원천자료 취합 및 누락 확인
 - 유현민: 기존 PO·ERP·원장 미등록·시스템 연결 확인
 
 이 규칙은 현장 작업 담당자를 바꾸는 것이 아니라, ``23_확인필요현황``과 앱에서
@@ -12,6 +13,7 @@
 
 RYU = "류지영"
 BYUN = "변재선(회계)"
+OH = "오종현"
 YOO = "유현민"
 
 CONFIRMED_SCOPES = (
@@ -26,6 +28,11 @@ CONFIRMED_SCOPES = (
         "role": "회계 확인 담당",
     },
     {
+        "name": OH,
+        "scope": "PO 원본·견적서, 구매·입금 원천자료 취합·누락 확인",
+        "role": "원천자료 취합 담당",
+    },
+    {
         "name": YOO,
         "scope": "PO, ERP·원장 미등록, 시스템 연결 확인",
         "role": "시스템 확인 담당",
@@ -33,6 +40,10 @@ CONFIRMED_SCOPES = (
 )
 
 _SYSTEM_TERMS = ("원장 미등록", "시스템 연결")
+_SOURCE_TERMS = (
+    "PO 원본", "PO원본", "견적서", "구매자료", "구매 자료",
+    "입금 원천자료", "원천자료", "원천 자료", "원본 수집", "원본 누락",
+)
 _ACCOUNTING_TERMS = (
     "거래명세서", "명세서", "세금계산서", "입금", "수금",
     "금액", "미청구", "청구", "회계",
@@ -51,6 +62,11 @@ def confirmed_owner(issue="", category="", direct=""):
     direct = str(direct or "").strip()
     upper_category = category.upper()
     upper_issue = issue.upper()
+
+    # 오종현은 PO·입금의 판정자가 아니라 원본·견적서·구매/입금 자료 취합 담당이다.
+    # 따라서 "PO A" 같은 시스템 대조는 계속 유현민, 입금 금액 판정은 계속 변재선이 맡는다.
+    if any(term in issue for term in _SOURCE_TERMS):
+        return OH
 
     # PO·ERP는 설명에 금액·명세서가 함께 있어도 시스템 담당이 우선한다.
     if (upper_category in {"PO", "ERP"}

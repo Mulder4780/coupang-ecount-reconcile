@@ -3325,11 +3325,14 @@ function checkTypeOf(r){ return String(r.문제유형||r.경고내용||r.검증�
 const CHECK_OWNER_RULES=[
   {name:'류지영',scope:'캠프·일정, 카톡/밴드, 현장자료, 완료일 확인',role:'운영 확인 담당'},
   {name:'변재선(회계)',scope:'거래명세서, 세금계산서, 입금, 금액 불일치 확인',role:'회계 확인 담당'},
+  {name:'오종현',scope:'PO 원본·견적서, 구매·입금 원천자료 취합·누락 확인',role:'원천자료 취합 담당'},
   {name:'유현민',scope:'PO, ERP·원장 미등록, 시스템 연결 확인',role:'시스템 확인 담당'}
 ];
 function confirmedCheckOwner(r){
   const category=String(r.구분||'').trim(), type=checkTypeOf(r);
   const cat=category.toUpperCase(), upper=type.toUpperCase();
+  if(/PO\s*원본|견적서|구매\s*자료|입금\s*원천\s*자료|원천\s*자료|원본\s*(수집|누락)/i.test(type))
+    return '오종현';
   if(cat==='PO'||cat==='ERP'||upper==='PO'||upper.startsWith('PO ')||
      upper==='ERP'||upper.startsWith('ERP ')||/원장\s*미등록|시스템\s*연결/.test(type)) return '유현민';
   if(category==='정산'||/거래명세서|명세서|세금계산서|입금|수금|금액|미청구|청구|회계/.test(type))

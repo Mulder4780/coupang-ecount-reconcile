@@ -9,7 +9,7 @@
 /* ★ 이 이름을 바꾸면 activate 가 옛 캐시를 지운다. 페이지를 고칠 때마다 올릴 것 —
    안 올리면 옛 사본을 쥔 기기가 언제 새 것을 받을지 알 수 없다(2026-07-28 실사고:
    옛 app.html 이 창을 터널 주소로 옮겨 재부팅마다 죽은 주소가 떴다). */
-const CACHE = 'csos-v11-confirmed-owner-rules-2026-only';
+const CACHE = 'csos-v12-oh-owner-scope-2026-only';
 const HOLD = ['index.html', 'app.html', 'data.enc', 'manifest.json', 'icon.svg', 'icon-180.png'];
 
 self.addEventListener('install', (e) => {

@@ -508,9 +508,11 @@ function renderList(){
   const R = rows.slice(0, 300);
   let h = '';
   if(TAB === 'issues')
-    h = R.map(r => line(esc(r['프로젝트NO'] || r['정산ID'] || r['ID'] || '-') + ' ' + esc(r['캠프명']||''),
-                        [r['구분'], r['담당자'], r['내용'] || r['문제'] || r['사유']]
-                          .filter(Boolean).map(esc).join(' · '))).join('');
+    h = '<div class="note"><b>확인 담당 기준</b><br>' +
+        '류지영 운영 · 변재선 회계 · 오종현 원천자료 취합 · 유현민 PO대조/ERP</div>' +
+        R.map(r => line(esc(r['프로젝트NO'] || r['정산ID'] || r['ID'] || '-') + ' ' + esc(r['캠프명']||''),
+                          [r['구분'], r['담당자'], r['내용'] || r['문제'] || r['사유']]
+                            .filter(Boolean).map(esc).join(' · '))).join('');
   else if(TAB === 'as' || TAB === 'pm')
     h = R.map(r => line(esc(r['프로젝트NO'] || (TAB==='pm' && r['출처']==='정기점검 스케줄 원본'
                           ? '프로젝트 매칭 대기' : '프로젝트 미확정')) + ' ' + esc(r['캠프명']||''),
