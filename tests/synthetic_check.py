@@ -2728,7 +2728,23 @@ def t56_work_detail_from_source():
     # 매일 자동으로 도는가
     dr = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert "fill_work_detail.py" in dr, "daily_run 에 자동 기입 단계가 없다"
-    print("  [56] 작업내용 자동기입(신청내용 금지·빈 양식 제외·사내메모 제외·매일 실행) ✅")
+    # ★★ 'A/S 내용' 의 값은 `▒▒ 01 호기 ▒▒ …` 처럼 ▒ 로 **시작한다**.
+    #    필드 정규식이 ▒ 에서 값을 끊으면 작업내용이 **언제나 빈 값**이 된다(실제로 그랬다:
+    #    26건만 잡히다가 고친 뒤 840건). 값의 끝은 ● ★ ♠ ※ 로 본다.
+    import kakao_extract as _ke
+    got = dict(_ke.RE_FIELD.findall(
+        "● 신청내용 : 리모컨 고장 ★ 작업완료후 - 완료전화 필수! "
+        "● A/S 내용 : ▒▒ 01 호기 ▒▒ (유료)리모콘 SET 교체 완료 ♠ 원인 및 조치 : -"))
+    as_val = got.get("A/S 내용") or got.get("A/S내용") or ""
+    assert "리모콘 SET 교체 완료" in as_val, "A/S 내용이 ▒ 에서 잘린다: %r" % as_val
+    assert "리모컨 고장" in (got.get("신청내용") or ""), got
+
+    # ★★ 03시트 B열(접수ID)은 **수식**이고 02시트에서 스스로 끌어온다 —
+    #    빈 행에 실적을 써 넣으면 재계산 때 엉뚱한 건에 붙는다(v259 실사고).
+    assert "def missing_rows" in body, "대기 건수 집계가 없다"
+    assert "새행시작" not in body and "실적 행을 만든다" not in body, \
+        "★ 03시트에 행을 직접 만들고 있다 — B열 수식이 정하는 자리를 가로챈다"
+    print("  [56] 작업내용 자동기입(신청내용 금지·빈 양식 제외·▒ 절단 방지·행 생성 금지) ✅")
 
 
 if __name__ == "__main__":

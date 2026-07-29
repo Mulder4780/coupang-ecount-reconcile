@@ -142,6 +142,52 @@ def tidy(text):
     return "" if (not t or DRAFT.search(t) or len(t) < 4) else t[:MAXLEN]
 
 
+def missing_rows(wb, kt, bt):
+    """02시트에서 **작업완료인데 03시트에 아직 안 올라온** 건 — 세기만 한다.
+
+    ★★ 2026-07-29 실사고: 여기서 **행을 만들면 안 된다.**
+      03시트 B열(접수ID)은 값이 아니라 **수식**이고, 그 수식이
+        "02시트에서 작업완료 + 완료일 있음 + 아직 03에 없는 접수ID" 를
+      **스스로 하나씩 끌어온다.** 즉 **행을 늘리기만 하면 엑셀이 알아서 채운다.**
+      그런데 내가 빈 행에 실적 내용을 내 순서대로 써 넣었더니, 엑셀이 재계산하는 순간
+      그 행의 접수ID가 **다른 건**으로 정해져 **엉뚱한 작업에 남의 실적이 붙을** 상태가 됐다.
+      (v259 를 만들자마자 되돌렸다)
+    → 올바른 순서: ① 행 확장(expand_rows) ② **엑셀을 한 번 열어 재계산**(B열이 채워진다)
+      ③ 그 다음에 이 도구가 **프로젝트NO 기준**으로 실제작업상세를 채운다."""
+    ws3 = wb["03_현장작업실적"]
+    h3 = [_s(x) for x in next(ws3.iter_rows(min_row=4, max_row=4, values_only=True))]
+    j3 = h3.index("프로젝트NO")
+    have, last = set(), 4
+    for i, r in enumerate(ws3.iter_rows(min_row=5, values_only=True), start=5):
+        if any(v not in (None, "") for v in r[1:]):
+            last = i
+            if j3 < len(r) and r[j3]:
+                have.add(_s(r[j3]))
+    ws2 = wb["02_돌발AS접수"]
+    h2 = [_s(x) for x in next(ws2.iter_rows(min_row=4, max_row=4, values_only=True))]
+    g = {c: h2.index(c) for c in ("프로젝트NO", "진행상태", "작업완료일", "캠프명",
+                                  "담당기사", "신청내용", "접수ID") if c in h2}
+    out = []
+    for r in ws2.iter_rows(min_row=5, values_only=True):
+        k = _s(r[g["프로젝트NO"]]) if g.get("프로젝트NO") is not None else ""
+        if not k or k in have:
+            continue
+        if _s(r[g["진행상태"]]) != "작업완료":
+            continue
+        txt = tidy(kt.get(k, "")) or work_part(bt.get(k, ""))
+        if not txt:
+            continue                       # 무엇을 했는지 모르면 행을 만들지 않는다
+        d = r[g["작업완료일"]] if g.get("작업완료일") is not None else None
+        out.append({"프로젝트NO": k, "캠프명": _s(r[g.get("캠프명", 0)]),
+                    "담당기사": _s(r[g.get("담당기사", 0)]), "접수ID": _s(r[g.get("접수ID", 0)]),
+                    "최초접수내용": _s(r[g.get("신청내용", 0)])[:MAXLEN],
+                    "작업일자": d.date().isoformat() if hasattr(d, "date") else _s(d)[:10],
+                    "실제작업상세": txt,
+                    "_src": "카톡 완료글 A/S내용" if kt.get(k) else "밴드 완료글 A/S내용"})
+        have.add(k)
+    return out, last + 1, h3
+
+
 def plan(master):
     import warnings
     warnings.filterwarnings("ignore")
@@ -183,8 +229,12 @@ def plan(master):
                       # 자리표시자를 덮어야 하므로 '빈 칸만' 이 아니다.
                       # 위에서 **사람이 적은 값은 이미 걸렀다.**
                       "only_if_empty": False})
+    # 03시트에 아직 안 올라온 완료건 — **세기만 한다.** 행은 엑셀 B열 수식이 만든다.
+    news, start, _h3 = missing_rows(wb, kt, bt)
+    room = ws.max_row - start + 1
     wb.close()
-    return items, {"집계": tally, "근거없음샘플": misses[:8]}
+    return items, {"집계": tally, "근거없음샘플": misses[:8],
+                   "대기": len(news), "여유행": room}
 
 
 def main():
@@ -197,6 +247,15 @@ def main():
           % (SHEET, COL, t.get("채움", 0), t.get("이미 있음", 0), t.get("근거 없음", 0)))
     for it in items[:6]:
         print("   %s  %s" % (it["evidence"], it["value"][:56]))
+    if info.get("대기"):
+        print("   ★ 03시트에 아직 안 올라온 완료건 %d건 (원문에 작업내용 있음) · 빈 행 여유 %d"
+              % (info["대기"], info.get("여유행", 0)))
+        print("     → **엑셀을 한 번 열어 주세요.** 03시트 B열 수식이 02시트에서 접수ID를")
+        print("        스스로 끌어옵니다(행만 있으면 됩니다). 그 뒤 이 도구를 다시 돌리면")
+        print("        프로젝트NO 기준으로 실제작업상세가 채워집니다.")
+        if info.get("대기", 0) > info.get("여유행", 0):
+            print("     → 빈 행이 모자랍니다: python expand_rows.py --sheet %s --add %d --apply"
+                  % (SHEET, info["대기"] - info.get("여유행", 0) + 20))
     if info.get("근거없음샘플"):
         print("   [비워 둠] 원문에 없음:", ", ".join(info["근거없음샘플"]))
     if not do:
