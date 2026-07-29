@@ -2607,6 +2607,46 @@ def t53_session_handoff():
     print("  [53] 세션 인계(죽은 점유 판정·큐/임시파일·워치독 스냅샷·체크리스트 0번) ✅")
 
 
+def t54_side_work_db_only():
+    """[54] 철거·신규납품은 **DB에만 두고 앱에는 안 보인다**(사용자 지시 2026-07-29).
+
+    원장에서 지우는 게 아니다 — 05_신규납품설치 시트에 그대로 두고 화면에서만 뺀다.
+    ★ 05시트 업무구분은 '납품'·'철거' 처럼 **한 단어**다(10_코드관리 M열).
+      '신규납품' 만 잡으면 정작 원장에 적힌 '납품' 을 놓친다 — 처음에 실제로 그랬다.
+    ★ 돌발AS·정기점검은 절대 걸리면 안 된다. 걸리면 본업이 화면에서 사라진다."""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    import kakao_extract as kx
+
+    # 저장 자리 — 05시트로 가고, 업무구분은 유효성 목록 안의 값이어야 한다
+    assert "05_신규납품설치" in kx.SHEET_MAP, "철거·납품의 저장 자리가 없다"
+    assert set(kx.SIDE_KIND.values()) <= {"철거", "납품", "설치", "이전"}, kx.SIDE_KIND
+    assert kx.SIDE_KIND.get("(철거·보관)") == "철거" and kx.SIDE_KIND.get("(납품설치)") == "납품"
+    m = kx.SHEET_MAP["05_신규납품설치"]
+    assert m.get("업무구분") == "_업무구분" and "프로젝트NO" in m, m
+    for c in ("요청일", "철거·이전예정일", "납품예정일"):
+        assert c in kx.DATE_COLS, "%s 가 날짜로 안 들어간다" % c
+
+    # 앱 필터 — 별도 공사는 걸러지고 본업은 남아야 한다
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    mm = re.search(r"const SIDE_WORK = /([^/]+)/", live)
+    assert mm, "앱에 SIDE_WORK 규칙이 없다"
+    rx = re.compile(mm.group(1))
+    for word in ("철거", "납품", "설치", "이전", "계단"):
+        assert rx.search(word), "'%s' 가 앱에서 안 걸러진다" % word
+    for word in ("돌발AS", "정기점검"):
+        assert not rx.search(word), "★ '%s' 가 걸러진다 — 본업이 화면에서 사라진다" % word
+
+    # 데이터 받는 관문 전부에 걸려 있는가(한 곳만 빠져도 거기서 새어 나온다)
+    for anchor in ("rowIs2026(r,'settle')", "rowIs2026(r,'as')",
+                   "rowIs2026(r,'pm')", "rowIs2026(r,'issue')"):
+        i = live.find(anchor)
+        assert i > 0, anchor
+        assert "isSideWork(r)" in live[i:i + 120], "%s 관문에 필터가 없다" % anchor
+    assert live.count("isSideWork(r)") >= 5, "관문 일부에만 걸려 있다"
+    print("  [54] 철거·납품 DB 저장·앱 비표시(05시트 저장·관문 5곳·본업 보존) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2660,6 +2700,7 @@ if __name__ == "__main__":
     t47_back_nav()
     t52_data_status()
     t53_session_handoff()
+    t54_side_work_db_only()
     t48_excel_2026_stats_and_verified_completion()
     t39_realtime_monitor()
     t6_webapp()

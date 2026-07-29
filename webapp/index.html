@@ -1004,6 +1004,21 @@ function rowIs2026(r, kind){
   const ys = [...ps.matchAll(/\bUJ(\d{2})\d{5}\b/gi)].map(m=>m[1]);
   return ys.length>0 && new Set(ys).size===1 && ys[0]===APP_YEAR.slice(2);
 }
+/* ★ 사용자 지시(2026-07-29): "철거·신규납품 건은 DB만 저장해놓고 앱에 표기하지마."
+   원장에서 지우지 않는다 — 05_신규납품설치 시트에 그대로 있고, **화면에서만** 뺀다.
+   05시트는 앱이 읽지 않으므로 보통은 저절로 안 보이지만, 정산(06)·확인필요(23) 로
+   흘러들어오면 보인다. 그래서 데이터를 받는 관문에서 한 번 더 거른다.
+   되돌리려면 SIDE_WORK 를 비우면 된다(자료는 그대로 있으므로 그 즉시 다시 보인다). */
+/* 05시트 업무구분은 '납품'·'설치'·'철거'·'이전' 처럼 **한 단어**다(10_코드관리 M열).
+   '신규납품' 만 잡으면 정작 원장에 적힌 '납품' 을 놓친다 — 실제로 처음에 그랬다. */
+const SIDE_WORK = /철거|이전|납품|설치|계단|안전바|경보장치|메자닌/;
+function isSideWork(r){
+  if(!r || typeof r!=='object') return false;
+  for(const k of ['업무구분','업무유형','구분','종류','품목']){
+    if(r[k] && SIDE_WORK.test(String(r[k]))) return true;
+  }
+  return false;
+}
 function hide2025(r){
   const old=/\bUJ25\d{5}\b|\b(?:AS|PM|JS)-25\d{2}-\d{3}\b|(?<!\d)2025[-./]\d{1,2}(?:[-./]\d{1,2})?|2025년|(?<!\d)25(?:년도|년)/g;
   return Object.fromEntries(Object.entries(r||{}).map(([k,v])=>
@@ -1019,7 +1034,7 @@ function cleanExec2026(d){
     groups:(s.groups||[]).map(g=>({...g,items:(g.items||[]).filter(x=>!old(x))}))
   })).filter(s=>!old(s.title));
   d.details = Object.fromEntries(Object.entries(d.details||{}).map(([k,v])=>[
-    k,{...v,rows:(v.rows||[]).filter(r=>rowIs2026(r,'issue')).map(hide2025)}
+    k,{...v,rows:(v.rows||[]).filter(r=>rowIs2026(r,'issue') && !isSideWork(r)).map(hide2025)}
   ]).filter(([,v])=>!old(v)));
   return d;
 }
@@ -1055,15 +1070,15 @@ function showFixedEntry(){
 }
 async function loadSettle(){
   const d = await api('/api/settlements');
-  settleRows = (d.rows||[]).filter(r=>rowIs2026(r,'settle')).map(hide2025);
+  settleRows = (d.rows||[]).filter(r=>rowIs2026(r,'settle') && !isSideWork(r)).map(hide2025);
   try{ works = await api('/api/works'); }catch(e){}
   try{ issuesData = await api('/api/issues'); }catch(e){}
   try{ checks = await api('/api/checks'); }catch(e){}
   try{ execRep = await api('/api/exec_report'); }catch(e){}
   try{ erpDocs = await api('/api/erpdocs'); }catch(e){ erpDocs = {rows:[],months:{},kinds:{},total:0}; }
-  works.as = (works.as||[]).filter(r=>rowIs2026(r,'as')).map(hide2025);
-  works.pm = (works.pm||[]).filter(r=>rowIs2026(r,'pm')).map(hide2025);
-  issuesData.rows = (issuesData.rows||[]).filter(r=>rowIs2026(r,'issue')).map(hide2025);
+  works.as = (works.as||[]).filter(r=>rowIs2026(r,'as') && !isSideWork(r)).map(hide2025);
+  works.pm = (works.pm||[]).filter(r=>rowIs2026(r,'pm') && !isSideWork(r)).map(hide2025);
+  issuesData.rows = (issuesData.rows||[]).filter(r=>rowIs2026(r,'issue') && !isSideWork(r)).map(hide2025);
   checks = Object.fromEntries(Object.entries(checks||{}).filter(([k])=>rowIs2026({ID:k},'issue')));
   execRep = cleanExec2026(execRep||{});
   erpDocs = cleanErp2026(erpDocs||{});
