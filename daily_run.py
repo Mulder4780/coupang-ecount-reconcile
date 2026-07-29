@@ -154,6 +154,12 @@ def main():
     #       읽는 사람은 멈춘 줄 모르고 어제 숫자를 오늘 숫자로 본다. 반드시 매일 같이 돈다.
     steps.append(run("확인필요현황 엑셀 갱신", [os.path.join(ROOT, "findings_export.py")]))
 
+    # 6.7 자료현황 한 장 — "밴드에서 뭘 얼마나 가져왔나 / 지금 뭘 갖고 있나 / 원장이 얼마나 찼나".
+    #     같은 질문을 매번 다시 세지 않으려고 만든다(사용자 지시 2026-07-29).
+    #     느린 것(Z: 2만 개 순회)은 다시 돌지 않고 앞 단계가 남긴 리포트에서 숫자만 읽는다 —
+    #     그래서 이 단계는 위 대조들이 **끝난 뒤에** 와야 한다.
+    steps.append(run("자료현황 갱신", [os.path.join(ROOT, "data_status.py")]))
+
     # 7. 전표 전송 대기 현황 (dry-run만 — 실전송은 절대 자동화하지 않음)
     steps.append(run("전표 전송대기(dry-run)", [os.path.join(ROOT, "ecount_upload.py")]))
 

@@ -2481,6 +2481,53 @@ def t51_manual_daily_activity():
     print("  [51] 유수비 대표 접수·류지영 택배 발송을 당일 업무 처리로 포함 ✅")
 
 
+def t52_data_status():
+    """[52] 자료현황 한 장 — 같은 질문을 매번 다시 세지 않게(사용자 지시 2026-07-29).
+
+    ★ 이 장이 **느리면 아무도 안 본다.** Z: 폴더 2만 개 순회 같은 무거운 일은 여기서
+      다시 하지 않고, 앞 단계가 남긴 리포트에서 숫자만 읽는다. 그래서 daily_run 에서
+      대조들이 **끝난 뒤에** 와야 한다.
+    ★ 앱 [기록] 탭에 뜨지 않으면 만든 의미가 없다 — 파일명이 서버 목록과 맞아야 한다."""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    import data_status as D
+
+    # 리포트에서 숫자만 긁는 함수가 실제로 동작하는가(없으면 조용히 빈 dict)
+    with tempfile.TemporaryDirectory() as tmp:
+        old = os.environ.get("COUPANG_REPORT_DIR")
+        os.environ["COUPANG_REPORT_DIR"] = tmp
+        try:
+            import importlib
+            importlib.reload(D)
+            open(os.path.join(tmp, "입금현황.md"), "w", encoding="utf-8").write(
+                "# 쿠팡 입금 현황\n\n- 입금 70건 · 합계 1,106,167,980원 · 2026-04-13 ~ 2026-07-27\n")
+            got = D.from_report("입금현황.md", ("건수", r"입금\s*([\d,]+)건"),
+                                ("합계", r"합계\s*([\d,]+)원"))
+            assert got.get("건수") == 70 and got.get("합계") == 1106167980, got
+            assert D.from_report("없는파일.md", ("x", r"(\d+)")) == {}, "없는 리포트에서 죽으면 안 된다"
+        finally:
+            if old is None:
+                os.environ.pop("COUPANG_REPORT_DIR", None)
+            else:
+                os.environ["COUPANG_REPORT_DIR"] = old
+            importlib.reload(D)
+
+    # 무거운 재계산을 하지 않는다 — Z: 폴더를 직접 훑는 코드가 있으면 안 된다
+    src = open(os.path.join(ROOT, "data_status.py"), encoding="utf-8").read()
+    assert "os.walk" not in src, "자료현황이 폴더를 직접 순회한다 — 느려서 아무도 안 보게 된다"
+    assert "from_report(" in src, "앞 단계 리포트를 재활용하지 않는다"
+
+    # 앱 [기록] 탭에 뜨는가 (파일명이 서버 목록과 맞아야 한다)
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert '("자료현황.md", "자료현황")' in srv, "앱 리포트 목록에 자료현황이 없다"
+    # daily_run 이 매일 갱신하는가
+    dr = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "data_status.py" in dr, "daily_run 에 자료현황 갱신 단계가 없다"
+    assert dr.index("findings_export.py") < dr.index("data_status.py"), \
+        "자료현황이 대조·리포트보다 먼저 돌면 지난 숫자를 읽는다"
+    print("  [52] 자료현황 한 장(리포트 재활용·앱 노출·daily_run 순서) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2532,6 +2579,7 @@ if __name__ == "__main__":
     t44_zscan()
     t46_app_2026_only()
     t47_back_nav()
+    t52_data_status()
     t48_excel_2026_stats_and_verified_completion()
     t39_realtime_monitor()
     t6_webapp()

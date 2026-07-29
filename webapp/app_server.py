@@ -1370,7 +1370,10 @@ def get_status():
 def latest_reports():
     out = []
     old_year = _OLD_APP_REF_RE
-    for pat, name in [("종합리포트_*.md", "종합"), ("카톡대조_*.md", "카톡"), ("밴드대조_*.md", "밴드"),
+    # '자료현황' 을 맨 앞에 둔다 — "그거 지금 몇 건이지?" 를 매번 다시 세지 않으려고 만든 장이다
+    # (사용자 지시 2026-07-29). data_status.py 가 만들고 daily_run 이 매일 갱신한다.
+    for pat, name in [("자료현황.md", "자료현황"),
+                      ("종합리포트_*.md", "종합"), ("카톡대조_*.md", "카톡"), ("밴드대조_*.md", "밴드"),
                       ("ERP원장대조_*.md", "ERP원장"), ("이카운트대조_*.md", "판매·계산서")]:
         fs = sorted(glob.glob(os.path.join(ROOT, "reports", pat)))
         if fs:
