@@ -2456,7 +2456,7 @@ def t50_stale_completion_drilldown_and_capture():
     assert '"완료일미기입목록": _b.get("완료일미기입목록", [])' in pub, \
         "암호화 사본에 완료일 누락 원천 목록이 없다"
     sw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
-    assert "csos-v8-brief-list-2026-only" in sw, \
+    assert "csos-v9-pm-brief-2026-only" in sw, \
         "설치형 휴대폰 앱이 이전 화면 캐시를 계속 쥘 수 있다"
     print("  [50] 오래된 완료일 미기입 목록·정확 라우팅·담당자 캡처 ✅")
 
@@ -2647,6 +2647,90 @@ def t54_side_work_db_only():
     print("  [54] 철거·납품 DB 저장·앱 비표시(05시트 저장·관문 5곳·본업 보존) ✅")
 
 
+def t55_pm_brief_drilldown_and_capture():
+    """[55] 정기점검 예정·실행·미실행 숫자는 원천 목록·점검ID·캡처로 이어진다."""
+    import daily_brief as D
+
+    data = {"as": [], "fw": [], "events": [], "pm": [
+        {"점검ID": "PM-2607-001", "프로젝트NO": "UJ2607001", "캠프명": "합성A",
+         "점검예정일": "2026-07-29", "실제점검일": "2026-07-29",
+         "담당기사": "김기사", "점검내용": "정기점검 A"},
+        {"점검ID": "PM-2608-002", "프로젝트NO": "UJ2608002", "캠프명": "합성B",
+         "점검예정일": "2026-08-05", "실제점검일": "",
+         "담당기사": "권기사", "점검내용": "정기점검 B"},
+        {"점검ID": "PM-2606-003", "프로젝트NO": "UJ2606003", "캠프명": "합성C",
+         "점검예정일": "2026-06-20", "실제점검일": "2026-07-29",
+         "담당기사": "차기사", "점검내용": "지연 실행"},
+    ]}
+    b = D.brief("2026-07-29", data)
+    assert b["정기점검"]["예정"] == 1 and b["정기점검"]["완료"] == 2
+    assert b["정기점검"]["분기예정"] == 2 and b["정기점검"]["분기완료"] == 1
+    assert b["정기점검"]["분기미실행"] == 1
+    assert b["점검예정목록"][0]["레코드ID"] == "PM-2607-001"
+    assert {x["레코드ID"] for x in b["점검실행목록"]} == {"PM-2606-003", "PM-2607-001"}
+    assert [x["상태"] for x in b["분기점검목록"]] == ["실행", "미실행"]
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for token in ("function openPmBrief(", "openPmBrief('day-plan')", "openPmBrief('day-done')",
+                  "openPmBrief('quarter-all')", "openPmBrief('quarter-done')",
+                  "openPmBrief('quarter-pending')", "점검예정목록", "점검실행목록", "분기점검목록"):
+        assert token in live, "실시간 앱 " + token + " 누락"
+    assert "window._briefMetric={label" in live and "shareExecMetric()" in live
+
+    phone = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+    pub = open(os.path.join(ROOT, "cloud_publish.py"), encoding="utf-8").read()
+    for token in ("function openPmCloud(", "function openCloudBriefSheet(",
+                  "function cloudSheetToPng(", "quarter-pending", "이미지 저장/전달"):
+        assert token in phone, "고정 주소 앱 " + token + " 누락"
+    for key in ("점검예정목록", "점검실행목록", "분기점검목록"):
+        assert f'"{key}": _b.get("{key}", [])' in pub, "암호화 사본 " + key + " 누락"
+    print("  [55] 정기점검 예정·실행·미실행 목록·정확 이동·담당자 캡처 ✅")
+
+
+def t56_work_detail_from_source():
+    """[56] 작업 내용은 **원문에 있으면 자동 기입, 없으면 비워 둔다**(사용자 지시 2026-07-29).
+
+    ★★ '신청내용'(요청)을 실적 칸에 넣으면 **하지 않은 작업을 했다고 기록**된다.
+       카톡 자료로 세어 보면 작업내용은 26건인데 신청내용만 있는 게 542건이다 —
+       구분 없이 채웠다면 대표 보고의 '무엇을 했나' 가 통째로 거짓이 됐다.
+    ★★ 공지의 **빈 양식**('?? 호기', 'What ? / 갯수 ?')도 값이 아니다. 기사가 아직 안 채운 칸이다.
+       여러 호기 중 일부만 적힌 글은 뒤에 빈 양식이 남으므로 거기서 잘라야 한다."""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    import fill_work_detail as W
+
+    # 빈 양식은 값이 아니다 — 통째로 템플릿이면 아무것도 안 쓴다
+    tpl = "● A/S 내용 :\n▒▒ ?? 호기 ▒▒\n(유료)What ? / 갯수 ?\n(유료)작업자 1공임"
+    assert W.work_part(tpl) == "", "빈 양식을 실적으로 기록한다: %r" % W.work_part(tpl)
+    assert W.tidy("▒▒ ?? 호기 ▒▒ (유료)What ? / 갯수 ?") == ""
+
+    # 일부만 적힌 글 — 적힌 데까지만 남기고 빈 양식은 잘라낸다
+    part = ("● A/S 내용 :\n▒▒ 02 호기 ▒▒\n(유료)도어락 교체 완료\n"
+            "▒▒ ?? 호기 ▒▒\n(유료)What ? / 갯수 ?")
+    got = W.work_part(part)
+    assert "도어락 교체 완료" in got, got
+    assert "What" not in got and "?? 호기" not in got, "빈 양식이 남았다: %r" % got
+
+    # 사내 메모(※ 확인사항)는 실적이 아니다
+    memo = "● A/S 내용 :\n(유료)경광등 교체완료\n※ 확인사항 : 1. (변재선) 거래명세표 발행"
+    g2 = W.work_part(memo)
+    assert "경광등 교체완료" in g2 and "확인사항" not in g2, g2
+
+    # 'A/S 내용' 절이 없으면 본문을 통째로 넣지 않는다
+    assert W.work_part("♣ 돌발유료 A/S 완료 ● 프로젝트NO : UJ2600001 ● 신청일자 : 2026.01.02") == ""
+
+    # ★ 신청내용을 쓰지 않는다 — 코드에 그 폴백이 있으면 안 된다
+    src = open(os.path.join(ROOT, "fill_work_detail.py"), encoding="utf-8").read()
+    body = src.split("if __name__")[0]
+    assert 'r.get("신청내용")' not in body, "신청내용을 실적으로 쓰고 있다 — 안 한 일을 했다고 적는다"
+    # 사람이 적은 값은 덮지 않는다(자리표시자·빈 양식만 덮는다)
+    assert "DRAFT.search(cur)" in body, "사람이 적은 값을 덮어쓸 수 있다"
+    # 매일 자동으로 도는가
+    dr = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "fill_work_detail.py" in dr, "daily_run 에 자동 기입 단계가 없다"
+    print("  [56] 작업내용 자동기입(신청내용 금지·빈 양식 제외·사내메모 제외·매일 실행) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2701,6 +2785,8 @@ if __name__ == "__main__":
     t52_data_status()
     t53_session_handoff()
     t54_side_work_db_only()
+    t56_work_detail_from_source()
+    t55_pm_brief_drilldown_and_capture()
     t48_excel_2026_stats_and_verified_completion()
     t39_realtime_monitor()
     t6_webapp()

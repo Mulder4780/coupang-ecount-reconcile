@@ -88,6 +88,11 @@ def main():
     else:
         steps.append({"name": "카톡 신규 접수 등록", "ok": None, "out": "스킵 — kakao/inbox/에 대화 내보내기 없음"})
 
+    # 2.9 작업 내용 자동 기입 — 원문(카톡·밴드 **완료 글**)에 있으면 03시트에 채운다.
+    #     사용자 지시(2026-07-29): "밴드나 카톡에서 확인되면 자동 기입. 모든 데이터가 마찬가지."
+    #     ★ '신청내용'(요청)은 쓰지 않는다 — 그건 무엇을 했나가 아니다. 빈 양식도 거른다.
+    steps.append(run("작업내용 자동기입(03시트)", [os.path.join(ROOT, "fill_work_detail.py"), "--apply"]))
+
     # 3. 밴드 수집·대조 — 공식 API 토큰이 있으면 수집+대조, 브라우저 수집 캐시만 있으면 대조만
     band_cache = [f for f in glob.glob(os.path.join(ROOT, "band", "cache", "*.json"))
                   if not os.path.basename(f).startswith(("raw_", "dump_"))]
