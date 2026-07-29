@@ -3339,6 +3339,21 @@ def t81_terra_sol_handoff_review():
     patch = "+++ b/example.py\n+api_key = \"" + ("a" * 16) + "\"\n+password = \"\"\n"
     assert HR.secret_findings(patch) == ["example.py"], "빈 값은 비밀값 탐지 대상이 아니다"
 
+    with tempfile.TemporaryDirectory() as td:
+        old_marker, old_review = HR.MARKER, HR.REVIEW_REPORT
+        old_head, old_resolve, old_ancestor = HR.current_head, HR.resolve_commit, HR.is_ancestor
+        try:
+            HR.MARKER = os.path.join(td, "terra.json")
+            HR.REVIEW_REPORT = os.path.join(td, "review.json")
+            HR.current_head = lambda: "a" * 40
+            HR.resolve_commit = lambda value: str(value) if value else ""
+            HR.is_ancestor = lambda base, head: bool(base and head)
+            saved = HR.mark_terra("b" * 40)
+            assert saved["base_commit"] == "b" * 40 and os.path.exists(HR.MARKER), saved
+        finally:
+            HR.MARKER, HR.REVIEW_REPORT = old_marker, old_review
+            HR.current_head, HR.resolve_commit, HR.is_ancestor = old_head, old_resolve, old_ancestor
+
     claim_src = open(os.path.join(ROOT, "ai_claim.py"), encoding="utf-8").read()
     session_src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
     agents_src = open(os.path.join(ROOT, "AGENTS.md"), encoding="utf-8").read()

@@ -166,7 +166,7 @@ def mark_terra(base: str | None = None) -> dict[str, Any]:
         "base_commit": base_commit,
         "head_commit": head,
     }
-    _write_json(MARKER, saved)
+    _write_json_atomic(MARKER, saved)
     return saved
 
 
