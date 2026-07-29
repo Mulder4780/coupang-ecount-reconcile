@@ -27,8 +27,29 @@ DOC = re.compile(r"명세서|계산서|견적|청구|세금")
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.band.us/"}
 
 
-def targets():
-    """[(밴드, 게시글ID, 날짜, URL)] — 문서로 보이는 글의 큰 사진만"""
+def post_year(p, body):
+    """글의 연도 — created_at 우선, 없으면 본문의 'YYYY년'."""
+    t = p.get("created_at") or 0
+    try:
+        t = int(t)
+        if t > 1e12:
+            t //= 1000
+        if t > 0:
+            import datetime
+            return datetime.datetime.fromtimestamp(t).year
+    except Exception:
+        pass
+    m = re.search(r"(20\d{2})년", body[:200])
+    return int(m.group(1)) if m else 0
+
+
+def targets(all_photos=False, year=0):
+    """[(밴드, 게시글ID, 날짜, URL)]
+
+    기본은 **문서로 보이는 글**의 사진만(OCR 대상). `--all` 이면 그 글의 사진을 전부 받는다
+    (사용자 지시 2026-07-29: 빼먹지 말고 다 가져와). `--year 2026` 이면 그 해 글만.
+    ★ 캐시에 URL 이 있는 것만 받을 수 있다 — 밴드가 말하는 장수보다 적다.
+      나머지는 공식 API(심사 대기) 가 있어야 한다. 브라우저로는 못 긁는다(AGENTS.md 참고)."""
     out = []
     for f in sorted(glob.glob(os.path.join(CACHE, "dump_*.json")) +
                     glob.glob(os.path.join(CACHE, "raw_*.json"))):
@@ -40,7 +61,9 @@ def targets():
         posts = d.get("posts") or {}
         for pid, p in (posts.items() if isinstance(posts, dict) else enumerate(posts)):
             body = p.get("content") or ""
-            if not DOC.search(body):
+            if not all_photos and not DOC.search(body):
+                continue
+            if year and post_year(p, body) != year:
                 continue
             m = re.search(r"(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일", body)
             day = "%s%02d%02d" % (m.group(1)[2:], int(m.group(2)), int(m.group(3))) if m else "000000"
@@ -51,11 +74,36 @@ def targets():
     return out
 
 
+def out_dir():
+    """저장 위치 — 원본은 서버('0. 원본 자료')가 정본이다(2026-07-28 이전 완료).
+    서버가 안 붙어 있으면 로컬 inbox 로 떨어뜨린다."""
+    try:
+        sys.path.insert(0, os.path.dirname(HERE))
+        from source_dirs import DOC_PHOTO_DIRS
+        d = DOC_PHOTO_DIRS[0]
+        os.makedirs(d, exist_ok=True)
+        return d
+    except Exception:
+        return OUT
+
+
 def main():
     dry = "--dry" in sys.argv
+    all_photos = "--all" in sys.argv
+    year = 0
+    if "--year" in sys.argv:
+        try:
+            year = int(sys.argv[sys.argv.index("--year") + 1])
+        except (IndexError, ValueError):
+            year = 0
+    global OUT
+    OUT = out_dir()
     os.makedirs(OUT, exist_ok=True)
-    t = targets()
-    print(f"대상 사진 {len(t)}장 (문서로 보이는 글)")
+    t = targets(all_photos, year)
+    print("대상 사진 %d장 (%s%s)" % (
+        len(t), "글 전체" if all_photos else "문서로 보이는 글",
+        (" · %d년" % year) if year else ""))
+    print("  저장 위치:", OUT)
     if dry:
         return
     got = skip = fail = 0
