@@ -1606,6 +1606,22 @@ def get_settlements():
 
 
 def get_status():
+    """★ 이 함수는 Z: 네트워크 드라이브를 여러 번 읽는다(원장·ERP 내보내기·대조 CSV).
+    로컬 단독으로는 4초면 끝나지만, Codex·일일실행이 같은 드라이브를 쓰는 동안에는
+    280초~600초까지 늘어난다. 대시보드는 이걸 주기적으로 폴링하므로 캐시가 없으면
+    **앱이 열리지 않는다**(2026-07-29 실측). 다른 데이터 API와 같은 캐시를 쓴다:
+    원장이 바뀌면 즉시, 아니면 120초 TTL."""
+    with _readlock:
+        c = _fresh("status")
+        if c:
+            return c
+        c = _compute_status()
+        if "error" not in c:
+            _cache["status"] = c
+        return c
+
+
+def _compute_status():
     if DEMO:
         return {"master": "쿠팡_통합업무_일일보고_관리대장_v23.xlsx (데모)", "fork": [],
                 "agent_last": "2026-07-24 09:50", "steps": [
