@@ -2498,7 +2498,7 @@ def t50_stale_completion_drilldown_and_capture():
     assert '"완료일미기입목록": _b.get("완료일미기입목록", [])' in pub, \
         "암호화 사본에 완료일 누락 원천 목록이 없다"
     sw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
-    assert "csos-v10-project-first-exception-report-2026-only" in sw, \
+    assert "csos-v11-confirmed-owner-rules-2026-only" in sw, \
         "설치형 휴대폰 앱이 이전 화면 캐시를 계속 쥘 수 있다"
     print("  [50] 오래된 완료일 미기입 목록·정확 라우팅·담당자 캡처 ✅")
 
@@ -2792,6 +2792,7 @@ def t56_work_detail_from_source():
 def t58_check_hub_detail_and_capture():
     """[58] 보고 아래 확인 필요 전용 화면은 유형·담당자·원기록·캡처까지 이어진다."""
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    phone = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
 
     # 메뉴는 사용자가 지정한 위치(보고 바로 아래, 기록 위)에 있어야 한다.
     daily = live.index('data-v="daily"')
@@ -2824,10 +2825,13 @@ def t58_check_hub_detail_and_capture():
                   "else openCheckSource(r)", "if(kind==='check')"):
         assert token in live, "PO·미연결 확인행 처리 누락: " + token
 
-    # 정산·PO 확인은 내부 담당자로, 현장 확인은 원천 AS/PM의 담당기사로 보완한다.
-    assert "const CHECK_INTERNAL_OWNER" in live and "'PO A':'유현민'" in live
+    # 확정된 내부 확인 책임을 적용하고, 그 밖의 현장 확인만 원천 AS/PM 담당기사로 보완한다.
+    assert "const CHECK_OWNER_RULES" in live and "function confirmedCheckOwner(" in live
+    assert "변재선(회계)" in live and "캠프·일정, 카톡/밴드, 현장자료, 완료일 확인" in live
+    assert "const CHECK_OWNER_SCOPE_PROPOSALS" not in live and "openPendingOwnerScope" not in live
     assert "first&&first.원천업무ID ? rowById(first.원천업무ID)" in live
     assert "원장 담당자 칸 확인" in live
+    assert "[r['구분'], r['담당자']" in phone, "고정 주소 확인필요 목록에 확정 담당자가 표시되지 않는다"
     print("  [58] 확인 필요 전용 메뉴·PO/담당자 보완·정확 이동·현재목록 캡처 ✅")
 
 
@@ -2943,9 +2947,18 @@ def t72_project_first_representative_report():
     docs = {x["업무유형"]: x for x in report["거래명세서"]["업무유형별"]}
     assert docs["돌발 AS"]["발행대상"] == 1 and docs["돌발 AS"]["미발행"] == 1
     assert docs["신규·납품·설치"]["발행대상"] == 0 and docs["신규·납품·설치"]["발행률"] is None
-    assert len(report["업무기준확인필요"]) == 7
-    assert any("류지영 확인 범위" in x["기준"] for x in report["업무기준확인필요"])
-    assert any("변재선(회계) 확인 범위" in x["기준"] for x in report["업무기준확인필요"])
+    assert len(report["업무기준확인필요"]) == 5
+    assert not any("류지영 확인 범위" in x["기준"] for x in report["업무기준확인필요"])
+    assert not any("변재선(회계) 확인 범위" in x["기준"] for x in report["업무기준확인필요"])
+
+    from responsibility import confirmed_owner
+    assert confirmed_owner("밴드 게시 미확인", "밴드", "권오철") == "류지영"
+    assert confirmed_owner("캠프명 비어 있음", "빈칸", "김준형") == "류지영"
+    assert confirmed_owner("세금계산서 미발행", "정산") == "변재선(회계)"
+    assert confirmed_owner("작업금액 불일치", "금액") == "변재선(회계)"
+    assert confirmed_owner("PO A", "PO") == "유현민"
+    assert confirmed_owner("원장 미등록", "문서") == "유현민"
+    assert confirmed_owner("기타 현장 확인", "기타", "권오철") == "권오철"
 
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
@@ -2962,7 +2975,7 @@ def t72_project_first_representative_report():
     assert "project, _ = rep_no(" in server and "candidate, rep_idx" in server, \
         "대표보고 원천행의 내부 JS 번호를 프로젝트번호로 복원하지 않는다"
     assert "r['프로젝트NO']||'프로젝트 미확정'" in phone
-    assert "csos-v10-project-first-exception-report-2026-only" in sw
+    assert "csos-v11-confirmed-owner-rules-2026-only" in sw
     print("  [72] 프로젝트번호 대표표시·유수비 예외보고·정책확인·버튼/페이지 애니메이션 ✅")
 
 

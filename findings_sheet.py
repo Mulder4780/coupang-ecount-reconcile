@@ -31,34 +31,34 @@ def flatten(data):
     """수집 결과 → 통합 행 [(구분, ID, 유형, 캠프, 담당, 금액, 일자, 내용)]"""
     rows = []
     for r in data.get("정산_조치필요", []):
-        rows.append(("정산", r.get("정산ID"), r.get("문제유형"), r.get("캠프명"), "",
+        rows.append(("정산", r.get("정산ID"), r.get("문제유형"), r.get("캠프명"), r.get("담당자"),
                      r.get("공급가액"), r.get("완료일"),
                      f"명세서 {r.get('명세서번호') or '없음'} · PO {r.get('PO번호') or '없음'} · {r.get('프로젝트NO','')}"))
     for r in data.get("밴드_미확인", []):
-        rows.append(("밴드", r.get("ID"), "밴드 게시 미확인", r.get("캠프명"), r.get("담당기사"),
+        rows.append(("밴드", r.get("ID"), "밴드 게시 미확인", r.get("캠프명"), r.get("담당자"),
                      "", r.get("완료일"), "작업완료인데 밴드 게시글 미발견 — 게시 여부 확인"))
     for r in data.get("카톡_미확인", []):
-        rows.append(("카톡", r.get("ID"), "카톡 보고 미확인", r.get("캠프명"), r.get("담당기사"),
+        rows.append(("카톡", r.get("ID"), "카톡 보고 미확인", r.get("캠프명"), r.get("담당자"),
                      "", r.get("완료일"), "작업완료인데 카톡 보고 미발견"))
     for r in data.get("ERP원장_문제", []):
         rows.append(("ERP", r.get("정산ID") or r.get("전표"), f"ERP {r.get('유형','')}",
-                     r.get("캠프명", ""), "", r.get("ERP금액", ""), "",
+                     r.get("캠프명", ""), r.get("담당자"), r.get("ERP금액", ""), "",
                      (r.get("판정") or "") + " " + (r.get("적요") or "")[:60]))
     for r in data.get("쿠팡PO_문제", []):
         rows.append(("PO", r.get("PO번호") or r.get("정산ID"), f"PO {r.get('유형','')}",
-                     "", "", r.get("쿠팡금액", ""), r.get("발행일", ""),
+                     "", r.get("담당자"), r.get("쿠팡금액", ""), r.get("발행일", ""),
                      (r.get("판정") or "") + " " + (r.get("후보정산") or r.get("내용") or "")[:60]))
     for r in data.get("문서_원장미등록", []):
-        rows.append(("문서", r.get("프로젝트NO"), "원장 미등록", "", "",
+        rows.append(("문서", r.get("프로젝트NO"), "원장 미등록", "", r.get("담당자"),
                      r.get("공급가액") or "", r.get("발행일") or "", r.get("확인방법") or ""))
     for r in data.get("금액_불일치", []):
-        rows.append(("금액", r.get("정산ID"), "작업금액 불일치", r.get("캠프명"), "",
+        rows.append(("금액", r.get("정산ID"), "작업금액 불일치", r.get("캠프명"), r.get("담당자"),
                      r.get("차액"), "",
                      f"작업 {r.get('작업금액'):,}원 / 명세서 {r.get('명세서금액'):,}원 · "
                      f"{r.get('프로젝트NO','')} · {r.get('확인방법','')}"))
     for r in data.get("날짜_미상", []):
         rows.append(("빈칸", r.get("프로젝트NO"), f"{r.get('빈칸')} 비어 있음", r.get("캠프명"),
-                     r.get("담당기사"), "", "", r.get("확인방법") or ""))
+                     r.get("담당자"), "", "", r.get("확인방법") or ""))
     return rows
 
 

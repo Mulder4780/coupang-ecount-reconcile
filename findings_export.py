@@ -17,6 +17,7 @@ except Exception:
     pass
 
 from ecount_reconcile import read_ledger, load_config, resolve_master
+from responsibility import confirmed_owner
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPORT_DIR = os.path.join(BASE_DIR, "reports")
@@ -64,6 +65,27 @@ def collect(master):
     data["날짜_미상"] = dateless(master)
     data["문서_원장미등록"] = doc_unregistered(master)
     data["금액_불일치"] = amount_gap(master)
+    apply_confirmed_responsibility(data)
+    return data
+
+
+def apply_confirmed_responsibility(data):
+    """제안 범위 그대로 확정된 내부 확인 담당자를 모든 산출물에 공통 적용한다."""
+    specs = {
+        "정산_조치필요": ("정산", lambda r: r.get("문제유형")),
+        "밴드_미확인": ("밴드", lambda _r: "밴드 게시 미확인"),
+        "카톡_미확인": ("카톡", lambda _r: "카톡 보고 미확인"),
+        "ERP원장_문제": ("ERP", lambda r: f"ERP {r.get('유형', '')}"),
+        "쿠팡PO_문제": ("PO", lambda r: f"PO {r.get('유형', '')}"),
+        "날짜_미상": ("빈칸", lambda r: f"{r.get('빈칸', '')} 비어 있음"),
+        "문서_원장미등록": ("문서", lambda _r: "원장 미등록"),
+        "금액_불일치": ("금액", lambda _r: "작업금액 불일치"),
+    }
+    for group, rows in data.items():
+        category, issue_of = specs.get(group, ("", lambda _r: ""))
+        for row in rows:
+            row["담당자"] = confirmed_owner(
+                issue_of(row), category, row.get("담당자") or row.get("담당기사"))
     return data
 
 

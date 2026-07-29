@@ -838,8 +838,6 @@ def representative_summary(works, settlements, base_date=""):
             })
 
     policies = [
-        {"기준": "류지영 확인 범위: 캠프·일정·카톡/밴드·현장자료·완료일", "상태": "담당 기준 확인 필요"},
-        {"기준": "변재선(회계) 확인 범위: 거래명세서·세금계산서·입금·금액 불일치", "상태": "담당 기준 확인 필요"},
         {"기준": "돌발 AS·정기점검 거래명세서 묶음기간", "상태": "확인 필요"},
         {"기준": "여러 거래명세서의 세금계산서 합산 기준", "상태": "확인 필요"},
         {"기준": "세금계산서 건별·월합계 발행 기준", "상태": "확인 필요"},
@@ -1168,7 +1166,7 @@ def get_issues():
     """07_불일치누락현황 — 엑셀의 '검증 안 된·확인해야 할' 항목 그대로"""
     if DEMO:
         return {"rows": [{"문제유형": "세금계산서 미발행", "업무ID": "JS-2607-002", "캠프명": "울산2캠프",
-                          "문제내용": "명세서 발행 후 계산서 미발행", "담당자": "유현민"}], "cols": []}
+                          "문제내용": "명세서 발행 후 계산서 미발행", "담당자": "변재선(회계)"}], "cols": []}
     r = _fresh("issues")
     if r:
         return r
@@ -1187,6 +1185,8 @@ def get_issues():
             if any(v for v in vals.values()):
                 rows.append(vals)
         wb.close()
+        from responsibility import assign_issue_row
+        rows = [assign_issue_row(row) for row in rows]
         rows = app_year_rows(apply_rep_no(rows), "issue")
         out = {"rows": sort_by_date(rows, "check"), "cols": hdr, "source": "23_확인필요현황"}
         _cache["issues"] = out
@@ -1225,7 +1225,9 @@ def get_issues():
                                      f"완료 {r.get('완료일','')}" ) [:100]})
     except Exception:
         pass
-    rows = sort_by_date(app_year_rows(apply_rep_no(merged + rows), "issue"), "check")
+    from responsibility import assign_issue_row
+    rows = [assign_issue_row(row) for row in merged + rows]
+    rows = sort_by_date(app_year_rows(apply_rep_no(rows), "issue"), "check")
     cols = []
     for r in rows[:50]:
         for k in r:
