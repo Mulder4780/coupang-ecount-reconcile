@@ -3362,6 +3362,8 @@ def t81_terra_sol_handoff_review():
     assert "--for-sol" in session_src
     for src in (agents_src, claude_src):
         assert "handoff_review.py --mark-terra" in src and "handoff_review.py --review-sol" in src
+    review_src = open(os.path.join(ROOT, "handoff_review.py"), encoding="utf-8").read()
+    assert "_write_json(REVIEW_REPORT" not in review_src, "Sol 검토 결과를 저장하지 못한다"
     print("  [81] Terra→Sol 검토 관문(범위 고정·비밀값/문법/합성검증·Sol 쓰기 점유 차단) OK")
 
 

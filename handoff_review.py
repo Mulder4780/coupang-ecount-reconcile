@@ -272,7 +272,7 @@ def review_sol() -> tuple[bool, dict[str, Any] | None]:
         "synthetic_check": synthetic_summary,
         "errors": errors,
     }
-    _write_json(REVIEW_REPORT, report)
+    _write_json_atomic(REVIEW_REPORT, report)
     if errors:
         print("Sol 인수인계 검토 실패: " + " / ".join(errors))
         return False, report
