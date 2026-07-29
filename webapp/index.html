@@ -254,9 +254,16 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 
 .bneed{border:1px solid #FDE68A;background:#FFFBEB;border-radius:10px;
   padding:9px 11px;margin-bottom:7px}
+.bneed.actionable{position:relative;padding-right:44px;cursor:pointer;transition:all .15s}
+.bneed.actionable::after{content:"›";position:absolute;right:15px;top:50%;transform:translateY(-50%);
+  color:#B45309;font-size:25px;font-weight:800}
+.bneed.actionable:hover,.bneed.actionable:focus-visible{border-color:#F59E0B;background:#FFF7D6;
+  box-shadow:0 5px 14px rgba(180,83,9,.12);outline:none}
+.bneed.actionable:active{transform:scale(.985)}
 .bnh{font-size:13px;font-weight:700;color:#78350F}
 .bnh b{font-weight:800;font-variant-numeric:tabular-nums}
 .bnd{font-size:12px;color:#92400E;margin-top:3px;opacity:.9}
+.bnd.actionhint{font-weight:800;color:#B45309;margin-top:6px}
 
 @media (max-width:520px){
   .bsec{margin:12px 10px 0}
@@ -2089,6 +2096,10 @@ function bCard(x, kind){
       + bRow('왜', x.왜, '접수내용 미기입')
       + bRow('작업', x.무엇, '미기입 — 기사에게 확인해 03_현장작업실적에 입력 필요')
       + (x.추가작업 ? bRow('추가', x.추가작업, '') : '') + `</div>`;
+  if(kind==='activity') return `<div class="bcard">${bTag(x)}${bSpan(x)}`
+      + bRow('요청', x.왜, '신청내용 미기입')
+      + bRow('처리', x.무엇, '처리내용 미기입')
+      + (x.게시자 ? bRow('게시', x.게시자, '') : '') + `</div>`;
   return `<div class="bcard slim">${bTag(x)}</div>`;
 }
 
@@ -2096,6 +2107,7 @@ function briefBlock(){
   if(!BRIEF || !BRIEF.ok) return '';
   const a = BRIEF['돌발AS']||{}, p = BRIEF['정기점검']||{};
   const newL = BRIEF['신규목록']||[], doneL = (BRIEF['완료내역']||[]).filter(x=>x.구분==='돌발AS');
+  const activityL = BRIEF['당일처리목록']||[];
   const blank = BRIEF['내용미기입']||[], stale = BRIEF['완료일미기입목록']||[];
   const d = BRIEF['기준일']||'';
   let h = '';
@@ -2104,12 +2116,16 @@ function briefBlock(){
   h += `<div class="bsec"><div class="bst"><b>돌발 AS</b>
     <span class="bpill new">신규 ${a.신규접수||0}</span>
     <span class="bpill done">완료 ${a.완료||0}</span>
+    ${activityL.length?`<span class="bpill done">업무 처리 ${activityL.length}</span>`:''}
     <span class="bpill warn">미처리 ${a.미처리||0}<em>최근 30일</em></span></div>`;
   if(newL.length) h += `<div class="bglab new">새로 접수 ${newL.length}건 · 접수일 ${_md(d)}</div>`
                      + newL.slice(0,6).map(x=>bCard(x,'new')).join('');
   if(doneL.length) h += `<div class="bglab done">완료 ${doneL.length}건 · 무엇 때문에 갔고 무슨 작업을 했는지</div>`
                      + doneL.slice(0,8).map(x=>bCard(x,'done')).join('');
-  if(!newL.length && !doneL.length) h += `<div class="bnone">그날 새로 접수되거나 완료된 건이 없습니다</div>`;
+  if(activityL.length) h += `<div class="bglab done">당일 업무 처리 ${activityL.length}건 · 현장 AS 완료와 별도</div>`
+                         + activityL.map(x=>bCard(x,'activity')).join('');
+  if(!newL.length && !doneL.length && !activityL.length)
+    h += `<div class="bnone">그날 새로 접수되거나 완료·처리된 건이 없습니다</div>`;
   h += `</div>`;
 
   /* 정기점검 — 분기 진행률은 막대로 보여 준다(숫자만 있으면 감이 안 온다) */
@@ -2129,9 +2145,12 @@ function briefBlock(){
     h += `<div class="bsec need"><div class="bst"><b>확인이 필요합니다</b></div>`;
     if(staleN){
       const ds = stale.map(x=>x.일자).filter(Boolean).sort();
-      h += `<div class="bneed"><div class="bnh">완료일이 안 적힌 오래된 건 <b>${staleN}건</b></div>
+      h += `<div class="bneed actionable" role="button" tabindex="0" onclick="openStaleBrief()"
+        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaleBrief()}">
+        <div class="bnh">완료일이 안 적힌 오래된 건 <b>${staleN}건</b></div>
         <div class="bnd">접수 후 30일 넘음${ds.length?` · 접수 ${ds[0]} ~ ${ds[ds.length-1]}`:''}</div>
-        <div class="bnd">실제로는 끝났을 가능성이 큽니다 — 완료일만 채우면 정리됩니다.</div></div>`;
+        <div class="bnd">실제로는 끝났을 가능성이 큽니다 — 완료일만 채우면 정리됩니다.</div>
+        <div class="bnd actionhint">눌러서 ${stale.length}건 목록 보기 · 이미지 저장·공유</div></div>`;
     }
     if(blank.length){
       h += `<div class="bneed"><div class="bnh">작업 내용이 안 적힌 완료건 <b>${blank.length}건</b></div>
@@ -2916,7 +2935,29 @@ function openPane(html){
    프로젝트NO 옆에 프로젝트명·캠프, 다음 줄에 날짜를 두어 캡처만 봐도 식별할 수 있게 한다. */
 const METRIC_CAP = 60;
 function metricDetail(label){
+  const adhoc=window._briefMetric;
+  if(adhoc && adhoc.label===label) return adhoc.data;
   return (execRep.details||{})[label] || {rows:[],basis:'집계 근거 없음',kind:'risk',count:0,amount:0};
+}
+function openStaleBrief(){
+  const all=(BRIEF&&BRIEF['완료일미기입목록'])||[];
+  const label='완료일이 안 적힌 오래된 건';
+  const rows=all.map(x=>({
+    프로젝트NO:x.프로젝트NO||'',
+    캠프명:x.캠프명||'',
+    일자:x.일자||'',
+    담당자:x.담당기사||'기사 미배정',
+    문제:'접수 후 30일 초과 · 작업완료일 미기입',
+    상태:'확인필요',
+    종류:x.레코드종류||'as',
+    레코드ID:x.레코드ID||'',
+    ID:x.레코드ID||x.프로젝트NO||''
+  }));
+  window._briefMetric={label,data:{
+    rows, count:rows.length, kind:'brief-stale',
+    basis:`${(BRIEF&&BRIEF['기준일'])||baseDate()} 기준, 접수 후 30일이 넘었지만 작업완료일이 빈 돌발AS`
+  }};
+  openExecMetric(label);
 }
 function metricOpenCall(r){
   const kind=String(r.종류||''), id=String(r.레코드ID||r.ID||''), prj=String(r.프로젝트NO||'');
@@ -3316,7 +3357,7 @@ async function metricToPng(label){
       86,68,F(11.5),'#9FB4E8');
   txt(new Date().toLocaleDateString('ko-KR'),W-26,44,F(12.5,700),'#fff','right');
   let y=headH+30;
-  txt('프로젝트NO · 프로젝트명 / 캠프',26,y,F(10.5,800),'#667085');
+  txt('프로젝트NO · 프로젝트명 / 캠프 · 담당자',26,y,F(10.5,800),'#667085');
   txt('금액·상태',W-150,y,F(10.5,800),'#667085','right');
   txt('일자',W-26,y,F(10.5,800),'#667085','right');
   y+=10;ctx.strokeStyle='#D0D8E6';ctx.beginPath();ctx.moveTo(26,y);ctx.lineTo(W-26,y);ctx.stroke();
@@ -3324,7 +3365,7 @@ async function metricToPng(label){
   list.forEach((r,n)=>{
     const t=y+n*rowH;if(n%2)box(26,t+4,W-52,rowH-8,'#F6F9FD',8);
     txt(clip((r.프로젝트NO||r.ID||'')+' · '+(r.프로젝트명||''),340),26,t+23,F(12.5,800),'#101828');
-    txt(clip(r.캠프명||'',340),26,t+41,F(11),'#667085');
+    txt(clip((r.캠프명||'')+(r.담당자?' · '+r.담당자:''),340),26,t+41,F(11),'#667085');
     const value=(+r.금액||0)?fmt(Math.abs(+r.금액))+'원':(r.상태||r.출처||'');
     txt(clip(value,170),W-150,t+29,F(11.5,700),'#475467','right');
     txt(r.일자||'-',W-26,t+29,F(10.5),'#667085','right');

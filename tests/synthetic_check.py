@@ -2422,6 +2422,65 @@ def t49_exec_metric_drilldown_and_sheet_scroll(tmp):
     print("  [49] 대표보고 숫자 원천행·정확 라우팅·캡처·모달 끝까지 스크롤 ✅")
 
 
+def t50_stale_completion_drilldown_and_capture():
+    """[50] 오래된 완료일 미기입 경고는 정확한 목록·원천행·캡처로 이어진다."""
+    import daily_brief as D
+
+    data = {
+        "as": [{
+            "접수ID": "AS-2606-001", "프로젝트NO": "UJ2606001", "캠프명": "합성캠프",
+            "접수일자": "2026-06-01", "작업완료일": "", "진행상태": "접수",
+            "담당기사": "김기사", "신청내용": "합성 완료일 확인",
+        }],
+        "pm": [], "fw": [],
+    }
+    b = D.brief("2026-07-29", data)
+    assert b["돌발AS"]["완료일미기입"] == 1
+    stale = b["완료일미기입목록"][0]
+    assert stale["레코드ID"] == "AS-2606-001" and stale["레코드종류"] == "as"
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for token in ("function openStaleBrief(", "onclick=\"openStaleBrief()\"",
+                  "window._briefMetric", "눌러서 ${stale.length}건 목록 보기",
+                  "이미지 저장", "이미지로 전달", "r.담당자?' · '+r.담당자"):
+        assert token in live, token + " 누락"
+    assert ".bneed.actionable" in live and 'role="button"' in live
+    print("  [50] 오래된 완료일 미기입 목록·정확 라우팅·담당자 캡처 ✅")
+
+
+def t51_manual_daily_activity():
+    """[51] 프로젝트NO 없는 대표 접수와 택배 발송 처리도 당일 업무에서 빠지지 않는다."""
+    import daily_brief as D
+
+    data = {
+        "as": [{
+            "접수ID": "", "프로젝트NO": "", "캠프명": "GWJ1 M_순천1",
+            "접수일자": "2026-07-27", "작업완료일": "", "진행상태": "접수",
+            "담당기사": "김필우", "신청내용": "리프트 리모콘 작동 안함",
+        }],
+        "pm": [], "fw": [],
+        "events": [{
+            "날짜": "2026-07-28", "접수일": "2026-07-27", "캠프명": "GWJ1 M_순천1",
+            "게시자": "유수비 대표", "처리자": "류지영 매니저",
+            "신청내용": "리프트 리모콘 작동 안함", "처리내용": "리모컨 택배 발송 완료",
+            "상태": "택배 발송 완료",
+        }],
+    }
+    b = D.brief("2026-07-28", data)
+    assert b["돌발AS"]["업무처리"] == 1
+    assert b["당일처리목록"][0]["캠프명"] == "GWJ1 M_순천1"
+    assert b["당일처리목록"][0]["게시자"] == "유수비 대표"
+    assert b["당일처리목록"][0]["무엇"] == "리모컨 택배 발송 완료"
+    text = D.text(b)
+    assert "당일 업무 처리 1건" in text and "류지영 매니저" in text
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for token in ("BRIEF['당일처리목록']", "업무 처리 ${activityL.length}",
+                  "bCard(x,'activity')", "현장 AS 완료와 별도"):
+        assert token in live, token + " 누락"
+    print("  [51] 유수비 대표 접수·류지영 택배 발송을 당일 업무 처리로 포함 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2436,6 +2495,8 @@ if __name__ == "__main__":
         t43_receipt_fill(tmp)
         t45_cloud_queue_and_erp_documents(tmp)
         t49_exec_metric_drilldown_and_sheet_scroll(tmp)
+    t50_stale_completion_drilldown_and_capture()
+    t51_manual_daily_activity()
     t2_payload()
     t3_match()
     t9_watchdog()

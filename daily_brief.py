@@ -21,7 +21,7 @@ daily_brief.py — 대표 보고용 **내용 중심** 일일 브리핑을 원장
   python daily_brief.py --date 2026-07-27
   python daily_brief.py --md           # reports/일일브리핑_YYYYMMDD.md
 """
-import sys, os, re
+import sys, os, re, json
 from datetime import datetime, date, timedelta
 from collections import Counter, defaultdict
 
@@ -36,6 +36,7 @@ except Exception:
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports")
 FREE = ("무상", "보험")
 APP_YEAR = "2026"
+MANUAL_EVENTS = os.path.join(REPORT_DIR, "manual_daily_events.json")
 
 
 def _d(v):
@@ -47,6 +48,20 @@ def _d(v):
 
 def _s(v):
     return str(v).strip() if v not in (None, "") else ""
+
+
+def load_manual_events():
+    """프로젝트NO가 아직 없는 택배·부품발송 같은 당일 처리 근거.
+
+    현장 AS 완료와 섞지 않고 별도 '업무 처리'로 보고한다. 파일이 없거나 깨져도
+    원장 브리핑은 그대로 만들어져야 하므로 빈 목록으로 안전하게 돌아간다.
+    """
+    try:
+        raw = json.load(open(MANUAL_EVENTS, encoding="utf-8"))
+        rows = raw.get("events", []) if isinstance(raw, dict) else raw
+        return [r for r in rows if isinstance(r, dict)]
+    except (OSError, ValueError, TypeError):
+        return []
 
 
 def load(master=None):
@@ -62,13 +77,19 @@ def load(master=None):
         hdr = [_s(h) for h in next(ws.iter_rows(min_row=4, max_row=4, values_only=True))]
         ix = {h: i for i, h in enumerate(hdr) if h}
         out = []
-        for r in ws.iter_rows(min_row=5, values_only=True):
+        for rn, r in enumerate(ws.iter_rows(min_row=5, values_only=True), 5):
             g = {h: (r[i] if i < len(r) else None) for h, i in ix.items()}
-            if _s(g.get("프로젝트NO")):
+            g["_원천행"] = rn
+            # 유수비 대표가 올린 M_순천1처럼 프로젝트NO 배정 전이라도 날짜·캠프·내용이
+            # 있는 실제 접수는 브리핑에서 버리지 않는다. 빈 양식 행은 계속 제외한다.
+            meaningful_orphan = (_d(g.get("접수일자")) or _d(g.get("점검예정일"))) and (
+                _s(g.get("캠프명")) or _s(g.get("신청내용")) or _s(g.get("점검내용")))
+            if _s(g.get("프로젝트NO")) or meaningful_orphan:
                 out.append(g)
         return out
 
-    d = {"as": rows("02_돌발AS접수"), "pm": rows("04_정기점검"), "fw": rows("03_현장작업실적")}
+    d = {"as": rows("02_돌발AS접수"), "pm": rows("04_정기점검"),
+         "fw": rows("03_현장작업실적"), "events": load_manual_events()}
     wb.close()
     return d, master
 
@@ -92,6 +113,8 @@ def brief(day=None, data=None):
 
     A = [r for r in data["as"] if in_year(r, "접수일자", "접수ID")]
     P = [r for r in data["pm"] if in_year(r, "점검예정일", "점검ID")]
+    E = [r for r in data.get("events", [])
+         if _d(r.get("날짜")) == day and _d(r.get("날짜")).startswith(APP_YEAR + "-")]
     projects = {_s(r.get("프로젝트NO")) for r in A + P if _s(r.get("프로젝트NO"))}
     F = [r for r in data["fw"] if _s(r.get("프로젝트NO")) in projects]
 
@@ -111,12 +134,36 @@ def brief(day=None, data=None):
         cost = _s(r.get("유상·무상·보험")) or _s(w.get("비용구분"))
         extra = _s(r.get("최초접수외추가작업")) or _s(r.get("추가작업내용")) or _s(w.get("추가작업내용"))
         return {"프로젝트NO": prj, "캠프명": _s(r.get("캠프명")), "담당기사": _s(r.get("담당기사")),
+                # 앱 목록에서 프로젝트NO가 중복돼도 정확한 원천 행으로 이동하도록
+                # 화면 전용 레코드 식별자를 함께 보낸다.
+                "레코드ID": _s(r.get("접수ID")) or _s(r.get("점검ID")),
+                "레코드종류": "as" if kindc == "돌발AS" else "pm",
                 "왜": why, "무엇": did, "비용": cost, "추가작업": extra,
                 "일자": _d(r.get(donec)), "구분": kindc,
                 # ★ 사용자 지시(2026-07-28): "각 항목 옆에 날짜 붙여줘 — 금일이라고 하면
                 #   어떤 날짜인지 헷갈림." 완료건은 '언제 접수돼 언제 끝났는지'가 같이 보여야
                 #   대표가 "그거 언제 들어온 건데?" 를 되묻지 않는다.
                 "접수일": _d(r.get("접수일자")) or _d(r.get("점검예정일")) or _d(r.get("요청일"))}
+
+    def event_line(r):
+        """택배·부품발송은 AS 완료가 아니라 그날 실제 처리한 업무로 분리한다."""
+        return {
+            "프로젝트NO": _s(r.get("프로젝트NO")),
+            "캠프명": _s(r.get("캠프명")),
+            "담당기사": _s(r.get("처리자")),
+            "게시자": _s(r.get("게시자")),
+            "왜": _s(r.get("신청내용")),
+            "무엇": _s(r.get("처리내용")) or _s(r.get("상태")),
+            "비용": _s(r.get("비용")),
+            "추가작업": "",
+            "일자": _d(r.get("날짜")),
+            "구분": "업무처리",
+            "접수일": _d(r.get("접수일")),
+            "상태": _s(r.get("상태")),
+            "근거": _s(r.get("근거")),
+            "레코드ID": _s(r.get("레코드ID")),
+            "레코드종류": _s(r.get("레코드종류")),
+        }
 
     # ── 돌발AS ──
     as_new = [r for r in A if _d(r.get("접수일자")) == day]
@@ -154,17 +201,20 @@ def brief(day=None, data=None):
 
     # 내용이 비어 있으면 숨기지 않고 '미기입'으로 남긴다 — 채워야 할 칸이다
     blank = [x for x in done if not x["무엇"]]
+    handled = [event_line(r) for r in E]
 
     return {
         "기준일": day,
         "돌발AS": {"신규접수": len(as_new), "완료": len(as_done),
-                    "미처리": len(as_open), "완료일미기입": len(as_stale)},
+                    "미처리": len(as_open), "완료일미기입": len(as_stale),
+                    "업무처리": len(handled)},
         "정기점검": {"예정": len(pm_plan), "완료": len(pm_done),
                      "분기": f"{y}년 {q}분기", "분기예정": len(inq), "분기완료": len(inq_done),
                      "분기진행률": round(len(inq_done) * 100 / len(inq)) if inq else 0},
         "완료내역": done, "무상건": free, "추가작업건": extra,
         "점검중유상": pm_paid, "AS전환": to_as, "이상발견": abnormal,
         "내용미기입": blank,
+        "당일처리목록": handled,
         "완료일미기입목록": [line(r, "접수일자", "돌발AS") for r in as_stale],
         "신규목록": [line(r, "접수일자", "돌발AS") for r in as_new],
     }
@@ -230,6 +280,13 @@ def text(b):
                      else "         작업 : ★ 미기입 — 기사에게 확인해 03_현장작업실적에 입력 필요")
             if x["추가작업"]:
                 L.append(f"         추가 : {x['추가작업'][:48]}")
+    if b.get("당일처리목록"):
+        L.append(f"  ▸ 당일 업무 처리 {len(b['당일처리목록'])}건 — 현장 AS 완료와 별도")
+        for x in b["당일처리목록"]:
+            L.append(f"      {tag(x, d)} · 처리 {x['담당기사'] or '담당 미기입'}"
+                     + (f" · 게시 {x['게시자']}" if x.get("게시자") else ""))
+            L.append(f"         요청 : {x['왜'][:52] or '신청내용 미기입'}")
+            L.append(f"         처리 : {x['무엇'][:52] or '처리내용 미기입'}")
 
     L.append(f"\n■ 정기점검 — {md(d, d)} 완료 {p['완료']}건 (그날 예정 {p['예정']}건)")
     L.append(f"   {p['분기']} 진행률 {p['분기진행률']}% ({p['분기완료']}/{p['분기예정']}건)")
