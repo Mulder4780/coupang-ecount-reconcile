@@ -3136,6 +3136,51 @@ def t75_gcal_sync():
     print("  [75] 구글 캘린더 — 예정열만·구분일치·비밀주소 보호·앱 캐시경유 ✅")
 
 
+def t77_side_work_single_switch():
+    """철거·신규납품: DB엔 남기고 앱에서만 숨긴다 — **스위치는 하나처럼 움직여야 한다**.
+
+    사용자 지시(2026-07-29): "철거 및 신규건은 DB만 보관하고 앱에 표시하지마 /
+    추후에 앱에 추가할 수도 있으니 감안해서 정리해줘."
+    ★ 숨기는 곳이 앱(index.html)과 서버(app_server.py) 두 군데다. 한쪽만 켜면
+      목록엔 안 보이는데 보고 숫자에는 잡히는(또는 그 반대) 이상한 상태가 된다.
+      나중에 켤 때 반드시 겪을 실수라 여기서 미리 막는다.
+    """
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+
+    m1 = re.search(r"const SHOW_SIDE_WORK = (true|false);", live)
+    m2 = re.search(r"^SHOW_SIDE_WORK = (True|False)$", server, re.M)
+    assert m1 and m2, "스위치를 찾지 못했다 — 이름을 바꿨다면 이 검증도 같이 고칠 것"
+    assert (m1.group(1) == "true") == (m2.group(1) == "True"), \
+        f"앱({m1.group(1)})과 서버({m2.group(1)})의 철거·납품 표시 설정이 어긋난다"
+
+    # 켜면 아무것도 숨기지 않는다(되돌리기가 한 줄로 끝나는지)
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as A
+    row = {"업무구분": "철거"}
+    assert A.is_side_work(row) is not A.SHOW_SIDE_WORK
+    old = A.SHOW_SIDE_WORK
+    try:
+        A.SHOW_SIDE_WORK = True
+        assert A.is_side_work(row) is False, "스위치를 켰는데도 숨긴다"
+        assert A.drop_side_work([row]) == [row]
+    finally:
+        A.SHOW_SIDE_WORK = old
+    # 원장에 실제로 쓰이는 한 단어 구분을 모두 잡는가(‘신규납품’만 잡으면 ‘납품’을 놓친다)
+    for kind in ("철거", "이전", "납품", "설치", "계단", "안전바", "경보장치", "메자닌"):
+        assert A.is_side_work({"업무구분": kind}), kind
+    for kind in ("돌발AS", "정기점검", "AS", "점검"):
+        assert not A.is_side_work({"업무구분": kind}), f"{kind} 이 숨겨지면 안 된다"
+
+    # 캘린더도 같은 관문을 지난다
+    assert "calEvents()" in live and "filter(e=>!isSideWork(e))" in live
+    assert live.count("CAL.일정) || []") >= 1
+    assert "const evs = (CAL && CAL.일정) || [];" not in live, "캘린더가 관문을 우회한다"
+    # 보고 탭 숫자도 서버에서 걸러진다
+    assert "drop_side_work(get_settlements())" in server
+    print("  [77] 철거·납품 — 앱/서버 스위치 동기·캘린더 포함·한 줄로 되돌림 ✅")
+
+
 def t76_source_organizer():
     """원본 자료 보관 — 유형별 날짜 구조와 PO번호 구조, 최신 정기점검본 보존."""
     import source_organizer as S
@@ -3252,6 +3297,7 @@ if __name__ == "__main__":
         t73_pm_schedule_source_sync(tmp)
     t74_billing_fill()
     t75_gcal_sync()
+    t77_side_work_single_switch()
     t76_source_organizer()
     t55_pm_brief_drilldown_and_capture()
     t58_check_hub_detail_and_capture()

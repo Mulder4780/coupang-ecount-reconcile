@@ -1204,11 +1204,17 @@ function rowIs2026(r, kind){
    원장에서 지우지 않는다 — 05_신규납품설치 시트에 그대로 있고, **화면에서만** 뺀다.
    05시트는 앱이 읽지 않으므로 보통은 저절로 안 보이지만, 정산(06)·확인필요(23) 로
    흘러들어오면 보인다. 그래서 데이터를 받는 관문에서 한 번 더 거른다.
-   되돌리려면 SIDE_WORK 를 비우면 된다(자료는 그대로 있으므로 그 즉시 다시 보인다). */
+   ★ 사용자 지시(2026-07-29 추가): "추후에 앱에 추가할 수도 있으니 감안해서 정리해줘."
+   그래서 **스위치 한 개**로 모았다. 나중에 보여 달라고 하면 아래 한 줄만 true 로 바꾸면
+   화면 전체(정산·업무·이슈·확인필요·일정)가 한 번에 다시 나온다. 자료는 계속 쌓이고 있으므로
+   그 즉시 과거분까지 전부 보인다 — 다시 모으거나 되돌릴 작업이 없다.
+   숨기는 곳을 여기저기 흩어 놓으면 켤 때 한두 군데를 반드시 빠뜨린다. */
+const SHOW_SIDE_WORK = false;   // ← 철거·신규납품을 앱에 보이려면 true 한 글자만 바꾼다
 /* 05시트 업무구분은 '납품'·'설치'·'철거'·'이전' 처럼 **한 단어**다(10_코드관리 M열).
    '신규납품' 만 잡으면 정작 원장에 적힌 '납품' 을 놓친다 — 실제로 처음에 그랬다. */
 const SIDE_WORK = /철거|이전|납품|설치|계단|안전바|경보장치|메자닌/;
 function isSideWork(r){
+  if(SHOW_SIDE_WORK) return false;          // 스위치가 켜지면 아무것도 숨기지 않는다
   if(!r || typeof r!=='object') return false;
   for(const k of ['업무구분','업무유형','구분','종류','품목']){
     if(r[k] && SIDE_WORK.test(String(r[k]))) return true;
@@ -2173,20 +2179,33 @@ function mdRender(t){
    서버가 gcal_sync 캐시를 그대로 준다. 앱은 구글을 직접 부르지 않는다 —
    폰에서 열 때 외부를 기다리면 화면이 멈춘다. */
 var CAL = null;   // let 이면 applyView 가 먼저 불릴 때 TDZ 로 죽는다
+/* 캘린더도 같은 관문을 지난다 — 철거·납품 일정은 원장(05시트)에 계속 쌓이지만 화면에선 뺀다.
+   SHOW_SIDE_WORK 를 켜면 여기도 자동으로 같이 나온다. 목록·카운트·시트 전부 이 함수만 쓴다. */
+function calEvents(){
+  return ((CAL && CAL.일정) || []).filter(e=>!isSideWork(e));
+}
+function calHiddenCount(){
+  return ((CAL && CAL.일정) || []).length - calEvents().length;
+}
 async function loadCalendar(){
   try{ CAL = await api('/api/calendar'); }catch(e){ CAL = null; }
   const box = $('callist'), sub = $('calsub');
   if(!box) return;
-  const evs = (CAL && CAL.일정) || [];
+  const evs = calEvents(), 숨김 = calHiddenCount();
   if(!evs.length){
-    sub.textContent = '';
-    box.innerHTML = '<div class="muted">' + esc2((CAL && CAL.안내) || '아직 수집된 일정이 없습니다') + '</div>';
+    /* 전부 철거·납품이라 걸러진 경우와 아예 안 들어온 경우는 다르다.
+       "일정이 없다"고만 하면 수집이 고장난 줄 안다. */
+    sub.textContent = 숨김 ? `· 철거·납품 ${숨김}건 보관 중` : '';
+    box.innerHTML = '<div class="muted">' + esc2(숨김
+      ? `표시할 일정이 없습니다 (철거·납품 ${숨김}건은 관리대장에만 보관)`
+      : ((CAL && CAL.안내) || '아직 수집된 일정이 없습니다')) + '</div>';
     return;
   }
   const today = new Date(); today.setHours(0,0,0,0);
   const soon = evs.filter(e=>{ const d=new Date(e.날짜+'T00:00:00'); return d>=today; }).slice(0,5);
   const 미연결 = evs.filter(e=>!e.원천업무ID).length;
-  sub.textContent = `· 2026년 ${evs.length}건` + (미연결 ? ` · 원장 미연결 ${미연결}건` : '');
+  sub.textContent = `· 2026년 ${evs.length}건` + (미연결 ? ` · 원장 미연결 ${미연결}건` : '')
+                  + (숨김 ? ` · 철거·납품 ${숨김}건 보관` : '');
   box.innerHTML = soon.length
     ? soon.map(calLine).join('')
     : '<div class="muted">앞으로 예정된 일정이 없습니다</div>';
@@ -2201,10 +2220,12 @@ function calLine(e){
     <span style="flex:1;min-width:120px">${esc2(e.업무구분||'미상')} · ${esc2(e.제목)}</span>${tag}</div>`;
 }
 function openCalendar(){
-  const evs = (CAL && CAL.일정) || [];
+  const evs = calEvents();
   const 미연결 = evs.filter(e=>!e.원천업무ID);
+  const 숨김 = calHiddenCount();
   const head = `<h3>일정 (구글 캘린더)</h3>
-    <p class="muted">갱신 ${esc2((CAL&&CAL.갱신)||'-')} · 2026년 ${evs.length}건 · 원장 미연결 ${미연결.length}건</p>`;
+    <p class="muted">갱신 ${esc2((CAL&&CAL.갱신)||'-')} · 2026년 ${evs.length}건 · 원장 미연결 ${미연결.length}건${
+      숨김 ? ` · 철거·납품 ${숨김}건은 관리대장에만 보관` : ''}</p>`;
   const body = evs.length
     ? evs.map(calLine).join('')
     : `<p class="muted">${esc2((CAL&&CAL.안내)||'아직 수집된 일정이 없습니다')}</p>`;

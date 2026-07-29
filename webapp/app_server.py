@@ -925,8 +925,31 @@ def representative_summary(works, settlements, base_date=""):
     }
 
 
+# ── 철거·신규납품 숨김 (사용자 지시 2026-07-29) ──────────────────────
+#   "철거 및 신규건은 DB만 보관하고 앱에 표시하지마 / 추후에 앱에 추가할 수도 있으니
+#    감안해서 정리해줘" → 원장에서 지우지 않고 **화면에서만** 뺀다.
+#   대표보고(보고 탭)의 숫자는 서버가 계산해서 내려주므로 앱쪽 필터가 닿지 않는다.
+#   그래서 여기서도 같은 규칙을 한 번 더 적용한다. 켜려면 아래 한 줄만 True 로 바꾼다
+#   (index.html 의 SHOW_SIDE_WORK 도 같이 켠다 — 검증 [76]이 둘의 짝을 지킨다).
+SHOW_SIDE_WORK = False
+SIDE_WORK_RE = re.compile(r"철거|이전|납품|설치|계단|안전바|경보장치|메자닌")
+
+
+def is_side_work(r):
+    if SHOW_SIDE_WORK or not isinstance(r, dict):
+        return False
+    return any(SIDE_WORK_RE.search(str(r.get(k) or ""))
+               for k in ("업무구분", "업무유형", "구분", "종류", "품목"))
+
+
+def drop_side_work(rows):
+    return [r for r in (rows or []) if not is_side_work(r)]
+
+
 def get_representative_report():
-    return representative_summary(get_works(), get_settlements())
+    works = get_works()
+    works = {k: (drop_side_work(v) if isinstance(v, list) else v) for k, v in (works or {}).items()}
+    return representative_summary(works, drop_side_work(get_settlements()))
 
 
 def read_exec_details(master, base_date=""):
@@ -1810,12 +1833,19 @@ class H(BaseHTTPRequestHandler):
             return self._send(401, {"error": "PIN"})
         if p == "/api/status":
             return self._send(200, get_status())
+        # 철거·신규납품은 응답 단계에서 뺀다 — 앱이 아예 받지 않게 한다.
+        # (앱에도 같은 필터가 있지만, 화면 코드가 바뀌어도 새어 나가지 않게 서버가 먼저 막는다)
         if p == "/api/settlements":
-            return self._send(200, {"rows": get_settlements()})
+            return self._send(200, {"rows": drop_side_work(get_settlements())})
         if p == "/api/works":
-            return self._send(200, get_works())
+            w = get_works()
+            return self._send(200, {k: (drop_side_work(v) if isinstance(v, list) else v)
+                                    for k, v in (w or {}).items()})
         if p == "/api/issues":
-            return self._send(200, get_issues())
+            iss = get_issues()
+            if isinstance(iss, dict) and isinstance(iss.get("rows"), list):
+                iss = {**iss, "rows": drop_side_work(iss["rows"])}
+            return self._send(200, iss)
         if p == "/api/exec_report":
             return self._send(200, get_exec_report())
         if p in {
