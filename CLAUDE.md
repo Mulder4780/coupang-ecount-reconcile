@@ -3,12 +3,27 @@
 **어떤 AI(Claude Code·Codex·기타)든 이 프로젝트에서 작업을 시작하면 반드시 아래 순서를 따른다.**
 
 ## 시작 체크리스트 (매 세션)
-0. `ecount/INCIDENTS.md` — 과거 사고(증상→원인→조치→검증번호). 비슷한 증상이면 여기부터.
+0. **`python ecount/session_handoff.py --check` ← 제일 먼저.**
+   앞 세션이 컨텍스트가 차서 끊겼을 수 있다. 그때 남는 것들을 이 한 장이 잡아 준다:
+   · 죽은 세션이 잡고 있는 점유(프로세스 생사로 판정 — 45분 기다릴 것 없다)
+   · 반영 안 된 입력 큐 · 만들다 만 `.tmp.xlsx` · 미커밋/미푸시
+   **"먼저 처리할 것" 이 비어 있을 때만 새 작업을 시작한다.**
+   (워치독이 30분마다 `reports/세션인계.md` 를 갱신하므로 세션이 갑자기 죽어도 남는다)
+0-1. `ecount/INCIDENTS.md` — 과거 사고(증상→원인→조치→검증번호). 비슷한 증상이면 여기부터.
 
 1. `ecount/AGENTS.md` 전체 읽기 — 프로젝트 전모·절대규칙 7항·현재 상태·대기 항목
 2. 관리대장 최신본(vN)의 `19_AI작업인수인계` 시트 하단 행들 읽기 — 사람·AI 공용 인수인계 원장
 3. `python ecount/tests/synthetic_check.py` 실행 → **ALL GREEN 확인 후에만** 실데이터 작업
-4. `python ecount/coupang_workbench.py --status` 로 시스템 상태 파악
+4. `python ecount/data_status.py --print` — 자료가 지금 얼마나 있나(밴드·서류·입금·원장 채움).
+   같은 것을 다시 세지 말 것. 시스템 상태는 `coupang_workbench.py --status`.
+
+## ★ 컨텍스트가 차 가면 (끝까지 못 갈 것 같으면)
+종료 체크리스트를 **다 하려 하지 말고 순서대로 잘라낸다.** 남은 여력이 적을수록 앞의 것부터:
+1. **큐를 비운다** — `python ecount/ledger_writer.py --apply`
+2. **점유를 놓는다** — `python ecount/ai_claim.py --who <claude|codex> --free-all`
+3. **커밋한다** (푸시는 못 해도 커밋은 남는다)
+4. 19시트·AGENTS.md 갱신
+그 뒤는 워치독의 `세션인계.md` 가 대신 기억한다 — **사람이 기억해서 넘기게 하지 않는다.**
 
 ## 종료 체크리스트 (작업을 마칠 때)
 1. 의미 있는 변경이면 `ecount/AGENTS.md`의 "현재 상태"·"대기 항목" 갱신
