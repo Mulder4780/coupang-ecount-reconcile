@@ -2875,6 +2875,10 @@ def t71_period_range():
     for fn in ("function periodRange()", "function periodLabel()", "function fixRange(",
                "function setRange("):
         assert fn in live, "%s 가 없다" % fn
+    assert live.count("function periodRange()") == 1, \
+        "동명 periodRange가 업무목록·월별현황 사이에서 덮어써 목록이 0건이 된다"
+    assert "function workPeriodRange()" in live and "const pr = workPeriodRange();" in live, \
+        "업무목록 전용 기간 함수가 분리되지 않았다"
     # 자주 쓰는 기간 바로가기
     for label in ("연간 전체", "상반기", "하반기"):
         assert 'onclick="setRange' in live and label in live, label
@@ -2979,6 +2983,97 @@ def t72_project_first_representative_report():
     print("  [72] 프로젝트번호 대표표시·유수비 예외보고·정책확인·버튼/페이지 애니메이션 ✅")
 
 
+def t73_pm_schedule_source_sync(tmp):
+    """정기점검 원본은 현재 분기만·제외행 없이·가짜 UJ 없이 멱등 반영한다."""
+    from pm_schedule_sync import parse_schedule, link_master, build_sheet, HEADERS, SHEET_NAME
+    from findings_sheet import upsert
+
+    source = os.path.join(tmp, "정기점검_스케줄_합성.xlsx")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "2026년 3분기 정기점검"
+    for _ in range(4):
+        ws.append([])
+    ws.append(["No.", "월", "3분기 점검일자", "특이사항", "확정자",
+               "기존 캠프명", "변경 캠프명", "호기", "종류", "모델"])
+    # 원본 월과 확정 날짜가 다르면 날짜의 달이 우선한다.
+    ws.append([1, 8, "2026-07-11", "", "김준형", "테스트A캠프", "", "1호기", "LIFT", "M1"])
+    ws.append([2, 8, "2026-07-11", "", "김준형", "테스트A캠프", "", "2호기", "LIFT", "M1"])
+    ws.append([3, 8, "", "", "권오철", "테스트B캠프", "", "1호기", "LIFT", "M2"])
+    ws.append([4, 3, "2026-03-10", "", "김필우", "분기밖캠프", "", "1호기", "LIFT", "M3"])
+    ws.append([5, 9, "", "철거 예정", "차동호", "제외캠프", "", "1호기", "LIFT", "M4"])
+    wb.save(source)
+
+    parsed = parse_schedule(source, 2026, 3)
+    assert parsed["scanned"] == 4 and parsed["excluded"] == 1
+    assert len(parsed["records"]) == 2
+    a = next(r for r in parsed["records"] if r["캠프명"] == "테스트A캠프")
+    b = next(r for r in parsed["records"] if r["캠프명"] == "테스트B캠프")
+    assert a["장비수"] == 2 and a["점검예정일"] == "2026-07-11" and a["예정월"] == "2026-07"
+    assert b["점검예정일"] == "" and b["예정월"] == "2026-08"
+
+    master_rows = [{
+        "점검ID": "PM-2607-001", "프로젝트NO": "UJ2600001", "캠프명": "테스트A캠프",
+        "점검예정일": "2026-07-11", "실제점검일": "2026-07-12", "점검상태": "완료",
+    }]
+    linked = link_master(parsed["records"], master_rows)
+    la = next(r for r in linked if r["캠프명"] == "테스트A캠프")
+    lb = next(r for r in linked if r["캠프명"] == "테스트B캠프")
+    assert la["연결프로젝트NO"] == "UJ2600001" and la["반영상태"] == "완료 실적 우선"
+    assert lb["연결프로젝트NO"] == "" and lb["반영상태"] == "프로젝트 매칭 대기"
+
+    ledger = os.path.join(tmp, "쿠팡_통합업무_일일보고_관리대장_v1.xlsx")
+    mwb = openpyxl.Workbook()
+    mwb.active.title = "00_대시보드"
+    mwb.save(ledger)
+    xml = build_sheet(linked, os.path.basename(source))
+    v2, _ = upsert(ledger, xml, sheet_name=SHEET_NAME, headers=HEADERS)
+    assert v2 and os.path.exists(v2)
+    check = openpyxl.load_workbook(v2, read_only=True, data_only=True)
+    assert SHEET_NAME in check.sheetnames and check[SHEET_NAME].max_row == 6
+    check.close()
+    again, msg = upsert(v2, xml, sheet_name=SHEET_NAME, headers=HEADERS)
+    assert again is None and "멱등" in msg
+
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "27_정기점검원본일정" in server and "정기점검 스케줄 원본" in live
+    assert "pm_schedule_sync.py" in daily
+    print("  [73] 류지영 정기점검 원본 현재분기·제외·완료우선·앱·멱등 자동반영 ✅")
+
+
+def t74_billing_fill():
+    """06_거래서류청구수금 청구원장 채우기 — 무엇을 넣고 무엇을 막는가.
+
+    ★ 이 시트는 03시트와 **반대**다(v259 사고 참조).
+      03시트는 B열(접수ID)이 수식이라 행 배정을 엑셀이 정하므로 빈 행에 미리 쓰면 안 됐다.
+      06시트는 C열(원천업무ID)이 **입력열**이고 A열(정산ID)이 C에서 파생되므로
+      빈 행에 순서대로 쓰는 것이 설계대로다. 이 구분이 무너지면 둘 다 망가진다.
+    """
+    import billing_fill as B
+    assert B.self_test(), "billing_fill 자체 검증 실패"
+
+    # 비쿠팡 차단: 판매조회에 있어도 관리대장에 없으면 절대 통과하지 못한다
+    sales = {"UJ2699999": 1}
+    ok, why = B.eligible("UJ2699999", sales, {}, set())
+    assert not ok and "미등록" in why, why
+
+    # 수식열(A 정산ID·I 실제작업공급가액·P·Q 합계)에는 어떤 경우에도 쓰지 않는다
+    from datetime import date as _d
+    q, _ = B.build_queue(
+        [{"원천업무ID": "AS-2601-001", "공급가액": 500, "일자": _d(2026, 1, 2), "PO번호": "PO1"}],
+        [72])
+    cells = {x["cell"] for x in q}
+    assert cells == {"C72", "O72", "N72", "S72"}, cells
+    assert not any(x["cell"][0] in ("A", "I", "P", "Q", "K") for x in q)
+    assert all(x.get("only_if_empty") for x in q), "빈 칸만 정책이 빠지면 남의 값을 덮는다"
+
+    src = open(os.path.join(ROOT, "billing_fill.py"), encoding="utf-8").read()
+    assert "claim_guard" in src, "원장 쓰기는 점유 확인을 거쳐야 한다"
+    print("  [74] 청구원장 채우기 — 비쿠팡 차단·수식열 보호·빈칸만·점유확인 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -3037,6 +3132,9 @@ if __name__ == "__main__":
     t70_quarter_as_months()
     t71_period_range()
     t72_project_first_representative_report()
+    with tempfile.TemporaryDirectory() as tmp:
+        t73_pm_schedule_source_sync(tmp)
+    t74_billing_fill()
     t55_pm_brief_drilldown_and_capture()
     t58_check_hub_detail_and_capture()
     t48_excel_2026_stats_and_verified_completion()
