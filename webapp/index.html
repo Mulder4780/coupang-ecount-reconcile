@@ -838,6 +838,11 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
         <button class="abtn" onclick="captureMine()"><span class="em">📸</span>목록 캡처</button>
         <button class="abtn" onclick="shareMine()"><span class="em">📤</span>이미지 공유</button>
       </div></div>
+    <!-- 구글 캘린더(COUPANG 설치+납품+AS) — 예정된 일이 원장과 맞는가 -->
+    <div class="card" id="calcard"><h3>일정 <small id="calsub" style="font-weight:600;color:var(--muted)"></small></h3>
+      <div id="callist" class="muted">불러오는 중…</div>
+      <div class="actions"><button class="abtn" onclick="openCalendar()"><span class="em">📅</span>전체 일정 보기</button></div>
+    </div>
     <div class="card"><h3>빠른 실행</h3>
       <div class="actions">
         <button class="abtn primary" onclick="runTask('daily')"><span class="em">▶</span>전체 대조</button>
@@ -1038,6 +1043,7 @@ function applyView(v){
   $('v-'+v).classList.add('active');
   document.querySelectorAll('.tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
   if(v==='report' && !reports.length) loadReports();
+  if(v==='dash' && !CAL) loadCalendar();
   if(v==='check') renderCheckHub();
   try{ localStorage.setItem('cw_view', v); }catch(e){}   // 새로고침 후 같은 화면으로 복귀
   window.__view = v;
@@ -2163,6 +2169,48 @@ function mdRender(t){
   if(intbl) html+='</table>';
   return html;
 }
+/* ── 구글 캘린더(COUPANG 설치+납품+AS) ──────────────────────────
+   서버가 gcal_sync 캐시를 그대로 준다. 앱은 구글을 직접 부르지 않는다 —
+   폰에서 열 때 외부를 기다리면 화면이 멈춘다. */
+var CAL = null;   // let 이면 applyView 가 먼저 불릴 때 TDZ 로 죽는다
+async function loadCalendar(){
+  try{ CAL = await api('/api/calendar'); }catch(e){ CAL = null; }
+  const box = $('callist'), sub = $('calsub');
+  if(!box) return;
+  const evs = (CAL && CAL.일정) || [];
+  if(!evs.length){
+    sub.textContent = '';
+    box.innerHTML = '<div class="muted">' + esc2((CAL && CAL.안내) || '아직 수집된 일정이 없습니다') + '</div>';
+    return;
+  }
+  const today = new Date(); today.setHours(0,0,0,0);
+  const soon = evs.filter(e=>{ const d=new Date(e.날짜+'T00:00:00'); return d>=today; }).slice(0,5);
+  const 미연결 = evs.filter(e=>!e.원천업무ID).length;
+  sub.textContent = `· 2026년 ${evs.length}건` + (미연결 ? ` · 원장 미연결 ${미연결}건` : '');
+  box.innerHTML = soon.length
+    ? soon.map(calLine).join('')
+    : '<div class="muted">앞으로 예정된 일정이 없습니다</div>';
+}
+function calLine(e){
+  const tag = e.원천업무ID
+    ? `<span class="chip c-ok">${esc2(e.원천업무ID)}</span>`
+    : '<span class="chip c-warn">원장 미연결</span>';
+  return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+      padding:7px 0;border-bottom:1px solid var(--line)">
+    <b style="min-width:112px">${esc2(e.날짜)}${e.시간 ? ' ' + esc2(e.시간) : ''}</b>
+    <span style="flex:1;min-width:120px">${esc2(e.업무구분||'미상')} · ${esc2(e.제목)}</span>${tag}</div>`;
+}
+function openCalendar(){
+  const evs = (CAL && CAL.일정) || [];
+  const 미연결 = evs.filter(e=>!e.원천업무ID);
+  const head = `<h3>일정 (구글 캘린더)</h3>
+    <p class="muted">갱신 ${esc2((CAL&&CAL.갱신)||'-')} · 2026년 ${evs.length}건 · 원장 미연결 ${미연결.length}건</p>`;
+  const body = evs.length
+    ? evs.map(calLine).join('')
+    : `<p class="muted">${esc2((CAL&&CAL.안내)||'아직 수집된 일정이 없습니다')}</p>`;
+  showSheet(head + body);
+}
+
 async function loadReports(){
   const d = await api('/api/reports');
   reports = d.reports||[];

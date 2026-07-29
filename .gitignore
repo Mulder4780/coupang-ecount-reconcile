@@ -36,3 +36,4 @@ reports/tunnel_starts.txt
 # 재생성 가능 — 저장소에 넣지 않는다 (2026-07-29)
 node_modules/
 outputs/**/node_modules/
+config/gcal.json

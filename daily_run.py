@@ -93,6 +93,12 @@ def main():
     #     ★ '신청내용'(요청)은 쓰지 않는다 — 그건 무엇을 했나가 아니다. 빈 양식도 거른다.
     steps.append(run("작업내용 자동기입(03시트)", [os.path.join(ROOT, "fill_work_detail.py"), "--apply"]))
 
+    # 2.95 구글 캘린더 대조 — 사용자 지시(2026-07-29): "이 캘린더 추가하고 항상 대조해서
+    #      엑셀과 앱에 반영해줘". 캘린더는 **예정**이므로 예정일 칸만 채우고 완료 칸은 안 건드린다.
+    #      원천(비공개 iCal 주소·.ics 파일)이 없으면 gcal_sync 가 스스로 조용히 끝난다 —
+    #      주소 하나 없다고 일일 파이프라인 전체가 실패로 물들면 안 된다.
+    steps.append(run("구글 캘린더 대조", [os.path.join(ROOT, "gcal_sync.py"), "--queue"]))
+
     # 3. 밴드 수집·대조 — 공식 API 토큰이 있으면 수집+대조, 브라우저 수집 캐시만 있으면 대조만
     band_cache = [f for f in glob.glob(os.path.join(ROOT, "band", "cache", "*.json"))
                   if not os.path.basename(f).startswith(("raw_", "dump_"))]

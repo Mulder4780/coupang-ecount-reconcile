@@ -1347,6 +1347,20 @@ def get_erpdocs():
     return out
 
 
+def get_calendar():
+    """구글 캘린더(COUPANG 설치+납품+AS) 대조 캐시.
+
+    gcal_sync.py 가 매일 만들어 둔 파일만 읽는다 — 앱은 절대 네트워크를 타지 않는다.
+    폰에서 열 때 구글을 기다리면 화면이 멈추고, 터널이 죽으면 통째로 안 뜬다."""
+    p = os.path.join(ROOT, "reports", "gcal_events.json")
+    try:
+        d = json.load(open(p, encoding="utf-8"))
+    except Exception:
+        return {"갱신": "", "일정": [], "원천": ["아직 수집되지 않음"], "안내":
+                "구글 캘린더 설정 → 캘린더 통합 → '비공개 주소의 iCal 형식'을 config/gcal.json 에 넣어 주세요."}
+    return d
+
+
 def get_checks():
     """최근 카톡·밴드·ERP원장·쿠팡PO 대조 CSV를 ID별로 조인 — 4원천 검증 배지"""
     import csv as _csv
@@ -1826,6 +1840,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, {"meta": report["meta"], **report["거래명세서"],
                                         "업무기준확인필요": report["업무기준확인필요"]})
             return self._send(200, report)
+        if p == "/api/calendar":
+            return self._send(200, get_calendar())
         if p == "/api/erpdocs":
             return self._send(200, get_erpdocs())
         if p == "/api/checks":

@@ -1,0 +1,11 @@
+{
+ "_주의": "ics 는 비공개 주소(비밀). 절대 커밋·채팅·엑셀에 넣지 말 것 — AGENTS.md 규칙 1",
+ "_받는법": "구글 캘린더 → 해당 캘린더 설정 → 캘린더 통합 → 맨 아래 \"비공개 주소의 iCal 형식\" 복사",
+ "calendars": [
+  {
+   "name": "COUPANG 설치+납품+AS",
+   "id": "<캘린더ID>@group.calendar.google.com",
+   "ics": "https://calendar.google.com/calendar/ical/.../private-XXXX/basic.ics"
+  }
+ ]
+}

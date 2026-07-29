@@ -3085,6 +3085,111 @@ def t74_billing_fill():
     print("  [74] 청구원장 채우기 — 비쿠팡 차단·수식열 보호·빈칸만·점유확인 ✅")
 
 
+def t75_gcal_sync():
+    """구글 캘린더 대조 — 캘린더는 **예정**이지 실적이 아니다.
+
+    사용자 지시(2026-07-29): "이 캘린더 추가하고 항상 대조해서 엑셀과 앱에 반영해줘".
+    ★ 완료일 칸을 캘린더로 채우면 '안 한 일'이 '한 일'이 된다. 그 경계를 여기서 못박는다.
+    """
+    import gcal_sync as G
+    assert G.self_test(), "gcal_sync 자체 검증 실패"
+
+    # 채우는 열은 전부 '예정' 이어야 한다 — 실제·완료 열은 어떤 경로로도 대상이 아니다
+    for kind, (sheet, daycol, timecol) in G.TARGET.items():
+        assert "예정" in daycol, f"{kind} → {daycol} 은 예정 열이 아니다"
+        assert "완료" not in daycol and "실제" not in daycol, daycol
+
+    # 원천이 하나도 없어도 죽지 않는다(일일 파이프라인이 이것 때문에 멈추면 안 된다)
+    old = os.environ.pop("COUPANG_GCAL_ICS", None)
+    try:
+        evs, notes = [], []
+        assert isinstance(G.feeds(), list)
+    finally:
+        if old:
+            os.environ["COUPANG_GCAL_ICS"] = old
+
+    # 큐는 key 모드(접수ID/점검ID)로 나가고 빈 칸만 채운다
+    from datetime import date as _d
+    q = G.build_queue([{"업무구분": "돌발AS", "날짜": _d(2026, 7, 2), "시간": "09:00", "제목": "AS",
+                        "원장": {"시트": "02_돌발AS접수", "원천업무ID": "AS-2607-001", "예정일있음": False}}])
+    assert [x["col"] for x in q] == ["방문예정일", "방문예정시간"], q
+    assert all(x["only_if_empty"] and x["key"] == "AS-2607-001" for x in q)
+    # 구분과 시트가 어긋나면 아무것도 쓰지 않는다
+    assert G.build_queue([{"업무구분": "정기점검", "날짜": _d(2026, 7, 2), "시간": "", "제목": "x",
+                           "원장": {"시트": "02_돌발AS접수", "원천업무ID": "AS-1", "예정일있음": False}}]) == []
+
+    # 비밀 주소가 커밋되지 않는다(규칙 1)
+    gi = open(os.path.join(ROOT, ".gitignore"), encoding="utf-8").read()
+    assert "config/gcal.json" in gi, "비공개 iCal 주소가 커밋될 수 있다"
+    # 문서의 자리표시자(private-xxxx)는 괜찮다. 진짜 키(긴 16진수)가 박혀 있으면 안 된다.
+    src = open(os.path.join(ROOT, "gcal_sync.py"), encoding="utf-8").read()
+    assert not re.search(r"private-[0-9a-f]{16,}", src, re.I), "소스에 실제 비공개 주소가 박혀 있다"
+
+    # 앱·일일실행 배선
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "/api/calendar" in server and "gcal_events.json" in server
+    assert "loadCalendar" in live and "openCalendar" in live and "showSheet(head + body)" in live
+    assert "calendar.google.com" not in live, "앱이 구글을 직접 부르면 폰에서 화면이 멈춘다"
+    assert "gcal_sync.py" in daily
+    print("  [75] 구글 캘린더 — 예정열만·구분일치·비밀주소 보호·앱 캐시경유 ✅")
+
+
+def t76_source_organizer():
+    """원본 자료 보관 — 유형별 날짜 구조와 PO번호 구조, 최신 정기점검본 보존."""
+    import source_organizer as S
+    import time as _time
+    with tempfile.TemporaryDirectory() as tmp:
+        erp = os.path.join(tmp, "1. ERP 내보내기", "판매조회.xlsx")
+        photo = os.path.join(tmp, "4. 밴드 원본", "문서사진",
+                             "band84789192_260715_100_abcd1234.jpg")
+        po = os.path.join(tmp, "6. 26년도 PO 모음",
+                          "Coupang 새 구매 오더(PO326234)", "견적서.pdf")
+        pm_old = os.path.join(tmp, "5. 정기점검 스케쥴 원본", "정기점검 스케줄_구본.xlsx")
+        pm_new = os.path.join(tmp, "5. 정기점검 스케쥴 원본", "정기점검 스케줄_최신.xlsx")
+        for p, body in ((erp, b"erp"), (photo, b"jpg"), (po, b"pdf"),
+                        (pm_old, b"old"), (pm_new, b"new")):
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "wb") as f:
+                f.write(body)
+        stamp = _time.mktime((2026, 7, 10, 9, 30, 0, 0, 0, -1))
+        os.utime(erp, (stamp, stamp))
+        os.utime(po, (stamp, stamp))
+        os.utime(pm_old, (stamp, stamp))
+        os.utime(pm_new, (stamp + 86400, stamp + 86400))
+
+        moves = S.planned_moves(tmp)
+        targets = {os.path.normpath(m.dst) for m in moves}
+        assert os.path.normpath(os.path.join(
+            tmp, "1. ERP 내보내기", "2026", "07", "2026-07-10", "판매조회.xlsx")) in targets
+        assert os.path.normpath(os.path.join(
+            tmp, "4. 밴드 원본", "문서사진", "2026", "07", "2026-07-15",
+            os.path.basename(photo))) in targets
+        assert os.path.normpath(os.path.join(
+            tmp, "6. PO 원본", "2026", "PO326234", "견적서.pdf")) in targets
+        assert any(m.src == pm_old and f"{os.sep}보관{os.sep}" in m.dst for m in moves)
+        assert not any(m.src == pm_new for m in moves), "최신 정기점검 편집본을 보관함으로 옮겼다"
+
+        done, errors = S.apply_moves(moves, tmp)
+        assert done == len(moves) and not errors
+        assert os.path.isfile(pm_new), "최신 정기점검 편집본이 사라졌다"
+        assert os.path.isfile(os.path.join(tmp, "0. 정리이력.csv"))
+        assert os.path.isfile(os.path.join(tmp, "0. 정리규칙.txt"))
+        assert S.planned_moves(tmp) == [], "두 번째 실행이 멱등이 아니다"
+
+    # 날짜 하위폴더를 만든 뒤에도 각 대조기가 원본을 재귀 탐색해야 한다.
+    for path, marker in (
+        ("fill_erp_status.py", 'os.path.join(ERP_DIR, "**", "*.xls*")'),
+        ("billing_fill.py", 'os.path.join(ERP_DIR, "**", "판매조회*.xls*")'),
+        ("receipt_fill.py", 'os.path.join(d, "**", "*.xlsx")'),
+        ("band/doc_ocr.py", 'os.path.join(d, "**", "*")'),
+    ):
+        src = open(os.path.join(ROOT, *path.split("/")), encoding="utf-8").read()
+        assert marker in src and "recursive=True" in src, f"{path} 재귀 탐색 누락"
+    print("  [76] 원본 자료 유형·연도·월·날짜·PO번호 자동정리와 최신 편집본 보존 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -3146,6 +3251,8 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmp:
         t73_pm_schedule_source_sync(tmp)
     t74_billing_fill()
+    t75_gcal_sync()
+    t76_source_organizer()
     t55_pm_brief_drilldown_and_capture()
     t58_check_hub_detail_and_capture()
     t48_excel_2026_stats_and_verified_completion()
