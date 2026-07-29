@@ -2455,6 +2455,9 @@ def t50_stale_completion_drilldown_and_capture():
         "고정 주소 목록을 끝까지 스크롤할 수 없다"
     assert '"완료일미기입목록": _b.get("완료일미기입목록", [])' in pub, \
         "암호화 사본에 완료일 누락 원천 목록이 없다"
+    sw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
+    assert "csos-v8-brief-list-2026-only" in sw, \
+        "설치형 휴대폰 앱이 이전 화면 캐시를 계속 쥘 수 있다"
     print("  [50] 오래된 완료일 미기입 목록·정확 라우팅·담당자 캡처 ✅")
 
 
