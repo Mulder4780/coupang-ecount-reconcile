@@ -520,8 +520,9 @@ function renderList(){
                                r['거래명세서'] ? '거래명세서 ' + r['거래명세서'] : ''])
                           .filter(Boolean).map(esc).join(' · '))).join('');
   else if(TAB === 'settle')
-    h = R.map(r => line(esc(r['정산ID']||'') + ' ' + esc(r['캠프명']||''),
-                        fmt(r['공급가액']) + '원 · ' + esc(r['상태']||''))).join('');
+    h = R.map(r => line(esc(r['프로젝트NO']||'프로젝트 미확정') + ' ' + esc(r['캠프명']||''),
+                        [r['정산ID'], fmt(r['공급가액']) + '원', r['상태']]
+                          .filter(Boolean).map(esc).join(' · '))).join('');
   else
     h = R.map(r => line(esc(r['전표']||'') + ' ' + fmt(r['공급가액']) + '원',
                         esc(r['판정']||'') + (r['포함프로젝트'] ? ' · ' + esc(r['포함프로젝트']) : ''))).join('');
