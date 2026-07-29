@@ -3332,7 +3332,12 @@ def t81_terra_sol_handoff_review():
     passed = {"passed": True, "base_commit": "base", "marker_head": "terra-head", "reviewed_head": "sol-head"}
     assert HR.sol_review_is_current(marker, passed, "sol-head") is True
     assert HR.sol_review_is_current(marker, passed, "new-head") is False, "새 커밋 뒤에는 재검토해야 한다"
-    assert HR.sol_review_is_current(None, None, "any") is True, "Terra 표식이 없으면 기존 작업을 막지 않는다"
+    old_marker = HR.MARKER
+    try:
+        HR.MARKER = os.path.join(tempfile.gettempdir(), "missing-terra-handoff-marker.json")
+        assert HR.sol_review_is_current(None, None, "any") is True, "Terra 표식이 없으면 기존 작업을 막지 않는다"
+    finally:
+        HR.MARKER = old_marker
 
     dirty = HR.blocking_dirty([" M webapp/app_server.py", "?? outputs/", "?? reports/summary.json"])
     assert dirty == ["webapp/app_server.py"], dirty
