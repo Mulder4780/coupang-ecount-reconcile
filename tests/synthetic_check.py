@@ -24,6 +24,8 @@ import openpyxl
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = sys.executable
+# 합성검증 중 resolve_master가 불려도 실관리대장 구버전 정리가 실행되면 안 된다.
+os.environ["CSOS_SYNTHETIC"] = "1"
 
 
 def make_ledger(path):
@@ -367,8 +369,8 @@ def t9_watchdog():
     import time as _t
     from watchdog import pick_archive, pick_old_reports
     vers = [(19, "v19"), (25, "v25"), (21, "v21"), (24, "v24"), (23, "v23")]
-    assert set(pick_archive(vers, keep=3)) == {"v19", "v21"}, pick_archive(vers, 3)   # 최신 3(25,24,23) 보존
-    assert pick_archive(vers[:3], keep=3) == []                                        # 3개 이하면 이동 없음
+    assert set(pick_archive(vers)) == {"v19", "v21", "v23", "v24"}, pick_archive(vers)
+    assert pick_archive([(25, "v25")]) == []                                            # 최신 1개만 보존
     now = _t.time()
     files = [("old.md", now - 40*86400), ("new.md", now - 5*86400),
              ("agent_status.json", now - 90*86400), ("tunnel_url.txt", now - 90*86400)]
@@ -385,7 +387,7 @@ def t9_watchdog():
     assert gap_note("", now) == "" and gap_note("깨진 줄", now) == ""
     # 해가 바뀌면 직전 기록은 작년이다 — 미래로 읽어 음수 공백이 나오면 안 된다
     assert gap_note("[12-31 23:50] x", _dt(2026, 1, 1, 0, 10)) == ""
-    print("  [9] 워치독 판단 로직(버전 보존 3개·보호파일·30일 기준·실행 공백 감지) ✅")
+    print("  [9] 워치독 판단 로직(버전 최신 1개·보호파일·30일 기준·실행 공백 감지) ✅")
 
 
 def t14_datesort():
@@ -1277,6 +1279,7 @@ def t30_dns_and_versions():
     # 지우지 않는다(옮기기만 한다)
     src = open(os.path.join(ROOT, "ledger_versions.py"), encoding="utf-8").read()
     assert "shutil.move" in src and "삭제하지 않는다" in src
+    assert "os.remove(" not in src, "구버전 정리가 중복 파일을 삭제한다"
     print("  [30] 사내 DNS 우회 판정 · 터널 대상 IPv4 · 버전 파일 정리(최신본 보호) ✅")
 
 
@@ -1753,16 +1756,19 @@ def t41_dates_explicit():
     _auto = _lv[_lv.index("def autoprune("):_lv.index("def main(")]
     assert "os.remove" not in _auto and "shutil.rmtree" not in _auto, \
         "자동 정리가 파일을 지운다 — 접어 두기만 해야 한다"
-    assert "shutil.move" in _auto, "자동 정리가 옮기지 않는다"
+    assert "_archive_old_versions" in _auto and "shutil.move" in _lv, \
+        "자동 정리가 OLD 이동 함수를 호출하지 않는다"
     for f in ("ecount_reconcile.py", "workbook_patch.py"):
         s = open(os.path.join(ROOT, f), encoding="utf-8").read()
         assert "autoprune" in s, f"{f} 가 구 버전을 자동으로 접지 않는다"
-    assert LV.KEEP_LATEST >= 1 and LV.ARCHIVE == "OLD", "보관 정책이 바뀌었다"
+    assert LV.KEEP_LATEST == 1 and LV.ARCHIVE == "OLD", "보관 정책이 바뀌었다"
+    assert LV.archive_folder(ROOT) == os.path.join(os.path.abspath(ROOT), "OLD")
 
     # ★ 자동으로 도는 정리는 아무도 안 보고 있다. **남의 파일을 옮기면 안 된다.**
     #   처음 구현이 `*_v*.xlsx` 를 통째로 잡아 합성검증용 임시 파일까지 옮겨 시험이 깨졌다.
     import tempfile as _tf, shutil as _sh
     _d = _tf.mkdtemp()
+    _synthetic_flag = os.environ.pop("CSOS_SYNTHETIC", None)
     try:
         for _n in ("합성대장F_v1.xlsx", "합성대장F_v2.xlsx", "기타자료_v3.xlsx"):
             open(os.path.join(_d, _n), "w").write("x")
@@ -1772,7 +1778,13 @@ def t41_dates_explicit():
 
         for _v in (1, 2, 3):
             open(os.path.join(_d, f"쿠팡_통합업무_일일보고_관리대장_v{_v}.xlsx"), "w").write("x")
+            _stamp = 1700000000 + (_v * 86400)  # 서로 다른 날짜여도 최신 1개만 남겨야 한다
+            os.utime(os.path.join(_d, f"쿠팡_통합업무_일일보고_관리대장_v{_v}.xlsx"),
+                     (_stamp, _stamp))
         open(os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v9_보관.xlsx"), "w").write("x")
+        _keep, _move = LV.plan(os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v3.xlsx"))
+        assert [x["v"] for x in _keep] == [3] and sorted(x["v"] for x in _move) == [1, 2], \
+            "KEEP_DAYS=0인데 날짜별 구버전을 작업 폴더에 남긴다"
         LV._AUTODONE = False
         assert LV.autoprune(os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v3.xlsx")) == 2, \
             "옛 버전 2개가 접히지 않았다"
@@ -1783,7 +1795,23 @@ def t41_dates_explicit():
         assert sorted(os.listdir(os.path.join(_d, "OLD"))) == [
             "쿠팡_통합업무_일일보고_관리대장_v1.xlsx",
             "쿠팡_통합업무_일일보고_관리대장_v2.xlsx"], "접힌 목록이 다르다"
+
+        # 과거 `_이전버전`도 다음 실행 때 지정 OLD로 합친다. 같은 v2라도 내용이 다르면
+        # 기존 OLD 파일을 덮거나 지우지 않고 출처 꼬리표로 둘 다 남겨야 한다.
+        _legacy = os.path.join(_d, "_이전버전")
+        os.makedirs(_legacy)
+        open(os.path.join(_legacy, "쿠팡_통합업무_일일보고_관리대장_v2.xlsx"), "w").write("다른 v2")
+        LV._AUTODONE = False
+        assert LV.autoprune(os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v3.xlsx")) == 1, \
+            "예전 보관 폴더의 파일이 OLD로 합쳐지지 않았다"
+        assert not os.listdir(_legacy), "예전 보관 폴더에 관리대장이 남았다"
+        archived = sorted(os.listdir(os.path.join(_d, "OLD")))
+        assert "쿠팡_통합업무_일일보고_관리대장_v2.xlsx" in archived
+        assert any("__from_이전버전" in name for name in archived), \
+            "동명 구버전을 덮어쓰지 않고 보존하지 못했다"
     finally:
+        if _synthetic_flag is not None:
+            os.environ["CSOS_SYNTHETIC"] = _synthetic_flag
         LV._AUTODONE = False
         _sh.rmtree(_d, ignore_errors=True)
 

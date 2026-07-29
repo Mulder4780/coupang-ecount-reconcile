@@ -186,8 +186,8 @@ def main():
     # 10. 고정 주소 사본 — PC를 꺼도 폰·태블릿이 이걸로 조회·자동채움을 한다(잠가서 올린다)
     steps.append(run("고정 주소 사본 올리기", [os.path.join(ROOT, "cloud_publish.py"), "--push"]))
 
-    # 11. 버전 파일 정리 — 원장 수정 도구가 전부 vN+1을 만들어서 하루만 돌려도 대여섯 개가
-    #     쌓인다. 지우지 않고 _이전버전/ 으로 접어 두어 어느 게 최신인지 헷갈리지 않게 한다.
+    # 11. 버전 파일 정리 — 최신본 하나만 작업 폴더에 두고 구버전은 사용자가 지정한
+    #     OLD/ 한 곳으로 옮긴다. 같은 이름이 있어도 덮어쓰거나 삭제하지 않는다.
     steps.append(run("관리대장 버전 정리", [os.path.join(ROOT, "ledger_versions.py"), "--prune"]))
 
     finish(steps)

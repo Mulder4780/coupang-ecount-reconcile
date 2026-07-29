@@ -5,8 +5,8 @@ watchdog.py — 자가치유 워치독 (무인 운영의 심장)
 30분마다 작업 스케줄러가 실행. 사람이 손대지 않아도:
   1. 앱 서버 죽음 감지 → 자동 재시작
   2. 외부접속 터널 죽음/주소소실 감지 → 자동 재시작
-  3. 관리대장 구버전 자동 아카이브 (최신 3개만 현역, 나머지 OLD/로)
-  4. 30일 지난 리포트 자동 정리
+  3. 30일 지난 리포트 자동 정리
+관리대장 버전 정리는 `ledger_versions.py` 한 곳에서만 수행한다.
 모든 조치는 reports/watchdog_log.txt 에 기록.
 
 실행:  python watchdog.py            # 점검+복구 1회
@@ -72,8 +72,8 @@ def last_log_line(path=None):
         return ""
 
 
-def pick_archive(version_files, keep=3):
-    """[(버전, 경로)] → OLD로 옮길 경로 목록 (최신 keep개 제외)"""
+def pick_archive(version_files, keep=1):
+    """[(버전, 경로)] → OLD로 옮길 경로 목록 (현재 정책은 최신 1개 제외)"""
     s = sorted(version_files, key=lambda x: x[0], reverse=True)
     return [p for _, p in s[keep:]]
 
@@ -202,35 +202,6 @@ def snapshot_handoff(dry):
         return line[-1] if line else "세션인계 갱신"
     except Exception as e:
         return f"세션인계 실패: {str(e)[:40]}"
-
-
-def archive_versions(dry):
-    try:
-        sys.path.insert(0, ROOT)
-        from ecount_reconcile import load_config
-        folder = os.path.dirname(load_config()["reconcile"]["master_xlsx"])
-        vers = []
-        for p in glob.glob(os.path.join(folder, "쿠팡_통합업무_일일보고_관리대장_v*.xlsx")):
-            m = re.search(r"_v(\d+)\.xlsx$", p)
-            if m and "~$" not in p:
-                vers.append((int(m.group(1)), p))
-        targets = pick_archive(vers, keep=3)
-        if not targets:
-            return "버전 아카이브 불필요(현역 3개 이하)"
-        old = os.path.join(folder, "OLD")
-        os.makedirs(old, exist_ok=True)
-        moved = 0
-        for p in targets:
-            if dry:
-                moved += 1; continue
-            try:
-                os.replace(p, os.path.join(old, os.path.basename(p)))
-                moved += 1
-            except PermissionError:
-                pass          # 열려 있으면 다음 주기에
-        return f"구버전 {moved}개 → OLD{'(dry)' if dry else ''}"
-    except Exception as e:
-        return f"아카이브 오류: {e}"
 
 
 def clean_reports(dry):
