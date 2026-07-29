@@ -1674,8 +1674,10 @@ def publish_loop():
             time.sleep(60)
             continue
         try:
+            # 자동 게시도 사람·다른 AI의 수동 게시를 밟지 않게 publish 점유를 강제한다.
+            publish_env = {**ENV, "CSOS_AI": "server"}
             r = subprocess.run([PY, os.path.join(ROOT, "cloud_publish.py"), "--push"],
-                               cwd=ROOT, env=ENV, capture_output=True, text=True,
+                               cwd=ROOT, env=publish_env, capture_output=True, text=True,
                                encoding="utf-8", errors="replace", timeout=900)
             tail = [l for l in (r.stdout or "").splitlines() if l.strip()][-1:] or [""]
             runner["log"].append(f"[사본 자동 게시] {tail[0][:120]}")

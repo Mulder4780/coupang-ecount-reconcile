@@ -1429,6 +1429,13 @@ def t34_capture_and_no_send():
     _ls = idx[idx.index("async function loadStatus()"):][:900]
     assert "srcStats = s.sources" in _ls and "renderBoard()" in _ls, \
         "상태를 받은 뒤 확인목록을 다시 그리지 않는다 — 자료가 있어도 '없음'으로 뜬다"
+    # 앱서버 자동 게시와 사람/다른 AI 수동 게시가 겹치면 같은 Git 커밋이 두 번 생긴다.
+    cp = open(os.path.join(ROOT, "cloud_publish.py"), encoding="utf-8").read()
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert 'require("publish"' in cp and "acquired_here" in cp, \
+        "폰 사본 Git 게시에 publish 점유가 강제되지 않는다"
+    assert '"CSOS_AI": "server"' in srv and "publish_env" in srv, \
+        "앱서버 자동 게시가 점유 주체를 밝히지 않는다"
     print("  [34] 확인목록 캡처(요약·건별) · 자동 전송 경로 없음 · 자료판정 순서 ✅")
 
 

@@ -167,7 +167,7 @@ def git_publish(message, runner=subprocess.run):
     return True, "", ""
 
 
-def main():
+def _main():
     from operation_window import input_window_label, is_input_window
     if is_input_window():
         print(f"입력 보호시간({input_window_label()}) — 사본 생성·게시 생략")
@@ -211,6 +211,24 @@ def main():
         sys.exit(1)
     print("\n고정 주소에 반영했습니다 — PC를 꺼도 폰에서 열립니다.")
     print("  https://mulder4780.github.io/coupang-ecount-reconcile/")
+
+
+def main():
+    """게시 작업은 수동·앱서버·다른 AI 중 하나만 실행한다."""
+    acquired_here = False
+    if "--push" in sys.argv and (os.environ.get("CSOS_AI") or "").strip():
+        import ai_claim
+        from claim_guard import require
+        me = (os.environ.get("CSOS_AI") or "").strip().lower()
+        before = ai_claim.load().get("publish")
+        require("publish", "폰 독립 사본 생성·Git 게시", who=me)
+        acquired_here = not before
+    try:
+        return _main()
+    finally:
+        if acquired_here:
+            from claim_guard import release
+            release("publish", who=(os.environ.get("CSOS_AI") or "").strip().lower())
 
 
 if __name__ == "__main__":
