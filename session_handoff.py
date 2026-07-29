@@ -155,7 +155,7 @@ def collect():
     }
 
 
-def blockers(st):
+def blockers(st, for_sol=False):
     """다음 세션이 **먼저 처리해야** 하는 것 — 안 하면 조용히 어긋난다."""
     out = []
     if st["큐잔량"]:
@@ -178,15 +178,19 @@ def blockers(st):
     if st["미푸시"]:
         out.append(("푸시되지 않은 커밋 %d개" % len(st["미푸시"]),
                     "git pull --rebase && git push  (비밀 스캔 후)"))
+    if for_sol and st.get("terra_sol_review", {}).get("pending"):
+        out.append(("Terra 작업분의 Sol 사전 검토가 필요합니다 (%s)" %
+                    st["terra_sol_review"].get("reason", "검토 미완료"),
+                    "python handoff_review.py --review-sol"))
     return out
 
 
-def to_md(st):
+def to_md(st, for_sol=False):
     L = ["# 세션 인계 — 지금 어디까지 됐나", "",
          "- 기준: %s · 관리대장 **v%s**(%s)" % (st["시각"], st["원장"].get("버전", "?"),
                                                st["원장"].get("수정", "")),
          "- 이 문서는 워치독이 30분마다 갱신한다. **세션이 갑자기 끊겨도 여기까지는 남는다.**", ""]
-    bl = blockers(st)
+    bl = blockers(st, for_sol=for_sol)
     L += ["## 먼저 처리할 것 (%d)" % len(bl), ""]
     if not bl:
         L.append("걸린 것 없음 — 바로 새 작업을 시작해도 된다.")
@@ -205,22 +209,32 @@ def to_md(st):
           "2. `ecount/AGENTS.md` 읽기 — 절대규칙·현재 상태",
           "3. `python tests/synthetic_check.py` → ALL GREEN 확인 후 실작업",
           "4. `python data_status.py --print` — 자료가 지금 얼마나 있나", ""]
+    if for_sol:
+        L += ["", "## Sol 전용 시작 관문", "",
+              "`python handoff_review.py --review-sol`이 PASS 하기 전에는 쓰기 작업을 시작하지 않습니다."]
     return "\n".join(L)
 
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--for-sol", action="store_true", help="Terra -> Sol 검토 관문도 함께 확인")
     ap.add_argument("--snapshot", action="store_true", help="상태를 파일로 남긴다(워치독용)")
     ap.add_argument("--check", action="store_true", help="새 세션 시작 시 읽는다")
     a = ap.parse_args()
     st = collect()
-    md = to_md(st)
+    if a.for_sol:
+        try:
+            import handoff_review
+            st["terra_sol_review"] = handoff_review.review_state()
+        except Exception as exc:
+            st["terra_sol_review"] = {"pending": True, "reason": "검토 상태 확인 실패: %s" % exc}
+    md = to_md(st, for_sol=a.for_sol)
     if a.snapshot:
         os.makedirs(REPORT_DIR, exist_ok=True)
         open(os.path.join(REPORT_DIR, "세션인계.md"), "w", encoding="utf-8").write(md)
         json.dump(st, open(os.path.join(REPORT_DIR, "세션인계.json"), "w", encoding="utf-8"),
                   ensure_ascii=False, indent=1, default=str)
-        bl = blockers(st)
+        bl = blockers(st, for_sol=a.for_sol)
         print("세션인계 갱신 — 걸린 것 %d건 · 관리대장 v%s" % (len(bl), st["원장"].get("버전", "?")))
         return 0
     print(md)

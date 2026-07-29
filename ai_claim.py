@@ -126,8 +126,34 @@ def show(d=None):
               f"{mins}분 전 · {v.get('why','')[:40]}")
 
 
+def _sol_write_gate(who, what):
+    """Require the Terra -> Sol review before Sol changes shared state.
+
+    Read/report claims remain available so Sol can inspect the handoff and run
+    the review itself. Any exclusive claim is fail-closed when a pending Terra
+    marker exists.
+    """
+    _label, exclusive = LOCKS.get(what, (what, True))
+    if "sol" not in (who or "").lower() or not exclusive:
+        return True
+    try:
+        import handoff_review
+        allowed = handoff_review.sol_review_is_current()
+    except Exception as exc:
+        print("Terra 인수인계 검토 상태를 읽을 수 없어 Sol 쓰기 작업을 차단합니다: %s" % exc)
+        return False
+    if allowed:
+        return True
+    print("Terra 인수인계 검토가 끝나지 않아 Sol 쓰기 작업을 차단합니다.")
+    print("  먼저 실행: python handoff_review.py --review-sol")
+    print("  합성 검증을 포함한 PASS 후에만 ledger/code/band/publish 점유가 가능합니다.")
+    return False
+
+
 def take(who, what, why=""):
     label, excl = LOCKS.get(what, (what, True))
+    if not _sol_write_gate(who, what):
+        return False
     with state_guard():
         d = _load_unlocked()
         cur = d.get(what)

@@ -3322,6 +3322,51 @@ def t79_work_log_source_sync_and_report_capture():
     print("  [79] 현장 일지 대조·안전 빈칸입력·돌발AS 사유·정기점검/AS 대표 캡처 ✅")
 
 
+def t81_terra_sol_handoff_review():
+    """[81] Terra 작업분은 Sol이 검토·합성검증하기 전 쓰기 작업을 못 한다."""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    import handoff_review as HR
+
+    marker = {"base_commit": "base", "head_commit": "terra-head"}
+    passed = {"passed": True, "base_commit": "base", "marker_head": "terra-head", "reviewed_head": "sol-head"}
+    assert HR.sol_review_is_current(marker, passed, "sol-head") is True
+    assert HR.sol_review_is_current(marker, passed, "new-head") is False, "새 커밋 뒤에는 재검토해야 한다"
+    assert HR.sol_review_is_current(None, None, "any") is True, "Terra 표식이 없으면 기존 작업을 막지 않는다"
+
+    dirty = HR.blocking_dirty([" M webapp/app_server.py", "?? outputs/", "?? reports/summary.json"])
+    assert dirty == ["webapp/app_server.py"], dirty
+    patch = "+++ b/example.py\n+api_key = \"" + ("a" * 16) + "\"\n+password = \"\"\n"
+    assert HR.secret_findings(patch) == ["example.py"], "빈 값은 비밀값 탐지 대상이 아니다"
+
+    claim_src = open(os.path.join(ROOT, "ai_claim.py"), encoding="utf-8").read()
+    session_src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    agents_src = open(os.path.join(ROOT, "AGENTS.md"), encoding="utf-8").read()
+    claude_src = open(os.path.join(os.path.dirname(ROOT), "CLAUDE.md"), encoding="utf-8").read()
+    assert "handoff_review" in claim_src and "--review-sol" in claim_src
+    assert "--for-sol" in session_src
+    for src in (agents_src, claude_src):
+        assert "handoff_review.py --mark-terra" in src and "handoff_review.py --review-sol" in src
+    print("  [81] Terra→Sol 검토 관문(범위 고정·비밀값/문법/합성검증·Sol 쓰기 점유 차단) OK")
+
+
+def t82_daily_cutoff_24h():
+    """The reporting cutoff is a numeric 24:00 duration, never the text 24:00."""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    import workbook_patch as W
+
+    xml = '<sheetData><row r="5"><c r="A5" s="3"/><c r="B5" s="10"><v>0.75</v></c></row></sheetData>'
+    out = W.replace_number_cell(xml, "B5", "1")
+    assert '<c r="B5" s="10"><v>1</v></c>' in out, out
+    assert 'A5" s="3"' in out, "unrelated dashboard cells must be preserved"
+
+    src = open(os.path.join(ROOT, "workbook_patch.py"), encoding="utf-8").read()
+    assert 'numFmtId="177"' in src and 'formatCode="[h]:mm"' in src
+    assert 'dash["B5"].value == timedelta(days=1)' in src
+    print("  [82] 집계마감 당일 24:00(숫자 1·[h]:mm) 안전 전환 ✅")
+
+
 def t80_new_project_flow_db_only(tmp):
     """신규 프로젝트 흐름도는 최신본만 내부 DB로 갱신하고 앱에는 연결하지 않는다."""
     import json
@@ -3438,6 +3483,8 @@ if __name__ == "__main__":
     t79_work_log_source_sync_and_report_capture()
     with tempfile.TemporaryDirectory() as tmp:
         t80_new_project_flow_db_only(tmp)
+    t81_terra_sol_handoff_review()
+    t82_daily_cutoff_24h()
     t76_source_organizer()
     t55_pm_brief_drilldown_and_capture()
     t58_check_hub_detail_and_capture()
