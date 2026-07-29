@@ -2804,7 +2804,9 @@ def t70_quarter_as_months():
     assert "분기 내 마무리" not in src, "'분기 내' 문구가 남아 있다 — 몇 월인지 안 보인다"
 
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
-    assert "p.분기범위" in live and "p.분기끝월" in live, "앱이 월 범위를 안 쓴다"
+    # 앱은 이제 기간을 직접 고르므로 라벨도 클라이언트가 만든다(pmStats().라벨).
+    # 서버 필드(분기범위·분기끝월)는 브리핑 텍스트용으로 남고, 앱은 ps.라벨/ps.끝월을 쓴다.
+    assert "ps.라벨" in live and "ps.끝월" in live, "앱이 월 범위 라벨을 안 쓴다"
     assert "분기 내 마무리" not in live, "앱에 '분기 내' 문구가 남아 있다"
     # 버튼 라벨이 '분기 예정' 처럼 고정 문자열로 되돌아가면 안 된다
     assert '">분기 예정<' not in live and '">분기 실행<' not in live, "버튼이 다시 '분기' 로 고정됐다"
@@ -2849,7 +2851,21 @@ def t71_period_range():
             "%d월" % int(f) if f == t else "%d~%d월" % (int(f), int(t)))
     assert label("07", "07") == "7월" and label("01", "06") == "1~6월"
     assert label("01", "12") == "연간 전체" and label("10", "12") == "10~12월"
-    print("  [71] 기간 범위 선택(7월·1~6월·빠른선택·거꾸로 자동정렬·단일월 호환) ✅")
+    # ── 정기점검 진행률 카드도 같은 기간 선택을 쓴다 ──
+    #  ★ 서버가 준 분기 숫자(p.분기예정 등)를 그대로 쓰면 기간을 바꿔도 숫자가 안 변한다.
+    #    works.pm 에서 **직접 세야** 아무 기간이나 된다.
+    for fn in ("function pmStats()", "function setPmRange(", "function pmQuarter()"):
+        assert fn in live, "%s 가 없다" % fn
+    assert "const ps = pmStats();" in live, "진행률 카드가 기간 계산을 안 쓴다"
+    for old in ("p.분기진행률||0", "${p.분기완료||0}/${p.분기예정||0}건",
+                "p.분기범위||'분기'", "p.분기||'분기'"):
+        assert old not in live, "진행률 카드에 옛 분기 고정값이 남아 있다: %s" % old
+    # 드릴다운 목록도 같은 기간이어야 카드 숫자와 어긋나지 않는다
+    assert "const _ps = pmStats();" in live, "드릴다운이 기간을 따르지 않는다"
+    assert "mm>=_ps.from && mm<=_ps.to" in live, "드릴다운 목록이 기간으로 걸러지지 않는다"
+    # 시작이 끝보다 뒤면 끝을 끌어와 맞춘다(오류를 띄우지 않는다)
+    assert "if(a > b){ b = a; }" in live, "거꾸로 고른 기간을 바로잡지 않는다"
+    print("  [71] 기간 범위 선택(현황·정기점검 진행률·드릴다운·거꾸로 자동정렬·단일월 호환) ✅")
 
 
 if __name__ == "__main__":

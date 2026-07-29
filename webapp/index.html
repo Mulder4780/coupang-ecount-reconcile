@@ -57,8 +57,27 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 
 /* ═══ 레이아웃 ═══ */
 .shell{max-width:1220px;margin:0 auto;padding:16px 14px 92px}
-.view{display:none}.view.active{display:block;animation:fade .2s ease}
-@keyframes fade{from{opacity:0;transform:translateY(5px)}to{opacity:1}}
+.view{display:none;transform-origin:50% 12px}
+.view.active{display:block;animation:viewEnter .34s cubic-bezier(.22,.8,.25,1)}
+@keyframes viewEnter{
+  from{opacity:0;transform:translateY(12px) scale(.992);filter:blur(2px)}
+  to{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}
+}
+/* 모든 클릭 요소에 같은 손맛을 준다. 레이아웃은 건드리지 않고 눌림·초점만 통일한다. */
+button,.topitem,.srow,.check-kpi,.kpi,.ecell.metric,.bneed.actionable,.bpill.actionable{
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .16s cubic-bezier(.22,.8,.25,1),box-shadow .2s ease,
+             border-color .2s ease,background-color .2s ease,color .2s ease}
+button:active,.topitem:active,.srow:active,.check-kpi:active,.kpi:active,
+.ecell.metric:active,.bneed.actionable:active,.bpill.actionable:active{transform:scale(.975)}
+button:focus-visible,.topitem:focus-visible,.srow:focus-visible,.check-kpi:focus-visible,.kpi:focus-visible{
+  outline:3px solid rgba(36,82,230,.28);outline-offset:2px}
+.press-pop{animation:pressPop .32s cubic-bezier(.22,.8,.25,1)}
+@keyframes pressPop{0%{transform:scale(1)}38%{transform:scale(.955)}100%{transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){
+  .view.active,.press-pop,.kpi.tapped,.card.flash{animation:none!important}
+  *,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important}
+}
 
 /* ═══ 내비게이션 ═══ */
 .tabbar{position:fixed;bottom:0;left:0;right:0;z-index:20;background:var(--surface);
@@ -87,6 +106,36 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .hero .badge{position:absolute;top:18px;right:20px;z-index:1;display:flex;align-items:center;gap:6px;
   background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:99px;
   padding:5px 12px;font-size:11px;font-weight:700;backdrop-filter:blur(4px)}
+
+/* ═══ 유수비 대표 예외보고 — 정상 상세은 접고 예외만 전면에 ═══ */
+.rep-card{border-color:#C8D5F3;background:
+  radial-gradient(circle at 96% 0,rgba(36,82,230,.10),transparent 38%),var(--surface)}
+.rep-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.rep-title{font-size:16px;font-weight:900;letter-spacing:-.3px;color:var(--ink)}
+.rep-title small{display:block;margin-top:4px;font-size:11px;font-weight:700;color:var(--ink-3)}
+.rep-summary{margin:12px 0 14px;padding:13px 15px;border-radius:13px;background:#F0F4FF;
+  border:1px solid #D9E3FF;font-size:13px;line-height:1.7;color:#253457;font-weight:700}
+.rep-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.rep-metric{border:1px solid var(--line);border-radius:13px;padding:12px 13px;text-align:left;
+  background:rgba(255,255,255,.86);box-shadow:0 4px 14px rgba(16,24,40,.04);cursor:pointer}
+.rep-metric:hover{transform:translateY(-2px);box-shadow:var(--sh-lg);border-color:#AFC2F4}
+.rep-metric .rv{font-size:21px;font-weight:900;letter-spacing:-.5px}
+.rep-metric .rl{font-size:11.5px;font-weight:800;color:var(--ink-2);margin-top:2px}
+.rep-metric .rs{font-size:10.5px;color:var(--ink-3);margin-top:3px;line-height:1.4}
+.rep-metric.danger .rv{color:var(--danger)} .rep-metric.warn .rv{color:var(--warn)}
+.rep-metric.ok .rv{color:var(--ok)}
+.rep-docs{margin-top:12px;display:grid;gap:7px}
+.rep-doc{display:grid;grid-template-columns:1.3fr repeat(4,.72fr);align-items:center;gap:8px;
+  padding:10px 12px;border-radius:11px;background:#F8FAFD;border:1px solid var(--line);font-size:11.5px}
+.rep-doc b{font-size:12px}.rep-doc span{text-align:right;font-variant-numeric:tabular-nums}
+.signal{display:inline-flex;align-items:center;border-radius:99px;padding:5px 9px;font-size:10.5px;font-weight:900}
+.signal.녹색{background:var(--ok-bg);color:var(--ok)}.signal.황색{background:var(--warn-bg);color:var(--warn)}
+.signal.적색{background:var(--danger-bg);color:var(--danger)}
+@media(min-width:760px){.rep-grid{grid-template-columns:repeat(6,minmax(0,1fr))}}
+@media(max-width:560px){
+  .rep-doc{grid-template-columns:1fr auto}.rep-doc span:nth-of-type(2),
+  .rep-doc span:nth-of-type(3){display:none}
+}
 
 /* ═══ 카드 ═══ */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
@@ -130,6 +179,12 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .pbtn{padding:8px 12px;border:1.5px solid var(--line);border-radius:10px;font-size:12.5px;
   font-weight:700;background:var(--card);color:var(--ink-2);cursor:pointer}
 .pbtn:hover{border-color:var(--brand);color:var(--brand)}
+.pbtn.on{background:var(--brand);border-color:var(--brand);color:#fff}
+/* 진행률 카드 안의 기간 고르기 — 좁은 폰에서도 줄바꿈되게 */
+.pmrange{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0 4px}
+.pmrange select{padding:6px 9px;border:1.5px solid var(--line);border-radius:9px;
+  font-size:12.5px;font-weight:700;background:var(--card);color:var(--ink-1)}
+.pmrange .pbtn{padding:6px 10px;font-size:12px}
 .pctrl select{padding:8px 12px;border:1.5px solid var(--line);border-radius:10px;font-size:13.5px;
   background:var(--surface);font-weight:700;color:var(--ink)}
 .mbars{display:flex;gap:4px;align-items:flex-end;height:96px;margin:6px 0 2px}
@@ -716,6 +771,20 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
       <h2>Coupang Service Operations System — 현황</h2>
       <div class="hstats" id="heroStats"></div>
     </div>
+    <div class="card rep-card" id="repCard">
+      <div class="rep-head">
+        <div class="rep-title">유수비 대표 예외보고
+          <small>정상 처리 건은 합계만, 지연·불일치·판단 필요 건은 상세로 표시합니다</small></div>
+        <span class="signal" id="repSignal">계산 중</span>
+      </div>
+      <div class="rep-summary" id="repSummary">원장 기준 예외 항목을 계산하고 있습니다.</div>
+      <div class="rep-grid" id="repKpis"></div>
+      <div class="rep-docs" id="repDocs"></div>
+      <div class="actions" style="margin-top:12px">
+        <button class="abtn primary" onclick="show('check')"><span class="em">△</span>확인 필요 전체</button>
+        <button class="abtn" onclick="show('daily')"><span class="em">📷</span>대표 보고 보기</button>
+      </div>
+    </div>
     <div class="kpis" id="kpis"></div>
     <div class="card"><h3>에이전트 최근 실행 <span id="agentTime" style="font-weight:400"></span></h3>
       <div class="steps" id="steps"></div></div>
@@ -891,8 +960,12 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
       </div>
     </div>
     <div class="card">
-      <h3>관리·청구 확인 <span class="norm">— 유현민이 직접 확인하거나 자료를 넣을 항목</span></h3>
+      <h3>내부 담당 확인 <span class="norm">— 류지영·변재선(회계)·유현민 업무를 분리 표시</span></h3>
       <div class="toplist" id="checkmine">불러오는 중...</div>
+    </div>
+    <div class="card">
+      <h3>업무기준 확인 필요 <span class="norm">— 통화에서 미확정된 기준은 임의로 하드코딩하지 않습니다</span></h3>
+      <div class="toplist" id="checkpolicies">불러오는 중...</div>
     </div>
     <div class="card">
       <h3>확인 필요 전체 목록 <span class="norm">— 프로젝트·캠프·담당자·근거 검색</span></h3>
@@ -1067,9 +1140,11 @@ async function loadStatus(){
   issues.forEach(r=>{ (byType[r.상태]=byType[r.상태]||[]).push(r); });
   $('toplist').innerHTML = Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,list])=>{
     const amt = list.reduce((a,r)=>a+(+r.공급가액||0),0);
-    const chips = list.slice(0,4).map(r=>
-      `<span class="prj" onclick="event.stopPropagation();openByPrj('${r.프로젝트NO||r.정산ID}')"
-        title="${r.정산ID} · ${r.캠프명||''} — 클릭해 상세">${r.프로젝트NO||r.정산ID}</span>`).join('');
+    const chips = list.slice(0,4).map(r=>{
+      const prj=projectNoOf(r), key=prj||recordIdOf(r);
+      return `<span class="prj" onclick="event.stopPropagation();openByPrj(${esc4(key)})"
+        title="${esc2(recordIdOf(r))} · ${esc2(r.캠프명||'')} — 클릭해 상세">${esc2(prj||'프로젝트 미확정')}</span>`;
+    }).join('');
     return `<div class="topitem" onclick="jumpIssue('${t}')">
       <span style="min-width:0"><b>${t}</b><div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">${chips}${
         list.length>4?`<span style="font-size:11px;color:var(--ink-3);align-self:center">외 ${list.length-4}건</span>`:''}</div></span>
@@ -1190,6 +1265,7 @@ async function loadSettle(){
   try{ issuesData = await api('/api/issues'); }catch(e){}
   try{ checks = await api('/api/checks'); }catch(e){}
   try{ execRep = await api('/api/exec_report'); }catch(e){}
+  try{ repData = await api('/api/v1/reports/daily/exceptions'); }catch(e){ repData={}; }
   try{ erpDocs = await api('/api/erpdocs'); }catch(e){ erpDocs = {rows:[],months:{},kinds:{},total:0}; }
   works.as = (works.as||[]).filter(r=>rowIs2026(r,'as') && !isSideWork(r)).map(hide2025);
   works.pm = (works.pm||[]).filter(r=>rowIs2026(r,'pm') && !isSideWork(r)).map(hide2025);
@@ -1201,6 +1277,7 @@ async function loadSettle(){
   applyBrand();
   syncSortUI(); fillStatOptions(); renderSettle(); periodInit();
   try{ renderBoard(); }catch(e){ console.warn('board', e); }
+  try{ renderRepresentative(); }catch(e){ console.warn('representative report', e); }
   try{ renderCheckHub(); }catch(e){ console.warn('check hub', e); }
   try{ $('helpcard').innerHTML = helpAll(); }catch(e){ console.warn('help', e); }
 }
@@ -1211,6 +1288,12 @@ function setMode(m){
   fillStatOptions(); renderSettle();
 }
 function kTap(el){ el.classList.remove('tapped'); void el.offsetWidth; el.classList.add('tapped'); }
+document.addEventListener('pointerdown',e=>{
+  const el=e.target.closest('button,.topitem,.srow,.check-kpi,.kpi,.rep-metric,.ecell.metric,.bneed.actionable,.bpill.actionable');
+  if(!el||el.disabled) return;
+  el.classList.remove('press-pop'); void el.offsetWidth; el.classList.add('press-pop');
+  el.addEventListener('animationend',()=>el.classList.remove('press-pop'),{once:true});
+},{passive:true});
 /* 종류·ID를 알고 있는 목록은 그 힌트를 버리지 않는다.
    같은 프로젝트NO가 AS·점검·정산에 함께 있는 실제 데이터가 많아서 정산부터 찾으면 오탐이 난다. */
 function openRecord(kind, id, project){
@@ -1234,17 +1317,20 @@ function openByPrj(key){
     ...(works.pm||[]).map((r,i)=>({kind:'pm',i,r,id:r.점검ID||''}))
   ];
   const exact = all.filter(x=>String(x.id)===k);
-  const found = exact.length ? exact : all.filter(x=>String(x.r.프로젝트NO||'')===k);
-  if(found.length===1){ const x=found[0]; openRecord(x.kind,x.id,x.r.프로젝트NO); return; }
+  const found = exact.length ? exact : all.filter(x=>projectNoOf(x.r)===k);
+  if(found.length===1){ const x=found[0]; openRecord(x.kind,x.id,projectNoOf(x.r)); return; }
   if(found.length>1){
     const kindName={settle:'정산·청구',as:'돌발AS',pm:'정기점검'};
-    showSheet(`<h2>${k} <span class="chip c-warn">${found.length}건</span></h2>
+    const heading=exact.length ? projectLabel(found[0].r) : k;
+    showSheet(`<h2>${esc2(heading)} <span class="chip c-warn">${found.length}건</span></h2>
       <div class="sub">같은 프로젝트 번호에 연결된 기록이 여러 개입니다. 확인할 기록을 선택하세요.</div>
       <div class="slist">${found.map(x=>{
         const d=x.r.완료일||x.r.접수일자||x.r.점검예정일||x.r.작업완료일||'';
-        return `<div class="srow" onclick="openRecord(${esc4(x.kind)},${esc4(x.id)},${esc4(k)})">
-          <div class="top"><span class="id">${x.id||k}</span><span class="chip">${kindName[x.kind]}</span></div>
-          <div class="top"><span class="camp">${x.r.캠프명||''}</span><span class="camp">${d||'-'}</span></div>
+        const prj=projectLabel(x.r);
+        return `<div class="srow" onclick="openRecord(${esc4(x.kind)},${esc4(x.id)},${esc4(projectNoOf(x.r))})">
+          <div class="top"><span class="prjno">${esc2(prj)}</span><span class="chip">${kindName[x.kind]}</span></div>
+          <div class="top"><span class="camp">${esc2(x.r.캠프명||'캠프 미상')}</span><span class="camp">${esc2(d||'-')}</span></div>
+          ${x.id?`<div class="meta"><span class="sid">${esc2(x.id)}</span></div>`:''}
         </div>`;}).join('')}</div>`);
     return;
   }
@@ -1368,7 +1454,37 @@ function anyDate(r){                       // 날짜 열 이름을 모르는 시
   for(const v of Object.values(r||{})){ const d = normDate(v); if(d) return d; }
   return '';
 }
-function idOf(r){ return r.정산ID||r.접수ID||r.점검ID||r.프로젝트NO||r.업무ID||r.ID||''; }
+function recordIdOf(r){
+  return String((r&&(
+    r.정산ID||r.접수ID||r.점검ID||r.레코드ID||r.원천업무ID||r.업무ID||r.ID
+  ))||'').trim();
+}
+function isInternalNo(v){ return /^(?:AS|PM|JS)-/i.test(String(v||'').trim()); }
+/* 화면의 대표 식별자는 언제나 프로젝트 번호다.
+   내부 AS/PM/JS 번호만 들어온 예외·KPI 행은 원장 3종을 역참조하고, 그래도 못 찾으면
+   내부번호를 프로젝트처럼 가장하지 않고 '프로젝트 미확정'으로 명시한다. */
+function projectNoOf(r){
+  if(!r||typeof r!=='object') return '';
+  const direct=String(r.프로젝트NO||'').trim();
+  if(direct&&!isInternalNo(direct)) return direct;
+  for(const v of Object.values(r)){
+    const hit=String(v==null?'':v).match(/\bUJ26\d{5,}\b/i);
+    if(hit) return hit[0].toUpperCase();
+  }
+  const ids=[r.정산ID,r.접수ID,r.점검ID,r.레코드ID,r.원천업무ID,r.업무ID,r.ID]
+    .map(v=>String(v||'').trim()).filter(Boolean);
+  if(!ids.length) return '';
+  const all=[...(settleRows||[]),...((works&&works.as)||[]),...((works&&works.pm)||[])];
+  const hit=all.find(x=>{
+    const xid=[x.정산ID,x.접수ID,x.점검ID,x.원천업무ID,x.업무ID,x.ID]
+      .map(v=>String(v||'').trim()).filter(Boolean);
+    return ids.some(id=>xid.includes(id));
+  });
+  const linked=String((hit&&hit.프로젝트NO)||'').trim();
+  return linked&&!isInternalNo(linked)?linked:'';
+}
+function projectLabel(r){ return projectNoOf(r)||'프로젝트 미확정'; }
+function idOf(r){ return projectNoOf(r)||recordIdOf(r); }
 function sortVal(r, k){
   if(k==='__date') return (mode==='check' ? anyDate(r) : normDate(dateOf(r, mode))) || anyDate(r);
   if(k==='__id')   return idOf(r);
@@ -1444,7 +1560,7 @@ function renderSettle(){
       <div class="kpi ${need.length?'danger':''}"><div class="v">${need.length}/${rows.length}</div><div class="l">조치 필요</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('settle',${i},'${r.정산ID}')">
-        <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${campTag(r.캠프명)}${chip(r.상태)}</div>
+        <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(r.상태)}</div>
         <div class="top"><span class="camp">${r.업무구분||''}</span><span class="amt">${fmt(r.공급가액)}원</span></div>
         <div class="meta"><span class="sid">${r.정산ID}</span><span>완료 ${r.완료일||'-'}</span>
           <span>명세서 ${r.명세서번호||r.명세서}</span><span>계산서 ${r.계산서}</span>
@@ -1454,7 +1570,7 @@ function renderSettle(){
     $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('정산ID','정산ID')}${thx('구분','업무구분')}${thx('캠프','캠프명')}
       ${thx('공급가액','공급가액',1)}${thx('명세서번호','명세서번호')}${thx('계산서','계산서발행일')}${thx('PO','PO번호')}${thx('입금일','입금일')}${thx('미수금','미수금',1)}${thx('완료일','완료일')}${thx('상태','상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('settle',${i},'${r.정산ID}')" style="cursor:pointer">
-        <td><b class="prjno">${r.프로젝트NO||'-'}</b></td><td>${r.정산ID}</td><td>${r.업무구분}</td>
+        <td><b class="prjno">${esc2(projectLabel(r))}</b></td><td>${r.정산ID}</td><td>${r.업무구분}</td>
         <td>${r.캠프명}</td><td class="num">${fmt(r.공급가액)}</td><td>${r.명세서번호||'-'}</td>
         <td>${r.계산서}${r.계산서발행일?' '+r.계산서발행일:''}</td><td>${r.PO번호||'-'}</td><td>${r.입금일||'-'}</td>
         <td class="num">${r.미수금===''?'-':fmt(r.미수금)}</td><td>${r.완료일||'-'}</td><td>${chip(r.상태)}</td></tr>`).join('') +
@@ -1468,7 +1584,7 @@ function renderSettle(){
       <div class="kpi ${rows.length-done?'warn':''}"><div class="v">${rows.length-done}</div><div class="l">진행중</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('as',${i},'${r.접수ID}')">
-        <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${campTag(r.캠프명)}${chip(r.진행상태)}</div>
+        <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(r.진행상태)}</div>
         <div class="top"><span class="camp">${r.담당기사||'-'}</span></div>
         <div class="meta"><span class="sid">${r.접수ID||''}</span><span>접수 ${r.접수일자||'-'}</span>${r.작업완료일?`<span>완료 ${r.작업완료일}</span>`:''}<span>${r['유상·무상·보험']||''}</span>${okTag(r.관리자검증상태, r.최종확인일)}${verTag(r.검증결과, r.검증문제코드)}
           ${r.완료보고서등록?`<span>완료보고서 ${r.완료보고서등록}</span>`:''}${r.ERP등록?`<span>ERP ${r.ERP등록}</span>`:''}
@@ -1477,7 +1593,7 @@ function renderSettle(){
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
     $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('접수ID','접수ID')}${thx('캠프','캠프명')}${thx('접수일','접수일자')}${thx('기사','담당기사')}${thx('유·무상','유상·무상·보험')}<th>내용</th>${thx('완료일','작업완료일')}<th>완료보고서</th><th>ERP</th>${thx('상태','진행상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('as',${i},'${r.접수ID}')" style="cursor:pointer">
-        <td><b class="prjno">${r.프로젝트NO||'-'}</b></td><td>${r.접수ID||'-'}</td><td>${r.캠프명}</td><td>${r.접수일자||'-'}</td><td>${r.담당기사||'-'}</td>
+        <td><b class="prjno">${esc2(projectLabel(r))}</b></td><td>${r.접수ID||'-'}</td><td>${r.캠프명}</td><td>${r.접수일자||'-'}</td><td>${r.담당기사||'-'}</td>
         <td>${r['유상·무상·보험']||'-'}</td><td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</td>
         <td>${r.작업완료일||'-'}</td><td>${r.완료보고서등록||'-'}</td><td>${r.ERP등록||'-'}</td><td>${chip(r.진행상태)}</td></tr>`).join('');
   } else if(mode==='check'){
@@ -1488,11 +1604,11 @@ function renderSettle(){
       <div class="kpi danger"><div class="v">${rows.length}</div><div class="l">확인필요 건수</div></div>
       <div class="kpi"><div class="v">${Object.keys(types).length}</div><div class="l">문제 유형 수</div></div>
       <div class="kpi"><div class="v">${(issuesData.cols||[]).length}</div><div class="l">검증 항목(열)</div></div>`;
-    const keyOf = r => r.프로젝트NO||r.업무ID||r.정산ID||r.접수ID||r.ID||Object.values(r)[0]||'';
+    const keyOf = r => projectNoOf(r)||recordIdOf(r)||Object.values(r)[0]||'';
     const descOf = r => r.문제내용||r.경고내용||r.검증문제코드||r.누락서류||r['내용·근거']||'';
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openByPrj('${keyOf(r)}')">
-        <div class="top"><span class="prjno">${r.프로젝트NO||keyOf(r)}</span>${campTag(r.캠프명)}${chip(statOf(r))}</div>
+        <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(statOf(r))}</div>
         <div class="top"><span class="camp">${r.담당자||r.담당기사||''}</span></div>
         <div class="meta"><span class="sid">${keyOf(r)}</span><span style="flex:1">${descOf(r)}</span></div>
       </div>`).join('') || '<div class="card">확인필요 항목이 없습니다 🎉</div>';
@@ -1508,7 +1624,7 @@ function renderSettle(){
       <div class="kpi ${rows.length-done?'warn':''}"><div class="v">${rows.length-done}</div><div class="l">예정·미점검</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('pm',${i},'${r.점검ID}')">
-        <div class="top"><span class="prjno">${r.프로젝트NO||'-'}</span>${campTag(r.캠프명)}${chip(r.점검상태)}</div>
+        <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(r.점검상태)}</div>
         <div class="top"><span class="camp">${r.담당기사||'-'}</span></div>
         <div class="meta"><span class="sid">${r.점검ID||''}</span><span>예정 ${r.점검예정일||'-'}</span><span>실제 ${r.실제점검일||'-'}</span>${okTag(r['최종확인일(유현민 체크)']?'일치':'', r['최종확인일(유현민 체크)'])}${verTag(r.검증결과, r.검증문제코드)}
           ${r.ERP판매전표?`<span>판매전표 ${r.ERP판매전표}</span>`:''}${r.거래명세서?`<span>거래명세서 ${r.거래명세서}</span>`:''}
@@ -1516,7 +1632,7 @@ function renderSettle(){
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
     $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('점검ID','점검ID')}${thx('캠프','캠프명')}${thx('예정일','점검예정일')}${thx('실제점검일','실제점검일')}${thx('기사','담당기사')}${thx('이상','이상발견여부')}${thx('AS전환','돌발AS전환여부')}<th>판매전표</th><th>거래명세서</th>${thx('상태','점검상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('pm',${i},'${r.점검ID}')" style="cursor:pointer">
-        <td><b class="prjno">${r.프로젝트NO||'-'}</b></td><td>${r.점검ID||'-'}</td><td>${r.캠프명}</td><td>${r.점검예정일||'-'}</td><td>${r.실제점검일||'-'}</td>
+        <td><b class="prjno">${esc2(projectLabel(r))}</b></td><td>${r.점검ID||'-'}</td><td>${r.캠프명}</td><td>${r.점검예정일||'-'}</td><td>${r.실제점검일||'-'}</td>
         <td>${r.담당기사||'-'}</td><td>${r.이상발견여부||'-'}</td><td>${r.돌발AS전환여부||'-'}</td><td>${r.ERP판매전표||'-'}</td><td>${r.거래명세서||'-'}</td><td>${chip(r.점검상태)}</td></tr>`).join('');
   }
   window._lastRows = rows;
@@ -1526,12 +1642,14 @@ function renderSettle(){
 function openSheet(kind, idx, id){
   const r = (window._lastRows||[])[idx];
   if(!r) return;
+  const displayProject=projectLabel(r), internalId=recordIdOf(r)||String(id||'');
   let html = '';
   if(kind==='settle'){
-    html = `<h2>${r.정산ID} ${chip(r.상태)}</h2><div class="sub">${r.캠프명} · ${r.업무구분} · ${r.프로젝트NO}</div>
+    html = `<h2>${esc2(displayProject)} ${chip(r.상태)}</h2>
+    <div class="sub">${esc2(r.캠프명||'캠프 미상')} · ${esc2(r.업무구분||'')} · 내부기록 ${esc2(internalId||'-')}</div>
     <div class="dl">
       <div class="sec">작업</div>
-      <dt>프로젝트NO</dt><dd>${r.프로젝트NO||'-'}</dd>
+      <dt>프로젝트NO</dt><dd>${esc2(displayProject)}</dd>
       <dt>원천업무</dt><dd>${r.원천업무ID||'-'}</dd>
       <dt>작업완료일</dt><dd>${r.완료일||'-'}</dd>
       <dt>비용구분</dt><dd>${r.비용구분||'-'}</dd>
@@ -1567,7 +1685,8 @@ function openSheet(kind, idx, id){
         ${vcodes?`<div style="font-size:12px;color:var(--ink-2);margin-bottom:6px">${vcodes}</div>${codeHtml(vcodes)}`
                 :'<div style="font-size:12px;color:var(--ink-3)">문제 없음</div>'}
       </div>` : '';
-    html = `<h2>${id} ${chip(statOf(r))}</h2><div class="sub">${r.캠프명||'캠프 미상'}</div>` + vbox +
+    html = `<h2>${esc2(displayProject)} ${chip(statOf(r))}</h2>
+      <div class="sub">${esc2(r.캠프명||'캠프 미상')} · 내부기록 ${esc2(internalId||'-')}</div>` + vbox +
       '<div class="dl">' +
       Object.entries(r).map(([k,v])=>`<dt>${k}</dt><dd>${v||'-'}</dd>`).join('') + '</div>' +
       inputForm(kind, r, id);
@@ -2111,6 +2230,74 @@ let erpDocs = {rows:[],months:{},kinds:{},total:0};   // 25_ERP매출서류 (이
 let srcStats = {};                     // /api/status 의 sources (4원천 실집계)
 let _rptData = null;                   // 보고서 데이터(HTML·Canvas 공용)
 let execRep = {};                      // 01_대표보고 시트 원본(엑셀 수식 집계 결과)
+let repData = {};                      // 유수비 대표 통화 기준 예외·진도·거래서류 요약
+
+function representativeRows(kind){
+  const as=(repData&&repData['돌발AS'])||{}, pm=(repData&&repData['정기점검'])||{};
+  const docs=(repData&&repData['거래명세서'])||{};
+  if(kind==='as-backlog') return as['미완료목록']||[];
+  if(kind==='as-d2') return (as['미완료목록']||[]).filter(r=>(+r['경과일']||0)>2);
+  if(kind==='paperwork') return as['서류미정리목록']||[];
+  if(kind==='pm-gap') return (pm['목록']||[]).filter(r=>!/완료/.test(String(r.상태||'')));
+  if(kind==='statement-unissued') return docs['미발행목록']||[];
+  return [];
+}
+function openRepresentativeList(kind){
+  if(kind==='policy'){
+    const policies=(repData&&repData['업무기준확인필요'])||[];
+    openPane(`<h2>업무기준 확인 필요 <span class="chip c-warn">${policies.length}건</span></h2>
+      <div class="sub">통화에서 확정되지 않은 운영 기준입니다. 승인 전에는 앱·원장 로직으로 하드코딩하지 않습니다.</div>
+      <div class="slist">${policies.map((p,i)=>`<div class="srow">
+        <div class="top"><span class="prjno">기준 ${i+1}</span>${chip(p.상태||'확인 필요')}</div>
+        <div class="metric-issue">${esc2(p.기준||'')}</div></div>`).join('')||
+        '<div class="card">확인 대기 기준이 없습니다.</div>'}</div>`);
+    return;
+  }
+  const names={
+    'as-backlog':'돌발 AS 전산상 미완료','as-d2':'돌발 AS D+2 초과',
+    paperwork:'현장완료 · 서류 미정리', 'pm-gap':'분기 정기점검 미실행',
+    'statement-unissued':'거래명세서 미발행'
+  };
+  const basis={
+    'as-backlog':'접수일이 있는 2026년 돌발 AS 중 완료일·완료상태가 확인되지 않은 건',
+    'as-d2':'집계기준일 기준 전산상 미완료가 2일을 초과한 돌발 AS',
+    paperwork:'현장 완료는 확인됐으나 사진·완료보고서·ERP 중 하나 이상이 비어 있는 건',
+    'pm-gap':'현재 분기 실제 점검대상 중 완료일·완료상태가 확인되지 않은 건',
+    'statement-unissued':'비용구분이 유상으로 확인된 정산 중 거래명세서 번호·발행상태가 없는 건'
+  };
+  const rows=representativeRows(kind), label=names[kind]||'대표 예외 목록';
+  window._briefMetric={label,data:{rows,count:rows.length,kind:'representative',basis:basis[kind]||''}};
+  openExecMetric(label);
+}
+function renderRepresentative(){
+  if(!$('repKpis')) return;
+  const as=(repData&&repData['돌발AS'])||{}, pm=(repData&&repData['정기점검'])||{};
+  const docs=(repData&&repData['거래명세서'])||{}, policies=(repData&&repData['업무기준확인필요'])||[];
+  if(!repData||!Object.keys(repData).length){
+    $('repSignal').className='signal 황색'; $('repSignal').textContent='새로고침 필요';
+    $('repSummary').textContent='대표 예외보고 API를 불러오지 못했습니다. 서버가 갱신된 뒤 새로고침하면 자동 표시됩니다.';
+    $('repKpis').innerHTML=''; $('repDocs').innerHTML=''; return;
+  }
+  const signal=String(pm['신호']||'녹색');
+  $('repSignal').className='signal '+signal; $('repSignal').textContent=`${signal} 신호`;
+  $('repSummary').textContent=repData['한줄종합보고']||'현재 원장 기준으로 예외를 집계했습니다.';
+  const metric=(kind,label,value,sub,cls)=>`<button class="rep-metric ${cls||''}" onclick="openRepresentativeList(${esc4(kind)})">
+    <div class="rv">${esc2(value)}</div><div class="rl">${esc2(label)}</div><div class="rs">${esc2(sub)}</div></button>`;
+  const gap=Number(pm['계획대비']||0);
+  $('repKpis').innerHTML=
+    metric('as-backlog','AS 전산상 미완료',as['전산상미완료']||0,'접수 후 완료 미확인',as['전산상미완료']?'danger':'ok')+
+    metric('as-d2','AS D+2 초과',as['D+2초과']||0,'대표 지속보고 대상',as['D+2초과']?'danger':'ok')+
+    metric('paperwork','현장완료·서류미정리',as['현장완료서류미정리']||0,'사진·보고서·ERP',as['현장완료서류미정리']?'warn':'ok')+
+    metric('pm-gap','정기점검 계획대비',(gap>=0?'+':'')+gap+'건',
+      `목표누계 ${pm['목표누계']||0} · 실제 ${pm['실제완료']||0}`,gap<0?'danger':'ok')+
+    metric('statement-unissued','거래명세서 미발행',(docs['미발행목록']||[]).length,
+      '유상 발행대상 기준',(docs['미발행목록']||[]).length?'warn':'ok')+
+    metric('policy','업무기준 확인',policies.length,'승인 전 자동화 제외',policies.length?'warn':'ok');
+  const docRows=docs['업무유형별']||[];
+  $('repDocs').innerHTML=docRows.map(d=>`<div class="rep-doc">
+    <b>${esc2(d.업무유형||'')}</b><span>대상 ${d.발행대상||0}</span><span>발행 ${d.발행완료||0}</span>
+    <span>미발행 ${d.미발행||0}</span><span>${d.발행률==null?'대상 없음':d.발행률+'%'}</span></div>`).join('');
+}
 
 /* 01_대표보고 섹션을 보고서 HTML로 — 엑셀 대표보고와 동일한 항목·수치 */
 
@@ -2178,7 +2365,7 @@ function idMeta(id){
   const r = rowById(id);
   if(!r) return '';
   const d = r.접수일자 || r.점검예정일 || r.완료일 || r.작업완료일 || r.실제점검일 || '';
-  const prj = String(r.프로젝트NO||'').trim();
+  const prj = projectNoOf(r);
   const bits = [];
   if(d)   bits.push(String(d).slice(0,10));
   if(prj) bits.push(prj);
@@ -2241,7 +2428,7 @@ function bTag(x){
   const who = x.담당기사 ? `<span class="bm">${_e(x.담당기사)}</span>`
                          : '<span class="bm none">기사 미배정</span>';
   return `<div class="bc1"><span class="bd">${_e(_md(x.일자))}</span>`
-       + `<span class="bp">${_e(x.프로젝트NO||'번호없음')}</span>`
+       + `<span class="bp">${_e(projectNoOf(x)||'프로젝트 미확정')}</span>`
        + `<b>${_e(x.캠프명||'캠프 미기입')}</b>${who}${paid}</div>`;
 }
 function bSpan(x){
@@ -2301,8 +2488,11 @@ function briefBlock(){
     h += `<div class="bnone">그날 새로 접수되거나 완료·처리된 건이 없습니다</div>`;
   h += `</div>`;
 
-  /* 정기점검 — 분기 진행률은 막대로 보여 준다(숫자만 있으면 감이 안 온다) */
-  const pct = p.분기진행률||0;
+  /* 정기점검 — 진행률은 막대로 보여 준다(숫자만 있으면 감이 안 온다).
+     ★ 사용자 지시(2026-07-29): 기간을 월 단위로 골라 볼 수 있어야 한다(7월만, 1~6월 등).
+       분기는 **처음 값**일 뿐이고, 고르면 그 기간으로 다시 센다(pmStats). */
+  const ps = pmStats();
+  const pct = ps.진행률;
   h += `<div class="bsec"><div class="bst"><b>정기점검</b>
     <button class="bpill actionable" onclick="openPmBrief('day-plan')">예정 ${p.예정||0}</button>
     <button class="bpill done actionable" onclick="openPmBrief('day-done')">실행 ${p.완료||0}</button></div>
@@ -2311,15 +2501,23 @@ function briefBlock(){
     ${pmDoneL.length?`<div class="bglab done">기준일 실행 ${pmDoneL.length}건</div>`
       +pmDoneL.slice(0,4).map(x=>bCard(x,'pm-done')).join(''):''}
     ${!pmPlanL.length&&!pmDoneL.length?`<div class="bnone">기준일에 예정되거나 실행된 정기점검이 없습니다</div>`:''}
-    <div class="bbar"><div class="bbt"><span>${_e(p.분기||'')} 진행률</span>
-      <b>${pct}% <em>${p.분기완료||0}/${p.분기예정||0}건</em></b></div>
+    <div class="bbar"><div class="bbt"><span>${_e(APP_YEAR)}년 ${_e(ps.라벨)} 진행률</span>
+      <b>${pct}% <em>${ps.실행}/${ps.예정}건</em></b></div>
       <div class="btrack"><div class="bfill${pct>=60?'':' low'}" style="width:${Math.min(pct,100)}%"></div></div>
-      <div class="bnote">${pct>=60?`특별한 문제 없으면 ${_e(p.분기끝월||'분기')}까지 마무리 가능합니다.`
+      <div class="pmrange">
+        <select onchange="setPmRange(this.value, $('pmTo').value)" id="pmFrom">${pmMonthOpts(ps.from)}</select>
+        <span>~</span>
+        <select onchange="setPmRange($('pmFrom').value, this.value)" id="pmTo">${pmMonthOpts(ps.to)}</select>
+        ${[['이번 분기', ps.q0, ps.q1], ['상반기','01','06'], ['하반기','07','12'], ['연간','01','12']]
+          .map(([t,a,b])=>`<button class="pbtn${ps.from===a&&ps.to===b?' on':''}"
+             onclick="setPmRange('${a}','${b}')">${t}</button>`).join('')}
+      </div>
+      <div class="bnote">${pct>=60?`특별한 문제 없으면 ${ps.끝월}까지 마무리 가능합니다.`
                                  :'진행률이 낮아 일정 관리가 필요합니다.'}</div>
       <div class="pmstats">
-        <button onclick="openPmBrief('quarter-all')">${_e(p.분기범위||'분기')} 예정<b>${p.분기예정||0}건</b></button>
-        <button class="done" onclick="openPmBrief('quarter-done')">${_e(p.분기범위||'분기')} 실행<b>${p.분기완료||0}건</b></button>
-        <button class="warn" onclick="openPmBrief('quarter-pending')">${_e(p.분기범위||'분기')} 미실행<b>${p.분기미실행||0}건</b></button>
+        <button onclick="openPmBrief('quarter-all')">${_e(ps.라벨)} 예정<b>${ps.예정}건</b></button>
+        <button class="done" onclick="openPmBrief('quarter-done')">${_e(ps.라벨)} 실행<b>${ps.실행}건</b></button>
+        <button class="warn" onclick="openPmBrief('quarter-pending')">${_e(ps.라벨)} 미실행<b>${ps.미실행}건</b></button>
       </div></div></div>`;
 
   /* 확인이 필요한 것 — 대표가 물어볼 항목만 모아 둔다 */
@@ -2681,8 +2879,8 @@ function renderDaily(){
          <td data-l="구분">AS ${as} · 점검 ${pm}${l.length-as-pm?` · 기타 ${l.length-as-pm}`:''}</td>
          <td data-l="금액(원)" style="text-align:right">${fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0))}</td>
          <td class="prjs" data-l="프로젝트NO"><div class="chips">${l.slice(0,5).map(r=>{
-           const k = r.프로젝트NO||r.정산ID;
-           return `<span class="prj" onclick="event.stopPropagation();openByPrj('${k}')" title="${r.정산ID||''} ${r.캠프명||''} — 클릭해 상세">${k}</span>`;
+           const k = projectNoOf(r)||recordIdOf(r);
+           return `<span class="prj" onclick="event.stopPropagation();openByPrj(${esc4(k)})" title="${esc2(recordIdOf(r))} ${esc2(r.캠프명||'')} — 클릭해 상세">${esc2(projectNoOf(r)||'프로젝트 미확정')}</span>`;
          }).join('')}${l.length>5?`<span class="more">외 ${l.length-5}건</span>`:''}</div></td></tr>`;}).join('')
       || '<tr><td colspan="5">조치 필요 없음 ✅</td></tr>'}
     </table>
@@ -2734,7 +2932,7 @@ function renderDaily(){
       const as=l.filter(r=>String(r.업무구분||'').includes('돌발')).length;
       const pm=l.filter(r=>String(r.업무구분||'').includes('점검')).length;
       return [t, `${l.length}건 (AS ${as}·점검 ${pm})`, fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0)),
-       l.slice(0,5).map(r=>r.프로젝트NO||r.정산ID).join(', ')+(l.length>5?` 외 ${l.length-5}건`:'')];}),
+        l.slice(0,5).map(r=>projectNoOf(r)||'프로젝트 미확정').join(', ')+(l.length>5?` 외 ${l.length-5}건`:'')];}),
     srcs: srcRows
   };
 }
@@ -3120,7 +3318,7 @@ function checkOwnerOf(r){
 }
 function checkDateOf(r){ return String(r.일자||r.기준일||r.접수일자||r.점검예정일||r.완료일||'').slice(0,10); }
 function checkIdOf(r){ return String(r.ID||r.업무ID||r.정산ID||r.접수ID||r.점검ID||'').trim(); }
-function checkProjectOf(r){ return String(r.프로젝트NO||'').trim(); }
+function checkProjectOf(r){ return projectNoOf(r); }
 function checkDescOf(r){ return String(r['내용·근거']||r.문제내용||r.경고내용||r.검증문제코드||'').trim(); }
 function checkDaysOld(r){
   const d=normDate(checkDateOf(r)); if(!d) return -1;
@@ -3142,7 +3340,7 @@ function checkLink(r){
     : kind==='settle'&&hit ? hit.정산ID : raw;
   return {
     kind, id:String(targetId||raw).trim(), issueId:raw,
-    project:String((hit&&hit.프로젝트NO)||textProject||checkProjectOf(r)||raw).trim(),
+    project:String((hit&&projectNoOf(hit))||textProject||checkProjectOf(r)||'').trim(),
     camp:String((hit&&hit.캠프명)||r.캠프명||'').trim(),
     title:String((hit&&hit.프로젝트명)||r.프로젝트명||'').trim()
   };
@@ -3257,7 +3455,7 @@ function renderCheckList(){
   window._checkVisible=rows;
   $('checksummary').innerHTML=`전체 ${all.length}건 중 <b>${rows.length}건</b> 표시 · 오래된 건부터 최근 순`;
   $('checklist').innerHTML=rows.map((r,i)=>{
-    const x=checkLink(r), id=x.id||x.project||'-', prj=x.project||id;
+    const x=checkLink(r), id=x.id||'', prj=x.project||'프로젝트 미확정';
     const amount=Number(String(r.금액||'').replace(/[^0-9.-]/g,''))||0;
     return `<div class="srow check-row metric-row" role="button" tabindex="0" onclick="openCheckItem(${i})"
       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCheckItem(${i})}">
@@ -3276,6 +3474,9 @@ function renderCheckHub(){
   if(!$('checkkpis')) return;
   const rows=checkRows(), byType=groupCheck(rows,checkTypeOf), byOwner=groupCheck(rows,checkOwnerOf);
   const stale=rows.filter(r=>checkDaysOld(r)>30), unassigned=byOwner['담당 표기 없음']||[];
+  const ras=(repData&&repData['돌발AS'])||{}, rpm=(repData&&repData['정기점검'])||{};
+  const rdocs=(repData&&repData['거래명세서'])||{}, policies=(repData&&repData['업무기준확인필요'])||[];
+  const statementMissing=(rdocs['미발행목록']||[]).length, pmGap=Number(rpm['계획대비']||0);
   $('checkkpis').innerHTML=`
     <div class="check-kpi danger" onclick="openCheckRows('확인 필요 전체',checkRows())">
       <div class="v">${rows.length}</div><div class="l">전체 확인 필요</div><div class="s">누르면 전체 목록·캡처</div></div>
@@ -3284,7 +3485,13 @@ function renderCheckHub(){
     <div class="check-kpi ${unassigned.length?'warn':''}" onclick="openCheckOwner('담당 표기 없음')">
       <div class="v">${unassigned.length}</div><div class="l">담당 표기 없음</div><div class="s">원장 담당자 칸 확인</div></div>
     <div class="check-kpi ${stale.length?'warn':''}" onclick="openCheckStale()">
-      <div class="v">${stale.length}</div><div class="l">30일 초과</div><div class="s">오래된 확인 항목</div></div>`;
+      <div class="v">${stale.length}</div><div class="l">30일 초과</div><div class="s">오래된 확인 항목</div></div>
+    <div class="check-kpi ${ras['D+2초과']?'danger':''}" onclick="openRepresentativeList('as-d2')">
+      <div class="v">${ras['D+2초과']||0}</div><div class="l">AS D+2 초과</div><div class="s">대표 지속보고 대상</div></div>
+    <div class="check-kpi ${pmGap<0?'warn':''}" onclick="openRepresentativeList('pm-gap')">
+      <div class="v">${pmGap>=0?'+':''}${pmGap}</div><div class="l">점검 계획대비</div><div class="s">목표누계 대비 실제</div></div>
+    <div class="check-kpi ${statementMissing?'warn':''}" onclick="openRepresentativeList('statement-unissued')">
+      <div class="v">${statementMissing}</div><div class="l">명세서 미발행</div><div class="s">유상 발행대상 기준</div></div>`;
   $('checktypes').innerHTML=checkSortGroups(byType).map(t=>{
     const list=byType[t], ownersN=new Set(list.map(checkOwnerOf)).size;
     return `<button class="check-group" onclick="openCheckType(${esc4(t)})">
@@ -3310,6 +3517,12 @@ function renderCheckHub(){
       <span style="text-align:right;flex:none"><b style="color:${col}">${m.n?m.n+'건':'투입 대기'}</b>
         ${m.amt?`<br><span style="font-size:11px;color:var(--ink-3)">${fmt(m.amt)}원</span>`:''}</span></div>`;
   }).join('')||'<div style="color:var(--ink-3)">관리·청구 확인 사항이 없습니다 🎉</div>';
+  if($('checkpolicies')) $('checkpolicies').innerHTML=policies.map((p,i)=>`
+    <div class="topitem" onclick="openRepresentativeList('policy')">
+      <span style="min-width:0"><b>${esc2(p.기준||'업무기준')}</b>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:3px">승인 전 자동화·원장 규칙에 반영하지 않음</div></span>
+      <span class="chip c-warn">${esc2(p.상태||'확인 필요')}</span></div>`).join('')||
+    '<div style="color:var(--ink-3)">확인 대기 중인 업무기준이 없습니다.</div>';
 
   const typeEl=$('checktype'), ownerEl=$('checkowner');
   const keepT=typeEl.value, keepO=ownerEl.value;
@@ -3373,11 +3586,48 @@ function openStaleBrief(){
   }};
   openExecMetric(label);
 }
+/* ── 정기점검 진행률 기간 (사용자 지시 2026-07-29: 월 단위로 골라 본다) ──────────
+   처음 값은 **이번 분기**(대표가 늘 보던 기준)이고, 고르면 그 기간으로 다시 센다.
+   ★ 서버가 준 분기 숫자를 쓰지 않고 `works.pm` 에서 직접 센다 — 그래야 아무 기간이나 된다.
+   판정은 daily_brief 와 같다: 예정 = 점검예정일이 기간 안 · 실행 = 그중 실제점검일이 있음. */
+let PM_RANGE = null;
+function pmQuarter(){
+  const m = +(baseDate()||todayISO()).slice(5,7) || (new Date().getMonth()+1);
+  const q = Math.floor((m-1)/3)+1;
+  return [String(3*q-2).padStart(2,'0'), String(3*q).padStart(2,'0')];
+}
+function pmMonthOpts(sel){
+  return Array.from({length:12},(_,i)=>{ const v=String(i+1).padStart(2,'0');
+    return `<option value="${v}"${v===sel?' selected':''}>${i+1}월</option>`; }).join('');
+}
+function setPmRange(a, b){
+  if(a > b){ b = a; }                    // 시작이 뒤면 끝을 끌어와 맞춘다(오류를 띄우지 않는다)
+  PM_RANGE = [a, b];
+  renderDaily();
+}
+function pmStats(){
+  const [q0, q1] = pmQuarter();
+  const [f, t] = PM_RANGE || [q0, q1];
+  const y = APP_YEAR;
+  const inR = d => { const s=String(d||''); if(!s.startsWith(y)) return false;
+                     const mm=s.slice(5,7); return mm>=f && mm<=t; };
+  const rows = (works.pm||[]).filter(r=>inR(dateOf(r,'pm')));
+  const done = rows.filter(r=>/\d{4}-\d{2}-\d{2}/.test(String(r.실제점검일||''))).length;
+  const label = (f==='01'&&t==='12') ? '연간' : (f===t ? `${+f}월` : `${+f}~${+t}월`);
+  return {from:f, to:t, q0:q0, q1:q1, 라벨:label, 끝월:`${+t}월`,
+          예정:rows.length, 실행:done, 미실행:rows.length-done,
+          진행률: rows.length ? Math.round(done*100/rows.length) : 0};
+}
 function openPmBrief(scope){
   const p=(BRIEF&&BRIEF['정기점검'])||{}, d=(BRIEF&&BRIEF['기준일'])||baseDate();
   const plan=(BRIEF&&BRIEF['점검예정목록'])||[];
   const done=(BRIEF&&BRIEF['점검실행목록'])||[];
-  const quarter=(BRIEF&&BRIEF['분기점검목록'])||[];
+  // ★ 기간을 고를 수 있으므로(사용자 지시 2026-07-29) 분기 고정 목록 대신
+  //   지금 선택된 기간으로 다시 고른다. 카드 숫자와 목록이 어긋나면 안 된다.
+  const _ps = pmStats();
+  const quarter=((BRIEF&&BRIEF['분기점검목록'])||[]).filter(x=>{
+    const s=String(x.예정일||x.일자||''); if(!s.startsWith(APP_YEAR)) return false;
+    const mm=s.slice(5,7); return mm>=_ps.from && mm<=_ps.to; });
   let source=[], label='', basis='';
   if(scope==='day-plan'){
     source=plan;label=`${d} 정기점검 예정`;
@@ -3388,9 +3638,9 @@ function openPmBrief(scope){
   }else{
     source=scope==='quarter-done' ? quarter.filter(x=>x.상태==='실행')
           : scope==='quarter-pending' ? quarter.filter(x=>x.상태!=='실행') : quarter;
-    label=`${p.분기||'분기'} 정기점검 ${
+    label=`${APP_YEAR}년 ${_ps.라벨} 정기점검 ${
       scope==='quarter-done'?'실행':scope==='quarter-pending'?'미실행':'전체 예정'}`;
-    basis=`${p.분기||''} 예정 ${p.분기예정||0}건 · 실행 ${p.분기완료||0}건 · 미실행 ${p.분기미실행||0}건`;
+    basis=`${APP_YEAR}년 ${_ps.라벨} 예정 ${_ps.예정}건 · 실행 ${_ps.실행}건 · 미실행 ${_ps.미실행}건`;
   }
   const rows=source.map(x=>({
     프로젝트NO:x.프로젝트NO||'', 캠프명:x.캠프명||'',
@@ -3404,7 +3654,7 @@ function openPmBrief(scope){
   openExecMetric(label);
 }
 function metricOpenCall(r){
-  const kind=String(r.종류||''), id=String(r.레코드ID||r.ID||''), prj=String(r.프로젝트NO||'');
+  const kind=String(r.종류||''), id=recordIdOf(r), prj=projectNoOf(r);
   if(kind==='check') return `openCheckByKey(${esc4(id)},${esc4(prj)})`;
   return kind ? `openRecord(${esc4(kind)},${esc4(id)},${esc4(prj)})`
               : `openByPrj(${esc4(prj||id)})`;
@@ -3416,7 +3666,7 @@ function openExecMetric(label){
   const summary = projects!=null ? `${projects}개 프로젝트 · ${rows.length}개 문제 행`
                 : `${rows.length}건${amount?` · ${fmt(Math.abs(amount))}원`:''}`;
   const body = rows.map(r=>{
-    const prj=esc2(r.프로젝트NO||r.ID||'-'), id=esc2(r.ID||''), title=esc2(r.프로젝트명||'');
+    const prj=esc2(projectLabel(r)), id=esc2(recordIdOf(r)), title=esc2(r.프로젝트명||'');
     const camp=esc2(r.캠프명||'캠프 미상'), when=esc2(r.일자||'-');
     const issue=esc2(r.문제||''), state=esc2(r.상태||''), owner=esc2(r.담당자||'');
     const amount=+r.금액||0;
@@ -3480,22 +3730,23 @@ function openKpi(key){
   const kind = set.kind, rows = set.rows;
   const sum = rows.reduce((a,r)=>a+(+r.공급가액||0),0);
   const line = r => {
-    if(kind==='as')  return {id:r.접수ID||r.프로젝트NO, camp:r.캠프명, who:r.담당기사||'',
-                             date:r.접수일자||'', st:r.진행상태||'', amt:0, prj:r.프로젝트NO};
-    if(kind==='pm')  return {id:r.점검ID||r.프로젝트NO, camp:r.캠프명, who:r.담당기사||'',
-                             date:r.점검예정일||'', st:r.점검상태||'', amt:0, prj:r.프로젝트NO};
+    if(kind==='as')  return {id:r.접수ID||'', camp:r.캠프명, who:r.담당기사||'',
+                             date:r.접수일자||'', st:r.진행상태||'', amt:0, prj:projectNoOf(r)};
+    if(kind==='pm')  return {id:r.점검ID||'', camp:r.캠프명, who:r.담당기사||'',
+                             date:r.점검예정일||'', st:r.점검상태||'', amt:0, prj:projectNoOf(r)};
     return {id:r.정산ID, camp:`${r.캠프명||''} · ${r.업무구분||''}`, who:'',
-            date:r.완료일||'', st:r.상태||'', amt:+r.공급가액||0, prj:r.프로젝트NO||r.정산ID};
+            date:r.완료일||'', st:r.상태||'', amt:+r.공급가액||0, prj:projectNoOf(r)};
   };
   openPane(`<h2>${set.title} <span class="chip c-warn">${rows.length}건</span></h2>` +
     `<div class="sub">${sum?fmt(sum)+'원 · ':''}누르면 해당 건 상세로 이동합니다</div>` +
     `<div class="slist" style="margin-top:12px">` + (rows.map(r=>{
       const v = line(r);
-      return `<div class="srow" onclick="openByPrj(${esc4(v.prj||v.id)})">
-        <div class="top"><span class="id">${v.id||'-'}</span>${v.amt?`<span class="amt">${fmt(v.amt)}원</span>`:chip(v.st)}</div>
+      return `<div class="srow" onclick="openRecord(${esc4(kind)},${esc4(v.id)},${esc4(v.prj)})">
+        <div class="top"><span class="prjno">${esc2(v.prj||'프로젝트 미확정')}</span>${v.amt?`<span class="amt">${fmt(v.amt)}원</span>`:chip(v.st)}</div>
         <div class="top"><span class="camp">${v.camp||''}</span>
           <span class="camp">${v.who||''} ${v.date||''}</span></div>
-        ${v.amt?`<div class="meta"><span>${chip(v.st)}</span><span>${r.명세서번호||''}</span></div>`:''}
+        <div class="meta">${v.id?`<span class="sid">${esc2(v.id)}</span>`:''}
+          ${v.amt?`<span>${chip(v.st)}</span><span>${r.명세서번호||''}</span>`:''}</div>
       </div>`;
     }).join('') || '<div class="card">해당 건이 없습니다</div>') + `</div>`);
 }
@@ -3541,12 +3792,13 @@ function openMine(idx){
   const rows = (m.items||[]).slice(0, 200);
   const body = rows.length
     ? '<div class="slist" style="margin-top:12px">' + rows.map(function(r){
-        const key = r.프로젝트NO||r.정산ID||r.접수ID||r.점검ID||'';
+        const key = projectNoOf(r)||recordIdOf(r);
         return '<div class="srow" onclick="openByPrj('+esc4(key)+')">'+
-          '<div class="top"><span class="id">'+key+'</span>'+
+          '<div class="top"><span class="prjno">'+esc2(projectNoOf(r)||'프로젝트 미확정')+'</span>'+
           (r.공급가액?'<span class="amt">'+fmt(r.공급가액)+'원</span>':'')+'</div>'+
           '<div class="top"><span class="camp">'+(r.캠프명||'')+'</span>'+
-          '<span class="camp">'+(r.완료일||r.접수일자||r.점검예정일||'')+'</span></div></div>';
+          '<span class="camp">'+(r.완료일||r.접수일자||r.점검예정일||'')+'</span></div>'+
+          (recordIdOf(r)?'<div class="meta"><span class="sid">'+esc2(recordIdOf(r))+'</span></div>':'')+'</div>';
       }).join('') + '</div>'
     : '<div class="card" style="margin-top:12px">이 자료가 있어야 대조를 할 수 있습니다.<br><b>'+
       m.todo+'</b><br><br>[실행] 탭의 <b>파일·폴더 열기</b>에서 해당 폴더를 열 수 있습니다.</div>';
@@ -3706,7 +3958,7 @@ async function mineDetailToPng(idx){
   rows.forEach(function(r,n){
     const t = y + n*rowH;
     if(n%2) box(26,t+4,W-52,rowH-8,'#F6F9FD',8);
-    const key = r.프로젝트NO||r.정산ID||r.접수ID||r.점검ID||'—';
+    const key = projectNoOf(r)||'프로젝트 미확정';
     const dt  = r.완료일||r.접수일자||r.점검예정일||r.작업완료일||'-';
     txt(clip(key,190), 26, t+28, F(12.5,800), '#101828');
     txt(clip(r.캠프명||'', 300), 232, t+28, F(12), '#475467');
@@ -3809,7 +4061,7 @@ async function metricToPng(label){
   const list=rows.length?rows:[{프로젝트NO:'—',프로젝트명:'해당 건 없음',캠프명:'',일자:'-'}];
   list.forEach((r,n)=>{
     const t=y+n*rowH;if(n%2)box(26,t+4,W-52,rowH-8,'#F6F9FD',8);
-    txt(clip((r.프로젝트NO||r.ID||'')+' · '+(r.프로젝트명||''),340),26,t+23,F(12.5,800),'#101828');
+    txt(clip(projectLabel(r)+' · '+(r.프로젝트명||''),340),26,t+23,F(12.5,800),'#101828');
     txt(clip((r.캠프명||'')+(r.담당자?' · '+r.담당자:''),340),26,t+41,F(11),'#667085');
     const value=(+r.금액||0)?fmt(Math.abs(+r.금액))+'원':(r.상태||r.출처||'');
     txt(clip(value,170),W-150,t+29,F(11.5,700),'#475467','right');
@@ -4130,7 +4382,7 @@ async function dashToPng(){
   (typeE.length?typeE:[['조치 필요 없음',[]]]).forEach(([t,l],ri)=>{
     if(ri%2){ctx.fillStyle='#FAFCFF';ctx.fillRect(30,yy,W-60,30);}
     const cells=[t,l.length?l.length+'건':'-',l.length?fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0)):'-',
-      l.slice(0,4).map(r=>r.프로젝트NO||r.정산ID).join(', ')+(l.length>4?` 외 ${l.length-4}`:'')];
+      l.slice(0,4).map(r=>projectNoOf(r)||'프로젝트 미확정').join(', ')+(l.length>4?` 외 ${l.length-4}`:'')];
     cells.forEach((c,i)=>txt(clip(c,wds[i]-20),xs[i]+10,yy+15,F(12,i===0?700:400),i===0?'#101828':'#475467'));
     ctx.strokeStyle='#EEF2F7';ctx.beginPath();ctx.moveTo(30,yy+30);ctx.lineTo(W-30,yy+30);ctx.stroke();
     yy+=30;});
