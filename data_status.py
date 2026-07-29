@@ -61,6 +61,37 @@ def from_report(pattern, *patterns):
     return out
 
 
+def image_tree_stats(root, year="2026"):
+    """서버 문서사진의 해당 연도 파일 수·용량을 하위 폴더까지 센다.
+
+    앱 통계에는 2026년만 표시한다. 사진은 YYYY/MM/날짜 구조로 보관되므로
+    연도 폴더부터 훑어 과거 자료와 무관한 폴더를 건드리지 않는다.
+    """
+    base = os.path.join(root, str(year))
+    if not os.path.isdir(base):
+        return 0, 0.0
+    count, total = 0, 0
+    pending = [base]
+    while pending:
+        folder = pending.pop()
+        try:
+            entries = list(os.scandir(folder))
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append(entry.path)
+                elif entry.is_file(follow_symlinks=False) and os.path.splitext(entry.name)[1].lower() in (
+                    ".jpg", ".jpeg", ".png"
+                ):
+                    count += 1
+                    total += entry.stat(follow_symlinks=False).st_size
+            except OSError:
+                continue
+    return count, total / 1e6
+
+
 def band_status():
     from band_extract import load_records
     from source_dirs import DOC_PHOTO_DIRS
@@ -73,13 +104,7 @@ def band_status():
     days = sorted(x.get("게시일", "") for x in recs if x.get("게시일"))
     months = Counter((x.get("게시일") or "")[:7] for x in recs if x.get("게시일"))
     kinds = Counter(x.get("업무유형", "") for x in recs)
-    photos = 0
-    mb = 0.0
-    d = DOC_PHOTO_DIRS[0]
-    if os.path.isdir(d):
-        fs = [f for f in os.listdir(d) if f.lower().endswith((".jpg", ".png", ".jpeg"))]
-        photos = len(fs)
-        mb = sum(os.path.getsize(os.path.join(d, f)) for f in fs) / 1e6
+    photos, mb = image_tree_stats(DOC_PHOTO_DIRS[0], year="2026")
     return {"레코드": len(recs), "기간": "%s ~ %s" % (days[0], days[-1]) if days else "-",
             "월별": dict(sorted(months.items())), "업무유형": dict(kinds.most_common()),
             "사진": photos, "사진MB": round(mb), "OCR캐시": len(glob.glob(os.path.join(BASE, "band", "ocr_cache", "*")))}

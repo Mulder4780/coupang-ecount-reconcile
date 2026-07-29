@@ -25,6 +25,7 @@ PO 두 칸은 `po_reconcile` 이 이미 자동으로 채운다. **입금일·입
 import os
 import re
 import sys
+import hashlib
 from datetime import date, datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -172,17 +173,40 @@ def parse_deposit_list(path):
     return out
 
 
+def _unique_deposit_files(paths):
+    """여러 정본 경로에 복제된 *같은* 입금 파일은 한 번만 읽는다.
+
+    원본 자료 폴더에는 공유 폴더 정본을 날짜별로 보관한 복사본이 함께 있다.
+    두 경로를 모두 읽되 내용이 완전히 같은 파일만 SHA-256으로 제거한다.
+    파일명이 같아도 내용이 다르면 서로 다른 갱신본일 수 있으므로 보존한다.
+    """
+    unique, seen = [], set()
+    for path in paths:
+        digest = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for block in iter(lambda: fh.read(1024 * 1024), b""):
+                digest.update(block)
+        key = digest.digest()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
+
+
 def load_deposits():
     """입금내역 폴더의 엑셀을 전부 읽는다(사용자 지시 — 여기가 정본)."""
     import glob
     from source_dirs import receipt_dirs
-    out, files = [], []
+    out, candidates = [], []
     for d in receipt_dirs():
         for f in sorted(glob.glob(os.path.join(d, "**", "*.xlsx"), recursive=True)):
             if os.path.basename(f).startswith("~$"):
                 continue                      # 엑셀이 열려 있을 때 생기는 잠금 파일
-            files.append(f)
-            out += parse_deposit_list(f)
+            candidates.append(f)
+    files = _unique_deposit_files(candidates)
+    for f in files:
+        out += parse_deposit_list(f)
     return out, files
 
 

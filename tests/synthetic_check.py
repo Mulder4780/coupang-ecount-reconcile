@@ -2185,6 +2185,13 @@ def t43_receipt_fill(tmp):
         "같은 거래처가 표기 차이로 갈라졌다 — 금액이 둘로 쪼개진다: %s" % custs
     assert len(custs) == 2, custs                     # 쿠팡 + 김진주위더스
     assert rf.norm_cust("(주)모벤티스") == rf.norm_cust("주식회사 모벤티스"), "법인격 표기 미정규화"
+
+    # 공유 폴더 정본을 원본 자료 폴더에 복사해 둔 경우 같은 70건을 140건으로 세면 안 된다.
+    import shutil
+    copied = os.path.join(tmp, "보관복사본.xlsx")
+    shutil.copy2(dep, copied)
+    uniq = rf._unique_deposit_files([dep, copied])
+    assert uniq == [dep], "내용이 같은 입금 파일 복사본을 중복 집계한다: %s" % uniq
     print("  [43] 입금 자동입력(합계행 제외·차변 제외·유일매칭·머리글 자동탐지·거래처 정규화) ✅")
 
 
@@ -2622,6 +2629,16 @@ def t52_data_status():
                                 ("합계", r"합계\s*([\d,]+)원"))
             assert got.get("건수") == 70 and got.get("합계") == 1106167980, got
             assert D.from_report("없는파일.md", ("x", r"(\d+)")) == {}, "없는 리포트에서 죽으면 안 된다"
+
+            # 문서사진은 날짜별 하위 폴더에 있다. 최상위만 세거나 2025년을 섞으면 안 된다.
+            photo_root = os.path.join(tmp, "문서사진")
+            os.makedirs(os.path.join(photo_root, "2026", "07", "2026-07-29"))
+            os.makedirs(os.path.join(photo_root, "2025", "12", "2025-12-26"))
+            open(os.path.join(photo_root, "2026", "07", "2026-07-29", "a.jpg"), "wb").write(b"1")
+            open(os.path.join(photo_root, "2026", "07", "2026-07-29", "b.png"), "wb").write(b"22")
+            open(os.path.join(photo_root, "2025", "12", "2025-12-26", "old.jpg"), "wb").write(b"333")
+            count, size_mb = D.image_tree_stats(photo_root, year="2026")
+            assert count == 2 and size_mb > 0, (count, size_mb)
         finally:
             if old is None:
                 os.environ.pop("COUPANG_REPORT_DIR", None)
