@@ -2459,7 +2459,7 @@ def t50_stale_completion_drilldown_and_capture():
     assert '"완료일미기입목록": _b.get("완료일미기입목록", [])' in pub, \
         "암호화 사본에 완료일 누락 원천 목록이 없다"
     sw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
-    assert "csos-v9-pm-brief-2026-only" in sw, \
+    assert "csos-v10-project-first-exception-report-2026-only" in sw, \
         "설치형 휴대폰 앱이 이전 화면 캐시를 계속 쥘 수 있다"
     print("  [50] 오래된 완료일 미기입 목록·정확 라우팅·담당자 캡처 ✅")
 
@@ -2868,6 +2868,65 @@ def t71_period_range():
     print("  [71] 기간 범위 선택(현황·정기점검 진행률·드릴다운·거꾸로 자동정렬·단일월 호환) ✅")
 
 
+def t72_project_first_representative_report():
+    """[72] 내부 ID 대신 프로젝트번호를 대표 표시하고, 유수비 예외보고는 원장에 쓰지 않고 계산한다."""
+    from webapp.app_server import representative_summary
+
+    works = {
+        "as": [
+            {"접수ID": "AS-2607-001", "프로젝트NO": "UJ2600001", "캠프명": "테스트A",
+             "접수일자": "2026-07-25", "진행상태": "접수", "담당기사": "기사A"},
+            {"접수ID": "AS-2607-002", "프로젝트NO": "UJ2600002", "캠프명": "테스트B",
+             "접수일자": "2026-07-20", "작업완료일": "2026-07-21", "진행상태": "작업완료",
+             "사진등록": "등록", "완료보고서등록": "", "ERP등록": "등록"},
+        ],
+        "pm": [
+            {"점검ID": "PM-2607-001", "프로젝트NO": "UJ2600011", "캠프명": "점검A",
+             "점검예정일": "2026-07-05", "실제점검일": "2026-07-05", "점검상태": "완료",
+             "담당기사": "기사A"},
+            {"점검ID": "PM-2607-002", "프로젝트NO": "UJ2600012", "캠프명": "점검B",
+             "점검예정일": "2026-08-05", "점검상태": "예정", "담당기사": "기사B"},
+        ],
+    }
+    settlements = [
+        {"정산ID": "JS-2607-001", "프로젝트NO": "UJ2600001", "업무구분": "돌발AS",
+         "캠프명": "테스트A", "완료일": "2026-07-25", "비용구분": "유상",
+         "공급가액": 100000, "명세서번호": ""},
+        {"정산ID": "JS-2607-002", "프로젝트NO": "UJ2600011", "업무구분": "정기점검",
+         "캠프명": "점검A", "완료일": "2026-07-05", "비용구분": "유상",
+         "공급가액": 200000, "명세서번호": "2026/07/05-1"},
+    ]
+    report = representative_summary(works, settlements, "2026-07-29")
+    assert report["돌발AS"]["전산상미완료"] == 1 and report["돌발AS"]["D+2초과"] == 1
+    assert report["돌발AS"]["현장완료서류미정리"] == 1
+    assert report["정기점검"]["전체대상"] == 2, "분기 목표를 실제 예정행이 아닌 고정 숫자로 썼다"
+    assert report["정기점검"]["목표누계"] <= report["정기점검"]["전체대상"]
+    docs = {x["업무유형"]: x for x in report["거래명세서"]["업무유형별"]}
+    assert docs["돌발 AS"]["발행대상"] == 1 and docs["돌발 AS"]["미발행"] == 1
+    assert docs["신규·납품·설치"]["발행대상"] == 0 and docs["신규·납품·설치"]["발행률"] is None
+    assert len(report["업무기준확인필요"]) == 7
+    assert any("류지영 확인 범위" in x["기준"] for x in report["업무기준확인필요"])
+    assert any("변재선(회계) 확인 범위" in x["기준"] for x in report["업무기준확인필요"])
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    phone = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+    sw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
+    for token in ("function projectNoOf(", "function isRepresentativeProject(", "프로젝트 미확정",
+                  "function renderRepresentative(",
+                  "function openRepresentativeList(", 'id="checkpolicies"', "press-pop",
+                  "@keyframes viewEnter"):
+        assert token in live, token + " 누락"
+    for route in ("/api/v1/reports/daily/exceptions", "/api/v1/as-requests/backlog-detail",
+                  "/api/v1/inspections/quarter-progress", "/api/v1/statements/unissued"):
+        assert route in server, route + " 누락"
+    assert "project, _ = rep_no(" in server and "candidate, rep_idx" in server, \
+        "대표보고 원천행의 내부 JS 번호를 프로젝트번호로 복원하지 않는다"
+    assert "r['프로젝트NO']||'프로젝트 미확정'" in phone
+    assert "csos-v10-project-first-exception-report-2026-only" in sw
+    print("  [72] 프로젝트번호 대표표시·유수비 예외보고·정책확인·버튼/페이지 애니메이션 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2925,6 +2984,7 @@ if __name__ == "__main__":
     t56_work_detail_from_source()
     t70_quarter_as_months()
     t71_period_range()
+    t72_project_first_representative_report()
     t55_pm_brief_drilldown_and_capture()
     t58_check_hub_detail_and_capture()
     t48_excel_2026_stats_and_verified_completion()

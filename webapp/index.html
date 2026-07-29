@@ -960,7 +960,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
       </div>
     </div>
     <div class="card">
-      <h3>내부 담당 확인 <span class="norm">— 류지영·변재선(회계)·유현민 업무를 분리 표시</span></h3>
+      <h3>내부 담당 확인 <span class="norm">— 류지영·변재선(회계)은 범위 확인 후 실제 건을 자동분류</span></h3>
       <div class="toplist" id="checkmine">불러오는 중...</div>
     </div>
     <div class="card">
@@ -1460,15 +1460,19 @@ function recordIdOf(r){
   ))||'').trim();
 }
 function isInternalNo(v){ return /^(?:AS|PM|JS)-/i.test(String(v||'').trim()); }
+function isRepresentativeProject(v){
+  const s=String(v||'').trim();
+  return /^UJ26\d{4,}$/i.test(s)||/^ERP(?:[-_\s]|$)/i.test(s);
+}
 /* 화면의 대표 식별자는 언제나 프로젝트 번호다.
    내부 AS/PM/JS 번호만 들어온 예외·KPI 행은 원장 3종을 역참조하고, 그래도 못 찾으면
    내부번호를 프로젝트처럼 가장하지 않고 '프로젝트 미확정'으로 명시한다. */
 function projectNoOf(r){
   if(!r||typeof r!=='object') return '';
   const direct=String(r.프로젝트NO||'').trim();
-  if(direct&&!isInternalNo(direct)) return direct;
+  if(isRepresentativeProject(direct)) return direct;
   for(const v of Object.values(r)){
-    const hit=String(v==null?'':v).match(/\bUJ26\d{5,}\b/i);
+    const hit=String(v==null?'':v).match(/\bUJ26\d{4,}\b/i);
     if(hit) return hit[0].toUpperCase();
   }
   const ids=[r.정산ID,r.접수ID,r.점검ID,r.레코드ID,r.원천업무ID,r.업무ID,r.ID]
@@ -1481,7 +1485,7 @@ function projectNoOf(r){
     return ids.some(id=>xid.includes(id));
   });
   const linked=String((hit&&hit.프로젝트NO)||'').trim();
-  return linked&&!isInternalNo(linked)?linked:'';
+  return isRepresentativeProject(linked)?linked:'';
 }
 function projectLabel(r){ return projectNoOf(r)||'프로젝트 미확정'; }
 function idOf(r){ return projectNoOf(r)||recordIdOf(r); }
@@ -3301,6 +3305,17 @@ const CHECK_INTERNAL_OWNER={
   '세금계산서 미발행':'유현민','입금 대기':'유현민','금액 미입력':'유현민',
   'PO A':'유현민','PO 미발행':'유현민','작업금액 불일치':'유현민','원장 미등록':'유현민'
 };
+const CHECK_OWNER_SCOPE_PROPOSALS=[
+  {name:'류지영',scope:'캠프·일정, 카톡/밴드, 현장자료, 완료일 확인',role:'운영 확인 범위'},
+  {name:'변재선(회계)',scope:'거래명세서, 세금계산서, 입금, 금액 불일치 확인',role:'회계 확인 범위'}
+];
+function openPendingOwnerScope(name){
+  const p=CHECK_OWNER_SCOPE_PROPOSALS.find(x=>x.name===name); if(!p) return;
+  openPane(`<h2>${esc2(p.name)} ${chip('담당 기준 확인 필요')}</h2>
+    <div class="sub">${esc2(p.role)}를 확정하기 전에는 원장 행을 임의로 재배정하지 않습니다.</div>
+    <div class="metric-basis"><b>제안 범위</b> ${esc2(p.scope)}</div>
+    <div class="card">사용자 확인 후 해당 문제유형의 실제 건수·목록·캡처가 이 담당자 카드에 자동 연결됩니다.</div>`);
+}
 function checkOwnerOf(r){
   const direct=String(r.담당자||r.담당기사||'').trim();
   if(direct) return direct;
@@ -3331,7 +3346,7 @@ function checkLink(r){
   const raw=checkIdOf(r);
   let hit=typeof rowById==='function' ? rowById(raw) : null;
   if(!hit&&/^PO/i.test(raw)) hit=settleRows.find(r=>samePo(r.PO번호,raw))||null;
-  const textProject=(checkDescOf(r).match(/\bUJ26\d{5}\b/i)||[])[0]||'';
+  const textProject=(checkDescOf(r).match(/\bUJ26\d{4,}\b/i)||[])[0]||'';
   let kind='';
   if(/^AS-/i.test(raw) || (hit&&hit.접수ID)) kind='as';
   else if(/^PM-/i.test(raw) || (hit&&hit.점검ID)) kind='pm';
@@ -3498,7 +3513,12 @@ function renderCheckHub(){
       <span><span class="name">${esc2(t)}</span><span class="hint">담당 ${ownersN}명 · 목록/전달 이미지</span></span>
       <span class="count">${list.length}건</span></button>`;
   }).join('')||'<div style="color:var(--ink-3)">확인할 항목이 없습니다 🎉</div>';
-  $('checkowners').innerHTML=checkSortGroups(byOwner).map(o=>{
+  const pendingOwnerCards=CHECK_OWNER_SCOPE_PROPOSALS.map(p=>`<div class="topitem" onclick="openPendingOwnerScope(${esc4(p.name)})">
+      <span style="min-width:0"><b>${esc2(p.name)}</b>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:3px">${esc2(p.scope)}</div></span>
+      <span style="text-align:right;flex:none"><b style="color:var(--warn)">기준 확인</b><br>
+        <span style="font-size:11px;color:var(--brand);font-weight:800">제안 범위 보기 ▸</span></span></div>`).join('');
+  $('checkowners').innerHTML=pendingOwnerCards+checkSortGroups(byOwner).map(o=>{
     const list=byOwner[o], typesN=new Set(list.map(checkTypeOf)).size;
     return `<div class="topitem" onclick="openCheckOwner(${esc4(o)})">
       <span style="min-width:0"><b>${esc2(o)}</b>
@@ -3506,7 +3526,7 @@ function renderCheckHub(){
           list.slice(0,2).map(r=>esc2(checkTypeOf(r))).join(', ')}${list.length>2?' 외':''}</div></span>
       <span style="text-align:right;flex:none"><b>${list.length}건</b><br>
         <span style="font-size:11px;color:var(--brand);font-weight:800">내역·전달 ▸</span></span></div>`;
-  }).join('')||'<div style="color:var(--ink-3)">담당자 확인 항목이 없습니다 🎉</div>';
+  }).join('');
 
   const mine=buildMine(); window._mine=mine;
   $('checkmine').innerHTML=mine.map((m,i)=>{

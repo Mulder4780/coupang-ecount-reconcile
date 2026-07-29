@@ -656,6 +656,245 @@ def _metric_number(value):
         return 0.0
 
 
+def _report_date(value):
+    """대표 예외보고 계산에 쓸 날짜. 모르는 값은 만들지 않고 None으로 둔다."""
+    text = norm_date(value)
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _report_business_days(start, end):
+    """start~end(양 끝 포함)의 평일 수. 휴일 마스터가 없으므로 '영업일 추정'으로 표시한다."""
+    if not start or not end or start > end:
+        return 0
+    return sum(1 for n in range((end - start).days + 1)
+               if (start + timedelta(days=n)).weekday() < 5)
+
+
+def _report_complete(value, when=""):
+    return bool(_report_date(when)) or str(value or "").strip() in {
+        "작업완료", "완료", "정상", "종결", "취소", "철회", "AS전환"
+    }
+
+
+def _report_missing(value, good):
+    text = str(value or "").strip()
+    return not text or text in {"미등록", "미작성", "미발행", "누락", "미확인"}
+
+
+def _report_project(rec):
+    """화면의 대표번호. 내부 AS/PM/JS 번호를 프로젝트NO처럼 가장하지 않는다."""
+    value = str(rec.get("프로젝트NO") or "").strip()
+    if re.match(r"^UJ\d{6,}$", value, re.I) or re.match(r"^ERP(?:[-_\s]|$)", value, re.I):
+        return value
+    for item in rec.values():
+        hit = _UJ_RE.search(str(item or ""))
+        if hit:
+            return hit.group()
+    return ""
+
+
+def representative_summary(works, settlements, base_date=""):
+    """유수비 대표 통화 요구를 기존 원장 값으로 계산한 읽기 전용 보고 모델.
+
+    새 업무상태를 추측해 원장에 쓰지 않는다. 현장완료 확정은 완료일/완료상태가 있는 경우만,
+    서류 미정리는 그 완료행의 사진·완료보고서·ERP 값이 실제로 빠진 경우만 센다.
+    """
+    today = _report_date(base_date) or date.today()
+    as_rows = list((works or {}).get("as") or [])
+    pm_rows = list((works or {}).get("pm") or [])
+
+    def as_item(r, *, issue, state):
+        received = _report_date(r.get("접수일자"))
+        age = max(0, (today - received).days) if received else -1
+        return {
+            "프로젝트NO": _report_project(r),
+            "ID": str(r.get("접수ID") or ""),
+            "레코드ID": str(r.get("접수ID") or ""),
+            "종류": "as",
+            "프로젝트명": "돌발AS",
+            "캠프명": str(r.get("캠프명") or ""),
+            "일자": norm_date(r.get("접수일자")),
+            "담당자": str(r.get("담당기사") or ""),
+            "문제": issue,
+            "상태": state,
+            "경과일": age,
+            "접수내용": str(r.get("신청내용") or ""),
+        }
+
+    backlog, paperwork = [], []
+    for r in as_rows:
+        done = _report_complete(r.get("진행상태"), r.get("작업완료일"))
+        received = _report_date(r.get("접수일자"))
+        age = max(0, (today - received).days) if received else -1
+        if not done:
+            grade = ("장기" if age > 30 else "심각" if age > 7 else
+                     "경고" if age > 2 else "관심" if age > 1 else "정상")
+            backlog.append(as_item(
+                r, issue=f"전산상 미완료 · {age if age >= 0 else '날짜 미상'}일 경과",
+                state=grade))
+        else:
+            missing = []
+            if _report_missing(r.get("사진등록"), {"등록"}):
+                missing.append("사진")
+            if _report_missing(r.get("완료보고서등록"), {"등록", "완료"}):
+                missing.append("완료보고서")
+            if _report_missing(r.get("ERP등록"), {"등록", "완료"}):
+                missing.append("ERP")
+            if missing:
+                paperwork.append(as_item(
+                    r, issue="현장완료 · " + "·".join(missing) + " 미정리",
+                    state="전산·서류 미정리"))
+
+    backlog.sort(key=lambda r: (r.get("일자") or "9999-99-99", r.get("ID") or ""))
+    paperwork.sort(key=lambda r: (r.get("일자") or "9999-99-99", r.get("ID") or ""))
+    d1 = [r for r in backlog if r.get("경과일", -1) > 1]
+    d2 = [r for r in backlog if r.get("경과일", -1) > 2]
+    d7 = [r for r in backlog if r.get("경과일", -1) > 7]
+    d30 = [r for r in backlog if r.get("경과일", -1) > 30]
+
+    qmonth = ((today.month - 1) // 3) * 3 + 1
+    qstart = date(today.year, qmonth, 1)
+    qend = (date(today.year + (1 if qmonth == 10 else 0),
+                 1 if qmonth == 10 else qmonth + 3, 1) - timedelta(days=1))
+    qrows = [r for r in pm_rows if
+             (lambda d: bool(d and qstart <= d <= qend))(_report_date(r.get("점검예정일")))]
+    qdone = [r for r in qrows if
+             _report_complete(r.get("점검상태"), r.get("실제점검일"))]
+    total_days = (qend - qstart).days + 1
+    elapsed_days = min(total_days, max(0, (today - qstart).days + 1))
+    target = len(qrows)
+    expected = round(target * elapsed_days / total_days) if total_days else 0
+    actual = len(qdone)
+    gap = actual - expected
+    shortage_ratio = ((expected - actual) / expected * 100) if expected and actual < expected else 0
+    signal = "적색" if shortage_ratio > 10 else "황색" if shortage_ratio >= 5 else "녹색"
+    remaining = max(0, target - actual)
+    remaining_business = _report_business_days(max(today + timedelta(days=1), qstart), qend)
+    required_daily = remaining / remaining_business if remaining_business else (float(remaining) if remaining else 0)
+    required_weekly = required_daily * 5
+    techs = set()
+    for r in qrows:
+        techs.update(x.strip() for x in re.split(r"[,·/]|\s{2,}", str(r.get("담당기사") or ""))
+                     if x.strip())
+    available = len(techs)
+    per_tech = required_daily / available if available else 0
+    elapsed_business = _report_business_days(qstart, min(today, qend))
+    total_business = _report_business_days(qstart, qend)
+    forecast = min(target, round(actual / elapsed_business * total_business)) if elapsed_business else 0
+    forecast_shortfall = max(0, target - forecast)
+
+    statement_groups = {
+        "돌발 AS": [], "정기점검": [], "신규·납품·설치": [], "기타": []
+    }
+
+    def statement_kind(r):
+        text = str(r.get("업무구분") or "")
+        if "돌발" in text or text.upper() == "AS":
+            return "돌발 AS"
+        if "정기" in text or "점검" in text:
+            return "정기점검"
+        if any(x in text for x in ("신규", "납품", "설치")):
+            return "신규·납품·설치"
+        return "기타"
+
+    for r in settlements or []:
+        # 유상임이 확인된 정산만 발행대상으로 센다. 비용구분 미확정은 확인 필요로 남긴다.
+        if "유상" not in str(r.get("비용구분") or ""):
+            continue
+        statement_groups[statement_kind(r)].append(r)
+
+    statement_rows = []
+    unissued_rows = []
+    for kind, rows in statement_groups.items():
+        issued = [r for r in rows if str(r.get("명세서번호") or "").strip() or
+                  str(r.get("명세서") or "").strip() in {"있음", "발행", "발행완료", "완료"}]
+        unissued = [r for r in rows if r not in issued]
+        dates = sorted(d for d in (norm_date(r.get("완료일")) for r in rows) if d)
+        item = {
+            "업무유형": kind, "발행대상": len(rows), "발행완료": len(issued),
+            "미발행": len(unissued), "발행률": round(len(issued) / len(rows) * 100) if rows else None,
+            "대상기간": f"{dates[0]} ~ {dates[-1]}" if dates else "대상 없음",
+            "합계금액": sum(_metric_number(r.get("공급가액")) for r in rows),
+        }
+        statement_rows.append(item)
+        for r in unissued:
+            unissued_rows.append({
+                "프로젝트NO": _report_project(r),
+                "ID": str(r.get("정산ID") or ""),
+                "레코드ID": str(r.get("정산ID") or ""),
+                "종류": "settle",
+                "프로젝트명": str(r.get("업무구분") or kind),
+                "캠프명": str(r.get("캠프명") or ""),
+                "일자": norm_date(r.get("완료일")),
+                "담당자": str(r.get("담당자") or ""),
+                "문제": "발행 대상이나 거래명세서 미발행",
+                "상태": "미발행",
+                "금액": _metric_number(r.get("공급가액")),
+            })
+
+    policies = [
+        {"기준": "류지영 확인 범위: 캠프·일정·카톡/밴드·현장자료·완료일", "상태": "담당 기준 확인 필요"},
+        {"기준": "변재선(회계) 확인 범위: 거래명세서·세금계산서·입금·금액 불일치", "상태": "담당 기준 확인 필요"},
+        {"기준": "돌발 AS·정기점검 거래명세서 묶음기간", "상태": "확인 필요"},
+        {"기준": "여러 거래명세서의 세금계산서 합산 기준", "상태": "확인 필요"},
+        {"기준": "세금계산서 건별·월합계 발행 기준", "상태": "확인 필요"},
+        {"기준": "PO 수신 전 세금계산서 발행 가능 여부", "상태": "확인 필요"},
+        {"기준": "다음 청구주기 이월 조건·승인자", "상태": "확인 필요"},
+    ]
+
+    one_line = (
+        f"전산상 미완료 돌발 AS {len(backlog)}건 중 D+2 초과 {len(d2)}건, "
+        f"현장완료·서류미정리 {len(paperwork)}건입니다. "
+        f"{today.month}월 기준 정기점검은 목표 누계 {expected}건 대비 {actual}건"
+        f"({gap:+d}건), 거래명세서 미발행 대상은 {len(unissued_rows)}건입니다."
+    )
+    return {
+        "meta": {
+            "집계기준일": today.isoformat(), "적용마감시간": "관리대장 최신 저장 시점",
+            "데이터최종갱신일": datetime.now().isoformat(timespec="seconds"),
+            "원천업무건수": len(as_rows) + len(pm_rows) + len(settlements or []),
+            "검증되지않은건수": len(backlog) + len(paperwork) + len(unissued_rows),
+            "필터조건": f"{APP_YEAR}년·정상 상세 기본 접힘",
+        },
+        "한줄종합보고": one_line,
+        "돌발AS": {
+            "전산상미완료": len(backlog), "현장완료서류미정리": len(paperwork),
+            "D+1초과": len(d1), "D+2초과": len(d2), "7일초과": len(d7),
+            "30일초과": len(d30), "대표지속보고": len(d2),
+            "미완료목록": backlog, "서류미정리목록": paperwork,
+        },
+        "정기점검": {
+            "분기": f"{qstart.month}~{qend.month}월", "분기시작일": qstart.isoformat(),
+            "분기종료일": qend.isoformat(), "전체대상": target,
+            "경과율": round(elapsed_days / total_days * 100, 1) if total_days else 0,
+            "목표누계": expected, "실제완료": actual, "계획대비": gap,
+            "잔여대상": remaining, "잔여평일추정": remaining_business,
+            "필요일일처리량": round(required_daily, 2),
+            "필요주간처리량": round(required_weekly, 2),
+            "투입기사수": available, "기사1인당필요일일": round(per_tech, 2),
+            "예상완료": forecast, "예상미달": forecast_shortfall, "신호": signal,
+            "목록": [{
+                "프로젝트NO": _report_project(r), "ID": str(r.get("점검ID") or ""),
+                "레코드ID": str(r.get("점검ID") or ""), "종류": "pm",
+                "프로젝트명": "정기점검", "캠프명": str(r.get("캠프명") or ""),
+                "일자": norm_date(r.get("점검예정일")), "담당자": str(r.get("담당기사") or ""),
+                "문제": "분기 점검 대상", "상태": str(r.get("점검상태") or ""),
+            } for r in qrows],
+        },
+        "거래명세서": {"업무유형별": statement_rows, "미발행목록": unissued_rows},
+        "업무기준확인필요": policies,
+    }
+
+
+def get_representative_report():
+    return representative_summary(get_works(), get_settlements())
+
+
 def read_exec_details(master, base_date=""):
     """대표보고 3·4절의 숫자를 만든 **동일 원천 행**을 건별 목록으로 돌려준다.
 
@@ -696,6 +935,8 @@ def read_exec_details(master, base_date=""):
     for r in s04:
         remember(r, ("점검ID", "프로젝트NO"), "캠프명", "점검예정일", "", "담당기사")
 
+    rep_idx = build_prj_index({"as": s02, "pm": s04})
+
     def joined(rec):
         for key in ("프로젝트NO", "정산ID", "원천업무ID", "업무ID", "접수ID", "점검ID"):
             value = str(rec.get(key) or "").strip()
@@ -706,6 +947,12 @@ def read_exec_details(master, base_date=""):
     def detail(rec, *, when="", amount=0, issue="", status="", source=""):
         base = joined(rec)
         project = str(rec.get("프로젝트NO") or base.get("프로젝트NO") or "")
+        if not project:
+            candidate = {**base, **rec}
+            candidate.setdefault("완료일", rec.get(when) if when else base.get("일자"))
+            project, _ = rep_no(
+                candidate, rep_idx,
+                str(rec.get("거래명세서번호") or rec.get("명세서번호") or ""))
         rid = str(rec.get("정산ID") or rec.get("원천업무ID") or rec.get("업무ID")
                   or rec.get("접수ID") or rec.get("점검ID") or project or "")
         record_kind = ("settle" if rid.startswith("JS-") else
@@ -1519,6 +1766,28 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, get_issues())
         if p == "/api/exec_report":
             return self._send(200, get_exec_report())
+        if p in {
+            "/api/v1/reports/daily/exceptions",
+            "/api/v1/reports/daily/as-backlog",
+            "/api/v1/reports/daily/inspection-progress",
+            "/api/v1/reports/daily/statement-progress",
+            "/api/v1/as-requests/backlog-summary",
+            "/api/v1/as-requests/backlog-detail",
+            "/api/v1/inspections/quarter-progress",
+            "/api/v1/statements/eligibility-summary",
+            "/api/v1/statements/unissued",
+            "/api/v1/tax-invoices/composition-check",
+        }:
+            report = get_representative_report()
+            if p.endswith(("as-backlog", "backlog-summary", "backlog-detail")):
+                return self._send(200, {"meta": report["meta"], **report["돌발AS"]})
+            if p.endswith(("inspection-progress", "quarter-progress")):
+                return self._send(200, {"meta": report["meta"], **report["정기점검"]})
+            if p.endswith(("statement-progress", "eligibility-summary", "unissued",
+                           "composition-check")):
+                return self._send(200, {"meta": report["meta"], **report["거래명세서"],
+                                        "업무기준확인필요": report["업무기준확인필요"]})
+            return self._send(200, report)
         if p == "/api/erpdocs":
             return self._send(200, get_erpdocs())
         if p == "/api/checks":
