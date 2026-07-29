@@ -629,17 +629,290 @@ def read_exec_report(master):
     return out
 
 
+def _sheet_records(wb, sheet):
+    """머리글 4행 기준으로 시트를 JSON 안전한 dict 목록으로 읽는다."""
+    if sheet not in wb.sheetnames:
+        return []
+    ws = wb[sheet]
+    hdr = next(ws.iter_rows(min_row=4, max_row=4, values_only=True))
+    heads = [(i, str(h).strip()) for i, h in enumerate(hdr) if h not in (None, "")]
+    out = []
+    for row in ws.iter_rows(min_row=5, values_only=True):
+        rec = {}
+        for i, name in heads:
+            value = row[i] if i < len(row) else None
+            if isinstance(value, (datetime, date)):
+                value = value.strftime("%Y-%m-%d")
+            rec[name] = "" if value is None else value
+        if any(v not in ("", None) for v in rec.values()):
+            out.append(rec)
+    return out
+
+
+def _metric_number(value):
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def read_exec_details(master, base_date=""):
+    """대표보고 3·4절의 숫자를 만든 **동일 원천 행**을 건별 목록으로 돌려준다.
+
+    앱에서 숫자를 다시 추정하면 엑셀 카드와 목록 건수가 갈릴 수 있다. 따라서
+    01_대표보고/00_대시보드 수식이 참조하는 열과 조건을 그대로 재현한다.
+    """
+    import openpyxl
+    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    s06 = _sheet_records(wb, "06_거래서류청구수금")
+    s07 = _sheet_records(wb, "07_불일치누락현황")
+    s15 = _sheet_records(wb, "15_세금계산서관리")
+    s17 = _sheet_records(wb, "17_문서대조현황")
+    s02 = _sheet_records(wb, "02_돌발AS접수")
+    s04 = _sheet_records(wb, "04_정기점검")
+    wb.close()
+
+    # 프로젝트NO·업무ID·정산ID 어느 것을 눌러도 캠프와 대표 날짜를 찾을 수 있게 한다.
+    lookup = {}
+
+    def remember(rec, ids, camp, when, kind="", owner=""):
+        info = {
+            "프로젝트NO": str(rec.get("프로젝트NO") or ""),
+            "캠프명": str(rec.get(camp) or ""),
+            "일자": norm_date(rec.get(when)),
+            "프로젝트명": str(rec.get(kind) or ""),
+            "담당자": str(rec.get(owner) or ""),
+        }
+        for key in ids:
+            value = str(rec.get(key) or "").strip()
+            if value:
+                lookup.setdefault(value, info)
+
+    for r in s06:
+        remember(r, ("정산ID", "원천업무ID", "프로젝트NO"), "캠프명",
+                 "작업완료일(자동)", "업무구분", "담당자")
+    for r in s02:
+        remember(r, ("접수ID", "프로젝트NO"), "캠프명", "접수일자", "", "담당기사")
+    for r in s04:
+        remember(r, ("점검ID", "프로젝트NO"), "캠프명", "점검예정일", "", "담당기사")
+
+    def joined(rec):
+        for key in ("프로젝트NO", "정산ID", "원천업무ID", "업무ID", "접수ID", "점검ID"):
+            value = str(rec.get(key) or "").strip()
+            if value in lookup:
+                return lookup[value]
+        return {}
+
+    def detail(rec, *, when="", amount=0, issue="", status="", source=""):
+        base = joined(rec)
+        project = str(rec.get("프로젝트NO") or base.get("프로젝트NO") or "")
+        rid = str(rec.get("정산ID") or rec.get("원천업무ID") or rec.get("업무ID")
+                  or rec.get("접수ID") or rec.get("점검ID") or project or "")
+        record_kind = ("settle" if rid.startswith("JS-") else
+                       "as" if rid.startswith("AS-") else
+                       "pm" if rid.startswith("PM-") else "")
+        return {
+            "프로젝트NO": project,
+            "ID": rid,
+            "레코드ID": rid,
+            "종류": record_kind,
+            "프로젝트명": str(rec.get("업무구분") or base.get("프로젝트명") or source or ""),
+            "캠프명": str(rec.get("캠프명") or base.get("캠프명") or ""),
+            "일자": norm_date(rec.get(when)) if when else str(base.get("일자") or ""),
+            "금액": _metric_number(amount),
+            "문제": str(issue or ""),
+            "상태": str(status or ""),
+            "담당자": str(rec.get("담당자") or rec.get("담당기사") or base.get("담당자") or ""),
+            "출처": source,
+        }
+
+    def is_2026_settlement(r):
+        d = norm_date(r.get("작업완료일(자동)") or r.get("작업완료일"))
+        return bool(r.get("정산ID")) and d.startswith(APP_YEAR + "-")
+
+    def sorted_rows(rows):
+        return sort_by_date(rows, "metric", "ID")
+
+    details = {}
+
+    def add(label, rows, basis, kind):
+        rows = sorted_rows(rows)
+        details[label] = {
+            "rows": rows,
+            "basis": basis,
+            "kind": kind,
+            "count": len(rows),
+            "amount": sum(_metric_number(r.get("금액")) for r in rows),
+        }
+
+    # 3. 당일 금액 · 잔여 현황 — 06시트의 대표보고 수식과 같은 조건.
+    add("청구액 (당일)",
+        [detail(r, when="거래명세서발행일", amount=r.get("거래명세서합계"),
+                status=r.get("청구상태"), source="거래명세서")
+         for r in s06 if is_2026_settlement(r) and norm_date(r.get("거래명세서발행일")) == base_date],
+        f"06_거래서류청구수금 · 거래명세서발행일={base_date} · 거래명세서합계", "amount")
+    add("세금계산서 발행액 (당일)",
+        [detail(r, when="세금계산서발행일", amount=r.get("세금계산서합계"),
+                status=r.get("청구상태"), source="세금계산서")
+         for r in s06 if is_2026_settlement(r) and norm_date(r.get("세금계산서발행일")) == base_date],
+        f"06_거래서류청구수금 · 세금계산서발행일={base_date} · 세금계산서합계", "amount")
+    add("입금액 (당일)",
+        [detail(r, when="입금일", amount=r.get("입금액"),
+                status=r.get("청구상태"), source="입금")
+         for r in s06 if is_2026_settlement(r) and norm_date(r.get("입금일")) == base_date],
+        f"06_거래서류청구수금 · 입금일={base_date} · 입금액", "amount")
+    add("잔여 미청구액",
+        [detail(r, amount=r.get("미청구액"), issue=r.get("문제내용"),
+                status=r.get("청구상태"), source="미청구")
+         for r in s06 if is_2026_settlement(r) and _metric_number(r.get("미청구액")) > 0],
+        "06_거래서류청구수금 · 2026년 정산ID 보유 · 미청구액>0", "amount")
+    add("잔여 미수금액",
+        [detail(r, amount=r.get("미수금액"), issue=r.get("문제내용"),
+                status=r.get("청구상태"), source="미수")
+         for r in s06 if is_2026_settlement(r) and _metric_number(r.get("미수금액")) > 0],
+        "06_거래서류청구수금 · 2026년 정산ID 보유 · 미수금액>0", "amount")
+    add("작업금액 불일치 (현재)",
+        [detail(r, amount=r.get("작업대비거래명세서차액"), issue=r.get("문제내용"),
+                status=r.get("검증결과"), source="금액 불일치")
+         for r in s06 if is_2026_settlement(r)
+         and _metric_number(r.get("작업대비거래명세서차액")) != 0
+         and _metric_number(r.get("거래명세서합계")) != 0
+         and str(r.get("업무구분") or "") != "신규·납품·설치"],
+        "06_거래서류청구수금 · 작업/명세서 차액≠0 · 명세서합계≠0 · 신규납품 제외", "risk")
+
+    # 4. 리스크 — 00_대시보드 수식의 실제 원천행.
+    issue_2026 = [r for r in s07 if str(r.get("업무기준연도(자동·숨김)") or "") == APP_YEAR]
+    unique_work = {}
+    for r in issue_2026:
+        key = str(r.get("최상위 업무키") or "").strip()
+        if not key:
+            continue
+        if key not in unique_work:
+            unique_work[key] = detail(
+                {**r, "업무ID": r.get("원천업무ID") or key},
+                issue=r.get("문제상세"), status=r.get("조치상태"), source="확인필요")
+        elif r.get("문제상세"):
+            old = unique_work[key]["문제"]
+            new = str(r.get("문제상세"))
+            if new not in old:
+                unique_work[key]["문제"] = " · ".join(x for x in (old, new) if x)
+    add("문제 업무 건수(중복 제거)", list(unique_work.values()),
+        "07_불일치누락현황 · 업무기준연도=2026 · 최상위 업무키 중복 제거", "risk")
+
+    add("문서 경고 총계",
+        [detail(r, issue=r.get("경고내용"), status=r.get("우선순위"),
+                source="문서 경고")
+         for r in s17 if str(r.get("정산ID") or "").startswith("JS-26")
+         and str(r.get("경고내용") or "").strip()],
+        "17_문서대조현황 · 정산ID=JS-26* · 경고내용 있음", "risk")
+
+    tax_rows = []
+    for r in s15:
+        if not str(r.get("정산ID") or "").startswith("JS-26"):
+            continue
+        if str(r.get("발행기한임박여부") or "") == "예":
+            tax_rows.append(detail(r, when="법정발행기한", amount=r.get("발행금액"),
+                                   issue="세금계산서 발행기한 임박", status=r.get("발행상태(자동)"),
+                                   source="세금계산서 기한"))
+        if str(r.get("기한초과여부") or "") == "예":
+            tax_rows.append(detail(r, when="법정발행기한", amount=r.get("발행금액"),
+                                   issue="세금계산서 발행기한 초과", status=r.get("발행상태(자동)"),
+                                   source="세금계산서 기한"))
+    add("세금계산서 기한 임박·초과", tax_rows,
+        "15_세금계산서관리 · JS-26* · 발행기한임박=예 또는 기한초과=예", "risk")
+
+    add("PO 미발행 · 확인필요",
+        [detail(r, issue=r.get("경고내용") or r.get("PO상태"),
+                status=r.get("PO상태"), source="PO")
+         for r in s17 if str(r.get("정산ID") or "").startswith("JS-26")
+         and str(r.get("PO상태") or "") in ("PO 발행대기", "PO관리행 없음")],
+        "17_문서대조현황 · JS-26* · PO상태=PO 발행대기/PO관리행 없음", "risk")
+    add("거래명세서 미작성",
+        [detail(r, issue=r.get("경고내용") or "거래명세서 미작성",
+                status=r.get("거래명세서상태"), source="거래명세서")
+         for r in s17 if str(r.get("정산ID") or "").startswith("JS-26")
+         and str(r.get("거래명세서상태") or "") == "미작성"],
+        "17_문서대조현황 · JS-26* · 거래명세서상태=미작성", "risk")
+    add("아리바 청구 미등록",
+        [detail(r, when="법정발행기한", amount=r.get("발행금액"),
+                issue="아리바 청구 등록대기", status=r.get("아리바청구상태"),
+                source="아리바")
+         for r in s15 if str(r.get("정산ID") or "").startswith("JS-26")
+         and str(r.get("아리바청구상태") or "") == "등록대기"],
+        "15_세금계산서관리 · JS-26* · 아리바청구상태=등록대기", "risk")
+
+    problem_rows = [
+        detail({**r, "업무ID": r.get("원천업무ID")},
+               amount=r.get("미청구액") or r.get("미수금액"),
+               issue=r.get("문제상세"), status=r.get("조치상태"), source="문제 행")
+        for r in issue_2026 if str(r.get("원천업무ID") or "").strip()
+    ]
+    add("문제 프로젝트 / 문제 행", problem_rows,
+        "07_불일치누락현황 · 업무기준연도=2026 · 원천업무ID 보유 행", "risk")
+    details["문제 프로젝트 / 문제 행"]["project_count"] = len({
+        str(r.get("프로젝트NO") or "").strip() for r in issue_2026
+        if str(r.get("프로젝트NO") or "").strip()
+    })
+    return details
+
+
 def get_exec_report():
     if DEMO:
-        return {"meta": {"보고일": "2026-07-25", "집계기준일": "2026-07-24", "보고자": "유현민"},
-                "summary": ["■ 데모 요약"], "sections": [
-                    {"title": "2. 당일 업무 실적", "items": [["신규 접수", "3"], ["작업 완료", "1"]], "lines": []}]}
+        labels = [
+            "청구액 (당일)", "세금계산서 발행액 (당일)", "입금액 (당일)",
+            "잔여 미청구액", "잔여 미수금액", "작업금액 불일치 (현재)",
+            "문제 업무 건수(중복 제거)", "문서 경고 총계", "세금계산서 기한 임박·초과",
+            "PO 미발행 · 확인필요", "거래명세서 미작성", "아리바 청구 미등록",
+            "문제 프로젝트 / 문제 행",
+        ]
+        details = {label: {"rows": [], "basis": "합성 데모 · 2026년 원천 행", "kind": "risk",
+                           "count": 0, "amount": 0} for label in labels}
+        money = {"프로젝트NO": "UJ261001", "ID": "JS-2607-001", "레코드ID": "JS-2607-001",
+                 "종류": "settle", "프로젝트명": "돌발AS", "캠프명": "울산2캠프",
+                 "일자": "2026-07-24", "금액": 22000, "문제": "미청구 합성 예시",
+                 "상태": "미청구", "담당자": "김준형", "출처": "미청구"}
+        details["잔여 미청구액"].update(rows=[money], count=1, amount=22000, kind="amount")
+        risk_rows = []
+        for i in range(75):
+            n = i % 15 + 1
+            risk_rows.append({
+                "프로젝트NO": f"UJ26{1000+n}", "ID": f"JS-2607-{n:03d}",
+                "레코드ID": f"JS-2607-{n:03d}", "종류": "settle",
+                "프로젝트명": "돌발AS" if n % 2 else "정기점검",
+                "캠프명": f"합성 캠프 {n}", "일자": f"2026-07-{n:02d}", "금액": 0,
+                "문제": f"문서 확인 필요 합성 항목 {i+1}", "상태": "P1",
+                "담당자": "김준형", "출처": "문서 경고",
+            })
+        details["문서 경고 총계"].update(rows=risk_rows, count=len(risk_rows))
+        return {
+            "meta": {"보고일": "2026-07-25", "집계기준일": "2026-07-24", "보고자": "유현민"},
+            "summary": ["■ 데모 요약"],
+            "sections": [
+                {"title": "2. 당일 업무 실적",
+                 "items": [["신규 접수", "3"], ["작업 완료", "1"]], "lines": []},
+                {"title": "3. 당일 금액 · 잔여 현황",
+                 "items": [["청구액 (당일)", "0"], ["세금계산서 발행액 (당일)", "0"],
+                           ["입금액 (당일)", "0"], ["잔여 미청구액", "22,000"],
+                           ["잔여 미수금액", "0"], ["작업금액 불일치 (현재)", "0"]]},
+                {"title": "4. 리스크 (현재 기준)",
+                 "items": [["문제 업무 건수(중복 제거)", "0"], ["문서 경고 총계", "75"],
+                           ["세금계산서 기한 임박·초과", "0"], ["PO 미발행 · 확인필요", "0"],
+                           ["거래명세서 미작성", "0"], ["아리바 청구 미등록", "0"],
+                           ["문제 프로젝트 / 문제 행", "0개 / 0건"]]},
+            ],
+            "details": details,
+        }
     with _readlock:
         r = _fresh("exec")
         if r:
             return r
         from ecount_reconcile import load_config, resolve_master
-        r = read_exec_report(resolve_master(load_config()["reconcile"]["master_xlsx"]))
+        master = resolve_master(load_config()["reconcile"]["master_xlsx"])
+        r = read_exec_report(master)
+        r["details"] = read_exec_details(
+            master, norm_date((r.get("meta") or {}).get("집계기준일")
+                              or (r.get("meta") or {}).get("보고일"))
+        )
         _cache["exec"] = r
         return r
 

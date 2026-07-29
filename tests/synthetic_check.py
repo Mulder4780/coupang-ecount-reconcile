@@ -2331,6 +2331,90 @@ def t48_excel_2026_stats_and_verified_completion():
     print("  [48] Excel 2026-only statistics and evidence-gated completion OK")
 
 
+def t49_exec_metric_drilldown_and_sheet_scroll(tmp):
+    """[49] 대표보고 3·4절은 숫자와 동일한 원천행을 열고, 긴 목록은 끝까지 스크롤된다."""
+    path = os.path.join(tmp, "exec_metric.xlsx")
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    def sheet(name, headers, rows):
+        ws = wb.create_sheet(name)
+        for _ in range(3):
+            ws.append([])
+        ws.append(headers)
+        for row in rows:
+            ws.append(row)
+
+    sheet("06_거래서류청구수금", [
+        "정산ID", "원천업무ID", "프로젝트NO", "캠프명", "작업완료일(자동)", "업무구분", "담당자",
+        "거래명세서발행일", "거래명세서합계", "세금계산서발행일", "세금계산서합계",
+        "입금일", "입금액", "미청구액", "미수금액", "작업대비거래명세서차액",
+        "문제내용", "청구상태", "검증결과"
+    ], [
+        ["JS-2601", "AS-2601", "UJ260001", "합성1캠프", "2026-07-28", "돌발AS", "김기사",
+         "2026-07-28", 11000, "2026-07-28", 11000, "2026-07-28", 11000,
+         22000, 33000, -1000, "합성 문제", "청구중", "불일치"],
+        ["JS-2602", "AS-2602", "UJ260002", "합성2캠프", "2026-07-28", "신규·납품·설치", "이기사",
+         "", 0, "", 0, "", 0, 0, 0, 999, "", "", "불일치"],
+        ["JS-2501", "AS-2501", "UJ250001", "과거캠프", "2025-07-28", "돌발AS", "구기사",
+         "2026-07-28", 999999, "2026-07-28", 999999, "2026-07-28", 999999,
+         999999, 999999, 999999, "2025 제외", "", "불일치"],
+    ])
+    sheet("02_돌발AS접수",
+          ["접수ID", "프로젝트NO", "캠프명", "접수일자", "담당기사"],
+          [["AS-2601", "UJ260001", "합성1캠프", "2026-07-27", "김기사"]])
+    sheet("04_정기점검",
+          ["점검ID", "프로젝트NO", "캠프명", "점검예정일", "담당기사"], [])
+    sheet("07_불일치누락현황",
+          ["업무기준연도(자동·숨김)", "최상위 업무키", "원천업무ID", "프로젝트NO", "문제상세", "조치상태"],
+          [[2026, "UJ260001", "AS-2601", "UJ260001", "문제 A", "확인필요"],
+           [2026, "UJ260001", "AS-2601", "UJ260001", "문제 B", "확인필요"],
+           [2025, "UJ250001", "AS-2501", "UJ250001", "과거 문제", "확인필요"]])
+    sheet("15_세금계산서관리",
+          ["정산ID", "발행기한임박여부", "기한초과여부", "법정발행기한",
+           "발행금액", "발행상태(자동)", "아리바청구상태"],
+          [["JS-2601", "예", "예", "2026-07-28", 11000, "미발행", "등록대기"],
+           ["JS-2501", "예", "예", "2025-07-28", 999999, "미발행", "등록대기"]])
+    sheet("17_문서대조현황",
+          ["정산ID", "경고내용", "우선순위", "PO상태", "거래명세서상태"],
+          [["JS-2601", "문서 경고", "P1", "PO 발행대기", "미작성"],
+           ["JS-2501", "과거 경고", "P1", "PO 발행대기", "미작성"]])
+    wb.save(path)
+
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as A
+    d = A.read_exec_details(path, "2026-07-28")
+    assert d["청구액 (당일)"]["count"] == 1 and d["청구액 (당일)"]["amount"] == 11000
+    assert d["세금계산서 발행액 (당일)"]["count"] == 1
+    assert d["입금액 (당일)"]["count"] == 1
+    assert d["잔여 미청구액"]["amount"] == 22000
+    assert d["잔여 미수금액"]["amount"] == 33000
+    assert d["작업금액 불일치 (현재)"]["count"] == 1, "신규납품·2025가 섞였다"
+    assert d["문제 업무 건수(중복 제거)"]["count"] == 1
+    assert d["문제 프로젝트 / 문제 행"]["count"] == 2
+    assert d["세금계산서 기한 임박·초과"]["count"] == 2
+    assert d["PO 미발행 · 확인필요"]["count"] == 1
+    assert d["거래명세서 미작성"]["count"] == 1
+    assert d["아리바 청구 미등록"]["count"] == 1
+    row = d["잔여 미청구액"]["rows"][0]
+    assert row["프로젝트NO"] == "UJ260001" and row["캠프명"] == "합성1캠프"
+    assert row["종류"] == "settle" and row["레코드ID"] == "JS-2601"
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for token in ("function openExecMetric", "function metricToPng", "function metricOpenCall",
+                  "function sheetSnapshot", "function setSheetContent", "sheetactions",
+                  "scrollTop: $('sheetbody').scrollTop", "PageDown", "PageUp"):
+        assert token in live, token + " 누락"
+    assert "#sheetbody{flex:1 1 auto;min-height:0;overflow-y:auto" in live
+    assert re.search(r"(?m)^\s*#slist\{display:none\}", live), "데스크톱 정산 목록 범위가 없다"
+    assert not re.search(r"(?m)^\s*\.slist\{display:none\}", live), "상세 시트 목록까지 숨긴다"
+    assert "const actions = body.querySelector('.actions.sticky')" in live
+    assert "openRecord(${esc4(kind)},${esc4(id)},${esc4(prj)})" in live
+    assert "window._board = Object.assign" not in live, "리스크 일부 목록이 전체 담당자 보드를 덮는다"
+    assert "saveOrOpen(b, assigneeFileName())" in live, "공유 불가 시 이미지를 다시 렌더한다"
+    print("  [49] 대표보고 숫자 원천행·정확 라우팅·캡처·모달 끝까지 스크롤 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2344,6 +2428,7 @@ if __name__ == "__main__":
         t42_first_empty_row(tmp)
         t43_receipt_fill(tmp)
         t45_cloud_queue_and_erp_documents(tmp)
+        t49_exec_metric_drilldown_and_sheet_scroll(tmp)
     t2_payload()
     t3_match()
     t9_watchdog()

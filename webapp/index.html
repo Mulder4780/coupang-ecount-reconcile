@@ -310,6 +310,12 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .ecell .l{font-size:11.5px;color:var(--ink-3);font-weight:700;line-height:1.45;word-break:keep-all}
 .ecell .v{font-size:20px;font-weight:800;letter-spacing:-.5px;margin-top:3px;
   font-variant-numeric:tabular-nums}
+.ecell.metric{cursor:pointer;position:relative;padding-right:32px;transition:all .15s}
+.ecell.metric::after{content:"›";position:absolute;right:12px;top:50%;transform:translateY(-50%);
+  color:var(--brand);font-size:24px;font-weight:800}
+.ecell.metric:hover,.ecell.metric:focus-visible{border-color:var(--brand);background:#F2F5FF;
+  box-shadow:0 5px 15px rgba(36,82,230,.12);outline:none}
+.ecell.metric:active{transform:scale(.975)}
 .elines{margin:6px 0 0 0;padding-left:22px;font-size:14px;line-height:1.85}
 .elines li{margin:9px 0;word-break:keep-all}
 /* 문제 코드 풀어쓰기 */
@@ -413,13 +419,22 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   overscroll-behavior:none;touch-action:none}
 /* overscroll-behavior:contain — 시트 끝까지 스크롤해도 그 힘이 뒤 화면으로 넘어가지 않는다 */
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;background:var(--surface);
-  border-radius:22px 22px 0 0;max-height:82vh;overflow:auto;
-  overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  border-radius:22px 22px 0 0;max-height:82vh;max-height:82dvh;overflow:hidden;
+  display:flex;flex-direction:column;overscroll-behavior:contain;
   padding:18px 20px calc(22px + env(safe-area-inset-bottom));
   transform:translateY(100%);transition:transform .24s cubic-bezier(.3,1,.4,1);
   box-shadow:0 -12px 40px rgba(10,20,48,.3)}
 .sheet.open{transform:none}
-.sheet .grip{width:38px;height:4.5px;background:var(--line);border-radius:99px;margin:0 auto 15px}
+.sheet .grip{flex:none;width:38px;height:4.5px;background:var(--line);border-radius:99px;margin:0 auto 15px}
+#sheetbody{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
+  overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;
+  scrollbar-gutter:stable;padding:0 2px 8px 0}
+#sheetbody:focus{outline:none}
+.sheet-actions{display:none;flex:none;margin:0 -20px calc(-22px - env(safe-area-inset-bottom));
+  padding:12px 20px calc(14px + env(safe-area-inset-bottom));background:var(--surface);
+  border-top:1px solid var(--line);box-shadow:0 -6px 18px rgba(10,20,48,.08);z-index:2}
+.sheet-actions.open{display:block}
+.sheet-actions .actions{margin:0;grid-template-columns:repeat(2,1fr)}
 .sheet h2{font-size:16.5px;display:flex;align-items:center;gap:8px;margin-bottom:3px}
 .sheet .sub{font-size:12.5px;color:var(--ink-2);margin-bottom:15px}
 .dl{display:grid;grid-template-columns:118px 1fr;gap:8px 12px;font-size:13.5px}
@@ -440,10 +455,19 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 .blink{flex:none;font-size:11px;font-weight:800;color:#0F7B3E;background:#E6F6EC;
   border:1px solid #BFE8CD;border-radius:999px;padding:2px 8px;text-decoration:none;white-space:nowrap}
 .blink:hover{background:#D6F0E0}
-/* 목록이 길어도 버튼에 항상 손이 닿게 — 시트 바닥에 붙인다 */
-.actions.sticky{position:sticky;bottom:0;margin:14px -20px -22px;padding:12px 20px
-  calc(14px + env(safe-area-inset-bottom));background:var(--surface);
-  border-top:1px solid var(--line);box-shadow:0 -6px 18px rgba(10,20,48,.06);z-index:2}
+/* sticky 액션은 showSheet가 .sheet-actions로 옮긴다. 목록 스크롤과 버튼을 물리적으로 분리해
+   버튼이 첫 행·마지막 행을 덮지 않게 한다. 자바스크립트가 꺼져도 일반 흐름으로 보인다. */
+.actions.sticky{margin-top:14px}
+
+.metric-basis{font-size:11.5px;line-height:1.6;color:var(--ink-2);background:#F8FAFD;
+  border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin:10px 0 12px}
+.metric-basis b{color:var(--brand-dk)}
+.metric-row .top:first-child{align-items:flex-start}
+.metric-row .project-line{display:flex;align-items:center;gap:7px;min-width:0;flex-wrap:wrap}
+.metric-row .camp-name{font-size:12px;color:var(--ink-2);font-weight:700}
+.metric-row .metric-date{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.metric-row .metric-issue{font-size:11.5px;color:var(--ink-2);line-height:1.5;margin-top:4px;
+  overflow-wrap:anywhere}
 
 /* ═══ TOP 리스트 ═══ */
 .toplist{display:flex;flex-direction:column;gap:8px}
@@ -567,7 +591,8 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   .appbar .sub{color:var(--ink-3)}
   .kpis{grid-template-columns:repeat(6,1fr)}
   .actions{grid-template-columns:repeat(4,1fr)}
-  .slist{display:none}
+  /* 데스크톱 정산 본문만 표로 바꾼다. 공용 .slist를 숨기면 상세 시트 목록까지 사라진다. */
+  #slist{display:none}
   table.grid{display:table}
   .logbox{height:400px}
 }
@@ -713,7 +738,11 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   <!-- 상세 시트 -->
   <!-- 배경을 누르면 통째로 닫는다. 한 겹씩 되돌리는 건 기기 뒤로가기의 몫이다. -->
   <div class="sheet-bg" id="sheetbg" onclick="closeSheetAll()"></div>
-  <div class="sheet" id="sheet"><div class="grip"></div><div id="sheetbody"></div></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true">
+    <div class="grip"></div>
+    <div id="sheetbody" tabindex="0"></div>
+    <div class="sheet-actions" id="sheetactions"></div>
+  </div>
 
   <!-- 실행 -->
   <section class="view" id="v-run">
@@ -982,6 +1011,9 @@ function cleanExec2026(d){
     lines:(s.lines||[]).filter(x=>!old(x)),
     groups:(s.groups||[]).map(g=>({...g,items:(g.items||[]).filter(x=>!old(x))}))
   })).filter(s=>!old(s.title));
+  d.details = Object.fromEntries(Object.entries(d.details||{}).map(([k,v])=>[
+    k,{...v,rows:(v.rows||[]).filter(r=>rowIs2026(r,'issue')).map(hide2025)}
+  ]).filter(([,v])=>!old(v)));
   return d;
 }
 function cleanErp2026(d){
@@ -1041,16 +1073,42 @@ function setMode(m){
   fillStatOptions(); renderSettle();
 }
 function kTap(el){ el.classList.remove('tapped'); void el.offsetWidth; el.classList.add('tapped'); }
-/* 프로젝트NO(또는 ID)로 해당 건 상세 열기 — 정산·AS·점검 어디에 있든 찾아서 표시 */
+/* 종류·ID를 알고 있는 목록은 그 힌트를 버리지 않는다.
+   같은 프로젝트NO가 AS·점검·정산에 함께 있는 실제 데이터가 많아서 정산부터 찾으면 오탐이 난다. */
+function openRecord(kind, id, project){
+  const list = kind==='settle' ? settleRows : kind==='as' ? (works.as||[]) : kind==='pm' ? (works.pm||[]) : [];
+  const rid = String(id||'').trim(), prj = String(project||'').trim();
+  let idx = list.findIndex(r=>[r.정산ID,r.접수ID,r.점검ID].some(x=>String(x||'')===rid));
+  if(idx<0 && prj) idx = list.findIndex(r=>String(r.프로젝트NO||'')===prj);
+  if(idx<0){ openByPrj(rid||prj); return; }
+  show('settle'); setMode(kind); window._lastRows = list;
+  const r = list[idx];
+  openSheet(kind, idx, r.정산ID||r.접수ID||r.점검ID||prj);
+}
+
+/* 프로젝트NO(또는 ID)로 상세 열기.
+   ID 정확일치는 바로 열고, 프로젝트NO가 여러 화면에 있으면 사용자가 고르게 한다. */
 function openByPrj(key){
   const k = String(key||'').trim();
-  let i = settleRows.findIndex(r=>r.프로젝트NO===k || r.정산ID===k);
-  if(i>=0){ show('settle'); setMode('settle'); window._lastRows = settleRows;
-            openSheet('settle', i, settleRows[i].정산ID); return; }
-  for(const [m,list] of [['as',works.as||[]],['pm',works.pm||[]]]){
-    const j = list.findIndex(r=>r.프로젝트NO===k || r.접수ID===k || r.점검ID===k);
-    if(j>=0){ show('settle'); setMode(m); window._lastRows = list;
-              openSheet(m, j, list[j].접수ID||list[j].점검ID||k); return; }
+  const all = [
+    ...settleRows.map((r,i)=>({kind:'settle',i,r,id:r.정산ID||''})),
+    ...(works.as||[]).map((r,i)=>({kind:'as',i,r,id:r.접수ID||''})),
+    ...(works.pm||[]).map((r,i)=>({kind:'pm',i,r,id:r.점검ID||''}))
+  ];
+  const exact = all.filter(x=>String(x.id)===k);
+  const found = exact.length ? exact : all.filter(x=>String(x.r.프로젝트NO||'')===k);
+  if(found.length===1){ const x=found[0]; openRecord(x.kind,x.id,x.r.프로젝트NO); return; }
+  if(found.length>1){
+    const kindName={settle:'정산·청구',as:'돌발AS',pm:'정기점검'};
+    showSheet(`<h2>${k} <span class="chip c-warn">${found.length}건</span></h2>
+      <div class="sub">같은 프로젝트 번호에 연결된 기록이 여러 개입니다. 확인할 기록을 선택하세요.</div>
+      <div class="slist">${found.map(x=>{
+        const d=x.r.완료일||x.r.접수일자||x.r.점검예정일||x.r.작업완료일||'';
+        return `<div class="srow" onclick="openRecord(${esc4(x.kind)},${esc4(x.id)},${esc4(k)})">
+          <div class="top"><span class="id">${x.id||k}</span><span class="chip">${kindName[x.kind]}</span></div>
+          <div class="top"><span class="camp">${x.r.캠프명||''}</span><span class="camp">${d||'-'}</span></div>
+        </div>`;}).join('')}</div>`);
+    return;
   }
   alert(`${k} 를 찾지 못했습니다 (다른 월 데이터이거나 아직 미등록)`);
 }
@@ -1444,14 +1502,39 @@ function unlockBackground(){
   _bgScroll = null;
 }
 
+function sheetSnapshot(){
+  return {
+    body: $('sheetbody').innerHTML,
+    actions: $('sheetactions').innerHTML,
+    scrollTop: $('sheetbody').scrollTop
+  };
+}
+function setSheetContent(html, actionsHtml){
+  const body = $('sheetbody'), foot = $('sheetactions');
+  body.innerHTML = html || '';
+  foot.innerHTML = actionsHtml || '';
+  if(!actionsHtml){
+    const actions = body.querySelector('.actions.sticky');
+    if(actions){ actions.remove(); foot.appendChild(actions); }
+  }
+  foot.classList.toggle('open', !!foot.children.length);
+}
+function clearSheetActions(){
+  const foot = $('sheetactions');
+  foot.classList.remove('open');
+  foot.innerHTML = '';
+}
 function showSheet(html){
   const already = sheetIsOpen();
-  if(already) _sheetStack.push($('sheetbody').innerHTML);   // 되돌아갈 화면 보관
-  $('sheetbody').innerHTML = html;
-  $('sheet').scrollTop = 0;                                  // 새 화면은 항상 맨 위부터
+  if(already) _sheetStack.push(sheetSnapshot());             // 내용·버튼·스크롤 위치를 함께 보관
+  setSheetContent(html);
+  $('sheetbody').scrollTop = 0;                              // 새 화면은 항상 맨 위부터
   if(!already){ $('sheetbg').style.display = 'block'; lockBackground(); }
   // rAF는 화면이 가려진 탭에서 실행되지 않아 시트가 안 열릴 수 있다 → 타이머 사용
-  setTimeout(()=>$('sheet').classList.add('open'), 10);
+  setTimeout(()=>{
+    $('sheet').classList.add('open');
+    try{ $('sheetbody').focus({preventScroll:true}); }catch(_){}
+  }, 10);
   navPush({t:'sheet'});                                      // 뒤로가기 한 번 = 이 화면 하나
 }
 
@@ -1460,11 +1543,14 @@ function showSheet(html){
 function closeSheet(fromPop){
   if(!fromPop && _nav.length && _nav[_nav.length-1].t === 'sheet'){ history.back(); return; }
   if(_sheetStack.length){                                     // 목록 → 상세였다면 목록으로
-    $('sheetbody').innerHTML = _sheetStack.pop();
-    $('sheet').scrollTop = 0;
+    const prev = _sheetStack.pop();
+    setSheetContent(prev.body, prev.actions);
+    $('sheetbody').scrollTop = prev.scrollTop || 0;
+    try{ $('sheetbody').focus({preventScroll:true}); }catch(_){}
     return;
   }
   $('sheet').classList.remove('open');
+  clearSheetActions();
   setTimeout(()=>{ $('sheetbg').style.display = 'none'; unlockBackground(); }, 220);
 }
 
@@ -1475,11 +1561,26 @@ function closeSheetAll(){
   while(_nav.length && _nav[_nav.length-1].t === 'sheet'){ _nav.pop(); back++; }
   _sheetStack.length = 0;
   $('sheet').classList.remove('open');
+  clearSheetActions();
   setTimeout(()=>{ $('sheetbg').style.display = 'none'; unlockBackground(); }, 220);
   // ★ history.go(-n) 은 몇 칸을 건너뛰든 popstate 를 **한 번만** 발생시킨다.
   //   n 만큼 세면 그 차이가 남아 **다음 뒤로가기를 통째로 먹는다**(실제로 겪음).
   if(back > 0){ _navSkip += 1; history.go(-back); }
 }
+
+/* 버튼 위에서 휠을 돌려도 바로 위 목록이 움직이게 한다. PC와 키보드 접근도 같은 스크롤포트를 쓴다. */
+$('sheetactions').addEventListener('wheel', e=>{
+  if(!e.deltaY) return;
+  $('sheetbody').scrollTop += e.deltaY;
+  e.preventDefault();
+}, {passive:false});
+$('sheetbody').addEventListener('keydown', e=>{
+  const body=$('sheetbody'), page=Math.max(120, body.clientHeight*.82);
+  if(e.key==='PageDown'){ body.scrollTop+=page; e.preventDefault(); }
+  else if(e.key==='PageUp'){ body.scrollTop-=page; e.preventDefault(); }
+  else if(e.key==='Home'){ body.scrollTop=0; e.preventDefault(); }
+  else if(e.key==='End'){ body.scrollTop=body.scrollHeight; e.preventDefault(); }
+});
 
 /* ── 앱 ↔ 엑셀 양방향 입력 (빈 칸만·근거 기록·즉시 또는 09:50 반영) ── */
 const INPUT_SPEC = {
@@ -2184,11 +2285,16 @@ function execHtml(){
         }).join('')}</div></div>`).join('') + `</div>`;
     }
     if((s.items||[]).length){
-      // 설명이 있는 지표는 라벨에 물음표를 붙여 눌러서 볼 수 있게 한다
+      // 3·4절 숫자는 모두 원천 행 목록으로 들어간다. 물음표는 집계 설명만 따로 연다.
       h += `<div class="ecells">` + s.items.map(([l,v])=>{
-        const k = helpKey(l);
-        return `<div class="ecell${k?' has-help':''}"${k?` onclick="openHelp('${k}')"`:''}>
-          <div class="l">${dateLabel(l)}${k?'<i class="qm">?</i>':''}</div><div class="v">${v||'-'}</div></div>`;
+        const k = helpKey(l), metric = !!((execRep.details||{})[l]);
+        const click = metric ? `openExecMetric(${esc4(l)})` : k ? `openHelp(${esc4(k)})` : '';
+        return `<div class="ecell${metric?' metric':k?' has-help':''}"${click
+          ?` role="button" tabindex="0" onclick="${click}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${click}}"`
+          :''}>
+          <div class="l">${dateLabel(l)}${k
+            ?`<i class="qm" onclick="event.stopPropagation();openHelp(${esc4(k)})">?</i>`:''}</div>
+          <div class="v">${v||'-'}</div></div>`;
       }).join('') + `</div>`;
     }
     if((s.lines||[]).length){
@@ -2806,6 +2912,50 @@ function openPane(html){
   showSheet(html);        // 시트와 같은 창을 쓴다 — 뒤로가기·배경잠금도 그대로 적용된다
 }
 
+/* 대표보고 3·4절 숫자 → 그 숫자를 만든 정확한 원천 행.
+   프로젝트NO 옆에 프로젝트명·캠프, 다음 줄에 날짜를 두어 캡처만 봐도 식별할 수 있게 한다. */
+const METRIC_CAP = 60;
+function metricDetail(label){
+  return (execRep.details||{})[label] || {rows:[],basis:'집계 근거 없음',kind:'risk',count:0,amount:0};
+}
+function metricOpenCall(r){
+  const kind=String(r.종류||''), id=String(r.레코드ID||r.ID||''), prj=String(r.프로젝트NO||'');
+  return kind ? `openRecord(${esc4(kind)},${esc4(id)},${esc4(prj)})`
+              : `openByPrj(${esc4(prj||id)})`;
+}
+function openExecMetric(label){
+  const d=metricDetail(label), rows=d.rows||[];
+  window._curMetricLabel=label;
+  const amount=(+d.amount||0), projects=d.project_count;
+  const summary = projects!=null ? `${projects}개 프로젝트 · ${rows.length}개 문제 행`
+                : `${rows.length}건${amount?` · ${fmt(Math.abs(amount))}원`:''}`;
+  const body = rows.map(r=>{
+    const prj=esc2(r.프로젝트NO||r.ID||'-'), id=esc2(r.ID||''), title=esc2(r.프로젝트명||'');
+    const camp=esc2(r.캠프명||'캠프 미상'), when=esc2(r.일자||'-');
+    const issue=esc2(r.문제||''), state=esc2(r.상태||''), owner=esc2(r.담당자||'');
+    const amount=+r.금액||0;
+    return `<div class="srow metric-row" role="button" tabindex="0"
+      onclick="${metricOpenCall(r)}"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${metricOpenCall(r)}}">
+      <div class="top"><span class="project-line"><span class="prjno">${prj}</span>
+        ${title?`<span class="sid">· ${title}</span>`:''}<span class="camp-name">${camp}</span></span>
+        ${amount?`<span class="amt">${fmt(Math.abs(amount))}원</span>`:state?chip(state):''}</div>
+      <div class="meta"><span class="metric-date">${when}</span>
+        ${id&&id!==prj?`<span class="sid">${id}</span>`:''}${owner?`<span>${owner}</span>`:''}</div>
+      ${issue?`<div class="metric-issue">${issue}</div>`:''}
+    </div>`;
+  }).join('');
+  openPane(`<h2>${esc2(label)} <span class="chip c-warn">${summary}</span></h2>
+    <div class="sub">프로젝트 번호를 누르면 이 목록의 정확한 업무 기록으로 이동합니다.</div>
+    <div class="metric-basis"><b>집계 기준</b> ${esc2(d.basis||'')}</div>
+    <div class="lhead"><b>목록</b><span>${rows.length}건</span></div>
+    <div class="slist">${body||'<div class="card">해당 건이 없습니다.</div>'}</div>
+    <div class="actions sticky">
+      <button class="abtn primary" onclick="shareExecMetric()"><span class="em">📤</span>이미지로 전달</button>
+      <button class="abtn" onclick="saveExecMetric()"><span class="em">💾</span>이미지 저장</button>
+    </div>`);
+}
+
 /* KPI 숫자 → 그 숫자를 만든 실제 건 목록 */
 /* 조치 필요 유형(세금계산서 미발행 등) → 담당자별로 묶어 이미지 전달 */
 function openIssueType(t){
@@ -2822,7 +2972,7 @@ function openIssueType(t){
     }));
   });
   const names = Object.keys(by).sort((a,b)=>by[b].length-by[a].length);
-  window._board = Object.assign(window._board||{}, by);   // 전달 이미지가 이 집합을 씀
+  window._issueBoard = by;                                // 전체 담당자 보드는 덮어쓰지 않는다
   openPane(`<h2>${t} <span class="chip c-danger">${list.length}건</span></h2>
     <div class="sub">담당자별로 나눠 이미지를 만들어 전달할 수 있습니다</div>
     ${helpBox(t)}
@@ -2833,9 +2983,9 @@ function openIssueType(t){
             by[n].slice(0,2).map(x=>x.prj||x.id).join(', ')}${by[n].length>2?' 외':''}</div></span>
         <span style="flex:none;display:flex;gap:6px">
           <button class="abtn" style="padding:7px 10px;font-size:12px"
-            onclick="event.stopPropagation();openAssignee(${esc4(n)})">내역</button>
+            onclick="event.stopPropagation();openIssueAssignee(${esc4(n)})">내역</button>
           <button class="abtn primary" style="padding:7px 10px;font-size:12px"
-            onclick="event.stopPropagation();window._curAssignee=${esc4(n)};shareAssignee()">📤 전달</button>
+            onclick="event.stopPropagation();selectIssueAssignee(${esc4(n)});shareAssignee()">📤 전달</button>
         </span></div>`).join('') ||
       '<div class="card">담당자 정보가 없는 건입니다</div>'}</div>`);
 }
@@ -2863,16 +3013,23 @@ function openKpi(key){
       </div>`;
     }).join('') || '<div class="card">해당 건이 없습니다</div>') + `</div>`);
 }
-function openAssignee(name){
-  const l = (window._board||{})[name]||[];
+function selectIssueAssignee(name){
+  window._curAssignee=name;
+  window._curAssigneeList=((window._issueBoard||{})[name]||[]);
+}
+function openIssueAssignee(name){
+  openAssignee(name, ((window._issueBoard||{})[name]||[]));
+}
+function openAssignee(name, source){
+  const l = Array.isArray(source) ? source : ((window._board||{})[name]||[]);
   window._curAssignee = name;
+  window._curAssigneeList = l;
   // ★ 예전에는 도움말 카드와 버튼 아래에 목록을 놓아 **목록이 있는 줄도 몰랐다**
   //   (사용자 지적 2026-07-28). 목록이 주인공이므로 위로 올리고, 버튼은 아래에
   //   고정해 50건을 다 내려도 항상 손이 닿게 한다.
   openPane('<h2>'+name+' <span class="chip c-danger">'+l.length+'건</span></h2>'+
     '<div class="sub">확인·조치가 필요한 항목입니다. 아래 목록에서 <b>누르면 그 건으로 이동</b>하고,'+
     ' <b>밴드</b>를 누르면 원문 글이 열립니다.</div>'+
-    (l.length?helpBox(l[0].issue):'')+
     '<div class="lhead"><b>목록</b><span>'+l.length+'건</span></div>'+
     '<div class="slist">' + (l.map(function(i){
       const key = i.prj||i.id;
@@ -2887,6 +3044,7 @@ function openAssignee(name){
         '<span class="camp">'+(i.date||'-')+'</span></div>'+
         (i.desc?'<div class="meta"><span style="flex:1">'+i.desc+'</span></div>':'')+'</div>';
     }).join('') || '<div class="card">항목 없음</div>') + '</div>'+
+    (l.length?helpBox(l[0].issue):'')+
     '<div class="actions sticky">'+
       '<button class="abtn primary" onclick="shareAssignee()"><span class="em">📤</span>이미지로 전달</button>'+
       '<button class="abtn" onclick="captureAssignee()"><span class="em">💾</span>이미지 저장</button></div>');
@@ -2918,10 +3076,13 @@ function openMine(idx){
 }
 
 /* 담당자 전달용 이미지 — 캔버스 직접 렌더(외부 리소스 0, 폰·PC 동일) */
+const ASSIGNEE_CAP = 60;
 async function assigneeToPng(name){
-  const l = (window._board||{})[name]||[];
+  const all = (window._curAssignee===name && Array.isArray(window._curAssigneeList))
+    ? window._curAssigneeList : ((window._board||{})[name]||[]);
+  const l = all.slice(0, ASSIGNEE_CAP), cut=all.length>l.length;
   const S=2, W=760, rowH=52, headH=100;
-  const H = headH + 40 + Math.max(1,l.length)*rowH + 52;
+  const H = headH + 40 + Math.max(1,l.length)*rowH + (cut?24:0) + 52;
   const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
   const ctx=cv.getContext('2d'); ctx.scale(S,S);
   const F=(s,w)=>(w||400)+' '+s+'px "Nanum Gothic","Malgun Gothic",sans-serif';
@@ -2936,7 +3097,7 @@ async function assigneeToPng(name){
   ctx.fillStyle=g; ctx.fillRect(0,0,W,headH);
   await drawLogo(ctx,26,24,36,true);
   txt('확인 요청 · '+name, 86, 44, F(20,800), '#fff');
-  txt('Coupang Service Operations System · 확인 필요 '+l.length+'건', 86, 68, F(11.5), '#9FB4E8');
+  txt('Coupang Service Operations System · 확인 필요 '+all.length+'건', 86, 68, F(11.5), '#9FB4E8');
   txt(new Date().toLocaleDateString('ko-KR'), W-26, 44, F(12.5,700), '#fff','right');
   let y = headH + 30;
   txt('프로젝트NO',26,y,F(10.5,800),'#667085'); txt('구분 · 캠프',176,y,F(10.5,800),'#667085');
@@ -2954,6 +3115,11 @@ async function assigneeToPng(name){
     if(i.desc) txt(clip(i.desc, 380), 176, t+42, F(10.5), '#98A2B3');
   });
   y += list.length*rowH + 22;
+  if(cut){
+    txt('※ 이미지에는 '+l.length+'건만 표시했습니다 (전체 '+all.length+'건은 앱 목록에서 확인).',
+        26, y, F(11,800), '#B42318');
+    y += 22;
+  }
   txt('※ 처리 후 밴드에 게시하거나 회신해 주세요.', 26, y, F(11), '#98A2B3');
   txt('자동 생성 · CSOS Agent', W-26, y, F(10), '#98A2B3','right');
   return new Promise(res=>cv.toBlob(res,'image/png'));
@@ -3128,6 +3294,69 @@ async function shareMine(){
 function assigneeFileName(){
   return 'CSOS_확인요청_'+(window._curAssignee||'담당자')+'_'+new Date().toISOString().slice(0,10)+'.png';
 }
+async function metricToPng(label){
+  const d=metricDetail(label), all=d.rows||[], rows=all.slice(0,METRIC_CAP), cut=all.length>rows.length;
+  const S=2, W=760, rowH=52, headH=100;
+  const H=headH+40+Math.max(1,rows.length)*rowH+(cut?24:0)+74;
+  const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
+  const ctx=cv.getContext('2d'); ctx.scale(S,S);
+  const F=(s,w)=>(w||400)+' '+s+'px "Nanum Gothic","Malgun Gothic",sans-serif';
+  const txt=(t,x,y,f,c,a)=>{ctx.font=f;ctx.fillStyle=c;ctx.textAlign=a||'left';
+    ctx.fillText(String(t==null?'':t),x,y);ctx.textAlign='left';};
+  const box=(x,y,w,h,fill,r)=>{ctx.beginPath();ctx.roundRect(x,y,w,h,r||8);ctx.fillStyle=fill;ctx.fill();};
+  const clip=(t,max)=>{let s=String(t==null?'':t);if(ctx.measureText(s).width<=max)return s;
+    while(s.length>1&&ctx.measureText(s+'…').width>max)s=s.slice(0,-1);return s+'…';};
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
+  const g=ctx.createLinearGradient(0,0,W,headH);g.addColorStop(0,'#0E1B3F');g.addColorStop(1,'#2452E6');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,headH);
+  await drawLogo(ctx,26,24,36,true);
+  txt(clip(label,520),86,44,F(20,800),'#fff');
+  const pc=d.project_count!=null?d.project_count+'개 프로젝트 · ':'';
+  txt('2026년 기준 · '+pc+all.length+'건'+((+d.amount||0)?' · '+fmt(Math.abs(+d.amount))+'원':''),
+      86,68,F(11.5),'#9FB4E8');
+  txt(new Date().toLocaleDateString('ko-KR'),W-26,44,F(12.5,700),'#fff','right');
+  let y=headH+30;
+  txt('프로젝트NO · 프로젝트명 / 캠프',26,y,F(10.5,800),'#667085');
+  txt('금액·상태',W-150,y,F(10.5,800),'#667085','right');
+  txt('일자',W-26,y,F(10.5,800),'#667085','right');
+  y+=10;ctx.strokeStyle='#D0D8E6';ctx.beginPath();ctx.moveTo(26,y);ctx.lineTo(W-26,y);ctx.stroke();
+  const list=rows.length?rows:[{프로젝트NO:'—',프로젝트명:'해당 건 없음',캠프명:'',일자:'-'}];
+  list.forEach((r,n)=>{
+    const t=y+n*rowH;if(n%2)box(26,t+4,W-52,rowH-8,'#F6F9FD',8);
+    txt(clip((r.프로젝트NO||r.ID||'')+' · '+(r.프로젝트명||''),340),26,t+23,F(12.5,800),'#101828');
+    txt(clip(r.캠프명||'',340),26,t+41,F(11),'#667085');
+    const value=(+r.금액||0)?fmt(Math.abs(+r.금액))+'원':(r.상태||r.출처||'');
+    txt(clip(value,170),W-150,t+29,F(11.5,700),'#475467','right');
+    txt(r.일자||'-',W-26,t+29,F(10.5),'#667085','right');
+  });
+  y+=list.length*rowH+18;
+  if(cut){txt('※ 이미지에는 '+rows.length+'건만 표시 (전체 '+all.length+'건은 앱에서 확인).',
+      26,y,F(11,800),'#B42318');y+=22;}
+  txt(clip('집계 기준: '+(d.basis||''),680),26,y,F(10.5),'#667085');
+  txt('자동 생성 · CSOS Agent',W-26,y+22,F(10),'#98A2B3','right');
+  return new Promise(res=>cv.toBlob(res,'image/png'));
+}
+function metricFileName(){
+  return 'CSOS_'+String(window._curMetricLabel||'목록').replace(/[\/:*?"<>|\s·()]/g,'')+
+    '_'+new Date().toISOString().slice(0,10)+'.png';
+}
+async function saveExecMetric(){
+  let b;try{b=await metricToPng(window._curMetricLabel);if(!b)throw new Error('빈 이미지');}
+  catch(e){alert('이미지 생성 실패: '+e);return;}
+  saveOrOpen(b,metricFileName());
+}
+async function shareExecMetric(){
+  let b;try{b=await metricToPng(window._curMetricLabel);if(!b)throw new Error('빈 이미지');}
+  catch(e){alert('이미지 생성 실패: '+e);return;}
+  const label=window._curMetricLabel||'확인 목록';
+  const f=new File([b],metricFileName(),{type:'image/png'});
+  try{
+    if(navigator.canShare&&navigator.canShare({files:[f]})){
+      await navigator.share({files:[f],title:label,text:'[CSOS] '+label+' 확인 목록'});return;
+    }
+  }catch(e){if(e.name==='AbortError')return;}
+  saveOrOpen(b,metricFileName());
+}
 async function captureAssignee(){
   let b;
   try{ b = await assigneeToPng(window._curAssignee); if(!b) throw new Error('빈 이미지'); }
@@ -3140,7 +3369,7 @@ async function shareAssignee(){
   catch(e){ alert('이미지 생성 실패: '+e); return; }
   const f = new File([b], assigneeFileName(), {type:'image/png'});
   const name = window._curAssignee||'';
-  const n = ((window._board||{})[name]||[]).length;
+  const n = (window._curAssigneeList||[]).length;
   try{
     if(navigator.canShare && navigator.canShare({files:[f]})){
       await navigator.share({files:[f], title:'확인 요청 · '+name,
@@ -3148,7 +3377,7 @@ async function shareAssignee(){
       return;
     }
   }catch(e){ if(e.name==='AbortError') return; }
-  captureAssignee();
+  saveOrOpen(b, assigneeFileName());
 }
 
 /* 캡처 이미지용 CSOS 마크 — 앱 아이콘과 같은 도형을 캔버스로 직접 그린다(외부 리소스 0) */
