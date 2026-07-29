@@ -3136,6 +3136,35 @@ def t75_gcal_sync():
     print("  [75] 구글 캘린더 — 예정열만·구분일치·비밀주소 보호·앱 캐시경유 ✅")
 
 
+def t78_recalc_pending_visible():
+    """"원장엔 넣었다는데 앱엔 왜 없지?" 를 앱이 스스로 설명하게 한다.
+
+    2026-07-29 실제 상황: 06시트에 청구 636건을 넣었지만 정산ID·금액이 **수식**이라
+    엑셀이 계산하기 전까지 앱은 옛 건수만 읽었다. 숫자가 틀린 게 아니라 아직 안 나온 것인데,
+    화면이 그 말을 안 하면 사용자는 자료가 사라졌다고 읽는다.
+    ★ 고칠 수 없는 것(엑셀 수식 계산)은 **드러내는 것**이 정답이다.
+    """
+    import recalc_pending as R
+    assert R.self_test(), "recalc_pending 자체 검증 실패"
+    # 수식이 돌려준 빈 문자열을 '값 있음'으로 세면 대기가 0이 되어 배너가 안 뜬다
+    assert R.count_rows(["AS-1", "AS-2"], ["", None]) == (2, 0)
+
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert '"recalc": get_recalc_pending()' in server, "상태 API가 대기 건수를 안 내려준다"
+    assert "재계산대기.json" in server and "recalc_pending.py" in daily
+    assert "renderRecalc(s.recalc)" in live and 'id="recalccard"' in live
+
+    # 라벨: 같은 숫자를 두 이름으로 부르면 두 개인 줄 안다
+    assert "'정산 누적'" not in live, "히어로와 KPI가 같은 값을 다른 이름으로 부른다"
+    assert live.count("'정산 건수'") >= 2
+    assert "'공급가액 합계'" not in live, "어느 공급가액인지 드러나야 한다(작업/명세서/계산서 3종)"
+    assert "'작업 공급가액'" in live
+    assert "계산서 발행 후 미입금" in live, "미수금이 '떼인 돈'으로 읽힌다"
+    print("  [78] 재계산 대기 안내 + 라벨 모호성 제거(같은 값 한 이름·금액 종류 명시) ✅")
+
+
 def t77_side_work_single_switch():
     """철거·신규납품: DB엔 남기고 앱에서만 숨긴다 — **스위치는 하나처럼 움직여야 한다**.
 
@@ -3298,6 +3327,7 @@ if __name__ == "__main__":
     t74_billing_fill()
     t75_gcal_sync()
     t77_side_work_single_switch()
+    t78_recalc_pending_visible()
     t76_source_organizer()
     t55_pm_brief_drilldown_and_capture()
     t58_check_hub_detail_and_capture()

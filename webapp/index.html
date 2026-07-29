@@ -771,6 +771,11 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
       <h2>Coupang Service Operations System — 현황</h2>
       <div class="hstats" id="heroStats"></div>
     </div>
+    <!-- 원장엔 올라왔는데 엑셀이 아직 계산 안 해서 화면에 없는 건 — 숫자가 틀린 게 아니라 대기 중이다 -->
+    <div class="card" id="recalccard" style="display:none;border:2px solid var(--warn)">
+      <h3 style="color:var(--warn)">엑셀을 한 번 열어 주세요</h3>
+      <div id="recalcmsg" style="font-size:13.5px;line-height:1.65"></div>
+    </div>
     <div class="card rep-card" id="repCard">
       <div class="rep-head">
         <div class="rep-title">유수비 대표 예외보고
@@ -1118,13 +1123,13 @@ async function loadStatus(){
     <div class="v">${val}</div>${sub?`<div class="s">${sub}</div>`:''}</div>`;
   $('kpis').innerHTML =
     tile('accent','📋','정산 건수', rows.length||'-', `유상 ${유상.length}건 · 클릭=목록`, "goList('settle','')") +
-    tile('','💰','공급가액 합계', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원 · 클릭=내역', "goList('settle','')") +
-    tile(미수?'warn':'ok','⏳','미수금', fmt(미수), '원 · 클릭=입금대기 목록', "goList('settle','입금 대기')") +
+    tile('','💰','작업 공급가액', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원 · 실제 작업분 · 클릭=내역', "goList('settle','')") +
+    tile(미수?'warn':'ok','⏳','미수금', fmt(미수), '원 · 계산서 발행 후 미입금 · 클릭=목록', "goList('settle','입금 대기')") +
     tile(발행===유상.length&&유상.length?'ok':'','🧾','계산서 발행율',
       (유상.length?Math.round(발행/유상.length*100):0)+'%',
       `${발행}/${유상.length}건 <span class="bar"><i style="width:${유상.length?발행/유상.length*100:0}%"></i></span>`,
       "goList('settle','세금계산서 미발행')") +
-    tile(issues.length?'danger':'ok','⚠️','정산 조치 필요', issues.length, issues.length?'클릭해 아래 유형 확인':'모두 정상',
+    tile(issues.length?'danger':'ok','⚠️','조치 필요', issues.length, issues.length?'클릭해 아래 유형 확인':'모두 정상',
       "flashTop()") +
     tile(asOpen?'warn':'','🔧','돌발AS 진행중', asOpen, `전체 ${(works.as||[]).length}건 · 클릭=목록`, "goList('as','')") +
     tile(pmWait?'warn':'','🗓','정기점검 대기', pmWait, `전체 ${(works.pm||[]).length}건 · 클릭=목록`, "goList('pm','')") +
@@ -1163,14 +1168,15 @@ async function loadStatus(){
   $('heroAgent').textContent = '에이전트 ' + (s.agent_last ? s.agent_last.slice(5,16) + ' 실행' : '대기');
   const hs = (l,v)=>`<div class="hstat">${l}<b>${v}</b></div>`;
   $('heroStats').innerHTML =
-    hs('정산 누적', (rows.length||0)+'건') +
-    hs('공급가액', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))+'원') +
+    hs('정산 건수', (rows.length||0)+'건') +
+    hs('작업 공급가액', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))+'원') +
     hs('조치 필요', issues.length+'건') +
-    (srcStats.band ? hs('밴드 검증', `${srcStats.band.ok}/${srcStats.band.total}`) : '') +
+    (srcStats.band ? hs('밴드 사진 확인', `${srcStats.band.total}건 중 ${srcStats.band.ok}건`) : '') +
     (s.tunnel ? hs('외부접속', '연결됨') : '');
   window._agentSteps = s.steps || [];          // 대시보드 캡처용
   const icon = {ok:'✅',skip:'⏭',fail:'❌'};
   $('steps').innerHTML = (s.steps||[]).map(t=>`<div class="step"><span class="ic">${icon[t.s]||'·'}</span>${t.n}</div>`).join('') || '<span style="color:var(--muted)">아직 실행 기록 없음</span>';
+  renderRecalc(s.recalc);
   if(s.fork && s.fork.length){ $('forkcard').style.display='block';
     $('forkmsg').textContent = `구버전 ${s.fork.join(', ')} 이 최신본보다 나중에 수정되었습니다. 잘못된 파일에 입력 중일 수 있으니 확인하세요.`; }
   else $('forkcard').style.display='none';
@@ -2178,6 +2184,25 @@ function mdRender(t){
 /* ── 구글 캘린더(COUPANG 설치+납품+AS) ──────────────────────────
    서버가 gcal_sync 캐시를 그대로 준다. 앱은 구글을 직접 부르지 않는다 —
    폰에서 열 때 외부를 기다리면 화면이 멈춘다. */
+/* ★ "원장엔 넣었다는데 앱엔 왜 없지?" 를 없앤다.
+   06시트 정산ID·금액은 **수식**이라 엑셀이 한 번 계산해야 값이 생긴다. 그때까지 앱은
+   옛 건수만 읽는다 — 숫자가 틀린 게 아니라 아직 안 나온 것이다. 그 사실을 화면이 말한다.
+   (도구로 대신 계산할 수 없다: 엑셀 수식은 엑셀만 계산하고, 빈 행에 미리 써넣으면
+    v259 처럼 엉뚱한 건에 붙는다) */
+function renderRecalc(rc){
+  const card = $('recalccard');
+  if(!card) return;
+  const n = (rc && rc.대기합계) || 0;
+  if(!n){ card.style.display='none'; return; }
+  const 목록 = (rc.항목||[]).map(x=>`<b>${esc2(x.이름)} ${x.대기.toLocaleString()}건</b>`).join(' · ');
+  card.style.display='block';
+  $('recalcmsg').innerHTML =
+    `관리대장에는 이미 올라와 있지만, 엑셀이 아직 계산하지 않아 <b>이 앱에 안 나오는 건이 ${n.toLocaleString()}건</b> 있습니다.<br>
+     ${목록}<br>
+     <span style="color:var(--muted)">숫자가 틀린 게 아니라 <b>대기 중</b>입니다.
+     관리대장을 엑셀에서 한 번 열었다 닫으면 계산이 끝나고 바로 반영됩니다.</span>`;
+}
+
 var CAL = null;   // let 이면 applyView 가 먼저 불릴 때 TDZ 로 죽는다
 /* 캘린더도 같은 관문을 지난다 — 철거·납품 일정은 원장(05시트)에 계속 쌓이지만 화면에선 뺀다.
    SHOW_SIDE_WORK 를 켜면 여기도 자동으로 같이 나온다. 목록·카운트·시트 전부 이 함수만 쓴다. */

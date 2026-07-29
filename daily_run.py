@@ -99,6 +99,10 @@ def main():
     #      주소 하나 없다고 일일 파이프라인 전체가 실패로 물들면 안 된다.
     steps.append(run("구글 캘린더 대조", [os.path.join(ROOT, "gcal_sync.py"), "--queue"]))
 
+    # 2.96 재계산 대기 세기 — 원장엔 올라왔는데 엑셀이 아직 계산 안 해 앱에 안 나오는 건.
+    #      숫자가 틀린 게 아니라 대기 중이라는 걸 앱이 스스로 말하게 한다(사용자 오해 방지).
+    steps.append(run("재계산 대기 확인", [os.path.join(ROOT, "recalc_pending.py")]))
+
     # 3. 밴드 수집·대조 — 공식 API 토큰이 있으면 수집+대조, 브라우저 수집 캐시만 있으면 대조만
     band_cache = [f for f in glob.glob(os.path.join(ROOT, "band", "cache", "*.json"))
                   if not os.path.basename(f).startswith(("raw_", "dump_"))]

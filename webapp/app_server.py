@@ -1370,6 +1370,17 @@ def get_erpdocs():
     return out
 
 
+def get_recalc_pending():
+    """원장엔 올라왔지만 엑셀이 아직 계산하지 않아 화면에 안 나오는 건수.
+
+    이걸 안 알려주면 사용자는 '넣었다는데 왜 없지?' 로 읽는다 — 숫자가 틀린 게 아니라
+    아직 안 나온 것이다. recalc_pending.py 가 만들어 둔 캐시만 읽는다(원장 재읽기는 느리다)."""
+    try:
+        return json.load(open(os.path.join(ROOT, "reports", "재계산대기.json"), encoding="utf-8"))
+    except Exception:
+        return {"대기합계": 0, "항목": [], "안내": ""}
+
+
 def get_calendar():
     """구글 캘린더(COUPANG 설치+납품+AS) 대조 캐시.
 
@@ -1684,7 +1695,7 @@ def get_status():
                 "fork": st.get("fork", []), "agent_last": rt or "기록 없음", "steps": steps,
                 "pending_updates": st["pending_updates"], "inbox": st["inbox"],
                 "kakao": st["kakao"], "band": st["band_auth"], "demo": False, "tunnel": tunnel,
-                "sources": srcs, "build": build_id()}
+                "sources": srcs, "build": build_id(), "recalc": get_recalc_pending()}
     except Exception as e:
         return {"error": str(e)}
 
