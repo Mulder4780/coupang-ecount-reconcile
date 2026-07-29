@@ -12,9 +12,11 @@ PC에서 실행하면 같은 와이파이의 휴대폰·다른 PC가 브라우�
 
 보안: 4자리 PIN(첫 요청 시 입력, 기기에 저장). 사내 LAN 전용 설계 — 외부 인터넷 개방 금지.
 """
-import sys, os, re, json, glob, time, threading, random, subprocess, hashlib
+import sys, os, re, json, glob, time, threading, random, subprocess, hashlib, io, shutil
 from collections import deque
 from datetime import datetime, date, timedelta
+from email import policy as email_policy
+from email.parser import BytesParser
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 try:
@@ -50,6 +52,222 @@ def load_pin():
 
 
 PIN = load_pin()
+
+# 앱에서 확정한 운영기준은 관리대장 수식과 섞지 않고 작은 런타임 DB로 보관한다.
+# reports/는 git 제외 대상이며, 저장 성공 직후 대표보고·확인필요 화면이 같은 값을 읽는다.
+POLICY_FILE = os.path.join(ROOT, "reports", "operating_policies.json")
+
+
+def load_policy_state():
+    try:
+        data = json.load(open(POLICY_FILE, encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_policy_state(key, value):
+    os.makedirs(os.path.dirname(POLICY_FILE), exist_ok=True)
+    data = load_policy_state()
+    data[str(key)] = value
+    tmp = POLICY_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, POLICY_FILE)
+    return data
+
+
+def multipart_parts(content_type, raw):
+    """표준 라이브러리만으로 multipart/form-data를 안전하게 푼다."""
+    if "multipart/form-data" not in str(content_type or ""):
+        raise ValueError("multipart/form-data 형식이 아닙니다")
+    head = f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("ascii", "ignore")
+    msg = BytesParser(policy=email_policy.default).parsebytes(head + raw)
+    fields, files = {}, {}
+    for part in msg.iter_parts():
+        name = part.get_param("name", header="content-disposition")
+        if not name:
+            continue
+        data = part.get_payload(decode=True) or b""
+        filename = part.get_filename()
+        if filename:
+            files[name] = {"filename": os.path.basename(str(filename)), "data": data,
+                           "content_type": part.get_content_type()}
+        else:
+            charset = part.get_content_charset() or "utf-8"
+            try:
+                fields[name] = data.decode(charset, errors="replace").strip()
+            except LookupError:
+                fields[name] = data.decode("utf-8", errors="replace").strip()
+    return fields, files
+
+
+def _safe_upload_name(name):
+    name = os.path.basename(str(name or "")).strip()
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", name)
+    return name[:160] or "kakao.txt"
+
+
+def _kakao_text_kind(data):
+    """두 카톡방 파일이 서로 바뀌어 올라와도 본문 제목으로 자동 분류한다."""
+    text = ""
+    for enc in ("utf-8-sig", "utf-8", "cp949"):
+        try:
+            text = data.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if not text:
+        raise ValueError("카카오톡 텍스트 인코딩을 읽을 수 없습니다")
+    head = text[:1500]
+    if "쿠팡정기점검" in head:
+        return "정기점검", text
+    if "쿠팡돌발점검" in head:
+        return "돌발점검", text
+    raise ValueError("파일 첫 부분에서 ‘쿠팡정기점검’ 또는 ‘쿠팡돌발점검’ 대화방을 확인하지 못했습니다")
+
+
+def save_ryu_upload(fields, files):
+    """류지영 업무방 업로드를 원본 자료에 보존하고 카톡 자동대조 inbox로 넘긴다."""
+    from source_dirs import KAKAO_DIR
+    needed = [files.get("kakao_regular"), files.get("kakao_emergency")]
+    if any(not x for x in needed):
+        raise ValueError("정기점검방과 돌발점검방 텍스트 파일을 각각 첨부해 주세요")
+    found = {}
+    parsed = []
+    for f in needed:
+        if not f["filename"].lower().endswith(".txt"):
+            raise ValueError("카카오톡 대화내역은 .txt 파일만 첨부할 수 있습니다")
+        if len(f["data"]) > 20_000_000:
+            raise ValueError("카카오톡 텍스트 파일은 각 20MB 이하만 가능합니다")
+        kind, _text = _kakao_text_kind(f["data"])
+        if kind in found:
+            raise ValueError(f"{kind} 대화방 파일이 두 번 첨부되었습니다")
+        found[kind] = f
+    if set(found) != {"정기점검", "돌발점검"}:
+        raise ValueError("정기점검방·돌발점검방 두 종류가 모두 필요합니다")
+    evidence = files.get("evidence_file")
+    if evidence and evidence.get("data"):
+        if len(evidence["data"]) > 25_000_000:
+            raise ValueError("추가 근거 파일은 25MB 이하만 가능합니다")
+        evidence_ext = os.path.splitext(evidence["filename"])[1].lower()
+        if evidence_ext not in (".png", ".jpg", ".jpeg", ".webp", ".pdf", ".xlsx", ".docx", ".txt"):
+            raise ValueError("추가 근거는 이미지·PDF·Excel·Word·텍스트 파일만 가능합니다")
+
+    now = datetime.now()
+    day_dir = os.path.join(KAKAO_DIR, f"{now:%Y}", f"{now:%m}", f"{now:%Y-%m-%d}")
+    inbox = os.path.join(ROOT, "kakao", "inbox")
+    os.makedirs(day_dir, exist_ok=True)
+    os.makedirs(inbox, exist_ok=True)
+    stamp = now.strftime("%Y%m%d_%H%M%S")
+    saved = []
+    for kind in ("정기점검", "돌발점검"):
+        f = found[kind]
+        original = _safe_upload_name(f["filename"])
+        name = f"(류지영)_{kind}_{stamp}_{original}"
+        dest = os.path.join(day_dir, name)
+        with open(dest, "wb") as out:
+            out.write(f["data"])
+        # 자동대조 도구는 로컬 inbox의 txt를 즉시 읽는다. 원본은 Z:에 보존하고,
+        # 작은 텍스트 사본만 로컬에 두어 PC 용량과 대조 속도를 모두 지킨다.
+        inbox_path = os.path.join(inbox, name)
+        shutil.copy2(dest, inbox_path)
+        try:
+            from kakao.kakao_reconcile import parse_export
+            count = len(parse_export(dest))
+        except Exception:
+            count = 0
+        saved.append({"방": kind, "파일": name, "메시지": count})
+
+    evidence_saved = ""
+    if evidence and evidence.get("data"):
+        evidence_saved = f"(류지영)_추가근거_{stamp}_{_safe_upload_name(evidence['filename'])}"
+        with open(os.path.join(day_dir, evidence_saved), "wb") as out:
+            out.write(evidence["data"])
+
+    manifest = {
+        "등록일시": now.isoformat(timespec="seconds"),
+        "등록자": fields.get("submitter") or "류지영",
+        "조사기준일": fields.get("survey_date") or f"{now:%Y-%m-%d}",
+        "조사메모": fields.get("survey_note") or "",
+        "업무구분": fields.get("work_kind") or "",
+        "프로젝트NO": fields.get("project_no") or "",
+        "캠프명": fields.get("camp_name") or "",
+        "담당자": fields.get("assignee") or "",
+        "처리상태": fields.get("work_status") or "",
+        "완료일": fields.get("completed_date") or "",
+        "조치내용": fields.get("action_note") or "",
+        "추가근거": evidence_saved,
+        "파일": saved,
+    }
+    with open(os.path.join(day_dir, f"(류지영)_업로드기록_{stamp}.json"), "w", encoding="utf-8") as out:
+        json.dump(manifest, out, ensure_ascii=False, indent=2)
+    os.makedirs(os.path.join(ROOT, "reports"), exist_ok=True)
+    with open(os.path.join(ROOT, "reports", "ryu_submissions.jsonl"), "a", encoding="utf-8") as out:
+        out.write(json.dumps(manifest, ensure_ascii=False) + "\n")
+    return manifest
+
+
+def rows_xlsx(payload):
+    """담당자 회신용 독립 XLSX를 메모리에서 만든다(관리대장은 절대 열어 저장하지 않는다)."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    title = str(payload.get("title") or "확인목록")[:80]
+    rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
+    rows = [r for r in rows[:5000] if isinstance(r, dict)]
+    columns = [
+        ("프로젝트NO", "프로젝트NO"), ("업무ID", "업무ID"), ("캠프명", "캠프명"),
+        ("구분", "구분"), ("확인사항", "확인사항"), ("현재상태", "현재상태"),
+        ("기준일자", "기준일자"), ("담당자", "담당자"),
+        ("담당자 입력", "담당자입력"), ("처리결과", "처리결과"),
+        ("완료일", "완료일"), ("첨부파일·근거", "첨부파일근거"), ("회신메모", "회신메모"),
+    ]
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "담당자 회신"
+    ws.append([x[0] for x in columns])
+    head_fill = PatternFill("solid", fgColor="203A75")
+    thin = Side(style="thin", color="D9E1EF")
+    for c in ws[1]:
+        c.font = Font(color="FFFFFF", bold=True)
+        c.fill = head_fill
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = Border(bottom=thin)
+
+    def safe(v):
+        if v is None:
+            return ""
+        s = str(v)
+        return "'" + s if s.startswith(("=", "+", "-", "@")) else s
+
+    for r in rows:
+        ws.append([safe(r.get(key, "")) for _label, key in columns])
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:M{max(1, ws.max_row)}"
+    widths = [18, 16, 28, 16, 42, 16, 14, 15, 22, 18, 14, 32, 38]
+    for i, width in enumerate(widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = width
+    for row in ws.iter_rows(min_row=2):
+        for c in row:
+            c.alignment = Alignment(vertical="top", wrap_text=True)
+    guide = wb.create_sheet("작성안내")
+    guide.append(["항목", "작성 방법"])
+    guide.append(["담당자 입력", "확인한 사실이나 실제 조치내용을 적습니다."])
+    guide.append(["처리결과", "완료 / 진행중 / 확인불가 중 하나를 적습니다."])
+    guide.append(["완료일", "YYYY-MM-DD 형식으로 적습니다."])
+    guide.append(["첨부파일·근거", "파일명, 밴드 글, 카카오톡 근거 또는 URL을 적습니다."])
+    guide.append(["회신메모", "추가 확인이 필요한 내용을 자유롭게 적습니다."])
+    guide.column_dimensions["A"].width = 20
+    guide.column_dimensions["B"].width = 75
+    for c in guide[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = head_fill
+    out = io.BytesIO()
+    wb.save(out)
+    wb.close()
+    return out.getvalue(), title
 
 # 브루트포스 차단: IP당 로그인 5회 실패 → 10분 잠금 (외부 터널 공개 대비)
 _fails = {}
@@ -206,6 +424,36 @@ def start_task(key):
             runner["busy"], runner["done_at"] = False, datetime.now().isoformat()
     threading.Thread(target=work, daemon=True).start()
     return True, "started"
+
+
+_deferred_tasks = set()
+
+
+def defer_task_until_free(key, max_wait_seconds=1800):
+    """다른 작업 중이면 사람이 다시 누르지 않아도 끝나는 즉시 한 번 실행한다."""
+    with _rlock:
+        if key not in TASKS or key in _deferred_tasks:
+            return False
+        _deferred_tasks.add(key)
+
+    def wait_and_start():
+        try:
+            deadline = time.time() + max_wait_seconds
+            while time.time() < deadline:
+                with _rlock:
+                    busy = bool(runner["busy"])
+                if not busy:
+                    ok, _ = start_task(key)
+                    if ok:
+                        return
+                time.sleep(5)
+            runner["log"].append(f"[자동 대기] {TASKS[key][0]} 실행 대기 시간이 초과되었습니다.")
+        finally:
+            with _rlock:
+                _deferred_tasks.discard(key)
+
+    threading.Thread(target=wait_and_start, daemon=True).start()
+    return True
 
 
 # ───────────────────────── 데이터 ─────────────────────────
@@ -1020,13 +1268,25 @@ def representative_summary(works, settlements, base_date=""):
                 "금액": _metric_number(r.get("공급가액")),
             })
 
-    policies = [
-        {"기준": "돌발 AS·정기점검 거래명세서 묶음기간", "상태": "확인 필요"},
-        {"기준": "여러 거래명세서의 세금계산서 합산 기준", "상태": "확인 필요"},
-        {"기준": "세금계산서 건별·월합계 발행 기준", "상태": "확인 필요"},
-        {"기준": "PO 수신 전 세금계산서 발행 가능 여부", "상태": "확인 필요"},
-        {"기준": "다음 청구주기 이월 조건·승인자", "상태": "확인 필요"},
+    policy_names = [
+        "돌발 AS·정기점검 거래명세서 묶음기간",
+        "여러 거래명세서의 세금계산서 합산 기준",
+        "세금계산서 건별·월합계 발행 기준",
+        "PO 수신 전 세금계산서 발행 가능 여부",
+        "다음 청구주기 이월 조건·승인자",
     ]
+    saved_policy = load_policy_state()
+    policies, confirmed_policies = [], []
+    for name in policy_names:
+        state = saved_policy.get(name) if isinstance(saved_policy.get(name), dict) else {}
+        item = {
+            "기준": name,
+            "상태": str(state.get("상태") or "확인 필요"),
+            "확정내용": str(state.get("확정내용") or ""),
+            "저장일시": str(state.get("저장일시") or ""),
+            "저장자": str(state.get("저장자") or ""),
+        }
+        (confirmed_policies if item["상태"] == "확정" and item["확정내용"] else policies).append(item)
 
     one_line = (
         f"전산상 미완료 돌발 AS {len(backlog)}건 중 D+2 초과 {len(d2)}건, "
@@ -1069,6 +1329,7 @@ def representative_summary(works, settlements, base_date=""):
         },
         "거래명세서": {"업무유형별": statement_rows, "미발행목록": unissued_rows},
         "업무기준확인필요": policies,
+        "업무기준확정": confirmed_policies,
     }
 
 
@@ -1187,6 +1448,11 @@ def read_exec_details(master, base_date=""):
     details = {}
 
     def add(label, rows, basis, kind):
+        # 임의 기준일 보고를 만들 때 미래 행이 과거 캡처에 섞이지 않게 한다.
+        # 일자가 없는 현재 잔여·문서 경고는 원천상 시점을 판별할 수 없어 그대로 남긴다.
+        if base_date:
+            rows = [r for r in rows
+                    if not norm_date(r.get("일자")) or norm_date(r.get("일자")) <= base_date]
         rows = sorted_rows(rows)
         details[label] = {
             "rows": rows,
@@ -1307,7 +1573,8 @@ def read_exec_details(master, base_date=""):
     return details
 
 
-def get_exec_report():
+def get_exec_report(day=None):
+    requested = norm_date(day)
     if DEMO:
         labels = [
             "청구액 (당일)", "세금계산서 발행액 (당일)", "입금액 (당일)",
@@ -1336,16 +1603,17 @@ def get_exec_report():
             })
         details["문서 경고 총계"].update(rows=risk_rows, count=len(risk_rows))
         return {
-            "meta": {"보고일": "2026-07-25", "집계기준일": "2026-07-24", "보고자": "유현민"},
+            "meta": {"보고일": requested or "2026-07-25",
+                     "집계기준일": requested or "2026-07-24", "보고자": "유현민"},
             "summary": ["■ 데모 요약"],
             "sections": [
-                {"title": "2. 당일 업무 실적",
+                {"title": "1. 당일 업무 실적",
                  "items": [["신규 접수", "3"], ["작업 완료", "1"]], "lines": []},
-                {"title": "3. 당일 금액 · 잔여 현황",
+                {"title": "2. 당일 금액 · 잔여 현황",
                  "items": [["청구액 (당일)", "0"], ["세금계산서 발행액 (당일)", "0"],
                            ["입금액 (당일)", "0"], ["잔여 미청구액", "22,000"],
                            ["잔여 미수금액", "0"], ["작업금액 불일치 (현재)", "0"]]},
-                {"title": "4. 리스크 (현재 기준)",
+                {"title": "3. 리스크 (현재 기준)",
                  "items": [["문제 업무 건수(중복 제거)", "0"], ["문서 경고 총계", "75"],
                            ["세금계산서 기한 임박·초과", "0"], ["PO 미발행 · 확인필요", "0"],
                            ["거래명세서 미작성", "0"], ["아리바 청구 미등록", "0"],
@@ -1354,16 +1622,31 @@ def get_exec_report():
             "details": details,
         }
     with _readlock:
-        r = _fresh("exec")
+        r = _fresh("exec") if not requested else None
         if r:
             return r
         from ecount_reconcile import load_config, resolve_master
         master = resolve_master(load_config()["reconcile"]["master_xlsx"])
         r = read_exec_report(master)
-        r["details"] = read_exec_details(
-            master, norm_date((r.get("meta") or {}).get("집계기준일")
-                              or (r.get("meta") or {}).get("보고일"))
-        )
+        base = requested or norm_date((r.get("meta") or {}).get("집계기준일")
+                                      or (r.get("meta") or {}).get("보고일"))
+        r["details"] = read_exec_details(master, base)
+        if requested:
+            r.setdefault("meta", {})["보고일"] = requested
+            r["meta"]["집계기준일"] = requested
+            # 금액·리스크 타일은 선택일로 다시 계산한 상세 집계와 맞춘다.
+            for sec in r.get("sections", []):
+                for item in sec.get("items", []):
+                    d = r["details"].get(str(item[0]))
+                    if not d:
+                        continue
+                    if str(item[0]) == "문제 프로젝트 / 문제 행":
+                        item[1] = f"{d.get('project_count', 0)}개 / {d.get('count', 0)}건"
+                    elif d.get("kind") == "amount":
+                        item[1] = f"{int(d.get('amount') or 0):,}"
+                    else:
+                        item[1] = f"{int(d.get('count') or 0):,}"
+            return r
         return _store_cache("exec", r)
 
 
@@ -1456,6 +1739,12 @@ def brand_logo():
     d = os.path.join(BASE, "brand")
     if not os.path.isdir(d):
         return ""
+    # 보고서 캡처에는 사용자가 지정한 유니버셜리프트 가로 CI 한 장을 우선한다.
+    # 쿠팡 CI는 앱바에서 별도 자산으로 표시하므로 여기서 먼저 고르면 보고서의
+    # 유니버셜리프트 CI가 쿠팡 파일명 정렬순서에 밀려 사라진다.
+    preferred = "universal-lift-horizontal.png"
+    if os.path.isfile(os.path.join(d, preferred)):
+        return preferred
     for f in sorted(os.listdir(d)):
         if os.path.splitext(f)[1].lower() in (".png", ".svg", ".jpg", ".jpeg", ".webp"):
             return f
@@ -1929,7 +2218,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = self.path.split("?")[0]
-        if p in ("/", "/index.html"):
+        if p in ("/", "/index.html", "/ryu"):
             html = open(os.path.join(BASE, "index.html"), encoding="utf-8").read()
             # ★★ 터널 주소로 들어온 경우에는 **설치 가능하게 만들지 않는다**.
             #   터널 호스트는 띄울 때마다 바뀌는데, 여기서 [설치]를 하면 그 임시 호스트가
@@ -1951,6 +2240,12 @@ class H(BaseHTTPRequestHandler):
             if not ct or not os.path.exists(fp):
                 return self._send(404, {"error": "no brand asset"})
             return self._send(200, open(fp, "rb").read(), ct)
+        if p.startswith("/icons/"):
+            fn = os.path.basename(p)
+            fp = os.path.join(BASE, "icons", fn)
+            if not fn.endswith(".svg") or not os.path.isfile(fp):
+                return self._send(404, {"error": "no icon asset"})
+            return self._send(200, open(fp, "rb").read(), "image/svg+xml")
         if p == "/api/brief":
             # 대표 보고용 '내용' 브리핑. 화면·PC 리포트·폰 사본이 **같은 문장**을 쓰도록
             # daily_brief 하나만 출처로 삼는다(따로 만들면 숫자가 갈린다).
@@ -1997,10 +2292,10 @@ class H(BaseHTTPRequestHandler):
                 "start_url": "/", "scope": "/", "display": "standalone",
                 "background_color": "#060D2B", "theme_color": "#060D2B",
                 "icons": [
-                    {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
-                    {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
-                    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
-                    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]},
+                    {"src": "/icon-192.png?v=csos-20260729", "sizes": "192x192",
+                     "type": "image/png", "purpose": "any"},
+                    {"src": "/icon-512.png?v=csos-20260729", "sizes": "512x512",
+                     "type": "image/png", "purpose": "any maskable"}]},
                 "application/manifest+json")
         if p == "/api/ping":
             return self._send(200, {"app": "coupang-work", "demo": DEMO, "build": build_id()})
@@ -2022,7 +2317,11 @@ class H(BaseHTTPRequestHandler):
                 iss = {**iss, "rows": drop_side_work(iss["rows"])}
             return self._send(200, iss)
         if p == "/api/exec_report":
-            return self._send(200, get_exec_report())
+            m = re.search(r"[?&]date=(\d{4}-\d{2}-\d{2})", self.path)
+            day = m.group(1) if m else None
+            if day and not day.startswith(APP_YEAR + "-"):
+                return self._send(400, {"error": f"{APP_YEAR}년 날짜만 선택할 수 있습니다"})
+            return self._send(200, get_exec_report(day))
         if p in {
             "/api/v1/reports/daily/exceptions",
             "/api/v1/reports/daily/as-backlog",
@@ -2073,6 +2372,49 @@ class H(BaseHTTPRequestHandler):
             return self._band_dump()
         if not self._auth():
             return self._send(401, {"error": "PIN"})
+        if p == "/api/export_xlsx":
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 2_000_000:
+                return self._send(400, {"ok": False, "error": "내보낼 목록 크기가 올바르지 않습니다"})
+            try:
+                payload = json.loads(self.rfile.read(ln) or b"{}")
+                data, _title = rows_xlsx(payload)
+                return self._send(
+                    200, data,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            except Exception as e:
+                return self._send(500, {"ok": False, "error": f"엑셀 생성 실패: {str(e)[:160]}"})
+        if p == "/api/policy":
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 100_000:
+                return self._send(400, {"ok": False, "error": "저장 내용 크기가 올바르지 않습니다"})
+            b = json.loads(self.rfile.read(ln) or b"{}")
+            key = str(b.get("기준") or "").strip()
+            value = str(b.get("확정내용") or "").strip()
+            if not key or not value:
+                return self._send(400, {"ok": False, "error": "기준과 확정 내용을 입력하세요"})
+            state = {
+                "상태": "확정", "확정내용": value,
+                "저장자": str(b.get("저장자") or "앱 사용자")[:40],
+                "저장일시": datetime.now().isoformat(timespec="seconds"),
+            }
+            save_policy_state(key, state)
+            return self._send(200, {"ok": True, **state})
+        if p == "/api/ryu/upload":
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 45_000_000:
+                return self._send(400, {"ok": False, "error": "첨부 용량은 합계 45MB 이하여야 합니다"})
+            try:
+                fields, files = multipart_parts(self.headers.get("Content-Type", ""),
+                                                self.rfile.read(ln))
+                result = save_ryu_upload(fields, files)
+                started, msg = start_task("kakao")
+                queued = False if started else defer_task_until_free("kakao")
+                return self._send(200, {"ok": True, "saved": result,
+                                        "auto_check_started": started,
+                                        "auto_check_queued": queued, "msg": msg})
+            except Exception as e:
+                return self._send(400, {"ok": False, "error": str(e)[:260]})
         if p == "/api/enqueue":
             # 폰이 **PC 꺼진 동안 예약해 둔** 프로젝트 코드를 받아 원장에 등록한다.
             # 오프라인 앱이 PC가 살아난 걸 확인하는 즉시 스스로 보낸다(사람 개입 없음).

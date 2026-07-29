@@ -6,8 +6,9 @@ doc_ocr.py — 밴드에 올라온 거래명세서·세금계산서 **이미지*
 그 사진에서 번호·날짜·금액을 뽑아 관리대장(06 시트)과 맞춰본다.
 
 핵심 원칙
-  · OCR은 **Windows 내장 엔진**만 쓴다(band/ocr_win.ps1). 외부 API·업로드 없음 —
-    거래명세서·세금계산서는 금융 문서이므로 PC 밖으로 내보내지 않는다.
+  · 기본 OCR은 로컬 PaddleOCR 한국어 모델을 쓰고, 설치·실행 장애 때만 Windows 내장
+    엔진으로 자동 폴백한다. 둘 다 외부 API·업로드가 없으며 금융 문서는 PC 밖으로
+    내보내지 않는다.
   · OCR은 반드시 틀린다("UJ2601138"→"U]2601138", "2,000,000"→"2|000,000").
     그래서 라벨:값 인접이 아니라 **패턴 + 오인식 보정 + 금액 정합성(공급가+세액=합계)**
     으로 뽑고, 검증을 통과한 값만 신뢰한다.
@@ -20,7 +21,7 @@ doc_ocr.py — 밴드에 올라온 거래명세서·세금계산서 **이미지*
 
 이미지를 넣는 곳:  ecount/band/docs_inbox/   (밴드에서 저장한 사진을 그대로 복사)
 """
-import os, re, sys, csv, glob, json, subprocess
+import os, re, sys, csv, glob, json, subprocess, tempfile
 from datetime import datetime
 
 try:
@@ -36,7 +37,14 @@ REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports
 IMG_EXT = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp")
 
 # ── OCR ────────────────────────────────────────────────────────────────
-OCR_CACHE = os.path.join(HERE, "ocr_cache")
+# 대용량 OCR 캐시는 저장소 밖에 둔다. 작업폴더는 코드·작은 DB만 유지한다.
+LOCAL_APPDATA = os.environ.get("LOCALAPPDATA") or os.path.expanduser(r"~\AppData\Local")
+OCR_CACHE = os.environ.get("CSOS_OCR_CACHE") or os.path.join(LOCAL_APPDATA, "CSOS", "ocr_cache")
+PADDLE_PY = os.environ.get("CSOS_PADDLE_PY") or os.path.join(
+    LOCAL_APPDATA, "CSOS", "ocr_runtime", "Scripts", "python.exe")
+PADDLE_WORKER = os.path.join(HERE, "paddle_ocr_worker.py")
+OCR_ENGINE = str(os.environ.get("CSOS_OCR_ENGINE") or "auto").strip().lower()
+OCR_CACHE_VERSION = "paddle-ko-v5" if OCR_ENGINE in ("auto", "paddle") else "windows-v1"
 
 
 def _cache_path(path):
@@ -44,7 +52,7 @@ def _cache_path(path):
     daily_run의 600초 제한에 걸렸다(2026-07-26). 파일이 바뀌면 키도 바뀐다."""
     try:
         st = os.stat(path)
-        key = f"{os.path.basename(path)}|{st.st_size}|{int(st.st_mtime)}"
+        key = f"{OCR_CACHE_VERSION}|{os.path.abspath(path)}|{st.st_size}|{int(st.st_mtime)}"
     except OSError:
         key = os.path.basename(path)
     import hashlib
@@ -52,20 +60,75 @@ def _cache_path(path):
 
 
 def ocr_image(path, lang="ko", timeout=120):
-    """Windows 내장 OCR → 줄 단위 텍스트. 실패하면 빈 문자열."""
+    """한 장 호환 API. 스캔은 모델을 한 번만 올리는 ocr_images()를 사용한다."""
+    return ocr_images([path], lang=lang, timeout=timeout).get(path, "")
+
+
+def _read_cache(path):
     cp = _cache_path(path)
     if os.path.exists(cp):
         try:
             return open(cp, encoding="utf-8").read()
         except OSError:
             pass
-    text = _ocr_run(path, lang, timeout)
+    return None
+
+
+def _write_cache(path, text):
+    cp = _cache_path(path)
     try:
         os.makedirs(OCR_CACHE, exist_ok=True)
         open(cp, "w", encoding="utf-8").write(text)
     except OSError:
         pass
-    return text
+
+
+def _paddle_batch(paths, timeout):
+    if not paths or OCR_ENGINE == "windows":
+        return {}
+    if not (os.path.isfile(PADDLE_PY) and os.path.isfile(PADDLE_WORKER)):
+        return {}
+    os.makedirs(os.path.join(LOCAL_APPDATA, "CSOS"), exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="csos_ocr_", dir=os.path.join(LOCAL_APPDATA, "CSOS")) as td:
+        src, dst = os.path.join(td, "input.json"), os.path.join(td, "output.json")
+        with open(src, "w", encoding="utf-8") as f:
+            json.dump(list(paths), f, ensure_ascii=False)
+        env = dict(os.environ)
+        env.update({
+            "PYTHONIOENCODING": "utf-8",
+            "FLAGS_use_mkldnn": "0",
+            "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK": "True",
+        })
+        try:
+            r = subprocess.run(
+                [PADDLE_PY, PADDLE_WORKER, "--input", src, "--output", dst],
+                cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=max(timeout, len(paths) * 45))
+            if r.returncode or not os.path.isfile(dst):
+                return {}
+            raw = json.load(open(dst, encoding="utf-8"))
+            return {p: str((raw.get(p) or {}).get("text") or "") for p in paths}
+        except Exception:
+            return {}
+
+
+def ocr_images(paths, lang="ko", timeout=120):
+    """여러 장을 로컬 PaddleOCR 한 번의 모델 로딩으로 처리하고 실패한 장만 Windows로 폴백."""
+    out, pending = {}, []
+    for path in paths:
+        cached = _read_cache(path)
+        if cached is None:
+            pending.append(path)
+        else:
+            out[path] = cached
+    paddle = _paddle_batch(pending, timeout) if pending else {}
+    for path in pending:
+        text = paddle.get(path, "")
+        if not text:
+            text = _ocr_run(path, lang, timeout)
+        out[path] = text
+        _write_cache(path, text)
+    return out
 
 
 def _ocr_run(path, lang="ko", timeout=120):
@@ -279,9 +342,10 @@ def scan(folder=None, apply=False):
     except Exception as e:
         print(f"관리대장을 읽지 못함: {e}")
         recs = {}
+    texts = ocr_images(imgs)
     rows = []
     for p in imgs:
-        rec = parse_doc(ocr_image(p), p)
+        rec = parse_doc(texts.get(p, ""), p)
         sid, verdict = match(rec, recs) if recs else (None, "대장 미로드")
         rec["정산ID"] = sid or ""
         rec["판정"] = verdict

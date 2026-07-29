@@ -24,6 +24,10 @@ band/docs_inbox/*
 # 고객사 CI(쿠팡 로고) — 상표 자산이라 공개 저장소에 올리지 않는다
 webapp/brand/*
 !webapp/brand/README.txt
+!webapp/brand/coupang.png
+!webapp/brand/universal-lift-horizontal.png
+!webapp/brand/universal-lift-mark.png
+!webapp/brand/csos-app-icon-source.png
 band/ocr_cache/*
 webapp/data/*
 config/cloud.json

@@ -866,6 +866,11 @@ def t26_mobile():
     assert mf["start_url"] == FIX + "app.html", mf
     assert mf.get("scope", FIX).startswith(FIX.rstrip("/")), mf
     assert "trycloudflare" not in _j.dumps(mf)
+    assert any("icon-192.png?v=csos-20260729" in x.get("src", "") for x in mf["icons"]), mf
+    assert any("icon-512.png?v=csos-20260729" in x.get("src", "") for x in mf["icons"]), mf
+    for n in (32, 180, 192, 512):
+        fp = os.path.join(ROOT, "docs", f"icon-{n}.png")
+        assert os.path.getsize(fp) > 1000, fp
 
     # (3) 터널 주소는 어디에도 하드코딩돼 있으면 안 된다(리포트·설정 파일은 예외)
     hard = []
@@ -903,7 +908,7 @@ def t26_mobile():
     # ★★ 터널 주소에서는 **설치가 되면 안 된다**. 터널 호스트는 매번 바뀌는데 거기서
     #   설치하면 그 임시 주소가 아이콘에 영구히 박혀, 주소가 바뀌는 순간 영영 안 열린다
     #   (2026-07-28: PC·폰의 설치된 앱이 둘 다 옛 터널 주소로 죽었다).
-    i = src.index('if p in ("/", "/index.html")')
+    i = src.index('if p in ("/", "/index.html", "/ryu")')
     blk2 = src[i:i + 1200]
     assert "trycloudflare.com" in blk2 and 'rel="manifest"' in blk2,         "터널 출처에서 매니페스트를 빼지 않는다 — 거기서 설치하면 아이콘이 곧 죽는다"
     assert "serviceWorker.register" in blk2, "터널 출처에서 서비스워커도 빼야 설치가 안 뜬다"
@@ -1041,6 +1046,27 @@ def t6_webapp():
         # 메인 페이지 서빙
         html = urllib.request.urlopen(base + "/").read().decode("utf-8")
         assert "Coupang Service Operations System" in html and "tabbar" in html and "d_report" in html
+        # 제공받은 CSOS 아이콘을 앱·캡처에 공통 사용하고, 유니버셜 CI는
+        # 데스크톱에서 기존 118px의 2.5배(295px)로 표시한다.
+        assert '/icon-192.png?v=csos-20260729' in html
+        assert 'class="logo app-icon"' in html and "loadAppIconImg" in html
+        assert ".uni-app-brand{width:295px;height:42px" in html.replace(" ", "")
+        assert "drawUniversalLogo" in html and "universal-lift-horizontal.png" in html
+        for asset in ("icon-32.png", "icon-180.png", "icon-192.png", "icon-512.png"):
+            r = urllib.request.urlopen(base + "/" + asset)
+            assert r.headers.get_content_type() == "image/png" and len(r.read()) > 1000
+        # 공통 캡처 도구막대와 류지영 조사실(카톡 2개 방 원본)은 모든 화면에서
+        # 같은 저장·복사·엑셀 흐름을 쓴다.
+        for marker in ("media-tools", "icon-btn", "/icons/file-spreadsheet.svg",
+                       'id="v-ryu"', 'name="kakao_regular"', 'name="kakao_emergency"',
+                       "/api/ryu/upload", "★UNI★ 쿠팡정기점검", "★UNI★ 쿠팡돌발점검",
+                       "auto_check_queued"):
+            assert marker in html, "UI marker missing: " + marker
+        app_src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+        assert "def defer_task_until_free(" in app_src and '"auto_check_queued": queued' in app_src
+        assert "flex-wrap:nowrap!important" in html.replace(" ", "")
+        assert not re.search(r'<button[^>]+onclick="(?:save\w*Journal|share\w*)', html), \
+            "removed journal/share button is still exposed"
         # 원천 검증은 밴드·카톡·ERP·쿠팡PO 4종이 **자료 유무와 무관하게** 항상 표시돼야 한다
         assert "4원천 검증" in html, "원천 검증 제목이 4원천이 아님"
         assert "쿠팡 PO" in html and "PO 목록 투입 시 자동 대조" in html, "PO 원천 행 누락"
@@ -1049,7 +1075,7 @@ def t6_webapp():
             assert marker in html, f"대표 캡처 4원천 표 구조 누락: {marker}"
         assert "if(window.__view==='daily') renderDaily()" in html, \
             "4원천 상태가 늦게 도착했을 때 대표 보고가 갱신되지 않음"
-        assert html.count("renderDaily();\n    blob = await reportToPng();") == 2, \
+        assert "renderDaily();\n    blob = await reportToPng();" in html, \
             "이미지 저장·공유 직전에 최신 4원천 집계를 다시 묶지 않음"
         # 기간 필터: 프리셋 + 직접 지정 + 제외 건수 알림
         assert 'id="fperiod"' in html and 'id="fd1"' in html and 'id="fd2"' in html, "기간 선택 UI 누락"
@@ -1063,8 +1089,10 @@ def t6_webapp():
         for k in ("금액 미입력", "세금계산서 미발행", "PO 미발행", "ERP 계산서(묶음)"):
             assert f"'{k}'" in html or f'"{k}"' in html, f"{k} 안내 누락"
         assert "band/docs_inbox" in html and "처리 방법 · 용어 설명" in html, "도움말 항목 누락"
-        # 대표보고: 빈 절을 건너뛰고 요약이 '정리' 절 안으로 들어가야 한다(목차 중복 방지)
-        assert "usedSum" in html and "empty(s) && !isSum" in html, "빈 절 건너뛰기 로직 누락"
+        # 대표보고: 비어 있던 '정리' 절은 제거하고 화면 순서대로 1부터 다시 번호를 매긴다.
+        assert "cleanExecTitle" in html and "sectionNo += 1" in html, "대표보고 번호 재정렬 로직 누락"
+        assert "filter(s=>!/^(정리|요약)$/" in html, "빈 정리·요약 절 제거 로직 누락"
+        assert "dailyIssueHtml" in html and "이슈사항" in html, "당일 업무 이슈 구역 누락"
         assert ".esec" in html and ".esum" in html and ".egroup" in html, "대표보고 스타일 누락"
         # 목록 카드·표에서 프로젝트NO가 맨 앞·굵게 나와야 한다(4개 탭 전부)
         assert html.count('class="prjno"') >= 6, "프로젝트NO 강조 표기 부족"
@@ -2485,7 +2513,7 @@ def t49_exec_metric_drilldown_and_sheet_scroll(tmp):
     assert "#sheetbody{flex:1 1 auto;min-height:0;overflow-y:auto" in live
     assert re.search(r"(?m)^\s*#slist\{display:none\}", live), "데스크톱 정산 목록 범위가 없다"
     assert not re.search(r"(?m)^\s*\.slist\{display:none\}", live), "상세 시트 목록까지 숨긴다"
-    assert "const actions = body.querySelector('.actions.sticky')" in live
+    assert "const actions = body.querySelector('.actions.sticky,.media-tools.sticky')" in live
     assert "openRecord(${esc4(kind)},${esc4(id)},${esc4(prj)})" in live
     assert "window._board = Object.assign" not in live, "리스크 일부 목록이 전체 담당자 보드를 덮는다"
     assert "saveOrOpen(b, assigneeFileName())" in live, "공유 불가 시 이미지를 다시 렌더한다"
@@ -2852,7 +2880,8 @@ def t58_check_hub_detail_and_capture():
 
     # 현재 필터 결과를 기존 캡처 엔진에 넘겨 이미지 저장·전달 기능을 그대로 쓴다.
     assert "rows:rows.map(checkMetricRow)" in live and "openExecMetric(label)" in live
-    assert "현재 목록 전달" in live and "이미지로 전달" in live and "이미지 저장" in live
+    assert "현재 목록 보기" in live and "이미지 복사" in live and "이미지 저장" in live
+    assert "media-tools" in live and "/icons/clipboard-copy.svg" in live
     assert "@media(max-width:420px)" in live and ".tabbar button{font-size:9px" in live
 
     # PO번호만 있는 확인 행도 정산 PO번호 연결을 먼저 찾고, 없으면 경고창이 아닌 원문 상세를 연다.
@@ -3359,11 +3388,14 @@ def t79_work_log_source_sync_and_report_capture():
         assert marker in idx, f"PM progress/source synchronization missing: {marker}"
     brief = open(os.path.join(ROOT, "daily_brief.py"), encoding="utf-8").read()
     for marker in ("openWorkLogBrief", "돌발AS 현장 일지 대조", "정기점검 진행률 · 선택 기간", "pmProgress",
-                   "dailyBrief", "${dailyBrief.date||D.date} 당일 업무 실적",
+                   "dailyBrief", "drawDailyBrief",
                    "captureDailyTasks", "당일 별도 업무 처리", "BRIEF_LOADING", "BRIEF_RETRY",
                    "기준시작일", "취소·정상작동 상세", "데이터 업데이트"):
         assert marker in idx, f"일지/정기점검 대표 캡처 누락: {marker}"
     assert "대표 보고 · ${dailyBrief.date||D.date}" not in idx, "캡처 제목에 삭제 대상 문구가 남아 있음"
+    for marker in ("quarterTitle", "dailyIssues", "execPeriodTitle", "previewRptDate",
+                   "REPORT_PREVIEW_DATE", "const day = (_rptData&&_rptData.date)"):
+        assert marker in idx, f"선택 날짜·월/분기/연간 캡처 연동 누락: {marker}"
     app = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     for marker in ("def get_daily_brief(day=None)", "_brief_cache", 'result["데이터업데이트일시"]'):
         assert marker in app, f"대표 브리핑 캐시/업데이트 시각 누락: {marker}"

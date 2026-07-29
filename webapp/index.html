@@ -7,9 +7,9 @@
 <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>Coupang Service Operations System</title>
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="icon" href="/icon-32.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png">
+<link rel="icon" href="/icon-32.png?v=csos-20260729" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon.svg?v=csos-20260729" type="image/svg+xml">
+<link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png?v=csos-20260729">
 <link rel="manifest" href="/manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="CSOS">
@@ -41,16 +41,36 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#3D68FF,#1533A3 46%,#060D2B);
   display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 6px rgba(21,51,163,.5)}
 .logo svg{width:22px;height:22px}
+.logo.app-icon{background:none;box-shadow:0 3px 9px rgba(8,18,58,.26);overflow:hidden}
+.logo.app-icon img{display:block;width:100%;height:100%;object-fit:cover}
 /* 고객사 CI를 넣은 경우: 배경 없이 원본 그대로 (가이드라인상 변형 금지) */
 .logo.brand{background:none;box-shadow:none;border-radius:0;width:auto;min-width:34px;height:30px}
 .logo.brand img{height:100%;width:auto;max-width:130px;object-fit:contain;display:block}
 .rpt .rhead .logo.brand{height:38px;width:auto}
-.appbar .logo.brand{filter:brightness(0) invert(1)}   /* 남색 바 위에서는 흰색 로고 사용 */
+.rpt .rhead .logo{order:0}
+.rpt .rhead h2{order:1}
+.rpt .rhead .report-uni-brand{display:block;width:148px;height:25px;object-fit:contain;opacity:.82;flex:none;order:2}
+.rpt .rhead .rdate{order:3}
+@media(max-width:599px){
+  .rpt .rhead{flex-wrap:wrap;align-items:center}
+  .rpt .rhead h2{flex:1 0 calc(100% - 50px);min-width:0}
+  .rpt .rhead .report-uni-brand{width:116px;height:22px;margin-left:50px}
+  .rpt .rhead .rdate{flex:1 0 100%;margin-left:0;text-align:left}
+}
 .appbar h1{font-size:15px;font-weight:800;letter-spacing:-.2px;flex:1;line-height:1.2;min-width:0}
 .brandfull{display:none} .brandshort{display:inline}
 @media(min-width:600px){.brandfull{display:inline} .brandshort{display:none}}
 .appbar h1 small{display:block;font-size:10px;font-weight:600;color:#8FA3D9;letter-spacing:.4px}
 .appbar .sub{font-size:11px;color:#8FA3D9;font-variant-numeric:tabular-nums}
+.coupang-app-brand,.uni-app-brand{display:block;object-fit:contain;object-position:center;flex:none}
+.coupang-app-brand{width:78px;height:25px}
+.uni-app-brand{width:295px;height:42px;opacity:.82;border-radius:3px}
+@media(max-width:599px){
+  .appbar{gap:7px;padding-left:10px;padding-right:10px}
+  .coupang-app-brand{width:54px;height:20px}
+  .uni-app-brand{width:96px;height:24px;opacity:.74}
+  .appbar #clock{display:none}
+}
 .dot{width:8px;height:8px;border-radius:50%;background:#3DDC84;box-shadow:0 0 0 3px rgba(61,220,132,.22);flex:none}
 .dot.busy{background:#FFC53D;box-shadow:0 0 0 3px rgba(255,197,61,.22);animation:pulse 1s infinite}
 @keyframes pulse{50%{opacity:.35}}
@@ -287,7 +307,9 @@ button:focus-visible,.topitem:focus-visible,.srow:focus-visible,.check-kpi:focus
   font-family:Consolas,monospace;color:var(--brand-dk)}
 .helpbox .hwho{margin-top:9px;font-size:11.5px;font-weight:800;color:var(--ink-3)}
 /* ═══ 대표보고 절 — 목차가 또렷하고 글자가 읽히게 ═══ */
-.esec{margin-top:22px}
+.esec{margin-top:24px;padding:18px;border:1px solid #E0E7F2;border-radius:16px;
+  background:linear-gradient(180deg,#FFFFFF 0%,#FCFDFF 100%);
+  box-shadow:0 7px 22px rgba(15,31,75,.055)}
 .esec:first-child{margin-top:8px}
 /* ── 읽어 드릴 내용 ─────────────────────────────────────────────────────────
    한 건이 어디서 끝나는지 눈에 바로 들어와야 한다. 구역은 색 띠로, 한 건은 카드로,
@@ -387,24 +409,40 @@ button:focus-visible,.topitem:focus-visible,.srow:focus-visible,.check-kpi:focus
 .dbanner span{color:#4f46e5;opacity:.85}
 .dbanner .rd{margin-left:auto;background:#fff;border:1px solid #c7d2fe;
   border-radius:999px;padding:2px 9px;font-weight:700;opacity:1}
-.eh{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:800;color:var(--navy-900);
-  letter-spacing:-.3px;padding-bottom:8px;border-bottom:2px solid var(--brand);margin-bottom:12px}
-.eh i{flex:none;font-style:normal;width:22px;height:22px;border-radius:7px;background:var(--brand);
-  color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:800}
+.eh{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:900;color:var(--navy-900);
+  letter-spacing:-.35px;padding:0 0 11px;border-bottom:3px solid #DDE5F5;margin-bottom:14px;
+  position:relative}
+.eh::after{content:"";position:absolute;left:0;bottom:-3px;width:112px;height:3px;
+  border-radius:999px;background:linear-gradient(90deg,var(--brand),#7488F5)}
+.eh i{flex:none;font-style:normal;width:28px;height:28px;border-radius:9px;
+  background:linear-gradient(145deg,#5366EA,#263BBE);box-shadow:0 4px 10px rgba(44,63,190,.22);
+  color:#fff;font-size:13px;display:flex;align-items:center;justify-content:center;font-weight:900}
 .esum{font-size:14px;line-height:1.9;background:#F5F8FF;border-left:4px solid var(--brand);
   border-radius:0 10px 10px 0;padding:12px 16px;color:var(--ink)}
 .esum div+div{margin-top:4px}
 /* 그룹 블록: 폰에서는 1열(글자가 '거래명세서 발/행'처럼 쪼개지지 않게) */
-.egrid{display:grid;gap:10px;grid-template-columns:1fr}
+.egrid{display:grid;gap:12px;grid-template-columns:1fr}
 @media(min-width:560px){.egrid{grid-template-columns:repeat(2,1fr)}}
 @media(min-width:860px){.egrid{grid-template-columns:repeat(3,1fr)}}
-.egroup{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
-.egroup .gh{background:#EDF3FE;color:var(--brand-dk);font-size:13px;font-weight:800;
-  padding:9px 14px;border-bottom:1px solid var(--line)}
-.egroup .gb{padding:6px 14px 10px}
+.egroup{--cat:#4257D7;--cat-bg:#EEF2FF;--cat-line:#CAD4FF;
+  border:1px solid var(--cat-line);border-radius:14px;overflow:hidden;background:var(--surface);
+  box-shadow:0 4px 12px rgba(16,24,40,.045)}
+.egroup:nth-child(3n+2){--cat:#177245;--cat-bg:#ECF9F1;--cat-line:#BCE6CD}
+.egroup:nth-child(3n+3){--cat:#A15A0E;--cat-bg:#FFF6E8;--cat-line:#F2D19B}
+.egroup .gh{background:var(--cat-bg);color:var(--cat);font-size:13.5px;font-weight:900;
+  padding:11px 14px;border-bottom:1px solid var(--cat-line);position:relative}
+.egroup .gh::before{content:"";display:inline-block;width:5px;height:15px;border-radius:4px;
+  background:var(--cat);vertical-align:-2px;margin-right:8px}
+.egroup .gb{padding:7px 14px 10px}
+.egroup.issue{grid-column:1/-1;--cat:#A63737;--cat-bg:#FFF1F1;--cat-line:#F1C2C2}
+.egroup.issue.ok{--cat:#177245;--cat-bg:#ECF9F1;--cat-line:#BCE6CD}
+.egroup.issue .gb{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px}
+.egroup.issue .gitem{cursor:pointer}
+.egroup.issue .gitem:hover{background:#FFF8F8}
+@media(max-width:559px){.egroup.issue .gb{grid-template-columns:1fr}}
 .gi{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
   font-size:14px;padding:6px 0;border-bottom:1px dashed #EEF2F7}
-.gitem{border-bottom:1px dashed #EEF2F7}
+.gitem{border-bottom:1px solid #EEF2F7;padding:1px 5px;border-radius:7px}
 .gitem:last-child{border-bottom:0}
 .gi:last-child{border-bottom:0}
 .gitem .gi{border-bottom:0}
@@ -421,7 +459,10 @@ button:focus-visible,.topitem:focus-visible,.srow:focus-visible,.check-kpi:focus
 /* 숫자 칸: 폰 2열 → 넓은 화면 3열 */
 .ecells{display:grid;gap:9px;grid-template-columns:repeat(2,1fr);margin-top:10px}
 @media(min-width:860px){.ecells{grid-template-columns:repeat(3,1fr)}}
-.ecell{background:#F8FAFD;border:1px solid #EEF2F7;border-radius:11px;padding:11px 13px}
+.ecell{background:#F8FAFD;border:1px solid #E6EBF3;border-top:3px solid #C5D0EA;
+  border-radius:12px;padding:11px 13px;box-shadow:0 2px 7px rgba(16,24,40,.035)}
+.ecell:nth-child(3n+2){border-top-color:#9FD4B3}
+.ecell:nth-child(3n+3){border-top-color:#E8BE7E}
 .ecell .l{font-size:11.5px;color:var(--ink-3);font-weight:700;line-height:1.45;word-break:keep-all}
 .ecell .v{font-size:20px;font-weight:800;letter-spacing:-.5px;margin-top:3px;
   font-variant-numeric:tabular-nums}
@@ -550,6 +591,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   border-top:1px solid var(--line);box-shadow:0 -6px 18px rgba(10,20,48,.08);z-index:2}
 .sheet-actions.open{display:block}
 .sheet-actions .actions{margin:0;grid-template-columns:repeat(2,1fr)}
+.sheet-actions .media-tools{margin:0;padding:2px 0 4px}
 .sheet h2{font-size:16.5px;display:flex;align-items:center;gap:8px;margin-bottom:3px}
 .sheet .sub{font-size:12.5px;color:var(--ink-2);margin-bottom:15px}
 .dl{display:grid;grid-template-columns:118px 1fr;gap:8px 12px;font-size:13.5px}
@@ -572,7 +614,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 .blink:hover{background:#D6F0E0}
 /* sticky 액션은 showSheet가 .sheet-actions로 옮긴다. 목록 스크롤과 버튼을 물리적으로 분리해
    버튼이 첫 행·마지막 행을 덮지 않게 한다. 자바스크립트가 꺼져도 일반 흐름으로 보인다. */
-.actions.sticky{margin-top:14px}
+.actions.sticky,.media-tools.sticky{margin-top:14px}
 
 .metric-basis{font-size:11.5px;line-height:1.6;color:var(--ink-2);background:#F8FAFD;
   border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin:10px 0 12px}
@@ -651,11 +693,41 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 .bar{height:6px;border-radius:99px;background:#E8EDF4;overflow:hidden;margin-top:7px}
 .bar i{display:block;height:100%;background:var(--brand);border-radius:99px}
 
+/* ═══ 이미지·인쇄·엑셀 공통 도구 모음 ═══
+   모든 화면에서 같은 순서와 같은 아이콘을 쓴다. 폰에서도 세로 카드로 바뀌지 않고
+   한 줄을 유지하며, 폭이 모자라면 도구 모음 안에서만 가로 스크롤한다. */
+.rpt-actions,.media-tools{display:flex!important;flex-wrap:nowrap!important;align-items:center;
+  justify-content:center;gap:9px;margin:0 0 12px;overflow-x:auto;overflow-y:hidden;
+  padding:5px 3px 8px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+.icon-btn{appearance:none;-webkit-appearance:none;flex:0 0 52px!important;width:52px;height:48px;
+  padding:0!important;border-radius:14px!important;border:1px solid #D6DEEB!important;
+  background:linear-gradient(180deg,#fff 0%,#F7F9FC 100%)!important;
+  box-shadow:0 3px 9px rgba(16,24,40,.10),inset 0 1px 0 rgba(255,255,255,.9)!important;
+  display:inline-flex!important;align-items:center;justify-content:center;cursor:pointer;
+  transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease,background .14s ease}
+.icon-btn img{display:block;width:24px;height:24px;pointer-events:none}
+.icon-btn:hover{transform:translateY(-2px);border-color:#8EA6F4!important;
+  box-shadow:0 7px 18px rgba(36,82,230,.16)!important}
+.icon-btn:active{transform:translateY(0) scale(.92)}
+.icon-btn:focus-visible{outline:3px solid rgba(36,82,230,.22);outline-offset:2px}
+.icon-btn.primary{background:linear-gradient(145deg,#6172F3,#3749DB)!important;
+  border-color:#4457E7!important;box-shadow:0 6px 16px rgba(55,73,219,.30)!important}
+.icon-btn.primary img{filter:brightness(0) invert(1)}
+.icon-btn.excel{background:linear-gradient(180deg,#F3FFF8,#E8F8EF)!important;
+  border-color:#A8D9BC!important}
+.icon-btn.busy img{animation:tool-spin .8s linear infinite}
+.icon-btn.success{border-color:#36A269!important;background:#EDF9F2!important}
+@keyframes tool-spin{to{transform:rotate(360deg)}}
+.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;
+  margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;
+  white-space:nowrap!important;border:0!important}
+@media(max-width:640px){
+  .rpt-actions,.media-tools{justify-content:flex-start;gap:7px;padding:4px 2px 9px}
+  .icon-btn{flex-basis:46px!important;width:46px;height:44px;border-radius:12px!important}
+  .icon-btn img{width:22px;height:22px}
+}
+
 /* ═══ 보고서(캡처 최적화) ═══ */
-.rpt-actions{display:flex;gap:8px;margin-bottom:12px}
-.rpt-actions button{flex:1;padding:12px;border-radius:12px;font-weight:700;font-size:13.5px;
-  background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh)}
-.rpt-actions button.primary{background:var(--brand);border-color:var(--brand);color:#fff}
 .rpt{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh-lg);
   padding:26px 26px 20px;max-width:720px;margin:0 auto}
 .rpt .rhead{display:flex;align-items:center;gap:12px;border-bottom:2.5px solid var(--navy-900);padding-bottom:14px}
@@ -699,7 +771,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
      페이지 전체를 넓혀 표까지 화면 밖으로 밀어냈다 → min-width:0으로 줄어들게 한다 */
   .rpt{padding:16px 14px 14px;max-width:100%;overflow-x:hidden}
   .rpt .rhead{flex-wrap:wrap;gap:9px}
-  .rpt .rhead h2{min-width:0;flex:1;font-size:15px;word-break:keep-all}
+  .rpt .rhead h2{min-width:0;flex:1 0 calc(100% - 47px);font-size:15px;word-break:keep-all}
   .rpt .rdate{margin-left:0;width:100%;text-align:left;
     border-top:1px solid var(--line);padding-top:8px}
   /* tbody까지 block으로 풀어야 카드가 전체 폭을 쓴다(안 그러면 내용 폭에 맞춰 쪼그라듦) */
@@ -728,6 +800,8 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   background:linear-gradient(135deg,var(--brand),#5B8CFF);display:flex;align-items:center;justify-content:center;
   box-shadow:0 8px 20px rgba(36,82,230,.4)}
 .gate .glogo svg{width:28px;height:28px}
+.gate .glogo.app-icon{background:none;overflow:hidden}
+.gate .glogo.app-icon img{display:block;width:100%;height:100%;object-fit:cover}
 .gate h2{font-size:18px;margin-bottom:3px;letter-spacing:-.3px}
 .gate p{font-size:12.5px;color:var(--ink-2);margin-bottom:20px}
 .gate input{width:100%;padding:13px;font-size:24px;text-align:center;letter-spacing:14px;
@@ -778,13 +852,52 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   color:var(--ink-3);margin-top:5px}
 @media(min-width:900px){ #ptable::after{display:none} }
 
+/* ═══ 류지영 업무방 — 조사·카톡 원본 투입을 한 화면에서 ═══ */
+.ryu-hero{background:linear-gradient(135deg,#16265B,#3654D9);color:#fff;border-radius:20px;
+  padding:24px;margin-bottom:14px;box-shadow:0 14px 30px rgba(20,43,125,.20)}
+.ryu-hero h2{font-size:22px;margin-bottom:5px}.ryu-hero p{color:#D5DDFC;font-size:13px}
+.ryu-guide{counter-reset:ryu-step;display:grid;gap:9px;margin:12px 0}
+.ryu-guide li{list-style:none;counter-increment:ryu-step;display:flex;align-items:flex-start;gap:10px;
+  padding:11px 12px;background:#F7F9FD;border:1px solid var(--line);border-radius:12px}
+.ryu-guide li::before{content:counter(ryu-step);flex:none;width:24px;height:24px;border-radius:8px;
+  background:var(--brand);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:900}
+.ryu-upload-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+.ryu-drop{display:grid;gap:7px;padding:16px;border:1.5px dashed #AFC0F3;border-radius:15px;
+  background:#F7F9FF;cursor:pointer;transition:.18s}
+.ryu-drop:hover{border-color:var(--brand);background:#EFF3FF;transform:translateY(-1px)}
+.ryu-drop b{color:#173DAD}.ryu-drop small{color:var(--ink-2);line-height:1.55}
+.ryu-drop input{width:100%;font-size:12px;color:var(--ink-2)}
+.ryu-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+.ryu-fields label{display:grid;gap:5px;color:var(--ink-2);font-weight:800;font-size:12px}
+.ryu-fields .wide{grid-column:1/-1}
+.ryu-fields input,.ryu-fields select,.ryu-fields textarea{width:100%;border:1px solid var(--line);
+  border-radius:11px;padding:11px 12px;background:#fff;font:inherit;color:var(--ink)}
+.ryu-fields textarea{min-height:88px;resize:vertical}
+.ryu-result{display:none;margin-top:12px;padding:13px;border-radius:12px;font-weight:700}
+.ryu-result.ok{display:block;background:var(--ok-bg);color:var(--ok)}
+.ryu-result.err{display:block;background:var(--danger-bg);color:var(--danger)}
+.ryu-entry-link{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:14px 16px;border:1px solid #CAD5F4;border-radius:14px;background:#F5F7FF;margin-bottom:13px}
+.ryu-entry-link a{display:inline-flex;align-items:center;gap:6px;padding:9px 13px;border-radius:10px;
+  background:var(--brand);color:#fff;text-decoration:none;font-weight:800;white-space:nowrap}
+@media(max-width:640px){
+  .ryu-upload-grid,.ryu-fields{grid-template-columns:1fr}
+  .ryu-fields .wide{grid-column:auto}
+  .ryu-entry-link{align-items:flex-start;flex-direction:column}
+}
+body.ryu-mode .tabbar{display:none}
+body.ryu-mode .shell{padding-bottom:40px}
+@media(min-width:900px){
+  body.ryu-mode .shell,body.ryu-mode .appbar{margin-left:0}
+}
+
 </style>
 </head>
 <body>
 
 <div class="gate" id="gate">
   <div class="box">
-    <div class="glogo"><svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lgm" x1=".08" y1="1" x2=".92" y2="0"><stop offset="0" stop-color="#fff"/><stop offset=".46" stop-color="#D6FBEA"/><stop offset="1" stop-color="#1FDD86"/></linearGradient></defs><path d="M122 262 L214 352 L396 116" fill="none" stroke="url(#lgm)" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/><rect x="136" y="404" width="240" height="30" rx="15" fill="#fff" opacity=".95"/><rect x="182" y="452" width="148" height="18" rx="9" fill="#fff" opacity=".4"/></svg></div>
+  <div class="glogo app-icon"><img src="/icon-192.png?v=csos-20260729" alt="CSOS"></div>
     <h2>Coupang Service Operations System</h2>
     <p>PIN 4자리를 입력하세요</p>
     <input id="pin" type="tel" maxlength="4" inputmode="numeric" placeholder="••••" autofocus>
@@ -794,10 +907,12 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 </div>
 
 <header class="appbar">
-  <div class="logo"><svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lgm" x1=".08" y1="1" x2=".92" y2="0"><stop offset="0" stop-color="#fff"/><stop offset=".46" stop-color="#D6FBEA"/><stop offset="1" stop-color="#1FDD86"/></linearGradient></defs><path d="M122 262 L214 352 L396 116" fill="none" stroke="url(#lgm)" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/><rect x="136" y="404" width="240" height="30" rx="15" fill="#fff" opacity=".95"/><rect x="182" y="452" width="148" height="18" rx="9" fill="#fff" opacity=".4"/></svg></div>
-  <h1><span class="brandfull">Coupang Service Operations System</span><span class="brandshort">CSOS</span>
-    <small>UNIVERSAL LIFT · 쿠팡 통합업무 · 2026년 전용</small></h1>
-  <span class="sub" id="demobadge"></span>
+	  <div class="logo app-icon"><img src="/icon-192.png?v=csos-20260729" alt="CSOS"></div>
+	  <img class="coupang-app-brand" src="/brand/coupang.png" alt="Coupang">
+	  <h1><span class="brandfull">Coupang Service Operations System</span><span class="brandshort">CSOS</span>
+	    <small>UNIVERSAL LIFT · 쿠팡 통합업무 · 2026년 전용</small></h1>
+	  <img class="uni-app-brand" src="/brand/universal-lift-horizontal.png" alt="UNIVERSAL LIFT &amp; HITACHI KOREA">
+	  <span class="sub" id="demobadge"></span>
   <div class="dot" id="livedot"></div>
   <div class="sub" id="clock"></div>
 </header>
@@ -813,11 +928,15 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
       <div class="hstats" id="heroStats"></div>
     </div>
     <!-- 원장엔 올라왔는데 엑셀이 아직 계산 안 해서 화면에 없는 건 — 숫자가 틀린 게 아니라 대기 중이다 -->
-    <div class="card" id="recalccard" style="display:none;border:2px solid var(--warn)">
-      <h3 style="color:var(--warn)">엑셀을 한 번 열어 주세요</h3>
-      <div id="recalcmsg" style="font-size:13.5px;line-height:1.65"></div>
-    </div>
-    <div class="card rep-card" id="repCard">
+	    <div class="card" id="recalccard" style="display:none;border:2px solid var(--warn)">
+	      <h3 style="color:var(--warn)">엑셀을 한 번 열어 주세요</h3>
+	      <div id="recalcmsg" style="font-size:13.5px;line-height:1.65"></div>
+	    </div>
+	    <div class="ryu-entry-link">
+	      <div><b>류지영 업무방</b><div class="muted">정기점검방·돌발점검방 카카오톡 원본과 조사 내용을 올리면 자동 대조를 시작합니다.</div></div>
+	      <a href="/ryu">전용 입력 화면 열기 ↗</a>
+	    </div>
+	    <div class="card rep-card" id="repCard">
       <div class="rep-head">
         <div class="rep-title">유수비 대표 예외보고
           <small>정상 처리 건은 합계만, 지연·불일치·판단 필요 건은 상세로 표시합니다</small></div>
@@ -878,24 +997,32 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
     <div class="card"><h3>조치 필요 — 유형별</h3><div class="toplist" id="toplist">로딩...</div></div>
     <div class="card"><h3>담당자별 확인 필요 <span class="norm">— 누르면 내역·전달용 이미지</span></h3>
       <div class="toplist" id="assignlist">로딩...</div></div>
-    <div class="card"><h3>내가 확인할 사항 <span class="norm">— 유현민 (관리·청구·원천데이터)</span></h3>
-      <div class="toplist" id="mylist">로딩...</div>
-      <div class="actions" style="margin-top:10px">
-        <button class="abtn" onclick="captureMine()"><span class="em">📸</span>목록 캡처</button>
-        <button class="abtn" onclick="shareMine()"><span class="em">📤</span>이미지 공유</button>
-      </div></div>
+	    <div class="card"><h3>내가 확인할 사항 <span class="norm">— 유현민 (관리·청구·원천데이터)</span></h3>
+	      <div class="toplist" id="mylist">로딩...</div>
+	      <div class="media-tools" role="toolbar" aria-label="내 확인 목록 도구" style="margin-top:10px">
+	        <button class="icon-btn" onclick="printMine()" title="인쇄" aria-label="인쇄"><img src="/icons/printer.svg" alt=""></button>
+	        <button class="icon-btn primary" onclick="captureMine()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>
+	        <button class="icon-btn" onclick="copyMineImage()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>
+	        <button class="icon-btn excel" onclick="exportMineXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button>
+	      </div></div>
     <!-- 구글 캘린더(COUPANG 설치+납품+AS) — 예정된 일이 원장과 맞는가 -->
     <div class="card" id="calcard"><h3>일정 <small id="calsub" style="font-weight:600;color:var(--muted)"></small></h3>
       <div id="callist" class="muted">불러오는 중…</div>
       <div class="actions"><button class="abtn" onclick="openCalendar()"><span class="em">📅</span>전체 일정 보기</button></div>
     </div>
-    <div class="card"><h3>빠른 실행</h3>
-      <div class="actions">
-        <button class="abtn primary" onclick="runTask('daily')"><span class="em">▶</span>전체 대조</button>
-        <button class="abtn" onclick="show('settle')"><span class="em">📋</span>정산 현황</button>
-        <button class="abtn" onclick="show('report')"><span class="em">📄</span>리포트</button>
-        <button class="abtn" onclick="captureDash()"><span class="em">📸</span>대시보드 캡처</button>
-      </div></div>
+	    <div class="card"><h3>빠른 실행</h3>
+	      <div class="actions">
+	        <button class="abtn primary" onclick="runTask('daily')"><span class="em">▶</span>전체 대조</button>
+	        <button class="abtn" onclick="show('settle')"><span class="em">📋</span>정산 현황</button>
+	        <button class="abtn" onclick="show('report')"><span class="em">📄</span>리포트</button>
+	      </div>
+	      <div class="media-tools" role="toolbar" aria-label="대시보드 도구" style="margin-top:12px">
+	        <button class="icon-btn" onclick="printDash()" title="인쇄" aria-label="인쇄"><img src="/icons/printer.svg" alt=""></button>
+	        <button class="icon-btn primary" onclick="captureDash()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>
+	        <button class="icon-btn" onclick="copyDashImage()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>
+	        <button class="icon-btn excel" onclick="exportDashXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button>
+	        <button class="icon-btn" onclick="reloadHere(this)" title="새로고침" aria-label="새로고침"><img src="/icons/refresh-cw.svg" alt=""></button>
+	      </div></div>
   </section>
 
   <!-- 정산·업무 -->
@@ -979,10 +1106,17 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 
   <!-- 대표 보고 (캡처·공유) -->
   <section class="view" id="v-daily">
-    <div class="rpt-actions">
-      <button class="primary" onclick="captureReport()">📸 이미지 저장</button>
-      <button onclick="shareReport()">📤 공유(카톡)</button>
-      <button onclick="reloadHere(this)">🔄 새로고침</button>
+    <div class="rpt-actions" role="toolbar" aria-label="보고서 도구">
+      <button class="icon-btn" onclick="printReport()" title="인쇄" aria-label="인쇄">
+        <img src="/icons/printer.svg" alt=""></button>
+      <button class="icon-btn primary" onclick="captureReport()" title="이미지 저장" aria-label="이미지 저장">
+        <img src="/icons/image-down.svg" alt=""></button>
+      <button class="icon-btn" onclick="copyReportImage()" title="복사" aria-label="복사">
+        <img src="/icons/clipboard-copy.svg" alt=""></button>
+      <button class="icon-btn excel" onclick="exportReportXlsx()" title="엑셀 저장" aria-label="엑셀 저장">
+        <img src="/icons/file-spreadsheet.svg" alt=""></button>
+      <button class="icon-btn" onclick="reloadHere(this)" title="새로고침" aria-label="새로고침">
+        <img src="/icons/refresh-cw.svg" alt=""></button>
     </div>
     <div class="rpt" id="rpt">보고서 생성 중...</div>
   </section>
@@ -996,7 +1130,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
         <p>문제유형과 담당자별로 건을 좁혀 보고, 프로젝트 번호를 눌러 정확한 업무 기록을 확인할 수 있습니다.</p>
       </div>
       <div class="actions">
-        <button class="abtn primary" onclick="openCheckFiltered()"><span class="em">📤</span>현재 목록 전달</button>
+        <button class="abtn primary" onclick="openCheckFiltered()"><span class="em">📋</span>현재 목록 보기</button>
         <button class="abtn" onclick="showCheckRaw()"><span class="em">📋</span>원본표 보기</button>
       </div>
     </div>
@@ -1033,12 +1167,69 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   </section>
 
   <!-- 리포트 -->
-  <section class="view" id="v-report">
-    <div class="rtabs" id="rtabs"></div>
-    <div class="md" id="mdbox">리포트 로딩...</div>
-  </section>
+	  <section class="view" id="v-report">
+	    <div class="rtabs" id="rtabs"></div>
+	    <div class="md" id="mdbox">리포트 로딩...</div>
+	  </section>
 
-  <!-- 쿠팡 캘린더: Google 전체 보기 + 원장 대조 캐시 상세 + 사용자 확인형 일정 입력 -->
+	  <!-- 류지영 전용 업무방: 두 카카오톡 원본 + 조사 결과를 사람 실수 없이 구분 투입 -->
+	  <section class="view" id="v-ryu">
+	    <div class="ryu-hero">
+	      <div class="eyebrow" style="color:#BFD0FF">RYU JIYOUNG WORK ROOM</div>
+	      <h2>류지영 업무방</h2>
+	      <p>카카오톡 원본과 조사 결과를 올리면 원본 보존 → 자동 분류 → 카톡 대조까지 이어집니다.</p>
+	      <a href="/" style="display:inline-block;margin-top:10px;color:#fff;font-weight:800">← 대시보드로 돌아가기</a>
+	    </div>
+	    <div class="card">
+	      <h3>처리 순서 <span class="norm">— 아래 순서대로 하면 됩니다</span></h3>
+	      <ol class="ryu-guide">
+	        <li><div><b>정기점검방 대화 내보내기</b><br><span class="muted">★UNI★ 쿠팡정기점검 대화방에서 내보낸 .txt를 1번 칸에 넣습니다.</span></div></li>
+	        <li><div><b>돌발점검방 대화 내보내기</b><br><span class="muted">★UNI★ 쿠팡돌발점검 대화방에서 내보낸 .txt를 2번 칸에 넣습니다.</span></div></li>
+	        <li><div><b>조사한 내용만 보충</b><br><span class="muted">자동으로 알 수 없는 프로젝트·캠프·처리결과만 아래 항목별 칸에 적습니다.</span></div></li>
+	        <li><div><b>업로드 및 자동 대조</b><br><span class="muted">버튼을 한 번 누르면 두 파일을 원본 자료에 저장하고 자동 카톡 대조를 시작합니다.</span></div></li>
+	      </ol>
+	    </div>
+	    <form class="card" id="ryuUploadForm" onsubmit="submitRyuUpload(event)">
+	      <h3>1. 카카오톡 원본 2개 <span class="norm">— 두 파일 모두 필수</span></h3>
+	      <div class="ryu-upload-grid">
+	        <label class="ryu-drop">
+	          <b>① ★UNI★ 쿠팡정기점검</b>
+	          <small>카카오톡 대화방 → 메뉴 → 대화 내용 → 대화 내보내기 → 텍스트 파일</small>
+	          <input type="file" name="kakao_regular" accept=".txt,text/plain" required>
+	        </label>
+	        <label class="ryu-drop">
+	          <b>② ★UNI★ 쿠팡돌발점검</b>
+	          <small>카카오톡 대화방 → 메뉴 → 대화 내용 → 대화 내보내기 → 텍스트 파일</small>
+	          <input type="file" name="kakao_emergency" accept=".txt,text/plain" required>
+	        </label>
+	      </div>
+
+	      <h3 style="margin-top:18px">2. 조사 기본정보 <span class="norm">— 확인한 만큼만 입력</span></h3>
+	      <div class="ryu-fields">
+	        <label>조사자<input name="submitter" value="류지영" readonly></label>
+	        <label>조사 기준일<input name="survey_date" type="date"></label>
+	        <label>업무 구분<select name="work_kind"><option value="">자동 판정</option><option>돌발AS</option><option>정기점검</option><option>거래서류</option><option>기타</option></select></label>
+	        <label>프로젝트 번호<input name="project_no" placeholder="예: UJ2600461"></label>
+	        <label>캠프명<input name="camp_name" placeholder="예: GWJ1 M_순천1"></label>
+	        <label>담당자<input name="assignee" placeholder="예: 김준형"></label>
+	      </div>
+
+	      <h3 style="margin-top:18px">3. 처리 결과·근거 <span class="norm">— 조사 결과가 있을 때 입력</span></h3>
+	      <div class="ryu-fields">
+	        <label>처리 상태<select name="work_status"><option value="">자동 판정</option><option>접수</option><option>진행중</option><option>작업완료</option><option>택배발송완료</option><option>취소</option><option>확인필요</option></select></label>
+	        <label>완료일<input name="completed_date" type="date"></label>
+	        <label class="wide">조치 내용<textarea name="action_note" placeholder="예: 리모컨 택배 발송 완료, 송장 확인"></textarea></label>
+	        <label class="wide">추가 근거 파일<input name="evidence_file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.xlsx,.docx,.txt"></label>
+	        <label class="wide">조사 메모<textarea name="survey_note" placeholder="자동 판정이 어려운 내용, 통화 확인 결과, 담당자에게 추가로 물어볼 내용을 적습니다."></textarea></label>
+	      </div>
+	      <button class="abtn primary" id="ryuUploadBtn" type="submit" style="width:100%;margin-top:16px;flex-direction:row;justify-content:center">
+	        <span class="em">▶</span>원본 저장하고 자동 대조 시작
+	      </button>
+	      <div class="ryu-result" id="ryuUploadResult"></div>
+	    </form>
+	  </section>
+
+	  <!-- 쿠팡 캘린더: Google 전체 보기 + 원장 대조 캐시 상세 + 사용자 확인형 일정 입력 -->
   <section class="view" id="v-calendar">
     <div class="calendar-hero">
       <div>
@@ -1102,7 +1293,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 
 <nav class="tabbar" id="tabbar">
   <div class="brand">
-    <div class="logo"><svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lgm" x1=".08" y1="1" x2=".92" y2="0"><stop offset="0" stop-color="#fff"/><stop offset=".46" stop-color="#D6FBEA"/><stop offset="1" stop-color="#1FDD86"/></linearGradient></defs><path d="M122 262 L214 352 L396 116" fill="none" stroke="url(#lgm)" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/><rect x="136" y="404" width="240" height="30" rx="15" fill="#fff" opacity=".95"/><rect x="182" y="452" width="148" height="18" rx="9" fill="#fff" opacity=".4"/></svg></div>
+    <div class="logo app-icon"><img src="/icon-192.png?v=csos-20260729" alt="CSOS"></div>
     <div class="bt" style="font-size:12.5px;line-height:1.35">Coupang Service<br>Operations System
       <small>CSOS · UNIVERSAL LIFT</small></div>
   </div>
@@ -1142,6 +1333,36 @@ async function api(path, opt={}){
   }
   return r.json();
 }
+async function submitRyuUpload(ev){
+  ev.preventDefault();
+  const form=$('ryuUploadForm'), btn=$('ryuUploadBtn'), result=$('ryuUploadResult');
+  if(!form||!btn||!result) return;
+  const data=new FormData(form);
+  btn.disabled=true;btn.classList.add('busy');
+  result.className='ryu-result';result.textContent='';
+  try{
+    const r=await fetch('/api/ryu/upload',{method:'POST',cache:'no-store',
+      headers:{'X-Pin':PIN},body:data});
+    if(r.status===401){
+      PIN='';localStorage.removeItem('cw_pin');$('gate').style.display='flex';
+      throw new Error('PIN을 다시 입력해 주세요');
+    }
+    const d=await r.json();
+    if(!r.ok||!d.ok) throw new Error(d.error||`HTTP ${r.status}`);
+    const files=(d.saved&&d.saved['파일'])||[];
+    result.className='ryu-result ok';
+    result.innerHTML=`저장 완료 · ${files.map(x=>`${esc2(x['방'])} ${fmt(x['메시지'])}개 메시지`).join(' · ')}
+      <br>${d.auto_check_started?'자동 카톡 대조를 시작했습니다.':
+        (d.auto_check_queued?'현재 작업이 끝나는 즉시 자동 카톡 대조를 시작합니다.':
+         '자동 대조 예약 상태를 확인해 주세요.')}`;
+    [...form.querySelectorAll('input[type=file]')].forEach(x=>x.value='');
+    toast('류지영 원본 저장 및 자동 대조 접수 완료');
+  }catch(e){
+    result.className='ryu-result err';result.textContent='업로드 실패 · '+String(e.message||e);
+  }finally{
+    btn.disabled=false;btn.classList.remove('busy');
+  }
+}
 async function login(){
   const pin = $('pin').value.trim();
   const r = await fetch('/api/login',{method:'POST',body:JSON.stringify({pin})});
@@ -1173,7 +1394,11 @@ function show(v){
   if(v !== from) navPush({t:'tab', from:from});
   applyView(v);
 }
-function curView(){ return window.__view || localStorage.getItem('cw_view') || 'dash'; }
+function curView(){
+  if(location.pathname.replace(/\/+$/,'')==='/ryu') return 'ryu';
+  const v=window.__view || localStorage.getItem('cw_view') || 'dash';
+  return v==='ryu' ? 'dash' : v;
+}
 /* ── 구버전 감지 ─────────────────────────────────────────────
    폰에서 앱을 켜 두면 화면은 그대로라 서버가 바뀌어도 예전 HTML·JS가 계속 돈다.
    (데이터만 새로 받는 새로고침으로는 화면 구조가 안 바뀐다)
@@ -1203,7 +1428,7 @@ function hardReload(){
 /* 새로고침: 데이터를 다시 읽고 **보고 있던 화면 그대로** 다시 그린다 */
 async function reloadHere(btn){
   const v = curView();
-  if(btn){ btn.disabled = true; btn.dataset.t = btn.textContent; btn.textContent = '🔄 새로고침 중…'; }
+  if(btn){ btn.disabled = true; btn.classList.add('busy'); }
   // 서버가 새 버전이면 데이터만 받아선 화면이 안 바뀐다 → 문서를 다시 읽는다
   if(await checkBuild(false)){ hardReload(); return; }
   try{ await refreshAll(); }catch(e){}
@@ -1212,7 +1437,7 @@ async function reloadHere(btn){
   try{ if(typeof renderPeriod==='function' && $('pyear').value) renderPeriod(); }catch(e){}
   renderSettle();
   show(v);
-  if(btn){ btn.disabled = false; btn.textContent = btn.dataset.t || '🔄 새로고침'; }
+  if(btn){ btn.disabled = false; btn.classList.remove('busy'); }
   toast('최신 자료로 새로고침했습니다');
 }
 
@@ -1686,6 +1911,24 @@ function sortRows(rows){
     return r*window._sd;
   });
 }
+function openListKpi(label, rule){
+  const all=window._visibleListRows||[];
+  let rows=all;
+  if(rule==='unpaid') rows=all.filter(r=>(+r.미수금||0)>0);
+  else if(rule==='action') rows=all.filter(r=>needAction(r));
+  else if(rule==='as-done') rows=all.filter(r=>r.진행상태==='작업완료');
+  else if(rule==='as-open') rows=all.filter(r=>r.진행상태!=='작업완료');
+  else if(rule==='pm-done') rows=all.filter(r=>r.점검상태==='완료');
+  else if(rule==='pm-open') rows=all.filter(r=>r.점검상태!=='완료');
+  window._briefMetric={label,data:{rows:rows.map(r=>({...r,종류:mode,레코드ID:recordIdOf(r),
+    프로젝트NO:projectNoOf(r),일자:dateOf(r,mode),담당자:r.담당자||r.담당기사||'',
+    문제:rule==='unpaid'?`미수금 ${fmt(+r.미수금||0)}원`:
+      rule==='action'?String(r.상태||r.검증결과||'조치 필요'):'',
+    상태:statOf(r),금액:+r.공급가액||0})),
+    count:rows.length,kind:'list-filter',
+    basis:`현재 ${mode==='settle'?'정산·청구':mode==='as'?'돌발AS':mode==='pm'?'정기점검':'확인필요'} 화면의 검색·상태·기간 필터 결과`}};
+  openExecMetric(label);
+}
 function renderSettle(){
   const q = ($('q').value||'').toLowerCase(), f = $('fstat').value;
   const pr = workPeriodRange();
@@ -1701,14 +1944,15 @@ function renderSettle(){
     return true;
   });
   const rows = sortRows(base);
+  window._visibleListRows=rows;
   showPeriodNote(pr, rows.length, undated);
   if(mode==='settle'){
     const need = rows.filter(r=>needAction(r));
     const 미수 = rows.reduce((a,r)=>a+(+r.미수금||0),0);
     $('skpis').innerHTML = `
-      <div class="kpi accent"><div class="v">${fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))}</div><div class="l">공급가액(원)</div></div>
-      <div class="kpi ${미수?'warn':''}"><div class="v">${fmt(미수)}</div><div class="l">미수금(원)</div></div>
-      <div class="kpi ${need.length?'danger':''}"><div class="v">${need.length}/${rows.length}</div><div class="l">조치 필요</div></div>`;
+      <div class="kpi accent" role="button" tabindex="0" onclick="openListKpi('공급가액 목록','all')"><div class="v">${fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))}</div><div class="l">공급가액(원)</div></div>
+      <div class="kpi ${미수?'warn':''}" role="button" tabindex="0" onclick="openListKpi('미수금 목록','unpaid')"><div class="v">${fmt(미수)}</div><div class="l">미수금(원)</div></div>
+      <div class="kpi ${need.length?'danger':''}" role="button" tabindex="0" onclick="openListKpi('조치 필요 목록','action')"><div class="v">${need.length}/${rows.length}</div><div class="l">조치 필요</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('settle',${i},'${r.정산ID}')">
         <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(r.상태)}</div>
@@ -1730,9 +1974,9 @@ function renderSettle(){
   } else if(mode==='as'){
     const done = rows.filter(r=>r.진행상태==='작업완료').length;
     $('skpis').innerHTML = `
-      <div class="kpi accent"><div class="v">${rows.length}</div><div class="l">접수 건수</div></div>
-      <div class="kpi"><div class="v">${done}</div><div class="l">작업완료</div></div>
-      <div class="kpi ${rows.length-done?'warn':''}"><div class="v">${rows.length-done}</div><div class="l">진행중</div></div>`;
+      <div class="kpi accent" role="button" tabindex="0" onclick="openListKpi('돌발AS 접수 목록','all')"><div class="v">${rows.length}</div><div class="l">접수 건수</div></div>
+      <div class="kpi" role="button" tabindex="0" onclick="openListKpi('돌발AS 작업완료','as-done')"><div class="v">${done}</div><div class="l">작업완료</div></div>
+      <div class="kpi ${rows.length-done?'warn':''}" role="button" tabindex="0" onclick="openListKpi('돌발AS 진행중','as-open')"><div class="v">${rows.length-done}</div><div class="l">진행중</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('as',${i},'${r.접수ID}')">
         <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(r.진행상태)}</div>
@@ -1754,9 +1998,9 @@ function renderSettle(){
     const types = {};
     rows.forEach(r=>{ const t=statOf(r); types[t]=(types[t]||0)+1; });
     $('skpis').innerHTML = `
-      <div class="kpi danger"><div class="v">${rows.length}</div><div class="l">확인필요 건수</div></div>
-      <div class="kpi"><div class="v">${Object.keys(types).length}</div><div class="l">문제 유형 수</div></div>
-      <div class="kpi"><div class="v">${(issuesData.cols||[]).length}</div><div class="l">검증 항목(열)</div></div>`;
+      <div class="kpi danger" role="button" tabindex="0" onclick="openListKpi('확인필요 전체','all')"><div class="v">${rows.length}</div><div class="l">확인필요 건수</div></div>
+      <div class="kpi" role="button" tabindex="0" onclick="openCheckFiltered()"><div class="v">${Object.keys(types).length}</div><div class="l">문제 유형 수</div></div>
+      <div class="kpi" role="button" tabindex="0" onclick="openCheckFiltered()"><div class="v">${(issuesData.cols||[]).length}</div><div class="l">검증 항목(열)</div></div>`;
     const keyOf = r => projectNoOf(r)||recordIdOf(r)||Object.values(r)[0]||'';
     const descOf = r => r.문제내용||r.경고내용||r.검증문제코드||r.누락서류||r['내용·근거']||'';
     $('slist').innerHTML = rows.map((r,i)=>`
@@ -1772,9 +2016,9 @@ function renderSettle(){
   } else {
     const done = rows.filter(r=>r.점검상태==='완료').length;
     $('skpis').innerHTML = `
-      <div class="kpi accent"><div class="v">${rows.length}</div><div class="l">점검 건수</div></div>
-      <div class="kpi"><div class="v">${done}</div><div class="l">완료</div></div>
-      <div class="kpi ${rows.length-done?'warn':''}"><div class="v">${rows.length-done}</div><div class="l">예정·미점검</div></div>`;
+      <div class="kpi accent" role="button" tabindex="0" onclick="openListKpi('정기점검 전체','all')"><div class="v">${rows.length}</div><div class="l">점검 건수</div></div>
+      <div class="kpi" role="button" tabindex="0" onclick="openListKpi('정기점검 완료','pm-done')"><div class="v">${done}</div><div class="l">완료</div></div>
+      <div class="kpi ${rows.length-done?'warn':''}" role="button" tabindex="0" onclick="openListKpi('정기점검 예정·미점검','pm-open')"><div class="v">${rows.length-done}</div><div class="l">예정·미점검</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('pm',${i},'${r.점검ID}')">
         <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(r.점검상태)}</div>
@@ -1946,7 +2190,7 @@ function setSheetContent(html, actionsHtml){
   body.innerHTML = html || '';
   foot.innerHTML = actionsHtml || '';
   if(!actionsHtml){
-    const actions = body.querySelector('.actions.sticky');
+    const actions = body.querySelector('.actions.sticky,.media-tools.sticky');
     if(actions){ actions.remove(); foot.appendChild(actions); }
   }
   foot.classList.toggle('open', !!foot.children.length);
@@ -2507,6 +2751,12 @@ function openRptDates(){
       <button onclick="saveRptDates()" style="width:100%;padding:13px;background:var(--brand);color:#fff;
         border:0;border-radius:11px;font-weight:800;font-size:15px;font-family:inherit;cursor:pointer">
         저장하고 엑셀에 반영</button>
+      <button onclick="previewRptDate(false)" style="width:100%;padding:12px;background:#EEF2FF;
+        color:#1B41BC;border:1.5px solid #C7D2FE;border-radius:11px;font-weight:800;
+        font-size:14px;font-family:inherit;cursor:pointer">선택 날짜 보고 미리보기</button>
+      <button onclick="previewRptDate(true)" style="width:100%;padding:12px;background:#177245;
+        color:#fff;border:0;border-radius:11px;font-weight:800;font-size:14px;
+        font-family:inherit;cursor:pointer">선택 날짜 보고 바로 캡처</button>
       <button onclick="rptDatesToday()" style="width:100%;padding:11px;background:transparent;
         color:var(--brand);border:1.5px solid var(--line);border-radius:11px;font-weight:700;
         font-size:13.5px;font-family:inherit;cursor:pointer">오늘 · 전 영업일로 맞추기</button>
@@ -2520,6 +2770,24 @@ function rptDatesToday(){
   do { prev.setDate(prev.getDate()-1); } while([0,6].includes(prev.getDay()));
   $('rd_report').value = iso(t);
   $('rd_base').value = iso(prev);
+}
+
+async function previewRptDate(andCapture){
+  const day=($('rd_base')&&$('rd_base').value)||($('rd_report')&&$('rd_report').value)||'';
+  if(!/^2026-\d{2}-\d{2}$/.test(day)){alert('2026년 날짜를 선택하세요');return;}
+  try{
+    const [rep,b]=await Promise.all([
+      api('/api/exec_report?date='+encodeURIComponent(day)),
+      api('/api/brief?date='+encodeURIComponent(day))
+    ]);
+    execRep=filterExec(rep||{});
+    BRIEF=b&&b.ok!==false?b:null;
+    REPORT_PREVIEW_DATE=day;
+    closeSheetAll();
+    renderDaily();
+    toast(`${day} 기준 보고를 불러왔습니다`);
+    if(andCapture) await captureReport();
+  }catch(e){alert('선택 날짜 보고를 만들지 못했습니다: '+e);}
 }
 
 async function saveRptDates(){
@@ -2564,10 +2832,13 @@ function openRepresentativeList(kind){
   if(kind==='policy'){
     const policies=(repData&&repData['업무기준확인필요'])||[];
     openPane(`<h2>업무기준 확인 필요 <span class="chip c-warn">${policies.length}건</span></h2>
-      <div class="sub">아직 확정되지 않은 운영 기준입니다. 확인된 담당 범위는 이 목록에서 제외했습니다.</div>
-      <div class="slist">${policies.map((p,i)=>`<div class="srow">
+      <div class="sub">항목을 누르고 확정 기준을 입력한 뒤 저장하면 보고·확인필요 화면 전체에 즉시 반영됩니다.</div>
+      <div class="slist">${policies.map((p,i)=>`<div class="srow" role="button" tabindex="0"
+        onclick="openPolicyEdit(${i})"
+        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPolicyEdit(${i})}">
         <div class="top"><span class="prjno">기준 ${i+1}</span>${chip(p.상태||'확인 필요')}</div>
-        <div class="metric-issue">${esc2(p.기준||'')}</div></div>`).join('')||
+        <div class="metric-issue">${esc2(p.기준||'')}</div>
+        <div class="meta"><span>눌러 기준 입력·저장</span></div></div>`).join('')||
         '<div class="card">확인 대기 기준이 없습니다.</div>'}</div>`);
     return;
   }
@@ -2586,6 +2857,38 @@ function openRepresentativeList(kind){
   const rows=representativeRows(kind), label=names[kind]||'대표 예외 목록';
   window._briefMetric={label,data:{rows,count:rows.length,kind:'representative',basis:basis[kind]||''}};
   openExecMetric(label);
+}
+function openPolicyEdit(index){
+  const p=((repData&&repData['업무기준확인필요'])||[])[index]; if(!p)return;
+  window._policyEditing=p;
+  openPane(`<h2>업무기준 입력·저장</h2>
+    <div class="sub">저장 후 이 기준은 확인 대기에서 제외되고 시스템 공통 확정 기준으로 사용됩니다.</div>
+    <div class="metric-basis"><b>확인 항목</b> ${esc2(p.기준||'')}</div>
+    <label style="display:block;margin-top:14px;font-size:12px;font-weight:800;color:var(--ink-2)">
+      확정 기준 내용</label>
+    <textarea id="policyValue" rows="7" placeholder="예: 거래명세서는 같은 캠프·같은 월 완료분을 월말 기준으로 묶는다."
+      style="width:100%;margin-top:7px;border:1px solid var(--line);border-radius:12px;padding:13px;
+      font:inherit;font-size:16px;line-height:1.6;resize:vertical">${esc2(p.확정내용||'')}</textarea>
+    <label style="display:block;margin-top:12px;font-size:12px;font-weight:800;color:var(--ink-2)">
+      확인자</label>
+    <input id="policyOwner" value="유현민" style="width:100%;margin-top:7px;border:1px solid var(--line);
+      border-radius:11px;padding:12px;font:inherit;font-size:16px">
+    <div class="actions sticky">
+      <button class="abtn primary" onclick="savePolicy()"><span class="em">💾</span>저장·전체 반영</button>
+      <button class="abtn" onclick="openRepresentativeList('policy')">취소</button>
+    </div>`);
+}
+async function savePolicy(){
+  const p=window._policyEditing, value=String(($('policyValue')&&$('policyValue').value)||'').trim();
+  const owner=String(($('policyOwner')&&$('policyOwner').value)||'유현민').trim();
+  if(!p||!value){alert('확정 기준 내용을 입력하세요');return;}
+  try{
+    await api('/api/policy',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({기준:p.기준,확정내용:value,저장자:owner})});
+    repData=await api('/api/v1/reports/daily/exceptions');
+    renderRepresentative();renderCheckHub();closeSheetAll();
+    toast('업무기준을 저장하고 전체 화면에 반영했습니다');
+  }catch(e){alert('업무기준 저장 실패: '+e);}
 }
 function renderRepresentative(){
   if(!$('repKpis')) return;
@@ -2726,13 +3029,14 @@ function topLine(t){
 /* ── 대표에게 읽어 드릴 브리핑 문장 ──
    출처는 daily_brief 하나뿐이다(/api/brief). 화면·PC 리포트·폰 사본이 같은 문장을 써야
    "화면은 이런데 보고는 저렇다"가 안 생긴다. */
-let BRIEF = null, BRIEF_LOADING = false, BRIEF_RETRY = null;
-async function loadBrief(){
+let BRIEF = null, BRIEF_LOADING = false, BRIEF_RETRY = null, REPORT_PREVIEW_DATE = '';
+async function loadBrief(day=''){
   if(BRIEF_LOADING) return;
   BRIEF_LOADING = true;
   try{
-    const b = await api('/api/brief');
+    const b = await api('/api/brief'+(day?`?date=${encodeURIComponent(day)}`:''));
     BRIEF = b && b.ok!==false ? b : null;
+    REPORT_PREVIEW_DATE = day || '';
     if(BRIEF_RETRY){ clearTimeout(BRIEF_RETRY); BRIEF_RETRY = null; }
   }catch(e){
     BRIEF = null;
@@ -2821,7 +3125,7 @@ function briefBlock(){
     if(reasons.length) h += `<div class="bneed actionable" role="button" tabindex="0" onclick="openWorkLogBrief('open')"
       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openWorkLogBrief('open')}">
       <div class="bnh">미처리 사유 <b>${reasons.map(x=>`${_e(x.사유)} ${x.건수}건`).join(' · ')}</b></div>
-      <div class="bnd">눌러서 프로젝트번호·캠프·원문 사유 확인 · 이미지 저장·공유</div></div>`;
+      <div class="bnd">눌러서 프로젝트번호·캠프·원문 사유 확인 · 이미지 저장·복사</div></div>`;
     if(wla.처리완료일확인) h += `<div class="bnd">※ 처리완료 ${wla.처리완료일확인}건은 원본에 완료일이 없어 임의 입력하지 않았습니다.</div>`;
   }
   if(newL.length) h += `<div class="bglab new">새로 접수 ${newL.length}건 · 접수일 ${_md(d)}</div>`
@@ -2877,7 +3181,7 @@ function briefBlock(){
         <div class="bnh">완료일이 안 적힌 오래된 건 <b>${staleN}건</b></div>
         <div class="bnd">접수 후 30일 넘음${ds.length?` · 접수 ${ds[0]} ~ ${ds[ds.length-1]}`:''}</div>
         <div class="bnd">실제로는 끝났을 가능성이 큽니다 — 완료일만 채우면 정리됩니다.</div>
-        <div class="bnd actionhint">눌러서 ${stale.length}건 목록 보기 · 이미지 저장·공유</div></div>`;
+        <div class="bnd actionhint">눌러서 ${stale.length}건 목록 보기 · 이미지 저장·복사</div></div>`;
     }
     if(blank.length){
       h += `<div class="bneed"><div class="bnh">작업 내용이 안 적힌 완료건 <b>${blank.length}건</b></div>
@@ -3009,21 +3313,59 @@ function dayDetail(label, val){
   return `<div class="gd"><div class="chips">${chips}${more}</div>${warn}</div>`;
 }
 
+function cleanExecTitle(title){
+  return String(title||'').replace(/^\s*\d+\.\s*/,'').trim();
+}
+function execPeriodTitle(title){
+  const t=cleanExecTitle(title), bd=baseDate();
+  if(/당일 금액|잔여 현황/.test(t)) return `당일 금액 · 잔여 현황 (${bd})`;
+  if(/^리스크/.test(t)) return `리스크 (${APP_YEAR}-01-01 ~ ${bd})`;
+  return t;
+}
+function dailyIssueRows(){
+  const a=(BRIEF&&BRIEF['돌발AS'])||{}, wl=((BRIEF&&BRIEF['일지대조'])||{})['돌발AS']||{};
+  const blank=(BRIEF&&BRIEF['내용미기입'])||[];
+  return [
+    {label:'돌발 AS 미처리', count:+wl.미처리||+a.미처리||0, detail:'현장 일지 기준 미실시·미완료', call:"openWorkLogBrief('open')"},
+    {label:'완료일 확인 필요', count:+a.완료일미기입||0, detail:'접수 후 30일 초과·완료일 미기입', call:'openStaleBrief()'},
+    {label:'작업내용 확인 필요', count:blank.length, detail:'완료됐으나 실제 작업내용 미기입', call:'openBlankWorkBrief()'}
+  ];
+}
+function dailyIssueHtml(){
+  const rows=dailyIssueRows(), total=rows.reduce((n,x)=>n+x.count,0);
+  return `<div class="egroup issue${total?'':' ok'}">
+    <div class="gh">이슈사항 · ${total?`${total}건 확인 필요`:'특이사항 없음'}</div>
+    <div class="gb">${rows.map(x=>`<div class="gitem" role="button" tabindex="0"
+      onclick="${x.call}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${x.call}}">
+      <div class="gi"><span>${x.label}</span><b style="color:${x.count?'#B42318':'#177245'}">${x.count}건</b></div>
+      <div class="gd note">${x.detail}</div></div>`).join('')}</div></div>`;
+}
+function openBlankWorkBrief(){
+  const source=(BRIEF&&BRIEF['내용미기입'])||[];
+  const rows=source.map(x=>({
+    프로젝트NO:x.프로젝트NO||'', 캠프명:x.캠프명||'', 일자:x.일자||'',
+    담당자:x.담당기사||'담당 미기입', 문제:'작업완료이나 실제 작업내용 미기입',
+    상태:'확인 필요', 종류:x.레코드종류||'as', ID:x.레코드ID||x.프로젝트NO||''
+  }));
+  const label='작업내용 확인 필요';
+  window._briefMetric={label,data:{rows,count:rows.length,kind:'brief-blank',
+    basis:'완료 처리된 2026년 업무 중 실제 작업내용이 비어 있는 건'}};
+  openExecMetric(label);
+}
+
 function execHtml(){
-  const secs = (execRep.sections||[]);
-  if(!secs.length) return briefBlock();
-  const sum = execRep.summary||[];
+  const secs = (execRep.sections||[]).filter(s=>!/^(정리|요약)$/.test(cleanExecTitle(s.title)));
   const empty = x => !(x.items||[]).length && !(x.groups||[]).length && !(x.lines||[]).length;
-  let usedSum = false, usedBrief = false, h = '';
+  if(!secs.some(s=>/당일 업무 실적/.test(cleanExecTitle(s.title)))){
+    secs.unshift({title:'당일 업무 실적',items:[],groups:[],lines:[],briefOnly:true});
+  }
+  let usedBrief = false, h = '', sectionNo=0;
 
   secs.forEach(s=>{
-    // '1. 정리'처럼 내용이 비어 있는 절에 요약을 넣는다.
-    // (예전에는 '정리' 제목을 따로 만들고 빈 '1. 정리'를 또 찍어 목차가 겹쳐 보였다)
-    const isSum = empty(s) && /정리|요약/.test(s.title) && sum.length && !usedSum;
-    if(empty(s) && !isSum) return;                       // 알맹이 없는 절은 아예 건너뛴다
-    const m = String(s.title||'').match(/^(\d+)\.\s*(.*)$/);
-    const no = m ? m[1] : '', tt = m ? m[2] : s.title;
-    h += `<div class="esec"><div class="eh">${no?`<i>${no}</i>`:''}<span>${tt}</span></div>`;
+    if(empty(s) && !s.briefOnly && !/당일 업무 실적/.test(cleanExecTitle(s.title))) return;
+    const raw=cleanExecTitle(s.title), tt=execPeriodTitle(raw);
+    sectionNo += 1;
+    h += `<div class="esec"><div class="eh"><i>${sectionNo}</i><span>${tt}</span></div>`;
     // ★ 대표 지시(2026-07-28): "숫자를 나한테 보고하라는 게 아니야."
     //   숫자 타일 위에 **읽어서 그대로 전달할 수 있는 문장**을 먼저 놓는다.
     if(/당일 업무 실적/.test(tt)){
@@ -3037,17 +3379,15 @@ function execHtml(){
       </div>`;
       h += briefBlock();
     }
-    if(isSum){
-      usedSum = true;
-      h += `<div class="esum">${sum.map(t=>`<div>${t.replace(/^■\s*/,'')}</div>`).join('')}</div>`;
-    }
     if((s.groups||[]).length){
       h += `<div class="egrid">` + s.groups.map(g=>`<div class="egroup">
         <div class="gh">${g.name}</div>
         <div class="gb">${g.items.map(([l,v])=>{
           const k = helpKey(l);
           return `<div class="gitem"><div class="gi"><span${k?` class="has-help" onclick="openHelp('${k}')"`:''}>${dateLabel(l)}${k?'<i class="qm">?</i>':''}</span><b>${v||'-'}</b></div>${dayDetail(l,v)}</div>`;
-        }).join('')}</div></div>`).join('') + `</div>`;
+        }).join('')}</div></div>`).join('');
+      if(/당일 업무 실적/.test(raw)) h += dailyIssueHtml();
+      h += `</div>`;
     }
     if((s.items||[]).length){
       // 3·4절 숫자는 모두 원천 행 목록으로 들어간다. 물음표는 집계 설명만 따로 연다.
@@ -3073,12 +3413,9 @@ function execHtml(){
     h += `</div>`;
   });
 
-  if(sum.length && !usedSum){
-    h = `<div class="esec"><div class="eh"><span>정리</span></div>
-      <div class="esum">${sum.map(t=>`<div>${t.replace(/^■\s*/,'')}</div>`).join('')}</div></div>` + h;
-  }
   if(!usedBrief){
-    h += `<div class="esec"><div class="eh"><span>당일 업무 실적</span></div>${briefBlock()}</div>`;
+    h = `<div class="esec"><div class="eh"><i>1</i><span>당일 업무 실적</span></div>
+      ${briefBlock()}<div class="egrid">${dailyIssueHtml()}</div></div>` + h;
   }
   return h;
 }
@@ -3157,10 +3494,11 @@ function srcRow(label, s, emptyMsg){
 function renderDaily(){
   if(!BRIEF && !BRIEF_LOADING) loadBrief();
   const S_ = srcStats || {};
-  const today = new Date();
+  const selectedDay = baseDate() || todayISO();
+  const today = new Date(selectedDay+'T00:00:00');
   const y = APP_YEAR, m = String(today.getMonth()+1).padStart(2,'0');
-  // 누적은 **올해 1/1 ~ 오늘**까지만 (작년 자료나 미래 날짜가 섞이지 않게)
-  const ytdFrom = y + '-01-01', ytdTo = todayISO();
+  // 선택한 보고 기준일을 월·분기·연간 통계와 캡처가 공통으로 사용한다.
+  const ytdFrom = y + '-01-01', ytdTo = selectedDay;
   const inYTD = r => { const d = dateOf(r,'settle'); return d && d >= ytdFrom && d <= ytdTo; };
   const S = settleRows.filter(inYTD);
   const outYTD = settleRows.length - S.length;
@@ -3178,6 +3516,12 @@ function renderDaily(){
   const reg = (k, title, rows, kind) => { KS[k] = {title, rows: rows||[], kind: kind||'settle'}; return k; };
   const AS_m = (works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,m));
   const PM_m = (works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m));
+  const qNo=Math.floor((+m-1)/3)+1, qFrom=String(qNo*3-2).padStart(2,'0'),
+        qTo=String(qNo*3).padStart(2,'0');
+  const inQuarter=d=>{const s=String(d||'');return s.startsWith(y+'-')&&s.slice(5,7)>=qFrom&&s.slice(5,7)<=qTo;};
+  const Sq=S.filter(r=>inQuarter(dateOf(r,'settle')));
+  const AS_q=(works.as||[]).filter(r=>inQuarter(dateOf(r,'as')));
+  const PM_q=(works.pm||[]).filter(r=>inQuarter(dateOf(r,'pm')));
   reg('k_all',  `정산 총계 (${y}년 누적)`, S);
   reg('k_amt',  `공급가액 (${y}년 누적)`, [...S].sort((a,b)=>(+b.공급가액||0)-(+a.공급가액||0)));
   reg('k_due',  '미수금 보유 건', S.filter(r=>(+r.미수금||0)>0));
@@ -3191,15 +3535,19 @@ function renderDaily(){
   reg('m_as',   `${+m}월 돌발AS`, AS_m, 'as');
   reg('m_pm',   `${+m}월 정기점검`, PM_m, 'pm');
   reg('m_iss',  `${+m}월 조치필요`, Sm.filter(r=>needAction(r)));
+  reg('q_set',  `${qNo}분기 정산`, Sq);
+  reg('q_as',   `${qNo}분기 돌발AS`, AS_q, 'as');
+  reg('q_pm',   `${qNo}분기 정기점검`, PM_q, 'pm');
   const cell = (v,l,k)=>{
     const on = k && KS[k] && KS[k].rows.length;
     return `<div class="rcell${on?' clk':''}"${on?` onclick="openKpi('${k}')"`:''}>` +
       `<div class="v">${v}</div><div class="l">${l}${on?' <span class="go">▸</span>':''}</div></div>`;
   };
-  const rptLogo = brandLogo ? `<div class="logo brand">${brandImg()}</div>` : null;
+  const rptLogo = `<div class="logo app-icon"><img src="/icon-192.png?v=csos-20260729" alt="CSOS"></div>`;
   $('rpt').innerHTML = `
     <div class="rhead">
-      ${rptLogo || `<div class="logo"><svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="lgm" x1=".08" y1="1" x2=".92" y2="0"><stop offset="0" stop-color="#fff"/><stop offset=".46" stop-color="#D6FBEA"/><stop offset="1" stop-color="#1FDD86"/></linearGradient></defs><path d="M122 262 L214 352 L396 116" fill="none" stroke="url(#lgm)" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/><rect x="136" y="404" width="240" height="30" rx="15" fill="#fff" opacity=".95"/><rect x="182" y="452" width="148" height="18" rx="9" fill="#fff" opacity=".4"/></svg></div>`}
+      ${rptLogo}
+      <img class="report-uni-brand" src="/brand/universal-lift-horizontal.png" alt="UNIVERSAL LIFT &amp; HITACHI KOREA">
       <h2 style="font-size:17px">Coupang Service Operations System<small>일일보고 · (주)유니버셜리프트앤히타치코리아</small></h2>
       <div class="rdate">보고일<b>${(execRep.meta&&execRep.meta['보고일'])||`${y}-${m}-${String(today.getDate()).padStart(2,'0')}`}</b>
         <span style="font-size:10.5px;font-weight:600;color:var(--ink-3)">집계기준일 ${
@@ -3210,7 +3558,24 @@ function renderDaily(){
           border-radius:8px;padding:5px 10px;font-size:11px;font-weight:800;font-family:inherit;
           cursor:pointer">📅 날짜 변경</button></div>
     </div>
-    <h4>핵심 지표 (${y}년 누적 · ~${ytdTo})</h4>
+    <h4>${+m}월 실적 <span class="norm">— 선택 기준일 ${selectedDay}</span></h4>
+    <div class="rgrid">
+      ${cell(Sm.length+'건','정산','m_set')}
+      ${cell(fmt(Sm.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)','m_amt')}
+      ${cell(fmt(Sm.reduce((a,r)=>a+(+r.입금액||0),0)),'입금(원)','m_pay')}
+      ${cell(AS_m.length+'건','돌발AS','m_as')}
+      ${cell(PM_m.length+'건','정기점검','m_pm')}
+      ${cell(Sm.filter(r=>needAction(r)).length+'건','당월 조치필요','m_iss')}
+    </div>
+    <h4>${y}년 ${qNo}분기 통계 <span class="norm">— ${+qFrom}~${+qTo}월</span></h4>
+    <div class="rgrid">
+      ${cell(Sq.length+'건','분기 정산','q_set')}
+      ${cell(fmt(Sq.reduce((a,r)=>a+(+r.공급가액||0),0)),'분기 공급가액(원)','q_set')}
+      ${cell(AS_q.length+'건','분기 돌발AS','q_as')}
+      ${cell(PM_q.length+'건','분기 정기점검','q_pm')}
+      ${cell(Sq.filter(r=>needAction(r)).length+'건','분기 조치필요','q_set')}
+    </div>
+    <h4>${y}년 누적 <span class="norm">— ${ytdFrom} ~ ${ytdTo}</span></h4>
     <div class="rgrid k7">
       ${cell(S.length+'건','정산 총계','k_all')}
       ${cell(fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)','k_amt')}
@@ -3221,16 +3586,7 @@ function renderDaily(){
       ${cell(pmWait.length+'건','정기점검 대기','k_pm')}
     </div>
     ${outYTD?`<div style="font-size:11px;color:var(--ink-3);margin-top:6px">
-      ※ 완료일이 없거나 ${y}년·오늘 이후인 ${outYTD}건은 누적에서 제외</div>`:''}
-    <h4>${+m}월 실적</h4>
-    <div class="rgrid">
-      ${cell(Sm.length+'건','정산','m_set')}
-      ${cell(fmt(Sm.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)','m_amt')}
-      ${cell(fmt(Sm.reduce((a,r)=>a+(+r.입금액||0),0)),'입금(원)','m_pay')}
-      ${cell(AS_m.length+'건','돌발AS','m_as')}
-      ${cell(PM_m.length+'건','정기점검','m_pm')}
-      ${cell(Sm.filter(r=>needAction(r)).length+'건','당월 조치필요','m_iss')}
-    </div>
+      ※ 완료일이 없거나 ${y}년·선택 기준일 이후인 ${outYTD}건은 누적에서 제외</div>`:''}
     ${erpHtml(y)}
     ${execHtml()}
     ${(()=>{ window._issueSets = {}; Object.entries(byType).forEach(([t,l])=>window._issueSets[t]=l); return ''; })()}
@@ -3298,9 +3654,9 @@ function renderDaily(){
     summary: execRep.summary || [],
     exec: (execRep.sections||[]).map(s=>({title:s.title, items:s.items||[],
                                           groups:s.groups||[], lines:s.lines||[]})),
-    kpiTitle: `핵심 지표 (${y}년 누적 · ~${ytdTo})`,
-    kpiNote: outYTD ? `※ 완료일이 없거나 ${y}년·오늘 이후인 ${outYTD}건은 누적에서 제외` : '',
-    erpTitle: `${y}년 ERP 매출 (세금계산서 발행 기준)`,
+    kpiTitle: `${y}년 누적 (${ytdFrom} ~ ${ytdTo})`,
+    kpiNote: outYTD ? `※ 완료일이 없거나 ${y}년·선택 기준일 이후인 ${outYTD}건은 누적에서 제외` : '',
+    erpTitle: `${y}년 ERP 매출 (정기점검·돌발 AS(AS) · 세금계산서 발행 기준)`,
     erpTotal: Object.entries(erpDocs.months||{}).filter(([k])=>k.startsWith(y))
                 .reduce((a,[,v])=>a+v.합계,0),
     erpMonths: Object.entries(erpDocs.months||{}).filter(([k])=>k.startsWith(y)).sort()
@@ -3337,6 +3693,13 @@ function renderDaily(){
             [(works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,m)).length+'건','돌발AS'],
             [(works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m)).length+'건','정기점검'],
             [Sm.filter(r=>needAction(r)).length+'건','당월 조치필요']],
+    quarterTitle: `${y}년 ${qNo}분기 통계 (${+qFrom}~${+qTo}월)`,
+    quarter: [[Sq.length+'건','분기 정산'],
+              [fmt(Sq.reduce((a,r)=>a+(+r.공급가액||0),0)),'분기 공급가액(원)'],
+              [AS_q.length+'건','분기 돌발 AS(AS)'],
+              [PM_q.length+'건','분기 정기점검'],
+              [Sq.filter(r=>needAction(r)).length+'건','분기 조치필요']],
+    dailyIssues: dailyIssueRows().map(x=>[`${x.count}건`,x.label,x.count?'#B42318':'#177245',x.detail]),
     issues: Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>{
       const as=l.filter(r=>String(r.업무구분||'').includes('돌발')).length;
       const pm=l.filter(r=>String(r.업무구분||'').includes('점검')).length;
@@ -3732,7 +4095,7 @@ function openConfirmedOwnerScope(name){
   openPane(`<h2>${esc2(p.name)} ${chip('확정 기준')}</h2>
     <div class="sub">${esc2(p.role)} · 현재 ${list.length}건이 이 기준으로 분류되었습니다.</div>
     <div class="metric-basis"><b>적용 범위</b> ${esc2(p.scope)}</div>
-    ${list.length?`<button class="abtn primary" onclick="closePane();openCheckOwner(${esc4(name)})">현재 ${list.length}건 내역·전달</button>`:
+    ${list.length?`<button class="abtn primary" onclick="closePane();openCheckOwner(${esc4(name)})">현재 ${list.length}건 목록 보기</button>`:
       '<div class="card">현재 확인할 항목이 없습니다.</div>'}`);
 }
 function checkOwnerOf(r){
@@ -3844,7 +4207,7 @@ function openCheckSource(r){
     <div class="dl">${fields.map(([k,v])=>`<dt>${esc2(k)}</dt><dd>${esc2(v)}</dd>`).join('')}</div>
     ${helpBox(checkTypeOf(r))}
     <div class="actions sticky">
-      <button class="abtn primary" onclick="openSingleCheckCapture()"><span class="em">📤</span>이 항목 전달</button>
+      <button class="abtn primary" onclick="openSingleCheckCapture()"><span class="em">📋</span>이 항목 목록 열기</button>
       <button class="abtn" onclick="showCheckRaw()"><span class="em">📋</span>원본표 보기</button></div>`);
 }
 function openSingleCheckCapture(){
@@ -3981,21 +4344,16 @@ function renderCheckHub(){
 /* onclick 속성에 안전하게 문자열 넣기 */
 function esc4(s){ return "'" + String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;') + "'"; }
 
-/* 고객사 CI가 있으면 상단·보고서 로고를 그 파일로 바꾼다.
-   가이드라인상 변형이 금지되어 있으므로 색·비율을 건드리지 않고 원본을 그대로 넣는다. */
+/* 제공받은 유니버셜리프트 CI는 앱바에서 은은하게 노출하고 보고서 이미지에도 원본 비율로 넣는다.
+   CSOS 상태 아이콘은 실행 중 애니메이션의 기준이므로 CI로 교체하지 않는다. */
 function brandImg(cls){
   return brandLogo
     ? `<img src="/brand/${encodeURIComponent(brandLogo)}" alt="쿠팡" class="${cls||''}">`
     : '';
 }
 function applyBrand(){
-  document.querySelectorAll('.logo').forEach(el=>{
-    if(!brandLogo){ el.classList.remove('brand'); return; }
-    if(el.dataset.b === brandLogo) return;
-    el.dataset.b = brandLogo;
-    el.classList.add('brand');
-    el.innerHTML = brandImg();
-  });
+  const el=document.querySelector('.uni-app-brand');
+  if(el) el.src='/brand/universal-lift-horizontal.png';
 }
 function openPane(html){
   showSheet(html);        // 시트와 같은 창을 쓴다 — 뒤로가기·배경잠금도 그대로 적용된다
@@ -4164,10 +4522,12 @@ function openExecMetric(label){
     <div class="metric-basis"><b>집계 기준</b> ${esc2(d.basis||'')}</div>
     <div class="lhead"><b>목록</b><span>${rows.length}건</span></div>
     <div class="slist">${body||'<div class="card">해당 건이 없습니다.</div>'}</div>
-    <div class="actions sticky">
-      <button class="abtn primary" onclick="shareExecMetric()"><span class="em">📤</span>이미지로 전달</button>
-      <button class="abtn" onclick="saveExecMetric()"><span class="em">💾</span>이미지 저장</button>
-    </div>`);
+	    <div class="media-tools sticky" role="toolbar" aria-label="목록 도구">
+	      <button class="icon-btn" onclick="printExecMetric()" title="인쇄" aria-label="인쇄"><img src="/icons/printer.svg" alt=""></button>
+	      <button class="icon-btn primary" onclick="saveExecMetric()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>
+	      <button class="icon-btn" onclick="copyExecMetric()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>
+	      <button class="icon-btn excel" onclick="exportMetricXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button>
+	    </div>`);
 }
 
 /* KPI 숫자 → 그 숫자를 만든 실제 건 목록 */
@@ -4188,7 +4548,7 @@ function openIssueType(t){
   const names = Object.keys(by).sort((a,b)=>by[b].length-by[a].length);
   window._issueBoard = by;                                // 전체 담당자 보드는 덮어쓰지 않는다
   openPane(`<h2>${t} <span class="chip c-danger">${list.length}건</span></h2>
-    <div class="sub">담당자별로 나눠 이미지를 만들어 전달할 수 있습니다</div>
+    <div class="sub">담당자별 목록을 열어 이미지로 저장하거나 복사할 수 있습니다</div>
     ${helpBox(t)}
     <div class="toplist" style="margin-top:12px">${names.map(n=>`
       <div class="topitem">
@@ -4196,10 +4556,8 @@ function openIssueType(t){
           <div style="font-size:11.5px;color:var(--ink-3);margin-top:3px">${by[n].length}건 · ${
             by[n].slice(0,2).map(x=>x.prj||x.id).join(', ')}${by[n].length>2?' 외':''}</div></span>
         <span style="flex:none;display:flex;gap:6px">
-          <button class="abtn" style="padding:7px 10px;font-size:12px"
-            onclick="event.stopPropagation();openIssueAssignee(${esc4(n)})">내역</button>
           <button class="abtn primary" style="padding:7px 10px;font-size:12px"
-            onclick="event.stopPropagation();selectIssueAssignee(${esc4(n)});shareAssignee()">📤 전달</button>
+            onclick="event.stopPropagation();openIssueAssignee(${esc4(n)})">목록 보기</button>
         </span></div>`).join('') ||
       '<div class="card">담당자 정보가 없는 건입니다</div>'}</div>`);
 }
@@ -4260,9 +4618,11 @@ function openAssignee(name, source){
         (i.desc?'<div class="meta"><span style="flex:1">'+i.desc+'</span></div>':'')+'</div>';
     }).join('') || '<div class="card">항목 없음</div>') + '</div>'+
     (l.length?helpBox(l[0].issue):'')+
-    '<div class="actions sticky">'+
-      '<button class="abtn primary" onclick="shareAssignee()"><span class="em">📤</span>이미지로 전달</button>'+
-      '<button class="abtn" onclick="captureAssignee()"><span class="em">💾</span>이미지 저장</button></div>');
+	    '<div class="media-tools sticky" role="toolbar" aria-label="담당자 목록 도구">'+
+	      '<button class="icon-btn" onclick="printAssignee()" title="인쇄" aria-label="인쇄"><img src="/icons/printer.svg" alt=""></button>'+
+	      '<button class="icon-btn primary" onclick="captureAssignee()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>'+
+	      '<button class="icon-btn" onclick="copyAssigneeImage()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>'+
+	      '<button class="icon-btn excel" onclick="exportAssigneeXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button></div>');
 }
 
 function openMine(idx){
@@ -4280,12 +4640,14 @@ function openMine(idx){
       }).join('') + '</div>'
     : '<div class="card" style="margin-top:12px">이 자료가 있어야 대조를 할 수 있습니다.<br><b>'+
       m.todo+'</b><br><br>[실행] 탭의 <b>파일·폴더 열기</b>에서 해당 폴더를 열 수 있습니다.</div>';
-  window._mineIdx = idx;                      // 캡처가 어느 항목인지 알아야 한다
-  const cap = rows.length
-    ? '<div class="actions" style="margin-top:12px">'+
-      '<button class="abtn" onclick="captureMineDetail()"><span class="em">📸</span>이 목록 캡처</button>'+
-      '<button class="abtn" onclick="shareMineDetail()"><span class="em">📤</span>이미지 공유</button></div>'
-    : '';
+	  window._mineIdx = idx;                      // 캡처가 어느 항목인지 알아야 한다
+	  const cap = rows.length
+	    ? '<div class="media-tools" role="toolbar" aria-label="내 확인 상세 목록 도구" style="margin-top:12px">'+
+	      '<button class="icon-btn" onclick="printMineDetail()" title="인쇄" aria-label="인쇄"><img src="/icons/printer.svg" alt=""></button>'+
+	      '<button class="icon-btn primary" onclick="captureMineDetail()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>'+
+	      '<button class="icon-btn" onclick="copyMineDetailImage()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>'+
+	      '<button class="icon-btn excel" onclick="exportMineDetailXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button></div>'
+	    : '';
   openPane('<h2>'+m.cat+' <span class="chip '+(m.lv==='danger'?'c-danger':'c-warn')+'">'+
     (m.n?m.n+'건':'대기')+'</span></h2><div class="sub">'+m.todo+
     (m.amt?' · '+fmt(m.amt)+'원':'')+'</div>'+helpBox(m.cat)+cap+body);
@@ -4464,6 +4826,22 @@ async function captureMineDetail(){
   catch(e){ alert('이미지 생성 실패: '+e); return; }
   saveOrOpen(b, mineDetailFileName());
 }
+async function printMineDetail(){
+  try{printPngBlob(await mineDetailToPng(window._mineIdx),mineDetailFileName());}
+  catch(e){alert('인쇄 이미지 생성 실패: '+e);}
+}
+async function copyMineDetailImage(){
+  try{await copyPngBlob(await mineDetailToPng(window._mineIdx));}
+  catch(e){alert('이미지 복사 실패: '+e);}
+}
+function mineDetailRows(){
+  const m=(window._mine||[])[window._mineIdx]||{};
+  return (m.items||[]).map(r=>({...r,업무구분:r.업무구분||m.cat,문제:r.문제||m.todo}));
+}
+function exportMineDetailXlsx(){
+  const m=(window._mine||[])[window._mineIdx]||{};
+  exportRowsXlsx(m.cat||'내 확인 상세',mineDetailRows());
+}
 async function shareMineDetail(){
   let b;
   try{ b = await mineDetailToPng(window._mineIdx); if(!b) throw new Error('empty'); }
@@ -4490,6 +4868,20 @@ async function captureMine(){
   catch(e){ alert('이미지 생성 실패: '+e); return; }
   saveOrOpen(b, mineFileName());
 }
+async function printMine(){
+  try{printPngBlob(await mineToPng(),mineFileName());}
+  catch(e){alert('인쇄 이미지 생성 실패: '+e);}
+}
+async function copyMineImage(){
+  try{await copyPngBlob(await mineToPng());}
+  catch(e){alert('이미지 복사 실패: '+e);}
+}
+function mineRows(){
+  return (window._mine||[]).flatMap(m=>(m.items||[]).map(r=>(
+    {...r,업무구분:r.업무구분||m.cat,문제:r.문제||m.todo}
+  )));
+}
+function exportMineXlsx(){exportRowsXlsx('내가 확인할 사항',mineRows());}
 async function shareMine(){
   let b;
   try{ b = await mineToPng(); if(!b) throw new Error('empty'); }
@@ -4610,13 +5002,31 @@ function loadBrandImg(){
     im.src = '/brand/' + encodeURIComponent(brandLogo);
   });
 }
+let _appIconImg = null;
+function loadAppIconImg(){
+  if(_appIconImg) return Promise.resolve(_appIconImg);
+  return new Promise(res=>{
+    const im = new Image();
+    im.onload = ()=>{ _appIconImg = im; res(im); };
+    im.onerror = ()=>res(null);
+    im.src = '/icon-512.png?v=csos-20260729';
+  });
+}
 async function drawLogo(ctx, x, y, size, onDark){
-  const im = await loadBrandImg();
+  const im = await loadAppIconImg();
   if(!im){ drawMark(ctx, x, y, size); return; }
-  const w = Math.min(size * 3.2, im.width * (size / im.height));
   ctx.save();
-  if(onDark){ ctx.filter = 'brightness(0) invert(1)'; }   // 남색 헤더 위에서는 흰색 로고
-  ctx.drawImage(im, x, y + (size - size * im.height / im.height) / 2, w, size);
+  ctx.drawImage(im, x, y, size, size);
+  ctx.restore();
+}
+async function drawUniversalLogo(ctx, x, y, maxW, maxH){
+  const im = await loadBrandImg();
+  if(!im) return;
+  const scale = Math.min(maxW / im.width, maxH / im.height);
+  const w = im.width * scale, h = im.height * scale;
+  ctx.save();
+  ctx.globalAlpha = .9;
+  ctx.drawImage(im, x, y + (maxH-h)/2, w, h);
   ctx.restore();
 }
 function drawMark(ctx,x,y,size){
@@ -4640,12 +5050,15 @@ async function reportToPng(){
   const ctx = cv.getContext('2d');
   // ── 높이 선계산 (대표보고 섹션 포함)
   const tiles = r => Math.ceil(r/3)*74;
-  const execH = (D.summary||[]).length ? 34 + (D.summary.length*20) : 0;
-  const execSecH = (D.exec||[]).reduce((a,s)=>{
+  const execSections=(D.exec||[]).filter(s=>!/^(정리|요약)$/.test(cleanExecTitle(s.title)));
+  const dailyIssueList=D.dailyIssues||[];
+  const execSecH = execSections.reduce((a,s)=>{
     const gh = (s.groups||[]).length
-      ? 26 + Math.max(...s.groups.map(g=>g.items.length))*20 + 16 : 0;
+      ? 38 + Math.max(...s.groups.map(g=>g.items.length))*24 + 18 : 0;
+    const issueH=/당일 업무 실적/.test(cleanExecTitle(s.title)) && dailyIssueList.length
+      ? 42 + dailyIssueList.length*30 : 0;
     return a + 34 + gh + (s.items.length?tiles(s.items.length):0)
-             + (s.lines.length? s.lines.length*20 + 6 : 0);
+             + issueH + (s.lines.length? s.lines.length*20 + 6 : 0);
   }, 0);
   // ★ 타일 개수를 하드코딩(6)하면 지표가 7개일 때 마지막 타일이 캔버스 밖으로 잘린다
   const erpM = D.erpMonths || [];
@@ -4665,8 +5078,9 @@ async function reportToPng(){
       + workDetailH(wlOpenRows) + workDetailH(wlCancelRows)
       + workDetailH(wlUnknownRows) + 16 : 0;
   const dailyBriefH = dailyBrief
-    ? 34 + tiles((dailyBrief.metrics||[]).length) + (dailyActivities.length ? dailyActivities.length*90 : 28) + 10
+    ? tiles((dailyBrief.metrics||[]).length) + (dailyActivities.length ? dailyActivities.length*90 : 28) + 10
     : 0;
+  const quarterH=(D.quarter||[]).length ? 34+tiles(D.quarter.length) : 0;
   // 화면의 4원천 표와 같은 구조로 캡처한다. 미확인 번호는 한 줄 문자열이 아니라
   // 3열 칩으로 배치하므로 번호 수에 따라 행 높이도 함께 늘어나야 잘리지 않는다.
   const sourceDetails = (D.srcDetails||[]).length ? D.srcDetails : (D.srcs||[]).map(r=>({
@@ -4676,10 +5090,11 @@ async function reportToPng(){
   }));
   const sourceRowHeight = r => Math.max(44, 20 + Math.ceil(Math.max(1,(r.missProjects||[]).length)/3)*32);
   const sourceTableH = 32 + sourceDetails.reduce((n,r)=>n+sourceRowHeight(r),0);
-  let H = 108 + execH + execSecH
-          + dailyBriefH + pmProgressH + workLogH
+  let H = 108 + 34 + tiles((D.month||[]).length) + quarterH
           + 34 + tiles((D.kpi||[]).length) + (D.kpiNote ? 18 : 0)
-          + 34 + tiles((D.month||[]).length) + erpH
+          + execSecH
+          + dailyBriefH + pmProgressH + workLogH
+          + erpH
           + 34 + (D.issues.length+1)*30 + 34 + sourceTableH + 54;
   cv.width = W*S; cv.height = H*S;
   ctx.scale(S,S);
@@ -4701,6 +5116,7 @@ async function reportToPng(){
   ctx.fillStyle=g; ctx.fillRect(0,0,W,96);
   if(!brandLogo) box(30,26,44,44,'rgba(255,255,255,.16)',null,12);   // CI가 있으면 배경 사각형 없이
   await drawLogo(ctx,30,30,36,true);
+  await drawUniversalLogo(ctx,500,20,170,28);
   txt('Coupang Service Operations System',92,36,F(17,800),'#fff');
   txt('일일보고 · (주)유니버셜리프트앤히타치코리아',92,60,F(11.5),'#9FB4E8');
   txt('보고일',W-30,32,F(11),'#9FB4E8','right');
@@ -4710,13 +5126,27 @@ async function reportToPng(){
   txt(`데이터 업데이트 ${D.updatedAt||'-'}`,92,82,F(9.5,700),'#C9D7FA');
 
   let y = 96;
-  const section = t => { y += 34; txt(t,30,y-8,F(13,800),'#1B41BC');
-    ctx.strokeStyle='#E4E9F0'; ctx.beginPath(); ctx.moveTo(30+ctx.measureText(t).width+12,y-8);
-    ctx.lineTo(W-30,y-8); ctx.stroke(); };
+  const section = (t,no=null,tone='#1B41BC') => {
+    y += 38;
+    if(no!=null){
+      box(30,y-25,26,26,tone,null,8);
+      txt(no,43,y-12,F(12,900),'#FFF','center');
+      txt(t,66,y-12,F(14,900),'#12214B');
+      ctx.strokeStyle='#D9E1EF';ctx.lineWidth=2;ctx.beginPath();
+      ctx.moveTo(66+ctx.measureText(t).width+14,y-12);ctx.lineTo(W-30,y-12);ctx.stroke();
+    }else{
+      box(30,y-25,7,26,tone,null,4);
+      txt(t,48,y-12,F(13.5,900),tone);
+      ctx.strokeStyle='#E4E9F0';ctx.lineWidth=1;ctx.beginPath();
+      ctx.moveTo(48+ctx.measureText(t).width+14,y-12);ctx.lineTo(W-30,y-12);ctx.stroke();
+    }
+  };
   const grid = arr => { const cw=(W-60-16)/3;
     arr.forEach((t,i)=>{ const cx=30+(i%3)*(cw+8), cy=y+Math.floor(i/3)*74;
-      box(cx,cy,cw,64,'#F8FAFD','#EEF2F7');
-      txt(t[1],cx+14,cy+22,F(11,700),'#98A2B3');
+      const accents=['#4960DF','#2B9560','#D08A2E'], accent=accents[i%3];
+      box(cx,cy,cw,64,'#FAFBFE','#DFE6F2');
+      box(cx,cy,cw,4,accent,null,4);
+      txt(t[1],cx+14,cy+22,F(11,800),'#667085');
       txt(t[0],cx+14,cy+44,F(19,800),t[2]||'#101828'); });
     y += tiles(arr.length); };
   const table = (cols,rows,widths)=>{
@@ -4774,59 +5204,89 @@ async function reportToPng(){
     });
   };
 
-  // ── 01_대표보고 섹션 (엑셀 대표보고와 동일 항목)
+  // ── 통계는 현재 월 → 이번 분기 → 해당 연도 순서로 고정한다.
   const lines = arr => { arr.forEach(t=>{ txt(clip(t, W-70), 34, y+8, F(12), '#475467'); y += 20; }); y += 6; };
-  if((D.summary||[]).length){ section('정리'); lines(D.summary); }
-  // 블록 그룹(돌발AS·현장 / 정기점검 / 거래서류·청구)을 칼럼으로 구분해 그린다
+  section(D.monthTitle||'현재 월 통계',null,'#4960DF'); grid(D.month||[]);
+  if((D.quarter||[]).length){ section(D.quarterTitle||'이번 분기 통계',null,'#2B9560'); grid(D.quarter); }
+  section(D.kpiTitle||`${APP_YEAR}년 누적`,null,'#9A5A12'); grid(D.kpi||[]);
+  if(D.kpiNote){ txt(D.kpiNote,30,y+8,F(10),'#98A2B3');y+=18; }
+
+  // ── 번호가 붙는 대표 보고 섹션. 빈 '정리'는 버리고 화면 순서대로 1부터 다시 센다.
   const groupCols = gs => {
     const n = Math.min(gs.length, 3), gw = (W - 60 - (n-1)*8) / n;
     const rowsMax = Math.max(...gs.map(g=>g.items.length));
-    const bh = 26 + rowsMax*20 + 10;
+    const bh = 38 + rowsMax*24 + 12;
+    const pal=[
+      {head:'#EEF2FF',line:'#CAD4FF',text:'#3448BE',accent:'#4960DF'},
+      {head:'#ECF9F1',line:'#BCE6CD',text:'#177245',accent:'#2B9560'},
+      {head:'#FFF6E8',line:'#F2D19B',text:'#9A5A12',accent:'#D08A2E'}
+    ];
     gs.slice(0,n).forEach((g,i)=>{
-      const gx = 30 + i*(gw+8);
-      box(gx, y, gw, bh, '#FFF', '#E4E9F0');
-      box(gx, y, gw, 26, '#EEF3FC', '#E4E9F0');
-      txt(g.name, gx+10, y+13, F(11,800), '#1B41BC');
+      const gx=30+i*(gw+8), p=pal[i%pal.length];
+      box(gx,y,gw,bh,'#FFF',p.line,12);
+      box(gx,y,gw,34,p.head,p.line,12);
+      box(gx+10,y+9,5,16,p.accent,null,3);
+      txt(g.name,gx+23,y+17,F(11.5,900),p.text);
       g.items.forEach(([l,v],j)=>{
-        const ry = y + 26 + 12 + j*20;
-        txt(clip(dateLabel(l), gw-70), gx+10, ry, F(11.5), '#475467');
-        txt(v||'-', gx+gw-10, ry, F(12,800), '#101828', 'right');
+        const ry=y+34+14+j*24;
+        if(j%2){ctx.fillStyle='#FAFBFD';ctx.fillRect(gx+7,ry-10,gw-14,21);}
+        txt(clip(dateLabel(l),gw-75),gx+12,ry,F(11.2),'#475467');
+        txt(v||'-',gx+gw-12,ry,F(12.2,900),'#101828','right');
       });
     });
     y += bh + 6;
   };
-  (D.exec||[]).forEach(s=>{
-    section(s.title);
-    if((s.groups||[]).length) groupCols(s.groups);
-    if(s.items.length) grid(s.items.map(([l,v])=>[v||'-', l]));
-    if(s.lines.length) lines(s.lines);
-  });
-
-  // 대표 요청: 카톡에서 올린 뒤 류지영 매니저가 처리한 M_순천1
-  // 택배 발송 같은 별도 업무를 대표 보고 PNG의 '당일 업무 실적'에 상세히 남긴다.
-  if(dailyBrief){
-    section(`${dailyBrief.date||D.date} 당일 업무 실적`);
-    if((dailyBrief.metrics||[]).length) grid(dailyBrief.metrics);
+  const issueBlock=items=>{
+    if(!items.length)return;
+    const total=items.reduce((n,x)=>n+(parseInt(x[0])||0),0), h=42+items.length*30;
+    box(30,y,W-60,h,total?'#FFF8F8':'#F3FBF6',total?'#F1C2C2':'#BCE6CD',12);
+    box(30,y,W-60,36,total?'#FFF1F1':'#ECF9F1',total?'#F1C2C2':'#BCE6CD',12);
+    box(42,y+10,5,16,total?'#B42318':'#177245',null,3);
+    txt(`이슈사항 · ${total?`${total}건 확인 필요`:'특이사항 없음'}`,55,y+18,F(11.8,900),
+        total?'#A63737':'#177245');
+    items.forEach((x,i)=>{
+      const ry=y+50+i*30;
+      if(i){ctx.strokeStyle='#F0E5E5';ctx.beginPath();ctx.moveTo(42,ry-15);ctx.lineTo(W-42,ry-15);ctx.stroke();}
+      txt(x[1],44,ry,F(11.5,700),'#475467');
+      txt(x[3]||'',280,ry,F(10.5),'#98A2B3');
+      txt(x[0],W-44,ry,F(12,900),x[2]||'#101828','right');
+    });
+    y+=h+8;
+  };
+  const drawDailyBrief=()=>{
+    if(!dailyBrief)return;
+    if((dailyBrief.metrics||[]).length)grid(dailyBrief.metrics);
     if(dailyActivities.length){
       dailyActivities.forEach(a=>{
         box(30,y,W-60,82,'#F8FAFD','#DCE5F5',10);
-        txt(clip(`${a.project} · ${a.camp}`, 560),44,y+17,F(12.5,800),'#101828');
+        box(30,y,6,82,'#4960DF',null,4);
+        txt(clip(`${a.project} · ${a.camp}`,560),46,y+17,F(12.5,800),'#101828');
         txt(a.date||'-',W-44,y+17,F(11.5,700),'#475467','right');
-        txt(clip(`${a.poster||'게시자 미기입'} → ${a.handler||'처리자 미기입'}`, 720),
-            44,y+37,F(11.5,700),'#1B41BC');
-        const when = a.requestDate ? `접수 ${a.requestDate}` : '접수일 미기입';
-        txt(clip(`요청 · ${a.request||'신청내용 미기입'} (${when})`, 370),
-            44,y+61,F(10.8),'#475467');
-        txt(clip(`처리 · ${a.action||'처리내용 미기입'}`, 350),
-            430,y+61,F(10.8,700),'#12813F');
-        y += 90;
+        txt(clip(`${a.poster||'게시자 미기입'} → ${a.handler||'처리자 미기입'}`,720),
+            46,y+37,F(11.5,700),'#1B41BC');
+        const when=a.requestDate?`접수 ${a.requestDate}`:'접수일 미기입';
+        txt(clip(`요청 · ${a.request||'신청내용 미기입'} (${when})`,370),46,y+61,F(10.8),'#475467');
+        txt(clip(`처리 · ${a.action||'처리내용 미기입'}`,350),430,y+61,F(10.8,700),'#12813F');
+        y+=90;
       });
-    }else{
-      txt('별도 업무 처리 내역 없음',30,y+10,F(11),'#98A2B3');
-      y += 28;
     }
-    y += 10;
-  }
+    y+=10;
+  };
+  const drawExec=[...execSections];
+  if(!drawExec.some(s=>/당일 업무 실적/.test(cleanExecTitle(s.title))))
+    drawExec.unshift({title:'당일 업무 실적',items:[],groups:[],lines:[]});
+  let reportNo=0;
+  drawExec.forEach(s=>{
+    const raw=cleanExecTitle(s.title), title=execPeriodTitle(raw);
+    section(title,++reportNo);
+    if((s.groups||[]).length) groupCols(s.groups);
+    if(/당일 업무 실적/.test(raw)){
+      issueBlock(dailyIssueList);
+      drawDailyBrief();
+    }
+    if(s.items.length) grid(s.items.map(([l,v])=>[v||'-', l]));
+    if(s.lines.length) lines(s.lines);
+  });
 
   // 화면에서 고른 기간(7~9월/상반기/연간)을 그대로 넣는다. 대표 캡처만 옛 분기
   // 고정 숫자를 쓰면 화면과 다른 보고가 되므로, 위 _rptData의 pmStats 결과만 사용한다.
@@ -4879,9 +5339,6 @@ async function reportToPng(){
     }
   }
 
-  section(D.kpiTitle || '핵심 지표 (누적)');   grid(D.kpi);
-  if(D.kpiNote){ txt(D.kpiNote, 30, y+8, F(10), '#98A2B3'); y += 18; }
-  section(D.monthTitle);        grid(D.month);
   if(erpM.length){
     section(D.erpTitle || 'ERP 매출');
     const cw2 = [90, 200, 80, 300];
@@ -5031,6 +5488,24 @@ async function captureDash(){
   catch(e){ alert('이미지 생성 실패: '+e); return; }
   saveOrOpen(blob, dashFileName());
 }
+async function printDash(){
+  try{printPngBlob(await dashToPng(),dashFileName());}
+  catch(e){alert('인쇄 이미지 생성 실패: '+e);}
+}
+async function copyDashImage(){
+  try{await copyPngBlob(await dashToPng());}
+  catch(e){alert('이미지 복사 실패: '+e);}
+}
+function dashboardExcelRows(){
+  const tagged=(rows,kind)=>(rows||[]).map(r=>({...r,업무구분:r.업무구분||kind}));
+  return [
+    ...tagged(settleRows,'정산·청구'),
+    ...tagged((works&&works.as)||[],'돌발AS'),
+    ...tagged((works&&works.pm)||[],'정기점검'),
+    ...tagged((issuesData&&issuesData.rows)||[],'확인 필요')
+  ];
+}
+function exportDashXlsx(){exportRowsXlsx('대시보드 전체 목록',dashboardExcelRows());}
 /* PC=다운로드 / iOS·미지원=새 창 표시 (공통) */
 function saveOrOpen(blob, filename){
   const url = URL.createObjectURL(blob);
@@ -5049,7 +5524,103 @@ function saveOrOpen(blob, filename){
     } else alert('팝업이 차단됐습니다. 팝업을 허용해 주세요.');
   }
 }
-function rptFileName(){ return `CSOS_일일보고_${new Date().toISOString().slice(0,10)}.png`; }
+function downloadBlobFile(blob, filename, message){
+  const url=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  toast(message||`${filename} 저장 완료`);
+}
+async function copyPngBlob(blob){
+  try{
+    if(!navigator.clipboard||typeof ClipboardItem==='undefined') throw new Error('clipboard unsupported');
+    await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+    toast('이미지를 클립보드에 복사했습니다 · 카톡에 바로 붙여넣을 수 있습니다');
+    return true;
+  }catch(e){
+    alert('이 브라우저에서는 이미지 복사가 제한됩니다. 이미지 저장 기능을 이용해 주세요.');
+    return false;
+  }
+}
+function printPngBlob(blob,title){
+  const url=URL.createObjectURL(blob), w=window.open('','_blank');
+  if(!w){URL.revokeObjectURL(url);alert('팝업을 허용하면 인쇄할 수 있습니다.');return;}
+  w.document.write(`<html><head><title>${esc2(title||'CSOS')}</title>
+    <style>@page{margin:8mm}body{margin:0}img{display:block;max-width:100%;margin:auto}</style></head>
+    <body><img src="${url}" onload="setTimeout(()=>window.print(),180)"></body></html>`);
+  w.document.close();setTimeout(()=>URL.revokeObjectURL(url),120000);
+}
+function excelRows(rows){
+  return (rows||[]).map(r=>({
+    프로젝트NO:projectNoOf(r)||r.prj||r.프로젝트||'',
+    업무ID:recordIdOf(r)||r.id||r.레코드ID||r.ID||'',
+    캠프명:r.캠프명||r.camp||'',
+    구분:r.업무구분||r.kind||r.종류||r.구분||'',
+    확인사항:r.문제||r.issue||r.desc||r.확인사항||'',
+    현재상태:r.상태||r.진행상태||r.점검상태||'',
+    기준일자:r.일자||r.date||r.완료일||r.접수일자||r.점검예정일||'',
+    담당자:r.담당자||r.담당기사||''
+  }));
+}
+async function exportRowsXlsx(title,rows){
+  try{
+    const r=await fetch('/api/export_xlsx',{method:'POST',cache:'no-store',
+      headers:{'X-Pin':PIN,'Content-Type':'application/json'},
+      body:JSON.stringify({title,rows:excelRows(rows)})});
+    if(r.status===401){PIN='';localStorage.removeItem('cw_pin');$('gate').style.display='flex';throw new Error('PIN');}
+    if(!r.ok){let d={};try{d=await r.json();}catch(_){}
+      throw new Error(d.error||`HTTP ${r.status}`);}
+    const b=await r.blob(), safe=String(title||'확인목록').replace(/[\\/:*?"<>|\s]+/g,'_');
+    downloadBlobFile(b,`CSOS_${safe}_${todayISO()}.xlsx`,'담당자 회신용 엑셀을 저장했습니다');
+  }catch(e){alert('엑셀 저장 실패: '+e);}
+}
+function reportExcelRows(){
+  const D=_rptData||{}, out=[];
+  const add=(group,label,value,detail='')=>out.push({
+    프로젝트NO:'',업무ID:'',캠프명:'',구분:group,확인사항:label,
+    현재상태:value,기준일자:D.date||baseDate(),담당자:'',desc:detail
+  });
+  (D.month||[]).forEach(x=>add(D.monthTitle||'현재 월',x[1],x[0]));
+  (D.quarter||[]).forEach(x=>add(D.quarterTitle||'이번 분기',x[1],x[0]));
+  (D.kpi||[]).forEach(x=>add(D.kpiTitle||'연간 누적',x[1],x[0]));
+  (D.dailyIssues||[]).forEach(x=>add('이슈사항',x[1],x[0],x[3]||''));
+  (D.exec||[]).forEach(s=>{
+    (s.items||[]).forEach(x=>add(cleanExecTitle(s.title),x[0],x[1]));
+    (s.groups||[]).forEach(g=>(g.items||[]).forEach(x=>add(g.name,x[0],x[1])));
+  });
+  return out;
+}
+async function saveReportJournal(){
+  try{renderDaily();const b=await reportToPng();downloadBlobFile(b,'CSOS_업무일지_'+
+    ((_rptData&&_rptData.date)||baseDate())+'.png','업무일지를 저장했습니다');}
+  catch(e){alert('일지 저장 실패: '+e);}
+}
+async function printReport(){try{renderDaily();printPngBlob(await reportToPng(),rptFileName());}
+  catch(e){alert('인쇄 이미지 생성 실패: '+e);}}
+async function copyReportImage(){try{renderDaily();await copyPngBlob(await reportToPng());}
+  catch(e){alert('이미지 복사 실패: '+e);}}
+function exportReportXlsx(){exportRowsXlsx(`일일보고_${(_rptData&&_rptData.date)||baseDate()}`,reportExcelRows());}
+async function saveMetricJournal(){try{const b=await metricToPng(window._curMetricLabel);
+  downloadBlobFile(b,'CSOS_업무일지_'+metricFileName());}catch(e){alert('일지 저장 실패: '+e);}}
+async function printExecMetric(){try{printPngBlob(await metricToPng(window._curMetricLabel),metricFileName());}
+  catch(e){alert('인쇄 이미지 생성 실패: '+e);}}
+async function copyExecMetric(){try{await copyPngBlob(await metricToPng(window._curMetricLabel));}
+  catch(e){alert('이미지 복사 실패: '+e);}}
+function exportMetricXlsx(){const d=metricDetail(window._curMetricLabel);
+  exportRowsXlsx(window._curMetricLabel||'확인목록',d.rows||[]);}
+async function saveAssigneeJournal(){try{const b=await assigneeToPng(window._curAssignee);
+  downloadBlobFile(b,'CSOS_업무일지_'+assigneeFileName());}catch(e){alert('일지 저장 실패: '+e);}}
+async function printAssignee(){try{printPngBlob(await assigneeToPng(window._curAssignee),assigneeFileName());}
+  catch(e){alert('인쇄 이미지 생성 실패: '+e);}}
+async function copyAssigneeImage(){try{await copyPngBlob(await assigneeToPng(window._curAssignee));}
+  catch(e){alert('이미지 복사 실패: '+e);}}
+function exportAssigneeXlsx(){
+  exportRowsXlsx(`확인요청_${window._curAssignee||'담당자'}`,window._curAssigneeList||[]);
+}
+function rptFileName(){
+  const day = (_rptData&&_rptData.date) || REPORT_PREVIEW_DATE || baseDate() ||
+              new Date().toISOString().slice(0,10);
+  return `CSOS_일일보고_${day}.png`;
+}
 function isIOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1); }
 
@@ -5098,6 +5669,9 @@ function tick(){ $('clock').textContent = new Date().toLocaleTimeString('ko-KR',
 async function refreshAll(){ try{ await loadSettle(); await loadStatus(); }catch(e){} }
 (async function(){
   tick(); setInterval(tick, 30000); initDates(); previewCalendarDraft();
+  if(location.pathname.replace(/\/+$/,'')==='/ryu') document.body.classList.add('ryu-mode');
+  const surveyDate=document.querySelector('#ryuUploadForm [name="survey_date"]');
+  if(surveyDate&&!surveyDate.value) surveyDate.value=todayISO();
   showFixedEntry();          // 고정 주소는 로그인·데이터 로딩과 무관하게 **항상** 보인다
   loadCodes();               // 드롭다운 선택지(10_코드관리)
   applyView(curView());                  // 새로고침 전에 보던 화면으로 복귀(뒤로가기 기록은 안 쌓는다)

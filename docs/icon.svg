@@ -1,40 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512"
-     role="img" aria-label="Coupang Service Operations System">
-  <defs>
-    <linearGradient id="bg" x1=".08" y1="0" x2=".92" y2="1">
-      <stop offset="0" stop-color="#3D68FF"/>
-      <stop offset=".46" stop-color="#1533A3"/>
-      <stop offset="1" stop-color="#060D2B"/>
-    </linearGradient>
-    <linearGradient id="mk" x1=".08" y1="1" x2=".92" y2="0">
-      <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset=".46" stop-color="#D6FBEA"/>
-      <stop offset="1" stop-color="#1FDD86"/>
-    </linearGradient>
-    <radialGradient id="gl" cx=".26" cy=".12" r=".82">
-      <stop offset="0" stop-color="#fff" stop-opacity=".32"/>
-      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
-    </radialGradient>
-    <filter id="sh" x="-35%" y="-35%" width="170%" height="170%">
-      <feDropShadow dx="0" dy="11" stdDeviation="15" flood-color="#01060F" flood-opacity=".55"/>
-    </filter>
-  </defs>
-
-  <!-- 배경 -->
-  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
-  <rect width="512" height="512" rx="116" fill="url(#gl)"/>
-  <rect x="3" y="3" width="506" height="506" rx="113" fill="none"
-        stroke="#fff" stroke-opacity=".18" stroke-width="6"/>
-
-  <!-- 상승하는 체크 : 대조 완료 + 실적 상승 -->
-  <g filter="url(#sh)">
-    <path d="M122 262 L214 352 L396 116" fill="none" stroke="url(#mk)" stroke-width="54"
-          stroke-linecap="round" stroke-linejoin="round"/>
-  </g>
-
-  <!-- 리프트 상판 2단 -->
-  <g filter="url(#sh)">
-    <rect x="136" y="398" width="240" height="27" rx="13.5" fill="#FFFFFF" opacity=".95"/>
-    <rect x="182" y="442" width="148" height="17" rx="8.5" fill="#FFFFFF" opacity=".38"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"
+     width="512" height="512" role="img"
+     aria-label="Coupang Service Operations System">
+  <image href="icon-512.png" width="512" height="512"
+         preserveAspectRatio="xMidYMid slice"/>
 </svg>

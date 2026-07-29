@@ -33,7 +33,9 @@ OUT = os.path.join(DOCS, "data.enc")
 WEBCFG = os.path.join(ROOT, "config", "webapp.json")
 QUEUECFG = os.path.join(ROOT, "config", "cloud_queue.local.json")
 PUBLISH_FILES = (
-    "docs/data.enc", "docs/app.html", "docs/index.html", "docs/manifest.json", "docs/sw.js"
+    "docs/data.enc", "docs/app.html", "docs/index.html", "docs/manifest.json", "docs/sw.js",
+    "docs/icon.svg", "docs/icon-32.png", "docs/icon-180.png",
+    "docs/icon-192.png", "docs/icon-512.png"
 )
 
 

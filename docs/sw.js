@@ -10,7 +10,8 @@
    안 올리면 옛 사본을 쥔 기기가 언제 새 것을 받을지 알 수 없다(2026-07-28 실사고:
    옛 app.html 이 창을 터널 주소로 옮겨 재부팅마다 죽은 주소가 떴다). */
 const CACHE = 'csos-v12-oh-owner-scope-2026-only';
-const HOLD = ['index.html', 'app.html', 'data.enc', 'manifest.json', 'icon.svg', 'icon-180.png'];
+const HOLD = ['index.html', 'app.html', 'data.enc', 'manifest.json',
+              'icon.svg', 'icon-32.png', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
   // 미리 받아 둔다. 하나쯤 실패해도 설치는 계속한다(아이콘 하나 때문에 앱이 죽으면 안 된다).
