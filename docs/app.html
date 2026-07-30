@@ -183,10 +183,29 @@ async function unseal(enc, pin){
   return JSON.parse(new TextDecoder().decode(pt));
 }
 
+function hexBytes(s){
+  const out = new Uint8Array((s||'').length/2);
+  for(let i=0;i<out.length;i++) out[i]=parseInt(s.slice(i*2,i*2+2),16);
+  return out;
+}
+function bytesHex(a){ return [...a].map(v=>v.toString(16).padStart(2,'0')).join(''); }
+async function snapshotPassword(enc, pin){
+  const a=enc.pin_auth;
+  if(!a || a.mode!=='auth-pbkdf2-sha256') return pin;
+  const km=await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveBits']);
+  const bits=new Uint8Array(await crypto.subtle.deriveBits({
+    name:'PBKDF2', salt:hexBytes(a.salt_hex),
+    iterations:Number(a.iterations), hash:'SHA-256'
+  }, km, 256));
+  return bytesHex(bits);
+}
+
 async function open(pin){
   const r = await fetch('data.enc?t=' + Date.now(), {cache:'no-store'});
   if(!r.ok) throw new Error('사본을 받지 못했습니다 (' + r.status + ')');
-  return await unseal(await r.json(), pin);
+  const enc=await r.json();
+  return await unseal(enc, await snapshotPassword(enc, pin));
 }
 
 /* ── 프로젝트 코드 조회 ── */
