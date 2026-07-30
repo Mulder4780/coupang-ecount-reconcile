@@ -3570,7 +3570,14 @@ def t91_icon_sprite_and_ios_theme():
     # iOS 외형: systemBlue·그룹배경·다크모드·큰 모서리
     assert "--brand:#007AFF" in live, "systemBlue 가 아니다"
     assert "--bg:#F2F2F7" in live, "iOS 그룹 배경이 아니다"
-    assert "prefers-color-scheme: dark" in live, "다크 모드가 없다"
+    # ★ 2026-07-30 실기기 확인 후 되돌림: 이 앱은 흰 배경이 77곳 하드코딩돼 있어 OS 다크를
+    #   따라가면 **흰 카드 위 흰 글자**가 되어 아무것도 안 보였다(사용자 화면으로 확인).
+    #   그래서 다크 모드를 넣지 않고 color-scheme:light 로 못박는다. 다시 넣으려면
+    #   그 77곳을 전부 변수화한 뒤여야 한다 — 이 검증이 그 순서를 지킨다.
+    assert "prefers-color-scheme: dark" not in live,         "다크 모드를 다시 넣었다 — 하드코딩된 밝은 배경을 먼저 변수화해야 한다"
+    assert "color-scheme:light" in live, "밝은 화면으로 고정하는 선언이 없다"
+    # 헤더 부제가 flex 안에서 0폭까지 눌려 한 글자씩 세로로 쪼개졌던 사고를 막는다
+    assert ".appbar h1{min-width:52px;white-space:nowrap}" in live, "헤더 제목이 다시 쪼개질 수 있다"
     assert "-apple-system" in live, "SF Pro 글꼴 스택이 아니다"
     # 탭바 유리 효과는 지원 안 되는 브라우저를 위해 @supports 로 감싼다
     assert "backdrop-filter" in live and "@supports" in live, "유리 효과에 폴백이 없다"

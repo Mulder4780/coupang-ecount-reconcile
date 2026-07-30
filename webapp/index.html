@@ -52,21 +52,12 @@ window.addEventListener('beforeinstallprompt', function(e){
   --ease:cubic-bezier(.32,.72,0,1);
   --glass:saturate(180%) blur(20px);
 }
-/* ── 다크 모드 (iOS 는 순수 검정 배경을 쓴다) ─────────────────────── */
-@media (prefers-color-scheme: dark){
-  :root{
-    --brand:#0A84FF; --brand-dk:#409CFF; --brand-tint:rgba(10,132,255,.16);
-    --bg:#000000; --surface:#1C1C1E;
-    --ink:#FFFFFF; --ink-2:rgba(235,235,245,.62); --ink-3:rgba(235,235,245,.38);
-    --line:rgba(84,84,88,.58);
-    --ok:#30D158; --ok-bg:rgba(48,209,88,.18);
-    --warn:#FF9F0A; --warn-bg:rgba(255,159,10,.18);
-    --danger:#FF453A; --danger-bg:rgba(255,69,58,.18);
-    --neu:#98989D; --neu-bg:rgba(120,120,128,.22);
-    --sh:0 .5px 0 rgba(255,255,255,.04);
-    --sh-lg:0 8px 30px rgba(0,0,0,.55);
-  }
-}
+/* ★ 다크 모드는 **일부러 쓰지 않는다** (2026-07-30, 실제 폰 화면을 보고 되돌림).
+   이 앱은 밝은 화면 기준으로 만들어졌고 흰 배경이 77곳에 하드코딩돼 있다. OS 다크 설정을
+   따라가면 글자만 흰색이 되어 **흰 카드 위 흰 글자**가 되고 아무것도 안 보였다.
+   제대로 된 다크 테마는 그 77곳을 전부 변수로 바꾸는 별도 작업이다 — 그 전까지는
+   color-scheme:light 로 못박아 폰이 어두운 설정이어도 앱은 항상 밝게 나온다. */
+:root{color-scheme:light}
 *{margin:0;padding:0;box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 /* ★ 아이폰에서 '애플 느낌'의 절반은 글꼴이다. -apple-system 은 iOS 에서 SF Pro 로,
@@ -83,7 +74,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .appbar{position:sticky;top:0;z-index:20;background:var(--navy-900);color:#fff;
   padding:calc(env(safe-area-inset-top) + 12px) 18px 12px;display:flex;align-items:center;gap:14px;
   box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 2px 8px rgba(10,20,48,.35)}
-.appbar-identity{display:flex;align-items:center;gap:11px;min-width:0;flex:1 1 auto}
+.appbar-identity{display:flex;align-items:center;gap:10px;min-width:0;flex:0 1 auto}
+.appbar h1{min-width:52px;white-space:nowrap}   /* 0폭까지 눌려 글자가 세로로 쪼개지지 않게 */
 .appbar-brand-stack{display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:3px;flex:none;line-height:1;padding:2px 0}
 .appbar-status{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:none;min-width:0}
@@ -109,7 +101,12 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .appbar h1{font-size:15px;font-weight:800;letter-spacing:-.2px;line-height:1.2;min-width:0}
 .brandfull{display:none} .brandshort{display:inline}
 @media(min-width:600px){.brandfull{display:inline} .brandshort{display:none}}
-.appbar h1 small{display:block;font-size:10px;font-weight:600;color:#8FA3D9;letter-spacing:.4px}
+/* ★ 실제 폰에서 이 줄이 **한 글자씩 세로로** 쪼개져 헤더가 화면 절반을 먹었다.
+   flex 안에서 폭이 0까지 눌리면 한글은 글자 단위로 줄바꿈된다. 한 줄로 못박고,
+   좁은 화면에서는 아예 숨긴다 — 회사 이름은 옆 로고가 이미 보여 준다. */
+.appbar h1 small{display:block;font-size:10px;font-weight:600;color:#9FB4E8;letter-spacing:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+@media(max-width:719px){ .appbar h1 small{display:none} }
 .appbar .sub{font-size:11px;color:#8FA3D9;font-variant-numeric:tabular-nums}
 .appbar #clock{font-size:clamp(18px,1.7vw,22px);font-weight:800;letter-spacing:-.02em;
   color:#5D6C8D;white-space:nowrap}
