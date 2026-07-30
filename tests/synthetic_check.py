@@ -3492,7 +3492,7 @@ def t86_daily_run_singleton_and_inbox_classification(tmp):
     print("  [86] daily_run 단일 프로세스 잠금 + ERP 원장 공용 분류기 사용 ✅")
 
 
-def t86_ip_guard_and_archive():
+def t90_ip_guard_and_archive():
     """ERP 접속 IP 관문 + 복구용 보관 (2026-07-30 지시 2건).
 
     ① "IP가 변경되면 이 화면에서 등록해서 진행" — 자동 등록은 하지 않는다(회사 ERP 보안
@@ -3522,7 +3522,7 @@ def t86_ip_guard_and_archive():
     assert A.has_secret('"API_CERT_KEY": "x"')
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert "erp_ip_guard.py" in daily and "archive_keep.py" in daily, "일일 실행에 연결되지 않았다"
-    print("  [86] ERP IP 관문(호출 전 차단)·복구용 보관(bundle·비밀키 제외) ✅")
+    print("  [90] ERP IP 관문(호출 전 차단)·복구용 보관(bundle·비밀키 제외) ✅")
 
 
 def t77_side_work_single_switch():
@@ -4179,7 +4179,7 @@ if __name__ == "__main__":
     t75_gcal_sync()
     t77_side_work_single_switch()
     t78_recalc_pending_visible()
-    t86_ip_guard_and_archive()
+    t90_ip_guard_and_archive()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:
