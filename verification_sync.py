@@ -21,12 +21,17 @@ import sys
 from collections import Counter
 from datetime import date, datetime
 
+from billing_fill import dedupe_files
 from operation_window import input_window_label, is_input_window
 from source_dirs import ERP_DIR
 from workbook_patch import latest_master
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 ERP_CACHE = os.path.join(ROOT, "reports", "erp_sales_evidence_cache.json")
+# 캐시 형식 버전. 내용해시 중복제거를 넣기 전(v1) 캐시는 같은 판매조회를 3벌 읽은
+# 결과(파일 목록 3줄)를 담고 있어 그대로 재사용하면 고친 효과가 보이지 않는다.
+# 버전이 다르면 캐시를 버리고 다시 읽는다.
+ERP_CACHE_VERSION = 2
 PROJECT_RE = re.compile(r"^UJ26\d{5}$", re.I)
 HDR_ROW = 4
 FIRST = 5
@@ -120,7 +125,7 @@ def erp_sales_evidence(root=ERP_DIR):
             known = cached.get("signature") or []
             root_now = os.stat(root).st_mtime_ns
             root_saved = cached.get("root_mtime_ns")
-            same_known = bool(known)
+            same_known = bool(known) and cached.get("version") == ERP_CACHE_VERSION
             for path, size, mtime_ns in known:
                 try:
                     st = os.stat(path)
@@ -158,7 +163,12 @@ def erp_sales_evidence(root=ERP_DIR):
             signature.append([os.path.normcase(os.path.abspath(path)), st.st_size, st.st_mtime_ns])
         except OSError:
             continue
-    for path in paths:
+    # ★ 2026-07-30: 원본 정리가 SHA256이 같은 판매조회를 3벌 남겨 같은 파일을 3번 읽고 있었다.
+    #   지금은 프로젝트NO 집합(set)이라 개수가 부풀지 않지만, 여기에 금액 합산이 붙는 순간
+    #   billing_fill 에서 났던 3배 사고(36.2억→108.6억)가 그대로 재현된다.
+    #   파일명(`__dup_`)으로 거르면 다음번에 다른 이름으로 다시 뚫리므로 **내용 해시**로 거른다.
+    #   signature 는 중복까지 전부 담아 둔다 — 사본이 바뀌어도 캐시가 무효화되어야 하기 때문이다.
+    for path in dedupe_files(paths):
         if os.path.basename(path).startswith("~$"):
             continue
         try:
@@ -198,6 +208,7 @@ def erp_sales_evidence(root=ERP_DIR):
         os.makedirs(os.path.dirname(ERP_CACHE), exist_ok=True)
         temp = ERP_CACHE + ".tmp"
         payload = {
+            "version": ERP_CACHE_VERSION,
             "signature": signature,
             "root_mtime_ns": os.stat(root).st_mtime_ns,
             "files": files,

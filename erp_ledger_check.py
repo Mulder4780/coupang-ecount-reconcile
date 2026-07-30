@@ -2,7 +2,7 @@
 """
 erp_ledger_check.py — ERP 거래처별계정별원장 ↔ 관리대장 정밀 대조
 ===================================================================
-이카운트 [거래처별계정별원장](쿠팡로지스틱스, 4049 제품매출) 엑셀 내보내기를 inbox/에 넣으면
+이카운트 [거래처별계정별원장](쿠팡로지스틱스, 4049 제품매출) 엑셀 내보내기를 원본 자료나 inbox/에 넣으면
 관리대장과 전표 단위로 대조해 다음 4가지 문제 유형을 자동 검출한다.
 
   [유형A] ERP에만 있는 전표      : 회계반영됐지만 관리대장에 근거 작업 없음
@@ -15,7 +15,7 @@ erp_ledger_check.py — ERP 거래처별계정별원장 ↔ 관리대장 정밀 
 월합계 비교(ERP 월계 vs 원장 유상합계)도 함께 출력.
 
 실행:
-    python erp_ledger_check.py                      # inbox에서 '원장' 포함 파일 자동 탐지
+    python erp_ledger_check.py                      # 원본 자료+inbox에서 내용을 보고 자동 탐지
     python erp_ledger_check.py --file 경로 [--master 경로]   # 파일 직접 지정(테스트용)
 """
 import sys, os, re, csv, json, glob
@@ -91,7 +91,7 @@ def main():
     else:
         # 파일명이 아니라 **내용**으로 고른다 — 이카운트 다운로드는 이름이 무작위다
         from inbox_scan import pick
-        files = pick("ledger", INBOX_DIR)
+        files = pick("ledger")
     if not files:
         sys.exit("inbox/ 에 거래처별계정별원장이 없습니다. 이카운트 [거래처별계정별원장]을 "
                  "엑셀로 내려받아 inbox/ 에 넣어주세요(파일명은 아무거나 괜찮습니다).")

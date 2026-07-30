@@ -3406,7 +3406,21 @@ def t84_duplicate_source_files(tmp):
     assert B.dedupe_files([os.path.join(tmp, "없는파일.xlsx")]) == []
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert "billing_fill.py" in daily, "청구 근거 갱신이 일일 실행에 없다"
-    print("  [84] 원천 파일 내용중복 제거 — 금액 배수 합산 차단 ✅")
+    # ★ 근본 원인도 막는다: 정리기가 사본을 계속 만들면 읽는 쪽을 고쳐도 파일이 계속 늘어난다.
+    #   (2026-07-30: 목적지에 파일이 있으면 내용을 보지 않고 __dup_ 를 붙여 3벌이 됐다)
+    import source_organizer as SO
+    same = os.path.join(tmp, "src_same.xlsx")
+    dst = os.path.join(tmp, "dst.xlsx")
+    open(same, "wb").write(b"identical"); open(dst, "wb").write(b"identical")
+    assert SO._collision_target(same, dst) == dst, "내용이 같은데 사본을 또 만든다"
+    diff = os.path.join(tmp, "src_diff.xlsx")
+    open(diff, "wb").write(b"really-different")
+    got = SO._collision_target(diff, dst)
+    assert got != dst and "__dup_" in os.path.basename(got), "내용이 다른데 덮어쓰려 한다"
+    # 같은 내용의 사본이 이미 있으면 또 만들지 않는다(무한 증식 차단)
+    open(got, "wb").write(b"really-different")
+    assert SO._collision_target(diff, dst) == got, "같은 내용의 사본을 반복 생성한다"
+    print("  [84] 원천 파일 내용중복 제거 — 금액 배수 합산 차단 + 사본 무한증식 차단 ✅")
 
 
 def t86_daily_run_singleton_and_inbox_classification(tmp):
@@ -3419,6 +3433,12 @@ def t86_daily_run_singleton_and_inbox_classification(tmp):
     assert D.acquire_run_lock(lock) is None, "두 번째 실행이 같은 잠금을 통과했다"
     D.release_run_lock(token, lock)
     assert not os.path.exists(lock), "정상 종료 뒤 잠금이 남았다"
+
+    # 첫 실행이 O_EXCL 직후 JSON을 쓰는 순간을 두 번째 실행이 보면 빈 파일일 수 있다.
+    # 방금 생긴 빈 잠금을 죽은 것으로 오판해 지우면 두 프로세스가 함께 실행된다.
+    open(lock, "wb").close()
+    assert D.acquire_run_lock(lock) is None, "생성 중인 최근 잠금을 빼앗았다"
+    os.unlink(lock)
 
     # 비정상 종료로 남은 잠금은 실제 PID가 죽었을 때만 회수한다.
     with open(lock, "w", encoding="utf-8") as f:
@@ -3439,6 +3459,9 @@ def t86_daily_run_singleton_and_inbox_classification(tmp):
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert 'has_inbox_kind("ledger")' in daily, "ERP 원장 단계가 공용 inbox 분류기를 쓰지 않는다"
     assert "acquire_run_lock" in daily and "release_run_lock" in daily
+    erp_check = open(os.path.join(ROOT, "erp_ledger_check.py"), encoding="utf-8").read()
+    assert 'files = pick("ledger")' in erp_check
+    assert 'pick("ledger", INBOX_DIR)' not in erp_check, "실제 대조기가 다시 로컬 inbox만 본다"
     print("  [86] daily_run 단일 프로세스 잠금 + ERP 원장 공용 분류기 사용 ✅")
 
 

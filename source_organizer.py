@@ -278,13 +278,27 @@ def _sha8(path: str) -> str:
 
 
 def _collision_target(src: str, dst: str) -> str:
+    """이름이 겹칠 때 갈 자리를 정한다. 내용이 같으면 **이미 있는 파일**을 가리킨다.
+
+    ★ 2026-07-30 실사고: 목적지에 파일이 있으면 내용을 보지 않고 `__dup_<해시>` 를 붙여
+      복사했다. 그래서 같은 자료를 다시 정리할 때마다 사본이 늘어나
+      판매조회가 SHA256 동일한 **3벌**이 됐고, billing_fill 이 전부 읽어 공급가액이
+      36.2억 → 108.6억으로 **3배** 합산됐다(verification_sync 도 같은 파일을 3번 읽었다).
+      "삭제·덮어쓰기하지 않고 모두 보존" 은 지킨다 — 다만 **내용이 같은 건 애초에 다른
+      파일이 아니다.** 진짜로 내용이 다를 때만 사본 이름을 만든다.
+    """
     if not os.path.exists(dst):
         return dst
+    src_hash = _sha8(src)
+    if src_hash == _sha8(dst):
+        return dst                      # 같은 내용 — 이미 정리돼 있다(복사 자체를 하지 않는다)
     stem, ext = os.path.splitext(dst)
-    candidate = f"{stem}__dup_{_sha8(src)}{ext}"
+    candidate = f"{stem}__dup_{src_hash}{ext}"
     n = 2
     while os.path.exists(candidate):
-        candidate = f"{stem}__dup_{_sha8(src)}_{n}{ext}"
+        if os.path.exists(candidate) and _sha8(candidate) == src_hash:
+            return candidate            # 같은 내용의 사본이 이미 있다 — 또 만들지 않는다
+        candidate = f"{stem}__dup_{src_hash}_{n}{ext}"
         n += 1
     return candidate
 
@@ -332,7 +346,7 @@ def write_rules(root: str = ORIGIN_ROOT):
         "3. PO = 연도 / PO번호. PO번호가 없고 UJ번호만 확실하면 프로젝트번호로 분류",
         "4. 정기점검·업무일지·신규 프로젝트 흐름도 = 최신 편집본은 해당 폴더 바로 아래, 이전본은 보관/연도/월/날짜",
         "5. 분류할 단서가 없는 루트 파일 = 9. 미분류/연도/월/날짜",
-        "6. 파일은 삭제·덮어쓰기하지 않으며 충돌 시 __dup_내용해시를 붙여 모두 보존",
+        "6. 파일은 삭제·덮어쓰기하지 않으며, 내용이 다를 때만 __dup_내용해시를 붙여 모두 보존",
         "7. 이동 이력은 0. 정리이력.csv에서 원래 위치까지 확인 가능",
         "",
         "새 자료는 해당 유형 폴더 또는 기존 로컬 inbox에 넣으면 자동 정리됩니다.",

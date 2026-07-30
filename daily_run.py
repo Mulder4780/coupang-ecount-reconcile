@@ -69,6 +69,14 @@ def acquire_run_lock(path=RUN_LOCK):
                     owner = json.load(f)
             except (OSError, ValueError, TypeError):
                 owner = {}
+            # O_EXCL로 파일을 만든 직후 JSON을 쓰는 아주 짧은 동안에는 다른 실행이
+            # 빈/부분 파일을 볼 수 있다. 최근의 손상 파일은 선점 중으로 보고 건드리지 않는다.
+            if not owner:
+                try:
+                    if time.time() - os.path.getmtime(path) < 60:
+                        return None
+                except OSError:
+                    return None
             if _pid_alive(owner.get("pid")):
                 return None
             try:
