@@ -1744,25 +1744,15 @@ def demo_settlements():
 
 
 def real_settlements():
-    from ecount_reconcile import read_ledger, load_config
+    from ecount_reconcile import read_ledger, load_config, settle_status, has_statement
     cfg = load_config()
     recs = read_ledger(cfg["reconcile"]["master_xlsx"])
     rows = []
     for sid, r in sorted(recs.items()):
         issued = r.get("원장_세금계산서실제발행일") or r.get("원장_세금계산서발행일")
-        has_stmt = bool(str(r.get("원장_거래명세서번호") or "").strip())
-        if r.get("비용구분") != "유상":
-            st = "무상/보험"
-        elif not r.get("원장_공급가액"):
-            st = "금액 미입력"
-        elif not has_stmt:
-            st = "미청구(전표 없음)"
-        elif not issued:
-            st = "세금계산서 미발행"
-        elif not r.get("원장_입금일"):
-            st = "입금 대기"
-        else:
-            st = "정상"
+        has_stmt = has_statement(r)
+        # 판정은 ecount_reconcile.settle_status 한 곳에서만 한다 — 엑셀 산출물과 어긋나지 않게.
+        st = settle_status(r)
         rows.append({"정산ID": sid, "업무구분": r.get("업무구분"), "캠프명": r.get("캠프명"),
                      "프로젝트NO": r.get("프로젝트NO"), "원천업무ID": r.get("원천업무ID"),
                      "공급가액": r.get("원장_공급가액") or 0, "합계": r.get("원장_합계") or 0,

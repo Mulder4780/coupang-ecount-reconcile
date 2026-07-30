@@ -16,7 +16,7 @@ try:
 except Exception:
     pass
 
-from ecount_reconcile import read_ledger, load_config, resolve_master
+from ecount_reconcile import read_ledger, load_config, resolve_master, settle_status
 from responsibility import confirmed_owner
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -34,19 +34,9 @@ def latest_csv(pat):
 def settle_issues(master):
     rows = []
     for sid, r in sorted(read_ledger(master).items()):
-        issued = r.get("원장_세금계산서실제발행일") or r.get("원장_세금계산서발행일")
-        has_stmt = bool(str(r.get("원장_거래명세서번호") or "").strip())
-        if r.get("비용구분") != "유상":
-            continue
-        if not r.get("원장_공급가액"):
-            st = "금액 미입력"
-        elif not has_stmt:
-            st = "미청구(전표 없음)"
-        elif not issued:
-            st = "세금계산서 미발행"
-        elif not r.get("원장_입금일"):
-            st = "입금 대기"
-        else:
+        # 판정은 ecount_reconcile.settle_status 한 곳에서만 한다 — 화면과 엑셀이 어긋나지 않게.
+        st = settle_status(r)
+        if st in ("무상/보험", "정상"):
             continue
         rows.append({"정산ID": sid, "문제유형": st, "캠프명": r.get("캠프명"),
                      "프로젝트NO": r.get("프로젝트NO"), "공급가액": r.get("원장_공급가액") or 0,
@@ -92,7 +82,13 @@ def apply_confirmed_responsibility(data):
 def amount_gap(master):
     """실제 작업금액과 거래명세서 금액이 다른 건.
     신규·납품·설치는 제외한다(사용자 지시 2026-07-26 — 별도 절차로 관리).
-    명세서를 아직 안 끊은 건도 제외한다 — 그건 '미청구'로 이미 따로 잡힌다."""
+    명세서를 아직 안 끊은 건도 제외한다 — 그건 '미청구'로 이미 따로 잡힌다.
+    ★ 작업금액이 **아직 계산되지 않은 건**도 제외한다(2026-07-31).
+      실제작업합계(K열)는 `N(I)+N(J)` 수식이고 I열은 03시트를 합산하는 수식이다. 엑셀
+      재계산 전에는 둘 다 비어 있어서 work=0 이 되는데, 이걸 명세서금액과 비교하면
+      **명세서가 있는 전 건이 차액 -전액으로 '불일치'가 된다**(633건 거짓 경보의 정체).
+      0원이 진짜 0원인지 미계산인지 수식으로는 구분할 수 없으므로, 계산되기 전에는
+      비교하지 않는다 — 이 건들은 '금액 재계산 대기'로 이미 따로 세고 있다."""
     import openpyxl
     wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
     out = []
@@ -105,7 +101,7 @@ def amount_gap(master):
             if not g("정산ID") or "신규" in str(g("업무구분") or ""):
                 continue
             work, inv = g("실제작업합계") or 0, g("거래명세서합계") or 0
-            if not inv or work == inv:
+            if not inv or not work or work == inv:
                 continue
             out.append({"정산ID": g("정산ID"), "프로젝트NO": g("프로젝트NO"), "캠프명": g("캠프명"),
                         "업무구분": g("업무구분"), "작업금액": work, "명세서금액": inv,

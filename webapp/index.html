@@ -1243,6 +1243,37 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
   .notice-panel{position:fixed;right:11px;top:63px}
 }
 
+/* ═══ 아이콘·버튼 균등 정렬 — 가운데로 모으고 좌우로 꽉 채운다 (사용자 지시 2026-07-30) ═══
+   업무센터에서 쓴 auto-fit 방식을 **나머지 아이콘·버튼 묶음 전체**로 넓힌 것이다.
+   막혀 있던 것은 두 가지였다.
+   ① 칸 수를 repeat(2)·repeat(3)·repeat(4)처럼 **고정**해 둬서, 버튼 수가 그 배수가
+      아니면 줄 오른쪽에 빈칸이 남았다 — 업무센터가 2명이 됐을 때와 같은 증상이다.
+   ② 툴바·기간버튼·리포트탭 같은 flex 줄은 왼쪽부터 채우고 끝나서 오른쪽이 늘 비었다.
+   그래서 ①은 auto-fit 으로 들어갈 수 있는 만큼만 칸을 만들고 남는 폭을 1fr 로 나눠
+   갖게, ②는 가운데 정렬 + 버튼이 남는 폭을 나눠 갖게 한다.
+   ★ 이 블록은 위의 미디어쿼리들보다 **뒤에** 있어야 고정 칸 규칙을 덮는다. 순서를
+     바꾸거나 위로 올리지 말 것 — 올리면 repeat(4) 같은 옛 규칙이 되살아난다.
+   ★ .install-card .actions(1fr 1fr)·.rgrid.k7(7칸)은 선택자가 더 구체적이라 그대로
+     남는다. 좁은 설치카드와 7칸 전용 리포트는 지금 배치가 맞아서 일부러 둔 것이다. */
+
+/* ① 격자형 버튼·아이콘 묶음 — 고정 칸 → 들어가는 만큼 + 남는 폭 나눠 갖기 */
+.actions,.sheet-actions .actions{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.check-groups{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.ryu-summary-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.rgrid{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+
+/* ② 한 줄짜리 버튼 묶음 — 가운데로 모으고, 버튼이 남는 폭을 나눠 갖는다.
+   .rtabs 만 가운데 정렬에서 뺀다: overflow-x 로 가로 스크롤하는 줄을 가운데 정렬하면
+   탭이 넘칠 때 **왼쪽 끝이 잘려 손이 닿지 않는다.** 대신 버튼만 늘려서, 다 들어갈 때는
+   줄을 꽉 채우고 넘칠 때는 평소대로 왼쪽부터 스크롤되게 둔다. */
+.toolbar,.pctrl,.pmrange{justify-content:center}
+.pctrl .pbtn,.pmrange .pbtn,.rtabs button{flex:1 1 auto}
+
+/* ③ 이미지·인쇄·엑셀 아이콘 줄 — 가운데 정렬은 이미 되어 있고, 폭이 남을 때만 늘어난다.
+   위쪽 .icon-btn 이 flex:0 0 68px!important 로 못 박아 둬서 !important 로 풀어야 한다.
+   max-width 가 없으면 넓은 화면에서 아이콘 두세 개가 화면을 가로지른다. */
+.rpt-actions .icon-btn,.media-tools .icon-btn{flex:1 1 68px!important;max-width:104px}
+
 </style>
 </head>
 <body>
@@ -1446,6 +1477,19 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
       <div id="callist" class="muted">불러오는 중…</div>
         <div class="actions"><button class="abtn" onclick="openCalendar()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar3"/></svg>전체 일정 보기</button></div>
     </div>
+	    <!-- 대시보드 하단 바로가기 — 정기점검·돌발AS (2026-07-31 지시).
+	         위 통계 타일에서도 갈 수 있지만 타일은 '숫자'가 주인공이라 메뉴로 읽히지 않는다.
+	         화면 맨 아래에서 바로 두 업무로 들어가는 입구를 따로 둔다. 건수는 타일과 같은
+	         값을 쓴다 — 두 곳이 다른 숫자를 말하면 어느 쪽을 믿을지 사람이 고민하게 된다. -->
+	    <div class="card"><h3>업무 바로가기</h3>
+	      <div class="actions">
+	        <button class="abtn" onclick="goList('pm','')">
+	          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>
+	          정기점검<small class="norm" id="dmPmCount" style="font-weight:600;color:var(--muted)"></small></button>
+	        <button class="abtn" onclick="goList('as','')">
+	          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-wrench-adjustable"/></svg>
+	          돌발AS<small class="norm" id="dmAsCount" style="font-weight:600;color:var(--muted)"></small></button>
+	      </div></div>
 	    <!-- ★ '빠른 실행' 제거(2026-07-30 지시). 같은 기능이 아래 탭바에 이미 있어 중복이었다.
 	         캡처·인쇄는 대표보고에 쓰이므로 남기고 카드 제목만 바꾼다. -->
 	    <div class="card"><h3>대시보드 저장·인쇄</h3>
@@ -2925,9 +2969,15 @@ async function loadStatus(){
     (erpDocs.total ? tile('','bootstrap-receipt', APP_YEAR+'년 ERP 매출',
       fmt(erpDocs.total), `계산서 ${erpDocs.rows.length}장 · 클릭=보고`,
       "show('daily');renderDaily()") : '');
+  // 하단 '업무 바로가기' 건수 — 위 타일과 **같은 변수**를 쓴다(두 곳 숫자가 갈리지 않게)
+  const _dmPm = $('dmPmCount'), _dmAs = $('dmAsCount');
+  if(_dmPm) _dmPm.textContent = ` 대기 ${pmWait} · 전체 ${(works.pm||[]).length}건`;
+  if(_dmAs) _dmAs.textContent = ` 미실시 ${asOpen} · 전체 ${(works.as||[]).length}건`;
   // 상태 분포 바 (2px 간격 마크)
   const SCOLOR = {'정상':'#12813F','입금 대기':'#B54708','세금계산서 미발행':'#C0212E',
-    '미청구(전표 없음)':'#8B1E68','금액 미입력':'#5B6B82','무상/보험':'#B9C3D3'};
+    '미청구(전표 없음)':'#8B1E68','금액 미입력':'#5B6B82',
+    /* 재계산이 풀리면 저절로 채워지는 건이라 경고색을 쓰지 않는다 — 조치 대상이 아니다 */
+    '금액 재계산 대기':'#9AAECB','무상/보험':'#B9C3D3'};
   const dist = {};
   rows.forEach(r=>{ dist[r.상태]=(dist[r.상태]||0)+1; });
   const entries = Object.entries(dist).sort((a,b)=>b[1]-a[1]);
@@ -5376,6 +5426,14 @@ const HELP = {
           '<b>사진으로</b>: 명세서 사진을 <code>band/docs_inbox/</code>에 넣으면 OCR이 금액을 읽어 자동 입력(금액 검산 통과분만)'],
     who: '유현민 (금액 확인 후 입력)'
   },
+  '금액 재계산 대기': {
+    what: '<b>사람이 할 일은 없습니다.</b> 거래명세서 금액이라는 근거는 이미 확보돼 있고, 관리대장 06시트의 실제작업공급가액이 <b>수식</b>이라 엑셀이 한 번 다시 계산해야 채워지는 상태입니다. 재계산이 풀리면 저절로 들어갑니다.',
+    where: ['06_거래서류청구수금 I열 = 03_현장작업실적의 금액을 접수ID로 합산하는 수식',
+            '지금은 03시트에 실적 행이 아직 안 만들어져 합계가 0입니다'],
+    how: ['<b>기다리면 됩니다.</b> 관리대장 복구 경고 원인 확인 → 정상본 확인 → 엑셀 재계산 순서로 풀립니다',
+          '<b>절대 손으로 넣지 마세요</b>: I열에 값을 쓰면 수식이 지워지고, 작업금액과 명세서금액의 차이를 드러내는 AE열이 항상 0이 됩니다'],
+    who: '조치 불필요 (재계산 대기)'
+  },
   '세금계산서 미발행': {
     what: '거래명세서는 있는데 세금계산서가 아직 발행되지 않았습니다. 매출 인식과 수금이 지연됩니다.',
     where: ['이카운트 → 판매 → <b>매출(세금)계산서현황</b>에서 해당 명세서번호 조회',
@@ -6999,7 +7057,9 @@ async function dashToPng(){
   const dist = {}; rows.forEach(r=>{ dist[r.상태]=(dist[r.상태]||0)+1; });
   const distE = Object.entries(dist).sort((a,b)=>b[1]-a[1]);
   const SCOLOR = {'정상':'#12813F','입금 대기':'#B54708','세금계산서 미발행':'#C0212E',
-    '미청구(전표 없음)':'#8B1E68','금액 미입력':'#5B6B82','무상/보험':'#B9C3D3'};
+    '미청구(전표 없음)':'#8B1E68','금액 미입력':'#5B6B82',
+    /* 재계산이 풀리면 저절로 채워지는 건이라 경고색을 쓰지 않는다 — 조치 대상이 아니다 */
+    '금액 재계산 대기':'#9AAECB','무상/보험':'#B9C3D3'};
   const byType = {}; issues.forEach(r=>{ (byType[r.상태]=byType[r.상태]||[]).push(r); });
   const typeE = Object.entries(byType).sort((a,b)=>b[1].length-a[1].length);
   const steps = (window._agentSteps||[]);
