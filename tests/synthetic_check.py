@@ -879,8 +879,15 @@ def t26_mobile():
     #       고정 주소 쪽과 앱(터널) 쪽 **양쪽 출처 모두** 필요하다 — 설치는 출처 단위다.
     assert "serviceWorker" in idx and "/sw.js" in idx, "앱에 서비스 워커 등록이 없다 — 설치가 안 된다"
     assert 'p == "/sw.js"' in src, "앱 서버가 /sw.js 를 내주지 않는다"
-    _swblk = src[src.index('p == "/sw.js"'):][:700]
+    # ★ 700자만 잘라 보던 것을 3000자로 넓혔다(2026-07-31). 서비스 워커가 오프라인 껍데기
+    #   캐시를 하게 되면서 블록이 길어졌고, fetch 핸들러가 창 밖으로 밀려나 검증이 헛돌았다.
+    #   보려는 것은 '핸들러가 있는가' 이지 '몇 번째 글자에 있는가' 가 아니다.
+    _swblk = src[src.index('p == "/sw.js"'):][:3000]
     assert "addEventListener('fetch'" in _swblk, "fetch 핸들러가 없으면 크롬이 설치를 제안하지 않는다"
+    # 오프라인에서도 화면이 떠야 폰에서 입력해 둘 수 있다(사용자 지시 2026-07-31).
+    assert "caches.open" in _swblk and "caches.match" in _swblk, \
+        "서비스 워커가 껍데기를 캐시하지 않으면 PC 가 꺼졌을 때 앱이 아예 안 열린다"
+    assert "startsWith('/api/')" in _swblk, "데이터(/api/)까지 캐시하면 옛 숫자가 화면에 남는다"
     _dsw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
     assert "addEventListener('fetch'" in _dsw, "고정 주소 쪽 서비스 워커에 fetch 핸들러가 없다"
 
@@ -1239,7 +1246,11 @@ def t6_webapp():
         _r = urllib.request.urlopen(base + "/sw.js", timeout=5)
         _sw = _r.read().decode("utf-8")
         assert "javascript" in _r.headers.get("Content-Type", ""), _r.headers.get("Content-Type")
-        assert _sw.startswith("self.addEventListener"), "sw.js가 JSON으로 감싸여 나간다: " + _sw[:40]
+        # ★ 'self.addEventListener 로 시작하는가' 로 보던 것을 2026-07-31 에 바꿨다.
+        #   오프라인 껍데기 캐시가 붙으면서 앞에 캐시 이름(const V=...)이 오게 됐는데,
+        #   그건 JSON 으로 감싸인 것과 아무 상관이 없다. 보려는 것은 **따옴표에 싸여 나가는가** 다.
+        assert not _sw.lstrip().startswith(("{", '"')), "sw.js가 JSON으로 감싸여 나간다: " + _sw[:40]
+        assert "self.addEventListener" in _sw, "sw.js에 이벤트 등록이 없다: " + _sw[:40]
         assert "addEventListener('fetch'" in _sw, "fetch 핸들러 없이는 설치가 제안되지 않는다"
         print("  [6] 웹앱 API(PIN 인증·상태·정산·페이지 서빙) ✅")
     finally:
@@ -3578,7 +3589,17 @@ def t91_icon_sprite_and_ios_theme():
     assert "color-scheme:light" in live, "밝은 화면으로 고정하는 선언이 없다"
     # 헤더 부제가 flex 안에서 0폭까지 눌려 한 글자씩 세로로 쪼개졌던 사고를 막는다
     assert ".appbar h1{min-width:52px;white-space:nowrap}" in live, "헤더 제목이 다시 쪼개질 수 있다"
-    assert "-apple-system" in live, "SF Pro 글꼴 스택이 아니다"
+    # ★ 2026-07-31 지시로 교체: "폰트는 모든 폰트 나눔고딕 폰트로 변경".
+    #   전에는 -apple-system(SF Pro) 을 강제했지만, 그건 2026-07-30 의 'iOS 느낌' 기준이었고
+    #   오늘 지시가 이를 덮는다. 지금 지켜야 하는 것은 두 가지다:
+    #   ① 나눔고딕이 스택 맨 앞인가 ② 그 글꼴을 **동봉본**으로 얹는가
+    #      (구글 폰트 주소를 쓰면 인터넷 없는 현장에서 안 뜨고 외부로 요청이 나간다)
+    assert 'font-family:"Nanum Gothic"' in live.replace(" ", "").replace(
+        'font-family:"NanumGothic",', 'font-family:"Nanum Gothic"') or \
+        '"Nanum Gothic","NanumGothic"' in live, "본문 글꼴이 나눔고딕으로 시작하지 않는다"
+    assert "/fonts/nanumgothic.css" in live, "나눔고딕을 동봉본으로 얹지 않는다"
+    assert "fonts.googleapis.com" not in live and "fonts.gstatic.com" not in live, \
+        "글꼴을 외부(구글)에서 받고 있다 — 인터넷 없는 현장에서 안 뜬다"
     # 탭바 유리 효과는 지원 안 되는 브라우저를 위해 @supports 로 감싼다
     assert "backdrop-filter" in live and "@supports" in live, "유리 효과에 폴백이 없다"
     # 검은 로고/아이콘이 남색 헤더·흰 버튼에서 사라지지 않아야 한다.

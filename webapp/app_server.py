@@ -3729,13 +3729,69 @@ class H(BaseHTTPRequestHandler):
                                   "image/svg+xml" if p.endswith(".svg") else "image/png")
             except Exception:
                 return self._send(404, {"error": "no icon"})
+        if p.startswith("/fonts/"):
+            # 나눔고딕 웹폰트(사용자 지시 2026-07-31). 구글 폰트 주소를 그대로 쓰면
+            # 인터넷이 없는 곳에서 글꼴이 안 뜨고, 외부로 요청이 나간다. 그래서 동봉해 여기서 낸다.
+            # ★ 경로에 이름만 받는다 — '..' 를 그대로 이어 붙이면 서버 파일이 통째로 새 나간다.
+            name = os.path.basename(p[len("/fonts/"):])
+            ext = os.path.splitext(name)[1].lower()
+            if ext not in (".woff2", ".woff", ".css"):
+                return self._send(404, {"error": "no font"})
+            try:
+                raw = open(os.path.join(BASE, "fonts", name), "rb").read()
+            except Exception:
+                return self._send(404, {"error": "no font"})
+            ct = {".woff2": "font/woff2", ".woff": "font/woff",
+                  ".css": "text/css; charset=utf-8"}[ext]
+            # ★ _send 를 쓰지 않는다. _send 는 Cache-Control: no-store 를 먼저 박아서
+            #   폰이 화면을 열 때마다 4MB 를 다시 받는다. 폰트 조각은 파일명이 곧 판본이라
+            #   (구글이 이름에 해시를 넣는다) 영구 캐시가 안전하고, 그래야 두 번째부터 즉시 뜬다.
+            self.send_response(200)
+            self.send_header("Content-Type", ct)
+            self.send_header("Content-Length", str(len(raw)))
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(raw)
+            return
         if p == "/sw.js":
-            # 크롬이 [설치 및 바로가기 만들기]로 진짜 앱 설치를 해 주려면
-            # fetch 핸들러를 가진 서비스 워커가 필요하다. 캐시는 하지 않는다 —
-            # 이 앱은 매일 바뀌는 실데이터를 보여주므로 옛 화면이 남으면 안 된다.
-            js = ("self.addEventListener('install',e=>self.skipWaiting());\n"
-                  "self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));\n"
-                  "self.addEventListener('fetch',e=>{e.respondWith(fetch(e.request));});\n")
+            # ★ 예전 주석: "캐시는 하지 않는다 — 옛 화면이 남으면 안 된다."
+            #   그 걱정은 **데이터**에 대해서는 지금도 맞다. 그래서 /api/ 는 여전히 캐시하지 않는다.
+            #   다만 아무것도 캐시하지 않으면 **PC 가 꺼졌을 때 앱이 아예 안 열린다.** 폰에서
+            #   입력해 두려면 화면은 떠야 하므로(사용자 지시 2026-07-31), 껍데기만 캐시한다.
+            #   · 화면(HTML)은 네트워크 먼저 — PC 가 켜져 있으면 언제나 최신을 받는다.
+            #     실패할 때만 캐시본을 낸다. 그래서 '옛 화면이 남는' 일은 생기지 않는다.
+            #   · 글꼴 조각은 파일명이 곧 판본이라 캐시 먼저(276조각을 매번 받을 이유가 없다).
+            #   · /api/ 는 손대지 않는다. 쓰기 실패는 화면 쪽 오프라인 큐가 받는다.
+            js = ("""
+const V = 'csos-%s';
+const SHELL = ['/', '/fonts/nanumgothic.css', '/icon-192.png', '/manifest.json'];
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(V).then(c => c.addAll(SHELL).catch(()=>{})).then(()=>self.skipWaiting()));
+});
+self.addEventListener('activate', e => {
+  e.waitUntil(caches.keys()
+    .then(ks => Promise.all(ks.filter(k => k !== V).map(k => caches.delete(k))))
+    .then(() => self.clients.claim()));
+});
+self.addEventListener('fetch', e => {
+  const req = e.request;
+  if (req.method !== 'GET') return;                       // 쓰기는 큐가 맡는다
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return;           // 데이터는 캐시하지 않는다
+  if (url.pathname.startsWith('/fonts/')) {               // 글꼴: 캐시 먼저
+    e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(r => {
+      const copy = r.clone(); caches.open(V).then(c => c.put(req, copy)); return r;
+    })));
+    return;
+  }
+  // 화면: 네트워크 먼저, 끊겼을 때만 캐시본
+  e.respondWith(fetch(req).then(r => {
+    const copy = r.clone(); caches.open(V).then(c => c.put(req, copy)); return r;
+  }).catch(() => caches.match(req).then(hit => hit || caches.match('/'))));
+});
+""" % build_id()).lstrip()
             # ★ _send 는 str을 받으면 JSON으로 감싼다 — 반드시 bytes로 넘겨야 스크립트가 된다
             return self._send(200, js.encode("utf-8"), "application/javascript; charset=utf-8")
         if p == "/manifest.json":                      # 홈 화면에 추가 시 앱처럼 보이게
