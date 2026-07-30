@@ -12,12 +12,18 @@ PC에서 실행하면 같은 와이파이의 휴대폰·다른 PC가 브라우�
 
 보안: 4자리 PIN(첫 요청 시 입력, 기기에 저장). 사내 LAN 전용 설계 — 외부 인터넷 개방 금지.
 """
-import sys, os, re, json, glob, time, threading, random, subprocess, hashlib, io, shutil
+import sys, os, re, json, glob, time, threading, random, subprocess, hashlib, io, shutil, secrets
+import base64, hmac
+import ipaddress
+import socket
 from collections import deque
 from datetime import datetime, date, timedelta
 from email import policy as email_policy
 from email.parser import BytesParser
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from urllib.error import HTTPError
+from urllib.parse import parse_qs, urljoin, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -37,21 +43,288 @@ WEBCFG = os.path.join(ROOT, "config", "webapp.json")
 # 폰 홈 화면 아이콘이 가리켜야 할 **바뀌지 않는 주소**.
 # 터널 주소(trycloudflare)는 띄울 때마다 새로 받으므로 아이콘에 박으면 안 된다.
 FIXED_ENTRY = "https://mulder4780.github.io/coupang-ecount-reconcile/"
+FIXED_LIVE_ENTRY = "https://mulder.tailf14aae.ts.net"
+
+# 담당자별 경로는 공개 이후 바꾸지 않는다. 표시명·체크리스트는 바꿀 수 있어도
+# slug는 설치된 PWA의 id이자 담당자가 저장한 바로가기이므로 영구 식별자다.
+STAFF_CENTERS = {
+    "ryu-jiyeong": {
+        "name": "류지영", "title": "류지영 쿠팡 AS 및 정기점검 업무센터",
+        "checklist": [
+            "신규 돌발AS 접수와 처리상태 확인",
+            "정기점검 예정·실행·미실시 사유 입력",
+            "카카오톡 정기점검방·돌발점검방 원본 업로드",
+            "택배 발송·현장 조치 완료일과 근거 첨부",
+        ],
+    },
+    "oh-jonghyeon": {
+        "name": "오종현", "title": "오종현 업무센터",
+        "checklist": [
+            "PO 원본·견적서 수신 여부 확인",
+            "구매·입금 원천자료 누락 확인",
+            "프로젝트번호·캠프·금액 불일치 보완",
+        ],
+    },
+    "byeon-jaeseon": {
+        "name": "변재선(회계)", "title": "변재선 회계 업무센터",
+        "checklist": [
+            "거래명세서·세금계산서 발행 확인",
+            "입금일·입금액·잔여 미수금 확인",
+            "ERP 금액 불일치와 청구 미등록 보완",
+        ],
+    },
+}
 
 
-def load_pin():
-    if DEMO:
-        return "0000"
+def staff_centers_payload():
+    return [{
+        "slug": slug, **cfg,
+        "path": f"/staff/{slug}",
+        "url": f"{FIXED_LIVE_ENTRY}/staff/{slug}",
+    } for slug, cfg in STAFF_CENTERS.items()]
+
+
+PIN_HASH_ITERS = 310_000
+PIN_STATE_LOCK = threading.RLock()
+
+
+def _pin_record(pin, *, salt=None):
+    """4자리 PIN은 평문으로 남기지 않고 PBKDF2 해시만 로컬 설정에 보관한다."""
+    pin = str(pin or "").strip()
+    if not re.fullmatch(r"\d{4}", pin):
+        raise ValueError("PIN은 숫자 4자리여야 합니다")
+    salt_bytes = bytes.fromhex(salt) if salt else secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", pin.encode("utf-8"), salt_bytes, PIN_HASH_ITERS)
+    return {
+        "salt": salt_bytes.hex(),
+        "hash": digest.hex(),
+        "iterations": PIN_HASH_ITERS,
+    }
+
+
+def _pin_matches(pin, record):
     try:
-        return json.load(open(WEBCFG, encoding="utf-8"))["pin"]
+        pin = str(pin or "").strip()
+        if not re.fullmatch(r"\d{4}", pin):
+            return False
+        salt = bytes.fromhex(str(record["salt"]))
+        iterations = int(record.get("iterations") or PIN_HASH_ITERS)
+        expected = bytes.fromhex(str(record["hash"]))
+        actual = hashlib.pbkdf2_hmac(
+            "sha256", pin.encode("utf-8"), salt, iterations)
+        return secrets.compare_digest(actual, expected)
     except Exception:
-        pin = str(random.SystemRandom().randint(1000, 9999))
-        os.makedirs(os.path.dirname(WEBCFG), exist_ok=True)
-        json.dump({"pin": pin, "port": PORT}, open(WEBCFG, "w", encoding="utf-8"))
-        return pin
+        return False
 
 
-PIN = load_pin()
+def _atomic_write_webcfg(data):
+    os.makedirs(os.path.dirname(WEBCFG), exist_ok=True)
+    tmp = WEBCFG + f".tmp.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as out:
+        json.dump(data, out, ensure_ascii=False, indent=2)
+        out.write("\n")
+    os.replace(tmp, WEBCFG)
+
+
+def load_pin_state():
+    """기존 단일 평문 PIN 설정을 역할별 해시 설정으로 안전하게 이관한다."""
+    if DEMO:
+        demo = _pin_record("0000")
+        return {
+            "admin": demo,
+            "staff": {slug: _pin_record("0000") for slug in STAFF_CENTERS},
+            "token_secret": hashlib.sha256(b"csos-synthetic-device-session").hexdigest(),
+            "versions": {"admin": 1, "staff": {slug: 1 for slug in STAFF_CENTERS}},
+            "port": PORT,
+        }
+    try:
+        with open(WEBCFG, encoding="utf-8") as src:
+            cfg = json.load(src)
+    except Exception:
+        cfg = {}
+    changed = False
+    legacy_pin = str(cfg.pop("pin", "") or "").strip()
+    auth = cfg.get("auth")
+    if not isinstance(auth, dict):
+        auth = {}
+        cfg["auth"] = auth
+        changed = True
+    if not isinstance(auth.get("admin"), dict):
+        bootstrap = legacy_pin if re.fullmatch(r"\d{4}", legacy_pin) else \
+            str(random.SystemRandom().randint(1000, 9999))
+        auth["admin"] = _pin_record(bootstrap)
+        changed = True
+    staff = auth.get("staff")
+    if not isinstance(staff, dict):
+        staff = {}
+        auth["staff"] = staff
+        changed = True
+    for slug in STAFF_CENTERS:
+        if not isinstance(staff.get(slug), dict):
+            # 새 담당자 업무센터는 관리자 화면에서 PIN을 정하기 전까지 예측할 수 없는
+            # 임시 PIN을 사용한다. 실제 운영 기본값은 --configure-pins로 한 번만 설정한다.
+            staff[slug] = _pin_record(str(random.SystemRandom().randint(1000, 9999)))
+            changed = True
+    token_secret = str(auth.get("token_secret") or "")
+    if not re.fullmatch(r"[0-9a-f]{64}", token_secret):
+        token_secret = secrets.token_hex(32)
+        auth["token_secret"] = token_secret
+        changed = True
+    versions = auth.get("versions")
+    if not isinstance(versions, dict):
+        versions = {}
+        auth["versions"] = versions
+        changed = True
+    try:
+        versions["admin"] = max(1, int(versions.get("admin") or 1))
+    except Exception:
+        versions["admin"] = 1
+        changed = True
+    staff_versions = versions.get("staff")
+    if not isinstance(staff_versions, dict):
+        staff_versions = {}
+        versions["staff"] = staff_versions
+        changed = True
+    for slug in STAFF_CENTERS:
+        try:
+            staff_versions[slug] = max(1, int(staff_versions.get(slug) or 1))
+        except Exception:
+            staff_versions[slug] = 1
+            changed = True
+    if cfg.get("port") != PORT:
+        cfg["port"] = PORT
+        changed = True
+    if changed:
+        _atomic_write_webcfg(cfg)
+    return {
+        "admin": auth["admin"], "staff": staff,
+        "token_secret": token_secret, "versions": versions, "port": PORT,
+    }
+
+
+PIN_STATE = load_pin_state()
+
+
+def verify_pin(pin, staff_slug=""):
+    with PIN_STATE_LOCK:
+        record = (PIN_STATE.get("staff") or {}).get(staff_slug) if staff_slug \
+            else PIN_STATE.get("admin")
+        return _pin_matches(pin, record or {})
+
+
+def set_role_pin(new_pin, staff_slug=""):
+    """현재 역할 PIN을 변경하고 해당 역할의 저장된 기기 인증을 모두 무효화한다."""
+    record = _pin_record(new_pin)
+    with PIN_STATE_LOCK:
+        if staff_slug:
+            if staff_slug not in STAFF_CENTERS:
+                raise ValueError("등록되지 않은 업무센터입니다")
+            PIN_STATE.setdefault("staff", {})[staff_slug] = record
+            versions = PIN_STATE.setdefault("versions", {}).setdefault("staff", {})
+            versions[staff_slug] = int(versions.get(staff_slug) or 1) + 1
+        else:
+            PIN_STATE["admin"] = record
+            versions = PIN_STATE.setdefault("versions", {})
+            versions["admin"] = int(versions.get("admin") or 1) + 1
+        if not DEMO:
+            try:
+                with open(WEBCFG, encoding="utf-8") as src:
+                    cfg = json.load(src)
+            except Exception:
+                cfg = {}
+            cfg.pop("pin", None)
+            cfg["port"] = PORT
+            cfg["auth"] = {
+                "admin": PIN_STATE["admin"],
+                "staff": PIN_STATE["staff"],
+                "token_secret": PIN_STATE["token_secret"],
+                "versions": PIN_STATE["versions"],
+            }
+            _atomic_write_webcfg(cfg)
+
+# PIN은 로그인 수단일 뿐 권한이 아니다. 담당자 업무센터에서 로그인한 브라우저에는
+# 서버가 서명한 HttpOnly 기기 토큰으로 역할을 고정한다. 토큰 서명키와 역할별 버전을
+# 로컬 설정에 보존하므로 서버를 재시작해도 PC·모바일은 PIN을 다시 묻지 않는다.
+# 앱을 열 때마다 만료일을 다시 늘리는 rolling 인증이며, PIN 변경 시에만 기존 기기를
+# 무효화한다. 10년 TTL은 장기간 접속하지 않은 설치 앱까지 현실적으로 유지하기 위한
+# 안전망이고, 정상적으로 앱을 여는 기기는 /api/auth/session 호출 때 계속 연장된다.
+AUTH_SESSION_TTL = 10 * 365 * 24 * 60 * 60
+
+
+def _b64url(data):
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(text):
+    raw = str(text or "")
+    return base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+
+
+def _role_auth_version(staff_slug=""):
+    versions = PIN_STATE.get("versions") or {}
+    if staff_slug:
+        return int((versions.get("staff") or {}).get(staff_slug) or 1)
+    return int(versions.get("admin") or 1)
+
+
+def create_auth_session(staff_slug=""):
+    role = "staff" if staff_slug else "admin"
+    if staff_slug and staff_slug not in STAFF_CENTERS:
+        raise ValueError("등록되지 않은 업무센터입니다")
+    now = time.time()
+    session = {
+        "role": role,
+        "staff_slug": staff_slug,
+        "expires_at": int(now + AUTH_SESSION_TTL),
+        "version": _role_auth_version(staff_slug),
+    }
+    payload = _b64url(json.dumps(
+        session, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8"))
+    secret = bytes.fromhex(PIN_STATE["token_secret"])
+    signature = _b64url(hmac.new(secret, payload.encode("ascii"), hashlib.sha256).digest())
+    return payload + "." + signature, session
+
+
+def auth_cookie(token):
+    return (f"csos_session={token}; Path=/; Max-Age={AUTH_SESSION_TTL}; "
+            "HttpOnly; SameSite=Strict")
+
+
+def auth_session_from_cookie(cookie_header):
+    token = ""
+    for part in str(cookie_header or "").split(";"):
+        key, sep, value = part.strip().partition("=")
+        if sep and key == "csos_session":
+            token = value.strip()
+            break
+    if not token:
+        return {}
+    try:
+        payload, signature = token.split(".", 1)
+        secret = bytes.fromhex(PIN_STATE["token_secret"])
+        expected = _b64url(hmac.new(
+            secret, payload.encode("ascii"), hashlib.sha256
+        ).digest())
+        if not hmac.compare_digest(signature, expected):
+            return {}
+        session = json.loads(_b64url_decode(payload).decode("utf-8"))
+        staff_slug = str(session.get("staff_slug") or "")
+        role = str(session.get("role") or "")
+        if role not in ("admin", "staff"):
+            return {}
+        if role == "staff" and staff_slug not in STAFF_CENTERS:
+            return {}
+        if role == "admin" and staff_slug:
+            return {}
+        if int(session.get("expires_at") or 0) <= int(time.time()):
+            return {}
+        if int(session.get("version") or 0) != _role_auth_version(staff_slug):
+            return {}
+        return session
+    except Exception:
+        return {}
 
 # 앱에서 확정한 운영기준은 관리대장 수식과 섞지 않고 작은 런타임 DB로 보관한다.
 # reports/는 git 제외 대상이며, 저장 성공 직후 대표보고·확인필요 화면이 같은 값을 읽는다.
@@ -108,6 +381,261 @@ def _safe_upload_name(name):
     name = os.path.basename(str(name or "")).strip()
     name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", name)
     return name[:160] or "kakao.txt"
+
+
+PO_SOURCE_EXTS = {
+    ".xlsx", ".xls", ".csv", ".pdf", ".png", ".jpg", ".jpeg", ".webp",
+    ".zip", ".txt", ".eml",
+}
+WORK_LOG_SOURCE_EXTS = {".xlsx"}
+
+
+def _path_is_under(path, roots):
+    """Resolve a local path and allow it only below explicitly approved source roots."""
+    try:
+        candidate = os.path.normcase(os.path.realpath(os.path.abspath(path)))
+    except (OSError, TypeError, ValueError):
+        return False
+    for root in roots:
+        try:
+            root_real = os.path.normcase(os.path.realpath(os.path.abspath(root)))
+            if os.path.commonpath([candidate, root_real]) == root_real:
+                return True
+        except (OSError, TypeError, ValueError):
+            continue
+    return False
+
+
+def _approved_source_roots():
+    from source_dirs import ORIGIN_ROOT, PO_DIRS
+    home = os.path.expanduser("~")
+    roots = [ORIGIN_ROOT, os.path.join(home, "Desktop"), os.path.join(home, "Downloads")]
+    roots.extend(PO_DIRS)
+    return [root for root in roots if root]
+
+
+def _validate_remote_url(url):
+    parsed = urlsplit(str(url or "").strip())
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("URL은 http:// 또는 https:// 주소여야 합니다")
+    if parsed.username or parsed.password:
+        raise ValueError("계정정보가 포함된 URL은 사용할 수 없습니다")
+    try:
+        parsed_port = parsed.port
+    except ValueError as exc:
+        raise ValueError("URL 포트 형식이 올바르지 않습니다") from exc
+    if parsed_port not in (None, 80, 443):
+        raise ValueError("URL은 표준 웹 포트만 사용할 수 있습니다")
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, parsed_port or (443 if parsed.scheme == "https" else 80))
+    except socket.gaierror as exc:
+        raise ValueError(f"URL 서버 주소를 확인할 수 없습니다: {exc}") from exc
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0].split("%", 1)[0])
+        if not ip.is_global:
+            raise ValueError("내부망·로컬 주소 URL은 보안상 다운로드할 수 없습니다")
+    return parsed
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _download_direct_file(url, allowed_exts, max_bytes=55_000_000):
+    """Download a public direct-file URL, validating every redirect against SSRF."""
+    opener = build_opener(_NoRedirect)
+    current = str(url or "").strip()
+    for _hop in range(4):
+        parsed = _validate_remote_url(current)
+        request = Request(
+            current,
+            headers={
+                "User-Agent": "CSOS/2026 PO-source-import",
+                "Accept": "application/octet-stream,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*;q=0.5",
+            },
+        )
+        try:
+            response = opener.open(request, timeout=25)
+        except HTTPError as exc:
+            if exc.code in (301, 302, 303, 307, 308) and exc.headers.get("Location"):
+                current = urljoin(current, exc.headers["Location"])
+                continue
+            raise ValueError(f"URL 다운로드 실패(HTTP {exc.code})") from exc
+        final_url = response.geturl()
+        _validate_remote_url(final_url)
+        disposition = response.headers.get("Content-Disposition") or ""
+        match = re.search(r"filename\*?=(?:UTF-8''|[\"']?)([^\"';]+)", disposition, re.I)
+        name = _safe_upload_name(match.group(1) if match else os.path.basename(urlsplit(final_url).path))
+        ext = os.path.splitext(name)[1].lower()
+        if ext not in allowed_exts:
+            response.close()
+            raise ValueError("URL이 허용된 원본 파일을 직접 가리키지 않습니다")
+        data = response.read(max_bytes + 1)
+        response.close()
+        if len(data) > max_bytes:
+            raise ValueError(f"URL 파일은 {max_bytes // 1_000_000}MB 이하여야 합니다")
+        if not data:
+            raise ValueError("URL에서 받은 파일이 비어 있습니다")
+        return name, data, final_url
+    raise ValueError("URL 리디렉션이 너무 많습니다")
+
+
+def _unique_path(folder, name):
+    name = _safe_upload_name(name)
+    base, ext = os.path.splitext(name)
+    candidate = os.path.join(folder, name)
+    index = 2
+    while os.path.exists(candidate):
+        candidate = os.path.join(folder, f"{base}_{index}{ext}")
+        index += 1
+    return candidate
+
+
+def _copy_local_reference(source_ref, destination, allowed_exts, max_files=250,
+                          max_total=250_000_000):
+    source = os.path.expandvars(str(source_ref or "").strip().strip("\"'"))
+    if not source:
+        return []
+    source = os.path.abspath(source)
+    if not os.path.exists(source):
+        raise ValueError("붙여넣은 파일·폴더 경로를 이 PC에서 찾을 수 없습니다")
+    if not _path_is_under(source, _approved_source_roots()):
+        raise ValueError("원본자료·바탕화면·다운로드 또는 승인된 PO 폴더의 경로만 가져올 수 있습니다")
+    candidates = [source] if os.path.isfile(source) else [
+        os.path.join(parent, name)
+        for parent, _dirs, names in os.walk(source)
+        for name in names
+    ]
+    saved, total = [], 0
+    for path in candidates:
+        if len(saved) >= max_files:
+            raise ValueError(f"한 번에 가져올 수 있는 파일은 최대 {max_files}개입니다")
+        if not _path_is_under(path, _approved_source_roots()):
+            continue
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in allowed_exts or os.path.basename(path).startswith("~$"):
+            continue
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            continue
+        total += size
+        if total > max_total:
+            raise ValueError(f"한 번에 가져올 수 있는 총 용량은 {max_total // 1_000_000}MB입니다")
+        dest = _unique_path(destination, os.path.basename(path))
+        shutil.copy2(path, dest)
+        saved.append(dest)
+    if not saved:
+        raise ValueError("경로 안에서 지원되는 원본 파일을 찾지 못했습니다")
+    return saved
+
+
+def _save_source_submission(fields, files, *, kind, allowed_exts, destination_root,
+                            upload_field, staff_slug):
+    """Store file/path/URL submissions in an immutable dated source folder."""
+    if str(fields.get("staff_slug") or "").strip() != staff_slug:
+        raise ValueError("이 자료 등록은 지정된 담당자 업무센터에서만 사용할 수 있습니다")
+    now = datetime.now()
+    project = re.sub(r"[^0-9A-Za-z가-힣_-]", "_",
+                     str(fields.get("project_no") or fields.get("po_no") or kind).strip())[:48]
+    folder = os.path.join(
+        destination_root, f"{now:%Y}", f"{now:%m}", f"{now:%Y-%m-%d}",
+        f"{now:%H%M%S}_{project or kind}",
+    )
+    if DEMO:
+        folder = os.path.join(ROOT, "tmp", "demo-source-submission", kind, f"{now:%H%M%S}")
+    os.makedirs(folder, exist_ok=True)
+    saved = []
+    upload = files.get(upload_field)
+    if upload and upload.get("data"):
+        if len(upload["data"]) > 55_000_000:
+            raise ValueError("첨부파일은 55MB 이하만 가능합니다")
+        ext = os.path.splitext(upload.get("filename") or "")[1].lower()
+        if ext not in allowed_exts:
+            raise ValueError("지원되지 않는 원본 파일 형식입니다")
+        dest = _unique_path(folder, upload.get("filename"))
+        with open(dest, "wb") as out:
+            out.write(upload["data"])
+        saved.append(dest)
+    source_ref = str(fields.get("source_ref") or "").strip()
+    final_url = ""
+    if source_ref:
+        if re.match(r"^https?://", source_ref, re.I):
+            name, data, final_url = _download_direct_file(source_ref, allowed_exts)
+            dest = _unique_path(folder, name)
+            with open(dest, "wb") as out:
+                out.write(data)
+            saved.append(dest)
+        else:
+            saved.extend(_copy_local_reference(source_ref, folder, allowed_exts))
+    if not saved:
+        raise ValueError("파일을 선택하거나 URL·파일·폴더 경로를 붙여넣어 주세요")
+    manifest = {
+        "kind": kind,
+        "registered_at": now.isoformat(timespec="seconds"),
+        "staff_slug": staff_slug,
+        "staff": STAFF_CENTERS[staff_slug]["name"],
+        "source_ref": source_ref,
+        "resolved_url": final_url,
+        "project_no": str(fields.get("project_no") or "").strip(),
+        "po_no": str(fields.get("po_no") or "").strip(),
+        "memo": str(fields.get("memo") or "").strip(),
+        "files": [os.path.basename(path) for path in saved],
+    }
+    with open(os.path.join(folder, "submission.json"), "w", encoding="utf-8") as out:
+        json.dump(manifest, out, ensure_ascii=False, indent=2)
+    return folder, saved, manifest
+
+
+def save_staff_po_submission(fields, files, source_ip=""):
+    from source_dirs import PO_DIR
+    folder, saved, manifest = _save_source_submission(
+        fields, files, kind="po", allowed_exts=PO_SOURCE_EXTS,
+        destination_root=PO_DIR, upload_field="po_file", staff_slug="oh-jonghyeon",
+    )
+    inbox = os.path.join(ROOT, "inbox")
+    os.makedirs(inbox, exist_ok=True)
+    queued_files = []
+    for path in saved:
+        if os.path.splitext(path)[1].lower() != ".xlsx":
+            continue
+        dest = _unique_path(inbox, "PO_오종현_" + os.path.basename(path))
+        shutil.copy2(path, dest)
+        queued_files.append(os.path.basename(dest))
+    started = queued = False
+    msg = "PO 원본을 보관했습니다"
+    if queued_files:
+        started, msg = start_task("po")
+        queued = False if started else defer_task_until_free("po")
+    manifest["source_ip"] = source_ip
+    manifest["po_compare_files"] = queued_files
+    return {
+        "folder": folder, "files": [os.path.basename(x) for x in saved],
+        "po_compare_files": queued_files, "auto_check_started": started,
+        "auto_check_queued": queued, "msg": msg,
+    }
+
+
+def save_staff_work_log_submission(fields, files, source_ip=""):
+    from source_dirs import WORK_LOG_DIR
+    if str(fields.get("staff_slug") or "").strip() != "ryu-jiyeong":
+        raise ValueError("대표보고 일지는 류지영 업무센터에서만 등록할 수 있습니다")
+    if str(fields.get("use_current") or "").strip() == "1":
+        from work_log_sync import find_latest_source
+        current = find_latest_source()
+        folder, saved = os.path.dirname(current), [current]
+    else:
+        folder, saved, _manifest = _save_source_submission(
+            fields, files, kind="work-log", allowed_exts=WORK_LOG_SOURCE_EXTS,
+            destination_root=WORK_LOG_DIR, upload_field="work_log_file", staff_slug="ryu-jiyeong",
+        )
+    started, msg = start_task("work_log")
+    queued = False if started else defer_task_until_free("work_log")
+    return {
+        "folder": folder, "files": [os.path.basename(x) for x in saved],
+        "auto_check_started": started, "auto_check_queued": queued, "msg": msg,
+    }
 
 
 def _kakao_text_kind(data):
@@ -700,6 +1228,81 @@ def save_ryu_entry(fields, files, source_ip=""):
             "applying": applying, "msg": msg}
 
 
+def save_new_workcenter_job(fields, files, source_ip=""):
+    """업무센터 신규 AS·정기점검을 새 원장 행 대기열로 등록한다."""
+    category = str(fields.get("category") or "").strip()
+    if category not in ("as", "pm"):
+        raise ValueError("신규 업무는 돌발AS 또는 정기점검만 등록할 수 있습니다")
+    from project_resolve import evidence, mint, row_items, norm
+    project_no = norm(fields.get("project_no"))
+    if not project_no or not project_no.startswith("UJ26"):
+        raise ValueError("2026년 프로젝트번호(UJ + 숫자 7자리)를 입력해 주세요")
+    work_date = str(fields.get("work_date") or "").strip()
+    if not re.fullmatch(r"2026-\d{2}-\d{2}", work_date):
+        raise ValueError("업무일은 2026년 YYYY-MM-DD 형식으로 입력해 주세요")
+    camp = str(fields.get("camp_name") or "").strip()
+    if not camp:
+        raise ValueError("캠프명을 입력해 주세요")
+    ev = evidence()
+    existing = (ev.get("ledger") or {}).get(project_no)
+    sheet = "02_돌발AS접수" if category == "as" else "04_정기점검"
+    if existing and sheet in (existing.get("sheets") or {}):
+        raise ValueError(f"{project_no}는 이미 {sheet}에 등록되어 있습니다")
+    row = int((ev.get("tail") or {}).get(sheet, 4)) + 1
+    if row > int((ev.get("cap") or {}).get(sheet, 0)):
+        raise ValueError("관리대장 빈 행이 부족합니다. 알림에 자동 확장 필요로 등록했습니다")
+    prefix = "AS" if category == "as" else "PM"
+    id_col = "접수ID" if category == "as" else "점검ID"
+    work_id = mint(prefix, work_date, row)
+    status = str(fields.get("status") or ("접수" if category == "as" else "예정")).strip()
+    res = {
+        "ok": True, "code": project_no, "sheet": sheet, "row": row,
+        "ids": {id_col: work_id}, "src": {},
+        "camp": camp, "date": work_date,
+        "tech": str(fields.get("assignee") or "").strip(),
+        "cost": str(fields.get("cost_type") or "").strip(),
+        "kind": "돌발AS" if category == "as" else "정기점검",
+        "status": status,
+    }
+    note = str(fields.get("description") or "").strip()
+    # row_items의 신청내용은 kind를 기본으로 쓰므로 AS 신청내용은 확인된 설명으로 보강한다.
+    items = row_items(res, ev)
+    if category == "as" and note:
+        for item in items:
+            if item.get("col") == "신청내용":
+                item["value"] = note
+    evidence_name = _save_ryu_evidence(files.get("evidence_file"), category, work_id)
+    evidence_text = (f"업무센터 신규등록({source_ip or '앱'})"
+                     f"{' · 근거 ' + evidence_name if evidence_name else ''}")
+    for item in items:
+        item["evidence"] = evidence_text
+    # 수식 ID는 셀에 덮어쓰지 않는다. 프로젝트번호가 들어오면 관리대장 수식이 같은 ID를 만든다.
+    if not items:
+        raise ValueError("신규 업무를 반영할 입력 항목을 만들지 못했습니다")
+    manifest = {
+        "등록일시": datetime.now().isoformat(timespec="seconds"),
+        "등록자": str(fields.get("submitter") or STAFF_CENTERS["ryu-jiyeong"]["name"]),
+        "입력유형": "신규 업무", "업무구분": res["kind"],
+        "업무ID": work_id, "프로젝트NO": project_no, "캠프명": camp,
+        "업무일": work_date, "담당자": res["tech"], "상태": status,
+        "내용": note, "근거": evidence_name,
+    }
+    if DEMO:
+        return {"queued": len(items), "pending": len(items), "manifest": manifest,
+                "applying": False, "msg": "데모 신규등록"}
+    os.makedirs(os.path.join(ROOT, "reports"), exist_ok=True)
+    with open(os.path.join(ROOT, "reports", "workcenter_new_jobs.jsonl"),
+              "a", encoding="utf-8") as out:
+        out.write(json.dumps(manifest, ensure_ascii=False) + "\n")
+    from ledger_writer import queue_add, load_queue
+    added = queue_add(items)
+    applying, msg = start_task("writer_apply")
+    if not applying:
+        defer_task_until_free("writer_apply")
+    return {"queued": added, "pending": len(load_queue()), "manifest": manifest,
+            "applying": applying, "msg": msg}
+
+
 def rows_xlsx(payload):
     """담당자 회신용 독립 XLSX를 메모리에서 만든다(관리대장은 절대 열어 저장하지 않는다)."""
     import openpyxl
@@ -781,6 +1384,8 @@ TASKS = {
     "kakao":         ("카톡 대조", [os.path.join(ROOT, "kakao", "kakao_reconcile.py")]),
     "erp_ledger":    ("ERP원장 대조", [os.path.join(ROOT, "erp_ledger_check.py")]),
     "po":            ("쿠팡 PO 대조", [os.path.join(ROOT, "po_reconcile.py")]),
+    "work_log":      ("정기점검·돌발AS 대표보고 일지 대조",
+                      [os.path.join(ROOT, "work_log_sync.py"), "--apply"]),
     "erp_docs":      ("ERP 매출서류 대조", [os.path.join(ROOT, "erp_docs_check.py")]),
     "band_ingest":   ("밴드 수집분 반영(24시트+백필)",
                       [os.path.join(ROOT, "band", "ingest.py"), "--sheet", "--backfill"]),
@@ -1394,6 +1999,8 @@ def _master_mtime():
 
 _brief_cache = {"key": None, "value": None}
 _brief_lock = threading.Lock()
+_work_log_view_cache = {"key": None, "value": None}
+_work_log_view_lock = threading.Lock()
 
 
 def _brief_source_key(day):
@@ -1434,6 +2041,106 @@ def get_daily_brief(day=None):
         )
         _brief_cache.update({"key": key, "value": result})
         return result
+
+
+def get_work_log_view(day="", category="", state="", query=""):
+    """대표보고 일지 원본과 최신 관리대장을 같은 시점에 대조한 상세 목록.
+
+    원본 또는 관리대장이 바뀌면 캐시 키가 즉시 바뀌므로 다른 화면·Excel 입력이
+    정식 원장에 반영되는 즉시 이 목록도 자동으로 다시 계산된다.
+    """
+    if DEMO:
+        now = datetime.now().isoformat(timespec="seconds")
+        result = {
+            "ok": True, "generated_at": now,
+            "source": "정기점검, 돌발AS 일지 (합성데이터).xlsx",
+            "records": [
+                {"구분": "돌발AS", "종류": "as_done", "프로젝트NO": "UJ2600975",
+                 "캠프명": "송파5MB(감일동)", "일자": "2026-07-28", "상태": "완료",
+                 "담당자": "류지영", "요청내용": "리모컨 작동 불가",
+                 "실제조치": "리모컨 택배 발송 완료", "대조결과": "완료일 일치"},
+                {"구분": "돌발AS", "종류": "as_open", "프로젝트NO": "UJ2601191",
+                 "캠프명": "구리3MB(배양리)", "일자": "2026-07-29", "상태": "미실시",
+                 "담당자": "", "요청내용": "간헐적 작동 불가",
+                 "미처리사유": "방문 일정 조율", "대조결과": "미실시 사유 반영"},
+                {"구분": "정기점검", "종류": "pm", "프로젝트NO": "UJ2601141",
+                 "캠프명": "김해2캠프", "일자": "2026-07-28", "상태": "실행",
+                 "담당자": "권오철", "실제조치": "3개월 점검 완료",
+                 "대조결과": "완료일 일치"},
+                {"구분": "정기점검", "종류": "pm", "프로젝트NO": "UJ2601144",
+                 "캠프명": "인천4MB(청천동)", "일자": "2026-07-30", "상태": "실행",
+                 "담당자": "김준형", "실제조치": "윤활·도어락 점검 완료",
+                 "대조결과": "원장 미매칭"},
+            ],
+        }
+    else:
+        from ecount_reconcile import load_config, resolve_master
+        from work_log_sync import analyze, find_latest_source
+        source = find_latest_source()
+        master = resolve_master(load_config()["reconcile"]["master_xlsx"])
+        key = (
+            os.path.abspath(source), os.path.getmtime(source), os.path.getsize(source),
+            os.path.abspath(master), os.path.getmtime(master), os.path.getsize(master),
+        )
+        with _work_log_view_lock:
+            if _work_log_view_cache["key"] != key:
+                _work_log_view_cache.update({"key": key, "value": analyze(master, source)})
+            result = _work_log_view_cache["value"]
+
+    all_records = [
+        dict(row) for row in (result.get("records") or [])
+        if str(row.get("일자") or "").startswith(APP_YEAR + "-")
+    ]
+    text_query = re.sub(r"\s+", "", str(query or "")).lower()
+
+    def keep(row):
+        if day and str(row.get("일자") or "") != day:
+            return False
+        if category and str(row.get("구분") or "") != category:
+            return False
+        if state and str(row.get("상태") or "") != state:
+            return False
+        if text_query:
+            hay = re.sub(r"\s+", "", " ".join(str(row.get(k) or "") for k in (
+                "프로젝트NO", "캠프명", "담당자", "요청내용", "실제조치",
+                "미처리사유", "대조결과",
+            ))).lower()
+            if text_query not in hay:
+                return False
+        return True
+
+    records = [row for row in all_records if keep(row)]
+    records.sort(key=lambda row: (
+        str(row.get("일자") or ""), str(row.get("구분") or ""),
+        str(row.get("프로젝트NO") or ""),
+    ), reverse=True)
+    visible_fields = (
+        "구분", "종류", "원본시트", "원본행", "프로젝트NO", "캠프명", "일자",
+        "원본상태", "상태", "미처리사유", "사유분류", "담당자", "요청내용",
+        "실제조치", "비고", "원장매칭", "원장상태", "대조결과",
+    )
+    records = [{key: row.get(key, "") for key in visible_fields} for row in records]
+    issue_words = ("미매칭", "상이", "중복", "확인 필요", "보완 대기")
+    view_summary = {
+        "전체": len(records),
+        "돌발AS": sum(row.get("구분") == "돌발AS" for row in records),
+        "정기점검": sum(row.get("구분") == "정기점검" for row in records),
+        "확인필요": sum(any(word in str(row.get("대조결과") or "")
+                         for word in issue_words) for row in records),
+    }
+    source_path = str(result.get("source") or "")
+    return {
+        "ok": True,
+        "source_name": os.path.basename(source_path),
+        "source_updated_at": (
+            datetime.fromtimestamp(os.path.getmtime(source_path)).isoformat(timespec="seconds")
+            if not DEMO and os.path.isfile(source_path) else result.get("generated_at") or ""
+        ),
+        "verified_at": result.get("generated_at") or "",
+        "summary": result.get("요약") or {},
+        "view_summary": view_summary,
+        "records": records,
+    }
 
 
 def _fresh(key):
@@ -2223,6 +2930,34 @@ def build_id():
         return "0"
 
 
+def icon_revision():
+    """아이콘 원본이 바뀌면 설치 앱이 새 URL로 다시 받도록 내용 해시를 버전으로 쓴다."""
+    try:
+        path = os.path.join(BASE, "brand", "csos-app-icon-source.png")
+        with open(path, "rb") as f:
+            return "csos-" + hashlib.sha256(f.read()).hexdigest()[:12]
+    except Exception:
+        return "csos-default"
+
+
+def sync_installed_app_icons():
+    """Windows 앱 서버가 갱신될 때 설치 PWA·바로가기 아이콘도 같은 원본으로 맞춘다."""
+    if os.name != "nt" or DEMO:
+        return ""
+    script = os.path.join(BASE, "sync_app_icons.ps1")
+    if not os.path.isfile(script):
+        return ""
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
+            cwd=ROOT, env=ENV, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=60,
+        )
+        return (result.stdout or result.stderr or "").strip()[-300:]
+    except Exception as exc:
+        return f"아이콘 자동동기화 실패: {type(exc).__name__}"
+
+
 def brand_logo():
     """webapp/brand/ 에 넣어 둔 고객사 로고 파일명. 없으면 빈 문자열(기본 CSOS 마크 사용).
     파일은 gitignore 대상 — 상표 자산을 공개 저장소에 올리지 않기 위해서다."""
@@ -2663,6 +3398,161 @@ def latest_reports():
     return out
 
 
+WORKCENTER_ACTIVITY = os.path.join(ROOT, "reports", "workcenter_activity.json")
+IMPROVEMENT_QUEUE = os.path.join(ROOT, "reports", "workcenter_improvements.jsonl")
+
+
+def _atomic_json(path, value):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + f".{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(value, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
+def record_workcenter_activity(slug, event="view"):
+    """담당자 입력 중임을 AI 조정 파일에 남긴다.
+
+    ai_claim.py는 최근 heartbeat가 있으면 새로운 code/ledger 점유를 잠시 미뤄,
+    화면 입력·첨부가 진행되는 동안 배포 재시작이나 원장 교체가 끼어들지 않게 한다.
+    """
+    slug = str(slug or "").strip()
+    if slug not in STAFF_CENTERS:
+        raise ValueError("등록되지 않은 업무센터입니다")
+    now = datetime.now()
+    event = str(event or "view").strip().lower()[:40]
+    editing_events = {"input", "change", "paste", "drop", "save", "upload", "submit"}
+    state = {
+        "slug": slug, "name": STAFF_CENTERS[slug]["name"],
+        "event": event,
+        "updated_at": now.isoformat(timespec="seconds"),
+        "updated_ts": time.time(),
+        "active_until_ts": time.time() + 120 if event in editing_events else 0,
+        "editing": event in editing_events,
+    }
+    _atomic_json(WORKCENTER_ACTIVITY, state)
+    return state
+
+
+def install_staff_shortcut(slug):
+    """PWA 프롬프트를 제공하지 않는 Windows 브라우저의 안전한 설치 대체 경로.
+
+    담당자별 고정 HTTPS 주소를 Chrome/Edge 앱 창으로 여는 바탕화면 바로가기를 만든다.
+    URL과 아이콘은 프로젝트에서 관리하는 고정값만 사용하며 요청값을 셸 문자열로
+    조합하지 않는다.
+    """
+    slug = str(slug or "").strip()
+    center = STAFF_CENTERS.get(slug)
+    if not center:
+        raise ValueError("등록되지 않은 업무센터입니다")
+    if os.name != "nt":
+        raise RuntimeError("PC 바로가기 설치는 Windows에서만 지원합니다")
+    script = os.path.join(BASE, "install_staff_shortcut.ps1")
+    icon = os.path.join(BASE, "csos-app.ico")
+    if not os.path.isfile(script) or not os.path.isfile(icon):
+        raise RuntimeError("설치 구성 파일이 준비되지 않았습니다")
+    url = f"{FIXED_LIVE_ENTRY}/staff/{slug}"
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+         "-File", script, "-Url", url, "-Name", center["title"], "-Icon", icon],
+        cwd=BASE, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=20, creationflags=creationflags,
+    )
+    if result.returncode:
+        raise RuntimeError((result.stderr or result.stdout or "바로가기 생성 실패").strip()[:240])
+    return {"installed": True, "title": center["title"], "url": url}
+
+
+def get_notifications():
+    """사람이 조치해야 하는 실패·미반영·감시 이슈만 한곳에 모은다."""
+    items = []
+    try:
+        from ledger_writer import load_queue
+        pending = len(load_queue())
+        if pending:
+            items.append({
+                "id": "ledger_pending", "severity": "warning",
+                "title": f"자동 반영 대기 {pending}개",
+                "detail": "업무센터 입력은 저장됐으며 관리대장 반영을 기다리고 있습니다.",
+            })
+    except Exception as exc:
+        items.append({
+            "id": "ledger_queue_error", "severity": "error",
+            "title": "자동 반영 대기열 확인 실패", "detail": str(exc)[:180],
+        })
+    try:
+        issue_path = os.path.join(ROOT, "reports", "realtime_issues.json")
+        data = json.load(open(issue_path, encoding="utf-8"))
+        for issue in data.get("issues") or []:
+            if issue.get("status") not in ("new", "ongoing"):
+                continue
+            sev = str(issue.get("severity") or "P2")
+            if issue.get("status") == "new" or sev in ("P0", "P1"):
+                items.append({
+                    "id": str(issue.get("id") or "monitor"),
+                    "severity": "error" if sev in ("P0", "P1") else "warning",
+                    "title": str(issue.get("title") or "확인 필요"),
+                    "detail": str(issue.get("action") or issue.get("evidence") or "")[:220],
+                })
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        items.append({
+            "id": "monitor_read_error", "severity": "error",
+            "title": "감시 상태 확인 실패", "detail": str(exc)[:180],
+        })
+    if runner.get("busy"):
+        items.append({
+            "id": "runner_busy", "severity": "info",
+            "title": f"{runner.get('task') or '자동 작업'} 실행 중",
+            "detail": "완료 후 대기 중인 업무센터 입력을 순서대로 반영합니다.",
+        })
+    return {"count": sum(1 for x in items if x["severity"] != "info"),
+            "items": items, "checked_at": datetime.now().isoformat(timespec="seconds")}
+
+
+def save_workcenter_improvement(fields, files, source_ip=""):
+    slug = str(fields.get("staff_slug") or "").strip()
+    if slug not in STAFF_CENTERS:
+        raise ValueError("등록되지 않은 업무센터입니다")
+    title = str(fields.get("title") or "").strip()
+    description = str(fields.get("description") or "").strip()
+    if not title or not description:
+        raise ValueError("불편한 점의 제목과 설명을 입력해 주세요")
+    attachment = files.get("attachment")
+    saved_name = ""
+    if attachment and attachment.get("data"):
+        if len(attachment["data"]) > 25_000_000:
+            raise ValueError("첨부파일은 25MB 이하만 가능합니다")
+        ext = os.path.splitext(attachment.get("filename") or "")[1].lower()
+        if ext not in (".png", ".jpg", ".jpeg", ".webp", ".pdf", ".txt"):
+            raise ValueError("이미지·PDF·텍스트 파일만 첨부할 수 있습니다")
+        from source_dirs import ORIGIN_ROOT
+        now = datetime.now()
+        folder = os.path.join(ORIGIN_ROOT, "51. 업무센터 개선요청",
+                              f"{now:%Y}", f"{now:%m}", f"{now:%Y-%m-%d}")
+        os.makedirs(folder, exist_ok=True)
+        saved_name = (f"{STAFF_CENTERS[slug]['name']}_{now:%Y%m%d_%H%M%S}_"
+                      f"{_safe_upload_name(attachment.get('filename'))}")
+        with open(os.path.join(folder, saved_name), "wb") as out:
+            out.write(attachment["data"])
+    ticket = {
+        "id": f"WC-{datetime.now():%Y%m%d%H%M%S}-{random.randint(100,999)}",
+        "registered_at": datetime.now().isoformat(timespec="seconds"),
+        "staff_slug": slug, "staff": STAFF_CENTERS[slug]["name"],
+        "title": title, "description": description,
+        "attachment": saved_name, "source_ip": source_ip,
+        "status": "new", "route": "Claude Code 우선 · 사용 불가 시 Codex",
+    }
+    os.makedirs(os.path.dirname(IMPROVEMENT_QUEUE), exist_ok=True)
+    with open(IMPROVEMENT_QUEUE, "a", encoding="utf-8") as out:
+        out.write(json.dumps(ticket, ensure_ascii=False) + "\n")
+    return ticket
+
+
 # ───────────────────────── HTTP ─────────────────────────
 class H(BaseHTTPRequestHandler):
     def handle_one_request(self):
@@ -2677,7 +3567,7 @@ class H(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
-    def _send(self, code, body, ctype="application/json; charset=utf-8"):
+    def _send(self, code, body, ctype="application/json; charset=utf-8", headers=None):
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -2685,21 +3575,51 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Private-Network", "true")
+        for key, value in (headers or {}).items():
+            self.send_header(str(key), str(value))
         self.end_headers()
         self.wfile.write(data)
 
     def _auth(self):
         # 잠금 카운트는 /api/login 에서만 증가 — 구 PIN이 저장된 브라우저의
         # 자동 폴링이 잠금을 유발하던 문제(자기 잠금) 방지
+        session = auth_session_from_cookie(self.headers.get("Cookie", ""))
+        if session:
+            return True
         if _locked(self.client_address[0]):
             return False
-        return self.headers.get("X-Pin", "") == PIN
+        # 쿠키를 쓸 수 없는 기존 localhost 자동화만 관리자 PIN 헤더로 호환한다.
+        return verify_pin(self.headers.get("X-Pin", ""))
+
+    def _actor(self):
+        session = auth_session_from_cookie(self.headers.get("Cookie", ""))
+        if session:
+            return session
+        # 과거 로컬 스크립트 호환. 원격 요청은 로그인 세션 없이 관리자 권한을
+        # 얻을 수 없다.
+        if self.client_address[0] in ("127.0.0.1", "::1", "localhost"):
+            return {"role": "admin", "staff_slug": "", "legacy_local": True}
+        return {"role": "unknown", "staff_slug": ""}
+
+    def _require_admin(self):
+        if self._actor().get("role") != "admin":
+            self._send(403, {"ok": False, "error": "관리자 전용 기능입니다"})
+            return False
+        return True
+
+    def _require_staff(self, *allowed_slugs):
+        actor = self._actor()
+        slug = str(actor.get("staff_slug") or "")
+        if actor.get("role") != "staff" or (allowed_slugs and slug not in allowed_slugs):
+            self._send(403, {"ok": False, "error": "이 업무센터에서 사용할 수 없는 기능입니다"})
+            return ""
+        return slug
 
     def do_OPTIONS(self):
         """브라우저 수집기(band.us 페이지)에서 보내는 사전 요청 허용 — 로컬에서만 쓴다"""
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Pin")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Pin, X-Staff-Slug")
         self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
         # Chrome의 Private Network Access: 공개 사이트(https)에서 로컬 주소로 보낼 때 필요
         self.send_header("Access-Control-Allow-Private-Network", "true")
@@ -2708,8 +3628,17 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = self.path.split("?")[0]
-        if p in ("/", "/index.html", "/ryu"):
+        staff_match = re.fullmatch(r"/staff/([a-z0-9-]+)", p)
+        staff_slug = staff_match.group(1) if staff_match else ""
+        if staff_slug and staff_slug not in STAFF_CENTERS:
+            return self._send(404, {"error": "등록되지 않은 업무센터"})
+        if p in ("/", "/index.html", "/ryu") or staff_slug:
             html = open(os.path.join(BASE, "index.html"), encoding="utf-8").read()
+            if staff_slug:
+                html = html.replace(
+                    '<link rel="manifest" href="/manifest.json">',
+                    f'<link rel="manifest" href="/manifest.json?staff={staff_slug}">'
+                )
             # ★★ 터널 주소로 들어온 경우에는 **설치 가능하게 만들지 않는다**.
             #   터널 호스트는 띄울 때마다 바뀌는데, 여기서 [설치]를 하면 그 임시 호스트가
             #   앱 아이콘에 **영구히 박힌다**. 주소가 바뀌는 순간 그 아이콘은 영영
@@ -2777,22 +3706,65 @@ class H(BaseHTTPRequestHandler):
             #   (2026-07-27에 고정 주소를 넣었다가 실제로 설치가 안 됐다).
             #   그래서 여기는 "/" 로 두고, **오래 쓸 아이콘은 고정 주소에서 설치**한다.
             #   터널 주소로 들어온 사람에게는 index.html이 배너로 그 사실을 알린다.
+            icon_rev = icon_revision()
+            query = parse_qs(urlsplit(self.path).query)
+            staff_slug = str((query.get("staff") or [""])[0]).strip()
+            center = STAFF_CENTERS.get(staff_slug)
+            start_url = f"/staff/{staff_slug}" if center else "/"
+            app_name = center["title"] if center else "Coupang Service Operations System"
+            app_id = start_url if center else "/"
             return self._send(200, {
-                "name": "Coupang Service Operations System", "short_name": "CSOS",
-                "start_url": "/", "scope": "/", "display": "standalone",
+                "name": app_name,
+                "short_name": center["name"] if center else "CSOS",
+                "id": app_id, "start_url": start_url, "scope": "/", "display": "standalone",
                 "background_color": "#060D2B", "theme_color": "#060D2B",
                 "icons": [
-                    {"src": "/icon-192.png?v=csos-20260729", "sizes": "192x192",
+                    {"src": f"/icon-192.png?v={icon_rev}", "sizes": "192x192",
                      "type": "image/png", "purpose": "any"},
-                    {"src": "/icon-512.png?v=csos-20260729", "sizes": "512x512",
+                    {"src": f"/icon-512.png?v={icon_rev}", "sizes": "512x512",
                      "type": "image/png", "purpose": "any maskable"}]},
                 "application/manifest+json")
         if p == "/api/ping":
             return self._send(200, {"app": "coupang-work", "demo": DEMO, "build": build_id()})
+        if p == "/api/auth/session":
+            session = auth_session_from_cookie(self.headers.get("Cookie", ""))
+            if not session:
+                return self._send(401, {"ok": False, "error": "기기 인증 없음"})
+            # 정상 기기는 앱을 열 때마다 만료일을 연장한다. PIN은 변경하거나 브라우저
+            # 데이터를 직접 지우기 전까지 다시 물어보지 않는다.
+            token, renewed = create_auth_session(
+                session.get("staff_slug") if session.get("role") == "staff" else "")
+            return self._send(200, {
+                "ok": True,
+                "authenticated": True,
+                "role": renewed["role"],
+                "staff_slug": renewed.get("staff_slug") or "",
+                "expires_at": renewed["expires_at"],
+            }, headers={"Set-Cookie": auth_cookie(token)})
         if not self._auth():
             return self._send(401, {"error": "PIN"})
         if p == "/api/status":
             return self._send(200, get_status())
+        if p == "/api/notifications":
+            return self._send(200, get_notifications())
+        if p == "/api/staff/centers":
+            return self._send(200, {"centers": staff_centers_payload()})
+        if p == "/api/staff/work-log-status":
+            actor = self._actor()
+            if actor.get("role") == "staff" and actor.get("staff_slug") != "ryu-jiyeong":
+                return self._send(403, {"ok": False, "error": "류지영 업무센터 전용 기능입니다"})
+            if actor.get("role") not in ("admin", "staff"):
+                return self._send(403, {"ok": False, "error": "업무센터 세션이 필요합니다"})
+            try:
+                params = parse_qs(urlsplit(self.path).query)
+                return self._send(200, get_work_log_view(
+                    day=str((params.get("date") or [""])[0]).strip(),
+                    category=str((params.get("category") or [""])[0]).strip(),
+                    state=str((params.get("state") or [""])[0]).strip(),
+                    query=str((params.get("q") or [""])[0]).strip(),
+                ))
+            except Exception as exc:
+                return self._send(200, {"ok": False, "error": str(exc)[:240]})
         # 철거·신규납품은 응답 단계에서 뺀다 — 앱이 아예 받지 않게 한다.
         # (앱에도 같은 필터가 있지만, 화면 코드가 바뀌어도 새어 나가지 않게 서버가 먼저 막는다)
         if p == "/api/settlements":
@@ -2857,13 +3829,149 @@ class H(BaseHTTPRequestHandler):
                 return self._send(429, {"ok": False, "error": "시도 초과 — 10분 후 다시"})
             ln = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(ln) or b"{}")
-            ok = body.get("pin", "") == PIN
+            staff_slug = str(body.get("staff_slug") or "").strip()
+            if staff_slug and staff_slug not in STAFF_CENTERS:
+                return self._send(400, {"ok": False, "error": "등록되지 않은 업무센터입니다"})
+            ok = verify_pin(body.get("pin", ""), staff_slug)
             (_ok_login if ok else _fail)(ip)
-            return self._send(200 if ok else 401, {"ok": ok})
+            if not ok:
+                return self._send(401, {"ok": False})
+            try:
+                token, session = create_auth_session(staff_slug)
+                cookie = auth_cookie(token)
+                return self._send(200, {
+                    "ok": True,
+                    "role": session["role"],
+                    "staff_slug": session["staff_slug"],
+                }, headers={"Set-Cookie": cookie})
+            except ValueError as exc:
+                return self._send(400, {"ok": False, "error": str(exc)})
         if p == "/api/band_dump":
             return self._band_dump()
         if not self._auth():
             return self._send(401, {"error": "PIN"})
+        if p == "/api/auth/change-pin":
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 20_000:
+                return self._send(400, {"ok": False, "error": "PIN 변경 요청 형식 오류"})
+            try:
+                body = json.loads(self.rfile.read(ln) or b"{}")
+                actor = self._actor()
+                role = str(actor.get("role") or "")
+                staff_slug = str(actor.get("staff_slug") or "") if role == "staff" else ""
+                if role not in ("admin", "staff"):
+                    return self._send(403, {"ok": False, "error": "로그인 역할을 확인할 수 없습니다"})
+                current_pin = str(body.get("current_pin") or "")
+                new_pin = str(body.get("new_pin") or "")
+                if not verify_pin(current_pin, staff_slug):
+                    return self._send(400, {"ok": False, "error": "현재 PIN이 올바르지 않습니다"})
+                if new_pin == current_pin:
+                    return self._send(400, {"ok": False, "error": "새 PIN은 현재 PIN과 달라야 합니다"})
+                set_role_pin(new_pin, staff_slug)
+                token, session = create_auth_session(staff_slug)
+                cookie = auth_cookie(token)
+                return self._send(200, {
+                    "ok": True,
+                    "role": role,
+                    "staff_slug": staff_slug,
+                    "expires_at": session["expires_at"],
+                    "message": "PIN이 변경되었습니다. 현재 기기는 계속 로그인됩니다.",
+                }, headers={"Set-Cookie": cookie})
+            except ValueError as exc:
+                return self._send(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:
+                return self._send(500, {"ok": False, "error": str(exc)[:180]})
+        if p == "/api/staff/activity":
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 20_000:
+                return self._send(400, {"ok": False, "error": "업무센터 상태 형식 오류"})
+            try:
+                body = json.loads(self.rfile.read(ln) or b"{}")
+                actor_slug = self._require_staff(*STAFF_CENTERS.keys())
+                if not actor_slug:
+                    return
+                if str(body.get("staff_slug") or "") != actor_slug:
+                    return self._send(403, {"ok": False, "error": "다른 담당자 상태는 변경할 수 없습니다"})
+                state = record_workcenter_activity(body.get("staff_slug"), body.get("event"))
+                return self._send(200, {"ok": True, **state})
+            except Exception as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:180]})
+        if p == "/api/staff/install-shortcut":
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 20_000:
+                return self._send(400, {"ok": False, "error": "설치 요청 형식 오류"})
+            try:
+                body = json.loads(self.rfile.read(ln) or b"{}")
+                actor_slug = self._require_staff(*STAFF_CENTERS.keys())
+                if not actor_slug:
+                    return
+                if str(body.get("staff_slug") or "") != actor_slug:
+                    return self._send(403, {"ok": False, "error": "다른 담당자 바로가기는 만들 수 없습니다"})
+                result = install_staff_shortcut(body.get("staff_slug"))
+                return self._send(200, {"ok": True, **result})
+            except Exception as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:240]})
+        if p == "/api/staff/improvement":
+            actor_slug = self._require_staff(*STAFF_CENTERS.keys())
+            if not actor_slug:
+                return
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 30_000_000:
+                return self._send(400, {"ok": False, "error": "개선요청·첨부 용량은 합계 30MB 이하여야 합니다"})
+            try:
+                fields, files = multipart_parts(self.headers.get("Content-Type", ""),
+                                                self.rfile.read(ln))
+                fields["staff_slug"] = actor_slug
+                ticket = save_workcenter_improvement(fields, files, ip)
+                return self._send(200, {"ok": True, "ticket": ticket})
+            except Exception as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:260]})
+        if p == "/api/staff/po-upload":
+            actor_slug = self._require_staff("oh-jonghyeon")
+            if not actor_slug:
+                return
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 60_000_000:
+                return self._send(400, {"ok": False, "error": "PO 첨부는 합계 60MB 이하여야 합니다"})
+            try:
+                fields, files = multipart_parts(self.headers.get("Content-Type", ""),
+                                                self.rfile.read(ln))
+                fields["staff_slug"] = actor_slug
+                result = save_staff_po_submission(fields, files, ip)
+                return self._send(200, {"ok": True, **result})
+            except Exception as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:320]})
+        if p == "/api/staff/work-log-upload":
+            actor_slug = self._require_staff("ryu-jiyeong")
+            if not actor_slug:
+                return
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 60_000_000:
+                return self._send(400, {"ok": False, "error": "대표보고 일지는 60MB 이하여야 합니다"})
+            try:
+                fields, files = multipart_parts(self.headers.get("Content-Type", ""),
+                                                self.rfile.read(ln))
+                fields["staff_slug"] = actor_slug
+                result = save_staff_work_log_submission(fields, files, ip)
+                return self._send(200, {"ok": True, **result})
+            except Exception as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:320]})
+        if p == "/api/staff/new-job":
+            actor_slug = self._require_staff("ryu-jiyeong")
+            if not actor_slug:
+                return
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 30_000_000:
+                return self._send(400, {"ok": False, "error": "신규업무·첨부 용량은 합계 30MB 이하여야 합니다"})
+            try:
+                fields, files = multipart_parts(self.headers.get("Content-Type", ""),
+                                                self.rfile.read(ln))
+                fields["staff_slug"] = actor_slug
+                fields["submitter"] = STAFF_CENTERS[actor_slug]["name"]
+                result = save_new_workcenter_job(fields, files, ip)
+                return self._send(200, {"ok": True, **result})
+            except Exception as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:300]})
         if p == "/api/export_xlsx":
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 2_000_000:
@@ -2877,6 +3985,8 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._send(500, {"ok": False, "error": f"엑셀 생성 실패: {str(e)[:160]}"})
         if p == "/api/policy":
+            if not self._require_admin():
+                return
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 100_000:
                 return self._send(400, {"ok": False, "error": "저장 내용 크기가 올바르지 않습니다"})
@@ -2893,12 +4003,16 @@ class H(BaseHTTPRequestHandler):
             save_policy_state(key, state)
             return self._send(200, {"ok": True, **state})
         if p == "/api/ryu/upload":
+            actor_slug = self._require_staff("ryu-jiyeong")
+            if not actor_slug:
+                return
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 45_000_000:
                 return self._send(400, {"ok": False, "error": "첨부 용량은 합계 45MB 이하여야 합니다"})
             try:
                 fields, files = multipart_parts(self.headers.get("Content-Type", ""),
                                                 self.rfile.read(ln))
+                fields["submitter"] = STAFF_CENTERS[actor_slug]["name"]
                 result = save_ryu_upload(fields, files)
                 started, msg = start_task("kakao")
                 queued = False if started else defer_task_until_free("kakao")
@@ -2908,17 +4022,23 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._send(400, {"ok": False, "error": str(e)[:260]})
         if p == "/api/ryu/entry":
+            actor_slug = self._require_staff("ryu-jiyeong")
+            if not actor_slug:
+                return
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 30_000_000:
                 return self._send(400, {"ok": False, "error": "입력·첨부 용량은 합계 30MB 이하여야 합니다"})
             try:
                 fields, files = multipart_parts(self.headers.get("Content-Type", ""),
                                                 self.rfile.read(ln))
+                fields["submitter"] = STAFF_CENTERS[actor_slug]["name"]
                 result = save_ryu_entry(fields, files, ip)
                 return self._send(200, {"ok": True, **result})
             except Exception as e:
                 return self._send(400, {"ok": False, "error": str(e)[:300]})
         if p == "/api/enqueue":
+            if not self._require_admin():
+                return
             # 폰이 **PC 꺼진 동안 예약해 둔** 프로젝트 코드를 받아 원장에 등록한다.
             # 오프라인 앱이 PC가 살아난 걸 확인하는 즉시 스스로 보낸다(사람 개입 없음).
             ln = int(self.headers.get("Content-Length", 0))
@@ -2928,9 +4048,13 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, enqueue_codes(codes))
         m = re.match(r"^/api/run/(\w+)$", p)
         if m:
+            if not self._require_admin():
+                return
             ok, msg = start_task(m.group(1))
             return self._send(200 if ok else 409, {"ok": ok, "msg": msg})
         if p == "/api/open":
+            if not self._require_admin():
+                return
             # 워크벤치 대체: 관리대장·폴더 열기. 원격(터널)에서는 의미가 없고 위험하므로
             # 서버가 도는 PC에서 접속했을 때만 허용한다.
             if ip not in ("127.0.0.1", "::1", "localhost"):
@@ -3000,7 +4124,7 @@ class H(BaseHTTPRequestHandler):
         """브라우저 수집기가 밴드 게시글 원본을 직접 전송(no-cors POST) — PIN 쿼리로 보호"""
         from urllib.parse import parse_qs, urlparse
         q = parse_qs(urlparse(self.path).query)
-        if (q.get("pin") or [""])[0] != PIN:
+        if not verify_pin((q.get("pin") or [""])[0]):
             return self._send(401, {"ok": False})
         ln = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(ln)
@@ -3071,6 +4195,20 @@ class _Server(ThreadingHTTPServer):
 
 
 def main():
+    if "--configure-pins" in sys.argv:
+        admin_pin = os.environ.get("CSOS_ADMIN_PIN", "").strip()
+        staff_pin = os.environ.get("CSOS_STAFF_PIN", "").strip()
+        if not admin_pin or not staff_pin:
+            print("CSOS_ADMIN_PIN·CSOS_STAFF_PIN 환경변수가 모두 필요합니다.")
+            return 2
+        set_role_pin(admin_pin)
+        for slug in STAFF_CENTERS:
+            set_role_pin(staff_pin, slug)
+        print("관리자·담당자 PIN 정책을 로컬 해시 설정으로 갱신했습니다.")
+        return 0
+    icon_sync = sync_installed_app_icons()
+    if icon_sync:
+        print("  아이콘:", icon_sync)
     try:
         srv = _Server(("0.0.0.0", PORT), H)
     except OSError:
@@ -3085,7 +4223,7 @@ def main():
     print(f"Coupang Service Operations System 앱 서버 [{mode}] 시작")
     print(f"  PC:      http://localhost:{PORT}")
     print(f"  휴대폰:  http://{lan_ip()}:{PORT}   (같은 와이파이)")
-    print(f"  PIN:     {PIN}")
+    print("  PIN:     역할별 로컬 해시 설정 사용")
     srv.serve_forever()
 
 

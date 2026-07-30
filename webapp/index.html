@@ -7,13 +7,23 @@
 <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>Coupang Service Operations System</title>
-<link rel="icon" href="/icon-32.png?v=csos-20260729" sizes="32x32" type="image/png">
-<link rel="icon" href="/icon.svg?v=csos-20260729" type="image/svg+xml">
-<link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png?v=csos-20260729">
+<link rel="icon" href="/icon-32.png?v=csos-20260730" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon.svg?v=csos-20260730" type="image/svg+xml">
+<link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png?v=csos-20260730">
 <link rel="manifest" href="/manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="CSOS">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script>
+/* 설치 이벤트는 문서 하단 스크립트보다 먼저 올 수 있다. 가장 먼저 잡아 두고
+   업무센터 코드가 준비되면 이어받는다. */
+window.__csosInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', function(e){
+  e.preventDefault();
+  window.__csosInstallPrompt = e;
+  window.dispatchEvent(new Event('csos-install-ready'));
+});
+</script>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700;800&display=swap" rel="stylesheet">
 <style>
@@ -66,6 +76,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 @media(min-width:600px){.brandfull{display:inline} .brandshort{display:none}}
 .appbar h1 small{display:block;font-size:10px;font-weight:600;color:#8FA3D9;letter-spacing:.4px}
 .appbar .sub{font-size:11px;color:#8FA3D9;font-variant-numeric:tabular-nums}
+.appbar #clock{font-size:clamp(18px,1.7vw,22px);font-weight:800;letter-spacing:-.02em;
+  color:#5D6C8D;white-space:nowrap}
 .coupang-app-brand,.uni-app-brand{display:block;object-fit:contain;object-position:center;flex:none}
 .coupang-app-brand{width:78px;height:22px}
 .uni-app-brand{width:295px;height:42px;opacity:.82;border-radius:3px}
@@ -76,7 +88,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
   .coupang-app-brand{width:54px;height:20px}
   .uni-app-brand{width:96px;height:24px;opacity:.74}
   .appbar-status{gap:6px}
-  .appbar #clock,.appbar #demobadge{display:none}
+  .appbar #demobadge{display:none}
+  .appbar #clock{font-size:15px}
 }
 .dot{width:8px;height:8px;border-radius:50%;background:#3DDC84;box-shadow:0 0 0 3px rgba(61,220,132,.22);flex:none}
 .dot.busy{background:#FFC53D;box-shadow:0 0 0 3px rgba(255,197,61,.22);animation:pulse 1s infinite}
@@ -223,6 +236,7 @@ button:focus-visible,.topitem:focus-visible,.srow:focus-visible,.check-kpi:focus
 .kpi .head{display:flex;align-items:center;gap:8px;margin-bottom:9px}
 .kpi .ico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;
   font-size:15px;background:var(--brand-tint);flex:none}
+.kpi .ico img{width:17px;height:17px;display:block;object-fit:contain}
 .kpi .l{font-size:11.5px;color:var(--ink-2);font-weight:700;line-height:1.25}
 .kpi .v{font-size:23px;font-weight:800;letter-spacing:-.6px;font-variant-numeric:tabular-nums;line-height:1.1}
 .kpi .s{font-size:11px;color:var(--ink-3);margin-top:3px;font-variant-numeric:tabular-nums}
@@ -447,6 +461,21 @@ button:focus-visible,.topitem:focus-visible,.srow:focus-visible,.check-kpi:focus
 .egroup.issue .gitem{cursor:pointer}
 .egroup.issue .gitem:hover{background:#FFF8F8}
 @media(max-width:559px){.egroup.issue .gb{grid-template-columns:1fr}}
+.issue-detail-list{grid-column:1/-1;margin:6px 4px 2px;border-top:2px solid #F1C2C2;padding-top:10px}
+.issue-detail-title{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  color:#8F2525;font-size:12.5px;font-weight:900;margin:0 2px 7px}
+.issue-detail-row{display:grid;grid-template-columns:minmax(160px,.9fr) minmax(240px,2fr) auto;
+  gap:10px;align-items:start;padding:10px 9px;border:1px solid #F1D6D6;border-radius:10px;
+  background:#FFFDFD;margin-bottom:7px}
+.issue-detail-id{display:flex;flex-wrap:wrap;align-items:center;gap:5px;font-size:11.5px;font-weight:800}
+.issue-detail-id .camp{color:var(--ink-2);font-weight:700}
+.issue-detail-copy{color:#4A2222;font-size:12px;line-height:1.55;white-space:pre-line;word-break:keep-all}
+.issue-detail-copy b{color:#A63737}
+.issue-detail-meta{color:var(--ink-3);font-size:10.5px;font-weight:700;white-space:nowrap;text-align:right}
+@media(max-width:720px){
+  .issue-detail-row{grid-template-columns:1fr}
+  .issue-detail-meta{text-align:left}
+}
 .gi{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
   font-size:14px;padding:6px 0;border-bottom:1px dashed #EEF2F7}
 .gitem{border-bottom:1px solid #EEF2F7;padding:1px 5px;border-radius:7px}
@@ -552,6 +581,9 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 .abtn:hover{border-color:var(--brand);box-shadow:var(--sh-lg);transform:translateY(-1px)}
 .abtn:active{transform:scale(.97)}
 .abtn .em{font-size:20px;line-height:1}
+.abtn img.em{display:block;width:21px;height:21px;object-fit:contain}
+.abtn.primary img.em{filter:brightness(0) invert(1)}
+.inline-bi{display:inline-block;width:16px;height:16px;vertical-align:-3px;margin-right:5px}
 .abtn.primary{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:0 4px 12px rgba(36,82,230,.35)}
 .abtn.primary:hover{background:var(--brand-dk)}
 .abtn.danger{background:var(--danger-bg);border-color:#F5C2C7;color:var(--danger)}
@@ -706,13 +738,16 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 .rpt-actions,.media-tools{display:flex!important;flex-wrap:nowrap!important;align-items:center;
   justify-content:center;gap:9px;margin:0 0 12px;overflow-x:auto;overflow-y:hidden;
   padding:5px 3px 8px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
-.icon-btn{appearance:none;-webkit-appearance:none;flex:0 0 52px!important;width:52px;height:48px;
-  padding:0!important;border-radius:14px!important;border:1px solid #D6DEEB!important;
+.icon-btn{appearance:none;-webkit-appearance:none;flex:0 0 68px!important;width:68px;height:62px;
+  padding:5px 3px 4px!important;border-radius:14px!important;border:1px solid #D6DEEB!important;
   background:linear-gradient(180deg,#fff 0%,#F7F9FC 100%)!important;
   box-shadow:0 3px 9px rgba(16,24,40,.10),inset 0 1px 0 rgba(255,255,255,.9)!important;
-  display:inline-flex!important;align-items:center;justify-content:center;cursor:pointer;
+  display:inline-flex!important;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;
   transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease,background .14s ease}
 .icon-btn img{display:block;width:24px;height:24px;pointer-events:none}
+.icon-btn::after{content:attr(aria-label);display:block;max-width:62px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;font-size:9.5px;line-height:1.1;font-weight:800;color:#344054}
+.icon-btn.primary::after{color:#fff}
 .icon-btn:hover{transform:translateY(-2px);border-color:#8EA6F4!important;
   box-shadow:0 7px 18px rgba(36,82,230,.16)!important}
 .icon-btn:active{transform:translateY(0) scale(.92)}
@@ -730,8 +765,9 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   white-space:nowrap!important;border:0!important}
 @media(max-width:640px){
   .rpt-actions,.media-tools{justify-content:flex-start;gap:7px;padding:4px 2px 9px}
-  .icon-btn{flex-basis:46px!important;width:46px;height:44px;border-radius:12px!important}
+  .icon-btn{flex-basis:58px!important;width:58px;height:58px;border-radius:12px!important}
   .icon-btn img{width:22px;height:22px}
+  .icon-btn::after{font-size:9px;max-width:54px}
 }
 
 /* ═══ 보고서(캡처 최적화) ═══ */
@@ -958,7 +994,147 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   .ryu-entry-fields label.wide{grid-column:auto}
 }
 body.ryu-mode .tabbar button[data-v="run"]{display:none}
-body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";display:block;color:#B9C7F0;font-size:9px}
+body.ryu-mode .tabbar .brand .bt::after{content:" · " attr(data-staff);display:block;color:#B9C7F0;font-size:9px}
+body.staff-mode .tabbar button[data-v="run"],
+body.staff-mode .tabbar button[data-v="daily"],
+body.staff-mode .tabbar button[data-v="report"],
+body.ryu-mode .tabbar button[data-v="daily"],
+body.ryu-mode .tabbar button[data-v="report"]{display:none}
+.workcenter-hub{position:relative;overflow:hidden;border:1px solid #CAD5F4;border-radius:19px;
+  background:linear-gradient(135deg,#F9FAFF 0%,#EEF3FF 56%,#F8FBFF 100%);
+  padding:19px;margin-bottom:14px;box-shadow:0 12px 30px rgba(32,58,117,.08)}
+.workcenter-hub::after{content:"";position:absolute;right:-70px;top:-90px;width:230px;height:230px;
+  border-radius:50%;background:radial-gradient(circle,rgba(97,114,243,.16),transparent 68%);
+  pointer-events:none}
+.workcenter-hub h3{font-size:17px;color:#13285F;margin-bottom:4px}
+.workcenter-buttons{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:11px;margin-top:14px}
+.workcenter-person{--wc:#4257D7;--wc2:#7283F2;display:flex;align-items:center;gap:12px;min-height:66px;
+  padding:12px 15px;border:1px solid color-mix(in srgb,var(--wc) 30%,white);border-radius:15px;
+  background:linear-gradient(145deg,#fff,color-mix(in srgb,var(--wc) 7%,white));color:#172B61;
+  font-weight:900;text-decoration:none;box-shadow:0 6px 16px rgba(28,63,168,.09);
+  transition:transform .22s cubic-bezier(.2,.75,.25,1),box-shadow .22s,border-color .22s,filter .22s}
+.workcenter-person:nth-child(2){--wc:#147D64;--wc2:#35B58F}
+.workcenter-person:nth-child(3){--wc:#B35D13;--wc2:#E78B3D}
+.workcenter-person .wc-icon{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;
+  background:linear-gradient(145deg,var(--wc2),var(--wc));color:#fff;font-size:20px;
+  box-shadow:0 7px 16px color-mix(in srgb,var(--wc) 27%,transparent)}
+.workcenter-person .wc-icon img{width:21px;height:21px;filter:brightness(0) invert(1)}
+.workcenter-person .wc-copy{display:flex;flex-direction:column;min-width:0;line-height:1.22}
+.workcenter-person .wc-copy small{font-size:10px;color:#667085;font-weight:700;margin-top:4px}
+.workcenter-person .wc-arrow{margin-left:auto;font-size:18px;color:var(--wc);
+  transition:transform .22s cubic-bezier(.2,.75,.25,1)}
+.workcenter-person:hover,.workcenter-person:focus-visible{transform:translateY(-4px) scale(1.012);
+  border-color:var(--wc);box-shadow:0 14px 28px color-mix(in srgb,var(--wc) 20%,transparent);
+  outline:none;filter:saturate(1.08)}
+.workcenter-person:hover .wc-arrow,.workcenter-person:focus-visible .wc-arrow{transform:translate(3px,-3px)}
+.workcenter-person:active{transform:translateY(0) scale(.975);transition-duration:.08s}
+.staff-checklist{display:grid;gap:8px;margin:0 0 14px;padding:16px;border:1px solid #CAD5F4;
+  border-radius:15px;background:#fff}
+.staff-checklist h3{font-size:15px;color:#203A75}.staff-checklist label{display:flex;gap:9px;align-items:flex-start;
+  padding:9px 10px;border-radius:10px;background:#F7F9FD;font-weight:750;color:#344054}
+.staff-checklist input{width:18px;height:18px;accent-color:var(--brand);flex:none}
+.notice-wrap{position:relative;flex:none}
+.account-pin{width:40px;height:40px;border:1px solid #D5DDF0;border-radius:12px;background:#fff;
+  display:grid;place-items:center;box-shadow:0 3px 10px rgba(16,24,40,.08);transition:.15s}
+.account-pin img{width:20px;height:20px}.account-pin:hover{border-color:#8EA6F4;transform:translateY(-1px)}
+.account-pin:active{transform:scale(.94)}
+.notice-bell{position:relative;width:40px;height:40px;border:1px solid #D5DDF0;border-radius:12px;
+  background:#fff;display:grid;place-items:center;box-shadow:0 3px 10px rgba(16,24,40,.08)}
+.notice-bell svg{width:21px;height:21px}.notice-badge{position:absolute;right:-5px;top:-6px;min-width:20px;height:20px;
+  padding:0 5px;border-radius:999px;background:#D92D20;color:#fff;font-size:10px;font-weight:900;
+  display:none;align-items:center;justify-content:center;border:2px solid #fff}
+.notice-panel{position:absolute;right:0;top:48px;width:min(390px,calc(100vw - 22px));max-height:60vh;overflow:auto;
+  display:none;padding:10px;background:#fff;border:1px solid #D7DEEA;border-radius:14px;
+  box-shadow:0 18px 40px rgba(16,24,40,.2);z-index:1000}
+.notice-panel.on{display:block}.notice-item{padding:10px;border-radius:10px;background:#F7F9FC;margin-bottom:7px}
+.notice-item.error{background:#FEF0F1}.notice-item.warning{background:#FFF7ED}.notice-item.info{background:#EEF4FF}
+.notice-item b{display:block;font-size:12px}.notice-item span{display:block;color:#667085;font-size:10.5px;margin-top:3px}
+.install-card{position:fixed;right:16px;bottom:18px;z-index:1100;width:min(390px,calc(100vw - 32px));
+  display:none;padding:16px;border-radius:16px;background:#0D1B46;color:#fff;box-shadow:0 18px 45px rgba(6,13,43,.36)}
+.install-card.on{display:block;animation:viewEnter .28s ease}.install-card h3{font-size:15px;margin-bottom:4px}
+.install-card p{font-size:11px;color:#D8E0FA;line-height:1.55}.install-card .actions{grid-template-columns:1fr 1fr;margin-top:10px}
+.install-card button{padding:10px;border-radius:10px;background:#fff;color:#183786;font-weight:900}
+.install-card button.ghost{background:#223467;color:#D8E0FA}
+.pin-dialog{position:fixed;inset:0;z-index:1400;display:none;align-items:center;justify-content:center;
+  padding:20px;background:rgba(6,13,43,.58);backdrop-filter:blur(4px)}
+.pin-dialog.on{display:flex;animation:viewEnter .18s ease}
+.pin-dialog-card{width:min(430px,100%);padding:24px;border-radius:20px;background:#fff;
+  box-shadow:0 28px 70px rgba(6,13,43,.38)}
+.pin-dialog-head{display:flex;align-items:center;gap:12px;margin-bottom:17px}
+.pin-dialog-head .pin-symbol{width:44px;height:44px;border-radius:13px;background:#EEF2FF;
+  display:grid;place-items:center}.pin-dialog-head img{width:23px;height:23px}
+.pin-dialog-head h3{font-size:18px}.pin-dialog-head p{font-size:11.5px;color:var(--ink-2)}
+.pin-fields{display:grid;gap:11px}.pin-fields label{font-size:11.5px;color:var(--ink-2);font-weight:800}
+.pin-fields input{width:100%;margin-top:4px;padding:12px;border:1.5px solid var(--line);border-radius:11px;
+  font-size:20px;letter-spacing:10px;text-align:center;font-variant-numeric:tabular-nums}
+.pin-fields input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(36,82,230,.1)}
+.pin-dialog-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:17px}
+.pin-dialog-actions button{padding:12px;border-radius:11px;background:#EEF2F6;font-weight:900}
+.pin-dialog-actions button.primary{background:var(--brand);color:#fff;box-shadow:0 6px 16px rgba(36,82,230,.25)}
+.pin-dialog-error{min-height:19px;margin-top:9px;color:var(--danger);font-size:11.5px;font-weight:700}
+.drop-paste{border:2px dashed #AFC0F3;border-radius:13px;padding:14px;background:#F7F9FF;min-height:90px}
+.drop-paste.drag{border-color:var(--brand);background:#EEF2FF}
+.source-upload-card{border:1px solid #C8D5F5;background:linear-gradient(180deg,#fff,#F8FAFF)}
+.source-upload-card h3{font-size:18px;color:#17357E}
+.source-drop{display:grid;place-items:center;gap:8px;min-height:150px;padding:22px;
+  border:2px dashed #9FB3EE;border-radius:16px;background:#F4F7FF;text-align:center;
+  color:#344054;cursor:pointer;transition:.18s}
+.source-drop:hover,.source-drop.drag{border-color:var(--brand);background:#EAF0FF;
+  box-shadow:inset 0 0 0 1px rgba(72,80,228,.12)}
+.source-drop b{font-size:16px;color:#173DAD}.source-drop small{font-size:12px;line-height:1.55;color:#667085}
+.source-drop input[type=file]{width:min(100%,480px);font-size:13px}
+.source-ref{font-family:"Consolas","Malgun Gothic",sans-serif;font-size:13px!important}
+.source-help{display:grid;gap:7px;margin:12px 0;padding:12px 14px;border-radius:12px;
+  background:#EEF4FF;color:#344054;font-size:13px;line-height:1.55}
+.source-status{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:12px}
+.source-status>div{padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff}
+.source-status small{display:block;color:var(--ink-3);font-weight:800}.source-status strong{font-size:18px}
+.worklog-filter{display:grid;grid-template-columns:170px 150px 150px minmax(220px,1fr) auto;
+  gap:8px;margin:12px 0}
+.worklog-filter input,.worklog-filter select{width:100%;min-height:42px;border:1px solid var(--line);
+  border-radius:11px;background:#fff;padding:9px 11px;color:var(--ink);font:inherit}
+.worklog-filter .abtn img{width:18px;height:18px}
+.worklog-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}
+.worklog-kpi{padding:12px;border:1px solid var(--line);border-radius:12px;background:#F8FAFF}
+.worklog-kpi small{display:block;color:var(--ink-3);font-size:11px;font-weight:800}
+.worklog-kpi strong{display:block;margin-top:3px;font-size:22px}
+.worklog-records{display:grid;gap:8px;max-height:660px;overflow:auto;padding-right:3px;scrollbar-width:thin}
+.worklog-record{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:13px;
+  border:1px solid var(--line);border-radius:13px;background:#fff;transition:.16s}
+.worklog-record:hover{border-color:#AFC0F3;background:#F8FAFF;transform:translateX(2px)}
+.worklog-record .head{display:flex;align-items:center;gap:7px;min-width:0}
+.worklog-record .project{border:0;background:none;color:#2948D8;padding:0;font:inherit;font-weight:950;
+  text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.worklog-record .camp{font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.worklog-record .sub{color:var(--ink-2);font-size:11.5px;line-height:1.5;margin-top:4px}
+.worklog-record .detail{color:#344054;font-size:11.5px;line-height:1.55;margin-top:7px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.worklog-record .side{text-align:right;white-space:nowrap;color:var(--ink-3);font-size:11px}
+.worklog-record .state{display:inline-flex;margin-top:6px;padding:4px 7px;border-radius:999px;
+  background:#EAF6EE;color:#147A42;font-weight:900}
+.worklog-record .state.warn{background:var(--danger-bg);color:var(--danger)}
+.worklog-empty{padding:30px;text-align:center;color:var(--ink-3);border:1px dashed #C8D2E6;border-radius:13px}
+.tabbar button.staff-worklog-nav{display:none}
+body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
+@media(max-width:640px){
+  .source-status{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .source-drop{min-height:128px;padding:16px}
+  .worklog-filter{grid-template-columns:1fr 1fr}
+  .worklog-filter input[type=search]{grid-column:1/-1}
+  .worklog-filter .abtn{grid-column:1/-1}
+  .worklog-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .worklog-record{grid-template-columns:1fr}
+  .worklog-record .side{text-align:left}
+}
+@media(max-width:760px){
+  .workcenter-buttons{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .workcenter-person{min-height:58px;font-size:11px;padding:8px;gap:6px;justify-content:center}
+  .workcenter-person .wc-icon{width:32px;height:32px;border-radius:10px;font-size:16px}
+  .workcenter-person .wc-copy small{display:none}
+  .workcenter-person .wc-arrow{display:none}
+  .notice-panel{position:fixed;right:11px;top:63px}
+}
 
 </style>
 </head>
@@ -966,7 +1142,7 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
 
 <div class="gate" id="gate">
   <div class="box">
-  <div class="glogo app-icon"><img src="/icon-192.png?v=csos-20260729" alt="CSOS"></div>
+  <div class="glogo app-icon"><img src="/icon-192.png?v=csos-20260730" alt="CSOS"></div>
     <h2>Coupang Service Operations System</h2>
     <p>PIN 4자리를 입력하세요</p>
     <input id="pin" type="tel" maxlength="4" inputmode="numeric" placeholder="••••" autofocus>
@@ -977,7 +1153,7 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
 
 <header class="appbar">
   <div class="appbar-identity">
-    <div class="logo app-icon"><img src="/icon-192.png?v=csos-20260729" alt="CSOS"></div>
+    <div class="logo app-icon"><img src="/icon-192.png?v=csos-20260730" alt="CSOS"></div>
     <h1><span class="brandfull">Coupang Service Operations System</span><span class="brandshort">CSOS</span>
       <small>UNIVERSAL LIFT · 쿠팡 통합업무 · 2026년 전용</small></h1>
   </div>
@@ -986,11 +1162,61 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
     <img class="coupang-app-brand" src="/brand/coupang.png" alt="Coupang">
   </div>
   <div class="appbar-status">
+    <button class="account-pin" id="pinMenuButton" type="button" onclick="openPinDialog()"
+      title="PIN 번호 변경" aria-label="PIN 번호 변경">
+      <img src="/icons/bootstrap-key-fill.svg" alt="">
+    </button>
+    <div class="notice-wrap">
+      <button class="notice-bell" id="noticeBell" type="button" onclick="toggleNotifications(event)"
+        title="시스템 알림" aria-label="시스템 알림">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>
+          <path d="M10 21h4"/>
+        </svg>
+        <span class="notice-badge" id="noticeBadge">0</span>
+      </button>
+      <div class="notice-panel" id="noticePanel">
+        <div class="notice-item info"><b>알림을 확인하는 중입니다.</b></div>
+      </div>
+    </div>
     <span class="sub" id="demobadge"></span>
     <div class="dot" id="livedot"></div>
     <div class="sub" id="clock"></div>
   </div>
 </header>
+
+<aside class="install-card" id="installCard" aria-live="polite">
+  <h3 id="installTitle">업무센터를 앱으로 설치</h3>
+  <p id="installGuide">PC 바탕화면이나 모바일 홈 화면에서 바로 열 수 있습니다.</p>
+  <div class="actions">
+    <button type="button" onclick="installWorkcenter()">설치하기</button>
+    <button class="ghost" type="button" onclick="dismissInstall()">나중에</button>
+  </div>
+</aside>
+
+<div class="pin-dialog" id="pinDialog" role="dialog" aria-modal="true" aria-labelledby="pinDialogTitle"
+  onclick="if(event.target===this)closePinDialog()">
+  <form class="pin-dialog-card" onsubmit="changePin(event)">
+    <div class="pin-dialog-head">
+      <div class="pin-symbol"><img src="/icons/bootstrap-key-fill.svg" alt=""></div>
+      <div><h3 id="pinDialogTitle">PIN 번호 변경</h3>
+        <p id="pinDialogRole">현재 로그인한 계정의 PIN만 변경합니다.</p></div>
+    </div>
+    <div class="pin-fields">
+      <label>현재 PIN<input id="pinCurrent" type="password" inputmode="numeric" maxlength="4"
+        autocomplete="current-password" required></label>
+      <label>새 PIN<input id="pinNew" type="password" inputmode="numeric" maxlength="4"
+        autocomplete="new-password" required></label>
+      <label>새 PIN 확인<input id="pinConfirm" type="password" inputmode="numeric" maxlength="4"
+        autocomplete="new-password" required></label>
+    </div>
+    <div class="pin-dialog-error" id="pinDialogError"></div>
+    <div class="pin-dialog-actions">
+      <button type="button" onclick="closePinDialog()">취소</button>
+      <button class="primary" type="submit">PIN 변경</button>
+    </div>
+  </form>
+</div>
 
 <main class="shell">
 
@@ -1007,9 +1233,17 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
 	      <h3 style="color:var(--warn)">엑셀을 한 번 열어 주세요</h3>
 	      <div id="recalcmsg" style="font-size:13.5px;line-height:1.65"></div>
 	    </div>
-	    <div class="ryu-entry-link">
-	      <div><b>류지영 업무센터</b><div class="muted">카테고리별 현황·과거 목록·보충 입력·카카오톡 원본 대조를 한 화면에서 관리합니다.</div></div>
-	      <a href="/ryu">업무센터 열기 ↗</a>
+	    <div class="workcenter-hub">
+	      <h3>업무센터</h3>
+	      <div class="muted">담당자별 고정 주소에서 과거 목록 확인·신규 입력·근거 첨부·자동 반영을 처리합니다.</div>
+	      <div class="workcenter-buttons" id="workcenterButtons">
+	        <a class="workcenter-person" href="/staff/ryu-jiyeong" target="_blank" rel="noopener">
+	          <span class="wc-icon"><img src="/icons/bootstrap-person-workspace.svg" alt=""></span><span class="wc-copy">류지영<small>돌발AS · 정기점검</small></span><span class="wc-arrow">↗</span></a>
+	        <a class="workcenter-person" href="/staff/oh-jonghyeon" target="_blank" rel="noopener">
+	          <span class="wc-icon"><img src="/icons/bootstrap-person-badge-fill.svg" alt=""></span><span class="wc-copy">오종현<small>PO · 구매 원천자료</small></span><span class="wc-arrow">↗</span></a>
+	        <a class="workcenter-person" href="/staff/byeon-jaeseon" target="_blank" rel="noopener">
+	          <span class="wc-icon"><img src="/icons/bootstrap-person-vcard-fill.svg" alt=""></span><span class="wc-copy">변재선<small>회계 · 세금계산서 · 입금</small></span><span class="wc-arrow">↗</span></a>
+	      </div>
 	    </div>
 	    <div class="card rep-card" id="repCard">
       <div class="rep-head">
@@ -1021,17 +1255,17 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
       <div class="rep-grid" id="repKpis"></div>
       <div class="rep-docs" id="repDocs"></div>
       <div class="actions" style="margin-top:12px">
-        <button class="abtn primary" onclick="show('check')"><span class="em">△</span>확인 필요 전체</button>
-        <button class="abtn" onclick="show('daily')"><span class="em">📷</span>대표 보고 보기</button>
+          <button class="abtn primary" onclick="show('check')"><img class="em" src="/icons/bootstrap-exclamation-triangle-fill.svg" alt="">확인 필요 전체</button>
+          <button class="abtn" onclick="show('daily')"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">대표 보고 보기</button>
       </div>
     </div>
     <div class="kpis" id="kpis"></div>
     <div class="card"><h3>에이전트 최근 실행 <span id="agentTime" style="font-weight:400"></span></h3>
       <div class="steps" id="steps"></div></div>
     <div class="card" id="forkcard" style="display:none;border:2px solid var(--danger)">
-      <h3 style="color:var(--danger)">⚠ 버전 충돌 경고</h3><div id="forkmsg" style="font-size:13.5px"></div></div>
+      <h3 style="color:var(--danger)"><img class="inline-bi" src="/icons/bootstrap-exclamation-triangle-fill.svg" alt=""> 버전 충돌 경고</h3><div id="forkmsg" style="font-size:13.5px"></div></div>
     <div class="card" id="entrycard">
-      <h3>📱 고정 접속 주소 <span class="norm">— 바뀌지 않습니다</span></h3>
+      <h3><img class="inline-bi" src="/icons/bootstrap-link-45deg.svg" alt=""> 고정 접속 주소 <span class="norm">— 바뀌지 않습니다</span></h3>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <a id="fixedurl" href="#" target="_blank"
            style="flex:1;min-width:200px;font-size:13.5px;font-weight:800;word-break:break-all"></a>
@@ -1083,13 +1317,13 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
     <!-- 구글 캘린더(COUPANG 설치+납품+AS) — 예정된 일이 원장과 맞는가 -->
     <div class="card" id="calcard"><h3>일정 <small id="calsub" style="font-weight:600;color:var(--muted)"></small></h3>
       <div id="callist" class="muted">불러오는 중…</div>
-      <div class="actions"><button class="abtn" onclick="openCalendar()"><span class="em">📅</span>전체 일정 보기</button></div>
+        <div class="actions"><button class="abtn" onclick="openCalendar()"><img class="em" src="/icons/bootstrap-calendar3.svg" alt="">전체 일정 보기</button></div>
     </div>
 	    <div class="card"><h3>빠른 실행</h3>
 	      <div class="actions">
-	        <button class="abtn primary" onclick="runTask('daily')"><span class="em">▶</span>전체 대조</button>
-	        <button class="abtn" onclick="show('settle')"><span class="em">📋</span>정산 현황</button>
-	        <button class="abtn" onclick="show('report')"><span class="em">📄</span>리포트</button>
+        <button class="abtn primary" onclick="runTask('daily')"><img class="em" src="/icons/bootstrap-play-fill.svg" alt="">전체 대조</button>
+        <button class="abtn" onclick="show('settle')"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">정산 현황</button>
+        <button class="abtn" onclick="show('report')"><img class="em" src="/icons/bootstrap-file-earmark-text-fill.svg" alt="">리포트</button>
 	      </div>
 	      <div class="media-tools" role="toolbar" aria-label="대시보드 도구" style="margin-top:12px">
 	        <button class="icon-btn" onclick="printDash()" title="인쇄" aria-label="인쇄"><img src="/icons/printer.svg" alt=""></button>
@@ -1149,33 +1383,33 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
   <section class="view" id="v-run">
     <div class="card"><h3>작업 실행</h3>
       <div class="actions">
-        <button class="abtn primary" onclick="runTask('daily')"><span class="em">▶</span>전체 대조</button>
-        <button class="abtn" onclick="runTask('synthetic')"><span class="em">🧪</span>합성검증</button>
-        <button class="abtn" onclick="runTask('kakao')"><span class="em">💬</span>카톡 대조</button>
-        <button class="abtn" onclick="runTask('erp_ledger')"><span class="em">🧾</span>ERP원장 대조</button>
-        <button class="abtn" onclick="runTask('po')"><span class="em">📦</span>쿠팡 PO 대조</button>
-        <button class="abtn" onclick="runTask('band_ingest')"><span class="em">📥</span>밴드 수집분 반영</button>
-        <button class="abtn" onclick="runTask('erp_docs')"><span class="em">🧾</span>ERP 매출서류 대조</button>
-        <button class="abtn" onclick="runTask('band_docs')"><span class="em">🖼</span>밴드 문서 이미지 대조</button>
+        <button class="abtn primary" onclick="runTask('daily')"><img class="em" src="/icons/bootstrap-play-fill.svg" alt="">전체 대조</button>
+        <button class="abtn" onclick="runTask('synthetic')"><img class="em" src="/icons/bootstrap-flask-fill.svg" alt="">합성검증</button>
+        <button class="abtn" onclick="runTask('kakao')"><img class="em" src="/icons/bootstrap-chat-dots-fill.svg" alt="">카톡 대조</button>
+        <button class="abtn" onclick="runTask('erp_ledger')"><img class="em" src="/icons/bootstrap-receipt.svg" alt="">ERP원장 대조</button>
+        <button class="abtn" onclick="runTask('po')"><img class="em" src="/icons/bootstrap-box-seam.svg" alt="">쿠팡 PO 대조</button>
+        <button class="abtn" onclick="runTask('band_ingest')"><img class="em" src="/icons/bootstrap-upload.svg" alt="">밴드 수집분 반영</button>
+        <button class="abtn" onclick="runTask('erp_docs')"><img class="em" src="/icons/bootstrap-receipt.svg" alt="">ERP 매출서류 대조</button>
+        <button class="abtn" onclick="runTask('band_docs')"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">밴드 문서 이미지 대조</button>
         <button class="abtn" onclick="confirmRun('band_docs_apply','밴드에 올라온 거래명세서·세금계산서 사진을 읽어
 확실한 건만(금액 일치) 관리대장 빈칸에 넣습니다.
-이미 값이 있는 칸은 덮어쓰지 않습니다.')"><span class="em">🖼</span>밴드 문서 → 대장 입력</button>
-        <button class="abtn" onclick="runTask('writer_prev')"><span class="em">✏</span>자동입력 미리보기</button>
-        <button class="abtn" onclick="confirmRun('writer_apply','확정 대기 항목을 관리대장 새 버전(vN+1)에 입력합니다.\n빈 칸만 채우며 이전 버전은 보존됩니다.')"><span class="em">✏</span>자동입력 반영</button>
-        <button class="abtn" onclick="runTask('upload_dry')"><span class="em">📤</span>전표 전송대기</button>
-        <button class="abtn danger" onclick="confirmRun('upload_post','⚠ 이카운트 ERP에 매출전표를 실제 등록합니다.\n(10.5초/건, 이중계상 가드 적용)')"><span class="em">🚀</span>전표 실전송</button>
+이미 값이 있는 칸은 덮어쓰지 않습니다.')"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">밴드 문서 → 대장 입력</button>
+        <button class="abtn" onclick="runTask('writer_prev')"><img class="em" src="/icons/bootstrap-pencil-square.svg" alt="">자동입력 미리보기</button>
+        <button class="abtn" onclick="confirmRun('writer_apply','확정 대기 항목을 관리대장 새 버전(vN+1)에 입력합니다.\n빈 칸만 채우며 이전 버전은 보존됩니다.')"><img class="em" src="/icons/bootstrap-pencil-square.svg" alt="">자동입력 반영</button>
+        <button class="abtn" onclick="runTask('upload_dry')"><img class="em" src="/icons/bootstrap-upload.svg" alt="">전표 전송대기</button>
+        <button class="abtn danger" onclick="confirmRun('upload_post','⚠ 이카운트 ERP에 매출전표를 실제 등록합니다.\n(10.5초/건, 이중계상 가드 적용)')"><img class="em" src="/icons/bootstrap-rocket-takeoff-fill.svg" alt="">전표 실전송</button>
       </div>
       <div class="fnote" id="runAgentNote">AI 실행 연계 상태를 확인 중입니다.</div>
       <div class="logbox" id="logbox">대기 중 — 작업을 실행하면 로그가 여기 표시됩니다.</div></div>
     <div id="helpcard"></div>
     <div class="card"><h3>파일·폴더 열기 <span class="norm">— 사무실 PC에서 접속했을 때만 동작</span></h3>
       <div class="actions">
-        <button class="abtn" onclick="openLocal('master')"><span class="em">📂</span>관리대장(최신)</button>
-        <button class="abtn" onclick="openLocal('inbox')"><span class="em">📥</span>ERP·PO inbox</button>
-        <button class="abtn" onclick="openLocal('kakao')"><span class="em">💬</span>카톡 inbox</button>
-        <button class="abtn" onclick="openLocal('band_docs')"><span class="em">🖼</span>밴드 문서 사진함</button>
-        <button class="abtn" onclick="openLocal('band_cache')"><span class="em">📥</span>밴드 수집 덤프함</button>
-        <button class="abtn" onclick="openLocal('reports')"><span class="em">📊</span>리포트 폴더</button>
+        <button class="abtn" onclick="openLocal('master')"><img class="em" src="/icons/bootstrap-folder2-open.svg" alt="">관리대장(최신)</button>
+        <button class="abtn" onclick="openLocal('inbox')"><img class="em" src="/icons/bootstrap-folder2-open.svg" alt="">ERP·PO inbox</button>
+        <button class="abtn" onclick="openLocal('kakao')"><img class="em" src="/icons/bootstrap-chat-dots-fill.svg" alt="">카톡 inbox</button>
+        <button class="abtn" onclick="openLocal('band_docs')"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">밴드 문서 사진함</button>
+        <button class="abtn" onclick="openLocal('band_cache')"><img class="em" src="/icons/bootstrap-folder2-open.svg" alt="">밴드 수집 덤프함</button>
+        <button class="abtn" onclick="openLocal('reports')"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">리포트 폴더</button>
       </div></div>
   </section>
 
@@ -1205,8 +1439,8 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
         <p>문제유형과 담당자별로 건을 좁혀 보고, 프로젝트 번호를 눌러 정확한 업무 기록을 확인할 수 있습니다.</p>
       </div>
       <div class="actions">
-        <button class="abtn primary" onclick="openCheckFiltered()"><span class="em">📋</span>현재 목록 보기</button>
-        <button class="abtn" onclick="showCheckRaw()"><span class="em">📋</span>원본표 보기</button>
+        <button class="abtn primary" onclick="openCheckFiltered()"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">현재 목록 보기</button>
+        <button class="abtn" onclick="showCheckRaw()"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">원본표 보기</button>
       </div>
     </div>
     <div class="check-kpis" id="checkkpis"></div>
@@ -1250,10 +1484,24 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
 	  <!-- 류지영 업무센터: 대시보드형 요약 + 카테고리별 과거 목록 + 안전 보충입력 -->
 	  <section class="view" id="v-ryu">
 	    <div class="ryu-hero">
-	      <div class="eyebrow" style="color:#BFD0FF">RYU JIYOUNG OPERATIONS CENTER</div>
-	      <h2>류지영 업무센터</h2>
+	      <div class="eyebrow" id="staffCenterEyebrow" style="color:#BFD0FF">RYU JIYOUNG OPERATIONS CENTER</div>
+	      <h2 id="staffCenterTitle">류지영 쿠팡 AS 및 정기점검 업무센터</h2>
 	      <p>2026년 업무를 카테고리별로 조회하고, 과거 목록을 보면서 확인한 빈 항목과 근거만 보충합니다.</p>
-	      <div style="margin-top:9px;font-size:11px;color:#C9D5FA">대시보드 · 정산 · 보고 · 확인 필요 · 기록 · 쿠팡 캘린더 메뉴를 함께 사용할 수 있습니다.</div>
+	      <div style="margin-top:9px;font-size:11px;color:#C9D5FA">대시보드 · 정산 · 확인 필요 · 쿠팡 캘린더 메뉴를 함께 사용할 수 있습니다.</div>
+	    </div>
+
+	    <div class="staff-checklist" id="staffChecklist">
+	      <h3>오늘 확인할 업무</h3>
+	      <div id="staffChecklistItems">
+	        <label><input type="checkbox"> 신규 돌발AS 접수와 처리상태 확인</label>
+	        <label><input type="checkbox"> 정기점검 예정·실행·미실시 사유 입력</label>
+	        <label><input type="checkbox"> 카카오톡 원본과 첨부 근거 업로드</label>
+	      </div>
+	      <div class="actions" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-top:4px">
+	        <button class="abtn primary" type="button" onclick="shareStaffCenter()"><img class="em" src="/icons/bootstrap-arrow-up-right.svg" alt="">링크 보내기</button>
+	        <button class="abtn" type="button" onclick="copyStaffCenterUrl()"><img class="em" src="/icons/bootstrap-link-45deg.svg" alt="">주소 복사</button>
+	        <button class="abtn" type="button" onclick="showInstallCard()"><img class="em" src="/icons/bootstrap-plus-lg.svg" alt="">앱 설치</button>
+	      </div>
 	    </div>
 
 	    <div class="ryu-summary-grid" id="ryuSummaryGrid">
@@ -1282,7 +1530,7 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
 	          <span id="ryuHistoryCount">0건</span>
 	          <span>과거 → 최근 · 항목을 누르면 입력 화면이 열립니다</span>
 	        </div>
-	        <div class="media-tools" role="toolbar" aria-label="류지영 업무 목록 도구" style="margin:0 0 9px">
+	        <div class="media-tools" id="staffListToolbar" role="toolbar" aria-label="담당자 업무 목록 도구" style="margin:0 0 9px">
 	          <button class="icon-btn primary" type="button" onclick="ryuCaptureList()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>
 	          <button class="icon-btn" type="button" onclick="ryuCopyList()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>
 	          <button class="icon-btn excel" type="button" onclick="ryuExportList()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button>
@@ -1318,7 +1566,7 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
 	          </div>
 	          <p class="ryu-save-note">저장하면 관리대장의 해당 업무 ID를 찾아 <b>비어 있는 칸만</b> 반영합니다. 수식·검증결과·자동 상태는 직접 변경하지 않습니다.</p>
 	          <button class="abtn primary" id="ryuEntrySaveBtn" type="submit" style="width:100%;flex-direction:row;justify-content:center">
-	            <span class="em">✓</span>확인 내용 저장·반영
+	            <img class="em" src="/icons/bootstrap-check-lg.svg" alt="">확인 내용 저장·반영
 	          </button>
 	          <div class="ryu-result" id="ryuEntryResult"></div>
 	        </div>
@@ -1326,6 +1574,67 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
 	    </div>
 
 	    <div class="ryu-upload-panel" id="ryuUploadPanel">
+	      <form class="card source-upload-card" id="poSubmissionForm" onsubmit="submitPoSubmission(event)" style="display:none">
+	        <h3>PO 원본 등록 <span class="norm">— 오종현 전용 · 원본 보관 후 자동 PO 대조</span></h3>
+	        <div class="source-help">
+	          <span>① PO 엑셀을 직접 선택하거나 아래 상자로 끌어 놓습니다.</span>
+	          <span>② 공유 URL 또는 이 PC에서 열 수 있는 파일·폴더 경로를 붙여넣어도 됩니다.</span>
+	          <span>③ 원본은 <b>0. 원본 자료\6. PO 원본</b>에 날짜별로 보존되고, Excel 원본은 PO 대조 대기열로 전달됩니다.</span>
+	        </div>
+	        <input type="hidden" name="staff_slug" value="oh-jonghyeon">
+	        <div class="ryu-fields">
+	          <label>PO 번호<input name="po_no" placeholder="예: PO371513"></label>
+	          <label>프로젝트번호<input name="project_no" placeholder="예: UJ2601313"></label>
+	          <label class="wide">URL 또는 파일·폴더 경로
+	            <textarea class="source-ref" name="source_ref" id="poSourceRef"
+	              placeholder="https://.../PO목록.xlsx 또는 Z:\...\PO 원본 폴더"></textarea>
+	          </label>
+	          <label class="wide source-drop" id="poDrop">
+	            <b>PO 파일을 여기에 끌어 놓거나 눌러서 선택</b>
+	            <small>Excel·CSV·PDF·이미지·ZIP·메일·텍스트 · 직접 자동대조는 Excel(.xlsx) 원본을 사용합니다.</small>
+	            <input name="po_file" id="poFile" type="file"
+	              accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.zip,.txt,.eml"
+	              onchange="if(this.files[0]) $('poFileName').textContent='선택됨 · '+this.files[0].name">
+	            <small id="poFileName">선택된 파일 없음</small>
+	          </label>
+	          <label class="wide">등록 메모<textarea name="memo" placeholder="자료 출처, 구매·입금 확인사항, 담당자에게 확인할 내용을 적습니다."></textarea></label>
+	        </div>
+	        <button class="abtn primary" id="poSubmissionBtn" type="submit"
+	          style="width:100%;margin-top:14px;flex-direction:row;justify-content:center">
+	          <img class="em" src="/icons/bootstrap-box-seam.svg" alt="">원본 저장·자동 대조
+	        </button>
+	        <div class="ryu-result" id="poSubmissionResult"></div>
+	      </form>
+
+	      <div id="ryuOnlySubmission">
+	      <form class="card" id="newWorkForm" onsubmit="submitNewWork(event)">
+	        <h3>신규 업무 입력 <span class="norm">— 엑셀을 열지 않아도 자동 반영 대기열로 전달됩니다</span></h3>
+	        <div class="ryu-fields">
+	          <label>업무 구분
+	            <select name="category" required>
+	              <option value="as">돌발AS 신규 접수</option>
+	              <option value="pm">정기점검 신규 일정</option>
+	            </select>
+	          </label>
+	          <label>업무일<input name="work_date" type="date" required></label>
+	          <label>프로젝트번호<input name="project_no" placeholder="UJ2600461" required></label>
+	          <label>캠프명<input name="camp_name" placeholder="GWJ1 M_순천1" required></label>
+	          <label>담당자<input name="assignee" placeholder="확인된 경우만 입력"></label>
+	          <label>비용 구분
+	            <select name="cost_type"><option value="">확인 전</option><option>유상</option><option>무상</option><option>보험</option></select>
+	          </label>
+	          <label>현재 상태<input name="status" placeholder="접수 / 예정 / 작업완료"></label>
+	          <label class="wide">접수·점검 내용<textarea name="description" placeholder="고장 증상, 점검 요청, 확인 내용"></textarea></label>
+	          <label class="wide">사진·문서 근거<input name="evidence_file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.xlsx,.docx,.txt"></label>
+	          <input type="hidden" name="submitter" value="류지영">
+	        </div>
+	        <p class="ryu-save-note">저장하면 시스템 DB와 안전한 자동 반영 대기열에 먼저 기록합니다. 프로젝트 중복·날짜 오류·빈 행 부족은 우측 상단 알림으로 알려드립니다.</p>
+	        <button class="abtn primary" id="newWorkBtn" type="submit" style="width:100%;flex-direction:row;justify-content:center">
+	          <img class="em" src="/icons/bootstrap-plus-lg.svg" alt="">신규 업무 저장·자동 반영
+	        </button>
+	        <div class="ryu-result" id="newWorkResult"></div>
+	      </form>
+
 	      <div class="card">
 	        <h3>카카오톡 원본 등록 안내 <span class="norm">— 두 대화방을 각각 내보내서 올립니다</span></h3>
 	        <ol class="ryu-guide">
@@ -1367,10 +1676,124 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
 	          <label class="wide">조사 메모<textarea name="survey_note" placeholder="자동 판정이 어려운 내용, 통화 확인 결과, 담당자에게 추가로 물어볼 내용을 적습니다."></textarea></label>
 	        </div>
 	        <button class="abtn primary" id="ryuUploadBtn" type="submit" style="width:100%;margin-top:16px;flex-direction:row;justify-content:center">
-	          <span class="em">▶</span>원본 저장하고 자동 대조 시작
+	          <img class="em" src="/icons/bootstrap-play-fill.svg" alt="">원본 저장하고 자동 대조 시작
 	        </button>
 	        <div class="ryu-result" id="ryuUploadResult"></div>
 	      </form>
+	      </div>
+
+	      <form class="card" id="improvementForm" onsubmit="submitImprovement(event)">
+	        <h3>업무센터 개선 요청 <span class="norm">— 불편한 화면을 붙여넣으면 Claude Code·Codex 검토 대기열에 등록됩니다</span></h3>
+	        <ol class="ryu-guide">
+	          <li><div><b>불편한 화면을 캡처</b><br><span class="muted">Windows 캡처 후 이 상자에서 Ctrl+V 하거나 파일을 끌어 놓습니다.</span></div></li>
+	          <li><div><b>원하는 동작을 글로 설명</b><br><span class="muted">현재 동작과 바뀌었으면 하는 동작을 각각 적으면 가장 빠르게 반영됩니다.</span></div></li>
+	          <li><div><b>등록 후 알림에서 상태 확인</b><br><span class="muted">Claude Code가 사용 가능하면 우선 전달하고, 사용 불가 시 Codex가 이어받습니다.</span></div></li>
+	        </ol>
+	        <input type="hidden" name="staff_slug" id="improvementStaffSlug" value="ryu-jiyeong">
+	        <div class="ryu-fields">
+	          <label class="wide">요청 제목<input name="title" placeholder="예: 완료일 입력 버튼이 휴대폰에서 안 보임" required></label>
+	          <label class="wide">현재 문제와 원하는 동작<textarea name="description" placeholder="어느 화면에서 무엇을 눌렀을 때 어떻게 바뀌어야 하는지 적어 주세요." required></textarea></label>
+	          <label class="wide drop-paste" id="improvementDrop">캡처 붙여넣기·드래그앤드롭
+	            <input name="attachment" id="improvementAttachment" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.txt">
+	            <small id="improvementFileName" class="muted">파일을 선택하거나 캡처 후 Ctrl+V</small>
+	          </label>
+	        </div>
+	        <button class="abtn primary" id="improvementBtn" type="submit" style="width:100%;margin-top:14px;flex-direction:row;justify-content:center">
+	          <img class="em" src="/icons/bootstrap-arrow-up-right.svg" alt="">개선 요청 등록
+	        </button>
+	        <div class="ryu-result" id="improvementResult"></div>
+	      </form>
+	    </div>
+	  </section>
+
+	  <!-- 류지영 대표보고 일지: 정기점검·돌발AS 일지 원본 → 전체 대조 → 보고 캡처 -->
+	  <section class="view" id="v-worklog">
+	    <div class="ryu-hero">
+	      <div class="eyebrow" style="color:#BFD0FF">DAILY FIELD JOURNAL</div>
+	      <h2>대표보고 일지</h2>
+	      <p>류지영 매니저가 매일 갱신하는 정기점검·돌발AS 일지를 원본으로 보존하고, 관리대장·대시보드·대표보고를 한 번에 다시 검증합니다.</p>
+	    </div>
+
+	    <div class="card source-upload-card">
+	      <h3>현재 일지 검증 상태 <span class="norm">— 정기점검·돌발AS 동일 원본 기준</span></h3>
+	      <div class="source-status" id="workLogStatus">
+	        <div><small>원본</small><strong>확인 중</strong></div>
+	        <div><small>검증 시각</small><strong>-</strong></div>
+	        <div><small>돌발AS 미처리</small><strong>-</strong></div>
+	        <div><small>정기점검 실행</small><strong>-</strong></div>
+	      </div>
+	      <div class="actions" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px">
+	        <button class="abtn primary" type="button" onclick="syncCurrentWorkLog()"><img class="em" src="/icons/bootstrap-check-lg.svg" alt="">현재 고정 원본 다시 검증</button>
+	        <button class="abtn" type="button" onclick="loadWorkLogStatus()"><img class="em" src="/icons/bootstrap-arrow-repeat.svg" alt="">검증 상태 새로고침</button>
+	      </div>
+	    </div>
+
+	    <div class="card" id="workLogRecordsCard">
+	      <h3>일지 반영 내역 <span class="norm">— 다른 화면·관리대장 입력도 자동으로 다시 대조됩니다</span></h3>
+	      <div class="worklog-filter">
+	        <input id="workLogFilterDate" type="date" aria-label="일지 날짜 필터" onchange="loadWorkLogStatus()">
+	        <select id="workLogFilterCategory" aria-label="일지 구분 필터" onchange="loadWorkLogStatus()">
+	          <option value="">구분 전체</option><option>돌발AS</option><option>정기점검</option>
+	        </select>
+	        <select id="workLogFilterState" aria-label="일지 상태 필터" onchange="loadWorkLogStatus()">
+	          <option value="">상태 전체</option><option>완료</option><option>실행</option>
+	          <option>미실시</option><option>예정</option><option>취소</option>
+	        </select>
+	        <input id="workLogFilterQuery" type="search" placeholder="프로젝트·캠프·담당자·내용 검색"
+	          onkeydown="if(event.key==='Enter'){event.preventDefault();loadWorkLogStatus()}">
+	        <button class="abtn primary" type="button" onclick="loadWorkLogStatus()">
+	          <img src="/icons/refresh-cw.svg" alt="">목록 조회
+	        </button>
+	      </div>
+	      <div class="worklog-kpis" id="workLogRecordSummary">
+	        <div class="worklog-kpi"><small>전체</small><strong>-</strong></div>
+	        <div class="worklog-kpi"><small>돌발AS</small><strong>-</strong></div>
+	        <div class="worklog-kpi"><small>정기점검</small><strong>-</strong></div>
+	        <div class="worklog-kpi"><small>확인 필요</small><strong>-</strong></div>
+	      </div>
+	      <div class="worklog-records" id="workLogRecordList">
+	        <div class="worklog-empty">일지와 최신 관리대장을 대조하고 있습니다.</div>
+	      </div>
+	    </div>
+
+	    <form class="card source-upload-card" id="workLogUploadForm" onsubmit="submitWorkLog(event)">
+	      <h3>일지 원본 등록 <span class="norm">— 파일 선택·드래그앤드롭·경로·직접 URL</span></h3>
+	      <input type="hidden" name="staff_slug" value="ryu-jiyeong">
+	      <div class="source-help">
+	        <span>① 최신 <b>정기점검, 돌발AS 일지 (7.1~).xlsx</b>를 선택하거나 상자에 끌어 놓습니다.</span>
+	        <span>② 같은 PC에서 열 수 있는 파일·폴더 경로나 직접 다운로드 URL을 붙여넣어도 됩니다.</span>
+	        <span>③ 저장 후 일지대조 시트·확인 필요·대시보드·대표보고 통계를 같은 원본으로 재계산합니다.</span>
+	      </div>
+	      <div class="ryu-fields">
+	        <label class="wide">URL 또는 파일·폴더 경로
+	          <textarea class="source-ref" name="source_ref" id="workLogSourceRef"
+	            placeholder="Z:\...\8. 정기점검, 돌발AS 일지(미실시건)\정기점검, 돌발AS 일지 (7.1~).xlsx"></textarea>
+	        </label>
+	        <label class="wide source-drop" id="workLogDrop">
+	          <b>정기점검·돌발AS 일지 Excel을 여기에 끌어 놓기</b>
+	          <small>.xlsx 파일 1개 · 붙여넣기한 새 파일은 원본자료 8번 폴더에 날짜별 보존됩니다.</small>
+	          <input name="work_log_file" id="workLogFile" type="file" accept=".xlsx"
+	            onchange="if(this.files[0]) $('workLogFileName').textContent='선택됨 · '+this.files[0].name">
+	          <small id="workLogFileName">선택된 파일 없음</small>
+	        </label>
+	        <label class="wide">확인 메모<textarea name="memo" placeholder="오늘 대표에게 보고할 특이사항이나 원본 갱신 범위를 적습니다."></textarea></label>
+	      </div>
+	      <button class="abtn primary" id="workLogUploadBtn" type="submit"
+	        style="width:100%;margin-top:14px;flex-direction:row;justify-content:center">
+	        <img class="em" src="/icons/bootstrap-play-fill.svg" alt="">원본 저장·전체 검증 시작
+	      </button>
+	      <div class="ryu-result" id="workLogUploadResult"></div>
+	    </form>
+
+	    <div class="card">
+	      <h3>대표 보고 화면 <span class="norm">— 선택 날짜 기준으로 열기·이미지 저장</span></h3>
+	      <div class="ryu-fields">
+	        <label>보고 기준일<input id="workLogReportDate" type="date"></label>
+	      </div>
+	      <div class="actions" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px">
+	      <button class="abtn" type="button" onclick="openWorkLogReport(false)"><img class="em" src="/icons/bootstrap-file-earmark-text-fill.svg" alt="">대표 보고 열기</button>
+	      <button class="abtn primary" type="button" onclick="openWorkLogReport(true)"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">대표 보고 이미지 저장</button>
+	      </div>
 	    </div>
 	  </section>
 
@@ -1383,8 +1806,8 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
         <p>전체 일정은 월간 화면으로 보고, 원장과 연결된 세부 정보는 오른쪽에서 확인합니다.</p>
       </div>
       <div class="actions" style="grid-template-columns:repeat(2,max-content);margin:0">
-        <button class="abtn" onclick="refreshCalendarPage()"><span class="em">🔄</span>목록 새로고침</button>
-        <button class="abtn primary" onclick="focusCalendarEntry()"><span class="em">＋</span>일정 입력</button>
+      <button class="abtn" onclick="refreshCalendarPage()"><img class="em" src="/icons/bootstrap-arrow-repeat.svg" alt="">목록 새로고침</button>
+      <button class="abtn primary" onclick="focusCalendarEntry()"><img class="em" src="/icons/bootstrap-plus-lg.svg" alt="">일정 입력</button>
       </div>
     </div>
 
@@ -1428,8 +1851,8 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
       </div>
       <div class="calendar-preview" id="calendarDraftPreview">입력한 일정의 요약이 여기에 표시됩니다.</div>
       <div class="actions" style="margin-top:11px">
-        <button class="abtn primary" onclick="openGoogleCalendarDraft()"><span class="em">📅</span>Google Calendar에 입력</button>
-        <button class="abtn" onclick="clearCalendarDraft()"><span class="em">↺</span>입력값 초기화</button>
+        <button class="abtn primary" onclick="openGoogleCalendarDraft()"><img class="em" src="/icons/bootstrap-calendar3.svg" alt="">Google Calendar에 입력</button>
+        <button class="abtn" onclick="clearCalendarDraft()"><img class="em" src="/icons/bootstrap-arrow-counterclockwise.svg" alt="">입력값 초기화</button>
       </div>
     </div>
   </section>
@@ -1438,11 +1861,12 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
 
 <nav class="tabbar" id="tabbar">
   <div class="brand">
-    <div class="logo app-icon"><img src="/icon-192.png?v=csos-20260729" alt="CSOS"></div>
+    <div class="logo app-icon"><img src="/icon-192.png?v=csos-20260730" alt="CSOS"></div>
     <div class="bt" style="font-size:12.5px;line-height:1.35">Coupang Service<br>Operations System
       <small>CSOS · UNIVERSAL LIFT</small></div>
   </div>
   <button class="on" data-v="dash" onclick="routeNav('dash')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>대시보드</button>
+  <button class="staff-worklog-nav" data-v="worklog" onclick="routeNav('worklog')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h14v18H5z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>대표보고 일지</button>
   <button data-v="settle" onclick="routeNav('settle')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>정산</button>
   <button data-v="run" onclick="routeNav('run')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="6,4 20,12 6,20"/></svg>실행</button>
   <button data-v="daily" onclick="routeNav('daily')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2.5h5L16 6"/></svg>보고</button>
@@ -1457,9 +1881,26 @@ body.ryu-mode .tabbar .brand .bt::after{content:" · 류지영 업무센터";dis
    매니페스트만으로는 단순 북마크가 되거나 메뉴가 아예 반응하지 않는다. */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-let PIN = localStorage.getItem('cw_pin') || '';
+/* PIN은 브라우저 저장소에 남기지 않는다. 서버가 발급한 HttpOnly 기기 인증 쿠키만
+   1년간 보존한다. 구버전의 평문 PIN이 있으면 한 번만 이관한 뒤 즉시 삭제한다. */
+let LEGACY_PIN = localStorage.getItem('cw_pin') || '';
+let PIN = '';
 const APP_YEAR = '2026';
 let settleRows = [], reports = [], curReport = 0, polling = null;
+const STAFF_CENTERS = {
+  'ryu-jiyeong':{name:'류지영',title:'류지영 쿠팡 AS 및 정기점검 업무센터',assignee:'류지영',
+    checklist:['신규 돌발AS 접수와 처리상태 확인','정기점검 예정·실행·미실시 사유 입력','카카오톡 정기점검방·돌발점검방 원본 업로드','택배 발송·현장 조치 완료일과 근거 첨부']},
+  'oh-jonghyeon':{name:'오종현',title:'오종현 업무센터',assignee:'오종현',
+    checklist:['PO 원본·견적서 수신 여부 확인','구매·입금 원천자료 누락 확인','프로젝트번호·캠프·금액 불일치 보완']},
+  'byeon-jaeseon':{name:'변재선(회계)',title:'변재선 회계 업무센터',assignee:'변재선',
+    checklist:['거래명세서·세금계산서 발행 확인','입금일·입금액·잔여 미수금 확인','ERP 금액 불일치와 청구 미등록 보완']},
+};
+const staffSlug=(()=>{
+  const m=location.pathname.match(/^\/staff\/([a-z0-9-]+)\/?$/);
+  return m&&STAFF_CENTERS[m[1]]?m[1]:(location.pathname.replace(/\/+$/,'')==='/ryu'?'ryu-jiyeong':'');
+})();
+let deferredInstallPrompt=window.__csosInstallPrompt||null;
+let notificationItems=[];
 
 const $ = id => document.getElementById(id);
 const fmt = n => {
@@ -1471,12 +1912,186 @@ const fmt = n => {
 };
 async function api(path, opt={}){
   opt.headers = Object.assign({'X-Pin': PIN}, opt.headers||{});
+  if(staffSlug) opt.headers['X-Staff-Slug']=staffSlug;
   const r = await fetch(path, opt);
   if(r.status===401){
-    PIN=''; localStorage.removeItem('cw_pin');   // 구 PIN 즉시 폐기 → 자동 폴링 중단(자기 잠금 방지)
+    PIN=''; localStorage.removeItem('cw_pin');   // 인증 만료 → 자동 폴링 중단
     $('gate').style.display='flex'; throw 'PIN';
   }
   return r.json();
+}
+function escNotice(s){return esc2(String(s||''));}
+async function loadNotifications(){
+  if(!PIN) return;
+  try{
+    const d=await api('/api/notifications?t='+Date.now());
+    notificationItems=d.items||[];
+    const badge=$('noticeBadge');
+    if(badge){
+      badge.textContent=String(d.count||0);
+      badge.style.display=(d.count||0)?'flex':'none';
+    }
+    const panel=$('noticePanel');
+    if(panel) panel.innerHTML=notificationItems.length
+      ? notificationItems.map(x=>`<div class="notice-item ${escNotice(x.severity)}">
+          <b>${escNotice(x.title)}</b><span>${escNotice(x.detail)}</span></div>`).join('')
+      : '<div class="notice-item info"><b>새 알림이 없습니다.</b><span>입력과 자동 반영 상태가 정상입니다.</span></div>';
+  }catch(e){}
+}
+function toggleNotifications(e){
+  if(e) e.stopPropagation();
+  const p=$('noticePanel'); if(!p) return;
+  p.classList.toggle('on');
+  if(p.classList.contains('on')) loadNotifications();
+}
+document.addEventListener('click',e=>{
+  const p=$('noticePanel');
+  if(p&&p.classList.contains('on')&&!e.target.closest('.notice-wrap')) p.classList.remove('on');
+});
+window.addEventListener('beforeinstallprompt',e=>{
+  if(!staffSlug) return;
+  e.preventDefault(); deferredInstallPrompt=e;
+  maybeShowInstallCard();
+});
+window.addEventListener('csos-install-ready',()=>{
+  if(!staffSlug) return;
+  deferredInstallPrompt=window.__csosInstallPrompt||deferredInstallPrompt;
+  maybeShowInstallCard();
+});
+window.addEventListener('appinstalled',()=>{
+  deferredInstallPrompt=null;
+  window.__csosInstallPrompt=null;
+  if(staffSlug) localStorage.setItem('csos_installed_'+staffSlug,'1');
+  if($('installCard')) $('installCard').classList.remove('on');
+  toast('업무센터 앱 설치가 완료되었습니다');
+});
+function workcenterRunsAsApp(){
+  return window.matchMedia('(display-mode: standalone)').matches||
+    window.matchMedia('(display-mode: fullscreen)').matches||
+    window.navigator.standalone===true;
+}
+async function workcenterIsInstalled(){
+  if(!staffSlug) return false;
+  if(workcenterRunsAsApp()||localStorage.getItem('csos_installed_'+staffSlug)==='1') return true;
+  if(typeof navigator.getInstalledRelatedApps==='function'){
+    try{
+      const apps=await navigator.getInstalledRelatedApps();
+      if(Array.isArray(apps)&&apps.length){
+        localStorage.setItem('csos_installed_'+staffSlug,'1');
+        return true;
+      }
+    }catch(e){}
+  }
+  return false;
+}
+async function maybeShowInstallCard(){
+  if(!staffSlug||localStorage.getItem('csos_install_dismissed_'+staffSlug)) return;
+  if(await workcenterIsInstalled()){
+    if($('installCard')) $('installCard').classList.remove('on');
+    return;
+  }
+  showInstallCard(true);
+}
+async function showInstallCard(skipInstalledCheck=false){
+  const center=STAFF_CENTERS[staffSlug];
+  if(!center) return;
+  if(!skipInstalledCheck&&await workcenterIsInstalled()){
+    $('installCard').classList.remove('on');
+    toast('이미 설치된 업무센터입니다');
+    return;
+  }
+  $('installTitle').textContent=`${center.title}를 앱으로 설치`;
+  const ios=/iPhone|iPad|iPod/i.test(navigator.userAgent);
+  $('installGuide').textContent=ios
+    ? 'Safari 공유 버튼 → “홈 화면에 추가”를 누르면 고정 아이콘으로 설치됩니다.'
+    : 'PC 바탕화면이나 모바일 홈 화면에 전용 아이콘을 만들 수 있습니다.';
+  $('installCard').classList.add('on');
+}
+async function installWorkcenter(){
+  if(deferredInstallPrompt){
+    deferredInstallPrompt.prompt();
+    const choice=await deferredInstallPrompt.userChoice.catch(()=>({outcome:'dismissed'}));
+    if(choice.outcome==='accepted'){
+      deferredInstallPrompt=null; window.__csosInstallPrompt=null;
+      $('installCard').classList.remove('on');
+    }
+    return;
+  }
+  const ua=navigator.userAgent;
+  if(/Windows/i.test(ua)&&staffSlug){
+    $('installGuide').textContent='PC 바탕화면에 업무센터를 설치하고 있습니다…';
+    try{
+      const result=await api('/api/staff/install-shortcut',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({staff_slug:staffSlug})
+      });
+      if(!result.ok) throw new Error(result.error||'설치 실패');
+      localStorage.setItem('csos_installed_'+staffSlug,'1');
+      $('installGuide').textContent='설치 완료! 바탕화면의 CSOS 업무센터 아이콘을 눌러 실행하세요.';
+      setTimeout(()=>$('installCard').classList.remove('on'),2200);
+      return;
+    }catch(e){
+      $('installGuide').textContent='자동 설치를 완료하지 못했습니다. Chrome/Edge 메뉴 → 앱 → 이 사이트를 앱으로 설치를 선택해 주세요.';
+      return;
+    }
+  }
+  $('installGuide').textContent=/iPhone|iPad|iPod/i.test(ua)
+    ? 'Safari 공유 버튼 → “홈 화면에 추가”를 선택해 주세요.'
+    : 'Chrome 메뉴(⋮) → “홈 화면에 추가” 또는 “앱 설치”를 선택해 주세요.';
+}
+function dismissInstall(){
+  if(staffSlug) localStorage.setItem('csos_install_dismissed_'+staffSlug,'1');
+  $('installCard').classList.remove('on');
+}
+function fixedStaffUrl(){
+  return staffSlug?`https://mulder.tailf14aae.ts.net/staff/${staffSlug}`:location.href;
+}
+async function copyStaffCenterUrl(){
+  try{await navigator.clipboard.writeText(fixedStaffUrl());toast('고정 업무센터 주소를 복사했습니다')}
+  catch(e){prompt('아래 주소를 복사해 주세요',fixedStaffUrl())}
+}
+async function shareStaffCenter(){
+  const center=STAFF_CENTERS[staffSlug]||{title:'CSOS 업무센터'};
+  const data={title:center.title,text:`${center.title} 고정 접속 주소`,url:fixedStaffUrl()};
+  if(navigator.share){try{await navigator.share(data);return}catch(e){if(e.name==='AbortError')return}}
+  copyStaffCenterUrl();
+}
+function initStaffCenter(){
+  if(!staffSlug) return;
+  const center=STAFF_CENTERS[staffSlug];
+  document.body.classList.add('staff-mode','ryu-mode');
+  document.body.classList.toggle('staff-ryu',staffSlug==='ryu-jiyeong');
+  document.title=center.title+' · CSOS';
+  if($('staffCenterTitle')) $('staffCenterTitle').textContent=center.title;
+  if($('staffCenterEyebrow')) $('staffCenterEyebrow').textContent=`${center.name} OPERATIONS CENTER`;
+  if($('staffListToolbar')) $('staffListToolbar').setAttribute('aria-label',`${center.name} 업무 목록 도구`);
+  const list=$('staffChecklistItems');
+  if(list) list.innerHTML=center.checklist.map((x,i)=>{
+    const key=`csos_check_${staffSlug}_${todayISO()}_${i}`;
+    return `<label><input type="checkbox" ${localStorage.getItem(key)==='1'?'checked':''}
+      onchange="localStorage.setItem('${key}',this.checked?'1':'0')"> ${esc2(x)}</label>`;
+  }).join('');
+  if($('improvementStaffSlug')) $('improvementStaffSlug').value=staffSlug;
+  if($('poSubmissionForm')) $('poSubmissionForm').style.display=staffSlug==='oh-jonghyeon'?'block':'none';
+  if($('ryuOnlySubmission')) $('ryuOnlySubmission').style.display=staffSlug==='ryu-jiyeong'?'block':'none';
+  if($('workLogReportDate')) $('workLogReportDate').value=todayISO();
+  document.querySelectorAll('#newWorkForm [name="submitter"]').forEach(x=>x.value=center.name);
+  const brand=document.querySelector('.tabbar .brand .bt');
+  if(brand) brand.dataset.staff=center.title;
+  if(staffSlug==='ryu-jiyeong') loadWorkLogStatus();
+  setTimeout(()=>maybeShowInstallCard(),1800);
+}
+async function staffHeartbeat(event='view'){
+  if(!staffSlug||!PIN||document.hidden) return;
+  try{await api('/api/staff/activity',{method:'POST',body:JSON.stringify({staff_slug:staffSlug,event})});}catch(e){}
+}
+let staffInputPulse=0;
+function markStaffInput(event='input'){
+  if(!staffSlug||!PIN) return;
+  const now=Date.now();
+  if(now-staffInputPulse<1200) return;
+  staffInputPulse=now;
+  staffHeartbeat(event);
 }
 let RYU=null, ryuCategory='as', ryuSelected=null, ryuVisible=[];
 async function loadRyuRecords(force=false){
@@ -1549,7 +2164,11 @@ function renderRyuHistory(){
   const q=(($('ryuHistoryQuery')||{}).value||'').trim().toLowerCase();
   const status=(($('ryuHistoryStatus')||{}).value||'');
   const period=(($('ryuHistoryPeriod')||{}).value||'');
-  const rows=((RYU.rows||{})[ryuCategory]||[]);
+  const allRows=((RYU.rows||{})[ryuCategory]||[]);
+  const center=STAFF_CENTERS[staffSlug]||null;
+  const rows=(center&&staffSlug!=='ryu-jiyeong')
+    ? allRows.filter(r=>String(r.assignee||'').replace(/\s+/g,'').includes(String(center.assignee||'').replace(/\s+/g,'')))
+    : allRows;
   ryuVisible=rows.filter(r=>{
     if(status&&r.status!==status) return false;
     if(!ryuPeriodPass(r.date,period)) return false;
@@ -1582,7 +2201,8 @@ function ryuRowsForExport(){
 }
 function ryuListFileName(ext='png'){
   const label=String(ryuCategoryInfo(ryuCategory).label||'업무목록').replace(/[\\/:*?"<>|\s·]+/g,'_');
-  return `CSOS_류지영_${label}_${todayISO()}.${ext}`;
+  const who=(STAFF_CENTERS[staffSlug]||{name:'류지영'}).name.replace(/[()]/g,'');
+  return `CSOS_${who}_${label}_${todayISO()}.${ext}`;
 }
 async function ryuListToPng(){
   const all=ryuVisible||[], cap=40, rows=all.slice(Math.max(0,all.length-cap));
@@ -1598,7 +2218,7 @@ async function ryuListToPng(){
   const g=ctx.createLinearGradient(0,0,W,headH);g.addColorStop(0,'#101B47');g.addColorStop(1,'#4959E6');
   ctx.fillStyle=g;ctx.fillRect(0,0,W,headH);await drawLogo(ctx,26,25,38,true);
   const label=ryuCategoryInfo(ryuCategory).label||'업무 목록';
-  txt('류지영 업무센터 · '+label,82,46,F(20,900),'#fff');
+  txt(((STAFF_CENTERS[staffSlug]||{title:'류지영 쿠팡 AS 및 정기점검 업무센터'}).title)+' · '+label,82,46,F(20,900),'#fff');
   txt(`2026년 · 현재 필터 ${all.length}건 · 과거 → 최근`,82,70,F(11.5,700),'#CAD5FF');
   txt(todayISO(),W-26,46,F(12,800),'#fff','right');
   let y=headH+28;
@@ -1686,6 +2306,7 @@ function renderRyuEditor(){
 }
 async function submitRyuEntry(ev){
   ev.preventDefault();
+  markStaffInput('save');
   const form=$('ryuEntryForm'),btn=$('ryuEntrySaveBtn'),result=$('ryuEntryResult');
   if(!ryuSelected||!ryuSelected.editable) return;
   btn.disabled=true;btn.classList.add('busy');result.className='ryu-result';result.textContent='';
@@ -1702,6 +2323,7 @@ async function submitRyuEntry(ev){
 }
 async function submitRyuUpload(ev){
   ev.preventDefault();
+  markStaffInput('upload');
   const form=$('ryuUploadForm'), btn=$('ryuUploadBtn'), result=$('ryuUploadResult');
   if(!form||!btn||!result) return;
   const data=new FormData(form);
@@ -1730,15 +2352,285 @@ async function submitRyuUpload(ev){
     btn.disabled=false;btn.classList.remove('busy');
   }
 }
+async function submitNewWork(ev){
+  ev.preventDefault();
+  markStaffInput('save');
+  const form=ev.currentTarget, btn=$('newWorkBtn'), result=$('newWorkResult');
+  btn.disabled=true;btn.classList.add('busy');
+  result.className='ryu-result';result.textContent='';
+  try{
+    const r=await fetch('/api/staff/new-job',{method:'POST',headers:{'X-Pin':PIN},body:new FormData(form)});
+    const d=await r.json();
+    if(!r.ok||!d.ok) throw new Error(d.error||'신규 업무 저장 실패');
+    result.className='ryu-result ok';
+    result.innerHTML=`저장 완료 · ${esc2(d.manifest['업무ID'])} · 자동 반영 ${fmt(d.queued)}개 항목
+      <br>${d.applying?'관리대장 반영을 시작했습니다.':'현재 작업이 끝나는 즉시 자동 반영합니다.'}`;
+    const keepDate=form.querySelector('[name="work_date"]').value;
+    form.reset();form.querySelector('[name="work_date"]').value=keepDate;
+    await Promise.all([loadRyuRecords(true),loadNotifications()]);
+    toast('신규 업무 저장·자동 반영 접수 완료');
+  }catch(e){
+    result.className='ryu-result err';result.textContent='저장 실패 · '+String(e.message||e);
+    loadNotifications();
+  }finally{btn.disabled=false;btn.classList.remove('busy')}
+}
+function setSourceFile(inputId,nameId,file){
+  if(!file) return;
+  const input=$(inputId), label=$(nameId);
+  if(!input) return;
+  const dt=new DataTransfer();dt.items.add(file);input.files=dt.files;
+  if(label) label.textContent=`선택됨 · ${file.name}`;
+}
+async function submitPoSubmission(ev){
+  ev.preventDefault();
+  markStaffInput('upload');
+  const form=ev.currentTarget,btn=$('poSubmissionBtn'),result=$('poSubmissionResult');
+  btn.disabled=true;btn.classList.add('busy');result.className='ryu-result';result.textContent='';
+  try{
+    const r=await fetch('/api/staff/po-upload',{method:'POST',cache:'no-store',
+      headers:{'X-Pin':PIN},body:new FormData(form)});
+    const d=await r.json();
+    if(!r.ok||!d.ok) throw new Error(d.error||'PO 원본 등록 실패');
+    result.className='ryu-result ok';
+    result.innerHTML=`원본 ${fmt((d.files||[]).length)}개 저장 완료
+      ${d.po_compare_files&&d.po_compare_files.length
+        ?`· PO 자동대조 ${d.auto_check_started?'시작':'대기열 등록'}`
+        :'· Excel(.xlsx)이 없어 원본 보관만 완료'}`;
+    form.querySelector('[name="po_file"]').value='';
+    if($('poFileName')) $('poFileName').textContent='선택된 파일 없음';
+    await Promise.all([loadNotifications(),loadRyuRecords(true)]);
+    toast('오종현 PO 원본 저장을 완료했습니다');
+  }catch(e){
+    result.className='ryu-result err';result.textContent='등록 실패 · '+String(e.message||e);
+  }finally{btn.disabled=false;btn.classList.remove('busy')}
+}
+async function loadWorkLogStatus(){
+  const box=$('workLogStatus');if(!box||!PIN) return;
+  try{
+    const params=new URLSearchParams({t:String(Date.now())});
+    if($('workLogFilterDate')&&$('workLogFilterDate').value) params.set('date',$('workLogFilterDate').value);
+    if($('workLogFilterCategory')&&$('workLogFilterCategory').value) params.set('category',$('workLogFilterCategory').value);
+    if($('workLogFilterState')&&$('workLogFilterState').value) params.set('state',$('workLogFilterState').value);
+    if($('workLogFilterQuery')&&$('workLogFilterQuery').value.trim()) params.set('q',$('workLogFilterQuery').value.trim());
+    const d=await api('/api/staff/work-log-status?'+params.toString());
+    if(!d.ok) throw new Error(d.error||'상태 확인 실패');
+    const as=(d.summary||{})['돌발AS']||{}, pm=(d.summary||{})['정기점검']||{};
+    box.innerHTML=`
+      <div><small>현재 원본</small><strong title="${esc2(d.source_name)}">${esc2(d.source_name||'-')}</strong></div>
+      <div><small>마지막 검증</small><strong>${esc2(String(d.verified_at||'-').replace('T',' '))}</strong></div>
+      <div><small>돌발AS 미처리</small><strong>${fmt(as['미처리']||0)}건</strong></div>
+      <div><small>정기점검 실행</small><strong>${fmt(pm['실행']||0)}건</strong></div>`;
+    renderWorkLogRecords(d);
+  }catch(e){
+    box.innerHTML=`<div style="grid-column:1/-1"><small>상태</small><strong>확인 실패 · ${esc2(String(e.message||e))}</strong></div>`;
+    const list=$('workLogRecordList');
+    if(list) list.innerHTML=`<div class="worklog-empty">내역 확인 실패 · ${esc2(String(e.message||e))}</div>`;
+  }
+}
+function renderWorkLogRecords(d){
+  const summary=$('workLogRecordSummary'),list=$('workLogRecordList');
+  if(!summary||!list) return;
+  const s=d.view_summary||{};
+  summary.innerHTML=[
+    ['전체',s['전체']||0],['돌발AS',s['돌발AS']||0],
+    ['정기점검',s['정기점검']||0],['확인 필요',s['확인필요']||0]
+  ].map(([label,value])=>`<div class="worklog-kpi"><small>${label}</small><strong>${fmt(value)}건</strong></div>`).join('');
+  const rows=d.records||[];
+  list.innerHTML=rows.length?rows.map(r=>{
+    const compare=String(r['대조결과']||'대조 대기');
+    const warn=/미매칭|상이|중복|확인 필요|보완 대기/.test(compare);
+    const project=String(r['프로젝트NO']||'프로젝트 미확정');
+    const detail=[r['요청내용'],r['실제조치'],r['미처리사유']].filter(Boolean).join(' · ');
+    return `<article class="worklog-record">
+      <div>
+        <div class="head"><button class="project" type="button" onclick="openByPrj(${esc4(project)})">${esc2(project)}</button>
+          <span class="chip">${esc2(r['구분']||'-')}</span><span class="camp">${esc2(r['캠프명']||'캠프 미입력')}</span></div>
+        <div class="sub">${esc2(r['담당자']||'담당 미지정')} · 원본 ${esc2(r['원본상태']||r['상태']||'-')}</div>
+        <div class="detail" title="${esc2(detail)}">${esc2(detail||'상세 내용 없음')}</div>
+      </div>
+      <div class="side">${esc2(r['일자']||'-')}<br><span class="state ${warn?'warn':''}">${esc2(compare)}</span></div>
+    </article>`;
+  }).join(''):'<div class="worklog-empty">현재 필터에 해당하는 내역이 없습니다.</div>';
+}
+async function postWorkLog(data){
+  const r=await fetch('/api/staff/work-log-upload',{method:'POST',cache:'no-store',
+    headers:{'X-Pin':PIN},body:data});
+  const d=await r.json();
+  if(!r.ok||!d.ok) throw new Error(d.error||'대표보고 일지 검증 실패');
+  return d;
+}
+async function submitWorkLog(ev){
+  ev.preventDefault();
+  markStaffInput('upload');
+  const form=ev.currentTarget,btn=$('workLogUploadBtn'),result=$('workLogUploadResult');
+  btn.disabled=true;btn.classList.add('busy');result.className='ryu-result';result.textContent='';
+  try{
+    const d=await postWorkLog(new FormData(form));
+    result.className='ryu-result ok';
+    result.textContent=`원본 ${fmt((d.files||[]).length)}개 저장 · 전체 검증 ${d.auto_check_started?'시작':'대기열 등록'} 완료`;
+    form.querySelector('[name="work_log_file"]').value='';
+    if($('workLogFileName')) $('workLogFileName').textContent='선택된 파일 없음';
+    await Promise.all([loadWorkLogStatus(),loadNotifications()]);
+    toast('대표보고 일지 원본 저장·검증을 접수했습니다');
+  }catch(e){
+    result.className='ryu-result err';result.textContent='등록 실패 · '+String(e.message||e);
+  }finally{btn.disabled=false;btn.classList.remove('busy')}
+}
+async function syncCurrentWorkLog(){
+  markStaffInput('submit');
+  const result=$('workLogUploadResult');
+  try{
+    const data=new FormData();
+    data.set('staff_slug','ryu-jiyeong');data.set('use_current','1');
+    const d=await postWorkLog(data);
+    if(result){result.className='ryu-result ok';
+      result.textContent=`현재 고정 원본 검증 ${d.auto_check_started?'시작':'대기열 등록'} 완료`;}
+    await Promise.all([loadWorkLogStatus(),loadNotifications()]);
+    toast('현재 대표보고 일지 재검증을 접수했습니다');
+  }catch(e){
+    if(result){result.className='ryu-result err';result.textContent='검증 실패 · '+String(e.message||e);}
+  }
+}
+async function openWorkLogReport(andCapture){
+  const day=($('workLogReportDate')&&$('workLogReportDate').value)||todayISO();
+  if(!/^2026-\d{2}-\d{2}$/.test(day)){alert('2026년 보고 기준일을 선택해 주세요');return;}
+  try{
+    const [rep,b]=await Promise.all([
+      api('/api/exec_report?date='+encodeURIComponent(day)),
+      api('/api/brief?date='+encodeURIComponent(day))
+    ]);
+    execRep=reportForDates(rep||{},day,day);BRIEF=b&&b.ok!==false?b:null;REPORT_PREVIEW_DATE=day;
+    show('daily');renderDaily();
+    if(andCapture){await new Promise(resolve=>requestAnimationFrame(resolve));await captureReport();}
+  }catch(e){alert('대표 보고를 만들지 못했습니다: '+String(e.message||e));}
+}
+async function submitImprovement(ev){
+  ev.preventDefault();
+  const form=ev.currentTarget,btn=$('improvementBtn'),result=$('improvementResult');
+  btn.disabled=true;btn.classList.add('busy');
+  try{
+    const r=await fetch('/api/staff/improvement',{method:'POST',headers:{'X-Pin':PIN},body:new FormData(form)});
+    const d=await r.json();
+    if(!r.ok||!d.ok) throw new Error(d.error||'개선 요청 등록 실패');
+    result.className='ryu-result ok';
+    result.textContent=`등록 완료 · ${d.ticket.id} · ${d.ticket.route}`;
+    form.querySelector('[name="title"]').value='';
+    form.querySelector('[name="description"]').value='';
+    $('improvementAttachment').value='';$('improvementFileName').textContent='파일을 선택하거나 캡처 후 Ctrl+V';
+    toast('개선 요청을 AI 검토 대기열에 등록했습니다');
+  }catch(e){
+    result.className='ryu-result err';result.textContent='등록 실패 · '+String(e.message||e);
+  }finally{btn.disabled=false;btn.classList.remove('busy')}
+}
+function setImprovementFile(file){
+  if(!file) return;
+  const dt=new DataTransfer();dt.items.add(file);
+  $('improvementAttachment').files=dt.files;
+  $('improvementFileName').textContent=`첨부됨 · ${file.name}`;
+}
+document.addEventListener('paste',e=>{
+  if(!staffSlug) return;
+  const files=[...(e.clipboardData&&e.clipboardData.files||[])];
+  const file=files[0];
+  if(e.target.closest&&e.target.closest('#poDrop')&&file){
+    e.preventDefault();setSourceFile('poFile','poFileName',file);toast('PO 파일을 붙였습니다');return;
+  }
+  if(e.target.closest&&e.target.closest('#workLogDrop')&&file){
+    e.preventDefault();setSourceFile('workLogFile','workLogFileName',file);toast('대표보고 일지를 붙였습니다');return;
+  }
+  const image=files.find(x=>x.type.startsWith('image/'));
+  if(image&&$('improvementForm')){setImprovementFile(image);toast('캡처 이미지를 개선 요청에 붙였습니다')}
+});
+document.addEventListener('dragover',e=>{
+  if(!staffSlug||!e.dataTransfer||![...e.dataTransfer.types].includes('Files')) return;
+  e.preventDefault();
+  const target=e.target.closest&&e.target.closest('#poDrop,#workLogDrop,#improvementDrop');
+  if(target) target.classList.add('drag');
+});
+document.addEventListener('dragleave',e=>{
+  const target=e.target.closest&&e.target.closest('#poDrop,#workLogDrop,#improvementDrop');
+  if(target) target.classList.remove('drag');
+});
+document.addEventListener('drop',e=>{
+  if(!staffSlug||!e.dataTransfer||!e.dataTransfer.files.length) return;
+  const target=e.target.closest&&e.target.closest('#poDrop,#workLogDrop,#improvementDrop');
+  if(!target) return;
+  e.preventDefault();target.classList.remove('drag');
+  const file=e.dataTransfer.files[0];
+  if(target.id==='poDrop') setSourceFile('poFile','poFileName',file);
+  else if(target.id==='workLogDrop') setSourceFile('workLogFile','workLogFileName',file);
+  else setImprovementFile(file);
+});
+function openPinDialog(){
+  const dialog=$('pinDialog');if(!dialog||!PIN) return;
+  const center=STAFF_CENTERS[staffSlug]||null;
+  $('pinDialogRole').textContent=center
+    ? `${center.name} 업무센터 PIN만 변경합니다. 다른 담당자와 관리자 PIN은 바뀌지 않습니다.`
+    : '관리자 PIN만 변경합니다. 담당자 업무센터 PIN은 바뀌지 않습니다.';
+  $('pinDialogError').textContent='';
+  for(const id of ['pinCurrent','pinNew','pinConfirm']) $(id).value='';
+  dialog.classList.add('on');
+  setTimeout(()=>$('pinCurrent').focus(),80);
+}
+function closePinDialog(){
+  if($('pinDialog')) $('pinDialog').classList.remove('on');
+}
+async function changePin(e){
+  e.preventDefault();
+  const current=$('pinCurrent').value.trim();
+  const next=$('pinNew').value.trim();
+  const confirm=$('pinConfirm').value.trim();
+  const err=$('pinDialogError');err.textContent='';
+  if(!/^\d{4}$/.test(current)||!/^\d{4}$/.test(next)){
+    err.textContent='PIN은 숫자 4자리로 입력해 주세요.';return;
+  }
+  if(next!==confirm){err.textContent='새 PIN 확인 값이 서로 다릅니다.';return}
+  try{
+    const r=await fetch('/api/auth/change-pin',{
+      method:'POST',cache:'no-store',
+      headers:{'X-Pin':PIN,'Content-Type':'application/json'},
+      body:JSON.stringify({current_pin:current,new_pin:next})
+    });
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.error||'PIN 변경에 실패했습니다');
+    PIN='session';localStorage.removeItem('cw_pin');
+    closePinDialog();toast('PIN을 변경했습니다');
+  }catch(ex){err.textContent=ex.message||String(ex)}
+}
 async function login(){
   const pin = $('pin').value.trim();
-  const r = await fetch('/api/login',{method:'POST',body:JSON.stringify({pin})});
-  if(r.ok){ PIN=pin; localStorage.setItem('cw_pin',pin); $('gate').style.display='none';
+  const r = await fetch('/api/login',{method:'POST',body:JSON.stringify({pin,staff_slug:staffSlug||''})});
+  if(r.ok){ PIN='session'; LEGACY_PIN=''; localStorage.removeItem('cw_pin'); $('gate').style.display='none';
             show(curView()); refreshAll(); }
   else if(r.status===429) $('pinerr').textContent = '시도 초과로 잠금 — 10분 후 다시 시도하세요';
   else $('pinerr').textContent = 'PIN이 올바르지 않습니다';
 }
 $('pin').addEventListener('keyup',e=>{ if(e.key==='Enter'||$('pin').value.length===4) login(); });
+
+async function restoreRoleSession(){
+  try{
+    let r=await fetch('/api/auth/session',{cache:'no-store'});
+    if(!r.ok && /^\d{4}$/.test(LEGACY_PIN)){
+      r=await fetch('/api/login',{
+        method:'POST',
+        body:JSON.stringify({pin:LEGACY_PIN,staff_slug:staffSlug||''})
+      });
+    }
+    LEGACY_PIN='';
+    localStorage.removeItem('cw_pin');
+    if(!r.ok) throw new Error('session');
+    const d=await r.json();
+    const roleOk=d.role===(staffSlug?'staff':'admin') &&
+      (!staffSlug||d.staff_slug===staffSlug);
+    if(!roleOk) throw new Error('role');
+    PIN='session';
+    return true;
+  }catch(e){
+    PIN=''; localStorage.removeItem('cw_pin');
+    $('gate').style.display='flex';
+    return false;
+  }
+}
 
 /* 화면만 바꾼다 — 뒤로가기 기록은 건드리지 않는다(복귀·popstate 처리에서 쓴다). */
 function applyView(v){
@@ -1748,6 +2640,7 @@ function applyView(v){
   document.querySelectorAll('.tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.v===navView));
   if(v==='report' && !reports.length) loadReports();
   if(v==='ryu' && PIN && !RYU) loadRyuRecords();
+  if(v==='worklog' && PIN) loadWorkLogStatus();
   if(v==='dash' && !CAL) loadCalendar();
   if(v==='calendar'){
     if(!CAL) loadCalendar().then(renderCalendarPage);
@@ -1769,7 +2662,7 @@ function routeNav(v){
   if(v==='daily') renderDaily();
 }
 function curView(){
-  if(location.pathname.replace(/\/+$/,'')==='/ryu') return 'ryu';
+  if(staffSlug) return window.__view || 'ryu';
   const v=window.__view || localStorage.getItem('cw_view') || 'dash';
   return v==='ryu' ? 'dash' : v;
 }
@@ -1843,22 +2736,23 @@ async function loadStatus(){
   const issues = rows.filter(r=>needAction(r));
   const asOpen = (works.as||[]).filter(r=>r.진행상태 && r.진행상태!=='작업완료').length;
   const pmWait = (works.pm||[]).filter(r=>r.점검상태 && r.점검상태!=='완료').length;
+  const bi=(name)=>`<img src="/icons/${name}.svg" alt="">`;
   const tile=(cls,ico,label,val,sub,click)=>`<div class="kpi ${cls}" onclick="kTap(this);${click||''}">
-    <div class="head"><div class="ico">${ico}</div><div class="l">${label}</div></div>
+    <div class="head"><div class="ico">${bi(ico)}</div><div class="l">${label}</div></div>
     <div class="v">${val}</div>${sub?`<div class="s">${sub}</div>`:''}</div>`;
   $('kpis').innerHTML =
-    tile('accent','📋','정산 건수', rows.length||'-', `유상 ${유상.length}건 · 클릭=목록`, "goList('settle','')") +
-    tile('','💰','작업 공급가액', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원 · 실제 작업분 · 클릭=내역', "goList('settle','')") +
-    tile(미수?'warn':'ok','⏳','미수금', fmt(미수), '원 · 계산서 발행 후 미입금 · 클릭=목록', "goList('settle','입금 대기')") +
-    tile(발행===유상.length&&유상.length?'ok':'','🧾','계산서 발행율',
+    tile('accent','bootstrap-clipboard-data-fill','정산 건수', rows.length||'-', `유상 ${유상.length}건 · 클릭=목록`, "goList('settle','')") +
+    tile('','bootstrap-cash-stack','작업 공급가액', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원 · 실제 작업분 · 클릭=내역', "goList('settle','')") +
+    tile(미수?'warn':'ok','bootstrap-hourglass-split','미수금', fmt(미수), '원 · 계산서 발행 후 미입금 · 클릭=목록', "goList('settle','입금 대기')") +
+    tile(발행===유상.length&&유상.length?'ok':'','bootstrap-receipt','계산서 발행율',
       (유상.length?Math.round(발행/유상.length*100):0)+'%',
       `${발행}/${유상.length}건 <span class="bar"><i style="width:${유상.length?발행/유상.length*100:0}%"></i></span>`,
       "goList('settle','세금계산서 미발행')") +
-    tile(issues.length?'danger':'ok','⚠️','조치 필요', issues.length, issues.length?'클릭해 아래 유형 확인':'모두 정상',
+    tile(issues.length?'danger':'ok','bootstrap-exclamation-triangle-fill','조치 필요', issues.length, issues.length?'클릭해 아래 유형 확인':'모두 정상',
       "flashTop()") +
-    tile(asOpen?'warn':'','🔧','돌발AS 진행중', asOpen, `전체 ${(works.as||[]).length}건 · 클릭=목록`, "goList('as','')") +
-    tile(pmWait?'warn':'','🗓','정기점검 대기', pmWait, `전체 ${(works.pm||[]).length}건 · 클릭=목록`, "goList('pm','')") +
-    (erpDocs.total ? tile('','🧾', APP_YEAR+'년 ERP 매출',
+    tile(asOpen?'warn':'','bootstrap-wrench-adjustable','돌발AS 진행중', asOpen, `전체 ${(works.as||[]).length}건 · 클릭=목록`, "goList('as','')") +
+    tile(pmWait?'warn':'','bootstrap-calendar-event-fill','정기점검 대기', pmWait, `전체 ${(works.pm||[]).length}건 · 클릭=목록`, "goList('pm','')") +
+    (erpDocs.total ? tile('','bootstrap-receipt', APP_YEAR+'년 ERP 매출',
       fmt(erpDocs.total), `계산서 ${erpDocs.rows.length}장 · 클릭=보고`,
       "show('daily');renderDaily()") : '');
   // 상태 분포 바 (2px 간격 마크)
@@ -1969,6 +2863,19 @@ function cleanExec2026(d){
   d.details = Object.fromEntries(Object.entries(d.details||{}).map(([k,v])=>[
     k,{...v,rows:(v.rows||[]).filter(r=>rowIs2026(r,'issue') && !isSideWork(r)).map(hide2025)}
   ]).filter(([,v])=>!old(v)));
+  return d;
+}
+/* 선택 날짜 보고는 엑셀 저장과 무관하게 즉시 볼 수 있어야 한다.
+   서버가 과거 날짜 자료를 계산해도 meta가 비어 있으면 캡처 헤더에 '-'가 찍히므로,
+   사용자가 고른 보고일·집계기준일을 화면/캡처 공용 데이터에 명시적으로 고정한다. */
+function reportForDates(d,reportDay,baseDay){
+  d=cleanExec2026(d||{});
+  d.meta={...(d.meta||{}),
+    '보고일':normDate(reportDay)||normDate((d.meta||{})['보고일'])||todayISO(),
+    '집계기준일':normDate(baseDay)||normDate((d.meta||{})['집계기준일'])||
+      normDate(reportDay)||todayISO(),
+    '보고자':(d.meta||{})['보고자']||'유현민'
+  };
   return d;
 }
 function cleanErp2026(d){
@@ -3088,12 +3995,9 @@ function pickReport(i){
 
 /* ── 보고 기준일 → 엑셀 00_대시보드 B3·B4 ── */
 function initDates(){
-  const t = new Date();
-  const iso = d => d.toISOString().slice(0,10);
-  $('d_report').value = iso(t);
-  const prev = new Date(t);                       // 집계기준일 = 전 영업일
-  do { prev.setDate(prev.getDate()-1); } while([0,6].includes(prev.getDay()));
-  $('d_base').value = iso(prev);
+  const cur = todayISO();
+  $('d_report').value = cur;
+  $('d_base').value = previousDayISO(cur);        // 집계기준일 = 정확한 전날
 }
 async function setDates(){
   const 보고일 = $('d_report').value, 집계기준일 = $('d_base').value;
@@ -3108,20 +4012,24 @@ async function setDates(){
    기존에는 대시보드 맨 아래 카드에만 있어서, 보고서를 보다가 날짜가 틀린 걸 발견하면
    탭을 옮겨 찾아가야 했다. 값은 엑셀 00_대시보드 B3·B4가 진실이므로 거기에 쓴다. */
 function openRptDates(){
-  const meta = (execRep && execRep.meta) || {};
-  const cur = normDate(meta['보고일']) || todayISO();
-  const base = normDate(meta['집계기준일']) || '';
+  // 팝업 기본값은 언제나 보고일=오늘, 집계기준일=전날이다.
+  // 이전에 열었던 과거 보고의 meta를 재사용하면 오늘 보고가 과거 날짜로 시작한다.
+  const cur = todayISO();
+  const base = previousDayISO(cur);
   openPane(`<h2>보고 기준일 변경</h2>
-    <div class="sub">엑셀 00_대시보드 B3·B4에 기록됩니다 (새 버전 생성)</div>
+    <div class="sub">기본값: 보고일 오늘 · 집계기준일 전날. 날짜를 바꾸면 보고·캡처 기준이 즉시 갱신됩니다.</div>
     <div style="display:flex;flex-direction:column;gap:12px;margin-top:16px">
       <label style="font-size:12.5px;color:var(--ink-3);font-weight:700">보고일
-        <input type="date" id="rd_report" value="${cur}" style="width:100%;padding:12px;margin-top:5px;
+        <input type="date" id="rd_report" value="${cur}" onchange="rptDateChanged()" style="width:100%;padding:12px;margin-top:5px;
           border:1.5px solid var(--line);border-radius:10px;font-size:16px;font-family:inherit;
           background:var(--card);color:var(--ink-1)"></label>
       <label style="font-size:12.5px;color:var(--ink-3);font-weight:700">집계기준일
-        <input type="date" id="rd_base" value="${base}" style="width:100%;padding:12px;margin-top:5px;
+        <input type="date" id="rd_base" value="${base}" onchange="rptDateChanged()" style="width:100%;padding:12px;margin-top:5px;
           border:1.5px solid var(--line);border-radius:10px;font-size:16px;font-family:inherit;
           background:var(--card);color:var(--ink-1)"></label>
+      <div id="rd_status" class="sub" style="min-height:20px;color:#1B41BC;font-weight:700">
+        ${base} 집계기준 보고 준비됨
+      </div>
       <button onclick="saveRptDates()" style="width:100%;padding:13px;background:var(--brand);color:#fff;
         border:0;border-radius:11px;font-weight:800;font-size:15px;font-family:inherit;cursor:pointer">
         저장하고 엑셀에 반영</button>
@@ -3133,34 +4041,49 @@ function openRptDates(){
         font-family:inherit;cursor:pointer">선택 날짜 보고 바로 캡처</button>
       <button onclick="rptDatesToday()" style="width:100%;padding:11px;background:transparent;
         color:var(--brand);border:1.5px solid var(--line);border-radius:11px;font-weight:700;
-        font-size:13.5px;font-family:inherit;cursor:pointer">오늘 · 전 영업일로 맞추기</button>
+        font-size:13.5px;font-family:inherit;cursor:pointer">오늘 · 전날로 맞추기</button>
     </div>`);
+  // 팝업을 여는 즉시 기본값(오늘/전날)을 화면·캡처 공용 데이터에 적용한다.
+  requestAnimationFrame(()=>rptDateChanged());
 }
 
-/* 가장 흔한 입력을 한 번에 — 보고일=오늘, 집계기준일=직전 영업일(주말 건너뜀) */
+/* 가장 흔한 입력을 한 번에 — 보고일=오늘, 집계기준일=정확한 전날 */
 function rptDatesToday(){
-  const t = new Date(), iso = d => d.toISOString().slice(0,10);
-  const prev = new Date(t);
-  do { prev.setDate(prev.getDate()-1); } while([0,6].includes(prev.getDay()));
-  $('rd_report').value = iso(t);
-  $('rd_base').value = iso(prev);
+  const cur=todayISO(), base=previousDayISO(cur);
+  $('rd_report').value = cur;
+  $('rd_base').value = base;
+  rptDateChanged();
 }
 
-async function previewRptDate(andCapture){
-  const day=($('rd_base')&&$('rd_base').value)||($('rd_report')&&$('rd_report').value)||'';
-  if(!/^2026-\d{2}-\d{2}$/.test(day)){alert('2026년 날짜를 선택하세요');return;}
+let RPT_DATE_TIMER=null;
+function rptDateChanged(){
+  if(RPT_DATE_TIMER)clearTimeout(RPT_DATE_TIMER);
+  const status=$('rd_status');
+  if(status)status.textContent='선택 날짜 보고를 갱신하는 중…';
+  RPT_DATE_TIMER=setTimeout(()=>{RPT_DATE_TIMER=null;previewRptDate(false,true);},180);
+}
+
+async function previewRptDate(andCapture,keepPane=false){
+  const reportDay=($('rd_report')&&$('rd_report').value)||'';
+  const baseDay=($('rd_base')&&$('rd_base').value)||reportDay;
+  if(!/^2026-\d{2}-\d{2}$/.test(baseDay)){alert('2026년 집계기준일을 선택하세요');return;}
   try{
     const [rep,b]=await Promise.all([
-      api('/api/exec_report?date='+encodeURIComponent(day)),
-      api('/api/brief?date='+encodeURIComponent(day))
+      api('/api/exec_report?date='+encodeURIComponent(baseDay)),
+      api('/api/brief?date='+encodeURIComponent(baseDay))
     ]);
-    execRep=filterExec(rep||{});
+    execRep=reportForDates(rep||{},reportDay||baseDay,baseDay);
     BRIEF=b&&b.ok!==false?b:null;
-    REPORT_PREVIEW_DATE=day;
-    closeSheetAll();
+    REPORT_PREVIEW_DATE=baseDay;
+    if(!keepPane){closeSheetAll();show('daily');}
     renderDaily();
-    toast(`${day} 기준 보고를 불러왔습니다`);
-    if(andCapture) await captureReport();
+    const status=$('rd_status');
+    if(status)status.textContent=`보고일 ${reportDay||baseDay} · 집계기준일 ${baseDay} 적용 완료`;
+    toast(`${baseDay} 집계기준 보고를 불러왔습니다`);
+    if(andCapture){
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      await captureReport();
+    }
   }catch(e){alert('선택 날짜 보고를 만들지 못했습니다: '+e);}
 }
 
@@ -3248,7 +4171,7 @@ function openPolicyEdit(index){
     <input id="policyOwner" value="유현민" style="width:100%;margin-top:7px;border:1px solid var(--line);
       border-radius:11px;padding:12px;font:inherit;font-size:16px">
     <div class="actions sticky">
-      <button class="abtn primary" onclick="savePolicy()"><span class="em">💾</span>저장·전체 반영</button>
+        <button class="abtn primary" onclick="savePolicy()"><img class="em" src="/icons/bootstrap-save-fill.svg" alt="">저장·전체 반영</button>
       <button class="abtn" onclick="openRepresentativeList('policy')">취소</button>
     </div>`);
 }
@@ -3568,7 +4491,7 @@ function briefBlock(){
   return `<div class="ebrief">
     <div class="bhead"><span>읽어 드릴 내용</span>
       <em>숫자가 아니라 무슨 일이 있었는지</em>
-      <button onclick="copyBrief()">📋 문장 복사</button></div>
+    <button onclick="copyBrief()"><img class="inline-bi" src="/icons/clipboard-copy.svg" alt="">문장 복사</button></div>
     ${h}</div>`;
 }
 
@@ -3705,14 +4628,44 @@ function dailyIssueRows(){
     {label:'작업내용 확인 필요', count:blank.length, detail:'완료됐으나 실제 작업내용 미기입', call:'openBlankWorkBrief()'}
   ];
 }
+function dailyIssueDetailRows(){
+  const source=(BRIEF&&BRIEF['이상발견'])||[];
+  const seen=new Set();
+  return source.map(x=>{
+    const project=x.프로젝트NO||'프로젝트 미확정';
+    const camp=x.캠프명||'캠프 미기입';
+    const date=x.일자||x.실행일||'일자 미기입';
+    const abnormal=String(x.이상내용||'').trim();
+    const problem=String(x.문제내용||'').trim();
+    const action=String(x.조치내용||x.추가작업||'').trim();
+    const detail=abnormal||problem||'이상 발견 표시 · 상세내용 미기입';
+    return {project,camp,date,detail,action,engineer:x.담당기사||'담당기사 미기입',
+      id:x.레코드ID||project};
+  }).filter(x=>{
+    const key=[x.id,x.project,x.date,x.detail].join('|');
+    if(seen.has(key))return false;
+    seen.add(key);return true;
+  });
+}
 function dailyIssueHtml(){
   const rows=dailyIssueRows(), total=rows.reduce((n,x)=>n+x.count,0);
+  const details=dailyIssueDetailRows();
+  const detailHtml=details.length?`<div class="issue-detail-list">
+    <div class="issue-detail-title"><span>정기점검 이상 발견 상세</span><b>${details.length}건</b></div>
+    ${details.map(x=>`<div class="issue-detail-row">
+      <div class="issue-detail-id"><button class="prj" type="button"
+        onclick="event.stopPropagation();openByPrj(${esc4(x.id)})">${esc2(x.project)}</button>
+        <span class="camp">${esc2(x.camp)}</span></div>
+      <div class="issue-detail-copy"><b>이상 ·</b> ${esc2(x.detail)}
+        ${x.action?`<br><b>조치 ·</b> ${esc2(x.action)}`:''}</div>
+      <div class="issue-detail-meta">${esc2(x.date)}<br>${esc2(x.engineer)}</div>
+    </div>`).join('')}</div>`:'';
   return `<div class="egroup issue${total?'':' ok'}">
     <div class="gh">이슈사항 · ${total?`${total}건 확인 필요`:'특이사항 없음'}</div>
     <div class="gb">${rows.map(x=>`<div class="gitem" role="button" tabindex="0"
       onclick="${x.call}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${x.call}}">
       <div class="gi"><span>${x.label}</span><b style="color:${x.count?'#B42318':'#177245'}">${x.count}건</b></div>
-      <div class="gd note">${x.detail}</div></div>`).join('')}</div></div>`;
+      <div class="gd note">${x.detail}</div></div>`).join('')}${detailHtml}</div></div>`;
 }
 function openBlankWorkBrief(){
   const source=(BRIEF&&BRIEF['내용미기입'])||[];
@@ -3917,7 +4870,7 @@ function renderDaily(){
     return `<div class="rcell${on?' clk':''}"${on?` onclick="openKpi('${k}')"`:''}>` +
       `<div class="v">${v}</div><div class="l">${l}${on?' <span class="go">▸</span>':''}</div></div>`;
   };
-  const rptLogo = `<div class="logo app-icon"><img src="/icon-192.png?v=csos-20260729" alt="CSOS"></div>`;
+  const rptLogo = `<div class="logo app-icon"><img src="/icon-192.png?v=csos-20260730" alt="CSOS"></div>`;
   $('rpt').innerHTML = `
     <div class="rhead">
       ${rptLogo}
@@ -3930,7 +4883,7 @@ function renderDaily(){
           (BRIEF&&BRIEF['데이터업데이트일시'])||new Date().toISOString().slice(0,16).replace('T',' ')}</span>
         <button onclick="openRptDates()" style="margin-top:5px;background:#EEF2FF;color:#1C3FA8;border:0;
           border-radius:8px;padding:5px 10px;font-size:11px;font-weight:800;font-family:inherit;
-          cursor:pointer">📅 날짜 변경</button></div>
+      cursor:pointer"><img class="inline-bi" src="/icons/bootstrap-calendar3.svg" alt="">날짜 변경</button></div>
     </div>
     <h4>${+m}월 실적 <span class="norm">— 선택 기준일 ${selectedDay}</span></h4>
     <div class="rgrid">
@@ -4022,9 +4975,14 @@ function renderDaily(){
     request: x['왜'] || '',
     action: x['무엇'] || x['상태'] || ''
   }));
+  const captureMeta={...(execRep.meta||{})};
+  captureMeta['보고일']=normDate(captureMeta['보고일'])||REPORT_PREVIEW_DATE||todayISO();
+  captureMeta['집계기준일']=normDate(captureMeta['집계기준일'])||REPORT_PREVIEW_DATE||
+    (BRIEF&&BRIEF['기준일'])||captureMeta['보고일'];
+  captureMeta['보고자']=captureMeta['보고자']||'유현민';
   _rptData = {
-    date: (execRep.meta&&execRep.meta['보고일']) || `${y}-${m}-${String(today.getDate()).padStart(2,'0')}`,
-    meta: execRep.meta || {},
+    date: captureMeta['보고일'] || `${y}-${m}-${String(today.getDate()).padStart(2,'0')}`,
+    meta: captureMeta,
     summary: execRep.summary || [],
     exec: (execRep.sections||[]).map(s=>({title:s.title, items:s.items||[],
                                           groups:s.groups||[], lines:s.lines||[]})),
@@ -4074,6 +5032,7 @@ function renderDaily(){
               [PM_q.length+'건','분기 정기점검'],
               [Sq.filter(r=>needAction(r)).length+'건','분기 조치필요']],
     dailyIssues: dailyIssueRows().map(x=>[`${x.count}건`,x.label,x.count?'#B42318':'#177245',x.detail]),
+    dailyIssueDetails: dailyIssueDetailRows(),
     issues: Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>{
       const as=l.filter(r=>String(r.업무구분||'').includes('돌발')).length;
       const pm=l.filter(r=>String(r.업무구분||'').includes('점검')).length;
@@ -4313,6 +5272,12 @@ const _today = () => new Date().toISOString().slice(0,10);
 function todayISO(){
   const t = new Date();
   return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+}
+function previousDayISO(day=todayISO()){
+  const prev=new Date(day+'T12:00:00');
+  prev.setDate(prev.getDate()-1);
+  return [prev.getFullYear(),String(prev.getMonth()+1).padStart(2,'0'),
+    String(prev.getDate()).padStart(2,'0')].join('-');
 }
 /* 끝난 건 = 더 물어볼 것 없음. '취소'도 종결로 본다(기사에게 확인 요청할 대상이 아니다) */
 const _fin = s => ['작업완료','완료','정상','취소','종결','철회','AS전환'].includes(String(s||'').trim());
@@ -4581,8 +5546,8 @@ function openCheckSource(r){
     <div class="dl">${fields.map(([k,v])=>`<dt>${esc2(k)}</dt><dd>${esc2(v)}</dd>`).join('')}</div>
     ${helpBox(checkTypeOf(r))}
     <div class="actions sticky">
-      <button class="abtn primary" onclick="openSingleCheckCapture()"><span class="em">📋</span>이 항목 목록 열기</button>
-      <button class="abtn" onclick="showCheckRaw()"><span class="em">📋</span>원본표 보기</button></div>`);
+      <button class="abtn primary" onclick="openSingleCheckCapture()"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">이 항목 목록 열기</button>
+      <button class="abtn" onclick="showCheckRaw()"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">원본표 보기</button></div>`);
 }
 function openSingleCheckCapture(){
   const r=window._singleCheckRow; if(r) openCheckRows(checkTypeOf(r),[r],'원장 연결을 확인할 단일 항목');
@@ -5383,7 +6348,7 @@ function loadAppIconImg(){
     const im = new Image();
     im.onload = ()=>{ _appIconImg = im; res(im); };
     im.onerror = ()=>res(null);
-    im.src = '/icon-512.png?v=csos-20260729';
+    im.src = '/icon-512.png?v=csos-20260730';
   });
 }
 async function drawLogo(ctx, x, y, size, onDark){
@@ -5426,11 +6391,13 @@ async function reportToPng(){
   const tiles = r => Math.ceil(r/3)*74;
   const execSections=(D.exec||[]).filter(s=>!/^(정리|요약)$/.test(cleanExecTitle(s.title)));
   const dailyIssueList=D.dailyIssues||[];
+  const dailyIssueDetails=D.dailyIssueDetails||[];
   const execSecH = execSections.reduce((a,s)=>{
     const gh = (s.groups||[]).length
       ? 38 + Math.max(...s.groups.map(g=>g.items.length))*24 + 18 : 0;
     const issueH=/당일 업무 실적/.test(cleanExecTitle(s.title)) && dailyIssueList.length
-      ? 42 + dailyIssueList.length*30 : 0;
+      ? 42 + dailyIssueList.length*30
+        + (dailyIssueDetails.length ? 34 + dailyIssueDetails.length*66 : 0) : 0;
     return a + 34 + gh + (s.items.length?tiles(s.items.length):0)
              + issueH + (s.lines.length? s.lines.length*20 + 6 : 0);
   }, 0);
@@ -5627,6 +6594,29 @@ async function reportToPng(){
     });
     y+=h+8;
   };
+  const issueDetailBlock=rows=>{
+    if(!rows.length)return;
+    const headH=28, rowH=66, h=headH+rows.length*rowH;
+    box(30,y,W-60,h,'#FFFDFD','#F1C2C2',10);
+    box(30,y,W-60,headH,'#FFF1F1','#F1C2C2',10);
+    txt(`정기점검 이상 발견 상세 · ${rows.length}건`,44,y+headH/2,F(11.5,900),'#A63737');
+    y+=headH;
+    rows.forEach((r,i)=>{
+      if(i%2){ctx.fillStyle='#FFFAFA';ctx.fillRect(31,y,W-62,rowH);}
+      txt(clip(`${r.project||'프로젝트 미확정'} · ${r.camp||'캠프 미기입'}`,330),
+          44,y+16,F(11.5,900),'#101828');
+      txt(`${r.date||'-'} · ${r.engineer||'담당기사 미기입'}`,
+          W-44,y+16,F(10.5,700),'#667085','right');
+      txt(clip(`이상 · ${r.detail||'상세내용 미기입'}`,W-88),
+          44,y+38,F(11.2,700),'#A63737');
+      if(r.action)txt(clip(`조치 · ${r.action}`,W-88),44,y+56,F(10.2),'#475467');
+      if(i<rows.length-1){
+        ctx.strokeStyle='#F1DADA';ctx.beginPath();ctx.moveTo(42,y+rowH);ctx.lineTo(W-42,y+rowH);ctx.stroke();
+      }
+      y+=rowH;
+    });
+    y+=8;
+  };
   const drawDailyBrief=()=>{
     if(!dailyBrief)return;
     if((dailyBrief.metrics||[]).length)grid(dailyBrief.metrics);
@@ -5656,6 +6646,7 @@ async function reportToPng(){
     if((s.groups||[]).length) groupCols(s.groups);
     if(/당일 업무 실적/.test(raw)){
       issueBlock(dailyIssueList);
+      issueDetailBlock(dailyIssueDetails);
       drawDailyBrief();
     }
     if(s.items.length) grid(s.items.map(([l,v])=>[v||'-', l]));
@@ -6040,19 +7031,35 @@ function toast(msg){
 
 /* ── 부트 ── */
 function tick(){ $('clock').textContent = new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}); }
-async function refreshAll(){ try{ await loadSettle(); await loadStatus(); }catch(e){} }
+async function refreshAll(){
+  try{ await loadSettle(); await loadStatus(); await loadNotifications(); if(staffSlug) await staffHeartbeat('view'); }catch(e){}
+}
 (async function(){
   tick(); setInterval(tick, 30000); initDates(); previewCalendarDraft();
-  if(location.pathname.replace(/\/+$/,'')==='/ryu') document.body.classList.add('ryu-mode');
+  initStaffCenter();
   const surveyDate=document.querySelector('#ryuUploadForm [name="survey_date"]');
   if(surveyDate&&!surveyDate.value) surveyDate.value=todayISO();
+  const newWorkDate=document.querySelector('#newWorkForm [name="work_date"]');
+  if(newWorkDate&&!newWorkDate.value) newWorkDate.value=todayISO();
   showFixedEntry();          // 고정 주소는 로그인·데이터 로딩과 무관하게 **항상** 보인다
   loadCodes();               // 드롭다운 선택지(10_코드관리)
   applyView(curView());                  // 새로고침 전에 보던 화면으로 복귀(뒤로가기 기록은 안 쌓는다)
   // ★ 여분 항목 하나를 미리 쌓아 둔다. 이게 없으면 **첫 뒤로가기가 앱 밖으로 나가** 버려서
   //   홈에서 종료를 묻는 것도, 이전 화면으로 돌아가는 것도 할 수 없다.
   navGuard();
-  if(PIN){ $('gate').style.display='none'; refreshAll(); pollLog().catch(()=>{}); }
+  if(await restoreRoleSession()){
+    $('gate').style.display='none';
+    refreshAll();
+    pollLog().catch(()=>{});
+  }
+  if(staffSlug){
+    setInterval(()=>staffHeartbeat('view'),30000);
+    document.addEventListener('input',()=>markStaffInput('input'),true);
+    document.addEventListener('change',()=>markStaffInput('change'),true);
+    document.addEventListener('paste',()=>markStaffInput('paste'),true);
+    document.addEventListener('drop',()=>markStaffInput('drop'),true);
+  }
+  setInterval(()=>{if(PIN) loadNotifications()},60000);
   setInterval(()=>{ if(PIN && !runnerBusy()) loadStatus().catch(()=>{}); }, 30000);
   checkBuild(false);                                  // 최초 기준값 기록
   setInterval(()=>checkBuild(true), 20000);           // 새 버전 나오면 자동 갱신

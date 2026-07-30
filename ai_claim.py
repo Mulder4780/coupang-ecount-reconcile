@@ -30,6 +30,7 @@ from datetime import datetime
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CLAIMS = os.path.join(ROOT, "reports", "ai_claims.json")
 GUARD = os.path.join(ROOT, "reports", ".ai_claims.guard")
+WORKCENTER_ACTIVITY = os.path.join(ROOT, "reports", "workcenter_activity.json")
 STALE = 45 * 60          # 45분 넘게 안 놓으면 죽은 것으로 본다(크레딧 소진·중단)
 
 # 잡을 수 있는 것들. ledger/code/band/publish는 배타적이다.
@@ -150,8 +151,27 @@ def _sol_write_gate(who, what):
     return False
 
 
+def _workcenter_priority_gate(what):
+    """담당자가 업무센터에서 입력 중이면 새 배타 작업을 잠시 미룬다."""
+    _label, exclusive = LOCKS.get(what, (what, True))
+    if not exclusive:
+        return True
+    try:
+        activity = json.load(open(WORKCENTER_ACTIVITY, encoding="utf-8"))
+        if time.time() < float(activity.get("active_until_ts") or 0):
+            name = activity.get("name") or activity.get("slug") or "담당자"
+            print(f"★ {name} 업무센터 입력이 진행 중이라 '{what}' 점유를 잠시 미룹니다.")
+            print("  담당자 입력이 끝난 뒤 약 2분 동안 추가 heartbeat가 없으면 자동 해제됩니다.")
+            return False
+    except (FileNotFoundError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+    return True
+
+
 def take(who, what, why=""):
     label, excl = LOCKS.get(what, (what, True))
+    if not _workcenter_priority_gate(what):
+        return False
     if not _sol_write_gate(who, what):
         return False
     with state_guard():

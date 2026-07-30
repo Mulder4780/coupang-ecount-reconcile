@@ -12,7 +12,7 @@ synthetic_check.py — 합성데이터 상시 검증 (실데이터·실서버 �
 
 실행:  python tests/synthetic_check.py   (전부 통과 시 exit 0, 'ALL GREEN')
 """
-import sys, os, re, tempfile, subprocess
+import sys, os, re, tempfile, subprocess, hashlib
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
@@ -834,7 +834,9 @@ def t26_mobile():
     # ★ 매니페스트 start_url은 **그 페이지와 같은 출처**여야 한다.
     #   다른 도메인을 넣으면 크롬이 매니페스트를 무시해 [설치 및 바로가기 만들기]가 아예 안 된다
     #   (2026-07-27에 고정 주소를 넣었다가 폰에서 설치가 막혔다).
-    assert '"start_url": "/"' in blk, "앱 매니페스트 start_url은 같은 출처(/)여야 설치가 된다"
+    assert 'start_url = f"/staff/{staff_slug}" if center else "/"' in src, \
+        "앱·담당자 매니페스트 start_url은 같은 출처 경로여야 설치가 된다"
+    assert '"start_url": start_url' in src
     assert "FIXED_ENTRY" not in blk, "다른 도메인을 start_url에 넣으면 크롬이 설치를 거부한다"
     # 대신 앱 화면이 **고정 주소를 항상 보여줘야** 한다(닫히는 배너가 아니라 상시 표기).
     idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
@@ -866,8 +868,14 @@ def t26_mobile():
     assert mf["start_url"] == FIX + "app.html", mf
     assert mf.get("scope", FIX).startswith(FIX.rstrip("/")), mf
     assert "trycloudflare" not in _j.dumps(mf)
-    assert any("icon-192.png?v=csos-20260729" in x.get("src", "") for x in mf["icons"]), mf
-    assert any("icon-512.png?v=csos-20260729" in x.get("src", "") for x in mf["icons"]), mf
+    icon_hash = hashlib.sha256(
+        open(os.path.join(ROOT, "webapp", "brand", "csos-app-icon-source.png"), "rb").read()
+    ).hexdigest()[:12]
+    icon_rev = f"csos-{icon_hash}"
+    assert any(f"icon-192.png?v={icon_rev}" in x.get("src", "") for x in mf["icons"]), mf
+    assert any(f"icon-512.png?v={icon_rev}" in x.get("src", "") for x in mf["icons"]), mf
+    assert f"csos-icon-{icon_hash}" in open(
+        os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
     for n in (32, 180, 192, 512):
         fp = os.path.join(ROOT, "docs", f"icon-{n}.png")
         assert os.path.getsize(fp) > 1000, fp
@@ -995,7 +1003,7 @@ def t16_status():
 
 
 def t6_webapp():
-    import time, json, urllib.request
+    import time, json, urllib.request, http.cookiejar
     port = 18899
     p = subprocess.Popen([PY, os.path.join(ROOT, "webapp", "app_server.py"), "--demo", "--port", str(port)],
                          cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1014,6 +1022,37 @@ def t6_webapp():
             assert e.code == 401
         req = urllib.request.Request(base + "/api/login", data=b'{"pin":"0000"}', method="POST")
         assert json.loads(urllib.request.urlopen(req).read())["ok"]
+        # 담당자 로그인은 서버 세션에 역할이 고정된다. 공용 PIN을 알고 있어도
+        # 실행·정책·다른 담당자 입력 API를 직접 호출할 수 없어야 한다.
+        staff_opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        staff_login = urllib.request.Request(
+            base + "/api/login",
+            data=b'{"pin":"0000","staff_slug":"ryu-jiyeong"}',
+            method="POST")
+        staff_auth = json.loads(staff_opener.open(staff_login).read())
+        assert staff_auth["role"] == "staff" and staff_auth["staff_slug"] == "ryu-jiyeong"
+        staff_session_response = staff_opener.open(base + "/api/auth/session")
+        staff_session = json.loads(staff_session_response.read())
+        assert staff_session["ok"] and staff_session["authenticated"]
+        assert staff_session["role"] == "staff"
+        assert staff_session["staff_slug"] == "ryu-jiyeong"
+        assert int(staff_session["expires_at"]) > int(time.time()) + (300 * 24 * 60 * 60), \
+            "담당자 기기 인증이 장기 유지되지 않음"
+        assert "Max-Age=" in (staff_session_response.headers.get("Set-Cookie") or ""), \
+            "앱 재실행 시 기기 인증 만료일이 연장되지 않음"
+        for path, data in (
+            ("/api/run/all", b"{}"),
+            ("/api/policy", '{"기준":"x","확정내용":"y"}'.encode("utf-8")),
+            ("/api/staff/po-upload", b""),
+        ):
+            request = urllib.request.Request(
+                base + path, data=data, headers={"X-Pin": "0000"}, method="POST")
+            try:
+                staff_opener.open(request)
+                assert False, f"담당자 세션이 관리자 API를 호출함: {path}"
+            except urllib.error.HTTPError as exc:
+                assert exc.code == 403, (path, exc.code)
         # 인증 상태·정산 API
         h = {"X-Pin": "0000"}
         st = json.loads(urllib.request.urlopen(urllib.request.Request(base + "/api/status", headers=h)).read())
@@ -1048,8 +1087,15 @@ def t6_webapp():
         assert "Coupang Service Operations System" in html and "tabbar" in html and "d_report" in html
         # 제공받은 CSOS 아이콘을 앱·캡처에 공통 사용하고, 유니버셜 CI는
         # 데스크톱에서 기존 118px의 2.5배(295px)로 표시한다.
-        assert '/icon-192.png?v=csos-20260729' in html
+        assert '/icon-192.png?v=csos-20260730' in html
         assert 'class="logo app-icon"' in html and "loadAppIconImg" in html
+        app_server_src = open(os.path.join(ROOT, "webapp", "app_server.py"),
+                              encoding="utf-8").read()
+        assert "icon_revision()" in app_server_src
+        assert "sync_installed_app_icons()" in app_server_src
+        assert os.path.isfile(os.path.join(ROOT, "webapp", "sync_app_icons.ps1"))
+        assert os.path.isfile(os.path.join(ROOT, "webapp", "build_windows_icon.ps1"))
+        assert os.path.isfile(os.path.join(ROOT, "webapp", "install_staff_shortcut.ps1"))
         assert ".uni-app-brand{width:295px;height:42px" in html.replace(" ", "")
         assert "drawUniversalLogo" in html and "universal-lift-horizontal.png" in html
         # 공통 헤더는 시스템 식별/회사 로고/상태의 3구역이며, 회사 로고는
@@ -1070,21 +1116,47 @@ def t6_webapp():
             assert marker in html, "UI marker missing: " + marker
         # 류지영 화면은 단순 업로드방이 아니라 대시보드형 업무센터다.
         # 카테고리→과거목록→선택건 보충입력 흐름과 일반 메뉴(실행 제외)를 함께 제공한다.
-        for marker in ("류지영 업무센터", "업무센터 열기", 'id="ryuSummaryGrid"',
+        for marker in ("류지영 쿠팡 AS 및 정기점검 업무센터", 'class="workcenter-person"',
+                       'id="ryuSummaryGrid"',
                        'id="ryuCategoryTabs"', 'id="ryuHistoryList"', 'id="ryuEntryForm"',
                        "/api/ryu/records", "/api/ryu/entry", "submitRyuEntry",
                        "body.ryu-mode .tabbar button[data-v=\"run\"]{display:none}",
                        "routeNav('dash')"):
             assert marker in html, "류지영 업무센터 UI 누락: " + marker
+        assert 'href="/staff/yoo-hyeonmin"' not in html, "업무센터 허브에서 유현민 버튼 제거 누락"
+        assert "/api/staff/install-shortcut" in html and "window.__csosInstallPrompt" in html
+        assert "workcenterIsInstalled()" in html and "csos_installed_" in html
+        assert "maybeShowInstallCard()" in html and "display-mode: standalone" in html
+        for icon_name in ("bootstrap-person-workspace.svg",
+                          "bootstrap-person-badge-fill.svg",
+                          "bootstrap-person-vcard-fill.svg"):
+            assert f"/icons/{icon_name}" in html, "Bootstrap 업무센터 아이콘 누락"
+        # PIN 원문을 브라우저에 계속 보관하지 않고, 서버 서명 쿠키를 복원한다.
+        assert "/api/auth/session" in html and "restoreRoleSession" in html
+        assert "localStorage.setItem('cw_pin'" not in html
+        assert "LEGACY_PIN" in html and "localStorage.removeItem('cw_pin')" in html
+        for marker in ('id="workLogRecordList"', "renderWorkLogRecords",
+                       "workLogFilterCategory", "workLogFilterState",
+                       "프로젝트 미확정"):
+            assert marker in html, "대표보고 일지 상세목록 UI 누락: " + marker
         app_src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+        for marker in ("AUTH_SESSION_TTL", "create_auth_session", "auth_cookie",
+                       "auth_session_from_cookie", "get_work_log_view",
+                       'if p == "/api/auth/session"'):
+            assert marker in app_src, "기기 인증·일지 자동연동 API 누락: " + marker
         assert "def defer_task_until_free(" in app_src and '"auto_check_queued": queued' in app_src
         for marker in ("RYU_ENTRY_CONFIG", "def get_ryu_records(", "def save_ryu_entry(",
                        '"only_if_empty": True', 'if p == "/api/ryu/records"',
                        'if p == "/api/ryu/entry"'):
             assert marker in app_src, "류지영 업무센터 API 누락: " + marker
+        assert "def install_staff_shortcut(" in app_src
+        assert 'if p == "/api/staff/install-shortcut"' in app_src
         assert "flex-wrap:nowrap!important" in html.replace(" ", "")
-        assert not re.search(r'<button[^>]+onclick="(?:save\w*Journal|share\w*)', html), \
-            "removed journal/share button is still exposed"
+        # 보고·목록 툴바의 구형 일지저장/직접전달 버튼은 제거하되,
+        # 사용자가 명시 요청한 담당자 고정 URL 공유는 허용한다.
+        assert not re.search(
+            r'<button[^>]+onclick="(?:save\w*Journal|share(?:Mine|Daily|Journal)\w*)',
+            html), "removed journal/report share button is still exposed"
         # 원천 검증은 밴드·카톡·ERP·쿠팡PO 4종이 **자료 유무와 무관하게** 항상 표시돼야 한다
         assert "4원천 검증" in html, "원천 검증 제목이 4원천이 아님"
         assert "쿠팡 PO" in html and "PO 목록 투입 시 자동 대조" in html, "PO 원천 행 누락"
@@ -1282,6 +1354,14 @@ def t29_cloud():
     assert "docs/resolve_index.json" not in CP.PUBLISH_FILES, "존재하지 않는 파일을 git add 한다"
     assert "docs/manifest.json" in CP.PUBLISH_FILES, \
         "PC 독립 시작 주소를 바꿔도 매니페스트가 게시되지 않는다"
+    cloud_source = open(os.path.join(ROOT, "cloud_publish.py"), encoding="utf-8").read()
+    phone_source = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+    assert "def snapshot_key(" in cloud_source and 'sealed["pin_auth"] = pin_auth' in cloud_source, \
+        "hashed PIN snapshot compatibility is missing"
+    assert "async function snapshotPassword(" in phone_source and \
+           "auth-pbkdf2-sha256" in phone_source, \
+        "phone snapshot cannot derive the stored authentication digest"
+
     class _R:
         def __init__(self, code=0, out="", err=""):
             self.returncode, self.stdout, self.stderr = code, out, err
@@ -1633,15 +1713,19 @@ def t36_mobile_input():
     for fn in ("openRptDates", "saveRptDates", "rptDatesToday"):
         assert "function " + fn in idx, f"{fn} 없음"
     assert 'onclick="openRptDates()"' in idx, "보고 화면에 날짜 변경 버튼이 없다"
-    _rd = idx[idx.index("function openRptDates"):][:1500]
+    _rd = idx[idx.index("function openRptDates"):][:2800]
     assert 'type="date"' in _rd, "보고 날짜가 달력으로 안 뜬다"
     _sv = idx[idx.index("function saveRptDates"):][:1200]
     assert "/api/set_dates" in _sv, "엑셀 00_대시보드에 안 쓴다"
     # 집계기준일이 보고일보다 뒤면 잘못 고른 것이다 — 그대로 쓰면 보고서가 어긋난다
     assert "집계기준일 > 보고일" in _sv.replace("집계기준일 &gt; 보고일", "집계기준일 > 보고일"),         "집계기준일이 보고일보다 뒤인 경우를 안 막는다"
-    # 전 영업일 계산은 주말을 건너뛰어야 한다
+    # 사용자 확정 기준: 보고일은 오늘, 집계기준일은 주말 여부와 무관하게 정확한 전날
     _td = idx[idx.index("function rptDatesToday"):][:600]
-    assert "[0,6].includes" in _td.replace(" ", ""), "전 영업일 계산이 주말을 안 건너뛴다"
+    assert "previousDayISO(cur)" in _td, "집계기준일 기본값이 정확한 전날이 아니다"
+    _init = idx[idx.index("function initDates"):][:500]
+    assert "previousDayISO(cur)" in _init, "대시보드 날짜 기본값이 정확한 전날이 아니다"
+    assert "requestAnimationFrame(()=>rptDateChanged())" in _rd, \
+        "날짜 변경창을 열었을 때 오늘/전날 기본값이 즉시 적용되지 않는다"
     print("  [36] 폰 입력(달력·드롭다운·16px·시트연동) · 부가세 원장값 · 보고일 즉시수정 ✅")
 
 
@@ -1722,7 +1806,7 @@ def t38_daily_brief():
 
     # (3) 완료 건은 '왜 갔는지'가 있어야 보고가 된다
     for x in b["완료내역"]:
-        assert set(("왜", "무엇", "비용", "추가작업")) <= set(x), x
+        assert set(("왜", "무엇", "비용", "추가작업", "이상내용", "문제내용", "조치내용")) <= set(x), x
     # 내용이 없으면 지어내지 말고 미기입으로 남겨야 한다
     assert all(x["무엇"] == "" for x in b["내용미기입"]), "미기입 판정이 틀렸다"
 
@@ -2579,7 +2663,9 @@ def t50_stale_completion_drilldown_and_capture():
     assert '"완료일미기입목록": _b.get("완료일미기입목록", [])' in pub, \
         "암호화 사본에 완료일 누락 원천 목록이 없다"
     sw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
-    assert "csos-v12-oh-owner-scope-2026-only" in sw, \
+    icon_hash = hashlib.sha256(open(os.path.join(
+        ROOT, "webapp", "brand", "csos-app-icon-source.png"), "rb").read()).hexdigest()[:12]
+    assert f"csos-icon-{icon_hash}" in sw, \
         "설치형 휴대폰 앱이 이전 화면 캐시를 계속 쥘 수 있다"
     print("  [50] 오래된 완료일 미기입 목록·정확 라우팅·담당자 캡처 ✅")
 
@@ -3084,7 +3170,9 @@ def t72_project_first_representative_report():
         "대표보고 원천행의 내부 JS 번호를 프로젝트번호로 복원하지 않는다"
     assert "r['프로젝트NO']||'프로젝트 미확정'" in phone
     assert "오종현 원천자료 취합" in phone
-    assert "csos-v12-oh-owner-scope-2026-only" in sw
+    icon_hash = hashlib.sha256(open(os.path.join(
+        ROOT, "webapp", "brand", "csos-app-icon-source.png"), "rb").read()).hexdigest()[:12]
+    assert f"csos-icon-{icon_hash}" in sw
     print("  [72] 프로젝트번호 대표표시·유수비 예외보고·정책확인·버튼/페이지 애니메이션 ✅")
 
 
@@ -3429,7 +3517,12 @@ def t79_work_log_source_sync_and_report_capture():
         assert marker in idx, f"일지/정기점검 대표 캡처 누락: {marker}"
     assert "대표 보고 · ${dailyBrief.date||D.date}" not in idx, "캡처 제목에 삭제 대상 문구가 남아 있음"
     for marker in ("quarterTitle", "dailyIssues", "execPeriodTitle", "previewRptDate",
-                   "REPORT_PREVIEW_DATE", "const day = (_rptData&&_rptData.date)"):
+                   "REPORT_PREVIEW_DATE", "const day = (_rptData&&_rptData.date)",
+                   "dailyIssueDetailRows", "dailyIssueDetails", "issueDetailBlock",
+                   "정기점검 이상 발견 상세", "reportForDates",
+                   "captureMeta['집계기준일']", "requestAnimationFrame(()=>requestAnimationFrame(resolve))",
+                   'onchange="rptDateChanged()"', "보고일=오늘, 집계기준일=전날",
+                   "previewRptDate(false,true)"):
         assert marker in idx, f"선택 날짜·월/분기/연간 캡처 연동 누락: {marker}"
     app = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     for marker in ("def get_daily_brief(day=None)", "_brief_cache", 'result["데이터업데이트일시"]'):
@@ -3782,6 +3875,78 @@ def t80_new_project_flow_db_only(tmp):
     print("  [80] 신규 프로젝트 흐름도 최신본 DB 동기화·이전본 보관·앱 비표시 ✅")
 
 
+def t85_staff_po_work_log_and_edit_priority(tmp):
+    """Synthetic coverage for staff source intake and real-edit priority."""
+    import time
+    import source_dirs
+    import webapp.app_server as app
+
+    source = os.path.join(tmp, "sample.xlsx")
+    with open(source, "wb") as out:
+        out.write(b"synthetic-xlsx")
+
+    old = {
+        "root": app.ROOT,
+        "approved": app._approved_source_roots,
+        "start": app.start_task,
+        "defer": app.defer_task_until_free,
+        "activity": app.WORKCENTER_ACTIVITY,
+        "po_dir": source_dirs.PO_DIR,
+        "work_log_dir": source_dirs.WORK_LOG_DIR,
+    }
+    try:
+        app.ROOT = os.path.join(tmp, "local")
+        app.WORKCENTER_ACTIVITY = os.path.join(tmp, "workcenter_activity.json")
+        app._approved_source_roots = lambda: [tmp]
+        app.start_task = lambda name: (False, f"queued:{name}")
+        app.defer_task_until_free = lambda name: True
+        source_dirs.PO_DIR = os.path.join(tmp, "origin", "po")
+        source_dirs.WORK_LOG_DIR = os.path.join(tmp, "origin", "work-log")
+
+        po = app.save_staff_po_submission(
+            {"staff_slug": "oh-jonghyeon", "source_ref": source,
+             "po_no": "PO-SYNTHETIC", "project_no": "UJ2609999"},
+            {}, "127.0.0.1")
+        assert po["auto_check_queued"] and po["po_compare_files"], po
+        assert os.path.isfile(os.path.join(app.ROOT, "inbox", po["po_compare_files"][0]))
+
+        work_log = app.save_staff_work_log_submission(
+            {"staff_slug": "ryu-jiyeong", "source_ref": source}, {}, "127.0.0.1")
+        assert work_log["auto_check_queued"] and work_log["files"] == ["sample.xlsx"], work_log
+
+        for bad in ("http://127.0.0.1/private.xlsx",
+                    "http://example.com:99999/file.xlsx"):
+            try:
+                app._validate_remote_url(bad)
+                assert False, f"unsafe URL accepted: {bad}"
+            except ValueError:
+                pass
+
+        view = app.record_workcenter_activity("ryu-jiyeong", "view")
+        edit = app.record_workcenter_activity("ryu-jiyeong", "input")
+        assert view["active_until_ts"] == 0 and not view["editing"], view
+        assert edit["active_until_ts"] > time.time() and edit["editing"], edit
+
+        html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+        for marker in (
+            'id="poSubmissionForm"', 'id="poDrop"', "/api/staff/po-upload",
+            'id="v-worklog"', 'class="staff-worklog-nav"', 'id="workLogUploadForm"',
+            "/api/staff/work-log-upload", "openWorkLogReport(true)",
+            "markStaffInput('upload')", "staffHeartbeat('view')",
+        ):
+            assert marker in html, "staff source UI missing: " + marker
+        assert "'yoo-hyeonmin'" not in html
+        print("  [85] staff PO/work-log intake, SSRF guard, edit priority OK")
+    finally:
+        app.ROOT = old["root"]
+        app._approved_source_roots = old["approved"]
+        app.start_task = old["start"]
+        app.defer_task_until_free = old["defer"]
+        app.WORKCENTER_ACTIVITY = old["activity"]
+        source_dirs.PO_DIR = old["po_dir"]
+        source_dirs.WORK_LOG_DIR = old["work_log_dir"]
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -3851,6 +4016,8 @@ if __name__ == "__main__":
         t80_new_project_flow_db_only(tmp)
     with tempfile.TemporaryDirectory() as tmp:
         t84_evidence_verification_sync(tmp)
+    with tempfile.TemporaryDirectory() as tmp:
+        t85_staff_po_work_log_and_edit_priority(tmp)
     t81_terra_sol_handoff_review()
     t82_daily_cutoff()
     t83_agent_dispatch_and_calendar()

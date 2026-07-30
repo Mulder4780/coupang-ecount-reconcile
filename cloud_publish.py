@@ -35,16 +35,43 @@ QUEUECFG = os.path.join(ROOT, "config", "cloud_queue.local.json")
 PUBLISH_FILES = (
     "docs/data.enc", "docs/app.html", "docs/index.html", "docs/manifest.json", "docs/sw.js",
     "docs/icon.svg", "docs/icon-32.png", "docs/icon-180.png",
-    "docs/icon-192.png", "docs/icon-512.png"
+    "docs/icon-192.png", "docs/icon-512.png",
+    "docs/icons/clipboard-copy.svg", "docs/icons/file-spreadsheet.svg",
+    "docs/icons/image-down.svg", "docs/icons/printer.svg",
+    "docs/icons/refresh-cw.svg", "docs/icons/LICENSE-lucide.txt",
+    "docs/icons/bootstrap-tools.svg", "docs/icons/bootstrap-box-seam.svg",
+    "docs/icons/bootstrap-calculator-fill.svg", "docs/icons/LICENSE-bootstrap-icons.txt",
 )
 
 
-def pin():
-    """PIN은 config에서만 온다 — 코드·엑셀·커밋 어디에도 적지 않는다."""
+def snapshot_key():
+    """폰 사본 키와 공개 가능한 PIN 유도 메타데이터를 돌려준다.
+
+    실시간 앱은 PIN 평문을 보관하지 않고 PBKDF2 해시만 보관한다. 게시기는 그
+    해시를 2차 암호화 키로 쓰고, 폰은 사용자가 입력한 PIN에서 같은 해시를 유도한다.
+    """
     try:
-        return str(json.load(open(WEBCFG, encoding="utf-8"))["pin"])
+        cfg = json.load(open(WEBCFG, encoding="utf-8"))
     except Exception:
-        sys.exit("config/webapp.json 에 PIN이 없습니다 — 앱을 한 번 실행하면 만들어집니다.")
+        sys.exit("config/webapp.json 인증 설정을 읽을 수 없습니다.")
+
+    legacy = str(cfg.get("pin") or "").strip()
+    if re.fullmatch(r"\d{4}", legacy):
+        return legacy, None
+
+    admin = ((cfg.get("auth") or {}).get("admin") or {})
+    digest = str(admin.get("hash") or "").strip().lower()
+    salt = str(admin.get("salt") or "").strip().lower()
+    iterations = int(admin.get("iterations") or 0)
+    if not (re.fullmatch(r"[0-9a-f]{64}", digest)
+            and re.fullmatch(r"[0-9a-f]{32}", salt)
+            and iterations >= 100_000):
+        sys.exit("config/webapp.json 관리자 인증 해시가 없어 폰 사본을 암호화할 수 없습니다.")
+    return digest, {
+        "mode": "auth-pbkdf2-sha256",
+        "salt_hex": salt,
+        "iterations": iterations,
+    }
 
 
 def payload():
@@ -188,6 +215,20 @@ def _main():
     if is_input_window():
         print(f"입력 보호시간({input_window_label()}) — 사본 생성·게시 생략")
         return
+    # 앱 아이콘 원본의 내용 해시를 기준으로 PNG·PWA 매니페스트·서비스워커와
+    # 현재 PC의 Chrome 설치앱/바로가기 ICO를 먼저 동기화한다. 로고가 바뀌어도
+    # 사람이 날짜 버전을 손으로 올리지 않아도 다음 게시·앱 재기동 때 자동 갱신된다.
+    icon_sync = os.path.join(ROOT, "webapp", "sync_app_icons.ps1")
+    if os.name == "nt" and os.path.isfile(icon_sync):
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", icon_sync],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=60,
+        )
+        if result.returncode:
+            print("  ! 앱 아이콘 자동동기화 실패:", (result.stderr or "")[-200:])
+        elif (result.stdout or "").strip():
+            print(" ", (result.stdout or "").strip().splitlines()[-1])
     import csos_crypto as C
     assert C.self_test(), "암호 자체검증 실패 — 올리면 폰에서 못 연다"
 
@@ -198,7 +239,11 @@ def _main():
     # (암호문은 무작위에 가까워서 나중에 줄이면 하나도 안 줄어든다).
     # 폰에서는 브라우저 내장 DecompressionStream('deflate')이 그대로 푼다.
     packed = zlib.compress(raw, 9)
-    sealed = C.seal(packed, pin())
+    key, pin_auth = snapshot_key()
+    sealed = C.seal(packed, key)
+    if pin_auth:
+        # salt·반복 횟수는 검증 메타데이터일 뿐 비밀이 아니다. 해시와 PIN은 게시하지 않는다.
+        sealed["pin_auth"] = pin_auth
     sealed["zip"] = "deflate"
 
     os.makedirs(DOCS, exist_ok=True)
