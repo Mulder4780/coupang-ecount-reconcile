@@ -1113,8 +1113,8 @@ def t6_webapp():
         # 메인 페이지 서빙
         html = urllib.request.urlopen(base + "/").read().decode("utf-8")
         assert "Coupang Service Operations System" in html and "tabbar" in html and "d_report" in html
-        # 제공받은 CSOS 아이콘을 앱·캡처에 공통 사용하고, 유니버셜 CI는
-        # 데스크톱에서 기존 118px의 2.5배(295px)로 표시한다.
+        # 제공받은 CSOS 아이콘을 앱·캡처에 공통 사용한다. 회사 CI는 상하 배치한
+        # 밝은 배경판 안에서 잘리지 않아야 하며, 컨테이너는 기존 295px 폭을 보존한다.
         assert '/icon-192.png?v=csos-20260730' in html
         assert 'class="logo app-icon"' in html and "loadAppIconImg" in html
         app_server_src = open(os.path.join(ROOT, "webapp", "app_server.py"),
@@ -1124,7 +1124,9 @@ def t6_webapp():
         assert os.path.isfile(os.path.join(ROOT, "webapp", "sync_app_icons.ps1"))
         assert os.path.isfile(os.path.join(ROOT, "webapp", "build_windows_icon.ps1"))
         assert os.path.isfile(os.path.join(ROOT, "webapp", "install_staff_shortcut.ps1"))
-        assert ".uni-app-brand{width:295px;height:42px" in html.replace(" ", "")
+        compact_html = html.replace(" ", "")
+        assert ".appbar-brand-stack{min-width:295px}" in compact_html
+        assert ".uni-app-brand{width:196px;height:26px" in compact_html
         assert "drawUniversalLogo" in html and "universal-lift-horizontal.png" in html
         # 공통 헤더는 시스템 식별/회사 로고/상태의 3구역이며, 회사 로고는
         # 유니버셜리프트를 위에 두고 쿠팡을 그 아래에 둔다.
@@ -1157,8 +1159,7 @@ def t6_webapp():
         assert "maybeShowInstallCard()" in html and "display-mode: standalone" in html
         # 아이콘 참조는 스프라이트(<use href="#i-...">)다 — 경로가 아니라 **이름**으로 확인한다.
         for icon_name in ("bootstrap-person-workspace",
-                          "bootstrap-person-badge-fill",
-                          "bootstrap-person-vcard-fill"):
+                          "bootstrap-person-badge-fill"):
             assert f"#i-{icon_name}" in html, "Bootstrap 업무센터 아이콘 누락: " + icon_name
         # PIN 원문을 브라우저에 계속 보관하지 않고, 서버 서명 쿠키를 복원한다.
         assert "/api/auth/session" in html and "restoreRoleSession" in html
@@ -3017,6 +3018,7 @@ def t58_check_hub_detail_and_capture():
     """[58] 보고 아래 확인 필요 전용 화면은 유형·담당자·원기록·캡처까지 이어진다."""
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     phone = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
 
     # 메뉴는 사용자가 지정한 위치(보고 바로 아래, 기록 위)에 있어야 한다.
     daily = live.index('data-v="daily"')
@@ -3059,7 +3061,10 @@ def t58_check_hub_detail_and_capture():
 
     # 확정된 내부 확인 책임을 적용하고, 그 밖의 현장 확인만 원천 AS/PM 담당기사로 보완한다.
     assert "const CHECK_OWNER_RULES" in live and "function confirmedCheckOwner(" in live
-    assert "변재선(회계)" in live and "캠프·일정, 카톡/밴드, 현장자료, 완료일 확인" in live
+    assert "캠프·일정, 카톡/밴드, 현장자료, 완료일, 거래명세서, 세금계산서, 입금, 금액 불일치 확인" in live
+    assert "{name:'변재선(회계)'" not in live, "이관 완료한 변재선 확인 책임이 앱에 남아 있다"
+    assert 'STAFF_CENTER_ALIASES = {"byeon-jaeseon": "ryu-jiyeong"}' in server
+    assert '"Location": f"/staff/{target}"' in server
     assert "const CHECK_OWNER_SCOPE_PROPOSALS" not in live and "openPendingOwnerScope" not in live
     assert "first&&first.원천업무ID ? rowById(first.원천업무ID)" in live
     assert "원장 담당자 칸 확인" in live
@@ -3198,8 +3203,8 @@ def t72_project_first_representative_report():
     from responsibility import confirmed_owner
     assert confirmed_owner("밴드 게시 미확인", "밴드", "권오철") == "류지영"
     assert confirmed_owner("캠프명 비어 있음", "빈칸", "김준형") == "류지영"
-    assert confirmed_owner("세금계산서 미발행", "정산") == "변재선(회계)"
-    assert confirmed_owner("작업금액 불일치", "금액") == "변재선(회계)"
+    assert confirmed_owner("세금계산서 미발행", "정산") == "류지영"
+    assert confirmed_owner("작업금액 불일치", "금액") == "류지영"
     assert confirmed_owner("PO 원본 누락", "원본자료") == "오종현"
     assert confirmed_owner("견적서 원천자료 누락", "원본자료") == "오종현"
     assert confirmed_owner("입금 원천자료 누락", "원본자료") == "오종현"
@@ -3569,7 +3574,57 @@ def t91_icon_sprite_and_ios_theme():
     assert "-apple-system" in live, "SF Pro 글꼴 스택이 아니다"
     # 탭바 유리 효과는 지원 안 되는 브라우저를 위해 @supports 로 감싼다
     assert "backdrop-filter" in live and "@supports" in live, "유리 효과에 폴백이 없다"
-    print(f"  [91] 아이콘 스프라이트({len(symbols)}개·깨짐 0)·currentColor·iOS 외형 ✅")
+    # 검은 로고/아이콘이 남색 헤더·흰 버튼에서 사라지지 않아야 한다.
+    assert ".appbar-brand-stack{background:rgba(255,255,255,.94)" in live
+    assert ".account-pin img,.account-pin svg" in live and "fill:#24365F" in live
+    assert ".notice-bell svg{width:21px;height:21px;fill:#24365F" in live
+    # 상단 배지는 absolute 로 떠 있으면 긴 제목과 다시 겹친다. 제목·배지는 같은 flex 행이어야 한다.
+    assert '.hero-top{display:flex' in live and '.hero .badge{position:static' in live
+    assert '<div class="hero-top">' in live and '<span class="hero-sub">' in live
+    assert ".hero::before" not in live and ".hero::after" not in live, "장식 원이 다시 생겼다"
+    print(f"  [91] 아이콘 스프라이트({len(symbols)}개·깨짐 0)·currentColor·iOS·히어로 정렬 ✅")
+
+
+def t92_excel_recalc_agent():
+    """엑셀을 에이전트가 알아서 열고 닫는다 (2026-07-30 지시).
+
+    ★ 이 도구는 **사람의 파일을 저장**한다. 그래서 판단 순서가 곧 안전장치다:
+      대기 0이면 안 열고 · 복구 경고/SHA 승인이 없으면 안 열고 ·
+      **사람이 열어 두었으면 물러난다.** 남이 편집 중인 파일을 자동화가 저장하면
+      그 작업이 날아간다.
+    """
+    import excel_recalc as X
+    assert X.self_test(), "excel_recalc 자체 검증 실패"
+
+    p = r"Z:\a\쿠팡_통합업무_일일보고_관리대장_v323.xlsx"
+    # 사람이 열어 두었으면 어떤 경우에도 진행하지 않는다
+    ok, why = X.decide({"대기합계": 99}, p, True, True, True)
+    assert not ok and "열어 두었" in why, why
+    # 복구 경고가 해소되지 않았으면 대기 건이 있어도 정본을 열지 않는다
+    ok, why = X.decide({"대기합계": 99}, p, False, True, False)
+    assert not ok and "안전 승인" in why, why
+    # 원본을 덮어쓰지 않는다(항상 vN+1)
+    assert X.next_version_path(p).endswith("_v324.xlsx")
+    assert X.next_version_path(p) != p
+
+    # 새 파이썬 의존성을 쓰지 않는다(프로젝트 원칙) — 엑셀은 PowerShell COM 으로 부른다
+    src = open(os.path.join(ROOT, "excel_recalc.py"), encoding="utf-8").read()
+    # 문서에 "pywin32 없이" 라고 적혀 있으므로 문자열이 아니라 **실제 import** 를 본다.
+    assert not re.search(r"^\s*(import|from)\s+(win32com|win32|pythoncom)\b", src, re.M), \
+        "새 의존성(pywin32)을 끌어들였다"
+    assert "Excel.Application" in src and "powershell" in src
+    # 좀비 EXCEL.EXE 를 남기지 않는다
+    assert "finally" in X.PS_RECALC and "$x.Quit()" in X.PS_RECALC
+    assert "finally" in X.PS_AVAILABLE and "$x.Quit()" in X.PS_AVAILABLE
+    # 경로에 공백·★ 가 섞여 있어 인자 전달은 환경변수로 한다(2026-07-30 실패 경험)
+    assert "$env:CSOS_XL_SRC" in X.PS_RECALC, "경로를 명령줄 인자로 넘기면 깨진다"
+    # 일일 실행에 연결
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "excel_recalc.py" in daily
+    assert "excel_recalc_clearance.json" in src and "sha256" in src
+    assert "recalc-" in src and "os.replace(tmp_dst, dst)" in src
+    assert "if os.path.exists(dst)" in src, "기존 vN+1을 덮어쓸 수 있다"
+    print("  [92] 엑셀 자동 재계산 — 복구/SHA관문·임시본 검증·덮어쓰기/좀비 방지 ✅")
 
 
 def t77_side_work_single_switch():
@@ -4228,6 +4283,7 @@ if __name__ == "__main__":
     t78_recalc_pending_visible()
     t90_ip_guard_and_archive()
     t91_icon_sprite_and_ios_theme()
+    t92_excel_recalc_agent()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:

@@ -55,6 +55,9 @@ STAFF_CENTERS = {
             "정기점검 예정·실행·미실시 사유 입력",
             "카카오톡 정기점검방·돌발점검방 원본 업로드",
             "택배 발송·현장 조치 완료일과 근거 첨부",
+            "거래명세서·세금계산서 발행 확인",
+            "입금일·입금액·잔여 미수금 확인",
+            "ERP 금액 불일치와 청구 미등록 보완",
         ],
     },
     "oh-jonghyeon": {
@@ -65,15 +68,11 @@ STAFF_CENTERS = {
             "프로젝트번호·캠프·금액 불일치 보완",
         ],
     },
-    "byeon-jaeseon": {
-        "name": "변재선(회계)", "title": "변재선 회계 업무센터",
-        "checklist": [
-            "거래명세서·세금계산서 발행 확인",
-            "입금일·입금액·잔여 미수금 확인",
-            "ERP 금액 불일치와 청구 미등록 보완",
-        ],
-    },
 }
+
+# 변재선 업무는 2026-07-30 류지영에게 이관했다. 공개된 기존 주소/PWA 바로가기는
+# 깨뜨리지 않고 새 담당자의 고정 주소로 영구 연결한다.
+STAFF_CENTER_ALIASES = {"byeon-jaeseon": "ryu-jiyeong"}
 
 
 def staff_centers_payload():
@@ -2860,7 +2859,7 @@ def get_issues():
     """07_불일치누락현황 — 엑셀의 '검증 안 된·확인해야 할' 항목 그대로"""
     if DEMO:
         return {"rows": [{"문제유형": "세금계산서 미발행", "업무ID": "JS-2607-002", "캠프명": "울산2캠프",
-                          "문제내용": "명세서 발행 후 계산서 미발행", "담당자": "변재선(회계)"}], "cols": []}
+                          "문제내용": "명세서 발행 후 계산서 미발행", "담당자": "류지영"}], "cols": []}
     r = _fresh("issues")
     if r:
         return r
@@ -3639,6 +3638,12 @@ class H(BaseHTTPRequestHandler):
         p = self.path.split("?")[0]
         staff_match = re.fullmatch(r"/staff/([a-z0-9-]+)", p)
         staff_slug = staff_match.group(1) if staff_match else ""
+        if staff_slug in STAFF_CENTER_ALIASES:
+            target = STAFF_CENTER_ALIASES[staff_slug]
+            return self._send(
+                308, b"", "text/plain; charset=utf-8",
+                headers={"Location": f"/staff/{target}"},
+            )
         if staff_slug and staff_slug not in STAFF_CENTERS:
             return self._send(404, {"error": "등록되지 않은 업무센터"})
         if p in ("/", "/index.html", "/ryu") or staff_slug:

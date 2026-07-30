@@ -113,15 +113,21 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .appbar .sub{font-size:11px;color:#8FA3D9;font-variant-numeric:tabular-nums}
 .appbar #clock{font-size:clamp(18px,1.7vw,22px);font-weight:800;letter-spacing:-.02em;
   color:#5D6C8D;white-space:nowrap}
+/* ★ 두 로고는 **검은 글자 PNG** 라 남색 헤더 위에서는 읽히지 않았다(사용자 지적).
+   PNG 는 색을 바꿀 수 없으니 배경을 준다 — 밝은 판 위에 올리면 원래 색 그대로 또렷해진다.
+   opacity 로 흐리게 하던 것도 없앤다(안 그래도 안 보이는데 더 흐리게 할 이유가 없다). */
+.appbar-brand-stack{background:rgba(255,255,255,.94);border-radius:10px;padding:5px 9px;
+  gap:3px;box-shadow:0 2px 8px rgba(8,18,58,.22)}
 .coupang-app-brand,.uni-app-brand{display:block;object-fit:contain;object-position:center;flex:none}
-.coupang-app-brand{width:78px;height:22px}
-.uni-app-brand{width:295px;height:42px;opacity:.82;border-radius:3px}
+.coupang-app-brand{width:78px;height:20px}
+.uni-app-brand{width:196px;height:26px;opacity:1}
 @media(max-width:599px){
   .appbar{gap:8px;padding-left:10px;padding-right:10px}
   .appbar-identity{gap:8px}
   .appbar-brand-stack{gap:1px}
-  .coupang-app-brand{width:54px;height:20px}
-  .uni-app-brand{width:96px;height:24px;opacity:.74}
+  .appbar-brand-stack{padding:4px 7px;border-radius:8px}
+  .coupang-app-brand{width:54px;height:16px}
+  .uni-app-brand{width:106px;height:20px;opacity:1}
   .appbar-status{gap:6px}
   .appbar #demobadge{display:none}
   .appbar #clock{font-size:15px}
@@ -226,21 +232,37 @@ svg.bi{width:1.05em;height:1.05em;flex:none;fill:currentColor;vertical-align:-.1
 @media(max-width:480px){.calendar-form{grid-template-columns:1fr}.calendar-frame iframe{height:570px}}
 
 /* ═══ 히어로 배너 ═══ */
-.hero{position:relative;border-radius:18px;overflow:hidden;margin-bottom:14px;color:#fff;
-  background:linear-gradient(120deg,#0E1B3F 0%,#1B3A8F 55%,#2452E6 100%);
-  padding:22px 22px 20px;box-shadow:0 10px 30px -8px rgba(14,27,63,.45)}
-.hero::before{content:"";position:absolute;right:-60px;top:-70px;width:240px;height:240px;border-radius:50%;
-  background:radial-gradient(circle,rgba(91,140,255,.35),transparent 70%)}
-.hero::after{content:"";position:absolute;right:60px;bottom:-90px;width:200px;height:200px;border-radius:50%;
-  background:radial-gradient(circle,rgba(61,220,132,.18),transparent 70%)}
-.hero .hi{font-size:12px;color:#9FB4E8;font-weight:700;letter-spacing:.4px}
-.hero h2{font-size:21px;font-weight:800;letter-spacing:-.4px;margin:3px 0 10px;position:relative;z-index:1}
-.hero .hstats{display:flex;gap:18px;flex-wrap:wrap;position:relative;z-index:1}
-.hero .hstat{font-size:11.5px;color:#9FB4E8;font-weight:700}
-.hero .hstat b{display:block;font-size:16px;color:#fff;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
-.hero .badge{position:absolute;top:18px;right:20px;z-index:1;display:flex;align-items:center;gap:6px;
-  background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:99px;
-  padding:5px 12px;font-size:11px;font-weight:700;backdrop-filter:blur(4px)}
+/* ── 상단 헤더 ─────────────────────────────────────────────────
+   사용자 지적(2026-07-30): "빈틈없이 깔끔하게, 너무 지저분해".
+   무엇이 지저분했나 — ① 배지가 absolute 라 긴 영문 제목과 겹쳤다
+   ② 장식 원 2개가 글자 뒤에서 어른거렸다 ③ 통계가 flex-wrap 이라 줄이 들쭉날쭉했다.
+   고친 방식 — 제목과 배지를 **한 행에 나란히**(겹칠 자리를 없앤다), 장식 제거,
+   통계는 내용 폭을 존중하는 flex 정렬. iOS 는 장식보다 정렬로 깔끔함을 만든다. */
+.hero{position:relative;border-radius:var(--r-lg);overflow:hidden;margin-bottom:12px;color:#fff;
+  background:linear-gradient(135deg,#0A1430 0%,#123A8F 58%,#0A6CFF 100%);
+  padding:16px 18px 15px}
+.hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.hero-title{min-width:0}
+.hero .hi{font-size:11.5px;color:rgba(255,255,255,.62);font-weight:600;letter-spacing:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hero h2{font-size:22px;font-weight:700;letter-spacing:-.5px;margin:1px 0 0;line-height:1.2}
+.hero .hero-sub{display:block;font-size:10.5px;font-weight:600;letter-spacing:.3px;
+  color:rgba(255,255,255,.5);margin-top:2px}
+/* 통계: 줄바꿈으로 어긋나지 않게 균등 칸. 숫자는 자릿수가 흔들리지 않는 tabular-nums. */
+/* ★ 균등 grid(1fr)로 하면 칸 폭이 같아져 "460,119,530원" 같은 긴 값이 잘렸다.
+   내용에 맞춰 늘어나는 flex 로 바꾼다 — 긴 항목은 넓게, 짧은 항목은 좁게 가져가고
+   flex-grow 가 남는 자리를 나눠 가져 **줄 끝에 빈틈이 남지 않는다**(사용자 지적). */
+.hero .hstats{display:flex;flex-wrap:wrap;gap:9px 14px;margin-top:13px}
+.hero .hstat{flex:1 1 auto;min-width:0;font-size:10.5px;color:rgba(255,255,255,.6);
+  font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hero .hstat b{display:block;font-size:16px;font-weight:700;color:#fff;
+  font-variant-numeric:tabular-nums;letter-spacing:-.5px;line-height:1.3;
+  overflow:hidden;text-overflow:ellipsis}
+/* 배지는 더 이상 떠 있지 않다 — 제목과 같은 행에서 자기 자리를 차지한다 */
+.hero .badge{position:static;flex:none;display:inline-flex;align-items:center;gap:5px;
+  background:rgba(255,255,255,.14);border:.5px solid rgba(255,255,255,.2);border-radius:99px;
+  padding:4px 10px;font-size:10.5px;font-weight:600;white-space:nowrap;
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 
 /* ═══ 유수비 대표 예외보고 — 정상 상세은 접고 예외만 전면에 ═══ */
 .rep-card{border-color:#C8D5F3;background:
@@ -1105,11 +1127,15 @@ body.ryu-mode .tabbar button[data-v="report"]{display:none}
 .notice-wrap{position:relative;flex:none}
 .account-pin{width:40px;height:40px;border:1px solid #D5DDF0;border-radius:12px;background:#fff;
   display:grid;place-items:center;box-shadow:0 3px 10px rgba(16,24,40,.08);transition:.15s}
-.account-pin img{width:20px;height:20px}.account-pin:hover{border-color:#8EA6F4;transform:translateY(-1px)}
+/* ★ 2026-07-30: <img> → 스프라이트 <svg> 로 바꾸면서 이 규칙이 안 먹게 됐고,
+   색도 .appbar 의 흰색을 상속해 **흰 버튼 위 흰 아이콘**(빈 사각형)이 됐다.
+   헤더의 흰 버튼 안에서는 아이콘이 어두워야 보인다 — 크기와 색을 함께 못박는다. */
+.account-pin img,.account-pin svg{width:20px;height:20px;fill:#24365F;color:#24365F}
+.account-pin:hover{border-color:#8EA6F4;transform:translateY(-1px)}
 .account-pin:active{transform:scale(.94)}
 .notice-bell{position:relative;width:40px;height:40px;border:1px solid #D5DDF0;border-radius:12px;
   background:#fff;display:grid;place-items:center;box-shadow:0 3px 10px rgba(16,24,40,.08)}
-.notice-bell svg{width:21px;height:21px}.notice-badge{position:absolute;right:-5px;top:-6px;min-width:20px;height:20px;
+.notice-bell svg{width:21px;height:21px;fill:#24365F;color:#24365F}   /* 흰 버튼 위 — 어두운 아이콘 */.notice-badge{position:absolute;right:-5px;top:-6px;min-width:20px;height:20px;
   padding:0 5px;border-radius:999px;background:#D92D20;color:#fff;font-size:10px;font-weight:900;
   display:none;align-items:center;justify-content:center;border:2px solid #fff}
 .notice-panel{position:absolute;right:0;top:48px;width:min(390px,calc(100vw - 22px));max-height:60vh;overflow:auto;
@@ -1301,10 +1327,17 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 
   <!-- 대시보드 -->
   <section class="view active" id="v-dash">
+    <!-- ★ 2026-07-30 정리: 배지가 position:absolute 라 긴 제목과 **겹치고** 있었다.
+         이제 제목줄과 배지를 한 행에 나란히 두어 겹칠 자리가 없다.
+         통계는 긴 금액을 자르지 않도록 내용 폭에 맞춰 자리를 나눈다. -->
     <div class="hero">
-      <div class="badge"><span class="dot" style="box-shadow:none"></span><span id="heroAgent">에이전트 대기</span></div>
-      <div class="hi" id="heroDate"></div>
-      <h2>Coupang Service Operations System — 현황</h2>
+      <div class="hero-top">
+        <div class="hero-title">
+          <div class="hi" id="heroDate"></div>
+          <h2>업무 현황<span class="hero-sub">Coupang Service Operations</span></h2>
+        </div>
+        <div class="badge"><span class="dot" style="box-shadow:none"></span><span id="heroAgent">에이전트 대기</span></div>
+      </div>
       <div class="hstats" id="heroStats"></div>
     </div>
     <!-- 원장엔 올라왔는데 엑셀이 아직 계산 안 해서 화면에 없는 건 — 숫자가 틀린 게 아니라 대기 중이다 -->
@@ -1317,11 +1350,9 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	      <div class="muted">담당자별 고정 주소에서 과거 목록 확인·신규 입력·근거 첨부·자동 반영을 처리합니다.</div>
 	      <div class="workcenter-buttons" id="workcenterButtons">
 	        <a class="workcenter-person" href="/staff/ryu-jiyeong" target="_blank" rel="noopener">
-	          <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-workspace"/></svg></span><span class="wc-copy">류지영<small>돌발AS · 정기점검</small></span><span class="wc-arrow">↗</span></a>
+	          <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-workspace"/></svg></span><span class="wc-copy">류지영<small>돌발AS · 정기점검 · 회계</small></span><span class="wc-arrow">↗</span></a>
 	        <a class="workcenter-person" href="/staff/oh-jonghyeon" target="_blank" rel="noopener">
 	          <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-badge-fill"/></svg></span><span class="wc-copy">오종현<small>PO · 구매 원천자료</small></span><span class="wc-arrow">↗</span></a>
-	        <a class="workcenter-person" href="/staff/byeon-jaeseon" target="_blank" rel="noopener">
-	          <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-vcard-fill"/></svg></span><span class="wc-copy">변재선<small>회계 · 세금계산서 · 입금</small></span><span class="wc-arrow">↗</span></a>
 	      </div>
 	    </div>
 	    <div class="card rep-card" id="repCard">
@@ -1968,11 +1999,9 @@ const APP_YEAR = '2026';
 let settleRows = [], reports = [], curReport = 0, polling = null;
 const STAFF_CENTERS = {
   'ryu-jiyeong':{name:'류지영',title:'류지영 쿠팡 AS 및 정기점검 업무센터',assignee:'류지영',
-    checklist:['신규 돌발AS 접수와 처리상태 확인','정기점검 예정·실행·미실시 사유 입력','카카오톡 정기점검방·돌발점검방 원본 업로드','택배 발송·현장 조치 완료일과 근거 첨부']},
+    checklist:['신규 돌발AS 접수와 처리상태 확인','정기점검 예정·실행·미실시 사유 입력','카카오톡 정기점검방·돌발점검방 원본 업로드','택배 발송·현장 조치 완료일과 근거 첨부','거래명세서·세금계산서 발행 확인','입금일·입금액·잔여 미수금 확인','ERP 금액 불일치와 청구 미등록 보완']},
   'oh-jonghyeon':{name:'오종현',title:'오종현 업무센터',assignee:'오종현',
     checklist:['PO 원본·견적서 수신 여부 확인','구매·입금 원천자료 누락 확인','프로젝트번호·캠프·금액 불일치 보완']},
-  'byeon-jaeseon':{name:'변재선(회계)',title:'변재선 회계 업무센터',assignee:'변재선',
-    checklist:['거래명세서·세금계산서 발행 확인','입금일·입금액·잔여 미수금 확인','ERP 금액 불일치와 청구 미등록 보완']},
 };
 const staffSlug=(()=>{
   const m=location.pathname.match(/^\/staff\/([a-z0-9-]+)\/?$/);
@@ -5548,8 +5577,7 @@ function renderBoard(){
    요약 → 유형/담당자 → 검색 목록 → 정확한 업무기록 → 전달 이미지로 이어 준다. */
 function checkTypeOf(r){ return String(r.문제유형||r.경고내용||r.검증결과||'기타 확인').trim(); }
 const CHECK_OWNER_RULES=[
-  {name:'류지영',scope:'캠프·일정, 카톡/밴드, 현장자료, 완료일 확인',role:'운영 확인 담당'},
-  {name:'변재선(회계)',scope:'거래명세서, 세금계산서, 입금, 금액 불일치 확인',role:'회계 확인 담당'},
+  {name:'류지영',scope:'캠프·일정, 카톡/밴드, 현장자료, 완료일, 거래명세서, 세금계산서, 입금, 금액 불일치 확인',role:'운영·회계 확인 담당'},
   {name:'오종현',scope:'PO 원본·견적서, 구매·입금 원천자료 취합·누락 확인',role:'원천자료 취합 담당'},
   {name:'유현민',scope:'PO, ERP·원장 미등록, 시스템 연결 확인',role:'시스템 확인 담당'}
 ];
@@ -5561,7 +5589,7 @@ function confirmedCheckOwner(r){
   if(cat==='PO'||cat==='ERP'||upper==='PO'||upper.startsWith('PO ')||
      upper==='ERP'||upper.startsWith('ERP ')||/원장\s*미등록|시스템\s*연결/.test(type)) return '유현민';
   if(category==='정산'||/거래명세서|명세서|세금계산서|입금|수금|금액|미청구|청구|회계/.test(type))
-    return '변재선(회계)';
+    return '류지영';
   if(/캠프|일정|예정일|접수일자|카톡|밴드|현장\s*자료|사진|완료일|완료보고|작업일|점검일|날짜/.test(type))
     return '류지영';
   return '';

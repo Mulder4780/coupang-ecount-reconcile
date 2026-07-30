@@ -8,11 +8,9 @@ const APP_YEAR = '2026';
 let settleRows = [], reports = [], curReport = 0, polling = null;
 const STAFF_CENTERS = {
   'ryu-jiyeong':{name:'류지영',title:'류지영 쿠팡 AS 및 정기점검 업무센터',assignee:'류지영',
-    checklist:['신규 돌발AS 접수와 처리상태 확인','정기점검 예정·실행·미실시 사유 입력','카카오톡 정기점검방·돌발점검방 원본 업로드','택배 발송·현장 조치 완료일과 근거 첨부']},
+    checklist:['신규 돌발AS 접수와 처리상태 확인','정기점검 예정·실행·미실시 사유 입력','카카오톡 정기점검방·돌발점검방 원본 업로드','택배 발송·현장 조치 완료일과 근거 첨부','거래명세서·세금계산서 발행 확인','입금일·입금액·잔여 미수금 확인','ERP 금액 불일치와 청구 미등록 보완']},
   'oh-jonghyeon':{name:'오종현',title:'오종현 업무센터',assignee:'오종현',
     checklist:['PO 원본·견적서 수신 여부 확인','구매·입금 원천자료 누락 확인','프로젝트번호·캠프·금액 불일치 보완']},
-  'byeon-jaeseon':{name:'변재선(회계)',title:'변재선 회계 업무센터',assignee:'변재선',
-    checklist:['거래명세서·세금계산서 발행 확인','입금일·입금액·잔여 미수금 확인','ERP 금액 불일치와 청구 미등록 보완']},
 };
 const staffSlug=(()=>{
   const m=location.pathname.match(/^\/staff\/([a-z0-9-]+)\/?$/);
@@ -3381,8 +3379,7 @@ function renderBoard(){
    요약 → 유형/담당자 → 검색 목록 → 정확한 업무기록 → 전달 이미지로 이어 준다. */
 function checkTypeOf(r){ return String(r.문제유형||r.경고내용||r.검증결과||'기타 확인').trim(); }
 const CHECK_OWNER_RULES=[
-  {name:'류지영',scope:'캠프·일정, 카톡/밴드, 현장자료, 완료일 확인',role:'운영 확인 담당'},
-  {name:'변재선(회계)',scope:'거래명세서, 세금계산서, 입금, 금액 불일치 확인',role:'회계 확인 담당'},
+  {name:'류지영',scope:'캠프·일정, 카톡/밴드, 현장자료, 완료일, 거래명세서, 세금계산서, 입금, 금액 불일치 확인',role:'운영·회계 확인 담당'},
   {name:'오종현',scope:'PO 원본·견적서, 구매·입금 원천자료 취합·누락 확인',role:'원천자료 취합 담당'},
   {name:'유현민',scope:'PO, ERP·원장 미등록, 시스템 연결 확인',role:'시스템 확인 담당'}
 ];
@@ -3394,7 +3391,7 @@ function confirmedCheckOwner(r){
   if(cat==='PO'||cat==='ERP'||upper==='PO'||upper.startsWith('PO ')||
      upper==='ERP'||upper.startsWith('ERP ')||/원장\s*미등록|시스템\s*연결/.test(type)) return '유현민';
   if(category==='정산'||/거래명세서|명세서|세금계산서|입금|수금|금액|미청구|청구|회계/.test(type))
-    return '변재선(회계)';
+    return '류지영';
   if(/캠프|일정|예정일|접수일자|카톡|밴드|현장\s*자료|사진|완료일|완료보고|작업일|점검일|날짜/.test(type))
     return '류지영';
   return '';
