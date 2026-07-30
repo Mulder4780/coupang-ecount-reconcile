@@ -2439,8 +2439,17 @@ def representative_summary(works, settlements, base_date=""):
     statement_rows = []
     unissued_rows = []
     for kind, rows in statement_groups.items():
-        issued = [r for r in rows if str(r.get("명세서번호") or "").strip() or
-                  str(r.get("명세서") or "").strip() in {"있음", "발행", "발행완료", "완료"}]
+        # 거래명세서 번호를 별도로 적지 않고 발행일만 기록한 과거 원장이 많다.
+        # 발행일이 있는데도 번호가 비었다는 이유만으로 미발행으로 세면 2026년
+        # 완료분 대부분이 다시 경고로 살아난다. 번호·상태·발행일 중 하나라도
+        # 확인되면 발행 완료 근거로 인정한다.
+        issued = [
+            r for r in rows
+            if str(r.get("명세서번호") or "").strip()
+            or str(r.get("명세서") or "").strip()
+            in {"있음", "발행", "발행완료", "완료", "반영완료"}
+            or norm_date(r.get("명세서발행일"))
+        ]
         unissued = [r for r in rows if r not in issued]
         dates = sorted(d for d in (norm_date(r.get("완료일")) for r in rows) if d)
         item = {

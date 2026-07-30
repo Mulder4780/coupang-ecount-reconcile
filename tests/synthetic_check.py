@@ -1194,7 +1194,9 @@ def t6_webapp():
         assert pg.get("build"), "ping 응답에 build 값 없음"
         # 당일 업무 실적: 항목마다 어떤 건인지 상세가 붙고, 숫자가 어긋나면 알려야 한다
         assert "dayDetail(" in html and "dayRows(" in html, "당일 실적 상세 누락"
-        assert "앱에서 찾은 건" in html, "보고 숫자와 불일치 알림 누락"
+        # 문구는 바뀔 수 있다(2026-07-30: "앱에서 찾은 건" → "연결 프로젝트"). 지켜야 하는 것은
+        # **불일치를 숨기지 않는 동작**이다 — 그래서 문구가 아니라 그 로직이 있는지 본다.
+        assert "const diff = Number.isFinite(n) && n !== rows.length;" in html, "보고 숫자와 목록 건수 불일치 판정이 없다"
         for k in ("신규접수", "점검완료", "거래명세서발행", "입금건수"):
             assert f"'{k}'" in html, f"{k} 매핑 누락"
         # 문제 코드는 축약어가 아니라 '무엇이 비었고 무엇을 해야 하는지'로 풀어 써야 한다
@@ -3128,6 +3130,10 @@ def t72_project_first_representative_report():
         {"정산ID": "JS-2607-002", "프로젝트NO": "UJ2600011", "업무구분": "정기점검",
          "캠프명": "점검A", "완료일": "2026-07-05", "비용구분": "유상",
          "공급가액": 200000, "명세서번호": "2026/07/05-1"},
+        {"정산ID": "JS-2607-003", "프로젝트NO": "UJ2600012", "업무구분": "정기점검",
+         "캠프명": "점검B", "완료일": "2026-07-06", "비용구분": "유상",
+         "공급가액": 300000, "명세서번호": "", "명세서": "없음",
+         "명세서발행일": "2026-07-07"},
     ]
     report = representative_summary(works, settlements, "2026-07-29")
     assert report["돌발AS"]["전산상미완료"] == 1 and report["돌발AS"]["D+2초과"] == 1
@@ -3136,8 +3142,12 @@ def t72_project_first_representative_report():
     assert report["정기점검"]["목표누계"] <= report["정기점검"]["전체대상"]
     docs = {x["업무유형"]: x for x in report["거래명세서"]["업무유형별"]}
     assert docs["돌발 AS"]["발행대상"] == 1 and docs["돌발 AS"]["미발행"] == 1
+    assert docs["정기점검"]["발행대상"] == 2 and docs["정기점검"]["미발행"] == 0, \
+        "명세서 발행일이 확인된 완료 건을 번호 공란만으로 미발행 처리했다"
     assert docs["신규·납품·설치"]["발행대상"] == 0 and docs["신규·납품·설치"]["발행률"] is None
-    assert len(report["업무기준확인필요"]) == 5
+    assert (
+        len(report["업무기준확인필요"]) + len(report["업무기준확정"])
+    ) == 5, "저장된 확정 여부와 무관하게 운영 기준 5개가 모두 유지돼야 한다"
     assert not any("류지영 확인 범위" in x["기준"] for x in report["업무기준확인필요"])
     assert not any("변재선(회계) 확인 범위" in x["기준"] for x in report["업무기준확인필요"])
 
@@ -3162,6 +3172,10 @@ def t72_project_first_representative_report():
                   "function renderRepresentative(",
                   "function openRepresentativeList(", 'id="checkpolicies"', "press-pop",
                   "@keyframes viewEnter", "PO 원본·견적서, 구매·입금 원천자료 취합·누락 확인"):
+        assert token in live, token + " 누락"
+    for token in ("function execReportedCount(", "정기점검 이상 상세 미연결",
+                  "확인 전까지 확정 이상 건으로 보지 않습니다",
+                  "세부 미확정 · 원장 요약"):
         assert token in live, token + " 누락"
     for route in ("/api/v1/reports/daily/exceptions", "/api/v1/as-requests/backlog-detail",
                   "/api/v1/inspections/quarter-progress", "/api/v1/statements/unissued"):
@@ -3355,6 +3369,30 @@ def t78_recalc_pending_visible():
     assert "'작업 공급가액'" in live
     assert "계산서 발행 후 미입금" in live, "미수금이 '떼인 돈'으로 읽힌다"
     print("  [78] 재계산 대기 안내 + 라벨 모호성 제거(같은 값 한 이름·금액 종류 명시) ✅")
+
+
+def t84_duplicate_source_files(tmp):
+    """같은 내용의 원천 파일이 여러 벌 있어도 금액이 배수로 부풀지 않는다.
+
+    ★ 2026-07-30 실사고: 원본 자료 정리가 판매조회를 3벌 남겼고(SHA256 동일),
+      billing_fill 이 전부 읽어 공급가액이 36.2억 → 108.6억으로 **3배**가 됐다.
+      파일명 규칙(`__dup_`)으로 거르면 다른 이름으로 다시 뚫린다 — 내용으로 판정해야 한다.
+    """
+    import billing_fill as B
+    a = os.path.join(tmp, "판매조회_x.xlsx")
+    open(a, "wb").write(b"same-bytes")
+    for name in ("판매조회_x__dup_1.xlsx", "판매조회_x__dup_1_2.xlsx", "sales_copy.xlsx"):
+        open(os.path.join(tmp, name), "wb").write(b"same-bytes")
+    other = os.path.join(tmp, "판매조회_y.xlsx")
+    open(other, "wb").write(b"different")
+    keep = B.dedupe_files([a, other] + [os.path.join(tmp, n) for n in
+                                        ("판매조회_x__dup_1.xlsx", "판매조회_x__dup_1_2.xlsx", "sales_copy.xlsx")])
+    assert len(keep) == 2, f"내용 중복을 못 걸렀다: {[os.path.basename(x) for x in keep]}"
+    # 읽을 수 없는 경로는 조용히 건너뛴다(파이프라인이 이것 때문에 멈추면 안 된다)
+    assert B.dedupe_files([os.path.join(tmp, "없는파일.xlsx")]) == []
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "billing_fill.py" in daily, "청구 근거 갱신이 일일 실행에 없다"
+    print("  [84] 원천 파일 내용중복 제거 — 금액 배수 합산 차단 ✅")
 
 
 def t77_side_work_single_switch():
@@ -4011,6 +4049,8 @@ if __name__ == "__main__":
     t75_gcal_sync()
     t77_side_work_single_switch()
     t78_recalc_pending_visible()
+    with tempfile.TemporaryDirectory() as _tmp84:
+        t84_duplicate_source_files(_tmp84)
     t79_work_log_source_sync_and_report_capture()
     with tempfile.TemporaryDirectory() as tmp:
         t80_new_project_flow_db_only(tmp)

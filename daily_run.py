@@ -99,6 +99,11 @@ def main():
     #      주소 하나 없다고 일일 파이프라인 전체가 실패로 물들면 안 된다.
     steps.append(run("구글 캘린더 대조", [os.path.join(ROOT, "gcal_sync.py"), "--queue"]))
 
+    # 2.955 청구(거래명세서) 근거 갱신 — ERP 판매조회의 새 매출을 06시트 빈 행에 올린다.
+    #       ★ 같은 내용의 판매조회가 여러 벌 있으면 금액이 배수로 합산된다(2026-07-30 3배 사고).
+    #         billing_fill 이 SHA256 으로 같은 파일을 한 번만 읽으므로 자동에 태워도 안전하다.
+    steps.append(run("청구 근거 갱신(06시트)", [os.path.join(ROOT, "billing_fill.py"), "--queue"]))
+
     # 2.96 재계산 대기 세기 — 원장엔 올라왔는데 엑셀이 아직 계산 안 해 앱에 안 나오는 건.
     #      숫자가 틀린 게 아니라 대기 중이라는 걸 앱이 스스로 말하게 한다(사용자 오해 방지).
     steps.append(run("재계산 대기 확인", [os.path.join(ROOT, "recalc_pending.py")]))

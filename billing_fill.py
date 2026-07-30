@@ -35,7 +35,7 @@ billing_fill.py — 06_거래서류청구수금에 **청구(거래명세서) 근
   python billing_fill.py --queue         # 입력 큐에 적재 (ledger_writer --apply 로 반영)
   python billing_fill.py --self-test     # 합성 검증
 """
-import sys, os, re, glob, json
+import sys, os, re, glob, json, hashlib
 from datetime import datetime, date
 
 try:
@@ -103,12 +103,34 @@ def to_date(v):
 
 
 # ── 원천 읽기 ─────────────────────────────────────────────────
+
+def dedupe_files(paths):
+    """내용이 같은 파일은 한 번만 읽는다.
+
+    ★ 2026-07-30 실사고: 원본 자료 정리가 `판매조회_....xlsx`, `..__dup_3c94ea24.xlsx`,
+      `..__dup_3c94ea24_2.xlsx` 세 벌을 남겼다. 세 파일의 SHA256이 같은데도 전부 읽어
+      프로젝트별 공급가액이 **3배**(36억 → 108.6억)로 합산됐다.
+      파일명 규칙(`__dup_`)으로 거르면 다음번에 다른 이름으로 다시 뚫린다. 그래서 **내용**으로 판정한다.
+    """
+    seen, keep = set(), []
+    for p in sorted(paths):
+        try:
+            h = hashlib.sha256(open(p, "rb").read()).hexdigest()
+        except OSError:
+            continue
+        if h in seen:
+            continue
+        seen.add(h)
+        keep.append(p)
+    return keep
+
+
 def sales_rows():
     """판매조회 파일들 → {프로젝트NO: {공급가액, 일자, PO번호, 거래처, 건수}}"""
     import openpyxl
     from source_dirs import ERP_DIR
-    out, files = {}, []
-    for p in sorted(glob.glob(os.path.join(ERP_DIR, "**", "판매조회*.xls*"), recursive=True)):
+    out, files, seen = {}, [], set()
+    for p in dedupe_files(glob.glob(os.path.join(ERP_DIR, "**", "판매조회*.xls*"), recursive=True)):
         if os.path.basename(p).startswith("~$"):
             continue
         wb = openpyxl.load_workbook(p, read_only=True, data_only=True)

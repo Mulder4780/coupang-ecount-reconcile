@@ -1,1890 +1,9 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#060D2B">
-<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<title>Coupang Service Operations System</title>
-<link rel="icon" href="/icon-32.png?v=csos-20260730" sizes="32x32" type="image/png">
-<link rel="icon" href="/icon.svg?v=csos-20260730" type="image/svg+xml">
-<link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png?v=csos-20260730">
-<link rel="manifest" href="/manifest.json">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="CSOS">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<script>
-/* 설치 이벤트는 문서 하단 스크립트보다 먼저 올 수 있다. 가장 먼저 잡아 두고
-   업무센터 코드가 준비되면 이어받는다. */
-window.__csosInstallPrompt = null;
-window.addEventListener('beforeinstallprompt', function(e){
-  e.preventDefault();
-  window.__csosInstallPrompt = e;
-  window.dispatchEvent(new Event('csos-install-ready'));
-});
-</script>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700;800&display=swap" rel="stylesheet">
-<style>
-:root{
-  --navy-950:#0A1430; --navy-900:#0E1B3F; --navy-800:#152660;
-  --brand:#2452E6; --brand-dk:#1B41BC; --brand-tint:#EBF0FF;
-  --bg:#F4F6FA; --surface:#FFFFFF;
-  --ink:#101828; --ink-2:#475467; --ink-3:#98A2B3; --line:#E4E9F0;
-  --ok:#12813F; --ok-bg:#E8F6EE; --warn:#B54708; --warn-bg:#FEF1E2;
-  --danger:#C0212E; --danger-bg:#FDEBEC; --neu:#5B6B82; --neu-bg:#EEF2F6;
-  --r:14px; --sh:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08);
-  --sh-lg:0 4px 8px -2px rgba(16,24,40,.08),0 12px 24px -4px rgba(16,24,40,.10);
-}
-*{margin:0;padding:0;box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
-body{font-family:"Nanum Gothic","나눔고딕",NanumGothic,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;
-  background:var(--bg);color:var(--ink);font-size:14.5px;line-height:1.55;letter-spacing:-.2px}
-button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
-::selection{background:var(--brand-tint)}
-
-/* ═══ 앱바 (모바일 상단) ═══ */
-.appbar{position:sticky;top:0;z-index:20;background:var(--navy-900);color:#fff;
-  padding:calc(env(safe-area-inset-top) + 12px) 18px 12px;display:flex;align-items:center;gap:14px;
-  box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 2px 8px rgba(10,20,48,.35)}
-.appbar-identity{display:flex;align-items:center;gap:11px;min-width:0;flex:1 1 auto}
-.appbar-brand-stack{display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:3px;flex:none;line-height:1;padding:2px 0}
-.appbar-status{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:none;min-width:0}
-.logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#3D68FF,#1533A3 46%,#060D2B);
-  display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 6px rgba(21,51,163,.5)}
-.logo svg{width:22px;height:22px}
-.logo.app-icon{background:none;box-shadow:0 3px 9px rgba(8,18,58,.26);overflow:hidden}
-.logo.app-icon img{display:block;width:100%;height:100%;object-fit:cover}
-/* 고객사 CI를 넣은 경우: 배경 없이 원본 그대로 (가이드라인상 변형 금지) */
-.logo.brand{background:none;box-shadow:none;border-radius:0;width:auto;min-width:34px;height:30px}
-.logo.brand img{height:100%;width:auto;max-width:130px;object-fit:contain;display:block}
-.rpt .rhead .logo.brand{height:38px;width:auto}
-.rpt .rhead .logo{order:0}
-.rpt .rhead h2{order:1}
-.rpt .rhead .report-uni-brand{display:block;width:148px;height:25px;object-fit:contain;opacity:.82;flex:none;order:2}
-.rpt .rhead .rdate{order:3}
-@media(max-width:599px){
-  .rpt .rhead{flex-wrap:wrap;align-items:center}
-  .rpt .rhead h2{flex:1 0 calc(100% - 50px);min-width:0}
-  .rpt .rhead .report-uni-brand{width:116px;height:22px;margin-left:50px}
-  .rpt .rhead .rdate{flex:1 0 100%;margin-left:0;text-align:left}
-}
-.appbar h1{font-size:15px;font-weight:800;letter-spacing:-.2px;line-height:1.2;min-width:0}
-.brandfull{display:none} .brandshort{display:inline}
-@media(min-width:600px){.brandfull{display:inline} .brandshort{display:none}}
-.appbar h1 small{display:block;font-size:10px;font-weight:600;color:#8FA3D9;letter-spacing:.4px}
-.appbar .sub{font-size:11px;color:#8FA3D9;font-variant-numeric:tabular-nums}
-.appbar #clock{font-size:clamp(18px,1.7vw,22px);font-weight:800;letter-spacing:-.02em;
-  color:#5D6C8D;white-space:nowrap}
-.coupang-app-brand,.uni-app-brand{display:block;object-fit:contain;object-position:center;flex:none}
-.coupang-app-brand{width:78px;height:22px}
-.uni-app-brand{width:295px;height:42px;opacity:.82;border-radius:3px}
-@media(max-width:599px){
-  .appbar{gap:8px;padding-left:10px;padding-right:10px}
-  .appbar-identity{gap:8px}
-  .appbar-brand-stack{gap:1px}
-  .coupang-app-brand{width:54px;height:20px}
-  .uni-app-brand{width:96px;height:24px;opacity:.74}
-  .appbar-status{gap:6px}
-  .appbar #demobadge{display:none}
-  .appbar #clock{font-size:15px}
-}
-.dot{width:8px;height:8px;border-radius:50%;background:#3DDC84;box-shadow:0 0 0 3px rgba(61,220,132,.22);flex:none}
-.dot.busy{background:#FFC53D;box-shadow:0 0 0 3px rgba(255,197,61,.22);animation:pulse 1s infinite}
-@keyframes pulse{50%{opacity:.35}}
-@keyframes agentGlow{
-  0%,100%{transform:translateY(0) scale(1);box-shadow:0 2px 6px rgba(21,51,163,.5)}
-  50%{transform:translateY(-2px) scale(1.06);box-shadow:0 0 0 7px rgba(61,104,255,.16),0 8px 20px rgba(21,51,163,.48)}
-}
-@keyframes agentRunIcon{0%{transform:translateX(-2px)}50%{transform:translateX(3px)}100%{transform:translateX(-2px)}}
-body.agent-running .appbar .logo{animation:agentGlow 1.15s ease-in-out infinite}
-body.agent-running .tabbar button[data-v="run"] svg{animation:agentRunIcon .72s ease-in-out infinite}
-body.agent-running .tabbar button[data-v="run"]{color:#fff;background:linear-gradient(135deg,#2E52D6,#243168)}
-
-/* ═══ 레이아웃 ═══ */
-.shell{max-width:1220px;margin:0 auto;padding:16px 14px 92px}
-.view{display:none;transform-origin:50% 12px}
-.view.active{display:block;animation:viewEnter .34s cubic-bezier(.22,.8,.25,1)}
-@keyframes viewEnter{
-  from{opacity:0;transform:translateY(12px) scale(.992);filter:blur(2px)}
-  to{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}
-}
-/* 모든 클릭 요소에 같은 손맛을 준다. 레이아웃은 건드리지 않고 눌림·초점만 통일한다. */
-button,.topitem,.srow,.check-kpi,.kpi,.ecell.metric,.bneed.actionable,.bpill.actionable{
-  -webkit-tap-highlight-color:transparent;
-  transition:transform .16s cubic-bezier(.22,.8,.25,1),box-shadow .2s ease,
-             border-color .2s ease,background-color .2s ease,color .2s ease}
-button:active,.topitem:active,.srow:active,.check-kpi:active,.kpi:active,
-.ecell.metric:active,.bneed.actionable:active,.bpill.actionable:active{transform:scale(.975)}
-button:focus-visible,.topitem:focus-visible,.srow:focus-visible,.check-kpi:focus-visible,.kpi:focus-visible{
-  outline:3px solid rgba(36,82,230,.28);outline-offset:2px}
-.press-pop{animation:pressPop .32s cubic-bezier(.22,.8,.25,1)}
-@keyframes pressPop{0%{transform:scale(1)}38%{transform:scale(.955)}100%{transform:scale(1)}}
-@media(prefers-reduced-motion:reduce){
-  .view.active,.press-pop,.kpi.tapped,.card.flash{animation:none!important}
-  *,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important}
-}
-
-/* ═══ 내비게이션 ═══ */
-.tabbar{position:fixed;bottom:0;left:0;right:0;z-index:20;background:var(--surface);
-  border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom);
-  box-shadow:0 -4px 16px rgba(16,24,40,.05)}
-.tabbar .brand{display:none}
-.tabbar button{flex:1;padding:8px 0 7px;display:flex;flex-direction:column;align-items:center;gap:3px;
-  font-size:10.5px;color:var(--ink-3);font-weight:600;position:relative;transition:color .15s}
-.tabbar button.on{color:var(--brand)}
-.tabbar button.on::before{content:"";position:absolute;top:0;width:26px;height:3px;border-radius:0 0 4px 4px;background:var(--brand)}
-.tabbar svg{width:22px;height:22px}
-.tabbar .nav-spacer{display:none}
-
-/* 쿠팡 캘린더 — 전체 월간 보기(Google)와 원장 대조 캐시 상세를 한 화면에 둔다. */
-.calendar-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;
-  margin-bottom:14px;padding:20px 21px;border-radius:18px;color:#fff;
-  background:linear-gradient(120deg,#172554 0%,#2546A8 58%,#4F46E5 100%);
-  box-shadow:0 12px 28px -14px rgba(31,54,142,.6)}
-.calendar-hero h2{margin:3px 0 5px;font-size:23px;letter-spacing:-.6px}
-.calendar-hero p{margin:0;color:#DCE6FF;font-size:13px;line-height:1.55}
-.calendar-layout{display:grid;grid-template-columns:minmax(0,1.16fr) minmax(300px,.84fr);gap:14px;align-items:start}
-.calendar-frame{padding:0;overflow:hidden}
-.calendar-frame-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:17px 18px 13px}
-.calendar-frame-head h3{margin:0}.calendar-frame-head a{font-size:12.5px;font-weight:800;color:var(--brand);white-space:nowrap}
-.calendar-frame iframe{display:block;width:100%;height:690px;border:0;background:#fff}
-.calendar-hint{margin:0;padding:10px 17px 14px;color:var(--muted);font-size:11.5px;line-height:1.55;border-top:1px solid var(--line)}
-.calendar-side{display:grid;gap:14px}.calendar-meta{font-size:12.5px;color:var(--muted);margin:-3px 0 12px}
-.calendar-event-list{display:grid;gap:8px;max-height:372px;overflow:auto;padding-right:2px}
-.calendar-event{width:100%;display:grid;grid-template-columns:74px 1fr;gap:8px;text-align:left;padding:11px 12px;
-  border:1.5px solid var(--line);border-radius:12px;background:#fff;color:var(--ink)}
-.calendar-event:hover,.calendar-event.on{border-color:#A9B9FF;background:#F4F6FF;box-shadow:0 5px 13px rgba(53,76,185,.10)}
-.calendar-event .when{font-size:11.5px;font-weight:800;color:var(--brand);line-height:1.45}
-.calendar-event .what{font-size:13px;font-weight:800;line-height:1.42}.calendar-event .sub{font-size:11.5px;color:var(--muted);margin-top:2px;font-weight:600}
-.calendar-detail{border-radius:12px;padding:13px;background:#F7F8FC;border:1px solid #E6EAF2;line-height:1.6;font-size:12.5px;color:var(--ink-2)}
-.calendar-detail b{color:var(--ink)}.calendar-detail .detail-title{font-size:15px;margin-bottom:7px}.calendar-detail dl{display:grid;grid-template-columns:72px 1fr;gap:3px 8px;margin:0}.calendar-detail dt{color:var(--muted);font-weight:700}.calendar-detail dd{margin:0;word-break:break-word}
-.calendar-entry{margin-top:14px}.calendar-entry h3{margin-bottom:3px}.calendar-entry .entry-note{font-size:12px;color:var(--muted);line-height:1.55;margin:0 0 12px}
-.calendar-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.calendar-form label{display:grid;gap:4px;font-size:11.5px;font-weight:800;color:var(--ink-2)}
-.calendar-form label.wide{grid-column:1/-1}.calendar-form input,.calendar-form textarea{width:100%;min-width:0;padding:9px 10px;border:1.5px solid var(--line);border-radius:9px;font:inherit;font-size:13px;color:var(--ink);background:#fff}
-.calendar-form textarea{min-height:70px;resize:vertical}.calendar-preview{margin-top:11px;padding:10px 12px;border-radius:10px;background:#F7F8FC;font-size:12px;line-height:1.55;color:var(--ink-2);white-space:pre-line}
-@media(max-width:899px){.calendar-layout{grid-template-columns:1fr}.calendar-frame iframe{height:620px}.calendar-hero h2{font-size:20px}}
-@media(max-width:480px){.calendar-form{grid-template-columns:1fr}.calendar-frame iframe{height:570px}}
-
-/* ═══ 히어로 배너 ═══ */
-.hero{position:relative;border-radius:18px;overflow:hidden;margin-bottom:14px;color:#fff;
-  background:linear-gradient(120deg,#0E1B3F 0%,#1B3A8F 55%,#2452E6 100%);
-  padding:22px 22px 20px;box-shadow:0 10px 30px -8px rgba(14,27,63,.45)}
-.hero::before{content:"";position:absolute;right:-60px;top:-70px;width:240px;height:240px;border-radius:50%;
-  background:radial-gradient(circle,rgba(91,140,255,.35),transparent 70%)}
-.hero::after{content:"";position:absolute;right:60px;bottom:-90px;width:200px;height:200px;border-radius:50%;
-  background:radial-gradient(circle,rgba(61,220,132,.18),transparent 70%)}
-.hero .hi{font-size:12px;color:#9FB4E8;font-weight:700;letter-spacing:.4px}
-.hero h2{font-size:21px;font-weight:800;letter-spacing:-.4px;margin:3px 0 10px;position:relative;z-index:1}
-.hero .hstats{display:flex;gap:18px;flex-wrap:wrap;position:relative;z-index:1}
-.hero .hstat{font-size:11.5px;color:#9FB4E8;font-weight:700}
-.hero .hstat b{display:block;font-size:16px;color:#fff;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
-.hero .badge{position:absolute;top:18px;right:20px;z-index:1;display:flex;align-items:center;gap:6px;
-  background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:99px;
-  padding:5px 12px;font-size:11px;font-weight:700;backdrop-filter:blur(4px)}
-
-/* ═══ 유수비 대표 예외보고 — 정상 상세은 접고 예외만 전면에 ═══ */
-.rep-card{border-color:#C8D5F3;background:
-  radial-gradient(circle at 96% 0,rgba(36,82,230,.10),transparent 38%),var(--surface)}
-.rep-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
-.rep-title{font-size:16px;font-weight:900;letter-spacing:-.3px;color:var(--ink)}
-.rep-title small{display:block;margin-top:4px;font-size:11px;font-weight:700;color:var(--ink-3)}
-.rep-summary{margin:12px 0 14px;padding:13px 15px;border-radius:13px;background:#F0F4FF;
-  border:1px solid #D9E3FF;font-size:13px;line-height:1.7;color:#253457;font-weight:700}
-.rep-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
-.rep-metric{border:1px solid var(--line);border-radius:13px;padding:12px 13px;text-align:left;
-  background:rgba(255,255,255,.86);box-shadow:0 4px 14px rgba(16,24,40,.04);cursor:pointer}
-.rep-metric:hover{transform:translateY(-2px);box-shadow:var(--sh-lg);border-color:#AFC2F4}
-.rep-metric .rv{font-size:21px;font-weight:900;letter-spacing:-.5px}
-.rep-metric .rl{font-size:11.5px;font-weight:800;color:var(--ink-2);margin-top:2px}
-.rep-metric .rs{font-size:10.5px;color:var(--ink-3);margin-top:3px;line-height:1.4}
-.rep-metric.danger .rv{color:var(--danger)} .rep-metric.warn .rv{color:var(--warn)}
-.rep-metric.ok .rv{color:var(--ok)}
-.rep-docs{margin-top:12px;display:grid;gap:7px}
-.rep-doc{display:grid;grid-template-columns:1.3fr repeat(4,.72fr);align-items:center;gap:8px;
-  padding:10px 12px;border-radius:11px;background:#F8FAFD;border:1px solid var(--line);font-size:11.5px}
-.rep-doc b{font-size:12px}.rep-doc span{text-align:right;font-variant-numeric:tabular-nums}
-.signal{display:inline-flex;align-items:center;border-radius:99px;padding:5px 9px;font-size:10.5px;font-weight:900}
-.signal.녹색{background:var(--ok-bg);color:var(--ok)}.signal.황색{background:var(--warn-bg);color:var(--warn)}
-.signal.적색{background:var(--danger-bg);color:var(--danger)}
-@media(min-width:760px){.rep-grid{grid-template-columns:repeat(6,minmax(0,1fr))}}
-@media(max-width:560px){
-  .rep-doc{grid-template-columns:1fr auto}.rep-doc span:nth-of-type(2),
-  .rep-doc span:nth-of-type(3){display:none}
-}
-
-/* ═══ 카드 ═══ */
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
-  box-shadow:var(--sh);padding:18px;margin-bottom:13px}
-.card h3{font-size:12px;color:var(--ink-3);font-weight:800;margin-bottom:12px;
-  letter-spacing:.5px;text-transform:uppercase}
-.card h3 .norm{text-transform:none;letter-spacing:0;font-weight:500}
-
-/* ═══ KPI 타일 ═══ */
-.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:13px}
-.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
-  box-shadow:var(--sh);padding:14px 15px;cursor:pointer;
-  transition:box-shadow .18s,transform .18s,border-color .18s}
-.kpi:hover{box-shadow:var(--sh-lg);transform:translateY(-2px);border-color:#C7D4F0}
-.kpi:active{transform:scale(.955);box-shadow:var(--sh)}
-@keyframes tapPop{0%{transform:scale(1)}40%{transform:scale(.955)}100%{transform:scale(1)}}
-.kpi.tapped{animation:tapPop .28s ease}
-@keyframes flashCard{0%,100%{background:var(--surface)}45%{background:var(--brand-tint);border-color:var(--brand)}}
-.card.flash{animation:flashCard .9s ease 2}
-.kpi .head{display:flex;align-items:center;gap:8px;margin-bottom:9px}
-.kpi .ico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;
-  font-size:15px;background:var(--brand-tint);flex:none}
-.kpi .ico img{width:17px;height:17px;display:block;object-fit:contain}
-.kpi .l{font-size:11.5px;color:var(--ink-2);font-weight:700;line-height:1.25}
-.kpi .v{font-size:23px;font-weight:800;letter-spacing:-.6px;font-variant-numeric:tabular-nums;line-height:1.1}
-.kpi .s{font-size:11px;color:var(--ink-3);margin-top:3px;font-variant-numeric:tabular-nums}
-.kpi.accent .v{color:var(--brand)} .kpi.accent .ico{background:var(--brand-tint)}
-.kpi.warn .v{color:var(--warn)} .kpi.warn .ico{background:var(--warn-bg)}
-.kpi.danger .v{color:var(--danger)} .kpi.danger .ico{background:var(--danger-bg)}
-.kpi.ok .v{color:var(--ok)} .kpi.ok .ico{background:var(--ok-bg)}
-
-/* ═══ 상태 분포 바 (2px 간격 마크 스펙) ═══ */
-.distbar{display:flex;gap:2px;height:12px;border-radius:6px;overflow:hidden;margin:2px 0 10px}
-.distbar i{display:block;height:100%;min-width:6px}
-.legend{display:flex;flex-wrap:wrap;gap:7px 14px;font-size:11.5px;color:var(--ink-2)}
-.legend span{display:flex;align-items:center;gap:5px;font-weight:600;font-variant-numeric:tabular-nums}
-.legend b{width:9px;height:9px;border-radius:3px;flex:none}
-
-/* ═══ 월별 현황 차트 ═══ */
-.pctrl{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
-/* 자주 쓰는 기간을 한 번에 — 상반기/하반기는 매번 두 번 고르기 번거롭다 */
-.pbtn{padding:8px 12px;border:1.5px solid var(--line);border-radius:10px;font-size:12.5px;
-  font-weight:700;background:var(--card);color:var(--ink-2);cursor:pointer}
-.pbtn:hover{border-color:var(--brand);color:var(--brand)}
-.pbtn.on{background:var(--brand);border-color:var(--brand);color:#fff}
-/* 진행률 카드 안의 기간 고르기 — 좁은 폰에서도 줄바꿈되게 */
-.pmrange{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0 4px}
-.pmrange select{padding:6px 9px;border:1.5px solid var(--line);border-radius:9px;
-  font-size:12.5px;font-weight:700;background:var(--card);color:var(--ink-1)}
-.pmrange .pbtn{padding:6px 10px;font-size:12px}
-.pctrl select{padding:8px 12px;border:1.5px solid var(--line);border-radius:10px;font-size:13.5px;
-  background:var(--surface);font-weight:700;color:var(--ink)}
-.mbars{display:flex;gap:4px;align-items:flex-end;height:96px;margin:6px 0 2px}
-.mbar{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;min-width:0}
-.mbar i{display:block;width:100%;max-width:34px;border-radius:4px 4px 0 0;background:#B9CBF7;
-  transition:background .15s,height .2s;min-height:2px}
-.mbar.on i{background:var(--brand)}
-.mbar:hover i{background:var(--brand-dk)}
-.mbar b{font-size:10px;color:var(--ink-3);font-weight:600;white-space:nowrap}
-/* 막대 2개(ERP 실매출 · 대장 정산)를 나란히 — 대장에 없는 달도 실적이 보이게 */
-.bstack{display:flex;align-items:flex-end;gap:2px;width:100%;max-width:34px;height:78px}
-.bstack i{flex:1;max-width:none}
-.mbar i.erp{background:#C9D2E0}
-.mbar.on i.erp{background:#8FA0BC}
-.mbar:hover i.erp{background:#8FA0BC}
-.blegend{display:flex;gap:14px;justify-content:center;margin-top:6px;font-size:10.5px;color:var(--ink-3)}
-.blegend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
-.blegend .k1{background:var(--brand)} .blegend .k2{background:#C9D2E0}
-.mbar.on b{color:var(--brand);font-weight:800}
-.pkpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
-.pk{background:#F8FAFD;border:1px solid #EEF2F7;border-radius:10px;padding:10px 12px}
-.pk .v{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.4px}
-.pk .l{font-size:10.5px;color:var(--ink-3);font-weight:600;margin-top:1px}
-@media(min-width:900px){.pkpis{grid-template-columns:repeat(6,1fr)}}
-
-/* ═══ 상태 칩 (색+점+라벨 — 색맹 안전) ═══ */
-.chip{display:inline-flex;align-items:center;gap:5px;padding:2.5px 9px;border-radius:99px;
-  font-size:11px;font-weight:700;white-space:nowrap}
-.chip::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
-.c-ok{background:var(--ok-bg);color:var(--ok)} .c-warn{background:var(--warn-bg);color:var(--warn)}
-.c-danger{background:var(--danger-bg);color:var(--danger)} .c-skip{background:var(--neu-bg);color:var(--neu)}
-
-/* ═══ 스텝 리스트 ═══ */
-.steps{display:flex;flex-direction:column}
-.step{display:flex;align-items:center;gap:10px;font-size:13.5px;padding:7px 2px;border-bottom:1px solid #F0F3F7}
-.step:last-child{border-bottom:none}
-.step .ic{width:20px;text-align:center;flex:none}
-
-/* ═══ 툴바·세그먼트 ═══ */
-.toolbar{display:flex;gap:8px;margin-bottom:11px;flex-wrap:wrap}
-.toolbar input,.toolbar select{flex:1;min-width:130px;padding:10px 13px;border:1.5px solid var(--line);
-  border-radius:11px;font-size:14px;background:var(--surface);transition:border .15s;color:var(--ink)}
-.toolbar input:focus,.toolbar select:focus{outline:none;border-color:var(--brand)}
-.toolbar #fsort{flex:0 0 auto;min-width:104px}
-.toolbar #fperiod{flex:0 0 auto;min-width:112px}
-.fdates{display:none;gap:6px;align-items:center;flex:1 1 100%}
-.fdates.on{display:flex}
-.fdates input{flex:1;min-width:0;padding:9px 10px;border:1.5px solid var(--line);border-radius:10px;
-  font-size:13px;background:var(--surface);color:var(--ink)}
-.fdates .tilde{color:var(--ink-3);font-weight:800}
-.fnote{font-size:11.5px;color:var(--ink-3);margin:-4px 0 9px;line-height:1.5}
-.fnote b{color:var(--brand)}
-/* 처리 안내 카드 — '어디서 확인하고 어떻게 넣는지'를 건마다 붙인다 */
-.helpbox{margin-top:14px;background:#F4F8FF;border:1px solid #D8E4FB;border-radius:12px;padding:13px 15px}
-.helpbox .hh{font-size:11.5px;font-weight:800;color:var(--brand);letter-spacing:.2px;margin-bottom:6px}
-.helpbox .hw{font-size:13px;line-height:1.65;color:var(--ink);margin-bottom:9px}
-.helpbox .hs{font-size:12px;color:var(--ink-2);margin-top:8px;line-height:1.6}
-.helpbox .hs b{color:var(--brand-dk);font-size:11.5px}
-.helpbox ul{margin:4px 0 0 16px;padding:0}
-.helpbox li{margin:2px 0}
-.helpbox code{background:#E7EEFB;border-radius:4px;padding:1px 5px;font-size:11px;
-  font-family:Consolas,monospace;color:var(--brand-dk)}
-.helpbox .hwho{margin-top:9px;font-size:11.5px;font-weight:800;color:var(--ink-3)}
-/* ═══ 대표보고 절 — 목차가 또렷하고 글자가 읽히게 ═══ */
-.esec{margin-top:24px;padding:18px;border:1px solid #E0E7F2;border-radius:16px;
-  background:linear-gradient(180deg,#FFFFFF 0%,#FCFDFF 100%);
-  box-shadow:0 7px 22px rgba(15,31,75,.055)}
-.esec:first-child{margin-top:8px}
-/* ── 읽어 드릴 내용 ─────────────────────────────────────────────────────────
-   한 건이 어디서 끝나는지 눈에 바로 들어와야 한다. 구역은 색 띠로, 한 건은 카드로,
-   빠진 항목은 붉게. 숫자는 tabular-nums 로 세로줄을 맞춘다. */
-.ebrief{border:1.5px solid var(--line);border-radius:14px;background:var(--card);
-  padding:0 0 12px;margin-bottom:14px;overflow:hidden}
-.bhead{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:11px 14px;
-  border-bottom:1px solid var(--line);background:linear-gradient(180deg,#F7F9FF,transparent)}
-.bhead span{font-weight:800;font-size:13px;color:var(--brand)}
-.bhead em{font-style:normal;font-size:12px;color:var(--ink-3)}
-.bhead button{margin-left:auto;background:#EEF2FF;color:#1C3FA8;border:0;border-radius:9px;
-  padding:7px 12px;font-weight:800;font-size:12.5px;font-family:inherit;cursor:pointer}
-.bhead button:hover{background:#E0E7FF}
-
-.bsec{margin:12px 14px 0;padding-left:11px;border-left:3px solid #C7D2FE}
-.bsec.need{border-left-color:#FCD34D}
-.bst{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px}
-.bst b{font-size:14px;font-weight:800;margin-right:2px}
-.bpill{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;
-  background:#F1F5F9;color:#475569;font-variant-numeric:tabular-nums}
-.bpill em{font-style:normal;opacity:.7;margin-left:4px;font-weight:600}
-.bpill.new{background:#E0EAFF;color:#1E40AF}
-.bpill.done{background:#DCFCE7;color:#166534}
-.bpill.warn{background:#FEF3C7;color:#92400E}
-.bpill.actionable{border:0;cursor:pointer;font-family:inherit;transition:transform .12s,box-shadow .12s}
-.bpill.actionable:hover,.bpill.actionable:focus-visible{outline:2px solid #A5B4FC;
-  outline-offset:2px;box-shadow:0 3px 9px rgba(30,64,175,.14)}
-.bpill.actionable:active{transform:scale(.96)}
-
-.bglab{font-size:12px;font-weight:800;margin:10px 0 6px;padding-left:2px;color:#475569}
-.bglab.new{color:#1E40AF}
-.bglab.done{color:#166534}
-
-.bcard{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:6px;
-  background:var(--card)}
-.bcard.slim{padding:7px 10px;margin-top:6px}
-.bc1{display:flex;align-items:center;flex-wrap:wrap;gap:6px;line-height:1.5}
-.bc1 b{font-size:13.5px;font-weight:800}
-.bd{font-size:11.5px;font-weight:800;color:#3730A3;background:#EEF2FF;border-radius:6px;
-  padding:2px 7px;font-variant-numeric:tabular-nums;flex:none}
-.bp{font-size:11.5px;font-weight:700;color:#475569;background:#F1F5F9;border-radius:6px;
-  padding:2px 7px;flex:none}
-.bm{font-size:12px;color:var(--ink-3)}
-.bm.none{color:#B45309}
-.btag{font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;
-  background:#F1F5F9;color:#475569}
-.btag.paid{background:#FEE2E2;color:#991B1B}
-.bage{display:inline-block;margin:4px 0 2px;font-size:11.5px;color:#6B7280;
-  background:#F8FAFC;border-radius:6px;padding:2px 8px}
-.bc2{display:flex;gap:8px;margin-top:5px;font-size:12.5px;line-height:1.6}
-.bc2 i{flex:none;width:30px;font-style:normal;font-weight:700;color:#94A3B8;font-size:11.5px;
-  padding-top:1px}
-.bc2 span{flex:1;min-width:0;word-break:break-word}
-.bmiss{color:#B91C1C;font-weight:700}
-.bnone{font-size:12.5px;color:var(--ink-3);padding:4px 0}
-
-.bbar{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--card)}
-.bbt{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:12.5px}
-.bbt b{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
-.bbt em{font-style:normal;font-size:11.5px;color:var(--ink-3);font-weight:600;margin-left:3px}
-.btrack{height:7px;border-radius:999px;background:#E9EEF6;margin:7px 0 6px;overflow:hidden}
-.bfill{height:100%;border-radius:999px;background:#16A34A}
-.bfill.low{background:#F59E0B}
-.bnote{font-size:12px;color:var(--ink-3)}
-.pmstats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:8px}
-.pmstats button{border:1px solid var(--line);border-radius:9px;background:#F8FAFC;color:var(--ink-2);
-  padding:8px 7px;font-family:inherit;font-size:11.5px;cursor:pointer;text-align:center}
-.pmstats button b{display:block;color:var(--ink);font-size:14px;font-variant-numeric:tabular-nums}
-.pmstats button.done{background:#F0FDF4;border-color:#BBF7D0;color:#166534}
-.pmstats button.warn{background:#FFF7ED;border-color:#FED7AA;color:#9A3412}
-.pmstats button:hover,.pmstats button:focus-visible{outline:2px solid #A5B4FC;outline-offset:1px}
-
-.bneed{border:1px solid #FDE68A;background:#FFFBEB;border-radius:10px;
-  padding:9px 11px;margin-bottom:7px}
-.bneed.actionable{position:relative;padding-right:44px;cursor:pointer;transition:all .15s}
-.bneed.actionable::after{content:"›";position:absolute;right:15px;top:50%;transform:translateY(-50%);
-  color:#B45309;font-size:25px;font-weight:800}
-.bneed.actionable:hover,.bneed.actionable:focus-visible{border-color:#F59E0B;background:#FFF7D6;
-  box-shadow:0 5px 14px rgba(180,83,9,.12);outline:none}
-.bneed.actionable:active{transform:scale(.985)}
-.bnh{font-size:13px;font-weight:700;color:#78350F}
-.bnh b{font-weight:800;font-variant-numeric:tabular-nums}
-.bnd{font-size:12px;color:#92400E;margin-top:3px;opacity:.9}
-.bnd.actionhint{font-weight:800;color:#B45309;margin-top:6px}
-
-@media (max-width:520px){
-  .bsec{margin:12px 10px 0}
-  .bc2 i{width:26px}
-  .bhead button{margin-left:0}
-}
-
-/* 날짜 못 박기 띠 — '금일'이 어느 날인지 헷갈리지 않게 절 맨 위에 놓는다 */
-.dbanner{margin:10px 0 12px;padding:9px 12px;border-radius:10px;font-size:13px;
-  background:#eef2ff;border:1px solid #c7d2fe;color:#312e81;
-  display:flex;flex-wrap:wrap;align-items:center;gap:6px}
-.dbanner b{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
-.dbanner span{color:#4f46e5;opacity:.85}
-.dbanner .rd{margin-left:auto;background:#fff;border:1px solid #c7d2fe;
-  border-radius:999px;padding:2px 9px;font-weight:700;opacity:1}
-.eh{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:900;color:var(--navy-900);
-  letter-spacing:-.35px;padding:0 0 11px;border-bottom:3px solid #DDE5F5;margin-bottom:14px;
-  position:relative}
-.eh::after{content:"";position:absolute;left:0;bottom:-3px;width:112px;height:3px;
-  border-radius:999px;background:linear-gradient(90deg,var(--brand),#7488F5)}
-.eh i{flex:none;font-style:normal;width:28px;height:28px;border-radius:9px;
-  background:linear-gradient(145deg,#5366EA,#263BBE);box-shadow:0 4px 10px rgba(44,63,190,.22);
-  color:#fff;font-size:13px;display:flex;align-items:center;justify-content:center;font-weight:900}
-.esum{font-size:14px;line-height:1.9;background:#F5F8FF;border-left:4px solid var(--brand);
-  border-radius:0 10px 10px 0;padding:12px 16px;color:var(--ink)}
-.esum div+div{margin-top:4px}
-/* 그룹 블록: 폰에서는 1열(글자가 '거래명세서 발/행'처럼 쪼개지지 않게) */
-.egrid{display:grid;gap:12px;grid-template-columns:1fr}
-@media(min-width:560px){.egrid{grid-template-columns:repeat(2,1fr)}}
-@media(min-width:860px){.egrid{grid-template-columns:repeat(3,1fr)}}
-.egroup{--cat:#4257D7;--cat-bg:#EEF2FF;--cat-line:#CAD4FF;
-  border:1px solid var(--cat-line);border-radius:14px;overflow:hidden;background:var(--surface);
-  box-shadow:0 4px 12px rgba(16,24,40,.045)}
-.egroup:nth-child(3n+2){--cat:#177245;--cat-bg:#ECF9F1;--cat-line:#BCE6CD}
-.egroup:nth-child(3n+3){--cat:#A15A0E;--cat-bg:#FFF6E8;--cat-line:#F2D19B}
-.egroup .gh{background:var(--cat-bg);color:var(--cat);font-size:13.5px;font-weight:900;
-  padding:11px 14px;border-bottom:1px solid var(--cat-line);position:relative}
-.egroup .gh::before{content:"";display:inline-block;width:5px;height:15px;border-radius:4px;
-  background:var(--cat);vertical-align:-2px;margin-right:8px}
-.egroup .gb{padding:7px 14px 10px}
-.egroup.issue{grid-column:1/-1;--cat:#A63737;--cat-bg:#FFF1F1;--cat-line:#F1C2C2}
-.egroup.issue.ok{--cat:#177245;--cat-bg:#ECF9F1;--cat-line:#BCE6CD}
-.egroup.issue .gb{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px}
-.egroup.issue .gitem{cursor:pointer}
-.egroup.issue .gitem:hover{background:#FFF8F8}
-@media(max-width:559px){.egroup.issue .gb{grid-template-columns:1fr}}
-.issue-detail-list{grid-column:1/-1;margin:6px 4px 2px;border-top:2px solid #F1C2C2;padding-top:10px}
-.issue-detail-title{display:flex;align-items:center;justify-content:space-between;gap:10px;
-  color:#8F2525;font-size:12.5px;font-weight:900;margin:0 2px 7px}
-.issue-detail-row{display:grid;grid-template-columns:minmax(160px,.9fr) minmax(240px,2fr) auto;
-  gap:10px;align-items:start;padding:10px 9px;border:1px solid #F1D6D6;border-radius:10px;
-  background:#FFFDFD;margin-bottom:7px}
-.issue-detail-id{display:flex;flex-wrap:wrap;align-items:center;gap:5px;font-size:11.5px;font-weight:800}
-.issue-detail-id .camp{color:var(--ink-2);font-weight:700}
-.issue-detail-copy{color:#4A2222;font-size:12px;line-height:1.55;white-space:pre-line;word-break:keep-all}
-.issue-detail-copy b{color:#A63737}
-.issue-detail-meta{color:var(--ink-3);font-size:10.5px;font-weight:700;white-space:nowrap;text-align:right}
-@media(max-width:720px){
-  .issue-detail-row{grid-template-columns:1fr}
-  .issue-detail-meta{text-align:left}
-}
-.gi{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
-  font-size:14px;padding:6px 0;border-bottom:1px dashed #EEF2F7}
-.gitem{border-bottom:1px solid #EEF2F7;padding:1px 5px;border-radius:7px}
-.gitem:last-child{border-bottom:0}
-.gi:last-child{border-bottom:0}
-.gitem .gi{border-bottom:0}
-/* 항목 바로 아래 상세 — 무슨 건인지 바로 보이게 */
-.gd{padding:0 0 8px 2px}
-.gd.note{font-size:11.5px;color:var(--ink-3);line-height:1.55;padding-top:2px;word-break:keep-all}
-.gd .chips{gap:5px}
-.gd .prj{font-size:11px;padding:2px 7px}
-.gd .dc{font-size:11px;color:var(--ink-3);align-self:center;margin-right:4px}
-.gd .more{font-size:11px;color:var(--ink-3);font-weight:700;align-self:center}
-.gd .dw{display:block;margin-top:3px;font-size:10.5px;color:var(--warn,#B54708);font-weight:700}
-.gi span{color:var(--ink-2);word-break:keep-all}
-.gi b{font-variant-numeric:tabular-nums;font-size:15px;white-space:nowrap}
-/* 숫자 칸: 폰 2열 → 넓은 화면 3열 */
-.ecells{display:grid;gap:9px;grid-template-columns:repeat(2,1fr);margin-top:10px}
-@media(min-width:860px){.ecells{grid-template-columns:repeat(3,1fr)}}
-.ecell{background:#F8FAFD;border:1px solid #E6EBF3;border-top:3px solid #C5D0EA;
-  border-radius:12px;padding:11px 13px;box-shadow:0 2px 7px rgba(16,24,40,.035)}
-.ecell:nth-child(3n+2){border-top-color:#9FD4B3}
-.ecell:nth-child(3n+3){border-top-color:#E8BE7E}
-.ecell .l{font-size:11.5px;color:var(--ink-3);font-weight:700;line-height:1.45;word-break:keep-all}
-.ecell .v{font-size:20px;font-weight:800;letter-spacing:-.5px;margin-top:3px;
-  font-variant-numeric:tabular-nums}
-.ecell.metric{cursor:pointer;position:relative;padding-right:32px;transition:all .15s}
-.ecell.metric::after{content:"›";position:absolute;right:12px;top:50%;transform:translateY(-50%);
-  color:var(--brand);font-size:24px;font-weight:800}
-.ecell.metric:hover,.ecell.metric:focus-visible{border-color:var(--brand);background:#F2F5FF;
-  box-shadow:0 5px 15px rgba(36,82,230,.12);outline:none}
-.ecell.metric:active{transform:scale(.975)}
-.elines{margin:6px 0 0 0;padding-left:22px;font-size:14px;line-height:1.85}
-.elines li{margin:9px 0;word-break:keep-all}
-/* 문제 코드 풀어쓰기 */
-.codes{margin:5px 0 0 0;padding-left:16px;font-size:12.5px;line-height:1.6;color:var(--ink-2)}
-.codes li{margin:4px 0}
-.codes b{color:var(--brand-dk)}
-.ct{font-size:11.5px;color:var(--ink-3);margin-top:1px;line-height:1.55}
-.ct.warn{color:var(--warn,#B54708);background:#FEF6EC;border-radius:8px;padding:7px 10px;margin-top:5px;font-weight:600}
-.gone{color:var(--ink-3);text-decoration:line-through}
-.dirbtn{flex:0 0 auto;padding:10px 13px;border:1.5px solid var(--brand);border-radius:11px;
-  font-size:13px;font-weight:700;color:var(--brand);background:var(--surface);white-space:nowrap;
-  transition:background .15s,color .15s}
-.dirbtn::before{content:"↓ ";font-weight:800}
-.dirbtn.desc{border-color:var(--warn,#B54708);color:var(--warn,#B54708)}
-.dirbtn.desc::before{content:"↑ "}
-.dirbtn:hover{background:var(--brand);color:#fff}
-.dirbtn.desc:hover{background:var(--warn,#B54708);color:#fff}
-.seg{display:flex;background:#E8EDF4;border-radius:12px;padding:3px;margin-bottom:11px}
-.seg button{flex:1;padding:8.5px 0;border-radius:9px;font-size:12.5px;font-weight:700;color:var(--ink-2);transition:all .15s}
-.seg button.on{background:var(--surface);color:var(--brand);box-shadow:0 1px 3px rgba(16,24,40,.12)}
-
-/* ═══ 리스트 카드 (모바일) ═══ */
-.slist{display:flex;flex-direction:column;gap:9px}
-.srow{background:var(--surface);border:1px solid var(--line);border-radius:13px;box-shadow:var(--sh);
-  padding:13px 15px;transition:box-shadow .15s,border .15s;cursor:pointer}
-.srow:active{border-color:var(--brand)}
-.srow .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;gap:8px}
-.srow .id{font-weight:800;font-size:14px;font-variant-numeric:tabular-nums}
-/* 프로젝트NO를 카드 맨 위에 크고 굵게 — 모든 건을 이 번호로 찾는다 */
-.srow .prjno{font-size:16.5px;font-weight:800;letter-spacing:-.3px;color:var(--navy-900);
-  font-variant-numeric:tabular-nums;word-break:break-all;line-height:1.25;min-width:0}
-.srow .sid{color:var(--ink-3);font-weight:700}
-b.prjno{font-weight:800;font-variant-numeric:tabular-nums;color:var(--navy-900)}
-.srow .camp{font-size:12.5px;color:var(--ink-2)}
-/* 프로젝트NO 옆 캠프 이름 — 번호와 붙여 읽히도록 같은 줄, 조금 작고 진하게 */
-.srow .camptag{font-size:13.5px;font-weight:700;color:var(--ink-1);line-height:1.25;
-  word-break:break-all;min-width:0;flex:1;margin-left:2px}
-.srow .camptag.none{color:var(--danger);font-weight:600;font-size:12px}
-.srow .oktag{font-size:10.5px;font-weight:700;color:#12813F;background:#E7F5EC;
-  border-radius:999px;padding:1px 7px;white-space:nowrap}
-.srow .oktag.warn{color:#B25E09;background:#FFF3E4}
-.srow .oktag.bad{color:#C0212E;background:#FDECEE}
-.ecell.has-help,.gi .has-help{cursor:pointer}
-.qm{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
-  border-radius:50%;background:var(--brand);color:#fff;font-size:9.5px;font-weight:800;
-  font-style:normal;margin-left:5px;vertical-align:middle}
-.srow .amt{font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
-.srow .meta{display:flex;gap:6px 11px;font-size:11px;color:var(--ink-3);margin-top:7px;flex-wrap:wrap;align-items:center}
-
-/* ═══ 데이터 그리드 (데스크톱) ═══ */
-table.grid{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);
-  border-radius:var(--r);overflow:hidden;box-shadow:var(--sh);display:none}
-table.grid th{position:sticky;top:0;background:#F8FAFD;font-size:11px;color:var(--ink-3);font-weight:800;
-  letter-spacing:.4px;text-align:left;padding:11px 13px;border-bottom:1px solid var(--line);white-space:nowrap}
-table.grid td{padding:10.5px 13px;border-bottom:1px solid #F0F3F7;font-size:13px;font-variant-numeric:tabular-nums}
-table.grid tr:last-child td{border-bottom:none}
-table.grid tbody tr{transition:background .1s}
-table.grid tr:hover td{background:#F6F9FE}
-table.grid tr:active td{background:#E8F0FE}
-table.grid th[data-sk]{cursor:pointer;user-select:none;transition:color .12s}
-table.grid th[data-sk]:hover{color:var(--brand)}
-table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var(--line);font-size:12.5px}
-.num{text-align:right}
-.srow:active{transform:scale(.985)}
-
-/* ═══ 실행 버튼 ═══ */
-.actions{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-.abtn{background:var(--surface);border:1px solid var(--line);border-radius:13px;box-shadow:var(--sh);
-  padding:14px 10px;text-align:center;font-weight:700;font-size:13px;color:var(--ink);
-  transition:all .15s;display:flex;flex-direction:column;align-items:center;gap:5px}
-.abtn:hover{border-color:var(--brand);box-shadow:var(--sh-lg);transform:translateY(-1px)}
-.abtn:active{transform:scale(.97)}
-.abtn .em{font-size:20px;line-height:1}
-.abtn img.em{display:block;width:21px;height:21px;object-fit:contain}
-.abtn.primary img.em{filter:brightness(0) invert(1)}
-.inline-bi{display:inline-block;width:16px;height:16px;vertical-align:-3px;margin-right:5px}
-.abtn.primary{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:0 4px 12px rgba(36,82,230,.35)}
-.abtn.primary:hover{background:var(--brand-dk)}
-.abtn.danger{background:var(--danger-bg);border-color:#F5C2C7;color:var(--danger)}
-
-/* ═══ 로그 ═══ */
-.logbox{background:var(--navy-950);color:#C9D4F2;border-radius:var(--r);padding:14px;
-  font:12px/1.6 "Cascadia Code",Consolas,monospace;height:310px;overflow:auto;
-  white-space:pre-wrap;word-break:break-all;margin-top:13px;border:1px solid #1C2C5E}
-
-/* ═══ 리포트 ═══ */
-.rtabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:11px;padding-bottom:2px}
-.rtabs button{padding:7.5px 15px;border-radius:99px;background:var(--surface);border:1px solid var(--line);
-  box-shadow:var(--sh);font-size:12.5px;font-weight:700;color:var(--ink-2);white-space:nowrap;transition:all .15s}
-.rtabs button.on{background:var(--navy-900);border-color:var(--navy-900);color:#fff}
-.md{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);
-  padding:18px;font-size:13.5px;overflow-x:auto}
-.md h1{font-size:16.5px;margin:4px 0 8px;letter-spacing:-.3px}
-.md h2{font-size:14px;margin:16px 0 7px;color:var(--brand-dk)}
-.md table{border-collapse:collapse;margin:8px 0;min-width:300px}
-.md th,.md td{border:1px solid var(--line);padding:6px 10px;font-size:12.5px;font-variant-numeric:tabular-nums}
-.md th{background:#F8FAFD;font-weight:700}
-.md li{margin-left:18px;margin-bottom:2px}
-.md p{margin-bottom:4px}
-
-/* ═══ 상세 시트 ═══ */
-/* 배경은 손가락을 받아 주되 스크롤은 시키지 않는다 — 배경을 쓸면 뒤 화면이 움직였다 */
-.sheet-bg{position:fixed;inset:0;background:rgba(10,20,48,.5);z-index:40;display:none;backdrop-filter:blur(2px);
-  overscroll-behavior:none;touch-action:none}
-/* overscroll-behavior:contain — 시트 끝까지 스크롤해도 그 힘이 뒤 화면으로 넘어가지 않는다 */
-.sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;background:var(--surface);
-  border-radius:22px 22px 0 0;max-height:82vh;max-height:82dvh;overflow:hidden;
-  display:flex;flex-direction:column;overscroll-behavior:contain;
-  padding:18px 20px calc(22px + env(safe-area-inset-bottom));
-  transform:translateY(100%);transition:transform .24s cubic-bezier(.3,1,.4,1);
-  box-shadow:0 -12px 40px rgba(10,20,48,.3)}
-.sheet.open{transform:none}
-.sheet .grip{flex:none;width:38px;height:4.5px;background:var(--line);border-radius:99px;margin:0 auto 15px}
-#sheetbody{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
-  overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;
-  scrollbar-gutter:stable;padding:0 2px 8px 0}
-#sheetbody:focus{outline:none}
-.sheet-actions{display:none;flex:none;margin:0 -20px calc(-22px - env(safe-area-inset-bottom));
-  padding:12px 20px calc(14px + env(safe-area-inset-bottom));background:var(--surface);
-  border-top:1px solid var(--line);box-shadow:0 -6px 18px rgba(10,20,48,.08);z-index:2}
-.sheet-actions.open{display:block}
-.sheet-actions .actions{margin:0;grid-template-columns:repeat(2,1fr)}
-.sheet-actions .media-tools{margin:0;padding:2px 0 4px}
-.sheet h2{font-size:16.5px;display:flex;align-items:center;gap:8px;margin-bottom:3px}
-.sheet .sub{font-size:12.5px;color:var(--ink-2);margin-bottom:15px}
-.dl{display:grid;grid-template-columns:118px 1fr;gap:8px 12px;font-size:13.5px}
-.dl dt{color:var(--ink-3);font-weight:600}
-.dl dd{font-weight:600;word-break:break-all;font-variant-numeric:tabular-nums}
-.dl .sec{grid-column:1/-1;font-size:11px;font-weight:800;color:var(--brand-dk);letter-spacing:.5px;
-  border-top:1px solid var(--line);padding-top:11px;margin-top:5px;text-transform:uppercase}
-@media(min-width:900px){.sheet{left:50%;right:auto;width:540px;transform:translate(-50%,100%)}
-  .sheet.open{transform:translate(-50%,0)}}
-
-/* 목록 머리 — '아래에 목록이 있다'를 놓치지 않게 구분선을 준다 */
-.lhead{display:flex;align-items:baseline;gap:7px;margin:14px 0 8px;padding-top:12px;
-  border-top:1px solid var(--line)}
-.lhead b{font-size:13px;font-weight:800}
-.lhead span{font-size:11.5px;font-weight:700;color:var(--brand);
-  background:#EEF2FF;border-radius:999px;padding:2px 8px;font-variant-numeric:tabular-nums}
-/* 밴드 원문 링크 — 행 클릭(상세 이동)과 겹치지 않게 따로 잡는다 */
-.blink{flex:none;font-size:11px;font-weight:800;color:#0F7B3E;background:#E6F6EC;
-  border:1px solid #BFE8CD;border-radius:999px;padding:2px 8px;text-decoration:none;white-space:nowrap}
-.blink:hover{background:#D6F0E0}
-/* sticky 액션은 showSheet가 .sheet-actions로 옮긴다. 목록 스크롤과 버튼을 물리적으로 분리해
-   버튼이 첫 행·마지막 행을 덮지 않게 한다. 자바스크립트가 꺼져도 일반 흐름으로 보인다. */
-.actions.sticky,.media-tools.sticky{margin-top:14px}
-
-.metric-basis{font-size:11.5px;line-height:1.6;color:var(--ink-2);background:#F8FAFD;
-  border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin:10px 0 12px}
-.metric-basis b{color:var(--brand-dk)}
-.metric-row .top:first-child{align-items:flex-start}
-.metric-row .project-line{display:flex;align-items:center;gap:7px;min-width:0;flex-wrap:wrap}
-.metric-row .camp-name{font-size:12px;color:var(--ink-2);font-weight:700}
-.metric-row .metric-date{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
-.metric-row .metric-issue{font-size:11.5px;color:var(--ink-2);line-height:1.5;margin-top:4px;
-  overflow-wrap:anywhere}
-
-/* ═══ 확인 필요 전용 화면 ═══ */
-.check-hero{display:flex;justify-content:space-between;align-items:center;gap:18px;
-  background:linear-gradient(120deg,#FFF 0%,#F7F9FF 62%,#EEF2FF 100%);
-  border:1px solid #DCE4F5;border-radius:18px;padding:21px 22px;margin-bottom:13px;box-shadow:var(--sh)}
-.check-hero .eyebrow{font-size:11px;color:var(--brand);font-weight:800;letter-spacing:.5px;margin-bottom:3px}
-.check-hero h2{font-size:22px;letter-spacing:-.5px;margin-bottom:4px}
-.check-hero p{font-size:12.5px;color:var(--ink-2);max-width:620px}
-.check-hero .actions{flex:0 0 310px}
-.check-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:13px}
-.check-kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
-  box-shadow:var(--sh);padding:15px 16px;cursor:pointer;transition:all .15s}
-.check-kpi:hover{border-color:var(--brand);box-shadow:var(--sh-lg);transform:translateY(-1px)}
-.check-kpi .v{font-size:24px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
-.check-kpi .l{font-size:11.5px;color:var(--ink-2);font-weight:700;margin-top:5px}
-.check-kpi .s{font-size:10.5px;color:var(--ink-3);margin-top:3px}
-.check-kpi.danger .v{color:var(--danger)} .check-kpi.warn .v{color:var(--warn)}
-.check-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);gap:13px}
-.check-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.check-group{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;text-align:left;
-  background:#F8FAFD;border:1px solid #E8EDF5;border-radius:11px;padding:11px 12px;
-  min-height:66px;transition:all .15s}
-.check-group:hover{background:var(--brand-tint);border-color:#BFCDF3;transform:translateY(-1px)}
-.check-group .name{display:block;font-size:12.5px;font-weight:800;line-height:1.35}
-.check-group .hint{display:block;font-size:10.5px;color:var(--ink-3);margin-top:4px;line-height:1.35}
-.check-group .count{flex:none;font-size:14px;font-weight:800;color:var(--brand);font-variant-numeric:tabular-nums}
-.check-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) 180px 160px auto;gap:8px;margin-bottom:10px}
-.check-toolbar input,.check-toolbar select{min-width:0;padding:10px 12px;border:1.5px solid var(--line);
-  border-radius:10px;background:#fff;color:var(--ink);font:inherit}
-.check-toolbar input:focus,.check-toolbar select:focus{outline:none;border-color:var(--brand)}
-.check-toolbar button{padding:9px 13px;border:1px solid var(--line);border-radius:10px;background:#F8FAFD;
-  color:var(--ink-2);font-weight:800}
-.check-summary{font-size:11.5px;color:var(--ink-3);margin:-2px 0 9px}
-.check-summary b{color:var(--brand)}
-.check-row .check-desc{font-size:11.5px;color:var(--ink-2);line-height:1.55;margin-top:5px;
-  overflow-wrap:anywhere}
-.check-row .check-money{font-weight:800;color:var(--warn);white-space:nowrap}
-@media(max-width:899px){
-  .check-hero{align-items:flex-start;flex-direction:column}
-  .check-hero .actions{flex:0 0 auto;width:100%}
-  .check-kpis{grid-template-columns:repeat(2,1fr)}
-  .check-grid{grid-template-columns:1fr}
-  .check-toolbar{grid-template-columns:1fr 1fr}
-  .check-toolbar input{grid-column:1/-1}
-}
-@media(max-width:420px){
-  .tabbar button{font-size:9px;padding-left:1px;padding-right:1px}
-  .tabbar svg{width:20px;height:20px}
-  .check-groups{grid-template-columns:1fr}
-  .check-toolbar{grid-template-columns:1fr}
-  .check-toolbar input{grid-column:auto}
-}
-
-/* ═══ TOP 리스트 ═══ */
-.toplist{display:flex;flex-direction:column;gap:8px}
-.topitem{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 13px;
-  background:#F8FAFD;border:1px solid #EEF2F7;border-radius:11px;font-size:12.5px;
-  cursor:pointer;transition:all .15s}
-.topitem:hover{border-color:var(--brand);background:var(--brand-tint)}
-.topitem b{font-size:13px}
-.prj{display:inline-block;padding:3px 8px;border-radius:7px;background:var(--brand-tint);color:var(--brand-dk);
-  font-size:11px;font-weight:800;font-variant-numeric:tabular-nums;cursor:pointer;
-  border:1px solid #D6E0FA;transition:all .13s}
-.prj:hover{background:var(--brand);color:#fff;border-color:var(--brand);transform:translateY(-1px)}
-.prj:active{transform:scale(.94)}
-.bar{height:6px;border-radius:99px;background:#E8EDF4;overflow:hidden;margin-top:7px}
-.bar i{display:block;height:100%;background:var(--brand);border-radius:99px}
-
-/* ═══ 이미지·인쇄·엑셀 공통 도구 모음 ═══
-   모든 화면에서 같은 순서와 같은 아이콘을 쓴다. 폰에서도 세로 카드로 바뀌지 않고
-   한 줄을 유지하며, 폭이 모자라면 도구 모음 안에서만 가로 스크롤한다. */
-.rpt-actions,.media-tools{display:flex!important;flex-wrap:nowrap!important;align-items:center;
-  justify-content:center;gap:9px;margin:0 0 12px;overflow-x:auto;overflow-y:hidden;
-  padding:5px 3px 8px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
-.icon-btn{appearance:none;-webkit-appearance:none;flex:0 0 68px!important;width:68px;height:62px;
-  padding:5px 3px 4px!important;border-radius:14px!important;border:1px solid #D6DEEB!important;
-  background:linear-gradient(180deg,#fff 0%,#F7F9FC 100%)!important;
-  box-shadow:0 3px 9px rgba(16,24,40,.10),inset 0 1px 0 rgba(255,255,255,.9)!important;
-  display:inline-flex!important;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;
-  transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease,background .14s ease}
-.icon-btn img{display:block;width:24px;height:24px;pointer-events:none}
-.icon-btn::after{content:attr(aria-label);display:block;max-width:62px;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap;font-size:9.5px;line-height:1.1;font-weight:800;color:#344054}
-.icon-btn.primary::after{color:#fff}
-.icon-btn:hover{transform:translateY(-2px);border-color:#8EA6F4!important;
-  box-shadow:0 7px 18px rgba(36,82,230,.16)!important}
-.icon-btn:active{transform:translateY(0) scale(.92)}
-.icon-btn:focus-visible{outline:3px solid rgba(36,82,230,.22);outline-offset:2px}
-.icon-btn.primary{background:linear-gradient(145deg,#6172F3,#3749DB)!important;
-  border-color:#4457E7!important;box-shadow:0 6px 16px rgba(55,73,219,.30)!important}
-.icon-btn.primary img{filter:brightness(0) invert(1)}
-.icon-btn.excel{background:linear-gradient(180deg,#F3FFF8,#E8F8EF)!important;
-  border-color:#A8D9BC!important}
-.icon-btn.busy img{animation:tool-spin .8s linear infinite}
-.icon-btn.success{border-color:#36A269!important;background:#EDF9F2!important}
-@keyframes tool-spin{to{transform:rotate(360deg)}}
-.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;
-  margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;
-  white-space:nowrap!important;border:0!important}
-@media(max-width:640px){
-  .rpt-actions,.media-tools{justify-content:flex-start;gap:7px;padding:4px 2px 9px}
-  .icon-btn{flex-basis:58px!important;width:58px;height:58px;border-radius:12px!important}
-  .icon-btn img{width:22px;height:22px}
-  .icon-btn::after{font-size:9px;max-width:54px}
-}
-
-/* ═══ 보고서(캡처 최적화) ═══ */
-.rpt{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh-lg);
-  padding:26px 26px 20px;max-width:720px;margin:0 auto}
-.rpt .rhead{display:flex;align-items:center;gap:12px;border-bottom:2.5px solid var(--navy-900);padding-bottom:14px}
-.rpt .rhead .logo{width:38px;height:38px;border-radius:11px}
-.rpt .rhead h2{font-size:19px;letter-spacing:-.4px;line-height:1.2}
-.rpt .rhead h2 small{display:block;font-size:10.5px;color:var(--ink-3);font-weight:600;letter-spacing:.5px}
-.rpt .rdate{margin-left:auto;text-align:right;font-size:12px;color:var(--ink-2);font-weight:700}
-.rpt .rdate b{display:block;font-size:15px;color:var(--ink)}
-.rpt h4{font-size:12px;color:var(--brand-dk);font-weight:800;letter-spacing:.5px;margin:18px 0 8px;
-  display:flex;align-items:center;gap:6px}
-.rpt h4::after{content:"";flex:1;height:1px;background:var(--line)}
-.rgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.rcell{background:#F8FAFD;border:1px solid #EEF2F7;border-radius:10px;padding:10px 12px;text-align:center}
-.rcell.clk{cursor:pointer;transition:border .15s,box-shadow .15s,transform .1s}
-.rcell.clk:hover{border-color:var(--brand);box-shadow:0 3px 10px rgba(36,82,230,.16)}
-.rcell.clk:active{transform:scale(.97)}
-.rcell .go{color:var(--brand);font-weight:800}
-.rcell .v{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.4px}
-.rcell .l{font-size:10px;color:var(--ink-3);font-weight:700;margin-top:1px}
-.rpt table{width:100%;border-collapse:collapse;font-size:12px}
-.rpt table th{background:#F1F5FB;padding:7px 9px;text-align:left;font-size:10.5px;color:var(--ink-2);border:1px solid var(--line)}
-.rpt table td{padding:6.5px 9px;border:1px solid var(--line);font-variant-numeric:tabular-nums}
-.rpt .rfoot{margin-top:16px;padding-top:10px;border-top:1px solid var(--line);
-  display:flex;justify-content:space-between;font-size:10px;color:var(--ink-3)}
-@media(min-width:900px){.rgrid{grid-template-columns:repeat(6,1fr)}
-  /* 핵심 지표는 7칸이라 6칸 격자에선 마지막 하나가 아래로 떨어진다 → 한 줄에 7칸 */
-  .rgrid.k7{grid-template-columns:repeat(7,1fr)}
-  .rgrid.k7 .rcell{padding:10px 8px}
-  .rgrid.k7 .rcell .v{font-size:16px;letter-spacing:-.5px}
-  .rgrid.k7 .rcell .l{font-size:9.5px}}
-@media(min-width:600px) and (max-width:899px){.rgrid{grid-template-columns:repeat(4,1fr)}}
-/* 보고 표 — 열 너비 고정 + 한글 단어 보존(어절 단위로만 줄바꿈) */
-.rpt table{table-layout:fixed;word-break:keep-all;overflow-wrap:anywhere}
-.rpt table td.prjs{font-size:11px;color:var(--ink-2);line-height:1.55}
-/* 프로젝트NO는 칩으로 — flex-wrap이 항상 줄을 접어주므로 좁은 폰에서도 절대 넘치지 않는다 */
-.chips{display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-width:0}
-.chips .more{font-size:11px;color:var(--ink-3);font-weight:700;align-self:center}
-/* 폰: 열이 눌려 글자가 세로로 쪼개지므로 한 행을 카드로 펼친다 */
-@media(max-width:640px){
-  /* 보고서 머리말: flex 항목은 기본 min-width:auto라 긴 영문 제목이 줄지 못하고
-     페이지 전체를 넓혀 표까지 화면 밖으로 밀어냈다 → min-width:0으로 줄어들게 한다 */
-  .rpt{padding:16px 14px 14px;max-width:100%;overflow-x:hidden}
-  .rpt .rhead{flex-wrap:wrap;gap:9px}
-  .rpt .rhead h2{min-width:0;flex:1 0 calc(100% - 47px);font-size:15px;word-break:keep-all}
-  .rpt .rdate{margin-left:0;width:100%;text-align:left;
-    border-top:1px solid var(--line);padding-top:8px}
-  /* tbody까지 block으로 풀어야 카드가 전체 폭을 쓴다(안 그러면 내용 폭에 맞춰 쪼그라듦) */
-  .rpt table.stack,.rpt table.stack tbody,.rpt table.stack tr,.rpt table.stack td{
-    display:block;width:100%;max-width:100%}
-  .rpt table.stack colgroup{display:none}
-  .rpt table.stack tr{border:1px solid var(--line);border-radius:11px;
-    padding:10px 12px;margin-bottom:8px;background:#FBFCFE}
-  .rpt table.stack tr:first-child{display:none}          /* 머리글 행 */
-  .rpt table.stack td{border:0;padding:2.5px 0;text-align:left!important;font-size:12.5px;
-    overflow-wrap:anywhere;word-break:break-word}
-  .rpt table.stack td::before{content:attr(data-l);display:inline-block;min-width:70px;
-    color:var(--ink-3);font-size:10.5px;font-weight:800;letter-spacing:.2px}
-  .rpt table.stack td.hd{font-size:14.5px;font-weight:800;margin-bottom:5px;color:var(--ink)}
-  .rpt table.stack td.hd::before{content:none}
-  .rpt table.stack td.prjs{padding-top:5px;margin-top:4px;border-top:1px dashed var(--line)}
-  .rpt table.stack td.prjs::before{display:block;min-width:0;margin-bottom:2px}
-}
-
-/* ═══ PIN 게이트 ═══ */
-.gate{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:24px;
-  background:radial-gradient(1100px 600px at 70% -10%,#24409A 0%,var(--navy-900) 45%,var(--navy-950) 100%)}
-.gate .box{background:#fff;border-radius:22px;padding:32px 28px;width:100%;max-width:350px;text-align:center;
-  box-shadow:0 24px 70px rgba(0,0,0,.45)}
-.gate .glogo{width:54px;height:54px;border-radius:16px;margin:0 auto 14px;
-  background:linear-gradient(135deg,var(--brand),#5B8CFF);display:flex;align-items:center;justify-content:center;
-  box-shadow:0 8px 20px rgba(36,82,230,.4)}
-.gate .glogo svg{width:28px;height:28px}
-.gate .glogo.app-icon{background:none;overflow:hidden}
-.gate .glogo.app-icon img{display:block;width:100%;height:100%;object-fit:cover}
-.gate h2{font-size:18px;margin-bottom:3px;letter-spacing:-.3px}
-.gate p{font-size:12.5px;color:var(--ink-2);margin-bottom:20px}
-.gate input{width:100%;padding:13px;font-size:24px;text-align:center;letter-spacing:14px;
-  border:2px solid var(--line);border-radius:13px;margin-bottom:12px;font-variant-numeric:tabular-nums}
-.gate input:focus{outline:none;border-color:var(--brand)}
-.gate button{width:100%;padding:14px;background:var(--brand);color:#fff;border-radius:13px;
-  font-size:15px;font-weight:700;transition:background .15s;box-shadow:0 6px 16px rgba(36,82,230,.35)}
-.gate button:hover{background:var(--brand-dk)}
-.gate .err{color:var(--danger);font-size:12.5px;margin-top:9px;min-height:16px}
-
-/* ═══ 데스크톱 (≥900px): 다크 사이드바 ═══ */
-@media(min-width:900px){
-  .tabbar{top:0;bottom:auto;left:0;right:auto;width:216px;height:100vh;flex-direction:column;
-    background:var(--navy-900);border:none;box-shadow:none;padding:0;justify-content:flex-start}
-  .tabbar .brand{display:flex;align-items:center;gap:11px;padding:22px 20px 18px;
-    border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:10px;color:#fff}
-  .tabbar .brand .bt{font-size:15px;font-weight:800;letter-spacing:-.3px;line-height:1.2}
-  .tabbar .brand .bt small{display:block;font-size:9.5px;font-weight:600;color:#8FA3D9;letter-spacing:.5px}
-  .tabbar button{flex:0 0 auto;flex-direction:row;justify-content:flex-start;gap:12px;
-    padding:12px 20px;font-size:13.5px;color:#93A5D6;margin:1px 10px;border-radius:10px}
-  .tabbar button:hover{background:rgba(255,255,255,.06);color:#fff}
-  .tabbar button.on{color:#fff;background:rgba(91,140,255,.16)}
-  .tabbar button.on::before{top:auto;left:-10px;width:3.5px;height:22px;border-radius:0 4px 4px 0}
-  .tabbar .nav-spacer{display:block;flex:1 1 auto}
-  .tabbar button.calendar-nav{margin-bottom:18px;background:rgba(255,255,255,.05);border:1px solid rgba(143,163,214,.22)}
-  .tabbar button.calendar-nav.on{background:rgba(91,140,255,.22);border-color:rgba(143,163,255,.42)}
-  .shell{margin-left:216px;padding:24px 30px 48px;max-width:none}
-  .appbar{margin-left:216px;background:var(--surface);color:var(--ink);
-    box-shadow:0 1px 0 var(--line);padding:12px 30px;min-height:96px;gap:24px}
-  .appbar-identity{gap:14px}
-  .appbar h1{font-size:18px;line-height:1.18}
-  .appbar h1 .brandfull,.appbar h1 small{white-space:nowrap}
-  .appbar-brand-stack{min-width:295px}
-  .appbar h1 small{color:var(--ink-3)}
-  .appbar .sub{color:var(--ink-3)}
-  .kpis{grid-template-columns:repeat(6,1fr)}
-  .actions{grid-template-columns:repeat(4,1fr)}
-  /* 데스크톱 정산 본문만 표로 바꾼다. 공용 .slist를 숨기면 상세 시트 목록까지 사라진다. */
-  #slist{display:none}
-  table.grid{display:table}
-  .logbox{height:400px}
-}
-@media(max-width:899px){ table.grid{display:none!important} }
-/* 단, 통계 탭 월별표(.ptbl)는 폰에서도 보여야 한다 — 카드 대체본이 없어서
-   숨기면 화면에 아무것도 남지 않는다(실제로 폰에서 연간 실적이 안 보이던 원인). */
-@media(max-width:899px){
-  table.grid.ptbl{display:table!important;min-width:600px;font-size:11.5px}
-  table.grid.ptbl th,table.grid.ptbl td{padding:6px 8px}
-}
-#ptable{-webkit-overflow-scrolling:touch}
-#ptable::after{content:"← 옆으로 밀어서 전체 보기";display:block;font-size:10.5px;
-  color:var(--ink-3);margin-top:5px}
-@media(min-width:900px){ #ptable::after{display:none} }
-
-/* ═══ 류지영 업무센터 — 대시보드·과거 목록·조사·카톡 원본 투입 ═══ */
-.ryu-hero{background:linear-gradient(135deg,#16265B,#3654D9);color:#fff;border-radius:20px;
-  padding:24px;margin-bottom:14px;box-shadow:0 14px 30px rgba(20,43,125,.20)}
-.ryu-hero h2{font-size:22px;margin-bottom:5px}.ryu-hero p{color:#D5DDFC;font-size:13px}
-.ryu-guide{counter-reset:ryu-step;display:grid;gap:9px;margin:12px 0}
-.ryu-guide li{list-style:none;counter-increment:ryu-step;display:flex;align-items:flex-start;gap:10px;
-  padding:11px 12px;background:#F7F9FD;border:1px solid var(--line);border-radius:12px}
-.ryu-guide li::before{content:counter(ryu-step);flex:none;width:24px;height:24px;border-radius:8px;
-  background:var(--brand);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:900}
-.ryu-upload-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
-.ryu-drop{display:grid;gap:7px;padding:16px;border:1.5px dashed #AFC0F3;border-radius:15px;
-  background:#F7F9FF;cursor:pointer;transition:.18s}
-.ryu-drop:hover{border-color:var(--brand);background:#EFF3FF;transform:translateY(-1px)}
-.ryu-drop b{color:#173DAD}.ryu-drop small{color:var(--ink-2);line-height:1.55}
-.ryu-drop input{width:100%;font-size:12px;color:var(--ink-2)}
-.ryu-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
-.ryu-fields label{display:grid;gap:5px;color:var(--ink-2);font-weight:800;font-size:12px}
-.ryu-fields .wide{grid-column:1/-1}
-.ryu-fields input,.ryu-fields select,.ryu-fields textarea{width:100%;border:1px solid var(--line);
-  border-radius:11px;padding:11px 12px;background:#fff;font:inherit;color:var(--ink)}
-.ryu-fields textarea{min-height:88px;resize:vertical}
-.ryu-result{display:none;margin-top:12px;padding:13px;border-radius:12px;font-weight:700}
-.ryu-result.ok{display:block;background:var(--ok-bg);color:var(--ok)}
-.ryu-result.err{display:block;background:var(--danger-bg);color:var(--danger)}
-.ryu-entry-link{display:flex;align-items:center;justify-content:space-between;gap:12px;
-  padding:14px 16px;border:1px solid #CAD5F4;border-radius:14px;background:#F5F7FF;margin-bottom:13px}
-.ryu-entry-link a{display:inline-flex;align-items:center;gap:6px;padding:9px 13px;border-radius:10px;
-  background:var(--brand);color:#fff;text-decoration:none;font-weight:800;white-space:nowrap}
-.ryu-summary-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:0 0 14px}
-.ryu-summary-card{border:1px solid var(--line);border-radius:15px;background:#fff;padding:14px;
-  box-shadow:0 6px 16px rgba(29,45,95,.06);cursor:pointer;text-align:left;transition:.18s}
-.ryu-summary-card:hover{transform:translateY(-2px);border-color:#AFC0F3}
-.ryu-summary-card:active{transform:scale(.985)}
-.ryu-summary-card small{display:block;color:var(--ink-3);font-weight:800;font-size:11px;margin-bottom:6px}
-.ryu-summary-card strong{font-size:24px;letter-spacing:-.04em}
-.ryu-summary-card .attention{display:block;color:var(--danger);font-size:11px;font-weight:800;margin-top:4px}
-.ryu-category-tabs{display:flex;gap:8px;overflow-x:auto;padding:2px 1px 10px;scrollbar-width:thin}
-.ryu-category-tab{flex:1 0 145px;display:flex;align-items:center;justify-content:space-between;gap:8px;
-  border:1px solid var(--line);border-radius:13px;background:#fff;padding:12px 13px;color:var(--ink-2);
-  font:inherit;font-weight:900;cursor:pointer;transition:.18s}
-.ryu-category-tab:hover{border-color:#AFC0F3;background:#F6F8FF}
-.ryu-category-tab.on{border-color:var(--brand);background:var(--brand);color:#fff;
-  box-shadow:0 8px 18px rgba(72,80,228,.2)}
-.ryu-category-tab em{font-style:normal;font-size:11px;opacity:.82}
-.ryu-workspace{display:grid;grid-template-columns:minmax(0,1.14fr) minmax(340px,.86fr);gap:14px;align-items:start}
-.ryu-history-card,.ryu-editor-card{min-width:0}
-.ryu-filterbar{display:grid;grid-template-columns:minmax(0,1fr) 150px 150px;gap:8px;margin:11px 0}
-.ryu-filterbar input,.ryu-filterbar select{width:100%;border:1px solid var(--line);border-radius:11px;
-  padding:10px 11px;background:#fff;color:var(--ink);font:inherit}
-.ryu-history-meta{display:flex;justify-content:space-between;gap:10px;align-items:center;color:var(--ink-3);
-  font-size:11px;font-weight:800;margin-bottom:8px}
-.ryu-history-list{display:grid;gap:8px;max-height:650px;overflow:auto;padding-right:3px;scrollbar-width:thin}
-.ryu-history-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;border:1px solid var(--line);
-  border-radius:13px;background:#fff;padding:12px;cursor:pointer;transition:.16s;text-align:left}
-.ryu-history-row:hover{border-color:#AFC0F3;background:#F8FAFF;transform:translateX(2px)}
-.ryu-history-row.on{border-color:var(--brand);background:#F1F4FF;box-shadow:inset 3px 0 var(--brand)}
-.ryu-history-row .main{min-width:0}.ryu-history-row .title{font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ryu-history-row .sub{color:var(--ink-2);font-size:11.5px;margin-top:4px;line-height:1.45}
-.ryu-history-row .date{color:var(--ink-3);font-size:11px;white-space:nowrap;text-align:right}
-.ryu-history-row .state{display:inline-flex;margin-top:5px;padding:3px 7px;border-radius:999px;
-  background:#EEF2FA;color:#42516E;font-size:10.5px;font-weight:900}
-.ryu-history-row .state.warn{background:var(--danger-bg);color:var(--danger)}
-.ryu-editor-card{position:sticky;top:86px}
-.ryu-editor-empty{padding:28px 12px;text-align:center;color:var(--ink-3);line-height:1.65}
-.ryu-selected{padding:13px;border:1px solid #C9D5F4;border-radius:13px;background:#F5F7FF;margin:10px 0 12px}
-.ryu-selected .key{font-size:18px;font-weight:950}.ryu-selected .camp{font-weight:800;color:var(--ink-2);margin-top:3px}
-.ryu-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:10px}
-.ryu-detail-item{padding:8px 9px;border-radius:9px;background:#fff;border:1px solid #E2E7F1;min-width:0}
-.ryu-detail-item small{display:block;color:var(--ink-3);font-size:10px;font-weight:800}
-.ryu-detail-item span{display:block;margin-top:3px;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ryu-entry-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
-.ryu-entry-fields label{display:grid;gap:5px;color:var(--ink-2);font-size:11px;font-weight:850}
-.ryu-entry-fields label.wide{grid-column:1/-1}
-.ryu-entry-fields input,.ryu-entry-fields select,.ryu-entry-fields textarea{width:100%;border:1px solid var(--line);
-  border-radius:10px;padding:10px 11px;background:#fff;color:var(--ink);font:inherit}
-.ryu-entry-fields textarea{min-height:74px;resize:vertical}
-.ryu-save-note{font-size:11px;line-height:1.55;color:var(--ink-3);margin:10px 0}
-.ryu-upload-panel{display:none}.ryu-upload-panel.on{display:block}
-.ryu-list-panel.hidden,.ryu-editor-card.hidden{display:none}
-.ryu-loading{padding:34px;text-align:center;color:var(--ink-3)}
-@media(max-width:640px){
-  .ryu-upload-grid,.ryu-fields{grid-template-columns:1fr}
-  .ryu-fields .wide{grid-column:auto}
-  .ryu-entry-link{align-items:flex-start;flex-direction:column}
-  .ryu-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-  .ryu-summary-card{padding:11px}.ryu-summary-card strong{font-size:20px}
-  .ryu-category-tab{flex-basis:128px;padding:10px}
-  .ryu-workspace{grid-template-columns:1fr}
-  .ryu-filterbar{grid-template-columns:1fr 1fr}.ryu-filterbar input{grid-column:1/-1}
-  .ryu-history-list{max-height:55vh}
-  .ryu-editor-card{position:static}
-  .ryu-entry-fields,.ryu-detail-grid{grid-template-columns:1fr}
-  .ryu-entry-fields label.wide{grid-column:auto}
-}
-body.ryu-mode .tabbar button[data-v="run"]{display:none}
-body.ryu-mode .tabbar .brand .bt::after{content:" · " attr(data-staff);display:block;color:#B9C7F0;font-size:9px}
-body.staff-mode .tabbar button[data-v="run"],
-body.staff-mode .tabbar button[data-v="daily"],
-body.staff-mode .tabbar button[data-v="report"],
-body.ryu-mode .tabbar button[data-v="daily"],
-body.ryu-mode .tabbar button[data-v="report"]{display:none}
-.workcenter-hub{position:relative;overflow:hidden;border:1px solid #CAD5F4;border-radius:19px;
-  background:linear-gradient(135deg,#F9FAFF 0%,#EEF3FF 56%,#F8FBFF 100%);
-  padding:19px;margin-bottom:14px;box-shadow:0 12px 30px rgba(32,58,117,.08)}
-.workcenter-hub::after{content:"";position:absolute;right:-70px;top:-90px;width:230px;height:230px;
-  border-radius:50%;background:radial-gradient(circle,rgba(97,114,243,.16),transparent 68%);
-  pointer-events:none}
-.workcenter-hub h3{font-size:17px;color:#13285F;margin-bottom:4px}
-.workcenter-buttons{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:11px;margin-top:14px}
-.workcenter-person{--wc:#4257D7;--wc2:#7283F2;display:flex;align-items:center;gap:12px;min-height:66px;
-  padding:12px 15px;border:1px solid color-mix(in srgb,var(--wc) 30%,white);border-radius:15px;
-  background:linear-gradient(145deg,#fff,color-mix(in srgb,var(--wc) 7%,white));color:#172B61;
-  font-weight:900;text-decoration:none;box-shadow:0 6px 16px rgba(28,63,168,.09);
-  transition:transform .22s cubic-bezier(.2,.75,.25,1),box-shadow .22s,border-color .22s,filter .22s}
-.workcenter-person:nth-child(2){--wc:#147D64;--wc2:#35B58F}
-.workcenter-person:nth-child(3){--wc:#B35D13;--wc2:#E78B3D}
-.workcenter-person .wc-icon{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;
-  background:linear-gradient(145deg,var(--wc2),var(--wc));color:#fff;font-size:20px;
-  box-shadow:0 7px 16px color-mix(in srgb,var(--wc) 27%,transparent)}
-.workcenter-person .wc-icon img{width:21px;height:21px;filter:brightness(0) invert(1)}
-.workcenter-person .wc-copy{display:flex;flex-direction:column;min-width:0;line-height:1.22}
-.workcenter-person .wc-copy small{font-size:10px;color:#667085;font-weight:700;margin-top:4px}
-.workcenter-person .wc-arrow{margin-left:auto;font-size:18px;color:var(--wc);
-  transition:transform .22s cubic-bezier(.2,.75,.25,1)}
-.workcenter-person:hover,.workcenter-person:focus-visible{transform:translateY(-4px) scale(1.012);
-  border-color:var(--wc);box-shadow:0 14px 28px color-mix(in srgb,var(--wc) 20%,transparent);
-  outline:none;filter:saturate(1.08)}
-.workcenter-person:hover .wc-arrow,.workcenter-person:focus-visible .wc-arrow{transform:translate(3px,-3px)}
-.workcenter-person:active{transform:translateY(0) scale(.975);transition-duration:.08s}
-.staff-checklist{display:grid;gap:8px;margin:0 0 14px;padding:16px;border:1px solid #CAD5F4;
-  border-radius:15px;background:#fff}
-.staff-checklist h3{font-size:15px;color:#203A75}.staff-checklist label{display:flex;gap:9px;align-items:flex-start;
-  padding:9px 10px;border-radius:10px;background:#F7F9FD;font-weight:750;color:#344054}
-.staff-checklist input{width:18px;height:18px;accent-color:var(--brand);flex:none}
-.notice-wrap{position:relative;flex:none}
-.account-pin{width:40px;height:40px;border:1px solid #D5DDF0;border-radius:12px;background:#fff;
-  display:grid;place-items:center;box-shadow:0 3px 10px rgba(16,24,40,.08);transition:.15s}
-.account-pin img{width:20px;height:20px}.account-pin:hover{border-color:#8EA6F4;transform:translateY(-1px)}
-.account-pin:active{transform:scale(.94)}
-.notice-bell{position:relative;width:40px;height:40px;border:1px solid #D5DDF0;border-radius:12px;
-  background:#fff;display:grid;place-items:center;box-shadow:0 3px 10px rgba(16,24,40,.08)}
-.notice-bell svg{width:21px;height:21px}.notice-badge{position:absolute;right:-5px;top:-6px;min-width:20px;height:20px;
-  padding:0 5px;border-radius:999px;background:#D92D20;color:#fff;font-size:10px;font-weight:900;
-  display:none;align-items:center;justify-content:center;border:2px solid #fff}
-.notice-panel{position:absolute;right:0;top:48px;width:min(390px,calc(100vw - 22px));max-height:60vh;overflow:auto;
-  display:none;padding:10px;background:#fff;border:1px solid #D7DEEA;border-radius:14px;
-  box-shadow:0 18px 40px rgba(16,24,40,.2);z-index:1000}
-.notice-panel.on{display:block}.notice-item{padding:10px;border-radius:10px;background:#F7F9FC;margin-bottom:7px}
-.notice-item.error{background:#FEF0F1}.notice-item.warning{background:#FFF7ED}.notice-item.info{background:#EEF4FF}
-.notice-item b{display:block;font-size:12px}.notice-item span{display:block;color:#667085;font-size:10.5px;margin-top:3px}
-.install-card{position:fixed;right:16px;bottom:18px;z-index:1100;width:min(390px,calc(100vw - 32px));
-  display:none;padding:16px;border-radius:16px;background:#0D1B46;color:#fff;box-shadow:0 18px 45px rgba(6,13,43,.36)}
-.install-card.on{display:block;animation:viewEnter .28s ease}.install-card h3{font-size:15px;margin-bottom:4px}
-.install-card p{font-size:11px;color:#D8E0FA;line-height:1.55}.install-card .actions{grid-template-columns:1fr 1fr;margin-top:10px}
-.install-card button{padding:10px;border-radius:10px;background:#fff;color:#183786;font-weight:900}
-.install-card button.ghost{background:#223467;color:#D8E0FA}
-.pin-dialog{position:fixed;inset:0;z-index:1400;display:none;align-items:center;justify-content:center;
-  padding:20px;background:rgba(6,13,43,.58);backdrop-filter:blur(4px)}
-.pin-dialog.on{display:flex;animation:viewEnter .18s ease}
-.pin-dialog-card{width:min(430px,100%);padding:24px;border-radius:20px;background:#fff;
-  box-shadow:0 28px 70px rgba(6,13,43,.38)}
-.pin-dialog-head{display:flex;align-items:center;gap:12px;margin-bottom:17px}
-.pin-dialog-head .pin-symbol{width:44px;height:44px;border-radius:13px;background:#EEF2FF;
-  display:grid;place-items:center}.pin-dialog-head img{width:23px;height:23px}
-.pin-dialog-head h3{font-size:18px}.pin-dialog-head p{font-size:11.5px;color:var(--ink-2)}
-.pin-fields{display:grid;gap:11px}.pin-fields label{font-size:11.5px;color:var(--ink-2);font-weight:800}
-.pin-fields input{width:100%;margin-top:4px;padding:12px;border:1.5px solid var(--line);border-radius:11px;
-  font-size:20px;letter-spacing:10px;text-align:center;font-variant-numeric:tabular-nums}
-.pin-fields input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(36,82,230,.1)}
-.pin-dialog-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:17px}
-.pin-dialog-actions button{padding:12px;border-radius:11px;background:#EEF2F6;font-weight:900}
-.pin-dialog-actions button.primary{background:var(--brand);color:#fff;box-shadow:0 6px 16px rgba(36,82,230,.25)}
-.pin-dialog-error{min-height:19px;margin-top:9px;color:var(--danger);font-size:11.5px;font-weight:700}
-.drop-paste{border:2px dashed #AFC0F3;border-radius:13px;padding:14px;background:#F7F9FF;min-height:90px}
-.drop-paste.drag{border-color:var(--brand);background:#EEF2FF}
-.source-upload-card{border:1px solid #C8D5F5;background:linear-gradient(180deg,#fff,#F8FAFF)}
-.source-upload-card h3{font-size:18px;color:#17357E}
-.source-drop{display:grid;place-items:center;gap:8px;min-height:150px;padding:22px;
-  border:2px dashed #9FB3EE;border-radius:16px;background:#F4F7FF;text-align:center;
-  color:#344054;cursor:pointer;transition:.18s}
-.source-drop:hover,.source-drop.drag{border-color:var(--brand);background:#EAF0FF;
-  box-shadow:inset 0 0 0 1px rgba(72,80,228,.12)}
-.source-drop b{font-size:16px;color:#173DAD}.source-drop small{font-size:12px;line-height:1.55;color:#667085}
-.source-drop input[type=file]{width:min(100%,480px);font-size:13px}
-.source-ref{font-family:"Consolas","Malgun Gothic",sans-serif;font-size:13px!important}
-.source-help{display:grid;gap:7px;margin:12px 0;padding:12px 14px;border-radius:12px;
-  background:#EEF4FF;color:#344054;font-size:13px;line-height:1.55}
-.source-status{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:12px}
-.source-status>div{padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff}
-.source-status small{display:block;color:var(--ink-3);font-weight:800}.source-status strong{font-size:18px}
-.worklog-filter{display:grid;grid-template-columns:170px 150px 150px minmax(220px,1fr) auto;
-  gap:8px;margin:12px 0}
-.worklog-filter input,.worklog-filter select{width:100%;min-height:42px;border:1px solid var(--line);
-  border-radius:11px;background:#fff;padding:9px 11px;color:var(--ink);font:inherit}
-.worklog-filter .abtn img{width:18px;height:18px}
-.worklog-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}
-.worklog-kpi{padding:12px;border:1px solid var(--line);border-radius:12px;background:#F8FAFF}
-.worklog-kpi small{display:block;color:var(--ink-3);font-size:11px;font-weight:800}
-.worklog-kpi strong{display:block;margin-top:3px;font-size:22px}
-.worklog-records{display:grid;gap:8px;max-height:660px;overflow:auto;padding-right:3px;scrollbar-width:thin}
-.worklog-record{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:13px;
-  border:1px solid var(--line);border-radius:13px;background:#fff;transition:.16s}
-.worklog-record:hover{border-color:#AFC0F3;background:#F8FAFF;transform:translateX(2px)}
-.worklog-record .head{display:flex;align-items:center;gap:7px;min-width:0}
-.worklog-record .project{border:0;background:none;color:#2948D8;padding:0;font:inherit;font-weight:950;
-  text-decoration:underline;text-underline-offset:3px;cursor:pointer}
-.worklog-record .camp{font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.worklog-record .sub{color:var(--ink-2);font-size:11.5px;line-height:1.5;margin-top:4px}
-.worklog-record .detail{color:#344054;font-size:11.5px;line-height:1.55;margin-top:7px;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.worklog-record .side{text-align:right;white-space:nowrap;color:var(--ink-3);font-size:11px}
-.worklog-record .state{display:inline-flex;margin-top:6px;padding:4px 7px;border-radius:999px;
-  background:#EAF6EE;color:#147A42;font-weight:900}
-.worklog-record .state.warn{background:var(--danger-bg);color:var(--danger)}
-.worklog-empty{padding:30px;text-align:center;color:var(--ink-3);border:1px dashed #C8D2E6;border-radius:13px}
-.tabbar button.staff-worklog-nav{display:none}
-body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
-@media(max-width:640px){
-  .source-status{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .source-drop{min-height:128px;padding:16px}
-  .worklog-filter{grid-template-columns:1fr 1fr}
-  .worklog-filter input[type=search]{grid-column:1/-1}
-  .worklog-filter .abtn{grid-column:1/-1}
-  .worklog-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .worklog-record{grid-template-columns:1fr}
-  .worklog-record .side{text-align:left}
-}
-@media(max-width:760px){
-  .workcenter-buttons{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .workcenter-person{min-height:58px;font-size:11px;padding:8px;gap:6px;justify-content:center}
-  .workcenter-person .wc-icon{width:32px;height:32px;border-radius:10px;font-size:16px}
-  .workcenter-person .wc-copy small{display:none}
-  .workcenter-person .wc-arrow{display:none}
-  .notice-panel{position:fixed;right:11px;top:63px}
-}
-
-</style>
-</head>
-<body>
-
-<div class="gate" id="gate">
-  <div class="box">
-  <div class="glogo app-icon"><img src="/icon-192.png?v=csos-20260730" alt="CSOS"></div>
-    <h2>Coupang Service Operations System</h2>
-    <p>PIN 4자리를 입력하세요</p>
-    <input id="pin" type="tel" maxlength="4" inputmode="numeric" placeholder="••••" autofocus>
-    <button onclick="login()">접속</button>
-    <div class="err" id="pinerr"></div>
-  </div>
-</div>
-
-<header class="appbar">
-  <div class="appbar-identity">
-    <div class="logo app-icon"><img src="/icon-192.png?v=csos-20260730" alt="CSOS"></div>
-    <h1><span class="brandfull">Coupang Service Operations System</span><span class="brandshort">CSOS</span>
-      <small>UNIVERSAL LIFT · 쿠팡 통합업무 · 2026년 전용</small></h1>
-  </div>
-  <div class="appbar-brand-stack" aria-label="UNIVERSAL LIFT · Coupang">
-    <img class="uni-app-brand" src="/brand/universal-lift-horizontal.png" alt="UNIVERSAL LIFT &amp; HITACHI KOREA">
-    <img class="coupang-app-brand" src="/brand/coupang.png" alt="Coupang">
-  </div>
-  <div class="appbar-status">
-    <button class="account-pin" id="pinMenuButton" type="button" onclick="openPinDialog()"
-      title="PIN 번호 변경" aria-label="PIN 번호 변경">
-      <img src="/icons/bootstrap-key-fill.svg" alt="">
-    </button>
-    <div class="notice-wrap">
-      <button class="notice-bell" id="noticeBell" type="button" onclick="toggleNotifications(event)"
-        title="시스템 알림" aria-label="시스템 알림">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/>
-          <path d="M10 21h4"/>
-        </svg>
-        <span class="notice-badge" id="noticeBadge">0</span>
-      </button>
-      <div class="notice-panel" id="noticePanel">
-        <div class="notice-item info"><b>알림을 확인하는 중입니다.</b></div>
-      </div>
-    </div>
-    <span class="sub" id="demobadge"></span>
-    <div class="dot" id="livedot"></div>
-    <div class="sub" id="clock"></div>
-  </div>
-</header>
-
-<aside class="install-card" id="installCard" aria-live="polite">
-  <h3 id="installTitle">업무센터를 앱으로 설치</h3>
-  <p id="installGuide">PC 바탕화면이나 모바일 홈 화면에서 바로 열 수 있습니다.</p>
-  <div class="actions">
-    <button type="button" onclick="installWorkcenter()">설치하기</button>
-    <button class="ghost" type="button" onclick="dismissInstall()">나중에</button>
-  </div>
-</aside>
-
-<div class="pin-dialog" id="pinDialog" role="dialog" aria-modal="true" aria-labelledby="pinDialogTitle"
-  onclick="if(event.target===this)closePinDialog()">
-  <form class="pin-dialog-card" onsubmit="changePin(event)">
-    <div class="pin-dialog-head">
-      <div class="pin-symbol"><img src="/icons/bootstrap-key-fill.svg" alt=""></div>
-      <div><h3 id="pinDialogTitle">PIN 번호 변경</h3>
-        <p id="pinDialogRole">현재 로그인한 계정의 PIN만 변경합니다.</p></div>
-    </div>
-    <div class="pin-fields">
-      <label>현재 PIN<input id="pinCurrent" type="password" inputmode="numeric" maxlength="4"
-        autocomplete="current-password" required></label>
-      <label>새 PIN<input id="pinNew" type="password" inputmode="numeric" maxlength="4"
-        autocomplete="new-password" required></label>
-      <label>새 PIN 확인<input id="pinConfirm" type="password" inputmode="numeric" maxlength="4"
-        autocomplete="new-password" required></label>
-    </div>
-    <div class="pin-dialog-error" id="pinDialogError"></div>
-    <div class="pin-dialog-actions">
-      <button type="button" onclick="closePinDialog()">취소</button>
-      <button class="primary" type="submit">PIN 변경</button>
-    </div>
-  </form>
-</div>
-
-<main class="shell">
-
-  <!-- 대시보드 -->
-  <section class="view active" id="v-dash">
-    <div class="hero">
-      <div class="badge"><span class="dot" style="box-shadow:none"></span><span id="heroAgent">에이전트 대기</span></div>
-      <div class="hi" id="heroDate"></div>
-      <h2>Coupang Service Operations System — 현황</h2>
-      <div class="hstats" id="heroStats"></div>
-    </div>
-    <!-- 원장엔 올라왔는데 엑셀이 아직 계산 안 해서 화면에 없는 건 — 숫자가 틀린 게 아니라 대기 중이다 -->
-	    <div class="card" id="recalccard" style="display:none;border:2px solid var(--warn)">
-	      <h3 style="color:var(--warn)">엑셀을 한 번 열어 주세요</h3>
-	      <div id="recalcmsg" style="font-size:13.5px;line-height:1.65"></div>
-	    </div>
-	    <div class="workcenter-hub">
-	      <h3>업무센터</h3>
-	      <div class="muted">담당자별 고정 주소에서 과거 목록 확인·신규 입력·근거 첨부·자동 반영을 처리합니다.</div>
-	      <div class="workcenter-buttons" id="workcenterButtons">
-	        <a class="workcenter-person" href="/staff/ryu-jiyeong" target="_blank" rel="noopener">
-	          <span class="wc-icon"><img src="/icons/bootstrap-person-workspace.svg" alt=""></span><span class="wc-copy">류지영<small>돌발AS · 정기점검</small></span><span class="wc-arrow">↗</span></a>
-	        <a class="workcenter-person" href="/staff/oh-jonghyeon" target="_blank" rel="noopener">
-	          <span class="wc-icon"><img src="/icons/bootstrap-person-badge-fill.svg" alt=""></span><span class="wc-copy">오종현<small>PO · 구매 원천자료</small></span><span class="wc-arrow">↗</span></a>
-	        <a class="workcenter-person" href="/staff/byeon-jaeseon" target="_blank" rel="noopener">
-	          <span class="wc-icon"><img src="/icons/bootstrap-person-vcard-fill.svg" alt=""></span><span class="wc-copy">변재선<small>회계 · 세금계산서 · 입금</small></span><span class="wc-arrow">↗</span></a>
-	      </div>
-	    </div>
-	    <div class="card rep-card" id="repCard">
-      <div class="rep-head">
-        <div class="rep-title">유수비 대표 예외보고
-          <small>정상 처리 건은 합계만, 지연·불일치·판단 필요 건은 상세로 표시합니다</small></div>
-        <span class="signal" id="repSignal">계산 중</span>
-      </div>
-      <div class="rep-summary" id="repSummary">원장 기준 예외 항목을 계산하고 있습니다.</div>
-      <div class="rep-grid" id="repKpis"></div>
-      <div class="rep-docs" id="repDocs"></div>
-      <div class="actions" style="margin-top:12px">
-          <button class="abtn primary" onclick="show('check')"><img class="em" src="/icons/bootstrap-exclamation-triangle-fill.svg" alt="">확인 필요 전체</button>
-          <button class="abtn" onclick="show('daily')"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">대표 보고 보기</button>
-      </div>
-    </div>
-    <div class="kpis" id="kpis"></div>
-    <div class="card"><h3>에이전트 최근 실행 <span id="agentTime" style="font-weight:400"></span></h3>
-      <div class="steps" id="steps"></div></div>
-    <div class="card" id="forkcard" style="display:none;border:2px solid var(--danger)">
-      <h3 style="color:var(--danger)"><img class="inline-bi" src="/icons/bootstrap-exclamation-triangle-fill.svg" alt=""> 버전 충돌 경고</h3><div id="forkmsg" style="font-size:13.5px"></div></div>
-    <div class="card" id="entrycard">
-      <h3><img class="inline-bi" src="/icons/bootstrap-link-45deg.svg" alt=""> 고정 접속 주소 <span class="norm">— 바뀌지 않습니다</span></h3>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <a id="fixedurl" href="#" target="_blank"
-           style="flex:1;min-width:200px;font-size:13.5px;font-weight:800;word-break:break-all"></a>
-        <button id="copyfixed" style="background:#EEF2FF;color:#1C3FA8;border:0;border-radius:9px;
-          padding:8px 13px;font-weight:800;font-size:12.5px;font-family:inherit;cursor:pointer">복사</button></div>
-      <div style="font-size:11.5px;color:var(--muted);margin-top:6px">
-        폰에서는 이 주소만 쓰면 됩니다. 홈 화면 아이콘도 이 주소로 만드세요.</div>
-      <div id="tunnelrow" style="display:none;font-size:11.5px;color:var(--muted);margin-top:6px;
-        padding-top:6px;border-top:1px solid var(--line);word-break:break-all">
-        현재 경유 주소(수시 변동) <a id="tunnelurl" href="#" target="_blank"></a></div></div>
-    <div class="card"><h3>보고 기준일 <span class="norm">— 엑셀 00_대시보드 B3·B4에 반영</span></h3>
-      <div class="pctrl" style="margin-bottom:0;flex-wrap:wrap">
-        <label style="flex:1;min-width:150px;font-size:11.5px;color:var(--ink-3);font-weight:700">보고일
-          <input type="date" id="d_report" style="width:100%;padding:9px 11px;border:1.5px solid var(--line);border-radius:10px;font-size:14px;margin-top:3px"></label>
-        <label style="flex:1;min-width:150px;font-size:11.5px;color:var(--ink-3);font-weight:700">집계기준일
-          <input type="date" id="d_base" style="width:100%;padding:9px 11px;border:1.5px solid var(--line);border-radius:10px;font-size:14px;margin-top:3px"></label>
-        <button onclick="setDates()" style="align-self:flex-end;padding:10px 18px;background:var(--brand);color:#fff;border-radius:10px;font-weight:700;font-size:13.5px;box-shadow:0 4px 12px rgba(36,82,230,.3)">엑셀 반영</button>
-      </div></div>
-    <div class="card"><h3>월별·연도별 현황 <span class="norm" id="ptitle"></span></h3>
-      <div class="pctrl">
-        <select id="pyear" onchange="pickYear()"></select>
-        <!-- ★ 사용자 지시(2026-07-29): "7월만" 도 "1~6월" 도 볼 수 있어야 한다.
-             한 달만 보려면 시작·끝을 같게 두면 된다(끝을 고르면 자동으로 맞춰 준다). -->
-        <select id="pfrom" onchange="fixRange('from')"></select>
-        <span style="align-self:center;color:var(--ink-3);font-weight:700">~</span>
-        <select id="pto" onchange="fixRange('to')"></select>
-        <button class="pbtn" onclick="setRange(1,12)">연간 전체</button>
-        <button class="pbtn" onclick="setRange(1,6)">상반기</button>
-        <button class="pbtn" onclick="setRange(7,12)">하반기</button>
-      </div>
-      <div class="mbars" id="mbars"></div>
-      <div class="blegend" id="blegend"></div>
-      <div class="pkpis" id="pkpis"></div>
-      <div id="ptable" style="margin-top:12px;overflow-x:auto"></div></div>
-    <div class="card"><h3>정산 상태 분포</h3>
-      <div class="distbar" id="distbar"></div>
-      <div class="legend" id="distlegend"></div></div>
-    <div class="card"><h3>조치 필요 — 유형별</h3><div class="toplist" id="toplist">로딩...</div></div>
-    <div class="card"><h3>담당자별 확인 필요 <span class="norm">— 누르면 내역·전달용 이미지</span></h3>
-      <div class="toplist" id="assignlist">로딩...</div></div>
-	    <div class="card"><h3>내가 확인할 사항 <span class="norm">— 유현민 (관리·청구·원천데이터)</span></h3>
-	      <div class="toplist" id="mylist">로딩...</div>
-	      <div class="media-tools" role="toolbar" aria-label="내 확인 목록 도구" style="margin-top:10px">
-	        <button class="icon-btn" onclick="printMine()" title="인쇄" aria-label="인쇄"><img src="/icons/printer.svg" alt=""></button>
-	        <button class="icon-btn primary" onclick="captureMine()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>
-	        <button class="icon-btn" onclick="copyMineImage()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>
-	        <button class="icon-btn excel" onclick="exportMineXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button>
-	      </div></div>
-    <!-- 구글 캘린더(COUPANG 설치+납품+AS) — 예정된 일이 원장과 맞는가 -->
-    <div class="card" id="calcard"><h3>일정 <small id="calsub" style="font-weight:600;color:var(--muted)"></small></h3>
-      <div id="callist" class="muted">불러오는 중…</div>
-        <div class="actions"><button class="abtn" onclick="openCalendar()"><img class="em" src="/icons/bootstrap-calendar3.svg" alt="">전체 일정 보기</button></div>
-    </div>
-	    <div class="card"><h3>빠른 실행</h3>
-	      <div class="actions">
-        <button class="abtn primary" onclick="runTask('daily')"><img class="em" src="/icons/bootstrap-play-fill.svg" alt="">전체 대조</button>
-        <button class="abtn" onclick="show('settle')"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">정산 현황</button>
-        <button class="abtn" onclick="show('report')"><img class="em" src="/icons/bootstrap-file-earmark-text-fill.svg" alt="">리포트</button>
-	      </div>
-	      <div class="media-tools" role="toolbar" aria-label="대시보드 도구" style="margin-top:12px">
-	        <button class="icon-btn" onclick="printDash()" title="인쇄" aria-label="인쇄"><img src="/icons/printer.svg" alt=""></button>
-	        <button class="icon-btn primary" onclick="captureDash()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>
-	        <button class="icon-btn" onclick="copyDashImage()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>
-	        <button class="icon-btn excel" onclick="exportDashXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button>
-	        <button class="icon-btn" onclick="reloadHere(this)" title="새로고침" aria-label="새로고침"><img src="/icons/refresh-cw.svg" alt=""></button>
-	      </div></div>
-  </section>
-
-  <!-- 정산·업무 -->
-  <section class="view" id="v-settle">
-    <div class="seg" id="seg">
-      <button class="on" data-m="settle" onclick="setMode('settle')">정산·청구</button>
-      <button data-m="as" onclick="setMode('as')">돌발AS</button>
-      <button data-m="pm" onclick="setMode('pm')">정기점검</button>
-      <button data-m="check" onclick="setMode('check')">확인필요</button>
-    </div>
-    <div class="toolbar">
-      <input id="q" placeholder="검색: ID·캠프·기사·프로젝트" oninput="renderSettle()">
-      <select id="fstat" onchange="renderSettle()"><option value="">상태 전체</option></select>
-      <select id="fsort" onchange="sortPick()" title="정렬 기준">
-        <option value="__date">날짜순</option>
-        <option value="__id">ID순</option>
-        <option value="__amt">금액순</option>
-        <option value="__stat">상태순</option>
-        <option value="__col" hidden>표 열 지정</option>
-      </select>
-      <button id="fdir" class="dirbtn" onclick="toggleDir()">과거 → 최근</button>
-      <select id="fperiod" onchange="periodPick()" title="기간">
-        <option value="">기간 전체</option>
-        <option value="m0">이번 달</option>
-        <option value="m1">지난 달</option>
-        <option value="m3">최근 3개월</option>
-        <option value="y0">올해</option>
-        <option value="custom">직접 지정…</option>
-      </select>
-      <span id="fdates" class="fdates"><input type="date" id="fd1" onchange="renderSettle()">
-        <span class="tilde">~</span><input type="date" id="fd2" onchange="renderSettle()"></span>
-    </div>
-    <div id="fnote" class="fnote"></div>
-    <div class="kpis" id="skpis" style="grid-template-columns:repeat(3,1fr)"></div>
-    <div class="slist" id="slist"></div>
-    <table class="grid" id="sgrid"></table>
-  </section>
-
-  <!-- 상세 시트 -->
-  <!-- 배경을 누르면 통째로 닫는다. 한 겹씩 되돌리는 건 기기 뒤로가기의 몫이다. -->
-  <div class="sheet-bg" id="sheetbg" onclick="closeSheetAll()"></div>
-  <div class="sheet" id="sheet" role="dialog" aria-modal="true">
-    <div class="grip"></div>
-    <div id="sheetbody" tabindex="0"></div>
-    <div class="sheet-actions" id="sheetactions"></div>
-  </div>
-
-  <!-- 실행 -->
-  <section class="view" id="v-run">
-    <div class="card"><h3>작업 실행</h3>
-      <div class="actions">
-        <button class="abtn primary" onclick="runTask('daily')"><img class="em" src="/icons/bootstrap-play-fill.svg" alt="">전체 대조</button>
-        <button class="abtn" onclick="runTask('synthetic')"><img class="em" src="/icons/bootstrap-flask-fill.svg" alt="">합성검증</button>
-        <button class="abtn" onclick="runTask('kakao')"><img class="em" src="/icons/bootstrap-chat-dots-fill.svg" alt="">카톡 대조</button>
-        <button class="abtn" onclick="runTask('erp_ledger')"><img class="em" src="/icons/bootstrap-receipt.svg" alt="">ERP원장 대조</button>
-        <button class="abtn" onclick="runTask('po')"><img class="em" src="/icons/bootstrap-box-seam.svg" alt="">쿠팡 PO 대조</button>
-        <button class="abtn" onclick="runTask('band_ingest')"><img class="em" src="/icons/bootstrap-upload.svg" alt="">밴드 수집분 반영</button>
-        <button class="abtn" onclick="runTask('erp_docs')"><img class="em" src="/icons/bootstrap-receipt.svg" alt="">ERP 매출서류 대조</button>
-        <button class="abtn" onclick="runTask('band_docs')"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">밴드 문서 이미지 대조</button>
-        <button class="abtn" onclick="confirmRun('band_docs_apply','밴드에 올라온 거래명세서·세금계산서 사진을 읽어
-확실한 건만(금액 일치) 관리대장 빈칸에 넣습니다.
-이미 값이 있는 칸은 덮어쓰지 않습니다.')"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">밴드 문서 → 대장 입력</button>
-        <button class="abtn" onclick="runTask('writer_prev')"><img class="em" src="/icons/bootstrap-pencil-square.svg" alt="">자동입력 미리보기</button>
-        <button class="abtn" onclick="confirmRun('writer_apply','확정 대기 항목을 관리대장 새 버전(vN+1)에 입력합니다.\n빈 칸만 채우며 이전 버전은 보존됩니다.')"><img class="em" src="/icons/bootstrap-pencil-square.svg" alt="">자동입력 반영</button>
-        <button class="abtn" onclick="runTask('upload_dry')"><img class="em" src="/icons/bootstrap-upload.svg" alt="">전표 전송대기</button>
-        <button class="abtn danger" onclick="confirmRun('upload_post','⚠ 이카운트 ERP에 매출전표를 실제 등록합니다.\n(10.5초/건, 이중계상 가드 적용)')"><img class="em" src="/icons/bootstrap-rocket-takeoff-fill.svg" alt="">전표 실전송</button>
-      </div>
-      <div class="fnote" id="runAgentNote">AI 실행 연계 상태를 확인 중입니다.</div>
-      <div class="logbox" id="logbox">대기 중 — 작업을 실행하면 로그가 여기 표시됩니다.</div></div>
-    <div id="helpcard"></div>
-    <div class="card"><h3>파일·폴더 열기 <span class="norm">— 사무실 PC에서 접속했을 때만 동작</span></h3>
-      <div class="actions">
-        <button class="abtn" onclick="openLocal('master')"><img class="em" src="/icons/bootstrap-folder2-open.svg" alt="">관리대장(최신)</button>
-        <button class="abtn" onclick="openLocal('inbox')"><img class="em" src="/icons/bootstrap-folder2-open.svg" alt="">ERP·PO inbox</button>
-        <button class="abtn" onclick="openLocal('kakao')"><img class="em" src="/icons/bootstrap-chat-dots-fill.svg" alt="">카톡 inbox</button>
-        <button class="abtn" onclick="openLocal('band_docs')"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">밴드 문서 사진함</button>
-        <button class="abtn" onclick="openLocal('band_cache')"><img class="em" src="/icons/bootstrap-folder2-open.svg" alt="">밴드 수집 덤프함</button>
-        <button class="abtn" onclick="openLocal('reports')"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">리포트 폴더</button>
-      </div></div>
-  </section>
-
-  <!-- 대표 보고 (캡처·공유) -->
-  <section class="view" id="v-daily">
-    <div class="rpt-actions" role="toolbar" aria-label="보고서 도구">
-      <button class="icon-btn" onclick="printReport()" title="인쇄" aria-label="인쇄">
-        <img src="/icons/printer.svg" alt=""></button>
-      <button class="icon-btn primary" onclick="captureReport()" title="이미지 저장" aria-label="이미지 저장">
-        <img src="/icons/image-down.svg" alt=""></button>
-      <button class="icon-btn" onclick="copyReportImage()" title="복사" aria-label="복사">
-        <img src="/icons/clipboard-copy.svg" alt=""></button>
-      <button class="icon-btn excel" onclick="exportReportXlsx()" title="엑셀 저장" aria-label="엑셀 저장">
-        <img src="/icons/file-spreadsheet.svg" alt=""></button>
-      <button class="icon-btn" onclick="reloadHere(this)" title="새로고침" aria-label="새로고침">
-        <img src="/icons/refresh-cw.svg" alt=""></button>
-    </div>
-    <div class="rpt" id="rpt">보고서 생성 중...</div>
-  </section>
-
-  <!-- 확인 필요 — 원장 요약·유형/담당자별 조치·캡처 -->
-  <section class="view" id="v-check">
-    <div class="check-hero">
-      <div>
-        <div class="eyebrow">2026년 확인 업무 전용</div>
-        <h2>확인 필요</h2>
-        <p>문제유형과 담당자별로 건을 좁혀 보고, 프로젝트 번호를 눌러 정확한 업무 기록을 확인할 수 있습니다.</p>
-      </div>
-      <div class="actions">
-        <button class="abtn primary" onclick="openCheckFiltered()"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">현재 목록 보기</button>
-        <button class="abtn" onclick="showCheckRaw()"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">원본표 보기</button>
-      </div>
-    </div>
-    <div class="check-kpis" id="checkkpis"></div>
-    <div class="check-grid">
-      <div class="card">
-        <h3>문제유형별 <span class="norm">— 누르면 해당 목록과 캡처 기능이 열립니다</span></h3>
-        <div class="check-groups" id="checktypes">불러오는 중...</div>
-      </div>
-      <div class="card">
-        <h3>담당자별 <span class="norm">— 담당자 표기가 없는 건도 따로 표시</span></h3>
-        <div class="toplist" id="checkowners">불러오는 중...</div>
-      </div>
-    </div>
-    <div class="card">
-      <h3>확정 담당 기준 <span class="norm">— 제안 범위를 승인 기준으로 적용해 실제 건을 자동분류</span></h3>
-      <div class="toplist" id="checkmine">불러오는 중...</div>
-    </div>
-    <div class="card">
-      <h3>업무기준 확인 필요 <span class="norm">— 통화에서 미확정된 기준은 임의로 하드코딩하지 않습니다</span></h3>
-      <div class="toplist" id="checkpolicies">불러오는 중...</div>
-    </div>
-    <div class="card">
-      <h3>확인 필요 전체 목록 <span class="norm">— 프로젝트·캠프·담당자·근거 검색</span></h3>
-      <div class="check-toolbar">
-        <input id="checkq" placeholder="프로젝트·ID·캠프·담당자·근거 검색" oninput="renderCheckList()">
-        <select id="checktype" onchange="renderCheckList()"><option value="">문제유형 전체</option></select>
-        <select id="checkowner" onchange="renderCheckList()"><option value="">담당자 전체</option></select>
-        <button onclick="resetCheckFilters()">초기화</button>
-      </div>
-      <div class="check-summary" id="checksummary"></div>
-      <div class="slist" id="checklist"></div>
-    </div>
-  </section>
-
-  <!-- 리포트 -->
-	  <section class="view" id="v-report">
-	    <div class="rtabs" id="rtabs"></div>
-	    <div class="md" id="mdbox">리포트 로딩...</div>
-	  </section>
-
-	  <!-- 류지영 업무센터: 대시보드형 요약 + 카테고리별 과거 목록 + 안전 보충입력 -->
-	  <section class="view" id="v-ryu">
-	    <div class="ryu-hero">
-	      <div class="eyebrow" id="staffCenterEyebrow" style="color:#BFD0FF">RYU JIYOUNG OPERATIONS CENTER</div>
-	      <h2 id="staffCenterTitle">류지영 쿠팡 AS 및 정기점검 업무센터</h2>
-	      <p>2026년 업무를 카테고리별로 조회하고, 과거 목록을 보면서 확인한 빈 항목과 근거만 보충합니다.</p>
-	      <div style="margin-top:9px;font-size:11px;color:#C9D5FA">대시보드 · 정산 · 확인 필요 · 쿠팡 캘린더 메뉴를 함께 사용할 수 있습니다.</div>
-	    </div>
-
-	    <div class="staff-checklist" id="staffChecklist">
-	      <h3>오늘 확인할 업무</h3>
-	      <div id="staffChecklistItems">
-	        <label><input type="checkbox"> 신규 돌발AS 접수와 처리상태 확인</label>
-	        <label><input type="checkbox"> 정기점검 예정·실행·미실시 사유 입력</label>
-	        <label><input type="checkbox"> 카카오톡 원본과 첨부 근거 업로드</label>
-	      </div>
-	      <div class="actions" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-top:4px">
-	        <button class="abtn primary" type="button" onclick="shareStaffCenter()"><img class="em" src="/icons/bootstrap-arrow-up-right.svg" alt="">링크 보내기</button>
-	        <button class="abtn" type="button" onclick="copyStaffCenterUrl()"><img class="em" src="/icons/bootstrap-link-45deg.svg" alt="">주소 복사</button>
-	        <button class="abtn" type="button" onclick="showInstallCard()"><img class="em" src="/icons/bootstrap-plus-lg.svg" alt="">앱 설치</button>
-	      </div>
-	    </div>
-
-	    <div class="ryu-summary-grid" id="ryuSummaryGrid">
-	      <div class="ryu-loading" style="grid-column:1/-1">업무 현황을 불러오는 중입니다.</div>
-	    </div>
-
-	    <div class="card">
-	      <h3>업무 카테고리 <span class="norm">— 카테고리를 고르면 과거 목록과 입력칸이 함께 바뀝니다</span></h3>
-	      <div class="ryu-category-tabs" id="ryuCategoryTabs"></div>
-	    </div>
-
-	    <div class="ryu-workspace" id="ryuWorkspace">
-	      <div class="card ryu-history-card ryu-list-panel" id="ryuHistoryPanel">
-	        <h3><span id="ryuHistoryTitle">과거 업무 목록</span> <span class="norm" id="ryuUpdatedAt"></span></h3>
-	        <div class="ryu-filterbar">
-	          <input id="ryuHistoryQuery" placeholder="검색: ID·프로젝트·캠프·담당자·내용" oninput="renderRyuHistory()">
-	          <select id="ryuHistoryStatus" onchange="renderRyuHistory()"><option value="">상태 전체</option></select>
-	          <select id="ryuHistoryPeriod" onchange="renderRyuHistory()">
-	            <option value="">기간 전체</option>
-	            <option value="month">이번 달</option>
-	            <option value="recent3">최근 3개월</option>
-	            <option value="older">3개월 이전</option>
-	          </select>
-	        </div>
-	        <div class="ryu-history-meta">
-	          <span id="ryuHistoryCount">0건</span>
-	          <span>과거 → 최근 · 항목을 누르면 입력 화면이 열립니다</span>
-	        </div>
-	        <div class="media-tools" id="staffListToolbar" role="toolbar" aria-label="담당자 업무 목록 도구" style="margin:0 0 9px">
-	          <button class="icon-btn primary" type="button" onclick="ryuCaptureList()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>
-	          <button class="icon-btn" type="button" onclick="ryuCopyList()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>
-	          <button class="icon-btn excel" type="button" onclick="ryuExportList()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button>
-	        </div>
-	        <div class="ryu-history-list" id="ryuHistoryList">
-	          <div class="ryu-loading">목록을 불러오는 중입니다.</div>
-	        </div>
-	      </div>
-
-	      <form class="card ryu-editor-card" id="ryuEntryForm" onsubmit="submitRyuEntry(event)">
-	        <h3>선택 업무 확인·입력 <span class="norm">— 기존 값은 덮어쓰지 않습니다</span></h3>
-	        <div class="ryu-editor-empty" id="ryuEditorEmpty">
-	          왼쪽 과거 목록에서 업무를 선택해 주세요.<br>선택한 건의 기존 내용과 보충 가능한 항목이 표시됩니다.
-	        </div>
-	        <div id="ryuEditorBody" style="display:none">
-	          <input type="hidden" name="category" id="ryuEntryCategory">
-	          <input type="hidden" name="record_key" id="ryuEntryKey">
-	          <input type="hidden" name="target_category" id="ryuTargetCategory">
-	          <input type="hidden" name="target_key" id="ryuTargetKey">
-	          <div class="ryu-selected" id="ryuSelectedSummary"></div>
-	          <details style="margin:0 0 12px">
-	            <summary style="cursor:pointer;font-weight:900;color:var(--brand)">기존 입력값 자세히 보기</summary>
-	            <div class="ryu-detail-grid" id="ryuSelectedDetail"></div>
-	          </details>
-	          <div class="ryu-entry-fields" id="ryuEntryFields"></div>
-	          <div class="ryu-entry-fields" style="margin-top:9px">
-	            <label class="wide">근거 파일
-	              <input name="evidence_file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.xlsx,.docx,.txt">
-	            </label>
-	            <label class="wide">조사 메모
-	              <textarea name="survey_note" placeholder="통화 확인 결과, 담당자 답변, 추가 확인이 필요한 내용을 적습니다. 이 메모는 입력 근거로 남습니다."></textarea>
-	            </label>
-	          </div>
-	          <p class="ryu-save-note">저장하면 관리대장의 해당 업무 ID를 찾아 <b>비어 있는 칸만</b> 반영합니다. 수식·검증결과·자동 상태는 직접 변경하지 않습니다.</p>
-	          <button class="abtn primary" id="ryuEntrySaveBtn" type="submit" style="width:100%;flex-direction:row;justify-content:center">
-	            <img class="em" src="/icons/bootstrap-check-lg.svg" alt="">확인 내용 저장·반영
-	          </button>
-	          <div class="ryu-result" id="ryuEntryResult"></div>
-	        </div>
-	      </form>
-	    </div>
-
-	    <div class="ryu-upload-panel" id="ryuUploadPanel">
-	      <form class="card source-upload-card" id="poSubmissionForm" onsubmit="submitPoSubmission(event)" style="display:none">
-	        <h3>PO 원본 등록 <span class="norm">— 오종현 전용 · 원본 보관 후 자동 PO 대조</span></h3>
-	        <div class="source-help">
-	          <span>① PO 엑셀을 직접 선택하거나 아래 상자로 끌어 놓습니다.</span>
-	          <span>② 공유 URL 또는 이 PC에서 열 수 있는 파일·폴더 경로를 붙여넣어도 됩니다.</span>
-	          <span>③ 원본은 <b>0. 원본 자료\6. PO 원본</b>에 날짜별로 보존되고, Excel 원본은 PO 대조 대기열로 전달됩니다.</span>
-	        </div>
-	        <input type="hidden" name="staff_slug" value="oh-jonghyeon">
-	        <div class="ryu-fields">
-	          <label>PO 번호<input name="po_no" placeholder="예: PO371513"></label>
-	          <label>프로젝트번호<input name="project_no" placeholder="예: UJ2601313"></label>
-	          <label class="wide">URL 또는 파일·폴더 경로
-	            <textarea class="source-ref" name="source_ref" id="poSourceRef"
-	              placeholder="https://.../PO목록.xlsx 또는 Z:\...\PO 원본 폴더"></textarea>
-	          </label>
-	          <label class="wide source-drop" id="poDrop">
-	            <b>PO 파일을 여기에 끌어 놓거나 눌러서 선택</b>
-	            <small>Excel·CSV·PDF·이미지·ZIP·메일·텍스트 · 직접 자동대조는 Excel(.xlsx) 원본을 사용합니다.</small>
-	            <input name="po_file" id="poFile" type="file"
-	              accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.zip,.txt,.eml"
-	              onchange="if(this.files[0]) $('poFileName').textContent='선택됨 · '+this.files[0].name">
-	            <small id="poFileName">선택된 파일 없음</small>
-	          </label>
-	          <label class="wide">등록 메모<textarea name="memo" placeholder="자료 출처, 구매·입금 확인사항, 담당자에게 확인할 내용을 적습니다."></textarea></label>
-	        </div>
-	        <button class="abtn primary" id="poSubmissionBtn" type="submit"
-	          style="width:100%;margin-top:14px;flex-direction:row;justify-content:center">
-	          <img class="em" src="/icons/bootstrap-box-seam.svg" alt="">원본 저장·자동 대조
-	        </button>
-	        <div class="ryu-result" id="poSubmissionResult"></div>
-	      </form>
-
-	      <div id="ryuOnlySubmission">
-	      <form class="card" id="newWorkForm" onsubmit="submitNewWork(event)">
-	        <h3>신규 업무 입력 <span class="norm">— 엑셀을 열지 않아도 자동 반영 대기열로 전달됩니다</span></h3>
-	        <div class="ryu-fields">
-	          <label>업무 구분
-	            <select name="category" required>
-	              <option value="as">돌발AS 신규 접수</option>
-	              <option value="pm">정기점검 신규 일정</option>
-	            </select>
-	          </label>
-	          <label>업무일<input name="work_date" type="date" required></label>
-	          <label>프로젝트번호<input name="project_no" placeholder="UJ2600461" required></label>
-	          <label>캠프명<input name="camp_name" placeholder="GWJ1 M_순천1" required></label>
-	          <label>담당자<input name="assignee" placeholder="확인된 경우만 입력"></label>
-	          <label>비용 구분
-	            <select name="cost_type"><option value="">확인 전</option><option>유상</option><option>무상</option><option>보험</option></select>
-	          </label>
-	          <label>현재 상태<input name="status" placeholder="접수 / 예정 / 작업완료"></label>
-	          <label class="wide">접수·점검 내용<textarea name="description" placeholder="고장 증상, 점검 요청, 확인 내용"></textarea></label>
-	          <label class="wide">사진·문서 근거<input name="evidence_file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.xlsx,.docx,.txt"></label>
-	          <input type="hidden" name="submitter" value="류지영">
-	        </div>
-	        <p class="ryu-save-note">저장하면 시스템 DB와 안전한 자동 반영 대기열에 먼저 기록합니다. 프로젝트 중복·날짜 오류·빈 행 부족은 우측 상단 알림으로 알려드립니다.</p>
-	        <button class="abtn primary" id="newWorkBtn" type="submit" style="width:100%;flex-direction:row;justify-content:center">
-	          <img class="em" src="/icons/bootstrap-plus-lg.svg" alt="">신규 업무 저장·자동 반영
-	        </button>
-	        <div class="ryu-result" id="newWorkResult"></div>
-	      </form>
-
-	      <div class="card">
-	        <h3>카카오톡 원본 등록 안내 <span class="norm">— 두 대화방을 각각 내보내서 올립니다</span></h3>
-	        <ol class="ryu-guide">
-	          <li><div><b>정기점검방 대화 내보내기</b><br><span class="muted">★UNI★ 쿠팡정기점검 → 메뉴 → 대화 내용 → 대화 내보내기 → 텍스트 파일을 선택합니다.</span></div></li>
-	          <li><div><b>돌발점검방 대화 내보내기</b><br><span class="muted">★UNI★ 쿠팡돌발점검 → 메뉴 → 대화 내용 → 대화 내보내기 → 텍스트 파일을 선택합니다.</span></div></li>
-	          <li><div><b>조사 내용을 항목별로 입력</b><br><span class="muted">프로젝트·캠프·담당자·처리 결과 중 확인한 값만 입력합니다.</span></div></li>
-	          <li><div><b>원본 저장·자동 대조</b><br><span class="muted">원본 자료 폴더에 보존한 뒤 카카오톡 대조를 자동으로 시작합니다.</span></div></li>
-	        </ol>
-	      </div>
-	      <form class="card" id="ryuUploadForm" onsubmit="submitRyuUpload(event)">
-	        <h3>1. 카카오톡 원본 2개 <span class="norm">— 두 파일 모두 필수</span></h3>
-	        <div class="ryu-upload-grid">
-	          <label class="ryu-drop">
-	            <b>① ★UNI★ 쿠팡정기점검</b>
-	            <small>정기점검 대화방에서 내보낸 텍스트 파일</small>
-	            <input type="file" name="kakao_regular" accept=".txt,text/plain" required>
-	          </label>
-	          <label class="ryu-drop">
-	            <b>② ★UNI★ 쿠팡돌발점검</b>
-	            <small>돌발점검 대화방에서 내보낸 텍스트 파일</small>
-	            <input type="file" name="kakao_emergency" accept=".txt,text/plain" required>
-	          </label>
-	        </div>
-	        <h3 style="margin-top:18px">2. 조사 기본정보 <span class="norm">— 확인한 만큼만 입력</span></h3>
-	        <div class="ryu-fields">
-	          <label>조사자<input name="submitter" value="류지영" readonly></label>
-	          <label>조사 기준일<input name="survey_date" type="date"></label>
-	          <label>업무 구분<select name="work_kind"><option value="">자동 판정</option><option>돌발AS</option><option>정기점검</option><option>거래서류</option><option>기타</option></select></label>
-	          <label>프로젝트 번호<input name="project_no" placeholder="예: UJ2600461"></label>
-	          <label>캠프명<input name="camp_name" placeholder="예: GWJ1 M_순천1"></label>
-	          <label>담당자<input name="assignee" placeholder="예: 김준형"></label>
-	        </div>
-	        <h3 style="margin-top:18px">3. 처리 결과·근거 <span class="norm">— 조사 결과가 있을 때 입력</span></h3>
-	        <div class="ryu-fields">
-	          <label>처리 상태<select name="work_status"><option value="">자동 판정</option><option>접수</option><option>진행중</option><option>작업완료</option><option>택배발송완료</option><option>취소</option><option>확인필요</option></select></label>
-	          <label>완료일<input name="completed_date" type="date"></label>
-	          <label class="wide">조치 내용<textarea name="action_note" placeholder="예: 리모컨 택배 발송 완료, 송장 확인"></textarea></label>
-	          <label class="wide">추가 근거 파일<input name="evidence_file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.xlsx,.docx,.txt"></label>
-	          <label class="wide">조사 메모<textarea name="survey_note" placeholder="자동 판정이 어려운 내용, 통화 확인 결과, 담당자에게 추가로 물어볼 내용을 적습니다."></textarea></label>
-	        </div>
-	        <button class="abtn primary" id="ryuUploadBtn" type="submit" style="width:100%;margin-top:16px;flex-direction:row;justify-content:center">
-	          <img class="em" src="/icons/bootstrap-play-fill.svg" alt="">원본 저장하고 자동 대조 시작
-	        </button>
-	        <div class="ryu-result" id="ryuUploadResult"></div>
-	      </form>
-	      </div>
-
-	      <form class="card" id="improvementForm" onsubmit="submitImprovement(event)">
-	        <h3>업무센터 개선 요청 <span class="norm">— 불편한 화면을 붙여넣으면 Claude Code·Codex 검토 대기열에 등록됩니다</span></h3>
-	        <ol class="ryu-guide">
-	          <li><div><b>불편한 화면을 캡처</b><br><span class="muted">Windows 캡처 후 이 상자에서 Ctrl+V 하거나 파일을 끌어 놓습니다.</span></div></li>
-	          <li><div><b>원하는 동작을 글로 설명</b><br><span class="muted">현재 동작과 바뀌었으면 하는 동작을 각각 적으면 가장 빠르게 반영됩니다.</span></div></li>
-	          <li><div><b>등록 후 알림에서 상태 확인</b><br><span class="muted">Claude Code가 사용 가능하면 우선 전달하고, 사용 불가 시 Codex가 이어받습니다.</span></div></li>
-	        </ol>
-	        <input type="hidden" name="staff_slug" id="improvementStaffSlug" value="ryu-jiyeong">
-	        <div class="ryu-fields">
-	          <label class="wide">요청 제목<input name="title" placeholder="예: 완료일 입력 버튼이 휴대폰에서 안 보임" required></label>
-	          <label class="wide">현재 문제와 원하는 동작<textarea name="description" placeholder="어느 화면에서 무엇을 눌렀을 때 어떻게 바뀌어야 하는지 적어 주세요." required></textarea></label>
-	          <label class="wide drop-paste" id="improvementDrop">캡처 붙여넣기·드래그앤드롭
-	            <input name="attachment" id="improvementAttachment" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.txt">
-	            <small id="improvementFileName" class="muted">파일을 선택하거나 캡처 후 Ctrl+V</small>
-	          </label>
-	        </div>
-	        <button class="abtn primary" id="improvementBtn" type="submit" style="width:100%;margin-top:14px;flex-direction:row;justify-content:center">
-	          <img class="em" src="/icons/bootstrap-arrow-up-right.svg" alt="">개선 요청 등록
-	        </button>
-	        <div class="ryu-result" id="improvementResult"></div>
-	      </form>
-	    </div>
-	  </section>
-
-	  <!-- 류지영 대표보고 일지: 정기점검·돌발AS 일지 원본 → 전체 대조 → 보고 캡처 -->
-	  <section class="view" id="v-worklog">
-	    <div class="ryu-hero">
-	      <div class="eyebrow" style="color:#BFD0FF">DAILY FIELD JOURNAL</div>
-	      <h2>대표보고 일지</h2>
-	      <p>류지영 매니저가 매일 갱신하는 정기점검·돌발AS 일지를 원본으로 보존하고, 관리대장·대시보드·대표보고를 한 번에 다시 검증합니다.</p>
-	    </div>
-
-	    <div class="card source-upload-card">
-	      <h3>현재 일지 검증 상태 <span class="norm">— 정기점검·돌발AS 동일 원본 기준</span></h3>
-	      <div class="source-status" id="workLogStatus">
-	        <div><small>원본</small><strong>확인 중</strong></div>
-	        <div><small>검증 시각</small><strong>-</strong></div>
-	        <div><small>돌발AS 미처리</small><strong>-</strong></div>
-	        <div><small>정기점검 실행</small><strong>-</strong></div>
-	      </div>
-	      <div class="actions" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px">
-	        <button class="abtn primary" type="button" onclick="syncCurrentWorkLog()"><img class="em" src="/icons/bootstrap-check-lg.svg" alt="">현재 고정 원본 다시 검증</button>
-	        <button class="abtn" type="button" onclick="loadWorkLogStatus()"><img class="em" src="/icons/bootstrap-arrow-repeat.svg" alt="">검증 상태 새로고침</button>
-	      </div>
-	    </div>
-
-	    <div class="card" id="workLogRecordsCard">
-	      <h3>일지 반영 내역 <span class="norm">— 다른 화면·관리대장 입력도 자동으로 다시 대조됩니다</span></h3>
-	      <div class="worklog-filter">
-	        <input id="workLogFilterDate" type="date" aria-label="일지 날짜 필터" onchange="loadWorkLogStatus()">
-	        <select id="workLogFilterCategory" aria-label="일지 구분 필터" onchange="loadWorkLogStatus()">
-	          <option value="">구분 전체</option><option>돌발AS</option><option>정기점검</option>
-	        </select>
-	        <select id="workLogFilterState" aria-label="일지 상태 필터" onchange="loadWorkLogStatus()">
-	          <option value="">상태 전체</option><option>완료</option><option>실행</option>
-	          <option>미실시</option><option>예정</option><option>취소</option>
-	        </select>
-	        <input id="workLogFilterQuery" type="search" placeholder="프로젝트·캠프·담당자·내용 검색"
-	          onkeydown="if(event.key==='Enter'){event.preventDefault();loadWorkLogStatus()}">
-	        <button class="abtn primary" type="button" onclick="loadWorkLogStatus()">
-	          <img src="/icons/refresh-cw.svg" alt="">목록 조회
-	        </button>
-	      </div>
-	      <div class="worklog-kpis" id="workLogRecordSummary">
-	        <div class="worklog-kpi"><small>전체</small><strong>-</strong></div>
-	        <div class="worklog-kpi"><small>돌발AS</small><strong>-</strong></div>
-	        <div class="worklog-kpi"><small>정기점검</small><strong>-</strong></div>
-	        <div class="worklog-kpi"><small>확인 필요</small><strong>-</strong></div>
-	      </div>
-	      <div class="worklog-records" id="workLogRecordList">
-	        <div class="worklog-empty">일지와 최신 관리대장을 대조하고 있습니다.</div>
-	      </div>
-	    </div>
-
-	    <form class="card source-upload-card" id="workLogUploadForm" onsubmit="submitWorkLog(event)">
-	      <h3>일지 원본 등록 <span class="norm">— 파일 선택·드래그앤드롭·경로·직접 URL</span></h3>
-	      <input type="hidden" name="staff_slug" value="ryu-jiyeong">
-	      <div class="source-help">
-	        <span>① 최신 <b>정기점검, 돌발AS 일지 (7.1~).xlsx</b>를 선택하거나 상자에 끌어 놓습니다.</span>
-	        <span>② 같은 PC에서 열 수 있는 파일·폴더 경로나 직접 다운로드 URL을 붙여넣어도 됩니다.</span>
-	        <span>③ 저장 후 일지대조 시트·확인 필요·대시보드·대표보고 통계를 같은 원본으로 재계산합니다.</span>
-	      </div>
-	      <div class="ryu-fields">
-	        <label class="wide">URL 또는 파일·폴더 경로
-	          <textarea class="source-ref" name="source_ref" id="workLogSourceRef"
-	            placeholder="Z:\...\8. 정기점검, 돌발AS 일지(미실시건)\정기점검, 돌발AS 일지 (7.1~).xlsx"></textarea>
-	        </label>
-	        <label class="wide source-drop" id="workLogDrop">
-	          <b>정기점검·돌발AS 일지 Excel을 여기에 끌어 놓기</b>
-	          <small>.xlsx 파일 1개 · 붙여넣기한 새 파일은 원본자료 8번 폴더에 날짜별 보존됩니다.</small>
-	          <input name="work_log_file" id="workLogFile" type="file" accept=".xlsx"
-	            onchange="if(this.files[0]) $('workLogFileName').textContent='선택됨 · '+this.files[0].name">
-	          <small id="workLogFileName">선택된 파일 없음</small>
-	        </label>
-	        <label class="wide">확인 메모<textarea name="memo" placeholder="오늘 대표에게 보고할 특이사항이나 원본 갱신 범위를 적습니다."></textarea></label>
-	      </div>
-	      <button class="abtn primary" id="workLogUploadBtn" type="submit"
-	        style="width:100%;margin-top:14px;flex-direction:row;justify-content:center">
-	        <img class="em" src="/icons/bootstrap-play-fill.svg" alt="">원본 저장·전체 검증 시작
-	      </button>
-	      <div class="ryu-result" id="workLogUploadResult"></div>
-	    </form>
-
-	    <div class="card">
-	      <h3>대표 보고 화면 <span class="norm">— 선택 날짜 기준으로 열기·이미지 저장</span></h3>
-	      <div class="ryu-fields">
-	        <label>보고 기준일<input id="workLogReportDate" type="date"></label>
-	      </div>
-	      <div class="actions" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px">
-	      <button class="abtn" type="button" onclick="openWorkLogReport(false)"><img class="em" src="/icons/bootstrap-file-earmark-text-fill.svg" alt="">대표 보고 열기</button>
-	      <button class="abtn primary" type="button" onclick="openWorkLogReport(true)"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">대표 보고 이미지 저장</button>
-	      </div>
-	    </div>
-	  </section>
-
-	  <!-- 쿠팡 캘린더: Google 전체 보기 + 원장 대조 캐시 상세 + 사용자 확인형 일정 입력 -->
-  <section class="view" id="v-calendar">
-    <div class="calendar-hero">
-      <div>
-        <div class="eyebrow" style="color:#BFD0FF">COUPANG SCHEDULE</div>
-        <h2>쿠팡 캘린더</h2>
-        <p>전체 일정은 월간 화면으로 보고, 원장과 연결된 세부 정보는 오른쪽에서 확인합니다.</p>
-      </div>
-      <div class="actions" style="grid-template-columns:repeat(2,max-content);margin:0">
-      <button class="abtn" onclick="refreshCalendarPage()"><img class="em" src="/icons/bootstrap-arrow-repeat.svg" alt="">목록 새로고침</button>
-      <button class="abtn primary" onclick="focusCalendarEntry()"><img class="em" src="/icons/bootstrap-plus-lg.svg" alt="">일정 입력</button>
-      </div>
-    </div>
-
-    <div class="calendar-layout">
-      <div class="card calendar-frame">
-        <div class="calendar-frame-head">
-          <h3>전체 캘린더</h3>
-          <a href="https://calendar.google.com/calendar/embed?src=053a21a7e074aac2e58c27f305247c1cd6481d50841c1dfc9b83cdad2d3e876b%40group.calendar.google.com&amp;ctz=Asia%2FSeoul" target="_blank" rel="noopener">새 창으로 보기 ↗</a>
-        </div>
-        <iframe id="coupangCalendarFrame"
-          title="쿠팡 설치·납품·AS 캘린더"
-          src="https://calendar.google.com/calendar/embed?src=053a21a7e074aac2e58c27f305247c1cd6481d50841c1dfc9b83cdad2d3e876b%40group.calendar.google.com&amp;ctz=Asia%2FSeoul"
-          loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
-        <p class="calendar-hint">일정 수정·저장은 Google Calendar 권한이 있는 계정에서만 가능합니다. 아래 입력란은 내용을 확인한 뒤 Google Calendar의 새 일정 화면으로 전달합니다.</p>
-      </div>
-
-      <div class="calendar-side">
-        <div class="card">
-          <h3>원장 대조 일정</h3>
-          <div class="calendar-meta" id="calendarMeta">일정 캐시를 불러오는 중입니다.</div>
-          <div class="calendar-event-list" id="calendarEventList"></div>
-        </div>
-        <div class="card">
-          <h3>세부 사항</h3>
-          <div class="calendar-detail" id="calendarDetail">목록에서 일정을 선택하면 프로젝트·캠프·연결 상태를 확인할 수 있습니다.</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card calendar-entry" id="calendarEntry">
-      <h3>일정 입력 확인</h3>
-      <p class="entry-note">입력 내용을 미리 확인한 뒤 <b>Google Calendar에 입력</b>을 누르세요. Google 화면에서 세부 사항을 검토하고 저장해야 반영됩니다.</p>
-      <div class="calendar-form">
-        <label class="wide">일정 제목<input id="calendarTitle" placeholder="예: UJ2601354 제주1Sub-hub 리프트 리모컨 교체" oninput="previewCalendarDraft()"></label>
-        <label>날짜<input id="calendarDate" type="date" oninput="previewCalendarDraft()"></label>
-        <label>시작 시간<input id="calendarStart" type="time" value="09:00" oninput="previewCalendarDraft()"></label>
-        <label>종료 시간<input id="calendarEnd" type="time" value="10:00" oninput="previewCalendarDraft()"></label>
-        <label>프로젝트 번호<input id="calendarProject" placeholder="UJ2601354" oninput="previewCalendarDraft()"></label>
-        <label>캠프명<input id="calendarCamp" placeholder="제주1Sub-hub" oninput="previewCalendarDraft()"></label>
-        <label class="wide">세부 내용·확인 사항<textarea id="calendarNote" placeholder="접수 내용, 담당자, 현장 확인 사항 등을 입력합니다." oninput="previewCalendarDraft()"></textarea></label>
-      </div>
-      <div class="calendar-preview" id="calendarDraftPreview">입력한 일정의 요약이 여기에 표시됩니다.</div>
-      <div class="actions" style="margin-top:11px">
-        <button class="abtn primary" onclick="openGoogleCalendarDraft()"><img class="em" src="/icons/bootstrap-calendar3.svg" alt="">Google Calendar에 입력</button>
-        <button class="abtn" onclick="clearCalendarDraft()"><img class="em" src="/icons/bootstrap-arrow-counterclockwise.svg" alt="">입력값 초기화</button>
-      </div>
-    </div>
-  </section>
-
-</main>
-
-<nav class="tabbar" id="tabbar">
-  <div class="brand">
-    <div class="logo app-icon"><img src="/icon-192.png?v=csos-20260730" alt="CSOS"></div>
-    <div class="bt" style="font-size:12.5px;line-height:1.35">Coupang Service<br>Operations System
-      <small>CSOS · UNIVERSAL LIFT</small></div>
-  </div>
-  <button class="on" data-v="dash" onclick="routeNav('dash')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>대시보드</button>
-  <button class="staff-worklog-nav" data-v="worklog" onclick="routeNav('worklog')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h14v18H5z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>대표보고 일지</button>
-  <button data-v="settle" onclick="routeNav('settle')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>정산</button>
-  <button data-v="run" onclick="routeNav('run')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="6,4 20,12 6,20"/></svg>실행</button>
-  <button data-v="daily" onclick="routeNav('daily')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2.5h5L16 6"/></svg>보고</button>
-  <button data-v="check" onclick="routeNav('check')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3L2.8 19h18.4L12 3z"/><path d="M12 9v4M12 16.5h.01"/></svg>확인 필요</button>
-  <button data-v="report" onclick="routeNav('report')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>기록</button>
-  <div class="nav-spacer" aria-hidden="true"></div>
-  <button class="calendar-nav" data-v="calendar" onclick="routeNav('calendar')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>쿠팡 캘린더</button>
-</nav>
-
-<script>
+﻿
 /* 크롬의 [설치 및 바로가기 만들기]는 fetch 핸들러를 가진 서비스 워커가 있어야 동작한다.
    매니페스트만으로는 단순 북마크가 되거나 메뉴가 아예 반응하지 않는다. */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-/* PIN은 브라우저 저장소에 남기지 않는다. 서버가 발급한 HttpOnly 기기 인증 쿠키만
-   1년간 보존한다. 구버전의 평문 PIN이 있으면 한 번만 이관한 뒤 즉시 삭제한다. */
-let LEGACY_PIN = localStorage.getItem('cw_pin') || '';
-let PIN = '';
+let PIN = localStorage.getItem('cw_pin') || '';
 const APP_YEAR = '2026';
 let settleRows = [], reports = [], curReport = 0, polling = null;
 const STAFF_CENTERS = {
@@ -1915,7 +34,7 @@ async function api(path, opt={}){
   if(staffSlug) opt.headers['X-Staff-Slug']=staffSlug;
   const r = await fetch(path, opt);
   if(r.status===401){
-    PIN=''; localStorage.removeItem('cw_pin');   // 인증 만료 → 자동 폴링 중단
+    PIN=''; localStorage.removeItem('cw_pin');   // 구 PIN 즉시 폐기 → 자동 폴링 중단(자기 잠금 방지)
     $('gate').style.display='flex'; throw 'PIN';
   }
   return r.json();
@@ -2407,12 +526,7 @@ async function submitPoSubmission(ev){
 async function loadWorkLogStatus(){
   const box=$('workLogStatus');if(!box||!PIN) return;
   try{
-    const params=new URLSearchParams({t:String(Date.now())});
-    if($('workLogFilterDate')&&$('workLogFilterDate').value) params.set('date',$('workLogFilterDate').value);
-    if($('workLogFilterCategory')&&$('workLogFilterCategory').value) params.set('category',$('workLogFilterCategory').value);
-    if($('workLogFilterState')&&$('workLogFilterState').value) params.set('state',$('workLogFilterState').value);
-    if($('workLogFilterQuery')&&$('workLogFilterQuery').value.trim()) params.set('q',$('workLogFilterQuery').value.trim());
-    const d=await api('/api/staff/work-log-status?'+params.toString());
+    const d=await api('/api/staff/work-log-status?t='+Date.now());
     if(!d.ok) throw new Error(d.error||'상태 확인 실패');
     const as=(d.summary||{})['돌발AS']||{}, pm=(d.summary||{})['정기점검']||{};
     box.innerHTML=`
@@ -2420,37 +534,9 @@ async function loadWorkLogStatus(){
       <div><small>마지막 검증</small><strong>${esc2(String(d.verified_at||'-').replace('T',' '))}</strong></div>
       <div><small>돌발AS 미처리</small><strong>${fmt(as['미처리']||0)}건</strong></div>
       <div><small>정기점검 실행</small><strong>${fmt(pm['실행']||0)}건</strong></div>`;
-    renderWorkLogRecords(d);
   }catch(e){
     box.innerHTML=`<div style="grid-column:1/-1"><small>상태</small><strong>확인 실패 · ${esc2(String(e.message||e))}</strong></div>`;
-    const list=$('workLogRecordList');
-    if(list) list.innerHTML=`<div class="worklog-empty">내역 확인 실패 · ${esc2(String(e.message||e))}</div>`;
   }
-}
-function renderWorkLogRecords(d){
-  const summary=$('workLogRecordSummary'),list=$('workLogRecordList');
-  if(!summary||!list) return;
-  const s=d.view_summary||{};
-  summary.innerHTML=[
-    ['전체',s['전체']||0],['돌발AS',s['돌발AS']||0],
-    ['정기점검',s['정기점검']||0],['확인 필요',s['확인필요']||0]
-  ].map(([label,value])=>`<div class="worklog-kpi"><small>${label}</small><strong>${fmt(value)}건</strong></div>`).join('');
-  const rows=d.records||[];
-  list.innerHTML=rows.length?rows.map(r=>{
-    const compare=String(r['대조결과']||'대조 대기');
-    const warn=/미매칭|상이|중복|확인 필요|보완 대기/.test(compare);
-    const project=String(r['프로젝트NO']||'프로젝트 미확정');
-    const detail=[r['요청내용'],r['실제조치'],r['미처리사유']].filter(Boolean).join(' · ');
-    return `<article class="worklog-record">
-      <div>
-        <div class="head"><button class="project" type="button" onclick="openByPrj(${esc4(project)})">${esc2(project)}</button>
-          <span class="chip">${esc2(r['구분']||'-')}</span><span class="camp">${esc2(r['캠프명']||'캠프 미입력')}</span></div>
-        <div class="sub">${esc2(r['담당자']||'담당 미지정')} · 원본 ${esc2(r['원본상태']||r['상태']||'-')}</div>
-        <div class="detail" title="${esc2(detail)}">${esc2(detail||'상세 내용 없음')}</div>
-      </div>
-      <div class="side">${esc2(r['일자']||'-')}<br><span class="state ${warn?'warn':''}">${esc2(compare)}</span></div>
-    </article>`;
-  }).join(''):'<div class="worklog-empty">현재 필터에 해당하는 내역이 없습니다.</div>';
 }
 async function postWorkLog(data){
   const r=await fetch('/api/staff/work-log-upload',{method:'POST',cache:'no-store',
@@ -2499,7 +585,7 @@ async function openWorkLogReport(andCapture){
       api('/api/exec_report?date='+encodeURIComponent(day)),
       api('/api/brief?date='+encodeURIComponent(day))
     ]);
-    execRep=reportForDates(rep||{},day,day);BRIEF=b&&b.ok!==false?b:null;REPORT_PREVIEW_DATE=day;
+    execRep=filterExec(rep||{});BRIEF=b&&b.ok!==false?b:null;REPORT_PREVIEW_DATE=day;
     show('daily');renderDaily();
     if(andCapture){await new Promise(resolve=>requestAnimationFrame(resolve));await captureReport();}
   }catch(e){alert('대표 보고를 만들지 못했습니다: '+String(e.message||e));}
@@ -2561,46 +647,10 @@ document.addEventListener('drop',e=>{
   else if(target.id==='workLogDrop') setSourceFile('workLogFile','workLogFileName',file);
   else setImprovementFile(file);
 });
-function openPinDialog(){
-  const dialog=$('pinDialog');if(!dialog||!PIN) return;
-  const center=STAFF_CENTERS[staffSlug]||null;
-  $('pinDialogRole').textContent=center
-    ? `${center.name} 업무센터 PIN만 변경합니다. 다른 담당자와 관리자 PIN은 바뀌지 않습니다.`
-    : '관리자 PIN만 변경합니다. 담당자 업무센터 PIN은 바뀌지 않습니다.';
-  $('pinDialogError').textContent='';
-  for(const id of ['pinCurrent','pinNew','pinConfirm']) $(id).value='';
-  dialog.classList.add('on');
-  setTimeout(()=>$('pinCurrent').focus(),80);
-}
-function closePinDialog(){
-  if($('pinDialog')) $('pinDialog').classList.remove('on');
-}
-async function changePin(e){
-  e.preventDefault();
-  const current=$('pinCurrent').value.trim();
-  const next=$('pinNew').value.trim();
-  const confirm=$('pinConfirm').value.trim();
-  const err=$('pinDialogError');err.textContent='';
-  if(!/^\d{4}$/.test(current)||!/^\d{4}$/.test(next)){
-    err.textContent='PIN은 숫자 4자리로 입력해 주세요.';return;
-  }
-  if(next!==confirm){err.textContent='새 PIN 확인 값이 서로 다릅니다.';return}
-  try{
-    const r=await fetch('/api/auth/change-pin',{
-      method:'POST',cache:'no-store',
-      headers:{'X-Pin':PIN,'Content-Type':'application/json'},
-      body:JSON.stringify({current_pin:current,new_pin:next})
-    });
-    const d=await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error(d.error||'PIN 변경에 실패했습니다');
-    PIN='session';localStorage.removeItem('cw_pin');
-    closePinDialog();toast('PIN을 변경했습니다');
-  }catch(ex){err.textContent=ex.message||String(ex)}
-}
 async function login(){
   const pin = $('pin').value.trim();
   const r = await fetch('/api/login',{method:'POST',body:JSON.stringify({pin,staff_slug:staffSlug||''})});
-  if(r.ok){ PIN='session'; LEGACY_PIN=''; localStorage.removeItem('cw_pin'); $('gate').style.display='none';
+  if(r.ok){ PIN=pin; localStorage.setItem('cw_pin',pin); $('gate').style.display='none';
             show(curView()); refreshAll(); }
   else if(r.status===429) $('pinerr').textContent = '시도 초과로 잠금 — 10분 후 다시 시도하세요';
   else $('pinerr').textContent = 'PIN이 올바르지 않습니다';
@@ -2608,23 +658,16 @@ async function login(){
 $('pin').addEventListener('keyup',e=>{ if(e.key==='Enter'||$('pin').value.length===4) login(); });
 
 async function restoreRoleSession(){
+  if(!PIN) return false;
   try{
-    let r=await fetch('/api/auth/session',{cache:'no-store'});
-    if(!r.ok && /^\d{4}$/.test(LEGACY_PIN)){
-      r=await fetch('/api/login',{
-        method:'POST',
-        body:JSON.stringify({pin:LEGACY_PIN,staff_slug:staffSlug||''})
-      });
-    }
-    LEGACY_PIN='';
-    localStorage.removeItem('cw_pin');
+    const r=await fetch('/api/login',{
+      method:'POST',
+      body:JSON.stringify({pin:PIN,staff_slug:staffSlug||''})
+    });
     if(!r.ok) throw new Error('session');
     const d=await r.json();
-    const roleOk=d.role===(staffSlug?'staff':'admin') &&
-      (!staffSlug||d.staff_slug===staffSlug);
-    if(!roleOk) throw new Error('role');
-    PIN='session';
-    return true;
+    return d.role===(staffSlug?'staff':'admin') &&
+           (!staffSlug||d.staff_slug===staffSlug);
   }catch(e){
     PIN=''; localStorage.removeItem('cw_pin');
     $('gate').style.display='flex';
@@ -2734,27 +777,24 @@ async function loadStatus(){
   const 발행 = 유상.filter(r=>r.계산서==='발행').length;
   const 미수 = rows.reduce((a,r)=>a+(+r.미수금||0),0);
   const issues = rows.filter(r=>needAction(r));
-  const asPend = asPendingRows();                 // 접수됐는데 아직 안 한 건(취소 제외)
-  const asOpen = asPend.length;                   // 라벨을 '미실시' 로 통일한다
+  const asOpen = (works.as||[]).filter(r=>r.진행상태 && r.진행상태!=='작업완료').length;
   const pmWait = (works.pm||[]).filter(r=>r.점검상태 && r.점검상태!=='완료').length;
-  const bi=(name)=>`<img src="/icons/${name}.svg" alt="">`;
   const tile=(cls,ico,label,val,sub,click)=>`<div class="kpi ${cls}" onclick="kTap(this);${click||''}">
-    <div class="head"><div class="ico">${bi(ico)}</div><div class="l">${label}</div></div>
+    <div class="head"><div class="ico">${ico}</div><div class="l">${label}</div></div>
     <div class="v">${val}</div>${sub?`<div class="s">${sub}</div>`:''}</div>`;
   $('kpis').innerHTML =
-    tile('accent','bootstrap-clipboard-data-fill','정산 건수', rows.length||'-', `유상 ${유상.length}건 · 클릭=목록`, "goList('settle','')") +
-    tile('','bootstrap-cash-stack','작업 공급가액', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원 · 실제 작업분 · 클릭=내역', "goList('settle','')") +
-    tile(미수?'warn':'ok','bootstrap-hourglass-split','미수금', fmt(미수), '원 · 계산서 발행 후 미입금 · 클릭=목록', "goList('settle','입금 대기')") +
-    tile(발행===유상.length&&유상.length?'ok':'','bootstrap-receipt','계산서 발행율',
+    tile('accent','📋','정산 건수', rows.length||'-', `유상 ${유상.length}건 · 클릭=목록`, "goList('settle','')") +
+    tile('','💰','작업 공급가액', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원 · 실제 작업분 · 클릭=내역', "goList('settle','')") +
+    tile(미수?'warn':'ok','⏳','미수금', fmt(미수), '원 · 계산서 발행 후 미입금 · 클릭=목록', "goList('settle','입금 대기')") +
+    tile(발행===유상.length&&유상.length?'ok':'','🧾','계산서 발행율',
       (유상.length?Math.round(발행/유상.length*100):0)+'%',
       `${발행}/${유상.length}건 <span class="bar"><i style="width:${유상.length?발행/유상.length*100:0}%"></i></span>`,
       "goList('settle','세금계산서 미발행')") +
-    tile(issues.length?'danger':'ok','bootstrap-exclamation-triangle-fill','조치 필요', issues.length, issues.length?'클릭해 아래 유형 확인':'모두 정상',
+    tile(issues.length?'danger':'ok','⚠️','조치 필요', issues.length, issues.length?'클릭해 아래 유형 확인':'모두 정상',
       "flashTop()") +
-    tile(asOpen?'danger':'ok','bootstrap-wrench-adjustable','AS 미실시', asOpen,
-      `접수 후 미완료 · 전체 ${(works.as||[]).length}건 중 · 클릭=목록`, "openAsPending()") +
-    tile(pmWait?'warn':'','bootstrap-calendar-event-fill','정기점검 대기', pmWait, `전체 ${(works.pm||[]).length}건 · 클릭=목록`, "goList('pm','')") +
-    (erpDocs.total ? tile('','bootstrap-receipt', APP_YEAR+'년 ERP 매출',
+    tile(asOpen?'warn':'','🔧','돌발AS 진행중', asOpen, `전체 ${(works.as||[]).length}건 · 클릭=목록`, "goList('as','')") +
+    tile(pmWait?'warn':'','🗓','정기점검 대기', pmWait, `전체 ${(works.pm||[]).length}건 · 클릭=목록`, "goList('pm','')") +
+    (erpDocs.total ? tile('','🧾', APP_YEAR+'년 ERP 매출',
       fmt(erpDocs.total), `계산서 ${erpDocs.rows.length}장 · 클릭=보고`,
       "show('daily');renderDaily()") : '');
   // 상태 분포 바 (2px 간격 마크)
@@ -2839,19 +879,6 @@ function rowIs2026(r, kind){
 const SHOW_SIDE_WORK = false;   // ← 철거·신규납품을 앱에 보이려면 true 한 글자만 바꾼다
 /* 05시트 업무구분은 '납품'·'설치'·'철거'·'이전' 처럼 **한 단어**다(10_코드관리 M열).
    '신규납품' 만 잡으면 정작 원장에 적힌 '납품' 을 놓친다 — 실제로 처음에 그랬다. */
-/* ★ 사용자 지시(2026-07-30): "AS 접수가 완료되었는데 미실시건" 을 대시보드·대표보고·캡처에서 보이게.
-   정의를 한 곳에 둔다 — 대시보드와 보고서가 다른 셈법을 쓰면 두 화면의 숫자가 갈린다.
-   · 미실시 = 접수는 됐는데 **아직 안 한 것**: 진행상태가 있고, 작업완료가 아니고,
-     취소도 아니고, 작업완료일이 비어 있다.
-   ★ '취소' 를 빼는 것이 핵심이다. 기존 '돌발AS 진행중' 은 (진행상태 && !=작업완료) 라
-     **취소 건까지 진행중으로 세고 있었다**(2026-07-30 확인: 취소 29건). 취소는 실시할 일이
-     없으므로 미실시도 진행중도 아니다. */
-function asNotDone(r){
-  const st = String((r&&r.진행상태)||'').trim();
-  if(!st || st === '작업완료' || st === '취소') return false;
-  return !String((r&&r.작업완료일)||'').trim();
-}
-function asPendingRows(){ return (works.as||[]).filter(asNotDone); }
 const SIDE_WORK = /철거|이전|납품|설치|계단|안전바|경보장치|메자닌/;
 function isSideWork(r){
   if(SHOW_SIDE_WORK) return false;          // 스위치가 켜지면 아무것도 숨기지 않는다
@@ -2878,19 +905,6 @@ function cleanExec2026(d){
   d.details = Object.fromEntries(Object.entries(d.details||{}).map(([k,v])=>[
     k,{...v,rows:(v.rows||[]).filter(r=>rowIs2026(r,'issue') && !isSideWork(r)).map(hide2025)}
   ]).filter(([,v])=>!old(v)));
-  return d;
-}
-/* 선택 날짜 보고는 엑셀 저장과 무관하게 즉시 볼 수 있어야 한다.
-   서버가 과거 날짜 자료를 계산해도 meta가 비어 있으면 캡처 헤더에 '-'가 찍히므로,
-   사용자가 고른 보고일·집계기준일을 화면/캡처 공용 데이터에 명시적으로 고정한다. */
-function reportForDates(d,reportDay,baseDay){
-  d=cleanExec2026(d||{});
-  d.meta={...(d.meta||{}),
-    '보고일':normDate(reportDay)||normDate((d.meta||{})['보고일'])||todayISO(),
-    '집계기준일':normDate(baseDay)||normDate((d.meta||{})['집계기준일'])||
-      normDate(reportDay)||todayISO(),
-    '보고자':(d.meta||{})['보고자']||'유현민'
-  };
   return d;
 }
 function cleanErp2026(d){
@@ -3207,29 +1221,13 @@ function sortRows(rows){
     return r*window._sd;
   });
 }
-/* 대시보드 'AS 미실시' 타일 — 목록 화면의 필터에 의존하지 않고 전체에서 바로 뽑는다.
-   (상태 드롭다운에는 '미실시' 라는 값이 없다. 없는 값을 넣으면 필터가 안 걸린 채
-    전체가 나와 "숫자와 목록이 다르다" 는 오해가 생긴다 — 그래서 따로 연다) */
-function openAsPending(){
-  const rows = asPendingRows();
-  window._briefMetric = {label:'AS 미실시 (접수 후 미완료·취소 제외)', data:{
-    rows: rows.map(r=>({...r, 종류:'as', 레코드ID:recordIdOf(r), 프로젝트NO:projectNoOf(r),
-      일자:dateOf(r,'as'), 담당자:r.담당기사||r.담당자||'',
-      문제:'접수 후 미완료' + (r.방문예정일 ? ` · 방문예정 ${r.방문예정일}` : ' · 방문예정일 없음'),
-      상태:statOf(r), 금액:0})),
-    count: rows.length, kind:'list-filter',
-    basis:'02_돌발AS접수 · 진행상태가 작업완료·취소가 아니고 작업완료일이 비어 있는 건'}};
-  openExecMetric('AS 미실시 (접수 후 미완료·취소 제외)');
-}
 function openListKpi(label, rule){
   const all=window._visibleListRows||[];
   let rows=all;
   if(rule==='unpaid') rows=all.filter(r=>(+r.미수금||0)>0);
   else if(rule==='action') rows=all.filter(r=>needAction(r));
   else if(rule==='as-done') rows=all.filter(r=>r.진행상태==='작업완료');
-  else if(rule==='as-open') rows=all.filter(asNotDone);        // 취소 제외(같은 정의)
-  else if(rule==='as-pending') rows=all.filter(asNotDone);     // '미실시' 라는 이름으로도 부른다
-  else if(rule==='as-cancel') rows=all.filter(r=>String(r.진행상태||'').trim()==='취소');
+  else if(rule==='as-open') rows=all.filter(r=>r.진행상태!=='작업완료');
   else if(rule==='pm-done') rows=all.filter(r=>r.점검상태==='완료');
   else if(rule==='pm-open') rows=all.filter(r=>r.점검상태!=='완료');
   window._briefMetric={label,data:{rows:rows.map(r=>({...r,종류:mode,레코드ID:recordIdOf(r),
@@ -3288,7 +1286,7 @@ function renderSettle(){
     $('skpis').innerHTML = `
       <div class="kpi accent" role="button" tabindex="0" onclick="openListKpi('돌발AS 접수 목록','all')"><div class="v">${rows.length}</div><div class="l">접수 건수</div></div>
       <div class="kpi" role="button" tabindex="0" onclick="openListKpi('돌발AS 작업완료','as-done')"><div class="v">${done}</div><div class="l">작업완료</div></div>
-      <div class="kpi ${rows.length-done?'warn':''}" role="button" tabindex="0" onclick="openListKpi('AS 미실시 (접수 후 미완료·취소 제외)','as-pending')"><div class="v">${rows.filter(asNotDone).length}</div><div class="l">미실시</div></div>`;
+      <div class="kpi ${rows.length-done?'warn':''}" role="button" tabindex="0" onclick="openListKpi('돌발AS 진행중','as-open')"><div class="v">${rows.length-done}</div><div class="l">진행중</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('as',${i},'${r.접수ID}')">
         <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(r.진행상태)}</div>
@@ -4026,9 +2024,12 @@ function pickReport(i){
 
 /* ── 보고 기준일 → 엑셀 00_대시보드 B3·B4 ── */
 function initDates(){
-  const cur = todayISO();
-  $('d_report').value = cur;
-  $('d_base').value = previousDayISO(cur);        // 집계기준일 = 정확한 전날
+  const t = new Date();
+  const iso = d => d.toISOString().slice(0,10);
+  $('d_report').value = iso(t);
+  const prev = new Date(t);                       // 집계기준일 = 전 영업일
+  do { prev.setDate(prev.getDate()-1); } while([0,6].includes(prev.getDay()));
+  $('d_base').value = iso(prev);
 }
 async function setDates(){
   const 보고일 = $('d_report').value, 집계기준일 = $('d_base').value;
@@ -4043,24 +2044,20 @@ async function setDates(){
    기존에는 대시보드 맨 아래 카드에만 있어서, 보고서를 보다가 날짜가 틀린 걸 발견하면
    탭을 옮겨 찾아가야 했다. 값은 엑셀 00_대시보드 B3·B4가 진실이므로 거기에 쓴다. */
 function openRptDates(){
-  // 팝업 기본값은 언제나 보고일=오늘, 집계기준일=전날이다.
-  // 이전에 열었던 과거 보고의 meta를 재사용하면 오늘 보고가 과거 날짜로 시작한다.
-  const cur = todayISO();
-  const base = previousDayISO(cur);
+  const meta = (execRep && execRep.meta) || {};
+  const cur = normDate(meta['보고일']) || todayISO();
+  const base = normDate(meta['집계기준일']) || '';
   openPane(`<h2>보고 기준일 변경</h2>
-    <div class="sub">기본값: 보고일 오늘 · 집계기준일 전날. 날짜를 바꾸면 보고·캡처 기준이 즉시 갱신됩니다.</div>
+    <div class="sub">엑셀 00_대시보드 B3·B4에 기록됩니다 (새 버전 생성)</div>
     <div style="display:flex;flex-direction:column;gap:12px;margin-top:16px">
       <label style="font-size:12.5px;color:var(--ink-3);font-weight:700">보고일
-        <input type="date" id="rd_report" value="${cur}" onchange="rptDateChanged()" style="width:100%;padding:12px;margin-top:5px;
+        <input type="date" id="rd_report" value="${cur}" style="width:100%;padding:12px;margin-top:5px;
           border:1.5px solid var(--line);border-radius:10px;font-size:16px;font-family:inherit;
           background:var(--card);color:var(--ink-1)"></label>
       <label style="font-size:12.5px;color:var(--ink-3);font-weight:700">집계기준일
-        <input type="date" id="rd_base" value="${base}" onchange="rptDateChanged()" style="width:100%;padding:12px;margin-top:5px;
+        <input type="date" id="rd_base" value="${base}" style="width:100%;padding:12px;margin-top:5px;
           border:1.5px solid var(--line);border-radius:10px;font-size:16px;font-family:inherit;
           background:var(--card);color:var(--ink-1)"></label>
-      <div id="rd_status" class="sub" style="min-height:20px;color:#1B41BC;font-weight:700">
-        ${base} 집계기준 보고 준비됨
-      </div>
       <button onclick="saveRptDates()" style="width:100%;padding:13px;background:var(--brand);color:#fff;
         border:0;border-radius:11px;font-weight:800;font-size:15px;font-family:inherit;cursor:pointer">
         저장하고 엑셀에 반영</button>
@@ -4072,49 +2069,34 @@ function openRptDates(){
         font-family:inherit;cursor:pointer">선택 날짜 보고 바로 캡처</button>
       <button onclick="rptDatesToday()" style="width:100%;padding:11px;background:transparent;
         color:var(--brand);border:1.5px solid var(--line);border-radius:11px;font-weight:700;
-        font-size:13.5px;font-family:inherit;cursor:pointer">오늘 · 전날로 맞추기</button>
+        font-size:13.5px;font-family:inherit;cursor:pointer">오늘 · 전 영업일로 맞추기</button>
     </div>`);
-  // 팝업을 여는 즉시 기본값(오늘/전날)을 화면·캡처 공용 데이터에 적용한다.
-  requestAnimationFrame(()=>rptDateChanged());
 }
 
-/* 가장 흔한 입력을 한 번에 — 보고일=오늘, 집계기준일=정확한 전날 */
+/* 가장 흔한 입력을 한 번에 — 보고일=오늘, 집계기준일=직전 영업일(주말 건너뜀) */
 function rptDatesToday(){
-  const cur=todayISO(), base=previousDayISO(cur);
-  $('rd_report').value = cur;
-  $('rd_base').value = base;
-  rptDateChanged();
+  const t = new Date(), iso = d => d.toISOString().slice(0,10);
+  const prev = new Date(t);
+  do { prev.setDate(prev.getDate()-1); } while([0,6].includes(prev.getDay()));
+  $('rd_report').value = iso(t);
+  $('rd_base').value = iso(prev);
 }
 
-let RPT_DATE_TIMER=null;
-function rptDateChanged(){
-  if(RPT_DATE_TIMER)clearTimeout(RPT_DATE_TIMER);
-  const status=$('rd_status');
-  if(status)status.textContent='선택 날짜 보고를 갱신하는 중…';
-  RPT_DATE_TIMER=setTimeout(()=>{RPT_DATE_TIMER=null;previewRptDate(false,true);},180);
-}
-
-async function previewRptDate(andCapture,keepPane=false){
-  const reportDay=($('rd_report')&&$('rd_report').value)||'';
-  const baseDay=($('rd_base')&&$('rd_base').value)||reportDay;
-  if(!/^2026-\d{2}-\d{2}$/.test(baseDay)){alert('2026년 집계기준일을 선택하세요');return;}
+async function previewRptDate(andCapture){
+  const day=($('rd_base')&&$('rd_base').value)||($('rd_report')&&$('rd_report').value)||'';
+  if(!/^2026-\d{2}-\d{2}$/.test(day)){alert('2026년 날짜를 선택하세요');return;}
   try{
     const [rep,b]=await Promise.all([
-      api('/api/exec_report?date='+encodeURIComponent(baseDay)),
-      api('/api/brief?date='+encodeURIComponent(baseDay))
+      api('/api/exec_report?date='+encodeURIComponent(day)),
+      api('/api/brief?date='+encodeURIComponent(day))
     ]);
-    execRep=reportForDates(rep||{},reportDay||baseDay,baseDay);
+    execRep=filterExec(rep||{});
     BRIEF=b&&b.ok!==false?b:null;
-    REPORT_PREVIEW_DATE=baseDay;
-    if(!keepPane){closeSheetAll();show('daily');}
+    REPORT_PREVIEW_DATE=day;
+    closeSheetAll();
     renderDaily();
-    const status=$('rd_status');
-    if(status)status.textContent=`보고일 ${reportDay||baseDay} · 집계기준일 ${baseDay} 적용 완료`;
-    toast(`${baseDay} 집계기준 보고를 불러왔습니다`);
-    if(andCapture){
-      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-      await captureReport();
-    }
+    toast(`${day} 기준 보고를 불러왔습니다`);
+    if(andCapture) await captureReport();
   }catch(e){alert('선택 날짜 보고를 만들지 못했습니다: '+e);}
 }
 
@@ -4202,7 +2184,7 @@ function openPolicyEdit(index){
     <input id="policyOwner" value="유현민" style="width:100%;margin-top:7px;border:1px solid var(--line);
       border-radius:11px;padding:12px;font:inherit;font-size:16px">
     <div class="actions sticky">
-        <button class="abtn primary" onclick="savePolicy()"><img class="em" src="/icons/bootstrap-save-fill.svg" alt="">저장·전체 반영</button>
+      <button class="abtn primary" onclick="savePolicy()"><span class="em">💾</span>저장·전체 반영</button>
       <button class="abtn" onclick="openRepresentativeList('policy')">취소</button>
     </div>`);
 }
@@ -4522,7 +2504,7 @@ function briefBlock(){
   return `<div class="ebrief">
     <div class="bhead"><span>읽어 드릴 내용</span>
       <em>숫자가 아니라 무슨 일이 있었는지</em>
-    <button onclick="copyBrief()"><img class="inline-bi" src="/icons/clipboard-copy.svg" alt="">문장 복사</button></div>
+      <button onclick="copyBrief()">📋 문장 복사</button></div>
     ${h}</div>`;
 }
 
@@ -4629,10 +2611,8 @@ function dayDetail(label, val){
   // 대표보고 숫자는 엑셀에서, 목록은 앱 데이터에서 온다. 두 값이 다르면 숨기지 않고 알린다.
   const n = parseInt(String(val).replace(/[^0-9]/g,''), 10);
   const diff = Number.isFinite(n) && n !== rows.length;
-  const warn = diff
-    ? `<span class="dw">세부 미확정 · 원장 요약 ${n}건 / 연결 프로젝트 ${rows.length}건</span>`
-    : '';
-  if(!rows.length) return `<div class="gd note">${note}${diff?' — 상세 프로젝트 연결 필요':' — 해당 없음'}${warn}</div>`;
+  const warn = diff ? `<span class="dw">앱에서 찾은 건 ${rows.length}건 (보고 숫자 ${n})</span>` : '';
+  if(!rows.length) return `<div class="gd note">${note}${note?' — ':''}해당 없음${warn}</div>`;
   const chips = rows.slice(0,3).map(r=>{
     const no = r.프로젝트NO || r.정산ID || r.접수ID || r.점검ID || '';
     const camp = String(r.캠프명||'').slice(0,12);
@@ -4655,74 +2635,20 @@ function execPeriodTitle(title){
 function dailyIssueRows(){
   const a=(BRIEF&&BRIEF['돌발AS'])||{}, wl=((BRIEF&&BRIEF['일지대조'])||{})['돌발AS']||{};
   const blank=(BRIEF&&BRIEF['내용미기입'])||[];
-  const rows = [
+  return [
     {label:'돌발 AS 미처리', count:+wl.미처리||+a.미처리||0, detail:'현장 일지 기준 미실시·미완료', call:"openWorkLogBrief('open')"},
     {label:'완료일 확인 필요', count:+a.완료일미기입||0, detail:'접수 후 30일 초과·완료일 미기입', call:'openStaleBrief()'},
     {label:'작업내용 확인 필요', count:blank.length, detail:'완료됐으나 실제 작업내용 미기입', call:'openBlankWorkBrief()'}
   ];
-  const reported=execReportedCount('이상발견');
-  const [linked]=dayRows('이상발견');
-  if(Number.isFinite(reported) && linked && reported!==linked.length){
-    rows.push({
-      label:'정기점검 이상 상세 미연결',
-      count:1,
-      detail:`원장 요약 ${reported}건 / 연결 프로젝트 ${linked.length}건 — 확인 전까지 확정 이상 건으로 보지 않습니다`,
-      call:"show('checks')"
-    });
-  }
-  return rows;
-}
-function execReportedCount(label){
-  const key=_k(label);
-  for(const section of (execRep.sections||[])){
-    for(const group of (section.groups||[])){
-      for(const item of (group.items||[])){
-        if(_k(item[0])!==key) continue;
-        const n=parseInt(String(item[1]||'').replace(/[^0-9]/g,''),10);
-        return Number.isFinite(n)?n:null;
-      }
-    }
-  }
-  return null;
-}
-function dailyIssueDetailRows(){
-  const source=(BRIEF&&BRIEF['이상발견'])||[];
-  const seen=new Set();
-  return source.map(x=>{
-    const project=x.프로젝트NO||'프로젝트 미확정';
-    const camp=x.캠프명||'캠프 미기입';
-    const date=x.일자||x.실행일||'일자 미기입';
-    const abnormal=String(x.이상내용||'').trim();
-    const problem=String(x.문제내용||'').trim();
-    const action=String(x.조치내용||x.추가작업||'').trim();
-    const detail=abnormal||problem||'이상 발견 표시 · 상세내용 미기입';
-    return {project,camp,date,detail,action,engineer:x.담당기사||'담당기사 미기입',
-      id:x.레코드ID||project};
-  }).filter(x=>{
-    const key=[x.id,x.project,x.date,x.detail].join('|');
-    if(seen.has(key))return false;
-    seen.add(key);return true;
-  });
 }
 function dailyIssueHtml(){
   const rows=dailyIssueRows(), total=rows.reduce((n,x)=>n+x.count,0);
-  const details=dailyIssueDetailRows();
-  const detailHtml=details.length?`<div class="issue-detail-list">
-    <div class="issue-detail-title"><span>정기점검 이상 발견 상세</span><b>${details.length}건</b></div>
-    ${details.map(x=>`<div class="issue-detail-row">
-      <div class="issue-detail-id"><button class="prj" type="button"
-        onclick="event.stopPropagation();openByPrj(${esc4(x.id)})">${esc2(x.project)}</button>
-        <span class="camp">${esc2(x.camp)}</span></div>
-      <div class="issue-detail-copy"><b>이상 ·</b> ${esc2(x.detail)}
-        ${x.action?`<br><b>조치 ·</b> ${esc2(x.action)}`:''}</div>
-      <div class="issue-detail-meta">${esc2(x.date)}<br>${esc2(x.engineer)}</div>
-    </div>`).join('')}</div>`:'';
   return `<div class="egroup issue${total?'':' ok'}">
     <div class="gh">이슈사항 · ${total?`${total}건 확인 필요`:'특이사항 없음'}</div>
     <div class="gb">${rows.map(x=>`<div class="gitem" role="button" tabindex="0"
       onclick="${x.call}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${x.call}}">
       <div class="gi"><span>${x.label}</span><b style="color:${x.count?'#B42318':'#177245'}">${x.count}건</b></div>
-      <div class="gd note">${x.detail}</div></div>`).join('')}${detailHtml}</div></div>`;
+      <div class="gd note">${x.detail}</div></div>`).join('')}</div></div>`;
 }
 function openBlankWorkBrief(){
   const source=(BRIEF&&BRIEF['내용미기입'])||[];
@@ -4891,7 +2817,7 @@ function renderDaily(){
   const 발행 = 유상.filter(r=>r.계산서==='발행').length;
   const 미수 = S.reduce((a,r)=>a+(+r.미수금||0),0);
   const issues = S.filter(r=>needAction(r));
-  const asOpen = asPendingRows();          // 취소 제외 — 대시보드와 같은 정의(asNotDone)
+  const asOpen = (works.as||[]).filter(r=>r.진행상태 && r.진행상태!=='작업완료');
   const pmWait = (works.pm||[]).filter(r=>r.점검상태 && r.점검상태!=='완료');
   const byType = {};
   issues.forEach(r=>{ (byType[r.상태]=byType[r.상태]||[]).push(r); });
@@ -4911,8 +2837,7 @@ function renderDaily(){
   reg('k_due',  '미수금 보유 건', S.filter(r=>(+r.미수금||0)>0));
   reg('k_tax',  '계산서 미발행 (유상 기준)', 유상.filter(r=>r.계산서!=='발행'));
   reg('k_iss',  '조치 필요', issues);
-  reg('k_as',   'AS 미실시 (접수 후 미완료)', asOpen, 'as');
-  reg('m_asp',  `${+m}월 AS 미실시`, AS_m.filter(asNotDone), 'as');
+  reg('k_as',   '돌발AS 진행중', asOpen, 'as');
   reg('k_pm',   '정기점검 대기', pmWait, 'pm');
   reg('m_set',  `${+m}월 정산`, Sm);
   reg('m_amt',  `${+m}월 공급가액`, [...Sm].sort((a,b)=>(+b.공급가액||0)-(+a.공급가액||0)));
@@ -4941,7 +2866,7 @@ function renderDaily(){
           (BRIEF&&BRIEF['데이터업데이트일시'])||new Date().toISOString().slice(0,16).replace('T',' ')}</span>
         <button onclick="openRptDates()" style="margin-top:5px;background:#EEF2FF;color:#1C3FA8;border:0;
           border-radius:8px;padding:5px 10px;font-size:11px;font-weight:800;font-family:inherit;
-      cursor:pointer"><img class="inline-bi" src="/icons/bootstrap-calendar3.svg" alt="">날짜 변경</button></div>
+          cursor:pointer">📅 날짜 변경</button></div>
     </div>
     <h4>${+m}월 실적 <span class="norm">— 선택 기준일 ${selectedDay}</span></h4>
     <div class="rgrid">
@@ -4967,7 +2892,7 @@ function renderDaily(){
       ${cell(fmt(미수),'미수금(원)','k_due')}
       ${cell((유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율','k_tax')}
       ${cell(issues.length+'건','조치 필요','k_iss')}
-      ${cell(asOpen.length+'건','AS 미실시','k_as')}
+      ${cell(asOpen.length+'건','돌발AS 진행중','k_as')}
       ${cell(pmWait.length+'건','정기점검 대기','k_pm')}
     </div>
     ${outYTD?`<div style="font-size:11px;color:var(--ink-3);margin-top:6px">
@@ -5033,14 +2958,9 @@ function renderDaily(){
     request: x['왜'] || '',
     action: x['무엇'] || x['상태'] || ''
   }));
-  const captureMeta={...(execRep.meta||{})};
-  captureMeta['보고일']=normDate(captureMeta['보고일'])||REPORT_PREVIEW_DATE||todayISO();
-  captureMeta['집계기준일']=normDate(captureMeta['집계기준일'])||REPORT_PREVIEW_DATE||
-    (BRIEF&&BRIEF['기준일'])||captureMeta['보고일'];
-  captureMeta['보고자']=captureMeta['보고자']||'유현민';
   _rptData = {
-    date: captureMeta['보고일'] || `${y}-${m}-${String(today.getDate()).padStart(2,'0')}`,
-    meta: captureMeta,
+    date: (execRep.meta&&execRep.meta['보고일']) || `${y}-${m}-${String(today.getDate()).padStart(2,'0')}`,
+    meta: execRep.meta || {},
     summary: execRep.summary || [],
     exec: (execRep.sections||[]).map(s=>({title:s.title, items:s.items||[],
                                           groups:s.groups||[], lines:s.lines||[]})),
@@ -5090,7 +3010,6 @@ function renderDaily(){
               [PM_q.length+'건','분기 정기점검'],
               [Sq.filter(r=>needAction(r)).length+'건','분기 조치필요']],
     dailyIssues: dailyIssueRows().map(x=>[`${x.count}건`,x.label,x.count?'#B42318':'#177245',x.detail]),
-    dailyIssueDetails: dailyIssueDetailRows(),
     issues: Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>{
       const as=l.filter(r=>String(r.업무구분||'').includes('돌발')).length;
       const pm=l.filter(r=>String(r.업무구분||'').includes('점검')).length;
@@ -5330,12 +3249,6 @@ const _today = () => new Date().toISOString().slice(0,10);
 function todayISO(){
   const t = new Date();
   return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
-}
-function previousDayISO(day=todayISO()){
-  const prev=new Date(day+'T12:00:00');
-  prev.setDate(prev.getDate()-1);
-  return [prev.getFullYear(),String(prev.getMonth()+1).padStart(2,'0'),
-    String(prev.getDate()).padStart(2,'0')].join('-');
 }
 /* 끝난 건 = 더 물어볼 것 없음. '취소'도 종결로 본다(기사에게 확인 요청할 대상이 아니다) */
 const _fin = s => ['작업완료','완료','정상','취소','종결','철회','AS전환'].includes(String(s||'').trim());
@@ -5604,8 +3517,8 @@ function openCheckSource(r){
     <div class="dl">${fields.map(([k,v])=>`<dt>${esc2(k)}</dt><dd>${esc2(v)}</dd>`).join('')}</div>
     ${helpBox(checkTypeOf(r))}
     <div class="actions sticky">
-      <button class="abtn primary" onclick="openSingleCheckCapture()"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">이 항목 목록 열기</button>
-      <button class="abtn" onclick="showCheckRaw()"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">원본표 보기</button></div>`);
+      <button class="abtn primary" onclick="openSingleCheckCapture()"><span class="em">📋</span>이 항목 목록 열기</button>
+      <button class="abtn" onclick="showCheckRaw()"><span class="em">📋</span>원본표 보기</button></div>`);
 }
 function openSingleCheckCapture(){
   const r=window._singleCheckRow; if(r) openCheckRows(checkTypeOf(r),[r],'원장 연결을 확인할 단일 항목');
@@ -6449,13 +4362,11 @@ async function reportToPng(){
   const tiles = r => Math.ceil(r/3)*74;
   const execSections=(D.exec||[]).filter(s=>!/^(정리|요약)$/.test(cleanExecTitle(s.title)));
   const dailyIssueList=D.dailyIssues||[];
-  const dailyIssueDetails=D.dailyIssueDetails||[];
   const execSecH = execSections.reduce((a,s)=>{
     const gh = (s.groups||[]).length
       ? 38 + Math.max(...s.groups.map(g=>g.items.length))*24 + 18 : 0;
     const issueH=/당일 업무 실적/.test(cleanExecTitle(s.title)) && dailyIssueList.length
-      ? 42 + dailyIssueList.length*30
-        + (dailyIssueDetails.length ? 34 + dailyIssueDetails.length*66 : 0) : 0;
+      ? 42 + dailyIssueList.length*30 : 0;
     return a + 34 + gh + (s.items.length?tiles(s.items.length):0)
              + issueH + (s.lines.length? s.lines.length*20 + 6 : 0);
   }, 0);
@@ -6652,29 +4563,6 @@ async function reportToPng(){
     });
     y+=h+8;
   };
-  const issueDetailBlock=rows=>{
-    if(!rows.length)return;
-    const headH=28, rowH=66, h=headH+rows.length*rowH;
-    box(30,y,W-60,h,'#FFFDFD','#F1C2C2',10);
-    box(30,y,W-60,headH,'#FFF1F1','#F1C2C2',10);
-    txt(`정기점검 이상 발견 상세 · ${rows.length}건`,44,y+headH/2,F(11.5,900),'#A63737');
-    y+=headH;
-    rows.forEach((r,i)=>{
-      if(i%2){ctx.fillStyle='#FFFAFA';ctx.fillRect(31,y,W-62,rowH);}
-      txt(clip(`${r.project||'프로젝트 미확정'} · ${r.camp||'캠프 미기입'}`,330),
-          44,y+16,F(11.5,900),'#101828');
-      txt(`${r.date||'-'} · ${r.engineer||'담당기사 미기입'}`,
-          W-44,y+16,F(10.5,700),'#667085','right');
-      txt(clip(`이상 · ${r.detail||'상세내용 미기입'}`,W-88),
-          44,y+38,F(11.2,700),'#A63737');
-      if(r.action)txt(clip(`조치 · ${r.action}`,W-88),44,y+56,F(10.2),'#475467');
-      if(i<rows.length-1){
-        ctx.strokeStyle='#F1DADA';ctx.beginPath();ctx.moveTo(42,y+rowH);ctx.lineTo(W-42,y+rowH);ctx.stroke();
-      }
-      y+=rowH;
-    });
-    y+=8;
-  };
   const drawDailyBrief=()=>{
     if(!dailyBrief)return;
     if((dailyBrief.metrics||[]).length)grid(dailyBrief.metrics);
@@ -6704,7 +4592,6 @@ async function reportToPng(){
     if((s.groups||[]).length) groupCols(s.groups);
     if(/당일 업무 실적/.test(raw)){
       issueBlock(dailyIssueList);
-      issueDetailBlock(dailyIssueDetails);
       drawDailyBrief();
     }
     if(s.items.length) grid(s.items.map(([l,v])=>[v||'-', l]));
@@ -7105,7 +4992,7 @@ async function refreshAll(){
   // ★ 여분 항목 하나를 미리 쌓아 둔다. 이게 없으면 **첫 뒤로가기가 앱 밖으로 나가** 버려서
   //   홈에서 종료를 묻는 것도, 이전 화면으로 돌아가는 것도 할 수 없다.
   navGuard();
-  if(await restoreRoleSession()){
+  if(PIN && await restoreRoleSession()){
     $('gate').style.display='none';
     refreshAll();
     pollLog().catch(()=>{});
@@ -7124,6 +5011,4 @@ async function refreshAll(){
   document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) checkBuild(true); });
 })();
 function runnerBusy(){ return !!polling; }
-</script>
-</body>
-</html>
+
