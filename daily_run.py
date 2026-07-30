@@ -191,13 +191,9 @@ def _run_pipeline():
     #      숫자가 틀린 게 아니라 대기 중이라는 걸 앱이 스스로 말하게 한다(사용자 오해 방지).
     steps.append(run("재계산 대기 확인", [os.path.join(ROOT, "recalc_pending.py")]))
 
-    # 2.98 엑셀 재계산 — 사용자 지시(2026-07-30): "엑셀을 열어야 될 사항이 발생되면
-    #      에이전트가 알아서 열고 닫고". 수식(접수ID·정산ID·금액·차액)은 엑셀만 계산할 수 있어
-    #      그동안 사람에게 "한 번 열어 주세요" 라고 부탁해 왔다. 그 부탁을 없앤다.
-    #      ★ 대기 0이면 열지 않고, 사람이 파일을 열어 두었으면 물러난다(그 작업이 날아간다).
-    #      ★ 복구 경고 차단이 해소되고 현재 정본의 파일명+SHA-256 승인까지 있을 때만 연다.
-    steps.append(run("엑셀 재계산(필요할 때만)",
-                     [os.path.join(ROOT, "excel_recalc.py"), "--run"], timeout=1200))
+    # 2.98 엑셀 재계산은 11:00·15:00 일괄반영 회차 안에서만 수행한다.
+    #      09:50에는 승인·대기 상태만 읽어 보고, Excel COM을 열거나 저장하지 않는다.
+    steps.append(run("엑셀 재계산 상태 확인", [os.path.join(ROOT, "excel_recalc.py")]))
 
     # 2.97 ERP 접속 IP 확인 — 공인 IP가 바뀌면 이카운트 OAPI가 통째로 막힌다.
     #      사용자 지시(2026-07-30): "IP가 변경되면 이 화면에서 등록해서 진행".
@@ -225,7 +221,7 @@ def _run_pipeline():
     # ERP 매출서류(계산서·명세서 현황) — 있으면 대조 + 25시트 반영
     _has_tax = has_inbox_kind("tax")
     if _has_tax:
-        steps.append(run("ERP 매출서류 대조(25시트)", [os.path.join(ROOT, "erp_docs_check.py"), "--sheet"]))
+        steps.append(run("ERP 매출서류 대조(반영 대기)", [os.path.join(ROOT, "erp_docs_check.py")]))
     else:
         steps.append({"name": "ERP 매출서류 대조", "ok": None,
                       "out": "스킵 — inbox/에 매출(세금)계산서현황 없음"})
@@ -258,28 +254,25 @@ def _run_pipeline():
     #   전에는 여기서 바로 --apply 해서 하루에 관리대장 버전이 수십 개씩 늘었다(v311→v327).
     #   09:50 일일 대조는 적재까지만 하고, 별도 작업 스케줄러가 두 회차를 정확히 실행한다.
     steps.append(run("입력 DB 적재", [os.path.join(ROOT, "ledger_db.py"), "--intake"]))
-    # 입력 직후 무결성 확인 — 엑셀이 '복구' 대화상자를 띄우는 파일을 만들지 않기 위해
-    steps.append(run("워크북 무결성 검사·복구", [os.path.join(ROOT, "fix_workbook.py"), "--apply"]))
+    # 09:50에는 읽기 전용 무결성 검사만 한다. 실제 복구도 11:00·15:00 회차 안에서만 한다.
+    steps.append(run("워크북 무결성 검사", [os.path.join(ROOT, "fix_workbook.py")]))
 
     # 5.3 류지영 정기점검 스케줄 원본 → 27_정기점검원본일정.
     #     지정 폴더의 최신 xlsx를 매일 다시 읽으며, 내용이 같으면 새 버전을 만들지 않는다.
     #     원본에 UJ번호가 없으므로 임의 프로젝트를 만들지 않고 04시트와 근거가 있는 건만 연결한다.
-    steps.append(run("정기점검 스케줄 원본 자동반영",
-                     [os.path.join(ROOT, "pm_schedule_sync.py"), "--apply"]))
-    steps.append(run("정기점검·돌발AS 일지 대조현황(28시트)",
-                     [os.path.join(ROOT, "work_log_sync.py"), "--apply"]))
+    steps.append(run("정기점검 스케줄 원본 분석",
+                     [os.path.join(ROOT, "pm_schedule_sync.py")]))
 
     # 신규 프로젝트 업무 흐름도는 관리대장·앱에 노출하지 않는다. 지정 원본 폴더의 최신본만
     # 내부 DB로 안전하게 교체해, 이후 신규 업무 기준을 추가해도 원본 구조를 그대로 보관한다.
     steps.append(run("신규 프로젝트 업무 흐름도 DB 동기화(앱 비표시)",
                      [os.path.join(ROOT, "new_project_flow_sync.py"), "--apply"]))
 
-    # 5.5 밴드 업무 추출 → 24_밴드업무추출 시트 (월별 백필 원천, 캐시 있을 때만)
+    # 5.5 밴드 업무 추출 보고. 24시트 반영은 11:00·15:00 회차에서만 한다.
     if band_cache:
-        steps.append(run("밴드 업무추출(24시트)", [os.path.join(ROOT, "band_extract.py"), "--sheet"]))
+        steps.append(run("밴드 업무추출(반영 대기)", [os.path.join(ROOT, "band_extract.py")]))
 
-    # 6. 확인필요현황 시트 갱신 — 관리대장 본체 23_확인필요현황 (변경 시에만 vN+1, 단일 엑셀 통합관리)
-    steps.append(run("확인필요 시트 갱신(23시트)", [os.path.join(ROOT, "findings_sheet.py")]))
+    # 6. 확인필요현황은 별도 보고서만 갱신한다. 관리대장 23시트 쓰기는 11:00·15:00 회차.
 
     # 6.5 확인필요현황 **별도 엑셀** 갱신 — 23시트는 평면 목록이라 유형별 상세열
     #     (명세서번호·PO번호·매칭근거·확인방법)을 담지 못한다. 그 상세는 이 파일에만 있다.

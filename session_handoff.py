@@ -203,7 +203,7 @@ def blockers(st, for_sol=False):
     out = []
     if st["큐잔량"]:
         out.append(("입력 큐에 %d건이 반영되지 않았다" % st["큐잔량"],
-                    "python ledger_writer.py --apply"))
+                    "python ledger_db.py --intake  # Excel은 다음 11:00·15:00 회차"))
     if st["임시파일"]:
         out.append(("원장 임시파일이 남았다(만들다 끊김): %s" % ", ".join(st["임시파일"][:3]),
                     "내용 확인 후 삭제 — 정식 vN+1 로 승격되지 않은 파일이다"))

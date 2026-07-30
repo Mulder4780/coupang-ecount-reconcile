@@ -178,12 +178,11 @@ def main():
         print("등록할 항목 없음"); return
 
     from ledger_writer import queue_add
-    print("큐 적재:", queue_add(queue), "개 셀 → ledger_writer --apply 실행")
-    import subprocess
-    r = subprocess.run([sys.executable, os.path.join(BASE_DIR, "ledger_writer.py"), "--apply"],
-                       cwd=BASE_DIR, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                       env={**os.environ, "PYTHONIOENCODING": "utf-8"})
-    print("\n".join(r.stdout.splitlines()[-6:]))
+    from ledger_db import intake_json, status
+    print("큐 적재:", queue_add(queue), "개 셀")
+    print("DB 흡수:", intake_json(source="backfill_rows"), "개 셀")
+    st = status()
+    print(f"Excel 반영 대기 {st['대기']}건 · 다음 {st['다음반영']}")
 
 
 if __name__ == "__main__":

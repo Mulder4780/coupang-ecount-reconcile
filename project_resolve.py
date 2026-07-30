@@ -385,15 +385,12 @@ def main():
     items = []
     for r in todo:
         items += row_items(r, ev)
-    import ledger_writer as L, subprocess
+    import ledger_writer as L
+    import ledger_db
     print(f"\n큐 추가 {L.queue_add(items)}개 셀 ({len(todo)}행)")
-    p = subprocess.run([sys.executable, os.path.join(ROOT, "ledger_writer.py"), "--apply"],
-                       cwd=ROOT, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace",
-                       env={**os.environ, "PYTHONIOENCODING": "utf-8"})
-    for line in (p.stdout or "").splitlines():
-        if "반영 완료" in line or "제외" in line or "오류" in line:
-            print(" ", line.strip())
+    print("DB 흡수:", ledger_db.intake_json(source="project_resolve"))
+    st = ledger_db.status()
+    print(f"Excel 반영 대기 {st['대기']}건 · 다음 {st['다음반영']}")
 
 
 if __name__ == "__main__":

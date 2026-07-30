@@ -1151,6 +1151,41 @@ def _save_ryu_evidence(file_info, category, record_key):
     return name
 
 
+def enqueue_for_scheduled_apply(items, source="app"):
+    """확정 입력을 보존한 뒤 SQLite로 넘긴다. 여기서는 엑셀을 절대 열지 않는다.
+
+    기존 대조 도구와의 호환을 위해 먼저 원자적 JSON 큐에 넣고, 곧바로 ledger_db가
+    staging 파일로 떼어 흡수한다. DB가 잠시 잠겨도 JSON 원문은 남으므로 입력이 유실되지
+    않으며, 실제 관리대장 반영은 작업 스케줄러의 11:00·15:00 회차만 수행한다.
+    """
+    from ledger_writer import queue_add, load_queue
+    added = queue_add(items) if items else 0
+    moved = 0
+    state = {}
+    db_error = ""
+    try:
+        import ledger_db
+        moved = ledger_db.intake_json(source=source)
+        state = ledger_db.status()
+    except Exception as exc:
+        db_error = str(exc)[:160]
+    pending = state.get("대기")
+    if pending is None:
+        pending = len(load_queue())
+    next_at = str(state.get("다음반영") or "다음 11:00·15:00 회차")
+    msg = f"입력 DB 저장 완료 · 엑셀 반영 {next_at}"
+    if db_error:
+        msg = "안전 임시 큐에 저장 · DB 흡수는 다음 상태 확인 때 재시도"
+    return {
+        "queued": added,
+        "ingested": moved,
+        "pending": pending,
+        "applying": False,
+        "next_apply": state.get("다음반영"),
+        "msg": msg,
+    }
+
+
 def save_ryu_entry(fields, files, source_ip=""):
     """선택한 기존 업무의 빈 원천 칸만 큐에 넣고, 첨부 근거는 원본 폴더에 보존한다."""
     requested = str(fields.get("category") or "").strip()
@@ -1218,16 +1253,10 @@ def save_ryu_entry(fields, files, source_ip=""):
         out.write(json.dumps(manifest, ensure_ascii=False) + "\n")
     if not items and not evidence_name:
         raise ValueError("보충할 항목 또는 근거 파일을 입력해 주세요")
-    from ledger_writer import queue_add, load_queue
-    added = queue_add(items) if items else 0
-    applying = False
-    msg = "근거 파일만 저장했습니다"
-    if added:
-        applying, msg = start_task("writer_apply")
-        if not applying:
-            defer_task_until_free("writer_apply")
-    return {"queued": added, "pending": len(load_queue()), "manifest": manifest,
-            "applying": applying, "msg": msg}
+    queued = enqueue_for_scheduled_apply(items, source="app-ryu")
+    if not items:
+        queued["msg"] = "근거 파일만 저장했습니다"
+    return {**queued, "manifest": manifest}
 
 
 def save_new_workcenter_job(fields, files, source_ip=""):
@@ -1296,13 +1325,8 @@ def save_new_workcenter_job(fields, files, source_ip=""):
     with open(os.path.join(ROOT, "reports", "workcenter_new_jobs.jsonl"),
               "a", encoding="utf-8") as out:
         out.write(json.dumps(manifest, ensure_ascii=False) + "\n")
-    from ledger_writer import queue_add, load_queue
-    added = queue_add(items)
-    applying, msg = start_task("writer_apply")
-    if not applying:
-        defer_task_until_free("writer_apply")
-    return {"queued": added, "pending": len(load_queue()), "manifest": manifest,
-            "applying": applying, "msg": msg}
+    queued = enqueue_for_scheduled_apply(items, source="app-new-job")
+    return {**queued, "manifest": manifest}
 
 
 def rows_xlsx(payload):
@@ -1380,7 +1404,9 @@ TASKS = {
     "daily":         ("전체 대조 실행", [os.path.join(ROOT, "daily_run.py")]),
     "synthetic":     ("합성검증", [os.path.join(ROOT, "tests", "synthetic_check.py")]),
     "writer_prev":   ("자동입력 미리보기", [os.path.join(ROOT, "ledger_writer.py")]),
-    "writer_apply":  ("자동입력 반영", [os.path.join(ROOT, "ledger_writer.py"), "--apply"]),
+    # 예전 키는 설치된 앱·브라우저 캐시와의 호환 때문에 유지한다. 동작은 즉시 엑셀
+    # 반영이 아니라 JSON 큐를 SQLite로 넘기는 것뿐이다.
+    "writer_apply":  ("입력 DB 적재", [os.path.join(ROOT, "ledger_db.py"), "--intake"]),
     "upload_dry":    ("전표 전송대기 확인", [os.path.join(ROOT, "ecount_upload.py")]),
     "upload_post":   ("전표 실전송", [os.path.join(ROOT, "ecount_upload.py"), "--post"]),
     "kakao":         ("카톡 대조", [os.path.join(ROOT, "kakao", "kakao_reconcile.py")]),
@@ -1440,8 +1466,7 @@ def get_codes():
 
 
 def enqueue_codes(codes):
-    """폰이 예약한 프로젝트 코드를 실제 원장 행으로 등록한다.
-    쓰기는 전부 ledger_writer(빈 칸만·근거 필수·vN+1)를 거치므로 기존 값은 덮이지 않는다."""
+    """폰이 예약한 프로젝트 코드를 다음 11:00·15:00 원장 반영 대기열에 등록한다."""
     import project_resolve as P
     ev = P.evidence()
     items, done, skip = [], [], []
@@ -1459,16 +1484,11 @@ def enqueue_codes(codes):
             # 같은 요청에 두 건이 오면 뒤엣것이 같은 행을 노린다 — 자리를 미리 물린다
             ev["tail"][r["sheet"]] = r["row"]
     if not items:
-        return {"ok": True, "applied": 0, "skipped": skip}
-    import ledger_writer as L
-    L.queue_add(items)
-    p = subprocess.run([PY, os.path.join(ROOT, "ledger_writer.py"), "--apply"],
-                       cwd=ROOT, env=ENV, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
-    ok = p.returncode == 0
-    runner["log"].append(f"[폰 예약] {len(done)}건 등록 시도 — {'성공' if ok else '실패'}")
-    return {"ok": ok, "applied": len(done) if ok else 0, "codes": done, "skipped": skip,
-            "msg": (p.stdout or "").strip().splitlines()[-1:] or [""]}
+        return {"ok": True, "queued": 0, "applied": 0, "skipped": skip}
+    queued = enqueue_for_scheduled_apply(items, source="phone-reservation")
+    runner["log"].append(
+        f"[폰 예약] {len(done)}건 DB 저장 — 엑셀은 다음 11:00·15:00 회차 반영")
+    return {"ok": True, "applied": 0, "codes": done, "skipped": skip, **queued}
 
 
 def start_task(key):
@@ -4189,7 +4209,8 @@ self.addEventListener('fetch', e => {
             except Exception as e:
                 return self._send(500, {"ok": False, "error": str(e)[:200]})
         if p == "/api/set_dates":
-            # 보고일·집계기준일 → 00_대시보드 B3·B4 (일일 갱신 입력칸 — 덮어쓰기 허용 화이트리스트)
+            # 보고일·집계기준일 → DB 대기 → 11:00·15:00에 00_대시보드 B3·B4 반영.
+            # 일일 갱신 입력칸이라 덮어쓰기 허용 화이트리스트지만 시각 게이트는 예외가 없다.
             ln = int(self.headers.get("Content-Length", 0))
             b = json.loads(self.rfile.read(ln) or b"{}")
             items = []
@@ -4205,12 +4226,10 @@ self.addEventListener('fetch', e => {
                 return self._send(400, {"ok": False, "error": "날짜 없음"})
             if DEMO:
                 return self._send(200, {"ok": True, "demo": True})
-            from ledger_writer import queue_add
-            queue_add(items)
-            ok, msg = start_task("writer_apply")     # 즉시 반영(vN+1)
-            return self._send(200, {"ok": True, "applying": ok, "msg": msg})
+            queued = enqueue_for_scheduled_apply(items, source="app-dates")
+            return self._send(200, {"ok": True, **queued})
         if p == "/api/input":
-            # 앱 → 엑셀 입력: ledger_writer 큐에 적재(빈 칸만 정책은 반영 단계에서 강제)
+            # 앱 → DB 입력. 빈 칸만 정책과 실제 Excel 쓰기는 11:00·15:00 반영 단계에서 강제한다.
             ln = int(self.headers.get("Content-Length", 0))
             b = json.loads(self.rfile.read(ln) or b"{}")
             ALLOW = {"02_돌발AS접수", "04_정기점검", "06_거래서류청구수금",
@@ -4221,11 +4240,15 @@ self.addEventListener('fetch', e => {
                 b["vtype"] = "text"
             if DEMO:
                 return self._send(200, {"ok": True, "queued": 1, "demo": True})
-            from ledger_writer import queue_add, load_queue
-            n = queue_add([{"sheet": b["sheet"], "key_col": b.get("key_col", "정산ID"), "key": b["key"],
-                            "col": b["col"], "value": b["value"], "vtype": b["vtype"],
-                            "evidence": f"앱 입력({ip}) {datetime.now():%m-%d %H:%M}", "only_if_empty": True}])
-            return self._send(200, {"ok": True, "queued": n, "pending": len(load_queue())})
+            queued = enqueue_for_scheduled_apply(
+                [{"sheet": b["sheet"], "key_col": b.get("key_col", "정산ID"),
+                  "key": b["key"], "col": b["col"], "value": b["value"],
+                  "vtype": b["vtype"],
+                  "evidence": f"앱 입력({ip}) {datetime.now():%m-%d %H:%M}",
+                  "only_if_empty": True}],
+                source="app-input",
+            )
+            return self._send(200, {"ok": True, **queued})
         return self._send(404, {"error": "not found"})
 
     def _band_dump(self):

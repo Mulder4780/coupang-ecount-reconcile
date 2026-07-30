@@ -52,6 +52,7 @@ sys.path.insert(0, ROOT)
 DB_DIR = os.path.join(ROOT, "db")
 DB_PATH = os.path.join(DB_DIR, "ledger_queue.db")
 JSON_QUEUE = os.path.join(ROOT, "updates", "pending_updates.json")
+REPORT_DIR = os.path.join(ROOT, "reports")
 STATUS_CACHE = os.path.join(ROOT, "reports", "반영대기.json")
 APPLY_LOCK = os.path.join(ROOT, "reports", ".ledger_db_apply.lock")
 
@@ -87,6 +88,16 @@ CREATE TABLE IF NOT EXISTS ux(              -- 앱 사용 기록(다음 개선�
   target TEXT, detail TEXT, ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_ux_kind ON ux(kind);
+CREATE TABLE IF NOT EXISTS handoff(         -- 19_AI작업인수인계 예약
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL,
+  title TEXT NOT NULL,
+  detail TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  applied_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_handoff_pending
+  ON handoff(title,detail) WHERE status='pending';
 """
 
 
@@ -310,6 +321,29 @@ def pending_rows():
                           "evidence", "only_if_empty"), r)) for r in cur.fetchall()]
 
 
+def handoff_add(title, detail):
+    """19시트 인수인계를 Excel 대신 DB에 예약한다."""
+    title = str(title or "").strip()
+    detail = str(detail or "").strip()
+    if not title or not detail:
+        raise ValueError("인수인계 제목과 상세가 모두 필요합니다")
+    with conn() as c:
+        before = c.total_changes
+        c.execute(
+            "INSERT OR IGNORE INTO handoff(ts,title,detail,status) VALUES(?,?,?,'pending')",
+            (datetime.now().isoformat(timespec="seconds"), title[:500], detail[:4000]),
+        )
+        return c.total_changes - before
+
+
+def pending_handoffs():
+    with conn() as c:
+        rows = c.execute(
+            "SELECT id,title,detail FROM handoff WHERE status='pending' ORDER BY id"
+        ).fetchall()
+    return [{"id": r[0], "title": r[1], "detail": r[2]} for r in rows]
+
+
 def counts():
     with conn() as c:
         p = c.execute("SELECT COUNT(*) FROM pending WHERE status='pending'").fetchone()[0]
@@ -323,7 +357,9 @@ def status(now=None):
     now = now or datetime.now()
     p, by, done = counts()
     nxt = next_window(now)
-    doc = {"확인": now.isoformat(timespec="seconds"), "대기": p, "출처별": by,
+    handoffs = len(pending_handoffs())
+    doc = {"확인": now.isoformat(timespec="seconds"), "대기": p, "인수인계대기": handoffs,
+           "출처별": by,
            "다음반영": nxt.isoformat(timespec="minutes"),
            "남은분": max(0, int((nxt - now).total_seconds() // 60)),
            "지금회차": slot_of(now), "밀린회차": missed_slots(now, done),
@@ -373,6 +409,90 @@ def ux_summary(days=7, limit=15):
 
 
 # ── 반영 ─────────────────────────────────────────────────────
+def scheduled_workbook_maintenance(now=None):
+    """11:00·15:00 회차 안에서만 구조 시트·수식 캐시를 갱신한다.
+
+    확정 셀 입력뿐 아니라 23·24·25·27·28 시트와 Excel 재계산까지 같은 회차로 묶어,
+    09:50 자동대조가 별도 vN+1을 만드는 우회 경로를 없앤다. 각 도구는 멱등이라 내용이
+    같으면 버전을 만들지 않는다. 한 단계 실패가 이미 성공한 셀 입력을 되돌리지는 않으며
+    다음 회차에서 다시 시도할 수 있도록 보고서에 단계별 결과를 남긴다.
+    """
+    from ledger_writer import atomic_json_dump
+    try:
+        from inbox_scan import pick
+        has_tax = bool(pick("tax"))
+    except Exception:
+        has_tax = False
+
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8",
+           "COUPANG_LEDGER_GATE": "1", "CSOS_AI": "scheduler"}
+    jobs = []
+    if has_tax:
+        jobs.append(("25_ERP매출서류", [os.path.join(ROOT, "erp_docs_check.py"), "--sheet"]))
+    jobs.extend([
+        ("27_정기점검원본일정", [os.path.join(ROOT, "pm_schedule_sync.py"), "--apply"]),
+        ("28_일지대조현황", [os.path.join(ROOT, "work_log_sync.py"), "--apply"]),
+    ])
+    band_cache = glob.glob(os.path.join(ROOT, "band", "cache", "*.json"))
+    if any(not os.path.basename(p).startswith(("raw_", "dump_")) for p in band_cache):
+        jobs.append(("24_밴드업무추출", [os.path.join(ROOT, "band_extract.py"), "--sheet"]))
+    jobs.extend([
+        ("23_확인필요현황", [os.path.join(ROOT, "findings_sheet.py")]),
+        ("워크북 무결성 복구", [os.path.join(ROOT, "fix_workbook.py"), "--apply"]),
+        ("Excel 수식 재계산", [os.path.join(ROOT, "excel_recalc.py"), "--run"]),
+    ])
+
+    results = []
+    for name, cmd in jobs:
+        try:
+            r = subprocess.run(
+                [sys.executable, *cmd], cwd=ROOT, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=1800, env=env,
+            )
+            lines = [x.strip() for x in ((r.stdout or "") + "\n" + (r.stderr or "")).splitlines()
+                     if x.strip()]
+            results.append({"단계": name, "성공": r.returncode == 0,
+                            "메모": (lines[-1] if lines else "")[:240]})
+        except Exception as exc:
+            results.append({"단계": name, "성공": False,
+                            "메모": f"{type(exc).__name__}: {exc}"[:240]})
+    # 인수인계는 이 회차에서 만들어진 최종본의 19시트에 마지막으로 기록한다.
+    for item in pending_handoffs():
+        try:
+            r = subprocess.run(
+                [sys.executable, os.path.join(ROOT, "workbook_patch.py"),
+                 "--b", item["title"], "--c", item["detail"]],
+                cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=1800, env=env,
+            )
+            lines = [x.strip() for x in ((r.stdout or "") + "\n" + (r.stderr or "")).splitlines()
+                     if x.strip()]
+            ok = r.returncode == 0
+            results.append({"단계": "19_AI작업인수인계", "성공": ok,
+                            "메모": (lines[-1] if lines else "")[:240]})
+            if ok:
+                with conn() as c:
+                    c.execute(
+                        "UPDATE handoff SET status='applied',applied_at=?"
+                        " WHERE id=? AND status='pending'",
+                        (datetime.now().isoformat(timespec="seconds"), item["id"]),
+                    )
+        except Exception as exc:
+            results.append({"단계": "19_AI작업인수인계", "성공": False,
+                            "메모": f"{type(exc).__name__}: {exc}"[:240]})
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    atomic_json_dump(
+        {"시각": (now or datetime.now()).isoformat(timespec="seconds"), "결과": results},
+        os.path.join(REPORT_DIR, "scheduled_workbook_maintenance.json"),
+    )
+    try:
+        import ai_claim
+        ai_claim.free("scheduler", "ledger")
+    except Exception:
+        pass
+    return results
+
+
 def apply_now(force=False, now=None):
     """정해진 시각일 때만 엑셀에 쓴다. 실제 쓰기는 기존 ledger_writer 에 맡긴다."""
     now = now or datetime.now()
@@ -399,8 +519,10 @@ def apply_now(force=False, now=None):
                     (slot_name, now.isoformat(timespec="seconds"),
                      now.isoformat(timespec="seconds"), 0, 1, "반영할 항목 없음"),
                 )
+        maintenance = scheduled_workbook_maintenance(now)
         status(now)
-        return {"상태": "없음", "회차": slot_name, "사유": "반영할 항목이 없습니다", "대기": 0}
+        return {"상태": "없음", "회차": slot_name, "사유": "확정 셀 입력 없음",
+                "대기": 0, "구조갱신": maintenance}
 
     rows = pending_rows()
     payload = []
@@ -429,7 +551,8 @@ def apply_now(force=False, now=None):
              "--queue", batch_queue, "--apply"],
             cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
             errors="replace", timeout=1800,
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            env={**os.environ, "PYTHONIOENCODING": "utf-8",
+                 "COUPANG_LEDGER_GATE": "1", "CSOS_AI": "scheduler"},
         )
         ok = r.returncode == 0
         output = "\n".join(x for x in (r.stdout or "", r.stderr or "") if x)
@@ -454,9 +577,18 @@ def apply_now(force=False, now=None):
                 f" WHERE status='pending' AND id IN ({marks})",
                 (batch_id, datetime.now().isoformat(timespec="seconds"), *ids),
             )
+    if ok:
+        maintenance = scheduled_workbook_maintenance(now)
+    else:
+        maintenance = []
+        try:
+            import ai_claim
+            ai_claim.free("scheduler", "ledger")
+        except Exception:
+            pass
     status(now)
     return {"상태": "반영" if ok else "실패", "회차": slot_name, "셀": len(payload),
-            "메모": tail[0][:120]}
+            "메모": tail[0][:120], "구조갱신": maintenance}
 
 
 def backup_to(dst):
@@ -534,6 +666,10 @@ def self_test():
                 print("  [FAIL] 빈 목록"); bad += 1
             if ux_add([{"kind": "tap", "target": "정산"}]) != 1:
                 print("  [FAIL] UX 기록"); bad += 1
+            if handoff_add("테스트", "19시트 예약") != 1 or len(pending_handoffs()) != 1:
+                print("  [FAIL] 인수인계 예약"); bad += 1
+            if handoff_add("테스트", "19시트 예약") != 0:
+                print("  [FAIL] 인수인계 예약 중복"); bad += 1
             p, by, _ = counts()
             if p != 1 or by.get("claude") != 1:
                 print("  [FAIL] 집계", p, by); bad += 1
@@ -548,6 +684,16 @@ def main():
         sys.exit(0 if self_test() else 1)
     if "--intake" in sys.argv:
         print(f"JSON 큐 → DB 흡수 {intake_json()}건")
+    if "--handoff" in sys.argv:
+        try:
+            title = sys.argv[sys.argv.index("--b") + 1]
+            detail = sys.argv[sys.argv.index("--c") + 1]
+        except (ValueError, IndexError):
+            sys.exit("사용: python ledger_db.py --handoff --b \"제목\" --c \"상세\"")
+        n = handoff_add(title, detail)
+        print("19시트 인수인계 DB 예약:", "추가 1건" if n else "이미 같은 예약 있음")
+        print("Excel 기록은 다음 11:00·15:00 회차 마지막에 수행")
+        return
     if "--apply" in sys.argv:
         with apply_lock():
             r = apply_now(force="--force" in sys.argv)
@@ -559,6 +705,8 @@ def main():
     print(f"반영 대기 {d['대기']}건 · 다음 반영 {d['다음반영']} (약 {d['남은분']}분 뒤)")
     if d["출처별"]:
         print("  출처:", ", ".join(f"{k} {v}건" for k, v in d["출처별"].items()))
+    if d["인수인계대기"]:
+        print(f"  19시트 인수인계 예약: {d['인수인계대기']}건")
     if d["밀린회차"]:
         print("  ★ 밀린 회차:", ", ".join(d["밀린회차"]))
     print(f"  반영 시각: 매일 {' · '.join(d['반영시각'])} (하루 두 번)")

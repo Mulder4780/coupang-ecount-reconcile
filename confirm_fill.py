@@ -155,23 +155,17 @@ def main():
         print(f"  {k}: {v}건")
     if not do_apply and not do_queue:
         print("\n큐에 넣기: python confirm_fill.py --queue")
-        print("즉시 반영: python confirm_fill.py --apply")
+        print("DB에 넣기: python confirm_fill.py --apply (Excel은 다음 11:00·15:00)")
         return
     import ledger_writer as L
     n = L.queue_add(items)
     print(f"큐 추가 {n}건")
     if do_queue:
         return
-    print("ledger_writer 실행")
-    # os.system은 경로에 한글·공백이 섞이면 cmd 인코딩에서 깨진다 — subprocess로 직접 부른다.
-    import subprocess
-    r = subprocess.run([sys.executable, os.path.join(ROOT, "ledger_writer.py"), "--apply"],
-                       cwd=ROOT, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace",
-                       env={**os.environ, "PYTHONIOENCODING": "utf-8"})
-    for line in (r.stdout or "").splitlines():
-        if "반영 완료" in line or "제외" in line or "건너뜀" in line:
-            print(" ", line.strip())
+    import ledger_db
+    print("DB 흡수:", ledger_db.intake_json(source="confirm_fill"))
+    st = ledger_db.status()
+    print(f"Excel 반영 대기 {st['대기']}건 · 다음 {st['다음반영']}")
 
 
 if __name__ == "__main__":

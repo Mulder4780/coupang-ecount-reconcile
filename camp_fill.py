@@ -126,15 +126,12 @@ def main():
         return
     if not items:
         return
-    import ledger_writer as L, subprocess
+    import ledger_writer as L
+    import ledger_db
     print("큐 추가:", L.queue_add(items))
-    r = subprocess.run([sys.executable, os.path.join(ROOT, "ledger_writer.py"), "--apply"],
-                       cwd=ROOT, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace",
-                       env={**os.environ, "PYTHONIOENCODING": "utf-8"})
-    for line in (r.stdout or "").splitlines():
-        if "반영 완료" in line or "제외" in line:
-            print(" ", line.strip())
+    print("DB 흡수:", ledger_db.intake_json(source="camp_fill"))
+    st = ledger_db.status()
+    print(f"Excel 반영 대기 {st['대기']}건 · 다음 {st['다음반영']}")
 
 
 if __name__ == "__main__":

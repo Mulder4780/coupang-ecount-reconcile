@@ -508,7 +508,7 @@ def main():
         print("\n등록 대상 %d건 / 셀 %d개" % (len(plan), len(queue)))
         if queue:
             from ledger_writer import queue_add
-            print("큐 적재:", queue_add(queue), "개 셀 → python ledger_writer.py --apply 로 원장 반영")
+            print("큐 적재:", queue_add(queue), "개 셀 → ledger_db --intake 후 11:00·15:00 원장 반영")
     return 0
 
 

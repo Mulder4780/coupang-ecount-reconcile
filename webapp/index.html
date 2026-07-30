@@ -1587,10 +1587,10 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
         <button class="abtn" onclick="runTask('erp_docs')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-receipt"/></svg>ERP 매출서류 대조</button>
         <button class="abtn" onclick="runTask('band_docs')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-image-fill"/></svg>밴드 문서 이미지 대조</button>
         <button class="abtn" onclick="confirmRun('band_docs_apply','밴드에 올라온 거래명세서·세금계산서 사진을 읽어
-확실한 건만(금액 일치) 관리대장 빈칸에 넣습니다.
-이미 값이 있는 칸은 덮어쓰지 않습니다.')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-image-fill"/></svg>밴드 문서 → 대장 입력</button>
+확실한 건만(금액 일치) 입력 DB에 보관합니다.
+엑셀은 다음 11시·15시 회차에 빈칸만 반영합니다.')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-image-fill"/></svg>밴드 문서 → 입력 대기</button>
         <button class="abtn" onclick="runTask('writer_prev')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>자동입력 미리보기</button>
-        <button class="abtn" onclick="confirmRun('writer_apply','확정 대기 항목을 관리대장 새 버전(vN+1)에 입력합니다.\n빈 칸만 채우며 이전 버전은 보존됩니다.')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>자동입력 반영</button>
+        <button class="abtn" onclick="loadStatus();toast('입력 대기와 다음 11시·15시 반영 시각을 갱신했습니다')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-hourglass-split"/></svg>반영 대기 확인</button>
         <button class="abtn" onclick="runTask('upload_dry')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-upload"/></svg>전표 전송대기</button>
         <button class="abtn danger" onclick="confirmRun('upload_post','⚠ 이카운트 ERP에 매출전표를 실제 등록합니다.\n(10.5초/건, 이중계상 가드 적용)')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-rocket-takeoff-fill"/></svg>전표 실전송</button>
       </div>
@@ -2679,7 +2679,7 @@ async function submitRyuEntry(ev){
     if(r.status===401){PIN='';localStorage.removeItem('cw_pin');$('gate').style.display='flex';throw new Error('PIN을 다시 입력해 주세요');}
     const d=await r.json();if(!r.ok||!d.ok) throw new Error(d.error||`HTTP ${r.status}`);
     result.className='ryu-result ok';
-    result.textContent=d.queued?`${d.queued}개 항목을 안전 입력 대기열에 넣었습니다. 관리대장 반영이 이어집니다.`:'근거 파일과 조사 기록을 저장했습니다.';
+    result.textContent=d.queued?`${d.queued}개 항목을 입력 DB에 저장했습니다. 엑셀은 다음 11시·15시 회차에 반영됩니다.`:'근거 파일과 조사 기록을 저장했습니다.';
     toast('류지영 업무센터 입력을 접수했습니다');
   }catch(e){
     result.className='ryu-result err';result.textContent='저장 실패 · '+String(e.message||e);
@@ -2727,12 +2727,12 @@ async function submitNewWork(ev){
     const d=await r.json();
     if(!r.ok||!d.ok) throw new Error(d.error||'신규 업무 저장 실패');
     result.className='ryu-result ok';
-    result.innerHTML=`저장 완료 · ${esc2(d.manifest['업무ID'])} · 자동 반영 ${fmt(d.queued)}개 항목
-      <br>${d.applying?'관리대장 반영을 시작했습니다.':'현재 작업이 끝나는 즉시 자동 반영합니다.'}`;
+    result.innerHTML=`저장 완료 · ${esc2(d.manifest['업무ID'])} · 입력 DB ${fmt(d.queued)}개 항목
+      <br>엑셀은 다음 11시·15시 일괄반영 회차에 기록됩니다.`;
     const keepDate=form.querySelector('[name="work_date"]').value;
     form.reset();form.querySelector('[name="work_date"]').value=keepDate;
     await Promise.all([loadRyuRecords(true),loadNotifications()]);
-    toast('신규 업무 저장·자동 반영 접수 완료');
+    toast('신규 업무를 저장했습니다 · 엑셀은 다음 11시·15시 반영');
   }catch(e){
     result.className='ryu-result err';result.textContent='저장 실패 · '+String(e.message||e);
     loadNotifications();
@@ -3943,7 +3943,7 @@ $('sheetbody').addEventListener('keydown', e=>{
   else if(e.key==='End'){ body.scrollTop=body.scrollHeight; e.preventDefault(); }
 });
 
-/* ── 앱 ↔ 엑셀 양방향 입력 (빈 칸만·근거 기록·즉시 또는 09:50 반영) ── */
+/* ── 앱 → 입력 DB → 엑셀 일괄반영 (빈 칸만·근거 기록·11:00/15:00) ── */
 const INPUT_SPEC = {
   settle: { sheet:'06_거래서류청구수금', key_col:'정산ID', fields:[
     {label:'PO번호', col:'PO번호', vtype:'text', cur:r=>r.PO번호, ph:'예: PO367787'},
@@ -4051,7 +4051,7 @@ function inputForm(kind, r, id){
     </div>`).join('') +
     `</div><button onclick="saveInputs('${kind}','${id}',${empty.length})" style="margin-top:10px;width:100%;
       padding:12px;background:var(--brand);color:#fff;border-radius:11px;font-weight:700;font-size:14px">💾 입력 저장</button>
-    <div style="font-size:13px;color:var(--ink-3);margin-top:6px">저장 후 "지금 반영"을 선택하면 몇 초 안에 엑셀 새 버전에 기록됩니다. (아니면 09:50 에이전트가 자동 반영)</div>`;
+    <div style="font-size:13px;color:var(--ink-3);margin-top:6px">입력은 즉시 DB에 안전하게 저장되고, 엑셀은 다음 11시·15시 회차에 한 번에 반영됩니다.</div>`;
 }
 async function saveInputs(kind, id, n){
   const spec = INPUT_SPEC[kind];
@@ -4066,11 +4066,8 @@ async function saveInputs(kind, id, n){
   }
   if(!queued){ alert('입력된 값이 없습니다'); return; }
   closeSheetAll();      // 저장이 끝났으면 목록으로 되돌아갈 게 아니라 통째로 닫는다
-  if(confirm(`${queued}건 저장됨.\n\n지금 바로 엑셀에 반영할까요? (새 버전 vN+1 생성)\n[취소]하면 09:50 에이전트가 자동 반영합니다.`)){
-    runTask('writer_apply');
-  } else {
-    loadStatus();
-  }
+  toast(`${queued}건 DB 저장 완료 · 엑셀은 다음 11시·15시 회차에 반영됩니다`);
+  loadStatus();
 }
 
 /* ── 월별·연도별 현황 ── */
@@ -4422,9 +4419,9 @@ function initDates(){
 async function setDates(){
   const 보고일 = $('d_report').value, 집계기준일 = $('d_base').value;
   if(!보고일 && !집계기준일){ alert('날짜를 선택하세요'); return; }
-  if(!confirm(`엑셀 00_대시보드에 반영합니다 (새 버전 생성):\n보고일 ${보고일||'-'} · 집계기준일 ${집계기준일||'-'}\n\n진행할까요?`)) return;
+  if(!confirm(`보고 기준일을 입력 DB에 저장합니다:\n보고일 ${보고일||'-'} · 집계기준일 ${집계기준일||'-'}\n\n엑셀은 다음 11시·15시 회차에 반영됩니다. 진행할까요?`)) return;
   const r = await api('/api/set_dates',{method:'POST',body:JSON.stringify({보고일, 집계기준일})});
-  if(r.ok){ show('run'); if(!polling) polling = setInterval(pollLog, 1200); pollLog(); }
+  if(r.ok){ toast('기준일 DB 저장 완료 · 다음 11시·15시 엑셀 반영'); loadStatus(); }
   else alert(r.error||'실패');
 }
 
@@ -4452,7 +4449,7 @@ function openRptDates(){
       </div>
       <button onclick="saveRptDates()" style="width:100%;padding:13px;background:var(--brand);color:#fff;
         border:0;border-radius:11px;font-weight:800;font-size:15px;font-family:inherit;cursor:pointer">
-        저장하고 엑셀에 반영</button>
+        저장하고 반영 대기</button>
       <button onclick="previewRptDate(false)" style="width:100%;padding:12px;background:#EEF2FF;
         color:#1B41BC;border:1.5px solid #C7D2FE;border-radius:11px;font-weight:800;
         font-size:14px;font-family:inherit;cursor:pointer">선택 날짜 보고 미리보기</button>
@@ -4514,17 +4511,17 @@ async function saveRptDates(){
   if(보고일 && 집계기준일 && 집계기준일 > 보고일 &&
      !confirm(`집계기준일(${집계기준일})이 보고일(${보고일})보다 뒤입니다.
 그대로 진행할까요?`)) return;
-  if(!confirm(`엑셀 00_대시보드에 반영합니다 (새 버전 생성):
+  if(!confirm(`보고 기준일을 입력 DB에 저장합니다:
 보고일 ${보고일||'-'} · 집계기준일 ${집계기준일||'-'}
 
-진행할까요?`)) return;
+엑셀은 다음 11시·15시 회차에 반영됩니다. 진행할까요?`)) return;
   const r = await api('/api/set_dates',{method:'POST',body:JSON.stringify({보고일, 집계기준일})});
   if(!r.ok){ alert(r.error||'실패'); return; }
   closeSheetAll();      // 곧 [실행] 탭으로 넘어가므로 시트를 남겨 두면 안 된다
   // 대시보드 카드도 같은 값으로 맞춰 둔다(두 곳이 다르면 헷갈린다)
   try{ if($('d_report')) $('d_report').value = 보고일; if($('d_base')) $('d_base').value = 집계기준일; }catch(e){}
-  toast('반영 중 — 엑셀 새 버전이 만들어집니다');
-  show('run'); if(!polling) polling = setInterval(pollLog, 1200); pollLog();
+  toast('기준일 DB 저장 완료 · 다음 11시·15시 엑셀 반영');
+  loadStatus();
 }
 
 /* ── 대표 보고서: 생성 → 캡처(PNG) → 공유 ── */
@@ -5576,7 +5573,7 @@ const HELP = {
     where: ['밴드 해당 작업 게시글의 <b>견적서·거래명세서 사진</b>',
             '이카운트 → 판매 → <b>거래명세서</b> 화면에서 해당 현장 조회',
             '담당기사에게 작업 내역·금액 확인'],
-    how: ['<b>앱에서 바로</b>: 이 화면 아래 입력칸에 공급가액을 넣고 저장 → 09:50 자동 실행 때 관리대장 빈칸에 기록',
+    how: ['<b>앱에서 바로</b>: 이 화면 아래 입력칸에 공급가액을 넣고 저장 → 입력 DB 보관 → 다음 11시·15시 회차에 관리대장 빈칸에 기록',
           '<b>사진으로</b>: 명세서 사진을 <code>band/docs_inbox/</code>에 넣으면 OCR이 금액을 읽어 자동 입력(금액 검산 통과분만)'],
     who: '유현민 (금액 확인 후 입력)'
   },
@@ -5701,7 +5698,7 @@ function helpAll(){
     ['원천 데이터', '대조의 근거가 되는 자료입니다. 밴드(작업 증빙) · 카톡(보고) · ERP(회계) · 쿠팡 PO(발주). 넣는 곳은 각각 자동 수집 / <code>kakao/inbox/</code> / <code>inbox/</code> / <code>inbox/</code> 입니다.'],
     ['빈칸만 입력', '에이전트는 <b>비어 있는 칸에만</b> 값을 씁니다. 이미 사람이 넣은 값은 절대 덮어쓰지 않습니다.'],
     ['vN 파일', '관리대장은 수정할 때마다 v47 → v48처럼 새 파일로 저장됩니다. 원본은 그대로 두어 문제가 생기면 되돌릴 수 있습니다. 항상 <b>가장 큰 번호</b>가 최신입니다.'],
-    ['09:50 자동 실행', '매일 오전 9시 50분에 전체 대조 → 확정된 값 자동 입력 → 리포트 생성까지 자동으로 돕니다. 류지영 매니저의 오전 입력(08:00~09:30) 이후에 돌도록 맞춰져 있습니다.']
+    ['09:50 자동 대조', '매일 오전 9시 50분에 원천자료 전체 대조와 리포트를 만들고 확정값은 입력 DB에 모읍니다. 엑셀 쓰기는 오전 11시·오후 3시에만 한 번씩 수행합니다.']
   ];
   return `<div class="card"><h3>처리 방법 · 용어 설명</h3>
     <div class="toplist">${Object.keys(HELP).map(k=>`

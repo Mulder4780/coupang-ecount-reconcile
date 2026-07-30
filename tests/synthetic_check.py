@@ -99,7 +99,9 @@ def t1_erp_check(tmp):
     make_ledger(ledger); make_erp(erp)
     r = subprocess.run([PY, os.path.join(ROOT, "erp_ledger_check.py"),
                         "--file", erp, "--master", ledger],
-                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp})
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=ROOT,
+                       env={**os.environ, "COUPANG_REPORT_DIR": tmp,
+                            "COUPANG_UPDATES_DIR": tmp})
     out = r.stdout
     m = re.search(r"A\(ERP에만\) (\d+) / B\(원장에만\) (\d+) / C\(계산서미발행\) (\d+) / D\(금액불일치\) (\d+) / 정상 (\d+)", out)
     assert m, f"결과 라인 파싱 실패:\n{out}\n{r.stderr}"
@@ -207,7 +209,10 @@ def t5_writer(tmp):
     ], open(q, "w", encoding="utf-8"), ensure_ascii=False)
     r = subprocess.run([PY, os.path.join(ROOT, "ledger_writer.py"), "--apply",
                         "--master", src, "--queue", q],
-                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp})
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp,
+                                     "COUPANG_UPDATES_DIR": tmp,
+                                     "COUPANG_LEDGER_GATE": "1"})
     assert "반영 완료" in r.stdout and "입력 4건 / 건너뜀 1건" in r.stdout, f"{r.stdout}\n{r.stderr}"
     dst = src.replace("_v1.xlsx", "_v2.xlsx")
     w2 = openpyxl.load_workbook(dst)
@@ -3598,6 +3603,8 @@ def t91_icon_sprite_and_ios_theme():
         'font-family:"NanumGothic",', 'font-family:"Nanum Gothic"') or \
         '"Nanum Gothic","NanumGothic"' in live, "본문 글꼴이 나눔고딕으로 시작하지 않는다"
     assert "/fonts/nanumgothic.css" in live, "나눔고딕을 동봉본으로 얹지 않는다"
+    assert os.path.exists(os.path.join(ROOT, "webapp", "fonts", "OFL.txt")), \
+        "동봉한 나눔고딕의 SIL OFL 라이선스 파일이 없다"
     assert "fonts.googleapis.com" not in live and "fonts.gstatic.com" not in live, \
         "글꼴을 외부(구글)에서 받고 있다 — 인터넷 없는 현장에서 안 뜬다"
     # 탭바 유리 효과는 지원 안 되는 브라우저를 위해 @supports 로 감싼다
@@ -3685,6 +3692,7 @@ def t93_ledger_db_and_ux():
         "같은 11시 회차를 두 번 반영한다"
 
     src = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    writer = open(os.path.join(ROOT, "ledger_writer.py"), encoding="utf-8").read()
     assert any(x.startswith("import") and "sqlite3" in x for x in src.splitlines()), (
         "표준 라이브러리 sqlite3 를 써야 한다(새 의존성 금지)")
     assert "finally:" in src and "c.close()" in src, "DB 연결을 닫지 않으면 파일이 잠긴다"
@@ -3692,10 +3700,37 @@ def t93_ledger_db_and_ux():
         "중단 후 JSON staging 재흡수 시 중복될 수 있다"
     assert "id IN ({marks})" in src, "반영 중 새로 들어온 DB 행까지 완료 처리할 수 있다"
     assert '"--queue", batch_queue, "--apply"' in src, "공용 JSON 큐와 일괄반영 배치가 섞인다"
+    assert '"COUPANG_LEDGER_GATE": "1"' in src, "11·15시 DB 회차가 내부 쓰기 게이트를 열지 않는다"
+    assert 'os.environ.get("COUPANG_LEDGER_GATE") != "1"' in writer, \
+        "ledger_writer 직접 --apply를 막는 강제 게이트가 없다"
 
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert "ledger_db.py" in daily, "일일 실행이 DB 게이트를 지나지 않는다"
     assert '"ledger_writer.py"), "--apply"' not in daily,         "일일 실행이 아직 엑셀에 곧바로 쓴다 — 하루 두 번 규칙이 깨진다"
+    for direct in (
+        '"excel_recalc.py"), "--run"',
+        '"erp_docs_check.py"), "--sheet"',
+        '"fix_workbook.py"), "--apply"',
+        '"pm_schedule_sync.py"), "--apply"',
+        '"work_log_sync.py"), "--apply"',
+        '"band_extract.py"), "--sheet"',
+        '"findings_sheet.py")]))',
+    ):
+        assert direct not in daily, f"09:50 자동대조에 직접 Excel 쓰기가 남아 있다: {direct}"
+    for scheduled in (
+        '"erp_docs_check.py"), "--sheet"',
+        '"pm_schedule_sync.py"), "--apply"',
+        '"work_log_sync.py"), "--apply"',
+        '"band_extract.py"), "--sheet"',
+        '"findings_sheet.py")',
+        '"fix_workbook.py"), "--apply"',
+        '"excel_recalc.py"), "--run"',
+    ):
+        assert scheduled in src, f"11·15시 구조 갱신에서 빠진 작업: {scheduled}"
+    assert "scheduled_workbook_maintenance(now)" in src, \
+        "11·15시 회차가 구조 시트·재계산을 함께 수행하지 않는다"
+    assert "def handoff_add(" in src and '"workbook_patch.py"' in src, \
+        "19시트 종료 인수인계가 11·15시 회차에 예약되지 않는다"
     schedule = open(os.path.join(ROOT, "install_ledger_schedule.ps1"), encoding="utf-8").read()
     assert '"11:00"' in schedule and '"15:00"' in schedule
     assert "MultipleInstances IgnoreNew" in schedule and "ledger_db.py --apply" in schedule
@@ -3703,10 +3738,18 @@ def t93_ledger_db_and_ux():
     server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     assert "get_apply_window" in server and '"applywin"' in server
+    assert '"writer_apply":  ("입력 DB 적재"' in server
+    assert 'start_task("writer_apply")' not in server, \
+        "앱이 아직 즉시 Excel 반영 작업을 시작한다"
+    assert 'os.path.join(ROOT, "ledger_writer.py"), "--apply"' not in server, \
+        "앱 서버에 직접 ledger_writer --apply 경로가 남아 있다"
+    assert "enqueue_for_scheduled_apply" in server, "앱 입력이 DB 일괄반영 큐를 거치지 않는다"
     assert 'if p == "/api/ux":' in server and "ledger_db.ux_add(events)" in server
     assert "function uxEvent(" in live and "function uxFlush(" in live
     assert "uxEvent('view',v)" in live and "uxEvent('slow'" in live
     assert "renderApplyWindow(s.applywin)" in live, "앱이 다음 반영 시각을 알리지 않는다"
+    assert "runTask('writer_apply')" not in live, "앱 화면에 즉시 Excel 반영 호출이 남아 있다"
+    assert "지금 바로 엑셀에 반영" not in live, "앱 안내가 아직 즉시 반영을 약속한다"
 
     # 업무센터는 인원이 바뀌어도 균등해야 한다(고정 칸 수 금지)
     assert "repeat(auto-fit,minmax(132px,1fr))" in live, "업무센터가 다시 칸 수를 고정했다"

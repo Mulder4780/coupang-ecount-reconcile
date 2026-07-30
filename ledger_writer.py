@@ -18,7 +18,7 @@ ledger_writer.py — 관리대장 자동 입력 엔진 (확정 사실만, 빈 �
 
 실행:
   python ledger_writer.py            # 큐 미리보기(무엇을 쓸지, 쓸 수 있는지)
-  python ledger_writer.py --apply    # 실제 반영(vN+1 생성)
+  python ledger_writer.py --apply    # DB 적재만(실제 반영은 ledger_db의 11:00·15:00 회차)
 """
 import sys, os, re, json, zipfile, glob, tempfile, time, html
 from contextlib import contextmanager
@@ -335,7 +335,8 @@ def _main():
         c = Counter((p["sheet"], p["colL"]) for p in plans)
         print("  [예정] " + ", ".join(f"{sh} {cl}열 {n}셀" for (sh, cl), n in sorted(c.items())))
     if not apply_mode:
-        print("\n미리보기 모드 — 실제 반영: python ledger_writer.py --apply"); return
+        print("\n미리보기 모드 — DB 적재: python ledger_db.py --intake"
+              " (Excel은 11:00·15:00만 반영)"); return
     if not plans:
         print("반영할 항목 없음"); return
     if os.path.exists(dst):
@@ -453,12 +454,25 @@ def _main():
 
 
 def main():
-    # 다른 AI가 원장을 잡고 있으면 여기서 멈춘다(동시 수정 시 한쪽이 통째로 묻힌다)
-    from claim_guard import require
-    require("ledger", "ledger_writer")
     global PENDING
     if "--queue" in sys.argv:                     # 테스트용 큐 경로 오버라이드
         PENDING = sys.argv[sys.argv.index("--queue") + 1]
+    # ★ 사용자 확정(2026-07-30): Excel 쓰기는 11:00·15:00의 ledger_db 회차만.
+    # 오래된 스크립트·바로가기·AI가 `ledger_writer.py --apply`를 직접 호출해도 여기서
+    # 막아 JSON 큐를 DB로 넘길 뿐, 관리대장은 열지 않는다. 실제 회차 실행과 합성검증만
+    # 명시적인 내부 게이트를 전달할 수 있다.
+    if "--apply" in sys.argv and os.environ.get("COUPANG_LEDGER_GATE") != "1":
+        if "--queue" in sys.argv:
+            sys.exit("직접 --queue 반영 차단 — ledger_db의 11:00·15:00 회차만 허용")
+        import ledger_db
+        moved = ledger_db.intake_json(source=os.environ.get("CSOS_AI") or "legacy-command")
+        state = ledger_db.status()
+        print(f"즉시 엑셀 반영 차단 — DB 적재 {moved}건 / 대기 {state.get('대기', 0)}건")
+        print(f"다음 엑셀 반영: {state.get('다음반영', '11:00·15:00')}")
+        return
+    # 실제 원장 쓰기 게이트를 통과한 뒤에도 다른 AI가 원장을 잡고 있으면 멈춘다.
+    from claim_guard import require
+    require("ledger", "ledger_writer")
     if "--apply" in sys.argv:
         with queue_lock():
             return _main()

@@ -372,7 +372,7 @@ def main():
         print("적재할 항목 없음")
         return 0
     from ledger_writer import queue_add
-    print("큐 적재:", queue_add(items), "개 셀 → python ledger_writer.py --apply 로 원장 반영")
+    print("큐 적재:", queue_add(items), "개 셀 → ledger_db --intake 후 11:00·15:00 원장 반영")
     return 0
 
 
