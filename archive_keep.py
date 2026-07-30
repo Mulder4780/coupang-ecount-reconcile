@@ -110,9 +110,18 @@ def wanted(path, root):
     return rel in ("AGENTS.md", "INCIDENTS.md", "CLAUDE.md")
 
 
+def bundle_action(head, current_marker, dst_exists, previous_heads):
+    """오늘 bundle을 유지/교체/생성/생략할지 정한다(순수 함수)."""
+    if dst_exists:
+        return "keep" if current_marker == head else "replace"
+    if head in set(previous_heads or []):
+        return "skip"
+    return "create"
+
+
 # ── 실행 ─────────────────────────────────────────────────────
 def git_bundle(dst, dry=False):
-    """저장소 전체를 한 파일로. 직전 bundle 과 같은 커밋이면 다시 만들지 않는다."""
+    """저장소 전체를 한 파일로. 같은 날 HEAD가 바뀌면 원자적으로 최신 bundle로 교체한다."""
     try:
         head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
                               text=True, timeout=60).stdout.strip()
@@ -121,20 +130,51 @@ def git_bundle(dst, dry=False):
     if not head:
         return None, "커밋 없음"
     stamp = os.path.join(os.path.dirname(dst), ".bundle_head")
-    prev = ""
+    current = ""
+    try:
+        current = open(stamp, encoding="utf-8").read().strip()
+    except OSError:
+        pass
+    previous = []
     for cand in glob.glob(os.path.join(archive_root(), "*", ".bundle_head")):
+        if os.path.normcase(os.path.abspath(cand)) == os.path.normcase(os.path.abspath(stamp)):
+            continue
         try:
-            prev = max(prev, open(cand, encoding="utf-8").read().strip())
+            value = open(cand, encoding="utf-8").read().strip()
+            if value:
+                previous.append(value)
         except OSError:
             pass
+    action = bundle_action(head, current, os.path.isfile(dst), previous)
     if dry:
-        return None, f"bundle 예정 (HEAD {head[:8]})"
+        return None, f"bundle {action} 예정 (HEAD {head[:8]})"
+    if action == "keep":
+        return dst, f"bundle 최신 유지 (HEAD {head[:8]})"
+    if action == "skip":
+        return None, f"bundle 생략 — 이전 보관과 같은 HEAD {head[:8]}"
+
     os.makedirs(os.path.dirname(dst), exist_ok=True)
-    r = subprocess.run(["git", "bundle", "create", dst, "--all"], cwd=ROOT,
-                       capture_output=True, text=True, timeout=900)
-    if r.returncode != 0 or not os.path.exists(dst):
-        return None, f"bundle 실패: {(r.stderr or '')[:80]}"
-    open(stamp, "w", encoding="utf-8").write(head)
+    temp = dst + f".tmp.{os.getpid()}"
+    marker_temp = stamp + f".tmp.{os.getpid()}"
+    try:
+        if os.path.exists(temp):
+            os.unlink(temp)
+        r = subprocess.run(["git", "bundle", "create", temp, "--all"], cwd=ROOT,
+                           capture_output=True, text=True, timeout=900)
+        if r.returncode != 0 or not os.path.exists(temp):
+            return None, f"bundle 실패: {(r.stderr or '')[:80]}"
+        # 기존 bundle은 새 파일 생성이 완전히 끝난 뒤 한 번에 교체한다.
+        os.replace(temp, dst)
+        with open(marker_temp, "w", encoding="utf-8") as fh:
+            fh.write(head)
+        os.replace(marker_temp, stamp)
+    finally:
+        for leftover in (temp, marker_temp):
+            try:
+                if os.path.exists(leftover):
+                    os.unlink(leftover)
+            except OSError:
+                pass
     # ★ bundle 은 **커밋된 것만** 담는다. 미커밋 변경은 들어가지 않으므로 반드시 알린다.
     #   (실측 확인: bundle 복구 시 커밋 전 새 파일 2개가 없었다 — 조용하면 복구 때 사고가 된다)
     dirty = uncommitted()
@@ -252,6 +292,14 @@ def self_test():
         print("  [FAIL] 비밀키 탐지"); bad += 1
     if has_secret("정산 703행 4.6억"):
         print("  [FAIL] 정상 문서를 비밀로 오판"); bad += 1
+    for got, want in (
+        (bundle_action("new", "new", True, []), "keep"),
+        (bundle_action("new", "old", True, []), "replace"),
+        (bundle_action("new", "", False, ["new"]), "skip"),
+        (bundle_action("new", "", False, ["old"]), "create"),
+    ):
+        if got != want:
+            print(f"  [FAIL] bundle 갱신 판정 {got} != {want}"); bad += 1
     # 되살릴 수 있는 것은 담지 않는다
     for rel in ("outputs/x/node_modules/a.js", "band/cache/90610953.json",
                 "reports/a.tmp.xlsx", "webapp/__pycache__/x.pyc"):
