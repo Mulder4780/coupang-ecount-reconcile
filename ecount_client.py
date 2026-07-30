@@ -115,6 +115,18 @@ class EcountClient:
     def login(self, force=False):
         if not force and self._load_cached_session():
             return self.session_id
+        # ★ 사용자 지시(2026-07-30): IP가 바뀌면 이카운트 [IP등록] 화면에 넣고 진행한다.
+        #   OAPI는 등록된 IP에서만 동작한다. 미등록 상태로 부르면 실패가 **인증 오류처럼**
+        #   보여 원인을 엉뚱한 데서 찾게 되고, 반복 실패는 트래픽 제한을 건드려 ERP 전체
+        #   차단으로 번질 수 있다(AGENTS.md 절대규칙). 그래서 부르기 전에 멈춘다.
+        #   캐시된 세션이 살아 있으면 이 관문을 지나지 않는다 — 이미 되는 IP라는 뜻이다.
+        try:
+            import erp_ip_guard
+            erp_ip_guard.require()
+        except SystemExit:
+            raise
+        except Exception:
+            pass                      # 판정 자체가 불가하면(모듈·인터넷 문제) 막지는 않는다
         if not self.zone:
             self.fetch_zone()
         for field in ("COM_CODE", "USER_ID", "API_CERT_KEY"):

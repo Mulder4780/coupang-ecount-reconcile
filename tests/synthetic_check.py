@@ -68,14 +68,33 @@ def make_erp(path):
     wb = openpyxl.Workbook(); ws = wb.active; ws.title = "원장"
     ws.append(["거래처별계정별원장 (합성)"])
     ws.append(["일자-No.", "적요", "차변금액", "대변금액"])
-    ws.append(["2026/07/01 -4", "테스트캠프A 돌발AS", None, 110000])        # JS-1 일치
-    ws.append(["2026/07/02 -1", "테스트캠프B 정기점검", None, 999999])      # JS-2 금액불일치
-    ws.append(["2026/07/05 -9", "인천8MB 상하차리프트(원장에 없음)", None, 500000])  # A형
-    ws.append(["2026/07 계", "", None, 1609999])
+    ws.append(["2026/07/01 -4", "테스트캠프A 돌발AS", 110000, None])        # JS-1 일치
+    ws.append(["2026/07/02 -1", "테스트캠프B 정기점검", 999999, None])      # JS-2 금액불일치
+    ws.append(["2026/07/05 -9", "인천8MB 상하차리프트(원장에 없음)", 500000, None])  # A형
+    ws.append(["2026/07/06 -10", "입금 — 매출 전표로 세면 안 됨", None, 500000])
+    ws.append(["2026/07 계", "", 1609999, 500000])
     wb.save(path)
+    wb.close()
+
+    # 실제 이카운트 내보내기처럼 dimension을 잘못된 A1:A1로 만든다.
+    # read_only=True 파서는 이 경우 1셀만 읽고 전표 0건을 내므로 반드시 회귀검사한다.
+    import zipfile
+    broken = path + ".dimension"
+    with zipfile.ZipFile(path, "r") as src, zipfile.ZipFile(broken, "w") as dst:
+        for item in src.infolist():
+            blob = src.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                blob = re.sub(rb'<dimension ref="[^"]+"', b'<dimension ref="A1:A1"',
+                              blob, count=1)
+            dst.writestr(item, blob)
+    os.replace(broken, path)
 
 
 def t1_erp_check(tmp):
+    import erp_ledger_check as E
+    assert E.norm_slip("2026/07-02-6") == "2026/07/02-6"
+    assert E.in_erp_period({"작업완료일": "2026-08-01"}, "", "2026-07-01", "2026-07-31") is False
+    assert E.in_erp_period({"작업완료일": "2026-07-05"}, "", "2026-07-01", "2026-07-31") is True
     ledger = os.path.join(tmp, "ledger.xlsx"); erp = os.path.join(tmp, "erp원장.xlsx")
     make_ledger(ledger); make_erp(erp)
     r = subprocess.run([PY, os.path.join(ROOT, "erp_ledger_check.py"),
@@ -1338,9 +1357,17 @@ def t29_cloud():
     if os.path.exists(enc):
         d = _j.load(open(enc, encoding="utf-8"))
         assert set(("salt", "iv", "ct", "tag")) <= set(d), list(d)
-        blob = open(enc, encoding="utf-8").read()
+        # ct는 Base64로 표현한 암호문이라 우연히 "UJ25" 같은 4글자 조각이 생길 수 있다.
+        # 2026-07-30 실제 재암호화에서 그 확률 충돌로 검증이 실패했다. 암호문 문자열을
+        # 평문 검색하지 말고, 자료가 들어갈 수 있는 별도 메타데이터가 없는지 확인한다.
+        allowed = {"v", "kdf", "iter", "cipher", "salt", "iv", "ct", "tag",
+                   "pin_auth", "zip"}
+        assert set(d) <= allowed, f"암호화 봉투에 예상 밖 메타데이터가 있다: {set(d) - allowed}"
+        for key in ("salt", "iv", "ct", "tag"):
+            base64.b64decode(d[key], validate=True)
+        meta = _j.dumps({k: v for k, v in d.items() if k != "ct"}, ensure_ascii=False)
         for leak in ("캠프", "UJ25", "UJ26", "프로젝트NO"):
-            assert leak not in blob, "사본에 평문 '%s' 이 그대로 있다" % leak
+            assert leak not in meta, "암호화 봉투 메타데이터에 평문 '%s' 이 있다" % leak
 
     # 고정 페이지: PC가 죽었을 때 **막다른 오류가 아니라** 오프라인 앱으로 가야 한다
     doc = open(os.path.join(ROOT, "docs", "index.html"), encoding="utf-8").read()
@@ -3465,6 +3492,39 @@ def t86_daily_run_singleton_and_inbox_classification(tmp):
     print("  [86] daily_run 단일 프로세스 잠금 + ERP 원장 공용 분류기 사용 ✅")
 
 
+def t86_ip_guard_and_archive():
+    """ERP 접속 IP 관문 + 복구용 보관 (2026-07-30 지시 2건).
+
+    ① "IP가 변경되면 이 화면에서 등록해서 진행" — 자동 등록은 하지 않는다(회사 ERP 보안
+       설정). 대신 **부르기 전에 멈춘다**: 미등록 IP로 호출하면 실패가 인증 오류처럼 보여
+       원인을 엉뚱한 데서 찾고, 반복 실패는 트래픽 제한을 건드려 ERP 전체가 막힌다.
+    ② "복구·코딩에 필요한 자료 별도 보관" — 파일을 쌓는 대신 git bundle 한 파일로.
+       ★ 비밀키는 어떤 경로로도 담기지 않아야 한다(규칙 1).
+    """
+    import erp_ip_guard as G
+    assert G.self_test(), "erp_ip_guard 자체 검증 실패"
+    # IP를 못 구했으면 통과시키면 안 된다 — 미등록 상태로 ERP를 두드리는 게 최악이다
+    assert G.decide("", ["1.2.3.4"])[0] == "unknown"
+    assert G.decide("5.6.7.8", ["1.2.3.4"])[0] == "need_register"
+    # ERP 로그인이 이 관문을 지나는가
+    cli = open(os.path.join(ROOT, "ecount_client.py"), encoding="utf-8").read()
+    assert "erp_ip_guard" in cli and "require()" in cli, "ERP 호출이 IP 관문을 건너뛴다"
+    # IP 목록은 커밋되지 않는다(회사 설정값)
+    gi = open(os.path.join(ROOT, ".gitignore"), encoding="utf-8").read()
+    assert "config/erp_allowed_ips.json" in gi
+
+    import archive_keep as A
+    assert A.self_test(), "archive_keep 자체 검증 실패"
+    # 비밀키 파일은 어떤 경로로도 보관 대상이 아니다
+    for rel in ("config/ecount_config.json", "config/webapp.json", "config/gcal.json",
+                "config/erp_allowed_ips.json"):
+        assert not A.wanted(os.path.join(ROOT, *rel.split("/")), ROOT), rel
+    assert A.has_secret('"API_CERT_KEY": "x"')
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "erp_ip_guard.py" in daily and "archive_keep.py" in daily, "일일 실행에 연결되지 않았다"
+    print("  [86] ERP IP 관문(호출 전 차단)·복구용 보관(bundle·비밀키 제외) ✅")
+
+
 def t77_side_work_single_switch():
     """철거·신규납품: DB엔 남기고 앱에서만 숨긴다 — **스위치는 하나처럼 움직여야 한다**.
 
@@ -4119,6 +4179,7 @@ if __name__ == "__main__":
     t75_gcal_sync()
     t77_side_work_single_switch()
     t78_recalc_pending_visible()
+    t86_ip_guard_and_archive()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:

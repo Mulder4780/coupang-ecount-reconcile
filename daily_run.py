@@ -191,6 +191,11 @@ def _run_pipeline():
     #      숫자가 틀린 게 아니라 대기 중이라는 걸 앱이 스스로 말하게 한다(사용자 오해 방지).
     steps.append(run("재계산 대기 확인", [os.path.join(ROOT, "recalc_pending.py")]))
 
+    # 2.97 ERP 접속 IP 확인 — 공인 IP가 바뀌면 이카운트 OAPI가 통째로 막힌다.
+    #      사용자 지시(2026-07-30): "IP가 변경되면 이 화면에서 등록해서 진행".
+    #      자동 등록은 하지 않는다(회사 ERP 보안 설정) — 바뀐 사실과 넣을 값을 알린다.
+    steps.append(run("ERP 접속 IP 확인", [os.path.join(ROOT, "erp_ip_guard.py")]))
+
     # 3. 밴드 수집·대조 — 공식 API 토큰이 있으면 수집+대조, 브라우저 수집 캐시만 있으면 대조만
     band_cache = [f for f in glob.glob(os.path.join(ROOT, "band", "cache", "*.json"))
                   if not os.path.basename(f).startswith(("raw_", "dump_"))]
@@ -300,6 +305,10 @@ def _run_pipeline():
 
     # 11. 버전 파일 정리 — 최신본 하나만 작업 폴더에 두고 구버전은 사용자가 지정한
     #     OLD/ 한 곳으로 옮긴다. 같은 이름이 있어도 덮어쓰거나 삭제하지 않는다.
+    # 9.9 복구용 보관 — 코드는 git bundle 한 파일로, 기록은 사실만. 서버(Z:)에 둔다.
+    #     PC가 죽으면 PC 안의 백업은 같이 죽는다. 비밀키는 절대 담지 않는다(규칙 1).
+    steps.append(run("복구용 보관(서버)", [os.path.join(ROOT, "archive_keep.py")], timeout=1200))
+
     steps.append(run("관리대장 버전 정리", [os.path.join(ROOT, "ledger_versions.py"), "--prune"]))
 
     finish(steps)

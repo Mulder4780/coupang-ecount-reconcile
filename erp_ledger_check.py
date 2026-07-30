@@ -9,7 +9,7 @@ erp_ledger_check.py — ERP 거래처별계정별원장 ↔ 관리대장 정밀 
                                    → 실제 설치·작업 여부 현장 확인 필요 (예: 2026/03/25-1 인천8MB 26,690,000)
   [유형B] 원장에만 있는 유상건    : 작업완료·유상인데 ERP 미반영 (매출 누락)
   [유형C] 회계반영O·세금계산서X  : ERP 전표는 있는데 관리대장 15시트 세금계산서 미발행
-  [유형D] 금액불일치             : 같은 전표번호인데 ERP 대변금액 ≠ 원장 합계금액
+  [유형D] 금액불일치             : 같은 전표번호인데 ERP 차변금액 ≠ 원장 합계금액
 
 전표 매칭 키: 관리대장 06 거래명세서번호("2026/07/01-4") = ERP 일자-No.("2026/07/01 -4") — 공백 정규화.
 월합계 비교(ERP 월계 vs 원장 유상합계)도 함께 출력.
@@ -37,14 +37,34 @@ REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(BASE_DIR, "rep
 def norm_slip(s):
     """'2026/03/25 -1' / '2026/03/25-1' / '2026-03-25-1' → '2026/03/25-1'"""
     s = str(s or "").strip().replace(" ", "")
-    s = re.sub(r"^(\d{4})-(\d{2})-(\d{2})", r"\1/\2/\3", s)
+    s = re.sub(r"^(\d{4})[/-](\d{2})[/-](\d{2})", r"\1/\2/\3", s)
     return s
 
 
+def ledger_record_date(row, slip=""):
+    """원장 행을 ERP 조회기간과 비교할 대표 날짜(YYYY-MM-DD)."""
+    normalized = norm_slip(slip)
+    if re.match(r"^\d{4}/\d{2}/\d{2}-\d+$", normalized):
+        return normalized[:10].replace("/", "-")
+    for key in ("원장_거래명세서발행일", "작업완료일"):
+        day = _d(row.get(key))
+        if day:
+            return day
+    return ""
+
+
+def in_erp_period(row, slip, start, end):
+    """날짜를 아는 행은 ERP 내보내기 조회기간 안에서만 'ERP 미확인'으로 판정한다."""
+    day = ledger_record_date(row, slip)
+    return not (start and end and day) or start <= day <= end
+
+
 def parse_erp_export(path):
-    """거래처별계정별원장 엑셀 파싱 → [{slip, date, remark, amount}]  (대변=매출)"""
+    """거래처별계정별원장 엑셀 파싱 → [{slip, date, remark, amount}]  (차변=매출)"""
     import openpyxl
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    # 이카운트 내보내기는 실제 데이터가 있어도 dimension을 A1:A1로 잘못 쓰는 경우가 있다.
+    # read_only=True는 그 메타데이터를 믿고 1셀만 읽으므로 일반 모드로 열되 저장하지 않는다.
+    wb = openpyxl.load_workbook(path, read_only=False, data_only=True)
     slips, totals = [], {}
     for ws in wb.worksheets:
         rows = list(ws.iter_rows(values_only=True))
@@ -56,7 +76,7 @@ def parse_erp_export(path):
                 for n, j in names.items():
                     if "일자" in n or "No" in n: idx.setdefault("slip", j)
                     if "적요" in n: idx["remark"] = j
-                    if "대변" in n: idx["credit"] = j
+                    if "차변" in n: idx["debit"] = j
                 break
         if hdr_i is None:
             continue
@@ -65,7 +85,10 @@ def parse_erp_export(path):
                 continue
             slip_raw = r[idx["slip"]] if idx.get("slip") is not None else None
             remark = str(r[idx["remark"]] or "") if idx.get("remark") is not None else ""
-            amt = _num(r[idx["credit"]]) if idx.get("credit") is not None else None
+            # 외상매출금 계정별원장은 매출 발생이 차변, 입금이 대변이다.
+            # 대변을 매출로 읽으면 실제 2026-01~06 원본의 전표가 0건이 되고
+            # 입금 행을 매출로 오인한다(2026-07-30 실데이터에서 발견).
+            amt = _num(r[idx["debit"]]) if idx.get("debit") is not None else None
             joined = " ".join(str(c) for c in r if c is not None)
             mtot = re.search(r"(\d{4}/\d{2})\s*계|월\s*계", joined)
             if mtot and amt:
@@ -93,8 +116,9 @@ def main():
         from inbox_scan import pick
         files = pick("ledger")
     if not files:
-        sys.exit("inbox/ 에 거래처별계정별원장이 없습니다. 이카운트 [거래처별계정별원장]을 "
-                 "엑셀로 내려받아 inbox/ 에 넣어주세요(파일명은 아무거나 괜찮습니다).")
+        sys.exit("원본 자료와 inbox/ 에 거래처별계정별원장이 없습니다. "
+                 "이카운트 [거래처별계정별원장]을 엑셀로 내려받아 넣어주세요"
+                 "(파일명은 아무거나 괜찮습니다).")
 
     slips, totals = [], {}
     for f in files:
@@ -112,6 +136,9 @@ def main():
 
     erp_by_slip = {s["slip"]: s for s in slips}
     A, B, C, D, OK = [], [], [], [], []
+    erp_days = sorted(s["date"].replace("/", "-") for s in slips if s.get("date"))
+    period_start = erp_days[0] if erp_days else ""
+    period_end = erp_days[-1] if erp_days else ""
 
     # 유형A/D/C: ERP 전표 순회
     for sl, s in sorted(erp_by_slip.items()):
@@ -138,6 +165,8 @@ def main():
         if r.get("비용구분") != "유상" or not r.get("원장_공급가액"):
             continue
         sl = norm_slip(r.get("원장_거래명세서번호"))
+        if not in_erp_period(r, sl, period_start, period_end):
+            continue
         if sl and sl in erp_by_slip:
             continue
         B.append({"정산ID": sid, "캠프명": r.get("캠프명"), "명세서번호": sl or "(없음)",
@@ -149,6 +178,8 @@ def main():
     with open(base + ".md", "w", encoding="utf-8") as f:
         f.write("# ERP 거래처별계정별원장 ↔ 관리대장 대조\n\n")
         f.write(f"- 생성 {datetime.now():%Y-%m-%d %H:%M} / ERP 전표 {len(slips)}건, 원장 매칭 정상 {len(OK)}건\n")
+        if period_start:
+            f.write(f"- ERP 조회기간 {period_start} ~ {period_end}; B(원장에만)는 이 기간의 원장 행만 집계\n")
         if totals:
             f.write(f"- ERP 월계: {json.dumps(totals, ensure_ascii=False)}\n")
         for title, rows_ in [("A. ERP에만 있는 전표 (설치·작업 근거 확인 필요 ★)", A),
