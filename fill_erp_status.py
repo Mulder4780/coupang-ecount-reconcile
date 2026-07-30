@@ -38,6 +38,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
 from workbook_patch import latest_master, sheet_xml_path, esc  # noqa: E402
 from source_dirs import ERP_DIR  # noqa: E402
+from billing_fill import dedupe_files  # noqa: E402
 
 HDR = 4
 ALLOWED = ("완료", "미등록", "해당없음")
@@ -57,7 +58,10 @@ def erp_projects():
     """판매조회 파일에서 프로젝트코드를 모은다. 여러 개면 전부 합친다."""
     import openpyxl
     found, files = {}, []
-    for p in glob.glob(os.path.join(ERP_DIR, "**", "*.xls*"), recursive=True):
+    # ★ 2026-07-30: 판매조회 사본이 SHA256 동일한 3벌 있어 958KB 파일을 3번 열고 있었다.
+    #   여기는 프로젝트코드 dict 라 값이 부풀지는 않지만 읽는 시간이 3배다.
+    #   파일명(`__dup_`)이 아니라 **내용 해시**로 거른다 — 이름 규칙은 다음번에 또 뚫린다.
+    for p in dedupe_files(glob.glob(os.path.join(ERP_DIR, "**", "*.xls*"), recursive=True)):
         if os.path.basename(p).startswith("~$"):
             continue
         try:
@@ -191,8 +195,38 @@ def main():
                 fh.write(f"| {sn} | {n} | {k} | {st} |\n")
         print("    목록:", out)
     print("\n  ※ 검증결과는 수식이라 건드리지 않습니다 — 이 칸이 채워지면 저절로 정상이 됩니다.")
+
+    # ★ 2026-07-30 추가: 여태 이 도구는 `--apply`(vN+1 직접 생성)밖에 없어서
+    #   "대조는 도구가, 원장 쓰기는 ledger_writer 가 한 번에" 라는 파이프라인에서 혼자 벗어나 있었다.
+    #   여러 도구가 각자 vN+1을 만들면 한쪽 작업이 통째로 묻힌다(AGENTS.md 동시작업 규칙).
+    #   다른 fill 도구들과 같은 `--queue` 를 붙여 큐로만 넘긴다.
+    if "--queue" in sys.argv:
+        if not fills:
+            print("\n적재할 항목 없음")
+            return 0
+        colname = {sn: col for sn, col, *_ in TARGET}
+        items = []
+        for ref, v in fills.items():
+            sn, cell = ref.split("!", 1)
+            row = int(re.search(r"\d+$", cell).group(0))
+            items.append({
+                "sheet": sn,
+                # 셀 좌표로 직접 지정한다. key/key_col 은 큐 중복판정(queue_add)용 식별자다.
+                "key": f"{sn}@{cell}",
+                "key_col": "프로젝트NO",
+                "cell": cell,
+                "col": colname[sn],
+                "value": v,
+                "vtype": "text",
+                "only_if_empty": True,
+                "evidence": f"ERP 판매조회 프로젝트코드 대조 ({row}행)",
+            })
+        from ledger_writer import queue_add
+        print(f"\n큐 적재: {queue_add(items)}개 셀 → python ledger_writer.py --apply 로 원장 반영")
+        return 0
+
     if not do:
-        print("\n실제로 채우려면:  python fill_erp_status.py --apply")
+        print("\n실제로 채우려면:  python fill_erp_status.py --queue  (또는 --apply)")
         return 0
 
     by = {}

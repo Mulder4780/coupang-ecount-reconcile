@@ -250,14 +250,48 @@ def load_inbox(cfg):
     API 조회 결과와 동일한 형태(CAND 키)로 정규화한다.
     파일 분류: 파일명에 '판매'→sale, '세금계산서' 또는 '계산서'→tax_invoice."""
     import openpyxl, glob
-    files = [f for f in glob.glob(os.path.join(INBOX_DIR, "*.xlsx")) if not os.path.basename(f).startswith("~$")]
+    # ★ 2026-07-30 수정 이유: 여기는 `INBOX_DIR/*.xlsx` **비재귀** 글롭이라
+    #   (1) 원본 자료 폴더(`0. 원본 자료/1. ERP 내보내기/2026/07/2026-07-25/...`)를 아예 못 봤고
+    #   (2) 로컬 inbox 의 하위 폴더도 못 봤다. 실제로 판매조회(898행)가 원본 자료 폴더에만
+    #   있어서 이 대조기는 그 자료를 한 번도 읽지 못했다.
+    #   경로는 source_dirs 한 곳에서만 정한다는 원칙(AGENTS.md)에 맞춰 excel_dirs() 를 쓴다.
+    from source_dirs import excel_dirs
+    from billing_fill import dedupe_files
+    from inbox_scan import classify
+    cands, seen = [], set()
+    for d in excel_dirs() or [INBOX_DIR]:
+        for f in glob.glob(os.path.join(d, "**", "*.xlsx"), recursive=True):
+            if os.path.basename(f).startswith("~$"):
+                continue
+            key = os.path.normcase(os.path.abspath(f))
+            if key in seen:
+                continue
+            seen.add(key)
+            cands.append(f)
+    # ★ 같은 내용의 사본을 여러 번 읽지 않는다. 판매조회가 SHA256 동일한 3벌 있었고
+    #   (2026-07-30 3배 합산 사고) 파일명(`__dup_`)으로 거르면 다음번에 다른 이름으로 뚫린다.
+    files = dedupe_files(cands)
     if not files:
         return None
     out = {"sale": [], "tax_invoice": []}
     used = []
     for f in files:
         name = os.path.basename(f)
-        kind = "tax_invoice" if ("세금계산서" in name or "계산서" in name) else "sale"
+        # 파일명이 무작위인 이카운트 내보내기가 섞여 있다. **내용**으로 종류를 먼저 본다.
+        # 원장(차변/대변)은 매출 후보로 쓰면 엉뚱한 금액이 매칭돼 거짓 '일치'가 되므로 뺀다.
+        # ★ `po` 는 빼지 않는다: ERP 판매조회에 PO번호 열이 있어 classify() 가 이 파일을
+        #   `po` 로 준다(2026-07-30 확인). 여기서 po 를 빼면 정작 필요한 판매 자료가 빠진다.
+        #   쿠팡 PO 목록(오더 번호·고객·금액)은 아래 머리글 조건에 '공급가액/합계금액' 이
+        #   없어 자연히 걸러진다 — 종류 판정에 이중으로 의존하지 않는다.
+        ck = classify(f)
+        if ck == "ledger":
+            continue
+        if ck in ("tax", "taxinv", "hometax"):
+            kind = "tax_invoice"
+        elif ck in ("sales", "stmt", "slips"):
+            kind = "sale"
+        else:
+            kind = "tax_invoice" if ("세금계산서" in name or "계산서" in name) else "sale"
         wb = openpyxl.load_workbook(f, read_only=True, data_only=True)
         for ws in wb.worksheets:
             rows = list(ws.iter_rows(values_only=True))

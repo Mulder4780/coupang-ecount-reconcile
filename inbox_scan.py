@@ -16,7 +16,7 @@ inbox_scan.py — inbox에 들어온 엑셀이 **무슨 자료인지 내용으�
   python inbox_scan.py                 # inbox 폴더 목록·판별 결과 출력
   from inbox_scan import pick          # pick("ledger") → 해당 종류 파일 경로 리스트
 """
-import sys, os, re, glob
+import sys, os, re, glob, time
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -107,14 +107,82 @@ def classify(path):
         return "unknown"
 
 
-def scan(folder=None):
-    """[(경로, 종류)] — 임시파일(~$)은 제외"""
+# ── 분류 결과 캐시 ────────────────────────────────────────────
+#   ★ 2026-07-30 실측: classify() 는 파일을 **열어서** 내용으로 종류를 정한다.
+#     scan() 이 '0. 원본 자료' 트리의 엑셀 전부를 열고, /api/status 가 pick() 을
+#     5번(ledger·slips·po·tax·stmt) 부르므로 같은 파일을 5번 열었다. Z: 네트워크
+#     드라이브라 대시보드 첫 로딩이 **280초** 걸렸다(측정값).
+#     파일 내용이 바뀌지 않았으면 다시 열 이유가 없다 — (크기, 수정시각) 으로 판정한다.
+_CLS_MEM = {}                                   # 프로세스 안: 경로 → (크기, mtime, 종류)
+_CLS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "reports", "inbox_classify.json")
+_CLS_DISK = None                                # 프로세스 간: 재시작해도 유지
+
+
+def _cls_load():
+    global _CLS_DISK
+    if _CLS_DISK is None:
+        try:
+            import json as _json
+            _CLS_DISK = _json.load(open(_CLS_FILE, encoding="utf-8"))
+        except Exception:
+            _CLS_DISK = {}
+    return _CLS_DISK
+
+
+def _cls_save():
+    try:
+        import json as _json
+        os.makedirs(os.path.dirname(_CLS_FILE), exist_ok=True)
+        _json.dump(_CLS_DISK, open(_CLS_FILE, "w", encoding="utf-8"), ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def classify_cached(path):
+    """내용이 그대로면 캐시값을 쓴다. 바뀌었으면 그때만 다시 열어 본다."""
+    try:
+        st = os.stat(path)
+        sig = [st.st_size, int(st.st_mtime)]
+    except OSError:
+        return classify(path)
+    hit = _CLS_MEM.get(path)
+    if hit and hit[0] == sig[0] and hit[1] == sig[1]:
+        return hit[2]
+    disk = _cls_load().get(path)
+    if disk and disk[0] == sig[0] and disk[1] == sig[1]:
+        _CLS_MEM[path] = (sig[0], sig[1], disk[2])
+        return disk[2]
+    kind = classify(path)
+    _CLS_MEM[path] = (sig[0], sig[1], kind)
+    _cls_load()[path] = [sig[0], sig[1], kind]
+    _cls_save()
+    return kind
+
+
+_SCAN_MEM = {}                                  # 폴더 → (만료시각, [(경로, 종류)])
+SCAN_TTL = 60.0                                 # 초. 한 요청 안의 반복 호출을 합치는 용도
+
+
+def scan(folder=None, ttl=None):
+    """[(경로, 종류)] — 임시파일(~$)은 제외. 분류는 캐시, 폴더 훑기는 짧게 메모이즈한다.
+
+    ★ 분류를 캐시한 뒤에도 대시보드가 느렸다. `pick()` 이 5종(ledger·slips·po·tax·stmt)
+      마다 **네트워크 드라이브를 다시 훑었기** 때문이다(재귀 glob + 파일마다 os.stat).
+      종류가 다르다고 폴더가 달라지는 게 아니므로 훑기 결과를 잠깐 재사용한다.
+      TTL 을 짧게(60초) 두어 새 파일이 들어오면 다음 분에는 잡힌다."""
     folder = folder or INBOX_DIR
+    ttl = SCAN_TTL if ttl is None else ttl
+    now = time.monotonic()
+    hit = _SCAN_MEM.get(folder)
+    if hit and hit[0] > now:
+        return hit[1]
     out = []
     for p in sorted(glob.glob(os.path.join(folder, "**", "*.xls*"), recursive=True)):
         if os.path.basename(p).startswith("~$"):
             continue
-        out.append((p, classify(p)))
+        out.append((p, classify_cached(p)))
+    _SCAN_MEM[folder] = (now + ttl, out)
     return out
 
 
