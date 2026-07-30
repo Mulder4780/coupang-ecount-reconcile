@@ -37,6 +37,11 @@ reports/mobile_snapshot.html
 reports/csos_qr.html
 reports/tunnel_starts.txt
 
+# 런타임 SQLite — 미반영 확정 입력·UX 기록. Git에는 넣지 않고 archive_keep이 일관 백업한다.
+db/*.db
+db/*.db-wal
+db/*.db-shm
+
 # 재생성 가능 — 저장소에 넣지 않는다 (2026-07-29)
 node_modules/
 outputs/**/node_modules/

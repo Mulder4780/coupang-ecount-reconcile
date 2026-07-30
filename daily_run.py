@@ -254,7 +254,10 @@ def _run_pipeline():
     steps.append(run("정기점검·돌발AS 일지 대조 안전입력 큐",
                      [os.path.join(ROOT, "work_log_sync.py"), "--queue"]))
 
-    steps.append(run("관리대장 자동입력(확정분)", [os.path.join(ROOT, "ledger_writer.py"), "--apply"]))
+    # ★ 2026-07-30 지시: 반영은 **DB에 모았다가 하루 두 번(11:00·15:00)만** 엑셀에 쓴다.
+    #   전에는 여기서 바로 --apply 해서 하루에 관리대장 버전이 수십 개씩 늘었다(v311→v327).
+    #   09:50 일일 대조는 적재까지만 하고, 별도 작업 스케줄러가 두 회차를 정확히 실행한다.
+    steps.append(run("입력 DB 적재", [os.path.join(ROOT, "ledger_db.py"), "--intake"]))
     # 입력 직후 무결성 확인 — 엑셀이 '복구' 대화상자를 띄우는 파일을 만들지 않기 위해
     steps.append(run("워크북 무결성 검사·복구", [os.path.join(ROOT, "fix_workbook.py"), "--apply"]))
 

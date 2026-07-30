@@ -13,6 +13,7 @@ archive_keep.py — 나중에 **복구하거나 이어서 코딩할 때** 필요
 
 ## 무엇을 보관하고 무엇을 버리는가 (핵심은 '되살릴 수 있는가')
   보관: · git bundle(코드+이력 전부)            ← 코딩을 이어서 하려면 이것만 있으면 된다
+        · db/ledger_queue.db SQLite 일관 백업   ← 아직 엑셀에 안 들어간 확정 입력·UX 근거
         · reports/*.md|csv|json 중 **사실 기록**(대조 결과·종합리포트·세션인계·자료현황)
         · updates/applied_*.json               ← 원장에 무엇을 왜 썼는지의 증거
         · 19시트 인수인계 텍스트 사본 · INCIDENTS.md · AGENTS.md
@@ -239,6 +240,19 @@ def ledger_copy(day_dir, dry=False):
     return f"관리대장 v{ver}"
 
 
+def ledger_db_copy(day_dir, dry=False):
+    """WAL 사용 중인 입력 DB를 파일복사가 아닌 SQLite backup API로 보관한다."""
+    dst = os.path.join(day_dir, "db", "ledger_queue.db")
+    if dry:
+        return "입력·UX DB 예정"
+    try:
+        import ledger_db
+        ledger_db.backup_to(dst)
+        return f"입력·UX DB {os.path.getsize(dst) // 1024}KB"
+    except Exception as exc:
+        return f"입력·UX DB 보관 실패: {str(exc)[:100]}"
+
+
 def prune(dry=False):
     base = archive_root()
     if not os.path.isdir(base):
@@ -325,6 +339,7 @@ def main():
     n, size, skipped = collect(day_dir, dry)
     lines.append(f"기록 파일 {n}개 {size // 1024}KB" + (f" · 비밀키 의심 {skipped}개 제외" if skipped else ""))
     lines.append(ledger_copy(day_dir, dry))
+    lines.append(ledger_db_copy(day_dir, dry))
     if not dry:
         manifest(day_dir, lines)
     lines.append(prune(dry))

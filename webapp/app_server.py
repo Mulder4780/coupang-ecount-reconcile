@@ -3035,6 +3035,35 @@ def get_erpdocs():
     return _store_cache("erpdocs", out)
 
 
+def _ux_summary():
+    """앱 사용 흔적 요약 — 다음 개선을 **추측이 아니라 기록**으로 정하기 위한 것."""
+    try:
+        import ledger_db
+        return ledger_db.ux_summary()
+    except Exception as e:
+        return {"error": str(e)[:80]}
+
+
+def get_apply_window():
+    """다음 엑셀 반영까지 얼마나 남았나 — 앱이 항상 보여 준다.
+
+    사용자 지시(2026-07-30): 반영은 하루 두 번(11:00·15:00)뿐이다. 그 사이에 넣은 것은
+    **DB에 쌓여 있을 뿐 아직 엑셀에 없다.** 앱이 그 사실을 말하지 않으면 "왜 안 들어갔지"가 된다."""
+    try:
+        import ledger_db
+        # 앱·도구가 기존 JSON 큐에 넣은 값도 여기서 SQLite로 안전하게 넘긴다.
+        # 엑셀에는 쓰지 않으며, 실제 반영은 작업 스케줄러의 11시·15시 두 회차뿐이다.
+        ledger_db.intake_json(source="json-queue")
+        return ledger_db.status()
+    except Exception:
+        try:
+            return json.load(open(
+                os.path.join(ROOT, "reports", "반영대기.json"), encoding="utf-8"))
+        except Exception:
+            return {"대기": 0, "다음반영": "", "남은분": 0,
+                    "반영시각": ["11:00", "15:00"]}
+
+
 def get_recalc_pending():
     """원장엔 올라왔지만 엑셀이 아직 계산하지 않아 화면에 안 나오는 건수.
 
@@ -3381,6 +3410,7 @@ def _compute_status():
                 "pending_updates": st["pending_updates"], "inbox": st["inbox"],
                 "kakao": st["kakao"], "band": st["band_auth"], "demo": False, "tunnel": tunnel,
                 "sources": srcs, "build": build_id(), "recalc": get_recalc_pending(),
+                "applywin": get_apply_window(),
                 "agent_dispatch": agent_route}
     except Exception as e:
         return {"error": str(e)}
@@ -3822,6 +3852,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, {"meta": report["meta"], **report["거래명세서"],
                                         "업무기준확인필요": report["업무기준확인필요"]})
             return self._send(200, report)
+        if p == "/api/ux":
+            return self._send(200, {"summary": _ux_summary()})
         if p == "/api/calendar":
             return self._send(200, get_calendar())
         if p == "/api/erpdocs":
@@ -3895,6 +3927,18 @@ class H(BaseHTTPRequestHandler):
                 return self._send(400, {"ok": False, "error": str(exc)})
             except Exception as exc:
                 return self._send(500, {"ok": False, "error": str(exc)[:180]})
+        if p == "/api/ux":
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 100_000:
+                return self._send(400, {"ok": False, "error": "UX 기록 형식 오류"})
+            try:
+                body = json.loads(self.rfile.read(ln) or b"{}")
+                events = (body.get("events") or [])[:50]
+                import ledger_db
+                saved = ledger_db.ux_add(events)
+                return self._send(200, {"ok": True, "saved": saved})
+            except Exception as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:160]})
         if p == "/api/staff/activity":
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 20_000:

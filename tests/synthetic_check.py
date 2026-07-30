@@ -3557,9 +3557,9 @@ def t91_icon_sprite_and_ios_theme():
     missing = (used - dynamic) - symbols
     assert not missing, f"symbol 이 없는 아이콘 참조: {sorted(missing)[:5]}"
 
-    # <img> 로 아이콘을 되돌리면 색 상속이 다시 깨진다
+    # <img> 로 **아이콘**을 되돌리면 색 상속이 다시 깨진다. 회사 CI PNG를 헤더에서
+    # 흰색으로 만드는 brightness/invert는 아이콘 꼼수가 아니라 브랜드 표시 규칙이다.
     assert 'src="/icons/' not in live, "아이콘이 <img> 로 되돌아갔다 — currentColor 를 못 받는다"
-    assert "filter:brightness(0) invert(1)}" not in live, "invert 꼼수가 남아 있다"
 
     # 아이콘 파일과 라이선스는 저장소에 남겨 둔다(스프라이트를 다시 만들 수 있어야 한다)
     icons_dir = os.path.join(ROOT, "webapp", "icons")
@@ -3582,9 +3582,17 @@ def t91_icon_sprite_and_ios_theme():
     # 탭바 유리 효과는 지원 안 되는 브라우저를 위해 @supports 로 감싼다
     assert "backdrop-filter" in live and "@supports" in live, "유리 효과에 폴백이 없다"
     # 검은 로고/아이콘이 남색 헤더·흰 버튼에서 사라지지 않아야 한다.
-    assert ".appbar-brand-stack{background:rgba(255,255,255,.94)" in live
-    assert ".account-pin img,.account-pin svg" in live and "fill:#24365F" in live
-    assert ".notice-bell svg{width:21px;height:21px;fill:#24365F" in live
+    # 지켜야 하는 것은 **로고가 남색 헤더에서 보이는가** 이지 특정 구현이 아니다.
+    # 흰 판을 얹는 방법과, 로고를 흰색으로 뽑아내는 방법(brightness(0) invert(1)) 둘 다 답이다.
+    # 2026-07-30: 사용자가 '헤더와 이질감 없이' 를 요청해 흰 판 → 흰색 로고로 바꿨다.
+    assert (".appbar-brand-stack{background:rgba(255,255,255,.94)" in live
+            or "brightness(0) invert(1)" in live), "검은 로고가 남색 헤더에서 사라진다"
+    # 헤더 버튼 아이콘은 **배경과 대비되기만 하면** 된다 — 구현을 고정하지 않는다.
+    #   2026-07-30: 흰 버튼(어두운 아이콘) → 테두리만 있는 투명 버튼(흰 아이콘)으로 바꿨다.
+    #   사용자 지적: 남색 헤더 위 흰 네모가 이질적이다.
+    assert ".account-pin img,.account-pin svg" in live, "PIN 버튼 아이콘 규칙이 없다"
+    assert ("fill:#24365F" in live or "fill:#fff" in live), "PIN 아이콘 색이 지정되지 않았다"
+    assert ".notice-bell svg{width:21px;height:21px;fill:" in live, "알림 아이콘 색이 없다"
     # 상단 배지는 absolute 로 떠 있으면 긴 제목과 다시 겹친다. 제목·배지는 같은 flex 행이어야 한다.
     assert '.hero-top{display:flex' in live and '.hero .badge{position:static' in live
     assert '<div class="hero-top">' in live and '<span class="hero-sub">' in live
@@ -3632,6 +3640,67 @@ def t92_excel_recalc_agent():
     assert "recalc-" in src and "os.replace(tmp_dst, dst)" in src
     assert "if os.path.exists(dst)" in src, "기존 vN+1을 덮어쓸 수 있다"
     print("  [92] 엑셀 자동 재계산 — 복구/SHA관문·임시본 검증·덮어쓰기/좀비 방지 ✅")
+
+
+def t93_ledger_db_and_ux():
+    """반영은 DB에 모았다가 하루 두 번만 · 앱 UX는 기록으로 (2026-07-30 지시).
+
+    ★ 채울 때마다 엑셀을 쓰면 하루에 관리대장 버전이 수십 개 늘고(v311→v327) 정본이 흔들린다.
+      그래서 11:00·15:00 두 번만 쓴다. **시각이 아니면 아무것도 하지 않는 것**이 핵심이다.
+    ★ 놓친 회차의 입력은 버리지 않고 다음 **허용된** 11시/15시 회차에 함께 처리한다.
+    """
+    import ledger_db as L
+    assert L.self_test(), "ledger_db 자체 검증 실패"
+    assert [w.hour for w in L.WINDOWS] == [11, 15], "반영 시각이 11시·15시가 아니다"
+
+    from datetime import datetime as _dt
+    assert L.slot_of(_dt(2026, 7, 30, 11, 5)), "11시 회차를 인식하지 못한다"
+    assert L.slot_of(_dt(2026, 7, 30, 13, 0)) is None, "반영 시각이 아닌데 열려 있다"
+    assert L.next_window(_dt(2026, 7, 30, 12, 0)).hour == 15
+    assert L.eligible_slot(_dt(2026, 7, 30, 13, 0), []) is None, \
+        "놓친 회차를 이유로 임의 시각에 반영한다"
+    assert L.eligible_slot(
+        _dt(2026, 7, 30, 11, 5), ["2026-07-30 11:00"]) is None, \
+        "같은 11시 회차를 두 번 반영한다"
+
+    src = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    assert any(x.startswith("import") and "sqlite3" in x for x in src.splitlines()), (
+        "표준 라이브러리 sqlite3 를 써야 한다(새 의존성 금지)")
+    assert "finally:" in src and "c.close()" in src, "DB 연결을 닫지 않으면 파일이 잠긴다"
+    assert "ingest_key" in src and "INSERT OR IGNORE INTO pending" in src, \
+        "중단 후 JSON staging 재흡수 시 중복될 수 있다"
+    assert "id IN ({marks})" in src, "반영 중 새로 들어온 DB 행까지 완료 처리할 수 있다"
+    assert '"--queue", batch_queue, "--apply"' in src, "공용 JSON 큐와 일괄반영 배치가 섞인다"
+
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "ledger_db.py" in daily, "일일 실행이 DB 게이트를 지나지 않는다"
+    assert '"ledger_writer.py"), "--apply"' not in daily,         "일일 실행이 아직 엑셀에 곧바로 쓴다 — 하루 두 번 규칙이 깨진다"
+    schedule = open(os.path.join(ROOT, "install_ledger_schedule.ps1"), encoding="utf-8").read()
+    assert '"11:00"' in schedule and '"15:00"' in schedule
+    assert "MultipleInstances IgnoreNew" in schedule and "ledger_db.py --apply" in schedule
+
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "get_apply_window" in server and '"applywin"' in server
+    assert 'if p == "/api/ux":' in server and "ledger_db.ux_add(events)" in server
+    assert "function uxEvent(" in live and "function uxFlush(" in live
+    assert "uxEvent('view',v)" in live and "uxEvent('slow'" in live
+    assert "renderApplyWindow(s.applywin)" in live, "앱이 다음 반영 시각을 알리지 않는다"
+
+    # 업무센터는 인원이 바뀌어도 균등해야 한다(고정 칸 수 금지)
+    assert "repeat(auto-fit,minmax(132px,1fr))" in live, "업무센터가 다시 칸 수를 고정했다"
+    assert ".workcenter-buttons{grid-template-columns:repeat(3" not in live, \
+        "업무센터 3칸 고정이 남아 있다 — 인원이 바뀌면 빈칸이 생긴다"
+    assert ":last-child:nth-child(odd){grid-column:1/-1}" in live, "홀수 인원일 때 줄 끝이 빈다"
+    assert "<h3>빠른 실행</h3>" not in live, "제거한 '빠른 실행' 카드가 되살아났다"
+
+    # 상시 규칙이 문서에 남아 있어야 다음 세션·Codex 가 따른다
+    rules = (open(os.path.join(ROOT, "CLAUDE.md"), encoding="utf-8").read()
+             + open(os.path.join(ROOT, "AGENTS.md"), encoding="utf-8").read())
+    assert "엑셀은 하루 두 번만" in rules and "UX 기록" in rules
+    archive = open(os.path.join(ROOT, "archive_keep.py"), encoding="utf-8").read()
+    assert "ledger_db_copy" in archive and "ledger_queue.db" in archive
+    print("  [93] 반영 DB 게이트(11·15시)·UX 기록·업무센터 균등배치·빠른실행 제거 ✅")
 
 
 def t77_side_work_single_switch():
@@ -4291,6 +4360,7 @@ if __name__ == "__main__":
     t90_ip_guard_and_archive()
     t91_icon_sprite_and_ios_theme()
     t92_excel_recalc_agent()
+    t93_ledger_db_and_ux()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:
