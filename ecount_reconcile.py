@@ -20,7 +20,7 @@ ecount_reconcile.py — 관리대장 ↔ 이카운트(ECOUNT) 대조기
     python ecount_reconcile.py --offline  # 이카운트 호출 없이 원장측 준비표만
     python ecount_reconcile.py --selftest # 설정/인증만 점검
 """
-import sys, os, csv, json
+import sys, os, csv, json, time
 from datetime import datetime, date
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -73,7 +73,28 @@ def _latest_in(folder):
     return best or folder
 
 
+_MASTER_CACHE = {}          # xlsx_path -> (잰시각, 결과경로)
+_MASTER_TTL = 30.0          # 초
+
+
 def resolve_master(xlsx_path):
+    """최신 관리대장을 찾되 **30초 안에는 다시 찾지 않는다**(2026-07-31 속도 개선).
+
+    이 함수는 네트워크 드라이브에서 glob 을 돌리고 autoprune 까지 부른다. 그런데
+    API 한 번에 7번씩 불리고 있었다(`real_works` 측정). 어느 파일인지만 고르는 일이라
+    30초 캐시로 충분하다 — 내용이 바뀌었는지는 read_ledger 가 mtime 으로 따로 본다.
+    새 프로세스는 항상 차갑게 시작하므로 낡은 경로를 오래 붙들 일은 없다.
+    """
+    now = time.monotonic()
+    hit = _MASTER_CACHE.get(xlsx_path)
+    if hit is not None and now - hit[0] < _MASTER_TTL:
+        return hit[1]
+    result = _resolve_master_uncached(xlsx_path)
+    _MASTER_CACHE[xlsx_path] = (now, result)
+    return result
+
+
+def _resolve_master_uncached(xlsx_path):
     """설정된 경로가 없으면 같은 폴더에서 최신 v번호 파일을 자동 탐지한다
     (관리대장은 v19→v20→v21…로 계속 버전업되며 구버전은 OLD로 이동됨)."""
     import glob, re as _re
@@ -101,11 +122,78 @@ def resolve_master(xlsx_path):
     return best
 
 
+_MASTER_BYTES = {}          # abspath -> ((mtime_ns, size), bytes)
+
+
+def master_stream(xlsx_path):
+    """관리대장을 **네트워크가 아니라 메모리에서** 열게 해 준다(2026-07-31 속도 개선).
+
+    앱은 한 화면을 그리는 동안 `openpyxl.load_workbook(master, ...)` 를 9군데에서
+    각각 부른다. 그때마다 **Z: 네트워크 드라이브에서 수십 MB 를 다시 끌어온다** — 느린
+    것의 대부분이 파싱이 아니라 이 전송이다. 한 번 읽어 두고 BytesIO 로 건네면 파싱만 남는다.
+
+    · 무효화는 mtime+크기. vN+1 이 생기면 키가 달라져 자동으로 다시 읽는다.
+    · 새 버전을 읽을 때 캐시를 **비운다** — 안 비우면 버전이 쌓일수록 메모리를 계속 먹는다.
+    · 파일을 못 재면 원래 경로를 그대로 돌려준다(호출부는 경로든 스트림이든 받는다).
+    """
+    import io
+    key = os.path.abspath(xlsx_path)
+    try:
+        st = os.stat(key)
+        sig = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return xlsx_path
+    hit = _MASTER_BYTES.get(key)
+    if hit is None or hit[0] != sig:
+        with open(key, "rb") as f:
+            data = f.read()
+        _MASTER_BYTES.clear()
+        _MASTER_BYTES[key] = (sig, data)
+        hit = _MASTER_BYTES[key]
+    return io.BytesIO(hit[1])
+
+
+_LEDGER_CACHE = {}          # abspath -> ((mtime_ns, size), 원장dict)
+
+
 def read_ledger(xlsx_path):
+    """원장을 읽되, **파일이 그대로면 다시 열지 않는다**(2026-07-31 속도 개선).
+
+    관리대장은 **네트워크 드라이브(Z:)** 에 있고 한 번 여는 데 ~1.0초가 든다. 그런데
+    캐시가 없어서 API 한 번에 여러 번 다시 열고 있었다 — `real_works` 는 한 호출에
+    7번 열었다(측정: settlements 2.5초, works 3.5초).
+
+    무효화는 **파일의 mtime+크기**로 한다. 시간(TTL)으로 하면 vN+1 이 새로 생겼는데도
+    남은 시간 동안 옛 숫자를 보여 주게 된다 — 원장은 그러면 안 된다. 파일이 바뀌는
+    순간 키가 달라져 자동으로 다시 읽는다.
+
+    돌려줄 때 **사본**을 준다. 호출자가 받은 dict 를 고쳐도 캐시가 오염되지 않아야 한다.
+    """
+    key = os.path.abspath(xlsx_path)
+    try:
+        st = os.stat(key)
+        sig = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return _read_ledger_uncached(xlsx_path)      # 못 재면 그냥 읽는다
+    hit = _LEDGER_CACHE.get(key)
+    if hit is not None and hit[0] == sig:
+        return _copy_ledger(hit[1])
+    data = _read_ledger_uncached(xlsx_path)
+    _LEDGER_CACHE[key] = (sig, data)
+    return _copy_ledger(data)
+
+
+def _copy_ledger(d):
+    """원장은 {정산ID: {열: 값}} 2단이고 값은 전부 단순형이라 2단 복사면 충분하다.
+       copy.deepcopy 는 datetime 까지 새로 만들어 느리다."""
+    return {k: dict(v) for k, v in d.items()}
+
+
+def _read_ledger_uncached(xlsx_path):
     """정산ID 기준으로 원장 예상값(3개 문서층)을 모은다."""
     import openpyxl
     xlsx_path = resolve_master(xlsx_path)
-    wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(master_stream(xlsx_path), read_only=True, data_only=True)
 
     def col_index(ws, names):
         row = next(ws.iter_rows(min_row=HDR_ROW, max_row=HDR_ROW, values_only=True))

@@ -33,6 +33,9 @@ except Exception:
 BASE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(BASE)
 sys.path.insert(0, ROOT)
+# 관리대장을 Z: 에서 매번 끌어오지 않고 메모리 사본에서 연다(속도 개선 2026-07-31).
+# sys.path 를 세운 **뒤에** 임포트해야 한다 — 위로 올리면 ecount 모듈을 못 찾는다.
+from ecount_reconcile import master_stream
 PY = sys.executable
 ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
@@ -893,7 +896,7 @@ def _ryu_field_records():
         "검증자", "검증일", "문제내용", "조치내용", "완료예정일", "비고", "검증결과",
     ]
     out = []
-    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(master_stream(master), read_only=True, data_only=True)
     try:
         if "03_현장작업실적" not in wb.sheetnames:
             return _store_cache("ryu_field", out)
@@ -1100,7 +1103,7 @@ def _ryu_find_master_record(category, record_key):
     import openpyxl
     from ecount_reconcile import load_config, resolve_master
     master = resolve_master(load_config()["reconcile"]["master_xlsx"])
-    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(master_stream(master), read_only=True, data_only=True)
     try:
         if cfg["sheet"] not in wb.sheetnames:
             raise ValueError("대상 시트를 찾지 못했습니다")
@@ -1412,8 +1415,9 @@ def get_codes():
     try:
         import openpyxl
         from ecount_reconcile import load_config, resolve_master
-        wb = openpyxl.load_workbook(resolve_master(load_config()["reconcile"]["master_xlsx"]),
-                                    read_only=True, data_only=True)
+        wb = openpyxl.load_workbook(
+            master_stream(resolve_master(load_config()["reconcile"]["master_xlsx"])),
+            read_only=True, data_only=True)
         ws = wb["10_코드관리"]
         rows = list(ws.iter_rows(min_row=4, values_only=True))
         if rows:
@@ -1782,7 +1786,7 @@ def real_works():
     from verification_sync import derived_field_status_map
     from ecount_reconcile import load_config, resolve_master
     master = resolve_master(load_config()["reconcile"]["master_xlsx"])
-    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(master_stream(master), read_only=True, data_only=True)
     # 03시트는 접수ID·프로젝트NO가 02 완료행을 순서대로 끌어오는 배열수식이라
     # 캐시가 비어도 같은 순서를 재현해 돌발AS 카드에 현장 검증 상태를 붙인다.
     field_status = derived_field_status_map(wb)
@@ -2184,7 +2188,7 @@ def _fmtv(v):
 def read_exec_report(master):
     """01_대표보고 시트를 구조 그대로 읽는다(엑셀 수식이 곧 집계 로직 — 앱에서 재계산하지 않음)."""
     import openpyxl
-    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(master_stream(master), read_only=True, data_only=True)
     if "01_대표보고" not in wb.sheetnames:
         wb.close()
         return {}
@@ -2562,7 +2566,7 @@ def read_exec_details(master, base_date=""):
     01_대표보고/00_대시보드 수식이 참조하는 열과 조건을 그대로 재현한다.
     """
     import openpyxl
-    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(master_stream(master), read_only=True, data_only=True)
     s06 = _sheet_records(wb, "06_거래서류청구수금")
     s07 = _sheet_records(wb, "07_불일치누락현황")
     s15 = _sheet_records(wb, "15_세금계산서관리")
@@ -2856,7 +2860,7 @@ def get_issues():
     import openpyxl
     from ecount_reconcile import load_config, resolve_master
     master = resolve_master(load_config()["reconcile"]["master_xlsx"])
-    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(master_stream(master), read_only=True, data_only=True)
     rows = []
     # 1순위: 관리대장 통합 시트 23_확인필요현황 (에이전트가 매일 갱신 — 단일 엑셀 관리)
     if "23_확인필요현황" in wb.sheetnames:
@@ -2987,7 +2991,7 @@ def get_erpdocs():
     master = resolve_master(load_config()["reconcile"]["master_xlsx"])
     out = {"rows": [], "months": {}, "total": 0, "kinds": {}}
     try:
-        wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+        wb = openpyxl.load_workbook(master_stream(master), read_only=True, data_only=True)
         if "25_ERP매출서류" in wb.sheetnames:
             for row in wb["25_ERP매출서류"].iter_rows(min_row=5, values_only=True):
                 if not row or not row[0]:
