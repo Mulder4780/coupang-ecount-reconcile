@@ -29,18 +29,53 @@ window.addEventListener('beforeinstallprompt', function(e){
 <style>
 :root{
   --navy-950:#0A1430; --navy-900:#0E1B3F; --navy-800:#152660;
-  --brand:#2452E6; --brand-dk:#1B41BC; --brand-tint:#EBF0FF;
-  --bg:#F4F6FA; --surface:#FFFFFF;
-  --ink:#101828; --ink-2:#475467; --ink-3:#98A2B3; --line:#E4E9F0;
-  --ok:#12813F; --ok-bg:#E8F6EE; --warn:#B54708; --warn-bg:#FEF1E2;
-  --danger:#C0212E; --danger-bg:#FDEBEC; --neu:#5B6B82; --neu-bg:#EEF2F6;
-  --r:14px; --sh:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08);
-  --sh-lg:0 4px 8px -2px rgba(16,24,40,.08),0 12px 24px -4px rgba(16,24,40,.10);
+  /* ── iOS(Apple HIG) 시스템 값 ──────────────────────────────────
+     사용자 지시(2026-07-30): "아이폰 느낌이 나게 예쁘고 멋지게".
+     ★ 변수 **이름은 그대로 두고 값만** iOS 시스템 색으로 바꿨다. 6천 줄을 건드리지 않고
+       카드·칩·버튼·표가 한꺼번에 새 외형을 따라오게 하는 가장 안전한 방법이다.
+     색은 Apple 이 정의한 systemColor 원값을 쓴다(파랑 #007AFF·초록 #34C759·빨강 #FF3B30…).
+     ★ 글자색은 원값을 그대로 쓰지 않는다 — systemGreen 을 본문에 쓰면 흰 배경에서 대비가
+       모자라 안 읽힌다. 배경(tint)은 원값 계열, 글자는 어두운 짝을 따로 둔다. */
+  --brand:#007AFF; --brand-dk:#0062CC; --brand-tint:#EAF4FF;   /* systemBlue */
+  --bg:#F2F2F7; --surface:#FFFFFF;                              /* systemGroupedBackground */
+  --ink:#000000; --ink-2:rgba(60,60,67,.62); --ink-3:rgba(60,60,67,.42);  /* label 계층 */
+  --line:rgba(60,60,67,.24);                                    /* separator (헤어라인) */
+  --ok:#248A3D; --ok-bg:#E7F8EC;                                /* systemGreen 계열 */
+  --warn:#B25000; --warn-bg:#FFF4E5;                            /* systemOrange 계열 */
+  --danger:#C7362B; --danger-bg:#FFEDEB;                        /* systemRed 계열 */
+  --neu:#6C6C70; --neu-bg:#F2F2F7;                              /* systemGray 계열 */
+  /* iOS 는 모서리를 크게, 그림자는 거의 쓰지 않는다(그룹 목록은 헤어라인으로 구분한다) */
+  --r:16px; --r-sm:10px; --r-lg:22px;
+  --sh:0 .5px 0 rgba(0,0,0,.04);
+  --sh-lg:0 8px 30px rgba(0,0,0,.08);
+  /* iOS 시트가 올라올 때의 감각 — 처음 빠르고 끝이 부드럽다 */
+  --ease:cubic-bezier(.32,.72,0,1);
+  --glass:saturate(180%) blur(20px);
+}
+/* ── 다크 모드 (iOS 는 순수 검정 배경을 쓴다) ─────────────────────── */
+@media (prefers-color-scheme: dark){
+  :root{
+    --brand:#0A84FF; --brand-dk:#409CFF; --brand-tint:rgba(10,132,255,.16);
+    --bg:#000000; --surface:#1C1C1E;
+    --ink:#FFFFFF; --ink-2:rgba(235,235,245,.62); --ink-3:rgba(235,235,245,.38);
+    --line:rgba(84,84,88,.58);
+    --ok:#30D158; --ok-bg:rgba(48,209,88,.18);
+    --warn:#FF9F0A; --warn-bg:rgba(255,159,10,.18);
+    --danger:#FF453A; --danger-bg:rgba(255,69,58,.18);
+    --neu:#98989D; --neu-bg:rgba(120,120,128,.22);
+    --sh:0 .5px 0 rgba(255,255,255,.04);
+    --sh-lg:0 8px 30px rgba(0,0,0,.55);
+  }
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
-body{font-family:"Nanum Gothic","나눔고딕",NanumGothic,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;
-  background:var(--bg);color:var(--ink);font-size:14.5px;line-height:1.55;letter-spacing:-.2px}
+/* ★ 아이폰에서 '애플 느낌'의 절반은 글꼴이다. -apple-system 은 iOS 에서 SF Pro 로,
+   한글은 Apple SD Gothic Neo 로 잡힌다. 윈도우/안드로이드는 뒤의 글꼴로 자연히 내려간다. */
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display",
+  "Apple SD Gothic Neo","Pretendard Variable",Pretendard,"Malgun Gothic","Nanum Gothic",
+  system-ui,sans-serif;
+  background:var(--bg);color:var(--ink);font-size:15px;line-height:1.5;letter-spacing:-.24px;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
 ::selection{background:var(--brand-tint)}
 
@@ -128,20 +163,37 @@ button:focus-visible,.topitem:focus-visible,.srow:focus-visible,.check-kpi:focus
 }
 
 /* ═══ 내비게이션 ═══ */
-.tabbar{position:fixed;bottom:0;left:0;right:0;z-index:20;background:var(--surface);
-  border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom);
-  box-shadow:0 -4px 16px rgba(16,24,40,.05)}
+/* ── iOS 탭바: 불투명 유리 + 헤어라인 ───────────────────────────
+   아이폰 탭바는 뒤 내용이 흐릿하게 비치고, 위쪽 경계는 1px 이 아니라 **헤어라인**이다.
+   backdrop-filter 가 없는 브라우저에서는 불투명 배경으로 자연히 내려간다(@supports). */
+.tabbar{position:fixed;bottom:0;left:0;right:0;z-index:20;
+  background:var(--surface);display:flex;padding-bottom:env(safe-area-inset-bottom);
+  border-top:.5px solid var(--line)}
+@supports ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){
+  .tabbar{background:color-mix(in srgb,var(--surface) 72%,transparent);
+    -webkit-backdrop-filter:var(--glass);backdrop-filter:var(--glass)}
+}
 .tabbar .brand{display:none}
 .tabbar button{flex:1;padding:7px 0 6px;display:flex;flex-direction:column;align-items:center;gap:4px;
   font-size:10.5px;color:var(--ink-3);font-weight:600;position:relative;transition:color .15s;
   white-space:nowrap;letter-spacing:-.2px}
 .tabbar button.on{color:var(--brand)}
-.tabbar button.on::before{content:"";position:absolute;top:0;width:26px;height:3px;border-radius:0 0 4px 4px;background:var(--brand)}
+/* iOS 탭바는 선택을 막대가 아니라 **색**으로 알린다. 막대는 안드로이드/웹 관습이다.
+   데스크톱 사이드바(≥861px)에서는 왼쪽 레일 표시를 유지한다 — 그건 macOS 의 결이다. */
+.tabbar button.on::before{content:none}
+.tabbar button:active{transform:scale(.92);transition:transform .1s var(--ease)}
 /* ★ 2026-07-30: 모바일에서 아이콘이 안 보인다는 지적. 탭이 7개로 늘어 한 칸이 좁아졌다.
    좁은 화면에서 무엇인지 알려주는 것은 글자(9px)가 아니라 **아이콘**이다.
    그래서 글자는 조금 줄이고 아이콘을 키운다. stroke-width 2 는 크기가 커지면
    상대적으로 얇아져 오히려 또렷해진다. */
 .tabbar svg{width:29px;height:29px}
+/* ── 스프라이트 아이콘 공통 ─────────────────────────────────────
+   <img> 였을 때는 색을 못 바꿨다(원본 svg 에 fill 이 박혀 있었다).
+   이제 currentColor 를 받으므로 선택된 탭·경고·다크모드에 아이콘이 따라 변한다. */
+svg.bi{width:1.05em;height:1.05em;flex:none;fill:currentColor;vertical-align:-.14em}
+.bi path{fill:currentColor}
+.abtn svg.bi,.icon-btn svg.bi{width:17px;height:17px}
+.tabbar svg.bi{width:28px;height:28px;vertical-align:0}
 .tabbar .nav-spacer{display:none}
 
 /* 쿠팡 캘린더 — 전체 월간 보기(Google)와 원장 대조 캐시 상세를 한 화면에 둔다. */
@@ -221,10 +273,14 @@ button:focus-visible,.topitem:focus-visible,.srow:focus-visible,.check-kpi:focus
 }
 
 /* ═══ 카드 ═══ */
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
-  box-shadow:var(--sh);padding:18px;margin-bottom:13px}
-.card h3{font-size:12px;color:var(--ink-3);font-weight:800;margin-bottom:12px;
-  letter-spacing:.5px;text-transform:uppercase}
+/* iOS 그룹 목록 카드: 모서리를 크게, 그림자 대신 헤어라인. 떠 있는 느낌이 아니라
+   배경(#F2F2F7) 위에 놓인 흰 판의 느낌이어야 한다. */
+.card{background:var(--surface);border:.5px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--sh);padding:18px;margin-bottom:12px}
+/* ★ text-transform:uppercase 를 뺐다 — 한글에는 대문자가 없어 효과가 없고,
+   섞여 있는 영문만 튀어 보인다. iOS 는 섹션 제목을 작고 옅게만 쓴다. */
+.card h3{font-size:13px;color:var(--ink-2);font-weight:600;margin-bottom:12px;
+  letter-spacing:-.1px}
 .card h3 .norm{text-transform:none;letter-spacing:0;font-weight:500}
 
 /* ═══ KPI 타일 ═══ */
@@ -583,13 +639,14 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 .abtn{background:var(--surface);border:1px solid var(--line);border-radius:13px;box-shadow:var(--sh);
   padding:14px 10px;text-align:center;font-weight:700;font-size:13px;color:var(--ink);
   transition:all .15s;display:flex;flex-direction:column;align-items:center;gap:5px}
-.abtn:hover{border-color:var(--brand);box-shadow:var(--sh-lg);transform:translateY(-1px)}
-.abtn:active{transform:scale(.97)}
+@media(hover:hover){.abtn:hover{border-color:var(--brand);background:var(--brand-tint)}}
+.abtn:active{transform:scale(.96);transition:transform .1s var(--ease)}
 .abtn .em{font-size:20px;line-height:1}
-.abtn img.em{display:block;width:21px;height:21px;object-fit:contain}
-.abtn.primary img.em{filter:brightness(0) invert(1)}
-.inline-bi{display:inline-block;width:16px;height:16px;vertical-align:-3px;margin-right:5px}
-.abtn.primary{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:0 4px 12px rgba(36,82,230,.35)}
+/* ★ 예전에는 흰 아이콘을 만들려고 filter:brightness(0) invert(1) 을 썼다(<img> 는 색을
+   못 바꿨기 때문이다). 스프라이트로 바꾼 뒤에는 색을 그냥 상속하므로 꼼수를 지웠다. */
+.abtn svg.em,.abtn svg.bi{display:block;width:21px;height:21px;fill:currentColor}
+.inline-bi{display:inline-block;width:16px;height:16px;vertical-align:-3px;margin-right:5px;fill:currentColor}
+.abtn.primary{background:var(--brand);border-color:transparent;color:#fff;box-shadow:none}
 .abtn.primary:hover{background:var(--brand-dk)}
 .abtn.danger{background:var(--danger-bg);border-color:#F5C2C7;color:var(--danger)}
 
@@ -755,7 +812,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   box-shadow:0 3px 9px rgba(16,24,40,.10),inset 0 1px 0 rgba(255,255,255,.9)!important;
   display:inline-flex!important;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;
   transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease,background .14s ease}
-.icon-btn img{display:block;width:24px;height:24px;pointer-events:none}
+.icon-btn img,.icon-btn svg{display:block;width:24px;height:24px;pointer-events:none;fill:currentColor}
 .icon-btn::after{content:attr(aria-label);display:block;max-width:62px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;font-size:9.5px;line-height:1.1;font-weight:800;color:#344054}
 .icon-btn.primary::after{color:#fff}
@@ -765,7 +822,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 .icon-btn:focus-visible{outline:3px solid rgba(36,82,230,.22);outline-offset:2px}
 .icon-btn.primary{background:linear-gradient(145deg,#6172F3,#3749DB)!important;
   border-color:#4457E7!important;box-shadow:0 6px 16px rgba(55,73,219,.30)!important}
-.icon-btn.primary img{filter:brightness(0) invert(1)}
+.icon-btn.primary svg{fill:currentColor}          /* 색을 상속하므로 invert 꼼수 불필요 */
 .icon-btn.excel{background:linear-gradient(180deg,#F3FFF8,#E8F8EF)!important;
   border-color:#A8D9BC!important}
 .icon-btn.busy img{animation:tool-spin .8s linear infinite}
@@ -777,7 +834,7 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 @media(max-width:640px){
   .rpt-actions,.media-tools{justify-content:flex-start;gap:7px;padding:4px 2px 9px}
   .icon-btn{flex-basis:58px!important;width:58px;height:58px;border-radius:12px!important}
-  .icon-btn img{width:22px;height:22px}
+  .icon-btn img,.icon-btn svg{width:22px;height:22px}
   .icon-btn::after{font-size:9px;max-width:54px}
 }
 
@@ -1030,7 +1087,7 @@ body.ryu-mode .tabbar button[data-v="report"]{display:none}
 .workcenter-person .wc-icon{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;
   background:linear-gradient(145deg,var(--wc2),var(--wc));color:#fff;font-size:20px;
   box-shadow:0 7px 16px color-mix(in srgb,var(--wc) 27%,transparent)}
-.workcenter-person .wc-icon img{width:21px;height:21px;filter:brightness(0) invert(1)}
+.workcenter-person .wc-icon svg{width:21px;height:21px;fill:currentColor}
 .workcenter-person .wc-copy{display:flex;flex-direction:column;min-width:0;line-height:1.22}
 .workcenter-person .wc-copy small{font-size:10px;color:#667085;font-weight:700;margin-top:4px}
 .workcenter-person .wc-arrow{margin-left:auto;font-size:18px;color:var(--wc);
@@ -1150,6 +1207,17 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 </style>
 </head>
 <body>
+<!-- Bootstrap Icons + Lucide 인라인 스프라이트 — 라이선스: webapp/icons/LICENSE-*.txt
+     ★ 왜 인라인인가: iOS Safari 는 외부 파일의 <use href="a.svg#id"> 를 제대로 렌더하지 않는다.
+     ★ 왜 스프라이트인가: <img> 는 currentColor 를 못 받아 선택된 탭·다크모드·경고색에
+        아이콘이 반응하지 못했다(원본 svg 에 fill="#344054" 가 박혀 있었다). -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><symbol id="i-bootstrap-arrow-counterclockwise" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2z"/><path d="M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308a.25.25 0 0 0 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466"/></symbol><symbol id="i-bootstrap-arrow-repeat" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41m-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9"/><path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5 5 0 0 0 8 3M3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9z"/></symbol><symbol id="i-bootstrap-arrow-up-right" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M14 2.5a.5.5 0 0 0-.5-.5h-6a.5.5 0 0 0 0 1h4.793L2.146 13.146a.5.5 0 0 0 .708.708L13 3.707V8.5a.5.5 0 0 0 1 0z"/></symbol><symbol id="i-bootstrap-box-seam" viewBox="0 0 16 16" fill="currentColor"><path d="M8.186 1.113a.5.5 0 0 0-.372 0L1.846 3.5l2.404.961L10.404 2zm3.564 1.426L5.596 5 8 5.961 14.154 3.5zm3.25 1.7-6.5 2.6v7.922l6.5-2.6V4.24zM7.5 14.762V6.838L1 4.239v7.923zM7.443.184a1.5 1.5 0 0 1 1.114 0l7.129 2.852A.5.5 0 0 1 16 3.5v8.662a1 1 0 0 1-.629.928l-7.185 2.874a.5.5 0 0 1-.372 0L.63 13.09a1 1 0 0 1-.63-.928V3.5a.5.5 0 0 1 .314-.464z"/></symbol><symbol id="i-bootstrap-calculator-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2zm2 .5v2a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-.5-.5h-7a.5.5 0 0 0-.5.5m0 4v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5M4.5 9a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5zM4 12.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5M7.5 6a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5zM7 9.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5m.5 2.5a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5zM10 6.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5m.5 2.5a.5.5 0 0 0-.5.5v4a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 0-.5-.5z"/></symbol><symbol id="i-bootstrap-calendar-event-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M4 .5a.5.5 0 0 0-1 0V1H2a2 2 0 0 0-2 2v1h16V3a2 2 0 0 0-2-2h-1V.5a.5.5 0 0 0-1 0V1H4zM16 14V5H0v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2m-3.5-7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5"/></symbol><symbol id="i-bootstrap-calendar3" viewBox="0 0 16 16" fill="currentColor"><path d="M14 0H2a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2M1 3.857C1 3.384 1.448 3 2 3h12c.552 0 1 .384 1 .857v10.286c0 .473-.448.857-1 .857H2c-.552 0-1-.384-1-.857z"/><path d="M6.5 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2m-9 3a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2m-9 3a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2"/></symbol><symbol id="i-bootstrap-camera-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"/>
+  <path d="M2 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1.172a2 2 0 0 1-1.414-.586l-.828-.828A2 2 0 0 0 9.172 2H6.828a2 2 0 0 0-1.414.586l-.828.828A2 2 0 0 1 3.172 4zm.5 2a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1m9 2.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"/></symbol><symbol id="i-bootstrap-cash-stack" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1zm7 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4"/><path d="M0 5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1zm3 0a2 2 0 0 1-2 2v4a2 2 0 0 1 2 2h10a2 2 0 0 1 2-2V7a2 2 0 0 1-2-2z"/></symbol><symbol id="i-bootstrap-chat-dots-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M16 8c0 3.866-3.582 7-8 7a9 9 0 0 1-2.347-.306c-.584.296-1.925.864-4.181 1.234-.2.032-.352-.176-.273-.362.354-.836.674-1.95.77-2.966C.744 11.37 0 9.76 0 8c0-3.866 3.582-7 8-7s8 3.134 8 7M5 8a1 1 0 1 0-2 0 1 1 0 0 0 2 0m4 0a1 1 0 1 0-2 0 1 1 0 0 0 2 0m3 1a1 1 0 1 0 0-2 1 1 0 0 0 0 2"/></symbol><symbol id="i-bootstrap-check-lg" viewBox="0 0 16 16" fill="currentColor"><path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425z"/></symbol><symbol id="i-bootstrap-clipboard-check-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 0A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0zm3 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5z"/><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1A2.5 2.5 0 0 1 9.5 5h-3A2.5 2.5 0 0 1 4 2.5zm6.854 7.354-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 0 1 .708-.708L7.5 10.793l2.646-2.647a.5.5 0 0 1 .708.708"/></symbol><symbol id="i-bootstrap-clipboard-data-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 0A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0zm3 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5z"/><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1A2.5 2.5 0 0 1 9.5 5h-3A2.5 2.5 0 0 1 4 2.5zM10 8a1 1 0 1 1 2 0v5a1 1 0 1 1-2 0zm-6 4a1 1 0 1 1 2 0v1a1 1 0 1 1-2 0zm4-3a1 1 0 0 1 1 1v3a1 1 0 1 1-2 0v-3a1 1 0 0 1 1-1"/></symbol><symbol id="i-bootstrap-exclamation-triangle-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5m.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/></symbol><symbol id="i-bootstrap-file-earmark-text-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M9.293 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.707A1 1 0 0 0 13.707 4L10 .293A1 1 0 0 0 9.293 0M9.5 3.5v-2l3 3h-2a1 1 0 0 1-1-1M4.5 9a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1zM4 10.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5m.5 2.5a.5.5 0 0 1 0-1h4a.5.5 0 0 1 0 1z"/></symbol><symbol id="i-bootstrap-flask-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M11.5 0a.5.5 0 0 1 0 1H11v5.358l4.497 7.36c.099.162.16.332.192.503l.013.063.008.083q.006.053.007.107l-.003.09q-.001.047-.005.095-.006.053-.017.106l-.016.079q-.012.049-.028.096l-.028.086a1.5 1.5 0 0 1-.17.322 1.5 1.5 0 0 1-.395.394q-.04.028-.082.054-.045.026-.095.049l-.073.035-.09.033q-.05.02-.103.034-.04.01-.08.017-.053.012-.108.021l-.006.002-.202.013H1.783l-.214-.015a1.503 1.503 0 0 1-1.066-2.268L5 6.359V1h-.5a.499.499 0 0 1-.354-.854A.5.5 0 0 1 4.5 0zm.5 12a.5.5 0 0 0 0 1h1.885l-.61-1zm-1-2a.5.5 0 0 0 0 1h1.664l-.612-1zm-1-2a.5.5 0 0 0 0 1h1.441l-.61-1zM9 6a.5.5 0 0 0 0 1h1.22l-.147-.24A.5.5 0 0 1 10 6.5V6zm0-2a.5.5 0 0 0 0 1h1V4zm0-2a.5.5 0 0 0 0 1h1V2z"/></symbol><symbol id="i-bootstrap-folder2-open" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2.764c.958 0 1.76.56 2.311 1.184C7.985 3.648 8.48 4 9 4h4.5A1.5 1.5 0 0 1 15 5.5v.64c.57.265.94.876.856 1.546l-.64 5.124A2.5 2.5 0 0 1 12.733 15H3.266a2.5 2.5 0 0 1-2.481-2.19l-.64-5.124A1.5 1.5 0 0 1 1 6.14zM2 6h12v-.5a.5.5 0 0 0-.5-.5H9c-.964 0-1.71-.629-2.174-1.154C6.374 3.334 5.82 3 5.264 3H2.5a.5.5 0 0 0-.5.5zm-.367 1a.5.5 0 0 0-.496.562l.64 5.124A1.5 1.5 0 0 0 3.266 14h9.468a1.5 1.5 0 0 0 1.489-1.314l.64-5.124A.5.5 0 0 0 14.367 7z"/></symbol><symbol id="i-bootstrap-hourglass-split" viewBox="0 0 16 16" fill="currentColor"><path d="M2.5 15a.5.5 0 1 1 0-1h1v-1a4.5 4.5 0 0 1 2.557-4.06c.29-.139.443-.377.443-.59v-.7c0-.213-.154-.451-.443-.59A4.5 4.5 0 0 1 3.5 3V2h-1a.5.5 0 0 1 0-1h11a.5.5 0 0 1 0 1h-1v1a4.5 4.5 0 0 1-2.557 4.06c-.29.139-.443.377-.443.59v.7c0 .213.154.451.443.59A4.5 4.5 0 0 1 12.5 13v1h1a.5.5 0 0 1 0 1zm2-13v1c0 .537.12 1.045.337 1.5h6.326c.216-.455.337-.963.337-1.5V2zm3 6.35c0 .701-.478 1.236-1.011 1.492A3.5 3.5 0 0 0 4.5 13s.866-1.299 3-1.48zm1 0v3.17c2.134.181 3 1.48 3 1.48a3.5 3.5 0 0 0-1.989-3.158C8.978 9.586 8.5 9.052 8.5 8.351z"/></symbol><symbol id="i-bootstrap-house-door-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 14.5v-3.505c0-.245.25-.495.5-.495h2c.25 0 .5.25.5.5v3.5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.146-.354L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 7.5v7a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5"/></symbol><symbol id="i-bootstrap-image-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M.002 3a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2zm1 9v1a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5l-3.777-1.947a.5.5 0 0 0-.577.093l-3.71 3.71-2.66-1.772a.5.5 0 0 0-.63.062zm5-6.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0"/></symbol><symbol id="i-bootstrap-key-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M3 8a5 5 0 1 1 9.584 2H15a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v-1h-1v-1h-1v-1h-.416A5.001 5.001 0 0 1 3 8m5-3a3 3 0 1 0 2.83 4H15v3h-1v-1h-1v-1h-2.17A3.001 3.001 0 0 0 8 5"/></symbol><symbol id="i-bootstrap-link-45deg" viewBox="0 0 16 16" fill="currentColor"><path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1 1 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4 4 0 0 1-.128-1.287z"/><path d="M6.586 4.672A3 3 0 0 0 7.414 9.5l.775-.776a2 2 0 0 1-.896-3.346L9.12 3.55a2 2 0 1 1 2.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 1 0-4.243-4.243z"/></symbol><symbol id="i-bootstrap-pencil-square" viewBox="0 0 16 16" fill="currentColor"><path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z"/><path fill-rule="evenodd" d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z"/></symbol><symbol id="i-bootstrap-person-badge-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2zm4.5 0a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1zM8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6m5 2.755C12.146 12.825 10.623 12 8 12s-4.146.826-5 1.755V14a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1z"/></symbol><symbol id="i-bootstrap-person-vcard-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm9 1.5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 0-1h-4a.5.5 0 0 0-.5.5M9 8a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 0-1h-4A.5.5 0 0 0 9 8m1 2.5a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 0-1h-3a.5.5 0 0 0-.5.5m-1 2C9 10.567 7.21 9 5 9c-2.086 0-3.8 1.398-3.984 3.181A1 1 0 0 0 2 13h6.96q.04-.245.04-.5M7 6a2 2 0 1 0-4 0 2 2 0 0 0 4 0"/></symbol><symbol id="i-bootstrap-person-workspace" viewBox="0 0 16 16" fill="currentColor"><path d="M4 16s-1 0-1-1 1-4 5-4 5 3 5 4-1 1-1 1zm4-5.95a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5"/>
+  <path d="M2 1a2 2 0 0 0-2 2v9.5A1.5 1.5 0 0 0 1.5 14h.653a5.4 5.4 0 0 1 1.066-2H1V3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v9h-2.219c.554.654.89 1.373 1.066 2h.653a1.5 1.5 0 0 0 1.5-1.5V3a2 2 0 0 0-2-2z"/></symbol><symbol id="i-bootstrap-play-fill" viewBox="0 0 16 16" fill="currentColor"><path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393"/></symbol><symbol id="i-bootstrap-plus-lg" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2"/></symbol><symbol id="i-bootstrap-receipt" viewBox="0 0 16 16" fill="currentColor"><path d="M1.92.506a.5.5 0 0 1 .434.14L3 1.293l.646-.647a.5.5 0 0 1 .708 0L5 1.293l.646-.647a.5.5 0 0 1 .708 0L7 1.293l.646-.647a.5.5 0 0 1 .708 0L9 1.293l.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .801.13l.5 1A.5.5 0 0 1 15 2v12a.5.5 0 0 1-.053.224l-.5 1a.5.5 0 0 1-.8.13L13 14.707l-.646.647a.5.5 0 0 1-.708 0L11 14.707l-.646.647a.5.5 0 0 1-.708 0L9 14.707l-.646.647a.5.5 0 0 1-.708 0L7 14.707l-.646.647a.5.5 0 0 1-.708 0L5 14.707l-.646.647a.5.5 0 0 1-.708 0L3 14.707l-.646.647a.5.5 0 0 1-.801-.13l-.5-1A.5.5 0 0 1 1 14V2a.5.5 0 0 1 .053-.224l.5-1a.5.5 0 0 1 .367-.27m.217 1.338L2 2.118v11.764l.137.274.51-.51a.5.5 0 0 1 .707 0l.646.647.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.509.509.137-.274V2.118l-.137-.274-.51.51a.5.5 0 0 1-.707 0L12 1.707l-.646.647a.5.5 0 0 1-.708 0L10 1.707l-.646.647a.5.5 0 0 1-.708 0L8 1.707l-.646.647a.5.5 0 0 1-.708 0L6 1.707l-.646.647a.5.5 0 0 1-.708 0L4 1.707l-.646.647a.5.5 0 0 1-.708 0z"/><path d="M3 4.5a.5.5 0 0 1 .5-.5h6a.5.5 0 1 1 0 1h-6a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h6a.5.5 0 1 1 0 1h-6a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h6a.5.5 0 1 1 0 1h-6a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5m8-6a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5"/></symbol><symbol id="i-bootstrap-rocket-takeoff-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M12.17 9.53c2.307-2.592 3.278-4.684 3.641-6.218.21-.887.214-1.58.16-2.065a3.6 3.6 0 0 0-.108-.563 2 2 0 0 0-.078-.23V.453c-.073-.164-.168-.234-.352-.295a2 2 0 0 0-.16-.045 4 4 0 0 0-.57-.093c-.49-.044-1.19-.03-2.08.188-1.536.374-3.618 1.343-6.161 3.604l-2.4.238h-.006a2.55 2.55 0 0 0-1.524.734L.15 7.17a.512.512 0 0 0 .433.868l1.896-.271c.28-.04.592.013.955.132.232.076.437.16.655.248l.203.083c.196.816.66 1.58 1.275 2.195.613.614 1.376 1.08 2.191 1.277l.082.202c.089.218.173.424.249.657.118.363.172.676.132.956l-.271 1.9a.512.512 0 0 0 .867.433l2.382-2.386c.41-.41.668-.949.732-1.526zm.11-3.699c-.797.8-1.93.961-2.528.362-.598-.6-.436-1.733.361-2.532.798-.799 1.93-.96 2.528-.361s.437 1.732-.36 2.531Z"/><path d="M5.205 10.787a7.6 7.6 0 0 0 1.804 1.352c-1.118 1.007-4.929 2.028-5.054 1.903-.126-.127.737-4.189 1.839-5.18.346.69.837 1.35 1.411 1.925"/></symbol><symbol id="i-bootstrap-save-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M8.5 1.5A1.5 1.5 0 0 1 10 0h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h6c-.314.418-.5.937-.5 1.5v7.793L4.854 6.646a.5.5 0 1 0-.708.708l3.5 3.5a.5.5 0 0 0 .708 0l3.5-3.5a.5.5 0 0 0-.708-.708L8.5 9.293z"/></symbol><symbol id="i-bootstrap-tools" viewBox="0 0 16 16" fill="currentColor"><path d="M1 0 0 1l2.2 3.081a1 1 0 0 0 .815.419h.07a1 1 0 0 1 .708.293l2.675 2.675-2.617 2.654A3.003 3.003 0 0 0 0 13a3 3 0 1 0 5.878-.851l2.654-2.617.968.968-.305.914a1 1 0 0 0 .242 1.023l3.27 3.27a.997.997 0 0 0 1.414 0l1.586-1.586a.997.997 0 0 0 0-1.414l-3.27-3.27a1 1 0 0 0-1.023-.242L10.5 9.5l-.96-.96 2.68-2.643A3.005 3.005 0 0 0 16 3q0-.405-.102-.777l-2.14 2.141L12 4l-.364-1.757L13.777.102a3 3 0 0 0-3.675 3.68L7.462 6.46 4.793 3.793a1 1 0 0 1-.293-.707v-.071a1 1 0 0 0-.419-.814zm9.646 10.646a.5.5 0 0 1 .708 0l2.914 2.915a.5.5 0 0 1-.707.707l-2.915-2.914a.5.5 0 0 1 0-.708M3 11l.471.242.529.026.287.445.445.287.026.529L5 13l-.242.471-.026.529-.445.287-.287.445-.529.026L3 15l-.471-.242L2 14.732l-.287-.445L1.268 14l-.026-.529L1 13l.242-.471.026-.529.445-.287.287-.445.529-.026z"/></symbol><symbol id="i-bootstrap-upload" viewBox="0 0 16 16" fill="currentColor"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708z"/></symbol><symbol id="i-bootstrap-wrench-adjustable" viewBox="0 0 16 16" fill="currentColor"><path d="M16 4.5a4.5 4.5 0 0 1-1.703 3.526L13 5l2.959-1.11q.04.3.041.61"/><path d="M11.5 9c.653 0 1.273-.139 1.833-.39L12 5.5 11 3l3.826-1.53A4.5 4.5 0 0 0 7.29 6.092l-6.116 5.096a2.583 2.583 0 1 0 3.638 3.638L9.908 8.71A4.5 4.5 0 0 0 11.5 9m-1.292-4.361-.596.893.809-.27a.25.25 0 0 1 .287.377l-.596.893.809-.27.158.475-1.5.5a.25.25 0 0 1-.287-.376l.596-.893-.809.27a.25.25 0 0 1-.287-.377l.596-.893-.809.27-.158-.475 1.5-.5a.25.25 0 0 1 .287.376M3 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2"/></symbol><symbol id="i-clipboard-copy" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/></symbol><symbol id="i-file-spreadsheet" viewBox="0 0 16 16" fill="currentColor"><path d="M9.293 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.707A1 1 0 0 0 13.707 4L10 .293A1 1 0 0 0 9.293 0M9.5 3.5v-2l3 3h-2a1 1 0 0 1-1-1M5.884 6.68 8 9.219l2.116-2.54a.5.5 0 1 1 .768.641L8.651 10l2.233 2.68a.5.5 0 0 1-.768.64L8 10.781l-2.116 2.54a.5.5 0 0 1-.768-.641L7.349 10 5.116 7.32a.5.5 0 1 1 .768-.64"/></symbol><symbol id="i-image-down" viewBox="0 0 16 16" fill="currentColor"><path d="M8.5 6.5a.5.5 0 0 0-1 0v3.793L6.354 9.146a.5.5 0 1 0-.708.708l2 2a.5.5 0 0 0 .708 0l2-2a.5.5 0 0 0-.708-.708L8.5 10.293z"/>
+  <path d="M14 14V4.5L9.5 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2M9.5 3A1.5 1.5 0 0 0 11 4.5h2V14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h5.5z"/></symbol><symbol id="i-printer" viewBox="0 0 16 16" fill="currentColor"><path d="M2.5 8a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1"/>
+  <path d="M5 1a2 2 0 0 0-2 2v2H2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1h1a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V3a2 2 0 0 0-2-2zM4 3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H4zm1 5a2 2 0 0 0-2 2v1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v-1a2 2 0 0 0-2-2zm7 2v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1"/></symbol><symbol id="i-refresh-cw" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
+  <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/></symbol></svg>
+
 
 <div class="gate" id="gate">
   <div class="box">
@@ -1175,7 +1243,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
   <div class="appbar-status">
     <button class="account-pin" id="pinMenuButton" type="button" onclick="openPinDialog()"
       title="PIN 번호 변경" aria-label="PIN 번호 변경">
-      <img src="/icons/bootstrap-key-fill.svg" alt="">
+      <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-key-fill"/></svg>
     </button>
     <div class="notice-wrap">
       <button class="notice-bell" id="noticeBell" type="button" onclick="toggleNotifications(event)"
@@ -1209,7 +1277,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
   onclick="if(event.target===this)closePinDialog()">
   <form class="pin-dialog-card" onsubmit="changePin(event)">
     <div class="pin-dialog-head">
-      <div class="pin-symbol"><img src="/icons/bootstrap-key-fill.svg" alt=""></div>
+      <div class="pin-symbol"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-key-fill"/></svg></div>
       <div><h3 id="pinDialogTitle">PIN 번호 변경</h3>
         <p id="pinDialogRole">현재 로그인한 계정의 PIN만 변경합니다.</p></div>
     </div>
@@ -1249,11 +1317,11 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	      <div class="muted">담당자별 고정 주소에서 과거 목록 확인·신규 입력·근거 첨부·자동 반영을 처리합니다.</div>
 	      <div class="workcenter-buttons" id="workcenterButtons">
 	        <a class="workcenter-person" href="/staff/ryu-jiyeong" target="_blank" rel="noopener">
-	          <span class="wc-icon"><img src="/icons/bootstrap-person-workspace.svg" alt=""></span><span class="wc-copy">류지영<small>돌발AS · 정기점검</small></span><span class="wc-arrow">↗</span></a>
+	          <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-workspace"/></svg></span><span class="wc-copy">류지영<small>돌발AS · 정기점검</small></span><span class="wc-arrow">↗</span></a>
 	        <a class="workcenter-person" href="/staff/oh-jonghyeon" target="_blank" rel="noopener">
-	          <span class="wc-icon"><img src="/icons/bootstrap-person-badge-fill.svg" alt=""></span><span class="wc-copy">오종현<small>PO · 구매 원천자료</small></span><span class="wc-arrow">↗</span></a>
+	          <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-badge-fill"/></svg></span><span class="wc-copy">오종현<small>PO · 구매 원천자료</small></span><span class="wc-arrow">↗</span></a>
 	        <a class="workcenter-person" href="/staff/byeon-jaeseon" target="_blank" rel="noopener">
-	          <span class="wc-icon"><img src="/icons/bootstrap-person-vcard-fill.svg" alt=""></span><span class="wc-copy">변재선<small>회계 · 세금계산서 · 입금</small></span><span class="wc-arrow">↗</span></a>
+	          <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-vcard-fill"/></svg></span><span class="wc-copy">변재선<small>회계 · 세금계산서 · 입금</small></span><span class="wc-arrow">↗</span></a>
 	      </div>
 	    </div>
 	    <div class="card rep-card" id="repCard">
@@ -1266,17 +1334,17 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
       <div class="rep-grid" id="repKpis"></div>
       <div class="rep-docs" id="repDocs"></div>
       <div class="actions" style="margin-top:12px">
-          <button class="abtn primary" onclick="show('check')"><img class="em" src="/icons/bootstrap-exclamation-triangle-fill.svg" alt="">확인 필요 전체</button>
-          <button class="abtn" onclick="show('daily')"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">대표 보고 보기</button>
+          <button class="abtn primary" onclick="show('check')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-exclamation-triangle-fill"/></svg>확인 필요 전체</button>
+          <button class="abtn" onclick="show('daily')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-image-fill"/></svg>대표 보고 보기</button>
       </div>
     </div>
     <div class="kpis" id="kpis"></div>
     <div class="card"><h3>에이전트 최근 실행 <span id="agentTime" style="font-weight:400"></span></h3>
       <div class="steps" id="steps"></div></div>
     <div class="card" id="forkcard" style="display:none;border:2px solid var(--danger)">
-      <h3 style="color:var(--danger)"><img class="inline-bi" src="/icons/bootstrap-exclamation-triangle-fill.svg" alt=""> 버전 충돌 경고</h3><div id="forkmsg" style="font-size:13.5px"></div></div>
+      <h3 style="color:var(--danger)"><svg class="inline-bi bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-exclamation-triangle-fill"/></svg> 버전 충돌 경고</h3><div id="forkmsg" style="font-size:13.5px"></div></div>
     <div class="card" id="entrycard">
-      <h3><img class="inline-bi" src="/icons/bootstrap-link-45deg.svg" alt=""> 고정 접속 주소 <span class="norm">— 바뀌지 않습니다</span></h3>
+      <h3><svg class="inline-bi bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-link-45deg"/></svg> 고정 접속 주소 <span class="norm">— 바뀌지 않습니다</span></h3>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <a id="fixedurl" href="#" target="_blank"
            style="flex:1;min-width:200px;font-size:13.5px;font-weight:800;word-break:break-all"></a>
@@ -1320,28 +1388,28 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	    <div class="card"><h3>내가 확인할 사항 <span class="norm">— 유현민 (관리·청구·원천데이터)</span></h3>
 	      <div class="toplist" id="mylist">로딩...</div>
 	      <div class="media-tools" role="toolbar" aria-label="내 확인 목록 도구" style="margin-top:10px">
-	        <button class="icon-btn" onclick="printMine()" title="인쇄" aria-label="인쇄"><img src="/icons/printer.svg" alt=""></button>
-	        <button class="icon-btn primary" onclick="captureMine()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>
-	        <button class="icon-btn" onclick="copyMineImage()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>
-	        <button class="icon-btn excel" onclick="exportMineXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button>
+	        <button class="icon-btn" onclick="printMine()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>
+	        <button class="icon-btn primary" onclick="captureMine()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
+	        <button class="icon-btn" onclick="copyMineImage()" title="복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
+	        <button class="icon-btn excel" onclick="exportMineXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
 	      </div></div>
     <!-- 구글 캘린더(COUPANG 설치+납품+AS) — 예정된 일이 원장과 맞는가 -->
     <div class="card" id="calcard"><h3>일정 <small id="calsub" style="font-weight:600;color:var(--muted)"></small></h3>
       <div id="callist" class="muted">불러오는 중…</div>
-        <div class="actions"><button class="abtn" onclick="openCalendar()"><img class="em" src="/icons/bootstrap-calendar3.svg" alt="">전체 일정 보기</button></div>
+        <div class="actions"><button class="abtn" onclick="openCalendar()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar3"/></svg>전체 일정 보기</button></div>
     </div>
 	    <div class="card"><h3>빠른 실행</h3>
 	      <div class="actions">
-        <button class="abtn primary" onclick="runTask('daily')"><img class="em" src="/icons/bootstrap-play-fill.svg" alt="">전체 대조</button>
-        <button class="abtn" onclick="show('settle')"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">정산 현황</button>
-        <button class="abtn" onclick="show('report')"><img class="em" src="/icons/bootstrap-file-earmark-text-fill.svg" alt="">리포트</button>
+        <button class="abtn primary" onclick="runTask('daily')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-play-fill"/></svg>전체 대조</button>
+        <button class="abtn" onclick="show('settle')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>정산 현황</button>
+        <button class="abtn" onclick="show('report')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-text-fill"/></svg>리포트</button>
 	      </div>
 	      <div class="media-tools" role="toolbar" aria-label="대시보드 도구" style="margin-top:12px">
-	        <button class="icon-btn" onclick="printDash()" title="인쇄" aria-label="인쇄"><img src="/icons/printer.svg" alt=""></button>
-	        <button class="icon-btn primary" onclick="captureDash()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>
-	        <button class="icon-btn" onclick="copyDashImage()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>
-	        <button class="icon-btn excel" onclick="exportDashXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button>
-	        <button class="icon-btn" onclick="reloadHere(this)" title="새로고침" aria-label="새로고침"><img src="/icons/refresh-cw.svg" alt=""></button>
+	        <button class="icon-btn" onclick="printDash()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>
+	        <button class="icon-btn primary" onclick="captureDash()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
+	        <button class="icon-btn" onclick="copyDashImage()" title="복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
+	        <button class="icon-btn excel" onclick="exportDashXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
+	        <button class="icon-btn" onclick="reloadHere(this)" title="새로고침" aria-label="새로고침"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg></button>
 	      </div></div>
   </section>
 
@@ -1394,33 +1462,33 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
   <section class="view" id="v-run">
     <div class="card"><h3>작업 실행</h3>
       <div class="actions">
-        <button class="abtn primary" onclick="runTask('daily')"><img class="em" src="/icons/bootstrap-play-fill.svg" alt="">전체 대조</button>
-        <button class="abtn" onclick="runTask('synthetic')"><img class="em" src="/icons/bootstrap-flask-fill.svg" alt="">합성검증</button>
-        <button class="abtn" onclick="runTask('kakao')"><img class="em" src="/icons/bootstrap-chat-dots-fill.svg" alt="">카톡 대조</button>
-        <button class="abtn" onclick="runTask('erp_ledger')"><img class="em" src="/icons/bootstrap-receipt.svg" alt="">ERP원장 대조</button>
-        <button class="abtn" onclick="runTask('po')"><img class="em" src="/icons/bootstrap-box-seam.svg" alt="">쿠팡 PO 대조</button>
-        <button class="abtn" onclick="runTask('band_ingest')"><img class="em" src="/icons/bootstrap-upload.svg" alt="">밴드 수집분 반영</button>
-        <button class="abtn" onclick="runTask('erp_docs')"><img class="em" src="/icons/bootstrap-receipt.svg" alt="">ERP 매출서류 대조</button>
-        <button class="abtn" onclick="runTask('band_docs')"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">밴드 문서 이미지 대조</button>
+        <button class="abtn primary" onclick="runTask('daily')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-play-fill"/></svg>전체 대조</button>
+        <button class="abtn" onclick="runTask('synthetic')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-flask-fill"/></svg>합성검증</button>
+        <button class="abtn" onclick="runTask('kakao')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-chat-dots-fill"/></svg>카톡 대조</button>
+        <button class="abtn" onclick="runTask('erp_ledger')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-receipt"/></svg>ERP원장 대조</button>
+        <button class="abtn" onclick="runTask('po')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-box-seam"/></svg>쿠팡 PO 대조</button>
+        <button class="abtn" onclick="runTask('band_ingest')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-upload"/></svg>밴드 수집분 반영</button>
+        <button class="abtn" onclick="runTask('erp_docs')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-receipt"/></svg>ERP 매출서류 대조</button>
+        <button class="abtn" onclick="runTask('band_docs')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-image-fill"/></svg>밴드 문서 이미지 대조</button>
         <button class="abtn" onclick="confirmRun('band_docs_apply','밴드에 올라온 거래명세서·세금계산서 사진을 읽어
 확실한 건만(금액 일치) 관리대장 빈칸에 넣습니다.
-이미 값이 있는 칸은 덮어쓰지 않습니다.')"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">밴드 문서 → 대장 입력</button>
-        <button class="abtn" onclick="runTask('writer_prev')"><img class="em" src="/icons/bootstrap-pencil-square.svg" alt="">자동입력 미리보기</button>
-        <button class="abtn" onclick="confirmRun('writer_apply','확정 대기 항목을 관리대장 새 버전(vN+1)에 입력합니다.\n빈 칸만 채우며 이전 버전은 보존됩니다.')"><img class="em" src="/icons/bootstrap-pencil-square.svg" alt="">자동입력 반영</button>
-        <button class="abtn" onclick="runTask('upload_dry')"><img class="em" src="/icons/bootstrap-upload.svg" alt="">전표 전송대기</button>
-        <button class="abtn danger" onclick="confirmRun('upload_post','⚠ 이카운트 ERP에 매출전표를 실제 등록합니다.\n(10.5초/건, 이중계상 가드 적용)')"><img class="em" src="/icons/bootstrap-rocket-takeoff-fill.svg" alt="">전표 실전송</button>
+이미 값이 있는 칸은 덮어쓰지 않습니다.')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-image-fill"/></svg>밴드 문서 → 대장 입력</button>
+        <button class="abtn" onclick="runTask('writer_prev')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>자동입력 미리보기</button>
+        <button class="abtn" onclick="confirmRun('writer_apply','확정 대기 항목을 관리대장 새 버전(vN+1)에 입력합니다.\n빈 칸만 채우며 이전 버전은 보존됩니다.')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>자동입력 반영</button>
+        <button class="abtn" onclick="runTask('upload_dry')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-upload"/></svg>전표 전송대기</button>
+        <button class="abtn danger" onclick="confirmRun('upload_post','⚠ 이카운트 ERP에 매출전표를 실제 등록합니다.\n(10.5초/건, 이중계상 가드 적용)')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-rocket-takeoff-fill"/></svg>전표 실전송</button>
       </div>
       <div class="fnote" id="runAgentNote">AI 실행 연계 상태를 확인 중입니다.</div>
       <div class="logbox" id="logbox">대기 중 — 작업을 실행하면 로그가 여기 표시됩니다.</div></div>
     <div id="helpcard"></div>
     <div class="card"><h3>파일·폴더 열기 <span class="norm">— 사무실 PC에서 접속했을 때만 동작</span></h3>
       <div class="actions">
-        <button class="abtn" onclick="openLocal('master')"><img class="em" src="/icons/bootstrap-folder2-open.svg" alt="">관리대장(최신)</button>
-        <button class="abtn" onclick="openLocal('inbox')"><img class="em" src="/icons/bootstrap-folder2-open.svg" alt="">ERP·PO inbox</button>
-        <button class="abtn" onclick="openLocal('kakao')"><img class="em" src="/icons/bootstrap-chat-dots-fill.svg" alt="">카톡 inbox</button>
-        <button class="abtn" onclick="openLocal('band_docs')"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">밴드 문서 사진함</button>
-        <button class="abtn" onclick="openLocal('band_cache')"><img class="em" src="/icons/bootstrap-folder2-open.svg" alt="">밴드 수집 덤프함</button>
-        <button class="abtn" onclick="openLocal('reports')"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">리포트 폴더</button>
+        <button class="abtn" onclick="openLocal('master')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-folder2-open"/></svg>관리대장(최신)</button>
+        <button class="abtn" onclick="openLocal('inbox')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-folder2-open"/></svg>ERP·PO inbox</button>
+        <button class="abtn" onclick="openLocal('kakao')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-chat-dots-fill"/></svg>카톡 inbox</button>
+        <button class="abtn" onclick="openLocal('band_docs')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-image-fill"/></svg>밴드 문서 사진함</button>
+        <button class="abtn" onclick="openLocal('band_cache')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-folder2-open"/></svg>밴드 수집 덤프함</button>
+        <button class="abtn" onclick="openLocal('reports')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>리포트 폴더</button>
       </div></div>
   </section>
 
@@ -1428,15 +1496,15 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
   <section class="view" id="v-daily">
     <div class="rpt-actions" role="toolbar" aria-label="보고서 도구">
       <button class="icon-btn" onclick="printReport()" title="인쇄" aria-label="인쇄">
-        <img src="/icons/printer.svg" alt=""></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>
       <button class="icon-btn primary" onclick="captureReport()" title="이미지 저장" aria-label="이미지 저장">
-        <img src="/icons/image-down.svg" alt=""></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
       <button class="icon-btn" onclick="copyReportImage()" title="복사" aria-label="복사">
-        <img src="/icons/clipboard-copy.svg" alt=""></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
       <button class="icon-btn excel" onclick="exportReportXlsx()" title="엑셀 저장" aria-label="엑셀 저장">
-        <img src="/icons/file-spreadsheet.svg" alt=""></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
       <button class="icon-btn" onclick="reloadHere(this)" title="새로고침" aria-label="새로고침">
-        <img src="/icons/refresh-cw.svg" alt=""></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg></button>
     </div>
     <div class="rpt" id="rpt">보고서 생성 중...</div>
   </section>
@@ -1450,8 +1518,8 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
         <p>문제유형과 담당자별로 건을 좁혀 보고, 프로젝트 번호를 눌러 정확한 업무 기록을 확인할 수 있습니다.</p>
       </div>
       <div class="actions">
-        <button class="abtn primary" onclick="openCheckFiltered()"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">현재 목록 보기</button>
-        <button class="abtn" onclick="showCheckRaw()"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">원본표 보기</button>
+        <button class="abtn primary" onclick="openCheckFiltered()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>현재 목록 보기</button>
+        <button class="abtn" onclick="showCheckRaw()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>원본표 보기</button>
       </div>
     </div>
     <div class="check-kpis" id="checkkpis"></div>
@@ -1509,9 +1577,9 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	        <label><input type="checkbox"> 카카오톡 원본과 첨부 근거 업로드</label>
 	      </div>
 	      <div class="actions" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-top:4px">
-	        <button class="abtn primary" type="button" onclick="shareStaffCenter()"><img class="em" src="/icons/bootstrap-arrow-up-right.svg" alt="">링크 보내기</button>
-	        <button class="abtn" type="button" onclick="copyStaffCenterUrl()"><img class="em" src="/icons/bootstrap-link-45deg.svg" alt="">주소 복사</button>
-	        <button class="abtn" type="button" onclick="showInstallCard()"><img class="em" src="/icons/bootstrap-plus-lg.svg" alt="">앱 설치</button>
+	        <button class="abtn primary" type="button" onclick="shareStaffCenter()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-up-right"/></svg>링크 보내기</button>
+	        <button class="abtn" type="button" onclick="copyStaffCenterUrl()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-link-45deg"/></svg>주소 복사</button>
+	        <button class="abtn" type="button" onclick="showInstallCard()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>앱 설치</button>
 	      </div>
 	    </div>
 
@@ -1542,9 +1610,9 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	          <span>과거 → 최근 · 항목을 누르면 입력 화면이 열립니다</span>
 	        </div>
 	        <div class="media-tools" id="staffListToolbar" role="toolbar" aria-label="담당자 업무 목록 도구" style="margin:0 0 9px">
-	          <button class="icon-btn primary" type="button" onclick="ryuCaptureList()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>
-	          <button class="icon-btn" type="button" onclick="ryuCopyList()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>
-	          <button class="icon-btn excel" type="button" onclick="ryuExportList()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button>
+	          <button class="icon-btn primary" type="button" onclick="ryuCaptureList()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
+	          <button class="icon-btn" type="button" onclick="ryuCopyList()" title="복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
+	          <button class="icon-btn excel" type="button" onclick="ryuExportList()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
 	        </div>
 	        <div class="ryu-history-list" id="ryuHistoryList">
 	          <div class="ryu-loading">목록을 불러오는 중입니다.</div>
@@ -1577,7 +1645,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	          </div>
 	          <p class="ryu-save-note">저장하면 관리대장의 해당 업무 ID를 찾아 <b>비어 있는 칸만</b> 반영합니다. 수식·검증결과·자동 상태는 직접 변경하지 않습니다.</p>
 	          <button class="abtn primary" id="ryuEntrySaveBtn" type="submit" style="width:100%;flex-direction:row;justify-content:center">
-	            <img class="em" src="/icons/bootstrap-check-lg.svg" alt="">확인 내용 저장·반영
+	            <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-check-lg"/></svg>확인 내용 저장·반영
 	          </button>
 	          <div class="ryu-result" id="ryuEntryResult"></div>
 	        </div>
@@ -1612,7 +1680,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	        </div>
 	        <button class="abtn primary" id="poSubmissionBtn" type="submit"
 	          style="width:100%;margin-top:14px;flex-direction:row;justify-content:center">
-	          <img class="em" src="/icons/bootstrap-box-seam.svg" alt="">원본 저장·자동 대조
+	          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-box-seam"/></svg>원본 저장·자동 대조
 	        </button>
 	        <div class="ryu-result" id="poSubmissionResult"></div>
 	      </form>
@@ -1641,7 +1709,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	        </div>
 	        <p class="ryu-save-note">저장하면 시스템 DB와 안전한 자동 반영 대기열에 먼저 기록합니다. 프로젝트 중복·날짜 오류·빈 행 부족은 우측 상단 알림으로 알려드립니다.</p>
 	        <button class="abtn primary" id="newWorkBtn" type="submit" style="width:100%;flex-direction:row;justify-content:center">
-	          <img class="em" src="/icons/bootstrap-plus-lg.svg" alt="">신규 업무 저장·자동 반영
+	          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>신규 업무 저장·자동 반영
 	        </button>
 	        <div class="ryu-result" id="newWorkResult"></div>
 	      </form>
@@ -1687,7 +1755,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	          <label class="wide">조사 메모<textarea name="survey_note" placeholder="자동 판정이 어려운 내용, 통화 확인 결과, 담당자에게 추가로 물어볼 내용을 적습니다."></textarea></label>
 	        </div>
 	        <button class="abtn primary" id="ryuUploadBtn" type="submit" style="width:100%;margin-top:16px;flex-direction:row;justify-content:center">
-	          <img class="em" src="/icons/bootstrap-play-fill.svg" alt="">원본 저장하고 자동 대조 시작
+	          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-play-fill"/></svg>원본 저장하고 자동 대조 시작
 	        </button>
 	        <div class="ryu-result" id="ryuUploadResult"></div>
 	      </form>
@@ -1710,7 +1778,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	          </label>
 	        </div>
 	        <button class="abtn primary" id="improvementBtn" type="submit" style="width:100%;margin-top:14px;flex-direction:row;justify-content:center">
-	          <img class="em" src="/icons/bootstrap-arrow-up-right.svg" alt="">개선 요청 등록
+	          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-up-right"/></svg>개선 요청 등록
 	        </button>
 	        <div class="ryu-result" id="improvementResult"></div>
 	      </form>
@@ -1734,8 +1802,8 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	        <div><small>정기점검 실행</small><strong>-</strong></div>
 	      </div>
 	      <div class="actions" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px">
-	        <button class="abtn primary" type="button" onclick="syncCurrentWorkLog()"><img class="em" src="/icons/bootstrap-check-lg.svg" alt="">현재 고정 원본 다시 검증</button>
-	        <button class="abtn" type="button" onclick="loadWorkLogStatus()"><img class="em" src="/icons/bootstrap-arrow-repeat.svg" alt="">검증 상태 새로고침</button>
+	        <button class="abtn primary" type="button" onclick="syncCurrentWorkLog()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-check-lg"/></svg>현재 고정 원본 다시 검증</button>
+	        <button class="abtn" type="button" onclick="loadWorkLogStatus()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-repeat"/></svg>검증 상태 새로고침</button>
 	      </div>
 	    </div>
 
@@ -1753,7 +1821,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	        <input id="workLogFilterQuery" type="search" placeholder="프로젝트·캠프·담당자·내용 검색"
 	          onkeydown="if(event.key==='Enter'){event.preventDefault();loadWorkLogStatus()}">
 	        <button class="abtn primary" type="button" onclick="loadWorkLogStatus()">
-	          <img src="/icons/refresh-cw.svg" alt="">목록 조회
+	          <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>목록 조회
 	        </button>
 	      </div>
 	      <div class="worklog-kpis" id="workLogRecordSummary">
@@ -1791,7 +1859,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	      </div>
 	      <button class="abtn primary" id="workLogUploadBtn" type="submit"
 	        style="width:100%;margin-top:14px;flex-direction:row;justify-content:center">
-	        <img class="em" src="/icons/bootstrap-play-fill.svg" alt="">원본 저장·전체 검증 시작
+	        <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-play-fill"/></svg>원본 저장·전체 검증 시작
 	      </button>
 	      <div class="ryu-result" id="workLogUploadResult"></div>
 	    </form>
@@ -1802,8 +1870,8 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	        <label>보고 기준일<input id="workLogReportDate" type="date"></label>
 	      </div>
 	      <div class="actions" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px">
-	      <button class="abtn" type="button" onclick="openWorkLogReport(false)"><img class="em" src="/icons/bootstrap-file-earmark-text-fill.svg" alt="">대표 보고 열기</button>
-	      <button class="abtn primary" type="button" onclick="openWorkLogReport(true)"><img class="em" src="/icons/bootstrap-image-fill.svg" alt="">대표 보고 이미지 저장</button>
+	      <button class="abtn" type="button" onclick="openWorkLogReport(false)"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-text-fill"/></svg>대표 보고 열기</button>
+	      <button class="abtn primary" type="button" onclick="openWorkLogReport(true)"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-image-fill"/></svg>대표 보고 이미지 저장</button>
 	      </div>
 	    </div>
 	  </section>
@@ -1817,8 +1885,8 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
         <p>전체 일정은 월간 화면으로 보고, 원장과 연결된 세부 정보는 오른쪽에서 확인합니다.</p>
       </div>
       <div class="actions" style="grid-template-columns:repeat(2,max-content);margin:0">
-      <button class="abtn" onclick="refreshCalendarPage()"><img class="em" src="/icons/bootstrap-arrow-repeat.svg" alt="">목록 새로고침</button>
-      <button class="abtn primary" onclick="focusCalendarEntry()"><img class="em" src="/icons/bootstrap-plus-lg.svg" alt="">일정 입력</button>
+      <button class="abtn" onclick="refreshCalendarPage()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-repeat"/></svg>목록 새로고침</button>
+      <button class="abtn primary" onclick="focusCalendarEntry()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>일정 입력</button>
       </div>
     </div>
 
@@ -1862,8 +1930,8 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
       </div>
       <div class="calendar-preview" id="calendarDraftPreview">입력한 일정의 요약이 여기에 표시됩니다.</div>
       <div class="actions" style="margin-top:11px">
-        <button class="abtn primary" onclick="openGoogleCalendarDraft()"><img class="em" src="/icons/bootstrap-calendar3.svg" alt="">Google Calendar에 입력</button>
-        <button class="abtn" onclick="clearCalendarDraft()"><img class="em" src="/icons/bootstrap-arrow-counterclockwise.svg" alt="">입력값 초기화</button>
+        <button class="abtn primary" onclick="openGoogleCalendarDraft()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar3"/></svg>Google Calendar에 입력</button>
+        <button class="abtn" onclick="clearCalendarDraft()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-counterclockwise"/></svg>입력값 초기화</button>
       </div>
     </div>
   </section>
@@ -1876,15 +1944,15 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
     <div class="bt" style="font-size:12.5px;line-height:1.35">Coupang Service<br>Operations System
       <small>CSOS · UNIVERSAL LIFT</small></div>
   </div>
-  <button class="on" data-v="dash" onclick="routeNav('dash')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>대시보드</button>
-  <button class="staff-worklog-nav" data-v="worklog" onclick="routeNav('worklog')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h14v18H5z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>대표보고 일지</button>
-  <button data-v="settle" onclick="routeNav('settle')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>정산</button>
-  <button data-v="run" onclick="routeNav('run')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="6,4 20,12 6,20"/></svg>실행</button>
-  <button data-v="daily" onclick="routeNav('daily')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2.5h5L16 6"/></svg>보고</button>
-  <button data-v="check" onclick="routeNav('check')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3L2.8 19h18.4L12 3z"/><path d="M12 9v4M12 16.5h.01"/></svg>확인 필요</button>
-  <button data-v="report" onclick="routeNav('report')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>기록</button>
+  <button class="on" data-v="dash" onclick="routeNav('dash')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-house-door-fill"/></svg>대시보드</button>
+  <button class="staff-worklog-nav" data-v="worklog" onclick="routeNav('worklog')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>대표보고 일지</button>
+  <button data-v="settle" onclick="routeNav('settle')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-receipt"/></svg>정산</button>
+  <button data-v="run" onclick="routeNav('run')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-play-fill"/></svg>실행</button>
+  <button data-v="daily" onclick="routeNav('daily')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-camera-fill"/></svg>보고</button>
+  <button data-v="check" onclick="routeNav('check')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-exclamation-triangle-fill"/></svg>확인 필요</button>
+  <button data-v="report" onclick="routeNav('report')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-text-fill"/></svg>기록</button>
   <div class="nav-spacer" aria-hidden="true"></div>
-  <button class="calendar-nav" data-v="calendar" onclick="routeNav('calendar')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>쿠팡 캘린더</button>
+  <button class="calendar-nav" data-v="calendar" onclick="routeNav('calendar')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>쿠팡 캘린더</button>
 </nav>
 
 <script>
@@ -2748,7 +2816,8 @@ async function loadStatus(){
   const asPend = asPendingRows();                 // 접수됐는데 아직 안 한 건(취소 제외)
   const asOpen = asPend.length;                   // 라벨을 '미실시' 로 통일한다
   const pmWait = (works.pm||[]).filter(r=>r.점검상태 && r.점검상태!=='완료').length;
-  const bi=(name)=>`<img src="/icons/${name}.svg" alt="">`;
+  // 스프라이트 참조로 통일 — <img> 는 currentColor 를 못 받아 선택·경고 상태에 반응하지 못한다.
+  const bi=(name)=>`<svg class="bi" aria-hidden="true" focusable="false"><use href="#i-${name}"/></svg>`;
   const tile=(cls,ico,label,val,sub,click)=>`<div class="kpi ${cls}" onclick="kTap(this);${click||''}">
     <div class="head"><div class="ico">${bi(ico)}</div><div class="l">${label}</div></div>
     <div class="v">${val}</div>${sub?`<div class="s">${sub}</div>`:''}</div>`;
@@ -4213,7 +4282,7 @@ function openPolicyEdit(index){
     <input id="policyOwner" value="유현민" style="width:100%;margin-top:7px;border:1px solid var(--line);
       border-radius:11px;padding:12px;font:inherit;font-size:16px">
     <div class="actions sticky">
-        <button class="abtn primary" onclick="savePolicy()"><img class="em" src="/icons/bootstrap-save-fill.svg" alt="">저장·전체 반영</button>
+        <button class="abtn primary" onclick="savePolicy()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-save-fill"/></svg>저장·전체 반영</button>
       <button class="abtn" onclick="openRepresentativeList('policy')">취소</button>
     </div>`);
 }
@@ -4533,7 +4602,7 @@ function briefBlock(){
   return `<div class="ebrief">
     <div class="bhead"><span>읽어 드릴 내용</span>
       <em>숫자가 아니라 무슨 일이 있었는지</em>
-    <button onclick="copyBrief()"><img class="inline-bi" src="/icons/clipboard-copy.svg" alt="">문장 복사</button></div>
+    <button onclick="copyBrief()"><svg class="inline-bi bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg>문장 복사</button></div>
     ${h}</div>`;
 }
 
@@ -4952,7 +5021,7 @@ function renderDaily(){
           (BRIEF&&BRIEF['데이터업데이트일시'])||new Date().toISOString().slice(0,16).replace('T',' ')}</span>
         <button onclick="openRptDates()" style="margin-top:5px;background:#EEF2FF;color:#1C3FA8;border:0;
           border-radius:8px;padding:5px 10px;font-size:11px;font-weight:800;font-family:inherit;
-      cursor:pointer"><img class="inline-bi" src="/icons/bootstrap-calendar3.svg" alt="">날짜 변경</button></div>
+      cursor:pointer"><svg class="inline-bi bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar3"/></svg>날짜 변경</button></div>
     </div>
     <h4>${+m}월 실적 <span class="norm">— 선택 기준일 ${selectedDay}</span></h4>
     <div class="rgrid">
@@ -5615,8 +5684,8 @@ function openCheckSource(r){
     <div class="dl">${fields.map(([k,v])=>`<dt>${esc2(k)}</dt><dd>${esc2(v)}</dd>`).join('')}</div>
     ${helpBox(checkTypeOf(r))}
     <div class="actions sticky">
-      <button class="abtn primary" onclick="openSingleCheckCapture()"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">이 항목 목록 열기</button>
-      <button class="abtn" onclick="showCheckRaw()"><img class="em" src="/icons/bootstrap-clipboard-data-fill.svg" alt="">원본표 보기</button></div>`);
+      <button class="abtn primary" onclick="openSingleCheckCapture()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>이 항목 목록 열기</button>
+      <button class="abtn" onclick="showCheckRaw()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>원본표 보기</button></div>`);
 }
 function openSingleCheckCapture(){
   const r=window._singleCheckRow; if(r) openCheckRows(checkTypeOf(r),[r],'원장 연결을 확인할 단일 항목');
@@ -5931,10 +6000,10 @@ function openExecMetric(label){
     <div class="lhead"><b>목록</b><span>${rows.length}건</span></div>
     <div class="slist">${body||'<div class="card">해당 건이 없습니다.</div>'}</div>
 	    <div class="media-tools sticky" role="toolbar" aria-label="목록 도구">
-	      <button class="icon-btn" onclick="printExecMetric()" title="인쇄" aria-label="인쇄"><img src="/icons/printer.svg" alt=""></button>
-	      <button class="icon-btn primary" onclick="saveExecMetric()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>
-	      <button class="icon-btn" onclick="copyExecMetric()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>
-	      <button class="icon-btn excel" onclick="exportMetricXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button>
+	      <button class="icon-btn" onclick="printExecMetric()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>
+	      <button class="icon-btn primary" onclick="saveExecMetric()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
+	      <button class="icon-btn" onclick="copyExecMetric()" title="복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
+	      <button class="icon-btn excel" onclick="exportMetricXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
 	    </div>`);
 }
 
@@ -6027,10 +6096,10 @@ function openAssignee(name, source){
     }).join('') || '<div class="card">항목 없음</div>') + '</div>'+
     (l.length?helpBox(l[0].issue):'')+
 	    '<div class="media-tools sticky" role="toolbar" aria-label="담당자 목록 도구">'+
-	      '<button class="icon-btn" onclick="printAssignee()" title="인쇄" aria-label="인쇄"><img src="/icons/printer.svg" alt=""></button>'+
-	      '<button class="icon-btn primary" onclick="captureAssignee()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>'+
-	      '<button class="icon-btn" onclick="copyAssigneeImage()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>'+
-	      '<button class="icon-btn excel" onclick="exportAssigneeXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button></div>');
+	      '<button class="icon-btn" onclick="printAssignee()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>'+
+	      '<button class="icon-btn primary" onclick="captureAssignee()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>'+
+	      '<button class="icon-btn" onclick="copyAssigneeImage()" title="복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>'+
+	      '<button class="icon-btn excel" onclick="exportAssigneeXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button></div>');
 }
 
 function openMine(idx){
@@ -6051,10 +6120,10 @@ function openMine(idx){
 	  window._mineIdx = idx;                      // 캡처가 어느 항목인지 알아야 한다
 	  const cap = rows.length
 	    ? '<div class="media-tools" role="toolbar" aria-label="내 확인 상세 목록 도구" style="margin-top:12px">'+
-	      '<button class="icon-btn" onclick="printMineDetail()" title="인쇄" aria-label="인쇄"><img src="/icons/printer.svg" alt=""></button>'+
-	      '<button class="icon-btn primary" onclick="captureMineDetail()" title="이미지 저장" aria-label="이미지 저장"><img src="/icons/image-down.svg" alt=""></button>'+
-	      '<button class="icon-btn" onclick="copyMineDetailImage()" title="복사" aria-label="복사"><img src="/icons/clipboard-copy.svg" alt=""></button>'+
-	      '<button class="icon-btn excel" onclick="exportMineDetailXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><img src="/icons/file-spreadsheet.svg" alt=""></button></div>'
+	      '<button class="icon-btn" onclick="printMineDetail()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>'+
+	      '<button class="icon-btn primary" onclick="captureMineDetail()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>'+
+	      '<button class="icon-btn" onclick="copyMineDetailImage()" title="복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>'+
+	      '<button class="icon-btn excel" onclick="exportMineDetailXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button></div>'
 	    : '';
   openPane('<h2>'+m.cat+' <span class="chip '+(m.lv==='danger'?'c-danger':'c-warn')+'">'+
     (m.n?m.n+'건':'대기')+'</span></h2><div class="sub">'+m.todo+

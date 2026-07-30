@@ -1137,7 +1137,7 @@ def t6_webapp():
             assert r.headers.get_content_type() == "image/png" and len(r.read()) > 1000
         # 공통 캡처 도구막대와 류지영 조사실(카톡 2개 방 원본)은 모든 화면에서
         # 같은 저장·복사·엑셀 흐름을 쓴다.
-        for marker in ("media-tools", "icon-btn", "/icons/file-spreadsheet.svg",
+        for marker in ("media-tools", "icon-btn", "#i-file-spreadsheet",
                        'id="v-ryu"', 'name="kakao_regular"', 'name="kakao_emergency"',
                        "/api/ryu/upload", "★UNI★ 쿠팡정기점검", "★UNI★ 쿠팡돌발점검",
                        "auto_check_queued"):
@@ -1155,10 +1155,11 @@ def t6_webapp():
         assert "/api/staff/install-shortcut" in html and "window.__csosInstallPrompt" in html
         assert "workcenterIsInstalled()" in html and "csos_installed_" in html
         assert "maybeShowInstallCard()" in html and "display-mode: standalone" in html
-        for icon_name in ("bootstrap-person-workspace.svg",
-                          "bootstrap-person-badge-fill.svg",
-                          "bootstrap-person-vcard-fill.svg"):
-            assert f"/icons/{icon_name}" in html, "Bootstrap 업무센터 아이콘 누락"
+        # 아이콘 참조는 스프라이트(<use href="#i-...">)다 — 경로가 아니라 **이름**으로 확인한다.
+        for icon_name in ("bootstrap-person-workspace",
+                          "bootstrap-person-badge-fill",
+                          "bootstrap-person-vcard-fill"):
+            assert f"#i-{icon_name}" in html, "Bootstrap 업무센터 아이콘 누락: " + icon_name
         # PIN 원문을 브라우저에 계속 보관하지 않고, 서버 서명 쿠키를 복원한다.
         assert "/api/auth/session" in html and "restoreRoleSession" in html
         assert "localStorage.setItem('cw_pin'" not in html
@@ -3040,7 +3041,8 @@ def t58_check_hub_detail_and_capture():
     # 현재 필터 결과를 기존 캡처 엔진에 넘겨 이미지 저장·전달 기능을 그대로 쓴다.
     assert "rows:rows.map(checkMetricRow)" in live and "openExecMetric(label)" in live
     assert "현재 목록 보기" in live and "이미지 복사" in live and "이미지 저장" in live
-    assert "media-tools" in live and "/icons/clipboard-copy.svg" in live
+    # 아이콘 참조 방식(<img> → 스프라이트 <use>)이 바뀌어도 깨지지 않게 **아이콘 이름**으로 본다.
+    assert "media-tools" in live and "#i-clipboard-copy" in live
     # 모바일 탭바: 크기 **숫자를 고정하지 않는다**(2026-07-30 아이콘을 키우자 이 줄이 깨졌다).
     # 지켜야 하는 것은 ① 좁은 화면용 규칙이 있다 ② 아이콘이 **알아볼 수 있는 크기**다.
     #   사용자 지적: "모바일에서 아이콘이 너무 작아 잘 안 보여" — 탭이 7개로 늘며 좁아진 탓이다.
@@ -3529,6 +3531,45 @@ def t90_ip_guard_and_archive():
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert "erp_ip_guard.py" in daily and "archive_keep.py" in daily, "일일 실행에 연결되지 않았다"
     print("  [90] ERP IP 관문(호출 전 차단)·복구용 보관(bundle·비밀키 제외) ✅")
+
+
+def t91_icon_sprite_and_ios_theme():
+    """아이콘 스프라이트 + iOS 외형 (2026-07-30 지시).
+
+    ★ 왜 <img> 를 버렸나: 원본 svg 에 fill="#344054" 가 박혀 있어 **선택된 탭·다크모드·
+      경고색에 아이콘이 반응하지 못했다.** 흰 아이콘이 필요한 곳은 filter:brightness(0)
+      invert(1) 같은 꼼수로 때웠다. 스프라이트+currentColor 로 근본을 고쳤다.
+    ★ 왜 인라인인가: iOS Safari 는 외부 파일의 <use href="a.svg#id"> 를 제대로 렌더하지
+      않는다. 아이폰이 주 사용처이므로 인라인이 유일한 정답이다.
+    """
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # 스프라이트가 있고, 모든 <use> 가 실제 <symbol> 을 가리킨다(깨진 아이콘 0)
+    symbols = set(re.findall(r'<symbol id="i-([^"]+)"', live))
+    assert symbols, "아이콘 스프라이트가 없다"
+    used = set(re.findall(r'<use href="#i-([^"]+)"', live))
+    dynamic = {u for u in used if "${" in u}
+    missing = (used - dynamic) - symbols
+    assert not missing, f"symbol 이 없는 아이콘 참조: {sorted(missing)[:5]}"
+
+    # <img> 로 아이콘을 되돌리면 색 상속이 다시 깨진다
+    assert 'src="/icons/' not in live, "아이콘이 <img> 로 되돌아갔다 — currentColor 를 못 받는다"
+    assert "filter:brightness(0) invert(1)}" not in live, "invert 꼼수가 남아 있다"
+
+    # 아이콘 파일과 라이선스는 저장소에 남겨 둔다(스프라이트를 다시 만들 수 있어야 한다)
+    icons_dir = os.path.join(ROOT, "webapp", "icons")
+    assert os.path.exists(os.path.join(icons_dir, "LICENSE-bootstrap-icons.txt")), "라이선스 파일 누락"
+    on_disk = {os.path.splitext(f)[0] for f in os.listdir(icons_dir) if f.endswith(".svg")}
+    assert symbols <= on_disk, f"원본 svg 가 없는 symbol: {sorted(symbols - on_disk)[:5]}"
+
+    # iOS 외형: systemBlue·그룹배경·다크모드·큰 모서리
+    assert "--brand:#007AFF" in live, "systemBlue 가 아니다"
+    assert "--bg:#F2F2F7" in live, "iOS 그룹 배경이 아니다"
+    assert "prefers-color-scheme: dark" in live, "다크 모드가 없다"
+    assert "-apple-system" in live, "SF Pro 글꼴 스택이 아니다"
+    # 탭바 유리 효과는 지원 안 되는 브라우저를 위해 @supports 로 감싼다
+    assert "backdrop-filter" in live and "@supports" in live, "유리 효과에 폴백이 없다"
+    print(f"  [91] 아이콘 스프라이트({len(symbols)}개·깨짐 0)·currentColor·iOS 외형 ✅")
 
 
 def t77_side_work_single_switch():
@@ -4186,6 +4227,7 @@ if __name__ == "__main__":
     t77_side_work_single_switch()
     t78_recalc_pending_visible()
     t90_ip_guard_and_archive()
+    t91_icon_sprite_and_ios_theme()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:
