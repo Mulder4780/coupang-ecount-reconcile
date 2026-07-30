@@ -132,11 +132,16 @@ button:focus-visible,.topitem:focus-visible,.srow:focus-visible,.check-kpi:focus
   border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom);
   box-shadow:0 -4px 16px rgba(16,24,40,.05)}
 .tabbar .brand{display:none}
-.tabbar button{flex:1;padding:8px 0 7px;display:flex;flex-direction:column;align-items:center;gap:3px;
-  font-size:10.5px;color:var(--ink-3);font-weight:600;position:relative;transition:color .15s}
+.tabbar button{flex:1;padding:7px 0 6px;display:flex;flex-direction:column;align-items:center;gap:4px;
+  font-size:10.5px;color:var(--ink-3);font-weight:600;position:relative;transition:color .15s;
+  white-space:nowrap;letter-spacing:-.2px}
 .tabbar button.on{color:var(--brand)}
 .tabbar button.on::before{content:"";position:absolute;top:0;width:26px;height:3px;border-radius:0 0 4px 4px;background:var(--brand)}
-.tabbar svg{width:22px;height:22px}
+/* ★ 2026-07-30: 모바일에서 아이콘이 안 보인다는 지적. 탭이 7개로 늘어 한 칸이 좁아졌다.
+   좁은 화면에서 무엇인지 알려주는 것은 글자(9px)가 아니라 **아이콘**이다.
+   그래서 글자는 조금 줄이고 아이콘을 키운다. stroke-width 2 는 크기가 커지면
+   상대적으로 얇아져 오히려 또렷해진다. */
+.tabbar svg{width:29px;height:29px}
 .tabbar .nav-spacer{display:none}
 
 /* 쿠팡 캘린더 — 전체 월간 보기(Google)와 원장 대조 캐시 상세를 한 화면에 둔다. */
@@ -710,8 +715,14 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   .check-toolbar input{grid-column:1/-1}
 }
 @media(max-width:420px){
-  .tabbar button{font-size:9px;padding-left:1px;padding-right:1px}
-  .tabbar svg{width:20px;height:20px}
+  .tabbar button{font-size:9.5px;padding-left:0;padding-right:0;gap:3px}
+  .tabbar svg{width:28px;height:28px}
+  /* 아주 좁은 폰(≤360px)에서도 7개 탭이 한 줄에 들어가야 한다 — 넘치면 마지막 탭이 잘린다.
+     아이콘은 지키고 글자만 더 줄인다(아이콘이 먼저 보여야 한다는 원칙 유지). */
+  @media(max-width:360px){
+    .tabbar button{font-size:8.5px;letter-spacing:-.5px}
+    .tabbar svg{width:26px;height:26px}
+  }
   .check-groups{grid-template-columns:1fr}
   .check-toolbar{grid-template-columns:1fr}
   .check-toolbar input{grid-column:auto}

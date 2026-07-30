@@ -3041,7 +3041,13 @@ def t58_check_hub_detail_and_capture():
     assert "rows:rows.map(checkMetricRow)" in live and "openExecMetric(label)" in live
     assert "현재 목록 보기" in live and "이미지 복사" in live and "이미지 저장" in live
     assert "media-tools" in live and "/icons/clipboard-copy.svg" in live
-    assert "@media(max-width:420px)" in live and ".tabbar button{font-size:9px" in live
+    # 모바일 탭바: 크기 **숫자를 고정하지 않는다**(2026-07-30 아이콘을 키우자 이 줄이 깨졌다).
+    # 지켜야 하는 것은 ① 좁은 화면용 규칙이 있다 ② 아이콘이 **알아볼 수 있는 크기**다.
+    #   사용자 지적: "모바일에서 아이콘이 너무 작아 잘 안 보여" — 탭이 7개로 늘며 좁아진 탓이다.
+    assert "@media(max-width:420px)" in live, "좁은 화면용 탭바 규칙이 없다"
+    _icons = [float(m) for m in re.findall(r"\.tabbar svg\{width:([\d.]+)px", live)]
+    assert _icons, "탭바 아이콘 크기 규칙이 없다"
+    assert min(_icons) >= 24, f"모바일 탭바 아이콘이 너무 작다({min(_icons)}px) — 24px 이상 유지"
 
     # PO번호만 있는 확인 행도 정산 PO번호 연결을 먼저 찾고, 없으면 경고창이 아닌 원문 상세를 연다.
     for token in ("function samePo(", "settleRows.find(r=>samePo(r.PO번호,raw))",
