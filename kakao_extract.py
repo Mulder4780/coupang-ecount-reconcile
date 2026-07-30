@@ -139,6 +139,31 @@ def kind_of(head):
     return ""
 
 
+def room_of(path):
+    """대화 파일 첫 줄의 **방 이름**. 머리글이 유형을 말하지 않을 때의 보조 근거다."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.readline().replace(" 님과 카카오톡 대화", "").strip().lstrip("﻿")
+    except OSError:
+        return ""
+
+
+def kind_by_room(room):
+    """방 이름으로 유형을 정한다 — '★UNI★ 쿠팡돌발점검' 방의 글은 전부 돌발AS다.
+
+    ★ 2026-07-30: 머리글만 보다가 **23건이 '유형미상'** 으로 남았다. 내용은 전부
+      리모컨 고장·리프트 수리 같은 명백한 돌발AS인데, 머리글에 '돌발' 이라는 낱말이
+      없어서 시트를 못 정한 것이다. 방 자체가 업무를 가르는 방이므로 그게 근거가 된다.
+    ★ 순서가 중요하다: 머리글 판정(kind_of)이 **먼저**다. 돌발방에 올라온 철거·납품 글은
+      머리글이 이기므로 05시트로 간다. 방은 어디에도 안 걸릴 때만 쓰는 보루다.
+    """
+    if "돌발" in room:
+        return "02_돌발AS접수"
+    if "정기" in room or "분기" in room:
+        return "04_정기점검"
+    return ""
+
+
 def status_of(head):
     """같은 프로젝트NO 로 '안내'와 '완료'가 따로 온다 — 완료 글이 곧 작업완료 근거다."""
     if "취소" in head:
@@ -158,6 +183,7 @@ def extract(paths=None):
     )
     seen, out = {}, []
     for path in paths:
+        room = room_of(path)
         for msg in kr.parse_export(path):
             text = msg["text"]
             if "프로젝트NO" not in text or not RE_CODE.search(text):
@@ -178,7 +204,7 @@ def extract(paths=None):
             tech = normalize_tech(raw_tech)
             rec = {
                 "프로젝트NO": code,
-                "시트": kind_of(head),
+                "시트": kind_of(head) or kind_by_room(room),   # 머리글 우선, 없으면 방 이름
                 "상태": state,
                 "캠프명": fields.get("캠프명", ""),
                 "설비": fields.get("설비", ""),

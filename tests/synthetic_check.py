@@ -12,7 +12,7 @@ synthetic_check.py — 합성데이터 상시 검증 (실데이터·실서버 �
 
 실행:  python tests/synthetic_check.py   (전부 통과 시 exit 0, 'ALL GREEN')
 """
-import sys, os, re, tempfile, subprocess, hashlib
+import sys, os, re, tempfile, subprocess, hashlib, json
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
@@ -142,6 +142,15 @@ def t4_kakao(tmp):
     rows = list(__import__("csv").DictReader(open(os.path.join(tmp, report), encoding="utf-8-sig")))
     manual = next(x for x in rows if x["ID"] == "AS-K2")
     assert manual["카톡보고"] == "확인" and manual["매칭근거"] == "사용자완료처리", manual
+    # 방 이름 보완(2026-07-30): 머리글이 유형을 말하지 않으면 방으로 정한다.
+    # ★ 순서가 뒤집히면 돌발방에 올라온 철거 글이 02시트로 잘못 간다 — 머리글이 먼저다.
+    import kakao_extract as _KE
+    assert _KE.kind_by_room("★UNI★ 쿠팡돌발점검") == "02_돌발AS접수"
+    assert _KE.kind_by_room("★UNI★ 쿠팡정기점검") == "04_정기점검"
+    assert _KE.kind_by_room("아무방") == ""
+    assert _KE.kind_of("[철거 안내]") == "(철거·보관)", "머리글이 방보다 우선이어야 한다"
+    _ke_src = open(os.path.join(ROOT, "kakao_extract.py"), encoding="utf-8").read()
+    assert "kind_of(head) or kind_by_room(room)" in _ke_src, "머리글 우선 순서가 깨졌다"
     print("  [4] 카톡 내보내기 파싱·대조·사용자 개별 완료 유지 (PC/모바일·다중행) ✅")
 
 
@@ -3354,6 +3363,11 @@ def t78_recalc_pending_visible():
     assert R.self_test(), "recalc_pending 자체 검증 실패"
     # 수식이 돌려준 빈 문자열을 '값 있음'으로 세면 대기가 0이 되어 배너가 안 뜬다
     assert R.count_rows(["AS-1", "AS-2"], ["", None]) == (2, 0)
+    # ★ 새 행을 만드는 시트가 하나라도 빠지면 그 시트만 조용히 사라진다
+    #   (2026-07-30: 카톡 40건을 02시트에 넣었는데 02가 감시목록에 없어 앱이 침묵했다)
+    watched = {x[0] for x in R.SHEETS}
+    for sheet in ("06_거래서류청구수금", "02_돌발AS접수", "04_정기점검", "05_신규납품설치"):
+        assert sheet in watched, f"{sheet} 가 재계산 감시목록에 없다 — 넣은 건이 앱에서 사라진다"
 
     server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
@@ -3393,6 +3407,39 @@ def t84_duplicate_source_files(tmp):
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert "billing_fill.py" in daily, "청구 근거 갱신이 일일 실행에 없다"
     print("  [84] 원천 파일 내용중복 제거 — 금액 배수 합산 차단 ✅")
+
+
+def t86_daily_run_singleton_and_inbox_classification(tmp):
+    """일일 실행은 프로세스가 겹치지 않고, ERP 원장은 이름이 아닌 분류기로 찾는다."""
+    import daily_run as D
+
+    lock = os.path.join(tmp, "daily_run.lock")
+    token = D.acquire_run_lock(lock)
+    assert token and os.path.isfile(lock), "첫 실행이 잠금을 잡지 못했다"
+    assert D.acquire_run_lock(lock) is None, "두 번째 실행이 같은 잠금을 통과했다"
+    D.release_run_lock(token, lock)
+    assert not os.path.exists(lock), "정상 종료 뒤 잠금이 남았다"
+
+    # 비정상 종료로 남은 잠금은 실제 PID가 죽었을 때만 회수한다.
+    with open(lock, "w", encoding="utf-8") as f:
+        json.dump({"pid": 2147483646, "token": "dead-run"}, f)
+    recovered = D.acquire_run_lock(lock)
+    assert recovered and recovered != "dead-run", "죽은 프로세스의 잠금을 회수하지 못했다"
+    D.release_run_lock(recovered, lock)
+
+    import inbox_scan
+    old_pick = inbox_scan.pick
+    try:
+        inbox_scan.pick = lambda kind: ["분류기_선택.xlsx"] if kind == "ledger" else []
+        assert D.has_inbox_kind("ledger")
+        assert not D.has_inbox_kind("tax")
+    finally:
+        inbox_scan.pick = old_pick
+
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert 'has_inbox_kind("ledger")' in daily, "ERP 원장 단계가 공용 inbox 분류기를 쓰지 않는다"
+    assert "acquire_run_lock" in daily and "release_run_lock" in daily
+    print("  [86] daily_run 단일 프로세스 잠금 + ERP 원장 공용 분류기 사용 ✅")
 
 
 def t77_side_work_single_switch():
@@ -4051,6 +4098,8 @@ if __name__ == "__main__":
     t78_recalc_pending_visible()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
+    with tempfile.TemporaryDirectory() as _tmp86:
+        t86_daily_run_singleton_and_inbox_classification(_tmp86)
     t79_work_log_source_sync_and_report_capture()
     with tempfile.TemporaryDirectory() as tmp:
         t80_new_project_flow_db_only(tmp)

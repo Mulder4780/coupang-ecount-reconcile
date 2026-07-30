@@ -10,7 +10,7 @@ reports/종합리포트_*.md 한 장으로 요약한다. Windows 작업 스케�
   - ERP 쓰기(--post)는 절대 자동 실행하지 않음 — 전송 대기 건수만 보고
   - 각 단계는 데이터가 없으면 조용히 건너뜀(스킵 사유 기록) — 있는 데이터만큼 검증
 """
-import sys, os, glob, subprocess
+import sys, os, glob, json, subprocess, time, uuid
 from datetime import datetime
 from operation_window import input_window_label, is_input_window
 
@@ -23,6 +23,84 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 REPORT_DIR = os.path.join(ROOT, "reports")
 ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+RUN_LOCK = os.path.join(REPORT_DIR, ".daily_run.lock")
+
+
+def _pid_alive(pid):
+    """같은 PC의 프로세스가 살아 있는가. 죽은 잠금만 안전하게 회수한다."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            import ctypes
+            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return False
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def acquire_run_lock(path=RUN_LOCK):
+    """프로세스 간 단발 잠금. 성공 시 소유 토큰, 중복 실행이면 None."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    token = f"{os.getpid()}:{time.time_ns()}:{uuid.uuid4().hex}"
+    payload = {
+        "pid": os.getpid(),
+        "token": token,
+        "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    for _attempt in range(2):
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    owner = json.load(f)
+            except (OSError, ValueError, TypeError):
+                owner = {}
+            if _pid_alive(owner.get("pid")):
+                return None
+            try:
+                os.unlink(path)
+            except OSError:
+                return None
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+            f.write("\n")
+        return token
+    return None
+
+
+def release_run_lock(token, path=RUN_LOCK):
+    """자기가 만든 잠금만 놓는다. 다른 실행의 잠금을 지우지 않는다."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            owner = json.load(f)
+        if owner.get("token") == token:
+            os.unlink(path)
+    except (OSError, ValueError, TypeError):
+        pass
+
+
+def has_inbox_kind(kind):
+    """무작위 파일명도 놓치지 않도록 엑셀 머리글 내용으로 원천을 찾는다."""
+    try:
+        from inbox_scan import pick
+        return bool(pick(kind))
+    except Exception:
+        return False
 
 
 def run(name, args, timeout=600):
@@ -39,10 +117,7 @@ def run(name, args, timeout=600):
         return {"name": name, "ok": False, "out": f"시간초과({timeout}s)"}
 
 
-def main():
-    if is_input_window():
-        print(f"입력 보호시간({input_window_label()}) — 일일 자동대조를 시작하지 않습니다.")
-        return
+def _run_pipeline():
     steps = []
 
     # 0. 합성검증 — 실패 시 전체 중단
@@ -60,11 +135,11 @@ def main():
     # 반영 성공 확인 전에는 서버 항목을 지우지 않으며 입력 보호시간에는 이 단계도 멈춘다.
     steps.append(run("휴대폰 클라우드 예약 반영", [os.path.join(ROOT, "cloud_queue_sync.py")]))
 
-    if [f for f in glob.glob(os.path.join(ROOT, "inbox", "*.xlsx"))
-            if "원장" in os.path.basename(f) or "계정" in os.path.basename(f)]:
+    if has_inbox_kind("ledger"):
         steps.append(run("ERP원장 4유형 대조", [os.path.join(ROOT, "erp_ledger_check.py")]))
     else:
-        steps.append({"name": "ERP원장 4유형 대조", "ok": None, "out": "스킵 — inbox/에 계정별원장 파일 없음"})
+        steps.append({"name": "ERP원장 4유형 대조", "ok": None,
+                      "out": "스킵 — 내용 판별 가능한 계정별원장 파일 없음"})
 
     # 2.5 쿠팡 PO 대조 (inbox에 'PO' 파일 있을 때만)
     if [f for f in glob.glob(os.path.join(ROOT, "inbox", "*.xlsx"))
@@ -127,12 +202,7 @@ def main():
 
     # 5. 확정 업데이트 자동 반영 — 빈 칸만·근거 보유·항상 새 버전(vN+1) 생성이라 안전
     # ERP 매출서류(계산서·명세서 현황) — 있으면 대조 + 25시트 반영
-    try:
-        sys.path.insert(0, ROOT)
-        from inbox_scan import pick as _pick
-        _has_tax = bool(_pick("tax"))
-    except Exception:
-        _has_tax = False
+    _has_tax = has_inbox_kind("tax")
     if _has_tax:
         steps.append(run("ERP 매출서류 대조(25시트)", [os.path.join(ROOT, "erp_docs_check.py"), "--sheet"]))
     else:
@@ -225,6 +295,20 @@ def main():
     steps.append(run("관리대장 버전 정리", [os.path.join(ROOT, "ledger_versions.py"), "--prune"]))
 
     finish(steps)
+
+
+def main():
+    if is_input_window():
+        print(f"입력 보호시간({input_window_label()}) — 일일 자동대조를 시작하지 않습니다.")
+        return
+    token = acquire_run_lock()
+    if not token:
+        print("다른 daily_run 프로세스가 이미 실행 중 — 중복 실행을 시작하지 않습니다.")
+        return
+    try:
+        return _run_pipeline()
+    finally:
+        release_run_lock(token)
 
 
 def finish(steps, aborted=False):
