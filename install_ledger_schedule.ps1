@@ -3,11 +3,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$TaskName = "쿠팡업무_원장일괄반영"
+# Windows PowerShell 5.1 parses UTF-8-without-BOM source as the active ANSI
+# code page. Keep this file ASCII-only so the Korean task name is stable.
+$TaskName = -join @(
+    [char]0xCFE0, [char]0xD321, [char]0xC5C5, [char]0xBB34, [char]0x005F,
+    [char]0xC6D0, [char]0xC7A5, [char]0xC77C, [char]0xAD04, [char]0xBC18,
+    [char]0xC601
+)
 
 if ($Remove) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
-    Write-Host "작업 스케줄러 제거: $TaskName"
+    Write-Host "Removed scheduled task: $TaskName"
     exit 0
 }
 
@@ -15,7 +21,7 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Python = (Get-Command python.exe -ErrorAction Stop).Source
 $Pythonw = Join-Path (Split-Path -Parent $Python) "pythonw.exe"
 if (-not (Test-Path -LiteralPath $Pythonw)) {
-    throw "pythonw.exe를 찾을 수 없습니다: $Pythonw"
+    throw "pythonw.exe not found: $Pythonw"
 }
 
 $Action = New-ScheduledTaskAction `
@@ -41,9 +47,9 @@ Register-ScheduledTask `
     -Trigger $Triggers `
     -Settings $Settings `
     -Principal $Principal `
-    -Description "확정 입력을 SQLite에 모아 매일 11:00·15:00에만 관리대장으로 일괄 반영" `
+    -Description "Apply queued ledger entries only at 11:00 and 15:00." `
     -Force | Out-Null
 
 $Task = Get-ScheduledTask -TaskName $TaskName
-$Times = ($Task.Triggers | ForEach-Object { ([datetime]$_.StartBoundary).ToString("HH:mm") }) -join " · "
-Write-Host "작업 스케줄러 등록: $TaskName ($Times)"
+$Times = ($Task.Triggers | ForEach-Object { ([datetime]$_.StartBoundary).ToString("HH:mm") }) -join ", "
+Write-Host "Registered scheduled task: $TaskName ($Times)"
