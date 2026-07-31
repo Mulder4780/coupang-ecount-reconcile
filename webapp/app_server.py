@@ -998,6 +998,39 @@ def _ryu_row(rec, key_name, date_names, status_names, summary_names,
     }
 
 
+def warm_caches():
+    """서버가 뜨자마자 무거운 집계를 **미리 계산해 둔다**(2026-07-31).
+
+    ★ 왜 — 담당자 업무센터가 "업무 현황을 불러오는 중입니다" 에서 멈춰 있었다.
+      죽은 게 아니라 **첫 계산이 111초** 걸렸다(실측). 사람은 그때까지 안 기다린다.
+      두 번째부터는 677ms 다 — 즉 문제는 계산이 아니라 **누가 그 111초를 맞느냐**였다.
+      서버가 대신 맞게 한다. 사람이 열 때는 이미 데워져 있다.
+
+    ★ 순서가 중요하다 — works → settlements → issues → ryu.
+      뒤의 것이 앞의 것을 재사용하므로, 거꾸로 하면 같은 걸 두 번 계산한다.
+    ★ 실패해도 서버는 그대로 간다. 데우기는 편의지 필수가 아니다.
+    ★ 한 번만 데우면 안 된다 — 항목별 TTL 이 issues 300초 · works/settle 600초라
+      만료되는 순간 **다음 사람이 다시 111초를 맞는다.** 게다가 원장 mtime 이 바뀌면
+      (11:00·15:00 반영 직후) 캐시가 통째로 비워진다. 그래서 주기적으로 다시 데운다.
+      간격은 가장 짧은 TTL(300초)보다 짧아야 의미가 있다 → 240초.
+    """
+    import time as _t
+    first = True
+    while True:
+        t0 = _t.time()
+        for name, fn in (("works", get_works), ("settlements", get_settlements),
+                         ("issues", get_issues), ("ryu", get_ryu_records)):
+            try:
+                fn()
+            except Exception as e:
+                if first:
+                    print(f"  [예열] {name} 실패: {type(e).__name__} — 서버는 계속 갑니다")
+        if first:
+            print(f"  [예열] 완료 ({_t.time()-t0:.0f}s) — 업무센터가 바로 열립니다")
+            first = False
+        _t.sleep(240)
+
+
 def get_ryu_records():
     """류지영 업무센터: 2026년 업무를 카테고리별 과거→최근 목록으로 제공한다."""
     works = get_works() or {"as": [], "pm": []}
@@ -4350,6 +4383,7 @@ def main():
               " ? { $_.CommandLine -like '*app_server.py*' } | % { Stop-Process -Id $_.ProcessId -Force }")
         return 1
     threading.Thread(target=publish_loop, daemon=True).start()
+    threading.Thread(target=warm_caches, daemon=True).start()
     mode = "데모(합성데이터)" if DEMO else "실서비스"
     print(f"Coupang Service Operations System 앱 서버 [{mode}] 시작")
     print(f"  PC:      http://localhost:{PORT}")
