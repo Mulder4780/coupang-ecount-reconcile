@@ -18,7 +18,7 @@ ledger_versions.py — 관리대장 버전 파일이 쌓이는 걸 정리한다
   python ledger_versions.py              # 현황만 본다
   python ledger_versions.py --prune      # 접어 둔다(지정된 OLD/ 로 이동)
 """
-import sys, os, re, glob, shutil
+import sys, os, re, glob, shutil, time
 from datetime import datetime
 from collections import defaultdict
 
@@ -69,6 +69,28 @@ def _collision_safe_target(dst, source, origin="중복"):
         if not os.path.exists(target):
             return target
         n += 1
+
+
+RECENT_MIN = 30     # 이 안에 저장된 파일은 '사람이 지금 쓰는 것'으로 본다
+
+
+def _in_use(path):
+    """열려 있거나 방금 저장된 파일은 **절대 옮기지 않는다.**
+
+    2026-07-31 실사고: 류지영 매니저가 다른 PC 에서 v331 을 열어 담당기사를 입력하는
+    동안, autoprune 이 (v336 이 생긴 뒤) 그 파일을 **저장될 때마다** OLD 로 치웠다 —
+    같은 이름 사본이 8개까지 쌓였다. 엑셀은 파일이 밑에서 사라지니 저장 충돌·응답없음·
+    강제종료를 반복했고, 입력이 유실됐다.
+    ★ 이 PC 의 EXCEL 프로세스 유무로는 **다른 PC 의 편집을 볼 수 없다.**
+      네트워크 공유의 진실은 `~$` 잠금파일과 최근 mtime 뿐이다."""
+    folder, base = os.path.split(path)
+    lock = os.path.join(folder, "~$" + base)
+    try:
+        if os.path.exists(lock):
+            return True
+        return (time.time() - os.path.getmtime(path)) < RECENT_MIN * 60
+    except OSError:
+        return True     # 판단이 안 되면 옮기지 않는다 — 옮겨서 나는 사고가 더 크다
 
 
 def _move_preserving(source, dst, origin="중복"):
@@ -154,6 +176,8 @@ def _archive_old_versions(master, quiet=True):
             old.append((p, "작업폴더"))
 
     old.extend(_legacy_files(folder))
+    # 사람이 열어 두었거나 방금 저장한 파일은 목록에서 뺀다 — 2026-07-31 실사고 재발 방지
+    old = [(s, o) for s, o in old if not _in_use(s)]
     done, failed = 0, []
     for source, origin in old:
         try:

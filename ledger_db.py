@@ -493,6 +493,77 @@ def scheduled_workbook_maintenance(now=None):
     return results
 
 
+MASTER_LOCK_GLOB = "~$쿠팡_통합업무_일일보고_관리대장*.xlsx"
+LOCK_STALE_HOURS = 24     # 이보다 오래된 잠금만 크래시 잔재로 본다
+LOCK_POLL_SEC = 180       # 잠금이 풀리기를 기다리는 간격
+
+
+def _master_folder():
+    try:
+        cfg = json.load(open(os.path.join(ROOT, "config", "ecount_config.json"),
+                             encoding="utf-8"))
+        return os.path.dirname(cfg["reconcile"]["master_xlsx"])
+    except (OSError, KeyError, ValueError):
+        return ""
+
+
+def human_editing(folder=None):
+    """사람이 관리대장을 열어 두었는가 — **네트워크 공유의 진실은 ~$ 잠금파일뿐이다.**
+
+    2026-07-31 실사고: 류지영 매니저가 **다른 PC** 에서 v331 을 열어 입력하는 동안
+    15:05 반영이 v336 을 만들어 그녀의 15:43 저장이 고아가 됐다. 그때 잠금파일이
+    있었는데 '이 PC 에 EXCEL 프로세스가 없다'며 잔재로 잘못 판정했다 — 로컬 프로세스로는
+    다른 PC 의 편집을 볼 수 없다. 잠금이 있으면 사람이 있다고 본다.
+    (잘못 기다린 손해는 반영이 늦는 것뿐이지만, 잘못 진행한 손해는 사람 입력 유실이다.
+     LOCK_STALE_HOURS 를 넘긴 잠금만 크래시 잔재로 보고 지나간다.)"""
+    folder = folder or _master_folder()
+    if not folder:
+        return None
+    locks = None
+    for _attempt in range(3):                       # Z: 는 순간적으로 끊긴다 — 재시도
+        try:
+            locks = glob.glob(os.path.join(folder, MASTER_LOCK_GLOB))
+            break
+        except OSError:
+            time.sleep(2)
+    if not locks:
+        return None
+    out = []
+    for p in locks:
+        try:
+            age_min = (time.time() - os.path.getmtime(p)) / 60
+        except OSError:
+            continue
+        if age_min >= LOCK_STALE_HOURS * 60:
+            continue
+        who = ""
+        try:
+            raw = open(p, "rb").read(64)
+            if raw and 0 < raw[0] < 60:
+                who = raw[1:1 + raw[0]].decode("cp949", "replace").strip()
+        except OSError:
+            pass
+        out.append({"잠금": os.path.basename(p), "소유자": who, "분": int(age_min)})
+    return out or None
+
+
+def _wait_editing_clear(now, slot_name):
+    """사람이 열어 둔 동안은 쓰지 않는다 — 회차 유예(GRACE_MIN) 안에서 기다렸다가,
+    끝내 안 풀리면 이 회차를 **건너뛴다**(batch 에 기록하지 않으므로 큐는 남고,
+    missed_slots 가 다음 실행에서 마저 처리한다)."""
+    deadline = datetime.strptime(slot_name, "%Y-%m-%d %H:%M") + timedelta(minutes=GRACE_MIN)
+    while True:
+        locks = human_editing()
+        if not locks:
+            return None
+        if datetime.now() >= deadline:
+            return locks
+        left = int((deadline - datetime.now()).total_seconds() // 60)
+        print(f"  사람이 관리대장을 열어 두었습니다({locks[0].get('소유자') or '?'}) — "
+              f"잠금 해제 대기(남은 유예 {left}분)")
+        time.sleep(LOCK_POLL_SEC)
+
+
 def apply_now(force=False, now=None):
     """정해진 시각일 때만 엑셀에 쓴다. 실제 쓰기는 기존 ledger_writer 에 맡긴다."""
     now = now or datetime.now()
@@ -509,6 +580,15 @@ def apply_now(force=False, now=None):
         why = "이미 처리한 회차" if current and current in set(done) else "반영 시각이 아님"
         return {"상태": "대기", "사유": f"{why} — 다음 {nxt:%m-%d %H:%M}",
                 "대기": p}
+    # ★ 쓰기 직전 관문 — 사람이 관리대장을 열어 두었으면 이 회차를 양보한다(2026-07-31 실사고).
+    #   구조 갱신(scheduled_workbook_maintenance)도 vN+1 을 만들므로 같이 막아야 한다.
+    #   --force 도 뚫지 못한다: 강제의 용도는 '시각 밖 반영'이지 '사람을 밀어내기'가 아니다.
+    locks = _wait_editing_clear(now, slot_name)
+    if locks:
+        who = locks[0].get("소유자") or "?"
+        return {"상태": "보류", "회차": slot_name,
+                "사유": f"사람이 관리대장 편집 중({who}, {locks[0]['분']}분째) — "
+                        f"회차를 건너뛰고 다음 실행에서 처리", "대기": p}
     if p == 0:
         # 빈 회차도 완료로 기록해야 같은 시간대 재실행이 새 버전을 만들지 않는다.
         if not force:

@@ -2028,7 +2028,11 @@ def t41_dates_explicit():
         # 기존 OLD 파일을 덮거나 지우지 않고 출처 꼬리표로 둘 다 남겨야 한다.
         _legacy = os.path.join(_d, "_이전버전")
         os.makedirs(_legacy)
-        open(os.path.join(_legacy, "쿠팡_통합업무_일일보고_관리대장_v2.xlsx"), "w").write("다른 v2")
+        _legacy_v2 = os.path.join(_legacy, "쿠팡_통합업무_일일보고_관리대장_v2.xlsx")
+        open(_legacy_v2, "w").write("다른 v2")
+        # 방금 저장된 파일은 사람 것일 수 있어 옮기지 않는다([94]) — 이 검사의 의도는
+        # '병합이 되는가'이므로 mtime 을 오래된 것으로 둔다.
+        os.utime(_legacy_v2, (_stamp, _stamp))
         LV._AUTODONE = False
         assert LV.autoprune(os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v3.xlsx")) == 1, \
             "예전 보관 폴더의 파일이 OLD로 합쳐지지 않았다"
@@ -3781,6 +3785,59 @@ def t93_ledger_db_and_ux():
     print("  [93] 반영 DB 게이트(11·15시)·UX 기록·업무센터 균등배치·빠른실행 제거 ✅")
 
 
+def t94_human_edit_guard():
+    """[94] 사람이 관리대장을 열어 두면 **버전을 만들지도, 파일을 옮기지도 않는다.**
+
+    2026-07-31 실사고: 류지영 매니저가 다른 PC 에서 v331 을 열어 담당기사를 입력하는
+    동안 ① 15:05 반영이 v336 을 만들어 15:43 저장이 고아가 됐고 ② autoprune 이
+    저장될 때마다 열린 파일을 OLD 로 치워(같은 이름 8사본) 엑셀 강제종료가 반복됐다.
+    ★ 이 PC 의 EXCEL 프로세스로는 다른 PC 의 편집을 볼 수 없다 — 잠금파일이 진실이다."""
+    import sys as _s, tempfile, time as _t
+    _s.path.insert(0, ROOT)
+    import ledger_db as L
+    import ledger_versions as V
+
+    with tempfile.TemporaryDirectory() as td:
+        base = "쿠팡_통합업무_일일보고_관리대장_v331.xlsx"
+        lock = os.path.join(td, "~$" + base)
+        name = "류지영".encode("cp949")
+        open(lock, "wb").write(bytes([len(name)]) + name + b"\x00" * 20)
+        got = L.human_editing(folder=td)
+        assert got and got[0]["소유자"] == "류지영", f"잠금을 못 본다: {got}"
+        old_ts = _t.time() - L.LOCK_STALE_HOURS * 3600 - 60
+        os.utime(lock, (old_ts, old_ts))
+        assert L.human_editing(folder=td) is None, "크래시 잔재 잠금에 영원히 막힌다"
+        os.unlink(lock)
+        assert L.human_editing(folder=td) is None
+
+        # autoprune — 잠금 파일·방금 저장본은 옮기지 않는다
+        v1 = os.path.join(td, "쿠팡_통합업무_일일보고_관리대장_v1.xlsx")
+        v2 = os.path.join(td, "쿠팡_통합업무_일일보고_관리대장_v2.xlsx")
+        for p in (v1, v2):
+            open(p, "wb").write(b"PK\x03\x04dummy")
+        stale = _t.time() - 3600
+        os.utime(v1, (stale, stale)); os.utime(v2, (stale, stale))
+        open(os.path.join(td, "~$" + os.path.basename(v1)), "wb").write(b"\x01A")
+        V._archive_old_versions(v2, quiet=True)
+        assert os.path.exists(v1), "열려 있는(잠금) 구버전을 옮겼다 — 실사고 재발"
+        os.unlink(os.path.join(td, "~$" + os.path.basename(v1)))
+        v0 = os.path.join(td, "쿠팡_통합업무_일일보고_관리대장_v0.xlsx")
+        open(v0, "wb").write(b"PK\x03\x04dummy")          # mtime = 지금(방금 저장)
+        V._archive_old_versions(v2, quiet=True)
+        assert not os.path.exists(v1), "잠금이 풀린 오래된 구버전은 옮겨야 한다"
+        assert os.path.exists(v0), "방금 저장된 파일을 옮겼다 — 사람이 쓰는 중일 수 있다"
+
+    # apply 경로: 쓰기(빈 회차 포함) 전에 관문이 있어야 하고, force 로도 못 뚫는다
+    src = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    body = src[src.index("def apply_now("):]
+    gate = body.index("_wait_editing_clear")
+    assert gate < body.index("if p == 0:"), "빈 회차의 구조 갱신이 관문보다 먼저다"
+    assert gate < body.index("pending_rows()"), "셀 반영이 관문보다 먼저다"
+    assert "--force" not in src[src.index("def _wait_editing_clear"):
+                                src.index("def apply_now(")], "force 우회 금지"
+    print("  [94] 사람 편집 존중(잠금=진실·autoprune 보호·회차 양보·force 불가) ✅")
+
+
 def t77_side_work_single_switch():
     """철거·신규납품: DB엔 남기고 앱에서만 숨긴다 — **스위치는 하나처럼 움직여야 한다**.
 
@@ -4439,6 +4496,7 @@ if __name__ == "__main__":
     t91_icon_sprite_and_ios_theme()
     t92_excel_recalc_agent()
     t93_ledger_db_and_ux()
+    t94_human_edit_guard()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:
