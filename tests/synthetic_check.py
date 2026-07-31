@@ -3856,7 +3856,11 @@ def t96_work_management_tabs():
     assert ".tabbar.worktab-nav{display:none}" in html.replace(" ", ""), \
         "폰 하단바 칸 부족 대책(사이드바 전용 노출)이 없다"
     # 인라인 편집이 DB 큐 경로(/api/input)로만 가는가 — 다른 쓰기 경로가 생기면 안 된다
-    seg = html[html.index("async function wtEdit"):html.index("function wtBoard")]
+    # ★ 검사 범위는 wtEdit **함수 몸통만**이다. 다음 함수 선언 직전까지로 자른다 —
+    #   wtBoard 까지 넓게 잡으면 사이에 끼는 무관한 코드(업무센터 업로드의 accept=".xlsx")가
+    #   오탐을 낸다(2026-07-31 실제로 그랬다).
+    _ws = html.index("async function wtEdit")
+    seg = html[_ws:html.index("function ", _ws + 30)]
     assert "/api/input" in seg and "overwrite:true" in seg, "편집이 DB 큐 경로를 안 탄다"
     assert "ledger_writer" not in seg and "xlsx" not in seg, "편집이 엑셀로 새어 나간다"
     # 서버: 덮어쓰기는 허용열에서만, 근거에 '수정'이 남는가
@@ -3869,7 +3873,20 @@ def t96_work_management_tabs():
     # 업무센터·대시보드에서 들어가는 입구
     assert html.count("show('pm')") >= 2 and html.count("show('as')") >= 2, \
         "대시보드·업무센터에서 정밀 관리 탭으로 가는 입구가 없다"
-    print("  [96] 정밀 관리 탭(DB 큐 전용·허용열 덮어쓰기·보드·CSV·입구 연결) ✅")
+
+    # 업무센터 탭 + 입금 업로드(2026-07-31): 드롭존·URL 등록·오프라인 보관·Z: 저장·즉시 대조
+    for need in ('id="v-center"', 'data-v="center"', "renderCenter", "renderReceiptUpload",
+                 "receiptSubmit", "'/api/staff/receipt-upload'", "injectOhUpload"):
+        assert need in html, f"업무센터 탭 구성 요소 누락: {need}"
+    assert "'/api/staff/receipt-upload']" in html.replace(" ", "") or \
+           "/api/staff/receipt-upload" in html[html.index("OUTBOX_PATHS"):html.index("OUTBOX_PATHS")+400], \
+        "입금 업로드가 오프라인 보관(outbox) 목록에 없다"
+    assert '"receipt"' in srv and "receipt_fill.py" in srv, "업로드 직후 즉시 대조 작업이 없다"
+    assert "save_staff_receipt_submission" in srv and "RECEIPT_DIR" in srv, \
+        "입금 자료가 지정 저장소(7. 입금내역)로 가지 않는다"
+    blk2 = srv[srv.index('"/api/staff/receipt-upload"'):srv.index('"/api/staff/receipt-upload"') + 900]
+    assert '"admin"' in blk2 and "oh-jonghyeon" in blk2, "관리자·오종현 외에도 업로드가 열려 있다"
+    print("  [96] 정밀 관리 탭 + 업무센터·입금 업로드(DB 큐·Z: 저장·즉시 대조·권한) ✅")
 
 
 def t94_human_edit_guard():

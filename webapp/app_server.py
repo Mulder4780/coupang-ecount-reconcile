@@ -619,6 +619,43 @@ def save_staff_po_submission(fields, files, source_ip=""):
     }
 
 
+RECEIPT_SOURCE_EXTS = {".xlsx", ".xls", ".csv", ".png", ".jpg", ".jpeg", ".pdf"}
+
+
+def save_staff_receipt_submission(fields, files, source_ip=""):
+    """입금내역 파일·사진·URL을 '7. 입금내역'(Z:)에 보관하고 즉시 대조를 돌린다.
+
+    사용자 지시(2026-07-31): 오종현 업무센터에서 드래그앤드롭·첨부·URL 등록 →
+    지정 저장소(Z: 원본 자료)와 DB에 반영, 바로 앱에 보이게.
+    저장은 _save_source_submission(불변 날짜 폴더 + URL 은 SSRF 검증 다운로드) 그대로.
+    xlsx 는 inbox 로도 복사해 receipt_fill 이 내용 판별로 집어가게 한다 —
+    대조 결과는 DB 큐(11·15시 반영)와 입금현황 리포트로 즉시 나타난다."""
+    fields = dict(fields or {})
+    fields["staff_slug"] = "oh-jonghyeon"          # 관리자 대리 등록도 오종현 자료로 보관
+    folder, saved, manifest = _save_source_submission(
+        fields, files, kind="receipt", allowed_exts=RECEIPT_SOURCE_EXTS,
+        destination_root=__import__("source_dirs").RECEIPT_DIR,
+        upload_field="receipt_file", staff_slug="oh-jonghyeon",
+    )
+    inbox = os.path.join(ROOT, "inbox")
+    os.makedirs(inbox, exist_ok=True)
+    queued_files = []
+    for path in saved:
+        if os.path.splitext(path)[1].lower() not in (".xlsx", ".xls", ".csv"):
+            continue
+        dest = _unique_path(inbox, "입금_오종현_" + os.path.basename(path))
+        shutil.copy2(path, dest)
+        queued_files.append(os.path.basename(dest))
+    started = queued = False
+    msg = "입금 자료를 보관했습니다"
+    if queued_files:
+        started, msg = start_task("receipt")
+        queued = False if started else defer_task_until_free("receipt")
+    manifest["source_ip"] = source_ip
+    return {"folder": folder, "files": [os.path.basename(x) for x in saved],
+            "auto_check_started": started, "auto_check_queued": queued, "msg": msg}
+
+
 def save_staff_work_log_submission(fields, files, source_ip=""):
     from source_dirs import WORK_LOG_DIR
     if str(fields.get("staff_slug") or "").strip() != "ryu-jiyeong":
@@ -1449,6 +1486,8 @@ TASKS = {
     "work_log":      ("정기점검·돌발AS 대표보고 일지 대조",
                       [os.path.join(ROOT, "work_log_sync.py"), "--apply"]),
     "erp_docs":      ("ERP 매출서류 대조", [os.path.join(ROOT, "erp_docs_check.py")]),
+    # 입금 자료 업로드 직후 즉시 대조·큐 적재(엑셀 쓰기는 11·15시 회차) — 2026-07-31
+    "receipt":       ("입금 대조·자동입력", [os.path.join(ROOT, "receipt_fill.py"), "--queue"]),
     "band_ingest":   ("밴드 수집분 반영(24시트+백필)",
                       [os.path.join(ROOT, "band", "ingest.py"), "--sheet", "--backfill"]),
     "band_docs":     ("밴드 문서 이미지 대조", [os.path.join(ROOT, "band", "doc_ocr.py"), "--scan"]),
@@ -2443,7 +2482,12 @@ def representative_summary(works, settlements, base_date=""):
     total_days = (qend - qstart).days + 1
     elapsed_days = min(total_days, max(0, (today - qstart).days + 1))
     target = len(qrows)
-    expected = round(target * elapsed_days / total_days) if total_days else 0
+    # ★ 목표누계는 분기 균등 배분이 아니라 **점검예정일 기준**이다(2026-07-31 수정).
+    #   균등 배분(대상×경과일/분기일수)은 "7월에 몰아서 도는" 실제 일정과 어긋나
+    #   목표 17 대 실제 44, +27건 같은 무의미한 숫자를 만들었다. 계획은 사람이
+    #   예정일로 이미 세워 뒀다 — 오늘까지 예정된 건수가 곧 목표 누계다.
+    expected = sum(1 for r in qrows
+                   if (lambda d: bool(d and d <= today))(_report_date(r.get("점검예정일"))))
     actual = len(qdone)
     gap = actual - expected
     shortage_ratio = ((expected - actual) / expected * 100) if expected and actual < expected else 0
@@ -4100,6 +4144,26 @@ self.addEventListener('fetch', e => {
                                                 self.rfile.read(ln))
                 fields["staff_slug"] = actor_slug
                 result = save_staff_po_submission(fields, files, ip)
+                return self._send(200, {"ok": True, **result})
+            except Exception as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:320]})
+        if p == "/api/staff/receipt-upload":
+            # 관리자(업무센터 탭) 또는 오종현 담당자 페이지에서만. 자료는 항상 오종현
+            # 소유로 보관된다 — 입금 원천의 관리 책임이 그쪽이기 때문(2026-07-31).
+            actor = self._actor()
+            allowed = actor.get("role") == "admin" or (
+                actor.get("role") == "staff"
+                and str(actor.get("staff_slug") or "") == "oh-jonghyeon")
+            if not allowed:
+                return self._send(403, {"ok": False,
+                                        "error": "입금 자료는 관리자 또는 오종현 업무센터에서만 등록합니다"})
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 60_000_000:
+                return self._send(400, {"ok": False, "error": "입금 자료는 합계 60MB 이하여야 합니다"})
+            try:
+                fields, files = multipart_parts(self.headers.get("Content-Type", ""),
+                                                self.rfile.read(ln))
+                result = save_staff_receipt_submission(fields, files, ip)
                 return self._send(200, {"ok": True, **result})
             except Exception as exc:
                 return self._send(400, {"ok": False, "error": str(exc)[:320]})

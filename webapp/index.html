@@ -1372,8 +1372,20 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .wt-col h4{margin:2px 4px 8px;font-size:14px}
 .wt-col h4 span{color:var(--ink-3);font-weight:700}
 /* 폰 하단바에는 칸이 없다 — 사이드바(≥900px)에서만 메뉴로 노출.
-   폰은 대시보드 '업무 바로가기'로 같은 화면에 들어간다(숨겨도 화면 자체는 동작). */
+   폰은 대시보드 상단 타일(정기점검 대기·돌발AS)로 같은 화면에 들어간다. */
 @media(max-width:899px){ .tabbar .worktab-nav{display:none} }
+/* 업로드 드롭존(업무센터·오종현 페이지 공용) */
+.wt-drop{border:2px dashed #B9C6DE;border-radius:14px;padding:22px 16px;text-align:center;
+  display:grid;gap:7px;justify-items:center;background:#F8FAFD;transition:border-color .15s,background .15s}
+.wt-drop.on{border-color:#2E52D6;background:#EEF3FF}
+.wt-drop b{font-size:15px}
+.wt-drop span{color:var(--ink-3);font-size:13px}
+/* 데스크톱 흰 헤더에서 알림 종이 흰색이라 안 보였다(모바일 남색 헤더용 색이 그대로 남음) */
+@media(min-width:900px){
+  .notice-bell{border-color:#C9D3E4}
+  .notice-bell svg{color:#3D4C66;fill:none;stroke:#3D4C66}
+  .mobile-only{display:none}
+}
 
 </style>
 </head>
@@ -1490,8 +1502,8 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	      <h3 style="color:var(--warn)">엑셀을 한 번 열어 주세요</h3>
 	      <div id="recalcmsg" style="font-size:14.5px;line-height:1.65"></div>
 	    </div>
-	    <div class="workcenter-hub">
-	      <h3>업무센터</h3>
+	    <div class="workcenter-hub mobile-only">
+	      <h3>업무센터 <span class="norm">— 데스크톱은 왼쪽 메뉴</span></h3>
 	      <div class="muted">담당자별 고정 주소에서 과거 목록 확인·신규 입력·근거 첨부·자동 반영을 처리합니다.</div>
 	      <div class="workcenter-buttons" id="workcenterButtons">
 	        <a class="workcenter-person" href="/staff/ryu-jiyeong" target="_blank" rel="noopener">
@@ -1582,15 +1594,6 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	         위 통계 타일에서도 갈 수 있지만 타일은 '숫자'가 주인공이라 메뉴로 읽히지 않는다.
 	         화면 맨 아래에서 바로 두 업무로 들어가는 입구를 따로 둔다. 건수는 타일과 같은
 	         값을 쓴다 — 두 곳이 다른 숫자를 말하면 어느 쪽을 믿을지 사람이 고민하게 된다. -->
-	    <div class="card"><h3>업무 바로가기</h3>
-	      <div class="actions">
-	        <button class="abtn" onclick="show('pm')">
-	          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>
-	          정기점검<small class="norm" id="dmPmCount" style="font-weight:600;color:var(--muted)"></small></button>
-	        <button class="abtn" onclick="show('as')">
-	          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-wrench-adjustable"/></svg>
-	          돌발AS<small class="norm" id="dmAsCount" style="font-weight:600;color:var(--muted)"></small></button>
-	      </div></div>
 	    <!-- ★ '빠른 실행' 제거(2026-07-30 지시). 같은 기능이 아래 탭바에 이미 있어 중복이었다.
 	         캡처·인쇄는 대표보고에 쓰이므로 남기고 카드 제목만 바꾼다. -->
 	    <div class="card"><h3>대시보드 저장·인쇄</h3>
@@ -1608,6 +1611,36 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
        벤치마킹(Limble·MaintainX·Atlas CMMS 오픈소스): KPI 스트립=클릭 필터 ·
        저장되는 필터 · 카드 인라인 편집(상태/기사/일정) · 기사별 보드 · CSV 출력.
        입력은 전부 /api/input → DB 큐 → 11:00·15:00 회차 반영(DB-only 원칙). -->
+  <!-- 업무센터 탭(2026-07-31 지시): 대시보드 카드에서 사이드바로 승격.
+       담당자별 현황·고정 주소·원천자료 등록(입금: 드래그앤드롭·URL)을 한 곳에서. -->
+  <section class="view" id="v-center">
+    <div class="hero-min"><h2>업무센터</h2>
+      <p class="sub">담당자별 고정 주소 · 밀린 업무 현황 · 원천자료 등록. 등록한 파일은 Z: 원본 자료에 보관되고 즉시 대조가 돕니다.</p></div>
+    <div class="egrid">
+      <div class="card">
+        <h3><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-workspace"/></svg> 류지영 <span class="norm">— 돌발AS · 정기점검 · 회계</span></h3>
+        <div class="wt-meta" id="centerRyuStat">현황 계산 중…</div>
+        <div class="actions">
+          <a class="abtn primary" href="/staff/ryu-jiyeong" target="_blank" rel="noopener">센터 열기 ↗</a>
+          <button class="abtn" onclick="show('pm')">정기점검 관리</button>
+          <button class="abtn" onclick="show('as')">돌발AS 관리</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-badge-fill"/></svg> 오종현 <span class="norm">— PO · 구매 · 입금</span></h3>
+        <div class="wt-meta" id="centerOhStat">현황 계산 중…</div>
+        <div class="actions">
+          <a class="abtn primary" href="/staff/oh-jonghyeon" target="_blank" rel="noopener">센터 열기 ↗</a>
+          <button class="abtn" onclick="show('settle')">정산 화면</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>입금·원천자료 등록 <span class="norm">— 끌어다 놓거나, 파일 선택, URL 붙여넣기</span></h3>
+      <div id="centerReceiptHost"></div>
+    </div>
+  </section>
+
   <section class="view" id="v-pm">
     <div class="hero-min"><h2>정기점검 관리</h2>
       <p class="sub">예정·실행·미실시를 한 화면에서 배정하고 기록합니다. 입력은 DB에 쌓였다가 11시·15시에 관리대장에 들어갑니다.</p></div>
@@ -2158,7 +2191,8 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
   </div>
   <button class="on" data-v="dash" onclick="routeNav('dash')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-house-door-fill"/></svg>대시보드</button>
   <!-- 정밀 관리 탭(2026-07-31): 폰 하단바는 칸이 모자라 사이드바(≥900px)에서만 보인다.
-       폰에서는 대시보드 '업무 바로가기'가 같은 화면으로 들어간다. -->
+       폰에서는 대시보드 상단 타일이 같은 화면으로 들어간다. -->
+  <button class="worktab-nav" data-v="center" onclick="routeNav('center')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-workspace"/></svg>업무센터</button>
   <button class="worktab-nav" data-v="pm" onclick="routeNav('pm')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>정기점검</button>
   <button class="worktab-nav" data-v="as" onclick="routeNav('as')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-wrench-adjustable"/></svg>돌발 AS</button>
   <button class="staff-worklog-nav" data-v="worklog" onclick="routeNav('worklog')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>대표보고 일지</button>
@@ -2190,7 +2224,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
      **쓰기만** 넣는다. 목록에 없는 주소는 예전처럼 그대로 실패한다(조용히 삼키지 않는다). */
 const OUTBOX_PATHS = ['/api/ryu/entry','/api/staff/new-job','/api/staff/improvement',
   '/api/input','/api/set_dates','/api/enqueue',
-  '/api/ryu/upload','/api/staff/po-upload','/api/staff/work-log-upload'];
+  '/api/ryu/upload','/api/staff/po-upload','/api/staff/work-log-upload','/api/staff/receipt-upload'];
 const _netFetch = window.fetch.bind(window);
 
 function obDB(){
@@ -3338,6 +3372,80 @@ async function wtEdit(k,id,col,value,vtype){
     renderWorkTab(k);
   }catch(e){ toast('저장 실패 — 잠시 후 다시 시도'); }
 }
+/* ═══ 업무센터 탭 (2026-07-31) ═══ */
+function renderCenter(){
+  const todayIso=new Date().toISOString().slice(0,10);
+  const lateOf=(rows,dcol,donecol,stof)=>rows.filter(r=>{
+    const d=String(r[dcol]||'').slice(0,10);
+    return d && d<todayIso && !String(r[donecol]||'').trim() && !/완료|취소/.test(stof(r));}).length;
+  const ryuEl=$('centerRyuStat'), ohEl=$('centerOhStat');
+  if(ryuEl){
+    const asLate=lateOf(works.as||[],'방문예정일','작업완료일',r=>String(r.진행상태||''));
+    const pmLate=lateOf(works.pm||[],'점검예정일','실제점검일',r=>String(r.점검상태||''));
+    const asNo=(works.as||[]).filter(r=>!String(r.담당기사||'').trim()).length;
+    ryuEl.textContent=`지연 — 돌발AS ${asLate} · 정기점검 ${pmLate} · 기사 미배정 ${asNo}건`;
+  }
+  if(ohEl){
+    const st=s=>settleRows.filter(r=>String(r.상태||'')===s).length;
+    ohEl.textContent=`미청구 ${st('미청구(전표 없음)')} · 세금계산서 미발행 ${st('세금계산서 미발행')} · 입금 대기 ${st('입금 대기')}건`;
+  }
+  renderReceiptUpload('centerReceiptHost');
+}
+/* 입금 업로드 존 — 드래그앤드롭·파일선택·URL. 저장은 서버가 Z: '7. 입금내역'에,
+   xlsx 는 즉시 입금 대조(receipt_fill --queue)로 이어진다. 오프라인이면 outbox 가 보관. */
+function renderReceiptUpload(hostId){
+  const host=$(hostId); if(!host || host.dataset.ready) return;
+  host.dataset.ready='1';
+  host.innerHTML=`
+    <div class="wt-drop" id="${hostId}Zone">
+      <b>입금내역·PO·증빙 파일을 여기로 끌어다 놓으세요</b>
+      <span>xlsx · csv · pdf · 사진 — Z: 원본 자료에 저장 후 즉시 대조</span>
+      <input type="file" id="${hostId}File" multiple accept=".xlsx,.xls,.csv,.png,.jpg,.jpeg,.pdf" style="display:none">
+      <button class="abtn" onclick="$('${hostId}File').click()">파일 선택</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
+      <input id="${hostId}Url" placeholder="또는 파일 URL 붙여넣기 (https://…)" style="flex:1 1 240px;height:42px;border:1px solid var(--line);border-radius:10px;padding:0 11px;font-family:inherit">
+      <button class="abtn primary" onclick="receiptSubmit('${hostId}',null,$('${hostId}Url').value)">URL 등록</button>
+    </div>
+    <div class="wt-meta" id="${hostId}Log"></div>`;
+  const zone=$(hostId+'Zone');
+  ;['dragover','dragenter'].forEach(ev=>zone.addEventListener(ev,e=>{e.preventDefault();zone.classList.add('on');}));
+  ;['dragleave','drop'].forEach(ev=>zone.addEventListener(ev,e=>{e.preventDefault();zone.classList.remove('on');}));
+  zone.addEventListener('drop',e=>{[...(e.dataTransfer.files||[])].forEach(f=>receiptSubmit(hostId,f,''));});
+  $(hostId+'File').addEventListener('change',e=>{[...e.target.files].forEach(f=>receiptSubmit(hostId,f,''));e.target.value='';});
+}
+async function receiptSubmit(hostId,file,url){
+  url=String(url||'').trim();
+  if(!file && !/^https?:\/\//i.test(url)){ toast('파일을 놓거나 URL(https://…)을 넣어주세요'); return; }
+  const log=$(hostId+'Log'), name=file?file.name:url.slice(0,60);
+  if(log) log.textContent=`올리는 중 — ${name}`;
+  const fd=new FormData();
+  fd.append('staff_slug','oh-jonghyeon');
+  if(file) fd.append('receipt_file', file, file.name);
+  if(url) fd.append('source_ref', url);
+  try{
+    const r=await fetch('/api/staff/receipt-upload',{method:'POST',body:fd});
+    const d=await r.json().catch(()=>({}));
+    if(d.ok){
+      if(log) log.textContent=`✓ ${name} — ${d.msg||'보관됨'}${d.queued?' (오프라인 보관, PC 켜지면 전송)':''}`;
+      toast(d.msg||'입금 자료 보관 완료 — 즉시 대조 시작');
+      if($(hostId+'Url')) $(hostId+'Url').value='';
+      uxEvent('tap','receipt-upload');
+    } else {
+      if(log) log.textContent=`✗ ${name} — ${d.error||('HTTP '+r.status)}`;
+    }
+  }catch(e){ if(log) log.textContent=`✗ ${name} — 연결 실패(오프라인이면 자동 보관됨)`; }
+}
+/* 오종현 담당자 페이지(/staff/oh-jonghyeon)에도 같은 업로드 존을 붙인다 */
+function injectOhUpload(){
+  const anchor=$('ryuSummaryGrid'); if(!anchor) return;
+  const card=document.createElement('div');
+  card.className='card';
+  card.innerHTML='<h3>입금·원천자료 등록 <span class="norm">— 끌어다 놓거나 파일 선택 · URL</span></h3><div id="ohReceiptHost"></div>';
+  anchor.parentNode.insertBefore(card, anchor);
+  renderReceiptUpload('ohReceiptHost');
+}
+
 /* 원클릭 완료 — 기사·매니저의 가장 잦은 입력(상태=완료 + 완료일=오늘)을 한 번에.
    확인을 한 번 묻는다: 실행 취소는 앱에서 못 한다(원장 규칙상 지우기는 사람 몫). */
 async function wtComplete(k,id){
@@ -3380,6 +3488,7 @@ function applyView(v){
   document.querySelectorAll('.tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.v===navView));
   if(v==='report' && !reports.length) loadReports();
   if(v==='pm'||v==='as'){ renderWorkTab(v); if(!(works.as||[]).length&&PIN) loadSettle().catch(()=>{}); }
+  if(v==='center'){ renderCenter(); if(!(works.as||[]).length&&PIN) loadSettle().catch(()=>{}); }
   if(v==='ryu' && PIN && !RYU) loadRyuRecords();
   if(v==='worklog' && PIN) loadWorkLogStatus();
   if(v==='dash' && !CAL) loadCalendar();
@@ -3492,6 +3601,7 @@ async function loadStatus(){
   (2026-07-27에 실제로 그렇게 보였다). 상태가 도착했으니 다시 그린다. */
   try{ renderBoard(); }catch(e){ console.warn('board', e); }
   try{ if(['pm','as'].includes(curView())) renderWorkTab(curView()); }catch(e){}
+  try{ if(curView()==='center') renderCenter(); }catch(e){}
   // 보고 화면을 먼저 연 직후 상태 API가 도착하면 4원천 표도 즉시 실제 집계로 다시 그린다.
   // 이 재렌더가 없으면 화면·캡처에 잠시 '자료 없음' 안내가 고정될 수 있다.
   try{ if(window.__view==='daily') renderDaily(); }catch(e){ console.warn('daily sources',e); }
@@ -3727,6 +3837,7 @@ async function loadSettle(){
   syncSortUI(); fillStatOptions(); renderSettle(); periodInit();
   try{ renderBoard(); }catch(e){ console.warn('board', e); }
   try{ if(['pm','as'].includes(curView())) renderWorkTab(curView()); }catch(e){}
+  try{ if(curView()==='center') renderCenter(); }catch(e){}
   try{ renderRepresentative(); }catch(e){ console.warn('representative report', e); }
   try{ renderCheckHub(); }catch(e){ console.warn('check hub', e); }
   try{ $('helpcard').innerHTML = helpAll(); }catch(e){ console.warn('help', e); }
@@ -7934,6 +8045,7 @@ async function refreshAll(){
 (async function(){
   tick(); setInterval(tick, 30000); initDates(); previewCalendarDraft();
   initStaffCenter();
+  if(staffSlug==='oh-jonghyeon') injectOhUpload();
   const surveyDate=document.querySelector('#ryuUploadForm [name="survey_date"]');
   if(surveyDate&&!surveyDate.value) surveyDate.value=todayISO();
   const newWorkDate=document.querySelector('#newWorkForm [name="work_date"]');
