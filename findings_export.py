@@ -32,16 +32,31 @@ def latest_csv(pat):
 
 
 def settle_issues(master):
-    rows = []
+    rows, resolved = [], []
+    prog_basis = None
     for sid, r in sorted(read_ledger(master).items()):
         # 판정은 ecount_reconcile.settle_status 한 곳에서만 한다 — 화면과 엑셀이 어긋나지 않게.
         st = settle_status(r)
+        if st.startswith("완료("):
+            # 객관 입증 완료(사용자 지시 2026-07-31) — 조치 목록에서 빼고 **DB에만** 기록한다.
+            # 엑셀 셀 백필은 하지 않는다(판매조회에 발행일이 없다 — 절대규칙 10).
+            resolved.append({"settle_id": sid, "project": r.get("프로젝트NO"),
+                             "status": st,
+                             "basis": "ERP 판매조회 진행상태(" + st[3:-1] + ")"})
+            continue
         if st in ("무상/보험", "정상"):
             continue
         rows.append({"정산ID": sid, "문제유형": st, "캠프명": r.get("캠프명"),
                      "프로젝트NO": r.get("프로젝트NO"), "공급가액": r.get("원장_공급가액") or 0,
                      "완료일": str(r.get("작업완료일") or "")[:10],
                      "명세서번호": r.get("원장_거래명세서번호") or "", "PO번호": r.get("원장_PO번호") or ""})
+    if resolved:
+        try:
+            import ledger_db
+            ledger_db.resolution_sync(resolved)
+            print(f"  객관 입증 완료 {len(resolved)}건 → DB(resolution) 기록(엑셀 백필 없음)")
+        except Exception as exc:                      # 기록 실패가 보고서 생성을 막지는 않는다
+            print(f"  ! 완료 기록 실패: {exc}")
     return rows
 
 

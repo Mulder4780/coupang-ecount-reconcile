@@ -3785,6 +3785,61 @@ def t93_ledger_db_and_ux():
     print("  [93] 반영 DB 게이트(11·15시)·UX 기록·업무센터 균등배치·빠른실행 제거 ✅")
 
 
+def t95_objective_completion_db_only():
+    """[95] 객관 입증 완료 처리 + 엑셀 백필 없이 DB 로만 (사용자 지시 2026-07-31).
+
+    · 7.수금완료 = 발행·수금 모두 ERP 가 입증 → 완료(ERP 수금확인)
+    · 6.세금계산서발행 = 발행만 입증 → '미발행'이 아니라 입금 대기(입금일 있으면 완료)
+    · 완료 상태는 06시트 발행일 칸에 써넣지 않는다(판매조회에 발행일 열이 없다 —
+      절대규칙 10). 근거는 ledger_db.resolution 표가 기억한다(first_seen 보존)."""
+    import sys as _s, tempfile
+    _s.path.insert(0, ROOT)
+    import ecount_reconcile as E
+    import ledger_db as L
+
+    old_prog = E.erp_progress
+    try:
+        E.erp_progress = lambda: {"P7": "7.수금완료", "P6": "6.세금계산서발행"}
+        base = {"비용구분": "유상", "원천업무ID": "PM-1", "원장_공급가액": 100,
+                "원장_거래명세서번호": "20260101-1"}
+        assert E.settle_status({**base, "프로젝트NO": "P7"}) == "완료(ERP 수금확인)"
+        assert E.settle_status({**base, "프로젝트NO": "P6"}) == "입금 대기", \
+            "발행만 입증된 건을 완료로 넘기면 수금 추적이 죽는다"
+        assert E.settle_status({**base, "프로젝트NO": "P6",
+                                "원장_입금일": "2026-02-01"}) == "완료(ERP 발행확인)"
+        assert E.settle_status({**base, "프로젝트NO": "PX"}) == "세금계산서 미발행"
+    finally:
+        E.erp_progress = old_prog
+
+    # 완료( 는 조치 목록이 아니라 DB(resolution)로 — 엑셀 셀 백필 경로가 없어야 한다
+    fx = open(os.path.join(ROOT, "findings_export.py"), encoding="utf-8").read()
+    assert 'startswith("완료(")' in fx and "resolution_sync" in fx, \
+        "완료 건이 조치 목록에 남거나 DB에 기록되지 않는다"
+    seg = fx[fx.index('startswith("완료(")'):fx.index("return rows")]
+    assert "enqueue" not in seg and "workbook" not in seg, "완료 처리가 엑셀 쓰기로 새어 나간다"
+
+    # resolution 멱등 upsert — 두 번 넣어도 1행, first_seen 은 처음 값이 남는다
+    with tempfile.TemporaryDirectory() as td:
+        old_dir, old_path = L.DB_DIR, L.DB_PATH
+        L.DB_DIR, L.DB_PATH = td, os.path.join(td, "t.db")
+        try:
+            assert L.resolution_sync([{"settle_id": "JS-1", "project": "P7",
+                                       "status": "완료(ERP 수금확인)", "basis": "b1"}]) == 1
+            first = L.resolutions()["JS-1"]["first_seen"]
+            L.resolution_sync([{"settle_id": "JS-1", "project": "P7",
+                                "status": "완료(ERP 수금확인)", "basis": "b2"}])
+            got = L.resolutions()
+            assert len(got) == 1 and got["JS-1"]["basis"] == "b2", "upsert 가 안 된다"
+            assert got["JS-1"]["first_seen"] == first, "first_seen 이 덮였다 — 최초 입증 시각 유실"
+        finally:
+            L.DB_DIR, L.DB_PATH = old_dir, old_path
+
+    # 앱: 완료 상태가 조치필요 필터·칩에서 완료로 취급되는가
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "'완료(ERP 수금확인)'" in html and "'완료(ERP 발행확인)'" in html, "앱이 새 완료 상태를 모른다"
+    print("  [95] 객관 입증 완료(수금=완료·발행=입금대기·DB만 기록·백필 금지) ✅")
+
+
 def t94_human_edit_guard():
     """[94] 사람이 관리대장을 열어 두면 **버전을 만들지도, 파일을 옮기지도 않는다.**
 
@@ -4497,6 +4552,7 @@ if __name__ == "__main__":
     t92_excel_recalc_agent()
     t93_ledger_db_and_ux()
     t94_human_edit_guard()
+    t95_objective_completion_db_only()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:

@@ -1103,7 +1103,8 @@ def get_ryu_records():
          "attention": sum(1 for r in field_rows if needs_attention(r, ("완료", "정상")))},
         {"key": "settle", "label": "거래서류·청구", "count": len(settle_rows),
          "attention": sum(1 for r in settle_rows if needs_attention(
-             r, ("정상", "무상/보험", "ERP 계산서(묶음)")))},
+             r, ("정상", "무상/보험", "ERP 계산서(묶음)",
+                 "완료(ERP 수금확인)", "완료(ERP 발행확인)")))},
         {"key": "issue", "label": "확인 필요", "count": len(issue_rows),
          "attention": len(issue_rows)},
         {"key": "upload", "label": "자료 등록", "count": len(rows["upload"]), "attention": 0},

@@ -98,6 +98,15 @@ CREATE TABLE IF NOT EXISTS handoff(         -- 19_AI작업인수인계 예약
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ix_handoff_pending
   ON handoff(title,detail) WHERE status='pending';
+CREATE TABLE IF NOT EXISTS resolution(      -- 객관 입증으로 완료 처리한 건(사용자 지시 2026-07-31)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,     -- ★ 엑셀 셀에 백필하지 않는다 — DB 가 기록의 정본이다
+  settle_id TEXT NOT NULL UNIQUE,           -- 06시트 정산ID
+  project TEXT,
+  status TEXT NOT NULL,                     -- 완료(ERP 수금확인) 등 — settle_status 판정값
+  basis TEXT NOT NULL,                      -- 무엇이 입증했나(ERP 판매조회 진행상태=7.수금완료 등)
+  first_seen TEXT NOT NULL,                 -- 처음 입증된 시각
+  last_seen TEXT NOT NULL                   -- 마지막으로 같은 입증이 확인된 시각
+);
 """
 
 
@@ -253,6 +262,42 @@ def eligible_slot(now, done_slots, force=False):
 
 # ── 적재 ─────────────────────────────────────────────────────
 FIELDS = ("sheet", "key_col", "key", "cell", "col", "value", "vtype", "evidence")
+
+
+def resolution_sync(entries):
+    """객관 입증 완료 건을 DB 에 기록한다(멱등 upsert).
+
+    사용자 지시(2026-07-31): "객관적으로 입증이 되는 정보들은 모두 완료 처리해.
+    최종 목적은 엑셀 파일에 저장 안 하고 DB 로만 관리하는 것."
+    → 완료 상태는 엑셀 셀(06시트 발행일 등)에 써넣지 않는다. 원자료에 없는 값을
+      지어내지 않기 위해서다(절대규칙 10). 대신 **언제부터 무엇이 입증했는지** 를
+      이 표가 기억한다 — 입증이 사라져도(파일 교체) first_seen 이 남는다.
+    entries: [{"settle_id","project","status","basis"}, ...]"""
+    now = datetime.now().isoformat(timespec="seconds")
+    n = 0
+    with conn() as c:
+        for e in entries or []:
+            sid = str(e.get("settle_id") or "").strip()
+            if not sid:
+                continue
+            c.execute(
+                "INSERT INTO resolution(settle_id,project,status,basis,first_seen,last_seen)"
+                " VALUES(?,?,?,?,?,?)"
+                " ON CONFLICT(settle_id) DO UPDATE SET"
+                "   project=excluded.project, status=excluded.status,"
+                "   basis=excluded.basis, last_seen=excluded.last_seen",
+                (sid, str(e.get("project") or ""), str(e.get("status") or ""),
+                 str(e.get("basis") or ""), now, now))
+            n += 1
+    return n
+
+
+def resolutions():
+    """{정산ID: {status, basis, first_seen}} — 앱·보고서가 완료 근거를 보여줄 때 쓴다."""
+    with conn() as c:
+        return {row[0]: {"status": row[1], "basis": row[2], "first_seen": row[3]}
+                for row in c.execute(
+                    "SELECT settle_id,status,basis,first_seen FROM resolution")}
 
 
 def enqueue(items, source="tool", ingest_prefix=None):
