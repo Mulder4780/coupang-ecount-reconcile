@@ -98,12 +98,14 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .rpt .rhead .logo.brand{height:38px;width:auto}
 .rpt .rhead .logo{order:0}
 .rpt .rhead h2{order:1}
-.rpt .rhead .report-uni-brand{display:block;width:148px;height:25px;object-fit:contain;opacity:.82;flex:none;order:2}
+/* 정사각 마크로 교체(2026-07-31 지시) — 가로형 로고가 제목·보고일 사이를 밀어 정렬이 깨졌다.
+   CSOS 아이콘과 같은 높이의 정사각으로 나란히 선다. */
+.rpt .rhead .report-uni-brand{display:block;width:46px;height:46px;object-fit:contain;opacity:.92;flex:none;order:2;border-radius:11px;background:#fff;padding:4px;border:1px solid #E5EAF3}
 .rpt .rhead .rdate{order:3}
 @media(max-width:599px){
   .rpt .rhead{flex-wrap:wrap;align-items:center}
   .rpt .rhead h2{flex:1 0 calc(100% - 50px);min-width:0}
-  .rpt .rhead .report-uni-brand{width:116px;height:22px;margin-left:50px}
+  .rpt .rhead .report-uni-brand{width:38px;height:38px;margin-left:0}
   .rpt .rhead .rdate{flex:1 0 100%;margin-left:0;text-align:left}
 }
 .appbar h1{font-size:15px;font-weight:800;letter-spacing:-.2px;line-height:1.2;min-width:0}
@@ -1361,6 +1363,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .wt-edit label{flex:1 1 150px;min-width:0;display:grid;gap:3px;font-size:12px;font-weight:800;color:var(--ink-3)}
 .wt-edit input,.wt-edit select{height:40px;border:1px solid var(--line);border-radius:9px;
   padding:0 9px;font-family:inherit;font-size:13.5px;background:#F8FAFD;width:100%}
+.wt-done{border-color:#12813F;color:#0E6A33;background:#F0FBF4;font-weight:800}
 .wt-pend{margin-left:5px;color:#B54708;font-style:normal;font-size:11px;border:1px solid #F2C4A0;
   border-radius:6px;padding:0 5px;background:#FFF7EF}
 .wt-board{display:flex;gap:10px;overflow-x:auto;align-items:flex-start;padding-bottom:6px}
@@ -3272,7 +3275,19 @@ function renderWorkTab(k){
     `<select onchange="wtSet('${k}','tech',this.value)"><option value="">기사 전체</option><option value="__none" ${st.tech==='__none'?'selected':''}>미배정만</option>${techs.map(t=>`<option ${st.tech===t?'selected':''}>${esc2(t)}</option>`).join('')}</select>`+
     `<button class="abtn ${st.board?'primary':''}" onclick="wtSet('${k}','board',${!st.board})">${st.board?'목록으로':'기사별 보드'}</button>`+
     `<button class="abtn" onclick="wtCsv('${k}')">CSV 내보내기</button>`;
-  const rows=wtFiltered(k);
+  // 빠른 필터 — 오늘 예정 · 지연(예정일 지났는데 미완료). 벤치마킹 공통: 기사가 아침에
+  // 여는 첫 질문은 "오늘 뭐 하지 / 뭐가 밀렸지" 다.
+  const todayIso=new Date().toISOString().slice(0,10);
+  const late=r=>{const d=String(r[cfg.dateCol]||'').slice(0,10);
+    return d && d<todayIso && !String(r[cfg.doneCol]||'').trim() && !/완료|취소/.test(wtStatus(k,r));};
+  const todayDue=r=>String(r[cfg.dateCol]||'').slice(0,10)===todayIso;
+  const nLate=all.filter(late).length, nToday=all.filter(todayDue).length;
+  $(k+'Toolbar').insertAdjacentHTML('beforeend',
+    `<button class="abtn ${st.quick==='late'?'primary':''}" onclick="wtSet('${k}','quick',${st.quick==='late'?"''":"'late'"})">지연 ${nLate}</button>`+
+    `<button class="abtn ${st.quick==='today'?'primary':''}" onclick="wtSet('${k}','quick',${st.quick==='today'?"''":"'today'"})">오늘 ${nToday}</button>`);
+  let rows=wtFiltered(k);
+  if(st.quick==='late') rows=rows.filter(late);
+  if(st.quick==='today') rows=rows.filter(todayDue);
   $(k+'Meta').textContent=`${rows.length}건 표시 (전체 ${all.length}건)`+
     (Object.keys(WT_PENDING).length?` · 반영 대기 입력 ${Object.keys(WT_PENDING).length}건 — 11시·15시에 관리대장으로`:'');
   $(k+'Body').innerHTML = st.board ? wtBoard(k,rows) : rows.slice(0,400).map(r=>wtCard(k,r)).join('')
@@ -3286,6 +3301,7 @@ function wtCard(k,r){
   return `<div class="wt-card">
     <div class="top"><b class="prjno">${esc2(r.프로젝트NO||id||'-')}</b>
       <span class="camp">${esc2(r.캠프명||'캠프 미상')}</span>${stChip}
+      ${/완료|취소/.test(stv)?'':`<button class="wt-open wt-done" onclick="wtComplete('${k}',${esc4(id)})">✓ 완료 처리</button>`}
       <button class="wt-open" onclick="openRecord('${k}',${esc4(id)},${esc4(String(r.프로젝트NO||''))})">상세</button></div>
     <div class="meta"><span class="sid">${esc2(id)}</span>
       <span>${esc2(String(r[cfg.dateCol]||'예정일 미정').slice(0,10))}</span>
@@ -3321,6 +3337,18 @@ async function wtEdit(k,id,col,value,vtype){
     toast(d.queued!==undefined||d.ok?`저장됨 — ${d.message||'11시·15시 회차에 관리대장으로 들어갑니다'}`:'저장 실패');
     renderWorkTab(k);
   }catch(e){ toast('저장 실패 — 잠시 후 다시 시도'); }
+}
+/* 원클릭 완료 — 기사·매니저의 가장 잦은 입력(상태=완료 + 완료일=오늘)을 한 번에.
+   확인을 한 번 묻는다: 실행 취소는 앱에서 못 한다(원장 규칙상 지우기는 사람 몫). */
+async function wtComplete(k,id){
+  const cfg=WT_CFG[k];
+  const stCol=cfg.stCol, doneCol=cfg.doneCol;
+  const doneVal = k==='pm' ? '완료' : '작업완료';
+  if(!confirm(`${id} — ${stCol} '${doneVal}' + ${doneCol} 오늘 날짜로 저장할까요?`)) return;
+  const today=new Date().toISOString().slice(0,10);
+  await wtEdit(k,id,stCol,doneVal,'text');
+  await wtEdit(k,id,doneCol,today,'date');
+  uxEvent('tap','wt-complete-'+k);
 }
 function wtBoard(k,rows){
   const cols={}; rows.forEach(r=>{
@@ -5702,7 +5730,7 @@ function renderDaily(){
   $('rpt').innerHTML = `
     <div class="rhead">
       ${rptLogo}
-      <img class="report-uni-brand" src="/brand/universal-lift-horizontal.png" alt="UNIVERSAL LIFT &amp; HITACHI KOREA">
+      <img class="report-uni-brand" src="/brand/universal-lift-mark.png" alt="UNIVERSAL LIFT">
       <h2 style="font-size:17px">Coupang Service Operations System<small>일일보고 · (주)유니버셜리프트앤히타치코리아</small></h2>
       <div class="rdate">보고일<b>${(execRep.meta&&execRep.meta['보고일'])||`${y}-${m}-${String(today.getDate()).padStart(2,'0')}`}</b>
         <span style="font-size:13px;font-weight:600;color:var(--ink-3)">집계기준일 ${
@@ -6547,7 +6575,7 @@ function brandImg(cls){
 }
 function applyBrand(){
   const el=document.querySelector('.uni-app-brand');
-  if(el) el.src='/brand/universal-lift-horizontal.png';
+  if(el) el.src='/brand/universal-lift-mark.png';
 }
 function openPane(html){
   showSheet(html);        // 시트와 같은 창을 쓴다 — 뒤로가기·배경잠금도 그대로 적용된다
