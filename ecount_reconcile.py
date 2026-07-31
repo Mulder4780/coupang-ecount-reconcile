@@ -295,6 +295,67 @@ def has_statement(r):
     return bool(r.get("원장_거래명세서발행일")) and bool(r.get("원장_거래명세서합계"))
 
 
+_ERP_PROGRESS = {"sig": None, "map": {}}
+# ERP 판매조회의 진행상태 중 '계산서가 이미 나갔다'는 뜻인 값들
+_ERP_ISSUED = ("6.세금계산서발행", "7.수금완료")
+
+
+def erp_progress():
+    """ERP 판매조회에서 {프로젝트NO: 진행상태} 를 읽어 온다(없으면 빈 dict).
+
+    ★ 왜 필요한가 — **이중발행을 막기 위해서다.**
+      원장에 세금계산서 발행일이 안 적혔다는 이유만으로 '세금계산서 미발행'이라 부르면,
+      ERP 에서는 **이미 발행되고 수금까지 끝난** 건까지 발행 대상 목록에 올라간다(206건).
+      그걸 보고 다시 발행하면 이중발행이다. 원장이 모른다고 해서 안 나간 게 아니다.
+
+    ★ 무엇을 하지 않는가 — **발행일을 지어내지 않는다.**
+      판매조회에는 발행일 열이 **없다**(일자·진행상태만). 그래서 여기서 채울 수 있는 것은
+      '나갔다/안 나갔다' 뿐이고, 실제 발행일·승인번호는 ERP [매출(세금)계산서현황] 을
+      내보내야 들어온다. 원자료에 없는 값을 채우지 않는다(절대규칙 10).
+    """
+    try:
+        import glob as _g
+        from source_dirs import ERP_DIR
+        cands = _g.glob(os.path.join(ERP_DIR, "**", "판매조회*.xlsx"), recursive=True)
+        cands = [c for c in cands if "~$" not in c and "__dup_" not in c]
+        if not cands:
+            return {}
+        path = max(cands, key=lambda p: os.stat(p).st_mtime)
+        st = os.stat(path)
+        sig = (path, st.st_mtime_ns, st.st_size)
+    except Exception:
+        return {}
+    if _ERP_PROGRESS["sig"] == sig:
+        return _ERP_PROGRESS["map"]
+    out = {}
+    try:
+        import openpyxl as _ox
+        wb = _ox.load_workbook(path, read_only=True, data_only=True)
+        ws = wb["판매조회"] if "판매조회" in wb.sheetnames else wb.worksheets[0]
+        hdr, ip, ist = None, None, None
+        for row in ws.iter_rows(values_only=True):
+            if hdr is None:
+                cells = [str(c).strip() if c is not None else "" for c in row]
+                if "진행상태" in cells:
+                    hdr = cells
+                    # 열 이름이 '프로젝트코드코드' 로 나온다(ERP 내보내기 그대로) — 부분일치로 잡는다
+                    ip = next((i for i, c in enumerate(cells) if "프로젝트" in c), None)
+                    ist = cells.index("진행상태")
+                continue
+            if ip is None or ist is None:
+                break
+            prj = row[ip] if ip < len(row) else None
+            stt = row[ist] if ist < len(row) else None
+            if prj and stt:
+                out[str(prj).strip()] = str(stt).strip()
+        wb.close()
+    except Exception:
+        return {}
+    _ERP_PROGRESS["sig"] = sig
+    _ERP_PROGRESS["map"] = out
+    return out
+
+
 def settle_status(r):
     """정산 1건의 상태를 **한 곳에서** 판정한다.
 
@@ -322,6 +383,11 @@ def settle_status(r):
     if not has_statement(r):
         return "미청구(전표 없음)"
     if not (r.get("원장_세금계산서실제발행일") or r.get("원장_세금계산서발행일")):
+        # ★ 원장이 모른다고 해서 안 나간 게 아니다. ERP 가 '발행·수금완료' 라고 말하면
+        #   그건 **이미 나간 것**이고, 발행 대상 목록에 올리면 이중발행으로 이어진다.
+        #   따로 부르되 발행일은 채우지 않는다 — 판매조회에 발행일 열이 없다(절대규칙 10).
+        if erp_progress().get(str(r.get("프로젝트NO") or "").strip()) in _ERP_ISSUED:
+            return "계산서 발행됨·원장 미기재"
         return "세금계산서 미발행"
     if not r.get("원장_입금일"):
         return "입금 대기"
