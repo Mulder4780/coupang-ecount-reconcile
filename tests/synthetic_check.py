@@ -1447,7 +1447,21 @@ def t29_cloud():
                     capture_output=True, text=True, encoding="utf-8", errors="replace")
         hits = [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
         assert not hits, "커밋된 파일에 실 PIN이 들어 있다: " + ", ".join(hits[:3])
-    print("  [29] 폰 단독 사용(잠금·오프라인 폴백·git 게시 실패감지·PIN 비노출) ✅")
+    # (5) PC 꺼짐 **콜드 스타트** — 앱을 새로 여는 경우까지 되는가(2026-07-31).
+    #     오프라인 큐만으로는 부족했다: 세션 복원이 네트워크 실패를 인증 거절과 같이 다뤄
+    #     PIN 게이트로 막혀, 정작 입력 화면에 못 들어갔다. 셋 다 있어야 구멍이 안 남는다.
+    live_html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "netDown" in live_html and "cw_dev_auth" in live_html, \
+        "네트워크 실패와 인증 거절을 구분하지 않으면 PC 꺼진 뒤 앱을 새로 열 때 잠긴다"
+    assert "r.status === 401 || r.status === 403" in live_html, \
+        "outbox 가 401·403 을 4xx 로 버린다 — 오프라인에서 써 둔 입력이 유실된다"
+    assert "function offlineBanner(" in live_html and "_netFetch('/api/ping" in live_html, \
+        "PC 꺼짐 안내·복귀 감시가 없으면 사용자가 반영 여부를 알 수 없다"
+    assert "location.reload" not in live_html[live_html.index("function offlineBanner("):
+                                              live_html.index("function offlineBanner(") + 1200], \
+        "복귀 시 스스로 새로고침하면 입력 중이던 화면이 날아간다(2026-07-31 지시)"
+
+    print("  [29] 폰 단독 사용(잠금·오프라인 폴백·콜드스타트·git 게시 실패감지·PIN 비노출) ✅")
 
 
 def t30_dns_and_versions():

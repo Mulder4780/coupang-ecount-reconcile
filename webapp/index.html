@@ -2153,6 +2153,9 @@ async function obFlush(){
         r = await _netFetch(it.path, opt);
       }catch(e){ break; }                    // 아직 PC 가 안 켜졌다 — 다음 기회에
       if (r.ok) await obDel(it.id);
+      /* 401·403 은 '내용이 나빠서'가 아니라 '아직 인증이 안 돼서'다. 지우면 오프라인에서
+         써 둔 입력이 통째로 유실된다 — 보관한 채 멈추고, 로그인 후 다시 보낸다. */
+      else if (r.status === 401 || r.status === 403) break;
       else if (r.status >= 400 && r.status < 500) await obDel(it.id);  // 서버가 거부 — 다시 보내도 같다
       else break;                            // 5xx 는 서버 사정 — 순서 지키려 여기서 멈춘다
     }
@@ -2963,8 +2966,17 @@ async function changePin(e){
 }
 async function login(){
   const pin = $('pin').value.trim();
-  const r = await fetch('/api/login',{method:'POST',body:JSON.stringify({pin,staff_slug:staffSlug||''})});
-  if(r.ok){ PIN='session'; LEGACY_PIN=''; localStorage.removeItem('cw_pin'); $('gate').style.display='none';
+  let r;
+  try{
+    r = await fetch('/api/login',{method:'POST',body:JSON.stringify({pin,staff_slug:staffSlug||''})});
+  }catch(e){
+    /* PC 꺼짐 — PIN 대조 자체가 불가능하다. 로그인 이력이 없는 기기는 열지 않는다. */
+    $('pinerr').textContent = 'PC가 꺼져 있어 PIN을 확인할 수 없습니다 — 이 기기에서 로그인한 적이 있으면 앱을 닫았다 다시 열면 오프라인 입력 모드로 들어갑니다';
+    return;
+  }
+  if(r.ok){ PIN='session'; LEGACY_PIN=''; localStorage.removeItem('cw_pin');
+            try{ localStorage.setItem('cw_dev_auth','1'); }catch(e){}
+            $('gate').style.display='none';
             show(curView()); refreshAll(); }
   else if(r.status===429) $('pinerr').textContent = '시도 초과로 잠금 — 10분 후 다시 시도하세요';
   else $('pinerr').textContent = 'PIN이 올바르지 않습니다';
@@ -2972,8 +2984,12 @@ async function login(){
 $('pin').addEventListener('keyup',e=>{ if(e.key==='Enter'||$('pin').value.length===4) login(); });
 
 async function restoreRoleSession(){
+  let netDown=false;                     // PC 꺼짐(연결 실패)과 인증 거절을 구분한다
   try{
-    let r=await fetch('/api/auth/session',{cache:'no-store'});
+    let r;
+    try{
+      r=await fetch('/api/auth/session',{cache:'no-store'});
+    }catch(e){ netDown=true; throw e; }
     if(!r.ok && /^\d{4}$/.test(LEGACY_PIN)){
       r=await fetch('/api/login',{
         method:'POST',
@@ -2988,12 +3004,42 @@ async function restoreRoleSession(){
       (!staffSlug||d.staff_slug===staffSlug);
     if(!roleOk) throw new Error('role');
     PIN='session';
+    try{ localStorage.setItem('cw_dev_auth','1'); }catch(e){}  // 이 기기의 로그인 이력 — 오프라인 진입 조건
     return true;
   }catch(e){
+    /* PC 가 꺼진 것뿐이라면(네트워크 실패), 전에 이 기기로 로그인한 적이 있을 때만
+       **오프라인 입력 모드**로 연다. PIN 대조는 어차피 서버가 없어 불가능하고,
+       실제 반영 권한은 전송 시점의 기기 인증 쿠키(HttpOnly)가 서버에서 검증한다 —
+       인증이 안 되면 outbox 가 401 에서 멈춰 보관만 하지 반영되지 않는다.
+       처음 보는 기기는 예전처럼 잠근다. */
+    if(netDown && localStorage.getItem('cw_dev_auth')==='1'){
+      PIN='session';
+      offlineBanner();
+      return true;
+    }
     PIN=''; localStorage.removeItem('cw_pin');
     $('gate').style.display='flex';
     return false;
   }
+}
+
+/* PC 꺼짐 안내 + 복귀 감시. ★ 스스로 새로고침하지 않는다(입력 중 화면 보호, 2026-07-31 지시)
+   — PC 가 돌아오면 보관분을 전송하고 데이터만 다시 읽는다. */
+function offlineBanner(){
+  if(document.getElementById('offBanner')) return;
+  const el=document.createElement('div');
+  el.id='offBanner';
+  el.style.cssText='position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 8px);'
+    +'z-index:31;background:#1D2939;color:#FCD34D;border:1px solid #B45309;border-radius:12px;'
+    +'padding:9px 12px;font-size:13.5px;font-weight:700;text-align:center;box-shadow:0 6px 18px rgba(0,0,0,.24)';
+  el.textContent='PC 꺼짐 — 조회는 최신이 아닐 수 있습니다. 입력은 이 기기에 보관됐다가 PC가 켜지면 자동 반영됩니다';
+  document.body.appendChild(el);
+  const t=setInterval(async()=>{
+    try{
+      const r=await _netFetch('/api/ping?t='+Date.now(),{cache:'no-store'});
+      if(r.ok){ clearInterval(t); el.remove(); obFlush(); refreshAll(); }
+    }catch(e){}
+  },30000);
 }
 
 /* 화면만 바꾼다 — 뒤로가기 기록은 건드리지 않는다(복귀·popstate 처리에서 쓴다). */

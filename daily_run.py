@@ -286,6 +286,11 @@ def _run_pipeline():
     #     그래서 이 단계는 위 대조들이 **끝난 뒤에** 와야 한다.
     steps.append(run("자료현황 갱신", [os.path.join(ROOT, "data_status.py")]))
 
+    # 6.9 폰 원격 준비 상태 — 막히는 건 조용히 막힌다. 절전 설정이 되살아나거나 미푸시가
+    #     쌓이면 정작 폰에서 붙으려 할 때 알게 된다(사용자 지시 2026-07-31). 아무것도 바꾸지 않고
+    #     상태만 남긴다 — 전원·SSH 는 관리자 권한이 필요한 시스템 설정이라 사람이 실행한다.
+    steps.append(run("폰 원격 준비 점검", [os.path.join(ROOT, "remote_ready.py")]))
+
     # 7. 전표 전송 대기 현황 (dry-run만 — 실전송은 절대 자동화하지 않음)
     steps.append(run("전표 전송대기(dry-run)", [os.path.join(ROOT, "ecount_upload.py")]))
 
