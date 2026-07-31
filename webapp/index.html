@@ -3043,13 +3043,37 @@ async function checkBuild(auto){
     if(!d.build) return false;
     if(!BUILD){ BUILD = d.build; return false; }
     if(d.build === BUILD) return false;
-    if(auto){
-      if(polling || $('sheetbg').style.display === 'block') return true;  // 작업 중엔 미룸
-      toast('새 버전을 받았습니다 · 화면을 갱신합니다');
-      setTimeout(hardReload, 700);
-    }
+    if(auto) offerUpdate();          // ★ 스스로 새로고침하지 않는다 — 물어본다
     return true;
   }catch(e){ return false; }
+}
+/* ── 새 버전 알림 — 묻고 나서 갱신한다 (사용자 지시 2026-07-31) ──────────────
+   전에는 새 버전을 보면 토스트를 띄우고 **0.7초 뒤 스스로 새로고침**했다.
+   입력하던 중이면 그대로 날아간다. "앱 사용 중 업데이트되면 짜증난다"는 지적이 맞다.
+   이제 화면 아래에 띠만 띄우고, **누르기 전에는 아무 일도 일어나지 않는다.**
+   · '나중에' 를 누르면 이 판(세션)에서는 다시 묻지 않는다 — 계속 뜨면 그것도 방해다.
+   · 새로고침 버튼(reloadHere)으로 직접 누르는 건 사용자가 원한 것이라 그대로 즉시 갱신한다. */
+let UPDATE_SNOOZED = false;
+function offerUpdate(){
+  if(UPDATE_SNOOZED || document.getElementById('updBar')) return;
+  const bar = document.createElement('div');
+  bar.id = 'updBar';
+  bar.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 62px);'
+    + 'z-index:31;background:var(--navy-900);color:#fff;border-radius:14px;padding:12px 14px;'
+    + 'box-shadow:0 8px 24px rgba(0,0,0,.28);display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+  bar.innerHTML = '<span style="flex:1 1 180px;font-size:14px;font-weight:700">'
+    + '새 버전이 준비됐습니다 <span style="font-weight:500;opacity:.8">— 지금 갱신하면 보던 화면이 다시 열립니다</span></span>';
+  const mk = (label, primary, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = 'padding:9px 15px;border-radius:10px;font-size:13.5px;font-weight:800;flex:none;'
+      + (primary ? 'background:#fff;color:var(--navy-900)' : 'background:transparent;color:#fff;border:1px solid rgba(255,255,255,.45)');
+    b.onclick = fn;
+    return b;
+  };
+  bar.appendChild(mk('나중에', false, () => { UPDATE_SNOOZED = true; bar.remove(); }));
+  bar.appendChild(mk('지금 갱신', true, hardReload));
+  document.body.appendChild(bar);
 }
 /* 캐시를 확실히 비우고 문서를 다시 읽는다 */
 function hardReload(){
