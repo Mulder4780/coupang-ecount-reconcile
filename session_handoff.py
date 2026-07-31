@@ -181,6 +181,27 @@ def write_checkpoint(objective="", done=None, pending=None, notes=None):
     return value
 
 
+def rule_copies():
+    """루트 CLAUDE.md·AGENTS.md 는 ecount/CLAUDE.md(정본)의 사본이어야 한다.
+
+    루트 파일은 git 밖이라 조용히 낡는다 — 실제로 2026-07-31 루트 CLAUDE.md 가
+    '엑셀 두 번' 규칙 이전 판으로 남아 옛 절차(ledger_writer --apply)를 지시하고 있었다.
+    다르면 옛 규칙을 읽는 세션이 생기므로 '먼저 처리할 것'으로 올린다."""
+    try:
+        master = open(os.path.join(BASE, "CLAUDE.md"), encoding="utf-8").read()
+    except OSError:
+        return []
+    out = []
+    for name in ("CLAUDE.md", "AGENTS.md"):
+        p = os.path.join(os.path.dirname(BASE), name)
+        try:
+            if open(p, encoding="utf-8").read() != master:
+                out.append(name)
+        except OSError:
+            out.append(name)
+    return out
+
+
 def collect():
     unstaged = [l for l in git("status", "--short").splitlines() if l.strip()]
     unpushed = [l for l in git("log", "origin/master..HEAD", "--oneline").splitlines() if l.strip()]
@@ -195,6 +216,7 @@ def collect():
         "최근커밋": [l for l in git("log", "-5", "--oneline").splitlines() if l.strip()],
         "다음할일": next_tasks(),
         "진행체크포인트": read_checkpoint(),
+        "지시문사본": rule_copies(),
     }
 
 
@@ -221,6 +243,11 @@ def blockers(st, for_sol=False):
     if st["미푸시"]:
         out.append(("푸시되지 않은 커밋 %d개" % len(st["미푸시"]),
                     "git pull --rebase && git push  (비밀 스캔 후)"))
+    if st.get("지시문사본"):
+        out.append(("루트 %s 가 정본(ecount/CLAUDE.md)과 다르다 — 옛 규칙을 읽는 세션이 생긴다"
+                    % "·".join(st["지시문사본"]),
+                    "내용 비교 → 정본에 반영 후 복사: python -c \"import shutil;"
+                    "[shutil.copy('ecount/CLAUDE.md',d) for d in ('CLAUDE.md','AGENTS.md')]\""))
     if for_sol and st.get("terra_sol_review", {}).get("pending"):
         out.append(("Terra 작업분의 Sol 사전 검토가 필요합니다 (%s)" %
                     st["terra_sol_review"].get("reason", "검토 미완료"),

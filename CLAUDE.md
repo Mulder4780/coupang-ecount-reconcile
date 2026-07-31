@@ -2,6 +2,14 @@
 
 **어떤 AI(Claude Code·Codex·기타)든 이 프로젝트에서 작업을 시작하면 반드시 아래 순서를 따른다.**
 
+## 이 파일의 정본과 사본 (2026-07-31)
+- **정본은 `ecount/CLAUDE.md`(git 추적) 하나다.** 루트의 `CLAUDE.md`(Claude 자동 로드)와
+  루트 `AGENTS.md`(Codex 자동 로드)는 그 **복사본**이며 세 파일은 항상 내용이 같아야 한다.
+  (루트 파일은 git 밖이라, 정본과 같게 유지해야 버전관리가 실질적으로 미친다)
+- 규칙을 고칠 때는 `ecount/CLAUDE.md`를 고친 뒤 루트 두 파일로 복사한다:
+  `python -c "import shutil;[shutil.copy('ecount/CLAUDE.md',d) for d in ('CLAUDE.md','AGENTS.md')]"`
+- 불일치는 `session_handoff.py --check`의 "먼저 처리할 것"이 잡는다.
+
 ## 시작 체크리스트 (매 세션)
 0. **`python ecount/session_handoff.py --check` ← 제일 먼저.**
    앞 세션이 컨텍스트가 차서 끊겼을 수 있다. 그때 남는 것들을 이 한 장이 잡아 준다:
@@ -16,6 +24,17 @@
 3. `python ecount/tests/synthetic_check.py` 실행 → **ALL GREEN 확인 후에만** 실데이터 작업
 4. `python ecount/data_status.py --print` — 자료가 지금 얼마나 있나(밴드·서류·입금·원장 채움).
    같은 것을 다시 세지 말 것. 시스템 상태는 `coupang_workbench.py --status`.
+
+## Terra → Sol 인수인계 검토 관문
+
+Terra가 의미 있는 작업을 끝내면, 커밋·푸시 후 `python ecount/handoff_review.py --mark-terra`를 실행해 Sol 검토 범위를 표시한다.
+
+Sol은 실데이터·코드·관리대장 쓰기 전에 반드시 다음을 실행한다.
+
+1. `python ecount/session_handoff.py --check --for-sol`
+2. `python ecount/handoff_review.py --review-sol`
+
+검토는 기준 커밋부터 현재 HEAD까지의 공백 오류·비밀값 형태·변경 Python 문법·전체 합성검증을 확인한다. PASS 전에는 `ai_claim.py`가 Sol의 `ledger/code/band/publish` 점유를 차단한다. 새 커밋 또는 의미 있는 미커밋 변경이 생기면 다시 검토한다.
 
 ## ★ 상시 원칙 — 자동화로 만들어 두라 (2026-07-31 지시)
 사용자 지시: **"세션이 95% 차면 모든 내용을 다음 세션으로 자동으로 넘겨 자동으로 시작하게 하고
