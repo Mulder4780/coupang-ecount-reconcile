@@ -4272,14 +4272,25 @@ self.addEventListener('fetch', e => {
                 return self._send(400, {"ok": False, "error": "sheet/key/col/value 필요"})
             if b.get("vtype") not in ("text", "date", "number"):
                 b["vtype"] = "text"
+            # ★ 정밀 관리 탭(2026-07-31): 배정·상태·일정은 **수정**이 본질이다 — 빈 칸만
+            #   채워서는 오배정을 바로잡을 수 없다. 덮어쓰기는 이 열들로만 허용하고,
+            #   근거에 '앱 수정'을 남겨 나중에 who/when 을 추적할 수 있게 한다.
+            #   그 밖의 열은 예전 그대로 빈 칸만 채운다(실수로 확정값을 덮지 않게).
+            OVERWRITE_COLS = {
+                "02_돌발AS접수": {"담당기사", "진행상태", "방문예정일", "작업완료일", "긴급도"},
+                "04_정기점검": {"담당기사", "점검상태", "점검예정일", "실제점검일"},
+            }
+            overwrite = (b.get("overwrite") is True
+                         and b.get("col") in OVERWRITE_COLS.get(b.get("sheet"), set()))
             if DEMO:
                 return self._send(200, {"ok": True, "queued": 1, "demo": True})
             queued = enqueue_for_scheduled_apply(
                 [{"sheet": b["sheet"], "key_col": b.get("key_col", "정산ID"),
                   "key": b["key"], "col": b["col"], "value": b["value"],
                   "vtype": b["vtype"],
-                  "evidence": f"앱 입력({ip}) {datetime.now():%m-%d %H:%M}",
-                  "only_if_empty": True}],
+                  "evidence": (f"앱 {'수정' if overwrite else '입력'}({ip})"
+                               f" {datetime.now():%m-%d %H:%M}"),
+                  "only_if_empty": not overwrite}],
                 source="app-input",
             )
             return self._send(200, {"ok": True, **queued})

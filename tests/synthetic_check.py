@@ -3840,6 +3840,38 @@ def t95_objective_completion_db_only():
     print("  [95] 객관 입증 완료(수금=완료·발행=입금대기·DB만 기록·백필 금지) ✅")
 
 
+def t96_work_management_tabs():
+    """[96] 정기점검·돌발AS 정밀 관리 탭 (사용자 지시 2026-07-31).
+
+    · 입력은 전부 /api/input → DB 큐(11·15시 회차) — 엑셀 직접 쓰기 없음(DB-only).
+    · 배정·상태·일정만 덮어쓰기 허용(OVERWRITE_COLS) — 그 밖은 빈 칸만 채운다.
+      류지영 매니저가 엑셀에서 담당기사를 한 건씩 고치다 유실 사고가 난 그 작업을
+      앱에서 안전하게 하게 하는 것이 이 탭의 존재 이유다.
+    · 폰 하단바는 칸이 모자라 사이드바(≥900px)에서만 메뉴 노출 — 폰은 대시보드
+      바로가기로 들어간다(숨겨도 화면은 동작해야 한다)."""
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for need in ('id="v-pm"', 'id="v-as"', "renderWorkTab", "WT_CFG", "wtEdit",
+                 'data-v="pm"', 'data-v="as"', "worktab-nav", "wtBoard", "wtCsv"):
+        assert need in html, f"정밀 관리 탭 구성 요소 누락: {need}"
+    assert ".tabbar.worktab-nav{display:none}" in html.replace(" ", ""), \
+        "폰 하단바 칸 부족 대책(사이드바 전용 노출)이 없다"
+    # 인라인 편집이 DB 큐 경로(/api/input)로만 가는가 — 다른 쓰기 경로가 생기면 안 된다
+    seg = html[html.index("async function wtEdit"):html.index("function wtBoard")]
+    assert "/api/input" in seg and "overwrite:true" in seg, "편집이 DB 큐 경로를 안 탄다"
+    assert "ledger_writer" not in seg and "xlsx" not in seg, "편집이 엑셀로 새어 나간다"
+    # 서버: 덮어쓰기는 허용열에서만, 근거에 '수정'이 남는가
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    blk = srv[srv.index('"/api/input"'):srv.index('"/api/input"') + 2500]
+    assert "OVERWRITE_COLS" in blk and '"담당기사"' in blk and '"진행상태"' in blk, \
+        "덮어쓰기 허용열이 없다 — 오배정을 앱에서 못 고친다"
+    assert '"only_if_empty": not overwrite' in blk, "덮어쓰기 플래그가 큐에 안 실린다"
+    assert "수정" in blk, "덮어쓰기 근거 표시가 없다 — 나중에 추적할 수 없다"
+    # 업무센터·대시보드에서 들어가는 입구
+    assert html.count("show('pm')") >= 2 and html.count("show('as')") >= 2, \
+        "대시보드·업무센터에서 정밀 관리 탭으로 가는 입구가 없다"
+    print("  [96] 정밀 관리 탭(DB 큐 전용·허용열 덮어쓰기·보드·CSV·입구 연결) ✅")
+
+
 def t94_human_edit_guard():
     """[94] 사람이 관리대장을 열어 두면 **버전을 만들지도, 파일을 옮기지도 않는다.**
 
@@ -4553,6 +4585,7 @@ if __name__ == "__main__":
     t93_ledger_db_and_ux()
     t94_human_edit_guard()
     t95_objective_completion_db_only()
+    t96_work_management_tabs()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:

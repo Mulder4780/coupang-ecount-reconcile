@@ -1334,6 +1334,44 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .calendar-form>label:last-child:nth-child(odd),
 .egroup.issue .gb>:last-child:nth-child(odd){grid-column:1/-1}
 
+/* ═══ 정밀 관리 탭(정기점검·돌발AS) — 2026-07-31 ═══
+   전역 규칙과 같은 문법: flex-wrap + 남는 폭 나눠 갖기, 큰 터치 목표(≥40px). */
+.hero-min{margin:4px 0 12px}
+.hero-min h2{font-size:21px;margin:0 0 4px}
+.hero-min .sub{color:var(--ink-3);font-size:14px;margin:0}
+.wt-kpis{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:12px}
+.wt-kpi{flex:1 1 130px;min-width:0;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r);box-shadow:var(--sh);padding:12px 13px;cursor:pointer;text-align:center;
+  font-family:inherit}
+.wt-kpi b{display:block;font-size:21px;font-variant-numeric:tabular-nums}
+.wt-kpi span{font-size:13px;color:var(--ink-3);font-weight:700}
+.wt-kpi.warn b{color:#B54708}
+.wt-kpi.on{border-color:#2E52D6;box-shadow:0 0 0 2px rgba(46,82,214,.18)}
+.wt-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.wt-toolbar input,.wt-toolbar select{flex:1 1 170px;min-width:0;height:42px;border:1px solid var(--line);
+  border-radius:10px;padding:0 11px;font-family:inherit;font-size:14px;background:var(--surface)}
+.wt-toolbar .abtn{flex:0 1 auto}
+.wt-meta{color:var(--ink-3);font-size:13px;margin:5px 1px 9px}
+.wt-card{border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:9px;background:var(--surface)}
+.wt-card .top{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.wt-card .meta{display:flex;flex-wrap:wrap;gap:10px;color:var(--ink-3);font-size:12.5px;margin-top:3px}
+.wt-open{margin-left:auto;border:1px solid var(--line);background:none;border-radius:8px;
+  padding:5px 10px;font-family:inherit;font-size:12.5px;cursor:pointer;color:var(--ink-2)}
+.wt-edit{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+.wt-edit label{flex:1 1 150px;min-width:0;display:grid;gap:3px;font-size:12px;font-weight:800;color:var(--ink-3)}
+.wt-edit input,.wt-edit select{height:40px;border:1px solid var(--line);border-radius:9px;
+  padding:0 9px;font-family:inherit;font-size:13.5px;background:#F8FAFD;width:100%}
+.wt-pend{margin-left:5px;color:#B54708;font-style:normal;font-size:11px;border:1px solid #F2C4A0;
+  border-radius:6px;padding:0 5px;background:#FFF7EF}
+.wt-board{display:flex;gap:10px;overflow-x:auto;align-items:flex-start;padding-bottom:6px}
+.wt-col{flex:0 0 290px;background:#F4F7FC;border:1px solid var(--line);border-radius:12px;padding:9px}
+.wt-col.warn{background:#FFF9F2;border-color:#F2C4A0}
+.wt-col h4{margin:2px 4px 8px;font-size:14px}
+.wt-col h4 span{color:var(--ink-3);font-weight:700}
+/* 폰 하단바에는 칸이 없다 — 사이드바(≥900px)에서만 메뉴로 노출.
+   폰은 대시보드 '업무 바로가기'로 같은 화면에 들어간다(숨겨도 화면 자체는 동작). */
+@media(max-width:899px){ .tabbar .worktab-nav{display:none} }
+
 </style>
 </head>
 <body>
@@ -1543,10 +1581,10 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	         값을 쓴다 — 두 곳이 다른 숫자를 말하면 어느 쪽을 믿을지 사람이 고민하게 된다. -->
 	    <div class="card"><h3>업무 바로가기</h3>
 	      <div class="actions">
-	        <button class="abtn" onclick="goList('pm','')">
+	        <button class="abtn" onclick="show('pm')">
 	          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>
 	          정기점검<small class="norm" id="dmPmCount" style="font-weight:600;color:var(--muted)"></small></button>
-	        <button class="abtn" onclick="goList('as','')">
+	        <button class="abtn" onclick="show('as')">
 	          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-wrench-adjustable"/></svg>
 	          돌발AS<small class="norm" id="dmAsCount" style="font-weight:600;color:var(--muted)"></small></button>
 	      </div></div>
@@ -1563,6 +1601,26 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
   </section>
 
   <!-- 정산·업무 -->
+  <!-- ═══ 정밀 관리 탭(2026-07-31 지시): 정기점검·돌발AS 입력·출력 전용 ═══
+       벤치마킹(Limble·MaintainX·Atlas CMMS 오픈소스): KPI 스트립=클릭 필터 ·
+       저장되는 필터 · 카드 인라인 편집(상태/기사/일정) · 기사별 보드 · CSV 출력.
+       입력은 전부 /api/input → DB 큐 → 11:00·15:00 회차 반영(DB-only 원칙). -->
+  <section class="view" id="v-pm">
+    <div class="hero-min"><h2>정기점검 관리</h2>
+      <p class="sub">예정·실행·미실시를 한 화면에서 배정하고 기록합니다. 입력은 DB에 쌓였다가 11시·15시에 관리대장에 들어갑니다.</p></div>
+    <datalist id="wtTechList"></datalist>
+    <div class="wt-kpis" id="pmKpis"></div>
+    <div class="card"><div class="wt-toolbar" id="pmToolbar"></div>
+      <div class="wt-meta" id="pmMeta"></div><div id="pmBody"></div></div>
+  </section>
+  <section class="view" id="v-as">
+    <div class="hero-min"><h2>돌발 AS 관리</h2>
+      <p class="sub">접수→배정→방문→완료를 한 화면에서 관리합니다. 입력은 DB에 쌓였다가 11시·15시에 관리대장에 들어갑니다.</p></div>
+    <div class="wt-kpis" id="asKpis"></div>
+    <div class="card"><div class="wt-toolbar" id="asToolbar"></div>
+      <div class="wt-meta" id="asMeta"></div><div id="asBody"></div></div>
+  </section>
+
   <section class="view" id="v-settle">
     <div class="seg" id="seg">
       <button class="on" data-m="settle" onclick="setMode('settle')">정산·청구</button>
@@ -1729,6 +1787,8 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 	        <button class="abtn primary" type="button" onclick="shareStaffCenter()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-up-right"/></svg>링크 보내기</button>
 	        <button class="abtn" type="button" onclick="copyStaffCenterUrl()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-link-45deg"/></svg>주소 복사</button>
 	        <button class="abtn" type="button" onclick="showInstallCard()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>앱 설치</button>
+	        <button class="abtn" type="button" onclick="show('pm')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>정기점검 관리</button>
+	        <button class="abtn" type="button" onclick="show('as')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-wrench-adjustable"/></svg>돌발AS 관리</button>
 	      </div>
 	    </div>
 
@@ -2094,6 +2154,10 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
       <small>CSOS · UNIVERSAL LIFT</small></div>
   </div>
   <button class="on" data-v="dash" onclick="routeNav('dash')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-house-door-fill"/></svg>대시보드</button>
+  <!-- 정밀 관리 탭(2026-07-31): 폰 하단바는 칸이 모자라 사이드바(≥900px)에서만 보인다.
+       폰에서는 대시보드 '업무 바로가기'가 같은 화면으로 들어간다. -->
+  <button class="worktab-nav" data-v="pm" onclick="routeNav('pm')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>정기점검</button>
+  <button class="worktab-nav" data-v="as" onclick="routeNav('as')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-wrench-adjustable"/></svg>돌발 AS</button>
   <button class="staff-worklog-nav" data-v="worklog" onclick="routeNav('worklog')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>대표보고 일지</button>
   <button data-v="settle" onclick="routeNav('settle')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-receipt"/></svg>정산</button>
   <button data-v="run" onclick="routeNav('run')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-play-fill"/></svg>실행</button>
@@ -3147,6 +3211,139 @@ function offlineBanner(){
   },30000);
 }
 
+/* ═══ 정밀 관리 탭 — 정기점검(pm)·돌발AS(as) (2026-07-31 지시) ═══
+   설계 근거: 실사용 기록(류지영 매니저가 담당기사 미배정을 엑셀에서 한 건씩 찾아
+   입력하다 유실 사고) + 오픈소스 CMMS 벤치마킹(Limble 카드·클릭수 최소화,
+   MaintainX 모바일 우선, Atlas CMMS 배정/추적). 원칙:
+   · 입력은 전부 /api/input → DB 큐(11·15시 반영) — 엑셀을 직접 만지지 않는다.
+   · 배정·상태·일정만 덮어쓰기 허용(서버 OVERWRITE_COLS) — 나머지는 빈 칸만.
+   · 필터는 기기에 저장돼 다음에 열어도 그대로다(저장되는 필터). */
+const WT_CFG = {
+  pm: {sheet:'04_정기점검', idCol:'점검ID', dateCol:'점검예정일', doneCol:'실제점검일',
+       stCol:'점검상태', rows:()=>works.pm||[],
+       edit:[['담당기사','tech'],['점검상태','status'],['점검예정일','date'],['실제점검일','date']]},
+  as: {sheet:'02_돌발AS접수', idCol:'접수ID', dateCol:'방문예정일', doneCol:'작업완료일',
+       stCol:'진행상태', rows:()=>works.as||[],
+       edit:[['담당기사','tech'],['진행상태','status'],['방문예정일','date'],['작업완료일','date']]},
+};
+let WT = (()=>{ try{ return JSON.parse(localStorage.getItem('cw_wt')||'{}'); }catch(e){ return {}; } })();
+const wtSave = () => { try{ localStorage.setItem('cw_wt', JSON.stringify(WT)); }catch(e){} };
+const wtState = k => (WT[k] = WT[k] || {q:'',st:'',tech:'',board:false});
+const WT_PENDING = {};       // {id|col: value} — 회차 반영 전까지 '대기' 배지
+function wtStatus(k,r){ return String(r[WT_CFG[k].stCol]||'').trim() || '미기입'; }
+function wtTechs(k){
+  const s=new Set();
+  WT_CFG[k].rows().forEach(r=>String(r.담당기사||'').split(',').forEach(t=>{t=t.trim(); if(t)s.add(t);}));
+  return [...s].sort();
+}
+function wtFiltered(k){
+  const st=wtState(k), q=st.q.toLowerCase();
+  return WT_CFG[k].rows().filter(r=>{
+    if(st.st && wtStatus(k,r)!==st.st) return false;
+    if(st.tech==='__none' ? String(r.담당기사||'').trim() :
+       (st.tech && !String(r.담당기사||'').includes(st.tech))) return false;
+    if(q && ![r.프로젝트NO,r.캠프명,r.담당기사,r[WT_CFG[k].idCol],r.신청내용]
+        .some(x=>String(x||'').toLowerCase().includes(q))) return false;
+    return true;
+  });
+}
+function renderWorkTab(k){
+  const cfg=WT_CFG[k]; if(!cfg || !$(k+'Kpis')) return;
+  const all=cfg.rows(), st=wtState(k);
+  const dl=$('wtTechList');
+  if(dl) dl.innerHTML=[...new Set([...wtTechs('pm'),...wtTechs('as')])].map(t=>`<option>${esc2(t)}</option>`).join('');
+  if(!all.length){
+    $(k+'Body').innerHTML='<div class="sk sk-row w88"></div><div class="sk sk-row w70"></div><div class="sk sk-row w45"></div>';
+    return;   // loadSettle 이 works 를 채우면 다시 그린다
+  }
+  // KPI 스트립 — 누르면 곧 필터다(벤치마킹: 숫자와 목록이 따로 놀면 안 된다)
+  const unassigned=all.filter(r=>!String(r.담당기사||'').trim()).length;
+  const byStat={}; all.forEach(r=>{const s=wtStatus(k,r); byStat[s]=(byStat[s]||0)+1;});
+  const tops=Object.entries(byStat).sort((a,b)=>b[1]-a[1]).slice(0,4);
+  $(k+'Kpis').innerHTML =
+    `<button class="wt-kpi ${!st.st&&st.tech!=='__none'?'on':''}" onclick="wtSet('${k}','st','');wtSet('${k}','tech','')"><b>${all.length}</b><span>전체</span></button>`+
+    `<button class="wt-kpi warn ${st.tech==='__none'?'on':''}" onclick="wtSet('${k}','tech','__none')"><b>${unassigned}</b><span>기사 미배정</span></button>`+
+    tops.map(([s,n])=>`<button class="wt-kpi ${st.st===s?'on':''}" onclick="wtSet('${k}','st',${esc4(s)})"><b>${n}</b><span>${esc2(s)}</span></button>`).join('');
+  // 툴바 — 검색·상태·기사·보드 전환·출력
+  const stats=Object.keys(byStat).sort(), techs=wtTechs(k);
+  $(k+'Toolbar').innerHTML =
+    `<input placeholder="검색: 프로젝트NO·캠프·기사·내용" value="${esc2(st.q)}" oninput="wtSet('${k}','q',this.value)">`+
+    `<select onchange="wtSet('${k}','st',this.value)"><option value="">상태 전체</option>${stats.map(s=>`<option ${st.st===s?'selected':''}>${esc2(s)}</option>`).join('')}</select>`+
+    `<select onchange="wtSet('${k}','tech',this.value)"><option value="">기사 전체</option><option value="__none" ${st.tech==='__none'?'selected':''}>미배정만</option>${techs.map(t=>`<option ${st.tech===t?'selected':''}>${esc2(t)}</option>`).join('')}</select>`+
+    `<button class="abtn ${st.board?'primary':''}" onclick="wtSet('${k}','board',${!st.board})">${st.board?'목록으로':'기사별 보드'}</button>`+
+    `<button class="abtn" onclick="wtCsv('${k}')">CSV 내보내기</button>`;
+  const rows=wtFiltered(k);
+  $(k+'Meta').textContent=`${rows.length}건 표시 (전체 ${all.length}건)`+
+    (Object.keys(WT_PENDING).length?` · 반영 대기 입력 ${Object.keys(WT_PENDING).length}건 — 11시·15시에 관리대장으로`:'');
+  $(k+'Body').innerHTML = st.board ? wtBoard(k,rows) : rows.slice(0,400).map(r=>wtCard(k,r)).join('')
+    + (rows.length>400?`<div class="wt-meta">400건까지 표시 — 검색·필터로 좁혀 주세요</div>`:'');
+}
+function wtSet(k,key,val){ wtState(k)[key]=val; wtSave(); renderWorkTab(k); }
+function wtCard(k,r){
+  const cfg=WT_CFG[k], id=String(r[cfg.idCol]||'').trim();
+  const stv=wtStatus(k,r);
+  const stChip = chip(stv);
+  return `<div class="wt-card">
+    <div class="top"><b class="prjno">${esc2(r.프로젝트NO||id||'-')}</b>
+      <span class="camp">${esc2(r.캠프명||'캠프 미상')}</span>${stChip}
+      <button class="wt-open" onclick="openRecord('${k}',${esc4(id)},${esc4(String(r.프로젝트NO||''))})">상세</button></div>
+    <div class="meta"><span class="sid">${esc2(id)}</span>
+      <span>${esc2(String(r[cfg.dateCol]||'예정일 미정').slice(0,10))}</span>
+      <span>${esc2(String(r[cfg.doneCol]||'').slice(0,10))}</span></div>
+    <div class="wt-edit">${cfg.edit.map(([col,typ])=>wtField(k,id,col,typ,r[col])).join('')}</div>
+  </div>`;
+}
+function wtField(k,id,col,typ,cur){
+  const key=id+'|'+col, pend=WT_PENDING[key]!==undefined;
+  const val=pend?WT_PENDING[key]:String(cur||'');
+  const tag=pend?'<i class="wt-pend">대기</i>':'';
+  if(typ==='date')
+    return `<label>${esc2(col)}${tag}<input type="date" value="${esc2(String(val).slice(0,10))}"
+      onchange="wtEdit('${k}',${esc4(id)},${esc4(col)},this.value,'date')"></label>`;
+  if(typ==='status'){
+    const opts=[...new Set(WT_CFG[k].rows().map(r=>wtStatus(k,r)).filter(s=>s!=='미기입'))].sort();
+    return `<label>${esc2(col)}${tag}<select onchange="wtEdit('${k}',${esc4(id)},${esc4(col)},this.value,'text')">
+      <option value="">${val?esc2(val):'선택'}</option>${opts.filter(o=>o!==val).map(o=>`<option>${esc2(o)}</option>`).join('')}</select></label>`;
+  }
+  return `<label>${esc2(col)}${tag}<input list="wtTechList" value="${esc2(val)}" placeholder="미배정"
+    onchange="wtEdit('${k}',${esc4(id)},${esc4(col)},this.value,'text')"></label>`;
+}
+async function wtEdit(k,id,col,value,vtype){
+  value=String(value||'').trim();
+  if(!value) return;                       // 지우기는 앱에서 안 한다 — 실수 방지
+  const cfg=WT_CFG[k];
+  try{
+    const d=await api('/api/input',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({sheet:cfg.sheet,key_col:cfg.idCol,key:id,col,value,vtype,overwrite:true})});
+    WT_PENDING[id+'|'+col]=value;
+    const row=cfg.rows().find(r=>String(r[cfg.idCol]||'').trim()===id);
+    if(row) row[col]=value;                // 낙관적 반영 — 화면은 바로, 원장은 회차에
+    toast(d.queued!==undefined||d.ok?`저장됨 — ${d.message||'11시·15시 회차에 관리대장으로 들어갑니다'}`:'저장 실패');
+    renderWorkTab(k);
+  }catch(e){ toast('저장 실패 — 잠시 후 다시 시도'); }
+}
+function wtBoard(k,rows){
+  const cols={}; rows.forEach(r=>{
+    const t=String(r.담당기사||'').trim()||'미배정';
+    (cols[t]=cols[t]||[]).push(r);
+  });
+  const names=Object.keys(cols).sort((a,b)=>a==='미배정'?-1:b==='미배정'?1:cols[b].length-cols[a].length);
+  return `<div class="wt-board">${names.map(t=>`<div class="wt-col${t==='미배정'?' warn':''}">
+    <h4>${esc2(t)} <span>${cols[t].length}</span></h4>
+    ${cols[t].slice(0,60).map(r=>wtCard(k,r)).join('')}</div>`).join('')}</div>`;
+}
+function wtCsv(k){
+  const cfg=WT_CFG[k], rows=wtFiltered(k);
+  const cols=[cfg.idCol,'프로젝트NO','캠프명','담당기사',cfg.stCol,cfg.dateCol,cfg.doneCol];
+  const csv='﻿'+[cols.join(',')].concat(rows.map(r=>cols.map(c=>
+    `"${String(r[c]||'').replace(/"/g,'""')}"`).join(','))).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download=(k==='pm'?'정기점검':'돌발AS')+'_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click(); URL.revokeObjectURL(a.href);
+  uxEvent('tap','wt-csv-'+k);
+}
+
 /* 화면만 바꾼다 — 뒤로가기 기록은 건드리지 않는다(복귀·popstate 처리에서 쓴다). */
 function applyView(v){
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
@@ -3154,6 +3351,7 @@ function applyView(v){
   const navView=v==='ryu'?'dash':v;
   document.querySelectorAll('.tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.v===navView));
   if(v==='report' && !reports.length) loadReports();
+  if(v==='pm'||v==='as'){ renderWorkTab(v); if(!(works.as||[]).length&&PIN) loadSettle().catch(()=>{}); }
   if(v==='ryu' && PIN && !RYU) loadRyuRecords();
   if(v==='worklog' && PIN) loadWorkLogStatus();
   if(v==='dash' && !CAL) loadCalendar();
@@ -3265,6 +3463,7 @@ async function loadStatus(){
      그대로 두면 밴드·카톡·PO 자료가 멀쩡히 있어도 **'아직 없음' 4건이 거짓으로** 뜬다
   (2026-07-27에 실제로 그렇게 보였다). 상태가 도착했으니 다시 그린다. */
   try{ renderBoard(); }catch(e){ console.warn('board', e); }
+  try{ if(['pm','as'].includes(curView())) renderWorkTab(curView()); }catch(e){}
   // 보고 화면을 먼저 연 직후 상태 API가 도착하면 4원천 표도 즉시 실제 집계로 다시 그린다.
   // 이 재렌더가 없으면 화면·캡처에 잠시 '자료 없음' 안내가 고정될 수 있다.
   try{ if(window.__view==='daily') renderDaily(); }catch(e){ console.warn('daily sources',e); }
@@ -3293,8 +3492,8 @@ async function loadStatus(){
     tile(issues.length?'danger':'ok','bootstrap-exclamation-triangle-fill','조치 필요', issues.length, issues.length?'클릭해 아래 유형 확인':'모두 정상',
       "flashTop()") +
     tile(asOpen?'danger':'ok','bootstrap-wrench-adjustable','AS 미실시', asOpen,
-      `접수 후 미완료 · 전체 ${(works.as||[]).length}건 중 · 클릭=목록`, "openAsPending()") +
-    tile(pmWait?'warn':'','bootstrap-calendar-event-fill','정기점검 대기', pmWait, `전체 ${(works.pm||[]).length}건 · 클릭=목록`, "goList('pm','')") +
+      `접수 후 미완료 · 전체 ${(works.as||[]).length}건 중 · 클릭=목록`, "show('as')") +
+    tile(pmWait?'warn':'','bootstrap-calendar-event-fill','정기점검 대기', pmWait, `전체 ${(works.pm||[]).length}건 · 클릭=목록`, "show('pm')") +
     (erpDocs.total ? tile('','bootstrap-receipt', APP_YEAR+'년 ERP 매출',
       fmt(erpDocs.total), `계산서 ${erpDocs.rows.length}장 · 클릭=보고`,
       "show('daily');renderDaily()") : '');
@@ -3499,6 +3698,7 @@ async function loadSettle(){
   applyBrand();
   syncSortUI(); fillStatOptions(); renderSettle(); periodInit();
   try{ renderBoard(); }catch(e){ console.warn('board', e); }
+  try{ if(['pm','as'].includes(curView())) renderWorkTab(curView()); }catch(e){}
   try{ renderRepresentative(); }catch(e){ console.warn('representative report', e); }
   try{ renderCheckHub(); }catch(e){ console.warn('check hub', e); }
   try{ $('helpcard').innerHTML = helpAll(); }catch(e){ console.warn('help', e); }
