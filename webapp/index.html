@@ -1311,6 +1311,29 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .tabbar button{font-size:11.5px;letter-spacing:-.4px}
 @media(max-width:400px){ .tabbar button{font-size:11px} }
 
+/* ═══ 전역 격자 마무리 — 통계 타일·카드도 좌우 빈틈 없이 (사용자 지시 2026-07-31) ═══
+   버튼·아이콘 줄은 위(07-30 블록)에서 끝냈고, 남아 있던 것이 **통계 타일·카드 격자**다.
+   kpis(2·6칸)·pkpis(3·6칸)·pmstats(3칸)·check-kpis(4칸)·rep-grid(2·6칸)·egrid(1~3칸)·
+   ecells(2·3칸)이 전부 칸 수 고정이라, 항목 수가 배수가 아니면 마지막 줄 오른쪽이 비었다.
+   ★ auto-fit 격자로 바꾸지 **않았다** — 격자는 마지막 줄도 칸폭이 고정이라 빈칸이 그대로
+     남는다(span 트릭은 칸 수를 알아야 해서 auto-fit 과 못 섞인다). flex-wrap + flex-grow 는
+     마지막 줄 항목들이 남는 폭을 나눠 가져 **어떤 개수에서도 줄 끝까지 찬다.**
+   ★ gap 은 그대로 산다(flex 도 gap 지원). #skpis 의 인라인 grid-template 지정도 display 가
+     flex 가 되면 자연히 무시되므로 따로 지울 필요가 없다.
+   ★ 이 블록도 반드시 스타일 **맨 뒤** — 위 미디어쿼리의 고정 칸 규칙을 덮어야 한다. */
+.kpis,.pkpis,.pmstats,.check-kpis,.rep-grid,.egrid,.ecells{display:flex;flex-wrap:wrap}
+.kpis>*,.check-kpis>*{flex:1 1 150px;min-width:0}
+.pkpis>*{flex:1 1 110px;min-width:0}
+.pmstats>*{flex:1 1 105px;min-width:0}
+.rep-grid>*{flex:1 1 140px;min-width:0}
+.egrid>*{flex:1 1 250px;min-width:0}
+.ecells>*{flex:1 1 150px;min-width:0}
+
+/* 2칸 고정이 맞는 자리(폼·이슈 상세)는 격자를 유지하되, 홀수 개일 때 마지막 항목만
+   전체 폭으로 — 업무센터(07-30)와 같은 처리다. */
+.calendar-form>label:last-child:nth-child(odd),
+.egroup.issue .gb>:last-child:nth-child(odd){grid-column:1/-1}
+
 </style>
 </head>
 <body>
