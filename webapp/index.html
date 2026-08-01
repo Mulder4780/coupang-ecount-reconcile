@@ -3621,7 +3621,7 @@ async function loadStatus(){
     <div class="v">${val}</div>${sub?`<div class="s">${sub}</div>`:''}</div>`;
   $('kpis').innerHTML =
     tile('accent','bootstrap-clipboard-data-fill','정산 건수', rows.length||'-', `유상 ${유상.length}건 · 클릭=목록`, "goList('settle','')") +
-    tile('','bootstrap-cash-stack','작업 공급가액', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원 · 실제 작업분 · 클릭=내역', "goList('settle','')") +
+    tile('','bootstrap-cash-stack','작업 공급가액(부가세 별도)', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원 · 실제 작업분 · 클릭=내역', "goList('settle','')") +
     tile(미수?'warn':'ok','bootstrap-hourglass-split','미수금', fmt(미수), '원 · 계산서 발행 후 미입금 · 클릭=목록', "goList('settle','입금 대기')") +
     tile(발행===유상.length&&유상.length?'ok':'','bootstrap-receipt','계산서 발행율',
       (유상.length?Math.round(발행/유상.length*100):0)+'%',
@@ -3676,7 +3676,7 @@ async function loadStatus(){
   const hs = (l,v)=>`<div class="hstat">${l}<b>${v}</b></div>`;
   $('heroStats').innerHTML =
     hs('정산 건수', (rows.length||0)+'건') +
-    hs('작업 공급가액', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))+'원') +
+    hs('작업 공급가액(부가세 별도)', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))+'원') +
     hs('조치 필요', issues.length+'건') +
     (srcStats.band ? hs('밴드 사진 확인', `${srcStats.band.total}건 중 ${srcStats.band.ok}건`) : '') +
     (s.tunnel ? hs('외부접속', '연결됨') : '');
@@ -4158,20 +4158,20 @@ function renderSettle(){
     const need = rows.filter(r=>needAction(r));
     const 미수 = rows.reduce((a,r)=>a+(+r.미수금||0),0);
     $('skpis').innerHTML = `
-      <div class="kpi accent" role="button" tabindex="0" onclick="openListKpi('공급가액 목록','all')"><div class="v">${fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))}</div><div class="l">공급가액(원)</div></div>
+      <div class="kpi accent" role="button" tabindex="0" onclick="openListKpi('공급가액(부가세 별도) 목록','all')"><div class="v">${fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))}</div><div class="l">공급가액(부가세 별도·원)</div></div>
       <div class="kpi ${미수?'warn':''}" role="button" tabindex="0" onclick="openListKpi('미수금 목록','unpaid')"><div class="v">${fmt(미수)}</div><div class="l">미수금(원)</div></div>
       <div class="kpi ${need.length?'danger':''}" role="button" tabindex="0" onclick="openListKpi('조치 필요 목록','action')"><div class="v">${need.length}/${rows.length}</div><div class="l">조치 필요</div></div>`;
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('settle',${i},'${r.정산ID}')">
         <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(r.상태)}</div>
-        <div class="top"><span class="camp">${r.업무구분||''}</span><span class="amt">${fmt(r.공급가액)}원</span></div>
+        <div class="top"><span class="camp">${r.업무구분||''}</span><span class="amt">${fmt(r.공급가액)}원 <small>· 부가세 별도</small></span></div>
         <div class="meta"><span class="sid">${r.정산ID}</span><span>완료 ${r.완료일||'-'}</span>
           <span>명세서 ${r.명세서번호||r.명세서}</span><span>계산서 ${r.계산서}</span>
           ${r.입금일?`<span>입금 ${r.입금일}</span>`:''} ${vbadge(r.정산ID)}
           ${r.적요?`<span style="flex:1 1 100%;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.적요}</span>`:''}</div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
     $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('정산ID','정산ID')}${thx('구분','업무구분')}${thx('캠프','캠프명')}
-      ${thx('공급가액','공급가액',1)}${thx('명세서번호','명세서번호')}${thx('계산서','계산서발행일')}${thx('PO','PO번호')}${thx('입금일','입금일')}${thx('미수금','미수금',1)}${thx('완료일','완료일')}${thx('상태','상태')}</tr>` +
+      ${thx('공급가액(부가세 별도)','공급가액',1)}${thx('명세서번호','명세서번호')}${thx('계산서','계산서발행일')}${thx('PO','PO번호')}${thx('입금일','입금일')}${thx('미수금','미수금',1)}${thx('완료일','완료일')}${thx('상태','상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('settle',${i},'${r.정산ID}')" style="cursor:pointer">
         <td><b class="prjno">${esc2(projectLabel(r))}</b></td><td>${r.정산ID}</td><td>${r.업무구분}</td>
         <td>${r.캠프명}</td><td class="num">${fmt(r.공급가액)}</td><td>${r.명세서번호||'-'}</td>
@@ -4280,7 +4280,7 @@ function openSheet(kind, idx, id){
       <dt>원천업무</dt><dd>${r.원천업무ID||'-'}</dd>
       <dt>작업완료일</dt><dd>${r.완료일||'-'}</dd>
       <dt>비용구분</dt><dd>${r.비용구분||'-'}</dd>
-      <dt>공급가액</dt><dd>${fmt(r.공급가액)}원</dd>
+      <dt>공급가액(부가세 별도)</dt><dd>${fmt(r.공급가액)}원</dd>
       <dt>부가세</dt><dd>${vatLine(r)}</dd>
       <dt>합계(VAT포함)</dt><dd>${fmt(r.합계)}원</dd>
       <div class="sec">쿠팡 PO</div>
@@ -4692,7 +4692,7 @@ function renderPeriod(){
         점검:(works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,mm2)).length};
     }).filter(r=>r.건수||r.AS||r.점검||r.ERP);
     $('ptable').innerHTML = mt.length ? `<table class="grid ptbl" style="display:table">
-      <tr><th>월</th><th class="num">정산</th><th class="num">공급가액</th><th class="num">ERP 계산서</th><th class="num">입금</th><th class="num">미수</th><th class="num">AS</th><th class="num">점검</th></tr>` +
+      <tr><th>월</th><th class="num">정산</th><th class="num">공급가액<br>(부가세 별도)</th><th class="num">ERP 계산서</th><th class="num">입금</th><th class="num">미수</th><th class="num">AS</th><th class="num">점검</th></tr>` +
       mt.map(r=>`<tr onclick="setRange(+'${r.월.replace('월','')}',+'${r.월.replace('월','')}')" style="cursor:pointer">
         <td><b>${r.월}</b></td><td class="num">${r.건수}</td><td class="num">${fmt(r.공급가액)}</td>
         <td class="num">${r.ERP?fmt(r.ERP):'-'}</td><td class="num">${fmt(r.입금)}</td><td class="num">${fmt(r.미수)}</td><td class="num">${r.AS}</td><td class="num">${r.점검}</td></tr>`).join('') +
@@ -4712,7 +4712,7 @@ function renderPeriod(){
   const 문제 = S.filter(r=>needAction(r)).length;
   $('ptitle').textContent = ` — ${y}년 ${periodLabel()}`;
   $('pkpis').innerHTML = [
-    ['정산',`${S.length}건`],['공급가액',fmt(공급)],['입금',fmt(입금)],
+    ['정산',`${S.length}건`],['공급가액(부가세 별도)',fmt(공급)],['입금',fmt(입금)],
     ['미수금',fmt(미수)],['조치필요',`${문제}건`],['AS·점검',`${A.length}·${P.length}건`]
   ].map(([l,v])=>`<div class="pk"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
 }
@@ -5723,9 +5723,9 @@ function erpHtml(y){
   return `<h4>${y}년 ERP 매출 (세금계산서 발행 기준 · 계산서 ${cnt}장 / ${fmt(tot)}원)</h4>
     <table class="stack">
       <colgroup><col style="width:14%"><col style="width:22%"><col style="width:10%"><col style="width:54%"></colgroup>
-      <tr><th>월</th><th style="text-align:right">공급가액(원)</th><th style="text-align:right">장수</th><th>비중</th></tr>
+      <tr><th>월</th><th style="text-align:right">공급가액(부가세 별도·원)</th><th style="text-align:right">장수</th><th>비중</th></tr>
       ${mos.map(k=>`<tr><td class="hd">${k.slice(5)}월</td>
-        <td data-l="공급가액" style="text-align:right">${fmt(M[k].합계)}</td>
+        <td data-l="공급가액(부가세 별도)" style="text-align:right">${fmt(M[k].합계)}</td>
         <td data-l="장수" style="text-align:right">${M[k].건수}</td>
         <td data-l="비중"><span style="display:inline-block;height:8px;border-radius:4px;background:var(--brand);
           width:${Math.round(M[k].합계/max*58)}%;min-width:3px;vertical-align:middle"></span>
@@ -5753,7 +5753,7 @@ function bundleHtml(y){
       대상외 = 계단·철거·신규납품처럼 AS·점검이 아닌 별도 공사(원장에 작업 행이 없습니다)</div>
     <table class="stack">
       <colgroup><col style="width:15%"><col style="width:11%"><col style="width:19%"><col style="width:55%"></colgroup>
-      <tr><th>전표</th><th>판정</th><th style="text-align:right">공급가액(원)</th><th>포함 프로젝트NO</th></tr>
+      <tr><th>전표</th><th>판정</th><th style="text-align:right">공급가액(부가세 별도·원)</th><th>포함 프로젝트NO</th></tr>
       ${rows.map(r=>{
         const v = String(r.판정||'미상'), k = v.split('(')[0];
         const col = k==='확정'?'#12813F' : k==='유력'?'#0B6BCB' : k==='추정'?'#B25E09'
@@ -5762,7 +5762,7 @@ function bundleHtml(y){
         return `<tr><td class="hd">${r.전표}</td>
           <td data-l="판정"><span style="color:${col};font-weight:700">${k}</span>${
             v.includes('(') && k==='확정' ? `<div style="font-size:12.5px;color:var(--ink-3)">${v.slice(v.indexOf('(')+1,-1)}</div>` : ''}</td>
-          <td data-l="공급가액" style="text-align:right">${fmt(r.공급가액)}</td>
+          <td data-l="공급가액(부가세 별도)" style="text-align:right">${fmt(r.공급가액)}</td>
           <td class="prjs" data-l="포함 프로젝트NO"><div class="chips">${
             list.map(k=>`<span class="prj" onclick="openByPrj('${k}')">${k}</span>`).join('')
             || `<span style="color:var(--ink-3);font-size:13px">${v.includes('(')?v.slice(v.indexOf('(')+1,-1):'후보 없음'}</span>`}
@@ -5816,7 +5816,7 @@ function renderDaily(){
   const AS_q=(works.as||[]).filter(r=>inQuarter(dateOf(r,'as')));
   const PM_q=(works.pm||[]).filter(r=>inQuarter(dateOf(r,'pm')));
   reg('k_all',  `정산 총계 (${y}년 누적)`, S);
-  reg('k_amt',  `공급가액 (${y}년 누적)`, [...S].sort((a,b)=>(+b.공급가액||0)-(+a.공급가액||0)));
+  reg('k_amt',  `공급가액(부가세 별도) · ${y}년 누적`, [...S].sort((a,b)=>(+b.공급가액||0)-(+a.공급가액||0)));
   reg('k_due',  '미수금 보유 건', S.filter(r=>(+r.미수금||0)>0));
   reg('k_tax',  '계산서 미발행 (유상 기준)', 유상.filter(r=>r.계산서!=='발행'));
   reg('k_iss',  '조치 필요', issues);
@@ -5824,7 +5824,7 @@ function renderDaily(){
   reg('m_asp',  `${+m}월 AS 미실시`, AS_m.filter(asNotDone), 'as');
   reg('k_pm',   '정기점검 대기', pmWait, 'pm');
   reg('m_set',  `${+m}월 정산`, Sm);
-  reg('m_amt',  `${+m}월 공급가액`, [...Sm].sort((a,b)=>(+b.공급가액||0)-(+a.공급가액||0)));
+  reg('m_amt',  `${+m}월 공급가액(부가세 별도)`, [...Sm].sort((a,b)=>(+b.공급가액||0)-(+a.공급가액||0)));
   reg('m_pay',  `${+m}월 입금`, Sm.filter(r=>(+r.입금액||0)>0));
   reg('m_as',   `${+m}월 돌발AS`, AS_m, 'as');
   reg('m_pm',   `${+m}월 정기점검`, PM_m, 'pm');
@@ -5855,7 +5855,7 @@ function renderDaily(){
     <h4>${+m}월 실적 <span class="norm">— 선택 기준일 ${selectedDay}</span></h4>
     <div class="rgrid">
       ${cell(Sm.length+'건','정산','m_set')}
-      ${cell(fmt(Sm.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)','m_amt')}
+      ${cell(fmt(Sm.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)','m_amt')}
       ${cell(fmt(Sm.reduce((a,r)=>a+(+r.입금액||0),0)),'입금(원)','m_pay')}
       ${cell(AS_m.length+'건','돌발AS','m_as')}
       ${cell(PM_m.length+'건','정기점검','m_pm')}
@@ -5864,7 +5864,7 @@ function renderDaily(){
     <h4>${y}년 ${qNo}분기 통계 <span class="norm">— ${+qFrom}~${+qTo}월</span></h4>
     <div class="rgrid">
       ${cell(Sq.length+'건','분기 정산','q_set')}
-      ${cell(fmt(Sq.reduce((a,r)=>a+(+r.공급가액||0),0)),'분기 공급가액(원)','q_set')}
+      ${cell(fmt(Sq.reduce((a,r)=>a+(+r.공급가액||0),0)),'분기 공급가액(부가세 별도·원)','q_set')}
       ${cell(AS_q.length+'건','분기 돌발AS','q_as')}
       ${cell(PM_q.length+'건','분기 정기점검','q_pm')}
       ${cell(Sq.filter(r=>needAction(r)).length+'건','분기 조치필요','q_set')}
@@ -5872,7 +5872,7 @@ function renderDaily(){
     <h4>${y}년 누적 <span class="norm">— ${ytdFrom} ~ ${ytdTo}</span></h4>
     <div class="rgrid k7">
       ${cell(S.length+'건','정산 총계','k_all')}
-      ${cell(fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)','k_amt')}
+      ${cell(fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)','k_amt')}
       ${cell(fmt(미수),'미수금(원)','k_due')}
       ${cell((유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율','k_tax')}
       ${cell(issues.length+'건','조치 필요','k_iss')}
@@ -5887,14 +5887,14 @@ function renderDaily(){
     <h4>조치 필요 — 유형별 (돌발AS / 정기점검 구분) <span class="norm">— 유형을 누르면 담당자별 전달</span></h4>
     <table class="stack">
       <colgroup><col style="width:23%"><col style="width:9%"><col style="width:17%"><col style="width:16%"><col style="width:35%"></colgroup>
-      <tr><th>유형</th><th style="text-align:right">건수</th><th>돌발AS · 정기점검</th><th style="text-align:right">금액(원)</th><th>프로젝트NO</th></tr>
+      <tr><th>유형</th><th style="text-align:right">건수</th><th>돌발AS · 정기점검</th><th style="text-align:right">공급가액(부가세 별도·원)</th><th>프로젝트NO</th></tr>
       ${Object.entries(byType).sort((a,b)=>b[1].length-a[1].length).map(([t,l])=>{
         const as=l.filter(r=>String(r.업무구분||'').includes('돌발')).length;
         const pm=l.filter(r=>String(r.업무구분||'').includes('점검')).length;
         return `<tr style="cursor:pointer" onclick="openIssueType(${esc4(t)})">
          <td class="hd"><b>${t}</b> <span class="go">▸</span></td><td data-l="건수" style="text-align:right">${l.length}</td>
          <td data-l="구분">AS ${as} · 점검 ${pm}${l.length-as-pm?` · 기타 ${l.length-as-pm}`:''}</td>
-         <td data-l="금액(원)" style="text-align:right">${fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0))}</td>
+         <td data-l="공급가액(부가세 별도·원)" style="text-align:right">${fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0))}</td>
          <td class="prjs" data-l="프로젝트NO"><div class="chips">${l.slice(0,5).map(r=>{
            const k = projectNoOf(r)||recordIdOf(r);
            return `<span class="prj" onclick="event.stopPropagation();openByPrj(${esc4(k)})" title="${esc2(recordIdOf(r))} ${esc2(r.캠프명||'')} — 클릭해 상세">${esc2(projectNoOf(r)||'프로젝트 미확정')}</span>`;
@@ -5981,20 +5981,20 @@ function renderDaily(){
       ],
       activities: captureDailyTasks
     } : null,
-    kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)'],
+    kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)'],
           [fmt(미수),'미수금(원)', 미수?'#B54708':'#12813F'],
           [(유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율'],
           [issues.length+'건','조치 필요', issues.length?'#C0212E':'#12813F'],
           [asOpen.length+'건','돌발AS 진행중'], [pmWait.length+'건','정기점검 대기']],
     monthTitle: `${+m}월 실적`,
-    month: [[Sm.length+'건','정산'], [fmt(Sm.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)'],
+    month: [[Sm.length+'건','정산'], [fmt(Sm.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)'],
             [fmt(Sm.reduce((a,r)=>a+(+r.입금액||0),0)),'입금(원)'],
             [(works.as||[]).filter(r=>inPeriod(dateOf(r,'as'),y,m)).length+'건','돌발AS'],
             [(works.pm||[]).filter(r=>inPeriod(dateOf(r,'pm'),y,m)).length+'건','정기점검'],
             [Sm.filter(r=>needAction(r)).length+'건','당월 조치필요']],
     quarterTitle: `${y}년 ${qNo}분기 통계 (${+qFrom}~${+qTo}월)`,
     quarter: [[Sq.length+'건','분기 정산'],
-              [fmt(Sq.reduce((a,r)=>a+(+r.공급가액||0),0)),'분기 공급가액(원)'],
+              [fmt(Sq.reduce((a,r)=>a+(+r.공급가액||0),0)),'분기 공급가액(부가세 별도·원)'],
               [AS_q.length+'건','분기 돌발 AS(AS)'],
               [PM_q.length+'건','분기 정기점검'],
               [Sq.filter(r=>needAction(r)).length+'건','분기 조치필요']],
@@ -6026,7 +6026,7 @@ const HELP = {
             '앱 [확인필요] 탭의 <b>금액 불일치</b> 항목',
             '밴드 그 작업 게시글의 거래명세서 사진 / 이카운트 [판매 → 거래명세서]'],
     how: ['작업금액과 명세서 금액 중 <b>어느 쪽이 맞는지</b> 확인합니다',
-          '<b>명세서가 맞으면</b>: 실제작업 공급가액을 명세서 금액에 맞춰 고칩니다',
+          '<b>명세서가 맞으면</b>: 실제작업 공급가액(부가세 별도)을 명세서 공급가액에 맞춰 고칩니다',
           '<b>작업금액이 맞으면</b>: 차액만큼 <b>추가 청구</b>하고 명세서를 다시 끊습니다',
           '고치면 이 숫자는 자동으로 0이 됩니다(수기 조정 불필요)'],
     who: '유현민 (금액 확인 후 정정 또는 추가 청구)'
@@ -6092,16 +6092,16 @@ const HELP = {
   },
 
   '금액 미입력': {
-    what: '작업은 끝났는데 공급가액이 비어 있습니다. 금액이 없으면 거래명세서·세금계산서를 만들 수 없어 청구가 멈춥니다.',
+    what: '작업은 끝났는데 공급가액(부가세 별도)이 비어 있습니다. 금액이 없으면 거래명세서·세금계산서를 만들 수 없어 청구가 멈춥니다.',
     where: ['밴드 해당 작업 게시글의 <b>견적서·거래명세서 사진</b>',
             '이카운트 → 판매 → <b>거래명세서</b> 화면에서 해당 현장 조회',
             '담당기사에게 작업 내역·금액 확인'],
-    how: ['<b>앱에서 바로</b>: 이 화면 아래 입력칸에 공급가액을 넣고 저장 → 입력 DB 보관 → 다음 11시·15시 회차에 관리대장 빈칸에 기록',
+    how: ['<b>앱에서 바로</b>: 이 화면 아래 입력칸에 공급가액(부가세 별도)을 넣고 저장 → 입력 DB 보관 → 다음 11시·15시 회차에 관리대장 빈칸에 기록',
           '<b>사진으로</b>: 명세서 사진을 <code>band/docs_inbox/</code>에 넣으면 OCR이 금액을 읽어 자동 입력(금액 검산 통과분만)'],
     who: '유현민 (금액 확인 후 입력)'
   },
   '금액 재계산 대기': {
-    what: '<b>사람이 할 일은 없습니다.</b> 거래명세서 금액이라는 근거는 이미 확보돼 있고, 관리대장 06시트의 실제작업공급가액이 <b>수식</b>이라 엑셀이 한 번 다시 계산해야 채워지는 상태입니다. 재계산이 풀리면 저절로 들어갑니다.',
+    what: '<b>사람이 할 일은 없습니다.</b> 거래명세서 금액이라는 근거는 이미 확보돼 있고, 관리대장 06시트의 실제작업공급가액(부가세 별도)이 <b>수식</b>이라 엑셀이 한 번 다시 계산해야 채워지는 상태입니다. 재계산이 풀리면 저절로 들어갑니다.',
     where: ['06_거래서류청구수금 I열 = 03_현장작업실적의 금액을 접수ID로 합산하는 수식',
             '지금은 03시트에 실적 행이 아직 안 만들어져 합계가 0입니다'],
     how: ['<b>기다리면 됩니다.</b> 관리대장 복구 경고 원인 확인 → 정상본 확인 → 엑셀 재계산 순서로 풀립니다',
@@ -6874,7 +6874,7 @@ function openIssueType(t){
         id: r.정산ID || r.접수ID || r.점검ID || '', prj: r.프로젝트NO || '',
         camp: r.캠프명 || '', kind: r.업무구분 || '', issue: t,
         date: r.완료일 || r.접수일자 || r.점검예정일 || '',
-        desc: r.공급가액 ? fmt(r.공급가액) + '원' : ''
+        desc: r.공급가액 ? fmt(r.공급가액) + '원 · 부가세 별도' : ''
       });
     }));
   });
@@ -6907,11 +6907,11 @@ function openKpi(key){
             date:r.완료일||'', st:r.상태||'', amt:+r.공급가액||0, prj:projectNoOf(r)};
   };
   openPane(`<h2>${set.title} <span class="chip c-warn">${rows.length}건</span></h2>` +
-    `<div class="sub">${sum?fmt(sum)+'원 · ':''}누르면 해당 건 상세로 이동합니다</div>` +
+    `<div class="sub">${sum?fmt(sum)+'원 · 공급가액(부가세 별도) · ':''}누르면 해당 건 상세로 이동합니다</div>` +
     `<div class="slist" style="margin-top:12px">` + (rows.map(r=>{
       const v = line(r);
       return `<div class="srow" onclick="openRecord(${esc4(kind)},${esc4(v.id)},${esc4(v.prj)})">
-        <div class="top"><span class="prjno">${esc2(v.prj||'프로젝트 미확정')}</span>${v.amt?`<span class="amt">${fmt(v.amt)}원</span>`:chip(v.st)}</div>
+        <div class="top"><span class="prjno">${esc2(v.prj||'프로젝트 미확정')}</span>${v.amt?`<span class="amt">${fmt(v.amt)}원 <small>· 부가세 별도</small></span>`:chip(v.st)}</div>
         <div class="top"><span class="camp">${v.camp||''}</span>
           <span class="camp">${v.who||''} ${v.date||''}</span></div>
         <div class="meta">${v.id?`<span class="sid">${esc2(v.id)}</span>`:''}
@@ -6966,7 +6966,7 @@ function openMine(idx){
         const key = projectNoOf(r)||recordIdOf(r);
         return '<div class="srow" onclick="openByPrj('+esc4(key)+')">'+
           '<div class="top"><span class="prjno">'+esc2(projectNoOf(r)||'프로젝트 미확정')+'</span>'+
-          (r.공급가액?'<span class="amt">'+fmt(r.공급가액)+'원</span>':'')+'</div>'+
+          (r.공급가액?'<span class="amt">'+fmt(r.공급가액)+'원 <small>· 부가세 별도</small></span>':'')+'</div>'+
           '<div class="top"><span class="camp">'+(r.캠프명||'')+'</span>'+
           '<span class="camp">'+(r.완료일||r.접수일자||r.점검예정일||'')+'</span></div>'+
           (recordIdOf(r)?'<div class="meta"><span class="sid">'+esc2(recordIdOf(r))+'</span></div>':'')+'</div>';
@@ -7135,7 +7135,7 @@ async function mineDetailToPng(idx){
     const dt  = r.완료일||r.접수일자||r.점검예정일||r.작업완료일||'-';
     txt(clip(key,190), 26, t+28, F(12.5,800), '#101828');
     txt(clip(r.캠프명||'', 300), 232, t+28, F(12), '#475467');
-    if(r.공급가액) txt(fmt(r.공급가액)+'원', W-140, t+28, F(12,700), '#101828','right');
+    if(r.공급가액) txt(fmt(r.공급가액)+'원 · 부가세 별도', W-140, t+28, F(10.5,700), '#101828','right');
     txt(dt, W-26, t+28, F(11), '#667085','right');
   });
   y += rows.length*rowH + 18;
@@ -7704,7 +7704,7 @@ async function reportToPng(){
     const hx = [30, 120, 320, 400];
     box(30,y-2,W-60,26,'#F1F5FB',null,6);
     txt('월', hx[0]+10, y+11, F(10.5,800), '#475467');
-    txt('공급가액(원)', hx[1]+cw2[1]-10, y+11, F(10.5,800), '#475467', 'right');
+    txt('공급가액(부가세 별도·원)', hx[1]+cw2[1]-10, y+11, F(9.5,800), '#475467', 'right');
     txt('장수', hx[2]+cw2[2]-10, y+11, F(10.5,800), '#475467', 'right');
     txt('비중', hx[3]+10, y+11, F(10.5,800), '#475467');
     y += 26;
@@ -7724,7 +7724,7 @@ async function reportToPng(){
     y += 20;
   }
   section('조치 필요 — 유형별 (프로젝트NO)');
-  table(['유형','건수','금액(원)','프로젝트NO'],
+  table(['유형','건수','공급가액(부가세 별도·원)','프로젝트NO'],
         D.issues.length?D.issues:[['조치 필요 없음','-','-','-']], [200,70,130,440-100]);
   section('4원천 검증 (밴드·카톡·ERP·쿠팡PO)');
   sourceTable(sourceDetails);
@@ -7782,7 +7782,7 @@ async function dashToPng(){
   txt(new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'}),
       92,77,F(11),'#9FB4E8');
   txt('에이전트 '+($('heroAgent').textContent||'').replace('에이전트 ',''),W-30,40,F(11),'#9FB4E8','right');
-  txt(rows.length+'건 · '+fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))+'원',W-30,62,F(14,800),'#fff','right');
+  txt(rows.length+'건 · '+fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))+'원 · 부가세 별도',W-30,62,F(13,800),'#fff','right');
 
   let yy=96;
   const section=t=>{yy+=34;txt(t,30,yy-8,F(13,800),'#1B41BC');
@@ -7790,7 +7790,7 @@ async function dashToPng(){
     ctx.lineTo(W-30,yy-8);ctx.stroke();};
 
   section('핵심 지표');
-  const kpi=[[rows.length+'건','정산 건수','#2452E6'],[fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(원)'],
+  const kpi=[[rows.length+'건','정산 건수','#2452E6'],[fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)'],
     [fmt(미수),'미수금(원)',미수?'#B54708':'#12813F'],
     [(유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율'],
     [issues.length+'건','조치 필요',issues.length?'#C0212E':'#12813F'],
@@ -7801,7 +7801,7 @@ async function dashToPng(){
     txt(t[1],cx+14,cy+22,F(11,700),'#98A2B3'); txt(t[0],cx+14,cy+44,F(19,800),t[2]||'#101828');});
   yy+=148;
 
-  section(y+'년 월별 공급가액');
+  section(y+'년 월별 공급가액(부가세 별도)');
   const maxV=Math.max(1,...byM), bw=(W-60)/12-8;
   byM.forEach((v,i)=>{const bx=30+i*((W-60)/12), bh=Math.round(v/maxV*120)+2;
     box(bx,yy+130-bh,bw,bh,v?'#2452E6':'#E8EDF4',null,5);
@@ -7824,7 +7824,7 @@ async function dashToPng(){
   section('조치 필요 — 유형별 (프로젝트NO)');
   const xs=[30,260,340,470]; const wds=[230,80,130,W-30-470];
   box(30,yy,W-60,28,'#F1F5FB','#E4E9F0',8);
-  ['유형','건수','금액(원)','프로젝트NO'].forEach((c,i)=>txt(c,xs[i]+10,yy+14,F(11,800),'#475467'));
+  ['유형','건수','공급가액(부가세 별도·원)','프로젝트NO'].forEach((c,i)=>txt(c,xs[i]+10,yy+14,F(i===2?8.5:11,800),'#475467'));
   yy+=28;
   (typeE.length?typeE:[['조치 필요 없음',[]]]).forEach(([t,l],ri)=>{
     if(ri%2){ctx.fillStyle='#FAFCFF';ctx.fillRect(30,yy,W-60,30);}

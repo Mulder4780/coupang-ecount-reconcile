@@ -579,10 +579,10 @@ function renderList(){
                           .filter(Boolean).map(esc).join(' · '))).join('');
   else if(TAB === 'settle')
     h = R.map(r => line(esc(r['프로젝트NO']||'프로젝트 미확정') + ' ' + esc(r['캠프명']||''),
-                        [r['정산ID'], fmt(r['공급가액']) + '원', r['상태']]
+                        [r['정산ID'], fmt(r['공급가액']) + '원(부가세 별도)', r['상태']]
                           .filter(Boolean).map(esc).join(' · '))).join('');
   else
-    h = R.map(r => line(esc(r['전표']||'') + ' ' + fmt(r['공급가액']) + '원',
+    h = R.map(r => line(esc(r['전표']||'') + ' ' + fmt(r['공급가액']) + '원(부가세 별도)',
                         esc(r['판정']||'') + (r['포함프로젝트'] ? ' · ' + esc(r['포함프로젝트']) : ''))).join('');
   if(rows.length > R.length) h += '<div class="note">' + (rows.length - R.length) + '건 더 있습니다 — PC 앱에서 전체를 봅니다.</div>';
   $('list').innerHTML = h;

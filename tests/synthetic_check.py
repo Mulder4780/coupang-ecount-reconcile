@@ -3460,7 +3460,12 @@ def t78_recalc_pending_visible():
     assert "'정산 누적'" not in live, "히어로와 KPI가 같은 값을 다른 이름으로 부른다"
     assert live.count("'정산 건수'") >= 2
     assert "'공급가액 합계'" not in live, "어느 공급가액인지 드러나야 한다(작업/명세서/계산서 3종)"
-    assert "'작업 공급가액'" in live
+    assert "'작업 공급가액(부가세 별도)'" in live
+    assert live.count("공급가액(부가세 별도)") >= 8, \
+        "대시보드·정산·보고·상세의 공급가액에 부가세 별도 표기가 공통 적용되지 않았다"
+    assert "공급가액(원)" not in live, "부가세 포함 여부가 없는 옛 공급가액 라벨이 남았다"
+    phone = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+    assert "원(부가세 별도)" in phone, "PC 독립 폰 사본의 공급가액에 부가세 별도 표기가 없다"
     assert "계산서 발행 후 미입금" in live, "미수금이 '떼인 돈'으로 읽힌다"
     print("  [78] 재계산 대기 안내 + 라벨 모호성 제거(같은 값 한 이름·금액 종류 명시) ✅")
 
