@@ -149,6 +149,20 @@ def _pid_alive(pid):
         return False
 
 
+def _dead_or_abandoned_lock(path, timeout):
+    """PID가 죽었거나 소유자 없는 채 오래 남은 JSON 잠금만 회수한다."""
+    try:
+        words = open(path, encoding="ascii").read().split()
+        if words:
+            return not _pid_alive(int(words[0]))
+    except (OSError, ValueError):
+        pass
+    try:
+        return time.time() - os.path.getmtime(path) > timeout
+    except OSError:
+        return False
+
+
 @contextmanager
 def apply_lock():
     """11시·15시 작업이 겹쳐 같은 vN+1을 두 번 만들지 않게 한다."""
@@ -190,11 +204,18 @@ def json_queue_lock(path, timeout=30):
     lock = path + ".lock"
     started = time.monotonic()
     fd = None
+    owner = f"{os.getpid()} {datetime.now().isoformat()} {time.monotonic_ns()}"
     while fd is None:
         try:
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(fd, f"{os.getpid()} {datetime.now().isoformat()}".encode("ascii"))
+            os.write(fd, owner.encode("ascii"))
         except FileExistsError:
+            if _dead_or_abandoned_lock(lock, timeout):
+                try:
+                    os.unlink(lock)
+                except FileNotFoundError:
+                    pass
+                continue
             if time.monotonic() - started >= timeout:
                 raise TimeoutError(f"JSON 큐 잠금 대기 초과: {lock}")
             time.sleep(0.1)
@@ -203,8 +224,9 @@ def json_queue_lock(path, timeout=30):
     finally:
         os.close(fd)
         try:
-            os.unlink(lock)
-        except FileNotFoundError:
+            if open(lock, encoding="ascii").read() == owner:
+                os.unlink(lock)
+        except OSError:
             pass
 
 

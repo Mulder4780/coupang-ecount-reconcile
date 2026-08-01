@@ -67,6 +67,32 @@ def load_queue():
         return []
 
 
+def _pid_alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _dead_or_abandoned_lock(path, timeout):
+    """죽은 프로세스가 남긴 잠금만 회수한다.
+
+    잠금 생성 직후 PID를 쓰기 전의 아주 짧은 구간은 빈 파일일 수 있으므로, 소유자를
+    읽지 못한 잠금은 timeout보다 오래됐을 때만 버린다.
+    """
+    try:
+        words = open(path, encoding="ascii").read().split()
+        if words:
+            return not _pid_alive(int(words[0]))
+    except (OSError, ValueError):
+        pass
+    try:
+        return time.time() - os.path.getmtime(path) > timeout
+    except OSError:
+        return False
+
+
 @contextmanager
 def queue_lock(timeout=30):
     """큐 읽기→수정→비우기를 한 임계구역으로 묶는 프로세스 간 잠금."""
@@ -74,11 +100,18 @@ def queue_lock(timeout=30):
     lock = PENDING + ".lock"
     started = time.monotonic()
     fd = None
+    owner = f"{os.getpid()} {datetime.now().isoformat()} {time.monotonic_ns()}"
     while fd is None:
         try:
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(fd, f"{os.getpid()} {datetime.now().isoformat()}".encode("ascii"))
+            os.write(fd, owner.encode("ascii"))
         except FileExistsError:
+            if _dead_or_abandoned_lock(lock, timeout):
+                try:
+                    os.unlink(lock)
+                except FileNotFoundError:
+                    pass
+                continue
             if time.monotonic() - started >= timeout:
                 raise TimeoutError(f"자동입력 큐 잠금 대기 초과: {lock}")
             time.sleep(0.1)
@@ -87,8 +120,9 @@ def queue_lock(timeout=30):
     finally:
         os.close(fd)
         try:
-            os.unlink(lock)
-        except FileNotFoundError:
+            if open(lock, encoding="ascii").read() == owner:
+                os.unlink(lock)
+        except OSError:
             pass
 
 

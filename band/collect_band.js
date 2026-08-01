@@ -1,7 +1,7 @@
 /* ============================================================================
  * collect_band.js — 밴드 게시글 수집기 (브라우저 콘솔용)
  * ============================================================================
- * 밴드 공식 API 앱이 아직 심사 중이라, 이미 로그인된 브라우저에서 화면을 스크롤해
+ * 밴드 공식 API 발급이 거절되어, 이미 로그인된 브라우저에서 화면을 스크롤해
  * 게시글을 모은다(사람이 직접 스크롤해 읽는 것과 같은 동작).
  *
  * ▶ 사용법
@@ -17,7 +17,8 @@
 (async () => {
   const UNTIL = '2026-01-01';          // 이 날짜 이전까지 거슬러 올라가면 멈춘다
   const MAX_SCROLL = 4000;             // 안전 상한(무한 스크롤 방지)
-  const PAUSE = 700;                   // 스크롤 간 대기(ms) — 밴드 서버 예의
+  const SCROLL_STEP = 800;              // 바닥 점프는 추가 로드를 멈추므로 반드시 조금씩 이동
+  const PAUSE = 550;                    // 실측 성공 간격(2026-07-31)
 
   const bandId = (location.pathname.match(/\/band\/(\d+)/) || [])[1] || 'unknown';
   const bandName = (document.querySelector('.bandName, ._bandName, h1') || {}).innerText || '';
@@ -78,41 +79,25 @@
     return added;
   }
 
-  let stall = 0, lastH = 0;
+  let stall = 0, lastCount = 0;
   for (let i = 0; i < MAX_SCROLL; i++) {
     harvest();
     say(`밴드 <b>${bandId}</b> 수집 중<br>모은 글 <b>${Object.keys(posts).length}</b>개` +
         `<br>가장 오래된 글 <b>${oldest || '-'}</b><br>목표 ${UNTIL}`);
     if (oldest && oldest <= UNTIL) { say(`✅ 목표 날짜까지 도달<br>총 <b>${Object.keys(posts).length}</b>개`); break; }
-    window.scrollTo(0, document.body.scrollHeight);
+    window.scrollBy(0, SCROLL_STEP);
     await new Promise(r => setTimeout(r, PAUSE));
-    const h = document.body.scrollHeight;
-    stall = (h === lastH) ? stall + 1 : 0;
-    lastH = h;
-    if (stall >= 8) { say(`⛔ 더 이상 불러오지 않음(끝)<br>총 <b>${Object.keys(posts).length}</b>개 · 최고참 ${oldest}`); break; }
+    harvest();
+    const count = Object.keys(posts).length;
+    stall = (count === lastCount) ? stall + 1 : 0;
+    lastCount = count;
+    if (stall >= 20) { say(`⛔ 더 이상 불러오지 않음(끝)<br>총 <b>${count}</b>개 · 최고참 ${oldest}`); break; }
   }
   harvest();
 
-  // 명세서·계산서로 보이는 글의 사진은 **본문(base64)까지** 담아 바로 OCR에 넘긴다.
-  // (밴드 이미지 URL은 로그인 쿠키가 있어야 열리므로, 여기서 받아 두는 게 확실하다)
-  const DOC = /명세서|계산서|견적|청구|세금/;
-  const targets = Object.entries(posts).filter(([,p]) => DOC.test(p.content || ''));
-  say(`💾 문서 사진 내려받는 중… 대상 글 ${targets.length}개`);
-  let got = 0;
-  for (const [id, p] of targets) {
-    for (const url of (p.images || []).slice(0, 4)) {
-      try {
-        const b = await (await fetch(url, { credentials: 'include' })).blob();
-        if (b.size > 3 * 1024 * 1024) continue;                 // 3MB 초과는 건너뜀
-        p.imageData = p.imageData || [];
-        p.imageData.push(await new Promise(r => {
-          const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(b);
-        }));
-        got++;
-      } catch (e) { /* 실패한 사진은 URL만 남긴다 */ }
-    }
-    say(`💾 문서 사진 ${got}장 확보 (${targets.length}개 글 중 진행)`);
-  }
+  // 사진은 URL만 남긴다. 브라우저 안에서 base64로 연속 fetch하면 한 요청이 무한 대기해
+  // 글 전체 수집까지 잃는다(2026-07-31 실사고). 필요한 사진 다운로드는 ingest 이후 별도 단계다.
+  say(`💾 수집 파일 만드는 중… 글 ${Object.keys(posts).length}개`);
 
   const dump = { band: bandId, name: bandName.trim(), capturedAt: Date.now(), posts };
   const blob = new Blob([JSON.stringify(dump, null, 1)], { type: 'application/json' });

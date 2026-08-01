@@ -261,6 +261,12 @@ def t5_writer(tmp):
         item = {"sheet": "S", "key": "K", "col": "C"}
         assert LW.queue_add([item, item]) == 1
         assert LW.load_queue() == [item]
+        # 프로세스가 강제 종료돼 남긴 잠금은 다음 실행이 즉시 회수해야 한다.
+        with open(LW.PENDING + ".lock", "w", encoding="ascii") as f:
+            f.write("99999999 2026-01-01T00:00:00")
+        item2 = {"sheet": "S", "key": "K2", "col": "C"}
+        assert LW.queue_add([item2]) == 1
+        assert not os.path.exists(LW.PENDING + ".lock")
     finally:
         LW.PENDING = old_pending
     from band.band_reconcile import photo_updates
@@ -3709,6 +3715,14 @@ def t93_ledger_db_and_ux():
         _dt(2026, 7, 30, 11, 5), ["2026-07-30 11:00"]) is None, \
         "같은 11시 회차를 두 번 반영한다"
 
+    with tempfile.TemporaryDirectory(prefix="ledger-json-lock-") as lock_tmp:
+        queue_path = os.path.join(lock_tmp, "pending.json")
+        with open(queue_path + ".lock", "w", encoding="ascii") as f:
+            f.write("99999999 2026-01-01T00:00:00")
+        with L.json_queue_lock(queue_path, timeout=0.1):
+            assert os.path.exists(queue_path + ".lock")
+        assert not os.path.exists(queue_path + ".lock"), "죽은 JSON 큐 잠금을 회수하지 못한다"
+
     src = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
     writer = open(os.path.join(ROOT, "ledger_writer.py"), encoding="utf-8").read()
     assert any(x.startswith("import") and "sqlite3" in x for x in src.splitlines()), (
@@ -3724,6 +3738,9 @@ def t93_ledger_db_and_ux():
 
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert "ledger_db.py" in daily, "일일 실행이 DB 게이트를 지나지 않는다"
+    assert "r.stderr[-2000:]" in daily, "실패 리포트가 예외 원인을 다시 잘라낸다"
+    assert '"zscan.py"' in daily and '"--docs"' in daily, \
+        "Z: 상시 공백·서류 대조가 09:50 자동실행에 연결되지 않았다"
     assert '"ledger_writer.py"), "--apply"' not in daily,         "일일 실행이 아직 엑셀에 곧바로 쓴다 — 하루 두 번 규칙이 깨진다"
     for direct in (
         '"excel_recalc.py"), "--run"',
@@ -3768,6 +3785,13 @@ def t93_ledger_db_and_ux():
     assert "renderApplyWindow(s.applywin)" in live, "앱이 다음 반영 시각을 알리지 않는다"
     assert "runTask('writer_apply')" not in live, "앱 화면에 즉시 Excel 반영 호출이 남아 있다"
     assert "지금 바로 엑셀에 반영" not in live, "앱 안내가 아직 즉시 반영을 약속한다"
+
+    band_collector = open(os.path.join(ROOT, "band", "collect_band.js"), encoding="utf-8").read()
+    assert "window.scrollBy(0, SCROLL_STEP)" in band_collector, \
+        "밴드 수집기가 실패한 바닥 점프로 되돌아갔다"
+    assert "window.scrollTo(0, document.body.scrollHeight)" not in band_collector
+    assert "fetch(url" not in band_collector and "imageData.push" not in band_collector, \
+        "사진 fetch 무한대기가 글 전체 수집을 다시 막을 수 있다"
 
     # 업무센터는 인원이 바뀌어도 균등해야 한다(고정 칸 수 금지)
     assert "repeat(auto-fit,minmax(132px,1fr))" in live, "업무센터가 다시 칸 수를 고정했다"

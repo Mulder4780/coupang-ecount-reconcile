@@ -115,7 +115,9 @@ def run(name, args, timeout=600):
     try:
         r = subprocess.run([PY] + args, capture_output=True, text=True, encoding="utf-8",
                            errors="replace", cwd=ROOT, timeout=timeout, env=ENV)
-        out = (r.stdout or "") + (("\n[stderr] " + r.stderr[:500]) if r.returncode != 0 and r.stderr else "")
+        # 예외 이름과 원인은 traceback 끝에 있다. 앞 500자만 남기면 호출 위치만 보이고
+        # 실제 TimeoutError/PermissionError가 잘려, 2026-08-01 큐 실패를 진단하지 못했다.
+        out = (r.stdout or "") + (("\n[stderr] " + r.stderr[-2000:]) if r.returncode != 0 and r.stderr else "")
         # 토큰 절약: 노이즈 제거 후 요약만 보존(상세는 각 모듈이 reports/에 파일로 남긴다)
         keep = [ln for ln in out.splitlines()
                 if ln.strip() and not any(x in ln for x in
@@ -279,6 +281,11 @@ def _run_pipeline():
     #     ★ 여기에 연결돼 있지 않아 2026-07-27 16:45 자로 하루 동안 멈춰 있었다 —
     #       읽는 사람은 멈춘 줄 모르고 어제 숫자를 오늘 숫자로 본다. 반드시 매일 같이 돈다.
     steps.append(run("확인필요현황 엑셀 갱신", [os.path.join(ROOT, "findings_export.py")]))
+
+    # 6.6 Z: 상시 공백 스캔 — 파일명 기반 전수조사와 서류↔원장 1:1 대조는 읽기 전용이다.
+    #     2026-07-28 뒤 리포트가 멈춰 자료현황이 오래된 숫자를 계속 보여 준 문제를 막는다.
+    steps.append(run("Z폴더 원장 누락·금액 공백 스캔", [os.path.join(ROOT, "zscan.py")], timeout=1800))
+    steps.append(run("Z폴더 서류 1:1 대조", [os.path.join(ROOT, "zscan.py"), "--docs"], timeout=1800))
 
     # 6.7 자료현황 한 장 — "밴드에서 뭘 얼마나 가져왔나 / 지금 뭘 갖고 있나 / 원장이 얼마나 찼나".
     #     같은 질문을 매번 다시 세지 않으려고 만든다(사용자 지시 2026-07-29).
