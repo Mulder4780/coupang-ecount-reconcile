@@ -1878,6 +1878,12 @@ def real_works():
     import openpyxl
     from verification_sync import derived_field_status_map
     from ecount_reconcile import load_config, resolve_master
+    try:
+        from ledger_db import work_resolutions
+        objective_done = work_resolutions()
+    except Exception:
+        # DB가 잠깐 잠겨도 원장 자체 화면은 계속 열려야 한다.
+        objective_done = {}
     master = resolve_master(load_config()["reconcile"]["master_xlsx"])
     wb = openpyxl.load_workbook(master_stream(master), read_only=True, data_only=True)
     # 03시트는 접수ID·프로젝트NO가 02 완료행을 순서대로 끌어오는 배열수식이라
@@ -1930,6 +1936,17 @@ def real_works():
                 rec["검증자"] = rec.get("담당관리자") or ""
                 rec["검증일"] = rec.get("최종확인일(유현민 체크)") or ""
             derive_status(rec, key)
+            # 객관 완료 판정은 Excel 상태 수식보다 DB가 정본이다. 완료일이 원장에 아직
+            # 일괄반영 전이어도 앱에서는 즉시 완료로 보이고, 빠진 서류 경고는 그대로 남는다.
+            resolved = (objective_done.get((key, str(rec.get(cols[0]) or "")))
+                        or objective_done.get((key, str(rec.get("프로젝트NO") or ""))))
+            if resolved:
+                status_col = "진행상태" if key == "as" else "점검상태"
+                done_col = "작업완료일" if key == "as" else "실제점검일"
+                rec[status_col] = resolved["status"]
+                rec[done_col] = rec.get(done_col) or resolved["completed_on"]
+                rec["객관완료근거"] = resolved["basis"]
+                rec["객관완료최초확인"] = resolved["first_seen"]
             derive_effective_verification(rec, key)
             out[key].append(rec)
     # 류지영 원본 일정은 UJ번호가 없는 캠프·장비 일정이다. 04시트와 같은 캠프·같은 달이면
@@ -1988,20 +2005,28 @@ def derive_status(rec, kind):
     (판정 규칙은 시트 수식과 동일: 완료일 있으면 완료, 예정일이 지났으면 미점검)"""
     today = date.today().isoformat()
     if kind == "pm":
-        if str(rec.get("점검상태") or "").strip():
-            return
+        state = str(rec.get("점검상태") or "").strip()
         if str(rec.get("실제점검일") or "").strip():
-            rec["점검상태"] = "완료"
-        elif str(rec.get("돌발AS전환여부") or "").strip():
+            if state not in ("AS전환", "점검불가", "취소", "철회"):
+                rec["점검상태"] = "완료"
+            return
+        if state:
+            return
+        if str(rec.get("돌발AS전환여부") or "").strip():
             rec["점검상태"] = "AS전환"
         elif not str(rec.get("점검예정일") or "").strip():
             rec["점검상태"] = ""
         else:
             rec["점검상태"] = "미점검" if str(rec["점검예정일"])[:10] < today else "예정"
     else:
-        if str(rec.get("진행상태") or "").strip():
+        state = str(rec.get("진행상태") or "").strip()
+        if str(rec.get("작업완료일") or "").strip():
+            if state not in ("취소", "철회"):
+                rec["진행상태"] = "작업완료"
             return
-        rec["진행상태"] = "작업완료" if str(rec.get("작업완료일") or "").strip() else "접수"
+        if state:
+            return
+        rec["진행상태"] = "접수"
 
 
 def derive_effective_verification(rec, kind):
@@ -2240,6 +2265,16 @@ def _fresh(key):
     if _cache.get("mt") != mt:
         _cache.clear()
         _cache["mt"] = mt
+    if key == "works":
+        try:
+            from ledger_db import DB_PATH
+            db_mt = os.path.getmtime(DB_PATH)
+        except Exception:
+            db_mt = 0
+        if _cache.get("works_db_mt") != db_mt:
+            _cache.pop("works", None)
+            _cache.pop("works_ts", None)
+            _cache["works_db_mt"] = db_mt
     ttl = {"status": 300, "exec": 300, "issues": 300, "erpdocs": 300,
            "works": 600, "settle": 600}.get(key, 600)
     if key in _cache and time.time() - _cache.get(key + "_ts", 0) > ttl:

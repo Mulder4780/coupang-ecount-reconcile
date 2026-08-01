@@ -251,6 +251,10 @@ def _run_pipeline():
     # 미실시 사유·취소·일자상이는 28_대조현황과 대표보고에 그대로 남긴다.
     steps.append(run("정기점검·돌발AS 일지 대조 안전입력 큐",
                      [os.path.join(ROOT, "work_log_sync.py"), "--queue"]))
+    # 완료일·검증 정상 등 객관 요건을 충족한 행을 Excel 상태 셀 대신 DB 완료 정본에 기록한다.
+    # confirm_fill의 밴드 완료글+날짜 판정과 함께 매일 돌아야 사람이 다시 지시하지 않는다.
+    steps.append(run("객관근거 완료 DB 동기화",
+                     [os.path.join(ROOT, "complete_verified.py"), "--queue"]))
 
     # ★ 2026-07-30 지시: 반영은 **DB에 모았다가 하루 두 번(11:00·15:00)만** 엑셀에 쓴다.
     #   전에는 여기서 바로 --apply 해서 하루에 관리대장 버전이 수십 개씩 늘었다(v311→v327).

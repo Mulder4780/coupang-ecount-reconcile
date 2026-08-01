@@ -107,6 +107,20 @@ CREATE TABLE IF NOT EXISTS resolution(      -- 객관 입증으로 완료 처리
   first_seen TEXT NOT NULL,                 -- 처음 입증된 시각
   last_seen TEXT NOT NULL                   -- 마지막으로 같은 입증이 확인된 시각
 );
+CREATE TABLE IF NOT EXISTS work_resolution( -- AS·정기점검·설치의 객관 입증 완료(DB 정본)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,                       -- as | pm | install
+  record_id TEXT NOT NULL,                  -- 접수ID | 점검ID | 업무ID (없으면 프로젝트NO)
+  project TEXT,
+  status TEXT NOT NULL,                     -- 작업완료 | 완료
+  completed_on TEXT NOT NULL,               -- 원자료가 말한 실제 완료일
+  basis TEXT NOT NULL,                      -- 밴드 완료글·검증 정상 등 근거
+  first_seen TEXT NOT NULL,
+  last_seen TEXT NOT NULL,
+  UNIQUE(kind, record_id)
+);
+CREATE INDEX IF NOT EXISTS ix_work_resolution_project
+  ON work_resolution(kind, project);
 """
 
 
@@ -320,6 +334,52 @@ def resolutions():
         return {row[0]: {"status": row[1], "basis": row[2], "first_seen": row[3]}
                 for row in c.execute(
                     "SELECT settle_id,status,basis,first_seen FROM resolution")}
+
+
+def work_resolution_sync(entries):
+    """현장업무의 객관 완료 판정을 DB에 멱등 기록한다.
+
+    완료 상태를 수식 셀에 덮어쓰지 않는다. 앱은 이 표를 원장보다 우선해 읽고,
+    완료보고서·사진·ERP 누락은 기존 검증 열에서 계속 별도 경고한다.
+    entries: [{kind,record_id,project,status,completed_on,basis}, ...]
+    """
+    now = datetime.now().isoformat(timespec="seconds")
+    n = 0
+    with conn() as c:
+        for entry in entries or []:
+            kind = str(entry.get("kind") or "").strip()
+            record_id = str(entry.get("record_id") or "").strip()
+            completed_on = str(entry.get("completed_on") or "").strip()[:10]
+            if not kind or not record_id or not completed_on:
+                continue
+            c.execute(
+                "INSERT INTO work_resolution(kind,record_id,project,status,completed_on,basis,first_seen,last_seen)"
+                " VALUES(?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(kind,record_id) DO UPDATE SET"
+                "   project=excluded.project, status=excluded.status,"
+                "   completed_on=excluded.completed_on, basis=excluded.basis,"
+                "   last_seen=excluded.last_seen",
+                (kind, record_id, str(entry.get("project") or ""),
+                 str(entry.get("status") or ""), completed_on,
+                 str(entry.get("basis") or ""), now, now))
+            n += 1
+    return n
+
+
+def work_resolutions():
+    """{(업무종류, ID 또는 프로젝트NO): 완료판정} — 앱 상태 오버레이용."""
+    out = {}
+    with conn() as c:
+        rows = c.execute(
+            "SELECT kind,record_id,project,status,completed_on,basis,first_seen"
+            " FROM work_resolution").fetchall()
+    for kind, record_id, project, status, completed_on, basis, first_seen in rows:
+        value = {"status": status, "completed_on": completed_on,
+                 "basis": basis, "first_seen": first_seen}
+        out[(kind, record_id)] = value
+        if project:
+            out.setdefault((kind, project), value)
+    return out
 
 
 def enqueue(items, source="tool", ingest_prefix=None):

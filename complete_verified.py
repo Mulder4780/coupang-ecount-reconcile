@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""검증·매칭과 실제 완료 근거가 모두 있는 2026년 행만 완료 상태로 보완한다.
+"""검증·매칭과 실제 완료 근거가 모두 있는 2026년 행을 DB 완료 정본에 기록한다.
 
 상태값만 보고 완료시키지 않는다. 업무별 필수 완료일과 검증결과가 함께 있을 때,
-현재 상태가 비어 있는 행만 ledger_writer 큐에 넣는다.
+상태 수식 셀을 덮지 않고 ledger_db.work_resolution에 근거와 최초 확인시각을 남긴다.
 """
 from __future__ import annotations
 
@@ -72,46 +72,40 @@ def plan(path: str):
         project = _s(get("프로젝트NO"))
         if not project or _year(get("접수일자")) != 2026:
             continue
-        if _s(get("진행상태")):
+        if _s(get("진행상태")) in ("취소", "철회"):
             continue
         if _s(get("검증결과")) == "정상" and _as_completion_ready(get):
             items.append({
-                "sheet": "02_돌발AS접수",
-                "key": project,
-                "key_col": "프로젝트NO",
-                "col": "진행상태",
-                "value": "작업완료",
-                "vtype": "text",
-                "only_if_empty": True,
-                "evidence": (
+                "kind": "as", "record_id": _s(get("접수ID")) or project,
+                "project": project, "status": "작업완료",
+                "completed_on": _s(get("작업완료일"))[:10],
+                "basis": (
                     f"02!R{row_no} 작업완료일 + AD{row_no} 관리자검증 일치 + "
                     f"W/Y/Z/U/S{row_no} 완료 필수근거 + AK{row_no} 검증 정상"
                 ),
             })
             evidence.append(("02_돌발AS접수", row_no, project, "작업완료"))
 
-    # 정기점검: 실제점검일 + 검증 정상. 상태가 빈 경우에만 완료.
+    # 정기점검: 실제점검일 + 검증 정상. 취소·AS전환 같은 충돌 상태는 제외.
     for row_no, get in rows("04_정기점검"):
         project = _s(get("프로젝트NO"))
-        if not project or _year(get("점검예정일")) != 2026 or _s(get("점검상태")):
+        if (not project or _year(get("점검예정일")) != 2026
+                or _s(get("점검상태")) in ("AS전환", "점검불가", "취소", "철회")):
             continue
         if _year(get("실제점검일")) == 2026 and _s(get("검증결과")) == "정상":
             items.append({
-                "sheet": "04_정기점검",
-                "key": project,
-                "key_col": "프로젝트NO",
-                "col": "점검상태",
-                "value": "완료",
-                "vtype": "text",
-                "only_if_empty": True,
-                "evidence": f"04!H{row_no} 실제점검일 + AB{row_no} 검증 정상",
+                "kind": "pm", "record_id": _s(get("점검ID")) or project,
+                "project": project, "status": "완료",
+                "completed_on": _s(get("실제점검일"))[:10],
+                "basis": f"04!H{row_no} 실제점검일 + AB{row_no} 검증 정상",
             })
             evidence.append(("04_정기점검", row_no, project, "완료"))
 
     # 신규·납품·설치: 업무구분에 맞는 실제 완료일이 있어야 한다.
     for row_no, get in rows("05_신규납품설치"):
         project = _s(get("프로젝트NO"))
-        if not project or _year(get("요청일")) != 2026 or _s(get("진행상태")):
+        if (not project or _year(get("요청일")) != 2026
+                or _s(get("진행상태")) in ("취소", "철회")):
             continue
         kind = _s(get("업무구분"))
         actual = (
@@ -123,14 +117,10 @@ def plan(path: str):
         )
         if _year(actual) == 2026 and _s(get("검증결과")) == "정상":
             items.append({
-                "sheet": "05_신규납품설치",
-                "key": project,
-                "key_col": "프로젝트NO",
-                "col": "진행상태",
-                "value": "완료",
-                "vtype": "text",
-                "only_if_empty": True,
-                "evidence": f"05!실제완료일({row_no}) + AG{row_no} 검증 정상",
+                "kind": "install", "record_id": _s(get("업무ID")) or project,
+                "project": project, "status": "완료",
+                "completed_on": _s(actual)[:10],
+                "basis": f"05!실제완료일({row_no}) + AG{row_no} 검증 정상",
             })
             evidence.append(("05_신규납품설치", row_no, project, "완료"))
 
@@ -148,19 +138,19 @@ def main():
     for sheet, row, project, status in evidence:
         print(f"  {sheet}!{row} {project} → {status}")
     if not items:
-        print("새로 완료 처리할 행 없음")
+        print("새로 DB 완료 판정할 행 없음")
         return
-    if "--apply" not in sys.argv:
-        print("반영하려면: python complete_verified.py --apply")
+    do_queue = "--queue" in sys.argv
+    do_apply = "--apply" in sys.argv
+    if not do_queue and not do_apply:
+        print("DB에 기록하려면: python complete_verified.py --queue")
         return
-    from claim_guard import require
-    import ledger_writer
-
-    require("ledger", "complete_verified")
-    added = ledger_writer.queue_add(items)
-    print(f"자동입력 큐 추가: {added}건")
-    if added:
-        ledger_writer._main()
+    if do_apply:
+        from claim_guard import require
+        require("ledger", "complete_verified")
+    import ledger_db
+    added = ledger_db.work_resolution_sync(items)
+    print(f"DB 객관 완료 동기화: {added}건")
 
 
 if __name__ == "__main__":

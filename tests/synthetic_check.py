@@ -1041,8 +1041,16 @@ def t16_status():
     derive_status(r, "pm"); assert r["점검상태"] == "예정", r          # 아직 안 지남
     r = {"점검상태": "완료", "실제점검일": ""}
     derive_status(r, "pm"); assert r["점검상태"] == "완료", r          # 기존 값은 안 건드림
+    r = {"점검상태": "미점검", "실제점검일": "2026-07-30"}
+    derive_status(r, "pm"); assert r["점검상태"] == "완료", r          # 완료일이 오래된 캐시보다 우선
+    r = {"점검상태": "AS전환", "실제점검일": "2026-07-30"}
+    derive_status(r, "pm"); assert r["점검상태"] == "AS전환", r        # 충돌 상태는 보존
     r = {"진행상태": "", "작업완료일": "2026-06-02"}
     derive_status(r, "as"); assert r["진행상태"] == "작업완료", r
+    r = {"진행상태": "접수", "작업완료일": "2026-06-02"}
+    derive_status(r, "as"); assert r["진행상태"] == "작업완료", r      # 완료일이 접수 상태보다 우선
+    r = {"진행상태": "취소", "작업완료일": "2026-06-02"}
+    derive_status(r, "as"); assert r["진행상태"] == "취소", r          # 취소는 자동 덮기 금지
     r = {"진행상태": "", "작업완료일": ""}
     derive_status(r, "as"); assert r["진행상태"] == "접수", r
     print("  [16] 상태 수식 캐시 보정(완료·AS전환·미점검·예정·기존값 보존) ✅")
@@ -1710,18 +1718,34 @@ def t35_confirm_evidence():
 
     # (2) 실제 계획 — 확인 체크가 붙는 건은 **전부** 근거가 '작업완료'여야 한다
     real = C.band_map()
-    _m, items, _stat = C.plan()
+    _m, items, _stat, completions = C._plan()
     VCOLS = ("관리자검증상태", "담당관리자", "최종확인일", "최종확인일(유현민 체크)")
     bad = [i["key"] for i in items if i["col"] in VCOLS
            and (real.get(i["key"]) or {}).get("status") != "작업완료"]
     assert not bad, ("근거가 완료가 아닌데 확인 체크를 찍으려 한다: " + ", ".join(sorted(set(bad))[:5]))
 
-    # (3) 기존 값을 덮지 않는가 — 확인 기록을 덮어쓰면 되돌릴 수 없다
-    assert all(i.get("only_if_empty") for i in items), "빈칸만 채우는 규칙이 빠졌다"
-    # (4) 상태 열 자체는 건드리지 않는다(완료 여부는 사람이 정한다)
+    # (3) 확인·날짜 필드는 기존 값을 덮지 않고, 상태 수식 셀은 아예 큐에 넣지 않는다.
+    #     객관 완료는 work_resolution DB에만 기록한다.
+    assert all(i.get("only_if_empty") for i in items), "확인·날짜 필드의 빈칸만 채우는 규칙이 빠졌다"
     assert not any(i["col"] in ("진행상태", "점검상태") for i in items), \
-        "도구가 진행상태를 바꾸려 한다 — 완료 판정은 사람 몫이다"
-    print("  [35] 확인 체크 근거 정합(완료 글 우선·불일치 0·빈칸만·상태 불변) ✅")
+        "객관 완료 판정이 상태 수식 셀을 덮으려 한다"
+    assert completions and all(c["status"] in ("작업완료", "완료")
+                               and c["completed_on"] and c["basis"] for c in completions), \
+        "DB 객관 완료 판정에 상태·완료일·근거가 빠졌다"
+    # (4) 취소성 상태·날짜 없는 완료 글·완료가 아닌 글은 자동 완료하지 않는다.
+    done_band = {"status": "작업완료", "date": "2026-07-30"}
+    assert C.objective_completion("접수", "작업완료", done_band)
+    assert C.objective_completion("미점검", "완료", done_band)
+    for conflict in ("취소", "철회", "AS전환", "점검불가"):
+        assert not C.objective_completion(conflict, "완료", done_band), conflict
+    assert not C.objective_completion("접수", "작업완료", {"status": "작업완료", "date": ""})
+    assert not C.objective_completion("접수", "작업완료", {"status": "접수", "date": "2026-07-30"})
+    assert not C.objective_completion("접수", "작업완료", done_band,
+                                      base="2026-07-31"), "접수보다 앞선 완료일은 모순"
+    assert C.objective_completion("접수", "작업완료", {"status": "작업완료", "date": "2025-01-03"},
+                                  base="2026-01-02", existing_done="2026-01-03"), \
+        "명시된 원장 완료일보다 밴드의 연도 추정을 우선하면 안 된다"
+    print("  [35] 확인 체크 근거 정합(완료 글 우선·DB 완료판정·날짜충돌 보존) ✅")
 
 
 def t36_mobile_input():
@@ -3860,13 +3884,30 @@ def t95_objective_completion_db_only():
             got = L.resolutions()
             assert len(got) == 1 and got["JS-1"]["basis"] == "b2", "upsert 가 안 된다"
             assert got["JS-1"]["first_seen"] == first, "first_seen 이 덮였다 — 최초 입증 시각 유실"
+            assert L.work_resolution_sync([{
+                "kind": "as", "record_id": "AS-1", "project": "UJ2600001",
+                "status": "작업완료", "completed_on": "2026-07-30", "basis": "band",
+            }]) == 1
+            work_first = L.work_resolutions()[("as", "AS-1")]["first_seen"]
+            L.work_resolution_sync([{
+                "kind": "as", "record_id": "AS-1", "project": "UJ2600001",
+                "status": "작업완료", "completed_on": "2026-07-31", "basis": "verified",
+            }])
+            work = L.work_resolutions()
+            assert work[("as", "AS-1")]["completed_on"] == "2026-07-31"
+            assert work[("as", "UJ2600001")]["first_seen"] == work_first
         finally:
             L.DB_DIR, L.DB_PATH = old_dir, old_path
 
     # 앱: 완료 상태가 조치필요 필터·칩에서 완료로 취급되는가
     html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     assert "'완료(ERP 수금확인)'" in html and "'완료(ERP 발행확인)'" in html, "앱이 새 완료 상태를 모른다"
-    print("  [95] 객관 입증 완료(수금=완료·발행=입금대기·DB만 기록·백필 금지) ✅")
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "complete_verified.py" in daily and '"--queue"' in daily, \
+        "객관근거 완료 상태 보완이 일일 자동화에 연결되지 않았다"
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "work_resolutions" in srv and "객관완료근거" in srv, "앱이 현장업무 DB 완료판정을 읽지 않는다"
+    print("  [95] 객관 입증 완료(정산·현장업무 DB 정본·앱 즉시반영·백필 금지) ✅")
 
 
 def t96_work_management_tabs():
