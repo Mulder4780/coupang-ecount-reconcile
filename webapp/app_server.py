@@ -86,6 +86,16 @@ def staff_centers_payload():
     } for slug, cfg in STAFF_CENTERS.items()]
 
 
+def staff_completions_payload(limit=100):
+    """세 담당자의 객관완료 정본을 앱·외부 자동화에 제공한다."""
+    import ledger_db
+    return {
+        "summary": ledger_db.staff_resolution_summary(),
+        "rows": ledger_db.staff_resolutions(limit=limit),
+        "basis": "완료일·원천 증빙·ERP·PO 대조로 입증된 건만 표시",
+    }
+
+
 PIN_HASH_ITERS = 310_000
 PIN_STATE_LOCK = threading.RLock()
 
@@ -3549,6 +3559,7 @@ def latest_reports():
     # '자료현황' 을 맨 앞에 둔다 — "그거 지금 몇 건이지?" 를 매번 다시 세지 않으려고 만든 장이다
     # (사용자 지시 2026-07-29). data_status.py 가 만들고 daily_run 이 매일 갱신한다.
     for pat, name in [("자료현황.md", "자료현황"),
+                      ("담당자_객관완료.md", "담당자 객관완료"),
                       ("종합리포트_*.md", "종합"), ("카톡대조_*.md", "카톡"), ("밴드대조_*.md", "밴드"),
                       ("ERP원장대조_*.md", "ERP원장"), ("이카운트대조_*.md", "판매·계산서")]:
         fs = sorted(glob.glob(os.path.join(ROOT, "reports", pat)))
@@ -3976,6 +3987,8 @@ self.addEventListener('fetch', e => {
             return self._send(200, get_notifications())
         if p == "/api/staff/centers":
             return self._send(200, {"centers": staff_centers_payload()})
+        if p == "/api/staff/completions":
+            return self._send(200, staff_completions_payload())
         if p == "/api/staff/work-log-status":
             actor = self._actor()
             if actor.get("role") == "staff" and actor.get("staff_slug") != "ryu-jiyeong":

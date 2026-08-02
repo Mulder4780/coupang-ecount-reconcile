@@ -121,6 +121,21 @@ CREATE TABLE IF NOT EXISTS work_resolution( -- AS·정기점검·설치의 객�
 );
 CREATE INDEX IF NOT EXISTS ix_work_resolution_project
   ON work_resolution(kind, project);
+CREATE TABLE IF NOT EXISTS staff_resolution( -- 담당자별 객관 입증 완료(DB 정본)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner TEXT NOT NULL,                      -- 류지영 | 오종현 | 유현민
+  task_kind TEXT NOT NULL,                  -- field_as | settlement | po_source 등
+  record_id TEXT NOT NULL,
+  project TEXT,
+  status TEXT NOT NULL,                     -- "류지영 완료"처럼 담당자까지 명시
+  completed_on TEXT NOT NULL,
+  basis TEXT NOT NULL,
+  first_seen TEXT NOT NULL,
+  last_seen TEXT NOT NULL,
+  UNIQUE(owner, task_kind, record_id)
+);
+CREATE INDEX IF NOT EXISTS ix_staff_resolution_owner
+  ON staff_resolution(owner, completed_on);
 """
 
 
@@ -410,6 +425,92 @@ def work_resolutions():
         if project:
             out.setdefault((kind, project), value)
     return out
+
+
+def staff_resolution_sync(entries):
+    """객관 자료로 끝난 담당자별 업무를 SQLite 정본에 멱등 기록한다."""
+    now = datetime.now().isoformat(timespec="seconds")
+    allowed = {"류지영", "오종현", "유현민"}
+    n = 0
+    with conn() as c:
+        for entry in entries or []:
+            owner = str(entry.get("owner") or "").strip()
+            task_kind = str(entry.get("task_kind") or "").strip()
+            record_id = str(entry.get("record_id") or "").strip()
+            completed_on = str(entry.get("completed_on") or "").strip()[:10]
+            basis = str(entry.get("basis") or "").strip()
+            if (owner not in allowed or not task_kind or not record_id
+                    or not completed_on or not basis):
+                continue
+            try:
+                completed_date = datetime.strptime(completed_on, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            if completed_date > datetime.now().date():
+                continue
+            status = f"{owner} 완료"
+            c.execute(
+                "INSERT INTO staff_resolution"
+                "(owner,task_kind,record_id,project,status,completed_on,basis,first_seen,last_seen)"
+                " VALUES(?,?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(owner,task_kind,record_id) DO UPDATE SET"
+                " project=excluded.project,status=excluded.status,"
+                " completed_on=excluded.completed_on,basis=excluded.basis,"
+                " last_seen=excluded.last_seen",
+                (owner, task_kind, record_id, str(entry.get("project") or ""),
+                 status, completed_on, basis, now, now),
+            )
+            n += 1
+    return n
+
+
+def staff_resolutions(owner="", limit=0):
+    """담당자별 객관완료 목록을 최근 완료일부터 반환한다."""
+    sql = ("SELECT owner,task_kind,record_id,project,status,completed_on,basis,first_seen,last_seen"
+           " FROM staff_resolution")
+    params = []
+    if owner:
+        sql += " WHERE owner=?"
+        params.append(str(owner).strip())
+    sql += " ORDER BY completed_on DESC,id DESC"
+    if limit:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+    with conn() as c:
+        rows = c.execute(sql, params).fetchall()
+    keys = ("owner", "task_kind", "record_id", "project", "status",
+            "completed_on", "basis", "first_seen", "last_seen")
+    return [dict(zip(keys, row)) for row in rows]
+
+
+def staff_resolution_retract(entries):
+    """현재 대조가 비유일·충돌로 판정한 자동 완료만 정확한 키로 회수한다."""
+    allowed = {"류지영", "오종현", "유현민"}
+    removed = 0
+    with conn() as c:
+        before = c.total_changes
+        for entry in entries or []:
+            owner = str(entry.get("owner") or "").strip()
+            task_kind = str(entry.get("task_kind") or "").strip()
+            record_id = str(entry.get("record_id") or "").strip()
+            if owner not in allowed or not task_kind or not record_id:
+                continue
+            c.execute(
+                "DELETE FROM staff_resolution WHERE owner=? AND task_kind=? AND record_id=?",
+                (owner, task_kind, record_id),
+            )
+        removed = c.total_changes - before
+    return removed
+
+
+def staff_resolution_summary():
+    """세 담당자의 완료 건수와 최근 확인 시각을 빠르게 표시한다."""
+    owners = ("류지영", "오종현", "유현민")
+    with conn() as c:
+        rows = {row[0]: {"completed": row[1], "last_seen": row[2]}
+                for row in c.execute(
+                    "SELECT owner,COUNT(*),MAX(last_seen) FROM staff_resolution GROUP BY owner")}
+    return {owner: rows.get(owner, {"completed": 0, "last_seen": ""}) for owner in owners}
 
 
 def pending_work_completion_entries(today=None):

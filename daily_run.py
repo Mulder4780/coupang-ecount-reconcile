@@ -262,6 +262,10 @@ def _run_pipeline():
     # SQLite 완료 정본에 즉시 기록한다. Excel 자체는 정해진 11:00·15:00 회차만 유지한다.
     steps.append(run("객관근거 완료 DB 동기화",
                      [os.path.join(ROOT, "complete_verified.py"), "--queue"]))
+    # 세 사람의 담당 범위도 같은 객관 근거로 완료 이력을 남긴다. 상태 문구는
+    # "류지영 완료"·"오종현 완료"·"유현민 완료"이며 사람 체크나 추정은 쓰지 않는다.
+    steps.append(run("담당자별 객관완료 DB 동기화",
+                     [os.path.join(ROOT, "staff_completion.py"), "--sync"]))
     # 09:50에는 읽기 전용 무결성 검사만 한다. 실제 복구도 11:00·15:00 회차 안에서만 한다.
     steps.append(run("워크북 무결성 검사", [os.path.join(ROOT, "fix_workbook.py")]))
 

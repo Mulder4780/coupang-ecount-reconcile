@@ -19,7 +19,7 @@ po_reconcile.py — 쿠팡 발행 PO ↔ 관리대장 자동 대조
 """
 import sys, os, re, csv, glob, json
 from datetime import datetime
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -126,11 +126,14 @@ def main():
     # 안 적힌다. 그걸 전부 '원장 미등록'이라고 하면 94건이 쏟아져 무엇이 진짜 누락인지
     # 알 수 없다(2026-07-27). **계산서가 안 끊긴 PO만** 진짜 미청구다.
     erp_amts = set()
+    erp_amt_counts = Counter()
     try:
         import erp_bundle as _EB
         for _d in _EB.load_erp()[1]:
             erp_amts.add(_d["amt"])
             erp_amts.add(round(_d["amt"] * 1.1))
+            erp_amt_counts[_d["amt"]] += 1
+            erp_amt_counts[round(_d["amt"] * 1.1)] += 1
     except Exception as e:
         print(f"  (ERP 계산서 대조 생략: {e})")
 
@@ -139,6 +142,16 @@ def main():
             return False
         a = int(amount)
         return a in erp_amts or round(a / 1.1) in erp_amts
+
+    po_amount_counts = Counter(int(p["amount"]) for p in cp_by_no.values() if p.get("amount"))
+
+    def uniquely_invoiced(amount):
+        """금액만 같은 다른 PO·계산서를 직원 완료 근거로 오인하지 않는다."""
+        if not amount:
+            return False
+        a = int(amount)
+        return (po_amount_counts[a] == 1
+                and (erp_amt_counts[a] == 1 or erp_amt_counts[round(a / 1.1)] == 1))
 
     # 밴드에 사람이 적어 둔 PO별 처리 상태를 읽는다.
     # 오종현 매니저 확인(2026-07-27): "PO 작업 내역은 밴드 매출처업무에 1월부터 다 적어 둔다."
@@ -152,16 +165,23 @@ def main():
 
     A, B, C, OK, D = [], [], [], [], []
     billed = 0
+    billed_rows = {}
+    billed_ambiguous = {}
     for po, p in sorted(cp_by_no.items()):
         lrows = by_po.get(po)
         if not lrows:
-            if invoiced(p["amount"]):
-                billed += 1          # 계산서는 끊었다 — 06시트에 PO번호만 안 적힌 것
-                continue
             b = band_po.get(po) or {}
             st = b.get("상태") or []
-            if "발행완료" in st:
-                billed += 1          # 밴드에 발행 완료라고 적혀 있다 — 미청구가 아니다
+            amount_billed = invoiced(p["amount"])
+            band_billed = "발행완료" in st
+            if amount_billed or band_billed:
+                billed += 1          # 문제 목록에서는 발행 정황으로 제외한다.
+                if band_billed:
+                    billed_rows[po] = {**p, "basis": "밴드 세금계산서 발행완료"}
+                elif uniquely_invoiced(p["amount"]):
+                    billed_rows[po] = {**p, "basis": "ERP 계산서 금액 유일 일치"}
+                else:
+                    billed_ambiguous[po] = {**p, "basis": "ERP 계산서 금액 비유일 일치"}
                 continue
             note = ""
             if st:
@@ -238,6 +258,57 @@ def main():
                     keys.append(k)
         with open(base + ".csv", "w", encoding="utf-8-sig", newline="") as f:
             w = csv.DictWriter(f, fieldnames=keys); w.writeheader(); w.writerows(allrows)
+
+    # 객관 자료로 끝난 담당자 업무를 별도 근거 파일에 남긴다. 문제 CSV는 미해결만
+    # 남기므로 완료 이력의 정본으로 사용할 수 없다. 다음 staff_completion 단계가
+    # 이 파일을 읽어 "류지영/오종현/유현민 완료"를 SQLite에 멱등 반영한다.
+    recognized = datetime.now().date().isoformat()
+    source_names = ", ".join(sorted({os.path.basename(path) for path in files}))
+    staff_entries = []
+    staff_retractions = []
+    for po, item in sorted(cp_by_no.items()):
+        staff_entries.append({
+            "owner": "오종현", "task_kind": "po_source", "record_id": po,
+            "project": item.get("project") or "",
+            "completed_on": item.get("date") or recognized,
+            "basis": f"쿠팡 PO 원본 확인 · {source_names}",
+        })
+    for po in sorted(OK):
+        item = cp_by_no[po]
+        for owner, task_kind in (("유현민", "po_system_verified"),
+                                 ("류지영", "po_amount_verified")):
+            staff_entries.append({
+                "owner": owner, "task_kind": task_kind, "record_id": po,
+                "project": item.get("project") or "", "completed_on": recognized,
+                "basis": "쿠팡 PO 금액과 원장 공급가액 합계 일치",
+            })
+    for po, item in sorted(billed_rows.items()):
+        for owner, task_kind in (("유현민", "po_system_verified"),
+                                 ("류지영", "billing_verified")):
+            staff_entries.append({
+                "owner": owner, "task_kind": task_kind, "record_id": po,
+                "project": item.get("project") or "", "completed_on": recognized,
+                "basis": item["basis"],
+            })
+    for po in sorted(billed_ambiguous):
+        for owner, task_kind in (("유현민", "po_system_verified"),
+                                 ("류지영", "billing_verified")):
+            staff_retractions.append({
+                "owner": owner, "task_kind": task_kind, "record_id": po,
+                "reason": "금액만 같고 PO·계산서 유일 연결이 아님",
+            })
+    try:
+        from ledger_writer import atomic_json_dump
+        atomic_json_dump({
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "sources": sorted({os.path.basename(path) for path in files}),
+            "entries": staff_entries,
+            "retractions": staff_retractions,
+            "counts": {"오종현": len(cp_by_no), "유현민": len(OK) + len(billed_rows),
+                       "류지영": len(OK) + len(billed_rows)},
+        }, os.path.join(REPORT_DIR, "po_objective_evidence.json"))
+    except Exception as e:
+        print("(담당자 객관완료 근거 저장 실패:", e, ")")
     print(f"A(미청구) {len(A)} / B(쿠팡목록에없음) {len(B)} / C(금액불일치) {len(C)} / "
           f"D(연결제안) {len(D)} / 정상 {len(OK)} / 계산서발행됨 {billed}")
     print("리포트:", base + ".md")

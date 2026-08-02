@@ -3849,6 +3849,7 @@ def t95_objective_completion_db_only():
     _s.path.insert(0, ROOT)
     import ecount_reconcile as E
     import ledger_db as L
+    import staff_completion as SC
 
     old_prog = E.erp_progress
     try:
@@ -3936,6 +3937,44 @@ def t95_objective_completion_db_only():
                 ).fetchall()
             assert migrated == [("PM-2600999", provisional_first)], \
                 "Excel ID 확정 뒤 대기행 완료 레코드가 중복되거나 최초 입증시각이 바뀌었다"
+
+            # 세 담당자의 객관완료는 이름이 포함된 상태로 별도 DB 정본에 남는다.
+            po_evidence = os.path.join(td, "po_objective_evidence.json")
+            report_path = os.path.join(td, "담당자_객관완료.md")
+            with open(po_evidence, "w", encoding="utf-8") as out:
+                json.dump({"entries": [
+                    {"owner": "오종현", "task_kind": "po_source", "record_id": "PO1",
+                     "project": "UJ2600001", "completed_on": "2026-07-31",
+                     "basis": "쿠팡 PO 원본 확인"},
+                    {"owner": "유현민", "task_kind": "po_system_verified", "record_id": "PO1",
+                     "project": "UJ2600001", "completed_on": "2026-08-01",
+                     "basis": "PO·ERP·원장 일치"},
+                    {"owner": "류지영", "task_kind": "billing_verified", "record_id": "PO1",
+                     "project": "UJ2600001", "completed_on": "2026-08-01",
+                     "basis": "ERP 계산서 발행 확인"},
+                    {"owner": "오종현", "task_kind": "po_source", "record_id": "PO-FUTURE",
+                     "project": "", "completed_on": "2099-01-01",
+                     "basis": "잘못된 미래일"},
+                ], "retractions": [
+                    {"owner": "유현민", "task_kind": "po_system_verified",
+                     "record_id": "PO-FALSE", "reason": "비유일 금액"},
+                    {"owner": "류지영", "task_kind": "billing_verified",
+                     "record_id": "PO-FALSE", "reason": "비유일 금액"},
+                ]}, out, ensure_ascii=False)
+            L.staff_resolution_sync([
+                {"owner": "유현민", "task_kind": "po_system_verified",
+                 "record_id": "PO-FALSE", "completed_on": "2026-08-01", "basis": "옛 추정"},
+                {"owner": "류지영", "task_kind": "billing_verified",
+                 "record_id": "PO-FALSE", "completed_on": "2026-08-01", "basis": "옛 추정"},
+            ])
+            counts = SC.sync(po_evidence, report_path)
+            assert counts == {"류지영": 4, "오종현": 1, "유현민": 1}
+            assert {row["status"] for row in L.staff_resolutions()} == {
+                "류지영 완료", "오종현 완료", "유현민 완료"}
+            first_staff = L.staff_resolutions("오종현")[0]["first_seen"]
+            SC.sync(po_evidence, report_path)
+            assert L.staff_resolutions("오종현")[0]["first_seen"] == first_staff
+            assert "오종현 완료 · 1건" in open(report_path, encoding="utf-8").read()
         finally:
             L.DB_DIR, L.DB_PATH = old_dir, old_path
 
@@ -3947,8 +3986,13 @@ def t95_objective_completion_db_only():
         "객관근거 완료 상태 보완이 일일 자동화에 연결되지 않았다"
     assert daily.index('"입력 DB 적재"') < daily.index('"객관근거 완료 DB 동기화"'), \
         "신규 입력을 DB에 흡수하기 전에 완료 판정을 실행하고 있다"
+    assert "staff_completion.py" in daily and '"--sync"' in daily, \
+        "담당자별 객관완료 판정이 일일 에이전트에 연결되지 않았다"
     srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     assert "work_resolutions" in srv and "객관완료근거" in srv, "앱이 현장업무 DB 완료판정을 읽지 않는다"
+    assert '"/api/staff/completions"' in srv and "staff_completions_payload" in srv
+    po_src = open(os.path.join(ROOT, "po_reconcile.py"), encoding="utf-8").read()
+    assert "po_objective_evidence.json" in po_src and '"오종현", "task_kind": "po_source"' in po_src
     print("  [95] 객관 입증 완료(정산·현장업무 DB 정본·앱 즉시반영·백필 금지) ✅")
 
 
