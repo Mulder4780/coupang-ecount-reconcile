@@ -130,11 +130,21 @@ def plan(path: str):
 
 def main():
     from workbook_patch import latest_master
+    import ledger_db
 
     path = latest_master()[0]
     items, evidence = plan(path)
+    pending_items = ledger_db.pending_work_completion_entries()
+    merged = {(item["kind"], item["record_id"]): item for item in items}
+    for item in pending_items:
+        merged.setdefault((item["kind"], item["record_id"]), item)
+    items = list(merged.values())
     print(f"원본: {os.path.basename(path)}")
     print(f"완료 보완 대상: {len(items)}건")
+    if pending_items:
+        print(f"  Excel 반영 대기 중 객관완료: {len(pending_items)}건")
+        for item in pending_items:
+            print(f"    {item['project']} → {item['status']} ({item['completed_on']})")
     for sheet, row, project, status in evidence:
         print(f"  {sheet}!{row} {project} → {status}")
     if not items:
@@ -148,7 +158,6 @@ def main():
     if do_apply:
         from claim_guard import require
         require("ledger", "complete_verified")
-    import ledger_db
     added = ledger_db.work_resolution_sync(items)
     print(f"DB 객관 완료 동기화: {added}건")
 

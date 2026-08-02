@@ -3896,6 +3896,46 @@ def t95_objective_completion_db_only():
             work = L.work_resolutions()
             assert work[("as", "AS-1")]["completed_on"] == "2026-07-31"
             assert work[("as", "UJ2600001")]["first_seen"] == work_first
+
+            # Excel 반영 전 신규행도 실제 완료일과 원천 근거가 있으면 DB 완료 정본에 잡힌다.
+            assert L.enqueue([
+                {"sheet": "04_정기점검", "cell": "B10", "col": "프로젝트NO",
+                 "value": "UJ2600999", "evidence": "카톡 UJ2600999 완료보고"},
+                {"sheet": "04_정기점검", "cell": "H10", "col": "실제점검일",
+                 "value": "2026-07-31", "evidence": "카톡 UJ2600999 완료보고"},
+                {"sheet": "04_정기점검", "cell": "H10", "col": "실제점검일",
+                 "value": "2026-07-31", "evidence": "카톡 UJ2600999 완료보고"},
+                {"sheet": "02_돌발AS접수", "cell": "B11", "col": "프로젝트NO",
+                 "value": "UJ2600998", "evidence": "카톡 원문"},
+                {"sheet": "02_돌발AS접수", "cell": "R11", "col": "작업완료일",
+                 "value": "2026-07-30", "evidence": "카톡 완료보고"},
+                {"sheet": "02_돌발AS접수", "cell": "Q11", "col": "진행상태",
+                 "value": "취소", "evidence": "카톡 정정"},
+                {"sheet": "04_정기점검", "cell": "B12", "col": "프로젝트NO",
+                 "value": "UJ2600997", "evidence": "카톡 원문"},
+                {"sheet": "04_정기점검", "cell": "H12", "col": "실제점검일",
+                 "value": "2099-01-01", "evidence": "잘못된 미래일"},
+                {"sheet": "04_정기점검", "cell": "B13", "col": "프로젝트NO",
+                 "value": "UJ2600996", "evidence": "새 업무"},
+                {"sheet": "04_정기점검", "cell": "H13", "col": "실제점검일",
+                 "value": "2026-07-29", "evidence": "이전 업무의 완료 근거"},
+            ], source="test") == 10
+            pending_done = L.pending_work_completion_entries(today="2026-08-02")
+            assert len(pending_done) == 1 and pending_done[0]["project"] == "UJ2600999"
+            assert pending_done[0]["basis"].startswith("반영대기 04_정기점검!H10")
+            L.work_resolution_sync(pending_done)
+            provisional_first = L.work_resolutions()[("pm", "UJ2600999")]["first_seen"]
+            L.work_resolution_sync([{
+                "kind": "pm", "record_id": "PM-2600999", "project": "UJ2600999",
+                "status": "완료", "completed_on": "2026-07-31", "basis": "원장 검증 정상",
+            }])
+            with L.conn() as c:
+                migrated = c.execute(
+                    "SELECT record_id,first_seen FROM work_resolution WHERE kind='pm' AND project=?",
+                    ("UJ2600999",),
+                ).fetchall()
+            assert migrated == [("PM-2600999", provisional_first)], \
+                "Excel ID 확정 뒤 대기행 완료 레코드가 중복되거나 최초 입증시각이 바뀌었다"
         finally:
             L.DB_DIR, L.DB_PATH = old_dir, old_path
 
@@ -3905,6 +3945,8 @@ def t95_objective_completion_db_only():
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert "complete_verified.py" in daily and '"--queue"' in daily, \
         "객관근거 완료 상태 보완이 일일 자동화에 연결되지 않았다"
+    assert daily.index('"입력 DB 적재"') < daily.index('"객관근거 완료 DB 동기화"'), \
+        "신규 입력을 DB에 흡수하기 전에 완료 판정을 실행하고 있다"
     srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     assert "work_resolutions" in srv and "객관완료근거" in srv, "앱이 현장업무 DB 완료판정을 읽지 않는다"
     print("  [95] 객관 입증 완료(정산·현장업무 DB 정본·앱 즉시반영·백필 금지) ✅")

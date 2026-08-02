@@ -37,7 +37,7 @@ ledger_db.py — 모든 반영을 **DB에 모았다가 하루 두 번만 엑셀�
   python ledger_db.py --apply --force   # 시각을 무시하고 즉시(긴급용, 이유가 기록된다)
   python ledger_db.py --self-test
 """
-import sys, os, json, sqlite3, subprocess, glob, tempfile, time
+import sys, os, json, sqlite3, subprocess, glob, tempfile, time, re
 from datetime import datetime, timedelta, time as dtime
 from contextlib import contextmanager
 
@@ -349,9 +349,39 @@ def work_resolution_sync(entries):
         for entry in entries or []:
             kind = str(entry.get("kind") or "").strip()
             record_id = str(entry.get("record_id") or "").strip()
+            project = str(entry.get("project") or "").strip()
             completed_on = str(entry.get("completed_on") or "").strip()[:10]
             if not kind or not record_id or not completed_on:
                 continue
+            # A new pending row has no formula-generated AS/PM ID yet, so its
+            # provisional record_id is the project number. Once Excel assigns
+            # the canonical ID, migrate that row instead of counting it twice.
+            if project and record_id == project:
+                canonical = c.execute(
+                    "SELECT record_id FROM work_resolution"
+                    " WHERE kind=? AND project=? AND record_id<>? ORDER BY id LIMIT 1",
+                    (kind, project, project),
+                ).fetchone()
+                if canonical:
+                    record_id = canonical[0]
+            elif project:
+                provisional = c.execute(
+                    "SELECT id,first_seen FROM work_resolution"
+                    " WHERE kind=? AND record_id=?", (kind, project),
+                ).fetchone()
+                if provisional:
+                    canonical = c.execute(
+                        "SELECT id,first_seen FROM work_resolution"
+                        " WHERE kind=? AND record_id=?", (kind, record_id),
+                    ).fetchone()
+                    if canonical:
+                        first_seen = min(provisional[1], canonical[1])
+                        c.execute("UPDATE work_resolution SET first_seen=? WHERE id=?",
+                                  (first_seen, canonical[0]))
+                        c.execute("DELETE FROM work_resolution WHERE id=?", (provisional[0],))
+                    else:
+                        c.execute("UPDATE work_resolution SET record_id=? WHERE id=?",
+                                  (record_id, provisional[0]))
             c.execute(
                 "INSERT INTO work_resolution(kind,record_id,project,status,completed_on,basis,first_seen,last_seen)"
                 " VALUES(?,?,?,?,?,?,?,?)"
@@ -359,7 +389,7 @@ def work_resolution_sync(entries):
                 "   project=excluded.project, status=excluded.status,"
                 "   completed_on=excluded.completed_on, basis=excluded.basis,"
                 "   last_seen=excluded.last_seen",
-                (kind, record_id, str(entry.get("project") or ""),
+                (kind, record_id, project,
                  str(entry.get("status") or ""), completed_on,
                  str(entry.get("basis") or ""), now, now))
             n += 1
@@ -380,6 +410,91 @@ def work_resolutions():
         if project:
             out.setdefault((kind, project), value)
     return out
+
+
+def pending_work_completion_entries(today=None):
+    """Return objectively completed AS/PM records still waiting for Excel.
+
+    New Kakao/app records can remain in ``pending`` until the 11:00 or 15:00
+    workbook slot. A real completion date with source evidence is already
+    enough to persist the completion decision in SQLite. Repeated queue rows
+    are collapsed by target sheet/row and the newest value per column wins.
+    """
+    today = today or datetime.now().date()
+    if isinstance(today, datetime):
+        today = today.date()
+    if isinstance(today, str):
+        try:
+            today = datetime.strptime(today[:10], "%Y-%m-%d").date()
+        except ValueError:
+            today = datetime.now().date()
+
+    with conn() as c:
+        rows = c.execute(
+            "SELECT id,sheet,cell,col,value,evidence FROM pending"
+            " WHERE status='pending' AND sheet IN (?,?) ORDER BY id",
+            ("02_돌발AS접수", "04_정기점검"),
+        ).fetchall()
+
+    grouped = {}
+    for row_id, sheet, cell, col, value, evidence in rows:
+        match = re.fullmatch(r"[A-Z]+(\d+)", str(cell or "").strip().upper())
+        if not match:
+            continue
+        key = (sheet, int(match.group(1)))
+        grouped.setdefault(key, {})[str(col or "").strip()] = {
+            "id": row_id,
+            "cell": str(cell or "").strip(),
+            "value": "" if value is None else str(value).strip(),
+            "evidence": "" if evidence is None else str(evidence).strip(),
+        }
+
+    specs = {
+        "02_돌발AS접수": {
+            "kind": "as", "project": "프로젝트NO", "completed": "작업완료일",
+            "state": "진행상태", "conflicts": ("취소", "철회"), "status": "작업완료",
+        },
+        "04_정기점검": {
+            "kind": "pm", "project": "프로젝트NO", "completed": "실제점검일",
+            "state": "점검상태", "conflicts": ("AS전환", "점검불가", "취소", "철회"),
+            "status": "완료",
+        },
+    }
+    out = {}
+    for (sheet, row_no), values in grouped.items():
+        spec = specs[sheet]
+        project_value = values.get(spec["project"], {})
+        project = project_value.get("value", "")
+        done = values.get(spec["completed"], {})
+        state = values.get(spec["state"], {}).get("value", "")
+        if not re.fullmatch(r"UJ\d{6,}", project, flags=re.IGNORECASE):
+            continue
+        try:
+            completed = datetime.strptime(done.get("value", "")[:10], "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if completed > today or any(word in state for word in spec["conflicts"]):
+            continue
+        if not done.get("evidence"):
+            continue
+        # A reused empty row may contain an older task's still-pending date.
+        # Bind the date to the same source event (or an evidence string that
+        # explicitly names this project) before treating it as objective proof.
+        project_evidence = project_value.get("evidence", "")
+        if (not project_evidence or
+                (done["evidence"] != project_evidence
+                 and project.lower() not in done["evidence"].lower())):
+            continue
+        entry = {
+            "kind": spec["kind"],
+            "record_id": project,
+            "project": project,
+            "status": spec["status"],
+            "completed_on": completed.isoformat(),
+            "basis": f"반영대기 {sheet}!{done['cell']} + {done['evidence']}",
+        }
+        out[(entry["kind"], project)] = entry
+    return list(out.values())
 
 
 def enqueue(items, source="tool", ingest_prefix=None):

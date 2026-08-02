@@ -253,13 +253,15 @@ def _run_pipeline():
                      [os.path.join(ROOT, "work_log_sync.py"), "--queue"]))
     # 완료일·검증 정상 등 객관 요건을 충족한 행을 Excel 상태 셀 대신 DB 완료 정본에 기록한다.
     # confirm_fill의 밴드 완료글+날짜 판정과 함께 매일 돌아야 사람이 다시 지시하지 않는다.
-    steps.append(run("객관근거 완료 DB 동기화",
-                     [os.path.join(ROOT, "complete_verified.py"), "--queue"]))
 
     # ★ 2026-07-30 지시: 반영은 **DB에 모았다가 하루 두 번(11:00·15:00)만** 엑셀에 쓴다.
     #   전에는 여기서 바로 --apply 해서 하루에 관리대장 버전이 수십 개씩 늘었다(v311→v327).
     #   09:50 일일 대조는 적재까지만 하고, 별도 작업 스케줄러가 두 회차를 정확히 실행한다.
     steps.append(run("입력 DB 적재", [os.path.join(ROOT, "ledger_db.py"), "--intake"]))
+    # 방금 흡수한 신규행에도 실제 완료일+원천 근거가 있으면 Excel 회차를 기다리지 않고
+    # SQLite 완료 정본에 즉시 기록한다. Excel 자체는 정해진 11:00·15:00 회차만 유지한다.
+    steps.append(run("객관근거 완료 DB 동기화",
+                     [os.path.join(ROOT, "complete_verified.py"), "--queue"]))
     # 09:50에는 읽기 전용 무결성 검사만 한다. 실제 복구도 11:00·15:00 회차 안에서만 한다.
     steps.append(run("워크북 무결성 검사", [os.path.join(ROOT, "fix_workbook.py")]))
 
