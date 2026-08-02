@@ -3853,7 +3853,8 @@ def t95_objective_completion_db_only():
 
     old_prog = E.erp_progress
     try:
-        E.erp_progress = lambda: {"P7": "7.수금완료", "P6": "6.세금계산서발행"}
+        E.erp_progress = lambda: {"P7": "7.수금완료", "P6": "6.세금계산서발행",
+                                  "PMIX": "혼재(7.수금완료 / 확인)"}
         base = {"비용구분": "유상", "원천업무ID": "PM-1", "원장_공급가액": 100,
                 "원장_거래명세서번호": "20260101-1"}
         assert E.settle_status({**base, "프로젝트NO": "P7"}) == "완료(ERP 수금확인)"
@@ -3862,6 +3863,18 @@ def t95_objective_completion_db_only():
         assert E.settle_status({**base, "프로젝트NO": "P6",
                                 "원장_입금일": "2026-02-01"}) == "완료(ERP 발행확인)"
         assert E.settle_status({**base, "프로젝트NO": "PX"}) == "세금계산서 미발행"
+        # 금액 수식 캐시가 비어도 ERP 전체 전표가 수금완료면 객관 완료가 우선한다.
+        as_wait = {**base, "원천업무ID": "AS-1", "원장_공급가액": 0,
+                   "원장_거래명세서합계": 110}
+        assert E.settle_status({**as_wait, "프로젝트NO": "P7"}) == "완료(ERP 수금확인)"
+        assert E.settle_status({**as_wait, "프로젝트NO": "P6"}) == "금액 재계산 대기"
+        assert E.settle_status({**as_wait, "프로젝트NO": "PMIX"}) == "금액 재계산 대기", \
+            "한 프로젝트에 수금완료·미완료 전표가 섞였는데 전체 완료로 올렸다"
+        assert E._collapse_erp_progress(["7.수금완료", "7.수금완료"]) == "7.수금완료"
+        assert E._collapse_erp_progress(["7.수금완료", "6.세금계산서발행"]) == \
+            "6.세금계산서발행"
+        assert E._collapse_erp_progress(["7.수금완료", "확인"]).startswith("혼재("), \
+            "복수 전표 충돌이 완료로 접혔다"
     finally:
         E.erp_progress = old_prog
 
@@ -3885,6 +3898,18 @@ def t95_objective_completion_db_only():
             got = L.resolutions()
             assert len(got) == 1 and got["JS-1"]["basis"] == "b2", "upsert 가 안 된다"
             assert got["JS-1"]["first_seen"] == first, "first_seen 이 덮였다 — 최초 입증 시각 유실"
+            L.staff_resolution_sync([{
+                "owner": "류지영", "task_kind": "settlement", "record_id": "JS-1",
+                "project": "P7", "completed_on": "2026-08-01", "basis": "정산 완료",
+            }])
+            assert L.resolution_retract(["JS-NOT-EXIST", "JS-1"]) == 1
+            assert "JS-1" not in L.resolutions()
+            assert not any(row["record_id"] == "JS-1" and row["task_kind"] == "settlement"
+                           for row in L.staff_resolutions("류지영")), \
+                "정산 완료 철회 뒤 담당자 완료가 남았다"
+            # 뒤의 담당자 동기화 검증은 정상 정산 완료 1건을 전제로 한다.
+            L.resolution_sync([{"settle_id": "JS-1", "project": "P7",
+                                "status": "완료(ERP 수금확인)", "basis": "b3"}])
             assert L.work_resolution_sync([{
                 "kind": "as", "record_id": "AS-1", "project": "UJ2600001",
                 "status": "작업완료", "completed_on": "2026-07-30", "basis": "band",

@@ -351,6 +351,30 @@ def resolutions():
                     "SELECT settle_id,status,basis,first_seen FROM resolution")}
 
 
+def resolution_retract(settle_ids):
+    """현재 ERP에 완료·미완료 전표가 함께 확인된 정산만 정확한 ID로 철회한다.
+
+    원천 파일이 잠시 사라진 경우에는 과거 근거를 보존한다. 이 함수는 호출자가 현재
+    원본의 명시적 충돌을 확인한 ID만 넘길 때 사용하며, 담당자 정산 완료도 같은 키만
+    함께 지워 두 정본이 어긋나지 않게 한다.
+    """
+    ids = sorted({str(value or "").strip() for value in settle_ids or []
+                  if str(value or "").strip()})
+    if not ids:
+        return 0
+    removed = 0
+    with conn() as c:
+        for settle_id in ids:
+            cur = c.execute("DELETE FROM resolution WHERE settle_id=?", (settle_id,))
+            removed += cur.rowcount
+            c.execute(
+                "DELETE FROM staff_resolution"
+                " WHERE owner='류지영' AND task_kind='settlement' AND record_id=?",
+                (settle_id,),
+            )
+    return removed
+
+
 def work_resolution_sync(entries):
     """현장업무의 객관 완료 판정을 DB에 멱등 기록한다.
 

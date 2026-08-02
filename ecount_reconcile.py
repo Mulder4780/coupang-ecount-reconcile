@@ -295,9 +295,28 @@ def has_statement(r):
     return bool(r.get("원장_거래명세서발행일")) and bool(r.get("원장_거래명세서합계"))
 
 
-_ERP_PROGRESS = {"sig": None, "map": {}}
+_ERP_PROGRESS = {"sig": None, "map": {}, "statuses": {}}
 # ERP 판매조회의 진행상태 중 '계산서가 이미 나갔다'는 뜻인 값들
 _ERP_ISSUED = ("6.세금계산서발행", "7.수금완료")
+
+
+def _collapse_erp_progress(statuses):
+    """같은 프로젝트의 ERP 전표가 여러 개면 가장 보수적인 상태로 접는다.
+
+    프로젝트번호가 같아도 별도 전표가 추가될 수 있다. 그중 하나만 수금완료인데 다른
+    전표가 미확인/확인 단계라면 프로젝트 전체를 완료로 올리면 안 된다. 모든 전표가
+    수금완료일 때만 ``7.수금완료``를 돌려준다.
+    """
+    values = {str(value).strip() for value in statuses or [] if str(value).strip()}
+    if not values:
+        return ""
+    if values == {"7.수금완료"}:
+        return "7.수금완료"
+    if values.issubset(set(_ERP_ISSUED)):
+        return "6.세금계산서발행"
+    if len(values) == 1:
+        return next(iter(values))
+    return "혼재(" + " / ".join(sorted(values)) + ")"
 
 
 def erp_progress():
@@ -327,7 +346,7 @@ def erp_progress():
         return {}
     if _ERP_PROGRESS["sig"] == sig:
         return _ERP_PROGRESS["map"]
-    out = {}
+    grouped = {}
     try:
         import openpyxl as _ox
         wb = _ox.load_workbook(path, read_only=True, data_only=True)
@@ -347,13 +366,26 @@ def erp_progress():
             prj = row[ip] if ip < len(row) else None
             stt = row[ist] if ist < len(row) else None
             if prj and stt:
-                out[str(prj).strip()] = str(stt).strip()
+                grouped.setdefault(str(prj).strip(), []).append(str(stt).strip())
         wb.close()
     except Exception:
         return {}
+    out = {project: _collapse_erp_progress(statuses)
+           for project, statuses in grouped.items()}
     _ERP_PROGRESS["sig"] = sig
     _ERP_PROGRESS["map"] = out
+    _ERP_PROGRESS["statuses"] = {
+        project: tuple(sorted(set(statuses))) for project, statuses in grouped.items()
+    }
     return out
+
+
+def erp_progress_statuses():
+    """프로젝트별 ERP 원본 진행상태 전체를 반환한다(명시적 충돌 철회용)."""
+    # 원본이 잠시 사라지거나 파싱에 실패하면 이전 캐시의 충돌값으로 철회하면 안 된다.
+    if not erp_progress():
+        return {}
+    return _ERP_PROGRESS.get("statuses", {})
 
 
 def settle_status(r):
@@ -377,6 +409,14 @@ def settle_status(r):
     """
     if r.get("비용구분") != "유상":
         return "무상/보험"
+    # 실제작업공급가액 수식이 아직 계산되지 않았더라도 ERP가 **같은 프로젝트의 모든
+    # 전표를 수금완료**로 확정했다면 정산은 객관적으로 끝났다. 종전에는 아래 금액
+    # 재계산 검사가 먼저 실행돼 이런 143건이 완료 DB에서 가려졌다. 진행상태가 섞인
+    # 프로젝트는 erp_progress가 '혼재(...)'로 돌려주므로 완료하지 않는다.
+    project = str(r.get("프로젝트NO") or "").strip()
+    prog = erp_progress().get(project)
+    if prog == "7.수금완료":
+        return "완료(ERP 수금확인)"
     src = str(r.get("원천업무ID") or "")
     if not r.get("원장_공급가액") and src.startswith("AS-"):
         return "금액 재계산 대기" if r.get("원장_거래명세서합계") else "금액 미입력"
@@ -390,9 +430,6 @@ def settle_status(r):
         #   그 상태는 엑셀 셀 백필이 아니라 **분류·DB로만** 관리한다.
         #   · 7.수금완료  = 발행·수금까지 ERP 가 입증 → 완료
         #   · 6.세금계산서발행 = 발행만 입증 → '미발행'이 아니라 **입금 대기**가 정확하다
-        prog = erp_progress().get(str(r.get("프로젝트NO") or "").strip())
-        if prog == "7.수금완료":
-            return "완료(ERP 수금확인)"
         if prog == "6.세금계산서발행":
             return "완료(ERP 발행확인)" if r.get("원장_입금일") else "입금 대기"
         return "세금계산서 미발행"

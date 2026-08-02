@@ -16,7 +16,8 @@ try:
 except Exception:
     pass
 
-from ecount_reconcile import read_ledger, load_config, resolve_master, settle_status
+from ecount_reconcile import (read_ledger, load_config, resolve_master, settle_status,
+                              erp_progress_statuses)
 from responsibility import confirmed_owner
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,8 +33,9 @@ def latest_csv(pat):
 
 
 def settle_issues(master):
-    rows, resolved = [], []
+    rows, resolved, retracted = [], [], []
     prog_basis = None
+    raw_progress = erp_progress_statuses()
     for sid, r in sorted(read_ledger(master).items()):
         # 판정은 ecount_reconcile.settle_status 한 곳에서만 한다 — 화면과 엑셀이 어긋나지 않게.
         st = settle_status(r)
@@ -42,8 +44,15 @@ def settle_issues(master):
             # 엑셀 셀 백필은 하지 않는다(판매조회에 발행일이 없다 — 절대규칙 10).
             resolved.append({"settle_id": sid, "project": r.get("프로젝트NO"),
                              "status": st,
-                             "basis": "ERP 판매조회 진행상태(" + st[3:-1] + ")"})
+                             "basis": ("ERP 판매조회 프로젝트번호 직접 일치·동일 프로젝트 "
+                                       "전체 전표 진행상태(" + st[3:-1] + ")")})
             continue
+        project = str(r.get("프로젝트NO") or "").strip()
+        raw = set(raw_progress.get(project, ()))
+        if "7.수금완료" in raw and raw != {"7.수금완료"}:
+            # 원천이 사라졌다는 이유로 과거 완료를 지우지는 않는다. 현재 ERP에서 같은
+            # 프로젝트의 완료·미완료 전표가 **동시에** 보이는 명시적 충돌만 철회한다.
+            retracted.append(sid)
         if st in ("무상/보험", "정상"):
             continue
         rows.append({"정산ID": sid, "문제유형": st, "캠프명": r.get("캠프명"),
@@ -57,6 +66,14 @@ def settle_issues(master):
             print(f"  객관 입증 완료 {len(resolved)}건 → DB(resolution) 기록(엑셀 백필 없음)")
         except Exception as exc:                      # 기록 실패가 보고서 생성을 막지는 않는다
             print(f"  ! 완료 기록 실패: {exc}")
+    if retracted:
+        try:
+            import ledger_db
+            removed = ledger_db.resolution_retract(retracted)
+            if removed:
+                print(f"  명시적 ERP 상태 충돌 완료 {removed}건 → 정확한 정산ID로 철회")
+        except Exception as exc:
+            print(f"  ! 완료 철회 기록 실패: {exc}")
     return rows
 
 
