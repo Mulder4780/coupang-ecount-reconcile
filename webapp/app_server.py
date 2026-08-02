@@ -1852,6 +1852,11 @@ def demo_settlements():
 
 def real_settlements():
     from ecount_reconcile import read_ledger, load_config, settle_status, has_statement
+    try:
+        from ledger_db import resolutions
+        objective_done = resolutions()
+    except Exception:
+        objective_done = {}
     cfg = load_config()
     recs = read_ledger(cfg["reconcile"]["master_xlsx"])
     rows = []
@@ -1859,7 +1864,10 @@ def real_settlements():
         issued = r.get("원장_세금계산서실제발행일") or r.get("원장_세금계산서발행일")
         has_stmt = has_statement(r)
         # 판정은 ecount_reconcile.settle_status 한 곳에서만 한다 — 엑셀 산출물과 어긋나지 않게.
-        st = settle_status(r)
+        resolved = objective_done.get(sid) or {}
+        resolved_status = str(resolved.get("status") or "")
+        st = resolved_status if resolved_status.startswith("완료(") else settle_status(r)
+        issued_by_evidence = "계산서" in resolved_status and resolved_status.startswith("완료(")
         rows.append({"정산ID": sid, "업무구분": r.get("업무구분"), "캠프명": r.get("캠프명"),
                      "프로젝트NO": r.get("프로젝트NO"), "원천업무ID": r.get("원천업무ID"),
                      "공급가액": r.get("원장_공급가액") or 0, "합계": r.get("원장_합계") or 0,
@@ -1867,7 +1875,7 @@ def real_settlements():
                      "명세서": "있음" if has_stmt else "없음",
                      "명세서번호": r.get("원장_거래명세서번호") or "",
                      "명세서발행일": str(r.get("원장_거래명세서발행일") or "")[:10],
-                     "계산서": "발행" if issued else "미발행",
+                     "계산서": "발행(근거확인)" if issued_by_evidence else ("발행" if issued else "미발행"),
                      "계산서발행일": str(issued or "")[:10],
                      "승인번호": r.get("원장_세금계산서승인번호") or "",
                      "청구일": str(r.get("원장_청구일") or "")[:10],
@@ -1879,7 +1887,9 @@ def real_settlements():
                      "PO필요": r.get("원장_PO필요여부") or "",
                      "PO번호": r.get("원장_PO번호") or "",
                      "PO발행일": str(r.get("원장_PO발행일") or "")[:10],
-                     "상태": st, "완료일": str(r.get("작업완료일") or "")[:10]})
+                     "상태": st, "완료일": str(r.get("작업완료일") or "")[:10],
+                     "완료근거": resolved.get("basis") or "",
+                     "완료확인일": str(resolved.get("first_seen") or "")[:10]})
     return sort_by_date(app_year_rows(rows, "settle"), "settle", "정산ID")
 
 

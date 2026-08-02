@@ -4097,6 +4097,49 @@ def t96_work_management_tabs():
     print("  [96] 정밀 관리 탭 + 업무센터·입금 업로드(DB 큐·Z: 저장·즉시 대조·권한) ✅")
 
 
+def t97_settlement_source_completion():
+    """[97] 금액·계산서 대기는 독립 원자료가 정확히 맞는 건만 DB 완료 처리."""
+    import sys as _s
+    _s.path.insert(0, ROOT)
+    import settlement_completion as S
+
+    amount = {
+        "비용구분": "유상", "원천업무ID": "AS-1", "프로젝트NO": "UJ2600001",
+        "원장_공급가액": 0, "원장_거래명세서발행일": "2026-01-10",
+        "원장_거래명세서합계": 110000, "원장_PO번호": "PO123456/PR1",
+    }
+    invoice = {
+        "비용구분": "유상", "원천업무ID": "PM-1", "프로젝트NO": "UJ2600002",
+        "원장_공급가액": 100000, "원장_거래명세서발행일": "2026-01-11",
+        "원장_거래명세서합계": 110000,
+    }
+    quotes = [{"종류": "견적서", "프로젝트NO": "UJ2600001", "PO번호": "PO123456",
+               "금액": 110000, "파일": "q1.pdf"}]
+    invoices = {"UJ2600002": [{"slip": "2026/01/20-1", "amount": 100000,
+                                "verdict": "확정(밴드)"}]}
+    got = S.objective_entries({"JS-A": amount, "JS-I": invoice}, quotes, invoices)
+    assert {row["status"] for row in got} == {S.AMOUNT_STATUS, S.INVOICE_STATUS}, got
+    assert all("완료(" in row["status"] and row["basis"] for row in got)
+
+    # 프로젝트·PO·금액이 같아도 견적서가 둘이면 유일한 근거가 아니므로 완료하지 않는다.
+    duplicate = quotes + [{**quotes[0], "파일": "q2.pdf"}]
+    assert not S.objective_entries({"JS-A": amount}, duplicate, {}), "복수 견적 후보 완료"
+    mismatch = [{**quotes[0], "금액": 120000}]
+    assert not S.objective_entries({"JS-A": amount}, mismatch, {}), "금액 불일치 완료"
+
+    # ERP 수금확인처럼 이미 더 강한 완료가 있으면 이 모듈의 상태로 낮춰 쓰지 않는다.
+    stronger = {"JS-A": {"status": "완료(ERP 수금확인)"}}
+    assert not S.objective_entries({"JS-A": amount}, quotes, {}, stronger)
+
+    app = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    findings = open(os.path.join(ROOT, "findings_export.py"), encoding="utf-8").read()
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "objective_done = resolutions()" in app and 'resolved_status.startswith("완료(")' in app
+    assert "objective_done = ledger_db.resolutions()" in findings and "db_done" in findings
+    assert "settlement_completion.py" in daily and '"--sync"' in daily
+    print("  [97] 정산 금액·계산서 독립근거 완료 DB·앱·일일자동화 ✅")
+
+
 def t94_human_edit_guard():
     """[94] 사람이 관리대장을 열어 두면 **버전을 만들지도, 파일을 옮기지도 않는다.**
 
@@ -4811,6 +4854,7 @@ if __name__ == "__main__":
     t94_human_edit_guard()
     t95_objective_completion_db_only()
     t96_work_management_tabs()
+    t97_settlement_source_completion()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:

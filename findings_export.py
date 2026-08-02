@@ -34,6 +34,11 @@ def latest_csv(pat):
 
 def settle_issues(master):
     rows, resolved, retracted = [], [], []
+    try:
+        import ledger_db
+        objective_done = ledger_db.resolutions()
+    except Exception:
+        objective_done = {}
     prog_basis = None
     raw_progress = erp_progress_statuses()
     for sid, r in sorted(read_ledger(master).items()):
@@ -46,6 +51,10 @@ def settle_issues(master):
                              "status": st,
                              "basis": ("ERP 판매조회 프로젝트번호 직접 일치·동일 프로젝트 "
                                        "전체 전표 진행상태(" + st[3:-1] + ")")})
+            continue
+        db_done = objective_done.get(sid) or {}
+        if str(db_done.get("status") or "").startswith("완료("):
+            # Excel 수식·발행일은 그대로 두되 객관근거 완료 DB가 조치 목록의 정본이다.
             continue
         project = str(r.get("프로젝트NO") or "").strip()
         raw = set(raw_progress.get(project, ()))
