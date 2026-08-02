@@ -202,6 +202,69 @@ def fix_cumulative_counters(xml):
     return "".join(out), len(edits)
 
 
+def fix_completed_as_selector(xml):
+    """03시트 B열의 '완료된 돌발AS 자동 선택' 수식 사슬을 정상화한다.
+
+    정상 수식은 현재 행의 바로 윗행까지 ``COUNTIF($B$4:$B{row-1}, ...)``로
+    세어 이미 가져온 접수ID를 제외한다. 과거 행 확장 버그는 새 299행 모두를
+    B201에 고정했고, B203에는 02시트의 접수ID 채번 수식이 잘못 들어가 B203이
+    자기 자신을 참조하는 순환참조까지 만들었다.
+
+    기존 확정값은 건드리지 않는다. 정상 선택 수식이 시작된 뒤의 B열 *수식*
+    중 선택 수식과 명백한 잘못된 자기참조 AS 채번 수식만 복구한다.
+    """
+    cells = parse_cells(xml)
+    selectors = [
+        cell for cell in cells
+        if cell[1] == "B"
+        and "INDEX('02_돌발AS접수'!$A$5:" in cell[2]
+        and "COUNTIF($B$4:" in cell[2]
+    ]
+    if not selectors:
+        return xml, 0
+
+    # 정상 행들에서 가장 흔한 상대참조 본을 고른다. templates()는 오프셋이
+    # -1..0인 정상 후보만 쓰므로 B201에 굳은 뒤쪽 행은 본으로 뽑히지 않는다.
+    tmpl = templates(selectors).get("B")
+    if not tmpl:
+        return xml, 0
+    first = min(cell[0] for cell in selectors)
+    edits = []
+    for rn, col, formula, start, end in cells:
+        if col != "B" or rn < first:
+            continue
+        is_selector = (
+            "INDEX('02_돌발AS접수'!$A$5:" in formula
+            and "COUNTIF($B$4:" in formula
+        )
+        is_bad_self_id = (
+            '"AS-"&TEXT' in formula
+            and re.search(rf"(?<![A-Z0-9_])\$?B\$?{rn}(?!\d)", formula, re.I)
+        )
+        if not (is_selector or is_bad_self_id):
+            continue
+        corrected = instantiate(tmpl, rn)
+        if corrected != formula:
+            edits.append((start, end, corrected))
+    if not edits:
+        return xml, 0
+
+    out, last = [], 0
+    for start, end, formula in sorted(edits):
+        chunk = xml[start:end]
+        fixed = re.sub(
+            r"(<f(?:\s[^>]*)?>)(.*?)(</f>)",
+            lambda m: m.group(1) + esc(formula) + m.group(3),
+            chunk, count=1, flags=re.S,
+        )
+        fixed = re.sub(r"<v[^>]*>.*?</v>|<v\s*/>", "<v/>", fixed, count=1, flags=re.S)
+        out.append(xml[last:start])
+        out.append(fixed)
+        last = end
+    out.append(xml[last:])
+    return "".join(out), len(edits)
+
+
 def blank_value(ctag, cinner, sst):
     """수식 없이 **빈 문자열로 굳어 있는** 셀인가.
 
@@ -490,20 +553,22 @@ def main():
         if oe and oe < ends[name]:
             print(f"  {name}: 실제 {ends[name]} / 수식 {oe}  ← {ends[name]-oe}행이 집계에서 빠짐")
 
-    patched, nfix, ncounter, nwide, nmiss, nowned, ntext = {}, 0, 0, 0, 0, 0, 0
+    patched, nfix, ncounter, nselector, nwide, nmiss, nowned, ntext = {}, 0, 0, 0, 0, 0, 0, 0
     miss_by = {}
     for name, path in smap.items():
         x = raw[name]
         y, k = fix_sheet(x)
         y, counter = fix_cumulative_counters(y)
+        y, selector = fix_completed_as_selector(y) if name == "03_현장작업실적" else (y, 0)
         y, w = widen(y, ends, name, old_ends.get(name))
         y, owned = restore_owned_formulas(y, FORMULA_OWNED.get(name, ()), sst=sst)
         y, mm = (y, 0) if name in FILL_MISSING_EXCLUDE else fill_missing(y, sst=sst)
         y, nt = normalize_known_text(y)
-        if k or counter or w or mm or owned or nt:
+        if k or counter or selector or w or mm or owned or nt:
             patched[path] = y.encode("utf-8")
             nfix += k
             ncounter += counter
+            nselector += selector
             nwide += w
             nmiss += mm
             nowned += owned
@@ -517,6 +582,7 @@ def main():
             ntext += nt
     z.close()
     print(f"\n깨진 수식 복구 {nfix}개 · 누적번호 수식 정렬 {ncounter}개 · "
+          f"AS 자동선택 사슬 복구 {nselector}개 · "
           f"범위 확장 {nwide}곳 · 빠진 수식 채움 {nmiss}개 · "
           f"정적 상태 수식화 {nowned}개 · 기사명 정규화 {ntext}개 "
           f"(시트 {len(patched)}개)")

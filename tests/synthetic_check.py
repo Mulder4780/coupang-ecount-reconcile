@@ -782,6 +782,29 @@ def t23_formulas():
                'IF($B130="","",COUNT($AO$4:AO153)+1)</f><v>1</v></c></row>')
     counter_out, counter_n = F.fix_cumulative_counters(counter)
     assert counter_n == 1 and 'COUNT($AO$4:AO129)' in counter_out, counter_out
+    # 03시트 자동선택 사슬: 잘못 들어간 AS 채번 자기참조와 확장 뒤 굳은
+    # COUNTIF 끝행을 한꺼번에 바로잡아야 한다.
+    selector = (
+        "IFERROR(INDEX('02_돌발AS접수'!$A$5:$A$741,MATCH(1,"
+        "('02_돌발AS접수'!$A$5:$A$741&lt;&gt;\"\")*"
+        "('02_돌발AS접수'!$Q$5:$Q$741=\"작업완료\")*"
+        "('02_돌발AS접수'!$R$5:$R$741&lt;&gt;\"\")*"
+        "(COUNTIF($B$4:$B201,'02_돌발AS접수'!$A$5:$A$741)=0),0)),\"\")"
+    )
+    selector_xml = (
+        '<sheetData>'
+        f'<row r="202"><c r="B202"><f>{selector}</f><v/></c></row>'
+        '<row r="203"><c r="B203"><f>IF($B203="","","AS-"&amp;TEXT($D203,"yymm"))</f>'
+        '<v>AS-2607-468</v></c></row>'
+        f'<row r="204"><c r="B204"><f>{selector}</f><v/></c></row>'
+        '</sheetData>'
+    )
+    selector_out, selector_n = F.fix_completed_as_selector(selector_xml)
+    assert selector_n == 2, selector_n
+    assert 'COUNTIF($B$4:$B202' in selector_out, selector_out
+    assert 'COUNTIF($B$4:$B203' in selector_out, selector_out
+    assert 'AS-2607-468' not in selector_out, selector_out
+    assert not F.direct_self_refs(selector_out), F.direct_self_refs(selector_out)
     # 일반 수식열에서도 사람이 확정한 inlineStr 값은 <v>가 없다는 이유로 덮으면 안 된다.
     mixed = ('<sheetData>'
              '<row r="5"><c r="H5"><f>IF($B5="","",1)</f><v>1</v></c>'
@@ -846,6 +869,10 @@ def t25_attachments():
     assert E.bump("V5:V31 V33:V474", 474, 500) == "V5:V31 V33:V500"
     assert E.bump("V31", 31, 60) == "V31", "단일 셀은 범위가 아니다"
     assert E.bump("A5:AG104", 104, 164) == "A5:AG164"
+    # (3) 마지막 행을 본떠 확장할 때 자기행뿐 아니라 '바로 윗행까지'인
+    # 상대참조도 함께 이동해야 한다. 고정되면 모든 새 행이 같은 ID를 고른다.
+    copied = E.shift_formula('IF($B202="","",COUNTIF($B$4:$B201,1))', 202, 205)
+    assert '$B205' in copied and '$B204' in copied and '$B$4' in copied, copied
     print("  [25] 행 부속물(하이퍼링크 이동·범위 끝행만 확장) ✅")
 
 

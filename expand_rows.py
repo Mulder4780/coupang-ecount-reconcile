@@ -66,12 +66,20 @@ def iter_tags(xml, name):
 
 # ── 수식 행 이동 ─────────────────────────────────────────────────────
 def shift_formula(f, src, dst):
-    """상대참조 행번호만 옮긴다. $6 처럼 절대행은 그대로 둔다."""
+    """엑셀의 행 복사와 같이 모든 상대참조를 ``dst-src``만큼 옮긴다.
+
+    자기 행만 옮기면 ``COUNTIF($B$4:$B201, ...)``처럼 바로 윗행까지 보는
+    누적 선택 수식이 확장된 모든 행에서 B201에 고정된다. 그 결과 새 행들이
+    같은 접수ID를 반복 선택한다. 절대행(``$6``)만 그대로 두고 상대행은 전부
+    이동해야 한다.
+    """
+    delta = dst - src
+
     def rep(m):
         col, dollar, row = m.group(1), m.group(2), int(m.group(3))
-        if dollar or row != src:
+        if dollar:
             return m.group(0)
-        return f"{col}{dst}"
+        return f"{col}{row + delta}"
     return re.sub(r"(\$?[A-Z]{1,3})(\$?)(\d+)", rep, f)
 
 
