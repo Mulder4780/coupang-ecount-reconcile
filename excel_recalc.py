@@ -179,7 +179,10 @@ try {
   # UpdateLinks:0 = 외부 링크를 갱신하지 않는다(네트워크 대기·실패로 멈추는 것을 막는다)
   $wb = $x.Workbooks.Open($src, 0, $false)
   $x.CalculateFullRebuild()      # 수식 전체 재구축 — 캐시값이 이때 생긴다
-  $wb.SaveAs($dst, 51)           # 51 = xlOpenXMLWorkbook(.xlsx). 원본은 그대로 둔다.
+  # SaveAs는 이 워크북에서 "Workbook 클래스 중 SaveAs 속성을 구할 수 없습니다"로
+  # 실패했다(2026-08-02 v353). 형식은 이미 xlsx이므로 현재 계산 상태를 그대로
+  # 복제하는 SaveCopyAs가 더 안전하고, 열린 원본의 이름·저장 위치도 바꾸지 않는다.
+  $wb.SaveCopyAs($dst)
   "OK"
 }
 catch { "ERR " + $_.Exception.Message }
@@ -349,7 +352,7 @@ def self_test():
             print(f"  [FAIL] decide {pend} {editing} {has_excel} → {got}/{why}"); bad += 1
     # PowerShell 은 반드시 닫는 절차를 갖고 있어야 한다(좀비 EXCEL.EXE 방지)
     for token in ("finally", "$wb.Close($false)", "$x.Quit()", "DisplayAlerts = $false",
-                  "$x.Visible = $false", "CalculateFullRebuild"):
+                  "$x.Visible = $false", "CalculateFullRebuild", "SaveCopyAs"):
         if token not in PS_RECALC:
             print(f"  [FAIL] PS 스크립트에 {token} 없음"); bad += 1
     print("excel_recalc self-test:", "OK" if not bad else f"{bad}건 실패")
