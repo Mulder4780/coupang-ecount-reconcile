@@ -4246,7 +4246,11 @@ def t98_remote_control_tracking():
                 bad(); raise AssertionError("리모컨 규칙이 뚫렸다")
             except ValueError:
                 pass
-        L.remote_request("시화", "김기사", 1, "안은숙")     # 2+1=3 — 허용
+        # 공지(2026-08-04): 불출 일자·투입 예정 캠프명이 불출 기록에 남는다
+        L.remote_request("시화", "김기사", 1, "안은숙",
+                         issued_on="2026-08-02", camp="시화3캠프")  # 2+1=3 — 허용
+        top = L.remote_status()["issues"][0]
+        assert (top["issued_on"], top["camp"]) == ("2026-08-02", "시화3캠프"), top
         L.remote_deliver("김기사", "UJ2600001", "부산2캠프", 2, "2026-08-03")
         hold = L.remote_status()["holdings"]["김기사"]
         assert hold == {"issued": 3, "delivered": 2, "holding": 1}, hold

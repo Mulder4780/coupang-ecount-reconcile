@@ -1884,6 +1884,7 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 	        <label><input type="checkbox"> 신규 돌발AS 접수와 처리상태 확인</label>
 	        <label><input type="checkbox"> 정기점검 예정·실행·미실시 사유 입력</label>
 	        <label><input type="checkbox"> 카카오톡 원본과 첨부 근거 업로드</label>
+	        <label><input type="checkbox"> 리모컨 재고·불출·납품 공유분 취합 확인</label>
 	      </div>
 	      <div class="actions" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-top:4px">
 	        <button class="abtn primary" type="button" onclick="shareStaffCenter()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-up-right"/></svg>링크 보내기</button>
@@ -2416,9 +2417,9 @@ const APP_YEAR = '2026';
 let settleRows = [], reports = [], curReport = 0, polling = null;
 const STAFF_CENTERS = {
   'ryu-jiyeong':{name:'류지영',title:'류지영 쿠팡 AS 및 정기점검 업무센터',assignee:'류지영',
-    checklist:['신규 돌발AS 접수와 처리상태 확인','정기점검 예정·실행·미실시 사유 입력','카카오톡 정기점검방·돌발점검방 원본 업로드','택배 발송·현장 조치 완료일과 근거 첨부','거래명세서·세금계산서 발행 확인','입금일·입금액·잔여 미수금 확인','ERP 금액 불일치와 청구 미등록 보완']},
+    checklist:['신규 돌발AS 접수와 처리상태 확인','정기점검 예정·실행·미실시 사유 입력','카카오톡 정기점검방·돌발점검방 원본 업로드','택배 발송·현장 조치 완료일과 근거 첨부','거래명세서·세금계산서 발행 확인','입금일·입금액·잔여 미수금 확인','ERP 금액 불일치와 청구 미등록 보완','리모컨 재고(실물 기준)·불출·납품 공유분 취합 확인']},
   'oh-jonghyeon':{name:'오종현',title:'오종현 업무센터',assignee:'오종현',
-    checklist:['PO 원본·견적서 수신 여부 확인','구매·입금 원천자료 누락 확인','프로젝트번호·캠프·금액 불일치 보완']},
+    checklist:['PO 원본·견적서 수신 여부 확인','구매·입금 원천자료 누락 확인','프로젝트번호·캠프·금액 불일치 보완','리모컨 불출·납품 기록 확인(부산 실물 재고 기준)']},
 };
 const staffSlug=(()=>{
   const m=location.pathname.match(/^\/staff\/([a-z0-9-]+)\/?$/);
@@ -3538,11 +3539,13 @@ async function renderRemoteCard(hostId){
   const holds=Object.entries(s.holdings||{});
   const holdRows=holds.length?holds.map(([t,h])=>`<tr><td>${esc2(t)}</td><td>${h.issued}</td><td>${h.delivered}</td><td><b>${h.holding}</b></td></tr>`).join(''):'<tr><td colspan="4">불출 이력이 아직 없습니다</td></tr>';
   const dels=(s.deliveries||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.delivered_on)}</td><td>${esc2(r.technician)}</td><td>${esc2(r.project||'')} ${esc2(r.camp||'')}</td><td>${r.qty}</td></tr>`).join('');
+  const iss=(s.issues||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.issued_on||String(r.requested_at||'').slice(0,10))}</td><td>${esc2(r.branch)}</td><td>${esc2(r.technician)}</td><td>${esc2(r.camp||'-')}</td><td>${r.qty}</td></tr>`).join('');
   const bs=s.branch_stock||{};
   const stockRows=Object.keys(s.branches||{}).map(b=>{const v=bs[b]||{};
     return `<tr><td>${esc2(v.label||b)}</td><td>${esc2((s.branches||{})[b]||'')}</td><td>${v.tracked?v.in:'-'}</td><td>${v.tracked?v.issued:'-'}</td><td><b>${v.tracked?v.stock+'개':'미등록'}</b></td></tr>`;}).join('');
   host.innerHTML=`
-    <p class="remote-rule">불출 담당 — ${Object.entries(s.branches||{}).map(([b,n])=>`${esc2((bs[b]||{}).label||b)}: ${esc2(n)}`).join(' · ')} · AS 담당자당 한도 ${s.limit}개 · 불출 시 지점 재고 자동 차감</p>
+    <p class="remote-rule">불출 담당 — ${Object.entries(s.branches||{}).map(([b,n])=>`${esc2((bs[b]||{}).label||b)}: ${esc2(n)}`).join(' · ')} · AS 담당자당 한도 ${s.limit}개(기존 보유 포함) · 불출 시 지점 재고 자동 차감</p>
+    <p class="remote-rule">공지(2026-08-04) — 재고는 장부가 아니라 <b>실물 수량</b> 기준 실사 · 불출은 일자·기사·수량·투입 캠프까지 즉시 기록 · 재고·불출·납품은 류지영 매니저가 최종 취합</p>
     <table class="remote-mini"><tr><th>지점</th><th>담당</th><th>입고</th><th>불출</th><th>현재 재고</th></tr>${stockRows}</table>
     <table class="remote-mini"><tr><th>AS 담당자</th><th>불출</th><th>납품</th><th>보유</th></tr>${holdRows}</table>
     <div class="remote-grid2">
@@ -3561,7 +3564,11 @@ async function renderRemoteCard(hostId){
           <input id="${hostId}Qty" type="number" inputmode="numeric" min="1" max="${s.limit}" value="1" aria-label="수량">
         </div>
         <input id="${hostId}Tech" placeholder="AS 담당자 이름" autocomplete="off">
-        <input id="${hostId}Note" placeholder="비고 (선택)" autocomplete="off">
+        <div class="remote-row2">
+          <input id="${hostId}Camp" placeholder="투입 예정 캠프명" autocomplete="off">
+          <input id="${hostId}IDay" type="date" value="${new Date().toISOString().slice(0,10)}" aria-label="불출일">
+        </div>
+        <input id="${hostId}Note" placeholder="기타 특이사항 (선택)" autocomplete="off">
         <button class="abtn primary" onclick="remoteRequest('${hostId}')">불출 저장</button>
       </fieldset>
       <fieldset><legend>납품 기록 · 프로젝트/캠프 추적</legend>
@@ -3575,13 +3582,15 @@ async function renderRemoteCard(hostId){
         <button class="abtn primary" onclick="remoteDeliver('${hostId}')">납품 저장</button>
       </fieldset>
     </div>
+    ${iss?`<h4>최근 불출</h4><table class="remote-mini"><tr><th>불출일</th><th>지점</th><th>AS 담당자</th><th>투입 캠프</th><th>수량</th></tr>${iss}</table>`:''}
     ${dels?`<h4>최근 납품</h4><table class="remote-mini"><tr><th>납품일</th><th>담당자</th><th>납품처</th><th>수량</th></tr>${dels}</table>`:''}`;
 }
 async function remoteRequest(hostId){
   const v=id=>($(hostId+id)||{}).value||'';
   try{
     const r=await api('/api/remote/request',{method:'POST',body:JSON.stringify({
-      branch:v('Br'),technician:v('Tech').trim(),qty:+v('Qty'),note:v('Note')})});
+      branch:v('Br'),technician:v('Tech').trim(),qty:+v('Qty'),note:v('Note'),
+      camp:v('Camp').trim(),issued_on:v('IDay')})});
     if(!r.ok) throw new Error(r.error||'실패');
     alert('불출 기록 저장 완료');
   }catch(e){ alert('불출 기록 실패: '+e.message); }

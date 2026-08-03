@@ -4298,9 +4298,11 @@ self.addEventListener('fetch', e => {
                         body.get("mode") or "add", body.get("note") or "", who)
                     return self._send(200, {"ok": True, "stock": after})
                 if p == "/api/remote/request":
+                    # 공지(2026-08-04): 불출 일자·투입 예정 캠프명까지 기록한다
                     rid = ledger_db.remote_request(
                         body.get("branch"), body.get("technician"), body.get("qty"),
-                        who, body.get("note") or "")
+                        who, body.get("note") or "",
+                        body.get("issued_on") or "", body.get("camp") or "")
                     return self._send(200, {"ok": True, "id": rid, "status": "불출완료"})
                 rid = ledger_db.remote_deliver(
                     body.get("technician"), body.get("project") or "",

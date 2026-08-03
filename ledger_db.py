@@ -147,7 +147,9 @@ CREATE TABLE IF NOT EXISTS remote_issue(     -- 리모컨 불출 (2026-08-03 지
   requested_at TEXT NOT NULL,
   approved_by TEXT,                          -- 부사장 승인자
   approved_at TEXT,
-  note TEXT
+  note TEXT,
+  issued_on TEXT,                            -- 불출 일자(공지 2026-08-04 — 입력일과 다를 수 있다)
+  camp TEXT                                  -- 투입 예정 캠프명(공지 2026-08-04)
 );
 CREATE TABLE IF NOT EXISTS remote_delivery(  -- 리모컨 납품 — 어느 프로젝트/캠프에 들어갔나
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -197,6 +199,15 @@ def conn():
             except sqlite3.OperationalError as exc:
                 if "duplicate column" not in str(exc).lower():
                     raise
+        # 리모컨 공지(2026-08-04): 불출 일자·투입 예정 캠프명을 불출 기록에 남긴다.
+        ri_cols = {row[1] for row in c.execute("PRAGMA table_info(remote_issue)").fetchall()}
+        for col in ("issued_on", "camp"):
+            if col not in ri_cols:
+                try:
+                    c.execute(f"ALTER TABLE remote_issue ADD COLUMN {col} TEXT")
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc).lower():
+                        raise
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_pending_ingest"
                   " ON pending(ingest_key) WHERE ingest_key IS NOT NULL")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_batch_done_slot"
@@ -634,11 +645,14 @@ def remote_stock_adjust(branch, qty, mode="add", reason="", created_by=""):
         return after
 
 
-def remote_request(branch, technician, qty, requested_by, note=""):
+def remote_request(branch, technician, qty, requested_by, note="",
+                   issued_on="", camp=""):
     """리모컨 불출을 즉시 기록한다(2026-08-03 지시 — 승인 단계 없음).
 
     한도: 보유 + 이번 수량이 담당자당 3개를 넘으면 거절한다.
     지점 재고를 등록해 둔 지점은 재고보다 많이 불출할 수 없다(재고 자동 차감).
+    공지(2026-08-04): 불출 일자·투입 예정 캠프명도 함께 남긴다 — 류지영 매니저
+    최종 취합의 원본이 이 표다.
     """
     branch = str(branch or "").strip()
     technician = str(technician or "").strip()
@@ -661,11 +675,14 @@ def remote_request(branch, technician, qty, requested_by, note=""):
             raise ValueError(
                 f"{stock['label']} 재고 {stock['stock']}개 — {qty}개를 불출할 수 없습니다. "
                 f"재고 등록(입고)을 먼저 하세요")
+        day = str(issued_on or now[:10])[:10]
         cur = c.execute(
             "INSERT INTO remote_issue(branch,issuer,technician,qty,status,"
-            "requested_by,requested_at,note) VALUES(?,?,?,?,?,?,?,?)",
+            "requested_by,requested_at,note,issued_on,camp)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?)",
             (branch, REMOTE_BRANCH_ISSUERS[branch], technician, qty, "불출완료",
-             str(requested_by or ""), now, str(note or "")))
+             str(requested_by or ""), now, str(note or ""), day,
+             str(camp or "").strip()))
         return cur.lastrowid
 
 
@@ -700,9 +717,10 @@ def remote_status(limit=60):
         holdings = _remote_holdings(c)
         branch_stock = _remote_branch_stock(c)
         issues = [dict(zip(("id", "branch", "issuer", "technician", "qty", "status",
-                            "requested_at"), row))
+                            "requested_at", "issued_on", "camp"), row))
                   for row in c.execute(
-                      "SELECT id,branch,issuer,technician,qty,status,requested_at"
+                      "SELECT id,branch,issuer,technician,qty,status,requested_at,"
+                      "issued_on,camp"
                       " FROM remote_issue ORDER BY id DESC LIMIT ?", (int(limit),))]
         deliveries = [dict(zip(("id", "technician", "project", "camp", "qty",
                                 "delivered_on", "note"), row))
