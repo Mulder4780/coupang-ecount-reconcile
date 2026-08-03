@@ -3529,7 +3529,23 @@ def _compute_status():
         # 3원천 검증 실집계 (최신 대조 CSV) — 보고서·대시보드가 하드코딩 없이 실데이터를 쓰도록
         srcs = {}
         try:
+            from findings_export import REPORT_DIR as _report_dir
             from findings_export import latest_csv
+
+            def _src_meta(pat):
+                """대조 CSV 파일명(…_YYYYMMDD_HHMM)에서 기간·대조시각을 뽑는다(2026-08-03 지시).
+
+                대상 기간은 앱 연도 1/1부터 대조 실행일까지 — 4원천 숫자가 '언제 자료 기준'
+                인지 보고서만 봐도 알 수 있게 한다."""
+                fs = sorted(glob.glob(os.path.join(_report_dir, pat)))
+                m = re.search(r"(\d{8})_(\d{4})", os.path.basename(fs[-1])) if fs else None
+                if not m:
+                    return {}
+                day, tm = m.groups()
+                iso = f"{day[:4]}-{day[4:6]}-{day[6:]}"
+                return {"period": f"{APP_YEAR}-01-01 ~ {iso}",
+                        "asof": f"{iso} {tm[:2]}:{tm[2:]} 대조"}
+
             for key, pat, col, okv in (("band", "밴드대조_*.csv", "밴드게시", "확인"),
                                        ("kakao", "카톡대조_*.csv", "카톡보고", "확인")):
                 rows = app_year_rows(latest_csv(pat), "issue")
@@ -3537,15 +3553,18 @@ def _compute_status():
                     ok = sum(1 for r in rows if r.get(col) == okv)
                     miss = [r for r in rows if r.get(col) != okv]
                     srcs[key] = {"total": len(rows), "ok": ok, "miss": len(miss),
-                                 "miss_prj": [r.get("프로젝트NO") or r.get("ID") for r in miss[:8]]}
+                                 "miss_prj": [r.get("프로젝트NO") or r.get("ID") for r in miss[:8]],
+                                 **_src_meta(pat)}
             erp = app_year_rows(latest_csv("ERP원장대조_*.csv"), "issue")
             if erp:
                 srcs["erp"] = {"total": len(erp), "ok": 0, "miss": len(erp),
-                               "miss_prj": [r.get("정산ID") or r.get("전표") for r in erp[:8]]}
+                               "miss_prj": [r.get("정산ID") or r.get("전표") for r in erp[:8]],
+                               **_src_meta("ERP원장대조_*.csv")}
             po = app_year_rows(latest_csv("PO대조_*.csv"), "issue")
             if po:
                 srcs["po"] = {"total": len(po), "ok": 0, "miss": len(po),
-                              "miss_prj": [r.get("PO번호") or r.get("정산ID") for r in po[:8]]}
+                              "miss_prj": [r.get("PO번호") or r.get("정산ID") for r in po[:8]],
+                              **_src_meta("PO대조_*.csv")}
         except Exception:
             pass
 

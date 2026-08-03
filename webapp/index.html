@@ -5920,8 +5920,9 @@ function bundleHtml(y){
 function srcRow(label, s, emptyMsg){
   if(!s || !s.total) return `<tr><td class="hd">${label}</td><td data-l="결과" colspan="2" style="color:#98A2B3">${emptyMsg}</td></tr>`;
   const pct = Math.round(s.ok/s.total*100);
-  const res = s.ok ? `대상 ${s.total}건 중 <b>${s.ok}건 확인(${pct}%)</b> · 미확인 ${s.miss}건`
-                   : `검출 ${s.total}건 — 확인필요`;
+  const when = s.period ? `<div style="color:#98A2B3;font-size:.86em">기간 ${esc2(s.period)}${s.asof?` · ${esc2(s.asof)}`:''}</div>` : '';
+  const res = (s.ok ? `대상 ${s.total}건 중 <b>${s.ok}건 확인(${pct}%)</b> · 미확인 ${s.miss}건`
+                   : `검출 ${s.total}건 — 확인필요`) + when;
   return `<tr><td class="hd">${label}</td><td data-l="결과">${res}</td>
     <td class="prjs" data-l="미확인 프로젝트NO"><div class="chips">${
       (s.miss_prj||[]).filter(Boolean).map(k=>
@@ -6059,9 +6060,10 @@ function renderDaily(){
   const srcRows = [], srcDetails = [];
   const addSrc = (label,s,empty)=>{
     const hasData = !!(s&&s.total);
-    const result = !hasData ? empty : s.ok
+    const when = hasData&&s.period ? ` · 기간 ${s.period}${s.asof?` (${s.asof})`:''}` : '';
+    const result = (!hasData ? empty : s.ok
       ? `대상 ${s.total}건 중 ${s.ok}건 확인(${Math.round(s.ok/s.total*100)}%) · 미확인 ${s.miss}건`
-      : `검출 ${s.total}건 — 확인필요`;
+      : `검출 ${s.total}건 — 확인필요`) + when;
     const missProjects = hasData ? (s.miss_prj||[]).filter(Boolean) : [];
     srcRows.push([label, result, missProjects.join(', ')||'-']);
     srcDetails.push({label, result, missProjects, empty:!hasData});
