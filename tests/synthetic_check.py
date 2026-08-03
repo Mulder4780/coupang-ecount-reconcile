@@ -4135,6 +4135,17 @@ def t97_settlement_source_completion():
     # 프로젝트 견적이 서로 다른 두 금액이면 무엇이 정본인지 데이터로 못 정한다 — 완료 금지.
     two_totals = mismatch + [{**quotes[0], "금액": 990000, "파일": "q3.pdf"}]
     assert not S.objective_entries({"JS-A": amount}, two_totals, {}), "금액 둘인데 완료"
+    # ERP 검증(2026-08-03): ERP 전표가 견적과도 다르면 두 원천 충돌 — 자동 완료 금지.
+    erp_clash = {"UJ2600001": [{"date": "2026-02-01", "po": "", "status": "3.오더처리",
+                                "supply": 999000, "total": 1098900}]}
+    assert not S.objective_entries({"JS-A": amount}, mismatch, {}, None, erp_clash), \
+        "ERP·견적 충돌인데 견적단독 완료"
+    erp_agree = {"UJ2600001": [{"date": "2026-02-01", "po": "", "status": "3.오더처리",
+                                 "supply": 120000, "total": 132000}]}
+    got = S.objective_entries({"JS-A": amount}, mismatch, {}, None, erp_agree)
+    assert [r["status"] for r in got] == [S.QUOTE_ONLY_STATUS], got   # ERP가 견적을 지지
+    s_src = open(os.path.join(ROOT, "settlement_completion.py"), encoding="utf-8").read()
+    assert "resolution_retract" in s_src, "충돌 재검출 시 견적단독 완료 철회가 없다"
 
     # 견적서가 없어도 같은 프로젝트 ERP 판매전표 금액이 유일하게 일치하면 완료한다.
     erp_one = {"UJ2600001": [{"date": "2026-01-15", "po": "PO123456",

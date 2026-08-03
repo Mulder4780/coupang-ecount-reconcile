@@ -6683,7 +6683,9 @@ function openCheckRows(title, rows, basis){
 }
 function openCheckType(type){
   const rows=checkRows().filter(r=>checkTypeOf(r)===type);
-  openCheckRows(type,rows,`${APP_YEAR}년 확인필요 원장 중 문제유형이 “${type}”인 건`);
+  const desc=checkTypeDesc(type);
+  openCheckRows(type,rows,desc?`${desc} — ${APP_YEAR}년 확인필요 ${rows.length}건`
+    :`${APP_YEAR}년 확인필요 원장 중 문제유형이 “${type}”인 건`);
 }
 function openCheckOwner(owner){
   const rows=checkRows().filter(r=>checkOwnerOf(r)===owner);
@@ -6777,6 +6779,19 @@ function renderCheckList(){
     </div>`;
   }).join('')||'<div class="card">조건에 맞는 확인 항목이 없습니다 🎉</div>';
 }
+/* 확인필요 유형 코드 설명(2026-08-03 지시) — 'ERP B'·'PO A'가 무엇인지 화면에서 바로.
+   키(코드)는 담당자 확정 매핑이 걸려 있어 바꾸지 않고 설명만 덧붙인다. */
+const CHECK_TYPE_DESC = {
+  'ERP A':'ERP에만 있는 전표 — 관리대장(원장)에 미등록',
+  'ERP B':'원장에만 있음 — ERP에서 전표를 못 찾음',
+  'ERP C':'회계반영은 됐는데 세금계산서 미발행',
+  'ERP D':'ERP 금액과 원장 금액이 다름',
+  'PO A':'쿠팡 PO를 받았는데 원장에 미등록',
+  'PO B':'원장 PO번호가 쿠팡 목록에 없음 — 번호 오기입 의심',
+  'PO C':'쿠팡 PO 금액과 원장 금액이 다름',
+  'PO D':'미연결 PO와 정산의 금액 매칭 후보',
+};
+function checkTypeDesc(t){ return CHECK_TYPE_DESC[String(t||'').trim()]||''; }
 function renderCheckHub(){
   if(!$('checkkpis')) return;
   const rows=checkRows(), byType=groupCheck(rows,checkTypeOf), byOwner=groupCheck(rows,checkOwnerOf);
@@ -6801,8 +6816,9 @@ function renderCheckHub(){
       <div class="v">${statementMissing}</div><div class="l">명세서 미발행</div><div class="s">유상 발행대상 기준</div></div>`;
   $('checktypes').innerHTML=checkSortGroups(byType).map(t=>{
     const list=byType[t], ownersN=new Set(list.map(checkOwnerOf)).size;
+    const desc=checkTypeDesc(t);
     return `<button class="check-group" onclick="openCheckType(${esc4(t)})">
-      <span><span class="name">${esc2(t)}</span><span class="hint">담당 ${ownersN}명 · 목록/전달 이미지</span></span>
+      <span><span class="name">${esc2(t)}</span>${desc?`<span class="hint" style="color:var(--ink-2)">${esc2(desc)}</span>`:''}<span class="hint">담당 ${ownersN}명 · 목록/전달 이미지</span></span>
       <span class="count">${list.length}건</span></button>`;
   }).join('')||'<div style="color:var(--ink-3)">확인할 항목이 없습니다 🎉</div>';
   const confirmedNames=new Set(CHECK_OWNER_RULES.map(p=>p.name));

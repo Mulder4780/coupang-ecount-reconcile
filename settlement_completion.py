@@ -276,6 +276,15 @@ def objective_entries(records, quotes, invoices, existing=None, erp_sales=None):
             own = quotes_by_project.get(project) or {}
             if len(own) == 1:
                 quote_total, quote = next(iter(own.items()))
+                # ★ ERP 검증(2026-08-03 지시): ERP 전표가 이 프로젝트에 있고 금액이
+                #   견적과도 다르면 두 원천이 서로 충돌 — 자동 완료하지 않고 확인
+                #   작업(quote_mismatch 'ERP·견적 충돌')으로 넘긴다.
+                erp_amounts = {slip.get("supply") for slip in erp_sales.get(project, [])}
+                erp_amounts |= {slip.get("total") for slip in erp_sales.get(project, [])}
+                erp_amounts.discard(0)
+                erp_amounts.discard(None)
+                if erp_amounts and quote_total not in erp_amounts:
+                    continue
                 diff = ("일치" if quote_total == total
                         else f"원장 명세합계 {total:,}원과 불일치 — 교차 입력 의심, 견적이 정본")
                 entries.append({
@@ -345,8 +354,19 @@ def main(argv=None):
     existing = ledger_db.resolutions()
     quotes = dedup_quote_rows()
     invoices = confirmed_invoice_index(master)
-    entries = objective_entries(records, quotes, invoices, existing, erp_sales_index())
+    erp_sales = erp_sales_index()
+    entries = objective_entries(records, quotes, invoices, existing, erp_sales)
     synced = ledger_db.resolution_sync(entries) if args.sync else 0
+    # ERP 검증(2026-08-03 지시): 견적 단독 완료였는데 지금 원본 기준으로 ERP 전표와
+    # 충돌해 후보에서 빠진 건은 정확한 ID로 철회한다 — 확인 작업(quote_mismatch)으로
+    # 넘어간다. 원본이 안 읽히는 날(빈 quotes/erp)은 과거 근거를 보존한다.
+    if args.sync and quotes and erp_sales:
+        valid = {e["settle_id"] for e in entries if e.get("evidence_kind") == "quote_only"}
+        stale = [sid for sid, row in (existing or {}).items()
+                 if str(row.get("status") or "") == QUOTE_ONLY_STATUS and sid not in valid]
+        if stale:
+            removed = ledger_db.resolution_retract(stale)
+            print(f"  ERP·견적 충돌 재검출 — 견적단독 완료 {removed}건 철회(확인 작업으로)")
     payload = write_report(master, entries, synced)
     print(
         f"정산 객관완료 후보 {payload['eligible']}건 "
