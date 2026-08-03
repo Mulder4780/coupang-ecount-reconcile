@@ -4279,7 +4279,30 @@ def t94_human_edit_guard():
     assert gate < body.index("pending_rows()"), "셀 반영이 관문보다 먼저다"
     assert "--force" not in src[src.index("def _wait_editing_clear"):
                                 src.index("def apply_now(")], "force 우회 금지"
-    print("  [94] 사람 편집 존중(잠금=진실·autoprune 보호·회차 양보·force 불가) ✅")
+
+    # 열림 감지 → 연기 → 닫힘 후 자동 재개(2026-08-03 지시): 관문은 기다리지 않고
+    # 즉시 연기하며(defer_apply), 감시자·워치독이 저장 후 그 회차 이름으로 재개한다.
+    assert "time.sleep" not in src[src.index("def _wait_editing_clear"):
+                                   src.index("def apply_now(")], \
+        "관문이 아직 자리에서 잔다 — 즉시 연기해야 다른 작업으로 전환된다"
+    for need in ("def defer_apply(", "def resume_watch(", "def resume_deferred(",
+                 "def resume_check(", "resume_slot", '"--resume-watch"', '"--resume-check"'):
+        assert need in src, f"연기·재개 구성 요소 누락: {need}"
+    assert 'result.get("상태") != "연기"' in src, "재개 중 다시 열리면 계속 기다려야 한다"
+    old_flag = L.DEFER_FLAG
+    with tempfile.TemporaryDirectory() as td2:
+        L.DEFER_FLAG = os.path.join(td2, "apply_deferred.json")
+        try:
+            st = L.defer_apply("2026-08-03 11:00", spawn=False)
+            st = L.defer_apply("2026-08-03 15:00", spawn=False)
+            assert st["slots"] == ["2026-08-03 11:00", "2026-08-03 15:00"], st
+            assert L._defer_state()["slots"] == st["slots"], "연기 마커가 저장되지 않는다"
+        finally:
+            L.DEFER_FLAG = old_flag
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    assert "resume_deferred_apply" in wd and "resume_check" in wd, \
+        "감시자가 죽었을 때 잇는 워치독 안전망이 없다"
+    print("  [94] 사람 편집 존중(잠금=진실·즉시 연기·닫힘 후 자동 재개·force 불가) ✅")
 
 
 def t77_side_work_single_switch():

@@ -296,6 +296,23 @@ def sync_uploads(dry):
         return f"업로드 투입함 오류: {str(e)[:50]}"
 
 
+def resume_deferred_apply(dry):
+    """엑셀 열림으로 연기된 반영의 30분 안전망(2026-08-03 지시).
+
+    닫힘 감시자(ledger_db --resume-watch)가 죽었어도 마커가 남아 있으면
+    여기서 재개하거나 감시자를 다시 띄운다."""
+    try:
+        import ledger_db
+        if not ledger_db._defer_state().get("slots"):
+            return "연기 회차 없음"
+        if dry:
+            return "연기 회차 있음(dry — 재개 생략)"
+        r = ledger_db.resume_check()
+        return "연기 반영 점검 → " + str(r.get("상태") or r)
+    except Exception as exc:
+        return f"연기 반영 점검 실패({type(exc).__name__})"
+
+
 def main():
     # 류지영 매니저 입력 중에는 로그 파일조차 갱신하지 않고 즉시 종료한다.
     if is_input_window():
@@ -307,7 +324,7 @@ def main():
     gap = gap_note(last_log_line(), datetime.now())     # 기록은 healing 전에 읽는다
     results = [sync_uploads(dry), sync_cloud_queue(dry), heal_server(dry), heal_fixed_funnel(dry),
                heal_tunnel(dry), publish_endpoint(dry), clean_reports(dry),
-               snapshot_handoff(dry)]
+               snapshot_handoff(dry), resume_deferred_apply(dry)]
     if gap:
         results.insert(0, gap)
     log(" | ".join(results))

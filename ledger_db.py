@@ -1031,24 +1031,22 @@ def human_editing(folder=None):
 
 
 def _wait_editing_clear(now, slot_name):
-    """사람이 열어 둔 동안은 쓰지 않는다 — 회차 유예(GRACE_MIN) 안에서 기다렸다가,
-    끝내 안 풀리면 이 회차를 **건너뛴다**(batch 에 기록하지 않으므로 큐는 남고,
-    missed_slots 가 다음 실행에서 마저 처리한다)."""
-    deadline = datetime.strptime(slot_name, "%Y-%m-%d %H:%M") + timedelta(minutes=GRACE_MIN)
-    while True:
-        locks = human_editing()
-        if not locks:
-            return None
-        if datetime.now() >= deadline:
-            return locks
-        left = int((deadline - datetime.now()).total_seconds() // 60)
-        print(f"  사람이 관리대장을 열어 두었습니다({locks[0].get('소유자') or '?'}) — "
-              f"잠금 해제 대기(남은 유예 {left}분)")
-        time.sleep(LOCK_POLL_SEC)
+    """사람이 열어 둔 동안은 쓰지 않는다 — 그리고 **기다리지도 않는다**(2026-08-03 지시).
+
+    예전에는 유예 45분을 이 자리에서 자며 버텼다. 이제는 열림을 감지하는 즉시
+    잠금 목록을 돌려주고, 호출자(apply_now)가 회차를 '연기'로 기록한 뒤 닫힘
+    감시자(--resume-watch)를 띄운다 — 에이전트는 곧바로 다른 작업으로 전환하고,
+    사람이 입력을 끝내고 저장(닫기)하면 감시자가 미룬 회차를 그 회차 이름으로
+    마저 반영한다."""
+    return human_editing()
 
 
-def apply_now(force=False, now=None):
-    """정해진 시각일 때만 엑셀에 쓴다. 실제 쓰기는 기존 ledger_writer 에 맡긴다."""
+def apply_now(force=False, now=None, resume_slot=None):
+    """정해진 시각일 때만 엑셀에 쓴다. 실제 쓰기는 기존 ledger_writer 에 맡긴다.
+
+    resume_slot: 사람이 관리대장을 열어 두어 '연기'된 회차의 재개(2026-08-03).
+    임의 시각 반영이 아니라 **그 회차의 지연 실행**이라 회차 이름을 그대로 쓴다.
+    """
     now = now or datetime.now()
     from operation_window import is_input_window, input_window_label
     if is_input_window(now):
@@ -1057,21 +1055,25 @@ def apply_now(force=False, now=None):
     intake_json()                                    # 도구들이 넣어 둔 것 먼저 흡수
     p, by, done = counts()
     slot_name = eligible_slot(now, done, force)
+    if not slot_name and resume_slot and resume_slot not in set(done):
+        slot_name = resume_slot
     if not slot_name:
         nxt = next_window(now)
         current = slot_of(now)
         why = "이미 처리한 회차" if current and current in set(done) else "반영 시각이 아님"
         return {"상태": "대기", "사유": f"{why} — 다음 {nxt:%m-%d %H:%M}",
                 "대기": p}
-    # ★ 쓰기 직전 관문 — 사람이 관리대장을 열어 두었으면 이 회차를 양보한다(2026-07-31 실사고).
+    # ★ 쓰기 직전 관문 — 사람이 관리대장을 열어 두었으면 즉시 '연기'한다(2026-08-03 지시).
     #   구조 갱신(scheduled_workbook_maintenance)도 vN+1 을 만들므로 같이 막아야 한다.
-    #   --force 도 뚫지 못한다: 강제의 용도는 '시각 밖 반영'이지 '사람을 밀어내기'가 아니다.
+    #   force 로도 뚫지 못한다: 강제의 용도는 '시각 밖 반영'이지 '사람을 밀어내기'가 아니다.
     locks = _wait_editing_clear(now, slot_name)
     if locks:
         who = locks[0].get("소유자") or "?"
-        return {"상태": "보류", "회차": slot_name,
+        watch = defer_apply(slot_name)
+        return {"상태": "연기", "회차": slot_name,
                 "사유": f"사람이 관리대장 편집 중({who}, {locks[0]['분']}분째) — "
-                        f"회차를 건너뛰고 다음 실행에서 처리", "대기": p}
+                        f"다른 작업으로 전환, 저장(닫힘) 감지 후 자동 반영", "대기": p,
+                "감시자": watch.get("watcher_pid")}
     if p == 0:
         # 빈 회차도 완료로 기록해야 같은 시간대 재실행이 새 버전을 만들지 않는다.
         if not force:
@@ -1152,6 +1154,113 @@ def apply_now(force=False, now=None):
     status(now)
     return {"상태": "반영" if ok else "실패", "회차": slot_name, "셀": len(payload),
             "메모": tail[0][:120], "구조갱신": maintenance}
+
+
+# ── 엑셀 열림 감지 → 연기 → 닫힘(저장) 후 자동 재개 (2026-08-03 지시, 상시) ──
+DEFER_FLAG = os.path.join(DB_DIR, "apply_deferred.json")
+
+
+def _defer_state():
+    try:
+        return json.load(open(DEFER_FLAG, encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _defer_write(state):
+    os.makedirs(DB_DIR, exist_ok=True)
+    tmp = DEFER_FLAG + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(state, handle, ensure_ascii=False)
+    os.replace(tmp, DEFER_FLAG)
+
+
+def defer_apply(slot_name, spawn=True):
+    """미룬 회차를 기록하고 닫힘 감시자를 **하나만** 띄운다.
+
+    감시자는 별도 프로세스라 스케줄러·에이전트는 바로 다른 작업으로 넘어간다.
+    감시자가 죽어도 마커가 남아 30분 워치독(resume_check)이 다시 잇는다.
+    """
+    state = _defer_state()
+    slots = sorted(set(state.get("slots") or []) | {slot_name})
+    pid = state.get("watcher_pid")
+    if spawn and not (pid and _pid_alive(pid)):
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, os.path.abspath(__file__), "--resume-watch"],
+                cwd=ROOT, creationflags=0x00000008 if os.name == "nt" else 0,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL)
+            pid = proc.pid
+        except Exception:
+            pid = None
+    state = {"slots": slots, "watcher_pid": pid,
+             "since": state.get("since") or datetime.now().isoformat(timespec="seconds")}
+    _defer_write(state)
+    return state
+
+
+def resume_deferred(now=None):
+    """닫힘이 확인된 뒤 미룬 회차를 그 회차 이름으로 반영한다."""
+    now = now or datetime.now()
+    state = _defer_state()
+    slots = [s for s in (state.get("slots") or [])]
+    if not slots:
+        try:
+            os.unlink(DEFER_FLAG)
+        except OSError:
+            pass
+        return {"상태": "없음", "사유": "연기된 회차 없음"}
+    with apply_lock():
+        result = apply_now(now=now, resume_slot=slots[-1])
+    if result.get("상태") in ("반영", "없음", "대기"):
+        # 큐는 하나라 최신 회차 반영이 전부를 포함한다 — 나머지 연기 회차도 완료로 남긴다.
+        stamp = datetime.now().isoformat(timespec="seconds")
+        with conn() as c:
+            for s in slots:
+                c.execute(
+                    "INSERT OR IGNORE INTO batch(slot,started,finished,cells,ok,note,forced)"
+                    " VALUES(?,?,?,?,1,?,0)",
+                    (s, stamp, stamp, 0, f"사람 편집 연기 — {slots[-1]} 재개분에 포함"))
+        try:
+            os.unlink(DEFER_FLAG)
+        except OSError:
+            pass
+    return result
+
+
+def resume_watch(max_hours=10):
+    """엑셀 닫힘(저장)을 기다렸다가 재개한다 — defer_apply 가 띄우는 감시자 본체.
+
+    입력 보호시간(08:00~09:30)에는 재개하지 않고 계속 기다린다. 시한이 지나면
+    조용히 물러난다 — 큐는 그대로라 다음 11:00/15:00 회차가 마저 처리한다.
+    """
+    from operation_window import is_input_window
+    deadline = time.time() + max_hours * 3600
+    while time.time() < deadline:
+        state = _defer_state()
+        if not state.get("slots"):
+            return {"상태": "없음"}
+        if not human_editing() and not is_input_window(datetime.now()):
+            result = resume_deferred()
+            if result.get("상태") != "연기":       # 그 사이 다시 열렸으면 계속 기다린다
+                return result
+        time.sleep(LOCK_POLL_SEC)
+    return {"상태": "시한초과", "사유": "다음 정규 회차가 처리"}
+
+
+def resume_check():
+    """워치독(30분)용 안전망: 마커가 있는데 감시자가 죽었으면 즉시 재개하거나 다시 띄운다."""
+    state = _defer_state()
+    if not state.get("slots"):
+        return {"상태": "없음"}
+    pid = state.get("watcher_pid")
+    if pid and _pid_alive(pid):
+        return {"상태": "감시중", "감시자": pid}
+    from operation_window import is_input_window
+    if not human_editing() and not is_input_window(datetime.now()):
+        return resume_deferred()
+    return defer_apply(state["slots"][-1])          # 아직 열려 있음 — 감시자만 재기동
 
 
 def backup_to(dst):
@@ -1264,6 +1373,16 @@ def main():
         if r.get("상태") == "실패":
             sys.exit(1)
         return
+    if "--resume-watch" in sys.argv:
+        # 엑셀 닫힘(저장) 감시자 — defer_apply 가 하나만 띄운다(2026-08-03).
+        r = resume_watch()
+        print(" · ".join(f"{k} {v}" for k, v in r.items()))
+        return
+    if "--resume-check" in sys.argv:
+        # 워치독 30분 안전망 — 감시자가 죽어도 연기 회차를 잃지 않는다.
+        r = resume_check()
+        print(" · ".join(f"{k} {v}" for k, v in (r or {}).items()))
+        return
     d = status()
     print(f"반영 대기 {d['대기']}건 · 다음 반영 {d['다음반영']} (약 {d['남은분']}분 뒤)")
     if d["출처별"]:
@@ -1272,6 +1391,10 @@ def main():
         print(f"  19시트 인수인계 예약: {d['인수인계대기']}건")
     if d["밀린회차"]:
         print("  ★ 밀린 회차:", ", ".join(d["밀린회차"]))
+    deferred = _defer_state()
+    if deferred.get("slots"):
+        print("  ★ 엑셀 열림으로 연기된 회차:", ", ".join(deferred["slots"]),
+              "— 저장(닫힘) 감지 후 자동 반영")
     print(f"  반영 시각: 매일 {' · '.join(d['반영시각'])} (하루 두 번)")
 
 
