@@ -4229,6 +4229,39 @@ def t98_remote_control_tracking():
     print("  [98] 리모컨 기록·관리·보고(승인 없음)·3개 한도·납품 추적 ✅")
 
 
+def t99_share_intake_pull():
+    """[99] 16.Share 공유폴더 상시 끌어오기(2026-08-03 지시): 복사 동기화·중복 방지."""
+    import tempfile as _tf
+    import time as _t2
+
+    import share_intake as SI
+    src = _tf.mkdtemp(); dst = _tf.mkdtemp(); st = os.path.join(_tf.mkdtemp(), "s.json")
+    os.makedirs(os.path.join(src, "OLD"))
+    os.makedirs(os.path.join(src, "26년도 PO 모음"))
+    os.makedirs(os.path.join(src, "새폴더"))
+    old_ts = _t2.time() - 3600
+    for rel in ("보고서.xlsx", os.path.join("OLD", "옛날.xlsx"),
+                os.path.join("26년도 PO 모음", "po.pdf"), os.path.join("새폴더", "자료.pdf"),
+                "Thumbs.db"):
+        p = os.path.join(src, rel)
+        open(p, "wb").write(b"x" * 10)
+        os.utime(p, (old_ts, old_ts))
+    open(os.path.join(src, "방금저장.xlsx"), "wb").write(b"x")   # mtime=지금 → 미룸
+    targets = [(src, "오종현", {"26년도 po 모음"})]
+    got = SI.pull(targets=targets, upload_dir=dst, state_path=st)
+    names = sorted(r["파일"] for r in got)
+    assert names == ["보고서.xlsx", os.path.join("새폴더", "자료.pdf")], names
+    assert os.path.exists(os.path.join(dst, "공유폴더_동기화", "오종현", "보고서.xlsx"))
+    assert not SI.pull(targets=targets, upload_dir=dst, state_path=st), "같은 파일을 두 번 복사"
+    # 배선: upload_intake 가 매 회차 먼저 끌어오고, PO/입금 하위폴더는 정본 원천으로 직접 읽는다
+    up = open(os.path.join(ROOT, "upload_intake.py"), encoding="utf-8").read()
+    assert "share_intake" in up and "pull()" in up, "upload_intake 에 공유폴더 끌어오기가 없다"
+    sd = open(os.path.join(ROOT, "source_dirs.py"), encoding="utf-8").read()
+    assert r"16. Share\유현민\오종현\26년도 PO 모음" in sd
+    assert r"16. Share\유현민\오종현\26년도 쿠팡 입금내역" in sd
+    print("  [99] 공유폴더 상시 끌어오기(복사 동기화·제외 규칙·중복 방지·배선) ✅")
+
+
 def t94_human_edit_guard():
     """[94] 사람이 관리대장을 열어 두면 **버전을 만들지도, 파일을 옮기지도 않는다.**
 
@@ -5070,6 +5103,7 @@ if __name__ == "__main__":
     t96_work_management_tabs()
     t97_settlement_source_completion()
     t98_remote_control_tracking()
+    t99_share_intake_pull()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:

@@ -326,6 +326,15 @@ def main() -> int:
             print("원본 자료 폴더(Z:)에 닿지 않습니다 — 이번 회차는 건너뜁니다.")
             return 0
         os.makedirs(UPLOAD_DIR, exist_ok=True)
+        # 16. Share 공유폴더를 먼저 끌어온다(2026-08-03 지시, 상시) — 새/변경 파일을
+        # 투입함으로 복사만 하고(원본 보존), 아래 분류가 정본 폴더로 이어 옮긴다.
+        try:
+            import share_intake
+            pulled = share_intake.pull()
+            if pulled:
+                print(f"공유폴더 끌어오기: {len(pulled)}건")
+        except Exception as exc:
+            print(f"공유폴더 끌어오기 실패(계속 진행): {type(exc).__name__}: {exc}")
     lock = os.path.join(UPLOAD_DIR, LOCK_NAME)
     locked = False
     if args.apply:
