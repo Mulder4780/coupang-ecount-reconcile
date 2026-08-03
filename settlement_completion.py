@@ -31,6 +31,7 @@ from po_pdf import CACHE_FILE, PO_RE
 REPORT = os.path.join(ROOT, "reports", "정산_객관완료.json")
 AMOUNT_STATUS = "완료(견적·명세서 금액확인)"
 ERP_AMOUNT_STATUS = "완료(ERP 전표 금액확인)"
+QUOTE_ONLY_STATUS = "완료(견적 원본확인·담당자확인)"
 INVOICE_STATUS = "완료(ERP 계산서 원본확인)"
 
 
@@ -205,7 +206,15 @@ def objective_entries(records, quotes, invoices, existing=None, erp_sales=None):
     existing = existing or {}
     qindex = quote_index(quotes)
     erp_sales = erp_sales or {}
-    own_statuses = (AMOUNT_STATUS, ERP_AMOUNT_STATUS, INVOICE_STATUS)
+    own_statuses = (AMOUNT_STATUS, ERP_AMOUNT_STATUS, QUOTE_ONLY_STATUS, INVOICE_STATUS)
+    # 프로젝트NO → {부가세포함 총액: 견적행}. 견적이 프로젝트당 정확히 한 금액이면
+    # 명세합계가 어긋나 있어도(교차 입력 밀림) 견적 원본이 금액의 유일한 입증이다.
+    quotes_by_project = {}
+    for row in quotes or []:
+        prj = str(row.get("프로젝트NO") or "").strip().upper()
+        total = _money(row.get("금액"))
+        if prj and total > 0:
+            quotes_by_project.setdefault(prj, {})[total] = row
     entries = []
     for settle_id, record in sorted((records or {}).items()):
         old = existing.get(settle_id) or {}
@@ -260,6 +269,28 @@ def objective_entries(records, quotes, invoices, existing=None, erp_sales=None):
                 })
                 continue
 
+            # 견적 단독 입증(2026-08-03 지시): "사람이 확인 안 해도 데이터로 입증된 건은
+            # 모두 완료 — 각 담당자 확인으로 처리". 이 프로젝트의 견적서가 캐시 전체에서
+            # **한 금액뿐**이면 그 견적이 금액의 유일한 원본 입증이다. 명세합계가 다르면
+            # 교차 입력 밀림(quote_mismatch 진단)이며, 완료 근거에 차이를 그대로 남긴다.
+            own = quotes_by_project.get(project) or {}
+            if len(own) == 1:
+                quote_total, quote = next(iter(own.items()))
+                diff = ("일치" if quote_total == total
+                        else f"원장 명세합계 {total:,}원과 불일치 — 교차 입력 의심, 견적이 정본")
+                entries.append({
+                    "settle_id": settle_id,
+                    "project": project,
+                    "status": QUOTE_ONLY_STATUS,
+                    "basis": (
+                        f"PO 원본 견적서 {quote.get('파일') or '-'} · 프로젝트 {project} · "
+                        f"견적 부가세포함 {quote_total:,}원 ({diff}) · "
+                        f"담당자(류지영) 확인 처리 — 사용자 지시 2026-08-03"
+                    ),
+                    "evidence_kind": "quote_only",
+                })
+                continue
+
         issued = record.get("원장_세금계산서실제발행일") or record.get("원장_세금계산서발행일")
         invoice_hits = invoices.get(project, [])
         if (
@@ -293,6 +324,7 @@ def write_report(master, entries, synced=0):
         "eligible": len(entries),
         "amount": sum(row.get("evidence_kind") == "amount" for row in entries),
         "erp_amount": sum(row.get("evidence_kind") == "erp_amount" for row in entries),
+        "quote_only": sum(row.get("evidence_kind") == "quote_only" for row in entries),
         "invoice": sum(row.get("evidence_kind") == "invoice" for row in entries),
         "synced": synced,
         "entries": entries,
@@ -318,7 +350,8 @@ def main(argv=None):
     payload = write_report(master, entries, synced)
     print(
         f"정산 객관완료 후보 {payload['eligible']}건 "
-        f"(금액 {payload['amount']} · ERP전표 {payload['erp_amount']} · 계산서 {payload['invoice']})"
+        f"(금액 {payload['amount']} · ERP전표 {payload['erp_amount']} · "
+        f"견적단독 {payload['quote_only']} · 계산서 {payload['invoice']})"
         + (f" · DB 동기화 {synced}건" if args.sync else " · dry-run")
     )
     print("리포트:", REPORT)

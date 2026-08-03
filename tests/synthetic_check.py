@@ -4121,11 +4121,20 @@ def t97_settlement_source_completion():
     assert {row["status"] for row in got} == {S.AMOUNT_STATUS, S.INVOICE_STATUS}, got
     assert all("완료(" in row["status"] and row["basis"] for row in got)
 
-    # 프로젝트·PO·금액이 같아도 견적서가 둘이면 유일한 근거가 아니므로 완료하지 않는다.
+    # 견적 단독 입증(2026-08-03 지시): 프로젝트 견적이 한 금액뿐이면 명세합계가 어긋나도
+    # (교차 입력 밀림) 견적을 정본으로 담당자 확인 완료한다. 같은 금액 사본은 한 장으로 본다.
     duplicate = quotes + [{**quotes[0], "파일": "q2.pdf"}]
-    assert not S.objective_entries({"JS-A": amount}, duplicate, {}), "복수 견적 후보 완료"
+    got = S.objective_entries({"JS-A": amount}, duplicate, {})
+    assert [r["status"] for r in got] == [S.QUOTE_ONLY_STATUS], got  # 같은 금액 사본 → 한 장
+    assert "일치" in got[0]["basis"]
     mismatch = [{**quotes[0], "금액": 120000}]
-    assert not S.objective_entries({"JS-A": amount}, mismatch, {}), "금액 불일치 완료"
+    got = S.objective_entries({"JS-A": amount}, mismatch, {})
+    assert [r["status"] for r in got] == [S.QUOTE_ONLY_STATUS], got
+    assert "불일치" in got[0]["basis"] and "담당자(류지영) 확인" in got[0]["basis"]
+    assert got[0]["evidence_kind"] == "quote_only"
+    # 프로젝트 견적이 서로 다른 두 금액이면 무엇이 정본인지 데이터로 못 정한다 — 완료 금지.
+    two_totals = mismatch + [{**quotes[0], "금액": 990000, "파일": "q3.pdf"}]
+    assert not S.objective_entries({"JS-A": amount}, two_totals, {}), "금액 둘인데 완료"
 
     # 견적서가 없어도 같은 프로젝트 ERP 판매전표 금액이 유일하게 일치하면 완료한다.
     erp_one = {"UJ2600001": [{"date": "2026-01-15", "po": "PO123456",
