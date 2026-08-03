@@ -1812,6 +1812,10 @@ ul.remote-plain li{padding:4px 0;border-bottom:1px dashed var(--line,#334)}
 
   <!-- 리포트 -->
 	  <section class="view" id="v-report">
+	    <div class="card" id="statsCard">
+	      <h3>통계 <span class="norm">— 정산·업무·담당자·계산서·리모컨 한눈에</span></h3>
+	      <div id="statsHost"><div class="sk sk-row w70"></div></div>
+	    </div>
 	    <div class="rtabs" id="rtabs"></div>
 	    <div class="md" id="mdbox"><div class="sk sk-row w88"></div><div class="sk sk-row w70"></div><div class="sk sk-row w45"></div></div>
 	  </section>
@@ -2532,7 +2536,11 @@ document.addEventListener('click',e=>{
   }
 });
 window.addEventListener('error',()=>uxEvent('error','window'));
-window.addEventListener('unhandledrejection',()=>uxEvent('error','promise'));
+/* 사유 없는 'promise' 기록 236건(2026-08-03 실측)은 개선 근거가 못 된다 — 사유를 남긴다. */
+window.addEventListener('unhandledrejection',ev=>{
+  const r=ev&&ev.reason;
+  uxEvent('error','promise',String((r&&(r.message||r.stack||r))||'').slice(0,200));
+});
 window.addEventListener('pagehide',()=>uxFlush(true));
 window.addEventListener('beforeinstallprompt',e=>{
   if(!staffSlug) return;
@@ -5015,6 +5023,46 @@ async function loadReports(){
   reports = d.reports||[];
   $('rtabs').innerHTML = reports.map((r,i)=>`<button class="${i===curReport?'on':''}" onclick="pickReport(${i})">${r.kind}</button>`).join('') || '';
   pickReport(Math.min(curReport, Math.max(0,reports.length-1)));
+  renderStats();
+}
+
+/* ── 통계(2026-08-03 지시) — 정산·업무·담당자·계산서 경과·리모컨을 한 장에 ── */
+async function renderStats(){
+  const host=$('statsHost'); if(!host) return;
+  try{
+    if(!settleRows||!settleRows.length){ try{ await loadSettle(); }catch(e){} }
+    const dist={};
+    (settleRows||[]).forEach(r=>{const s=String(r.상태||'').trim()||'(상태없음)'; dist[s]=(dist[s]||0)+1;});
+    const settleTab=Object.entries(dist).sort((a,b)=>b[1]-a[1]).map(([s,n])=>
+      `<tr><td>${esc2(s)}</td><td>${fmt(n)}</td></tr>`).join('');
+    const asRows=(works.as||[]), pmRows=(works.pm||[]);
+    const doneOf=(rows,st)=>rows.filter(r=>/완료/.test(String(st(r)||''))).length;
+    const asDone=doneOf(asRows,r=>r.진행상태), pmDone=doneOf(pmRows,r=>r.점검상태);
+    let staff={}, tax=null, remote=null;
+    try{ staff=(await api('/api/staff/completions')).summary||{}; }catch(e){}
+    try{ tax=await api('/api/tax-overdue'); }catch(e){}
+    try{ remote=await api('/api/remote/status'); }catch(e){}
+    const staffTab=Object.entries(staff).map(([n,v])=>
+      `<tr><td>${esc2(n)}</td><td>${fmt(v.completed||0)}</td><td>${esc2(String(v.last_seen||'').slice(0,10))}</td></tr>`).join('');
+    const taxTab=tax?Object.entries(tax.buckets||{}).filter(([,n])=>n>0).map(([b,n])=>
+      `<tr><td>${esc2(b)}</td><td>${fmt(n)}</td></tr>`).join(''):'';
+    const remoteTab=remote?Object.entries(remote.holdings||{}).map(([t,h])=>
+      `<tr><td>${esc2(t)}</td><td>${h.issued}</td><td>${h.delivered}</td><td>${h.holding}</td></tr>`).join(''):'';
+    host.innerHTML=`<div class="remote-grid2">
+      <div><h4>정산 상태 (${fmt((settleRows||[]).length)}건)</h4>
+        <table class="remote-mini"><tr><th>상태</th><th>건수</th></tr>${settleTab||'<tr><td colspan=2>-</td></tr>'}</table></div>
+      <div><h4>현장 업무</h4>
+        <table class="remote-mini"><tr><th>구분</th><th>총</th><th>완료</th><th>잔여</th></tr>
+          <tr><td>돌발AS</td><td>${fmt(asRows.length)}</td><td>${fmt(asDone)}</td><td>${fmt(asRows.length-asDone)}</td></tr>
+          <tr><td>정기점검</td><td>${fmt(pmRows.length)}</td><td>${fmt(pmDone)}</td><td>${fmt(pmRows.length-pmDone)}</td></tr></table>
+        <h4>담당자 객관완료</h4>
+        <table class="remote-mini"><tr><th>담당자</th><th>완료</th><th>최근확인</th></tr>${staffTab||'<tr><td colspan=3>-</td></tr>'}</table></div>
+      <div><h4>세금계산서 미발행 경과${tax?` (${fmt(tax.total)}건)`:''}</h4>
+        <table class="remote-mini"><tr><th>경과</th><th>건수</th></tr>${taxTab||'<tr><td colspan=2>-</td></tr>'}</table></div>
+      <div><h4>리모컨 보유 현황${remote?` (한도 ${remote.limit}개)`:''}</h4>
+        <table class="remote-mini"><tr><th>담당자</th><th>불출</th><th>납품</th><th>보유</th></tr>${remoteTab||'<tr><td colspan=4>불출 이력 없음</td></tr>'}</table></div>
+    </div>`;
+  }catch(e){ host.innerHTML='<p class="norm">통계를 불러오지 못했습니다.</p>'; }
 }
 function pickReport(i){
   curReport=i;

@@ -4037,6 +4037,13 @@ self.addEventListener('fetch', e => {
             # 리모컨 불출·납품 현황(2026-08-03 지시). 류지영·오종현 업무센터와 관리자 공용.
             import ledger_db
             return self._send(200, ledger_db.remote_status())
+        if p == "/api/tax-overdue":
+            # 세금계산서 미발행 경과(통계 화면용) — tax_invoice_watch 가 daily_run 에서 갱신
+            try:
+                path = os.path.join(ROOT, "reports", "세금계산서_미발행_경과.json")
+                return self._send(200, json.load(open(path, encoding="utf-8")))
+            except Exception:
+                return self._send(200, {"total": 0, "buckets": {}, "rows": []})
         if p == "/api/staff/work-log-status":
             actor = self._actor()
             if actor.get("role") == "staff" and actor.get("staff_slug") != "ryu-jiyeong":
