@@ -1406,6 +1406,39 @@ table.remote-mini td{border-top:1px solid #EEF2F7;padding:10px 12px;text-align:l
 ul.remote-plain{list-style:none;padding:0;margin:8px 0}
 ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14px}
 .remote-rule{font-size:12.5px;color:#6B7280;margin:2px 0 6px}
+
+/* ═══ 업무센터 iOS 개편(2026-08-04 지시) ═══
+   아이폰 설정·연락처 앱 감각: 큰 제목, 아바타 연락처 카드, 카드 밖 그룹 섹션 헤더,
+   틴트 캡슐 버튼. #v-center 로 범위를 좁혀 다른 화면은 건드리지 않는다. */
+#v-center .ios-large{margin:8px 0 16px}
+#v-center .ios-large h2{font-size:31px;font-weight:800;letter-spacing:.2px;margin:0 0 3px}
+#v-center .ios-large .sub{font-size:13px;color:var(--ink-2)}
+.ios-person{padding:16px 16px 14px}
+.ios-person-head{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.ios-avatar{width:52px;height:52px;border-radius:50%;flex:none;display:grid;place-items:center;
+  color:#fff;font-size:22px;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.18)}
+.ios-person-id{min-width:0}
+.ios-person-id b{display:block;font-size:19px;font-weight:800;letter-spacing:-.35px;line-height:1.25}
+.ios-person-id span{font-size:13px;color:var(--ink-2)}
+#v-center .ios-footnote{font-size:13px;color:var(--ink-2);margin:0 0 12px;
+  background:var(--neu-bg);border-radius:var(--r-sm);padding:9px 12px}
+/* iOS 버튼: 흰 판+테두리가 아니라 틴트(옅은 파랑 배경·파란 글자)와 채움 두 단계만 쓴다 */
+#v-center .ios-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+#v-center .ios-actions .abtn{justify-content:center;min-height:46px;border-radius:13px;
+  font-size:15px;font-weight:700;box-shadow:none}
+#v-center .abtn.ios-tint{background:var(--brand-tint);border:0;color:var(--brand)}
+@media(hover:hover){#v-center .abtn.ios-tint:hover{background:#DCEDFF}}
+/* 그룹 섹션 헤더 — iOS 는 제목을 카드 안이 아니라 위에, 작고 옅게 둔다 */
+.ios-sec-h{margin:20px 6px 8px;font-size:13px;font-weight:600;color:var(--ink-2);letter-spacing:-.1px}
+.ios-sec-h span{font-weight:500;color:var(--ink-3)}
+#v-center .card.ios-inset{padding:14px;margin-bottom:4px}
+/* 드롭존·URL 입력을 iOS 감각으로 (구조는 renderReceiptUpload 공용 그대로) */
+#v-center .wt-drop{border:1.5px dashed rgba(60,60,67,.29);background:#FAFAFC;border-radius:14px}
+#v-center .wt-drop.on{border-color:var(--brand);background:var(--brand-tint)}
+#v-center .wt-drop b{font-size:15px;font-weight:700}
+#v-center input[id$="Url"]{background:var(--neu-bg);border:0 !important;border-radius:12px !important;
+  min-height:44px;font-size:15px}
+#v-center input[id$="Url"]:focus{outline:none;box-shadow:0 0 0 3px rgba(0,122,255,.25)}
 </style>
 </head>
 <body>
@@ -1633,33 +1666,39 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
   <!-- 업무센터 탭(2026-07-31 지시): 대시보드 카드에서 사이드바로 승격.
        담당자별 현황·고정 주소·원천자료 등록(입금: 드래그앤드롭·URL)을 한 곳에서. -->
   <section class="view" id="v-center">
-    <div class="hero-min"><h2>업무센터</h2>
+    <div class="hero-min ios-large"><h2>업무센터</h2>
       <p class="sub">담당자별 고정 주소 · 밀린 업무 현황 · 원천자료 등록. 등록한 파일은 Z: 원본 자료에 보관되고 즉시 대조가 돕니다.</p></div>
     <div class="egrid">
-      <div class="card">
-        <h3><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-workspace"/></svg> 류지영 <span class="norm">— 돌발AS · 정기점검 · 회계</span></h3>
-        <div class="wt-meta" id="centerRyuStat">현황 계산 중…</div>
-        <div class="actions">
+      <div class="card ios-person">
+        <div class="ios-person-head">
+          <span class="ios-avatar" style="background:linear-gradient(180deg,#5AC8FA,#007AFF)">류</span>
+          <div class="ios-person-id"><b>류지영</b><span>돌발AS · 정기점검 · 회계</span></div>
+        </div>
+        <div class="wt-meta ios-footnote" id="centerRyuStat">현황 계산 중…</div>
+        <div class="actions ios-actions">
           <a class="abtn primary" href="/staff/ryu-jiyeong" target="_blank" rel="noopener">센터 열기 ↗</a>
-          <button class="abtn" onclick="show('pm')">정기점검 관리</button>
-          <button class="abtn" onclick="show('as')">돌발AS 관리</button>
+          <button class="abtn ios-tint" onclick="show('pm')">정기점검 관리</button>
+          <button class="abtn ios-tint" onclick="show('as')">돌발AS 관리</button>
         </div>
       </div>
-      <div class="card">
-        <h3><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-badge-fill"/></svg> 오종현 <span class="norm">— PO · 구매 · 입금</span></h3>
-        <div class="wt-meta" id="centerOhStat">현황 계산 중…</div>
-        <div class="actions">
+      <div class="card ios-person">
+        <div class="ios-person-head">
+          <span class="ios-avatar" style="background:linear-gradient(180deg,#63E6A5,#248A3D)">오</span>
+          <div class="ios-person-id"><b>오종현</b><span>PO · 구매 · 입금</span></div>
+        </div>
+        <div class="wt-meta ios-footnote" id="centerOhStat">현황 계산 중…</div>
+        <div class="actions ios-actions">
           <a class="abtn primary" href="/staff/oh-jonghyeon" target="_blank" rel="noopener">센터 열기 ↗</a>
-          <button class="abtn" onclick="show('settle')">정산 화면</button>
+          <button class="abtn ios-tint" onclick="show('settle')">정산 화면</button>
         </div>
       </div>
     </div>
-    <div class="card">
-      <h3>입금·원천자료 등록 <span class="norm">— 끌어다 놓거나, 파일 선택, URL 붙여넣기</span></h3>
+    <div class="ios-sec-h">입금·원천자료 등록 <span>— 끌어다 놓거나, 파일 선택, URL 붙여넣기</span></div>
+    <div class="card ios-inset">
       <div id="centerReceiptHost"></div>
     </div>
-    <div class="card">
-      <h3>리모컨 관리 <span class="norm">— 불출·납품 기록 · AS 담당자당 최대 3개</span></h3>
+    <div class="ios-sec-h">리모컨 관리 <span>— 불출·납품 기록 · AS 담당자당 최대 3개</span></div>
+    <div class="card ios-inset">
       <div id="centerRemoteHost"></div>
     </div>
   </section>
