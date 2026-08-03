@@ -248,6 +248,11 @@ def write_xlsx(data, out_path):
             "금액_불일치": "실제 작업금액과 거래명세서 금액이 다른 건(신규·납품 제외, 미청구 제외)"}
     for k, rows in data.items():
         ws.append([k.replace("_", " "), len(rows), desc.get(k, "")])
+    # 용어 풀이(2026-08-03 지시): '원장'이 무엇인지 원장(설명) 구조로 엑셀에도 남긴다.
+    ws.append([])
+    ws.append(["용어", "", "원장(관리대장 엑셀 — 쿠팡_통합업무_일일보고_관리대장 vN, 업무 기록의 정본 장부)"])
+    ws.append(["", "", "ERP A(ERP에만 있음—원장 미등록) · B(원장에만—ERP 전표 없음) · C(회계반영O·계산서X) · D(금액 차이)"])
+    ws.append(["", "", "PO A(수신 PO 원장 미등록) · B(원장 PO번호가 쿠팡 목록에 없음) · C(금액 차이) · D(매칭 후보)"])
     for col, w in (("A", 22), ("B", 8), ("C", 62)):
         ws.column_dimensions[col].width = w
 
