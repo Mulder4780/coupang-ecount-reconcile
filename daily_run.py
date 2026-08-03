@@ -111,6 +111,30 @@ def has_inbox_kind(kind):
         return False
 
 
+def _source_files(dir_fn, extensions, name_prefixes=()):
+    """source_dirs의 정본 폴더를 재귀 탐색한다. 투입함은 분류 후에만 읽는다."""
+    try:
+        import source_dirs
+        folders = getattr(source_dirs, dir_fn)()
+    except Exception:
+        return []
+    out, seen = [], set()
+    for folder in folders:
+        for base, _dirs, files in os.walk(folder):
+            for name in files:
+                low = name.lower()
+                if extensions and not low.endswith(extensions):
+                    continue
+                if name_prefixes and not low.startswith(name_prefixes):
+                    continue
+                path = os.path.join(base, name)
+                key = os.path.normcase(os.path.abspath(path))
+                if key not in seen:
+                    seen.add(key)
+                    out.append(path)
+    return out
+
+
 def run(name, args, timeout=600):
     try:
         r = subprocess.run([PY] + args, capture_output=True, text=True, encoding="utf-8",
@@ -137,6 +161,11 @@ def _run_pipeline():
         finish(steps, aborted=True)
         sys.exit("합성검증 실패 — 전체 중단")
 
+    # 합성검증 뒤, 모든 대조보다 먼저 단일 투입함을 정본 폴더로 분류한다.
+    # 예전에는 다운로드 흡수가 파이프라인 끝이라 새 자료가 다음 날까지 반영되지 않았다.
+    steps.append(run("업로드 투입함 원본 분류",
+                     [os.path.join(ROOT, "upload_intake.py"), "--apply"]))
+
     # 1. 판매·세금계산서 inbox 대조 (inbox 없으면 원장 준비표)
     steps.append(run("판매·세금계산서 대조", [os.path.join(ROOT, "ecount_reconcile.py")]))
 
@@ -152,8 +181,7 @@ def _run_pipeline():
                       "out": "스킵 — 내용 판별 가능한 계정별원장 파일 없음"})
 
     # 2.5 쿠팡 PO 대조 (inbox에 'PO' 파일 있을 때만)
-    if [f for f in glob.glob(os.path.join(ROOT, "inbox", "*.xlsx"))
-            if "PO" in os.path.basename(f).upper() and "원장" not in os.path.basename(f)]:
+    if has_inbox_kind("po"):
         steps.append(run("쿠팡 PO 대조", [os.path.join(ROOT, "po_reconcile.py")]))
     else:
         steps.append({"name": "쿠팡 PO 대조", "ok": None, "out": "스킵 — inbox/에 쿠팡 PO 목록 파일 없음(파일명에 PO 포함)"})
@@ -165,7 +193,8 @@ def _run_pipeline():
 
     # 2.8 카톡 신규 접수 등록 — 대화 내보내기가 들어오면 02·04 에 새 행으로 올린다.
     #     유형이 확정된 것(돌발·정기)만 올리고 철거·납품은 보류한다 — 대상 시트가 없다.
-    if glob.glob(os.path.join(ROOT, "kakao", "inbox", "*.txt")):
+    kakao_sources = _source_files("kakao_dirs", (".txt",))
+    if kakao_sources:
         #     ★ --days 7 로 **최근분만** 올린다. 과거분(현재 미등록 82건)은 파싱 품질을 사람이
         #       한 번 보고 넣어야 해서 자동에 태우지 않는다: python kakao_extract.py --new
         steps.append(run("카톡 신규 접수 등록",
@@ -203,6 +232,10 @@ def _run_pipeline():
     steps.append(run("ERP 접속 IP 확인", [os.path.join(ROOT, "erp_ip_guard.py")]))
 
     # 3. 밴드 수집·대조 — 공식 API 토큰이 있으면 수집+대조, 브라우저 수집 캐시만 있으면 대조만
+    band_dumps = _source_files("band_dump_dirs", (".json",))
+    if band_dumps:
+        steps.append(run("밴드 업로드 원본 변환", [os.path.join(ROOT, "band", "ingest.py")]))
+
     band_cache = [f for f in glob.glob(os.path.join(ROOT, "band", "cache", "*.json"))
                   if not os.path.basename(f).startswith(("raw_", "dump_"))]
     if os.path.exists(os.path.join(ROOT, "band", ".band_token.json")):
@@ -214,7 +247,7 @@ def _run_pipeline():
         steps.append({"name": "밴드 수집·대조", "ok": None, "out": "스킵 — 밴드 미인증·캐시 없음(앱 심사 대기)"})
 
     # 4. 카톡 대조 (kakao/inbox에 txt 있을 때만)
-    if glob.glob(os.path.join(ROOT, "kakao", "inbox", "*.txt")):
+    if kakao_sources:
         steps.append(run("카톡 대조", [os.path.join(ROOT, "kakao", "kakao_reconcile.py")]))
     else:
         steps.append({"name": "카톡 대조", "ok": None, "out": "스킵 — kakao/inbox/에 대화 내보내기 txt 없음"})
@@ -229,9 +262,9 @@ def _run_pipeline():
                       "out": "스킵 — inbox/에 매출(세금)계산서현황 없음"})
 
     # 밴드 문서 사진(거래명세서·세금계산서) OCR → 확실한 건은 빈칸 입력 큐에 적재
-    _docs = os.path.join(ROOT, "band", "docs_inbox")
-    if os.path.isdir(_docs) and any(f.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp"))
-                                    for f in os.listdir(_docs)):
+    document_images = _source_files("doc_photo_dirs",
+                                    (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".heic"))
+    if document_images:
         # 사진 1장에 OCR 1초 남짓. 첫 회는 1,458장에 25분이 걸려 600초 제한에 걸렸다(2026-07-26).
         # doc_ocr가 결과를 band/ocr_cache/에 저장하므로 두 번째 실행부터는 몇 초로 끝난다.
         steps.append(run("밴드 문서 이미지 대조·입력", [os.path.join(ROOT, "band", "doc_ocr.py"),
@@ -307,7 +340,7 @@ def _run_pipeline():
     #     그래서 이 단계는 위 대조들이 **끝난 뒤에** 와야 한다.
     steps.append(run("자료현황 갱신", [os.path.join(ROOT, "data_status.py")]))
 
-    # 6.85 다운로드 흡수 — 브라우저(ERP Excel·밴드 덤프)·카톡 내보내기는 Downloads/바탕화면에
+    # 6.85 다운로드 흡수 — 실행 도중 새로 내려받은 파일을 다음 회차용 투입함에 보존한다.
     #      떨어진다. 손으로 옮기면 세션이 바뀌는 순간 잊힌다(2026-07-31 실제로 그랬다).
     #      내용 판별로 '0. 원본 자료'에 이동 — Z: 라서 옮겨지는 순간 모든 PC·세션이 본다.
     steps.append(run("다운로드 흡수(원본 자료로)", [os.path.join(ROOT, "download_intake.py"), "--apply"]))

@@ -5,6 +5,7 @@ convert_dump.py — 브라우저 수집 덤프(dump_*.json) → 대조 캐시(<b
 변환 후 덤프는 raw_*.json 으로 개명 보존.
 """
 import sys, os, re, json, glob
+import hashlib
 from datetime import datetime, timedelta
 
 try:
@@ -34,15 +35,42 @@ def parse_dt(text, captured_ms):
     return None
 
 
+def dump_files():
+    """로컬 처리함과 0. 원본 자료의 밴드 JSON 정본을 함께 읽는다."""
+    paths = list(glob.glob(os.path.join(CACHE, "dump_*.json")))
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from source_dirs import band_dump_dirs
+        for folder in band_dump_dirs():
+            paths.extend(glob.glob(os.path.join(folder, "**", "*.json"), recursive=True))
+    except Exception:
+        pass
+    out, seen = [], set()
+    for path in paths:
+        key = os.path.normcase(os.path.abspath(path))
+        if key not in seen:
+            seen.add(key)
+            out.append(path)
+    return sorted(out)
+
+
 def main():
-    for f in glob.glob(os.path.join(CACHE, "dump_*.json")):
+    for f in dump_files():
         d = json.load(open(f, encoding="utf-8"))
+        if not isinstance(d, dict) or not isinstance(d.get("posts"), (dict, list)):
+            continue
         # 밴드번호는 **파일명 맨 뒤 숫자 덩어리**다. 전체에서 숫자만 뽑으면
         # dump_api2_90610953 → "290610953" 처럼 앞의 버전 숫자가 섞여 다른 밴드가 된다.
-        band = re.findall(r"(\d{6,})", os.path.basename(f))[-1]
+        nums = re.findall(r"(\d{6,})", os.path.basename(f))
+        band = str(d.get("band") or (nums[-1] if nums else hashlib.sha256(
+            os.path.basename(f).encode("utf-8")).hexdigest()[:10]))
         cap = d.get("capturedAt")
         posts = {}
-        for no, p in d.get("posts", {}).items():
+        source_posts = d.get("posts") or {}
+        iterator = source_posts.items() if isinstance(source_posts, dict) else enumerate(source_posts)
+        for no, p in iterator:
+            if not isinstance(p, dict):
+                continue
             # 밴드 API로 받은 덤프는 created_at(ms)을 이미 갖고 있다 — 본문에서 다시 캐낼 필요가 없다.
             # (화면 긁기 덤프만 본문·timeText에서 시각을 파싱한다)
             ms = p.get("created_at")
@@ -75,8 +103,15 @@ def main():
                 merged[no] = rec
         out = {"band_name": d.get("name", band), "posts": merged}
         json.dump(out, open(dst, "w", encoding="utf-8"), ensure_ascii=False)
-        raw = os.path.join(CACHE, f"raw_{os.path.basename(f)[5:-5]}.json")
-        os.replace(f, raw)
+        # 원본 자료 정본은 이름·내용 그대로 둔다. 로컬 처리함의 dump만 raw로 바꿔
+        # 다음 실행에서 반복 변환되지 않게 한다.
+        try:
+            in_cache = os.path.commonpath([os.path.abspath(f), os.path.abspath(CACHE)]) == os.path.abspath(CACHE)
+        except ValueError:  # C: 처리함과 Z: 원본처럼 드라이브가 다르면 공통경로가 없다.
+            in_cache = False
+        if in_cache:
+            raw = os.path.join(CACHE, f"raw_{os.path.basename(f)[5:-5]}.json")
+            os.replace(f, raw)
         dated = sum(1 for p in merged.values() if p["created_at"])
         print(f"{d.get('name', band)}: {len(posts)}건 반영 → 캐시 {before}→{len(merged)}건 "
               f"(날짜 있는 글 {dated}건)")

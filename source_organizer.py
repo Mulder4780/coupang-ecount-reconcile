@@ -39,6 +39,7 @@ from source_dirs import (
     PM_SCHEDULE_DIR,
     PO_DIR,
     RECEIPT_DIR,
+    UPLOAD_DIR,
     WORK_LOG_DIR,
     LEGACY_WORK_LOG_DIR,
 )
@@ -325,6 +326,7 @@ def _remove_empty_dirs(root: str):
         os.path.abspath(PO_DIR), os.path.abspath(RECEIPT_DIR), os.path.abspath(WORK_LOG_DIR),
         os.path.abspath(LEGACY_WORK_LOG_DIR),
         os.path.abspath(MISC_DIR),
+        os.path.abspath(UPLOAD_DIR),
     }
     for base, _dirs, _files in os.walk(root, topdown=False):
         if os.path.abspath(base) in keep:
@@ -348,8 +350,9 @@ def write_rules(root: str = ORIGIN_ROOT):
         "5. 분류할 단서가 없는 루트 파일 = 9. 미분류/연도/월/날짜",
         "6. 파일은 삭제·덮어쓰기하지 않으며, 내용이 다를 때만 __dup_내용해시를 붙여 모두 보존",
         "7. 이동 이력은 0. 정리이력.csv에서 원래 위치까지 확인 가능",
+        "8. 100. 업로드용 자료 = 단일 투입함. upload_intake가 내용 판별 후 위 정본 폴더로 이동",
         "",
-        "새 자료는 해당 유형 폴더 또는 기존 로컬 inbox에 넣으면 자동 정리됩니다.",
+        "새 자료는 100. 업로드용 자료에 넣으면 자동 분류됩니다.",
     ]
     path = os.path.join(root, os.path.basename(RULES))
     with open(path, "w", encoding="utf-8") as f:

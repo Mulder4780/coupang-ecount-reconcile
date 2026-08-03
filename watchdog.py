@@ -273,6 +273,29 @@ def sync_cloud_queue(dry):
         return f"클라우드 예약 오류: {str(e)[:40]}"
 
 
+def sync_uploads(dry):
+    """단일 투입함을 30분마다 정본 분류하고, 새 원본이면 전체 대조를 한 번 깨운다."""
+    if dry:
+        return "업로드 투입함(dry)"
+    try:
+        r = subprocess.run(
+            [PY, os.path.join(ROOT, "upload_intake.py"), "--apply"],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=300,
+        )
+        line = (r.stdout or r.stderr or "").strip().splitlines()
+        summary = line[-1] if line else "업로드 분류 무응답"
+        m = re.search(r"업로드 원본 분류:\s*(\d+)건", summary)
+        moved = int(m.group(1)) if m else 0
+        if r.returncode == 0 and moved:
+            # daily_run의 프로세스 잠금이 이미 실행 중인 중복 기동을 안전하게 막는다.
+            start_hidden("daily_run.py")
+            return f"{summary} → 전체 대조 시작"
+        return summary[:100]
+    except Exception as e:
+        return f"업로드 투입함 오류: {str(e)[:50]}"
+
+
 def main():
     # 류지영 매니저 입력 중에는 로그 파일조차 갱신하지 않고 즉시 종료한다.
     if is_input_window():
@@ -282,7 +305,7 @@ def main():
     # 원장 버전 정리는 daily_run의 ledger_versions.py 한 곳에서만 수행한다.
     # 워치독이 낮은 버전 포크를 OLD로 옮겨 증거를 숨기는 일을 막는다.
     gap = gap_note(last_log_line(), datetime.now())     # 기록은 healing 전에 읽는다
-    results = [sync_cloud_queue(dry), heal_server(dry), heal_fixed_funnel(dry),
+    results = [sync_uploads(dry), sync_cloud_queue(dry), heal_server(dry), heal_fixed_funnel(dry),
                heal_tunnel(dry), publish_endpoint(dry), clean_reports(dry),
                snapshot_handoff(dry)]
     if gap:

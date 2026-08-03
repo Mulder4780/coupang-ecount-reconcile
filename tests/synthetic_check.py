@@ -4292,6 +4292,108 @@ def t76_source_organizer():
     print("  [76] 원본 자료 유형·연도·월·날짜·PO번호 자동정리와 최신 편집본 보존 ✅")
 
 
+def t98_upload_intake(tmp):
+    """단일 투입함의 전량 보존·내용 분류·중복방지·전체 대조 선행 순서."""
+    import upload_intake as U
+    import source_dirs as SD
+
+    assert SD.UPLOAD_DIR not in SD.EXCEL_DIRS and SD.ORIGIN_ROOT not in SD.EXCEL_DIRS
+    assert SD.UPLOAD_DIR not in SD.KAKAO_DIRS and SD.ORIGIN_ROOT not in SD.KAKAO_DIRS
+
+    origin = os.path.join(tmp, "0. 원본 자료")
+    upload = os.path.join(origin, "100. 업로드용 자료", "중첩 폴더")
+    os.makedirs(upload, exist_ok=True)
+
+    def book(name, headers, title="Sheet"):
+        path = os.path.join(upload, name)
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = title
+        ws.append(headers)
+        ws.append(["PO330876", "쿠팡", "부품", 100000][:len(headers)])
+        wb.save(path)
+        return path
+
+    book("무작위ERP.xlsx", ["거래처명", "품목명", "공급가액"])
+    book("무작위PO.xlsx", ["PO번호", "금액"])
+    book("무작위일정.xlsx", ["캠프명", "점검일자"], "2026년 정기점검 스케쥴")
+    book("무작위입금.xlsx", ["거래처명", "입금일자", "입금액"])
+    kakao = os.path.join(upload, "KakaoTalk_20260803_group.txt")
+    with open(kakao, "w", encoding="utf-8") as fh:
+        fh.write("테스트방 님과 카카오톡 대화\n[유현민] [오전 9:00] UJ2609999 완료\n")
+    for name, body in (("PO330876_견적서.pdf", b"synthetic pdf"),
+                       ("현장사진.jpg", b"synthetic image"),
+                       ("판별불가.bin", b"unknown evidence")):
+        with open(os.path.join(upload, name), "wb") as fh:
+            fh.write(body)
+
+    jobs = U.plan(origin, min_age=0)
+    assert jobs is not None and len(jobs) == 8, jobs
+    by_name = {os.path.basename(job.src): job for job in jobs}
+    expected = {
+        "무작위ERP.xlsx": os.path.join(origin, "1. ERP 내보내기"),
+        "무작위PO.xlsx": os.path.join(origin, "2. 쿠팡 목록"),
+        "무작위일정.xlsx": os.path.join(origin, "5. 정기점검 스케쥴 원본"),
+        "무작위입금.xlsx": os.path.join(origin, "7. 입금내역"),
+        "KakaoTalk_20260803_group.txt": os.path.join(origin, "3. 카카오톡 내보내기"),
+        "PO330876_견적서.pdf": os.path.join(origin, "6. PO 원본"),
+        "현장사진.jpg": os.path.join(origin, "4. 밴드 원본", "문서사진"),
+        "판별불가.bin": os.path.join(origin, "9. 미분류"),
+    }
+    for name, base in expected.items():
+        assert os.path.commonpath([by_name[name].dst_dir, base]) == base, (name, by_name[name])
+
+    report = os.path.join(tmp, "upload_report.json")
+    index = os.path.join(tmp, "upload_index.json")
+    done, errors = U.apply(jobs, origin, report, index)
+    assert len(done) == 8 and not errors, (done, errors)
+    assert U.plan(origin, min_age=0) == [], "분류 후 투입함에 파일이 남았다"
+    assert os.path.isdir(os.path.join(origin, "100. 업로드용 자료")), "단일 투입함이 사라졌다"
+    unknown_dst = next(row["목적지"] for row in done if row["분류"] == "unknown")
+    duplicate = os.path.join(upload, "판별불가.bin")
+    os.makedirs(upload, exist_ok=True)
+    with open(duplicate, "wb") as fh:
+        fh.write(b"unknown evidence")
+    again, errors = U.apply(U.plan(origin, min_age=0), origin, report, index)
+    assert not errors and again[0]["처리"] == "동일 원본 통합"
+    assert os.path.isfile(unknown_dst) and not os.path.exists(duplicate)
+
+    # 밴드 JSON은 Z: 정본을 훼손하지 않고 로컬 대조 캐시로 변환된다.
+    import source_dirs as _SD
+    import band.convert_dump as _BD
+    band_source = os.path.join(origin, "4. 밴드 원본", "수집본", "2026", "08", "2026-08-03")
+    os.makedirs(band_source, exist_ok=True)
+    dump = os.path.join(band_source, "dump_90610953.json")
+    with open(dump, "w", encoding="utf-8") as fh:
+        json.dump({"band": "90610953", "name": "합성밴드", "posts": {
+            "1": {"created_at": 1785686400000, "author": "기사", "content": "UJ2609999 완료"}
+        }}, fh, ensure_ascii=False)
+    cache = os.path.join(tmp, "band_cache")
+    os.makedirs(cache, exist_ok=True)
+    old_cache, old_dirs = _BD.CACHE, _SD.band_dump_dirs
+    try:
+        _BD.CACHE = cache
+        _SD.band_dump_dirs = lambda: [band_source]
+        _BD.main()
+    finally:
+        _BD.CACHE, _SD.band_dump_dirs = old_cache, old_dirs
+    assert os.path.isfile(dump), "밴드 Z: 원본을 raw로 바꾸거나 삭제했다"
+    assert os.path.isfile(os.path.join(cache, "90610953.json")), "밴드 대조 캐시 변환 누락"
+
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    watchdog = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    batch = open(os.path.join(ROOT, "원본자료자동정리.bat"), encoding="utf-8").read()
+    assert daily.index("upload_intake.py") < daily.index("ecount_reconcile.py"), \
+        "업로드 분류가 전체 대조보다 늦다"
+    assert "sync_uploads(dry)" in watchdog and "전체 대조 시작" in watchdog
+    assert "upload_intake.py --apply" in batch
+    assert 'files = pick("po")' in open(os.path.join(ROOT, "po_reconcile.py"), encoding="utf-8").read()
+    for rel in ("kakao_extract.py", os.path.join("kakao", "kakao_reconcile.py")):
+        src = open(os.path.join(ROOT, rel), encoding="utf-8").read()
+        assert "def source_paths()" in src and "kakao_dirs" in src
+    print("  [98] 단일 업로드 투입함 전량 원본분류·중복방지·30분/전체대조 연결 ✅")
+
+
 def t79_work_log_source_sync_and_report_capture():
     """[79] 현장 일지 대조는 완료를 추측하지 않고, 미실시 사유·대표 캡처까지 같은 원본을 쓴다."""
     import work_log_sync as W
@@ -4870,6 +4972,8 @@ if __name__ == "__main__":
     t82_daily_cutoff()
     t83_agent_dispatch_and_calendar()
     t76_source_organizer()
+    with tempfile.TemporaryDirectory() as tmp:
+        t98_upload_intake(tmp)
     t55_pm_brief_drilldown_and_capture()
     t58_check_hub_detail_and_capture()
     t48_excel_2026_stats_and_verified_completion()

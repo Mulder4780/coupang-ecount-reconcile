@@ -29,12 +29,18 @@ LEDGER_DIR = (r"Z:\2. Cost\★★★쿠팡 업무 폴더★★★"
               r"\00. 쿠팡 통합업무 일일보고 관리대장")
 ORIGIN_ROOT = os.path.join(LEDGER_DIR, "0. 원본 자료")
 
+# 사람이 자료 종류를 가리지 않고 넣는 단일 투입함. 여기에 들어온 파일은
+# upload_intake.py가 내용으로 판별해 아래 정본 폴더로 옮긴다. 분석기는 이 폴더를
+# 직접 읽지 않는다 — 복사 중인 파일이나 미분류 자료를 완료 근거로 오인하지 않게 한다.
+UPLOAD_DIR = os.path.join(ORIGIN_ROOT, "100. 업로드용 자료")
+
 # 종류별 보관 폴더 — 사람이 열었을 때 무엇이 무엇인지 바로 보이게 번호를 붙인다
 # (사용자 지시 2026-07-28: "구분해서 잘 보이게 깔끔하게 정리해줘")
 ERP_DIR = os.path.join(ORIGIN_ROOT, "1. ERP 내보내기")
 COUPANG_DIR = os.path.join(ORIGIN_ROOT, "2. 쿠팡 목록")
 KAKAO_DIR = os.path.join(ORIGIN_ROOT, "3. 카카오톡 내보내기")
 BAND_DIR = os.path.join(ORIGIN_ROOT, "4. 밴드 원본")
+MISC_DIR = os.path.join(ORIGIN_ROOT, "9. 미분류")
 # 류지영 매니저가 정기점검 스케줄 원본을 계속 갱신하는 정본 폴더.
 # 파일명은 바뀔 수 있으므로 동기화 도구가 이 폴더의 최신 정기점검 xlsx를 고른다.
 PM_SCHEDULE_DIR = os.path.join(ORIGIN_ROOT, "5. 정기점검 스케쥴 원본")
@@ -67,12 +73,12 @@ RECEIPT_DIRS = [
     os.path.join(ORIGIN_ROOT, "5. 입금내역"),
 ]
 
-# 엑셀 원본을 찾을 곳. ORIGIN_ROOT 자체도 남겨 둔다 — 사람이 하위 폴더를 안 거치고
-# 루트에 바로 떨어뜨려도 잡히게 하기 위해서다(그게 제일 흔한 실수다).
-EXCEL_DIRS = [ERP_DIR, COUPANG_DIR, ORIGIN_ROOT, os.path.join(ROOT, "inbox")]
+# 분석기는 **분류가 끝난 정본만** 읽는다. ORIGIN_ROOT 전체를 재귀 탐색하면
+# 100번 투입함의 복사 중 파일과 9번 미분류를 객관 근거로 오인할 수 있다.
+EXCEL_DIRS = [ERP_DIR, COUPANG_DIR, os.path.join(ROOT, "inbox")]
 
 # 카톡 내보내기 txt
-KAKAO_DIRS = [KAKAO_DIR, ORIGIN_ROOT, os.path.join(ROOT, "kakao", "inbox")]
+KAKAO_DIRS = [KAKAO_DIR, os.path.join(ROOT, "kakao", "inbox")]
 
 
 def existing(paths):
@@ -115,6 +121,17 @@ def new_project_flow_dirs():
 def work_log_dirs():
     """정기점검·돌발AS 일지의 정본 우선 탐색 경로."""
     return existing([WORK_LOG_DIR, LEGACY_WORK_LOG_DIR])
+
+
+def upload_dirs():
+    """자동 분류 전용 투입함. 정식 분석 경로와 의도적으로 분리한다."""
+    return existing([UPLOAD_DIR])
+
+
+def band_dump_dirs():
+    """브라우저/API 밴드 JSON 원본의 정본 탐색 경로."""
+    return existing([os.path.join(BAND_DIR, "수집본"),
+                     os.path.join(BAND_DIR, "브라우저덤프")])
 
 
 # 밴드 문서 사진(거래명세서·현장사진) — 1,459장 130MB. **원본이라 서버에 둔다**

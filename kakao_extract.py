@@ -23,6 +23,8 @@ import json
 import os
 import re
 import sys
+import glob
+import hashlib
 from datetime import date
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -39,6 +41,32 @@ def _load_reconcile():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def source_paths():
+    """카톡 로컬 inbox와 원본 정본을 재귀 탐색하고 동일 내용 사본은 한 번만 읽는다."""
+    try:
+        from source_dirs import kakao_dirs
+        folders = kakao_dirs()
+    except Exception:
+        folders = [INBOX_DIR] if os.path.isdir(INBOX_DIR) else []
+    paths, seen_path, seen_hash = [], set(), set()
+    for folder in folders:
+        for path in sorted(glob.glob(os.path.join(folder, "**", "*.txt"), recursive=True)):
+            key = os.path.normcase(os.path.abspath(path))
+            if key in seen_path:
+                continue
+            seen_path.add(key)
+            try:
+                with open(path, "rb") as fh:
+                    digest = hashlib.sha256(fh.read()).digest()
+            except OSError:
+                continue
+            if digest in seen_hash:
+                continue
+            seen_hash.add(digest)
+            paths.append(path)
+    return paths
 
 
 # 공지 본문은 '● 라벨 : 값' 의 나열이고, parse_export 가 여러 줄을 공백으로 이어 붙인다.
@@ -178,9 +206,7 @@ def status_of(head):
 def extract(paths=None):
     kr = _load_reconcile()
     from band_extract import normalize_tech      # 기사명 정규화는 한 곳에만 둔다
-    paths = paths or sorted(
-        os.path.join(INBOX_DIR, f) for f in os.listdir(INBOX_DIR) if f.lower().endswith(".txt")
-    )
+    paths = source_paths() if paths is None else paths
     seen, out = {}, []
     for path in paths:
         room = room_of(path)

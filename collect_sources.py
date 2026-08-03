@@ -61,7 +61,7 @@ DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
 DOWNLOAD_DAYS = 14      # 오래된 건 이미 반영됐거나 무관하다
 # ★ Downloads 는 개인 폴더다. **아무 파일이나 퍼 오지 않는다** —
 #   내용을 열어 아는 종류로 판별된 것만 가져온다.
-KNOWN = ("ledger", "po", "sales", "tax", "stmt", "slips", "taxinv", "hometax")
+KNOWN = ("ledger", "po", "sales", "tax", "stmt", "slips", "taxinv", "hometax", "receipt")
 
 
 def plan():
@@ -84,7 +84,7 @@ def plan():
         if os.path.basename(src).startswith("~$"):
             continue
         k = kind_of(src)
-        base = COUPANG_DIR if k == "po" else ERP_DIR
+        base = COUPANG_DIR if k == "po" else (RECEIPT_DIR if k == "receipt" else ERP_DIR)
         jobs.append((src, dated_dir(base, src), LABEL.get(k, "엑셀")))
 
     # Downloads 에 떨어진 이카운트 내보내기 — 아는 종류만, 최근 것만
@@ -100,7 +100,7 @@ def plan():
         k = kind_of(src)
         if k not in KNOWN:
             continue
-        base = COUPANG_DIR if k == "po" else ERP_DIR
+        base = COUPANG_DIR if k == "po" else (RECEIPT_DIR if k == "receipt" else ERP_DIR)
         jobs.append((src, dated_dir(base, src),
                      LABEL.get(k, "엑셀") + " (Downloads)"))
 

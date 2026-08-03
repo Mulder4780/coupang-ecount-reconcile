@@ -44,7 +44,14 @@ def extract_images():
     out = os.path.join(HERE, "docs_inbox")
     os.makedirs(out, exist_ok=True)
     n = 0
-    for f in glob.glob(os.path.join(CACHE, "raw_*.json")) + glob.glob(os.path.join(CACHE, "dump_*.json")):
+    files = glob.glob(os.path.join(CACHE, "raw_*.json")) + glob.glob(os.path.join(CACHE, "dump_*.json"))
+    try:
+        from source_dirs import band_dump_dirs
+        for folder in band_dump_dirs():
+            files += glob.glob(os.path.join(folder, "**", "*.json"), recursive=True)
+    except Exception:
+        pass
+    for f in dict.fromkeys(files):
         try:
             d = json.load(open(f, encoding="utf-8"))
         except Exception:
@@ -89,7 +96,8 @@ def cache_months():
 
 def main():
     args = sys.argv[1:]
-    dumps = glob.glob(os.path.join(CACHE, "dump_*.json"))
+    from convert_dump import dump_files
+    dumps = dump_files()
     if dumps:
         print(f"수집 덤프 {len(dumps)}개 발견 → 변환")
         run([os.path.join(HERE, "convert_dump.py")], "dump → 캐시 변환")

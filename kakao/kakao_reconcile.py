@@ -18,7 +18,7 @@ kakao_reconcile.py — 카카오톡 대화 내보내기(.txt) ↔ 관리대장 �
 실행:  python kakao/kakao_reconcile.py            # kakao/inbox/*.txt 전체
        python kakao/kakao_reconcile.py --file 경로 [--master 경로]   # 테스트용
 """
-import sys, os, re, csv, json, glob
+import sys, os, re, csv, json, glob, hashlib
 from datetime import datetime, date
 
 try:
@@ -40,6 +40,33 @@ RE_PC_DATE = re.compile(r"-+\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일.*-+")
 RE_PC_MSG = re.compile(r"^\[([^\]]+)\]\s*\[(오전|오후)\s*(\d{1,2}):(\d{2})\]\s*(.*)$")
 RE_MO_MSG = re.compile(r"^(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*(오전|오후)\s*(\d{1,2}):(\d{2}),\s*([^:]+?)\s*:\s*(.*)$")
 RE_MO_DATE = re.compile(r"^(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*\S요일\s*$")
+
+
+def source_paths():
+    """카톡 원본 정본+로컬 inbox. 경로 중복과 내용이 같은 사본을 제거한다."""
+    sys.path.insert(0, ROOT)
+    try:
+        from source_dirs import kakao_dirs
+        folders = kakao_dirs()
+    except Exception:
+        folders = [INBOX_DIR] if os.path.isdir(INBOX_DIR) else []
+    paths, seen_path, seen_hash = [], set(), set()
+    for folder in folders:
+        for path in sorted(glob.glob(os.path.join(folder, "**", "*.txt"), recursive=True)):
+            key = os.path.normcase(os.path.abspath(path))
+            if key in seen_path:
+                continue
+            seen_path.add(key)
+            try:
+                with open(path, "rb") as fh:
+                    digest = hashlib.sha256(fh.read()).digest()
+            except OSError:
+                continue
+            if digest in seen_hash:
+                continue
+            seen_hash.add(digest)
+            paths.append(path)
+    return paths
 
 
 def parse_export(path):
@@ -149,7 +176,7 @@ def main():
     if "--file" in args:
         files = [args[args.index("--file") + 1]]
     else:
-        files = [f for f in glob.glob(os.path.join(INBOX_DIR, "*.txt"))]
+        files = source_paths()
     if not files:
         sys.exit("kakao/inbox/ 에 카톡 내보내기 .txt가 없습니다. (PC 카톡: 채팅방 → ☰ → 대화 내용 → 내보내기)")
 

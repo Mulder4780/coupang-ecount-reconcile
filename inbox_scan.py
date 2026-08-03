@@ -88,6 +88,16 @@ def classify_rows(rows):
     if "거래명세서" in joined and has("공급가액"):
         return "stmt"
 
+    # 입금/수금 원본 — 파일명이 무작위여도 날짜+금액 머리글 조합이면 독립 원천이다.
+    if has("입금일", "수금일", "입금일자", "수금일자") and has("입금액", "수금액") \
+            and has("거래처", "프로젝트", "캠프"):
+        return "receipt"
+
+    # ERP 판매조회에는 PO번호 열이 함께 있어 아래 PO 규칙이 먼저 잡으면 쿠팡 목록으로
+    # 잘못 분류된다. 판매 진행상태+공급가액+거래처/품목 조합은 ERP 판매가 우선이다.
+    if has("진행상태") and has("공급가액") and has("거래처", "거래처명", "품목", "품목명"):
+        return "sales"
+
     # PO: 컬럼명에 PO가 있거나, PO12345 형태 값이 여러 개
     if has("PO번호", "PO No", "PO NO", "P/O", "발주번호", "Purchase Order"):
         return "po"
@@ -209,7 +219,8 @@ def pick(kind, folder=None):
     if got:
         return got
     hints = {"ledger": ("원장", "계정"), "po": ("PO",), "sales": ("판매", "매출"),
-             "tax": ("계산서",), "stmt": ("명세서",), "slips": ("전표", "거래조회")}
+             "tax": ("계산서",), "stmt": ("명세서",), "slips": ("전표", "거래조회"),
+             "receipt": ("입금", "수금", "송금")}
     return [p for p, k in scan(folder) if k == "unknown"
             and any(h.lower() in os.path.basename(p).lower() for h in hints.get(kind, ()))]
 
@@ -218,6 +229,7 @@ LABEL = {"ledger": "거래처별계정별원장", "po": "쿠팡 PO 목록",
          "sales": "판매·세금계산서 내보내기", "tax": "매출(세금)계산서현황",
          "stmt": "거래명세서 현황", "slips": "회계거래(전표) 현황",
          "taxinv": "매출(세금)계산서조회(재고)", "hometax": "홈택스 전자(세금)계산서",
+         "receipt": "입금·수금 내역",
          "unknown": "판별 실패"}
 
 if __name__ == "__main__":

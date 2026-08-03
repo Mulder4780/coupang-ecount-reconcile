@@ -332,6 +332,10 @@ def erp_progress():
       '나갔다/안 나갔다' 뿐이고, 실제 발행일·승인번호는 ERP [매출(세금)계산서현황] 을
       내보내야 들어온다. 원자료에 없는 값을 채우지 않는다(절대규칙 10).
     """
+    # 합성검증은 실데이터·실서버 접촉 0이 원칙이다. 이전에는 t36이 여기서 Z: 전체를
+    # 재귀 탐색해 10분 넘게 멈췄다. 합성 모드에서는 원본 진행상태가 없는 조건만 시험한다.
+    if os.environ.get("CSOS_SYNTHETIC") == "1":
+        return {}
     try:
         import glob as _g
         from source_dirs import ERP_DIR

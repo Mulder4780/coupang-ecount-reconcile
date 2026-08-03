@@ -106,7 +106,7 @@ def main():
         files = [args[args.index("--file") + 1]]
     else:
         from inbox_scan import pick
-        files = pick("po", INBOX_DIR)          # 파일명 대신 내용으로 판별
+        files = pick("po")                     # 정본 폴더 전체를 내용으로 판별
     if not files:
         sys.exit("inbox/ 에 쿠팡 PO 목록이 없습니다. PO 목록 엑셀을 inbox/ 에 넣어주세요"
                  "(파일명은 아무거나 괜찮습니다).")
