@@ -4250,9 +4250,9 @@ self.addEventListener('fetch', e => {
                 return self._send(200, {"ok": True, **result})
             except Exception as exc:
                 return self._send(400, {"ok": False, "error": str(exc)[:320]})
-        if p in ("/api/remote/request", "/api/remote/approve", "/api/remote/deliver"):
-            # 리모컨 관리(2026-08-03 지시): 신청·납품은 류지영/오종현 업무센터와 관리자,
-            # 승인은 부사장(관리자)만. 규칙(3개 한도·승인 후 불출)은 ledger_db 가 강제한다.
+        if p in ("/api/remote/request", "/api/remote/deliver"):
+            # 리모컨 관리(2026-08-03 지시, 같은 날 개정): 승인 단계 없이 기록·관리·보고만.
+            # 불출·납품은 류지영/오종현 업무센터와 관리자. 3개 한도는 ledger_db 가 강제한다.
             actor = self._actor()
             role = str(actor.get("role") or "")
             slug = str(actor.get("staff_slug") or "")
@@ -4261,8 +4261,6 @@ self.addEventListener('fetch', e => {
             if not allowed:
                 return self._send(403, {"ok": False,
                                         "error": "리모컨 관리는 류지영·오종현 업무센터 또는 관리자만"})
-            if p == "/api/remote/approve" and role != "admin":
-                return self._send(403, {"ok": False, "error": "불출 승인은 부사장(관리자)만 합니다"})
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 20_000:
                 return self._send(400, {"ok": False, "error": "리모컨 요청 형식 오류"})
@@ -4274,11 +4272,7 @@ self.addEventListener('fetch', e => {
                     rid = ledger_db.remote_request(
                         body.get("branch"), body.get("technician"), body.get("qty"),
                         who, body.get("note") or "")
-                    return self._send(200, {"ok": True, "id": rid, "status": "승인대기"})
-                if p == "/api/remote/approve":
-                    status = ledger_db.remote_decide(
-                        body.get("id"), who, bool(body.get("approve", True)))
-                    return self._send(200, {"ok": True, "status": status})
+                    return self._send(200, {"ok": True, "id": rid, "status": "불출완료"})
                 rid = ledger_db.remote_deliver(
                     body.get("technician"), body.get("project") or "",
                     body.get("camp") or "", body.get("qty"),

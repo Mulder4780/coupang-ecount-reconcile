@@ -1659,7 +1659,7 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
       <div id="centerReceiptHost"></div>
     </div>
     <div class="card">
-      <h3>리모컨 관리 <span class="norm">— 분출 전 부사장 승인 · AS 담당자당 최대 3개</span></h3>
+      <h3>리모컨 관리 <span class="norm">— 불출·납품 기록 · AS 담당자당 최대 3개</span></h3>
       <div id="centerRemoteHost"></div>
     </div>
   </section>
@@ -3480,13 +3480,13 @@ function injectOhUpload(){
 
 /* ── 리모컨 관리(2026-08-03 지시) ──
    분출 담당: 부산=오종현 · 시화=안은숙 · 증평=류지영. AS 담당자당 최대 3개.
-   분출 전 부사장(관리자) 승인 필수 — 규칙은 서버(ledger_db)가 강제하고 화면은 안내만 한다.
-   류지영·오종현 업무센터에 똑같이 들어가고, 관리자 업무센터 탭에서는 승인 버튼이 보인다. */
+   승인 단계 없이 기록·관리·보고만 한다(같은 날 개정) — 3개 한도는 서버(ledger_db)가 강제한다.
+   류지영·오종현 업무센터와 관리자 업무센터 탭에 똑같이 들어간다. */
 function injectRemoteCard(){
   const anchor=$('ryuSummaryGrid'); if(!anchor||$('staffRemoteHost')) return;
   const card=document.createElement('div');
   card.className='card';
-  card.innerHTML='<h3>리모컨 관리 <span class="norm">— 분출 전 부사장 승인 · AS 담당자당 최대 3개</span></h3><div id="staffRemoteHost"></div>';
+  card.innerHTML='<h3>리모컨 관리 <span class="norm">— 불출·납품 기록 · AS 담당자당 최대 3개</span></h3><div id="staffRemoteHost"></div>';
   anchor.parentNode.insertBefore(card, anchor);
   renderRemoteCard('staffRemoteHost');
 }
@@ -3494,25 +3494,21 @@ async function renderRemoteCard(hostId){
   const host=$(hostId); if(!host) return;
   let s=null;
   try{ s=await api('/api/remote/status'); }catch(e){ host.innerHTML='<p class="norm">리모컨 현황을 불러오지 못했습니다.</p>'; return; }
-  const isAdmin=!staffSlug;
   const holds=Object.entries(s.holdings||{});
-  const holdRows=holds.length?holds.map(([t,h])=>`<tr><td>${esc2(t)}</td><td>${h.issued}</td><td>${h.delivered}</td><td><b>${h.holding}</b>${h.reserved?` (+대기 ${h.reserved})`:''}</td></tr>`).join(''):'<tr><td colspan="4">불출 이력이 아직 없습니다</td></tr>';
-  const pend=(s.pending||[]).map(r=>`<li>#${r.id} ${esc2(r.branch)}(${esc2(r.issuer)}) → ${esc2(r.technician)} ${r.qty}개 · ${esc2(String(r.requested_at||'').slice(0,16).replace('T',' '))}
-    ${isAdmin?`<button class="abtn primary" onclick="remoteApprove(${r.id},true,'${hostId}')">승인·불출</button><button class="abtn warn" onclick="remoteApprove(${r.id},false,'${hostId}')">반려</button>`:' — 부사장 승인 대기'}</li>`).join('');
+  const holdRows=holds.length?holds.map(([t,h])=>`<tr><td>${esc2(t)}</td><td>${h.issued}</td><td>${h.delivered}</td><td><b>${h.holding}</b></td></tr>`).join(''):'<tr><td colspan="4">불출 이력이 아직 없습니다</td></tr>';
   const dels=(s.deliveries||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.delivered_on)}</td><td>${esc2(r.technician)}</td><td>${esc2(r.project||'')} ${esc2(r.camp||'')}</td><td>${r.qty}</td></tr>`).join('');
   host.innerHTML=`
-    <p class="remote-rule">분출 담당 — ${Object.entries(s.branches||{}).map(([b,n])=>`${esc2(b)}: ${esc2(n)}`).join(' · ')} · AS 담당자당 한도 ${s.limit}개</p>
+    <p class="remote-rule">불출 담당 — ${Object.entries(s.branches||{}).map(([b,n])=>`${esc2(b)}: ${esc2(n)}`).join(' · ')} · AS 담당자당 한도 ${s.limit}개</p>
     <table class="remote-mini"><tr><th>AS 담당자</th><th>불출</th><th>납품</th><th>보유</th></tr>${holdRows}</table>
-    ${pend?`<h4>승인 대기</h4><ul class="remote-plain">${pend}</ul>`:''}
     <div class="remote-grid2">
-      <fieldset><legend>불출 신청 · 승인 후 분출</legend>
+      <fieldset><legend>불출 기록</legend>
         <div class="remote-row2">
           <select id="${hostId}Br" aria-label="불출 지점">${Object.keys(s.branches||{}).map(b=>`<option>${esc2(b)}</option>`).join('')}</select>
           <input id="${hostId}Qty" type="number" inputmode="numeric" min="1" max="${s.limit}" value="1" aria-label="수량">
         </div>
         <input id="${hostId}Tech" placeholder="AS 담당자 이름" autocomplete="off">
         <input id="${hostId}Note" placeholder="비고 (선택)" autocomplete="off">
-        <button class="abtn primary" onclick="remoteRequest('${hostId}')">승인 요청</button>
+        <button class="abtn primary" onclick="remoteRequest('${hostId}')">불출 저장</button>
       </fieldset>
       <fieldset><legend>납품 기록 · 프로젝트/캠프 추적</legend>
         <input id="${hostId}DTech" placeholder="AS 담당자 이름" autocomplete="off">
@@ -3533,17 +3529,9 @@ async function remoteRequest(hostId){
     const r=await api('/api/remote/request',{method:'POST',body:JSON.stringify({
       branch:v('Br'),technician:v('Tech').trim(),qty:+v('Qty'),note:v('Note')})});
     if(!r.ok) throw new Error(r.error||'실패');
-    alert('불출 신청 접수 — 부사장 승인 후 분출됩니다.');
-  }catch(e){ alert('불출 신청 실패: '+e.message); }
+    alert('불출 기록 저장 완료');
+  }catch(e){ alert('불출 기록 실패: '+e.message); }
   uxEvent('tap','remote-request'); renderRemoteCard(hostId);
-}
-async function remoteApprove(id,ok2,hostId){
-  if(!confirm(ok2?`#${id} 승인하고 불출할까요?`:`#${id} 반려할까요?`)) return;
-  try{
-    const r=await api('/api/remote/approve',{method:'POST',body:JSON.stringify({id,approve:ok2})});
-    if(!r.ok) throw new Error(r.error||'실패');
-  }catch(e){ alert('처리 실패: '+e.message); }
-  uxEvent('tap','remote-approve'); renderRemoteCard(hostId);
 }
 async function remoteDeliver(hostId){
   const v=id=>($(hostId+id)||{}).value||'';
@@ -6164,7 +6152,6 @@ function renderDaily(){
     remote: REMOTE_STAT ? {
       holdings: Object.entries(REMOTE_STAT.holdings||{}).map(([t,h])=>
         [t, `${h.issued}개`, `${h.delivered}개`, `${h.holding}개`]),
-      pending: (REMOTE_STAT.pending||[]).length,
       deliveries: (REMOTE_STAT.deliveries||[]).slice(0,5).map(r=>
         [r.delivered_on, r.technician, [r.project,r.camp].filter(Boolean).join(' '), r.qty+'개'])
     } : null
@@ -7559,9 +7546,9 @@ async function reportToPng(){
   // ★ 타일 개수를 하드코딩(6)하면 지표가 7개일 때 마지막 타일이 캔버스 밖으로 잘린다
   const erpM = D.erpMonths || [];
   const erpH = erpM.length ? 34 + (erpM.length+1)*28 + 20 : 0;
-  // 리모컨 현황(2026-08-03) — 보유 표 + 승인대기 줄 + 최근 납품 표
+  // 리모컨 현황(2026-08-03) — 보유 표 + 최근 납품 표
   const rmt = D.remote;
-  const rmtH = rmt ? 48 + 28 + Math.max(1,(rmt.holdings||[]).length)*30 + (rmt.pending?26:0)
+  const rmtH = rmt ? 48 + 28 + Math.max(1,(rmt.holdings||[]).length)*30
                + ((rmt.deliveries||[]).length ? 48 + 28 + rmt.deliveries.length*30 : 0) + 16 : 0;
   const pmProgress = D.pmProgress || [];
   const wlAs = ((D.workLog||{})['돌발AS']) || {};
@@ -7891,14 +7878,10 @@ async function reportToPng(){
 
   // ── 리모컨 현황(2026-08-03 지시) — 대표보고 캡처에 포함
   if(rmt){
-    section('리모컨 현황 — 분출 전 부사장 승인 · AS 담당자당 3개');
+    section('리모컨 현황 — 불출·납품 기록 · AS 담당자당 3개');
     table(['AS 담당자','불출','납품','보유'],
           (rmt.holdings&&rmt.holdings.length)?rmt.holdings:[['불출 이력 없음','-','-','-']],
           [320,160,160,160]);
-    if(rmt.pending){
-      txt(`승인 대기 ${rmt.pending}건 — 부사장 승인 후 분출됩니다.`, 30, y+13, F(10.5,700), '#B54708');
-      y += 26;
-    }
     if((rmt.deliveries||[]).length){
       section('리모컨 최근 납품 — 프로젝트·캠프 추적');
       table(['납품일','AS 담당자','납품처(프로젝트·캠프)','수량'], rmt.deliveries, [150,170,360,120]);

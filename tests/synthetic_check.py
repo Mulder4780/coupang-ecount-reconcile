@@ -4182,7 +4182,11 @@ def t97_settlement_source_completion():
 
 
 def t98_remote_control_tracking():
-    """[98] 리모컨 불출·납품(2026-08-03 지시): 3개 한도·부사장 승인·프로젝트 추적."""
+    """[98] 리모컨 불출·납품(2026-08-03 지시, 같은 날 개정): 승인 없이 기록·관리·보고.
+
+    3개 한도·불출 담당(부산 오종현·시화 안은숙·증평 류지영)·프로젝트/캠프 납품 추적은
+    유지하고, 부사장 승인 단계는 사용자 지시로 뺐다 — 불출은 즉시 기록된다.
+    """
     import tempfile as _tf
 
     import ledger_db as L
@@ -4192,43 +4196,37 @@ def t98_remote_control_tracking():
         L.DB_DIR, L.DB_PATH = tmp, os.path.join(tmp, "t.db")
         assert L.REMOTE_BRANCH_ISSUERS == {"부산": "오종현", "시화": "안은숙", "증평": "류지영"}
         assert L.REMOTE_HOLD_LIMIT == 3
-        rid = L.remote_request("부산", "김기사", 2, "오종현")
-        # 승인 전에는 보유가 없다 — 납품·초과 신청 모두 막힌다.
-        for bad in (lambda: L.remote_deliver("김기사", "UJ2600001", "", 1),
-                    lambda: L.remote_request("부산", "김기사", 2, "오종현"),
-                    lambda: L.remote_request("서울", "박기사", 1, "아무개")):
+        L.remote_request("부산", "김기사", 2, "오종현")     # 즉시 불출 기록
+        for bad in (lambda: L.remote_request("부산", "김기사", 2, "오종현"),   # 2+2>3
+                    lambda: L.remote_request("서울", "박기사", 1, "아무개"),   # 지점 제한
+                    lambda: L.remote_deliver("김기사", "UJ2600001", "", 3)):   # 보유 초과 납품
             try:
                 bad(); raise AssertionError("리모컨 규칙이 뚫렸다")
             except ValueError:
                 pass
-        assert L.remote_decide(rid, "부사장") == "불출완료"
-        L.remote_request("시화", "김기사", 1, "안은숙")     # 2+대기1=3 — 허용
-        try:
-            L.remote_request("증평", "김기사", 1, "류지영")
-            raise AssertionError("담당자당 3개 한도가 뚫렸다")
-        except ValueError:
-            pass
+        L.remote_request("시화", "김기사", 1, "안은숙")     # 2+1=3 — 허용
         L.remote_deliver("김기사", "UJ2600001", "부산2캠프", 2, "2026-08-03")
         hold = L.remote_status()["holdings"]["김기사"]
-        assert hold == {"issued": 2, "delivered": 2, "holding": 0, "reserved": 1}, hold
+        assert hold == {"issued": 3, "delivered": 2, "holding": 1}, hold
+        assert not hasattr(L, "remote_decide"), "승인 단계가 아직 남아 있다"
     finally:
         L.DB_PATH, L.DB_DIR = old_path, old_dir
-    # 앱: 류지영·오종현 업무센터 공통 카드 + 관리자 승인 + 서버 권한
+    # 앱: 류지영·오종현 업무센터 공통 카드 + iOS 스타일 + 대표보고 캡처 포함 + 승인 UI 없음
     html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
-    for need in ("injectRemoteCard", "renderRemoteCard", "remoteRequest", "remoteApprove",
+    for need in ("injectRemoteCard", "renderRemoteCard", "remoteRequest",
                  "remoteDeliver", "centerRemoteHost",
                  "if(staffSlug==='ryu-jiyeong'||staffSlug==='oh-jonghyeon') injectRemoteCard()",
-                 # iOS 스타일(2026-08-03 2차)·대표보고 캡처 포함
                  ".remote-grid2 fieldset{border:0;border-radius:16px",
                  "loadRemoteStat", "remote: REMOTE_STAT", "rmtH",
-                 "리모컨 현황 — 분출 전 부사장 승인"):
+                 "리모컨 현황 — 불출·납품 기록"):
         assert need in html, f"리모컨 카드 구성 요소 누락: {need}"
+    assert "remoteApprove" not in html and "승인 요청" not in html, "승인 UI가 남아 있다"
     srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     assert "/api/remote/status" in srv and "/api/remote/request" in srv
+    assert "/api/remote/approve" not in srv, "승인 API가 남아 있다"
     blk = srv[srv.index('"/api/remote/request"'):srv.index('"/api/remote/request"') + 1600]
     assert '"ryu-jiyeong", "oh-jonghyeon"' in blk, "리모컨 관리가 두 업무센터로 제한되지 않았다"
-    assert '부사장(관리자)만' in blk, "승인이 부사장(관리자)으로 제한되지 않았다"
-    print("  [98] 리모컨 불출 3개 한도·부사장 승인·납품 추적 DB·앱 ✅")
+    print("  [98] 리모컨 기록·관리·보고(승인 없음)·3개 한도·납품 추적 ✅")
 
 
 def t94_human_edit_guard():
