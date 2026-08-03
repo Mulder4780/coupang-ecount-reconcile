@@ -149,7 +149,8 @@ CREATE TABLE IF NOT EXISTS remote_issue(     -- 리모컨 불출 (2026-08-03 지
   approved_at TEXT,
   note TEXT,
   issued_on TEXT,                            -- 불출 일자(공지 2026-08-04 — 입력일과 다를 수 있다)
-  camp TEXT                                  -- 투입 예정 캠프명(공지 2026-08-04)
+  camp TEXT,                                 -- 투입 예정 캠프명(공지 2026-08-04)
+  version TEXT                               -- 리모컨 버전(미확인·기존형·VER.3·VER.4)
 );
 CREATE TABLE IF NOT EXISTS remote_delivery(  -- 리모컨 납품 — 어느 프로젝트/캠프에 들어갔나
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,7 +161,9 @@ CREATE TABLE IF NOT EXISTS remote_delivery(  -- 리모컨 납품 — 어느 프�
   delivered_on TEXT NOT NULL,
   note TEXT,
   created_by TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  kind TEXT,                                 -- 납품 | 사용 | 교체 | 샘플 | 택배출고 (2026-08-04)
+  version TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_remote_issue_tech ON remote_issue(technician, status);
 CREATE INDEX IF NOT EXISTS ix_remote_delivery_tech ON remote_delivery(technician, delivered_on);
@@ -170,7 +173,9 @@ CREATE TABLE IF NOT EXISTS remote_stock(     -- 리모컨 지점 재고 조정 �
   qty_delta INTEGER NOT NULL,                -- 입고 +N · 정정 ±N · 실사 맞춤도 델타로 기록
   reason TEXT,                               -- 입고 | 실사 | 정정 등
   created_by TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  version TEXT,                              -- 버전별 재고 구분(증평 기존형 20 · VER.4 49)
+  moved_on TEXT                              -- 실제 입출고 일자(입력일과 다를 수 있다)
 );
 CREATE INDEX IF NOT EXISTS ix_remote_stock_branch ON remote_stock(branch, created_at);
 """
@@ -200,14 +205,19 @@ def conn():
                 if "duplicate column" not in str(exc).lower():
                     raise
         # 리모컨 공지(2026-08-04): 불출 일자·투입 예정 캠프명을 불출 기록에 남긴다.
-        ri_cols = {row[1] for row in c.execute("PRAGMA table_info(remote_issue)").fetchall()}
-        for col in ("issued_on", "camp"):
-            if col not in ri_cols:
-                try:
-                    c.execute(f"ALTER TABLE remote_issue ADD COLUMN {col} TEXT")
-                except sqlite3.OperationalError as exc:
-                    if "duplicate column" not in str(exc).lower():
-                        raise
+        # 같은 날 2차: 실제 재고표가 버전(기존형·VER.3·VER.4)과 처리유형(사용·교체·
+        # 샘플·택배출고)으로 관리되고 있어 세 표에 열을 더 붙인다.
+        for table, cols in (("remote_issue", ("issued_on", "camp", "version")),
+                            ("remote_delivery", ("kind", "version")),
+                            ("remote_stock", ("version", "moved_on"))):
+            have = {row[1] for row in c.execute(f"PRAGMA table_info({table})").fetchall()}
+            for col in cols:
+                if col not in have:
+                    try:
+                        c.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
+                    except sqlite3.OperationalError as exc:
+                        if "duplicate column" not in str(exc).lower():
+                            raise
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_pending_ingest"
                   " ON pending(ingest_key) WHERE ingest_key IS NOT NULL")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_batch_done_slot"
@@ -588,10 +598,17 @@ def staff_resolution_summary():
     return {owner: rows.get(owner, {"completed": 0, "last_seen": ""}) for owner in owners}
 
 
+# 보유로 잡는 불출 상태. '기초보유'는 2026-07-29 재고표에서 넘어온 개시 잔량이라
+# 한도(3개) 검사를 받지 않는다 — 이미 손에 있는 물건을 없다고 할 수는 없기 때문이다.
+# 대신 remote_status 가 한도 초과자를 따로 알려 준다(공지 4항의 회수·확인 대상).
+REMOTE_HOLD_STATUSES = ("불출완료", "기초보유")
+
+
 def _remote_holdings(c):
-    """AS 담당자별 보유 = 불출 합 - 납품 합."""
+    """AS 담당자별 보유 = (불출 + 기초보유) 합 - 납품·사용 합."""
     issued = {row[0]: row[1] for row in c.execute(
-        "SELECT technician,SUM(qty) FROM remote_issue WHERE status='불출완료' GROUP BY technician")}
+        "SELECT technician,SUM(qty) FROM remote_issue"
+        " WHERE status IN ('불출완료','기초보유') GROUP BY technician")}
     delivered = {row[0]: row[1] for row in c.execute(
         "SELECT technician,SUM(qty) FROM remote_delivery GROUP BY technician")}
     out = {}
@@ -602,22 +619,46 @@ def _remote_holdings(c):
 
 
 def _remote_branch_stock(c):
-    """지점별 현재 재고 = 재고 조정 합계 - 그 지점 불출 합계 (2026-08-03 지시)."""
+    """지점별 현재 재고 = 재고 조정 합계 - 그 지점 불출 합계 (2026-08-03 지시).
+
+    버전별 내역도 함께 준다(2026-08-04): 증평은 기존형과 VER.4 를 나눠 세고 있어
+    합계만 보면 어느 물건이 남았는지 알 수 없다.
+    """
     added = {row[0]: int(row[1] or 0) for row in c.execute(
         "SELECT branch,SUM(qty_delta) FROM remote_stock GROUP BY branch")}
+    # 기초보유는 빼지 않는다 — 2026-07-29 기초 재고표의 지점 수량은 기사에게 이미
+    # 지급하고 남은 net 값이라, 여기서 또 빼면 같은 물건을 두 번 차감하게 된다.
     issued = {row[0]: int(row[1] or 0) for row in c.execute(
-        "SELECT branch,SUM(qty) FROM remote_issue WHERE status='불출완료' GROUP BY branch")}
+        "SELECT branch,SUM(qty) FROM remote_issue"
+        " WHERE status='불출완료' GROUP BY branch")}
+    by_ver = {}
+    for br, ver, delta in c.execute(
+            "SELECT branch,COALESCE(NULLIF(version,''),'미확인'),SUM(qty_delta)"
+            " FROM remote_stock GROUP BY branch,COALESCE(NULLIF(version,''),'미확인')"):
+        by_ver.setdefault(br, {})[ver] = by_ver.get(br, {}).get(ver, 0) + int(delta or 0)
+    for br, ver, qty in c.execute(
+            "SELECT branch,COALESCE(NULLIF(version,''),'미확인'),SUM(qty)"
+            " FROM remote_issue WHERE status='불출완료'"
+            " GROUP BY branch,COALESCE(NULLIF(version,''),'미확인')"):
+        if br in by_ver and ver in by_ver[br]:
+            by_ver[br][ver] -= int(qty or 0)
     out = {}
     for br in REMOTE_BRANCH_ISSUERS:
         got, used = added.get(br, 0), issued.get(br, 0)
         out[br] = {"label": REMOTE_BRANCH_LABELS.get(br, br), "in": got,
                    "issued": used, "stock": got - used,
+                   "versions": {k: v for k, v in sorted((by_ver.get(br) or {}).items())},
                    "tracked": br in added}          # 조정 기록이 있어야 재고 관리 대상
     return out
 
 
-def remote_stock_adjust(branch, qty, mode="add", reason="", created_by=""):
-    """지점 재고 등록/조정. mode='add'는 입고(±델타), 'set'은 실사값으로 맞춘다."""
+def remote_stock_adjust(branch, qty, mode="add", reason="", created_by="",
+                        version="", moved_on=""):
+    """지점 재고 등록/조정. mode='add'는 입고(±델타), 'set'은 실사값으로 맞춘다.
+
+    version 을 주면 버전별 잔량까지 따라간다(증평 기존형/VER.4). 공장에서 현장으로
+    바로 나간 택배 출고·샘플 송부처럼 담당자를 거치지 않는 출고도 음수 델타로 남긴다.
+    """
     branch = str(branch or "").strip()
     if branch not in REMOTE_BRANCH_ISSUERS:
         raise ValueError("지점은 부산·시화·증평 중 하나여야 합니다")
@@ -639,10 +680,39 @@ def remote_stock_adjust(branch, qty, mode="add", reason="", created_by=""):
         if after < 0:
             raise ValueError(f"{REMOTE_BRANCH_LABELS[branch]} 재고가 음수({after})가 됩니다")
         c.execute(
-            "INSERT INTO remote_stock(branch,qty_delta,reason,created_by,created_at)"
-            " VALUES(?,?,?,?,?)",
-            (branch, delta, str(reason or ""), str(created_by or ""), now))
+            "INSERT INTO remote_stock(branch,qty_delta,reason,created_by,created_at,"
+            "version,moved_on) VALUES(?,?,?,?,?,?,?)",
+            (branch, delta, str(reason or ""), str(created_by or ""), now,
+             str(version or "").strip(), str(moved_on or now[:10])[:10]))
         return after
+
+
+def remote_open_balance(technician, qty, on="", note="", created_by="",
+                        branch="", version=""):
+    """개시 보유량 등록 — 2026-07-29 재고표에서 넘어온 '이미 갖고 있는 수량'.
+
+    한도(3개)를 검사하지 않는다. 실제로 김필우·김준형 기사는 9개씩 들고 있었고,
+    이를 거부하면 시스템이 현실과 어긋난 채로 남는다. 대신 상태를 '기초보유'로 남겨
+    새 불출(remote_request)과 구분하고, remote_status 가 한도 초과자를 보고한다.
+    지점 재고에서 빼지 않는다 — 기초 재고표가 이미 지급된 뒤의 숫자이기 때문이다.
+    """
+    technician = str(technician or "").strip()
+    qty = int(qty or 0)
+    if not technician:
+        raise ValueError("AS 담당자 이름이 필요합니다")
+    if qty < 1:
+        raise ValueError("수량은 1개 이상이어야 합니다")
+    now = datetime.now().isoformat(timespec="seconds")
+    day = str(on or now[:10])[:10]
+    with conn() as c:
+        cur = c.execute(
+            "INSERT INTO remote_issue(branch,issuer,technician,qty,status,"
+            "requested_by,requested_at,note,issued_on,camp,version)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (str(branch or ""), REMOTE_BRANCH_ISSUERS.get(str(branch or ""), ""),
+             technician, qty, "기초보유", str(created_by or ""), now,
+             str(note or ""), day, "", str(version or "")))
+        return cur.lastrowid
 
 
 def remote_request(branch, technician, qty, requested_by, note="",
@@ -686,8 +756,13 @@ def remote_request(branch, technician, qty, requested_by, note="",
         return cur.lastrowid
 
 
-def remote_deliver(technician, project, camp, qty, delivered_on="", note="", created_by=""):
-    """리모컨 납품 기록 — 어느 프로젝트/캠프에 몇 개가 들어갔는지 추적의 원본."""
+def remote_deliver(technician, project, camp, qty, delivered_on="", note="",
+                   created_by="", kind="납품", version=""):
+    """리모컨 납품 기록 — 어느 프로젝트/캠프에 몇 개가 들어갔는지 추적의 원본.
+
+    kind 로 처리유형을 구분한다(2026-08-04 재고표 기준): 납품·사용·교체 모두
+    기사 보유를 줄인다는 점은 같지만, 사람이 나중에 "왜 줄었나"를 물을 때 답이 다르다.
+    """
     technician = str(technician or "").strip()
     qty = int(qty or 0)
     if not technician:
@@ -705,9 +780,10 @@ def remote_deliver(technician, project, camp, qty, delivered_on="", note="", cre
                 f"{technician} 보유 {hold['holding']}개보다 많은 {qty}개를 납품할 수 없습니다")
         cur = c.execute(
             "INSERT INTO remote_delivery(technician,project,camp,qty,delivered_on,"
-            "note,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)",
+            "note,created_by,created_at,kind,version) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (technician, str(project or "").strip().upper(), str(camp or "").strip(),
-             qty, day, str(note or ""), str(created_by or ""), now))
+             qty, day, str(note or ""), str(created_by or ""), now,
+             str(kind or "납품"), str(version or "")))
         return cur.lastrowid
 
 
@@ -717,20 +793,35 @@ def remote_status(limit=60):
         holdings = _remote_holdings(c)
         branch_stock = _remote_branch_stock(c)
         issues = [dict(zip(("id", "branch", "issuer", "technician", "qty", "status",
-                            "requested_at", "issued_on", "camp"), row))
+                            "requested_at", "issued_on", "camp", "version"), row))
                   for row in c.execute(
                       "SELECT id,branch,issuer,technician,qty,status,requested_at,"
-                      "issued_on,camp"
+                      "issued_on,camp,version"
                       " FROM remote_issue ORDER BY id DESC LIMIT ?", (int(limit),))]
         deliveries = [dict(zip(("id", "technician", "project", "camp", "qty",
-                                "delivered_on", "note"), row))
+                                "delivered_on", "note", "kind", "version"), row))
                       for row in c.execute(
-                          "SELECT id,technician,project,camp,qty,delivered_on,note"
+                          "SELECT id,technician,project,camp,qty,delivered_on,note,"
+                          "kind,version"
                           " FROM remote_delivery ORDER BY id DESC LIMIT ?", (int(limit),))]
+        moves = [dict(zip(("id", "branch", "qty_delta", "reason", "version",
+                           "moved_on"), row))
+                 for row in c.execute(
+                     "SELECT id,branch,qty_delta,reason,version,moved_on"
+                     " FROM remote_stock ORDER BY id DESC LIMIT ?", (int(limit),))]
+    # 공지 4항: 한도는 '기존 보유 포함'이다. 기초보유로 이미 넘긴 사람은 새 불출 대상이
+    # 아니라 **회수·사용확인 대상**이므로 따로 뽑아 화면에 띄운다.
+    over = {t: h["holding"] for t, h in holdings.items()
+            if h["holding"] > REMOTE_HOLD_LIMIT}
+    total_hold = sum(h["holding"] for h in holdings.values())
+    total_stock = sum(b["stock"] for b in branch_stock.values())
     return {"limit": REMOTE_HOLD_LIMIT, "branches": REMOTE_BRANCH_ISSUERS,
             "branch_labels": REMOTE_BRANCH_LABELS, "branch_stock": branch_stock,
             "holdings": holdings, "issues": issues, "deliveries": deliveries,
-            "rule": "AS 담당자당 최대 3개 · 불출·납품 기록 · 지점 재고 자동 차감"}
+            "moves": moves, "over_limit": over,
+            "totals": {"holding": total_hold, "stock": total_stock,
+                       "all": total_hold + total_stock},
+            "rule": "AS 담당자당 최대 3개(기존 보유 포함) · 불출·납품 기록 · 지점 재고 자동 차감"}
 
 
 def pending_work_completion_entries(today=None):

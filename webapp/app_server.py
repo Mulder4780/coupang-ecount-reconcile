@@ -4295,7 +4295,8 @@ self.addEventListener('fetch', e => {
                     # 지점 재고 등록(2026-08-03): 입고(add ±N) 또는 실사(set 절대값)
                     after = ledger_db.remote_stock_adjust(
                         body.get("branch"), body.get("qty"),
-                        body.get("mode") or "add", body.get("note") or "", who)
+                        body.get("mode") or "add", body.get("note") or "", who,
+                        version=body.get("version") or "")
                     return self._send(200, {"ok": True, "stock": after})
                 if p == "/api/remote/request":
                     # 공지(2026-08-04): 불출 일자·투입 예정 캠프명까지 기록한다
@@ -4307,7 +4308,8 @@ self.addEventListener('fetch', e => {
                 rid = ledger_db.remote_deliver(
                     body.get("technician"), body.get("project") or "",
                     body.get("camp") or "", body.get("qty"),
-                    body.get("delivered_on") or "", body.get("note") or "", who)
+                    body.get("delivered_on") or "", body.get("note") or "", who,
+                    kind=body.get("kind") or "납품")
                 return self._send(200, {"ok": True, "id": rid})
             except ValueError as exc:
                 return self._send(400, {"ok": False, "error": str(exc)[:260]})

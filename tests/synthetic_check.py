@@ -4251,9 +4251,32 @@ def t98_remote_control_tracking():
                          issued_on="2026-08-02", camp="시화3캠프")  # 2+1=3 — 허용
         top = L.remote_status()["issues"][0]
         assert (top["issued_on"], top["camp"]) == ("2026-08-02", "시화3캠프"), top
-        L.remote_deliver("김기사", "UJ2600001", "부산2캠프", 2, "2026-08-03")
+        L.remote_deliver("김기사", "UJ2600001", "부산2캠프", 2, "2026-08-03", kind="사용")
         hold = L.remote_status()["holdings"]["김기사"]
         assert hold == {"issued": 3, "delivered": 2, "holding": 1}, hold
+        assert L.remote_status()["deliveries"][0]["kind"] == "사용"
+
+        # 기초보유(2026-08-04 재고표 이관): 한도를 넘는 개시 잔량도 사실대로 받는다.
+        # 대신 over_limit 에 뜨고, 지점 재고에서 이중 차감하지 않는다.
+        L.remote_stock_adjust("부산", 21, "add", "기초", "오종현", version="미확인")
+        before = L.remote_status()["branch_stock"]["부산"]["stock"]
+        L.remote_open_balance("정기사", 9, "2026-07-29", "기초 보유", "류지영",
+                              branch="부산", version="미확인")
+        st = L.remote_status()
+        assert st["holdings"]["정기사"]["holding"] == 9, st["holdings"]["정기사"]
+        assert st["over_limit"].get("정기사") == 9, st["over_limit"]
+        assert st["branch_stock"]["부산"]["stock"] == before, "기초보유가 지점 재고를 깎았다"
+        try:                                   # 새 불출은 여전히 한도가 막는다
+            L.remote_request("부산", "정기사", 1, "오종현")
+            raise AssertionError("한도 초과자에게 추가 불출이 뚫렸다")
+        except ValueError:
+            pass
+        # 버전별 잔량: 같은 지점 안에서 기존형/VER.4 를 나눠 센다
+        L.remote_stock_adjust("부산", 50, "add", "신규 입고", "오종현", version="VER.4")
+        L.remote_stock_adjust("부산", -1, "add", "샘플 송부", "오종현", version="VER.4")
+        # 미확인 21 - 앞서 부산에서 나간 불출 2개 = 19 (불출도 버전별로 빠진다)
+        vers = L.remote_status()["branch_stock"]["부산"]["versions"]
+        assert vers.get("VER.4") == 49 and vers.get("미확인") == 19, vers
         assert not hasattr(L, "remote_decide"), "승인 단계가 아직 남아 있다"
 
         # 지점 재고(2026-08-03 3차): 등록 지점은 재고보다 많이 불출 못 하고 자동 차감된다.
