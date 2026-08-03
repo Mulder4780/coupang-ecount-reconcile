@@ -1387,15 +1387,25 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
   .mobile-only{display:none}
 }
 
-/* 리모컨 관리 카드(2026-08-03) */
-.remote-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+/* 리모컨 관리 카드(2026-08-03) — iOS 그룹 리스트 스타일 */
+.remote-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
 @media(max-width:720px){.remote-grid2{grid-template-columns:1fr}}
-.remote-grid2 fieldset{border:1px solid var(--line,#334);border-radius:8px;padding:8px}
-.remote-grid2 input,.remote-grid2 select{margin:3px 4px 3px 0}
-table.remote-mini{border-collapse:collapse;width:100%;margin:6px 0}
-table.remote-mini th,table.remote-mini td{border-bottom:1px solid var(--line,#334);padding:4px 8px;text-align:left;font-size:.92em}
-ul.remote-plain{list-style:none;padding:0;margin:6px 0}
-ul.remote-plain li{padding:4px 0;border-bottom:1px dashed var(--line,#334)}
+.remote-grid2 fieldset{border:0;border-radius:16px;background:#F2F4F8;padding:14px 14px 10px;margin:0;min-width:0}
+.remote-grid2 legend{padding:0 2px 9px;font-size:12.5px;font-weight:800;color:#6B7280;letter-spacing:.03em}
+.remote-grid2 input,.remote-grid2 select{display:block;width:100%;margin:0 0 9px;padding:11px 13px;
+  font-size:15px;border:1px solid #E2E6EF;border-radius:12px;background:#fff;color:#101828;
+  -webkit-appearance:none;appearance:none;outline:none;min-height:44px;box-sizing:border-box}
+.remote-grid2 select{background:#fff url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236B7280' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 13px center}
+.remote-grid2 input:focus,.remote-grid2 select:focus{border-color:#2452E6;box-shadow:0 0 0 3px rgba(36,82,230,.13)}
+.remote-row2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.remote-grid2 .abtn{display:flex;width:100%;justify-content:center;border-radius:13px;min-height:47px;
+  font-size:15.5px;font-weight:800;margin-top:2px}
+table.remote-mini{border-collapse:collapse;width:100%;margin:8px 0;background:#fff;border-radius:13px;overflow:hidden}
+table.remote-mini th{background:#F1F5FB;color:#475467;font-size:12px;font-weight:800;padding:9px 12px;text-align:left}
+table.remote-mini td{border-top:1px solid #EEF2F7;padding:10px 12px;text-align:left;font-size:14px;color:#101828}
+ul.remote-plain{list-style:none;padding:0;margin:8px 0}
+ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14px}
+.remote-rule{font-size:12.5px;color:#6B7280;margin:2px 0 6px}
 </style>
 </head>
 <body>
@@ -3491,23 +3501,27 @@ async function renderRemoteCard(hostId){
     ${isAdmin?`<button class="abtn primary" onclick="remoteApprove(${r.id},true,'${hostId}')">승인·불출</button><button class="abtn warn" onclick="remoteApprove(${r.id},false,'${hostId}')">반려</button>`:' — 부사장 승인 대기'}</li>`).join('');
   const dels=(s.deliveries||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.delivered_on)}</td><td>${esc2(r.technician)}</td><td>${esc2(r.project||'')} ${esc2(r.camp||'')}</td><td>${r.qty}</td></tr>`).join('');
   host.innerHTML=`
-    <p class="norm">분출 담당 — ${Object.entries(s.branches||{}).map(([b,n])=>`${esc2(b)}: ${esc2(n)}`).join(' · ')} · 한도 ${s.limit}개</p>
+    <p class="remote-rule">분출 담당 — ${Object.entries(s.branches||{}).map(([b,n])=>`${esc2(b)}: ${esc2(n)}`).join(' · ')} · AS 담당자당 한도 ${s.limit}개</p>
     <table class="remote-mini"><tr><th>AS 담당자</th><th>불출</th><th>납품</th><th>보유</th></tr>${holdRows}</table>
     ${pend?`<h4>승인 대기</h4><ul class="remote-plain">${pend}</ul>`:''}
     <div class="remote-grid2">
-      <fieldset><legend>불출 신청 (승인 후 분출)</legend>
-        <select id="${hostId}Br">${Object.keys(s.branches||{}).map(b=>`<option>${esc2(b)}</option>`).join('')}</select>
-        <input id="${hostId}Tech" placeholder="AS 담당자 이름">
-        <input id="${hostId}Qty" type="number" min="1" max="${s.limit}" value="1" style="width:4.5em">
-        <input id="${hostId}Note" placeholder="비고(선택)">
+      <fieldset><legend>불출 신청 · 승인 후 분출</legend>
+        <div class="remote-row2">
+          <select id="${hostId}Br" aria-label="불출 지점">${Object.keys(s.branches||{}).map(b=>`<option>${esc2(b)}</option>`).join('')}</select>
+          <input id="${hostId}Qty" type="number" inputmode="numeric" min="1" max="${s.limit}" value="1" aria-label="수량">
+        </div>
+        <input id="${hostId}Tech" placeholder="AS 담당자 이름" autocomplete="off">
+        <input id="${hostId}Note" placeholder="비고 (선택)" autocomplete="off">
         <button class="abtn primary" onclick="remoteRequest('${hostId}')">승인 요청</button>
       </fieldset>
-      <fieldset><legend>납품 기록 (프로젝트·캠프 추적)</legend>
-        <input id="${hostId}DTech" placeholder="AS 담당자 이름">
-        <input id="${hostId}DPrj" placeholder="프로젝트NO (UJ…)">
-        <input id="${hostId}DCamp" placeholder="캠프명">
-        <input id="${hostId}DQty" type="number" min="1" value="1" style="width:4.5em">
-        <input id="${hostId}DDay" type="date">
+      <fieldset><legend>납품 기록 · 프로젝트/캠프 추적</legend>
+        <input id="${hostId}DTech" placeholder="AS 담당자 이름" autocomplete="off">
+        <input id="${hostId}DPrj" placeholder="프로젝트NO (UJ…)" autocomplete="off">
+        <div class="remote-row2">
+          <input id="${hostId}DCamp" placeholder="캠프명" autocomplete="off">
+          <input id="${hostId}DQty" type="number" inputmode="numeric" min="1" value="1" aria-label="수량">
+        </div>
+        <input id="${hostId}DDay" type="date" value="${new Date().toISOString().slice(0,10)}" aria-label="납품일">
         <button class="abtn primary" onclick="remoteDeliver('${hostId}')">납품 저장</button>
       </fieldset>
     </div>
@@ -5189,6 +5203,8 @@ let brandLogo = '';      // webapp/brand/ 에 넣은 고객사 CI 파일명(없�
 let erpDocs = {rows:[],months:{},kinds:{},total:0};   // 25_ERP매출서류 (이카운트 계산서 원본)
 let srcStats = {};                     // /api/status 의 sources (4원천 실집계)
 let _rptData = null;                   // 보고서 데이터(HTML·Canvas 공용)
+let REMOTE_STAT = null;                // 리모컨 현황 — 대표보고 캡처에도 싣는다(2026-08-03)
+async function loadRemoteStat(){ try{ REMOTE_STAT=await api('/api/remote/status'); }catch(e){} }
 let execRep = {};                      // 01_대표보고 시트 원본(엑셀 수식 집계 결과)
 let repData = {};                      // 유수비 대표 통화 기준 예외·진도·거래서류 요약
 
@@ -6143,7 +6159,15 @@ function renderDaily(){
       return [t, `${l.length}건 (AS ${as}·점검 ${pm})`, fmt(l.reduce((a,r)=>a+(+r.공급가액||0),0)),
         l.slice(0,5).map(r=>projectNoOf(r)||'프로젝트 미확정').join(', ')+(l.length>5?` 외 ${l.length-5}건`:'')];}),
     srcs: srcRows,
-    srcDetails
+    srcDetails,
+    // 리모컨 현황(2026-08-03 지시) — 대표보고 캡처 이미지에도 들어간다
+    remote: REMOTE_STAT ? {
+      holdings: Object.entries(REMOTE_STAT.holdings||{}).map(([t,h])=>
+        [t, `${h.issued}개`, `${h.delivered}개`, `${h.holding}개`]),
+      pending: (REMOTE_STAT.pending||[]).length,
+      deliveries: (REMOTE_STAT.deliveries||[]).slice(0,5).map(r=>
+        [r.delivered_on, r.technician, [r.project,r.camp].filter(Boolean).join(' '), r.qty+'개'])
+    } : null
   };
 }
 
@@ -7535,6 +7559,10 @@ async function reportToPng(){
   // ★ 타일 개수를 하드코딩(6)하면 지표가 7개일 때 마지막 타일이 캔버스 밖으로 잘린다
   const erpM = D.erpMonths || [];
   const erpH = erpM.length ? 34 + (erpM.length+1)*28 + 20 : 0;
+  // 리모컨 현황(2026-08-03) — 보유 표 + 승인대기 줄 + 최근 납품 표
+  const rmt = D.remote;
+  const rmtH = rmt ? 48 + 28 + Math.max(1,(rmt.holdings||[]).length)*30 + (rmt.pending?26:0)
+               + ((rmt.deliveries||[]).length ? 48 + 28 + rmt.deliveries.length*30 : 0) + 16 : 0;
   const pmProgress = D.pmProgress || [];
   const wlAs = ((D.workLog||{})['돌발AS']) || {};
   const wlReasons = wlAs.미처리사유 || [];
@@ -7566,7 +7594,7 @@ async function reportToPng(){
           + 34 + tiles((D.kpi||[]).length) + (D.kpiNote ? 18 : 0)
           + execSecH
           + dailyBriefH + pmProgressH + workLogH
-          + erpH
+          + erpH + rmtH
           + 34 + (D.issues.length+1)*30 + 34 + sourceTableH + 54;
   cv.width = W*S; cv.height = H*S;
   ctx.scale(S,S);
@@ -7860,6 +7888,23 @@ async function reportToPng(){
         30, y+12, F(10), '#98A2B3');
     y += 20;
   }
+
+  // ── 리모컨 현황(2026-08-03 지시) — 대표보고 캡처에 포함
+  if(rmt){
+    section('리모컨 현황 — 분출 전 부사장 승인 · AS 담당자당 3개');
+    table(['AS 담당자','불출','납품','보유'],
+          (rmt.holdings&&rmt.holdings.length)?rmt.holdings:[['불출 이력 없음','-','-','-']],
+          [320,160,160,160]);
+    if(rmt.pending){
+      txt(`승인 대기 ${rmt.pending}건 — 부사장 승인 후 분출됩니다.`, 30, y+13, F(10.5,700), '#B54708');
+      y += 26;
+    }
+    if((rmt.deliveries||[]).length){
+      section('리모컨 최근 납품 — 프로젝트·캠프 추적');
+      table(['납품일','AS 담당자','납품처(프로젝트·캠프)','수량'], rmt.deliveries, [150,170,360,120]);
+    }
+    y += 16;
+  }
   section('조치 필요 — 유형별 (프로젝트NO)');
   table(['유형','건수','공급가액(부가세 별도·원)','프로젝트NO'],
         D.issues.length?D.issues:[['조치 필요 없음','-','-','-']], [200,70,130,440-100]);
@@ -8129,6 +8174,7 @@ async function captureReport(){
   let blob;
   try{
     // 클릭 시점의 최신 4원천 집계를 다시 묶어 화면과 저장 이미지가 항상 같게 한다.
+    await loadRemoteStat();            // 리모컨 현황도 캡처에 싣는다(2026-08-03)
     renderDaily();
     blob = await reportToPng();
     if(!blob) throw new Error('이미지 생성 결과가 비어 있습니다');
@@ -8139,6 +8185,7 @@ async function captureReport(){
 async function shareReport(){
   let blob;
   try{
+    await loadRemoteStat();
     renderDaily();
     blob = await reportToPng();
     if(!blob) throw new Error('empty');
@@ -8177,7 +8224,7 @@ SWR_RERUN['/api/notifications'] = () => loadNotifications().catch(()=>{});
 });
 
 async function refreshAll(){
-  try{ await loadSettle(); await loadStatus(); await loadNotifications(); if(staffSlug) await staffHeartbeat('view'); }catch(e){}
+  try{ await loadSettle(); await loadStatus(); await loadNotifications(); loadRemoteStat(); if(staffSlug) await staffHeartbeat('view'); }catch(e){}
 }
 (async function(){
   tick(); setInterval(tick, 30000); initDates(); previewCalendarDraft();

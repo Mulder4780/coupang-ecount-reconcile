@@ -4217,7 +4217,11 @@ def t98_remote_control_tracking():
     html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     for need in ("injectRemoteCard", "renderRemoteCard", "remoteRequest", "remoteApprove",
                  "remoteDeliver", "centerRemoteHost",
-                 "if(staffSlug==='ryu-jiyeong'||staffSlug==='oh-jonghyeon') injectRemoteCard()"):
+                 "if(staffSlug==='ryu-jiyeong'||staffSlug==='oh-jonghyeon') injectRemoteCard()",
+                 # iOS 스타일(2026-08-03 2차)·대표보고 캡처 포함
+                 ".remote-grid2 fieldset{border:0;border-radius:16px",
+                 "loadRemoteStat", "remote: REMOTE_STAT", "rmtH",
+                 "리모컨 현황 — 분출 전 부사장 승인"):
         assert need in html, f"리모컨 카드 구성 요소 누락: {need}"
     srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     assert "/api/remote/status" in srv and "/api/remote/request" in srv
