@@ -5,6 +5,9 @@
 
 * 금액 재계산 대기: 관리대장 06의 프로젝트·PO·거래명세서 합계와 PO 원본
   견적서의 프로젝트·PO·부가세 포함 총액이 모두 같고, 일치 견적서가 한 장뿐인 건.
+* 금액 재계산 대기(ERP): 견적서가 없어도 같은 프로젝트의 ERP 판매전표
+  공급가액(또는 부가세포함 합계)이 거래명세서합계와 **유일하게** 일치하는 건.
+  전표·명세서는 서로 다른 원천이므로 금액이 정확히 맞으면 재계산 결과가 입증된다.
 * 세금계산서 미발행: 관리대장 26_계산서구성에서 프로젝트가 연결되고 판정이
   ``확정``인 ERP 계산서 건.
 
@@ -27,6 +30,7 @@ from po_pdf import CACHE_FILE, PO_RE
 
 REPORT = os.path.join(ROOT, "reports", "정산_객관완료.json")
 AMOUNT_STATUS = "완료(견적·명세서 금액확인)"
+ERP_AMOUNT_STATUS = "완료(ERP 전표 금액확인)"
 INVOICE_STATUS = "완료(ERP 계산서 원본확인)"
 
 
@@ -97,6 +101,69 @@ def quote_index(rows):
     return out
 
 
+def erp_sales_index():
+    """ERP 판매조회에서 {프로젝트NO: [전표(일자·PO·진행상태·공급가액·금액합계)]}를 읽는다.
+
+    ``erp_progress``와 같은 최신 원본 한 벌만 읽고, 실패하면 빈 dict — 원본이 없다고
+    완료를 철회하거나 지어내지 않는다. 합성검증은 실데이터 접촉 0이 원칙이라 건너뛴다.
+    """
+    if os.environ.get("CSOS_SYNTHETIC") == "1":
+        return {}
+    try:
+        import glob
+
+        import openpyxl
+        from source_dirs import ERP_DIR
+
+        cands = [
+            path
+            for path in glob.glob(os.path.join(ERP_DIR, "**", "판매조회*.xlsx"), recursive=True)
+            if "~$" not in path and "__dup_" not in path
+        ]
+        if not cands:
+            return {}
+        path = max(cands, key=lambda p: os.stat(p).st_mtime)
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except Exception:
+        return {}
+    out = {}
+    try:
+        ws = wb["판매조회"] if "판매조회" in wb.sheetnames else wb.worksheets[0]
+        cols = None
+        for row in ws.iter_rows(values_only=True):
+            cells = [str(cell).strip() if cell is not None else "" for cell in row]
+            if cols is None:
+                if "진행상태" not in cells:
+                    continue
+                cols = {
+                    "date": next((i for i, c in enumerate(cells) if c == "일자"), None),
+                    "prj": next((i for i, c in enumerate(cells) if "프로젝트" in c), None),
+                    "status": cells.index("진행상태"),
+                    "po": next((i for i, c in enumerate(cells) if "PO" in c.upper()), None),
+                    "supply": next((i for i, c in enumerate(cells) if "공급가" in c), None),
+                    "total": next((i for i, c in enumerate(cells) if c == "금액합계"), None),
+                }
+                continue
+            get = lambda key: (
+                row[cols[key]] if cols[key] is not None and cols[key] < len(row) else None
+            )
+            project = str(get("prj") or "").strip().upper()
+            if not project:
+                continue
+            out.setdefault(project, []).append({
+                "date": str(get("date") or "")[:10],
+                "po": _po(get("po")),
+                "status": str(get("status") or "").strip(),
+                "supply": _money(get("supply")),
+                "total": _money(get("total")),
+            })
+    except Exception:
+        return {}
+    finally:
+        wb.close()
+    return out
+
+
 def confirmed_invoice_index(master):
     """26_계산서구성의 확정 행을 프로젝트별로 읽는다."""
     import openpyxl
@@ -129,19 +196,21 @@ def confirmed_invoice_index(master):
         wb.close()
 
 
-def objective_entries(records, quotes, invoices, existing=None):
+def objective_entries(records, quotes, invoices, existing=None, erp_sales=None):
     """현재 원장 레코드에서 객관완료 DB 항목을 만든다.
 
     이미 ERP 수금완료처럼 더 강한 완료 근거가 있으면 상태를 낮춰 쓰지 않는다. 이
-    모듈이 전에 쓴 두 상태는 다시 반환해 ``last_seen``만 갱신한다.
+    모듈이 전에 쓴 상태는 다시 반환해 ``last_seen``만 갱신한다.
     """
     existing = existing or {}
     qindex = quote_index(quotes)
+    erp_sales = erp_sales or {}
+    own_statuses = (AMOUNT_STATUS, ERP_AMOUNT_STATUS, INVOICE_STATUS)
     entries = []
     for settle_id, record in sorted((records or {}).items()):
         old = existing.get(settle_id) or {}
         old_status = str(old.get("status") or "")
-        if old_status.startswith("완료(") and old_status not in (AMOUNT_STATUS, INVOICE_STATUS):
+        if old_status.startswith("완료(") and old_status not in own_statuses:
             continue
         project = str(record.get("프로젝트NO") or "").strip().upper()
 
@@ -162,6 +231,32 @@ def objective_entries(records, quotes, invoices, existing=None):
                         f"{issue_day} 합계 {total:,}원 (유일 일치)"
                     ),
                     "evidence_kind": "amount",
+                })
+                continue
+
+            # 견적서가 없으면 ERP 판매전표 금액으로 본다. 같은 프로젝트 전표 중
+            # 공급가액 또는 부가세포함 합계가 명세서합계와 맞는 전표가 **정확히 한 장**
+            # 이어야 하고, 전표에 PO번호가 있으면 원장 PO와 달라선 안 된다.
+            slips = [
+                slip
+                for slip in erp_sales.get(project, [])
+                if total > 0
+                and (slip.get("supply") == total or slip.get("total") == total)
+                and not (slip.get("po") and po_no and slip["po"] != po_no)
+            ]
+            if len(slips) == 1:
+                slip = slips[0]
+                issue_day = str(record.get("원장_거래명세서발행일") or "")[:10]
+                entries.append({
+                    "settle_id": settle_id,
+                    "project": project,
+                    "status": ERP_AMOUNT_STATUS,
+                    "basis": (
+                        f"ERP 판매전표 {slip.get('date') or '-'} ({slip.get('status') or '-'}) · "
+                        f"프로젝트 {project} · 전표금액 {total:,}원 = 관리대장 06 거래명세서 "
+                        f"{issue_day} 합계 {total:,}원 (유일 일치)"
+                    ),
+                    "evidence_kind": "erp_amount",
                 })
                 continue
 
@@ -197,6 +292,7 @@ def write_report(master, entries, synced=0):
         "master": os.path.basename(master),
         "eligible": len(entries),
         "amount": sum(row.get("evidence_kind") == "amount" for row in entries),
+        "erp_amount": sum(row.get("evidence_kind") == "erp_amount" for row in entries),
         "invoice": sum(row.get("evidence_kind") == "invoice" for row in entries),
         "synced": synced,
         "entries": entries,
@@ -217,12 +313,12 @@ def main(argv=None):
     existing = ledger_db.resolutions()
     quotes = dedup_quote_rows()
     invoices = confirmed_invoice_index(master)
-    entries = objective_entries(records, quotes, invoices, existing)
+    entries = objective_entries(records, quotes, invoices, existing, erp_sales_index())
     synced = ledger_db.resolution_sync(entries) if args.sync else 0
     payload = write_report(master, entries, synced)
     print(
         f"정산 객관완료 후보 {payload['eligible']}건 "
-        f"(금액 {payload['amount']} · 계산서 {payload['invoice']})"
+        f"(금액 {payload['amount']} · ERP전표 {payload['erp_amount']} · 계산서 {payload['invoice']})"
         + (f" · DB 동기화 {synced}건" if args.sync else " · dry-run")
     )
     print("리포트:", REPORT)

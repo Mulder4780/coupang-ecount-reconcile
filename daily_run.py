@@ -303,6 +303,10 @@ def _run_pipeline():
     # "류지영 완료"·"오종현 완료"·"유현민 완료"이며 사람 체크나 추정은 쓰지 않는다.
     steps.append(run("담당자별 객관완료 DB 동기화",
                      [os.path.join(ROOT, "staff_completion.py"), "--sync"]))
+    # 오래된 세금계산서 미발행을 경과일 순으로 잡아낸다(2026-08-03 지시). 읽기 전용 감시 —
+    # 발행일은 지어내지 않고, 발행 사실은 ERP 원본이 들어와야 객관완료가 잡는다.
+    steps.append(run("세금계산서 미발행 경과 감시",
+                     [os.path.join(ROOT, "tax_invoice_watch.py")]))
     # 09:50에는 읽기 전용 무결성 검사만 한다. 실제 복구도 11:00·15:00 회차 안에서만 한다.
     steps.append(run("워크북 무결성 검사", [os.path.join(ROOT, "fix_workbook.py")]))
 

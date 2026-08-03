@@ -3455,10 +3455,43 @@ def get_status():
         c = _fresh("status")
         if c:
             return c
+    # ★ TTL 만료 시 옛 값을 **즉시** 돌려주고 재계산은 뒤에서 한 번만 한다(2026-08-03 UX).
+    #   실측: /api/status 1,550회 호출에 평균 5.2초 — 만료 순간마다 Z: 재계산이 요청을
+    #   통째로 잡고 있었다. 원장이 바뀌면 _fresh 가 stale 까지 비우므로 낡은 값이 남지 않는다.
+    stale = _cache.get("status_stale")
+    if stale:
+        _spawn_status_refresh()
+        return stale
+    return _refresh_status_now()
+
+
+_STATUS_REFRESH = {"busy": False}
+
+
+def _refresh_status_now():
+    with _readlock:
+        c = _fresh("status")
+        if c:
+            return c
         c = _compute_status()
         if "error" not in c:
             _store_cache("status", c)
+            _cache["status_stale"] = c
         return c
+
+
+def _spawn_status_refresh():
+    if _STATUS_REFRESH["busy"]:
+        return
+    _STATUS_REFRESH["busy"] = True
+
+    def _run():
+        try:
+            _refresh_status_now()
+        finally:
+            _STATUS_REFRESH["busy"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _compute_status():
@@ -3569,6 +3602,7 @@ def latest_reports():
     # '자료현황' 을 맨 앞에 둔다 — "그거 지금 몇 건이지?" 를 매번 다시 세지 않으려고 만든 장이다
     # (사용자 지시 2026-07-29). data_status.py 가 만들고 daily_run 이 매일 갱신한다.
     for pat, name in [("자료현황.md", "자료현황"),
+                      ("세금계산서_미발행_경과.md", "계산서 미발행 경과"),
                       ("담당자_객관완료.md", "담당자 객관완료"),
                       ("종합리포트_*.md", "종합"), ("카톡대조_*.md", "카톡"), ("밴드대조_*.md", "밴드"),
                       ("ERP원장대조_*.md", "ERP원장"), ("이카운트대조_*.md", "판매·계산서")]:
@@ -3999,6 +4033,10 @@ self.addEventListener('fetch', e => {
             return self._send(200, {"centers": staff_centers_payload()})
         if p == "/api/staff/completions":
             return self._send(200, staff_completions_payload())
+        if p == "/api/remote/status":
+            # 리모컨 불출·납품 현황(2026-08-03 지시). 류지영·오종현 업무센터와 관리자 공용.
+            import ledger_db
+            return self._send(200, ledger_db.remote_status())
         if p == "/api/staff/work-log-status":
             actor = self._actor()
             if actor.get("role") == "staff" and actor.get("staff_slug") != "ryu-jiyeong":
@@ -4205,6 +4243,44 @@ self.addEventListener('fetch', e => {
                 return self._send(200, {"ok": True, **result})
             except Exception as exc:
                 return self._send(400, {"ok": False, "error": str(exc)[:320]})
+        if p in ("/api/remote/request", "/api/remote/approve", "/api/remote/deliver"):
+            # 리모컨 관리(2026-08-03 지시): 신청·납품은 류지영/오종현 업무센터와 관리자,
+            # 승인은 부사장(관리자)만. 규칙(3개 한도·승인 후 불출)은 ledger_db 가 강제한다.
+            actor = self._actor()
+            role = str(actor.get("role") or "")
+            slug = str(actor.get("staff_slug") or "")
+            allowed = role == "admin" or (
+                role == "staff" and slug in ("ryu-jiyeong", "oh-jonghyeon"))
+            if not allowed:
+                return self._send(403, {"ok": False,
+                                        "error": "리모컨 관리는 류지영·오종현 업무센터 또는 관리자만"})
+            if p == "/api/remote/approve" and role != "admin":
+                return self._send(403, {"ok": False, "error": "불출 승인은 부사장(관리자)만 합니다"})
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 20_000:
+                return self._send(400, {"ok": False, "error": "리모컨 요청 형식 오류"})
+            try:
+                body = json.loads(self.rfile.read(ln) or b"{}")
+                import ledger_db
+                who = "관리자" if role == "admin" else STAFF_CENTERS[slug]["name"]
+                if p == "/api/remote/request":
+                    rid = ledger_db.remote_request(
+                        body.get("branch"), body.get("technician"), body.get("qty"),
+                        who, body.get("note") or "")
+                    return self._send(200, {"ok": True, "id": rid, "status": "승인대기"})
+                if p == "/api/remote/approve":
+                    status = ledger_db.remote_decide(
+                        body.get("id"), who, bool(body.get("approve", True)))
+                    return self._send(200, {"ok": True, "status": status})
+                rid = ledger_db.remote_deliver(
+                    body.get("technician"), body.get("project") or "",
+                    body.get("camp") or "", body.get("qty"),
+                    body.get("delivered_on") or "", body.get("note") or "", who)
+                return self._send(200, {"ok": True, "id": rid})
+            except ValueError as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:260]})
+            except Exception as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:260]})
         if p == "/api/staff/receipt-upload":
             # 관리자(업무센터 탭) 또는 오종현 담당자 페이지에서만. 자료는 항상 오종현
             # 소유로 보관된다 — 입금 원천의 관리 책임이 그쪽이기 때문(2026-07-31).

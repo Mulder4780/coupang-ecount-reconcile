@@ -1387,6 +1387,15 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
   .mobile-only{display:none}
 }
 
+/* 리모컨 관리 카드(2026-08-03) */
+.remote-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+@media(max-width:720px){.remote-grid2{grid-template-columns:1fr}}
+.remote-grid2 fieldset{border:1px solid var(--line,#334);border-radius:8px;padding:8px}
+.remote-grid2 input,.remote-grid2 select{margin:3px 4px 3px 0}
+table.remote-mini{border-collapse:collapse;width:100%;margin:6px 0}
+table.remote-mini th,table.remote-mini td{border-bottom:1px solid var(--line,#334);padding:4px 8px;text-align:left;font-size:.92em}
+ul.remote-plain{list-style:none;padding:0;margin:6px 0}
+ul.remote-plain li{padding:4px 0;border-bottom:1px dashed var(--line,#334)}
 </style>
 </head>
 <body>
@@ -1638,6 +1647,10 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
     <div class="card">
       <h3>입금·원천자료 등록 <span class="norm">— 끌어다 놓거나, 파일 선택, URL 붙여넣기</span></h3>
       <div id="centerReceiptHost"></div>
+    </div>
+    <div class="card">
+      <h3>리모컨 관리 <span class="norm">— 분출 전 부사장 승인 · AS 담당자당 최대 3개</span></h3>
+      <div id="centerRemoteHost"></div>
     </div>
   </section>
 
@@ -3390,6 +3403,7 @@ function renderCenter(){
     ohEl.textContent=`미청구 ${st('미청구(전표 없음)')} · 세금계산서 미발행 ${st('세금계산서 미발행')} · 입금 대기 ${st('입금 대기')}건`;
   }
   renderReceiptUpload('centerReceiptHost');
+  renderRemoteCard('centerRemoteHost');
 }
 /* 입금 업로드 존 — 드래그앤드롭·파일선택·URL. 저장은 서버가 Z: '7. 입금내역'에,
    xlsx 는 즉시 입금 대조(receipt_fill --queue)로 이어진다. 오프라인이면 outbox 가 보관. */
@@ -3444,6 +3458,81 @@ function injectOhUpload(){
   card.innerHTML='<h3>입금·원천자료 등록 <span class="norm">— 끌어다 놓거나 파일 선택 · URL</span></h3><div id="ohReceiptHost"></div>';
   anchor.parentNode.insertBefore(card, anchor);
   renderReceiptUpload('ohReceiptHost');
+}
+
+/* ── 리모컨 관리(2026-08-03 지시) ──
+   분출 담당: 부산=오종현 · 시화=안은숙 · 증평=류지영. AS 담당자당 최대 3개.
+   분출 전 부사장(관리자) 승인 필수 — 규칙은 서버(ledger_db)가 강제하고 화면은 안내만 한다.
+   류지영·오종현 업무센터에 똑같이 들어가고, 관리자 업무센터 탭에서는 승인 버튼이 보인다. */
+function injectRemoteCard(){
+  const anchor=$('ryuSummaryGrid'); if(!anchor||$('staffRemoteHost')) return;
+  const card=document.createElement('div');
+  card.className='card';
+  card.innerHTML='<h3>리모컨 관리 <span class="norm">— 분출 전 부사장 승인 · AS 담당자당 최대 3개</span></h3><div id="staffRemoteHost"></div>';
+  anchor.parentNode.insertBefore(card, anchor);
+  renderRemoteCard('staffRemoteHost');
+}
+async function renderRemoteCard(hostId){
+  const host=$(hostId); if(!host) return;
+  let s=null;
+  try{ s=await api('/api/remote/status'); }catch(e){ host.innerHTML='<p class="norm">리모컨 현황을 불러오지 못했습니다.</p>'; return; }
+  const isAdmin=!staffSlug;
+  const holds=Object.entries(s.holdings||{});
+  const holdRows=holds.length?holds.map(([t,h])=>`<tr><td>${esc2(t)}</td><td>${h.issued}</td><td>${h.delivered}</td><td><b>${h.holding}</b>${h.reserved?` (+대기 ${h.reserved})`:''}</td></tr>`).join(''):'<tr><td colspan="4">불출 이력이 아직 없습니다</td></tr>';
+  const pend=(s.pending||[]).map(r=>`<li>#${r.id} ${esc2(r.branch)}(${esc2(r.issuer)}) → ${esc2(r.technician)} ${r.qty}개 · ${esc2(String(r.requested_at||'').slice(0,16).replace('T',' '))}
+    ${isAdmin?`<button class="abtn primary" onclick="remoteApprove(${r.id},true,'${hostId}')">승인·불출</button><button class="abtn warn" onclick="remoteApprove(${r.id},false,'${hostId}')">반려</button>`:' — 부사장 승인 대기'}</li>`).join('');
+  const dels=(s.deliveries||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.delivered_on)}</td><td>${esc2(r.technician)}</td><td>${esc2(r.project||'')} ${esc2(r.camp||'')}</td><td>${r.qty}</td></tr>`).join('');
+  host.innerHTML=`
+    <p class="norm">분출 담당 — ${Object.entries(s.branches||{}).map(([b,n])=>`${esc2(b)}: ${esc2(n)}`).join(' · ')} · 한도 ${s.limit}개</p>
+    <table class="remote-mini"><tr><th>AS 담당자</th><th>불출</th><th>납품</th><th>보유</th></tr>${holdRows}</table>
+    ${pend?`<h4>승인 대기</h4><ul class="remote-plain">${pend}</ul>`:''}
+    <div class="remote-grid2">
+      <fieldset><legend>불출 신청 (승인 후 분출)</legend>
+        <select id="${hostId}Br">${Object.keys(s.branches||{}).map(b=>`<option>${esc2(b)}</option>`).join('')}</select>
+        <input id="${hostId}Tech" placeholder="AS 담당자 이름">
+        <input id="${hostId}Qty" type="number" min="1" max="${s.limit}" value="1" style="width:4.5em">
+        <input id="${hostId}Note" placeholder="비고(선택)">
+        <button class="abtn primary" onclick="remoteRequest('${hostId}')">승인 요청</button>
+      </fieldset>
+      <fieldset><legend>납품 기록 (프로젝트·캠프 추적)</legend>
+        <input id="${hostId}DTech" placeholder="AS 담당자 이름">
+        <input id="${hostId}DPrj" placeholder="프로젝트NO (UJ…)">
+        <input id="${hostId}DCamp" placeholder="캠프명">
+        <input id="${hostId}DQty" type="number" min="1" value="1" style="width:4.5em">
+        <input id="${hostId}DDay" type="date">
+        <button class="abtn primary" onclick="remoteDeliver('${hostId}')">납품 저장</button>
+      </fieldset>
+    </div>
+    ${dels?`<h4>최근 납품</h4><table class="remote-mini"><tr><th>납품일</th><th>담당자</th><th>납품처</th><th>수량</th></tr>${dels}</table>`:''}`;
+}
+async function remoteRequest(hostId){
+  const v=id=>($(hostId+id)||{}).value||'';
+  try{
+    const r=await api('/api/remote/request',{method:'POST',body:JSON.stringify({
+      branch:v('Br'),technician:v('Tech').trim(),qty:+v('Qty'),note:v('Note')})});
+    if(!r.ok) throw new Error(r.error||'실패');
+    alert('불출 신청 접수 — 부사장 승인 후 분출됩니다.');
+  }catch(e){ alert('불출 신청 실패: '+e.message); }
+  uxEvent('tap','remote-request'); renderRemoteCard(hostId);
+}
+async function remoteApprove(id,ok2,hostId){
+  if(!confirm(ok2?`#${id} 승인하고 불출할까요?`:`#${id} 반려할까요?`)) return;
+  try{
+    const r=await api('/api/remote/approve',{method:'POST',body:JSON.stringify({id,approve:ok2})});
+    if(!r.ok) throw new Error(r.error||'실패');
+  }catch(e){ alert('처리 실패: '+e.message); }
+  uxEvent('tap','remote-approve'); renderRemoteCard(hostId);
+}
+async function remoteDeliver(hostId){
+  const v=id=>($(hostId+id)||{}).value||'';
+  try{
+    const r=await api('/api/remote/deliver',{method:'POST',body:JSON.stringify({
+      technician:v('DTech').trim(),project:v('DPrj').trim(),camp:v('DCamp').trim(),
+      qty:+v('DQty'),delivered_on:v('DDay')})});
+    if(!r.ok) throw new Error(r.error||'실패');
+    alert('납품 기록 저장 완료');
+  }catch(e){ alert('납품 기록 실패: '+e.message); }
+  uxEvent('tap','remote-deliver'); renderRemoteCard(hostId);
 }
 
 /* 원클릭 완료 — 기사·매니저의 가장 잦은 입력(상태=완료 + 완료일=오늘)을 한 번에.
@@ -8046,6 +8135,8 @@ async function refreshAll(){
   tick(); setInterval(tick, 30000); initDates(); previewCalendarDraft();
   initStaffCenter();
   if(staffSlug==='oh-jonghyeon') injectOhUpload();
+  // 리모컨 관리는 류지영·오종현 업무센터에 똑같이 들어간다(2026-08-03 지시).
+  if(staffSlug==='ryu-jiyeong'||staffSlug==='oh-jonghyeon') injectRemoteCard();
   const surveyDate=document.querySelector('#ryuUploadForm [name="survey_date"]');
   if(surveyDate&&!surveyDate.value) surveyDate.value=todayISO();
   const newWorkDate=document.querySelector('#newWorkForm [name="work_date"]');

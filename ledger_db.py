@@ -136,7 +136,37 @@ CREATE TABLE IF NOT EXISTS staff_resolution( -- 담당자별 객관 입증 완�
 );
 CREATE INDEX IF NOT EXISTS ix_staff_resolution_owner
   ON staff_resolution(owner, completed_on);
+CREATE TABLE IF NOT EXISTS remote_issue(     -- 리모컨 불출 (2026-08-03 지시)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,      -- AS 담당자당 보유 3개 한도 · 부사장 승인 후 불출
+  branch TEXT NOT NULL,                      -- 부산 | 시화 | 증평
+  issuer TEXT NOT NULL,                      -- 불출 담당: 부산=오종현 · 시화=안은숙 · 증평=류지영
+  technician TEXT NOT NULL,                  -- 받아 간 AS 담당자
+  qty INTEGER NOT NULL,
+  status TEXT NOT NULL,                      -- 승인대기 | 불출완료 | 반려
+  requested_by TEXT NOT NULL,                -- 신청을 올린 사람(업무센터 로그인 주체)
+  requested_at TEXT NOT NULL,
+  approved_by TEXT,                          -- 부사장 승인자
+  approved_at TEXT,
+  note TEXT
+);
+CREATE TABLE IF NOT EXISTS remote_delivery(  -- 리모컨 납품 — 어느 프로젝트/캠프에 들어갔나
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  technician TEXT NOT NULL,
+  project TEXT,                              -- 프로젝트NO(UJ…) — 캠프만 알아도 기록은 남긴다
+  camp TEXT,
+  qty INTEGER NOT NULL,
+  delivered_on TEXT NOT NULL,
+  note TEXT,
+  created_by TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_remote_issue_tech ON remote_issue(technician, status);
+CREATE INDEX IF NOT EXISTS ix_remote_delivery_tech ON remote_delivery(technician, delivered_on);
 """
+
+# 리모컨 불출 규칙(2026-08-03 사용자 지시) — 지점별 불출 담당과 담당자당 보유 한도.
+REMOTE_BRANCH_ISSUERS = {"부산": "오종현", "시화": "안은숙", "증평": "류지영"}
+REMOTE_HOLD_LIMIT = 3
 
 
 @contextmanager
@@ -535,6 +565,125 @@ def staff_resolution_summary():
                 for row in c.execute(
                     "SELECT owner,COUNT(*),MAX(last_seen) FROM staff_resolution GROUP BY owner")}
     return {owner: rows.get(owner, {"completed": 0, "last_seen": ""}) for owner in owners}
+
+
+def _remote_holdings(c):
+    """AS 담당자별 보유 = 불출완료 합 - 납품 합. 승인대기 수량은 예약분으로 따로 센다."""
+    issued = {row[0]: row[1] for row in c.execute(
+        "SELECT technician,SUM(qty) FROM remote_issue WHERE status='불출완료' GROUP BY technician")}
+    reserved = {row[0]: row[1] for row in c.execute(
+        "SELECT technician,SUM(qty) FROM remote_issue WHERE status='승인대기' GROUP BY technician")}
+    delivered = {row[0]: row[1] for row in c.execute(
+        "SELECT technician,SUM(qty) FROM remote_delivery GROUP BY technician")}
+    out = {}
+    for tech in set(issued) | set(delivered) | set(reserved):
+        got, used = int(issued.get(tech) or 0), int(delivered.get(tech) or 0)
+        out[tech] = {"issued": got, "delivered": used, "holding": got - used,
+                     "reserved": int(reserved.get(tech) or 0)}
+    return out
+
+
+def remote_request(branch, technician, qty, requested_by, note=""):
+    """리모컨 불출 신청 — 부사장 승인 전에는 불출하지 않는다(승인대기).
+
+    한도: 보유 + 승인대기 예약 + 신청 수량이 담당자당 3개를 넘으면 거절한다.
+    """
+    branch = str(branch or "").strip()
+    technician = str(technician or "").strip()
+    qty = int(qty or 0)
+    if branch not in REMOTE_BRANCH_ISSUERS:
+        raise ValueError("불출 지점은 부산·시화·증평 중 하나여야 합니다")
+    if not technician:
+        raise ValueError("AS 담당자 이름이 필요합니다")
+    if not 1 <= qty <= REMOTE_HOLD_LIMIT:
+        raise ValueError(f"수량은 1~{REMOTE_HOLD_LIMIT}개여야 합니다")
+    now = datetime.now().isoformat(timespec="seconds")
+    with conn() as c:
+        hold = _remote_holdings(c).get(technician) or {"holding": 0, "reserved": 0}
+        if hold["holding"] + hold["reserved"] + qty > REMOTE_HOLD_LIMIT:
+            raise ValueError(
+                f"{technician} 보유 {hold['holding']}개 + 대기 {hold['reserved']}개에 "
+                f"{qty}개를 더하면 한도 {REMOTE_HOLD_LIMIT}개를 넘습니다")
+        cur = c.execute(
+            "INSERT INTO remote_issue(branch,issuer,technician,qty,status,"
+            "requested_by,requested_at,note) VALUES(?,?,?,?,?,?,?,?)",
+            (branch, REMOTE_BRANCH_ISSUERS[branch], technician, qty, "승인대기",
+             str(requested_by or ""), now, str(note or "")))
+        return cur.lastrowid
+
+
+def remote_decide(issue_id, approver, approve=True):
+    """부사장 승인(불출완료) 또는 반려. 승인 시점에 한도를 다시 확인한다."""
+    now = datetime.now().isoformat(timespec="seconds")
+    with conn() as c:
+        row = c.execute("SELECT technician,qty,status FROM remote_issue WHERE id=?",
+                        (int(issue_id),)).fetchone()
+        if not row:
+            raise ValueError("해당 불출 신청이 없습니다")
+        technician, qty, status = row
+        if status != "승인대기":
+            raise ValueError(f"이미 처리된 신청입니다({status})")
+        if approve:
+            hold = _remote_holdings(c).get(technician) or {"holding": 0}
+            if hold["holding"] + int(qty) > REMOTE_HOLD_LIMIT:
+                raise ValueError(
+                    f"{technician} 보유 {hold['holding']}개에 {qty}개를 더하면 "
+                    f"한도 {REMOTE_HOLD_LIMIT}개를 넘습니다")
+        c.execute(
+            "UPDATE remote_issue SET status=?,approved_by=?,approved_at=? WHERE id=?",
+            ("불출완료" if approve else "반려", str(approver or ""), now, int(issue_id)))
+        return "불출완료" if approve else "반려"
+
+
+def remote_deliver(technician, project, camp, qty, delivered_on="", note="", created_by=""):
+    """리모컨 납품 기록 — 어느 프로젝트/캠프에 몇 개가 들어갔는지 추적의 원본."""
+    technician = str(technician or "").strip()
+    qty = int(qty or 0)
+    if not technician:
+        raise ValueError("AS 담당자 이름이 필요합니다")
+    if qty < 1:
+        raise ValueError("수량은 1개 이상이어야 합니다")
+    if not (str(project or "").strip() or str(camp or "").strip()):
+        raise ValueError("프로젝트NO 또는 캠프명 중 하나는 필요합니다")
+    now = datetime.now().isoformat(timespec="seconds")
+    day = str(delivered_on or now[:10])[:10]
+    with conn() as c:
+        hold = _remote_holdings(c).get(technician) or {"holding": 0}
+        if qty > hold["holding"]:
+            raise ValueError(
+                f"{technician} 보유 {hold['holding']}개보다 많은 {qty}개를 납품할 수 없습니다")
+        cur = c.execute(
+            "INSERT INTO remote_delivery(technician,project,camp,qty,delivered_on,"
+            "note,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)",
+            (technician, str(project or "").strip().upper(), str(camp or "").strip(),
+             qty, day, str(note or ""), str(created_by or ""), now))
+        return cur.lastrowid
+
+
+def remote_status(limit=60):
+    """업무센터·대시보드용 현황: 담당자별 보유, 승인 대기, 최근 불출·납품 이력."""
+    with conn() as c:
+        holdings = _remote_holdings(c)
+        pending = [dict(zip(("id", "branch", "issuer", "technician", "qty",
+                             "requested_by", "requested_at", "note"), row))
+                   for row in c.execute(
+                       "SELECT id,branch,issuer,technician,qty,requested_by,requested_at,note"
+                       " FROM remote_issue WHERE status='승인대기' ORDER BY id")]
+        issues = [dict(zip(("id", "branch", "issuer", "technician", "qty", "status",
+                            "requested_at", "approved_by", "approved_at"), row))
+                  for row in c.execute(
+                      "SELECT id,branch,issuer,technician,qty,status,requested_at,"
+                      "approved_by,approved_at FROM remote_issue"
+                      " ORDER BY id DESC LIMIT ?", (int(limit),))]
+        deliveries = [dict(zip(("id", "technician", "project", "camp", "qty",
+                                "delivered_on", "note"), row))
+                      for row in c.execute(
+                          "SELECT id,technician,project,camp,qty,delivered_on,note"
+                          " FROM remote_delivery ORDER BY id DESC LIMIT ?", (int(limit),))]
+    return {"limit": REMOTE_HOLD_LIMIT, "branches": REMOTE_BRANCH_ISSUERS,
+            "holdings": holdings, "pending": pending,
+            "issues": issues, "deliveries": deliveries,
+            "rule": "분출 전 부사장 승인 · AS 담당자당 최대 3개"}
 
 
 def pending_work_completion_entries(today=None):

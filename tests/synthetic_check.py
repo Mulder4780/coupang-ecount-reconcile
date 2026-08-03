@@ -4127,6 +4127,21 @@ def t97_settlement_source_completion():
     mismatch = [{**quotes[0], "금액": 120000}]
     assert not S.objective_entries({"JS-A": amount}, mismatch, {}), "금액 불일치 완료"
 
+    # 견적서가 없어도 같은 프로젝트 ERP 판매전표 금액이 유일하게 일치하면 완료한다.
+    erp_one = {"UJ2600001": [{"date": "2026-01-15", "po": "PO123456",
+                              "status": "3.오더처리", "supply": 100000, "total": 110000}]}
+    got = S.objective_entries({"JS-A": amount}, [], {}, None, erp_one)
+    assert [row["status"] for row in got] == [S.ERP_AMOUNT_STATUS], got
+    assert "ERP 판매전표" in got[0]["basis"] and got[0]["evidence_kind"] == "erp_amount"
+    # 금액이 맞는 전표가 둘이면 유일 근거가 아니다 · 금액 불일치도 완료하지 않는다.
+    erp_two = {"UJ2600001": erp_one["UJ2600001"] * 2}
+    assert not S.objective_entries({"JS-A": amount}, [], {}, None, erp_two), "복수 전표 완료"
+    erp_off = {"UJ2600001": [{**erp_one["UJ2600001"][0], "supply": 90000, "total": 99000}]}
+    assert not S.objective_entries({"JS-A": amount}, [], {}, None, erp_off), "전표 불일치 완료"
+    # 전표 PO 가 원장 PO 와 다르면 같은 금액이라도 남의 전표다.
+    erp_po = {"UJ2600001": [{**erp_one["UJ2600001"][0], "po": "PO999999"}]}
+    assert not S.objective_entries({"JS-A": amount}, [], {}, None, erp_po), "PO 불일치 완료"
+
     # ERP 수금확인처럼 이미 더 강한 완료가 있으면 이 모듈의 상태로 낮춰 쓰지 않는다.
     stronger = {"JS-A": {"status": "완료(ERP 수금확인)"}}
     assert not S.objective_entries({"JS-A": amount}, quotes, {}, stronger)
@@ -4137,7 +4152,79 @@ def t97_settlement_source_completion():
     assert "objective_done = resolutions()" in app and 'resolved_status.startswith("완료(")' in app
     assert "objective_done = ledger_db.resolutions()" in findings and "db_done" in findings
     assert "settlement_completion.py" in daily and '"--sync"' in daily
-    print("  [97] 정산 금액·계산서 독립근거 완료 DB·앱·일일자동화 ✅")
+
+    # 오래된 세금계산서 미발행 감시(2026-08-03): 경과일 정렬·완료 제외·일일 자동 실행·앱 노출
+    import tax_invoice_watch as W
+    from datetime import date as _d
+    recs = {
+        "JS-O": {"비용구분": "유상", "원천업무ID": "PM-9", "프로젝트NO": "UJ2600009",
+                 "캠프명": "테스트1", "업무구분": "정기점검", "작업완료일": "2026-01-01",
+                 "원장_공급가액": 100000, "원장_거래명세서발행일": "2026-01-02",
+                 "원장_거래명세서합계": 110000},
+        "JS-N": {"비용구분": "유상", "원천업무ID": "PM-8", "프로젝트NO": "UJ2600008",
+                 "캠프명": "테스트2", "업무구분": "정기점검", "작업완료일": "2026-07-20",
+                 "원장_공급가액": 100000, "원장_거래명세서발행일": "2026-07-21",
+                 "원장_거래명세서합계": 110000},
+        "JS-D": {"비용구분": "유상", "원천업무ID": "PM-7", "프로젝트NO": "UJ2600007",
+                 "캠프명": "테스트3", "업무구분": "정기점검", "작업완료일": "2026-01-01",
+                 "원장_공급가액": 100000, "원장_거래명세서발행일": "2026-01-02",
+                 "원장_거래명세서합계": 110000},
+    }
+    rows = W.overdue_rows(recs, {"JS-D": {"status": "완료(ERP 수금확인)"}}, {},
+                          today=_d(2026, 8, 3))
+    assert [row["settle_id"] for row in rows] == ["JS-O", "JS-N"], rows  # 오래된 순·완료 제외
+    assert rows[0]["age"] > 200 and rows[1]["age"] == 14
+    counts = W.bucket_counts(rows)
+    assert counts["90일 초과"] == 1 and counts["30일 이하"] == 1, counts
+    assert "tax_invoice_watch.py" in daily, "미발행 경과 감시가 일일 자동화에 없다"
+    assert "세금계산서_미발행_경과.md" in app, "미발행 경과 리포트가 앱 보고에 안 보인다"
+    print("  [97] 정산 금액·계산서 독립근거 완료 DB·앱·일일자동화 + 미발행 경과 감시 ✅")
+
+
+def t98_remote_control_tracking():
+    """[98] 리모컨 불출·납품(2026-08-03 지시): 3개 한도·부사장 승인·프로젝트 추적."""
+    import tempfile as _tf
+
+    import ledger_db as L
+    old_path, old_dir = L.DB_PATH, L.DB_DIR
+    tmp = _tf.mkdtemp()
+    try:
+        L.DB_DIR, L.DB_PATH = tmp, os.path.join(tmp, "t.db")
+        assert L.REMOTE_BRANCH_ISSUERS == {"부산": "오종현", "시화": "안은숙", "증평": "류지영"}
+        assert L.REMOTE_HOLD_LIMIT == 3
+        rid = L.remote_request("부산", "김기사", 2, "오종현")
+        # 승인 전에는 보유가 없다 — 납품·초과 신청 모두 막힌다.
+        for bad in (lambda: L.remote_deliver("김기사", "UJ2600001", "", 1),
+                    lambda: L.remote_request("부산", "김기사", 2, "오종현"),
+                    lambda: L.remote_request("서울", "박기사", 1, "아무개")):
+            try:
+                bad(); raise AssertionError("리모컨 규칙이 뚫렸다")
+            except ValueError:
+                pass
+        assert L.remote_decide(rid, "부사장") == "불출완료"
+        L.remote_request("시화", "김기사", 1, "안은숙")     # 2+대기1=3 — 허용
+        try:
+            L.remote_request("증평", "김기사", 1, "류지영")
+            raise AssertionError("담당자당 3개 한도가 뚫렸다")
+        except ValueError:
+            pass
+        L.remote_deliver("김기사", "UJ2600001", "부산2캠프", 2, "2026-08-03")
+        hold = L.remote_status()["holdings"]["김기사"]
+        assert hold == {"issued": 2, "delivered": 2, "holding": 0, "reserved": 1}, hold
+    finally:
+        L.DB_PATH, L.DB_DIR = old_path, old_dir
+    # 앱: 류지영·오종현 업무센터 공통 카드 + 관리자 승인 + 서버 권한
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for need in ("injectRemoteCard", "renderRemoteCard", "remoteRequest", "remoteApprove",
+                 "remoteDeliver", "centerRemoteHost",
+                 "if(staffSlug==='ryu-jiyeong'||staffSlug==='oh-jonghyeon') injectRemoteCard()"):
+        assert need in html, f"리모컨 카드 구성 요소 누락: {need}"
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "/api/remote/status" in srv and "/api/remote/request" in srv
+    blk = srv[srv.index('"/api/remote/request"'):srv.index('"/api/remote/request"') + 1600]
+    assert '"ryu-jiyeong", "oh-jonghyeon"' in blk, "리모컨 관리가 두 업무센터로 제한되지 않았다"
+    assert '부사장(관리자)만' in blk, "승인이 부사장(관리자)으로 제한되지 않았다"
+    print("  [98] 리모컨 불출 3개 한도·부사장 승인·납품 추적 DB·앱 ✅")
 
 
 def t94_human_edit_guard():
@@ -4957,6 +5044,7 @@ if __name__ == "__main__":
     t95_objective_completion_db_only()
     t96_work_management_tabs()
     t97_settlement_source_completion()
+    t98_remote_control_tracking()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:
