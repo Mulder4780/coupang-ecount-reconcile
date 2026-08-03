@@ -4272,7 +4272,7 @@ self.addEventListener('fetch', e => {
                 return self._send(200, {"ok": True, **result})
             except Exception as exc:
                 return self._send(400, {"ok": False, "error": str(exc)[:320]})
-        if p in ("/api/remote/request", "/api/remote/deliver"):
+        if p in ("/api/remote/request", "/api/remote/deliver", "/api/remote/stock"):
             # 리모컨 관리(2026-08-03 지시, 같은 날 개정): 승인 단계 없이 기록·관리·보고만.
             # 불출·납품은 류지영/오종현 업무센터와 관리자. 3개 한도는 ledger_db 가 강제한다.
             actor = self._actor()
@@ -4290,6 +4290,12 @@ self.addEventListener('fetch', e => {
                 body = json.loads(self.rfile.read(ln) or b"{}")
                 import ledger_db
                 who = "관리자" if role == "admin" else STAFF_CENTERS[slug]["name"]
+                if p == "/api/remote/stock":
+                    # 지점 재고 등록(2026-08-03): 입고(add ±N) 또는 실사(set 절대값)
+                    after = ledger_db.remote_stock_adjust(
+                        body.get("branch"), body.get("qty"),
+                        body.get("mode") or "add", body.get("note") or "", who)
+                    return self._send(200, {"ok": True, "stock": after})
                 if p == "/api/remote/request":
                     rid = ledger_db.remote_request(
                         body.get("branch"), body.get("technician"), body.get("qty"),

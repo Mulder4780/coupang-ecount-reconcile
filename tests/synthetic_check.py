@@ -4209,6 +4209,30 @@ def t98_remote_control_tracking():
         hold = L.remote_status()["holdings"]["김기사"]
         assert hold == {"issued": 3, "delivered": 2, "holding": 1}, hold
         assert not hasattr(L, "remote_decide"), "승인 단계가 아직 남아 있다"
+
+        # 지점 재고(2026-08-03 3차): 등록 지점은 재고보다 많이 불출 못 하고 자동 차감된다.
+        assert L.REMOTE_BRANCH_LABELS == {"부산": "부산공장", "시화": "시화공장", "증평": "증평본사"}
+        st2 = L.remote_status()["branch_stock"]
+        assert not st2["증평"]["tracked"] and st2["증평"]["stock"] == 0, st2["증평"]  # 미등록 지점
+        assert L.remote_stock_adjust("증평", 5, "add", "", "류지영") == 5             # 입고 5
+        L.remote_request("증평", "박기사", 2, "류지영")                               # 재고 5→3
+        st2 = L.remote_status()["branch_stock"]["증평"]
+        assert (st2["tracked"], st2["in"], st2["issued"], st2["stock"]) == (True, 5, 2, 3), st2
+        try:
+            L.remote_stock_adjust("증평", 1, "set")        # 실사 1 < 불출분? 1-3=-2 델타, 재고 1
+        except ValueError:
+            raise AssertionError("실사 맞춤이 막혔다")
+        assert L.remote_status()["branch_stock"]["증평"]["stock"] == 1
+        try:
+            L.remote_request("증평", "최기사", 2, "류지영")
+            raise AssertionError("재고(1)보다 많은 불출(2)이 뚫렸다")
+        except ValueError:
+            pass
+        try:
+            L.remote_stock_adjust("증평", -5, "add")
+            raise AssertionError("재고 음수 정정이 뚫렸다")
+        except ValueError:
+            pass
     finally:
         L.DB_PATH, L.DB_DIR = old_path, old_dir
     # 앱: 류지영·오종현 업무센터 공통 카드 + iOS 스타일 + 대표보고 캡처 포함 + 승인 UI 없음
@@ -4218,8 +4242,12 @@ def t98_remote_control_tracking():
                  "if(staffSlug==='ryu-jiyeong'||staffSlug==='oh-jonghyeon') injectRemoteCard()",
                  ".remote-grid2 fieldset{border:0;border-radius:16px",
                  "loadRemoteStat", "remote: REMOTE_STAT", "rmtH",
-                 "리모컨 현황 — 불출·납품 기록"):
+                 "리모컨 현황 — 불출·납품 기록",
+                 # 지점 재고(2026-08-03 3차): 카드 표·등록 폼·캡처 줄
+                 "remoteStock", "branch_stock", "branchStock", "현재 재고"):
         assert need in html, f"리모컨 카드 구성 요소 누락: {need}"
+    assert "/api/remote/stock" in open(os.path.join(ROOT, "webapp", "app_server.py"),
+                                       encoding="utf-8").read(), "재고 등록 API가 없다"
     assert "remoteApprove" not in html and "승인 요청" not in html, "승인 UI가 남아 있다"
     srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     assert "/api/remote/status" in srv and "/api/remote/request" in srv

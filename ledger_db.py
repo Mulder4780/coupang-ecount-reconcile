@@ -162,10 +162,20 @@ CREATE TABLE IF NOT EXISTS remote_delivery(  -- 리모컨 납품 — 어느 프�
 );
 CREATE INDEX IF NOT EXISTS ix_remote_issue_tech ON remote_issue(technician, status);
 CREATE INDEX IF NOT EXISTS ix_remote_delivery_tech ON remote_delivery(technician, delivered_on);
+CREATE TABLE IF NOT EXISTS remote_stock(     -- 리모컨 지점 재고 조정 로그 (2026-08-03 지시)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,      -- 현재 재고 = 조정 합계 - 그 지점 불출 합계
+  branch TEXT NOT NULL,                      -- 부산 | 시화 | 증평
+  qty_delta INTEGER NOT NULL,                -- 입고 +N · 정정 ±N · 실사 맞춤도 델타로 기록
+  reason TEXT,                               -- 입고 | 실사 | 정정 등
+  created_by TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_remote_stock_branch ON remote_stock(branch, created_at);
 """
 
 # 리모컨 불출 규칙(2026-08-03 사용자 지시) — 지점별 불출 담당과 담당자당 보유 한도.
 REMOTE_BRANCH_ISSUERS = {"부산": "오종현", "시화": "안은숙", "증평": "류지영"}
+REMOTE_BRANCH_LABELS = {"부산": "부산공장", "시화": "시화공장", "증평": "증평본사"}
 REMOTE_HOLD_LIMIT = 3
 
 
@@ -580,10 +590,55 @@ def _remote_holdings(c):
     return out
 
 
+def _remote_branch_stock(c):
+    """지점별 현재 재고 = 재고 조정 합계 - 그 지점 불출 합계 (2026-08-03 지시)."""
+    added = {row[0]: int(row[1] or 0) for row in c.execute(
+        "SELECT branch,SUM(qty_delta) FROM remote_stock GROUP BY branch")}
+    issued = {row[0]: int(row[1] or 0) for row in c.execute(
+        "SELECT branch,SUM(qty) FROM remote_issue WHERE status='불출완료' GROUP BY branch")}
+    out = {}
+    for br in REMOTE_BRANCH_ISSUERS:
+        got, used = added.get(br, 0), issued.get(br, 0)
+        out[br] = {"label": REMOTE_BRANCH_LABELS.get(br, br), "in": got,
+                   "issued": used, "stock": got - used,
+                   "tracked": br in added}          # 조정 기록이 있어야 재고 관리 대상
+    return out
+
+
+def remote_stock_adjust(branch, qty, mode="add", reason="", created_by=""):
+    """지점 재고 등록/조정. mode='add'는 입고(±델타), 'set'은 실사값으로 맞춘다."""
+    branch = str(branch or "").strip()
+    if branch not in REMOTE_BRANCH_ISSUERS:
+        raise ValueError("지점은 부산·시화·증평 중 하나여야 합니다")
+    qty = int(qty)
+    now = datetime.now().isoformat(timespec="seconds")
+    with conn() as c:
+        if mode == "set":
+            current = _remote_branch_stock(c)[branch]["stock"]
+            delta = qty - current
+            if delta == 0:
+                return current
+            reason = reason or f"실사 {qty}개 맞춤"
+        else:
+            delta = qty
+            if delta == 0:
+                raise ValueError("수량이 0입니다")
+            reason = reason or ("입고" if delta > 0 else "정정")
+        after = _remote_branch_stock(c)[branch]["stock"] + delta
+        if after < 0:
+            raise ValueError(f"{REMOTE_BRANCH_LABELS[branch]} 재고가 음수({after})가 됩니다")
+        c.execute(
+            "INSERT INTO remote_stock(branch,qty_delta,reason,created_by,created_at)"
+            " VALUES(?,?,?,?,?)",
+            (branch, delta, str(reason or ""), str(created_by or ""), now))
+        return after
+
+
 def remote_request(branch, technician, qty, requested_by, note=""):
     """리모컨 불출을 즉시 기록한다(2026-08-03 지시 — 승인 단계 없음).
 
     한도: 보유 + 이번 수량이 담당자당 3개를 넘으면 거절한다.
+    지점 재고를 등록해 둔 지점은 재고보다 많이 불출할 수 없다(재고 자동 차감).
     """
     branch = str(branch or "").strip()
     technician = str(technician or "").strip()
@@ -601,6 +656,11 @@ def remote_request(branch, technician, qty, requested_by, note=""):
             raise ValueError(
                 f"{technician} 보유 {hold['holding']}개에 {qty}개를 더하면 "
                 f"한도 {REMOTE_HOLD_LIMIT}개를 넘습니다")
+        stock = _remote_branch_stock(c)[branch]
+        if stock["tracked"] and stock["stock"] < qty:
+            raise ValueError(
+                f"{stock['label']} 재고 {stock['stock']}개 — {qty}개를 불출할 수 없습니다. "
+                f"재고 등록(입고)을 먼저 하세요")
         cur = c.execute(
             "INSERT INTO remote_issue(branch,issuer,technician,qty,status,"
             "requested_by,requested_at,note) VALUES(?,?,?,?,?,?,?,?)",
@@ -638,6 +698,7 @@ def remote_status(limit=60):
     """업무센터·대시보드·대표보고용 현황: 담당자별 보유와 최근 불출·납품 이력."""
     with conn() as c:
         holdings = _remote_holdings(c)
+        branch_stock = _remote_branch_stock(c)
         issues = [dict(zip(("id", "branch", "issuer", "technician", "qty", "status",
                             "requested_at"), row))
                   for row in c.execute(
@@ -649,8 +710,9 @@ def remote_status(limit=60):
                           "SELECT id,technician,project,camp,qty,delivered_on,note"
                           " FROM remote_delivery ORDER BY id DESC LIMIT ?", (int(limit),))]
     return {"limit": REMOTE_HOLD_LIMIT, "branches": REMOTE_BRANCH_ISSUERS,
+            "branch_labels": REMOTE_BRANCH_LABELS, "branch_stock": branch_stock,
             "holdings": holdings, "issues": issues, "deliveries": deliveries,
-            "rule": "AS 담당자당 최대 3개 · 불출·납품 기록"}
+            "rule": "AS 담당자당 최대 3개 · 불출·납품 기록 · 지점 재고 자동 차감"}
 
 
 def pending_work_completion_entries(today=None):

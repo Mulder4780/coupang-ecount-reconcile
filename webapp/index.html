@@ -3499,10 +3499,23 @@ async function renderRemoteCard(hostId){
   const holds=Object.entries(s.holdings||{});
   const holdRows=holds.length?holds.map(([t,h])=>`<tr><td>${esc2(t)}</td><td>${h.issued}</td><td>${h.delivered}</td><td><b>${h.holding}</b></td></tr>`).join(''):'<tr><td colspan="4">불출 이력이 아직 없습니다</td></tr>';
   const dels=(s.deliveries||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.delivered_on)}</td><td>${esc2(r.technician)}</td><td>${esc2(r.project||'')} ${esc2(r.camp||'')}</td><td>${r.qty}</td></tr>`).join('');
+  const bs=s.branch_stock||{};
+  const stockRows=Object.keys(s.branches||{}).map(b=>{const v=bs[b]||{};
+    return `<tr><td>${esc2(v.label||b)}</td><td>${esc2((s.branches||{})[b]||'')}</td><td>${v.tracked?v.in:'-'}</td><td>${v.tracked?v.issued:'-'}</td><td><b>${v.tracked?v.stock+'개':'미등록'}</b></td></tr>`;}).join('');
   host.innerHTML=`
-    <p class="remote-rule">불출 담당 — ${Object.entries(s.branches||{}).map(([b,n])=>`${esc2(b)}: ${esc2(n)}`).join(' · ')} · AS 담당자당 한도 ${s.limit}개</p>
+    <p class="remote-rule">불출 담당 — ${Object.entries(s.branches||{}).map(([b,n])=>`${esc2((bs[b]||{}).label||b)}: ${esc2(n)}`).join(' · ')} · AS 담당자당 한도 ${s.limit}개 · 불출 시 지점 재고 자동 차감</p>
+    <table class="remote-mini"><tr><th>지점</th><th>담당</th><th>입고</th><th>불출</th><th>현재 재고</th></tr>${stockRows}</table>
     <table class="remote-mini"><tr><th>AS 담당자</th><th>불출</th><th>납품</th><th>보유</th></tr>${holdRows}</table>
     <div class="remote-grid2">
+      <fieldset><legend>지점 재고 등록 · 입고/실사</legend>
+        <div class="remote-row2">
+          <select id="${hostId}SBr" aria-label="지점">${Object.keys(s.branches||{}).map(b=>`<option value="${esc2(b)}">${esc2((bs[b]||{}).label||b)}</option>`).join('')}</select>
+          <select id="${hostId}SMode" aria-label="방식"><option value="add">입고(+수량)</option><option value="set">실사(현재 재고로 맞춤)</option></select>
+        </div>
+        <input id="${hostId}SQty" type="number" inputmode="numeric" value="1" aria-label="수량">
+        <input id="${hostId}SNote" placeholder="비고 (선택)" autocomplete="off">
+        <button class="abtn primary" onclick="remoteStock('${hostId}')">재고 저장</button>
+      </fieldset>
       <fieldset><legend>불출 기록</legend>
         <div class="remote-row2">
           <select id="${hostId}Br" aria-label="불출 지점">${Object.keys(s.branches||{}).map(b=>`<option>${esc2(b)}</option>`).join('')}</select>
@@ -3534,6 +3547,16 @@ async function remoteRequest(hostId){
     alert('불출 기록 저장 완료');
   }catch(e){ alert('불출 기록 실패: '+e.message); }
   uxEvent('tap','remote-request'); renderRemoteCard(hostId);
+}
+async function remoteStock(hostId){
+  const v=id=>($(hostId+id)||{}).value||'';
+  try{
+    const r=await api('/api/remote/stock',{method:'POST',body:JSON.stringify({
+      branch:v('SBr'),qty:+v('SQty'),mode:v('SMode'),note:v('SNote')})});
+    if(!r.ok) throw new Error(r.error||'실패');
+    alert(`재고 저장 완료 — 현재 ${r.stock}개`);
+  }catch(e){ alert('재고 저장 실패: '+e.message); }
+  uxEvent('tap','remote-stock'); renderRemoteCard(hostId);
 }
 async function remoteDeliver(hostId){
   const v=id=>($(hostId+id)||{}).value||'';
@@ -6154,6 +6177,8 @@ function renderDaily(){
     srcDetails,
     // 리모컨 현황(2026-08-03 지시) — 대표보고 캡처 이미지에도 들어간다
     remote: REMOTE_STAT ? {
+      branchStock: Object.values(REMOTE_STAT.branch_stock||{}).map(v=>
+        `${v.label} ${v.tracked?v.stock+'개':'미등록'}`).join(' · '),
       holdings: Object.entries(REMOTE_STAT.holdings||{}).map(([t,h])=>
         [t, `${h.issued}개`, `${h.delivered}개`, `${h.holding}개`]),
       deliveries: (REMOTE_STAT.deliveries||[]).slice(0,5).map(r=>
@@ -7550,9 +7575,9 @@ async function reportToPng(){
   // ★ 타일 개수를 하드코딩(6)하면 지표가 7개일 때 마지막 타일이 캔버스 밖으로 잘린다
   const erpM = D.erpMonths || [];
   const erpH = erpM.length ? 34 + (erpM.length+1)*28 + 20 : 0;
-  // 리모컨 현황(2026-08-03) — 보유 표 + 최근 납품 표
+  // 리모컨 현황(2026-08-03) — 지점 재고 줄 + 보유 표 + 최근 납품 표
   const rmt = D.remote;
-  const rmtH = rmt ? 48 + 28 + Math.max(1,(rmt.holdings||[]).length)*30
+  const rmtH = rmt ? 48 + (rmt.branchStock?24:0) + 28 + Math.max(1,(rmt.holdings||[]).length)*30
                + ((rmt.deliveries||[]).length ? 48 + 28 + rmt.deliveries.length*30 : 0) + 16 : 0;
   const pmProgress = D.pmProgress || [];
   const wlAs = ((D.workLog||{})['돌발AS']) || {};
@@ -7883,6 +7908,10 @@ async function reportToPng(){
   // ── 리모컨 현황(2026-08-03 지시) — 대표보고 캡처에 포함
   if(rmt){
     section('리모컨 현황 — 불출·납품 기록 · AS 담당자당 3개');
+    if(rmt.branchStock){
+      txt(`지점 재고 — ${rmt.branchStock}`, 30, y+11, F(11.5,800), '#1B41BC');
+      y += 24;
+    }
     table(['AS 담당자','불출','납품','보유'],
           (rmt.holdings&&rmt.holdings.length)?rmt.holdings:[['불출 이력 없음','-','-','-']],
           [320,160,160,160]);
