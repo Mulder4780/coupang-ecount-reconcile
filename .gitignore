@@ -41,10 +41,11 @@ reports/tunnel_starts.txt
 db/*.db
 db/*.db-wal
 db/*.db-shm
+db/share_pull.json
 
 # 재생성 가능 — 저장소에 넣지 않는다 (2026-07-29)
 node_modules/
-outputs/**/node_modules/
+outputs/
 config/gcal.json
 reports/inbox_classify.json
 config/erp_allowed_ips.json
