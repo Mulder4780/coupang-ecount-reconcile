@@ -307,6 +307,10 @@ def _run_pipeline():
     # 발행일은 지어내지 않고, 발행 사실은 ERP 원본이 들어와야 객관완료가 잡는다.
     steps.append(run("세금계산서 미발행 경과 감시",
                      [os.path.join(ROOT, "tax_invoice_watch.py")]))
+    # 금액 재계산 대기의 견적↔명세 교차·불일치 진단(2026-08-03 지시). 읽기 전용 —
+    # 명세합계가 다른 프로젝트 견적과 일치하는 입력 밀림을 짝까지 찾아 보여 준다.
+    steps.append(run("견적·명세 불일치 진단",
+                     [os.path.join(ROOT, "quote_mismatch.py")]))
     # 09:50에는 읽기 전용 무결성 검사만 한다. 실제 복구도 11:00·15:00 회차 안에서만 한다.
     steps.append(run("워크북 무결성 검사", [os.path.join(ROOT, "fix_workbook.py")]))
 

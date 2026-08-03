@@ -4178,7 +4178,29 @@ def t97_settlement_source_completion():
     assert counts["90일 초과"] == 1 and counts["30일 이하"] == 1, counts
     assert "tax_invoice_watch.py" in daily, "미발행 경과 감시가 일일 자동화에 없다"
     assert "세금계산서_미발행_경과.md" in app, "미발행 경과 리포트가 앱 보고에 안 보인다"
-    print("  [97] 정산 금액·계산서 독립근거 완료 DB·앱·일일자동화 + 미발행 경과 감시 ✅")
+
+    # 견적↔명세 교차 진단(2026-08-03): 명세합계가 같은 PO 다른 프로젝트 견적과 일치하는
+    # 입력 밀림을 짝까지 찾아낸다 — 실사례 UJ2600777(야탑)↔UJ2600783(안산) 722,480원.
+    import quote_mismatch as Q
+    q_recs = {
+        "JS-X1": {"비용구분": "유상", "원천업무ID": "AS-11", "프로젝트NO": "UJ2600777",
+                  "원장_공급가액": 0, "원장_거래명세서발행일": "2026-04-28",
+                  "원장_거래명세서합계": 722480, "원장_PO번호": "PO354490/PR1"},
+        "JS-X2": {"비용구분": "유상", "원천업무ID": "AS-12", "프로젝트NO": "UJ2600999",
+                  "원장_공급가액": 0, "원장_거래명세서발행일": "2026-04-28",
+                  "원장_거래명세서합계": 50000, "원장_PO번호": "PO354490/PR1"},
+    }
+    q_quotes = [
+        {"종류": "견적서", "프로젝트NO": "UJ2600777", "PO번호": "PO354490", "금액": 311300, "파일": "야탑.pdf"},
+        {"종류": "견적서", "프로젝트NO": "UJ2600783", "PO번호": "PO354490", "금액": 722480, "파일": "안산.pdf"},
+    ]
+    got = Q.diagnose(q_recs, q_quotes)
+    kinds = {row["정산ID"]: row["유형"] for row in got}
+    assert kinds == {"JS-X1": "교차 의심", "JS-X2": "견적 없음"}, kinds
+    assert next(r for r in got if r["정산ID"] == "JS-X1")["교차상대"] == "UJ2600783"
+    assert "quote_mismatch.py" in daily, "견적·명세 진단이 일일 자동화에 없다"
+    assert "견적명세_불일치.md" in app, "견적·명세 진단이 앱 보고에 안 보인다"
+    print("  [97] 정산 완료 DB·미발행 경과 감시 + 견적·명세 교차 진단 ✅")
 
 
 def t98_remote_control_tracking():
