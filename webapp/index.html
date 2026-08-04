@@ -5244,7 +5244,7 @@ async function loadSources(force){
   const note=$('srcNote'); if(note) note.textContent='색인 읽는 중…';
   try{
     const d = await api('/api/sources?limit=400');
-    SRC=d; 
+    SRC=d;
     const sel=$('srcKind');
     if(sel && sel.options.length<=1){
       sel.innerHTML='<option value="">종류 전체</option>'+(d.kinds||[]).map(k=>`<option value="${esc2(k)}">${esc2(k)}</option>`).join('');
