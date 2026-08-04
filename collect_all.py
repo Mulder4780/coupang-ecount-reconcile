@@ -65,20 +65,24 @@ def main():
     steps.append(run("투입함 원본 분류", [P("upload_intake.py"), "--apply"]))
     steps.append(run("다운로드 흡수", [P("download_intake.py"), "--apply"]))
     steps.append(run("밴드 덤프 → 캐시", [P("band", "convert_dump.py")]))
-    if not a.quick:
-        steps.append(run("밴드 사진 전량", [P("band", "fetch_images.py"), "--all"]))
-        steps.append(run("밴드 게시글 보관(PDF·텍스트·사진)",
-                         [P("band", "archive_posts.py"), "--limit", str(a.archive_limit)]))
+    # ★ 순서 주의(2026-08-05 실측): 무거운 **보관 단계가 Z: 에 22분간 대량 쓰기**를 하는
+    #   동안 뒤따르는 읽기·대조가 원본을 못 찾아 줄줄이 실패했다(명세서 0건 등).
+    #   그래서 **읽기·색인·대조를 먼저** 끝내고, 파일을 쏟아내는 보관은 맨 뒤로 뺀다.
+    steps.append(run("ERP 판매 프로젝트 색인", [P("erp_sales_index.py")]))
     steps.append(run("ERP 명세서 파싱", [P("stmt_docs.py")]))
     steps.append(run("명세서 ↔ 프로젝트 색인", [P("stmt_link.py")]))
-    if not a.quick:
-        steps.append(run("명세서 건별 PDF",
-                         [P("stmt_archive.py"), "--limit", str(a.archive_limit)]))
     steps.append(run("ERP 엑셀 PDF 사본", [P("erp_pdf_export.py")]))
     steps.append(run("ERP 매출서류 대조", [P("erp_docs_check.py")]))
     steps.append(run("밴드 대조", [P("band", "band_reconcile.py")]))
     steps.append(run("정산 객관완료 동기화", [P("settlement_completion.py"), "--sync"]))
     steps.append(run("확정분 DB 적재", [P("ledger_db.py"), "--intake"]))
+    if not a.quick:
+        steps.append(run("밴드 사진 전량", [P("band", "fetch_images.py"), "--all"]))
+        steps.append(run("명세서 건별 PDF",
+                         [P("stmt_archive.py"), "--limit", str(a.archive_limit)]))
+        steps.append(run("밴드 게시글 보관(PDF·텍스트·사진)",
+                         [P("band", "archive_posts.py"), "--limit", str(a.archive_limit)]))
+    steps.append(run("원본 색인 갱신", [P("source_index.py")]))
 
     bad = [s for s in steps if not s["ok"]]
     print(f"=== 완료: {len(steps)-len(bad)}/{len(steps)} 성공 ===")

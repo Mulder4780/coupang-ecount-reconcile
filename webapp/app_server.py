@@ -4270,6 +4270,33 @@ self.addEventListener('fetch', e => {
             # 리모컨 불출·납품 현황(2026-08-03 지시). 류지영·오종현 업무센터와 관리자 공용.
             import ledger_db
             return self._send(200, ledger_db.remote_status())
+        if p == "/api/sources":
+            from urllib.parse import parse_qs, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+            # 원본 자료 색인(source_index.py 산출물) — 앱에서 필터·검색해 클릭 한 번에 연다.
+            # 파일이 수만 개가 될 수 있어 서버에서 먼저 거른다(q·kind·limit).
+            try:
+                with open(os.path.join(ROOT, "reports", "원본색인.json"), encoding="utf-8") as fh:
+                    doc = json.load(fh)
+            except Exception:
+                return self._send(200, {"count": 0, "rows": [], "kinds": [],
+                                        "note": "색인 없음 — source_index.py 실행 필요"})
+            rows = doc.get("rows") or []
+            q = (qs.get("q", [""])[0] or "").strip().lower()
+            kind = (qs.get("kind", [""])[0] or "").strip()
+            if kind:
+                rows = [r for r in rows if r.get("kind") == kind]
+            if q:
+                rows = [r for r in rows
+                        if q in (r.get("name", "") + r.get("uj", "") + r.get("slip", "")
+                                 + r.get("po", "") + r.get("path", "")).lower()]
+            kinds = sorted({r.get("kind", "") for r in (doc.get("rows") or [])})
+            try:
+                limit = max(1, min(500, int(qs.get("limit", ["200"])[0])))
+            except Exception:
+                limit = 200
+            return self._send(200, {"count": len(rows), "built": doc.get("built"),
+                                    "kinds": kinds, "rows": rows[:limit]})
         if p == "/api/tax-overdue":
             # 세금계산서 미발행 경과(통계 화면용) — tax_invoice_watch 가 daily_run 에서 갱신
             try:
@@ -4677,6 +4704,17 @@ self.addEventListener('fetch', e => {
                        "band_cache": os.path.join(ROOT, "band", "cache"),
                        "reports": os.path.join(ROOT, "reports")}
             path = targets.get(what)
+            # ★ 원본 색인에서 고른 파일도 연다(2026-08-05 "클릭 한번으로 찾고 열 수 있게").
+            #   임의 경로 열기는 위험하므로 **색인에 있는 경로만** 허용한다(화이트리스트).
+            if not path and what:
+                try:
+                    with open(os.path.join(ROOT, "reports", "원본색인.json"),
+                              encoding="utf-8") as fh:
+                        allow = {r.get("path") for r in (json.load(fh).get("rows") or [])}
+                except Exception:
+                    allow = set()
+                if what in allow:
+                    path = what
             if not path or not os.path.exists(path):
                 return self._send(404, {"ok": False, "error": f"경로 없음: {what}"})
             try:
