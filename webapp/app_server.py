@@ -1872,9 +1872,15 @@ def real_settlements():
         resolved_status = str(resolved.get("status") or "")
         st = resolved_status if resolved_status.startswith("완료(") else settle_status(r)
         issued_by_evidence = "계산서" in resolved_status and resolved_status.startswith("완료(")
+        # ★ 0원 표시 해소(사용자 지시 2026-08-05): 실제작업공급가액(수식, 03시트 실적이
+        #   없어 미계산)이 비면 **거래명세서합계**로 대신 보여 준다. 682건 중 677건이
+        #   이 대체로 채워진다. 수식 칸에 값을 쓰는 게 아니라 표시만 바꾼다(엑셀 불변).
+        amt = r.get("원장_공급가액") or r.get("원장_거래명세서합계") or 0
         rows.append({"정산ID": sid, "업무구분": r.get("업무구분"), "캠프명": r.get("캠프명"),
                      "프로젝트NO": r.get("프로젝트NO"), "원천업무ID": r.get("원천업무ID"),
-                     "공급가액": r.get("원장_공급가액") or 0, "합계": r.get("원장_합계") or 0,
+                     "공급가액": amt, "합계": r.get("원장_합계") or 0,
+                     "금액출처": "실제작업" if r.get("원장_공급가액") else
+                                 ("명세서" if r.get("원장_거래명세서합계") else ""),
                      "부가세": r.get("원장_부가세"),
                      "명세서": "있음" if has_stmt else "없음",
                      "명세서번호": r.get("원장_거래명세서번호") or "",

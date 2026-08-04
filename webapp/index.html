@@ -4457,7 +4457,7 @@ function renderSettle(){
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('settle',${i},'${r.정산ID}')">
         <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(r.상태)}</div>
-        <div class="top"><span class="camp">${r.업무구분||''}</span><span class="amt">${fmt(r.공급가액)}원 <small>· 부가세 별도</small></span></div>
+        <div class="top"><span class="camp">${r.업무구분||''}</span><span class="amt">${fmt(r.공급가액)}원 <small>· 부가세 별도${r.금액출처==='명세서'?' · 명세서 기준':''}</small></span></div>
         <div class="meta"><span class="sid">${r.정산ID}</span><span>완료 ${r.완료일||'-'}</span>
           <span>명세서 ${r.명세서번호||r.명세서}</span><span>계산서 ${r.계산서}</span>
           ${r.입금일?`<span>입금 ${r.입금일}</span>`:''} ${vbadge(r.정산ID)}
