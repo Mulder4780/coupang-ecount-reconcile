@@ -78,7 +78,9 @@ def parse_file(path):
                 joined = " ".join(x for x in cells if x)
                 if not joined:
                     continue
-                head = cells[0] if cells else ""
+                # 라벨이 A열이 아니라 B·C열에 오는 블록이 있다(2026-08-04 실측: cust 가
+                # 통째로 비었다). 첫 칸만 보지 말고 **비지 않은 첫 셀**을 머리로 본다.
+                head = next((x for x in cells if x), "")
                 if head.startswith("전표번호"):
                     if cur and cur.get("slip"):
                         docs.append(cur)

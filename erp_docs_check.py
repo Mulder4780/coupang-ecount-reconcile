@@ -94,14 +94,23 @@ def month_sum(docs):
 
 
 def ledger_months():
-    """관리대장 06시트 월별 유상 공급가액 (작업완료일 기준)"""
+    """관리대장 06시트 월별 유상 금액 (작업완료일 기준).
+
+    ★ 2026-08-04 오진 수정: 예전에는 `원장_공급가액`(06시트 '실제작업공급가액')만 봤다.
+      그 칸은 **2026-07부터 채우기 시작**한 것이라 1~6월이 전부 0으로 잡혔고,
+      리포트가 "06시트에 정산 행이 없음 — 4억 2천만원 미등록"이라고 **잘못 경고**했다.
+      실제로는 같은 달 `거래명세서합계`가 111/111·85/85처럼 거의 다 채워져 있다.
+      → 실제작업공급가액이 비면 **거래명세서합계로 대신 본다**(둘 다 06시트 유상 금액).
+      실제작업공급가액이 비어 있다는 사실 자체는 '금액 재계산 대기' 상태가 따로 잡는다.
+    """
     from ecount_reconcile import read_ledger, load_config
     recs = read_ledger(load_config()["reconcile"]["master_xlsx"])
     out = collections.defaultdict(lambda: collections.Counter())
     for sid, r in recs.items():
         mo = str(r.get("작업완료일") or "")[:7].replace("-", "/")
-        if mo and r.get("원장_공급가액"):
-            out[mo][r.get("업무구분") or "기타"] += int(r.get("원장_공급가액") or 0)
+        amt = r.get("원장_공급가액") or r.get("원장_거래명세서합계")
+        if mo and amt:
+            out[mo][r.get("업무구분") or "기타"] += int(amt or 0)
     return out, recs
 
 
