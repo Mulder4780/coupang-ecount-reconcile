@@ -290,7 +290,14 @@ def save_result(doc):
     json.dump(doc, open(RESULT, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
 
-def run():
+def run(force=False):
+    """force=True 면 '대기 0'이어도 전체 재계산한다.
+
+    왜 필요한가(2026-08-04): 01_대시보드의 집계기준일은 이미 어제(08-03)인데
+    01_대표보고의 **수식 캐시가 옛날 값(08-02)** 으로 남아 당일 실적이 전부 0으로
+    보였다. 이때 '대기'는 0이라 평소 규칙으로는 열지 않는다 — 사람이 보고를 못 하는데
+    자동화가 '할 일 없음'이라고 답하는 상황이라, 강제 재계산 경로를 둔다.
+    """
     from operation_window import is_input_window, input_window_label
     if is_input_window():
         msg = f"입력 보호시간({input_window_label()}) — 엑셀을 열지 않습니다"
@@ -301,7 +308,7 @@ def run():
     from workbook_patch import latest_master
     master, ver = latest_master()
     pend = refresh_pending()
-    if not need_recalc(pend):
+    if not need_recalc(pend) and not force:
         why = "재계산 대기 없음 — 열 필요가 없습니다"
         print(why)
         save_result({"시각": datetime.now().isoformat(timespec="seconds"), "상태": "건너뜀",
@@ -314,6 +321,8 @@ def run():
                      "사유": safe_why, "대기": pend.get("대기합계", 0)})
         return 0
     ok, why = decide(pend, master, someone_editing(master), available(), safe)
+    if force and not ok and "대기" in why:
+        ok, why = True, "강제 재계산(대기 0이지만 수식 캐시 갱신)"   # 나머지 안전규칙은 그대로
     if not ok:
         print(why)
         save_result({"시각": datetime.now().isoformat(timespec="seconds"), "상태": "건너뜀",
@@ -354,7 +363,9 @@ def run():
         # 한 순간도 나타나지 않는다.
         import recalc_pending
         after = sum(x["대기"] for x in recalc_pending.scan(tmp_dst))
-        if after >= before:
+        # 강제 모드는 대기가 원래 0이라 '줄었는가'로는 판정할 수 없다. 늘지만 않으면
+        # 통과시킨다 — 목적이 대기 해소가 아니라 **수식 캐시 갱신**이기 때문이다.
+        if after > before or (after >= before and not force):
             msg = f"임시 재계산본 검증 실패: 대기 {before}→{after}건 — 정본 승격 안 함"
             print(msg)
             save_result({"시각": datetime.now().isoformat(timespec="seconds"), "상태": "실패",
@@ -417,7 +428,7 @@ def main():
     if "--self-test" in sys.argv:
         sys.exit(0 if self_test() else 1)
     if "--run" in sys.argv:
-        sys.exit(run())
+        sys.exit(run(force="--force" in sys.argv))
     from workbook_patch import latest_master
     master, ver = latest_master()
     pend = pending_doc()

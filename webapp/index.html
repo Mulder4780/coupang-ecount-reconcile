@@ -5950,6 +5950,9 @@ function cleanExecTitle(title){
 }
 function execPeriodTitle(title){
   const t=cleanExecTitle(title), bd=baseDate();
+  // ★ '당일'이 어느 날짜인지 제목에 못 박는다(사용자 지시 2026-08-04). 숫자만 보고
+  //   오늘 실적으로 오해하면 보고가 통째로 틀어진다 — 화면·캡처 이미지 모두 같은 표기.
+  if(/당일 업무 실적/.test(t)) return `당일 업무 실적 (${bd}${wdOf(bd)?` ${wdOf(bd)}`:''})`;
   if(/당일 금액|잔여 현황/.test(t)) return `당일 금액 · 잔여 현황 (${bd})`;
   if(/^리스크/.test(t)) return `리스크 (${APP_YEAR}-01-01 ~ ${bd})`;
   return t;

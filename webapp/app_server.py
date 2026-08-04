@@ -2929,6 +2929,23 @@ def read_exec_details(master, base_date=""):
 
 def get_exec_report(day=None):
     requested = norm_date(day)
+    if not requested and not DEMO:
+        # ★ 기본 집계기준일 = **어제**(사용자 지시 2026-08-04 "8월 3일 실적이 하나도
+        #   업데이트 안 되었다"). 01_대표보고 시트의 집계기준일은 수동값이라 하루 이상
+        #   뒤처지곤 한다(오늘 08-04 인데 시트는 08-02 로 굳어 있었다 — 08-02 는
+        #   일요일이라 화면이 전부 0 이었다). 시트가 더 최신이면 시트를 따른다.
+        try:
+            from datetime import date, timedelta
+            y = date.today() - timedelta(days=1)
+            if y.year == int(APP_YEAR):
+                from ecount_reconcile import load_config, resolve_master
+                sheet_base = norm_date((read_exec_report(resolve_master(
+                    load_config()["reconcile"]["master_xlsx"])).get("meta") or {}
+                    ).get("집계기준일"))
+                if not sheet_base or sheet_base < y.isoformat():
+                    requested = y.isoformat()
+        except Exception:
+            pass
     if DEMO:
         labels = [
             "청구액 (당일)", "세금계산서 발행액 (당일)", "입금액 (당일)",
