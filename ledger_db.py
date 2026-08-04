@@ -1212,7 +1212,7 @@ def _wait_editing_clear(now, slot_name):
     return human_editing()
 
 
-def apply_now(force=False, now=None, resume_slot=None):
+def apply_now(force=False, now=None, resume_slot=None, ignore_input_window=False):
     """정해진 시각일 때만 엑셀에 쓴다. 실제 쓰기는 기존 ledger_writer 에 맡긴다.
 
     resume_slot: 사람이 관리대장을 열어 두어 '연기'된 회차의 재개(2026-08-03).
@@ -1220,8 +1220,20 @@ def apply_now(force=False, now=None, resume_slot=None):
     """
     now = now or datetime.now()
     from operation_window import is_input_window, input_window_label
-    if is_input_window(now):
+    if is_input_window(now) and not ignore_input_window:
         return {"상태": "보류", "사유": f"입력 보호시간({input_window_label()})"}
+    if is_input_window(now) and ignore_input_window:
+        # ★ 사용자가 "지금 반영"을 명시했을 때만 보호시간을 건너뛴다(2026-08-05 지시).
+        #   보호시간의 목적은 **사람이 열어 둔 원장을 덮어쓰지 않는 것**이므로,
+        #   엑셀 잠금 파일(~$…)이 있으면 지시가 있어도 하지 않는다 — 그건 실제 충돌이다.
+        import glob as _g
+        try:
+            from ecount_reconcile import load_config as _lc, resolve_master as _rm
+            _dir = os.path.dirname(_rm(_lc()["reconcile"]["master_xlsx"]))
+            if _g.glob(os.path.join(_dir, "~$*.xlsx")):
+                return {"상태": "보류", "사유": "관리대장이 열려 있음 — 닫은 뒤 다시"}
+        except Exception:
+            pass
 
     intake_json()                                    # 도구들이 넣어 둔 것 먼저 흡수
     p, by, done = counts()
@@ -1539,7 +1551,8 @@ def main():
         return
     if "--apply" in sys.argv:
         with apply_lock():
-            r = apply_now(force="--force" in sys.argv)
+            r = apply_now(force="--force" in sys.argv,
+                          ignore_input_window="--now" in sys.argv)
         print(" · ".join(f"{k} {v}" for k, v in r.items()))
         if r.get("상태") == "실패":
             sys.exit(1)

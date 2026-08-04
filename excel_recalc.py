@@ -299,7 +299,10 @@ def run(force=False):
     자동화가 '할 일 없음'이라고 답하는 상황이라, 강제 재계산 경로를 둔다.
     """
     from operation_window import is_input_window, input_window_label
-    if is_input_window():
+    # ★ --now: 보호시간이라도 연다(2026-08-05). 보호시간의 목적은 **사람이 열어 둔
+    #   원장과 충돌하지 않는 것**이라, 사람이 안 여는 날(담당자 부재)엔 지킬 이유가 없다.
+    #   그래도 잠금 파일이 있으면 아래 정상 경로가 다시 막는다.
+    if is_input_window() and "--now" not in sys.argv:
         msg = f"입력 보호시간({input_window_label()}) — 엑셀을 열지 않습니다"
         print(msg); save_result({"시각": datetime.now().isoformat(timespec="seconds"),
                                  "상태": "보류", "사유": msg})
