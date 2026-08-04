@@ -1731,7 +1731,7 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
     <div class="card ios-inset">
       <div class="wt-meta ios-footnote" id="centerRemoteBrief">현황 불러오는 중…</div>
       <div class="actions ios-actions">
-        <button class="abtn primary" onclick="show('as');setAsTab('remote')">리모컨 관리 열기</button>
+        <button class="abtn primary" onclick="show('remote')">리모컨 관리 열기</button>
       </div>
     </div>
   </section>
@@ -1747,28 +1747,25 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
   <section class="view" id="v-as">
     <div class="hero-min"><h2>돌발 AS 관리</h2>
       <p class="sub">접수→배정→방문→완료를 한 화면에서 관리합니다. 입력은 DB에 쌓였다가 11시·15시에 관리대장에 들어갑니다.</p></div>
-    <!-- 돌발AS 아래 리모컨 관리 카테고리(2026-08-04 지시). 리모컨은 AS 기사가 현장에
-         들고 나가는 물건이라 돌발AS 옆에 있는 게 손에 맞다 — 흩어져 있던 모듈을 여기로 모았다. -->
-    <div class="seg" id="asSeg">
-      <button class="on" data-t="work" onclick="setAsTab('work')">돌발AS 목록</button>
-      <button data-t="remote" onclick="setAsTab('remote')">리모컨 관리</button>
+    <div class="wt-kpis" id="asKpis"></div>
+    <div class="card"><div class="wt-toolbar" id="asToolbar"></div>
+      <div class="wt-meta" id="asMeta"></div><div id="asBody"></div></div>
+  </section>
+
+  <!-- 리모컨 관리 — 돌발 AS 바로 아래 독립 화면(2026-08-04 지시).
+       재고 등록·불출·납품 입력과 현황·이미지/엑셀 저장을 한 화면에 모았다. -->
+  <section class="view" id="v-remote">
+    <div class="hero-min"><h2>리모컨 관리</h2>
+      <p class="sub">지점 재고 · AS 담당자 불출 · 현장 납품을 한 화면에서 기록합니다. 입력은 즉시 DB에 저장되어 류지영 매니저 화면과 대표보고에 바로 반영됩니다.</p></div>
+    <div class="rpt-actions" role="toolbar" aria-label="리모컨 도구">
+      <button class="icon-btn primary" onclick="remoteCapture()" title="이미지 저장" aria-label="이미지 저장">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
+      <button class="icon-btn excel" onclick="remoteCsv()" title="엑셀 저장" aria-label="엑셀 저장">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
+      <button class="icon-btn" onclick="renderRemoteCard('remoteHost')" title="새로고침" aria-label="새로고침">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg></button>
     </div>
-    <div id="asWorkPane">
-      <div class="wt-kpis" id="asKpis"></div>
-      <div class="card"><div class="wt-toolbar" id="asToolbar"></div>
-        <div class="wt-meta" id="asMeta"></div><div id="asBody"></div></div>
-    </div>
-    <div id="asRemotePane" style="display:none">
-      <div class="card">
-        <h3>리모컨 관리 <span class="norm">— 재고·불출·납품을 한 곳에서</span></h3>
-        <div class="actions" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:10px">
-          <button class="abtn primary" type="button" onclick="remoteCapture()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg>이미지 저장</button>
-          <button class="abtn" type="button" onclick="remoteCsv()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg>엑셀 저장</button>
-          <button class="abtn" type="button" onclick="renderRemoteCard('asRemoteHost')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>새로고침</button>
-        </div>
-        <div id="asRemoteHost"></div>
-      </div>
-    </div>
+    <div class="card"><div id="remoteHost"></div></div>
   </section>
 
   <section class="view" id="v-settle">
@@ -2316,6 +2313,8 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
   <button class="worktab-nav" data-v="center" onclick="routeNav('center')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-workspace"/></svg>업무센터</button>
   <button class="worktab-nav" data-v="pm" onclick="routeNav('pm')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>정기점검</button>
   <button class="worktab-nav" data-v="as" onclick="routeNav('as')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-wrench-adjustable"/></svg>돌발 AS</button>
+  <!-- 리모컨은 AS 기사가 현장에 들고 나가는 물건이라 돌발 AS 바로 아래 둔다(2026-08-04 지시). -->
+  <button class="worktab-nav" data-v="remote" onclick="routeNav('remote')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-box-seam"/></svg>리모컨</button>
   <button class="staff-worklog-nav" data-v="worklog" onclick="routeNav('worklog')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>대표보고 일지</button>
   <button data-v="settle" onclick="routeNav('settle')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-receipt"/></svg>정산</button>
   <button data-v="run" onclick="routeNav('run')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-play-fill"/></svg>실행</button>
@@ -3593,7 +3592,12 @@ function injectRemoteCard(){
   const anchor=$('ryuSummaryGrid'); if(!anchor||$('staffRemoteHost')) return;
   const card=document.createElement('div');
   card.className='card';
-  card.innerHTML='<h3>리모컨 관리 <span class="norm">— 불출·납품 기록 · AS 담당자당 최대 3개</span></h3><div id="staffRemoteHost"></div>';
+  card.innerHTML='<h3>리모컨 관리 <span class="norm">— 재고·불출·납품을 한 곳에서</span></h3>'
+    +'<div class="actions" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:10px">'
+    +'<button class="abtn primary" type="button" onclick="remoteCapture()">이미지 저장</button>'
+    +'<button class="abtn" type="button" onclick="remoteCsv()">엑셀 저장</button>'
+    +'<button class="abtn" type="button" onclick="renderRemoteCard(\'staffRemoteHost\')">새로고침</button>'
+    +'</div><div id="staffRemoteHost"></div>';
   anchor.parentNode.insertBefore(card, anchor);
   renderRemoteCard('staffRemoteHost');
 }
@@ -3601,13 +3605,26 @@ async function renderRemoteCard(hostId){
   const host=$(hostId); if(!host) return;
   let s=null;
   try{ s=await api('/api/remote/status'); }catch(e){ host.innerHTML='<p class="norm">리모컨 현황을 불러오지 못했습니다.</p>'; return; }
+  /* ★ 그리는 도중 오류가 나면 예전에는 **빈 카드**가 남아 사용자가 원인을 알 수 없었다
+     (2026-08-04 실제로 그랬다). 실패를 화면에 드러내고 기록도 남긴다. */
+  try{ return remoteCardBody(host,s,hostId); }
+  catch(err){
+    host.innerHTML=`<p class="norm">리모컨 화면을 그리지 못했습니다 — ${esc2(String(err&&err.message||err))}</p>`;
+    uxEvent('error','remote-render:'+String(err&&err.message||err).slice(0,60));
+  }
+}
+/* 입력 필드 id 는 hostId 를 접두어로 만든다(한 화면에 카드가 둘 이상 떠도 안 섞이게).
+   그래서 본문 함수도 hostId 를 받아야 한다 — 안 받으면 폼이 통째로 안 그려진다. */
+function remoteCardBody(host,s,hostId){
   const holds=Object.entries(s.holdings||{});
   const holdRows=holds.length?holds.map(([t,h])=>{const ov=h.holding>(s.limit||3);
     return `<tr><td>${esc2(t)}</td><td>${h.issued}</td><td>${h.delivered}</td><td><b${ov?' class="remote-over"':''}>${h.holding}${ov?' ⚠':''}</b></td></tr>`;}).join(''):'<tr><td colspan="4">불출 이력이 아직 없습니다</td></tr>';
   const dels=(s.deliveries||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.delivered_on)}</td><td>${esc2(r.technician)}</td><td>${esc2(r.project||'')} ${esc2(r.camp||'')}</td><td>${esc2(r.kind||'납품')}</td><td>${r.qty}</td></tr>`).join('');
+  // ★ bs 는 아래 표들이 모두 쓰므로 **먼저** 선언한다. 뒤에 두면 mvs 가 선언 전 bs 를
+  //   건드려 ReferenceError 가 나고, catch 도 없어 카드가 통째로 비어 보였다(2026-08-04).
+  const bs=s.branch_stock||{};
   const mvs=(s.moves||[]).slice(0,8).map(r=>`<tr><td>${esc2(r.moved_on||'')}</td><td>${esc2((bs[r.branch]||{}).label||r.branch)}</td><td>${esc2(r.version||'미확인')}</td><td>${r.qty_delta>0?'+':''}${r.qty_delta}</td><td>${esc2((r.reason||'').replace(/\s*\[재고표[^\]]*\]/,''))}</td></tr>`).join('');
   const iss=(s.issues||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.issued_on||String(r.requested_at||'').slice(0,10))}</td><td>${esc2(r.branch)}</td><td>${esc2(r.technician)}</td><td>${esc2(r.camp||'-')}</td><td>${r.qty}</td></tr>`).join('');
-  const bs=s.branch_stock||{};
   const verTxt=v=>Object.entries(v.versions||{}).filter(([,n])=>n).map(([k,n])=>`${esc2(k)} ${n}`).join(' · ');
   const stockRows=Object.keys(s.branches||{}).map(b=>{const v=bs[b]||{};const vt=verTxt(v);
     return `<tr><td>${esc2(v.label||b)}${vt?`<br><span class="remote-ver">${vt}</span>`:''}</td><td>${esc2((s.branches||{})[b]||'')}</td><td>${v.tracked?v.in:'-'}</td><td>${v.tracked?v.issued:'-'}</td><td><b>${v.tracked?v.stock+'개':'미등록'}</b></td></tr>`;}).join('');
@@ -3748,6 +3765,7 @@ function applyView(v){
   if(v==='report' && !reports.length) loadReports();
   if(v==='pm'||v==='as'){ renderWorkTab(v); if(!(works.as||[]).length&&PIN) loadSettle().catch(()=>{}); }
   if(v==='center'){ renderCenter(); if(!(works.as||[]).length&&PIN) loadSettle().catch(()=>{}); }
+  if(v==='remote') renderRemoteCard('remoteHost');
   if(v==='ryu' && PIN && !RYU) loadRyuRecords();
   if(v==='worklog' && PIN) loadWorkLogStatus();
   if(v==='dash' && !CAL) loadCalendar();
@@ -5361,15 +5379,6 @@ async function loadRemoteStat(){ try{ REMOTE_STAT=await api('/api/remote/status'
     el.parentElement&&el.parentElement.classList.toggle('warn',!!over);
   }
 }
-/* 돌발AS 안의 리모컨 탭(2026-08-04 지시) */
-function setAsTab(t){
-  const work=t!=='remote';
-  document.querySelectorAll('#asSeg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
-  if($('asWorkPane')) $('asWorkPane').style.display=work?'':'none';
-  if($('asRemotePane')) $('asRemotePane').style.display=work?'none':'';
-  if(!work) renderRemoteCard('asRemoteHost');
-  uxEvent('tap','as-tab-'+t);
-}
 /* 리모컨 현황 CSV — 엑셀에서 바로 열린다(지점재고·담당자보유·불출·납품 4블록). */
 function remoteCsv(){
   const s=REMOTE_STAT||{}; const q=v=>`"${String(v==null?'':v).replace(/"/g,'""')}"`;
@@ -5425,13 +5434,15 @@ async function remoteCapture(){
   saveOrOpen(blob,`리모컨현황_${todayISO()}.png`);
   toast('리모컨 현황 이미지를 저장했습니다'); uxEvent('tap','remote-capture');
 }
-/* 리모컨 카드로 데려간다 — 탭만 있고 이동이 없으면 "눌렀는데 아무 일도 안 난다"가 된다. */
+/* 리모컨 카드로 데려간다 — 탭만 있고 이동이 없으면 "눌렀는데 아무 일도 안 난다"가 된다.
+   담당자 업무센터(류지영·오종현)는 페이지 안 카드로, 관리자 화면은 리모컨 메뉴로 간다. */
 function gotoRemoteCard(){
-  const host=$('staffRemoteHost')||$('centerRemoteHost');
-  if(!host){ toast('리모컨 카드를 찾지 못했습니다'); return; }
+  const host=$('staffRemoteHost');
+  if(!host){ show('remote'); return; }
   const card=host.closest('.card')||host;
   card.scrollIntoView({behavior:'smooth',block:'start'});
   card.classList.add('flash'); setTimeout(()=>card.classList.remove('flash'),1900);
+  renderRemoteCard('staffRemoteHost');
   uxEvent('tap','remote-tab');
 }
 let execRep = {};                      // 01_대표보고 시트 원본(엑셀 수식 집계 결과)

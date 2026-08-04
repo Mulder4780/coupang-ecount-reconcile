@@ -4306,8 +4306,12 @@ def t98_remote_control_tracking():
         L.DB_PATH, L.DB_DIR = old_path, old_dir
     # 앱: 류지영·오종현 업무센터 공통 카드 + iOS 스타일 + 대표보고 캡처 포함 + 승인 UI 없음
     html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    # 2026-08-04: 리모컨은 사이드바 '돌발 AS 바로 아래' 독립 화면(v-remote)으로 옮겼다.
+    # 관리자 업무센터 탭에는 입력 폼 대신 요약(centerRemoteBrief)과 바로가기만 둔다.
     for need in ("injectRemoteCard", "renderRemoteCard", "remoteRequest",
-                 "remoteDeliver", "centerRemoteHost",
+                 "remoteDeliver", "centerRemoteBrief",
+                 'id="v-remote"', 'data-v="remote"', "remoteCardBody",
+                 "remoteCsv", "remoteCapture",
                  "if(staffSlug==='ryu-jiyeong'||staffSlug==='oh-jonghyeon') injectRemoteCard()",
                  ".remote-grid2 fieldset{border:0;border-radius:16px",
                  "loadRemoteStat", "remote: REMOTE_STAT", "rmtH",
