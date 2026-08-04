@@ -168,6 +168,10 @@ def main():
                 changed.append(no)                    # 수정된 글 — 다시 대조해야 한다
             elif len(new_txt) > len(old_txt):
                 merged[no] = rec
+            elif newer and not truncated:
+                # ★ 내용이 그대로인 재수집도 시각은 남긴다(2026-08-04). 안 남기면
+                #   recheck_plan 이 영원히 '재수집 전'으로 보고 같은 글을 무한 반복한다.
+                cur["captured_at"] = rec["captured_at"]
         if changed:
             _mark_changed(band, changed)
         out = {"band_name": d.get("name", band), "posts": merged}
