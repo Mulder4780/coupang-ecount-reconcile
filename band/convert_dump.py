@@ -57,6 +57,22 @@ def dump_files():
 CHANGED_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            "reports", "밴드_수정글.json")
 
+# 밴드 화면 문구 — 수집 방식(피드 긁기 vs 상세 페이지)에 따라 붙었다 떨어졌다 한다.
+# 이걸 걸러내지 않으면 **수집 방식만 바뀌어도 전부 '수정됨'으로 잡힌다**(실제로 571건
+# 오탐이 났다). 글쓴이가 고친 것만 남기려면 화면 장식은 비교에서 빼야 한다.
+_UI_NOISE = re.compile(
+    r"(글 옵션|표정짓기|댓글쓰기|공동리더|\d+명이 읽었습니다|더보기|"
+    r"메인 콘텐츠로 바로가기|BAND|밴드, 페이지, 게시글 검색|새글 피드|"
+    r"새로운 새소식이[^\n]*|새로운 채팅 메시지[^\n]*|내 정보, 설정, 로그아웃|"
+    r"게시글|사진첩|일정|첨부|멤버 \d+|초대|글쓰기|미션 인증 설정|밴드 설정|"
+    r"밴드와 게시글이 공개되지 않습니다[^\n]*|검색|발견|\d+)")
+
+
+def _norm(text):
+    """비교용 정규화 — 화면 문구·공백·숫자 장식을 걷어낸 '사람이 쓴 내용'만 남긴다."""
+    t = _UI_NOISE.sub(" ", str(text or ""))
+    return re.sub(r"\s+", " ", t).strip()
+
 
 def _mark_changed(band, nos):
     """수정된 글 번호를 남긴다 — 대조·사진수집이 이 목록을 다시 훑는다.
@@ -145,7 +161,7 @@ def main():
                 merged[no] = rec
             elif len(new_txt) > len(old_txt) and not newer:
                 merged[no] = rec                      # 예전 규칙(같은 회차 품질 차이)
-            elif newer and not truncated and new_txt.strip() != old_txt.strip():
+            elif newer and not truncated and _norm(new_txt) != _norm(old_txt):
                 rec["updated_at"] = cap_ms
                 rec["prev_len"] = len(old_txt)
                 merged[no] = rec
