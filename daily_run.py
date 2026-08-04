@@ -311,6 +311,19 @@ def _run_pipeline():
     # 달라 그 도구는 0건으로 봤다(2026-08-04 실측) — 별도 파서가 읽는다. 읽기 전용.
     steps.append(run("거래명세서 인쇄본 대조", [os.path.join(ROOT, "stmt_docs.py")],
                      timeout=1500))
+    # 명세서 ↔ 판매조회(UJ 프로젝트코드) 색인. 인쇄본에는 UJ 가 없어 금액·거래처·품목으로
+    # 잇는다(2026-08-05). 이 색인이 건별 PDF 파일명의 프로젝트NO 가 된다.
+    steps.append(run("명세서 ↔ 프로젝트 색인", [os.path.join(ROOT, "stmt_link.py")],
+                     timeout=1500))
+    # ★ 사용자 지시(2026-08-05) "각 건의 PDF·이미지를 번호로 알아보게 저장":
+    #   밴드는 글 단위(PDF+텍스트+사진), ERP 명세서는 전표번호 단위 PDF 로 굳힌다.
+    #   회차마다 상한을 둬 daily_run 이 길어지지 않게 한다 — 남은 건 다음 회차가 잇는다.
+    steps.append(run("밴드 게시글 보관(PDF·텍스트·사진)",
+                     [os.path.join(ROOT, "band", "archive_posts.py"), "--limit", "150"],
+                     timeout=2400))
+    steps.append(run("명세서 건별 PDF 보관",
+                     [os.path.join(ROOT, "stmt_archive.py"), "--limit", "150"],
+                     timeout=2400))
     # ★ 원본이 늘면 분석 3종(미발행·불일치·확인필요현황)이 10분을 넘긴다 —
     #   2026-08-04 거래명세서 785건 흡수 후 기본 600초에 셋 다 타임아웃으로 FAIL했다.
     #   단독 재실행은 전부 성공(로직 문제 아님) → 시간만 넉넉히 준다.
