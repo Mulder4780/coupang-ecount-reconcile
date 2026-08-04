@@ -168,10 +168,13 @@ def main():
                 changed.append(no)                    # 수정된 글 — 다시 대조해야 한다
             elif len(new_txt) > len(old_txt):
                 merged[no] = rec
-            elif newer and not truncated:
-                # ★ 내용이 그대로인 재수집도 시각은 남긴다(2026-08-04). 안 남기면
-                #   recheck_plan 이 영원히 '재수집 전'으로 보고 같은 글을 무한 반복한다.
-                cur["captured_at"] = rec["captured_at"]
+            # ★ 재수집 시각은 어느 분기가 이기든 **단조증가**로 남긴다(2026-08-04).
+            #   덤프는 매 실행 전부 재처리되므로, 본문이 긴 옛 덤프가 나중에 이기면
+            #   위 분기만으로는 스탬프가 0으로 되돌아가 recheck_plan 이 영원히
+            #   '재수집 전'으로 보고 같은 글을 무한 반복한다.
+            keep = max(int(cur.get("captured_at") or 0), int(rec.get("captured_at") or 0))
+            if keep:
+                merged[no]["captured_at"] = keep
         if changed:
             _mark_changed(band, changed)
         out = {"band_name": d.get("name", band), "posts": merged}

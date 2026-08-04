@@ -16,6 +16,10 @@ import sys, os, json, argparse
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
+# ★ 수정글 감지 시대의 시작(2026-08-04, 상세 페이지 재수집 도입). 7월의 피드/API
+#   덤프도 capturedAt 을 갖고 있어 '유무'만 보면 옛 수집이 재수집으로 오판된다 —
+#   이 시각 이후의 captured_at 만 재수집 완료로 인정한다(convert_dump 는 사실만 기록).
+ERA_MS = 1785769200000  # 2026-08-04 00:00 KST
 
 
 def load(band):
@@ -33,7 +37,7 @@ def plan(band, posts):
     have = set(ks)
     gaps = [n for n in range(lo, hi + 1) if n not in have]
     stale = sorted(int(k) for k, v in posts.items()
-                   if str(k).isdigit() and not v.get("captured_at"))
+                   if str(k).isdigit() and int(v.get("captured_at") or 0) < ERA_MS)
     return {"band": band, "range": (lo, hi), "n": len(ks),
             "gaps": gaps, "stale": stale}
 
