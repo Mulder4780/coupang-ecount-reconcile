@@ -6128,9 +6128,10 @@ function execHtml(){
     if((s.groups||[]).length){
       h += `<div class="egrid">` + s.groups.map(g=>`<div class="egroup">
         <div class="gh">${g.name}</div>
-        <div class="gb">${g.items.map(([l,v])=>{
+        <div class="gb">${g.items.map(([l,v,c])=>{
           const k = helpKey(l);
-          return `<div class="gitem"><div class="gi"><span${k?` class="has-help" onclick="openHelp('${k}')"`:''}>${dateLabel(l)}${k?'<i class="qm">?</i>':''}</span><b>${v||'-'}</b></div>${dayDetail(l,v)}</div>`;
+          // 3원소째(c)는 서버가 정한 강조색 — 대표 지시 항목(핫이슈·경과 대비)을 카드 안에서 붉게/푸르게.
+          return `<div class="gitem"><div class="gi"><span${k?` class="has-help" onclick="openHelp('${k}')"`:''}>${dateLabel(l)}${k?'<i class="qm">?</i>':''}</span><b${c?` style="color:${c}"`:''}>${v||'-'}</b></div>${dayDetail(l,v)}</div>`;
         }).join('')}</div></div>`).join('');
       if(/당일 업무 실적/.test(raw)) h += dailyIssueHtml();
       h += `</div>`;
@@ -8051,11 +8052,12 @@ async function reportToPng(){
       box(gx,y,gw,34,p.head,p.line,12);
       box(gx+10,y+9,5,16,p.accent,null,3);
       txt(g.name,gx+23,y+17,F(11.5,900),p.text);
-      g.items.forEach(([l,v],j)=>{
+      g.items.forEach(([l,v,c],j)=>{
         const ry=y+34+14+j*24;
         if(j%2){ctx.fillStyle='#FAFBFD';ctx.fillRect(gx+7,ry-10,gw-14,21);}
         txt(clip(dateLabel(l),gw-75),gx+12,ry,F(11.2),'#475467');
-        txt(v||'-',gx+gw-12,ry,F(12.2,900),'#101828','right');
+        // 서버 강조색(c) — 화면 카드와 캡처가 같은 색으로 대표 지시 항목을 보여 준다.
+        txt(v||'-',gx+gw-12,ry,F(12.2,900),c||'#101828','right');
       });
     });
     y += bh + 6;
@@ -8506,12 +8508,25 @@ function rptFileName(){
 function isIOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1); }
 
+/* BRIEF 가 준비될 때까지 잠깐 기다린다(최대 10초). 실패해도 캡처는 계속한다 —
+   단, 그때는 빠진 것이 아니라 서버가 브리핑을 못 만든 것이라 재시도 타이머가 잡는다. */
+async function waitBrief(){
+  for(let i=0; i<40 && !BRIEF; i++){
+    if(!BRIEF_LOADING) loadBrief();
+    await new Promise(r=>setTimeout(r,250));
+  }
+}
+
 /* 이미지 저장 — PC는 즉시 다운로드, iOS/미지원 기기는 새 창에 띄워 길게 눌러 저장 */
 async function captureReport(){
   let blob;
   try{
     // 클릭 시점의 최신 4원천 집계를 다시 묶어 화면과 저장 이미지가 항상 같게 한다.
     await loadRemoteStat();            // 리모컨 현황도 캡처에 싣는다(2026-08-03)
+    // ★ BRIEF(일지 대조·핫이슈·분기 경과율)가 로딩 전이면 캡처가 대표 지시 블록을
+    //   말없이 통째로 빼고 그려졌다(2026-08-04 실측). 기다렸다 그린다.
+    //   loadBrief 는 이미 로딩 중이면 그냥 돌아오므로, 끝날 때까지 짧게 폴링한다.
+    await waitBrief();
     renderDaily();
     blob = await reportToPng();
     if(!blob) throw new Error('이미지 생성 결과가 비어 있습니다');
@@ -8523,6 +8538,7 @@ async function shareReport(){
   let blob;
   try{
     await loadRemoteStat();
+    await waitBrief();                 // 캡처와 같은 이유 — 빈 브리핑으로 공유되지 않게
     renderDaily();
     blob = await reportToPng();
     if(!blob) throw new Error('empty');

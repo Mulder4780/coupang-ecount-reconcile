@@ -2929,6 +2929,73 @@ def read_exec_details(master, base_date=""):
     return details
 
 
+def _augment_exec_daily(report):
+    """유수비 대표 지시(2026-08-04) 항목을 '당일 업무 실적' 카테고리 카드에 직접 얹는다.
+
+    대표는 캡처 첫머리의 카드 3장(돌발 AS·현장/정기점검/거래서류·청구)을 본다 —
+    브리핑 블록·아래쪽 별도 섹션에만 넣었더니 "반영 하나도 안 됐다"가 됐다(실측).
+    값은 엑셀에 쓰지 않고(DB-only) 서버가 보고 시점에 daily_brief·정산 집계에서
+    계산해 얹는다. 항목 3원소째는 표시 색 — 화면(execHtml)·캡처(groupCols) 공통.
+    """
+    if not isinstance(report, dict):
+        return report
+    sec = next((s for s in report.get("sections", [])
+                if "당일 업무 실적" in str(s.get("title", ""))), None)
+    if not sec or not sec.get("groups"):
+        return report
+
+    def grp(word):
+        return next((g for g in sec["groups"] if word in str(g.get("name", ""))), None)
+
+    def put(g, label, value, color=None):
+        if not g:
+            return
+        items = g.setdefault("items", [])
+        row = [label, value] + ([color] if color else [])
+        for i, it in enumerate(items):
+            if str(it[0]) == label:
+                items[i] = row
+                return
+        items.append(row)
+
+    try:
+        brief = get_daily_brief(norm_date((report.get("meta") or {})
+                                          .get("집계기준일") or "") or None)
+    except Exception:
+        brief = {}
+    pm = (brief or {}).get("정기점검") or {}
+    wl = ((brief or {}).get("일지대조") or {}).get("돌발AS") or {}
+
+    # ① 대표: "이번 분기에 **일수를 따졌을 때** 몇 % 진행됐고 이상이 있는지"
+    if pm.get("분기예정"):
+        pct, el = int(pm.get("분기진행률") or 0), int(pm.get("분기경과율") or 0)
+        gap = pct - el
+        put(grp("정기점검"), "분기 진행률", f"{pct}%")
+        put(grp("정기점검"), f"기간 경과 {el}% 대비",
+            f"{gap:+d}%p {'앞섬' if gap >= 0 else '뒤짐'}",
+            "#12813F" if gap >= 0 else "#B42318")
+
+    # ② 대표: "기사가 스케줄을 못 잡아 미루는 건 절대 안 된다" — 핫이슈는 0이어도
+    #   자리를 지킨다. 숫자가 보여야 '없다'를 보고할 수 있다.
+    if wl:
+        hot = int(wl.get("핫이슈") or 0)
+        put(grp("돌발"), "미실시 핫이슈(일정·사유)", f"{hot}건",
+            "#B42318" if hot else "#12813F")
+
+    # ③ 대표: "몇 건 발행해야 하는데 발행 대기가 얼마인지" —
+    #   모수는 **작업완료(유상 정산) 기준**(사용자 확정 2026-08-04).
+    try:
+        st = (get_representative_report().get("거래명세서") or {}).get("업무유형별") or []
+        target = sum(int(x.get("발행대상") or 0) for x in st)
+        wait = sum(int(x.get("미발행") or 0) for x in st)
+        if target:
+            put(grp("거래서류"), "명세서 발행 대기(완료 기준)",
+                f"{wait}건 / {target}건", "#B42318" if wait else "#12813F")
+    except Exception:
+        pass
+    return report
+
+
 def get_exec_report(day=None):
     requested = norm_date(day)
     if not requested and not DEMO:
@@ -3019,8 +3086,10 @@ def get_exec_report(day=None):
                         item[1] = f"{int(d.get('amount') or 0):,}"
                     else:
                         item[1] = f"{int(d.get('count') or 0):,}"
+            _augment_exec_daily(r)
             _append_remote_section(r)
             return r
+        _augment_exec_daily(r)
         _append_remote_section(r)
         return _store_cache("exec", r)
 
