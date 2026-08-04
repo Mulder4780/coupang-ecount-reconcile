@@ -89,7 +89,7 @@ def parse_file(path):
                     continue
                 if cur is None:
                     continue
-                if head.startswith("부서-거래처"):
+                if head.startswith(("수신-거래처", "부서-거래처")):
                     cur["cust"] = joined.split(":", 1)[-1].strip()
                 elif head.startswith("출고창고"):
                     cur["warehouse"] = joined.split(":", 1)[-1].strip()
