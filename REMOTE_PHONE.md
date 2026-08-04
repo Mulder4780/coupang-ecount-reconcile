@@ -38,6 +38,26 @@ python ecount/remote_ready.py
 
 폰에서 고친 것은 PC 에서 `git pull --rebase` 로 받는다.
 
+### A-2. 폰에서 Codex 로 같은 일 하기 (2026-08-04)
+
+Claude 크레딧이 없거나 Codex 로 교대할 때 — 방식은 A 와 완전히 같다.
+
+1. 폰 브라우저(또는 ChatGPT 앱) → `chatgpt.com/codex`
+2. GitHub 연결에서 `Mulder4780/coupang-ecount-reconcile` 선택 → 클라우드 샌드박스가 저장소를 복제
+3. 저장소 루트에 `AGENTS.md`(Codex 자동 로드)가 있어 규칙·체크리스트가 그대로 적용된다
+4. 할 수 있는 일·안 되는 일도 A 와 동일: 코드·문서·합성검증은 되고, Z:·이카운트·밴드는 안 된다
+5. 결과는 PR 또는 커밋으로 남는다 → PC 복귀 후 `git pull --rebase`
+
+**전제도 같다: 푸시돼 있어야 보인다.** 자리 뜨기 전 푸시가 폰 작업의 전부다.
+
+### A-3. PC 를 안 켜도 자동으로 도는 것 (GitHub Actions, 2026-08-04)
+
+`.github/workflows/auto_scout.yml` — 자동화 후보 일일 검색이 **GitHub 무료 서버에서
+매일 10:00(KST) 자동 실행**되어 `reports/자동화_후보.md` 를 커밋한다. PC·폰 모두 꺼져
+있어도 돈다. 비밀키가 필요 없는 읽기 작업만 이렇게 옮긴다 — Z:·이카운트·밴드·엑셀이
+필요한 작업은 옮길 수 없고(자료가 PC/LAN 에만 있고, 웹앱은 LAN 전용·외부 개방 금지
+규칙), 옮기지 않는다.
+
 ---
 
 ## B. SSH 로 이 PC 에 붙어 `claude` 실행
