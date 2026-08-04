@@ -23,6 +23,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -59,6 +60,18 @@ def _dated(base):
     return os.path.join(base, f"{now.year}", f"{now.month:02d}", now.strftime("%Y-%m-%d"))
 
 
+def _erp_filename(name):
+    """이카운트 내보내기 파일명인가 — 무작위 대문자 15자, 또는 프로그램코드(ETA002R 등).
+
+    이카운트는 화면에 따라 두 가지로 이름을 준다. 둘 다 사람이 지을 이름은 아니라서
+    이 형태면 ERP 산출물로 봐도 안전하다.
+    """
+    stem = os.path.splitext(str(name or ""))[0]
+    return bool(re.fullmatch(r"[A-Za-z0-9]{12,20}", stem)
+                or re.fullmatch(r"E[A-Z]*\d{3,6}[A-Z]?", stem)
+                or re.fullmatch(r"ECTAX\d+[A-Z]?", stem))
+
+
 def plan_moves():
     """무엇을 어디로 옮길지 계산만 한다(이동은 apply 에서)."""
     import source_dirs as S
@@ -91,6 +104,12 @@ def plan_moves():
             if kind in ("taxinv", "ledger", "sales", "tax", "stmt", "slips", "hometax", "po", "receipt"):
                 base = S.COUPANG_DIR if kind == "po" else (S.RECEIPT_DIR if kind == "receipt" else S.ERP_DIR)
                 moves.append((p, _dated(base), f"내용판별({kind})"))
+            elif _erp_filename(os.path.basename(p)):
+                # 내용 판별이 안 되는 ERP 화면(요약표·집계표)도 원본은 남긴다
+                # (사용자 지시 2026-08-04 "ERP 모든 데이터 ... 전부 반영").
+                # **파일명이 ERP 다운로드 형태일 때만** 가져온다 — Downloads 의 개인 파일을
+                # Z: 로 쓸어 담지 않기 위해서다.
+                moves.append((p, _dated(S.ERP_DIR), "ERP 파일명 판별(내용 미상)"))
     return moves
 
 

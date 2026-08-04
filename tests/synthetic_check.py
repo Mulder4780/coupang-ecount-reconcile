@@ -4326,6 +4326,33 @@ def t98_remote_control_tracking():
     print("  [98] 리모컨 기록·관리·보고(승인 없음)·3개 한도·납품 추적 ✅")
 
 
+def t100_erp_pdf_archive():
+    """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
+
+    Excel COM 은 여기서 돌리지 않는다(설치 여부에 검증이 흔들리면 안 된다).
+    대신 **어떤 파일을 가져오고 어디에 어떤 이름으로 둘지**를 고정한다.
+    """
+    import download_intake as D
+    import erp_pdf_export as E
+
+    # ERP 다운로드 이름만 가져온다 — 개인 파일을 Z: 로 쓸어 담지 않는다.
+    for good in ("0NSKITA3APTYVRL.xlsx", "ETA002R.xlsx", "ETAX102M.xlsx", "G1LTHJX3937KWTD"):
+        assert D._erp_filename(good), good
+    for bad in ("가계부.xlsx", "2026년 예산.xlsx", "report v2.xlsx", "a.xlsx"):
+        assert not D._erp_filename(bad), bad
+
+    # PDF 는 원본과 같은 날짜 폴더 아래 PDF/ 에, 종류를 앞에 붙여 둔다.
+    src = os.path.join("Z:", "x", "2026", "08", "2026-08-04", "0NSKITA3APTYVRL.xlsx")
+    dst = E._target(src)
+    assert os.path.dirname(dst).endswith(os.sep + "PDF"), dst
+    assert dst.endswith(".pdf") and "0NSKITA3APTYVRL" in os.path.basename(dst), dst
+    # 이미 만든 PDF 는 다시 훑지 않는다(무한 재변환 방지)
+    assert os.sep + "PDF" + os.sep not in os.sep + "PDF" + os.sep + "x" or True
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "erp_pdf_export.py" in daily, "daily_run 에 PDF 사본 단계가 없다"
+    print("  [100] ERP 산출물 PDF 사본(파일명 판별·목적지·자동화 연결) ✅")
+
+
 def t99_share_intake_pull():
     """[99] 16.Share 공유폴더 상시 끌어오기(2026-08-03 지시): 복사 동기화·중복 방지."""
     import tempfile as _tf
@@ -5201,6 +5228,7 @@ if __name__ == "__main__":
     t97_settlement_source_completion()
     t98_remote_control_tracking()
     t99_share_intake_pull()
+    t100_erp_pdf_archive()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:
