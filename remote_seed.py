@@ -65,6 +65,43 @@ STOCK_MOVES = [
 ]
 
 
+# ── ④ 시화공장 경로 확정 (안은숙 대리 카톡 확인, 2026-08-04) ───────────────
+# 재고표에는 "시화 20개를 김필우·김준형에게 각 10개씩 지급(추정)"으로 적혀 있었다.
+# 안은숙 대리 확인: **7/23 20개 입고 → 7/27경 김준형 매니저가 20개 전량 수령**.
+# 보유 수량(각 9개)은 그대로지만 **경로가 다르다** — 김준형이 받아 김필우에게 10개를
+# 넘긴 것이다. 추정 두 줄을 지우고 확인된 사슬로 바꾼다.
+CONFIRM_TAG = "[시화 경로 확정 2026-08-04 안은숙]"
+
+
+def confirm_sihwa():
+    """추정으로 넣은 기초보유를 확인된 입고→수령→이관 사슬로 교체한다."""
+    with L.conn() as c:
+        n = c.execute("SELECT COUNT(*) FROM remote_issue WHERE note LIKE ?",
+                      (f"%{CONFIRM_TAG}%",)).fetchone()[0]
+        if n:
+            return False
+        # 추정 두 줄 제거(지급 경로가 사실과 달랐다 — 수량이 아니라 근거를 고치는 것)
+        c.execute("DELETE FROM remote_issue WHERE status='기초보유' AND note LIKE ?",
+                  ("%지급 추정%",))
+    # 7/23 시화 입고 20 → 7/27 김준형 전량 수령(지점 재고 0으로 복귀)
+    L.remote_stock_adjust("시화", 20, "add", f"입고 20EA {CONFIRM_TAG}", "안은숙",
+                          version="미확인", moved_on="2026-07-23")
+    L.remote_stock_adjust("시화", -20, "add",
+                          f"김준형 매니저 20EA 전량 수령 {CONFIRM_TAG}", "안은숙",
+                          version="미확인", moved_on="2026-07-27")
+    L.remote_open_balance("김준형", 20, "2026-07-27",
+                          f"시화공장 입고분 20EA 전량 수령 {CONFIRM_TAG}", "안은숙",
+                          branch="시화", version="미확인")
+    # 김준형 → 김필우 10EA 이관(그래서 7/29 재고표에 각 10개로 잡혀 있었다)
+    L.remote_deliver("김준형", "", "김필우 기사(담당자 간 이관)", 10, "2026-07-27",
+                     f"수령 20EA 중 10EA 이관 {CONFIRM_TAG}", "안은숙",
+                     kind="이관", version="미확인")
+    L.remote_open_balance("김필우", 10, "2026-07-27",
+                          f"김준형 매니저로부터 10EA 이관 수령 {CONFIRM_TAG}", "안은숙",
+                          branch="시화", version="미확인")
+    return True
+
+
 def already_loaded():
     with L.conn() as c:
         n = c.execute(
@@ -113,11 +150,12 @@ def main():
         show()
         return
     if already_loaded():
-        print(f"이미 반영됨 {TAG} — 아무것도 하지 않았습니다")
-        show()
-        return
-    load()
-    print(f"재고표·관리대장 반영 완료 {TAG}")
+        print(f"이미 반영됨 {TAG}")
+    else:
+        load()
+        print(f"재고표·관리대장 반영 완료 {TAG}")
+    if confirm_sihwa():
+        print(f"시화 경로 확정 반영 {CONFIRM_TAG}")
     show()
 
 

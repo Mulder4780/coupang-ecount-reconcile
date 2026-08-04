@@ -3000,8 +3000,67 @@ def get_exec_report(day=None):
                         item[1] = f"{int(d.get('amount') or 0):,}"
                     else:
                         item[1] = f"{int(d.get('count') or 0):,}"
+            _append_remote_section(r)
             return r
+        _append_remote_section(r)
         return _store_cache("exec", r)
+
+
+def _append_remote_section(report):
+    """대표보고 '4. 리모컨 현황' — 엑셀이 아니라 DB에서 붙인다(사용자 지시 2026-08-04).
+
+    리모컨은 처음부터 DB 정본이라 01_대표보고 시트에 행이 없다. 엑셀에 칸을 새로 파는
+    대신 서버가 보고 시점에 현재값을 얹는다(DB-only 원칙). 한도 초과는 대표가 바로
+    봐야 하는 항목이라 숫자만이 아니라 사람 이름까지 적는다.
+    """
+    if not isinstance(report, dict):
+        return report
+    if any(str(s.get("title", "")).startswith("4. 리모컨")
+           for s in report.get("sections", [])):
+        return report
+    try:
+        import ledger_db
+        s = ledger_db.remote_status()
+    except Exception:
+        return report
+    t = s.get("totals") or {}
+    bs = s.get("branch_stock") or {}
+    over = s.get("over_limit") or {}
+    holds = sorted((s.get("holdings") or {}).items(),
+                   key=lambda kv: -kv[1].get("holding", 0))
+
+    # ★ 타일 값은 **숫자 한 덩어리**로만 둔다(사용자 지시 2026-08-04 "배열 깔끔하게").
+    #   괄호 설명을 값에 붙이면 좁은 타일에서 두세 줄로 접혀 표가 지저분해진다.
+    #   버전·이름 같은 부연은 아래 lines 로 내린다.
+    items = [
+        ["전체 보유", f"{t.get('all', 0)}개"],
+        ["개인 보유", f"{t.get('holding', 0)}개"],
+        ["지점 재고", f"{t.get('stock', 0)}개"],
+        ["한도 초과", f"{len(over)}명"],
+        ["부산공장", f"{(bs.get('부산') or {}).get('stock', 0)}개"],
+        ["시화공장", f"{(bs.get('시화') or {}).get('stock', 0)}개"],
+        ["증평본사", f"{(bs.get('증평') or {}).get('stock', 0)}개"],
+        ["AS 담당자", f"{len([1 for _, h in holds if h.get('holding')])}명"],
+    ]
+    jp = (bs.get("증평") or {}).get("versions") or {}
+    jp_txt = " · ".join(f"{k} {v}개" for k, v in jp.items() if v)
+    hold_txt = " · ".join(f"{n} {h.get('holding', 0)}개" for n, h in holds if h.get("holding"))
+    over_txt = " · ".join(f"{n} {q}개" for n, q in sorted(over.items(), key=lambda kv: -kv[1]))
+    lines = [f"담당자 보유 — {hold_txt}" if hold_txt else "담당자 보유 — 없음"]
+    if jp_txt:
+        lines.append(f"증평본사 버전별 — {jp_txt}")
+    if over_txt:
+        lines.append(f"⚠ 한도({s.get('limit', 3)}개) 초과 — {over_txt} · 추가 불출 전 "
+                     f"기존 리모컨 납품·사용 내역 확인 필요")
+    lines.append("불출 담당 — 부산: 오종현 · 시화: 안은숙 · 증평: 류지영 "
+                 "(기준: 2026-07-29 재고표 + 이후 업무센터 입력)")
+    sec = {"title": "4. 리모컨 현황 (현재 기준)", "items": items, "lines": lines}
+    secs = report.setdefault("sections", [])
+    # 사용자 지시: **리스크 바로 아래**에 놓는다. 맨 뒤에 붙이면 '오늘 우선 조치' 뒤로
+    # 밀려 대표가 리스크와 이어서 못 본다.
+    pos = next((i for i, s in enumerate(secs) if "리스크" in str(s.get("title", ""))), None)
+    secs.insert(pos + 1, sec) if pos is not None else secs.append(sec)
+    return report
 
 
 def get_issues():

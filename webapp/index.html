@@ -1411,6 +1411,20 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 .remote-over{color:var(--danger)}
 .remote-warn{font-size:12.5px;color:var(--danger);background:var(--danger-bg);
   border-radius:10px;padding:8px 11px;margin:2px 0 8px}
+/* 업무센터 카테고리 줄의 리모컨 탭 — 업무 탭과 구분되게 파란 테두리, 초과면 빨강 */
+.ryu-category-tab.remote{border-color:var(--brand);color:var(--brand)}
+.ryu-category-tab.remote em{color:var(--brand)}
+.ryu-category-tab.remote.warn{border-color:var(--danger);color:var(--danger);background:var(--danger-bg)}
+.ryu-category-tab.remote.warn em{color:var(--danger)}
+/* 보유·불출 기준 안내(2026-08-04 지시) — 규칙을 화면에서 읽게 한다. 공지를 찾아
+   다시 읽게 하면 결국 아무도 안 읽는다. */
+.remote-std{background:var(--brand-tint);border-radius:12px;padding:12px 14px;margin:2px 0 12px;
+  font-size:12.5px;color:#1F3A63;line-height:1.6}
+.remote-std b{display:block;margin:6px 0 3px;font-size:13px;color:var(--brand-dk)}
+.remote-std b:first-child{margin-top:0}
+.remote-std ul{margin:0 0 4px;padding-left:17px}
+.remote-std li{margin:1px 0}
+.remote-std li b{display:inline;margin:0;font-size:12.5px;color:inherit}
 
 /* ═══ 업무센터 iOS 개편(2026-08-04 지시) ═══
    아이폰 설정·연락처 앱 감각: 큰 제목, 아바타 연락처 카드, 카드 밖 그룹 섹션 헤더,
@@ -1702,9 +1716,14 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
     <div class="card ios-inset">
       <div id="centerReceiptHost"></div>
     </div>
-    <div class="ios-sec-h">리모컨 관리 <span>— 불출·납품 기록 · AS 담당자당 최대 3개</span></div>
+    <!-- 리모컨 모듈은 돌발AS > 리모컨 관리로 모았다(2026-08-04 지시). 두 곳에 같은 입력
+         폼이 있으면 어디서 넣었는지 기억해야 해서, 여기서는 요약과 바로가기만 남긴다. -->
+    <div class="ios-sec-h">리모컨 관리 <span>— 돌발AS 화면으로 모았습니다</span></div>
     <div class="card ios-inset">
-      <div id="centerRemoteHost"></div>
+      <div class="wt-meta ios-footnote" id="centerRemoteBrief">현황 불러오는 중…</div>
+      <div class="actions ios-actions">
+        <button class="abtn primary" onclick="show('as');setAsTab('remote')">리모컨 관리 열기</button>
+      </div>
     </div>
   </section>
 
@@ -1719,9 +1738,28 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
   <section class="view" id="v-as">
     <div class="hero-min"><h2>돌발 AS 관리</h2>
       <p class="sub">접수→배정→방문→완료를 한 화면에서 관리합니다. 입력은 DB에 쌓였다가 11시·15시에 관리대장에 들어갑니다.</p></div>
-    <div class="wt-kpis" id="asKpis"></div>
-    <div class="card"><div class="wt-toolbar" id="asToolbar"></div>
-      <div class="wt-meta" id="asMeta"></div><div id="asBody"></div></div>
+    <!-- 돌발AS 아래 리모컨 관리 카테고리(2026-08-04 지시). 리모컨은 AS 기사가 현장에
+         들고 나가는 물건이라 돌발AS 옆에 있는 게 손에 맞다 — 흩어져 있던 모듈을 여기로 모았다. -->
+    <div class="seg" id="asSeg">
+      <button class="on" data-t="work" onclick="setAsTab('work')">돌발AS 목록</button>
+      <button data-t="remote" onclick="setAsTab('remote')">리모컨 관리</button>
+    </div>
+    <div id="asWorkPane">
+      <div class="wt-kpis" id="asKpis"></div>
+      <div class="card"><div class="wt-toolbar" id="asToolbar"></div>
+        <div class="wt-meta" id="asMeta"></div><div id="asBody"></div></div>
+    </div>
+    <div id="asRemotePane" style="display:none">
+      <div class="card">
+        <h3>리모컨 관리 <span class="norm">— 재고·불출·납품을 한 곳에서</span></h3>
+        <div class="actions" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:10px">
+          <button class="abtn primary" type="button" onclick="remoteCapture()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg>이미지 저장</button>
+          <button class="abtn" type="button" onclick="remoteCsv()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg>엑셀 저장</button>
+          <button class="abtn" type="button" onclick="renderRemoteCard('asRemoteHost')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>새로고침</button>
+        </div>
+        <div id="asRemoteHost"></div>
+      </div>
+    </div>
   </section>
 
   <section class="view" id="v-settle">
@@ -2767,9 +2805,14 @@ function renderRyuCenter(){
       <small>${esc2(x.label)}</small><strong>${fmt(x.count)}건</strong>
       <span class="attention" title="아직 완료 처리되지 않은 건 — 진행 중이거나 확인이 필요한 건의 합계">${x.attention?`미완료 ${fmt(x.attention)}건 · 눌러서 목록`:'전부 완료 — 특이사항 없음'}</span>
     </button>`).join('');
+  /* 리모컨 탭(2026-08-04 지시) — 업무 카테고리와 같은 줄에 둔다. 카드가 화면 아래
+     멀리 있어 "어디서 하나"를 물어야 했다. 탭을 누르면 카드로 바로 스크롤한다. */
   if(tabs) tabs.innerHTML=(RYU.categories||[]).map(x=>`
     <button class="ryu-category-tab ${x.key===ryuCategory?'on':''}" type="button"
-      onclick="selectRyuCategory('${x.key}')"><span>${esc2(x.label)}</span><em>${fmt(x.count)}건</em></button>`).join('');
+      onclick="selectRyuCategory('${x.key}')"><span>${esc2(x.label)}</span><em>${fmt(x.count)}건</em></button>`).join('')
+    + `<button class="ryu-category-tab remote" type="button" onclick="gotoRemoteCard()">
+        <span>리모컨</span><em id="ryuRemoteTabCount">현황</em></button>`;
+  loadRemoteStat();
   if($('ryuUpdatedAt')) $('ryuUpdatedAt').textContent=`· 데이터 ${String(RYU.updated_at||'').replace('T',' ')}`;
   selectRyuCategory(ryuCategory,true);
 }
@@ -3468,7 +3511,15 @@ function renderCenter(){
     ohEl.textContent=`미청구 ${st('미청구(전표 없음)')} · 세금계산서 미발행 ${st('세금계산서 미발행')} · 입금 대기 ${st('입금 대기')}건`;
   }
   renderReceiptUpload('centerReceiptHost');
-  renderRemoteCard('centerRemoteHost');
+  centerRemoteBrief();
+}
+/* 업무센터에는 한 줄 요약만 — 입력은 돌발AS > 리모컨 관리 한 곳에서 한다. */
+async function centerRemoteBrief(){
+  const el=$('centerRemoteBrief'); if(!el) return;
+  await loadRemoteStat(); const s=REMOTE_STAT||{}; const t=s.totals||{};
+  const over=Object.entries(s.over_limit||{});
+  el.innerHTML=`전체 ${t.all||0}개 · 개인 보유 ${t.holding||0} · 지점 재고 ${t.stock||0}`
+    +(over.length?` · <b style="color:var(--danger)">한도 초과 ${over.map(([n,q])=>`${esc2(n)} ${q}개`).join(' · ')}</b>`:' · 한도 초과 없음');
 }
 /* 입금 업로드 존 — 드래그앤드롭·파일선택·URL. 저장은 서버가 Z: '7. 입금내역'에,
    xlsx 는 즉시 입금 대조(receipt_fill --queue)로 이어진다. 오프라인이면 outbox 가 보관. */
@@ -3555,7 +3606,17 @@ async function renderRemoteCard(hostId){
   const over=Object.entries(s.over_limit||{});
   host.innerHTML=`
     <p class="remote-rule">불출 담당 — ${Object.entries(s.branches||{}).map(([b,n])=>`${esc2((bs[b]||{}).label||b)}: ${esc2(n)}`).join(' · ')} · AS 담당자당 한도 ${s.limit}개(기존 보유 포함) · 불출 시 지점 재고 자동 차감</p>
-    <p class="remote-rule">공지(2026-08-04) — 재고는 장부가 아니라 <b>실물 수량</b> 기준 실사 · 불출은 일자·기사·수량·투입 캠프까지 즉시 기록 · 재고·불출·납품은 류지영 매니저가 최종 취합</p>
+    <div class="remote-std">
+      <b>AS 담당자 보유 기준</b>
+      <ul><li>한 사람당 <b>최대 ${s.limit}개</b> — <b>기존 보유 수량을 포함</b>해 계산합니다.</li>
+        <li>한도를 넘으면 <b>추가 불출이 막힙니다</b>. 먼저 기존 리모컨의 납품·사용 내역을 확인해 정리하세요.</li>
+        <li>보유 = 받은 수량 − (납품·사용·교체·이관). 현장에 설치했으면 반드시 <b>납품 기록</b>을 남겨야 보유가 줄어듭니다.</li></ul>
+      <b>불출 기준</b>
+      <ul><li>불출은 <b>지점 담당자</b>가 합니다 — 부산공장 오종현 · 시화공장 안은숙 · 증평본사 류지영.</li>
+        <li>지점 <b>재고 범위 안에서만</b> 불출되며, 불출 즉시 재고가 자동 차감됩니다.</li>
+        <li>불출할 때 <b>일자 · AS 담당기사 · 수량 · 투입 예정 캠프 · 특이사항</b>을 함께 남깁니다(실시간 공유).</li>
+        <li>재고는 장부가 아니라 <b>실물 수량</b> 기준으로 실사하고, 최종 취합은 류지영 매니저가 합니다.</li></ul>
+    </div>
     <p class="remote-rule">현재 합계 — 개인 보유 <b>${t.holding||0}</b> · 지점 재고 <b>${t.stock||0}</b> · 전체 <b>${t.all||0}</b>개 <span class="norm">(기준: 2026-07-29 재고표 + 이후 입력)</span></p>
     ${over.length?`<p class="remote-warn">한도 초과 보유 — ${over.map(([n,q])=>`${esc2(n)} <b>${q}개</b>`).join(' · ')} (한도 ${s.limit}개). 공지 4항에 따라 추가 불출 전에 <b>기존 리모컨의 납품·사용 내역을 먼저 확인</b>해야 합니다.</p>`:''}
     <table class="remote-mini"><tr><th>지점</th><th>담당</th><th>입고</th><th>불출</th><th>현재 재고</th></tr>${stockRows}</table>
@@ -5282,7 +5343,88 @@ let erpDocs = {rows:[],months:{},kinds:{},total:0};   // 25_ERP매출서류 (이
 let srcStats = {};                     // /api/status 의 sources (4원천 실집계)
 let _rptData = null;                   // 보고서 데이터(HTML·Canvas 공용)
 let REMOTE_STAT = null;                // 리모컨 현황 — 대표보고 캡처에도 싣는다(2026-08-03)
-async function loadRemoteStat(){ try{ REMOTE_STAT=await api('/api/remote/status'); }catch(e){} }
+async function loadRemoteStat(){ try{ REMOTE_STAT=await api('/api/remote/status'); }catch(e){}
+  /* 탭 배지: 한도 초과가 있으면 그 사실이 먼저 보여야 한다(공지 4항 회수·확인 대상). */
+  const el=$('ryuRemoteTabCount'); if(el&&REMOTE_STAT){
+    const over=Object.keys(REMOTE_STAT.over_limit||{}).length;
+    const t=(REMOTE_STAT.totals||{});
+    el.textContent = over? `초과 ${over}명` : `${t.all||0}개`;
+    el.parentElement&&el.parentElement.classList.toggle('warn',!!over);
+  }
+}
+/* 돌발AS 안의 리모컨 탭(2026-08-04 지시) */
+function setAsTab(t){
+  const work=t!=='remote';
+  document.querySelectorAll('#asSeg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  if($('asWorkPane')) $('asWorkPane').style.display=work?'':'none';
+  if($('asRemotePane')) $('asRemotePane').style.display=work?'none':'';
+  if(!work) renderRemoteCard('asRemoteHost');
+  uxEvent('tap','as-tab-'+t);
+}
+/* 리모컨 현황 CSV — 엑셀에서 바로 열린다(지점재고·담당자보유·불출·납품 4블록). */
+function remoteCsv(){
+  const s=REMOTE_STAT||{}; const q=v=>`"${String(v==null?'':v).replace(/"/g,'""')}"`;
+  const L=[['구분','항목','버전','수량','비고']];
+  Object.entries(s.branch_stock||{}).forEach(([k,b])=>{
+    const vers=Object.entries(b.versions||{}).filter(([,n])=>n);
+    if(vers.length) vers.forEach(([v,n])=>L.push(['지점재고',b.label||k,v,n,'']));
+    else L.push(['지점재고',b.label||k,'',b.stock||0,'']);
+  });
+  Object.entries(s.holdings||{}).forEach(([n,h])=>L.push(['담당자보유',n,'',h.holding,
+    `받음 ${h.issued} · 나감 ${h.delivered}${h.holding>(s.limit||3)?' · 한도초과':''}`]));
+  (s.issues||[]).forEach(r=>L.push(['불출',`${r.issued_on||''} ${r.branch||''} ${r.technician||''}`,
+    r.version||'',r.qty,`${r.status||''} ${r.camp||''}`.trim()]));
+  (s.deliveries||[]).forEach(r=>L.push(['납품·사용',`${r.delivered_on||''} ${r.technician||''}`,
+    r.version||'',r.qty,`${r.kind||'납품'} ${r.project||''} ${r.camp||''}`.trim()]));
+  const csv='﻿'+L.map(r=>r.map(q).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download=`리모컨현황_${todayISO()}.csv`; a.click(); URL.revokeObjectURL(a.href);
+  toast('리모컨 현황을 엑셀(CSV)로 저장했습니다'); uxEvent('tap','remote-csv');
+}
+/* 리모컨 현황 이미지 — 캔버스로 직접 그린다(외부 라이브러리 없이 폰에서도 동일). */
+async function remoteCapture(){
+  await loadRemoteStat(); const s=REMOTE_STAT||{};
+  const S=2,W=760,F=(z,w)=>`${w||400} ${z}px "Nanum Gothic","Malgun Gothic",sans-serif`;
+  const holds=Object.entries(s.holdings||{}), brs=Object.entries(s.branch_stock||{});
+  const H=150+brs.length*34+40+holds.length*34+70;
+  const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
+  const x=cv.getContext('2d'); x.scale(S,S);
+  x.fillStyle='#fff'; x.fillRect(0,0,W,H);
+  x.fillStyle='#0E1B3F'; x.fillRect(0,0,W,64);
+  x.fillStyle='#fff'; x.font=F(20,700); x.fillText('리모컨 재고 · 보유 현황',24,34);
+  x.font=F(12); x.fillStyle='#C9D5FA';
+  x.fillText(`기준 ${new Date().toLocaleString('ko-KR')} · 한도 ${s.limit||3}개(기존 보유 포함)`,24,52);
+  const t=s.totals||{}; let y=96;
+  x.fillStyle='#101828'; x.font=F(14,700);
+  x.fillText(`전체 ${t.all||0}개   ·   개인 보유 ${t.holding||0}개   ·   지점 재고 ${t.stock||0}개`,24,y);
+  y+=24; x.font=F(12,700); x.fillStyle='#475467'; x.fillText('지점 재고',24,y); y+=8;
+  brs.forEach(([k,b])=>{ y+=26; x.fillStyle='#101828'; x.font=F(13);
+    const vers=Object.entries(b.versions||{}).filter(([,n])=>n).map(([v,n])=>`${v} ${n}`).join(' · ');
+    x.fillText(`${b.label||k}`,32,y); x.fillText(`${b.stock||0}개${vers?`  (${vers})`:''}`,240,y);
+    x.strokeStyle='#EEF2F7'; x.beginPath(); x.moveTo(24,y+8); x.lineTo(W-24,y+8); x.stroke(); });
+  y+=42; x.font=F(12,700); x.fillStyle='#475467'; x.fillText('AS 담당자 보유',24,y);
+  holds.forEach(([n,h])=>{ y+=26; const over=h.holding>(s.limit||3);
+    x.fillStyle=over?'#C7362B':'#101828'; x.font=F(13,over?700:400);
+    x.fillText(n,32,y); x.fillText(`${h.holding}개${over?'  ⚠ 한도 초과':''}`,240,y);
+    x.fillStyle='#98A2B3'; x.font=F(11); x.fillText(`받음 ${h.issued} · 나감 ${h.delivered}`,420,y);
+    x.strokeStyle='#EEF2F7'; x.beginPath(); x.moveTo(24,y+8); x.lineTo(W-24,y+8); x.stroke(); });
+  y+=40; x.fillStyle='#6B7280'; x.font=F(11);
+  x.fillText('불출 담당 — 부산공장: 오종현 · 시화공장: 안은숙 · 증평본사: 류지영',24,y);
+  const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
+  if(!blob){ alert('이미지 생성 실패'); return; }
+  saveOrOpen(blob,`리모컨현황_${todayISO()}.png`);
+  toast('리모컨 현황 이미지를 저장했습니다'); uxEvent('tap','remote-capture');
+}
+/* 리모컨 카드로 데려간다 — 탭만 있고 이동이 없으면 "눌렀는데 아무 일도 안 난다"가 된다. */
+function gotoRemoteCard(){
+  const host=$('staffRemoteHost')||$('centerRemoteHost');
+  if(!host){ toast('리모컨 카드를 찾지 못했습니다'); return; }
+  const card=host.closest('.card')||host;
+  card.scrollIntoView({behavior:'smooth',block:'start'});
+  card.classList.add('flash'); setTimeout(()=>card.classList.remove('flash'),1900);
+  uxEvent('tap','remote-tab');
+}
 let execRep = {};                      // 01_대표보고 시트 원본(엑셀 수식 집계 결과)
 let repData = {};                      // 유수비 대표 통화 기준 예외·진도·거래서류 요약
 
