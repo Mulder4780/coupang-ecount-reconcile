@@ -1872,15 +1872,26 @@ def real_settlements():
         resolved_status = str(resolved.get("status") or "")
         st = resolved_status if resolved_status.startswith("완료(") else settle_status(r)
         issued_by_evidence = "계산서" in resolved_status and resolved_status.startswith("완료(")
-        # ★ 0원 표시 해소(사용자 지시 2026-08-05): 실제작업공급가액(수식, 03시트 실적이
-        #   없어 미계산)이 비면 **거래명세서합계**로 대신 보여 준다. 682건 중 677건이
-        #   이 대체로 채워진다. 수식 칸에 값을 쓰는 게 아니라 표시만 바꾼다(엑셀 불변).
-        amt = r.get("원장_공급가액") or r.get("원장_거래명세서합계") or 0
+        # ★ 0원 표시 해소(사용자 지시 2026-08-05) — 공급가액 출처 우선순위.
+        #   ① 실제작업공급가액(06시트 수식) ② **ERP 판매조회 공급가액**(프로젝트NO 색인)
+        #   ③ 거래명세서합계.
+        #   ★★ ③ 은 **부가세 포함액**이다(UJ2600050: 476,300 = 433,000×1.1).
+        #      첫 구현에서 이걸 "부가세 별도" 자리에 그대로 넣어 금액이 부풀었다 —
+        #      그래서 ERP 공급가액을 ② 로 끼워 넣고, ③ 으로 떨어질 때는 화면이
+        #      '부가세 포함'이라고 밝히도록 `금액출처`를 내려보낸다.
+        _erp = _erp_sales_index().get(str(r.get("프로젝트NO") or "")) or {}
+        if r.get("원장_공급가액"):
+            amt, src = int(r["원장_공급가액"]), "실제작업"
+        elif _erp.get("supply"):
+            amt, src = int(_erp["supply"]), "ERP"
+        elif r.get("원장_거래명세서합계"):
+            amt, src = int(r["원장_거래명세서합계"]), "명세서(부가세포함)"
+        else:
+            amt, src = 0, ""
         rows.append({"정산ID": sid, "업무구분": r.get("업무구분"), "캠프명": r.get("캠프명"),
                      "프로젝트NO": r.get("프로젝트NO"), "원천업무ID": r.get("원천업무ID"),
                      "공급가액": amt, "합계": r.get("원장_합계") or 0,
-                     "금액출처": "실제작업" if r.get("원장_공급가액") else
-                                 ("명세서" if r.get("원장_거래명세서합계") else ""),
+                     "금액출처": src, "ERP진행상태": _erp.get("state") or "",
                      "부가세": r.get("원장_부가세"),
                      "명세서": "있음" if has_stmt else "없음",
                      "명세서번호": r.get("원장_거래명세서번호") or "",
@@ -3100,6 +3111,25 @@ def get_exec_report(day=None):
         _append_remote_section(r)
         _append_kakao_warning(r)
         return _store_cache("exec", r)
+
+
+_ERP_IDX = {"at": 0, "data": {}}
+
+
+def _erp_sales_index():
+    """ERP 판매조회 프로젝트 색인(erp_sales_index.py 산출물)을 5분 캐시로 읽는다.
+    화면을 열 때마다 Z: 의 엑셀을 훑으면 앱이 느려지므로 JSON 만 본다."""
+    now = time.time()
+    if now - _ERP_IDX["at"] < 300 and _ERP_IDX["data"]:
+        return _ERP_IDX["data"]
+    try:
+        with open(os.path.join(ROOT, "reports", "ERP판매_프로젝트색인.json"),
+                  encoding="utf-8") as f:
+            _ERP_IDX["data"] = json.load(f).get("index") or {}
+    except Exception:
+        _ERP_IDX["data"] = {}
+    _ERP_IDX["at"] = now
+    return _ERP_IDX["data"]
 
 
 def _append_kakao_warning(report):

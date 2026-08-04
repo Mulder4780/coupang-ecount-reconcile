@@ -33,6 +33,9 @@ AMOUNT_STATUS = "완료(견적·명세서 금액확인)"
 ERP_AMOUNT_STATUS = "완료(ERP 전표 금액확인)"
 QUOTE_ONLY_STATUS = "완료(견적 원본확인·담당자확인)"
 INVOICE_STATUS = "완료(ERP 계산서 원본확인)"
+# ERP 판매조회 진행상태만으로 발행을 입증하는 근거(2026-08-05 지시).
+ERP_STATE_STATUS = "완료(ERP 발행상태확인)"
+ERP_ISSUED_STATES = ("6.세금계산서발행", "7.수금완료")
 
 
 def _money(value):
@@ -110,6 +113,24 @@ def erp_sales_index():
     """
     if os.environ.get("CSOS_SYNTHETIC") == "1":
         return {}
+    # ★ 2026-08-05 버그 수정: 아래 폴백은 `판매조회*.xlsx` 라는 **파일명**을 찾는데,
+    #   ERP 내보내기 이름은 무작위(E91RXX1FJ7KAKFP.xlsx)다. 그래서 이 함수는 늘 빈
+    #   dict 를 돌려줬고 **ERP 근거 완료가 한 번도 작동하지 않았다**(원장 미발행 744건
+    #   중 450건이 ERP 로는 이미 발행/수금완료였다). 내용으로 판별해 만든 색인
+    #   `erp_sales_index.py` 산출물을 먼저 읽는다.
+    try:
+        idx_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "reports", "ERP판매_프로젝트색인.json")
+        with open(idx_path, encoding="utf-8") as fh:
+            idx = json.load(fh).get("index") or {}
+        if idx:
+            return {k.upper(): [{"date": v.get("date", ""), "po": _po(v.get("po")),
+                                 "status": v.get("state", ""),
+                                 "supply": _money(v.get("supply")),
+                                 "total": _money(v.get("total"))}]
+                    for k, v in idx.items()}
+    except Exception:
+        pass
     try:
         import glob
 
@@ -206,7 +227,8 @@ def objective_entries(records, quotes, invoices, existing=None, erp_sales=None):
     existing = existing or {}
     qindex = quote_index(quotes)
     erp_sales = erp_sales or {}
-    own_statuses = (AMOUNT_STATUS, ERP_AMOUNT_STATUS, QUOTE_ONLY_STATUS, INVOICE_STATUS)
+    own_statuses = (AMOUNT_STATUS, ERP_AMOUNT_STATUS, QUOTE_ONLY_STATUS, INVOICE_STATUS,
+                    ERP_STATE_STATUS)
     # 프로젝트NO → {부가세포함 총액: 견적행}. 견적이 프로젝트당 정확히 한 금액이면
     # 명세합계가 어긋나 있어도(교차 입력 밀림) 견적 원본이 금액의 유일한 입증이다.
     quotes_by_project = {}
@@ -322,6 +344,32 @@ def objective_entries(records, quotes, invoices, existing=None, erp_sales=None):
                 ),
                 "evidence_kind": "invoice",
             })
+            continue
+
+        # ★ ERP 진행상태 근거(사용자 지시 2026-08-05 "찾아 완료 처리").
+        #   판매조회 진행상태가 **6.세금계산서발행 / 7.수금완료** 면 그 프로젝트의 계산서는
+        #   ERP 상 실제로 나간 것이다. 금액 일치까지는 못 봐도(묶음 발행이라 건별 배분 불가)
+        #   '발행되었다'는 사실 자체가 객관 근거다. 발행일은 지어내지 않는다 —
+        #   DB(resolution)에만 근거와 함께 남기고 엑셀 발행일 칸은 비워 둔다.
+        if (
+            record.get("비용구분") == "유상"
+            and has_statement(record)
+            and not issued
+        ):
+            states = [str(s.get("status") or "") for s in erp_sales.get(project, [])]
+            done = [s for s in states if s.startswith(ERP_ISSUED_STATES)]
+            if done and len(done) == len(states):   # 한 전표라도 미발행이면 인정하지 않는다
+                entries.append({
+                    "settle_id": settle_id,
+                    "project": project,
+                    "status": ERP_STATE_STATUS,
+                    "basis": (
+                        f"ERP 판매조회 진행상태 {done[0]} · 프로젝트 {project} · "
+                        f"전표 {len(states)}장 모두 발행 이상 단계 "
+                        f"(묶음 발행이라 건별 금액 배분은 불가 — 발행 사실만 입증)"
+                    ),
+                    "evidence_kind": "erp_state",
+                })
     return entries
 
 
@@ -335,6 +383,7 @@ def write_report(master, entries, synced=0):
         "erp_amount": sum(row.get("evidence_kind") == "erp_amount" for row in entries),
         "quote_only": sum(row.get("evidence_kind") == "quote_only" for row in entries),
         "invoice": sum(row.get("evidence_kind") == "invoice" for row in entries),
+        "erp_state": sum(row.get("evidence_kind") == "erp_state" for row in entries),
         "synced": synced,
         "entries": entries,
     }

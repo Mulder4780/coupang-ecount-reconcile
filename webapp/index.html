@@ -4284,10 +4284,14 @@ function fillStatOptions(){
 }
 /* 조치가 필요한 건인가 — ERP 계산서(묶음)는 이미 발행된 서류라 조치 대상이 아니다 */
 function needAction(r){
-  return !['정상','무상/보험','ERP 계산서(묶음)','완료(ERP 수금확인)','완료(ERP 발행확인)'].includes(r.상태);
+  /* 완료( 로 시작하는 상태는 모두 객관근거로 입증된 완료다 — 근거 종류가 늘어도
+     여기를 고치지 않게 접두어로 판정한다(2026-08-05: ERP 발행상태확인 등 5종). */
+  if(String(r.상태||'').startsWith('완료(')) return false;
+  return !['정상','무상/보험','ERP 계산서(묶음)'].includes(r.상태);
 }
 function chip(st){
-  const ok=['정상','작업완료','완료','없음','완료(ERP 수금확인)','완료(ERP 발행확인)'], warn=['입금 대기','방문예정','작업중','예정','접수'];
+  const ok=['정상','작업완료','완료','없음'], warn=['입금 대기','방문예정','작업중','예정','접수'];
+  if(String(st||'').startsWith('완료(')) return `<span class="chip c-ok">${esc2(st)}</span>`;
   const skip=['무상/보험','ERP 계산서(묶음)'];
   const cls = ok.includes(st)?'c-ok': skip.includes(st)?'c-skip': warn.includes(st)?'c-warn':'c-danger';
   return `<span class="chip ${cls}">${st||'-'}</span>`;
@@ -4457,7 +4461,7 @@ function renderSettle(){
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('settle',${i},'${r.정산ID}')">
         <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(r.상태)}</div>
-        <div class="top"><span class="camp">${r.업무구분||''}</span><span class="amt">${fmt(r.공급가액)}원 <small>· 부가세 별도${r.금액출처==='명세서'?' · 명세서 기준':''}</small></span></div>
+        <div class="top"><span class="camp">${r.업무구분||''}</span><span class="amt">${fmt(r.공급가액)}원 <small>${r.금액출처&&r.금액출처.indexOf('부가세포함')>=0?'· 부가세 포함 · 명세서 기준':'· 부가세 별도'+(r.금액출처==='ERP'?' · ERP 기준':'')}</small></span></div>
         <div class="meta"><span class="sid">${r.정산ID}</span><span>완료 ${r.완료일||'-'}</span>
           <span>명세서 ${r.명세서번호||r.명세서}</span><span>계산서 ${r.계산서}</span>
           ${r.입금일?`<span>입금 ${r.입금일}</span>`:''} ${vbadge(r.정산ID)}
