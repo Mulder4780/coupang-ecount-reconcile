@@ -74,6 +74,14 @@ def _convert(pairs):
     """
     if not pairs:
         return []
+    # ★ 파일이 많으면 -Command 인자가 윈도우 한계(32KB)를 넘어 WinError 206 으로 죽는다
+    #   (2026-08-04, 거래명세서 37개 흡수 때 실측). 10개씩 나눠 Excel 을 여러 번 띄운다 —
+    #   느려지지만 한 번에 다 넣어 통째로 실패하는 것보다 낫다.
+    if len(pairs) > 10:
+        out = []
+        for i in range(0, len(pairs), 10):
+            out += _convert(pairs[i:i + 10])
+        return out
     lines = [
         "$ErrorActionPreference='Continue'",
         "$xl = New-Object -ComObject Excel.Application",

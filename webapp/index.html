@@ -4433,6 +4433,9 @@ function renderSettle(){
   let undated = 0;
   const base = curRows().filter(r => {
     if(f && statOf(r)!==f) return false;
+    // 완료로 객관 입증된 건(완료(ERP 수금확인) 등)은 기본 리스트에서 숨긴다
+    // (2026-08-04 지시). 상태 필터로 그 상태를 직접 고르면 여전히 보인다.
+    if(!f && /^완료\(/.test(statOf(r)||'')) return false;
     if(q && !Object.values(r).join('').toLowerCase().includes(q)) return false;
     if(pr){
       const d = dateOf(r, mode);
