@@ -408,17 +408,35 @@ def text(b):
     return "\n".join(L)
 
 
+def _kakao_warning():
+    """카톡 내보내기 1일 초과 시 브리핑 머리에 경고 한 줄(2026-08-04 지시).
+    판정은 kakao/export_watch.py 가 남긴 JSON 만 읽는다."""
+    try:
+        k = json.load(open(os.path.join(ROOT, "reports", "카톡_내보내기_경과.json"),
+                           encoding="utf-8"))
+    except Exception:
+        return ""
+    if not k.get("stale"):
+        return ""
+    age = k.get("age_hours")
+    d = f"{age/24:.1f}일 경과" if age else "파일 없음"
+    return f"⚠ 카톡 내보내기 오래됨({d}) — 갱신 필요\n\n"
+
+
 def main():
     args = sys.argv[1:]
     day = args[args.index("--date") + 1] if "--date" in args else None
     data, master = load()
     b = brief(day, data)
+    warn = _kakao_warning()
+    if warn:
+        print(warn.strip())
     print(text(b))
     if "--md" in args:
         os.makedirs(REPORT_DIR, exist_ok=True)
         p = os.path.join(REPORT_DIR, f"일일브리핑_{b['기준일'].replace('-', '')}.md")
         open(p, "w", encoding="utf-8").write(
-            f"# 일일 브리핑 {b['기준일']}\n\n원장: {os.path.basename(master)}\n\n```\n{text(b)}\n```\n")
+            f"# 일일 브리핑 {b['기준일']}\n\n{warn}원장: {os.path.basename(master)}\n\n```\n{text(b)}\n```\n")
         print("\n리포트:", p)
 
 

@@ -251,6 +251,8 @@ def _run_pipeline():
         steps.append(run("카톡 대조", [os.path.join(ROOT, "kakao", "kakao_reconcile.py")]))
     else:
         steps.append({"name": "카톡 대조", "ok": None, "out": "스킵 — kakao/inbox/에 대화 내보내기 txt 없음"})
+    # 카톡 내보내기가 1일 넘게 오래되면 대시보드·아침 브리핑에 경고(2026-08-04 지시).
+    steps.append(run("카톡 내보내기 경과 감시", [os.path.join(ROOT, "kakao", "export_watch.py")]))
 
     # 5. 확정 업데이트 자동 반영 — 빈 칸만·근거 보유·항상 새 버전(vN+1) 생성이라 안전
     # ERP 매출서류(계산서·명세서 현황) — 있으면 대조 + 25시트 반영
@@ -305,12 +307,15 @@ def _run_pipeline():
                      [os.path.join(ROOT, "staff_completion.py"), "--sync"]))
     # 오래된 세금계산서 미발행을 경과일 순으로 잡아낸다(2026-08-03 지시). 읽기 전용 감시 —
     # 발행일은 지어내지 않고, 발행 사실은 ERP 원본이 들어와야 객관완료가 잡는다.
+    # ★ 원본이 늘면 분석 3종(미발행·불일치·확인필요현황)이 10분을 넘긴다 —
+    #   2026-08-04 거래명세서 785건 흡수 후 기본 600초에 셋 다 타임아웃으로 FAIL했다.
+    #   단독 재실행은 전부 성공(로직 문제 아님) → 시간만 넉넉히 준다.
     steps.append(run("세금계산서 미발행 경과 감시",
-                     [os.path.join(ROOT, "tax_invoice_watch.py")]))
+                     [os.path.join(ROOT, "tax_invoice_watch.py")], timeout=1500))
     # 금액 재계산 대기의 견적↔명세 교차·불일치 진단(2026-08-03 지시). 읽기 전용 —
     # 명세합계가 다른 프로젝트 견적과 일치하는 입력 밀림을 짝까지 찾아 보여 준다.
     steps.append(run("견적·명세 불일치 진단",
-                     [os.path.join(ROOT, "quote_mismatch.py")]))
+                     [os.path.join(ROOT, "quote_mismatch.py")], timeout=1500))
     # 09:50에는 읽기 전용 무결성 검사만 한다. 실제 복구도 11:00·15:00 회차 안에서만 한다.
     steps.append(run("워크북 무결성 검사", [os.path.join(ROOT, "fix_workbook.py")]))
 
@@ -335,7 +340,8 @@ def _run_pipeline():
     #     (명세서번호·PO번호·매칭근거·확인방법)을 담지 못한다. 그 상세는 이 파일에만 있다.
     #     ★ 여기에 연결돼 있지 않아 2026-07-27 16:45 자로 하루 동안 멈춰 있었다 —
     #       읽는 사람은 멈춘 줄 모르고 어제 숫자를 오늘 숫자로 본다. 반드시 매일 같이 돈다.
-    steps.append(run("확인필요현황 엑셀 갱신", [os.path.join(ROOT, "findings_export.py")]))
+    steps.append(run("확인필요현황 엑셀 갱신", [os.path.join(ROOT, "findings_export.py")],
+                     timeout=1500))
 
     # 6.6 Z: 상시 공백 스캔 — 파일명 기반 전수조사와 서류↔원장 1:1 대조는 읽기 전용이다.
     #     2026-07-28 뒤 리포트가 멈춰 자료현황이 오래된 숫자를 계속 보여 준 문제를 막는다.

@@ -3088,10 +3088,37 @@ def get_exec_report(day=None):
                         item[1] = f"{int(d.get('count') or 0):,}"
             _augment_exec_daily(r)
             _append_remote_section(r)
+            _append_kakao_warning(r)
             return r
         _augment_exec_daily(r)
         _append_remote_section(r)
+        _append_kakao_warning(r)
         return _store_cache("exec", r)
+
+
+def _append_kakao_warning(report):
+    """카톡 내보내기가 1일 넘게 오래되면 '3. 리스크'에 경고 한 줄을 얹는다
+    (사용자 지시 2026-08-04). 판정은 kakao/export_watch.py 가 남긴 JSON 을 읽기만 한다 —
+    여기서 다시 계산하면 보고 화면 열 때마다 Z: 를 훑게 된다."""
+    if not isinstance(report, dict):
+        return report
+    try:
+        p = os.path.join(ROOT, "reports", "카톡_내보내기_경과.json")
+        with open(p, encoding="utf-8") as f:
+            k = json.load(f)
+    except Exception:
+        return report
+    if not k.get("stale"):
+        return report
+    age = k.get("age_hours")
+    val = f"{age/24:.1f}일 경과 — 갱신 필요" if age else "내보내기 파일 없음 — 갱신 필요"
+    for sec in report.get("sections", []):
+        if str(sec.get("title", "")).startswith("3. 리스크"):
+            items = sec.setdefault("items", [])
+            if not any(i and i[0] == "카톡 내보내기 오래됨" for i in items):
+                items.append(["카톡 내보내기 오래됨", val])
+            break
+    return report
 
 
 def _append_remote_section(report):
