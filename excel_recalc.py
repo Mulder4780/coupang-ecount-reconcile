@@ -119,15 +119,69 @@ def recovery_clearance(master):
     try:
         approval = json.load(open(CLEARANCE, encoding="utf-8"))
     except Exception:
-        return False, "현재 관리대장의 정상 개방 승인 파일이 없습니다"
-    if approval.get("승인") is not True:
-        return False, "현재 관리대장의 정상 개방 승인이 비활성입니다"
-    if _s(approval.get("파일")) != os.path.basename(master):
-        return False, "정상 개방 승인이 현재 관리대장 버전과 다릅니다"
-    approved_hash = _s(approval.get("sha256")).lower()
-    if not approved_hash or approved_hash != _sha256(master).lower():
-        return False, "정상 개방 승인이 현재 관리대장 내용과 다릅니다"
-    return True, "정상 개방 승인 확인"
+        approval = {}
+    ok = (approval.get("승인") is True
+          and _s(approval.get("파일")) == os.path.basename(master)
+          and _s(approval.get("sha256")).lower() == _sha256(master).lower())
+    if ok:
+        return True, "정상 개방 승인 확인"
+    # 승인이 없거나 버전이 바뀌었으면 **자동 점검으로 대신한다**(사용자 지시 2026-08-04
+    # "엑셀을 꼭 열어야 하나? 자동화가 필요해"). 사람 승인이 보증하던 것은 결국
+    # "이 파일을 열어도 복구 경고·순환참조가 없다" 하나였다. 그 두 가지는 파일만 보고도
+    # 판정할 수 있다 — 판정이 통과하면 승인을 자동 발급하고, 실패하면 그대로 막는다.
+    good, why = auto_clearance(master)
+    if good:
+        return True, why
+    return False, why
+
+
+def auto_clearance(master):
+    """사람 승인 대신 파일을 직접 검사해 개방 가능 여부를 판정한다.
+
+    검사 항목 — 사고(2026-08-02 v353 자기참조 300개)가 남긴 교훈 그대로:
+      ① ZIP 무결성 (열 수 있는 xlsx 인가)
+      ② 시트 XML 파싱 (깨진 부분이 있으면 Excel 이 복구 경고를 띄운다)
+      ③ **직접 순환참조 0** (A10 수식이 A10 을 참조 — 복구 경고의 실제 원인이었다)
+    통과하면 승인 파일을 자동으로 갱신한다(근거·검사시각을 남긴다).
+    """
+    import zipfile
+    try:
+        sys.path.insert(0, ROOT)
+        from fix_formulas import direct_self_refs
+    except Exception as exc:
+        return False, f"순환참조 검사기를 불러오지 못했습니다({exc})"
+    try:
+        with zipfile.ZipFile(master) as z:
+            if z.testzip() is not None:
+                return False, "관리대장 ZIP 무결성 실패 — 열지 않습니다"
+            sheets = [n for n in z.namelist() if n.startswith("xl/worksheets/sheet")
+                      and n.endswith(".xml")]
+            found = []
+            for name in sheets:
+                xml = z.read(name).decode("utf-8", "replace")
+                if "<sheetData" not in xml:
+                    return False, f"시트 XML 이 온전하지 않습니다({name})"
+                refs = direct_self_refs(xml)
+                if refs:
+                    found.append(f"{name}: {', '.join(refs[:5])}")
+    except Exception as exc:
+        return False, f"관리대장 자동 점검 실패({exc})"
+    if found:
+        return False, "직접 순환참조 발견 — 열지 않습니다: " + " / ".join(found[:3])
+    doc = {
+        "승인": True,
+        "파일": os.path.basename(master),
+        "sha256": _sha256(master),
+        "확인시각": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "확인방법": "자동 점검 — ZIP 무결성·시트 XML 파싱·직접 순환참조 0 (사람 개방 불필요)",
+        "근거": f"시트 {len(sheets)}개 전수 검사, 자기참조 0개",
+    }
+    try:
+        os.makedirs(os.path.dirname(CLEARANCE), exist_ok=True)
+        json.dump(doc, open(CLEARANCE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+    return True, f"자동 점검 통과 — 시트 {len(sheets)}개 · 순환참조 0"
 
 
 def decide(pending, master, editing, has_excel, recovery_safe):

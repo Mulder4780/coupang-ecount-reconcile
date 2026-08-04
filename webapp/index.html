@@ -557,15 +557,24 @@ svg.bi{width:1.05em;height:1.05em;flex:none;fill:currentColor;vertical-align:-.1
 .issue-detail-list{grid-column:1/-1;margin:6px 4px 2px;border-top:2px solid #F1C2C2;padding-top:10px}
 .issue-detail-title{display:flex;align-items:center;justify-content:space-between;gap:10px;
   color:#8F2525;font-size:14px;font-weight:900;margin:0 2px 7px}
-.issue-detail-row{display:grid;grid-template-columns:minmax(160px,.9fr) minmax(240px,2fr) auto;
+/* ★ 이 카드는 '이슈사항' 좁은 칸 안에 들어간다. minmax 최소폭(160+240)이 칸 폭보다
+   커지면 격자가 칸 밖으로 밀려 **오른쪽 글자가 잘린다**(2026-08-04 실제 발생).
+   최소폭을 0으로 두고 자식마다 min-width:0 을 줘서 항상 칸 안에서 줄어들게 한다. */
+.issue-detail-list{min-width:0;overflow:hidden}
+.issue-detail-row{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,2fr) minmax(0,auto);
   gap:10px;align-items:start;padding:10px 9px;border:1px solid #F1D6D6;border-radius:10px;
   background:#FFFDFD;margin-bottom:7px}
-.issue-detail-id{display:flex;flex-wrap:wrap;align-items:center;gap:5px;font-size:13.5px;font-weight:800}
+.issue-detail-row>*{min-width:0}
+.issue-detail-id{display:flex;flex-wrap:wrap;align-items:center;gap:5px;font-size:13.5px;font-weight:800;
+  overflow-wrap:anywhere}
 .issue-detail-id .camp{color:var(--ink-2);font-weight:700}
-.issue-detail-copy{color:#4A2222;font-size:14px;line-height:1.55;white-space:pre-line;word-break:keep-all}
+.issue-detail-copy{color:#4A2222;font-size:14px;line-height:1.55;white-space:pre-line;
+  word-break:keep-all;overflow-wrap:anywhere}
 .issue-detail-copy b{color:#A63737}
-.issue-detail-meta{color:var(--ink-3);font-size:13px;font-weight:700;white-space:nowrap;text-align:right}
-@media(max-width:720px){
+.issue-detail-meta{color:var(--ink-3);font-size:13px;font-weight:700;text-align:right;
+  overflow-wrap:anywhere}
+/* 세로 3단은 넉넉할 때만. 좁으면 한 줄씩 쌓아 잘리지 않게 한다. */
+@media(max-width:1100px){
   .issue-detail-row{grid-template-columns:1fr}
   .issue-detail-meta{text-align:left}
 }
