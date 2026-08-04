@@ -99,6 +99,54 @@ def _value(row: tuple, header: dict[str, int], *names: str):
     return None
 
 
+def _reason_blocker(reason: str) -> str:
+    """미실시 사유를 **책임 소재**로 가른다 (대표 지시 2026-08-04).
+
+    대표 기준: "부품이 안 와서·합의된 일정이라 못 한 건 괜찮다. 그런데 **기사 스케줄을
+    못 잡아 미루는 건 절대 안 된다.**" 그래서 건수만 세지 말고 둘을 갈라 보여 준다.
+
+    핵심은 순서다 — "모터가 며칠 전에 도착, 방문 일정 조율 중"은 **자재 대기가 아니라
+    스케줄 문제**다(물건은 이미 왔다). 기존 분류는 '모터'라는 단어만 보고 자재 대기로
+    넣어 이런 건을 정당한 사유처럼 보이게 했다.
+    """
+    t = _s(reason)
+    if not t:
+        return "사유 미기재"                       # 사유가 없는 것도 확인 대상이다
+    arrived = re.search(r"도착|입고|수령|왔|전일 도착", t)
+    waiting = re.search(r"발주|주문|미도착|대기|수급|발송 예정|제작", t)
+    scheduling = re.search(r"일정\s*조율|조율\s*중|조율\s*예정|일정조율|스케줄|"
+                           r"조만간|추후|차주|다음주|이번주|예정임|바빠|여유", t)
+    # ① 물건은 왔는데 일정만 미루는 중 → 스케줄 문제(핫이슈)
+    if arrived and scheduling and not waiting:
+        return "확인 필요(일정 미확정)"
+    # ② 정기점검 등 **합의된 시점**에 함께 처리 → 정당
+    if re.search(r"정기점검\s*(때|시)|정기점검에|점검일에|합의|협의 완료|"
+                 r"운행에 지장이 없", t):
+        return "정당(합의·차기 점검)"
+    # ③ 부품·자재가 **아직 안 온 것**만 정당. 단순히 "○○교체예정"처럼 물건 이야기 없이
+    #    '예정'만 있는 건 대표가 콕 집은 유형이다("조만간 교체 예정 — 이런 게 있으면 안 돼").
+    if waiting:
+        return "정당(자재·부품 대기)"
+    if re.search(r"자재|모터|리모컨|부품", t) and not arrived:
+        if re.search(r"예정|교체할|하기로", t) and not re.search(r"발주|주문|미도착|입고 예정", t):
+            return "확인 필요(일정 미확정)"
+        return "정당(자재·부품 대기)"
+    # ④ 캠프·고객 사정 → 정당
+    if re.search(r"캠프|고객|현장 사정|출입|휴무|폐쇄|공사", t):
+        return "정당(현장 사정)"
+    # ⑤ 날짜가 박혀 있으면 계획이 있는 것으로 본다
+    if re.search(r"\d{1,2}\s*[/월]\s*\d{1,2}", t):
+        return "정당(일정 확정)"
+    if scheduling:
+        return "확인 필요(일정 미확정)"
+    return "확인 필요(사유 불명확)"
+
+
+def is_hot_issue(reason: str) -> bool:
+    """대표가 '있으면 안 된다'고 한 유형인가 — 스케줄 미확정·사유 불명확."""
+    return _reason_blocker(reason).startswith(("확인 필요", "사유 미기재"))
+
+
 def _reason_group(reason: str) -> str:
     t = _s(reason)
     if re.search(r"자재|모터|리모컨|부품|발송|도착|수급", t):
@@ -158,6 +206,9 @@ def _read_sheet(ws, kind: str) -> list[dict]:
             "상태": state,
             "미처리사유": reason,
             "사유분류": _reason_group(reason) if reason else "",
+            # 대표 지시(2026-08-04): 건수보다 **왜 못 했는지의 성격**이 중요하다.
+            "책임구분": _reason_blocker(reason),
+            "핫이슈": is_hot_issue(reason),
             "담당자": tech,
             "요청내용": request,
             "실제조치": action,
@@ -309,6 +360,11 @@ def analyze(master: str, source: str | None = None) -> dict:
     as_dates = sorted({r["일자"] for r in as_rows if r.get("일자")})
     reason_counts = Counter(r["사유분류"] for r in as_open if r["사유분류"])
     reasons = [{"사유": key, "건수": count} for key, count in reason_counts.most_common()]
+    # 대표 지시(2026-08-04): 미실시는 **정당한 사유가 있는 것과 스케줄을 못 잡아
+    # 미루는 것**을 갈라 봐야 한다. 뒤엣것이 곧 '있으면 안 되는' 건이다.
+    hot = [r for r in as_open if r.get("핫이슈")]
+    blocker_counts = Counter(r.get("책임구분") or "사유 미기재" for r in as_open)
+    blockers = [{"구분": k, "건수": v} for k, v in blocker_counts.most_common()]
     unmatched = sum(r["대조결과"] == "원장 미매칭" for r in compared)
     conflicts = sum("상이" in r["대조결과"] or "중복" in r["대조결과"] for r in compared)
     return {
@@ -326,6 +382,7 @@ def analyze(master: str, source: str | None = None) -> dict:
                 "기준시작일": as_dates[0] if as_dates else "",
                 "기준종료일": as_dates[-1] if as_dates else "",
                 "미처리사유": reasons, "미처리목록": as_open,
+                "핫이슈": len(hot), "핫이슈목록": hot, "책임구분": blockers,
                 "처리완료목록": as_done, "취소목록": as_cancel,
                 "처리완료일확인목록": as_done_unknown,
             },

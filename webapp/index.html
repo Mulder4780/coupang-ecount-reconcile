@@ -1434,6 +1434,19 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 .remote-std ul{margin:0 0 4px;padding-left:17px}
 .remote-std li{margin:1px 0}
 .remote-std li b{display:inline;margin:0;font-size:12.5px;color:inherit}
+/* 미실시 핫이슈(2026-08-04 대표 지시) — 스케줄을 못 잡아 미룬 건만 따로 붉게 */
+.bhot{background:#FFF3F2;border:1px solid #F3C6C2;border-left:4px solid var(--danger);
+  border-radius:11px;padding:10px 12px;margin:7px 0}
+.bhot .bnh{color:#8F2525;font-weight:800;font-size:13.5px}
+.bhot .bnh span{font-weight:600;color:var(--ink-2)}
+.bhr{font-size:12.5px;color:#4A2222;margin-top:5px;line-height:1.5;overflow-wrap:anywhere}
+.bhr b{color:var(--brand-dk)}
+.bhr span{color:var(--ink-2)}
+/* 진행 속도 — 기간 경과율 대비 진행률 */
+.bpace{font-size:12.5px;margin:6px 0 2px;padding:7px 10px;border-radius:9px;
+  background:var(--ok-bg);color:#155724}
+.bpace.late{background:var(--warn-bg);color:#7A3E00}
+.bpace em{font-style:normal;font-weight:800}
 
 /* ═══ 업무센터 iOS 개편(2026-08-04 지시) ═══
    아이폰 설정·연락처 앱 감각: 큰 제목, 아바타 연락처 카드, 카드 밖 그룹 섹션 헤더,
@@ -5777,6 +5790,18 @@ function briefBlock(){
         <button class="warn" onclick="openWorkLogBrief('open')">미처리<b>${wla.미처리||0}건</b></button>
         <button onclick="openWorkLogBrief('all')">전체 발생<b>${wla.발생||0}건</b></button>
       </div>`;
+    /* ★ 대표 지시(2026-08-04): "부품이 안 와서·합의된 일정이라 못 한 건 괜찮다.
+       기사 스케줄을 못 잡아 미루는 건 절대 안 된다." 그래서 미실시를 **사유의 성격**으로
+       갈라 놓고, 스케줄 문제만 위로 끌어올려 빨갛게 보여 준다. 건수만 세면 묻힌다. */
+    const hot=+(wla.핫이슈||0), blockers=wla.책임구분||[], hotL=wla.핫이슈목록||[];
+    if(hot) h += `<div class="bhot actionable" role="button" tabindex="0" onclick="openWorkLogBrief('open')"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openWorkLogBrief('open')}">
+      <div class="bnh">⚠ 일정 미확정·사유 불명확 <b>${hot}건</b> <span>— 미실시 ${wla.미처리||0}건 중</span></div>
+      ${hotL.slice(0,5).map(x=>`<div class="bhr"><b>${_e(x.프로젝트NO||'')}</b> ${_e(String(x.캠프명||'').slice(0,18))}
+        <span>${_e(String(x.미처리사유||'').slice(0,46))}</span></div>`).join('')}
+      ${hotL.length>5?`<div class="bnd">… 외 ${hotL.length-5}건 · 눌러서 전체 목록</div>`
+        :`<div class="bnd">눌러서 전체 목록·이미지 저장</div>`}</div>`;
+    if(blockers.length) h += `<div class="bglab">미실시 사유 구분 · ${blockers.map(x=>`${_e(x.구분)} ${x.건수}건`).join(' · ')}</div>`;
     if(reasons.length) h += `<div class="bneed actionable" role="button" tabindex="0" onclick="openWorkLogBrief('open')"
       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openWorkLogBrief('open')}">
       <div class="bnh">미처리 사유 <b>${reasons.map(x=>`${_e(x.사유)} ${x.건수}건`).join(' · ')}</b></div>
@@ -5817,6 +5842,13 @@ function briefBlock(){
           .map(([t,a,b])=>`<button class="pbtn${ps.from===a&&ps.to===b?' on':''}"
              onclick="setPmRange('${a}','${b}')">${t}</button>`).join('')}
       </div>
+      ${(()=>{ // 대표 지시(2026-08-04): 기간이 몇 % 지났는지와 나란히 놓아야
+               // '빠른지 늦은지'가 보인다. 숫자만으로는 매번 날짜를 세야 한다.
+        const el=+(p.분기경과율||0), gap=pct-el;
+        if(!el) return '';
+        return `<div class="bpace ${gap>=0?'ok':'late'}">
+          기간 경과 <b>${el}%</b> 대비 진행 <b>${pct}%</b> —
+          ${gap>=0?`<em>${gap}%p 앞섬</em>`:`<em>${Math.abs(gap)}%p 뒤짐</em>`}</div>`;})()}
       <div class="bnote">${pct>=60?`특별한 문제 없으면 ${ps.끝월}까지 마무리 가능합니다.`
                                  :'진행률이 낮아 일정 관리가 필요합니다.'}</div>
       <div class="pmstats">
@@ -7860,8 +7892,13 @@ async function reportToPng(){
   const dailyActivities = (dailyBrief&&dailyBrief.activities) || [];
   const pmProgressH = pmProgress.length ? 34 + tiles(pmProgress.length) + 20 : 0;
   const workDetailH = rows => rows.length ? 26 + rows.length*50 + 6 : 0;
+  // 핫이슈·사유구분 블록만큼 높이를 더 잡는다 — 안 그러면 아래가 잘린다(2026-08-04).
+  const wlHotN = Math.min((wlAs.핫이슈목록||[]).length, 6);
+  const wlBlockers = wlAs.책임구분 || [];
   const workLogH = Object.keys(wlAs).length
     ? 34 + tiles(4) + (wlReasons.length ? 18 + wlReasons.length*20 : 0)
+      + ((wlAs.핫이슈||0) ? 20 + wlHotN*18 : 0)
+      + (wlBlockers.length ? 18 + wlBlockers.length*20 : 0)
       + workDetailH(wlOpenRows) + workDetailH(wlCancelRows)
       + workDetailH(wlUnknownRows) + 16 : 0;
   const dailyBriefH = dailyBrief
@@ -8121,6 +8158,19 @@ async function reportToPng(){
       [String(wlAs.미처리||0)+'건', '미처리', (wlAs.미처리||0)?'#B54708':'#12813F'],
       [String(wlAs.취소||0)+'건', '취소·정상작동'],
     ]);
+    // 대표 지시(2026-08-04): 캡처에도 화면과 **같은** 구분이 나가야 한다.
+    if((wlAs.핫이슈||0)){
+      txt(`⚠ 일정 미확정·사유 불명확 ${wlAs.핫이슈}건 — 미실시 ${wlAs.미처리||0}건 중`,
+          30, y+8, F(12,800), '#A63737'); y += 20;
+      (wlAs.핫이슈목록||[]).slice(0,6).forEach(r=>{
+        txt(clip(`· ${r.프로젝트NO||''} ${r.캠프명||''} — ${String(r.미처리사유||'').slice(0,44)}`, 640),
+            40, y+8, F(11), '#4A2222'); y += 18; });
+    }
+    if((wlAs.책임구분||[]).length){
+      txt('미실시 사유 구분', 30, y+8, F(11,800), '#475467'); y += 18;
+      (wlAs.책임구분||[]).forEach(x=>{ txt(`${x.구분} ${x.건수}건`, 40, y+8, F(11.5),
+        String(x.구분).startsWith('확인')||String(x.구분).startsWith('사유')?'#A63737':'#475467'); y += 20; });
+    }
     if(wlReasons.length){
       txt('미처리 사유', 30, y+8, F(11,800), '#475467'); y += 18;
       wlReasons.forEach(x=>{ txt(`${x.사유} ${x.건수}건`, 40, y+8, F(11.5), '#475467'); y += 20; });

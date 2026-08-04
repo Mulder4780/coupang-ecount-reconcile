@@ -97,6 +97,23 @@ def load(master=None):
     return d, master
 
 
+def _elapsed_pct(start, end, day):
+    """기간이 몇 % 지났나 — 진행률이 '빠른지 늦은지'의 기준선.
+
+    분기 절반이 지났는데 진행률이 30%면 늦은 것이고, 90%면 빠른 것이다. 이 기준선이
+    없으면 대표가 매번 "지금 며칠째지?"를 머리로 계산해야 한다(2026-08-04 지시).
+    """
+    try:
+        d = datetime.strptime(str(day)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return 0
+    total = (end - start).days + 1
+    if total <= 0:
+        return 0
+    gone = min(max((d - start).days + 1, 0), total)
+    return round(gone * 100 / total)
+
+
 def brief(day=None, data=None):
     """하루치 브리핑. 반환값은 화면·이미지·문서 어디서나 같은 내용을 쓰도록 구조화한다."""
     data = data or load()[0]
@@ -258,7 +275,13 @@ def brief(day=None, data=None):
                      "분기범위": f"{3 * q - 2}~{3 * q}월", "분기끝월": f"{3 * q}월",
                      "분기예정": len(inq), "분기완료": len(inq_done),
                      "분기미실행": len(inq) - len(inq_done),
-                     "분기진행률": round(len(inq_done) * 100 / len(inq)) if inq else 0},
+                     "분기진행률": round(len(inq_done) * 100 / len(inq)) if inq else 0,
+                     # ★ 대표 지시(2026-08-04): "이번 분기에 **일수를 따졌을 때** 몇 %
+                     #   진행됐고 이상이 있는지 없는지". 진행률만 보면 빠른지 늦은지 모른다.
+                     #   분기 경과일 비율을 '기대 진행률'로 두고 그 차이를 보여 준다.
+                     "분기경과율": _elapsed_pct(qs, qe, day),
+                     "분기진행격차": (round(len(inq_done) * 100 / len(inq)) if inq else 0)
+                                     - _elapsed_pct(qs, qe, day)},
         "완료내역": done, "무상건": free, "추가작업건": extra,
         "점검중유상": pm_paid, "AS전환": to_as, "이상발견": abnormal,
         "점검예정목록": pm_plan_rows,
