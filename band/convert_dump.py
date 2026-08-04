@@ -54,6 +54,35 @@ def dump_files():
     return sorted(out)
 
 
+CHANGED_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "reports", "밴드_수정글.json")
+
+
+def _mark_changed(band, nos):
+    """수정된 글 번호를 남긴다 — 대조·사진수집이 이 목록을 다시 훑는다.
+
+    사람이 글을 고치면 그 글에 딸린 판정(완료 여부·금액·사진)도 다시 봐야 한다.
+    조용히 덮어쓰기만 하면 "언제 무엇이 바뀌었는지" 아무도 모른다.
+    """
+    doc = {"갱신": datetime.now().isoformat(timespec="seconds"), "밴드": {}}
+    try:
+        old = json.load(open(CHANGED_LOG, encoding="utf-8"))
+        if isinstance(old.get("밴드"), dict):
+            doc["밴드"] = old["밴드"]
+    except Exception:
+        pass
+    cur = set(doc["밴드"].get(str(band)) or [])
+    cur.update(str(n) for n in nos)
+    doc["밴드"][str(band)] = sorted(cur, key=lambda x: (len(x), x))
+    doc["합계"] = sum(len(v) for v in doc["밴드"].values())
+    try:
+        os.makedirs(os.path.dirname(CHANGED_LOG), exist_ok=True)
+        json.dump(doc, open(CHANGED_LOG, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    except Exception:
+        pass
+    print(f"  ★ 수정된 글 {len(nos)}건 감지({band}) → reports/밴드_수정글.json")
+
+
 def main():
     for f in dump_files():
         d = json.load(open(f, encoding="utf-8"))
@@ -96,11 +125,35 @@ def main():
                 before = len(merged)
             except Exception:
                 merged = {}
+        # ★ 밴드 글은 **수정된다**(2026-08-04 확인): 상태가 바뀌면 같은 글의 본문·사진을
+        #   고쳐 다시 올린다. 예전 규칙("본문이 긴 쪽을 남긴다")은 **짧아지는 수정과
+        #   같은 길이의 내용 변경을 통째로 놓쳤다.** 이제 수집 시각이 더 최신이면
+        #   내용이 달라진 것을 교체하고, 무엇이 바뀌었는지 기록을 남긴다.
+        changed = []
+        cap_ms = int(cap or 0)
         for no, rec in posts.items():
             cur = merged.get(no)
-            # 날짜가 있는 쪽·본문이 긴 쪽을 남긴다
-            if not cur or (rec["created_at"] and not cur.get("created_at"))                or len(rec["content"]) > len(cur.get("content") or ""):
+            rec["captured_at"] = cap_ms or rec.get("captured_at") or 0
+            if not cur:
                 merged[no] = rec
+                continue
+            new_txt, old_txt = rec["content"] or "", cur.get("content") or ""
+            # '…더보기'로 잘린 피드 수집분이 상세 전문을 덮어쓰지 않게 한다.
+            truncated = len(new_txt) < len(old_txt) * 0.9 and old_txt.startswith(new_txt[:200])
+            newer = rec["captured_at"] >= int(cur.get("captured_at") or 0)
+            if rec["created_at"] and not cur.get("created_at"):
+                merged[no] = rec
+            elif len(new_txt) > len(old_txt) and not newer:
+                merged[no] = rec                      # 예전 규칙(같은 회차 품질 차이)
+            elif newer and not truncated and new_txt.strip() != old_txt.strip():
+                rec["updated_at"] = cap_ms
+                rec["prev_len"] = len(old_txt)
+                merged[no] = rec
+                changed.append(no)                    # 수정된 글 — 다시 대조해야 한다
+            elif len(new_txt) > len(old_txt):
+                merged[no] = rec
+        if changed:
+            _mark_changed(band, changed)
         out = {"band_name": d.get("name", band), "posts": merged}
         json.dump(out, open(dst, "w", encoding="utf-8"), ensure_ascii=False)
         # 원본 자료 정본은 이름·내용 그대로 둔다. 로컬 처리함의 dump만 raw로 바꿔

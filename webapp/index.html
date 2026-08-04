@@ -5382,18 +5382,26 @@ async function loadRemoteStat(){ try{ REMOTE_STAT=await api('/api/remote/status'
 /* 리모컨 현황 CSV — 엑셀에서 바로 열린다(지점재고·담당자보유·불출·납품 4블록). */
 function remoteCsv(){
   const s=REMOTE_STAT||{}; const q=v=>`"${String(v==null?'':v).replace(/"/g,'""')}"`;
-  const L=[['구분','항목','버전','수량','비고']];
+  // 열을 나눠 담는다 — 한 칸에 몰아넣으면 엑셀에서 다시 쪼개야 한다(2026-08-04 지시).
+  const t=s.totals||{};
+  const L=[['구분','일자','지점','담당자','버전','수량','유형·상태','프로젝트NO','캠프','비고']];
+  L.push(['합계','','','','', t.all||0,'전체 보유','','',`개인 ${t.holding||0} · 지점 ${t.stock||0} · 한도 ${s.limit||3}개(기존 보유 포함)`]);
   Object.entries(s.branch_stock||{}).forEach(([k,b])=>{
     const vers=Object.entries(b.versions||{}).filter(([,n])=>n);
-    if(vers.length) vers.forEach(([v,n])=>L.push(['지점재고',b.label||k,v,n,'']));
-    else L.push(['지점재고',b.label||k,'',b.stock||0,'']);
+    const who=(s.branches||{})[k]||'';
+    if(vers.length) vers.forEach(([v,n])=>L.push(['지점재고','',b.label||k,who,v,n,'','','',`입고 ${b.in} · 불출 ${b.issued}`]));
+    else L.push(['지점재고','',b.label||k,who,'',b.stock||0,'','','',b.tracked?'':'미등록']);
   });
-  Object.entries(s.holdings||{}).forEach(([n,h])=>L.push(['담당자보유',n,'',h.holding,
-    `받음 ${h.issued} · 나감 ${h.delivered}${h.holding>(s.limit||3)?' · 한도초과':''}`]));
-  (s.issues||[]).forEach(r=>L.push(['불출',`${r.issued_on||''} ${r.branch||''} ${r.technician||''}`,
-    r.version||'',r.qty,`${r.status||''} ${r.camp||''}`.trim()]));
-  (s.deliveries||[]).forEach(r=>L.push(['납품·사용',`${r.delivered_on||''} ${r.technician||''}`,
-    r.version||'',r.qty,`${r.kind||'납품'} ${r.project||''} ${r.camp||''}`.trim()]));
+  Object.entries(s.holdings||{}).forEach(([n,h])=>L.push(['담당자보유','','',n,'',h.holding,
+    h.holding>(s.limit||3)?'한도초과':'정상','','',`받음 ${h.issued} · 나감 ${h.delivered}`]));
+  (s.issues||[]).forEach(r=>L.push(['불출',r.issued_on||String(r.requested_at||'').slice(0,10),
+    ((s.branch_stock||{})[r.branch]||{}).label||r.branch||'',r.technician||'',r.version||'',r.qty,
+    r.status||'','',r.camp||'','']));
+  (s.deliveries||[]).forEach(r=>L.push(['납품·사용',r.delivered_on||'','',r.technician||'',
+    r.version||'',r.qty,r.kind||'납품',r.project||'',r.camp||'',r.note||'']));
+  (s.moves||[]).forEach(r=>L.push(['재고이동',r.moved_on||'',
+    ((s.branch_stock||{})[r.branch]||{}).label||r.branch||'','',r.version||'미확인',r.qty_delta,
+    r.qty_delta>0?'입고·증가':'출고·차감','','',String(r.reason||'').replace(/\s*\[[^\]]*\]/,'')]));
   const csv='﻿'+L.map(r=>r.map(q).join(',')).join('\n');
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
@@ -5405,7 +5413,10 @@ async function remoteCapture(){
   await loadRemoteStat(); const s=REMOTE_STAT||{};
   const S=2,W=760,F=(z,w)=>`${w||400} ${z}px "Nanum Gothic","Malgun Gothic",sans-serif`;
   const holds=Object.entries(s.holdings||{}), brs=Object.entries(s.branch_stock||{});
-  const H=150+brs.length*34+40+holds.length*34+70;
+  // 이력까지 실어야 "왜 이 수량인가"가 이미지 한 장에서 설명된다(2026-08-04 지시).
+  const iss=(s.issues||[]).slice(0,8), dels=(s.deliveries||[]).slice(0,8), mvs=(s.moves||[]).slice(0,8);
+  const H=150+brs.length*34+40+holds.length*34+70
+    +(iss.length?34+iss.length*24:0)+(dels.length?34+dels.length*24:0)+(mvs.length?34+mvs.length*24:0);
   const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
   const x=cv.getContext('2d'); x.scale(S,S);
   x.fillStyle='#fff'; x.fillRect(0,0,W,H);
@@ -5427,6 +5438,20 @@ async function remoteCapture(){
     x.fillText(n,32,y); x.fillText(`${h.holding}개${over?'  ⚠ 한도 초과':''}`,240,y);
     x.fillStyle='#98A2B3'; x.font=F(11); x.fillText(`받음 ${h.issued} · 나감 ${h.delivered}`,420,y);
     x.strokeStyle='#EEF2F7'; x.beginPath(); x.moveTo(24,y+8); x.lineTo(W-24,y+8); x.stroke(); });
+  const tbl=(title,rows,cols)=>{ if(!rows.length) return;
+    y+=34; x.font=F(12,700); x.fillStyle='#475467'; x.fillText(title,24,y);
+    rows.forEach(r=>{ y+=24; x.font=F(12); x.fillStyle='#101828';
+      cols.forEach(([get,px])=>x.fillText(String(get(r)||''),px,y));
+      x.strokeStyle='#F4F6F9'; x.beginPath(); x.moveTo(24,y+7); x.lineTo(W-24,y+7); x.stroke(); }); };
+  tbl('최근 불출', iss, [[r=>r.issued_on||String(r.requested_at||'').slice(0,10),32],
+    [r=>(bs=>bs?bs.label:r.branch)((s.branch_stock||{})[r.branch]),150],
+    [r=>r.technician,250],[r=>r.camp||'-',350],[r=>r.qty+'개',600]]);
+  tbl('최근 납품·사용', dels, [[r=>r.delivered_on,32],[r=>r.technician,150],
+    [r=>`${r.project||''} ${r.camp||''}`.trim().slice(0,22),250],[r=>r.kind||'납품',560],[r=>r.qty+'개',640]]);
+  tbl('최근 재고 이동', mvs, [[r=>r.moved_on||'',32],
+    [r=>((s.branch_stock||{})[r.branch]||{}).label||r.branch,150],[r=>r.version||'미확인',250],
+    [r=>(r.qty_delta>0?'+':'')+r.qty_delta,350],
+    [r=>String(r.reason||'').replace(/\s*\[[^\]]*\]/,'').slice(0,26),430]]);
   y+=40; x.fillStyle='#6B7280'; x.font=F(11);
   x.fillText('불출 담당 — 부산공장: 오종현 · 시화공장: 안은숙 · 증평본사: 류지영',24,y);
   const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
