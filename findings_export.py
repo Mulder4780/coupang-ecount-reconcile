@@ -292,6 +292,17 @@ def main():
         out = os.path.join(REPORT_DIR, OUT_NAME)   # 열려 있으면 reports/에 대체 저장
         write_xlsx(data, out)
     total = sum(len(v) for v in data.values())
+    # 집계를 JSON 으로도 남긴다 — 이 숫자는 엑셀 안에만 있어서, 다른 도구가 쓰려면
+    # 엑셀을 다시 열어야 했다(느리고, 사람이 열어 둔 동안에는 못 읽는다).
+    try:
+        import json
+        os.makedirs(REPORT_DIR, exist_ok=True)
+        json.dump({"at": __import__("time").strftime("%Y-%m-%d %H:%M"), "total": total,
+                   "counts": {k: len(v) for k, v in data.items()}, "xlsx": out},
+                  open(os.path.join(REPORT_DIR, "확인필요_집계.json"), "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=1)
+    except Exception as exc:
+        print(f"  ! 집계 JSON 저장 실패: {exc}")
     print("확인필요 통합:", " / ".join(f"{k} {len(v)}" for k, v in data.items()))
     print(f"총 {total}건 → {out}")
 
