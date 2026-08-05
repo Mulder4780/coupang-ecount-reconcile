@@ -6280,8 +6280,11 @@ const SRC_GROUPS = [
   {key:'band',  label:'밴드',       ic:'밴', color:'#30D158', kinds:['밴드','밴드 게시글(보관)','밴드 문서사진']},
   {key:'kakao', label:'카톡',       ic:'톡', color:'#FFD60A', kinds:['카톡']},
   {key:'erp',   label:'ERP',       ic:'E',  color:'#0A84FF', kinds:['ERP','ERP:sales','ERP:ledger','ERP:slips','ERP:po']},
-  {key:'po',    label:'쿠팡 PO',    ic:'PO', color:'#BF5AF2', kinds:['쿠팡 PO'], path:'6. PO 원본'},
+  {key:'po',    label:'쿠팡 PO',    ic:'PO', color:'#BF5AF2', kinds:['쿠팡 PO','쿠팡 목록'], path:'6. PO 원본'},
   {key:'money', label:'입금·서류',   ic:'₩',  color:'#5E5CE6', kinds:['입금','서류','정기점검']},
+  /* 업무일지·통화 기록(2026-08-05) — 갈래를 폴더 이름에서 만들면서 새로 생긴 것들이다.
+     어느 세그먼트에도 안 넣으면 '전체'에서만 보여 사실상 사라진다. */
+  {key:'log',   label:'일지·통화',   ic:'일', color:'#FF6482', kinds:['업무일지','통화·회의','업무 흐름도']},
   {key:'etc',   label:'기타',       ic:'…',  color:'#8E8E93', kinds:['기타','미분류','투입 대기']},
 ];
 let SRC={rows:[],kinds:[],months:[],count:0,built:''}, SRC_G='', SRC_M='', SRC_T=null;

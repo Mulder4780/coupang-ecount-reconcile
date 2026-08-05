@@ -78,21 +78,39 @@ SKIP_DIRS = {"_바로가기", "_보관", "__pycache__", ".git"}
 #   들어 있기 때문이다. 예전에는 `4. 밴드 원본` 이 `게시글보관` 보다 앞이라,
 #   `4. 밴드 원본/게시글보관/...` 이 전부 뭉뚱그려 '밴드' 가 됐고 게시글·문서사진
 #   갈래가 **한 건도 생기지 않았다**(2026-08-05 실측: 밴드 4,990 / 게시글 0).
-FOLDER_KIND = [
+# 폴더 이름은 **source_dirs 가 정한다.** 여기 문자열을 따로 적어 두면 반드시 어긋난다 —
+# 실제로 `2. 쿠팡 PO`·`5. 입금`·`6. 서류` 는 **없는 폴더**였고(진짜 이름은 `6. PO 원본`·
+# `7. 입금내역`), 그래서 쿠팡 PO 576건이 전부 '기타' 로 빠져 앱에서 안 보였다(2026-08-05).
+_SPECIFIC = [                      # 상위 폴더 안에 있는 좁은 갈래 — 반드시 먼저 본다
     ("거래명세서_건별", "ERP 거래명세서(건별 PDF)"),
     ("세금계산서_건별", "ERP 세금계산서(건별 PDF)"),
     ("게시글보관", "밴드 게시글(보관)"),
     ("문서사진", "밴드 문서사진"),
-    ("1. ERP 내보내기", "ERP"),
-    ("4. 밴드 원본", "밴드"),
-    ("2. 쿠팡 PO", "쿠팡 PO"),
-    ("3. 카카오톡", "카톡"),
-    ("5. 입금", "입금"),
-    ("6. 서류", "서류"),
-    ("정기점검", "정기점검"),
-    ("9. 미분류", "미분류"),
-    ("100. 업로드용", "투입 대기"),
 ]
+_BY_DIR = [("ERP_DIR", "ERP"), ("BAND_DIR", "밴드"), ("PO_DIR", "쿠팡 PO"),
+           ("COUPANG_DIR", "쿠팡 목록"), ("KAKAO_DIR", "카톡"), ("RECEIPT_DIR", "입금"),
+           ("DOC_DIR", "서류"), ("PM_SCHEDULE_DIR", "정기점검"),
+           ("WORK_LOG_DIR", "업무일지"), ("LEGACY_WORK_LOG_DIR", "업무일지"),
+           ("CALL_NOTE_DIR", "통화·회의"), ("NEW_PROJECT_FLOW_DIR", "업무 흐름도"),
+           ("MISC_DIR", "미분류"), ("UPLOAD_DIR", "투입 대기")]
+
+
+def _folder_rules():
+    rules = list(_SPECIFIC)
+    try:
+        import source_dirs as S
+    except Exception:
+        return rules
+    for attr, label in _BY_DIR:
+        p = getattr(S, attr, None)
+        if p:
+            name = os.path.basename(str(p).rstrip("\\/"))
+            if name and (name, label) not in rules:
+                rules.append((name, label))
+    return rules
+
+
+FOLDER_KIND = _folder_rules()
 
 
 # ★ 분류 규칙이 바뀌면 캐시를 통째로 버린다 (2026-08-05 실사고).
