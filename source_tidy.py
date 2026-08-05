@@ -43,7 +43,8 @@ KIND_LABEL = {
     "ERP:hometax": "홈택스전자계산서", "ERP:po": "쿠팡PO", "ERP": "ERP 기타",
     "밴드": "밴드 원본", "밴드 게시글(보관)": "밴드 게시글", "밴드 문서사진": "밴드 문서사진",
     "카톡": "카톡 내보내기", "쿠팡 PO": "쿠팡 PO", "입금": "입금", "서류": "서류",
-    "ERP 거래명세서(건별 PDF)": "거래명세서(건별)", "정기점검": "정기점검",
+    "ERP 거래명세서(건별 PDF)": "거래명세서(건별)",
+    "ERP 세금계산서(건별 PDF)": "세금계산서(건별)", "정기점검": "정기점검",
     "미분류": "미분류", "투입 대기": "투입 대기", "기타": "기타",
 }
 JUNK = (re.compile(r"^~\$"), re.compile(r"\.tmp\.xlsx$", re.I),
@@ -88,6 +89,7 @@ def main():
     junk = [r for r in rows if any(p.search(r["name"]) for p in JUNK)]
 
     made = fail = 0
+    want = set()            # 이번에 있어야 할 바로가기 전체 경로
     if not a.report:
         # 1) 종류별 바로가기 — 무작위 이름을 사람이 읽는 이름으로 건다.
         for r in rows:
@@ -97,18 +99,52 @@ def main():
             label = KIND_LABEL.get(kind, kind)
             base = r.get("slip") or r.get("uj") or os.path.splitext(r["name"])[0]
             nm = safe(f"{r.get('date','')}_{label}_{base}") + "." + r["ext"]
-            if link(r["path"], os.path.join(short, safe(label, 30), nm)) == "ok":
+            dst = os.path.join(short, safe(label, 30), nm)
+            want.add(os.path.normcase(dst))
+            if link(r["path"], dst) == "ok":
                 made += 1
             else:
                 fail += 0
-        # 2) 월별 바로가기 — 건별 PDF(전표번호가 있는 것)만. 업무 발생 월로 묶는다.
+        # 2) 월별 바로가기 — 업무가 **일어난 달**로 묶는다.
+        #    건별 PDF(전표번호)와 밴드 게시글 PDF(글번호+날짜)를 함께 넣어,
+        #    "그 달에 무슨 일이 있었나"를 한 폴더에서 본다.
         for r in rows:
-            slip = r.get("slip")
-            if not slip or r.get("ext") != "pdf":
+            if r.get("ext") != "pdf":
                 continue
-            ym = slip[:7]
-            if link(r["path"], os.path.join(short, "월별", ym, r["name"])) == "ok":
+            slip = r.get("slip")
+            ym = slip[:7] if slip else (r.get("date") or "")[:7]
+            if not (r.get("post") or slip) or len(ym) != 7:
+                continue
+            dst = os.path.join(short, "월별", ym, r["name"])
+            want.add(os.path.normcase(dst))
+            if link(r["path"], dst) == "ok":
                 made += 1
+
+        # 3) 지난 회차의 찌꺼기를 **거둔다**. 색인이 한 번 오염되면(파생물까지 세면)
+        #    그때 만든 링크가 영원히 남아 폴더가 계속 지저분해진다 —
+        #    실제로 2026-08-05 에 색인 17,368건(절반이 파생물)으로 만든 링크가 남았다.
+        #    ★ 안전장치: 하드링크는 원본과 같은 파일이다. 다른 이름이 **하나도 없는**
+        #      것(st_nlink == 1)은 그 자체가 마지막 사본일 수 있으므로 지우지 않고 보고한다.
+        removed, kept = 0, []
+        for dirpath, _d, files in os.walk(short):
+            for fn in files:
+                p = os.path.join(dirpath, fn)
+                if os.path.normcase(p) in want:
+                    continue
+                try:
+                    if os.stat(p).st_nlink > 1:
+                        os.remove(p)
+                        removed += 1
+                    else:
+                        kept.append(p)
+                except OSError:
+                    kept.append(p)
+        for dirpath, _d, files in os.walk(short, topdown=False):   # 빈 폴더 접기
+            if not files and not os.listdir(dirpath) and dirpath != short:
+                try:
+                    os.rmdir(dirpath)
+                except OSError:
+                    pass
 
     # 3) 길잡이 README
     lines = [f"# 원본 자료 길잡이 (자동 생성 {time.strftime('%Y-%m-%d %H:%M')})", "",
@@ -143,8 +179,16 @@ def main():
         except Exception as e:
             print("README 쓰기 실패:", str(e)[:60])
 
-    print(f"원본 정리: 색인 {len(rows)}건 · 바로가기 {made}개 생성 · 정리후보 {len(junk)}건"
-          + ("  (보고 전용)" if a.report else f" → {short}"))
+    if a.report:
+        print(f"원본 정리: 색인 {len(rows)}건 · 정리후보 {len(junk)}건  (보고 전용)")
+        return 0
+    msg = (f"원본 정리: 색인 {len(rows)}건 · 바로가기 {made}개 생성 · "
+           f"묵은 링크 {removed}개 거둠 · 정리후보 {len(junk)}건 → {short}")
+    if kept:
+        msg += f"\n  ※ 원본이 하나뿐이라 지우지 않은 링크 {len(kept)}개 — 사람이 확인 필요"
+        for p in kept[:5]:
+            msg += f"\n     {os.path.basename(p)}"
+    print(msg)
     return 0
 
 

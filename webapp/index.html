@@ -6270,7 +6270,7 @@ function openGoogleCalendarDraft(){
    색인의 kind 값은 기술적 이름이라 그대로 노출하지 않고 아래 표로 옮긴다. */
 const SRC_GROUPS = [
   {key:'',      label:'전체',       ic:'📁', color:'#8E8E93', kinds:null},
-  {key:'tax',   label:'세금계산서',  ic:'세', color:'#FF375F', kinds:['ERP:taxinv','ERP:tax','ERP:hometax'], path:'세금계산서_건별'},
+  {key:'tax',   label:'세금계산서',  ic:'세', color:'#FF375F', kinds:['ERP:taxinv','ERP:tax','ERP:hometax','ERP 세금계산서(건별 PDF)'], path:'세금계산서_건별'},
   {key:'stmt',  label:'거래명세서',  ic:'명', color:'#FF9F0A', kinds:['ERP:stmt','ERP 거래명세서(건별 PDF)'], path:'거래명세서_건별'},
   /* 판매전표(2026-08-05 지시) — 이카운트에서 '판매조회 = 판매전표'이고 그 출력물이
      거래명세서다(billing_fill.py 머리말). 그동안 ERP 뭉치에 섞여 있어 청구 근거를
