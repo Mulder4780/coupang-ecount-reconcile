@@ -31,6 +31,26 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _acquire_lock():
+    """daily_run 과 같은 방식의 프로세스 간 단발 잠금. 겹치면 None."""
+    try:
+        sys.path.insert(0, ROOT)
+        from daily_run import acquire_run_lock
+        return acquire_run_lock(os.path.join(ROOT, "reports", ".source_index.lock"))
+    except Exception:
+        return "no-lock"          # 잠금을 못 쓰면 예전처럼 그냥 돈다(막지는 않는다)
+
+
+def _release_lock(token):
+    if token == "no-lock":
+        return
+    try:
+        from daily_run import release_run_lock
+        release_run_lock(token, os.path.join(ROOT, "reports", ".source_index.lock"))
+    except Exception:
+        pass
 sys.path.insert(0, ROOT)
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -54,12 +74,17 @@ SKIP_EXT = {".tmp", ".lnk", ".ini", ".db"}
 SKIP_DIRS = {"_바로가기", "_보관", "__pycache__", ".git"}
 
 # 폴더 이름으로 1차 분류 — 내용 판별보다 싸고, 사람이 이해하는 갈래와 같다.
+# ★ 순서가 곧 우선순위다. **좁은 것부터** 적는다 — 경로에는 상위 폴더 이름도 같이
+#   들어 있기 때문이다. 예전에는 `4. 밴드 원본` 이 `게시글보관` 보다 앞이라,
+#   `4. 밴드 원본/게시글보관/...` 이 전부 뭉뚱그려 '밴드' 가 됐고 게시글·문서사진
+#   갈래가 **한 건도 생기지 않았다**(2026-08-05 실측: 밴드 4,990 / 게시글 0).
 FOLDER_KIND = [
-    ("1. ERP 내보내기", "ERP"),
     ("거래명세서_건별", "ERP 거래명세서(건별 PDF)"),
-    ("4. 밴드 원본", "밴드"),
+    ("세금계산서_건별", "ERP 세금계산서(건별 PDF)"),
     ("게시글보관", "밴드 게시글(보관)"),
     ("문서사진", "밴드 문서사진"),
+    ("1. ERP 내보내기", "ERP"),
+    ("4. 밴드 원본", "밴드"),
     ("2. 쿠팡 PO", "쿠팡 PO"),
     ("3. 카카오톡", "카톡"),
     ("5. 입금", "입금"),
@@ -164,7 +189,22 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rescan", action="store_true")
     a = ap.parse_args()
-    rows = scan(a.rescan)
+    # ★ 한 번에 하나만 (2026-08-05 실사고). 세션이 둘 떠 있으면 양쪽 daily_run 이
+    #   같은 시각에 Z: 11,000여 개 파일을 훑어, 느려지는 정도가 아니라 **색인 갱신·
+    #   원본 정리·자료현황·폰 사본·보관 5단계가 통째로 실패**했다. 겹치면 이번 회차는
+    #   건너뛴다 — 워치독이 30분마다 다시 만들므로 한 번 거르는 편이 낫다.
+    token = _acquire_lock()
+    if not token:
+        print("다른 source_index 가 실행 중 — 이번 회차는 건너뜁니다(색인은 그대로 유효).")
+        return 0
+    try:
+        return _build(a.rescan)
+    finally:
+        _release_lock(token)
+
+
+def _build(rescan):
+    rows = scan(rescan)
     rows.sort(key=lambda r: (r["kind"], r["date"]), reverse=True)
     os.makedirs(os.path.dirname(OUT_JSON), exist_ok=True)
     json.dump({"count": len(rows), "built": time.strftime("%Y-%m-%d %H:%M"), "rows": rows},
