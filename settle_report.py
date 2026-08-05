@@ -207,6 +207,48 @@ def erp_day(day):
     return got, seen_files
 
 
+def po_projects(po_list):
+    """PO 번호로 **그 PO에 묶인 전표들**을 ERP 내보내기에서 되찾는다 (2026-08-05).
+
+    밴드 PO 글에는 총금액만 있고 프로젝트 No. 가 비어 있다. 그런데 ERP 판매조회에는
+    각 전표에 PO번호가 붙어 있어, 거꾸로 훑으면 **어느 캠프 몇 건인지 전부 복원된다.**
+    실제로 PO375206 21건·PO375207 13건이 나왔고 합계가 밴드 총금액과 원 단위까지 맞았다
+    — 맞아떨어지면 그 자체가 검산이다.
+    """
+    try:
+        import openpyxl
+    except Exception:
+        return {}
+    try:
+        rows = (json.load(open(os.path.join(REPORT_DIR, "원본색인.json"),
+                               encoding="utf-8")).get("rows") or [])
+    except Exception:
+        return {}
+    want = set(po_list)
+    out = {p: {} for p in want}
+    for r in [x for x in rows if x.get("kind") == "ERP:sales" and x.get("ext") == "xlsx"]:
+        try:
+            wb = openpyxl.load_workbook(r["path"], read_only=True, data_only=True)
+        except Exception:
+            continue
+        for ws in wb.worksheets:
+            head = None
+            for row in ws.iter_rows(values_only=True):
+                v = [str(x) if x is not None else "" for x in row]
+                if head is None:
+                    if any(x == "일자" for x in v):
+                        head = v
+                    continue
+                rec = {k: x for k, x in zip(head, v) if k}
+                pono = rec.get("PO번호", "")
+                for p in want:
+                    if p in pono:
+                        # 같은 전표가 여러 내보내기에 있으므로 프로젝트+일자로 한 번만.
+                        out[p][(rec.get("프로젝트코드코드", ""), rec.get("일자", "").strip())] = rec
+        wb.close()
+    return out
+
+
 def erp_summary(rows):
     """쿠팡 건만 골라 합계를 낸다 — 단, **같은 프로젝트가 여러 줄이면 합치지 않는다.**"""
     coupang = [r for r in rows
@@ -263,6 +305,29 @@ def build(day):
         L.append("그 날 올라온 밴드 글이 **없습니다**(수집 실패가 아니라 실제로 없음).")
     L.append("")
 
+    # 2-1. PO 에 묶인 전표를 ERP 에서 되찾아 붙인다 — 밴드 글에는 목록이 없다.
+    po_detail = po_projects([p["PO"] for p in po_posts if p["PO"]])
+    dup_prj = {}
+    for i_po, (po, recs) in enumerate(sorted(po_detail.items()), 1):
+        if not recs:
+            continue
+        L += ["### 2-%d. %s 에 묶인 전표 %d건" % (i_po, po, len(recs)), ""]
+        L += ["| 일자 | 프로젝트 | 거래처 | 공급가액 |", "|---|---|---|---:|"]
+        tot = 0
+        for (prj, day2), rec in sorted(recs.items(), key=lambda x: x[0][1]):
+            try:
+                tot += int(float(rec.get("공급가액합계") or 0))
+            except ValueError:
+                pass
+            L.append("| %s | %s | %s | %s |" % (day2, prj, rec.get("거래처명", ""),
+                                                rec.get("공급가액합계", "")))
+            dup_prj.setdefault(prj, set()).add(rec.get("거래처명", ""))
+        said = [p["금액"] for p in po_posts if p["PO"] == po]
+        L += ["| | | **ERP 합계** | **{:,}** |".format(tot), "",
+              ("→ 밴드 고지액 %s원과 **일치**합니다." % said[0]) if said and
+              said[0].replace(",", "") == str(tot) else
+              ("→ 밴드 고지액 %s원과 **다릅니다** — 확인 필요." % (said[0] if said else "?")), ""]
+
     L += ["## 3. ERP 판매전표", ""]
     if coupang:
         L += ["| 프로젝트 | 거래처 | 창고 | 진행상태 | 공급가액 | 부가세 | 합계 | PO |",
@@ -299,8 +364,22 @@ def build(day):
                     .format(low, high)
                     % (k, len(v), " / ".join(x.get("진행상태", "?") for x in v)))
     for p in po_posts:
-        todo.append("**%s 의 프로젝트 목록** — 밴드 글에 프로젝트 No. 가 비어 있어 어느 건인지"
-                    " 매칭하려면 쿠팡 PO 원본이 필요합니다." % p["PO"])
+        if not po_detail.get(p["PO"]):
+            todo.append("**%s 의 프로젝트 목록** — 밴드 글에 프로젝트 No. 가 비어 있고 ERP"
+                        " 판매조회에도 이 PO가 붙은 전표가 없습니다. 쿠팡 PO 원본이 필요합니다."
+                        % p["PO"])
+    # ★ 한 프로젝트번호가 서로 다른 캠프에 붙어 있으면 청구가 어긋난다(2026-08-05 실제 발견).
+    #   PO 에 묶인 전표뿐 아니라 **그 날 전표**도 함께 봐야 잡힌다 — 실제 사례가 그랬다
+    #   (7/28 중구1 건과 8/5 야탑1 건에 같은 UJ2601384 가 붙어 있었다).
+    for r in coupang:
+        prj = r.get("프로젝트코드코드") or ""
+        if prj:
+            dup_prj.setdefault(prj, set()).add(r.get("거래처명", ""))
+    for prj, camps in sorted(dup_prj.items()):
+        if len(camps) > 1:
+            todo.append("**%s 가 서로 다른 캠프 %d곳에 붙어 있습니다**(%s). 프로젝트번호"
+                        " 오입력으로 보이며, 이대로 청구하면 쿠팡 쪽 매칭이 어긋납니다."
+                        % (prj, len(camps), " / ".join(sorted(camps))))
     mismatch = [r for r in done if r["AS일자"] and day.replace("-", ".") not in r["AS일자"]
                 and day[5:].replace("-", ".").lstrip("0") not in r["AS일자"]]
     if mismatch:
