@@ -156,6 +156,29 @@ def main():
         else:
             unmatched.append({"slip": d["slip"], "cust": d["cust"], "amount": d["amount"]})
 
+    # ── 마지막 수단: **여러 판매행을 묶은 한 장**(부분합) ──────────────────────
+    # 원인을 세어 보니 짝 없는 쿠팡 현장 명세서의 92%가 이것이었다(2026-08-06).
+    # 현장은 프로젝트 두셋을 한 장에 묶어 청구한다. 조합이 **유일할 때만** 확정한다.
+    sub_amb = []
+    try:
+        import stmt_subset
+        taken = {u for x in linked for u in str(x.get("uj") or "").split(";") if u}
+        sub_linked, sub_amb, _rest = stmt_subset.find(
+            docs, sales, taken, {x["slip"] for x in unmatched})
+        if sub_linked:
+            got = {s["slip"] for s in sub_linked}
+            unmatched = [x for x in unmatched if x["slip"] not in got]
+            for s in sub_linked:
+                linked.append({"slip": s["slip"], "cust": s["cust"], "amount": s["amount"],
+                               "uj": ";".join(s["ujs"]),
+                               "state": ";".join(s["states"]), "po": "",
+                               "how": s["how"], "exact_date": False,
+                               "parts": s["parts"]})
+        ambiguous.extend({"slip": a["slip"], "amount": a["amount"],
+                          "ujs": [";".join(c) for c in a["candidates"]]} for a in sub_amb)
+    except Exception as exc:                 # 부분합이 실패해도 앞의 결과는 그대로 낸다
+        print(f"  ! 부분합 매칭 건너뜀: {exc}")
+
     state_cnt = defaultdict(int)
     for x in linked:
         state_cnt[x["state"] or "?"] += 1
@@ -169,7 +192,13 @@ def main():
          f"- 판매조회 원본: `{src}` ({len(sales)}행)",
          f"- 명세서 {len(docs)}건 중 **UJ 확정 {len(linked)}건** · 모호 {len(ambiguous)}건 · "
          f"판매조회에 없음 {len(unmatched)}건",
-         f"- 매칭 방식: 금액합계+일자(±2일) 유일 일치만 확정 — 모호하면 추측하지 않음", "",
+         "- 매칭 방식: ① 금액합계+일자(±2일) 유일 일치 ② 같은 금액이 여럿이면 거래처로 가름"
+         " ③ 품목 단위 ④ **여러 판매행을 묶은 한 장(부분합)** — 어느 단계든 후보가"
+         " 둘 이상이면 확정하지 않는다(추측 금지)", "",
+         "  ※ 방식별 건수: "
+         + " · ".join(f"{k} {v}건" for k, v in sorted(
+             __import__("collections").Counter(x.get("how", "?") for x in linked).items(),
+             key=lambda kv: -kv[1])), "",
          "## 확정 건의 진행상태 분포", "", "| 진행상태 | 건수 |", "|---|---:|"]
     for k in sorted(state_cnt, key=lambda x: -state_cnt[x]):
         L.append(f"| {k} | {state_cnt[k]} |")
