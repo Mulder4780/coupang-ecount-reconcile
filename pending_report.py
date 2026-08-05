@@ -159,8 +159,9 @@ def collect():
         # findings_export 가 남기는 집계 이름이 다를 수 있어, 없으면 건너뛴다.
         fx = {}
     for k, v in (fx.get("counts") or {}).items():
-        add("D. 사람이 해야 함", f"확인 필요 — {k}", v, "", where="쿠팡_확인필요현황_최신.xlsx",
-            who="사람")
+        add("D. 사람이 해야 함", f"확인 필요 — {k}", v,
+            "B 갈래와 같은 건을 다른 눈으로 본 것일 수 있다(중복 주의)",
+            where="쿠팡_확인필요현황_최신.xlsx", who="사람")
 
     return out
 
@@ -173,7 +174,12 @@ def main():
         groups.setdefault(x["group"], []).append(x)
 
     L = [f"# 아직 반영 안 된 것 (자동 집계 {time.strftime('%Y-%m-%d %H:%M')})", "",
-         f"모두 **{total}건**. 갈래는 곧 **누가 움직여야 하는가**다.", "",
+         "갈래는 곧 **누가 움직여야 하는가**다.", "",
+         "> ★ **갈래별로 읽고, 전부 더하지 마세요.** 같은 건이 갈래를 달리해 두 번 셀 수",
+         "> 있습니다 — 예를 들어 '거래명세서 짝 없음'(B)과 '정산 조치필요'(D)는 같은 프로젝트를",
+         "> 다른 눈으로 본 것일 수 있습니다. 각 줄의 근거 파일에서 실제 건을 확인하세요.",
+         f"> (단순 합계는 {total}건이지만 이 숫자는 '서로 다른 자료 {total}개'라는 뜻이 아닙니다)",
+         "",
          "| 갈래 | 뜻 |", "|---|---|",
          "| A | 기다리면 자동으로 들어간다 — 아무도 안 해도 된다 |",
          "| B | 자료는 있는데 시스템이 못 잇는다 — 근거를 더 대야 한다 |",
@@ -198,7 +204,7 @@ def main():
     json.dump({"at": time.strftime("%Y-%m-%d %H:%M"), "total": total, "items": items},
               open(OUT_JSON, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
-    print(f"미반영 {total}건 → reports/미반영_목록.md")
+    print(f"미반영 집계 → reports/미반영_목록.md  (단순합 {total}건 — 갈래끼리 겹칠 수 있음)")
     for g in sorted(groups):
         print(f"  {g}: {sum(r['n'] for r in groups[g])}건")
     if "--print" in sys.argv:
