@@ -3189,6 +3189,34 @@ def get_exec_report(day=None):
         return _store_cache("exec", r)
 
 
+_SRC_IDX = {"at": 0, "doc": None, "kinds": [], "months": []}
+
+
+def _source_index():
+    """원본 색인(8천 건+)을 5분 캐시로 읽는다.
+
+    ★ 2026-08-05 실측: 캐시 없이 요청마다 json.load 하니 API 가 45초를 넘겼다
+      (색인이 1,806 → 8,248건으로 커진 뒤). 종류·월 목록도 그때 함께 계산해 둔다.
+    """
+    now = time.time()
+    if now - _SRC_IDX["at"] < 300 and _SRC_IDX["doc"] is not None:
+        return _SRC_IDX["doc"]
+    try:
+        with open(os.path.join(ROOT, "reports", "원본색인.json"), encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except Exception:
+        doc = None
+    if doc:
+        rows = doc.get("rows") or []
+        _SRC_IDX["kinds"] = sorted({r.get("kind", "") for r in rows})
+        _SRC_IDX["months"] = sorted({((r.get("slip") or "")[:7] or (r.get("date") or "")[:7])
+                                     for r in rows if (r.get("slip") or r.get("date"))},
+                                    reverse=True)[:36]
+    _SRC_IDX["doc"] = doc
+    _SRC_IDX["at"] = now
+    return doc
+
+
 _CUST_IDX = {"at": 0, "data": {}}
 
 
@@ -4423,28 +4451,41 @@ self.addEventListener('fetch', e => {
             qs = parse_qs(urlparse(self.path).query)
             # 원본 자료 색인(source_index.py 산출물) — 앱에서 필터·검색해 클릭 한 번에 연다.
             # 파일이 수만 개가 될 수 있어 서버에서 먼저 거른다(q·kind·limit).
-            try:
-                with open(os.path.join(ROOT, "reports", "원본색인.json"), encoding="utf-8") as fh:
-                    doc = json.load(fh)
-            except Exception:
-                return self._send(200, {"count": 0, "rows": [], "kinds": [],
+            doc = _source_index()
+            if not doc:
+                return self._send(200, {"count": 0, "rows": [], "kinds": [], "months": [],
                                         "note": "색인 없음 — source_index.py 실행 필요"})
             rows = doc.get("rows") or []
             q = (qs.get("q", [""])[0] or "").strip().lower()
             kind = (qs.get("kind", [""])[0] or "").strip()
+            month = (qs.get("month", [""])[0] or "").strip()   # 2026-01 형식
+            # 갈래(세금계산서·거래명세서…)는 kind 여러 개 + 경로 패턴의 묶음이라
+            # 화면이 kinds=A|B|C 와 path=문자열 로 넘긴다. 8천 건을 클라이언트로
+            # 다 보내지 않고 **여기서** 거른다(2026-08-05: 400건만 보내 필터가 0이 됐다).
+            kinds = [x for x in (qs.get("kinds", [""])[0] or "").split("|") if x]
+            pathkey = (qs.get("path", [""])[0] or "").strip()
             if kind:
                 rows = [r for r in rows if r.get("kind") == kind]
+            if kinds or pathkey:
+                rows = [r for r in rows
+                        if (kinds and r.get("kind") in kinds)
+                        or (pathkey and pathkey in (r.get("path") or ""))]
+            if month:
+                # 업무 발생 월 — 전표번호(건별 PDF)가 있으면 그것이 정본, 없으면 파일 날짜.
+                rows = [r for r in rows
+                        if (r.get("slip") or "")[:7].replace("-", "-") == month
+                        or (not r.get("slip") and (r.get("date") or "")[:7] == month)]
             if q:
                 rows = [r for r in rows
                         if q in (r.get("name", "") + r.get("uj", "") + r.get("slip", "")
                                  + r.get("po", "") + r.get("path", "")).lower()]
-            kinds = sorted({r.get("kind", "") for r in (doc.get("rows") or [])})
+            kinds, months = _SRC_IDX["kinds"], _SRC_IDX["months"]
             try:
                 limit = max(1, min(500, int(qs.get("limit", ["200"])[0])))
             except Exception:
                 limit = 200
             return self._send(200, {"count": len(rows), "built": doc.get("built"),
-                                    "kinds": kinds, "rows": rows[:limit]})
+                                    "kinds": kinds, "months": months, "rows": rows[:limit]})
         if p == "/api/tax-overdue":
             # 세금계산서 미발행 경과(통계 화면용) — tax_invoice_watch 가 daily_run 에서 갱신
             try:

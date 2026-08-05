@@ -1481,6 +1481,73 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
   min-height:44px;font-size:15px}
 #v-center input[id$="Url"]:focus{outline:none;box-shadow:0 0 0 3px rgba(0,122,255,.25)}
 
+
+/* ═══ 원본 자료 iOS 개편(2026-08-05 지시) ═══
+   아이폰 파일·사진 앱 감각: 큰 제목, 캡슐 세그먼트(갈래), 둥근 검색 필드,
+   종류별 색 아이콘 + 오른쪽 화살표의 리스트 행. #v-sources 로만 범위를 좁힌다. */
+#v-sources{overflow:visible}
+#v-sources .source-canvas{width:min(1540px,calc(100vw - 20px));margin-left:50%;
+  transform:translateX(-50%);padding:clamp(18px,2.2vw,32px);border-radius:24px;
+  background:#F2F2F7;box-shadow:inset 0 0 0 1px rgba(60,60,67,.06)}
+#v-sources .source-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin:0 0 18px}
+#v-sources .ios-large{margin:0;min-width:0}
+#v-sources .ios-large h2{font-size:clamp(31px,3.2vw,44px);font-weight:850;letter-spacing:-1.5px;margin:0 0 5px}
+#v-sources .ios-large .sub{font-size:14px;color:var(--ink-2);line-height:1.5}
+#v-sources .src-refresh{width:44px;height:44px;min-width:44px;border:0;border-radius:14px;
+  display:grid;place-items:center;background:#fff;color:var(--brand);box-shadow:0 3px 12px rgba(0,0,0,.08);
+  cursor:pointer;transition:transform .16s ease,background .16s ease}
+#v-sources .src-refresh svg{width:20px;height:20px;fill:currentColor}
+#v-sources .src-refresh:hover{background:#EAF2FF}#v-sources .src-refresh:active{transform:scale(.93)}
+#v-sources .src-toolbar{background:rgba(255,255,255,.78);border:1px solid rgba(60,60,67,.1);
+  border-radius:20px;padding:14px 14px 7px;margin-bottom:14px;box-shadow:0 8px 24px rgba(29,45,95,.06)}
+#v-sources .src-search{display:flex;align-items:center;gap:10px;background:#E9E9EE;
+  border-radius:13px;padding:0 13px;min-height:46px;margin-bottom:12px}
+#v-sources .src-search input{flex:1;border:0!important;background:transparent;font-size:16px;
+  min-height:42px;padding:0}
+#v-sources .src-search input:focus{outline:none}
+#v-sources .src-segs{display:flex;gap:7px;overflow-x:auto;padding:2px 2px 8px;scrollbar-width:none}
+#v-sources .src-segs::-webkit-scrollbar{display:none}
+#v-sources .src-seg{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;cursor:pointer;
+  min-height:44px;background:#F0F0F5;color:var(--ink-1);border-radius:999px;padding:9px 17px;font-size:14px;
+  font-weight:650;letter-spacing:-.2px;white-space:nowrap}
+#v-sources .src-seg .n{font-size:12px;font-weight:700;color:var(--ink-3)}
+#v-sources .src-seg.on{background:var(--brand);color:#fff}
+#v-sources .src-seg.on .n{color:rgba(255,255,255,.82)}
+@media(hover:hover){#v-sources .src-seg:not(.on):hover{background:#E9EAEE}}
+#v-sources .src-month{display:flex;gap:7px;overflow-x:auto;padding:0 2px 10px;scrollbar-width:none}
+#v-sources .src-month::-webkit-scrollbar{display:none}
+#v-sources .src-mbtn{flex:none;border:0;cursor:pointer;min-height:38px;background:transparent;color:var(--ink-2);
+  font-size:13.5px;font-weight:650;padding:7px 12px;border-radius:11px}
+#v-sources .src-mbtn.on{background:var(--brand-tint);color:var(--brand)}
+#v-sources .src-note{font-size:13px;color:var(--ink-2);margin:2px 4px 13px;font-variant-numeric:tabular-nums}
+/* 파일 하나가 카드 하나다. 넓은 화면은 자동 다단, 폰은 한 줄 전체 폭을 쓴다. */
+#v-sources .src-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr));
+  gap:12px;background:transparent;border:0;box-shadow:none;overflow:visible}
+#v-sources .src-row{appearance:none;width:100%;display:flex;align-items:center;gap:12px;min-height:78px;
+  padding:13px 14px;cursor:pointer;text-align:left;font:inherit;color:inherit;background:#fff;
+  border:1px solid rgba(60,60,67,.1);border-radius:18px;box-shadow:0 5px 16px rgba(29,45,95,.07);
+  transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
+@media(hover:hover){#v-sources .src-row:hover{transform:translateY(-2px);border-color:#B7C8F4;box-shadow:0 10px 24px rgba(29,45,95,.11)}}
+#v-sources .src-row:active{background:#EFEFF4}
+#v-sources .src-row:focus-visible{outline:3px solid rgba(0,122,255,.34);outline-offset:2px}
+#v-sources .src-ic{width:34px;height:34px;flex:none;border-radius:9px;display:grid;place-items:center;
+  color:#fff;font-size:15px;font-weight:800}
+#v-sources .src-tx{min-width:0;flex:1}
+#v-sources .src-tx b{display:block;font-size:15px;font-weight:650;letter-spacing:-.25px;
+  line-height:1.32;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#v-sources .src-tx span{display:block;font-size:12.5px;color:var(--ink-3);margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#v-sources .src-go{flex:none;color:var(--ink-3);font-size:17px;font-weight:700;opacity:.55}
+#v-sources .src-empty{grid-column:1/-1;padding:34px 14px;text-align:center;color:var(--ink-2);font-size:14px;
+  background:#fff;border-radius:18px;border:1px solid rgba(60,60,67,.1)}
+@media(max-width:640px){
+  #v-sources .source-canvas{width:calc(100vw - 8px);padding:18px 12px 24px;border-radius:20px}
+  #v-sources .source-head{align-items:flex-start}#v-sources .source-head .sub{max-width:29rem}
+  #v-sources .src-toolbar{margin-inline:-4px;padding:12px 10px 5px;border-radius:18px}
+  #v-sources .src-list{grid-template-columns:1fr;gap:9px}
+  #v-sources .src-row{min-height:72px;border-radius:16px}
+}
+
 /* ═══ 대시보드 레고 블록 편집(2026-08-05 지시) ═══
    GridStack의 12열·save/load 모델을 현재 무빌드·오프라인 앱에 맞게 CSS Grid와
    versioned localStorage로 작게 구현한다. 드래그만 강요하지 않고 이동 버튼을 함께 둔다. */
@@ -1818,17 +1885,25 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
   <!-- 원본 자료 — 모든 원천 파일을 한 곳에서 찾고 클릭 한 번으로 연다(2026-08-05 지시).
        색인은 source_index.py 가 만든다(reports/원본색인.json). -->
   <section class="view" id="v-sources">
-    <div class="hero-min"><h2>원본 자료</h2>
-      <p class="sub">ERP·밴드·PO·카톡·서류 원본을 한 곳에서 찾습니다. 이름·프로젝트NO·전표번호·PO로 검색하고, 카드를 누르면 PC에서 파일이 열립니다.</p></div>
-    <div class="card">
-      <div class="frow">
-        <input id="srcQ" placeholder="검색: 이름·UJ프로젝트·전표번호·PO" oninput="renderSources()" style="flex:2 1 240px">
-        <select id="srcKind" onchange="renderSources()" style="flex:1 1 140px"><option value="">종류 전체</option></select>
-        <button class="abtn" onclick="loadSources(true)">색인 새로고침</button>
+    <div class="source-canvas">
+      <div class="source-head">
+        <div class="ios-large"><h2>원본 자료</h2>
+          <p class="sub">ERP·밴드·카톡·PO·서류 원본을 한 곳에서 찾습니다. 카드를 누르면 PC에서 파일이 열립니다.</p></div>
+        <button class="src-refresh" type="button" onclick="loadSources()" title="색인 새로고침" aria-label="색인 새로고침">
+          <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>
+        </button>
       </div>
-      <div id="srcNote" class="muted" style="margin-top:6px"></div>
+      <div class="src-toolbar">
+        <div class="src-search">
+          <svg viewBox="0 0 16 16" aria-hidden="true" style="width:18px;height:18px;flex:none;fill:var(--ink-3)"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.44.58.98 1.12l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a7 7 0 0 0-1.12-.98zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/></svg>
+          <input id="srcQ" placeholder="이름 · UJ프로젝트 · 전표번호 · PO" oninput="srcDebounce()" aria-label="원본 자료 검색">
+        </div>
+        <div class="src-segs" id="srcSegs" role="tablist" aria-label="자료 갈래"></div>
+        <div class="src-month" id="srcMonths" role="tablist" aria-label="월 선택"></div>
+      </div>
+      <div class="src-note" id="srcNote" aria-live="polite"></div>
+      <div class="src-list" id="srcList"></div>
     </div>
-    <div id="srcList"></div>
   </section>
 
   <!-- 리모컨 관리 — 돌발 AS 바로 아래 독립 화면(2026-08-04 지시).
@@ -5457,43 +5532,75 @@ function openGoogleCalendarDraft(){
   toast('Google Calendar에서 세부 내용을 확인한 뒤 저장해 주세요.');
 }
 
-/* ── 원본 자료(2026-08-05 지시 "클릭 한번으로 찾고 열 수 있게") ──
-   색인(source_index.py)을 받아 종류·검색어로 거르고, 카드를 누르면 서버가 PC에서 연다.
-   원격(폰)에서는 열기가 막혀 있어(사무실 PC 전용) 경로 복사로 안내한다. */
-let SRC={rows:[],kinds:[],count:0,built:''};
-async function loadSources(force){
-  const note=$('srcNote'); if(note) note.textContent='색인 읽는 중…';
-  try{
-    const d = await api('/api/sources?limit=400');
-    SRC=d;
-    const sel=$('srcKind');
-    if(sel && sel.options.length<=1){
-      sel.innerHTML='<option value="">종류 전체</option>'+(d.kinds||[]).map(k=>`<option value="${esc2(k)}">${esc2(k)}</option>`).join('');
-    }
-  }catch(e){ if(note) note.textContent='색인을 읽지 못했습니다: '+e; return; }
-  renderSources();
-}
-async function renderSources(){
-  const q=($('srcQ')?.value||'').trim(), kind=$('srcKind')?.value||'';
-  let d=SRC;
-  if(q||kind){
-    try{ d = await api(`/api/sources?limit=400&q=${encodeURIComponent(q)}&kind=${encodeURIComponent(kind)}`); }
-    catch(e){ d=SRC; }
+/* ── 원본 자료 — iOS 파일앱 감각(2026-08-05 지시) ──
+   갈래(세그먼트)는 사람이 쓰는 말로 묶는다: 세금계산서·거래명세서·밴드·카톡·ERP·PO…
+   색인의 kind 값은 기술적 이름이라 그대로 노출하지 않고 아래 표로 옮긴다. */
+const SRC_GROUPS = [
+  {key:'',      label:'전체',       ic:'📁', color:'#8E8E93', kinds:null},
+  {key:'tax',   label:'세금계산서',  ic:'세', color:'#FF375F', kinds:['ERP:taxinv','ERP:tax','ERP:hometax'], path:'세금계산서_건별'},
+  {key:'stmt',  label:'거래명세서',  ic:'명', color:'#FF9F0A', kinds:['ERP:stmt','ERP 거래명세서(건별 PDF)'], path:'거래명세서_건별'},
+  {key:'band',  label:'밴드',       ic:'밴', color:'#30D158', kinds:['밴드','밴드 게시글(보관)','밴드 문서사진']},
+  {key:'kakao', label:'카톡',       ic:'톡', color:'#FFD60A', kinds:['카톡']},
+  {key:'erp',   label:'ERP',       ic:'E',  color:'#0A84FF', kinds:['ERP','ERP:sales','ERP:ledger','ERP:slips','ERP:po']},
+  {key:'po',    label:'쿠팡 PO',    ic:'PO', color:'#BF5AF2', kinds:['쿠팡 PO'], path:'6. PO 원본'},
+  {key:'money', label:'입금·서류',   ic:'₩',  color:'#5E5CE6', kinds:['입금','서류','정기점검']},
+  {key:'etc',   label:'기타',       ic:'…',  color:'#8E8E93', kinds:['기타','미분류','투입 대기']},
+];
+let SRC={rows:[],kinds:[],months:[],count:0,built:''}, SRC_G='', SRC_M='', SRC_T=null;
+function srcGroupOf(r){
+  for(const g of SRC_GROUPS){
+    if(!g.key) continue;
+    if(g.path && (r.path||'').includes(g.path)) return g;
+    if(g.kinds && g.kinds.includes(r.kind)) return g;
   }
-  const rows=d.rows||[];
-  $('srcNote').innerHTML = `총 <b>${fmt(d.count||0)}</b>건${q||kind?' (조건 일치)':''} · 표시 ${rows.length}건 · 색인 ${esc2(d.built||'-')}`;
-  $('srcList').innerHTML = rows.map(r=>`
-    <div class="srow" onclick="openSource('${esc2(r.path).replace(/'/g,"\'")}')" title="클릭하면 PC에서 열립니다">
-      <div class="top"><span class="prjno">${esc2(r.name)}</span><span class="chip c-skip">${esc2(r.kind)}</span></div>
-      <div class="meta">
-        ${r.uj?`<span>프로젝트 ${esc2(r.uj)}</span>`:''}
-        ${r.slip?`<span>전표 ${esc2(r.slip)}</span>`:''}
-        ${r.post?`<span>글 ${esc2(r.post)}</span>`:''}
-        ${r.po?`<span>${esc2(r.po)}</span>`:''}
-        <span>${esc2(r.date)}</span><span>${esc2(r.ext)}</span>
-        <span>${Math.max(1,Math.round((r.size||0)/1024))} KB</span>
-      </div>
-    </div>`).join('') || '<div class="card">조건에 맞는 원본이 없습니다</div>';
+  return SRC_GROUPS[SRC_GROUPS.length-1];
+}
+function srcDebounce(){ clearTimeout(SRC_T); SRC_T=setTimeout(renderSources, 260); }
+async function loadSources(){
+  const note=$('srcNote'); if(note) note.textContent='색인 읽는 중…';
+  try{ SRC = await api('/api/sources?limit=400'); }
+  catch(e){ if(note) note.textContent='색인을 읽지 못했습니다: '+e; return; }
+  renderSegs(); renderMonths(); renderSources();
+}
+function renderSegs(){
+  const host=$('srcSegs'); if(!host) return;
+  host.innerHTML = SRC_GROUPS.map(g=>{
+    const on = g.key===SRC_G;
+    return `<button class="src-seg ${on?'on':''}" role="tab" aria-selected="${on}" onclick="pickSrcGroup('${g.key}')">${esc2(g.label)}</button>`;
+  }).join('');
+}
+function renderMonths(){
+  const host=$('srcMonths'); if(!host) return;
+  const ms=(SRC.months||[]).slice(0,18);
+  host.innerHTML = `<button class="src-mbtn ${SRC_M?'':'on'}" onclick="pickSrcMonth('')">전체 기간</button>`+
+    ms.map(m=>`<button class="src-mbtn ${SRC_M===m?'on':''}" onclick="pickSrcMonth('${esc2(m)}')">${esc2(m)}</button>`).join('');
+}
+function pickSrcGroup(k){ SRC_G=k; renderSegs(); renderSources(); }
+function pickSrcMonth(m){ SRC_M=m; renderMonths(); renderSources(); }
+async function renderSources(){
+  const q=($('srcQ')?.value||'').trim();
+  const g=SRC_GROUPS.find(x=>x.key===SRC_G);
+  let d=SRC;
+  if(q||SRC_M||SRC_G){
+    // 갈래·월·검색은 **서버가** 8천 건에서 거른다(화면은 400건만 받는다).
+    const qs=[`limit=400`,`q=${encodeURIComponent(q)}`,`month=${encodeURIComponent(SRC_M)}`];
+    if(g&&g.kinds) qs.push(`kinds=${encodeURIComponent(g.kinds.join('|'))}`);
+    if(g&&g.path)  qs.push(`path=${encodeURIComponent(g.path)}`);
+    try{ d = await api('/api/sources?'+qs.join('&')); }catch(e){ d=SRC; }
+  }
+  let rows=(d.rows||[]);
+  const gl=(SRC_GROUPS.find(g=>g.key===SRC_G)||{}).label||'전체';
+  $('srcNote').innerHTML = `${esc2(gl)} · 표시 <b>${fmt(rows.length)}</b>건 (전체 ${fmt(d.count||0)}건) · 색인 ${esc2((d.built||'').slice(5))}`;
+  $('srcList').innerHTML = rows.map(r=>{
+    const g=srcGroupOf(r);
+    const meta=[r.uj, r.slip?('전표 '+r.slip):'', r.post?('글 '+r.post):'', r.po, r.date,
+                (r.ext||'').toUpperCase(), Math.max(1,Math.round((r.size||0)/1024))+' KB']
+                .filter(Boolean).join(' · ');
+    return `<button type="button" class="src-row" data-path="${esc2(r.path)}" onclick="openSource(this.dataset.path)" title="PC에서 파일 열기">
+      <div class="src-ic" style="background:${g.color};color:${g.key==='kakao'?'#1C1C1E':'#fff'}">${esc2(g.ic)}</div>
+      <div class="src-tx"><b>${esc2(r.name)}</b><span>${esc2(meta)}</span></div>
+      <div class="src-go" aria-hidden="true">›</div></button>`;
+  }).join('') || '<div class="src-empty">조건에 맞는 원본이 없습니다</div>';
 }
 async function openSource(path){
   try{
