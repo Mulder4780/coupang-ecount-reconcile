@@ -44,8 +44,14 @@ def rank(state):
     return 0
 
 
-def newest_sales():
-    """가장 최근 판매조회 엑셀 경로 — 머리글로 직접 판정한다(파일명이 무작위)."""
+def sales_exports(limit=60):
+    """판매조회 엑셀을 **전부** 찾는다(새 것부터). 파일명이 무작위라 머리글로 판정한다.
+
+    ★ 2026-08-05 — 예전에는 '가장 최근 것 하나'만 읽었다. 그런데 2025 자료를 받으려고
+      2025 판매조회를 내려받는 순간 그것이 '가장 최근 파일'이 되어 색인이 통째로
+      2025 로 바뀌었고, 2026 명세서 793건이 **전부 짝 없음**이 됐다(실측).
+      한 해를 받으면 다른 해가 사라지는 구조 자체가 틀렸다 — 모두 읽어 합친다.
+    """
     import warnings
     warnings.filterwarnings("ignore")
     import openpyxl
@@ -53,23 +59,23 @@ def newest_sales():
     cands = [p for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True)
              if not os.path.basename(p).startswith(("~$", "ESD007E"))]
     cands.sort(key=os.path.getmtime, reverse=True)
-    for p in cands[:60]:
+    found = []
+    for p in cands[:limit]:
         try:
             wb = openpyxl.load_workbook(p, read_only=False, data_only=True)
             ws = wb.active
             head = [str(c or "") for c in next(ws.iter_rows(min_row=2, max_row=2, values_only=True))]
             if "프로젝트코드코드" in "|".join(head) and "진행상태" in "|".join(head):
-                return p, ws, head, wb
-            wb.close()
+                found.append((p, ws, head, wb))
+            else:
+                wb.close()
         except Exception:
             continue
-    return None, None, None, None
+    return found
 
 
-def build():
-    path, ws, head, wb = newest_sales()
-    if not ws:
-        return {}, None
+def build_one(ws, head):
+    """엑셀 한 개 → {UJ: 집계}. 한 파일 안에서만 합산한다(파일 간 합산은 중복이다)."""
     idx = {h: i for i, h in enumerate(head)}
 
     def num(r, key):
@@ -97,18 +103,39 @@ def build():
         for k, col in (("po", "PO번호"), ("cust", "거래처명")):
             if not cur[k] and col in idx and len(r) > idx[col]:
                 cur[k] = r[idx[col]]
-    wb.close()
-    return out, os.path.basename(path)
+    return out
+
+
+def build():
+    """여러 판매조회를 합친다. **같은 UJ 는 새 파일 것이 이긴다** — 더하지 않는다.
+    (더하면 두 내보내기가 겹치는 기간에서 금액이 두 배가 된다)"""
+    merged, srcs = {}, []
+    found = sales_exports()
+    for path, ws, head, wb in found:                 # 새 것 → 옛 것 순서
+        try:
+            one = build_one(ws, head)
+        finally:
+            wb.close()
+        if not one:
+            continue
+        srcs.append(os.path.basename(path))
+        for uj, v in one.items():
+            merged.setdefault(uj, v)                 # 이미 있으면(=더 새 파일) 그대로 둔다
+    return merged, srcs
 
 
 def main():
-    idx, src = build()
+    idx, srcs = build()
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    json.dump({"src": src, "count": len(idx), "index": idx},
+    json.dump({"src": srcs, "count": len(idx), "index": idx},
               open(OUT, "w", encoding="utf-8"), ensure_ascii=False)
     issued = sum(1 for v in idx.values() if str(v["state"]).startswith(ISSUED))
-    print(f"ERP 판매 색인 {len(idx)}개 프로젝트 (원본 {src}) · 발행 이상 단계 {issued} → "
-          f"reports/ERP판매_프로젝트색인.json")
+    years = {}
+    for v in idx.values():
+        years[str(v.get("date", ""))[:4]] = years.get(str(v.get("date", ""))[:4], 0) + 1
+    print(f"ERP 판매 색인 {len(idx)}개 프로젝트 (원본 {len(srcs)}개) · 발행 이상 단계 {issued} · "
+          + " ".join(f"{y}:{n}" for y, n in sorted(years.items()) if y)
+          + " → reports/ERP판매_프로젝트색인.json")
     return 0
 
 

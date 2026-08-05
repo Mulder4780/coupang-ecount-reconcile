@@ -46,6 +46,12 @@ POST = re.compile(r"\[(\d{3,6})\]")                    # 밴드 글 보관 이�
 DATE = re.compile(r"(20\d{2})[-/.]?(\d{2})[-/.]?(\d{2})")
 PO = re.compile(r"PO\d{6,}", re.I)
 SKIP_EXT = {".tmp", ".lnk", ".ini", ".db"}
+# ★ 우리가 만든 파생물은 색인에 넣지 않는다 (2026-08-05).
+#   `_바로가기` 는 원본의 하드링크라 **같은 파일이 두 번** 잡히고,
+#   `_보관` 은 날마다 쌓는 백업이라 어제·그제 사본이 검색 결과를 덮는다.
+#   실측: 색인 17,368건 중 8,400여 건이 이 둘이었고 전부 '기타'로 뭉쳐 있었다 —
+#   앱의 원본 자료 화면에서 같은 자료가 여러 번 나오는 원인이다.
+SKIP_DIRS = {"_바로가기", "_보관", "__pycache__", ".git"}
 
 # 폴더 이름으로 1차 분류 — 내용 판별보다 싸고, 사람이 이해하는 갈래와 같다.
 FOLDER_KIND = [
@@ -110,6 +116,8 @@ def scan(rescan=False):
 
     for root in seen_root:
         for dirpath, _dirs, files in os.walk(root):
+            # 걸러낼 폴더는 **내려가기 전에** 지운다(os.walk 는 이 목록을 보고 내려간다).
+            _dirs[:] = [d for d in _dirs if d not in SKIP_DIRS]
             for fn in files:
                 ext = os.path.splitext(fn)[1].lower()
                 if ext in SKIP_EXT or fn.startswith("~$"):

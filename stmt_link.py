@@ -31,7 +31,14 @@ UJ = re.compile(r"UJ\d{7}")
 
 
 def load_sales():
-    """가장 최근 판매조회 엑셀에서 [일자, UJ, 진행상태, PO, 거래처, 금액합계] 행을 모은다."""
+    """판매조회 엑셀 **전부**에서 [일자, UJ, 진행상태, PO, 거래처, 금액합계] 행을 모은다.
+
+    ★ 2026-08-05 — 예전에는 조건에 맞는 **첫 파일 하나만** 읽고 멈췄다(`break`).
+      2025 판매조회를 내려받자 그것이 가장 최근 파일이 되어, 2026 명세서 793건이
+      **전부 짝 없음**으로 떨어졌다(실측 확정 593 → 0). 한 해를 받으면 다른 해가
+      사라지는 구조라 고친다. 같은 행이 두 파일에 겹쳐도 UJ 는 집합으로 다루므로
+      '모호'가 늘지 않는다.
+    """
     import warnings
     warnings.filterwarnings("ignore")
     import openpyxl
@@ -46,7 +53,7 @@ def load_sales():
     # 파일이 수백 개라 classify 를 전부 돌리면 밤새 걸린다 — 행 수가 큰 최신 파일부터
     # 머리글로 판매조회인지 직접 본다.
     cands.sort(key=os.path.getmtime, reverse=True)
-    rows, src = [], None
+    rows, srcs = [], []
     for p in cands[:40]:
         try:
             wb = openpyxl.load_workbook(p, read_only=False, data_only=True)
@@ -69,19 +76,18 @@ def load_sales():
                         "cust": r[idx.get("거래처명", 7)] if "거래처명" in idx else "",
                         "total": int(float(amt)) if re.fullmatch(r"-?\d+(\.\d+)?", amt) else 0,
                     })
-                src = os.path.basename(p)
-                wb.close()
-                break
+                srcs.append(os.path.basename(p))
             wb.close()
         except Exception:
             continue
-    return rows, src
+    return rows, srcs
 
 
 def main():
     docs = json.load(open(os.path.join(ROOT, "reports", "거래명세서_상세.json"),
                           encoding="utf-8"))["docs"]
-    sales, src = load_sales()
+    sales, srcs = load_sales()
+    src = ", ".join(srcs[:4]) + (f" 외 {len(srcs) - 4}개" if len(srcs) > 4 else "")
     if not sales:
         print("판매조회 원본을 찾지 못함 — 중단")
         return 1

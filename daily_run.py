@@ -135,7 +135,43 @@ def _source_files(dir_fn, extensions, name_prefixes=()):
     return out
 
 
-def run(name, args, timeout=600):
+# 되풀이하면 안 되는 단계 — 큐에 넣거나 파일을 옮기거나 원장을 건드리는 것들.
+# ★ 호출부마다 retry=0 을 적게 하지 않는다 — 새 단계를 넣는 사람이 반드시 잊는다.
+#   여기서 **인자를 보고** 자동으로 정한다.
+NO_RETRY_FLAGS = ("--queue", "--apply", "--intake", "--force")
+NO_RETRY_NAMES = ("cloud_queue_sync.py", "ledger_db.py", "workbook_patch.py",
+                  "ledger_writer.py", "expand_rows.py")
+
+
+def _retryable(args):
+    joined = " ".join(str(a) for a in args)
+    if any(f in args for f in NO_RETRY_FLAGS):
+        return False
+    return not any(n in joined for n in NO_RETRY_NAMES)
+
+
+def run(name, args, timeout=600, retry=None):
+    """한 단계를 돌린다. 실패하면 **한 번만** 쉬었다 다시 해 본다.
+
+    ★ 2026-08-05 — 14:02 회차에서 5단계가 실패했는데, 손으로 다시 돌리니 전부 정상이었다.
+      원인은 결함이 아니라 **경합**이다(Z: 대량 보관 작업·엑셀 점유와 겹친 순간).
+      이런 것은 한 번 쉬었다 하면 지나간다. 그런데 그동안은 그대로 '실패'로 남아,
+      진짜 결함(오늘 잡은 stmt_link 회귀 같은 것)이 잡음에 묻혔다.
+      ※ 되풀이해도 되는 것만 재시도한다 — 큐·반영·파일 이동 단계는 자동으로 제외된다.
+    """
+    if retry is None:
+        retry = 1 if _retryable(args) else 0
+    for attempt in range(retry + 1):
+        got = _run_once(name, args, timeout)
+        if got["ok"] or attempt >= retry:
+            if not got["ok"] and attempt:
+                got["out"] = (got["out"] + "\n[재시도 후에도 실패]").strip()
+            return got
+        time.sleep(20)          # 상대가 파일을 놓을 시간을 준다
+    return got
+
+
+def _run_once(name, args, timeout):
     try:
         r = subprocess.run([PY] + args, capture_output=True, text=True, encoding="utf-8",
                            errors="replace", cwd=ROOT, timeout=timeout, env=ENV)
