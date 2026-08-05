@@ -36,10 +36,14 @@ def plan(band, posts):
     lo, hi = ks[0], ks[-1]
     have = set(ks)
     gaps = [n for n in range(lo, hi + 1) if n not in have]
+    # 삭제된 글은 다시 훑지 않는다(2026-08-05). 밴드가 지운 글을 열면 '삭제됨'이 아니라
+    # 밴드 홈을 돌려주므로 수집은 언제나 실패한다 — 목록에 남겨 두면 영원히 반복된다.
     stale = sorted(int(k) for k, v in posts.items()
-                   if str(k).isdigit() and int(v.get("captured_at") or 0) < ERA_MS)
+                   if str(k).isdigit() and not v.get("deleted")
+                   and int(v.get("captured_at") or 0) < ERA_MS)
+    dead = sum(1 for v in posts.values() if isinstance(v, dict) and v.get("deleted"))
     return {"band": band, "range": (lo, hi), "n": len(ks),
-            "gaps": gaps, "stale": stale}
+            "gaps": gaps, "stale": stale, "deleted": dead}
 
 
 def main():
@@ -59,7 +63,8 @@ def main():
             continue
         p = plan(band, posts)
         print(f"밴드 {band}: 보유 {p['n']}건 ({p['range'][0]}~{p['range'][1]}) · "
-              f"구멍 {len(p['gaps'])} · 재수집 전 {len(p['stale'])}")
+              f"구멍 {len(p['gaps'])} · 재수집 전 {len(p['stale'])}"
+              + (f" · 삭제됨 {p['deleted']}" if p.get("deleted") else ""))
         # 최신 글부터 재확인한다 — 수정은 최근 글에서 일어난다.
         todo = (p["gaps"] + sorted(p["stale"], reverse=True))[:a.limit]
         if a.band and todo:

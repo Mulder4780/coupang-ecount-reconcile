@@ -183,8 +183,23 @@ def main():
             keep = max(int(cur.get("captured_at") or 0), int(rec.get("captured_at") or 0))
             if keep:
                 merged[no]["captured_at"] = keep
+        # ★ 삭제된 글에 묘비를 세운다 (2026-08-05).
+        #   밴드는 지운 글을 열면 '삭제됨' 안내 대신 **밴드 홈 화면**을 돌려준다.
+        #   그래서 수집기가 본문을 못 찾고, recheck_plan 은 캐시의 옛 기록만 보고
+        #   "아직 재수집 안 됐다"며 **영원히 같은 번호를 다시 뽑았다**(실제로 4건이
+        #   모든 회차에서 반복 실패했다). 없는 글은 없다고 적어야 목록이 줄어든다.
+        for no in (d.get("missing") or []):
+            no = str(no)
+            rec = merged.get(no) or {}
+            rec["deleted"] = True
+            rec["deleted_at"] = cap_ms
+            rec["captured_at"] = max(int(rec.get("captured_at") or 0), cap_ms)
+            merged[no] = rec
         if changed:
             _mark_changed(band, changed)
+        gone = len(d.get("missing") or [])
+        if gone:
+            print(f"  · 삭제된 글 {gone}건 기록({band}) — 다음 회차부터 다시 훑지 않는다")
         out = {"band_name": d.get("name", band), "posts": merged}
         json.dump(out, open(dst, "w", encoding="utf-8"), ensure_ascii=False)
         # 원본 자료 정본은 이름·내용 그대로 둔다. 로컬 처리함의 dump만 raw로 바꿔

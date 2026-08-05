@@ -73,9 +73,21 @@
         });
       }
       // 삭제·권한 없는 글은 본문 자체가 없다 — '없는 글'로 구분해 남긴다.
+      //
+      // ★ 밴드는 지운 글을 열어도 '삭제됨'이라고 말해 주지 않는다(2026-08-05 실측).
+      //   삭제 글과 정상 글의 DOM 을 나란히 떠 봤더니 **`.postText` 하나만 다르고**
+      //   나머지(.postWrap·.postMain·body class)는 완전히 같았다. 그래서 안내문이나
+      //   껍데기 표식으로는 구분할 수 없다. 구분 기준은 이것뿐이다:
+      //     앱이 글 영역을 **다 그렸는데도**(.postMain/.postWrap 존재)
+      //     대기 시간이 끝날 때까지 본문이 없다 → 없는 글.
+      //   느려서 아직 안 그려진 경우와는 MutationObserver 로 bodyMs 를 꽉 채워 기다린
+      //   뒤에 판정하므로 갈린다. 이 판정이 없으면 recheck_plan 이 같은 번호를
+      //   영원히 다시 뽑는다(실제로 4건이 하루 6회차를 전부 실패했다).
       if (!d.querySelector('.postText')) {
         const body = (d.body && d.body.innerText) || '';
-        return { status: /삭제|없는 게시글|권한|찾을 수 없/.test(body) ? 'missing' : 'fail' };
+        if (/삭제|없는 게시글|권한|찾을 수 없/.test(body)) return { status: 'missing' };
+        const rendered = !!d.querySelector('.postMain, .postWrap');
+        return { status: rendered ? 'missing' : 'fail' };
       }
       const main = d.querySelector('.postMain') || d.querySelector('.postWrap') || d;
       const imgs = [...main.querySelectorAll('img')]
