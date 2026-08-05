@@ -230,6 +230,22 @@ svg.bi{width:1.05em;height:1.05em;flex:none;fill:currentColor;vertical-align:-.1
 .calendar-form textarea{min-height:70px;resize:vertical}.calendar-preview{margin-top:11px;padding:10px 12px;border-radius:10px;background:#F7F8FC;font-size:14px;line-height:1.55;color:var(--ink-2);white-space:pre-line}
 @media(max-width:480px){.calendar-form{grid-template-columns:1fr}}
 
+/* ═══ 캘린더 전용 모드 (2026-08-06 지시) ═══
+   `?view=calendar` 로 들어오면 **캘린더만** 보이고 나머지 기능은 아예 닫힌다.
+   외부에 링크를 줄 때 대시보드·정산·원본자료가 같이 열리면 안 되기 때문이다.
+   숨기는 것으로 끝내지 않는다 — applyView 가 다른 화면으로 못 가게 막는다(아래 JS).
+   해제는 주소에서 `view=calendar` 를 빼는 것뿐이다. */
+body.calendar-only .tabbar,
+body.calendar-only .appbar-actions,
+body.calendar-only #helpcard,
+body.calendar-only .cal2-head .actions .abtn:not(.primary){display:none !important}
+body.calendar-only .shell{margin-left:0 !important;padding:18px 16px 36px;max-width:1120px}
+body.calendar-only .appbar{margin-left:0 !important}
+body.calendar-only .view:not(#v-calendar){display:none !important}
+body.calendar-only .cal2-only-note{display:block}
+.cal2-only-note{display:none;margin:0 0 12px;padding:9px 13px;border-radius:11px;
+  background:var(--brand-tint);color:var(--brand);font-size:13.5px;font-weight:700}
+
 /* ═══ 쿠팡 캘린더 2판 — iOS 캘린더 감각 (2026-08-05 지시) ═══
    왜 다시 짰나: 예전 화면은 구글 iframe 이 절반을 먹고, 오른쪽에 125건이 한 줄로
    쭉 늘어서 있었다. "8월에 무슨 일이 있나"를 보려면 목록을 눈으로 훑어야 했고,
@@ -2750,6 +2766,7 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 
     <!-- 종류 필터(2026-08-05 지시) — 여러 개를 켜고 끌 수 있다. 하나만 보고 싶을 때는
          칩을 길게 누르지 않아도 되게 '이것만' 버튼을 따로 두지 않고, 전체 토글로 해결한다. -->
+    <div class="cal2-only-note">쿠팡 캘린더 전용 화면입니다 — 이 링크로는 일정만 보입니다.</div>
     <div class="cal2-filters" id="calFilters" role="group" aria-label="일정 종류 필터"></div>
     <div class="calendar-meta" id="calendarMeta">일정 캐시를 불러오는 중입니다.</div>
 
@@ -4459,6 +4476,7 @@ function wtCsv(k){
 
 /* 화면만 바꾼다 — 뒤로가기 기록은 건드리지 않는다(복귀·popstate 처리에서 쓴다). */
 function applyView(v){
+  if(CAL_ONLY) v='calendar';        // 전용 모드에서는 어떤 경로로 불려도 캘린더뿐이다
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   $('v-'+v).classList.add('active');
   const navView=v==='ryu'?'dash':v;
@@ -4496,7 +4514,17 @@ function routeNav(v){
 let DEEP_VIEW = (function(){
   try{ return new URLSearchParams(location.search).get('view') || ''; }catch(e){ return ''; }
 })();
+/* ★ 캘린더 전용 모드 (2026-08-06 지시: "캘린더 링크로 갔을 때 이 기능만 보이게").
+   `?view=calendar` 로 들어오면 그 창은 **캘린더 화면에 갇힌다.** 탭바를 숨기는 것만으로는
+   부족하다 — 뒤로가기·복원된 localStorage·코드 어디선가의 show() 로 빠져나갈 수 있다.
+   그래서 화면 전환 함수 자체를 잠근다. 해제는 주소에서 view=calendar 를 빼는 것뿐이다.
+   `m=YYYY-MM` 이 함께 오면 그 달을 연다(그동안 이 값은 무시되고 있었다). */
+var CAL_ONLY = DEEP_VIEW === 'calendar';
+if (CAL_ONLY) document.body.classList.add('calendar-only');
+// 주소의 m=YYYY-MM · off= 는 calApplyDeepLink() 가 렌더 직전에 적용한다.
+// (여기서 CAL_MONTH 에 대입하면 아래쪽 let 선언 때문에 TDZ 로 조용히 실패한다)
 function curView(){
+  if(CAL_ONLY) return 'calendar';
   if(staffSlug) return window.__view || 'ryu';
   if(DEEP_VIEW){ const v=DEEP_VIEW; DEEP_VIEW=''; return v; }
   const v=window.__view || localStorage.getItem('cw_view') || 'dash';
@@ -6140,13 +6168,16 @@ const COUPANG_CALENDAR_ID = '053a21a7e074aac2e58c27f305247c1cd6481d50841c1dfc9b8
    ② 월 격자: "8월에 무슨 일이 있나"는 목록이 아니라 달력 모양이어야 한 눈에 들어온다.
    ③ 선택한 날의 일정만 아래에 세운다 — 910건을 한 줄로 늘어놓지 않는다.
    필터·보고 있던 달은 localStorage 에 남긴다(새로고침해도 보던 자리로 돌아온다). */
+/* ★ 서버 app_server.py 의 CAL_KINDS 와 **같은 표**다. 한쪽만 고치면 화면과 서버가
+   다른 색을 쓴다. 2026-08-06: 정기점검 완료와 돌발AS 완료가 거의 같은 초록이라
+   구별이 안 됐다 → 돌발AS 완료를 청록으로 갈랐다. */
 const CAL_FALLBACK_KINDS = [
-  {key:'pm_plan', label:'정기점검 예정', color:'#0A84FF'},
-  {key:'pm_pred', label:'정기점검 예측', color:'#5E5CE6'},
-  {key:'pm_done', label:'정기점검 완료', color:'#30D158'},
-  {key:'as_visit',label:'돌발AS 방문예정', color:'#FF9F0A'},
-  {key:'as_done', label:'돌발AS 완료',   color:'#34C759'},
-  {key:'etc',     label:'기타 일정',     color:'#8E8E93'},
+  {key:'pm_plan', label:'정기점검 예정', color:'#0A84FF'},   // 파랑
+  {key:'pm_pred', label:'정기점검 예측', color:'#5E5CE6'},   // 보라
+  {key:'pm_done', label:'정기점검 완료', color:'#30D158'},   // 초록
+  {key:'as_visit',label:'돌발AS 방문예정', color:'#FF9F0A'}, // 주황
+  {key:'as_done', label:'돌발AS 완료',   color:'#00A6A0'},   // 청록
+  {key:'etc',     label:'기타 일정',     color:'#8E8E93'},   // 회색
 ];
 let CAL_OFF = new Set();        // 꺼 둔 종류(기본은 전부 켬)
 let CAL_MONTH = '';             // 'YYYY-MM'
@@ -6408,44 +6439,89 @@ async function calendarCapture(){
     }
   }
 
-  // ③ 날짜순 리스트 — 격자에서 잘린 것을 여기서 빠짐없이 본다
+  // ③ 아래 목록 — **종류별로 묶고 그 안에서 날짜순** (2026-08-06 지시)
+  //   격자만으로는 하루 서넛만 돼도 다 못 본다. 그렇다고 죽 늘어놓으면 '이게 예정인지
+  //   완료인지'를 색 막대 하나로 짐작해야 한다. 종류를 소제목으로 세워 글자로 밝힌다.
+  //   ★ 한 건도 빼지 않는 것이 목표다 — 건수에 맞춰 단 수와 줄 높이를 **자동으로**
+  //     줄여 A4 한 장에 밀어 넣는다. 그래도 안 되면 몇 건이 빠졌는지 반드시 적는다.
   const listTop = gridTop + 6 * rh + 26;
   x.strokeStyle = '#D0D5DD'; x.beginPath();
   x.moveTo(Mg, listTop - 14); x.lineTo(W - Mg, listTop - 14); x.stroke();
   x.font = F(12, 700); x.fillStyle = '#101828';
-  x.fillText(`날짜순 일정 (${rows.length}건)`, Mg, listTop);
-  const sorted = rows.slice().sort((a, b) =>
-    String(a.날짜).localeCompare(String(b.날짜)) || String(a.시간 || '').localeCompare(String(b.시간 || '')));
-  // ★ 2단으로 짠다. 한 단이면 A4 한 장에 31건뿐이라 바쁜 달은 절반 넘게 잘린다(실측).
-  //   2단이면 같은 종이에 곱절이 들어간다 — 종이를 늘리지 않고 잘리는 것을 줄이는 길이다.
-  const lh = 14, listStart = listTop + 18, bottom = H - 30;
-  const perCol = Math.max(0, Math.floor((bottom - listStart) / lh));
-  const colW = (W - Mg * 2 - 18) / 2, room = perCol * 2;
-  sorted.slice(0, room).forEach((e, idx) => {
-    const col = Math.floor(idx / perCol), ly = listStart + (idx % perCol) * lh;
-    const ox = Mg + col * (colW + 18);
-    const k = calKindMeta(calKindOf(e));
-    const dd = new Date(e.날짜 + 'T00:00:00');
-    x.fillStyle = k.color || '#98A2B3'; x.fillRect(ox, ly - 7, 3, 9);
-    x.font = F(9, 700); x.fillStyle = '#101828';
-    x.fillText(`${String(e.날짜).slice(5)}(${DOW[dd.getDay()] || '-'})`, ox + 7, ly);
-    x.font = F(9); x.fillStyle = '#101828';
-    x.fillText(clip(calCampOf(e), colW - 150), ox + 58, ly);
-    x.fillStyle = '#667085';
-    const tail = [e.담당기사 || '', e.프로젝트NO || ''].filter(Boolean).join(' · ');
-    x.fillText(clip(tail, 86), ox + colW - 88, ly);
-    x.strokeStyle = '#F2F4F7'; x.beginPath();
-    x.moveTo(ox, ly + 3.5); x.lineTo(ox + colW, ly + 3.5); x.stroke();
+  x.fillText(`종류별 일정 (${rows.length}건)`, Mg, listTop);
+
+  const byKind = new Map();
+  rows.forEach(e => {
+    const key = calKindOf(e);
+    if(!byKind.has(key)) byKind.set(key, []);
+    byKind.get(key).push(e);
   });
-  // 단 사이 세로 실선 — 두 단이 한 줄처럼 읽히는 것을 막는다.
-  if(sorted.length > perCol){
-    x.strokeStyle = '#E4E7EC'; x.beginPath();
-    x.moveTo(Mg + colW + 9, listStart - 10); x.lineTo(Mg + colW + 9, bottom); x.stroke();
+  // 화면 칩과 같은 순서로 — 화면과 종이의 순서가 다르면 사람이 다시 찾아 헤맨다.
+  const order = calKinds().map(k => k.key).filter(k => byKind.has(k));
+  byKind.forEach((_v, k) => { if(!order.includes(k)) order.push(k); });
+
+  const lines = [];                       // 소제목과 일정을 한 줄기로 늘어놓는다
+  order.forEach((key, gi) => {
+    const list = byKind.get(key).slice().sort((a, b) =>
+      String(a.날짜).localeCompare(String(b.날짜)) ||
+      String(a.시간 || '').localeCompare(String(b.시간 || '')));
+    if(gi) lines.push({t: 'gap'});
+    lines.push({t: 'head', key, n: list.length});
+    list.forEach(e => lines.push({t: 'item', e, key}));
+  });
+
+  const listStart = listTop + 18, bottom = H - 30, availH = bottom - listStart;
+  let cols = 2, lh = 14;
+  outer:
+  for(const c of [2, 3]){
+    for(const h of [14, 13, 12, 11, 10, 9, 8.2]){
+      if(Math.ceil(lines.length / c) * h <= availH){ cols = c; lh = h; break outer; }
+      cols = c; lh = h;               // 다 안 되면 가장 빽빽한 조합을 쓴다
+    }
   }
-  x.font = F(9); x.fillStyle = '#98A2B3';
-  x.fillText(sorted.length > room
-    ? `※ A4 한 장에 ${room}건까지 담았습니다. 남은 ${sorted.length - room}건은 앱에서 확인하세요.`
-    : 'A4 한 장 · 유니버셜리프트앤히타치코리아', Mg, H - 14);
+  const gap = 16, colW = (W - Mg * 2 - gap * (cols - 1)) / cols;
+  const perCol = Math.max(1, Math.floor(availH / lh));
+  const fz = Math.min(9, lh - 3.4);
+  let drawn = 0;
+  lines.slice(0, perCol * cols).forEach((ln, idx) => {
+    const col = Math.floor(idx / perCol), ly = listStart + (idx % perCol) * lh;
+    const ox = Mg + col * (colW + gap);
+    if(ln.t === 'gap') return;
+    const k = calKindMeta(ln.key);
+    if(ln.t === 'head'){
+      x.fillStyle = k.color || '#475467';
+      x.fillRect(ox, ly - fz + 1, colW, 0.9);
+      x.font = F(fz + 0.6, 800); x.fillStyle = k.color || '#101828';
+      x.fillText(clip(`${k.label} ${ln.n}건`, colW), ox, ly);
+      return;
+    }
+    drawn++;
+    const e = ln.e, dd = new Date(e.날짜 + 'T00:00:00');
+    x.fillStyle = k.color || '#98A2B3'; x.fillRect(ox, ly - fz + 1.5, 2.5, fz - 1);
+    x.font = F(fz, 700); x.fillStyle = '#101828';
+    x.fillText(`${String(e.날짜).slice(5)}(${DOW[dd.getDay()] || '-'})`, ox + 6, ly);
+    const dateW = 52 * (fz / 9);
+    x.font = F(fz); x.fillStyle = '#101828';
+    const tail = [e.담당기사 || '', e.프로젝트NO || ''].filter(Boolean).join(' · ');
+    const tailW = cols >= 3 ? 0 : 84 * (fz / 9);
+    x.fillText(clip(calCampOf(e), colW - dateW - tailW - 10), ox + 6 + dateW, ly);
+    if(tailW){
+      x.fillStyle = '#667085';
+      x.fillText(clip(tail, tailW), ox + colW - tailW, ly);
+    }
+    x.strokeStyle = '#F4F6F9'; x.beginPath();
+    x.moveTo(ox + 6, ly + 3); x.lineTo(ox + colW, ly + 3); x.stroke();
+  });
+  for(let c = 1; c < cols; c++){          // 단 사이 세로선 — 두 단이 한 줄로 읽히는 것을 막는다
+    x.strokeStyle = '#E4E7EC'; x.beginPath();
+    const lx = Mg + c * (colW + gap) - gap / 2;
+    x.moveTo(lx, listStart - 10); x.lineTo(lx, bottom); x.stroke();
+  }
+  const missed = rows.length - drawn;
+  x.font = F(9); x.fillStyle = missed ? '#B42318' : '#98A2B3';
+  x.fillText(missed
+    ? `※ 자리가 모자라 ${missed}건이 빠졌습니다(${drawn}/${rows.length}). 종류 필터를 좁혀 다시 캡처하세요.`
+    : `전체 ${rows.length}건을 모두 실었습니다 · A4 한 장 · 유니버셜리프트앤히타치코리아`, Mg, H - 14);
 
   const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
   if(!blob){ alert('이미지 생성 실패'); return; }
@@ -6468,7 +6544,7 @@ function calApplyDeepLink(){
 function renderCalendarPage(){
   const grid=$('calGrid'), meta=$('calendarMeta');
   if(!grid || !meta) return;
-  calApplyDeepLink();
+  calApplyDeepLink();          // 주소의 m=YYYY-MM · off= 를 한 번만 적용한다
   if(!CAL_MONTH){
     try{ CAL_MONTH = localStorage.getItem('csos.cal.month')||''; }catch(e){}
   }

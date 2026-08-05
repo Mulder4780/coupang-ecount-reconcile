@@ -4493,6 +4493,18 @@ def t102_calendar_filter_and_period():
     assert "CAL_OFF.has(calKindOf(e))" in live, "필터가 실제로 걸리지 않는다"
     assert "csos.cal.off" in live, "고른 필터가 새로고침에 사라진다"
 
+    # ★ 캘린더 전용 모드(2026-08-06 지시: "캘린더 링크로 갔을 때 이 기능만 보이게").
+    #   숨기는 것만으로는 부족하다 — 뒤로가기·복원된 localStorage·코드의 show() 로
+    #   빠져나갈 수 있다. 화면 전환 함수 자체가 잠겨 있어야 한다.
+    assert "var CAL_ONLY = DEEP_VIEW === 'calendar';" in live, "전용 모드 판정이 없다"
+    assert "if(CAL_ONLY) v='calendar';" in live, "applyView 가 다른 화면을 막지 않는다"
+    assert "if(CAL_ONLY) return 'calendar';" in live, "curView 가 다른 화면을 돌려준다"
+    assert "body.calendar-only .tabbar" in live and "display:none !important" in live, \
+        "전용 모드에서 탭바가 남는다"
+    assert "body.calendar-only .view:not(#v-calendar)" in live, "다른 화면이 남는다"
+    # 주소의 m=YYYY-MM 은 렌더 직전에 한 번만 적용한다(TDZ 때문에 선언 앞에서 대입 금지).
+    assert "calApplyDeepLink()" in live and "CAL_DEEP_DONE" in live
+
     # (4) 업무 현황 집계 기간 — 완료일이 있는 건만으로 기간을 잡고, 나머지는 건수로 밝힌다.
     assert 'id="heroPeriod"' in live and "function heroPeriodOf(" in live
     assert "renderHeroPeriod(rows)" in live, "히어로가 기간을 그리지 않는다"
@@ -4503,6 +4515,49 @@ def t102_calendar_filter_and_period():
     assert "re:/판매조회|판매전표/" in live, "이름이 난수인 판매조회 내보내기를 못 잡는다"
     assert "if(g.re && g.re.test(String(r.name||''))) return g;" in live, "이름 규칙이 배선되지 않았다"
     print("  [102] 캘린더 종류 필터·월 격자 · 업무현황 집계 기간 · 원본자료 판매전표 ✅")
+
+
+def t106_calendar_kind_colors():
+    """[106] 일정 종류 색이 **서로 구별되고**, 서버·화면 두 표가 같아야 한다.
+
+    사용자 지적(2026-08-06): "이거 색상 다르게 표시해 헷갈린다."
+    정기점검 완료(#30D158)와 돌발AS 완료(#34C759)가 거의 같은 초록이라 칩·달력·캡처
+    어디서도 둘을 못 갈랐다. 색은 **두 곳**(app_server.CAL_KINDS, index.html
+    CAL_FALLBACK_KINDS)에 적혀 있어, 한쪽만 고치면 화면과 서버가 다른 색을 쓴다.
+    오늘 폴더 이름을 두 곳에 적었다가 어긋난 사고를 이미 겪었으므로 검증으로 묶는다.
+    """
+    import re as _re
+    _rd = lambda *p: open(os.path.join(ROOT, *p), encoding="utf-8").read()
+    srv = _rd("webapp", "app_server.py")
+    live = _rd("webapp", "index.html")
+
+    blk = srv.split("CAL_KINDS = [", 1)[1].split("]", 1)[0]
+    server = _re.findall(r'\("([a-z_]+)",\s*"([^"]+)",\s*"(#[0-9A-Fa-f]{6})"\)', blk)
+    assert len(server) >= 5, "서버 CAL_KINDS 를 읽지 못했다"
+
+    fb = live.split("const CAL_FALLBACK_KINDS = [", 1)[1].split("];", 1)[0]
+    page = _re.findall(r"key:'([a-z_]+)',\s*label:'([^']+)',\s*color:'(#[0-9A-Fa-f]{6})'", fb)
+    assert len(page) == len(server), (
+        f"종류 개수가 다르다 — 서버 {len(server)} / 화면 {len(page)}")
+    for (k1, l1, c1), (k2, l2, c2) in zip(server, page):
+        assert (k1, l1, c1.upper()) == (k2, l2, c2.upper()), (
+            f"서버와 화면의 종류 표가 어긋났다: {k1} {c1} ≠ {k2} {c2}")
+
+    def rgb(c):
+        return tuple(int(c[i:i + 2], 16) for i in (1, 3, 5))
+
+    for i in range(len(server)):
+        for j in range(i + 1, len(server)):
+            a, b = rgb(server[i][2]), rgb(server[j][2])
+            # 사람이 나란히 놓고 구별할 수 있어야 한다. 문제였던 초록 두 개
+            # (#30D158·#34C759)는 이 값이 **15** 였다. 지금 표에서 가장 가까운 짝은
+            # 139(예정↔돌발AS완료)이므로 90 을 최소선으로 둔다 — 여유가 있으면서
+            # '15 같은 것'은 확실히 걸린다.
+            dist = sum(abs(p - q) for p, q in zip(a, b))
+            assert dist >= 90, (
+                f"'{server[i][1]}' 와 '{server[j][1]}' 색이 너무 비슷하다"
+                f"({server[i][2]} vs {server[j][2]}, 차이 {dist})")
+    print("  [106] 일정 종류 색 구별·서버/화면 표 일치 ✅")
 
 
 def t103_session_wrapup_hook():
@@ -5636,6 +5691,7 @@ if __name__ == "__main__":
     t103_session_wrapup_hook()
     t104_session_scoped_claims()
     t105_settle_report()
+    t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:
