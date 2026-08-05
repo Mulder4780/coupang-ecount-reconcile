@@ -1503,6 +1503,21 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 
 
 
+
+/* 업무센터 카드 구성 편집(2026-08-05) — 드래그 없이 ▲▼·체크로도 되게 한다 */
+.cc-list{display:grid;gap:7px}
+.cc-row{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:#fff;border:1px solid var(--line);border-radius:11px;padding:9px 11px}
+.cc-chk{display:flex;align-items:center;gap:9px;font-size:14px;min-width:0;cursor:pointer}
+.cc-chk input{width:17px;height:17px;accent-color:var(--brand);flex:none}
+.cc-chk span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cc-btns{display:flex;gap:5px;flex:none}
+.cc-mini{border:0;background:var(--neu-bg);color:var(--ink-1);border-radius:8px;
+  width:30px;height:28px;font-size:12px;cursor:pointer}
+.cc-mini:disabled{opacity:.32;cursor:default}
+@media(hover:hover){.cc-mini:not(:disabled):hover{background:#E4E6EB}}
+.cc-block[hidden]{display:none}
+
 /* ═══ 공용 액션 카드(2026-08-05 지시 "전체 카테고리 카드 타입") ═══
    버튼만 늘어놓으면 무엇을 하는 작업인지 눌러 봐야 안다. 아이폰 설정 앱처럼
    **아이콘 + 제목 + 한 줄 설명**을 한 카드에 담아 누르기 전에 알 수 있게 한다.
@@ -1907,43 +1922,113 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
        담당자별 현황·고정 주소·원천자료 등록(입금: 드래그앤드롭·URL)을 한 곳에서. -->
   <section class="view" id="v-center">
     <div class="hero-min ios-large"><h2>업무센터</h2>
-      <p class="sub">담당자별 고정 주소 · 밀린 업무 현황 · 원천자료 등록. 등록한 파일은 Z: 원본 자료에 보관되고 즉시 대조가 돕니다.</p></div>
-    <div class="egrid">
-      <div class="card ios-person">
-        <div class="ios-person-head">
-          <span class="ios-avatar" style="background:linear-gradient(180deg,#5AC8FA,#007AFF)">류</span>
-          <div class="ios-person-id"><b>류지영</b><span>돌발AS · 정기점검 · 회계</span></div>
-        </div>
-        <div class="wt-meta ios-footnote" id="centerRyuStat">현황 계산 중…</div>
-        <div class="actions ios-actions">
-          <a class="abtn primary" href="/staff/ryu-jiyeong" target="_blank" rel="noopener">센터 열기 ↗</a>
-          <button class="abtn ios-tint" onclick="show('pm')">정기점검 관리</button>
-          <button class="abtn ios-tint" onclick="show('as')">돌발AS 관리</button>
-        </div>
+      <p class="sub">담당자별 고정 주소 · 밀린 업무 · 원천자료 등록. 카드 순서와 표시 여부는 <b>내 화면 구성</b>에서 바꿉니다.</p></div>
+
+    <!-- 카드 구성 편집(2026-08-05 지시) — 대시보드 레고 블록과 같은 방식.
+         저장은 브라우저(localStorage)라 사람마다 자기 화면을 갖는다. -->
+    <div class="dash-customizer" id="centerCustomizer">
+      <div class="dash-customizer-head">
+        <div class="dash-customizer-copy"><b>내 화면 구성</b>
+          <span>자주 쓰는 카드를 위로 올리고, 안 쓰는 카드는 숨깁니다</span></div>
+        <button class="dash-customizer-toggle" onclick="toggleCenterEdit()" id="centerEditBtn">구성 바꾸기</button>
       </div>
-      <div class="card ios-person">
-        <div class="ios-person-head">
-          <span class="ios-avatar" style="background:linear-gradient(180deg,#63E6A5,#248A3D)">오</span>
-          <div class="ios-person-id"><b>오종현</b><span>PO · 구매 · 입금</span></div>
-        </div>
-        <div class="wt-meta ios-footnote" id="centerOhStat">현황 계산 중…</div>
-        <div class="actions ios-actions">
-          <a class="abtn primary" href="/staff/oh-jonghyeon" target="_blank" rel="noopener">센터 열기 ↗</a>
-          <button class="abtn ios-tint" onclick="show('settle')">정산 화면</button>
+      <div class="dash-customizer-panel" id="centerEditPanel" hidden>
+        <div id="centerBlockList" class="cc-list"></div>
+        <div class="ui-cards" style="margin-top:10px">
+          <button class="ui-card" onclick="resetCenterLayout()">
+            <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-arrow-repeat"/></svg></span>
+            <span class="ui-card-tx"><b>기본으로 되돌리기</b><span>처음 순서와 표시 상태로</span></span></button>
         </div>
       </div>
     </div>
-    <div class="ios-sec-h">입금·원천자료 등록 <span>— 끌어다 놓거나, 파일 선택, URL 붙여넣기</span></div>
-    <div class="card ios-inset">
-      <div id="centerReceiptHost"></div>
-    </div>
-    <!-- 리모컨 모듈은 돌발AS > 리모컨 관리로 모았다(2026-08-04 지시). 두 곳에 같은 입력
-         폼이 있으면 어디서 넣었는지 기억해야 해서, 여기서는 요약과 바로가기만 남긴다. -->
-    <div class="ios-sec-h">리모컨 관리 <span>— 돌발AS 화면으로 모았습니다</span></div>
-    <div class="card ios-inset">
-      <div class="wt-meta ios-footnote" id="centerRemoteBrief">현황 불러오는 중…</div>
-      <div class="actions ios-actions">
-        <button class="abtn primary" onclick="show('remote')">리모컨 관리 열기</button>
+
+    <div id="centerBlocks">
+      <div class="cc-block" data-cb="ryu">
+        <div class="card ios-person">
+          <div class="ios-person-head">
+            <span class="ios-avatar" style="background:linear-gradient(180deg,#5AC8FA,#007AFF)">류</span>
+            <div class="ios-person-id"><b>류지영</b><span>돌발AS · 정기점검 · 회계</span></div>
+          </div>
+          <div class="wt-meta ios-footnote" id="centerRyuStat">현황 계산 중…</div>
+          <div class="ui-cards">
+            <a class="ui-card primary" href="/staff/ryu-jiyeong" target="_blank" rel="noopener">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-person-workspace"/></svg></span>
+              <span class="ui-card-tx"><b>센터 열기</b><span>류지영 전용 화면(새 창)</span></span></a>
+            <button class="ui-card" onclick="show('pm')">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-calendar-event-fill"/></svg></span>
+              <span class="ui-card-tx"><b>정기점검 관리</b><span>예정·완료·지연 건을 봅니다</span></span></button>
+            <button class="ui-card" onclick="show('as')">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-wrench-adjustable"/></svg></span>
+              <span class="ui-card-tx"><b>돌발AS 관리</b><span>접수·배정·완료 처리</span></span></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="cc-block" data-cb="oh">
+        <div class="card ios-person">
+          <div class="ios-person-head">
+            <span class="ios-avatar" style="background:linear-gradient(180deg,#63E6A5,#248A3D)">오</span>
+            <div class="ios-person-id"><b>오종현</b><span>PO · 구매 · 입금</span></div>
+          </div>
+          <div class="wt-meta ios-footnote" id="centerOhStat">현황 계산 중…</div>
+          <div class="ui-cards">
+            <a class="ui-card primary" href="/staff/oh-jonghyeon" target="_blank" rel="noopener">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-person-workspace"/></svg></span>
+              <span class="ui-card-tx"><b>센터 열기</b><span>오종현 전용 화면(새 창)</span></span></a>
+            <button class="ui-card" onclick="show('settle')">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-receipt"/></svg></span>
+              <span class="ui-card-tx"><b>정산 화면</b><span>청구·발행·입금 현황</span></span></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="cc-block" data-cb="sources">
+        <div class="ios-sec-h">원본 자료 <span>— 갈래를 누르면 그 자료만 모아 봅니다</span></div>
+        <div class="card ios-inset">
+          <div class="ui-cards">
+            <button class="ui-card primary" onclick="openSources('')">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-folder2-open"/></svg></span>
+              <span class="ui-card-tx"><b>전체 원본 찾기</b><span>이름·프로젝트NO·전표번호·PO로 검색</span></span></button>
+            <button class="ui-card" onclick="openSources('tax')">
+              <span class="ui-card-ic" style="background:#FFE4EA;color:#FF375F"><svg aria-hidden="true"><use href="#i-bootstrap-receipt"/></svg></span>
+              <span class="ui-card-tx"><b>세금계산서</b><span>건별 PDF·진행단계 원본</span></span></button>
+            <button class="ui-card" onclick="openSources('stmt')">
+              <span class="ui-card-ic" style="background:#FFF0DC;color:#FF9F0A"><svg aria-hidden="true"><use href="#i-bootstrap-file-earmark-text-fill"/></svg></span>
+              <span class="ui-card-tx"><b>거래명세서</b><span>전표번호별 PDF</span></span></button>
+            <button class="ui-card" onclick="openSources('band')">
+              <span class="ui-card-ic" style="background:#E3F9EC;color:#30D158"><svg aria-hidden="true"><use href="#i-bootstrap-image-fill"/></svg></span>
+              <span class="ui-card-tx"><b>밴드 글·사진</b><span>글번호별 PDF·본문·현장 사진</span></span></button>
+            <button class="ui-card" onclick="openSources('kakao')">
+              <span class="ui-card-ic" style="background:#FFF8D9;color:#B58900"><svg aria-hidden="true"><use href="#i-bootstrap-chat-dots-fill"/></svg></span>
+              <span class="ui-card-tx"><b>카톡 내보내기</b><span>정기점검방·돌발방 대화 원본</span></span></button>
+            <button class="ui-card" onclick="openSources('erp')">
+              <span class="ui-card-ic" style="background:#E3F0FF;color:#0A84FF"><svg aria-hidden="true"><use href="#i-bootstrap-clipboard-data-fill"/></svg></span>
+              <span class="ui-card-tx"><b>ERP 화면 엑셀</b><span>판매조회·원장·전표 등</span></span></button>
+            <button class="ui-card" onclick="openSources('po')">
+              <span class="ui-card-ic" style="background:#F3E6FF;color:#BF5AF2"><svg aria-hidden="true"><use href="#i-bootstrap-box-seam"/></svg></span>
+              <span class="ui-card-tx"><b>쿠팡 PO</b><span>발주서·견적 원본</span></span></button>
+            <button class="ui-card" onclick="show('check')">
+              <span class="ui-card-ic" style="background:#FFE9E9;color:#D92D20"><svg aria-hidden="true"><use href="#i-bootstrap-exclamation-triangle-fill"/></svg></span>
+              <span class="ui-card-tx"><b>확인 필요</b><span>조치가 필요한 건 모아 보기</span></span></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="cc-block" data-cb="upload">
+        <div class="ios-sec-h">입금·원천자료 등록 <span>— 끌어다 놓거나, 파일 선택, URL 붙여넣기</span></div>
+        <div class="card ios-inset"><div id="centerReceiptHost"></div></div>
+      </div>
+
+      <div class="cc-block" data-cb="remote">
+        <div class="ios-sec-h">리모컨 관리 <span>— 돌발AS 화면으로 모았습니다</span></div>
+        <div class="card ios-inset">
+          <div class="wt-meta ios-footnote" id="centerRemoteBrief">현황 불러오는 중…</div>
+          <div class="ui-cards">
+            <button class="ui-card primary" onclick="show('remote')">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-box-seam"/></svg></span>
+              <span class="ui-card-tx"><b>리모컨 관리 열기</b><span>재고·불출·납품 기록</span></span></button>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -3849,6 +3934,80 @@ async function wtEdit(k,id,col,value,vtype){
   }catch(e){ toast('저장 실패 — 잠시 후 다시 시도'); }
 }
 /* ═══ 업무센터 탭 (2026-07-31) ═══ */
+/* ── 업무센터 카드 구성(2026-08-05 지시) ──
+   대시보드 레고 블록과 같은 방식: 순서·표시여부를 localStorage 에 저장한다.
+   드래그를 강요하지 않고 ▲▼ 버튼과 체크박스로도 되게 한다(현장에서 마우스가 불편하다). */
+const CENTER_KEY='csos_center_layout_v1';
+const CENTER_BLOCKS=[
+  {id:'ryu',    label:'류지영 — 돌발AS·정기점검'},
+  {id:'oh',     label:'오종현 — PO·구매·입금'},
+  {id:'sources',label:'원본 자료 갈래'},
+  {id:'upload', label:'입금·원천자료 등록'},
+  {id:'remote', label:'리모컨 관리'},
+];
+function readCenterLayout(){
+  const def={order:CENTER_BLOCKS.map(b=>b.id),hidden:[]};
+  try{
+    const raw=JSON.parse(localStorage.getItem(CENTER_KEY)||'null');
+    if(!raw||!Array.isArray(raw.order)) return def;
+    const known=new Set(CENTER_BLOCKS.map(b=>b.id));
+    const order=raw.order.filter(x=>known.has(x));
+    CENTER_BLOCKS.forEach(b=>{ if(!order.includes(b.id)) order.push(b.id); });
+    return {order,hidden:(raw.hidden||[]).filter(x=>known.has(x))};
+  }catch(e){ return def; }
+}
+function writeCenterLayout(l){ try{ localStorage.setItem(CENTER_KEY, JSON.stringify(l)); }catch(e){} }
+function applyCenterLayout(){
+  const host=$('centerBlocks'); if(!host) return;
+  const l=readCenterLayout();
+  l.order.forEach(id=>{ const el=host.querySelector('[data-cb="'+id+'"]'); if(el) host.appendChild(el); });
+  CENTER_BLOCKS.forEach(b=>{ const el=host.querySelector('[data-cb="'+b.id+'"]'); if(el) el.hidden=l.hidden.includes(b.id); });
+}
+function toggleCenterEdit(){
+  const p=$('centerEditPanel'), b=$('centerEditBtn'); if(!p) return;
+  p.hidden=!p.hidden;
+  if(b) b.textContent=p.hidden?'구성 바꾸기':'편집 닫기';
+  if(!p.hidden) renderCenterEditor();
+}
+function renderCenterEditor(){
+  const host=$('centerBlockList'); if(!host) return;
+  const l=readCenterLayout();
+  host.innerHTML=l.order.map((id,i)=>{
+    const b=CENTER_BLOCKS.find(x=>x.id===id)||{label:id};
+    const on=!l.hidden.includes(id);
+    const up=i===0?'disabled':'', dn=i===l.order.length-1?'disabled':'';
+    return `<div class="cc-row">
+      <label class="cc-chk"><input type="checkbox" ${on?'checked':''} onchange="toggleCenterBlock('${id}')"><span>${esc2(b.label)}</span></label>
+      <span class="cc-btns">
+        <button class="cc-mini" ${up} onclick="moveCenterBlock('${id}',-1)" aria-label="위로">&#9650;</button>
+        <button class="cc-mini" ${dn} onclick="moveCenterBlock('${id}',1)" aria-label="아래로">&#9660;</button>
+      </span></div>`;
+  }).join('');
+}
+function moveCenterBlock(id,delta){
+  const l=readCenterLayout();
+  const i=l.order.indexOf(id), j=i+delta;
+  if(i<0||j<0||j>=l.order.length) return;
+  l.order.splice(j,0,l.order.splice(i,1)[0]);
+  writeCenterLayout(l); applyCenterLayout(); renderCenterEditor();
+}
+function toggleCenterBlock(id){
+  const l=readCenterLayout();
+  const i=l.hidden.indexOf(id);
+  if(i>=0) l.hidden.splice(i,1); else l.hidden.push(id);
+  writeCenterLayout(l); applyCenterLayout(); renderCenterEditor();
+}
+function resetCenterLayout(){
+  try{ localStorage.removeItem(CENTER_KEY); }catch(e){}
+  applyCenterLayout(); renderCenterEditor(); toast('업무센터 구성을 기본으로 되돌렸습니다');
+}
+/* 업무센터 카드 → 원본 자료 화면을 그 갈래로 열어 준다(2026-08-05 지시). */
+function openSources(group){
+  SRC_G=group||'';
+  show('sources');
+  setTimeout(function(){ renderSegs(); renderSources(); }, 60);
+}
+
 function renderCenter(){
   const todayIso=new Date().toISOString().slice(0,10);
   const lateOf=(rows,dcol,donecol,stof)=>rows.filter(r=>{
@@ -3865,6 +4024,7 @@ function renderCenter(){
     const st=s=>settleRows.filter(r=>String(r.상태||'')===s).length;
     ohEl.textContent=`미청구 ${st('미청구(전표 없음)')} · 세금계산서 미발행 ${st('세금계산서 미발행')} · 입금 대기 ${st('입금 대기')}건`;
   }
+  applyCenterLayout();
   renderReceiptUpload('centerReceiptHost');
   centerRemoteBrief();
 }
@@ -5849,6 +6009,11 @@ function srcGroupOf(r){
 }
 function srcDebounce(){ clearTimeout(SRC_T); SRC_T=setTimeout(renderSources, 260); }
 async function loadSources(){
+  // 담당자 센터에서 열면 자기 업무 자료를 기본 갈래로 잡는다(2026-08-05 지시).
+  if(!SRC.rows.length && typeof staffSlug!=='undefined' && staffSlug){
+    if(staffSlug==='ryu-jiyeong') SRC_G='band';
+    else if(staffSlug==='oh-jonghyeon') SRC_G='tax';
+  }
   const note=$('srcNote'); if(note) note.textContent='색인 읽는 중…';
   try{ SRC = await api('/api/sources?limit=400'); }
   catch(e){ if(note) note.textContent='색인을 읽지 못했습니다: '+e; return; }
