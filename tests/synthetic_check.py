@@ -4505,6 +4505,72 @@ def t102_calendar_filter_and_period():
     print("  [102] 캘린더 종류 필터·월 격자 · 업무현황 집계 기간 · 원본자료 판매전표 ✅")
 
 
+def t103_session_wrapup_hook():
+    """[103] 컨텍스트가 차면 자동으로 인계하고 요약한다 (2026-08-05 지시).
+
+    지시: "세션이 컨텍스트 윈도우가 90% 도달시 자동으로 정리하고 /compact 명령 실행."
+    지금까지는 사람이 "인계해"라고 말해 줘야 했고, 말하기 전에 차 버리면 큐·점유·미커밋이
+    그대로 남았다. 이제 요약 직전 PreCompact 훅이 session_wrapup.py 를 돌린다.
+
+    이 검증이 지키는 것 — 훅이 **조용히 사라지는 것**을 막는다:
+      · 4단계가 전부, 그 순서로 들어 있는가
+      · 무슨 일이 있어도 exit 0 인가(인계하려다 요약을 막으면 더 나쁘다)
+      · 엑셀을 열지 않는가(반영은 11:00·15:00 회차만)
+      · .claude/settings.json 배선이 살아 있는가
+    """
+    import session_wrapup as W
+
+    src = open(os.path.join(ROOT, "session_wrapup.py"), encoding="utf-8").read()
+
+    # (1) 4단계가 전부, 그 순서로.
+    order = [src.index(fn) for fn in
+             ("def step_intake", "def step_free_claims", "def step_commit", "def step_handoff")]
+    assert order == sorted(order), "인계 4단계 순서가 바뀌었다"
+    assert '"--intake"' in src and '"--free-all"' in src and '"--handoff"' in src
+    assert '"--snapshot"' in src, "세션인계 스냅샷을 남기지 않는다"
+
+    # (2) 엑셀을 열지 않는다 — 반영 회차를 건드리면 원장 버전이 하루에 수십 개가 된다.
+    for forbidden in ("--apply", "workbook_patch.py", "--force"):
+        assert forbidden not in src, "세션 마무리가 엑셀을 직접 건드린다: %s" % forbidden
+
+    # (3) 비밀값이 스테이징에 있으면 커밋하지 않는다(절대규칙 1).
+    assert "git grep" in src or 'git("grep"' in src, "커밋 전 비밀값 스캔이 없다"
+    assert "커밋을 멈췄다" in src
+
+    # (4) 어떤 단계가 깨져도 전체는 성공으로 끝난다 — 실제로 돌려서 확인한다.
+    calls = []
+    saved = W.run
+    try:
+        def boom(args, timeout=900):
+            calls.append(list(args))
+            return False, "일부러 실패시킴"
+        W.run = boom
+        record = W.wrapup(who="claude", reason="synthetic")
+    finally:
+        W.run = saved
+    assert len(record["단계"]) == 5, record
+    assert all(s["성공"] is False for s in record["단계"]), "실패를 성공으로 적고 있다"
+    # git 조차 실패해도 예외가 새지 않아야 한다 — 위 wrapup 이 끝까지 온 것이 그 증거다.
+    assert any("--intake" in c for c in calls) and any("--free-all" in c for c in calls)
+
+    # (5) main() 은 언제나 0 을 준다.
+    assert "return 0        # 인계를 남기려다" in src, "실패 시 0 이 아닌 값을 줄 수 있다"
+
+    # (6) 훅 배선 — 이것이 없으면 위 전부가 '사람이 손으로 부를 때만' 도는 스크립트다.
+    settings = os.path.join(os.path.dirname(ROOT), ".claude", "settings.json")
+    assert os.path.exists(settings), ".claude/settings.json 이 없다"
+    cfg = json.load(open(settings, encoding="utf-8"))
+    assert cfg.get("autoCompactEnabled") is True, "자동 요약이 꺼져 있다"
+    hooks = [h for entry in cfg.get("hooks", {}).get("PreCompact", [])
+             for h in entry.get("hooks", [])]
+    assert hooks, "PreCompact 훅이 없다"
+    wired = [h for h in hooks
+             if "session_wrapup.py" in " ".join([h.get("command", "")] + list(h.get("args") or []))]
+    assert wired, "PreCompact 훅이 session_wrapup.py 를 부르지 않는다"
+    assert (wired[0].get("timeout") or 0) >= 300, "훅 시간제한이 짧아 인계가 중간에 잘린다"
+    print("  [103] 컨텍스트 한도 자동 인계(PreCompact 훅·4단계·실패해도 요약 진행) ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -5410,6 +5476,7 @@ if __name__ == "__main__":
     t100_erp_pdf_archive()
     t101_percent_and_no_erp_post()
     t102_calendar_filter_and_period()
+    t103_session_wrapup_hook()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:
