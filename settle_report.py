@@ -249,14 +249,39 @@ def po_projects(po_list):
     return out
 
 
+def _incomplete(r):
+    """쿠팡 전표인데 **관리항목명이 비어 있으면** 미완성(중복) 전표로 본다.
+
+    2026-08-05 실측: 판매조회 1,044행 중 쿠팡 창고 855행에서 관리항목명이 빈 행은
+    UJ2601384 단 **한 줄**이었다(나머지 96건의 빈칸은 전부 비쿠팡 거래처 — 그쪽은
+    관리항목을 쓰지 않는다). 쿠팡 건은 '돌발AS'·'3분기 정기점검'·'계단납품' 처럼
+    관리항목이 항상 붙는다. 그래서 빈칸은 '아직 덜 채운 전표'라는 뜻이다.
+    """
+    return "쿠팡" in r.get("창고명", "") and not (r.get("관리항목명") or "").strip()
+
+
 def erp_summary(rows):
-    """쿠팡 건만 골라 합계를 낸다 — 단, **같은 프로젝트가 여러 줄이면 합치지 않는다.**"""
+    """쿠팡 건만 골라 합계를 낸다 — 단, **같은 프로젝트가 여러 줄이면 합치지 않는다.**
+
+    예외: 같은 프로젝트·같은 금액인데 한쪽이 미완성 전표(_incomplete)면 그쪽을 빼고
+    한 건으로 본다. 근거가 데이터에 있을 때만 정하고, 없으면 폭으로 남긴다.
+    """
     coupang = [r for r in rows
                if "쿠팡" in (r.get("창고명", "") + r.get("거래처명", ""))]
     by_prj = {}
     for r in coupang:
         by_prj.setdefault(r.get("프로젝트코드코드") or "(무번호)", []).append(r)
-    dup = {k: v for k, v in by_prj.items() if len(v) > 1}
+    dup = {}
+    for k, v in list(by_prj.items()):
+        if len(v) <= 1:
+            continue
+        amts = {x.get("공급가액합계") for x in v}
+        bad = [x for x in v if _incomplete(x)]
+        if len(amts) == 1 and len(bad) == len(v) - 1:
+            by_prj[k] = [x for x in v if not _incomplete(x)]     # 미완성 줄을 뺀다
+            coupang = [x for x in coupang if x not in bad]
+        else:
+            dup[k] = v
     def amt(r):
         try:
             return int(float(r.get("공급가액합계") or 0))
@@ -330,13 +355,15 @@ def build(day):
 
     L += ["## 3. ERP 판매전표", ""]
     if coupang:
-        L += ["| 프로젝트 | 거래처 | 창고 | 진행상태 | 공급가액 | 부가세 | 합계 | PO |",
-              "|---|---|---|---|---:|---:|---:|---|"]
+        L += ["| 프로젝트 | 거래처 | 창고 | 진행상태 | 관리항목 | 공급가액 | 합계 | PO |",
+              "|---|---|---|---|---|---:|---:|---|"]
         for r in coupang:
             L.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
                 r.get("프로젝트코드코드", ""), r.get("거래처명", ""), r.get("창고명", ""),
-                r.get("진행상태", ""), r.get("공급가액합계", ""), r.get("부가세합계", ""),
-                r.get("금액합계", ""), r.get("PO번호") or "-"))
+                r.get("진행상태", ""), r.get("관리항목명") or "—",
+                r.get("공급가액합계", ""), r.get("금액합계", ""), r.get("PO번호") or "-"))
+        if low == high:
+            L += ["", "합계 **{:,}원**(부가세 별도).".format(low)]
     else:
         L.append("그 날 일자로 잡힌 쿠팡 판매전표가 없습니다.")
     L.append("")
