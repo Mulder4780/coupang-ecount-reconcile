@@ -12,9 +12,12 @@ worksplit.py — 여러 세션이 **동시에** 일할 때 무엇을 누가 맡�
 각자 읽고 **같은 일을 동시에** 시작해도 아무도 못 막는다(자원 잠금은 파일을 쓸 때만
 부딪히므로, 몇 시간 조사한 뒤에야 중복이 드러난다). 그래서 "일 단위"로 먼저 나눈다.
 
-죽은 세션은 기다리지 않는다
-  주인의 PID 가 사라졌으면 그 자리에서 **주인 없음**으로 보고 다른 세션이 가져갈 수 있다
-  (session_handoff.pid_alive 와 같은 판정 — 45분을 기다릴 이유가 없다).
+주인은 **세션**이다 (사람 이름이 아니다)
+  `ai_claim.session_id()` 를 그대로 쓴다 — 같은 폴더에 Claude 창이 둘 떠 있어도
+  둘 다 "claude" 라서 서로 밟던 문제를 그쪽에서 이미 풀어 두었다.
+  ★ 프로세스 PID 로 주인을 표시하지 않는다. 이 스크립트는 명령 한 번에 끝나는
+    프로세스라, PID 를 적으면 **적자마자 죽은 주인**이 된다(2026-08-05 실제로 그랬다).
+  주인이 오래(기본 8시간) 손대지 않은 '진행' 은 주인 없음으로 보고 다른 세션이 가져간다.
 
   python worksplit.py                                  # 분담판 보기
   python worksplit.py --add "제목" --detail "설명" --lock band [--human]
@@ -49,19 +52,16 @@ except Exception:
     pass
 
 
-def pid_alive(pid):
-    """주인 세션이 아직 살아 있나. 모르면 None(함부로 죽었다고 하지 않는다)."""
-    if not pid:
-        return None
+ORPHAN_SEC = 8 * 3600      # 주인이 이만큼 손대지 않은 '진행' 은 주인 없음으로 본다
+
+
+def session_id():
+    """이 세션의 식별자. ai_claim 과 **같은 값**을 쓴다(둘이 다르면 조율이 어긋난다)."""
     try:
-        import ctypes
-        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))
-        if not h:
-            return False
-        ctypes.windll.kernel32.CloseHandle(h)
-        return True
+        import ai_claim
+        return ai_claim.session_id()
     except Exception:
-        return None
+        return "manual"
 
 
 @contextmanager
@@ -100,6 +100,14 @@ def _read():
         d = {}
     d.setdefault("items", [])
     d.setdefault("seq", 0)
+    # 옛 항목에는 at_ts 가 없다. 없으면 나이를 못 재서 **영원히 주인 있는 일**이 된다 —
+    # 표시용 at 문자열에서 되살린다.
+    for it in d["items"]:
+        if not it.get("at_ts"):
+            try:
+                it["at_ts"] = datetime.strptime(it.get("at", ""), "%Y-%m-%d %H:%M").timestamp()
+            except (ValueError, TypeError):
+                it["at_ts"] = 0
     return d
 
 
@@ -118,13 +126,16 @@ def load():
 
 
 def _owner_state(it):
-    """주인이 살아 있나 — (표시할 주인, 가져가도 되나)."""
+    """(표시할 주인, 내가 가져가도 되나)."""
+    who = it.get("who") or ""
     if it.get("state") != DOING:
-        return it.get("who") or "", it.get("state") in (WAIT, HOLD)
-    alive = pid_alive(it.get("pid"))
-    if alive is False:
-        return f"{it.get('who')}(세션 종료)", True
-    return it.get("who") or "", False
+        return who, it.get("state") in (WAIT, HOLD)
+    if it.get("sid") and it["sid"] == session_id():
+        return f"{who}(나)", True                  # 내 세션이 잡은 것 — 이어서 하면 된다
+    age = time.time() - float(it.get("at_ts") or 0)
+    if it.get("at_ts") and age > ORPHAN_SEC:
+        return f"{who}({int(age // 3600)}시간째 소식 없음)", True
+    return who, False
 
 
 def add(title, detail="", lock="", human=False, who=""):
@@ -132,9 +143,9 @@ def add(title, detail="", lock="", human=False, who=""):
         d = _read()
         d["seq"] += 1
         it = {"id": d["seq"], "title": title, "detail": detail, "lock": lock or "",
-              "state": HOLD if human else WAIT, "who": "", "pid": None,
-              "at": datetime.now().strftime("%Y-%m-%d %H:%M"), "note": "",
-              "by": who or ""}
+              "state": HOLD if human else WAIT, "who": "", "sid": "",
+              "at": datetime.now().strftime("%Y-%m-%d %H:%M"), "at_ts": time.time(),
+              "note": "", "by": who or ""}
         d["items"].append(it)
         _write(d)
     print(f"[{it['id']}] 추가 — {title}" + (" (사람이 해야 함)" if human else ""))
@@ -151,13 +162,13 @@ def take(who, wid):
                 print(f"[{wid}] 은 이미 완료된 일입니다.")
                 return False
             shown, free_ = _owner_state(it)
-            if it["state"] == DOING and it.get("who") != who and not free_:
+            if it["state"] == DOING and not free_:
                 print(f"★ [{wid}] {it['title']} 은 이미 {shown} 가 맡았습니다.")
                 print("  → 다른 일을 고르세요:  python worksplit.py --free")
                 return False
-            it.update(state=DOING, who=who, pid=os.getpid(),
+            it.update(state=DOING, who=who, sid=session_id(),
                       host=socket.gethostname(),
-                      at=datetime.now().strftime("%Y-%m-%d %H:%M"))
+                      at=datetime.now().strftime("%Y-%m-%d %H:%M"), at_ts=time.time())
             _write(d)
             print(f"[{wid}] {it['title']} — {who} 가 맡음")
             if it.get("lock"):
@@ -187,17 +198,16 @@ def finish(who, wid, note="", state=DONE):
         for it in d["items"]:
             if it["id"] != wid:
                 continue
-            if it.get("who") and it["who"] != who and it["state"] == DOING:
+            if it["state"] == DOING:
                 shown, free_ = _owner_state(it)
                 if not free_:
                     print(f"★ [{wid}] 은 {shown} 것이라 손대지 않습니다.")
                     return False
             it.update(state=state, note=note or it.get("note", ""),
-                      at=datetime.now().strftime("%Y-%m-%d %H:%M"))
-            if state != DOING:
-                it["pid"] = None
+                      at=datetime.now().strftime("%Y-%m-%d %H:%M"), at_ts=time.time())
             if state == WAIT:
                 it["who"] = ""
+                it["sid"] = ""
             _write(d)
             print(f"[{wid}] {it['title']} → {state}")
             return True
@@ -211,7 +221,10 @@ def board(items=None, only=None, who=None):
     if only == "mine":
         rows = [x for x in rows if x.get("who") == who and x["state"] == DOING]
     elif only == "free":
-        rows = [x for x in rows if x["state"] == WAIT or _owner_state(x)[1] and x["state"] != DONE]
+        # 아무도 안 맡은 것 + 주인이 오래 소식 없는 것. 내가 이미 맡은 것은 빼고 보여 준다.
+        rows = [x for x in rows
+                if x["state"] == WAIT
+                or (x["state"] == DOING and _owner_state(x)[1] and x.get("sid") != session_id())]
     else:
         rows = [x for x in rows if x["state"] != DONE]
     if not rows:
@@ -239,6 +252,16 @@ def render_md():
          "python ecount/worksplit.py --free                 # 아무도 안 맡은 일",
          "python ecount/worksplit.py --who claude --take 3  # 내가 맡는다",
          "python ecount/worksplit.py --who claude --done 3 --note \"결과\"",
+         "```", "",
+         "## ★ 커밋할 때 — `git add -A` 를 쓰지 않는다",
+         "",
+         "2026-08-05 실제로 겪은 일: 한쪽이 `git add -A` 로 올려 둔 사이 다른 쪽이 커밋해",
+         "**남의 변경이 남의 커밋 메시지 아래로 들어갔다**(내용은 안 없어졌지만 이력이 섞였다).",
+         "동시 작업 중에는 **내가 고친 파일만 이름으로** 올린다.",
+         "",
+         "```bash",
+         "git add ecount/worksplit.py ecount/webapp/index.html   # 내가 고친 것만",
+         "git commit -m \"...\"                                    # add -A · commit -a 금지",
          "```", "",
          f"## 지금 남은 일 ({len(live)})", "",
          "| 번호 | 상태 | 주인 | 자원 | 할 일 | 메모 |", "|---:|---|---|---|---|---|"]
