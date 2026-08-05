@@ -212,34 +212,91 @@ svg.bi{width:1.05em;height:1.05em;flex:none;fill:currentColor;vertical-align:-.1
 .tabbar svg.bi{width:28px;height:28px;vertical-align:0}
 .tabbar .nav-spacer{display:none}
 
-/* 쿠팡 캘린더 — 전체 월간 보기(Google)와 원장 대조 캐시 상세를 한 화면에 둔다. */
-.calendar-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;
-  margin-bottom:14px;padding:20px 21px;border-radius:18px;color:#fff;
-  background:linear-gradient(120deg,#172554 0%,#2546A8 58%,#4F46E5 100%);
-  box-shadow:0 12px 28px -14px rgba(31,54,142,.6)}
-.calendar-hero h2{margin:3px 0 5px;font-size:23px;letter-spacing:-.6px}
-.calendar-hero p{margin:0;color:#DCE6FF;font-size:14px;line-height:1.55}
-.calendar-layout{display:grid;grid-template-columns:minmax(0,1.16fr) minmax(300px,.84fr);gap:14px;align-items:start}
-.calendar-frame{padding:0;overflow:hidden}
-.calendar-frame-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:17px 18px 13px}
-.calendar-frame-head h3{margin:0}.calendar-frame-head a{font-size:14px;font-weight:800;color:var(--brand);white-space:nowrap}
-.calendar-frame iframe{display:block;width:100%;height:690px;border:0;background:#fff}
+/* 쿠팡 캘린더 — 월 격자·필터는 아래 cal2-* 가 맡는다(2026-08-05 개편, 검증 [102]).
+   여기 남은 것은 세부 카드와 일정 입력 폼처럼 개편 뒤에도 그대로 쓰는 것들이다.
+   옛 2단 배치(.calendar-layout/.calendar-frame/.calendar-event-list)는 제거했다 —
+   iframe 이 화면 절반을 먹고 오른쪽에 900건이 한 줄로 늘어서던 구조였다. */
 .calendar-hint{margin:0;padding:10px 17px 14px;color:var(--muted);font-size:13.5px;line-height:1.55;border-top:1px solid var(--line)}
-.calendar-side{display:grid;gap:14px}.calendar-meta{font-size:14px;color:var(--muted);margin:-3px 0 12px}
-.calendar-event-list{display:grid;gap:8px;max-height:372px;overflow:auto;padding-right:2px}
-.calendar-event{width:100%;display:grid;grid-template-columns:74px 1fr;gap:8px;text-align:left;padding:11px 12px;
-  border:1.5px solid var(--line);border-radius:12px;background:#fff;color:var(--ink)}
-.calendar-event:hover,.calendar-event.on{border-color:#A9B9FF;background:#F4F6FF;box-shadow:0 5px 13px rgba(53,76,185,.10)}
-.calendar-event .when{font-size:13.5px;font-weight:800;color:var(--brand);line-height:1.45}
-.calendar-event .what{font-size:14px;font-weight:800;line-height:1.42}.calendar-event .sub{font-size:13.5px;color:var(--muted);margin-top:2px;font-weight:600}
+.calendar-meta{font-size:14px;color:var(--muted);margin:-3px 0 12px}
 .calendar-detail{border-radius:12px;padding:13px;background:#F7F8FC;border:1px solid #E6EAF2;line-height:1.6;font-size:14px;color:var(--ink-2)}
 .calendar-detail b{color:var(--ink)}.calendar-detail .detail-title{font-size:15px;margin-bottom:7px}.calendar-detail dl{display:grid;grid-template-columns:72px 1fr;gap:3px 8px;margin:0}.calendar-detail dt{color:var(--muted);font-weight:700}.calendar-detail dd{margin:0;word-break:break-word}
 .calendar-entry{margin-top:14px}.calendar-entry h3{margin-bottom:3px}.calendar-entry .entry-note{font-size:14px;color:var(--muted);line-height:1.55;margin:0 0 12px}
 .calendar-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.calendar-form label{display:grid;gap:4px;font-size:13.5px;font-weight:800;color:var(--ink-2)}
 .calendar-form label.wide{grid-column:1/-1}.calendar-form input,.calendar-form textarea{width:100%;min-width:0;padding:9px 10px;border:1.5px solid var(--line);border-radius:9px;font:inherit;font-size:14px;color:var(--ink);background:#fff}
 .calendar-form textarea{min-height:70px;resize:vertical}.calendar-preview{margin-top:11px;padding:10px 12px;border-radius:10px;background:#F7F8FC;font-size:14px;line-height:1.55;color:var(--ink-2);white-space:pre-line}
-@media(max-width:899px){.calendar-layout{grid-template-columns:1fr}.calendar-frame iframe{height:620px}.calendar-hero h2{font-size:20px}}
-@media(max-width:480px){.calendar-form{grid-template-columns:1fr}.calendar-frame iframe{height:570px}}
+@media(max-width:480px){.calendar-form{grid-template-columns:1fr}}
+
+/* ═══ 쿠팡 캘린더 2판 — iOS 캘린더 감각 (2026-08-05 지시) ═══
+   왜 다시 짰나: 예전 화면은 구글 iframe 이 절반을 먹고, 오른쪽에 125건이 한 줄로
+   쭉 늘어서 있었다. "8월에 무슨 일이 있나"를 보려면 목록을 눈으로 훑어야 했고,
+   돌발AS 만 보는 방법이 아예 없었다. 달력은 **달 격자**로 봐야 한 눈에 들어온다.
+   구성: 종류 칩(필터) → 월 격자(날마다 색 점) → 그 날의 일정 → 세부.
+   iframe 은 접어서 맨 아래로 내렸다 — 필요할 때만 편다. */
+.cal2-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.cal2-head .ios-large h2{font-size:clamp(28px,3vw,38px);font-weight:850;letter-spacing:-1.2px;margin:0 0 4px}
+.cal2-head .ios-large .sub{font-size:14px;color:var(--ink-2);line-height:1.5;margin:0}
+.cal2-filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+.cal2-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;
+  border:1.5px solid var(--line);background:var(--surface);font-size:13.5px;font-weight:700;
+  color:var(--ink-2);transition:all .15s;white-space:nowrap}
+.cal2-chip .dotc{width:9px;height:9px;border-radius:50%;flex:none;background:var(--c)}
+.cal2-chip .n{font-variant-numeric:tabular-nums;color:var(--ink-3);font-weight:700}
+.cal2-chip.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);color:var(--ink)}
+.cal2-chip.on .n{color:var(--ink-2)}
+.cal2-chip.off{opacity:.5}
+@media(hover:hover){.cal2-chip:hover{border-color:var(--c)}}
+.cal2-card{padding:12px 12px 14px}
+.cal2-nav{display:flex;align-items:center;gap:6px;margin-bottom:10px}
+.cal2-nav b{flex:1;text-align:center;font-size:17px;font-weight:800;letter-spacing:-.4px;
+  font-variant-numeric:tabular-nums}
+.cal2-nav button{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;
+  font-size:19px;font-weight:800;color:var(--brand);background:var(--brand-tint)}
+.cal2-nav button.cal2-today{width:auto;padding:0 12px;font-size:13.5px;font-weight:800}
+.cal2-dow,.cal2-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal2-dow span{text-align:center;font-size:12px;font-weight:700;color:var(--ink-3);padding:4px 0 6px}
+.cal2-dow span:first-child{color:#FF453A}.cal2-dow span:last-child{color:#0A84FF}
+.cal2-day{position:relative;aspect-ratio:1/1;min-height:44px;border-radius:11px;display:flex;
+  flex-direction:column;align-items:center;justify-content:flex-start;gap:3px;padding:5px 2px 0;
+  font-variant-numeric:tabular-nums;transition:background .13s}
+.cal2-day .d{font-size:14px;font-weight:700;color:var(--ink);line-height:1.1;
+  width:25px;height:25px;display:grid;place-items:center;border-radius:50%}
+.cal2-day.out .d{color:var(--ink-3);opacity:.45}
+.cal2-day.sun .d{color:#FF453A}.cal2-day.sat .d{color:#0A84FF}
+.cal2-day.today .d{background:var(--brand-tint);color:var(--brand);font-weight:850}
+.cal2-day.on{background:var(--brand-tint)}
+.cal2-day.on .d{background:var(--brand);color:#fff}
+.cal2-dots{display:flex;gap:2.5px;flex-wrap:wrap;justify-content:center;max-width:100%;padding:0 1px}
+.cal2-dots i{width:5px;height:5px;border-radius:50%;background:var(--c);display:block}
+.cal2-dots .more{font-size:9px;font-weight:800;color:var(--ink-3);line-height:5px}
+@media(hover:hover){.cal2-day:hover{background:#F2F5FB}}
+.cal2-agenda{display:grid;gap:7px}
+.cal2-ev{width:100%;display:grid;grid-template-columns:4px 1fr;gap:10px;text-align:left;
+  padding:11px 12px 11px 0;border-radius:12px;background:var(--surface);border:1.5px solid var(--line);
+  overflow:hidden;transition:all .14s}
+.cal2-ev .bar{background:var(--c);align-self:stretch;border-radius:0}
+.cal2-ev .tx{min-width:0;padding:0 2px}
+.cal2-ev .t1{font-size:14.5px;font-weight:800;letter-spacing:-.2px;line-height:1.35;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal2-ev .t2{font-size:13px;color:var(--ink-2);margin-top:2px;font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal2-ev .k{display:inline-block;font-size:11.5px;font-weight:800;color:var(--c);
+  background:color-mix(in srgb,var(--c) 13%,transparent);border-radius:6px;padding:1px 6px;margin-right:5px}
+.cal2-ev.on{border-color:var(--c);box-shadow:0 4px 12px rgba(16,24,40,.09)}
+@media(hover:hover){.cal2-ev:hover{border-color:var(--c)}}
+.cal2-empty{color:var(--ink-3);font-size:14px;padding:14px 2px}
+.cal2-gcal{border-radius:var(--r-lg)}
+.cal2-gcal summary{cursor:pointer;font-size:15px;font-weight:800;letter-spacing:-.3px;
+  list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.cal2-gcal summary::-webkit-details-marker{display:none}
+.cal2-gcal summary::after{content:'⌄';font-size:17px;color:var(--ink-3);transition:transform .18s}
+.cal2-gcal[open] summary::after{transform:rotate(180deg)}
+.cal2-gcal iframe{display:block;width:100%;height:640px;border:0;background:#fff;
+  border-radius:12px;margin-top:12px}
+.cal2-gcal .calendar-hint{border-top:0;padding:9px 2px 0}
+@media(max-width:480px){
+  .cal2-day{min-height:40px}.cal2-day .d{font-size:13px;width:23px;height:23px}
+  .cal2-gcal iframe{height:520px}
+}
 
 /* ═══ 히어로 배너 ═══ */
 /* ── 상단 헤더 ─────────────────────────────────────────────────
@@ -258,6 +315,12 @@ svg.bi{width:1.05em;height:1.05em;flex:none;fill:currentColor;vertical-align:-.1
 .hero h2{font-size:22px;font-weight:700;letter-spacing:-.5px;margin:1px 0 0;line-height:1.2}
 .hero .hero-sub{display:block;font-size:13px;font-weight:600;letter-spacing:.3px;
   color:rgba(255,255,255,.5);margin-top:2px}
+/* 집계 기간(2026-08-05 지시) — "이 숫자가 언제부터 언제까지인지"를 제목 옆에 못 박는다.
+   기간이 없으면 750건이 올해 전체인지 이번 달인지 읽는 사람이 알 수 없다. */
+.hero .hero-period{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:4px 10px;
+  border-radius:999px;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.18);
+  font-size:12.5px;font-weight:700;color:rgba(255,255,255,.92);font-variant-numeric:tabular-nums}
+.hero .hero-period small{font-weight:600;color:rgba(255,255,255,.6);font-size:12px}
 /* 통계: 줄바꿈으로 어긋나지 않게 균등 칸. 숫자는 자릿수가 흔들리지 않는 tabular-nums. */
 /* ★ 균등 grid(1fr)로 하면 칸 폭이 같아져 "460,119,530원" 같은 긴 값이 잘렸다.
    내용에 맞춰 늘어나는 flex 로 바꾼다 — 긴 항목은 넓게, 짧은 항목은 좁게 가져가고
@@ -1799,6 +1862,7 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
         <div class="hero-title">
           <div class="hi" id="heroDate"></div>
           <h2>업무 현황<span class="hero-sub">Coupang Service Operations</span></h2>
+          <div class="hero-period" id="heroPeriod" hidden></div>
         </div>
         <div class="badge"><span class="dot" style="box-shadow:none"></span><span id="heroAgent">에이전트 대기</span></div>
       </div>
@@ -2605,43 +2669,47 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 
 	  <!-- 쿠팡 캘린더: Google 전체 보기 + 원장 대조 캐시 상세 + 사용자 확인형 일정 입력 -->
   <section class="view" id="v-calendar">
-    <div class="calendar-hero">
-      <div>
-        <div class="eyebrow" style="color:#BFD0FF">COUPANG SCHEDULE</div>
-        <h2>쿠팡 캘린더</h2>
-        <p>전체 일정은 월간 화면으로 보고, 원장과 연결된 세부 정보는 오른쪽에서 확인합니다.</p>
-      </div>
+    <div class="cal2-head">
+      <div class="ios-large"><h2>쿠팡 캘린더</h2>
+        <p class="sub">정기점검·돌발AS 일정을 한 달 격자로 봅니다. 위 칩을 눌러 보고 싶은 종류만 남기세요.</p></div>
       <div class="actions" style="grid-template-columns:repeat(2,max-content);margin:0">
-      <button class="abtn" onclick="refreshCalendarPage()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-repeat"/></svg>목록 새로고침</button>
-      <button class="abtn primary" onclick="focusCalendarEntry()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>일정 입력</button>
+        <button class="abtn" onclick="refreshCalendarPage()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-repeat"/></svg>새로고침</button>
+        <button class="abtn primary" onclick="focusCalendarEntry()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>일정 입력</button>
       </div>
     </div>
 
-    <div class="calendar-layout">
-      <div class="card calendar-frame">
-        <div class="calendar-frame-head">
-          <h3>전체 캘린더</h3>
-          <a href="https://calendar.google.com/calendar/embed?src=053a21a7e074aac2e58c27f305247c1cd6481d50841c1dfc9b83cdad2d3e876b%40group.calendar.google.com&amp;ctz=Asia%2FSeoul" target="_blank" rel="noopener">새 창으로 보기 ↗</a>
-        </div>
-        <iframe id="coupangCalendarFrame"
-          title="쿠팡 설치·납품·AS 캘린더"
-          src="https://calendar.google.com/calendar/embed?src=053a21a7e074aac2e58c27f305247c1cd6481d50841c1dfc9b83cdad2d3e876b%40group.calendar.google.com&amp;ctz=Asia%2FSeoul"
-          loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
-        <p class="calendar-hint">일정 수정·저장은 Google Calendar 권한이 있는 계정에서만 가능합니다. 아래 입력란은 내용을 확인한 뒤 Google Calendar의 새 일정 화면으로 전달합니다.</p>
-      </div>
+    <!-- 종류 필터(2026-08-05 지시) — 여러 개를 켜고 끌 수 있다. 하나만 보고 싶을 때는
+         칩을 길게 누르지 않아도 되게 '이것만' 버튼을 따로 두지 않고, 전체 토글로 해결한다. -->
+    <div class="cal2-filters" id="calFilters" role="group" aria-label="일정 종류 필터"></div>
+    <div class="calendar-meta" id="calendarMeta">일정 캐시를 불러오는 중입니다.</div>
 
-      <div class="calendar-side">
-        <div class="card">
-          <h3>원장 대조 일정</h3>
-          <div class="calendar-meta" id="calendarMeta">일정 캐시를 불러오는 중입니다.</div>
-          <div class="calendar-event-list" id="calendarEventList"></div>
-        </div>
-        <div class="card">
-          <h3>세부 사항</h3>
-          <div class="calendar-detail" id="calendarDetail">목록에서 일정을 선택하면 프로젝트·캠프·연결 상태를 확인할 수 있습니다.</div>
-        </div>
+    <div class="card cal2-card">
+      <div class="cal2-nav">
+        <button type="button" onclick="calMonthShift(-1)" aria-label="이전 달">‹</button>
+        <b id="calMonthLabel">—</b>
+        <button type="button" onclick="calMonthShift(1)" aria-label="다음 달">›</button>
+        <button type="button" class="cal2-today" onclick="calGoToday()">오늘</button>
       </div>
+      <div class="cal2-dow" aria-hidden="true"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>
+      <div class="cal2-grid" id="calGrid"></div>
     </div>
+
+    <div class="ios-sec-h" id="calAgendaHead">선택한 날</div>
+    <div class="card ios-inset"><div class="cal2-agenda" id="calAgenda"></div></div>
+
+    <div class="ios-sec-h">세부 사항</div>
+    <div class="card ios-inset">
+      <div class="calendar-detail" id="calendarDetail">위 목록에서 일정을 선택하면 프로젝트·캠프·연결 상태를 확인할 수 있습니다.</div>
+    </div>
+
+    <details class="card cal2-gcal">
+      <summary>구글 캘린더 전체 월간 보기</summary>
+      <iframe id="coupangCalendarFrame"
+        title="쿠팡 설치·납품·AS 캘린더"
+        src="https://calendar.google.com/calendar/embed?src=053a21a7e074aac2e58c27f305247c1cd6481d50841c1dfc9b83cdad2d3e876b%40group.calendar.google.com&amp;ctz=Asia%2FSeoul"
+        loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+      <p class="calendar-hint">일정 수정·저장은 Google Calendar 권한이 있는 계정에서만 가능합니다. 아래 입력란은 내용을 확인한 뒤 Google Calendar의 새 일정 화면으로 전달합니다.</p>
+    </details>
 
     <div class="card calendar-entry" id="calendarEntry">
       <h3>일정 입력 확인</h3>
@@ -4741,6 +4809,9 @@ async function loadStatus(){
   const now = new Date();
   $('heroDate').textContent = now.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
   $('heroAgent').textContent = '에이전트 ' + (s.agent_last ? s.agent_last.slice(5,16) + ' 실행' : '대기');
+  // 집계 기간(2026-08-05 지시): "몇월 몇일부터 몇월 몇일까지 현황인가".
+  // 임의로 '올해'라고 쓰지 않고 **실제 데이터의 최초·최종 작업일**을 그대로 말한다.
+  renderHeroPeriod(rows);
   const hs = (l,v)=>`<div class="hstat">${l}<b>${v}</b></div>`;
   $('heroStats').innerHTML =
     hs('정산 건수', (rows.length||0)+'건') +
@@ -4759,6 +4830,26 @@ async function loadStatus(){
   if(s.tunnel){ $('tunnelrow').style.display='block';
     $('tunnelurl').textContent = s.tunnel; $('tunnelurl').href = s.tunnel; }
   else $('tunnelrow').style.display='none';
+}
+
+/* 집계 기간 배지 — "이 현황이 몇년 몇월 몇일부터 몇월 몇일까지인가" (2026-08-05 지시).
+   기준은 **작업 완료일**이다. 완료일이 없는 건(진행 중)은 기간을 정하는 데 쓰지 않고
+   대신 몇 건인지 함께 적는다 — 기간 밖의 숫자가 있는데 없는 척하면 그게 더 나쁘다. */
+function heroPeriodOf(rows){
+  const ds=(rows||[]).map(r=>String((r&&r.완료일)||'').trim())
+    .filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+  const open=(rows||[]).length-ds.length;
+  return ds.length ? {from:ds[0], to:ds[ds.length-1], open:open, total:(rows||[]).length} : null;
+}
+function ymd(s){ const [y,m,d]=String(s).split('-'); return `${+y}년 ${+m}월 ${+d}일`; }
+function renderHeroPeriod(rows){
+  const el=$('heroPeriod'); if(!el) return;
+  const p=heroPeriodOf(rows);
+  if(!p){ el.hidden=true; el.textContent=''; return; }
+  el.hidden=false;
+  el.innerHTML = `${esc2(ymd(p.from))} ~ ${esc2(ymd(p.to))} 현황`
+    + `<small>· 작업 완료일 기준 · ${p.total}건`
+    + (p.open?` (완료일 미기입 ${p.open}건 포함)`:'') + `</small>`;
 }
 
 /* ── 정산·업무 ── */
@@ -5928,42 +6019,176 @@ function calLine(e){
 let calendarSelected = 0;
 const COUPANG_CALENDAR_ID = '053a21a7e074aac2e58c27f305247c1cd6481d50841c1dfc9b83cdad2d3e876b@group.calendar.google.com';
 
-function calendarRows(){
-  return calEvents().slice().sort((a,b)=>{
-    const aa=`${a.날짜||''} ${a.시간||''}`, bb=`${b.날짜||''} ${b.시간||''}`;
-    return aa.localeCompare(bb, 'ko');
-  });
+/* ═══ 쿠팡 캘린더 2판 (2026-08-05 지시) ═══
+   ① 종류 필터: 서버가 주는 `분류` 키로 건다(한글 라벨로 걸면 문구가 바뀔 때 조용히 깨진다).
+   ② 월 격자: "8월에 무슨 일이 있나"는 목록이 아니라 달력 모양이어야 한 눈에 들어온다.
+   ③ 선택한 날의 일정만 아래에 세운다 — 910건을 한 줄로 늘어놓지 않는다.
+   필터·보고 있던 달은 localStorage 에 남긴다(새로고침해도 보던 자리로 돌아온다). */
+const CAL_FALLBACK_KINDS = [
+  {key:'pm_plan', label:'정기점검 예정', color:'#0A84FF'},
+  {key:'pm_pred', label:'정기점검 예측', color:'#5E5CE6'},
+  {key:'pm_done', label:'정기점검 완료', color:'#30D158'},
+  {key:'as_visit',label:'돌발AS 방문예정', color:'#FF9F0A'},
+  {key:'as_done', label:'돌발AS 완료',   color:'#34C759'},
+  {key:'etc',     label:'기타 일정',     color:'#8E8E93'},
+];
+let CAL_OFF = new Set();        // 꺼 둔 종류(기본은 전부 켬)
+let CAL_MONTH = '';             // 'YYYY-MM'
+let CAL_DAY = '';               // 'YYYY-MM-DD'
+try{
+  const saved = JSON.parse(localStorage.getItem('csos.cal.off')||'[]');
+  if(Array.isArray(saved)) CAL_OFF = new Set(saved);
+}catch(e){}
+
+function calKinds(){ return (CAL && CAL.분류목록) || CAL_FALLBACK_KINDS; }
+function calKindOf(e){ return String((e&&e.분류)||'etc'); }
+function calKindMeta(key){
+  return calKinds().find(k=>k.key===key) || {key:key, label:key||'기타', color:'#8E8E93'};
+}
+function calendarRows(){        // 필터를 통과한 일정만
+  return calEvents().filter(e=>!CAL_OFF.has(calKindOf(e)));
 }
 function calendarWhen(e){
   return `${e.날짜||'-'}${e.시간 ? ` ${e.시간}` : ' 종일'}`;
 }
-function renderCalendarPage(){
-  const list=$('calendarEventList'), meta=$('calendarMeta'), detail=$('calendarDetail');
-  if(!list || !meta || !detail) return;
-  const rows=calendarRows(), hidden=calHiddenCount(), unmatched=rows.filter(e=>!e.원천업무ID).length;
-  meta.textContent = `갱신 ${(CAL&&CAL.갱신)||'-'} · 2026년 ${rows.length}건 · 원장 미연결 ${unmatched}건`+
-    ((CAL&&CAL.예측일정수) ? ` · 과거 이력 예측 ${CAL.예측일정수}건` : '')+
-    (hidden ? ` · 철거·납품 ${hidden}건은 관리대장 보관` : '');
+function calMonthOf(d){ return String(d||'').slice(0,7); }
+function calDefaultMonth(){
+  const rows=calendarRows();
+  const today=new Date(), tm=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+  if(rows.some(e=>calMonthOf(e.날짜)===tm)) return tm;      // 이번 달에 일정이 있으면 이번 달
+  const ms=[...new Set(rows.map(e=>calMonthOf(e.날짜)).filter(Boolean))].sort();
+  return ms.find(m=>m>=tm) || ms[ms.length-1] || tm;        // 없으면 가장 가까운 앞날
+}
+function calMonthShift(n){
+  const [y,m]=(CAL_MONTH||calDefaultMonth()).split('-').map(Number);
+  const d=new Date(y, m-1+n, 1);
+  CAL_MONTH=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  CAL_DAY=''; calendarSelected=0;
+  try{ localStorage.setItem('csos.cal.month', CAL_MONTH); }catch(e){}
+  renderCalendarPage();
+}
+function calGoToday(){
+  const t=new Date();
+  CAL_MONTH=`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}`;
+  CAL_DAY=`${CAL_MONTH}-${String(t.getDate()).padStart(2,'0')}`;
+  calendarSelected=0;
+  try{ localStorage.setItem('csos.cal.month', CAL_MONTH); }catch(e){}
+  renderCalendarPage();
+}
+function calToggleKind(key){
+  if(CAL_OFF.has(key)) CAL_OFF.delete(key); else CAL_OFF.add(key);
+  // 전부 꺼 버리면 빈 달력만 남아 고장으로 보인다 — 마지막 하나는 도로 켠다.
+  if(CAL_OFF.size >= calKinds().length){ CAL_OFF.delete(key); toast('한 종류는 남겨 두세요'); }
+  try{ localStorage.setItem('csos.cal.off', JSON.stringify([...CAL_OFF])); }catch(e){}
+  calendarSelected=0; renderCalendarPage();
+  uxEvent('tap','calFilter',key);
+}
+function calPickDay(day){ CAL_DAY=day; calendarSelected=0; renderCalendarPage(); uxEvent('tap','calDay',day); }
+function calDayRows(day){
+  return calendarRows().filter(e=>e.날짜===day);
+}
+function renderCalFilters(){
+  const host=$('calFilters'); if(!host) return;
+  const all=calEvents(), n={};
+  all.forEach(e=>{ const k=calKindOf(e); n[k]=(n[k]||0)+1; });
+  host.innerHTML = calKinds().filter(k=>n[k.key]).map(k=>{
+    const on=!CAL_OFF.has(k.key);
+    return `<button type="button" class="cal2-chip ${on?'on':'off'}" style="--c:${k.color}"
+      aria-pressed="${on}" onclick="calToggleKind('${k.key}')">
+      <span class="dotc" aria-hidden="true"></span>${esc2(k.label)}<span class="n">${n[k.key]}</span></button>`;
+  }).join('') || '<span class="cal2-empty">표시할 일정 종류가 없습니다</span>';
+}
+function renderCalGrid(){
+  const grid=$('calGrid'), label=$('calMonthLabel'); if(!grid||!label) return;
+  if(!CAL_MONTH) CAL_MONTH = calDefaultMonth();
+  const [y,m]=CAL_MONTH.split('-').map(Number);
+  label.textContent = `${y}년 ${m}월`;
+  const first=new Date(y, m-1, 1), start=new Date(y, m-1, 1-first.getDay());
+  const today=new Date(); today.setHours(0,0,0,0);
+  const byDay={};
+  calendarRows().forEach(e=>{ (byDay[e.날짜]=byDay[e.날짜]||[]).push(e); });
+  if(!CAL_DAY || calMonthOf(CAL_DAY)!==CAL_MONTH){
+    // 그 달에서 일정이 있는 첫 날을 자동으로 고른다 — 빈 날을 보여 주면 한 번 더 눌러야 한다.
+    const days=Object.keys(byDay).filter(d=>calMonthOf(d)===CAL_MONTH).sort();
+    const tds=`${y}-${String(m).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    CAL_DAY = (days.includes(tds) ? tds : days[0]) || `${CAL_MONTH}-01`;
+  }
+  let html='';
+  for(let i=0;i<42;i++){
+    const d=new Date(start.getFullYear(), start.getMonth(), start.getDate()+i);
+    const iso=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const evs=byDay[iso]||[];
+    const cls=['cal2-day'];
+    if(calMonthOf(iso)!==CAL_MONTH) cls.push('out');
+    if(d.getDay()===0) cls.push('sun'); if(d.getDay()===6) cls.push('sat');
+    if(d.getTime()===today.getTime()) cls.push('today');
+    if(iso===CAL_DAY) cls.push('on');
+    const kinds=[...new Set(evs.map(calKindOf))].slice(0,4);
+    const dots=kinds.map(k=>`<i style="--c:${calKindMeta(k).color}"></i>`).join('')
+      + (evs.length>kinds.length?'<span class="more">+</span>':'');
+    html+=`<button type="button" class="${cls.join(' ')}" onclick="calPickDay('${iso}')"
+      aria-label="${iso} 일정 ${evs.length}건"><span class="d">${d.getDate()}</span>
+      <span class="cal2-dots">${dots}</span></button>`;
+  }
+  grid.innerHTML=html;
+}
+function renderCalAgenda(){
+  const box=$('calAgenda'), head=$('calAgendaHead'), detail=$('calendarDetail');
+  if(!box||!head||!detail) return;
+  const rows=calDayRows(CAL_DAY);
+  head.innerHTML = `${esc2(CAL_DAY?ymd(CAL_DAY):'선택한 날')} <span>· ${rows.length}건</span>`;
   if(!rows.length){
-    list.innerHTML=`<div class="muted">${esc2((CAL&&CAL.안내)||'아직 수집된 원장 대조 일정이 없습니다.')}</div>`;
-    detail.textContent='Google Calendar의 전체 일정은 왼쪽 월간 화면에서 확인할 수 있습니다.';
+    box.innerHTML='<div class="cal2-empty">이 날에는 표시할 일정이 없습니다</div>';
+    detail.textContent='날짜를 고르면 그 날의 일정과 세부 사항이 여기에 나옵니다.';
     return;
   }
   calendarSelected=Math.max(0, Math.min(calendarSelected, rows.length-1));
-  list.innerHTML=rows.map((e,i)=>`<button type="button" class="calendar-event ${i===calendarSelected?'on':''}" onclick="selectCalendarEvent(${i})">
-    <span class="when">${esc2(calendarWhen(e))}</span><span><span class="what">${esc2(e.제목||'제목 없음')}</span>
-    <span class="sub">${esc2(e.프로젝트NO||'프로젝트 미확정')} · ${esc2(e.캠프명||e.장소||e.업무구분||'캠프 미상')}</span></span></button>`).join('');
-  const e=rows[calendarSelected];
+  box.innerHTML=rows.map((e,i)=>{
+    const k=calKindMeta(calKindOf(e));
+    return `<button type="button" class="cal2-ev ${i===calendarSelected?'on':''}" style="--c:${k.color}"
+      onclick="selectCalendarEvent(${i})"><span class="bar" aria-hidden="true"></span><span class="tx">
+      <span class="t1"><span class="k">${esc2(k.label)}</span>${esc2(e.캠프명||e.장소||e.제목||'제목 없음')}</span>
+      <span class="t2">${esc2(e.프로젝트NO||'프로젝트 미확정')}${e.담당기사?` · ${esc2(e.담당기사)}`:''}${e.시간?` · ${esc2(e.시간)}`:''}</span>
+      </span></button>`;
+  }).join('');
+  const e=rows[calendarSelected], k=calKindMeta(calKindOf(e));
   detail.innerHTML=`<div class="detail-title"><b>${esc2(e.제목||'제목 없음')}</b></div><dl>
     <dt>일시</dt><dd>${esc2(calendarWhen(e))}</dd>
+    <dt>종류</dt><dd>${esc2(k.label)}</dd>
     <dt>프로젝트</dt><dd>${esc2(e.프로젝트NO||'미확정')}</dd>
     <dt>캠프·장소</dt><dd>${esc2(e.캠프명||e.장소||'미입력')}</dd>
-    <dt>업무구분</dt><dd>${esc2(e.업무구분||'미상')}</dd>
+    ${e.담당기사?`<dt>담당기사</dt><dd>${esc2(e.담당기사)}</dd>`:''}
+    ${e.진행상태?`<dt>진행상태</dt><dd>${esc2(e.진행상태)}</dd>`:''}
+    ${e.긴급도?`<dt>긴급도</dt><dd>${esc2(e.긴급도)}</dd>`:''}
+    ${e.유무상?`<dt>유·무상</dt><dd>${esc2(e.유무상)}</dd>`:''}
+    ${e.이상발견?`<dt>이상 발견</dt><dd>${esc2(e.이상발견)}</dd>`:''}
     <dt>원장 연결</dt><dd>${esc2(e.원천업무ID||'미연결 — 확인 필요')}</dd>
     <dt>${e.예측?'예측 근거':'연결 근거'}</dt><dd>${esc2(e.연결근거||'없음')}${e.장비수?` · ${esc2(e.장비수)}대`:''}</dd>
     ${e.예측?`<dt>주의</dt><dd>과거 점검일로 계산한 예상일입니다. 공식 일정 확정 전이며 Google Calendar에는 자동 저장하지 않습니다.</dd>`:''}</dl>`;
 }
-function selectCalendarEvent(index){ calendarSelected=index; renderCalendarPage(); }
+function renderCalendarPage(){
+  const grid=$('calGrid'), meta=$('calendarMeta');
+  if(!grid || !meta) return;
+  if(!CAL_MONTH){
+    try{ CAL_MONTH = localStorage.getItem('csos.cal.month')||''; }catch(e){}
+  }
+  const all=calEvents(), rows=calendarRows(), hidden=calHiddenCount();
+  const unmatched=rows.filter(e=>!e.원천업무ID).length;
+  meta.textContent = `갱신 ${(CAL&&CAL.갱신)||'-'} · 전체 ${all.length}건 중 ${rows.length}건 표시`
+    + (unmatched ? ` · 원장 미연결 ${unmatched}건` : '')
+    + ((CAL&&CAL.예측일정수) ? ` · 과거 이력 예측 ${CAL.예측일정수}건` : '')
+    + (hidden ? ` · 철거·납품 ${hidden}건은 관리대장 보관` : '');
+  renderCalFilters();
+  if(!all.length){
+    grid.innerHTML=`<div class="cal2-empty" style="grid-column:1/-1">${esc2((CAL&&CAL.안내)||'아직 수집된 일정이 없습니다.')}</div>`;
+    $('calMonthLabel').textContent='—';
+    $('calAgenda').innerHTML='';
+    return;
+  }
+  renderCalGrid();
+  renderCalAgenda();
+}
+function selectCalendarEvent(index){ calendarSelected=index; renderCalAgenda(); }
 async function refreshCalendarPage(){ await loadCalendar(); toast('캘린더 대조 목록을 새로고침했습니다'); }
 function openCalendar(){ show('calendar'); }
 function focusCalendarEntry(){
@@ -6007,6 +6232,11 @@ const SRC_GROUPS = [
   {key:'',      label:'전체',       ic:'📁', color:'#8E8E93', kinds:null},
   {key:'tax',   label:'세금계산서',  ic:'세', color:'#FF375F', kinds:['ERP:taxinv','ERP:tax','ERP:hometax'], path:'세금계산서_건별'},
   {key:'stmt',  label:'거래명세서',  ic:'명', color:'#FF9F0A', kinds:['ERP:stmt','ERP 거래명세서(건별 PDF)'], path:'거래명세서_건별'},
+  /* 판매전표(2026-08-05 지시) — 이카운트에서 '판매조회 = 판매전표'이고 그 출력물이
+     거래명세서다(billing_fill.py 머리말). 그동안 ERP 뭉치에 섞여 있어 청구 근거를
+     찾으려면 1,293건을 뒤져야 했다. 이름으로도 잡아 파일명이 난수인 내보내기까지 모은다. */
+  {key:'slip',  label:'판매전표',    ic:'전', color:'#00C7BE', kinds:['ERP:sales'],
+   re:/판매조회|판매전표/, path:'판매전표'},
   {key:'band',  label:'밴드',       ic:'밴', color:'#30D158', kinds:['밴드','밴드 게시글(보관)','밴드 문서사진']},
   {key:'kakao', label:'카톡',       ic:'톡', color:'#FFD60A', kinds:['카톡']},
   {key:'erp',   label:'ERP',       ic:'E',  color:'#0A84FF', kinds:['ERP','ERP:sales','ERP:ledger','ERP:slips','ERP:po']},
@@ -6020,6 +6250,7 @@ function srcGroupOf(r){
     if(!g.key) continue;
     if(g.path && (r.path||'').includes(g.path)) return g;
     if(g.kinds && g.kinds.includes(r.kind)) return g;
+    if(g.re && g.re.test(String(r.name||''))) return g;
   }
   return SRC_GROUPS[SRC_GROUPS.length-1];
 }

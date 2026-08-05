@@ -3566,6 +3566,68 @@ def get_recalc_pending():
         return {"대기합계": 0, "항목": [], "안내": ""}
 
 
+# ── 캘린더 분류(2026-08-05 지시: "돌발 AS·정기점검 등 선택한 항목만 볼 수 있게") ──
+#    화면 필터는 **한글 라벨이 아니라 이 키**로 건다. 라벨은 문장이 바뀌면 같이 바뀌고,
+#    그때마다 필터가 조용히 아무것도 못 걸러내는 상태가 된다.
+CAL_KINDS = [
+    ("pm_plan",  "정기점검 예정",   "#0A84FF"),
+    ("pm_pred",  "정기점검 예측",   "#5E5CE6"),
+    ("pm_done",  "정기점검 완료",   "#30D158"),
+    ("as_visit", "돌발AS 방문예정", "#FF9F0A"),
+    ("as_done",  "돌발AS 완료",     "#34C759"),
+    ("etc",      "기타 일정",       "#8E8E93"),
+]
+
+
+def _calendar_work_events():
+    """돌발AS·정기점검 실적을 캘린더 일정으로 바꾼다.
+
+    캘린더에 정기점검 예정만 있으면 "오늘 무슨 일이 있었나"를 볼 수 없다. 원장에
+    이미 날짜가 있는 것(방문예정일·작업완료일·실제점검일)을 일정으로 세워 두면
+    같은 화면에서 예정과 실적을 나란히 본다. **원장에 있는 날짜만** 쓴다 —
+    없는 날짜를 추정해 캘린더에 그리지 않는다.
+    """
+    out = []
+    try:
+        works = get_works() or {}
+    except Exception:
+        return out
+
+    def add(when, kind, title, row, extra=None):
+        d = norm_date(when)
+        if not d:
+            return
+        e = {
+            "날짜": d, "시간": "", "제목": title,
+            "장소": row.get("캠프명") or "", "캠프명": row.get("캠프명") or "",
+            "업무구분": dict((k, l) for k, l, _c in CAL_KINDS).get(kind, kind),
+            "분류": kind,
+            "프로젝트NO": str(row.get("프로젝트NO") or "").split(" · ")[0],
+            "원천업무ID": row.get("접수ID") or row.get("점검ID") or "",
+            "담당기사": row.get("담당기사") or "",
+            "연결근거": "관리대장 원장에 기록된 날짜",
+            "예측": False, "예측신뢰도": "", "장비수": 0,
+        }
+        e.update(extra or {})
+        out.append(e)
+
+    for r in works.get("as") or []:
+        camp = r.get("캠프명") or "캠프 미상"
+        if not r.get("작업완료일"):        # 아직 안 끝난 건만 '예정'으로 세운다
+            add(r.get("방문예정일"), "as_visit", f"돌발AS 방문 · {camp}", r,
+                {"연결근거": "02_돌발AS접수 방문예정일",
+                 "긴급도": r.get("긴급도") or "", "진행상태": r.get("진행상태") or ""})
+        add(r.get("작업완료일"), "as_done", f"돌발AS 완료 · {camp}", r,
+            {"연결근거": "02_돌발AS접수 작업완료일",
+             "유무상": r.get("유상·무상·보험") or ""})
+    for r in works.get("pm") or []:
+        camp = r.get("캠프명") or "캠프 미상"
+        add(r.get("실제점검일"), "pm_done", f"정기점검 완료 · {camp}", r,
+            {"연결근거": "04_정기점검 실제점검일",
+             "이상발견": r.get("이상발견여부") or ""})
+    return out
+
+
 def get_calendar():
     """구글 캘린더(COUPANG 설치+납품+AS) 대조 캐시.
 
@@ -3607,6 +3669,7 @@ def get_calendar():
                 "장소": row.get("캠프명") or "",
                 "캠프명": row.get("캠프명") or "",
                 "업무구분": "정기점검 예정(예측)" if not official else "정기점검 예정",
+                "분류": "pm_pred" if not official else "pm_plan",
                 "프로젝트NO": str(row.get("연결프로젝트NO") or "").split(" · ")[0],
                 "원천업무ID": row.get("일정ID") or "",
                 "연결근거": (row.get("예측근거") if not official else
@@ -3622,14 +3685,38 @@ def get_calendar():
             events.append(event)
             added += 1
             predicted_count += int(not bool(official))
-        d["일정"] = sorted(events, key=lambda e: (
-            str(e.get("날짜") or "9999"), str(e.get("시간") or ""), str(e.get("제목") or "")))
+        d["일정"] = events
         d["정기점검추가"] = added
         d["예측일정수"] = predicted_count
         d["원천"] = list(dict.fromkeys(list(d.get("원천") or []) +
                                   ["류지영 정기점검 스케줄 원본(공식·과거 이력 예측)"]))
     except Exception:
         pass
+
+    # 돌발AS·정기점검 실적을 합친다(2026-08-05 지시). 같은 날·같은 캠프·같은 분류가
+    # 두 번 들어가지 않게 키로 막는다 — 캘린더에 같은 일이 두 줄이면 세다가 틀린다.
+    try:
+        events = list(d.get("일정") or [])
+        seen = {(str(e.get("날짜") or ""), str(e.get("분류") or ""),
+                 str(e.get("원천업무ID") or e.get("캠프명") or "")) for e in events}
+        for e in _calendar_work_events():
+            key = (e["날짜"], e["분류"], str(e.get("원천업무ID") or e.get("캠프명") or ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            events.append(e)
+        d["일정"] = events
+        d["원천"] = list(dict.fromkeys(list(d.get("원천") or []) +
+                                       ["관리대장 02_돌발AS접수·04_정기점검 실적"]))
+    except Exception:
+        pass
+
+    # 분류가 없는 옛 일정(Google 원천 등)도 필터에 걸리도록 자리를 준다.
+    for e in d.get("일정") or []:
+        e.setdefault("분류", "etc")
+    d["일정"] = sorted(d.get("일정") or [], key=lambda e: (
+        str(e.get("날짜") or "9999"), str(e.get("시간") or ""), str(e.get("제목") or "")))
+    d["분류목록"] = [{"key": k, "label": l, "color": c} for k, l, c in CAL_KINDS]
     return d
 
 

@@ -3522,7 +3522,9 @@ def t75_gcal_sync():
     # 비공개 iCal 주소/config는 절대 브라우저에 전달하지 않는다.
     assert "loadCalendar" in live and "openCalendar" in live and "show('calendar')" in live
     assert "calendar.google.com/calendar/embed" in live and "COUPANG_CALENDAR_ID" in live
-    assert "openGoogleCalendarDraft" in live and "calendarEventList" in live
+    # 캐시 일정을 앱이 직접 그린다. 2026-08-05 부터 한 줄 목록(calendarEventList)이 아니라
+    # 월 격자(calGrid)+그 날 목록(calAgenda) 이다 — 검증 [102].
+    assert "openGoogleCalendarDraft" in live and 'id="calAgenda"' in live and 'id="calGrid"' in live
     assert "config/gcal.json" not in live and ".ics" not in live, "비공개 일정 원천이 앱에 노출됐다"
     assert "gcal_sync.py" in daily
     print("  [75] 구글 캘린더 — 예정열만·구분일치·비밀주소 보호·캐시/공개전체보기 ✅")
@@ -4439,6 +4441,70 @@ def t101_percent_and_no_erp_post():
     print("  [101] 비율 소수점 1자리·미완료 100% 금지 · ERP 전표 실전송 제거 · 수집기 숨은탭 대응 ✅")
 
 
+def t102_calendar_filter_and_period():
+    """[102] 캘린더 종류 필터·월 격자 · 업무현황 집계 기간 · 원본자료 판매전표 (2026-08-05 지시).
+
+    세 지시가 한 뿌리다: **화면이 무엇을 말하는지 분명히 하라**.
+      · "이 현황이 몇년도 몇월 몇일부터 몇월 몇일까지인지 표시"
+      · "돌발 AS, 정기 점검 등 선택한 항목만 볼 수 있게 필터 추가"
+      · "원본 자료 항목에 판매전표 추가"
+    """
+    from webapp import app_server as S
+
+    # (1) 캘린더 분류 키는 화면 필터가 거는 손잡이다 — 라벨이 아니라 키로 건다.
+    keys = [k for k, _l, _c in S.CAL_KINDS]
+    for need in ("pm_plan", "pm_pred", "pm_done", "as_visit", "as_done"):
+        assert need in keys, "캘린더 분류 %s 가 없다" % need
+
+    # (2) 원장 날짜만 일정으로 세운다 — 없는 날짜를 지어내면 캘린더가 거짓말을 한다.
+    saved = getattr(S, "get_works")
+    try:
+        S.get_works = lambda: {
+            "as": [
+                {"접수ID": "AS-1", "캠프명": "가캠프", "방문예정일": "2026-08-10",
+                 "작업완료일": "", "담당기사": "김준형", "긴급도": "높음"},
+                {"접수ID": "AS-2", "캠프명": "나캠프", "방문예정일": "2026-08-01",
+                 "작업완료일": "2026-08-02", "담당기사": "권오철"},
+                {"접수ID": "AS-3", "캠프명": "다캠프", "방문예정일": "", "작업완료일": ""},
+            ],
+            "pm": [{"점검ID": "PM-1", "캠프명": "라캠프", "실제점검일": "2026-08-03"},
+                   {"점검ID": "PM-2", "캠프명": "마캠프", "실제점검일": ""}],
+        }
+        evs = S._calendar_work_events()
+    finally:
+        S.get_works = saved
+    got = sorted((e["분류"], e["날짜"], e["원천업무ID"]) for e in evs)
+    assert got == [("as_done", "2026-08-02", "AS-2"),
+                   ("as_visit", "2026-08-10", "AS-1"),
+                   ("pm_done", "2026-08-03", "PM-1")], got
+    # 이미 끝난 건의 방문예정일을 '예정'으로 다시 세우지 않는다(AS-2 는 완료만 남아야 한다).
+    assert not [e for e in evs if e["분류"] == "as_visit" and e["원천업무ID"] == "AS-2"]
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    # (3) 화면: 필터 칩·월 격자·그 날 일정. 예전의 '한 줄로 늘어선 목록'으로 돌아가지 않는다.
+    for fn in ("function renderCalFilters(", "function renderCalGrid(",
+               "function renderCalAgenda(", "function calToggleKind(",
+               "function calMonthShift(", "function calGoToday("):
+        assert fn in live, "%s 가 없다" % fn
+    assert 'id="calFilters"' in live and 'id="calGrid"' in live and 'id="calAgenda"' in live
+    assert 'id="calendarEventList"' not in live, "옛 한 줄 목록이 남아 있다"
+    assert "calendar-layout" not in live.replace("옛 2단 배치(.calendar-layout", ""), \
+        "옛 2단 배치가 남아 있다"
+    assert "CAL_OFF.has(calKindOf(e))" in live, "필터가 실제로 걸리지 않는다"
+    assert "csos.cal.off" in live, "고른 필터가 새로고침에 사라진다"
+
+    # (4) 업무 현황 집계 기간 — 완료일이 있는 건만으로 기간을 잡고, 나머지는 건수로 밝힌다.
+    assert 'id="heroPeriod"' in live and "function heroPeriodOf(" in live
+    assert "renderHeroPeriod(rows)" in live, "히어로가 기간을 그리지 않는다"
+    assert "완료일 미기입" in live, "기간 밖 건수를 숨기고 있다"
+
+    # (5) 원본 자료 판매전표 갈래
+    assert "label:'판매전표'" in live, "원본 자료에 판매전표 갈래가 없다"
+    assert "re:/판매조회|판매전표/" in live, "이름이 난수인 판매조회 내보내기를 못 잡는다"
+    assert "if(g.re && g.re.test(String(r.name||''))) return g;" in live, "이름 규칙이 배선되지 않았다"
+    print("  [102] 캘린더 종류 필터·월 격자 · 업무현황 집계 기간 · 원본자료 판매전표 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -5343,6 +5409,7 @@ if __name__ == "__main__":
     t99_share_intake_pull()
     t100_erp_pdf_archive()
     t101_percent_and_no_erp_post()
+    t102_calendar_filter_and_period()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:
