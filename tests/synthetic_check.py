@@ -4644,6 +4644,9 @@ def t104_session_scoped_claims():
     # 세션 마무리(PreCompact)가 남의 점유를 풀지 않는지 — 호출 형태로 확인한다.
     wrap = open(os.path.join(ROOT, "session_wrapup.py"), encoding="utf-8").read()
     assert '"--force"' not in wrap, "자동 마무리가 남의 점유까지 강제로 푼다"
+    # 작업 폴더는 세션끼리 공유한다 — 다른 세션이 살아 있으면 푸시를 보류한다.
+    assert "_other_live_sessions" in wrap and "푸시는 보류" in wrap, \
+        "다른 세션이 일하는 중에도 자동 푸시한다(남의 반쯤 고친 코드가 원격으로 간다)"
 
     doc = open(os.path.join(ROOT, "CLAUDE.md"), encoding="utf-8").read()
     assert "주인은 `claude` 가 아니라 **세션**이다" in doc, "동시작업 규칙이 문서에 없다"

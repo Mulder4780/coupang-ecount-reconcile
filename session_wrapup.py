@@ -73,10 +73,25 @@ def step_free_claims(who, steps):
     steps.append({"단계": "② 점유 해제", "성공": ok, "메모": note})
 
 
+def _other_live_sessions():
+    """지금 살아 있는 **다른** 세션이 무엇을 잡고 있나. 없으면 빈 목록."""
+    try:
+        import ai_claim
+        return [v for v in (ai_claim.load() or {}).values()
+                if not ai_claim._is_mine(v, v.get("who")) and not ai_claim._is_dead(v)]
+    except Exception:
+        return []
+
+
 def step_commit(who, reason, steps):
     """미커밋이 있으면 커밋한다. 없으면 아무것도 만들지 않는다.
 
     비밀값 스캔은 커밋 **전에** 한다 — 절대규칙 1. 걸리면 커밋하지 않고 사람에게 넘긴다.
+
+    ★ 다른 세션이 살아 있으면 **푸시하지 않는다** (2026-08-05 실사고).
+      작업 폴더는 세션끼리 공유하므로 `git add -A` 는 옆 세션이 편집 중인 파일까지
+      담는다. 커밋은 해도 잃는 것이 없지만(파일은 디스크에 그대로다), 반쯤 고친 남의
+      코드를 원격 master 로 밀면 그때부터는 남이 치운다. 그래서 로컬까지만 남긴다.
     """
     ok, dirty = git("status", "--porcelain")
     if not ok:
@@ -96,13 +111,21 @@ def step_commit(who, reason, steps):
            "컨텍스트가 차서 대화가 요약되기 전에 남긴 자동 커밋이다.\n"
            "내용 확인은 reports/세션인계.md 와 19_AI작업인수인계 시트를 볼 것."
            % (who, reason))
+    others = _other_live_sessions()
+    if others:
+        msg += ("\n\n다른 세션이 같은 작업 폴더에서 일하는 중이라 이 커밋에는 그쪽 파일이"
+                "\n섞여 있을 수 있다. 그래서 **푸시하지 않았다** — 확인 후 사람이 밀 것.")
     ok, note = git("commit", "-q", "-m", msg)
-    if ok:
-        pushed, pnote = git("push", "-q")
-        steps.append({"단계": "③ 커밋", "성공": True,
-                      "메모": "커밋 완료" + (" · 푸시 완료" if pushed else " · 푸시 실패(커밋은 남음)")})
-    else:
+    if not ok:
         steps.append({"단계": "③ 커밋", "성공": False, "메모": note or "커밋 실패"})
+        return
+    if others:
+        steps.append({"단계": "③ 커밋", "성공": True,
+                      "메모": "커밋 완료 · 다른 세션 %d개가 작업 중이라 푸시는 보류" % len(others)})
+        return
+    pushed, _ = git("push", "-q")
+    steps.append({"단계": "③ 커밋", "성공": True,
+                  "메모": "커밋 완료" + (" · 푸시 완료" if pushed else " · 푸시 실패(커밋은 남음)")})
 
 
 def step_handoff(who, reason, steps):
