@@ -274,15 +274,63 @@ def _daily_checks(master: Path, now: datetime) -> list[dict[str, Any]]:
         )]
     try:
         status_mtime = path.stat().st_mtime
-        if master.stat().st_mtime > status_mtime + 60:
+        master_mtime = master.stat().st_mtime
+        if master_mtime > status_mtime + 60:
+            # ★ 이 알림은 **매일 반드시** 뜬다 — 11:00·15:00 반영이 오전 대조보다 나중이라
+            #   원장이 항상 더 새 것이 된다(2026-08-05). 늘 뜨는 알림은 아무도 안 본다.
+            #   그래서 "우리가 넣은 것"과 "누가 밖에서 만진 것"을 갈라서 말한다.
+            who = _master_change_source(master_mtime)
+            if who:
+                return [_issue(
+                    "daily_status_older_than_master", "P3",
+                    "원장이 일일검증 뒤 반영 회차로 갱신됨(정상)",
+                    f"일일상태 {datetime.fromtimestamp(status_mtime):%H:%M} → 원장 "
+                    f"{datetime.fromtimestamp(master_mtime):%H:%M} · {who}",
+                    "조치 불필요 — 다음 일일 대조가 교차검증한다",
+                )]
             return [_issue(
-                "daily_status_older_than_master", "P2", "최신 원장이 일일검증 이후 변경됨",
-                f"일일상태 {datetime.fromtimestamp(status_mtime):%H:%M}, 원장 {datetime.fromtimestamp(master.stat().st_mtime):%H:%M}",
-                "구조·수식 실시간 검사는 완료하되 다음 일일 대조에서 ERP·카톡·밴드 교차검증",
+                "daily_status_older_than_master", "P2",
+                "원장이 **반영 회차 밖에서** 변경됨",
+                f"일일상태 {datetime.fromtimestamp(status_mtime):%H:%M}, 원장 "
+                f"{datetime.fromtimestamp(master_mtime):%H:%M} — 11:00·15:00 회차와 맞지 않음",
+                "누가 열어 고쳤는지 확인하고, 다음 일일 대조에서 ERP·카톡·밴드 교차검증",
             )]
     except OSError:
         pass
     return []
+
+
+def _master_change_source(mtime: float, window_min: int = 40) -> str:
+    """원장이 바뀐 그 시각이 **우리 반영 회차** 때문인가. 맞으면 회차 이름을 돌려준다.
+
+    엑셀 재계산까지 끝나는 데 시간이 걸려 파일 시각은 회차 시작보다 뒤로 밀린다 —
+    그래서 넉넉한 창(기본 40분)으로 본다. 근거는 `ledger_db.batch` 표다(우리가 남긴 기록).
+    """
+    try:
+        import sqlite3
+        db = ROOT / "db" / "ledger_queue.db"
+        if not db.exists():
+            return ""
+        con = sqlite3.connect(str(db))
+        try:
+            rows = con.execute(
+                "select slot, started, finished from batch where ok=1 "
+                "order by rowid desc limit 8").fetchall()
+        finally:
+            con.close()
+        for slot, started, finished in rows:
+            for stamp in (finished, started):
+                if not stamp:
+                    continue
+                try:
+                    t = datetime.fromisoformat(str(stamp)).timestamp()
+                except ValueError:
+                    continue
+                if -60 <= (mtime - t) <= window_min * 60:
+                    return f"{slot} 회차"
+    except Exception:
+        return ""
+    return ""
 
 
 def _claim_checks() -> list[dict[str, Any]]:
