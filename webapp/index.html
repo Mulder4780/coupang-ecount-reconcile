@@ -1482,6 +1482,28 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 #v-center input[id$="Url"]:focus{outline:none;box-shadow:0 0 0 3px rgba(0,122,255,.25)}
 
 
+
+/* ═══ 공용 액션 카드(2026-08-05 지시 "전체 카테고리 카드 타입") ═══
+   버튼만 늘어놓으면 무엇을 하는 작업인지 눌러 봐야 안다. 아이폰 설정 앱처럼
+   **아이콘 + 제목 + 한 줄 설명**을 한 카드에 담아 누르기 전에 알 수 있게 한다.
+   .ui-cards 안에 .ui-card 를 넣으면 어느 화면에서나 같은 모양이 된다. */
+.ui-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.ui-card{display:flex;align-items:flex-start;gap:11px;text-align:left;cursor:pointer;
+  background:var(--surface);border:.5px solid var(--line);border-radius:15px;
+  box-shadow:var(--sh);padding:13px 14px;transition:transform .12s,box-shadow .12s;
+  font:inherit;color:inherit;width:100%}
+@media(hover:hover){.ui-card:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(16,24,40,.10)}}
+.ui-card:active{transform:translateY(0);border-color:var(--brand)}
+.ui-card-ic{width:36px;height:36px;flex:none;border-radius:10px;display:grid;place-items:center;
+  background:var(--brand-tint);color:var(--brand)}
+.ui-card-ic svg{width:18px;height:18px;fill:currentColor}
+.ui-card-tx{min-width:0;flex:1}
+.ui-card-tx b{display:block;font-size:14.5px;font-weight:700;letter-spacing:-.25px;line-height:1.3}
+.ui-card-tx span{display:block;font-size:12.5px;color:var(--ink-3);margin-top:3px;line-height:1.4}
+.ui-card.danger .ui-card-ic{background:#FFE9E9;color:#D92D20}
+.ui-card.danger .ui-card-tx b{color:#B42318}
+.ui-card.primary .ui-card-ic{background:var(--brand);color:#fff}
+
 /* ═══ 원본 자료 iOS 개편(2026-08-05 지시) ═══
    아이폰 파일·사진 앱 감각: 큰 제목, 카드형 갈래·기간 버튼, 둥근 검색 필드,
    종류별 색 아이콘 + 오른쪽 화살표의 리스트 행. #v-sources 로만 범위를 좁힌다. */
@@ -2008,35 +2030,74 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 
   <!-- 실행 -->
   <section class="view" id="v-run">
-    <div class="card"><h3>작업 실행</h3>
-      <div class="actions">
-        <button class="abtn primary" onclick="runTask('daily')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-play-fill"/></svg>전체 대조</button>
-        <button class="abtn" onclick="runTask('synthetic')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-flask-fill"/></svg>합성검증</button>
-        <button class="abtn" onclick="runTask('kakao')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-chat-dots-fill"/></svg>카톡 대조</button>
-        <button class="abtn" onclick="runTask('erp_ledger')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-receipt"/></svg>ERP원장 대조</button>
-        <button class="abtn" onclick="runTask('po')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-box-seam"/></svg>쿠팡 PO 대조</button>
-        <button class="abtn" onclick="runTask('band_ingest')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-upload"/></svg>밴드 수집분 반영</button>
-        <button class="abtn" onclick="runTask('erp_docs')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-receipt"/></svg>ERP 매출서류 대조</button>
-        <button class="abtn" onclick="runTask('band_docs')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-image-fill"/></svg>밴드 문서 이미지 대조</button>
-        <button class="abtn" onclick="confirmRun('band_docs_apply','밴드에 올라온 거래명세서·세금계산서 사진을 읽어
+    <div class="card"><h3>작업 실행 <span class="norm">— 누르면 바로 돌고 아래에 로그가 쌓입니다</span></h3>
+      <div class="ui-cards">
+        <button class="ui-card primary" onclick="runTask('daily')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-play-fill"/></svg></span>
+          <span class="ui-card-tx"><b>전체 대조</b><span>합성검증부터 대조·색인·보관까지 하루 파이프라인 전부</span></span></button>
+        <button class="ui-card " onclick="runTask('synthetic')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-flask-fill"/></svg></span>
+          <span class="ui-card-tx"><b>합성검증</b><span>실데이터를 건드리지 않고 로직만 점검(작업 전 필수)</span></span></button>
+        <button class="ui-card " onclick="runTask('kakao')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-chat-dots-fill"/></svg></span>
+          <span class="ui-card-tx"><b>카톡 대조</b><span>내보내기 대화와 원장 완료건을 맞춰 봅니다</span></span></button>
+        <button class="ui-card " onclick="runTask('erp_ledger')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-receipt"/></svg></span>
+          <span class="ui-card-tx"><b>ERP원장 대조</b><span>계정별원장 4유형으로 원장과 ERP를 비교</span></span></button>
+        <button class="ui-card " onclick="runTask('po')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-box-seam"/></svg></span>
+          <span class="ui-card-tx"><b>쿠팡 PO 대조</b><span>PO 목록과 원장 청구·발주를 대조</span></span></button>
+        <button class="ui-card " onclick="runTask('band_ingest')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-upload"/></svg></span>
+          <span class="ui-card-tx"><b>밴드 수집분 반영</b><span>받아 둔 밴드 덤프를 캐시로 합칩니다</span></span></button>
+        <button class="ui-card " onclick="runTask('erp_docs')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-receipt"/></svg></span>
+          <span class="ui-card-tx"><b>ERP 매출서류 대조</b><span>계산서·명세서 원본과 06시트 금액 비교</span></span></button>
+        <button class="ui-card " onclick="runTask('band_docs')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-image-fill"/></svg></span>
+          <span class="ui-card-tx"><b>밴드 문서 이미지 대조</b><span>밴드 사진의 금액·번호를 OCR로 읽어 대조</span></span></button>
+        <button class="ui-card " onclick="confirmRun('band_docs_apply','밴드에 올라온 거래명세서·세금계산서 사진을 읽어
 확실한 건만(금액 일치) 입력 DB에 보관합니다.
-엑셀은 다음 11시·15시 회차에 빈칸만 반영합니다.')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-image-fill"/></svg>밴드 문서 → 입력 대기</button>
-        <button class="abtn" onclick="runTask('writer_prev')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>자동입력 미리보기</button>
-        <button class="abtn" onclick="loadStatus();toast('입력 대기와 다음 11시·15시 반영 시각을 갱신했습니다')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-hourglass-split"/></svg>반영 대기 확인</button>
-        <button class="abtn" onclick="runTask('upload_dry')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-upload"/></svg>전표 전송대기</button>
-        <button class="abtn danger" onclick="confirmRun('upload_post','⚠ 이카운트 ERP에 매출전표를 실제 등록합니다.\n(10.5초/건, 이중계상 가드 적용)')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-rocket-takeoff-fill"/></svg>전표 실전송</button>
+엑셀은 다음 11시·15시 회차에 빈칸만 반영합니다.')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-image-fill"/></svg></span>
+          <span class="ui-card-tx"><b>밴드 문서 → 입력 대기</b><span>금액이 일치하는 확실한 건만 입력 DB에 넣습니다</span></span></button>
+        <button class="ui-card " onclick="runTask('writer_prev')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-pencil-square"/></svg></span>
+          <span class="ui-card-tx"><b>자동입력 미리보기</b><span>엑셀에 무엇이 들어갈지 먼저 봅니다(쓰지 않음)</span></span></button>
+        <button class="ui-card " onclick="loadStatus();toast('입력 대기와 다음 11시·15시 반영 시각을 갱신했습니다')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-hourglass-split"/></svg></span>
+          <span class="ui-card-tx"><b>반영 대기 확인</b><span>몇 건이 대기 중이고 언제 들어가는지</span></span></button>
+        <button class="ui-card " onclick="runTask('upload_dry')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-upload"/></svg></span>
+          <span class="ui-card-tx"><b>전표 전송대기</b><span>ERP에 보낼 매출전표를 미리 확인(전송 안 함)</span></span></button>
+        <button class="ui-card danger" onclick="confirmRun('upload_post','⚠ 이카운트 ERP에 매출전표를 실제 등록합니다.
+(10.5초/건, 이중계상 가드 적용)')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-rocket-takeoff-fill"/></svg></span>
+          <span class="ui-card-tx"><b>전표 실전송</b><span>ERP에 실제로 등록합니다 — 되돌릴 수 없습니다</span></span></button>
       </div>
       <div class="fnote" id="runAgentNote">AI 실행 연계 상태를 확인 중입니다.</div>
       <div class="logbox" id="logbox">대기 중 — 작업을 실행하면 로그가 여기 표시됩니다.</div></div>
     <div id="helpcard"></div>
     <div class="card"><h3>파일·폴더 열기 <span class="norm">— 사무실 PC에서 접속했을 때만 동작</span></h3>
-      <div class="actions">
-        <button class="abtn" onclick="openLocal('master')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-folder2-open"/></svg>관리대장(최신)</button>
-        <button class="abtn" onclick="openLocal('inbox')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-folder2-open"/></svg>ERP·PO inbox</button>
-        <button class="abtn" onclick="openLocal('kakao')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-chat-dots-fill"/></svg>카톡 inbox</button>
-        <button class="abtn" onclick="openLocal('band_docs')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-image-fill"/></svg>밴드 문서 사진함</button>
-        <button class="abtn" onclick="openLocal('band_cache')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-folder2-open"/></svg>밴드 수집 덤프함</button>
-        <button class="abtn" onclick="openLocal('reports')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>리포트 폴더</button>
+      <div class="ui-cards">
+        <button class="ui-card " onclick="openLocal('master')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-folder2-open"/></svg></span>
+          <span class="ui-card-tx"><b>관리대장(최신)</b><span>가장 최근 vN 파일을 엑셀로 엽니다</span></span></button>
+        <button class="ui-card " onclick="openLocal('inbox')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-folder2-open"/></svg></span>
+          <span class="ui-card-tx"><b>ERP·PO inbox</b><span>받은 ERP·PO 파일이 쌓이는 곳</span></span></button>
+        <button class="ui-card " onclick="openLocal('kakao')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-chat-dots-fill"/></svg></span>
+          <span class="ui-card-tx"><b>카톡 inbox</b><span>대화 내보내기 txt 보관함</span></span></button>
+        <button class="ui-card " onclick="openLocal('band_docs')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-image-fill"/></svg></span>
+          <span class="ui-card-tx"><b>밴드 문서 사진함</b><span>명세서·계산서 사진 원본</span></span></button>
+        <button class="ui-card " onclick="openLocal('band_cache')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-folder2-open"/></svg></span>
+          <span class="ui-card-tx"><b>밴드 수집 덤프함</b><span>수집기가 만든 원본 덤프</span></span></button>
+        <button class="ui-card " onclick="openLocal('reports')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-clipboard-data-fill"/></svg></span>
+          <span class="ui-card-tx"><b>리포트 폴더</b><span>대조 결과·색인 파일이 모이는 곳</span></span></button>
       </div></div>
   </section>
 
