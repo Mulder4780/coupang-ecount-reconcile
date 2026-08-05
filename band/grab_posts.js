@@ -113,8 +113,17 @@
   }
 
   // 시작하면 곧바로 반환한다(자동화 호출이 타임아웃으로 죽지 않게) — 진행은 __grabStatus 로 본다.
+  // ★ 한 배치는 250건까지 (2026-08-06 실측). 250건 배치는 다섯 회차를 문제없이 돌았는데
+  //   500건으로 올리자 **탭 렌더러가 얼어** CDP 호출이 45초 타임아웃으로 죽었다.
+  //   그 순간 수집분은 탭 메모리에만 있어 새로고침하면 통째로 날아간다.
+  //   많이 남았으면 250씩 나눠서 여러 번 돌린다 — 한 번에 밀어 넣지 않는다.
+  const BATCH_MAX = 250;
+
   window.__grabStart = function (band, nos, opt) {
     opt = opt || {};
+    if (nos.length > BATCH_MAX) {
+      return `한 배치는 ${BATCH_MAX}건까지다(탭이 언다). ${nos.length}건을 나눠서 걸어라.`;
+    }
     if (S.running) return '이미 실행 중 — __grabStatus() 로 보라';
     Object.assign(S, {
       band: String(band), running: true, stop: false, startedAt: Date.now(),

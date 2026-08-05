@@ -29,13 +29,17 @@ def load(band):
     return json.load(open(p, encoding="utf-8")).get("posts") or {}
 
 
-def plan(band, posts):
+def plan(band, posts, floor=0):
     ks = sorted(int(k) for k in posts if str(k).isdigit())
     if not ks:
         return None
     lo, hi = ks[0], ks[-1]
     have = set(ks)
-    gaps = [n for n in range(lo, hi + 1) if n not in have]
+    # ★ 아래쪽 구멍(2026-08-06 발견). 예전에는 **보유한 것 중 가장 작은 번호부터**만
+    #   구멍으로 봤다. 그래서 캐시가 4196~5424 여도 "구멍 0"이라 나왔고, 1~4195(2023-03
+    #   부터의 4,195건)가 통째로 수집 대상 밖에 있었다 — 없는 줄도 몰랐다.
+    #   floor 를 1 로 주면 밴드 개설 이후 전량이 대상이 된다.
+    gaps = [n for n in range(max(1, floor), hi + 1) if n not in have]
     # 삭제된 글은 다시 훑지 않는다(2026-08-05). 밴드가 지운 글을 열면 '삭제됨'이 아니라
     # 밴드 홈을 돌려주므로 수집은 언제나 실패한다 — 목록에 남겨 두면 영원히 반복된다.
     stale = sorted(int(k) for k, v in posts.items()
@@ -49,6 +53,8 @@ def plan(band, posts):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--band", help="특정 밴드만")
+    ap.add_argument("--floor", type=int, default=0,
+                    help="이 번호부터 전부 대상(1이면 밴드 개설 이후 전량)")
     ap.add_argument("--limit", type=int, default=60,
                     help="한 번에 훑을 개수(글당 5초+ — 60이면 약 7분)")
     a = ap.parse_args()
@@ -61,7 +67,7 @@ def main():
         if posts is None:
             print(f"{band}: 캐시 없음")
             continue
-        p = plan(band, posts)
+        p = plan(band, posts, a.floor)
         print(f"밴드 {band}: 보유 {p['n']}건 ({p['range'][0]}~{p['range'][1]}) · "
               f"구멍 {len(p['gaps'])} · 재수집 전 {len(p['stale'])}"
               + (f" · 삭제됨 {p['deleted']}" if p.get("deleted") else ""))
