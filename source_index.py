@@ -95,11 +95,27 @@ FOLDER_KIND = [
 ]
 
 
+# ★ 분류 규칙이 바뀌면 캐시를 통째로 버린다 (2026-08-05 실사고).
+#   캐시 열쇠는 `경로|크기|수정시각` 이라 **파일이 안 바뀌면 옛 갈래를 그대로 돌려준다**.
+#   그래서 FOLDER_KIND 순서를 고치고 다시 돌렸는데 결과가 하나도 안 바뀌었다
+#   (밴드 5,209 그대로, 게시글 갈래 0). 규칙 지문을 같이 적어 두고 다르면 다시 판별한다 —
+#   안 그러면 앞으로 규칙을 고칠 때마다 조용히 헛일이 된다.
+RULES_KEY = "__rules__"
+
+
+def rules_version():
+    import hashlib
+    return hashlib.sha1(repr(FOLDER_KIND).encode("utf-8")).hexdigest()[:10]
+
+
 def load_cache():
     try:
-        return json.load(open(CACHE, encoding="utf-8"))
+        d = json.load(open(CACHE, encoding="utf-8"))
     except Exception:
         return {}
+    if not isinstance(d, dict) or d.pop(RULES_KEY, None) != rules_version():
+        return {}
+    return d
 
 
 def folder_kind(path):
@@ -181,6 +197,7 @@ def scan(rescan=False):
                     cache[key] = hit
                 out.append(hit)
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+    cache[RULES_KEY] = rules_version()      # 어떤 규칙으로 판별한 캐시인지 같이 적는다
     json.dump(cache, open(CACHE, "w", encoding="utf-8"), ensure_ascii=False)
     return out
 
