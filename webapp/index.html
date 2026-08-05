@@ -1625,8 +1625,12 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 #v-sources .src-search input{flex:1;border:0!important;background:transparent;font-size:16px;
   min-height:42px;padding:0}
 #v-sources .src-search input:focus{outline:none}
-#v-sources .src-segs{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:9px;
-  padding:2px 2px 12px}
+/* ★ 갈래 버튼은 **좌우가 꽉 차게** 눕힌다 (2026-08-06 지시 "버튼 좌우 정렬").
+   예전 `grid + auto-fit` 은 마지막 줄에 남는 칸이 그대로 비어, 갈래를 9→11개로
+   늘리자 오른쪽이 뭉텅 비어 보였다. flex 로 바꾸고 `flex-grow` 를 주면
+   **어느 줄이든 왼쪽 끝과 오른쪽 끝이 맞는다**(남는 폭을 그 줄이 나눠 갖는다). */
+#v-sources .src-segs{display:flex;flex-wrap:wrap;gap:9px;padding:2px 2px 12px}
+#v-sources .src-seg{flex:1 1 104px}
 #v-sources .src-seg{appearance:none;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) 18px;
   grid-template-rows:34px auto;align-items:center;gap:7px 8px;min-height:84px;padding:10px 11px;cursor:pointer;text-align:left;color:var(--ink-1);
   background:#fff;border:1px solid rgba(60,60,67,.12);border-radius:16px;box-shadow:0 4px 12px rgba(29,45,95,.06);
@@ -1642,7 +1646,13 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 #v-sources .src-seg:focus-visible,#v-sources .src-mbtn:focus-visible{outline:3px solid rgba(0,122,255,.28);outline-offset:2px}
 @media(hover:hover){#v-sources .src-seg:not(.on):hover{transform:translateY(-2px);border-color:#B7C8F4;box-shadow:0 8px 18px rgba(29,45,95,.1)}}
 #v-sources .src-seg:active{transform:scale(.98)}
-#v-sources .src-month{display:flex;gap:8px;overflow-x:auto;padding:1px 2px 11px;scrollbar-width:none}
+/* 연도 줄 — 월 줄과 나눈다(2026-08-06 지시). 자료가 2025·2026 두 해로 늘어나
+   월 칩만 18개를 옆으로 밀어 보게 하면 사람이 원하는 달을 못 찾는다.
+   연도는 개수가 적으니 **좌우 꽉 차게** 눕히고, 월은 그 해 것만 보여 준다. */
+#v-sources .src-year{display:flex;flex-wrap:wrap;gap:8px;padding:1px 2px 9px}
+#v-sources .src-year .src-mbtn{flex:1 1 92px;min-width:0}
+#v-sources .src-month{display:flex;flex-wrap:wrap;gap:8px;padding:1px 2px 11px}
+#v-sources .src-month .src-mbtn{flex:1 1 84px;min-width:0}
 #v-sources .src-month::-webkit-scrollbar{display:none}
 #v-sources .src-mbtn{appearance:none;flex:none;min-width:92px;cursor:pointer;min-height:42px;background:#fff;color:var(--ink-2);
   border:1px solid rgba(60,60,67,.12);border-radius:13px;box-shadow:0 3px 10px rgba(29,45,95,.05);
@@ -1651,6 +1661,20 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 @media(hover:hover){#v-sources .src-mbtn:not(.on):hover{border-color:#B7C8F4;background:#F8FAFF}}
 #v-sources .src-mbtn:active{transform:scale(.97)}
 #v-sources .src-note{font-size:13px;color:var(--ink-2);margin:2px 4px 13px;font-variant-numeric:tabular-nums}
+/* 정기점검 예측 설명 — 접어 두고 궁금할 때만 편다(2026-08-06). */
+.pm-how{background:#fff;border:1px solid rgba(60,60,67,.12);border-radius:16px;margin:0 0 13px;
+  box-shadow:0 4px 12px rgba(29,45,95,.05);overflow:hidden}
+.pm-how>summary{cursor:pointer;list-style:none;padding:13px 15px;font-size:14px;font-weight:750;
+  color:var(--ink-1);display:flex;align-items:center;gap:8px}
+.pm-how>summary::-webkit-details-marker{display:none}
+.pm-how>summary::after{content:'▾';margin-left:auto;color:var(--ink-3);transition:transform .18s ease}
+.pm-how[open]>summary::after{transform:rotate(180deg)}
+.pm-how>summary span{font-weight:600;color:var(--ink-3);font-size:12.5px}
+.pm-how-body{padding:0 15px 14px;font-size:13.5px;line-height:1.65;color:var(--ink-2)}
+.pm-how-body p{margin:0 0 9px}
+.pm-how-body ul{margin:0 0 9px;padding-left:19px}
+.pm-how-body li{margin:0 0 6px}
+.pm-how-warn{background:#FFF6E5;border:1px solid #F0D9A8;border-radius:11px;padding:10px 12px;color:#7A5A12}
 /* 파일 하나가 카드 하나다. 넓은 화면은 자동 다단, 폰은 한 줄 전체 폭을 쓴다. */
 #v-sources .src-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr));
   gap:12px;background:transparent;border:0;box-shadow:none;overflow:visible}
@@ -2104,6 +2128,30 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
         <input id="pmBaseDate" type="date" min="2026-01-01" max="2026-12-31" onchange="wtSetBase('pm',this.value)">
         <b id="pmBaseLabel">기준일 불러오는 중</b></label></div>
     <datalist id="wtTechList"></datalist>
+    <!-- 예측 설명(2026-08-06 지시). 화면에 '예측'이라고만 떠 있으면 사람은 그 숫자를
+         믿을지 말지 못 정한다. 무엇을 근거로 만든 값인지, 무엇이 아닌지를 밝힌다.
+         내용은 pm_schedule_sync.py 의 실제 계산과 같아야 한다 — 다르면 거짓말이 된다. -->
+    <details class="pm-how">
+      <summary>점검 예정일은 어떻게 정해지나요? <span>(예측 표시의 뜻)</span></summary>
+      <div class="pm-how-body">
+        <p><b>① 원본에 예정일이 있으면 그대로 씁니다.</b> 류지영 매니저가 관리하는
+          정기점검 스케줄 원본의 날짜가 언제나 정본입니다. 예측이 이 값을 덮어쓰지 않습니다.</p>
+        <p><b>② 예정일이 비어 있을 때만 과거 이력으로 계산합니다.</b> 분기 칸이 아직
+          비어 있어도 같은 행에 지난 분기 실제 점검일이 남아 있기 때문입니다.</p>
+        <ul>
+          <li><b>같은 장비의 최근 점검일</b>이 있으면 그 <b>날짜(일)</b>를 예정월에 옮깁니다.
+            예: 지난번 3월 12일 점검 → 8월이면 8월 12일. 월말을 넘으면 그 달 마지막 날로 맞춥니다.
+            <br>과거 점검일이 늘 같은 날이면 <b>신뢰도 높음</b>, 들쭉날쭉하면 <b>중간</b>입니다.</li>
+          <li>같은 장비 이력이 없으면 <b>담당 기사</b>(그것도 없으면 전체)의 과거 점검일
+            <b>중앙값</b>을 씁니다. 이 경우는 <b>신뢰도 낮음</b>으로 표시합니다.</li>
+          <li>과거 점검 이력이 하나도 없으면 <b>예측하지 않습니다</b> — 빈칸으로 둡니다.
+            추측으로 날짜를 만들지 않습니다.</li>
+        </ul>
+        <p class="pm-how-warn"><b>예측은 공식 일정이 아닙니다.</b> 관리대장에 쓰지 않고,
+          Google Calendar 에도 자동 저장하지 않습니다. 실제 방문일이 정해지면 그 날짜가
+          예측을 대신합니다. 각 건의 <b>예측 근거</b> 칸에 무엇을 보고 계산했는지 적혀 있습니다.</p>
+      </div>
+    </details>
     <div class="wt-kpis" id="pmKpis"></div>
     <div class="card"><div class="wt-toolbar" id="pmToolbar"></div>
       <div class="wt-meta" id="pmMeta"></div><div id="pmBody"></div></div>
@@ -2136,6 +2184,7 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
           <input id="srcQ" placeholder="이름 · UJ프로젝트 · 전표번호 · PO" oninput="srcDebounce()" aria-label="원본 자료 검색">
         </div>
         <div class="src-segs" id="srcSegs" role="tablist" aria-label="자료 갈래"></div>
+        <div class="src-year" id="srcYears" role="tablist" aria-label="연도 선택"></div>
         <div class="src-month" id="srcMonths" role="tablist" aria-label="월 선택"></div>
       </div>
       <div class="src-note" id="srcNote" aria-live="polite"></div>
@@ -2672,8 +2721,9 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
     <div class="cal2-head">
       <div class="ios-large"><h2>쿠팡 캘린더</h2>
         <p class="sub">정기점검·돌발AS 일정을 한 달 격자로 봅니다. 위 칩을 눌러 보고 싶은 종류만 남기세요.</p></div>
-      <div class="actions" style="grid-template-columns:repeat(2,max-content);margin:0">
+      <div class="actions" style="grid-template-columns:repeat(3,max-content);margin:0">
         <button class="abtn" onclick="refreshCalendarPage()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-repeat"/></svg>새로고침</button>
+        <button class="abtn" onclick="shareCalendarLink()" title="지금 보고 있는 달·필터 그대로 여는 주소를 복사합니다"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-link-45deg"/></svg>링크 복사</button>
         <button class="abtn primary" onclick="focusCalendarEntry()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>일정 입력</button>
       </div>
     </div>
@@ -4421,8 +4471,14 @@ function routeNav(v){
   show(v);
   if(v==='daily') renderDaily();
 }
+/* 주소에 `?view=` 가 있으면 그 화면으로 연다(캘린더 공유 링크). **한 번만** 쓴다 —
+   계속 쓰면 사용자가 다른 화면으로 가도 자꾸 그 화면으로 되돌아간다. */
+let DEEP_VIEW = (function(){
+  try{ return new URLSearchParams(location.search).get('view') || ''; }catch(e){ return ''; }
+})();
 function curView(){
   if(staffSlug) return window.__view || 'ryu';
+  if(DEEP_VIEW){ const v=DEEP_VIEW; DEEP_VIEW=''; return v; }
   const v=window.__view || localStorage.getItem('cw_view') || 'dash';
   return v==='ryu' ? 'dash' : v;
 }
@@ -6206,9 +6262,45 @@ function renderCalAgenda(){
     <dt>${e.예측?'예측 근거':'연결 근거'}</dt><dd>${esc2(e.연결근거||'없음')}${e.장비수?` · ${esc2(e.장비수)}대`:''}</dd>
     ${e.예측?`<dt>주의</dt><dd>과거 점검일로 계산한 예상일입니다. 공식 일정 확정 전이며 Google Calendar에는 자동 저장하지 않습니다.</dd>`:''}</dl>`;
 }
+/* ── 캘린더만 여는 주소 (2026-08-06 지시 "캘린더만 별도 url 공유 가능한 버튼") ──
+   ★ 이 링크는 **화면을 가리킬 뿐 PIN 을 건너뛰지 않는다.** 받는 사람도 로그인해야 한다.
+     인증을 우회하는 링크를 만들면 그 주소 하나로 원장 전체가 열린다 — 절대 하지 않는다.
+   지금 보고 있는 달과 켜 둔 종류를 그대로 담아, 열면 같은 화면이 나오게 한다. */
+function calendarLink(){
+  const p = new URLSearchParams({view:'calendar'});
+  if(CAL_MONTH) p.set('m', CAL_MONTH);
+  if(CAL_OFF && CAL_OFF.size) p.set('off', [...CAL_OFF].join(','));
+  return location.origin + location.pathname + '?' + p.toString();
+}
+async function shareCalendarLink(){
+  const url = calendarLink();
+  try{
+    if(navigator.share){ await navigator.share({title:'쿠팡 캘린더', url}); return; }
+  }catch(e){ /* 사용자가 공유 창을 닫은 것 — 복사로 넘어간다 */ }
+  try{
+    await navigator.clipboard.writeText(url);
+    toast('캘린더 주소를 복사했습니다 · 받는 분도 PIN 로그인이 필요합니다');
+  }catch(e){
+    prompt('이 주소를 복사해서 보내세요 (받는 분도 PIN 로그인이 필요합니다)', url);
+  }
+  uxEvent('tap','calShareLink');
+}
+/* 링크로 들어왔을 때 달·필터를 그대로 맞춰 준다. 한 번만 적용한다 —
+   계속 적용하면 사용자가 달을 바꿔도 자꾸 링크의 달로 되돌아간다. */
+let CAL_DEEP_DONE = false;
+function calApplyDeepLink(){
+  if(CAL_DEEP_DONE) return;
+  CAL_DEEP_DONE = true;
+  const q = new URLSearchParams(location.search);
+  const m = q.get('m') || '';
+  if(/^\d{4}-\d{2}$/.test(m)) CAL_MONTH = m;
+  const off = (q.get('off') || '').split(',').filter(Boolean);
+  if(off.length) CAL_OFF = new Set(off);
+}
 function renderCalendarPage(){
   const grid=$('calGrid'), meta=$('calendarMeta');
   if(!grid || !meta) return;
+  calApplyDeepLink();
   if(!CAL_MONTH){
     try{ CAL_MONTH = localStorage.getItem('csos.cal.month')||''; }catch(e){}
   }
@@ -6287,7 +6379,7 @@ const SRC_GROUPS = [
   {key:'log',   label:'일지·통화',   ic:'일', color:'#FF6482', kinds:['업무일지','통화·회의','업무 흐름도']},
   {key:'etc',   label:'기타',       ic:'…',  color:'#8E8E93', kinds:['기타','미분류','투입 대기']},
 ];
-let SRC={rows:[],kinds:[],months:[],count:0,built:''}, SRC_G='', SRC_M='', SRC_T=null;
+let SRC={rows:[],kinds:[],months:[],count:0,built:''}, SRC_G='', SRC_M='', SRC_Y='', SRC_T=null;
 function srcGroupOf(r){
   for(const g of SRC_GROUPS){
     if(!g.key) continue;
@@ -6307,7 +6399,7 @@ async function loadSources(){
   const note=$('srcNote'); if(note) note.textContent='색인 읽는 중…';
   try{ SRC = await api('/api/sources?limit=400'); }
   catch(e){ if(note) note.textContent='색인을 읽지 못했습니다: '+e; return; }
-  renderSegs(); renderMonths(); renderSources();
+  renderSegs(); renderYears(); renderMonths(); renderSources();
 }
 function renderSegs(){
   const host=$('srcSegs'); if(!host) return;
@@ -6319,21 +6411,52 @@ function renderSegs(){
       <span class="src-seg-label">${esc2(g.label)}</span><span class="src-seg-check" aria-hidden="true">✓</span></button>`;
   }).join('');
 }
+/* 연도와 월을 나눈다(2026-08-06 지시). 2025 자료가 들어오면서 월 칩이 스무 개를
+   넘어, 옆으로 밀어 찾아야 했다. 연도를 먼저 고르면 월은 그 해 것만 남는다. */
+function srcYearList(){
+  return [...new Set((SRC.months||[]).map(m=>String(m).slice(0,4)))]
+    .filter(y=>/^\d{4}$/.test(y)).sort().reverse();
+}
+function renderYears(){
+  const host=$('srcYears'); if(!host) return;
+  const ys=srcYearList();
+  if(ys.length<2){ host.innerHTML=''; return; }   // 한 해뿐이면 줄 자체를 만들지 않는다
+  host.innerHTML = `<button class="src-mbtn ${SRC_Y?'':'on'}" role="tab" aria-selected="${!SRC_Y}" onclick="pickSrcYear('')">전체 연도</button>`
+    + ys.map(y=>`<button class="src-mbtn ${SRC_Y===y?'on':''}" role="tab" aria-selected="${SRC_Y===y}" onclick="pickSrcYear('${y}')">${y}년</button>`).join('');
+}
 function renderMonths(){
   const host=$('srcMonths'); if(!host) return;
-  const ms=(SRC.months||[]).slice(0,18);
-  host.innerHTML = `<button class="src-mbtn ${SRC_M?'':'on'}" role="tab" aria-selected="${SRC_M?'false':'true'}" onclick="pickSrcMonth('')">전체 기간</button>`+
-    ms.map(m=>`<button class="src-mbtn ${SRC_M===m?'on':''}" role="tab" aria-selected="${SRC_M===m}" onclick="pickSrcMonth('${esc2(m)}')">${esc2(m)}</button>`).join('');
+  let ms=(SRC.months||[]);
+  if(SRC_Y) ms=ms.filter(m=>String(m).slice(0,4)===SRC_Y);
+  ms=ms.slice(0,24);
+  const allLabel = SRC_Y ? `${SRC_Y}년 전체` : '전체 기간';
+  host.innerHTML = `<button class="src-mbtn ${SRC_M?'':'on'}" role="tab" aria-selected="${SRC_M?'false':'true'}" onclick="pickSrcMonth('')">${esc2(allLabel)}</button>`+
+    ms.map(m=>{
+      // 연도를 이미 골랐으면 '3월' 로 짧게 — 같은 숫자가 반복되면 눈이 못 고른다.
+      const t = SRC_Y ? (Number(String(m).slice(5,7))+'월') : m;
+      return `<button class="src-mbtn ${SRC_M===m?'on':''}" role="tab" aria-selected="${SRC_M===m}" onclick="pickSrcMonth('${esc2(m)}')">${esc2(t)}</button>`;
+    }).join('');
 }
 function pickSrcGroup(k){ SRC_G=k; renderSegs(); renderSources(); }
-function pickSrcMonth(m){ SRC_M=m; renderMonths(); renderSources(); }
+function pickSrcYear(y){
+  SRC_Y=y;
+  // 고른 달이 그 해가 아니면 놓는다 — 안 그러면 '2025년 + 2026-03' 같은 빈 조건이 된다.
+  if(SRC_M && SRC_Y && String(SRC_M).slice(0,4)!==SRC_Y) SRC_M='';
+  renderYears(); renderMonths(); renderSources();
+}
+function pickSrcMonth(m){
+  SRC_M=m;
+  if(m) SRC_Y=String(m).slice(0,4);       // 달을 고르면 연도도 따라 맞춘다
+  renderYears(); renderMonths(); renderSources();
+}
 async function renderSources(){
   const q=($('srcQ')?.value||'').trim();
   const g=SRC_GROUPS.find(x=>x.key===SRC_G);
   let d=SRC;
-  if(q||SRC_M||SRC_G){
-    // 갈래·월·검색은 **서버가** 8천 건에서 거른다(화면은 400건만 받는다).
-    const qs=[`limit=400`,`q=${encodeURIComponent(q)}`,`month=${encodeURIComponent(SRC_M)}`];
+  if(q||SRC_M||SRC_Y||SRC_G){
+    // 갈래·연도·월·검색은 **서버가** 9천 건에서 거른다(화면은 400건만 받는다).
+    const qs=[`limit=400`,`q=${encodeURIComponent(q)}`,`month=${encodeURIComponent(SRC_M)}`,
+              `year=${encodeURIComponent(SRC_M?'':SRC_Y)}`];
     if(g&&g.kinds) qs.push(`kinds=${encodeURIComponent(g.kinds.join('|'))}`);
     if(g&&g.path)  qs.push(`path=${encodeURIComponent(g.path)}`);
     try{ d = await api('/api/sources?'+qs.join('&')); }catch(e){ d=SRC; }

@@ -4558,6 +4558,7 @@ self.addEventListener('fetch', e => {
             q = (qs.get("q", [""])[0] or "").strip().lower()
             kind = (qs.get("kind", [""])[0] or "").strip()
             month = (qs.get("month", [""])[0] or "").strip()   # 2026-01 형식
+            year = (qs.get("year", [""])[0] or "").strip()     # 2026 형식(월 없이 연도만)
             # 갈래(세금계산서·거래명세서…)는 kind 여러 개 + 경로 패턴의 묶음이라
             # 화면이 kinds=A|B|C 와 path=문자열 로 넘긴다. 8천 건을 클라이언트로
             # 다 보내지 않고 **여기서** 거른다(2026-08-05: 400건만 보내 필터가 0이 됐다).
@@ -4574,6 +4575,12 @@ self.addEventListener('fetch', e => {
                 rows = [r for r in rows
                         if (r.get("slip") or "")[:7].replace("-", "-") == month
                         or (not r.get("slip") and (r.get("date") or "")[:7] == month)]
+            elif year:
+                # 연도만 고른 경우(2026-08-06). 월과 같은 기준(전표일 우선)으로 본다 —
+                # 기준이 다르면 '2026년 전체'와 월 12개의 합이 어긋나 사람이 숫자를 못 믿는다.
+                rows = [r for r in rows
+                        if (r.get("slip") or "")[:4] == year
+                        or (not r.get("slip") and (r.get("date") or "")[:4] == year)]
             if q:
                 rows = [r for r in rows
                         if q in (r.get("name", "") + r.get("uj", "") + r.get("slip", "")
