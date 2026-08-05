@@ -218,6 +218,10 @@ svg.bi{width:1.05em;height:1.05em;flex:none;fill:currentColor;vertical-align:-.1
    iframe 이 화면 절반을 먹고 오른쪽에 900건이 한 줄로 늘어서던 구조였다. */
 .calendar-hint{margin:0;padding:10px 17px 14px;color:var(--muted);font-size:13.5px;line-height:1.55;border-top:1px solid var(--line)}
 .calendar-meta{font-size:14px;color:var(--muted);margin:-3px 0 12px}
+.cal2-warn{color:#B42318;font-weight:750}
+.cal2-allbtn{appearance:none;cursor:pointer;margin-left:6px;padding:5px 11px;border-radius:999px;
+  border:1px solid var(--brand);background:var(--brand);color:#fff;font:inherit;font-size:13px;font-weight:750}
+.cal2-allbtn:active{transform:scale(.97)}
 .calendar-detail{border-radius:12px;padding:13px;background:#F7F8FC;border:1px solid #E6EAF2;line-height:1.6;font-size:14px;color:var(--ink-2)}
 .calendar-detail b{color:var(--ink)}.calendar-detail .detail-title{font-size:15px;margin-bottom:7px}.calendar-detail dl{display:grid;grid-template-columns:72px 1fr;gap:3px 8px;margin:0}.calendar-detail dt{color:var(--muted);font-weight:700}.calendar-detail dd{margin:0;word-break:break-word}
 .calendar-entry{margin-top:14px}.calendar-entry h3{margin-bottom:3px}.calendar-entry .entry-note{font-size:14px;color:var(--muted);line-height:1.55;margin:0 0 12px}
@@ -233,9 +237,23 @@ svg.bi{width:1.05em;height:1.05em;flex:none;fill:currentColor;vertical-align:-.1
    구성: 종류 칩(필터) → 월 격자(날마다 색 점) → 그 날의 일정 → 세부.
    iframe 은 접어서 맨 아래로 내렸다 — 필요할 때만 편다. */
 .cal2-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.cal2-head .ios-large{min-width:0;flex:1 1 auto}
 .cal2-head .ios-large h2{font-size:clamp(28px,3vw,38px);font-weight:850;letter-spacing:-1.2px;margin:0 0 4px}
 .cal2-head .ios-large .sub{font-size:14px;color:var(--ink-2);line-height:1.5;margin:0}
+/* ★ 폰에서는 제목과 버튼을 **위아래로** 나눈다 (2026-08-06 실화면).
+   가로로 나란히 두면 버튼 셋이 오른쪽을 다 먹어 제목이 '쿠팡 캘 / 린더' 로 쪼개지고
+   설명이 여섯 줄로 눌렸다. 나눈 뒤 버튼은 한 줄에서 **좌우로 꽉 차게** 편다. */
+@media(max-width:760px){
+  .cal2-head{flex-direction:column;align-items:stretch;gap:10px}
+  .cal2-head .ios-large h2{font-size:30px;margin:0 0 6px}
+  .cal2-head .actions{display:flex!important;grid-template-columns:none!important;gap:8px;width:100%}
+  .cal2-head .actions .abtn{flex:1 1 0;min-width:0;justify-content:center;text-align:center}
+}
 .cal2-filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+/* 칩도 좌우로 꽉 차게 — 폰에서 오른쪽이 뭉텅 비어 보였다. */
+@media(max-width:760px){
+  .cal2-filters .cal2-chip{flex:1 1 45%;min-width:0;justify-content:center}
+}
 .cal2-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;
   border:1.5px solid var(--line);background:var(--surface);font-size:13.5px;font-weight:700;
   color:var(--ink-2);transition:all .15s;white-space:nowrap}
@@ -6171,13 +6189,35 @@ function calGoToday(){
   try{ localStorage.setItem('csos.cal.month', CAL_MONTH); }catch(e){}
   renderCalendarPage();
 }
+/* 화면에 **실제로 떠 있는** 종류만 센다.
+   ★ 2026-08-06 실화면 버그: 아래 '마지막 하나는 켠다' 장치가 `calKinds()`(정의된 전체
+     목록)를 셌다. 그런데 칩은 **일정이 있는 종류만** 그린다. 정의가 6가지인데 칩이
+     4개면 4개를 다 꺼도 4 < 6 이라 장치가 안 걸리고, '910건 중 0건 표시' 인 빈 달력이
+     남았다. 사람은 그걸 고장으로 본다. 세는 대상을 칩과 같게 맞춘다. */
+function calShownKinds(){
+  const n={};
+  calEvents().forEach(e=>{ const k=calKindOf(e); n[k]=(n[k]||0)+1; });
+  return calKinds().filter(k=>n[k.key]);
+}
 function calToggleKind(key){
   if(CAL_OFF.has(key)) CAL_OFF.delete(key); else CAL_OFF.add(key);
+  const shown = calShownKinds().map(k=>k.key);
   // 전부 꺼 버리면 빈 달력만 남아 고장으로 보인다 — 마지막 하나는 도로 켠다.
-  if(CAL_OFF.size >= calKinds().length){ CAL_OFF.delete(key); toast('한 종류는 남겨 두세요'); }
+  if(shown.length && shown.every(k=>CAL_OFF.has(k))){
+    CAL_OFF.delete(key);
+    toast('한 종류는 남겨 두세요');
+  }
   try{ localStorage.setItem('csos.cal.off', JSON.stringify([...CAL_OFF])); }catch(e){}
   calendarSelected=0; renderCalendarPage();
   uxEvent('tap','calFilter',key);
+}
+/* 이미 전부 꺼진 채로 저장돼 있던 사람(이 버그를 겪은 화면)을 위해 되살리는 길을 둔다. */
+function calShowAll(){
+  CAL_OFF = new Set();
+  try{ localStorage.setItem('csos.cal.off','[]'); }catch(e){}
+  calendarSelected=0; renderCalendarPage();
+  toast('일정 종류를 모두 켰습니다');
+  uxEvent('tap','calShowAll');
 }
 function calPickDay(day){ CAL_DAY=day; calendarSelected=0; renderCalendarPage(); uxEvent('tap','calDay',day); }
 function calDayRows(day){
@@ -6306,10 +6346,15 @@ function renderCalendarPage(){
   }
   const all=calEvents(), rows=calendarRows(), hidden=calHiddenCount();
   const unmatched=rows.filter(e=>!e.원천업무ID).length;
-  meta.textContent = `갱신 ${(CAL&&CAL.갱신)||'-'} · 전체 ${all.length}건 중 ${rows.length}건 표시`
+  meta.innerHTML = esc2(`갱신 ${(CAL&&CAL.갱신)||'-'} · 전체 ${all.length}건 중 ${rows.length}건 표시`
     + (unmatched ? ` · 원장 미연결 ${unmatched}건` : '')
     + ((CAL&&CAL.예측일정수) ? ` · 과거 이력 예측 ${CAL.예측일정수}건` : '')
-    + (hidden ? ` · 철거·납품 ${hidden}건은 관리대장 보관` : '');
+    + (hidden ? ` · 철거·납품 ${hidden}건은 관리대장 보관` : ''))
+    // 일정은 있는데 하나도 안 보이면 **왜 그런지와 되돌리는 법**을 그 자리에 준다.
+    // 숫자만 '0건'이라고 적어 두면 사람은 고장으로 읽는다(2026-08-06 실화면).
+    + (all.length && !rows.length
+        ? ` <b class="cal2-warn">종류 필터가 모두 꺼져 있습니다.</b>
+           <button type="button" class="cal2-allbtn" onclick="calShowAll()">전체 켜기</button>` : '');
   renderCalFilters();
   if(!all.length){
     grid.innerHTML=`<div class="cal2-empty" style="grid-column:1/-1">${esc2((CAL&&CAL.안내)||'아직 수집된 일정이 없습니다.')}</div>`;
