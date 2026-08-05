@@ -1166,16 +1166,18 @@ def t6_webapp():
         # 메인 페이지 서빙
         html = urllib.request.urlopen(base + "/").read().decode("utf-8")
         assert "Coupang Service Operations System" in html and "tabbar" in html and "d_report" in html
-        # 대시보드는 12열 레고 블록으로 추가·숨김·순서·너비를 편집하고, 드래그를
-        # 쓰지 못하는 키보드·터치 사용자는 위/아래 버튼으로 같은 결과를 낸다.
+        # 대시보드는 화면 블록과 내부 KPI를 모두 카드로 취급한다. 체크로 표시 여부를
+        # 정하고 드래그·화살표로 순서를 바꾸며, 구버전 배치도 v2로 이어받는다.
         for marker in (
-            "DASH_LAYOUT_KEY", "csos_dashboard_layout_v1", "defaultDashboardLayout",
+            "DASH_LAYOUT_KEY", "csos_dashboard_layout_v2", "DASH_LAYOUT_LEGACY_KEY",
+            "defaultDashboardLayout", "DASH_KPI_CARDS", "data-kpi-card",
             "dashboardLayoutState", "setDashboardBlockVisible", "moveDashboardBlock",
-            "cycleDashboardBlockSize", "dash-drag-handle", "dash-palette",
+            "setDashboardKpiVisible", "moveDashboardKpi", "prepareDashboardKpis",
+            "cycleDashboardBlockSize", "dash-drag-handle", "dash-kpi-handle", "dash-choice",
             "role=\"status\" aria-live=\"polite\"", "window.addEventListener('storage'",
             "grid.addEventListener('dragstart'", "initDashboardLayout();",
         ):
-            assert marker in html, "대시보드 블록 편집 누락: " + marker
+            assert marker in html, "대시보드 카드 편집 누락: " + marker
         assert "#dashGrid{display:grid;grid-template-columns:repeat(12" in html.replace(" ", "")
         # 제공받은 CSOS 아이콘을 앱·캡처에 공통 사용한다. 회사 CI는 상하 배치한
         # 밝은 배경판 안에서 잘리지 않아야 하며, 컨테이너는 기존 295px 폭을 보존한다.

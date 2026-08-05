@@ -1562,10 +1562,21 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
   min-height:38px;padding:8px 13px;font:700 13.5px inherit;cursor:pointer;white-space:nowrap}
 .dash-customizer-panel{border-top:1px solid var(--line);padding:13px 15px 15px;background:#F8FAFD}
 .dash-customizer-panel[hidden]{display:none}
-.dash-palette{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px 12px}
-.dash-palette label{display:flex;align-items:center;gap:8px;min-height:38px;padding:7px 10px;
-  border:1px solid #E2E7F0;border-radius:10px;background:#fff;font-size:13.5px;font-weight:700;cursor:pointer}
-.dash-palette input{width:17px;height:17px;accent-color:var(--brand)}
+.dash-palette-section+.dash-palette-section{margin-top:14px;padding-top:14px;border-top:1px solid #E4E9F2}
+.dash-palette-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 1px 8px;
+  color:var(--ink-2);font-size:12.5px;font-weight:800}
+.dash-palette-title span{color:var(--ink-3);font-weight:600}
+.dash-palette{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}
+.dash-choice{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:9px;min-height:52px;
+  padding:9px 10px;border:1px solid #E2E7F0;border-radius:12px;background:#fff;cursor:grab;
+  transition:border-color .16s,box-shadow .16s,transform .16s}
+.dash-choice:hover{border-color:#BFCDF0;box-shadow:0 4px 12px rgba(36,82,230,.08)}
+.dash-choice:active{cursor:grabbing}.dash-choice.dash-choice-dragging{opacity:.45}
+.dash-choice.dash-choice-target{border-color:var(--brand);box-shadow:0 0 0 2px rgba(36,82,230,.12)}
+.dash-choice input{width:19px;height:19px;accent-color:var(--brand);cursor:pointer}
+.dash-choice-copy{min-width:0}.dash-choice-copy b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--ink);font-size:13.5px}.dash-choice-copy small{display:block;margin-top:2px;color:var(--ink-3);font-size:11.5px}
+.dash-choice-grip{color:#8B9BB6;font-size:18px;font-weight:900;letter-spacing:-3px;padding-right:3px}
 .dash-customizer-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .dash-customizer-actions button{border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink-2);
   min-height:38px;padding:8px 12px;font:700 13px inherit;cursor:pointer}
@@ -1578,6 +1589,7 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 .dash-edit #dashGrid>.dash-block{outline:2px dashed rgba(36,82,230,.35);outline-offset:2px}
 .dash-edit #dashGrid>.dash-block.dash-dragging{opacity:.48;outline-color:var(--brand)}
 .dash-edit #dashGrid>.dash-block.dash-drop-target{outline-style:solid;outline-color:var(--brand)}
+.dash-edit #dashGrid>.dash-block{transition:outline-color .16s,opacity .16s,transform .16s}
 .dash-block-tools{display:none;position:absolute;z-index:12;right:8px;top:8px;align-items:center;gap:4px;
   padding:4px;border:1px solid #D8E1F0;border-radius:10px;background:rgba(255,255,255,.96);
   box-shadow:0 4px 14px rgba(16,24,40,.12)}
@@ -1589,14 +1601,28 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 .dash-block-tools .dash-drag-handle{cursor:grab;font-size:16px;letter-spacing:-3px;padding-right:5px}
 .dash-block-tools .dash-drag-handle:active{cursor:grabbing}
 .dash-block-tools .dash-size{min-width:48px;letter-spacing:-.2px}
+.dash-block-tools .dash-visible-toggle{display:flex;align-items:center;gap:4px;min-width:auto;padding:0 8px;
+  color:var(--brand-dk);font-size:11.5px;font-weight:800;cursor:pointer}
+.dash-block-tools .dash-visible-toggle input{width:15px;height:15px;accent-color:var(--brand)}
+/* KPI 숫자도 하나의 카드다. 편집 중에는 각 KPI를 따로 이동·체크·숨김할 수 있다. */
+.dash-kpi-tools{display:none;position:absolute;z-index:4;right:6px;top:6px;align-items:center;gap:3px;
+  padding:3px;border:1px solid #D8E1F0;border-radius:9px;background:rgba(255,255,255,.96);
+  box-shadow:0 3px 10px rgba(16,24,40,.12)}
+.dash-edit .kpi[data-kpi-card]{position:relative;padding-top:48px;outline:2px dashed rgba(36,82,230,.25);outline-offset:1px}
+.dash-edit .dash-kpi-tools{display:flex}
+.dash-kpi-tools button{display:grid;place-items:center;min-width:29px;height:29px;padding:0 7px;border:0;border-radius:7px;
+  background:#EEF3FF;color:var(--brand-dk);font:800 12px inherit;cursor:pointer}
+.dash-kpi-tools .dash-kpi-handle{cursor:grab;font-size:15px;letter-spacing:-3px;padding-right:9px}
+.kpi.dash-dragging{opacity:.45}.kpi.dash-drop-target{outline-style:solid!important;outline-color:var(--brand)!important}
 @media(max-width:720px){
   #dashGrid{grid-template-columns:1fr;gap:12px}
   #dashGrid>.dash-block{grid-column:1/-1!important}
   .dash-customizer-head{align-items:flex-start}
   .dash-palette{grid-template-columns:1fr}
   .dash-block-tools{position:sticky;top:6px;float:right;margin:0 0 4px 8px}
+  .dash-edit .kpi[data-kpi-card]{padding-top:48px}
 }
-@media print{.dash-customizer,.dash-block-tools{display:none!important}#dashGrid{display:block}#dashGrid>.dash-block{margin-bottom:14px}}
+@media print{.dash-customizer,.dash-block-tools,.dash-kpi-tools{display:none!important}#dashGrid{display:block}#dashGrid>.dash-block{margin-bottom:14px}}
 </style>
 </head>
 <body>
@@ -4017,8 +4043,9 @@ async function reloadHere(btn){
 }
 
 /* ── 대시보드 ── */
-const DASH_LAYOUT_KEY='csos_dashboard_layout_v1';
-const DASH_LAYOUT_VERSION=1;
+const DASH_LAYOUT_KEY='csos_dashboard_layout_v2';
+const DASH_LAYOUT_LEGACY_KEY='csos_dashboard_layout_v1';
+const DASH_LAYOUT_VERSION=2;
 const DASH_SPANS=[12,8,6,4];
 const DASH_BLOCKS=[
   {id:'representative',label:'유수비 대표 예외보고',span:12,get:()=>document.getElementById('repCard')},
@@ -4034,7 +4061,18 @@ const DASH_BLOCKS=[
   {id:'calendar',label:'일정',span:6,get:()=>document.getElementById('calcard')},
   {id:'tools',label:'대시보드 저장·인쇄',span:6,get:()=>document.querySelector('[aria-label="대시보드 도구"]')?.closest('.card')},
 ];
-let dashLayoutEditing=false, dashDragging=null;
+const DASH_KPI_CARDS=[
+  {id:'settle-count',label:'정산 건수'},
+  {id:'supply-amount',label:'작업 공급가액'},
+  {id:'receivable',label:'미수금'},
+  {id:'tax-rate',label:'계산서 발행율'},
+  {id:'issues-count',label:'조치 필요'},
+  {id:'as-open',label:'AS 미실시'},
+  {id:'pm-wait',label:'정기점검 대기'},
+  {id:'erp-sales',label:APP_YEAR+'년 ERP 매출'},
+];
+let dashLayoutEditing=false, dashDragging=null, dashKpiDragging=null, dashPaletteDragging=null;
+let dashLayoutCache=null;
 
 function dashCatalog(){
   return DASH_BLOCKS.map(x=>({...x,el:x.get()})).filter(x=>x.el);
@@ -4044,29 +4082,44 @@ function dashSpanLabel(span){
 }
 function defaultDashboardLayout(){
   return {version:DASH_LAYOUT_VERSION,order:DASH_BLOCKS.map(x=>x.id),hidden:[],
-    spans:Object.fromEntries(DASH_BLOCKS.map(x=>[x.id,x.span]))};
+    spans:Object.fromEntries(DASH_BLOCKS.map(x=>[x.id,x.span])),
+    kpiOrder:DASH_KPI_CARDS.map(x=>x.id),hiddenKpis:[]};
 }
 function readDashboardLayout(){
   const fallback=defaultDashboardLayout();
   try{
-    const raw=JSON.parse(localStorage.getItem(DASH_LAYOUT_KEY)||'null');
-    if(!raw||raw.version!==DASH_LAYOUT_VERSION) return fallback;
+    const raw=JSON.parse(localStorage.getItem(DASH_LAYOUT_KEY)||'null')||
+      JSON.parse(localStorage.getItem(DASH_LAYOUT_LEGACY_KEY)||'null');
+    if(!raw||![1,DASH_LAYOUT_VERSION].includes(+raw.version)) return fallback;
     const known=new Set(DASH_BLOCKS.map(x=>x.id));
     const order=(Array.isArray(raw.order)?raw.order:[]).filter((x,i,a)=>known.has(x)&&a.indexOf(x)===i);
     DASH_BLOCKS.forEach(x=>{if(!order.includes(x.id)) order.push(x.id)});
     const hidden=(Array.isArray(raw.hidden)?raw.hidden:[]).filter(x=>known.has(x));
     const spans={...fallback.spans};
     Object.entries(raw.spans||{}).forEach(([id,n])=>{if(known.has(id)&&DASH_SPANS.includes(+n)) spans[id]=+n});
-    return {version:DASH_LAYOUT_VERSION,order,hidden,spans};
+    const knownKpi=new Set(DASH_KPI_CARDS.map(x=>x.id));
+    const kpiOrder=(Array.isArray(raw.kpiOrder)?raw.kpiOrder:[])
+      .filter((x,i,a)=>knownKpi.has(x)&&a.indexOf(x)===i);
+    DASH_KPI_CARDS.forEach(x=>{if(!kpiOrder.includes(x.id)) kpiOrder.push(x.id)});
+    const hiddenKpis=(Array.isArray(raw.hiddenKpis)?raw.hiddenKpis:[]).filter(x=>knownKpi.has(x));
+    return {version:DASH_LAYOUT_VERSION,order,hidden,spans,kpiOrder,hiddenKpis};
   }catch(_){ return fallback; }
 }
 function dashboardLayoutState(){
   const grid=document.getElementById('dashGrid');
-  if(!grid) return defaultDashboardLayout();
+  const base=dashLayoutCache||readDashboardLayout();
+  if(!grid) return base;
   const blocks=[...grid.querySelectorAll(':scope > [data-dash-block]')];
+  const kpiHost=document.getElementById('kpis');
+  const renderedKpis=kpiHost?[...kpiHost.querySelectorAll(':scope > [data-kpi-card]')]:[];
+  const kpiOrder=renderedKpis.map(el=>el.dataset.kpiCard);
+  (base.kpiOrder||[]).forEach(id=>{if(!kpiOrder.includes(id)) kpiOrder.push(id)});
+  const hiddenKpis=new Set(base.hiddenKpis||[]);
+  renderedKpis.forEach(el=>el.hidden?hiddenKpis.add(el.dataset.kpiCard):hiddenKpis.delete(el.dataset.kpiCard));
   return {version:DASH_LAYOUT_VERSION,order:blocks.map(el=>el.dataset.dashBlock),
     hidden:blocks.filter(el=>el.hidden).map(el=>el.dataset.dashBlock),
     spans:Object.fromEntries(blocks.map(el=>[el.dataset.dashBlock,+el.dataset.dashSpan||12])),
+    kpiOrder,hiddenKpis:[...hiddenKpis],
     updatedAt:new Date().toISOString()};
 }
 function dashLayoutMessage(msg){
@@ -4074,11 +4127,15 @@ function dashLayoutMessage(msg){
   if(el) el.textContent=msg||'';
 }
 function saveDashboardLayout(msg='이 기기의 대시보드 구성을 저장했습니다.'){
-  try{localStorage.setItem(DASH_LAYOUT_KEY,JSON.stringify(dashboardLayoutState()));
-    dashLayoutMessage(msg);}catch(_){dashLayoutMessage('브라우저 저장 공간을 사용할 수 없어 이번 화면에만 적용했습니다.');}
+  dashLayoutCache=dashboardLayoutState();
+  try{localStorage.setItem(DASH_LAYOUT_KEY,JSON.stringify(dashLayoutCache));
+    localStorage.removeItem(DASH_LAYOUT_LEGACY_KEY);
+    dashLayoutMessage(msg);renderDashboardPalette();}
+  catch(_){dashLayoutMessage('브라우저 저장 공간을 사용할 수 없어 이번 화면에만 적용했습니다.');}
 }
 function applyDashboardLayout(layout=readDashboardLayout(),announce=false){
   const grid=document.getElementById('dashGrid'); if(!grid) return;
+  dashLayoutCache=layout;
   const catalog=dashCatalog(), byId=Object.fromEntries(catalog.map(x=>[x.id,x]));
   layout.order.forEach(id=>{if(byId[id]) grid.appendChild(byId[id].el)});
   catalog.forEach(x=>{
@@ -4088,24 +4145,45 @@ function applyDashboardLayout(layout=readDashboardLayout(),announce=false){
     x.el.style.setProperty('--dash-span',span);
     const size=x.el.querySelector(':scope > .dash-block-tools .dash-size');
     if(size){size.textContent=dashSpanLabel(span);size.setAttribute('aria-label',`${x.label} 너비 ${dashSpanLabel(span)}. 눌러 변경`);}
+    const toggle=x.el.querySelector(':scope > .dash-block-tools .dash-visible-toggle input');
+    if(toggle)toggle.checked=!x.el.hidden;
   });
-  syncDashboardPalette();
+  applyDashboardKpiLayout(layout);
+  renderDashboardPalette();
   if(announce) dashLayoutMessage('다른 탭에서 바뀐 대시보드 구성을 반영했습니다.');
 }
-function syncDashboardPalette(){
-  dashCatalog().forEach(x=>{
-    const input=document.querySelector(`#dashPalette input[value="${x.id}"]`);
-    if(input) input.checked=!x.el.hidden;
-  });
+function dashboardChoice(kind,id,label,visible,meta){
+  return `<div class="dash-choice" draggable="true" data-kind="${kind}" data-id="${id}">
+    <input type="checkbox" ${visible?'checked':''} aria-label="${esc2(label)} 카드 표시"
+      onclick="event.stopPropagation()" onchange="${kind==='block'?'setDashboardBlockVisible':'setDashboardKpiVisible'}('${id}',this.checked)">
+    <span class="dash-choice-copy"><b>${esc2(label)}</b><small>${esc2(meta)}</small></span>
+    <span class="dash-choice-grip" aria-hidden="true">⠿</span></div>`;
+}
+function renderDashboardPalette(){
+  const host=document.getElementById('dashPalette');if(!host)return;
+  const layout=dashLayoutCache||readDashboardLayout(), blockMap=Object.fromEntries(DASH_BLOCKS.map(x=>[x.id,x]));
+  const kpiMap=Object.fromEntries(DASH_KPI_CARDS.map(x=>[x.id,x]));
+  const blocks=(layout.order||[]).filter(id=>blockMap[id]).map(id=>blockMap[id]);
+  const kpis=(layout.kpiOrder||[]).filter(id=>kpiMap[id]).map(id=>kpiMap[id]);
+  const hidden=new Set(layout.hidden||[]), hiddenKpi=new Set(layout.hiddenKpis||[]);
+  const bv=blocks.length-hidden.size,kv=kpis.length-hiddenKpi.size;
+  host.innerHTML=`<div class="dash-palette-section"><div class="dash-palette-title">화면 카드 <span>${bv}/${blocks.length}개 표시</span></div>
+    <div class="dash-palette">${blocks.map(x=>dashboardChoice('block',x.id,x.label,!hidden.has(x.id),`너비 ${dashSpanLabel(layout.spans?.[x.id]||x.span)} · 끌어서 순서 변경`)).join('')}</div></div>
+    <div class="dash-palette-section"><div class="dash-palette-title">핵심지표 카드 <span>${kv}/${kpis.length}개 표시</span></div>
+    <div class="dash-palette">${kpis.map(x=>dashboardChoice('kpi',x.id,x.label,!hiddenKpi.has(x.id),'체크=표시 · 끌어서 순서 변경')).join('')}</div></div>`;
 }
 function setDashboardBlockVisible(id,visible){
   const item=dashCatalog().find(x=>x.id===id); if(!item) return;
   item.el.hidden=!visible; saveDashboardLayout(`${item.label} 블록을 ${visible?'추가':'숨김'}했습니다.`);
-  syncDashboardPalette();
+}
+function setDashboardKpiVisible(id,visible){
+  const layout=dashboardLayoutState(),hidden=new Set(layout.hiddenKpis||[]);
+  visible?hidden.delete(id):hidden.add(id);layout.hiddenKpis=[...hidden];dashLayoutCache=layout;
+  applyDashboardKpiLayout(layout);saveDashboardLayout(`${DASH_KPI_CARDS.find(x=>x.id===id)?.label||'지표'} 카드를 ${visible?'추가':'숨김'}했습니다.`);
 }
 function showAllDashboardBlocks(){
-  dashCatalog().forEach(x=>x.el.hidden=false); saveDashboardLayout('모든 대시보드 블록을 표시했습니다.');
-  syncDashboardPalette();
+  dashCatalog().forEach(x=>x.el.hidden=false);const layout=dashboardLayoutState();layout.hiddenKpis=[];
+  dashLayoutCache=layout;applyDashboardKpiLayout(layout);saveDashboardLayout('모든 화면·핵심지표 카드를 표시했습니다.');
 }
 function resetDashboardLayout(){
   try{localStorage.removeItem(DASH_LAYOUT_KEY);}catch(_){}
@@ -4120,6 +4198,12 @@ function moveDashboardBlock(id,delta){
   if(delta<0) grid.insertBefore(item.el,target); else grid.insertBefore(target,item.el);
   saveDashboardLayout(`${item.label} 블록 순서를 옮겼습니다.`);
 }
+function moveDashboardKpi(id,delta){
+  const host=document.getElementById('kpis'),item=host?.querySelector(`[data-kpi-card="${id}"]`);if(!host||!item)return;
+  const visible=[...host.querySelectorAll(':scope > [data-kpi-card]:not([hidden])')],i=visible.indexOf(item),target=visible[i+delta];
+  if(i<0||!target)return;if(delta<0)host.insertBefore(item,target);else host.insertBefore(target,item);
+  saveDashboardLayout(`${DASH_KPI_CARDS.find(x=>x.id===id)?.label||'지표'} 카드 순서를 옮겼습니다.`);
+}
 function cycleDashboardBlockSize(id){
   const item=dashCatalog().find(x=>x.id===id); if(!item) return;
   const now=+item.el.dataset.dashSpan||12, next=DASH_SPANS[(DASH_SPANS.indexOf(now)+1)%DASH_SPANS.length];
@@ -4129,7 +4213,33 @@ function cycleDashboardBlockSize(id){
   saveDashboardLayout(`${item.label} 블록 너비를 ${dashSpanLabel(next)}로 바꿨습니다.`);
 }
 function clearDashDropTargets(){
-  document.querySelectorAll('#dashGrid>.dash-drop-target').forEach(el=>el.classList.remove('dash-drop-target'));
+  document.querySelectorAll('.dash-drop-target,.dash-choice-target').forEach(el=>el.classList.remove('dash-drop-target','dash-choice-target'));
+}
+function applyDashboardKpiLayout(layout=dashLayoutCache||readDashboardLayout()){
+  const host=document.getElementById('kpis');if(!host)return;const tiles=[...host.querySelectorAll(':scope > [data-kpi-card]')];
+  const byId=Object.fromEntries(tiles.map(el=>[el.dataset.kpiCard,el]));
+  (layout.kpiOrder||[]).forEach(id=>{if(byId[id])host.appendChild(byId[id])});
+  const hidden=new Set(layout.hiddenKpis||[]);tiles.forEach(el=>{el.hidden=hidden.has(el.dataset.kpiCard)});
+}
+function prepareDashboardKpis(){
+  const host=document.getElementById('kpis');if(!host)return;
+  host.querySelectorAll(':scope > [data-kpi-card]').forEach(tile=>{
+    if(tile.querySelector(':scope > .dash-kpi-tools'))return;
+    const id=tile.dataset.kpiCard,label=DASH_KPI_CARDS.find(x=>x.id===id)?.label||'핵심지표';
+    const tools=document.createElement('div');tools.className='dash-kpi-tools';tools.setAttribute('aria-label',`${label} 카드 배치 도구`);
+    tools.innerHTML=`<button type="button" class="dash-kpi-handle" draggable="true" title="끌어서 이동" aria-label="${label} 카드를 끌어서 이동" onclick="event.stopPropagation()">⠿</button><button type="button" onclick="event.stopPropagation();moveDashboardKpi('${id}',-1)" aria-label="${label} 왼쪽으로 이동">←</button><button type="button" onclick="event.stopPropagation();moveDashboardKpi('${id}',1)" aria-label="${label} 오른쪽으로 이동">→</button><button type="button" onclick="event.stopPropagation();setDashboardKpiVisible('${id}',false)" aria-label="${label} 숨기기">×</button>`;
+    tile.insertBefore(tools,tile.firstChild);
+  });
+  applyDashboardKpiLayout();
+}
+function reorderPaletteItem(kind,moving,target,after){
+  const layout=dashboardLayoutState(),key=kind==='block'?'order':'kpiOrder',order=[...(layout[key]||[])];
+  const from=order.indexOf(moving),to=order.indexOf(target);if(from<0||to<0||moving===target)return;
+  order.splice(from,1);let at=order.indexOf(target)+(after?1:0);order.splice(at,0,moving);layout[key]=order;dashLayoutCache=layout;
+  if(kind==='block'){
+    const grid=document.getElementById('dashGrid'),byId=Object.fromEntries(dashCatalog().map(x=>[x.id,x.el]));
+    order.forEach(id=>{if(byId[id])grid?.appendChild(byId[id])});
+  }else applyDashboardKpiLayout(layout);
 }
 function toggleDashboardEditor(force){
   dashLayoutEditing=typeof force==='boolean'?force:!dashLayoutEditing;
@@ -4138,15 +4248,17 @@ function toggleDashboardEditor(force){
   root?.classList.toggle('dash-edit',dashLayoutEditing);
   if(panel) panel.hidden=!dashLayoutEditing;
   if(btn){btn.setAttribute('aria-expanded',String(dashLayoutEditing));btn.setAttribute('aria-pressed',String(dashLayoutEditing));
-    btn.textContent=dashLayoutEditing?'편집 닫기':'블록 편집';}
-  if(!dashLayoutEditing){clearDashDropTargets();dashCatalog().forEach(x=>x.el.classList.remove('dash-dragging'));}
-  dashLayoutMessage(dashLayoutEditing?'손잡이로 끌거나 화살표로 이동하고, 크기 버튼으로 너비를 바꾸세요.':'');
+    btn.textContent=dashLayoutEditing?'편집 닫기':'카드 편집';}
+  if(dashLayoutEditing)prepareDashboardKpis();
+  if(!dashLayoutEditing){clearDashDropTargets();document.querySelectorAll('.dash-dragging').forEach(x=>x.classList.remove('dash-dragging'));}
+  renderDashboardPalette();
+  dashLayoutMessage(dashLayoutEditing?'카드를 체크해 넣고 빼거나, 손잡이로 끌어 순서를 바꾸세요. 화살표는 모바일에서도 동작합니다.':'');
 }
 function initDashboardLayout(){
   const root=document.getElementById('v-dash'), hero=root?.querySelector(':scope > .hero');
   if(!root||!hero||document.getElementById('dashGrid')) return;
   const custom=document.createElement('div');custom.id='dashCustomizer';custom.className='dash-customizer';
-  custom.innerHTML=`<div class="dash-customizer-head"><div class="dash-customizer-copy"><b>내 대시보드</b><span>블록을 추가·숨김·이동하고 너비를 바꿀 수 있습니다. 구성은 이 기기에 자동 저장됩니다.</span></div><button type="button" class="dash-customizer-toggle" id="dashCustomizerToggle" aria-controls="dashCustomizerPanel" aria-expanded="false" aria-pressed="false" onclick="toggleDashboardEditor()">블록 편집</button></div><div class="dash-customizer-panel" id="dashCustomizerPanel" hidden><div class="dash-palette" id="dashPalette"></div><div class="dash-customizer-actions"><button type="button" onclick="showAllDashboardBlocks()">전체 표시</button><button type="button" onclick="resetDashboardLayout()">기본 배치 복원</button><button type="button" class="primary" onclick="toggleDashboardEditor(false)">편집 완료</button></div><div class="dash-layout-status" id="dashLayoutStatus" role="status" aria-live="polite"></div></div>`;
+  custom.innerHTML=`<div class="dash-customizer-head"><div class="dash-customizer-copy"><b>내 대시보드 카드</b><span>필요한 카드를 체크하고, 끌어서 옮기고, 크기를 바꿀 수 있습니다. 이 기기에 자동 저장됩니다.</span></div><button type="button" class="dash-customizer-toggle" id="dashCustomizerToggle" aria-controls="dashCustomizerPanel" aria-expanded="false" aria-pressed="false" onclick="toggleDashboardEditor()">카드 편집</button></div><div class="dash-customizer-panel" id="dashCustomizerPanel" hidden><div id="dashPalette"></div><div class="dash-customizer-actions"><button type="button" onclick="showAllDashboardBlocks()">전체 카드 표시</button><button type="button" onclick="resetDashboardLayout()">기본 배치 복원</button><button type="button" class="primary" onclick="toggleDashboardEditor(false)">편집 완료</button></div><div class="dash-layout-status" id="dashLayoutStatus" role="status" aria-live="polite"></div></div>`;
   hero.insertAdjacentElement('afterend',custom);
   const grid=document.createElement('div');grid.id='dashGrid';grid.setAttribute('aria-label','사용자 대시보드 블록');
   const first=document.getElementById('repCard');root.insertBefore(grid,first||null);
@@ -4161,10 +4273,9 @@ function initDashboardLayout(){
   catalog.forEach(x=>{
     x.el.classList.add('dash-block');x.el.dataset.dashBlock=x.id;x.el.dataset.dashLabel=x.label;
     const tools=document.createElement('div');tools.className='dash-block-tools';tools.setAttribute('aria-label',`${x.label} 배치 도구`);
-    tools.innerHTML=`<button type="button" class="dash-drag-handle" draggable="true" title="끌어서 이동" aria-label="${x.label} 블록을 끌어서 이동">⠿</button><button type="button" onclick="moveDashboardBlock('${x.id}',-1)" aria-label="${x.label} 위로 이동">↑</button><button type="button" onclick="moveDashboardBlock('${x.id}',1)" aria-label="${x.label} 아래로 이동">↓</button><button type="button" class="dash-size" onclick="cycleDashboardBlockSize('${x.id}')">${dashSpanLabel(x.span)}</button><button type="button" onclick="setDashboardBlockVisible('${x.id}',false)" aria-label="${x.label} 숨기기">×</button>`;
+    tools.innerHTML=`<label class="dash-visible-toggle"><input type="checkbox" checked onchange="setDashboardBlockVisible('${x.id}',this.checked)">표시</label><button type="button" class="dash-drag-handle" draggable="true" title="끌어서 이동" aria-label="${x.label} 카드를 끌어서 이동">⠿</button><button type="button" onclick="moveDashboardBlock('${x.id}',-1)" aria-label="${x.label} 위로 이동">↑</button><button type="button" onclick="moveDashboardBlock('${x.id}',1)" aria-label="${x.label} 아래로 이동">↓</button><button type="button" class="dash-size" onclick="cycleDashboardBlockSize('${x.id}')">${dashSpanLabel(x.span)}</button>`;
     x.el.insertBefore(tools,x.el.firstChild);grid.appendChild(x.el);
   });
-  document.getElementById('dashPalette').innerHTML=catalog.map(x=>`<label><input type="checkbox" value="${x.id}" onchange="setDashboardBlockVisible('${x.id}',this.checked)"><span>${x.label}</span></label>`).join('');
   grid.addEventListener('dragstart',e=>{
     const handle=e.target.closest('.dash-drag-handle');if(!dashLayoutEditing||!handle){e.preventDefault();return;}
     dashDragging=handle.closest('[data-dash-block]');dashDragging?.classList.add('dash-dragging');
@@ -4180,7 +4291,21 @@ function initDashboardLayout(){
   });
   grid.addEventListener('drop',e=>{if(dashDragging){e.preventDefault();saveDashboardLayout('블록 순서를 저장했습니다.');}});
   grid.addEventListener('dragend',()=>{dashDragging?.classList.remove('dash-dragging');dashDragging=null;clearDashDropTargets();});
-  applyDashboardLayout();
+  const kpiHost=document.getElementById('kpis');
+  kpiHost?.addEventListener('dragstart',e=>{const handle=e.target.closest('.dash-kpi-handle');if(!dashLayoutEditing||!handle){if(handle)e.preventDefault();return;}
+    dashKpiDragging=handle.closest('[data-kpi-card]');dashKpiDragging?.classList.add('dash-dragging');if(e.dataTransfer){e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',dashKpiDragging?.dataset.kpiCard||'');}});
+  kpiHost?.addEventListener('dragover',e=>{if(!dashKpiDragging)return;e.preventDefault();const target=e.target.closest('[data-kpi-card]');if(!target||target===dashKpiDragging||target.hidden)return;
+    clearDashDropTargets();target.classList.add('dash-drop-target');const r=target.getBoundingClientRect(),after=e.clientX>r.left+r.width/2;kpiHost.insertBefore(dashKpiDragging,after?target.nextSibling:target);});
+  kpiHost?.addEventListener('drop',e=>{if(dashKpiDragging){e.preventDefault();saveDashboardLayout('핵심지표 카드 순서를 저장했습니다.');}});
+  kpiHost?.addEventListener('dragend',()=>{dashKpiDragging?.classList.remove('dash-dragging');dashKpiDragging=null;clearDashDropTargets();});
+  const palette=document.getElementById('dashPalette');
+  palette?.addEventListener('dragstart',e=>{const choice=e.target.closest('.dash-choice');if(!choice)return;dashPaletteDragging={kind:choice.dataset.kind,id:choice.dataset.id,el:choice};choice.classList.add('dash-choice-dragging');});
+  palette?.addEventListener('dragover',e=>{if(!dashPaletteDragging)return;const target=e.target.closest('.dash-choice');if(!target||target.dataset.kind!==dashPaletteDragging.kind||target.dataset.id===dashPaletteDragging.id)return;
+    e.preventDefault();clearDashDropTargets();target.classList.add('dash-choice-target');const r=target.getBoundingClientRect(),after=e.clientY>r.top+r.height/2;reorderPaletteItem(dashPaletteDragging.kind,dashPaletteDragging.id,target.dataset.id,after);
+    target.parentNode?.insertBefore(dashPaletteDragging.el,after?target.nextSibling:target);});
+  palette?.addEventListener('drop',e=>{if(dashPaletteDragging){e.preventDefault();saveDashboardLayout('카드 보관함 순서를 저장했습니다.');}});
+  palette?.addEventListener('dragend',()=>{dashPaletteDragging=null;document.querySelectorAll('.dash-choice-dragging').forEach(x=>x.classList.remove('dash-choice-dragging'));clearDashDropTargets();});
+  applyDashboardLayout(readDashboardLayout());
   window.addEventListener('storage',e=>{if(e.key===DASH_LAYOUT_KEY) applyDashboardLayout(readDashboardLayout(),true)});
 }
 
@@ -4216,25 +4341,26 @@ async function loadStatus(){
   const pmWait = (works.pm||[]).filter(r=>r.점검상태 && r.점검상태!=='완료').length;
   // 스프라이트 참조로 통일 — <img> 는 currentColor 를 못 받아 선택·경고 상태에 반응하지 못한다.
   const bi=(name)=>`<svg class="bi" aria-hidden="true" focusable="false"><use href="#i-${name}"/></svg>`;
-  const tile=(cls,ico,label,val,sub,click)=>`<div class="kpi ${cls}" onclick="kTap(this);${click||''}">
+  const tile=(id,cls,ico,label,val,sub,click)=>`<div class="kpi ${cls}" data-kpi-card="${id}" onclick="kTap(this);${click||''}">
     <div class="head"><div class="ico">${bi(ico)}</div><div class="l">${label}</div></div>
     <div class="v">${val}</div>${sub?`<div class="s">${sub}</div>`:''}</div>`;
   $('kpis').innerHTML =
-    tile('accent','bootstrap-clipboard-data-fill','정산 건수', rows.length||'-', `유상 ${유상.length}건 · 클릭=목록`, "goList('settle','')") +
-    tile('','bootstrap-cash-stack','작업 공급가액(부가세 별도)', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원 · 실제 작업분 · 클릭=내역', "goList('settle','')") +
-    tile(미수?'warn':'ok','bootstrap-hourglass-split','미수금', fmt(미수), '원 · 계산서 발행 후 미입금 · 클릭=목록', "goList('settle','입금 대기')") +
-    tile(발행===유상.length&&유상.length?'ok':'','bootstrap-receipt','계산서 발행율',
+    tile('settle-count','accent','bootstrap-clipboard-data-fill','정산 건수', rows.length||'-', `유상 ${유상.length}건 · 클릭=목록`, "goList('settle','')") +
+    tile('supply-amount','','bootstrap-cash-stack','작업 공급가액(부가세 별도)', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원 · 실제 작업분 · 클릭=내역', "goList('settle','')") +
+    tile('receivable',미수?'warn':'ok','bootstrap-hourglass-split','미수금', fmt(미수), '원 · 계산서 발행 후 미입금 · 클릭=목록', "goList('settle','입금 대기')") +
+    tile('tax-rate',발행===유상.length&&유상.length?'ok':'','bootstrap-receipt','계산서 발행율',
       (유상.length?Math.round(발행/유상.length*100):0)+'%',
       `${발행}/${유상.length}건 <span class="bar"><i style="width:${유상.length?발행/유상.length*100:0}%"></i></span>`,
       "goList('settle','세금계산서 미발행')") +
-    tile(issues.length?'danger':'ok','bootstrap-exclamation-triangle-fill','조치 필요', issues.length, issues.length?'클릭해 아래 유형 확인':'모두 정상',
+    tile('issues-count',issues.length?'danger':'ok','bootstrap-exclamation-triangle-fill','조치 필요', issues.length, issues.length?'클릭해 아래 유형 확인':'모두 정상',
       "flashTop()") +
-    tile(asOpen?'danger':'ok','bootstrap-wrench-adjustable','AS 미실시', asOpen,
+    tile('as-open',asOpen?'danger':'ok','bootstrap-wrench-adjustable','AS 미실시', asOpen,
       `접수 후 미완료 · 전체 ${(works.as||[]).length}건 중 · 클릭=목록`, "show('as')") +
-    tile(pmWait?'warn':'','bootstrap-calendar-event-fill','정기점검 대기', pmWait, `전체 ${(works.pm||[]).length}건 · 클릭=목록`, "show('pm')") +
-    (erpDocs.total ? tile('','bootstrap-receipt', APP_YEAR+'년 ERP 매출',
+    tile('pm-wait',pmWait?'warn':'','bootstrap-calendar-event-fill','정기점검 대기', pmWait, `전체 ${(works.pm||[]).length}건 · 클릭=목록`, "show('pm')") +
+    (erpDocs.total ? tile('erp-sales','','bootstrap-receipt', APP_YEAR+'년 ERP 매출',
       fmt(erpDocs.total), `계산서 ${erpDocs.rows.length}장 · 클릭=보고`,
       "show('daily');renderDaily()") : '');
+  prepareDashboardKpis();
   // 하단 '업무 바로가기' 건수 — 위 타일과 **같은 변수**를 쓴다(두 곳 숫자가 갈리지 않게)
   const _dmPm = $('dmPmCount'), _dmAs = $('dmAsCount');
   if(_dmPm) _dmPm.textContent = ` 대기 ${pmWait} · 전체 ${(works.pm||[]).length}건`;
