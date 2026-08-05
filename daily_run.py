@@ -423,6 +423,9 @@ def _run_pipeline():
     steps.append(run("원본 색인 갱신", [os.path.join(ROOT, "source_index.py")], timeout=2400))
     steps.append(run("원본 폴더 정리·바로가기", [os.path.join(ROOT, "source_tidy.py")], timeout=1800))
     steps.append(run("자료현황 갱신", [os.path.join(ROOT, "data_status.py")]))
+    # 미반영 목록(2026-08-05 지시 "반영 안된 자료들 목록 정리"). 앞 단계들이 남긴 리포트를
+    # 모아 세므로 **맨 뒤**여야 한다 — 먼저 돌면 어제 숫자를 오늘 것으로 보여 준다.
+    steps.append(run("미반영 목록 갱신", [os.path.join(ROOT, "pending_report.py")], timeout=300))
     # 6.75 하루치 정산분 보고자료 — 다음 날 아침 대표 보고에 그대로 쓴다(2026-08-05 지시).
     #      카톡·밴드·ERP 를 각각 그 날짜로만 훑어 만든다. 앞 단계(색인·밴드 반영)가
     #      끝난 뒤여야 ERP 내보내기와 밴드 글이 최신으로 잡힌다.
