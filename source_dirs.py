@@ -52,6 +52,10 @@ NEW_PROJECT_FLOW_DIR = os.path.join(ORIGIN_ROOT, "50. 쿠팡 신규 프로젝트
 # 이전 7번 폴더도 읽기 호환만 유지한다(새 반영은 모두 8번 정본을 우선한다).
 WORK_LOG_DIR = os.path.join(ORIGIN_ROOT, "8. 정기점검, 돌발AS 일지(미실시건)")
 LEGACY_WORK_LOG_DIR = os.path.join(ORIGIN_ROOT, "7. 정기점검, 돌발AS 일지")
+# 통화·회의에서 정해진 것을 남기는 자리 (2026-08-05 신설).
+# 남기는 것은 **결정과 할 일**이다 — 녹취 전문이나 개인 평가·인사 이야기는 넣지 않는다.
+# 대화에 남긴 것은 사라지고, 여기 적은 것만 다음 세션과 사람에게 전달된다.
+CALL_NOTE_DIR = os.path.join(ORIGIN_ROOT, "10. 통화·회의 기록")
 
 # PO 원본 — 새 위치가 정본. 예전 보관명과 공유 폴더도 계속 훑는다.
 PO_DIR = os.path.join(ORIGIN_ROOT, "6. PO 원본")
