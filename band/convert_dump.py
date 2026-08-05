@@ -128,7 +128,11 @@ def main():
                     #   한도는 폭주 방지용으로만 남긴다 — 실제 글은 1만 자를 넘지 않는다.
                     "content": (p.get("content") or "")[:20000],
                          "photo_count": p.get("photo_count", 0),
-                         "comment_count": p.get("comment_count", 0)}
+                         "comment_count": p.get("comment_count", 0),
+                         # ★ 사진 URL 보존(2026-08-05). 예전에는 여기서 images 를 버려
+                         #   캐시에 URL 이 남지 않았고, 게시글 보관이 사진을 **0장** 받았다
+                         #   (본문·사진수는 있는데 주소가 없어 내려받을 수가 없었다).
+                         "images": [u for u in (p.get("images") or []) if u]}
         # ★ 기존 캐시에 **덮어쓰지 않고 합친다**.
         #   수집 방식마다 커버하는 기간이 달라(화면 긁기=과거, API=최근) 덮어쓰면
         #   한쪽 기간이 통째로 사라진다(2026-07-26에 12~4월이 날아갔다).
@@ -172,6 +176,10 @@ def main():
             #   덤프는 매 실행 전부 재처리되므로, 본문이 긴 옛 덤프가 나중에 이기면
             #   위 분기만으로는 스탬프가 0으로 되돌아가 recheck_plan 이 영원히
             #   '재수집 전'으로 보고 같은 글을 무한 반복한다.
+            if not rec.get("images") and cur.get("images"):
+                rec["images"] = cur["images"]          # 옛 수집분의 사진 주소를 잃지 않는다
+            if merged.get(no) is rec and not rec.get("images") and cur.get("images"):
+                merged[no]["images"] = cur["images"]
             keep = max(int(cur.get("captured_at") or 0), int(rec.get("captured_at") or 0))
             if keep:
                 merged[no]["captured_at"] = keep
