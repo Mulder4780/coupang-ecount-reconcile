@@ -50,12 +50,16 @@ def erp_customers():
     cands = [p for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True)
              if not os.path.basename(p).startswith(("~$", "ESD007E"))]
     cands.sort(key=os.path.getmtime, reverse=True)
+    best = None
     for p in cands[:80]:
         try:
             wb = openpyxl.load_workbook(p, read_only=False, data_only=True)
             ws = wb.active
             head = [str(c or "") for c in next(ws.iter_rows(min_row=2, max_row=2, values_only=True))]
-            if "거래처코드" not in "|".join(head) or "거래처명" not in "|".join(head):
+            j = "|".join(head)
+            # 거래처**등록**(2,981행)만 쓴다 — '거래처코드'만 보면 거래처관리대장(104행)이
+            # 먼저 걸려 캠프 매칭이 통째로 0이 된다(2026-08-05 실측).
+            if "거래처코드" not in j or "거래처명" not in j or "주소" not in j:
                 wb.close()
                 continue
             idx = {h: i for i, h in enumerate(head)}
@@ -69,10 +73,11 @@ def erp_customers():
                                 "tel": g("연락처"), "email": g("Email"),
                                 "equip": g("보유장비명")})
             wb.close()
-            return out, os.path.basename(p)
+            if not best or len(out) > len(best[1]):
+                best = (os.path.basename(p), out)
         except Exception:
             continue
-    return [], None
+    return (best[1], best[0]) if best else ([], None)
 
 
 def ledger_camps():

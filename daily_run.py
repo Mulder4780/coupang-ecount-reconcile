@@ -311,10 +311,17 @@ def _run_pipeline():
     # 달라 그 도구는 0건으로 봤다(2026-08-04 실측) — 별도 파서가 읽는다. 읽기 전용.
     steps.append(run("거래명세서 인쇄본 대조", [os.path.join(ROOT, "stmt_docs.py")],
                      timeout=1500))
+    # ERP 판매조회 → 프로젝트 색인. **완료 판정·앱 금액의 정본**이라 명세서 색인보다 먼저.
+    #   (2026-08-05: 이 색인이 없으면 settlement_completion 의 ERP 근거가 통째로 죽는다)
+    steps.append(run("ERP 판매 프로젝트 색인", [os.path.join(ROOT, "erp_sales_index.py")],
+                     timeout=900))
     # 명세서 ↔ 판매조회(UJ 프로젝트코드) 색인. 인쇄본에는 UJ 가 없어 금액·거래처·품목으로
     # 잇는다(2026-08-05). 이 색인이 건별 PDF 파일명의 프로젝트NO 가 된다.
     steps.append(run("명세서 ↔ 프로젝트 색인", [os.path.join(ROOT, "stmt_link.py")],
                      timeout=1500))
+    # 거래처코드·캠프 마스터 — 앱이 CU코드를 표시하고, 캠프 공백(ERP에만/원장에만)을 드러낸다.
+    steps.append(run("거래처코드 색인", [os.path.join(ROOT, "customer_index.py")], timeout=900))
+    steps.append(run("캠프 마스터", [os.path.join(ROOT, "camp_master.py")], timeout=1200))
     # ★ 사용자 지시(2026-08-05) "각 건의 PDF·이미지를 번호로 알아보게 저장":
     #   밴드는 글 단위(PDF+텍스트+사진), ERP 명세서는 전표번호 단위 PDF 로 굳힌다.
     #   회차마다 상한을 둬 daily_run 이 길어지지 않게 한다 — 남은 건 다음 회차가 잇는다.
@@ -323,6 +330,9 @@ def _run_pipeline():
                      timeout=2400))
     steps.append(run("명세서 건별 PDF 보관",
                      [os.path.join(ROOT, "stmt_archive.py"), "--limit", "150"],
+                     timeout=2400))
+    steps.append(run("세금계산서 건별 PDF 보관",
+                     [os.path.join(ROOT, "tax_archive.py"), "--limit", "150"],
                      timeout=2400))
     # ★ 원본이 늘면 분석 3종(미발행·불일치·확인필요현황)이 10분을 넘긴다 —
     #   2026-08-04 거래명세서 785건 흡수 후 기본 600초에 셋 다 타임아웃으로 FAIL했다.
@@ -369,6 +379,10 @@ def _run_pipeline():
     #     같은 질문을 매번 다시 세지 않으려고 만든다(사용자 지시 2026-07-29).
     #     느린 것(Z: 2만 개 순회)은 다시 돌지 않고 앞 단계가 남긴 리포트에서 숫자만 읽는다 —
     #     그래서 이 단계는 위 대조들이 **끝난 뒤에** 와야 한다.
+    # ★ 원본 색인·폴더 정리(2026-08-05 지시 "누가 봐도 깔끔하게 항상 정리").
+    #   색인이 있어야 앱 '원본 자료' 화면과 바로가기가 최신을 가리킨다.
+    steps.append(run("원본 색인 갱신", [os.path.join(ROOT, "source_index.py")], timeout=2400))
+    steps.append(run("원본 폴더 정리·바로가기", [os.path.join(ROOT, "source_tidy.py")], timeout=1800))
     steps.append(run("자료현황 갱신", [os.path.join(ROOT, "data_status.py")]))
 
     # 6.85 다운로드 흡수 — 실행 도중 새로 내려받은 파일을 다음 회차용 투입함에 보존한다.

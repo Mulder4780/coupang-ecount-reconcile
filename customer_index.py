@@ -57,13 +57,19 @@ def load_customers():
     cands = [p for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True)
              if not os.path.basename(p).startswith(("~$", "ESD007E"))]
     cands.sort(key=os.path.getmtime, reverse=True)
+    best = None
     for p in cands[:80]:
         try:
             wb = openpyxl.load_workbook(p, read_only=False, data_only=True)
             ws = wb.active
             head = [str(c or "") for c in next(ws.iter_rows(min_row=2, max_row=2, values_only=True))]
             j = "|".join(head)
-            if "거래처코드" not in j or "거래처명" not in j:
+            # ★ 2026-08-05: '거래처코드'만 보면 거래처관리대장(104행) 같은 다른 화면이
+            #   먼저 걸린다. 거래처**등록**은 주소·담당자 열이 함께 있고 행이 압도적으로 많다.
+            if "거래처코드" not in j or "거래처명" not in j or "주소" not in j:
+                wb.close()
+                continue
+            if best and ws.max_row <= best[1]:
                 wb.close()
                 continue
             idx = {h: i for i, h in enumerate(head)}
@@ -78,10 +84,11 @@ def load_customers():
                              "manager": g("담당자"), "email": g("Email"),
                              "tel": g("연락처"), "equip": g("보유장비명")})
             wb.close()
-            return rows, os.path.basename(p)
+            if not best or len(rows) > len(best[2]):
+                best = (os.path.basename(p), ws.max_row, rows)
         except Exception:
             continue
-    return [], None
+    return (best[2], best[0]) if best else ([], None)
 
 
 def camps_from_ledger():
@@ -148,6 +155,41 @@ def main():
                         "", "", "", "", ""])
         for x in sorted(none, key=lambda r: -r["건수"]):
             w.writerow([x["camp"], "(ERP에 없음)", "", "", x["건수"], "", "", "", "", ""])
+    # ★ 사용자 지시(2026-08-05) "앱과 엑셀에 추가해서 표기": 관리대장 본체는 수식·차트가
+    #   있어 열을 늘리지 않는다(절대규칙). 대신 **별도 엑셀**을 같은 폴더에 만들어
+    #   사람이 바로 열어 보게 한다 — 확인필요현황 엑셀과 같은 방식이다.
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "거래처코드"
+        head = ["캠프명", "거래처코드", "ERP거래처명", "연결방식", "원장건수",
+                "주소", "담당자", "연락처", "Email", "보유장비"]
+        ws.append(head)
+        for c in ws[1]:
+            c.font = Font(bold=True, color="FFFFFF")
+            c.fill = PatternFill("solid", fgColor="2F5597")
+            c.alignment = Alignment(horizontal="center", vertical="center")
+        for camp, v in sorted(linked.items()):
+            ws.append([camp, v["code"], v["erp_name"], v["how"], v["건수"],
+                       v["addr"], v["manager"], v["tel"], v["email"], v["equip"]])
+        for camp, v in sorted(multi.items()):
+            ws.append([camp, "(후보 여럿)", " / ".join(v["names"]), v["how"], v["건수"]])
+        for x in sorted(none, key=lambda r: -r["건수"]):
+            ws.append([x["camp"], "(ERP에 없음)", "", "", x["건수"]])
+        for col, w in zip("ABCDEFGHIJ", (26, 12, 26, 10, 9, 34, 12, 15, 24, 30)):
+            ws.column_dimensions[col].width = w
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+        from ecount_reconcile import load_config as _lc, resolve_master as _rm
+        out_x = os.path.join(os.path.dirname(_rm(_lc()["reconcile"]["master_xlsx"])),
+                             "쿠팡_거래처코드_최신.xlsx")
+        wb.save(out_x)
+        print(f"  엑셀: {out_x}")
+    except Exception as e:
+        print(f"  ! 엑셀 생성 실패: {str(e)[:70]}")
+
     print(f"거래처 {len(custs)}개 · 원장 캠프 {len(camps)}개 → "
           f"코드 확정 {len(linked)} · 후보여럿 {len(multi)} · ERP에 없음 {len(none)} "
           f"→ reports/거래처코드_색인.json/csv")
