@@ -381,6 +381,9 @@ def _run_pipeline():
     #     그래서 이 단계는 위 대조들이 **끝난 뒤에** 와야 한다.
     # ★ 원본 색인·폴더 정리(2026-08-05 지시 "누가 봐도 깔끔하게 항상 정리").
     #   색인이 있어야 앱 '원본 자료' 화면과 바로가기가 최신을 가리킨다.
+    # 업무센터 UX 점검은 3일마다 12:00 별도 스케줄러가 돈다(쿠팡업무_업무센터UX점검).
+    #   daily_run 에서도 가볍게 한 번 더 갱신해 리포트가 오래되지 않게 한다.
+    steps.append(run("업무센터 UX 점검", [os.path.join(ROOT, "ux_review.py")], timeout=600))
     steps.append(run("원본 색인 갱신", [os.path.join(ROOT, "source_index.py")], timeout=2400))
     steps.append(run("원본 폴더 정리·바로가기", [os.path.join(ROOT, "source_tidy.py")], timeout=1800))
     steps.append(run("자료현황 갱신", [os.path.join(ROOT, "data_status.py")]))
