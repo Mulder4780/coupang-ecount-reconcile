@@ -123,8 +123,24 @@ def main():
         # 3) 지난 회차의 찌꺼기를 **거둔다**. 색인이 한 번 오염되면(파생물까지 세면)
         #    그때 만든 링크가 영원히 남아 폴더가 계속 지저분해진다 —
         #    실제로 2026-08-05 에 색인 17,368건(절반이 파생물)으로 만든 링크가 남았다.
-        #    ★ 안전장치: 하드링크는 원본과 같은 파일이다. 다른 이름이 **하나도 없는**
-        #      것(st_nlink == 1)은 그 자체가 마지막 사본일 수 있으므로 지우지 않고 보고한다.
+        #    ★ 안전장치 — **st_nlink 로 판단하지 않는다.** Z: 는 네트워크 공유(SMB)라
+        #      하드링크라도 링크 수가 늘 1 로 온다(실측 2026-08-06: 바로가기 6,008개
+        #      **전부** nlink==1). 그것을 믿으면 아무것도 못 거두고(첫 실행 0개),
+        #      무시하면 유일본을 지운다. 그래서 **원본이 색인에 남아 있는가**로 본다:
+        #      크기가 같고, 원본 이름(확장자 뗀 것)이 바로가기 이름 안에 들어 있으면
+        #      같은 파일로 본다(종류별 링크는 `날짜_라벨_원본stem.ext`, 월별은 원본 이름 그대로).
+        by_size = collections.defaultdict(list)
+        for r in rows:
+            by_size[r.get("size") or 0].append(r)
+
+        def has_original(fn, size):
+            low = fn.lower()
+            for r in by_size.get(size, ()):
+                nm = r["name"].lower()
+                if nm == low or os.path.splitext(nm)[0] in low:
+                    return True
+            return False
+
         removed, kept = 0, []
         for dirpath, _d, files in os.walk(short):
             for fn in files:
@@ -132,7 +148,7 @@ def main():
                 if os.path.normcase(p) in want:
                     continue
                 try:
-                    if os.stat(p).st_nlink > 1:
+                    if has_original(fn, os.stat(p).st_size):
                         os.remove(p)
                         removed += 1
                     else:
@@ -185,7 +201,8 @@ def main():
     msg = (f"원본 정리: 색인 {len(rows)}건 · 바로가기 {made}개 생성 · "
            f"묵은 링크 {removed}개 거둠 · 정리후보 {len(junk)}건 → {short}")
     if kept:
-        msg += f"\n  ※ 원본이 하나뿐이라 지우지 않은 링크 {len(kept)}개 — 사람이 확인 필요"
+        msg += (f"\n  ※ 원본을 색인에서 못 찾아 **지우지 않은** 링크 {len(kept)}개 — "
+                f"유일본일 수 있으니 사람이 확인")
         for p in kept[:5]:
             msg += f"\n     {os.path.basename(p)}"
     print(msg)
