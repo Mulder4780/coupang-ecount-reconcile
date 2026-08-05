@@ -4426,7 +4426,17 @@ def t101_percent_and_no_erp_post():
     # (7) 실제로 --post 를 줘도 전송 단계로 가지 않는지 — 코드 순서로 확인한다.
     assert up.index("실전송은 제공하지 않습니다") < up.index("cli = EcountClient(cfg)"), \
         "차단이 전송 코드보다 뒤에 있다"
-    print("  [101] 비율 소수점 1자리·미완료 100% 금지 · ERP 전표 실전송 제거 ✅")
+
+    # (8) 밴드 수집기는 숨은 탭에서도 돌아야 한다(사고 #19). 페이지 타이머를 쓰면
+    #     크롬이 1분 간격으로 늦춰 15분에 0건이 된다 — 워커 타이머·관찰자만 쓴다.
+    grab = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
+    body = grab[grab.index("(function ()"):]          # 머리말 주석의 설명은 제외하고 본다
+    assert "setTimeout" not in body.replace(
+        "'onmessage=e=>{setTimeout(()=>postMessage(e.data.id),e.data.ms)}'", ""), \
+        "수집기에 페이지 setTimeout 이 다시 들어왔다(숨은 탭에서 멈춘다)"
+    assert "new Worker" in body and "MutationObserver" in body, "워커 타이머·관찰자가 없다"
+    assert "window.__grabStop" in body, "배치를 끊을 방법이 없다(새로고침하면 수집분이 날아간다)"
+    print("  [101] 비율 소수점 1자리·미완료 100% 금지 · ERP 전표 실전송 제거 · 수집기 숨은탭 대응 ✅")
 
 
 def t100_erp_pdf_archive():
