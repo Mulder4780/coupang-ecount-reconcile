@@ -36,6 +36,7 @@ sys.path.insert(0, ROOT)
 # 관리대장을 Z: 에서 매번 끌어오지 않고 메모리 사본에서 연다(속도 개선 2026-07-31).
 # sys.path 를 세운 **뒤에** 임포트해야 한다 — 위로 올리면 ecount 모듈을 못 찾는다.
 from ecount_reconcile import master_stream
+from pct_fmt import pct, pct_text          # 비율 표기 단일 규칙 (2026-08-05 지시)
 PY = sys.executable
 ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
@@ -2642,7 +2643,7 @@ def representative_summary(works, settlements, base_date=""):
         dates = sorted(d for d in (norm_date(r.get("완료일")) for r in rows) if d)
         item = {
             "업무유형": kind, "발행대상": len(rows), "발행완료": len(issued),
-            "미발행": len(unissued), "발행률": round(len(issued) / len(rows) * 100) if rows else None,
+            "미발행": len(unissued), "발행률": pct(len(issued), len(rows)),
             "대상기간": f"{dates[0]} ~ {dates[-1]}" if dates else "대상 없음",
             "합계금액": sum(_metric_number(r.get("공급가액")) for r in rows),
         }
@@ -2706,7 +2707,7 @@ def representative_summary(works, settlements, base_date=""):
         "정기점검": {
             "분기": f"{qstart.month}~{qend.month}월", "분기시작일": qstart.isoformat(),
             "분기종료일": qend.isoformat(), "전체대상": target,
-            "경과율": round(elapsed_days / total_days * 100, 1) if total_days else 0,
+            "경과율": pct(elapsed_days, total_days) or 0,
             "목표누계": expected, "실제완료": actual, "계획대비": gap,
             "잔여대상": remaining, "잔여평일추정": remaining_business,
             "필요일일처리량": round(required_daily, 2),
@@ -3015,7 +3016,7 @@ def _augment_exec_daily(report):
     # 실제 원천 대조(중복 제거) 3/0과 달랐다.
     put(grp("돌발"), "신규 접수", f"{int(as_day.get('신규접수') or 0)}건")
     put(grp("돌발"), "신규 중 처리 완료", f"{int(as_day.get('신규처리완료') or 0)}건")
-    put(grp("돌발"), "신규 처리율", f"{int(as_day.get('신규처리율') or 0)}%")
+    put(grp("돌발"), "신규 처리율", "%.1f%%" % float(as_day.get('신규처리율') or 0))
     put(grp("돌발"), "작업 완료", f"{int(as_day.get('완료') or 0)}건")
     put(grp("돌발"), "현장 작업", f"{int(as_day.get('현장작업') or 0)}건")
     put(grp("돌발"), "유상 발생", f"{int(as_day.get('유상발생') or 0)}건")
@@ -3036,20 +3037,23 @@ def _augment_exec_daily(report):
         if pm_group:
             pm_group["items"] = [it for it in pm_group.get("items", [])
                                  if metric_key(it[0]) != metric_key("분기 진행률")]
-        pct, el = int(pm.get("분기진행률") or 0), int(pm.get("분기경과율") or 0)
-        gap = pct - el
+        # 비율은 소수점 1자리로 그대로 보여 준다 — int()로 자르면 99.9%가 99%로,
+        # 반올림하면 100%로 보여 "다 됐다"는 오해를 만든다(2026-08-05 지시).
+        prog = float(pm.get("분기진행률") or 0)
+        el = float(pm.get("분기경과율") or 0)
+        gap = round(prog - el, 1)
         put(pm_group, "분기 예정·완료",
             f"{int(pm.get('분기완료') or 0)} / {int(pm.get('분기예정') or 0)}대")
-        put(pm_group, "분기 장비 진행률", f"{pct}%")
+        put(pm_group, "분기 장비 진행률", "%.1f%%" % prog)
         due = int(pm.get("기준일까지예정") or 0)
         due_done = int(pm.get("기준일까지완료") or 0)
         if due:
             put(pm_group, "기준일까지 이행",
-                f"{due_done} / {due}대 · {int(pm.get('기준일이행률') or 0)}%")
+                f"{due_done} / {due}대 · " + pct_text(due_done, due, "대상 없음"))
         if pm.get("예측일정"):
             put(pm_group, "예측 일정(캘린더)", f"{int(pm.get('예측일정') or 0)}그룹")
-        put(pm_group, f"기간 경과 {el}% 대비",
-            f"{gap:+d}%p {'앞섬' if gap >= 0 else '뒤짐'}",
+        put(pm_group, "기간 경과 %.1f%% 대비" % el,
+            f"{gap:+.1f}%p {'앞섬' if gap >= 0 else '뒤짐'}",
             "#12813F" if gap >= 0 else "#B42318")
 
     # ③ 대표: "기사가 스케줄을 못 잡아 미루는 건 절대 안 된다" — 핫이슈는 0이어도

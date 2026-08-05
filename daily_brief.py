@@ -28,6 +28,8 @@ from collections import Counter, defaultdict
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
+from pct_fmt import pct, pct_text          # 비율 표기 단일 규칙 (2026-08-05 지시)
+
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -339,7 +341,7 @@ def brief(day=None, data=None):
     return {
         "기준일": day,
         "돌발AS": {"신규접수": len(as_new), "신규처리완료": len(new_processed),
-                    "신규처리율": round(len(new_processed) * 100 / len(as_new)) if as_new else 0,
+                    "신규처리율": pct(len(new_processed), len(as_new)) or 0,
                     "완료": len(as_done), "현장작업": len(fw_day),
                     "유상발생": len(paid_as), "재방문예정": len(revisit),
                     "미처리": len(as_open), "완료일미기입": len(as_stale),
@@ -369,9 +371,9 @@ def brief(day=None, data=None):
                      #   진행됐고 이상이 있는지 없는지". 진행률만 보면 빠른지 늦은지 모른다.
                      #   분기 경과일 비율을 '기대 진행률'로 두고 그 차이를 보여 준다.
                      "분기경과율": _elapsed_pct(qs, qe, day),
-                     "분기진행격차": (source_progress if source_total else
-                                     (round(len(inq_done) * 100 / len(inq)) if inq else 0))
-                                     - _elapsed_pct(qs, qe, day)},
+                     "분기진행격차": round((source_progress if source_total else
+                                     (pct(len(inq_done), len(inq)) or 0))
+                                     - _elapsed_pct(qs, qe, day), 1)},
         "완료내역": done, "무상건": free, "추가작업건": extra,
         "점검중유상": pm_paid, "AS전환": to_as, "이상발견": abnormal,
         "점검예정목록": pm_plan_rows,

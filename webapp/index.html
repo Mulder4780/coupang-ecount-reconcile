@@ -2852,6 +2852,24 @@ const fmt = n => {
     ? Math.round(v).toLocaleString('ko-KR',{maximumFractionDigits:0})
     : '-';
 };
+// ── 비율(%) 표기 단일 규칙 (2026-08-05 사용자 지시, 서버 pct_fmt.py 와 같은 규칙)
+//    "비율 표기는 소수점 1자리까지 표기, 1건이 안되도 100%로 보이는 문제 해결"
+//    · 소수점 1자리 고정  · 미완료면 절대 100.0% 로 보이지 않는다(99.9로 내림)
+//    · 한 건이라도 했으면 0.0% 로 보이지 않는다(0.1로 올림)  · 모수 0이면 비율 없음(null)
+const pctNum = (done,total) => {
+  const d=Number(done)||0, t=Number(total)||0;
+  if(!(t>0)) return null;
+  let v = Math.round(d*1000/t)/10;
+  if(v>=100 && d<t) v=99.9;
+  if(v<=0 && d>0) v=0.1;
+  return v;
+};
+const pctText = (done,total,none='대상 없음') => {
+  const v=pctNum(done,total);
+  return v==null ? none : v.toFixed(1)+'%';
+};
+// 서버가 이미 계산해 준 비율 숫자를 글자로 (소수점 1자리 고정)
+const pctFix = v => (v==null||v==='') ? '-' : (Number(v)||0).toFixed(1)+'%';
 let UXQ=[], UXTimer=null;
 function uxEvent(kind,target,detail='',ms=0){
   if(!PIN) return;
@@ -4673,7 +4691,7 @@ async function loadStatus(){
     tile('supply-amount','','bootstrap-cash-stack','작업 공급가액(부가세 별도)', fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원 · 실제 작업분 · 클릭=내역', "goList('settle','')") +
     tile('receivable',미수?'warn':'ok','bootstrap-hourglass-split','미수금', fmt(미수), '원 · 계산서 발행 후 미입금 · 클릭=목록', "goList('settle','입금 대기')") +
     tile('tax-rate',발행===유상.length&&유상.length?'ok':'','bootstrap-receipt','계산서 발행율',
-      (유상.length?Math.round(발행/유상.length*100):0)+'%',
+      pctText(발행,유상.length,'0.0%'),
       `${발행}/${유상.length}건 <span class="bar"><i style="width:${유상.length?발행/유상.length*100:0}%"></i></span>`,
       "goList('settle','세금계산서 미발행')") +
     tile('issues-count',issues.length?'danger':'ok','bootstrap-exclamation-triangle-fill','조치 필요', issues.length, issues.length?'클릭해 아래 유형 확인':'모두 정상',
@@ -6444,7 +6462,7 @@ function renderRepresentative(){
   const docRows=docs['업무유형별']||[];
   $('repDocs').innerHTML=docRows.map(d=>`<div class="rep-doc">
     <b>${esc2(d.업무유형||'')}</b><span>대상 ${d.발행대상||0}</span><span>발행 ${d.발행완료||0}</span>
-    <span>미발행 ${d.미발행||0}</span><span>${d.발행률==null?'대상 없음':d.발행률+'%'}</span></div>`).join('');
+    <span>미발행 ${d.미발행||0}</span><span>${d.발행률==null?'대상 없음':pctFix(d.발행률)}</span></div>`).join('');
 }
 
 /* 01_대표보고 섹션을 보고서 HTML로 — 엑셀 대표보고와 동일한 항목·수치 */
@@ -6691,7 +6709,7 @@ function briefBlock(){
       +pmDoneL.slice(0,4).map(x=>bCard(x,'pm-done')).join(''):''}
     ${!pmPlanL.length&&!pmDoneL.length?`<div class="bnone">기준일에 예정되거나 실행된 정기점검이 없습니다</div>`:''}
     <div class="bbar"><div class="bbt"><span>${_e(APP_YEAR)}년 ${_e(ps.라벨)} 진행률</span>
-      <b>${pct}% <em>${ps.실행}/${ps.예정}건</em></b></div>
+      <b>${pctFix(pct)} <em>${ps.실행}/${ps.예정}건</em></b></div>
       <div class="btrack"><div class="bfill${pct>=60?'':' low'}" style="width:${Math.min(pct,100)}%"></div></div>
       <div class="pmrange">
         <select onchange="setPmRange(this.value, $('pmTo').value)" id="pmFrom">${pmMonthOpts(ps.from)}</select>
@@ -6703,11 +6721,11 @@ function briefBlock(){
       </div>
       ${(()=>{ // 대표 지시(2026-08-04): 기간이 몇 % 지났는지와 나란히 놓아야
                // '빠른지 늦은지'가 보인다. 숫자만으로는 매번 날짜를 세야 한다.
-        const el=+(p.분기경과율||0), gap=pct-el;
+        const el=+(p.분기경과율||0), gap=Math.round((pct-el)*10)/10;
         if(!el) return '';
         return `<div class="bpace ${gap>=0?'ok':'late'}">
-          기간 경과 <b>${el}%</b> 대비 진행 <b>${pct}%</b> —
-          ${gap>=0?`<em>${gap}%p 앞섬</em>`:`<em>${Math.abs(gap)}%p 뒤짐</em>`}</div>`;})()}
+          기간 경과 <b>${pctFix(el)}</b> 대비 진행 <b>${pctFix(pct)}</b> —
+          ${gap>=0?`<em>${gap.toFixed(1)}%p 앞섬</em>`:`<em>${Math.abs(gap).toFixed(1)}%p 뒤짐</em>`}</div>`;})()}
       <div class="bnote">${pct>=60?`특별한 문제 없으면 ${ps.끝월}까지 마무리 가능합니다.`
                                  :'진행률이 낮아 일정 관리가 필요합니다.'}</div>
       <div class="pmstats">
@@ -7067,7 +7085,7 @@ function erpHtml(y){
         <td data-l="장수" style="text-align:right">${M[k].건수}</td>
         <td data-l="비중"><span style="display:inline-block;height:8px;border-radius:4px;background:var(--brand);
           width:${Math.round(M[k].합계/max*58)}%;min-width:3px;vertical-align:middle"></span>
-          <span style="font-size:13px;color:var(--ink-3);margin-left:6px">${Math.round(M[k].합계/tot*100)}%</span></td></tr>`).join('')}
+          <span style="font-size:13px;color:var(--ink-3);margin-left:6px">${pctText(M[k].합계,tot,'-')}</span></td></tr>`).join('')}
     </table>
     <div style="font-size:13px;color:var(--ink-3);margin-top:6px">
       유형별: ${kinds.map(([k,v])=>`${k} ${fmt(v)}`).join(' · ')}<br>
@@ -7114,9 +7132,8 @@ function bundleHtml(y){
 }
 function srcRow(label, s, emptyMsg){
   if(!s || !s.total) return `<tr><td class="hd">${label}</td><td data-l="결과" colspan="2" style="color:#98A2B3">${emptyMsg}</td></tr>`;
-  const pct = Math.round(s.ok/s.total*100);
   const when = s.period ? `<div style="color:#98A2B3;font-size:.86em">기간 ${esc2(s.period)}${s.asof?` · ${esc2(s.asof)}`:''}</div>` : '';
-  const res = (s.ok ? `대상 ${s.total}건 중 <b>${s.ok}건 확인(${pct}%)</b> · 미확인 ${s.miss}건`
+  const res = (s.ok ? `대상 ${s.total}건 중 <b>${s.ok}건 확인(${pctText(s.ok,s.total,'-')})</b> · 미확인 ${s.miss}건`
                    : `검출 ${s.total}건 — 확인필요`) + when;
   return `<tr><td class="hd">${label}</td><td data-l="결과">${res}</td>
     <td class="prjs" data-l="미확인 프로젝트NO"><div class="chips">${
@@ -7213,7 +7230,7 @@ function renderDaily(){
       ${cell(S.length+'건','정산 총계','k_all')}
       ${cell(fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)','k_amt')}
       ${cell(fmt(미수),'미수금(원)','k_due')}
-      ${cell((유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율','k_tax')}
+      ${cell(pctText(발행,유상.length,'0.0%'),'계산서 발행율','k_tax')}
       ${cell(issues.length+'건','조치 필요','k_iss')}
       ${cell(asOpen.length+'건','AS 미실시','k_as')}
       ${cell(pmWait.length+'건','정기점검 대기','k_pm')}
@@ -7257,7 +7274,7 @@ function renderDaily(){
     const hasData = !!(s&&s.total);
     const when = hasData&&s.period ? ` · 기간 ${s.period}${s.asof?` (${s.asof})`:''}` : '';
     const result = (!hasData ? empty : s.ok
-      ? `대상 ${s.total}건 중 ${s.ok}건 확인(${Math.round(s.ok/s.total*100)}%) · 미확인 ${s.miss}건`
+      ? `대상 ${s.total}건 중 ${s.ok}건 확인(${pctText(s.ok,s.total,'-')}) · 미확인 ${s.miss}건`
       : `검출 ${s.total}건 — 확인필요`) + when;
     const missProjects = hasData ? (s.miss_prj||[]).filter(Boolean) : [];
     srcRows.push([label, result, missProjects.join(', ')||'-']);
@@ -7323,7 +7340,7 @@ function renderDaily(){
     } : null,
     kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)'],
           [fmt(미수),'미수금(원)', 미수?'#B54708':'#12813F'],
-          [(유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율'],
+          [pctText(발행,유상.length,'0.0%'),'계산서 발행율'],
           [issues.length+'건','조치 필요', issues.length?'#C0212E':'#12813F'],
           [asOpen.length+'건','돌발AS 진행중'], [pmWait.length+'건','정기점검 대기']],
     monthTitle: `${+m}월 실적`,
@@ -8134,7 +8151,7 @@ function pmStats(){
   const label = (f==='01'&&t==='12') ? '연간' : (f===t ? `${+f}월` : `${+f}~${+t}월`);
   return {from:f, to:t, q0:q0, q1:q1, 라벨:label, 끝월:`${+t}월`,
           예정:rows.length, 실행:done, 미실행:rows.length-done,
-          진행률: rows.length ? Math.round(done*100/rows.length) : 0};
+          진행률: pctNum(done, rows.length) || 0};
 }
 function openPmBrief(scope){
   const p=(BRIEF&&BRIEF['정기점검'])||{}, d=(BRIEF&&BRIEF['기준일'])||baseDate();
@@ -9104,7 +9121,7 @@ async function reportToPng(){
       txt(r[2], hx[2]+cw2[2]-10, y+15, F(12), '#475467', 'right');
       const bw = Math.max(2, Math.round(r[1]/mx*230));
       box(hx[3]+10, y+10, bw, 8, '#2452E6', null, 4);
-      txt(Math.round(r[1]/(D.erpTotal||1)*100)+'%', hx[3]+bw+18, y+15, F(10.5), '#98A2B3');
+      txt(pctText(r[1], D.erpTotal, '-'), hx[3]+bw+18, y+15, F(10.5), '#98A2B3');
       y += 28;
     });
     txt('※ ERP는 여러 작업을 한 장으로 묶어 발행합니다 — 장수는 계산서 매수입니다.',
@@ -9197,7 +9214,7 @@ async function dashToPng(){
   section('핵심 지표');
   const kpi=[[rows.length+'건','정산 건수','#2452E6'],[fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)'],
     [fmt(미수),'미수금(원)',미수?'#B54708':'#12813F'],
-    [(유상.length?Math.round(발행/유상.length*100):0)+'%','계산서 발행율'],
+    [pctText(발행,유상.length,'0.0%'),'계산서 발행율'],
     [issues.length+'건','조치 필요',issues.length?'#C0212E':'#12813F'],
     [asOpen+' · '+pmWait,'AS진행 · 점검대기']];
   const cw=(W-60-16)/3;

@@ -4383,6 +4383,52 @@ def t98_remote_control_tracking():
     print("  [98] 리모컨 기록·관리·보고(승인 없음)·3개 한도·납품 추적 ✅")
 
 
+def t101_percent_and_no_erp_post():
+    """[101] 비율 표기 규칙과 ERP 전표 실전송 제거 (2026-08-05 사용자 지시).
+
+    두 지시가 한 검증에 있는 이유: 둘 다 "화면이 사실과 다르게 말하는 것"을 막는다.
+      · "비율 표기는 소수점 1자리까지 표기, 1건이 안되도 100%로 보이는 문제 해결"
+        → 999/1000 이 100% 로 보이면 대표가 '다 끝났다'고 읽는다.
+      · "전표 실전송 행위는 하지마 이거 삭제해"
+        → 되돌릴 수 없는 ERP 등록을 버튼 하나로 만들지 않는다.
+    """
+    from pct_fmt import pct, pct_text
+
+    # (1) 미완료는 절대 100%가 아니다 — 이 검증의 핵심.
+    assert pct(999, 1000) == 99.9 and pct_text(999, 1000) == "99.9%"
+    assert pct(9999, 10000) == 99.9, "반올림이 미완료를 100%로 만들었다"
+    assert pct(1000, 1000) == 100.0 and pct_text(1000, 1000) == "100.0%"
+    # (2) 한 건이라도 했으면 0%가 아니다.
+    assert pct(1, 10000) == 0.1 and pct_text(1, 10000) == "0.1%"
+    assert pct(0, 10) == 0.0 and pct_text(0, 10) == "0.0%"
+    # (3) 모수가 없으면 비율이 없다 — 0%라고 말하지 않는다.
+    assert pct(0, 0) is None and pct_text(5, 0) == "대상 없음"
+    # (4) 소수점 1자리 고정
+    assert pct_text(1, 3) == "33.3%" and pct_text(2, 3) == "66.7%"
+
+    # (5) 화면(브라우저)도 같은 규칙을 갖고 있어야 서버와 숫자가 어긋나지 않는다.
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "const pctNum" in live and "const pctText" in live, "화면에 비율 규칙 함수가 없다"
+    assert "if(v>=100 && d<t) v=99.9;" in live, "화면이 미완료를 100%로 보일 수 있다"
+    for old in ("Math.round(발행/유상.length*100)", "Math.round(s.ok/s.total*100)"):
+        assert old not in live, "옛 정수 반올림 비율이 남아 있다: %s" % old
+
+    # (6) ERP 전표 실전송 — 세 곳 모두 막혀 있어야 한다.
+    up = open(os.path.join(ROOT, "ecount_upload.py"), encoding="utf-8").read()
+    assert "실전송은 제공하지 않습니다" in up, "ecount_upload 가 아직 전송한다"
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert '"upload_post":   (' not in srv, "서버 작업표에 실전송 키가 되살아났다"
+    assert 'if key == "upload_post":' in srv, "옛 화면이 보낸 실전송 요청을 막지 않는다"
+    assert "upload_post" not in live, "화면에 실전송 버튼이 되살아났다"
+    bench = open(os.path.join(ROOT, "coupang_workbench.py"), encoding="utf-8").read()
+    assert '"--post"' not in bench, "워크벤치에 실전송 버튼이 되살아났다"
+
+    # (7) 실제로 --post 를 줘도 전송 단계로 가지 않는지 — 코드 순서로 확인한다.
+    assert up.index("실전송은 제공하지 않습니다") < up.index("cli = EcountClient(cfg)"), \
+        "차단이 전송 코드보다 뒤에 있다"
+    print("  [101] 비율 소수점 1자리·미완료 100% 금지 · ERP 전표 실전송 제거 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -5286,6 +5332,7 @@ if __name__ == "__main__":
     t98_remote_control_tracking()
     t99_share_intake_pull()
     t100_erp_pdf_archive()
+    t101_percent_and_no_erp_post()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:

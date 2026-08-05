@@ -14,12 +14,29 @@
  *
  * 진행 상태는 window.__GRAB 에 남는다 — 탭이 살아 있는 한 이어받을 수 있고,
  * 끊기면 recheck_plan.py 가 캐시를 보고 남은 번호를 다시 뽑아 준다.
+ *
+ * ★ 숨은 탭 타이머 throttling (2026-08-05 실측 — 15분에 0건)
+ *   밴드 탭이 **뒤에 있으면** 크롬이 setTimeout 을 1초→1분 간격으로 늦춘다
+ *   (5분 넘게 숨어 있으면 intensive throttling). 400ms 폴링 30회가 30분이 되어
+ *   첫 글에서 멈춘 것처럼 보였다. 그래서 이 파일은 **페이지 타이머를 쓰지 않는다**:
+ *     · 지연 → Web Worker 타이머(워커는 throttling 대상이 아니다)
+ *     · 본문 등장 대기 → MutationObserver(이벤트는 늦춰지지 않는다)
+ *   앞으로도 `setTimeout` 을 여기에 다시 넣지 말 것. 탭을 앞에 둘 필요도 없다.
  */
 (function () {
   const S = (window.__GRAB = window.__GRAB || {
     band: null, posts: {}, done: [], missing: [], failed: [],
-    running: false, startedAt: null, total: 0,
+    running: false, startedAt: null, total: 0, stop: false,
   });
+
+  // 워커 타이머 — 숨은 탭에서도 제 시각에 온다.
+  const W = new Worker(URL.createObjectURL(new Blob(
+    ['onmessage=e=>{setTimeout(()=>postMessage(e.data.id),e.data.ms)}'],
+    { type: 'text/javascript' })));
+  const waiters = {};
+  let wid = 0;
+  W.onmessage = (e) => { const f = waiters[e.data]; if (f) { delete waiters[e.data]; f(); } };
+  const sleep = (ms) => new Promise((r) => { const id = ++wid; waiters[id] = r; W.postMessage({ id, ms }); });
 
   window.__grabRange = (from, to) => {
     const out = [];
@@ -36,20 +53,25 @@
   };
 
   // 상세 페이지 한 글을 iframe 으로 열어 본문·글쓴이·시각·사진/댓글 수를 뜯는다.
-  async function grabOne(band, no, waitMs) {
+  async function grabOne(band, no, waitMs, bodyMs) {
     const f = document.createElement('iframe');
     f.style.cssText = 'position:fixed;left:-9999px;top:0;width:1200px;height:900px';
     f.src = `https://www.band.us/band/${band}/post/${no}`;
     document.body.appendChild(f);
     try {
-      await new Promise((r) => { f.onload = r; setTimeout(r, waitMs); });
-      let d = null;
-      for (let i = 0; i < 30; i++) {              // 본문이 그려질 때까지 기다린다
-        await new Promise((r) => setTimeout(r, 400));
-        d = f.contentDocument;
-        if (d && d.querySelector('.postText')) break;
-      }
+      await Promise.race([new Promise((r) => { f.onload = r; }), sleep(waitMs)]);
+      // 본문은 SPA 가 나중에 그린다 — 폴링 대신 '그려지는 순간'을 관찰한다.
+      const d = f.contentDocument;
       if (!d) return { status: 'fail' };
+      if (!d.querySelector('.postText')) {
+        await new Promise((done) => {
+          let mo = null, fin = false;
+          const end = () => { if (!fin) { fin = true; if (mo) mo.disconnect(); done(); } };
+          mo = new MutationObserver(() => { if (d.querySelector('.postText')) end(); });
+          mo.observe(d.documentElement || d, { childList: true, subtree: true });
+          sleep(bodyMs).then(end);            // 끝내 안 그려져도 반드시 빠져나온다
+        });
+      }
       // 삭제·권한 없는 글은 본문 자체가 없다 — '없는 글'로 구분해 남긴다.
       if (!d.querySelector('.postText')) {
         const body = (d.body && d.body.innerText) || '';
@@ -83,23 +105,27 @@
     opt = opt || {};
     if (S.running) return '이미 실행 중 — __grabStatus() 로 보라';
     Object.assign(S, {
-      band: String(band), running: true, startedAt: Date.now(),
+      band: String(band), running: true, stop: false, startedAt: Date.now(),
       total: nos.length, posts: opt.keep === false ? {} : S.posts,
       done: [], missing: [], failed: [],
     });
     (async () => {
       for (const no of nos) {
-        const r = await grabOne(band, no, opt.waitMs || 9000);
+        if (S.stop) break;                       // __grabStop() 으로 중간에 끊을 수 있다
+        const r = await grabOne(band, no, opt.waitMs || 9000, opt.bodyMs || 12000);
         if (r.status === 'ok') { S.posts[no] = r.post; S.done.push(no); }
         else if (r.status === 'missing') S.missing.push(no);
         else S.failed.push(no);
-        await new Promise((r2) => setTimeout(r2, opt.gapMs || 300));
+        await sleep(opt.gapMs || 300);
       }
       S.running = false;
       S.finishedAt = Date.now();
     })();
     return `시작: ${nos.length}건 (밴드 ${band})`;
   };
+
+  // 잘못 건 배치를 탭 새로고침 없이 끊는다(새로고침하면 모은 것이 날아간다).
+  window.__grabStop = () => { S.stop = true; return '다음 글에서 멈춘다 — __grabSave() 로 저장하라'; };
 
   window.__grabStatus = () => ({
     running: S.running, total: S.total,
