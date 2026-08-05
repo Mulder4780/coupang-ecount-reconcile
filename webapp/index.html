@@ -1350,6 +1350,15 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .hero-min{margin:4px 0 12px}
 .hero-min h2{font-size:21px;margin:0 0 4px}
 .hero-min .sub{color:var(--ink-3);font-size:14px;margin:0}
+.wt-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
+.wt-hero-copy{min-width:0;padding-top:3px}
+.wt-basis{flex:0 0 auto;min-width:268px;display:grid;grid-template-columns:auto 1fr;align-items:center;
+  gap:3px 10px;padding:10px 12px;background:var(--surface);border:1px solid var(--line);
+  border-radius:13px;box-shadow:var(--sh)}
+.wt-basis>span{grid-row:1/3;font-size:12px;font-weight:800;color:var(--ink-3);white-space:nowrap}
+.wt-basis input{width:146px;height:36px;border:1px solid var(--line);border-radius:9px;padding:0 9px;
+  background:#F8FAFD;color:var(--ink);font-family:inherit;font-size:13px;font-weight:700}
+.wt-basis b{font-size:11.5px;color:var(--brand);font-variant-numeric:tabular-nums}
 .wt-kpis{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:12px}
 .wt-kpi{flex:1 1 130px;min-width:0;background:var(--surface);border:1px solid var(--line);
   border-radius:var(--r);box-shadow:var(--sh);padding:12px 13px;cursor:pointer;text-align:center;
@@ -1359,8 +1368,12 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .wt-kpi.warn b{color:#B54708}
 .wt-kpi.on{border-color:#2E52D6;box-shadow:0 0 0 2px rgba(46,82,214,.18)}
 .wt-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
-.wt-toolbar input,.wt-toolbar select{flex:1 1 170px;min-width:0;height:42px;border:1px solid var(--line);
+.wt-toolbar input,.wt-toolbar select{flex:1 1 150px;min-width:0;height:42px;border:1px solid var(--line);
   border-radius:10px;padding:0 11px;font-family:inherit;font-size:14px;background:var(--surface)}
+.wt-toolbar .wt-search{flex:2 1 260px}
+.wt-toolbar .wt-date-filter{flex:1 1 160px}
+.wt-toolbar .wt-sort-field{flex:1 1 180px}
+.wt-toolbar .wt-sort-order{flex:0 1 155px}
 .wt-toolbar .abtn{flex:0 1 auto}
 .wt-meta{color:var(--ink-3);font-size:13px;margin:5px 1px 9px}
 .wt-card{border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:9px;background:var(--surface)}
@@ -1380,6 +1393,13 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .wt-col.warn{background:#FFF9F2;border-color:#F2C4A0}
 .wt-col h4{margin:2px 4px 8px;font-size:14px}
 .wt-col h4 span{color:var(--ink-3);font-weight:700}
+@media(max-width:640px){
+  .wt-hero{flex-direction:column;gap:10px}
+  .wt-basis{width:100%;min-width:0;grid-template-columns:auto minmax(0,1fr)}
+  .wt-basis input{width:100%;min-width:0}
+  .wt-toolbar input,.wt-toolbar select,.wt-toolbar .wt-search,.wt-toolbar .wt-date-filter,
+  .wt-toolbar .wt-sort-field,.wt-toolbar .wt-sort-order{flex:1 1 100%}
+}
 /* 폰 하단바에는 칸이 없다 — 사이드바(≥900px)에서만 메뉴로 노출.
    폰은 대시보드 상단 타일(정기점검 대기·돌발AS)로 같은 화면에 들어간다. */
 @media(max-width:899px){ .tabbar .worktab-nav{display:none} }
@@ -1929,16 +1949,22 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
   </section>
 
   <section class="view" id="v-pm">
-    <div class="hero-min"><h2>정기점검 관리</h2>
+    <div class="hero-min wt-hero"><div class="wt-hero-copy"><h2>정기점검 관리</h2>
       <p class="sub">예정·실행·미실시를 한 화면에서 배정하고 기록합니다. 입력은 DB에 쌓였다가 11시·15시에 관리대장에 들어갑니다.</p></div>
+      <label class="wt-basis" for="pmBaseDate"><span>조회 기준일</span>
+        <input id="pmBaseDate" type="date" min="2026-01-01" max="2026-12-31" onchange="wtSetBase('pm',this.value)">
+        <b id="pmBaseLabel">기준일 불러오는 중</b></label></div>
     <datalist id="wtTechList"></datalist>
     <div class="wt-kpis" id="pmKpis"></div>
     <div class="card"><div class="wt-toolbar" id="pmToolbar"></div>
       <div class="wt-meta" id="pmMeta"></div><div id="pmBody"></div></div>
   </section>
   <section class="view" id="v-as">
-    <div class="hero-min"><h2>돌발 AS 관리</h2>
+    <div class="hero-min wt-hero"><div class="wt-hero-copy"><h2>돌발 AS 관리</h2>
       <p class="sub">접수→배정→방문→완료를 한 화면에서 관리합니다. 입력은 DB에 쌓였다가 11시·15시에 관리대장에 들어갑니다.</p></div>
+      <label class="wt-basis" for="asBaseDate"><span>조회 기준일</span>
+        <input id="asBaseDate" type="date" min="2026-01-01" max="2026-12-31" onchange="wtSetBase('as',this.value)">
+        <b id="asBaseLabel">기준일 불러오는 중</b></label></div>
     <div class="wt-kpis" id="asKpis"></div>
     <div class="card"><div class="wt-toolbar" id="asToolbar"></div>
       <div class="wt-meta" id="asMeta"></div><div id="asBody"></div></div>
@@ -3643,14 +3669,26 @@ function offlineBanner(){
 const WT_CFG = {
   pm: {sheet:'04_정기점검', idCol:'점검ID', dateCol:'점검예정일', doneCol:'실제점검일',
        stCol:'점검상태', rows:()=>works.pm||[],
+       sorts:[['점검예정일','점검예정일'],['실제점검일','실제점검일'],['프로젝트NO','프로젝트NO'],['캠프명','캠프명']],
        edit:[['담당기사','tech'],['점검상태','status'],['점검예정일','date'],['실제점검일','date']]},
   as: {sheet:'02_돌발AS접수', idCol:'접수ID', dateCol:'방문예정일', doneCol:'작업완료일',
        stCol:'진행상태', rows:()=>works.as||[],
+       sorts:[['접수일자','접수일자'],['방문예정일','방문예정일'],['작업완료일','작업완료일'],['프로젝트NO','프로젝트NO'],['캠프명','캠프명']],
        edit:[['담당기사','tech'],['진행상태','status'],['방문예정일','date'],['작업완료일','date']]},
 };
 let WT = (()=>{ try{ return JSON.parse(localStorage.getItem('cw_wt')||'{}'); }catch(e){ return {}; } })();
 const wtSave = () => { try{ localStorage.setItem('cw_wt', JSON.stringify(WT)); }catch(e){} };
-const wtState = k => (WT[k] = WT[k] || {q:'',st:'',tech:'',board:false});
+const wtToday = () => new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'});
+function wtState(k){
+  const cfg=WT_CFG[k], cur=WT[k]||{};
+  const base=/^2026-\d{2}-\d{2}$/.test(String(cur.base||'')) ? cur.base : wtToday();
+  WT[k]=Object.assign({q:'',st:'',tech:'',board:false,quick:'',dateMode:'',
+    base,sortBy:cfg.dateCol,sortOrder:'desc'},cur,{base});
+  if(WT[k].quick==='today') WT[k].quick='day';
+  if(!cfg.sorts.some(x=>x[0]===WT[k].sortBy)) WT[k].sortBy=cfg.dateCol;
+  if(!['asc','desc'].includes(WT[k].sortOrder)) WT[k].sortOrder='desc';
+  return WT[k];
+}
 const WT_PENDING = {};       // {id|col: value} — 회차 반영 전까지 '대기' 배지
 function wtStatus(k,r){ return String(r[WT_CFG[k].stCol]||'').trim() || '미기입'; }
 function wtTechs(k){
@@ -3659,19 +3697,54 @@ function wtTechs(k){
   return [...s].sort();
 }
 function wtFiltered(k){
-  const st=wtState(k), q=st.q.toLowerCase();
-  return WT_CFG[k].rows().filter(r=>{
+  const cfg=WT_CFG[k], st=wtState(k), q=st.q.toLowerCase();
+  return cfg.rows().filter(r=>{
     if(st.st && wtStatus(k,r)!==st.st) return false;
     if(st.tech==='__none' ? String(r.담당기사||'').trim() :
        (st.tech && !String(r.담당기사||'').includes(st.tech))) return false;
-    if(q && ![r.프로젝트NO,r.캠프명,r.담당기사,r[WT_CFG[k].idCol],r.신청내용]
+    if(q && ![r.프로젝트NO,r.캠프명,r.담당기사,r[cfg.idCol],r.신청내용]
         .some(x=>String(x||'').toLowerCase().includes(q))) return false;
+    const d=String(r[cfg.dateCol]||'').slice(0,10);
+    if(st.dateMode==='day' && d!==st.base) return false;
+    if(st.dateMode==='through' && (!d||d>st.base)) return false;
+    if(st.dateMode==='after' && (!d||d<=st.base)) return false;
+    if(st.dateMode==='none' && d) return false;
     return true;
   });
+}
+function wtLateFn(k){
+  const cfg=WT_CFG[k], base=wtState(k).base;
+  return r=>{const d=String(r[cfg.dateCol]||'').slice(0,10);
+    return d && d<base && !String(r[cfg.doneCol]||'').trim() && !/완료|취소/.test(wtStatus(k,r));};
+}
+function wtDueFn(k){
+  const cfg=WT_CFG[k], base=wtState(k).base;
+  return r=>String(r[cfg.dateCol]||'').slice(0,10)===base;
+}
+function wtRows(k){
+  const st=wtState(k), late=wtLateFn(k), due=wtDueFn(k);
+  let rows=wtFiltered(k);
+  if(st.quick==='late') rows=rows.filter(late);
+  if(st.quick==='day') rows=rows.filter(due);
+  const dir=st.sortOrder==='asc'?1:-1, col=st.sortBy;
+  return rows.sort((a,b)=>{
+    const av=String(a[col]||'').trim(), bv=String(b[col]||'').trim();
+    if(!av&&!bv) return 0;
+    if(!av) return 1;
+    if(!bv) return -1;
+    return av.localeCompare(bv,'ko',{numeric:true,sensitivity:'base'})*dir;
+  });
+}
+function wtDateLabel(v){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(v||''))) return '날짜를 선택하세요';
+  return new Date(v+'T00:00:00').toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'short'});
 }
 function renderWorkTab(k){
   const cfg=WT_CFG[k]; if(!cfg || !$(k+'Kpis')) return;
   const all=cfg.rows(), st=wtState(k);
+  const baseInput=$(k+'BaseDate'), baseLabel=$(k+'BaseLabel');
+  if(baseInput && baseInput.value!==st.base) baseInput.value=st.base;
+  if(baseLabel) baseLabel.textContent=wtDateLabel(st.base)+' 기준';
   const dl=$('wtTechList');
   if(dl) dl.innerHTML=[...new Set([...wtTechs('pm'),...wtTechs('as')])].map(t=>`<option>${esc2(t)}</option>`).join('');
   if(!all.length){
@@ -3686,33 +3759,51 @@ function renderWorkTab(k){
     `<button class="wt-kpi ${!st.st&&st.tech!=='__none'?'on':''}" onclick="wtSet('${k}','st','');wtSet('${k}','tech','')"><b>${all.length}</b><span>전체</span></button>`+
     `<button class="wt-kpi warn ${st.tech==='__none'?'on':''}" onclick="wtSet('${k}','tech','__none')"><b>${unassigned}</b><span>기사 미배정</span></button>`+
     tops.map(([s,n])=>`<button class="wt-kpi ${st.st===s?'on':''}" onclick="wtSet('${k}','st',${esc4(s)})"><b>${n}</b><span>${esc2(s)}</span></button>`).join('');
-  // 툴바 — 검색·상태·기사·보드 전환·출력
+  // 툴바 — 검색·상태·기사·날짜 범위·정렬·보드 전환·출력
   const stats=Object.keys(byStat).sort(), techs=wtTechs(k);
   $(k+'Toolbar').innerHTML =
-    `<input placeholder="검색: 프로젝트NO·캠프·기사·내용" value="${esc2(st.q)}" oninput="wtSet('${k}','q',this.value)">`+
-    `<select onchange="wtSet('${k}','st',this.value)"><option value="">상태 전체</option>${stats.map(s=>`<option ${st.st===s?'selected':''}>${esc2(s)}</option>`).join('')}</select>`+
-    `<select onchange="wtSet('${k}','tech',this.value)"><option value="">기사 전체</option><option value="__none" ${st.tech==='__none'?'selected':''}>미배정만</option>${techs.map(t=>`<option ${st.tech===t?'selected':''}>${esc2(t)}</option>`).join('')}</select>`+
-    `<button class="abtn ${st.board?'primary':''}" onclick="wtSet('${k}','board',${!st.board})">${st.board?'목록으로':'기사별 보드'}</button>`+
-    `<button class="abtn" onclick="wtCsv('${k}')">CSV 내보내기</button>`;
-  // 빠른 필터 — 오늘 예정 · 지연(예정일 지났는데 미완료). 벤치마킹 공통: 기사가 아침에
-  // 여는 첫 질문은 "오늘 뭐 하지 / 뭐가 밀렸지" 다.
-  const todayIso=new Date().toISOString().slice(0,10);
-  const late=r=>{const d=String(r[cfg.dateCol]||'').slice(0,10);
-    return d && d<todayIso && !String(r[cfg.doneCol]||'').trim() && !/완료|취소/.test(wtStatus(k,r));};
-  const todayDue=r=>String(r[cfg.dateCol]||'').slice(0,10)===todayIso;
-  const nLate=all.filter(late).length, nToday=all.filter(todayDue).length;
+    `<input class="wt-search" aria-label="검색" placeholder="검색: 프로젝트NO·캠프·기사·내용" value="${esc2(st.q)}" oninput="wtSet('${k}','q',this.value)">`+
+    `<select aria-label="상태 필터" onchange="wtSet('${k}','st',this.value)"><option value="">상태 전체</option>${stats.map(s=>`<option ${st.st===s?'selected':''}>${esc2(s)}</option>`).join('')}</select>`+
+    `<select aria-label="담당기사 필터" onchange="wtSet('${k}','tech',this.value)"><option value="">기사 전체</option><option value="__none" ${st.tech==='__none'?'selected':''}>미배정만</option>${techs.map(t=>`<option ${st.tech===t?'selected':''}>${esc2(t)}</option>`).join('')}</select>`+
+    `<select class="wt-date-filter" aria-label="기준일 범위" onchange="wtSet('${k}','dateMode',this.value)">
+      <option value="" ${!st.dateMode?'selected':''}>예정일 전체</option>
+      <option value="day" ${st.dateMode==='day'?'selected':''}>기준일 당일</option>
+      <option value="through" ${st.dateMode==='through'?'selected':''}>기준일까지</option>
+      <option value="after" ${st.dateMode==='after'?'selected':''}>기준일 이후</option>
+      <option value="none" ${st.dateMode==='none'?'selected':''}>예정일 미정</option></select>`+
+    `<select class="wt-sort-field" aria-label="정렬 기준" onchange="wtSet('${k}','sortBy',this.value)">${cfg.sorts.map(([v,l])=>
+      `<option value="${esc2(v)}" ${st.sortBy===v?'selected':''}>${esc2(l)} 순</option>`).join('')}</select>`+
+    `<select class="wt-sort-order" aria-label="정렬 방향" onchange="wtSet('${k}','sortOrder',this.value)">
+      <option value="desc" ${st.sortOrder==='desc'?'selected':''}>내림차순 · 최신순</option>
+      <option value="asc" ${st.sortOrder==='asc'?'selected':''}>오름차순 · 과거순</option></select>`;
+  // 빠른 필터 — 선택한 기준일의 예정 건과 그 기준일까지 밀린 미완료를 바로 확인한다.
+  const late=wtLateFn(k), due=wtDueFn(k);
+  const nLate=all.filter(late).length, nDue=all.filter(due).length;
   $(k+'Toolbar').insertAdjacentHTML('beforeend',
     `<button class="abtn ${st.quick==='late'?'primary':''}" onclick="wtSet('${k}','quick',${st.quick==='late'?"''":"'late'"})">지연 ${nLate}</button>`+
-    `<button class="abtn ${st.quick==='today'?'primary':''}" onclick="wtSet('${k}','quick',${st.quick==='today'?"''":"'today'"})">오늘 ${nToday}</button>`);
-  let rows=wtFiltered(k);
-  if(st.quick==='late') rows=rows.filter(late);
-  if(st.quick==='today') rows=rows.filter(todayDue);
+    `<button class="abtn ${st.quick==='day'?'primary':''}" onclick="wtSet('${k}','quick',${st.quick==='day'?"''":"'day'"})">기준일 ${nDue}</button>`+
+    `<button class="abtn ${st.board?'primary':''}" onclick="wtSet('${k}','board',${!st.board})">${st.board?'목록으로':'기사별 보드'}</button>`+
+    `<button class="abtn" onclick="wtReset('${k}')">필터 초기화</button>`+
+    `<button class="abtn" onclick="wtCsv('${k}')">CSV 내보내기</button>`);
+  const rows=wtRows(k);
+  const sortLabel=(cfg.sorts.find(x=>x[0]===st.sortBy)||[st.sortBy,st.sortBy])[1];
   $(k+'Meta').textContent=`${rows.length}건 표시 (전체 ${all.length}건)`+
+    ` · 기준 ${st.base} · ${sortLabel} ${st.sortOrder==='asc'?'오름차순':'내림차순'}`+
     (Object.keys(WT_PENDING).length?` · 반영 대기 입력 ${Object.keys(WT_PENDING).length}건 — 11시·15시에 관리대장으로`:'');
   $(k+'Body').innerHTML = st.board ? wtBoard(k,rows) : rows.slice(0,400).map(r=>wtCard(k,r)).join('')
     + (rows.length>400?`<div class="wt-meta">400건까지 표시 — 검색·필터로 좁혀 주세요</div>`:'');
 }
 function wtSet(k,key,val){ wtState(k)[key]=val; wtSave(); renderWorkTab(k); }
+function wtSetBase(k,value){
+  const v=/^2026-\d{2}-\d{2}$/.test(String(value||'')) ? value : wtToday();
+  wtState(k).base=v; wtSave(); renderWorkTab(k);
+}
+function wtReset(k){
+  const cur=wtState(k), cfg=WT_CFG[k];
+  WT[k]={q:'',st:'',tech:'',board:cur.board,quick:'',dateMode:'',base:cur.base,
+    sortBy:cfg.dateCol,sortOrder:'desc'};
+  wtSave(); renderWorkTab(k);
+}
 function wtCard(k,r){
   const cfg=WT_CFG[k], id=String(r[cfg.idCol]||'').trim();
   const stv=wtStatus(k,r);
@@ -4001,7 +4092,7 @@ function wtBoard(k,rows){
     ${cols[t].slice(0,60).map(r=>wtCard(k,r)).join('')}</div>`).join('')}</div>`;
 }
 function wtCsv(k){
-  const cfg=WT_CFG[k], rows=wtFiltered(k);
+  const cfg=WT_CFG[k], rows=wtRows(k);
   const cols=[cfg.idCol,'프로젝트NO','캠프명','담당기사',cfg.stCol,cfg.dateCol,cfg.doneCol];
   const csv='﻿'+[cols.join(',')].concat(rows.map(r=>cols.map(c=>
     `"${String(r[c]||'').replace(/"/g,'""')}"`).join(','))).join('\n');

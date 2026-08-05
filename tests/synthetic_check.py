@@ -4105,8 +4105,15 @@ def t96_work_management_tabs():
       바로가기로 들어간다(숨겨도 화면은 동작해야 한다)."""
     html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     for need in ('id="v-pm"', 'id="v-as"', "renderWorkTab", "WT_CFG", "wtEdit",
-                 'data-v="pm"', 'data-v="as"', "worktab-nav", "wtBoard", "wtCsv"):
+                 'data-v="pm"', 'data-v="as"', "worktab-nav", "wtBoard", "wtCsv",
+                 'id="pmBaseDate"', 'id="asBaseDate"', "wtSetBase", "wtRows", "wtReset",
+                 'aria-label="기준일 범위"', 'aria-label="정렬 기준"',
+                 'aria-label="정렬 방향"', "sortOrder:'desc'", "st.sortOrder==='asc'"):
         assert need in html, f"정밀 관리 탭 구성 요소 누락: {need}"
+    assert all(label in html for label in ("기준일 당일", "기준일까지", "기준일 이후",
+                                            "예정일 미정", "내림차순 · 최신순",
+                                            "오름차순 · 과거순", "필터 초기화")), \
+        "기준일 범위·정렬·초기화 필터가 완성되지 않았다"
     assert ".tabbar.worktab-nav{display:none}" in html.replace(" ", ""), \
         "폰 하단바 칸 부족 대책(사이드바 전용 노출)이 없다"
     # 인라인 편집이 DB 큐 경로(/api/input)로만 가는가 — 다른 쓰기 경로가 생기면 안 된다
