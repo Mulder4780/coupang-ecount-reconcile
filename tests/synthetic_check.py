@@ -2008,8 +2008,10 @@ def t41_dates_explicit():
     day = "2026-03-04"
     b = {
         "기준일": day,
-        "돌발AS": {"신규접수": 1, "완료": 1, "미처리": 0, "완료일미기입": 0},
-        "정기점검": {"예정": 0, "완료": 0, "분기": "2026년 1분기",
+        "돌발AS": {"신규접수": 1, "신규처리완료": 1, "신규처리율": 100,
+                   "완료": 1, "미처리": 0, "완료일미기입": 0},
+        "정기점검": {"예정": 0, "예정장비": 0, "완료": 0, "완료장비": 0,
+                     "분기": "2026년 1분기",
                      "분기예정": 0, "분기완료": 0, "분기진행률": 0},
         "완료내역": [], "무상건": [], "추가작업건": [],
         "점검중유상": [], "AS전환": [], "이상발견": [], "내용미기입": [],
@@ -2825,7 +2827,7 @@ def t51_manual_daily_activity():
     assert b["당일처리목록"][0]["게시자"] == "유수비 대표"
     assert b["당일처리목록"][0]["무엇"] == "리모컨 택배 발송 완료"
     text = D.text(b)
-    assert "당일 업무 처리 1건" in text and "류지영 매니저" in text
+    assert "2026-07-28 업무 처리 1건" in text and "류지영 매니저" in text
 
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     for token in ("BRIEF['당일처리목록']", "업무 처리 ${activityL.length}",
@@ -3019,11 +3021,21 @@ def t55_pm_brief_drilldown_and_capture():
         {"점검ID": "PM-2606-003", "프로젝트NO": "UJ2606003", "캠프명": "합성C",
          "점검예정일": "2026-06-20", "실제점검일": "2026-07-29",
          "담당기사": "차기사", "점검내용": "지연 실행"},
-    ]}
+    ], "pm_schedule": {"year": 2026, "quarter": 3, "schedule": [
+        {"일정ID": "SCH-A", "점검예정일": "2026-07-29", "예측점검일": "",
+         "실제점검일": "2026-07-29", "캠프명": "합성A", "장비수": 2},
+        {"일정ID": "SCH-B", "점검예정일": "", "예측점검일": "2026-08-05",
+         "실제점검일": "", "캠프명": "합성B", "장비수": 3},
+        {"일정ID": "SCH-C", "점검예정일": "2026-07-29", "예측점검일": "",
+         "실제점검일": "2026-07-29", "캠프명": "합성C", "장비수": 1},
+    ]}}
     b = D.brief("2026-07-29", data)
-    assert b["정기점검"]["예정"] == 1 and b["정기점검"]["완료"] == 2
-    assert b["정기점검"]["분기예정"] == 2 and b["정기점검"]["분기완료"] == 1
-    assert b["정기점검"]["분기미실행"] == 1
+    assert b["정기점검"]["예정"] == 2 and b["정기점검"]["완료"] == 2
+    assert b["정기점검"]["예정장비"] == 3 and b["정기점검"]["완료장비"] == 3
+    assert b["정기점검"]["분기예정"] == 6 and b["정기점검"]["분기완료"] == 3
+    assert b["정기점검"]["분기미실행"] == 3 and b["정기점검"]["분기진행률"] == 50
+    assert b["정기점검"]["기준일까지예정"] == 3
+    assert b["정기점검"]["기준일까지완료"] == 3
     assert b["점검예정목록"][0]["레코드ID"] == "PM-2607-001"
     assert {x["레코드ID"] for x in b["점검실행목록"]} == {"PM-2606-003", "PM-2607-001"}
     assert [x["상태"] for x in b["분기점검목록"]] == ["실행", "미실행"]
@@ -3033,6 +3045,9 @@ def t55_pm_brief_drilldown_and_capture():
                   "openPmBrief('quarter-all')", "openPmBrief('quarter-done')",
                   "openPmBrief('quarter-pending')", "점검예정목록", "점검실행목록", "분기점검목록"):
         assert token in live, "실시간 앱 " + token + " 누락"
+    for token in ("신규중처리완료", "신규처리율", "예측점검일",
+                  "명세서발행대기완료기준", "과거 이력 예측"):
+        assert token in live, "대표 카드·캘린더 " + token + " 누락"
     assert "window._briefMetric={label" in live and "shareExecMetric()" in live
 
     phone = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
@@ -3341,14 +3356,14 @@ def t73_pm_schedule_source_sync(tmp):
     ws.title = "2026년 3분기 정기점검"
     for _ in range(4):
         ws.append([])
-    ws.append(["No.", "월", "3분기 점검일자", "특이사항", "확정자",
+    ws.append(["No.", "월", "3분기 점검일자", "2분기 점검일자", "특이사항", "확정자",
                "기존 캠프명", "변경 캠프명", "호기", "종류", "모델"])
     # 원본 월과 확정 날짜가 다르면 날짜의 달이 우선한다.
-    ws.append([1, 8, "2026-07-11", "", "김준형", "테스트A캠프", "", "1호기", "LIFT", "M1"])
-    ws.append([2, 8, "2026-07-11", "", "김준형", "테스트A캠프", "", "2호기", "LIFT", "M1"])
-    ws.append([3, 8, "", "", "권오철", "테스트B캠프", "", "1호기", "LIFT", "M2"])
-    ws.append([4, 3, "2026-03-10", "", "김필우", "분기밖캠프", "", "1호기", "LIFT", "M3"])
-    ws.append([5, 9, "", "철거 예정", "차동호", "제외캠프", "", "1호기", "LIFT", "M4"])
+    ws.append([1, 8, "2026-07-11", "2026-04-11", "", "김준형", "테스트A캠프", "", "1호기", "LIFT", "M1"])
+    ws.append([2, 8, "2026-07-11", "2026-04-11", "", "김준형", "테스트A캠프", "", "2호기", "LIFT", "M1"])
+    ws.append([3, 8, "", "2026-05-09", "", "권오철", "테스트B캠프", "", "1호기", "LIFT", "M2"])
+    ws.append([4, 3, "2026-03-10", "", "", "김필우", "분기밖캠프", "", "1호기", "LIFT", "M3"])
+    ws.append([5, 9, "", "2026-06-20", "철거 예정", "차동호", "제외캠프", "", "1호기", "LIFT", "M4"])
     wb.save(source)
 
     parsed = parse_schedule(source, 2026, 3)
@@ -3358,6 +3373,7 @@ def t73_pm_schedule_source_sync(tmp):
     b = next(r for r in parsed["records"] if r["캠프명"] == "테스트B캠프")
     assert a["장비수"] == 2 and a["점검예정일"] == "2026-07-11" and a["예정월"] == "2026-07"
     assert b["점검예정일"] == "" and b["예정월"] == "2026-08"
+    assert b["예측점검일"] == "2026-08-09" and "2026-05-09" in b["예측근거"]
 
     master_rows = [{
         "점검ID": "PM-2607-001", "프로젝트NO": "UJ2600001", "캠프명": "테스트A캠프",
@@ -3367,7 +3383,24 @@ def t73_pm_schedule_source_sync(tmp):
     la = next(r for r in linked if r["캠프명"] == "테스트A캠프")
     lb = next(r for r in linked if r["캠프명"] == "테스트B캠프")
     assert la["연결프로젝트NO"] == "UJ2600001" and la["반영상태"] == "완료 실적 우선"
+    assert la["완료장비수"] == 2 and la["실제점검일"] == "2026-07-12"
     assert lb["연결프로젝트NO"] == "" and lb["반영상태"] == "프로젝트 매칭 대기"
+
+    # 같은 캠프·같은 달에 날짜가 여러 개인 경우, 한 날짜의 완료를 다른 일정에
+    # 복제하면 실제 장비 진행률이 과대계상된다.
+    split_source = [
+        {"캠프명": "분할캠프", "예정월": "2026-07", "점검예정일": "2026-07-02",
+         "담당기사": "김준형", "장비수": 2},
+        {"캠프명": "분할캠프", "예정월": "2026-07", "점검예정일": "2026-07-22",
+         "담당기사": "김준형", "장비수": 2},
+    ]
+    split_master = [{
+        "프로젝트NO": "UJ2600999", "캠프명": "분할캠프", "담당기사": "김준형",
+        "점검예정일": "2026-07-22", "실제점검일": "2026-07-22", "점검상태": "완료",
+    }]
+    split = link_master(split_source, split_master)
+    assert split[0]["완료장비수"] == 0 and split[0]["반영상태"] == "프로젝트 매칭 대기"
+    assert split[1]["완료장비수"] == 2 and split[1]["반영상태"] == "완료 실적 우선"
 
     styled_xml = build_sheet(linked * 6, os.path.basename(source), styled=True)
     assert '<mergeCell ref="A1:M1"/>' in styled_xml and '<mergeCell ref="A2:M2"/>' in styled_xml

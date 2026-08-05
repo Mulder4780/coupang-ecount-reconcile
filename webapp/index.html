@@ -4480,16 +4480,16 @@ function renderSettle(){
       <div class="srow" onclick="openSheet('settle',${i},'${r.정산ID}')">
         <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(r.상태)}</div>
         <div class="top"><span class="camp">${r.업무구분||''}</span><span class="amt">${fmt(r.공급가액)}원 <small>${r.금액출처&&r.금액출처.indexOf('부가세포함')>=0?'· 부가세 포함 · 명세서 기준':'· 부가세 별도'+(r.금액출처==='ERP'?' · ERP 기준':'')}</small></span></div>
-        <div class="meta"><span class="sid">${r.정산ID}</span><span>완료 ${r.완료일||'-'}</span>
+        <div class="meta"><span class="sid">${r.정산ID}</span>${r.거래처코드?`<span title="ERP 거래처코드">${esc2(r.거래처코드)}</span>`:''}<span>완료 ${r.완료일||'-'}</span>
           <span>명세서 ${r.명세서번호||r.명세서}</span><span>계산서 ${r.계산서}</span>
           ${r.입금일?`<span>입금 ${r.입금일}</span>`:''} ${vbadge(r.정산ID)}
           ${r.적요?`<span style="flex:1 1 100%;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.적요}</span>`:''}</div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
-    $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('정산ID','정산ID')}${thx('구분','업무구분')}${thx('캠프','캠프명')}
+    $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('정산ID','정산ID')}${thx('구분','업무구분')}${thx('캠프','캠프명')}${thx('거래처코드','거래처코드')}
       ${thx('공급가액(부가세 별도)','공급가액',1)}${thx('명세서번호','명세서번호')}${thx('계산서','계산서발행일')}${thx('PO','PO번호')}${thx('입금일','입금일')}${thx('미수금','미수금',1)}${thx('완료일','완료일')}${thx('상태','상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('settle',${i},'${r.정산ID}')" style="cursor:pointer">
         <td><b class="prjno">${esc2(projectLabel(r))}</b></td><td>${r.정산ID}</td><td>${r.업무구분}</td>
-        <td>${r.캠프명}</td><td class="num">${fmt(r.공급가액)}</td><td>${r.명세서번호||'-'}</td>
+        <td>${r.캠프명}</td><td>${r.거래처코드||'-'}</td><td class="num">${fmt(r.공급가액)}</td><td>${r.명세서번호||'-'}</td>
         <td>${r.계산서}${r.계산서발행일?' '+r.계산서발행일:''}</td><td>${r.PO번호||'-'}</td><td>${r.입금일||'-'}</td>
         <td class="num">${r.미수금===''?'-':fmt(r.미수금)}</td><td>${r.완료일||'-'}</td><td>${chip(r.상태)}</td></tr>`).join('') +
       `<tr class="tot"><td colspan="4">합계 ${rows.length}건</td><td class="num">${fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0))}</td>
@@ -5155,7 +5155,9 @@ async function loadCalendar(){
   renderCalendarPage();
 }
 function calLine(e){
-  const tag = e.원천업무ID
+  const tag = e.예측
+    ? `<span class="chip c-warn">예측 · ${esc2(e.예측신뢰도||'근거 있음')}</span>`
+    : e.원천업무ID
     ? `<span class="chip c-ok">${esc2(e.원천업무ID)}</span>`
     : '<span class="chip c-warn">원장 미연결</span>';
   return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;
@@ -5180,6 +5182,7 @@ function renderCalendarPage(){
   if(!list || !meta || !detail) return;
   const rows=calendarRows(), hidden=calHiddenCount(), unmatched=rows.filter(e=>!e.원천업무ID).length;
   meta.textContent = `갱신 ${(CAL&&CAL.갱신)||'-'} · 2026년 ${rows.length}건 · 원장 미연결 ${unmatched}건`+
+    ((CAL&&CAL.예측일정수) ? ` · 과거 이력 예측 ${CAL.예측일정수}건` : '')+
     (hidden ? ` · 철거·납품 ${hidden}건은 관리대장 보관` : '');
   if(!rows.length){
     list.innerHTML=`<div class="muted">${esc2((CAL&&CAL.안내)||'아직 수집된 원장 대조 일정이 없습니다.')}</div>`;
@@ -5197,7 +5200,8 @@ function renderCalendarPage(){
     <dt>캠프·장소</dt><dd>${esc2(e.캠프명||e.장소||'미입력')}</dd>
     <dt>업무구분</dt><dd>${esc2(e.업무구분||'미상')}</dd>
     <dt>원장 연결</dt><dd>${esc2(e.원천업무ID||'미연결 — 확인 필요')}</dd>
-    <dt>연결 근거</dt><dd>${esc2(e.연결근거||'없음')}</dd></dl>`;
+    <dt>${e.예측?'예측 근거':'연결 근거'}</dt><dd>${esc2(e.연결근거||'없음')}${e.장비수?` · ${esc2(e.장비수)}대`:''}</dd>
+    ${e.예측?`<dt>주의</dt><dd>과거 점검일로 계산한 예상일입니다. 공식 일정 확정 전이며 Google Calendar에는 자동 저장하지 않습니다.</dd>`:''}</dl>`;
 }
 function selectCalendarEvent(index){ calendarSelected=index; renderCalendarPage(); }
 async function refreshCalendarPage(){ await loadCalendar(); toast('캘린더 대조 목록을 새로고침했습니다'); }
@@ -6000,7 +6004,17 @@ const _k = s => String(s||'').replace(/[\s·()]/g,'');
 function dateLabel(l){
   const d = baseDate();
   if(!d) return l;
-  return String(l||'').replace(/\((금일|당일|오늘)\)/g, `(${d.slice(5)})`);
+  const md=d.slice(5), raw=String(l||'').replace(/\((금일|당일|오늘)\)/g, `(${md})`);
+  const dated=new Set([
+    '신규접수','신규중처리완료','신규처리율','작업완료','현장작업','유상발생','재방문예정',
+    '점검완료','점검예정','이상발견','돌발AS전환','유상점검',
+    '거래명세서발행','세금계산서발행','ERP등록작업완료기준','청구진행','입금건수',
+    '명세서발행대기완료기준'
+  ]);
+  const key=_k(raw).replace(/\d{2}-\d{2}/g,'');
+  if(!dated.has(key) || raw.includes(md)) return raw;
+  // '(완료 기준)' 같은 뜻 표시는 보존하고, 그 괄호 안에 기준일을 함께 적는다.
+  return /\)$/.test(raw) ? raw.replace(/\)$/, ` · ${md})`) : `${raw} (${md})`;
 }
 const WD = '월화수목금토일';
 function wdOf(iso){
@@ -6014,22 +6028,32 @@ function dayRows(label){
   const as = works.as||[], pm = works.pm||[], st = settleRows||[];
   const on = (v)=> normDate(v) === d;
   const paid = r => String(r['유상·무상·보험']||r.비용구분||'').includes('유상');
+  const briefRows = key => (BRIEF&&BRIEF[key])||[];
+  const uniqueNew = (()=>{const seen=new Set();return as.filter(r=>on(r.접수일자)).filter(r=>{
+    const k=[r.프로젝트NO||r.접수ID||'',normDate(r.접수일자),String(r.신청내용||'').replace(/\s+/g,'')].join('|');
+    if(seen.has(k))return false;seen.add(k);return true;
+  });})();
   const M = {
-    '신규접수':      ()=>[as.filter(r=>on(r.접수일자)), 'as'],
+    '신규접수':      ()=>[uniqueNew, 'as'],
+    '신규중처리완료': ()=>[briefRows('신규처리완료목록'), 'as'],
+    '신규처리율':    ()=>[briefRows('신규처리완료목록'), 'as'],
     '작업완료':      ()=>[as.filter(r=>on(r.작업완료일)), 'as'],
-    '현장작업':      ()=>[[], 'as'],
-    '유상발생':      ()=>[as.filter(r=>on(r.접수일자)&&paid(r)), 'as'],
-    '재방문예정금일': ()=>[as.filter(r=>on(r.방문예정일)), 'as'],
+    '현장작업':      ()=>[briefRows('현장작업목록'), 'as'],
+    '유상발생':      ()=>[as.filter(r=>on(r.작업완료일)&&paid(r)), 'as'],
+    '재방문예정':    ()=>[briefRows('재방문예정목록'), 'as'],
+    '재방문예정금일': ()=>[briefRows('재방문예정목록'), 'as'],
     '점검완료':      ()=>[pm.filter(r=>on(r.실제점검일)), 'pm'],
-    '점검예정금일':   ()=>[pm.filter(r=>on(r.점검예정일)), 'pm'],
+    '점검예정':      ()=>[pm.filter(r=>on(r.점검예정일)||on(r.예측점검일)), 'pm'],
+    '점검예정금일':   ()=>[pm.filter(r=>on(r.점검예정일)||on(r.예측점검일)), 'pm'],
     '이상발견':      ()=>[pm.filter(r=>on(r.실제점검일)&&String(r.이상발견여부||'').trim()&&r.이상발견여부!=='없음'), 'pm'],
     '돌발AS전환':    ()=>[pm.filter(r=>on(r.실제점검일)&&String(r.돌발AS전환여부||'').trim()&&r.돌발AS전환여부!=='없음'), 'pm'],
-    '유상점검':      ()=>[pm.filter(r=>on(r.실제점검일)&&paid(r)), 'pm'],
+    '유상점검':      ()=>[pm.filter(r=>on(r.실제점검일)&&(paid(r)||['Y','예','발생','있음'].includes(String(r.유상추가작업발생||'')))), 'pm'],
     '거래명세서발행':  ()=>[st.filter(r=>on(r.명세서발행일)), 'settle'],
     '세금계산서발행':  ()=>[st.filter(r=>on(r.계산서발행일)), 'settle'],
-    'ERP등록작업완료기준': ()=>[st.filter(r=>on(r.완료일)&&r.명세서번호), 'settle'],
+    'ERP등록작업완료기준': ()=>[st.filter(r=>on(r.완료일)&&(String(r.ERP진행상태||'').trim()&&!['미등록','확인필요'].includes(String(r.ERP진행상태||''))||r.금액출처==='ERP')), 'settle'],
     '청구진행':      ()=>[st.filter(r=>on(r.청구일)), 'settle'],
     '입금건수':      ()=>[st.filter(r=>on(r.입금일)), 'settle'],
+    '명세서발행대기완료기준': ()=>[st.filter(r=>paid(r)&&normDate(r.완료일)&&normDate(r.완료일)<=d&&!(r.명세서번호||normDate(r.명세서발행일)||['있음','발행','발행완료','완료','반영완료'].includes(String(r.명세서||'')))), 'settle'],
   };
   const f = M[_k(label)];
   return f ? f() : [null, ''];
@@ -6038,11 +6062,15 @@ function dayRows(label){
 /* 0건일 때 '무슨 뜻인지'를 대신 보여 준다 */
 const DAYNOTE = {
   '신규접수': '그날 새로 접수된 돌발AS 건',
+  '신규중처리완료': '그날 신규 접수 중 같은 날 완료일 또는 현장작업 근거가 확인된 건',
+  '신규처리율': '기준일 신규 처리 완료 ÷ 중복 제거한 기준일 신규 접수',
   '작업완료': '그날 작업이 끝난 것으로 기록된 건',
-  '현장작업': '03_현장작업실적 시트 기준 — 앱에는 아직 연결 안 됨',
-  '유상발생': '그날 접수 중 유상(청구 대상)인 건',
+  '현장작업': '03_현장작업실적에서 그날 실제 작업일이 확인된 건',
+  '유상발생': '그날 완료된 돌발AS 중 유상 근거가 확인된 건',
+  '재방문예정': '그날 재방문이 예정된 건',
   '재방문예정금일': '그날 재방문이 예정된 건',
   '점검완료': '그날 실제점검일이 기록된 정기점검',
+  '점검예정': '공식 예정일 또는 과거 점검 이력으로 예측된 그날의 정기점검',
   '점검예정금일': '그날 점검 예정으로 잡힌 건',
   '이상발견': '점검에서 이상이 발견돼 조치가 필요한 건',
   '돌발AS전환': '점검 중 발견돼 돌발AS로 넘어간 건',
@@ -6052,6 +6080,7 @@ const DAYNOTE = {
   'ERP등록작업완료기준': '작업완료일이 그날이고 명세서번호가 있는 건',
   '청구진행': '그날 청구가 진행된 건',
   '입금건수': '그날 입금이 확인된 건',
+  '명세서발행대기완료기준': '기준일까지 완료된 유상 정산 중 명세서 발행 근거가 없는 건',
 };
 
 function dayDetail(label, val){

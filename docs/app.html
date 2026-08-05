@@ -335,14 +335,14 @@ function renderBrief(){
   h += `<div class="brief-card pm">
     <div class="bt">${esc(b['기준일'] || '')} 정기점검</div>
     <div class="pmgrid">
-      <button type="button" onclick="openPmCloud('day-plan')">예정<b>${p['예정'] || 0}건</b></button>
-      <button type="button" onclick="openPmCloud('day-done')">실행<b>${p['완료'] || 0}건</b></button>
+      <button type="button" onclick="openPmCloud('day-plan')">예정<b>${p['예정'] || 0}그룹 · ${p['예정장비'] || 0}대</b></button>
+      <button type="button" onclick="openPmCloud('day-done')">실행<b>${p['완료'] || 0}그룹 · ${p['완료장비'] || 0}대</b></button>
     </div>
     <div class="bm">${esc(p['분기'] || '')} 진행률 ${p['분기진행률'] || 0}%</div>
     <div class="pmgrid quarter">
-      <button type="button" onclick="openPmCloud('quarter-all')">예정<b>${p['분기예정'] || 0}건</b></button>
-      <button type="button" onclick="openPmCloud('quarter-done')">실행<b>${p['분기완료'] || 0}건</b></button>
-      <button type="button" onclick="openPmCloud('quarter-pending')">미실행<b>${p['분기미실행'] || 0}건</b></button>
+      <button type="button" onclick="openPmCloud('quarter-all')">예정<b>${p['분기예정'] || 0}대</b></button>
+      <button type="button" onclick="openPmCloud('quarter-done')">실행<b>${p['분기완료'] || 0}대</b></button>
+      <button type="button" onclick="openPmCloud('quarter-pending')">미실행<b>${p['분기미실행'] || 0}대</b></button>
     </div>
     <div class="bm">각 숫자를 눌러 목록 확인 · 이미지 저장/전달</div>
   </div>`;
@@ -399,18 +399,18 @@ function openWorkLogCloud(scope){
 function openPmCloud(scope){
   const b=D.brief||{}, p=b['정기점검']||{}, d=b['기준일']||'';
   const plan=brief2026Rows(b['점검예정목록']), done=brief2026Rows(b['점검실행목록']);
-  const quarter=brief2026Rows(b['분기점검목록']);
+  const quarter=brief2026Rows(b['분기원본일정목록']||b['분기점검목록']);
   let rows=[], title='';
   if(scope==='day-plan'){rows=plan;title=d+' 정기점검 예정 '+rows.length+'건';}
   else if(scope==='day-done'){rows=done;title=d+' 정기점검 실행 '+rows.length+'건';}
   else{
-    rows=scope==='quarter-done' ? quarter.filter(x=>x['상태']==='실행')
-        : scope==='quarter-pending' ? quarter.filter(x=>x['상태']!=='실행') : quarter;
+    rows=scope==='quarter-done' ? quarter.filter(x=>x['실제점검일']||x['상태']==='실행')
+        : scope==='quarter-pending' ? quarter.filter(x=>!x['실제점검일']&&x['상태']!=='실행') : quarter;
     title=(p['분기']||'분기')+' 정기점검 '+
       (scope==='quarter-done'?'실행 ':scope==='quarter-pending'?'미실행 ':'전체 예정 ')+rows.length+'건';
   }
   openCloudBriefSheet(title,
-    `예정 ${p['분기예정']||0}건 · 실행 ${p['분기완료']||0}건 · 미실행 ${p['분기미실행']||0}건`, rows);
+    `예정 ${p['분기예정']||0}대 · 실행 ${p['분기완료']||0}대 · 미실행 ${p['분기미실행']||0}대`, rows);
 }
 function openCloudBriefSheet(title, note, rows){
   window._cloudSheetRows = rows;

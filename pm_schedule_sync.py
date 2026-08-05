@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import calendar
 import hashlib
 import json
 import os
@@ -89,6 +90,44 @@ def _stable_id(year: int, quarter: int, camp: str, when: str, tech: str) -> str:
     return f"SCH-{year}Q{quarter}-" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:10].upper()
 
 
+def _predicted_date(target_month: str, history: list[str]) -> tuple[str, str, str]:
+    """동일 장비의 과거 실제 점검일을 대상 월로 옮긴 보수적 예측.
+
+    원본에 3분기 날짜가 비어 있어도 같은 행에는 2·1분기 실제 점검일이 남아 있다.
+    가장 최근 날짜의 일(day)을 예정월에 적용하되 월말을 넘기지 않는다. 공식 예정일을
+    만들거나 덮어쓰지 않고, 앱에서만 ``예측``으로 구분해 보여 주기 위한 값이다.
+    """
+    try:
+        year, month = (int(x) for x in target_month.split("-", 1))
+        start = date(year, month, 1)
+    except (TypeError, ValueError):
+        return "", "", ""
+    past = sorted({d for d in history if _iso_date(d) and _iso_date(d) < start.isoformat()})
+    if not past:
+        return "", "", ""
+    latest = date.fromisoformat(past[-1])
+    day = min(latest.day, calendar.monthrange(year, month)[1])
+    predicted = date(year, month, day).isoformat()
+    confidence = "높음" if len({date.fromisoformat(d).day for d in past}) == 1 else "중간"
+    return predicted, f"동일 장비 과거 점검 {past[-1]}의 일자 패턴", confidence
+
+
+def _fallback_predicted_date(target_month: str, history: list[str], label: str) -> tuple[str, str, str]:
+    """동일 장비 이력이 없을 때 담당기사(없으면 전체)의 과거 점검일 중앙값을 사용."""
+    try:
+        year, month = (int(x) for x in target_month.split("-", 1))
+        start = date(year, month, 1)
+    except (TypeError, ValueError):
+        return "", "", ""
+    past = sorted({d for d in history if _iso_date(d) and _iso_date(d) < start.isoformat()})
+    if not past:
+        return "", "", ""
+    days = sorted(date.fromisoformat(d).day for d in past)
+    day = min(days[(len(days) - 1) // 2], calendar.monthrange(year, month)[1])
+    return date(year, month, day).isoformat(), \
+        f"{label} 과거 점검 {len(past)}건의 일자 중앙값", "낮음"
+
+
 def find_latest_source(folder: str = PM_SCHEDULE_DIR) -> str:
     if not os.path.isdir(folder):
         raise FileNotFoundError(f"정기점검 원본 폴더가 없습니다: {folder}")
@@ -162,9 +201,12 @@ def parse_schedule(path: str, year: int, quarter: int) -> dict:
         i_old, i_new = ix("기존 캠프명"), ix("변경 캠프명")
         i_tech, i_note = ix("확정자"), ix("특이사항")
         i_unit, i_kind, i_model = ix("호기"), ix("종류"), ix("모델")
+        history_cols = [i for name, i in h.items()
+                        if "점검일자" in re.sub(r"\s+", "", name) and name != date_header]
         months = quarter_months(quarter)
         grouped = defaultdict(lambda: {
-            "rows": [], "units": [], "camp": "", "tech": "", "month": 0, "date": ""
+            "rows": [], "units": [], "camp": "", "tech": "", "month": 0, "date": "",
+            "history": [],
         })
         excluded = 0
         scanned = 0
@@ -197,6 +239,10 @@ def parse_schedule(path: str, year: int, quarter: int) -> dict:
             g = grouped[key]
             g.update({"camp": camp, "tech": tech, "month": month, "date": exact})
             g["rows"].append(rn)
+            for hi in history_cols:
+                hist = _iso_date(get(hi))
+                if hist and hist not in g["history"]:
+                    g["history"].append(hist)
             equip = " ".join(x for x in (
                 _norm_text(get(i_unit)), _norm_text(get(i_kind)), _norm_text(get(i_model))
             ) if x)
@@ -206,6 +252,9 @@ def parse_schedule(path: str, year: int, quarter: int) -> dict:
         records = []
         for g in grouped.values():
             when = g["date"] or f"{year}-{g['month']:02d}"
+            predicted, prediction_basis, confidence = _predicted_date(
+                f"{year}-{g['month']:02d}", g["history"]
+            ) if not g["date"] else ("", "", "")
             rows = sorted(g["rows"])
             records.append({
                 "일정ID": _stable_id(year, quarter, g["camp"], when, g["tech"]),
@@ -213,14 +262,38 @@ def parse_schedule(path: str, year: int, quarter: int) -> dict:
                 "분기": f"{quarter}분기",
                 "예정월": f"{year}-{g['month']:02d}",
                 "점검예정일": g["date"],
+                "예측점검일": predicted,
+                "예측근거": prediction_basis,
+                "예측신뢰도": confidence,
+                "_과거점검일": sorted(g["history"]),
                 "캠프명": g["camp"],
                 "담당기사": g["tech"],
                 "장비수": len(rows),
                 "장비내역": " · ".join(g["units"]),
                 "원본행": str(rows[0]) if len(rows) == 1 else f"{rows[0]}~{rows[-1]}",
             })
+        # 동일 장비 이력이 없는 신규·이전 캠프도 달력에서 사라지지 않게 하되, 담당기사
+        # 과거 패턴(담당자 미정이면 전체 중앙값)을 낮은 신뢰도로 명시한다.
+        tech_history = defaultdict(list)
+        all_history = []
+        for r in records:
+            for hist in r.get("_과거점검일") or []:
+                if hist not in all_history:
+                    all_history.append(hist)
+                if hist not in tech_history[r["담당기사"]]:
+                    tech_history[r["담당기사"]].append(hist)
+        for r in records:
+            if not r["점검예정일"] and not r["예측점검일"]:
+                history = tech_history.get(r["담당기사"]) if r["담당기사"] else all_history
+                label = f"담당기사 {r['담당기사']}" if r["담당기사"] else "전체 담당기사"
+                r["예측점검일"], r["예측근거"], r["예측신뢰도"] = _fallback_predicted_date(
+                    r["예정월"], history or all_history, label
+                )
+            r.pop("_과거점검일", None)
+
         records.sort(key=lambda r: (
-            r["점검예정일"] or r["예정월"], camp_key(r["캠프명"]), r["담당기사"], r["일정ID"]
+            r["점검예정일"] or r["예측점검일"] or r["예정월"],
+            camp_key(r["캠프명"]), r["담당기사"], r["일정ID"]
         ))
         return {
             "sheet": ws.title, "header_row": header_row, "scanned": scanned,
@@ -263,26 +336,55 @@ def link_master(records: list[dict], master_rows: list[dict]) -> list[dict]:
                 "planned": planned,
                 "actual": actual,
                 "status": _norm_text(r.get("점검상태")),
+                "tech": _norm_text(r.get("담당기사")),
             })
+
+    # 같은 캠프가 한 달 안에 여러 날짜·기사 그룹으로 나뉜 실제 원본이 있다. 이때
+    # 동월 완료 한 건을 모든 그룹에 복제하면 장비 진행률이 다시 과대계상된다.
+    source_group_count = defaultdict(int)
+    source_tech_count = defaultdict(int)
+    for r in records:
+        camp_month = (camp_key(r["캠프명"]), r["예정월"])
+        source_group_count[camp_month] += 1
+        source_tech_count[camp_month + (camp_key(r.get("담당기사")),)] += 1
 
     out = []
     for source in records:
         r = dict(source)
-        hits = by_camp_month.get((camp_key(r["캠프명"]), r["예정월"]), [])
-        projects = sorted({x["project"] for x in hits if x["project"]})
-        completed = [x for x in hits if x["actual"] or x["status"] == "완료"]
+        camp_month = (camp_key(r["캠프명"]), r["예정월"])
+        hits = by_camp_month.get(camp_month, [])
+        all_completed = [x for x in hits if x["actual"] or x["status"] == "완료"]
         exact = [x for x in hits if r["점검예정일"] and
                  r["점검예정일"] in (x["planned"], x["actual"])]
+        exact_completed = [x for x in exact if x in all_completed]
+        tech = camp_key(r.get("담당기사"))
+        tech_hits = [x for x in hits if tech and camp_key(x.get("tech")) == tech]
+        tech_completed = [x for x in tech_hits if x in all_completed]
+
+        if exact_completed:
+            completed, link_hits = exact_completed, exact
+        elif source_group_count[camp_month] == 1:
+            completed, link_hits = all_completed, hits
+        elif tech and source_tech_count[camp_month + (tech,)] == 1 and tech_completed:
+            completed, link_hits = tech_completed, tech_hits
+        else:
+            # 여러 원본 일정 중 어느 것인지 날짜·기사로 특정할 수 없으면 완료를
+            # 복제하지 않는다. 원장과 원본 모두 보존하고 매칭 대기로 남긴다.
+            completed, link_hits = [], exact
+
+        projects = sorted({x["project"] for x in link_hits if x["project"]})
         if completed:
             status = "완료 실적 우선"
         elif exact:
             status = "04 일정 일치"
-        elif hits:
+        elif link_hits:
             status = "04 동월 연결"
         else:
             status = "프로젝트 매칭 대기"
         r["연결프로젝트NO"] = " · ".join(projects)
         r["반영상태"] = status
+        r["실제점검일"] = max((x["actual"] for x in completed if x["actual"]), default="")
+        r["완료장비수"] = int(r.get("장비수") or 0) if completed else 0
         out.append(r)
     return out
 
@@ -333,6 +435,13 @@ def report_payload(source: str, digest: str, parsed: dict, records: list[dict],
     statuses = defaultdict(int)
     for r in records:
         statuses[r["반영상태"]] += 1
+    equipment_total = sum(int(r.get("장비수") or 0) for r in records)
+    equipment_completed = sum(int(r.get("완료장비수") or 0) for r in records)
+    compact = [{k: r.get(k, "") for k in (
+        "일정ID", "예정월", "점검예정일", "예측점검일", "예측근거", "예측신뢰도",
+        "실제점검일", "캠프명", "담당기사", "장비수", "완료장비수", "장비내역",
+        "연결프로젝트NO", "반영상태",
+    )} for r in records]
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "source": source,
@@ -345,7 +454,12 @@ def report_payload(source: str, digest: str, parsed: dict, records: list[dict],
         "schedule_groups": len(records),
         "exact_date_groups": sum(bool(r["점검예정일"]) for r in records),
         "month_only_groups": sum(not bool(r["점검예정일"]) for r in records),
+        "predicted_date_groups": sum(bool(r.get("예측점검일")) for r in records),
+        "equipment_total": equipment_total,
+        "equipment_completed": equipment_completed,
+        "equipment_pending": max(0, equipment_total - equipment_completed),
         "status_counts": dict(sorted(statuses.items())),
+        "schedule": compact,
         "pending": [{
             "일정ID": r["일정ID"], "예정월": r["예정월"], "캠프명": r["캠프명"],
             "담당기사": r["담당기사"], "장비수": r["장비수"],

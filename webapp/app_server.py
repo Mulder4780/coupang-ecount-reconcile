@@ -1892,6 +1892,7 @@ def real_settlements():
                      "프로젝트NO": r.get("프로젝트NO"), "원천업무ID": r.get("원천업무ID"),
                      "공급가액": amt, "합계": r.get("원장_합계") or 0,
                      "금액출처": src, "ERP진행상태": _erp.get("state") or "",
+                     "거래처코드": (_customer_index().get(str(r.get("캠프명") or "")) or {}).get("code", ""),
                      "부가세": r.get("원장_부가세"),
                      "명세서": "있음" if has_stmt else "없음",
                      "명세서번호": r.get("원장_거래명세서번호") or "",
@@ -1943,6 +1944,7 @@ def real_works():
                                 "검증결과", "검증문제코드"]),
         "04_정기점검": ("pm", ["점검ID", "프로젝트NO", "캠프명", "점검예정일", "실제점검일", "점검상태",
                               "담당기사", "이상발견여부", "돌발AS전환여부",
+                              "유상추가작업발생", "유상·무상·보험", "비용구분", "추가작업내용",
                               "최종확인일(유현민 체크)", "점검사진", "점검보고서",
                               "ERP판매전표", "거래명세서", "담당관리자",
                               "검증결과", "검증문제코드"]),
@@ -1995,6 +1997,12 @@ def real_works():
     source_schedule = _sheet_records(wb, "27_정기점검원본일정")
     wb.close()
     try:
+        pm_report = json.load(open(os.path.join(ROOT, "reports", "pm_schedule_sync.json"),
+                                   encoding="utf-8"))
+        predicted = {str(r.get("일정ID") or ""): r for r in (pm_report.get("schedule") or [])}
+    except Exception:
+        predicted = {}
+    try:
         out["as"] += erp_work_rows(out["as"], "as")
         out["pm"] += erp_work_rows(out["pm"], "pm")
         idx = build_prj_index(out)
@@ -2017,12 +2025,16 @@ def real_works():
             continue
         projects = sorted(set(re.findall(r"\bUJ26\d{4,}\b", str(s.get("연결프로젝트NO") or ""),
                                          flags=re.I)))
+        prediction = predicted.get(str(s.get("일정ID") or "")) or {}
         out["pm"].append({
             "점검ID": str(s.get("일정ID") or ""),
             "프로젝트NO": projects[0].upper() if len(projects) == 1 else "",
             "캠프명": str(s.get("캠프명") or ""),
             # 일자가 미확정이면 월까지만 보인다. 1일로 만들면 허위 지연 경고가 생긴다.
             "점검예정일": str(s.get("점검예정일") or month),
+            "예측점검일": str(prediction.get("예측점검일") or ""),
+            "예측근거": str(prediction.get("예측근거") or ""),
+            "예측신뢰도": str(prediction.get("예측신뢰도") or ""),
             "실제점검일": "",
             "점검상태": "예정" if s.get("점검예정일") else "예정월",
             "담당기사": str(s.get("담당기사") or ""),
@@ -2167,7 +2179,11 @@ def _brief_source_key(day):
         event_mt = os.path.getmtime(os.path.join(ROOT, "reports", "manual_daily_events.json"))
     except Exception:
         event_mt = 0
-    return day, _master_mtime(), work_log_mt, event_mt
+    try:
+        schedule_mt = os.path.getmtime(os.path.join(ROOT, "reports", "pm_schedule_sync.json"))
+    except Exception:
+        schedule_mt = 0
+    return day, _master_mtime(), work_log_mt, event_mt, schedule_mt
 
 
 def get_daily_brief(day=None):
@@ -2964,47 +2980,107 @@ def _augment_exec_daily(report):
     def grp(word):
         return next((g for g in sec["groups"] if word in str(g.get("name", ""))), None)
 
+    def metric_key(value):
+        # 원장 라벨의 '(금일)'·'(완료 기준)'·날짜가 달라도 같은 지표로 교체한다.
+        text = re.sub(r"\([^)]*\)", "", str(value or ""))
+        return re.sub(r"[^0-9A-Za-z가-힣]", "", text)
+
     def put(g, label, value, color=None):
         if not g:
             return
         items = g.setdefault("items", [])
         row = [label, value] + ([color] if color else [])
         for i, it in enumerate(items):
-            if str(it[0]) == label:
+            if metric_key(it[0]) == metric_key(label):
                 items[i] = row
                 return
         items.append(row)
 
+    base_date = norm_date((report.get("meta") or {}).get("집계기준일") or "")
     try:
-        brief = get_daily_brief(norm_date((report.get("meta") or {})
-                                          .get("집계기준일") or "") or None)
+        brief = get_daily_brief(base_date or None)
     except Exception:
         brief = {}
+    as_day = (brief or {}).get("돌발AS") or {}
     pm = (brief or {}).get("정기점검") or {}
     wl = ((brief or {}).get("일지대조") or {}).get("돌발AS") or {}
 
-    # ① 대표: "이번 분기에 **일수를 따졌을 때** 몇 % 진행됐고 이상이 있는지"
+    # ① 캡처의 원장 수식 캐시는 하루 이상 늦을 수 있으므로 카드 3장을 같은 기준일의
+    # daily_brief·객관 정산 데이터로 전부 교체한다. 2026-08-04의 원장 카드 8/3은
+    # 실제 원천 대조(중복 제거) 3/0과 달랐다.
+    put(grp("돌발"), "신규 접수", f"{int(as_day.get('신규접수') or 0)}건")
+    put(grp("돌발"), "신규 중 처리 완료", f"{int(as_day.get('신규처리완료') or 0)}건")
+    put(grp("돌발"), "신규 처리율", f"{int(as_day.get('신규처리율') or 0)}%")
+    put(grp("돌발"), "작업 완료", f"{int(as_day.get('완료') or 0)}건")
+    put(grp("돌발"), "현장 작업", f"{int(as_day.get('현장작업') or 0)}건")
+    put(grp("돌발"), "유상 발생", f"{int(as_day.get('유상발생') or 0)}건")
+    put(grp("돌발"), "재방문 예정", f"{int(as_day.get('재방문예정') or 0)}건")
+
+    put(grp("정기점검"), "점검 완료",
+        f"{int(pm.get('완료') or 0)}그룹 · {int(pm.get('완료장비') or 0)}대")
+    put(grp("정기점검"), "점검 예정",
+        f"{int(pm.get('예정') or 0)}그룹 · {int(pm.get('예정장비') or 0)}대")
+    put(grp("정기점검"), "이상 발견", f"{len((brief or {}).get('이상발견') or [])}건")
+    put(grp("정기점검"), "돌발 AS 전환", f"{len((brief or {}).get('AS전환') or [])}건")
+    put(grp("정기점검"), "유상 점검", f"{len((brief or {}).get('점검중유상') or [])}건")
+
+    # ② 대표: "이번 분기에 일수를 따졌을 때 몇 %". 분모는 04에 들어온 58행이 아니라
+    # 류지영 원본 전체 125그룹·302대다. 계획/완료 대수와 기준일까지 이행을 함께 보여 준다.
     if pm.get("분기예정"):
+        pm_group = grp("정기점검")
+        if pm_group:
+            pm_group["items"] = [it for it in pm_group.get("items", [])
+                                 if metric_key(it[0]) != metric_key("분기 진행률")]
         pct, el = int(pm.get("분기진행률") or 0), int(pm.get("분기경과율") or 0)
         gap = pct - el
-        put(grp("정기점검"), "분기 진행률", f"{pct}%")
-        put(grp("정기점검"), f"기간 경과 {el}% 대비",
+        put(pm_group, "분기 예정·완료",
+            f"{int(pm.get('분기완료') or 0)} / {int(pm.get('분기예정') or 0)}대")
+        put(pm_group, "분기 장비 진행률", f"{pct}%")
+        due = int(pm.get("기준일까지예정") or 0)
+        due_done = int(pm.get("기준일까지완료") or 0)
+        if due:
+            put(pm_group, "기준일까지 이행",
+                f"{due_done} / {due}대 · {int(pm.get('기준일이행률') or 0)}%")
+        if pm.get("예측일정"):
+            put(pm_group, "예측 일정(캘린더)", f"{int(pm.get('예측일정') or 0)}그룹")
+        put(pm_group, f"기간 경과 {el}% 대비",
             f"{gap:+d}%p {'앞섬' if gap >= 0 else '뒤짐'}",
             "#12813F" if gap >= 0 else "#B42318")
 
-    # ② 대표: "기사가 스케줄을 못 잡아 미루는 건 절대 안 된다" — 핫이슈는 0이어도
+    # ③ 대표: "기사가 스케줄을 못 잡아 미루는 건 절대 안 된다" — 핫이슈는 0이어도
     #   자리를 지킨다. 숫자가 보여야 '없다'를 보고할 수 있다.
     if wl:
         hot = int(wl.get("핫이슈") or 0)
         put(grp("돌발"), "미실시 핫이슈(일정·사유)", f"{hot}건",
             "#B42318" if hot else "#12813F")
 
-    # ③ 대표: "몇 건 발행해야 하는데 발행 대기가 얼마인지" —
-    #   모수는 **작업완료(유상 정산) 기준**(사용자 확정 2026-08-04).
+    # ④ 거래서류·청구는 ERP 판매·PO·거래명세서·세금계산서·밴드 객관완료가 합쳐진
+    # get_settlements 한 원천으로 다시 센다. 날짜가 없는 상태값으로 임의 날짜를 만들지 않는다.
     try:
-        st = (get_representative_report().get("거래명세서") or {}).get("업무유형별") or []
-        target = sum(int(x.get("발행대상") or 0) for x in st)
-        wait = sum(int(x.get("미발행") or 0) for x in st)
+        st = drop_side_work(get_settlements())
+        on = lambda row, field: norm_date(row.get(field)) == base_date
+        statement_day = [r for r in st if on(r, "명세서발행일")]
+        tax_day = [r for r in st if on(r, "계산서발행일")]
+        erp_day = [r for r in st if on(r, "완료일") and (
+            str(r.get("ERP진행상태") or "").strip() not in ("", "미등록", "확인필요")
+            or str(r.get("금액출처") or "") == "ERP")]
+        billing_day = [r for r in st if on(r, "청구일")]
+        receipt_day = [r for r in st if on(r, "입금일")]
+        put(grp("거래서류"), "거래명세서 발행", f"{len(statement_day)}건")
+        put(grp("거래서류"), "세금계산서 발행", f"{len(tax_day)}건")
+        put(grp("거래서류"), "ERP 등록(작업완료 기준)", f"{len(erp_day)}건")
+        put(grp("거래서류"), "청구 진행", f"{len(billing_day)}건")
+        put(grp("거래서류"), "입금 건수", f"{len(receipt_day)}건")
+
+        # 모수 = 기준일까지 작업완료가 객관 확인된 유상 정산(사용자 확정 2026-08-04).
+        target_rows = [r for r in st if "유상" in str(r.get("비용구분") or "")
+                       and norm_date(r.get("완료일"))
+                       and norm_date(r.get("완료일")) <= base_date]
+        issued = [r for r in target_rows if str(r.get("명세서번호") or "").strip()
+                  or str(r.get("명세서") or "").strip()
+                  in {"있음", "발행", "발행완료", "완료", "반영완료"}
+                  or norm_date(r.get("명세서발행일"))]
+        target, wait = len(target_rows), len(target_rows) - len(issued)
         if target:
             put(grp("거래서류"), "명세서 발행 대기(완료 기준)",
                 f"{wait}건 / {target}건", "#B42318" if wait else "#12813F")
@@ -3111,6 +3187,25 @@ def get_exec_report(day=None):
         _append_remote_section(r)
         _append_kakao_warning(r)
         return _store_cache("exec", r)
+
+
+_CUST_IDX = {"at": 0, "data": {}}
+
+
+def _customer_index():
+    """캠프명 → ERP 거래처코드 색인(customer_index.py 산출물). 5분 캐시.
+    사용자 지시 2026-08-05 "거래처 코드 앱과 엑셀에 표기"."""
+    now = time.time()
+    if now - _CUST_IDX["at"] < 300 and _CUST_IDX["data"]:
+        return _CUST_IDX["data"]
+    try:
+        with open(os.path.join(ROOT, "reports", "거래처코드_색인.json"),
+                  encoding="utf-8") as f:
+            _CUST_IDX["data"] = json.load(f).get("linked") or {}
+    except Exception:
+        _CUST_IDX["data"] = {}
+    _CUST_IDX["at"] = now
+    return _CUST_IDX["data"]
 
 
 _ERP_IDX = {"at": 0, "data": {}}
@@ -3443,8 +3538,61 @@ def get_calendar():
     try:
         d = json.load(open(p, encoding="utf-8"))
     except Exception:
-        return {"갱신": "", "일정": [], "원천": ["아직 수집되지 않음"], "안내":
-                "구글 캘린더 설정 → 캘린더 통합 → '비공개 주소의 iCal 형식'을 config/gcal.json 에 넣어 주세요."}
+        d = {"갱신": "", "일정": [], "원천": ["Google Calendar 아직 수집되지 않음"], "안내":
+             "Google Calendar 원천은 아직 없으며, 정기점검 원본의 공식·예측 일정은 아래 앱 캘린더에 표시합니다."}
+
+    # Google Calendar에 외부 쓰기를 하지 않고, 류지영 원본 스케줄의 공식 예정일과
+    # 동일 장비 과거 점검일 기반 예측일을 앱 캐시에만 합친다. 예측은 제목·근거에서
+    # 명확히 구분하며 사용자가 Google Calendar 초안 화면에서 저장하기 전에는 외부 일정이 아니다.
+    try:
+        pm = json.load(open(os.path.join(ROOT, "reports", "pm_schedule_sync.json"),
+                            encoding="utf-8"))
+        events = list(d.get("일정") or [])
+
+        def event_key(event):
+            camp = re.sub(r"[^0-9A-Za-z가-힣]", "", str(
+                event.get("캠프명") or event.get("장소") or event.get("제목") or "")).lower()
+            return str(event.get("날짜") or ""), camp
+
+        existing = {event_key(e) for e in events}
+        added = predicted_count = 0
+        for row in pm.get("schedule") or []:
+            official = norm_date(row.get("점검예정일"))
+            predicted = norm_date(row.get("예측점검일"))
+            when = official or predicted
+            if not when:
+                continue
+            event = {
+                "날짜": when,
+                "시간": "",
+                "제목": ("[예측] " if not official else "") +
+                       f"정기점검 · {row.get('캠프명') or '캠프 미정'}",
+                "장소": row.get("캠프명") or "",
+                "캠프명": row.get("캠프명") or "",
+                "업무구분": "정기점검 예정(예측)" if not official else "정기점검 예정",
+                "프로젝트NO": str(row.get("연결프로젝트NO") or "").split(" · ")[0],
+                "원천업무ID": row.get("일정ID") or "",
+                "연결근거": (row.get("예측근거") if not official else
+                           "류지영 정기점검 스케줄 원본의 공식 예정일"),
+                "예측": not bool(official),
+                "예측신뢰도": row.get("예측신뢰도") or "",
+                "장비수": int(row.get("장비수") or 0),
+            }
+            key = event_key(event)
+            if key in existing:
+                continue
+            existing.add(key)
+            events.append(event)
+            added += 1
+            predicted_count += int(not bool(official))
+        d["일정"] = sorted(events, key=lambda e: (
+            str(e.get("날짜") or "9999"), str(e.get("시간") or ""), str(e.get("제목") or "")))
+        d["정기점검추가"] = added
+        d["예측일정수"] = predicted_count
+        d["원천"] = list(dict.fromkeys(list(d.get("원천") or []) +
+                                  ["류지영 정기점검 스케줄 원본(공식·과거 이력 예측)"]))
+    except Exception:
+        pass
     return d
 
 

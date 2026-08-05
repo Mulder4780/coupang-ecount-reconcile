@@ -37,6 +37,7 @@ REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports
 FREE = ("무상", "보험")
 APP_YEAR = "2026"
 MANUAL_EVENTS = os.path.join(REPORT_DIR, "manual_daily_events.json")
+PM_SCHEDULE_REPORT = os.path.join(REPORT_DIR, "pm_schedule_sync.json")
 
 
 def _d(v):
@@ -62,6 +63,15 @@ def load_manual_events():
         return [r for r in rows if isinstance(r, dict)]
     except (OSError, ValueError, TypeError):
         return []
+
+
+def load_pm_schedule_report():
+    """류지영 원본 스케줄의 전체 분기 장비 계획과 예측일 캐시."""
+    try:
+        raw = json.load(open(PM_SCHEDULE_REPORT, encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
 
 
 def load(master=None):
@@ -90,6 +100,7 @@ def load(master=None):
 
     d = {"as": rows("02_돌발AS접수"), "pm": rows("04_정기점검"),
          "fw": rows("03_현장작업실적"), "events": load_manual_events(),
+         "pm_schedule": load_pm_schedule_report(),
          # 대표 브리핑이 일지 원본과 대조할 때 같은 관리대장만 읽게 한다.
          # 합성 데이터로 직접 brief()를 부르는 검증은 이 키가 없어 원본 접근을 하지 않는다.
          "_master": master}
@@ -211,8 +222,37 @@ def brief(day=None, data=None):
         return sorted(rows, key=lambda x: (x.get("일자") or "9999", x.get("레코드ID") or ""))
 
     # ── 돌발AS ──
-    as_new = [r for r in A if _d(r.get("접수일자")) == day]
+    def unique(rows, key):
+        out, seen = [], set()
+        for r in rows:
+            k = key(r)
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(r)
+        return out
+
+    # 같은 프로젝트·같은 날·같은 신청내용이 새 접수ID로 중복 적재된 실제 사례가 있다.
+    # 접수ID 개수 그대로 세면 2026-08-04는 5건으로 보이지만 실업무는 3건이다.
+    as_new = unique(
+        [r for r in A if _d(r.get("접수일자")) == day],
+        lambda r: (_s(r.get("프로젝트NO")) or _s(r.get("접수ID")),
+                   _d(r.get("접수일자")), re.sub(r"\s+", "", _s(r.get("신청내용")))),
+    )
     as_done = [r for r in A if _d(r.get("작업완료일")) == day]
+    fw_day = unique(
+        [r for r in F if _d(r.get("작업일자")) == day],
+        lambda r: (_s(r.get("프로젝트NO")), _d(r.get("작업일자")),
+                   _s(r.get("실제작업상세")) or _s(r.get("실제작업항목"))),
+    )
+    fw_projects = {_s(r.get("프로젝트NO")) for r in fw_day if _s(r.get("프로젝트NO"))}
+    new_processed = [r for r in as_new if _d(r.get("작업완료일")) == day
+                     or _s(r.get("프로젝트NO")) in fw_projects]
+    paid_as = [r for r in as_done if "유상" in (
+        _s(r.get("유상·무상·보험")) or _s(work.get(_s(r.get("프로젝트NO")), {}).get("비용구분"))
+    )]
+    revisit = [r for r in A if _d(r.get("방문예정일")) == day
+               and _s(r.get("재방문여부")) not in ("아니오", "없음", "N")]
     # ★ '완료일이 없다'와 '아직 안 갔다'는 다르다. 오래된 건은 거의 다 **기록 누락**이다
     #   (2026-07-28 확인: 84건 중 46건이 5월 이전). 둘을 뭉뚱그려 '미처리 84건'이라고
     #   보고하면 대표가 놀라고, 반대로 '없다'고 하면 최근 건을 놓친다. 갈라서 말한다.
@@ -247,6 +287,38 @@ def brief(day=None, data=None):
     pm_done_rows = ordered([pm_line(r, "done") for r in pm_done])
     pm_quarter_rows = ordered([pm_line(r, "plan") for r in inq])
 
+    # ★ 분기 진행률의 분모는 04시트에 이미 들어온 프로젝트가 아니라 류지영 원본의
+    # **전체 장비 대수**다. 04만 보면 완료된 행 위주라 54/58=93%로 과대 표시됐다.
+    schedule_report = data.get("pm_schedule") if isinstance(data, dict) else {}
+    source_schedule = []
+    if (isinstance(schedule_report, dict)
+            and int(schedule_report.get("year") or 0) == y
+            and int(schedule_report.get("quarter") or 0) == q):
+        source_schedule = [r for r in (schedule_report.get("schedule") or [])
+                           if isinstance(r, dict)]
+
+    def units(r):
+        try:
+            return max(0, int(r.get("장비수") or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    source_total = sum(units(r) for r in source_schedule)
+    source_done = sum(units(r) for r in source_schedule
+                      if _d(r.get("실제점검일")) and _d(r.get("실제점검일")) <= day)
+    source_due = sum(units(r) for r in source_schedule
+                     if (_d(r.get("점검예정일")) or _d(r.get("예측점검일")))
+                     and (_d(r.get("점검예정일")) or _d(r.get("예측점검일"))) <= day)
+    source_due_done = sum(units(r) for r in source_schedule
+                          if (_d(r.get("점검예정일")) or _d(r.get("예측점검일")))
+                          and (_d(r.get("점검예정일")) or _d(r.get("예측점검일"))) <= day
+                          and _d(r.get("실제점검일")) and _d(r.get("실제점검일")) <= day)
+    source_today = [r for r in source_schedule
+                    if (_d(r.get("점검예정일")) or _d(r.get("예측점검일"))) == day]
+    source_done_today = [r for r in source_schedule if _d(r.get("실제점검일")) == day]
+    source_progress = round(source_done * 100 / source_total) if source_total else 0
+    source_due_rate = round(source_due_done * 100 / source_due) if source_due else 0
+
     # 정기점검·돌발AS 일지는 완료 실적과 미실시 사유를 함께 적는 현장 정본이다.
     # 원장만으로는 '왜 아직 안 됐는지'가 보이지 않으므로 대표 보고에는 이 대조 결과도
     # 붙인다. 단 합성 검증처럼 master 경로가 없는 호출은 외부 원본에 닿지 않는다.
@@ -265,22 +337,39 @@ def brief(day=None, data=None):
 
     return {
         "기준일": day,
-        "돌발AS": {"신규접수": len(as_new), "완료": len(as_done),
+        "돌발AS": {"신규접수": len(as_new), "신규처리완료": len(new_processed),
+                    "신규처리율": round(len(new_processed) * 100 / len(as_new)) if as_new else 0,
+                    "완료": len(as_done), "현장작업": len(fw_day),
+                    "유상발생": len(paid_as), "재방문예정": len(revisit),
                     "미처리": len(as_open), "완료일미기입": len(as_stale),
                     "업무처리": len(handled)},
-        "정기점검": {"예정": len(pm_plan), "완료": len(pm_done),
+        "정기점검": {"예정": len(source_today) if source_schedule else len(pm_plan),
+                     "예정장비": sum(units(r) for r in source_today) if source_schedule else len(pm_plan),
+                     "완료": len(source_done_today) if source_schedule else len(pm_done),
+                     "완료장비": sum(units(r) for r in source_done_today) if source_schedule else len(pm_done),
                      # ★ 사용자 지시(2026-07-29): "3분기라고 하면 모르겠고 몇월부터
                      #   몇월까지인지로 표기해줘." 분기 번호는 읽는 사람이 다시 환산해야 한다.
                      "분기": f"{y}년 {3 * q - 2}~{3 * q}월",
                      "분기범위": f"{3 * q - 2}~{3 * q}월", "분기끝월": f"{3 * q}월",
-                     "분기예정": len(inq), "분기완료": len(inq_done),
-                     "분기미실행": len(inq) - len(inq_done),
-                     "분기진행률": round(len(inq_done) * 100 / len(inq)) if inq else 0,
+                     "분기예정": source_total or len(inq),
+                     "분기완료": source_done if source_total else len(inq_done),
+                     "분기미실행": (source_total - source_done) if source_total else len(inq) - len(inq_done),
+                     "분기진행률": source_progress if source_total else (
+                         round(len(inq_done) * 100 / len(inq)) if inq else 0),
+                     "분기일정그룹": len(source_schedule) if source_schedule else len(inq),
+                     "기준일까지예정": source_due if source_total else sum(
+                         1 for r in inq if (_d(r.get("점검예정일")) or "9999") <= day),
+                     "기준일까지완료": source_due_done if source_total else sum(
+                         1 for r in inq if (_d(r.get("점검예정일")) or "9999") <= day
+                         and _d(r.get("실제점검일"))),
+                     "기준일이행률": source_due_rate if source_total else 0,
+                     "예측일정": sum(bool(r.get("예측점검일")) for r in source_schedule),
                      # ★ 대표 지시(2026-08-04): "이번 분기에 **일수를 따졌을 때** 몇 %
                      #   진행됐고 이상이 있는지 없는지". 진행률만 보면 빠른지 늦은지 모른다.
                      #   분기 경과일 비율을 '기대 진행률'로 두고 그 차이를 보여 준다.
                      "분기경과율": _elapsed_pct(qs, qe, day),
-                     "분기진행격차": (round(len(inq_done) * 100 / len(inq)) if inq else 0)
+                     "분기진행격차": (source_progress if source_total else
+                                     (round(len(inq_done) * 100 / len(inq)) if inq else 0))
                                      - _elapsed_pct(qs, qe, day)},
         "완료내역": done, "무상건": free, "추가작업건": extra,
         "점검중유상": pm_paid, "AS전환": to_as, "이상발견": abnormal,
@@ -289,6 +378,10 @@ def brief(day=None, data=None):
         "분기점검목록": pm_quarter_rows,
         "내용미기입": blank,
         "당일처리목록": handled,
+        "현장작업목록": [line(r, "작업일자", "돌발AS") for r in fw_day],
+        "신규처리완료목록": [line(r, "작업완료일", "돌발AS") for r in new_processed],
+        "재방문예정목록": [line(r, "방문예정일", "돌발AS") for r in revisit],
+        "분기원본일정목록": source_schedule,
         "완료일미기입목록": [line(r, "접수일자", "돌발AS") for r in as_stale],
         "신규목록": [line(r, "접수일자", "돌발AS") for r in as_new],
         "일지대조": worklog,
@@ -330,7 +423,8 @@ def text(b):
     wd = "월화수목금토일"[datetime.strptime(d, "%Y-%m-%d").weekday()]
     # ★ '금일·당일'이라는 말은 읽는 사람마다 다른 날을 떠올린다. 맨 위에 날짜를 못 박는다.
     L.append(f"[{d}({wd}) 실적 — 아래 날짜는 모두 실제 날짜입니다]")
-    L.append(f"■ 돌발AS — 신규 접수 {a['신규접수']}건 · 완료 {a['완료']}건 · "
+    L.append(f"■ 돌발AS — 신규 접수 {a['신규접수']}건 중 {d} 처리 "
+             f"{a['신규처리완료']}건({a['신규처리율']}%) · 전체 완료 {a['완료']}건 · "
              f"미처리 {a['미처리']}건(최근 30일)")
     # ★ 신규와 완료가 같은 모양으로 나오면 어느 게 처리된 건지 안 보인다.
     #   대표가 묻는 건 "완료한 건 무슨 작업을 했느냐"이므로 완료는 따로, 더 자세히 적는다.
@@ -356,15 +450,20 @@ def text(b):
             if x["추가작업"]:
                 L.append(f"         추가 : {x['추가작업'][:48]}")
     if b.get("당일처리목록"):
-        L.append(f"  ▸ 당일 업무 처리 {len(b['당일처리목록'])}건 — 현장 AS 완료와 별도")
+        L.append(f"  ▸ {d} 업무 처리 {len(b['당일처리목록'])}건 — 현장 AS 완료와 별도")
         for x in b["당일처리목록"]:
             L.append(f"      {tag(x, d)} · 처리 {x['담당기사'] or '담당 미기입'}"
                      + (f" · 게시 {x['게시자']}" if x.get("게시자") else ""))
             L.append(f"         요청 : {x['왜'][:52] or '신청내용 미기입'}")
             L.append(f"         처리 : {x['무엇'][:52] or '처리내용 미기입'}")
 
-    L.append(f"\n■ 정기점검 — {md(d, d)} 완료 {p['완료']}건 (그날 예정 {p['예정']}건)")
-    L.append(f"   {p['분기']} 진행률 {p['분기진행률']}% ({p['분기완료']}/{p['분기예정']}건)")
+    L.append(f"\n■ 정기점검 — {md(d, d)} 완료 {p['완료']}그룹·{p['완료장비']}대 "
+             f"(그날 예정 {p['예정']}그룹·{p['예정장비']}대)")
+    L.append(f"   {p['분기']} 장비 진행률 {p['분기진행률']}% "
+             f"(완료 {p['분기완료']}대 / 전체 예정 {p['분기예정']}대)")
+    if p.get("기준일까지예정"):
+        L.append(f"   기준일까지 예정 {p['기준일까지예정']}대 중 "
+                 f"{p['기준일까지완료']}대 이행({p['기준일이행률']}%)")
     if p["분기예정"]:
         L.append("   " + (f"특별한 문제 없으면 {p['분기끝월']}까지 마무리 가능합니다."
                           if p["분기진행률"] >= 60 else "진행률이 낮아 일정 관리가 필요합니다."))
