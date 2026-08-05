@@ -338,7 +338,7 @@ function renderBrief(){
       <button type="button" onclick="openPmCloud('day-plan')">예정<b>${p['예정'] || 0}그룹 · ${p['예정장비'] || 0}대</b></button>
       <button type="button" onclick="openPmCloud('day-done')">실행<b>${p['완료'] || 0}그룹 · ${p['완료장비'] || 0}대</b></button>
     </div>
-    <div class="bm">${esc(p['분기'] || '')} 진행률 ${p['분기진행률'] || 0}%</div>
+    <div class="bm">${esc(p['분기'] || '')} 진행률 ${(Number(p['분기진행률'])||0).toFixed(1)}%</div>
     <div class="pmgrid quarter">
       <button type="button" onclick="openPmCloud('quarter-all')">예정<b>${p['분기예정'] || 0}대</b></button>
       <button type="button" onclick="openPmCloud('quarter-done')">실행<b>${p['분기완료'] || 0}대</b></button>
