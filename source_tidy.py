@@ -134,11 +134,22 @@ def main():
             by_size[r.get("size") or 0].append(r)
 
         def has_original(fn, size):
+            """이 바로가기의 원본이 색인에 아직 있나.
+
+            이름을 세 가지로 견준다 — 바로가기 이름은 만든 방식이 둘이기 때문이다:
+              · 월별 링크  : 원본 이름 그대로
+              · 종류별 링크: `날짜_라벨_기준값.ext` 이고 기준값은 **전표·프로젝트·글번호**다.
+            그래서 원본 파일 이름만 견주면 종류별 링크가 전부 '못 찾음'이 된다
+            (실측: 6,008개 중 2,740개가 그랬다 — 전부 건별 PDF 였다).
+            """
             low = fn.lower()
             for r in by_size.get(size, ()):
                 nm = r["name"].lower()
                 if nm == low or os.path.splitext(nm)[0] in low:
                     return True
+                for key in (r.get("slip"), r.get("uj"), r.get("post")):
+                    if key and str(key).lower() in low:
+                        return True
             return False
 
         removed, kept = 0, []
