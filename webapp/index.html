@@ -1486,8 +1486,8 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
    아이폰 파일·사진 앱 감각: 큰 제목, 캡슐 세그먼트(갈래), 둥근 검색 필드,
    종류별 색 아이콘 + 오른쪽 화살표의 리스트 행. #v-sources 로만 범위를 좁힌다. */
 #v-sources{overflow:visible}
-#v-sources .source-canvas{width:min(1540px,calc(100vw - 20px));margin-left:50%;
-  transform:translateX(-50%);padding:clamp(18px,2.2vw,32px);border-radius:24px;
+#v-sources .source-canvas{width:calc(100% + 32px);margin-left:-16px;
+  padding:clamp(18px,2.2vw,32px);border-radius:24px;
   background:#F2F2F7;box-shadow:inset 0 0 0 1px rgba(60,60,67,.06)}
 #v-sources .source-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin:0 0 18px}
 #v-sources .ios-large{margin:0;min-width:0}
@@ -1523,7 +1523,7 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 /* 파일 하나가 카드 하나다. 넓은 화면은 자동 다단, 폰은 한 줄 전체 폭을 쓴다. */
 #v-sources .src-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr));
   gap:12px;background:transparent;border:0;box-shadow:none;overflow:visible}
-#v-sources .src-row{appearance:none;width:100%;display:flex;align-items:center;gap:12px;min-height:78px;
+#v-sources .src-row{appearance:none;width:100%;min-width:0;max-width:100%;display:flex;align-items:center;gap:12px;min-height:78px;
   padding:13px 14px;cursor:pointer;text-align:left;font:inherit;color:inherit;background:#fff;
   border:1px solid rgba(60,60,67,.1);border-radius:18px;box-shadow:0 5px 16px rgba(29,45,95,.07);
   transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
@@ -1541,10 +1541,10 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 #v-sources .src-empty{grid-column:1/-1;padding:34px 14px;text-align:center;color:var(--ink-2);font-size:14px;
   background:#fff;border-radius:18px;border:1px solid rgba(60,60,67,.1)}
 @media(max-width:640px){
-  #v-sources .source-canvas{width:calc(100vw - 8px);padding:18px 12px 24px;border-radius:20px}
+  #v-sources .source-canvas{width:calc(100% + 20px);margin-left:-10px;padding:18px 12px 24px;border-radius:20px}
   #v-sources .source-head{align-items:flex-start}#v-sources .source-head .sub{max-width:29rem}
   #v-sources .src-toolbar{margin-inline:-4px;padding:12px 10px 5px;border-radius:18px}
-  #v-sources .src-list{grid-template-columns:1fr;gap:9px}
+  #v-sources .src-list{grid-template-columns:minmax(0,1fr);gap:9px}
   #v-sources .src-row{min-height:72px;border-radius:16px}
 }
 
