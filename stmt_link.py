@@ -28,6 +28,9 @@ except Exception:
 OUT_JSON = os.path.join(ROOT, "reports", "명세서_프로젝트_매칭.json")
 OUT_MD = os.path.join(ROOT, "reports", "명세서_프로젝트_매칭.md")
 UJ = re.compile(r"UJ\d{7}")
+# 쿠팡 현장으로 보이는 거래처 이름 — 캠프·MB·허브·FC 계열.
+# 여기 걸리지 않는 곳(물류사·제조사)은 UJ 프로젝트가 없어 짝이 없는 것이 정상이다.
+CAMPLIKE = re.compile(r"캠프|MB|Sub-?hub|Sub-?FC|허브|HUB|FC|물류센터|센터|터미널", re.I)
 
 
 def load_sales():
@@ -171,10 +174,25 @@ def main():
     for k in sorted(state_cnt, key=lambda x: -state_cnt[x]):
         L.append(f"| {k} | {state_cnt[k]} |")
     if unmatched:
-        L += ["", f"## 판매조회에 짝이 없는 명세서 ({len(unmatched)}건, 상위 30)", "",
+        # ★ 짝 없음을 한 덩어리로 보여 주면 사람이 전부 문제라고 읽는다. 실제로는
+        #   쿠팡 아닌 거래처(물류사·제조사)가 섞여 있고, 그쪽은 **UJ 프로젝트 자체가 없어**
+        #   짝이 없는 게 정상이다. 확인해야 할 것만 앞에 세운다.
+        camp = [x for x in unmatched if CAMPLIKE.search(x.get("cust") or "")]
+        other = [x for x in unmatched if not CAMPLIKE.search(x.get("cust") or "")]
+        amt = lambda rows: sum(r.get("amount") or 0 for r in rows)
+        L += ["", f"## 판매조회에 짝이 없는 명세서 ({len(unmatched)}건)", "",
+              f"- **확인 필요 — 쿠팡 현장 {len(camp)}건 / {amt(camp):,}원**",
+              f"- 참고 — 그 밖의 거래처 {len(other)}건 / {amt(other):,}원 "
+              f"(UJ 프로젝트가 없는 거래라 짝이 없는 것이 정상)", "",
+              "### 확인 필요(쿠팡 현장) — 금액 큰 순 30건", "",
               "| 전표번호 | 거래처(캠프) | 금액 |", "|---|---|---:|"]
-        for x in unmatched[:30]:
+        for x in sorted(camp, key=lambda r: -(r.get("amount") or 0))[:30]:
             L.append(f"| {x['slip']} | {x['cust'][:26]} | {x['amount']:,} |")
+        if other:
+            L += ["", "### 참고 — 그 밖의 거래처 20건", "",
+                  "| 전표번호 | 거래처 | 금액 |", "|---|---|---:|"]
+            for x in sorted(other, key=lambda r: -(r.get("amount") or 0))[:20]:
+                L.append(f"| {x['slip']} | {x['cust'][:26]} | {x['amount']:,} |")
     L += ["", "> 읽기 전용 색인이다. 원장·완료 처리에 쓰려면 후속 도구가 이 근거를 인용한다."]
     open(OUT_MD, "w", encoding="utf-8").write("\n".join(L))
     print(f"명세서 {len(docs)}건: UJ 확정 {len(linked)} · 모호 {len(ambiguous)} · "
