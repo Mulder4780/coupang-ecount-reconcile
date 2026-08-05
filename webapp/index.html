@@ -246,8 +246,9 @@ svg.bi{width:1.05em;height:1.05em;flex:none;fill:currentColor;vertical-align:-.1
 @media(max-width:760px){
   .cal2-head{flex-direction:column;align-items:stretch;gap:10px}
   .cal2-head .ios-large h2{font-size:30px;margin:0 0 6px}
-  .cal2-head .actions{display:flex!important;grid-template-columns:none!important;gap:8px;width:100%}
-  .cal2-head .actions .abtn{flex:1 1 0;min-width:0;justify-content:center;text-align:center}
+  /* 버튼이 넷이라 한 줄에 다 넣으면 글자가 뭉갠다 — 2×2 로 접고 각 줄을 꽉 채운다. */
+  .cal2-head .actions{display:flex!important;grid-template-columns:none!important;gap:8px;width:100%;flex-wrap:wrap}
+  .cal2-head .actions .abtn{flex:1 1 45%;min-width:0;justify-content:center;text-align:center}
 }
 .cal2-filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
 /* 칩도 좌우로 꽉 차게 — 폰에서 오른쪽이 뭉텅 비어 보였다. */
@@ -2739,9 +2740,10 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
     <div class="cal2-head">
       <div class="ios-large"><h2>쿠팡 캘린더</h2>
         <p class="sub">정기점검·돌발AS 일정을 한 달 격자로 봅니다. 위 칩을 눌러 보고 싶은 종류만 남기세요.</p></div>
-      <div class="actions" style="grid-template-columns:repeat(3,max-content);margin:0">
+      <div class="actions" style="grid-template-columns:repeat(4,max-content);margin:0">
         <button class="abtn" onclick="refreshCalendarPage()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-repeat"/></svg>새로고침</button>
         <button class="abtn" onclick="shareCalendarLink()" title="지금 보고 있는 달·필터 그대로 여는 주소를 복사합니다"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-link-45deg"/></svg>링크 복사</button>
+        <button class="abtn" onclick="calendarCapture()" title="지금 보이는 일정으로 A4 한 장 이미지를 만듭니다"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg>캡처</button>
         <button class="abtn primary" onclick="focusCalendarEntry()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>일정 입력</button>
       </div>
     </div>
@@ -6324,6 +6326,132 @@ async function shareCalendarLink(){
     prompt('이 주소를 복사해서 보내세요 (받는 분도 PIN 로그인이 필요합니다)', url);
   }
   uxEvent('tap','calShareLink');
+}
+/* ── 캘린더 A4 한 장 캡처 (2026-08-06 지시) ─────────────────────────────────
+   "캡처하면 선택 일정이 표시되는 캘린더 화면 · 날짜 밑에 캠프명 · 아래에 날짜순 리스트
+    · A4 한 장 크기."
+   왜 리스트를 같이 그리나: 격자 칸은 좁아 하루 일정이 서넛만 돼도 다 못 보여 준다.
+   격자는 '언제'를 한눈에, 리스트는 '무엇을'을 빠짐없이 — 둘이 한 장에 있어야 쓸 수 있다.
+   A4(96dpi) = 794×1123. 인쇄해도 잘리지 않게 이 크기에 **맞춰 넣는다**(넘치면 줄인다). */
+const A4W = 794, A4H = 1123;
+function calCampOf(e){ return String(e.캠프명 || e.장소 || e.제목 || '').trim() || '(장소 미입력)'; }
+async function calendarCapture(){
+  const rows = calendarRows().filter(e => calMonthOf(e.날짜) === CAL_MONTH);
+  if(!rows.length){ toast('이 달에 표시할 일정이 없습니다'); return; }
+  const [Y, M] = CAL_MONTH.split('-').map(Number);
+  const S = 2, W = A4W, H = A4H, Mg = 26;
+  const F = (z, w) => `${w || 400} ${z}px "Nanum Gothic","Malgun Gothic",sans-serif`;
+  const cv = document.createElement('canvas'); cv.width = W * S; cv.height = H * S;
+  const x = cv.getContext('2d'); x.scale(S, S);
+  x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
+
+  // 글자가 칸을 넘으면 잘라 준다 — 넘친 글자가 옆 칸을 덮으면 표가 못 읽게 된다.
+  const clip = (t, max) => {
+    t = String(t || '');
+    if(x.measureText(t).width <= max) return t;
+    while(t.length > 1 && x.measureText(t + '…').width > max) t = t.slice(0, -1);
+    return t + '…';
+  };
+
+  // ① 머리말
+  x.fillStyle = '#0E1B3F'; x.fillRect(0, 0, W, 58);
+  x.fillStyle = '#fff'; x.font = F(20, 700);
+  x.fillText(`쿠팡 캘린더 · ${Y}년 ${M}월`, Mg, 30);
+  x.font = F(11); x.fillStyle = '#C9D5FA';
+  x.fillText(`기준 ${new Date().toLocaleString('ko-KR')}`, Mg, 47);
+  const kinds = calShownKinds().filter(k => !CAL_OFF.has(k.key));
+  x.font = F(11); x.fillStyle = '#101828';
+  x.fillText(clip(`표시 종류: ${kinds.map(k => k.label).join(' · ') || '전체'}`
+    + `   ·   이 달 ${rows.length}건`, W - Mg * 2), Mg, 74);
+
+  // ② 달력 격자 — 칸마다 날짜 밑에 캠프명을 적는다
+  const byDay = {};
+  rows.forEach(e => { (byDay[e.날짜] = byDay[e.날짜] || []).push(e); });
+  const first = new Date(Y, M - 1, 1), start = new Date(Y, M - 1, 1 - first.getDay());
+  const cw = (W - Mg * 2) / 7, gridTop = 104, rh = 76;
+  const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+  x.font = F(11, 700);
+  DOW.forEach((d, i) => {
+    x.fillStyle = i === 0 ? '#C7362B' : (i === 6 ? '#2452E6' : '#475467');
+    x.fillText(d, Mg + i * cw + cw / 2 - 6, gridTop - 8);
+  });
+  for(let r = 0; r < 6; r++){
+    for(let c = 0; c < 7; c++){
+      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + r * 7 + c);
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const inMonth = (d.getMonth() + 1) === M;
+      const cx = Mg + c * cw, cy = gridTop + r * rh;
+      const evs = byDay[iso] || [];
+      if(iso === CAL_DAY){ x.fillStyle = '#EAF1FF'; x.fillRect(cx, cy, cw, rh); }
+      x.strokeStyle = '#E4E7EC'; x.strokeRect(cx, cy, cw, rh);
+      x.font = F(12, 700);
+      x.fillStyle = !inMonth ? '#C4C9D2' : (c === 0 ? '#C7362B' : (c === 6 ? '#2452E6' : '#101828'));
+      x.fillText(String(d.getDate()), cx + 6, cy + 15);
+      if(evs.length){
+        x.font = F(10, 700); x.fillStyle = '#2452E6';
+        x.fillText(`${evs.length}건`, cx + cw - 26, cy + 15);
+      }
+      // 날짜 밑에 캠프명 — 칸 높이가 허락하는 만큼만, 나머지는 '+N'
+      x.font = F(8.5);
+      const room = 3;
+      evs.slice(0, room).forEach((e, i) => {
+        const k = calKindMeta(calKindOf(e));
+        x.fillStyle = k.color || '#475467';
+        x.fillRect(cx + 6, cy + 24 + i * 15, 3, 3);
+        x.fillStyle = '#344054';
+        x.fillText(clip(calCampOf(e), cw - 16), cx + 12, cy + 27 + i * 15);
+      });
+      if(evs.length > room){
+        x.font = F(8.5, 700); x.fillStyle = '#98A2B3';
+        x.fillText(`+${evs.length - room}건 더`, cx + 12, cy + 27 + room * 15);
+      }
+    }
+  }
+
+  // ③ 날짜순 리스트 — 격자에서 잘린 것을 여기서 빠짐없이 본다
+  const listTop = gridTop + 6 * rh + 26;
+  x.strokeStyle = '#D0D5DD'; x.beginPath();
+  x.moveTo(Mg, listTop - 14); x.lineTo(W - Mg, listTop - 14); x.stroke();
+  x.font = F(12, 700); x.fillStyle = '#101828';
+  x.fillText(`날짜순 일정 (${rows.length}건)`, Mg, listTop);
+  const sorted = rows.slice().sort((a, b) =>
+    String(a.날짜).localeCompare(String(b.날짜)) || String(a.시간 || '').localeCompare(String(b.시간 || '')));
+  // ★ 2단으로 짠다. 한 단이면 A4 한 장에 31건뿐이라 바쁜 달은 절반 넘게 잘린다(실측).
+  //   2단이면 같은 종이에 곱절이 들어간다 — 종이를 늘리지 않고 잘리는 것을 줄이는 길이다.
+  const lh = 14, listStart = listTop + 18, bottom = H - 30;
+  const perCol = Math.max(0, Math.floor((bottom - listStart) / lh));
+  const colW = (W - Mg * 2 - 18) / 2, room = perCol * 2;
+  sorted.slice(0, room).forEach((e, idx) => {
+    const col = Math.floor(idx / perCol), ly = listStart + (idx % perCol) * lh;
+    const ox = Mg + col * (colW + 18);
+    const k = calKindMeta(calKindOf(e));
+    const dd = new Date(e.날짜 + 'T00:00:00');
+    x.fillStyle = k.color || '#98A2B3'; x.fillRect(ox, ly - 7, 3, 9);
+    x.font = F(9, 700); x.fillStyle = '#101828';
+    x.fillText(`${String(e.날짜).slice(5)}(${DOW[dd.getDay()] || '-'})`, ox + 7, ly);
+    x.font = F(9); x.fillStyle = '#101828';
+    x.fillText(clip(calCampOf(e), colW - 150), ox + 58, ly);
+    x.fillStyle = '#667085';
+    const tail = [e.담당기사 || '', e.프로젝트NO || ''].filter(Boolean).join(' · ');
+    x.fillText(clip(tail, 86), ox + colW - 88, ly);
+    x.strokeStyle = '#F2F4F7'; x.beginPath();
+    x.moveTo(ox, ly + 3.5); x.lineTo(ox + colW, ly + 3.5); x.stroke();
+  });
+  // 단 사이 세로 실선 — 두 단이 한 줄처럼 읽히는 것을 막는다.
+  if(sorted.length > perCol){
+    x.strokeStyle = '#E4E7EC'; x.beginPath();
+    x.moveTo(Mg + colW + 9, listStart - 10); x.lineTo(Mg + colW + 9, bottom); x.stroke();
+  }
+  x.font = F(9); x.fillStyle = '#98A2B3';
+  x.fillText(sorted.length > room
+    ? `※ A4 한 장에 ${room}건까지 담았습니다. 남은 ${sorted.length - room}건은 앱에서 확인하세요.`
+    : 'A4 한 장 · 유니버셜리프트앤히타치코리아', Mg, H - 14);
+
+  const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+  if(!blob){ alert('이미지 생성 실패'); return; }
+  saveOrOpen(blob, `쿠팡캘린더_${CAL_MONTH}.png`);
+  toast(`${Y}년 ${M}월 캘린더를 A4 한 장으로 저장했습니다`);
+  uxEvent('tap', 'calCapture');
 }
 /* 링크로 들어왔을 때 달·필터를 그대로 맞춰 준다. 한 번만 적용한다 —
    계속 적용하면 사용자가 달을 바꿔도 자꾸 링크의 달로 되돌아간다. */
