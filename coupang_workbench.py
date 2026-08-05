@@ -209,8 +209,7 @@ def gui():
         ("✏ 입력 DB 적재", lambda: run_bg("입력 DB 적재", [os.path.join(ROOT, "ledger_db.py"), "--intake"],
                                         confirm="확정 대기 항목을 입력 DB에 저장합니다.\nExcel은 다음 11시·15시 회차에 반영됩니다. 진행할까요?")),
         ("🧾 전표 전송대기 확인", lambda: run_bg("전표 dry-run", [os.path.join(ROOT, "ecount_upload.py")])),
-        ("🚀 전표 실전송(승인)", lambda: run_bg("전표 실전송", [os.path.join(ROOT, "ecount_upload.py"), "--post"],
-                                            confirm="이카운트 ERP에 매출전표를 실제 등록합니다.\n(10.5초/건, 이중계상 가드 적용) 진행할까요?")),
+        # 전표 실전송 버튼 제거(2026-08-05 사용자 지시) — ERP 실제 등록은 사람이 ERP에서 한다.
         ("📊 리포트 폴더", lambda: open_path(os.path.join(ROOT, "reports"))),
         ("🔄 상태 새로고침", lambda: refresh()),
     ]

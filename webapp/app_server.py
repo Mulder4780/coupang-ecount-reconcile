@@ -1493,7 +1493,8 @@ TASKS = {
     # 반영이 아니라 JSON 큐를 SQLite로 넘기는 것뿐이다.
     "writer_apply":  ("입력 DB 적재", [os.path.join(ROOT, "ledger_db.py"), "--intake"]),
     "upload_dry":    ("전표 전송대기 확인", [os.path.join(ROOT, "ecount_upload.py")]),
-    "upload_post":   ("전표 실전송", [os.path.join(ROOT, "ecount_upload.py"), "--post"]),
+    # "upload_post" 제거(2026-08-05 사용자 지시) — ERP 실전송은 앱·AI가 하지 않는다.
+    # 옛 앱·브라우저 캐시가 이 키를 보내도 아래 가드가 거부한다. 되살리지 말 것.
     "kakao":         ("카톡 대조", [os.path.join(ROOT, "kakao", "kakao_reconcile.py")]),
     "erp_ledger":    ("ERP원장 대조", [os.path.join(ROOT, "erp_ledger_check.py")]),
     "po":            ("쿠팡 PO 대조", [os.path.join(ROOT, "po_reconcile.py")]),
@@ -1582,6 +1583,10 @@ def start_task(key):
     with _rlock:
         if runner["busy"]:
             return False, "다른 작업 실행 중"
+        # ERP 실전송은 앱에서 하지 않는다(2026-08-05 사용자 지시). 옛 화면·캐시가
+        # 이 키를 보내도 여기서 끊는다 — 되돌릴 수 없는 등록을 버튼 하나로 만들지 않는다.
+        if key == "upload_post":
+            return False, "전표 실전송은 제공하지 않습니다 — ERP에서 사람이 직접 등록하세요"
         if key not in TASKS:
             return False, "알 수 없는 작업"
         if DEMO:

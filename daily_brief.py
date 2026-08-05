@@ -122,7 +122,7 @@ def _elapsed_pct(start, end, day):
     if total <= 0:
         return 0
     gone = min(max((d - start).days + 1, 0), total)
-    return round(gone * 100 / total)
+    return pct(gone, total) or 0
 
 
 def brief(day=None, data=None):
@@ -316,8 +316,9 @@ def brief(day=None, data=None):
     source_today = [r for r in source_schedule
                     if (_d(r.get("점검예정일")) or _d(r.get("예측점검일"))) == day]
     source_done_today = [r for r in source_schedule if _d(r.get("실제점검일")) == day]
-    source_progress = round(source_done * 100 / source_total) if source_total else 0
-    source_due_rate = round(source_due_done * 100 / source_due) if source_due else 0
+    # 비율은 pct_fmt 규칙(소수점 1자리·미완료는 100% 금지)만 쓴다 — 2026-08-05 지시.
+    source_progress = pct(source_done, source_total) or 0
+    source_due_rate = pct(source_due_done, source_due) or 0
 
     # 정기점검·돌발AS 일지는 완료 실적과 미실시 사유를 함께 적는 현장 정본이다.
     # 원장만으로는 '왜 아직 안 됐는지'가 보이지 않으므로 대표 보고에는 이 대조 결과도
@@ -355,7 +356,7 @@ def brief(day=None, data=None):
                      "분기완료": source_done if source_total else len(inq_done),
                      "분기미실행": (source_total - source_done) if source_total else len(inq) - len(inq_done),
                      "분기진행률": source_progress if source_total else (
-                         round(len(inq_done) * 100 / len(inq)) if inq else 0),
+                         pct(len(inq_done), len(inq)) or 0),
                      "분기일정그룹": len(source_schedule) if source_schedule else len(inq),
                      "기준일까지예정": source_due if source_total else sum(
                          1 for r in inq if (_d(r.get("점검예정일")) or "9999") <= day),

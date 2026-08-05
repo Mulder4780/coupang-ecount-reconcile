@@ -2181,10 +2181,8 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
         <button class="ui-card " onclick="runTask('upload_dry')">
           <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-upload"/></svg></span>
           <span class="ui-card-tx"><b>전표 전송대기</b><span>ERP에 보낼 매출전표를 미리 확인(전송 안 함)</span></span></button>
-        <button class="ui-card danger" onclick="confirmRun('upload_post','⚠ 이카운트 ERP에 매출전표를 실제 등록합니다.
-(10.5초/건, 이중계상 가드 적용)')">
-          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-rocket-takeoff-fill"/></svg></span>
-          <span class="ui-card-tx"><b>전표 실전송</b><span>ERP에 실제로 등록합니다 — 되돌릴 수 없습니다</span></span></button>
+        <!-- 전표 실전송 버튼 제거(2026-08-05 사용자 지시): ERP 실전송은 앱·AI가 하지 않는다.
+             전송대기(dry-run)로 확인만 하고, 실제 등록은 사람이 ERP에서 직접 한다. -->
       </div>
       <div class="fnote" id="runAgentNote">AI 실행 연계 상태를 확인 중입니다.</div>
       <div class="logbox" id="logbox">대기 중 — 작업을 실행하면 로그가 여기 표시됩니다.</div></div>
