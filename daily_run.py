@@ -423,6 +423,11 @@ def _run_pipeline():
     steps.append(run("원본 색인 갱신", [os.path.join(ROOT, "source_index.py")], timeout=2400))
     steps.append(run("원본 폴더 정리·바로가기", [os.path.join(ROOT, "source_tidy.py")], timeout=1800))
     steps.append(run("자료현황 갱신", [os.path.join(ROOT, "data_status.py")]))
+    # 6.75 하루치 정산분 보고자료 — 다음 날 아침 대표 보고에 그대로 쓴다(2026-08-05 지시).
+    #      카톡·밴드·ERP 를 각각 그 날짜로만 훑어 만든다. 앞 단계(색인·밴드 반영)가
+    #      끝난 뒤여야 ERP 내보내기와 밴드 글이 최신으로 잡힌다.
+    steps.append(run("정산분 보고자료(어제)", [os.path.join(ROOT, "settle_report.py")],
+                     timeout=900))
 
     # 6.85 다운로드 흡수 — 실행 도중 새로 내려받은 파일을 다음 회차용 투입함에 보존한다.
     #      떨어진다. 손으로 옮기면 세션이 바뀌는 순간 잊힌다(2026-07-31 실제로 그랬다).

@@ -4668,6 +4668,58 @@ def t104_session_scoped_claims():
     print("  [104] 세션 단위 점유·분담(빼앗기 차단·내 것만 해제·죽은 세션 즉시 인계) ✅")
 
 
+def t105_settle_report():
+    """[105] 하루치 정산분 보고자료 (2026-08-05 지시).
+
+    지시: "8월 5일 정산분 8월 6일에 보고 자료 정리 / 밴드도 ERP도 8월 5일꺼 우선 찾아 정리."
+    내일도 필요한 일이라 손으로 만들지 않고 스크립트로 만든다.
+
+    이 검증이 지키는 것:
+      · 같은 대화 내보내기가 여러 벌 있어도 **한 번만 센다**(실제로 6건이 12건으로 나왔다)
+      · 같은 프로젝트가 진행상태만 달리 두 줄이면 합계를 **하나로 정하지 않는다**(이중계상)
+      · 앱 [기록] 탭에 뜬다 · daily_run 이 매일 만든다
+    """
+    import settle_report as SR
+
+    # (1) 카톡 중복 제거 — 파일이 몇 벌이든 같은 메시지는 한 번.
+    src = open(os.path.join(ROOT, "settle_report.py"), encoding="utf-8").read()
+    assert "seen, uniq = set(), []" in src, "카톡 중복 제거가 없다"
+
+    # (2) 이중계상 금지: 같은 프로젝트가 여러 줄이면 low/high 를 둘 다 낸다.
+    rows = [
+        {"프로젝트코드코드": "UJ1", "창고명": "쿠팡_돌발AS", "거래처명": "가",
+         "진행상태": "확인", "공급가액합계": "480000"},
+        {"프로젝트코드코드": "UJ1", "창고명": "쿠팡_돌발AS", "거래처명": "가",
+         "진행상태": "1.미확인", "공급가액합계": "480000"},
+        {"프로젝트코드코드": "UJ2", "창고명": "쿠팡_돌발AS", "거래처명": "나",
+         "진행상태": "3.오더처리", "공급가액합계": "1000000"},
+        {"프로젝트코드코드": "00117", "창고명": "임대", "거래처명": "뮤토택배",
+         "진행상태": "1.미확인", "공급가액합계": "352000"},
+    ]
+    coupang, by_prj, dup, low, high = SR.erp_summary(rows)
+    assert len(coupang) == 3, "쿠팡이 아닌 임대 건이 섞였다"
+    assert set(dup) == {"UJ1"}, dup
+    assert (low, high) == (1480000, 1960000), (low, high)
+
+    # (3) 밴드에서 그 날 PO 글을 집어낸다.
+    assert "PO = re.compile" in src and 'r["PO"]' in src, "밴드 PO 수주 글을 안 본다"
+
+    # (4) 없는 것은 없다고 쓴다 — 수집 실패와 구분한다.
+    assert "수집 실패가 아니라 실제로 없음" in src
+
+    # (5) 배선: 앱 [기록] 탭 + daily_run
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert '("보고자료_*정산분.md", "정산분 보고")' in srv, "앱 리포트 목록에 없다"
+    assert srv.index('("보고자료_*정산분.md"') < srv.index('("자료현황.md"'), \
+        "정산분 보고가 맨 앞이 아니다"
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "settle_report.py" in daily, "daily_run 이 매일 만들지 않는다"
+
+    # (6) 엑셀을 열어 쓰지 않는다(읽기 전용).
+    assert "workbook_patch" not in src and "--apply" not in src
+    print("  [105] 하루치 정산분 보고자료(카톡 중복제거·이중계상 금지·앱/일일실행 배선) ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -5575,6 +5627,7 @@ if __name__ == "__main__":
     t102_calendar_filter_and_period()
     t103_session_wrapup_hook()
     t104_session_scoped_claims()
+    t105_settle_report()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:
