@@ -3002,7 +3002,41 @@ function swrRerun(key){
     fns.forEach(f => { try{ f(); }catch(e){} });
   }, 350);
 }
+/* ── 서버에 닿지 못했을 때 (2026-08-05) ────────────────────────────────────
+   실측: 오류 기록 2,777건이 실제로는 **164번의 끊김**이었다. 한 번 끊길 때마다
+   열려 있는 탭이 스무 곳을 한꺼번에 다시 부르므로 같은 사건이 20건으로 적힌다
+   (12:33 한 분에 440건). 그래서 (1) 끊김은 30초에 한 번만 적고, (2) 사유를 남기고,
+   (3) 무엇보다 **사람에게 보인다** — 예전에는 조용히 삼켜(.catch(()=>{}))
+   '갱신 중' 칩만 떠 있었고, 사람은 옛 숫자를 최신인 줄 알고 보고 있었다. */
+let NET_DOWN_AT=0, NET_LAST_LOG=0, NET_OFFLINE=false;
+function netDown(path,e){
+  const now=Date.now();
+  if(!NET_DOWN_AT) NET_DOWN_AT=now;
+  if(now-NET_LAST_LOG>30000){          // 같은 끊김을 스무 번 적지 않는다
+    NET_LAST_LOG=now;
+    uxEvent('error','서버에 닿지 못함',
+      String(path).split('?')[0]+' · '+String((e&&e.message)||e||'').slice(0,80));
+  }
+  if(now-NET_DOWN_AT>=5000) netBanner(true);   // 잠깐 튄 것까지 알리지는 않는다
+}
+function netUp(){
+  if(NET_OFFLINE) netBanner(false);
+  NET_DOWN_AT=0;
+}
+function netBanner(on){
+  NET_OFFLINE=on;
+  let el=document.getElementById('swrChip');
+  if(!on){ if(el) el.remove(); return; }
+  if(!el){ el=document.createElement('div'); el.id='swrChip'; document.body.appendChild(el); }
+  el.style.cssText='position:fixed;left:50%;transform:translateX(-50%);'
+    +'top:calc(env(safe-area-inset-top) + 8px);z-index:30;background:#7A271A;color:#FEE4E2;'
+    +'border:1px solid #F04438;border-radius:999px;padding:5px 12px;font-size:12.5px;'
+    +'font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer';
+  el.textContent='서버에 닿지 않습니다 — 지금 숫자는 옛 자료 · 눌러서 다시 시도';
+  el.onclick=()=>{ netBanner(false); location.reload(); };
+}
 function swrChip(ageMs){
+  if(NET_OFFLINE) return;                      // 끊김 알림이 '갱신 중' 보다 우선이다
   let el = document.getElementById('swrChip');
   if(!ageMs){ if(el) el.remove(); return; }
   if(!el){
@@ -3021,15 +3055,21 @@ async function _apiNet(path, opt={}){
   opt.headers = Object.assign({'X-Pin': PIN}, opt.headers||{});
   if(staffSlug) opt.headers['X-Staff-Slug']=staffSlug;
   const started=performance.now();
+  const hiddenAtStart=(document.visibilityState==='hidden');
   let r;
   try{
     r=await fetch(path,opt);
   }catch(e){
-    uxEvent('error',String(path).split('?')[0]);
+    netDown(path,e);
     throw e;
   }
+  netUp();
   const elapsed=performance.now()-started;
-  if(elapsed>=1500) uxEvent('slow',String(path).split('?')[0],'',elapsed);
+  /* ★ 탭이 숨어 있는 동안의 시간은 '느림'이 아니다. 브라우저가 배경 탭의 타이머를
+     늦추므로 /api/status 평균이 164초로 찍혔다(실측 2026-08-05) — 그 숫자를 믿고
+     화면을 고치면 엉뚱한 곳을 고친다. 앞뒤로 보이는 상태였을 때만 센다. */
+  if(elapsed>=1500 && !hiddenAtStart && document.visibilityState!=='hidden')
+    uxEvent('slow',String(path).split('?')[0],'',elapsed);
   if(r.status===401){
     PIN=''; localStorage.removeItem('cw_pin');   // 인증 만료 → 자동 폴링 중단
     $('gate').style.display='flex'; throw 'PIN';

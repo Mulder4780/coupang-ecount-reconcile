@@ -4571,6 +4571,85 @@ def t103_session_wrapup_hook():
     print("  [103] 컨텍스트 한도 자동 인계(PreCompact 훅·4단계·실패해도 요약 진행) ✅")
 
 
+def t104_session_scoped_claims():
+    """[104] 점유의 주인은 who 가 아니라 **세션**이다 (2026-08-05 지시).
+
+    지시: "지금 현재 열려있는 세션과 병렬 작업 가능한 구조로 정리."
+    같은 폴더에 Claude 창이 둘 떠 있으면 둘 다 who="claude" 라서
+      · 뒤에 온 창이 앞 창의 배타 점유를 말없이 빼앗고(둘 다 vN+1 → 한쪽 유실)
+      · --free-all 이 남의 점유까지 풀었다(PreCompact 자동 마무리가 특히 위험).
+    이 검증은 그 두 가지가 다시 생기지 않게 한다.
+    """
+    import importlib
+    import socket
+    import ai_claim
+
+    with tempfile.TemporaryDirectory() as tmp:
+        saved = (ai_claim.CLAIMS, ai_claim.GUARD)
+        ai_claim.CLAIMS = os.path.join(tmp, "ai_claims.json")
+        ai_claim.GUARD = os.path.join(tmp, ".guard")
+        old_env = os.environ.get("CLAUDE_CODE_SESSION_ID")
+        try:
+            def as_session(sid):
+                os.environ["CLAUDE_CODE_SESSION_ID"] = sid
+                return ai_claim.session_id()
+
+            a, b = as_session("SESSION-A"), None
+            os.environ["CLAUDE_CODE_SESSION_ID"] = "SESSION-B"
+            b = ai_claim.session_id()
+            assert a != b, "세션이 달라도 식별자가 같다 — 격리가 안 된다"
+
+            # 세션 A 가 원장을 잡는다
+            as_session("SESSION-A")
+            assert ai_claim.take("claude", "ledger", "A 작업") is True
+
+            # 세션 B 는 who 가 같아도 못 빼앗는다 ← 이 검증의 핵심
+            as_session("SESSION-B")
+            assert ai_claim.take("claude", "ledger", "B 작업") is False, \
+                "다른 세션의 배타 점유를 빼앗았다(원장 유실 사고 재발)"
+            assert ai_claim.free("claude", "ledger") is False, \
+                "다른 세션의 점유를 놓았다"
+
+            # 세션 B 의 --free-all 은 자기 것만 — A 의 점유가 남아야 한다
+            ai_claim.take("claude", "report", "B 리포트")
+            d = ai_claim.load()
+            mine = [k for k, v in d.items() if ai_claim._is_mine(v, "claude")]
+            assert mine == ["report"], mine
+            assert "ledger" in d and d["ledger"]["sid"] == a
+
+            # 세션 A 는 자기 점유를 다시 잡을 수 있다(재진입)
+            as_session("SESSION-A")
+            assert ai_claim.take("claude", "ledger", "A 계속") is True
+            assert ai_claim.free("claude", "ledger") is True
+
+            # 주인 세션이 죽었으면 45분 기다리지 않고 넘겨받는다
+            as_session("SESSION-C")
+            ai_claim.take("claude", "band", "C 작업")
+            d = ai_claim.load()
+            d["band"]["agent_pid"] = 999999      # 존재하지 않는 PID
+            d["band"]["host"] = socket.gethostname()
+            ai_claim.save(d)
+            as_session("SESSION-D")
+            assert ai_claim._is_dead(ai_claim.load()["band"]) is True
+            assert ai_claim.take("claude", "band", "D 인계") is True, \
+                "죽은 세션의 점유를 넘겨받지 못한다"
+        finally:
+            ai_claim.CLAIMS, ai_claim.GUARD = saved
+            if old_env is None:
+                os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
+            else:
+                os.environ["CLAUDE_CODE_SESSION_ID"] = old_env
+            importlib.reload(ai_claim)
+
+    # 세션 마무리(PreCompact)가 남의 점유를 풀지 않는지 — 호출 형태로 확인한다.
+    wrap = open(os.path.join(ROOT, "session_wrapup.py"), encoding="utf-8").read()
+    assert '"--force"' not in wrap, "자동 마무리가 남의 점유까지 강제로 푼다"
+
+    doc = open(os.path.join(ROOT, "CLAUDE.md"), encoding="utf-8").read()
+    assert "주인은 `claude` 가 아니라 **세션**이다" in doc, "동시작업 규칙이 문서에 없다"
+    print("  [104] 세션 단위 점유(빼앗기 차단·내 것만 해제·죽은 세션 즉시 인계) ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -5477,6 +5556,7 @@ if __name__ == "__main__":
     t101_percent_and_no_erp_post()
     t102_calendar_filter_and_period()
     t103_session_wrapup_hook()
+    t104_session_scoped_claims()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
     with tempfile.TemporaryDirectory() as _tmp86:

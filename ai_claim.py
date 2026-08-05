@@ -22,8 +22,18 @@ AI끼리 직접 대화할 수단은 없다. 이 프로젝트의 진실의 원천
   python ai_claim.py --who claude --take ledger --why "confirm_fill 반영"
   python ai_claim.py                      # 지금 누가 뭘 잡고 있나
   python ai_claim.py --who claude --free ledger
+
+★ 2026-08-05 — **세션 단위**로 잡는다 (사용자 지시: "지금 현재 열려있는 세션과
+   병렬 작업 가능한 구조로 정리")
+  그동안 주인은 `--who claude` 한 단어였다. 그런데 같은 프로젝트 폴더에 **Claude 세션이
+  둘 이상** 떠 있으면 둘 다 주인이 "claude" 라서
+    · 뒤에 온 세션이 앞 세션의 배타 점유를 **말없이 빼앗고**(둘 다 vN+1 을 만든다)
+    · `--free-all` 이 **남의 점유까지** 놓아 버렸다(PreCompact 자동 마무리가 특히 위험).
+  이제 주인은 `who` 가 아니라 **세션 식별자(sid)** 다. sid 는 환경변수
+  `CLAUDE_CODE_SESSION_ID` 에서 자동으로 온다 — 사람이 외우거나 넘길 것이 없다.
+  같은 sid 면 다시 잡아도 되고(재진입), 다른 sid 면 `who` 가 같아도 못 빼앗는다.
 """
-import sys, os, json, time, socket
+import sys, os, json, time, socket, hashlib, subprocess
 from contextlib import contextmanager
 from datetime import datetime
 
@@ -47,6 +57,72 @@ try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
+
+
+# ── 세션 식별 (2026-08-05) ───────────────────────────────────────────────────
+#  주인을 `who`(claude/codex) 가 아니라 **세션**으로 본다. 같은 폴더에 Claude 세션이
+#  둘 떠 있어도 서로 못 빼앗게 하려는 것이다. 식별자는 환경에서 저절로 온다 —
+#  사람이 외우거나 명령줄로 넘길 것이 없다(외우게 하면 언젠가 안 넘긴다).
+SID_ENV = ("CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_HOST_SESSION_ID",
+           "CODEX_SESSION_ID", "AI_SESSION_ID")
+
+
+def session_id():
+    """이 세션의 짧고 안정적인 식별자. 한 세션 안에서는 항상 같은 값이 나온다."""
+    for key in SID_ENV:
+        raw = (os.environ.get(key) or "").strip()
+        if raw:
+            return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+    # 환경변수가 없는 곳(스케줄러·수동 실행)은 호스트+에이전트 PID 로 대신한다.
+    raw = "%s/%s" % (socket.gethostname(), os.environ.get("CLAUDE_PID") or "manual")
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+
+
+def agent_pid():
+    """세션을 붙들고 있는 프로세스(있으면). 죽었으면 점유를 45분 기다리지 않고 푼다."""
+    try:
+        return int(os.environ.get("CLAUDE_PID") or 0)
+    except ValueError:
+        return 0
+
+
+def _pid_alive(pid, host):
+    """다른 PC 의 점유는 판정하지 않는다 — 모르면 살아 있다고 본다(안전한 쪽)."""
+    if not pid or host != socket.gethostname():
+        return True
+    try:
+        if os.name == "nt":
+            out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"],
+                                 capture_output=True, text=True, timeout=15).stdout or ""
+            return str(pid) in out
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return True
+
+
+def _is_mine(claim, who):
+    """이 점유가 '지금 이 세션' 것인가.
+
+    옛 형식(sid 없음)은 같은 who 면 내 것으로 본다 — 과도기 호환. 새로 잡는 순간
+    sid 가 붙으므로 이 예외는 한 번만 쓰인다.
+    """
+    if not isinstance(claim, dict):
+        return False
+    sid = claim.get("sid")
+    if sid:
+        return sid == session_id()
+    return claim.get("who") == who
+
+
+def _is_dead(claim):
+    """주인 세션이 이미 죽었나(크레딧 소진·창 닫힘). 죽었으면 즉시 넘겨받아도 된다."""
+    if not isinstance(claim, dict):
+        return True
+    pid = claim.get("agent_pid")
+    if not pid:
+        return False                     # 알 수 없으면 살아 있다고 본다
+    return not _pid_alive(int(pid), claim.get("host") or "")
 
 
 @contextmanager
@@ -119,12 +195,16 @@ def show(d=None):
     if not d:
         print("지금 잡혀 있는 작업 없음 — 무엇이든 시작해도 됩니다.")
         return
-    print("현재 점유 상황")
+    me = session_id()
+    print(f"현재 점유 상황  (이 세션 = {me})")
     for k, v in sorted(d.items()):
         label, excl = LOCKS.get(k, (k, False))
         mins = int((time.time() - v.get("at", 0)) / 60)
-        print(f"  [{'배타' if excl else '공유'}] {label:<18} {v.get('who','?'):<8} "
-              f"{mins}분 전 · {v.get('why','')[:40]}")
+        sid = v.get("sid") or "옛형식"
+        mark = "← 내 것" if _is_mine(v, v.get("who")) and sid == me else ""
+        dead = " · 세션 종료됨(넘겨받을 수 있음)" if _is_dead(v) else ""
+        print(f"  [{'배타' if excl else '공유'}] {label:<18} {v.get('who','?'):<7}"
+              f"[{sid}] {mins}분 전 · {v.get('why','')[:36]}{mark}{dead}")
 
 
 def _sol_write_gate(who, what):
@@ -177,32 +257,45 @@ def take(who, what, why=""):
     with state_guard():
         d = _load_unlocked()
         cur = d.get(what)
-        if cur and cur.get("who") != who and excl:
-            mins = int((time.time() - cur.get("at", 0)) / 60)
-            print(f"★ '{label}' 은 이미 {cur['who']} 가 잡고 있습니다 ({mins}분 전 · {cur.get('why','')}).")
-            print("  배타 작업이라 동시에 하면 한쪽 결과가 통째로 묻힙니다.")
-            print("  → 다른 일을 먼저 하거나, 상대가 끝낼 때까지 조회·분석만 하세요.")
-            print(f"  (상대가 멈춘 것 같으면 {STALE // 60}분 뒤 자동 해제됩니다)")
-            return False
+        # ★ 주인 판정은 who 가 아니라 **세션**이다. 같은 'claude' 라도 다른 창이면
+        #   못 빼앗는다 — 그게 이 파일이 막으려던 바로 그 사고다(둘 다 vN+1 생성).
+        if cur and excl and not _is_mine(cur, who):
+            if _is_dead(cur):
+                print(f"i '{label}' 을 잡고 있던 세션[{cur.get('sid','?')}]이 이미 종료되어 넘겨받습니다.")
+            else:
+                mins = int((time.time() - cur.get("at", 0)) / 60)
+                print(f"★ '{label}' 은 이미 {cur.get('who','?')} 세션[{cur.get('sid','옛형식')}] 이"
+                      f" 잡고 있습니다 ({mins}분 전 · {cur.get('why','')}).")
+                print("  배타 작업이라 동시에 하면 한쪽 결과가 통째로 묻힙니다.")
+                print("  → 다른 일을 먼저 하거나, 상대가 끝낼 때까지 조회·분석만 하세요.")
+                print(f"  (상대 세션이 죽으면 즉시, 아니면 {STALE // 60}분 뒤 자동 해제됩니다)")
+                return False
         d[what] = {
             "who": who, "why": why, "at": time.time(),
             "when": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "sid": session_id(), "agent_pid": agent_pid(),
             "pid": os.getpid(), "host": socket.gethostname(),
         }
         _save_unlocked(d)
-    print(f"'{label}' 점유 — {who}" + (f" · {why}" if why else ""))
+    print(f"'{label}' 점유 — {who}[{session_id()}]" + (f" · {why}" if why else ""))
     return True
 
 
-def free(who, what):
+def free(who, what, force=False):
+    """내 세션 것만 놓는다. 남의 것을 놓으면 그쪽이 원장을 쓰는 중에 문이 열린다."""
     with state_guard():
         d = _load_unlocked()
-        if what in d and d[what].get("who") not in (who, None):
-            print(f"★ '{what}' 은 {d[what]['who']} 것이라 놓을 수 없습니다.")
-            return False
+        cur = d.get(what)
+        if cur and not _is_mine(cur, who) and not force:
+            if _is_dead(cur):
+                print(f"i '{what}' 주인 세션[{cur.get('sid','?')}]이 종료되어 정리합니다.")
+            else:
+                print(f"★ '{what}' 은 {cur.get('who','?')} 세션[{cur.get('sid','옛형식')}] 것이라"
+                      " 놓을 수 없습니다. (정말 풀어야 하면 --force)")
+                return False
         d.pop(what, None)
         _save_unlocked(d)
-    print(f"'{what}' 놓음 — {who}")
+    print(f"'{what}' 놓음 — {who}[{session_id()}]")
     return True
 
 
@@ -212,20 +305,30 @@ def main():
     who = get("--who") or "unknown"
     if "--take" in a:
         sys.exit(0 if take(who, get("--take"), get("--why") or "") else 2)
+    if "--whoami" in a:
+        print(f"세션 {session_id()} · who={who} · agent_pid={agent_pid()} · {socket.gethostname()}")
+        return
     if "--free" in a:
-        free(who, get("--free"))
+        free(who, get("--free"), force="--force" in a)
         return
     if "--free-all" in a:
+        # ★ **내 세션 것만** 놓는다. 예전에는 who 만 봐서, 옆 창의 Claude 가 잡아 둔
+        #   원장 점유까지 풀어 버렸다(PreCompact 자동 마무리가 특히 위험했다).
+        force = "--force" in a
         with state_guard():
             d = _load_unlocked()
-            for k in [k for k, v in d.items() if v.get("who") == who]:
+            mine = [k for k, v in d.items() if force or _is_mine(v, who) or _is_dead(v)]
+            others = [k for k in d if k not in mine]
+            for k in mine:
                 d.pop(k)
             _save_unlocked(d)
-        print(f"{who} 의 점유를 모두 놓았습니다.")
+        print(f"{who}[{session_id()}] 의 점유 {len(mine)}건을 놓았습니다."
+              + (f" 다른 세션 것 {len(others)}건은 그대로 둡니다." if others else ""))
         return
     show()
     print("\n잡기:  python ai_claim.py --who claude --take ledger --why \"이유\"")
     print("놓기:  python ai_claim.py --who claude --free ledger")
+    print("내 세션: python ai_claim.py --who claude --whoami")
 
 
 if __name__ == "__main__":
