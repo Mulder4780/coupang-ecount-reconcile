@@ -125,13 +125,23 @@ def load():
         return _read()
 
 
-def _owner_state(it):
-    """(표시할 주인, 내가 가져가도 되나)."""
+def _owner_state(it, me=""):
+    """(표시할 주인, 내가 가져가도 되나).
+
+    ★ sid 가 없는 **옛 기록** 처리(2026-08-05): sid 를 적기 전에 잡아 둔 항목은
+      주인을 확인할 길이 없어, `_owner_state` 가 8시간이 지날 때까지 아무에게도
+      내주지 않았다 — 잡은 본인조차 완료 처리를 못 했다(실제로 [2] 가 그랬다).
+      ai_claim 과 같은 과도기 규칙을 쓴다: **sid 가 없으면 who 가 같은 쪽을 주인으로
+      본다.** 새로 잡는 순간 sid 가 붙으므로 이 예외는 옛 항목에만 한 번 쓰인다.
+    """
     who = it.get("who") or ""
     if it.get("state") != DOING:
         return who, it.get("state") in (WAIT, HOLD)
-    if it.get("sid") and it["sid"] == session_id():
-        return f"{who}(나)", True                  # 내 세션이 잡은 것 — 이어서 하면 된다
+    if it.get("sid"):
+        if it["sid"] == session_id():
+            return f"{who}(나)", True              # 내 세션이 잡은 것 — 이어서 하면 된다
+    elif me and who == me:
+        return f"{who}(옛 기록)", True             # sid 없는 과도기 항목
     age = time.time() - float(it.get("at_ts") or 0)
     if it.get("at_ts") and age > ORPHAN_SEC:
         return f"{who}({int(age // 3600)}시간째 소식 없음)", True
@@ -161,7 +171,7 @@ def take(who, wid):
             if it["state"] == DONE:
                 print(f"[{wid}] 은 이미 완료된 일입니다.")
                 return False
-            shown, free_ = _owner_state(it)
+            shown, free_ = _owner_state(it, who)
             if it["state"] == DOING and not free_:
                 print(f"★ [{wid}] {it['title']} 은 이미 {shown} 가 맡았습니다.")
                 print("  → 다른 일을 고르세요:  python worksplit.py --free")
@@ -199,7 +209,7 @@ def finish(who, wid, note="", state=DONE):
             if it["id"] != wid:
                 continue
             if it["state"] == DOING:
-                shown, free_ = _owner_state(it)
+                shown, free_ = _owner_state(it, who)
                 if not free_:
                     print(f"★ [{wid}] 은 {shown} 것이라 손대지 않습니다.")
                     return False

@@ -4582,6 +4582,7 @@ def t104_session_scoped_claims():
     """
     import importlib
     import socket
+    import time
     import ai_claim
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -4648,9 +4649,23 @@ def t104_session_scoped_claims():
     assert "_other_live_sessions" in wrap and "푸시는 보류" in wrap, \
         "다른 세션이 일하는 중에도 자동 푸시한다(남의 반쯤 고친 코드가 원격으로 간다)"
 
+    # 분담판(worksplit)도 같은 규칙이어야 한다. 특히 **sid 가 없는 옛 항목**은
+    # 잡은 본인조차 완료 처리를 못 해 8시간 동안 묶여 있었다(2026-08-05 실사고).
+    import worksplit
+    ws_src = open(os.path.join(ROOT, "worksplit.py"), encoding="utf-8").read()
+    assert "def _owner_state(it, me=" in ws_src, "분담판이 주인 판정에 who 를 안 받는다"
+    legacy = {"state": "진행", "who": "claude", "sid": None, "at_ts": time.time()}
+    assert worksplit._owner_state(legacy, "claude")[1] is True, \
+        "sid 없는 옛 항목을 본인도 손댈 수 없다"
+    assert worksplit._owner_state(legacy, "codex")[1] is False, \
+        "옛 항목을 아무나 가져간다"
+    other = {"state": "진행", "who": "claude", "sid": "다른세션", "at_ts": time.time()}
+    assert worksplit._owner_state(other, "claude")[1] is False, \
+        "다른 세션이 맡은 일을 who 만 같으면 가져간다"
+
     doc = open(os.path.join(ROOT, "CLAUDE.md"), encoding="utf-8").read()
     assert "주인은 `claude` 가 아니라 **세션**이다" in doc, "동시작업 규칙이 문서에 없다"
-    print("  [104] 세션 단위 점유(빼앗기 차단·내 것만 해제·죽은 세션 즉시 인계) ✅")
+    print("  [104] 세션 단위 점유·분담(빼앗기 차단·내 것만 해제·죽은 세션 즉시 인계) ✅")
 
 
 def t100_erp_pdf_archive():
