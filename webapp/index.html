@@ -71,6 +71,32 @@ window.addEventListener('beforeinstallprompt', function(e){
    · 기본은 **밝게**. OS 가 어둡다고 멋대로 바뀌지 않는다(사람이 켠 것만 따른다).
    · 고른 값은 data-theme 로 <html> 에 붙고 localStorage 에 남는다.
    · 색은 눈짐작이 아니라 명암비로 정한다 — 검증 [115] 가 다크 팔레트도 같이 잰다. */
+/* ═══ 앱 전체 글꼴 — 여기 한 곳에서만 정한다 (2026-08-06 지시) ═══
+   사용자 지시: "폰트도 나눔고딕 말고 디자이너들과 사용자들이 선호하고 잘 보이는
+   폰트로 전체 변경해 / 나중에 내가 명령 내리면 다시 원래대로 할 수 있는
+   보호 장치도 마련해."
+
+   왜 바꾸나: 나눔고딕은 본문 인쇄용으로 만든 글꼴이라 화면 작은 글씨에서
+   획이 얇고 힌팅이 약해 흐려 보인다. 굵기도 400/700 둘뿐이라 위계를 못 준다.
+   대신 **각 기기가 제 UI 에 쓰는 글꼴**을 첫 자리에 둔다 — 아이폰은 애플 SD 산돌고딕,
+   윈도우는 Segoe UI Variable + 맑은 고딕, 안드로이드는 Roboto + 본고딕.
+   전부 그 기기에서 가장 또렷하게 보이도록 만들어진 것이고 내려받을 것도 없다.
+   Pretendard 가 깔린 기기에서는 그것이 먼저 쓰인다(디자이너들이 가장 많이 쓴다).
+
+   ★ 되돌리기(보호 장치) — 셋 중 아무거나 하나면 된다:
+     ① `python webapp/font_switch.py --legacy`  ← 네 파일을 한 번에 되돌린다(권장)
+     ② 아래 `--font-ui` 값을 `var(--font-ui-legacy)` 로 바꾼다
+     ③ 앱 [설정]에서 '예전 글꼴(나눔고딕)' 을 켠다 — 그 기기에서만 즉시 바뀐다
+   `--font-ui-legacy` 는 **원래 값 그대로** 남겨 둔다. 지우지 말 것 — 이게 되돌릴
+   자리다. 동봉 사본(/fonts/nanumgothic.css)도 그대로 두는 이유가 이것이다
+   (@font-face 는 실제로 쓰일 때만 내려받으므로 지금은 한 바이트도 안 쓴다).
+   검증 [126] 이 이 구조를 지킨다. */
+:root{
+  --font-ui-legacy:"Nanum Gothic","NanumGothic","나눔고딕","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --font-ui:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard Variable",Pretendard,"Segoe UI Variable Text","Segoe UI","Malgun Gothic","맑은 고딕",Roboto,"Noto Sans KR","Helvetica Neue",Arial,sans-serif;
+}
+/* 사람이 제 기기에서만 예전 글꼴로 돌리는 스위치 (설정 화면에서 켠다) */
+:root[data-font="legacy"]{ --font-ui:var(--font-ui-legacy); }
 :root{color-scheme:light}
 :root[data-theme="dark"]{
   color-scheme:dark;
@@ -88,12 +114,8 @@ window.addEventListener('beforeinstallprompt', function(e){
 #themeBtn{font-size:15px;line-height:1}
 *{margin:0;padding:0;box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
-/* ★ 글꼴은 나눔고딕으로 통일한다(사용자 지시 2026-07-31).
-   'Nanum Gothic' 은 위 <head> 의 /fonts/nanumgothic.css 가 @font-face 로 얹는 **동봉 사본**
-   이름이다. 기기에 설치돼 있지 않아도 뜬다(아이폰에는 기본으로 없다).
-   뒤의 글꼴은 폰트 조각이 아직 안 왔을 때 잠깐 쓰이는 대타다 — 지우지 말 것. */
-body{font-family:"Nanum Gothic","NanumGothic","나눔고딕",
-  "Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+/* 글꼴은 위 :root 의 --font-ui 한 곳에서 정한다(되돌리기 포함). 여기 직접 쓰지 말 것. */
+body{font-family:var(--font-ui);
   background:var(--bg);color:var(--ink);font-size:16px;line-height:1.55;letter-spacing:-.24px;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
@@ -2581,6 +2603,22 @@ body.dash-drag-live{-webkit-user-select:none;user-select:none;cursor:grabbing}
       <div class="fnote" id="runAgentNote">AI 실행 연계 상태를 확인 중입니다.</div>
       <div class="logbox" id="logbox">대기 중 — 작업을 실행하면 로그가 여기 표시됩니다.</div></div>
     <div id="helpcard"></div>
+    <!-- ★ 글꼴 되돌리기 스위치 (2026-08-06 지시: "나중에 내가 명령 내리면 다시
+         원래대로 할 수 있는 보호 장치도 마련해"). 헤더에 단추를 더 넣지 않는다 —
+         좁은 폰에서 헤더가 겹치던 것을 방금 고쳤는데 다시 밀어 넣을 이유가 없다.
+         여기 스위치는 **이 기기에서만** 바꾼다(브라우저에 기억). 모두에게 되돌리는
+         것은 `python webapp/font_switch.py --legacy` 한 줄이다. -->
+    <div class="card"><h3>글꼴 <span class="norm">— 이 기기에서만 바뀝니다</span></h3>
+      <div class="ui-cards">
+        <button class="ui-card" type="button" onclick="setFontLegacy(false);toast('기본 글꼴로 바꿨습니다')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>기본 글꼴</b><span>기기가 제 화면에 쓰는 글꼴 — 작은 글씨가 또렷합니다</span></span></button>
+        <button class="ui-card" type="button" onclick="setFontLegacy(true);toast('예전 글꼴(나눔고딕)로 되돌렸습니다')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-arrow-repeat"/></svg></span>
+          <span class="ui-card-tx"><b>예전 글꼴(나눔고딕)</b><span>2026-07-31까지 쓰던 글꼴로 되돌립니다</span></span></button>
+      </div>
+    </div>
+
     <div class="card"><h3>파일·폴더 열기 <span class="norm">— 사무실 PC에서 접속했을 때만 동작</span></h3>
       <div class="ui-cards">
         <button class="ui-card " onclick="openLocal('master')">
@@ -3285,6 +3323,32 @@ let deferredInstallPrompt=window.__csosInstallPrompt||null;
 let notificationItems=[];
 
 const $ = id => document.getElementById(id);
+/* ★ 캡처(캔버스)로 그리는 이미지도 **화면과 같은 글꼴**을 써야 한다.
+   예전에는 그리는 곳마다 글꼴 이름을 손으로 적어 두어(아홉 곳), 화면 글꼴을
+   바꿔도 저장한 이미지만 예전 글꼴로 남았다 — 카톡으로 보내고 나서야 안다.
+   이제 CSS 변수 하나(--font-ui)를 읽는다. 되돌리기 스위치도 자동으로 따라온다.
+   변수를 못 읽는 상황(아주 옛 브라우저)에서는 값이 빈 문자열이라 캔버스가
+   글꼴 지정을 통째로 무시하므로, 그때만 쓸 대타를 둔다. */
+function uiFont(){
+  try{
+    const v = getComputedStyle(document.documentElement)
+      .getPropertyValue('--font-ui').trim();
+    if(v) return v;
+  }catch(e){}
+  return '"Malgun Gothic","Apple SD Gothic Neo",sans-serif';
+}
+/* 예전 글꼴로 되돌리는 스위치 — 이 기기에서만, 즉시. 코드는 안 건드린다. */
+function setFontLegacy(on){
+  const r = document.documentElement;
+  if(on){ r.setAttribute('data-font','legacy'); }
+  else { r.removeAttribute('data-font'); }
+  try{ localStorage.setItem('csos_font_legacy', on ? '1' : '0'); }catch(e){}
+  uxEvent('tap', 'font-' + (on ? 'legacy' : 'modern'));
+}
+try{
+  if(localStorage.getItem('csos_font_legacy') === '1')
+    document.documentElement.setAttribute('data-font','legacy');
+}catch(e){}
 const fmt = n => {
   if(n==null || n==='') return '-';
   const v = Number(n);
@@ -3844,7 +3908,7 @@ async function ryuListToPng(){
   const S=2,W=820,rowH=52,headH=104,footH=62,H=headH+42+Math.max(1,rows.length)*rowH+footH;
   const cv=document.createElement('canvas');cv.width=W*S;cv.height=H*S;
   const ctx=cv.getContext('2d');ctx.scale(S,S);
-  const F=(s,w)=>(w||400)+' '+s+'px "Nanum Gothic","Malgun Gothic",sans-serif';
+  const F=(s,w)=>(w||400)+' '+s+'px '+uiFont();
   const txt=(t,x,y,f,c,a)=>{ctx.font=f;ctx.fillStyle=c;ctx.textAlign=a||'left';
     ctx.fillText(String(t==null?'':t),x,y);ctx.textAlign='left';};
   const clip=(t,max)=>{let s=String(t==null?'':t);if(ctx.measureText(s).width<=max)return s;
@@ -7322,7 +7386,7 @@ async function calendarCapture(opt){
   if(!rows.length){ if(!opt.toBlob) toast('이 달에 표시할 일정이 없습니다'); return null; }
   const [Y, M] = CAL_MONTH.split('-').map(Number);
   const S = 2, W = A4W, H = A4H, Mg = 26;
-  const F = (z, w) => `${w || 400} ${z}px "Nanum Gothic","Malgun Gothic",sans-serif`;
+  const F = (z, w) => `${w || 400} ${z}px ${uiFont()}`;
   const cv = document.createElement('canvas'); cv.width = W * S; cv.height = H * S;
   const x = cv.getContext('2d'); x.scale(S, S);
   x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
@@ -8098,7 +8162,7 @@ function remoteCsv(){
 /* 리모컨 현황 이미지 — 캔버스로 직접 그린다(외부 라이브러리 없이 폰에서도 동일). */
 async function remoteCapture(){
   await loadRemoteStat(); const s=REMOTE_STAT||{};
-  const S=2,W=760,F=(z,w)=>`${w||400} ${z}px "Nanum Gothic","Malgun Gothic",sans-serif`;
+  const S=2,W=760,F=(z,w)=>`${w||400} ${z}px ${uiFont()}`;
   const holds=Object.entries(s.holdings||{}), brs=Object.entries(s.branch_stock||{});
   // 이력까지 실어야 "왜 이 수량인가"가 이미지 한 장에서 설명된다(2026-08-04 지시).
   const iss=(s.issues||[]).slice(0,8), dels=(s.deliveries||[]).slice(0,8), mvs=(s.moves||[]).slice(0,8);
@@ -10175,7 +10239,7 @@ async function assigneeToPng(name){
   const H = headH + 40 + Math.max(1,l.length)*rowH + (cut?24:0) + 52;
   const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
   const ctx=cv.getContext('2d'); ctx.scale(S,S);
-  const F=(s,w)=>(w||400)+' '+s+'px "Nanum Gothic","Malgun Gothic",sans-serif';
+  const F=(s,w)=>(w||400)+' '+s+'px '+uiFont();
   const txt=(t,x,y,f,c,a)=>{ctx.font=f;ctx.fillStyle=c;ctx.textAlign=a||'left';
     ctx.fillText(String(t==null?'':t),x,y);ctx.textAlign='left';};
   const box=(x,y,w,h,fill,r)=>{ctx.beginPath();ctx.roundRect(x,y,w,h,r||8);ctx.fillStyle=fill;ctx.fill();};
@@ -10224,7 +10288,7 @@ async function mineToPng(){
   const H = headH + 40 + Math.max(1,l.length)*rowH + 56;
   const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
   const ctx=cv.getContext('2d'); ctx.scale(S,S);
-  const F=(s,w)=>(w||400)+' '+s+'px "Nanum Gothic","Malgun Gothic",sans-serif';
+  const F=(s,w)=>(w||400)+' '+s+'px '+uiFont();
   const txt=(t,x,y,f,c,a)=>{ctx.font=f;ctx.fillStyle=c;ctx.textAlign=a||'left';
     ctx.fillText(String(t==null?'':t),x,y);ctx.textAlign='left';};
   const box=(x,y,w,h,fill,r)=>{ctx.beginPath();ctx.roundRect(x,y,w,h,r||8);ctx.fillStyle=fill;ctx.fill();};
@@ -10281,7 +10345,7 @@ async function mineDetailToPng(idx){
   const H = headH + 40 + Math.max(1,l.length)*rowH + (cut?26:0) + 56;
   const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
   const ctx=cv.getContext('2d'); ctx.scale(S,S);
-  const F=(s,w)=>(w||400)+' '+s+'px "Nanum Gothic","Malgun Gothic",sans-serif';
+  const F=(s,w)=>(w||400)+' '+s+'px '+uiFont();
   const txt=(t,x,y,f,c,a)=>{ctx.font=f;ctx.fillStyle=c;ctx.textAlign=a||'left';
     ctx.fillText(String(t==null?'':t),x,y);ctx.textAlign='left';};
   const box=(x,y,w,h,fill,r)=>{ctx.beginPath();ctx.roundRect(x,y,w,h,r||8);ctx.fillStyle=fill;ctx.fill();};
@@ -10420,7 +10484,7 @@ async function metricToPng(label){
   const H=headH+40+Math.max(1,rows.length)*rowH+(cut?24:0)+74;
   const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
   const ctx=cv.getContext('2d'); ctx.scale(S,S);
-  const F=(s,w)=>(w||400)+' '+s+'px "Nanum Gothic","Malgun Gothic",sans-serif';
+  const F=(s,w)=>(w||400)+' '+s+'px '+uiFont();
   const txt=(t,x,y,f,c,a)=>{ctx.font=f;ctx.fillStyle=c;ctx.textAlign=a||'left';
     ctx.fillText(String(t==null?'':t),x,y);ctx.textAlign='left';};
   const box=(x,y,w,h,fill,r)=>{ctx.beginPath();ctx.roundRect(x,y,w,h,r||8);ctx.fillStyle=fill;ctx.fill();};
@@ -10557,7 +10621,7 @@ function drawMark(ctx,x,y,size){
 async function reportToPng(){
   const D = _rptData || {};
   const S = 2, W = 860;                       // 논리 폭 860, 2배 해상도
-  const F = (sz,w) => `${w||400} ${sz}px "Nanum Gothic","Malgun Gothic",sans-serif`;
+  const F = (sz,w) => `${w||400} ${sz}px ${uiFont()}`;
   const cv = document.createElement('canvas');
   const ctx = cv.getContext('2d');
   // ── 높이 선계산 (대표보고 섹션 포함)
@@ -10957,7 +11021,7 @@ async function reportToPng(){
 /* 대시보드 전체를 이미지로 — 보고서와 동일한 Canvas 직접 렌더(외부 리소스 0) */
 async function dashToPng(){
   const S = 2, W = 900;
-  const F = (sz,w) => `${w||400} ${sz}px "Nanum Gothic","Malgun Gothic",sans-serif`;
+  const F = (sz,w) => `${w||400} ${sz}px ${uiFont()}`;
   const rows = settleRows, 유상 = rows.filter(r=>r.비용구분==='유상');
   const 발행 = 유상.filter(r=>r.계산서==='발행').length;
   const 미수 = rows.reduce((a,r)=>a+(+r.미수금||0),0);

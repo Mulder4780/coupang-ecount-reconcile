@@ -6103,6 +6103,84 @@ def t125_worktree_shared_state():
     print("  [125] 워크트리 공용 상태(점유·큐 DB·분담판 일원화 · 거짓 경보 제거 · 잇기 우선) ✅")
 
 
+def t126_app_font_and_revert():
+    """[126] 앱 전체 글꼴 교체 + 되돌리기 보호 장치 (2026-08-06 지시).
+
+    사용자 지시: "폰트도 나눔고딕 말고 디자이너들과 사용자들이 선호하고 잘 보이는
+    폰트로 전체 변경해 / **나중에 내가 명령 내리면 다시 원래대로 할 수 있는
+    보호 장치도 마련해**."
+
+    지키는 것
+      ① 글꼴을 정하는 자리는 파일마다 **한 곳**(`--font-ui`)이다. 네 파일에
+         흩어져 있어서, 손으로 고치면 반드시 한 곳을 빠뜨린다.
+      ② `--font-ui-legacy` 에 **원래 값이 글자 그대로** 남아 있다. 이게 되돌릴
+         자리다 — 지워지면 "원래대로" 가 무슨 값인지 아무도 모른다.
+      ③ 캡처(캔버스)로 그리는 이미지도 같은 변수를 읽는다. 예전엔 그리는 곳마다
+         글꼴 이름을 손으로 적어 두어, 화면만 바뀌고 **저장한 이미지는 옛 글꼴**로
+         남았다 — 카톡으로 보내고 나서야 안다.
+      ④ `font_switch.py` 로 **왕복**이 된다(기본→예전→기본). 왕복 뒤 파일이
+         원본과 한 바이트도 다르지 않아야 한다 — 되돌리기가 다른 것을 건드리면
+         그건 되돌리기가 아니다.
+    """
+    import hashlib
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import font_switch as F
+
+    # ① 네 파일 모두 변수 한 곳에서 정한다
+    assert len(F.FILES) == 4, "글꼴을 정하는 파일 목록이 바뀌었다: %s" % (F.FILES,)
+    for rel in F.FILES:
+        text = open(os.path.join(ROOT, rel), encoding="utf-8").read()
+        assert "--font-ui-legacy" in text, "%s 에 되돌릴 자리가 없다" % rel
+        assert "var(--font-ui)" in text, "%s 가 변수를 안 쓰고 글꼴을 직접 적었다" % rel
+        assert ':root[data-font="legacy"]' in text, \
+            "%s 에 기기별 되돌리기 스위치가 없다" % rel
+
+    # ② 원래 값이 그대로 남아 있는가 — 값을 여기 못 박아 둔다
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert ('--font-ui-legacy:"Nanum Gothic","NanumGothic","나눔고딕",'
+            '"Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;') in idx, \
+        "업무센터 앱의 원래 글꼴 값(나눔고딕)이 바뀌었다 — 되돌릴 곳을 잃었다"
+
+    # ③ 캔버스가 손으로 적은 글꼴을 쓰지 않는가
+    js = "".join(re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", idx, re.S))
+    assert "function uiFont(" in js, "캔버스가 읽을 글꼴 함수가 없다"
+    uf = js[js.index("function uiFont("):]
+    uf = uf[: uf.index("\nfunction ", 10)]
+    assert "--font-ui" in uf and "getPropertyValue" in uf, \
+        "uiFont() 가 CSS 변수를 안 읽는다 — 되돌리기가 이미지에 안 먹는다"
+    assert "return '" in uf, "변수를 못 읽는 브라우저용 대타가 없다(캔버스가 글꼴을 통째로 무시한다)"
+    for line in js.splitlines():
+        if "px" in line and "Nanum Gothic" in line:
+            raise AssertionError("캔버스가 아직 글꼴 이름을 손으로 적는다: %s" % line.strip()[:70])
+    assert js.count("uiFont()") >= 9, \
+        "그림 그리는 곳 일부만 변수를 쓴다 — 그 이미지만 옛 글꼴로 남는다"
+
+    # 기기별 스위치가 기억되는가(다음에 열어도 되돌린 상태여야 한다)
+    assert "function setFontLegacy(" in js and "csos_font_legacy" in js, \
+        "되돌리기 스위치가 기억되지 않는다 — 새로고침하면 도로 돌아온다"
+
+    # ④ 왕복 — 실패해도 원본을 반드시 되돌린다
+    def digest():
+        return {r: hashlib.sha1(open(os.path.join(F.ROOT, r), "rb").read()).hexdigest()
+                for r in F.FILES}
+
+    origin = {r: open(os.path.join(F.ROOT, r), "rb").read() for r in F.FILES}
+    before = digest()
+    try:
+        F.apply("legacy")
+        assert {s["상태"] for s in F.state()} == {"예전"}, \
+            "되돌리기가 일부 파일만 바꿨다 — 그 화면만 다른 글꼴로 보인다"
+        F.apply("modern")
+        assert digest() == before, "왕복했더니 파일이 달라졌다 — 되돌리기가 다른 것을 건드린다"
+        assert {s["상태"] for s in F.state()} == {"기본"}
+    finally:
+        for r, raw in origin.items():
+            p = os.path.join(F.ROOT, r)
+            if open(p, "rb").read() != raw:
+                open(p, "wb").write(raw)
+    print("  [126] 앱 글꼴 일원화(4파일·캔버스 포함) + 되돌리기 왕복 무손실 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -7029,6 +7107,7 @@ if __name__ == "__main__":
     t123_calendar_share_tools()
     t124_no_duplicate_menus()
     t125_worktree_shared_state()
+    t126_app_font_and_revert()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

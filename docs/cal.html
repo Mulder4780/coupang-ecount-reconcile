@@ -17,9 +17,16 @@
   --ink:#101828;--ink-2:#344054;--ink-3:#5f6a7d;
   /* 일요일 날짜·경고 글자에 쓴다. #D92D20 은 흰 바탕에서 4.33 이라 기준(4.5)에 못 미쳤다. */
   --danger:#C7362B}
+/* 앱 전체 글꼴 — 여기 한 곳에서만 정한다. 되돌리기: `python webapp/font_switch.py --legacy`
+   또는 --font-ui 값을 --font-ui-legacy 로 바꾼다. legacy 값은 원래 값 그대로 남긴다. */
+:root{
+  --font-ui-legacy:-apple-system,BlinkMacSystemFont,"Malgun Gothic","Nanum Gothic",sans-serif;
+  --font-ui:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard Variable",Pretendard,"Segoe UI Variable Text","Segoe UI","Malgun Gothic","맑은 고딕",Roboto,"Noto Sans KR","Helvetica Neue",Arial,sans-serif;
+}
+:root[data-font="legacy"]{ --font-ui:var(--font-ui-legacy); }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
-  font:400 15px/1.5 -apple-system,BlinkMacSystemFont,"Malgun Gothic","Nanum Gothic",sans-serif;
+  font:400 15px/1.5 var(--font-ui);
   padding:0 0 env(safe-area-inset-bottom)}
 header{background:var(--navy);color:#fff;padding:calc(env(safe-area-inset-top) + 14px) 16px 14px;
   display:flex;align-items:flex-start;gap:10px}

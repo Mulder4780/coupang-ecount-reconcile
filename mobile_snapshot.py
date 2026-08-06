@@ -94,9 +94,16 @@ PAGE = """<style>
   --ok:#0f7a3d; --warn:#a85a06; --bad:#b3202c;
   --okbg:#e6f4ec; --warnbg:#fdf0e0; --badbg:#fbe9eb; }
 
+/* 앱 전체 글꼴 — 여기 한 곳에서만 정한다. 되돌리기: `python webapp/font_switch.py --legacy`
+   또는 --font-ui 값을 --font-ui-legacy 로 바꾼다. legacy 값은 원래 값 그대로 남긴다. */
+:root{
+  --font-ui-legacy:"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  --font-ui:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard Variable",Pretendard,"Segoe UI Variable Text","Segoe UI","Malgun Gothic","맑은 고딕",Roboto,"Noto Sans KR","Helvetica Neue",Arial,sans-serif;
+}
+:root[data-font="legacy"]{ --font-ui:var(--font-ui-legacy); }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink-1);
-  font-family:"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  font-family:var(--font-ui);
   font-size:15px;line-height:1.55;-webkit-text-size-adjust:100%}
 .wrap{max-width:820px;margin:0 auto;padding:0 14px 64px}
 header{background:var(--navy);color:#fff;padding:14px 0 12px;margin-bottom:14px}
