@@ -1741,6 +1741,14 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 @media(min-width:900px){
   .notice-bell{border-color:#C9D3E4}
   .notice-bell svg{color:var(--brand);fill:none;stroke:var(--ink-2)}
+  /* ★ 종만 고쳐 두고 옆 버튼들은 흰색인 채로 남아 있었다 (2026-08-07 사용자 지적:
+     "PC 대시보드 화면 아이콘 잘 안보여"). 헤더는 폰에서 남색, PC 에서 흰색인데
+     .account-pin 은 남색 시절 값(테두리 rgba(255,255,255,.55) · fill:#fff)을 그대로
+     들고 있었다 — **흰 헤더 위 흰 아이콘**이라 자리만 있고 보이지 않았다.
+     테두리와 아이콘을 글자색 토큰에 묶어 밝게/어둡게 양쪽에서 같이 따라오게 한다. */
+  .account-pin{border-color:#C9D3E4}
+  .account-pin svg,.account-pin img{fill:var(--ink-2);color:var(--ink-2);stroke:var(--ink-2)}
+  .account-pin:hover{border-color:var(--brand);background:var(--brand-tint)}
   .mobile-only{display:none}
 }
 
@@ -3576,7 +3584,17 @@ function applyTheme(t){
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
   const b = document.getElementById('themeBtn');
   if(b){
-    b.textContent = dark ? '☀️' : '🌙';
+    /* ★ 이모지(🌙/☀️)를 쓰면 **색을 입힐 수 없다** (2026-08-07 사용자 지적).
+       흰 헤더 위에서 연노랑 초승달이 흐릿하게 떠 다른 아이콘과 따로 놀았다.
+       currentColor 를 따르는 도형으로 바꿔 헤더 색이 무엇이든 같이 따라오게 한다. */
+    b.innerHTML = dark
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
+        + ' stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/>'
+        + '<path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2'
+        + 'M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
+        + ' stroke-linejoin="round" aria-hidden="true">'
+        + '<path d="M20.5 14.6A8.6 8.6 0 1 1 9.4 3.5a6.9 6.9 0 0 0 11.1 11.1Z"/></svg>';
     b.setAttribute('aria-pressed', dark ? 'true' : 'false');
     const label = dark ? '밝게 보기' : '어둡게 보기';
     b.title = label;
@@ -5356,9 +5374,9 @@ function renderDashboardPalette(){
   const hidden=new Set(layout.hidden||[]), hiddenKpi=new Set(layout.hiddenKpis||[]);
   const bv=blocks.length-hidden.size,kv=kpis.length-hiddenKpi.size;
   host.innerHTML=`<div class="dash-palette-section"><div class="dash-palette-title">화면 카드 <span>${bv}/${blocks.length}개 표시</span></div>
-    <div class="dash-palette">${blocks.map(x=>dashboardChoice('block',x.id,x.label,!hidden.has(x.id),`너비 ${dashSpanLabel(layout.spans?.[x.id]||x.span)} · 끌어서 순서 변경`)).join('')}</div></div>
+    <div class="dash-palette">${blocks.map(x=>dashboardChoice('block',x.id,x.label,!hidden.has(x.id),`너비 ${dashSpanLabel(layout.spans?.[x.id]||x.span)} · 눌러서 집고 옮길 자리 누르기`)).join('')}</div></div>
     <div class="dash-palette-section"><div class="dash-palette-title">핵심지표 카드 <span>${kv}/${kpis.length}개 표시</span></div>
-    <div class="dash-palette">${kpis.map(x=>dashboardChoice('kpi',x.id,x.label,!hiddenKpi.has(x.id),'체크=표시 · 끌어서 순서 변경')).join('')}</div></div>`;
+    <div class="dash-palette">${kpis.map(x=>dashboardChoice('kpi',x.id,x.label,!hiddenKpi.has(x.id),'체크=표시 · 눌러서 집고 옮길 자리 누르기')).join('')}</div></div>`;
 }
 function setDashboardBlockVisible(id,visible){
   const item=dashCatalog().find(x=>x.id===id); if(!item) return;
@@ -5496,10 +5514,17 @@ function dashDragEnable(hostId, sel, onDrop, onReorder){
    끌기는 그대로 둔다 — 가까운 자리는 끄는 편이 빠르다. */
 let _dashPick = null;                 // {el, host, sel, onDrop, label}
 
+/* 안내줄에 쓸 이름. 사람이 화면에서 읽는 이름이어야 한다 —
+   `representative` 같은 내부 id 가 뜨면 무엇을 집었는지 알 수 없다. */
 function dashPickLabel(el){
-  const t = el.querySelector('h3,h2,b,.dash-choice-label,.l');
-  return ((t && t.textContent) || el.dataset.dashBlock || el.dataset.kpiCard || '카드')
-    .replace(/\s+/g,' ').trim().slice(0,26);
+  const id = el.dataset.dashBlock || el.dataset.kpiCard || (el.dataset && el.dataset.id);
+  try{
+    const hit = (typeof dashCatalog === 'function') && dashCatalog().find(x=>x.id === id);
+    if(hit && hit.label) return String(hit.label).replace(/\s+/g,' ').trim().slice(0,26);
+  }catch(_){}
+  const t = el.querySelector('h3,h2,.dash-choice-label,.l,b');
+  const txt = (t && t.textContent) || '';
+  return (txt.replace(/\s+/g,' ').trim().slice(0,26)) || '카드';
 }
 function dashPickCancel(quiet){
   if(!_dashPick) return;
@@ -5596,7 +5621,7 @@ function prepareDashboardKpis(){
     if(tile.querySelector(':scope > .dash-kpi-tools'))return;
     const id=tile.dataset.kpiCard,label=DASH_KPI_CARDS.find(x=>x.id===id)?.label||'핵심지표';
     const tools=document.createElement('div');tools.className='dash-kpi-tools';tools.setAttribute('aria-label',`${label} 카드 배치 도구`);
-    tools.innerHTML=`<button type="button" class="dash-kpi-handle" title="끌어서 이동 — 카드 아무 데나 눌러도 됩니다" aria-label="${label} 카드를 끌어서 이동" onclick="event.stopPropagation()">⠿</button><button type="button" onclick="event.stopPropagation();moveDashboardKpi('${id}',-1)" aria-label="${label} 왼쪽으로 이동">←</button><button type="button" onclick="event.stopPropagation();moveDashboardKpi('${id}',1)" aria-label="${label} 오른쪽으로 이동">→</button><button type="button" onclick="event.stopPropagation();setDashboardKpiVisible('${id}',false)" aria-label="${label} 숨기기">×</button>`;
+    tools.innerHTML=`<button type="button" class="dash-kpi-handle" title="눌러서 집기 → 옮길 자리 누르기(끌어도 됩니다) — 카드 아무 데나 눌러도 됩니다" aria-label="${label} 카드를 끌어서 이동" onclick="event.stopPropagation()">⠿</button><button type="button" onclick="event.stopPropagation();moveDashboardKpi('${id}',-1)" aria-label="${label} 왼쪽으로 이동">←</button><button type="button" onclick="event.stopPropagation();moveDashboardKpi('${id}',1)" aria-label="${label} 오른쪽으로 이동">→</button><button type="button" onclick="event.stopPropagation();setDashboardKpiVisible('${id}',false)" aria-label="${label} 숨기기">×</button>`;
     tile.insertBefore(tools,tile.firstChild);
   });
   applyDashboardKpiLayout();
@@ -5619,7 +5644,8 @@ function toggleDashboardEditor(force){
   if(btn){btn.setAttribute('aria-expanded',String(dashLayoutEditing));btn.setAttribute('aria-pressed',String(dashLayoutEditing));
     btn.textContent=dashLayoutEditing?'편집 닫기':'카드 편집';}
   if(dashLayoutEditing)prepareDashboardKpis();
-  if(!dashLayoutEditing){clearDashDropTargets();document.querySelectorAll('.dash-dragging').forEach(x=>x.classList.remove('dash-dragging'));}
+  if(!dashLayoutEditing){clearDashDropTargets();document.querySelectorAll('.dash-dragging').forEach(x=>x.classList.remove('dash-dragging'));
+    dashPickCancel(true);}   // 편집을 닫으면 집어 둔 카드도 놓는다(안 그러면 안내줄만 남는다)
   renderDashboardPalette();
   dashLayoutMessage(dashLayoutEditing?'카드를 **아무 데나 눌러 끌면** 자리가 바뀝니다(폰에서도 됩니다). ⤢ 는 그 카드만 크게 보기, 화살표는 한 칸씩 이동, 체크는 넣고 빼기입니다.':'');
 }
@@ -5627,7 +5653,7 @@ function initDashboardLayout(){
   const root=document.getElementById('v-dash'), hero=root?.querySelector(':scope > .hero');
   if(!root||!hero||document.getElementById('dashGrid')) return;
   const custom=document.createElement('div');custom.id='dashCustomizer';custom.className='dash-customizer';
-  custom.innerHTML=`<div class="dash-customizer-head"><div class="dash-customizer-copy"><b>내 대시보드 카드</b><span>필요한 카드를 체크하고, 끌어서 옮기고, 크기를 바꿀 수 있습니다. 이 기기에 자동 저장됩니다.</span></div><button type="button" class="dash-customizer-toggle" id="dashCustomizerToggle" aria-controls="dashCustomizerPanel" aria-expanded="false" aria-pressed="false" onclick="toggleDashboardEditor()">카드 편집</button></div><div class="dash-customizer-panel" id="dashCustomizerPanel" hidden><div id="dashPalette"></div><div class="dash-customizer-actions"><button type="button" onclick="showAllDashboardBlocks()">전체 카드 표시</button><button type="button" onclick="resetDashboardLayout()">기본 배치 복원</button><button type="button" class="primary" onclick="toggleDashboardEditor(false)">편집 완료</button></div><div class="dash-layout-status" id="dashLayoutStatus" role="status" aria-live="polite"></div></div>`;
+  custom.innerHTML=`<div class="dash-customizer-head"><div class="dash-customizer-copy"><b>내 대시보드 카드</b><span>카드를 <b>한 번 누르면 집히고, 옮길 자리를 누르면</b> 그 자리로 갑니다(끌어서 옮겨도 됩니다). 체크로 표시·숨김, 오른쪽 단추로 크기를 바꿉니다. 이 기기에 자동 저장됩니다.</span></div><button type="button" class="dash-customizer-toggle" id="dashCustomizerToggle" aria-controls="dashCustomizerPanel" aria-expanded="false" aria-pressed="false" onclick="toggleDashboardEditor()">카드 편집</button></div><div class="dash-customizer-panel" id="dashCustomizerPanel" hidden><div id="dashPalette"></div><div class="dash-customizer-actions"><button type="button" onclick="showAllDashboardBlocks()">전체 카드 표시</button><button type="button" onclick="resetDashboardLayout()">기본 배치 복원</button><button type="button" class="primary" onclick="toggleDashboardEditor(false)">편집 완료</button></div><div class="dash-layout-status" id="dashLayoutStatus" role="status" aria-live="polite"></div></div>`;
   hero.insertAdjacentElement('afterend',custom);
   const grid=document.createElement('div');grid.id='dashGrid';grid.setAttribute('aria-label','사용자 대시보드 블록');
   const first=document.getElementById('repCard');root.insertBefore(grid,first||null);
@@ -5642,7 +5668,7 @@ function initDashboardLayout(){
   catalog.forEach(x=>{
     x.el.classList.add('dash-block');x.el.dataset.dashBlock=x.id;x.el.dataset.dashLabel=x.label;
     const tools=document.createElement('div');tools.className='dash-block-tools';tools.setAttribute('aria-label',`${x.label} 배치 도구`);
-    tools.innerHTML=`<label class="dash-visible-toggle"><input type="checkbox" checked onchange="setDashboardBlockVisible('${x.id}',this.checked)">표시</label><button type="button" class="dash-open" onclick="openDashCardLayer('${x.id}')" title="크게 보기" aria-label="${x.label} 카드 크게 보기">⤢</button><button type="button" class="dash-drag-handle" title="끌어서 이동 — 카드 아무 데나 눌러도 됩니다" aria-label="${x.label} 카드를 끌어서 이동">⠿</button><button type="button" onclick="moveDashboardBlock('${x.id}',-1)" aria-label="${x.label} 위로 이동">↑</button><button type="button" onclick="moveDashboardBlock('${x.id}',1)" aria-label="${x.label} 아래로 이동">↓</button><button type="button" class="dash-size" onclick="cycleDashboardBlockSize('${x.id}')">${dashSpanLabel(x.span)}</button>`;
+    tools.innerHTML=`<label class="dash-visible-toggle"><input type="checkbox" checked onchange="setDashboardBlockVisible('${x.id}',this.checked)">표시</label><button type="button" class="dash-open" onclick="openDashCardLayer('${x.id}')" title="크게 보기" aria-label="${x.label} 카드 크게 보기">⤢</button><button type="button" class="dash-drag-handle" title="눌러서 집기 → 옮길 자리 누르기(끌어도 됩니다) — 카드 아무 데나 눌러도 됩니다" aria-label="${x.label} 카드를 끌어서 이동">⠿</button><button type="button" onclick="moveDashboardBlock('${x.id}',-1)" aria-label="${x.label} 위로 이동">↑</button><button type="button" onclick="moveDashboardBlock('${x.id}',1)" aria-label="${x.label} 아래로 이동">↓</button><button type="button" class="dash-size" onclick="cycleDashboardBlockSize('${x.id}')">${dashSpanLabel(x.span)}</button>`;
     x.el.insertBefore(tools,x.el.firstChild);grid.appendChild(x.el);
   });
   // ★ 끌기는 전부 포인터 이벤트다(2026-08-06). HTML5 dragstart 는 폰에서 나지 않아
