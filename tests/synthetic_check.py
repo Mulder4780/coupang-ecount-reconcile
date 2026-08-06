@@ -5712,6 +5712,20 @@ def t121_layer_dialogs():
     # 페이지 안에서 사라진 자리를 스크롤로 때우던 옛 방식이 남아 있으면 안 된다
     assert "$('ryuEntryForm').scrollIntoView" not in js, \
         "옛 스크롤 방식이 남아 있다 — 레이어와 둘 다 돌면 화면이 튄다"
+
+    # ⑥ 폰 사본(docs/app.html)도 같은 모양이어야 한다.
+    #    이 파일은 index.html 에서 생성되는 것이 아니라 따로 있는 앱이다 —
+    #    한쪽만 고치면 "폰에서만 회색 상자가 뜨는" 상태가 된다.
+    phone = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+    pjs = "".join(re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", phone, re.S))
+    for bad in ("alert", "confirm", "prompt"):
+        left = re.findall(r"(?<![\w.$])%s\s*\(" % bad, pjs)
+        assert not left, "폰 사본에 기본 %s() 가 %d 곳 남아 있다" % (bad, len(left))
+    assert "function notice(" in pjs and "function askYesNo(" in pjs, \
+        "폰 사본에 대체 함수가 없다 — 두 앱의 이름을 맞춰 둔다"
+    assert 'id="dlgwrap"' in phone and ".dlgwrap.on{display:flex}" in phone
+    assert "align-items:flex-end" in phone and "@media(min-width:900px){\n .dlgwrap{align-items:center}" in phone, \
+        "폰 사본에 '아래에서 올라옴 → 넓으면 가운데' 두 모양이 없다"
     print("  [121] 알림·확인·입력 레이어 — 기본창 0개·await 완비·폰시트/PC모달·폼 요소째 이동 ✅")
 
 

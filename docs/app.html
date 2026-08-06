@@ -599,11 +599,11 @@ const setQ = q => localStorage.setItem('csos_queue', JSON.stringify(q));
 
 function queueAdd(code){
   const q = Q();
-  if(q.some(x => x.code === code)){ alert(code + ' 는 이미 예약되어 있습니다.'); return; }
+  if(q.some(x => x.code === code)){ notice(code + ' 는 이미 예약되어 있습니다.', '이미 예약됨'); return; }
   q.push({code, at:new Date().toISOString(), key:crypto.randomUUID()});
   setQ(q); renderTabs(); setTab('queue');
   syncQueue();
-  alert(code + ' 등록을 예약했습니다.\n클라우드에 보관되며 PC가 켜지면 자동 반영됩니다.');
+  notice(code + ' 등록을 예약했습니다.\n클라우드에 보관되며 PC가 켜지면 자동 반영됩니다.', '예약 완료');
 }
 
 /* PC가 꺼져 있어도 클라우드 영구 큐에 먼저 저장한다.
