@@ -1,0 +1,26 @@
+{
+    "name":  "쿠팡 캘린더",
+    "short_name":  "쿠팡캘린더",
+    "id":  "https://mulder4780.github.io/coupang-ecount-reconcile/cal.html",
+    "start_url":  "https://mulder4780.github.io/coupang-ecount-reconcile/cal.html",
+    "scope":  "https://mulder4780.github.io/coupang-ecount-reconcile/",
+    "display":  "standalone",
+    "background_color":  "#0E1B3F",
+    "theme_color":  "#0E1B3F",
+    "lang":  "ko",
+    "description":  "쿠팡 정기점검·돌발AS 일정만 보는 공유 캘린더입니다. 정산·계산서는 열리지 않습니다.",
+    "icons":  [
+                  {
+                      "src":  "icon-192.png?v=csos-52617f3dbc08",
+                      "sizes":  "192x192",
+                      "type":  "image/png",
+                      "purpose":  "any"
+                  },
+                  {
+                      "src":  "icon-512.png?v=csos-52617f3dbc08",
+                      "sizes":  "512x512",
+                      "type":  "image/png",
+                      "purpose":  "any maskable"
+                  }
+              ]
+}

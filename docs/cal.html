@@ -7,20 +7,31 @@
 <title>쿠팡 캘린더</title>
 <link rel="icon" href="icon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="manifest" href="manifest.json">
+<!-- ★ 앱 매니페스트는 **캘린더 전용**이다(cal-manifest.json).
+     예전에는 업무 앱 매니페스트(manifest.json)를 걸어 두어서, 여기서 [설치]를 하면
+     홈 화면에 'CSOS 업무 앱'이 깔렸다. 링크를 받은 현장 기사가 원하는 것은 캘린더인데
+     아이콘을 누르면 PIN 로그인 화면이 떴다 — 그래서 아무도 설치하지 않았다. -->
+<link rel="manifest" href="cal-manifest.json">
 <style>
 :root{--navy:#0E1B3F;--brand:#2452E6;--bg:#F2F2F7;--card:#fff;--line:#E4E7EC;
-  --ink:#101828;--ink-3:#5f6a7d}
+  --ink:#101828;--ink-2:#344054;--ink-3:#5f6a7d;
+  /* 일요일 날짜·경고 글자에 쓴다. #D92D20 은 흰 바탕에서 4.33 이라 기준(4.5)에 못 미쳤다. */
+  --danger:#C7362B}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
   font:400 15px/1.5 -apple-system,BlinkMacSystemFont,"Malgun Gothic","Nanum Gothic",sans-serif;
   padding:0 0 env(safe-area-inset-bottom)}
-header{background:var(--navy);color:#fff;padding:calc(env(safe-area-inset-top) + 14px) 16px 14px}
+header{background:var(--navy);color:#fff;padding:calc(env(safe-area-inset-top) + 14px) 16px 14px;
+  display:flex;align-items:flex-start;gap:10px}
+header .ht{flex:1;min-width:0}
 header h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-.4px}
 header p{margin:4px 0 0;font-size:12.5px;color:#C9D5FA}
+header button{flex:none;appearance:none;border:1px solid #3A4A78;background:transparent;
+  color:#C9D5FA;border-radius:10px;padding:7px 10px;font:inherit;font-size:12.5px;font-weight:700;
+  cursor:pointer}
 main{padding:14px 12px 28px;max-width:720px;margin:0 auto}
 .cnav{display:flex;align-items:center;gap:8px;margin:0 0 10px}
-.cnav b{flex:1;text-align:center;font-size:16px}
+.cnav b{flex:1;text-align:center;font-size:17px;font-variant-numeric:tabular-nums}
 .cnav button{background:var(--card);border:1px solid var(--line);border-radius:9px;
   min-width:40px;min-height:36px;font-size:15px;color:var(--ink);cursor:pointer}
 .cnav #ctoday{min-width:54px;font-size:13px;font-weight:700}
@@ -33,13 +44,38 @@ main{padding:14px 12px 28px;max-width:720px;margin:0 auto}
 .cdow{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;
   color:var(--ink-3);margin-bottom:3px}
 .cgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:12px}
-.cday{background:var(--card);border:1px solid var(--line);border-radius:8px;min-height:48px;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
-  font-size:12.5px;color:var(--ink);cursor:pointer;padding:4px 2px}
+/* ★ 날짜 글씨를 키웠다 (2026-08-06 지시 "캘린더 날짜 크기 크게 변경").
+   달력에서 제일 먼저 찾는 것은 숫자다. 12.5px 은 아래 색 점보다도 작아 보였다. */
+.cday{background:var(--card);border:1px solid var(--line);border-radius:8px;min-height:56px;
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:3px;
+  color:var(--ink);cursor:pointer;padding:5px 2px}
+.cday b{font-size:17px;font-weight:750;line-height:1.15;font-variant-numeric:tabular-nums}
 .cday.out{opacity:.36}
+.cday.sun b{color:var(--danger)}.cday.sat b{color:var(--brand)}
+.cday.today b{background:#EAF1FF;color:var(--brand);border-radius:50%;
+  width:28px;height:28px;display:grid;place-items:center}
 .cday.on{border-color:var(--brand);background:#EAF1FF}
 .cday .dots{display:flex;gap:2px}
 .cday .dots i{width:5px;height:5px;border-radius:50%}
+/* ═══ PC 는 칸 안에 글자로, 폰은 지금처럼 점으로 (2026-08-06 지시) ═══
+   폰은 칸 하나가 손가락 폭이라 글자를 넣으면 두 자만 보이고 잘린다. 점이 더 정확하다.
+   PC 는 칸이 세 배 넓어 캠프명이 그대로 들어간다. 자바스크립트로 폭을 재지 않고
+   **CSS 미디어쿼리**로만 가른다 — 창 크기를 바꿔도 다시 그릴 필요가 없다. */
+.ctxs{display:none}
+@media(min-width:900px){
+  main{max-width:1080px}
+  .cgrid{gap:4px}
+  .cday{min-height:116px;align-items:stretch;padding:6px 6px 7px;gap:4px}
+  .cday b{text-align:left;font-size:18px;padding:0 2px}
+  .cday.today b{width:26px;height:26px}
+  .cday .dots{display:none}
+  .ctxs{display:flex;flex-direction:column;gap:2px;min-width:0;overflow:hidden}
+  .ctx{font-size:12px;font-weight:700;line-height:1.35;padding:2px 6px;border-radius:6px;
+    border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 13%,transparent);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ctx .tm{color:var(--ink-3);font-weight:800;margin-right:4px}
+  .ctxmore{font-size:11.5px;font-weight:800;color:var(--ink-3);padding:0 6px}
+}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:4px 13px}
 .item{border-top:1px solid var(--line);padding:10px 0;font-size:13.5px}
 .item:first-child{border-top:0}
@@ -50,21 +86,91 @@ main{padding:14px 12px 28px;max-width:720px;margin:0 auto}
 .empty{color:var(--ink-3);font-size:13px;padding:18px 0;text-align:center}
 .err{background:#FEF3F2;border:1px solid #FDA29B;color:#B42318;border-radius:12px;
   padding:14px;font-size:13.5px;margin:10px 0}
+.err input{width:100%;margin-top:9px;padding:9px 10px;border:1px solid #FDA29B;border-radius:9px;
+  font:inherit;font-size:13px}
+.err button{margin-top:8px;appearance:none;border:0;border-radius:10px;padding:10px 14px;
+  background:#B42318;color:#fff;font:inherit;font-weight:750;cursor:pointer}
+
+/* ═══ 날짜를 누르면 뜨는 창 (2026-08-06 지시) ═══
+   폰(≤899px) → 밑에서 위로 올라오는 레이어. 엄지가 닿는 아래쪽에서 올라오고
+                아래로 쓸어내리면 닫힌다.
+   PC(≥900px) → 가운데 모달. 마우스는 어디든 같은 거리고, 넓은 화면에서 아래에서
+                올라오면 눈이 아래까지 따라가야 한다. */
+.sheet{position:fixed;inset:0;z-index:60;display:none}
+.sheet.open{display:block}
+.sheet .dim{position:absolute;inset:0;background:rgba(8,14,30,.42);opacity:0;transition:opacity .22s}
+.sheet.in .dim{opacity:1}
+.sheet .panel{position:absolute;left:0;right:0;bottom:0;max-height:82vh;display:flex;
+  flex-direction:column;background:var(--card);border-radius:20px 20px 0 0;
+  box-shadow:0 -10px 40px rgba(8,14,30,.28);padding-bottom:env(safe-area-inset-bottom);
+  transform:translateY(100%);transition:transform .26s cubic-bezier(.32,.72,0,1)}
+.sheet.in .panel{transform:translateY(0)}
+.sheet .grab{width:38px;height:5px;border-radius:3px;background:var(--line);margin:8px auto 2px;flex:none}
+.sheet .shead{display:flex;align-items:flex-start;gap:10px;padding:8px 16px 10px;
+  border-bottom:1px solid var(--line);flex:none}
+.sheet .shead .tt{flex:1;min-width:0}
+.sheet .shead b{display:block;font-size:19px;font-weight:850;letter-spacing:-.4px}
+.sheet .shead span{display:block;font-size:13px;color:var(--ink-3);margin-top:2px}
+.sheet .sx{flex:none;width:32px;height:32px;border-radius:50%;border:0;background:var(--bg);
+  color:var(--ink-3);font-size:15px;font-weight:800;cursor:pointer}
+.sheet .sbody{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:6px 16px 18px}
+.sheet .sfoot{flex:none;display:flex;gap:8px;padding:0 16px 14px}
+.sheet .sfoot button{flex:1;appearance:none;border:1px solid var(--line);background:var(--bg);
+  border-radius:11px;padding:11px;font:inherit;font-size:13.5px;font-weight:700;color:var(--ink-2);
+  cursor:pointer}
+@media(min-width:900px){
+  .sheet .panel{left:50%;right:auto;bottom:auto;top:50%;width:min(560px,92vw);max-height:78vh;
+    border-radius:18px;transform:translate(-50%,-46%) scale(.96);opacity:0;
+    transition:transform .2s ease,opacity .2s ease}
+  .sheet.in .panel{transform:translate(-50%,-50%) scale(1);opacity:1}
+  .sheet .grab{display:none}
+}
+@media(prefers-reduced-motion:reduce){.sheet .panel,.sheet .dim{transition:none}}
+
+/* ═══ 크롬으로 열기 · 앱으로 설치 안내 띠 ═══ */
+.bar{position:fixed;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom) + 12px);
+  z-index:70;background:var(--navy);color:#fff;border-radius:16px;padding:13px 14px;
+  box-shadow:0 10px 28px rgba(0,0,0,.3);display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.bar b{font-size:14.5px;flex:1 1 100%}
+.bar p{flex:1 1 100%;margin:0;font-size:12.5px;color:#C9D5FA;line-height:1.5}
+.bar .row{flex:1 1 100%;display:flex;gap:8px;margin-top:2px}
+.bar button{appearance:none;border:0;border-radius:11px;padding:10px;font:inherit;font-weight:750;
+  cursor:pointer;flex:1}
+.bar .go{background:var(--brand);color:#fff}
+.bar .no{background:transparent;border:1px solid #3A4A78;color:#C9D5FA;flex:0 0 92px;font-weight:600}
+@media(min-width:900px){.bar{left:auto;right:20px;width:380px;bottom:20px}}
 </style></head>
 <body>
-<header><h1>쿠팡 캘린더</h1><p id="sub">불러오는 중…</p></header>
+<header>
+  <div class="ht"><h1>쿠팡 캘린더</h1><p id="sub">불러오는 중…</p></div>
+  <button id="binstall" hidden>앱으로 설치</button>
+</header>
 <main id="main"><div class="empty">불러오는 중…</div></main>
+<div class="sheet" id="sheet">
+  <div class="dim" onclick="closeSheet()"></div>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="grab" aria-hidden="true"></div>
+    <div class="shead"><div class="tt"><b id="sheetTitle">—</b><span id="sheetSub"></span></div>
+      <button class="sx" onclick="closeSheet()" aria-label="닫기">✕</button></div>
+    <div class="sbody" id="sheetBody"></div>
+    <div class="sfoot"><button onclick="shiftDay(-1)">‹ 전날</button>
+      <button onclick="shiftDay(1)">다음날 ›</button></div>
+  </div>
+</div>
 <script>
 /* 공유 전용 캘린더 (2026-08-06 지시)
    ─────────────────────────────────────────────────────────────────────────
    · 열쇠는 주소의 `#k=` 에 있다. `#` 뒤는 **서버로 가지 않는다** — 깃허브 접속
      기록에도 남지 않고 검색엔진도 못 가져간다. 그래서 PIN 을 묻지 않아도 된다.
    · 여기서 푸는 것은 **캘린더 자물쇠**다. 앱 PIN 이 아니므로 이 링크로는 정산·
-     계산서·확인필요가 열리지 않는다. 링크가 새어도 새는 것은 일정뿐이다. */
+     계산서·확인필요가 열리지 않는다. 링크가 새어도 새는 것은 일정뿐이다.
+   · 주소는 **고정**이다. 열쇠를 새로 뽑지 않는 한(`cal_share.py --new-key`)
+     한 번 보낸 링크가 계속 같은 자리를 연다. */
 const $ = id => document.getElementById(id);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const KSTORE = 'csos.cal.k';
 
 async function unseal(enc, pass){
   const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass),
@@ -82,10 +188,194 @@ async function unseal(enc, pass){
   return JSON.parse(new TextDecoder().decode(pt));
 }
 
-let CAL = {일정:[], 분류목록:[]}, M = '', DAY = '', OFF = new Set();
+let CAL = {일정:[], 분류목록:[]}, M = '', DAY = '', OFF = new Set(), SEL = 0;
 const kindOf = k => (CAL.분류목록||[]).find(x => x.key === k)
   || {key:k, label:k||'기타', color:'#8E8E93'};
 const campOf = e => String(e.캠프명 || e.장소 || e.제목 || '').trim() || '(장소 미입력)';
+const isoOf = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')
+                 + '-'+String(d.getDate()).padStart(2,'0');
+
+/* ── 카카오톡·밴드 같은 '앱 안 브라우저'에서는 설치가 아예 안 된다 ──────────
+   (2026-08-06 지시: "캘린더 공유시 크롬을 자동으로 열어서 설치하게끔")
+   왜 이 장치가 필요한가 — 단톡방에서 링크를 누르면 카카오톡 **안**의 브라우저가 뜬다.
+   그 브라우저에는 '홈 화면에 추가' 도 없고 설치 창(beforeinstallprompt)도 없다.
+   그래서 아무리 잘 만들어도 현장 기사 폰에는 아이콘이 안 생긴다. 링크를 매번 찾아야 하고,
+   그러다 안 보게 된다. → **크롬으로 넘겨 준 다음** 거기서 설치를 권한다.
+   · 안드로이드: `intent://…#k=…#Intent;scheme=https;package=com.android.chrome;end`
+     안드로이드는 **맨 뒤** `#Intent;` 부터를 명령으로 읽어서 앞의 `#k=` 는 주소에 남는다.
+     열쇠를 잃지 않고 그대로 크롬으로 넘어간다.
+   · 아이폰: 크롬 전용 주소(`googlechromes://`)로 넘긴다. 크롬이 없으면 아무 일도
+     안 일어나므로, 1.4초 뒤에도 그대로면 사파리 안내를 띄운다.
+   · 어느 쪽이든 **넘기기 전에 주소를 클립보드에 복사**해 둔다. 넘어가다 실패해도
+     '붙여넣기' 한 번으로 살아난다. */
+function inAppBrowser(){
+  const u = navigator.userAgent || '';
+  return /KAKAOTALK|BAND|NAVER\(inapp|DaumApps|Instagram|FBAN|FBAV|Line\//i.test(u);
+}
+function isAndroid(){ return /Android/i.test(navigator.userAgent||''); }
+function isIOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent||'') && !window.MSStream; }
+function standalone(){
+  return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+}
+function shareUrl(){
+  const k = currentKey();
+  return location.origin + location.pathname + (k ? '#k=' + k : '');
+}
+function openInChrome(){
+  const url = shareUrl();
+  try{ navigator.clipboard && navigator.clipboard.writeText(url); }catch(e){}
+  const rest = location.host + location.pathname + (currentKey() ? '#k=' + currentKey() : '');
+  if(isAndroid()){
+    location.href = 'intent://' + rest
+      + '#Intent;scheme=https;package=com.android.chrome;'
+      + 'S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
+    return true;
+  }
+  if(isIOS()){
+    location.href = 'googlechromes://' + rest;
+    return true;
+  }
+  return false;
+}
+function dismissBar(){ const b = $('cbar'); if(b) b.remove(); }
+function showBar(kind){
+  dismissBar();
+  const bar = document.createElement('div');
+  bar.className = 'bar'; bar.id = 'cbar';
+  if(kind === 'chrome'){
+    bar.innerHTML = '<b>크롬에서 열면 앱으로 설치됩니다</b>'
+      + '<p>지금은 카카오톡·밴드 안의 브라우저라 홈 화면에 아이콘을 만들 수 없습니다. '
+      + '크롬으로 열면 다음부터 링크를 찾지 않아도 됩니다.</p>'
+      + '<span class="row"><button class="go" id="cgo">크롬으로 열기</button>'
+      + '<button class="no" id="cno">나중에</button></span>';
+  }else if(kind === 'ios'){
+    bar.innerHTML = '<b>홈 화면에 캘린더 아이콘 만들기</b>'
+      + '<p>아래 <b>공유</b> 버튼 → <b>홈 화면에 추가</b> 를 누르면 앱처럼 열립니다. '
+      + '(아이폰은 사파리에서만 됩니다)</p>'
+      + '<span class="row"><button class="no" id="cno" style="flex:1">알겠습니다</button></span>';
+  }else{
+    bar.innerHTML = '<b>쿠팡 캘린더를 앱으로 설치</b>'
+      + '<p>홈 화면에서 바로 열 수 있습니다. 링크를 다시 찾지 않아도 됩니다.</p>'
+      + '<span class="row"><button class="go" id="cgo">설치하기</button>'
+      + '<button class="no" id="cno">나중에</button></span>';
+  }
+  document.body.appendChild(bar);
+  const no = $('cno');
+  if(no) no.onclick = () => { try{ localStorage.setItem('csos.cal.hint','off'); }catch(e){} dismissBar(); };
+  const go = $('cgo');
+  if(go) go.onclick = () => { if(kind === 'chrome'){ openInChrome(); } else { doInstall(); } };
+}
+let PROMPT = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault(); PROMPT = e;
+  const b = $('binstall'); if(b) b.hidden = false;
+  if(!standalone() && !hintOff()) showBar('install');
+});
+function hintOff(){ try{ return localStorage.getItem('csos.cal.hint') === 'off'; }catch(e){ return false; } }
+async function doInstall(){
+  dismissBar();
+  if(!PROMPT) return;
+  try{ PROMPT.prompt(); await PROMPT.userChoice; }catch(e){}
+  PROMPT = null;
+  const b = $('binstall'); if(b) b.hidden = true;
+}
+/* 크롬으로 넘기는 판단은 **자료를 다 그린 뒤**에 한다 — 화면이 비어 있는 채로
+   다른 앱으로 튀면 사람은 링크가 깨졌다고 본다. */
+function offerInstall(){
+  if(standalone() || hintOff()) return;
+  if(inAppBrowser()){
+    showBar('chrome');
+    // "자동으로 열어서" — 한 번만 스스로 시도한다. 실패하거나 사람이 돌아오면 위 띠가 남는다.
+    let tried = false;
+    try{ tried = sessionStorage.getItem('csos.cal.jump') === '1'; }catch(e){}
+    if(!tried){
+      try{ sessionStorage.setItem('csos.cal.jump','1'); }catch(e){}
+      setTimeout(openInChrome, 700);
+    }
+    return;
+  }
+  if(isIOS()) setTimeout(() => { if(!hintOff()) showBar('ios'); }, 1200);
+  // 안드로이드 크롬은 beforeinstallprompt 가 오면 그때 띠를 띄운다(위 리스너).
+}
+
+/* ── 날짜 창 ─────────────────────────────────────────────────────────── */
+function dayRows(){
+  return (CAL.일정||[]).filter(e => e.날짜 === DAY && !OFF.has(String(e.분류||'etc')));
+}
+function openSheet(){
+  const w = $('sheet'); if(!w) return;
+  renderSheet();
+  if(!w.classList.contains('open')){
+    document.body.style.overflow = 'hidden';
+    w.classList.add('open');
+    // rAF 만 믿지 않는다 — 탭이 숨으면 rAF 는 아예 안 불린다. 시간으로도 같이 건다.
+    const rise = () => w.classList.add('in');
+    requestAnimationFrame(rise); setTimeout(rise, 60);
+  }
+}
+function closeSheet(){
+  const w = $('sheet'); if(!w || !w.classList.contains('open')) return;
+  w.classList.remove('in'); document.body.style.overflow = '';
+  setTimeout(() => w.classList.remove('open'), 280);
+}
+function shiftDay(n){
+  if(!DAY) return;
+  const [y,m,d] = DAY.split('-').map(Number);
+  const t = new Date(y, m-1, d+n);
+  DAY = isoOf(t); SEL = 0;
+  if(DAY.slice(0,7) !== M) M = DAY.slice(0,7);
+  render(); renderSheet();
+}
+function pickEvent(i){ SEL = i; renderSheet(); }
+function renderSheet(){
+  const body = $('sheetBody'), title = $('sheetTitle'), sub = $('sheetSub');
+  if(!body) return;
+  const rows = dayRows();
+  title.textContent = DAY || '선택한 날';
+  sub.textContent = rows.length ? '일정 ' + rows.length + '건' : '이 날에는 표시할 일정이 없습니다';
+  if(!rows.length){
+    body.innerHTML = '<div class="empty">이 날에는 표시할 일정이 없습니다.<br>위 칩에서 꺼 둔 종류가 있는지 확인해 보세요.</div>';
+    return;
+  }
+  SEL = Math.max(0, Math.min(SEL, rows.length-1));
+  const e = rows[SEL], m = kindOf(String(e.분류||'etc'));
+  body.innerHTML = rows.map((r,i) => {
+    const km = kindOf(String(r.분류||'etc'));
+    return '<div class="item" style="cursor:pointer' + (i===SEL?';font-weight:750':'')
+      + '" onclick="pickEvent(' + i + ')"><div class="t">'
+      + '<i class="kdot" style="background:' + esc(km.color) + '"></i>' + esc(campOf(r)) + '</div>'
+      + '<div class="m">' + [km.label, r.담당기사, r.프로젝트NO, r.시간].filter(Boolean).map(esc).join(' · ')
+      + '</div></div>';
+  }).join('')
+  + '<div class="card" style="margin-top:10px;padding:11px 13px;font-size:13.5px;line-height:1.6">'
+  + '<div style="font-weight:800;margin-bottom:5px">' + esc(e.제목 || campOf(e)) + '</div>'
+  + '<div style="color:var(--ink-3)">' + esc(m.label) + ' · ' + esc(e.날짜||'')
+  + (e.시간 ? ' ' + esc(e.시간) : ' 종일') + '</div>'
+  + (e.프로젝트NO ? '<div>프로젝트 ' + esc(e.프로젝트NO) + '</div>' : '')
+  + (e.담당기사 ? '<div>담당기사 ' + esc(e.담당기사) + '</div>' : '')
+  + (e.예측 ? '<div style="color:var(--danger);margin-top:4px">과거 점검일로 계산한 예상일입니다 — 확정 일정이 아닙니다.</div>' : '')
+  + '</div>';
+}
+document.addEventListener('keydown', (ev) => {
+  if(ev.key === 'Escape') closeSheet();
+});
+(function(){
+  let y0 = null;
+  document.addEventListener('touchstart', (ev) => {
+    const w = $('sheet');
+    if(!w || !w.classList.contains('open')){ y0 = null; return; }
+    const p = w.querySelector('.panel');
+    if(!p || !p.contains(ev.target)){ y0 = null; return; }
+    const b = $('sheetBody');
+    if(b && b.contains(ev.target) && b.scrollTop > 0){ y0 = null; return; }
+    y0 = ev.touches[0].clientY;
+  }, {passive:true});
+  document.addEventListener('touchend', (ev) => {
+    if(y0 == null) return;
+    const dy = ev.changedTouches[0].clientY - y0; y0 = null;
+    if(dy > 70) closeSheet();
+  }, {passive:true});
+})();
 
 function render(){
   const all = CAL.일정 || [];
@@ -110,15 +400,25 @@ function render(){
   }).join('');
 
   const first = new Date(Y, Mo-1, 1), start = new Date(Y, Mo-1, 1-first.getDay());
+  const todayIso = isoOf(new Date());
   let grid = '';
   for(let i=0;i<42;i++){
     const d = new Date(start.getFullYear(), start.getMonth(), start.getDate()+i);
-    const iso = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const iso = isoOf(d);
     const evs = byDay[iso] || [], out = (d.getMonth()+1) !== Mo;
     const dots = [...new Set(evs.map(e => String(e.분류||'etc')))].slice(0,4)
       .map(k => `<i style="background:${esc(kindOf(k).color)}"></i>`).join('');
-    grid += `<button class="cday${out?' out':''}${iso===DAY?' on':''}" data-d="${iso}">`
-      + `<b>${d.getDate()}</b>${evs.length?`<span class="dots">${dots}</span>`:''}</button>`;
+    // PC 용 글자 칸도 같이 실어 보낸다 — 감추는 것은 CSS 가 한다(창 크기가 바뀌어도 안전).
+    const TXN = 4;
+    const txs = evs.slice(0,TXN).map(e => {
+      const m = kindOf(String(e.분류||'etc'));
+      const tm = e.시간 ? `<span class="tm">${esc(String(e.시간).slice(0,5))}</span>` : '';
+      return `<span class="ctx" style="--c:${esc(m.color)}">${tm}${esc(campOf(e))}</span>`;
+    }).join('') + (evs.length > TXN ? `<span class="ctxmore">+${evs.length-TXN}건 더</span>` : '');
+    const cls = 'cday' + (out?' out':'') + (iso===DAY?' on':'') + (iso===todayIso?' today':'')
+      + (d.getDay()===0?' sun':'') + (d.getDay()===6?' sat':'');
+    grid += `<button class="${cls}" data-d="${iso}"><b>${d.getDate()}</b>`
+      + `${evs.length?`<span class="dots">${dots}</span>`:''}<span class="ctxs">${txs}</span></button>`;
   }
   const day = DAY && byDay[DAY] ? byDay[DAY] : null;
   const list = (day || rows).slice(0,400).map(e => {
@@ -134,8 +434,8 @@ function render(){
     + `<div class="cchips">${chips}</div>`
     + `<div class="cdow"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>`
     + `<div class="cgrid">${grid}</div>`
-    + `<div class="note">${day ? esc(DAY)+' · '+day.length+'건 (날짜를 다시 누르면 이 달 전체)'
-                               : '이 달 '+rows.length+'건'}</div>`
+    + `<div class="note">${day ? esc(DAY)+' · '+day.length+'건 (날짜를 누르면 창으로 자세히)'
+                               : '이 달 '+rows.length+'건 · 날짜를 누르면 그 날 일정이 창으로 열립니다'}</div>`
     + `<div class="card">${list || '<div class="empty">표시할 일정이 없습니다.</div>'}</div>`;
 
   const shift = n => { const d = new Date(Y, Mo-1+n, 1);
@@ -144,7 +444,7 @@ function render(){
   $('cnext').onclick = () => shift(1);
   $('ctoday').onclick = () => { M = new Date().toISOString().slice(0,7); DAY=''; render(); };
   document.querySelectorAll('.cday').forEach(b => b.onclick = () => {
-    DAY = (DAY === b.dataset.d) ? '' : b.dataset.d; render(); });
+    DAY = b.dataset.d; SEL = 0; render(); openSheet(); });
   document.querySelectorAll('.cchip').forEach(b => b.onclick = () => {
     const k = b.dataset.k;
     if(OFF.has(k)) OFF.delete(k); else OFF.add(k);
@@ -153,24 +453,51 @@ function render(){
     DAY=''; render(); });
 }
 
+/* 열쇠는 ① 주소의 `#k=` ② 이 기기에 기억해 둔 것 순으로 찾는다.
+   ★ 기억이 왜 필요한가 — 홈 화면에 설치한 아이콘은 **주소의 `#` 뒤를 못 가지고 간다**
+     (설치 주소에는 `#` 이 없다). 기억해 두지 않으면 설치한 아이콘이 매번
+     '열쇠가 없는 주소입니다'만 띄운다. 기억하는 것은 링크를 저장해 두는 것과 같다. */
+let KEY = '';
+function currentKey(){ return KEY; }
+function rememberKey(k){ KEY = k; try{ localStorage.setItem(KSTORE, k); }catch(e){} }
+function askKey(){
+  $('sub').textContent = '';
+  $('main').innerHTML = '<div class="err"><b>열쇠가 없는 주소입니다.</b><br>'
+    + '단톡방에 올라온 링크를 <b>그대로</b> 눌러 주세요. 주소를 손으로 옮겨 적으면 '
+    + '<code>#</code> 뒤가 빠져 열리지 않습니다.'
+    + '<input id="kin" placeholder="받은 주소를 여기에 붙여넣어도 됩니다" autocomplete="off">'
+    + '<button id="kgo">이 주소로 열기</button></div>';
+  const go = $('kgo');
+  if(go) go.onclick = () => {
+    const v = String(($('kin')||{}).value || '');
+    const m = v.match(/[#?&]k=([A-Za-z0-9_\-]+)/);
+    if(!m){ alert('주소에서 열쇠(#k=…)를 찾지 못했습니다. 링크 전체를 붙여넣어 주세요.'); return; }
+    location.hash = 'k=' + m[1];
+    location.reload();
+  };
+}
+
 (async function(){
-  const k = new URLSearchParams(location.hash.slice(1)).get('k') || '';
-  if(!k){
-    $('sub').textContent = '';
-    $('main').innerHTML = '<div class="err"><b>열쇠가 없는 주소입니다.</b><br>'
-      + '단톡방에 올라온 링크를 <b>그대로</b> 눌러 주세요. 주소를 손으로 옮겨 적으면 '
-      + '<code>#</code> 뒤가 빠져 열리지 않습니다.</div>';
-    return;
-  }
+  // 서비스워커가 있어야 크롬이 **진짜 앱 설치**를 제안한다(없으면 단순 북마크).
+  try{ if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js'); }catch(e){}
+  const b = $('binstall'); if(b) b.onclick = doInstall;
+
+  let k = new URLSearchParams(location.hash.slice(1)).get('k') || '';
+  if(!k){ try{ k = localStorage.getItem(KSTORE) || ''; }catch(e){} }
+  if(!k){ askKey(); return; }
+  KEY = k;
   try{
     const enc = await (await fetch('cal.enc?t=' + Date.now(), {cache:'no-store'})).json();
     CAL = await unseal(enc, k);
+    rememberKey(k);
     $('sub').textContent = `갱신 ${String(CAL.갱신||'').replace('T',' ').slice(0,16)} · 일정 ${(CAL.일정||[]).length}건`;
     render();
+    offerInstall();
   }catch(e){
     $('sub').textContent = '';
     $('main').innerHTML = '<div class="err"><b>일정을 열지 못했습니다.</b><br>'
       + '링크가 오래되어 열쇠가 바뀌었을 수 있습니다. 담당자에게 새 링크를 요청하세요.</div>';
+    try{ localStorage.removeItem(KSTORE); }catch(e2){}
   }
 })();
 </script>
