@@ -4466,6 +4466,27 @@ def t101_percent_and_no_erp_post():
         "수집기에 페이지 setTimeout 이 다시 들어왔다(숨은 탭에서 멈춘다)"
     assert "new Worker" in body and "MutationObserver" in body, "워커 타이머·관찰자가 없다"
     assert "window.__grabStop" in body, "배치를 끊을 방법이 없다(새로고침하면 수집분이 날아간다)"
+
+    # (8-1) 워커 타이머는 **스케줄**만 살린다 — **렌더**는 못 살린다(사고 #22).
+    #   밴드 본문은 rAF 로 그려지고 rAF 는 숨은 탭에서 한 번도 안 불린다. 그래서
+    #   숨은 탭에서 돌리면 살아 있는 글까지 "본문 없음"으로 읽혀 **가짜 묘비**가 쌓이고,
+    #   recheck_plan 이 그 번호를 영영 다시 안 뽑는다. 조용히 실패하느니 거절한다.
+    assert "document.hidden" in body, \
+        "숨은 탭 판정이 없다 — 창이 뒤에 있으면 살아 있는 글도 전부 실패로 기록된다(사고 #22)"
+    start = body[body.index("window.__grabStart"):body.index("window.__grabStop")]
+    assert "document.hidden" in start.split("(async ()")[0], \
+        "숨은 탭에서 __grabStart 가 시작을 거절하지 않는다"
+    assert "S.paused" in start, "돌던 중 창이 뒤로 가면 멈춰 기다려야 한다(실패로 적으면 안 된다)"
+    assert "paused:" in body, "__grabStatus() 가 멈춰 있는지를 알려 주지 않는다"
+
+    # (8-2) 밤샘 대조는 한 회차가 **약 2시간**이다(밴드 캐시 8,499글). 45분이던
+    #   옛 기준을 그대로 두어 밤새 8회가 전부 잘렸다. 제한을 다시 줄이지 못하게 막는다.
+    ovn = open(os.path.join(ROOT, "overnight_run.py"), encoding="utf-8").read()
+    m = re.search(r'"--timeout".*?default=(\d+)', ovn, re.S)
+    assert m and int(m.group(1)) >= 180, \
+        "밤샘 대조 회차 제한이 너무 짧다 — 한 회차가 2시간이라 거의 다 해 놓고 잘린다"
+    assert "stdout=fh" in ovn, \
+        "출력을 파일로 흘리지 않는다 — 시간초과가 나면 어디서 느렸는지 기록이 안 남는다"
     print("  [101] 비율 소수점 1자리·미완료 100% 금지 · ERP 전표 실전송 제거 · 수집기 숨은탭 대응 ✅")
 
 
