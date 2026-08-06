@@ -315,9 +315,16 @@ def _run_pipeline():
         # doc_ocr가 결과를 band/ocr_cache/에 저장하므로 두 번째 실행부터는 몇 초로 끝난다.
         steps.append(run("밴드 문서 이미지 대조·입력", [os.path.join(ROOT, "band", "doc_ocr.py"),
                                                        "--scan", "--apply"], timeout=3600))
+        # 그 위에 교차검증을 한 겹 더 얹는다(2026-08-06 지시). 엔진 하나의 답만 믿으면
+        # 틀린 값이 조용히 원장에 들어간다 — 서로 다른 엔진 둘이 **같은 값**을 낸 항목만
+        # 빈칸에 넣고, 갈리면 사람에게 넘긴다. 전량을 두 번 읽지는 않는다:
+        # 금액 정합성이 깨졌거나 핵심 항목을 못 읽은 건, 그리고 원장에 쓰려는 건만 재검한다.
+        steps.append(run("문서 OCR 교차검증", [os.path.join(ROOT, "band", "ocr_crosscheck.py"),
+                                               "--scan", "--apply"], timeout=3600))
     else:
         steps.append({"name": "밴드 문서 이미지 대조", "ok": None,
                       "out": "스킵 — band/docs_inbox/에 사진 없음"})
+        steps.append({"name": "문서 OCR 교차검증", "ok": None, "out": "스킵 — 사진 없음"})
 
     # 완료보고서와 문서발행 표시는 프로젝트NO가 정확히 일치하는 근거만 빈칸에 큐잉한다.
     # 실제 ZIP 패치는 바로 아래 ledger_writer 한 번으로 합쳐 버전 난립과 충돌을 막는다.
