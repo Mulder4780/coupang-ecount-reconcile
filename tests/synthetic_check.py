@@ -4453,8 +4453,12 @@ def t102_calendar_filter_and_period():
 
     # (1) 캘린더 분류 키는 화면 필터가 거는 손잡이다 — 라벨이 아니라 키로 건다.
     keys = [k for k, _l, _c in S.CAL_KINDS]
-    for need in ("pm_plan", "pm_pred", "pm_done", "as_visit", "as_done"):
+    for need in ("pm_plan", "pm_pred", "pm_done", "as_visit", "as_done",
+                 "as_open", "pm_overdue"):
         assert need in keys, "캘린더 분류 %s 가 없다" % need
+    # 미처리 두 갈래는 완료·예정과 색이 확실히 갈려야 한다(2026-08-06 지시).
+    color = {k: c for k, _l, c in S.CAL_KINDS}
+    assert color["as_open"] != color["as_done"] and color["pm_overdue"] != color["pm_done"]
 
     # (2) 원장 날짜만 일정으로 세운다 — 없는 날짜를 지어내면 캘린더가 거짓말을 한다.
     saved = getattr(S, "get_works")
@@ -4462,7 +4466,8 @@ def t102_calendar_filter_and_period():
         S.get_works = lambda: {
             "as": [
                 {"접수ID": "AS-1", "캠프명": "가캠프", "방문예정일": "2026-08-10",
-                 "작업완료일": "", "담당기사": "김준형", "긴급도": "높음"},
+                 "접수일자": "2026-08-01", "작업완료일": "", "담당기사": "김준형",
+                 "긴급도": "높음"},
                 {"접수ID": "AS-2", "캠프명": "나캠프", "방문예정일": "2026-08-01",
                  "작업완료일": "2026-08-02", "담당기사": "권오철"},
                 {"접수ID": "AS-3", "캠프명": "다캠프", "방문예정일": "", "작업완료일": ""},
@@ -4474,9 +4479,11 @@ def t102_calendar_filter_and_period():
     finally:
         S.get_works = saved
     got = sorted((e["분류"], e["날짜"], e["원천업무ID"]) for e in evs)
-    assert got == [("as_done", "2026-08-02", "AS-2"),
-                   ("as_visit", "2026-08-10", "AS-1"),
-                   ("pm_done", "2026-08-03", "PM-1")], got
+    # 미처리는 **접수일/예정일** 자리에 선다 — "언제 들어온 게 아직 안 끝났나"를 보려는 것.
+    assert ("as_open", "2026-08-01", "AS-1") in got, got     # AS-1 은 접수만 되고 미완료
+    assert ("as_done", "2026-08-02", "AS-2") in got, got
+    assert ("as_visit", "2026-08-10", "AS-1") in got, got
+    assert ("pm_done", "2026-08-03", "PM-1") in got, got
     # 이미 끝난 건의 방문예정일을 '예정'으로 다시 세우지 않는다(AS-2 는 완료만 남아야 한다).
     assert not [e for e in evs if e["분류"] == "as_visit" and e["원천업무ID"] == "AS-2"]
 

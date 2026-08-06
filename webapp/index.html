@@ -3058,8 +3058,13 @@ async function uxFlush(beacon=false){
    ★ 그동안 /api/ 를 일부러 캐시하지 않은 이유는 "옛 숫자가 최신인 척 남는다" 였다.
      그래서 옛 값을 그릴 때는 **'몇 분 전 자료' 를 반드시 같이 띄운다** — 숨기지 않는다.
    ★ 쓰기(POST)는 절대 캐시하지 않는다. 목록에 없는 주소도 예전 그대로 동작한다. */
+/* ★ `/api/exec_report` 는 여기서 **뺐다**(2026-08-06).
+   대표 보고서의 머리에는 보고일이 찍힌다. 옛 값을 먼저 그리면 10:30 보고 화면에
+   **어제 날짜가 박힌 채로** 보이고, 사람은 그것이 옛 값인 줄 모른다.
+   다른 화면은 숫자가 몇 초 옛것이어도 되지만 보고서 날짜는 그러면 안 된다.
+   (그래도 느리면 서버 캐시가 받쳐 준다 — 원장이 안 바뀌면 즉시 응답한다) */
 const SWR_PATHS = ['/api/status','/api/settlements','/api/notifications','/api/codes',
-  '/api/works','/api/issues','/api/checks','/api/exec_report','/api/erpdocs',
+  '/api/works','/api/issues','/api/checks','/api/erpdocs',
   '/api/calendar','/api/brief','/api/v1/reports/daily/exceptions'];
 const SWR_FRESH_MS = 15000;   // 이 안에 받은 값이면 다시 부르지 않는다 — 재렌더 무한루프 차단
 const SWR_RERUN = {};         // 새 값이 도착하면 다시 그릴 로더
@@ -6175,8 +6180,11 @@ const CAL_FALLBACK_KINDS = [
   {key:'pm_plan', label:'정기점검 예정', color:'#0A84FF'},   // 파랑
   {key:'pm_pred', label:'정기점검 예측', color:'#5E5CE6'},   // 보라
   {key:'pm_done', label:'정기점검 완료', color:'#30D158'},   // 초록
-  {key:'as_visit',label:'돌발AS 방문예정', color:'#FF9F0A'}, // 주황
+  {key:'as_visit',label:'돌발AS 예정일', color:'#FF9F0A'},   // 주황
   {key:'as_done', label:'돌발AS 완료',   color:'#00A6A0'},   // 청록
+  // 미처리(2026-08-06 지시) — 밀린 것이 눈에 띄게 붉은 계열로 확실히 가른다.
+  {key:'as_open', label:'돌발AS 미처리', color:'#FF453A'},   // 빨강
+  {key:'pm_overdue', label:'정기점검 미처리', color:'#C2185B'}, // 자주
   {key:'etc',     label:'기타 일정',     color:'#8E8E93'},   // 회색
 ];
 let CAL_OFF = new Set();        // 꺼 둔 종류(기본은 전부 켬)
@@ -6327,6 +6335,7 @@ function renderCalAgenda(){
     <dt>프로젝트</dt><dd>${esc2(e.프로젝트NO||'미확정')}</dd>
     <dt>캠프·장소</dt><dd>${esc2(e.캠프명||e.장소||'미입력')}</dd>
     ${e.담당기사?`<dt>담당기사</dt><dd>${esc2(e.담당기사)}</dd>`:''}
+    ${e.경과일!=null?`<dt>경과</dt><dd><b>${esc2(e.경과일)}일</b> 지났습니다</dd>`:''}
     ${e.진행상태?`<dt>진행상태</dt><dd>${esc2(e.진행상태)}</dd>`:''}
     ${e.긴급도?`<dt>긴급도</dt><dd>${esc2(e.긴급도)}</dd>`:''}
     ${e.유무상?`<dt>유·무상</dt><dd>${esc2(e.유무상)}</dd>`:''}

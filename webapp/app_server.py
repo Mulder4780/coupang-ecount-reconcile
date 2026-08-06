@@ -3170,6 +3170,20 @@ def get_exec_report(day=None):
         from ecount_reconcile import load_config, resolve_master
         master = resolve_master(load_config()["reconcile"]["master_xlsx"])
         r = read_exec_report(master)
+        # ★ 보고일은 **오늘**이다 (2026-08-06 지시: "보고일 오늘 날짜로 자동 변경").
+        #   그동안 이 값은 원장 B3 에서 왔고, B3 는 report_dates 가 큐에 넣어 **11:00
+        #   회차**에 들어갔다. 대표 보고는 10:30 이다 — 매일 아침 보고 시각까지 B3 는
+        #   어제 날짜였다. 어제 날짜로 오늘 보고가 나가는 구조였다.
+        #   그래서 원장을 기다리지 않고 여기서 오늘로 맞춘다. 원장 값이 **미래**이거나
+        #   사람이 date= 로 고른 경우는 그대로 존중한다(과거 보고를 다시 볼 때).
+        if not requested:
+            _today = datetime.now().strftime("%Y-%m-%d")
+            _stored = norm_date((r.get("meta") or {}).get("보고일")) or ""
+            if _stored < _today:
+                _yday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+                r.setdefault("meta", {})["보고일"] = _today
+                r["meta"]["집계기준일"] = _yday
+                r["meta"]["보고일자동"] = True     # 화면이 '오늘로 맞춤'을 알 수 있게
         base = requested or norm_date((r.get("meta") or {}).get("집계기준일")
                                       or (r.get("meta") or {}).get("보고일"))
         r["details"] = read_exec_details(master, base)
@@ -3579,8 +3593,12 @@ CAL_KINDS = [
     ("pm_plan",  "정기점검 예정",   "#0A84FF"),   # 파랑
     ("pm_pred",  "정기점검 예측",   "#5E5CE6"),   # 보라
     ("pm_done",  "정기점검 완료",   "#30D158"),   # 초록
-    ("as_visit", "돌발AS 방문예정", "#FF9F0A"),   # 주황
+    ("as_visit", "돌발AS 예정일",   "#FF9F0A"),   # 주황
     ("as_done",  "돌발AS 완료",     "#00A6A0"),   # 청록 — 초록과 확실히 가른다
+    # ★ 미처리(2026-08-06 지시) — "언제 들어왔는데 아직 안 끝났나"가 달력에 보여야
+    #   밀린 것이 눈에 띈다. 완료·예정과 헷갈리지 않게 붉은 계열로 확실히 가른다.
+    ("as_open",   "돌발AS 미처리",  "#FF453A"),   # 빨강
+    ("pm_overdue", "정기점검 미처리", "#C2185B"),  # 자주 — 빨강과도 갈린다
     ("etc",      "기타 일정",       "#8E8E93"),   # 회색
 ]
 
@@ -3617,12 +3635,25 @@ def _calendar_work_events():
         e.update(extra or {})
         out.append(e)
 
+    today = datetime.now().strftime("%Y-%m-%d")
     for r in works.get("as") or []:
         camp = r.get("캠프명") or "캠프 미상"
-        if not r.get("작업완료일"):        # 아직 안 끝난 건만 '예정'으로 세운다
-            add(r.get("방문예정일"), "as_visit", f"돌발AS 방문 · {camp}", r,
+        done = norm_date(r.get("작업완료일"))
+        if not done:                       # 아직 안 끝난 건만 '예정'으로 세운다
+            add(r.get("방문예정일"), "as_visit", f"돌발AS 예정 · {camp}", r,
                 {"연결근거": "02_돌발AS접수 방문예정일",
                  "긴급도": r.get("긴급도") or "", "진행상태": r.get("진행상태") or ""})
+            # ★ 미처리는 **접수일** 자리에 세운다(2026-08-06 지시). 그래야 달력에서
+            #   "언제 들어온 게 아직도 안 끝났나"가 바로 보인다. 방문예정일이 비어
+            #   있어도(원장에 거의 안 채워진다) 이건 반드시 잡힌다.
+            got = norm_date(r.get("접수일자"))
+            if got:
+                days = (datetime.strptime(today, "%Y-%m-%d")
+                        - datetime.strptime(got, "%Y-%m-%d")).days
+                add(got, "as_open", f"돌발AS 미처리 · {camp}", r,
+                    {"연결근거": "02_돌발AS접수 — 접수 뒤 작업완료일이 비어 있음",
+                     "경과일": days, "긴급도": r.get("긴급도") or "",
+                     "진행상태": r.get("진행상태") or "", "신청내용": r.get("신청내용") or ""})
         add(r.get("작업완료일"), "as_done", f"돌발AS 완료 · {camp}", r,
             {"연결근거": "02_돌발AS접수 작업완료일",
              "유무상": r.get("유상·무상·보험") or ""})
@@ -3631,6 +3662,14 @@ def _calendar_work_events():
         add(r.get("실제점검일"), "pm_done", f"정기점검 완료 · {camp}", r,
             {"연결근거": "04_정기점검 실제점검일",
              "이상발견": r.get("이상발견여부") or ""})
+        # 예정일이 지났는데 실제점검일이 없다 = 미처리. 앞날 예정은 pm_plan 이 맡는다.
+        plan = norm_date(r.get("점검예정일"))
+        if plan and not norm_date(r.get("실제점검일")) and plan <= today:
+            days = (datetime.strptime(today, "%Y-%m-%d")
+                    - datetime.strptime(plan, "%Y-%m-%d")).days
+            add(plan, "pm_overdue", f"정기점검 미처리 · {camp}", r,
+                {"연결근거": "04_정기점검 — 예정일이 지났는데 실제점검일이 비어 있음",
+                 "경과일": days, "점검상태": r.get("점검상태") or ""})
     return out
 
 
