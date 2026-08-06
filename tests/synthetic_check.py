@@ -6304,6 +6304,71 @@ def t127_dark_mode_no_hardcoded_light_panel():
           "(장식 %d개만 예외) ✅" % len(ALLOW))
 
 
+def t128_dash_tap_to_move():
+    """[128] 대시보드 편집 — **눌러서 집고, 옮길 자리를 눌러** 이동 (2026-08-07 지시).
+
+    사용자 지시: "대시보드 편집 시 각 카드 클릭해서 이동할 수 있는 기능 추가해서
+    UX UI 완벽히 정리".
+
+    왜 끌기만으로는 부족한가
+      · 손이 미끄러지면 놓친다(끄는 도중 손을 떼면 아무 일도 안 일어난다).
+      · 카드가 12개인 긴 화면에서는 **끌고 가는 동안 목적지가 화면 밖**이다.
+        집었다 놓는 방식은 집은 채로 스크롤할 수 있어 이 문제가 없다.
+      · 끌기는 그대로 둔다 — 가까운 자리는 끄는 편이 빠르다. 둘 다 있어야 한다.
+
+    지키는 것
+      ① 끌지 않고 그냥 누르면 집기/놓기로 읽는다(끌었으면 예전처럼 끌기다).
+      ② 집으면 무엇을 집었는지 **사람이 읽는 이름**으로 보여 준다.
+         내부 id(`representative`)가 뜨면 무엇을 집었는지 알 수 없다.
+      ③ 빠져나갈 길이 셋이다: 같은 카드 다시 누르기 · Esc · 안내줄의 [취소].
+      ④ 편집을 닫으면 집은 것도 놓는다(안 그러면 안내줄만 화면에 남는다).
+      ⑤ 다른 묶음(화면 카드 ↔ 핵심지표 ↔ 보관함)으로는 옮기지 않는다.
+      ⑥ 옮기면 **저장**한다 — 새로고침하면 되돌아가는 이동은 이동이 아니다.
+    """
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    js = "".join(re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", idx, re.S))
+
+    for fn in ("function dashPickTap(", "function dashPickCancel(",
+               "function dashPickBar(", "function dashPickLabel("):
+        assert fn in js, "%s 가 없다" % fn
+
+    # ① 끌지 않은 누름만 집기로 간다
+    de = js[js.index("function dashDragEnable("):]
+    de = de[: de.index("\n/* ═══ 눌러서 옮기기")]
+    assert "if(d.live){" in de and "dashPickTap(d.el, host, sel, onDrop)" in de, \
+        "끌기와 누르기가 갈리지 않는다 — 끌고 나서도 카드가 집힌다"
+    assert "e.type === 'pointerup'" in de, "취소(pointercancel)까지 집기로 읽는다"
+
+    tap = js[js.index("function dashPickTap("):]
+    tap = tap[: tap.index("\n/* Esc")]
+    # ⑤ 다른 묶음으로 못 옮긴다
+    assert "el.parentNode !== _dashPick.el.parentNode" in tap, \
+        "화면 카드와 핵심지표가 섞인다"
+    # ③ 같은 카드 다시 누르면 취소
+    assert "_dashPick.el === el" in tap and "dashPickCancel()" in tap, \
+        "집은 카드를 다시 눌러도 취소되지 않는다"
+    # ⑥ 옮기면 저장한다
+    assert "if(drop) drop(moving)" in tap, "옮기고 저장하지 않는다 — 새로고침하면 되돌아간다"
+
+    # ② 사람이 읽는 이름
+    lab = js[js.index("function dashPickLabel("):]
+    lab = lab[: lab.index("\nfunction dashPickCancel(")]
+    assert "dashCatalog()" in lab, "안내줄에 내부 id 가 뜬다 — 무엇을 집었는지 알 수 없다"
+
+    # ③ Esc ④ 편집 닫으면 놓기
+    assert "e.key === 'Escape'" in js and "dashPickCancel(true)" in js, "Esc 탈출구가 없다"
+    tog = js[js.index("function toggleDashboardEditor("):]
+    tog = tog[: tog.index("\nfunction ", 10)]
+    assert "dashPickCancel(true)" in tog, \
+        "편집을 닫아도 집은 것이 남는다 — 안내줄만 화면에 떠 있게 된다"
+
+    # 보이는 안내 — 새 동작을 아무도 모르면 없는 기능이다
+    assert "한 번 누르면 집히고" in idx, "편집 안내가 아직 끌기만 말한다"
+    assert "#dashPickBar{" in idx and ".dash-picked{" in idx, "집힌 표시·안내줄 스타일이 없다"
+
+    print("  [128] 대시보드 편집 — 눌러서 집기/놓기(끌기 병행)·이름 표시·탈출구 3개·저장 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -7232,6 +7297,7 @@ if __name__ == "__main__":
     t125_worktree_shared_state()
     t126_app_font_and_revert()
     t127_dark_mode_no_hardcoded_light_panel()
+    t128_dash_tap_to_move()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
