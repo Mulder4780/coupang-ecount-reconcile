@@ -6197,6 +6197,113 @@ def t126_app_font_and_revert():
     print("  [126] 앱 글꼴 일원화(4파일·캔버스 포함) + 되돌리기 왕복 무손실 ✅")
 
 
+def t127_dark_mode_no_hardcoded_light_panel():
+    """[127] 어둡게 켜도 글자가 보인다 — 바탕을 흰색으로 못 박지 않는다 (2026-08-07 지시).
+
+    사용자 지시: "다크 모드시 글자 안보이는 문제 해결" (화면 사진 3장과 함께).
+
+    사진에 찍힌 것
+      · 대표 지표 카드(`.rep-metric`) — 바탕이 `rgba(255,255,255,.86)` 로 못 박혀 있어
+        어둡게 켜면 **흰 바탕에 흰 글자**. 숫자만 보이고 무슨 지표인지 안 보였다.
+      · 업무센터 담당자 버튼(`.workcenter-person`) — 그라데이션을 `color-mix(…, white)`
+        로 섞어 밝은 판이 되고, 글자는 var(--brand) 라 밝아져 이름이 사라졌다.
+      · 원본 자료 도구판(`#v-sources .src-toolbar`) — 같은 이유로 흰 판이 떠 있었다.
+
+    왜 [115] 명암비 검사가 못 잡았나 — 그 검사는 **글자색과 배경색이 같은 규칙에**
+    적혀 있을 때를 본다. 여기서는 바탕은 부모(`.rep-metric`)에, 글자는 자식(`.rl`)에
+    있어서 짝이 안 맞았고 '배경 확인 필요' 194건 속에 숨어 있었다.
+
+    그래서 이 검사는 짝을 맞추려 하지 않고 **원칙 하나**를 지킨다:
+      어둡게 켤 수 있는 화면에서 바탕을 **불투명한 밝은 고정색**으로 적지 않는다.
+      바탕도 토큰(var(--surface)/var(--panel)…)이어야 한다.
+    글자가 없는 장식(막대·점)만 예외로 두고, 그 예외는 여기 이름과 이유를 적는다.
+    """
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    css = "".join(re.findall(r"<style[^>]*>(.*?)</style>", idx, re.S))
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+    # 글자가 얹히지 않는 장식만 예외 — 새로 넣으려면 여기 이유와 함께 적는다
+    ALLOW = {
+        ".dot.busy": "상태 점 — 글자가 얹히지 않는다",
+        ".mbar i": "막대그래프 채움 — 글자가 얹히지 않는다",
+    }
+
+    def _lum(r, g, b):
+        def f(x):
+            x /= 255.0
+            return x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4
+        return .2126 * f(r) + .7152 * f(g) + .0722 * f(b)
+
+    def opaque_light(val):
+        """불투명(알파 0.5 이상)하면서 밝은 고정색인가. 반투명 덧칠은 어두운 판 위에
+        얹히는 것이라 문제가 아니다(헤더·탭바의 rgba(255,255,255,.06) 따위)."""
+        v = val.strip().lower()
+        if v in ("white", "#fff", "#ffffff"):
+            return True
+        m = re.match(r"#([0-9a-f]{3}|[0-9a-f]{6})$", v)
+        if m:
+            c = m.group(1)
+            if len(c) == 3:
+                c = "".join(x * 2 for x in c)
+            return _lum(int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)) > 0.55
+        m = re.match(r"rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?", v)
+        if m:
+            a = float(m.group(4)) if m.group(4) else 1.0
+            return a >= 0.5 and _lum(*map(int, m.groups()[:3])) > 0.55
+        return False
+
+    bad = []
+    for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        s = " ".join(sel.split())
+        if s.startswith("@") or 'data-theme="dark"' in s or "@media print" in s:
+            continue
+        if s in ALLOW:
+            continue
+        m = re.search(r"(?<!-)background(?:-color|-image)?\s*:\s*([^;]+)", body)
+        if not m:
+            continue
+        val = m.group(1)
+        hard = opaque_light(val)
+        # 그라데이션·color-mix 안에 흰색을 섞는 것도 같은 사고다
+        if re.search(r"color-mix\([^)]*,\s*(?:white|#fff{1,2}\b)\s*\)", val) or \
+           re.search(r"gradient\([^)]*\b(?:white|#fff|#ffffff)\b", val):
+            hard = True
+        if hard:
+            bad.append("%s → %s" % (s[:44], val.strip()[:40]))
+    assert not bad, ("어둡게 켜면 밝은 판이 떠 글자가 사라진다(바탕도 토큰이어야 한다):\n  "
+                     + "\n  ".join(bad))
+
+    # 사진에 찍힌 세 곳이 정말 토큰으로 바뀌었나 — 원칙만 두면 다시 흰색으로 돌아간다
+    for sel, want in ((".rep-metric{", "background:var(--surface)"),
+                      ("#v-sources .src-toolbar{", "background:var(--surface)")):
+        blk = css[css.index(sel):]
+        blk = blk[: blk.index("}")]
+        assert want in blk, "%s 의 바탕이 다시 고정색이다" % sel
+    wc = css[css.index(".workcenter-person{"):]
+    wc = wc[: wc.index("}")]
+    assert "var(--surface)" in wc and "white" not in wc, \
+        "담당자 버튼이 다시 흰색을 섞는다 — 어둡게 켜면 이름이 안 보인다"
+
+    # 폰 앱(docs/app.html)도 어둡게 켜진다 — 같은 사고가 여기서도 났었다
+    app = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+    acss = re.sub(r"/\*.*?\*/", "", "".join(
+        re.findall(r"<style[^>]*>(.*?)</style>", app, re.S)), flags=re.S)
+    abad = []
+    for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", acss):
+        s = " ".join(sel.split())
+        if s.startswith("@") or "dark" in s or ":root" in s:
+            continue
+        m = re.search(r"(?<!-)background(?:-color|-image)?\s*:\s*([^;]+)", body)
+        if m and opaque_light(m.group(1)):
+            abad.append("%s → %s" % (s[:40], m.group(1).strip()[:32]))
+    assert not abad, "폰 앱도 어둡게 켜면 밝은 판이 뜬다: " + " / ".join(abad)
+    assert acss.count("--sel:") >= 3, \
+        "폰 앱의 강조 바탕 토큰(--sel)이 테마마다 정의돼 있지 않다"
+
+    print("  [127] 어둡게 켜도 글자가 보인다 — 업무센터·폰 앱 고정 밝은 바탕 0곳"
+          "(장식 %d개만 예외) ✅" % len(ALLOW))
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -7124,6 +7231,7 @@ if __name__ == "__main__":
     t124_no_duplicate_menus()
     t125_worktree_shared_state()
     t126_app_font_and_revert()
+    t127_dark_mode_no_hardcoded_light_panel()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
