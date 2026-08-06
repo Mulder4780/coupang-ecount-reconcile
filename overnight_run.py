@@ -40,16 +40,37 @@ except Exception:
     pass
 
 
-def _run(args, timeout):
+def _run(args, timeout, tag="run"):
+    """한 회차를 돌린다. 출력은 **파일로 흘려보낸다.**
+
+    ★ 왜 capture_output 을 안 쓰나 (2026-08-07 실사고). 시간초과가 나면
+      subprocess 는 모아 둔 출력을 **버린다**. 그래서 밤새 8회가 rc=124 로
+      죽었는데 기록에 남은 것은 "시간 초과" 네 글자뿐이었고, 어느 단계에서
+      느렸는지 알 길이 없어 원인 찾는 데 아침을 다 썼다. 파일로 흘리면
+      죽은 자리까지의 로그가 그대로 남는다.
+    """
+    log = os.path.join(ROOT, "reports", f"밤샘_{tag}.log")
     try:
-        p = subprocess.run([PY] + args, cwd=ROOT, timeout=timeout,
-                           capture_output=True, text=True,
-                           encoding="utf-8", errors="replace")
-        return p.returncode, (p.stdout or "")[-4000:]
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+    except Exception:
+        pass
+    try:
+        with open(log, "w", encoding="utf-8", errors="replace") as fh:
+            p = subprocess.run([PY] + args, cwd=ROOT, timeout=timeout,
+                               stdout=fh, stderr=subprocess.STDOUT)
+            rc = p.returncode
     except subprocess.TimeoutExpired:
-        return 124, "시간 초과"
+        rc = 124
     except Exception as e:
         return 1, str(e)[:400]
+    try:
+        out = open(log, encoding="utf-8", errors="replace").read()
+    except Exception:
+        out = ""
+    if rc == 124:
+        tail = "\n".join([l for l in out.splitlines() if l.strip()][-15:])
+        return 124, f"시간 초과 — 죽기 직전까지의 로그:\n{tail}"
+    return rc, out[-4000:]
 
 
 def _note(rec):
@@ -70,7 +91,7 @@ def _note(rec):
 
 def green():
     """합성검증이 초록인가. 건너뛰지 않는다 — 이것이 실데이터 작업의 관문이다."""
-    rc, out = _run([os.path.join("tests", "synthetic_check.py")], 900)
+    rc, out = _run([os.path.join("tests", "synthetic_check.py")], 1800, tag="검증")
     ok = (rc == 0) and ("ALL GREEN" in out)
     bad = ""
     if not ok:
@@ -84,7 +105,11 @@ def main():
     ap = argparse.ArgumentParser(description="검증이 초록이 될 때까지 기다렸다 전체 대조")
     ap.add_argument("--every", type=int, default=20, help="다시 볼 간격(분)")
     ap.add_argument("--hours", type=float, default=12.0, help="이 시간 안에서만 시도")
-    ap.add_argument("--timeout", type=int, default=45, help="대조 한 회차의 제한(분)")
+    # ★ 45분이 아니다 (2026-08-07 실측). 전체 대조 한 회차는 지금 **약 2시간** 걸린다
+    #   (밴드 캐시가 2천 → 8천5백 글로 커지면서 색인·대조가 그만큼 무거워졌다).
+    #   45분이던 시절 기준을 그대로 두는 바람에 밤새 8회가 전부 "거의 다 해 놓고" 잘렸다.
+    #   넉넉히 잡는 편이 안전하다 — 어차피 끝나면 그 회차로 밤을 끝낸다.
+    ap.add_argument("--timeout", type=int, default=240, help="대조 한 회차의 제한(분)")
     a = ap.parse_args()
 
     deadline = time.time() + a.hours * 3600
@@ -99,7 +124,7 @@ def main():
             time.sleep(a.every * 60)
             continue
         print(f"[{stamp}] 검증 초록 — 전체 대조를 돌린다")
-        rc, out = _run(["daily_run.py"], a.timeout * 60)
+        rc, out = _run(["daily_run.py"], a.timeout * 60, tag="대조")
         tail = "\n".join([l for l in out.splitlines() if l.strip()][-12:])
         # ★ "이미 실행 중" 은 **성공이 아니다** — daily_run 은 그때도 0 으로 끝난다.
         #   그대로 두면 이 스크립트가 "다 됐다"며 밤을 끝내 버린다(감시기를 두 개 띄운

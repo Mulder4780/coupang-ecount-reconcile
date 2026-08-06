@@ -147,6 +147,19 @@
       return `한 배치는 ${BATCH_MAX}건까지다(탭이 언다). ${nos.length}건을 나눠서 걸어라.`;
     }
     if (S.running) return '이미 실행 중 — __grabStatus() 로 보라';
+    // ★ 탭이 안 보이면 시작하지 않는다 (2026-08-07 실사고).
+    //   밴드는 SPA 라 본문을 requestAnimationFrame 으로 그린다. 그런데 rAF 는
+    //   `document.hidden` 인 탭에서 **한 번도 안 불린다**(타이머와 달리 Worker 로도
+    //   못 우회한다). 그래서 창을 뒤로 넘긴 채 돌리면 iframe 은 영원히
+    //   "로딩 중입니다" 이고, 아래 판정은 그것을 **없는 글로 오해한다.**
+    //   이날 503건을 그렇게 갈아 넣었다 — ok 9 · fail 61. 확실히 살아 있는 500번을
+    //   같은 방법으로 열어 보고서야 알았다(그것도 "로딩 중입니다" 였다).
+    //   조용히 실패하느니 시작을 거절하는 편이 낫다. 캐시에 가짜 묘비가 쌓이면
+    //   recheck_plan 이 그 번호를 영영 다시 안 뽑는다.
+    if (typeof document !== 'undefined' && document.hidden) {
+      return '탭이 뒤에 있다 — 이 창을 **앞으로 꺼내 놓고** 다시 걸어라. '
+           + '(밴드 본문은 보이는 탭에서만 그려진다. 지금 돌리면 전부 실패로 기록된다)';
+    }
     Object.assign(S, {
       band: String(band), running: true, stop: false, startedAt: Date.now(),
       total: nos.length, posts: opt.keep === false ? {} : S.posts,
@@ -155,6 +168,14 @@
     (async () => {
       for (const no of nos) {
         if (S.stop) break;                       // __grabStop() 으로 중간에 끊을 수 있다
+        // 돌던 중에 창이 뒤로 넘어가면 **실패로 기록하지 말고 기다린다.**
+        // 사람이 다른 창을 보다 돌아오는 일은 밤샘 수집에서 늘 생긴다.
+        while (typeof document !== 'undefined' && document.hidden && !S.stop) {
+          S.paused = true;
+          await sleep(5000);
+        }
+        S.paused = false;
+        if (S.stop) break;
         const r = await grabOne(band, no, opt.waitMs || 9000, opt.bodyMs || 12000);
         if (r.status === 'ok') { S.posts[no] = r.post; S.done.push(no); }
         else if (r.status === 'missing') S.missing.push(no);
@@ -171,7 +192,7 @@
   window.__grabStop = () => { S.stop = true; return '다음 글에서 멈춘다 — __grabSave() 로 저장하라'; };
 
   window.__grabStatus = () => ({
-    running: S.running, total: S.total,
+    running: S.running, paused: !!S.paused, total: S.total,
     ok: S.done.length, missing: S.missing.length, failed: S.failed.length,
     posts: Object.keys(S.posts).length,
     sec: S.startedAt ? Math.round((Date.now() - S.startedAt) / 1000) : 0,
