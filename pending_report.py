@@ -113,6 +113,13 @@ def collect():
     add("B. 못 잇는 자료", "캠프 ↔ 거래처코드 모호", ci.get("ambiguous", 0),
         "후보가 둘 이상 — 추측하지 않고 남겨 둔다", where="reports/거래처코드_색인.json",
         who="사람")
+    # 캠프명 칸에 '0'·'...' 같은 표시가 들어온 건. 시스템이 짝을 찾을 수 없으니
+    # '못 잇는 자료'가 아니라 **원장을 고쳐야 하는 일**로 따로 센다(2026-08-06).
+    junk = ci.get("입력오류", 0)
+    junk_n = sum(x.get("건수", 1) for x in junk) if isinstance(junk, list) else junk
+    add("D. 사람이 해야 함", "원장 캠프명이 값 대신 표시(0·… 등)", junk_n,
+        "캠프명 칸을 실제 이름으로 고쳐야 매출·서류가 붙는다",
+        where="reports/거래처코드_색인.json", who="사람(원장 수정)")
 
     cm = j("캠프마스터.json")
     # 출처는 'ERP+원장+밴드' 처럼 더해서 적는다 — ERP 글자가 없으면 ERP 에 자리가 없는 캠프다.

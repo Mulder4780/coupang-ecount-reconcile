@@ -5117,6 +5117,60 @@ def t112_band_plan_order_and_scope():
     print("  [112] 밴드 수집 — 새 글 우선·범위 기억·안내창 차단·한 번 붙여넣기 ✅")
 
 
+def t113_paste_typos_and_misc_reclass():
+    """[113] 붙여넣기 사고를 흡수한다 — 캠프명 오염·미분류 재분류 (2026-08-06).
+
+    김미영 대리 지적: "밴드·카톡에 복사 붙여넣기 오류가 있어 매칭이 안 됨".
+    실제 원장 캠프명 18건을 뜯어 보니 사람 잘못이 아니라 **붙여넣기 흔적**이었다 —
+    웹에서 복사해 `&amp;` 가 그대로, 메모가 `<-` 뒤에 붙어서, 값 대신 `0`·`...`.
+    이름을 고치는 게 아니라 **비교할 때** 걷어 내면 짝이 붙는다(18 → 14건).
+
+    그리고 값이 아닌 표시(`0`)는 '못 잇는 자료'가 아니라 **원장을 고칠 일**이다.
+    섞여 있으면 정말 ERP 에 없는 캠프가 몇 개인지 알 수 없다.
+
+    미분류도 같은 이야기다. 판별 규칙은 늘어나는데 규칙이 없던 시절 미분류로 간
+    파일은 아무도 다시 안 봤다 — 그래서 --apply 회차가 재분류까지 같이 한다.
+    """
+    import customer_index as CI
+
+    assert CI.clean("남김해Sub-Hub&amp;Sub-FC") == "남김해Sub-Hub&Sub-FC"
+    assert CI.clean("중구1캠프 <-서초1MB(양재동C)") == "중구1캠프"
+    assert CI.norm("김포1Sub-FC ?(김포1 서브허브))") == CI.norm("김포1Sub-FC(김포1 서브허브)")
+    # 접두사만 다른 같은 캠프 — 완전일치·정규화·핵심코드를 다 놓친 뒤에만 본다
+    assert CI.bare("M_광주2캠프") == CI.bare("광주2 캠프") == CI.norm("광주2캠프")
+    # 사람이 실수로 M 으로 시작하는 이름을 지어도 통째로 잘리면 안 된다
+    assert CI.bare("MB1캠프") == CI.core("MB1캠프"), "숫자 앞 M 까지 떼면 다른 캠프가 된다"
+    for junk in ("0", "...", "-", "?", "없음", ""):
+        assert junk.upper() in CI.PLACEHOLDERS, junk
+    assert "강서1MB" not in CI.PLACEHOLDERS
+
+    import shutil as _sh
+    import upload_intake as UI
+
+    root = os.path.join(ROOT, "_t113_root")
+    _sh.rmtree(root, ignore_errors=True)
+    try:
+        misc = UI._paths(root)["misc"]
+        os.makedirs(misc, exist_ok=True)
+        seen = os.path.join(misc, "★ 01. 쿠팡AS 품목 단가 리스트 및 사진 정리본.xlsx")
+        open(seen, "wb").write(b"PK\x03\x04dummy")
+        rows = UI.reclass_misc(root, do_apply=False)
+        assert len(rows) == 1 and rows[0]["분류"] == "reference", rows
+        assert os.path.isfile(seen), "미리보기가 파일을 옮겼다"
+        rows = UI.reclass_misc(root, do_apply=True)
+        assert not os.path.isfile(seen), "재분류가 파일을 안 옮겼다"
+        assert os.path.isfile(rows[0]["목적지"]), rows[0]
+        assert "10. 기준" in rows[0]["목적지"], rows[0]["목적지"]
+        # 여전히 모르는 것은 건드리지 않는다 — 미분류는 '보존'이 목적이다
+        unknown = os.path.join(misc, "무엇인지 모를 파일.dat")
+        open(unknown, "wb").write(b"x")
+        assert UI.reclass_misc(root, do_apply=True) == []
+        assert os.path.isfile(unknown), "모르는 파일을 옮겼다"
+    finally:
+        _sh.rmtree(root, ignore_errors=True)
+    print("  [113] 붙여넣기 오염 흡수(캠프명 18→14)·미분류 자동 재분류 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -6031,6 +6085,7 @@ if __name__ == "__main__":
     t110_writer_formula_key()
     t111_account_handoff_freshness()
     t112_band_plan_order_and_scope()
+    t113_paste_typos_and_misc_reclass()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)

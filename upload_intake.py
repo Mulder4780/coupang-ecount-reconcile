@@ -59,8 +59,18 @@ def _paths(root: str) -> dict[str, str]:
         "receipt": os.path.join(root, "7. 입금내역"),
         "worklog": os.path.join(root, "8. 정기점검, 돌발AS 일지(미실시건)"),
         "misc": os.path.join(root, "9. 미분류"),
+        # 거래 자료가 아니라 **기준·참고**로 두고 계속 들여다보는 것들
+        # (품목 단가표·인수인계 문서·업무 토탈 관리 리스트). 예전엔 자리가 없어
+        # 전부 9. 미분류로 갔고, 미반영 집계에 '판별 불가'로 잡혀 있었다(2026-08-06).
+        "ref": os.path.join(root, "10. 기준·참고 자료"),
         "flow": os.path.join(root, "50. 쿠팡 신규 프로젝트 업무 흐름도"),
     }
+
+
+# 기준·참고 자료로 보내는 말들. 거래 서류 판별을 **모두 지나친 뒤** 마지막에 본다 —
+# 앞 규칙을 가로채면 멀쩡히 분류되던 것이 참고자료로 새어 나간다.
+REF_WORDS = ("품목 단가", "단가 리스트", "단가표", "단가 표",
+             "인수인계", "업무 토탈", "토탈 관리", "이탈 관리 리스트")
 
 
 def _inside(path: str, root: str) -> bool:
@@ -187,7 +197,51 @@ def classify_target(path: str, root: str) -> tuple[str, str, str]:
     if any(k in blob for k in ("거래명세서", "세금계산서", "판매조회", "계정별원장")):
         return dated_dir(p["erp"], path), "erp_document", "ERP·거래서류 원본"
 
+    if any(k in blob for k in REF_WORDS):
+        return dated_dir(p["ref"], path), "reference", "기준·참고 자료(단가표·인수인계·관리 리스트)"
+
     return dated_dir(p["misc"], path), "unknown", "자동 판별 불가 — 미분류 보존"
+
+
+def reclass_misc(root: str | None = None, do_apply: bool = False) -> list[dict]:
+    """9. 미분류에 쌓인 것을 **늘어난 판별 규칙으로 다시** 걸러 낸다.
+
+    왜 (2026-08-06): 판별 규칙은 계속 늘어나는데, 규칙이 없던 시절에 미분류로 간
+    파일은 아무도 다시 안 봤다. 그래서 '판별 불가'가 줄지 않고 미반영 집계에
+    영원히 남았다. 규칙을 고칠 때마다 사람이 손으로 옮길 일이 아니므로 --apply
+    회차가 이 정리까지 같이 한다. 여전히 unknown 인 것은 **그대로 둔다**.
+    """
+    from source_dirs import ORIGIN_ROOT
+    root = os.path.abspath(root or ORIGIN_ROOT)
+    misc = _paths(root)["misc"]
+    moved: list[dict] = []
+    if not os.path.isdir(misc):
+        return moved
+    for base, dirs, files in os.walk(misc):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for name in sorted(files):
+            if name.lower() in IGNORE_NAMES or name.startswith(("~$", ".")):
+                continue
+            src = os.path.join(base, name)
+            dst_dir, kind, reason = classify_target(src, root)
+            if kind == "unknown" or _inside(dst_dir, misc):
+                continue
+            row = {"파일": name, "분류": kind, "근거": reason, "목적지": dst_dir}
+            if do_apply and _inside(src, misc) and _inside(dst_dir, root):
+                try:
+                    os.makedirs(dst_dir, exist_ok=True)
+                    target, dup = _collision(src, os.path.join(dst_dir, name), _sha256(src))
+                    if dup:
+                        os.remove(src)
+                        row["처리"] = "동일 원본 통합"
+                    else:
+                        shutil.move(src, target)
+                        row["처리"] = "원본 이동"
+                    row["목적지"] = target
+                except OSError as exc:
+                    row["오류"] = str(exc)[:180]
+            moved.append(row)
+    return moved
 
 
 def plan(root: str | None = None, min_age: int = MIN_STABLE_SECONDS) -> list[Intake] | None:
@@ -361,9 +415,20 @@ def main() -> int:
             print(f"업로드 투입함 미리보기: {len(jobs)}건")
             for job in jobs[:20]:
                 print(f"  [{job.kind}] {os.path.basename(job.src)} → {job.dst_dir}")
+            re = reclass_misc(do_apply=False)
+            if re:
+                print(f"미분류 재분류 후보: {len(re)}건")
+                for row in re[:20]:
+                    print(f"  [{row['분류']}] {row['파일']} → {row['목적지']}")
             return 0
         done, failed = apply(jobs)
         unknown = sum(1 for row in done if row.get("분류") == "unknown")
+        # 규칙이 늘어난 만큼 예전 미분류도 같이 걷어 낸다 — 사람이 손으로 옮길 일이 아니다.
+        again = reclass_misc(do_apply=True)
+        if again:
+            bad = [r for r in again if r.get("오류")]
+            print(f"미분류 재분류: {len(again) - len(bad)}건 이동" +
+                  (f" · 실패 {len(bad)}건" if bad else ""))
         print(f"업로드 원본 분류: {len(done)}건 · 미분류 {unknown}건 · 실패 {len(failed)}건")
         return 1 if failed else 0
     finally:
