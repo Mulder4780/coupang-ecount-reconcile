@@ -37,6 +37,9 @@
   let wid = 0;
   W.onmessage = (e) => { const f = waiters[e.data]; if (f) { delete waiters[e.data]; f(); } };
   const sleep = (ms) => new Promise((r) => { const id = ++wid; waiters[id] = r; W.postMessage({ id, ms }); });
+  // 밤새 이어 도는 주행기(grab_all.js)도 **같은 워커 타이머**를 써야 한다.
+  // 페이지 타이머로 기다리면 탭이 뒤에 있을 때 1분까지 늦춰져 배치 사이가 멎는다.
+  window.__grabSleep = sleep;
 
   window.__grabRange = (from, to) => {
     const out = [];

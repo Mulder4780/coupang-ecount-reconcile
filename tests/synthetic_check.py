@@ -5555,6 +5555,14 @@ def t119_context_guard():
     st = json.loads(_rd(os.path.join(os.path.dirname(ROOT), ".claude", "settings.json")))
     ups = json.dumps(st.get("hooks", {}).get("UserPromptSubmit", []), ensure_ascii=False)
     assert "context_guard.py" in ups, "UserPromptSubmit 훅에 배선되지 않았다"
+    # ★ 사람 입력이 없는 동안이 가장 위험하다 (2026-08-06 지시 "밤을 새서라도").
+    #   UserPromptSubmit 은 사람이 칠 때만 온다 — 지시 하나로 몇 시간을 혼자 도는
+    #   밤샘 작업에서는 한 번도 안 온다. 그래서 도구를 쓸 때마다 오는 PostToolUse 에도
+    #   같은 눈을 달아 둔다. 값은 90초에 한 번만 실제로 재서 도구를 늦추지 않는다.
+    pts = json.dumps(st.get("hooks", {}).get("PostToolUse", []), ensure_ascii=False)
+    assert "context_guard.py" in pts and "--tick" in pts,         "PostToolUse 에 컨텍스트 눈이 없다 — 사람 입력 없이 도는 동안 단계를 못 잡는다"
+    assert "def tick(" in src and "TICK_EVERY" in src, "--tick 진입점이 없다"
+    assert 'if now - float(st.get("tick_at") or 0) < TICK_EVERY' in src,         "매 도구 호출마다 대화 기록을 통째로 읽는다 — 모든 도구가 그만큼 느려진다"
     assert st.get("autoCompactEnabled") is True, "자동 요약이 꺼져 있다"
     win = int(st.get("autoCompactWindow") or 0)
     assert 100_000 <= win <= 500_000, "압축 시점(autoCompactWindow)이 범위 밖이다: %s" % win

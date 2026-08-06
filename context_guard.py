@@ -33,6 +33,7 @@ context_guard.py — 컨텍스트가 다 차기 **전에** 알아서 정리시�
 import os
 import re
 import sys
+import time
 import json
 import glob
 import argparse
@@ -224,6 +225,51 @@ def _message(r):
     return "\n".join(lines)
 
 
+TICK_EVERY = 90          # 초
+
+
+def tick():
+    """PostToolUse 훅 진입점 — **사람 입력 없이 몇 시간을 도는 밤샘 작업**을 위한 눈.
+
+    왜 필요한가 (2026-08-06 지시 "컨텍스트 윈도우 다 차기전 컴팩팅 자동으로")
+      UserPromptSubmit 훅은 **사람이 무언가 칠 때만** 온다. 그런데 이 프로젝트에서
+      가장 위험한 순간은 정반대다 — "밤을 새서라도 다 긁어와" 처럼 지시 하나로
+      AI 가 몇 시간을 혼자 도는 때다. 그 사이에는 훅이 한 번도 안 오고, 85% 마무리
+      전환도 95% 경고도 못 울린 채 한도에 부딪힌다. 그래서 **도구를 쓸 때마다** 오는
+      PostToolUse 에도 같은 눈을 단다.
+
+    비용을 어떻게 막나 — PostToolUse 는 도구 하나에 한 번씩 온다. 매번 트랜스크립트를
+    통째로 읽으면 모든 도구가 그만큼 느려진다. 그래서 **{}초에 한 번만** 실제로 재고,
+    그 사이 호출은 상태 파일의 시각만 보고 곧바로 빠져나온다.
+    """.format(TICK_EVERY)
+    try:
+        raw = sys.stdin.read()
+        payload = json.loads(raw) if raw.strip() else {}
+    except Exception:
+        payload = {}
+    try:
+        st = _load_state()
+        now = time.time()
+        if now - float(st.get("tick_at") or 0) < TICK_EVERY:
+            return 0                       # 값싸게 빠져나온다 — 도구를 늦추지 않는다
+        r = measure(session_id=payload.get("session_id") or "",
+                    transcript=payload.get("transcript_path") or "")
+        st = _load_state()
+        st["tick_at"] = now
+        _save_state(st)
+        msg = _message(r)
+    except Exception:
+        msg = ""
+    if msg:
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": msg,
+            }
+        }, ensure_ascii=False))
+    return 0
+
+
 def hook():
     """UserPromptSubmit 훅 진입점. 무슨 일이 있어도 exit 0."""
     payload = {}
@@ -252,6 +298,8 @@ def hook():
 def main():
     ap = argparse.ArgumentParser(description="컨텍스트가 다 차기 전에 마무리로 전환시킨다")
     ap.add_argument("--hook", action="store_true", help="훅에서 호출(표준입력 JSON)")
+    ap.add_argument("--tick", action="store_true",
+                    help="PostToolUse 훅에서 호출 — 사람 입력 없이 도는 동안에도 단계를 잡는다")
     ap.add_argument("--print", dest="show", action="store_true", help="지금 사용량 한 줄")
     ap.add_argument("--json", action="store_true", help="JSON 으로")
     ap.add_argument("--limit", type=int, default=0, help="한도를 손으로 지정(토큰)")
@@ -259,6 +307,8 @@ def main():
     ap.add_argument("--dry", action="store_true", help="재기만 하고 인계·기록은 하지 않는다")
     a = ap.parse_args()
 
+    if a.tick:
+        return tick()
     if a.hook:
         return hook()
 
