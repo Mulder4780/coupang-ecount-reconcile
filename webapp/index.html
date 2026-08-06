@@ -525,8 +525,13 @@ body.calendar-only .cal2-only-note{display:block}
 .rep-summary{margin:12px 0 14px;padding:13px 15px;border-radius:13px;background:var(--panel);
   border:1px solid #D9E3FF;font-size:14px;line-height:1.7;color:var(--brand);font-weight:700}
 .rep-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+/* ★ 바탕이 `rgba(255,255,255,.86)` 로 **못 박혀** 있었다(2026-08-07 사용자 화면 지적).
+   글자는 var(--ink-2)/var(--ink-3) 라 테마를 따라가는데 바탕만 흰색으로 남아,
+   어둡게 켜면 **흰 바탕에 흰 글자**가 됐다 — 숫자만 보이고 무슨 지표인지 안 보였다.
+   바탕도 토큰으로 돌린다. 이 규칙이 이 파일 전체의 원칙이다:
+   **글자가 토큰이면 바탕도 토큰이어야 한다.** 검증 [127] 이 이것을 지킨다. */
 .rep-metric{border:1px solid var(--line);border-radius:13px;padding:12px 13px;text-align:left;
-  background:rgba(255,255,255,.86);box-shadow:0 4px 14px rgba(16,24,40,.04);cursor:pointer}
+  background:var(--surface);box-shadow:0 4px 14px rgba(16,24,40,.04);cursor:pointer}
 .rep-metric:hover{transform:translateY(-2px);box-shadow:var(--sh-lg);border-color:#AFC2F4}
 .rep-metric .rv{font-size:21px;font-weight:900;letter-spacing:-.5px}
 .rep-metric .rl{font-size:13.5px;font-weight:800;color:var(--ink-2);margin-top:2px}
@@ -1452,8 +1457,13 @@ body.ryu-mode .tabbar button[data-v="report"]{display:none}
   grid-template-columns:repeat(auto-fit,minmax(152px,1fr));
   gap:10px;margin-top:14px;align-items:stretch}
 .workcenter-person{--wc:#4257D7;--wc2:#7283F2;display:flex;align-items:center;gap:12px;min-height:66px;
-  padding:12px 15px;border:1px solid color-mix(in srgb,var(--wc) 30%,white);border-radius:15px;
-  background:linear-gradient(145deg,var(--surface),color-mix(in srgb,var(--wc) 7%,white));color:var(--brand);
+  /* ★ 섞는 바탕이 `white` 로 못 박혀 있었다(2026-08-07 사용자 화면 지적).
+     어둡게 켜면 그라데이션이 '어두운 --surface → 거의 흰색' 이 되고, 글자는
+     var(--brand)(어둡게 켜면 밝은 파랑)라 **밝은 판 위 밝은 글자**가 됐다.
+     담당자 이름(류지영·오종현)이 안 보였다. 섞는 바탕도 토큰으로 돌린다 —
+     밝을 때는 --surface 가 흰색이라 보이던 모습 그대로다. */
+  padding:12px 15px;border:1px solid color-mix(in srgb,var(--wc) 30%,var(--surface));border-radius:15px;
+  background:linear-gradient(145deg,var(--surface),color-mix(in srgb,var(--wc) 12%,var(--surface)));color:var(--brand);
   font-weight:900;text-decoration:none;box-shadow:0 6px 16px rgba(28,63,168,.09);
   transition:transform .22s cubic-bezier(.2,.75,.25,1),box-shadow .22s,border-color .22s,filter .22s}
 .workcenter-person:nth-child(2){--wc:#147D64;--wc2:#35B58F}
@@ -1891,7 +1901,8 @@ fieldset.remote-edit>input{margin:0 0 9px}
   cursor:pointer;transition:transform .16s ease,background .16s ease}
 #v-sources .src-refresh svg{width:20px;height:20px;fill:currentColor}
 #v-sources .src-refresh:hover{background:var(--brand-tint)}#v-sources .src-refresh:active{transform:scale(.93)}
-#v-sources .src-toolbar{background:rgba(255,255,255,.78);border:1px solid rgba(60,60,67,.1);
+/* 같은 이유로 바탕을 토큰으로 (2026-08-07) — 어둡게 켜면 흰 판이 떠 있었다. */
+#v-sources .src-toolbar{background:var(--surface);border:1px solid rgba(60,60,67,.1);
   border-radius:20px;padding:14px 14px 7px;margin-bottom:14px;box-shadow:0 8px 24px rgba(29,45,95,.06)}
 #v-sources .src-search{display:flex;align-items:center;gap:10px;background:var(--panel-2);
   border-radius:13px;padding:0 13px;min-height:46px;margin-bottom:12px}
