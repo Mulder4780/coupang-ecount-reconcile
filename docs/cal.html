@@ -204,8 +204,8 @@ const isoOf = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')
    · 안드로이드: `intent://…#k=…#Intent;scheme=https;package=com.android.chrome;end`
      안드로이드는 **맨 뒤** `#Intent;` 부터를 명령으로 읽어서 앞의 `#k=` 는 주소에 남는다.
      열쇠를 잃지 않고 그대로 크롬으로 넘어간다.
-   · 아이폰: 크롬 전용 주소(`googlechromes://`)로 넘긴다. 크롬이 없으면 아무 일도
-     안 일어나므로, 1.4초 뒤에도 그대로면 사파리 안내를 띄운다.
+   · 아이폰: **사파리**로 넘긴다(`x-safari-`). 크롬이 아니다 — 아이폰 크롬은 홈 화면
+     설치를 못 하기 때문이다. 사파리에서 '공유 → 홈 화면에 추가' 안내까지 이어 준다.
    · 어느 쪽이든 **넘기기 전에 주소를 클립보드에 복사**해 둔다. 넘어가다 실패해도
      '붙여넣기' 한 번으로 살아난다. */
 function inAppBrowser(){
@@ -221,21 +221,34 @@ function shareUrl(){
   const k = currentKey();
   return location.origin + location.pathname + (k ? '#k=' + k : '');
 }
-function openInChrome(){
+/* 넘길 주소를 **만들기만** 하는 함수 — 실제로 넘기는 것은 openInChrome 이다.
+   나눠 둔 이유: 주소 규칙이 틀리면 링크를 받은 사람 폰에서만 조용히 실패한다.
+   여기서 문자열로 뽑아낼 수 있어야 검증[120]이 규칙을 지켜 준다. */
+function chromeJumpUrl(){
   const url = shareUrl();
-  try{ navigator.clipboard && navigator.clipboard.writeText(url); }catch(e){}
   const rest = location.host + location.pathname + (currentKey() ? '#k=' + currentKey() : '');
   if(isAndroid()){
-    location.href = 'intent://' + rest
+    // 안드로이드는 **맨 뒤** `#Intent;` 부터를 명령으로 읽는다. 그래서 앞의 `#k=` 는
+    // 주소에 그대로 남아 크롬으로 넘어간다(열쇠를 잃지 않는다).
+    // 크롬이 없는 폰은 fallback 주소로 되돌아온다 — 아무 데도 못 가는 일은 없다.
+    return 'intent://' + rest
       + '#Intent;scheme=https;package=com.android.chrome;'
       + 'S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
-    return true;
   }
-  if(isIOS()){
-    location.href = 'googlechromes://' + rest;
-    return true;
-  }
-  return false;
+  /* ★ 아이폰은 크롬으로 보내면 안 된다 — **아이폰 크롬은 홈 화면 설치를 못 한다.**
+     아이폰에서 홈 화면에 아이콘을 만들 수 있는 것은 사파리뿐이다. 크롬으로 넘기면
+     "열리기는 하는데 설치는 여전히 안 되는" 상태가 되어 한 걸음 헛돈다.
+     그래서 사파리로 보낸다(`x-safari-` 는 카카오톡 안 브라우저에서 사파리를 여는 주소다). */
+  if(isIOS()) return 'x-safari-' + shareUrl();
+  return '';
+}
+function openInChrome(){
+  // 넘어가다 실패해도 살아날 수 있게 **먼저** 주소를 복사해 둔다.
+  try{ navigator.clipboard && navigator.clipboard.writeText(shareUrl()); }catch(e){}
+  const to = chromeJumpUrl();
+  if(!to) return false;
+  location.href = to;
+  return true;
 }
 function dismissBar(){ const b = $('cbar'); if(b) b.remove(); }
 function showBar(kind){
@@ -243,10 +256,12 @@ function showBar(kind){
   const bar = document.createElement('div');
   bar.className = 'bar'; bar.id = 'cbar';
   if(kind === 'chrome'){
-    bar.innerHTML = '<b>크롬에서 열면 앱으로 설치됩니다</b>'
+    const ios = isIOS();
+    bar.innerHTML = '<b>' + (ios ? '사파리에서 열면' : '크롬에서 열면') + ' 앱으로 설치됩니다</b>'
       + '<p>지금은 카카오톡·밴드 안의 브라우저라 홈 화면에 아이콘을 만들 수 없습니다. '
-      + '크롬으로 열면 다음부터 링크를 찾지 않아도 됩니다.</p>'
-      + '<span class="row"><button class="go" id="cgo">크롬으로 열기</button>'
+      + (ios ? '사파리' : '크롬') + '으로 열면 다음부터 링크를 찾지 않아도 됩니다.</p>'
+      + '<span class="row"><button class="go" id="cgo">'
+      + (ios ? '사파리로 열기' : '크롬으로 열기') + '</button>'
       + '<button class="no" id="cno">나중에</button></span>';
   }else if(kind === 'ios'){
     bar.innerHTML = '<b>홈 화면에 캘린더 아이콘 만들기</b>'

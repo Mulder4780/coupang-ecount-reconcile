@@ -5561,6 +5561,160 @@ def t119_context_guard():
     print("  [119] 컨텍스트 감시 — 사용량 실측·단계 전환·인계 자동·훅 배선 ✅")
 
 
+def t120_calendar_sheet_and_share():
+    """[120] 캘린더: 날짜 창·PC 텍스트 격자·고정 주소·크롬 설치 유도 (2026-08-06 지시).
+
+    지시: "캘린더 날짜 클릭시 밑에서 위로 올라가는 레이어창이나 모달창으로 / 공유시
+    크롬을 자동으로 열어 설치하게 / 공유 캘린더 주소 고정(변동 주지마) / 날짜 크기 크게 /
+    PC 는 텍스트로 자세히, 모바일은 지금처럼."
+
+    여기서 지키는 것은 **되돌아가기 쉬운 네 가지**다.
+      ① 날짜를 눌러도 화면 저 아래 목록만 바뀌던 옛 동작으로 돌아가지 않을 것
+      ② 공유 주소에 달(m=)·필터(off=)가 다시 붙지 않을 것 — 붙는 순간 주소가 흔들린다
+      ③ 열쇠 파일이 없다고 조용히 새 열쇠를 뽑지 않을 것 — 뿌린 링크가 통째로 죽는다
+      ④ 설치 매니페스트가 업무 앱이 아니라 **캘린더**를 가리킬 것
+    """
+    _rd = lambda *p: open(os.path.join(ROOT, *p), encoding="utf-8").read()
+    live = _rd("webapp", "index.html")
+    cal = _rd("docs", "cal.html")
+
+    # ① 날짜를 누르면 창이 뜬다 — 두 화면 모두
+    assert "calOpenSheet(day)" in live, "앱: 날짜를 눌러도 창이 뜨지 않는다"
+    assert 'id="calSheet"' in live and "function calCloseSheet(" in live, "앱: 날짜 창이 없다"
+    assert "document.body.style.overflow='hidden'" in live, \
+        "앱: 창이 떠 있는 동안 뒤 화면이 같이 스크롤된다"
+    assert "openSheet()" in cal and 'id="sheet"' in cal, "공유 캘린더: 날짜 창이 없다"
+    # 폰=아래에서 위로 · PC=가운데 모달 (한 마크업을 CSS 가 가른다)
+    for doc, name in ((live, "앱"), (cal, "공유 캘린더")):
+        assert "translateY(100%)" in doc, f"{name}: 아래에서 올라오는 레이어가 아니다"
+        assert "translate(-50%,-50%)" in doc, f"{name}: PC 가운데 모달이 없다"
+    # 애니메이션을 rAF 하나에만 걸면 탭이 숨었을 때 창이 안 올라온다(2026-08-06 캡처 사고)
+    for doc, name in ((live, "앱"), (cal, "공유 캘린더")):
+        assert "setTimeout(rise, 60)" in doc, f"{name}: rAF 가 안 불리는 상황의 대비가 없다"
+
+    # ② PC 는 글자, 폰은 점 — 가르는 것은 CSS 미디어쿼리여야 한다(창 크기를 재지 않는다)
+    assert ".cal2-txs{display:none}" in live and "@media(min-width:900px)" in live, \
+        "앱: PC 텍스트 격자 규칙이 없다"
+    assert 'class="cal2-txs"' in live, "앱: 격자 칸에 텍스트를 실어 보내지 않는다"
+    assert ".ctxs{display:none}" in cal and 'class="ctxs"' in cal, \
+        "공유 캘린더: PC 텍스트 격자가 없다"
+    # ③ 날짜 글씨 — 예전 값(14px/12.5px)으로 되돌아가지 않게 못을 박는다
+    assert ".cal2-day .d{font-size:17px" in live, "앱: 날짜 글씨가 다시 작아졌다"
+    assert ".cday b{font-size:17px" in cal, "공유 캘린더: 날짜 글씨가 다시 작아졌다"
+
+    # ④ 공유 주소 고정 — 달·필터를 주소에 담지 않는다
+    link = live[live.index("function calendarLink()"):]
+    link = link[:link.index("\n}")]
+    assert "?view=calendar'" in link, "고정 주소가 아니다"
+    assert "p.set('m'" not in link and "p.set('off'" not in link, \
+        "공유 주소에 달·필터가 다시 붙었다 — 누를 때마다 주소가 달라진다"
+    # 이미 뿌린 옛 링크(m=·off=)는 계속 열려야 한다
+    assert "if(/^\\d{4}-\\d{2}$/.test(m)) CAL_MONTH = m;" in live, \
+        "옛 링크의 달 지정을 더 이상 받아 주지 않는다"
+
+    # ⑤ 열쇠(=주소)를 조용히 바꾸지 않는다
+    share = _rd("cal_share.py")
+    assert "if not new and os.path.exists(OUT):" in share and "sys.exit(" in share, \
+        "공유본이 있는데 열쇠만 없을 때 새 열쇠를 조용히 뽑는다 — 뿌린 링크가 다 죽는다"
+    assert "def note_url(" in share, "고정 주소를 사람이 찾아볼 자리가 없다"
+
+    # ⑥ 크롬으로 넘겨 설치 — 카카오톡 안 브라우저는 설치 자체가 불가능하다
+    assert "function inAppBrowser(" in cal and "KAKAOTALK" in cal, \
+        "앱 안 브라우저 판정이 없다 — 카카오톡에서 열면 설치가 영영 안 된다"
+    assert "function chromeJumpUrl(" in cal, "넘길 주소를 만드는 자리가 따로 없다"
+    assert "package=com.android.chrome" in cal, "안드로이드 크롬 넘기기가 없다"
+    assert "S.browser_fallback_url=" in cal, "크롬이 없는 폰의 되돌아갈 자리가 없다"
+    # ★ 아이폰은 크롬이 아니라 **사파리**로 보내야 한다 — 아이폰 크롬은 홈 화면 설치를
+    #   못 한다. 크롬으로 보내면 "열리지만 설치는 안 되는" 상태로 한 걸음 헛돈다.
+    assert "'x-safari-' + shareUrl()" in cal, "아이폰을 사파리로 보내지 않는다"
+    assert "googlechromes://" not in cal,         "아이폰을 크롬으로 보낸다 — 아이폰 크롬으로는 홈 화면에 설치할 수 없다"
+    assert "sessionStorage.setItem('csos.cal.jump','1')" in cal, \
+        "자동 넘기기에 한 번만 걸리는 잠금이 없다 — 되돌아올 때마다 다시 튄다"
+    assert "beforeinstallprompt" in cal and "PROMPT.prompt()" in cal, "설치 창을 부르지 않는다"
+
+    # ⑦ 설치되는 것이 '캘린더' 여야 한다 — 업무 앱이 깔리면 받는 사람은 PIN 화면을 본다
+    assert 'href="cal-manifest.json"' in cal, "공유 캘린더가 업무 앱 매니페스트를 물고 있다"
+    cm = json.loads(_rd("docs", "cal-manifest.json"))
+    assert cm["start_url"].endswith("/cal.html"), cm
+    assert cm["id"].endswith("/cal.html"), "설치 신원이 업무 앱과 겹치면 하나만 설치된다"
+    app_mf = json.loads(_rd("docs", "manifest.json"))
+    _rev = lambda mf: sorted(i["src"] for i in mf["icons"])
+    assert _rev(cm) == _rev(app_mf), "아이콘 판이 업무 앱과 어긋났다 — 한쪽만 갱신됐다"
+    import cloud_publish as _CP
+    assert "docs/cal-manifest.json" in _CP.PUBLISH_FILES, \
+        "설치 정보가 고정 주소에 올라가지 않는다 — 링크를 받은 폰에는 계속 옛 매니페스트가 간다"
+
+    # ⑧ 설치한 아이콘은 주소의 `#k=` 를 못 가져간다 — 기기에 기억해 두지 않으면 매번 막힌다
+    assert "localStorage.setItem(KSTORE" in cal and "localStorage.getItem(KSTORE)" in cal, \
+        "열쇠를 기억하지 않는다 — 설치한 아이콘이 '열쇠가 없는 주소입니다'만 띄운다"
+    print("  [120] 캘린더 — 날짜 창(폰 레이어·PC 모달)·PC 텍스트 격자·고정 주소·크롬 설치 ✅")
+
+
+def t121_layer_dialogs():
+    """[121] 알림·확인·입력을 전부 레이어로 (2026-08-06 지시).
+
+    사용자 지시: "UX UI 편리하게 밑에서 위로 올라가는 레이어창으로 하거나
+    모달창으로 나오게 하는 구조를 … 전체 적용해 (담당자별 업무 센터도 마찬가지야)".
+
+    지키는 것
+      ① 브라우저 기본 창(alert·confirm·prompt)이 **한 개도 남아 있지 않다.**
+         하나라도 남으면 폰에서 "localhost:8000 says" 회색 상자가 튀어나온다.
+      ② 대체 함수(notice·askYesNo·askText)와 그 뼈대(dlgAsk)가 실제로 있다.
+      ③ confirm/prompt 는 답을 **기다려야** 한다 — askYesNo·askText 호출은 전부 await 다.
+         빠뜨리면 Promise 객체가 늘 참이라 "취소"가 먹지 않는다(조용한 사고).
+      ④ 폰=아래에서 올라오는 시트 · PC=가운데 모달. 두 모양이 CSS 에 다 있어야 한다.
+      ⑤ 담당자 업무센터 입력 폼은 **요소째** 레이어로 옮긴다(HTML 복사가 아니다).
+         복사하면 <input type=file> 과 적던 메모가 사라진다. 닫을 때 제자리로 돌아온다.
+    """
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    js = "".join(re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", idx, re.S))
+
+    # ① 기본 창이 남아 있지 않다 (deferredInstallPrompt.prompt() 같은 메서드는 제외)
+    for bad in ("alert", "confirm", "prompt"):
+        left = re.findall(r"(?<![\w.$])%s\s*\(" % bad, js)
+        assert not left, "브라우저 기본 %s() 가 %d 곳 남아 있다" % (bad, len(left))
+
+    # ② 대체 함수가 있다
+    for fn in ("function notice(", "function askYesNo(", "function askText(",
+               "function dlgAsk(", "function dlgCancel("):
+        assert fn in js, "대체 함수가 없다: %s" % fn
+
+    # ③ 답을 기다린다 — 정의부를 뺀 모든 호출 앞에 await 가 있다
+    for fn in ("askYesNo", "askText"):
+        for m in re.finditer(r"(.{8})%s\s*\(" % fn, js):
+            head = m.group(1)
+            if head.endswith("function ") or head.endswith("nction "):
+                continue                      # 정의부
+            assert head.rstrip().endswith("await"), \
+                "%s 호출에 await 가 빠졌다 — 취소가 먹지 않는다: …%s" % (fn, head)
+
+    # ④ 두 모양이 다 있다: 폰 시트(아래에서) · PC 모달(가운데)
+    assert "transform:translateY(100%)" in idx, "밑에서 올라오는 모양이 없다"
+    assert ".dlg-wrap.in .dlg{transform:translate(-50%,-50%) scale(1)" in idx, \
+        "PC 가운데 모달 모양이 없다"
+    assert ".sheet.open{transform:translate(-50%,-50%) scale(1)" in idx, \
+        "상세 시트가 PC 에서도 바닥에 붙어 있다 — 모달로 띄우기로 했다"
+    assert 'id="dlgWrap"' in idx and 'id="dlgBody"' in idx and 'id="dlgFoot"' in idx
+    # PIN 창(1400)보다 아래, 상세 시트(41)보다 위에 있어야 겹침 순서가 맞다
+    z = int(re.search(r"\.dlg-wrap\{position:fixed;inset:0;z-index:(\d+)", idx).group(1))
+    assert 41 < z < 1400, "레이어 겹침 순서가 어긋난다(z-index %s)" % z
+
+    # ⑤ 담당자 업무센터 — 요소째 옮기고, 닫을 때 돌려놓는다
+    assert "function layerOpen(" in js and "function layerRestore(" in js
+    assert "layerOpen('ryuEntryForm'" in js, \
+        "담당자 업무센터 입력 폼이 레이어로 열리지 않는다"
+    assert js.count("layerRestore()") >= 3, \
+        "레이어를 되돌리는 자리가 모자란다(내용교체·한겹닫기·통째닫기 세 곳)"
+    # setSheetContent 는 innerHTML 로 지우기 **전에** 되돌려야 한다
+    seg = js[js.index("function setSheetContent("):][:400]
+    assert seg.index("layerRestore()") < seg.index("body.innerHTML"), \
+        "옮겨 온 요소를 돌려놓기 전에 시트를 지운다 — 폼이 통째로 사라진다"
+    # 페이지 안에서 사라진 자리를 스크롤로 때우던 옛 방식이 남아 있으면 안 된다
+    assert "$('ryuEntryForm').scrollIntoView" not in js, \
+        "옛 스크롤 방식이 남아 있다 — 레이어와 둘 다 돌면 화면이 튄다"
+    print("  [121] 알림·확인·입력 레이어 — 기본창 0개·await 완비·폰시트/PC모달·폼 요소째 이동 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -6482,6 +6636,8 @@ if __name__ == "__main__":
     t117_dark_mode_toggle()
     t118_ocr_crosscheck()
     t119_context_guard()
+    t121_layer_dialogs()
+    t120_calendar_sheet_and_share()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)

@@ -54,7 +54,7 @@ window.addEventListener('beforeinstallprompt', function(e){
   --line:rgba(60,60,67,.24);                                    /* separator (헤어라인) */
   --ok:#1B6E2E; --ok-bg:#E7F8EC;                                /* 6.3/5.7 · 연녹 바탕 5.7 */
   --warn:#B25000; --warn-bg:#FFF4E5; --warn-btn:#B25000;   /* 글자 5.2 · 버튼 흰글자 5.2 */
-  --danger:#C7362B; --danger-bg:#FFEDEB;                        /* systemRed 계열 */
+  --danger:#C7362B; --danger-bg:#FFEDEB; --danger-btn:#B3261E;  /* 글자 5.3 · 버튼 흰글자 6.5 */
   --neu:#6C6C70; --neu-bg:#F2F2F7;                              /* systemGray 계열 */
   /* iOS 는 모서리를 크게, 그림자는 거의 쓰지 않는다(그룹 목록은 헤어라인으로 구분한다) */
   --r:16px; --r-sm:10px; --r-lg:22px;
@@ -80,7 +80,7 @@ window.addEventListener('beforeinstallprompt', function(e){
   --brand:#7FB0FF; --brand-dk:#A8C8FF; --brand-btn:#2B57C9; --brand-tint:#152A4A;
   --ok:#5FD08A; --ok-bg:#10301E;
   --warn:#F0AD4E; --warn-bg:#33240D; --warn-btn:#8A3E00;   /* 버튼 흰글자 7.6 */
-  --danger:#FF8189; --danger-bg:#3A1519;
+  --danger:#FF8189; --danger-bg:#3A1519; --danger-btn:#8E1B14;   /* 버튼 흰글자 9.1 */
   --neu:#A9B0BE; --neu-bg:#1C2438;
   --sh:0 .5px 0 rgba(0,0,0,.5); --sh-lg:0 8px 30px rgba(0,0,0,.55);
 }
@@ -311,11 +311,13 @@ body.calendar-only .cal2-only-note{display:block}
 .cal2-dow,.cal2-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
 .cal2-dow span{text-align:center;font-size:12px;font-weight:700;color:var(--ink-3);padding:4px 0 6px}
 .cal2-dow span:first-child{color:var(--danger)}.cal2-dow span:last-child{color:var(--brand)}
-.cal2-day{position:relative;aspect-ratio:1/1;min-height:44px;border-radius:11px;display:flex;
+/* ★ 날짜 글씨 키움 (2026-08-06 지시 "캘린더 날짜 크기 크게 변경").
+   달력에서 제일 먼저 찾는 것은 숫자다. 14px 은 점(dots)보다도 작아 보였다. */
+.cal2-day{position:relative;aspect-ratio:1/1;min-height:52px;border-radius:11px;display:flex;
   flex-direction:column;align-items:center;justify-content:flex-start;gap:3px;padding:5px 2px 0;
   font-variant-numeric:tabular-nums;transition:background .13s}
-.cal2-day .d{font-size:14px;font-weight:700;color:var(--ink);line-height:1.1;
-  width:25px;height:25px;display:grid;place-items:center;border-radius:50%}
+.cal2-day .d{font-size:17px;font-weight:750;color:var(--ink);line-height:1.1;
+  width:30px;height:30px;display:grid;place-items:center;border-radius:50%}
 .cal2-day.out .d{color:var(--ink-3);opacity:.45}
 .cal2-day.sun .d{color:var(--danger)}.cal2-day.sat .d{color:var(--brand)}
 .cal2-day.today .d{background:var(--brand-tint);color:var(--brand);font-weight:850}
@@ -325,6 +327,32 @@ body.calendar-only .cal2-only-note{display:block}
 .cal2-dots i{width:5px;height:5px;border-radius:50%;background:var(--c);display:block}
 .cal2-dots .more{font-size:9px;font-weight:800;color:var(--ink-3);line-height:5px}
 @media(hover:hover){.cal2-day:hover{background:var(--panel)}}
+
+/* ═══ PC 는 칸 안에 **글자**로 (2026-08-06 지시) ═══
+   "PC 웹 화면에서 캘린더가 자세히 보일 수 있게 텍스트로 구성하고, 반응형으로
+    모바일에서는 지금처럼."
+   왜 화면 크기로 가르나 — 폰은 칸 하나가 손가락 하나 폭이라 글자를 넣으면 두 자만
+   보이고 잘린다. 점이 오히려 정확하다. PC 는 칸이 세 배 넓어 캠프명이 그대로 들어간다.
+   자바스크립트로 폭을 재지 않고 **CSS 미디어쿼리**로만 가른다 — 창 크기를 바꿔도
+   다시 그릴 필요가 없고, 인쇄·캡처에서도 같은 규칙이 그대로 먹는다. */
+.cal2-txs{display:none}
+@media(min-width:900px){
+  .cal2-grid{gap:4px}
+  .cal2-day{aspect-ratio:auto;min-height:118px;align-items:stretch;justify-content:flex-start;
+    padding:6px 6px 7px;gap:4px;border:1px solid var(--line);background:var(--surface)}
+  .cal2-day .d{width:auto;height:auto;min-width:28px;padding:2px 6px;justify-self:start;
+    border-radius:8px;font-size:18px;place-items:center;display:inline-grid}
+  .cal2-day.on{border-color:var(--brand)}
+  .cal2-dots{display:none}
+  .cal2-txs{display:flex;flex-direction:column;gap:2px;width:100%;min-width:0;overflow:hidden}
+  .cal2-tx{display:block;width:100%;text-align:left;font-size:12px;font-weight:700;line-height:1.35;
+    padding:2px 6px;border-radius:6px;border-left:3px solid var(--c);
+    background:color-mix(in srgb,var(--c) 12%,transparent);color:var(--ink);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cal2-tx .tm{color:var(--ink-3);font-weight:800;margin-right:4px;font-variant-numeric:tabular-nums}
+  .cal2-txmore{font-size:11.5px;font-weight:800;color:var(--ink-3);padding:0 6px;text-align:left}
+  .cal2-day.out .cal2-tx{opacity:.5}
+}
 .cal2-agenda{display:grid;gap:7px}
 .cal2-ev{width:100%;display:grid;grid-template-columns:4px 1fr;gap:10px;text-align:left;
   padding:11px 12px 11px 0;border-radius:12px;background:var(--surface);border:1.5px solid var(--line);
@@ -350,8 +378,57 @@ body.calendar-only .cal2-only-note{display:block}
   border-radius:12px;margin-top:12px}
 .cal2-gcal .calendar-hint{border-top:0;padding:9px 2px 0}
 @media(max-width:480px){
-  .cal2-day{min-height:40px}.cal2-day .d{font-size:13px;width:23px;height:23px}
+  .cal2-day{min-height:48px}.cal2-day .d{font-size:15.5px;width:27px;height:27px}
   .cal2-gcal iframe{height:520px}
+}
+
+/* ═══ 날짜를 누르면 뜨는 창 (2026-08-06 지시) ═══
+   "밑에서 위로 올라가는 레이어창으로 하거나 모달창으로 나오게 하는데,
+    사용자 입장에서 편한 방식으로 선택해서 적용."
+   ─ 고른 방식: **한 컴포넌트가 화면 크기에 따라 둘 다 된다.**
+     · 폰(≤899px) → 밑에서 위로 올라오는 레이어(bottom sheet).
+       엄지가 닿는 아래쪽에서 올라오고, 아래로 쓸어내리면 닫힌다. 손이 위로 갈 일이 없다.
+     · PC(≥900px) → 가운데 모달.
+       PC 는 마우스라 어디든 같은 거리고, 화면이 넓어 아래에서 올라오면 눈이 따라가야 한다.
+   ─ 왜 굳이 띄우나: 격자를 누르면 예전에는 **화면 저 아래** 목록이 바뀌었다.
+     폰에서는 그게 안 보여서 "눌러도 아무 일이 없다"로 읽혔다(실사용 지적).
+   ─ 화면 아래 목록은 그대로 둔다. 캡처·인쇄가 그 목록을 쓰기 때문이다. */
+.cal2-sheet-wrap{position:fixed;inset:0;z-index:60;display:none}
+.cal2-sheet-wrap.open{display:block}
+.cal2-sheet-dim{position:absolute;inset:0;background:rgba(8,14,30,.42);
+  opacity:0;transition:opacity .22s ease}
+.cal2-sheet-wrap.in .cal2-sheet-dim{opacity:1}
+.cal2-sheet{position:absolute;left:0;right:0;bottom:0;max-height:82vh;display:flex;
+  flex-direction:column;background:var(--surface);color:var(--ink);
+  border-radius:20px 20px 0 0;box-shadow:0 -10px 40px rgba(8,14,30,.28);
+  padding-bottom:env(safe-area-inset-bottom);
+  transform:translateY(100%);transition:transform .26s cubic-bezier(.32,.72,0,1)}
+.cal2-sheet-wrap.in .cal2-sheet{transform:translateY(0)}
+.cal2-grab{width:38px;height:5px;border-radius:3px;background:var(--line);
+  margin:8px auto 2px;flex:none}
+.cal2-sheet-head{display:flex;align-items:flex-start;gap:10px;padding:8px 16px 10px;
+  border-bottom:1px solid var(--line);flex:none}
+.cal2-sheet-head .tt{flex:1;min-width:0}
+.cal2-sheet-head b{display:block;font-size:19px;font-weight:850;letter-spacing:-.4px}
+.cal2-sheet-head span{display:block;font-size:13px;color:var(--ink-2);margin-top:2px}
+.cal2-sheet-x{flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;
+  background:var(--panel);color:var(--ink-2);font-size:16px;font-weight:800;cursor:pointer;border:0}
+.cal2-sheet-body{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 16px 20px;
+  display:grid;gap:9px}
+.cal2-sheet-body .calendar-detail{margin-top:2px}
+.cal2-sheet-foot{flex:none;padding:0 16px 14px;display:flex;gap:8px}
+.cal2-sheet-foot .abtn{flex:1;justify-content:center}
+@media(min-width:900px){
+  .cal2-sheet{left:50%;right:auto;bottom:auto;top:50%;width:min(560px,92vw);max-height:78vh;
+    border-radius:18px;box-shadow:0 24px 60px rgba(8,14,30,.34);
+    transform:translate(-50%,-46%) scale(.96);opacity:0;
+    transition:transform .2s ease,opacity .2s ease}
+  .cal2-sheet-wrap.in .cal2-sheet{transform:translate(-50%,-50%) scale(1);opacity:1}
+  .cal2-grab{display:none}
+  .cal2-sheet-head{padding:16px 18px 12px}
+}
+@media(prefers-reduced-motion:reduce){
+  .cal2-sheet,.cal2-sheet-dim{transition:none}
 }
 
 /* ═══ 히어로 배너 ═══ */
@@ -860,8 +937,73 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
 .dl dd{font-weight:600;word-break:break-all;font-variant-numeric:tabular-nums}
 .dl .sec{grid-column:1/-1;font-size:13px;font-weight:800;color:var(--brand-dk);letter-spacing:.5px;
   border-top:1px solid var(--line);padding-top:11px;margin-top:5px;text-transform:uppercase}
-@media(min-width:900px){.sheet{left:50%;right:auto;width:540px;transform:translate(-50%,100%)}
-  .sheet.open{transform:translate(-50%,0)}}
+/* PC(≥900px)에서는 가운데 모달로 띄운다 (2026-08-06 지시).
+   폰에서는 그대로 밑에서 위로 올라온다 — 손이 닿는 자리가 아래이기 때문이다.
+   화면이 넓은데도 바닥에 붙여 두면 시선이 아래로 쏠려 내용이 잘 안 읽힌다. */
+@media(min-width:900px){
+  .sheet{left:50%;right:auto;bottom:auto;top:50%;width:min(620px,92vw);
+    max-height:84vh;max-height:84dvh;border-radius:20px;
+    padding:20px 22px 22px;box-shadow:0 26px 70px rgba(10,20,48,.34);
+    transform:translate(-50%,-46%) scale(.97);opacity:0;
+    transition:transform .2s cubic-bezier(.2,.9,.3,1),opacity .16s ease}
+  .sheet.open{transform:translate(-50%,-50%) scale(1);opacity:1}
+  .sheet .grip{display:none}          /* 끌어내릴 바닥이 없으니 손잡이도 없앤다 */
+  .sheet-actions{margin:0 -22px -22px;padding:12px 22px 14px;border-radius:0 0 20px 20px}
+}
+@media(prefers-reduced-motion:reduce){.sheet{transition:none}}
+
+/* 레이어로 올라온 카드 — 시트가 이미 테두리·그림자·여백을 갖고 있으니 겹치지 않게 벗긴다.
+   (2026-08-06 지시: 페이지 안의 입력 폼을 그대로 레이어로 띄운다) */
+.in-layer{margin:0!important;border:0!important;box-shadow:none!important;
+  background:transparent!important;padding:0!important;border-radius:0!important}
+.in-layer>h3:first-child{display:none}    /* 제목은 시트 머리(h2)가 이미 보여 준다 */
+
+/* ═══ 알림·확인·입력 레이어 (2026-08-06 지시) ═══
+   "밑에서 위로 올라가는 레이어창이거나 모달창" — 폰은 시트, PC는 모달.
+   상세 시트(41)보다 위, PIN 창(1400)보다 아래에 둔다. */
+.dlg-wrap{position:fixed;inset:0;z-index:1300;display:none}
+.dlg-wrap.open{display:block}
+.dlg-dim{position:absolute;inset:0;background:rgba(8,14,30,.46);
+  opacity:0;transition:opacity .18s ease;touch-action:none}
+.dlg-wrap.in .dlg-dim{opacity:1}
+.dlg{position:absolute;left:0;right:0;bottom:0;max-height:86vh;max-height:86dvh;
+  display:flex;flex-direction:column;background:var(--surface);
+  border-radius:22px 22px 0 0;overflow:hidden;overscroll-behavior:contain;
+  padding:10px 18px calc(16px + env(safe-area-inset-bottom));
+  box-shadow:0 -14px 44px rgba(10,20,48,.32);
+  transform:translateY(100%);transition:transform .24s cubic-bezier(.3,1,.4,1)}
+.dlg-wrap.in .dlg{transform:translateY(0)}
+.dlg-grip{flex:none;width:38px;height:4.5px;background:var(--line);border-radius:99px;margin:2px auto 12px}
+.dlg-head{flex:none;padding-bottom:8px}
+.dlg-head b{display:block;font-size:18px;font-weight:850;letter-spacing:-.3px}
+.dlg-head span{display:block;font-size:13.5px;color:var(--ink-2);margin-top:3px;line-height:1.55}
+.dlg-head span:empty{display:none}
+.dlg-body{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;font-size:15px;line-height:1.62;white-space:pre-wrap;
+  overflow-wrap:anywhere;padding:2px 0 6px}
+.dlg-body:empty{display:none}
+.dlg-body label{display:block;font-size:13px;font-weight:800;color:var(--ink-3);margin-bottom:6px}
+.dlg-body input,.dlg-body textarea{width:100%;padding:12px 13px;border-radius:12px;
+  border:1px solid var(--line);background:var(--panel);color:var(--ink);
+  font-size:16px;font-family:inherit}   /* 16px 미만이면 iOS 가 화면을 확대한다 */
+.dlg-body textarea{min-height:92px;resize:vertical;line-height:1.55}
+.dlg-foot{flex:none;display:flex;gap:9px;padding-top:12px}
+.dlg-foot button{flex:1;padding:14px 12px;border-radius:13px;background:var(--panel);
+  color:var(--ink);font-weight:900;font-size:15px;border:1px solid var(--line)}
+.dlg-foot button.primary{background:var(--brand-btn);color:#fff;border-color:transparent;
+  box-shadow:0 8px 20px rgba(36,82,230,.24)}
+/* ★ 배경을 --danger 로 두면 **어둡게**에서 흰 글자가 2.4 밖에 안 나온다(밝은 산호색).
+   --warn-btn 과 같은 방식으로 버튼 전용 색을 따로 둔다 — 두 팔레트 모두 흰 글자 6.5↑. */
+.dlg-foot button.danger{background:var(--danger-btn);color:#fff;border-color:transparent}
+@media(min-width:900px){
+  .dlg{left:50%;right:auto;bottom:auto;top:50%;width:min(520px,92vw);
+    border-radius:20px;padding:20px 22px 20px;
+    transform:translate(-50%,-46%) scale(.97);opacity:0;
+    transition:transform .2s cubic-bezier(.2,.9,.3,1),opacity .16s ease}
+  .dlg-wrap.in .dlg{transform:translate(-50%,-50%) scale(1);opacity:1}
+  .dlg-grip{display:none}
+}
+@media(prefers-reduced-motion:reduce){.dlg,.dlg-dim{transition:none}}
 
 /* 목록 머리 — '아래에 목록이 있다'를 놓치지 않게 구분선을 준다 */
 .lhead{display:flex;align-items:baseline;gap:7px;margin:14px 0 8px;padding-top:12px;
@@ -2334,6 +2476,20 @@ fieldset.remote-edit>input{margin:0 0 9px}
     <div class="sheet-actions" id="sheetactions"></div>
   </div>
 
+  <!-- 알림·확인·입력 레이어 (2026-08-06 지시) — 브라우저 기본 창(alert/confirm/prompt)
+       대신 쓴다. 폰에서는 밑에서 위로 올라오고, PC(≥900px)에서는 가운데 모달로 뜬다.
+       상세 시트(z-index 41) 위에 뜨도록 층을 따로 둔다 — 시트에 입력하던 값을
+       잃지 않으려면 같은 시트를 갈아끼우면 안 된다. -->
+  <div class="dlg-wrap" id="dlgWrap" aria-hidden="true">
+    <div class="dlg-dim" id="dlgDim"></div>
+    <div class="dlg" id="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+      <div class="dlg-grip"></div>
+      <div class="dlg-head"><b id="dlgTitle"></b><span id="dlgDesc"></span></div>
+      <div class="dlg-body" id="dlgBody"></div>
+      <div class="dlg-foot" id="dlgFoot"></div>
+    </div>
+  </div>
+
   <!-- 실행 -->
   <section class="view" id="v-run">
     <div class="card"><h3>작업 실행 <span class="norm">— 누르면 바로 돌고 아래에 로그가 쌓입니다</span></h3>
@@ -2863,9 +3019,33 @@ fieldset.remote-edit>input{margin:0 0 9px}
         <button class="abtn" onclick="clearCalendarDraft()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-counterclockwise"/></svg>입력값 초기화</button>
       </div>
     </div>
+
   </section>
 
 </main>
+
+<!-- 캘린더 날짜 창 — **화면 전체 기준**으로 떠야 해서 <main> 밖에 둔다.
+     .view 에는 화면 전환 애니메이션(transform·filter)이 걸려 있고, transform 이 걸린
+     조상 안에서는 position:fixed 가 화면이 아니라 **그 조상**을 기준으로 잡힌다.
+     안에 두었더니 시트가 화면 밖(문서 아래쪽)에 그려졌다 — 2026-08-06 실측. -->
+<!-- 날짜를 누르면 뜨는 창 — 폰은 아래에서 올라오는 레이어, PC는 가운데 모달.
+     (CSS 하나가 화면 크기로 갈라 준다. 마크업은 하나뿐이라 두 벌을 관리하지 않는다) -->
+<div class="cal2-sheet-wrap" id="calSheet" role="presentation">
+  <div class="cal2-sheet-dim" onclick="calCloseSheet()"></div>
+  <div class="cal2-sheet" role="dialog" aria-modal="true" aria-labelledby="calSheetTitle">
+    <div class="cal2-grab" aria-hidden="true"></div>
+    <div class="cal2-sheet-head">
+      <div class="tt"><b id="calSheetTitle">—</b><span id="calSheetSub"></span></div>
+      <button type="button" class="cal2-sheet-x" onclick="calCloseSheet()" aria-label="닫기">✕</button>
+    </div>
+    <div class="cal2-sheet-body" id="calSheetBody"></div>
+    <div class="cal2-sheet-foot">
+      <button type="button" class="abtn" onclick="calSheetShift(-1)">‹ 전날</button>
+      <button type="button" class="abtn" onclick="calSheetShift(1)">다음날 ›</button>
+    </div>
+  </div>
+</div>
+
 
 <nav class="tabbar" id="tabbar">
   <div class="brand">
@@ -3431,7 +3611,7 @@ function fixedStaffUrl(){
 }
 async function copyStaffCenterUrl(){
   try{await navigator.clipboard.writeText(fixedStaffUrl());toast('고정 업무센터 주소를 복사했습니다')}
-  catch(e){prompt('아래 주소를 복사해 주세요',fixedStaffUrl())}
+  catch(e){await askText('아래 주소를 복사해 주세요',fixedStaffUrl())}
 }
 async function shareStaffCenter(){
   const center=STAFF_CENTERS[staffSlug]||{title:'CSOS 업무센터'};
@@ -3632,11 +3812,11 @@ async function ryuListToPng(){
 }
 async function ryuCaptureList(){
   try{const b=await ryuListToPng();if(!b)throw new Error('빈 이미지');saveOrOpen(b,ryuListFileName());}
-  catch(e){alert('이미지 저장 실패: '+e);}
+  catch(e){notice('이미지 저장 실패: '+e);}
 }
 async function ryuCopyList(){
   try{const b=await ryuListToPng();if(!b)throw new Error('빈 이미지');await copyPngBlob(b);}
-  catch(e){alert('이미지 복사 실패: '+e);}
+  catch(e){notice('이미지 복사 실패: '+e);}
 }
 function ryuExportList(){
   exportRowsXlsx(`류지영_${ryuCategoryInfo(ryuCategory).label||'업무목록'}`,ryuRowsForExport());
@@ -3645,7 +3825,15 @@ function selectRyuRecord(index){
   ryuSelected=ryuVisible[index]||null;
   renderRyuHistory();
   renderRyuEditor();
-  if(window.innerWidth<900&&$('ryuEntryForm')) $('ryuEntryForm').scrollIntoView({behavior:'smooth',block:'start'});
+  // ★ 2026-08-06 지시 — 폰에서는 입력 폼을 **밑에서 올라오는 레이어**로 띄운다.
+  //   예전에는 목록 아래로 스크롤만 시켰다: 목록이 길면 한참 내려가야 했고,
+  //   적다가 위로 올리면 폼이 시야 밖으로 사라져 "어디 갔지"가 됐다.
+  //   폼 요소를 그대로 옮기므로 첨부 파일·적던 메모가 남는다.
+  //   PC(≥900px)는 목록과 폼이 나란히 보이므로 그대로 둔다 — 가릴 이유가 없다.
+  if(ryuSelected && window.innerWidth<900 && $('ryuEntryForm')){
+    layerOpen('ryuEntryForm', {title:'선택 업무 확인·입력',
+      sub:'기존 값은 덮어쓰지 않습니다 — 빈 칸만 채웁니다'});
+  }
 }
 function ryuInputHtml(field,existing){
   const name=esc2(field.name), label=esc2(field.label||field.name);
@@ -3705,6 +3893,9 @@ async function submitRyuEntry(ev){
     result.className='ryu-result ok';
     result.textContent=d.queued?`${d.queued}개 항목을 입력 DB에 저장했습니다. 엑셀은 다음 11시·15시 회차에 반영됩니다.`:'근거 파일과 조사 기록을 저장했습니다.';
     toast('류지영 업무센터 입력을 접수했습니다');
+    // 레이어로 띄워 둔 상태면 저장 뒤 닫아 준다 — 목록으로 바로 돌아간다.
+    // 결과 문구는 토스트로 이미 보였으므로 폼을 붙들고 있을 이유가 없다.
+    if(layerIsOpen('ryuEntryForm')) setTimeout(closeSheetAll, 600);
   }catch(e){
     result.className='ryu-result err';result.textContent='저장 실패 · '+String(e.message||e);
   }finally{btn.disabled=false;btn.classList.remove('busy');}
@@ -3881,7 +4072,7 @@ async function syncCurrentWorkLog(){
 }
 async function openWorkLogReport(andCapture){
   const day=($('workLogReportDate')&&$('workLogReportDate').value)||todayISO();
-  if(!/^2026-\d{2}-\d{2}$/.test(day)){alert('2026년 보고 기준일을 선택해 주세요');return;}
+  if(!/^2026-\d{2}-\d{2}$/.test(day)){notice('2026년 보고 기준일을 선택해 주세요');return;}
   try{
     const [rep,b]=await Promise.all([
       api('/api/exec_report?date='+encodeURIComponent(day)),
@@ -3890,7 +4081,7 @@ async function openWorkLogReport(andCapture){
     execRep=reportForDates(rep||{},day,day);BRIEF=b&&b.ok!==false?b:null;REPORT_PREVIEW_DATE=day;
     show('daily');renderDaily();
     if(andCapture){await new Promise(resolve=>requestAnimationFrame(resolve));await captureReport();}
-  }catch(e){alert('대표 보고를 만들지 못했습니다: '+String(e.message||e));}
+  }catch(e){notice('대표 보고를 만들지 못했습니다: '+String(e.message||e));}
 }
 async function submitImprovement(ev){
   ev.preventDefault();
@@ -4553,8 +4744,8 @@ async function remoteRequest(hostId){
       camp:v('Camp').trim(),issued_on:v('IDay'),
       version:v('Ver'),issuer:v('Issuer').trim()})});
     if(!r.ok) throw new Error(r.error||'실패');
-    alert('불출 기록 저장 완료');
-  }catch(e){ alert('불출 기록 실패: '+e.message); }
+    notice('불출 기록 저장 완료');
+  }catch(e){ notice('불출 기록 실패: '+e.message); }
   uxEvent('tap','remote-request'); renderRemoteCard(hostId);
 }
 
@@ -4575,7 +4766,7 @@ const RC_SRC={issue:'issues',delivery:'deliveries',stock:'moves'};
 function remoteEditOpen(kind,id,hostId){
   const s=window.__REMOTE||{}, box=$(hostId+'EditBox'); if(!box) return;
   const row=(s[RC_SRC[kind]]||[]).find(r=>r.id===id);
-  if(!row){ alert('그 줄을 찾지 못했습니다 — 새로고침 후 다시 시도하세요'); return; }
+  if(!row){ notice('그 줄을 찾지 못했습니다 — 새로고침 후 다시 시도하세요'); return; }
   const vers=['',...(s.versions||[])];
   const f=([k,label,t])=>{
     const cur=row[k]==null?'':String(row[k]);
@@ -4584,16 +4775,21 @@ function remoteEditOpen(kind,id,hostId){
     if(t==='kind') return `<label>${label}<select data-k="${k}">${['납품','사용','교체','샘플','택배출고','이관'].map(v=>`<option${v===cur?' selected':''}>${v}</option>`).join('')}</select></label>`;
     return `<label>${label}<input data-k="${k}" type="${t==='number'?'number':t==='date'?'date':'text'}" value="${esc2(cur)}"></label>`;
   };
-  box.innerHTML=`<fieldset class="remote-edit" id="${hostId}EditForm">
-    <legend>${({issue:'불출',delivery:'납품',stock:'재고'})[kind]} #${id} 고치기</legend>
-    <div class="remote-edit-grid">${(RC_FIELDS[kind]||[]).map(f).join('')}</div>
-    <label class="remote-edit-force"><input type="checkbox" id="${hostId}EForce"> 강제 저장 — 한도·재고 경고를 무시합니다</label>
-    <input id="${hostId}EReason" placeholder="사유 (강제 저장이면 반드시)" autocomplete="off">
-    <div class="remote-row2">
+  // ★ 2026-08-06 지시로 **레이어(폰=아래에서 올라오는 시트 · PC=가운데 모달)** 로 옮겼다.
+  //   예전에는 표 밑에 접혀 나와서, 줄이 많으면 어느 줄을 고치는 중인지 놓쳤고
+  //   화면을 스크롤하다 폼이 시야 밖으로 사라졌다. box 는 이제 비워 둔다.
+  box.innerHTML='';
+  showSheet(`<h2>${({issue:'불출',delivery:'납품',stock:'재고'})[kind]} #${id} 고치기</h2>
+    <p class="sub">수량은 보유·재고와 물려 있습니다. 서버가 막으면 아래 <b>강제 저장</b>에 사유를 적어 주세요.</p>
+    <fieldset class="remote-edit" id="${hostId}EditForm">
+      <div class="remote-edit-grid">${(RC_FIELDS[kind]||[]).map(f).join('')}</div>
+      <label class="remote-edit-force"><input type="checkbox" id="${hostId}EForce"> 강제 저장 — 한도·재고 경고를 무시합니다</label>
+      <input id="${hostId}EReason" placeholder="사유 (강제 저장이면 반드시)" autocomplete="off">
+    </fieldset>
+    <div class="actions sticky">
       <button class="abtn primary" type="button" onclick="remoteEditSave('${kind}',${id},'${hostId}')">저장</button>
-      <button class="abtn" type="button" onclick="$('${hostId}EditBox').innerHTML=''">닫기</button>
-    </div></fieldset>`;
-  box.scrollIntoView({behavior:'smooth',block:'nearest'});
+      <button class="abtn" type="button" onclick="closeSheetAll()">닫기</button>
+    </div>`);
   uxEvent('tap','remote-edit-open-'+kind);
 }
 async function remoteEditSave(kind,id,hostId){
@@ -4605,33 +4801,36 @@ async function remoteEditSave(kind,id,hostId){
   try{
     const r=await api('/api/remote/edit',{method:'POST',body:JSON.stringify({kind,id,fields,force,reason})});
     if(!r.ok) throw new Error(r.error||'실패');
-    alert('저장했습니다'+((r.warnings||[]).length?' — 경고를 무시했습니다: '+r.warnings.join(' · '):''));
-    $(hostId+'EditBox').innerHTML='';
-  }catch(e){ alert('수정 실패: '+e.message); return; }
+    closeSheetAll();                       // 고치기 레이어를 닫고 목록을 다시 그린다
+    notice('저장했습니다'+((r.warnings||[]).length?' — 경고를 무시했습니다: '+r.warnings.join(' · '):''));
+  }catch(e){ notice('수정 실패: '+e.message); return; }
   uxEvent('tap','remote-edit-save-'+kind); renderRemoteCard(hostId);
 }
 async function remoteRowDelete(kind,id,hostId){
-  const reason=prompt(`${({issue:'불출',delivery:'납품',stock:'재고'})[kind]} #${id} 를 지웁니다.\n왜 지우는지 적어 주세요 (기록에 남고, 되돌릴 수 있습니다).`);
+  const reason=await askText('왜 지우는지 적어 주세요', '', {
+    title:`${({issue:'불출',delivery:'납품',stock:'재고'})[kind]} #${id} 지우기`,
+    desc:'기록에 남고, "수정·삭제 기록"에서 되돌릴 수 있습니다.',
+    ph:'예: 중복 입력 · 수량 오기 · 다른 담당자 것', ok:'지우기'});
   if(reason===null) return;
-  if(!String(reason).trim()){ alert('사유가 필요합니다'); return; }
+  if(!String(reason).trim()){ notice('사유가 필요합니다'); return; }
   try{
     let r=await api('/api/remote/delete',{method:'POST',body:JSON.stringify({kind,id,reason})});
     if(!r.ok && /강제/.test(String(r.error||''))){
-      if(!confirm(`${r.error}\n\n그래도 지울까요?`)) return;
+      if(!await askYesNo(`${r.error}\n\n그래도 지울까요?`)) return;
       r=await api('/api/remote/delete',{method:'POST',body:JSON.stringify({kind,id,reason,force:true})});
     }
     if(!r.ok) throw new Error(r.error||'실패');
-    alert('지웠습니다 — 아래 "수정·삭제 기록"에서 되돌릴 수 있습니다');
-  }catch(e){ alert('삭제 실패: '+e.message); return; }
+    notice('지웠습니다 — 아래 "수정·삭제 기록"에서 되돌릴 수 있습니다');
+  }catch(e){ notice('삭제 실패: '+e.message); return; }
   uxEvent('tap','remote-delete-'+kind); renderRemoteCard(hostId);
 }
 async function remoteRestore(auditId,hostId){
-  if(!confirm('지운 기록을 되돌립니다. 계속할까요?')) return;
+  if(!await askYesNo('지운 기록을 되돌립니다. 계속할까요?')) return;
   try{
     const r=await api('/api/remote/restore',{method:'POST',body:JSON.stringify({audit_id:auditId})});
     if(!r.ok) throw new Error(r.error||'실패');
-    alert('되돌렸습니다');
-  }catch(e){ alert('되돌리기 실패: '+e.message); return; }
+    notice('되돌렸습니다');
+  }catch(e){ notice('되돌리기 실패: '+e.message); return; }
   uxEvent('tap','remote-restore'); renderRemoteCard(hostId);
 }
 async function remoteStock(hostId){
@@ -4640,8 +4839,8 @@ async function remoteStock(hostId){
     const r=await api('/api/remote/stock',{method:'POST',body:JSON.stringify({
       branch:v('SBr'),qty:+v('SQty'),mode:v('SMode'),note:v('SNote'),version:v('SVer')})});
     if(!r.ok) throw new Error(r.error||'실패');
-    alert(`재고 저장 완료 — 현재 ${r.stock}개`);
-  }catch(e){ alert('재고 저장 실패: '+e.message); }
+    notice(`재고 저장 완료 — 현재 ${r.stock}개`);
+  }catch(e){ notice('재고 저장 실패: '+e.message); }
   uxEvent('tap','remote-stock'); renderRemoteCard(hostId);
 }
 async function remoteDeliver(hostId){
@@ -4651,8 +4850,8 @@ async function remoteDeliver(hostId){
       technician:v('DTech').trim(),project:v('DPrj').trim(),camp:v('DCamp').trim(),
       qty:+v('DQty'),delivered_on:v('DDay'),kind:v('DKind'),version:v('DVer')})});
     if(!r.ok) throw new Error(r.error||'실패');
-    alert('납품 기록 저장 완료');
-  }catch(e){ alert('납품 기록 실패: '+e.message); }
+    notice('납품 기록 저장 완료');
+  }catch(e){ notice('납품 기록 실패: '+e.message); }
   uxEvent('tap','remote-deliver'); renderRemoteCard(hostId);
 }
 
@@ -4662,7 +4861,7 @@ async function wtComplete(k,id){
   const cfg=WT_CFG[k];
   const stCol=cfg.stCol, doneCol=cfg.doneCol;
   const doneVal = k==='pm' ? '완료' : '작업완료';
-  if(!confirm(`${id} — ${stCol} '${doneVal}' + ${doneCol} 오늘 날짜로 저장할까요?`)) return;
+  if(!await askYesNo(`${id} — ${stCol} '${doneVal}' + ${doneCol} 오늘 날짜로 저장할까요?`)) return;
   const today=new Date().toISOString().slice(0,10);
   await wtEdit(k,id,stCol,doneVal,'text');
   await wtEdit(k,id,doneCol,today,'date');
@@ -5425,7 +5624,7 @@ function openByPrj(key){
         </div>`;}).join('')}</div>`);
     return;
   }
-  alert(`${k} 를 찾지 못했습니다 (다른 월 데이터이거나 아직 미등록)`);
+  notice(`${k} 를 찾지 못했습니다 (다른 월 데이터이거나 아직 미등록)`);
 }
 function goList(mode, filter){
   setTimeout(()=>{
@@ -5883,11 +6082,14 @@ function navPush(entry){
 }
 function navGuard(){ history.pushState({csosNav:'guard'}, ''); }
 
-function exitApp(){
-  if(!confirm('앱을 종료할까요?')){ navGuard(); return; }
+async function exitApp(){
+  // ★ 묻기 **전에** 여분을 쌓는다. 이제 확인 창이 화면을 막지 않으므로, 묻는 동안
+  //   뒤로가기를 한 번 더 누르면 앱 밖으로 나가 버린다(예전 confirm 은 막아 줬다).
+  navGuard();
+  if(!await askYesNo('앱을 종료할까요?', {title:'앱 종료', yes:'종료', no:'계속 쓰기'})) return;
   // 설치형 앱 창은 스크립트로 닫힌다. 일반 탭이면 브라우저가 막으므로 안내만 남긴다.
   window.close();
-  setTimeout(()=>{ toast('창을 직접 닫아 주세요 — 브라우저가 자동 종료를 막았습니다'); navGuard(); }, 400);
+  setTimeout(()=>{ toast('창을 직접 닫아 주세요 — 브라우저가 자동 종료를 막았습니다'); }, 400);
 }
 
 window.addEventListener('popstate', ()=>{
@@ -5920,6 +6122,156 @@ function unlockBackground(){
   _bgScroll = null;
 }
 
+/* ══ 알림·확인·입력 레이어 (2026-08-06 지시) ═════════════════════════════════
+   사용자 지시: "UX UI 편리하게 밑에서 위로 올라가는 레이어창으로 하거나
+   모달창으로 나오게 하는 구조를 전체 적용해".
+
+   왜 바꾸나
+     브라우저 기본 alert/confirm/prompt 는 폰에서 "localhost:8000 says" 같은
+     회색 상자로 뜬다 — 앱 밖으로 튕겨 나간 것처럼 보이고, 글자가 길면 잘리고,
+     줄바꿈·강조·긴 사유 입력을 담을 수 없다. 여기로 모으면 폰은 밑에서 올라오는
+     시트, PC 는 가운데 모달로 **한 가지 모양**이 된다.
+
+   쓰는 법 (전부 Promise — 기다리려면 await)
+     notice('저장했습니다')                     → alert 대체
+     await askYesNo('지울까요?')                → confirm 대체(true/false)
+     await askText('왜 지우나요?', '', {…})     → prompt 대체(문자열 | null)
+
+   상세 시트 위에 뜬다. 같은 시트를 갈아끼우지 않으므로 **입력하던 값이 남는다.**
+   ─────────────────────────────────────────────────────────────────────────── */
+let _dlgResolve = null;        // 지금 열린 창의 답을 넘길 곳
+let _dlgCancelValue = null;    // 배경·ESC·뒤로가기로 닫았을 때의 답
+let _dlgQueue = [];            // 창이 열려 있는데 또 부르면 줄을 세운다(덮어쓰지 않는다)
+let _dlgLocked = false;        // 이 레이어가 배경을 잠갔나(시트가 이미 잠갔으면 건드리지 않는다)
+
+function dlgIsOpen(){ return $('dlgWrap').classList.contains('open'); }
+
+function _dlgFinish(value){
+  const done = _dlgResolve;
+  _dlgResolve = null;
+  const wrap = $('dlgWrap');
+  wrap.classList.remove('in');
+  setTimeout(()=>{
+    if(_dlgResolve) return;                       // 그새 다음 창이 열렸으면 그대로 둔다
+    wrap.classList.remove('open');
+    wrap.setAttribute('aria-hidden','true');
+    if(_dlgLocked){ _dlgLocked = false; unlockBackground(); }
+    const next = _dlgQueue.shift();
+    if(next) _dlgOpen(next.opt, next.resolve);
+  }, 200);
+  if(done) done(value);
+}
+
+/* 창 하나를 실제로 그린다. opt:
+     title  머리말(굵게)            desc  보조 설명(작게)
+     body   본문 HTML(신뢰 가능한 것만 — 사용자 입력은 esc2 로 감싼다)
+     input  {label, value, ph, multiline} 이 있으면 입력칸을 만든다
+     buttons [{label, value, kind:'primary'|'danger'|''}]  기본은 [확인]
+     cancel  배경/ESC 로 닫았을 때 돌려줄 값(기본 null) */
+function _dlgOpen(opt, resolve){
+  const wrap = $('dlgWrap');
+  _dlgResolve = resolve;
+  _dlgCancelValue = ('cancel' in opt) ? opt.cancel : null;
+
+  $('dlgTitle').textContent = opt.title || '알림';
+  $('dlgDesc').textContent  = opt.desc || '';
+
+  let body = opt.body || '';
+  if(opt.input){
+    const i = opt.input;
+    const tag = i.multiline
+      ? `<textarea id="dlgInput" placeholder="${esc2(i.ph||'')}">${esc2(i.value||'')}</textarea>`
+      : `<input id="dlgInput" type="${esc2(i.type||'text')}" placeholder="${esc2(i.ph||'')}" value="${esc2(i.value||'')}">`;
+    body += (i.label ? `<label for="dlgInput">${esc2(i.label)}</label>` : '') + tag;
+  }
+  $('dlgBody').innerHTML = body;
+
+  const btns = (opt.buttons && opt.buttons.length) ? opt.buttons : [{label:'확인', value:true, kind:'primary'}];
+  $('dlgFoot').innerHTML = btns.map((b,ix)=>
+    `<button type="button" class="${esc2(b.kind||'')}" data-ix="${ix}">${esc2(b.label)}</button>`).join('');
+  Array.from($('dlgFoot').children).forEach((el,ix)=>{
+    el.onclick = ()=> _dlgAnswer(btns[ix]);
+  });
+
+  if(!dlgIsOpen()){
+    wrap.classList.add('open');
+    wrap.setAttribute('aria-hidden','false');
+    if(!sheetIsOpen()){ _dlgLocked = true; lockBackground(); }
+  }
+  setTimeout(()=>{
+    wrap.classList.add('in');
+    const inp = $('dlgInput');
+    // 폰에서 자동 포커스는 키보드를 밀어 올려 버튼을 가린다 — 입력창일 때만 준다
+    if(inp){ try{ inp.focus(); inp.select && inp.select(); }catch(_){} }
+    else { const p = $('dlgFoot').querySelector('.primary') || $('dlgFoot').lastElementChild;
+           if(p){ try{ p.focus(); }catch(_){} } }
+  }, 10);
+}
+
+/* 버튼 하나를 누른 결과. 입력칸이 있으면 취소가 아닌 버튼은 그 값을 돌려준다. */
+function _dlgAnswer(btn){
+  const inp = $('dlgInput');
+  let v = btn.value;
+  if(inp && v !== false && v !== null && v !== undefined) v = inp.value;
+  _dlgFinish(v);
+}
+
+function dlgCancel(){ if(_dlgResolve) _dlgFinish(_dlgCancelValue); }
+
+function dlgAsk(opt){
+  return new Promise(resolve=>{
+    if(_dlgResolve){ _dlgQueue.push({opt, resolve}); return; }   // 줄 세우기
+    _dlgOpen(opt, resolve);
+  });
+}
+
+/* alert 대체. 기다릴 필요가 없으면 그냥 부르면 된다(막지 않는다). */
+function notice(msg, opt){
+  opt = opt || {};
+  return dlgAsk({
+    title: opt.title || '알림', desc: opt.desc || '',
+    body: esc2(String(msg == null ? '' : msg)),
+    buttons: [{label: opt.ok || '확인', value:true, kind:'primary'}],
+    cancel: true
+  });
+}
+/* confirm 대체 — true/false 를 돌려준다. 반드시 await 로 받는다. */
+function askYesNo(msg, opt){
+  opt = opt || {};
+  return dlgAsk({
+    title: opt.title || '확인', desc: opt.desc || '',
+    body: esc2(String(msg == null ? '' : msg)),
+    buttons: [{label: opt.no || '취소', value:false},
+              {label: opt.yes || '진행', value:true, kind: opt.danger ? 'danger' : 'primary'}],
+    cancel: false
+  });
+}
+/* prompt 대체 — 문자열 또는 null(취소). 반드시 await 로 받는다. */
+function askText(label, value, opt){
+  opt = opt || {};
+  return dlgAsk({
+    title: opt.title || '입력', desc: opt.desc || '',
+    body: opt.body || '',
+    input: {label: label || '', value: value || '', ph: opt.ph || '',
+            multiline: opt.multiline !== false, type: opt.type || 'text'},
+    buttons: [{label:'취소', value:false}, {label: opt.ok || '확인', value:true, kind:'primary'}],
+    cancel: null
+  });
+}
+
+$('dlgDim').addEventListener('click', dlgCancel);
+document.addEventListener('keydown', e=>{
+  if(!dlgIsOpen() || !_dlgResolve) return;
+  if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); dlgCancel(); return; }
+  // 한 줄 입력·버튼 위에서 Enter = 기본 동작. 여러 줄 입력에서는 줄바꿈이 우선이다.
+  if(e.key === 'Enter' && !e.shiftKey){
+    const t = e.target;
+    if(t && t.tagName === 'TEXTAREA') return;
+    const p = $('dlgFoot').querySelector('.primary');
+    if(p){ e.preventDefault(); p.click(); }
+  }
+}, true);
+
 function sheetSnapshot(){
   return {
     body: $('sheetbody').innerHTML,
@@ -5927,8 +6279,47 @@ function sheetSnapshot(){
     scrollTop: $('sheetbody').scrollTop
   };
 }
+/* ── 페이지 안의 **진짜 요소**를 레이어로 띄운다 (2026-08-06 지시) ─────────────
+   HTML 을 복사해 시트에 다시 그리면 <form>·<input type=file>·입력 중이던 값이
+   전부 사라진다(류지영 업무센터의 입력 폼이 그렇다). 그래서 여기서는 복사하지
+   않고 **요소 자체를 옮겼다가, 닫을 때 있던 자리로 돌려놓는다.**
+   자리 표시는 주석 노드로 남긴다 — 화면에 아무것도 그리지 않으면서 위치만 기억한다. */
+let _layer = null;                                   // {el, mark, home}
+function layerRestore(){
+  if(!_layer) return;
+  const el = _layer.el, mark = _layer.mark, home = _layer.home;
+  _layer = null;
+  el.classList.remove('in-layer');
+  if(mark && mark.parentNode){
+    mark.parentNode.insertBefore(el, mark);
+    mark.parentNode.removeChild(mark);
+  }else if(home && document.contains(home)){
+    home.appendChild(el);          // 자리 표시가 사라졌으면(부모를 다시 그렸다) 끝에라도 돌려놓는다
+  }
+  // 둘 다 없으면 부모째 없어진 것이다 — 그때는 요소를 되살릴 곳 자체가 없다
+}
+/* elId 요소를 시트(폰=아래에서 올라옴 · PC=가운데 모달)로 올린다. */
+function layerOpen(elId, opt){
+  const el = $(elId);
+  if(!el || !el.parentNode) return false;
+  opt = opt || {};
+  const mark = document.createComment('layer:' + elId);
+  el.parentNode.insertBefore(mark, el);
+  // showSheet → setSheetContent 가 먼저 앞의 레이어를 제자리로 돌려놓는다
+  showSheet(`<h2>${esc2(opt.title || '')}</h2>` +
+            (opt.sub ? `<p class="sub">${esc2(opt.sub)}</p>` : '') +
+            `<div id="layerSlot"></div>`);
+  const home = mark.parentNode;
+  $('layerSlot').appendChild(el);
+  el.classList.add('in-layer');
+  _layer = {el: el, mark: mark, home: home};
+  return true;
+}
+function layerIsOpen(elId){ return !!(_layer && (!elId || _layer.el.id === elId)); }
+
 function setSheetContent(html, actionsHtml){
   const body = $('sheetbody'), foot = $('sheetactions');
+  layerRestore();                       // 옮겨 온 요소부터 제자리로 — 지우기 전에
   body.innerHTML = html || '';
   foot.innerHTML = actionsHtml || '';
   if(!actionsHtml){
@@ -5967,6 +6358,7 @@ function closeSheet(fromPop){
     try{ $('sheetbody').focus({preventScroll:true}); }catch(_){}
     return;
   }
+  layerRestore();                      // 마지막 한 겹이면 옮겨 온 요소를 돌려놓는다
   $('sheet').classList.remove('open');
   clearSheetActions();
   setTimeout(()=>{ $('sheetbg').style.display = 'none'; unlockBackground(); }, 220);
@@ -5977,6 +6369,7 @@ function closeSheetAll(){
   // 시트로 쌓인 것만 걷어낸다. 탭 이동 기록은 남겨야 뒤로가기가 이전 탭으로 간다.
   let back = 0;
   while(_nav.length && _nav[_nav.length-1].t === 'sheet'){ _nav.pop(); back++; }
+  layerRestore();                      // 옮겨 온 요소를 먼저 제자리로
   _sheetStack.length = 0;
   $('sheet').classList.remove('open');
   clearSheetActions();
@@ -6121,7 +6514,7 @@ async function saveInputs(kind, id, n){
        col:el.dataset.col, value:el.value.trim(), vtype:el.dataset.vtype})});
     if(r.ok) queued++;
   }
-  if(!queued){ alert('입력된 값이 없습니다'); return; }
+  if(!queued){ notice('입력된 값이 없습니다'); return; }
   closeSheetAll();      // 저장이 끝났으면 목록으로 되돌아갈 게 아니라 통째로 닫는다
   toast(`${queued}건 DB 저장 완료 · 엑셀은 다음 11시·15시 회차에 반영됩니다`);
   loadStatus();
@@ -6252,19 +6645,19 @@ function renderPeriod(){
 }
 
 /* ── 실행 ── */
-function confirmRun(key,msg){ if(confirm(msg+'\n\n진행할까요?')) runTask(key); }
+async function confirmRun(key,msg){ if(await askYesNo(msg,{desc:'진행할까요?'})) runTask(key); }
 /* 워크벤치 대체: 로컬 파일·폴더 열기 (서버가 도는 PC에서만 허용) */
 async function openLocal(what){
   try{
     const r = await api('/api/open',{method:'POST',body:JSON.stringify({what})});
     if(r.ok) toast('열었습니다 · ' + (r.opened||what));
-    else alert(r.error || '열지 못했습니다');
-  }catch(e){ alert('사무실 PC에서만 사용할 수 있는 기능입니다.'); }
+    else notice(r.error || '열지 못했습니다');
+  }catch(e){ notice('사무실 PC에서만 사용할 수 있는 기능입니다.'); }
 }
 async function runTask(key){
   show('run');
   const r = await api('/api/run/'+key,{method:'POST'});
-  if(!r.ok && r.msg!=='demo'){ alert(r.msg); return; }
+  if(!r.ok && r.msg!=='demo'){ notice(r.msg); return; }
   if(!polling) polling = setInterval(pollLog, 1200);
   pollLog();
 }
@@ -6479,7 +6872,15 @@ function calShowAll(){
   toast('일정 종류를 모두 켰습니다');
   uxEvent('tap','calShowAll');
 }
-function calPickDay(day){ CAL_DAY=day; calendarSelected=0; renderCalendarPage(); uxEvent('tap','calDay',day); }
+/* 날짜를 누르면 **그 자리에서** 창이 뜬다. 예전에는 화면 저 아래 목록만 바뀌어서
+   폰에서는 "눌러도 아무 일이 없다"로 보였다(2026-08-06 지시). 아래 목록도 같이 갱신한다 —
+   캡처·인쇄가 그 목록을 쓰기 때문에 둘이 어긋나면 안 된다. */
+function calPickDay(day){
+  CAL_DAY=day; calendarSelected=0;
+  renderCalendarPage();
+  calOpenSheet(day);
+  uxEvent('tap','calDay',day);
+}
 function calDayRows(day){
   return calendarRows().filter(e=>e.날짜===day);
 }
@@ -6522,9 +6923,20 @@ function renderCalGrid(){
     const kinds=[...new Set(evs.map(calKindOf))].slice(0,4);
     const dots=kinds.map(k=>`<i style="--c:${calKindMeta(k).color}"></i>`).join('')
       + (evs.length>kinds.length?'<span class="more">+</span>':'');
+    /* PC 용 글자 칸. **폰에도 같이 실어 보내고 CSS 가 감춘다** — 화면 폭을 자바스크립트로
+       재서 갈라 놓으면 창 크기를 바꿀 때마다 다시 그려야 하고, 그 사이 칸이 비어 보인다.
+       한 칸에 넷까지만 적는다. 다섯째부터는 '+N' 으로 접고, 누르면 창에서 전부 본다. */
+    const TXN=4;
+    const txs=evs.slice(0,TXN).map(e=>{
+      const k=calKindMeta(calKindOf(e));
+      const tm=e.시간?`<span class="tm">${esc2(String(e.시간).slice(0,5))}</span>`:'';
+      return `<span class="cal2-tx" style="--c:${k.color}" title="${esc2(k.label+' · '+calCampOf(e))}">`
+        + `${tm}${esc2(calCampOf(e))}</span>`;
+    }).join('') + (evs.length>TXN?`<span class="cal2-txmore">+${evs.length-TXN}건 더</span>`:'');
     html+=`<button type="button" class="${cls.join(' ')}" onclick="calPickDay('${iso}')"
       aria-label="${iso} 일정 ${evs.length}건"><span class="d">${d.getDate()}</span>
-      <span class="cal2-dots">${dots}</span></button>`;
+      <span class="cal2-dots">${dots}</span>
+      <span class="cal2-txs">${txs}</span></button>`;
   }
   grid.innerHTML=html;
 }
@@ -6547,8 +6959,14 @@ function renderCalAgenda(){
       <span class="t2">${esc2(e.프로젝트NO||'프로젝트 미확정')}${e.담당기사?` · ${esc2(e.담당기사)}`:''}${e.시간?` · ${esc2(e.시간)}`:''}</span>
       </span></button>`;
   }).join('');
-  const e=rows[calendarSelected], k=calKindMeta(calKindOf(e));
-  detail.innerHTML=`<div class="detail-title"><b>${esc2(e.제목||'제목 없음')}</b></div><dl>
+  detail.innerHTML=calDetailHTML(rows[calendarSelected]);
+}
+/* 세부 사항 한 벌 — 화면 아래 '세부 사항' 칸과 날짜 창이 **같은 함수**를 쓴다.
+   두 벌로 적어 두면 한쪽만 고쳐져 화면마다 다른 내용이 나온다(전에 실제로 그랬다). */
+function calDetailHTML(e){
+  if(!e) return '날짜를 고르면 그 날의 일정과 세부 사항이 여기에 나옵니다.';
+  const k=calKindMeta(calKindOf(e));
+  return `<div class="detail-title"><b>${esc2(e.제목||'제목 없음')}</b></div><dl>
     <dt>일시</dt><dd>${esc2(calendarWhen(e))}</dd>
     <dt>종류</dt><dd>${esc2(k.label)}</dd>
     <dt>프로젝트</dt><dd>${esc2(e.프로젝트NO||'미확정')}</dd>
@@ -6563,15 +6981,104 @@ function renderCalAgenda(){
     <dt>${e.예측?'예측 근거':'연결 근거'}</dt><dd>${esc2(e.연결근거||'없음')}${e.장비수?` · ${esc2(e.장비수)}대`:''}</dd>
     ${e.예측?`<dt>주의</dt><dd>과거 점검일로 계산한 예상일입니다. 공식 일정 확정 전이며 Google Calendar에는 자동 저장하지 않습니다.</dd>`:''}</dl>`;
 }
+
+/* ── 날짜 창(폰=아래에서 올라오는 레이어 · PC=가운데 모달) ──────────────────
+   ★ 열고 닫는 동안 **뒤 화면이 같이 스크롤되지 않게** 잠근다. 폰에서 시트를 넘기면
+     뒤 목록이 함께 밀려 내려가 위치를 잃는 것이 가장 흔한 불편이다. */
+let CAL_SHEET_SEL = 0, CAL_SHEET_SCROLL = 0;
+function calSheetEl(){ return $('calSheet'); }
+function calSheetOpen(){ const w=calSheetEl(); return !!(w && w.classList.contains('open')); }
+function calOpenSheet(day){
+  const w=calSheetEl(); if(!w) return;
+  CAL_SHEET_SEL = 0;
+  renderCalSheet();
+  if(!w.classList.contains('open')){
+    CAL_SHEET_SCROLL = window.scrollY || 0;
+    document.body.style.overflow='hidden';
+    w.classList.add('open');
+    // 한 프레임 뒤에 'in' 을 붙여야 브라우저가 시작 위치를 잡고 애니메이션을 태운다.
+    // ★ rAF 만 믿지 않는다 — 탭이 숨으면 rAF 는 **아예 안 불린다**(2026-08-06 캡처 사고).
+    //   시간으로도 같이 걸어 둔다. 둘 중 먼저 오는 쪽이 붙이고, 두 번 붙어도 해가 없다.
+    const rise=()=>w.classList.add('in');
+    requestAnimationFrame(rise); setTimeout(rise, 60);
+  }
+  uxEvent('view','calSheet',day||CAL_DAY);
+}
+function calCloseSheet(){
+  const w=calSheetEl(); if(!w || !w.classList.contains('open')) return;
+  w.classList.remove('in');
+  document.body.style.overflow='';
+  const done=()=>{ w.classList.remove('open'); };
+  // 애니메이션이 꺼진 환경(감속 선호·구형 브라우저)에서도 반드시 닫히게 시간으로도 건다.
+  setTimeout(done, 280);
+}
+function calSheetShift(n){
+  if(!CAL_DAY) return;
+  const [y,m,d]=CAL_DAY.split('-').map(Number);
+  const t=new Date(y, m-1, d+n);
+  const iso=`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+  if(calMonthOf(iso)!==CAL_MONTH){        // 달을 넘으면 격자도 같이 넘긴다
+    CAL_MONTH=calMonthOf(iso);
+    try{ localStorage.setItem('csos.cal.month', CAL_MONTH); }catch(e){}
+  }
+  CAL_DAY=iso; calendarSelected=0; CAL_SHEET_SEL=0;
+  renderCalendarPage(); renderCalSheet();
+}
+function calSheetPick(i){ CAL_SHEET_SEL=i; calendarSelected=i; renderCalSheet(); renderCalAgenda(); }
+function renderCalSheet(){
+  const body=$('calSheetBody'), title=$('calSheetTitle'), sub=$('calSheetSub');
+  if(!body||!title||!sub) return;
+  const rows=calDayRows(CAL_DAY);
+  title.textContent = CAL_DAY ? ymd(CAL_DAY) : '선택한 날';
+  sub.textContent = rows.length ? `일정 ${rows.length}건` : '이 날에는 표시할 일정이 없습니다';
+  if(!rows.length){
+    body.innerHTML='<div class="cal2-empty">이 날에는 표시할 일정이 없습니다. 위 칩에서 꺼 둔 종류가 있는지 확인해 보세요.</div>';
+    return;
+  }
+  CAL_SHEET_SEL=Math.max(0, Math.min(CAL_SHEET_SEL, rows.length-1));
+  body.innerHTML = rows.map((e,i)=>{
+    const k=calKindMeta(calKindOf(e));
+    return `<button type="button" class="cal2-ev ${i===CAL_SHEET_SEL?'on':''}" style="--c:${k.color}"
+      onclick="calSheetPick(${i})"><span class="bar" aria-hidden="true"></span><span class="tx">
+      <span class="t1"><span class="k">${esc2(k.label)}</span>${esc2(calCampOf(e))}</span>
+      <span class="t2">${esc2(e.프로젝트NO||'프로젝트 미확정')}${e.담당기사?` · ${esc2(e.담당기사)}`:''}${e.시간?` · ${esc2(e.시간)}`:''}</span>
+      </span></button>`;
+  }).join('')
+  + `<div class="calendar-detail">${calDetailHTML(rows[CAL_SHEET_SEL])}</div>`;
+}
+document.addEventListener('keydown', (ev)=>{ if(ev.key==='Escape' && calSheetOpen()) calCloseSheet(); });
+/* 아래로 쓸어내려 닫기 — 폰에서 닫기 버튼까지 엄지를 올리지 않아도 되게. */
+(function(){
+  let y0=null;
+  document.addEventListener('touchstart', (ev)=>{
+    const w=calSheetEl();
+    if(!calSheetOpen() || !w) { y0=null; return; }
+    const sheet=w.querySelector('.cal2-sheet'); if(!sheet || !sheet.contains(ev.target)) { y0=null; return; }
+    const b=$('calSheetBody');
+    // 목록을 위로 스크롤한 상태에서는 시트를 끌지 않는다 — 목록 스크롤이 먼저다.
+    if(b && b.contains(ev.target) && b.scrollTop>0){ y0=null; return; }
+    y0=ev.touches[0].clientY;
+  }, {passive:true});
+  document.addEventListener('touchend', (ev)=>{
+    if(y0==null) return;
+    const dy=(ev.changedTouches[0].clientY - y0); y0=null;
+    if(dy>70) calCloseSheet();
+  }, {passive:true});
+})();
 /* ── 캘린더만 여는 주소 (2026-08-06 지시 "캘린더만 별도 url 공유 가능한 버튼") ──
    ★ 이 링크는 **화면을 가리킬 뿐 PIN 을 건너뛰지 않는다.** 받는 사람도 로그인해야 한다.
      인증을 우회하는 링크를 만들면 그 주소 하나로 원장 전체가 열린다 — 절대 하지 않는다.
    지금 보고 있는 달과 켜 둔 종류를 그대로 담아, 열면 같은 화면이 나오게 한다. */
+/* ★ 주소는 **고정**이다 (2026-08-06 지시: "공유 캘린더 주소 고정, 변동 주지마").
+   예전에는 지금 보고 있는 달(`m=`)과 꺼 둔 종류(`off=`)를 주소에 담았다. 그래서
+   누를 때마다 주소가 달라졌고, 단톡방에 이미 뿌린 링크와 새로 복사한 링크가 서로
+   다른 화면을 열었다. 받는 쪽은 "주소가 또 바뀌었다"로 읽는다.
+   지금은 언제 복사해도 **한 줄로 같다.** 달은 받는 사람 기준 '오늘'로 열린다 —
+   8월에 만든 링크를 9월에 눌러도 9월이 나와야 맞다.
+   (옛 링크의 `m=`·`off=` 는 아래 calApplyDeepLink 가 그대로 받아 준다 — 이미 뿌린
+    링크를 죽이지 않기 위해서다) */
 function calendarLink(){
-  const p = new URLSearchParams({view:'calendar'});
-  if(CAL_MONTH) p.set('m', CAL_MONTH);
-  if(CAL_OFF && CAL_OFF.size) p.set('off', [...CAL_OFF].join(','));
-  return location.origin + location.pathname + '?' + p.toString();
+  return location.origin + location.pathname + '?view=calendar';
 }
 async function shareCalendarLink(){
   const url = calendarLink();
@@ -6582,7 +7089,7 @@ async function shareCalendarLink(){
     await navigator.clipboard.writeText(url);
     toast('캘린더 주소를 복사했습니다 · 받는 분도 PIN 로그인이 필요합니다');
   }catch(e){
-    prompt('이 주소를 복사해서 보내세요 (받는 분도 PIN 로그인이 필요합니다)', url);
+    await askText('이 주소를 복사해서 보내세요 (받는 분도 PIN 로그인이 필요합니다)', url);
   }
   uxEvent('tap','calShareLink');
 }
@@ -6752,7 +7259,7 @@ async function calendarCapture(){
     : `전체 ${rows.length}건을 모두 실었습니다 · A4 한 장 · 유니버셜리프트앤히타치코리아`, Mg, H - 14);
 
   const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
-  if(!blob){ alert('이미지 생성 실패'); return; }
+  if(!blob){ notice('이미지 생성 실패'); return; }
   saveOrOpen(blob, `쿠팡캘린더_${CAL_MONTH}.png`);
   toast(`${Y}년 ${M}월 캘린더를 A4 한 장으로 저장했습니다`);
   uxEvent('tap', 'calCapture');
@@ -6766,10 +7273,52 @@ async function calendarCapture(){
 function csosStandalone(){
   return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 }
+/* 카카오톡·밴드 **안**의 브라우저에는 설치 창이 아예 없다. 이 링크를 단톡방에서 누른
+   사람은 무엇을 해도 홈 화면에 아이콘을 못 만든다 — 먼저 밖으로 꺼내 줘야 한다.
+   (안드로이드는 크롬, 아이폰은 사파리. 아이폰 크롬은 홈 화면 설치를 못 한다) */
+function csosInApp(){
+  return /KAKAOTALK|BAND|NAVER\(inapp|DaumApps|Instagram|FBAN|FBAV|Line\//i.test(navigator.userAgent||'');
+}
+function csosOpenOutside(){
+  const url = location.href;
+  try{ navigator.clipboard && navigator.clipboard.writeText(url); }catch(e){}
+  if(/Android/i.test(navigator.userAgent||'')){
+    location.href = 'intent://' + location.host + location.pathname + location.search
+      + '#Intent;scheme=' + location.protocol.replace(':','') + ';package=com.android.chrome;'
+      + 'S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
+    return;
+  }
+  location.href = 'x-safari-' + url;
+}
+function showOutsideBanner(isIOS){
+  const app = isIOS ? '사파리' : '크롬';
+  const bar = document.createElement('div');
+  bar.id = 'shareInstall';
+  bar.style.cssText = 'position:fixed;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom) + 68px);'
+    + 'z-index:32;background:#0E1B3F;color:#fff;border-radius:16px;padding:13px 14px;'
+    + 'box-shadow:0 10px 28px rgba(0,0,0,.3);display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+  bar.innerHTML = `<b style="font-size:14.5px">${app}에서 열면 앱으로 설치됩니다</b>
+    <span style="flex:1 1 100%;font-size:12.5px;color:#C9D5FA;line-height:1.5">지금은 카카오톡·밴드 안의
+      브라우저라 홈 화면에 아이콘을 만들 수 없습니다.</span>
+    <span style="flex:1 1 100%;display:flex;gap:8px;margin-top:2px">
+      <button id="siOut" style="flex:1;appearance:none;border:0;border-radius:11px;padding:10px;background:#2452E6;color:#fff;font:inherit;font-weight:750;cursor:pointer">${app}로 열기</button>
+      <button id="siNo" style="flex:0 0 92px;appearance:none;border:1px solid #3A4A78;border-radius:11px;padding:10px;background:transparent;color:#C9D5FA;font:inherit;cursor:pointer">나중에</button>
+    </span>`;
+  document.body.appendChild(bar);
+  const no = bar.querySelector('#siNo');
+  if(no) no.onclick = () => {
+    try{ localStorage.setItem('csos_install_hint_off','1'); }catch(e){}
+    bar.remove();
+  };
+  const out = bar.querySelector('#siOut');
+  if(out) out.onclick = () => { csosOpenOutside(); uxEvent('tap','openOutside'); };
+  uxEvent('view','outsideBanner');
+}
 function showInstallBanner(){
   if(csosStandalone() || document.getElementById('shareInstall')) return;
   try{ if(localStorage.getItem('csos_install_hint_off')==='1') return; }catch(e){}
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  if(csosInApp()){ showOutsideBanner(isIOS); return; }
   const p = window.__csosInstallPrompt;
   if(!p && !isIOS) return;                    // 설치할 수 없는 환경이면 조용히 지나간다
   const bar = document.createElement('div');
@@ -6876,7 +7425,7 @@ function clearCalendarDraft(){
 }
 function openGoogleCalendarDraft(){
   const d=calendarDraft();
-  if(!d.title || !d.date){ alert('일정 제목과 날짜를 먼저 입력해 주세요.'); return; }
+  if(!d.title || !d.date){ notice('일정 제목과 날짜를 먼저 입력해 주세요.'); return; }
   const date=d.date.replace(/-/g,''), start=(d.start||'09:00').replace(':',''), end=(d.end||'10:00').replace(':','');
   const details=[d.project&&`프로젝트NO: ${d.project}`,d.camp&&`캠프명: ${d.camp}`,d.note].filter(Boolean).join('\n');
   const u=new URL('https://calendar.google.com/calendar/render');
@@ -7075,11 +7624,11 @@ function initDates(){
 }
 async function setDates(){
   const 보고일 = $('d_report').value, 집계기준일 = $('d_base').value;
-  if(!보고일 && !집계기준일){ alert('날짜를 선택하세요'); return; }
-  if(!confirm(`보고 기준일을 입력 DB에 저장합니다:\n보고일 ${보고일||'-'} · 집계기준일 ${집계기준일||'-'}\n\n엑셀은 다음 11시·15시 회차에 반영됩니다. 진행할까요?`)) return;
+  if(!보고일 && !집계기준일){ notice('날짜를 선택하세요'); return; }
+  if(!await askYesNo(`보고 기준일을 입력 DB에 저장합니다:\n보고일 ${보고일||'-'} · 집계기준일 ${집계기준일||'-'}\n\n엑셀은 다음 11시·15시 회차에 반영됩니다. 진행할까요?`)) return;
   const r = await api('/api/set_dates',{method:'POST',body:JSON.stringify({보고일, 집계기준일})});
   if(r.ok){ toast('기준일 DB 저장 완료 · 다음 11시·15시 엑셀 반영'); loadStatus(); }
-  else alert(r.error||'실패');
+  else notice(r.error||'실패');
 }
 
 /* 보고일·집계기준일을 **보고 화면에서 바로** 고친다.
@@ -7140,7 +7689,7 @@ function rptDateChanged(){
 async function previewRptDate(andCapture,keepPane=false){
   const reportDay=($('rd_report')&&$('rd_report').value)||'';
   const baseDay=($('rd_base')&&$('rd_base').value)||reportDay;
-  if(!/^2026-\d{2}-\d{2}$/.test(baseDay)){alert('2026년 집계기준일을 선택하세요');return;}
+  if(!/^2026-\d{2}-\d{2}$/.test(baseDay)){notice('2026년 집계기준일을 선택하세요');return;}
   try{
     const [rep,b]=await Promise.all([
       api('/api/exec_report?date='+encodeURIComponent(baseDay)),
@@ -7158,24 +7707,24 @@ async function previewRptDate(andCapture,keepPane=false){
       await nextPaint();
       await captureReport();
     }
-  }catch(e){alert('선택 날짜 보고를 만들지 못했습니다: '+e);}
+  }catch(e){notice('선택 날짜 보고를 만들지 못했습니다: '+e);}
 }
 
 async function saveRptDates(){
   const 보고일 = $('rd_report').value, 집계기준일 = $('rd_base').value;
-  if(!보고일 && !집계기준일){ alert('날짜를 선택하세요'); return; }
+  if(!보고일 && !집계기준일){ notice('날짜를 선택하세요'); return; }
   // 집계기준일이 보고일보다 뒤면 십중팔구 잘못 고른 것이다 — 그대로 쓰면 보고서가 어긋난다
   if(보고일 && 집계기준일 && 집계기준일 > 보고일 &&
-     !confirm(`집계기준일(${집계기준일})이 보고일(${보고일})보다 뒤입니다.
+     !await askYesNo(`집계기준일(${집계기준일})이 보고일(${보고일})보다 뒤입니다.
 그대로 진행할까요?`)) return;
-  if(!confirm(`보고 기준일을 지금 엑셀에 반영합니다:
+  if(!await askYesNo(`보고 기준일을 지금 엑셀에 반영합니다:
 보고일 ${보고일||'-'} · 집계기준일 ${집계기준일||'-'}
 
 진행할까요? (관리대장이 열려 있으면 반영하지 않습니다)`)) return;
   // ★ 2026-08-06 지시: 「저장하고 반영」— 회차를 기다리지 않고 지금 넣는다.
   const r = await api('/api/set_dates',{method:'POST',
     body:JSON.stringify({보고일, 집계기준일, apply:true})});
-  if(!r.ok){ alert(r.error||'실패'); return; }
+  if(!r.ok){ notice(r.error||'실패'); return; }
   closeSheetAll();      // 곧 [실행] 탭으로 넘어가므로 시트를 남겨 두면 안 된다
   // 대시보드 카드도 같은 값으로 맞춰 둔다(두 곳이 다르면 헷갈린다)
   try{ if($('d_report')) $('d_report').value = 보고일; if($('d_base')) $('d_base').value = 집계기준일; }catch(e){}
@@ -7278,7 +7827,7 @@ async function remoteCapture(){
   y+=40; x.fillStyle='#6B7280'; x.font=F(11);
   x.fillText('불출 담당 — 부산공장: 오종현 · 시화공장: 안은숙 · 증평본사: 류지영',24,y);
   const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
-  if(!blob){ alert('이미지 생성 실패'); return; }
+  if(!blob){ notice('이미지 생성 실패'); return; }
   saveOrOpen(blob,`리모컨현황_${todayISO()}.png`);
   toast('리모컨 현황 이미지를 저장했습니다'); uxEvent('tap','remote-capture');
 }
@@ -7359,14 +7908,14 @@ function openPolicyEdit(index){
 async function savePolicy(){
   const p=window._policyEditing, value=String(($('policyValue')&&$('policyValue').value)||'').trim();
   const owner=String(($('policyOwner')&&$('policyOwner').value)||'유현민').trim();
-  if(!p||!value){alert('확정 기준 내용을 입력하세요');return;}
+  if(!p||!value){notice('확정 기준 내용을 입력하세요');return;}
   try{
     await api('/api/policy',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({기준:p.기준,확정내용:value,저장자:owner})});
     repData=await api('/api/v1/reports/daily/exceptions');
     renderRepresentative();renderCheckHub();closeSheetAll();
     toast('업무기준을 저장하고 전체 화면에 반영했습니다');
-  }catch(e){alert('업무기준 저장 실패: '+e);}
+  }catch(e){notice('업무기준 저장 실패: '+e);}
 }
 function renderRepresentative(){
   if(!$('repKpis')) return;
@@ -9471,16 +10020,16 @@ function mineDetailFileName(){
 async function captureMineDetail(){
   let b;
   try{ b = await mineDetailToPng(window._mineIdx); if(!b) throw new Error('빈 이미지'); }
-  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  catch(e){ notice('이미지 생성 실패: '+e); return; }
   saveOrOpen(b, mineDetailFileName());
 }
 async function printMineDetail(){
   try{printPngBlob(await mineDetailToPng(window._mineIdx),mineDetailFileName());}
-  catch(e){alert('인쇄 이미지 생성 실패: '+e);}
+  catch(e){notice('인쇄 이미지 생성 실패: '+e);}
 }
 async function copyMineDetailImage(){
   try{await copyPngBlob(await mineDetailToPng(window._mineIdx));}
-  catch(e){alert('이미지 복사 실패: '+e);}
+  catch(e){notice('이미지 복사 실패: '+e);}
 }
 function mineDetailRows(){
   const m=(window._mine||[])[window._mineIdx]||{};
@@ -9493,7 +10042,7 @@ function exportMineDetailXlsx(){
 async function shareMineDetail(){
   let b;
   try{ b = await mineDetailToPng(window._mineIdx); if(!b) throw new Error('empty'); }
-  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  catch(e){ notice('이미지 생성 실패: '+e); return; }
   const m = (window._mine||[])[window._mineIdx] || {};
   const f = new File([b], mineDetailFileName(), {type:'image/png'});
   try{
@@ -9513,16 +10062,16 @@ function mineFileName(){
 async function captureMine(){
   let b;
   try{ b = await mineToPng(); if(!b) throw new Error('빈 이미지'); }
-  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  catch(e){ notice('이미지 생성 실패: '+e); return; }
   saveOrOpen(b, mineFileName());
 }
 async function printMine(){
   try{printPngBlob(await mineToPng(),mineFileName());}
-  catch(e){alert('인쇄 이미지 생성 실패: '+e);}
+  catch(e){notice('인쇄 이미지 생성 실패: '+e);}
 }
 async function copyMineImage(){
   try{await copyPngBlob(await mineToPng());}
-  catch(e){alert('이미지 복사 실패: '+e);}
+  catch(e){notice('이미지 복사 실패: '+e);}
 }
 function mineRows(){
   return (window._mine||[]).flatMap(m=>(m.items||[]).map(r=>(
@@ -9533,7 +10082,7 @@ function exportMineXlsx(){exportRowsXlsx('내가 확인할 사항',mineRows());}
 async function shareMine(){
   let b;
   try{ b = await mineToPng(); if(!b) throw new Error('empty'); }
-  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  catch(e){ notice('이미지 생성 실패: '+e); return; }
   const f = new File([b], mineFileName(), {type:'image/png'});
   const n = (window._mine||[]).reduce((a,m)=>a+(m.n||0),0);
   try{
@@ -9598,12 +10147,12 @@ function metricFileName(){
 }
 async function saveExecMetric(){
   let b;try{b=await metricToPng(window._curMetricLabel);if(!b)throw new Error('빈 이미지');}
-  catch(e){alert('이미지 생성 실패: '+e);return;}
+  catch(e){notice('이미지 생성 실패: '+e);return;}
   saveOrOpen(b,metricFileName());
 }
 async function shareExecMetric(){
   let b;try{b=await metricToPng(window._curMetricLabel);if(!b)throw new Error('빈 이미지');}
-  catch(e){alert('이미지 생성 실패: '+e);return;}
+  catch(e){notice('이미지 생성 실패: '+e);return;}
   const label=window._curMetricLabel||'확인 목록';
   const f=new File([b],metricFileName(),{type:'image/png'});
   try{
@@ -9616,13 +10165,13 @@ async function shareExecMetric(){
 async function captureAssignee(){
   let b;
   try{ b = await assigneeToPng(window._curAssignee); if(!b) throw new Error('빈 이미지'); }
-  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  catch(e){ notice('이미지 생성 실패: '+e); return; }
   saveOrOpen(b, assigneeFileName());
 }
 async function shareAssignee(){
   let b;
   try{ b = await assigneeToPng(window._curAssignee); if(!b) throw new Error('empty'); }
-  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  catch(e){ notice('이미지 생성 실패: '+e); return; }
   const f = new File([b], assigneeFileName(), {type:'image/png'});
   const name = window._curAssignee||'';
   const n = (window._curAssigneeList||[]).length;
@@ -10203,16 +10752,16 @@ function dashFileName(){ return `CSOS_대시보드_${new Date().toISOString().sl
 async function captureDash(){
   let blob;
   try{ blob = await dashToPng(); if(!blob) throw new Error('빈 이미지'); }
-  catch(e){ alert('이미지 생성 실패: '+e); return; }
+  catch(e){ notice('이미지 생성 실패: '+e); return; }
   saveOrOpen(blob, dashFileName());
 }
 async function printDash(){
   try{printPngBlob(await dashToPng(),dashFileName());}
-  catch(e){alert('인쇄 이미지 생성 실패: '+e);}
+  catch(e){notice('인쇄 이미지 생성 실패: '+e);}
 }
 async function copyDashImage(){
   try{await copyPngBlob(await dashToPng());}
-  catch(e){alert('이미지 복사 실패: '+e);}
+  catch(e){notice('이미지 복사 실패: '+e);}
 }
 function dashboardExcelRows(){
   const tagged=(rows,kind)=>(rows||[]).map(r=>({...r,업무구분:r.업무구분||kind}));
@@ -10239,7 +10788,7 @@ function saveOrOpen(blob, filename){
       p{color:#fff;text-align:center;padding:12px;font-size:14px;margin:0}img{width:100%;display:block}</style></head>
       <body><p>이미지를 길게 눌러 <b>사진에 저장</b>하세요</p><img src="${url}"></body></html>`);
       w.document.close();
-    } else alert('팝업이 차단됐습니다. 팝업을 허용해 주세요.');
+    } else notice('팝업이 차단됐습니다. 팝업을 허용해 주세요.');
   }
 }
 function downloadBlobFile(blob, filename, message){
@@ -10255,13 +10804,13 @@ async function copyPngBlob(blob){
     toast('이미지를 클립보드에 복사했습니다 · 카톡에 바로 붙여넣을 수 있습니다');
     return true;
   }catch(e){
-    alert('이 브라우저에서는 이미지 복사가 제한됩니다. 이미지 저장 기능을 이용해 주세요.');
+    notice('이 브라우저에서는 이미지 복사가 제한됩니다. 이미지 저장 기능을 이용해 주세요.');
     return false;
   }
 }
 function printPngBlob(blob,title){
   const url=URL.createObjectURL(blob), w=window.open('','_blank');
-  if(!w){URL.revokeObjectURL(url);alert('팝업을 허용하면 인쇄할 수 있습니다.');return;}
+  if(!w){URL.revokeObjectURL(url);notice('팝업을 허용하면 인쇄할 수 있습니다.');return;}
   w.document.write(`<html><head><title>${esc2(title||'CSOS')}</title>
     <style>@page{margin:8mm}body{margin:0}img{display:block;max-width:100%;margin:auto}</style></head>
     <body><img src="${url}" onload="setTimeout(()=>window.print(),180)"></body></html>`);
@@ -10289,7 +10838,7 @@ async function exportRowsXlsx(title,rows){
       throw new Error(d.error||`HTTP ${r.status}`);}
     const b=await r.blob(), safe=String(title||'확인목록').replace(/[\\/:*?"<>|\s]+/g,'_');
     downloadBlobFile(b,`CSOS_${safe}_${todayISO()}.xlsx`,'담당자 회신용 엑셀을 저장했습니다');
-  }catch(e){alert('엑셀 저장 실패: '+e);}
+  }catch(e){notice('엑셀 저장 실패: '+e);}
 }
 function reportExcelRows(){
   const D=_rptData||{}, out=[];
@@ -10310,27 +10859,27 @@ function reportExcelRows(){
 async function saveReportJournal(){
   try{renderDaily();const b=await reportToPng();downloadBlobFile(b,'CSOS_업무일지_'+
     ((_rptData&&_rptData.date)||baseDate())+'.png','업무일지를 저장했습니다');}
-  catch(e){alert('일지 저장 실패: '+e);}
+  catch(e){notice('일지 저장 실패: '+e);}
 }
 async function printReport(){try{renderDaily();printPngBlob(await reportToPng(),rptFileName());}
-  catch(e){alert('인쇄 이미지 생성 실패: '+e);}}
+  catch(e){notice('인쇄 이미지 생성 실패: '+e);}}
 async function copyReportImage(){try{renderDaily();await copyPngBlob(await reportToPng());}
-  catch(e){alert('이미지 복사 실패: '+e);}}
+  catch(e){notice('이미지 복사 실패: '+e);}}
 function exportReportXlsx(){exportRowsXlsx(`일일보고_${(_rptData&&_rptData.date)||baseDate()}`,reportExcelRows());}
 async function saveMetricJournal(){try{const b=await metricToPng(window._curMetricLabel);
-  downloadBlobFile(b,'CSOS_업무일지_'+metricFileName());}catch(e){alert('일지 저장 실패: '+e);}}
+  downloadBlobFile(b,'CSOS_업무일지_'+metricFileName());}catch(e){notice('일지 저장 실패: '+e);}}
 async function printExecMetric(){try{printPngBlob(await metricToPng(window._curMetricLabel),metricFileName());}
-  catch(e){alert('인쇄 이미지 생성 실패: '+e);}}
+  catch(e){notice('인쇄 이미지 생성 실패: '+e);}}
 async function copyExecMetric(){try{await copyPngBlob(await metricToPng(window._curMetricLabel));}
-  catch(e){alert('이미지 복사 실패: '+e);}}
+  catch(e){notice('이미지 복사 실패: '+e);}}
 function exportMetricXlsx(){const d=metricDetail(window._curMetricLabel);
   exportRowsXlsx(window._curMetricLabel||'확인목록',d.rows||[]);}
 async function saveAssigneeJournal(){try{const b=await assigneeToPng(window._curAssignee);
-  downloadBlobFile(b,'CSOS_업무일지_'+assigneeFileName());}catch(e){alert('일지 저장 실패: '+e);}}
+  downloadBlobFile(b,'CSOS_업무일지_'+assigneeFileName());}catch(e){notice('일지 저장 실패: '+e);}}
 async function printAssignee(){try{printPngBlob(await assigneeToPng(window._curAssignee),assigneeFileName());}
-  catch(e){alert('인쇄 이미지 생성 실패: '+e);}}
+  catch(e){notice('인쇄 이미지 생성 실패: '+e);}}
 async function copyAssigneeImage(){try{await copyPngBlob(await assigneeToPng(window._curAssignee));}
-  catch(e){alert('이미지 복사 실패: '+e);}}
+  catch(e){notice('이미지 복사 실패: '+e);}}
 function exportAssigneeXlsx(){
   exportRowsXlsx(`확인요청_${window._curAssignee||'담당자'}`,window._curAssigneeList||[]);
 }
@@ -10378,7 +10927,7 @@ async function captureReport(){
     renderDaily();
     blob = await reportToPng();
     if(!blob) throw new Error('이미지 생성 결과가 비어 있습니다');
-  }catch(e){ alert('이미지 생성 실패: '+e+'\n화면 캡처(Win+Shift+S / 전원+음량↓)를 사용해 주세요.'); return; }
+  }catch(e){ notice('이미지 생성 실패: '+e+'\n화면 캡처(Win+Shift+S / 전원+음량↓)를 사용해 주세요.'); return; }
 
   saveOrOpen(blob, rptFileName());
 }
@@ -10390,7 +10939,7 @@ async function shareReport(){
     renderDaily();
     blob = await reportToPng();
     if(!blob) throw new Error('empty');
-  }catch(e){ alert('이미지 생성 실패: '+e); return; }
+  }catch(e){ notice('이미지 생성 실패: '+e); return; }
   const file = new File([blob], rptFileName(), {type:'image/png'});
   try{
     if(navigator.canShare && navigator.canShare({files:[file]})){
