@@ -112,6 +112,16 @@
         return { status: rendered ? 'missing' : 'fail' };
       }
       const main = d.querySelector('.postMain') || d.querySelector('.postWrap') || d;
+      // ★ 본문이 그려졌다고 **머리말까지 그려진 것은 아니다** (2026-08-07 실측).
+      //   밴드는 본문(.postText)을 먼저 칠하고 글쓴이·작성시각(.time)을 조금 뒤에 채운다.
+      //   `.postText` 를 보자마자 가져가면 날짜가 빈 채로 저장되고, 그 글은 **날짜가
+      //   없어서 어떤 작업과도 대조되지 않는다** — 본문은 멀쩡한데 쓸 수가 없다.
+      //   실제로 그렇게 모은 것이 621건이었다(90610953 523 · 84789192 98).
+      //   그중엔 돌발유료 A/S 안내·쿠팡 PO 알림처럼 꼭 필요한 글이 섞여 있었다.
+      //   본문 없음과 달리 여기서는 **짧게 더 기다린다** — 지운 글 판정과 무관하다.
+      for (let i = 0; i < 12 && !txt(main, '.postListInfoWrap .time, .time'); i++) {
+        await sleep(250);
+      }
       const imgs = [...main.querySelectorAll('img')]
         .map((i) => i.src).filter((s) => /pstatic|phinf/.test(s));
       const cmt = (txt(main, '._commentCount, .comment .count, .uComment .count')

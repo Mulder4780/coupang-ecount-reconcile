@@ -65,8 +65,17 @@ def plan(band, posts, floor=0, ahead=0):
                    if str(k).isdigit() and not v.get("deleted")
                    and int(v.get("captured_at") or 0) < ERA_MS)
     dead = sum(1 for v in posts.values() if isinstance(v, dict) and v.get("deleted"))
+    # ★ **본문은 있는데 날짜가 없는 글**도 다시 가져와야 한다 (2026-08-07 발견).
+    #   밴드는 본문(.postText)을 먼저 칠하고 작성시각(.time)을 조금 뒤에 채운다.
+    #   본문을 보자마자 가져간 글은 날짜가 빈 채로 저장됐다 — 621건이었다.
+    #   이 글들은 구멍도 아니고(번호가 있다) 오래된 것도 아니라(오늘 받았다)
+    #   **어느 목록에도 안 잡혔다.** 캐시 숫자는 늘어나는데 대조는 안 되는,
+    #   가장 알아채기 어려운 종류의 구멍이다. 날짜가 없으면 어떤 작업과도 못 맞춘다.
+    dateless = sorted(int(k) for k, v in posts.items()
+                      if str(k).isdigit() and isinstance(v, dict)
+                      and not v.get("deleted") and not v.get("created_at"))
     return {"band": band, "range": (lo, hi), "n": len(ks), "new": new,
-            "gaps": gaps, "stale": stale, "deleted": dead}
+            "gaps": gaps, "stale": stale, "deleted": dead, "dateless": dateless}
 
 
 def main():
@@ -97,11 +106,15 @@ def main():
         print(f"밴드 {band}: 보유 {p['n']}건 ({p['range'][0]}~{p['range'][1]}) · "
               f"새 글 후보 {len(p['new'])} · 구멍 {len(p['gaps'])}(floor {floor}) · "
               f"재수집 전 {len(p['stale'])}"
+              + (f" · 날짜없음 {len(p['dateless'])}" if p.get("dateless") else "")
               + (f" · 삭제됨 {p['deleted']}" if p.get("deleted") else ""))
         # ★ 순서: **새 글 → 구멍(최근부터) → 재수집**.
         #   대표 보고가 쓰는 것은 최신분이다. 과거글을 먼저 훑으면 오늘 숫자가 계속 틀린다.
         #   구멍도 큰 번호(최근)부터 간다 — 옛날로 갈수록 업무 가치가 떨어진다.
+        # 날짜없음은 구멍 다음이다 — 본문은 이미 있으니 아주 급하진 않지만,
+        # 날짜가 채워지기 전까지는 대조에서 통째로 빠져 있다는 점은 같다.
         todo = (p["new"] + sorted(p["gaps"], reverse=True)
+                + sorted(p.get("dateless") or [], reverse=True)
                 + sorted(p["stale"], reverse=True))[:a.limit]
         if a.band and todo:
             print("다음 배치(JS 그대로 붙여넣기):")

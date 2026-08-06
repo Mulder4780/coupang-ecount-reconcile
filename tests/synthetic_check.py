@@ -5139,6 +5139,24 @@ def t112_band_plan_order_and_scope():
     js = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
     assert "muteDialogs" in js and "w.alert" in js, "수집기가 안내창을 막지 않는다"
 
+    # ★ 본문이 그려졌다고 머리말까지 그려진 것은 아니다 (2026-08-07 실측).
+    #   밴드는 .postText 를 먼저 칠하고 .time 을 조금 뒤에 채운다. 보자마자 가져가면
+    #   **날짜 없는 글**이 저장되고, 그런 글은 어떤 작업과도 대조되지 않는다.
+    #   실제로 621건이 그렇게 쌓였는데 구멍도 아니고 오래된 것도 아니라
+    #   **어느 목록에도 안 잡혔다** — 가장 알아채기 어려운 종류의 구멍이다.
+    assert re.search(r"for \(let i = 0; i < \d+ && !txt\(main, '\.postListInfoWrap \.time",
+                     js), "본문만 보고 바로 가져간다 — 작성시각을 기다리지 않는다"
+    import band.recheck_plan as _RP2
+    _p = _RP2.plan("1", {
+        "10": {"created_at": 1, "captured_at": _RP2.ERA_MS + 1},
+        "11": {"created_at": None, "captured_at": _RP2.ERA_MS + 1},   # 본문은 있는데 날짜가 없다
+        "12": {"deleted": True, "captured_at": _RP2.ERA_MS + 1},      # 진짜 지운 글
+    }, floor=10, ahead=0)
+    assert _p["dateless"] == [11], _p.get("dateless")
+    assert 12 not in (_p.get("dateless") or []), "지운 글을 날짜없음으로 세면 영원히 다시 훑는다"
+    assert 11 not in _p["gaps"] and 11 not in _p["stale"], \
+        "날짜없음이 구멍/오래됨과 겹치면 두 번 뽑힌다"
+
     # 붙여넣기는 **밴드당 한 번**이어야 한다 (2026-08-06 지시: "내 손 안 가게").
     # 250 은 탭이 얼지 않는 한 배치의 상한일 뿐이다. 한 파일 안에서 회차를 이어 돌리고
     # 회차 사이에 저장·비우기를 하면 사람 손은 한 번으로 끝난다. 예전처럼 250건마다
