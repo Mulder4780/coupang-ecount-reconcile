@@ -163,6 +163,25 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
   .appbar #demobadge{display:none}
   .appbar #clock{font-size:15px}
 }
+/* ★ 폰에서 헤더 세 덩어리가 서로 **겹쳤다**(2026-08-06 사용자 화면 지적).
+   가로 393px 기준으로 로고+CSOS(90) + 두 로고(106) + 오른쪽 상태(186) + 여백이
+   화면보다 20px 넘게 넓었는데, h1 이 `white-space:nowrap`+`min-width:52px` 라
+   줄지 못하고 옆 로고 위로 삐져나왔다. 좁을 때는 **글자 CSOS 를 뺀다** —
+   앱 아이콘과 두 고객사 로고가 이미 같은 말을 하고 있고, 고객사 CI 는
+   가이드라인상 변형·축소가 자유롭지 않아 이쪽을 먼저 지킨다. */
+@media(max-width:440px){
+  .appbar h1{display:none}
+  /* 글자를 뺐는데도 자리가 모자라면 **앱 아이콘이 잘리는 대신 고객사 로고가 줄어든다**.
+     아이콘은 30px 고정이라 조금만 깎여도 반쪽이 되지만, 로고는 이미지라
+     비율을 지키며 작아진다(object-fit:contain). 줄어들 쪽을 정해 두는 것이
+     '어딘가는 겹치거나 잘린다'를 막는 유일한 방법이다. */
+  .appbar-identity{flex:none}
+  .appbar-brand-stack{flex:0 1 auto;min-width:0}
+  .appbar-brand-stack img{max-width:100%}
+}
+/* 어떤 폭에서도 다시는 겹치지 않게 하는 안전망 — 넘치면 겹치지 말고 잘린다. */
+.appbar-identity{overflow:hidden}
+.appbar-identity h1{overflow:hidden;text-overflow:ellipsis}
 .dot{width:8px;height:8px;border-radius:50%;background:#3DDC84;box-shadow:0 0 0 3px rgba(61,220,132,.22);flex:none}
 .dot.busy{background:#FFC53D;box-shadow:0 0 0 3px rgba(255,197,61,.22);animation:pulse 1s infinite}
 @keyframes pulse{50%{opacity:.35}}
@@ -1137,7 +1156,12 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
   margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;
   white-space:nowrap!important;border:0!important}
 @media(max-width:640px){
-  .rpt-actions,.media-tools{justify-content:flex-start;gap:7px;padding:4px 2px 9px}
+  /* ★ 도구줄은 폰에서 **옆으로 스크롤**이었다. 화면에 다 안 들어가면 마지막 버튼이
+     잘린 채 서 있고, 옆으로 밀 수 있다는 것을 알아채는 사람이 거의 없다
+     (엑셀 저장이 그렇게 숨어 있었다). 좁을 때는 스크롤 대신 **줄을 바꾼다** —
+     한 줄이 두 줄이 되는 것은 눈에 보이지만, 안 보이는 버튼은 없는 버튼이다. */
+  .rpt-actions,.media-tools{justify-content:center;gap:7px;padding:4px 2px 9px;
+    flex-wrap:wrap!important;overflow-x:visible;row-gap:7px}
   .icon-btn{flex-basis:58px!important;width:58px;height:58px;border-radius:12px!important}
   .icon-btn img,.icon-btn svg{width:22px;height:22px}
   .icon-btn::after{font-size:11.5px;max-width:54px}
@@ -2215,7 +2239,7 @@ body.dash-drag-live{-webkit-user-select:none;user-select:none;cursor:grabbing}
 	      <div class="media-tools" role="toolbar" aria-label="내 확인 목록 도구" style="margin-top:10px">
 	        <button class="icon-btn" onclick="printMine()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>
 	        <button class="icon-btn primary" onclick="captureMine()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
-	        <button class="icon-btn" onclick="copyMineImage()" title="복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
+	        <button class="icon-btn" onclick="copyMineImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
 	        <button class="icon-btn excel" onclick="exportMineXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
 	      </div></div>
     <!-- 구글 캘린더(COUPANG 설치+납품+AS) — 예정된 일이 원장과 맞는가 -->
@@ -2233,7 +2257,7 @@ body.dash-drag-live{-webkit-user-select:none;user-select:none;cursor:grabbing}
 	      <div class="media-tools" role="toolbar" aria-label="대시보드 도구">
 	        <button class="icon-btn" onclick="printDash()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>
 	        <button class="icon-btn primary" onclick="captureDash()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
-	        <button class="icon-btn" onclick="copyDashImage()" title="복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
+	        <button class="icon-btn" onclick="copyDashImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
 	        <button class="icon-btn excel" onclick="exportDashXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
 	        <button class="icon-btn" onclick="reloadHere(this)" title="새로고침" aria-label="새로고침"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg></button>
 	      </div></div>
@@ -2582,7 +2606,7 @@ body.dash-drag-live{-webkit-user-select:none;user-select:none;cursor:grabbing}
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>
       <button class="icon-btn primary" onclick="captureReport()" title="이미지 저장" aria-label="이미지 저장">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
-      <button class="icon-btn" onclick="copyReportImage()" title="복사" aria-label="복사">
+      <button class="icon-btn" onclick="copyReportImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
       <button class="icon-btn excel" onclick="exportReportXlsx()" title="엑셀 저장" aria-label="엑셀 저장">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
@@ -2703,7 +2727,7 @@ body.dash-drag-live{-webkit-user-select:none;user-select:none;cursor:grabbing}
 	        </div>
 	        <div class="media-tools" id="staffListToolbar" role="toolbar" aria-label="담당자 업무 목록 도구" style="margin:0 0 9px">
 	          <button class="icon-btn primary" type="button" onclick="ryuCaptureList()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
-	          <button class="icon-btn" type="button" onclick="ryuCopyList()" title="복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
+	          <button class="icon-btn" type="button" onclick="ryuCopyList()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
 	          <button class="icon-btn excel" type="button" onclick="ryuExportList()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
 	        </div>
 	        <div class="ryu-history-list" id="ryuHistoryList">
@@ -2893,9 +2917,12 @@ body.dash-drag-live{-webkit-user-select:none;user-select:none;cursor:grabbing}
 	        <div><small>돌발AS 미처리</small><strong>-</strong></div>
 	        <div><small>정기점검 실행</small><strong>-</strong></div>
 	      </div>
-	      <div class="actions" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px">
+	      <!-- ★ '검증 상태 새로고침'을 없앴다(2026-08-06). syncCurrentWorkLog() 가 끝나면
+	           스스로 loadWorkLogStatus() 를 부르고, 아래 목록 카드에도 같은 일을 하는
+	           '목록 조회'가 있었다 — 같은 동작이 한 화면에 세 번이면 어느 것을 눌러야
+	           하는지가 오히려 문제가 된다. -->
+	      <div class="actions" style="grid-template-columns:max-content;margin-top:12px">
 	        <button class="abtn primary" type="button" onclick="syncCurrentWorkLog()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-check-lg"/></svg>현재 고정 원본 다시 검증</button>
-	        <button class="abtn" type="button" onclick="loadWorkLogStatus()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-repeat"/></svg>검증 상태 새로고침</button>
 	      </div>
 	    </div>
 
@@ -2973,26 +3000,29 @@ body.dash-drag-live{-webkit-user-select:none;user-select:none;cursor:grabbing}
     <div class="cal2-head">
       <div class="ios-large"><h2>쿠팡 캘린더</h2>
         <p class="sub">정기점검·돌발AS 일정을 한 달 격자로 봅니다. 위 칩을 눌러 보고 싶은 종류만 남기세요.</p></div>
-      <div class="actions" style="grid-template-columns:repeat(4,max-content);margin:0">
-        <button class="abtn" onclick="refreshCalendarPage()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-repeat"/></svg>새로고침</button>
-        <button class="abtn" onclick="shareCalendarLink()" title="지금 보고 있는 달·필터 그대로 여는 주소를 복사합니다"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-link-45deg"/></svg>링크 복사</button>
-        <button class="abtn" onclick="calendarCapture()" title="지금 보이는 일정으로 A4 한 장 이미지를 만듭니다"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg>캡처</button>
+      <!-- ★ 2026-08-06 사용자 지적: 여기 큰 버튼 4개와 아래 아이콘 도구줄이 **겹쳤다**.
+           '캡처'와 '이미지 저장'은 같은 `calendarCapture()` 였고, '복사'라는 말이
+           링크 복사와 이미지 복사 두 가지를 가리켜 어느 쪽인지 알 수 없었다.
+           큰 버튼은 이 화면에서 **사람이 새로 만드는 일** 하나만 남긴다 —
+           저장·전달은 전부 아래 한 줄(다른 화면과 같은 자리·같은 아이콘)로 모은다. -->
+      <div class="actions" style="grid-template-columns:max-content;margin:0">
         <button class="abtn primary" onclick="focusCalendarEntry()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>일정 입력</button>
       </div>
     </div>
 
-    <!-- 종류 필터(2026-08-05 지시) — 여러 개를 켜고 끌 수 있다. 하나만 보고 싶을 때는
-         칩을 길게 누르지 않아도 되게 '이것만' 버튼을 따로 두지 않고, 전체 토글로 해결한다. -->
-    <div class="cal2-only-note">쿠팡 캘린더 전용 화면입니다 — 이 링크로는 일정만 보입니다.</div>
-    <!-- 저장·전달 도구 (2026-08-06 지시) — 다른 목록 화면과 **같은 자리·같은 아이콘**을 쓴다.
-         캡처는 위 큰 버튼과 같은 동작이지만, 여기 나란히 있어야 "저장·복사·엑셀"을
-         한 묶음으로 찾는다. 설치 버튼은 배너를 놓쳤을 때의 상시 통로다. -->
+    <!-- 저장·전달 도구 — 앱 전체가 쓰는 한 줄(인쇄·이미지 저장·이미지 복사·엑셀).
+         캘린더에만 있는 것은 새로고침·링크 복사·앱 설치 셋이다. -->
     <div class="media-tools" id="calTools" role="toolbar" aria-label="캘린더 저장·전달 도구" style="margin:0 0 10px">
+      <button class="icon-btn" type="button" onclick="refreshCalendarPage()" title="새로고침" aria-label="새로고침"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg></button>
+      <button class="icon-btn" type="button" onclick="shareCalendarLink()" title="링크 복사 — 지금 보고 있는 달·필터 그대로 여는 주소" aria-label="링크 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-link-45deg"/></svg></button>
       <button class="icon-btn primary" type="button" onclick="calendarCapture()" title="이미지 저장 (A4 한 장)" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
-      <button class="icon-btn" type="button" onclick="calCopyList()" title="지금 보이는 일정을 글로 복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
+      <button class="icon-btn" type="button" onclick="calCopyList()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
       <button class="icon-btn excel" type="button" onclick="calExportList()" title="엑셀(xlsx)로 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
       <button class="icon-btn" type="button" id="calInstallBtn" onclick="calInstallApp()" title="홈 화면에 앱으로 설치" aria-label="앱 설치" hidden><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-save-fill"/></svg></button>
     </div>
+    <!-- 종류 필터(2026-08-05 지시) — 여러 개를 켜고 끌 수 있다. 하나만 보고 싶을 때는
+         칩을 길게 누르지 않아도 되게 '이것만' 버튼을 따로 두지 않고, 전체 토글로 해결한다. -->
+    <div class="cal2-only-note">쿠팡 캘린더 전용 화면입니다 — 이 링크로는 일정만 보입니다.</div>
     <div class="cal2-filters" id="calFilters" role="group" aria-label="일정 종류 필터"></div>
     <div class="calendar-meta" id="calendarMeta">일정 캐시를 불러오는 중입니다.</div>
 
@@ -3350,6 +3380,15 @@ function swrRerun(key){
    (12:33 한 분에 440건). 그래서 (1) 끊김은 30초에 한 번만 적고, (2) 사유를 남기고,
    (3) 무엇보다 **사람에게 보인다** — 예전에는 조용히 삼켜(.catch(()=>{}))
    '갱신 중' 칩만 떠 있었고, 사람은 옛 숫자를 최신인 줄 알고 보고 있었다. */
+/* ★ 알림 칩이 헤더를 **덮고 있었다**(2026-08-06 사용자 화면 지적).
+   `top: 안전영역+8px` 로 고정이라 앱바와 같은 자리였고, 칩이 뜨는 동안
+   밝기·PIN·알림 버튼이 가려져 누를 수 없었다. 앱바 **아래**로 내린다 —
+   앱바 높이는 화면 폭·안전영역에 따라 달라지므로 실제 높이를 재서 쓴다. */
+function chipTop(){
+  const bar = document.querySelector('.appbar');
+  const h = bar ? Math.round(bar.getBoundingClientRect().height) : 0;
+  return h ? (h + 8) + 'px' : 'calc(env(safe-area-inset-top) + 56px)';
+}
 let NET_DOWN_AT=0, NET_LAST_LOG=0, NET_OFFLINE=false;
 function netDown(path,e){
   const now=Date.now();
@@ -3371,7 +3410,7 @@ function netBanner(on){
   if(!on){ if(el) el.remove(); return; }
   if(!el){ el=document.createElement('div'); el.id='swrChip'; document.body.appendChild(el); }
   el.style.cssText='position:fixed;left:50%;transform:translateX(-50%);'
-    +'top:calc(env(safe-area-inset-top) + 8px);z-index:30;background:#7A271A;color:#FEE4E2;'
+    +'top:'+chipTop()+';z-index:30;background:#7A271A;color:#FEE4E2;'
     +'border:1px solid #F04438;border-radius:999px;padding:5px 12px;font-size:12.5px;'
     +'font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer';
   el.textContent='서버에 닿지 않습니다 — 지금 숫자는 옛 자료 · 눌러서 다시 시도';
@@ -3385,7 +3424,7 @@ function swrChip(ageMs){
     el = document.createElement('div');
     el.id = 'swrChip';
     el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);'
-      + 'top:calc(env(safe-area-inset-top) + 8px);z-index:29;background:#1D2939;color:#E5E7EB;'
+      + 'top:'+chipTop()+';z-index:29;background:#1D2939;color:#E5E7EB;'
       + 'border:1px solid #475467;border-radius:999px;padding:5px 12px;font-size:12.5px;'
       + 'font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.2);pointer-events:none';
     document.body.appendChild(el);
@@ -9993,7 +10032,7 @@ function openExecMetric(label){
 	    <div class="media-tools sticky" role="toolbar" aria-label="목록 도구">
 	      <button class="icon-btn" onclick="printExecMetric()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>
 	      <button class="icon-btn primary" onclick="saveExecMetric()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
-	      <button class="icon-btn" onclick="copyExecMetric()" title="복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
+	      <button class="icon-btn" onclick="copyExecMetric()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
 	      <button class="icon-btn excel" onclick="exportMetricXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
 	    </div>`);
 }
@@ -10089,7 +10128,7 @@ function openAssignee(name, source){
 	    '<div class="media-tools sticky" role="toolbar" aria-label="담당자 목록 도구">'+
 	      '<button class="icon-btn" onclick="printAssignee()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>'+
 	      '<button class="icon-btn primary" onclick="captureAssignee()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>'+
-	      '<button class="icon-btn" onclick="copyAssigneeImage()" title="복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>'+
+	      '<button class="icon-btn" onclick="copyAssigneeImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>'+
 	      '<button class="icon-btn excel" onclick="exportAssigneeXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button></div>');
 }
 
@@ -10113,7 +10152,7 @@ function openMine(idx){
 	    ? '<div class="media-tools" role="toolbar" aria-label="내 확인 상세 목록 도구" style="margin-top:12px">'+
 	      '<button class="icon-btn" onclick="printMineDetail()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>'+
 	      '<button class="icon-btn primary" onclick="captureMineDetail()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>'+
-	      '<button class="icon-btn" onclick="copyMineDetailImage()" title="복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>'+
+	      '<button class="icon-btn" onclick="copyMineDetailImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>'+
 	      '<button class="icon-btn excel" onclick="exportMineDetailXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button></div>'
 	    : '';
   openPane('<h2>'+m.cat+' <span class="chip '+(m.lv==='danger'?'c-danger':'c-warn')+'">'+

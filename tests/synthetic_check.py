@@ -5886,6 +5886,101 @@ def t123_calendar_share_tools():
     print("  [123] 공유 캘린더 — 크롬 자동 전환(1회)·설치 버튼·엑셀/캡처/복사 ✅")
 
 
+def t124_no_duplicate_menus():
+    """[124] 겹치는 메뉴 없애기 (2026-08-06 지시).
+
+    사용자 지시: "앱 전체적으로 겹치는 메뉴가 보이는데 이런 부분 통합하고 ui ux 개선해"
+    (쿠팡 캘린더 화면 사진과 함께).
+
+    사진에 찍힌 것은 셋이었다.
+      · 큰 버튼 '캡처' 와 아이콘 '이미지 저장' 이 **같은 함수**였다.
+      · '링크 복사' 와 '복사' — 같은 말이 두 가지를 가리켰다.
+      · 알림 칩이 헤더 버튼들을 **덮고** 있었고, 좁은 폰에서는 헤더 글자와
+        고객사 로고가 서로 겹쳤다.
+
+    그래서 이 검증은 '지금 고쳤다'가 아니라 **다시 생기지 않게** 막는다.
+      ① 한 화면 안에 같은 onclick 을 가진 버튼이 두 개 있으면 실패.
+      ② 도구줄의 복사 버튼은 무엇을 복사하는지 이름에 있어야 한다.
+      ③ 떠 있는 칩은 앱바 높이를 재서 그 **아래**에 놓는다(고정 top 금지).
+      ④ 헤더는 좁아지면 겹치지 말고 덜어내거나 잘린다.
+    """
+    import collections
+
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    # 화면 마크업은 <main> 안에만 있다. JS 템플릿 문자열까지 같이 세면
+    # `${...}` 로 인자가 달라지는 필터 칩들이 중복으로 잡혀 뜻이 흐려진다.
+    static = idx[idx.index('<main class="shell">'): idx.index("</main>")]
+
+    # ① 화면(<section class="view">) 단위로 같은 동작이 두 번 놓여 있지 않은가
+    marks = [(m.start(), m.group(1))
+             for m in re.finditer(r'<section class="view"[^>]*id="v-([\w-]+)"', static)]
+    assert len(marks) >= 8, "화면을 찾지 못했다 — 마크업 구조가 바뀌었다"
+    marks.append((len(static), None))
+    btn = re.compile(r"<button\b[^>]*?>.*?</button>", re.S)
+    onx = re.compile(r'onclick="([^"]+)"')
+    bad = []
+    for i in range(len(marks) - 1):
+        chunk = static[marks[i][0]:marks[i + 1][0]]
+        seen = collections.Counter()
+        for m in btn.finditer(chunk):
+            f = onx.search(m.group(0))
+            if f:
+                seen[re.sub(r"\s+", "", f.group(1))] += 1
+        for fn, n in seen.items():
+            if n > 1:
+                bad.append("%s 화면에 %s 가 %d번" % (marks[i][1], fn, n))
+    assert not bad, "한 화면에 같은 동작 버튼이 겹쳐 있다: " + " / ".join(bad)
+
+    # ② '복사' 만으로는 무엇을 복사하는지 알 수 없다 — 링크 복사와 헷갈렸던 자리다
+    assert 'aria-label="복사"' not in idx, \
+        "무엇을 복사하는지 모르는 '복사' 버튼이 남아 있다(링크 복사와 헷갈린다)"
+    assert idx.count('aria-label="이미지 복사"') >= 4, \
+        "도구줄의 복사 버튼 이름이 통일되지 않았다"
+    cal = idx[idx.index('id="calTools"'):]
+    cal = cal[: cal.index("</div>")]
+    for lbl in ("새로고침", "링크 복사", "이미지 저장", "이미지 복사", "엑셀 저장"):
+        assert 'aria-label="%s"' % lbl in cal, "캘린더 도구줄에 '%s' 가 없다" % lbl
+    head = idx[idx.index('<section class="view" id="v-calendar"'):]
+    head = head[: head.index('id="calTools"')]
+    assert head.count("<button") == 1 and "focusCalendarEntry()" in head, \
+        "캘린더 위쪽 큰 버튼이 다시 늘었다 — 저장·전달은 아래 도구줄 한 곳이다"
+
+    # ③ 떠 있는 칩이 헤더를 덮지 않는가
+    js = "".join(re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", idx, re.S))
+    assert "function chipTop(" in js, "칩 위치를 앱바 아래로 잡는 코드가 없다"
+    top = js[js.index("function chipTop("):]
+    top = top[: top.index("\nlet ") if "\nlet " in top else 600]
+    assert ".appbar" in top and "getBoundingClientRect" in top, \
+        "앱바 높이를 재지 않고 칩을 띄운다 — 헤더 버튼을 덮는다"
+    for fn in ("function netBanner(", "function swrChip("):
+        blk = js[js.index(fn):]
+        blk = blk[: blk.index("\nfunction ", 10)]
+        assert "chipTop()" in blk, "%s 가 아직 고정 위치를 쓴다" % fn
+        assert "env(safe-area-inset-top) + 8px" not in blk, \
+            "%s 가 헤더와 같은 자리에 칩을 띄운다" % fn
+
+    # ④ 좁은 화면에서 헤더가 겹치지 않게 덜어낸다
+    css = "".join(re.findall(r"<style[^>]*>(.*?)</style>", idx, re.S))
+    narrow = re.search(r"@media\(max-width:440px\)\{(.*?)\n\}", css, re.S)
+    assert narrow, "좁은 폰(≤440px) 전용 헤더 규칙이 없다"
+    narrow = narrow.group(1)
+    assert ".appbar h1{display:none}" in narrow, \
+        "좁은 폰에서 헤더 글자를 덜어내지 않는다 — 로고와 겹친다"
+    assert ".appbar-identity{flex:none}" in narrow and "min-width:0" in narrow, \
+        "자리가 모자랄 때 무엇이 줄어들지 정해 두지 않았다 — 앱 아이콘이 잘린다"
+    assert ".appbar-identity{overflow:hidden}" in css, \
+        "넘칠 때 겹치지 않게 자르는 안전망이 없다"
+
+    # ⑤ 좁은 폰에서 도구줄은 옆으로 숨지 말고 줄을 바꾼다
+    phone = re.search(r"@media\(max-width:640px\)\{(.*?)\n\}", css, re.S)
+    assert phone, "폰(≤640px) 전용 도구줄 규칙이 없다"
+    phone = phone.group(1)
+    assert "flex-wrap:wrap!important" in phone and "overflow-x:visible" in phone, \
+        "폰에서 도구줄이 옆으로 스크롤한다 — 마지막 버튼이 안 보인 채 숨는다"
+
+    print("  [124] 겹치는 메뉴 통합 — 화면당 중복 동작 0 · 복사 이름 통일 · 칩/헤더 겹침 차단 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -6810,6 +6905,7 @@ if __name__ == "__main__":
     t121_layer_dialogs()
     t122_dash_drag_and_remote_version()
     t123_calendar_share_tools()
+    t124_no_duplicate_menus()
     t120_calendar_sheet_and_share()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
