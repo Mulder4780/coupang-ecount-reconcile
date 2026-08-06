@@ -5316,6 +5316,45 @@ def t116_manual_refresh_is_really_fresh():
     print("  [116] 새로고침은 캐시를 건너뛰고 동시에 부른다(선택 기준일 포함) ✅")
 
 
+def t117_dark_mode_toggle():
+    """[117] 밝게/어둡게 — 사람이 켠 것만 따르고, 켜도 글자가 읽힌다 (2026-08-06 지시).
+
+    2026-07-30 에 다크 모드를 **껐던** 이유가 기록에 남아 있다: 흰 배경이 77곳에
+    하드코딩돼 있어 OS 다크 설정을 따라가면 글자만 흰색이 되어 '흰 카드 위 흰 글자'가
+    됐다. 그래서 이번에는 **순서를 지켰다** — 그 77곳(카드 35 · 옅은 판 37)을 먼저
+    --surface / --panel 로 흡수하고 나서 켰다. 이 검증이 그 순서를 지킨다.
+
+    · OS 설정을 자동으로 따라가지 않는다. 이 앱 화면은 그대로 캡처해 보고서로 나간다 —
+      폰이 어둡다는 이유로 보고 화면이 검게 바뀌면 안 된다.
+    · 켜져 있는 화면에서 바꾸면 크롬이 var() 재계산을 건너뛰어 **일부만 바뀌었다**(실측).
+      그래서 토글이 강제 재계산을 한 번 한다.
+    """
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    assert ':root[data-theme="dark"]' in live, "다크 팔레트가 없다"
+    assert "function toggleTheme(" in live and "function applyTheme(" in live
+    assert "cw_theme" in live, "고른 테마가 저장되지 않는다"
+    assert 'id="themeBtn"' in live, "밝게/어둡게 단추가 화면에 없다"
+    assert "function forceRestyle(" in live and "forceRestyle();" in live, \
+        "테마를 바꿔도 일부 요소가 옛 색을 그대로 들고 있다(강제 재계산 없음)"
+    # OS 를 자동으로 따라가면 보고 화면이 멋대로 검어진다 — 사람이 켠 것만 본다
+    assert "prefers-color-scheme" not in live, "OS 다크 설정을 자동으로 따라가고 있다"
+
+    dark = live[live.index(':root[data-theme="dark"]'):]
+    dark = dark[:dark.index("}")]
+    for tok in ("--bg:", "--surface:", "--panel:", "--panel-2:", "--ink:", "--ink-2:",
+                "--ink-3:", "--line:", "--brand:", "--brand-btn:", "--warn-btn:",
+                "--ok:", "--warn:", "--danger:", "--neu:"):
+        assert tok in dark, "다크 팔레트에 %s 가 없다 — 그 자리만 밝은 값이 남는다" % tok
+
+    # 흰 배경 하드코딩이 되돌아오면 2026-07-30 의 '흰 카드 위 흰 글자'가 재현된다
+    css = live[live.index("<style>"):live.index("</style>")]
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    white = re.findall(r"background(?:-color)?:\s*#(?:fff|ffffff)\b", css, re.I)
+    assert len(white) <= 2, "흰 배경이 다시 하드코딩됐다(%d곳) — --surface 를 쓸 것" % len(white)
+    print("  [117] 밝게/어둡게 토글 — 팔레트 완비·OS 자동추종 없음·강제 재계산 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -6234,6 +6273,7 @@ if __name__ == "__main__":
     t114_claim_owner_is_agent_pid()
     t115_text_contrast()
     t116_manual_refresh_is_really_fresh()
+    t117_dark_mode_toggle()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
