@@ -140,7 +140,10 @@ def _source_files(dir_fn, extensions, name_prefixes=()):
 #   여기서 **인자를 보고** 자동으로 정한다.
 NO_RETRY_FLAGS = ("--queue", "--apply", "--intake", "--force")
 NO_RETRY_NAMES = ("cloud_queue_sync.py", "ledger_db.py", "workbook_patch.py",
-                  "ledger_writer.py", "expand_rows.py")
+                  "ledger_writer.py", "expand_rows.py",
+                  # 게시는 git commit·push 다. 실패한 자리를 모르는 채 다시 하면
+                  # 빈 커밋이나 반쯤 올라간 상태가 겹친다 — 다음 회차에 맡긴다.
+                  "cloud_publish.py")
 
 
 def _retryable(args):
@@ -467,6 +470,9 @@ def _run_pipeline():
     steps.append(run("대표 브리핑(내용)", [os.path.join(ROOT, "daily_brief.py"), "--md"]))
 
     # 10. 고정 주소 사본 — PC를 꺼도 폰·태블릿이 이걸로 조회·자동채움을 한다(잠가서 올린다)
+    # 공유 캘린더 꾸러미를 **먼저** 새로 잠근다 — 그래야 바로 아래 게시가 최신을 올린다.
+    # (단톡방에 뿌린 링크는 이 파일 하나만 본다. 2026-08-06 지시)
+    steps.append(run("공유 캘린더 갱신", [os.path.join(ROOT, "cal_share.py")], timeout=600))
     steps.append(run("고정 주소 사본 올리기", [os.path.join(ROOT, "cloud_publish.py"), "--push"]))
 
     # 11. 버전 파일 정리 — 최신본 하나만 작업 폴더에 두고 구버전은 사용자가 지정한

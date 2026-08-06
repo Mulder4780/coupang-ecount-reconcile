@@ -33,6 +33,9 @@ OUT = os.path.join(DOCS, "data.enc")
 WEBCFG = os.path.join(ROOT, "config", "webapp.json")
 QUEUECFG = os.path.join(ROOT, "config", "cloud_queue.local.json")
 PUBLISH_FILES = (
+    # 공유 캘린더(2026-08-06). 단톡방에 뿌린 링크가 늘 최신을 보게 매 회차 같이 올린다 —
+    # 안 올리면 사람들은 며칠 전 일정을 보면서 그것이 오늘 것인 줄 안다.
+    "docs/cal.enc", "docs/cal.html",
     "docs/data.enc", "docs/app.html", "docs/index.html", "docs/manifest.json", "docs/sw.js",
     "docs/icon.svg", "docs/icon-32.png", "docs/icon-180.png",
     "docs/icon-192.png", "docs/icon-512.png",
