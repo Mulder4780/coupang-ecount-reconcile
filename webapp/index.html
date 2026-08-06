@@ -2031,6 +2031,29 @@ fieldset.remote-edit>input{margin:0 0 9px}
 .dash-edit #dashGrid>.dash-block{outline:2px dashed rgba(36,82,230,.35);outline-offset:2px}
 .dash-edit #dashGrid>.dash-block.dash-dragging{opacity:.48;outline-color:var(--brand)}
 .dash-edit #dashGrid>.dash-block.dash-drop-target{outline-style:solid;outline-color:var(--brand)}
+/* ★ 눌러서 옮기기 (2026-08-07 지시: "각 카드 클릭해서 이동할 수 있는 기능").
+   끌기는 손이 미끄러지면 놓쳐 버리고, 긴 화면에서는 끌고 가는 동안 목적지가
+   화면 밖이다. 그래서 **집었다가 놓는** 방식을 함께 둔다 — 카드를 한 번 누르면
+   집히고, 옮길 자리를 한 번 더 누르면 그 자리로 간다. 스크롤을 해도 집은 것이
+   풀리지 않으므로 화면 밖 자리로도 옮길 수 있다. 끌기도 그대로 둔다(빠르니까). */
+.dash-picked{outline:3px solid var(--brand)!important;outline-offset:2px;
+  box-shadow:0 10px 30px color-mix(in srgb,var(--brand) 28%,transparent);
+  transform:scale(.985);position:relative;z-index:6}
+body.dash-picking .dash-edit-target{cursor:copy}
+body.dash-picking #dashGrid>.dash-block:not(.dash-picked):hover,
+body.dash-picking .kpi[data-kpi-card]:not(.dash-picked):hover,
+body.dash-picking .dash-choice:not(.dash-picked):hover{outline-style:solid!important;
+  outline-color:var(--brand)!important;background:var(--brand-tint)}
+#dashPickBar{position:fixed;left:50%;transform:translateX(-50%);z-index:1200;
+  bottom:calc(env(safe-area-inset-bottom) + 84px);display:flex;align-items:center;gap:10px;
+  max-width:min(560px,94vw);padding:10px 14px;border-radius:999px;
+  background:var(--navy-900);color:#fff;font-size:13.5px;font-weight:700;
+  box-shadow:0 10px 30px rgba(10,20,48,.4)}
+#dashPickBar b{color:#BFD0FF;max-width:34vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dashPickBar button{flex:none;padding:5px 11px;border-radius:999px;border:1px solid rgba(255,255,255,.28);
+  background:transparent;color:#fff;font:800 12.5px inherit;cursor:pointer}
+#dashPickBar button:hover{background:rgba(255,255,255,.14)}
+@media(min-width:900px){ #dashPickBar{bottom:calc(env(safe-area-inset-bottom) + 26px)} }
 .dash-edit #dashGrid>.dash-block{transition:outline-color .16s,opacity .16s,transform .16s}
 .dash-block-tools{display:none;position:absolute;z-index:12;right:8px;top:8px;align-items:center;gap:4px;
   padding:4px;border:1px solid #D8E1F0;border-radius:10px;background:color-mix(in srgb,var(--surface) 96%,transparent);
@@ -5458,11 +5481,72 @@ function dashDragEnable(hostId, sel, onDrop, onReorder){
     d.el.classList.remove('dash-dragging');
     document.body.classList.remove('dash-drag-live');
     clearDashDropTargets();
-    if(d.live && d.moved && onDrop) onDrop(d.el);
+    if(d.live){ if(d.moved && onDrop) onDrop(d.el); return; }
+    // 끌지 않고 그냥 눌렀다 → **집기/놓기**로 읽는다
+    if(e.type === 'pointerup') dashPickTap(d.el, host, sel, onDrop);
   };
   host.addEventListener('pointerup', end);
   host.addEventListener('pointercancel', end);
 }
+
+/* ═══ 눌러서 옮기기 (2026-08-07 지시) ═══
+   "각 카드 클릭해서 이동할 수 있는 기능 추가" — 끌기만 있으면 손이 미끄러졌을 때
+   놓치고, 긴 화면에서는 끌고 가는 동안 목적지가 화면 밖으로 나간다.
+   집었다 놓는 방식은 **집은 채로 스크롤**할 수 있어 화면 밖 자리로도 옮겨진다.
+   끌기는 그대로 둔다 — 가까운 자리는 끄는 편이 빠르다. */
+let _dashPick = null;                 // {el, host, sel, onDrop, label}
+
+function dashPickLabel(el){
+  const t = el.querySelector('h3,h2,b,.dash-choice-label,.l');
+  return ((t && t.textContent) || el.dataset.dashBlock || el.dataset.kpiCard || '카드')
+    .replace(/\s+/g,' ').trim().slice(0,26);
+}
+function dashPickCancel(quiet){
+  if(!_dashPick) return;
+  _dashPick.el.classList.remove('dash-picked');
+  _dashPick = null;
+  document.body.classList.remove('dash-picking');
+  const bar = $('dashPickBar'); if(bar) bar.remove();
+  if(!quiet) toast('옮기기를 취소했습니다');
+}
+function dashPickBar(){
+  let bar = $('dashPickBar');
+  if(!bar){
+    bar = document.createElement('div');
+    bar.id = 'dashPickBar'; bar.setAttribute('role','status'); bar.setAttribute('aria-live','polite');
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = `<span><b>${esc2(_dashPick.label)}</b> 집었습니다 — 옮길 자리를 누르세요</span>`
+    + `<button type="button" onclick="dashPickCancel()">취소</button>`;
+}
+/* 카드를 한 번 눌렀을 때: 아무것도 안 집었으면 집고, 집었으면 그 자리에 놓는다. */
+function dashPickTap(el, host, sel, onDrop){
+  if(!dashLayoutEditing) return;
+  if(!_dashPick){
+    _dashPick = {el, host, sel, onDrop, label: dashPickLabel(el)};
+    el.classList.add('dash-picked');
+    document.body.classList.add('dash-picking');
+    dashPickBar();
+    uxEvent('tap','dash-pick');
+    return;
+  }
+  if(_dashPick.el === el){ dashPickCancel(); return; }      // 같은 카드 = 취소
+  // 서로 다른 묶음끼리는 못 옮긴다(화면 카드 ↔ 핵심지표 ↔ 보관함)
+  if(el.parentNode !== _dashPick.el.parentNode){
+    notice('같은 묶음 안에서만 자리를 바꿀 수 있습니다. 먼저 취소한 뒤 옮길 카드를 누르세요.');
+    return;
+  }
+  const moving = _dashPick.el, drop = _dashPick.onDrop, label = _dashPick.label;
+  // 누른 카드가 원래 자리보다 뒤에 있으면 그 **뒤**로, 앞에 있으면 그 **앞**으로 넣는다.
+  // (사람이 "이 카드 자리로" 라고 생각하는 결과와 같아진다)
+  const after = !!(moving.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+  el.parentNode.insertBefore(moving, after ? el.nextSibling : el);
+  dashPickCancel(true);
+  if(drop) drop(moving);
+  toast(`${label} 을(를) 옮겼습니다`);
+}
+/* Esc 로도 취소된다 — 집어 둔 채 다른 일을 하다 돌아왔을 때의 탈출구다. */
+document.addEventListener('keydown', e=>{ if(e.key === 'Escape') dashPickCancel(true); });
 
 /* 카드 하나를 레이어로 크게 연다 (2026-08-06 지시).
    "밑에서 위로 올라가는 레이어창이거나 모달창 중 좋은 구조로" —
