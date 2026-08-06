@@ -5824,6 +5824,68 @@ def t122_dash_drag_and_remote_version():
     print("  [122] 대시보드 포인터 끌기·카드 레이어 + 리모컨 버전별 보유·미확인 채우기 ✅")
 
 
+def t123_calendar_share_tools():
+    """[123] 공유 캘린더 — 크롬으로 자동 전환·설치·엑셀/캡처/복사 (2026-08-06 지시).
+
+    사용자 지시: "이 쿠팡 캘린더 접속시 자동으로 크롬으로 열리게 하고 설치할 수 있게
+    해주고, 여기에 엑셀저장, 캡처, 복사 버튼 동일하게 추가해서".
+
+    지키는 것
+      ① 카톡·밴드 안의 브라우저면 **자동으로** 밖(크롬/사파리)으로 넘긴다.
+         거기서는 홈 화면 설치가 아예 안 되고 저장도 어디로 갔는지 알 수 없다.
+      ② 그런데 **한 번만** 넘긴다(sessionStorage). 안 그러면 뒤로 돌아올 때마다
+         또 튀어나가 앱을 쓸 수가 없다. '나중에'를 누른 사람은 아예 넘기지 않는다.
+      ③ 설치 버튼은 **설치가 가능할 때만** 보인다 — 눌러도 아무 일 없는 버튼은
+         고장으로 읽힌다.
+      ④ 도구 세 개(이미지 저장·복사·엑셀)가 다른 화면과 같은 아이콘으로 있다.
+      ⑤ 내보내기는 **화면과 같은 달·같은 필터**만 담는다. 파일과 화면의 건수가
+         다르면 그때부터 파일을 못 믿는다.
+      ⑥ 캡처와 복사는 **같은 그리기 코드**를 쓴다(toBlob). 두 벌이면 한쪽만 낡는다.
+    """
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    js = "".join(re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", idx, re.S))
+
+    # ①② 자동 전환과 그 안전장치
+    assert "function calAutoOpenOutside(" in js, "자동으로 크롬으로 넘기는 코드가 없다"
+    auto = js[js.index("function calAutoOpenOutside("):]
+    auto = auto[:auto.index("\nfunction ", 10)]
+    assert "csosInApp()" in auto, "인앱 여부를 보지 않고 무조건 넘긴다"
+    assert "sessionStorage" in auto and "csos_auto_out" in auto, \
+        "한 번만 넘기는 장치가 없다 — 뒤로 올 때마다 튀어나간다"
+    assert "csos_install_hint_off" in auto, "'나중에'를 누른 사람에게도 자동으로 넘긴다"
+    assert "csosStandalone()" in auto, "이미 설치해 쓰는 사람까지 밖으로 넘긴다"
+    assert "calAutoOpenOutside();" in js[js.index("function maybeInstallForShare("):][:600], \
+        "공유 링크로 들어왔을 때 자동 전환이 걸리지 않는다"
+
+    # ③ 설치 버튼
+    assert 'id="calInstallBtn"' in idx and "hidden>" in idx.split('id="calInstallBtn"')[1][:400], \
+        "설치 버튼이 기본 숨김이 아니다"
+    assert "function calSyncInstallButton(" in js and "function calInstallApp(" in js
+
+    # ④ 도구 세 개 — 다른 화면과 같은 아이콘
+    tools = idx[idx.index('id="calTools"'):]
+    tools = tools[:tools.index("</div>")]
+    for icon in ("#i-image-down", "#i-clipboard-copy", "#i-file-spreadsheet"):
+        assert icon in tools, "캘린더 도구에 %s 가 없다" % icon
+    for fn in ("calendarCapture()", "calCopyList()", "calExportList()"):
+        assert fn in tools, "캘린더 도구에 %s 가 연결되지 않았다" % fn
+
+    # ⑤ 화면과 같은 것만 내보낸다
+    exp = js[js.index("function calRowsForExport("):]
+    exp = exp[:exp.index("\nfunction ", 10)]
+    assert "calendarRows()" in exp, "필터를 무시하고 전체를 내보낸다"
+    assert "calMonthOf(e.날짜) === m" in exp, "보고 있는 달만 내보내지 않는다"
+
+    # ⑥ 캡처와 복사가 같은 그림을 쓴다
+    assert "opt.toBlob" in js and "calendarCapture({toBlob:true})" in js, \
+        "복사가 캡처와 다른 코드로 그림을 만든다 — 한쪽만 낡는다"
+    cp = js[js.index("async function calCopyList("):]
+    cp = cp[:cp.index("\nfunction ", 10) if "\nfunction " in cp else 2000]
+    assert "clipboard.writeText" in cp, \
+        "이미지 복사가 막힌 폰에서 아무 일도 일어나지 않는다 — 글 복사 대비가 없다"
+    print("  [123] 공유 캘린더 — 크롬 자동 전환(1회)·설치 버튼·엑셀/캡처/복사 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -6747,6 +6809,7 @@ if __name__ == "__main__":
     t119_context_guard()
     t121_layer_dialogs()
     t122_dash_drag_and_remote_version()
+    t123_calendar_share_tools()
     t120_calendar_sheet_and_share()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:

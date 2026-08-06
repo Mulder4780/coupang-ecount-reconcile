@@ -2984,6 +2984,15 @@ body.dash-drag-live{-webkit-user-select:none;user-select:none;cursor:grabbing}
     <!-- 종류 필터(2026-08-05 지시) — 여러 개를 켜고 끌 수 있다. 하나만 보고 싶을 때는
          칩을 길게 누르지 않아도 되게 '이것만' 버튼을 따로 두지 않고, 전체 토글로 해결한다. -->
     <div class="cal2-only-note">쿠팡 캘린더 전용 화면입니다 — 이 링크로는 일정만 보입니다.</div>
+    <!-- 저장·전달 도구 (2026-08-06 지시) — 다른 목록 화면과 **같은 자리·같은 아이콘**을 쓴다.
+         캡처는 위 큰 버튼과 같은 동작이지만, 여기 나란히 있어야 "저장·복사·엑셀"을
+         한 묶음으로 찾는다. 설치 버튼은 배너를 놓쳤을 때의 상시 통로다. -->
+    <div class="media-tools" id="calTools" role="toolbar" aria-label="캘린더 저장·전달 도구" style="margin:0 0 10px">
+      <button class="icon-btn primary" type="button" onclick="calendarCapture()" title="이미지 저장 (A4 한 장)" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
+      <button class="icon-btn" type="button" onclick="calCopyList()" title="지금 보이는 일정을 글로 복사" aria-label="복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
+      <button class="icon-btn excel" type="button" onclick="calExportList()" title="엑셀(xlsx)로 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
+      <button class="icon-btn" type="button" id="calInstallBtn" onclick="calInstallApp()" title="홈 화면에 앱으로 설치" aria-label="앱 설치" hidden><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-save-fill"/></svg></button>
+    </div>
     <div class="cal2-filters" id="calFilters" role="group" aria-label="일정 종류 필터"></div>
     <div class="calendar-meta" id="calendarMeta">일정 캐시를 불러오는 중입니다.</div>
 
@@ -7260,9 +7269,13 @@ async function shareCalendarLink(){
    A4(96dpi) = 794×1123. 인쇄해도 잘리지 않게 이 크기에 **맞춰 넣는다**(넘치면 줄인다). */
 const A4W = 794, A4H = 1123;
 function calCampOf(e){ return String(e.캠프명 || e.장소 || e.제목 || '').trim() || '(장소 미입력)'; }
-async function calendarCapture(){
+/* opt.toBlob 이면 저장하지 않고 이미지를 돌려준다 — '복사' 가 같은 그림을 쓰려고
+   똑같은 그리기 코드를 두 벌 두면 한쪽만 고쳐지는 날이 온다(2026-08-06). */
+async function calendarCapture(opt){
+  opt = opt || {};
+  if(!CAL_MONTH) CAL_MONTH = calDefaultMonth();
   const rows = calendarRows().filter(e => calMonthOf(e.날짜) === CAL_MONTH);
-  if(!rows.length){ toast('이 달에 표시할 일정이 없습니다'); return; }
+  if(!rows.length){ if(!opt.toBlob) toast('이 달에 표시할 일정이 없습니다'); return null; }
   const [Y, M] = CAL_MONTH.split('-').map(Number);
   const S = 2, W = A4W, H = A4H, Mg = 26;
   const F = (z, w) => `${w || 400} ${z}px "Nanum Gothic","Malgun Gothic",sans-serif`;
@@ -7418,10 +7431,12 @@ async function calendarCapture(){
     : `전체 ${rows.length}건을 모두 실었습니다 · A4 한 장 · 유니버셜리프트앤히타치코리아`, Mg, H - 14);
 
   const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
-  if(!blob){ notice('이미지 생성 실패'); return; }
+  if(!blob){ if(!opt.toBlob) notice('이미지 생성 실패'); return null; }
+  if(opt.toBlob) return blob;                    // 복사가 같은 그림을 그대로 쓴다
   saveOrOpen(blob, `쿠팡캘린더_${CAL_MONTH}.png`);
   toast(`${Y}년 ${M}월 캘린더를 A4 한 장으로 저장했습니다`);
   uxEvent('tap', 'calCapture');
+  return blob;
 }
 /* ── 공유 링크로 처음 들어온 사람에게 '앱으로 설치' 를 권한다 (2026-08-06 지시) ──
    단톡방에서 링크를 받은 사람은 브라우저 주소창째로 본다. 다음에 또 보려면 링크를
@@ -7513,9 +7528,106 @@ function showInstallBanner(){
 /* 공유 링크(?view=)로 들어왔을 때만 권한다 — 늘 쓰는 사람에게 매번 띄우면 방해다. */
 function maybeInstallForShare(){
   try{ if(!new URLSearchParams(location.search).get('view')) return; }catch(e){ return; }
+  calAutoOpenOutside();                       // 카톡·밴드 안이면 먼저 크롬으로 빠져나간다
+  calSyncInstallButton();
   if(window.__csosInstallPrompt) { showInstallBanner(); return; }
-  window.addEventListener('csos-install-ready', showInstallBanner, {once:true});
+  window.addEventListener('csos-install-ready', ()=>{ calSyncInstallButton(); showInstallBanner(); }, {once:true});
   setTimeout(showInstallBanner, 1200);        // 아이폰은 이벤트가 없으므로 조금 기다렸다 안내
+}
+
+/* ── 카톡·밴드 안에서 열렸으면 **자동으로** 크롬(아이폰은 사파리)으로 넘긴다
+      (2026-08-06 지시: "접속시 자동으로 크롬으로 열리게") ─────────────────────
+   왜 필요한가
+     단톡방 링크를 누르면 카카오톡 안의 브라우저가 뜬다. 거기서는 **홈 화면에
+     설치가 아예 불가능**하고, 캡처·엑셀 저장도 막히거나 파일이 어디로 갔는지
+     알 수 없다. 그래서 지금까지는 "크롬으로 열기" 배너를 눌러 달라고 부탁했는데,
+     대부분 그냥 그 안에서 보다가 "설치가 안 된다"고 했다.
+
+   조심한 것
+     · **한 번만** 넘긴다(sessionStorage). 크롬으로 넘어갔다가 사용자가 뒤로
+       돌아왔을 때 또 튀어나가면 앱을 쓸 수가 없다.
+     · '나중에'를 눌러 둔 사람은 자동으로 넘기지 않는다 — 거절을 기억한다.
+     · 안드로이드는 intent:// 로 크롬이 확실히 열린다. 아이폰은 표준이 없어
+       한 번 시도하고, 안 되면 예전처럼 배너로 안내한다.
+     · 이미 크롬·사파리로 보고 있으면 아무 일도 하지 않는다. */
+function calAutoOpenOutside(){
+  if(!csosInApp() || csosStandalone()) return;
+  try{
+    if(localStorage.getItem('csos_install_hint_off')==='1') return;   // 거절을 기억한다
+    if(sessionStorage.getItem('csos_auto_out')==='1') return;         // 이 창에서는 한 번만
+    sessionStorage.setItem('csos_auto_out','1');
+  }catch(e){ return; }
+  uxEvent('tap','calAutoOpenOutside');
+  setTimeout(csosOpenOutside, 250);      // 화면이 한 번 그려진 뒤에 넘긴다(빈 화면 깜빡임 방지)
+}
+
+/* 설치 버튼은 **설치가 가능할 때만** 보인다. 눌러도 아무 일이 없는 버튼은
+   "고장 났다"로 읽힌다 — 그래서 기본은 숨김이고 조건이 맞을 때만 켠다. */
+function calSyncInstallButton(){
+  const b = document.getElementById('calInstallBtn');
+  if(!b) return;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  b.hidden = csosStandalone() || (!window.__csosInstallPrompt && !isIOS && !csosInApp());
+}
+async function calInstallApp(){
+  if(csosInApp()){ csosOpenOutside(); return; }        // 인앱이면 먼저 밖으로
+  const ev = window.__csosInstallPrompt;
+  if(ev){
+    try{ ev.prompt(); await ev.userChoice; }catch(e){}
+    window.__csosInstallPrompt = null;
+    calSyncInstallButton();
+    uxEvent('tap','calInstallApp');
+    return;
+  }
+  if(/iPad|iPhone|iPod/.test(navigator.userAgent)){
+    notice('아래 공유 버튼(⬆) → "홈 화면에 추가" 를 누르면 앱처럼 열립니다.', {title:'아이폰 설치'});
+    return;
+  }
+  notice('이 브라우저에서는 설치할 수 없습니다. 크롬으로 열어 주세요.', {title:'앱 설치'});
+}
+
+/* ── 캘린더 목록 복사·엑셀 (2026-08-06 지시) — 다른 화면과 같은 도구를 캘린더에도 ── */
+function calRowsForExport(){
+  // 화면에 보이는 것과 **같은 필터·같은 달**만 내보낸다. 화면과 파일이 다르면
+  // "왜 건수가 다르냐"가 되고, 그때부터 파일을 못 믿게 된다.
+  const m = CAL_MONTH || calDefaultMonth();
+  return calendarRows()
+    .filter(e => calMonthOf(e.날짜) === m)
+    .sort((a,b) => String(a.날짜||'').localeCompare(String(b.날짜||'')) ||
+                   String(a.시간||'').localeCompare(String(b.시간||'')))
+    .map(e => ({
+      '날짜': e.날짜||'', '시간': e.시간||'종일', '종류': calKindMeta(calKindOf(e)).label,
+      '제목': e.제목||'', '캠프': e.캠프||'', '프로젝트NO': e.프로젝트NO||e.원천업무ID||'',
+      '담당': e.담당||'', '비고': e.비고||''
+    }));
+}
+function calExportList(){
+  const m = CAL_MONTH || calDefaultMonth();
+  const rows = calRowsForExport();
+  if(!rows.length){ notice('이 달에 내보낼 일정이 없습니다.'); return; }
+  exportRowsXlsx(`쿠팡캘린더_${m}`, rows);
+  uxEvent('tap','calExport');
+}
+/* 복사는 다른 화면과 같이 **이미지**를 먼저 시도하고, 안 되면 글로 복사한다.
+   폰 브라우저 상당수가 이미지 클립보드를 막아 두어서, 실패하면 아무 일도 안 일어난
+   것처럼 보였다 — 그럴 때 글이라도 붙여넣을 수 있어야 단톡방에 올릴 수 있다. */
+async function calCopyList(){
+  const m = CAL_MONTH || calDefaultMonth();
+  const rows = calRowsForExport();
+  if(!rows.length){ notice('이 달에 복사할 일정이 없습니다.'); return; }
+  try{
+    const blob = await calendarCapture({toBlob:true});
+    if(blob){ await copyPngBlob(blob); toast('캘린더 이미지를 복사했습니다'); uxEvent('tap','calCopy-img'); return; }
+  }catch(e){ /* 아래 글 복사로 넘어간다 */ }
+  const text = [`쿠팡 캘린더 ${m} · ${rows.length}건`]
+    .concat(rows.map(r=>`${r.날짜} ${r.시간} [${r.종류}] ${r.제목}${r.캠프?` · ${r.캠프}`:''}`)).join('\n');
+  try{
+    await navigator.clipboard.writeText(text);
+    toast(`일정 ${rows.length}건을 글로 복사했습니다`);
+    uxEvent('tap','calCopy-text');
+  }catch(e){
+    await askText('아래 내용을 길게 눌러 복사하세요', text, {title:`쿠팡 캘린더 ${m}`, ok:'닫기'});
+  }
 }
 /* 링크로 들어왔을 때 달·필터를 그대로 맞춰 준다. 한 번만 적용한다 —
    계속 적용하면 사용자가 달을 바꿔도 자꾸 링크의 달로 되돌아간다. */
