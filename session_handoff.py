@@ -133,10 +133,17 @@ def claims():
                 mins = int((_t.time() - at) // 60)
         except (TypeError, ValueError):
             pass
-        alive = pid_alive(info.get("pid"))
+        # ★ 주인은 `agent_pid`(세션 프로세스)다 — `pid` 가 아니다 (2026-08-06 실측 수정).
+        #   `pid` 는 점유를 **잡은 순간의 CLI 프로세스**라 명령이 끝나면 바로 죽는다.
+        #   CLAUDE.md 가 경고한 그 함정이다("CLI 는 명령 한 번에 끝나 적자마자 죽은 주인이 된다").
+        #   그걸로 판정하니 **살아 있는 세션이 잡은 원장 점유를 '죽은 잔재'로 몰아**
+        #   "free 하라"고 사람에게 권했다. 그대로 따랐으면 쓰기 중인 세션의 원장 잠금을
+        #   빼앗는다. 실제로 `--adopt`(agent_pid 로 본다)와 답이 엇갈려 드러났다.
+        owner_pid = info.get("agent_pid") or info.get("pid")
+        alive = pid_alive(owner_pid)
         stale = (alive is False) or (alive is not True and mins is not None and mins >= STALE_MIN)
         out.append({"lock": lock, "who": info.get("who"), "why": info.get("why", ""),
-                    "mins": mins, "pid": info.get("pid"), "alive": alive, "stale": stale})
+                    "mins": mins, "pid": owner_pid, "alive": alive, "stale": stale})
     return out
 
 

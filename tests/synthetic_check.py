@@ -5080,6 +5080,7 @@ def t111_account_handoff_freshness():
          최선은 "밀렸다 + 이렇게 되살려라" 를 시작 화면 맨 앞에 놓는 것이다.
     """
     import session_handoff as H
+    import time as _t2
 
     rows = H.data_freshness(today="2026-08-06")
     need = {"이름", "최신", "밀린일", "한도", "밀림", "되살리는법"}
@@ -5088,6 +5089,25 @@ def t111_account_handoff_freshness():
     assert [r for r in rows if r["이름"].startswith("밴드")], rows
     # '어제'가 비면 밀린 것이다: 8/6 기준 최신 8/4 → 밀린일 2 > 한도 1
     assert H.FRESH_LIMIT["밴드"] == 1, "밴드 한도가 1을 넘으면 어제 빈 것을 못 잡는다"
+
+    # ★ 점유의 생사는 **agent_pid(세션 프로세스)** 로 본다. `pid` 는 점유를 잡은 순간의
+    #   CLI 프로세스라 명령이 끝나면 죽는다 — 그걸로 보면 살아 있는 세션이 잡은 원장
+    #   점유가 매번 '죽은 잔재'로 나와, 사람에게 "free 하라"고 권하게 된다(2026-08-06 실측).
+    import ai_claim as _AC
+    live = {"who": "scheduler", "why": "ledger_writer", "at": _t2.time(),
+            "agent_pid": os.getpid(), "pid": 999999999, "sid": "x"}
+    _real_load = _AC.load
+    try:
+        _AC.load = lambda: {"ledger": live}
+        got = H.claims()
+        assert got and got[0]["alive"] is True and not got[0]["stale"], \
+            "살아 있는 세션의 점유를 죽은 것으로 본다 — 원장 잠금을 빼앗게 된다: %r" % (got,)
+        live2 = dict(live, agent_pid=999999998)
+        _AC.load = lambda: {"ledger": live2}
+        got2 = H.claims()
+        assert got2 and got2[0]["stale"], "정말 죽은 세션인데 못 잡아낸다"
+    finally:
+        _AC.load = _real_load
 
     st = {"큐잔량": 0, "임시파일": [], "점유": [], "미푸시": [], "지시문사본": [],
           "수집신선도": [{"이름": "밴드: 90610953", "최신": "2026-08-04", "밀린일": 2,
