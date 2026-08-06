@@ -5059,6 +5059,35 @@ def t111_account_handoff_freshness():
     print("  [111] 계정이 바뀌어도 이어받기 — 죽은 점유 회수·수집 밀림 감지 ✅")
 
 
+def t112_band_plan_order_and_scope():
+    """[112] 밴드 수집 순서 — **새 글 먼저**, 범위는 사람이 정한 값 (2026-08-06).
+
+    예전에는 캐시의 '구멍'만 봤다. 그래서 마지막 수집 이후 올라온 글은 영원히 대상
+    밖이었고, 쿠팡AS 밴드가 8/4 에 멈춰 있는데도 "구멍 0" 이라 아무도 몰랐다 —
+    그 결과 8/5 돌발AS 가 1건으로 보고됐다. 이제 캐시 위쪽을 먼저 훑는다.
+
+    그리고 어디까지 파고들지는 **사람이 정한다**. 대화에 남긴 결정은 다음 세션이
+    모르므로 band/collect_scope.json 이 기억하고 도구가 그것을 기본값으로 쓴다.
+    """
+    import band.recheck_plan as RP
+
+    posts = {str(n): {"captured_at": RP.ERA_MS + 1} for n in range(100, 111)}
+    p = RP.plan("1", posts, floor=95, ahead=3)
+    assert p["new"] == [111, 112, 113], p["new"]
+    assert p["gaps"] == [95, 96, 97, 98, 99], p["gaps"]
+    # 순서: 새 글 → 구멍(최근부터). 과거글을 먼저 훑으면 오늘 숫자가 계속 틀린다.
+    todo = (p["new"] + sorted(p["gaps"], reverse=True))[:6]
+    assert todo == [111, 112, 113, 99, 98, 97], todo
+    # ahead 를 안 주면 위쪽을 안 본다 — 예전 동작이 그대로 남아 있으면 안 된다
+    assert RP.plan("1", posts, floor=95)["new"] == []
+
+    sc = RP.scope()
+    assert sc.get("floor"), "사람이 정한 수집 범위(collect_scope.json)가 없다"
+    assert all(str(k).isdigit() and int(v) > 0 for k, v in sc["floor"].items()), sc
+    assert int(sc.get("ahead") or 0) > 0, "새 글 탐색 개수가 0이면 최신분을 못 잡는다"
+    print("  [112] 밴드 수집 — 새 글 우선·사람이 정한 범위를 파일이 기억 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -5972,6 +6001,7 @@ if __name__ == "__main__":
     t109_remote_edit_delete_versions()
     t110_writer_formula_key()
     t111_account_handoff_freshness()
+    t112_band_plan_order_and_scope()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)

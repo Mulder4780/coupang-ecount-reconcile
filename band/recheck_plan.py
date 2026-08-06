@@ -29,12 +29,31 @@ def load(band):
     return json.load(open(p, encoding="utf-8")).get("posts") or {}
 
 
-def plan(band, posts, floor=0):
+SCOPE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "collect_scope.json")
+
+
+def scope():
+    """어디까지 훑을지 — **사람이 정한 값**을 파일에서 읽는다 (2026-08-06).
+
+    대화에 남긴 결정은 다음 세션·다른 계정이 모른다. 그래서 band/collect_scope.json 이
+    기억하고, 이 도구는 그것을 기본값으로 쓴다. 범위를 넓히는 것은 사람의 결정이다.
+    """
+    try:
+        return json.load(open(SCOPE, encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def plan(band, posts, floor=0, ahead=0):
     ks = sorted(int(k) for k in posts if str(k).isdigit())
     if not ks:
         return None
     lo, hi = ks[0], ks[-1]
     have = set(ks)
+    # ★ 캐시 **위쪽**(새 글)을 먼저 본다. 예전에는 구멍만 봐서, 마지막 수집 이후 올라온
+    #   글이 영원히 대상 밖이었다 — 2026-08-06 쿠팡AS 밴드가 8/4 에 멈춰 있는데도
+    #   "구멍 0" 이라 아무도 몰랐고, 8/5 돌발AS 가 1건으로 보고됐다.
+    new = list(range(hi + 1, hi + 1 + int(ahead or 0)))
     # ★ 아래쪽 구멍(2026-08-06 발견). 예전에는 **보유한 것 중 가장 작은 번호부터**만
     #   구멍으로 봤다. 그래서 캐시가 4196~5424 여도 "구멍 0"이라 나왔고, 1~4195(2023-03
     #   부터의 4,195건)가 통째로 수집 대상 밖에 있었다 — 없는 줄도 몰랐다.
@@ -46,18 +65,22 @@ def plan(band, posts, floor=0):
                    if str(k).isdigit() and not v.get("deleted")
                    and int(v.get("captured_at") or 0) < ERA_MS)
     dead = sum(1 for v in posts.values() if isinstance(v, dict) and v.get("deleted"))
-    return {"band": band, "range": (lo, hi), "n": len(ks),
+    return {"band": band, "range": (lo, hi), "n": len(ks), "new": new,
             "gaps": gaps, "stale": stale, "deleted": dead}
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--band", help="특정 밴드만")
-    ap.add_argument("--floor", type=int, default=0,
-                    help="이 번호부터 전부 대상(1이면 밴드 개설 이후 전량)")
+    ap.add_argument("--floor", type=int, default=None,
+                    help="이 번호부터 전부 대상(1이면 밴드 개설 이후 전량)."
+                         " 안 주면 collect_scope.json 의 사람 결정을 쓴다")
+    ap.add_argument("--ahead", type=int, default=None,
+                    help="캐시 최대 번호 위로 새 글을 몇 개까지 찾아볼까(기본 40)")
     ap.add_argument("--limit", type=int, default=60,
                     help="한 번에 훑을 개수(글당 5초+ — 60이면 약 7분)")
     a = ap.parse_args()
+    sc = scope()
 
     bands = [a.band] if a.band else sorted(
         f[:-5] for f in os.listdir(CACHE)
@@ -67,12 +90,19 @@ def main():
         if posts is None:
             print(f"{band}: 캐시 없음")
             continue
-        p = plan(band, posts, a.floor)
+        floor = a.floor if a.floor is not None else \
+            int((sc.get("floor") or {}).get(band, 0) or 0)
+        ahead = a.ahead if a.ahead is not None else int(sc.get("ahead") or 40)
+        p = plan(band, posts, floor, ahead)
         print(f"밴드 {band}: 보유 {p['n']}건 ({p['range'][0]}~{p['range'][1]}) · "
-              f"구멍 {len(p['gaps'])} · 재수집 전 {len(p['stale'])}"
+              f"새 글 후보 {len(p['new'])} · 구멍 {len(p['gaps'])}(floor {floor}) · "
+              f"재수집 전 {len(p['stale'])}"
               + (f" · 삭제됨 {p['deleted']}" if p.get("deleted") else ""))
-        # 최신 글부터 재확인한다 — 수정은 최근 글에서 일어난다.
-        todo = (p["gaps"] + sorted(p["stale"], reverse=True))[:a.limit]
+        # ★ 순서: **새 글 → 구멍(최근부터) → 재수집**.
+        #   대표 보고가 쓰는 것은 최신분이다. 과거글을 먼저 훑으면 오늘 숫자가 계속 틀린다.
+        #   구멍도 큰 번호(최근)부터 간다 — 옛날로 갈수록 업무 가치가 떨어진다.
+        todo = (p["new"] + sorted(p["gaps"], reverse=True)
+                + sorted(p["stale"], reverse=True))[:a.limit]
         if a.band and todo:
             print("다음 배치(JS 그대로 붙여넣기):")
             print(f"__grabStart({band}, {json.dumps(todo)})")
