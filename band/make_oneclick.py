@@ -77,6 +77,13 @@ def build(band, limit):
     }}, 5000);
   }});
   (async () => {{
+    // 앞 회차가 아직 돌고 있으면 그것부터 끝내고 저장한다. 그냥 시작하면
+    // __grabStart 가 '이미 실행 중'으로 거절해 첫 회차 번호가 통째로 빠진다.
+    if (window.__grabStatus().running) {{
+      say('앞 배치가 아직 돌고 있습니다 — 그것부터 끝내고 이어 갑니다.');
+      await waitRound(-1);
+      say('앞 배치 ' + window.__grabSave());
+    }}
     for (let i = 0; i < ROUNDS.length; i++) {{
       // keep:false → 지난 회차 글을 탭에서 비운다. 이미 저장했으니 잃는 것이 없다.
       console.log(window.__grabStart(BAND, ROUNDS[i], {{ keep: false }}));
