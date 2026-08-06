@@ -92,6 +92,15 @@ def pid_alive(pid):
         return None
 
 
+def _is_mine(info):
+    """내 세션 것인가 — 안내 문구를 고르는 데 쓴다(남의 것에 --free 를 권하면 안 된다)."""
+    try:
+        import ai_claim
+        return bool(ai_claim._is_mine(info, info.get("who") or "claude"))
+    except Exception:
+        return False
+
+
 def claims():
     try:
         import ai_claim
@@ -111,10 +120,17 @@ def claims():
                 mins = int((_t.time() - at) // 60)
         except (TypeError, ValueError):
             pass
-        alive = pid_alive(info.get("pid"))
+        # ★ 주인은 `pid` 가 아니라 **`agent_pid`** 다 (2026-08-06 실사고).
+        #   `pid` 는 ai_claim 을 실행한 CLI 프로세스라 명령이 끝나는 즉시 죽는다 —
+        #   그것으로 판정하면 **살아 있는 옆 세션의 점유까지 '죽은 잔재'로** 표시하고,
+        #   "이 명령으로 푸세요" 라고 안내한다. 실제로 그 안내대로 하면 ai_claim 이
+        #   거부하므로(남의 것) 사람은 영문도 모른 채 막힌다. 판정은 한 벌이어야 한다.
+        owner_pid = info.get("agent_pid") or info.get("pid")
+        alive = pid_alive(owner_pid)
         stale = (alive is False) or (alive is not True and mins is not None and mins >= STALE_MIN)
         out.append({"lock": lock, "who": info.get("who"), "why": info.get("why", ""),
-                    "mins": mins, "pid": info.get("pid"), "alive": alive, "stale": stale})
+                    "mins": mins, "pid": owner_pid, "alive": alive, "stale": stale,
+                    "mine": _is_mine(info)})
     return out
 
 
@@ -339,10 +355,16 @@ def blockers(st, for_sol=False):
     for c in st["점유"]:
         m = c["mins"] if c["mins"] is not None else "?"
         if c["stale"]:
-            why = "프로세스 %s 가 없다" % c.get("pid") if c.get("alive") is False else "%s분 경과" % m
+            why = "주인 프로세스 %s 가 없다" % c.get("pid") if c.get("alive") is False \
+                else "%s분 경과" % m
+            # 내 것이면 --free 로 놓이지만, **남의 죽은 세션 것은 --free 가 거부한다**
+            # (세션 단위 규칙). 그때 통하는 것은 --adopt 다 — 될 리 없는 명령을 적어
+            # 두면 사람이 그대로 해 보고 막힌다(2026-08-06 실측).
+            fix = ("python ai_claim.py --who %s --free %s" % (c["who"], c["lock"])
+                   if c.get("mine") else
+                   "python session_handoff.py --adopt   (죽은 세션 것이라 --free 는 거부된다)")
             out.append(("★ '%s' 점유가 **죽은 세션의 잔재**로 보인다 — %s (%s · %s)"
-                        % (c["lock"], why, c["who"], c["why"]),
-                        "python ai_claim.py --who %s --free %s" % (c["who"], c["lock"])))
+                        % (c["lock"], why, c["who"], c["why"]), fix))
         else:
             out.append(("%s 가 '%s' 를 잡고 있다(%s분, 살아 있음) — 배타 작업은 피할 것"
                         % (c["who"], c["lock"], m),

@@ -2942,7 +2942,11 @@ def t53_session_handoff():
         assert got[0]["stale"] is True, "죽은 프로세스인데 잔재로 안 본다 — 원장이 45분 잠긴다"
         bl = H.blockers({"큐잔량": 0, "임시파일": [], "점유": got, "미푸시": []})
         assert any("잔재" in w for w, _ in bl), bl
-        assert any("--free ledger" in c for _, c in bl), "풀 명령을 알려주지 않는다"
+        # 푸는 방법을 반드시 알려 주되 **될 명령**이어야 한다. 이건 codex 의 죽은
+        # 점유라 `--free` 는 ai_claim 이 거부한다(세션 단위 규칙) — 통하는 것은
+        # `--adopt` 다. 예전엔 무조건 `--free` 를 적어 사람이 그대로 하고 막혔다.
+        # 소유 판정은 [114] 가 따로 지킨다.
+        assert any("--adopt" in c for _, c in bl), "풀 명령을 알려주지 않는다: %s" % bl
         # 살아 있는 점유는 잔재가 아니다 — 상대가 일하는 중이다
         fake["ledger"]["pid"] = os.getpid()
         assert H.claims()[0]["stale"] is False, "살아 있는 점유를 잔재로 본다 — 상대 작업을 가로챈다"
@@ -5171,6 +5175,53 @@ def t113_paste_typos_and_misc_reclass():
     print("  [113] 붙여넣기 오염 흡수(캠프명 18→14)·미분류 자동 재분류 ✅")
 
 
+def t114_claim_owner_is_agent_pid():
+    """[114] 점유의 생사는 **agent_pid** 로 본다 — pid 로 보면 산 세션을 죽었다고 한다.
+
+    2026-08-06 실사고: 시작 화면이 살아 있는 옆 세션의 'code' 점유를 "죽은 세션의
+    잔재"로 표시하고 `--free` 를 권했다. `pid` 는 ai_claim 을 실행한 **CLI 프로세스**라
+    명령이 끝나는 즉시 죽는다 — 그것으로 판정하면 **모든 점유가 항상 잔재**로 보인다.
+    주인은 `agent_pid`(에이전트 프로세스)다.
+
+    두 배 위험했던 이유: 안내대로 `--free` 를 해도 ai_claim 이 남의 것이라 거부한다.
+    사람은 "왜 안 풀리지" 하며 막히고, 최악의 경우 `--force` 로 **일하는 세션의
+    원장 점유를 빼앗는다.** 그래서 안내 문구도 내 것/남의 것을 갈라 적는다.
+    """
+    import session_handoff as H
+
+    live, dead = os.getpid(), 999999
+    saved = H.claims.__globals__.get("_CLAIM_TEST")
+    try:
+        import ai_claim as C
+        real = C.load
+        C.load = lambda: {
+            "code": {"who": "claude", "sid": "other", "why": "옆 세션",
+                     "pid": dead, "agent_pid": live, "host": "", "at": 0},
+            "band": {"who": "claude", "sid": "gone", "why": "죽은 세션",
+                     "pid": live, "agent_pid": dead, "host": "", "at": 0},
+        }
+        try:
+            rows = {c["lock"]: c for c in H.claims()}
+        finally:
+            C.load = real
+    finally:
+        H.claims.__globals__["_CLAIM_TEST"] = saved
+
+    assert rows["code"]["alive"] is True, "산 세션을 죽었다고 본다 — pid 를 보고 있다"
+    assert rows["code"]["stale"] is False, rows["code"]
+    assert rows["band"]["alive"] is False, "죽은 세션을 못 가려낸다"
+    assert rows["band"]["stale"] is True, rows["band"]
+
+    # 안내 문구: 남의 죽은 점유에 --free 를 권하면 안 된다(거부당한다)
+    st = {"점유": [dict(rows["band"], mine=False)], "임시파일": [],
+          "큐잔량": 0, "미푸시": []}
+    fixes = " ".join(f for _, f in H.blockers(st))
+    assert "--adopt" in fixes and "--free band" not in fixes, fixes
+    st["점유"] = [dict(rows["band"], mine=True)]
+    assert "--free band" in " ".join(f for _, f in H.blockers(st))
+    print("  [114] 점유 생사는 agent_pid — 산 세션을 잔재로 오인하지 않는다 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -6086,6 +6137,7 @@ if __name__ == "__main__":
     t111_account_handoff_freshness()
     t112_band_plan_order_and_scope()
     t113_paste_typos_and_misc_reclass()
+    t114_claim_owner_is_agent_pid()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
