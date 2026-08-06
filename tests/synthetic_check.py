@@ -5490,6 +5490,77 @@ def t118_ocr_crosscheck():
     print("  [118] 문서 OCR 교차검증 — 겹칠 때만 입력·항목별 원장 대조·로컬 전용 ✅")
 
 
+def t119_context_guard():
+    """[119] 컨텍스트가 다 차기 전에 마무리로 전환시킨다 (2026-08-06 지시).
+
+    사용자 지시: "컨텍스트 윈도우 다 차기전 컴팩팅 자동으로 하는 알고리즘 추가".
+
+    지키는 것
+      ① 대화 기록 폴더를 **정말로 찾는다.** 슬러그는 글자 하나당 대시 하나다
+         (`C:\\Users\\…` → `C--Users-…`). 여기를 `[^A-Za-z0-9]+` 로 묶었다가
+         폴더를 못 찾아 사용량이 늘 0% 로 나왔었다 — 그러면 감시가 없는 것과 같다.
+      ② 사용량은 **마지막 usage 합**(입력+캐시읽기+캐시생성)이다. 글자 수 추정이 아니다.
+      ③ 단계는 올라갈 때만 말한다(70 예고 / 85 마무리 / 95 즉시). 매 입력마다 떠들면
+         본문이 밀려 오히려 컨텍스트를 잡아먹는다.
+      ④ 훅은 **절대 사람 입력을 막지 않는다** — 어떤 예외에도 exit 0.
+      ⑤ settings.json 에 UserPromptSubmit 배선이 살아 있고 autoCompactWindow 가 한도 안이다.
+    """
+    import tempfile
+    import context_guard as G
+    _rd = lambda *p: open(os.path.join(*p), encoding="utf-8").read()
+    TMP = tempfile.mkdtemp(prefix="ctxguard_")
+
+    # ① 폴더 찾기 — 이 프로젝트의 기록 폴더가 실제로 잡혀야 한다
+    d = G._project_dir()
+    assert d and os.path.isdir(d), "대화 기록 폴더를 못 찾았다 — 슬러그 규칙 확인"
+
+    # ② usage 합산 — 꼬리만 읽어도 최신 값을 집어야 한다
+    tmp = os.path.join(TMP, "ctx_sample.jsonl")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"message": {"usage": {
+            "input_tokens": 5, "cache_read_input_tokens": 100,
+            "cache_creation_input_tokens": 10}}}) + "\n")
+        fh.write(json.dumps({"message": {"content": "usage 없는 줄"}}) + "\n")
+        fh.write(json.dumps({"message": {"usage": {
+            "input_tokens": 2, "cache_read_input_tokens": 300,
+            "cache_creation_input_tokens": 8}}}) + "\n")
+    assert G._used_tokens(tmp) == 310, "마지막 회차가 아니라 다른 줄을 셌다"
+    assert G._used_tokens(os.path.join(TMP, "없는파일.jsonl")) == 0
+
+    # ③ 단계 경계 — 0.70/0.85/0.95 에서만 올라간다
+    assert G._stage(0.69)[1] == "여유"
+    assert G._stage(0.70)[1] == "예고"
+    assert G._stage(0.86)[1] == "마무리"
+    assert G._stage(0.99)[1] == "즉시"
+    # 올라간 순간에만 말한다 — 같은 단계를 다시 재면 조용하다
+    base = {"advice": "x", "fresh": True, "percent": 90.0, "used": 1, "limit": 2,
+            "stage": "마무리", "wrapup_ran_now": False, "auto_compact": True}
+    assert G._message(base), "단계가 올라갔는데 아무 말도 하지 않았다"
+    assert G._message(dict(base, fresh=False)) == "", "같은 단계에서 매번 떠들고 있다"
+    assert "compact" in G._message(dict(base, auto_compact=False)), \
+        "자동 요약이 꺼져 있는데 사람에게 알리지 않는다"
+
+    # ④ 재기만 하는 호출은 인계를 돌리지도, 상태 파일을 건드리지도 않는다
+    before = os.path.getmtime(G.STATE_PATH) if os.path.exists(G.STATE_PATH) else 0
+    r = G.measure(limit=450000, act=False)
+    assert r["wrapup_ran_now"] is False and r["limit"] == 450000
+    after = os.path.getmtime(G.STATE_PATH) if os.path.exists(G.STATE_PATH) else 0
+    assert before == after, "--dry 인데 상태 파일을 고쳤다"
+
+    # 어떤 예외에도 exit 0 — main 이 통째로 try 로 감싸여 있어야 한다
+    src = _rd(os.path.join(ROOT, "context_guard.py"))
+    assert "sys.exit(0)" in src, "훅이 실패하면 사람 입력이 막힌다"
+
+    # ⑤ 배선 — 훅이 붙어 있고 압축 시점이 한도 안이다
+    st = json.loads(_rd(os.path.join(os.path.dirname(ROOT), ".claude", "settings.json")))
+    ups = json.dumps(st.get("hooks", {}).get("UserPromptSubmit", []), ensure_ascii=False)
+    assert "context_guard.py" in ups, "UserPromptSubmit 훅에 배선되지 않았다"
+    assert st.get("autoCompactEnabled") is True, "자동 요약이 꺼져 있다"
+    win = int(st.get("autoCompactWindow") or 0)
+    assert 100_000 <= win <= 500_000, "압축 시점(autoCompactWindow)이 범위 밖이다: %s" % win
+    print("  [119] 컨텍스트 감시 — 사용량 실측·단계 전환·인계 자동·훅 배선 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -6410,6 +6481,7 @@ if __name__ == "__main__":
     t116_manual_refresh_is_really_fresh()
     t117_dark_mode_toggle()
     t118_ocr_crosscheck()
+    t119_context_guard()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
