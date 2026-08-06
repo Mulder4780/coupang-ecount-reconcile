@@ -24,6 +24,17 @@ import openpyxl
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = sys.executable
+
+# ★ 프로젝트 루트(ecount 의 부모) — 루트 CLAUDE.md·AGENTS.md·.claude/settings.json 이 사는 곳.
+#   `os.path.dirname(ROOT)` 로 바로 잡으면 안 된다: git 워크트리
+#   (`.claude/worktrees/<이름>`)에서 돌리면 그게 `.claude/worktrees` 가 되어
+#   있지도 않은 파일을 찾는다. 2026-08-06 실측으로 [53]·[103] 이 거기서 죽었다.
+#   워크트리에서도 검증이 돌아야 "ALL GREEN 확인 후 실작업" 관문이 성립한다.
+try:
+    from worktree_state import main_root as _main_root
+    PROJECT_ROOT = os.path.dirname(_main_root())
+except Exception:
+    PROJECT_ROOT = os.path.dirname(ROOT)
 # 합성검증 중 resolve_master가 불려도 실관리대장 구버전 정리가 실행되면 안 된다.
 os.environ["CSOS_SYNTHETIC"] = "1"
 
@@ -567,7 +578,43 @@ def t18_erp_docs():
     assert classify_rows([["회사명"], ["전표번호", "입력메뉴", "금액", "거래처명", "적요명"]]) == "slips"
     assert classify_rows([["아무 표"], ["가", "나"]]) == "unknown"
     assert classify_rows([["일자", "적요", "차변금액", "대변금액"]]) == "ledger"
-    print("  [18] ERP 매출서류 유형분류·inbox 내용판별 ✅")
+
+    # ★ 분개장·현금출납장을 'ledger' 로 잡으면 안 된다 (2026-08-06 실사고).
+    #   원장 규칙은 "같은 행에 '적요'와 '차변|대변'" 인데 **분개장 머리글이 그걸
+    #   그대로 만족한다**. 실측에서 ledger 6개 중 분개장 1·현금출납장 1이 섞였고,
+    #   erp_ledger_check·receipt_fill 이 pick("ledger")로 분개장을 집을 수 있었다.
+    #   분개장은 전 계정이 섞여 있어 외상매출금 차변/대변(=입금 근거)이 오염된다.
+    JOURNAL_HEAD = ["전표번호", "계정명", "거래처", "차변", "대변", "적요"]
+    assert classify_rows([["회사명"], JOURNAL_HEAD]) == "journal", "분개장이 원장으로 샌다"
+    # 시트 이름은 이카운트가 화면 이름을 그대로 쓴다(실측) — 가장 센 지문이다
+    LEDGER_HEAD = [["일자", "적요", "차변", "대변"]]
+    assert classify_rows(LEDGER_HEAD, ["분개장"]) == "journal"
+    assert classify_rows(LEDGER_HEAD, ["현금출납장"]) == "cashbook"
+    assert classify_rows(LEDGER_HEAD, ["계정별원장"]) == "acctledger"
+    assert classify_rows(LEDGER_HEAD, ["거래처별계정별원장"]) == "ledger"
+    # '거래처별계정별원장' 은 '계정별원장' 을 글자로 품는다 — 긴 이름이 먼저여야 한다
+    assert classify_rows([[]], ["거래처별계정별원장"]) == "ledger", "긴 시트명이 짧은 것에 밀린다"
+    # 시트명을 못 읽을 때의 보루 — 제목 줄에 화면 이름이 찍혀 나오는 경우
+    assert classify_rows([["현금출납장"], ["일자", "적요", "차변", "대변"]]) == "cashbook"
+    # 단서가 하나도 없으면 예전대로 원장이다(기존 동작 보존)
+    assert classify_rows(LEDGER_HEAD) == "ledger"
+    # 회계거래조회는 '계정명'이 없으므로 분개장으로 넘어가면 안 된다
+    assert classify_rows([["회사명"], ["전표번호", "입력메뉴", "금액", "거래처명", "적요명"]]) == "slips"
+
+    # 새 종류에 이름표가 없으면 `python inbox_scan.py` 목록 출력이 KeyError 로 죽는다
+    from inbox_scan import LABEL as _LB, SHEET_KIND as _SK
+    assert set(k for _, k in _SK) <= set(_LB), "새 종류에 LABEL 이 없다"
+    _ib = open(os.path.join(ROOT, "inbox_scan.py"), encoding="utf-8").read()
+    assert _ib.index('return "journal"') < _ib.index('return "ledger"'), \
+        "분개장 판정이 원장 판정보다 뒤에 있다 — 다시 ledger 로 샌다"
+    # 파일명 힌트가 내용 판별을 도로 뭉개면 안 된다('계정' 은 분개장까지 빨아들였다)
+    assert '"ledger": ("거래처별계정별원장",)' in _ib, "ledger 파일명 힌트가 너무 넓다"
+    # 자료현황 집계도 갈라 세는가 — 안 그러면 화면이 "원장 6건"이라 답한다
+    _ds = open(os.path.join(ROOT, "data_status.py"), encoding="utf-8").read()
+    assert '"ledger": "거래처별계정별원장"' in _ds, "자료현황이 ledger 를 '계정별원장'이라 부른다"
+    for _k in ("acctledger", "journal", "cashbook"):
+        assert '"%s"' % _k in _ds, "자료현황 집계가 %s 를 모른다 — 원장 칸에 뭉쳐 센다" % _k
+    print("  [18] ERP 매출서류 유형분류·inbox 내용판별(분개장·현금출납장 분리) ✅")
 
 
 def t19_workbook_integrity(tmp):
@@ -2968,7 +3015,7 @@ def t53_session_handoff():
     # 워치독이 30분마다 남기는가 · 시작 체크리스트 0번인가
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
     assert "snapshot_handoff" in wd and "session_handoff.py" in wd, "워치독이 스냅샷을 안 남긴다"
-    cm = open(os.path.join(os.path.dirname(ROOT), "CLAUDE.md"), encoding="utf-8").read()
+    cm = open(os.path.join(PROJECT_ROOT, "CLAUDE.md"), encoding="utf-8").read()
     assert "session_handoff.py --check" in cm, "시작 체크리스트에 없다 — 아무도 안 읽는다"
     assert cm.index("session_handoff.py --check") < cm.index("AGENTS.md` 전체 읽기"), \
         "세션인계가 체크리스트 맨 앞이 아니다"
@@ -4619,7 +4666,7 @@ def t103_session_wrapup_hook():
     assert "return 0        # 인계를 남기려다" in src, "실패 시 0 이 아닌 값을 줄 수 있다"
 
     # (6) 훅 배선 — 이것이 없으면 위 전부가 '사람이 손으로 부를 때만' 도는 스크립트다.
-    settings = os.path.join(os.path.dirname(ROOT), ".claude", "settings.json")
+    settings = os.path.join(PROJECT_ROOT, ".claude", "settings.json")
     assert os.path.exists(settings), ".claude/settings.json 이 없다"
     cfg = json.load(open(settings, encoding="utf-8"))
     assert cfg.get("autoCompactEnabled") is True, "자동 요약이 꺼져 있다"
@@ -5057,6 +5104,76 @@ def t111_account_handoff_freshness():
     rules = open(os.path.join(ROOT, "CLAUDE.md"), encoding="utf-8").read()
     assert "--adopt" in rules, "계정 인계 절차가 규칙(CLAUDE.md)에 없다"
     print("  [111] 계정이 바뀌어도 이어받기 — 죽은 점유 회수·수집 밀림 감지 ✅")
+
+
+def t112_worktree_shared_state():
+    """[112] 워크트리에서 일해도 **상태는 하나** (2026-08-06 지시).
+
+    사용자 지시: "이 워크트리도 다른 계정으로 로그인할 때 관리 가능하게 추가하는
+    알고리즘 정리하고 보고해".
+
+    왜 필요한가 — 워크트리(`.claude/worktrees/<이름>`)는 **추적 파일만** 체크아웃한다.
+    그런데 이 프로젝트의 상태는 거의 전부 git 밖이다(`reports/`·`updates/`·
+    `config/*.json`·`db/*.db`). 그래서 워크트리 안에서는 모듈이 제 폴더 기준으로
+    경로를 잡는 순간 본체와 **다른 상태**를 본다. 2026-08-06 실측으로 확인한 것:
+      ① 점유 파일이 갈려 두 세션이 동시에 `ledger` 를 잡아도 서로 안 보였다
+         → 관리대장 동시 쓰기 금지가 조용히 무너진다. **가장 위험한 것.**
+      ② 워크트리에서 enqueue 한 입력은 11:00·15:00 반영이 영영 못 본다
+      ③ `config/` 가 없어 합성검증이 t1 에서 죽었다 — 즉 "ALL GREEN 확인 후
+         실작업" 관문 자체를 통과할 수 없었다
+      ④ 루트 CLAUDE.md 비교가 `.claude/worktrees/CLAUDE.md` 를 찾아 **거짓 경보**를
+         매번 '먼저 처리할 것' 맨 위에 올렸다(해시는 같았는데도)
+    """
+    import worktree_state as W
+
+    # 본체에서는 동작이 하나도 바뀌면 안 된다 — shared() 가 곧 제 폴더다
+    assert os.path.isdir(W.main_root()), W.main_root()
+    if not W.is_worktree():
+        assert os.path.normcase(W.shared("db")) == os.path.normcase(os.path.join(ROOT, "db"))
+
+    # 점유·큐 DB 는 **본체 경로**를 쓴다. 링크가 아니라 코드가 집어야 하는 이유가 있다.
+    ac = open(os.path.join(ROOT, "ai_claim.py"), encoding="utf-8").read()
+    assert "from worktree_state import shared" in ac and "STATE_DIR" in ac, \
+        "점유 파일이 워크트리마다 갈린다 — 두 세션이 동시에 원장을 연다"
+    assert "os.replace" in ac, "점유 저장이 원자적이지 않다"
+    ld = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    assert "from worktree_state import shared" in ld, \
+        "큐 DB 가 워크트리마다 갈린다 — 넣은 입력이 11:00·15:00 반영에 안 잡힌다"
+
+    # `reports/` 를 통째로 정션하면 안 된다 — 추적 파일이 섞여 있어 git 이 흔들린다
+    assert "reports" not in W.LINK_DIRS, \
+        "reports 를 통째로 이으면 추적 파일 때문에 워크트리 git 이 남의 파일을 물고 간다"
+    assert "reports/ai_claims.json" in W.CODE_SHARED and "db/ledger_queue.db" in W.CODE_SHARED
+
+    # 이미 따로 있는 것을 덮지 않는다(사람이 일부러 둔 설정을 지우면 안 된다)
+    src = open(os.path.join(ROOT, "worktree_state.py"), encoding="utf-8").read()
+    assert "따로있음" in src and "덮지 않음" in src, "덮어쓰기 방지가 없다"
+    for bad in ("shutil.rmtree", "os.remove", "os.unlink"):
+        assert bad not in src, "워크트리 연결기가 파일을 지운다: %s" % bad
+
+    # 끊겨 있으면 '먼저 처리할 것' 맨 앞에 뜬다 — 기계 상태가 아니라 st 로만 판단한다
+    import session_handoff as H
+    base = {"큐잔량": 0, "임시파일": [], "점유": [], "미푸시": [], "지시문사본": [],
+            "수집신선도": []}
+    cut = dict(base, **{"워크트리": {"여기": "X", "본체": "Y", "항목": [
+        {"대상": "config/ecount_config.json", "방법": "하드링크", "상태": "없음"}]}})
+    assert any("워크트리" in why for why, _ in H.blockers(cut)), H.blockers(cut)
+    ok = dict(base, **{"워크트리": {"여기": "X", "본체": "Y", "항목": [
+        {"대상": "config/ecount_config.json", "방법": "하드링크", "상태": "이어짐"}]}})
+    assert not H.blockers(ok), "이어져 있는데 막았다"
+    assert not H.blockers(dict(base)), "워크트리가 아닌데 워크트리 경고가 뜬다"
+
+    # 루트 지시문 비교가 본체 기준인가 — 워크트리에서 거짓 경보가 뜨던 자리
+    hs = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert "_main_root()" in hs and "os.path.dirname(root)" in hs, \
+        "루트 CLAUDE.md 비교가 아직 dirname(BASE) 기준이다 — 워크트리에서 거짓 경보"
+
+    # 이어받기(--adopt)가 **큐를 흡수하기 전에** 먼저 잇는가. 순서가 뒤집히면
+    # 빈 큐를 보고 "0건" 이라 답한다 — 조용히 틀린 답이다.
+    #   (설명문이 아니라 **실제 호출 순서**로 본다 — docstring 에도 같은 말이 있다)
+    assert (hs.index('steps.append(("워크트리 → 본체 잇기"')
+            < hs.index('steps.append(("입력 큐 → DB"')), "--adopt 가 잇기 전에 큐를 읽는다"
+    print("  [112] 워크트리 공용 상태(점유·큐 DB 일원화·거짓 경보 제거·잇기 우선) ✅")
 
 
 def t100_erp_pdf_archive():
@@ -5512,7 +5629,7 @@ def t81_terra_sol_handoff_review():
     claim_src = open(os.path.join(ROOT, "ai_claim.py"), encoding="utf-8").read()
     session_src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
     agents_src = open(os.path.join(ROOT, "AGENTS.md"), encoding="utf-8").read()
-    claude_src = open(os.path.join(os.path.dirname(ROOT), "CLAUDE.md"), encoding="utf-8").read()
+    claude_src = open(os.path.join(PROJECT_ROOT, "CLAUDE.md"), encoding="utf-8").read()
     assert "handoff_review" in claim_src and "--review-sol" in claim_src
     assert "--for-sol" in session_src
     for src in (agents_src, claude_src):
@@ -5972,6 +6089,7 @@ if __name__ == "__main__":
     t109_remote_edit_delete_versions()
     t110_writer_formula_key()
     t111_account_handoff_freshness()
+    t112_worktree_shared_state()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)

@@ -48,6 +48,28 @@ except Exception:
     pass
 
 
+def _main_root():
+    """공용 상태의 주인(본체 체크아웃). 워크트리에서 돌 때만 BASE 와 달라진다.
+
+    worktree_state 를 못 읽어도 죽지 않는다 — 그때는 예전처럼 제 폴더를 쓴다."""
+    try:
+        from worktree_state import main_root
+        return main_root()
+    except Exception:
+        return BASE
+
+
+def _worktree_state():
+    """워크트리 연결 상태. 본체면 None."""
+    try:
+        import worktree_state
+        if not worktree_state.is_worktree():
+            return None
+        return worktree_state.status()
+    except Exception:
+        return None
+
+
 def git(*args):
     try:
         r = subprocess.run(["git"] + list(args), cwd=BASE, capture_output=True,
@@ -193,14 +215,21 @@ def rule_copies():
 
     루트 파일은 git 밖이라 조용히 낡는다 — 실제로 2026-07-31 루트 CLAUDE.md 가
     '엑셀 두 번' 규칙 이전 판으로 남아 옛 절차(ledger_writer --apply)를 지시하고 있었다.
-    다르면 옛 규칙을 읽는 세션이 생기므로 '먼저 처리할 것'으로 올린다."""
+    다르면 옛 규칙을 읽는 세션이 생기므로 '먼저 처리할 것'으로 올린다.
+
+    ★ 2026-08-06: 워크트리에서는 `dirname(BASE)` 가 `.claude/worktrees` 라서
+      있지도 않은 파일을 찾아 **매번 거짓 경보**를 '먼저 처리할 것' 맨 위에 올렸다
+      (실측: 세 파일 해시가 같은데도 "정본과 다르다"가 떴다). 정본도 루트 사본도
+      **본체 체크아웃** 기준으로 본다.
+    """
+    root = _main_root()
     try:
-        master = open(os.path.join(BASE, "CLAUDE.md"), encoding="utf-8").read()
+        master = open(os.path.join(root, "CLAUDE.md"), encoding="utf-8").read()
     except OSError:
         return []
     out = []
     for name in ("CLAUDE.md", "AGENTS.md"):
-        p = os.path.join(os.path.dirname(BASE), name)
+        p = os.path.join(os.path.dirname(root), name)
         try:
             if open(p, encoding="utf-8").read() != master:
                 out.append(name)
@@ -324,12 +353,24 @@ def collect():
         "진행체크포인트": read_checkpoint(),
         "지시문사본": rule_copies(),
         "수집신선도": data_freshness(),
+        "워크트리": _worktree_state(),
     }
 
 
 def blockers(st, for_sol=False):
     """다음 세션이 **먼저 처리해야** 하는 것 — 안 하면 조용히 어긋난다."""
     out = []
+    # ★ 워크트리가 본체 상태와 끊겨 있으면 **합성검증부터 못 돈다**(config 가 없다).
+    #   즉 "ALL GREEN 확인 후 실작업" 관문 자체를 통과할 수 없으니 맨 앞에 둔다.
+    #   판단은 st 에 담긴 것만 쓴다 — 여기서 기계 상태를 직접 보면 합성검증이
+    #   실행 환경에 따라 결과가 달라진다(테스트가 기계를 타면 안 된다).
+    wt = st.get("워크트리")
+    if wt:
+        cut = [i["대상"] for i in wt.get("항목", []) if i.get("상태") == "없음"]
+        if cut:
+            out.append(("워크트리가 본체 상태와 끊겨 있다 — %s (설정·큐를 못 읽어 "
+                        "합성검증부터 막힌다)" % ", ".join(cut[:4]),
+                        "python worktree_state.py --apply"))
     if st["큐잔량"]:
         out.append(("입력 큐에 %d건이 반영되지 않았다" % st["큐잔량"],
                     "python ledger_db.py --intake  # Excel은 다음 11:00·15:00 회차"))
@@ -375,6 +416,18 @@ def to_md(st, for_sol=False):
          "- 기준: %s · 관리대장 **v%s**(%s)" % (st["시각"], st["원장"].get("버전", "?"),
                                                st["원장"].get("수정", "")),
          "- 이 문서는 워치독이 30분마다 갱신한다. **세션이 갑자기 끊겨도 여기까지는 남는다.**", ""]
+    wt = st.get("워크트리")
+    if wt:
+        cut = [i["대상"] for i in wt["항목"] if i["상태"] == "없음"]
+        L += ["## ★ 여기는 워크트리다", "",
+              "- 작업 폴더: `%s`" % wt["여기"],
+              "- 공용 상태(점유·큐 DB·설정)의 주인: `%s`" % wt["본체"],
+              "- 상태: " + ("**%d개가 끊겨 있다** → `python worktree_state.py --apply`"
+                            % len(cut) if cut else "본체와 이어져 있다"),
+              "",
+              "> 점유(`ai_claim`)와 큐 DB 는 **본체 파일 하나**를 함께 쓴다. 그래서 옆 창의",
+              "> 세션이 잡은 `ledger` 가 여기서도 보인다. 끊긴 채로 일하면 두 세션이 동시에",
+              "> 관리대장을 열 수 있다 — 그게 이 항목이 맨 위에 있는 이유다.", ""]
     cp = st.get("진행체크포인트") or {}
     if cp:
         L += ["## ★ 진행 중 작업 — 여기서 바로 재개", "",
@@ -443,14 +496,32 @@ def adopt(who="claude"):
     있는 옆 세션**의 작업을 가로챈다.
 
     그래서 기준은 하나다: **주인 프로세스가 죽었다는 증거(pid)가 있을 때만** 손댄다.
+      0. 워크트리면 본체 상태에 먼저 잇는다 — 이게 뒤로 가면 아래 큐 흡수가
+         워크트리 안의 빈 큐를 보고 "0건" 이라 답한다(조용히 틀린 답)
       1. 죽은 세션의 점유만 회수 — 살아 있는 것은 그대로 두고 알려만 준다
       2. 입력 큐 → DB 흡수 (엑셀은 열지 않는다. 반영은 11:00·15:00 회차 그대로)
       3. 수집이 밀렸는지 확인 — 밴드·이카운트는 사람 로그인이 먼저다
       4. 인계 문서 갱신
     사람 판단이 필요한 것(미푸시·임시파일·로그인)은 고치지 않고 목록으로 남긴다.
     """
+    steps = []
+    # 0. 워크트리라면 **본체 상태에 먼저 잇는다.** 이게 안 되면 아래 큐 흡수가
+    #    워크트리 안의 빈 큐를 보고 "0건" 이라 답한다 — 조용히 틀린 답이다.
+    #    (`.claude/worktrees/<이름>` 은 추적 파일만 체크아웃되므로 상태가 통째로 없다)
+    try:
+        import worktree_state
+        if worktree_state.is_worktree():
+            res = worktree_state.apply()
+            made = ", ".join("%s(%s)" % (r, h) for r, h in res["이음"]) or "새로 이을 것 없음"
+            steps.append(("워크트리 → 본체 잇기",
+                          "본체 %s · %s" % (worktree_state.main_root(), made)))
+            for rel, why in res["건너뜀"]:
+                steps.append(("  ! 못 이은 것", "%s — %s" % (rel, why)))
+    except Exception as exc:
+        steps.append(("워크트리 → 본체 잇기", "실패: %s" % str(exc)[:80]))
+
     import ai_claim as C
-    steps, freed, kept = [], [], []
+    freed, kept = [], []
     with C.state_guard():
         d = C._load_unlocked()
         for lock, claim in list(d.items()):
