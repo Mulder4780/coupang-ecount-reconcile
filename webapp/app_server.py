@@ -12,7 +12,7 @@ PC에서 실행하면 같은 와이파이의 휴대폰·다른 PC가 브라우�
 
 보안: 4자리 PIN(첫 요청 시 입력, 기기에 저장). 사내 LAN 전용 설계 — 외부 인터넷 개방 금지.
 """
-import sys, os, re, json, glob, time, threading, random, subprocess, hashlib, io, shutil, secrets
+import sys, os, re, json, glob, time, threading, random, subprocess, hashlib, io, shutil, secrets, gzip
 import base64, hmac
 import ipaddress
 import socket
@@ -1065,22 +1065,44 @@ def warm_caches():
       만료되는 순간 **다음 사람이 다시 111초를 맞는다.** 게다가 원장 mtime 이 바뀌면
       (11:00·15:00 반영 직후) 캐시가 통째로 비워진다. 그래서 주기적으로 다시 데운다.
       간격은 가장 짧은 TTL(300초)보다 짧아야 의미가 있다 → 240초.
+
+    ★ 2026-08-06 지시("앱 업데이트 속도가 너무 느린데 … 반영하는데 시간이 너무 오래 걸려")로
+      두 가지를 고쳤다.
+      ① **status 가 예열 목록에 없었다.** 정작 가장 느리고(첫 계산 실측 119초) 가장 자주
+         불리는 것이 status 다(최근 7일 '느림' 기록 2,697건 — 1위). 대시보드가 계속
+         폴링하는 값이라 이게 빠지면 예열의 의미가 절반이다. exec·erpdocs 도 같이 넣는다.
+      ② **240초마다 도는 시계였다.** 캐시가 비워지는 진짜 계기는 시간이 아니라
+         **원장이 바뀌는 순간**(11:00·15:00 반영)이다. 그때부터 최대 240초 동안은
+         아무도 안 데운 상태였다. 이제 원장 mtime 을 15초마다 보고 **바뀌면 즉시** 데운다.
+         (사람은 그 사이에도 `_last_good` 덕에 옛 값이라도 바로 받는다 — 기다리지 않는다)
     """
     import time as _t
-    first = True
+    first, last_mt, last_warm = True, None, 0.0
     while True:
-        t0 = _t.time()
-        for name, fn in (("works", get_works), ("settlements", get_settlements),
-                         ("issues", get_issues), ("ryu", get_ryu_records)):
-            try:
-                fn()
-            except Exception as e:
-                if first:
-                    print(f"  [예열] {name} 실패: {type(e).__name__} — 서버는 계속 갑니다")
-        if first:
-            print(f"  [예열] 완료 ({_t.time()-t0:.0f}s) — 업무센터가 바로 열립니다")
-            first = False
-        _t.sleep(240)
+        try:
+            mt = _master_mtime()
+        except Exception:
+            mt = last_mt
+        changed = (mt != last_mt)
+        # 원장이 바뀌었거나(반영 직후) 240초가 지났으면 다시 데운다.
+        if changed or (_t.time() - last_warm) >= 240:
+            t0 = _t.time()
+            for name, fn in (("works", get_works), ("settlements", get_settlements),
+                             ("issues", get_issues), ("ryu", get_ryu_records),
+                             ("status", get_status), ("exec", get_exec_report),
+                             ("erpdocs", get_erpdocs)):
+                try:
+                    fn()
+                except Exception as e:
+                    if first:
+                        print(f"  [예열] {name} 실패: {type(e).__name__} — 서버는 계속 갑니다")
+            last_mt, last_warm = mt, _t.time()
+            if first:
+                print(f"  [예열] 완료 ({_t.time()-t0:.0f}s) — 업무센터가 바로 열립니다")
+                first = False
+            elif changed:
+                print(f"  [예열] 원장이 바뀌어 다시 데웠습니다 ({_t.time()-t0:.0f}s)")
+        _t.sleep(15)
 
 
 def get_ryu_records():
@@ -2346,21 +2368,71 @@ def _fresh(key):
     return _cache.get(key)
 
 
+# ★ 마지막으로 성공한 값 — `_cache.clear()` 로도 **지워지지 않는다** (2026-08-06 지시:
+#   "앱 업데이트 속도가 너무 느린데 … 반영하는데 시간이 너무 오래 걸려").
+#   왜 필요한가: `_fresh()` 는 원장 mtime 이 바뀌면 캐시를 통째로 비운다. 그런데 원장은
+#   11:00·15:00 반영 때마다 바뀐다. 그래서 **반영 직후 처음 앱을 연 사람이** Z: 재계산을
+#   전부 뒤집어썼다 — 실측 `get_status()` 첫 호출 **119초**(같은 값 두 번째는 0.5초).
+#   게다가 그 계산은 `_readlock` 을 쥐고 있어 다른 요청까지 뒤에 줄을 섰다.
+#   이제는 낡은 값이라도 **즉시** 주고 새 값은 뒤에서 만든다. 사람이 기다리지 않는다.
+_last_good = {}
+_REFRESHING = set()
+_refresh_lk = threading.Lock()
+
+
 def _store_cache(key, value):
     _cache[key] = value
     _cache[key + "_ts"] = time.time()
+    _last_good[key] = value
     return value
+
+
+def _build_now(key, build):
+    """실제로 만든다. Z: 읽기는 한 번에 하나만(_readlock)."""
+    with _readlock:
+        v = _fresh(key)
+        if v is not None:
+            return v
+        return _store_cache(key, build())
+
+
+def _spawn_refresh(key, build):
+    """같은 항목을 여러 요청이 동시에 다시 만들지 않게 한 번만 띄운다."""
+    with _refresh_lk:
+        if key in _REFRESHING:
+            return
+        _REFRESHING.add(key)
+
+    def _run():
+        try:
+            _build_now(key, build)
+        except Exception:
+            pass
+        finally:
+            with _refresh_lk:
+                _REFRESHING.discard(key)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _serve_cached(key, build):
+    """신선하면 그대로, 아니면 **직전 값을 즉시** 주고 뒤에서 새로 만든다.
+    한 번도 만든 적이 없을 때만 기다린다(그때는 줄 값이 없다)."""
+    with _readlock:
+        v = _fresh(key)
+        if v is not None:
+            return v
+    old = _last_good.get(key)
+    if old is not None:
+        _spawn_refresh(key, build)
+        return old
+    return _build_now(key, build)
 
 
 def get_works():
     if DEMO:
         return demo_works()
-    with _readlock:
-        w = _fresh("works")
-        if w:
-            return w
-        w = real_works()
-        return _store_cache("works", w)
+    return _serve_cached("works", real_works)
 
 
 def _fmtv(v):
@@ -4019,7 +4091,10 @@ def get_status():
     # ★ TTL 만료 시 옛 값을 **즉시** 돌려주고 재계산은 뒤에서 한 번만 한다(2026-08-03 UX).
     #   실측: /api/status 1,550회 호출에 평균 5.2초 — 만료 순간마다 Z: 재계산이 요청을
     #   통째로 잡고 있었다. 원장이 바뀌면 _fresh 가 stale 까지 비우므로 낡은 값이 남지 않는다.
-    stale = _cache.get("status_stale")
+    # ★ 낡은 값은 `_last_good` 에서 꺼낸다. 예전엔 `_cache["status_stale"]` 이었는데
+    #   원장이 바뀌면 `_fresh()` 가 `_cache` 를 통째로 비워 **stale 까지 사라졌다** —
+    #   하필 반영 직후, 가장 사람이 몰리는 순간에 아무도 줄 값이 없어 119초를 기다렸다.
+    stale = _last_good.get("status")
     if stale:
         _spawn_status_refresh()
         return stale
@@ -4372,12 +4447,49 @@ class H(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
+    # 응답 하나가 3MB 씩 나가던 것을 여기서 줄인다 (2026-08-06 지시: "앱 업데이트 속도가
+    # 너무 느린데 … 반영하는데 시간이 너무 오래 걸려").
+    #   실측(UX 기록): /api/status 7.9MB·2.7초, exceptions·exec_report·works·settlements·
+    #   brand·erpdocs·checks·issues 가 각각 약 3MB — 화면 한 번 새로 고치는 데 30MB 가 오갔다.
+    #   본문은 거의 전부 한글 JSON 이라 **gzip 이 10~20배** 줄인다. 그리고 두 번째부터는
+    #   내용이 그대로면 ETag 로 304 만 보내 아예 다시 안 보낸다.
+    # ★ 모든 JSON 응답이 이 함수 하나를 지난다(호출 138곳) — 그래서 여기만 고치면 전부 빨라진다.
+    GZIP_MIN = 1024                      # 이보다 작으면 압축이 되레 손해다
+
     def _send(self, code, body, ctype="application/json; charset=utf-8", headers=None):
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
+        etag = None
+        if code == 200 and len(data) >= self.GZIP_MIN:
+            etag = '"%s"' % hashlib.md5(data).hexdigest()[:20]
+            # ★ 인증은 이미 통과한 뒤다(핸들러가 끝나고 여기 온다) — 그래서 304 를 줘도
+            #   남의 자료가 새지 않는다. 인증 실패는 401 로 빠져 여기까지 오지 않는다.
+            if (self.headers.get("If-None-Match") or "").strip() == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                return
+        enc = None
+        if len(data) >= self.GZIP_MIN and "gzip" in (self.headers.get("Accept-Encoding") or "").lower():
+            try:
+                data = gzip.compress(data, 6)   # 6 = 크기/시간 균형점
+                enc = "gzip"
+            except Exception:
+                enc = None
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        if enc:
+            self.send_header("Content-Encoding", enc)
+            self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        if etag:
+            self.send_header("ETag", etag)
+            # no-store 면 브라우저가 ETag 를 갖고 있어도 **되묻지 않고 통째로 다시 받는다**.
+            # no-cache 는 "쓰기 전에 반드시 서버에 확인" 이라 304 가 실제로 동작한다.
+            self.send_header("Cache-Control", "no-cache")
+        else:
+            self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Private-Network", "true")
         for key, value in (headers or {}).items():

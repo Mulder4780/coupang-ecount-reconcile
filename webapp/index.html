@@ -43,11 +43,21 @@ window.addEventListener('beforeinstallprompt', function(e){
      색은 Apple 이 정의한 systemColor 원값을 쓴다(파랑 #007AFF·초록 #34C759·빨강 #FF3B30…).
      ★ 글자색은 원값을 그대로 쓰지 않는다 — systemGreen 을 본문에 쓰면 흰 배경에서 대비가
        모자라 안 읽힌다. 배경(tint)은 원값 계열, 글자는 어두운 짝을 따로 둔다. */
-  --brand:#007AFF; --brand-dk:#0062CC; --brand-tint:#EAF4FF;   /* systemBlue */
+  /* ★ 2026-08-06 대비 정리 — 사용자 지적 "텍스트가 잘 안 보이는 것들이 있어".
+     전수 조사(대비 계산) 결과 **글자색 194곳이 WCAG 4.5:1 미달**이었고, 그 중 약 120곳이
+     아래 --ink-2·--ink-3 하나씩 때문이었다. 원인은 iOS 원값이 **반투명**이라는 것이다:
+       --ink-2 rgba(60,60,67,.62) → 흰 배경에 얹으면 실제 #818187 (3.6:1)
+       --ink-3 rgba(60,60,67,.42) → 실제 #A6A6AB (2.2:1)  ← 거의 안 보인다
+     반투명이라 '진한 회색'처럼 적혀 있지만 화면에 나오는 값은 훨씬 밝다. 그래서
+     **불투명 값으로 못박는다** — 밝기 계층(ink < ink-2 < ink-3)은 그대로 두되 둘 다 통과한다.
+     --brand 도 systemBlue 원값(#007AFF)은 흰 배경 3.6:1 이라 글자로 못 쓴다. 조금 낮춰
+     글자(4.5:1)와 **파란 버튼 위 흰 글자**(5.0:1)를 한 번에 만족시킨다.
+     ※ 반투명으로 되돌리지 말 것. 검증 [113] 이 대비를 계산해 막는다. */
+  --brand:#006ADE; --brand-dk:#0052AD; --brand-tint:#EAF4FF;   /* systemBlue(대비 보정) */
   --bg:#F2F2F7; --surface:#FFFFFF;                              /* systemGroupedBackground */
-  --ink:#000000; --ink-2:rgba(60,60,67,.62); --ink-3:rgba(60,60,67,.42);  /* label 계층 */
-  --line:rgba(60,60,67,.24);                                    /* separator (헤어라인) */
-  --ok:#248A3D; --ok-bg:#E7F8EC;                                /* systemGreen 계열 */
+  --ink:#000000; --ink-2:#4A4A50; --ink-3:#6E6E72;              /* label 계층(불투명) */
+  --line:rgba(60,60,67,.24);                                    /* separator (헤어라인·글자 아님) */
+  --ok:#217E38; --ok-bg:#E7F8EC;                                /* systemGreen 계열(대비 보정) */
   --warn:#B25000; --warn-bg:#FFF4E5;                            /* systemOrange 계열 */
   --danger:#C7362B; --danger-bg:#FFEDEB;                        /* systemRed 계열 */
   --neu:#6C6C70; --neu-bg:#F2F2F7;                              /* systemGray 계열 */
@@ -65,6 +75,9 @@ window.addEventListener('beforeinstallprompt', function(e){
    제대로 된 다크 테마는 그 77곳을 전부 변수로 바꾸는 별도 작업이다 — 그 전까지는
    color-scheme:light 로 못박아 폰이 어두운 설정이어도 앱은 항상 밝게 나온다. */
 :root{color-scheme:light}
+/* 안내문(placeholder)은 브라우저 기본값이 제각각이고 대부분 너무 밝다 — 못박는다.
+   Firefox 는 기본으로 투명도를 얹으므로 opacity 도 1 로 되돌린다. */
+input::placeholder,textarea::placeholder{color:var(--ink-3);opacity:1}
 *{margin:0;padding:0;box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 /* ★ 글꼴은 나눔고딕으로 통일한다(사용자 지시 2026-07-31).
@@ -119,7 +132,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 @media(max-width:719px){ .appbar h1 small{display:none} }
 .appbar .sub{font-size:13px;color:#8FA3D9;font-variant-numeric:tabular-nums}
 .appbar #clock{font-size:clamp(18px,1.7vw,22px);font-weight:800;letter-spacing:-.02em;
-  color:#5D6C8D;white-space:nowrap}
+  /* 폰에서는 남색 헤더 위다 — 밝게. 데스크톱은 헤더가 흰색이라 아래에서 되돌린다. */
+  color:#C3CEE8;white-space:nowrap}
 /* ★ 두 로고는 **검은 글자 PNG** 라 남색 헤더 위에서는 읽히지 않았다(사용자 지적).
    PNG 는 색을 바꿀 수 없으니 배경을 준다 — 밝은 판 위에 올리면 원래 색 그대로 또렷해진다.
    opacity 로 흐리게 하던 것도 없앤다(안 그래도 안 보이는데 더 흐리게 할 이유가 없다). */
@@ -289,14 +303,16 @@ body.calendar-only .cal2-only-note{display:block}
 .cal2-nav button.cal2-today{width:auto;padding:0 12px;font-size:13.5px;font-weight:800}
 .cal2-dow,.cal2-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
 .cal2-dow span{text-align:center;font-size:12px;font-weight:700;color:var(--ink-3);padding:4px 0 6px}
-.cal2-dow span:first-child{color:#FF453A}.cal2-dow span:last-child{color:#0A84FF}
+/* 요일 머리글은 회색 바탕(#F2F2F7) 위라 흰 배경보다 기준이 빡세다 — 날짜 숫자와 같은 색을 쓴다. */
+.cal2-dow span:first-child{color:#DD0C00}.cal2-dow span:last-child{color:#006CD9}
 .cal2-day{position:relative;aspect-ratio:1/1;min-height:44px;border-radius:11px;display:flex;
   flex-direction:column;align-items:center;justify-content:flex-start;gap:3px;padding:5px 2px 0;
   font-variant-numeric:tabular-nums;transition:background .13s}
 .cal2-day .d{font-size:14px;font-weight:700;color:var(--ink);line-height:1.1;
   width:25px;height:25px;display:grid;place-items:center;border-radius:50%}
 .cal2-day.out .d{color:var(--ink-3);opacity:.45}
-.cal2-day.sun .d{color:#FF453A}.cal2-day.sat .d{color:#0A84FF}
+/* 달력 주말색 — iOS 원값(#FF453A·#0A84FF)은 흰 배경에서 3.0~3.3:1 이라 흐릿했다. */
+.cal2-day.sun .d{color:#DD0C00}.cal2-day.sat .d{color:#006CD9}
 .cal2-day.today .d{background:var(--brand-tint);color:var(--brand);font-weight:850}
 .cal2-day.on{background:var(--brand-tint)}
 .cal2-day.on .d{background:var(--brand);color:#fff}
@@ -569,10 +585,10 @@ body.calendar-only .cal2-only-note{display:block}
 .btag{font-size:13px;font-weight:700;padding:2px 7px;border-radius:999px;
   background:#F1F5F9;color:#475569}
 .btag.paid{background:#FEE2E2;color:#991B1B}
-.bage{display:inline-block;margin:4px 0 2px;font-size:13.5px;color:#6B7280;
+.bage{display:inline-block;margin:4px 0 2px;font-size:13.5px;color:var(--ink-2);
   background:#F8FAFC;border-radius:6px;padding:2px 8px}
 .bc2{display:flex;gap:8px;margin-top:5px;font-size:14px;line-height:1.6}
-.bc2 i{flex:none;width:30px;font-style:normal;font-weight:700;color:#94A3B8;font-size:13.5px;
+.bc2 i{flex:none;width:30px;font-style:normal;font-weight:700;color:#5D708C;font-size:13.5px;
   padding-top:1px}
 .bc2 span{flex:1;min-width:0;word-break:break-word}
 .bmiss{color:#B91C1C;font-weight:700}
@@ -746,9 +762,9 @@ b.prjno{font-weight:800;font-variant-numeric:tabular-nums;color:var(--navy-900)}
 .srow .camptag{font-size:14.5px;font-weight:700;color:var(--ink-1);line-height:1.25;
   word-break:break-all;min-width:0;flex:1;margin-left:2px}
 .srow .camptag.none{color:var(--danger);font-weight:600;font-size:14px}
-.srow .oktag{font-size:13px;font-weight:700;color:#12813F;background:#E7F5EC;
+.srow .oktag{font-size:13px;font-weight:700;color:#127F3E;background:#E7F5EC;
   border-radius:999px;padding:1px 7px;white-space:nowrap}
-.srow .oktag.warn{color:#B25E09;background:#FFF3E4}
+.srow .oktag.warn{color:#AC5B09;background:#FFF3E4}
 .srow .oktag.bad{color:#C0212E;background:#FDECEE}
 .ecell.has-help,.gi .has-help{cursor:pointer}
 .qm{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
@@ -959,7 +975,8 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   box-shadow:0 7px 18px rgba(36,82,230,.16)!important}
 .icon-btn:active{transform:translateY(0) scale(.92)}
 .icon-btn:focus-visible{outline:3px solid rgba(36,82,230,.22);outline-offset:2px}
-.icon-btn.primary{background:linear-gradient(145deg,#6172F3,#3749DB)!important;
+/* 그라데이션의 **밝은 쪽**이 흰 글자와 4.0:1 밖에 안 됐다 — 밝은 끝을 한 단계 낮춘다. */
+.icon-btn.primary{background:linear-gradient(145deg,#5668F2,#3749DB)!important;
   border-color:#4457E7!important;box-shadow:0 6px 16px rgba(55,73,219,.30)!important}
 .icon-btn.primary svg{fill:currentColor}          /* 색을 상속하므로 invert 꼼수 불필요 */
 .icon-btn.excel{background:linear-gradient(180deg,#F3FFF8,#E8F8EF)!important;
@@ -1087,6 +1104,8 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   .appbar-brand-stack{min-width:295px}
   .appbar h1 small{color:var(--ink-3)}
   .appbar .sub{color:var(--ink-3)}
+  /* 데스크톱 헤더는 흰 바탕이다 — 폰용 밝은 시계색을 그대로 두면 흰 위 흰 글씨가 된다. */
+  .appbar #clock{color:var(--ink-2)}
   .kpis{grid-template-columns:repeat(6,1fr)}
   .actions{grid-template-columns:repeat(4,1fr)}
   /* 데스크톱 정산 본문만 표로 바꾼다. 공용 .slist를 숨기면 상세 시트 목록까지 사라진다. */
@@ -1236,8 +1255,10 @@ body.ryu-mode .tabbar button[data-v="report"]{display:none}
   background:linear-gradient(145deg,#fff,color-mix(in srgb,var(--wc) 7%,white));color:#172B61;
   font-weight:900;text-decoration:none;box-shadow:0 6px 16px rgba(28,63,168,.09);
   transition:transform .22s cubic-bezier(.2,.75,.25,1),box-shadow .22s,border-color .22s,filter .22s}
-.workcenter-person:nth-child(2){--wc:#147D64;--wc2:#35B58F}
-.workcenter-person:nth-child(3){--wc:#B35D13;--wc2:#E78B3D}
+/* 아이콘 타일의 밝은 끝 — 흰 글리프가 2.6:1 이라 흐렸다. 그림 요소 기준(3:1)까지만 낮춘다
+   (본문 글자가 아니므로 4.5:1 까지 끌어내려 색을 크게 바꾸지는 않는다). */
+.workcenter-person:nth-child(2){--wc:#147D64;--wc2:#31A784}
+.workcenter-person:nth-child(3){--wc:#B35D13;--wc2:#E3771C}
 .workcenter-person .wc-icon{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;
   background:linear-gradient(145deg,var(--wc2),var(--wc));color:#fff;font-size:20px;
   box-shadow:0 7px 16px color-mix(in srgb,var(--wc) 27%,transparent)}
@@ -1518,13 +1539,26 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .remote-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
 @media(max-width:720px){.remote-grid2{grid-template-columns:1fr}}
 .remote-grid2 fieldset{border:0;border-radius:16px;background:#F2F4F8;padding:14px 14px 10px;margin:0;min-width:0}
-.remote-grid2 legend{padding:0 2px 9px;font-size:12.5px;font-weight:800;color:#6B7280;letter-spacing:.03em}
+.remote-grid2 legend{padding:0 2px 9px;font-size:12.5px;font-weight:800;color:var(--ink-2);letter-spacing:.03em}
 .remote-grid2 input,.remote-grid2 select{display:block;width:100%;margin:0 0 9px;padding:11px 13px;
   font-size:15px;border:1px solid #E2E6EF;border-radius:12px;background:#fff;color:#101828;
   -webkit-appearance:none;appearance:none;outline:none;min-height:44px;box-sizing:border-box}
 .remote-grid2 select{background:#fff url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236B7280' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 13px center}
 .remote-grid2 input:focus,.remote-grid2 select:focus{border-color:#2452E6;box-shadow:0 0 0 3px rgba(36,82,230,.13)}
 .remote-row2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+/* 기록 입력칸 추천 목록(2026-08-06 지시: "클릭하거나 입력했을 때 추천 텍스트가 뜨게").
+   칸을 감싸는 래퍼가 기준점이 된다 — 래퍼가 없으면 목록이 카드 왼쪽 끝으로 튄다. */
+.sugg-wrap{position:relative;min-width:0}
+.sugg-box{position:absolute;left:0;right:0;top:calc(100% - 6px);z-index:60;background:#fff;
+  border:1.5px solid #C3CBD9;border-radius:12px;box-shadow:0 12px 28px rgba(17,24,39,.16);
+  max-height:236px;overflow:auto;padding:5px}
+.sugg-box[hidden]{display:none}
+.sugg-hint{padding:5px 11px 7px;font-size:12px;color:#4B5563;border-bottom:1px solid #E5E9F0;margin-bottom:4px}
+.sugg-item{padding:9px 11px;border-radius:9px;font-size:14px;color:#111827;cursor:pointer;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sugg-item:hover,.sugg-item.on{background:#E7EDFF;color:#1B3FBF}
+.sugg-item b{color:#1B3FBF}
+.sugg-item.on b,.sugg-item:hover b{color:#12308F}
 .remote-grid2 .abtn{display:flex;width:100%;justify-content:center;border-radius:13px;min-height:47px;
   font-size:15.5px;font-weight:800;margin-top:2px}
 table.remote-mini{border-collapse:collapse;width:100%;margin:8px 0;background:#fff;border-radius:13px;overflow:hidden}
@@ -1532,7 +1566,7 @@ table.remote-mini th{background:#F1F5FB;color:#475467;font-size:12px;font-weight
 table.remote-mini td{border-top:1px solid #EEF2F7;padding:10px 12px;text-align:left;font-size:14px;color:#101828}
 ul.remote-plain{list-style:none;padding:0;margin:8px 0}
 ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14px}
-.remote-rule{font-size:12.5px;color:#6B7280;margin:2px 0 6px}
+.remote-rule{font-size:12.5px;color:var(--ink-2);margin:2px 0 6px}
 /* 버전·한도초과 표시(2026-08-04 재고표 반영) — 숫자만 보면 어느 물건인지 모른다 */
 .remote-ver{font-size:11.5px;color:var(--ink-3)}
 .remote-over{color:var(--danger)}
@@ -1548,7 +1582,7 @@ fieldset.remote-edit{border:1px solid var(--brand);border-radius:16px;background
   padding:14px;margin:12px 0}
 fieldset.remote-edit legend{padding:0 6px;font-size:13px;font-weight:800;color:var(--brand)}
 .remote-edit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:9px;margin-bottom:9px}
-.remote-edit-grid label{display:block;font-size:12px;font-weight:700;color:#6B7280}
+.remote-edit-grid label{display:block;font-size:12px;font-weight:700;color:var(--ink-2)}
 .remote-edit-grid input,.remote-edit-grid select,fieldset.remote-edit>input{display:block;width:100%;
   margin-top:4px;padding:10px 12px;font-size:14.5px;border:1px solid #E2E6EF;border-radius:11px;
   background:#fff;color:#101828;box-sizing:border-box;min-height:42px}
@@ -1651,7 +1685,7 @@ fieldset.remote-edit>input{margin:0 0 9px}
 .ui-card-tx{min-width:0;flex:1}
 .ui-card-tx b{display:block;font-size:14.5px;font-weight:700;letter-spacing:-.25px;line-height:1.3}
 .ui-card-tx span{display:block;font-size:12.5px;color:var(--ink-3);margin-top:3px;line-height:1.4}
-.ui-card.danger .ui-card-ic{background:#FFE9E9;color:#D92D20}
+.ui-card.danger .ui-card-ic{background:#FFE9E9;color:#CE2B1E}
 .ui-card.danger .ui-card-tx b{color:#B42318}
 .ui-card.primary .ui-card-ic{background:var(--brand);color:#fff}
 
@@ -1787,7 +1821,7 @@ fieldset.remote-edit>input{margin:0 0 9px}
 .dash-choice input{width:19px;height:19px;accent-color:var(--brand);cursor:pointer}
 .dash-choice-copy{min-width:0}.dash-choice-copy b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   color:var(--ink);font-size:13.5px}.dash-choice-copy small{display:block;margin-top:2px;color:var(--ink-3);font-size:11.5px}
-.dash-choice-grip{color:#8B9BB6;font-size:18px;font-weight:900;letter-spacing:-3px;padding-right:3px}
+.dash-choice-grip{color:#5B7091;font-size:18px;font-weight:900;letter-spacing:-3px;padding-right:3px}
 .dash-customizer-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .dash-customizer-actions button{border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink-2);
   min-height:38px;padding:8px 12px;font:700 13px inherit;cursor:pointer}
@@ -2087,7 +2121,7 @@ fieldset.remote-edit>input{margin:0 0 9px}
       <div class="cc-block" data-cb="ryu">
         <div class="card ios-person">
           <div class="ios-person-head">
-            <span class="ios-avatar" style="background:linear-gradient(180deg,#5AC8FA,#007AFF)">류</span>
+            <span class="ios-avatar" style="background:linear-gradient(180deg,#057EB5,#0072EF)">류</span>
             <div class="ios-person-id"><b>류지영</b><span>돌발AS · 정기점검 · 회계</span></div>
           </div>
           <div class="wt-meta ios-footnote" id="centerRyuStat">현황 계산 중…</div>
@@ -4356,6 +4390,76 @@ async function renderRemoteCard(hostId){
 }
 /* 입력 필드 id 는 hostId 를 접두어로 만든다(한 화면에 카드가 둘 이상 떠도 안 섞이게).
    그래서 본문 함수도 hostId 를 받아야 한다 — 안 받으면 폼이 통째로 안 그려진다. */
+/* 입력칸 추천 목록 — 클릭하면 전체가, 입력하면 걸러진 것이 뜬다 (2026-08-06 지시).
+   ★ 서버를 새로 부르지 않는다. 추천값은 이미 받아 둔 현황(window.__REMOTE)에서 뽑는다.
+     UX 기록상 /api/status 가 이미 가장 느린 화면(2.7초·8MB)이라, 추천 때문에 왕복을
+     한 번 더 만들면 정작 기록이 느려진다. 최근 60건이면 "요전에 적었던 그 이름"은 다 든다. */
+function suggestAttach(inputId,items,hint){
+  const el=$(inputId); if(!el||el.dataset.sugg) return; el.dataset.sugg='1';
+  const wrap=document.createElement('div'); wrap.className='sugg-wrap';
+  el.parentNode.insertBefore(wrap,el); wrap.appendChild(el);
+  const box=document.createElement('div'); box.className='sugg-box'; box.hidden=true; wrap.appendChild(box);
+  let cur=-1, shown=[];
+  const close=()=>{box.hidden=true; cur=-1;};
+  const mark=(v,q)=>{ const i=q?v.toLowerCase().indexOf(q):-1;
+    return i<0?esc2(v):esc2(v.slice(0,i))+'<b>'+esc2(v.slice(i,i+q.length))+'</b>'+esc2(v.slice(i+q.length)); };
+  /* all=true 는 **클릭했을 때**다 — 지금 값으로 거르지 않고 전부 보여 준다.
+     클릭은 "뭐가 있더라?" 는 뜻이라, 이미 채워진 값으로 걸러 버리면 한 줄만 남아 쓸모가 없다. */
+  const render=all=>{
+    const q=all?'':String(el.value||'').trim().toLowerCase();
+    const src=(items()||[]).filter(Boolean);
+    shown=(q?src.filter(v=>v.toLowerCase().includes(q)):src).slice(0,8);
+    if(!shown.length){ close(); return; }
+    box.innerHTML=(hint?`<div class="sugg-hint">${esc2(hint)}</div>`:'')
+      +shown.map((v,i)=>`<div class="sugg-item${i===cur?' on':''}" data-i="${i}">${mark(v,q)}</div>`).join('');
+    box.hidden=false;
+  };
+  const pick=i=>{ if(shown[i]==null) return; el.value=shown[i]; close(); el.focus(); };
+  el.addEventListener('focus',()=>render(true));
+  el.addEventListener('click',()=>render(true));
+  el.addEventListener('input',()=>{cur=-1; render(false);});
+  el.addEventListener('keydown',e=>{
+    if(box.hidden){ if(e.key==='ArrowDown'){ render(true); e.preventDefault(); } return; }
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+      cur=(cur+(e.key==='ArrowDown'?1:shown.length-1))%shown.length;
+      [...box.querySelectorAll('.sugg-item')].forEach((n,i)=>n.classList.toggle('on',i===cur));
+      e.preventDefault();
+    } else if(e.key==='Enter'){ if(cur>=0){ pick(cur); e.preventDefault(); } }
+    else if(e.key==='Escape'){ close(); }
+  });
+  el.addEventListener('blur',()=>setTimeout(close,120));
+  /* mousedown 으로 고른다 — click 은 blur 뒤에 와서, 목록이 이미 닫힌 뒤 눌리게 된다. */
+  box.addEventListener('mousedown',e=>{
+    const it=e.target.closest('.sugg-item'); if(!it) return;
+    e.preventDefault(); pick(+it.dataset.i);
+  });
+}
+/* 추천값의 출처 — 최근 것이 앞에 온다(issues·deliveries 는 서버가 id DESC 로 준다). */
+function remoteSuggestSources(s){
+  const uniq=a=>[...new Set(a.map(v=>String(v==null?'':v).trim()).filter(Boolean))];
+  const iss=s.issues||[], del=s.deliveries||[], mv=s.moves||[];
+  return {
+    tech: uniq([...iss.map(r=>r.technician),...del.map(r=>r.technician),...Object.keys(s.holdings||{})]),
+    camp: uniq([...iss.map(r=>r.camp),...del.map(r=>r.camp)]),
+    prj:  uniq(del.map(r=>r.project)),
+    issuer: uniq([...Object.values(s.branches||{}),...iss.map(r=>r.issuer)]),
+    note: uniq(del.map(r=>r.note)),
+    // 재고 비고에는 '[재고표 …]' 자동 꼬리표가 붙는다 — 표에서 지우는 것과 똑같이 지운다.
+    reason: uniq(mv.map(r=>String(r.reason||'').replace(/\s*\[재고표[^\]]*\]/,''))),
+  };
+}
+function remoteSuggestBind(hostId,s){
+  const src=remoteSuggestSources(s);
+  const A=(sfx,key,hint)=>suggestAttach(hostId+sfx,()=>src[key],hint);
+  A('Tech','tech','최근 불출·납품한 AS 담당자');
+  A('Camp','camp','최근 투입 캠프');
+  A('Issuer','issuer','지점 담당 · 최근 불출자');
+  A('Note','note','최근 남긴 특이사항');
+  A('DTech','tech','최근 불출·납품한 AS 담당자');
+  A('DPrj','prj','최근 납품 프로젝트NO');
+  A('DCamp','camp','최근 투입 캠프');
+  A('SNote','reason','최근 입고·실사 비고');
+}
 function remoteCardBody(host,s,hostId){
   const holds=Object.entries(s.holdings||{});
   const holdRows=holds.length?holds.map(([t,h])=>{const ov=h.holding>(s.limit||3);
@@ -4452,6 +4556,9 @@ function remoteCardBody(host,s,hostId){
     ${dels?`<h4>최근 납품·사용</h4><table class="remote-mini"><tr><th>일자</th><th>담당자</th><th>납품처</th><th>유형</th><th>버전</th><th>수량</th><th>조작</th></tr>${dels}</table>`:''}
     ${mvs?`<h4>최근 지점 재고 이동 <span class="norm">— 입고·택배출고·샘플·실사</span></h4><table class="remote-mini"><tr><th>일자</th><th>지점</th><th>버전</th><th>증감</th><th>사유</th><th>조작</th></tr>${mvs}</table>`:''}
     ${aud?`<h4>수정·삭제 기록 <span class="norm">— 지운 것은 되돌릴 수 있습니다</span></h4><table class="remote-mini"><tr><th>시각</th><th>대상</th><th>한 일</th><th>사유</th><th>사람</th><th>조작</th></tr>${aud}</table>`:''}`;
+  /* innerHTML 을 새로 그렸으니 입력칸도 새 것이다 — 추천을 다시 붙인다.
+     붙이기가 실패해도 기록 자체는 되어야 하므로 카드 그리기를 막지 않는다. */
+  try{ remoteSuggestBind(hostId,s); }catch(e){}
 }
 /* 지점을 바꾸면 불출자 기본값도 따라간다 — 부산인데 류지영이 남아 있으면 틀린 기록이 된다. */
 function remoteBranchIssuer(hostId){

@@ -3759,7 +3759,16 @@ def t91_icon_sprite_and_ios_theme():
     assert symbols <= on_disk, f"원본 svg 가 없는 symbol: {sorted(symbols - on_disk)[:5]}"
 
     # iOS 외형: systemBlue·그룹배경·다크모드·큰 모서리
-    assert "--brand:#007AFF" in live, "systemBlue 가 아니다"
+    # ★ 2026-08-06: 원값 #007AFF 를 그대로 못박던 줄이었다. 그런데 systemBlue 원값은
+    #   흰 배경에서 3.6:1 뿐이라 **글자로 쓰면 안 읽힌다**(사용자 지적으로 확인).
+    #   그래서 '정확히 그 값'이 아니라 **systemBlue 계열의 파랑이면서 대비를 넘는가**로 바꿨다.
+    #   색을 자유롭게 두면 브랜드가 흐트러지고, 값을 못박으면 대비를 못 고친다 — 그 사이다.
+    #   대비 자체는 [114] 가 지킨다.
+    m = re.search(r"--brand:\s*(#[0-9A-Fa-f]{6})", live)
+    assert m, "--brand 가 없다"
+    br = _rgb(m.group(1))
+    assert br[2] > 150 and br[2] > br[0] + 60 and br[2] > br[1] + 40, \
+        "systemBlue 계열 파랑이 아니다: %s" % m.group(1)
     assert "--bg:#F2F2F7" in live, "iOS 그룹 배경이 아니다"
     # ★ 2026-07-30 실기기 확인 후 되돌림: 이 앱은 흰 배경이 77곳 하드코딩돼 있어 OS 다크를
     #   따라가면 **흰 카드 위 흰 글자**가 되어 아무것도 안 보였다(사용자 화면으로 확인).
@@ -5183,6 +5192,177 @@ def t112_worktree_shared_state():
     print("  [112] 워크트리 공용 상태(점유·큐 DB 일원화·거짓 경보 제거·잇기 우선) ✅")
 
 
+def _rgb(h):
+    h = h.strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _lum(c):
+    def f(x):
+        x /= 255.0
+        return x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4
+    return .2126 * f(c[0]) + .7152 * f(c[1]) + .0722 * f(c[2])
+
+
+def _ratio(a, b):
+    x, y = _lum(a), _lum(b)
+    hi, lo = max(x, y), min(x, y)
+    return (hi + .05) / (lo + .05)
+
+
+def t113_record_suggestions():
+    """[113] 기록 입력칸 추천 — 클릭하면 전체, 입력하면 걸러서 (2026-08-06 지시).
+
+    사용자 지시: "기록할 때 클릭하거나 입력했을 때 추천 텍스트가 뜨게 업데이트 해".
+    담당자·캠프·프로젝트NO 는 손으로 다시 치는 값이라 오타가 그대로 기록이 된다
+    ('김필우'와 '김 필우'가 다른 사람이 되면 보유 수량이 갈린다).
+
+    ★ 서버를 새로 부르지 않는다. UX 기록상 /api/status 가 이미 가장 느린 화면
+      (2.7초·8MB)이라, 추천 때문에 왕복을 하나 더 만들면 정작 기록이 느려진다.
+      추천값은 이미 받아 둔 현황(issues·deliveries·holdings)에서 뽑는다.
+    """
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "function suggestAttach(" in html, "추천 기능이 없다"
+    body = html[html.index("function suggestAttach("):]
+    body = body[:body.index("function remoteCardBody(")]
+    # 클릭도 입력도 둘 다 떠야 한다 — 지시가 "클릭하거나 입력했을 때" 였다
+    for ev in ("'focus'", "'click'", "'input'", "'keydown'"):
+        assert ev in body, "추천이 %s 에 반응하지 않는다" % ev
+    assert "render(true)" in body and "render(false)" in body, \
+        "클릭(전체)과 입력(거르기)을 구분하지 않는다"
+    # mousedown 으로 골라야 한다 — click 은 blur 뒤라 목록이 닫힌 뒤 눌린다
+    assert "'mousedown'" in body, "추천 항목을 클릭해도 안 골라진다(blur 가 먼저 온다)"
+    # 새 API 를 부르면 안 된다
+    assert "fetch(" not in body, "추천 때문에 서버를 다시 부른다 — 기록이 느려진다"
+    # 자유 입력칸 전부에 붙었나
+    for sfx in ("Tech", "Camp", "Issuer", "Note", "DTech", "DPrj", "DCamp", "SNote"):
+        assert "A('%s'," % sfx in html, "%s 칸에 추천이 없다" % sfx
+    assert "remoteSuggestBind(hostId,s)" in html, "카드를 다시 그린 뒤 추천을 안 붙인다"
+    src = html[html.index("function remoteSuggestSources("):]
+    for key in ("technician", "camp", "project", "issuer"):
+        assert key in src[:900], "추천 출처에 %s 가 빠졌다" % key
+    print("  [113] 기록 입력칸 추천(클릭=전체·입력=거르기·서버 추가호출 없음) ✅")
+
+
+def t114_text_contrast():
+    """[114] 글자가 잘 보이는가 — 대비 전수 검사 (2026-08-06 지시).
+
+    사용자 지적: "텍스트가 잘 안보이는 것들이 있어, 전체적으로 전수 조사해서 검토하고
+    잘 보이게 정리해".
+
+    ★ 원인은 색이 '연해서'가 아니라 **반투명**이어서였다. iOS 원값을 그대로 쓴
+      `--ink-2:rgba(60,60,67,.62)` 는 코드만 보면 진한 회색이지만, 흰 배경에 합성되면
+      실제로는 #818187(3.6:1)이고 `--ink-3`(.42)은 #A6A6AB(2.2:1) — 거의 안 보인다.
+      전수 조사에서 **글자색 194곳이 4.5:1 미달**이었고 그 중 120곳이 이 둘 때문이었다.
+      그래서 여기서는 '값이 불투명한가'와 '대비가 나오나'를 **둘 다** 지킨다.
+      (불투명이어야 하는 이유: 반투명이면 배경마다 실제 색이 달라져 계산이 무의미해진다)
+    """
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    root = html[html.index(":root{"):]
+    root = root[:root.index("}")]
+    var = {}
+    for m in re.finditer(r"(--[\w-]+)\s*:\s*([^;]+)", root):
+        var[m.group(1)] = m.group(2).strip()
+
+    WHITE, PAGE = (255, 255, 255), _rgb("#F2F2F7")
+    # 본문 글자로 쓰이는 변수는 흰 카드와 회색 바탕 **둘 다**에서 4.5:1 이어야 한다
+    for name in ("--ink-2", "--ink-3", "--brand", "--ok"):
+        val = var.get(name, "")
+        assert val.startswith("#"), \
+            "%s 가 불투명한 값이 아니다(%s) — 반투명이면 배경에 묻힌다" % (name, val)
+        c = _rgb(val)
+        for bg, label in ((WHITE, "흰 카드"), (PAGE, "회색 바탕")):
+            assert _ratio(c, bg) >= 4.5, \
+                "%s(%s) 가 %s 에서 %.2f:1 — 4.5:1 미만이라 흐리다" % (name, val, label, _ratio(c, bg))
+    # 파란 버튼 위 흰 글자도 같은 기준을 넘어야 한다(--brand 는 글자·바탕 겸용이다)
+    assert _ratio(WHITE, _rgb(var["--brand"])) >= 4.5, \
+        "파란 버튼 위 흰 글자가 흐리다 — --brand 가 너무 밝다"
+    # 밝기 계층이 뒤집히면 안 된다: 본문 < 흐린 본문 < 더 흐린 본문
+    assert _lum(_rgb(var["--ink-2"])) < _lum(_rgb(var["--ink-3"])), \
+        "--ink-2 가 --ink-3 보다 흐리다 — 강조 위계가 뒤집혔다"
+    # 되돌아오기 쉬운 옛 값들(전부 4.5:1 미달이었다).
+    # 주석은 지우고 본다 — 왜 바꿨는지 설명하려면 옛 값을 적어 둘 수밖에 없다.
+    live = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    for gone in ("rgba(60,60,67,.62)", "rgba(60,60,67,.42)", "color:#6B7280",
+                 "color:#94A3B8", "--brand:#007AFF", "#5AC8FA"):
+        assert gone not in live, "대비 미달이던 옛 색이 돌아왔다: %s" % gone
+    # 안내문(placeholder)은 브라우저 기본값에 맡기지 않는다
+    assert "::placeholder{color:var(--ink-3)" in html.replace(",textarea::placeholder", ""), \
+        "placeholder 색을 못박지 않았다 — 브라우저마다 흐리게 나온다"
+    print("  [114] 글자 대비(반투명 금지·흰/회색 배경 4.5:1·위계 유지·placeholder) ✅")
+
+
+def t115_app_refresh_speed():
+    """[115] 반영 직후에도 앱이 바로 뜬다 (2026-08-06 지시).
+
+    사용자 지적: "앱 업데이트 속도가 너무 느린데 이거 개선해 반영하는데 시간이 너무 오래 걸려".
+
+    ★ 원인은 응답 크기가 아니라 **캐시가 비워지는 순간**이었다(실측).
+      `get_status()` 는 첫 계산 **119초**, 두 번째는 0.5초다. 그런데 `_fresh()` 가
+      원장 mtime 이 바뀌면 `_cache` 를 통째로 비운다 — 원장은 11:00·15:00 반영 때마다
+      바뀐다. 예전에는 낡은 값(stale)까지 `_cache` 안에 있어 같이 지워졌고, 그래서
+      **반영 직후 처음 앱을 연 사람이 119초를 통째로 뒤집어썼다.** 게다가 그 계산이
+      `_readlock` 을 쥐고 있어 뒤따르는 요청도 전부 줄을 섰다.
+      → 마지막 성공값을 `_last_good` 에 따로 두어 **즉시** 주고, 새 값은 뒤에서 만든다.
+    """
+    import sys as _s
+    import time
+    _s.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as A
+
+    assert hasattr(A, "_last_good"), "마지막 성공값 보관소가 없다"
+    # 원장 mtime 을 손으로 흔들어 '반영이 일어난 순간'을 만든다(실파일을 건드리지 않는다)
+    real_mt = A._master_mtime
+    try:
+        A._cache.clear()
+        A._last_good.clear()
+        A._master_mtime = lambda: 1
+        calls = []
+
+        def build():
+            calls.append(1)
+            return {"n": len(calls)}
+
+        first = A._serve_cached("t115", build)
+        assert first == {"n": 1} and len(calls) == 1, (first, calls)
+
+        # 원장이 바뀌었다 → _fresh 가 _cache 를 비운다. 그래도 **기다리면 안 된다**.
+        A._master_mtime = lambda: 2
+        t0 = time.time()
+        again = A._serve_cached("t115", build)
+        waited = time.time() - t0
+        assert again == {"n": 1}, "반영 직후 낡은 값을 안 주고 다시 계산했다: %r" % (again,)
+        assert waited < 1.0, "반영 직후 요청이 %.1f초 기다렸다 — 즉시 응답해야 한다" % waited
+
+        # 새 값은 뒤에서 만들어져야 한다
+        for _ in range(100):
+            if len(calls) >= 2:
+                break
+            time.sleep(0.05)
+        assert len(calls) >= 2, "낡은 값만 주고 새로 만들지 않는다 — 영원히 안 바뀐다"
+    finally:
+        A._master_mtime = real_mt
+        A._cache.clear()
+        A._last_good.pop("t115", None)
+
+    src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    # 예열 목록에 가장 느린 것들이 들어 있나 — status 가 빠져 있던 것이 이번 사고의 절반이다
+    warm = src[src.index("def warm_caches("):]
+    warm = warm[:warm.index("\ndef ")]
+    for need in ("get_status", "get_exec_report", "get_erpdocs"):
+        assert need in warm, "예열 목록에 %s 가 없다 — 가장 느린 것을 안 데운다" % need
+    assert "_master_mtime()" in warm, "예열이 시계만 본다 — 반영된 순간에 반응하지 않는다"
+    # 응답 압축·재사용(같은 내용이면 304)
+    send = src[src.index("def _send(self"):]
+    send = send[:send.index("\n    def ")]
+    assert "gzip.compress" in send and "Content-Encoding" in send, "JSON 응답을 압축하지 않는다"
+    assert "If-None-Match" in send and "304" in send, "내용이 같아도 매번 다시 보낸다"
+    assert '"no-cache"' in send, "no-store 면 브라우저가 ETag 를 갖고도 되묻지 않는다"
+    print("  [115] 반영 직후 즉시 응답(낡은 값 먼저·뒤에서 갱신)·예열 확대·gzip/304 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -6097,6 +6277,9 @@ if __name__ == "__main__":
     t110_writer_formula_key()
     t111_account_handoff_freshness()
     t112_worktree_shared_state()
+    t113_record_suggestions()
+    t114_text_contrast()
+    t115_app_refresh_speed()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
