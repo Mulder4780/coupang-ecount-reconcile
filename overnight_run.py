@@ -101,6 +101,11 @@ def main():
         print(f"[{stamp}] 검증 초록 — 전체 대조를 돌린다")
         rc, out = _run(["daily_run.py"], a.timeout * 60)
         tail = "\n".join([l for l in out.splitlines() if l.strip()][-12:])
+        # ★ "이미 실행 중" 은 **성공이 아니다** — daily_run 은 그때도 0 으로 끝난다.
+        #   그대로 두면 이 스크립트가 "다 됐다"며 밤을 끝내 버린다(감시기를 두 개 띄운
+        #   순간 실제로 그렇게 된다). 아무 일도 안 한 회차로 보고 다시 시도한다.
+        if "이미 실행 중" in out:
+            rc = 125
         _note({"at": stamp, "시도": tries,
                "결과": "대조완료" if rc == 0 else "대조실패(rc=%d)" % rc,
                "메모": tail[-1500:]})
