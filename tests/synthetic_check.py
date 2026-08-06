@@ -5278,6 +5278,44 @@ def t115_text_contrast():
     print("  [115] 글자 명암비 전수검사 — 모든 화면 미달 0 (기준 4.5:1) ✅")
 
 
+def t116_manual_refresh_is_really_fresh():
+    """[116] 새로고침 버튼은 **정말로** 새로 받는다 (2026-08-06 지시).
+
+    사용자 지시: "새로 고침을 누르면 바로바로 반영되게 개선해 … 빨리빨리 반영되게 해(중요)".
+
+    두 가지가 겹쳐 있었다.
+      ① stale-while-revalidate 가 **사람이 누른 버튼까지** 막았다. 15초 안에 누르면
+         네트워크에 아예 안 나가고, 지나도 옛 값을 돌려주고 새 값은 뒤에서 받았다.
+         그런데도 '최신 자료로 새로고침했습니다' 토스트가 떴다 — 반영된 줄 안다.
+      ② loadSettle → loadStatus → loadNotifications 를 **차례로** 기다렸다.
+         실측이 status 2.7초 · notifications 최악 59초라 합이 그대로 대기시간이 됐다.
+
+    SWR 자체는 자동 갱신에 좋다. 가르는 것은 **누가 시켰나**다 — 그래서 지우지 않고
+    사람이 시킨 경로에서만 건너뛴다. 캐시 **쓰기**는 그대로 둔다(안 그러면 다음 화면이
+    또 옛 값으로 그려진다).
+    """
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    assert "function apiFresh(" in live, "사람이 누른 새로고침용 우회로가 없다"
+    assert "API_FRESH" in live and "opt.fresh" in live, live.count("API_FRESH")
+    # 읽기만 건너뛰고 쓰기는 남아야 한다
+    assert re.search(r"const useCache = cacheable && !\(API_FRESH > 0", live), "읽기/쓰기를 안 갈랐다"
+    assert re.search(r"if\(cacheable\)\{ swrSet\(path, d\)", live), \
+        "강제 갱신 때 캐시 쓰기까지 막혔다 — 다음 화면이 또 옛 값이 된다"
+
+    body = live[live.index("async function reloadHere("):]
+    body = body[:body.index("\n}")]
+    assert "apiFresh(refreshAll)" in body, "새로고침 버튼이 캐시를 건너뛰지 않는다"
+    assert "previewRptDate" in body and "REPORT_PREVIEW_DATE" in body, \
+        "집계기준일을 고른 보고서 화면이 새로고침에서 빠졌다"
+
+    ra = live[live.index("async function refreshAll("):]
+    ra = ra[:ra.index("\n}")]
+    assert "Promise.all" in ra, "새로고침이 아직 한 줄로 세워 부른다(합이 대기시간이 된다)"
+    assert not re.search(r"await load\w+\(\);\s*await load", ra), ra[:200]
+    print("  [116] 새로고침은 캐시를 건너뛰고 동시에 부른다(선택 기준일 포함) ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -6195,6 +6233,7 @@ if __name__ == "__main__":
     t113_paste_typos_and_misc_reclass()
     t114_claim_owner_is_agent_pid()
     t115_text_contrast()
+    t116_manual_refresh_is_really_fresh()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)

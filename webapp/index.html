@@ -3193,10 +3193,25 @@ async function _apiNet(path, opt={}){
   }
   return r.json();
 }
+/* ★ 사람이 **직접 누른** 새로고침은 캐시를 건너뛴다 (2026-08-06 지시: "새로고침 누르면
+   바로바로 반영되게"). 예전에는 stale-while-revalidate 가 그 버튼까지 막았다:
+     · 15초 안에 누르면 네트워크에 **아예 안 나갔다** — 화면이 그대로인데
+     · 15초가 지나도 **옛 값을 돌려주고** 새 값은 뒤에서 받았다 — 그런데도
+       '최신 자료로 새로고침했습니다' 토스트가 떴다. 사람은 반영된 줄 안다.
+   자동 갱신에는 SWR 이 그대로 좋다(기다리지 않게 해 준다). 가르는 것은 **누가 시켰나**다. */
+let API_FRESH = 0;                     // >0 이면 이번 호출들은 캐시를 건너뛴다
+async function apiFresh(fn){           // 이 안에서 일어나는 api() 는 전부 새로 받는다
+  API_FRESH++;
+  try{ return await fn(); }
+  finally{ API_FRESH = Math.max(0, API_FRESH - 1); }
+}
 async function api(path, opt={}){
   const key = String(path).split('?')[0];
   const cacheable = !(opt && opt.method) && SWR_PATHS.indexOf(key) >= 0;
-  if(cacheable){
+  // 강제 갱신은 **읽기만** 건너뛴다. 쓰기까지 막으면 방금 받은 최신값을 버리게 되어
+  // 다음 화면 전환이 또 옛 값으로 그려진다.
+  const useCache = cacheable && !(API_FRESH > 0 || (opt && opt.fresh));
+  if(useCache){
     const hit = swrGet(path);
     if(hit){
       if(Date.now() - hit.t < SWR_FRESH_MS) return hit.v;   // 방금 받은 값 — 또 부르지 않는다
@@ -4724,7 +4739,15 @@ async function reloadHere(btn){
   if(btn){ btn.disabled = true; btn.classList.add('busy'); }
   // 서버가 새 버전이면 데이터만 받아선 화면이 안 바뀐다 → 문서를 다시 읽는다
   if(await checkBuild(false)){ hardReload(); return; }
-  try{ await refreshAll(); }catch(e){}
+  // 사람이 누른 것이니 캐시를 건너뛰고 **실제로 새로** 받는다(SWR 은 자동 갱신용이다).
+  try{ await apiFresh(refreshAll); }catch(e){}
+  // ★ 보고서에서 집계기준일을 고른 상태라면 그 날짜로 다시 받아야 한다 (2026-08-06).
+  //   loadSettle 이 채우는 execRep 은 **날짜 조건이 없는** 값이라, 이걸 안 하면
+  //   고른 날짜 화면이 조용히 다른 기준의 숫자로 바뀐다(또는 예전 값이 남는다).
+  const baseEl = $('rd_base');
+  if(REPORT_PREVIEW_DATE && baseEl && /^\d{4}-\d{2}-\d{2}$/.test(baseEl.value||'')){
+    try{ await apiFresh(()=>previewRptDate(false, true)); }catch(e){}
+  }
   try{ renderDaily(); }catch(e){}
   try{ renderBoard(); }catch(e){}
   try{ if(typeof renderPeriod==='function' && $('pyear').value) renderPeriod(); }catch(e){}
@@ -10338,8 +10361,16 @@ SWR_RERUN['/api/notifications'] = () => loadNotifications().catch(()=>{});
   SWR_RERUN[p] = () => loadSettle().catch(()=>{});
 });
 
+/* ★ 한 줄로 세워 부르지 않는다 (2026-08-06 지시: "빨리빨리 반영되게 해(중요)").
+   예전에는 loadSettle → loadStatus → loadNotifications 를 차례로 기다렸다. 서로
+   아무 관계가 없는데도 **합이 걸리는 시간**이 된다 — 사용 기록의 실측이
+   `/api/status` 2.7초 · `/api/notifications` 최악 59초라 새로고침 한 번이 분 단위였다.
+   동시에 부르면 **가장 느린 하나**만 기다린다. 각자의 렌더는 도착하는 대로 돈다. */
 async function refreshAll(){
-  try{ await loadSettle(); await loadStatus(); await loadNotifications(); loadRemoteStat(); if(staffSlug) await staffHeartbeat('view'); }catch(e){}
+  const run = f => { try{ return Promise.resolve(f()).catch(()=>{}); }catch(e){ return Promise.resolve(); } };
+  const jobs = [run(loadSettle), run(loadStatus), run(loadNotifications), run(loadRemoteStat)];
+  if(staffSlug) jobs.push(run(()=>staffHeartbeat('view')));
+  await Promise.all(jobs);
 }
 (async function(){
   tick(); setInterval(tick, 30000); initDates(); previewCalendarDraft();
