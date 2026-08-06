@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0E1B3F">
+<!-- ★ 검색엔진에 올리지 않는다. 이 페이지는 '링크를 받은 사람'만 보는 자리다. -->
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>쿠팡 캘린더</title>
+<link rel="icon" href="icon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
+<style>
+:root{--navy:#0E1B3F;--brand:#2452E6;--bg:#F2F2F7;--card:#fff;--line:#E4E7EC;
+  --ink:#101828;--ink-3:#667085}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:400 15px/1.5 -apple-system,BlinkMacSystemFont,"Malgun Gothic","Nanum Gothic",sans-serif;
+  padding:0 0 env(safe-area-inset-bottom)}
+header{background:var(--navy);color:#fff;padding:calc(env(safe-area-inset-top) + 14px) 16px 14px}
+header h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-.4px}
+header p{margin:4px 0 0;font-size:12.5px;color:#C9D5FA}
+main{padding:14px 12px 28px;max-width:720px;margin:0 auto}
+.cnav{display:flex;align-items:center;gap:8px;margin:0 0 10px}
+.cnav b{flex:1;text-align:center;font-size:16px}
+.cnav button{background:var(--card);border:1px solid var(--line);border-radius:9px;
+  min-width:40px;min-height:36px;font-size:15px;color:var(--ink);cursor:pointer}
+.cnav #ctoday{min-width:54px;font-size:13px;font-weight:700}
+.cchips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.cchip{display:inline-flex;align-items:center;gap:5px;flex:1 1 45%;justify-content:center;
+  background:var(--card);border:1px solid var(--line);border-radius:999px;padding:7px 9px;
+  font-size:12.5px;color:var(--ink-3);cursor:pointer}
+.cchip i{width:8px;height:8px;border-radius:50%;background:var(--c);flex:none}
+.cchip.on{border-color:var(--c);color:var(--ink)}
+.cdow{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;
+  color:var(--ink-3);margin-bottom:3px}
+.cgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:12px}
+.cday{background:var(--card);border:1px solid var(--line);border-radius:8px;min-height:48px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  font-size:12.5px;color:var(--ink);cursor:pointer;padding:4px 2px}
+.cday.out{opacity:.36}
+.cday.on{border-color:var(--brand);background:#EAF1FF}
+.cday .dots{display:flex;gap:2px}
+.cday .dots i{width:5px;height:5px;border-radius:50%}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:4px 13px}
+.item{border-top:1px solid var(--line);padding:10px 0;font-size:13.5px}
+.item:first-child{border-top:0}
+.item .t{font-weight:750}
+.item .m{color:var(--ink-3);font-size:12px}
+.kdot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
+.note{color:var(--ink-3);font-size:12.5px;margin:0 2px 8px}
+.empty{color:var(--ink-3);font-size:13px;padding:18px 0;text-align:center}
+.err{background:#FEF3F2;border:1px solid #FDA29B;color:#B42318;border-radius:12px;
+  padding:14px;font-size:13.5px;margin:10px 0}
+</style></head>
+<body>
+<header><h1>쿠팡 캘린더</h1><p id="sub">불러오는 중…</p></header>
+<main id="main"><div class="empty">불러오는 중…</div></main>
+<script>
+/* 공유 전용 캘린더 (2026-08-06 지시)
+   ─────────────────────────────────────────────────────────────────────────
+   · 열쇠는 주소의 `#k=` 에 있다. `#` 뒤는 **서버로 가지 않는다** — 깃허브 접속
+     기록에도 남지 않고 검색엔진도 못 가져간다. 그래서 PIN 을 묻지 않아도 된다.
+   · 여기서 푸는 것은 **캘린더 자물쇠**다. 앱 PIN 이 아니므로 이 링크로는 정산·
+     계산서·확인필요가 열리지 않는다. 링크가 새어도 새는 것은 일정뿐이다. */
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+async function unseal(enc, pass){
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass),
+                                           'PBKDF2', false, ['deriveBits']);
+  const bits = new Uint8Array(await crypto.subtle.deriveBits(
+    {name:'PBKDF2', salt:b64(enc.salt), iterations:enc.iter, hash:'SHA-256'}, km, 512));
+  const iv = b64(enc.iv), ct = b64(enc.ct);
+  const hk = await crypto.subtle.importKey('raw', bits.slice(32,64),
+                                           {name:'HMAC', hash:'SHA-256'}, false, ['verify']);
+  const signed = new Uint8Array(iv.length + ct.length);
+  signed.set(iv); signed.set(ct, iv.length);
+  if(!(await crypto.subtle.verify('HMAC', hk, b64(enc.tag), signed))) throw new Error('KEY');
+  const ck = await crypto.subtle.importKey('raw', bits.slice(0,32), {name:'AES-CBC'}, false, ['decrypt']);
+  const pt = new Uint8Array(await crypto.subtle.decrypt({name:'AES-CBC', iv}, ck, ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+let CAL = {일정:[], 분류목록:[]}, M = '', DAY = '', OFF = new Set();
+const kindOf = k => (CAL.분류목록||[]).find(x => x.key === k)
+  || {key:k, label:k||'기타', color:'#8E8E93'};
+const campOf = e => String(e.캠프명 || e.장소 || e.제목 || '').trim() || '(장소 미입력)';
+
+function render(){
+  const all = CAL.일정 || [];
+  if(!all.length){ $('main').innerHTML = '<div class="empty">표시할 일정이 없습니다.</div>'; return; }
+  if(!M){
+    const now = new Date().toISOString().slice(0,7);
+    M = all.some(e => String(e.날짜||'').startsWith(now)) ? now
+      : String(all[all.length-1].날짜||now).slice(0,7);
+  }
+  const [Y, Mo] = M.split('-').map(Number);
+  const month = all.filter(e => String(e.날짜||'').startsWith(M));
+  const rows = month.filter(e => !OFF.has(String(e.분류||'etc')));
+  const byDay = {};
+  rows.forEach(e => { (byDay[e.날짜] = byDay[e.날짜] || []).push(e); });
+
+  const cnt = {};
+  month.forEach(e => { const k = String(e.분류||'etc'); cnt[k] = (cnt[k]||0) + 1; });
+  const chips = Object.keys(cnt).map(k => {
+    const m = kindOf(k);
+    return `<button class="cchip${OFF.has(k)?'':' on'}" data-k="${esc(k)}" style="--c:${esc(m.color)}">`
+      + `<i></i>${esc(m.label)} ${cnt[k]}</button>`;
+  }).join('');
+
+  const first = new Date(Y, Mo-1, 1), start = new Date(Y, Mo-1, 1-first.getDay());
+  let grid = '';
+  for(let i=0;i<42;i++){
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate()+i);
+    const iso = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const evs = byDay[iso] || [], out = (d.getMonth()+1) !== Mo;
+    const dots = [...new Set(evs.map(e => String(e.분류||'etc')))].slice(0,4)
+      .map(k => `<i style="background:${esc(kindOf(k).color)}"></i>`).join('');
+    grid += `<button class="cday${out?' out':''}${iso===DAY?' on':''}" data-d="${iso}">`
+      + `<b>${d.getDate()}</b>${evs.length?`<span class="dots">${dots}</span>`:''}</button>`;
+  }
+  const day = DAY && byDay[DAY] ? byDay[DAY] : null;
+  const list = (day || rows).slice(0,400).map(e => {
+    const m = kindOf(String(e.분류||'etc'));
+    return `<div class="item"><div class="t"><i class="kdot" style="background:${esc(m.color)}"></i>`
+      + `${esc(String(e.날짜||'').slice(5))} ${esc(campOf(e))}</div>`
+      + `<div class="m">${[m.label, e.담당기사, e.프로젝트NO, e.시간].filter(Boolean).map(esc).join(' · ')}</div></div>`;
+  }).join('');
+
+  $('main').innerHTML =
+    `<div class="cnav"><button id="cprev">‹</button><b>${Y}년 ${Mo}월</b>`
+    + `<button id="cnext">›</button><button id="ctoday">오늘</button></div>`
+    + `<div class="cchips">${chips}</div>`
+    + `<div class="cdow"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>`
+    + `<div class="cgrid">${grid}</div>`
+    + `<div class="note">${day ? esc(DAY)+' · '+day.length+'건 (날짜를 다시 누르면 이 달 전체)'
+                               : '이 달 '+rows.length+'건'}</div>`
+    + `<div class="card">${list || '<div class="empty">표시할 일정이 없습니다.</div>'}</div>`;
+
+  const shift = n => { const d = new Date(Y, Mo-1+n, 1);
+    M = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); DAY=''; render(); };
+  $('cprev').onclick = () => shift(-1);
+  $('cnext').onclick = () => shift(1);
+  $('ctoday').onclick = () => { M = new Date().toISOString().slice(0,7); DAY=''; render(); };
+  document.querySelectorAll('.cday').forEach(b => b.onclick = () => {
+    DAY = (DAY === b.dataset.d) ? '' : b.dataset.d; render(); });
+  document.querySelectorAll('.cchip').forEach(b => b.onclick = () => {
+    const k = b.dataset.k;
+    if(OFF.has(k)) OFF.delete(k); else OFF.add(k);
+    // 전부 끄면 빈 화면이 남아 고장으로 보인다 — 마지막 하나는 도로 켠다.
+    if(Object.keys(cnt).every(x => OFF.has(x))) OFF.delete(k);
+    DAY=''; render(); });
+}
+
+(async function(){
+  const k = new URLSearchParams(location.hash.slice(1)).get('k') || '';
+  if(!k){
+    $('sub').textContent = '';
+    $('main').innerHTML = '<div class="err"><b>열쇠가 없는 주소입니다.</b><br>'
+      + '단톡방에 올라온 링크를 <b>그대로</b> 눌러 주세요. 주소를 손으로 옮겨 적으면 '
+      + '<code>#</code> 뒤가 빠져 열리지 않습니다.</div>';
+    return;
+  }
+  try{
+    const enc = await (await fetch('cal.enc?t=' + Date.now(), {cache:'no-store'})).json();
+    CAL = await unseal(enc, k);
+    $('sub').textContent = `갱신 ${String(CAL.갱신||'').replace('T',' ').slice(0,16)} · 일정 ${(CAL.일정||[]).length}건`;
+    render();
+  }catch(e){
+    $('sub').textContent = '';
+    $('main').innerHTML = '<div class="err"><b>일정을 열지 못했습니다.</b><br>'
+      + '링크가 오래되어 열쇠가 바뀌었을 수 있습니다. 담당자에게 새 링크를 요청하세요.</div>';
+  }
+})();
+</script>
+</body></html>

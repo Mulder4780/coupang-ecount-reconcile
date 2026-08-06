@@ -57,6 +57,29 @@ input,button,select{font-family:inherit;font-size:15px}
 .item .t{font-weight:800}
 .item .m{color:var(--ink-3);font-size:12px}
 .empty{color:var(--ink-3);font-size:13px;padding:14px 0;text-align:center}
+/* 쿠팡 캘린더 (2026-08-06) — 폰 한 손으로 보게 작게 짠다 */
+.cnav{display:flex;align-items:center;gap:8px;margin:2px 0 10px}
+.cnav b{flex:1;text-align:center;font-size:15px}
+.cnav button{background:var(--card);border:1px solid var(--line);border-radius:9px;
+  min-width:38px;min-height:34px;font-size:15px;color:var(--ink);cursor:pointer}
+.cnav #ctoday{min-width:52px;font-size:13px;font-weight:700}
+.cchips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px}
+.cchip{display:inline-flex;align-items:center;gap:5px;flex:1 1 45%;justify-content:center;
+  background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 9px;
+  font-size:12px;color:var(--ink-3);cursor:pointer}
+.cchip i{width:8px;height:8px;border-radius:50%;background:var(--c);flex:none}
+.cchip.on{border-color:var(--c);color:var(--ink)}
+.cdow{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;
+  color:var(--ink-3);margin-bottom:3px}
+.cgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:10px}
+.cday{background:var(--card);border:1px solid var(--line);border-radius:8px;min-height:44px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  font-size:12px;color:var(--ink);cursor:pointer;padding:4px 2px}
+.cday.out{opacity:.38}
+.cday.on{border-color:var(--brand);background:#EAF1FF}
+.cday .dots{display:flex;gap:2px}
+.cday .dots i{width:5px;height:5px;border-radius:50%}
+.item .kdot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
 .note{font-size:11.5px;color:var(--ink-3);margin-top:8px;line-height:1.6}
 .bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);
  padding:9px 14px;font-size:11.5px;color:var(--ink-3);display:flex;gap:8px;align-items:center;
@@ -528,12 +551,102 @@ async function syncQueue(){
   }catch(e){ /* 통신 복구 시 online 이벤트와 다음 실행에서 다시 보낸다 */ }
 }
 
+/* ── 쿠팡 캘린더 (2026-08-06 지시) ─────────────────────────────────────────
+   왜 여기에 넣나: 사설망(Tailscale) 주소는 각자 폰에 VPN 을 깔아야 열린다. 현장
+   기사들에게 그것을 시킬 수는 없다. 고정 주소는 누구나 열리고, 자료는 잠겨 올라오므로
+   PIN 을 아는 사람만 본다. 그래서 단톡방에 뿌릴 주소는 여기다.
+   PC 앱의 캘린더와 **같은 자료**(app_server.get_calendar)를 쓴다 — 따로 만들면
+   화면마다 숫자가 달라진다. */
+let CAL_M = '';                       // 'YYYY-MM'
+let CAL_D = '';                       // 'YYYY-MM-DD'
+let CAL_OFFK = new Set();             // 꺼 둔 종류
+function calData(){ return D.calendar || {일정: [], 분류목록: []}; }
+function calKind(k){
+  return (calData().분류목록 || []).find(x => x.key === k) || {key: k, label: k || '기타', color: '#8E8E93'};
+}
+function calRows(){
+  return (calData().일정 || []).filter(e => !CAL_OFFK.has(String(e.분류 || 'etc')));
+}
+function calCamp(e){ return String(e.캠프명 || e.장소 || e.제목 || '').trim() || '(장소 미입력)'; }
+function renderCal(){
+  const all = calData().일정 || [];
+  if(!all.length){ $('list').innerHTML = '<div class="empty">캘린더 자료가 아직 사본에 없습니다.</div>'; return; }
+  if(!CAL_M){
+    const today = new Date().toISOString().slice(0, 7);
+    CAL_M = all.some(e => String(e.날짜 || '').startsWith(today))
+      ? today : String(all[all.length - 1].날짜 || today).slice(0, 7);
+  }
+  const rows = calRows().filter(e => String(e.날짜 || '').startsWith(CAL_M));
+  const [Y, M] = CAL_M.split('-').map(Number);
+  const byDay = {};
+  rows.forEach(e => { (byDay[e.날짜] = byDay[e.날짜] || []).push(e); });
+
+  // 종류 칩 — 개수와 색을 같이 보여 준다(색만으로는 무엇인지 모른다)
+  const cnt = {};
+  (calData().일정 || []).filter(e => String(e.날짜 || '').startsWith(CAL_M))
+    .forEach(e => { const k = String(e.분류 || 'etc'); cnt[k] = (cnt[k] || 0) + 1; });
+  const chips = Object.keys(cnt).map(k => {
+    const m = calKind(k), on = !CAL_OFFK.has(k);
+    return '<button class="cchip' + (on ? ' on' : '') + '" data-k="' + esc(k) + '" style="--c:' + esc(m.color) + '">'
+      + '<i></i>' + esc(m.label) + ' ' + cnt[k] + '</button>';
+  }).join('');
+
+  const first = new Date(Y, M - 1, 1), start = new Date(Y, M - 1, 1 - first.getDay());
+  let grid = '';
+  for(let i = 0; i < 42; i++){
+    const dt = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    const iso = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    const evs = byDay[iso] || [], out = (dt.getMonth() + 1) !== M;
+    const dots = [...new Set(evs.map(e => String(e.분류 || 'etc')))].slice(0, 4)
+      .map(k => '<i style="background:' + esc(calKind(k).color) + '"></i>').join('');
+    grid += '<button class="cday' + (out ? ' out' : '') + (iso === CAL_D ? ' on' : '') + '" data-d="' + iso + '">'
+      + '<b>' + dt.getDate() + '</b>' + (evs.length ? '<span class="dots">' + dots + '</span>' : '') + '</button>';
+  }
+  const day = CAL_D && byDay[CAL_D] ? byDay[CAL_D] : null;
+  const list = (day || rows).slice(0, 400).map(e => {
+    const m = calKind(String(e.분류 || 'etc'));
+    return '<div class="item"><div class="t"><i class="kdot" style="background:' + esc(m.color) + '"></i>'
+      + esc(String(e.날짜 || '').slice(5)) + ' ' + esc(calCamp(e)) + '</div>'
+      + '<div class="m">' + [m.label, e.담당기사, e.프로젝트NO, e.시간].filter(Boolean).map(esc).join(' · ') + '</div></div>';
+  }).join('');
+
+  $('list').innerHTML =
+    '<div class="cnav"><button id="cprev">‹</button><b>' + Y + '년 ' + M + '월</b><button id="cnext">›</button>'
+    + '<button id="ctoday">오늘</button></div>'
+    + '<div class="cchips">' + chips + '</div>'
+    + '<div class="cdow"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>'
+    + '<div class="cgrid">' + grid + '</div>'
+    + '<div class="note">' + (day ? esc(CAL_D) + ' · ' + day.length + '건 (날짜를 다시 누르면 전체)' : '이 달 전체 ' + rows.length + '건') + '</div>'
+    + (list || '<div class="empty">표시할 일정이 없습니다.</div>');
+
+  const shift = n => {
+    const d = new Date(Y, M - 1 + n, 1);
+    CAL_M = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    CAL_D = ''; renderCal();
+  };
+  $('cprev').onclick = () => shift(-1);
+  $('cnext').onclick = () => shift(1);
+  $('ctoday').onclick = () => { CAL_M = new Date().toISOString().slice(0, 7); CAL_D = ''; renderCal(); };
+  $('list').querySelectorAll('.cday').forEach(b => b.onclick = () => {
+    CAL_D = (CAL_D === b.dataset.d) ? '' : b.dataset.d; renderCal();
+  });
+  $('list').querySelectorAll('.cchip').forEach(b => b.onclick = () => {
+    const k = b.dataset.k;
+    if(CAL_OFFK.has(k)) CAL_OFFK.delete(k); else CAL_OFFK.add(k);
+    // 전부 끄면 빈 화면이 남아 고장으로 보인다 — 마지막 하나는 도로 켠다.
+    if(Object.keys(cnt).every(x => CAL_OFFK.has(x))) CAL_OFFK.delete(k);
+    CAL_D = ''; renderCal();
+  });
+}
+
 /* ── 목록 ── */
-const TABS = [['issues','확인필요'],['tech','기사'],['as','돌발AS'],['pm','정기점검'],
+const TABS = [['cal','캘린더'],['issues','확인필요'],['tech','기사'],['as','돌발AS'],['pm','정기점검'],
               ['settle','정산'],['erp','계산서'],['queue','예약']];
 function renderTabs(){
   $('tabs').innerHTML = TABS.map(([k,l])=>{
-    const n = k==='queue' ? Q().length : (D[k]||[]).length;   // 기사 탭은 인원 수
+    const n = k==='queue' ? Q().length
+            : k==='cal' ? (((D.calendar||{}).일정)||[]).length
+            : (D[k]||[]).length;                              // 기사 탭은 인원 수
     return '<button data-k="' + k + '" class="' + (k===TAB?'on':'') + '">' + l + ' ' + n + '</button>';
   }).join('');
   $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => setTab(b.dataset.k));
@@ -552,6 +665,7 @@ function renderList(){
       : '<div class="empty">기기 전송 대기 예약이 없습니다. 접수된 예약은 클라우드에서 PC 재가동을 기다립니다.</div>';
     return;
   }
+  if(TAB === 'cal'){ renderCal(); return; }
   if(TAB === 'tech'){ renderTech(); return; }
   const rows = D[TAB] || [];
   if(!rows.length){ $('list').innerHTML = '<div class="empty">항목이 없습니다.</div>'; return; }

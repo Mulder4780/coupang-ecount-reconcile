@@ -118,6 +118,26 @@ def payload():
     except Exception as e:
         print("  ! 기사 정리 건너뜀:", e)
 
+    # 쿠팡 캘린더 — 단톡방에 주소를 뿌려도 열리게 (2026-08-06 지시).
+    #   ★ 사설망(Tailscale) 주소는 각자 폰에 VPN 을 깔아야 열린다. 현장 기사들에게
+    #     그것을 시킬 수는 없다. 고정 주소는 누구나 열리고, 자료는 여기서 **잠가서**
+    #     올리므로 PIN 을 아는 사람만 본다(공개 HTML 에는 업무 내용이 남지 않는다).
+    #   담는 것은 앱과 **같은 함수**의 결과다 — 따로 만들면 화면마다 숫자가 달라진다.
+    try:
+        _cal = A.get_calendar()
+        d["calendar"] = {
+            "갱신": _cal.get("갱신") or "",
+            "분류목록": _cal.get("분류목록") or [],
+            # 사본이 너무 커지지 않게 **올해 것만**. 지난해는 PC 앱에서 본다.
+            "일정": [{k: e.get(k) for k in
+                    ("날짜", "시간", "분류", "캠프명", "장소", "제목",
+                     "프로젝트NO", "담당기사", "예측") if e.get(k) not in (None, "")}
+                   for e in (_cal.get("일정") or [])
+                   if str(e.get("날짜") or "").startswith(str(datetime.now().year))],
+        }
+    except Exception as e:
+        print("  ! 캘린더 건너뜀:", e)
+
     # 대표 브리핑 — 폰에서 그대로 읽어 드릴 수 있게 담는다
     try:
         import daily_brief as DB
@@ -216,9 +236,15 @@ def git_publish(message, runner=subprocess.run):
 
 def _main():
     from operation_window import input_window_label, is_input_window
-    if is_input_window():
+    # 입력 보호시간(08:00~09:30)에는 원장이 사람 손에 있어 사본을 뜨지 않는다.
+    # ★ `--force` 는 **사람이 직접 시킬 때만** 쓴다(2026-08-06 지시로 추가).
+    #   스케줄러가 부르는 회차에는 붙이지 않는다 — 붙이면 규칙이 있으나 마나가 된다.
+    if is_input_window() and "--force" not in sys.argv:
         print(f"입력 보호시간({input_window_label()}) — 사본 생성·게시 생략")
+        print("  지금 꼭 올려야 하면: python cloud_publish.py --push --force")
         return
+    if is_input_window():
+        print(f"★ 입력 보호시간({input_window_label()})인데 --force 로 진행합니다.")
     # 앱 아이콘 원본의 내용 해시를 기준으로 PNG·PWA 매니페스트·서비스워커와
     # 현재 PC의 Chrome 설치앱/바로가기 ICO를 먼저 동기화한다. 로고가 바뀌어도
     # 사람이 날짜 버전을 손으로 올리지 않아도 다음 게시·앱 재기동 때 자동 갱신된다.
