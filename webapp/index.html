@@ -966,25 +966,28 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
 .rpt-actions,.media-tools{display:flex!important;flex-wrap:nowrap!important;align-items:center;
   justify-content:center;gap:9px;margin:0 0 12px;overflow-x:auto;overflow-y:hidden;
   padding:5px 3px 8px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+/* ★ 배경을 흰색으로 못 박아 두면 어둡게 켰을 때 아이콘이 사라진다 (2026-08-06 제보).
+   아이콘은 fill:currentColor 라 테마를 따라 흰색이 되는데 바탕은 흰색 그대로였다 —
+   흰 위 흰(1.09:1). 그래서 바탕도 글자색도 전부 토큰으로 돌린다. 검증 [115]. */
 .icon-btn{appearance:none;-webkit-appearance:none;flex:0 0 68px!important;width:68px;height:62px;
-  padding:5px 3px 4px!important;border-radius:14px!important;border:1px solid #D6DEEB!important;
-  background:linear-gradient(180deg,#fff 0%,#F7F9FC 100%)!important;
+  padding:5px 3px 4px!important;border-radius:14px!important;border:1px solid var(--line)!important;
+  background:linear-gradient(180deg,var(--surface) 0%,var(--panel) 100%)!important;
+  color:var(--brand-dk);
   box-shadow:0 3px 9px rgba(16,24,40,.10),inset 0 1px 0 rgba(255,255,255,.9)!important;
   display:inline-flex!important;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;
   transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease,background .14s ease}
 .icon-btn img,.icon-btn svg{display:block;width:24px;height:24px;pointer-events:none;fill:currentColor}
 .icon-btn::after{content:attr(aria-label);display:block;max-width:62px;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.1;font-weight:800;color:var(--brand)}
+  text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.1;font-weight:800;color:var(--brand-dk)}
 .icon-btn.primary::after{color:#fff}
 .icon-btn:hover{transform:translateY(-2px);border-color:#8EA6F4!important;
   box-shadow:0 7px 18px rgba(36,82,230,.16)!important}
 .icon-btn:active{transform:translateY(0) scale(.92)}
 .icon-btn:focus-visible{outline:3px solid rgba(36,82,230,.22);outline-offset:2px}
-.icon-btn.primary{background:linear-gradient(145deg,#6172F3,#3749DB)!important;
-  border-color:#4457E7!important;box-shadow:0 6px 16px rgba(55,73,219,.30)!important}
+.icon-btn.primary{background:linear-gradient(145deg,#4457E7,#2C3BC4)!important;
+  border-color:#2C3BC4!important;color:#fff;box-shadow:0 6px 16px rgba(55,73,219,.30)!important}
 .icon-btn.primary svg{fill:currentColor}          /* 색을 상속하므로 invert 꼼수 불필요 */
-.icon-btn.excel{background:linear-gradient(180deg,#F3FFF8,#E8F8EF)!important;
-  border-color:#A8D9BC!important}
+.icon-btn.excel{background:var(--ok-bg)!important;border-color:var(--ok)!important;color:var(--ok)}
 .icon-btn.busy img{animation:tool-spin .8s linear infinite}
 .icon-btn.success{border-color:#36A269!important;background:var(--panel)!important}
 @keyframes tool-spin{to{transform:rotate(360deg)}}
@@ -1534,7 +1537,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 /* 데스크톱 흰 헤더에서 알림 종이 흰색이라 안 보였다(모바일 남색 헤더용 색이 그대로 남음) */
 @media(min-width:900px){
   .notice-bell{border-color:#C9D3E4}
-  .notice-bell svg{color:var(--brand);fill:none;stroke:#3D4C66}
+  .notice-bell svg{color:var(--brand);fill:none;stroke:var(--ink-2)}
   .mobile-only{display:none}
 }
 

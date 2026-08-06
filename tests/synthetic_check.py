@@ -5247,6 +5247,32 @@ def t115_text_contrast():
     # 반투명 글자는 합성해야 실제 색이 나온다 — 안 하면 늘 통과로 보인다
     assert CA.parse_color("rgba(60,60,67,.42)", {}, (255, 255, 255)) == (173, 173, 176)
 
+    # ── 아이콘도 센다 (2026-08-06 제보: 어둡게 켜니 단추 아이콘이 사라졌다) ──
+    # 원인은 `.icon-btn` 배경이 흰색으로 **하드코딩**돼 있고 아이콘은 `fill:currentColor`
+    # 라 테마를 따라 흰색이 된 것 — 흰 위 흰(1.09:1). 글자만 재면 영영 못 잡는다.
+    icon_css = (":root{--bg:#0B1020;--surface:#161C2E;--ink:#F2F5FA}"
+                ".b{background:#fff}.b svg{fill:currentColor}")
+    bad, _u, _o = CA.audit_theme("", icon_css, CA.root_vars(icon_css)["기본"])
+    assert any(r.get("종류") == "아이콘" for r in bad), "흰 바탕 위 흰 아이콘을 놓쳤다"
+    # 가상요소는 숙주의 배경 위에 그려진다 — 선택자가 다르다고 바탕을 잃으면 안 된다
+    assert CA.bare(".icon-btn::after") == ".icon-btn"
+    pseudo = ":root{--bg:#0B1020}.b{background:#fff}.b::after{color:#EEEEEE;font-size:12px}"
+    pbad, _pu, _po = CA.audit_theme("", pseudo, CA.root_vars(pseudo)["기본"])
+    assert pbad and pbad[0]["ratio"] < 2, "가상요소가 숙주 배경을 못 찾아 검사에서 샜다"
+    # 조상 배경을 **못 읽을 때**는 판정하지 않는다 — 없는 문제를 만들면 멀쩡한 색을 망친다
+    avatar = (":root{--bg:#0B1020;--surface:#ffffff}.card{background:var(--surface)}"
+              ".card .av{background:linear-gradient(145deg,var(--wc2),var(--wc));color:#fff}"
+              ".card .av svg{fill:currentColor}")
+    abad, aunk, _ao = CA.audit_theme("", avatar, CA.root_vars(avatar)["기본"])
+    assert not abad and aunk, "실행 중에 정해지는 아바타색을 흰색으로 단정했다"
+
+    # 실제 화면 세 벌에 미달이 0 이어야 한다 — 아이콘까지 포함해서
+    for name in ("webapp/index.html", "docs/app.html", "docs/cal.html"):
+        b, _u2, o2 = CA.audit(os.path.join(ROOT, *name.split("/")))
+        assert not b, "%s 명암비 미달 %d건: %s" % (
+            name, len(b), [(r["sel"][:40], r["ratio"]) for r in b[:3]])
+        assert o2 > 0, name
+
     # ── 감사기 회귀: @media 를 지우면 규칙 경계가 밀린다 ──
     css = ("@media(max-width:719px){ .a small{display:none} }\n"
            ".b{color:#123456}\n")
@@ -5353,6 +5379,115 @@ def t117_dark_mode_toggle():
     white = re.findall(r"background(?:-color)?:\s*#(?:fff|ffffff)\b", css, re.I)
     assert len(white) <= 2, "흰 배경이 다시 하드코딩됐다(%d곳) — --surface 를 쓸 것" % len(white)
     print("  [117] 밝게/어둡게 토글 — 팔레트 완비·OS 자동추종 없음·강제 재계산 ✅")
+
+
+def t118_ocr_crosscheck():
+    """[118] 문서 스캔 교차검증 (2026-08-06 지시: "최고의 무료 도구 확인해서 비교 대조").
+
+    조사 결론은 band/OCR_ENGINES.md 에 있다 — 무료·로컬·한글 조건에서 PaddleOCR 이
+    여전히 최상위라 **엔진은 바꾸지 않았다.** 대신 정확도를 올릴 자리가 다른 데 있었다:
+    한 엔진의 답만 보면 그 답이 틀렸다는 것을 알 방법이 없다.
+
+    그래서 이 검증이 지키는 것은 두 가지다.
+      ① **겹칠 때만 믿는다** — 두 엔진 이상이 같은 값을 낸 항목만 원장에 들어간다.
+         한 엔진만 낸 값(단독), 엔진마다 다른 값(충돌), 1엔진 환경은 전부 입력 금지.
+      ② **항목마다 대조한다** — 옛 doc_ocr.match() 는 공급가액 하나만 봤다. 발행일이
+         틀려도 통과했다. 이제 한 항목이라도 불일치면 그 건은 빈칸도 채우지 않는다.
+    """
+    sys.path.insert(0, os.path.join(ROOT, "band"))
+    import ocr_crosscheck as X
+
+    # ① 표결 — 겹치면 합치, 하나뿐이면 단독, 갈리면 충돌(값을 정하지 않는다)
+    assert X.vote(["A", "A", "B"]) == ("A", "합치")
+    assert X.vote(["A", "B"]) == ("", "충돌"), "값이 갈렸는데 한쪽을 골랐다"
+    assert X.vote(["A", "", None]) == ("A", "단독")
+    assert X.vote(["", None]) == ("", "없음")
+    # 금액은 근사 비교를 하지 않는다 — 한 자리만 틀려도 다른 값이다
+    assert X.vote([2000000, 2000001])[1] == "충돌"
+
+    doc = {"유형": "거래명세서", "발행일": "2026-08-01", "명세서번호": "SL-2026-0712",
+           "승인번호": "", "프로젝트NO": "UJ2601138", "공급가액": 2000000,
+           "세액": 200000, "합계": 2200000, "사업자번호": "123-81-45678"}
+    two = X.merge_records({"paddle": doc, "windows": dict(doc)})
+    assert two["신뢰도"] == "높음" and two["교차"]["공급가액"] == "합치"
+    one = X.merge_records({"paddle": doc})
+    assert one["신뢰도"].startswith("낮음"), "엔진 하나뿐인데 높음으로 나왔다"
+
+    # 합쳐 놓고 공급가+세액≠합계 면, 겹쳤더라도 금액은 믿지 않는다
+    bad = X.merge_records({"paddle": doc, "windows": dict(doc, 합계=2300000)})
+    assert bad["교차"]["합계"] == "충돌"
+    broke = X.merge_records({"paddle": dict(doc, 합계=2300000),
+                             "windows": dict(doc, 합계=2300000)})
+    assert broke["금액정합"] == "깨짐" and broke["교차"]["공급가액"] == "충돌", \
+        "금액 정합성이 깨졌는데도 겹쳤다는 이유로 통과했다"
+
+    # ② 전량을 두 번 읽지 않는다 — 그러나 원장에 쓸 때는 무조건 두 번 읽는다
+    clean = dict(doc, 신뢰도="높음")
+    assert X.needs_second_opinion(clean) == ""
+    assert X.needs_second_opinion(clean, for_write=True), "원장 입력 후보를 한 번만 읽었다"
+    assert X.needs_second_opinion(dict(clean, 공급가액=""))
+    assert X.needs_second_opinion(dict(clean, 합계=2300000)) == "금액 정합성 깨짐"
+
+    # ③ 항목별 대조 — 빈 원장 / 맞는 원장 / 틀린 원장
+    led = {"원장_거래명세서발행일": "2026-08-01", "원장_거래명세서번호": "SL-2026-0712",
+           "원장_공급가액": 2000000, "원장_거래명세서합계": 2200000}
+    rows = X.compare_ledger(two, led)
+    by = {r["항목"]: r["판정"] for r in rows}
+    assert by["발행일"] == "일치" and by["명세서번호"] == "일치" and by["세액"] == "원장 빈칸"
+    assert "일치" in X.ledger_verdict([r for r in rows if r["항목"] != "세액"])
+    wrong = X.compare_ledger(two, dict(led, 원장_거래명세서발행일="2026-07-31"))
+    assert "불일치(발행일)" == X.ledger_verdict(wrong), \
+        "공급가액만 맞으면 통과하던 옛 판정이 남아 있다"
+
+    # ④ 원장 입력 문지기 — 합치 + 빈칸 + 불일치 없음, 셋 다여야 들어간다
+    empty = {"원장_공급가액": 2000000}
+    ok = X.build_updates([{"문서": dict(two, 파일="a.jpg"), "정산ID": "S1",
+                           "대조": X.compare_ledger(two, empty)}])
+    cols = {u["col"] for u in ok}
+    assert cols == {"거래명세서발행일", "거래명세서번호"}, cols
+    assert all(u["sheet"] == "06_거래서류청구수금" and u["key_col"] == "정산ID" for u in ok)
+    # 세액·합계는 수식·집계 열이라 읽어서 대조만 하고 쓰지 않는다
+    assert not any(u["col"] in ("세액", "합계") for u in ok)
+    # 한 항목이라도 불일치면 같은 건의 빈칸도 채우지 않는다
+    conflict = X.compare_ledger(two, {"원장_공급가액": 1999})
+    assert X.build_updates([{"문서": two, "정산ID": "S1", "대조": conflict}]) == []
+    # 1엔진(단독)은 아무것도 못 채운다
+    assert X.build_updates([{"문서": dict(one, 파일="a.jpg"), "정산ID": "S1",
+                             "대조": X.compare_ledger(one, empty)}]) == []
+    # 정산ID 를 못 찾았으면 채우지 않는다
+    assert X.build_updates([{"문서": two, "정산ID": "", "대조": X.compare_ledger(two, empty)}]) == []
+
+    # ⑤ 같은 답을 두 번 본 것을 '합치'라 부르지 않는다.
+    #    doc_ocr 는 paddle 이 실패하면 Windows 결과를 paddle 자리에 캐시한다 —
+    #    그것을 둘로 세면 거짓 근거가 만들어진다.
+    assert list(X.drop_dependent({"paddle": "가 나 다", "windows": "가나다"})) == ["paddle"]
+    assert len(X.drop_dependent({"paddle": "가나다", "windows": "가나라"})) == 2
+    assert X.drop_dependent({"paddle": "", "windows": ""}) == {}
+
+    # ⑥ 전량을 두 번 읽지 않는다 — 급한 것부터 예산만큼, 미룬 수는 반드시 알린다.
+    #    사진 1,816장 × 둘째 엔진 4.8초 = 2.4시간이라 daily_run 이 무너진다(실측).
+    take, defer = X.recheck_plan([("a", 0), ("b", 3), ("c", 1), ("d", 0), ("e", 2)], budget=2)
+    assert take[:2] == ["a", "d"] and defer == 1, (take, defer)
+    assert take[2:] == ["c", "e"], "급한 것(원장 불일치)보다 덜 급한 것을 먼저 읽었다"
+    assert X.recheck_plan([("a", 0)] * 5, budget=1) == (["a"] * 5, 0), \
+        "원장에 쓰려는 건이 예산에 잘렸다 — 쓰는 순간은 예산과 무관해야 한다"
+    fill_rows = X.compare_ledger(two, empty)
+    assert X.writable_now(two, fill_rows, "S1") is True
+    assert X.recheck_reason(two, fill_rows, True) == (0, "원장 입력 후보")
+    assert X.recheck_reason(dict(clean, 합계=2300000), [], False)[0] == 2
+    full = X.compare_ledger(two, led)
+    assert X.recheck_reason(two, full, False) == (None, ""), "다 맞는 건까지 두 번 읽고 있다"
+
+    # ⑦ 엔진은 있는 것만 골라 쓴다 — 자동 설치·외부 업로드가 없어야 한다
+    src = open(os.path.join(ROOT, "band", "ocr_crosscheck.py"), encoding="utf-8").read()
+    for banned in ("pip install", "requests.post", "urllib.request", "http://", "https://"):
+        assert banned not in src, "문서를 PC 밖으로 보내거나 자동 설치하는 코드가 있다: %s" % banned
+    assert {e["엔진"] for e in X.engine_status()} >= {"paddle", "windows"}
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "ocr_crosscheck.py" in daily, "매일 도는 자리에 붙지 않았다(daily_run 누락)"
+    assert os.path.isfile(os.path.join(ROOT, "band", "OCR_ENGINES.md")), \
+        "무엇을 왜 골랐는지가 파일로 남지 않았다"
+    print("  [118] 문서 OCR 교차검증 — 겹칠 때만 입력·항목별 원장 대조·로컬 전용 ✅")
 
 
 def t100_erp_pdf_archive():
@@ -6274,6 +6409,7 @@ if __name__ == "__main__":
     t115_text_contrast()
     t116_manual_refresh_is_really_fresh()
     t117_dark_mode_toggle()
+    t118_ocr_crosscheck()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)

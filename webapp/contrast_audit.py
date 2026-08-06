@@ -35,6 +35,7 @@ except Exception:
     pass
 
 AA_NORMAL, AA_LARGE = 4.5, 3.0
+AA_GRAPHIC = 3.0   # 아이콘·도형은 글자가 아니다 (WCAG 1.4.11 비텍스트 대비)
 NAMED = {"white": (255, 255, 255), "black": (0, 0, 0), "red": (255, 0, 0),
          "gray": (128, 128, 128), "grey": (128, 128, 128)}
 SKIP_VALUES = {"inherit", "currentcolor", "transparent", "unset", "initial", "none", "auto"}
@@ -227,23 +228,49 @@ def opaque(value, vars_):
     return True
 
 
+PSEUDO = re.compile(r"::?(after|before|first-line|first-letter|placeholder|marker|selection)\b.*$")
+
+
+def bare(part):
+    """`.icon-btn::after` → `.icon-btn`
+
+    ★ 이걸 안 하면 통째로 놓친다 (2026-08-06 실측). 가상요소는 **자기 배경이 없고
+      숙주 요소의 배경 위에 그려진다**. 그런데 선택자 문자열이 다르다는 이유로
+      배경을 못 찾아 '바탕 모름'으로 빠졌고, 흰 단추 위의 옅은 파란 글자
+      (`.icon-btn::after{color:var(--brand)}`, 다크에서 2.3:1)가 검사에서 새어 나갔다.
+    """
+    return PSEUDO.sub("", part) or part
+
+
+def _walk(sel, table, ctx=""):
+    """선택자를 뒤에서부터 한 마디씩 떼며 표에서 가장 가까운 조상 값을 찾는다."""
+    parts = sel.split(",")[0].strip().split()
+    if not parts:
+        return None
+    # 같은 @블록 안의 값을 먼저 본다 — 넓은 화면에서만 남색이 되는 사이드바처럼,
+    # **같은 선택자가 화면 폭에 따라 다른 바탕**을 갖는 곳이 있다.
+    for scope in ([ctx, ""] if ctx else [""]):
+        for i in range(len(parts) - 1, -1, -1):
+            joined = " ".join(parts[:i + 1])
+            for key in (joined, parts[i], bare(joined), bare(parts[i])):
+                if (scope, key) in table:
+                    return table[(scope, key)]
+    return None
+
+
 def ancestor_bg(sel, bg_map, page_bg, ctx=""):
     """부모가 정한 배경을 따라간다.
 
     `.hero .hero-period` 처럼 **자기 규칙엔 배경이 없고 부모에 있는** 경우가 많다.
     이걸 안 보면 남색 바탕의 흰 글자가 전부 '미달'로 나온다(실측 거짓양성 다수).
-    선택자를 뒤에서부터 한 마디씩 떼며 가장 가까운 조상의 배경을 찾는다.
     """
-    parts = sel.split(",")[0].strip().split()
-    # 같은 @블록 안의 배경을 먼저 본다 — 넓은 화면에서만 남색이 되는 사이드바처럼,
-    # **같은 선택자가 화면 폭에 따라 다른 바탕**을 갖는 곳이 있다.
-    for scope in ([ctx, ""] if ctx else [""]):
-        for i in range(len(parts) - 1, -1, -1):
-            for key in (" ".join(parts[:i + 1]), parts[i]):
-                got = bg_map.get((scope, key))
-                if got:
-                    return got, True
-    return page_bg, False
+    got = _walk(sel, bg_map, ctx)
+    if got is False:
+        # 가장 가까운 조상이 **배경을 깔긴 했는데 값을 못 읽는** 경우
+        # (사람마다 달라지는 아바타색 `var(--wc)`). 그 위 할아버지 배경으로 재면
+        # 흰 아바타 위 흰 아이콘이라는 없는 문제가 만들어진다(실측) — 판정하지 않는다.
+        return None, False
+    return (got, True) if got else (page_bg, False)
 
 
 def inline_styles(html):
@@ -301,12 +328,69 @@ def audit_theme(html, css, v, theme="기본"):
         if not raw or not opaque(raw, v):
             continue
         got = parse_color(raw, v, page_bg)
-        if got:
+        for one in (s.strip() for s in sel.split(",")):
+            if one:
+                bg_map.setdefault((ctx, one), got or False)
+
+    # 글자색이 어디서 오나 — 아이콘의 `fill:currentColor` 를 풀어내는 데 쓴다.
+    color_map = {}
+    for sel, decl, ctx in parsed:
+        c = decl.get("color")
+        if c and c.strip().lower() != "currentcolor":
             for one in (s.strip() for s in sel.split(",")):
                 if one:
-                    bg_map.setdefault((ctx, one), got)
+                    color_map.setdefault((ctx, one), c)
 
     bad, unknown, ok = [], [], 0
+
+    # ── 아이콘 (fill·stroke) ────────────────────────────────────────────
+    # ★ 글자만 재면 놓친다 (2026-08-06 사용자 제보): 어둡게 켠 화면에서 인쇄·복사·
+    #   새로고침 단추의 아이콘이 보이지 않았다. 단추 배경은 흰색으로 **하드코딩**돼
+    #   있었고 아이콘은 `fill:currentColor` 라 테마를 따라 흰색이 됐다 — 흰 위 흰.
+    #   아이콘은 글자가 아니므로 WCAG 1.4.11 로 3.0:1 을 본다.
+    for sel, decl, ctx in parsed:
+        if SKIP_SELECTOR.search(sel):
+            continue
+        for prop in ("fill", "stroke"):
+            raw = (decl.get(prop) or "").strip()
+            if not raw or raw.lower() in ("none", "transparent", "inherit", "initial", "unset"):
+                continue
+            own = bg_value(decl)
+            bg, known = page_bg, False
+            if own and opaque(own, v):
+                got = parse_color(own, v, page_bg)
+                if not got:
+                    # 배경을 선언은 했는데 값을 못 읽는 경우(사람마다 달라지는 아바타색
+                    # `var(--wc)` 처럼 실행 중에 정해지는 변수). 조상 배경으로 대신 재면
+                    # **없는 문제를 만든다** — 흰 아바타 위 흰 아이콘이라고 보고했다(실측).
+                    unknown.append({"sel": sel, "color": "%s:%s" % (prop, raw), "theme": theme})
+                    continue
+                bg, known = got, True
+            if not known:
+                bg, known = ancestor_bg(sel, bg_map, page_bg, ctx)
+            if bg is None:
+                unknown.append({"sel": sel, "color": "%s:%s" % (prop, raw), "theme": theme})
+                continue
+            src = raw
+            if raw.lower() == "currentcolor":
+                # currentColor 는 그 요소에 걸린 color 다. 자기 규칙 → 조상 → 없으면 본문색.
+                src = decl.get("color") or _walk(sel, color_map, ctx) or v.get("--ink") or "#000"
+            fg = parse_color(src, v, bg)
+            if fg is None:
+                continue
+            if not known and luminance(fg) > 0.35:
+                unknown.append({"sel": sel, "color": "%s:%s" % (prop, raw), "theme": theme})
+                continue
+            ratio = min(contrast(fg, bg), contrast(fg, surface)) if not known \
+                else contrast(fg, bg)
+            if ratio + 1e-9 < AA_GRAPHIC:
+                bad.append({"sel": sel, "color": "%s:%s" % (prop, raw), "rgb": fg,
+                            "bg": bg, "ratio": round(ratio, 2), "need": AA_GRAPHIC,
+                            "배경확인": known, "ctx": ctx, "theme": theme, "종류": "아이콘"})
+            else:
+                ok += 1
+
+    # ── 글자 ───────────────────────────────────────────────────────────
     for sel, decl, ctx in parsed:
         if "color" not in decl or SKIP_SELECTOR.search(sel):
             continue
@@ -324,6 +408,9 @@ def audit_theme(html, css, v, theme="기본"):
                 continue
         if not known:
             bg, known = ancestor_bg(sel, bg_map, page_bg, ctx)
+        if bg is None:
+            unknown.append({"sel": sel, "color": decl["color"], "theme": theme})
+            continue
         fg = parse_color(decl["color"], v, bg)
         if fg is None:
             continue
@@ -338,7 +425,8 @@ def audit_theme(html, css, v, theme="기본"):
         if ratio + 1e-9 < need:
             bad.append({"sel": sel, "color": decl["color"], "rgb": fg,
                         "bg": bg, "ratio": round(ratio, 2), "need": need,
-                        "배경확인": known, "ctx": ctx, "theme": theme})
+                        "배경확인": known, "ctx": ctx, "theme": theme,
+                        "종류": "글자"})
         else:
             ok += 1
     return bad, unknown, ok
@@ -350,12 +438,13 @@ def main():
     ap.add_argument("--all", action="store_true")
     a = ap.parse_args()
     bad, unknown, ok = audit(a.file)
-    print("글자색 명암비 전수검사 — %s" % os.path.basename(a.file))
+    print("글자·아이콘 명암비 전수검사 — %s" % os.path.basename(a.file))
     print("  통과 %d · 미달 %d · 배경 확인 필요 %d (기준 본문 %.1f:1 · 큰 글자 %.1f:1)"
           % (ok, len(bad), len(unknown), AA_NORMAL, AA_LARGE))
     for r in bad:
-        print("  [%.2f:1 / %.1f 필요] %s  color:%s → rgb%s"
-              % (r["ratio"], r["need"], r["sel"][:70], r["color"], r["rgb"]))
+        print("  [%s %.2f:1 / %.1f 필요] %s  %s → rgb%s"
+              % (r.get("종류", "글자"), r["ratio"], r["need"],
+                 r["sel"][:64], r["color"], r["rgb"]))
     if a.all:
         for r in unknown:
             print("  [배경모름] %s  color:%s" % (r["sel"][:70], r["color"]))
