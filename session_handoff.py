@@ -81,13 +81,13 @@ def pid_alive(pid):
     판정이 안 되면 None 을 돌려 시간 기준으로 넘긴다(모르면 함부로 죽었다고 하지 않는다)."""
     if not pid:
         return None
+    # ★ 판정은 pid_alive.py 한 곳에서 한다 (2026-08-06 실사고 · 검증 [121]).
+    #   여기 있던 옛 판정은 윈도우에서 **끝난 프로세스도 살아 있다**고 했다 —
+    #   OpenProcess 는 종료된 프로세스에도 핸들을 준다. 죽은 세션의 점유가
+    #   영원히 안 풀리는 쪽으로 틀렸다.
     try:
-        import ctypes
-        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))  # QUERY_LIMITED_INFO
-        if not h:
-            return False
-        ctypes.windll.kernel32.CloseHandle(h)
-        return True
+        import pid_alive
+        return pid_alive.alive(pid)
     except Exception:
         return None
 

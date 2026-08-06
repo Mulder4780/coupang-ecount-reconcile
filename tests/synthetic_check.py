@@ -5981,6 +5981,50 @@ def t124_no_duplicate_menus():
     print("  [124] 겹치는 메뉴 통합 — 화면당 중복 동작 0 · 복사 이름 통일 · 칩/헤더 겹침 차단 ✅")
 
 
+def t121_pid_alive():
+    """[121] 죽은 프로세스를 살아 있다고 하지 않는다 (2026-08-06 실사고).
+
+    무슨 일이 있었나 — `reports/.daily_run.lock` 이 **죽은 pid 의 이름으로** 남아
+    daily_run 이 밤새 한 번도 못 돌았다. 잠금 규칙("주인이 죽었으면 회수")은 옳았는데
+    **판정이 틀렸다**: 윈도우 `OpenProcess` 는 이미 끝난 프로세스에도 핸들을 준다.
+    핸들이 열렸다는 것만으로 살아 있다고 본 탓에 잠금이 스스로 풀릴 길이 없었다.
+    `Get-Process` 로는 안 보이는 pid 라 사람 눈에도 안 띈다 — 조용한 사고다.
+
+    여기서 지키는 것
+      ① 종료 코드까지 확인할 것(STILL_ACTIVE) — 핸들만 보고 판정하지 말 것
+      ② 판정 불가는 None — '모르면 죽었다'로 넘기면 산 세션의 점유를 빼앗는다
+      ③ 그 판정을 daily_run 잠금과 session_handoff 가 **같은 곳에서** 쓸 것
+    """
+    import subprocess
+    import pid_alive as P
+
+    assert P.alive(os.getpid()) is True, "지금 돌고 있는 나를 죽었다고 한다"
+    assert P.alive(0) is None and P.alive("x") is None, "말이 안 되는 pid 는 None"
+
+    # 방금 끝난 프로세스는 **확실히 죽었다**고 나와야 한다. 옛 판정이 틀렸던 바로 그 자리다.
+    pr = subprocess.Popen([sys.executable, "-c", "pass"])
+    pr.wait()
+    assert P.alive(pr.pid) is False,         "끝난 프로세스를 살아 있다고 한다 — 잠금·점유가 영원히 안 풀린다"
+    assert P.dead(pr.pid) is True and P.dead(os.getpid()) is False
+
+    src = open(os.path.join(ROOT, "pid_alive.py"), encoding="utf-8").read()
+    assert "GetExitCodeProcess" in src and "STILL_ACTIVE" in src,         "핸들만 보고 판정하면 끝난 프로세스가 살아 있는 것으로 나온다"
+    assert "restype" in src and "argtypes" in src,         "64비트 핸들이 32비트로 잘린다 — 엉뚱한 핸들을 닫을 수 있다"
+
+    # 두 곳이 같은 판정을 쓰는가 (한쪽만 고치면 그쪽에서 같은 사고가 또 난다)
+    for name in ("daily_run.py", "session_handoff.py"):
+        t = open(os.path.join(ROOT, name), encoding="utf-8").read()
+        assert "import pid_alive" in t, "%s 가 옛 판정을 그대로 쓴다" % name
+        assert "windll.kernel32.OpenProcess" not in t, (
+            "%s 가 아직 스스로 판정한다 — 한쪽만 고치면 같은 사고가 또 난다" % name)
+
+    # 죽은 주인의 잠금은 실제로 회수돼야 한다
+    import daily_run as D
+    assert D._pid_alive(pr.pid) is False, "daily_run 잠금이 죽은 주인을 못 알아본다"
+    assert D._pid_alive(os.getpid()) is True, "산 주인의 잠금을 빼앗는다"
+    print("  [121] 죽은 프로세스 판정 — 종료코드까지 확인·두 곳 공유·잠금 회수 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -6907,6 +6951,7 @@ if __name__ == "__main__":
     t123_calendar_share_tools()
     t124_no_duplicate_menus()
     t120_calendar_sheet_and_share()
+    t121_pid_alive()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)

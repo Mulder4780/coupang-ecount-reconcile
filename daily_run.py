@@ -27,28 +27,26 @@ RUN_LOCK = os.path.join(REPORT_DIR, ".daily_run.lock")
 
 
 def _pid_alive(pid):
-    """같은 PC의 프로세스가 살아 있는가. 죽은 잠금만 안전하게 회수한다."""
+    """같은 PC의 프로세스가 살아 있는가. 죽은 잠금만 안전하게 회수한다.
+
+    ★ 판정은 pid_alive.py 한 곳에서 한다 (2026-08-06 실사고 · 검증 [121]).
+      여기 있던 옛 판정은 윈도우에서 **이미 끝난 프로세스도 살아 있다고** 했다
+      (OpenProcess 는 종료된 프로세스에도 핸들을 준다). 그 탓에 잠금이 스스로 풀릴
+      길이 없어져 daily_run 이 밤새 한 번도 못 돌았다.
+      모르면(None) '살아 있다'로 본다 — 남의 회차를 밀어내는 쪽이 더 위험하다.
+      다만 pid 자체가 없거나 망가진 잠금 파일은 회수 대상이다.
+    """
     try:
         pid = int(pid)
     except (TypeError, ValueError):
         return False
     if pid <= 0:
         return False
-    if os.name == "nt":
-        try:
-            import ctypes
-            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
-            if not handle:
-                return False
-            ctypes.windll.kernel32.CloseHandle(handle)
-            return True
-        except Exception:
-            return False
     try:
-        os.kill(pid, 0)
-        return True
-    except (OSError, ProcessLookupError):
-        return False
+        import pid_alive
+    except Exception:
+        return True                      # 판정 못 하면 건드리지 않는다
+    return pid_alive.alive(pid) is not False
 
 
 def acquire_run_lock(path=RUN_LOCK):

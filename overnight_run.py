@@ -84,6 +84,7 @@ def main():
     ap = argparse.ArgumentParser(description="검증이 초록이 될 때까지 기다렸다 전체 대조")
     ap.add_argument("--every", type=int, default=20, help="다시 볼 간격(분)")
     ap.add_argument("--hours", type=float, default=12.0, help="이 시간 안에서만 시도")
+    ap.add_argument("--timeout", type=int, default=45, help="대조 한 회차의 제한(분)")
     a = ap.parse_args()
 
     deadline = time.time() + a.hours * 3600
@@ -98,13 +99,19 @@ def main():
             time.sleep(a.every * 60)
             continue
         print(f"[{stamp}] 검증 초록 — 전체 대조를 돌린다")
-        rc, out = _run(["daily_run.py"], 5400)
+        rc, out = _run(["daily_run.py"], a.timeout * 60)
         tail = "\n".join([l for l in out.splitlines() if l.strip()][-12:])
         _note({"at": stamp, "시도": tries,
                "결과": "대조완료" if rc == 0 else "대조실패(rc=%d)" % rc,
                "메모": tail[-1500:]})
         print(tail)
-        return 0 if rc == 0 else 1
+        if rc == 0:
+            return 0
+        # ★ 한 회차가 실패했다고 밤을 포기하지 않는다 (2026-08-06 실측: 첫 회차가
+        #   90분 시간초과로 죽자 스크립트가 그대로 끝나 남은 밤이 통째로 비었다).
+        #   막힌 원인이 잠깐의 잠금 다툼이면 다음 회차에 그냥 풀린다.
+        print(f"[{stamp}] 대조 실패(rc={rc}) — {a.every}분 뒤 다시 시도한다")
+        time.sleep(a.every * 60)
 
     _note({"at": datetime.now().strftime("%Y-%m-%d %H:%M"), "시도": tries,
            "결과": "시간초과", "메모": "정해진 시간 안에 검증이 초록이 되지 않았다"})
