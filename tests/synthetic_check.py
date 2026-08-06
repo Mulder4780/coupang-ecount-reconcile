@@ -5009,6 +5009,56 @@ def t110_writer_formula_key():
     print("  [110] 수식 열(점검ID·접수ID)도 조회 키로 찾는다 ✅")
 
 
+def t111_account_handoff_freshness():
+    """[111] 다른 계정·다른 창이 이어받아도 아무 문제 없이 (2026-08-06 지시).
+
+    사용자 지시: "이 세션은 완료되면 다른 계정으로 로그인해서 사용할거야, 그때 아무
+    문제 없이 처리될 수 있는 알고리즘 구성해".
+
+    계정이 바뀌면 세션 식별자도 프로세스도 전부 바뀐다. 그때 두 가지가 샌다:
+      ① 죽은 세션의 점유가 남아 아무도 원장을 못 고친다 → --adopt 가 **죽었다는
+         증거(pid)** 가 있는 것만 회수한다. 살아 있는 옆 세션 것은 건드리지 않는다.
+      ② **수집이 밀린 것을 아무도 모른다.** 오늘 실제로 그랬다 — 쿠팡AS 밴드가 8/4 에
+         멈춰 있는데 화면은 멀쩡히 숫자를 보여 줬고, 8/5 돌발AS 가 1건으로 나갔다.
+         밴드·이카운트는 사람 로그인이 있어야 긁히므로(절대규칙 3), 기계가 할 수 있는
+         최선은 "밀렸다 + 이렇게 되살려라" 를 시작 화면 맨 앞에 놓는 것이다.
+    """
+    import session_handoff as H
+
+    rows = H.data_freshness(today="2026-08-06")
+    need = {"이름", "최신", "밀린일", "한도", "밀림", "되살리는법"}
+    assert rows and all(need <= set(r) for r in rows), rows
+    # 밴드는 **밴드마다** 따로 봐야 한다 — 합쳐서 최댓값을 쓰면 뒤처진 밴드가 가려진다
+    assert [r for r in rows if r["이름"].startswith("밴드")], rows
+    # '어제'가 비면 밀린 것이다: 8/6 기준 최신 8/4 → 밀린일 2 > 한도 1
+    assert H.FRESH_LIMIT["밴드"] == 1, "밴드 한도가 1을 넘으면 어제 빈 것을 못 잡는다"
+
+    st = {"큐잔량": 0, "임시파일": [], "점유": [], "미푸시": [], "지시문사본": [],
+          "수집신선도": [{"이름": "밴드: 90610953", "최신": "2026-08-04", "밀린일": 2,
+                          "한도": 1, "밀림": True, "되살리는법": "밴드 로그인 후 수집"}]}
+    bl = H.blockers(st)
+    assert any("수집이 밀렸다" in why for why, _ in bl), bl
+    st["수집신선도"][0]["밀림"] = False
+    assert not H.blockers(st), "밀리지 않았는데 막았다"
+    # 문서에도 표가 나와야 사람이 본다
+    st["원장"] = {"버전": "1", "수정": ""}
+    st["시각"] = "2026-08-06 12:00"
+    st["미커밋"] = []
+    st["최근커밋"] = []
+    st["다음할일"] = []
+    st["진행체크포인트"] = {}
+    st["수집신선도"][0]["밀림"] = True
+    assert "원본 수집이 어디까지 들어왔나" in H.to_md(st)
+
+    # 이어받기 명령이 실제로 배선돼 있나 — 문서에만 있고 CLI 에 없으면 아무 소용 없다
+    src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    for need_s in ('"--adopt"', "def adopt(", "def write_snapshot(", "_is_dead"):
+        assert need_s in src, f"session_handoff 에 {need_s} 가 없다"
+    rules = open(os.path.join(ROOT, "CLAUDE.md"), encoding="utf-8").read()
+    assert "--adopt" in rules, "계정 인계 절차가 규칙(CLAUDE.md)에 없다"
+    print("  [111] 계정이 바뀌어도 이어받기 — 죽은 점유 회수·수집 밀림 감지 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -5921,6 +5971,7 @@ if __name__ == "__main__":
     t108_pm_source_fallback()
     t109_remote_edit_delete_versions()
     t110_writer_formula_key()
+    t111_account_handoff_freshness()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)

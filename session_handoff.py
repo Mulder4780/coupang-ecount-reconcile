@@ -18,8 +18,15 @@
   --check    : 새 세션이 시작할 때 읽는다. **막힌 것부터** 보여주고 그 다음 할 일을 준다.
                (CLAUDE.md 시작 체크리스트 0번)
 
-★ 이 도구는 아무것도 고치지 않는다 — 무엇이 걸려 있는지 알려 주고 명령을 제시할 뿐이다.
-  자동으로 점유를 풀거나 큐를 반영하면, 상대 AI가 일하는 중인데 가로채게 된다.
+  --adopt    : **다른 계정·다른 창이 이어받을 때** 한 번 부른다(2026-08-06 지시:
+               "이 세션은 완료되면 다른 계정으로 로그인해서 사용할거야, 그때 아무 문제
+               없이 처리될 수 있는 알고리즘 구성해"). 기계가 **확실히 판단할 수 있는
+               것만** 스스로 풀고, 사람 몫만 남겨 보여 준다. 자세한 것은 adopt() 참조.
+
+★ --snapshot·--check 는 아무것도 고치지 않는다 — 무엇이 걸려 있는지 알려 주고
+  명령을 제시할 뿐이다. 자동으로 점유를 풀거나 큐를 반영하면, 상대 AI가 일하는
+  중인데 가로채게 된다. 고치는 것은 --adopt 하나뿐이고, 거기서도 **주인 세션이
+  죽었다는 증거(pid)** 가 있을 때만 손댄다.
 """
 import argparse
 import glob
@@ -202,6 +209,105 @@ def rule_copies():
     return out
 
 
+# 며칠 밀리면 '밀린 것'으로 볼까. 기준은 **대표 보고가 무엇을 필요로 하나** 다.
+# 10:30 보고는 늘 '어제'를 말하므로, 밴드에 어제 글이 없으면 그 보고는 이미 틀렸다
+# → 밴드는 1일까지만 봐준다(밀린일 2면 어제가 비었다는 뜻). 카톡은 사람이 내보내야 해
+# 하루 늦을 수 있고, ERP 는 주 단위 화면이라 더 길게 둔다.
+FRESH_LIMIT = {"밴드": 1, "카카오톡": 2, "ERP 내보내기": 7}
+
+
+INDEX_CACHE = os.path.join(BASE, "db", "source_index_cache.json")
+
+
+def _index_newest_day(marker):
+    """원본 색인 캐시에서 경로에 `marker` 가 든 파일의 **가장 최근 수정일**.
+
+    ★ Z: 를 직접 훑지 않는다. `--check` 는 매 세션의 첫 명령인데, 네트워크 드라이브
+      전수 스캔은 수 분이 걸린다 — 느린 점검은 결국 아무도 안 돌리게 된다.
+      캐시 키가 `경로|크기|mtime` 이라 파일을 열 필요도 없다.
+    캐시가 낡았으면 실제보다 **오래돼 보인다** — 안전한 쪽으로 틀린다(수집하라고 말한다).
+    """
+    best = 0
+    try:
+        keys = json.load(open(INDEX_CACHE, encoding="utf-8"))
+    except Exception:
+        return ""
+    for k in keys:
+        if marker not in k:
+            continue
+        try:
+            best = max(best, int(k.rsplit("|", 1)[1]))
+        except (IndexError, ValueError):
+            pass
+    return datetime.fromtimestamp(best).strftime("%Y-%m-%d") if best else ""
+
+
+def band_latest_days():
+    """밴드**마다** 담고 있는 가장 최근 글의 작성일. 파일 시각이 아니라 글 날짜다.
+    (파일을 다시 저장만 해도 mtime 은 오늘이 된다 — 그러면 밀린 걸 못 잡는다)
+
+    ★ 밴드별로 따로 본다. 합쳐서 최댓값을 쓰면 **뒤처진 밴드가 가려진다** —
+      실제로 매출처업무 밴드는 8/5 인데 쿠팡AS 밴드는 8/4 에 멈춰 있었고,
+      돌발AS·정기점검이 오는 곳은 뒤처진 쪽이었다(2026-08-06).
+    """
+    out = {}
+    for p in glob.glob(os.path.join(BASE, "band", "cache", "*.json")):
+        name = os.path.basename(p)[:-5]
+        if not name.isdigit():
+            continue
+        try:
+            doc = json.load(open(p, encoding="utf-8")) or {}
+        except Exception:
+            continue
+        best = 0
+        for v in (doc.get("posts") or {}).values():
+            try:
+                best = max(best, int((v or {}).get("created_at") or 0))
+            except (TypeError, ValueError):
+                pass
+        if best:
+            out[doc.get("band_name") or name] = \
+                datetime.fromtimestamp(best / 1000).strftime("%Y-%m-%d")
+    return out
+
+
+def data_freshness(today=None):
+    """수집이 **얼마나 밀렸나**. 오늘(2026-08-06) 사고의 진짜 원인이 여기였다.
+
+    밴드 최신 글이 8/4 에서 멈춰 있었는데 아무도 몰랐고, 그래서 8/5 돌발AS·정기점검이
+    원장에 들어오지 않아 대표 보고가 1건·0건으로 나갔다. 사람이 "밴드 긁었더라?" 를
+    기억하게 두면 다음에도 똑같이 샌다 — 기계가 날짜를 센다.
+
+    ★ 밴드·이카운트는 **사람 로그인**이 있어야 긁을 수 있다(절대규칙). 그래서 여기서
+      할 수 있는 최선은 "밀렸다"를 알리고 로그인부터 하라고 말해 주는 것이다.
+    """
+    day = str(today or datetime.now().strftime("%Y-%m-%d"))[:10]
+    band_how = ("크롬 'Claude' 탭 그룹에서 밴드 로그인 → band/grab_posts.js 주입 →"
+                " __grabStart(밴드번호, 번호목록) (한 배치 250건) → __grabSave()")
+    rows = [("밴드: %s" % name, latest, band_how)
+            for name, latest in sorted(band_latest_days().items())]
+    rows += [
+        ("카카오톡", _index_newest_day("3. 카카오톡 내보내기"),
+         "카톡방 내보내기 → 다운로드 폴더에 두면 download_intake 가 흡수한다"),
+        ("ERP 내보내기", _index_newest_day("1. ERP 내보내기"),
+         "크롬 'Claude' 탭 그룹에서 이카운트 로그인 → 화면별 Excel 내보내기"),
+    ]
+    out = []
+    for name, latest, how in rows:
+        limit = FRESH_LIMIT.get(name.split(":")[0].strip(), 3)
+        late = None
+        if latest:
+            try:
+                late = (datetime.strptime(day, "%Y-%m-%d")
+                        - datetime.strptime(latest, "%Y-%m-%d")).days
+            except ValueError:
+                late = None
+        out.append({"이름": name, "최신": latest or "없음", "밀린일": late,
+                    "한도": limit, "되살리는법": how,
+                    "밀림": late is not None and late > limit})
+    return out
+
+
 def collect():
     unstaged = [l for l in git("status", "--short").splitlines() if l.strip()]
     unpushed = [l for l in git("log", "origin/master..HEAD", "--oneline").splitlines() if l.strip()]
@@ -217,6 +323,7 @@ def collect():
         "다음할일": next_tasks(),
         "진행체크포인트": read_checkpoint(),
         "지시문사본": rule_copies(),
+        "수집신선도": data_freshness(),
     }
 
 
@@ -240,6 +347,14 @@ def blockers(st, for_sol=False):
             out.append(("%s 가 '%s' 를 잡고 있다(%s분, 살아 있음) — 배타 작업은 피할 것"
                         % (c["who"], c["lock"], m),
                         "조회·분석으로 돌리거나 상대가 놓을 때까지 기다린다"))
+    # 수집이 밀린 것은 **조용한 사고**다. 화면은 멀쩡히 숫자를 보여 주는데 그 숫자가
+    # 원본을 못 따라간 값이다(2026-08-06 8/5 돌발AS 1건 사건). 막힌 것 맨 앞에 둔다.
+    for f in st.get("수집신선도") or []:
+        if f.get("밀림"):
+            out.append(("★ %s 수집이 밀렸다 — 최신 %s (%d일 전, 한도 %d일). "
+                        "지금 화면·보고 숫자는 그만큼 **적게** 나온다"
+                        % (f["이름"], f["최신"], f["밀린일"], f["한도"]),
+                        f["되살리는법"]))
     if st["미푸시"]:
         out.append(("푸시되지 않은 커밋 %d개" % len(st["미푸시"]),
                     "git pull --rebase && git push  (비밀 스캔 후)"))
@@ -280,6 +395,17 @@ def to_md(st, for_sol=False):
     for why, how in bl:
         L += ["- **%s**" % why, "  - `%s`" % how]
     L.append("")
+    fr = st.get("수집신선도") or []
+    if fr:
+        L += ["## 원본 수집이 어디까지 들어왔나", "",
+              "| 원본 | 최신 | 밀린 일수 | 한도 |", "|---|---|---:|---:|"]
+        for f in fr:
+            late = "?" if f["밀린일"] is None else str(f["밀린일"])
+            L.append("| %s%s | %s | %s | %d |"
+                     % (f["이름"], " ★밀림" if f.get("밀림") else "",
+                        f["최신"], late, f["한도"]))
+        L += ["", "> 밴드·이카운트는 **사람 로그인**이 있어야 긁힌다(절대규칙 3).",
+              "> 밀려 있으면 화면 숫자가 그만큼 적게 나온다 — 숫자를 의심하기 전에 여기부터 본다.", ""]
     if st["미커밋"]:
         L += ["## 커밋되지 않은 변경 (%d)" % len(st["미커밋"]), "",
               "```", *st["미커밋"][:20], "```", "",
@@ -298,11 +424,82 @@ def to_md(st, for_sol=False):
     return "\n".join(L)
 
 
+def write_snapshot(st, for_sol=False):
+    """reports/세션인계.md|json 갱신 — 워치독(--snapshot)과 --adopt 가 같은 것을 남긴다."""
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    open(os.path.join(REPORT_DIR, "세션인계.md"), "w", encoding="utf-8").write(
+        to_md(st, for_sol=for_sol))
+    json.dump(st, open(os.path.join(REPORT_DIR, "세션인계.json"), "w", encoding="utf-8"),
+              ensure_ascii=False, indent=1, default=str)
+    return blockers(st, for_sol=for_sol)
+
+
+def adopt(who="claude"):
+    """다른 계정·다른 창이 이 작업을 **이어받을 때** 한 번 부른다 (2026-08-06 지시).
+
+    계정이 바뀌면 세션 식별자(sid)도 프로세스도 전부 바뀐다. 그때 남아 있는 것들은
+    새 세션 입장에서 "남의 것"으로 보여, 규칙대로면 손을 못 댄다 — 그래서 아무도
+    풀지 못하는 점유가 원장을 영원히 막는다. 반대로 무턱대고 다 풀면 **정말 살아
+    있는 옆 세션**의 작업을 가로챈다.
+
+    그래서 기준은 하나다: **주인 프로세스가 죽었다는 증거(pid)가 있을 때만** 손댄다.
+      1. 죽은 세션의 점유만 회수 — 살아 있는 것은 그대로 두고 알려만 준다
+      2. 입력 큐 → DB 흡수 (엑셀은 열지 않는다. 반영은 11:00·15:00 회차 그대로)
+      3. 수집이 밀렸는지 확인 — 밴드·이카운트는 사람 로그인이 먼저다
+      4. 인계 문서 갱신
+    사람 판단이 필요한 것(미푸시·임시파일·로그인)은 고치지 않고 목록으로 남긴다.
+    """
+    import ai_claim as C
+    steps, freed, kept = [], [], []
+    with C.state_guard():
+        d = C._load_unlocked()
+        for lock, claim in list(d.items()):
+            if C._is_mine(claim, who) or C._is_dead(claim):
+                d.pop(lock, None)
+                freed.append("%s(%s)" % (lock, (claim or {}).get("who", "?")))
+            else:
+                kept.append("%s(%s · %s)" % (lock, (claim or {}).get("who", "?"),
+                                             (claim or {}).get("why", "")))
+        C._save_unlocked(d)
+    steps.append(("죽은 세션 점유 회수", ", ".join(freed) if freed else "없음"))
+    if kept:
+        steps.append(("살아 있어 그대로 둔 점유", ", ".join(kept)))
+
+    try:
+        import ledger_db
+        n = ledger_db.intake_json()
+        steps.append(("입력 큐 → DB", "%d건 흡수 (엑셀 반영은 11:00·15:00 회차)" % n))
+    except Exception as exc:
+        steps.append(("입력 큐 → DB", "실패: %s" % str(exc)[:80]))
+
+    st = collect()
+    late = [f for f in st.get("수집신선도") or [] if f.get("밀림")]
+    steps.append(("수집 신선도",
+                  " · ".join("%s %s(%d일 밀림)" % (f["이름"], f["최신"], f["밀린일"])
+                             for f in late) if late else "밀린 원본 없음"))
+    write_snapshot(st)
+    steps.append(("인계 문서", os.path.join(REPORT_DIR, "세션인계.md")))
+
+    print("# 이어받기 준비 — 다른 계정/다른 창에서 시작할 때", "")
+    for name, detail in steps:
+        print("- %s: %s" % (name, detail))
+    left = blockers(st)
+    print("\n## 아직 사람이 해야 하는 것 (%d)" % len(left))
+    for why, how in left:
+        print("- %s\n  → %s" % (why, how))
+    if not left:
+        print("- 없음. 바로 새 작업을 시작해도 된다.")
+    return st
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--for-sol", action="store_true", help="Terra -> Sol 검토 관문도 함께 확인")
     ap.add_argument("--snapshot", action="store_true", help="상태를 파일로 남긴다(워치독용)")
     ap.add_argument("--check", action="store_true", help="새 세션 시작 시 읽는다")
+    ap.add_argument("--adopt", action="store_true",
+                    help="다른 계정·다른 창이 이어받을 때 — 죽은 점유 회수·큐 흡수·인계 갱신")
+    ap.add_argument("--who", default="claude", help="--adopt 주체(claude|codex)")
     ap.add_argument("--checkpoint", action="store_true", help="현재 작업 재개 지점을 저장한다")
     ap.add_argument("--objective", default="", help="현재 작업 목표")
     ap.add_argument("--done", action="append", default=[], help="완료 항목(여러 번 사용 가능)")
@@ -322,6 +519,9 @@ def main():
             fh.write("\n")
         print("진행 체크포인트 완료 처리")
         return 0
+    if a.adopt:
+        adopt(a.who)
+        return 0
     if a.checkpoint:
         value = write_checkpoint(a.objective, a.done, a.pending, a.note)
         print("진행 체크포인트 갱신 — 남은 작업 %d건" % len(value.get("남은작업", [])))
@@ -335,11 +535,7 @@ def main():
             st["terra_sol_review"] = {"pending": True, "reason": "검토 상태 확인 실패: %s" % exc}
     md = to_md(st, for_sol=a.for_sol)
     if a.snapshot:
-        os.makedirs(REPORT_DIR, exist_ok=True)
-        open(os.path.join(REPORT_DIR, "세션인계.md"), "w", encoding="utf-8").write(md)
-        json.dump(st, open(os.path.join(REPORT_DIR, "세션인계.json"), "w", encoding="utf-8"),
-                  ensure_ascii=False, indent=1, default=str)
-        bl = blockers(st, for_sol=a.for_sol)
+        bl = write_snapshot(st, for_sol=a.for_sol)
         print("세션인계 갱신 — 걸린 것 %d건 · 관리대장 v%s" % (len(bl), st["원장"].get("버전", "?")))
         return 0
     print(md)
