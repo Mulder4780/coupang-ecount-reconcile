@@ -1606,12 +1606,28 @@ def t32_band_sheet():
 
     # ② 시트가 캐시보다 훨씬 적으면 잘린 것이다
     import json as _j, glob as _g
+    # ★ 분모는 **24시트가 담는 범위의 글**이어야 한다 (2026-08-07 실사고).
+    #   예전에는 캐시 전체와 견줬다. 밤새 밴드를 개설 시점까지 전량 수집하자 캐시가
+    #   2,078 → 8,499 글로 뛰었고(2015년 글까지 들어온다), 24시트는 올해치만 담으므로
+    #   3,005행 vs 8,499글이 되어 **성공했다는 이유로 검증이 빨개졌다.**
+    #   시트가 잘렸는지 보려면 같은 범위끼리 견줘야 한다 — 올해 글만 센다.
+    #   (지운 글의 묘비에는 created_at 이 없다 — 그것도 분모에서 빠진다)
     posts = 0
+    from datetime import datetime as _dtm
+    try:
+        import app_server as _AS
+        _yr = int(_AS.APP_YEAR)
+    except Exception:
+        _yr = _dtm.now().year
+    _y0 = int(_dtm(_yr, 1, 1).timestamp() * 1000)
     for f in _g.glob(os.path.join(ROOT, "band", "cache", "*.json")):
         if os.path.basename(f).startswith(("dump_", "raw_")):
             continue
         try:
-            posts += len((_j.load(open(f, encoding="utf-8")).get("posts") or {}))
+            for p in (_j.load(open(f, encoding="utf-8")).get("posts") or {}).values():
+                ms = isinstance(p, dict) and p.get("created_at")
+                if ms and int(ms) >= _y0:
+                    posts += 1
         except Exception:
             pass
     if posts:

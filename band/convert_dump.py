@@ -161,7 +161,7 @@ def main():
             # '…더보기'로 잘린 피드 수집분이 상세 전문을 덮어쓰지 않게 한다.
             truncated = len(new_txt) < len(old_txt) * 0.9 and old_txt.startswith(new_txt[:200])
             newer = rec["captured_at"] >= int(cur.get("captured_at") or 0)
-            if rec["created_at"] and not cur.get("created_at"):
+            if rec.get("created_at") and not cur.get("created_at"):
                 merged[no] = rec
             elif len(new_txt) > len(old_txt) and not newer:
                 merged[no] = rec                      # 예전 규칙(같은 회차 품질 차이)
@@ -211,7 +211,11 @@ def main():
         if in_cache:
             raw = os.path.join(CACHE, f"raw_{os.path.basename(f)[5:-5]}.json")
             os.replace(f, raw)
-        dated = sum(1 for p in merged.values() if p["created_at"])
+        # ★ `.get` 이어야 한다 (2026-08-07 실사고). 지운 글의 묘비 기록에는 본문이 없어
+        #   `created_at` 키 자체가 없다. 과거글 구간에는 지운 글이 수백 건씩 섞여 있어서,
+        #   밤새 모은 6천여 건이 **전부 캐시에 못 들어가고** "덤프 → 캐시 [FAIL]" 한 줄만
+        #   남았다. 수집은 멀쩡히 됐는데 쓰이지 않는, 이 프로젝트가 제일 무서워하는 모양이다.
+        dated = sum(1 for p in merged.values() if p.get("created_at"))
         print(f"{d.get('name', band)}: {len(posts)}건 반영 → 캐시 {before}→{len(merged)}건 "
               f"(날짜 있는 글 {dated}건)")
 
