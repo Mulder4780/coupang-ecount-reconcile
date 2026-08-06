@@ -5089,7 +5089,32 @@ def t112_band_plan_order_and_scope():
     # 과거글 구간은 지운 글이 섞여 있어 수백 번 뜬다 — 사람이 수백 번 누를 수는 없다.
     js = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
     assert "muteDialogs" in js and "w.alert" in js, "수집기가 안내창을 막지 않는다"
-    print("  [112] 밴드 수집 — 새 글 우선·범위 기억·안내창 차단 ✅")
+
+    # 붙여넣기는 **밴드당 한 번**이어야 한다 (2026-08-06 지시: "내 손 안 가게").
+    # 250 은 탭이 얼지 않는 한 배치의 상한일 뿐이다. 한 파일 안에서 회차를 이어 돌리고
+    # 회차 사이에 저장·비우기를 하면 사람 손은 한 번으로 끝난다. 예전처럼 250건마다
+    # 다시 붙여넣게 만들면 1,100건짜리 밴드에 다섯 번을 시키게 된다.
+    import band.make_oneclick as MO
+
+    assert MO.BATCH_MAX == 250, MO.BATCH_MAX
+    big = {str(n): {"captured_at": RP.ERA_MS + 1} for n in range(1000, 1004)}
+    orig_load, orig_scope = MO.RP.load, MO.RP.scope
+    try:
+        MO.RP.load = lambda b: big
+        MO.RP.scope = lambda: {"floor": {"1": 400}, "ahead": 5}
+        out, note = MO.build("1", 600)
+    finally:
+        MO.RP.load, MO.RP.scope = orig_load, orig_scope
+    assert out, note
+    rounds = json.loads(re.search(r"const ROUNDS = (\[.*?\]);", out, re.S).group(1))
+    assert len(rounds) > 1, "회차로 안 쪼갠다 — 한 번에 밀어 넣으면 탭이 언다"
+    assert all(0 < len(r) <= MO.BATCH_MAX for r in rounds), [len(r) for r in rounds]
+    flat = [n for r in rounds for n in r]
+    assert len(flat) == len(set(flat)), "회차끼리 번호가 겹친다"
+    assert "keep: false" in out, "회차 사이에 탭 메모리를 안 비운다"
+    assert out.count("__grabSave") >= 1 and "for (let i = 0" in out, \
+        "회차마다 저장하고 이어 가는 구조가 아니다"
+    print("  [112] 밴드 수집 — 새 글 우선·범위 기억·안내창 차단·한 번 붙여넣기 ✅")
 
 
 def t100_erp_pdf_archive():
