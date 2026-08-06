@@ -501,6 +501,29 @@ def text(b):
         if reasons:
             L.append("   미처리 사유 : " + " · ".join(
                 f"{x.get('사유', '기타')} {x.get('건수', 0)}건" for x in reasons[:5]))
+        # ■ 현장 애로사항 — **누가 움직여야 풀리는가**로 묶어 보여 준다.
+        #   (차동호 팀장 통화 2026-08-06: "자재보다 인력이 더 문제다")
+        #   집계(책임구분)는 work_log_sync 가 이미 내고 있었는데 보고서에 자리가 없어
+        #   대표는 '미처리 N건'만 봤다. 그러면 늘 현장이 미룬 것처럼 읽힌다.
+        #   본사가 풀어야 할 것(인력·구매)과 현장이 잡아야 할 것(일정)을 갈라 놓는다.
+        blockers = log_as.get("책임구분", []) or []
+        if blockers:
+            company = [x for x in blockers
+                       if any(k in str(x.get("구분", "")) for k in ("인력", "구매", "조달"))]
+            field = [x for x in blockers if x not in company
+                     and str(x.get("구분", "")).startswith("확인 필요")]
+            fair = [x for x in blockers if str(x.get("구분", "")).startswith("정당")]
+            L.append("\n■ 현장 애로사항 — 못 한 이유를 '누가 풀어야 하나'로 나눔")
+            if company:
+                L.append("   [본사가 풀어야] " + " · ".join(
+                    f"{x['구분']} {x['건수']}건" for x in company))
+                L.append("      인력 배정·구매 승인이 막힌 건입니다. 현장을 재촉해도 풀리지 않습니다.")
+            if field:
+                L.append("   [현장이 잡아야] " + " · ".join(
+                    f"{x['구분']} {x['건수']}건" for x in field))
+            if fair:
+                L.append("   [정당한 사유]   " + " · ".join(
+                    f"{x['구분']} {x['건수']}건" for x in fair))
         if log_as.get("처리완료일확인"):
             L.append(f"   ※ 일지상 처리완료이나 완료일이 없는 건 {log_as['처리완료일확인']}건은 임의 완료일을 넣지 않고 확인 목록에 보관")
     if b["내용미기입"]:

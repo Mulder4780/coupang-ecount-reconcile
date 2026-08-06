@@ -3717,6 +3717,26 @@ def get_calendar():
     except Exception:
         pass
 
+    # 사람이 손으로 넣는 일정(회의·교육 등). 원장·구글·밴드 어디에도 없는 약속을
+    # 캘린더에 올리는 유일한 자리다 — 없으면 "9월 말 증평 회의" 같은 것이 통화 기록에만
+    # 남아 아무도 안 본다(2026-08-06 차동호 팀장 통화).
+    # ★ 파일은 `config/manual_events.local.json` — **git 밖**이다. 이 저장소는 공개라
+    #   회의 장소·참석자 같은 내부 내용을 평문으로 올리지 않는다. 공유 캘린더에는
+    #   잠긴 꾸러미(cal.enc)를 통해 전달된다.
+    try:
+        mp = os.path.join(ROOT, "config", "manual_events.local.json")
+        for e in (json.load(open(mp, encoding="utf-8")) or []):
+            if not e.get("날짜"):
+                continue
+            e.setdefault("분류", "etc")
+            e.setdefault("제목", e.get("캠프명") or "일정")
+            e["수기"] = True
+            d.setdefault("일정", []).append(e)
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        print(f"  ! 수기 일정 건너뜀: {exc}")
+
     # 분류가 없는 옛 일정(Google 원천 등)도 필터에 걸리도록 자리를 준다.
     for e in d.get("일정") or []:
         e.setdefault("분류", "etc")
