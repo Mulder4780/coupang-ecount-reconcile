@@ -6878,7 +6878,7 @@ function openRptDates(){
       </div>
       <button onclick="saveRptDates()" style="width:100%;padding:13px;background:var(--brand);color:#fff;
         border:0;border-radius:11px;font-weight:800;font-size:15px;font-family:inherit;cursor:pointer">
-        저장하고 반영 대기</button>
+        저장하고 반영</button>
       <button onclick="previewRptDate(false)" style="width:100%;padding:12px;background:#EEF2FF;
         color:#1B41BC;border:1.5px solid #C7D2FE;border-radius:11px;font-weight:800;
         font-size:14px;font-family:inherit;cursor:pointer">선택 날짜 보고 미리보기</button>
@@ -6927,7 +6927,7 @@ async function previewRptDate(andCapture,keepPane=false){
     if(status)status.textContent=`보고일 ${reportDay||baseDay} · 집계기준일 ${baseDay} 적용 완료`;
     toast(`${baseDay} 집계기준 보고를 불러왔습니다`);
     if(andCapture){
-      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      await nextPaint();
       await captureReport();
     }
   }catch(e){alert('선택 날짜 보고를 만들지 못했습니다: '+e);}
@@ -6940,16 +6940,22 @@ async function saveRptDates(){
   if(보고일 && 집계기준일 && 집계기준일 > 보고일 &&
      !confirm(`집계기준일(${집계기준일})이 보고일(${보고일})보다 뒤입니다.
 그대로 진행할까요?`)) return;
-  if(!confirm(`보고 기준일을 입력 DB에 저장합니다:
+  if(!confirm(`보고 기준일을 지금 엑셀에 반영합니다:
 보고일 ${보고일||'-'} · 집계기준일 ${집계기준일||'-'}
 
-엑셀은 다음 11시·15시 회차에 반영됩니다. 진행할까요?`)) return;
-  const r = await api('/api/set_dates',{method:'POST',body:JSON.stringify({보고일, 집계기준일})});
+진행할까요? (관리대장이 열려 있으면 반영하지 않습니다)`)) return;
+  // ★ 2026-08-06 지시: 「저장하고 반영」— 회차를 기다리지 않고 지금 넣는다.
+  const r = await api('/api/set_dates',{method:'POST',
+    body:JSON.stringify({보고일, 집계기준일, apply:true})});
   if(!r.ok){ alert(r.error||'실패'); return; }
   closeSheetAll();      // 곧 [실행] 탭으로 넘어가므로 시트를 남겨 두면 안 된다
   // 대시보드 카드도 같은 값으로 맞춰 둔다(두 곳이 다르면 헷갈린다)
   try{ if($('d_report')) $('d_report').value = 보고일; if($('d_base')) $('d_base').value = 집계기준일; }catch(e){}
-  toast('기준일 DB 저장 완료 · 다음 11시·15시 엑셀 반영');
+  const a = r.applied || {};
+  // 반영이 막힌 이유(관리대장 열림 등)는 숨기지 않고 그대로 보여 준다.
+  toast(a.상태==='반영' ? `엑셀 반영 완료 · ${a.셀||0}셀`
+        : a.사유 ? `저장했지만 반영 보류 — ${a.사유}`
+        : '기준일 저장 완료');
   loadStatus();
 }
 
@@ -10110,6 +10116,20 @@ function isIOS(){ return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
 
 /* BRIEF 가 준비될 때까지 잠깐 기다린다(최대 10초). 실패해도 캡처는 계속한다 —
    단, 그때는 빠진 것이 아니라 서버가 브리핑을 못 만든 것이라 재시도 타이머가 잡는다. */
+/* 한 번 그려질 때까지 기다린다 — 단, **영원히 기다리지 않는다**.
+   ★ 2026-08-06 실사고: `await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`
+     하나 때문에 「선택 날짜 보고 바로 캡처」가 아무 반응 없이 죽었다. 화면이 숨겨져 있으면
+     (document.hidden=true — 폰에서 화면이 꺼졌거나 탭이 뒤에 있을 때) rAF 는 **아예 오지 않는다.**
+     오류도 안 나서 사용자에게는 '버튼이 안 먹는다'로만 보인다.
+     그래서 rAF 와 타이머를 경주시킨다 — 어느 쪽이 오든 진행한다. */
+function nextPaint(ms){
+  return new Promise(resolve=>{
+    let done = false;
+    const go = () => { if(!done){ done = true; resolve(); } };
+    try{ requestAnimationFrame(()=>requestAnimationFrame(go)); }catch(e){}
+    setTimeout(go, ms || 400);
+  });
+}
 async function waitBrief(){
   for(let i=0; i<40 && !BRIEF; i++){
     if(!BRIEF_LOADING) loadBrief();

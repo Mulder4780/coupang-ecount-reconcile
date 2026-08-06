@@ -202,6 +202,11 @@ def _run_pipeline():
 
     # 합성검증 뒤, 모든 대조보다 먼저 단일 투입함을 정본 폴더로 분류한다.
     # 예전에는 다운로드 흡수가 파이프라인 끝이라 새 자료가 다음 날까지 반영되지 않았다.
+    # ★ 보고일 자동 갱신(2026-08-06 지시) — 맨 앞에 둔다. 뒤 단계들이 이 날짜를
+    #   기준으로 브리핑·캡처를 만들기 때문이다. 이미 오늘 것이면 큐를 늘리지 않는다.
+    steps.append(run("보고일·집계기준일 자동 갱신",
+                     [os.path.join(ROOT, "report_dates.py")], timeout=300))
+
     steps.append(run("업로드 투입함 원본 분류",
                      [os.path.join(ROOT, "upload_intake.py"), "--apply"]))
 

@@ -5062,6 +5062,18 @@ self.addEventListener('fetch', e => {
             if DEMO:
                 return self._send(200, {"ok": True, "demo": True})
             queued = enqueue_for_scheduled_apply(items, source="app-dates")
+            # ★ 「저장하고 반영」(2026-08-06 지시) — 사람이 그 버튼을 누른 것 자체가
+            #   "지금 넣어라"는 지시다. 11:00·15:00 회차를 기다리지 않고 바로 쓴다.
+            #   보호장치는 그대로다: 관리대장이 **열려 있으면**(~$ 잠금) 하지 않는다.
+            #   그건 시각 문제가 아니라 실제 충돌이라 지시가 있어도 덮으면 안 된다.
+            if b.get("apply"):
+                try:
+                    import ledger_db
+                    r = ledger_db.apply_now(force=True, ignore_input_window=True)
+                    return self._send(200, {"ok": True, **queued, "applied": r})
+                except Exception as exc:
+                    return self._send(200, {"ok": True, **queued,
+                                            "applied": {"상태": "실패", "사유": str(exc)[:200]}})
             return self._send(200, {"ok": True, **queued})
         if p == "/api/input":
             # 앱 → DB 입력. 빈 칸만 정책과 실제 Excel 쓰기는 11:00·15:00 반영 단계에서 강제한다.

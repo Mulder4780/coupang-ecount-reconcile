@@ -4783,6 +4783,55 @@ def t105_settle_report():
     print("  [105] 하루치 정산분 보고자료(카톡 중복제거·이중계상 금지·앱/일일실행 배선) ✅")
 
 
+def t107_report_dates_and_capture():
+    """[106] 보고 기준일 즉시 반영·자동 갱신 · 숨은 화면에서도 캡처 (2026-08-06 지시).
+
+    세 지시가 한 뿌리다: **버튼이 말한 대로 되게 하라**.
+      · "저장하고 반영 대기 → 저장하고 반영으로 바꾸고 누르면 바로 반영"
+      · "선택 날짜 보고 바로 캡처 버튼 동작 안함"
+      · "보고일이 오늘 날짜로 자동 변경되는 알고리즘"
+    """
+    import report_dates as RD
+    from datetime import date
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+
+    # (1) 캡처가 안 되던 진짜 원인: 화면이 숨겨져 있으면 rAF 가 **아예 오지 않는다**.
+    #     타이머와 경주시켜 어느 쪽이 오든 진행해야 한다. 오류도 안 나는 침묵형 버그였다.
+    assert "function nextPaint(" in live, "그리기 대기 함수가 없다"
+    assert "setTimeout(go, ms || 400)" in live, "rAF 가 안 올 때 빠져나갈 길이 없다"
+    assert "await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))" \
+        not in live, "숨은 화면에서 멈추는 rAF 대기가 남아 있다"
+    assert "await nextPaint();" in live and "await captureReport();" in live
+
+    # (2) 「저장하고 반영」 — 문구와 동작이 같아야 한다.
+    assert "저장하고 반영</button>" in live, "버튼 문구가 그대로다"
+    assert "저장하고 반영 대기" not in live
+    assert '"apply":true' in live.replace(" ", "") or "apply:true" in live.replace(" ", ""), \
+        "버튼이 즉시 반영을 요청하지 않는다"
+    assert 'if b.get("apply"):' in srv and "ignore_input_window=True" in srv, \
+        "서버가 즉시 반영 경로를 갖고 있지 않다"
+    # 보호장치는 남아 있어야 한다 — 관리대장이 열려 있으면 지시가 있어도 쓰지 않는다.
+    ldb = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    assert "관리대장이 열려 있음" in ldb, "열린 원장을 덮어쓸 수 있다"
+
+    # (3) 보고일 자동 갱신 — 오늘/전날. 이미 맞으면 큐를 늘리지 않는다(멱등).
+    w = RD.wanted(date(2026, 8, 7))
+    assert w == {"B3": "2026-08-07", "B4": "2026-08-06"}, w
+    saved = RD.current
+    try:
+        RD.current = lambda: {"B3": "2026-08-07", "B4": "2026-08-06"}
+        assert RD.run(today=date(2026, 8, 7)) == 0        # 큐 적재 없이 끝나야 한다
+    finally:
+        RD.current = saved
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "report_dates.py" in daily, "daily_run 이 보고일을 갱신하지 않는다"
+    assert daily.index("report_dates.py") < daily.index("upload_intake.py"), \
+        "보고일 갱신이 뒤 단계들보다 늦다"
+    print("  [107] 보고 기준일 즉시 반영·자동 갱신 · 숨은 화면 캡처 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -5184,7 +5233,7 @@ def t79_work_log_source_sync_and_report_capture():
                    "REPORT_PREVIEW_DATE", "const day = (_rptData&&_rptData.date)",
                    "dailyIssueDetailRows", "dailyIssueDetails", "issueDetailBlock",
                    "정기점검 이상 발견 상세", "reportForDates",
-                   "captureMeta['집계기준일']", "requestAnimationFrame(()=>requestAnimationFrame(resolve))",
+                   "captureMeta['집계기준일']", "await nextPaint();",
                    'onchange="rptDateChanged()"', "보고일=오늘, 집계기준일=전날",
                    "previewRptDate(false,true)"):
         assert marker in idx, f"선택 날짜·월/분기/연간 캡처 연동 누락: {marker}"
@@ -5691,6 +5740,7 @@ if __name__ == "__main__":
     t103_session_wrapup_hook()
     t104_session_scoped_claims()
     t105_settle_report()
+    t107_report_dates_and_capture()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
