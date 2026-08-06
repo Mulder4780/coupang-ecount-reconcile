@@ -6025,6 +6025,84 @@ def t121_pid_alive():
     print("  [121] 죽은 프로세스 판정 — 종료코드까지 확인·두 곳 공유·잠금 회수 ✅")
 
 
+def t125_worktree_shared_state():
+    """[125] 워크트리에서 일해도 **상태는 하나** (브랜치 인계, 분담판 #10).
+
+    왜 필요한가 — 워크트리(`.claude/worktrees/<이름>`)는 **추적 파일만** 체크아웃한다.
+    그런데 이 프로젝트의 상태는 거의 전부 git 밖이다(`reports/`·`updates/`·
+    `config/*.json`·`db/*.db`). 그래서 워크트리 안에서는 모듈이 제 폴더 기준으로
+    경로를 잡는 순간 본체와 **다른 상태**를 본다. 실측으로 확인한 것:
+      ① 점유 파일이 갈려 두 세션이 동시에 `ledger` 를 잡아도 서로 안 보였다
+         → 관리대장 동시 쓰기 금지가 조용히 무너진다. **가장 위험한 것.**
+      ② 워크트리에서 enqueue 한 입력은 11:00·15:00 반영이 영영 못 본다
+      ③ `config/` 가 없어 합성검증이 t1 에서 죽었다 — 즉 "ALL GREEN 확인 후
+         실작업" 관문 자체를 통과할 수 없었다
+      ④ 루트 CLAUDE.md 비교가 `.claude/worktrees/CLAUDE.md` 를 찾아 **거짓 경보**를
+         매번 '먼저 처리할 것' 맨 위에 올렸다(해시는 같았는데도)
+    """
+    import worktree_state as W
+
+    # 본체에서는 동작이 하나도 바뀌면 안 된다 — shared() 가 곧 제 폴더다
+    assert os.path.isdir(W.main_root()), W.main_root()
+    if not W.is_worktree():
+        assert os.path.normcase(W.shared("db")) == os.path.normcase(os.path.join(ROOT, "db"))
+
+    # 점유·큐 DB 는 **본체 경로**를 쓴다. 링크가 아니라 코드가 집어야 하는 이유가 있다.
+    ac = open(os.path.join(ROOT, "ai_claim.py"), encoding="utf-8").read()
+    assert "from worktree_state import shared" in ac and "STATE_DIR" in ac, \
+        "점유 파일이 워크트리마다 갈린다 — 두 세션이 동시에 원장을 연다"
+    assert "os.replace" in ac, "점유 저장이 원자적이지 않다"
+    ld = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    assert "from worktree_state import shared" in ld, \
+        "큐 DB 가 워크트리마다 갈린다 — 넣은 입력이 11:00·15:00 반영에 안 잡힌다"
+    # 분담판도 세션 사이의 약속이다 — 갈리면 둘이 같은 일을 하고 나서야 안다.
+    ws = open(os.path.join(ROOT, "worksplit.py"), encoding="utf-8").read()
+    assert "from worktree_state import shared" in ws, \
+        "분담판이 체크아웃마다 갈린다 — 서로 맡은 일을 못 본다"
+
+    # `reports/` 를 통째로 정션하면 안 된다 — 추적 파일이 섞여 있어 git 이 흔들린다
+    assert "reports" not in W.LINK_DIRS, \
+        "reports 를 통째로 이으면 추적 파일 때문에 워크트리 git 이 남의 파일을 물고 간다"
+    assert "reports/ai_claims.json" in W.CODE_SHARED and "db/ledger_queue.db" in W.CODE_SHARED
+
+    # 이미 따로 있는 것을 덮지 않는다(사람이 일부러 둔 설정을 지우면 안 된다)
+    src = open(os.path.join(ROOT, "worktree_state.py"), encoding="utf-8").read()
+    assert "따로있음" in src and "덮지 않음" in src, "덮어쓰기 방지가 없다"
+    for bad in ("shutil.rmtree", "os.remove", "os.unlink"):
+        assert bad not in src, "워크트리 연결기가 파일을 지운다: %s" % bad
+
+    # 끊겨 있으면 '먼저 처리할 것' 맨 앞에 뜬다 — 기계 상태가 아니라 st 로만 판단한다
+    import session_handoff as H
+    base = {"큐잔량": 0, "임시파일": [], "점유": [], "미푸시": [], "지시문사본": [],
+            "수집신선도": []}
+    cut = dict(base, **{"워크트리": {"여기": "X", "본체": "Y", "항목": [
+        {"대상": "config/ecount_config.json", "방법": "하드링크", "상태": "없음"}]}})
+    assert any("워크트리" in why for why, _ in H.blockers(cut)), H.blockers(cut)
+    ok = dict(base, **{"워크트리": {"여기": "X", "본체": "Y", "항목": [
+        {"대상": "config/ecount_config.json", "방법": "하드링크", "상태": "이어짐"}]}})
+    assert not H.blockers(ok), "이어져 있는데 막았다"
+    assert not H.blockers(dict(base)), "워크트리가 아닌데 워크트리 경고가 뜬다"
+
+    # 루트 지시문 비교가 본체 기준인가 — 워크트리에서 거짓 경보가 뜨던 자리
+    hs = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert "os.path.dirname(_main_root())" in hs, \
+        "루트 CLAUDE.md 비교가 아직 dirname(BASE) 기준이다 — 워크트리에서 거짓 경보"
+
+    # 미푸시는 **내 브랜치의 upstream** 기준이어야 한다. origin/master 로 세면
+    # 워크트리 브랜치를 푸시하고도 "푸시되지 않은 커밋"이 영원히 남고, 제시된
+    # 명령(git pull --rebase && git push)은 그 상황에 맞지도 않는다.
+    assert "def unpushed_commits(" in hs and '"@{u}"' in hs, \
+        "미푸시를 origin/master 로만 센다 — 브랜치에서 유령 blocker 가 뜬다"
+    assert "def unmerged_commits(" in hs, "브랜치가 master 에 안 들어간 것을 안 알려준다"
+
+    # 이어받기(--adopt)가 **큐를 흡수하기 전에** 먼저 잇는가. 순서가 뒤집히면
+    # 빈 큐를 보고 "0건" 이라 답한다 — 조용히 틀린 답이다.
+    # (설명문이 아니라 **실제 호출 순서**로 본다)
+    assert (hs.index('steps.append(("워크트리 → 본체 잇기"')
+            < hs.index('steps.append(("입력 큐 → DB"')), "--adopt 가 잇기 전에 큐를 읽는다"
+    print("  [125] 워크트리 공용 상태(점유·큐 DB·분담판 일원화 · 거짓 경보 제거 · 잇기 우선) ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -6950,6 +7028,7 @@ if __name__ == "__main__":
     t122_dash_drag_and_remote_version()
     t123_calendar_share_tools()
     t124_no_duplicate_menus()
+    t125_worktree_shared_state()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

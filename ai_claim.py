@@ -38,9 +38,23 @@ from contextlib import contextmanager
 from datetime import datetime
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-CLAIMS = os.path.join(ROOT, "reports", "ai_claims.json")
-GUARD = os.path.join(ROOT, "reports", ".ai_claims.guard")
-WORKCENTER_ACTIVITY = os.path.join(ROOT, "reports", "workcenter_activity.json")
+
+# ★ 점유 파일은 **본체 체크아웃 하나**에만 둔다 (2026-08-06).
+#   git 워크트리(`.claude/worktrees/<이름>`)에서 돌면 ROOT 가 워크트리라서
+#   점유 파일이 본체와 갈렸다. 두 세션이 동시에 `ledger` 를 잡아도 서로 안 보였다
+#   — 관리대장 동시 쓰기 금지(CLAUDE.md)가 조용히 무너지는 자리였다.
+#   본체에서는 `shared()` 가 ROOT 를 그대로 돌려주므로 동작이 하나도 안 바뀐다.
+#   링크로 잇지 않는 이유: `_save_unlocked` 가 `os.replace` 로 갈아치우는데,
+#   그 순간 하드링크가 끊겨 두 파일로 갈라진다.
+try:
+    from worktree_state import shared as _shared
+    STATE_DIR = _shared("reports")
+except Exception:
+    STATE_DIR = os.path.join(ROOT, "reports")
+
+CLAIMS = os.path.join(STATE_DIR, "ai_claims.json")
+GUARD = os.path.join(STATE_DIR, ".ai_claims.guard")
+WORKCENTER_ACTIVITY = os.path.join(STATE_DIR, "workcenter_activity.json")
 STALE = 45 * 60          # 45분 넘게 안 놓으면 죽은 것으로 본다(크레딧 소진·중단)
 
 # 잡을 수 있는 것들. ledger/code/band/publish는 배타적이다.

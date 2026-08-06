@@ -49,7 +49,16 @@ except Exception:
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
-DB_DIR = os.path.join(ROOT, "db")
+# ★ 큐 DB 는 **본체 체크아웃 하나**만 쓴다 (2026-08-06).
+#   워크트리에서 enqueue() 한 입력이 워크트리 안의 다른 DB 로 들어가면
+#   11:00·15:00 반영(본체에서 돈다)이 그 값을 영영 못 본다 — 큐에 넣었으니
+#   됐다고 믿는 동안 값이 사라진다. 본체에서는 경로가 예전과 글자 그대로 같다.
+#   SQLite 라서 링크로 잇지 않는다(`-wal`·`-journal` 사이드카가 갈려 DB 가 깨진다).
+try:
+    from worktree_state import shared as _shared
+    DB_DIR = _shared("db")
+except Exception:
+    DB_DIR = os.path.join(ROOT, "db")
 DB_PATH = os.path.join(DB_DIR, "ledger_queue.db")
 JSON_QUEUE = os.path.join(ROOT, "updates", "pending_updates.json")
 REPORT_DIR = os.path.join(ROOT, "reports")

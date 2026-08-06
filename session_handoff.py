@@ -48,6 +48,28 @@ except Exception:
     pass
 
 
+def _main_root():
+    """공용 상태의 주인(본체 체크아웃). 워크트리에서 돌 때만 BASE 와 달라진다.
+
+    worktree_state 를 못 읽어도 죽지 않는다 — 그때는 예전처럼 제 폴더를 쓴다."""
+    try:
+        from worktree_state import main_root
+        return main_root()
+    except Exception:
+        return BASE
+
+
+def _worktree_state():
+    """워크트리가 본체 상태와 이어져 있나. 본체에서 돌면 None(볼 것이 없다)."""
+    try:
+        import worktree_state
+        if not worktree_state.is_worktree():
+            return None
+        return worktree_state.status()
+    except Exception:
+        return None
+
+
 def git(*args):
     try:
         r = subprocess.run(["git"] + list(args), cwd=BASE, capture_output=True,
@@ -215,8 +237,12 @@ def rule_copies():
     except OSError:
         return []
     out = []
+    # ★ 루트 사본은 **본체 체크아웃 위**에만 있다. 워크트리에서 돌 때
+    #   `dirname(BASE)` 를 보면 `.claude/worktrees/CLAUDE.md` 를 찾아 "정본과 다르다"는
+    #   거짓 경보가 매번 '먼저 처리할 것' 맨 위에 떴다(실측: 해시는 같았다).
+    root = os.path.dirname(_main_root())
     for name in ("CLAUDE.md", "AGENTS.md"):
-        p = os.path.join(os.path.dirname(BASE), name)
+        p = os.path.join(root, name)
         try:
             if open(p, encoding="utf-8").read() != master:
                 out.append(name)
@@ -324,11 +350,37 @@ def data_freshness(today=None):
     return out
 
 
+def unpushed_commits():
+    """아직 원격에 없는 커밋. 기준은 **내 브랜치의 upstream** 이다.
+
+    ★ 2026-08-06: 예전엔 `origin/master..HEAD` 로 셌다. master 위에서 일할 때는
+      맞지만, 워크트리처럼 **기능 브랜치**에서 일하면 이미 푸시를 끝낸 커밋도
+      계속 '미푸시' 로 잡힌다 — master 에 아직 안 들어갔을 뿐인데. 실측:
+      브랜치를 푸시하고도 '먼저 처리할 것' 에 "푸시되지 않은 커밋 1개" 가 남았고,
+      제시된 명령(`git pull --rebase && git push`)은 그 상황에 맞지도 않았다.
+      새 계정이 그 말을 믿고 따라 하면 엉뚱한 브랜치를 만진다.
+      upstream 이 없을 때만 예전 기준으로 돌아간다(그때는 정말 안 올라간 것이다).
+    """
+    base = git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}") or "origin/master"
+    return [l for l in git("log", "%s..HEAD" % base, "--oneline").splitlines() if l.strip()]
+
+
+def unmerged_commits():
+    """master 에 아직 안 들어간 커밋. **막는 것은 아니다** — 브랜치 작업의 정상 상태다.
+    다만 다음 사람이 "이 작업이 어디까지 갔나" 를 알아야 하므로 문서에 남긴다."""
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    if branch in ("master", "HEAD", ""):
+        return []
+    return [l for l in git("log", "origin/master..HEAD", "--oneline").splitlines() if l.strip()]
+
+
 def collect():
     unstaged = [l for l in git("status", "--short").splitlines() if l.strip()]
-    unpushed = [l for l in git("log", "origin/master..HEAD", "--oneline").splitlines() if l.strip()]
+    unpushed = unpushed_commits()
     return {
         "시각": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "브랜치": git("rev-parse", "--abbrev-ref", "HEAD"),
+        "미머지": unmerged_commits(),
         "원장": ledger(),
         "큐잔량": queue_left(),
         "임시파일": temp_files(),
@@ -340,12 +392,24 @@ def collect():
         "진행체크포인트": read_checkpoint(),
         "지시문사본": rule_copies(),
         "수집신선도": data_freshness(),
+        "워크트리": _worktree_state(),
     }
 
 
 def blockers(st, for_sol=False):
     """다음 세션이 **먼저 처리해야** 하는 것 — 안 하면 조용히 어긋난다."""
     out = []
+    # ★ 워크트리가 본체 상태와 끊겨 있으면 **합성검증부터 못 돈다**(config 가 없다).
+    #   즉 "ALL GREEN 확인 후 실작업" 관문 자체를 통과할 수 없으니 맨 앞에 둔다.
+    #   판단은 st 에 담긴 것만 쓴다 — 여기서 기계 상태를 직접 보면 합성검증이
+    #   실행 환경에 따라 결과가 달라진다(테스트가 기계를 타면 안 된다).
+    wt = st.get("워크트리")
+    if wt:
+        cut = [i["대상"] for i in wt.get("항목", []) if i.get("상태") == "없음"]
+        if cut:
+            out.append(("워크트리가 본체 상태와 끊겨 있다 — %s (설정·큐를 못 읽어 "
+                        "합성검증부터 막힌다)" % ", ".join(cut[:4]),
+                        "python worktree_state.py --apply"))
     if st["큐잔량"]:
         out.append(("입력 큐에 %d건이 반영되지 않았다" % st["큐잔량"],
                     "python ledger_db.py --intake  # Excel은 다음 11:00·15:00 회차"))
@@ -465,6 +529,8 @@ def adopt(who="claude"):
     있는 옆 세션**의 작업을 가로챈다.
 
     그래서 기준은 하나다: **주인 프로세스가 죽었다는 증거(pid)가 있을 때만** 손댄다.
+      0. 워크트리면 본체 상태와 먼저 잇는다 — **큐를 읽기 전에** 해야 한다.
+         순서가 뒤집히면 워크트리의 빈 큐를 보고 "0건" 이라 답한다(조용히 틀린 답).
       1. 죽은 세션의 점유만 회수 — 살아 있는 것은 그대로 두고 알려만 준다
       2. 입력 큐 → DB 흡수 (엑셀은 열지 않는다. 반영은 11:00·15:00 회차 그대로)
       3. 수집이 밀렸는지 확인 — 밴드·이카운트는 사람 로그인이 먼저다
@@ -473,6 +539,18 @@ def adopt(who="claude"):
     """
     import ai_claim as C
     steps, freed, kept = [], [], []
+    try:
+        import worktree_state as W
+        if W.is_worktree():
+            r = W.apply()
+            made = ["%s(%s)" % (rel, how) for rel, how in r.get("이음", [])]
+            kept_wt = ["%s — %s" % (rel, why) for rel, why in r.get("건너뜀", [])]
+            steps.append(("워크트리 → 본체 잇기",
+                          ", ".join(made) if made else "이미 다 이어져 있음"))
+            if kept_wt:
+                steps.append(("워크트리에 따로 있어 그대로 둔 것", ", ".join(kept_wt)))
+    except Exception as exc:
+        steps.append(("워크트리 → 본체 잇기", "실패: %s" % str(exc)[:80]))
     with C.state_guard():
         d = C._load_unlocked()
         for lock, claim in list(d.items()):
