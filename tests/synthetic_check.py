@@ -3715,8 +3715,12 @@ def t91_icon_sprite_and_ios_theme():
     on_disk = {os.path.splitext(f)[0] for f in os.listdir(icons_dir) if f.endswith(".svg")}
     assert symbols <= on_disk, f"원본 svg 가 없는 symbol: {sorted(symbols - on_disk)[:5]}"
 
-    # iOS 외형: systemBlue·그룹배경·다크모드·큰 모서리
-    assert "--brand:#007AFF" in live, "systemBlue 가 아니다"
+    # iOS 외형: 파랑 강조·그룹배경·다크모드·큰 모서리
+    # ★ systemBlue 원값(#007AFF)은 쓰지 않는다 (2026-08-06). 흰 배경 글자로 4.0:1,
+    #   흰 글자를 얹은 버튼 바탕으로 3.0:1 이라 둘 다 기준(4.5:1) 미달이었다.
+    #   색조는 지키고 명도만 낮춘 #0062CC 로 간다 — 판정은 검증 [115] 가 한다.
+    assert "--brand:#007AFF" not in live, "저대비 systemBlue 원값으로 되돌아갔다"
+    assert re.search(r"--brand:#[0-9A-Fa-f]{6}", live), "파랑 강조색이 없다"
     assert "--bg:#F2F2F7" in live, "iOS 그룹 배경이 아니다"
     # ★ 2026-07-30 실기기 확인 후 되돌림: 이 앱은 흰 배경이 77곳 하드코딩돼 있어 OS 다크를
     #   따라가면 **흰 카드 위 흰 글자**가 되어 아무것도 안 보였다(사용자 화면으로 확인).
@@ -5222,6 +5226,58 @@ def t114_claim_owner_is_agent_pid():
     print("  [114] 점유 생사는 agent_pid — 산 세션을 잔재로 오인하지 않는다 ✅")
 
 
+def t115_text_contrast():
+    """[115] 글자가 실제로 읽히는가 — 모든 화면의 명암비를 전수로 지킨다 (2026-08-06).
+
+    사용자 지시: "텍스트가 잘 안보이는 것들이 있어, 전체적으로 전수 조사해서 검토하고
+    잘 보이게 정리해". 눈으로 고치면 고친 곳만 좋아진다 — 실제로 `--ink-3` 는 흰
+    배경에서 **2.17:1**(기준 4.5:1의 절반)이었고 같은 값이 21곳에 퍼져 있었다.
+    그래서 색을 **수치로** 재고, 이 검증이 되돌아가는 것을 막는다.
+
+    감사기 자체도 두 번 틀렸다 — 없는 문제를 만들면 멀쩡한 색을 망가뜨리므로 같이 지킨다.
+      · `@media{…}` 를 정규식으로 지워 규칙 경계가 밀렸다(엉뚱한 색으로 보고)
+      · `--surface` 가 없는 파일에서 흰색으로 가정해 **다크 테마를 흰 바탕에서** 쟀다
+    """
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import contrast_audit as CA
+
+    # ── 계산이 맞는가 (WCAG 기준값) ──
+    assert abs(CA.contrast((0, 0, 0), (255, 255, 255)) - 21.0) < 0.01
+    assert abs(CA.contrast((255, 255, 255), (255, 255, 255)) - 1.0) < 0.01
+    # 반투명 글자는 합성해야 실제 색이 나온다 — 안 하면 늘 통과로 보인다
+    assert CA.parse_color("rgba(60,60,67,.42)", {}, (255, 255, 255)) == (173, 173, 176)
+
+    # ── 감사기 회귀: @media 를 지우면 규칙 경계가 밀린다 ──
+    css = ("@media(max-width:719px){ .a small{display:none} }\n"
+           ".b{color:#123456}\n")
+    got = {sel: d for sel, d, _ in CA.rules(css)}
+    assert got.get(".b", {}).get("color") == "#123456", got
+    assert "color" not in got.get(".a small", {}), got
+
+    # ── 감사기 회귀: 테마를 한 사전으로 합치면 밝은 화면을 어두운 값으로 잰다 ──
+    themed = CA.root_vars(":root{--ink-3:#6b7686;--bg:#fff}\n"
+                          '@media (prefers-color-scheme:dark){:root{--ink-3:#8391a8;--bg:#0b1020}}')
+    assert set(themed) == {"기본", "다크"}, themed
+    assert themed["기본"]["--ink-3"] == "#6b7686" and themed["다크"]["--ink-3"] == "#8391a8"
+
+    # ── 실제 화면: 미달이 하나도 없어야 한다 ──
+    screens = ["webapp/index.html", "docs/app.html", "docs/cal.html", "docs/index.html"]
+    for rel in screens:
+        path = os.path.join(ROOT, *rel.split("/"))
+        if not os.path.exists(path):
+            continue
+        bad, _unknown, ok = CA.audit(path)
+        assert ok > 0, "%s 에서 글자색을 하나도 못 읽었다 — 감사기가 헛돌고 있다" % rel
+        assert not bad, "%s 명암비 미달 %d건: %s" % (
+            rel, len(bad), [(b["sel"], b["ratio"]) for b in bad[:4]])
+
+    # ── 폰 스냅샷은 **생성물**이다 — 결과가 아니라 만드는 쪽을 지킨다 ──
+    gen = open(os.path.join(ROOT, "mobile_snapshot.py"), encoding="utf-8").read()
+    assert "--brand-btn" in gen, "버튼 바탕색이 글자색과 분리되지 않았다(다크에서 흰 글자 2.5:1)"
+    assert "--ink-3:#6b7686" not in gen, "생성기에 옛 저대비 회색이 남아 있다"
+    print("  [115] 글자 명암비 전수검사 — 모든 화면 미달 0 (기준 4.5:1) ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -6138,6 +6194,7 @@ if __name__ == "__main__":
     t112_band_plan_order_and_scope()
     t113_paste_typos_and_misc_reclass()
     t114_claim_owner_is_agent_pid()
+    t115_text_contrast()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)

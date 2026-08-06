@@ -74,23 +74,23 @@ def collect():
 
 PAGE = """<style>
 :root{
-  --ink-1:#111826; --ink-2:#414b60; --ink-3:#6b7686; --line:#dfe4ec;
-  --bg:#f5f7fa; --card:#ffffff; --navy:#0e1b3f; --brand:#1c4fd8;
+  --ink-1:#111826; --ink-2:#414b60; --ink-3:#5f6a7d; --line:#dfe4ec;
+  --bg:#f5f7fa; --card:#ffffff; --navy:#0e1b3f; --brand:#1c4fd8; --brand-btn:#1c4fd8;
   --ok:#0f7a3d; --warn:#a85a06; --bad:#b3202c;
   --okbg:#e6f4ec; --warnbg:#fdf0e0; --badbg:#fbe9eb;
 }
 @media (prefers-color-scheme:dark){
   :root{ --ink-1:#e9edf5; --ink-2:#b3bccd; --ink-3:#8391a8; --line:#28324a;
-    --bg:#0b1020; --card:#131a2c; --navy:#070d1c; --brand:#7ba2ff;
+    --bg:#0b1020; --card:#131a2c; --navy:#070d1c; --brand:#7ba2ff; --brand-btn:#2b57c9;
     --ok:#5fd08a; --warn:#f0ad4e; --bad:#ff8189;
     --okbg:#12321f; --warnbg:#33240d; --badbg:#3a1519; }
 }
 :root[data-theme="dark"]{ --ink-1:#e9edf5; --ink-2:#b3bccd; --ink-3:#8391a8; --line:#28324a;
-  --bg:#0b1020; --card:#131a2c; --navy:#070d1c; --brand:#7ba2ff;
+  --bg:#0b1020; --card:#131a2c; --navy:#070d1c; --brand:#7ba2ff; --brand-btn:#2b57c9;
   --ok:#5fd08a; --warn:#f0ad4e; --bad:#ff8189;
   --okbg:#12321f; --warnbg:#33240d; --badbg:#3a1519; }
-:root[data-theme="light"]{ --ink-1:#111826; --ink-2:#414b60; --ink-3:#6b7686; --line:#dfe4ec;
-  --bg:#f5f7fa; --card:#ffffff; --navy:#0e1b3f; --brand:#1c4fd8;
+:root[data-theme="light"]{ --ink-1:#111826; --ink-2:#414b60; --ink-3:#5f6a7d; --line:#dfe4ec;
+  --bg:#f5f7fa; --card:#ffffff; --navy:#0e1b3f; --brand:#1c4fd8; --brand-btn:#1c4fd8;
   --ok:#0f7a3d; --warn:#a85a06; --bad:#b3202c;
   --okbg:#e6f4ec; --warnbg:#fdf0e0; --badbg:#fbe9eb; }
 
@@ -115,7 +115,7 @@ nav{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px;
 nav button{flex:0 0 auto;background:transparent;border:1px solid var(--line);color:var(--ink-2);
   border-radius:999px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;
   font-family:inherit}
-nav button[aria-selected="true"]{background:var(--brand);border-color:var(--brand);color:#fff}
+nav button[aria-selected="true"]{background:var(--brand-btn);border-color:var(--brand-btn);color:#fff}
 nav button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 .tools{display:flex;gap:8px;margin-bottom:12px}
 .tools input,.tools select{flex:1;min-width:0;background:var(--card);color:var(--ink-1);

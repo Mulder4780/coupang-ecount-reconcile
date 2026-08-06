@@ -43,11 +43,15 @@ window.addEventListener('beforeinstallprompt', function(e){
      색은 Apple 이 정의한 systemColor 원값을 쓴다(파랑 #007AFF·초록 #34C759·빨강 #FF3B30…).
      ★ 글자색은 원값을 그대로 쓰지 않는다 — systemGreen 을 본문에 쓰면 흰 배경에서 대비가
        모자라 안 읽힌다. 배경(tint)은 원값 계열, 글자는 어두운 짝을 따로 둔다. */
-  --brand:#007AFF; --brand-dk:#0062CC; --brand-tint:#EAF4FF;   /* systemBlue */
+  /* ★ 2026-08-06 지시("텍스트가 잘 안보이는 것들이 있어… 잘 보이게 정리해") 이후
+     이 값들은 **눈짐작이 아니라 수치로** 정한다. 아래 괄호는 흰 배경 / --bg 회색 배경
+     에서 잰 명암비이며, 기준은 WCAG AA(본문 4.5:1 · 큰 글자 3:1)다.
+     바꿀 때는 `python webapp/contrast_audit.py` 로 전수 재검사할 것 — 검증 [115]. */
+  --brand:#0062CC; --brand-dk:#0052B8; --brand-tint:#EAF4FF;   /* 5.8/5.2 · 흰 글자도 5.8 */
   --bg:#F2F2F7; --surface:#FFFFFF;                              /* systemGroupedBackground */
-  --ink:#000000; --ink-2:rgba(60,60,67,.62); --ink-3:rgba(60,60,67,.42);  /* label 계층 */
+  --ink:#000000; --ink-2:rgba(60,60,67,.86); --ink-3:rgba(60,60,67,.74);  /* 7.2/6.6 · 5.0/4.7 */
   --line:rgba(60,60,67,.24);                                    /* separator (헤어라인) */
-  --ok:#248A3D; --ok-bg:#E7F8EC;                                /* systemGreen 계열 */
+  --ok:#1B6E2E; --ok-bg:#E7F8EC;                                /* 6.3/5.7 · 연녹 바탕 5.7 */
   --warn:#B25000; --warn-bg:#FFF4E5;                            /* systemOrange 계열 */
   --danger:#C7362B; --danger-bg:#FFEDEB;                        /* systemRed 계열 */
   --neu:#6C6C70; --neu-bg:#F2F2F7;                              /* systemGray 계열 */
@@ -289,14 +293,14 @@ body.calendar-only .cal2-only-note{display:block}
 .cal2-nav button.cal2-today{width:auto;padding:0 12px;font-size:13.5px;font-weight:800}
 .cal2-dow,.cal2-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
 .cal2-dow span{text-align:center;font-size:12px;font-weight:700;color:var(--ink-3);padding:4px 0 6px}
-.cal2-dow span:first-child{color:#FF453A}.cal2-dow span:last-child{color:#0A84FF}
+.cal2-dow span:first-child{color:var(--danger)}.cal2-dow span:last-child{color:var(--brand)}
 .cal2-day{position:relative;aspect-ratio:1/1;min-height:44px;border-radius:11px;display:flex;
   flex-direction:column;align-items:center;justify-content:flex-start;gap:3px;padding:5px 2px 0;
   font-variant-numeric:tabular-nums;transition:background .13s}
 .cal2-day .d{font-size:14px;font-weight:700;color:var(--ink);line-height:1.1;
   width:25px;height:25px;display:grid;place-items:center;border-radius:50%}
 .cal2-day.out .d{color:var(--ink-3);opacity:.45}
-.cal2-day.sun .d{color:#FF453A}.cal2-day.sat .d{color:#0A84FF}
+.cal2-day.sun .d{color:var(--danger)}.cal2-day.sat .d{color:var(--brand)}
 .cal2-day.today .d{background:var(--brand-tint);color:var(--brand);font-weight:850}
 .cal2-day.on{background:var(--brand-tint)}
 .cal2-day.on .d{background:var(--brand);color:#fff}
@@ -569,7 +573,7 @@ body.calendar-only .cal2-only-note{display:block}
 .btag{font-size:13px;font-weight:700;padding:2px 7px;border-radius:999px;
   background:#F1F5F9;color:#475569}
 .btag.paid{background:#FEE2E2;color:#991B1B}
-.bage{display:inline-block;margin:4px 0 2px;font-size:13.5px;color:#6B7280;
+.bage{display:inline-block;margin:4px 0 2px;font-size:13.5px;color:var(--ink-2);
   background:#F8FAFC;border-radius:6px;padding:2px 8px}
 .bc2{display:flex;gap:8px;margin-top:5px;font-size:14px;line-height:1.6}
 .bc2 i{flex:none;width:30px;font-style:normal;font-weight:700;color:#94A3B8;font-size:13.5px;
@@ -746,9 +750,9 @@ b.prjno{font-weight:800;font-variant-numeric:tabular-nums;color:var(--navy-900)}
 .srow .camptag{font-size:14.5px;font-weight:700;color:var(--ink-1);line-height:1.25;
   word-break:break-all;min-width:0;flex:1;margin-left:2px}
 .srow .camptag.none{color:var(--danger);font-weight:600;font-size:14px}
-.srow .oktag{font-size:13px;font-weight:700;color:#12813F;background:#E7F5EC;
+.srow .oktag{font-size:13px;font-weight:700;color:var(--ok);background:#E7F5EC;
   border-radius:999px;padding:1px 7px;white-space:nowrap}
-.srow .oktag.warn{color:#B25E09;background:#FFF3E4}
+.srow .oktag.warn{color:var(--warn);background:#FFF3E4}
 .srow .oktag.bad{color:#C0212E;background:#FDECEE}
 .ecell.has-help,.gi .has-help{cursor:pointer}
 .qm{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
@@ -1053,14 +1057,14 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
 .gate .glogo.app-icon{background:none;overflow:hidden}
 .gate .glogo.app-icon img{display:block;width:100%;height:100%;object-fit:cover}
 .gate h2{font-size:18px;margin-bottom:3px;letter-spacing:-.3px}
-.gate p{font-size:14px;color:var(--ink-2);margin-bottom:20px}
+.gate .box p{font-size:14px;color:var(--ink-2);margin-bottom:20px}
 .gate input{width:100%;padding:13px;font-size:24px;text-align:center;letter-spacing:14px;
   border:2px solid var(--line);border-radius:13px;margin-bottom:12px;font-variant-numeric:tabular-nums}
 .gate input:focus{outline:none;border-color:var(--brand)}
 .gate button{width:100%;padding:14px;background:var(--brand);color:#fff;border-radius:13px;
   font-size:15px;font-weight:700;transition:background .15s;box-shadow:0 6px 16px rgba(36,82,230,.35)}
 .gate button:hover{background:var(--brand-dk)}
-.gate .err{color:var(--danger);font-size:14px;margin-top:9px;min-height:16px}
+.gate .box .err{color:var(--danger);font-size:14px;margin-top:9px;min-height:16px}
 
 /* ═══ 데스크톱 (≥900px): 다크 사이드바 ═══ */
 @media(min-width:900px){
@@ -1211,7 +1215,10 @@ table.grid tr.tot td{font-weight:800;background:#F8FAFD;border-top:2px solid var
   .ryu-entry-fields label.wide{grid-column:auto}
 }
 body.ryu-mode .tabbar button[data-v="run"]{display:none}
-body.ryu-mode .tabbar .brand .bt::after{content:" · " attr(data-staff);display:block;color:#B9C7F0;font-size:11.5px}
+/* .brand 는 >=900px 남색 사이드바에서만 보인다 — 색도 그 문맥 안에서 정한다 */
+@media(min-width:900px){
+  body.ryu-mode .tabbar .brand .bt::after{content:" · " attr(data-staff);display:block;color:#B9C7F0;font-size:11.5px}
+}
 body.staff-mode .tabbar button[data-v="run"],
 body.staff-mode .tabbar button[data-v="daily"],
 body.staff-mode .tabbar button[data-v="report"],
@@ -1518,7 +1525,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .remote-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
 @media(max-width:720px){.remote-grid2{grid-template-columns:1fr}}
 .remote-grid2 fieldset{border:0;border-radius:16px;background:#F2F4F8;padding:14px 14px 10px;margin:0;min-width:0}
-.remote-grid2 legend{padding:0 2px 9px;font-size:12.5px;font-weight:800;color:#6B7280;letter-spacing:.03em}
+.remote-grid2 legend{padding:0 2px 9px;font-size:12.5px;font-weight:800;color:var(--ink-2);letter-spacing:.03em}
 .remote-grid2 input,.remote-grid2 select{display:block;width:100%;margin:0 0 9px;padding:11px 13px;
   font-size:15px;border:1px solid #E2E6EF;border-radius:12px;background:#fff;color:#101828;
   -webkit-appearance:none;appearance:none;outline:none;min-height:44px;box-sizing:border-box}
@@ -1532,7 +1539,7 @@ table.remote-mini th{background:#F1F5FB;color:#475467;font-size:12px;font-weight
 table.remote-mini td{border-top:1px solid #EEF2F7;padding:10px 12px;text-align:left;font-size:14px;color:#101828}
 ul.remote-plain{list-style:none;padding:0;margin:8px 0}
 ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14px}
-.remote-rule{font-size:12.5px;color:#6B7280;margin:2px 0 6px}
+.remote-rule{font-size:12.5px;color:var(--ink-2);margin:2px 0 6px}
 /* 버전·한도초과 표시(2026-08-04 재고표 반영) — 숫자만 보면 어느 물건인지 모른다 */
 .remote-ver{font-size:11.5px;color:var(--ink-3)}
 .remote-over{color:var(--danger)}
@@ -1548,7 +1555,7 @@ fieldset.remote-edit{border:1px solid var(--brand);border-radius:16px;background
   padding:14px;margin:12px 0}
 fieldset.remote-edit legend{padding:0 6px;font-size:13px;font-weight:800;color:var(--brand)}
 .remote-edit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:9px;margin-bottom:9px}
-.remote-edit-grid label{display:block;font-size:12px;font-weight:700;color:#6B7280}
+.remote-edit-grid label{display:block;font-size:12px;font-weight:700;color:var(--ink-2)}
 .remote-edit-grid input,.remote-edit-grid select,fieldset.remote-edit>input{display:block;width:100%;
   margin-top:4px;padding:10px 12px;font-size:14.5px;border:1px solid #E2E6EF;border-radius:11px;
   background:#fff;color:#101828;box-sizing:border-box;min-height:42px}
@@ -1651,7 +1658,7 @@ fieldset.remote-edit>input{margin:0 0 9px}
 .ui-card-tx{min-width:0;flex:1}
 .ui-card-tx b{display:block;font-size:14.5px;font-weight:700;letter-spacing:-.25px;line-height:1.3}
 .ui-card-tx span{display:block;font-size:12.5px;color:var(--ink-3);margin-top:3px;line-height:1.4}
-.ui-card.danger .ui-card-ic{background:#FFE9E9;color:#D92D20}
+.ui-card.danger .ui-card-ic{background:#FFE9E9;color:var(--danger)}
 .ui-card.danger .ui-card-tx b{color:#B42318}
 .ui-card.primary .ui-card-ic{background:var(--brand);color:#fff}
 
@@ -1787,7 +1794,7 @@ fieldset.remote-edit>input{margin:0 0 9px}
 .dash-choice input{width:19px;height:19px;accent-color:var(--brand);cursor:pointer}
 .dash-choice-copy{min-width:0}.dash-choice-copy b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   color:var(--ink);font-size:13.5px}.dash-choice-copy small{display:block;margin-top:2px;color:var(--ink-3);font-size:11.5px}
-.dash-choice-grip{color:#8B9BB6;font-size:18px;font-weight:900;letter-spacing:-3px;padding-right:3px}
+.dash-choice-grip{color:var(--ink-3);font-size:18px;font-weight:900;letter-spacing:-3px;padding-right:3px}
 .dash-customizer-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .dash-customizer-actions button{border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink-2);
   min-height:38px;padding:8px 12px;font:700 13px inherit;cursor:pointer}
@@ -2131,25 +2138,25 @@ fieldset.remote-edit>input{margin:0 0 9px}
               <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-folder2-open"/></svg></span>
               <span class="ui-card-tx"><b>전체 원본 찾기</b><span>이름·프로젝트NO·전표번호·PO로 검색</span></span></button>
             <button class="ui-card" onclick="openSources('tax')">
-              <span class="ui-card-ic" style="background:#FFE4EA;color:#FF375F"><svg aria-hidden="true"><use href="#i-bootstrap-receipt"/></svg></span>
+              <span class="ui-card-ic" style="background:#FFE4EA;color:#B3004C"><svg aria-hidden="true"><use href="#i-bootstrap-receipt"/></svg></span>
               <span class="ui-card-tx"><b>세금계산서</b><span>건별 PDF·진행단계 원본</span></span></button>
             <button class="ui-card" onclick="openSources('stmt')">
-              <span class="ui-card-ic" style="background:#FFF0DC;color:#FF9F0A"><svg aria-hidden="true"><use href="#i-bootstrap-file-earmark-text-fill"/></svg></span>
+              <span class="ui-card-ic" style="background:#FFF0DC;color:#9A4500"><svg aria-hidden="true"><use href="#i-bootstrap-file-earmark-text-fill"/></svg></span>
               <span class="ui-card-tx"><b>거래명세서</b><span>전표번호별 PDF</span></span></button>
             <button class="ui-card" onclick="openSources('band')">
-              <span class="ui-card-ic" style="background:#E3F9EC;color:#30D158"><svg aria-hidden="true"><use href="#i-bootstrap-image-fill"/></svg></span>
+              <span class="ui-card-ic" style="background:#E3F9EC;color:#1B6E2E"><svg aria-hidden="true"><use href="#i-bootstrap-image-fill"/></svg></span>
               <span class="ui-card-tx"><b>밴드 글·사진</b><span>글번호별 PDF·본문·현장 사진</span></span></button>
             <button class="ui-card" onclick="openSources('kakao')">
-              <span class="ui-card-ic" style="background:#FFF8D9;color:#B58900"><svg aria-hidden="true"><use href="#i-bootstrap-chat-dots-fill"/></svg></span>
+              <span class="ui-card-ic" style="background:#FFF8D9;color:#7A5C00"><svg aria-hidden="true"><use href="#i-bootstrap-chat-dots-fill"/></svg></span>
               <span class="ui-card-tx"><b>카톡 내보내기</b><span>정기점검방·돌발방 대화 원본</span></span></button>
             <button class="ui-card" onclick="openSources('erp')">
-              <span class="ui-card-ic" style="background:#E3F0FF;color:#0A84FF"><svg aria-hidden="true"><use href="#i-bootstrap-clipboard-data-fill"/></svg></span>
+              <span class="ui-card-ic" style="background:#E3F0FF;color:var(--brand)"><svg aria-hidden="true"><use href="#i-bootstrap-clipboard-data-fill"/></svg></span>
               <span class="ui-card-tx"><b>ERP 화면 엑셀</b><span>판매조회·원장·전표 등</span></span></button>
             <button class="ui-card" onclick="openSources('po')">
-              <span class="ui-card-ic" style="background:#F3E6FF;color:#BF5AF2"><svg aria-hidden="true"><use href="#i-bootstrap-box-seam"/></svg></span>
+              <span class="ui-card-ic" style="background:#F3E6FF;color:#6B21A8"><svg aria-hidden="true"><use href="#i-bootstrap-box-seam"/></svg></span>
               <span class="ui-card-tx"><b>쿠팡 PO</b><span>발주서·견적 원본</span></span></button>
             <button class="ui-card" onclick="show('check')">
-              <span class="ui-card-ic" style="background:#FFE9E9;color:#D92D20"><svg aria-hidden="true"><use href="#i-bootstrap-exclamation-triangle-fill"/></svg></span>
+              <span class="ui-card-ic" style="background:#FFE9E9;color:var(--danger)"><svg aria-hidden="true"><use href="#i-bootstrap-exclamation-triangle-fill"/></svg></span>
               <span class="ui-card-tx"><b>확인 필요</b><span>조치가 필요한 건 모아 보기</span></span></button>
           </div>
         </div>
