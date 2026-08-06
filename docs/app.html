@@ -116,6 +116,26 @@ input,button,select{font-family:inherit;font-size:15px}
 .sheetactions{flex:0 0 auto;display:grid;grid-template-columns:1fr 1fr;gap:9px;
  padding:10px 14px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line);
  background:var(--card)}
+/* 알림·확인 레이어 (2026-08-06 지시) — 폰=아래에서 올라옴 · 넓은 화면=가운데 모달 */
+.dlgwrap{position:fixed;inset:0;z-index:120;background:rgba(3,9,24,.55);display:none;
+ align-items:flex-end;justify-content:center}
+.dlgwrap.on{display:flex}
+.dlg{width:min(520px,100%);background:var(--card);border-radius:20px 20px 0 0;
+ padding:10px 18px calc(16px + env(safe-area-inset-bottom));
+ box-shadow:0 -12px 40px rgba(0,0,0,.3);max-height:86vh;display:flex;flex-direction:column}
+.dlggrip{flex:0 0 auto;width:38px;height:4.5px;background:var(--line);border-radius:99px;margin:2px auto 12px}
+.dlg h2{font-size:17px;margin:0 0 6px}
+.dlgbody{flex:1 1 auto;min-height:0;overflow-y:auto;font-size:14.5px;line-height:1.6;
+ color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere;padding-bottom:4px}
+.dlgfoot{flex:0 0 auto;display:flex;gap:9px;padding-top:12px}
+.dlgfoot button{flex:1;padding:13px 12px;border-radius:12px;font-family:inherit;font-size:14.5px;
+ font-weight:800;border:1px solid var(--line);background:transparent;color:var(--ink-1);cursor:pointer}
+.dlgfoot button.primary{background:#2452E6;border-color:transparent;color:#fff}
+@media(min-width:900px){
+ .dlgwrap{align-items:center}
+ .dlg{border-radius:18px;padding:18px 20px}
+ .dlggrip{display:none}
+}
 </style></head>
 <body>
 <header><div class="wrap">
@@ -169,6 +189,18 @@ input,button,select{font-family:inherit;font-size:15px}
       <button class="btn" id="sheetshare">이미지로 전달</button>
       <button class="btn ghost" id="sheetsave">이미지 저장</button>
     </div>
+  </section>
+</div>
+
+<!-- 알림·확인 레이어 (2026-08-06 지시) — PC 앱과 같은 모양으로 맞춘다.
+     폰에서는 밑에서 올라오고, 넓은 화면에서는 가운데 모달이 된다.
+     브라우저 기본 alert 은 폰에서 앱 밖으로 튕겨 나간 것처럼 보인다. -->
+<div id="dlgwrap" class="dlgwrap" aria-hidden="true">
+  <section class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgtitle">
+    <div class="dlggrip"></div>
+    <h2 id="dlgtitle"></h2>
+    <div class="dlgbody" id="dlgbody"></div>
+    <div class="dlgfoot" id="dlgfoot"></div>
   </section>
 </div>
 
@@ -515,6 +547,51 @@ async function shareStaleCloud(){
   }
   downloadBriefBlob(blob);
 }
+
+/* ── 알림·확인 레이어 (2026-08-06 지시) ─────────────────────────────────────
+   브라우저 기본 alert/confirm 대신 쓴다. PC 앱(webapp/index.html)의
+   notice/askYesNo 와 **이름·동작을 맞춰** 두 앱이 같은 모양이 되게 한다. */
+let _dlgDone = null;
+function dlgClose(v){
+  const done = _dlgDone; _dlgDone = null;
+  $('dlgwrap').classList.remove('on');
+  $('dlgwrap').setAttribute('aria-hidden','true');
+  if(done) done(v);
+}
+function dlgAsk(title, msg, buttons, cancelValue){
+  return new Promise(res => {
+    if(_dlgDone) dlgClose(null);                 // 앞의 창은 취소로 닫고 새 것을 보인다
+    _dlgDone = res;
+    $('dlgtitle').textContent = title || '알림';
+    $('dlgbody').textContent  = msg == null ? '' : String(msg);
+    $('dlgfoot').innerHTML = '';
+    buttons.forEach(b => {
+      const el = document.createElement('button');
+      el.textContent = b.label;
+      if(b.kind) el.className = b.kind;
+      el.onclick = () => dlgClose(b.value);
+      $('dlgfoot').appendChild(el);
+    });
+    $('dlgwrap').dataset.cancel = JSON.stringify(cancelValue === undefined ? null : cancelValue);
+    $('dlgwrap').classList.add('on');
+    $('dlgwrap').setAttribute('aria-hidden','false');
+    const p = $('dlgfoot').querySelector('.primary');
+    if(p){ try{ p.focus(); }catch(_){} }
+  });
+}
+function notice(msg, title){ return dlgAsk(title || '알림', msg, [{label:'확인', value:true, kind:'primary'}], true); }
+function askYesNo(msg, title){
+  return dlgAsk(title || '확인', msg,
+    [{label:'취소', value:false}, {label:'진행', value:true, kind:'primary'}], false);
+}
+$('dlgwrap').onclick = e => {
+  if(e.target !== $('dlgwrap') || !_dlgDone) return;
+  let v = null; try{ v = JSON.parse($('dlgwrap').dataset.cancel || 'null'); }catch(_){}
+  dlgClose(v);
+};
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && _dlgDone){ e.preventDefault(); $('dlgwrap').click(); }
+});
 
 /* ── 등록 예약 — PC가 켜진 뒤 이 폰 앱을 열면 원장으로 전송한다 ── */
 const Q = () => JSON.parse(localStorage.getItem('csos_queue') || '[]');
