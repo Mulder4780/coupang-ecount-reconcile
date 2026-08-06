@@ -3100,6 +3100,11 @@ def _augment_exec_daily(report):
 
 def get_exec_report(day=None):
     requested = norm_date(day)
+    # 사람이 날짜를 고른 것인지, 우리가 어제로 기본값을 채운 것인지 갈라 둔다.
+    # ★ 이 구분이 없어서 **보고일까지 어제로 찍혔다**(2026-08-06 지시로 발견).
+    #   아래 기본값 로직은 '집계기준일 = 어제'를 노린 것인데, 뒤에서 requested 를
+    #   보고일에도 그대로 넣는 바람에 10:30 대표 보고 머리에 어제 날짜가 박혔다.
+    picked_by_user = bool(requested)
     if not requested and not DEMO:
         # ★ 기본 집계기준일 = **어제**(사용자 지시 2026-08-04 "8월 3일 실적이 하나도
         #   업데이트 안 되었다"). 01_대표보고 시트의 집계기준일은 수동값이라 하루 이상
@@ -3188,8 +3193,15 @@ def get_exec_report(day=None):
                                       or (r.get("meta") or {}).get("보고일"))
         r["details"] = read_exec_details(master, base)
         if requested:
-            r.setdefault("meta", {})["보고일"] = requested
-            r["meta"]["집계기준일"] = requested
+            # 보고일과 집계기준일은 **다른 값**이다. 보고는 다음 날 아침에 하므로
+            # 기본은 '보고일=오늘, 집계기준일=어제' 다. 사람이 과거 날짜를 직접 고른
+            # 때만 보고일도 그 날짜로 맞춘다(그때는 그 날짜의 보고서를 다시 보는 것이다).
+            r.setdefault("meta", {})["집계기준일"] = requested
+            if picked_by_user:
+                r["meta"]["보고일"] = requested
+            else:
+                r["meta"]["보고일"] = datetime.now().strftime("%Y-%m-%d")
+                r["meta"]["보고일자동"] = True
             # 금액·리스크 타일은 선택일로 다시 계산한 상세 집계와 맞춘다.
             for sec in r.get("sections", []):
                 for item in sec.get("items", []):
