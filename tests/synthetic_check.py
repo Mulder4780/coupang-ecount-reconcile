@@ -5168,6 +5168,11 @@ def t112_worktree_shared_state():
     ld = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
     assert "from worktree_state import shared" in ld, \
         "큐 DB 가 워크트리마다 갈린다 — 넣은 입력이 11:00·15:00 반영에 안 잡힌다"
+    # 분담판도 세션 사이의 약속이다 — 갈리면 둘이 같은 일을 하고 나서야 안다.
+    # 실측(2026-08-06): 워크트리에서는 "분담판이 비어 있습니다" 였는데 본체에는 3건이 있었다.
+    ws = open(os.path.join(ROOT, "worksplit.py"), encoding="utf-8").read()
+    assert "from worktree_state import shared" in ws, \
+        "분담판이 체크아웃마다 갈린다 — 서로 맡은 일을 못 본다"
 
     # `reports/` 를 통째로 정션하면 안 된다 — 추적 파일이 섞여 있어 git 이 흔들린다
     assert "reports" not in W.LINK_DIRS, \

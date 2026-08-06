@@ -37,9 +37,20 @@ from datetime import datetime
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
-BOARD = os.path.join(ROOT, "reports", "worksplit.json")
-GUARD = os.path.join(ROOT, "reports", ".worksplit.guard")
-OUT_MD = os.path.join(ROOT, "reports", "작업분담.md")
+# ★ 분담판도 **본체 하나**를 함께 본다 (2026-08-06). ai_claim 과 같은 이유다 —
+#   이건 "누가 어떤 일을 맡았나" 라는 **세션 사이의 약속**이라, 체크아웃마다 따로
+#   있으면 서로의 분담을 못 본다. 워크트리에서 일을 맡아 적어도 본체 세션에는
+#   안 보이고, 결국 둘이 같은 일을 몇 시간 조사한 뒤에야 겹친 걸 알게 된다
+#   (worksplit 이 애초에 막으려던 바로 그 사고다).
+#   본체에서는 `shared()` 가 제 폴더를 돌려주므로 동작이 하나도 바뀌지 않는다.
+try:
+    from worktree_state import shared as _shared
+    _BOARD_DIR = _shared("reports")
+except Exception:
+    _BOARD_DIR = os.path.join(ROOT, "reports")
+BOARD = os.path.join(_BOARD_DIR, "worksplit.json")
+GUARD = os.path.join(_BOARD_DIR, ".worksplit.guard")
+OUT_MD = os.path.join(_BOARD_DIR, "작업분담.md")
 
 WAIT, DOING, DONE, HOLD = "대기", "진행", "완료", "사람대기"
 # 이 일을 하려면 어떤 자원 잠금이 필요한가(ai_claim 의 이름과 같게 쓴다).
