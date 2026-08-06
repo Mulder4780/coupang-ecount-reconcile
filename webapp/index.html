@@ -6529,6 +6529,58 @@ async function calendarCapture(){
   toast(`${Y}년 ${M}월 캘린더를 A4 한 장으로 저장했습니다`);
   uxEvent('tap', 'calCapture');
 }
+/* ── 공유 링크로 처음 들어온 사람에게 '앱으로 설치' 를 권한다 (2026-08-06 지시) ──
+   단톡방에서 링크를 받은 사람은 브라우저 주소창째로 본다. 다음에 또 보려면 링크를
+   다시 찾아야 하고, 그러다 안 보게 된다. 그래서 **처음 열 때 설치를 먼저 권한다.**
+   ★ 브라우저는 설치 창을 **사람이 누른 뒤에만** 띄우게 한다(크롬 규칙). 그래서 우리가
+     띠를 먼저 보여 주고, 누르면 그때 진짜 설치 창을 부른다. 저절로 뜨게 할 수는 없다.
+   ★ 아이폰은 이 이벤트 자체가 없다 — 대신 '공유 → 홈 화면에 추가' 를 글로 안내한다. */
+function csosStandalone(){
+  return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+}
+function showInstallBanner(){
+  if(csosStandalone() || document.getElementById('shareInstall')) return;
+  try{ if(localStorage.getItem('csos_install_hint_off')==='1') return; }catch(e){}
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const p = window.__csosInstallPrompt;
+  if(!p && !isIOS) return;                    // 설치할 수 없는 환경이면 조용히 지나간다
+  const bar = document.createElement('div');
+  bar.id = 'shareInstall';
+  bar.style.cssText = 'position:fixed;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom) + 68px);'
+    + 'z-index:32;background:#0E1B3F;color:#fff;border-radius:16px;padding:13px 14px;'
+    + 'box-shadow:0 10px 28px rgba(0,0,0,.3);display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+  bar.innerHTML = `<b style="font-size:14.5px">쿠팡 캘린더를 앱으로 설치</b>
+    <span style="flex:1 1 100%;font-size:12.5px;color:#C9D5FA;line-height:1.5">${
+      isIOS ? '아래 <b>공유</b> 버튼 → <b>홈 화면에 추가</b> 를 누르면 앱처럼 열립니다.'
+            : '홈 화면에서 바로 열 수 있습니다. 링크를 다시 찾지 않아도 됩니다.'}</span>
+    <span style="flex:1 1 100%;display:flex;gap:8px;margin-top:2px">
+      ${isIOS ? '' : '<button id="siGo" style="flex:1;appearance:none;border:0;border-radius:11px;padding:10px;background:#2452E6;color:#fff;font:inherit;font-weight:750;cursor:pointer">설치하기</button>'}
+      <button id="siNo" style="flex:${isIOS?'1':'0 0 96px'};appearance:none;border:1px solid #3A4A78;border-radius:11px;padding:10px;background:transparent;color:#C9D5FA;font:inherit;cursor:pointer">${isIOS?'알겠습니다':'나중에'}</button>
+    </span>`;
+  document.body.appendChild(bar);
+  const close = (remember) => {
+    if(remember){ try{ localStorage.setItem('csos_install_hint_off','1'); }catch(e){} }
+    bar.remove();
+  };
+  const no = bar.querySelector('#siNo'); if(no) no.onclick = () => close(true);
+  const go = bar.querySelector('#siGo');
+  if(go) go.onclick = async () => {
+    const ev = window.__csosInstallPrompt;
+    if(!ev){ close(false); return; }
+    close(false);
+    try{ ev.prompt(); await ev.userChoice; }catch(e){}
+    window.__csosInstallPrompt = null;
+    uxEvent('tap','installFromShare');
+  };
+  uxEvent('view','installBanner');
+}
+/* 공유 링크(?view=)로 들어왔을 때만 권한다 — 늘 쓰는 사람에게 매번 띄우면 방해다. */
+function maybeInstallForShare(){
+  try{ if(!new URLSearchParams(location.search).get('view')) return; }catch(e){ return; }
+  if(window.__csosInstallPrompt) { showInstallBanner(); return; }
+  window.addEventListener('csos-install-ready', showInstallBanner, {once:true});
+  setTimeout(showInstallBanner, 1200);        // 아이폰은 이벤트가 없으므로 조금 기다렸다 안내
+}
 /* 링크로 들어왔을 때 달·필터를 그대로 맞춰 준다. 한 번만 적용한다 —
    계속 적용하면 사용자가 달을 바꿔도 자꾸 링크의 달로 되돌아간다. */
 let CAL_DEEP_DONE = false;
@@ -6544,7 +6596,8 @@ function calApplyDeepLink(){
 function renderCalendarPage(){
   const grid=$('calGrid'), meta=$('calendarMeta');
   if(!grid || !meta) return;
-  calApplyDeepLink();          // 주소의 m=YYYY-MM · off= 를 한 번만 적용한다
+  calApplyDeepLink();
+  maybeInstallForShare();          // 주소의 m=YYYY-MM · off= 를 한 번만 적용한다
   if(!CAL_MONTH){
     try{ CAL_MONTH = localStorage.getItem('csos.cal.month')||''; }catch(e){}
   }
