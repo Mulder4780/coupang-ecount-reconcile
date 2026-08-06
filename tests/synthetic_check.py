@@ -1175,7 +1175,9 @@ def t6_webapp():
             "setDashboardKpiVisible", "moveDashboardKpi", "prepareDashboardKpis",
             "cycleDashboardBlockSize", "dash-drag-handle", "dash-kpi-handle", "dash-choice",
             "role=\"status\" aria-live=\"polite\"", "window.addEventListener('storage'",
-            "grid.addEventListener('dragstart'", "initDashboardLayout();",
+            # 2026-08-06: 끌기가 HTML5 dragstart → 포인터 이벤트로 바뀌었다.
+            # 터치에서 dragstart 가 아예 나지 않아 폰에서 못 움직였다(검증 [122]).
+            "dashDragEnable('dashGrid'", "initDashboardLayout();",
         ):
             assert marker in html, "대시보드 카드 편집 누락: " + marker
         assert "#dashGrid{display:grid;grid-template-columns:repeat(12" in html.replace(" ", "")
@@ -4316,7 +4318,9 @@ def t98_remote_control_tracking():
         assert (top["issued_on"], top["camp"]) == ("2026-08-02", "시화3캠프"), top
         L.remote_deliver("김기사", "UJ2600001", "부산2캠프", 2, "2026-08-03", kind="사용")
         hold = L.remote_status()["holdings"]["김기사"]
-        assert hold == {"issued": 3, "delivered": 2, "holding": 1}, hold
+        # versions 는 2026-08-06 에 붙은 버전별 내역이다(검증 [122]). 여기서는 합계만 본다.
+        assert {k: hold[k] for k in ("issued", "delivered", "holding")} == \
+            {"issued": 3, "delivered": 2, "holding": 1}, hold
         assert L.remote_status()["deliveries"][0]["kind"] == "사용"
 
         # 기초보유(2026-08-04 재고표 이관): 한도를 넘는 개시 잔량도 사실대로 받는다.
@@ -5737,6 +5741,89 @@ def t121_layer_dialogs():
     print("  [121] 알림·확인·입력 레이어 — 기본창 0개·await 완비·폰시트/PC모달·폼 요소째 이동 ✅")
 
 
+def t122_dash_drag_and_remote_version():
+    """[122] 대시보드 카드 끌기 + 리모컨 버전 관리 (2026-08-06 지시).
+
+    사용자 지시: "각 카드를 클릭해서 드래그 앤 드롭으로 자유롭게 움직일 수 있는 기능
+    추가, 각 카드는 밑에서 위로 올라가는 레이어창으로 하거나 모달창으로 나오게 …" ·
+    "리모컨 버전 선택할 수 있는 기능 추가하고 전체적으로 버전 관리가 VER.3인지
+    VER.4인지 입력 및 확인 수정 가능하게 고도화".
+
+    지키는 것 — 대시보드
+      ① 끌기는 **포인터 이벤트**다. HTML5 dragstart 는 터치에서 이벤트 자체가 나지
+         않아 폰에서 아무리 끌어도 안 움직였다. draggable 손잡이가 남아 있으면 안 된다.
+      ② 카드 **아무 데나** 눌러 끈다 — 손잡이 셀렉터로만 집는 코드가 없어야 한다.
+      ③ 6px 문턱(슬롭)이 있어야 평범한 탭·체크가 살아남는다.
+      ④ 카드를 레이어로 연 동안 저장이 일어나도 **순서에서 빠지지 않는다.**
+         (grid 의 자식이 아니게 되므로, base 순서를 이어 붙이는 처리가 있어야 한다)
+
+    지키는 것 — 리모컨 버전
+      ⑤ 표기 통일: 'ver3'·'V4'·'VER 3' 이 전부 하나로 모인다.
+      ⑥ 담당자 보유가 **버전별로** 나온다(합계만으로는 VER.3 몇 개인지 못 센다).
+      ⑦ 버전이 비었거나 '미확인'인 줄을 모아 준다 — 빈칸만 찾으면 대부분을 놓친다.
+      ⑧ 화면의 버전 선택지는 **서버 목록만** 쓴다(화면이 따로 적으면 조용히 갈린다).
+    """
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    js = "".join(re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", idx, re.S))
+
+    # ① 포인터 끌기로 갈아탔다 — 옛 HTML5 끌기 흔적이 남으면 안 된다
+    assert "function dashDragEnable(" in js, "포인터 기반 끌기가 없다"
+    for gone in ("dashDragging", "dashKpiDragging", "dashPaletteDragging"):
+        assert gone not in js, "옛 HTML5 끌기가 남아 있다(폰에서 안 된다): %s" % gone
+    # 대시보드 배치 코드 안에는 HTML5 끌기가 없어야 한다.
+    # (파일을 끌어다 놓는 업로드 구역의 dragover 는 별개다 — 거기는 그대로 둔다)
+    dash = js[js.index("function initDashboardLayout("):]
+    dash = dash[:dash.index("\nasync function ", 10)]
+    for gone in ("addEventListener('drag", 'addEventListener("drag', "dataTransfer"):
+        assert gone not in dash, "대시보드에 HTML5 끌기가 남아 있다: %s" % gone
+    assert 'class="dash-drag-handle" draggable' not in js, \
+        "손잡이에 draggable 이 남아 있다 — 네이티브 끌기가 포인터 끌기와 싸운다"
+    # ② 세 곳 모두 붙었다: 화면 카드 · 핵심지표 · 보관함
+    for host, sel in (("dashGrid", "[data-dash-block]"), ("kpis", "[data-kpi-card]"),
+                      ("dashPalette", ".dash-choice")):
+        assert "dashDragEnable('%s','%s'" % (host, sel) in js, \
+            "%s 에 끌기가 붙지 않았다" % host
+    # ③ 탭과 끌기를 가르는 문턱
+    assert "DASH_DRAG_SLOP" in js and re.search(r"DASH_DRAG_SLOP\s*=\s*[1-9]", js), \
+        "끌기 문턱이 없다 — 살짝만 눌러도 카드가 끌려간다"
+    assert "input,button,select,textarea,a,label" in js, \
+        "입력 요소 위에서도 끌기가 시작된다 — 체크박스를 못 누른다"
+    # ④ 레이어로 연 카드가 순서에서 빠지지 않는다
+    assert "function openDashCardLayer(" in js
+    seg = js[js.index("function dashboardLayoutState("):][:1600]
+    assert "(base.order||[]).forEach" in seg, \
+        "레이어로 열어 둔 카드가 저장 때 순서에서 빠진다"
+
+    # ⑤~⑧ 리모컨 버전
+    sys.path.insert(0, ROOT)
+    import ledger_db as L
+    assert L._remote_version("ver3") == "VER.3"
+    assert L._remote_version("V4") == "VER.4"
+    assert L._remote_version("VER 3") == "VER.3"
+    assert L._remote_version("구형") == "기존형"
+    assert L._remote_version("") == "", "빈 값을 임의로 채우면 안 된다"
+    src = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    hold = src[src.index("def _remote_holdings("):]
+    hold = hold[:hold.index("\ndef ", 10)]
+    assert '"versions"' in hold, "담당자 보유에 버전별 내역이 없다"
+    gaps = src[src.index("def remote_version_gaps("):]
+    gaps = gaps[:gaps.index("\ndef ", 10)]
+    assert "TRIM(version)='미확인'" in gaps, \
+        "'미확인'으로 저장된 줄을 빠뜨린다 — 빈칸만 세면 대부분을 놓친다"
+    for t in ("remote_issue", "remote_delivery", "remote_stock"):
+        assert t in gaps, "%s 가 버전 확인 대상에서 빠졌다" % t
+    st = L.remote_status()
+    for k in ("version_totals", "version_gaps", "versions"):
+        assert k in st, "remote_status 에 %s 가 없다" % k
+    for v in st["version_totals"].values():
+        assert v["all"] == v["holding"] + v["stock"], "버전 합계가 안 맞는다"
+    # ⑧ 화면은 서버 목록만 쓴다 + 그 자리에서 고치는 길이 있다
+    assert "function remoteSetVersion(" in js, "버전을 그 자리에서 고칠 수 없다"
+    assert "(s.versions||[])" in js and "'VER.3'," not in js.replace("REMOTE", ""), \
+        "화면이 버전 목록을 따로 적어 두었다 — 서버와 갈린다"
+    print("  [122] 대시보드 포인터 끌기·카드 레이어 + 리모컨 버전별 보유·미확인 채우기 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -6659,6 +6746,7 @@ if __name__ == "__main__":
     t118_ocr_crosscheck()
     t119_context_guard()
     t121_layer_dialogs()
+    t122_dash_drag_and_remote_version()
     t120_calendar_sheet_and_share()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:

@@ -639,17 +639,65 @@ def _remote_version(v):
 
 
 def _remote_holdings(c):
-    """AS 담당자별 보유 = (불출 + 기초보유) 합 - 납품·사용 합."""
+    """AS 담당자별 보유 = (불출 + 기초보유) 합 - 납품·사용 합.
+
+    2026-08-06 지시("버전 관리가 VER.3인지 VER.4인지 … 확인 가능하게")로 **버전별
+    내역**을 함께 준다. 합계만 있으면 "이 기사가 VER.3 을 몇 개 들고 있나"에 답할
+    수 없었다 — 현장에서 맞는 버전을 안 들고 가면 다시 나가야 하는 일이 생긴다.
+    버전을 안 적은 옛 기록은 '미확인'으로 모은다(빈칸으로 흩어 두지 않는다).
+    """
+    UNK = "COALESCE(NULLIF(version,''),'미확인')"
     issued = {row[0]: row[1] for row in c.execute(
         "SELECT technician,SUM(qty) FROM remote_issue"
         " WHERE status IN ('불출완료','기초보유') GROUP BY technician")}
     delivered = {row[0]: row[1] for row in c.execute(
         "SELECT technician,SUM(qty) FROM remote_delivery GROUP BY technician")}
+    by_ver = {}
+    for tech, ver, qty in c.execute(
+            "SELECT technician,%s,SUM(qty) FROM remote_issue"
+            " WHERE status IN ('불출완료','기초보유') GROUP BY technician,%s" % (UNK, UNK)):
+        d = by_ver.setdefault(tech, {})
+        d[ver] = d.get(ver, 0) + int(qty or 0)
+    for tech, ver, qty in c.execute(
+            "SELECT technician,%s,SUM(qty) FROM remote_delivery"
+            " GROUP BY technician,%s" % (UNK, UNK)):
+        d = by_ver.setdefault(tech, {})
+        d[ver] = d.get(ver, 0) - int(qty or 0)
     out = {}
     for tech in set(issued) | set(delivered):
         got, used = int(issued.get(tech) or 0), int(delivered.get(tech) or 0)
-        out[tech] = {"issued": got, "delivered": used, "holding": got - used}
+        out[tech] = {"issued": got, "delivered": used, "holding": got - used,
+                     # 0 이나 음수는 버린다 — 버전을 안 적고 납품만 잡힌 옛 기록 탓에
+                     # 음수가 나오면 화면에서 "-2개 보유"로 읽혀 더 헷갈린다
+                     "versions": {k: v for k, v in sorted((by_ver.get(tech) or {}).items())
+                                  if v > 0}}
     return out
+
+
+def remote_version_gaps(c, limit=40):
+    """버전을 아직 안 적은 줄들 — 화면에서 바로 골라 채우게 하려고 모아 준다.
+
+    2026-08-06 지시의 "입력 및 확인 수정 가능하게" 가 여기다. 버전이 비어 있으면
+    재고가 '미확인' 더미로 쌓여, VER.3/VER.4 어느 쪽이 부족한지 알 수 없다.
+    """
+    out = []
+    for kind, table, day_col, who_col in (
+            ("issue", "remote_issue", "issued_on", "technician"),
+            ("delivery", "remote_delivery", "delivered_on", "technician"),
+            ("stock", "remote_stock", "moved_on", "branch")):
+        qty_col = "qty_delta" if table == "remote_stock" else "qty"
+        for rid, day, who, qty in c.execute(
+                # 빈칸뿐 아니라 **'미확인'으로 저장된 줄도** 채울 대상이다.
+                # 기초 재고표에서 넘어온 줄들이 그렇게 들어와 있어서, 빈칸만 찾으면
+                # 24개가 미확인인데 "채울 것 4건"으로 보였다(2026-08-06 실측).
+                "SELECT id,COALESCE(%s,''),COALESCE(%s,''),%s FROM %s"
+                " WHERE version IS NULL OR TRIM(version)='' OR TRIM(version)='미확인'"
+                " ORDER BY id DESC LIMIT ?" % (day_col, who_col, qty_col, table),
+                (int(limit),)):
+            out.append({"kind": kind, "id": rid, "on": day, "who": who,
+                        "qty": int(qty or 0)})
+    out.sort(key=lambda r: (r["on"] or "", r["id"]), reverse=True)
+    return out[:limit]
 
 
 def _remote_branch_stock(c):
@@ -1019,12 +1067,25 @@ def remote_status(limit=60):
                  for row in c.execute(
                      "SELECT id,branch,qty_delta,reason,version,moved_on"
                      " FROM remote_stock ORDER BY id DESC LIMIT ?", (int(limit),))]
+        version_gaps = remote_version_gaps(c)
     # 공지 4항: 한도는 '기존 보유 포함'이다. 기초보유로 이미 넘긴 사람은 새 불출 대상이
     # 아니라 **회수·사용확인 대상**이므로 따로 뽑아 화면에 띄운다.
     over = {t: h["holding"] for t, h in holdings.items()
             if h["holding"] > REMOTE_HOLD_LIMIT}
     total_hold = sum(h["holding"] for h in holdings.values())
     total_stock = sum(b["stock"] for b in branch_stock.values())
+    # 버전별 전체 합계 — "VER.3 이 지금 몇 개 남았나"에 한 줄로 답한다(2026-08-06 지시).
+    # 개인 보유와 지점 재고는 서로 다른 물건이므로 나눠 세고 합을 함께 준다.
+    ver_totals = {}
+    for h in holdings.values():
+        for k, n in (h.get("versions") or {}).items():
+            ver_totals.setdefault(k, {"holding": 0, "stock": 0})["holding"] += n
+    for b in branch_stock.values():
+        for k, n in (b.get("versions") or {}).items():
+            if n:
+                ver_totals.setdefault(k, {"holding": 0, "stock": 0})["stock"] += n
+    for k, v in ver_totals.items():
+        v["all"] = v["holding"] + v["stock"]
     return {"limit": REMOTE_HOLD_LIMIT, "branches": REMOTE_BRANCH_ISSUERS,
             "branch_labels": REMOTE_BRANCH_LABELS, "branch_stock": branch_stock,
             "holdings": holdings, "issues": issues, "deliveries": deliveries,
@@ -1032,6 +1093,9 @@ def remote_status(limit=60):
             # 화면이 버전 선택지를 스스로 만들지 않게 한다 — 서버와 목록이 갈리면
             # 'VER.3' 과 'ver3' 이 따로 세어진다(2026-08-06 지시).
             "versions": list(REMOTE_VERSIONS), "audit": remote_audit_list(20),
+            # 버전별 합계와, 아직 버전을 안 적은 줄들(화면에서 바로 채운다)
+            "version_totals": dict(sorted(ver_totals.items())),
+            "version_gaps": version_gaps,
             "totals": {"holding": total_hold, "stock": total_stock,
                        "all": total_hold + total_stock},
             "rule": "AS 담당자당 최대 3개(기존 보유 포함) · 불출·납품 기록 · 지점 재고 자동 차감"}
