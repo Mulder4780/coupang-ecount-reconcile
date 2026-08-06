@@ -63,7 +63,18 @@ def dnum(d):
 
 
 def norm_cust(s):
-    return re.sub(r"[\s()（）\-_]", "", str(s or "")).lower()
+    """거래처명 비교용 정규화 — **캠프명 정규화와 같은 규칙을 쓴다**(2026-08-06).
+
+    예전엔 여기만 따로 괄호·공백만 지웠다. 그래서 붙여넣기로 들어온
+    `&amp;`·`<-메모`·`?` 가 남아 같은 거래처가 둘로 갈렸고, 조합을 찾을 후보
+    자체가 비어 부분합 매칭이 시작도 못 했다. 규칙이 두 벌이면 반드시 갈린다.
+    """
+    try:
+        from customer_index import clean
+        s = clean(s)
+    except Exception:                    # 색인 모듈이 없어도 매칭은 계속돼야 한다
+        pass
+    return re.sub(r"[\s()（）\-_/?]", "", str(s or "")).lower()
 
 
 def find(docs, sales, taken_uj, unmatched_slips):
