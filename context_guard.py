@@ -39,6 +39,13 @@ import glob
 import argparse
 from datetime import datetime
 
+# ★ 훅이 내보내는 한 줄은 **대화로 곧장 들어간다.** 윈도우 콘솔 기본 인코딩(cp949)으로
+#   나가면 대화에 깨진 글자가 박힌다(2026-08-06 실측 — 경고가 떴는데 읽을 수가 없었다).
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports")
