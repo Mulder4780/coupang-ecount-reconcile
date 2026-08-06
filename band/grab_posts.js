@@ -53,13 +53,32 @@
   };
 
   // 상세 페이지 한 글을 iframe 으로 열어 본문·글쓴이·시각·사진/댓글 수를 뜯는다.
+  // ★ 없는 글을 열면 밴드가 `alert('삭제되었거나 찾을 수 없습니다.')` 를 띄운다
+  //   (2026-08-06 실측). 모달은 **탭 전체를 멈춘다** — 사람이 누를 때까지 수집이 선다.
+  //   과거글 구간은 지운 글이 섞여 있어 수백 번 뜰 수 있다. iframe 은 같은 출처라
+  //   그 안의 alert/confirm/prompt 를 조용한 함수로 갈아끼울 수 있다.
+  function muteDialogs(f) {
+    try {
+      const w = f.contentWindow;
+      if (!w) return;
+      w.alert = () => {};
+      w.confirm = () => true;
+      w.prompt = () => null;
+    } catch (e) { /* 출처가 다르면 손댈 수 없다 — 그때는 사람이 눌러야 한다 */ }
+  }
+
   async function grabOne(band, no, waitMs, bodyMs) {
     const f = document.createElement('iframe');
     f.style.cssText = 'position:fixed;left:-9999px;top:0;width:1200px;height:900px';
+    // src 를 넣기 전에 한 번, 로드된 뒤에 또 한 번 막는다. 문서가 바뀌면 window 의
+    // alert 이 되살아나므로 한쪽만으로는 새는 경우가 있다.
+    f.addEventListener('load', () => muteDialogs(f));
     f.src = `https://www.band.us/band/${band}/post/${no}`;
     document.body.appendChild(f);
+    muteDialogs(f);
     try {
       await Promise.race([new Promise((r) => { f.onload = r; }), sleep(waitMs)]);
+      muteDialogs(f);
       // 본문은 SPA 가 나중에 그린다 — 폴링 대신 '그려지는 순간'을 관찰한다.
       const d = f.contentDocument;
       if (!d) return { status: 'fail' };

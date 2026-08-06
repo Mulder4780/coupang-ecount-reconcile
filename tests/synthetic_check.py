@@ -5085,7 +5085,11 @@ def t112_band_plan_order_and_scope():
     assert sc.get("floor"), "사람이 정한 수집 범위(collect_scope.json)가 없다"
     assert all(str(k).isdigit() and int(v) > 0 for k, v in sc["floor"].items()), sc
     assert int(sc.get("ahead") or 0) > 0, "새 글 탐색 개수가 0이면 최신분을 못 잡는다"
-    print("  [112] 밴드 수집 — 새 글 우선·사람이 정한 범위를 파일이 기억 ✅")
+    # 없는 글을 열면 밴드가 alert 를 띄우고 **탭 전체가 선다**(2026-08-06 실측).
+    # 과거글 구간은 지운 글이 섞여 있어 수백 번 뜬다 — 사람이 수백 번 누를 수는 없다.
+    js = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
+    assert "muteDialogs" in js and "w.alert" in js, "수집기가 안내창을 막지 않는다"
+    print("  [112] 밴드 수집 — 새 글 우선·범위 기억·안내창 차단 ✅")
 
 
 def t100_erp_pdf_archive():
