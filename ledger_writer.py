@@ -160,6 +160,12 @@ def resolve_targets(master, queue):
     """openpyxl(read-only)로 각 항목의 (시트파일, 행번호, 열문자, 현재값) 확인"""
     import openpyxl
     wb = openpyxl.load_workbook(master, read_only=True, data_only=False)
+    # ★ 조회 키는 **계산된 값**으로 찾아야 한다 (2026-08-06 실사고).
+    #   점검ID·접수ID·작업ID 는 수식 열이다(`=IF($B5="","","PM-"&…)`). 수식 통을 그대로
+    #   읽으면 키 사전에 '=IF(...)' 가 들어가, 실제로 있는 행을 "행 없음"으로 버린다.
+    #   8/5 정기점검 완료 2건이 이렇게 조용히 사라졌다 — 실패가 로그 한 줄로만 남아
+    #   대표 보고에는 0건으로 나갔다. 값 통(data_only)을 따로 열어 키만 거기서 읽는다.
+    wbv = openpyxl.load_workbook(master, read_only=True, data_only=True)
     plans, skips = [], []
     # 같은 시트에도 접수ID·프로젝트NO처럼 서로 다른 조회 키가 섞여 들어온다.
     # 시트명만 캐시 키로 쓰면 첫 항목의 열로 만든 사전을 뒤 항목에도 재사용해,
@@ -184,9 +190,17 @@ def resolve_targets(master, queue):
             keys = {}
             kcol = hmap.get(u["key_col"])
             if kcol:
-                for i, row in enumerate(ws.iter_rows(min_row=FIRST, min_col=kcol, max_col=kcol, values_only=True)):
-                    if row[0] is not None:
-                        keys[str(row[0]).strip()] = FIRST + i
+                wsv = wbv[sh]
+                for i, row in enumerate(wsv.iter_rows(min_row=FIRST, min_col=kcol,
+                                                      max_col=kcol, values_only=True)):
+                    v = row[0]
+                    # 수식이 캐시된 값 없이 남아 있으면(엑셀을 한 번도 안 연 새 열)
+                    # '=…' 가 그대로 온다. 그런 것은 키로 쓰지 않는다.
+                    if v is None or str(v).startswith("="):
+                        continue
+                    # 같은 키가 여러 줄이면 **첫 줄**을 쓴다. 뒤 줄이 덮어쓰면 사람이
+                    # 보고 있는 줄과 다른 곳에 값이 들어간다.
+                    keys.setdefault(str(v).strip(), FIRST + i)
             cache[cache_key] = (hmap, keys)
         hmap, keys = cache[cache_key]
         if u["col"] not in hmap:
@@ -199,6 +213,7 @@ def resolve_targets(master, queue):
     # read_only 모드에선 개별 셀 접근이 비효율 — 현재값은 XML 단계에서 최종 확인
         plans.append({**u, "row": rown, "colL": cletter})
     wb.close()
+    wbv.close()
     return plans, skips
 
 

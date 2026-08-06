@@ -178,12 +178,28 @@ CREATE TABLE IF NOT EXISTS remote_stock(     -- 리모컨 지점 재고 조정 �
   moved_on TEXT                              -- 실제 입출고 일자(입력일과 다를 수 있다)
 );
 CREATE INDEX IF NOT EXISTS ix_remote_stock_branch ON remote_stock(branch, created_at);
+CREATE TABLE IF NOT EXISTS remote_audit(     -- 리모컨 기록 수정·삭제 원장 (2026-08-06 지시)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,      -- 지운 것을 되돌릴 수 있어야 지우게 해 준다
+  table_name TEXT NOT NULL,                  -- remote_issue | remote_delivery | remote_stock
+  row_id INTEGER NOT NULL,
+  action TEXT NOT NULL,                      -- 수정 | 삭제 | 복구
+  before_json TEXT,                          -- 바꾸기 전 행 전체(복구의 근거)
+  after_json TEXT,
+  reason TEXT,
+  forced INTEGER NOT NULL DEFAULT 0,         -- 한도·재고 경고를 무시하고 강제 저장했나
+  actor TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_remote_audit_row ON remote_audit(table_name, row_id);
 """
 
 # 리모컨 불출 규칙(2026-08-03 사용자 지시) — 지점별 불출 담당과 담당자당 보유 한도.
 REMOTE_BRANCH_ISSUERS = {"부산": "오종현", "시화": "안은숙", "증평": "류지영"}
 REMOTE_BRANCH_LABELS = {"부산": "부산공장", "시화": "시화공장", "증평": "증평본사"}
 REMOTE_HOLD_LIMIT = 3
+# 리모컨 버전(2026-08-06 지시: "버전 관리가 VER.3인지 VER.4인지 입력 및 확인 수정 가능하게").
+# 재고표가 실제로 쓰는 이름 그대로다 — 화면 선택지도 서버도 이 목록 하나만 본다.
+REMOTE_VERSIONS = ("미확인", "기존형", "VER.3", "VER.4")
 
 
 @contextmanager
@@ -604,6 +620,24 @@ def staff_resolution_summary():
 REMOTE_HOLD_STATUSES = ("불출완료", "기초보유")
 
 
+def _remote_version(v):
+    """버전 표기를 하나로 모은다 — 사람은 'ver3'·'VER 3'·'v4'·'4' 를 다 쓴다.
+
+    같은 물건이 표기만 달라 재고가 갈라지면 "VER.3 이 몇 개냐"에 답할 수 없다.
+    빈 값은 빈 값으로 둔다(화면에서 '미확인'으로 보여 주는 것과 저장은 다른 일이다).
+    """
+    s = str(v or "").strip()
+    if not s:
+        return ""
+    t = s.upper().replace(" ", "").replace("_", "").replace("-", "")
+    if t in ("미확인", "UNKNOWN", "UNSURE"):
+        return "미확인"
+    if t in ("기존", "기존형", "OLD", "구형"):
+        return "기존형"
+    m = re.fullmatch(r"(?:VER\.?|V)?(\d+)", t)
+    return f"VER.{m.group(1)}" if m else s
+
+
 def _remote_holdings(c):
     """AS 담당자별 보유 = (불출 + 기초보유) 합 - 납품·사용 합."""
     issued = {row[0]: row[1] for row in c.execute(
@@ -683,7 +717,7 @@ def remote_stock_adjust(branch, qty, mode="add", reason="", created_by="",
             "INSERT INTO remote_stock(branch,qty_delta,reason,created_by,created_at,"
             "version,moved_on) VALUES(?,?,?,?,?,?,?)",
             (branch, delta, str(reason or ""), str(created_by or ""), now,
-             str(version or "").strip(), str(moved_on or now[:10])[:10]))
+             _remote_version(version), str(moved_on or now[:10])[:10]))
         return after
 
 
@@ -716,13 +750,17 @@ def remote_open_balance(technician, qty, on="", note="", created_by="",
 
 
 def remote_request(branch, technician, qty, requested_by, note="",
-                   issued_on="", camp=""):
+                   issued_on="", camp="", version="", issuer=""):
     """리모컨 불출을 즉시 기록한다(2026-08-03 지시 — 승인 단계 없음).
 
     한도: 보유 + 이번 수량이 담당자당 3개를 넘으면 거절한다.
     지점 재고를 등록해 둔 지점은 재고보다 많이 불출할 수 없다(재고 자동 차감).
     공지(2026-08-04): 불출 일자·투입 예정 캠프명도 함께 남긴다 — 류지영 매니저
     최종 취합의 원본이 이 표다.
+    2026-08-06 지시: **버전**과 **지사 불출자 이름**을 받는다. 버전을 안 받으면
+    지점 재고의 버전별 잔량이 '미확인' 으로 깎여 어느 물건이 나갔는지 알 수 없다
+    (실제로 시화가 VER.3 2 · 미확인 -2 로 어긋나 있었다). 불출자는 지점 기본
+    담당(부산=오종현·시화=안은숙·증평=류지영)이되, 대신 내준 사람이 있으면 그 이름을 남긴다.
     """
     branch = str(branch or "").strip()
     technician = str(technician or "").strip()
@@ -748,11 +786,12 @@ def remote_request(branch, technician, qty, requested_by, note="",
         day = str(issued_on or now[:10])[:10]
         cur = c.execute(
             "INSERT INTO remote_issue(branch,issuer,technician,qty,status,"
-            "requested_by,requested_at,note,issued_on,camp)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (branch, REMOTE_BRANCH_ISSUERS[branch], technician, qty, "불출완료",
+            "requested_by,requested_at,note,issued_on,camp,version)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (branch, str(issuer or "").strip() or REMOTE_BRANCH_ISSUERS[branch],
+             technician, qty, "불출완료",
              str(requested_by or ""), now, str(note or ""), day,
-             str(camp or "").strip()))
+             str(camp or "").strip(), _remote_version(version)))
         return cur.lastrowid
 
 
@@ -783,8 +822,179 @@ def remote_deliver(technician, project, camp, qty, delivered_on="", note="",
             "note,created_by,created_at,kind,version) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (technician, str(project or "").strip().upper(), str(camp or "").strip(),
              qty, day, str(note or ""), str(created_by or ""), now,
-             str(kind or "납품"), str(version or "")))
+             str(kind or "납품"), _remote_version(version)))
         return cur.lastrowid
+
+
+# ── 리모컨 기록 고치기·지우기 (2026-08-06 지시) ────────────────────────────
+# 왜 이 층이 따로 있나: 불출·납품·재고는 **수량이 서로 물려 있다.** 한 줄을 고치면
+# 그 사람의 보유와 그 지점의 재고가 같이 움직인다. 그래서 "그냥 UPDATE" 로 두지 않고
+#   ① 고치기 전 상태를 원장(remote_audit)에 남기고
+#   ② 고친 뒤 숫자가 말이 되는지 다시 계산해 보고
+#   ③ 말이 안 되면 막되, **강제(force)** 를 켜면 이유를 적고 통과시킨다
+# 는 세 단계를 거친다. ③이 필요한 이유는 현실이 먼저이기 때문이다 — 실제로 기사들이
+# 한도 3개를 넘겨 들고 있었고, 시스템이 거부하면 장부가 현실과 어긋난 채로 남는다.
+REMOTE_TABLES = {
+    "issue": ("remote_issue",
+              ("branch", "issuer", "technician", "qty", "status",
+               "issued_on", "camp", "version", "note")),
+    "delivery": ("remote_delivery",
+                 ("technician", "project", "camp", "qty", "delivered_on",
+                  "kind", "version", "note")),
+    "stock": ("remote_stock",
+              ("branch", "qty_delta", "reason", "version", "moved_on")),
+}
+
+
+def _remote_table(kind):
+    table = REMOTE_TABLES.get(str(kind or "").strip())
+    if not table:
+        raise ValueError("대상은 issue(불출)·delivery(납품)·stock(재고) 중 하나여야 합니다")
+    return table
+
+
+def _remote_row(c, table, rid):
+    cur = c.execute(f"SELECT * FROM {table} WHERE id=?", (int(rid or 0),))
+    row = cur.fetchone()
+    if row is None:
+        raise ValueError(f"{rid}번 기록이 없습니다 — 이미 지워졌을 수 있습니다")
+    return dict(zip([d[0] for d in cur.description], row))
+
+
+def _remote_problems(c):
+    """지금 숫자에서 '말이 안 되는 것'을 이름→크기로 뽑는다."""
+    out = {}
+    for tech, h in _remote_holdings(c).items():
+        if h["holding"] < 0:
+            out[f"{tech} 보유가 음수"] = -h["holding"]
+        elif h["holding"] > REMOTE_HOLD_LIMIT:
+            out[f"{tech} 보유 한도({REMOTE_HOLD_LIMIT}개) 초과"] = h["holding"]
+    for br, s in _remote_branch_stock(c).items():
+        if s["tracked"] and s["stock"] < 0:
+            out[f"{s['label']} 재고가 음수"] = -s["stock"]
+    return out
+
+
+def _remote_guard(before, after, force):
+    """**이번 수정이 새로 만들거나 키운 문제**만 막는다.
+
+    이미 어긋나 있는 장부(한도 초과 보유자가 실제로 있다)를 이유로 무관한 줄의
+    수정까지 막으면 아무것도 고칠 수 없게 된다 — 그래서 전후를 비교한다.
+    """
+    worse = [f"{k}({v}개)" for k, v in after.items() if v > before.get(k, 0)]
+    if worse and not force:
+        raise ValueError("이 수정은 " + " · ".join(worse)
+                         + " 를 만듭니다 — 그래도 저장하려면 '강제'를 켜고 사유를 적으세요")
+    return worse
+
+
+def _remote_audit(c, table, rid, action, before, after, reason, forced, actor):
+    c.execute(
+        "INSERT INTO remote_audit(table_name,row_id,action,before_json,after_json,"
+        "reason,forced,actor,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+        (table, int(rid), action,
+         json.dumps(before, ensure_ascii=False) if before else "",
+         json.dumps(after, ensure_ascii=False) if after else "",
+         str(reason or ""), 1 if forced else 0, str(actor or ""),
+         datetime.now().isoformat(timespec="seconds")))
+
+
+def _remote_clean(table, fields, allowed):
+    """화면이 보낸 값을 표에 넣을 수 있는 형태로 다듬는다(허용된 열만)."""
+    sets = {}
+    for k, v in (fields or {}).items():
+        if k not in allowed or v is None:
+            continue
+        if k in ("qty", "qty_delta"):
+            sets[k] = int(v)
+        elif k == "version":
+            sets[k] = _remote_version(v)
+        elif k in ("issued_on", "delivered_on", "moved_on"):
+            sets[k] = str(v or "")[:10]
+        elif k == "project":
+            sets[k] = str(v or "").strip().upper()
+        else:
+            sets[k] = str(v or "").strip()
+    if not sets:
+        raise ValueError("바꿀 내용이 없습니다")
+    if "branch" in sets and sets["branch"] not in REMOTE_BRANCH_ISSUERS:
+        raise ValueError("지점은 부산·시화·증평 중 하나여야 합니다")
+    if "qty" in sets and sets["qty"] < 1:
+        raise ValueError("수량은 1개 이상이어야 합니다")
+    if "qty_delta" in sets and sets["qty_delta"] == 0:
+        raise ValueError("증감이 0이면 기록할 것이 없습니다")
+    if table == "remote_issue" and "technician" in sets and not sets["technician"]:
+        raise ValueError("AS 담당자 이름이 필요합니다")
+    return sets
+
+
+def remote_edit(kind, rid, fields, edited_by="", force=False, reason=""):
+    """리모컨 기록 한 줄을 고친다. 되돌릴 근거를 remote_audit 에 먼저 남긴다."""
+    table, allowed = _remote_table(kind)
+    sets = _remote_clean(table, fields, allowed)
+    if force and not str(reason or "").strip():
+        raise ValueError("강제로 저장할 때는 사유를 적어야 합니다")
+    with conn() as c:
+        before = _remote_row(c, table, rid)
+        problems0 = _remote_problems(c)
+        c.execute(f"UPDATE {table} SET {','.join(k + '=?' for k in sets)} WHERE id=?",
+                  (*sets.values(), int(rid)))
+        forced_over = _remote_guard(problems0, _remote_problems(c), force)
+        after = _remote_row(c, table, rid)
+        _remote_audit(c, table, rid, "수정", before, after, reason,
+                      bool(force and forced_over), edited_by)
+    return {"row": after, "warnings": forced_over}
+
+
+def remote_delete(kind, rid, deleted_by="", force=False, reason=""):
+    """리모컨 기록 한 줄을 지운다 — 지운 내용 전체가 원장에 남아 복구할 수 있다."""
+    table, _ = _remote_table(kind)
+    if not str(reason or "").strip():
+        raise ValueError("삭제할 때는 사유를 적어야 합니다")
+    with conn() as c:
+        before = _remote_row(c, table, rid)
+        problems0 = _remote_problems(c)
+        c.execute(f"DELETE FROM {table} WHERE id=?", (int(rid),))
+        forced_over = _remote_guard(problems0, _remote_problems(c), force)
+        _remote_audit(c, table, rid, "삭제", before, None, reason,
+                      bool(force and forced_over), deleted_by)
+    return {"row": before, "warnings": forced_over}
+
+
+def remote_restore(audit_id, actor=""):
+    """삭제를 되돌린다 — 원장의 before_json 을 그대로 다시 넣는다.
+
+    삭제를 허용하려면 되돌리기가 있어야 한다. 없으면 사람이 무서워서 안 쓰거나,
+    쓰고 나서 복구를 사람 손으로 해야 한다(그때 숫자가 또 어긋난다).
+    """
+    with conn() as c:
+        row = c.execute(
+            "SELECT table_name,row_id,action,before_json FROM remote_audit WHERE id=?",
+            (int(audit_id or 0),)).fetchone()
+        if not row:
+            raise ValueError("복구할 기록을 찾지 못했습니다")
+        table, row_id, action, before_json = row
+        if action != "삭제" or not before_json:
+            raise ValueError("삭제 기록만 복구할 수 있습니다")
+        data = json.loads(before_json)
+        if c.execute(f"SELECT 1 FROM {table} WHERE id=?", (int(row_id),)).fetchone():
+            raise ValueError(f"{row_id}번은 이미 살아 있습니다")
+        cols = [k for k in data if data[k] is not None]
+        c.execute(f"INSERT INTO {table}({','.join(cols)})"
+                  f" VALUES({','.join('?' for _ in cols)})",
+                  tuple(data[k] for k in cols))
+        _remote_audit(c, table, row_id, "복구", None, data, "삭제 되돌리기",
+                      False, actor)
+    return data
+
+
+def remote_audit_list(limit=30):
+    with conn() as c:
+        return [dict(zip(("id", "table_name", "row_id", "action", "reason",
+                          "forced", "actor", "created_at"), r))
+                for r in c.execute(
+                    "SELECT id,table_name,row_id,action,reason,forced,actor,created_at"
+                    " FROM remote_audit ORDER BY id DESC LIMIT ?", (int(limit),))]
 
 
 def remote_status(limit=60):
@@ -819,6 +1029,9 @@ def remote_status(limit=60):
             "branch_labels": REMOTE_BRANCH_LABELS, "branch_stock": branch_stock,
             "holdings": holdings, "issues": issues, "deliveries": deliveries,
             "moves": moves, "over_limit": over,
+            # 화면이 버전 선택지를 스스로 만들지 않게 한다 — 서버와 목록이 갈리면
+            # 'VER.3' 과 'ver3' 이 따로 세어진다(2026-08-06 지시).
+            "versions": list(REMOTE_VERSIONS), "audit": remote_audit_list(20),
             "totals": {"holding": total_hold, "stock": total_stock,
                        "all": total_hold + total_stock},
             "rule": "AS 담당자당 최대 3개(기존 보유 포함) · 불출·납품 기록 · 지점 재고 자동 차감"}

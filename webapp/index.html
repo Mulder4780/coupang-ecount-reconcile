@@ -1538,6 +1538,24 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
 .remote-over{color:var(--danger)}
 .remote-warn{font-size:12.5px;color:var(--danger);background:var(--danger-bg);
   border-radius:10px;padding:8px 11px;margin:2px 0 8px}
+/* 줄마다 붙는 고치기·지우기(2026-08-06 지시) — 표를 밀어내지 않게 작게 둔다 */
+td.remote-ops{white-space:nowrap;text-align:right}
+td.remote-ops .abtn.tiny{display:inline-flex;min-height:0;padding:5px 9px;font-size:12px;
+  font-weight:700;border-radius:8px;margin-left:5px}
+.abtn.tiny.warn{color:var(--danger);border-color:var(--danger)}
+/* 수정 상자 — 표 바로 아래에서 열려 어느 줄을 고치는지가 눈에 남는다 */
+fieldset.remote-edit{border:1px solid var(--brand);border-radius:16px;background:#F7F9FF;
+  padding:14px;margin:12px 0}
+fieldset.remote-edit legend{padding:0 6px;font-size:13px;font-weight:800;color:var(--brand)}
+.remote-edit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:9px;margin-bottom:9px}
+.remote-edit-grid label{display:block;font-size:12px;font-weight:700;color:#6B7280}
+.remote-edit-grid input,.remote-edit-grid select,fieldset.remote-edit>input{display:block;width:100%;
+  margin-top:4px;padding:10px 12px;font-size:14.5px;border:1px solid #E2E6EF;border-radius:11px;
+  background:#fff;color:#101828;box-sizing:border-box;min-height:42px}
+fieldset.remote-edit>input{margin:0 0 9px}
+.remote-edit-force{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--danger);
+  font-weight:700;margin:2px 0 9px}
+.remote-edit-force input{width:18px;height:18px;min-height:0;margin:0}
 /* 업무센터 카테고리 줄의 리모컨 탭 — 업무 탭과 구분되게 파란 테두리, 초과면 빨강 */
 .ryu-category-tab.remote{border-color:var(--brand);color:var(--brand)}
 .ryu-category-tab.remote em{color:var(--brand)}
@@ -4342,17 +4360,30 @@ function remoteCardBody(host,s,hostId){
   const holds=Object.entries(s.holdings||{});
   const holdRows=holds.length?holds.map(([t,h])=>{const ov=h.holding>(s.limit||3);
     return `<tr><td>${esc2(t)}</td><td>${h.issued}</td><td>${h.delivered}</td><td><b${ov?' class="remote-over"':''}>${h.holding}${ov?' ⚠':''}</b></td></tr>`;}).join(''):'<tr><td colspan="4">불출 이력이 아직 없습니다</td></tr>';
-  const dels=(s.deliveries||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.delivered_on)}</td><td>${esc2(r.technician)}</td><td>${esc2(r.project||'')} ${esc2(r.camp||'')}</td><td>${esc2(r.kind||'납품')}</td><td>${r.qty}</td></tr>`).join('');
+  const dels=(s.deliveries||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.delivered_on)}</td><td>${esc2(r.technician)}</td><td>${esc2(r.project||'')} ${esc2(r.camp||'')}</td><td>${esc2(r.kind||'납품')}</td><td>${esc2(r.version||'미확인')}</td><td>${r.qty}</td><td class="remote-ops"><button class="abtn tiny" type="button" onclick="remoteEditOpen('delivery',${r.id},'${hostId}')">고치기</button><button class="abtn tiny warn" type="button" onclick="remoteRowDelete('delivery',${r.id},'${hostId}')">지우기</button></td></tr>`).join('');
   // ★ bs 는 아래 표들이 모두 쓰므로 **먼저** 선언한다. 뒤에 두면 mvs 가 선언 전 bs 를
   //   건드려 ReferenceError 가 나고, catch 도 없어 카드가 통째로 비어 보였다(2026-08-04).
   const bs=s.branch_stock||{};
-  const mvs=(s.moves||[]).slice(0,8).map(r=>`<tr><td>${esc2(r.moved_on||'')}</td><td>${esc2((bs[r.branch]||{}).label||r.branch)}</td><td>${esc2(r.version||'미확인')}</td><td>${r.qty_delta>0?'+':''}${r.qty_delta}</td><td>${esc2((r.reason||'').replace(/\s*\[재고표[^\]]*\]/,''))}</td></tr>`).join('');
-  const iss=(s.issues||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.issued_on||String(r.requested_at||'').slice(0,10))}</td><td>${esc2(r.branch)}</td><td>${esc2(r.technician)}</td><td>${esc2(r.camp||'-')}</td><td>${r.qty}</td></tr>`).join('');
+  /* 고치기·지우기 버튼은 표의 각 줄에 붙는다. 어느 표의 몇 번 줄인지를 그대로 넘긴다
+     (2026-08-06 지시 — "입력 및 확인 수정 가능하게"). 편집기가 값을 다시 물어보지 않게
+     현황 전체를 window.__REMOTE 에 놓아 둔다. */
+  window.__REMOTE=s;
+  const rowBtns=(kind,id)=>`<td class="remote-ops"><button class="abtn tiny" type="button" onclick="remoteEditOpen('${kind}',${id},'${hostId}')">고치기</button><button class="abtn tiny warn" type="button" onclick="remoteRowDelete('${kind}',${id},'${hostId}')">지우기</button></td>`;
+  const mvs=(s.moves||[]).slice(0,8).map(r=>`<tr><td>${esc2(r.moved_on||'')}</td><td>${esc2((bs[r.branch]||{}).label||r.branch)}</td><td>${esc2(r.version||'미확인')}</td><td>${r.qty_delta>0?'+':''}${r.qty_delta}</td><td>${esc2((r.reason||'').replace(/\s*\[재고표[^\]]*\]/,''))}</td>${rowBtns('stock',r.id)}</tr>`).join('');
+  const iss=(s.issues||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.issued_on||String(r.requested_at||'').slice(0,10))}</td><td>${esc2(r.branch)}</td><td>${esc2(r.issuer||'-')}</td><td>${esc2(r.technician)}</td><td>${esc2(r.camp||'-')}</td><td>${esc2(r.version||'미확인')}</td><td>${r.qty}</td>${rowBtns('issue',r.id)}</tr>`).join('');
   const verTxt=v=>Object.entries(v.versions||{}).filter(([,n])=>n).map(([k,n])=>`${esc2(k)} ${n}`).join(' · ');
   const stockRows=Object.keys(s.branches||{}).map(b=>{const v=bs[b]||{};const vt=verTxt(v);
     return `<tr><td>${esc2(v.label||b)}${vt?`<br><span class="remote-ver">${vt}</span>`:''}</td><td>${esc2((s.branches||{})[b]||'')}</td><td>${v.tracked?v.in:'-'}</td><td>${v.tracked?v.issued:'-'}</td><td><b>${v.tracked?v.stock+'개':'미등록'}</b></td></tr>`;}).join('');
   const t=s.totals||{};
   const over=Object.entries(s.over_limit||{});
+  /* 버전 선택지는 **서버가 준 목록만** 쓴다(2026-08-06 지시). 화면이 따로 적어 두면
+     서버가 목록을 늘렸을 때 조용히 어긋나고, 'VER.3' 과 'ver3' 이 따로 세어진다. */
+  const verOpts=(sel)=>['',...(s.versions||[])].map(v=>`<option value="${esc2(v)}"${v===(sel||'')?' selected':''}>${v?esc2(v):'버전 선택 안 함'}</option>`).join('');
+  const defIssuer=(s.branches||{})[Object.keys(s.branches||{})[0]]||'';
+  const aud=(s.audit||[]).slice(0,8).map(r=>{
+    const nm={remote_issue:'불출',remote_delivery:'납품',remote_stock:'재고'}[r.table_name]||r.table_name;
+    return `<tr><td>${esc2(String(r.created_at||'').replace('T',' ').slice(5,16))}</td><td>${esc2(nm)} #${r.row_id}</td><td>${esc2(r.action)}${r.forced?' <b class="remote-over">강제</b>':''}</td><td>${esc2(r.reason||'')}</td><td>${esc2(r.actor||'')}</td><td>${r.action==='삭제'?`<button class="abtn tiny" type="button" onclick="remoteRestore(${r.id},'${hostId}')">되돌리기</button>`:''}</td></tr>`;
+  }).join('');
   host.innerHTML=`
     <p class="remote-rule">불출 담당 — ${Object.entries(s.branches||{}).map(([b,n])=>`${esc2((bs[b]||{}).label||b)}: ${esc2(n)}`).join(' · ')} · AS 담당자당 한도 ${s.limit}개(기존 보유 포함) · 불출 시 지점 재고 자동 차감</p>
     <div class="remote-std">
@@ -4378,21 +4409,26 @@ function remoteCardBody(host,s,hostId){
         </div>
         <div class="remote-row2">
           <input id="${hostId}SQty" type="number" inputmode="numeric" value="1" aria-label="수량">
-          <select id="${hostId}SVer" aria-label="버전"><option value="">버전 미확인</option><option>기존형</option><option>VER.3</option><option>VER.4</option></select>
+          <select id="${hostId}SVer" aria-label="버전">${verOpts()}</select>
         </div>
         <input id="${hostId}SNote" placeholder="비고 (선택)" autocomplete="off">
         <button class="abtn primary" onclick="remoteStock('${hostId}')">재고 저장</button>
       </fieldset>
       <fieldset><legend>불출 기록</legend>
         <div class="remote-row2">
-          <select id="${hostId}Br" aria-label="불출 지점">${Object.keys(s.branches||{}).map(b=>`<option>${esc2(b)}</option>`).join('')}</select>
+          <select id="${hostId}Br" aria-label="불출 지점" onchange="remoteBranchIssuer('${hostId}')">${Object.keys(s.branches||{}).map(b=>`<option>${esc2(b)}</option>`).join('')}</select>
           <input id="${hostId}Qty" type="number" inputmode="numeric" min="1" max="${s.limit}" value="1" aria-label="수량">
         </div>
-        <input id="${hostId}Tech" placeholder="AS 담당자 이름" autocomplete="off">
+        <div class="remote-row2">
+          <input id="${hostId}Tech" placeholder="AS 담당자 이름" autocomplete="off">
+          <select id="${hostId}Ver" aria-label="버전">${verOpts()}</select>
+        </div>
         <div class="remote-row2">
           <input id="${hostId}Camp" placeholder="투입 예정 캠프명" autocomplete="off">
           <input id="${hostId}IDay" type="date" value="${new Date().toISOString().slice(0,10)}" aria-label="불출일">
         </div>
+        <!-- 지사 불출자(2026-08-06 지시): 기본은 지점 담당이지만 대신 내준 사람이 있으면 그 이름이 남아야 한다. -->
+        <input id="${hostId}Issuer" placeholder="지사 불출자 이름 (비우면 지점 담당)" autocomplete="off" value="${esc2(defIssuer)}">
         <input id="${hostId}Note" placeholder="기타 특이사항 (선택)" autocomplete="off">
         <button class="abtn primary" onclick="remoteRequest('${hostId}')">불출 저장</button>
       </fieldset>
@@ -4403,25 +4439,115 @@ function remoteCardBody(host,s,hostId){
           <input id="${hostId}DCamp" placeholder="캠프명" autocomplete="off">
           <input id="${hostId}DQty" type="number" inputmode="numeric" min="1" value="1" aria-label="수량">
         </div>
-        <select id="${hostId}DKind" aria-label="처리유형"><option>납품</option><option>사용</option><option>교체</option></select>
+        <div class="remote-row2">
+          <select id="${hostId}DKind" aria-label="처리유형"><option>납품</option><option>사용</option><option>교체</option><option>샘플</option><option>택배출고</option><option>이관</option></select>
+          <select id="${hostId}DVer" aria-label="버전">${verOpts()}</select>
+        </div>
         <input id="${hostId}DDay" type="date" value="${new Date().toISOString().slice(0,10)}" aria-label="납품일">
         <button class="abtn primary" onclick="remoteDeliver('${hostId}')">납품 저장</button>
       </fieldset>
     </div>
-    ${iss?`<h4>최근 불출</h4><table class="remote-mini"><tr><th>불출일</th><th>지점</th><th>AS 담당자</th><th>투입 캠프</th><th>수량</th></tr>${iss}</table>`:''}
-    ${dels?`<h4>최근 납품·사용</h4><table class="remote-mini"><tr><th>일자</th><th>담당자</th><th>납품처</th><th>유형</th><th>수량</th></tr>${dels}</table>`:''}
-    ${mvs?`<h4>최근 지점 재고 이동 <span class="norm">— 입고·택배출고·샘플·실사</span></h4><table class="remote-mini"><tr><th>일자</th><th>지점</th><th>버전</th><th>증감</th><th>사유</th></tr>${mvs}</table>`:''}`;
+    <div id="${hostId}EditBox"></div>
+    ${iss?`<h4>최근 불출 <span class="norm">— 줄마다 고치기·지우기</span></h4><table class="remote-mini"><tr><th>불출일</th><th>지점</th><th>불출자</th><th>AS 담당자</th><th>투입 캠프</th><th>버전</th><th>수량</th><th>조작</th></tr>${iss}</table>`:''}
+    ${dels?`<h4>최근 납품·사용</h4><table class="remote-mini"><tr><th>일자</th><th>담당자</th><th>납품처</th><th>유형</th><th>버전</th><th>수량</th><th>조작</th></tr>${dels}</table>`:''}
+    ${mvs?`<h4>최근 지점 재고 이동 <span class="norm">— 입고·택배출고·샘플·실사</span></h4><table class="remote-mini"><tr><th>일자</th><th>지점</th><th>버전</th><th>증감</th><th>사유</th><th>조작</th></tr>${mvs}</table>`:''}
+    ${aud?`<h4>수정·삭제 기록 <span class="norm">— 지운 것은 되돌릴 수 있습니다</span></h4><table class="remote-mini"><tr><th>시각</th><th>대상</th><th>한 일</th><th>사유</th><th>사람</th><th>조작</th></tr>${aud}</table>`:''}`;
+}
+/* 지점을 바꾸면 불출자 기본값도 따라간다 — 부산인데 류지영이 남아 있으면 틀린 기록이 된다. */
+function remoteBranchIssuer(hostId){
+  const s=window.__REMOTE||{}, br=($(hostId+'Br')||{}).value||'';
+  const box=$(hostId+'Issuer'); if(!box) return;
+  const prev=Object.values(s.branches||{});
+  if(!box.value || prev.includes(box.value)) box.value=(s.branches||{})[br]||'';
 }
 async function remoteRequest(hostId){
   const v=id=>($(hostId+id)||{}).value||'';
   try{
     const r=await api('/api/remote/request',{method:'POST',body:JSON.stringify({
       branch:v('Br'),technician:v('Tech').trim(),qty:+v('Qty'),note:v('Note'),
-      camp:v('Camp').trim(),issued_on:v('IDay')})});
+      camp:v('Camp').trim(),issued_on:v('IDay'),
+      version:v('Ver'),issuer:v('Issuer').trim()})});
     if(!r.ok) throw new Error(r.error||'실패');
     alert('불출 기록 저장 완료');
   }catch(e){ alert('불출 기록 실패: '+e.message); }
   uxEvent('tap','remote-request'); renderRemoteCard(hostId);
+}
+
+/* ── 리모컨 기록 고치기·지우기·되돌리기 (2026-08-06 지시) ──
+   수량이 보유·재고와 물려 있어 아무 값이나 못 바꾼다. 서버가 전후를 비교해
+   막고, 정말 그대로 저장해야 하면 '강제'에 사유를 적어 통과시킨다. */
+const RC_FIELDS={
+  issue:[['issued_on','불출일','date'],['branch','지점','branch'],['issuer','지사 불출자','text'],
+         ['technician','AS 담당자','text'],['camp','투입 캠프','text'],
+         ['version','버전','version'],['qty','수량','number'],['note','비고','text']],
+  delivery:[['delivered_on','일자','date'],['technician','담당자','text'],['project','프로젝트NO','text'],
+            ['camp','캠프명','text'],['kind','유형','kind'],['version','버전','version'],
+            ['qty','수량','number'],['note','비고','text']],
+  stock:[['moved_on','일자','date'],['branch','지점','branch'],['version','버전','version'],
+         ['qty_delta','증감(±)','number'],['reason','사유','text']],
+};
+const RC_SRC={issue:'issues',delivery:'deliveries',stock:'moves'};
+function remoteEditOpen(kind,id,hostId){
+  const s=window.__REMOTE||{}, box=$(hostId+'EditBox'); if(!box) return;
+  const row=(s[RC_SRC[kind]]||[]).find(r=>r.id===id);
+  if(!row){ alert('그 줄을 찾지 못했습니다 — 새로고침 후 다시 시도하세요'); return; }
+  const vers=['',...(s.versions||[])];
+  const f=([k,label,t])=>{
+    const cur=row[k]==null?'':String(row[k]);
+    if(t==='version') return `<label>${label}<select data-k="${k}">${vers.map(v=>`<option value="${esc2(v)}"${v===cur?' selected':''}>${v?esc2(v):'선택 안 함'}</option>`).join('')}</select></label>`;
+    if(t==='branch') return `<label>${label}<select data-k="${k}">${Object.keys(s.branches||{}).map(b=>`<option${b===cur?' selected':''}>${esc2(b)}</option>`).join('')}</select></label>`;
+    if(t==='kind') return `<label>${label}<select data-k="${k}">${['납품','사용','교체','샘플','택배출고','이관'].map(v=>`<option${v===cur?' selected':''}>${v}</option>`).join('')}</select></label>`;
+    return `<label>${label}<input data-k="${k}" type="${t==='number'?'number':t==='date'?'date':'text'}" value="${esc2(cur)}"></label>`;
+  };
+  box.innerHTML=`<fieldset class="remote-edit" id="${hostId}EditForm">
+    <legend>${({issue:'불출',delivery:'납품',stock:'재고'})[kind]} #${id} 고치기</legend>
+    <div class="remote-edit-grid">${(RC_FIELDS[kind]||[]).map(f).join('')}</div>
+    <label class="remote-edit-force"><input type="checkbox" id="${hostId}EForce"> 강제 저장 — 한도·재고 경고를 무시합니다</label>
+    <input id="${hostId}EReason" placeholder="사유 (강제 저장이면 반드시)" autocomplete="off">
+    <div class="remote-row2">
+      <button class="abtn primary" type="button" onclick="remoteEditSave('${kind}',${id},'${hostId}')">저장</button>
+      <button class="abtn" type="button" onclick="$('${hostId}EditBox').innerHTML=''">닫기</button>
+    </div></fieldset>`;
+  box.scrollIntoView({behavior:'smooth',block:'nearest'});
+  uxEvent('tap','remote-edit-open-'+kind);
+}
+async function remoteEditSave(kind,id,hostId){
+  const form=$(hostId+'EditForm'); if(!form) return;
+  const fields={};
+  form.querySelectorAll('[data-k]').forEach(el=>{ fields[el.dataset.k]=el.value; });
+  const force=($(hostId+'EForce')||{}).checked||false;
+  const reason=($(hostId+'EReason')||{}).value||'';
+  try{
+    const r=await api('/api/remote/edit',{method:'POST',body:JSON.stringify({kind,id,fields,force,reason})});
+    if(!r.ok) throw new Error(r.error||'실패');
+    alert('저장했습니다'+((r.warnings||[]).length?' — 경고를 무시했습니다: '+r.warnings.join(' · '):''));
+    $(hostId+'EditBox').innerHTML='';
+  }catch(e){ alert('수정 실패: '+e.message); return; }
+  uxEvent('tap','remote-edit-save-'+kind); renderRemoteCard(hostId);
+}
+async function remoteRowDelete(kind,id,hostId){
+  const reason=prompt(`${({issue:'불출',delivery:'납품',stock:'재고'})[kind]} #${id} 를 지웁니다.\n왜 지우는지 적어 주세요 (기록에 남고, 되돌릴 수 있습니다).`);
+  if(reason===null) return;
+  if(!String(reason).trim()){ alert('사유가 필요합니다'); return; }
+  try{
+    let r=await api('/api/remote/delete',{method:'POST',body:JSON.stringify({kind,id,reason})});
+    if(!r.ok && /강제/.test(String(r.error||''))){
+      if(!confirm(`${r.error}\n\n그래도 지울까요?`)) return;
+      r=await api('/api/remote/delete',{method:'POST',body:JSON.stringify({kind,id,reason,force:true})});
+    }
+    if(!r.ok) throw new Error(r.error||'실패');
+    alert('지웠습니다 — 아래 "수정·삭제 기록"에서 되돌릴 수 있습니다');
+  }catch(e){ alert('삭제 실패: '+e.message); return; }
+  uxEvent('tap','remote-delete-'+kind); renderRemoteCard(hostId);
+}
+async function remoteRestore(auditId,hostId){
+  if(!confirm('지운 기록을 되돌립니다. 계속할까요?')) return;
+  try{
+    const r=await api('/api/remote/restore',{method:'POST',body:JSON.stringify({audit_id:auditId})});
+    if(!r.ok) throw new Error(r.error||'실패');
+    alert('되돌렸습니다');
+  }catch(e){ alert('되돌리기 실패: '+e.message); return; }
+  uxEvent('tap','remote-restore'); renderRemoteCard(hostId);
 }
 async function remoteStock(hostId){
   const v=id=>($(hostId+id)||{}).value||'';
@@ -4438,7 +4564,7 @@ async function remoteDeliver(hostId){
   try{
     const r=await api('/api/remote/deliver',{method:'POST',body:JSON.stringify({
       technician:v('DTech').trim(),project:v('DPrj').trim(),camp:v('DCamp').trim(),
-      qty:+v('DQty'),delivered_on:v('DDay'),kind:v('DKind')})});
+      qty:+v('DQty'),delivered_on:v('DDay'),kind:v('DKind'),version:v('DVer')})});
     if(!r.ok) throw new Error(r.error||'실패');
     alert('납품 기록 저장 완료');
   }catch(e){ alert('납품 기록 실패: '+e.message); }

@@ -4882,7 +4882,8 @@ self.addEventListener('fetch', e => {
                 return self._send(200, {"ok": True, **result})
             except Exception as exc:
                 return self._send(400, {"ok": False, "error": str(exc)[:320]})
-        if p in ("/api/remote/request", "/api/remote/deliver", "/api/remote/stock"):
+        if p in ("/api/remote/request", "/api/remote/deliver", "/api/remote/stock",
+                 "/api/remote/edit", "/api/remote/delete", "/api/remote/restore"):
             # 리모컨 관리(2026-08-03 지시, 같은 날 개정): 승인 단계 없이 기록·관리·보고만.
             # 불출·납품은 류지영/오종현 업무센터와 관리자. 3개 한도는 ledger_db 가 강제한다.
             actor = self._actor()
@@ -4908,17 +4909,38 @@ self.addEventListener('fetch', e => {
                         version=body.get("version") or "")
                     return self._send(200, {"ok": True, "stock": after})
                 if p == "/api/remote/request":
-                    # 공지(2026-08-04): 불출 일자·투입 예정 캠프명까지 기록한다
+                    # 공지(2026-08-04): 불출 일자·투입 예정 캠프명까지 기록한다.
+                    # 2026-08-06: 버전·지사 불출자 이름도 함께 남긴다.
                     rid = ledger_db.remote_request(
                         body.get("branch"), body.get("technician"), body.get("qty"),
                         who, body.get("note") or "",
-                        body.get("issued_on") or "", body.get("camp") or "")
+                        body.get("issued_on") or "", body.get("camp") or "",
+                        version=body.get("version") or "",
+                        issuer=body.get("issuer") or "")
                     return self._send(200, {"ok": True, "id": rid, "status": "불출완료"})
+                # 고치기·지우기·되돌리기(2026-08-06 지시). 수량이 서로 물려 있어
+                # ledger_db 가 전후 상태를 비교하고, 지운 내용은 원장에 남아 복구된다.
+                if p == "/api/remote/edit":
+                    r = ledger_db.remote_edit(
+                        body.get("kind"), body.get("id"), body.get("fields") or {},
+                        edited_by=who, force=bool(body.get("force")),
+                        reason=body.get("reason") or "")
+                    return self._send(200, {"ok": True, **r})
+                if p == "/api/remote/delete":
+                    r = ledger_db.remote_delete(
+                        body.get("kind"), body.get("id"), deleted_by=who,
+                        force=bool(body.get("force")),
+                        reason=body.get("reason") or "")
+                    return self._send(200, {"ok": True, **r})
+                if p == "/api/remote/restore":
+                    row = ledger_db.remote_restore(body.get("audit_id"), actor=who)
+                    return self._send(200, {"ok": True, "row": row})
                 rid = ledger_db.remote_deliver(
                     body.get("technician"), body.get("project") or "",
                     body.get("camp") or "", body.get("qty"),
                     body.get("delivered_on") or "", body.get("note") or "", who,
-                    kind=body.get("kind") or "납품")
+                    kind=body.get("kind") or "납품",
+                    version=body.get("version") or "")
                 return self._send(200, {"ok": True, "id": rid})
             except ValueError as exc:
                 return self._send(400, {"ok": False, "error": str(exc)[:260]})

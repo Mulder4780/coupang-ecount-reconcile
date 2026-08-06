@@ -4874,6 +4874,141 @@ def t108_pm_source_fallback():
     print("  [108] 원본 미수록일만 원장으로 보충(원본 우선은 유지) ✅")
 
 
+def t109_remote_edit_delete_versions():
+    """[109] 리모컨 — 버전 통일·지사 불출자·고치기·지우기·강제·되돌리기 (2026-08-06 지시).
+
+    사용자 지시: "리모컨 버전 선택할 수 있는 기능 추가하고 전체적으로 버전 관리가
+    VER.3인지 VER.4인지 입력 및 확인 수정 가능하게 고도화 해" + 남은 4가지
+    (강제 수정 · 지사 불출자 이름란 · 삭제 · 최근 불출 수정).
+
+    지키는 것:
+      · 'ver3'·'v4' 처럼 사람이 쓰는 표기가 한 이름으로 모인다 — 안 그러면 재고가 갈라진다
+      · 불출에도 버전·불출자가 남는다 (버전 없이 불출하면 지점 버전별 잔량이 어긋난다)
+      · 수정은 **이번 수정이 새로 만든 문제**만 막는다. 이미 어긋난 장부 때문에
+        무관한 줄까지 못 고치면 아무것도 정리할 수 없다
+      · 강제는 사유가 있어야 하고, 지운 것은 원장에 남아 되돌릴 수 있다
+    """
+    import shutil as _sh
+    import tempfile as _tf
+
+    import ledger_db as L
+    old_path, old_dir = L.DB_PATH, L.DB_DIR
+    tmp = _tf.mkdtemp()
+    try:
+        L.DB_DIR, L.DB_PATH = tmp, os.path.join(tmp, "t.db")
+        assert L.REMOTE_VERSIONS == ("미확인", "기존형", "VER.3", "VER.4")
+        assert [L._remote_version(x) for x in ("ver3", "VER 3", "v4", "기존", "")] == \
+               ["VER.3", "VER.3", "VER.4", "기존형", ""], "버전 표기가 한 이름으로 안 모인다"
+
+        L.remote_stock_adjust("시화", 5, "add", "입고", "안은숙", version="VER.3")
+        rid = L.remote_request("시화", "김기사", 2, "안은숙", camp="시화1캠프",
+                               version="ver3", issuer="대리불출자")
+        top = L.remote_status()["issues"][0]
+        assert (top["version"], top["issuer"]) == ("VER.3", "대리불출자"), top
+        # 버전이 붙어야 지점 버전별 잔량이 맞는다(5 - 2 = 3)
+        assert L.remote_status()["branch_stock"]["시화"]["versions"]["VER.3"] == 3
+
+        # 최근 불출 고치기 — 캠프·버전·수량을 그 자리에서 바꾼다
+        L.remote_edit("issue", rid, {"camp": "시화2캠프", "qty": 1, "version": "VER.4"},
+                      edited_by="류지영")
+        top = L.remote_status()["issues"][0]
+        assert (top["camp"], top["qty"], top["version"]) == ("시화2캠프", 1, "VER.4"), top
+
+        # 한도를 넘기는 수정은 막힌다 — 사유 없는 강제도 막힌다
+        for bad in (lambda: L.remote_edit("issue", rid, {"qty": 9}),
+                    lambda: L.remote_edit("issue", rid, {"qty": 9}, force=True),
+                    lambda: L.remote_delete("issue", rid),
+                    lambda: L.remote_edit("issue", rid, {"qty": 0}),
+                    lambda: L.remote_edit("없는표", rid, {"qty": 1})):
+            try:
+                bad(); raise AssertionError("리모컨 수정 규칙이 뚫렸다")
+            except ValueError:
+                pass
+        # 사유를 적은 강제는 통과하고, 강제였다는 사실이 남는다
+        out = L.remote_edit("issue", rid, {"qty": 9}, edited_by="류지영",
+                            force=True, reason="실물 확인 — 기사가 실제로 9개 보유")
+        assert out["row"]["qty"] == 9 and out["warnings"], out
+        assert L.remote_audit_list(1)[0]["forced"] == 1
+
+        # 지우기 → 되돌리기. 되돌릴 수 없으면 사람이 무서워서 안 쓴다.
+        L.remote_delete("issue", rid, deleted_by="류지영", force=True, reason="중복 입력")
+        assert not [r for r in L.remote_status()["issues"] if r["id"] == rid]
+        aid = [a for a in L.remote_audit_list(5) if a["action"] == "삭제"][0]["id"]
+        L.remote_restore(aid, actor="류지영")
+        assert [r for r in L.remote_status()["issues"] if r["id"] == rid], "복구가 안 된다"
+        try:
+            L.remote_restore(aid); raise AssertionError("두 번 복구됐다")
+        except ValueError:
+            pass
+    finally:
+        L.DB_DIR, L.DB_PATH = old_dir, old_path
+        _sh.rmtree(tmp, ignore_errors=True)
+    # 화면도 같은 목록을 쓰는지 — 서버와 갈리면 'VER.3' 과 'ver3' 이 따로 세어진다
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for need in ("s.versions||[]", "remoteEditOpen", "remoteRowDelete", "remoteRestore",
+                 "Issuer", "/api/remote/edit", "/api/remote/delete"):
+        assert need in html, f"리모컨 화면에 {need} 가 없다"
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    for need in ("/api/remote/edit", "/api/remote/delete", "/api/remote/restore"):
+        assert need in srv, f"서버에 {need} 라우트가 없다"
+    print("  [109] 리모컨 버전 통일·불출자·수정/삭제/강제/되돌리기 ✅")
+
+
+def t110_writer_formula_key():
+    """[110] 조회 키가 **수식 열**이어도 찾는다 (2026-08-06 실사고).
+
+    점검ID·접수ID·작업ID 는 `=IF($B5="","","PM-"&…)` 수식이다. 적용기가 수식 통을
+    그대로 읽어 키 사전에 '=IF(...)' 를 넣는 바람에, 실제로 있는 행을 "행 없음"으로
+    버렸다 — 8/5 정기점검 완료 2건이 그렇게 조용히 사라져 대표 보고에 0건으로 나갔다.
+    값 통(data_only)에서 키를 읽어야 한다.
+    """
+    import shutil as _sh
+    import tempfile as _tf
+    import zipfile as _zip
+
+    import openpyxl
+    import ledger_writer as W
+    # ★ TemporaryDirectory 를 쓰지 않는다 — 윈도우에서 openpyxl(read_only) 이 zip 을
+    #   놓는 시점이 늦어 정리에서 PermissionError 가 난다. 검증이 그것으로 죽으면 안 된다.
+    td = _tf.mkdtemp()
+    try:
+        path = os.path.join(td, "t.xlsx")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "04_정기점검"
+        for i, h in enumerate(("점검ID", "프로젝트NO", "실제점검일"), 1):
+            ws.cell(row=W.HDR_ROW, column=i, value=h)
+        for r, code in ((W.FIRST, "PM-A"), (W.FIRST + 1, "PM-B")):
+            ws.cell(row=r, column=1, value='=IF($B{0}="","","PM-{0}")'.format(r))
+            ws.cell(row=r, column=2, value="UJ%04d" % r)
+        wb.save(path)
+        # 엑셀이 계산해 둔 값을 흉내 낸다 — openpyxl 은 캐시값을 못 쓴다.
+        with _zip.ZipFile(path) as z:
+            names = z.namelist()
+            blobs = {n: z.read(n) for n in names}
+        xml = blobs["xl/worksheets/sheet1.xml"].decode("utf-8")
+        for r, code in ((W.FIRST, "PM-A"), (W.FIRST + 1, "PM-B")):
+            # 계산 결과가 문자열이면 엑셀은 t="str" 과 <v> 를 남긴다. 그 모양을 만든다.
+            def fix(m, code=code, r=r):
+                attrs = m.group(1).replace(' t="str"', "")
+                return f'<c r="A{r}"{attrs} t="str">{m.group(2)}<v>{code}</v>'
+            xml = re.sub(r'<c r="A%d"([^>]*)>(<f>.*?</f>)' % r, fix, xml)
+        assert "<v>PM-A</v>" in xml, "합성 워크북에 캐시값을 못 넣었다"
+        blobs["xl/worksheets/sheet1.xml"] = xml.encode("utf-8")
+        with _zip.ZipFile(path, "w", _zip.ZIP_DEFLATED) as z:
+            for n in names:
+                z.writestr(n, blobs[n])
+        q = [{"sheet": "04_정기점검", "key_col": "점검ID", "key": "PM-A",
+              "col": "실제점검일", "value": "2026-08-05", "vtype": "date",
+              "evidence": "합성", "only_if_empty": False}]
+        plans, skips = W.resolve_targets(path, q)
+        assert not skips, f"수식 키를 못 찾았다 — {skips}"
+        assert plans and plans[0]["row"] == W.FIRST, plans
+    finally:
+        _sh.rmtree(td, ignore_errors=True)
+    print("  [110] 수식 열(점검ID·접수ID)도 조회 키로 찾는다 ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -5784,6 +5919,8 @@ if __name__ == "__main__":
     t105_settle_report()
     t107_report_dates_and_capture()
     t108_pm_source_fallback()
+    t109_remote_edit_delete_versions()
+    t110_writer_formula_key()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)
