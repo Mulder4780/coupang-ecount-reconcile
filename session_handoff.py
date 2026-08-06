@@ -337,11 +337,37 @@ def data_freshness(today=None):
     return out
 
 
+def unpushed_commits():
+    """아직 원격에 없는 커밋. 기준은 **내 브랜치의 upstream** 이다.
+
+    ★ 2026-08-06: 예전엔 `origin/master..HEAD` 로 셌다. master 위에서 일할 때는
+      맞지만, 워크트리처럼 **기능 브랜치**에서 일하면 이미 푸시를 끝낸 커밋도
+      계속 '미푸시' 로 잡힌다 — master 에 아직 안 들어갔을 뿐인데. 실측(2026-08-06):
+      브랜치를 푸시하고도 '먼저 처리할 것' 에 "푸시되지 않은 커밋 1개" 가 남았고,
+      제시된 명령(`git pull --rebase && git push`)은 그 상황에 맞지도 않았다.
+      새 계정이 그 말을 믿고 따라 하면 엉뚱한 브랜치를 만진다.
+      upstream 이 없을 때만 예전 기준으로 돌아간다(그때는 정말 안 올라간 것이다).
+    """
+    base = git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}") or "origin/master"
+    return [l for l in git("log", "%s..HEAD" % base, "--oneline").splitlines() if l.strip()]
+
+
+def unmerged_commits():
+    """master 에 아직 안 들어간 커밋. **막는 것은 아니다** — 브랜치 작업의 정상 상태다.
+    다만 다음 사람이 "이 작업이 어디까지 갔나" 를 알아야 하므로 문서에 남긴다."""
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    if branch in ("master", "HEAD", ""):
+        return []
+    return [l for l in git("log", "origin/master..HEAD", "--oneline").splitlines() if l.strip()]
+
+
 def collect():
     unstaged = [l for l in git("status", "--short").splitlines() if l.strip()]
-    unpushed = [l for l in git("log", "origin/master..HEAD", "--oneline").splitlines() if l.strip()]
+    unpushed = unpushed_commits()
     return {
         "시각": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "브랜치": git("rev-parse", "--abbrev-ref", "HEAD"),
+        "미머지": unmerged_commits(),
         "원장": ledger(),
         "큐잔량": queue_left(),
         "임시파일": temp_files(),
@@ -420,6 +446,9 @@ def to_md(st, for_sol=False):
     if wt:
         cut = [i["대상"] for i in wt["항목"] if i["상태"] == "없음"]
         L += ["## ★ 여기는 워크트리다", "",
+              "- 브랜치: `%s`%s" % (st.get("브랜치", "?"),
+                                    " · master 에 아직 안 들어간 커밋 %d개"
+                                    % len(st["미머지"]) if st.get("미머지") else ""),
               "- 작업 폴더: `%s`" % wt["여기"],
               "- 공용 상태(점유·큐 DB·설정)의 주인: `%s`" % wt["본체"],
               "- 상태: " + ("**%d개가 끊겨 있다** → `python worktree_state.py --apply`"

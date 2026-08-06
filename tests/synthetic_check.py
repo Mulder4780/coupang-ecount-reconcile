@@ -5170,6 +5170,13 @@ def t112_worktree_shared_state():
 
     # 이어받기(--adopt)가 **큐를 흡수하기 전에** 먼저 잇는가. 순서가 뒤집히면
     # 빈 큐를 보고 "0건" 이라 답한다 — 조용히 틀린 답이다.
+    # 미푸시는 **내 브랜치의 upstream** 기준이어야 한다. origin/master 로 세면
+    # 워크트리 브랜치를 푸시하고도 "푸시되지 않은 커밋"이 영원히 남고, 제시된
+    # 명령(git pull --rebase && git push)은 그 상황에 맞지도 않는다(실측 2026-08-06).
+    assert "def unpushed_commits(" in hs and '"@{u}"' in hs, \
+        "미푸시를 origin/master 로만 센다 — 브랜치에서 유령 blocker 가 뜬다"
+    assert "def unmerged_commits(" in hs, "브랜치가 master 에 안 들어간 것을 안 알려준다"
+
     #   (설명문이 아니라 **실제 호출 순서**로 본다 — docstring 에도 같은 말이 있다)
     assert (hs.index('steps.append(("워크트리 → 본체 잇기"')
             < hs.index('steps.append(("입력 큐 → DB"')), "--adopt 가 잇기 전에 큐를 읽는다"

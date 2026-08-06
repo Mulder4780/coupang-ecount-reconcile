@@ -146,6 +146,10 @@ git 밖(`reports/`·`updates/`·`config/*.json`·`db/*.db`)이다. 실측으로 
   코드 해석(`ai_claims.json`·`ledger_queue.db`) 로 대상마다 다르게 잇는다.
   `reports/` 통째로는 **안 잇는다** — 추적 파일이 섞여 있어 git 이 흔들린다.
 - `session_handoff --adopt` 0번 단계로 들어갔다(잇기 → 큐 흡수 순서).
+- **미푸시 판정 기준을 브랜치 upstream 으로** 바꿨다. 예전엔 `origin/master..HEAD`
+  라서 워크트리 브랜치를 **푸시하고도** "푸시되지 않은 커밋 1개"가 영원히 남았고,
+  제시된 명령(`git pull --rebase && git push`)은 그 상황에 맞지도 않았다.
+  master 미머지 여부는 막지 않고 **문서에 정보로만** 남긴다(브랜치의 정상 상태다).
 - 워크트리에서도 합성검증 **ALL GREEN** 확인. 검증 `[112]`.
 - 남은 것: 이 브랜치를 본체로 합친 뒤 루트 `CLAUDE.md`·`AGENTS.md` 사본 재동기화.
 
