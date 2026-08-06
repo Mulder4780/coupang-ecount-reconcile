@@ -4839,6 +4839,41 @@ def t107_report_dates_and_capture():
     print("  [107] 보고 기준일 즉시 반영·자동 갱신 · 숨은 화면 캡처 ✅")
 
 
+def t108_pm_source_fallback():
+    """[108] 원본이 아직 담지 않은 날은 **원장으로 보충**한다 (2026-08-06 실사고).
+
+    류지영 정기점검 원본이 정본이라, 원본이 있으면 원장(04시트)을 아예 안 봤다.
+    그런데 원본이 8/3 까지만 갱신돼 있어 **8/5 정기점검 완료 3건이 보고에 0건으로
+    나갔다.** 대표 보고 캡처가 그대로 0 이었다.
+
+    고친 규칙 — 원본을 무시하지 않는다:
+      · 그날 원본에 한 건이라도 있으면 **원본이 정본**(기존 그대로)
+      · 그날 원본에 아무것도 없을 때만 원장으로 센다
+    """
+    import daily_brief as DB
+
+    base = {"as": [], "fw": [], "events": [],
+            "pm": [{"프로젝트NO": "UJ2600001", "점검예정일": "2026-08-05",
+                    "실제점검일": "2026-08-05", "캠프명": "가"},
+                   {"프로젝트NO": "UJ2600002", "점검예정일": "2026-08-05",
+                    "실제점검일": "2026-08-05", "캠프명": "나"}]}
+
+    def sched(rows):
+        return {"year": 2026, "quarter": 3, "schedule": rows}
+
+    a = dict(base)
+    a["pm_schedule"] = sched([{"연결프로젝트NO": "X", "점검예정일": "2026-08-01",
+                               "실제점검일": "2026-08-01", "장비수": 3}])
+    assert DB.brief("2026-08-05", a)["정기점검"]["완료"] == 2,         "원본이 그날을 안 담았는데 원장으로 보충하지 않는다"
+
+    b = dict(base)
+    b["pm_schedule"] = sched([{"연결프로젝트NO": "X", "점검예정일": "2026-08-05",
+                               "실제점검일": "2026-08-05", "장비수": 3}])
+    got = DB.brief("2026-08-05", b)["정기점검"]
+    assert (got["완료"], got["완료장비"]) == (1, 3),         "그날 원본이 있는데 원장이 덮었다 — 원본이 정본이다"
+    print("  [108] 원본 미수록일만 원장으로 보충(원본 우선은 유지) ✅")
+
+
 def t100_erp_pdf_archive():
     """[100] ERP 산출물 PDF 사본(2026-08-04 지시): 파일명 판별·PDF 목적지·daily_run 연결.
 
@@ -5748,6 +5783,7 @@ if __name__ == "__main__":
     t104_session_scoped_claims()
     t105_settle_report()
     t107_report_dates_and_capture()
+    t108_pm_source_fallback()
     t106_calendar_kind_colors()
     with tempfile.TemporaryDirectory() as _tmp84:
         t84_duplicate_source_files(_tmp84)

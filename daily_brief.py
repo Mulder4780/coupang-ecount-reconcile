@@ -318,6 +318,14 @@ def brief(day=None, data=None):
     source_today = [r for r in source_schedule
                     if (_d(r.get("점검예정일")) or _d(r.get("예측점검일"))) == day]
     source_done_today = [r for r in source_schedule if _d(r.get("실제점검일")) == day]
+    # ★ 원본이 그날을 아직 담고 있지 않으면 **원장으로 보충한다** (2026-08-06 실사고).
+    #   류지영 원본이 정본이라 원본이 있으면 원장을 안 봤는데, 원본이 8/3 까지만
+    #   갱신돼 있어 8/5 정기점검 완료 3건이 보고에 **0건**으로 나갔다. 원본을 무시하는
+    #   것이 아니라, 원본이 아직 다루지 않는 날짜만 원장이 채운다 — 그날 원본에 한 건도
+    #   없을 때만 갈아탄다(원본에 일부라도 있으면 그것이 정본이다).
+    use_ledger_today = bool(source_schedule) and not source_today and not source_done_today
+    if use_ledger_today:
+        source_today, source_done_today = [], []
     # 비율은 pct_fmt 규칙(소수점 1자리·미완료는 100% 금지)만 쓴다 — 2026-08-05 지시.
     source_progress = pct(source_done, source_total) or 0
     source_due_rate = pct(source_due_done, source_due) or 0
@@ -346,10 +354,11 @@ def brief(day=None, data=None):
                     "유상발생": len(paid_as), "재방문예정": len(revisit),
                     "미처리": len(as_open), "완료일미기입": len(as_stale),
                     "업무처리": len(handled)},
-        "정기점검": {"예정": len(source_today) if source_schedule else len(pm_plan),
-                     "예정장비": sum(units(r) for r in source_today) if source_schedule else len(pm_plan),
-                     "완료": len(source_done_today) if source_schedule else len(pm_done),
-                     "완료장비": sum(units(r) for r in source_done_today) if source_schedule else len(pm_done),
+        # 그날치는 원본 우선, 원본이 아직 그날을 안 담았으면 원장(04시트)으로 센다.
+        "정기점검": {"예정": len(source_today) if (source_schedule and not use_ledger_today) else len(pm_plan),
+                     "예정장비": sum(units(r) for r in source_today) if (source_schedule and not use_ledger_today) else len(pm_plan),
+                     "완료": len(source_done_today) if (source_schedule and not use_ledger_today) else len(pm_done),
+                     "완료장비": sum(units(r) for r in source_done_today) if (source_schedule and not use_ledger_today) else len(pm_done),
                      # ★ 사용자 지시(2026-07-29): "3분기라고 하면 모르겠고 몇월부터
                      #   몇월까지인지로 표기해줘." 분기 번호는 읽는 사람이 다시 환산해야 한다.
                      "분기": f"{y}년 {3 * q - 2}~{3 * q}월",
