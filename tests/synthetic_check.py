@@ -5765,7 +5765,8 @@ def t119_context_guard():
       ③ 단계는 올라갈 때만 말한다(70 예고 / 85 마무리 / 95 즉시). 매 입력마다 떠들면
          본문이 밀려 오히려 컨텍스트를 잡아먹는다.
       ④ 훅은 **절대 사람 입력을 막지 않는다** — 어떤 예외에도 exit 0.
-      ⑤ settings.json 에 UserPromptSubmit 배선이 살아 있고 autoCompactWindow 가 한도 안이다.
+      ⑤ settings.json 에 UserPromptSubmit 배선이 살아 있고, autoCompactWindow 는
+         없으면 auto(권장·2026-08-07 사용자 승인), 있으면 한도 안이어야 한다.
     """
     import tempfile
     import context_guard as G
@@ -5826,8 +5827,13 @@ def t119_context_guard():
     assert "def tick(" in src and "TICK_EVERY" in src, "--tick 진입점이 없다"
     assert 'if now - float(st.get("tick_at") or 0) < TICK_EVERY' in src,         "매 도구 호출마다 대화 기록을 통째로 읽는다 — 모든 도구가 그만큼 느려진다"
     assert st.get("autoCompactEnabled") is True, "자동 요약이 꺼져 있다"
-    win = int(st.get("autoCompactWindow") or 0)
-    assert 100_000 <= win <= 500_000, "압축 시점(autoCompactWindow)이 범위 밖이다: %s" % win
+    # autoCompactWindow 는 2026-08-07 부터 기본이 auto(키 없음)다 — 모델에 맞는 창을
+    # Claude Code 가 고른다. 키가 없으면 context_guard 가 DEFAULT_LIMIT(450k)로 경보한다.
+    # 사람이 다시 오버라이드하면 설정 유효 범위(100k~1M) 안이어야 한다.
+    win = st.get("autoCompactWindow")
+    if win is not None:
+        assert 100_000 <= int(win) <= 1_000_000, "압축 시점(autoCompactWindow)이 범위 밖이다: %s" % win
+    assert "DEFAULT_LIMIT" in src, "auto 일 때 기댈 보수 한도가 context_guard 에 없다"
     print("  [119] 컨텍스트 감시 — 사용량 실측·단계 전환·인계 자동·훅 배선 ✅")
 
 
@@ -8040,6 +8046,7 @@ if __name__ == "__main__":
     t132_dash_snap_expand_theme_swipe()
     t133_inline_style_dark_safe()
     t134_section_fold()
+    t136_work_lanes()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
