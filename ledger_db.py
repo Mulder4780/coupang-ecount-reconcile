@@ -220,8 +220,9 @@ CREATE TABLE IF NOT EXISTS flow_step(        -- AS 접수→수금 업무 흐름
   days INTEGER,                              -- 목표 소요일(앞 단계로부터 +N일). NULL=정하지 않음
   source TEXT DEFAULT '',                    -- 무엇으로 확인하나(밴드·ERP·관리대장…)
   note TEXT DEFAULT '',                      -- 한 줄 메모
-  updated_at TEXT NOT NULL,
-  updated_by TEXT DEFAULT ''
+  branch TEXT DEFAULT '',                    -- 갈래 이름. **잇달아 같은 값이면 나란한 갈래**다
+  updated_at TEXT NOT NULL,                  --   (접수가 네 갈래로 들어오는 것 같은 분기).
+  updated_by TEXT DEFAULT ''                 --   빈 값이면 줄기 위의 단계 하나다.
 );
 CREATE TABLE IF NOT EXISTS flow_audit(       -- 흐름을 언제 누가 바꿨나(되돌릴 근거)
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -235,25 +236,29 @@ CREATE TABLE IF NOT EXISTS flow_audit(       -- 흐름을 언제 누가 바꿨�
 # ★ 1~4 단계는 2026-08-07 사용자 구술 그대로다(reports/업무흐름_실제_접수배정.md).
 #   5 단계부터는 아직 확인받지 않은 추정이므로 '(확인 전)'을 붙여 둔다 —
 #   확인 안 된 것을 확인된 것처럼 보여 주면 개발자가 그대로 만든다.
+# ★ 접수는 **네 갈래**다(2026-08-07 구술). 예전에는 한 단계에 메모로 눌러 담았는데,
+#   그러면 개발자가 "접수 화면 하나"로 만든다 — 실제로는 들어오는 길이 넷이고
+#   어느 길로 왔는지를 기록해야 나중에 누락을 추적할 수 있다.
 FLOW_DEFAULT = [
-    ("접수", "류지영", 0, "카톡·법인폰·기사폰",
-     "네 갈래로 들어온다 — 카톡(류지영) · 법인폰 문자/전화(오종현·부산) · "
-     "담당기사 개인폰 · 간헐적으로 유수비·김경원 폰"),
+    ("카톡 접수", "류지영", 0, "카톡 돌발AS방", "가장 흔한 길", "접수 경로"),
+    ("법인폰 접수", "오종현", 0, "법인폰 문자·전화", "부산 매니저가 법인폰 담당", "접수 경로"),
+    ("담당기사 접수", "담당기사", 0, "기사 개인폰", "기사가 류지영에게 다시 전달", "접수 경로"),
+    ("유수비·김경원 폰", "유수비·김경원", 0, "개인폰", "간헐적", "접수 경로"),
     ("류지영에게 전달", "오종현·담당기사", 0, "전화·카톡",
-     "법인폰·기사폰으로 받은 건은 류지영에게 연락해 넘긴다(사람 손 — 유실 지점)"),
+     "법인폰·기사폰으로 받은 건은 류지영에게 넘긴다(사람 손 — 유실 지점)", ""),
     ("카톡·밴드에 올림", "류지영", 0, "카톡 돌발AS방 · 밴드",
-     "경로가 무엇이든 최종적으로 류지영이 올린다 — 이 두 곳이 사실상 접수 원장"),
+     "경로가 무엇이든 최종적으로 류지영이 올린다 — 이 두 곳이 사실상 접수 원장", ""),
     ("배정 합의", "담당기사", 0, "카톡 돌발AS방",
-     "관리자 지정이 아니라 기사들끼리 합의한다. 정해진 일정을 카톡방에 올린다"),
+     "관리자 지정이 아니라 기사들끼리 합의한다. 정해진 일정을 카톡방에 올린다", ""),
     ("일정 확정", "류지영", 0, "밴드 · 구글 캘린더",
-     "밴드 원 글을 수정하고 구글 캘린더에 등록한다"),
-    ("현장 조치", "담당기사", 1, "밴드 완료 사진", "수리·부품 교체 (확인 전)"),
-    ("완료 보고", "담당기사", 1, "밴드", "완료 내용·사진 게시 (확인 전)"),
-    ("서류 정리", "류지영", 2, "밴드 문서 OCR", "작업내역서·사진 정리 (확인 전)"),
-    ("정산 등록", "류지영", 3, "관리대장 06시트", "정산ID·공급가액 (확인 전)"),
-    ("거래명세서 발행", "오종현", 5, "이카운트", "ERP 매출전표 (확인 전)"),
-    ("세금계산서 발행", "오종현", 7, "이카운트", "월말 일괄 (확인 전)"),
-    ("수금 확인", "오종현", 30, "입금 자료", "입금 대조로 마감 (확인 전)"),
+     "밴드 원 글을 수정하고 구글 캘린더에 등록한다", ""),
+    ("현장 조치", "담당기사", 1, "밴드 완료 사진", "수리·부품 교체 (확인 전)", ""),
+    ("완료 보고", "담당기사", 1, "밴드", "완료 내용·사진 게시 (확인 전)", ""),
+    ("서류 정리", "류지영", 2, "밴드 문서 OCR", "작업내역서·사진 정리 (확인 전)", ""),
+    ("정산 등록", "류지영", 3, "관리대장 06시트", "정산ID·공급가액 (확인 전)", ""),
+    ("거래명세서 발행", "오종현", 5, "이카운트", "ERP 매출전표 (확인 전)", ""),
+    ("세금계산서 발행", "오종현", 7, "이카운트", "월말 일괄 (확인 전)", ""),
+    ("수금 확인", "오종현", 30, "입금 자료", "입금 대조로 마감 (확인 전)", ""),
 ]
 
 # 리모컨 불출 규칙(2026-08-03 사용자 지시) — 지점별 불출 담당과 담당자당 보유 한도.
@@ -286,7 +291,10 @@ def conn():
         # 리모컨 공지(2026-08-04): 불출 일자·투입 예정 캠프명을 불출 기록에 남긴다.
         # 같은 날 2차: 실제 재고표가 버전(기존형·VER.3·VER.4)과 처리유형(사용·교체·
         # 샘플·택배출고)으로 관리되고 있어 세 표에 열을 더 붙인다.
-        for table, cols in (("remote_issue", ("issued_on", "camp", "version")),
+        # 흐름에 갈래를 더한다(2026-08-08). 접수가 네 갈래로 들어오는 것을 일직선
+        # 자료구조로는 담을 수 없어, 개발자용 플로우차트가 여기서 막혀 있었다.
+        for table, cols in (("flow_step", ("branch",)),
+                            ("remote_issue", ("issued_on", "camp", "version")),
                             ("remote_delivery", ("kind", "version")),
                             ("remote_stock", ("version", "moved_on"))):
             have = {row[1] for row in c.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -689,20 +697,20 @@ def staff_resolution_summary():
 #   ② 고치기 **직전 모습을 통째로 남긴다**(flow_audit) — 잘못 고쳤을 때 되돌릴
 #   근거가 없으면 사람은 화면을 못 믿고 결국 안 쓰게 된다.
 
-FLOW_COLS = ("name", "owner", "days", "source", "note")
+FLOW_COLS = ("name", "owner", "days", "source", "note", "branch")
 
 
 def flow_steps():
     """지금의 흐름. 비어 있으면 기본 흐름을 그대로 돌려준다(그때는 저장하지 않는다 —
        사람이 한 번도 손대지 않았다는 사실 자체가 정보다)."""
     with conn() as c:
-        rows = c.execute("SELECT ord,name,owner,days,source,note FROM flow_step"
+        rows = c.execute("SELECT ord,name,owner,days,source,note,branch FROM flow_step"
                          " ORDER BY ord, id").fetchall()
     if rows:
         return [{"순서": r[0], "단계": r[1], "담당": r[2] or "", "소요일": r[3],
-                 "근거": r[4] or "", "메모": r[5] or ""} for r in rows]
-    return [{"순서": i, "단계": d[0], "담당": d[1], "소요일": d[2], "근거": d[3], "메모": d[4]}
-            for i, d in enumerate(FLOW_DEFAULT)]
+                 "근거": r[4] or "", "메모": r[5] or "", "갈래": r[6] or ""} for r in rows]
+    return [{"순서": i, "단계": d[0], "담당": d[1], "소요일": d[2], "근거": d[3],
+             "메모": d[4], "갈래": d[5]} for i, d in enumerate(FLOW_DEFAULT)]
 
 
 def flow_save(steps, who=""):
@@ -719,7 +727,8 @@ def flow_save(steps, who=""):
             days = None
         clean.append((i, name, str(s.get("담당") or "").strip()[:20], days,
                       str(s.get("근거") or "").strip()[:40],
-                      str(s.get("메모") or "").strip()[:80]))
+                      str(s.get("메모") or "").strip()[:80],
+                      str(s.get("갈래") or "").strip()[:20]))
     if not clean:
         raise ValueError("단계가 하나도 없습니다 — 빈 흐름은 저장하지 않습니다")
     if len(clean) > 30:
@@ -730,8 +739,8 @@ def flow_save(steps, who=""):
         c.execute("INSERT INTO flow_audit(at,who,steps_json) VALUES(?,?,?)",
                   (now, str(who or "")[:40], before))
         c.execute("DELETE FROM flow_step")
-        c.executemany("INSERT INTO flow_step(ord,name,owner,days,source,note,updated_at,updated_by)"
-                      " VALUES(?,?,?,?,?,?,?,?)",
+        c.executemany("INSERT INTO flow_step(ord,name,owner,days,source,note,branch,"
+                      "updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?)",
                       [r + (now, str(who or "")[:40]) for r in clean])
     return len(clean)
 

@@ -2246,6 +2246,14 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
   box-shadow:0 6px 20px rgba(16,24,40,.18);margin-top:8px}
 .flow-bar b{align-self:center;font-size:13.5px;margin:0 4px}
 @media (prefers-reduced-motion:reduce){.flow-step{transition:none}}
+/* 나란한 갈래 — 대괄호로 묶어 "이 중 하나"임을 보이고, 끝에서 합류를 적는다.
+   묶지 않으면 개발자가 네 갈래를 **차례로 일어나는 네 단계**로 읽는다. */
+.flow-fork{position:relative;border-left:2px dashed var(--brand);border-radius:0 0 0 14px;
+  margin:0 0 12px 6px;padding:6px 0 0 10px}
+.flow-fork-t{font:800 12px inherit;color:var(--brand-dk);margin:0 0 8px 30px}
+.flow-fork-t b{font-weight:500;color:var(--ink-3)}
+.flow-merge{font:600 12px inherit;color:var(--ink-3);margin:-4px 0 2px 30px}
+.flow-merge::before{content:'⋔ ';color:var(--brand)}
 .flow-edit{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}
 .flow-edit input{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:9px;
   background:var(--surface);color:var(--ink);font:inherit;font-size:13.5px}
@@ -2787,6 +2795,7 @@ body.dash-drag-live #dashGuides{display:grid}
         <div class="flow-hero-cap">
           <button class="abtn primary" onclick="flowCapture43()">4:3 캡처</button>
           <button class="abtn" onclick="flowCopy43()">복사</button>
+          <button class="abtn" onclick="flowDevSpec()">개발 사양</button>
           <button class="abtn" onclick="flowPrint43()">인쇄</button>
         </div>
       </div>
@@ -6035,9 +6044,8 @@ function flowRender(){
   const pal = flowPalette(FLOW);
   const lane = flowLanes(FLOW);
   const last0 = FLOW.filter(s=>Number.isFinite(+s.소요일)).pop();
-  w.innerHTML = `<div class="flow-root">돌발 AS<span class="rn">${FLOW.length}단계`
-    + (last0?` · D+${+last0.소요일}`:'') + `</span></div>`
-    + FLOW.map((s,i)=>{
+  const grp = flowGroups(FLOW);
+  const card = (s,i)=>{
     const d = Number.isFinite(+s.소요일) ? +s.소요일 : null;
     const col = flowColor(s.담당, pal);
     const rest = [s.근거].filter(Boolean).map(esc2).join(' · ');
@@ -6048,8 +6056,32 @@ function flowRender(){
               ${s.메모?`<div class="flow-sub">${esc2(s.메모)}</div>`:''}</div>
          <div class="flow-day">${d==null?'—':'D+'+d}</div>
        </div>`;
-  }).join('');
+  };
+  w.innerHTML = `<div class="flow-root">돌발 AS<span class="rn">${FLOW.length}단계`
+    + (last0?` · D+${+last0.소요일}`:'') + `</span></div>`
+    + grp.map(g=>{
+        const body = g.items.map(i=>card(FLOW[i], i)).join('');
+        if(!g.branch) return body;
+        // 갈래는 **나란한 길**이다 — 순서가 아니라 '이 중 하나로 들어온다'.
+        return `<div class="flow-fork"><div class="flow-fork-t">${esc2(g.branch)}`
+             + ` <b>${g.items.length}갈래 중 하나</b></div>${body}`
+             + `<div class="flow-merge">여기서 한 줄기로 합쳐진다</div></div>`;
+      }).join('');
   flowBindHold(w);
+}
+/* 잇달아 같은 갈래인 단계는 **나란한 길**이다(2026-08-08).
+   일직선 자료구조로는 "접수가 네 갈래로 들어온다"를 담을 수 없어, 개발자용
+   플로우차트가 여기서 막혀 있었다. 열 하나(갈래)로 분기를 담는다 —
+   순서를 바꿔도 갈래가 흩어지지 않게 **잇달아 있을 때만** 한 묶음으로 본다. */
+function flowGroups(steps){
+  const out = [];
+  (steps||[]).forEach((s,i)=>{
+    const b = String(s.갈래||'').trim();
+    const last = out[out.length-1];
+    if(b && last && last.branch === b) last.items.push(i);
+    else out.push({branch:b, items:[i]});
+  });
+  return out;
 }
 /* 머리 카드 — 숫자는 칩으로, 안내는 한 줄로. 예전엔 셋을 한 문장에 이어 붙여
    폰에서 세 줄로 흘렀다(사용자 화면 실측). 숫자와 안내는 읽는 목적이 다르다. */
@@ -6157,6 +6189,7 @@ function flowEdit(){
         <input data-f="소요일" value="${s.소요일==null?'':s.소요일}" placeholder="접수 후 D+며칠" inputmode="numeric">
         <input class="wide" data-f="근거" value="${esc2(s.근거||'')}" placeholder="무엇으로 확인하나">
         <input class="wide" data-f="메모" value="${esc2(s.메모||'')}" placeholder="메모(선택)">
+        <input class="wide" data-f="갈래" value="${esc2(s.갈래||'')}" placeholder="갈래 이름 — 잇달아 같은 이름이면 나란한 길(비우면 줄기)">
       </div>
     </div>`).join('<div class="flow-arrow"></div>');
   flowHead();
@@ -6165,7 +6198,7 @@ function flowCollect(){
   return [...document.querySelectorAll('#flowWrap .flow-step[data-i]')].map(el=>{
     const g = f => { const i = el.querySelector(`[data-f="${f}"]`); return i ? i.value.trim() : ''; };
     const d = g('소요일');
-    return {단계:g('단계'), 담당:g('담당'), 근거:g('근거'), 메모:g('메모'),
+    return {단계:g('단계'), 담당:g('담당'), 근거:g('근거'), 메모:g('메모'), 갈래:g('갈래'),
             소요일: d==='' ? null : (Number.isFinite(+d) ? +d : null)};
   });
 }
@@ -6178,7 +6211,7 @@ function flowMove(i,d){
 }
 function flowAddStep(){
   FLOW = flowCollect();
-  FLOW.push({단계:'', 담당:'', 소요일:null, 근거:'', 메모:''});
+  FLOW.push({단계:'', 담당:'', 소요일:null, 근거:'', 메모:'', 갈래:''});
   flowEdit();
 }
 async function flowSave(){
@@ -6293,7 +6326,7 @@ async function flowToPng43(){
   // 넘치면 통째로 줄인다 — 자르지 않는다. 잘린 그림은 없는 단계를 없다고 말한다.
   const k = Math.min(1, bodyH / L.maxH);
   window.__flow43 = {꼴:'mindmap', k:+k.toFixed(3), 그린단계:L.laid.length,
-                     넘침:L.maxH*k > bodyH + .5};
+                     넘침:L.maxH*k > bodyH + .5, 갈림마디:0};
   ctx.save();
   // 줄인 뒤에도 가운데에 오도록, 축소 좌표계 안에서 폭·높이를 되돌려 잡는다
   ctx.translate(W/2, bodyY + bodyH/2); ctx.scale(k,k);
@@ -6303,6 +6336,21 @@ async function flowToPng43(){
     {dir:-1, from: 0, to: Math.min(L.per, L.laid.length), top: -L.h0/2},
     {dir: 1, from: L.per, to: L.laid.length,              top: -L.h1/2},
   ];
+  // ── 갈림 마디를 먼저 정한다. 카드 자리를 알아야 "어디서 갈라지나"를 놓을 수 있다.
+  const CY = {};
+  sides.forEach(sd=>{ let y = sd.top;
+    for(let i=sd.from;i<sd.to;i++){ CY[i] = y + L.laid[i].h/2; y += L.laid[i].h + VGAP; } });
+  const FORK = {};
+  flowGroups(steps).forEach(g=>{
+    if(!g.branch || g.items.length < 2) return;
+    const side = i => (i < L.per ? 0 : 1);
+    if(new Set(g.items.map(side)).size > 1) return;   // 두 쪽에 걸치면 마디를 못 놓는다
+    const ys = g.items.map(i=>CY[i]);
+    const mid = (Math.min(...ys) + Math.max(...ys)) / 2;
+    g.items.forEach((i,n)=>{ FORK[i] = {y: mid, label: g.branch, n: g.items.length,
+                                        first: n === 0}; });
+    window.__flow43.갈림마디++;
+  });
   sides.forEach(sd=>{
     let y = sd.top;
     for(let idx=sd.from; idx<sd.to; idx++){
@@ -6310,11 +6358,26 @@ async function flowToPng43(){
       // 카드 자리 — 뿌리에서 바깥으로. dir -1 이면 왼쪽이라 좌표를 뒤집어 잡는다.
       const cardX = sd.dir<0 ? -halfW : halfW - cardW;   // 카드의 왼쪽 x
       const inner = sd.dir<0 ? cardX + cardW : cardX;    // 뿌리를 바라보는 모서리
-      // ① 굽은 가지 — 뿌리에서 **가로로 출발해** 카드 쪽으로 휜다. 조종점을 이렇게
-      //    두어야 S 자로 부풀어 나뭇가지로 보인다(둘 다 카드 쪽에 두면 직선이 된다).
+      // ① 굽은 가지 — 뿌리(또는 갈림 마디)에서 **가로로 출발해** 카드 쪽으로 휜다.
+      //    조종점을 이렇게 둬야 S 자로 부풀어 나뭇가지로 보인다(둘 다 카드 쪽이면 직선).
+      //    ★ 나란한 갈래는 **한 마디에서 함께 갈라진다** — 저마다 뿌리에서 뻗으면
+      //      개발자가 차례로 일어나는 네 단계로 읽는다(그게 이 화면의 목적이다).
+      const fk = FORK[idx];
+      const ox = fk ? sd.dir*(rootR + ROOTGAP*0.42) : sd.dir*rootR;
+      const oy = fk ? fk.y : 0;
+      if(fk && fk.first){                    // 뿌리 → 갈림 마디 줄기 + 갈래 이름
+        ctx.beginPath(); ctx.moveTo(sd.dir*rootR, 0);
+        ctx.bezierCurveTo(sd.dir*(rootR+30), 0, ox - sd.dir*22, oy, ox, oy);
+        ctx.strokeStyle = '#475467'; ctx.globalAlpha = .75; ctx.lineWidth = 3;
+        ctx.lineCap = 'round'; ctx.stroke(); ctx.globalAlpha = 1;
+        ctx.beginPath(); ctx.arc(ox, oy, 5, 0, Math.PI*2);
+        ctx.fillStyle = '#475467'; ctx.fill();
+        txt(`${fk.label} · ${fk.n}갈래 중 하나`, ox + sd.dir*10, oy - 14,
+            F(11.5,700), '#475467', sd.dir<0 ? 'right' : 'left');
+      }
       ctx.beginPath();
-      ctx.moveTo(sd.dir*rootR, 0);
-      ctx.bezierCurveTo(sd.dir*(rootR+55), 0, sd.dir*(rootR+25), cy, inner, cy);
+      ctx.moveTo(ox, oy);
+      ctx.bezierCurveTo(ox + sd.dir*26, oy, sd.dir*(rootR+25), cy, inner, cy);
       ctx.strokeStyle = color; ctx.globalAlpha = .5; ctx.lineWidth = 2.5;
       ctx.lineCap = 'round'; ctx.stroke(); ctx.globalAlpha = 1;
       // ② 카드
@@ -6367,6 +6430,76 @@ async function flowToPng43(){
   txt('CSOS 업무센터 · 흐름 정본은 앱에서 고칩니다', PAD, H-24, F(12,500), SUB);
   txt(`${L.cols}열 · 4:3`, W-PAD, H-24, F(12,500), SUB, 'right');
   return new Promise(res=>cv.toBlob(res,'image/png'));
+}
+/* ── 개발자 사양 내려받기 (2026-08-07 지시) ─────────────────────────────────
+   사용자 지시: "개발자가 이 플로우 차트 보고 업무 순서대로 앱 개발한다니까 꼭
+   개발자가 보기 좋게 참고하기 좋은 구성으로 정리해".
+   그림만으로는 못 만든다 — 개발자가 필요한 것은 **분기·합류·담당·기한·근거**가
+   글로 적힌 것이다. 그래서 Mermaid 흐름도 + 표 + 주의사항을 한 파일로 낸다.
+   ★ '(확인 전)'은 지우지 않는다. 확인 안 된 것을 확인된 것처럼 넘기면 개발자가
+     그대로 만든다 — 이 문서에서 가장 중요한 한 줄이다. */
+function flowDevSpec(){
+  const F = (FLOW_EDITING ? flowCollect() : FLOW).filter(s=>s.단계);
+  if(!F.length) return notice('흐름이 비어 있습니다');
+  const gs = flowGroups(F);
+  const nid = i => 'S' + (i+1);
+  const esc = t => String(t||'').replace(/"/g,"'").replace(/\n/g,' ');
+  const L = ['flowchart TD', '  R(["돌발 AS 발생"])'];
+  gs.forEach((g,gi)=>{
+    if(g.branch) L.push(`  subgraph B${gi}["${esc(g.branch)} — ${g.items.length}갈래 중 하나"]`);
+    g.items.forEach(i=>{
+      const s = F[i], d = Number.isFinite(+s.소요일) ? ` · D+${+s.소요일}` : '';
+      L.push(`  ${g.branch?'  ':''}${nid(i)}["${i+1}. ${esc(s.단계)}<br/>`
+           + `${esc(s.담당||'담당 미정')}${d}"]`);
+    });
+    if(g.branch) L.push('  end');
+  });
+  gs.forEach((g,gi)=>{                       // 이음선 — 앞 묶음의 **모든** 갈래가 다음으로 합류
+    const prev = gi ? gs[gi-1].items : null;
+    g.items.forEach(i=>{
+      if(!prev) L.push(`  R --> ${nid(i)}`);
+      else prev.forEach(p=>L.push(`  ${nid(p)} --> ${nid(i)}`));
+    });
+  });
+  const rows = F.map((s,i)=>{
+    const g = gs.find(x=>x.items.includes(i));
+    return `| ${i+1} | ${s.단계||''} | ${s.담당||''} | `
+      + (Number.isFinite(+s.소요일)?'D+'+(+s.소요일):'—') + ` | ${s.근거||''} | `
+      + (g && g.branch ? g.branch : '줄기') + ` | ${(s.메모||'').replace(/\|/g,'/')} |`;
+  });
+  const 확인전 = F.filter(s=>/\(확인 전\)/.test(s.메모||'')).length;
+  const md = [
+    '# 돌발 AS 업무 흐름 — 개발 사양',
+    '',
+    `기준일 ${baseDate()} · ${F.length}단계 · 정본은 앱 [워크플로우]이며 여기서 고칩니다.`,
+    '',
+    '## 1. 흐름도',
+    '',
+    '```mermaid', ...L, '```',
+    '',
+    '## 2. 단계',
+    '',
+    '| # | 단계 | 담당 | 기한 | 무엇으로 확인하나 | 갈래 | 메모 |',
+    '|---|---|---|---|---|---|---|',
+    ...rows,
+    '',
+    '## 3. 만들 때 유의할 것',
+    '',
+    '- **접수 원천이 하나가 아니다.** 어느 길로 들어왔는지를 반드시 기록해야',
+    '  나중에 누락을 추적할 수 있다. 지금은 밴드·카톡만 자동 수집되고 나머지는',
+    '  **사람의 전달에 의존**한다 — 여기가 유실 지점이다.',
+    '- **배정은 지정이 아니라 합의다.** 기사들끼리 정한다. 앱이 배정 기능을 만든다면',
+    '  관리자가 지정하는 모양이 아니라 **합의 결과를 받아 적는** 모양이어야 한다.',
+    '- **카톡 돌발AS방과 밴드가 사실상의 접수 원장이다.** 경로가 무엇이든 최종적으로',
+    '  류지영이 그 두 곳에 올린다.',
+    확인전 ? `- ⚠ **${확인전}단계가 아직 '(확인 전)'이다.** 사용자 확인 전까지 사실로`
+           + ' 다루지 말 것 — 코드가 추정한 값이다.'
+           : '- 모든 단계가 사용자 확인을 거쳤다.',
+    '',
+  ].join('\n');
+  downloadBlobFile(new Blob([md], {type:'text/markdown;charset=utf-8'}),
+    'CSOS_업무흐름_개발사양_' + baseDate() + '.md', '개발 사양을 저장했습니다');
+  uxEvent('tap','flow-devspec', String(F.length));
 }
 function flow43Name(){ return 'CSOS_업무흐름_' + baseDate() + '_4x3.png'; }
 async function flowCapture43(){
