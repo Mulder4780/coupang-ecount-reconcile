@@ -7250,6 +7250,83 @@ def t85_staff_po_work_log_and_edit_priority(tmp):
         source_dirs.WORK_LOG_DIR = old["work_log_dir"]
 
 
+def t129_call_notes_db_only_and_device_open():
+    """[129] 통화 메모는 DB 에만 · 원본 클릭은 **접속한 기기**에서 연다 (2026-08-07 지시).
+
+    사용자 지시: "원본 자료 클릭하면 접속한 디바이스에서 바로 열리게 알고리즘 수정해,
+    그리고 통화_MD는 원본 자료에서 안보이게 처리하고 DB만 보관해(민감한 내용이 포함되어있음)."
+
+    무엇이 잘못돼 있었나
+      · 클릭은 `/api/open` → `os.startfile` 이라 **서버 PC 에서** 열렸다. 폰·다른 PC 는
+        403 이라 경로만 복사됐고, 사무실 PC 에서는 아무도 안 보는 화면에 창만 떴다.
+      · 통화 메모를 `0. 원본 자료/10. 통화·회의 기록/`(공유 폴더 Z:)에 복사해 두어
+        앱 '원본 자료' 목록에 그대로 떴다(실측: 통화_20260805_김준형.md 카드 노출).
+
+    지키는 것
+      ① 통화 메모는 색인에 담기지 않는다 — 이름 규칙과 통화·회의 폴더 둘 다.
+      ② call_notes 는 파일을 복사하지 않는다(그 복사가 노출의 원인이었다).
+      ③ DB 왕복: 넣은 본문이 그대로 나오고, **목록은 본문을 주지 않는다.**
+      ④ 서버는 목록 응답과 파일 전송 **두 곳 모두**에서 막는다 — 색인은 회차로 다시
+         만들어지므로 옛 색인이 남아 있는 동안에도 막혀야 한다.
+      ⑤ 화면은 /api/open 이 아니라 /api/source-file 을 쓴다.
+    """
+    import tempfile
+    import source_dirs
+    import source_index as S
+    _rd = lambda *p: open(os.path.join(*p), encoding="utf-8").read()
+
+    # ① 색인 제외 규칙
+    assert S.is_private(os.path.join("x", "통화_20260805_김준형.md")), "이름 규칙이 안 걸린다"
+    assert S.is_private(os.path.join(source_dirs.CALL_NOTE_DIR, "아무거나.txt")), \
+        "통화·회의 폴더 전체가 안 걸린다"
+    assert not S.is_private(os.path.join("x", "1-1._남양주4MB견적서_274,000원.pdf")), \
+        "일반 원본까지 막으면 안 된다"
+    src = _rd(ROOT, "source_index.py")
+    assert "is_private(p, fn)" in src, "walk 에서 is_private 를 부르지 않는다 — 색인에 샌다"
+
+    # ② Z: 복사 금지
+    cn = _rd(ROOT, "call_notes.py")
+    assert "shutil" not in cn, "call_notes 가 아직 파일을 복사한다 — Z: 노출 경로가 남았다"
+    assert "call_note_save" in cn, "DB 보관을 부르지 않는다"
+
+    # ③ DB 왕복 — 실 DB 는 건드리지 않는다
+    import ledger_db
+    tmpd = tempfile.mkdtemp(prefix="callnote_")
+    keep = (ledger_db.DB_DIR, ledger_db.DB_PATH)
+    ledger_db.DB_DIR = tmpd
+    ledger_db.DB_PATH = os.path.join(tmpd, "t.db")
+    try:
+        body = "# 통화\n## 할 일\n- [김 · 2026-08-08] 확인\n"
+        ledger_db.call_note_save("통화_20260808_테스트.md", body, whom="테스트",
+                                 on="2026-08-08",
+                                 todos=[{"who": "김", "due": "2026-08-08", "what": "확인"}])
+        got = ledger_db.call_note_get("통화_20260808_테스트.md")
+        assert got and got.get("body") == body, "DB 왕복이 깨졌다"
+        lst = ledger_db.call_notes()
+        assert lst and "body" not in lst[0], "목록이 본문을 흘린다 — 민감 자료다"
+        assert lst[0]["todos"] and lst[0]["todos"][0]["what"] == "확인", "할 일이 안 남았다"
+        ledger_db.call_note_save("통화_20260808_테스트.md", body + "추가", on="2026-08-08")
+        assert len(ledger_db.call_notes()) == 1, "같은 파일 이름이 두 행이 됐다"
+    finally:
+        ledger_db.DB_DIR, ledger_db.DB_PATH = keep
+
+    # ④ 서버 — 목록과 파일 전송 두 곳 모두
+    app = _rd(ROOT, "webapp", "app_server.py")
+    assert '"/api/source-file"' in app, "기기로 내려보내는 엔드포인트가 없다"
+    assert app.count("from source_index import is_private") >= 2, \
+        "목록·파일전송 두 곳 모두에서 막아야 한다(색인은 회차로 다시 만들어진다)"
+    assert "filename*=UTF-8''" in app, "한글 파일 이름이 헤더에서 깨진다"
+
+    # ⑤ 화면 — 클릭이 서버 PC 열기로 돌아가지 않았나
+    html = _rd(ROOT, "webapp", "index.html")
+    assert "sourceFileURL" in html and "/api/source-file" in html, "화면이 새 경로를 안 쓴다"
+    fn = re.search(r"function openSource\(path\)\{.*?\n\}", html, re.S)
+    assert fn, "openSource 를 찾지 못했다"
+    assert "/api/open" not in fn.group(0), \
+        "원본 클릭이 아직 서버 PC 에서 여는 /api/open 을 쓴다"
+    print("  [129] 통화 메모 DB 전용 · 원본 클릭 접속 기기에서 열기 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -7351,6 +7428,7 @@ if __name__ == "__main__":
     t126_app_font_and_revert()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
+    t129_call_notes_db_only_and_device_open()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

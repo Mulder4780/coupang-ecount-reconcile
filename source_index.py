@@ -73,6 +73,33 @@ SKIP_EXT = {".tmp", ".lnk", ".ini", ".db"}
 #   앱의 원본 자료 화면에서 같은 자료가 여러 번 나오는 원인이다.
 SKIP_DIRS = {"_바로가기", "_보관", "__pycache__", ".git"}
 
+# ★ 민감 자료는 색인에 **아예 담지 않는다** (2026-08-07 지시).
+#   사용자 지시: "통화_MD는 원본 자료에서 안 보이게 처리하고 DB만 보관해(민감한 내용이
+#   포함되어있음)." 이 색인은 앱 '원본 자료' 목록이면서 동시에 `/api/source-file` 이
+#   내려보내도 되는 경로의 **화이트리스트**다. 그래서 여기서 한 번 빼면 목록에도 안 뜨고
+#   내려받을 수도 없다 — 두 겹이 한 자리에서 닫힌다.
+#   통화 메모의 정본은 DB(`ledger_db.call_note`)이고, 옮기기는 `call_notes.py --migrate`.
+#   검증 [129].
+PRIVATE_NAME = re.compile(r"^통화[_\-]")
+
+
+def is_private(path, name=""):
+    """색인에 넣으면 안 되는 민감 파일인가 — 이름 규칙 + 통화·회의 폴더 전체."""
+    name = name or os.path.basename(path)
+    if PRIVATE_NAME.match(name):
+        return True
+    try:
+        import source_dirs
+        d = getattr(source_dirs, "CALL_NOTE_DIR", "")
+        if d:
+            base = os.path.normcase(os.path.abspath(d)).rstrip("\\/")
+            here = os.path.normcase(os.path.abspath(path))
+            if here == base or here.startswith(base + os.sep):
+                return True
+    except Exception:
+        pass
+    return False
+
 # 폴더 이름으로 1차 분류 — 내용 판별보다 싸고, 사람이 이해하는 갈래와 같다.
 # ★ 순서가 곧 우선순위다. **좁은 것부터** 적는다 — 경로에는 상위 폴더 이름도 같이
 #   들어 있기 때문이다. 예전에는 `4. 밴드 원본` 이 `게시글보관` 보다 앞이라,
@@ -182,6 +209,8 @@ def scan(rescan=False):
                 if ext in SKIP_EXT or fn.startswith("~$"):
                     continue
                 p = os.path.join(dirpath, fn)
+                if is_private(p, fn):     # 통화 메모 등 — 색인 자체에 남기지 않는다
+                    continue
                 try:
                     st = os.stat(p)
                 except OSError:

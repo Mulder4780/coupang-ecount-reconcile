@@ -8048,20 +8048,24 @@ async function renderSources(){
     const meta=[r.uj, r.slip?('전표 '+r.slip):'', r.post?('글 '+r.post):'', r.po, r.date,
                 (r.ext||'').toUpperCase(), Math.max(1,Math.round((r.size||0)/1024))+' KB']
                 .filter(Boolean).join(' · ');
-    return `<button type="button" class="src-row" data-path="${esc2(r.path)}" onclick="openSource(this.dataset.path)" title="PC에서 파일 열기">
+    return `<button type="button" class="src-row" data-path="${esc2(r.path)}" onclick="openSource(this.dataset.path)" title="이 기기에서 열기">
       <div class="src-ic" style="background:${g.color};color:${g.key==='kakao'?'#1C1C1E':'#fff'}">${esc2(g.ic)}</div>
       <div class="src-tx"><b>${esc2(r.name)}</b><span>${esc2(meta)}</span></div>
       <div class="src-go" aria-hidden="true">›</div></button>`;
   }).join('') || '<div class="src-empty">조건에 맞는 원본이 없습니다</div>';
 }
-async function openSource(path){
-  try{
-    const d = await api('/api/open', {method:'POST', body:JSON.stringify({what:path})});
-    toast(d.ok?`열었습니다: ${d.opened||''}`:'열지 못했습니다');
-  }catch(e){
-    try{ await navigator.clipboard.writeText(path); toast('사무실 PC에서만 열 수 있어 경로를 복사했습니다'); }
-    catch(_){ toast('사무실 PC에서만 열 수 있습니다'); }
-  }
+/* 원본 클릭 → **접속한 기기에서** 연다 (2026-08-07 지시).
+   ★ 예전에는 /api/open 이 서버 PC 에서 os.startfile 로 열었다. 그래서 폰이나 다른
+     PC 로 접속하면 눌러도 아무 일이 없었고(원격은 403 이라 경로만 복사됐다), 사무실
+     PC 에서는 아무도 안 보는 화면에 창만 떴다. 이제 파일을 그대로 받아 **기기가**
+     제 뷰어로 연다 — 폰이면 폰의 PDF 뷰어·엑셀 앱으로 뜬다. */
+function sourceFileURL(path, dl){
+  return '/api/source-file?path='+encodeURIComponent(path)+(dl?'&dl=1':'');
+}
+function openSource(path){
+  // 클릭 핸들러 안에서 **동기로** 연다 — await 를 먼저 하면 팝업 차단에 걸린다.
+  const w = window.open(sourceFileURL(path), '_blank', 'noopener');
+  if(!w) location.href = sourceFileURL(path);   // 차단됐으면 현재 탭에서 연다
 }
 
 async function loadReports(){

@@ -4622,6 +4622,79 @@ self.addEventListener('fetch', e => {
             # 리모컨 불출·납품 현황(2026-08-03 지시). 류지영·오종현 업무센터와 관리자 공용.
             import ledger_db
             return self._send(200, ledger_db.remote_status())
+        if p == "/api/source-file":
+            # 원본 파일을 **접속한 기기로** 내려보낸다 (2026-08-07 지시:
+            # "원본 자료 클릭하면 접속한 디바이스에서 바로 열리게").
+            # ★ 예전에는 클릭이 /api/open → os.startfile 이라 **서버 PC 에서** 열렸다.
+            #   폰이나 다른 PC 로 접속하면 눌러도 아무 일이 없었고(원격은 아예 403),
+            #   사무실 PC 에서는 아무도 안 보는 화면에 창만 떴다. 이제 파일을 그대로
+            #   내려보내고, 무엇으로 열지는 **기기가** 정한다 — 폰이면 폰의 뷰어로 뜬다.
+            if not self._require_admin():
+                return
+            from urllib.parse import parse_qs, quote, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+            want = (qs.get("path", [""])[0] or "").strip()
+            doc = _source_index() or {}
+            # ★ 화이트리스트는 **색인 하나**다. 임의 경로를 열어 주면 서버 파일이 통째로 샌다.
+            allow = {r.get("path") for r in (doc.get("rows") or [])}
+            if not want or want not in allow or not os.path.isfile(want):
+                return self._send(404, {"ok": False, "error": "허용된 원본이 아닙니다"})
+            # 민감 자료는 색인에서 이미 빠지지만, **색인은 회차로 다시 만들어진다.**
+            # 옛 색인이 남아 있는 동안 여기로 직접 요청이 오면 그대로 나갈 수 있으므로
+            # 파일을 내보내기 직전에 한 번 더 판정한다(2026-08-07 지시).
+            try:
+                from source_index import is_private
+                if is_private(want):
+                    return self._send(404, {"ok": False, "error": "허용된 원본이 아닙니다"})
+            except ImportError:
+                if os.path.basename(want).startswith("통화_"):
+                    return self._send(404, {"ok": False, "error": "허용된 원본이 아닙니다"})
+            name = os.path.basename(want)
+            ext = os.path.splitext(name)[1].lower()
+            inline_ct = {".pdf": "application/pdf", ".png": "image/png",
+                         ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                         ".gif": "image/gif", ".webp": "image/webp",
+                         ".txt": "text/plain; charset=utf-8",
+                         ".md": "text/plain; charset=utf-8",
+                         ".csv": "text/csv; charset=utf-8"}
+            attach_ct = {".xlsx": "application/vnd.openxmlformats-officedocument"
+                                  ".spreadsheetml.sheet",
+                         ".xls": "application/vnd.ms-excel",
+                         ".docx": "application/vnd.openxmlformats-officedocument"
+                                  ".wordprocessingml.document",
+                         ".zip": "application/zip"}
+            ct = inline_ct.get(ext) or attach_ct.get(ext) or "application/octet-stream"
+            # PDF·사진은 폰에서 바로 보여 주는 편이 낫고, 엑셀은 기기의 앱으로 넘겨야 한다.
+            # `?dl=1` 이면 무엇이든 내려받기로 준다.
+            how = ("inline" if ext in inline_ct and qs.get("dl", [""])[0] != "1"
+                   else "attachment")
+            try:
+                size = os.path.getsize(want)
+                fh = open(want, "rb")
+            except OSError as exc:
+                return self._send(500, {"ok": False, "error": str(exc)[:200]})
+            self.send_response(200)
+            self.send_header("Content-Type", ct)
+            self.send_header("Content-Length", str(size))
+            # 한글 파일 이름은 RFC 5987 로 싣는다 — 그냥 넣으면 헤더가 깨져 이름이 사라진다.
+            self.send_header("Content-Disposition", f"{how}; filename*=UTF-8''{quote(name)}")
+            self.send_header("Cache-Control", "private, max-age=60")
+            self.end_headers()
+            try:
+                with fh:
+                    while True:
+                        chunk = fh.read(256 * 1024)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass       # 미리보기를 닫으면 흔히 난다 — 서버 오류가 아니다
+            try:
+                import ledger_db as _ldb      # 이 파일은 ledger_db 를 함수 안에서만 쓴다
+                _ldb.ux_add([{"kind": "tap", "target": "원본열기", "detail": name}])
+            except Exception:
+                pass
+            return
         if p == "/api/sources":
             from urllib.parse import parse_qs, urlparse
             qs = parse_qs(urlparse(self.path).query)
@@ -4632,6 +4705,15 @@ self.addEventListener('fetch', e => {
                 return self._send(200, {"count": 0, "rows": [], "kinds": [], "months": [],
                                         "note": "색인 없음 — source_index.py 실행 필요"})
             rows = doc.get("rows") or []
+            # ★ 민감 자료(통화 메모)는 색인 단계에서 이미 빠진다. 그래도 응답에서 한 번 더
+            #   막는다 — 색인은 하루 회차로 다시 만들어지므로 **옛 색인 파일이 남아 있는
+            #   동안**에도 앱에 뜨면 안 된다(2026-08-07 지시). 화면 코드가 바뀌어도 서버가 먼저 막는다.
+            try:
+                from source_index import is_private
+                rows = [r for r in rows
+                        if not is_private(r.get("path") or "", r.get("name") or "")]
+            except Exception:
+                rows = [r for r in rows if not str(r.get("name") or "").startswith("통화_")]
             q = (qs.get("q", [""])[0] or "").strip().lower()
             kind = (qs.get("kind", [""])[0] or "").strip()
             month = (qs.get("month", [""])[0] or "").strip()   # 2026-01 형식

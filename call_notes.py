@@ -112,6 +112,11 @@ def add(path, whom="", on="", queue=True):
           f"(인수인계 예약 {queued}건) · 보관 {saved}")
     for t in todos:
         print(f"  · [{t['who']}{(' · ' + t['due']) if t['due'] else ''}] {t['what']}")
+    # 넣고 나면 **원본 md 는 남길 이유가 없다.** 남겨 두면 민감한 본문이 파일로 계속
+    # 굴러다닌다 — DB 에 들어간 것을 확인한 뒤에만 지우라고 알린다(자동 삭제는 안 한다:
+    # 사람이 방금 쓰던 파일일 수 있다).
+    print(f"  ※ DB 에 들어갔습니다. 원본은 지워도 됩니다: {path}")
+    print(f"     (본문 확인: python call_notes.py --show {os.path.basename(path)})")
     return 0
 
 
