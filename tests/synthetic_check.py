@@ -1584,9 +1584,14 @@ def t30_dns_and_versions():
     # 버전 정리: 최신본은 어떤 경우에도 남아야 한다
     import ledger_versions as V
     from ecount_reconcile import load_config, resolve_master
-    master = resolve_master(load_config()["reconcile"]["master_xlsx"])
-    keep, move = V.plan(master)
-    kept = {k["path"] for k in keep}
+    # 검증 도중 vN+1 이 생길 수 있다(옆 세션·사람 저장 — 2026-08-07 실측 v542→v543).
+    # 최신본 판정과 폴더 스캔을 같은 시점으로 다시 맞춰 한 번 재시도한다.
+    for _ in range(2):
+        master = resolve_master(load_config()["reconcile"]["master_xlsx"])
+        keep, move = V.plan(master)
+        kept = {k["path"] for k in keep}
+        if master in kept:
+            break
     assert master in kept, "최신본을 접으려 한다 — 모든 도구가 멈춘다"
     assert len(keep) >= min(V.KEEP_LATEST, len(keep) + len(move)), (len(keep), len(move))
     assert not (set(m["path"] for m in move) & kept), "같은 파일이 남김·접기 양쪽에 있다"
@@ -4814,9 +4819,22 @@ def t104_session_scoped_claims():
             d["band"]["host"] = socket.gethostname()
             ai_claim.save(d)
             as_session("SESSION-D")
-            assert ai_claim._is_dead(ai_claim.load()["band"]) is True
             assert ai_claim.take("claude", "band", "D 인계") is True, \
                 "죽은 세션의 점유를 넘겨받지 못한다"
+
+            # 스케줄러 점유는 agent_pid=0 — 그때는 `pid` 가 증거다 (2026-08-07 실사고:
+            # 죽은 ledger_writer 를 --adopt 가 "살아 있다"며 못 넘겨받아 교착)
+            d = ai_claim.load()
+            d["band"] = {"who": "scheduler", "why": "w", "sid": "0000dead",
+                         "agent_pid": 0, "pid": 999999,
+                         "host": socket.gethostname(), "at": time.time()}
+            ai_claim.save(d)
+            assert ai_claim._is_dead(ai_claim.load()["band"]) is True, \
+                "agent_pid=0 이면 pid 증거를 봐야 한다"
+            # pid 마저 없으면 보수적으로 살아 있다고 본다
+            d["band"].pop("pid"); d["band"]["agent_pid"] = 0
+            ai_claim.save(d)
+            assert ai_claim._is_dead(ai_claim.load()["band"]) is False
         finally:
             ai_claim.CLAIMS, ai_claim.GUARD = saved
             if old_env is None:

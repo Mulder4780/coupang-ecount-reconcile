@@ -133,7 +133,10 @@ def _is_dead(claim):
     """주인 세션이 이미 죽었나(크레딧 소진·창 닫힘). 죽었으면 즉시 넘겨받아도 된다."""
     if not isinstance(claim, dict):
         return True
-    pid = claim.get("agent_pid")
+    # 스케줄러 점유는 agent_pid 가 0 이다(에이전트가 아니라서). 그때는 프로세스
+    # `pid` 가 증거다 — session_handoff 의 판정과 같은 폴백을 쓴다(2026-08-07 실사고:
+    # 죽은 ledger_writer 점유를 --check 는 죽었다 하고 --adopt 는 살았다 해서 교착).
+    pid = claim.get("agent_pid") or claim.get("pid")
     if not pid:
         return False                     # 알 수 없으면 살아 있다고 본다
     return not _pid_alive(int(pid), claim.get("host") or "")
