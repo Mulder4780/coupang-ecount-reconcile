@@ -7962,7 +7962,29 @@ def t137_contamination_marked_every_merge():
     posts = {"1": stub, "2": stub, "3": {"content": "진짜 글", "created_at": "2026-08-07 10:00"}}
     assert cc.find(posts) == [] or all(k not in cc.find(posts) for k in ("1", "2")), \
         "이미 표시된 스텁을 또 오염으로 잡는다"
-    print("  [137] 오염 판정이 병합마다 자동 실행 · 표시가 재병합을 견딤 ✅")
+
+    # ④ 날짜가 붙어 들어온 가짜 — 작성일·본문이 **둘 다** 같은 묶음만 잡고,
+    #    그 묶음에서도 맨 앞 번호는 남긴다(원본이 섞여 있을 수 있다).
+    body = "[ 쿠팡 A/S 안내 ] A/S 일자 : 2026.08.04 " * 4
+    dup = {str(n): {"content": body, "created_at": 1785800580000, "author": "지원팀"}
+           for n in (5420, 5421, 5422, 5423, 5424)}
+    got = cc.find(dup)
+    assert set(got) == {"5421", "5422", "5423", "5424"}, \
+        "날짜 달린 사본을 못 잡거나 원본까지 지운다: %s" % sorted(got)
+
+    # ⑤ 진짜 반복 글은 건드리지 않는다 — 같은 본문이라도 **올린 시각이 다르다**
+    repeat = {"10": {"content": "발주현황 공유", "created_at": 1700000000000},
+              "20": {"content": "발주현황 공유", "created_at": 1700086400000}}
+    assert cc.find(repeat) == {}, "매주 올리는 같은 제목의 진짜 글을 가짜로 잡는다"
+
+    # ⑥ 오탐 방지선: '본문이 피드 머리글로 시작한다'만으로는 잡지 않는다.
+    #    실측에서 그 규칙은 본문이 전부 다른 진짜 글 98건까지 걸었다(상세 화면에도 머리글이 있다).
+    head = "2026년 8월 4일 오전 8:43 게시글 지원팀 3시간 전 "
+    lone = {"1": {"content": head + "가", "created_at": 1},
+            "2": {"content": head + "나", "created_at": 2}}
+    assert cc.find(lone) == {}, \
+        "피드 머리글만 보고 잡는다 — 본문이 다르면 서로 다른 진짜 글이다"
+    print("  [137] 오염 판정이 병합마다 자동 실행 · 날짜 달린 사본만 좁게 · 원본 보존 ✅")
 
 
 def t138_daily_run_completion_watch():

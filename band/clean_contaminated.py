@@ -43,13 +43,47 @@ except Exception:
 
 
 def find(posts):
-    """가짜로 판정된 번호 → 그 본문 지문."""
-    dateless = {k: v for k, v in posts.items()
-                if isinstance(v, dict) and not v.get("deleted")
-                and not v.get("created_at") and not v.get("contaminated")}
+    """가짜로 판정된 번호 → 그 본문 지문.
+
+    두 갈래로 잡는다. 어느 하나만으로는 놓치는 것이 있다.
+      ① 작성일 없음 + 같은 본문 2건 이상 (초기 621건이 이 모양이었다)
+      ② 작성일·본문이 **둘 다 똑같은** 번호가 2건 이상 (날짜가 붙어 ①을 빠져나간 것)
+
+    ②를 왜 이렇게 좁히나 (2026-08-07 2차, 오탐 직전에 멈춘 기록)
+      리다이렉트된 피드가 끝까지 그려지면 본문도 시각도 다 있다 — 실측 90610953
+      #5420~5424 다섯 건이 같은 작성일·같은 2,509자 본문으로 들어와 있었다.
+      처음엔 "본문이 피드 머리글(`…게시글 … 3시간 전`)로 시작하면 가짜"로 잡으려 했는데,
+      시험 삼아 세어 보니 **117건이 걸렸고 그중 98건은 본문이 전부 달랐다.**
+      상세 화면 수집분에도 같은 머리글이 남아 있어서다 — 진짜 글 98건을 지울 뻔했다.
+      머리글은 '어디서 긁혔나'를 말할 뿐 '가짜'를 말하지 않는다. 가짜의 정의는 그대로다:
+      **서로 다른 번호가 같은 글을 들고 있다.** 날짜가 있든 없든 그것만 본다.
+      (진짜 반복 글 — '발주현황' 같은 것 — 은 올린 시각이 서로 다르므로 걸리지 않는다.)
+    """
+    live = {k: v for k, v in posts.items()
+            if isinstance(v, dict) and not v.get("deleted") and not v.get("contaminated")}
+    dateless = {k: v for k, v in live.items() if not v.get("created_at")}
     sig = {k: (v.get("content") or "")[:120] for k, v in dateless.items()}
     n = collections.Counter(s for s in sig.values() if s)
-    return {k: s for k, s in sig.items() if n[s] >= 2}
+    bad = {k: s for k, s in sig.items() if n[s] >= 2}
+
+    # ②의 묶음에서는 **가장 앞 번호 하나를 남긴다.** 날짜 없는 ①과 결정적으로 다른 점이다.
+    # ①은 621건 전부가 남의 본문이라는 것이 증명됐지만(본문 종류가 2·7종뿐이었다),
+    # ②의 묶음에는 **베껴진 원본이 섞여 있을 수 있다.** 다 지우면 진짜 글이 사라지고
+    # 되돌릴 방법이 없다. 하나를 남기면 내용은 보존되고 부풀린 건수만 걷힌다.
+    dated = {k: v for k, v in live.items() if v.get("created_at")}
+    pair = {k: (str(v.get("created_at")), (v.get("content") or "")[:120]) for k, v in dated.items()}
+    groups = collections.defaultdict(list)
+    for k, p in pair.items():
+        if p[1]:
+            groups[p].append(k)
+    for p, ks in groups.items():
+        if len(ks) < 2:
+            continue
+        ks.sort(key=lambda x: int(x) if str(x).isdigit() else 0)
+        for k in ks[1:]:                       # 맨 앞 하나는 원본 후보로 남긴다
+            if k not in bad:
+                bad[k] = p[1]
+    return bad
 
 
 def run(apply=False):
