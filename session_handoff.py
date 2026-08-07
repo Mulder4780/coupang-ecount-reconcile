@@ -513,7 +513,39 @@ def collect():
         "밴드날짜없음": band_dateless(),
         "밴드오염": band_contaminated(),
         "워크트리": _worktree_state(),
+        "일일대조": daily_run_health(),
     }
+
+
+DAILY_STALE_H = 20          # 하루 한 번 도는 것이니 20시간이면 한 회차를 통째로 건넜다
+
+
+def daily_run_health():
+    """일일자동대조가 **완주**한 지 얼마나 됐나 (2026-08-07 실사고).
+
+    스케줄러는 09:50 작업을 매일 '성공(0)'으로 보고했다. 그런데 daily_run 은 앞 회차가
+    아직 돌고 있으면 한 줄 찍고 **정상 종료**한다 — 잠금을 못 잡은 것을 실패로 보지 않는다.
+    그래서 8/6 21:01 이후 20시간 동안 한 번도 완주하지 않았는데 어디에도 빨간불이 없었다.
+    (앞 회차가 3시간씩 걸리니 다음 회차는 늘 잠겨 있다. 서로를 가려 준다.)
+    완주 표식은 `finish()` 가 쓰는 agent_status.json 하나뿐이므로 그 나이를 본다.
+    """
+    p = os.path.join(REPORT_DIR, "agent_status.json")
+    try:
+        age_h = (datetime.now().timestamp() - os.path.getmtime(p)) / 3600.0
+    except OSError:
+        return {"완주없음": True, "경과시간": None, "중단": False, "실패단계": [], "밀림": True}
+    # ★ 나이만 보면 놓친다 — 마지막 회차가 **중단(aborted)** 으로 끝났을 수 있다.
+    #   실측 2026-08-06 21:01 회차가 그랬다: aborted=True 인데 파일은 최신이라 조용했다.
+    aborted, failed = False, []
+    try:
+        d = json.load(open(p, encoding="utf-8"))
+        aborted = bool(d.get("aborted"))
+        failed = [s.get("name") for s in (d.get("steps") or []) if not s.get("ok")]
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return {"완주없음": False, "경과시간": round(age_h, 1), "중단": aborted,
+            "실패단계": [f for f in failed if f],
+            "밀림": age_h >= DAILY_STALE_H or aborted}
 
 
 def blockers(st, for_sol=False):
@@ -530,6 +562,18 @@ def blockers(st, for_sol=False):
             out.append(("워크트리가 본체 상태와 끊겨 있다 — %s (설정·큐를 못 읽어 "
                         "합성검증부터 막힌다)" % ", ".join(cut[:4]),
                         "python worktree_state.py --apply"))
+    # ★ 스케줄러가 '성공'이라 말해도 완주하지 않았을 수 있다 — 잠금을 못 잡은 회차가
+    #   조용히 exit 0 으로 끝나기 때문이다. 그 사이 자료현황·대조 리포트가 통째로 멈춘다.
+    dr = st.get("일일대조") or {}
+    if dr.get("밀림"):
+        hrs = dr.get("경과시간")
+        why = ("마지막 회차가 **중단**으로 끝났다" if dr.get("중단")
+               else "%s 완주하지 않았다" % ("한 번도" if hrs is None else "%.0f시간째" % hrs))
+        bad = dr.get("실패단계") or []
+        out.append(("일일자동대조 — %s. 스케줄러는 '성공'으로 보고한다"
+                    "(앞 회차가 도는 동안 다음 회차가 조용히 건너뛴다)%s"
+                    % (why, (" · 실패단계: " + ", ".join(bad[:4])) if bad else ""),
+                    "python daily_run.py    # 먼저 tasklist 로 앞 회차가 도는지 확인"))
     if st["큐잔량"]:
         out.append(("입력 큐에 %d건이 반영되지 않았다" % st["큐잔량"],
                     "python ledger_db.py --intake  # Excel은 다음 11:00·15:00 회차"))

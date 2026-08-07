@@ -7965,6 +7965,49 @@ def t137_contamination_marked_every_merge():
     print("  [137] 오염 판정이 병합마다 자동 실행 · 표시가 재병합을 견딤 ✅")
 
 
+def t138_daily_run_completion_watch():
+    """[138] 일일자동대조가 **완주했는지**를 인계 문서가 본다 (2026-08-07 실사고).
+
+    무엇이 잘못돼 있었나
+      작업 스케줄러의 09:50 '일일자동대조'는 매일 **성공(0)** 이었다. 그런데 실제로는
+      2026-08-06 21:01 이후 20시간 동안 한 번도 완주하지 않았다. 이유가 둘이다:
+        · daily_run 은 앞 회차가 아직 돌면 한 줄 찍고 **정상 종료**한다(exit 0).
+          앞 회차가 3시간씩 걸리니 다음 회차는 늘 잠겨 있고, 서로를 가려 준다.
+        · 마지막으로 남은 표식(agent_status.json)은 `aborted: True` 였는데
+          파일 자체는 최신이라 '최근에 돌았다'로 보였다.
+      그동안 자료현황.md 가 1.7일, 종합리포트가 19시간 멈춰 있었고 아무 경보도 없었다.
+
+    지키는 것
+      ① 나이(20시간)뿐 아니라 **중단 여부**로도 밀림을 판정한다 — 최신 파일이 곧 성공은 아니다.
+      ② 판정 결과가 '먼저 처리할 것'에 오른다. 안 그러면 아무도 안 본다.
+      ③ 정상(최근·중단 아님)일 때는 조용하다 — 늘 켜져 있는 경보는 경보가 아니다.
+    """
+    import importlib
+    S = importlib.import_module("session_handoff")
+    base = {"큐잔량": 0, "임시파일": [], "옛버전편집": [], "점유": [], "미커밋": [],
+            "미푸시": 0, "미머지": 0, "지시문사본": [], "밴드날짜없음": {},
+            "밴드오염": {}, "워크트리": None, "원장": {}}
+    def only_daily(dr):
+        return [w for w, _ in S.blockers(dict(base, 일일대조=dr))
+                if "일일자동대조" in w]
+
+    assert only_daily({"밀림": True, "중단": True, "경과시간": 1.0, "실패단계": ["자료현황 갱신"]}), \
+        "마지막 회차가 중단인데 아무 말도 하지 않는다 — 파일이 최신이면 성공으로 보인다"
+    assert "자료현황 갱신" in only_daily(
+        {"밀림": True, "중단": True, "경과시간": 1.0, "실패단계": ["자료현황 갱신"]})[0], \
+        "어느 단계가 실패했는지 말하지 않으면 다음 세션이 다시 찾아야 한다"
+    assert only_daily({"밀림": True, "중단": False, "경과시간": 26.0, "실패단계": []}), \
+        "하루가 넘게 완주하지 않았는데 조용하다"
+    assert not only_daily({"밀림": False, "중단": False, "경과시간": 2.0, "실패단계": []}), \
+        "정상인데도 경보를 올린다 — 늘 켜진 경보는 무시된다"
+
+    # 판정기 자체: 중단이면 나이와 무관하게 밀림이다
+    src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert 'age_h >= DAILY_STALE_H or aborted' in src, \
+        "중단을 나이와 함께 보지 않는다 — 방금 중단한 회차를 정상으로 본다"
+    print("  [138] 일일대조 완주 감시 — 중단·장기 미완주를 '먼저 처리할 것'으로 ✅")
+
+
 def t136_work_lanes():
     """작업 차선 — 수집 창과 앱·엑셀 창이 하루 종일 나란히 돌 수 있나 (2026-08-07 지시).
 
@@ -8193,6 +8236,7 @@ if __name__ == "__main__":
     t134_section_fold()
     t136_work_lanes()
     t137_contamination_marked_every_merge()
+    t138_daily_run_completion_watch()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
