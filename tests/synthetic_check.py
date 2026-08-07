@@ -5195,7 +5195,7 @@ def t112_band_plan_order_and_scope():
     assert _CS.SHEET_NAME in _CS.build_sheet_xml(_r)
     # 엑셀 쓰기는 11:00·15:00 회차에만 — daily_run 이 아니라 ledger_db 에 있어야 한다.
     _ld = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
-    assert re.search(r'"27_거래처코드".*customer_index\.py.*"--sheet"', _ld, re.S), \
+    assert re.search(r'"29_거래처코드".*customer_index\.py.*"--sheet"', _ld, re.S), \
         "거래처코드 시트가 11:00·15:00 회차에 걸려 있지 않다"
     _dr0 = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert not re.search(r'customer_index\.py"\)\s*,\s*"--sheet"', _dr0), \

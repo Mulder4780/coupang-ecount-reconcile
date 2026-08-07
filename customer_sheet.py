@@ -37,7 +37,11 @@ sys.path.insert(0, ROOT)
 from ecount_reconcile import load_config, resolve_master  # noqa: E402
 from findings_sheet import build_generic_sheet, upsert     # noqa: E402
 
-SHEET_NAME = "27_거래처코드"
+# ★ 번호는 **관리대장에 실제로 있는 마지막 번호 다음**을 쓴다. 처음엔 27 로 적었는데
+#   관리대장에는 이미 `27_정기점검원본일정` 이 있었다 — 시트 이름이 달라 오류는 안 나지만
+#   27 이 둘이 되어 사람이 목록에서 헷갈린다. 2026-08-07 기준 마지막은 28 이라 29 다.
+#   새 시트를 더할 때는 먼저 `wb.sheetnames` 를 눈으로 볼 것.
+SHEET_NAME = "29_거래처코드"
 # 열 구성은 예전 별도 엑셀과 **같게** 둔다 — 사람이 보던 표가 자리만 옮기는 것이지
 # 내용이 바뀌는 게 아니어야 한다. 옮기면서 열까지 달라지면 "그 파일 어디 갔냐"가 된다.
 HEADERS = ["캠프명", "거래처코드", "ERP거래처명", "연결방식", "원장건수",
