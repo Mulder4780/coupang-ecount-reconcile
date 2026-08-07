@@ -268,6 +268,36 @@ def mark_gone(con, seen_paths, roots):
     return n
 
 
+def _walk(top, SI):
+    """`os.scandir` 로 훑는다 → (폴더, 이름, 확장자, 전체경로, stat).
+
+    ★ **`os.stat()` 을 따로 부르지 않는 것이 핵심이다** (2026-08-08 실측).
+      `os.walk` 로 이름만 받아 파일마다 `os.stat()` 을 부르면 Z:(SMB)에서 왕복이
+      파일 수만큼 생긴다 — 밴드 폴더 한 곳(4만여 장)에서 5분이 넘어도 안 끝났다.
+      `scandir` 이 주는 `entry.stat()` 은 윈도에서 **디렉터리 열거에 딸려 온 값**이라
+      추가 왕복이 없다. 같은 폴더가 25초에 3만 개씩 훑힌다.
+    """
+    stack = [top]
+    while stack:
+        d = stack.pop()
+        try:
+            it = list(os.scandir(d))
+        except OSError:
+            continue
+        for e in it:
+            try:
+                if e.is_dir(follow_symlinks=False):
+                    if e.name not in SI.SKIP_DIRS:
+                        stack.append(e.path)
+                    continue
+                ext = os.path.splitext(e.name)[1].lower()
+                if ext in SI.SKIP_EXT or e.name.startswith("~$"):
+                    continue
+                yield d, e.name, ext, e.path, e.stat()
+            except OSError:
+                yield d, e.name, "", e.path, None
+
+
 def scan(con, rescan=False, limit_roots=None, quiet=False):
     """Z: 원본 폴더를 증분으로 훑어 `asset` 을 맞춘다 → 집계 dict.
 
@@ -299,54 +329,52 @@ def scan(con, rescan=False, limit_roots=None, quiet=False):
     tally = {"본것": 0, "새것": 0, "바뀜": 0, "그대로": 0, "건너뜀": 0, "오류": 0}
     seen = set()
     for top in tops:
-        for dirpath, dirs, files in os.walk(top):
-            dirs[:] = [d for d in dirs if d not in SI.SKIP_DIRS]
-            for fn in files:
-                ext = os.path.splitext(fn)[1].lower()
-                if ext in SI.SKIP_EXT or fn.startswith("~$"):
-                    tally["건너뜀"] += 1
-                    continue
-                p = os.path.join(dirpath, fn)
-                if SI.is_private(p, fn):     # 통화 메모 등 — 보관소에도 남기지 않는다
-                    tally["건너뜀"] += 1
-                    continue
-                try:
-                    st = os.stat(p)
-                except OSError:
-                    tally["오류"] += 1
-                    continue
-                seen.add(p)
-                tally["본것"] += 1
-                kind = SI.folder_kind(p) or "기타"
-                try:
-                    prev = con.execute(
-                        "SELECT mtime,size FROM asset WHERE path=?", (p,)).fetchone()
-                    fresh = rescan or prev is None or \
-                        abs(float(prev["mtime"]) - st.st_mtime) > 1e-6 or \
-                        int(prev["size"]) != int(st.st_size)
-                    # 내용 판별은 **새것·바뀐 것에만**. ERP 엑셀만 이름이 무작위다.
-                    if fresh and classify and ext == ".xlsx" and kind in ("ERP", "기타"):
-                        try:
-                            k2 = classify(p)
-                            if k2 and k2 != "unknown":
-                                kind = f"ERP:{k2}"
-                        except Exception:
-                            pass
-                    _aid, state = ingest_asset(
-                        con, p, kind, bucket=SI.folder_kind(p),
-                        biz_date=SI.guess_date(fn, st.st_mtime).replace("-", "-"),
-                        st=st, want_sha1=fresh)
-                    tally[state] = tally.get(state, 0) + 1
-                except Exception as e:
-                    tally["오류"] += 1
-                    log(con, "intake", "datalake.scan.file", ok=False,
-                        detail={"path": p, "왜": str(e)[:200]})
-                # ★ 자주 끊어 커밋한다. 뿌리 하나를 다 훑고 커밋하면 트랜잭션이
-                #   수십 분 열려 있고, 그동안 **다른 도구가 로그 한 줄을 못 써서
-                #   죽는다**(2026-08-08 실측: collect_all 이 'database is locked').
-                #   중간에 끊겨도 여기까지는 남는다는 뜻이기도 하다.
-                if tally["본것"] % COMMIT_EVERY == 0:
-                    con.commit()
+        for dirpath, fn, ext, p, st in _walk(top, SI):
+            if SI.is_private(p, fn):     # 통화 메모 등 — 보관소에도 남기지 않는다
+                tally["건너뜀"] += 1
+                continue
+            if st is None:
+                tally["오류"] += 1
+                continue
+            seen.add(p)
+            tally["본것"] += 1
+            kind = SI.folder_kind(p) or "기타"
+            try:
+                prev = con.execute(
+                    "SELECT mtime,size FROM asset WHERE path=?", (p,)).fetchone()
+                fresh = rescan or prev is None or \
+                    abs(float(prev["mtime"]) - st.st_mtime) > 1e-6 or \
+                    int(prev["size"]) != int(st.st_size)
+                # 내용 판별은 **새것·바뀐 것에만**. ERP 엑셀만 이름이 무작위다.
+                if fresh and classify and ext == ".xlsx" and kind in ("ERP", "기타"):
+                    try:
+                        k2 = classify(p)
+                        if k2 and k2 != "unknown":
+                            kind = f"ERP:{k2}"
+                    except Exception:
+                        pass
+                # ★ **처음 보는 파일에는 sha1 을 재지 않는다** (2026-08-08 실측).
+                #   sha1 은 파일을 통째로 읽는 일이고 Z: 는 SMB 다. 첫 주사에서
+                #   5만 개를 전부 읽으면 몇 시간이 걸린다(실측: 8분에 300건도 못 갔다).
+                #   그리고 처음 보는 파일에는 **견줄 옛 지문이 없다** — 지금 재 봐야
+                #   아무 판정에도 안 쓰인다. 지문이 필요한 순간은 '이미 아는 파일의
+                #   mtime/size 가 달라졌을 때 내용이 진짜 바뀌었나' 하나뿐이다.
+                #   나중에 채우려면 `--fill-sha1`.
+                _aid, state = ingest_asset(
+                    con, p, kind, bucket=SI.folder_kind(p),
+                    biz_date=SI.guess_date(fn, st.st_mtime),
+                    st=st, want_sha1=(fresh and prev is not None))
+                tally[state] = tally.get(state, 0) + 1
+            except Exception as e:
+                tally["오류"] += 1
+                log(con, "intake", "datalake.scan.file", ok=False,
+                    detail={"path": p, "왜": str(e)[:200]})
+            # ★ 자주 끊어 커밋한다. 뿌리 하나를 다 훑고 커밋하면 트랜잭션이
+            #   수십 분 열려 있고, 그동안 **다른 도구가 로그 한 줄을 못 써서
+            #   죽는다**(2026-08-08 실측: collect_all 이 'database is locked').
+            #   중간에 끊겨도 여기까지는 남는다는 뜻이기도 하다.
+            if tally["본것"] % COMMIT_EVERY == 0:
+                con.commit()
         con.commit()
 
     tally["묘비"] = mark_gone(con, seen, tops)
@@ -357,6 +385,37 @@ def scan(con, rescan=False, limit_roots=None, quiet=False):
         print("자산 주사: 본것 {본것} · 새것 {새것} · 바뀜 {바뀜} · 그대로 {그대로}"
               " · 묘비 {묘비} · 오류 {오류} ({초}초)".format(**tally))
     return tally
+
+
+def fill_sha1(con, limit=2000, quiet=False):
+    """지문이 비어 있는 자산에 sha1 을 채운다 → 채운 수.
+
+    첫 주사는 일부러 지문을 안 잰다(SMB 라 몇 시간이 걸린다). 지문이 실제로 쓰이는
+    자리는 '아는 파일이 바뀌었나'뿐이라 **나중에 한가할 때 채워도 늦지 않다.**
+    한 번에 다 하지 않고 상한을 두어 여러 회차에 나눠 채운다.
+    """
+    rows = con.execute("SELECT id, path FROM asset WHERE sha1 IS NULL"
+                       " AND gone_at IS NULL LIMIT ?", (int(limit),)).fetchall()
+    n = 0
+    for r in rows:
+        try:
+            d = sha1_of(r["path"])
+        except OSError:
+            continue
+        con.execute("UPDATE asset SET sha1=? WHERE id=?", (d, r["id"]))
+        con.execute("UPDATE asset_rev SET sha1=? WHERE asset_id=? AND sha1 IS NULL",
+                    (d, r["id"]))
+        n += 1
+        if n % COMMIT_EVERY == 0:
+            con.commit()
+    con.commit()
+    log(con, "intake", "datalake.fill_sha1", detail={"채움": n, "남음": len(rows) - n})
+    con.commit()
+    if not quiet:
+        남 = con.execute("SELECT COUNT(*) c FROM asset WHERE sha1 IS NULL"
+                         " AND gone_at IS NULL").fetchone()["c"]
+        print(f"지문 채움: {n}건 · 아직 없는 것 {남}건")
+    return n
 
 
 def status(con):
@@ -403,6 +462,8 @@ def main(argv=None):
     ap.add_argument("--scan", action="store_true", help="Z: 를 증분으로 훑어 asset 갱신")
     ap.add_argument("--rescan", action="store_true", help="캐시 무시하고 전부 다시(느리다)")
     ap.add_argument("--only", nargs="*", help="특정 뿌리만 (예: ERP 밴드)")
+    ap.add_argument("--fill-sha1", type=int, nargs="?", const=2000, metavar="N",
+                    help="지문이 빈 자산에 sha1 을 채운다(첫 주사는 일부러 안 잰다)")
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--log", nargs="*", metavar="키=값", help="area=… since=… action=…")
     ap.add_argument("--fail-only", action="store_true")
@@ -413,6 +474,8 @@ def main(argv=None):
     try:
         if a.scan:
             scan(con, rescan=a.rescan, limit_roots=a.only)
+        if a.fill_sha1:
+            fill_sha1(con, limit=a.fill_sha1)
         if a.log is not None:
             f = _kv(a.log)
             rows = events(con, area=f.get("area"), since=f.get("since"),
@@ -423,7 +486,7 @@ def main(argv=None):
                       f"  {(r['detail'] or '')[:90]}")
             if not rows:
                 print("  (해당하는 로그 없음)")
-        if a.status or not (a.scan or a.log is not None):
+        if a.status or not (a.scan or a.fill_sha1 or a.log is not None):
             s = status(con)
             print(f"보관소: {db_path()}")
             print(f"  자산 {s['자산']}건 (사라짐 {s['사라짐']}) · 변경이력 {s['이력']}"

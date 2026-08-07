@@ -20,6 +20,8 @@ archive_posts.py — 밴드 게시글을 **글 단위로** 보관한다 (PDF·�
   python band/archive_posts.py --limit 50      # 이번 회차 최대 건수(기본 200)
   python band/archive_posts.py --force         # 이미 있어도 다시 만든다
 """
+import concurrent.futures as cf
+import threading
 import argparse
 import glob
 import json
@@ -38,6 +40,8 @@ except Exception:
     pass
 
 CACHE = os.path.join(HERE, "cache")
+POST_WORKERS = 5       # 동시에 띄우는 크롬 수 — 글당 크롬 하나가 PDF 를 만든다
+PHOTO_WORKERS = 8      # 한 글 안에서만 겹친다 — 밴드에 한꺼번에 몰지 않는다
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.band.us/"}
 UJ = re.compile(r"UJ\d{7}")
 KIND = [("정기점검", "정기점검"), ("돌발", "돌발AS"), ("납품", "신규납품"),
@@ -112,15 +116,27 @@ def render_pdf(no, post, band_name, photos, pdf_path):
 
 
 def archive_band(band, posts, limit, force, stat):
+    """★ 글 단위로 **겹쳐서** 돌린다 (2026-08-08 실측).
+
+    글 하나마다 헤드리스 크롬을 새로 띄워 PDF 를 만든다(프로필 폴더까지 새로).
+    글당 20~30초라 순차로는 남은 3,400글에 하루가 걸린다. 대부분이 크롬을
+    기다리는 시간이라 스레드로 겹치면 그대로 줄어든다 — 파이썬은 일을 안 한다.
+    크롬을 몇 개까지 띄울지는 `POST_WORKERS` 가 정한다(메모리를 보고 잡은 값).
+    """
     name = safe(posts.get("_band_name") or band, 30)
     root = os.path.join(out_root(), name)
     nos = sorted((k for k in posts if str(k).isdigit()), key=lambda x: -int(x))
+    todo = []
     for no in nos:
-        if stat["made"] >= limit:
-            return
         post = posts[no]
         if not isinstance(post, dict):
             continue
+        todo.append(no)
+    lock = threading.Lock()
+
+    def one(no):
+        post = posts[no]
+        post = dict(post)
         post["_band"] = band
         base, day = base_name(no, post)
         ym = day[:7].replace("-", os.sep) if day != "날짜미상" else "날짜미상"
@@ -129,8 +145,9 @@ def archive_band(band, posts, limit, force, stat):
         txt_p = os.path.join(d, base + ".txt")
         pdf_p = os.path.join(d, base + ".pdf")
         if not force and os.path.exists(pdf_p) and os.path.exists(txt_p):
-            stat["skip"] += 1
-            continue
+            with lock:
+                stat["skip"] += 1
+            return False
         # 1) 텍스트 — 검색·대조용 정본
         with open(txt_p, "w", encoding="utf-8") as f:
             f.write(f"밴드: {name} ({band})\n글번호: {no}\n작성: {day}\n"
@@ -139,19 +156,56 @@ def archive_band(band, posts, limit, force, stat):
                     f"원본: https://www.band.us/band/{band}/post/{no}\n"
                     + "-" * 60 + "\n" + (post.get("content") or ""))
         # 2) 사진 — 원본 화질로 글 옆에 둔다
-        photos = []
-        for i, url in enumerate(post.get("images") or [], 1):
-            p = os.path.join(d, f"{base}_{i:02d}.jpg")
-            r = fetch_photo(url, p)
+        #    ★ **한 장씩 받으면 안 된다** (2026-08-08 실측). 글 하나에 사진이 열댓
+        #      장이고, 네이버 CDN 왕복이 대부분 대기 시간이다. 순차로 돌리니
+        #      40분에 16글밖에 못 갔다 — 남은 3,400글이면 며칠이다.
+        #      기다리는 일이라 스레드로 겹치면 그대로 줄어든다(CPU 를 안 쓴다).
+        #      한 글 안에서만 겹친다 — 밴드 서버에 한꺼번에 몰지 않기 위해서다.
+        urls = list(enumerate(post.get("images") or [], 1))
+        photos, got = [None] * len(urls), {}
+        if urls:
+            with cf.ThreadPoolExecutor(max_workers=PHOTO_WORKERS) as ex:
+                futs = {}
+                for i, url in urls:
+                    p = os.path.join(d, f"{base}_{i:02d}.jpg")
+                    futs[ex.submit(fetch_photo, url, p)] = (i, p)
+                for fu in cf.as_completed(futs):
+                    i, p = futs[fu]
+                    try:
+                        got[i] = (fu.result(), p)
+                    except Exception:
+                        got[i] = ("fail", p)
+        for i, p in urls:                      # 순서는 원본 순서 그대로 지킨다
+            r, path = got.get(i, ("fail", ""))
             if r in ("ok", "skip"):
-                photos.append(p)
+                photos[i - 1] = path
                 if r == "ok":
-                    stat["photo"] += 1
+                    with lock:
+                        stat["photo"] += 1
+        photos = [x for x in photos if x]
         # 3) PDF — 사람이 보던 모습 그대로 고정
-        if render_pdf(no, post, name, photos, pdf_p):
-            stat["made"] += 1
-        else:
-            stat["pdf_fail"] += 1
+        ok = bool(render_pdf(no, post, name, photos, pdf_p))
+        with lock:
+            stat["made" if ok else "pdf_fail"] += 1
+        return True
+
+    # ★ 상한은 **새로 만든 글** 기준이다. 이미 있는 것은 세지 않는다 —
+    #   그러면 매 회차가 앞부분만 다시 훑고 끝나 영영 뒤로 못 간다.
+    with cf.ThreadPoolExecutor(max_workers=POST_WORKERS) as ex:
+        futs, it = set(), iter(todo)
+        while True:
+            while len(futs) < POST_WORKERS:
+                try:
+                    futs.add(ex.submit(one, next(it)))
+                except StopIteration:
+                    break
+            if not futs:
+                break
+            done, futs = cf.wait(futs, return_when=cf.FIRST_COMPLETED)
+            if stat["made"] >= limit:
+                for f in futs:
+                    f.cancel()
+                return
 
 
 def main():
