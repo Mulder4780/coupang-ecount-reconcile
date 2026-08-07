@@ -91,6 +91,12 @@ def survey(cache_dir=None, band_root=None):
     band_root = band_root or getattr(S, "BAND_DIR", "")
     if band_root and os.path.isdir(band_root):
         for _r, _d, fs in os.walk(band_root):
+            # ★ '날짜미상'은 **모수에 없는 글**이다 (2026-08-08 실측 873개).
+            #   시각 없는 수확은 밴드가 없는 번호에 준 껍데기라 캐시 집계에서
+            #   빠진다. 그런데 보관 수에는 들어가 있어서 '남음'이 실제보다 적게
+            #   나왔다 — 다 됐다고 착각하게 만드는 종류의 오차다.
+            if "날짜미상" in _r:
+                continue
             for fn in fs:
                 e = os.path.splitext(fn)[1].lower()
                 if e == ".pdf":

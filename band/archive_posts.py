@@ -131,6 +131,15 @@ def archive_band(band, posts, limit, force, stat):
         post = posts[no]
         if not isinstance(post, dict):
             continue
+        # ★ **시각 없는 글은 보관하지 않는다** (2026-08-08 실측 873건).
+        #   밴드는 아직 없는 번호에도 앱 껍데기를 준다 — 그 화면을 뜯으면 직전 글
+        #   본문이 그대로 잡히고 시각만 빈다(2026-08-07 사고). 수집기는 이미 그런
+        #   수확을 버리는데(검증 [130]) 보관기가 다시 주워 담고 있었다.
+        #   '날짜미상' 폴더에 873개가 쌓였고, 글 하나에 크롬을 한 번 띄우므로
+        #   **없는 글에 세 시간을 썼다.** 게다가 모수에는 안 들어가서 아무리 만들어도
+        #   '남음'이 줄지 않는다 — 영영 안 끝나는 일이 된다.
+        if not post.get("created_at") or post.get("deleted"):
+            continue
         todo.append(no)
     lock = threading.Lock()
 

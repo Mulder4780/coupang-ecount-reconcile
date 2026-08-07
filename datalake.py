@@ -164,6 +164,33 @@ BEGIN SELECT RAISE(ABORT,'event 는 지울 수 없다'); END;
 """
 
 
+# FTS5 는 없는 빌드가 있다. 없다고 보관소 전체가 안 열리면 안 되므로 따로 세운다.
+FTS_SCHEMA = """
+CREATE VIRTUAL TABLE IF NOT EXISTS record_fts USING fts5(
+  natural_key, party, body, content=''
+);
+CREATE TRIGGER IF NOT EXISTS rec_fts_ins AFTER INSERT ON record BEGIN
+  INSERT INTO record_fts(rowid, natural_key, party, body)
+  VALUES (new.id, new.natural_key, new.party, new.payload);
+END;
+CREATE TRIGGER IF NOT EXISTS rec_fts_del AFTER DELETE ON record BEGIN
+  INSERT INTO record_fts(record_fts, rowid, natural_key, party, body)
+  VALUES ('delete', old.id, old.natural_key, old.party, old.payload);
+END;
+CREATE TRIGGER IF NOT EXISTS rec_fts_upd AFTER UPDATE ON record BEGIN
+  INSERT INTO record_fts(record_fts, rowid, natural_key, party, body)
+  VALUES ('delete', old.id, old.natural_key, old.party, old.payload);
+  INSERT INTO record_fts(rowid, natural_key, party, body)
+  VALUES (new.id, new.natural_key, new.party, new.payload);
+END;
+"""
+
+
+def has_fts(con):
+    return bool(con.execute("SELECT name FROM sqlite_master WHERE type='table'"
+                            " AND name='record_fts'").fetchone())
+
+
 def connect(path=None):
     """DB 를 열고(없으면 만들고) 스키마를 맞춘다.
 
@@ -180,6 +207,11 @@ def connect(path=None):
     con.execute("PRAGMA synchronous=NORMAL")
     con.execute("PRAGMA foreign_keys=ON")
     con.executescript(SCHEMA)
+    try:
+        con.executescript(FTS_SCHEMA)
+    except sqlite3.OperationalError:
+        # FTS5 없는 빌드 — 자유문 검색만 못 쓴다. 보관소는 그대로 열려야 한다.
+        pass
     con.commit()
     return con
 
@@ -227,6 +259,12 @@ def ingest_asset(con, path, kind, bucket="", biz_date=None, note="", st=None,
         return aid, "새것"
 
     aid = row["id"]
+    # ★ **거친 종류가 정밀한 종류를 덮으면 안 된다** (2026-08-08 실측).
+    #   내용 판별은 새것·바뀐 것에만 돌린다(느려서). 그래서 그다음 주사부터는
+    #   폴더만 보고 온 'ERP' 가 들어오는데, 그것이 먼저 알아낸 'ERP:taxstep' 을
+    #   지워 버렸다. 잔량을 애써 갈라 놓고 이틀 뒤에 도로 묻는 셈이다.
+    if ":" in (row["kind"] or "") and ":" not in (kind or ""):
+        kind = row["kind"]
     same_stat = (abs(float(row["mtime"]) - mtime) < 1e-6 and int(row["size"]) == size)
     if same_stat and not row["gone_at"]:
         # 그대로다 — 마지막 본 시각만 갱신한다. 파일은 열지 않는다.
@@ -418,6 +456,98 @@ def fill_sha1(con, limit=2000, quiet=False):
     return n
 
 
+def reclassify(con, limit=500, quiet=False):
+    """종류가 아직 **거친** 엑셀을 내용으로 다시 갈라 준다 → 바꾼 수.
+
+    주사는 새것·바뀐 것에만 내용 판별을 돌린다(엑셀을 여는 일이라 느리다). 그래서
+    판별 규칙을 **나중에 고치면** 이미 들어와 있는 파일은 옛 종류 그대로 남는다 —
+    잔량(`taxstep`) 규칙을 새로 넣고도 101행짜리 파일이 계속 'ERP' 였던 이유다.
+    이 함수가 그 뒤처리를 맡는다. 한 번에 다 하지 않고 상한을 둔다.
+    """
+    try:
+        from inbox_scan import classify
+    except Exception:
+        return 0
+    rows = con.execute(
+        "SELECT id, path FROM asset WHERE gone_at IS NULL AND kind NOT LIKE '%:%'"
+        " AND path LIKE '%.xlsx' LIMIT ?", (int(limit),)).fetchall()
+    n = 0
+    for r in rows:
+        try:
+            k = classify(r["path"])
+        except Exception:
+            continue
+        if k and k != "unknown":
+            con.execute("UPDATE asset SET kind=? WHERE id=?", (f"ERP:{k}", r["id"]))
+            n += 1
+    con.commit()
+    log(con, "intake", "datalake.reclassify", detail={"바꿈": n, "본것": len(rows)})
+    con.commit()
+    if not quiet:
+        print(f"내용 재판별: {n}건 갈라냄 (본 것 {len(rows)})")
+    return n
+
+
+def _cmp(spec):
+    """`>1000000` · `<=5` · `2026-08-01` → (연산자, 값). 기본은 `=`."""
+    s = str(spec).strip()
+    for op in (">=", "<=", "!=", ">", "<", "="):
+        if s.startswith(op):
+            return op, s[len(op):].strip()
+    return "=", s
+
+
+def find(con, on="asset", kind=None, since=None, until=None, q=None, party=None,
+         amount=None, bucket=None, gone=False, limit=50, order=None):
+    """인덱스 필터 검색 — **CLI 도 앱도 이 함수 하나를 부른다.**
+
+    두 벌로 만들면 결과가 갈리고, 갈린 것을 알아채는 데 또 며칠이 든다(설계서).
+
+    `on='asset'` 은 원본 파일, `on='record'` 는 뽑아낸 업무 레코드다.
+    `q` 는 자유문 — record 에서는 FTS5, asset 에서는 경로 부분일치로 받는다
+    (asset 에는 본문이 없다. 없는 것을 있는 척하지 않는다).
+    """
+    args = []
+    if on == "record":
+        base = ("SELECT r.id, r.kind, r.natural_key, r.biz_date, r.party, r.amount,"
+                " r.status FROM record r")
+        where = ["1=1"]
+        if q:
+            if not has_fts(con):
+                raise RuntimeError("이 파이썬의 SQLite 에 FTS5 가 없다 — 자유문 검색 불가")
+            base += " JOIN record_fts f ON f.rowid = r.id"
+            where.append("record_fts MATCH ?")
+            args.append(q)
+        col_date, col_kind = "r.biz_date", "r.kind"
+        if party:
+            where.append("r.party LIKE ?"); args.append(f"%{party}%")
+        if amount:
+            op, v = _cmp(amount)
+            where.append(f"r.amount {op} ?"); args.append(int(v))
+    else:
+        base = ("SELECT id, kind, path, bucket, biz_date, size, last_seen, gone_at"
+                " FROM asset")
+        where = ["gone_at IS NOT NULL" if gone else "gone_at IS NULL"]
+        col_date, col_kind = "biz_date", "kind"
+        if q:
+            where.append("path LIKE ?"); args.append(f"%{q}%")
+        if bucket:
+            where.append("bucket LIKE ?"); args.append(f"%{bucket}%")
+
+    if kind:
+        # `kind=ERP` 는 `ERP:tax` 까지 잡는다 — 사람은 큰 갈래로 먼저 묻는다
+        where.append(f"({col_kind}=? OR {col_kind} LIKE ?)")
+        args += [kind, f"{kind}:%"]
+    if since:
+        where.append(f"{col_date} >= ?"); args.append(since)
+    if until:
+        where.append(f"{col_date} <= ?"); args.append(until)
+
+    sql = f"{base} WHERE {' AND '.join(where)} ORDER BY {order or col_date} DESC LIMIT ?"
+    args.append(int(limit))
+    return con.execute(sql, args).fetchall()
+
+
 def status(con):
     """지금 무엇이 얼마나 들어 있나 → 사람이 읽는 요약."""
     out = {}
@@ -462,6 +592,11 @@ def main(argv=None):
     ap.add_argument("--scan", action="store_true", help="Z: 를 증분으로 훑어 asset 갱신")
     ap.add_argument("--rescan", action="store_true", help="캐시 무시하고 전부 다시(느리다)")
     ap.add_argument("--only", nargs="*", help="특정 뿌리만 (예: ERP 밴드)")
+    ap.add_argument("--reclassify", type=int, nargs="?", const=500, metavar="N",
+                    help="종류가 거친 엑셀을 내용으로 다시 가른다(판별 규칙을 고친 뒤)")
+    ap.add_argument("--find", nargs="*", metavar="키=값",
+                    help="on=record kind=… since=… until=… q=… party=… amount='>100'")
+    ap.add_argument("--limit", type=int, default=50)
     ap.add_argument("--fill-sha1", type=int, nargs="?", const=2000, metavar="N",
                     help="지문이 빈 자산에 sha1 을 채운다(첫 주사는 일부러 안 잰다)")
     ap.add_argument("--status", action="store_true")
@@ -476,6 +611,34 @@ def main(argv=None):
             scan(con, rescan=a.rescan, limit_roots=a.only)
         if a.fill_sha1:
             fill_sha1(con, limit=a.fill_sha1)
+        if a.reclassify:
+            reclassify(con, limit=a.reclassify)
+        if a.find is not None:
+            f = _kv(a.find)
+            on = f.pop("on", "asset")
+            try:
+                rows = find(con, on=on, limit=a.limit,
+                            **{k: v for k, v in f.items()
+                               if k in ("kind", "since", "until", "q", "party",
+                                        "amount", "bucket")})
+            except Exception as e:
+                print(f"✗ {e}")
+                rows = []
+            # 경로는 **Z: 기준 상대경로**로 보인다. 전체 경로는 사람이 못 읽는다
+            # (앞의 예순 자가 매 줄 똑같아서 정작 다른 부분이 화면 밖으로 밀린다).
+            try:
+                import source_dirs as _S
+                base = _S.ORIGIN_ROOT + os.sep
+            except Exception:
+                base = ""
+            for r in rows:
+                d = dict(r)
+                head = str(d.get("path") or d.get("natural_key") or "")
+                if base and head.startswith(base):
+                    head = head[len(base):]
+                print(f"  {d.get('biz_date') or '-'}  [{d.get('kind')}]  {head}")
+            print(f"  — {len(rows)}건" + (" (상한에 걸림 — --limit 을 올릴 것)"
+                                          if len(rows) == a.limit else ""))
         if a.log is not None:
             f = _kv(a.log)
             rows = events(con, area=f.get("area"), since=f.get("since"),
@@ -486,7 +649,8 @@ def main(argv=None):
                       f"  {(r['detail'] or '')[:90]}")
             if not rows:
                 print("  (해당하는 로그 없음)")
-        if a.status or not (a.scan or a.fill_sha1 or a.log is not None):
+        if a.status or not (a.scan or a.fill_sha1 or a.reclassify or a.find is not None
+                            or a.log is not None):
             s = status(con)
             print(f"보관소: {db_path()}")
             print(f"  자산 {s['자산']}건 (사라짐 {s['사라짐']}) · 변경이력 {s['이력']}"

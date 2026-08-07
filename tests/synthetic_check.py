@@ -8347,8 +8347,8 @@ def t145_redirect_deleted_needs_two_rounds():
     print("  [145] 리다이렉트 삭제 판정 — 회차 둘 이상·수확 0 회차 제외 ✅")
 
 
-def t148_collect_all_idempotent_and_no_login_scrape():
-    """[148] 미수집 자료 몰이 — 두 번 일 하지 않고, 사람 몫을 몰래 하지 않나 (2026-08-08).
+def t151_collect_all_idempotent_and_no_login_scrape():
+    """[151] 미수집 자료 몰이 — 두 번 일 하지 않고, 사람 몫을 몰래 하지 않나 (2026-08-08).
 
     사용자 지시: "미수집 데이터들 싹 다 긁어모아, 알고리즘 구성해서 두번 일 안하게
     정리하고, 원본 데이터, 사진, 텍스트등 모두 가져와서 저장하고 보고서 작성해".
@@ -8423,11 +8423,11 @@ def t148_collect_all_idempotent_and_no_login_scrape():
         C._py = real
     assert len(got) == len(C.STEPS) and calls, \
         "보관소가 잠겼다고 수집을 통째로 건너뛰었다 — 꼬리가 몸통을 흔든다"
-    print("  [148] 미수집 몰이 — 모수 정확·사람 몫 분리·이어받기·실패 기록 ✅")
+    print("  [151] 미수집 몰이 — 모수 정확·사람 몫 분리·이어받기·실패 기록 ✅")
 
 
-def t147_datalake_schema_and_incremental():
-    """[147] 전 자료 보관소 — 표·append-only·증분·묘비 (2026-08-07 지시).
+def t150_datalake_schema_and_incremental():
+    """[150] 전 자료 보관소 — 표·append-only·증분·묘비 (2026-08-07 지시).
 
     사용자 지시: "모든 데이터는 Db화 해서 별도 보관하고 앞으로 들어오는 모든 데이터
     포함 변경 및 로그 기록까지 같이 정리해".
@@ -8511,7 +8511,41 @@ def t147_datalake_schema_and_incremental():
 
     # ⑤ `who` 는 세션까지 — 창이 여러 개인 것이 기본이라 'claude' 만으로는 못 가린다
     assert ":" in D.who(), "누가 했는지에 세션 식별자가 없다"
-    print("  [147] 전 자료 보관소 — 별도DB·append-only·증분·묘비 ✅")
+
+    # ⑥ ★ **거친 종류가 정밀한 종류를 덮으면 안 된다** (2026-08-08 실측).
+    #    내용 판별은 새것·바뀐 것에만 돌린다(엑셀을 여는 일이라 느리다). 그래서
+    #    그다음 주사부터는 폴더만 보고 온 'ERP' 가 들어오는데, 그것이 먼저 알아낸
+    #    'ERP:taxstep' 을 지웠다 — 잔량을 애써 갈라 놓고 도로 묻는 셈이었다.
+    with tempfile.TemporaryDirectory() as t:
+        con = D.connect(os.path.join(t, "dl.db"))
+        try:
+            f = os.path.join(t, "c.xlsx")
+            open(f, "w", encoding="utf-8").write("x")
+            D.ingest_asset(con, f, "ERP:taxstep", want_sha1=False)
+            D.ingest_asset(con, f, "ERP", want_sha1=False)          # 다음 주사
+            k = con.execute("SELECT kind FROM asset WHERE path=?", (f,)).fetchone()["kind"]
+            assert k == "ERP:taxstep", f"종류가 {k} 로 되돌아갔다 — 판별을 도로 묻는다"
+            # 더 정밀한 것으로는 바뀌어야 한다(규칙을 고쳤을 때 반영돼야 하므로)
+            D.ingest_asset(con, f, "ERP:tax", want_sha1=False)
+            assert con.execute("SELECT kind FROM asset WHERE path=?",
+                               (f,)).fetchone()["kind"] == "ERP:tax"
+
+            # ⑦ 검색 — CLI 도 앱도 **이 함수 하나**를 부른다(두 벌이면 결과가 갈린다)
+            g = os.path.join(t, "d.xlsx")
+            open(g, "w", encoding="utf-8").write("y")
+            D.ingest_asset(con, g, "밴드", biz_date="2026-08-01", want_sha1=False)
+            assert len(D.find(con, kind="ERP")) == 1, "kind=ERP 가 ERP:tax 를 못 잡는다"
+            assert len(D.find(con, kind="밴드")) == 1
+            assert len(D.find(con, since="2026-08-01")) >= 1
+            assert len(D.find(con, since="2099-01-01")) == 0
+            assert len(D.find(con, q="d.xlsx")) == 1
+            # 묘비는 기본 검색에서 빠지되, 물으면 나와야 한다(지운 게 아니니까)
+            D.mark_gone(con, {f}, [t])
+            assert len(D.find(con, q="d.xlsx")) == 0
+            assert len(D.find(con, q="d.xlsx", gone=True)) == 1
+        finally:
+            con.close()
+    print("  [150] 전 자료 보관소 — 별도DB·append-only·증분·묘비 ✅")
 
 
 def t146_erp_bulk_grab_registry():
@@ -9254,8 +9288,8 @@ if __name__ == "__main__":
     t144_topmost_pin_always_restores()
     t145_redirect_deleted_needs_two_rounds()
     t146_erp_bulk_grab_registry()
-    t147_datalake_schema_and_incremental()
-    t148_collect_all_idempotent_and_no_login_scrape()
+    t150_datalake_schema_and_incremental()
+    t151_collect_all_idempotent_and_no_login_scrape()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
