@@ -9610,6 +9610,15 @@ function renderDaily(){
   const Sq=S.filter(r=>inQuarter(dateOf(r,'settle')));
   const AS_q=(works.as||[]).filter(r=>inQuarter(dateOf(r,'as')));
   const PM_q=(works.pm||[]).filter(r=>inQuarter(dateOf(r,'pm')));
+  /* ERP 세금계산서 발행 누적 — 대표가 "매출이 왜 줄었나" 물은 그 숫자다 (2026-08-07).
+     원장 정산(4.4억대)은 06시트에 정산 행이 생긴 작업만 세고, ERP(13.7억대)는 실제 발행된
+     세금계산서 전부다. 예전 화면은 원장이 비는 달만 ERP로 채워서, 원장이 채워질수록
+     ERP 보완이 꺼지며 누적이 **줄어드는 것처럼** 보였다(7억→4.4억). 두 숫자를 나란히
+     보여야 "줄었다"가 아니라 "원장 반영이 덜 됐다"로 읽힌다. */
+  const erpYTD = Object.entries(erpDocs.months||{}).filter(([k])=>k.startsWith(y))
+                   .reduce((a,[,v])=>a+(+v.합계||0),0);
+  const ledgerYTD = S.reduce((a,r)=>a+(+r.공급가액||0),0);
+  const erpGap = Math.max(0, erpYTD - ledgerYTD);
   reg('k_all',  `정산 총계 (${y}년 누적)`, S);
   reg('k_amt',  `공급가액(부가세 별도) · ${y}년 누적`, [...S].sort((a,b)=>(+b.공급가액||0)-(+a.공급가액||0)));
   reg('k_due',  '미수금 보유 건', S.filter(r=>(+r.미수금||0)>0));
@@ -9667,7 +9676,9 @@ function renderDaily(){
     <h4>${y}년 누적 <span class="norm">— ${ytdFrom} ~ ${ytdTo}</span></h4>
     <div class="rgrid k7">
       ${cell(S.length+'건','정산 총계','k_all')}
-      ${cell(fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)','k_amt')}
+      ${cell(fmt(ledgerYTD),'원장 정산 공급가액(부가세 별도·원)','k_amt')}
+      ${erpYTD?cell(fmt(erpYTD),'ERP 계산서 발행 누적(원)'):''}
+      ${erpGap?cell(fmt(erpGap),'원장 미반영(원)'):''}
       ${cell(fmt(미수),'미수금(원)','k_due')}
       ${cell(pctText(발행,유상.length,'0.0%'),'계산서 발행율','k_tax')}
       ${cell(issues.length+'건','조치 필요','k_iss')}
@@ -9676,6 +9687,11 @@ function renderDaily(){
     </div>
     ${outYTD?`<div style="font-size:13px;color:var(--ink-3);margin-top:6px">
       ※ 완료일이 없거나 ${y}년·선택 기준일 이후인 ${outYTD}건은 누적에서 제외</div>`:''}
+    ${erpGap?`<div style="font-size:13px;color:var(--ink-3);margin-top:6px">
+      ※ '원장 정산'은 06시트에 정산 행이 만들어진 작업만 셉니다. ERP가 실제 발행한
+      세금계산서 누적(${fmt(erpYTD)}원)과의 차액 <b>${fmt(erpGap)}원</b>은 아직 원장에
+      반영되지 않은 매출입니다 — 원장이 채워지면 '원장 정산'이 이 값에 다가갑니다
+      (자세한 월별 내역은 아래 'ERP 매출' 표).</div>`:''}
     ${erpHtml(y)}
     ${execHtml()}
     ${(()=>{ window._issueSets = {}; Object.entries(byType).forEach(([t,l])=>window._issueSets[t]=l); return ''; })()}
@@ -9777,7 +9793,9 @@ function renderDaily(){
       ],
       activities: captureDailyTasks
     } : null,
-    kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(S.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)'],
+    kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(ledgerYTD),'원장 정산 공급가액(부가세 별도·원)'],
+          ...(erpYTD?[[fmt(erpYTD),'ERP 계산서 발행 누적(원)']]:[]),
+          ...(erpGap?[[fmt(erpGap),'원장 미반영(원)','#B54708']]:[]),
           [fmt(미수),'미수금(원)', 미수?'#B54708':'#12813F'],
           [pctText(발행,유상.length,'0.0%'),'계산서 발행율'],
           [issues.length+'건','조치 필요', issues.length?'#C0212E':'#12813F'],
