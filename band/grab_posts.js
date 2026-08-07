@@ -122,6 +122,17 @@
       for (let i = 0; i < 12 && !txt(main, '.postListInfoWrap .time, .time'); i++) {
         await sleep(250);
       }
+      const timeText = txt(main, '.postListInfoWrap .time, .time');
+      // ★ 시각이 끝내 안 붙으면 **수확을 버린다** (2026-08-07 실사고 2차).
+      //   밴드는 **아직 없는 글 번호**(최신 글보다 큰 번호)에도 200 을 주고 앱 껍데기를
+      //   그린다. 그 화면에서 본문을 뜯으면 직전 화면(피드 맨 위 글)의 본문이 그대로
+      //   잡히고 글쓴이·시각만 빈다. 이날 3539~3578 을 그렇게 모아 **40건이 전부 같은
+      //   글**이었는데 status 가 ok 라 그대로 캐시에 들어갔다(3308→3348).
+      //   본문이 있으니 아무도 실패인 줄 몰랐다 — 제일 나쁜 종류의 실패다.
+      //   위(본문 없음)와 달리 'missing' 이 아니라 'fail' 로 돌린다:
+      //   3539 는 **내일이면 진짜로 생긴다.** 묘비를 세우면 그때 영영 못 모은다.
+      //   시각 없는 글은 어차피 어떤 작업과도 대조되지 않아 저장할 값이 없다.
+      if (!timeText) return { status: 'fail', reason: 'no-time' };
       const imgs = [...main.querySelectorAll('img')]
         .map((i) => i.src).filter((s) => /pstatic|phinf/.test(s));
       const cmt = (txt(main, '._commentCount, .comment .count, .uComment .count')
@@ -130,7 +141,7 @@
         status: 'ok',
         post: {
           author: txt(main, '.postWriterInfoWrap .text, .postWriter .text, .uProfileText'),
-          timeText: txt(main, '.postListInfoWrap .time, .time'),
+          timeText,
           content: txt(main, '.postText, .dPostTextView'),
           photo_count: String(imgs.length),
           comment_count: cmt || '0',

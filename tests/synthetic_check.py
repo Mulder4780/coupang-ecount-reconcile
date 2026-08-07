@@ -7351,6 +7351,46 @@ def t129_call_notes_db_only_and_device_open():
     print("  [129] 통화 메모 DB 전용 · 원본 클릭 접속 기기에서 열기 ✅")
 
 
+def t130_band_grab_rejects_timeless_harvest():
+    """[130] 시각 없는 수확은 저장하지 않는다 (2026-08-07 실사고 2차).
+
+    무슨 일이 있었나
+      `recheck_plan --ahead` 는 최신 글보다 **큰 번호**를 미리 찔러 본다. 그런데 밴드는
+      아직 없는 글 번호에도 **HTTP 200 + 앱 껍데기**를 준다. 수집기가 그 화면에서 본문을
+      뜯으면 직전 화면(피드 맨 위 글)의 본문이 그대로 잡히고 글쓴이·시각만 빈다.
+      그렇게 3539~3578 마흔 건이 **전부 같은 글**로 수집됐고 status 가 ok 라 캐시에
+      그대로 들어갔다(3308→3348). 본문이 있으니 실패로 보이지 않았다 —
+      화면 숫자는 멀쩡한데 원본과 다른 값이 되는, 제일 나쁜 종류의 실패다.
+
+    지키는 것
+      ① 시각(timeText)이 없으면 'ok' 로 넘기지 않는다.
+      ② 그때 'missing'(묘비)이 아니라 'fail' 이어야 한다 — 그 번호는 내일 진짜로
+         생긴다. 묘비를 세우면 recheck_plan 이 영영 다시 안 뽑는다.
+      ③ 숨은 탭에서는 시작 자체를 거절한다(1차 사고 가드가 살아 있나).
+    """
+    js = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
+
+    body = re.search(r"async function grabOne\(.*?\n  \}", js, re.S)
+    assert body, "grabOne 을 찾지 못했다"
+    body = body.group(0)
+
+    m = re.search(r"if \(!timeText\) return \{ status: '(\w+)'", body)
+    assert m, "시각 없는 수확을 걸러내지 않는다 — 같은 글이 통째로 캐시에 들어간다"
+    assert m.group(1) == "fail", \
+        f"시각 없음을 '{m.group(1)}' 로 처리한다 — 묘비를 세우면 그 번호를 영영 못 모은다"
+
+    # 가드가 ok 반환보다 **앞**에 있어야 의미가 있다
+    assert body.index("if (!timeText)") < body.index("status: 'ok'"), \
+        "가드가 ok 반환보다 뒤에 있다 — 걸러지지 않는다"
+    # timeText 를 다시 긁어 담지 않는지(가드를 우회하는 옛 코드가 남았나)
+    assert "timeText: txt(" not in body, "가드를 지나 timeText 를 다시 긁는다"
+
+    # ③ 1차 사고 가드(숨은 탭 시작 거절)도 함께 지킨다
+    assert "document.hidden" in js and "탭이 뒤에 있다" in js, \
+        "숨은 탭에서 시작을 거절하는 가드가 사라졌다"
+    print("  [130] 밴드 수집 — 시각 없는 수확 폐기 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -7453,6 +7493,7 @@ if __name__ == "__main__":
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
+    t130_band_grab_rejects_timeless_harvest()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
