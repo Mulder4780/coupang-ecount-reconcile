@@ -5393,6 +5393,9 @@ function applyView(v){
   }
   if(v==='check') renderCheckHub();
   if(v==='flow' && !FLOW_EDITING) loadFlow();   // 고치는 중이면 덮지 않는다
+  // ★ 여기가 비어 있었다 — [보고] 를 열어도 아무것도 안 받고, **누른 다음에야**
+  //   받기 시작해서 버튼이 굳었다(2026-08-07 지시로 재설계). 화면은 막지 않는다.
+  if(v==='daily') warmReport();
   try{ applySecFold(); }catch(e){}   // 이 화면의 구역 머리에도 접힘 상태를 입힌다
   lcScanSoon($('v-'+v));             // 이 화면의 긴 글을 재서 접는다(짧으면 그대로 둔다)
   try{ localStorage.setItem('cw_view', v); }catch(e){}   // 새로고침 후 같은 화면으로 복귀
@@ -12288,14 +12291,59 @@ function nextPaint(ms){
       버튼이 굳어 있으면 사람은 앱이 죽은 줄 안다. 그래서 기다림에 상한을 둔다.
    상한을 넘겨도 재조회는 뒤에서 계속되고, 그 사이 우리는 **가진 값이 비었는지**만
    본다. 비었으면 0건 이미지를 만드느니 캡처를 멈추고 이유를 말한다. */
-const CAPTURE_WAIT_MS = 25000;
+/* ★ 다시 짬 (2026-08-07 지시: "보고화면 이미지 저장 하면 바로바로 데이터 내역
+   반영해서 캡처되게 알고리즘 다시 짜").
+
+   예전 구조의 진짜 문제는 25초 상한이 아니라 **받기 시작하는 시점**이었다.
+   [보고] 탭에는 재조회 분기가 아예 없었다 — 화면을 열어도 아무것도 안 받고,
+   **누른 다음에야** 비로소 받기 시작했다. 그래서 버튼이 굳었다.
+
+   순서를 뒤집는다.
+     열 때  — 곧바로 받아 둔다(warmReport, 화면은 막지 않는다)
+     누를 때 — 가진 것이 있으면 **기다리지 않고 그린다**
+   사람이 화면을 보고 버튼을 누르기까지의 몇 초가 곧 받는 시간이 된다.
+
+   ★ '기다리지 않는다'가 옛 숫자를 몰래 내보내는 것은 아니다. 이미지 머리에
+     `_asOf`(원장이 저장된 시각)가 찍히므로 받는 사람이 나이를 볼 수 있다.
+     그리고 저장한 뒤 더 새 자료가 도착하면 **다시 저장할지 물어본다**.
+   ★ 가진 것이 하나도 없을 때만 기다린다 — 0건짜리 보고는 내보내지 않는다. */
+let RPT_WARM = null, RPT_WARM_AT = 0;
+const RPT_FRESH_MS = 90000;       // 이 안에 데워 둔 자료면 다시 받지 않는다
+const CAPTURE_WAIT_MS = 25000;    // 가진 것이 아무것도 없을 때만 쓰는 상한
+function rptHasData(){
+  return !!(settleRows.length || (works.as||[]).length || (works.pm||[]).length);
+}
+function warmReport(force){
+  if(!PIN) return null;
+  if(!force && RPT_WARM && Date.now() - RPT_WARM_AT < RPT_FRESH_MS) return RPT_WARM;
+  RPT_WARM_AT = Date.now();
+  RPT_WARM = Promise.all([
+    loadSettle(true).catch(()=>{}),
+    loadRemoteStat().catch(()=>{}),
+    BRIEF ? Promise.resolve() : Promise.resolve(loadBrief()).catch(()=>{})
+  ]).then(()=>{ RPT_WARM_AT = Date.now(); return true; }).catch(()=>false);
+  return RPT_WARM;
+}
 async function ensureReportData(){
-  const how = await Promise.race([
-    loadSettle(true).then(()=>'fresh').catch(()=>'fail'),
+  const inflight = warmReport();                 // 탭에서 이미 돌고 있으면 그것을 그대로 쓴다
+  if(rptHasData()) return {how:'now', empty:false, inflight};
+  const how = await Promise.race([               // 아무것도 없을 때만 기다린다
+    (inflight || Promise.resolve()).then(()=>'fresh'),
     new Promise(r=>setTimeout(()=>r('timeout'), CAPTURE_WAIT_MS))
   ]);
-  const empty = !settleRows.length && !((works.as||[]).length) && !((works.pm||[]).length);
-  return {how, empty};
+  return {how, empty: !rptHasData(), inflight};
+}
+/* 저장한 뒤에 더 새 자료가 도착했으면 알려 준다. 다시 저장할지는 사람이 정한다 —
+   말없이 두 번째 파일을 만들면 어느 것이 최신인지 사람이 알 수 없다. */
+function rptOfferResave(inflight, again){
+  if(!inflight) return;
+  const mark = _rptData && _rptData.updatedAt;
+  Promise.resolve(inflight).then(async () => {
+    renderDaily();
+    if(!_rptData || _rptData.updatedAt === mark) return;   // 더 새것이 아니면 조용히 둔다
+    if(await askYesNo(`더 새 자료가 도착했습니다 (${_rptData.updatedAt}).`,
+                      {desc:'그 자료로 다시 저장할까요?'})) again();
+  }).catch(()=>{});
 }
 async function waitBrief(){
   for(let i=0; i<40 && !BRIEF; i++){
@@ -12306,38 +12354,32 @@ async function waitBrief(){
 
 /* 이미지 저장 — PC는 즉시 다운로드, iOS/미지원 기기는 새 창에 띄워 길게 눌러 저장 */
 async function captureReport(){
-  let blob;
+  let blob, ready;
   try{
-    toast('최신 자료를 받아 그리는 중…');
-    const ready = await ensureReportData();
+    ready = await ensureReportData();
     if(ready.empty){
       notice('자료를 아직 받지 못해 캡처를 멈췄습니다 — 0건짜리 보고가 나가지 않도록 막았습니다.\n'+
              '잠시 뒤 새로고침한 다음 다시 눌러 주세요.'); return;
     }
-    if(ready.how==='timeout') toast('자료 갱신이 느려 지금 값으로 그립니다');
-    // 클릭 시점의 최신 4원천 집계를 다시 묶어 화면과 저장 이미지가 항상 같게 한다.
-    await loadRemoteStat();            // 리모컨 현황도 캡처에 싣는다(2026-08-03)
-    // ★ BRIEF(일지 대조·핫이슈·분기 경과율)가 로딩 전이면 캡처가 대표 지시 블록을
-    //   말없이 통째로 빼고 그려졌다(2026-08-04 실측). 기다렸다 그린다.
-    //   loadBrief 는 이미 로딩 중이면 그냥 돌아오므로, 끝날 때까지 짧게 폴링한다.
-    await waitBrief();
+    // ★ BRIEF(일지 대조·핫이슈·분기 경과율)가 없으면 캡처가 대표 지시 블록을
+    //   말없이 통째로 빼고 그린다(2026-08-04 실측). 데워 뒀으면 즉시 지나간다.
+    if(!BRIEF) await waitBrief();
     renderDaily();
     blob = await reportToPng();
     if(!blob) throw new Error('이미지 생성 결과가 비어 있습니다');
   }catch(e){ notice('이미지 생성 실패: '+e+'\n화면 캡처(Win+Shift+S / 전원+음량↓)를 사용해 주세요.'); return; }
 
   saveOrOpen(blob, rptFileName());
+  rptOfferResave(ready.inflight, captureReport);
 }
 async function shareReport(){
   let blob;
   try{
-    toast('최신 자료를 받아 그리는 중…');
     const ready = await ensureReportData();   // 캡처와 같은 이유 — 0건 통계로 공유되지 않게
     if(ready.empty){
       notice('자료를 아직 받지 못해 공유를 멈췄습니다 — 잠시 뒤 다시 눌러 주세요.'); return;
     }
-    await loadRemoteStat();
-    await waitBrief();                 // 캡처와 같은 이유 — 빈 브리핑으로 공유되지 않게
+    if(!BRIEF) await waitBrief();      // 캡처와 같은 이유 — 빈 브리핑으로 공유되지 않게
     renderDaily();
     blob = await reportToPng();
     if(!blob) throw new Error('empty');

@@ -8124,7 +8124,19 @@ def t140_freshness_tells_the_truth():
     assert '"agent_stale"' in server and '"agent_aborted"' in server
     assert "agent_age_h >= 20" in server, "몇 시간째 미완주인지 판정하는 자리가 없다"
     assert "s.agent_stale" in live and "미완주" in live, "앱이 밀린 회차를 정상처럼 보여 준다"
-    print("  [140] 신선도 표기 — 나이는 하나·실패는 말한다·에이전트 밀림 표시 ✅")
+    # ⑧ 캡처는 **누르면 곧바로** 그린다 (2026-08-07 지시: "이미지 저장 하면
+    #   바로바로 데이터 내역 반영해서 캡처되게 알고리즘 다시 짜").
+    #   예전 문제는 상한 25초가 아니라 '받기 시작하는 시점'이었다 — [보고] 탭에
+    #   재조회 분기가 없어서 **누른 다음에야** 받기 시작했다.
+    assert "if(v==='daily') warmReport();" in live, \
+        "[보고] 탭을 열 때 미리 받지 않는다 — 누른 뒤에야 받으면 버튼이 굳는다"
+    assert "if(rptHasData()) return {how:'now'" in live, \
+        "가진 자료가 있는데도 기다린다"
+    assert "function rptOfferResave(" in live and "_rptData.updatedAt === mark" in live, \
+        "저장 뒤 더 새 자료가 와도 알려 주지 않는다"
+    assert "toast('최신 자료를 받아 그리는 중…')" not in live, \
+        "이제 기다리지 않는데 기다린다고 말한다"
+    print("  [140] 신선도 표기 — 나이는 하나·실패는 말한다·캡처는 곧바로 ✅")
 
 
 def t141_long_text_folds():
