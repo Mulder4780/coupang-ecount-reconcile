@@ -55,6 +55,9 @@ erp_grab.py — ERP 내보내기가 **종류별로** 얼마나 밀렸나 + 화�
     **진짜 자료를 거짓 음성으로 버릴 뻔했다.**
   → 결정적인 증거는 하나뿐이다: **격자에 찍힌 날짜가 요청한 기간 안에 있는가.**
     행 수는 참고로만 남긴다.
+  ★ 그 기간을 **화면에서 읽으면 안 된다.** 날짜 위젯 cid 가 화면마다 다르다 —
+    회계거래현황에는 `ddlSYear_DATE` 가 아예 없어 기간이 "// ~ //" 로 읽혔고,
+    그러면 비교가 전부 거짓이 되어 또 멀쩡한 자료를 버린다. **프리셋에서 계산한다.**
 
 날짜 위젯 속살 (프리셋으로 안 되는 기간을 잡아야 할 때)
   · ec5 에는 네이티브 `<select>` 가 **하나도 없다**(0개 확인).
@@ -232,13 +235,22 @@ window.__ERPGRAB = {단계: '시작', 조회전: null, 조회후: null, 완료: 
   //   · 날짜만 바꾸고 조회를 안 걸었는데 42행 그대로 → 옛 결과를 새 기간으로 착각할 뻔
   //   · 제대로 조회했는데 우연히 5행→5행 → **진짜 자료를 거짓 음성으로 버릴 뻔**
   //   결정적인 증거는 하나뿐이다: **격자에 찍힌 날짜가 내가 요청한 기간 안에 있는가.**
-  const want = (() => {                       // 화면이 말하는 기간
-    const L = i => { const e = document.querySelector(
-      `button[data-cid="ddlSYear_DATE"][data-index="${i}"] .selectbox-label`);
-      return e ? (e.textContent||'').trim() : ''; };
-    const D = i => { const e = document.querySelector(
-      `input[data-cid="ddlSYear_DATE"][data-index="${i}"]`); return e ? e.value : ''; };
-    return {from: `${L(0)}/${L(1)}/${D(2)}`, to: `${L(3)}/${L(4)}/${D(5)}`};
+  // ★ 기간은 **화면에서 읽지 말고 프리셋에서 계산한다** (2026-08-07 실측).
+  //   날짜 위젯의 cid 는 화면마다 다르다 — 회계거래현황에는 `ddlSYear_DATE` 가 아예 없어
+  //   기간이 "// ~ //" 로 읽혔고, 그러면 비교가 전부 거짓이 되어 **멀쩡한 8월 자료를
+  //   거짓 음성으로 버린다.** 프리셋 이름은 어느 화면에서나 같으므로 이쪽이 튼튼하다.
+  const want = (() => {
+    const t = new Date(), p2 = n => String(n).padStart(2, '0');
+    const fmt = d => `${d.getFullYear()}/${p2(d.getMonth()+1)}/${p2(d.getDate())}`;
+    const back = n => { const d = new Date(t); d.setDate(d.getDate() - n); return fmt(d); };
+    const to = fmt(t);
+    const preset = '%(preset)s';
+    if (preset === '금일')        return {from: to,       to};
+    if (preset === '전일')        return {from: back(1),  to: back(1)};
+    if (preset === '금주(~오늘)') return {from: back(7),  to};
+    if (preset === '최근30일')    return {from: back(30), to};
+    if (preset === '금월(~오늘)') return {from: `${t.getFullYear()}/${p2(t.getMonth()+1)}/01`, to};
+    return {from: back(45), to};              // 모르는 프리셋은 넉넉하게 본다
   })();
   const g = document.querySelector('[id^="grid-"]');
   const seen = [...(g ? g.querySelectorAll('tr') : [])]
