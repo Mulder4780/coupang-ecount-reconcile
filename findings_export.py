@@ -24,6 +24,26 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPORT_DIR = os.path.join(BASE_DIR, "reports")
 OUT_NAME = "쿠팡_확인필요현황_최신.xlsx"
 
+# ★ 에이전트가 만든 **보고 시트**임을 알리는 표식 (2026-08-07 실사고).
+#   23_확인필요현황·27_거래처코드 처럼 우리가 만들어 넣는 시트는 A1 에 이 말이 들어간다
+#   (`findings_sheet.build_generic_sheet` 가 넣는다).
+#
+#   왜 표식이 필요한가 — **보고 시트가 원장으로 오해되면 자기를 먹는다.**
+#   `doc_unregistered` 는 관리대장 *모든 시트*의 4행에서 '프로젝트NO' 열을 찾아
+#   "이미 등록된 프로젝트" 집합을 만든다. 23시트를 12열로 넓히면서 프로젝트NO 를
+#   **독립된 열로** 뺐더니(예전엔 '내용·근거' 문장 속에 묻혀 있었다), 다음 실행 때
+#   23시트가 스스로를 원장으로 읽혀 **미등록 문서 223건이 통째로 사라졌다.**
+#   합성검증 [8] 의 멱등이 깨진 것이 그 증상이었다(2208건 → 1985건).
+#
+#   시트 이름 목록으로 막지 않는 이유: 목록은 다음 보고 시트를 만들 때 잊는다.
+#   표식은 `build_generic_sheet` 가 자동으로 넣으므로 **잊을 수가 없다.**
+AGENT_SHEET_MARK = "에이전트 자동 갱신"
+
+
+def is_agent_sheet(row1):
+    """1행이 보고 시트 표식을 달고 있나 — 원장 훑기에서 빼야 하는 시트다."""
+    return any(AGENT_SHEET_MARK in str(c) for c in (row1 or ()) if c)
+
 
 def latest_csv(pat):
     fs = sorted(glob.glob(os.path.join(REPORT_DIR, pat)))
@@ -164,10 +184,15 @@ def doc_unregistered(master):
     known = set()
     for sh in wb.sheetnames:
         ws = wb[sh]
-        try:
-            hdr = next(ws.iter_rows(min_row=4, max_row=4, values_only=True))
-        except StopIteration:
+        # 1~4행을 한 번에 읽는다 — read_only 시트는 되감기가 미덥지 않다.
+        head = list(ws.iter_rows(min_row=1, max_row=4, values_only=True))
+        if len(head) < 4:
             continue
+        # ★ 우리가 만든 보고 시트는 원장이 아니다. 여기서 안 빼면 23시트가 제 프로젝트NO 를
+        #   '이미 등록됨'으로 읽어 미등록 문서를 스스로 지운다(2026-08-07 실사고).
+        if is_agent_sheet(head[0]):
+            continue
+        hdr = head[3]
         idx = {str(h).strip(): i for i, h in enumerate(hdr) if h is not None}
         if "프로젝트NO" not in idx:
             continue

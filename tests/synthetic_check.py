@@ -342,7 +342,20 @@ def t8_findings_sheet(tmp):
     r2 = subprocess.run([PY, os.path.join(ROOT, "findings_sheet.py"), "--master", v2],
                         capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env=env)
     assert "변경 없음" in r2.stdout and not os.path.exists(ledger.replace("_v1", "_v3")), r2.stdout
-    print("  [8] 확인필요 시트 통합(신규 추가·머리글·멱등) ✅")
+    # ★ 자기잠식 금지 (2026-08-07 실사고). 23시트는 4행에 '프로젝트NO' 열을 가진다.
+    #   원장을 훑는 쪽이 이 시트를 원장으로 세면 "이미 등록된 프로젝트"가 부풀어
+    #   미등록 문서가 통째로 사라진다(실측 223건). 위 멱등 검사는 그 증상을 **우연히**
+    #   잡았을 뿐이라, 원인 쪽을 직접 못박는다.
+    import findings_export as FE
+    assert FE.is_agent_sheet(("23_확인필요현황 (에이전트 자동 갱신 — 수기 입력 금지)",))
+    assert not FE.is_agent_sheet(("프로젝트NO", "캠프명")) and not FE.is_agent_sheet(())
+    w = openpyxl.load_workbook(v2, read_only=True)
+    a1 = next(w["23_확인필요현황"].iter_rows(min_row=1, max_row=1, values_only=True))
+    w.close()
+    assert FE.is_agent_sheet(a1), f"보고 시트 표식이 1행에 없다: {a1}"
+    src = open(os.path.join(ROOT, "findings_export.py"), encoding="utf-8").read()
+    assert "is_agent_sheet(head[0])" in src, "doc_unregistered 가 보고 시트를 안 거른다"
+    print("  [8] 확인필요 시트 통합(신규 추가·머리글·멱등·자기잠식 금지) ✅")
 
 
 def t10_band_extract():

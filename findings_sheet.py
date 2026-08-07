@@ -19,7 +19,7 @@ except Exception:
     pass
 
 from ecount_reconcile import load_config, resolve_master
-from findings_export import collect
+from findings_export import collect, AGENT_SHEET_MARK
 from ledger_writer import sheet_file_map, esc, col_letter
 
 SHEET_NAME = "23_확인필요현황"
@@ -105,7 +105,10 @@ def build_generic_sheet(sheet_name, headers, widths, rows, usage_text, empty_tex
          '<cols>' + "".join(f'<col min="{i+1}" max="{i+1}" width="{w}" customWidth="1"/>'
                             for i, w in enumerate(widths)) + '</cols>',
          '<sheetData>']
-    x.append(f'<row r="1">{cell("A",1, sheet_name + " (에이전트 자동 갱신 — 수기 입력 금지)")}</row>')
+    # ★ 1행의 이 표식이 "이 시트는 원장이 아니라 **보고**다" 를 알린다.
+    #   원장을 훑는 쪽(`findings_export.is_agent_sheet`)이 이걸 보고 건너뛴다 —
+    #   빼면 보고 시트가 제 프로젝트NO 를 원장으로 읽혀 자기를 먹는다(2026-08-07 실사고).
+    x.append(f'<row r="1">{cell("A",1, sheet_name + f" ({AGENT_SHEET_MARK} — 수기 입력 금지)")}</row>')
     x.append(f'<row r="2">{cell("A",2, usage_text)}</row>')
     hdr = "".join(cell(col_letter(i + 1), 4, h) for i, h in enumerate(headers))
     x.append(f'<row r="4">{hdr}</row>')

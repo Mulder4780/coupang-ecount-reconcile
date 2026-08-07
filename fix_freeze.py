@@ -56,6 +56,13 @@ def plan(path):
                                               "12", "18", "19", "20", "22"):
             continue
         ws = wb[sn]
+        # ★ 에이전트가 만든 보고 시트(23_확인필요현황·27_거래처코드)는 건드리지 않는다.
+        #   틀고정은 그 시트 XML 안에 이미 들어 있고, 여기서 고쳐 쓰면 다음 갱신 때
+        #   `findings_sheet` 가 "바뀌었다"고 보고 vN+1 을 만든다 — 둘이 서로 되돌리며
+        #   버전만 끝없이 늘어난다(2026-08-07, 자기잠식 사고와 같은 갈래).
+        from findings_export import is_agent_sheet
+        if is_agent_sheet(next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())):
+            continue
         try:
             hdr = [_s(h) for h in next(ws.iter_rows(min_row=HDR, max_row=HDR, values_only=True))]
         except StopIteration:
