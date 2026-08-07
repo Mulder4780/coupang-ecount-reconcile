@@ -225,6 +225,174 @@ def log(con, area, action, ok=True, ref_kind=None, ref_id=None, detail=None, act
          json.dumps(detail, ensure_ascii=False) if detail is not None else ""))
 
 
+def note(area, action, ok=True, detail=None, ref_kind=None, ref_id=None, actor=None):
+    """다른 도구가 **한 줄로** 로그를 남기는 길 (worksplit #20).
+
+    ★ 이 함수는 **무슨 일이 있어도 예외를 내지 않는다.** 로그를 남기려다 본 작업을
+      멈추면 그 순간 아무도 로그를 안 쓰게 된다. DB 가 잠겨 있어도 조용히 지나간다.
+    ★ 로그는 append-only 다(트리거가 UPDATE·DELETE 를 막는다). 고쳐질 수 있으면
+      근거가 아니다 — "8/5 돌발AS 가 왜 1건이었나"를 되짚을 때 믿을 것이 이 표다.
+    """
+    try:
+        con = connect()
+        try:
+            log(con, area, action, ok=ok, ref_kind=ref_kind, ref_id=ref_id,
+                detail=detail, actor=actor)
+            con.commit()
+        finally:
+            con.close()
+        return True
+    except Exception:
+        return False
+
+
+# ── 기록(record) — 원본에서 뽑아낸 '한 건' (worksplit #21) ────────────────────
+# asset 이 '파일'이라면 record 는 그 안의 **업무 한 건**이다. 밴드 글 하나, 정기점검
+# 한 회, 돌발AS 한 건. 원본이 다시 수집돼 내용이 달라지면 record_rev 에 **무엇이
+# 어떻게 바뀌었는지**를 남긴다 — 조용히 덮어쓰면 "어제와 숫자가 다르다"를 설명할 수 없다.
+_REC_TRACK = ("biz_date", "party", "amount", "status")
+
+
+def put_record(con, kind, natural_key, payload, biz_date=None, party="",
+               amount=None, status="", asset_id=None, why="", actor=None):
+    """한 건을 넣거나 갱신한다. 바뀐 것이 없으면 아무것도 쓰지 않는다.
+
+    돌려주는 값은 (record_id, 'new'|'same'|'changed')."""
+    body = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    h = hashlib.sha1(body.encode("utf-8")).hexdigest()
+    ts = now()
+    cur = con.execute("SELECT id,hash,biz_date,party,amount,status FROM record"
+                      " WHERE kind=? AND natural_key=?", (kind, natural_key)).fetchone()
+    if cur is None:
+        rid = con.execute(
+            "INSERT INTO record(kind,natural_key,asset_id,biz_date,party,amount,status,"
+            "payload,hash,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (kind, natural_key, asset_id, biz_date, party or "", amount, status or "",
+             body, h, ts, ts)).lastrowid
+        return rid, "new"
+    rid, old_hash = cur[0], cur[1]
+    if old_hash == h:
+        return rid, "same"
+    olds = dict(zip(_REC_TRACK, cur[2:]))
+    news = {"biz_date": biz_date, "party": party or "", "amount": amount,
+            "status": status or ""}
+    w = actor or who()
+    for f in _REC_TRACK:
+        if olds.get(f) != news.get(f):
+            con.execute("INSERT INTO record_rev(record_id,at,who,field,old,new,why)"
+                        " VALUES(?,?,?,?,?,?,?)",
+                        (rid, ts, w, f, _s(olds.get(f)), _s(news.get(f)), why))
+    # 본문이 바뀐 것도 남긴다(어느 칸인지 모를 때가 대부분이다 — 해시로 사실만 적는다)
+    con.execute("INSERT INTO record_rev(record_id,at,who,field,old,new,why)"
+                " VALUES(?,?,?,?,?,?,?)", (rid, ts, w, "payload", old_hash, h, why))
+    con.execute("UPDATE record SET asset_id=COALESCE(?,asset_id),biz_date=?,party=?,"
+                "amount=?,status=?,payload=?,hash=?,updated_at=? WHERE id=?",
+                (asset_id, biz_date, party or "", amount, status or "", body, h, ts, rid))
+    return rid, "changed"
+
+
+def _s(v):
+    return "" if v is None else str(v)
+
+
+def ingest_band(con, quiet=False):
+    """밴드 캐시(band/cache/*.json)의 글을 record 로 옮긴다.
+
+    ★ **여기서 밴드를 긁지 않는다.** 수집은 'CSOS 리서치 및 자료 수집' 세션이 맡는다
+      (CLAUDE.md). 이 함수는 이미 모여 있는 캐시 파일을 **읽기만** 한다.
+    ★ 시각이 없는 글은 버린다 — 2026-08-07 실사고에서 밴드가 없는 글 번호에도 앱
+      껍데기를 줘서 직전 글 본문이 마흔 건 복제됐다. 그 지문이 '시각 없음'이었다.
+    """
+    import glob as _g
+    made = same = changed = skipped = 0
+    for fp in sorted(_g.glob(_shared("band", "cache", "*.json"))):
+        base = os.path.basename(fp)
+        if base.startswith("raw"):          # 원본 덤프는 convert_dump 가 다룬다
+            continue
+        try:
+            d = json.load(open(fp, encoding="utf-8"))
+        except Exception:
+            continue
+        band_id = os.path.splitext(base)[0]
+        bname = str(d.get("band_name") or "")
+        for no, post in sorted((d.get("posts") or {}).items()):
+            created = str((post or {}).get("created_at") or "").strip()
+            if not created:
+                skipped += 1                # 시각 없는 수확은 믿지 않는다
+                continue
+            key = f"{band_id}/{no}"
+            _rid, how = put_record(
+                con, "band_post", key,
+                {"밴드": bname, "밴드ID": band_id, "글번호": no,
+                 "글쓴이": (post.get("author") or ""),
+                 "본문": (post.get("content") or "")[:4000],
+                 "사진수": post.get("photo_count"), "댓글수": post.get("comment_count"),
+                 "수집시각": post.get("captured_at") or ""},
+                biz_date=created[:10], party=(post.get("author") or ""),
+                status="", why="밴드 캐시 흡수")
+            if how == "new":
+                made += 1
+            elif how == "changed":
+                changed += 1
+            else:
+                same += 1
+    con.commit()
+    log(con, "band", "ingest_records", ok=True,
+        detail={"신규": made, "변경": changed, "그대로": same, "시각없음버림": skipped})
+    con.commit()
+    if not quiet:
+        print(f"  밴드 글 → 기록: 신규 {made} · 변경 {changed} · 그대로 {same}"
+              f" · 시각 없어 버림 {skipped}")
+    return {"신규": made, "변경": changed, "그대로": same, "버림": skipped}
+
+
+# ── 이음(link) + 흐름 그림 (worksplit #22) ───────────────────────────────────
+def link_records(con, src, dst, rel, conf=1.0, by=""):
+    """건과 건을 잇는다(밴드 글 → 돌발AS → 정산 …).
+
+    ★ `conf` 는 **얼마나 확실한가**다. 사람이 지정하면 1.0, 규칙이 추측하면 그보다
+      낮게 둔다. 추측을 확정처럼 적으면 나중에 무엇을 다시 봐야 하는지 알 수 없다."""
+    con.execute("INSERT OR REPLACE INTO link(src,dst,rel,conf,by,at)"
+                " VALUES(?,?,?,?,?,?)",
+                (int(src), int(dst), rel, float(conf), by or who(), now()))
+    return True
+
+
+def flow_mermaid(con, kind=None, since=None, limit=40):
+    """이어진 건들을 Mermaid 흐름도로. 앱 [개발 사양]과 같은 문법을 쓴다."""
+    q = ("SELECT l.src,l.dst,l.rel,l.conf,"
+         " a.kind,a.natural_key,a.biz_date, b.kind,b.natural_key,b.biz_date"
+         " FROM link l JOIN record a ON a.id=l.src JOIN record b ON b.id=l.dst")
+    w, args = [], []
+    if kind:
+        w.append("(a.kind=? OR b.kind=?)")
+        args += [kind, kind]
+    if since:
+        w.append("(a.biz_date>=? OR b.biz_date>=?)")
+        args += [since, since]
+    if w:
+        q += " WHERE " + " AND ".join(w)
+    q += " ORDER BY a.biz_date DESC, l.src LIMIT ?"
+    args.append(int(limit))
+    rows = con.execute(q, args).fetchall()
+    if not rows:
+        return 'flowchart LR' + chr(10) + '  E["이어진 건이 아직 없습니다"]'
+    out, seen = ["flowchart LR"], set()
+    def nid(rid):
+        return "R%d" % int(rid)
+    def label(k, key, d):
+        t = f"{k}<br/>{key}" + (f"<br/>{d}" if d else "")
+        return t.replace('"', "'")
+    for (s, dd, rel, conf, ak, akey, ad, bk, bkey, bd) in rows:
+        for rid, k, key, dt in ((s, ak, akey, ad), (dd, bk, bkey, bd)):
+            if rid not in seen:
+                seen.add(rid)
+                out.append(f'  {nid(rid)}["{label(k, key, dt)}"]')
+        tag = rel + ("" if conf >= 0.999 else f" ({int(conf*100)}%)")
+        out.append(f"  {nid(s)} -->|{tag}| {nid(dd)}")
+    return chr(10).join(out)
+
+
 def sha1_of(path, chunk=1 << 20):
     h = hashlib.sha1()
     with open(path, "rb") as f:
@@ -603,6 +771,12 @@ def main(argv=None):
     ap.add_argument("--log", nargs="*", metavar="키=값", help="area=… since=… action=…")
     ap.add_argument("--fail-only", action="store_true")
     ap.add_argument("--db", help="DB 경로(합성검증용)")
+    # ★ 아래 둘은 **모여 있는 캐시를 읽기만** 한다. 밴드를 새로 긁지 않는다
+    #   (수집은 'CSOS 리서치 및 자료 수집' 세션이 맡는다 — CLAUDE.md).
+    ap.add_argument("--band", action="store_true",
+                    help="밴드 캐시(band/cache)의 글을 record 로 흡수(수집 아님)")
+    ap.add_argument("--flow", nargs="*", metavar="키=값",
+                    help="이어진 건들을 Mermaid 흐름도로 (kind=… since=…)")
     a = ap.parse_args(argv)
 
     con = connect(a.db)
@@ -649,8 +823,14 @@ def main(argv=None):
                       f"  {(r['detail'] or '')[:90]}")
             if not rows:
                 print("  (해당하는 로그 없음)")
+        if a.band:
+            ingest_band(con)
+        if a.flow is not None:
+            f = _kv(a.flow)
+            print(flow_mermaid(con, kind=f.get("kind"), since=f.get("since"),
+                               limit=int(f.get("limit") or a.limit)))
         if a.status or not (a.scan or a.fill_sha1 or a.reclassify or a.find is not None
-                            or a.log is not None):
+                            or a.log is not None or a.band or a.flow is not None):
             s = status(con)
             print(f"보관소: {db_path()}")
             print(f"  자산 {s['자산']}건 (사라짐 {s['사라짐']}) · 변경이력 {s['이력']}"
