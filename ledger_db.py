@@ -1399,7 +1399,17 @@ def enqueue(items, source="tool", ingest_prefix=None):
             "INSERT OR IGNORE INTO pending"
             "(ts,source,sheet,key_col,key,cell,col,value,vtype,evidence,only_if_empty,ingest_key)"
             " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", rows)
-        return c.total_changes - before
+        added = c.total_changes - before
+    # 로그 일원화(worksplit #20) — "이 값이 언제 어디서 들어왔나"를 한 표에 모은다.
+    # ★ `note()` 는 무슨 일이 있어도 예외를 내지 않는다. 로그를 남기려다 입력을
+    #   막으면 그 순간 아무도 안 쓰게 된다.
+    try:
+        import datalake
+        datalake.note("ledger", "enqueue", ok=True,
+                      detail={"들어온것": len(rows), "새로담긴것": added, "source": source})
+    except Exception:
+        pass
+    return added
 
 
 def intake_json(path=JSON_QUEUE, source="tool"):
