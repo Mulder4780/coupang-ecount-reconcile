@@ -108,11 +108,29 @@ def plan(band, posts, floor=0, ahead=0):
     #   이 글들은 구멍도 아니고(번호가 있다) 오래된 것도 아니라(오늘 받았다)
     #   **어느 목록에도 안 잡혔다.** 캐시 숫자는 늘어나는데 대조는 안 되는,
     #   가장 알아채기 어려운 종류의 구멍이다. 날짜가 없으면 어떤 작업과도 못 맞춘다.
+    #
+    # ★ 그런데 그 621건의 정체는 '날짜만 빈 진짜 글'이 아니었다 (2026-08-07 2차).
+    #   밴드가 `/post/<번호>` 를 iframe 으로 열면 **피드로 되돌린다.** 그래서 껍데기에
+    #   남은 피드 맨 위 글이 잡혔고, 번호 수백 개가 **같은 본문**을 갖게 됐다
+    #   (98건→본문 2종 · 523건→7종). 즉 남의 본문을 베껴온 가짜 기록이다.
+    #   `clean_contaminated.py` 가 이것들을 `contaminated` 로 표시했다.
+    #   **다시 훑지 않는다** — 지금 수집 경로로는 절대 못 가져오므로 목록에 넣으면
+    #   매 회차 621번(약 50분)을 헛돈다. 수집 경로를 새로 만든 뒤에 풀 일이다.
+    contaminated = sorted(int(k) for k, v in posts.items()
+                          if str(k).isdigit() and isinstance(v, dict)
+                          and v.get("contaminated"))
     dateless = sorted(int(k) for k, v in posts.items()
                       if str(k).isdigit() and isinstance(v, dict)
-                      and not v.get("deleted") and not v.get("created_at"))
+                      and not v.get("deleted") and not v.get("contaminated")
+                      and not v.get("created_at"))
+    # 오염 표시된 번호는 '구멍'으로도 잡지 않는다(키는 있으므로 원래도 안 잡히지만,
+    # 나중에 키를 지우는 방식으로 바뀌어도 여기서 한 번 더 막힌다).
+    bad = set(contaminated)
+    gaps = [n for n in gaps if n not in bad]
+    stale = [n for n in stale if n not in bad]
     return {"band": band, "range": (lo, hi), "n": len(ks), "new": new,
-            "gaps": gaps, "stale": stale, "deleted": dead, "dateless": dateless}
+            "gaps": gaps, "stale": stale, "deleted": dead, "dateless": dateless,
+            "contaminated": contaminated}
 
 
 def main():
@@ -144,6 +162,8 @@ def main():
               f"새 글 후보 {len(p['new'])} · 구멍 {len(p['gaps'])}(floor {floor}) · "
               f"재수집 전 {len(p['stale'])}"
               + (f" · 날짜없음 {len(p['dateless'])}" if p.get("dateless") else "")
+              + (f" · 오염(수집경로 재설계 필요) {len(p['contaminated'])}"
+                 if p.get("contaminated") else "")
               + (f" · 삭제됨 {p['deleted']}" if p.get("deleted") else ""))
         # ★ 순서: **새 글 → 구멍(최근부터) → 재수집**.
         #   대표 보고가 쓰는 것은 최신분이다. 과거글을 먼저 훑으면 오늘 숫자가 계속 틀린다.

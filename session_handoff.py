@@ -347,9 +347,16 @@ def band_dateless():
     조용히 대조 밖에 있었다. 구멍도 아니고(번호가 있다) 오래된 것도 아니라
     (오늘 받았다) **어느 목록에도 안 뜨는** 종류다.
 
-    원인은 수집 순간이다: 밴드가 본문을 먼저 칠하고 작성시각을 조금 뒤에
-    채우는데 그 사이에 가져가면 날짜가 빈다. 지운 글(묘비)과는 다르다 —
-    묘비는 본문 자체가 없고, 이쪽은 본문이 멀쩡하다. 그래서 다시 열기만 하면 된다.
+    ★ 처음 적었던 원인은 **틀렸다** (2026-08-07 2차, 실측으로 뒤집혔다).
+      예전 설명: "밴드가 본문을 먼저 칠하고 작성시각을 뒤에 채우는데 그 사이에
+      가져가면 날짜가 빈다 — 다시 열기만 하면 된다."
+      그 설명이 맞다면 본문은 글마다 **제각각**이어야 한다. 실제로 세어 보니
+      98건이 본문 **2종**, 523건이 **7종**이었다. 즉 본문까지 남의 것이었다.
+      진짜 원인은 밴드가 `/post/<번호>` 를 iframe 으로 열면 **피드로 되돌리는** 것이고,
+      그래서 껍데기에 남은 피드 맨 위 글이 통째로 잡혔다. 재수집으로는 못 고친다 —
+      같은 경로로 다시 열면 같은 가짜가 또 들어온다(실측: 60건 재수집 → ok 0).
+      그 621건은 `band/clean_contaminated.py` 가 `contaminated` 로 표시했고,
+      여기서는 **따로 센다.** 수집 경로를 새로 만들기 전까지는 재수집 목록에 넣지 않는다.
     """
     out = {}
     for p in glob.glob(os.path.join(BASE, "band", "cache", "*.json")):
@@ -361,7 +368,30 @@ def band_dateless():
         except Exception:
             continue
         n = sum(1 for v in (doc.get("posts") or {}).values()
-                if isinstance(v, dict) and not v.get("deleted") and not v.get("created_at"))
+                if isinstance(v, dict) and not v.get("deleted")
+                and not v.get("contaminated") and not v.get("created_at"))
+        if n:
+            out[doc.get("band_name") or name] = n
+    return out
+
+
+def band_contaminated():
+    """가짜로 판정돼 표시된 글이 몇 건인가 (2026-08-07).
+
+    모은 것도 아니고 다시 훑지도 않는 상태다 — **보이게** 두어야 잊히지 않는다.
+    푸는 방법은 재수집이 아니라 **수집 경로 재설계**다(iframe 상세페이지가 막혔다).
+    """
+    out = {}
+    for p in glob.glob(os.path.join(BASE, "band", "cache", "*.json")):
+        name = os.path.basename(p)[:-5]
+        if not name.isdigit():
+            continue
+        try:
+            doc = json.load(open(p, encoding="utf-8")) or {}
+        except Exception:
+            continue
+        n = sum(1 for v in (doc.get("posts") or {}).values()
+                if isinstance(v, dict) and v.get("contaminated"))
         if n:
             out[doc.get("band_name") or name] = n
     return out
