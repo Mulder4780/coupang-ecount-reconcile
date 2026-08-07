@@ -3273,6 +3273,107 @@ def _source_index():
     return doc
 
 
+# ── 한 건의 원본을 한자리에 (2026-08-07 지시) ────────────────────────────────
+#   사용자 지시: "버튼을 누르면 해당 원본이 바로 열리게 … 일일이 원본 데이터를
+#   찾아다닐 필요 없이 하는 게 목적임".
+#   색인(원본색인.json)은 파일마다 uj·po·slip·post 를 이미 들고 있다. 그래서
+#   따로 모을 것이 없다 — **한 건의 번호들로 색인을 훑어 갈래별로 묶어** 준다.
+_BAND_URL = {"at": 0.0, "map": {}}
+
+
+def _band_urls():
+    """프로젝트NO → 밴드 글 주소. 근거(원본 덤프)가 있을 때만 만든다.
+
+    ★ 주소를 지어내지 않는다 — 틀린 링크는 빈칸보다 나쁘다(fill_links_status 와 같은 규칙).
+      덤프에는 글 번호가 키로, 밴드 번호가 `band` 로 들어 있다. 그 둘이 다 있을
+      때만 주소가 된다. 한 글이 여러 건을 묶은 목록형이면 **그 건만 다루는 글**을
+      우선한다(그래야 눌렀을 때 찾던 글이 바로 보인다).
+    """
+    now = time.time()
+    if now - _BAND_URL["at"] < 600 and _BAND_URL["map"]:
+        return _BAND_URL["map"]
+    import glob as _glob
+    prj = re.compile(r"UJ\d{7}")
+    cand = {}
+    for f in sorted(_glob.glob(os.path.join(ROOT, "band", "cache", "raw*.json"))):
+        try:
+            with open(f, encoding="utf-8") as fh:
+                d = json.load(fh)
+        except Exception:
+            continue
+        band, posts = str(d.get("band") or "").strip(), d.get("posts")
+        if not band or not isinstance(posts, dict):
+            continue
+        for no, p in posts.items():
+            if not str(no).isdigit():
+                continue
+            c = str((p.get("content") if isinstance(p, dict) else p) or "")
+            ks = set(prj.findall(c))
+            for k in ks:
+                score = (1 if len(ks) == 1 else 0, 1 if "완료" in c[:80] else 0, int(no))
+                if k not in cand or score > cand[k][0]:
+                    cand[k] = (score, band, str(no))
+    _BAND_URL["map"] = {k: "https://www.band.us/band/%s/post/%s" % (b, n)
+                        for k, (_sc, b, n) in cand.items()}
+    _BAND_URL["at"] = now
+    return _BAND_URL["map"]
+
+
+# 갈래 이름은 **사람이 부르는 이름**이다(사용자가 말한 그대로: 거래명세표·세금계산서·
+# 매출전표·PO). 색인의 kind 는 도구가 붙인 이름이라 여기서 한 번 옮겨 준다.
+_ORIG_GROUPS = (
+    ("밴드 글", lambda k: k.startswith("밴드") and "첨부" not in k),
+    ("밴드 첨부", lambda k: k.startswith("밴드") and "첨부" in k),
+    ("거래명세서", lambda k: "거래명세" in k),
+    ("세금계산서", lambda k: "계산서" in k),
+    ("쿠팡 PO", lambda k: "PO" in k),
+    ("매출전표·ERP", lambda k: k.startswith("ERP")),
+    ("사진", lambda k: k in ("사진", "이미지")),
+)
+
+
+def _originals_for(uj="", po="", slip="", limit=8):
+    """한 건에 딸린 원본을 갈래별로 묶어 돌려준다."""
+    doc = _source_index() or {}
+    rows = doc.get("rows") or []
+    uj, po, slip = (str(x or "").strip() for x in (uj, po, slip))
+    # PO 칸에 'PO329774/PR463518' 처럼 둘이 붙어 오는 일이 있다 — 토막마다 맞춰 본다
+    pos = [x for x in re.split(r"[\s,/·]+", po) if len(x) >= 5]
+    hits = []
+    for r in rows:
+        ok = (uj and r.get("uj") == uj) or (slip and r.get("slip") == slip) \
+            or (pos and r.get("po") in pos)
+        if ok:
+            hits.append(r)
+    try:
+        from source_index import is_private
+        hits = [r for r in hits if not is_private(r.get("path") or "", r.get("name") or "")]
+    except Exception:
+        hits = [r for r in hits if not str(r.get("name") or "").startswith("통화_")]
+    out = []
+    used = set()
+    for label, want in _ORIG_GROUPS:
+        got = []
+        for r in hits:
+            p = r.get("path") or ""
+            if p in used or not want(str(r.get("kind") or "")):
+                continue
+            used.add(p)
+            got.append({"name": r.get("name"), "path": p, "ext": r.get("ext"),
+                        "date": r.get("date"), "slip": r.get("slip")})
+        if got:
+            got.sort(key=lambda x: (x.get("date") or "", x.get("name") or ""), reverse=True)
+            out.append({"label": label, "n": len(got), "files": got[:limit]})
+    etc = [r for r in hits if (r.get("path") or "") not in used]
+    if etc:
+        out.append({"label": "그 밖의 원본", "n": len(etc),
+                    "files": [{"name": r.get("name"), "path": r.get("path"),
+                               "ext": r.get("ext"), "date": r.get("date")}
+                              for r in etc[:limit]]})
+    return {"groups": out, "band_url": _band_urls().get(uj, ""),
+            "built": doc.get("built"), "총": len(hits)}
+
+
 _CUST_IDX = {"at": 0, "data": {}}
 
 
@@ -4755,6 +4856,16 @@ self.addEventListener('fetch', e => {
             except Exception:
                 pass
             return
+        if p == "/api/originals":
+            # 한 건(정산/작업)에 딸린 원본을 갈래별로. 상세 화면의 '원본 바로 열기'가 쓴다.
+            # ★ 인증은 /api/source-file 과 **같은 문턱**이어야 한다 — 여기서 경로를
+            #   알려 주고 저기서 막으면, 어떤 파일이 있는지가 미인증에게 새어 나간다.
+            if not self._require_admin():
+                return
+            from urllib.parse import parse_qs, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+            g = lambda k: (qs.get(k, [""])[0] or "").strip()
+            return self._send(200, _originals_for(g("uj"), g("po"), g("slip")))
         if p == "/api/sources":
             from urllib.parse import parse_qs, urlparse
             qs = parse_qs(urlparse(self.path).query)

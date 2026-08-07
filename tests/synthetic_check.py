@@ -8194,6 +8194,49 @@ def t141_long_text_folds():
     print("  [141] 긴 글 접기 — 재서 정함·기능 숨김 금지·인쇄는 전부 펼침 ✅")
 
 
+def t143_originals_one_tap():
+    """상세에서 원본을 한 번에 연다 (2026-08-07 지시).
+
+    사용자 지시: "밴드 바로가기주소 / 거래명세표 세금계산서 매출전표 PO 등 버튼을
+    만들어서 버튼을 누르면 해당 원본이 바로 열리게 … 일일이 원본 데이터를 찾아다닐
+    필요 없이 하는 게 목적임".
+
+    지키는 것은 넷이다:
+      ① **문턱이 같다** — 목록(/api/originals)과 파일(/api/source-file)이 같은 인증을
+         쓴다. 목록만 열려 있으면 '어떤 파일이 있는지'가 미인증에게 샌다.
+      ② **민감 자료는 안 나온다** — 통화 메모는 색인에서 빠지지만, 옛 색인이 남아
+         있는 동안에도 응답에서 한 번 더 막는다.
+      ③ **주소를 지어내지 않는다** — 밴드 주소는 원본 덤프에 글 번호가 있을 때만.
+         틀린 링크는 빈칸보다 나쁘다.
+      ④ **없는 것은 단추를 만들지 않는다** — 눌러도 아무 일 없는 단추는 고장으로 읽힌다.
+    """
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # ① 두 길이 같은 문턱을 쓰는가
+    blk = server.split('if p == "/api/originals":')[1][:600]
+    assert "_require_admin()" in blk, "원본 목록이 인증 없이 열려 있다 — 파일 존재가 샌다"
+    # ② 민감 자료 차단이 이 길에도 걸려 있는가
+    fn = server.split("def _originals_for(")[1].split("\ndef ")[0]
+    assert "is_private" in fn and "통화_" in fn, "통화 메모가 상세 화면으로 샐 수 있다"
+    # ③ 밴드 주소는 근거가 있을 때만 — 밴드 번호와 글 번호가 둘 다 있어야 한다
+    bu = server.split("def _band_urls(")[1].split("\ndef ")[0]
+    assert 'if not band or not isinstance(posts, dict):' in bu, \
+        "근거 없이 밴드 주소를 만든다 — 틀린 링크는 빈칸보다 나쁘다"
+    assert "band.us/band/" in bu and "/post/" in bu, "밴드 주소 형식이 바뀌었다"
+    # ④ 화면: 빈 갈래는 단추를 만들지 않고, 여러 건이면 사람이 고른다
+    ui = live.split("function fillOrigBox(")[1].split("\nfunction sourceFileURL(")[0]
+    assert "if(!gs.length" in ui, "원본이 없어도 단추를 만든다 — 눌러도 아무 일이 없다"
+    assert "origPick(" in ui and "g.n === 1" in ui, \
+        "여러 건일 때 임의로 하나를 연다 — '왜 이게 열리지'가 된다"
+    assert "openSource(" in ui, "파일을 여는 길이 접속한 기기 쪽이 아니다"
+    # 시트를 여는 순간이 아니라 그려진 뒤에 채운다(목록에서 톡톡 여닫는 화면이다)
+    assert "setTimeout(()=>fillOrigBox(" in live, "상세를 열 때마다 서버를 기다린다"
+    # 정산 상세와 일반 상세 둘 다에 자리가 있는가
+    assert live.count("origBox(displayProject") >= 2, "일부 상세에만 붙어 있다"
+    print("  [143] 원본 바로 열기 — 같은 문턱·민감자료 차단·근거 있는 밴드 주소 ✅")
+
+
 def t142_flow_editable():
     """AS 접수→수금 워크플로우 — 고칠 수 있고 되돌릴 수 있나 (2026-08-07 지시).
 
@@ -8525,6 +8568,7 @@ if __name__ == "__main__":
     t140_freshness_tells_the_truth()
     t141_long_text_folds()
     t142_flow_editable()
+    t143_originals_one_tap()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

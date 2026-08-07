@@ -2251,6 +2251,23 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
   background:var(--surface);color:var(--ink);font:inherit;font-size:13.5px}
 .flow-edit .wide{grid-column:1/-1}
 .flow-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+/* ── 원본 바로 열기 (2026-08-07 지시) ── 상세 맨 위, 눌러서 바로 여는 자리 */
+.orig{margin:10px 0 4px}
+.orig-t{font:800 12px inherit;color:var(--ink-3);letter-spacing:.04em;margin-bottom:6px}
+.orig-row{display:flex;gap:7px;flex-wrap:wrap}
+.orig-b{display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;
+  padding:7px 12px;border:1px solid var(--line);border-radius:12px;cursor:pointer;
+  background:var(--surface);color:var(--brand-dk);font:800 13px inherit;text-align:left}
+.orig-b span{font:500 11px inherit;color:var(--ink-3)}
+.orig-b:hover{background:var(--brand-tint)}
+.orig-b.band{background:var(--brand-btn);border-color:transparent;color:#fff}
+.orig-b.band span{color:rgba(255,255,255,.9)}
+.orig-list{margin-top:7px;display:grid;gap:5px}
+.orig-f{display:grid;gap:1px;padding:8px 11px;border:1px solid var(--line);border-radius:11px;
+  background:var(--panel);cursor:pointer;text-align:left;font:inherit}
+.orig-f b{font-size:12.5px;font-weight:700;color:var(--ink);word-break:break-all}
+.orig-f span{font-size:11px;color:var(--ink-3)}
+.orig-wait{font-size:12px;color:var(--ink-3)}
 /* ── 머리 카드 (2026-08-07 지시: "맨 위에 돌발 AS 플로우 차트라고 카드 형태로 멋지게")
    ★ 색을 CSS 변수로 두지 않고 값으로 박은 이유: 어두운 테마에서 --brand 는 **밝은**
      하늘색이라 흰 글자를 얹으면 안 보인다. 이 카드는 제 색을 가지고 두 테마에서
@@ -7562,6 +7579,7 @@ function openSheet(kind, idx, id){
   if(kind==='settle'){
     html = `<h2>${esc2(displayProject)} ${chip(r.상태)}</h2>
     <div class="sub">${esc2(r.캠프명||'캠프 미상')} · ${esc2(r.업무구분||'')} · 내부기록 ${esc2(internalId||'-')}</div>
+    ${origBox(displayProject, r.PO번호, r.명세서번호)}
     <div class="dl">
       <div class="sec">작업</div>
       <dt>프로젝트NO</dt><dd>${esc2(displayProject)}</dd>
@@ -7601,7 +7619,8 @@ function openSheet(kind, idx, id){
                 :'<div style="font-size:14px;color:var(--ink-3)">문제 없음</div>'}
       </div>` : '';
     html = `<h2>${esc2(displayProject)} ${chip(statOf(r))}</h2>
-      <div class="sub">${esc2(r.캠프명||'캠프 미상')} · 내부기록 ${esc2(internalId||'-')}</div>` + vbox +
+      <div class="sub">${esc2(r.캠프명||'캠프 미상')} · 내부기록 ${esc2(internalId||'-')}</div>`
+      + origBox(displayProject, r.PO번호, r.명세서번호) + vbox +
       '<div class="dl">' +
       Object.entries(r).map(([k,v])=>`<dt>${k}</dt><dd>${v||'-'}</dd>`).join('') + '</div>' +
       inputForm(kind, r, id);
@@ -9237,6 +9256,62 @@ async function renderSources(){
      PC 로 접속하면 눌러도 아무 일이 없었고(원격은 403 이라 경로만 복사됐다), 사무실
      PC 에서는 아무도 안 보는 화면에 창만 떴다. 이제 파일을 그대로 받아 **기기가**
      제 뷰어로 연다 — 폰이면 폰의 PDF 뷰어·엑셀 앱으로 뜬다. */
+/* ── 원본 바로 열기 (2026-08-07 지시) ────────────────────────────────────────
+   사용자 지시: "밴드 바로가기주소 / 거래명세표 세금계산서 매출전표 PO 등 버튼을
+   만들어서 버튼을 누르면 해당 원본이 바로 열리게 … 일일이 원본 데이터를 찾아다닐
+   필요 없이 하는 게 목적임".
+   ★ 새로 모으는 것은 없다. 색인(원본색인.json)이 파일마다 uj·po·slip·post 를 이미
+     들고 있어, **그 건의 번호로 훑어 갈래별로 묶기만** 하면 된다.
+   ★ 시트를 여는 순간 서버를 부르지 않는다 — 상세는 목록에서 톡톡 눌러 여닫는 화면이라
+     그때마다 부르면 느려진다. 자리만 잡아 두고 **그려진 뒤에** 채운다.
+   ★ 없는 것은 단추를 만들지 않는다. 눌러도 아무 일 없는 단추는 고장으로 읽힌다. */
+let _ORIG_SEQ = 0;
+function origBox(uj, po, slip){
+  const id = 'orig' + (++_ORIG_SEQ);
+  setTimeout(()=>fillOrigBox(id, uj, po, slip), 0);
+  return `<div class="orig" id="${id}"><span class="orig-wait">원본 찾는 중…</span></div>`;
+}
+async function fillOrigBox(id, uj, po, slip){
+  const el = $(id); if(!el) return;
+  let d = null;
+  try{ d = await api('/api/originals?uj='+encodeURIComponent(uj||'')
+        + '&po='+encodeURIComponent(po||'') + '&slip='+encodeURIComponent(slip||'')); }
+  catch(e){ el.innerHTML = '<span class="orig-wait">원본 색인을 읽지 못했습니다</span>'; return; }
+  if(!$(id)) return;                                   // 그새 시트가 닫혔다
+  const gs = (d && d.groups) || [];
+  if(!gs.length && !(d && d.band_url)){
+    el.innerHTML = '<span class="orig-wait">연결된 원본이 색인에 없습니다</span>'; return;
+  }
+  const btn = (label, sub, onclick, cls) =>
+    `<button class="orig-b ${cls||''}" onclick="${onclick}">${esc2(label)}`
+    + (sub?`<span>${esc2(sub)}</span>`:'') + `</button>`;
+  let h = '<div class="orig-t">원본 바로 열기</div><div class="orig-row">';
+  if(d.band_url) h += btn('밴드 바로가기', '밴드에서 열기',
+      `window.open('${d.band_url}','_blank','noopener')`, 'band');
+  gs.forEach((g,i)=>{
+    h += g.n === 1
+      ? btn(g.label, g.files[0].ext ? g.files[0].ext.toUpperCase() : '',
+            `openSource(${JSON.stringify(g.files[0].path).replace(/"/g,'&quot;')})`)
+      : btn(g.label, g.n + '건', `origPick('${id}',${i})`);
+  });
+  h += '</div><div class="orig-list" hidden></div>';
+  el.innerHTML = h;
+  el._orig = d;
+}
+/* 여러 건이면 무엇을 열지 사람이 고른다 — 임의로 하나를 열면 "왜 이게 열리지"가 된다. */
+function origPick(id, gi){
+  const el = $(id); if(!el || !el._orig) return;
+  const g = el._orig.groups[gi], box = el.querySelector('.orig-list');
+  const open = box.dataset.gi === String(gi) && !box.hidden;
+  box.dataset.gi = String(gi);
+  box.hidden = open;
+  if(open) return;
+  box.innerHTML = g.files.map(f=>
+    `<button class="orig-f" onclick="openSource(${JSON.stringify(f.path).replace(/"/g,'&quot;')})">`
+    + `<b>${esc2(f.name)}</b><span>${esc2([f.date,f.slip].filter(Boolean).join(' · '))}</span></button>`
+  ).join('') + (g.n > g.files.length
+    ? `<div class="orig-wait">이 갈래에 ${g.n}건이 있어 최근 ${g.files.length}건만 보입니다</div>` : '');
+}
 function sourceFileURL(path, dl){
   return '/api/source-file?path='+encodeURIComponent(path)+(dl?'&dl=1':'');
 }
