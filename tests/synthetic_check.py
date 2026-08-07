@@ -5878,7 +5878,26 @@ def t119_context_guard():
     if win is not None:
         assert 100_000 <= int(win) <= 1_000_000, "압축 시점(autoCompactWindow)이 범위 밖이다: %s" % win
     assert "DEFAULT_LIMIT" in src, "auto 일 때 기댈 보수 한도가 context_guard 에 없다"
-    print("  [119] 컨텍스트 감시 — 사용량 실측·단계 전환·인계 자동·훅 배선 ✅")
+    # ★ 같은 단계에서 **두 번 말하지 않는다** (2026-08-07 지시: "작업에 방해되는 규칙").
+    #   PostToolUse 훅이 session_id 를 비워 보내는 일이 있는데, 그때 sid=="" 라
+    #   저장된 상태와 절대 안 맞아 매번 '단계가 방금 올랐다'로 오인했다 —
+    #   같은 경고가 도구마다 반복되고 인계 자동 정리가 90초마다 다시 돌았다.
+    #   식별자가 없으면 **대화 기록 파일 이름**으로 같은 세션임을 알아본다.
+    src = open(os.path.join(ROOT, "context_guard.py"), encoding="utf-8").read()
+    assert 'if not same and not sid and path:' in src, \
+        "세션 식별자가 없을 때 같은 세션임을 알아보지 못한다 — 경고가 무한 반복된다"
+    assert 'st.get("transcript") == os.path.basename(path)' in src
+    # 그리고 '단계가 오를 때만 말한다'가 실제로 그 판정을 쓰는지 — advice 가 있어도
+    # fresh 가 아니면 한 마디도 내지 않아야 한다.
+    import context_guard as _cg
+    assert _cg._message({"advice": "무언가", "fresh": False, "percent": 90, "used": 1,
+                         "limit": 2, "stage": "마무리", "wrapup_ran_now": False,
+                         "auto_compact": True}) == "", \
+        "단계가 그대로인데도 경고를 낸다 — 도구를 쓸 때마다 같은 말이 반복된다"
+    assert _cg._message({"advice": "무언가", "fresh": True, "percent": 90, "used": 1,
+                         "limit": 2, "stage": "마무리", "wrapup_ran_now": False,
+                         "auto_compact": True}) != "", "단계가 올랐는데 알리지 않는다"
+    print("  [119] 컨텍스트 감시 — 사용량 실측·단계 전환·인계 자동·반복 경고 차단 ✅")
 
 
 def t120_calendar_sheet_and_share():

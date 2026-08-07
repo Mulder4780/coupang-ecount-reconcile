@@ -192,7 +192,14 @@ def measure(session_id="", transcript="", limit=0, who="claude", act=True):
 
     sid = session_id or os.environ.get("CLAUDE_CODE_SESSION_ID") or ""
     st = _load_state()
-    same = st.get("session") == sid and sid
+    same = bool(sid) and st.get("session") == sid
+    # ★ 훅이 `session_id` 를 늘 주지는 않는다(PostToolUse 에서 비어 오는 것을 2026-08-07
+    #   실측). 그러면 sid 가 "" 이라 저장된 상태와 **절대 안 맞고**, 매번 "단계가 방금
+    #   올랐다"로 오인해 ① 같은 경고를 도구 쓸 때마다 반복하고 ② 인계 자동 정리를
+    #   90초마다 다시 돌렸다. 사람이 일하는 데 그대로 방해가 됐다.
+    #   그때는 **대화 기록 파일 이름**이 곧 세션 식별자다 — 세션마다 하나뿐이다.
+    if not same and not sid and path:
+        same = st.get("transcript") == os.path.basename(path)
     prev = float(st.get("stage_cut") or 0) if same else 0.0
     wrapped = bool(st.get("wrapped")) if same else False
 
