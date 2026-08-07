@@ -8490,6 +8490,22 @@ def t147_datalake_schema_and_incremental():
                 "사라진 자산을 지웠다 — '있었다'는 사실을 잃는다"
             assert con.execute(
                 "SELECT gone_at FROM asset").fetchone()[0], "묘비가 안 찍혔다"
+
+            # ⑤ ★ **처음 보는 파일에는 지문을 재지 않는다** (2026-08-08 실측).
+            #    sha1 은 파일을 통째로 읽는 일이고 Z: 는 SMB 다 — 첫 주사에서 5만 개를
+            #    다 읽으면 8분에 300건도 못 간다. 그리고 처음 보는 파일에는 견줄 옛
+            #    지문이 없어서 지금 재 봐야 아무 판정에도 안 쓰인다. 나중에 채운다.
+            g = os.path.join(t, "b.txt")
+            open(g, "w", encoding="utf-8").write("지문 없이 먼저")
+            D.ingest_asset(con, g, "ERP", want_sha1=False)
+            r = con.execute("SELECT sha1 FROM asset WHERE path=?", (g,)).fetchone()
+            assert r["sha1"] is None, "첫 주사가 지문을 쟀다 — SMB 에서 몇 시간이 된다"
+            assert D.fill_sha1(con, quiet=True) >= 1
+            r = con.execute("SELECT sha1 FROM asset WHERE path=?", (g,)).fetchone()
+            assert r["sha1"] and len(r["sha1"]) == 40, "나중에도 지문을 못 채운다"
+            # 이력 행에도 같이 채워져야 한다 — 안 그러면 '바뀜' 판정이 첫 회에 헛돈다
+            assert con.execute("SELECT sha1 FROM asset_rev WHERE asset_id="
+                               "(SELECT id FROM asset WHERE path=?)", (g,)).fetchone()["sha1"]
         finally:
             con.close()
 
@@ -8606,6 +8622,81 @@ def t141_long_text_folds():
     # ⑤ 화면을 그린 뒤 실제로 불린다 — 안 부르면 코드만 있고 아무 일도 안 일어난다
     assert "lcScanSoon($('v-'+v))" in live, "화면 전환 뒤 긴 글을 재지 않는다"
     print("  [141] 긴 글 접기 — 재서 정함·기능 숨김 금지·인쇄는 전부 펼침 ✅")
+
+
+def t149_tech_center():
+    """AS 담당기사 전용 화면 — 비밀번호 없이, 그러나 누구나는 아니다 (2026-08-08 지시).
+
+    사용자 지시: "업무센터에 각 AS 담당자 4명도 넣어서 별도의 비밀번호 없는 화면으로
+    딱 AS 담당자가 할 수 있는 업무만 넣어서 만들어줘 (링크 타고 열면 크롬으로 강제로
+    열어서 앱을 모바일에 설치할 수 있는 구조로 알고리즘 구성해)".
+
+    지키는 것은 다섯이다:
+      ① **tech 는 세 번째 역할이다** — staff 로 만들면 그 순간 기사 링크 하나로
+         원장 전체가 열린다(staff 는 `_auth()` 를 통과한다).
+      ② **`_auth()` 를 통과하지 못한다** — 기사 화면이 쓰는 길은 /api/tech/* 뿐이다.
+      ③ **제 것만 본다·제 것에만 쓴다** — 목록에 없는 ID 에는 완료를 못 찍는다.
+      ④ **금액은 싣지 않는다** — 링크는 카톡으로 돌아다닌다. 새어도 될 것만 싣는다.
+      ⑤ **되지 않는 것을 된다고 하지 않는다** — iOS 는 크롬 강제가 불가능하다.
+    """
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    tech = open(os.path.join(ROOT, "webapp", "tech.html"), encoding="utf-8").read()
+
+    # ① 네 사람 · 세 번째 역할
+    import ledger_db as _L
+    src = server.split("AS_TECH_CENTERS = {")[1].split("}\n")[0]
+    for nm in _L.AS_TECHS:
+        assert nm in src, f"{nm} 기사가 전용 화면 명단에 없다"
+    cs = server.split("def create_auth_session(")[1].split("\ndef ")[0]
+    assert 'role, staff_slug = "tech", tech_slug' in cs, \
+        "기사를 staff 로 만든다 — 링크 하나로 원장 전체가 열린다"
+    ck = server.split("def auth_session_from_cookie(")[1].split("\ndef ")[0]
+    assert 'role == "tech" and staff_slug not in AS_TECH_CENTERS' in ck, \
+        "쿠키에 아무 slug 나 넣어도 기사로 통과한다"
+
+    # ② 관문 — tech 는 일반 API 를 못 쓴다
+    au = server.split("    def _auth(self):")[1].split("\n    def ")[0]
+    assert 'return str(session.get("role") or "") != "tech"' in au, \
+        "기사 세션이 원장 API 관문을 통과한다"
+    # 링크 목록은 관리자만(열쇠가 그대로 들어 있다)
+    lk = server.split('if p == "/api/tech/links":')[1][:300]
+    assert "_require_admin()" in lk, "기사가 다른 기사의 링크(=비밀번호)를 볼 수 있다"
+
+    # ③ 남의 건에 완료를 못 찍는다 · 열쇠는 상수시간 비교
+    tr = server.split("def tech_report(")[1].split("\ndef ")[0]
+    assert "내 일감 목록에 없는 건입니다" in tr, "남의 건에 완료를 찍을 수 있다"
+    assert "ledger_db.enqueue(" in tr and "--apply" not in tr, \
+        "기사 보고가 엑셀을 바로 연다 — 반영은 11:00·15:00 회차다"
+    # 조치 메모를 고객 요청 칸에 쓰지 않는다(그 칸의 뜻이 망가진다)
+    assert '"신청내용"' not in tr, "조치 내용을 신청내용 칸에 덮어쓴다"
+    assert "hmac.compare_digest" in server.split("def tech_check_key(")[1].split("\ndef ")[0], \
+        "링크 열쇠를 == 로 비교한다"
+    # 열쇠는 git 밖 파일에 — 코드에 적지 않는다
+    assert "tech_keys.local.json" in server and "secrets.token_urlsafe" in server, \
+        "링크 열쇠가 코드나 추적 파일에 있다"
+
+    # ④ 금액을 싣지 않는다 — 서버 payload 와 화면 둘 다
+    tb = server.split("def tech_board(")[1].split("\ndef ")[0]
+    # 설명글(docstring)과 '금액이 안 나온다'는 안내 문구는 검사에서 뺀다 —
+    # 그 말 자체는 금액이 아니다. 검사할 것은 **실제로 실어 보내는 값**이다.
+    tb = tb.split('"""', 2)[-1]
+    tb = "\n".join(l for l in tb.splitlines() if "나오지 않습니다" not in l)
+    for bad in ("공급가", "합계", "부가세", "단가", "금액"):
+        assert bad not in tb, f"기사 화면에 {bad} 가 실린다 — 링크는 카톡으로 돈다"
+    # 기사 화면이 부르는 길은 /api/tech/* 뿐이어야 한다(관리자 앱을 재활용하지 않는다)
+    calls = re.findall(r"api\('(/[^']+)'", tech)
+    assert calls and all(c.startswith("/api/tech/") for c in calls), \
+        f"기사 화면이 기사 전용이 아닌 길을 부른다: {[c for c in calls if not c.startswith('/api/tech/')]}"
+
+    # ⑤ iOS 는 강제하지 않고 안내만 한다
+    assert "package=com.android.chrome" in tech, "안드로이드에서 크롬으로 넘기지 않는다"
+    assert "IS_IOS" in tech and "Safari" in tech, \
+        "iOS 에서도 강제되는 것처럼 굴면 눌러도 아무 일이 없다"
+    assert "beforeinstallprompt" in tech and "if(!INSTALL)" in tech, \
+        "설치 단추를 미리 그린다 — 눌러도 아무 일이 없는 단추가 된다"
+    # 열쇠는 주소창에서 지운다(화면 갈무리로 새는 것이 가장 흔한 사고다)
+    assert '"Location": f"/t/{tslug}"' in server, "주소창에 열쇠가 남는다"
+    print("  [149] 기사 전용 화면 — 세 번째 역할·원장 차단·제 것만·금액 없음·iOS 정직 ✅")
 
 
 def t148_input_suggest():
@@ -9159,6 +9250,7 @@ if __name__ == "__main__":
     t143_originals_one_tap()
     t147_project_history()
     t148_input_suggest()
+    t149_tech_center()
     t144_topmost_pin_always_restores()
     t145_redirect_deleted_needs_two_rounds()
     t146_erp_bulk_grab_registry()

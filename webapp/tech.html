@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0B2A5B">
+<meta name="robots" content="noindex,nofollow">
+<title>AS 기사 업무</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png?v=csos-20260730">
+<!--
+  AS 담당기사 전용 화면 (2026-08-08 지시)
+  "업무센터에 각 AS 담당자 4명도 넣어서 별도의 비밀번호 없는 화면으로 딱 AS
+   담당자가 할 수 있는 업무만 넣어서 만들어줘 (링크 타고 열면 크롬으로 강제로
+   열어서 앱을 모바일에 설치할 수 있는 구조로 알고리즘 구성해)"
+
+  ★ 관리자 앱(index.html)을 재활용하지 않고 **따로 만든다.** 한 파일을 나눠 쓰면
+    새 카드를 넣을 때마다 "이건 기사에게 보여도 되나"를 매번 따져야 하고, 한 번
+    실수하면 금액이 카톡으로 도는 링크에 실린다. 이 파일에는 금액을 그리는 코드가
+    아예 없다.
+  ★ 이 화면이 쓰는 길은 /api/tech/* 뿐이다. 기사 세션은 `_auth()` 를 통과하지 못해
+    다른 API 를 불러도 401 이다.
+-->
+<style>
+:root{
+  --font-ui:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',
+    'Segoe UI Variable','Segoe UI','Noto Sans KR',Roboto,'Malgun Gothic',sans-serif;
+  --navy:#0B2A5B; --brand:#0062CC; --ink:#101828; --ink2:#475467; --ink3:#98A2B3;
+  --line:#E4E7EC; --surface:#FFFFFF; --panel:#F2F4F7; --bg:#F8FAFC;
+  --danger:#D92D20; --warn:#B54708; --ok:#067647;
+}
+@media(prefers-color-scheme:dark){
+  :root{--ink:#F3F5F9;--ink2:#C3CAD6;--ink3:#8A94A6;--line:#2A3242;
+        --surface:#161C27;--panel:#1E2531;--bg:#0E131C}
+}
+:root[data-theme="dark"]{--ink:#F3F5F9;--ink2:#C3CAD6;--ink3:#8A94A6;--line:#2A3242;
+  --surface:#161C27;--panel:#1E2531;--bg:#0E131C}
+:root[data-theme="light"]{--ink:#101828;--ink2:#475467;--ink3:#98A2B3;--line:#E4E7EC;
+  --surface:#FFFFFF;--panel:#F2F4F7;--bg:#F8FAFC}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--font-ui);background:var(--bg);color:var(--ink);
+  -webkit-text-size-adjust:100%;padding-bottom:env(safe-area-inset-bottom)}
+header{background:linear-gradient(135deg,#0B2A5B 0%,#0062CC 100%);color:#fff;
+  padding:calc(16px + env(safe-area-inset-top)) 18px 16px}
+header .who{font-size:22px;font-weight:850;letter-spacing:-.4px}
+header .sub{font-size:13.5px;opacity:.86;margin-top:3px}
+.wrap{max-width:720px;margin:0 auto;padding:14px 14px 30px}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:-30px 0 14px}
+.sum div{background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:10px 11px;
+  box-shadow:0 4px 14px rgba(16,24,40,.07)}
+.sum .k{font-size:12px;color:var(--ink2);font-weight:700}
+.sum .v{font-size:22px;font-weight:850;margin-top:1px;font-variant-numeric:tabular-nums}
+.sum .v.hot{color:var(--danger)}
+h2{font-size:15px;margin:18px 0 8px;font-weight:850;display:flex;align-items:center;gap:7px}
+h2 .n{color:var(--ink3);font-weight:800;font-size:13px}
+.card{background:var(--surface);border:1.5px solid var(--line);border-radius:13px;
+  padding:12px 13px;margin-bottom:8px}
+.card.hot{border-color:var(--danger)}
+.card .t1{font-size:16px;font-weight:800;letter-spacing:-.2px;line-height:1.35}
+.card .t2{font-size:13px;color:var(--ink2);margin-top:4px;line-height:1.5;word-break:break-word}
+.tag{display:inline-block;font-size:11.5px;font-weight:800;border-radius:6px;padding:2px 7px;
+  margin-right:5px;background:var(--panel);color:var(--ink2)}
+.tag.as{background:#FEF0C7;color:#B54708}
+.tag.pm{background:#D1E9FF;color:#175CD3}
+.tag.late{background:#FEE4E2;color:#B42318}
+.row{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}
+button,.btn{font:inherit;font-weight:800;font-size:14px;border-radius:10px;padding:9px 13px;
+  border:1.5px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;
+  text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+button.p{background:var(--brand);border-color:var(--brand);color:#fff}
+button:disabled{opacity:.5;cursor:default}
+.empty{color:var(--ink3);font-size:14px;padding:10px 2px}
+.note{font-size:12.5px;color:var(--ink3);margin-top:16px;line-height:1.6}
+dialog{border:0;border-radius:16px;padding:0;max-width:min(420px,92vw);width:100%;
+  background:var(--surface);color:var(--ink)}
+dialog::backdrop{background:rgba(8,14,30,.45)}
+.dlg{padding:16px}
+.dlg h3{margin:0 0 4px;font-size:17px}
+.dlg p{margin:0 0 12px;font-size:13px;color:var(--ink2)}
+.dlg label{display:block;font-size:13px;font-weight:700;margin:9px 0 4px}
+.dlg input,.dlg textarea{width:100%;font:inherit;padding:9px 10px;border-radius:9px;
+  border:1.5px solid var(--line);background:var(--panel);color:var(--ink)}
+.dlg textarea{min-height:70px;resize:vertical}
+#banner{display:none;background:#FFFAEB;color:#B54708;border-bottom:1px solid #FEDF89;
+  padding:11px 14px;font-size:13.5px;line-height:1.5}
+#banner .row{margin-top:8px}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:9;
+  background:#101828;color:#fff;font-size:14px;font-weight:700;padding:10px 16px;
+  border-radius:99px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
+#toast.on{opacity:.95}
+</style>
+</head>
+<body>
+<div id="banner"></div>
+<header>
+  <div class="who" id="who">…</div>
+  <div class="sub" id="sub">일감을 불러오는 중입니다</div>
+</header>
+<div class="wrap">
+  <div class="sum">
+    <div><div class="k">밀린 것</div><div class="v hot" id="nLate">–</div></div>
+    <div><div class="k">앞으로 예정</div><div class="v" id="nNext">–</div></div>
+    <div><div class="k">이번 달 완료</div><div class="v" id="nDone">–</div></div>
+  </div>
+  <div id="body"><div class="empty">불러오는 중…</div></div>
+  <div class="note" id="foot"></div>
+</div>
+
+<dialog id="dlg"><form method="dialog" class="dlg">
+  <h3>완료 보고</h3>
+  <p id="dlgWhat"></p>
+  <label for="dDate">완료일</label>
+  <input type="date" id="dDate">
+  <label for="dMemo">조치 내용 (선택)</label>
+  <textarea id="dMemo" placeholder="예: 도어 인터락 교체"></textarea>
+  <p style="margin:6px 0 0;font-size:12px">조치 내용은 <b>근거</b>로 남습니다 —
+    고객 요청 칸(신청내용)을 덮지 않습니다.</p>
+  <div class="row" style="margin-top:14px">
+    <button value="cancel" style="flex:1;justify-content:center">취소</button>
+    <button value="ok" class="p" id="dOk" style="flex:1;justify-content:center">보고</button>
+  </div>
+  <p style="margin:10px 0 0;font-size:12px">엑셀 반영은 11:00·15:00 회차에 함께 들어갑니다.</p>
+</form></dialog>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let toastT = null;
+function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('on');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('on'), 2600); }
+
+/* ── 인앱 브라우저 → 크롬으로 (2026-08-08 지시) ─────────────────────────────
+   카톡·밴드 안에서 열면 PWA 설치가 **안 된다**(그 브라우저에 설치 기능이 없다).
+   ★ 안드로이드는 intent: 로 크롬에 넘길 수 있다.
+   ★ iOS 는 **강제할 방법이 없다.** 되지 않는 것을 된다고 하지 않는다 — 사파리로
+     여는 방법을 글로 안내만 한다. (지어낸 버튼을 눌러 아무 일도 안 일어나면
+     사람은 앱이 고장 났다고 읽는다) */
+const UA = navigator.userAgent || '';
+const IN_APP = /KAKAOTALK|BAND|NAVER|Instagram|FBAN|FBAV|Line\//i.test(UA);
+const IS_ANDROID = /Android/i.test(UA);
+const IS_IOS = /iPhone|iPad|iPod/i.test(UA) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function chromeIntent(){
+  const u = location.host + location.pathname + location.search;
+  return 'intent://' + u + '#Intent;scheme=' + location.protocol.replace(':','') +
+         ';package=com.android.chrome;end';
+}
+function showBanner(){
+  const b = $('banner');
+  if(IN_APP && IS_ANDROID){
+    b.innerHTML = '카카오톡·밴드 안에서는 앱으로 설치할 수 없습니다.'
+      + '<div class="row"><a class="btn" href="' + esc(chromeIntent()) + '">크롬으로 열기</a>'
+      + '<button onclick="copyLink()">주소 복사</button></div>';
+    b.style.display = 'block';
+  }else if(IN_APP && IS_IOS){
+    b.innerHTML = '카카오톡 안에서는 앱으로 설치할 수 없습니다. 오른쪽 아래 '
+      + '<b>···</b> → <b>다른 브라우저로 열기(Safari)</b> 를 눌러 주세요.'
+      + '<div class="row"><button onclick="copyLink()">주소 복사</button></div>';
+    b.style.display = 'block';
+  }
+}
+function copyLink(){
+  const u = location.origin + location.pathname;
+  (navigator.clipboard ? navigator.clipboard.writeText(u) : Promise.reject())
+    .then(()=>toast('주소를 복사했습니다')).catch(()=>toast(u));
+}
+/* 설치 단추 — 브라우저가 "설치할 수 있다"고 알려 줄 때만 띄운다.
+   ★ 미리 그려 두면 눌러도 아무 일이 없다. 그때가 앱을 못 믿게 되는 순간이다. */
+let INSTALL = null;
+window.addEventListener('beforeinstallprompt', ev => {
+  ev.preventDefault(); INSTALL = ev;
+  const b = $('banner');
+  b.innerHTML = '이 화면을 폰에 앱으로 설치하면 다음부터 링크 없이 아이콘으로 바로 열립니다.'
+    + '<div class="row"><button class="p" onclick="doInstall()">앱 설치</button>'
+    + '<button onclick="this.closest(\'#banner\').style.display=\'none\'">나중에</button></div>';
+  b.style.display = 'block';
+});
+function doInstall(){
+  if(!INSTALL) return toast('이 브라우저에서는 설치할 수 없습니다');
+  INSTALL.prompt();
+  INSTALL.userChoice.finally(()=>{ INSTALL=null; $('banner').style.display='none'; });
+}
+window.addEventListener('appinstalled', ()=>{ $('banner').style.display='none'; toast('설치했습니다'); });
+
+async function api(path, opt){
+  const r = await fetch(path, Object.assign({credentials:'same-origin'}, opt||{}));
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok && !d.error) throw new Error('통신 실패');
+  return d;
+}
+function line(e){
+  const late = e.경과일 != null && e.경과일 > 0;
+  const tag = e.종류 === '돌발AS' ? 'as' : 'pm';
+  const bits = [];
+  if(e.프로젝트NO) bits.push(esc(e.프로젝트NO));
+  if(e.긴급도 && e.긴급도 !== '보통') bits.push(esc(e.긴급도));
+  if(e.진행상태) bits.push(esc(e.진행상태));
+  if(e.점검상태) bits.push(esc(e.점검상태));
+  if(e.이상발견 && e.이상발견 !== '없음') bits.push('이상: ' + esc(e.이상발견));
+  if(e.방문예정일) bits.push('방문예정 ' + esc(e.방문예정일));
+  return '<div class="card' + (late?' hot':'') + '">'
+    + '<div class="t1"><span class="tag ' + tag + '">' + esc(e.종류) + '</span>'
+    + (late ? '<span class="tag late">' + e.경과일 + '일 지남</span>' : '')
+    + esc(e.캠프명 || '현장 미상') + '</div>'
+    + '<div class="t2">' + esc(e.날짜 || '날짜 미정')
+    + (bits.length ? ' · ' + bits.join(' · ') : '') + '</div>'
+    + (e.신청내용 ? '<div class="t2">' + esc(e.신청내용) + '</div>' : '')
+    + '<div class="row">'
+    + (e.ID ? '<button class="p" onclick="report(' + JSON.stringify(e.ID).replace(/"/g,'&quot;')
+        + ',' + JSON.stringify(e.캠프명||'').replace(/"/g,'&quot;') + ')">완료 보고</button>' : '')
+    + (e.밴드 ? '<a class="btn" href="' + esc(e.밴드) + '" target="_blank" rel="noopener">밴드 글</a>' : '')
+    + '</div></div>';
+}
+function sec(title, rows, empty){
+  return '<h2>' + esc(title) + '<span class="n">' + rows.length + '건</span></h2>'
+    + (rows.length ? rows.map(line).join('') : '<div class="empty">' + esc(empty) + '</div>');
+}
+let BOARD = null;
+async function load(){
+  let d;
+  try{ d = await api('/api/tech/board'); }
+  catch(e){ d = null; }
+  if(!d || !d.ok){
+    $('sub').textContent = '열 수 없습니다';
+    $('body').innerHTML = '<div class="empty">'
+      + esc((d && d.error) || '링크가 만료되었거나 올바르지 않습니다. 담당자에게 새 링크를 요청하세요.')
+      + '</div>';
+    return;
+  }
+  BOARD = d;
+  $('who').textContent = d.이름 + (d.직함 ? ' ' + d.직함 : '');
+  $('sub').textContent = d.기준 + ' 기준 · 내 일감';
+  $('nLate').textContent = d.요약.밀린것;
+  $('nNext').textContent = d.요약.예정;
+  $('nDone').textContent = d.요약.이번달완료;
+  $('body').innerHTML =
+      sec('지금 밀린 것', d.밀린것 || [], '밀린 일감이 없습니다.')
+    + sec('앞으로 예정', d.예정 || [], '잡힌 예정이 없습니다.')
+    + sec('최근 완료', d.최근완료 || [], '완료 기록이 없습니다.');
+  $('foot').textContent = d.안내 + ' 완료 보고는 11:00·15:00 회차에 원장으로 들어갑니다.';
+}
+let CUR = '';
+function report(id, camp){
+  CUR = id;
+  $('dlgWhat').textContent = (camp || '') + ' · ' + id;
+  const t = new Date();
+  $('dDate').value = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0')
+                   + '-' + String(t.getDate()).padStart(2,'0');
+  $('dMemo').value = '';
+  $('dlg').showModal();
+}
+$('dlg').addEventListener('close', async ()=>{
+  if($('dlg').returnValue !== 'ok' || !CUR) return;
+  const when = $('dDate').value, memo = $('dMemo').value;
+  if(!when) return toast('완료일을 골라 주세요');
+  try{
+    const d = await api('/api/tech/report', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id: CUR, 완료일: when, 메모: memo})});
+    if(!d.ok) return toast(d.error || '보고하지 못했습니다');
+    toast('보고했습니다 — ' + d.안내);
+    load();
+  }catch(e){ toast('보고하지 못했습니다'); }
+});
+showBanner();
+load();
+if('serviceWorker' in navigator && location.protocol === 'https:'){
+  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>

@@ -81,6 +81,150 @@ STAFF_CENTERS = {
 STAFF_CENTER_ALIASES = {"byeon-jaeseon": "ryu-jiyeong"}
 
 
+# ── AS 담당기사 전용 화면 (2026-08-08 지시) ─────────────────────────────────
+# "업무센터에 각 AS 담당자 4명도 넣어서 **별도의 비밀번호 없는** 화면으로 딱 AS
+#  담당자가 할 수 있는 업무만 넣어서 만들어줘 (링크 타고 열면 크롬으로 강제로
+#  열어서 앱을 모바일에 설치할 수 있는 구조로 알고리즘 구성해)"
+#
+# ★ **'비밀번호 없음'은 '누구나'가 아니다.** 기사에게 PIN 을 외우게 하지 않는 대신,
+#   추측할 수 없는 열쇠가 든 링크(`/t/<slug>?k=…`)로 연다. 그 링크로 얻는 권한은
+#   `role="tech"` 이며 **관리자·업무센터 API 를 하나도 못 쓴다**(`_auth()` 가 막는다).
+#   기사 화면이 쓰는 길은 `/api/tech/*` 뿐이고, 그 길은 **그 사람 것만** 돌려준다.
+# ★ 금액·통화 메모는 이 화면에 올리지 않는다. 기사가 할 일에 필요 없고,
+#   링크는 카톡으로 돌아다닌다 — 새어도 될 것만 싣는다.
+AS_TECH_CENTERS = {
+    "cha-dongho":    {"name": "차동호", "직함": "팀장"},
+    "kim-junhyeong": {"name": "김준형", "직함": ""},
+    "kwon-ocheol":   {"name": "권오철", "직함": ""},
+    "kim-pilwoo":    {"name": "김필우", "직함": ""},
+}
+TECH_KEYS_PATH = os.path.join(ROOT, "config", "tech_keys.local.json")
+_TECH_KEY_LOCK = threading.Lock()
+
+
+def tech_keys():
+    """기사별 링크 열쇠. 없으면 만들어 저장한다(파일은 git 밖이다).
+
+    ★ 열쇠를 코드나 로그에 적지 않는다. 만들어 준 링크는 사람이 카톡으로 전한다."""
+    with _TECH_KEY_LOCK:
+        try:
+            d = json.load(open(TECH_KEYS_PATH, encoding="utf-8"))
+        except Exception:
+            d = {}
+        changed = False
+        for slug in AS_TECH_CENTERS:
+            if not str(d.get(slug) or "").strip():
+                d[slug] = secrets.token_urlsafe(24)
+                changed = True
+        if changed:
+            os.makedirs(os.path.dirname(TECH_KEYS_PATH), exist_ok=True)
+            tmp = TECH_KEYS_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(d, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, TECH_KEYS_PATH)
+        return d
+
+
+def tech_check_key(slug, key):
+    if slug not in AS_TECH_CENTERS:
+        return False
+    want = str(tech_keys().get(slug) or "")
+    return bool(want) and hmac.compare_digest(want, str(key or ""))
+
+
+def tech_board(slug, limit=60):
+    """기사 한 사람의 일감. **그 사람 것만**, 금액 없이."""
+    cfg = AS_TECH_CENTERS.get(slug)
+    if not cfg:
+        return {"ok": False, "error": "등록되지 않은 기사입니다"}
+    name = cfg["name"]
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    def mine(r):
+        # 담당기사 칸에 여러 명이 들어가는 행이 있다("김준형, 김필우") — 이름 포함으로 본다.
+        return name and name in str(r.get("담당기사") or "")
+
+    try:
+        works = get_works() or {}
+    except Exception as exc:
+        return {"ok": False, "error": "원장을 읽지 못했습니다: %s" % exc}
+
+    밀린것, 예정, 최근완료 = [], [], []
+    for r in works.get("as") or []:
+        if not mine(r):
+            continue
+        done, got = norm_date(r.get("작업완료일")), norm_date(r.get("접수일자"))
+        vis = norm_date(r.get("방문예정일"))
+        base = {"종류": "돌발AS", "ID": r.get("접수ID") or "", "캠프명": r.get("캠프명") or "",
+                "프로젝트NO": str(r.get("프로젝트NO") or "").split(" · ")[0],
+                "신청내용": r.get("신청내용") or "", "긴급도": r.get("긴급도") or "",
+                "진행상태": r.get("진행상태") or "", "밴드": r.get("밴드 바로가기") or ""}
+        if done:
+            최근완료.append(dict(base, 날짜=done))
+        else:
+            밀린것.append(dict(base, 날짜=got or vis or "", 접수일자=got,
+                               방문예정일=vis, 경과일=_daydiff(got, today)))
+        if not done and vis and vis >= today:
+            예정.append(dict(base, 날짜=vis))
+    for r in works.get("pm") or []:
+        if not mine(r):
+            continue
+        plan, real = norm_date(r.get("점검예정일")), norm_date(r.get("실제점검일"))
+        base = {"종류": "정기점검", "ID": r.get("점검ID") or "", "캠프명": r.get("캠프명") or "",
+                "프로젝트NO": str(r.get("프로젝트NO") or "").split(" · ")[0],
+                "점검상태": r.get("점검상태") or "", "이상발견": r.get("이상발견여부") or "",
+                "밴드": ""}
+        if real:
+            최근완료.append(dict(base, 날짜=real))
+        elif plan and plan <= today:
+            밀린것.append(dict(base, 날짜=plan, 경과일=_daydiff(plan, today)))
+        elif plan:
+            예정.append(dict(base, 날짜=plan))
+
+    밀린것.sort(key=lambda e: e.get("날짜") or "9999")
+    예정.sort(key=lambda e: e.get("날짜") or "9999")
+    최근완료.sort(key=lambda e: e.get("날짜") or "", reverse=True)
+    return {"ok": True, "slug": slug, "이름": name, "직함": cfg.get("직함") or "",
+            "기준": today,
+            "밀린것": 밀린것[:limit], "예정": 예정[:limit], "최근완료": 최근완료[:20],
+            "요약": {"밀린것": len(밀린것), "예정": len(예정), "이번달완료":
+                     sum(1 for e in 최근완료 if str(e.get("날짜") or "")[:7] == today[:7])},
+            "안내": "금액·정산 정보는 이 화면에 나오지 않습니다."}
+
+
+def tech_report(slug, wid, when, note):
+    """기사가 올리는 완료 보고. **엑셀에 바로 쓰지 않는다** — 큐에 넣는다
+       (11:00·15:00 회차에 반영된다는 규칙은 기사 화면에서도 같다)."""
+    cfg = AS_TECH_CENTERS.get(slug)
+    if not cfg:
+        return {"ok": False, "error": "등록되지 않은 기사입니다"}
+    wid, when = str(wid or "").strip(), norm_date(when)
+    note = str(note or "").strip()[:200]
+    if not wid or not when:
+        return {"ok": False, "error": "건과 완료일이 있어야 합니다"}
+    board = tech_board(slug, limit=999)
+    ids = {e["ID"]: e for e in (board.get("밀린것") or []) + (board.get("예정") or [])}
+    if wid not in ids:
+        # ★ 남의 건에 완료를 찍지 못하게 한다. 목록에 없는 ID 는 그 사람 것이 아니다.
+        return {"ok": False, "error": "내 일감 목록에 없는 건입니다"}
+    kind = ids[wid]["종류"]
+    sheet = "02_돌발AS접수" if kind == "돌발AS" else "04_정기점검"
+    keycol = "접수ID" if kind == "돌발AS" else "점검ID"
+    col = "작업완료일" if kind == "돌발AS" else "실제점검일"
+    import ledger_db
+    # ★ 조치 내용은 **원장 칸에 쓰지 않고 근거로 남긴다.** 02시트에는 '조치 내용' 칸이
+    #   없다. 가까워 보인다고 `신청내용`(고객이 무엇을 요청했나)에 적으면 그 칸의 뜻이
+    #   망가지고, 나중에 아무도 그게 요청인지 조치인지 구별하지 못한다.
+    ev = f"기사 앱 완료보고 · {cfg['name']}" + (f" · 조치: {note}" if note else "")
+    n = ledger_db.enqueue(
+        [{"sheet": sheet, "key_col": keycol, "key": wid, "col": col,
+          "value": when, "vtype": "date", "only_if_empty": True, "evidence": ev}],
+        source="tech-app", ingest_prefix=f"tech:{slug}:{wid}")
+    return {"ok": True, "queued": n, "건": wid, "완료일": when,
+            "메모기록": bool(note),
+            "안내": "엑셀 반영은 11:00·15:00 회차에 함께 들어갑니다."}
+
+
 def staff_centers_payload():
     return [{
         "slug": slug, **cfg,
@@ -283,9 +427,16 @@ def _role_auth_version(staff_slug=""):
     return int(versions.get("admin") or 1)
 
 
-def create_auth_session(staff_slug=""):
-    role = "staff" if staff_slug else "admin"
-    if staff_slug and staff_slug not in STAFF_CENTERS:
+def create_auth_session(staff_slug="", tech_slug=""):
+    # ★ tech 는 **세 번째 역할**이다. staff 로 만들면 그 순간 기사 링크 하나로
+    #   원장 전체가 열린다(staff 는 `_auth()` 를 통과한다). 반드시 갈라 둔다.
+    if tech_slug:
+        if tech_slug not in AS_TECH_CENTERS:
+            raise ValueError("등록되지 않은 기사입니다")
+        role, staff_slug = "tech", tech_slug
+    else:
+        role = "staff" if staff_slug else "admin"
+    if role == "staff" and staff_slug not in STAFF_CENTERS:
         raise ValueError("등록되지 않은 업무센터입니다")
     now = time.time()
     session = {
@@ -327,9 +478,11 @@ def auth_session_from_cookie(cookie_header):
         session = json.loads(_b64url_decode(payload).decode("utf-8"))
         staff_slug = str(session.get("staff_slug") or "")
         role = str(session.get("role") or "")
-        if role not in ("admin", "staff"):
+        if role not in ("admin", "staff", "tech"):
             return {}
         if role == "staff" and staff_slug not in STAFF_CENTERS:
+            return {}
+        if role == "tech" and staff_slug not in AS_TECH_CENTERS:
             return {}
         if role == "admin" and staff_slug:
             return {}
@@ -4803,7 +4956,9 @@ class H(BaseHTTPRequestHandler):
         # 자동 폴링이 잠금을 유발하던 문제(자기 잠금) 방지
         session = auth_session_from_cookie(self.headers.get("Cookie", ""))
         if session:
-            return True
+            # ★ 기사(tech)는 여기를 **통과하지 못한다.** 이 관문 뒤에는 원장 전체가
+            #   있고, 기사 링크는 카톡으로 돌아다닌다. 기사 화면은 /api/tech/* 만 쓴다.
+            return str(session.get("role") or "") != "tech"
         if _locked(self.client_address[0]):
             return False
         # 쿠키를 쓸 수 없는 기존 localhost 자동화만 관리자 PIN 헤더로 호환한다.
@@ -4856,6 +5011,48 @@ class H(BaseHTTPRequestHandler):
             )
         if staff_slug and staff_slug not in STAFF_CENTERS:
             return self._send(404, {"error": "등록되지 않은 업무센터"})
+        # ── AS 기사 전용 화면 (2026-08-08 지시) — 비밀번호 대신 링크 열쇠
+        tech_match = re.fullmatch(r"/t/([a-z0-9-]+)", p)
+        if tech_match:
+            tslug = tech_match.group(1)
+            if tslug not in AS_TECH_CENTERS:
+                return self._send(404, {"error": "등록되지 않은 기사"})
+            from urllib.parse import parse_qs, urlparse
+            key = (parse_qs(urlparse(self.path).query).get("k", [""])[0] or "").strip()
+            if key:
+                # ★ 열쇠는 **주소창에서 지운다.** 카톡·밴드에 붙여 넣은 화면 갈무리로
+                #   열쇠가 새는 것이 가장 흔한 사고다. 한 번 쓰고 쿠키로 바꾼 뒤 넘긴다.
+                if not tech_check_key(tslug, key):
+                    return self._send(403, {"error": "링크가 올바르지 않습니다. 담당자에게 새 링크를 요청하세요."})
+                token, _s = create_auth_session(tech_slug=tslug)
+                return self._send(302, b"", "text/plain; charset=utf-8", headers={
+                    "Location": f"/t/{tslug}", "Set-Cookie": auth_cookie(token)})
+            html = open(os.path.join(BASE, "tech.html"), encoding="utf-8").read()
+            host = (self.headers.get("Host") or "").lower()
+            if "trycloudflare.com" in host:      # 임시 터널 주소를 앱 아이콘에 박지 않는다
+                html = html.replace('<link rel="manifest" href="/manifest.json">', "")
+            else:
+                html = html.replace('<link rel="manifest" href="/manifest.json">',
+                                    f'<link rel="manifest" href="/manifest.json?tech={tslug}">')
+            return self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
+        if p == "/api/tech/links":
+            # 기사에게 보낼 링크 — **관리자만** 본다(열쇠가 그대로 들어 있다).
+            if not self._require_admin():
+                return
+            ks = tech_keys()
+            return self._send(200, {"links": [
+                {"slug": s, "이름": c["name"], "직함": c.get("직함") or "",
+                 "링크": f"{FIXED_LIVE_ENTRY}/t/{s}?k={ks.get(s,'')}"}
+                for s, c in AS_TECH_CENTERS.items()],
+                "안내": "이 링크는 비밀번호와 같습니다. 본인에게만 보내세요."})
+        if p.startswith("/api/tech/"):
+            actor = self._actor()
+            tslug = str(actor.get("staff_slug") or "")
+            if str(actor.get("role") or "") != "tech" or tslug not in AS_TECH_CENTERS:
+                return self._send(401, {"ok": False, "error": "기사 링크로 열어 주세요"})
+            if p == "/api/tech/board":
+                return self._send(200, tech_board(tslug))
+            return self._send(404, {"error": "no route"})
         if p in ("/", "/index.html", "/ryu") or staff_slug:
             html = open(os.path.join(BASE, "index.html"), encoding="utf-8").read()
             if staff_slug:
@@ -5276,6 +5473,21 @@ self.addEventListener('fetch', e => {
     def do_POST(self):
         p = self.path.split("?")[0]
         ip = self.client_address[0]
+        if p == "/api/tech/report":
+            # 기사 완료 보고. 제 목록에 있는 건에만 찍을 수 있다(tech_report 가 확인).
+            actor = self._actor()
+            tslug = str(actor.get("staff_slug") or "")
+            if str(actor.get("role") or "") != "tech" or tslug not in AS_TECH_CENTERS:
+                return self._send(401, {"ok": False, "error": "기사 링크로 열어 주세요"})
+            ln = int(self.headers.get("Content-Length", 0) or 0)
+            if ln > 8192:
+                return self._send(413, {"ok": False, "error": "내용이 너무 깁니다"})
+            try:
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except Exception:
+                return self._send(400, {"ok": False, "error": "형식이 올바르지 않습니다"})
+            out = tech_report(tslug, body.get("id"), body.get("완료일"), body.get("메모"))
+            return self._send(200 if out.get("ok") else 400, out)
         if p == "/api/login":
             if _locked(ip):
                 return self._send(429, {"ok": False, "error": "시도 초과 — 10분 후 다시"})
