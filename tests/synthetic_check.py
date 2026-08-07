@@ -7558,8 +7558,8 @@ def t130_band_grab_rejects_timeless_harvest():
     print("  [130] 밴드 수집 — 시각 없는 수확 폐기 ✅")
 
 
-def t133_contaminated_not_recollected():
-    """[133] 가짜 글 기록은 **재수집 목록에 넣지 않는다** (2026-08-07 지시).
+def t135_contaminated_not_recollected():
+    """[135] 가짜 글 기록은 **재수집 목록에 넣지 않는다** (2026-08-07 지시).
 
     무엇이 잘못돼 있었나
       '날짜 없는 글 621건'을 "본문은 멀쩡한데 시각만 늦게 붙어 빈 것"으로 진단하고
@@ -7608,7 +7608,7 @@ def t133_contaminated_not_recollected():
     sh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
     assert "밴드오염" in sh and "재수집하지 말 것" in sh, \
         "가짜 기록에 '재수집' 안내가 붙었다 — 그 문구가 한 시간을 헛돌게 했다"
-    print("  [133] 가짜 글 기록 — 재수집 금지·표시 유지 ✅")
+    print("  [135] 가짜 글 기록 — 재수집 금지·표시 유지 ✅")
 
 
 def t131_band_quiet_vs_stalled():
@@ -8020,7 +8020,7 @@ if __name__ == "__main__":
     t129_call_notes_db_only_and_device_open()
     t130_band_grab_rejects_timeless_harvest()
     t131_band_quiet_vs_stalled()
-    t133_contaminated_not_recollected()
+    t135_contaminated_not_recollected()
     t132_dash_snap_expand_theme_swipe()
     t133_inline_style_dark_safe()
     t134_section_fold()
