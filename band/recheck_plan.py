@@ -175,13 +175,22 @@ def plan(band, posts, floor=0, ahead=0):
     # 유령 = 없는 것으로 확인된 번호. `absent` 표시(real_latest.py)와 천장 위 오염을 합친다.
     ghost = sorted({n for n in contaminated if n > ceiling}
                    | {int(k) for k, v in posts.items()
-                      if str(k).isdigit() and isinstance(v, dict) and v.get("absent")})
+                      if str(k).isdigit() and isinstance(v, dict)
+                      and (v.get("absent") or (cut is not None and int(k) >= cut))})
     deleted_known = [n for n in contaminated if n <= ceiling]   # 삭제 판정 — 훑지 않는다
     # `absent`(없는 번호로 확인됨)도 뺀다 — 안 빼면 유령이 '날짜없음'으로 되돌아온다.
+    #
+    # ★ 표시만 믿으면 안 된다 (2026-08-07 실측). Z: 옛 덤프는 매 회차 다시 병합되는데,
+    #   재병합은 `contaminated` 는 지켜도 `absent` 는 지우고 지나간다. 그래서 표시해 둔
+    #   유령 22건이 한 회차 만에 '날짜없음'으로 되살아나 재수집 목록 맨 앞에 섰다
+    #   — 없는 번호를 다시 긁는, 바로 그 고리다.
+    #   그러므로 **확인된 경계선(`cut`)을 표시보다 위에 둔다.** 경계선은 덤프가
+    #   건드리지 않는 reports/밴드_확인시각.json 에 있어서 재병합을 살아남는다.
     dateless = sorted(int(k) for k, v in posts.items()
                       if str(k).isdigit() and isinstance(v, dict)
                       and not v.get("deleted") and not v.get("contaminated")
-                      and not v.get("absent") and not v.get("created_at"))
+                      and not v.get("absent") and not v.get("created_at")
+                      and (cut is None or int(k) < cut))
     # 오염 표시된 번호는 '구멍'으로도 잡지 않는다(키는 있으므로 원래도 안 잡히지만,
     # 나중에 키를 지우는 방식으로 바뀌어도 여기서 한 번 더 막힌다).
     bad = set(contaminated)
