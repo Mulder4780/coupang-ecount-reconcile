@@ -7876,6 +7876,46 @@ def t133_inline_style_dark_safe():
     print("  [133] 인라인 스타일 다크 안전 — 고정색 판 위엔 고정색 글자 ✅")
 
 
+def t134_section_fold():
+    """[134] 구역 머리를 눌러 접었다 폈다 (2026-08-07 지시).
+
+    사용자 지시: "날짜 표시된 카드와 세부 사항 카드 접었다 폈다 하는 기능 추가해서
+    적용 / **다른 것들도 이런 기능 들어갈 만한거 있는지 검토해보고 적용**".
+
+    ★ 두 곳에 따로 붙이지 않았다. 그 둘의 머리가 이미 같은 `.ios-sec-h` 이고,
+      같은 머리를 쓰는 곳이 세 군데 더 있다(원본 자료·입금 등록·리모컨 관리).
+      "다른 것들도 검토"의 답이 새 코드가 아니라 **이미 있는 공통 머리**였다 —
+      그래서 구역을 새로 만들어도 저절로 접힌다. 이 검사가 그 구조를 지킨다.
+
+    ★ 열쇠는 **처음 본 순간의 id·글귀로 굳힌다.** 머리 글귀는 바뀐다
+      ('선택한 날' → '2026년 8월 7일 · 2건'). 그때그때 글귀로 열쇠를 만들면
+      **날짜를 바꿀 때마다 접어 둔 것이 스스로 펴진다.**
+    """
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    assert ".ios-sec-h.folded + *{display:none!important}" in live,         "접어도 다음 카드가 안 숨는다"
+    assert live.count('class="ios-sec-h"') + live.count("ios-sec-h\" id=") >= 4         or live.count("ios-sec-h") >= 6, "공용 구역 머리가 줄었다 — 한 곳에 붙인 이점이 사라진다"
+    for fn in ("secKey", "readSecFolded", "applySecFold", "toggleSecFold", "initSecFold"):
+        assert f"function {fn}(" in live, f"{fn} 가 없다"
+    assert "initSecFold();" in live, "시작할 때 켜지지 않는다"
+
+    key = live[live.index("function secKey("):][:600]
+    assert "dataset.secKey" in key, \
+        "열쇠를 매번 글귀로 다시 만든다 — 날짜가 바뀌면 접어 둔 것이 저절로 펴진다"
+
+    ap = live[live.index("function applySecFold("):][:1400]
+    assert ap.index("const on=") < ap.index("fold-hint"), \
+        "'접힘' 힌트를 붙인 뒤에 열쇠를 읽는다 — 힌트 글자가 열쇠에 섞인다"
+    assert "'button'" in ap or '"button"' in ap, "보조기기가 누를 수 있는 것으로 안 읽는다"
+    assert "tabIndex" in ap, "키보드로 접을 수 없다"
+
+    # 접힌 채로 인쇄하면 그 내용이 보고서에서 통째로 빠진다
+    assert re.search(r"@media print\{[^@]*ios-sec-h\.folded \+ \*\{display:block", live, re.S), \
+        "인쇄할 때 접힌 구역이 빠진다 — 보고서에 내용이 사라진다"
+    assert "var(--ink-3)" in live[live.index(".ios-sec-h::before"):][:400],         "화살표 색이 토큰이 아니다 — 어둡게에서 안 보인다"
+    print("  [134] 구역 머리 접기 — 5구역 공용·열쇠 고정·인쇄 보존 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -7983,6 +8023,7 @@ if __name__ == "__main__":
     t132_contaminated_not_recollected()
     t132_dash_snap_expand_theme_swipe()
     t133_inline_style_dark_safe()
+    t134_section_fold()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

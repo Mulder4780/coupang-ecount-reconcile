@@ -1846,6 +1846,31 @@ fieldset.remote-edit>input{margin:0 0 9px}
 /* 그룹 섹션 헤더 — iOS 는 제목을 카드 안이 아니라 위에, 작고 옅게 둔다 */
 .ios-sec-h{margin:20px 6px 8px;font-size:13px;font-weight:600;color:var(--ink-2);letter-spacing:-.1px}
 .ios-sec-h span{font-weight:500;color:var(--ink-3)}
+/* ═══ 구역 머리를 눌러 접었다 폈다 (2026-08-07 지시) ═══════════════════════
+   사용자 지시: "날짜 표시된 카드와 세부 사항 카드 접었다 폈다 하는 기능 추가해서
+   적용 / 다른 것들도 이런 기능 들어갈 만한거 있는지 검토해보고 적용".
+
+   ★ 두 곳에 따로 붙이지 않았다. 그 둘의 머리(`선택한 날` · `세부 사항`)가 이미
+     **같은 `.ios-sec-h`** 이고, 같은 머리를 쓰는 곳이 세 군데 더 있다
+     (원본 자료 · 입금·원천자료 등록 · 리모컨 관리). 여기 한 번 넣으면 다섯 곳이
+     같이 된다 — "다른 것들도 검토해서 적용"의 답이 새 코드가 아니라 **이미 있는
+     공통 머리**였다. 구역을 새로 만들어도 저절로 접힌다.
+   ★ 접은 상태는 이 기기에 기억한다. 새로고침마다 다시 접는 건 기억이 아니라 손질이다.
+   ★ 색은 전부 토큰이라 기본·다크·시스템 셋에서 같이 돈다. */
+.ios-sec-h{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;
+  -webkit-user-select:none;border-radius:8px;padding:3px 4px;margin-left:2px;margin-right:2px}
+.ios-sec-h:hover{background:var(--brand-tint)}
+.ios-sec-h:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
+.ios-sec-h::before{content:"";flex:none;width:7px;height:7px;margin-right:1px;
+  border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);
+  transform:rotate(45deg) translate(-1px,-1px);transition:transform .16s var(--ease,ease)}
+.ios-sec-h.folded::before{transform:rotate(-45deg) translate(-1px,1px)}
+/* 접히는 것은 **바로 다음 형제 하나**다. 구역마다 카드가 하나씩 오는 지금 구조와 맞는다. */
+.ios-sec-h.folded + *{display:none!important}
+/* 접었을 때 무엇이 숨었는지 알려 준다 — 안 그러면 사라진 것처럼 보인다 */
+.ios-sec-h .fold-hint{margin-left:auto;font-weight:600;color:var(--ink-3);font-size:11.5px}
+@media print{ .ios-sec-h::before,.ios-sec-h .fold-hint{display:none}
+  .ios-sec-h.folded + *{display:block!important} }   /* 인쇄는 접힌 것도 다 보여 준다 */
 #v-center .card.ios-inset{padding:14px;margin-bottom:4px}
 /* 드롭존·URL 입력을 iOS 감각으로 (구조는 renderReceiptUpload 공용 그대로) */
 #v-center .wt-drop{border:1.5px dashed rgba(60,60,67,.29);background:var(--panel);border-radius:14px}
@@ -5240,6 +5265,7 @@ function applyView(v){
     else renderCalendarPage();
   }
   if(v==='check') renderCheckHub();
+  try{ applySecFold(); }catch(e){}   // 이 화면의 구역 머리에도 접힘 상태를 입힌다
   try{ localStorage.setItem('cw_view', v); }catch(e){}   // 새로고침 후 같은 화면으로 복귀
   window.__view = v;
   uxEvent('view',v);
@@ -5307,6 +5333,54 @@ function swipeToView(dir){                        // dir: +1 오른쪽 탭, -1 �
   try{ uxEvent('tap','swipe-nav',next); }catch(_){}
   const btn = document.querySelector(`.tabbar button[data-v="${next}"]`);
   try{ toast((btn?.textContent || next).trim()); }catch(_){}
+}
+/* ══ 구역 머리를 눌러 접었다 폈다 (2026-08-07 지시) ═══════════════════════
+   `.ios-sec-h` 하나에 붙여 다섯 구역이 같이 된다(위 CSS 주석 참조).
+   ★ 열쇠(무엇이 접혔나)는 **처음 본 순간의 id·글귀**로 굳힌다. 머리 글귀는
+     바뀐다 — '선택한 날' 이 '2026년 8월 7일 · 2건' 이 된다. 그때그때 글귀로
+     열쇠를 만들면 날짜를 바꿀 때마다 **접어 둔 것이 스스로 펴진다.** */
+const SEC_FOLD_KEY='csos_sec_folded';
+function secKey(h){
+  if(!h.dataset.secKey){
+    h.dataset.secKey = h.id || ('t:' + (h.textContent||'').replace(/\s+/g,' ').trim().slice(0,24));
+  }
+  return h.dataset.secKey;
+}
+function readSecFolded(){
+  try{ return new Set(JSON.parse(localStorage.getItem(SEC_FOLD_KEY)||'[]')); }catch(_){ return new Set(); }
+}
+function applySecFold(){
+  const set=readSecFolded();
+  document.querySelectorAll('.ios-sec-h').forEach(h=>{
+    const on=set.has(secKey(h));                       // ★ 힌트를 붙이기 **전에** 읽는다
+    if(!h.hasAttribute('role')){ h.setAttribute('role','button'); h.tabIndex=0; }
+    h.classList.toggle('folded',on);
+    h.setAttribute('aria-expanded',on?'false':'true');
+    h.title = on ? '눌러서 펼치기' : '눌러서 접기';
+    let hint=h.querySelector(':scope > .fold-hint');
+    if(on && !hint){ hint=document.createElement('em'); hint.className='fold-hint'; hint.textContent='접힘'; h.appendChild(hint); }
+    else if(!on && hint) hint.remove();
+  });
+}
+function toggleSecFold(h){
+  const set=readSecFolded(), k=secKey(h);
+  set.has(k) ? set.delete(k) : set.add(k);
+  try{ localStorage.setItem(SEC_FOLD_KEY,JSON.stringify([...set])); }catch(_){}
+  applySecFold();
+  try{ uxEvent('tap','sec-fold',k); }catch(_){}
+}
+function initSecFold(){
+  document.addEventListener('click',e=>{
+    const h=e.target.closest && e.target.closest('.ios-sec-h');
+    if(h) toggleSecFold(h);
+  });
+  document.addEventListener('keydown',e=>{                    // 키보드로도 접힌다
+    if(e.key!==' ' && e.key!=='Enter') return;
+    const h=e.target.closest && e.target.closest('.ios-sec-h');
+    if(!h) return;
+    e.preventDefault(); toggleSecFold(h);
+  });
+  applySecFold();
 }
 function initSwipeNav(){
   const mq = window.matchMedia('(max-width:720px)');
@@ -11871,6 +11945,7 @@ async function refreshAll(){
   tick(); setInterval(tick, 30000); initDates(); previewCalendarDraft();
   initDashboardLayout();
   initSwipeNav();            // 폰: 손가락 좌우로 밀어 카테고리 이동 (2026-08-07 지시)
+  initSecFold();             // 구역 머리를 눌러 접었다 폈다 (2026-08-07 지시)
   initStaffCenter();
   if(staffSlug==='oh-jonghyeon') injectOhUpload();
   // 리모컨 관리는 류지영·오종현 업무센터에 똑같이 들어간다(2026-08-03 지시).
