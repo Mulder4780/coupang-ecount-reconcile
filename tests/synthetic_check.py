@@ -7604,10 +7604,25 @@ def t135_contaminated_not_recollected():
     assert 2 not in (p.get("dateless") or []), "오염 번호가 날짜없음으로도 잡힌다"
     assert p.get("contaminated") == [2], "오염 건수가 안 보인다 — 잊힌다"
 
-    # ⑤ 인계 문서가 재수집하라고 말하지 않는다
+    # ⑤ 인계 문서가 재수집하라고 말하지 않는다 — 표본 3/3 리다이렉트로 삭제 판정 완료
     sh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
-    assert "밴드오염" in sh and "재수집하지 말 것" in sh, \
-        "가짜 기록에 '재수집' 안내가 붙었다 — 그 문구가 한 시간을 헛돌게 했다"
+    assert "밴드오염" in sh and "재수집하지 않는다" in sh and "삭제" in sh, \
+        "오염 기록이 '할 일'로 남았다 — 삭제 판정이 끝난 상태다"
+    assert "수집 경로를 새로 만들어야 한다" not in sh, \
+        "이미 닫힌 '수집 경로 재설계'가 할 일로 남아 있다 — 다음 세션이 헛돈다"
+
+    # ⑥ 리다이렉트 가드 — 피드가 끝까지 그려지면 시각까지 있어서([130]만으로는) 못 막는다.
+    #   내가 연 주소에 내가 있는지가 유일한 확증이다(실측: 피드의 "6시간 전"이 잡혔다).
+    js2 = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
+    assert "reason: 'redirect'" in js2 and "location.pathname" in js2, \
+        "리다이렉트 가드가 없다 — 날짜 달린 가짜가 들어온다"
+    assert "'/post/' + no" in js2, "주소 대조가 요청 번호와 안 묶였다"
+
+    # ⑦ 오염 표시는 재병합을 살아남는다 — Z: 옛 덤프가 매 회차 다시 처리되기 때문.
+    #   실측: 표시 621건이 한 회차 만에 0건이 됐었다. 작성일을 가진 기록(진짜 재수집)만 뚫는다.
+    cd2 = open(os.path.join(ROOT, "band", "convert_dump.py"), encoding="utf-8").read()
+    assert 'cur.get("contaminated") and not rec.get("created_at")' in cd2, \
+        "재병합이 오염 표시를 덮는다 — 표시가 한 회차 만에 사라진다"
     print("  [135] 가짜 글 기록 — 재수집 금지·표시 유지 ✅")
 
 
@@ -7744,7 +7759,8 @@ def t131_band_quiet_vs_stalled():
     assert not _probe("84789192", 3538), "오래된 확인으로 새 글 탐색을 건너뛴다"
     assert callable(real), "recheck_plan._confirmed_quiet 이 사라졌다"
     src_rp = open(os.path.join(ROOT, "band", "recheck_plan.py"), encoding="utf-8").read()
-    assert "_confirmed_quiet(band, hi)" in src_rp and "new = []" in src_rp, \
+    assert ("_absent_from(band)" in src_rp or
+            ("_confirmed_quiet(band, hi)" in src_rp and "new = []" in src_rp)), \
         "계획이 조용함 근거를 안 본다 — 없는 번호를 매 회차 다시 훑는다"
     assert "밴드_확인시각.json" in src_rp, "session_handoff 와 다른 근거를 본다"
     print("  [131] 밴드 조용함 vs 수집 막힘 구분 ✅")

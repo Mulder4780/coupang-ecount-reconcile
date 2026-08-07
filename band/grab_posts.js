@@ -89,6 +89,19 @@
       // 본문은 SPA 가 나중에 그린다 — 폴링 대신 '그려지는 순간'을 관찰한다.
       const d = f.contentDocument;
       if (!d) return { status: 'fail' };
+      // ★ 주소부터 본다 (2026-08-07 3차). 없는 글(삭제됐거나 아직 안 생긴 번호)을 열면
+      //   밴드는 오류 대신 **피드로 되돌린다.** 그 피드가 끝까지 그려지면 본문도 시각도
+      //   멀쩡히 있어서(실측: "6시간 전"이 잡혔다) 시각 가드([130])까지 뚫고
+      //   **날짜 달린 가짜**가 들어올 수 있다. 내가 연 주소에 내가 있는지가 유일한 확증이다.
+      //   같은 출처(band.us)라 pathname 은 읽을 수 있다.
+      let path = '';
+      try { path = f.contentWindow.location.pathname || ''; } catch (e) { /* 출처 다름 — 아래 판정으로 */ }
+      if (path && !path.endsWith('/post/' + no)) {
+        const sig = txt(d, '.postText, .dPostTextView').replace(/\s+/g, ' ').slice(0, 200);
+        // 묘비(missing)가 아니라 fail 이다 — '아직 안 생긴 번호'일 수 있고, 그 번호는
+        // 내일 진짜로 생긴다. 없음의 증거는 지문 합의(convert_dump)가 맡는다.
+        return { status: 'fail', reason: 'redirect', sig };
+      }
       if (!d.querySelector('.postText')) {
         await new Promise((done) => {
           let mo = null, fin = false;
@@ -213,7 +226,7 @@
         else if (r.status === 'missing') S.missing.push(no);
         else {
           S.failed.push(no);
-          if (r.reason === 'no-time' && r.sig) S.notime[no] = r.sig;
+          if ((r.reason === 'no-time' || r.reason === 'redirect') && r.sig) S.notime[no] = r.sig;
         }
         await sleep(opt.gapMs || 300);
       }

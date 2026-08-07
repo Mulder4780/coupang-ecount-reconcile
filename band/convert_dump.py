@@ -218,6 +218,13 @@ def main():
         for no, rec in posts.items():
             cur = merged.get(no)
             rec["captured_at"] = cap_ms or rec.get("captured_at") or 0
+            # ★ 오염 표시(clean_contaminated)는 **날짜 없는 재병합이 못 덮는다** (2026-08-07).
+            #   덤프는 매 실행 전부 재처리된다. 가짜(피드 리다이렉트) 본문을 담은 옛 덤프가
+            #   Z: 에 그대로 있어서, 표시를 해 두어도 다음 회차가 도로 가짜를 살려냈다
+            #   (실측: 표시 621건이 한 회차 만에 0건). 작성일을 **가진** 기록만 표시를
+            #   뚫을 수 있다 — 그건 진짜 글을 제대로 다시 모았다는 뜻이므로 복구가 맞다.
+            if cur and cur.get("contaminated") and not rec.get("created_at"):
+                continue
             if not cur:
                 merged[no] = rec
                 continue
