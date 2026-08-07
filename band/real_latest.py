@@ -71,6 +71,18 @@ def _save_atomic(path, doc):
     os.replace(tmp, path)
 
 
+def _collected_max(band):
+    """캐시에서 **실제로 본문을 받아 둔** 가장 큰 글 번호.
+
+    유령(`absent`)·시각 없는 항목은 세지 않는다 — 그것들은 '모은 것'이 아니다.
+    """
+    posts = (_load(os.path.join(CACHE, f"{band}.json"), {}) or {}).get("posts") or {}
+    got = [int(k) for k, v in posts.items()
+           if str(k).isdigit() and isinstance(v, dict)
+           and v.get("created_at") and not v.get("absent")]
+    return max(got) if got else None
+
+
 def survey(band, latest):
     """`latest` 위쪽 캐시 항목을 갈래별로 센다."""
     posts = (_load(os.path.join(CACHE, f"{band}.json"), {}) or {}).get("posts") or {}
@@ -118,7 +130,12 @@ def run(band=None, latest=None, apply=False, today=None):
         return 0
 
     day = str(today or datetime.now().strftime("%Y-%m-%d"))[:10]
+    # ★ `수집최대` 를 빠뜨리지 말 것 (2026-08-07). session_handoff 의 '(조용함)' 줄이
+    #   이 값을 읽어 "N번까지 수집 완료" 를 찍는다. 없으면 그 자리에 None 이 박히고,
+    #   다음 세션은 어디까지 모았는지를 인계 문서에서 못 읽는다. 예전 기록을 덮어쓸 때
+    #   조용히 사라졌다 — 그래서 여기서 매번 다시 계산해 넣는다.
     seen[band] = {"없음확인": latest + 1, "확인시각": day,
+                  "수집최대": _collected_max(band),
                   "근거": "밴드 피드 최상단 글 번호 직접 확인(real_latest.py)"}
     _save_atomic(SEEN, seen)
     print(f"  → 없음확인 {latest + 1} · {day} 기록")
