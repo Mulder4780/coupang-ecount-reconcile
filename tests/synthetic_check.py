@@ -8658,6 +8658,78 @@ def t141_long_text_folds():
     print("  [141] 긴 글 접기 — 재서 정함·기능 숨김 금지·인쇄는 전부 펼침 ✅")
 
 
+def t160_master_book_cache():
+    """관리대장을 한 번만 파싱한다 (worksplit #17, 2026-08-08).
+
+    `master_stream` 이 네트워크 전송을 없앤 뒤에도 앱은 한 화면을 그리는 동안
+    `load_workbook` 을 8군데에서 각각 불렀다. 실측 v556: load 만 2.59초 ×8.
+
+    지키는 것은 넷이다:
+      ① **워크북 개체를 공유하지 않는다** — `read_only=True` 워크북은 이터레이터
+         상태를 갖고 스레드 안전하지 않다. 캐시에 담는 것은 **뽑아낸 행**이다.
+      ② **값이 openpyxl 과 같다** — 빠른데 다른 값이면 그게 조용한 사고다.
+      ③ **셀 개체를 몰래 흉내 내지 않는다** — values_only 가 아니면 분명히 실패한다.
+      ④ **파일이 바뀌면 다시 읽는다** — mtime+크기로 판정.
+    """
+    import io as _io
+    rec = open(os.path.join(ROOT, "ecount_reconcile.py"), encoding="utf-8").read()
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+
+    # ① 캐시에 담는 것이 행인가(워크북이 아니라)
+    fn = rec.split("def master_book(")[1].split("\n\n\ndef ")[0]
+    assert "tuple(r) for r in wb[n].iter_rows" in fn, \
+        "워크북 개체를 캐시한다 — read_only 워크북은 스레드 안전하지 않다"
+    assert "wb.close()" in fn, "파싱한 워크북을 닫지 않는다"
+    assert "_SHEET_LOCK" in fn, "동시에 두 번 파싱한다"
+    # ④ 무효화 근거
+    assert "st_mtime_ns" in fn and 'update({"key": key, "sig": sig' in fn, \
+        "파일이 바뀌어도 옛 시트를 계속 준다 — 화면이 옛 숫자를 보여 준다"
+
+    # 호출처가 남아 있으면 그 자리만 옛날처럼 느리다
+    assert "load_workbook(master_stream" not in server, \
+        "아직 워크북을 직접 여는 자리가 있다 — 그 화면만 2.6초씩 더 든다"
+    assert "master_book(master)" in server, "앱이 캐시를 쓰지 않는다"
+
+    # ②③ 합성 워크북으로 값·오류를 확인한다(실데이터 없이)
+    import openpyxl
+    from ecount_reconcile import master_book
+    tmp = os.path.join(ROOT, "reports", "_t160_synth.xlsx")
+    wbw = openpyxl.Workbook()
+    ws = wbw.active
+    ws.title = "시트가"
+    for r in range(1, 8):
+        ws.append([f"a{r}", r, None])
+    wbw.create_sheet("시트나").append(["x", "y"])
+    wbw.save(tmp)
+    try:
+        real = openpyxl.load_workbook(tmp, read_only=True, data_only=True)
+        cached = master_book(tmp)
+        assert cached.sheetnames == real.sheetnames, "시트 목록이 다르다"
+        assert ("시트가" in cached) and ("없는시트" not in cached), "in 연산이 다르다"
+        for name in real.sheetnames:
+            a = [tuple(r) for r in real[name].iter_rows(min_row=1, values_only=True)]
+            b = [tuple(r) for r in cached[name].iter_rows(min_row=1, values_only=True)]
+            assert a == b, f"{name} 값이 openpyxl 과 다르다 — 빠른데 틀리면 조용한 사고다"
+        assert cached["시트가"].max_row == real["시트가"].max_row, "max_row 가 다르다"
+        # 구간 읽기도 같아야 한다(머리글 4행만 읽는 자리가 여러 곳이다)
+        a = [tuple(r) for r in real["시트가"].iter_rows(min_row=3, max_row=5, values_only=True)]
+        b = [tuple(r) for r in cached["시트가"].iter_rows(min_row=3, max_row=5, values_only=True)]
+        assert a == b and len(a) == 3, "구간 읽기가 다르다"
+        real.close()
+        # ③ 셀 개체를 요구하면 분명히 실패해야 한다
+        try:
+            list(cached["시트가"].iter_rows(values_only=False))
+            raise AssertionError("values_only=False 인데 조용히 다른 것을 돌려준다")
+        except ValueError:
+            pass
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    print("  [160] 관리대장 한 번만 파싱 — 행만 캐시·값 동일·셀 개체 거부·mtime 무효화 ✅")
+
+
 def t149_tech_center():
     """AS 담당기사 전용 화면 — 비밀번호 없이, 그러나 누구나는 아니다 (2026-08-08 지시).
 
@@ -9285,6 +9357,7 @@ if __name__ == "__main__":
     t147_project_history()
     t148_input_suggest()
     t149_tech_center()
+    t160_master_book_cache()
     t144_topmost_pin_always_restores()
     t145_redirect_deleted_needs_two_rounds()
     t146_erp_bulk_grab_registry()

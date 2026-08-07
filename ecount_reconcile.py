@@ -20,7 +20,7 @@ ecount_reconcile.py — 관리대장 ↔ 이카운트(ECOUNT) 대조기
     python ecount_reconcile.py --offline  # 이카운트 호출 없이 원장측 준비표만
     python ecount_reconcile.py --selftest # 설정/인증만 점검
 """
-import sys, os, csv, json, time
+import sys, os, csv, json, time, threading
 from datetime import datetime, date
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -153,6 +153,108 @@ def master_stream(xlsx_path):
     return io.BytesIO(hit[1])
 
 
+# ── 관리대장을 **한 번만 파싱**한다 (2026-08-08, worksplit #17) ──────────────
+# `master_stream` 이 네트워크 전송을 없앤 뒤에도 남은 비용은 **파싱**이었다.
+# 실측(v556, 30시트): `load_workbook` 만 2.59초 · 시트 하나 읽기 0.35초 ·
+# 전 시트 읽기 5.26초. 그런데 앱은 한 화면을 그리는 동안 이 load 를 **8군데**에서
+# 각각 부른다 — 화면 한 장에 파싱만 20초가 넘게 든다.
+#
+# ★ **워크북 개체를 공유하면 안 된다.** `read_only=True` 워크북은 이터레이터 상태를
+#   갖고 스레드 안전하지 않다(두 요청이 같은 시트를 동시에 읽으면 행이 섞인다).
+#   그래서 캐시에 담는 것은 워크북이 아니라 **뽑아낸 행(튜플)** 이다. 값만 담으므로
+#   여러 스레드가 동시에 읽어도 안전하다.
+# ★ 처음 한 번은 전 시트를 읽는다(약 7.9초). 대신 그 뒤로는 파일이 바뀌기 전까지
+#   0초다. 관리대장은 하루 두 번(11:00·15:00) 바뀌므로 하루에 두 번 내는 값이다.
+_MASTER_SHEETS = {"key": None, "sig": None, "sheets": {}, "stat_at": 0.0}
+_SHEET_LOCK = threading.Lock()
+
+
+class _CachedSheet:
+    """openpyxl 시트에서 `values_only` 로 읽을 때와 같게 굴러가는 얇은 껍데기."""
+    __slots__ = ("title", "_rows")
+
+    def __init__(self, title, rows):
+        self.title, self._rows = title, rows
+
+    @property
+    def max_row(self):
+        return len(self._rows)
+
+    @property
+    def max_column(self):
+        return max((len(r) for r in self._rows), default=0)
+
+    def iter_rows(self, min_row=1, max_row=None, min_col=None, max_col=None,
+                  values_only=True):
+        # ★ 셀 개체는 주지 않는다. 필요해지면 캐시가 아니라 openpyxl 로 열어야 한다 —
+        #   조용히 다른 것을 돌려주면 호출부가 왜 안 되는지 모른다.
+        if not values_only:
+            raise ValueError("캐시 시트는 values_only 로만 읽는다(셀 개체 없음)")
+        lo = max(1, int(min_row or 1))
+        hi = len(self._rows) if max_row is None else min(len(self._rows), int(max_row))
+        for i in range(lo - 1, hi):
+            row = self._rows[i]
+            if min_col or max_col:
+                row = row[(int(min_col or 1) - 1):(int(max_col) if max_col else len(row))]
+            yield row
+
+
+class _CachedBook:
+    __slots__ = ("_sheets", "sheetnames")
+
+    def __init__(self, sheets):
+        self._sheets = sheets
+        self.sheetnames = list(sheets)
+
+    def __contains__(self, name):
+        return name in self._sheets
+
+    def __getitem__(self, name):
+        return _CachedSheet(name, self._sheets[name])
+
+    def close(self):
+        pass                      # 캐시라 닫을 것이 없다(호출부를 안 고치려고 둔다)
+
+
+def master_book(xlsx_path):
+    """관리대장 워크북 — 같은 파일이면 파싱하지 않는다.
+
+    `openpyxl.load_workbook(master_stream(p), read_only=True, data_only=True)` 자리에
+    그대로 넣는다. `sheetnames` · `wb[시트]` · `iter_rows(values_only=True)` ·
+    `max_row` · `close()` 가 같게 동작한다."""
+    import openpyxl
+    key = os.path.abspath(xlsx_path)
+    # ★ Z: 는 네트워크 드라이브라 `os.stat` 한 번이 실측 0.35초다. 한 화면을 그리는
+    #   동안 8번 물으면 그것만 2.8초 — 파싱을 없애 놓고 stat 에서 잃는다.
+    #   그래서 몇 초 동안은 방금 잰 값을 그대로 쓴다. 관리대장은 11:00·15:00 회차에만
+    #   바뀌므로 이 창 안에서 파일이 바뀔 일은 없다.
+    now = time.time()
+    if _MASTER_SHEETS["key"] == key and now - _MASTER_SHEETS.get("stat_at", 0) < 2.0:
+        sig = _MASTER_SHEETS["sig"]
+    else:
+        try:
+            st = os.stat(key)
+            sig = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            sig = None
+        if sig is not None:
+            _MASTER_SHEETS["stat_at"] = now
+    with _SHEET_LOCK:
+        if sig is not None and _MASTER_SHEETS["key"] == key and _MASTER_SHEETS["sig"] == sig:
+            return _CachedBook(_MASTER_SHEETS["sheets"])
+        wb = openpyxl.load_workbook(master_stream(xlsx_path), read_only=True,
+                                    data_only=True)
+        try:
+            sheets = {n: [tuple(r) for r in wb[n].iter_rows(values_only=True)]
+                      for n in wb.sheetnames}
+        finally:
+            wb.close()
+        if sig is not None:
+            # 새 버전이면 옛 시트를 **버린다** — 안 버리면 vN 이 쌓일수록 메모리를 먹는다.
+            _MASTER_SHEETS.update({"key": key, "sig": sig, "sheets": sheets})
+        return _CachedBook(sheets)
+
+
 _LEDGER_CACHE = {}          # abspath -> ((mtime_ns, size), 원장dict)
 
 
@@ -193,7 +295,7 @@ def _read_ledger_uncached(xlsx_path):
     """정산ID 기준으로 원장 예상값(3개 문서층)을 모은다."""
     import openpyxl
     xlsx_path = resolve_master(xlsx_path)
-    wb = openpyxl.load_workbook(master_stream(xlsx_path), read_only=True, data_only=True)
+    wb = master_book(xlsx_path)
 
     def col_index(ws, names):
         row = next(ws.iter_rows(min_row=HDR_ROW, max_row=HDR_ROW, values_only=True))
