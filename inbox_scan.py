@@ -190,6 +190,9 @@ _SCAN_MEM = {}                                  # 폴더 → (만료시각, [(�
 SCAN_TTL = 60.0                                 # 초. 한 요청 안의 반복 호출을 합치는 용도
 
 
+SKIP_DIRS = {"_보관", "_중복사본_보관"}      # 백업 사본 — 새 자료가 아니다
+
+
 def scan(folder=None, ttl=None):
     """[(경로, 종류)] — 임시파일(~$)은 제외. 분류는 캐시, 폴더 훑기는 짧게 메모이즈한다.
 
@@ -206,6 +209,12 @@ def scan(folder=None, ttl=None):
     out = []
     for p in sorted(glob.glob(os.path.join(folder, "**", "*.xls*"), recursive=True)):
         if os.path.basename(p).startswith("~$"):
+            continue
+        # ★ 백업 폴더는 훑지 않는다 (2026-08-07 실측). `_보관` 에는 복구용 보관이 매일
+        #   쌓아 둔 사본이 들어간다 — 9일치 1.3GB, 관리대장 사본만 21개다. 그것까지
+        #   재귀로 훑느라 이 함수가 **222초**를 썼고, daily_run 의 '자료현황 갱신'이
+        #   600초 한도를 넘겨 매 회차 FAIL 이었다. 사본은 새 자료가 아니므로 셀 이유가 없다.
+        if any(seg in SKIP_DIRS for seg in p.replace("\\", "/").split("/")):
             continue
         out.append((p, classify_cached(p)))
     _SCAN_MEM[folder] = (now + ttl, out)

@@ -452,7 +452,9 @@ def _run_pipeline():
     steps.append(run("업무센터 UX 점검", [os.path.join(ROOT, "ux_review.py")], timeout=600))
     steps.append(run("원본 색인 갱신", [os.path.join(ROOT, "source_index.py")], timeout=2400))
     steps.append(run("원본 폴더 정리·바로가기", [os.path.join(ROOT, "source_tidy.py")], timeout=1800))
-    steps.append(run("자료현황 갱신", [os.path.join(ROOT, "data_status.py")]))
+    # 캐시가 어긋나면 Z: 원본 전체를 다시 훑는다 — 실측 콜드 222초, 경합 아래서는 600초를
+    # 넘겨 매 회차 FAIL 이었다(2026-08-07). `_보관` 제외로 줄였지만 여유를 둔다.
+    steps.append(run("자료현황 갱신", [os.path.join(ROOT, "data_status.py")], timeout=1200))
     # 미반영 목록(2026-08-05 지시 "반영 안된 자료들 목록 정리"). 앞 단계들이 남긴 리포트를
     # 모아 세므로 **맨 뒤**여야 한다 — 먼저 돌면 어제 숫자를 오늘 것으로 보여 준다.
     steps.append(run("미반영 목록 갱신", [os.path.join(ROOT, "pending_report.py")], timeout=300))
@@ -471,7 +473,11 @@ def _run_pipeline():
     #      엑셀은 열 때마다 서식이 흔들리고 재조회 시점에 숫자가 달라진다. PDF 는 "그때
     #      ERP 가 이렇게 보여 줬다"를 고정한다 — 사후 대조·감사에 쓰는 건 이 고정본이다.
     #      새 파일만 변환하므로 매 회차 비용이 거의 없다(대상 0개면 Excel 을 띄우지도 않는다).
-    steps.append(run("ERP PDF 사본 만들기", [os.path.join(ROOT, "erp_pdf_export.py")]))
+    # ★ 예산이 설계값과 어긋나 있었다 (2026-08-07 실측). 이 도구는 안에서 Excel 서브프로세스에
+    #   1800초를 주는데(erp_pdf_export.py:116) 여기서는 600초만 줬다. 그래서 변환할 게
+    #   4개뿐인 날에도 `시간초과(600s)` 로 매 회차 FAIL 이었다(단독 실행은 315초 exit 0).
+    steps.append(run("ERP PDF 사본 만들기", [os.path.join(ROOT, "erp_pdf_export.py")],
+                     timeout=1800))
 
     # 6.9 폰 원격 준비 상태 — 막히는 건 조용히 막힌다. 절전 설정이 되살아나거나 미푸시가
     #     쌓이면 정작 폰에서 붙으려 할 때 알게 된다(사용자 지시 2026-07-31). 아무것도 바꾸지 않고
@@ -506,7 +512,12 @@ def _run_pipeline():
     #     OLD/ 한 곳으로 옮긴다. 같은 이름이 있어도 덮어쓰거나 삭제하지 않는다.
     # 9.9 복구용 보관 — 코드는 git bundle 한 파일로, 기록은 사실만. 서버(Z:)에 둔다.
     #     PC가 죽으면 PC 안의 백업은 같이 죽는다. 비밀키는 절대 담지 않는다(규칙 1).
-    steps.append(run("복구용 보관(서버)", [os.path.join(ROOT, "archive_keep.py")], timeout=1200))
+    # ★ 재시도하지 않는다 (2026-08-07 실측). 이 단계는 Z: 로 1,721개·199.6MB 를 한 개씩
+    #   복사하며 완주에 ~1,475초가 든다 — 산발적 경합이 아니라 **결정적으로** 한도를 넘는다.
+    #   그런 단계를 재시도하면 실패에 시간을 두 배로 태울 뿐이다(세 단계 합쳐 회차당 ~81분).
+    #   근본 해결(증분 복사·야간 이동)은 별도 과제로 남긴다 — reports/오류점검_20260807.md B1.
+    steps.append(run("복구용 보관(서버)", [os.path.join(ROOT, "archive_keep.py")],
+                     timeout=1800, retry=0))
 
     steps.append(run("관리대장 버전 정리", [os.path.join(ROOT, "ledger_versions.py"), "--prune"]))
 
