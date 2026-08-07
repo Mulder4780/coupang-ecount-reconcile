@@ -2167,6 +2167,19 @@ def _master_mtime():
         return 0
 
 
+def _data_asof_iso():
+    """이 숫자들이 **언제의 원본인가**. `datetime.now()` 를 쓰면 안 된다.
+
+    응답은 캐시에서 나올 수 있고(TTL 300~600초) 그동안 원장은 그대로다. 그런데
+    '데이터최종갱신일'에 지금 시각을 찍으면 화면과 캡처가 낡은 숫자를 **'방금'이라고
+    말한다** — 이 프로젝트가 1순위로 막는 '조용한 사고'다(CLAUDE.md '수집 밀림').
+    숫자의 나이는 그것을 만든 관리대장이 마지막으로 저장된 시각이다.
+    잴 수 없으면 **빈 문자열** — 모르는 것을 아는 척하지 않는다.
+    """
+    mt = _master_mtime()
+    return datetime.fromtimestamp(mt).isoformat(timespec="seconds") if mt else ""
+
+
 _brief_cache = {"key": None, "value": None}
 _brief_lock = threading.Lock()
 _work_log_view_cache = {"key": None, "value": None}
@@ -2692,7 +2705,7 @@ def representative_summary(works, settlements, base_date=""):
     return {
         "meta": {
             "집계기준일": today.isoformat(), "적용마감시간": "관리대장 최신 저장 시점",
-            "데이터최종갱신일": datetime.now().isoformat(timespec="seconds"),
+            "데이터최종갱신일": _data_asof_iso(),
             "원천업무건수": len(as_rows) + len(pm_rows) + len(settlements or []),
             "검증되지않은건수": len(backlog) + len(paperwork) + len(unissued_rows),
             "필터조건": f"{APP_YEAR}년·정상 상세 기본 접힘",

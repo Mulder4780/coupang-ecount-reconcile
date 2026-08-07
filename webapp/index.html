@@ -9660,6 +9660,13 @@ function renderDaily(){
   }:null;
   const _monthNote=(Sm.length||AS_m.length||PM_m.length)?'' :
     `※ ${+m}월 집계가 모두 0건 — ${+m}월 원장(06시트)·ERP 자료가 아직 없어서입니다. 자료가 들어오면 자동 반영됩니다.`;
+  // 이 숫자들이 **만들어진 때**. 캡처를 누른 때가 아니다. 화면과 PNG 가 반드시 같은
+  // 값을 쓰도록 여기 한 번만 정한다(따로 적으면 한쪽만 고쳐져 조용히 갈라진다).
+  // 근거가 없으면 지금 시각을 찍지 않는다 — 묵은 숫자에 방금 시각이 박히면
+  // 받는 사람은 최신인 줄 안다(절대규칙 1 '조용한 사고').
+  const _asOf = (BRIEF&&BRIEF['데이터업데이트일시']) ||
+    ((repData&&repData.meta&&repData.meta['데이터최종갱신일'])||'').slice(0,16).replace('T',' ') ||
+    '확인 불가';
   const cell = (v,l,k)=>{
     const on = k && KS[k] && KS[k].rows.length;
     return `<div class="rcell${on?' clk':''}"${on?` onclick="openKpi('${k}')"`:''}>` +
@@ -9674,8 +9681,7 @@ function renderDaily(){
       <div class="rdate">보고일<b>${(execRep.meta&&execRep.meta['보고일'])||`${y}-${m}-${String(today.getDate()).padStart(2,'0')}`}</b>
         <span style="font-size:13px;font-weight:600;color:var(--ink-3)">집계기준일 ${
           (execRep.meta&&execRep.meta['집계기준일'])||'-'} · 보고자 ${(execRep.meta&&execRep.meta['보고자'])||'-'}</span>
-        <span style="font-size:13px;font-weight:700;color:var(--brand)">데이터 업데이트 ${
-          (BRIEF&&BRIEF['데이터업데이트일시'])||new Date().toISOString().slice(0,16).replace('T',' ')}</span>
+        <span style="font-size:13px;font-weight:700;color:var(--brand)">데이터 업데이트 ${_asOf}</span>
         <button onclick="openRptDates()" style="margin-top:5px;background:var(--panel);color:var(--brand);border:0;
           border-radius:8px;padding:5px 10px;font-size:13px;font-weight:800;font-family:inherit;
       cursor:pointer"><svg class="inline-bi bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar3"/></svg>날짜 변경</button></div>
@@ -9820,8 +9826,7 @@ function renderDaily(){
       [`${capturePm.진행률}%`, `${capturePm.라벨} 진행률`, capturePm.진행률>=60?'#12813F':'#B54708'],
     ],
     workLog: captureWorkLog,
-    updatedAt: (BRIEF&&BRIEF['데이터업데이트일시']) ||
-      new Date().toISOString().slice(0,16).replace('T',' '),
+    updatedAt: _asOf,
     // 유수비 대표가 올리고 류지영 매니저가 처리한 택배·부품발송처럼
     // 현장 AS 완료와 별개인 당일 업무도 저장 이미지에서 빠지지 않게 싣는다.
     dailyBrief: BRIEF ? {
