@@ -8127,6 +8127,35 @@ def t140_freshness_tells_the_truth():
     print("  [140] 신선도 표기 — 나이는 하나·실패는 말한다·에이전트 밀림 표시 ✅")
 
 
+def t141_long_text_folds():
+    """긴 글은 접고 짧은 글은 건드리지 않나 (2026-08-07 지시).
+
+    사용자 지시: "너무 스크롤이 긴 부분(설명란) … 누르면 자세히 펼쳐지면서 보는 기능 /
+    앱 구동이나 사용 편의에 위배될 경우 니가 알아서 최적의 방법으로".
+    그래서 '무엇을 접을지'를 목록으로 정하지 않는다 — 목록은 짧은 글까지 접어
+    한 번 더 누르게 만든다. **실제 높이를 재서** 정한다.
+    그리고 접어서 잃으면 안 되는 두 가지를 여기서 지킨다.
+    """
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "function lcScan(" in live and "function lcToggle(" in live
+    # ① 재서 정한다 — 한도와 '접을 값어치'가 둘 다 있어야 한다
+    assert "const LC_MAX" in live and "const LC_GAIN" in live
+    assert "el.scrollHeight <= LC_MAX + LC_GAIN" in live, "짧은 글까지 접는다"
+    # ② 누를 것이 든 블록은 접지 않는다 — 숨은 버튼은 '없는 기능'이 된다
+    assert "function lcSafe(" in live
+    for tag in ("input", "select", "textarea", "button", "canvas", "table"):
+        assert tag in live.split("function lcSafe(")[1][:400], \
+            f"lcSafe 가 {tag} 를 품은 블록을 접을 수 있다"
+    # ③ 인쇄는 전부 편다 — 종이에 잘려 나가면 영영 못 편다
+    assert "@media print{" in live and ".lc{max-height:none!important" in live, \
+        "접힌 채로 인쇄되면 잘린 문서가 남는다"
+    # ④ 말투는 대시보드 카드와 같아야 한다(같은 동작에 두 이름을 쓰지 않는다)
+    assert "'펼쳐보기'" in live and "'접기'" in live
+    # ⑤ 화면을 그린 뒤 실제로 불린다 — 안 부르면 코드만 있고 아무 일도 안 일어난다
+    assert "lcScanSoon($('v-'+v))" in live, "화면 전환 뒤 긴 글을 재지 않는다"
+    print("  [141] 긴 글 접기 — 재서 정함·기능 숨김 금지·인쇄는 전부 펼침 ✅")
+
+
 def t136_work_lanes():
     """작업 차선 — 수집 창과 앱·엑셀 창이 하루 종일 나란히 돌 수 있나 (2026-08-07 지시).
 
@@ -8358,6 +8387,7 @@ if __name__ == "__main__":
     t138_daily_run_completion_watch()
     t139_new_version_is_atomic()
     t140_freshness_tells_the_truth()
+    t141_long_text_folds()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
