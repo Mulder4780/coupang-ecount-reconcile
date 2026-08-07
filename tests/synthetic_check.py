@@ -3776,9 +3776,21 @@ def t91_icon_sprite_and_ios_theme():
     assert "--bg:#F2F2F7" in live, "iOS 그룹 배경이 아니다"
     # ★ 2026-07-30 실기기 확인 후 되돌림: 이 앱은 흰 배경이 77곳 하드코딩돼 있어 OS 다크를
     #   따라가면 **흰 카드 위 흰 글자**가 되어 아무것도 안 보였다(사용자 화면으로 확인).
-    #   그래서 다크 모드를 넣지 않고 color-scheme:light 로 못박는다. 다시 넣으려면
-    #   그 77곳을 전부 변수화한 뒤여야 한다 — 이 검증이 그 순서를 지킨다.
-    assert "prefers-color-scheme: dark" not in live,         "다크 모드를 다시 넣었다 — 하드코딩된 밝은 배경을 먼저 변수화해야 한다"
+    #   그래서 다크 모드를 넣지 않고 color-scheme:light 로 못박았다.
+    # ★ 2026-08-07 갱신 — 막을 것은 '다크 모드'가 아니라 **자동으로 따라가는 것**이다.
+    #   그 사이 어둡게가 `[data-theme="dark"]` 로 정식으로 들어왔고(사람이 켠 것만 적용),
+    #   하드코딩된 밝은 판은 검증 [127] 이 따로 막는다. 사용자 지시로 '시스템 동일'
+    #   선택지도 생겼다(2026-08-07: "기본, 다크모드, 시스템 동일 이렇게 구성").
+    #   그러므로 금지선은 **CSS `@media (prefers-color-scheme: dark)` 블록** 하나다 —
+    #   그건 사람이 고르지 않아도 색이 통째로 뒤집히는 유일한 경로이고, 화면을 그대로
+    #   캡처해 보고서로 올리는 이 앱에서는 그것이 곧 사고다.
+    #   JS 의 `matchMedia('(prefers-color-scheme: dark)')` 는 **사람이 '시스템 동일'을
+    #   고른 뒤에만** 읽히므로 허용한다(검증 [132] 가 그 조건을 지킨다).
+    _auto_dark = re.search(r"@media[^{]*prefers-color-scheme\s*:\s*dark", live)
+    assert not _auto_dark, \
+        "CSS 가 OS 다크를 자동으로 따라간다 — 사람이 고르지 않았는데 보고 화면이 검게 나온다"
+    assert "matchMedia" in live and "themeMode() === 'system'" in live, \
+        "'시스템 동일'이 사람이 고른 뒤에만 도는 구조가 아니다"
     assert "color-scheme:light" in live, "밝은 화면으로 고정하는 선언이 없다"
     # 헤더 부제가 flex 안에서 0폭까지 눌려 한 글자씩 세로로 쪼개졌던 사고를 막는다
     assert ".appbar h1{min-width:52px;white-space:nowrap}" in live, "헤더 제목이 다시 쪼개질 수 있다"
@@ -5577,8 +5589,18 @@ def t117_dark_mode_toggle():
     assert 'id="themeBtn"' in live, "밝게/어둡게 단추가 화면에 없다"
     assert "function forceRestyle(" in live and "forceRestyle();" in live, \
         "테마를 바꿔도 일부 요소가 옛 색을 그대로 들고 있다(강제 재계산 없음)"
-    # OS 를 자동으로 따라가면 보고 화면이 멋대로 검어진다 — 사람이 켠 것만 본다
-    assert "prefers-color-scheme" not in live, "OS 다크 설정을 자동으로 따라가고 있다"
+    # ★ 2026-08-07 갱신 — 사용자 지시로 '시스템 동일' 선택지가 생겼다
+    #   ("기본, 다크모드, 시스템 동일 이렇게 구성하게 추가해"). 지켜야 할 것은
+    #   "OS 를 읽지 않는다"가 아니라 **"사람이 고르지 않았는데 따라가지 않는다"** 다.
+    #   · CSS `@media (prefers-color-scheme: dark)` → 금지. 고르지 않아도 색이 뒤집힌다.
+    #   · JS matchMedia → 허용하되 **`themeMode() === 'system'` 일 때만** 반영한다.
+    #   · 기본값은 여전히 'light' — 보고 화면이 기기 설정 따라 검게 나오면 안 된다.
+    assert not re.search(r"@media[^{]*prefers-color-scheme\s*:\s*dark", live), \
+        "CSS 가 OS 다크를 자동으로 따라간다 — 사람이 고르지 않았는데 화면이 검어진다"
+    assert "localStorage.getItem('cw_theme') || 'light'" in live, \
+        "기본값이 밝게가 아니다"
+    assert "if(themeMode() === 'system')" in live, \
+        "시스템이 아닐 때도 OS 변화를 반영한다 — 사람이 고른 값이 멋대로 바뀐다"
 
     dark = live[live.index(':root[data-theme="dark"]'):]
     dark = dark[:dark.index("}")]
@@ -7614,6 +7636,92 @@ def t131_band_quiet_vs_stalled():
     print("  [131] 밴드 조용함 vs 수집 막힘 구분 ✅")
 
 
+def t132_dash_snap_expand_theme_swipe():
+    """[132] 카드 칸 맞춤·펼쳐보기 · 밝기 3종 · 폰 좌우 밀기 (2026-08-07 지시).
+
+    사용자 지시 셋
+      ① "카드 마우스로 잡아서 이동해서 **딱딱 맞아 떨어지게** 하는 알고리즘 추가해 /
+         펼쳐보기 이런 기능들 적용해서 **각 카드가 정확히 균등하게** 맞아떨어지게"
+      ② "이 기능 **기본, 다크모드, 시스템 동일** 이렇게 구성하게 추가해"
+      ③ "**모바일 화면에서 손가락을 좌우로 밀면** 각 카테고리로 이동하는 기능"
+
+    ★ 여기서 지키는 것은 대부분 **실측에서 다친 자리**다.
+      · 칸 맞추기를 **DOM 순서로 세면 안 된다** — 격자가 `row dense` 라 브라우저가
+        뒤 카드를 앞 빈칸으로 끌어올린다. 화면에 없는 빈칸을 보고 멀쩡한 카드를 넓혔다.
+      · 칸 맞추기가 **좁은 화면에서 돌면 안 된다** — 폰에서는 카드가 한 줄에 한 장이라
+        전부 12칸으로 넓히고, 그 폭이 저장돼 **PC 배치가 통째로 망가진다.**
+        폰에서 누른 단추 하나가 PC 화면을 부수는, 되돌리기 어려운 손상이다.
+      · 좌우 밀기는 **가로 스크롤 위에서 양보**해야 한다. 안 그러면 표를 옆으로 보려던
+        손짓이 화면을 통째로 바꾼다.
+    """
+    src = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # ── ① 균등 맞춤 · 펼쳐보기 ────────────────────────────────────────────
+    assert "body.dash-even #dashGrid{align-items:stretch}" in src, \
+        "한 줄에 선 카드의 키를 맞추지 않는다 — 바닥이 들쭉날쭉해진다"
+    assert "--dash-card-h" in src and "dash-expanded" in src, "카드 높이 상한/펼침이 없다"
+    assert "body.dash-even.dash-edit #dashGrid>.dash-block{max-height:none" in src, \
+        "편집 중에도 카드를 자른다 — 잘린 카드는 집을 때 무엇인지 안 보인다"
+    for fn in ("dashMeasureOverflow", "toggleDashCardExpand", "toggleDashboardEven",
+               "snapDashboardLayout", "dashVisualRows", "expandAllDashCards"):
+        assert f"function {fn}(" in src, f"{fn} 가 없다"
+    # 넘칠 때만 단추가 뜬다 — 늘 떠 있으면 누를 것 없는 단추가 열두 장에 붙는다
+    assert "el.scrollHeight>el.clientHeight+8" in src, \
+        "넘침 판정에 여유가 없다 — 반올림 1px 로 멀쩡한 카드에 단추가 뜬다"
+    # 내용이 도착한 뒤에 다시 재야 한다(첫 그림 때는 모든 카드가 '안 넘침'이다)
+    assert "ResizeObserver" in src and "dashMeasureOverflow" in src, \
+        "내용이 채워진 뒤 다시 재지 않는다 — 넘치는 카드에 펼쳐보기가 영영 안 뜬다"
+
+    # ── 칸 맞추기: 실제 배치로 세고, 좁은 화면에서는 안 돈다 ──────────────
+    snap = src[src.index("function snapDashboardLayout("):]
+    snap = snap[:snap.index("\nfunction ")]
+    assert "gridTemplateColumns" in snap and "tracks<2" in snap, \
+        "좁은 화면 보호가 없다 — 폰에서 누르면 모든 카드가 12칸이 되어 PC 배치가 깨진다"
+    assert "dashVisualRows()" in snap, \
+        "칸 맞추기가 DOM 순서로 센다 — row dense 때문에 화면에 없는 빈칸을 고친다"
+    vis = src[src.index("function dashVisualRows("):]
+    vis = vis[:vis.index("\nfunction ")]
+    assert "getBoundingClientRect" in vis, "줄 묶기가 실제 위치를 안 본다"
+
+    # ── ② 밝기 세 가지 ──────────────────────────────────────────────────
+    assert "const THEME_MODES = ['light','dark','system']" in src, "밝기 3종이 없다"
+    assert "'시스템 동일'" in src or "시스템 동일" in src, "'시스템 동일' 이름이 없다"
+    # 기본값은 여전히 밝게다 — 화면을 그대로 캡처해 보고서로 올리기 때문(원래 규칙 유지)
+    assert "localStorage.getItem('cw_theme') || 'light'" in src, \
+        "기본값이 밝게가 아니다 — 보고 화면이 기기 설정 따라 검게 나온다"
+    assert "prefers-color-scheme: dark" in src and "watchSystemTheme" in src, \
+        "'시스템 동일'인데 OS 설정 변화를 안 따라간다"
+    assert "if(themeMode() === 'system')" in src, \
+        "시스템이 아닐 때도 OS 변화를 반영한다 — 사람이 고른 값이 멋대로 바뀐다"
+
+    # ── ③ 폰 좌우 밀기 ─────────────────────────────────────────────────
+    for fn in ("navTabOrder", "swipeBlocked", "swipeToView", "initSwipeNav"):
+        assert f"function {fn}(" in src, f"{fn} 가 없다"
+    assert "initSwipeNav();" in src, "좌우 밀기가 시작될 때 켜지지 않는다"
+    nav = src[src.index("function navTabOrder("):]
+    nav = nav[:nav.index("\nfunction ")]
+    assert ".tabbar button[data-v]" in nav and "offsetParent" in nav, \
+        "밀기 순서를 탭바에서 안 읽는다 — 폰에서 숨은 탭으로 밀려 빈 화면이 뜬다"
+    blk = src[src.index("function swipeBlocked("):]
+    blk = blk[:blk.index("\nfunction ")]
+    assert "scrollWidth > n.clientWidth" in blk, \
+        "가로 스크롤 위에서 양보하지 않는다 — 표를 옆으로 보려다 화면이 바뀐다"
+    assert "dashLayoutEditing" in blk and "dash-drag-live" in blk, \
+        "카드를 옮기는 중에도 화면이 바뀐다"
+    assert "sheetIsOpen()" in blk, "시트가 열려 있는데 뒤 화면이 바뀐다"
+    sw = src[src.index("function swipeToView("):]
+    sw = sw[:sw.index("\nfunction ")]
+    assert "if(!next) return" in sw, "끝에서 처음으로 감긴다 — 밀다가 갑자기 대시보드로 튄다"
+    assert "Math.abs(dx) < Math.abs(dy) * 1.5" in src, "세로로 그은 것도 화면 이동으로 읽는다"
+
+    # ── 세 테마에서 같이 돌아야 한다 (지시 ②의 '동일') ────────────────────
+    more = src[src.index(".dash-more{"):src.index(".dash-more button{")]
+    assert "var(--surface)" in more and "#fff" not in more, \
+        "펼쳐보기 띠가 흰색으로 못 박혀 있다 — 어둡게에서 흰 띠가 뜬다"
+    assert "@media(prefers-reduced-motion:reduce)" in src, "움직임 줄이기 설정을 무시한다"
+    print("  [132] 카드 칸 맞춤·펼쳐보기 · 밝기 3종 · 폰 좌우 밀기 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -7718,6 +7826,7 @@ if __name__ == "__main__":
     t129_call_notes_db_only_and_device_open()
     t130_band_grab_rejects_timeless_harvest()
     t131_band_quiet_vs_stalled()
+    t132_dash_snap_expand_theme_swipe()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
