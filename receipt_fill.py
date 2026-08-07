@@ -151,6 +151,27 @@ def parse_deposit_list(path):
                     elif ("입금" in n and "액" in n) or n == "금액":
                         idx["amt"] = j
                 break
+        # ★ 은행에서 그대로 받은 **거래내역조회** 도 읽는다 (2026-08-07, 김미영 대리 파일).
+        #   머리글이 `거래일시 · 출금 · 입금 · 거래후 잔액 · 거래내용 …` 이라 위 규칙에
+        #   안 걸린다('입금'은 있는데 '입금액'이 아니고, '날짜'가 아니라 '거래일시'다).
+        #   예전 모양(날짜·거래처·입금액)은 사람이 정리한 표였고, 이건 **원본 그대로**다 —
+        #   손이 안 닿았으니 오히려 이쪽이 정본에 가깝다. 둘 다 받는다.
+        #   · 출금 행은 버린다(우리가 세는 것은 받은 돈이다).
+        #   · 거래처 이름은 '상대계좌예금주명'을 먼저 쓴다 — '거래내용'은 은행이 잘라
+        #     `쿠팡로지스틱` 처럼 글자가 빠진 채 오는 일이 많다(이 파일에서도 28건).
+        if hdr_i is None:
+            for i, r in enumerate(rows[:30]):
+                names = {str(c).strip(): j for j, c in enumerate(r) if c is not None}
+                if "거래일시" in names and "입금" in names:
+                    hdr_i = i
+                    idx = {"date": names["거래일시"], "amt": names["입금"]}
+                    for key in ("상대계좌예금주명", "거래내용"):
+                        if key in names:
+                            idx["cust"] = names[key]
+                            break
+                    if "출금" in names:
+                        idx["out"] = names["출금"]
+                    break
         if hdr_i is None or "date" not in idx or "amt" not in idx:
             continue
         for r in rows[hdr_i + 1:]:

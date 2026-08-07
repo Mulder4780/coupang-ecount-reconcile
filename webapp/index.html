@@ -5384,8 +5384,15 @@ function offerUpdate(){
   const mk = (label, primary, fn) => {
     const b = document.createElement('button');
     b.textContent = label;
+    /* ★ 이 띠는 **어느 테마에서든 짙은 남색**이다(`--navy-900` 은 다크에서 안 바뀐다).
+       그러니 위에 얹는 색도 고정이어야 한다 — 여기에 테마 토큰을 쓰면 짝이 어긋난다.
+       실제로 그랬다(2026-08-07 사용자 화면): [지금 갱신]이 `background:var(--panel)`
+       + `color:var(--navy-900)` 이었는데, 어둡게에서는 --panel 이 #1C2438(어두움)이 되고
+       글자는 #0E1B3F 그대로여서 **어두운 판에 어두운 글자** — 단추가 통째로 사라졌다.
+       밝게에서는 --panel 이 밝아 우연히 읽혔을 뿐이다.
+       ※ 검증 [127] 은 <style> 안의 CSS 만 훑어 이 인라인 스타일을 못 봤다 — [133] 이 맡는다. */
     b.style.cssText = 'padding:9px 15px;border-radius:10px;font-size:13.5px;font-weight:800;flex:none;'
-      + (primary ? 'background:var(--panel);color:var(--navy-900)' : 'background:transparent;color:#fff;border:1px solid rgba(255,255,255,.45)');
+      + (primary ? 'background:#fff;color:#0E1B3F' : 'background:transparent;color:#fff;border:1px solid rgba(255,255,255,.45)');
     b.onclick = fn;
     return b;
   };

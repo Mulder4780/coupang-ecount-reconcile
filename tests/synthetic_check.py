@@ -2486,6 +2486,32 @@ def t43_receipt_fill(tmp):
     assert len(custs) == 2, custs                     # 쿠팡 + 김진주위더스
     assert rf.norm_cust("(주)모벤티스") == rf.norm_cust("주식회사 모벤티스"), "법인격 표기 미정규화"
 
+    # ★ 은행에서 그대로 받은 '거래내역조회' 도 읽는다 (2026-08-07 김미영 대리 파일).
+    #   사람이 정리한 표가 아니라 원본이라 머리글이 다르다 — '입금액'이 아니라 '입금',
+    #   '입금일'이 아니라 '거래일시'. 못 알아보면 `9. 미분류` 로 가서 아무도 안 읽는다
+    #   (실제로 classify 가 unknown, 파서가 0건이었다 — 77건이 통째로 사라질 뻔했다).
+    bank = os.path.join(tmp, "거래내역조회_입출식 예금20260807.xlsx")
+    wb3 = openpyxl.Workbook(); w3 = wb3.active
+    w3.append(["거래내역조회_입출식 예금"]); w3.append(["계좌번호:036-509375-04-012"])
+    w3.append([" ", "거래일시", "출금", "입금", "거래후 잔액", "거래내용",
+               "상대계좌번호", "상대은행", "메모", "거래구분", "수표어음금액",
+               "CMS코드", "상대계좌예금주명"])
+    w3.append(["135", "2026-03-11 12:17:07", 0, 8306650, 21429227, "쿠팡로지스틱스",
+               "", "산업은행", "", "타행이체", 0, "", "쿠팡로지스틱스서비스"])
+    # 은행이 거래내용을 잘라 보내는 일이 잦다 — 예금주명을 먼저 봐야 같은 거래처로 묶인다
+    w3.append(["153", "2026-03-23 12:03:15", 0, 920700, -53814429, "쿠팡로지스틱",
+               "", "산업은행", "", "타행이체", 0, "", "쿠팡로지스틱스서비스"])
+    w3.append(["900", "2026-03-24 09:00:00", 5000000, 0, 100, "임대료",
+               "", "산업은행", "", "타행이체", 0, "", "건물주"])   # 출금 — 받은 돈이 아니다
+    wb3.save(bank)
+    from inbox_scan import classify as _cls
+    assert _cls(bank) == "receipt", "은행 거래내역을 못 알아본다 — 미분류로 가서 아무도 안 읽는다"
+    got3 = rf.parse_deposit_list(bank)
+    assert len(got3) == 2, "출금 행까지 입금으로 셌다: %s" % got3
+    assert sum(g["금액"] for g in got3) == 9227350, got3
+    assert {g["거래처"] for g in got3} == {"쿠팡로지스틱스"}, \
+        "잘린 '쿠팡로지스틱' 이 다른 거래처로 갈렸다 — 예금주명을 먼저 봐야 한다: %s" % got3
+
     # 공유 폴더 정본을 원본 자료 폴더에 복사해 둔 경우 같은 70건을 140건으로 세면 안 된다.
     import shutil
     copied = os.path.join(tmp, "보관복사본.xlsx")
@@ -7722,6 +7748,46 @@ def t132_dash_snap_expand_theme_swipe():
     print("  [132] 카드 칸 맞춤·펼쳐보기 · 밝기 3종 · 폰 좌우 밀기 ✅")
 
 
+def t133_inline_style_dark_safe():
+    """[133] 인라인 스타일도 어둡게에서 읽혀야 한다 (2026-08-07 사용자 화면).
+
+    사용자 지적: **"다크모드에서 지금 갱신 텍스트 안보임"** (화면 사진).
+
+    무엇이었나
+      새 버전 알림 띠의 [지금 갱신] 단추가 `background:var(--panel)` +
+      `color:var(--navy-900)` 이었다. 그런데 **`--navy-900` 은 다크 팔레트에서
+      바뀌지 않는다**(#0E1B3F 그대로). 어둡게를 켜면 --panel 만 #1C2438 로 어두워져
+      **어두운 판에 어두운 글자** — 단추가 통째로 사라졌다.
+      밝게에서 --panel 이 밝아 우연히 읽혔을 뿐, 처음부터 짝이 안 맞는 조합이었다.
+
+    ★ 왜 [127] 이 못 잡았나 — 그 검사는 `<style>` 안의 **CSS 규칙**만 훑는다.
+      이건 JS 가 `style.cssText` 로 붙이는 인라인 스타일이라 그물 밖이었다.
+      그래서 이 검사는 **JS 가 만드는 색**을 본다.
+
+    규칙 하나: **고정색 판 위에는 고정색 글자를 쓴다.**
+      `--navy-*` 는 두 테마에서 같은 값이다(짙은 남색 띠·헤더용). 그 위에 테마
+      토큰(--panel/--surface/--ink…)을 얹으면 한쪽 테마에서 반드시 어긋난다.
+    """
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # --navy-* 가 다크 팔레트에서 재정의되지 않는다는 것이 이 규칙의 전제다.
+    dark = live[live.index(':root[data-theme="dark"]'):]
+    dark = dark[:dark.index("}")]
+    assert "--navy-900" not in dark,         "다크 팔레트가 --navy-900 을 바꾼다 — 이 검사의 전제가 달라졌으니 규칙을 다시 세울 것"
+
+    # JS 가 붙이는 인라인 스타일에서 '테마 판 + 고정 남색 글자' 조합을 금지한다
+    for m in re.finditer(r"cssText\s*=\s*(.*?)\n\s*b?\.?on|cssText\s*=\s*(.*?);\n", live, re.S):
+        chunk = (m.group(1) or m.group(2) or "")[:600]
+        if "var(--navy-" in chunk and re.search(r"background:\s*var\(--(panel|surface|bg)", chunk):
+            raise AssertionError(f"인라인 스타일이 테마 판에 고정 남색 글자를 얹는다: {chunk[:120]}")
+
+    # 문제의 그 단추 — 띠가 고정 남색이므로 단추도 고정색이어야 한다
+    up = live[live.index("function offerUpdate("):][:4000]
+    assert "background:#fff;color:#0E1B3F" in up,         "[지금 갱신] 이 다시 테마 토큰을 쓴다 — 어둡게에서 글자가 사라진다"
+    assert "var(--navy-900);color:#fff" in up, "띠 자체는 짙은 남색 + 흰 글자여야 한다"
+    print("  [133] 인라인 스타일 다크 안전 — 고정색 판 위엔 고정색 글자 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -7827,6 +7893,7 @@ if __name__ == "__main__":
     t130_band_grab_rejects_timeless_harvest()
     t131_band_quiet_vs_stalled()
     t132_dash_snap_expand_theme_swipe()
+    t133_inline_style_dark_safe()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
