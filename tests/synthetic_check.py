@@ -6579,6 +6579,13 @@ def t127_dark_mode_no_hardcoded_light_panel():
         if re.search(r"color-mix\([^)]*,\s*(?:white|#fff{1,2}\b)\s*\)", val) or \
            re.search(r"gradient\([^)]*\b(?:white|#fff|#ffffff)\b", val):
             hard = True
+        # ★ 바탕이 밝아도 **같은 규칙이 글자색까지 고정**했다면 사고가 아니다.
+        #   막으려는 것은 '고정된 밝은 바탕 + 테마 따라 밝아지는 글자'이지,
+        #   둘 다 고정이라 테마와 무관하게 같이 가는 판(예: 머리 카드의 흰 단추)이 아니다.
+        if hard:
+            mc = re.search(r"(?<!-)color\s*:\s*([^;]+)", body)
+            if mc and not opaque_light(mc.group(1)) and "var(" not in mc.group(1):
+                hard = False
         if hard:
             bad.append("%s → %s" % (s[:44], val.strip()[:40]))
     assert not bad, ("어둡게 켜면 밝은 판이 떠 글자가 사라진다(바탕도 토큰이어야 한다):\n  "
@@ -8249,7 +8256,40 @@ def t142_flow_editable():
     # ⑧ 색은 등장 순서로 — 해시로 뽑으면 담당 둘이 같은 색을 받는다(실측)
     assert "function flowPalette(" in live and "seen.includes(k)" in live, \
         "담당 색이 충돌할 수 있다 — 색이 곧 담당이라는 뜻이 깨진다"
-    print("  [142] 워크플로우 — 저장/되돌리기 왕복·길게 눌러 집기·담당색 충돌 없음 ✅")
+    # ⑨ 머리 카드 (2026-08-07 지시: "맨 위에 돌발 AS 플로우 차트라고 카드 형태로 멋지게")
+    #   ★ 색을 CSS 변수로 두면 어두운 테마에서 --brand 가 밝은 하늘색이라 흰 글자가
+    #     사라진다. 그래서 이 카드만은 제 색을 값으로 가진다(두 테마에서 같은 그림).
+    hero = live.split(".flow-hero{")[1][:400]
+    assert "var(--brand" not in hero, "머리 카드가 테마 변수를 써서 어두운 테마에서 글자가 사라진다"
+    assert '<h3>돌발 AS 플로우 차트</h3>' in live, "머리 카드 제목이 없다"
+    assert 'id="flowStats"' in live and "function flowHead(" in live, \
+        "머리 카드 숫자(단계·D+·담당)가 화면과 이어져 있지 않다"
+    # ⑩ 4:3 캡처 (2026-08-07 지시: "4대 3 비율로 캡처하는 기능 상단에 추가해")
+    #   ★ 꼴은 **마인드맵**이다 (2026-08-07 지시: "나뭇가지처럼 뻗어가는 구조").
+    #     앞 판은 2열 목록이라 표처럼 보였다. 이제 가운데 뿌리에서 양쪽으로 뻗는다.
+    assert "function flowToPng43(" in live, "4:3 캡처 루틴이 없다"
+    cap = live.split("async function flowToPng43(")[1].split("\nfunction flow43Name")[0]
+    assert "W = 1200, H = 900" in cap, "4:3 이 아니다"
+    assert "bezierCurveTo" in cap, "가지가 곧은 선이다 — 나뭇가지로 보이지 않는다"
+    assert "ROOTGAP = 100" in cap, \
+        "뿌리와 카드 사이가 좁으면 곡선이 카드에 붙어 세로 다발로 보인다(실측 60px)"
+    assert "dir:-1" in cap and "dir: 1" in cap, "한쪽으로만 뻗는다 — 마인드맵이 아니다"
+    assert "bodyH / L.maxH" in cap, "넘칠 때 줄이지 않는다 — 잘린 그림이 나간다"
+    assert "uiFont()" in cap and 'px "' not in cap, \
+        "그리는 곳에 글꼴을 손으로 적었다 — 화면만 바뀌고 이미지는 옛 글꼴로 남는다"
+    assert 'onclick="flowCapture43()"' in live.split('class="flow-hero-cap"')[1][:400], \
+        "캡처 단추가 머리 카드(상단)에 없다"
+    # ⑪ 화면도 나뭇가지 꼴인가 — 뿌리 마디 · 굽은 가지 · 담당별 뻗는 깊이
+    assert 'class="flow-root"' in live and ".flow-root{" in live, "화면에 뿌리 마디가 없다"
+    assert "function flowLanes(" in live and "--flow-in:" in live, \
+        "담당마다 뻗는 깊이가 없다 — 들여쓰기가 뜻을 갖지 못한다"
+    elbow = live.split(".flow-step::before{")[1][:300]
+    assert "border-bottom-left-radius" in elbow, \
+        "가지가 곧은 선이다 — 곧은 선은 표의 괘선처럼 보인다"
+    # 들여쓴 카드에서도 번호 마디는 줄기 위에 남아야 한다
+    assert "left:calc(-43px - var(--flow-in,0px))" in live, \
+        "들여쓰면 번호 마디가 줄기에서 떨어져 나간다"
+    print("  [142] 워크플로우 — 저장/되돌리기 왕복·길게 눌러 집기·담당색·머리카드·4:3 마인드맵 ✅")
 
 
 def t136_work_lanes():
