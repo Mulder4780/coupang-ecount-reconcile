@@ -492,7 +492,14 @@ body.calendar-only .cal2-only-note{display:block}
    날짜 창 안에서 눌러도 뒤 창을 닫지 않고 그 위에 올라온다. 닫으면 원래 자리로 돌아온다. */
 .pj-sheet-wrap{z-index:70}
 .pj-sheet-wrap .cal2-sheet{max-height:88vh}
-@media(min-width:900px){.pj-sheet-wrap .cal2-sheet{width:min(680px,94vw);max-height:84vh}}
+/* ★ PC 가운데 정렬을 **여기서 다시 적어 준다.** 날짜 창과 같은 `.cal2-sheet` 를 쓰지만,
+   폭을 이 창만 넓게 잡는 순간 위 규칙과 우선순위가 엉켜 가운데로 못 오는 것을 실측했다
+   (2026-08-08: 창이 오른쪽·아래로 640px 밀려 화면 밖으로 나갔다). 두 줄이면 끝난다. */
+@media(min-width:900px){
+  .pj-sheet-wrap .cal2-sheet{width:min(680px,94vw);max-height:84vh;
+    transform:translate(-50%,-46%) scale(.96)}
+  .pj-sheet-wrap.in .cal2-sheet{transform:translate(-50%,-50%) scale(1);opacity:1}
+}
 /* 한눈 요약 — 숫자 넷. 없는 값은 '—' 로 두고 0 으로 채우지 않는다. */
 .pj-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:7px}
 .pj-stat{background:var(--panel);border-radius:12px;padding:9px 10px;min-width:0}
@@ -8808,8 +8815,10 @@ function renderCalGrid(){
     const txs=evs.slice(0,TXN).map(e=>{
       const k=calKindMeta(calKindOf(e));
       const tm=e.시간?`<span class="tm">${esc2(String(e.시간).slice(0,5))}</span>`:'';
-      return `<span class="cal2-tx hit" style="--c:${k.color}" onclick="${pjCall(e, true)}"
-          title="${esc2(k.label+' · '+calCampOf(e)+' — 눌러서 과거 이력 보기')}">`
+      const hit = pjHas(e);
+      return `<span class="cal2-tx${hit?' hit':''}" style="--c:${k.color}"
+          ${hit?`onclick="${pjCall(e, true)}"`:''}
+          title="${esc2(k.label+' · '+calCampOf(e)+(hit?' — 눌러서 과거 이력 보기':''))}">`
         + `${tm}${esc2(calCampOf(e))}</span>`;
     }).join('') + (evs.length>TXN?`<span class="cal2-txmore">+${evs.length-TXN}건 더</span>`:'');
     html+=`<button type="button" class="${cls.join(' ')}" onclick="calPickDay('${iso}')"
@@ -8860,9 +8869,9 @@ function calDetailHTML(e){
     <dt>원장 연결</dt><dd>${esc2(e.원천업무ID||'미연결 — 확인 필요')}</dd>
     <dt>${e.예측?'예측 근거':'연결 근거'}</dt><dd>${esc2(e.연결근거||'없음')}${e.장비수?` · ${esc2(e.장비수)}대`:''}</dd>
     ${e.예측?`<dt>주의</dt><dd>과거 점검일로 계산한 예상일입니다. 공식 일정 확정 전이며 Google Calendar에는 자동 저장하지 않습니다.</dd>`:''}</dl>
-    <div style="margin-top:11px"><button type="button" class="abtn primary" style="width:100%;justify-content:center"
+    ${pjHas(e)?`<div style="margin-top:11px"><button type="button" class="abtn primary" style="width:100%;justify-content:center"
       onclick="${pjCall(e)}"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-counterclockwise"/></svg>
-      이 현장 과거 이력 · 현황 보기</button></div>`;
+      이 현장 과거 이력 · 현황 보기</button></div>`:''}`;
 }
 
 /* ── 날짜 창(폰=아래에서 올라오는 레이어 · PC=가운데 모달) ──────────────────
@@ -9086,13 +9095,28 @@ document.addEventListener('keydown', (ev)=>{ if(ev.key==='Escape' && pjSheetOpen
     if(dy>70) pjCloseSheet();
   }, {passive:true});
 })();
-/* 어디서 불러도 같은 인자 — 캠프명에 따옴표가 들어가도 깨지지 않게 한 곳에서 만든다. */
+/* 어디서 불러도 같은 인자 — 캠프명에 따옴표가 들어가도 깨지지 않게 한 곳에서 만든다.
+   ★ 여기서는 `calCampOf` 와 달리 **제목으로 대신하지 않는다.** 제목은
+   "정기점검 예측 · 부산4MB(망미동)" 처럼 꾸민 문장이라 현장 이름으로 맞출 수 없다.
+   맞출 것이 없으면 단추 자체를 그리지 않는다(아래 pjHas). */
+function pjHas(e){ return !!(String(e.캠프명||e.장소||'').trim() || String(e.프로젝트NO||'').trim()); }
 function pjCall(e, stop){
-  const q = s => JSON.stringify(String(s||'')).replace(/"/g,'&quot;');
-  return `${stop?'event.stopPropagation();':''}pjOpen(${q(calCampOf(e))},${q(e.프로젝트NO||'')})`;
+  const q = s => JSON.stringify(String(s||'').trim()).replace(/"/g,'&quot;');
+  return `${stop?'event.stopPropagation();':''}pjOpen(${q(e.캠프명||e.장소||'')},${q(e.프로젝트NO||'')})`;
+}
+/* 상세 창(정산·작업)에서 쓰는 넓은 단추. 캠프명을 모르면 **아예 그리지 않는다** —
+   눌러도 아무것도 안 나오는 단추를 두면 사람이 고장으로 읽는다(원본 단추와 같은 규칙). */
+function pjHistWide(camp, pj){
+  camp = String(camp||'').trim(); pj = String(pj||'').trim();
+  if(!camp && !pj) return '';
+  const e = {캠프명:camp, 프로젝트NO:pj};
+  return `<div style="margin:0 0 10px"><button type="button" class="abtn" style="width:100%;justify-content:center"
+    onclick="${pjCall(e)}"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-counterclockwise"/></svg>
+    이 현장 과거 이력 · 현황 보기</button></div>`;
 }
 /* 목록 줄 옆에 붙는 '이력' 단추 한 벌 — 캘린더 아래 목록과 날짜 창이 같은 것을 쓴다. */
 function pjHistBtn(e){
+  if(!pjHas(e)) return '';
   return `<button type="button" class="pj-hist" title="이 현장의 과거 이력"
     aria-label="${esc2(calCampOf(e))} 과거 이력 보기" onclick="${pjCall(e)}">
     <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-counterclockwise"/></svg></button>`;
@@ -9133,6 +9157,22 @@ async function shareCalendarLink(){
    A4(96dpi) = 794×1123. 인쇄해도 잘리지 않게 이 크기에 **맞춰 넣는다**(넘치면 줄인다). */
 const A4W = 794, A4H = 1123;
 function calCampOf(e){ return String(e.캠프명 || e.장소 || e.제목 || '').trim() || '(장소 미입력)'; }
+/* 그 건이 **무슨 일이었나** — 캡처 목록 가운데 칸과 화면 목록이 같은 것을 쓴다.
+   ★ 없는 말을 지어내지 않는다. 원장에 있는 값만 이어 붙이고, 없으면 빈 문자열이다
+     (빈칸은 "자료가 없다"는 사실 그대로다. '-' 이나 '기타'로 채우면 있는 척이 된다). */
+function calWhyOf(e){
+  if(!e) return '';
+  const v = [];
+  if(e.긴급도 && e.긴급도 !== '보통') v.push(e.긴급도);
+  if(e.경과일 != null) v.push(`${e.경과일}일 지남`);
+  if(e.신청내용) v.push(String(e.신청내용).replace(/\s+/g, ' ').trim());
+  if(e.이상발견 && e.이상발견 !== '없음') v.push(`이상: ${e.이상발견}`);
+  if(e.진행상태) v.push(e.진행상태);
+  if(e.점검상태) v.push(e.점검상태);
+  if(e.유무상) v.push(e.유무상);
+  if(e.예측) v.push(`예측 ${e.예측신뢰도 || ''}`.trim());
+  return v.join(' · ');
+}
 /* opt.toBlob 이면 저장하지 않고 이미지를 돌려준다 — '복사' 가 같은 그림을 쓰려고
    똑같은 그리기 코드를 두 벌 두면 한쪽만 고쳐지는 날이 온다(2026-08-06). */
 async function calendarCapture(opt){
@@ -9275,7 +9315,18 @@ async function calendarCapture(opt){
     x.font = F(fz); x.fillStyle = '#101828';
     const tail = [e.담당기사 || '', e.프로젝트NO || ''].filter(Boolean).join(' · ');
     const tailW = cols >= 3 ? 0 : 84 * (fz / 9);
-    x.fillText(clip(calCampOf(e), colW - dateW - tailW - 10), ox + 6 + dateW, ly);
+    /* 가운데 빈 자리에 **사유·진행내용**을 적는다 (2026-08-08 지시).
+       캠프명 뒤가 통째로 비어 있어 "무슨 건인지"를 알려면 앱을 다시 열어야 했다.
+       캠프명을 자르지 않는다 — 실제로 그린 폭을 재서 **남는 만큼만** 사유가 쓴다. */
+    const midW = colW - dateW - tailW - 10;
+    const campTxt = clip(calCampOf(e), midW);
+    x.fillText(campTxt, ox + 6 + dateW, ly);
+    const why = calWhyOf(e), usedW = x.measureText(campTxt).width;
+    if(why && midW - usedW > 26){
+      x.font = F(fz - 0.4); x.fillStyle = '#667085';
+      x.fillText(clip(why, midW - usedW - 8), ox + 6 + dateW + usedW + 6, ly);
+      x.font = F(fz); x.fillStyle = '#101828';
+    }
     if(tailW){
       x.fillStyle = '#667085';
       x.fillText(clip(tail, tailW), ox + colW - tailW, ly);
