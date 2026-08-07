@@ -5139,6 +5139,19 @@ def t112_band_plan_order_and_scope():
     js = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
     assert "muteDialogs" in js and "w.alert" in js, "수집기가 안내창을 막지 않는다"
 
+    # ★ 도구가 있는데 아무도 안 부르는 것이 가장 조용한 누락이다 (2026-08-07 발견).
+    #   `fill_erp_status.py` 는 2026-07-28 에 만들어졌는데 daily_run 에 없었다.
+    #   손으로 돌린 사람이 있을 때만 채워졌다는 뜻이다 — 그냥 돌려 보니 52칸이 남아
+    #   있었고 그중 46건은 ERP 가 이미 완료를 입증한 건이었다.
+    _dr = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "fill_erp_status.py" in _dr, \
+        "ERP 등록여부 판정이 daily_run 에 없다 — 사람이 손으로 돌릴 때만 채워진다"
+    assert re.search(r'fill_erp_status\.py"\)\s*,\s*"--queue"', _dr), \
+        "--queue 가 아니면 엑셀을 직접 연다(반영은 11:00·15:00 회차만)"
+    import daily_run as _DR
+    assert _DR._retryable(["fill_erp_status.py", "--queue"]) is False, \
+        "큐 단계를 재시도하면 같은 입력이 두 번 들어간다"
+
     # ★ 본문이 그려졌다고 머리말까지 그려진 것은 아니다 (2026-08-07 실측).
     #   밴드는 .postText 를 먼저 칠하고 .time 을 조금 뒤에 채운다. 보자마자 가져가면
     #   **날짜 없는 글**이 저장되고, 그런 글은 어떤 작업과도 대조되지 않는다.
