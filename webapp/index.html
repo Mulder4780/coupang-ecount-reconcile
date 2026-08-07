@@ -130,6 +130,9 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .appbar-brand-stack{display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:3px;flex:none;line-height:1;padding:2px 0}
 .appbar-status{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:none;min-width:0}
+/* 좌측 상단 CSOS 마크만 2배 (2026-08-07 지시). 보고 캡처 머리(.rpt)나 탭바의 같은
+   클래스는 건드리지 않는다 — 그쪽 배치는 이 크기를 전제로 잡혀 있다. */
+.appbar-identity .logo{width:60px;height:60px;border-radius:16px}
 .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#3D68FF,#1533A3 46%,#060D2B);
   display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 6px rgba(21,51,163,.5)}
 .logo svg{width:22px;height:22px}
@@ -2596,7 +2599,7 @@ body.dash-drag-live #dashGuides{display:grid}
     <div class="source-canvas">
       <div class="source-head">
         <div class="ios-large"><h2>원본 자료</h2>
-          <p class="sub">ERP·밴드·카톡·PO·서류 원본을 한 곳에서 찾습니다. 카드를 누르면 PC에서 파일이 열립니다.</p></div>
+          <p class="sub">ERP·밴드·카톡·PO·서류 원본을 한 곳에서 찾습니다. 카드를 누르면 지금 보고 있는 기기에서 바로 열립니다.</p></div>
         <button class="src-refresh" type="button" onclick="loadSources()" title="색인 새로고침" aria-label="색인 새로고침">
           <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>
         </button>
