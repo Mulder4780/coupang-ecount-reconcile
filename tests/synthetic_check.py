@@ -8216,6 +8216,68 @@ def t144_topmost_pin_always_restores():
     print("  [144] 항상위 고정 — 예외가 나도 복귀한다 ✅")
 
 
+def t145_redirect_deleted_needs_two_rounds():
+    """리다이렉트 실패를 '삭제된 글'로 적되, **한 회차만으로는 절대 안 적나** (분담판 [13]).
+
+    구멍 9건이 매 회차 9/9 실패하는데 아무 데도 안 적혀서 다음 회차가 또 같은 9건을
+    뽑았다. 고치는 방향은 분명한데, 잘못 고치면 훨씬 나쁜 일이 난다 —
+    로그인이 풀린 밤이면 **모든 번호**가 리다이렉트로 실패한다. 그 한 번을 근거로
+    묘비를 세우면 멀쩡한 글 수천 건이 '지워진 글'로 적히고, 그건 되돌릴 수 없다.
+
+    그래서 여기서 지키는 것은 '적히나'가 아니라 **'함부로 적지 않나'** 다.
+    """
+    import importlib.util
+    p = os.path.join(ROOT, "band", "convert_dump.py")
+    spec = importlib.util.spec_from_file_location("_cd_t145", p)
+    C = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(C)
+
+    assert C.REDIRECT_ROUNDS_FOR_DELETED >= 2, \
+        "한 회차 실패만으로 묘비를 세운다 — 로그인 풀린 밤 한 번이면 전량이 지워진다"
+
+    # ① 피드 껍데기 지문 — 같은 지문 2개 이상일 때만 증거다.
+    assert C._feed_sigs({"10": "AAA", "11": "AAA", "12": "BBB"}) == {"AAA"}, \
+        "저 혼자인 지문을 증거로 친다 — '화면이 늦게 그려진 진짜 글'과 구분이 안 된다"
+
+    # ② ★ 한 건도 못 받은 회차는 무엇의 증거도 아니다.
+    nt = {"10": "AAA", "11": "AAA"}
+    assert C._redirect_hits(nt, ok_count=0) == set(), \
+        "수확 0건인 회차(로그인 풀림·네트워크 끊김)의 실패를 증거로 센다"
+    assert C._redirect_hits(nt, ok_count=5) == {10, 11}
+
+    # ③ 회차가 하나뿐이면 아직 적지 않는다.
+    merged = {}
+    assert C._mark_redirect_deleted("b", merged, {10: {1000}}) == 0 and not merged, \
+        "회차 하나로 묘비를 세운다"
+
+    # ④ 서로 다른 회차 둘이면 적는다 — 그래야 다음 계획에서 빠진다.
+    n = C._mark_redirect_deleted("b", merged, {10: {1000, 2000}})
+    assert n == 1 and merged["10"]["deleted"] is True
+    assert merged["10"].get("deleted_by") == "redirect", "무엇을 근거로 지웠는지 안 남긴다"
+
+    # ⑤ 같은 회차를 두 번 세지 않는다(집합이므로) — 덤프가 중복돼도 부풀지 않는다.
+    merged2 = {}
+    assert C._mark_redirect_deleted("b", merged2, {10: {1000}}) == 0
+
+    # ⑥ ★ 본문을 손에 쥔 글은 리다이렉트가 몇 번이든 건드리지 않는다.
+    keep = {"10": {"created_at": 123, "content": "진짜 글"}}
+    assert C._mark_redirect_deleted("b", keep, {10: {1000, 2000, 3000}}) == 0
+    assert keep["10"]["created_at"] == 123 and not keep["10"].get("deleted"), \
+        "받아 둔 진짜 글에 묘비를 덮어씌운다 — 되돌릴 수 없다"
+
+    # ⑦ 묘비를 세우면 다음 계획의 '구멍'에서 실제로 빠지는가(이게 [13]의 목적이다).
+    spec2 = importlib.util.spec_from_file_location(
+        "_rp_t145", os.path.join(ROOT, "band", "recheck_plan.py"))
+    R = importlib.util.module_from_spec(spec2)
+    spec2.loader.exec_module(R)
+    posts = {"1": {"created_at": 1}, "3": {"created_at": 3}}
+    assert 2 in (R.plan("b", posts, floor=1) or {}).get("gaps", []), "구멍이 안 잡힌다"
+    posts["2"] = {"deleted": True, "deleted_by": "redirect"}
+    assert 2 not in (R.plan("b", posts, floor=1) or {}).get("gaps", []), \
+        "묘비를 세웠는데도 매 회차 같은 번호를 다시 뽑는다 — [13] 이 안 고쳐졌다"
+    print("  [145] 리다이렉트 삭제 판정 — 회차 둘 이상·수확 0 회차 제외 ✅")
+
+
 def t141_long_text_folds():
     """긴 글은 접고 짧은 글은 건드리지 않나 (2026-08-07 지시).
 
@@ -8383,6 +8445,38 @@ def t142_flow_editable():
     # 들여쓴 카드에서도 번호 마디는 줄기 위에 남아야 한다
     assert "left:calc(-43px - var(--flow-in,0px))" in live, \
         "들여쓰면 번호 마디가 줄기에서 떨어져 나간다"
+    # ⑫ 갈래(분기) — 개발자용 플로우차트가 막혀 있던 자리 (2026-08-08)
+    #   접수는 네 갈래로 들어온다. 일직선 자료구조로는 그걸 담을 수 없어, 한 단계에
+    #   메모로 눌러 담았었다. 그러면 개발자가 '접수 화면 하나'로 만든다.
+    assert "갈래" in str(L.FLOW_COLS) or "branch" in L.FLOW_COLS, "갈래 열이 없다"
+    got = L.flow_steps()
+    assert all("갈래" in s for s in got), "흐름을 읽을 때 갈래가 빠진다"
+    forks = [s["갈래"] for s in got if s.get("갈래")]
+    assert forks, "기본 흐름에 갈래가 하나도 없다 — 접수 네 갈래가 사라졌다"
+    # 저장·되돌리기 왕복에서 갈래가 살아남는가
+    probe = [dict(x) for x in got]
+    probe[0] = dict(probe[0], 갈래="검증갈래")
+    L.flow_save(probe, who="synthetic")
+    assert L.flow_steps()[0]["갈래"] == "검증갈래", "저장하면 갈래가 사라진다"
+    L.flow_restore(who="synthetic")
+    assert [s["갈래"] for s in L.flow_steps()] == [s["갈래"] for s in got], \
+        "되돌리면 갈래가 어긋난다"
+    # 화면·캡처·편집칸이 모두 갈래를 아는가
+    assert "function flowGroups(" in live and "last.branch === b" in live, \
+        "잇달아 같은 갈래를 한 묶음으로 보지 않는다"
+    assert 'class="flow-fork"' in live and "flow-merge" in live, \
+        "갈래를 묶어 보이지 않는다 — 개발자가 차례로 일어나는 단계로 읽는다"
+    assert 'data-f="갈래"' in live and "갈래:g('갈래')" in live, \
+        "갈래를 사람이 고칠 수 없다"
+    assert "const fk = FORK[idx];" in cap, "캡처가 갈래를 한 마디에서 갈라 그리지 않는다"
+    # ⑬ 개발 사양 — 그림만으로는 못 만든다
+    assert "function flowDevSpec(" in live, "개발자용 사양이 없다"
+    spec = live.split("function flowDevSpec(")[1].split("\nfunction flow43Name")[0]
+    assert "flowchart TD" in spec and "subgraph" in spec, "분기가 흐름도에 안 나온다"
+    assert "prev.forEach(p=>L.push(" in spec, "갈래가 다음 단계로 합류하지 않는다"
+    assert "확인 전" in spec, \
+        "'(확인 전)'을 지운 채 넘긴다 — 개발자가 추정을 사실로 만든다"
+    assert 'onclick="flowDevSpec()"' in live, "개발 사양 단추가 화면에 없다"
     print("  [142] 워크플로우 — 저장/되돌리기 왕복·길게 눌러 집기·담당색·머리카드·4:3 마인드맵 ✅")
 
 
@@ -8621,6 +8715,7 @@ if __name__ == "__main__":
     t142_flow_editable()
     t143_originals_one_tap()
     t144_topmost_pin_always_restores()
+    t145_redirect_deleted_needs_two_rounds()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

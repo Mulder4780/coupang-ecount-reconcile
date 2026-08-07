@@ -88,6 +88,83 @@ def _absent_above(top, missing, notime):
     return sorted(out)
 
 
+# ★ 리다이렉트 실패를 '삭제된 글'로 판정하는 데 필요한 **서로 다른 회차** 수 (2026-08-07).
+#   1 이면 안 된다. 로그인이 풀렸거나 네트워크가 끊긴 회차는 **모든 번호**가 리다이렉트로
+#   실패하는데, 그 한 번을 근거로 묘비를 세우면 멀쩡한 글을 통째로 지운 것으로 적는다.
+#   되돌릴 수 없는 판정이므로 증거는 좁게 잡는다 — CLAUDE.md "실패는 삭제의 증거가 아니다".
+REDIRECT_ROUNDS_FOR_DELETED = 2
+
+
+def _feed_sigs(notime):
+    """한 회차에서 **피드 껍데기**로 확인된 본문 지문들.
+
+    없는 번호(또는 지워진 번호)를 열면 밴드는 200 과 앱 껍데기를 주고 그 자리에
+    직전 화면 — 즉 **피드 맨 위 글** — 이 그대로 남는다. 그래서 그런 번호끼리는
+    본문 지문이 서로 똑같다. 같은 지문이 2개 이상이면 그것이 '피드 껍데기'다.
+
+    지문이 저 혼자면 증거로 치지 않는다. 그건 '화면이 늦게 그려진 진짜 글'과
+    구분되지 않는다.
+    """
+    sigs = {}
+    for no, sig in (notime or {}).items():
+        if str(no).isdigit() and sig:
+            sigs.setdefault(sig, []).append(int(no))
+    return {s for s, nos in sigs.items() if len(nos) >= 2}
+
+
+def _redirect_hits(notime, ok_count):
+    """이 회차가 '리다이렉트로 확인'한 번호들 → set.
+
+    `ok_count` 는 이 회차에서 **실제로 수확된 글 수**다. 0 이면 아무것도 돌려주지
+    않는다 — 한 건도 못 받은 회차는 밴드가 아니라 **이쪽이 고장난 회차**이고,
+    그런 회차의 실패는 무엇의 증거도 되지 못한다. 이 한 줄이 없으면 로그인이 풀린
+    밤 한 번으로 수천 건이 묘비를 쓴다.
+    """
+    if not ok_count:
+        return set()
+    feed = _feed_sigs(notime)
+    return {int(no) for no, sig in (notime or {}).items()
+            if str(no).isdigit() and sig in feed}
+
+
+def _mark_redirect_deleted(band, merged, rounds):
+    """여러 회차가 같은 번호를 리다이렉트로 확인했으면 **묘비를 세운다** → 세운 수.
+
+    왜 필요한가 (2026-08-07, 분담판 [13])
+      밴드 구멍 9건(3525·3397·3378·3374·3373·2598·2597·2595·2573)이 매 회차 9/9 로
+      실패하는데 아무 데도 안 적혀서, 다음 회차 계획이 **또 같은 9건을 뽑았다.**
+      `missing`(밴드가 '삭제되었거나 찾을 수 없습니다'라고 명시)만 묘비를 세우고
+      리다이렉트 실패는 세우지 않았기 때문이다. 그 조심성 자체는 옳았다 —
+      실패는 삭제의 증거가 아니다. 다만 **한 번의 실패**가 증거가 아닐 뿐,
+      서로 다른 날 · 서로 다른 회차가 같은 번호에서 같은 모양으로 실패하고
+      그 회차들이 다른 글은 멀쩡히 받아 왔다면, 그것은 이야기가 다르다.
+
+    `rounds` = {번호: {회차 캡처시각, ...}}
+    """
+    if not rounds:
+        return 0
+    n = 0
+    for no, whens in rounds.items():
+        if len(whens) < REDIRECT_ROUNDS_FOR_DELETED:
+            continue
+        key = str(no)
+        cur = merged.get(key)
+        # 본문을 받아 둔 진짜 글은 절대 건드리지 않는다. 리다이렉트가 여러 번 났어도
+        # 손에 본문이 있으면 그건 있는 글이다 — 여기서 지우면 되돌릴 수 없다.
+        if isinstance(cur, dict) and (cur.get("created_at") or cur.get("content")):
+            continue
+        if isinstance(cur, dict) and cur.get("deleted"):
+            continue
+        last = max(whens)
+        merged[key] = {"deleted": True, "deleted_at": last,
+                       "captured_at": max(int((cur or {}).get("captured_at") or 0), last),
+                       "deleted_by": "redirect",
+                       "why": f"서로 다른 회차 {len(whens)}번이 피드 리다이렉트로 확인 "
+                              f"— 지워진 글(분담판 [13], 2026-08-07)"}
+        n += 1
+    return n
+
+
 def _record_probe(band, name, merged, missing, cap_ms, notime=None):
     """이 회차가 '번호 N 위로는 글이 없다'를 증명했으면 적어 둔다.
 
@@ -164,6 +241,11 @@ def _mark_changed(band, nos):
 
 
 def main():
+    # ★ 리다이렉트 실패는 **회차를 가로질러** 세야 뜻이 생긴다 (분담판 [13]).
+    #   한 덤프만 보면 "이번에 실패했다"밖에 모른다. 덤프는 매 실행 전부 재처리되므로
+    #   여기 담아 두면 이 한 번의 실행이 곧 '여러 회차를 본 것'이 된다.
+    #   {밴드: {번호: {회차 캡처시각, ...}}}
+    redirect_rounds = {}
     for f in dump_files():
         d = json.load(open(f, encoding="utf-8"))
         if not isinstance(d, dict) or not isinstance(d.get("posts"), (dict, list)):
@@ -266,6 +348,14 @@ def main():
             rec["deleted_at"] = cap_ms
             rec["captured_at"] = max(int(rec.get("captured_at") or 0), cap_ms)
             merged[no] = rec
+        # 이 회차가 리다이렉트로 확인한 번호를 회차 시각과 함께 쌓아 둔다.
+        # 판정은 모든 덤프를 다 본 **뒤에** 한다 — 한 회차만 보고 묘비를 세우지 않는다.
+        try:
+            ok_here = sum(1 for p in posts.values() if p.get("created_at"))
+            for no in _redirect_hits(d.get("notime") or {}, ok_here):
+                redirect_rounds.setdefault(band, {}).setdefault(no, set()).add(cap_ms)
+        except Exception:
+            pass
         if changed:
             _mark_changed(band, changed)
         gone = len(d.get("missing") or [])
@@ -325,6 +415,31 @@ def main():
         dated = sum(1 for p in merged.values() if p.get("created_at"))
         print(f"{d.get('name', band)}: {len(posts)}건 반영 → 캐시 {before}→{len(merged)}건 "
               f"(날짜 있는 글 {dated}건)")
+
+    # ── 모든 덤프를 본 뒤에야 리다이렉트 묘비를 세운다 (분담판 [13]) ──────────────
+    # 캐시를 다시 열어 고치는 이유는, 판정에 필요한 '서로 다른 회차'가 위 반복문을
+    # 다 돌아야 비로소 모이기 때문이다. 회차 하나로는 판정할 수 없다.
+    for band, rounds in redirect_rounds.items():
+        ripe = {no: w for no, w in rounds.items()
+                if len(w) >= REDIRECT_ROUNDS_FOR_DELETED}
+        if not ripe:
+            continue
+        dst = os.path.join(CACHE, f"{band}.json")
+        try:
+            doc = json.load(open(dst, encoding="utf-8"))
+        except Exception:
+            continue
+        merged = doc.get("posts") or {}
+        n = _mark_redirect_deleted(band, merged, ripe)
+        if not n:
+            continue
+        doc["posts"] = merged
+        tmp = dst + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, ensure_ascii=False)
+        os.replace(tmp, dst)
+        print(f"  · 리다이렉트로 확인된 삭제 글 {n}건 기록({band}) "
+              f"— 서로 다른 회차 {REDIRECT_ROUNDS_FOR_DELETED}번 이상. 다시 훑지 않는다")
 
 
 if __name__ == "__main__":
