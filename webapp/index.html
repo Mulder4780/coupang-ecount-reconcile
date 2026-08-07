@@ -9095,6 +9095,86 @@ document.addEventListener('keydown', (ev)=>{ if(ev.key==='Escape' && pjSheetOpen
     if(dy>70) pjCloseSheet();
   }, {passive:true});
 })();
+/* ═══ 입력 자동완성 — 원장에 있는 값을 추천한다 (2026-08-08 지시) ═══════════
+   "입력란 입력할 때 DB 기반으로 자동 입력 추천 뜨게 전체 앱 시스템 코딩해 /
+    사용자가 매번 찾아 입력하기 불편해"
+
+   ★ **화면마다 손으로 붙이지 않는다.** 입력칸은 여러 곳에서 그때그때 그려지고
+     (상세 시트·업무센터·워크플로우 편집), 새 화면을 만들 때마다 붙이는 것을 잊으면
+     그 화면만 조용히 옛날처럼 남는다. 그래서 **문서 전체를 지켜보다가**(MutationObserver)
+     새로 생긴 입력칸에 저절로 붙인다.
+   ★ 목록은 브라우저 제 `<datalist>` 를 쓴다. 직접 만든 드롭다운은 폰 키보드가
+     올라올 때 가려지고, 화면 회전·스크롤마다 자리를 다시 잡아야 한다.
+   ★ **없는 값을 만들어 주지 않는다.** 서버가 원장에 실제로 있는 값만 돌려준다.
+     지어낸 후보를 고르면 그게 새 오타가 되어 원장에 들어간다.                    */
+const SG_MAP = {
+  camp_name:'캠프명', 캠프명:'캠프명', camp:'캠프명',
+  project_no:'프로젝트NO', 프로젝트NO:'프로젝트NO', pj:'프로젝트NO',
+  assignee:'사람', submitter:'사람', 담당:'사람', 담당기사:'담당기사', worker:'담당기사',
+  work_status:'진행상태', status:'진행상태', 진행상태:'진행상태',
+  check_status:'점검상태', 점검상태:'점검상태',
+  urgency:'긴급도', 긴급도:'긴급도',
+  cost_type:'비용구분', 비용구분:'비용구분',
+  paid_type:'유무상', 유무상:'유무상',
+  action_note:'신청내용', description:'신청내용', 신청내용:'신청내용',
+};
+const SG_CACHE = new Map();
+let SG_SEQ = 0;
+function sgKey(el){
+  return SG_MAP[el.name] || SG_MAP[el.dataset.f] || SG_MAP[el.dataset.sgField] || '';
+}
+async function sgFetch(field, q){
+  const key = field + ' ' + (q||'');
+  if(SG_CACHE.has(key)) return SG_CACHE.get(key);
+  const p = api('/api/suggest?f='+encodeURIComponent(field)+'&q='+encodeURIComponent(q||''))
+    .then(d => (d && d.values) || []).catch(() => []);
+  SG_CACHE.set(key, p);
+  if(SG_CACHE.size > 120) SG_CACHE.delete(SG_CACHE.keys().next().value);
+  return p;
+}
+function sgPaint(el, vals){
+  const dl = document.getElementById(el.getAttribute('list'));
+  if(!dl) return;
+  dl.innerHTML = (vals||[]).map(v=>`<option value="${esc2(v)}"></option>`).join('');
+}
+function sgAttach(el){
+  const field = sgKey(el);
+  // 추천할 것이 없는 칸도 표시해 둔다 — 안 그러면 감시가 돌 때마다 다시 뒤진다.
+  el.dataset.sg = field || '-';
+  if(!field) return;
+  const id = 'sgdl' + (++SG_SEQ);
+  const dl = document.createElement('datalist'); dl.id = id;
+  document.body.appendChild(dl);
+  el.setAttribute('list', id);
+  el.setAttribute('autocomplete', 'off');   // 브라우저 옛 입력이 원장 값을 덮는 것을 막는다
+  let t = null;
+  const ask = () => sgFetch(field, el.value).then(v => sgPaint(el, v));
+  el.addEventListener('focus', ask, {passive:true});
+  el.addEventListener('input', () => { clearTimeout(t); t = setTimeout(ask, 140); }, {passive:true});
+}
+function sgWire(root){
+  const scope = (root && root.querySelectorAll) ? root : document;
+  scope.querySelectorAll('input:not([data-sg])').forEach(el=>{
+    const ty = (el.type||'text').toLowerCase();
+    if(ty==='file'||ty==='date'||ty==='hidden'||ty==='checkbox'||ty==='radio'||ty==='number') return;
+    sgAttach(el);
+  });
+  /* 화면을 다시 그리면 입력칸은 사라져도 목록(datalist)은 body 에 남는다.
+     하루 종일 켜 두는 화면이라 이것을 안 치우면 조용히 쌓인다. */
+  document.querySelectorAll('datalist[id^="sgdl"]').forEach(dl=>{
+    if(!document.querySelector('input[list="' + dl.id + '"]')) dl.remove();
+  });
+}
+(function(){                    // 새로 그려지는 화면에도 저절로 붙는다
+  let pending = null;
+  const run = () => { pending = null; try{ sgWire(document); }catch(e){} };
+  const kick = () => { if(!pending) pending = setTimeout(run, 200); };
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', kick);
+  else kick();
+  try{ new MutationObserver(kick).observe(document.documentElement, {childList:true, subtree:true}); }
+  catch(e){ /* 옛 브라우저 — 그때는 화면 전환마다 sgWire(document) 를 부르면 된다 */ }
+})();
+
 /* 어디서 불러도 같은 인자 — 캠프명에 따옴표가 들어가도 깨지지 않게 한 곳에서 만든다.
    ★ 여기서는 `calCampOf` 와 달리 **제목으로 대신하지 않는다.** 제목은
    "정기점검 예측 · 부산4MB(망미동)" 처럼 꾸민 문장이라 현장 이름으로 맞출 수 없다.

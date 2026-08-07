@@ -8365,7 +8365,7 @@ def t146_erp_bulk_grab_registry():
     spec.loader.exec_module(E)
 
     # ① 아직 이름을 모르는 화면은 **등록부에 없어야** 한다(추측해 넣으면 안 된다).
-    for k in ("taxleft", "salesslip"):
+    for k in ("taxleft",):
         assert k in E.WANTED, f"{k} 를 찾을 목록에서 잃었다"
         assert k not in E.SCREENS, \
             f"{k} 메뉴 이름을 확인도 없이 코드에 박아 넣었다 — 엉뚱한 화면을 받게 된다"
@@ -8416,6 +8416,15 @@ def t146_erp_bulk_grab_registry():
         "offsetParent 로 보임을 재면 fixed 안의 버튼을 잃는다"
     # ⑨ 엑셀은 **한 번만** 누른다 — 후보를 전부 누르면 같은 파일이 두 벌 떨어진다.
     assert "x.click()" in all_js and "forEach(x => x.click())" not in all_js
+    # ⑩ ★ 사이트맵은 **채워질 때까지 기다린다** (2026-08-08 실측).
+    #    824개가 만들어지기 전에 읽으면 0개가 나오고, 그러면 '메뉴 못 찾음'이 되어
+    #    모듈이 다른 줄 알고 엉뚱한 데를 뒤진다(반나절 낭비). 그래서 둘을 가려 적는다.
+    assert "querySelectorAll('a').length > 50" in all_js, "빈 사이트맵을 그대로 읽는다"
+    assert "사이트맵이 안 열렸다(빈 채로 읽음)" in all_js, \
+        "'못 찾음'과 '안 열림'을 안 가른다 — 엉뚱한 모듈을 뒤지게 된다"
+    # ⑪ 이름이 맞는데 **받을 것이 없는** 화면을 기억한다 — 누르면 전표가 만들어진다.
+    assert "매출전표 I" in E.NOT_GRABBABLE and "입력 화면" in E.NOT_GRABBABLE["매출전표 I"]
+    assert "salesslip" not in E.WANTED, "입력 화면을 아직도 찾고 있다"
     print("  [146] ERP 전 화면 몰이 — 이름은 찾아서·cid 없으면 글자로·날짜로 검증 ✅")
 
 
@@ -8446,6 +8455,60 @@ def t141_long_text_folds():
     # ⑤ 화면을 그린 뒤 실제로 불린다 — 안 부르면 코드만 있고 아무 일도 안 일어난다
     assert "lcScanSoon($('v-'+v))" in live, "화면 전환 뒤 긴 글을 재지 않는다"
     print("  [141] 긴 글 접기 — 재서 정함·기능 숨김 금지·인쇄는 전부 펼침 ✅")
+
+
+def t148_input_suggest():
+    """입력 자동완성 — 원장에 있는 값을 추천한다 (2026-08-08 지시).
+
+    사용자 지시: "입력란 입력할 때 DB 기반으로 자동 입력 추천 뜨게 전체 앱 시스템
+    코딩해 / 사용자가 매번 찾아 입력하기 불편해".
+
+    지키는 것은 넷이다:
+      ① **지어내지 않는다** — 추천은 원장에 실제로 있는 값뿐이다. 그럴듯한 후보를
+         만들어 주면 사람이 그걸 골라 **새 오타가 원장에 들어간다**. 표기 흔들림을
+         줄이려는 기능이 반대로 늘리는 것이 가장 나쁜 결과다.
+      ② **화면마다 손으로 붙이지 않는다** — 입력칸은 여러 곳에서 그때그때 그려진다.
+         새 화면에 붙이는 것을 잊으면 그 화면만 조용히 옛날처럼 남는다.
+      ③ **문턱이 같다** — /api/works 와 같은 자료라 더 열거나 더 잠그지 않는다.
+      ④ **쌓이지 않는다** — 화면을 다시 그려도 목록(datalist)이 body 에 남지 않는다.
+    """
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+
+    # ① 원장에 있는 값만 — 후보를 만들어 내는 자리가 없어야 한다
+    fn = server.split("def _suggest_index(")[1].split("\ndef suggest_values(")[0]
+    assert "get_works()" in fn, "원장이 아닌 곳에서 추천을 만든다"
+    assert "_SUGGEST_SRC" in fn, "어느 칸이 어느 열에서 오는지가 코드에 흩어져 있다"
+    sv = server.split("def suggest_values(")[1].split("\ndef ")[0]
+    assert "idx.get(" in sv and "startswith(q)" in sv, \
+        "앞에서 맞는 값을 먼저 보여 주지 않는다 — 긴 목록에서 원하는 것이 아래로 밀린다"
+    # 많이 쓰인 순(가나다순은 늘 같은 것을 맨 아래에 둔다)
+    assert "-kv[1]" in fn, "추천 순서가 사용 빈도가 아니다"
+
+    # ③ 문턱 — 별도 admin 게이트를 두지 않는다(/api/works 와 같은 자료다)
+    route = server.split('if p == "/api/suggest":')[1][:400]
+    assert "_require_admin()" not in route and "suggest_values(" in route, \
+        "추천만 문턱이 다르다 — 같은 자료를 보는 화면끼리 말이 갈린다"
+
+    # ② 새로 그려지는 화면에도 저절로 붙는가
+    assert "MutationObserver" in live and "sgWire(document)" in live, \
+        "화면을 새로 그리면 그 화면 입력칸에는 추천이 안 붙는다"
+    assert "function sgWire(" in live and "input:not([data-sg])" in live, \
+        "이미 붙은 칸을 매번 다시 뒤진다"
+    # 파일·날짜·체크박스에는 붙이지 않는다(붙여도 쓸모가 없고 키보드만 가린다)
+    wire = live.split("function sgWire(")[1].split("\n}")[0]
+    for ty in ("'file'", "'date'", "'checkbox'"):
+        assert ty in wire, f"{ty} 칸에도 추천 목록을 붙인다"
+    # 사람이 치는 PIN 칸에 붙지 않는다 — 지도에 없으면 안 붙는 구조여야 한다
+    assert "pin" not in live.split("const SG_MAP = {")[1].split("};")[0], \
+        "PIN 칸이 추천 지도에 들어 있다"
+    # ④ 화면을 다시 그려도 목록이 쌓이지 않는다
+    assert 'datalist[id^="sgdl"]' in live and ".remove()" in wire, \
+        "화면을 다시 그릴 때마다 목록이 body 에 쌓인다"
+    # 브라우저 옛 입력이 원장 값을 덮지 않게 한다
+    assert "setAttribute('autocomplete', 'off')" in live, \
+        "브라우저가 기억한 옛 입력이 원장 추천 위에 겹쳐 뜬다"
+    print("  [148] 입력 자동완성 — 원장 값만·전 화면 자동·같은 문턱·쌓이지 않음 ✅")
 
 
 def t147_project_history():
@@ -8930,6 +8993,7 @@ if __name__ == "__main__":
     t142_flow_editable()
     t143_originals_one_tap()
     t147_project_history()
+    t148_input_suggest()
     t144_topmost_pin_always_restores()
     t145_redirect_deleted_needs_two_rounds()
     t146_erp_bulk_grab_registry()

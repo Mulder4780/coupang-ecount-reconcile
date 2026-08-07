@@ -4084,6 +4084,84 @@ def project_history(camp="", pj="", limit=400):
     }
 
 
+# ── 입력 도우미: 원장에 이미 있는 값을 추천한다 ──────────────────────────────
+# 2026-08-08 지시: "입력란 입력할 때 DB 기반으로 자동 입력 추천 뜨게 전체 앱 시스템
+# 코딩해 / 사용자가 매번 찾아 입력하기 불편해"
+#
+# ★ **없는 값을 만들지 않는다.** 추천은 오직 원장에 실제로 있는 값이다. 그럴듯한
+#   후보를 지어내면 사람이 그걸 골라 새 오타가 원장에 들어간다 — 지금 있는 표기
+#   흔들림("김준형 "·"김준형")을 줄이려고 만드는 기능이 반대로 늘리게 된다.
+# ★ 순서는 **많이 쓰인 순**이다. 가나다순은 늘 같은 것을 맨 아래에 둔다.
+_SUGGEST = {"at": 0.0, "idx": {}}
+_SUGGEST_TTL = 180.0
+
+# 어느 칸이 어느 열에서 오는가. (표, 열이름) 짝이며 여러 곳에서 모을 수 있다.
+_SUGGEST_SRC = {
+    "캠프명":     [("as", "캠프명"), ("pm", "캠프명")],
+    "프로젝트NO": [("as", "프로젝트NO"), ("pm", "프로젝트NO")],
+    "담당기사":   [("as", "담당기사"), ("pm", "담당기사")],
+    "진행상태":   [("as", "진행상태")],
+    "점검상태":   [("pm", "점검상태")],
+    "긴급도":     [("as", "긴급도")],
+    "유무상":     [("as", "유상·무상·보험"), ("pm", "유상·무상·보험")],
+    "비용구분":   [("pm", "비용구분")],
+    "담당관리자": [("pm", "담당관리자")],
+    "이상발견":   [("pm", "이상발견여부")],
+    "신청내용":   [("as", "신청내용")],
+}
+
+
+def _suggest_index():
+    now = time.time()
+    if _SUGGEST["idx"] and now - _SUGGEST["at"] < _SUGGEST_TTL:
+        return _SUGGEST["idx"]
+    idx = {}
+    try:
+        works = get_works() or {}
+    except Exception:
+        return _SUGGEST["idx"] or {}
+    for field, srcs in _SUGGEST_SRC.items():
+        cnt = {}
+        for table, col in srcs:
+            for r in works.get(table) or []:
+                v = str(r.get(col) or "").strip()
+                # 여러 명이 한 칸에 들어가는 열이 있다("김준형, 김필우") — 갈라서 센다.
+                parts = re.split(r"[,/·]| 및 ", v) if field in ("담당기사", "담당관리자") else [v]
+                for p in parts:
+                    p = p.strip()
+                    if p and len(p) <= 60:
+                        cnt[p] = cnt.get(p, 0) + 1
+        idx[field] = [v for v, _n in sorted(cnt.items(), key=lambda kv: (-kv[1], kv[0]))]
+    # 사람 이름은 한 목록으로도 쓴다(제출자·작성자 칸처럼 역할이 섞이는 자리).
+    try:
+        from ledger_db import AS_TECHS
+        fixed = list(AS_TECHS) + ["류지영", "오종현"]
+    except Exception:
+        fixed = []
+    seen, people = set(), []
+    for v in list(idx.get("담당기사") or []) + list(idx.get("담당관리자") or []) + fixed:
+        if v not in seen:
+            seen.add(v)
+            people.append(v)
+    idx["사람"] = people
+    _SUGGEST["idx"], _SUGGEST["at"] = idx, now
+    return idx
+
+
+def suggest_values(field, q="", limit=40):
+    """한 칸에 넣을 만한 값들. 원장에 있는 것만, 많이 쓰인 순."""
+    idx = _suggest_index()
+    vals = idx.get(str(field or "").strip()) or []
+    q = str(q or "").strip().lower()
+    if q:
+        head = [v for v in vals if v.lower().startswith(q)]     # 앞에서 맞는 것이 먼저
+        rest = [v for v in vals if q in v.lower() and v not in head]
+        vals = head + rest
+    return {"field": field, "총": len(idx.get(field) or []),
+            "values": vals[:max(1, min(int(limit or 40), 200))],
+            "원천": "관리대장 02_돌발AS접수·04_정기점검에 실제로 있는 값"}
+
+
 def _daydiff(a, b):
     """a→b 일수. 둘 중 하나라도 날짜가 아니면 None — 0 으로 속이지 않는다."""
     try:
@@ -5166,6 +5244,12 @@ self.addEventListener('fetch', e => {
             return self._send(200, {"summary": _ux_summary()})
         if p == "/api/calendar":
             return self._send(200, get_calendar())
+        if p == "/api/suggest":
+            # 입력 자동완성. 원장에 이미 있는 값만 돌려준다(문턱은 /api/works 와 같다).
+            from urllib.parse import parse_qs, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+            g = lambda k: (qs.get(k, [""])[0] or "").strip()
+            return self._send(200, suggest_values(g("f"), g("q"), g("n") or 40))
         if p == "/api/project-history":
             # 현장 한 곳의 과거 내력 + 지금 현황 + 예측. 캘린더·업무 화면의 '이력' 창이 쓴다.
             # ★ 문턱은 `/api/calendar`·`/api/works` 와 **같다** — 같은 원장 행을 다시
