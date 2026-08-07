@@ -163,6 +163,27 @@ def t4_kakao(tmp):
     rows = list(__import__("csv").DictReader(open(os.path.join(tmp, report), encoding="utf-8-sig")))
     manual = next(x for x in rows if x["ID"] == "AS-K2")
     assert manual["카톡보고"] == "확인" and manual["매칭근거"] == "사용자완료처리", manual
+
+    # ★ 자료가 없는 기간을 '미확인'이라 부르지 않는다 (2026-08-07 지시).
+    #   카톡 내보내기는 방에 들어간 뒤부터만 나온다. 그 전 작업은 아무리 잘해도
+    #   카톡에서 못 찾는다 — '미확인'으로 세면 지워지지 않는 빨간 줄이 쌓이고
+    #   진짜 누락(자료는 있는데 보고가 없는 건)이 그 속에 묻힌다.
+    _kr = open(os.path.join(ROOT, "kakao", "kakao_reconcile.py"), encoding="utf-8").read()
+    assert "자료없음" in _kr, "카톡 대조가 '자료없음'을 가르지 않는다"
+    assert re.search(r"floor\s*=\s*min\(\(m\[.date.\] for m in msgs\)", _kr), \
+        "자료 시작일을 **가진 메시지에서** 뽑지 않는다 — 날짜를 못박으면 " \
+        "나중에 옛 내보내기가 들어와도 계속 '자료없음'이라 답한다"
+    assert 'r["완료일"] < floor' in _kr, "완료일이 자료 시작 이전인지를 안 본다"
+    # 앱 배지: '자료없음'은 실패도 분모도 아니다.
+    _as = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert re.search(r'na\s*=\s*sum\(1 for r in rows if r\.get\(col\) == "자료없음"\)', _as), \
+        "앱이 '자료없음'을 따로 세지 않는다"
+    assert 'r.get(col) not in (okv, "자료없음")' in _as, \
+        "앱이 '자료없음'을 미확인과 같이 센다 — 영원히 안 지워지는 빨간 줄이 된다"
+    # 확인필요현황·07시트 얹기는 `== "미확인"` 이라 자료없음이 저절로 빠진다.
+    _fe = open(os.path.join(ROOT, "findings_export.py"), encoding="utf-8").read()
+    assert 'r.get("카톡보고") == "미확인"' in _fe, \
+        "확인필요 목록이 카톡보고를 정확히 '미확인'으로 거르지 않는다"
     # 방 이름 보완(2026-07-30): 머리글이 유형을 말하지 않으면 방으로 정한다.
     # ★ 순서가 뒤집히면 돌발방에 올라온 철거 글이 02시트로 잘못 간다 — 머리글이 먼저다.
     import kakao_extract as _KE

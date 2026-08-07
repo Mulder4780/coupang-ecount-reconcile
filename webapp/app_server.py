@@ -4110,8 +4110,15 @@ def _compute_status():
                 rows = app_year_rows(latest_csv(pat), "issue")
                 if rows:
                     ok = sum(1 for r in rows if r.get(col) == okv)
-                    miss = [r for r in rows if r.get(col) != okv]
-                    srcs[key] = {"total": len(rows), "ok": ok, "miss": len(miss),
+                    # ★ '자료없음'은 실패가 아니다 (2026-08-07 지시).
+                    #   카톡 내보내기는 방에 들어간 뒤부터만 나온다. 그 전 작업은
+                    #   아무리 잘해도 카톡에서 못 찾는다 — 그걸 '미확인'과 같이 세면
+                    #   지워지지 않는 빨간 줄이 쌓이고, 진짜 누락(자료는 있는데 보고가
+                    #   없는 건)이 그 속에 묻힌다. 분모에서 빼고 따로 보여 준다.
+                    na = sum(1 for r in rows if r.get(col) == "자료없음")
+                    miss = [r for r in rows if r.get(col) not in (okv, "자료없음")]
+                    srcs[key] = {"total": len(rows) - na, "ok": ok, "miss": len(miss),
+                                 "na": na,
                                  "miss_prj": [r.get("프로젝트NO") or r.get("ID") for r in miss[:8]],
                                  **_src_meta(pat)}
             erp = app_year_rows(latest_csv("ERP원장대조_*.csv"), "issue")

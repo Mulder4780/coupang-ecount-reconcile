@@ -192,6 +192,21 @@ def main():
     rows = read_rows(master)
     print(f"카톡 메시지 {len(msgs)}건 / 원장 완료건 {len(rows)}건 대조")
 
+    # ★ 자료가 없는 기간을 '미확인'이라고 부르지 않는다 (2026-08-07 지시).
+    #   사용자 지시: "단톡방에 내가 들어간게 7월인 것 같은데, 그 이전 자료 기록은
+    #   찾기 힘들어. 4원천 검증에서 그 이전 카톡은 확인이 안되어도 다른 곳에서
+    #   확인되면 완료처리할 수 있게" —
+    #   카톡 내보내기는 **방에 들어간 뒤**부터만 나온다. 그 전 작업은 아무리 잘해도
+    #   카톡에서 못 찾는다. 그걸 '미확인'으로 세면 영원히 안 지워지는 빨간 줄이
+    #   쌓이고, 진짜 누락(자료는 있는데 보고가 없는 건)이 그 속에 묻힌다.
+    #   ★ 7월로 못박지 않는다 — **가진 메시지 중 가장 이른 날**을 자료의 시작으로
+    #     삼는다. 나중에 옛 내보내기가 들어오면 경계가 저절로 내려간다.
+    #     못박아 두면 자료가 생겨도 계속 '자료없음'이라 답한다.
+    floor = min((m["date"] for m in msgs), default=None)
+    if floor:
+        print(f"카톡 자료 시작: {floor.isoformat()} — 이보다 이른 완료건은 "
+              f"'미확인'이 아니라 '자료없음'으로 가른다")
+
     matched_keys = set()
     results = []
     for r in rows:
@@ -211,15 +226,25 @@ def main():
         sender_ok = bool(best and r["담당기사"] and r["담당기사"] in best["sender"])
         if best:
             matched_keys.add(id(best))
+        # 자료가 시작되기 **전**에 끝난 일은 카톡에서 찾을 방법이 없다.
+        # '미확인'(찾아봤는데 없다)과 '자료없음'(찾아볼 자료가 없다)은 다른 말이다.
+        before_data = bool(floor and not best and not manual_done
+                           and r["완료일"] < floor)
+        if before_data:
+            verdict = "자료없음"
+            how = f"카톡 자료 시작({floor.isoformat()}) 이전 — 다른 원천으로 판정"
+        else:
+            verdict = "확인" if (best or manual_done) else "미확인"
         results.append({**{k: r[k] for k in ("시트", "ID", "프로젝트NO", "캠프명", "담당기사")},
                         "완료일": r["완료일"].isoformat(),
-                        "카톡보고": "확인" if (best or manual_done) else "미확인",
+                        "카톡보고": verdict,
                         "매칭근거": how + ("+기사일치" if sender_ok else ""),
                         "메시지일": best["date"].isoformat() if best else "",
                         "발신자": best["sender"] if best else "",
                         "방": best["room"] if best else ""})
 
     miss = [r for r in results if r["카톡보고"] == "미확인"]
+    nodata = [r for r in results if r["카톡보고"] == "자료없음"]
     os.makedirs(REPORT_DIR, exist_ok=True)
     base = os.path.join(REPORT_DIR, f"카톡대조_{datetime.now():%Y%m%d_%H%M}")
     cols = list(results[0].keys()) if results else []
@@ -227,11 +252,25 @@ def main():
         w = csv.DictWriter(f, fieldnames=cols); w.writeheader(); w.writerows(results)
     with open(base + ".md", "w", encoding="utf-8") as f:
         f.write("# 카카오톡 ↔ 관리대장 대조 리포트\n\n")
-        f.write(f"- 생성 {datetime.now():%Y-%m-%d %H:%M} / 완료건 {len(results)} / 카톡보고 확인 {len(results)-len(miss)} / 미확인 {len(miss)}\n\n")
-        f.write("## 카톡 보고 미확인 건\n\n| ID | 캠프 | 기사 | 완료일 |\n|---|---|---|---|\n")
+        ok_n = sum(1 for r in results if r["카톡보고"] == "확인")
+        f.write(f"- 생성 {datetime.now():%Y-%m-%d %H:%M} / 완료건 {len(results)} / "
+                f"카톡보고 확인 {ok_n} / 미확인 {len(miss)} / 자료없음 {len(nodata)}\n")
+        if floor:
+            f.write(f"- 카톡 자료 시작 **{floor.isoformat()}** — 이보다 이른 완료건은 "
+                    f"카톡에서 찾을 방법이 없다. '미확인'이 아니라 **자료없음**이며, "
+                    f"밴드·ERP·쿠팡PO 중 하나로 확인되면 완료로 본다.\n")
+        f.write("\n## 카톡 보고 미확인 건 (자료는 있는데 보고가 없다 — 진짜 확인 대상)\n\n"
+                "| ID | 캠프 | 기사 | 완료일 |\n|---|---|---|---|\n")
         for r in miss:
             f.write(f"| {r['ID']} | {r['캠프명']} | {r['담당기사']} | {r['완료일']} |\n")
-    print(f"확인 {len(results)-len(miss)} / 미확인 {len(miss)}")
+        if nodata:
+            f.write(f"\n## 자료없음 (카톡 시작 이전) — {len(nodata)}건\n\n"
+                    "카톡으로는 확인할 수 없다. 다른 원천으로 판정한다.\n\n"
+                    "| ID | 캠프 | 완료일 |\n|---|---|---|\n")
+            for r in nodata[:60]:
+                f.write(f"| {r['ID']} | {r['캠프명']} | {r['완료일']} |\n")
+    print(f"확인 {sum(1 for r in results if r['카톡보고']=='확인')} / "
+          f"미확인 {len(miss)} / 자료없음 {len(nodata)}")
     print("리포트:", base + ".md")
     return results
 
