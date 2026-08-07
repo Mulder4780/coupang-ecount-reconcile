@@ -3919,6 +3919,175 @@ def get_calendar():
     return d
 
 
+# ── 프로젝트(현장) 한 곳의 내력 한 벌 ────────────────────────────────────────
+# 2026-08-08 지시: "정기점검 예측에 프로젝트를 클릭하면 과거에 했던 내역들이 다 보이게 /
+# 돌발AS 등 모든 프로젝트를 클릭하면 과거 돌발AS 또는 정기점검 리스트가 보이게 /
+# 지금 현황 예측 현황도 다 같이"
+#
+# ★ 캘린더 일정을 다시 세지 않고 **원장 행에서 직접** 만든다. 캘린더는 '날짜가 있는 것'만
+#   세우므로, 그것만 보면 날짜가 안 채워진 행이 조용히 사라진다. 이 화면은 "이 현장에서
+#   무슨 일이 있었나"에 답해야 하므로 날짜 없는 행도 `날짜없음` 으로 따로 세어 보여 준다.
+# ★ 맞추는 열쇠는 **캠프명**이다. 프로젝트NO 는 예측 일정에서 자주 비어 있다
+#   (화면에 '프로젝트 미확정'으로 나오는 그것). 캠프명이 같으면 같은 현장으로 본다.
+def _camp_key(s):
+    return re.sub(r"[^0-9A-Za-z가-힣]", "", str(s or "")).lower()
+
+
+def _pj_key(s):
+    return str(s or "").split(" · ")[0].strip().upper()
+
+
+def project_history(camp="", pj="", limit=400):
+    """현장 한 곳의 과거 내력 + 지금 현황 + 앞으로 예정·예측."""
+    ck, pk = _camp_key(camp), _pj_key(pj)
+    if not ck and not pk:
+        return {"ok": False, "error": "캠프명 또는 프로젝트NO가 필요합니다"}
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    def mine(row):
+        if ck and _camp_key(row.get("캠프명")) == ck:
+            return True
+        return bool(pk) and _pj_key(row.get("프로젝트NO")) == pk
+
+    try:
+        works = get_works() or {}
+    except Exception as exc:
+        return {"ok": False, "error": "원장을 읽지 못했습니다: %s" % exc}
+
+    LAB = dict((k, l) for k, l, _c in CAL_KINDS)
+    이력, 현황, 예정, 날짜없음 = [], [], [], []
+    캠프이름 = str(camp or "").strip()
+    프로젝트들 = []
+
+    def item(kind, when, title, row, idkey, **extra):
+        e = {"분류": kind, "라벨": LAB.get(kind, kind), "날짜": when or "",
+             "제목": title, "캠프명": row.get("캠프명") or "",
+             "프로젝트NO": _pj_key(row.get("프로젝트NO")),
+             "원천업무ID": row.get(idkey) or "", "담당기사": row.get("담당기사") or ""}
+        e.update({k: v for k, v in extra.items() if v not in (None, "")})
+        return e
+
+    for r in works.get("as") or []:
+        if not mine(r):
+            continue
+        if not 캠프이름:
+            캠프이름 = r.get("캠프명") or ""
+        if _pj_key(r.get("프로젝트NO")):
+            프로젝트들.append(_pj_key(r.get("프로젝트NO")))
+        got, done = norm_date(r.get("접수일자")), norm_date(r.get("작업완료일"))
+        vis = norm_date(r.get("방문예정일"))
+        common = dict(긴급도=r.get("긴급도") or "", 진행상태=r.get("진행상태") or "",
+                      신청내용=r.get("신청내용") or "", 유무상=r.get("유상·무상·보험") or "")
+        if done:
+            이력.append(item("as_done", done, "돌발AS 완료", r, "접수ID",
+                             접수일자=got, 소요일=_daydiff(got, done), **common))
+        else:
+            # 아직 안 끝난 건. 접수일이 있으면 '미처리'로 현황에 세우고, 방문예정일이
+            # 앞날이면 '예정'에도 함께 세운다 — 같은 건이 두 칸에 보이는 것이 맞다
+            # (지금 밀려 있고, 언제 갈 예정인지는 다른 사실이다).
+            if got:
+                현황.append(item("as_open", got, "돌발AS 미처리", r, "접수ID",
+                                 경과일=_daydiff(got, today), 방문예정일=vis, **common))
+            elif not vis:
+                # ★ 날짜를 모르는 행에 '완료'·'미처리' 색과 말을 붙이지 않는다 —
+                #   모르는 것은 모른다고 회색(etc)으로 둔다.
+                날짜없음.append(item("etc", "", "날짜 미기입", r, "접수ID",
+                                     라벨="돌발AS", **common))
+            if vis and vis >= today:
+                예정.append(item("as_visit", vis, "돌발AS 방문예정", r, "접수ID", **common))
+
+    for r in works.get("pm") or []:
+        if not mine(r):
+            continue
+        if not 캠프이름:
+            캠프이름 = r.get("캠프명") or ""
+        if _pj_key(r.get("프로젝트NO")):
+            프로젝트들.append(_pj_key(r.get("프로젝트NO")))
+        plan, real = norm_date(r.get("점검예정일")), norm_date(r.get("실제점검일"))
+        common = dict(점검상태=r.get("점검상태") or "", 이상발견=r.get("이상발견여부") or "",
+                      돌발AS전환=r.get("돌발AS전환여부") or "")
+        if real:
+            이력.append(item("pm_done", real, "정기점검 완료", r, "점검ID",
+                             점검예정일=plan, **common))
+        elif plan and plan <= today:
+            현황.append(item("pm_overdue", plan, "정기점검 미처리", r, "점검ID",
+                             경과일=_daydiff(plan, today), **common))
+        elif plan:
+            예정.append(item("pm_plan", plan, "정기점검 예정", r, "점검ID", **common))
+        else:
+            날짜없음.append(item("etc", "", "날짜 미기입", r, "점검ID",
+                                 라벨="정기점검", **common))
+
+    # 예측(류지영 스케줄 원본 기반) — 원장에 없는 '앞으로'는 여기서만 온다.
+    try:
+        pm = json.load(open(os.path.join(ROOT, "reports", "pm_schedule_sync.json"),
+                            encoding="utf-8"))
+        for row in pm.get("schedule") or []:
+            if not mine(row) and not (ck and _camp_key(row.get("캠프명")) == ck):
+                continue
+            official, pred = norm_date(row.get("점검예정일")), norm_date(row.get("예측점검일"))
+            when = official or pred
+            if not when or when < today:
+                continue
+            예정.append({"분류": "pm_plan" if official else "pm_pred",
+                         "라벨": LAB.get("pm_plan" if official else "pm_pred", ""),
+                         "날짜": when, "제목": "정기점검 예정" if official else "정기점검 예측",
+                         "캠프명": row.get("캠프명") or "",
+                         "프로젝트NO": _pj_key(row.get("연결프로젝트NO")),
+                         "원천업무ID": row.get("일정ID") or "", "담당기사": "",
+                         "예측": not bool(official),
+                         "예측신뢰도": row.get("예측신뢰도") or "",
+                         "근거": row.get("예측근거") or "",
+                         "장비수": int(row.get("장비수") or 0)})
+    except Exception:
+        pass
+
+    이력.sort(key=lambda e: e["날짜"], reverse=True)
+    현황.sort(key=lambda e: e["날짜"])
+    예정.sort(key=lambda e: e["날짜"])
+
+    pmdone = [e["날짜"] for e in 이력 if e["분류"] == "pm_done"]
+    asdone = [e["날짜"] for e in 이력 if e["분류"] == "as_done"]
+    # 평균 점검 주기 — 점검이 두 번 이상 있어야 말이 된다. 한 번뿐이면 셈하지 않는다.
+    cyc = None
+    if len(pmdone) >= 2:
+        ds = sorted(pmdone)
+        gaps = [_daydiff(a, b) for a, b in zip(ds, ds[1:])]
+        gaps = [g for g in gaps if g and g > 0]
+        if gaps:
+            cyc = round(sum(gaps) / len(gaps))
+    nxt = 예정[0] if 예정 else None
+    return {
+        "ok": True,
+        "캠프명": 캠프이름 or (camp or "(장소 미입력)"),
+        "프로젝트NO": " · ".join(sorted(set(프로젝트들))[:4]),
+        "요약": {
+            "돌발AS": len(asdone), "돌발AS미처리": sum(1 for e in 현황 if e["분류"] == "as_open"),
+            "정기점검": len(pmdone), "정기점검미처리": sum(1 for e in 현황 if e["분류"] == "pm_overdue"),
+            "마지막점검일": pmdone[0] if pmdone else "",
+            "마지막점검경과": _daydiff(pmdone[0], today) if pmdone else None,
+            "마지막AS일": asdone[0] if asdone else "",
+            "평균점검주기": cyc,
+            "다음일정": ({"날짜": nxt["날짜"], "라벨": nxt["라벨"],
+                          "예측": bool(nxt.get("예측"))} if nxt else None),
+        },
+        "현황": 현황[:limit], "예정": 예정[:limit],
+        "이력": 이력[:limit], "날짜없음": 날짜없음[:limit],
+        "더있음": max(0, len(이력) - limit),
+        "기준": today,
+        "원천": "관리대장 02_돌발AS접수·04_정기점검 + 류지영 정기점검 스케줄(예측)",
+    }
+
+
+def _daydiff(a, b):
+    """a→b 일수. 둘 중 하나라도 날짜가 아니면 None — 0 으로 속이지 않는다."""
+    try:
+        return (datetime.strptime(str(b)[:10], "%Y-%m-%d")
+                - datetime.strptime(str(a)[:10], "%Y-%m-%d")).days
+    except Exception:
+        return None
+
+
 def get_checks():
     """최근 카톡·밴드·ERP원장·쿠팡PO 대조 CSV를 ID별로 조인 — 4원천 검증 배지"""
     import csv as _csv
@@ -4992,6 +5161,14 @@ self.addEventListener('fetch', e => {
             return self._send(200, {"summary": _ux_summary()})
         if p == "/api/calendar":
             return self._send(200, get_calendar())
+        if p == "/api/project-history":
+            # 현장 한 곳의 과거 내력 + 지금 현황 + 예측. 캘린더·업무 화면의 '이력' 창이 쓴다.
+            # ★ 문턱은 `/api/calendar`·`/api/works` 와 **같다** — 같은 원장 행을 다시
+            #   묶어 보여 줄 뿐이라 여기만 더 열거나 더 잠그면 화면마다 말이 달라진다.
+            from urllib.parse import parse_qs, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+            g = lambda k: (qs.get(k, [""])[0] or "").strip()
+            return self._send(200, project_history(g("camp"), g("pj")))
         if p == "/api/erpdocs":
             return self._send(200, get_erpdocs())
         if p == "/api/checks":

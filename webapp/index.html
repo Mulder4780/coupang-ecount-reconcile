@@ -401,6 +401,10 @@ body.calendar-only .cal2-only-note{display:block}
     background:color-mix(in srgb,var(--c) 12%,transparent);color:var(--ink);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .cal2-tx .tm{color:var(--ink-3);font-weight:800;margin-right:4px;font-variant-numeric:tabular-nums}
+  /* 누르면 이력이 뜨는 줄 — 누를 수 있다는 것이 보여야 한다(2026-08-08) */
+  .cal2-tx.hit{cursor:pointer}
+  .cal2-tx.hit:hover{background:color-mix(in srgb,var(--c) 26%,transparent);
+    box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c) 45%,transparent)}
   .cal2-txmore{font-size:12.5px;font-weight:800;color:var(--ink-3);padding:0 6px;text-align:left}
   .cal2-day.out .cal2-tx{opacity:.5}
 }
@@ -481,6 +485,52 @@ body.calendar-only .cal2-only-note{display:block}
 @media(prefers-reduced-motion:reduce){
   .cal2-sheet,.cal2-sheet-dim{transition:none}
 }
+
+/* ═══ 현장 이력 창 (2026-08-08 지시) ═══
+   "프로젝트를 클릭하면 과거에 했던 내역들이 다 보이게 밑에서 위로 올리는 창으로."
+   날짜 창(.cal2-sheet)과 **같은 옷**을 입되 위에 겹쳐 뜬다(z-index 70 > 60) —
+   날짜 창 안에서 눌러도 뒤 창을 닫지 않고 그 위에 올라온다. 닫으면 원래 자리로 돌아온다. */
+.pj-sheet-wrap{z-index:70}
+.pj-sheet-wrap .cal2-sheet{max-height:88vh}
+@media(min-width:900px){.pj-sheet-wrap .cal2-sheet{width:min(680px,94vw);max-height:84vh}}
+/* 한눈 요약 — 숫자 넷. 없는 값은 '—' 로 두고 0 으로 채우지 않는다. */
+.pj-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:7px}
+.pj-stat{background:var(--panel);border-radius:12px;padding:9px 10px;min-width:0}
+.pj-stat .k{display:block;font-size:12px;color:var(--ink-2);font-weight:700;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pj-stat .v{display:block;font-size:18px;font-weight:850;letter-spacing:-.3px;margin-top:2px;
+  color:var(--ink);font-variant-numeric:tabular-nums}
+.pj-stat .v small{font-size:12.5px;font-weight:700;color:var(--ink-2);margin-left:2px}
+.pj-stat.warn{background:color-mix(in srgb,var(--danger) 12%,transparent)}
+.pj-stat.warn .v{color:var(--danger)}
+.pj-sec{margin-top:4px}
+.pj-sec > h4{font-size:13.5px;font-weight:850;color:var(--ink-2);margin:8px 0 6px;
+  display:flex;align-items:center;gap:6px}
+.pj-sec > h4 .n{font-weight:800;color:var(--ink-3)}
+.pj-list{display:grid;gap:6px}
+/* 이력 한 줄 — 날짜 · 종류 · 내용. 종류 색은 캘린더 색표와 같은 것을 쓴다. */
+.pj-row{display:grid;grid-template-columns:3px auto 1fr;gap:9px;align-items:start;
+  background:var(--surface);border:1.5px solid var(--line);border-radius:11px;
+  padding:9px 11px 9px 0;overflow:hidden}
+.pj-row .bar{background:var(--c);align-self:stretch;border-radius:0}
+.pj-row .dt{font-size:13px;font-weight:800;color:var(--ink-2);padding-left:2px;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.pj-row .bd{min-width:0}
+.pj-row .k{display:inline-block;font-size:12px;font-weight:800;color:var(--c);
+  background:color-mix(in srgb,var(--c) 13%,transparent);border-radius:6px;padding:1px 6px;margin-right:5px}
+.pj-row .t1{font-size:14px;font-weight:750;line-height:1.4}
+.pj-row .t2{font-size:12.5px;color:var(--ink-2);margin-top:3px;font-weight:600;line-height:1.45}
+.pj-row.now{border-color:var(--danger)}
+.pj-empty{color:var(--ink-3);font-size:13.5px;padding:8px 2px}
+/* 목록 줄 옆에 붙는 '이력' 단추 — 줄 자체를 누르면 원래 하던 일(선택)이 그대로 되고,
+   이 단추를 눌러야 이력이 뜬다. 두 가지를 한 자리에 겹치지 않는다. */
+.cal2-evrow{display:flex;gap:6px;align-items:stretch}
+.cal2-evrow > .cal2-ev{flex:1;min-width:0}
+.pj-hist{flex:none;width:42px;border-radius:12px;border:1.5px solid var(--line);
+  background:var(--surface);color:var(--ink-2);display:grid;place-items:center;cursor:pointer;
+  transition:all .14s}
+.pj-hist .bi{width:17px;height:17px}
+@media(hover:hover){.pj-hist:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-tint)}}
 
 /* ═══ 히어로 배너 ═══ */
 /* ── 상단 헤더 ─────────────────────────────────────────────────
@@ -3471,6 +3521,19 @@ body.dash-drag-live #dashGuides{display:grid}
       <button type="button" class="abtn" onclick="calSheetShift(-1)">‹ 전날</button>
       <button type="button" class="abtn" onclick="calSheetShift(1)">다음날 ›</button>
     </div>
+  </div>
+</div>
+
+<!-- 현장 이력 창 — 프로젝트(캠프)를 누르면 밑에서 올라온다(2026-08-08 지시) -->
+<div class="cal2-sheet-wrap pj-sheet-wrap" id="pjSheet" role="presentation">
+  <div class="cal2-sheet-dim" onclick="pjCloseSheet()"></div>
+  <div class="cal2-sheet" role="dialog" aria-modal="true" aria-labelledby="pjSheetTitle">
+    <div class="cal2-grab" aria-hidden="true"></div>
+    <div class="cal2-sheet-head">
+      <div class="tt"><b id="pjSheetTitle">—</b><span id="pjSheetSub"></span></div>
+      <button type="button" class="cal2-sheet-x" onclick="pjCloseSheet()" aria-label="닫기">✕</button>
+    </div>
+    <div class="cal2-sheet-body" id="pjSheetBody"></div>
   </div>
 </div>
 
@@ -7795,6 +7858,7 @@ function openSheet(kind, idx, id){
     html = `<h2>${esc2(displayProject)} ${chip(r.상태)}</h2>
     <div class="sub">${esc2(r.캠프명||'캠프 미상')} · ${esc2(r.업무구분||'')} · 내부기록 ${esc2(internalId||'-')}</div>
     ${origBox(displayProject, r.PO번호, r.명세서번호)}
+    ${pjHistWide(r.캠프명, displayProject)}
     <div class="dl">
       <div class="sec">작업</div>
       <dt>프로젝트NO</dt><dd>${esc2(displayProject)}</dd>
@@ -7835,7 +7899,8 @@ function openSheet(kind, idx, id){
       </div>` : '';
     html = `<h2>${esc2(displayProject)} ${chip(statOf(r))}</h2>
       <div class="sub">${esc2(r.캠프명||'캠프 미상')} · 내부기록 ${esc2(internalId||'-')}</div>`
-      + origBox(displayProject, r.PO번호, r.명세서번호) + vbox +
+      + origBox(displayProject, r.PO번호, r.명세서번호)
+      + pjHistWide(r.캠프명, displayProject) + vbox +
       '<div class="dl">' +
       Object.entries(r).map(([k,v])=>`<dt>${k}</dt><dd>${v||'-'}</dd>`).join('') + '</div>' +
       inputForm(kind, r, id);
@@ -8736,10 +8801,15 @@ function renderCalGrid(){
        재서 갈라 놓으면 창 크기를 바꿀 때마다 다시 그려야 하고, 그 사이 칸이 비어 보인다.
        한 칸에 넷까지만 적는다. 다섯째부터는 '+N' 으로 접고, 누르면 창에서 전부 본다. */
     const TXN=4;
+    /* ★ 칸 안의 현장 이름을 누르면 **그 현장 이력**이 올라온다(2026-08-08 지시).
+       날짜 칸 자체를 누르면 예전대로 그 날 목록이 뜬다 — `stopPropagation` 이 둘을 가른다.
+       (칸 안은 `<button>` 속이라 또 단추를 넣을 수 없다. 키보드로는 날짜를 눌러
+        날짜 창으로 들어가면 줄마다 제대로 된 '이력' 단추가 있다.) */
     const txs=evs.slice(0,TXN).map(e=>{
       const k=calKindMeta(calKindOf(e));
       const tm=e.시간?`<span class="tm">${esc2(String(e.시간).slice(0,5))}</span>`:'';
-      return `<span class="cal2-tx" style="--c:${k.color}" title="${esc2(k.label+' · '+calCampOf(e))}">`
+      return `<span class="cal2-tx hit" style="--c:${k.color}" onclick="${pjCall(e, true)}"
+          title="${esc2(k.label+' · '+calCampOf(e)+' — 눌러서 과거 이력 보기')}">`
         + `${tm}${esc2(calCampOf(e))}</span>`;
     }).join('') + (evs.length>TXN?`<span class="cal2-txmore">+${evs.length-TXN}건 더</span>`:'');
     html+=`<button type="button" class="${cls.join(' ')}" onclick="calPickDay('${iso}')"
@@ -8762,11 +8832,12 @@ function renderCalAgenda(){
   calendarSelected=Math.max(0, Math.min(calendarSelected, rows.length-1));
   box.innerHTML=rows.map((e,i)=>{
     const k=calKindMeta(calKindOf(e));
-    return `<button type="button" class="cal2-ev ${i===calendarSelected?'on':''}" style="--c:${k.color}"
+    return `<div class="cal2-evrow">
+      <button type="button" class="cal2-ev ${i===calendarSelected?'on':''}" style="--c:${k.color}"
       onclick="selectCalendarEvent(${i})"><span class="bar" aria-hidden="true"></span><span class="tx">
       <span class="t1"><span class="k">${esc2(k.label)}</span>${esc2(e.캠프명||e.장소||e.제목||'제목 없음')}</span>
       <span class="t2">${esc2(e.프로젝트NO||'프로젝트 미확정')}${e.담당기사?` · ${esc2(e.담당기사)}`:''}${e.시간?` · ${esc2(e.시간)}`:''}</span>
-      </span></button>`;
+      </span></button>${pjHistBtn(e)}</div>`;
   }).join('');
   detail.innerHTML=calDetailHTML(rows[calendarSelected]);
 }
@@ -8788,7 +8859,10 @@ function calDetailHTML(e){
     ${e.이상발견?`<dt>이상 발견</dt><dd>${esc2(e.이상발견)}</dd>`:''}
     <dt>원장 연결</dt><dd>${esc2(e.원천업무ID||'미연결 — 확인 필요')}</dd>
     <dt>${e.예측?'예측 근거':'연결 근거'}</dt><dd>${esc2(e.연결근거||'없음')}${e.장비수?` · ${esc2(e.장비수)}대`:''}</dd>
-    ${e.예측?`<dt>주의</dt><dd>과거 점검일로 계산한 예상일입니다. 공식 일정 확정 전이며 Google Calendar에는 자동 저장하지 않습니다.</dd>`:''}</dl>`;
+    ${e.예측?`<dt>주의</dt><dd>과거 점검일로 계산한 예상일입니다. 공식 일정 확정 전이며 Google Calendar에는 자동 저장하지 않습니다.</dd>`:''}</dl>
+    <div style="margin-top:11px"><button type="button" class="abtn primary" style="width:100%;justify-content:center"
+      onclick="${pjCall(e)}"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-counterclockwise"/></svg>
+      이 현장 과거 이력 · 현황 보기</button></div>`;
 }
 
 /* ── 날짜 창(폰=아래에서 올라오는 레이어 · PC=가운데 모달) ──────────────────
@@ -8847,11 +8921,12 @@ function renderCalSheet(){
   CAL_SHEET_SEL=Math.max(0, Math.min(CAL_SHEET_SEL, rows.length-1));
   body.innerHTML = rows.map((e,i)=>{
     const k=calKindMeta(calKindOf(e));
-    return `<button type="button" class="cal2-ev ${i===CAL_SHEET_SEL?'on':''}" style="--c:${k.color}"
+    return `<div class="cal2-evrow">
+      <button type="button" class="cal2-ev ${i===CAL_SHEET_SEL?'on':''}" style="--c:${k.color}"
       onclick="calSheetPick(${i})"><span class="bar" aria-hidden="true"></span><span class="tx">
       <span class="t1"><span class="k">${esc2(k.label)}</span>${esc2(calCampOf(e))}</span>
       <span class="t2">${esc2(e.프로젝트NO||'프로젝트 미확정')}${e.담당기사?` · ${esc2(e.담당기사)}`:''}${e.시간?` · ${esc2(e.시간)}`:''}</span>
-      </span></button>`;
+      </span></button>${pjHistBtn(e)}</div>`;
   }).join('')
   + `<div class="calendar-detail">${calDetailHTML(rows[CAL_SHEET_SEL])}</div>`;
 }
@@ -8874,6 +8949,154 @@ document.addEventListener('keydown', (ev)=>{ if(ev.key==='Escape' && calSheetOpe
     if(dy>70) calCloseSheet();
   }, {passive:true});
 })();
+
+/* ═══ 현장 이력 창 (2026-08-08 지시) ═══════════════════════════════════════
+   "정기점검 예측에 프로젝트를 클릭하면 과거에 했던 내역들이 다 보이게 밑에서 위로
+    올리는 창으로 / 돌발 AS 건 등 모든 프로젝트를 클릭하면 과거 돌발AS 또는 정기점검
+    리스트가 보이게 / 그리고 지금 현황 예측 현황도 다 같이"
+
+   ★ 화면에 이미 있는 캘린더 일정을 다시 세지 않고 **서버에 다시 묻는다**
+     (`/api/project-history`). 캘린더는 사람이 켜고 끈 종류 필터를 거친 목록이라,
+     그걸로 이력을 만들면 '정기점검 완료'를 꺼 둔 사람에게는 과거가 통째로 사라진다.
+     이력은 필터와 무관하게 **원장에 있는 전부**여야 한다.
+   ★ 날짜가 안 채워진 행도 서버가 `날짜없음` 으로 따로 돌려준다. 세지 못한 것을
+     안 보여 주면 "이 현장은 두 번뿐"이라고 잘못 읽는다.                        */
+let PJ_SCROLL = 0, PJ_LAST = null;
+const PJ_CACHE = new Map();          // 같은 현장을 다시 열면 즉시 — 30초만 믿는다
+function pjSheetEl(){ return $('pjSheet'); }
+function pjSheetOpen(){ const w=pjSheetEl(); return !!(w && w.classList.contains('open')); }
+function pjCloseSheet(){
+  const w=pjSheetEl(); if(!w || !w.classList.contains('open')) return;
+  w.classList.remove('in');
+  // 날짜 창이 아래 깔려 있으면 스크롤 잠금을 **그쪽이** 계속 쥐고 있어야 한다.
+  if(!calSheetOpen()) document.body.style.overflow='';
+  setTimeout(()=>{ w.classList.remove('open'); }, 280);
+}
+async function pjOpen(camp, pj){
+  const w=pjSheetEl(); if(!w) return;
+  camp=String(camp||'').trim(); pj=String(pj||'').trim();
+  if(!camp && !pj){ toast('현장을 알 수 없는 일정입니다'); return; }
+  PJ_LAST={camp:camp, pj:pj};
+  const title=$('pjSheetTitle'), sub=$('pjSheetSub'), body=$('pjSheetBody');
+  title.textContent = camp || pj || '현장';
+  sub.textContent = '이력을 불러오는 중…';
+  body.innerHTML = '<div class="pj-empty">불러오는 중…</div>';
+  if(!w.classList.contains('open')){
+    if(!calSheetOpen()) PJ_SCROLL = window.scrollY || 0;
+    document.body.style.overflow='hidden';
+    w.classList.add('open');
+    const rise=()=>w.classList.add('in');
+    requestAnimationFrame(rise); setTimeout(rise, 60);
+  }
+  uxEvent('view','pjHistory', camp || pj);
+  const key = camp+'|'+pj, hit = PJ_CACHE.get(key);
+  if(hit && Date.now()-hit.t < 30000){ pjRender(hit.d, camp, pj); return; }
+  let d=null;
+  try{
+    d = await api('/api/project-history?camp='+encodeURIComponent(camp)+'&pj='+encodeURIComponent(pj));
+  }catch(e){ d = null; }
+  if(!PJ_LAST || PJ_LAST.camp!==camp || PJ_LAST.pj!==pj) return;   // 그 사이 다른 현장을 눌렀다
+  if(d && d.ok) PJ_CACHE.set(key, {t:Date.now(), d:d});
+  pjRender(d, camp, pj);
+}
+function pjStat(k, v, warn){
+  return `<div class="pj-stat${warn?' warn':''}"><span class="k">${esc2(k)}</span>
+    <span class="v">${v}</span></div>`;
+}
+function pjRow(e, now){
+  const k = calKindMeta(e.분류||'etc');
+  const 라벨 = e.라벨 || k.label;
+  /* 제목이 라벨과 같은 말이면 두 번 적지 않는다("정기점검 완료 정기점검 완료").
+     그 자리에는 그 건을 실제로 가리키는 **원장 ID** 를 놓는다. */
+  const 머리 = (e.제목 && e.제목 !== 라벨) ? esc2(e.제목) : esc2(e.원천업무ID||'');
+  const bits = [];
+  if(e.담당기사) bits.push(esc2(e.담당기사));
+  if(e.경과일!=null) bits.push(`<b>${esc2(e.경과일)}일 지남</b>`);
+  if(e.소요일!=null) bits.push(`처리 ${esc2(e.소요일)}일`);
+  if(e.긴급도) bits.push(esc2(e.긴급도));
+  if(e.유무상) bits.push(esc2(e.유무상));
+  if(e.이상발견 && e.이상발견!=='없음') bits.push(`이상: ${esc2(e.이상발견)}`);
+  if(e.점검상태) bits.push(esc2(e.점검상태));
+  if(e.진행상태) bits.push(esc2(e.진행상태));
+  if(e.방문예정일) bits.push(`방문예정 ${esc2(e.방문예정일)}`);
+  if(e.예측) bits.push(`예측 · ${esc2(e.예측신뢰도||'근거 있음')}`);
+  if(e.근거) bits.push(esc2(e.근거));
+  const 신청 = e.신청내용 ? `<span class="t2">${esc2(String(e.신청내용).slice(0,140))}</span>` : '';
+  return `<div class="pj-row${now?' now':''}" style="--c:${k.color}">
+    <span class="bar" aria-hidden="true"></span>
+    <span class="dt">${esc2(e.날짜||'날짜 없음')}</span>
+    <span class="bd"><span class="t1"><span class="k">${esc2(라벨)}</span>${머리}</span>
+    ${bits.length?`<span class="t2">${bits.join(' · ')}</span>`:''}${신청}</span></div>`;
+}
+function pjSec(title, rows, empty, now){
+  return `<div class="pj-sec"><h4>${esc2(title)}<span class="n">${rows.length}건</span></h4>
+    <div class="pj-list">${rows.length ? rows.map(e=>pjRow(e, now)).join('')
+      : `<div class="pj-empty">${esc2(empty)}</div>`}</div></div>`;
+}
+function pjRender(d, camp, pj){
+  const title=$('pjSheetTitle'), sub=$('pjSheetSub'), body=$('pjSheetBody');
+  if(!title||!sub||!body) return;
+  if(!d || !d.ok){
+    sub.textContent = '이력을 불러오지 못했습니다';
+    body.innerHTML = `<div class="pj-empty">${esc2((d&&d.error) || '서버에서 이력을 받지 못했습니다. 잠시 뒤 다시 눌러 보세요.')}</div>`;
+    return;
+  }
+  const s = d.요약 || {};
+  title.textContent = d.캠프명 || camp || '현장';
+  sub.textContent = (d.프로젝트NO || '프로젝트 미확정') + ` · ${d.기준||''} 기준`;
+  const 다음 = s.다음일정
+    ? `${s.다음일정.날짜}<small>${s.다음일정.예측?' 예측':' 확정'}</small>` : '—';
+  const 마지막 = s.마지막점검일
+    ? `${s.마지막점검일}<small>${s.마지막점검경과!=null?` ${s.마지막점검경과}일 전`:''}</small>` : '—';
+  const stats =
+      pjStat('돌발AS 완료', (s.돌발AS||0)+'<small>건</small>')
+    + pjStat('정기점검 완료', (s.정기점검||0)+'<small>건</small>')
+    + pjStat('마지막 점검', `<span style="font-size:14px">${마지막}</span>`)
+    + pjStat('다음 일정', `<span style="font-size:14px">${다음}</span>`)
+    + (s.평균점검주기 ? pjStat('평균 점검주기', s.평균점검주기+'<small>일</small>') : '')
+    + ((s.돌발AS미처리||s.정기점검미처리)
+        ? pjStat('미처리', ((s.돌발AS미처리||0)+(s.정기점검미처리||0))+'<small>건</small>', true) : '');
+  const 날짜없음 = (d.날짜없음||[]).length
+    ? `<div class="pj-sec"><h4>날짜가 비어 있는 행<span class="n">${d.날짜없음.length}건</span></h4>
+       <div class="pj-list">${d.날짜없음.map(e=>pjRow(e)).join('')}</div>
+       <div class="pj-empty">원장에 날짜가 없어 위 목록·달력 어디에도 서지 못한 행입니다.</div></div>`
+    : '';
+  body.innerHTML = `<div class="pj-sum">${stats}</div>`
+    + pjSec('지금 밀려 있는 것', d.현황||[], '밀려 있는 건이 없습니다.', true)
+    + pjSec('앞으로 예정·예측', d.예정||[], '잡혀 있는 예정이 없습니다.')
+    + pjSec('지난 내역', d.이력||[], '기록된 과거 내역이 없습니다.')
+    + 날짜없음
+    + (d.더있음 ? `<div class="pj-empty">오래된 ${d.더있음}건은 접었습니다.</div>` : '')
+    + `<div class="pj-empty">원천 · ${esc2(d.원천||'')}</div>`;
+}
+document.addEventListener('keydown', (ev)=>{ if(ev.key==='Escape' && pjSheetOpen()) pjCloseSheet(); });
+(function(){                       // 아래로 쓸어내려 닫기 — 날짜 창과 같은 손짓
+  let y0=null;
+  document.addEventListener('touchstart', (ev)=>{
+    const w=pjSheetEl();
+    if(!pjSheetOpen() || !w){ y0=null; return; }
+    const sheet=w.querySelector('.cal2-sheet'); if(!sheet || !sheet.contains(ev.target)){ y0=null; return; }
+    const b=$('pjSheetBody');
+    if(b && b.contains(ev.target) && b.scrollTop>0){ y0=null; return; }
+    y0=ev.touches[0].clientY;
+  }, {passive:true});
+  document.addEventListener('touchend', (ev)=>{
+    if(y0==null) return;
+    const dy=(ev.changedTouches[0].clientY - y0); y0=null;
+    if(dy>70) pjCloseSheet();
+  }, {passive:true});
+})();
+/* 어디서 불러도 같은 인자 — 캠프명에 따옴표가 들어가도 깨지지 않게 한 곳에서 만든다. */
+function pjCall(e, stop){
+  const q = s => JSON.stringify(String(s||'')).replace(/"/g,'&quot;');
+  return `${stop?'event.stopPropagation();':''}pjOpen(${q(calCampOf(e))},${q(e.프로젝트NO||'')})`;
+}
+/* 목록 줄 옆에 붙는 '이력' 단추 한 벌 — 캘린더 아래 목록과 날짜 창이 같은 것을 쓴다. */
+function pjHistBtn(e){
+  return `<button type="button" class="pj-hist" title="이 현장의 과거 이력"
+    aria-label="${esc2(calCampOf(e))} 과거 이력 보기" onclick="${pjCall(e)}">
+    <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-counterclockwise"/></svg></button>`;
+}
 /* ── 캘린더만 여는 주소 (2026-08-06 지시 "캘린더만 별도 url 공유 가능한 버튼") ──
    ★ 이 링크는 **화면을 가리킬 뿐 PIN 을 건너뛰지 않는다.** 받는 사람도 로그인해야 한다.
      인증을 우회하는 링크를 만들면 그 주소 하나로 원장 전체가 열린다 — 절대 하지 않는다.
