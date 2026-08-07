@@ -7558,6 +7558,59 @@ def t130_band_grab_rejects_timeless_harvest():
     print("  [130] 밴드 수집 — 시각 없는 수확 폐기 ✅")
 
 
+def t132_contaminated_not_recollected():
+    """[132] 가짜 글 기록은 **재수집 목록에 넣지 않는다** (2026-08-07 지시).
+
+    무엇이 잘못돼 있었나
+      '날짜 없는 글 621건'을 "본문은 멀쩡한데 시각만 늦게 붙어 빈 것"으로 진단하고
+      재수집 목록에 넣었다. 실제로 60건을 돌렸더니 **ok 0** 이었다. 세어 보니
+      98건이 본문 2종, 523건이 7종 — 진짜라면 621종이어야 한다. 밴드가
+      `/post/<번호>` 를 iframe 으로 열면 **피드로 되돌려서**, 껍데기에 남은 피드
+      맨 위 글이 통째로 잡힌 것이었다. 같은 경로로 다시 열면 같은 가짜가 또 들어온다.
+
+    지키는 것
+      ① 판정은 좁게 — 작성일 없음 **그리고** 같은 본문이 2건 이상. 하나뿐이면 안 건드린다.
+      ② 지우지 않고 표시한다 — 키를 지우면 '구멍'이 되어 매 회차 다시 훑는다.
+      ③ 가짜 본문·글쓴이는 없앤다 — 남기면 대조가 그것을 진짜로 쓴다.
+      ④ 계획이 오염 번호를 새 글/구멍/재수집 어디에도 넣지 않는다.
+      ⑤ 인계 문서가 '재수집하라'고 말하지 않는다(그게 한 시간을 헛돌게 한 문구다).
+    """
+    import importlib
+    cc = importlib.import_module("band.clean_contaminated")
+
+    same = "Coupang이(가) 새 구매 오더(PO375207)를 전송했습니다"
+    posts = {
+        "10": {"content": same, "author": "김"},              # 날짜 없음 · 같은 본문
+        "11": {"content": same, "author": "김"},              # 날짜 없음 · 같은 본문
+        "12": {"content": "진짜 혼자인 글", "author": "박"},   # 날짜 없음 · 본문 하나뿐
+        "13": {"content": "정상", "created_at": 1754500000000},
+        "14": {"deleted": True},
+    }
+    bad = cc.find(posts)
+    assert set(bad) == {"10", "11"}, f"판정이 틀렸다: {sorted(bad)}"
+    assert "12" not in bad, "본문이 하나뿐인 것을 가짜로 몰았다 — 진짜 글일 수 있다"
+    assert "13" not in bad and "14" not in bad, "정상·삭제 글을 건드렸다"
+
+    # ③ 표시한 기록에는 가짜 본문이 남지 않는다
+    src = open(os.path.join(ROOT, "band", "clean_contaminated.py"), encoding="utf-8").read()
+    assert '"contaminated": True' in src, "표시 대신 지우면 매 회차 구멍으로 다시 훑는다"
+    assert "os.replace(tmp, path)" in src, "캐시를 원자적으로 쓰지 않는다(사고 24)"
+
+    # ④ 계획이 오염 번호를 어디에도 넣지 않는다
+    rp = importlib.import_module("band.recheck_plan")
+    p = rp.plan("1", {"1": {"created_at": 1}, "2": {"contaminated": True},
+                      "3": {"created_at": 1}}, floor=1, ahead=0)
+    assert 2 not in p["gaps"] and 2 not in p["stale"], "오염 번호가 재수집 목록에 들어간다"
+    assert 2 not in (p.get("dateless") or []), "오염 번호가 날짜없음으로도 잡힌다"
+    assert p.get("contaminated") == [2], "오염 건수가 안 보인다 — 잊힌다"
+
+    # ⑤ 인계 문서가 재수집하라고 말하지 않는다
+    sh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert "밴드오염" in sh and "재수집하지 말 것" in sh, \
+        "가짜 기록에 '재수집' 안내가 붙었다 — 그 문구가 한 시간을 헛돌게 했다"
+    print("  [132] 가짜 글 기록 — 재수집 금지·표시 유지 ✅")
+
+
 def t131_band_quiet_vs_stalled():
     """[131] '밴드가 조용한 것'과 '수집이 막힌 것'을 가른다 (2026-08-07 지시).
 
@@ -7927,6 +7980,7 @@ if __name__ == "__main__":
     t129_call_notes_db_only_and_device_open()
     t130_band_grab_rejects_timeless_harvest()
     t131_band_quiet_vs_stalled()
+    t132_contaminated_not_recollected()
     t132_dash_snap_expand_theme_swipe()
     t133_inline_style_dark_safe()
     t120_calendar_sheet_and_share()

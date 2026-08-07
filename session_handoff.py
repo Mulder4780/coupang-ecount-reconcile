@@ -511,6 +511,7 @@ def collect():
         "지시문사본": rule_copies(),
         "수집신선도": data_freshness(),
         "밴드날짜없음": band_dateless(),
+        "밴드오염": band_contaminated(),
         "워크트리": _worktree_state(),
     }
 
@@ -543,6 +544,18 @@ def blockers(st, for_sol=False):
                        ", ".join("%s %d" % (k, v) for k, v in sorted(dl.items()))),
                     "크롬 창을 **앞으로 꺼낸 뒤** python band/recheck_plan.py 로 "
                     "'날짜없음' 목록을 뽑아 재수집 (숨은 탭에서는 수집기가 시작을 거절한다)"))
+    # 가짜로 판정된 글 — **재수집으로는 안 풀린다.** 같은 경로로 다시 열면 같은 가짜가
+    # 또 들어온다(2026-08-07 실측 60건 → ok 0). 그래서 '되살리는 법'을 재수집으로 적지
+    # 않는다. 잘못 적으면 다음 세션이 또 한 시간을 헛돈다.
+    ct = st.get("밴드오염") or {}
+    if sum(ct.values()):
+        out.append(("밴드에 **가짜 글 기록**이 %d건 (%s) — 밴드가 `/post/<번호>` 를 "
+                    "iframe 으로 열면 피드로 되돌려, 피드 맨 위 글이 통째로 잡힌 것이다. "
+                    "번호는 있지만 내용이 남의 것이라 대조에 쓸 수 없다"
+                    % (sum(ct.values()),
+                       ", ".join("%s %d" % (k, v) for k, v in sorted(ct.items()))),
+                    "★ 재수집하지 말 것 — 같은 가짜가 또 들어온다. "
+                    "수집 경로를 새로 만들어야 한다(밴드 API·raw_api_*.json 확인)"))
     if st["임시파일"]:
         out.append(("원장 임시파일이 남았다(만들다 끊김): %s" % ", ".join(st["임시파일"][:3]),
                     "내용 확인 후 삭제 — 정식 vN+1 로 승격되지 않은 파일이다"))
