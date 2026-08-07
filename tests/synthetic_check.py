@@ -5232,6 +5232,30 @@ def t112_band_plan_order_and_scope():
     assert _ldr.index("side_excel_retire.py") > _ldr.index('"29_거래처코드"'), \
         "별도 엑셀 정리가 시트 갱신보다 앞에 있다 — 한 회차를 헛돈다"
 
+    # ★ 사람이 **옛 버전**을 열어 편집 중이면 그 수정은 다음 회차로 안 넘어간다.
+    #   2026-08-07 실측: v538 을 11:08 부터 열어 둔 사이 회차가 v541 까지 만들었다.
+    #   파일이 열려 있으니 오류도 안 난다 — 알려 주지 않으면 아무도 모른다.
+    import session_handoff as _SH
+    _lockd = tempfile.mkdtemp()
+    for _n in ("합성대장L_v7.xlsx", "합성대장L_v9.xlsx"):
+        open(os.path.join(_lockd, _n), "w").close()
+    _latest = os.path.join(_lockd, "합성대장L_v9.xlsx")
+    import ecount_reconcile as _ER          # stranded_editor 가 함수 안에서 부른다
+    _keep = (_ER.resolve_master, _ER.load_config)
+    _ER.resolve_master = lambda *_a, **_k: _latest
+    _ER.load_config = lambda *_a, **_k: {"reconcile": {"master_xlsx": _latest}}
+    try:
+        assert _SH.stranded_editor() == [], "잠금이 없는데 경보를 냈다"
+        open(os.path.join(_lockd, "~$합성대장L_v9.xlsx"), "w").close()
+        assert _SH.stranded_editor() == [], "최신본을 여는 것은 정상인데 경보를 냈다"
+        open(os.path.join(_lockd, "~$합성대장L_v7.xlsx"), "w").close()
+        assert _SH.stranded_editor() == ["합성대장L_v7.xlsx"], _SH.stranded_editor()
+    finally:
+        _ER.resolve_master, _ER.load_config = _keep
+    _shs = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert '"옛버전편집": stranded_editor()' in _shs and 'st.get("옛버전편집")' in _shs, \
+        "옛 버전 편집 경보가 '먼저 처리할 것'에 오르지 않는다"
+
     # ★ 도구가 있는데 아무도 안 부르는 것이 가장 조용한 누락이다 (2026-08-07 발견).
     #   `fill_erp_status.py` 는 2026-07-28 에 만들어졌는데 daily_run 에 없었다.
     #   손으로 돌린 사람이 있을 때만 채워졌다는 뜻이다 — 그냥 돌려 보니 52칸이 남아

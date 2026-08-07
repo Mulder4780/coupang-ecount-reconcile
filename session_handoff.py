@@ -97,6 +97,32 @@ def temp_files():
         return []
 
 
+def stranded_editor():
+    """**사람이 옛 버전을 열어 놓고 편집 중인가.** (2026-08-07 실측)
+
+    엑셀은 파일을 열면 옆에 `~$이름.xlsx` 잠금파일을 만든다. 그 잠금이 최신본이 아닌
+    **옛 vN** 에 걸려 있으면 조용한 손실이 시작된 것이다 — 그 사람이 v538 에 손으로
+    적어 넣는 동안 회차가 v539·v540·v541 을 만들고, 다음 회차는 v541 에서 이어간다.
+    **v538 에 적은 것은 어디에도 넘어가지 않는다.** 파일이 열려 있으니 오류도 안 난다.
+
+    이건 "하루 두 번만 반영" 규칙이 줄여 주는 문제지, 없애 주는 문제가 아니다.
+    사람에게 알리는 것 말고 기계가 할 수 있는 일은 없다 — 남의 엑셀을 닫지 않는다.
+    """
+    try:
+        from ecount_reconcile import load_config, resolve_master
+        cur = resolve_master(load_config()["reconcile"]["master_xlsx"])
+        folder, latest = os.path.dirname(cur), os.path.basename(cur)
+        out = []
+        for p in glob.glob(os.path.join(folder, "~$*.xlsx")):
+            target = os.path.basename(p)[2:]          # `~$` 를 뗀 것이 열려 있는 파일
+            if target == latest:
+                continue                              # 최신본을 보고 있는 건 정상이다
+            out.append(target)
+        return sorted(out)
+    except Exception:
+        return []
+
+
 def pid_alive(pid):
     """그 프로세스가 아직 살아 있나. **시간보다 확실한 판정이다** —
     세션이 죽으면 45분을 기다릴 것 없이 그 자리에서 잔재로 볼 수 있다.
@@ -412,6 +438,7 @@ def collect():
         "원장": ledger(),
         "큐잔량": queue_left(),
         "임시파일": temp_files(),
+        "옛버전편집": stranded_editor(),
         "점유": claims(),
         "미커밋": unstaged,
         "미푸시": unpushed,
@@ -456,6 +483,11 @@ def blockers(st, for_sol=False):
     if st["임시파일"]:
         out.append(("원장 임시파일이 남았다(만들다 끊김): %s" % ", ".join(st["임시파일"][:3]),
                     "내용 확인 후 삭제 — 정식 vN+1 로 승격되지 않은 파일이다"))
+    if st.get("옛버전편집"):
+        out.append(("**사람이 옛 버전을 열어 편집 중이다**: %s (최신본이 아니다)"
+                    % ", ".join(st["옛버전편집"][:3]),
+                    "그 창에 적는 것은 다음 회차로 넘어가지 않는다 — 지금 적은 것을 최신본에 "
+                    "옮기고 옛 창을 닫도록 사람에게 알린다. 남의 엑셀은 대신 닫지 않는다"))
     for c in st["점유"]:
         m = c["mins"] if c["mins"] is not None else "?"
         if c["stale"]:
