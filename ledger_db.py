@@ -200,6 +200,17 @@ CREATE TABLE IF NOT EXISTS remote_audit(     -- 리모컨 기록 수정·삭제 
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_remote_audit_row ON remote_audit(table_name, row_id);
+CREATE TABLE IF NOT EXISTS call_note(        -- 통화·회의 기록 (2026-08-07 지시: 민감 — DB 전용)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,      -- ★ Z: 공유 폴더에 원본을 두지 않는다. 여기가 정본이다.
+  file TEXT NOT NULL UNIQUE,                 -- 원래 메모 파일 이름(식별자 — 같은 이름이면 갱신)
+  on_date TEXT,                              -- 통화 일자
+  whom TEXT,                                 -- 통화 상대
+  body TEXT NOT NULL,                        -- 메모 본문(정본)
+  todos_json TEXT,                           -- 뽑아낸 할 일(19시트 예약의 근거)
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_call_note_on ON call_note(on_date);
 """
 
 # 리모컨 불출 규칙(2026-08-03 사용자 지시) — 지점별 불출 담당과 담당자당 보유 한도.
@@ -621,6 +632,52 @@ def staff_resolution_summary():
                 for row in c.execute(
                     "SELECT owner,COUNT(*),MAX(last_seen) FROM staff_resolution GROUP BY owner")}
     return {owner: rows.get(owner, {"completed": 0, "last_seen": ""}) for owner in owners}
+
+
+# ── 통화·회의 기록 (2026-08-07 지시: "통화_MD는 원본 자료에서 안 보이게, DB만 보관") ──
+# ★ 왜 DB 만인가: 메모에는 사람 이름·평가·거래 조건이 섞인다. 예전에는 Z: 의
+#   `0. 원본 자료/10. 통화·회의 기록/` 으로 복사해 두었는데 그 폴더는 **공유 폴더**라
+#   앱 '원본 자료' 목록에 그대로 떴다(2026-08-07 실측: 통화_20260805_김준형.md 노출).
+#   파일을 아예 두지 않으면 샐 곳이 없다 — 숨기는 것이 아니라 두지 않는 것이 조치다.
+
+def call_note_save(file, body, whom="", on="", todos=None):
+    """통화 메모 본문을 DB 에 보관한다. 같은 파일 이름이면 갱신한다."""
+    now = datetime.now().isoformat(timespec="seconds")
+    payload = json.dumps(todos or [], ensure_ascii=False)
+    with conn() as c:
+        cur = c.execute("UPDATE call_note SET on_date=?,whom=?,body=?,todos_json=?,updated_at=?"
+                        " WHERE file=?", (on, whom, body, payload, now, file))
+        if not cur.rowcount:
+            c.execute("INSERT INTO call_note(file,on_date,whom,body,todos_json,created_at,updated_at)"
+                      " VALUES(?,?,?,?,?,?,?)", (file, on, whom, body, payload, now, now))
+    return True
+
+
+def call_notes(limit=0, with_body=False):
+    """보관된 통화 기록. **본문은 달라고 해야만 준다** — 목록·로그에 실수로 흘리지 않게."""
+    cols = "file,on_date,whom,todos_json,created_at,updated_at" + (",body" if with_body else "")
+    sql = f"SELECT {cols} FROM call_note ORDER BY on_date DESC, file DESC"
+    if limit:
+        sql += f" LIMIT {int(limit)}"
+    names = cols.split(",")
+    out = []
+    with conn() as c:
+        for row in c.execute(sql).fetchall():
+            d = dict(zip(names, row))
+            try:
+                d["todos"] = json.loads(d.pop("todos_json") or "[]")
+            except Exception:
+                d["todos"] = []
+            out.append(d)
+    return out
+
+
+def call_note_get(file):
+    """본문까지 한 건. 없으면 None."""
+    for n in call_notes(with_body=True):
+        if n.get("file") == file:
+            return n
+    return None
 
 
 # 보유로 잡는 불출 상태. '기초보유'는 2026-07-29 재고표에서 넘어온 개시 잔량이라
