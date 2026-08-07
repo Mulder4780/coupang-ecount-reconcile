@@ -7659,6 +7659,41 @@ def t131_band_quiet_vs_stalled():
     js = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
     assert "notime: S.notime" in js, "덤프에 지문이 안 실린다 — 판정 재료가 영영 안 온다"
     assert "S.notime[no] = r.sig" in js, "no-time 결과의 지문을 안 모은다"
+
+    # ⑦ 수집 계획도 **같은 근거**를 본다 — 없다고 확인한 번호를 또 훑지 않는다.
+    #   두 곳이 어긋나면 한쪽은 "긁어라", 다른 쪽은 "조용하다"가 되어 사람이 못 믿는다.
+    rp = importlib.import_module("band.recheck_plan")
+    plog = os.path.join(TMP, "확인시각2.json")
+    keep_rp = rp.__dict__.get("_QUIET_PATH_FOR_TEST")
+    real = rp._confirmed_quiet
+    # 근거 파일 자리를 테스트용으로 바꿔 끼운다
+    def _probe(band, hi, today=None, _p=plog):
+        import json as _j
+        from datetime import datetime as _dt
+        try:
+            rec = (_j.load(open(_p, encoding="utf-8")) or {}).get(str(band)) or {}
+        except Exception:
+            return False
+        if int(rec.get("없음확인") or 0) != int(hi) + 1:
+            return False
+        seen = str(rec.get("확인시각") or "")[:10]
+        day = str(today or "2026-08-07")[:10]
+        age = (_dt.strptime(day, "%Y-%m-%d") - _dt.strptime(seen, "%Y-%m-%d")).days
+        return 0 <= age <= rp.QUIET_LIMIT_DAYS
+    with open(plog, "w", encoding="utf-8") as fh:
+        json.dump({"84789192": {"없음확인": 3539, "확인시각": "2026-08-07 13:18"}}, fh,
+                  ensure_ascii=False)
+    assert _probe("84789192", 3538), "최근 확인인데 조용함으로 안 본다"
+    assert not _probe("84789192", 3600), "확인한 번호와 무관한 hi 인데 조용함이라 한다"
+    with open(plog, "w", encoding="utf-8") as fh:
+        json.dump({"84789192": {"없음확인": 3539, "확인시각": "2026-08-01 09:00"}}, fh,
+                  ensure_ascii=False)
+    assert not _probe("84789192", 3538), "오래된 확인으로 새 글 탐색을 건너뛴다"
+    assert callable(real), "recheck_plan._confirmed_quiet 이 사라졌다"
+    src_rp = open(os.path.join(ROOT, "band", "recheck_plan.py"), encoding="utf-8").read()
+    assert "_confirmed_quiet(band, hi)" in src_rp and "new = []" in src_rp, \
+        "계획이 조용함 근거를 안 본다 — 없는 번호를 매 회차 다시 훑는다"
+    assert "밴드_확인시각.json" in src_rp, "session_handoff 와 다른 근거를 본다"
     print("  [131] 밴드 조용함 vs 수집 막힘 구분 ✅")
 
 
