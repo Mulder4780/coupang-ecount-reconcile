@@ -1435,6 +1435,9 @@ def scheduled_workbook_maintenance(now=None):
         jobs.append(("24_밴드업무추출", [os.path.join(ROOT, "band_extract.py"), "--sheet"]))
     jobs.extend([
         ("23_확인필요현황", [os.path.join(ROOT, "findings_sheet.py")]),
+        # 2026-08-07 지시로 별도 엑셀(쿠팡_거래처코드_최신.xlsx)을 없애고 시트로 옮겼다.
+        # 엑셀 쓰기라 여기(11:00·15:00 회차)에 둔다 — daily_run 은 집계만 본다.
+        ("27_거래처코드", [os.path.join(ROOT, "customer_index.py"), "--sheet"]),
         ("워크북 무결성 복구", [os.path.join(ROOT, "fix_workbook.py"), "--apply"]),
         ("Excel 수식 재계산", [os.path.join(ROOT, "excel_recalc.py"), "--run"]),
     ])

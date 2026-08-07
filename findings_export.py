@@ -285,12 +285,21 @@ def main():
     cfg = load_config()
     master = resolve_master(cfg["reconcile"]["master_xlsx"])
     data = collect(master)
-    out = os.path.join(os.path.dirname(master), OUT_NAME)
-    try:
-        write_xlsx(data, out)
-    except PermissionError:
-        out = os.path.join(REPORT_DIR, OUT_NAME)   # 열려 있으면 reports/에 대체 저장
-        write_xlsx(data, out)
+    # ★ 별도 엑셀은 **기본으로 만들지 않는다** (2026-08-07 지시: "앞으로도 별도의
+    #   엑셀 파일은 만들지 말고 관리대장으로만 관리해"). 같은 내용이 관리대장
+    #   『23_확인필요현황』 시트에 들어간다(`findings_sheet.py`, 11:00·15:00 회차).
+    #   상세열(프로젝트NO·명세서번호·PO번호·확인방법)도 이제 시트에 열로 있다 —
+    #   별도 파일이 있던 유일한 이유가 그것이었다.
+    #   `--xlsx` 를 주면 예전처럼 파일도 만든다(사람이 잠깐 떼어 볼 때만).
+    #   집계 JSON 은 그대로 남긴다 — 앱·리포트가 이 숫자를 읽는다.
+    out = ""
+    if "--xlsx" in sys.argv:
+        out = os.path.join(os.path.dirname(master), OUT_NAME)
+        try:
+            write_xlsx(data, out)
+        except PermissionError:
+            out = os.path.join(REPORT_DIR, OUT_NAME)   # 열려 있으면 reports/에 대체 저장
+            write_xlsx(data, out)
     total = sum(len(v) for v in data.values())
     # 집계를 JSON 으로도 남긴다 — 이 숫자는 엑셀 안에만 있어서, 다른 도구가 쓰려면
     # 엑셀을 다시 열어야 했다(느리고, 사람이 열어 둔 동안에는 못 읽는다).
@@ -304,7 +313,8 @@ def main():
     except Exception as exc:
         print(f"  ! 집계 JSON 저장 실패: {exc}")
     print("확인필요 통합:", " / ".join(f"{k} {len(v)}" for k, v in data.items()))
-    print(f"총 {total}건 → {out}")
+    print(f"총 {total}건 → " + (out if out else "관리대장 23_확인필요현황 시트"
+                                "(11:00·15:00 회차에 반영) · 집계 reports/확인필요_집계.json"))
 
 
 if __name__ == "__main__":

@@ -5160,6 +5160,34 @@ def t112_band_plan_order_and_scope():
     js = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
     assert "muteDialogs" in js and "w.alert" in js, "수집기가 안내창을 막지 않는다"
 
+    # ★ 엑셀은 관리대장 하나로만 관리한다 (2026-08-07 지시).
+    #   "쿠팡_거래처코드_최신.xlsx 와 쿠팡_확인필요현황_최신.xlsx 를 관리대장에
+    #   통합해서 관리하고, 앞으로도 별도의 엑셀 파일은 만들지 말고 관리대장으로만
+    #   관리해." 파일이 늘수록 '어느 게 최신인가'가 흐려지고, 사람이 열어 둔 파일은
+    #   갱신도 막힌다. 별도 파일을 되살리는 변경이 들어오면 여기서 막는다.
+    _fe2 = open(os.path.join(ROOT, "findings_export.py"), encoding="utf-8").read()
+    assert '"--xlsx" in sys.argv' in _fe2, \
+        "확인필요현황이 다시 별도 엑셀을 기본 생성한다 — 관리대장 23시트로만 관리한다"
+    _ci = open(os.path.join(ROOT, "customer_index.py"), encoding="utf-8").read()
+    assert "쿠팡_거래처코드_최신.xlsx" not in _ci, \
+        "거래처코드가 다시 별도 엑셀을 만든다 — 관리대장 27시트로만 관리한다"
+    assert "customer_sheet" in _ci, "거래처코드 시트 반영 경로가 끊겼다"
+    import customer_sheet as _CS
+    assert len(_CS.HEADERS) == len(_CS.WIDTHS) == 10, \
+        "거래처코드 열 구성이 예전 엑셀과 달라졌다 — 자리만 옮기는 것이지 내용이 바뀌면 안 된다"
+    _r = _CS.rows_from_index({"A": {"code": "C", "erp_name": "E", "how": "h", "건수": 1,
+                                    "addr": "", "manager": "", "tel": "", "email": "",
+                                    "equip": ""}}, {}, [])
+    assert _r and all(len(x) == 10 for x in _r), _r
+    assert _CS.SHEET_NAME in _CS.build_sheet_xml(_r)
+    # 엑셀 쓰기는 11:00·15:00 회차에만 — daily_run 이 아니라 ledger_db 에 있어야 한다.
+    _ld = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    assert re.search(r'"27_거래처코드".*customer_index\.py.*"--sheet"', _ld, re.S), \
+        "거래처코드 시트가 11:00·15:00 회차에 걸려 있지 않다"
+    _dr0 = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert not re.search(r'customer_index\.py"\)\s*,\s*"--sheet"', _dr0), \
+        "daily_run 이 관리대장을 직접 연다 — 엑셀 반영은 11:00·15:00 회차만"
+
     # ★ 도구가 있는데 아무도 안 부르는 것이 가장 조용한 누락이다 (2026-08-07 발견).
     #   `fill_erp_status.py` 는 2026-07-28 에 만들어졌는데 daily_run 에 없었다.
     #   손으로 돌린 사람이 있을 때만 채워졌다는 뜻이다 — 그냥 돌려 보니 52칸이 남아

@@ -196,40 +196,25 @@ def main():
                         "", "", "", "", ""])
         for x in sorted(none, key=lambda r: -r["건수"]):
             w.writerow([x["camp"], "(ERP에 없음)", "", "", x["건수"], "", "", "", "", ""])
-    # ★ 사용자 지시(2026-08-05) "앱과 엑셀에 추가해서 표기": 관리대장 본체는 수식·차트가
-    #   있어 열을 늘리지 않는다(절대규칙). 대신 **별도 엑셀**을 같은 폴더에 만들어
-    #   사람이 바로 열어 보게 한다 — 확인필요현황 엑셀과 같은 방식이다.
-    try:
-        import openpyxl
-        from openpyxl.styles import Font, PatternFill, Alignment
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "거래처코드"
-        head = ["캠프명", "거래처코드", "ERP거래처명", "연결방식", "원장건수",
-                "주소", "담당자", "연락처", "Email", "보유장비"]
-        ws.append(head)
-        for c in ws[1]:
-            c.font = Font(bold=True, color="FFFFFF")
-            c.fill = PatternFill("solid", fgColor="2F5597")
-            c.alignment = Alignment(horizontal="center", vertical="center")
-        for camp, v in sorted(linked.items()):
-            ws.append([camp, v["code"], v["erp_name"], v["how"], v["건수"],
-                       v["addr"], v["manager"], v["tel"], v["email"], v["equip"]])
-        for camp, v in sorted(multi.items()):
-            ws.append([camp, "(후보 여럿)", " / ".join(v["names"]), v["how"], v["건수"]])
-        for x in sorted(none, key=lambda r: -r["건수"]):
-            ws.append([x["camp"], "(ERP에 없음)", "", "", x["건수"]])
-        for col, w in zip("ABCDEFGHIJ", (26, 12, 26, 10, 9, 34, 12, 15, 24, 30)):
-            ws.column_dimensions[col].width = w
-        ws.freeze_panes = "A2"
-        ws.auto_filter.ref = ws.dimensions
-        from ecount_reconcile import load_config as _lc, resolve_master as _rm
-        out_x = os.path.join(os.path.dirname(_rm(_lc()["reconcile"]["master_xlsx"])),
-                             "쿠팡_거래처코드_최신.xlsx")
-        wb.save(out_x)
-        print(f"  엑셀: {out_x}")
-    except Exception as e:
-        print(f"  ! 엑셀 생성 실패: {str(e)[:70]}")
+    # ★ 2026-08-07 지시로 **별도 엑셀을 만들지 않는다** ("앞으로도 별도의 엑셀 파일은
+    #   만들지 말고 관리대장으로만 관리해"). 같은 표가 관리대장 『27_거래처코드』
+    #   시트로 들어간다 — 열 구성은 예전 엑셀과 **같게** 뒀다(자리만 옮기는 것이지
+    #   내용이 바뀌는 게 아니어야 한다).
+    #   2026-08-05 에 별도 파일을 택했던 이유는 "관리대장에 열을 늘릴 수 없어서"였는데,
+    #   늘리는 게 아니라 **시트를 더하는 것**이면 차트·수식을 건드리지 않는다.
+    #   ※ 관리대장을 openpyxl 로 열어 save() 하지 않는다(차트 파괴 — 절대규칙).
+    #     `customer_sheet` 가 zip 파트 수술로 시트 XML 만 갈아끼운다.
+    #   ※ 관리대장 쓰기는 **`--sheet` 를 줬을 때만** 한다. 그냥 돌리면 집계만 본다
+    #     (엑셀 반영은 11:00·15:00 회차 규칙 그대로).
+    if "--sheet" in sys.argv:
+        try:
+            import customer_sheet as CS
+            rows, ok, msg = CS.apply(linked, multi, none)
+            print(f"  관리대장 {CS.SHEET_NAME}: {len(rows)}행 — {msg}")
+        except Exception as e:
+            print(f"  ! 거래처코드 시트 갱신 실패: {str(e)[:90]}")
+    else:
+        print("  (관리대장 27_거래처코드 반영은 --sheet 로. 별도 엑셀은 더 만들지 않는다)")
 
     print(f"거래처 {len(custs)}개 · 원장 캠프 {len(camps)}개 → "
           f"코드 확정 {len(linked)} · 후보여럿 {len(multi)} · ERP에 없음 {len(none)} "
