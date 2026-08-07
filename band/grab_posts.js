@@ -26,8 +26,12 @@
 (function () {
   const S = (window.__GRAB = window.__GRAB || {
     band: null, posts: {}, done: [], missing: [], failed: [],
+    // notime: 번호 → 그때 껍데기에 잡힌 본문 지문. '아직 없는 글' 판정의 재료다
+    // (판정은 convert_dump 가 한다 — 브라우저는 사실만 적는다).
+    notime: {},
     running: false, startedAt: null, total: 0, stop: false,
   });
+  if (!S.notime) S.notime = {};        // 옛 탭에서 이어받을 때도 자리가 있게
 
   // 워커 타이머 — 숨은 탭에서도 제 시각에 온다.
   const W = new Worker(URL.createObjectURL(new Blob(
@@ -132,7 +136,14 @@
       //   위(본문 없음)와 달리 'missing' 이 아니라 'fail' 로 돌린다:
       //   3539 는 **내일이면 진짜로 생긴다.** 묘비를 세우면 그때 영영 못 모은다.
       //   시각 없는 글은 어차피 어떤 작업과도 대조되지 않아 저장할 값이 없다.
-      if (!timeText) return { status: 'fail', reason: 'no-time' };
+      //   ★ 그러면서 **본문 지문은 남긴다** (2026-08-07 3차). 아직 없는 글이면 껍데기에
+      //   직전 화면 본문이 그대로 잡히므로, 이런 번호끼리 지문이 **똑같다**. 그 사실이
+      //   "이 번호들은 아직 없다"의 증거가 된다 — 판정은 여기서 하지 않고
+      //   convert_dump 가 한다(브라우저는 사실만 적고, 판단은 시험할 수 있는 곳에서).
+      if (!timeText) {
+        const sig = txt(main, '.postText, .dPostTextView').replace(/\s+/g, ' ').slice(0, 200);
+        return { status: 'fail', reason: 'no-time', sig };
+      }
       const imgs = [...main.querySelectorAll('img')]
         .map((i) => i.src).filter((s) => /pstatic|phinf/.test(s));
       const cmt = (txt(main, '._commentCount, .comment .count, .uComment .count')
@@ -200,7 +211,10 @@
         const r = await grabOne(band, no, opt.waitMs || 9000, opt.bodyMs || 12000);
         if (r.status === 'ok') { S.posts[no] = r.post; S.done.push(no); }
         else if (r.status === 'missing') S.missing.push(no);
-        else S.failed.push(no);
+        else {
+          S.failed.push(no);
+          if (r.reason === 'no-time' && r.sig) S.notime[no] = r.sig;
+        }
         await sleep(opt.gapMs || 300);
       }
       S.running = false;
@@ -227,7 +241,7 @@
     const doc = {
       band: S.band, name: document.title.split('|')[0].replace('게시글 :', '').trim(),
       capturedAt: Date.now(), posts: S.posts,
-      missing: S.missing, failed: S.failed,
+      missing: S.missing, failed: S.failed, notime: S.notime,
     };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(doc)], { type: 'application/json' }));

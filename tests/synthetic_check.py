@@ -7491,10 +7491,12 @@ def t130_band_grab_rejects_timeless_harvest():
     assert body, "grabOne 을 찾지 못했다"
     body = body.group(0)
 
-    m = re.search(r"if \(!timeText\) return \{ status: '(\w+)'", body)
-    assert m, "시각 없는 수확을 걸러내지 않는다 — 같은 글이 통째로 캐시에 들어간다"
-    assert m.group(1) == "fail", \
-        f"시각 없음을 '{m.group(1)}' 로 처리한다 — 묘비를 세우면 그 번호를 영영 못 모은다"
+    # 한 줄 반환이든 블록이든(지문을 함께 남기는 [131] 이후 모양) 상태만은 fail 이어야 한다.
+    guard = re.search(r"if \(!timeText\)\s*(\{.*?\n      \}|return \{[^}]*\})", body, re.S)
+    assert guard, "시각 없는 수확을 걸러내지 않는다 — 같은 글이 통째로 캐시에 들어간다"
+    m = re.search(r"status: '(\w+)'", guard.group(1))
+    assert m and m.group(1) == "fail", \
+        f"시각 없음을 '{m.group(1) if m else '?'}' 로 처리한다 — 묘비를 세우면 그 번호를 영영 못 모은다"
 
     # 가드가 ok 반환보다 **앞**에 있어야 의미가 있다
     assert body.index("if (!timeText)") < body.index("status: 'ok'"), \
@@ -7506,6 +7508,110 @@ def t130_band_grab_rejects_timeless_harvest():
     assert "document.hidden" in js and "탭이 뒤에 있다" in js, \
         "숨은 탭에서 시작을 거절하는 가드가 사라졌다"
     print("  [130] 밴드 수집 — 시각 없는 수확 폐기 ✅")
+
+
+def t131_band_quiet_vs_stalled():
+    """[131] '밴드가 조용한 것'과 '수집이 막힌 것'을 가른다 (2026-08-07 지시).
+
+    무엇이 잘못돼 있었나
+      신선도 판정은 **날짜 있는 최신 글**만 봤다. 그래서 밴드에 새 글이 없는 날에도
+      "★밀림"이 인계 문서 맨 위에 떴고, 그 경보를 믿고 없는 번호(3539~3578)를 긁었다가
+      40건이 **전부 같은 글**로 캐시에 들어갔다(오늘 사고). 경보가 사고를 부른 셈이다.
+
+    지키는 것
+      ① 근거는 **missing 뿐**이다 — 밴드가 '없다'고 명시한 번호. failed/no-time 은
+         화면이 안 그려졌을 때도 나오므로 '없음'의 증거가 못 된다.
+      ② 수집 최대 번호 **바로 다음**이 없음으로 확인돼야 성립한다. 건너뛴 확인은 안 된다.
+      ③ 옛 회차가 최근 확인을 덮지 않는다.
+      ④ 근거가 최근일 때만 밀림을 내린다 — 오래된 근거는 그 사이 새 글이 올라왔을 수 있다.
+      ⑤ 문서에 '조용함'과 그 이유가 보인다(다음 세션이 또 없는 번호를 긁지 않게).
+    """
+    import importlib
+    import tempfile
+    conv = importlib.import_module("band.convert_dump")
+    import session_handoff as SH
+
+    TMP = tempfile.mkdtemp(prefix="bandquiet_")
+    log = os.path.join(TMP, "밴드_확인시각.json")
+    keep_log = conv.PROBE_LOG
+    conv.PROBE_LOG = log
+    try:
+        merged = {"3537": {"content": "x"}, "3538": {"content": "y"},
+                  "3400": {"deleted": True}}
+        cap = 1754500000000            # 고정 시각(테스트는 시계를 만들지 않는다)
+
+        # ② 바로 다음 번호가 없음 → 기록된다
+        conv._record_probe("84789192", "매출처업무", merged, [3539, 3540], cap)
+        doc = json.load(open(log, encoding="utf-8"))
+        assert doc["84789192"]["수집최대"] == 3538, "수집 최대 번호가 틀렸다"
+        assert doc["84789192"]["없음확인"] == 3539
+        first_seen = doc["84789192"]["확인시각"]
+
+        # ② 건너뛴 확인은 증거가 아니다 — 3539 를 모르는 채 3541 만 없음이면 성립 안 한다
+        os.remove(log)
+        conv._record_probe("84789192", "매출처업무", merged, [3541], cap)
+        assert not os.path.exists(log), "건너뛴 확인을 증거로 삼았다"
+
+        # ③ 옛 회차가 최근 확인을 덮지 않는다
+        conv._record_probe("84789192", "매출처업무", merged, [3539], cap)
+        conv._record_probe("84789192", "매출처업무", merged, [3539], cap - 86400000)
+        doc = json.load(open(log, encoding="utf-8"))
+        assert doc["84789192"]["확인시각"] == first_seen, "옛 회차가 최근 확인을 덮었다"
+
+        # ★ 오늘 사고의 실제 모양 — 아직 없는 번호는 missing 이 아니라 **notime** 으로
+        #   떨어진다(밴드가 200 과 껍데기를 주므로). 지문이 같은 것이 2개 이상이면 증거다.
+        same = "Coupang이(가) 새 구매 오더(PO375207)를 전송했습니다. 총금액 8,778,600원"
+        assert conv._absent_above(3538, [], {"3539": same, "3540": same}) == [3539, 3540], \
+            "같은 지문 여러 건을 '아직 없는 글'로 못 읽는다 — 이게 오늘 사고의 모양이다"
+        # 하나뿐이면 '화면이 늦게 그려진 것'과 구분이 안 된다 — 증거로 치지 않는다
+        assert conv._absent_above(3538, [], {"3539": same}) == [], \
+            "지문 하나로 없음을 단정했다 — 느린 화면을 없는 글로 오해한다"
+        # 지문이 서로 다르면 진짜 글일 수 있다 — 증거 아님
+        assert conv._absent_above(3538, [], {"3539": "가", "3540": "나"}) == [], \
+            "서로 다른 본문을 없는 글로 묶었다"
+        # missing 과 notime 이 섞여도 이어져야 성립한다
+        os.remove(log)
+        conv._record_probe("84789192", "매출처업무", merged, [3540],
+                           cap, {"3539": same, "3541": same})
+        doc = json.load(open(log, encoding="utf-8"))
+        assert doc["84789192"]["없음확인"] == 3539 and doc["84789192"]["연속없음"] == 3
+    finally:
+        conv.PROBE_LOG = keep_log
+
+    # ④ 신선도 판정 — 근거가 최근이면 밀림이 내려가고, 오래되면 그대로 밀림
+    keep = (SH.band_latest_days, SH.band_quiet)
+    try:
+        SH.band_latest_days = lambda: {"84789192": "2026-08-05"}
+        SH.band_quiet = lambda: {"84789192": {"이름": "매출처업무", "수집최대": 3538,
+                                              "확인시각": "2026-08-07 09:52",
+                                              "없음확인": 3539, "연속없음": 2}}
+        row = [f for f in SH.data_freshness("2026-08-07") if f["이름"].startswith("밴드:")][0]
+        assert not row["밀림"], "새 글 없음을 확인했는데도 밀림이라 한다"
+        assert "3538" in row.get("조용함", ""), "왜 안 긁어도 되는지가 안 적혔다"
+
+        SH.band_quiet = lambda: {"84789192": {"이름": "매출처업무", "수집최대": 3538,
+                                              "확인시각": "2026-08-01 09:00",
+                                              "없음확인": 3539, "연속없음": 2}}
+        row = [f for f in SH.data_freshness("2026-08-07") if f["이름"].startswith("밴드:")][0]
+        assert row["밀림"], "오래된 근거로 밀림을 내렸다 — 그 사이 새 글이 있을 수 있다"
+
+        # 근거가 아예 없으면 예전처럼 밀림이다(안전한 기본값)
+        SH.band_quiet = lambda: {}
+        row = [f for f in SH.data_freshness("2026-08-07") if f["이름"].startswith("밴드:")][0]
+        assert row["밀림"], "근거가 없는데 밀림을 내렸다"
+    finally:
+        SH.band_latest_days, SH.band_quiet = keep
+
+    # ⑤ 문서에 '조용함'과 이유가 보인다
+    src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert '"조용함"' in src and "(조용함)" in src, "표에 조용함 표시가 없다"
+    assert "없는 번호를 긁으면" in src, "왜 긁으면 안 되는지가 문서에 안 적힌다"
+
+    # ⑥ 수집기가 지문을 실제로 실어 보내야 판정 재료가 생긴다
+    js = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
+    assert "notime: S.notime" in js, "덤프에 지문이 안 실린다 — 판정 재료가 영영 안 온다"
+    assert "S.notime[no] = r.sig" in js, "no-time 결과의 지문을 안 모은다"
+    print("  [131] 밴드 조용함 vs 수집 막힘 구분 ✅")
 
 
 if __name__ == "__main__":
@@ -7611,6 +7717,7 @@ if __name__ == "__main__":
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
     t130_band_grab_rejects_timeless_harvest()
+    t131_band_quiet_vs_stalled()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

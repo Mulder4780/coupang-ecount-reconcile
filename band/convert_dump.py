@@ -56,6 +56,70 @@ def dump_files():
 
 CHANGED_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            "reports", "밴드_수정글.json")
+# ★ "밴드가 조용한 것"과 "수집이 막힌 것"을 가르는 근거 (2026-08-07 지시).
+#   신선도 판정은 '날짜 있는 최신 글'만 봐서, 밴드에 새 글이 없는 날에도 "★밀림"이라고
+#   외쳤다. 그 경보를 믿고 없는 번호를 긁다가 40건이 전부 같은 글로 들어온 것이 오늘 사고다.
+#   근거로 쓸 수 있는 것은 **missing 뿐**이다 — 밴드가 "삭제되었거나 찾을 수 없습니다"라고
+#   명시한 번호다. failed/no-time 은 화면이 안 그려졌을 때도 나오므로(오늘이 그랬다)
+#   '없음'의 증거가 되지 못한다. 증거를 좁게 잡는 편이 거짓 안심보다 낫다.
+PROBE_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "reports", "밴드_확인시각.json")
+
+
+def _absent_above(top, missing, notime):
+    """수집 최대 번호(top) 위로 '아직 없는 글'로 확인된 번호들.
+
+    두 가지가 증거가 된다.
+      · `missing` — 밴드가 '삭제되었거나 찾을 수 없습니다'라고 명시한 번호.
+      · `notime` 중 **지문이 서로 같은 것이 2개 이상** — 아직 없는 번호를 열면 밴드가
+        200 과 앱 껍데기를 주고 그 자리에 **직전 화면 본문**이 그대로 남는다. 그래서
+        없는 번호끼리는 본문 지문이 똑같다(2026-08-07 실측: 3539~3578 마흔 건이 전부
+        같은 글이었다). 하나만 있으면 '화면이 늦게 그려진 것'과 구분되지 않으므로
+        **2개 이상 같은 지문일 때만** 증거로 친다.
+    """
+    out = set(int(n) for n in missing if str(n).isdigit() and int(n) > top)
+    sigs = {}
+    for no, sig in (notime or {}).items():
+        if str(no).isdigit() and int(no) > top and sig:
+            sigs.setdefault(sig, []).append(int(no))
+    for sig, nos in sigs.items():
+        if len(nos) >= 2:
+            out.update(nos)
+    return sorted(out)
+
+
+def _record_probe(band, name, merged, missing, cap_ms, notime=None):
+    """이 회차가 '번호 N 위로는 글이 없다'를 증명했으면 적어 둔다.
+
+    성립 조건은 하나뿐이다: **수집 최대 번호 바로 다음 번호가 '없음'으로 확인**될 것.
+    중간에 건너뛴 채 위쪽만 없음이면 그 사이를 모르므로 증거가 아니다.
+    """
+    real = [int(k) for k, v in merged.items()
+            if str(k).isdigit() and isinstance(v, dict) and not v.get("deleted")]
+    if not real:
+        return
+    top = max(real)
+    absent = _absent_above(top, missing, notime)
+    if not absent or absent[0] != top + 1:
+        return
+    when = (datetime.fromtimestamp(cap_ms / 1000).strftime("%Y-%m-%d %H:%M")
+            if cap_ms else "")
+    if not when:
+        return
+    try:
+        doc = json.load(open(PROBE_LOG, encoding="utf-8"))
+    except Exception:
+        doc = {}
+    prev = doc.get(str(band)) or {}
+    if str(prev.get("확인시각") or "") > when:
+        return                        # 더 최근 확인이 이미 있으면 옛 회차로 덮지 않는다
+    doc[str(band)] = {"이름": name, "확인시각": when, "수집최대": top,
+                      "없음확인": absent[0], "연속없음": len(absent)}
+    os.makedirs(os.path.dirname(PROBE_LOG), exist_ok=True)
+    tmp = PROBE_LOG + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, PROBE_LOG)
 
 # 밴드 화면 문구 — 수집 방식(피드 긁기 vs 상세 페이지)에 따라 붙었다 떨어졌다 한다.
 # 이걸 걸러내지 않으면 **수집 방식만 바뀌어도 전부 '수정됨'으로 잡힌다**(실제로 571건
@@ -200,6 +264,13 @@ def main():
         gone = len(d.get("missing") or [])
         if gone:
             print(f"  · 삭제된 글 {gone}건 기록({band}) — 다음 회차부터 다시 훑지 않는다")
+        # 이 회차가 '수집 최대 번호 위로는 글이 없다'를 증명했으면 남긴다.
+        # 신선도 판정이 이것을 보고 '밀림'과 '조용함'을 가른다.
+        try:
+            _record_probe(band, d.get("name", band), merged, d.get("missing") or [],
+                          cap_ms, d.get("notime") or {})
+        except Exception:
+            pass
         out = {"band_name": d.get("name", band), "posts": merged}
         # ★ 임시파일에 다 쓴 뒤 **한 번에 갈아끼운다** (2026-08-07 실사고).
         #   예전에는 `open(dst,"w")` 로 정본을 **먼저 비우고** 19MB 를 흘려 넣었다.

@@ -367,6 +367,19 @@ def band_dateless():
     return out
 
 
+def band_quiet():
+    """밴드마다 '받을 것이 남았는가'의 근거 (2026-08-07 지시).
+
+    `convert_dump._record_probe` 가 남긴 `reports/밴드_확인시각.json` 을 읽는다.
+    한 밴드에 대해 "수집 최대 번호 바로 다음이 없음으로 확인됨 + 그 시각" 이 들어 있다.
+    """
+    try:
+        return json.load(open(os.path.join(BASE, "reports", "밴드_확인시각.json"),
+                              encoding="utf-8")) or {}
+    except Exception:
+        return {}
+
+
 def data_freshness(today=None):
     """수집이 **얼마나 밀렸나**. 오늘(2026-08-06) 사고의 진짜 원인이 여기였다.
 
@@ -388,6 +401,7 @@ def data_freshness(today=None):
         ("ERP 내보내기", _index_newest_day("1. ERP 내보내기"),
          "크롬 'Claude' 탭 그룹에서 이카운트 로그인 → 화면별 Excel 내보내기"),
     ]
+    quiet = band_quiet()
     out = []
     for name, latest, how in rows:
         limit = FRESH_LIMIT.get(name.split(":")[0].strip(), 3)
@@ -398,9 +412,28 @@ def data_freshness(today=None):
                         - datetime.strptime(latest, "%Y-%m-%d")).days
             except ValueError:
                 late = None
-        out.append({"이름": name, "최신": latest or "없음", "밀린일": late,
-                    "한도": limit, "되살리는법": how,
-                    "밀림": late is not None and late > limit})
+        row = {"이름": name, "최신": latest or "없음", "밀린일": late,
+               "한도": limit, "되살리는법": how,
+               "밀림": late is not None and late > limit}
+        # ★ '밀렸다'와 '밴드가 조용하다'는 다른 일이다 (2026-08-07 지시).
+        #   날짜 있는 최신 글만 보면 새 글이 없는 날도 밀림으로 나온다. 그 경보를 믿고
+        #   없는 번호를 긁으면 오늘처럼 쓰레기가 캐시로 들어간다. 그래서 '수집 최대 번호
+        #   바로 다음이 없음으로 확인'된 근거가 **최근 것일 때만** 밀림을 내린다.
+        #   근거가 오래됐으면 그 사이에 새 글이 올라왔을 수 있으므로 그대로 밀림이다.
+        if row["밀림"] and name.startswith("밴드:"):
+            q = quiet.get(name.split(":", 1)[1].strip()) or {}
+            seen = str(q.get("확인시각") or "")[:10]
+            if seen:
+                try:
+                    age = (datetime.strptime(day, "%Y-%m-%d")
+                           - datetime.strptime(seen, "%Y-%m-%d")).days
+                except ValueError:
+                    age = None
+                if age is not None and age <= limit:
+                    row["밀림"] = False
+                    row["조용함"] = "%s번까지 수집 완료 · %s 에 새 글 없음 확인" % (
+                        q.get("수집최대"), q.get("확인시각"))
+        out.append(row)
     return out
 
 
@@ -559,11 +592,19 @@ def to_md(st, for_sol=False):
               "| 원본 | 최신 | 밀린 일수 | 한도 |", "|---|---|---:|---:|"]
         for f in fr:
             late = "?" if f["밀린일"] is None else str(f["밀린일"])
+            tag = " ★밀림" if f.get("밀림") else (" (조용함)" if f.get("조용함") else "")
             L.append("| %s%s | %s | %s | %d |"
-                     % (f["이름"], " ★밀림" if f.get("밀림") else "",
-                        f["최신"], late, f["한도"]))
+                     % (f["이름"], tag, f["최신"], late, f["한도"]))
+        quiet = [f for f in fr if f.get("조용함")]
         L += ["", "> 밴드·이카운트는 **사람 로그인**이 있어야 긁힌다(절대규칙 3).",
-              "> 밀려 있으면 화면 숫자가 그만큼 적게 나온다 — 숫자를 의심하기 전에 여기부터 본다.", ""]
+              "> 밀려 있으면 화면 숫자가 그만큼 적게 나온다 — 숫자를 의심하기 전에 여기부터 본다."]
+        if quiet:
+            # 날짜만 보면 밀린 것처럼 보이지만 받을 것이 없는 밴드 — 왜 안 긁어도 되는지 적는다.
+            # 이 줄이 없으면 다음 세션이 또 없는 번호를 긁는다(2026-08-07 사고).
+            L += ["> **조용함**: 최신 글이 오래됐지만 그 위로 새 글이 없음을 확인한 것이다 —"
+                  " 긁을 것이 없다. 없는 번호를 긁으면 쓰레기가 캐시에 들어간다."]
+            L += ["> · %s — %s" % (f["이름"], f["조용함"]) for f in quiet]
+        L.append("")
     if st["미커밋"]:
         L += ["## 커밋되지 않은 변경 (%d)" % len(st["미커밋"]), "",
               "```", *st["미커밋"][:20], "```", "",
