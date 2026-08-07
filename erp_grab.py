@@ -176,7 +176,15 @@ def run(limit_days=DEFAULT_LIMIT_DAYS):
     if not rows:
         print("✗ reports/원본색인.json 을 못 읽었다 — 09:35 원본정리가 돌았는지 확인할 것")
         return 1
+    # ★ 이 표는 **색인이 만들어진 시점**의 사실이다. 방금 받은 파일은 색인이 다시
+    #   만들어지기 전까지 여기 안 보인다 — 그걸 모르고 보면 "받았는데 왜 그대로냐"가 된다.
+    #   (색인은 09:35 원본정리·워치독이 다시 만든다)
+    try:
+        built = (json.load(open(INDEX, encoding="utf-8")) or {}).get("built") or "?"
+    except Exception:
+        built = "?"
     print(f"ERP 내보내기 — 종류별 최신 (밀림 기준 {limit_days}일)")
+    print(f"  ※ 근거는 원본색인 {built} 기준 — 그 뒤에 받은 파일은 아직 안 보인다")
     for kind, (m, n) in sorted(rows.items(), key=lambda x: x[1][0], reverse=True):
         label = KIND_LABEL.get(kind, kind)
         print(f"  {label:<18} {m[:16] or '-':<17} {n:>5}건")
