@@ -8165,6 +8165,57 @@ def t140_freshness_tells_the_truth():
     print("  [140] 신선도 표기 — 나이는 하나·실패는 말한다·캡처는 곧바로 ✅")
 
 
+def t144_topmost_pin_always_restores():
+    """'덮여 있음'을 푸는 항상위 고정이 **반드시 되돌아오나** (2026-08-07 실측).
+
+    창이 최소화도 아니고 Win32 로는 '보임'인데 크롬이 hidden 으로 보는 상태가 있다
+    (native window occlusion). 그날 반나절을 여기서 잃었고, `HWND_TOP` 으로는
+    안 풀리고 `HWND_TOPMOST` 로만 풀린다는 것을 확인했다.
+
+    그런데 이 기능의 위험은 푸는 쪽이 아니라 **되돌리는 쪽**이다. 수집기는 중간에
+    자주 죽는다(로그인 화면·없는 번호·네트워크). 그때 크롬이 항상 위에 남으면
+    사용자는 원인을 모른 채 "창이 안 내려간다"를 겪는다 — 그리고 그 증상은
+    수집 실패와 아무 관계가 없어 보여서 원인을 찾는 데 또 시간이 든다.
+    그래서 여기서 지키는 것은 '고정이 되나'가 아니라 **'예외가 나도 풀리나'** 다.
+    """
+    import importlib.util
+    p = os.path.join(ROOT, "band", "window_show.py")
+    spec = importlib.util.spec_from_file_location("_ws_t144", p)
+    W = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(W)
+
+    # ① 값 자체 — HWND_TOP(0) 은 '맨 위'일 뿐 '항상 위'가 아니다. 둘을 헷갈리면
+    #    덮던 창이 곧 다시 덮어서 "고쳤는데 그대로"가 된다.
+    assert W.HWND_TOPMOST == -1 and W.HWND_NOTOPMOST == -2 and W.HWND_TOP == 0
+    # ② 초점을 빼앗지 않는다 — 옆 창에서 타이핑 중일 수 있다(이 파일의 존재 이유).
+    src = open(p, encoding="utf-8").read()
+    assert "SWP_NOACTIVATE" in src and "def _zorder(" in src
+    assert "SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE" in src, \
+        "Z순서만 바꿔야 하는데 위치·크기·초점까지 건드린다"
+
+    # ③ ★ 핵심 — 예외가 나도 되돌린다.
+    calls = []
+    W.set_topmost = lambda on, title="Chrome", quiet=True: calls.append(on) or 1
+    try:
+        with W.pinned():
+            raise RuntimeError("수집이 중간에 죽었다")
+    except RuntimeError:
+        pass
+    assert calls == [True, False], \
+        f"항상위를 켜고 되돌리지 않는다({calls}) — 크롬이 영영 항상 위에 남는다"
+
+    # ④ 정상 종료도 당연히 되돌린다.
+    calls.clear()
+    with W.pinned():
+        pass
+    assert calls == [True, False]
+
+    # ⑤ 사람이 CLI 로 켰을 때는 되돌리라고 **말해 준다**(with 가 없으니 사람이 기억해야 한다).
+    assert "--untopmost" in src and "수집이 끝나면 --untopmost" in src, \
+        "CLI 로 고정한 사람에게 되돌리라는 말을 하지 않는다"
+    print("  [144] 항상위 고정 — 예외가 나도 복귀한다 ✅")
+
+
 def t141_long_text_folds():
     """긴 글은 접고 짧은 글은 건드리지 않나 (2026-08-07 지시).
 
@@ -8569,6 +8620,7 @@ if __name__ == "__main__":
     t141_long_text_folds()
     t142_flow_editable()
     t143_originals_one_tap()
+    t144_topmost_pin_always_restores()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
