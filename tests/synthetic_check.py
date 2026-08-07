@@ -12,7 +12,7 @@ synthetic_check.py — 합성데이터 상시 검증 (실데이터·실서버 �
 
 실행:  python tests/synthetic_check.py   (전부 통과 시 exit 0, 'ALL GREEN')
 """
-import sys, os, re, tempfile, subprocess, hashlib, json
+import sys, os, re, tempfile, subprocess, hashlib, json, sqlite3, time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
@@ -8347,6 +8347,78 @@ def t145_redirect_deleted_needs_two_rounds():
     print("  [145] 리다이렉트 삭제 판정 — 회차 둘 이상·수확 0 회차 제외 ✅")
 
 
+def t147_datalake_schema_and_incremental():
+    """[147] 전 자료 보관소 — 표·append-only·증분·묘비 (2026-08-07 지시).
+
+    사용자 지시: "모든 데이터는 Db화 해서 별도 보관하고 앞으로 들어오는 모든 데이터
+    포함 변경 및 로그 기록까지 같이 정리해".
+
+    여기서 지키는 것은 넷이고, 넷 다 **어기면 조용히 틀린다**:
+      ① 큐 DB 와 **다른 파일**이어야 한다 — 한 파일이면 11:00·15:00 엑셀 반영이
+         색인 흡수에 잠겨 회차를 통째로 놓친다(SQLite 는 파일 단위 쓰기 잠금).
+      ② 로그는 고칠 수도 지울 수도 없어야 한다 — 고쳐질 수 있으면 근거가 아니다.
+      ③ 안 바뀐 파일은 **열지 않아야** 한다 — Z: 는 SMB 라 매번 sha1 을 재면
+         몇 초가 몇 시간이 된다. 그리고 같은 파일을 백 번 봐도 이력이 안 늘어야 한다.
+      ④ 사라진 파일을 **지우지 않아야** 한다 — 지우면 '있었다'는 사실을 잃는다.
+    """
+    import datalake as D
+
+    # ① 자리 — 큐 DB 와 같은 파일이면 안 된다
+    assert D.db_path() != os.path.join(ROOT, "db", "ledger_queue.db"), \
+        "보관소를 큐 DB 에 넣었다 — 엑셀 반영이 색인에 잠긴다"
+    assert D.db_path().endswith("datalake.db")
+
+    with tempfile.TemporaryDirectory() as t:
+        con = D.connect(os.path.join(t, "dl.db"))
+        try:
+            표 = {r[0] for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+            for need in ("asset", "asset_rev", "record", "record_rev", "event", "link"):
+                assert need in 표, f"{need} 표가 없다"
+            # WAL 이어야 읽는 세션이 쓰는 세션을 안 막는다(창이 여러 개인 것이 기본)
+            assert con.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
+
+            # ② append-only — 트리거가 실제로 막는가 (문자열이 아니라 동작으로 잰다)
+            D.log(con, "test", "hello")
+            for sql in ("UPDATE event SET ok=0", "DELETE FROM event"):
+                try:
+                    con.execute(sql)
+                    raise AssertionError(f"로그를 {sql.split()[0]} 할 수 있다 — 근거가 못 된다")
+                except sqlite3.IntegrityError:
+                    pass
+            # 실패도 남는가 — 실패가 안 남으면 사고를 되짚을 수 없다
+            D.log(con, "collect", "band.grab", ok=False, detail={"왜": "로그인 화면"})
+            assert len(D.events(con, fail_only=True)) == 1
+
+            # ③ 증분 — 안 바뀌면 '그대로', 바뀌었을 때만 이력이 는다
+            f = os.path.join(t, "a.txt")
+            open(f, "w", encoding="utf-8").write("처음")
+            assert D.ingest_asset(con, f, "ERP")[1] == "새것"
+            assert D.ingest_asset(con, f, "ERP")[1] == "그대로"
+            assert D.ingest_asset(con, f, "ERP")[1] == "그대로"
+            time.sleep(1.1)                       # mtime 초 단위 해상도를 넘긴다
+            open(f, "w", encoding="utf-8").write("바뀐 내용 더 길게")
+            assert D.ingest_asset(con, f, "ERP")[1] == "바뀜"
+            n = con.execute("SELECT COUNT(*) FROM asset_rev").fetchone()[0]
+            assert n == 2, f"이력이 {n}행 — 안 바뀐 것까지 쌓았다"
+
+            # ④ 사라져도 지우지 않는다. 그리고 **안 훑은 영역은 판단하지 않는다**
+            os.remove(f)
+            assert D.mark_gone(con, set(), ["/전혀_다른_곳"]) == 0, \
+                "안 훑은 영역까지 사라졌다고 적었다 — 그게 더 큰 사고다"
+            assert D.mark_gone(con, set(), [t]) == 1
+            assert con.execute("SELECT COUNT(*) FROM asset").fetchone()[0] == 1, \
+                "사라진 자산을 지웠다 — '있었다'는 사실을 잃는다"
+            assert con.execute(
+                "SELECT gone_at FROM asset").fetchone()[0], "묘비가 안 찍혔다"
+        finally:
+            con.close()
+
+    # ⑤ `who` 는 세션까지 — 창이 여러 개인 것이 기본이라 'claude' 만으로는 못 가린다
+    assert ":" in D.who(), "누가 했는지에 세션 식별자가 없다"
+    print("  [147] 전 자료 보관소 — 별도DB·append-only·증분·묘비 ✅")
+
+
 def t146_erp_bulk_grab_registry():
     """ERP 전 화면 몰이 — **이름을 추측하지 않고 찾아서** 돌리나 (2026-08-07 지시).
 
@@ -8687,16 +8759,26 @@ def t142_flow_editable():
     assert 'id="flowStats"' in live and "function flowHead(" in live, \
         "머리 카드 숫자(단계·D+·담당)가 화면과 이어져 있지 않다"
     # ⑩ 4:3 캡처 (2026-08-07 지시: "4대 3 비율로 캡처하는 기능 상단에 추가해")
-    #   ★ 꼴은 **마인드맵**이다 (2026-08-07 지시: "나뭇가지처럼 뻗어가는 구조").
-    #     앞 판은 2열 목록이라 표처럼 보였다. 이제 가운데 뿌리에서 양쪽으로 뻗는다.
+    #   ★ 꼴은 **뱀 모양**이다 (2026-08-08 지시: "중간에서 번호로 뿌려지는 구조 말고
+    #     순서대로 치고 치고 나가게 / 왼쪽에서 오른쪽으로 가서 용지 공간이 없으면
+    #     다시 아래로 내려가서 왼쪽으로 다시 꺾어서").
+    #     앞 판(마인드맵)은 보기엔 좋았지만 1→N 을 눈으로 좇을 수 없었다.
     assert "function flowToPng43(" in live, "4:3 캡처 루틴이 없다"
     cap = live.split("async function flowToPng43(")[1].split("\nfunction flow43Name")[0]
     assert "W = 1200, H = 900" in cap, "4:3 이 아니다"
-    assert "bezierCurveTo" in cap, "가지가 곧은 선이다 — 나뭇가지로 보이지 않는다"
-    assert "ROOTGAP = 100" in cap, \
-        "뿌리와 카드 사이가 좁으면 곡선이 카드에 붙어 세로 다발로 보인다(실측 60px)"
-    assert "dir:-1" in cap and "dir: 1" in cap, "한쪽으로만 뻗는다 — 마인드맵이 아니다"
-    assert "bodyH / L.maxH" in cap, "넘칠 때 줄이지 않는다 — 잘린 그림이 나간다"
+    assert "ROOTGAP" not in cap and "sides" not in cap, \
+        "마인드맵 잔재가 남아 있다 — 두 배치가 섞이면 한쪽만 고쳐진다"
+    assert "ri % 2 === 1" in cap, \
+        "줄마다 방향이 바뀌지 않는다 — 줄 끝에서 되짚어 오는 긴 선이 생긴다"
+    assert "L.cols - 1 - ci" in cap, "오→왼 줄에서 자리를 뒤집지 않는다"
+    assert "const arrow = (" in cap and "Math.atan2" in cap, \
+        "화살표 머리가 없다 — 어느 쪽으로 가는 순서인지 그림이 말하지 않는다"
+    # 갈래는 한 칸에 세로로 쌓고 화살표 하나가 나간다(합류를 그림이 말해야 한다)
+    assert "cells.push({items: g.items.slice(), branch: g.branch})" in cap, \
+        "나란한 갈래를 흩어 놓는다 — 개발자가 차례로 일어나는 일로 읽는다"
+    # 번호는 제목 앞에 붙인다 — 따로 마디를 그리면 그게 '중간에 뿌려진 번호'다
+    assert "${i+1}. ${s.단계}" in cap, "번호가 제목과 떨어져 있다"
+    assert "bodyH / L.total" in cap, "넘칠 때 줄이지 않는다 — 잘린 그림이 나간다"
     assert "uiFont()" in cap and 'px "' not in cap, \
         "그리는 곳에 글꼴을 손으로 적었다 — 화면만 바뀌고 이미지는 옛 글꼴로 남는다"
     assert 'onclick="flowCapture43()"' in live.split('class="flow-hero-cap"')[1][:400], \
@@ -8755,7 +8837,7 @@ def t142_flow_editable():
     assert "담당기사" not in owners, \
         "기본 흐름에 이름 없는 '담당기사' 가 남아 있다 — 누구인지 화면이 말하지 않는다"
     assert _L.AS_TECH_LABEL in owners, "기본 흐름이 네 사람 명단을 쓰지 않는다"
-    print("  [142] 워크플로우 — 저장/되돌리기·길게 눌러 집기·담당색·머리카드·4:3·기사 4인 ✅")
+    print("  [142] 워크플로우 — 저장/되돌리기·길게 눌러 집기·담당색·머리카드·4:3 뱀모양·기사 4인 ✅")
 
 
 def t136_work_lanes():
@@ -8997,6 +9079,7 @@ if __name__ == "__main__":
     t144_topmost_pin_always_restores()
     t145_redirect_deleted_needs_two_rounds()
     t146_erp_bulk_grab_registry()
+    t147_datalake_schema_and_incremental()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
