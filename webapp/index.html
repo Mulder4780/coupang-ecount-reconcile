@@ -11938,6 +11938,23 @@ function nextPaint(ms){
     setTimeout(go, ms || 400);
   });
 }
+/* 캡처 직전 자료 확보 — 두 가지 실패를 동시에 막는다 (2026-08-07 실측).
+   ① 0건 캡처: 자료가 오기 전에 그리면 전부 0으로 저장되고, 늦게 온 자료는 화면만
+      고칠 뿐 PNG 는 못 고친다. 그래서 캐시를 우회해(fresh) 지금 값을 받는다.
+   ② 버튼이 몇 분간 멈추는 것: 관리대장이 방금 새 버전이 되면 서버 캐시가 무효화돼
+      Z: 에서 통째로 다시 읽는다 — 대표 예외보고 1회차가 **187초** 걸렸다. 그동안
+      버튼이 굳어 있으면 사람은 앱이 죽은 줄 안다. 그래서 기다림에 상한을 둔다.
+   상한을 넘겨도 재조회는 뒤에서 계속되고, 그 사이 우리는 **가진 값이 비었는지**만
+   본다. 비었으면 0건 이미지를 만드느니 캡처를 멈추고 이유를 말한다. */
+const CAPTURE_WAIT_MS = 25000;
+async function ensureReportData(){
+  const how = await Promise.race([
+    loadSettle(true).then(()=>'fresh').catch(()=>'fail'),
+    new Promise(r=>setTimeout(()=>r('timeout'), CAPTURE_WAIT_MS))
+  ]);
+  const empty = !settleRows.length && !((works.as||[]).length) && !((works.pm||[]).length);
+  return {how, empty};
+}
 async function waitBrief(){
   for(let i=0; i<40 && !BRIEF; i++){
     if(!BRIEF_LOADING) loadBrief();
@@ -11950,11 +11967,12 @@ async function captureReport(){
   let blob;
   try{
     toast('최신 자료를 받아 그리는 중…');
-    // ★ 0건 캡처의 뿌리: 정산·ERP·예외 7원천이 오기 전에 그리면 전부 0으로 저장되고,
-    //   늦게 온 데이터는 화면만 고칠 뿐 PNG는 못 고친다(2026-08-07 실측 — 누적 4.4억이
-    //   0건으로 나갔다). 캐시도 건너뛰고(fresh) 지금 값을 받은 뒤에만 그린다.
-    //   정산 API가 실패하면 0건 이미지를 만드느니 캡처를 멈추고 알린다.
-    await loadSettle(true);
+    const ready = await ensureReportData();
+    if(ready.empty){
+      notice('자료를 아직 받지 못해 캡처를 멈췄습니다 — 0건짜리 보고가 나가지 않도록 막았습니다.\n'+
+             '잠시 뒤 새로고침한 다음 다시 눌러 주세요.'); return;
+    }
+    if(ready.how==='timeout') toast('자료 갱신이 느려 지금 값으로 그립니다');
     // 클릭 시점의 최신 4원천 집계를 다시 묶어 화면과 저장 이미지가 항상 같게 한다.
     await loadRemoteStat();            // 리모컨 현황도 캡처에 싣는다(2026-08-03)
     // ★ BRIEF(일지 대조·핫이슈·분기 경과율)가 로딩 전이면 캡처가 대표 지시 블록을
@@ -11972,7 +11990,10 @@ async function shareReport(){
   let blob;
   try{
     toast('최신 자료를 받아 그리는 중…');
-    await loadSettle(true);            // 캡처와 같은 이유 — 0건 통계로 공유되지 않게
+    const ready = await ensureReportData();   // 캡처와 같은 이유 — 0건 통계로 공유되지 않게
+    if(ready.empty){
+      notice('자료를 아직 받지 못해 공유를 멈췄습니다 — 잠시 뒤 다시 눌러 주세요.'); return;
+    }
     await loadRemoteStat();
     await waitBrief();                 // 캡처와 같은 이유 — 빈 브리핑으로 공유되지 않게
     renderDaily();

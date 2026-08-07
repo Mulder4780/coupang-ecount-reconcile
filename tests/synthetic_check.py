@@ -7924,6 +7924,125 @@ def t133_inline_style_dark_safe():
     print("  [133] 인라인 스타일 다크 안전 — 고정색 판 위엔 고정색 글자 ✅")
 
 
+def t137_contamination_marked_every_merge():
+    """[137] 오염 판정은 **병합할 때마다** 돈다 — 한 번 치우고 끝내지 않는다 (2026-08-07 2차 실사고).
+
+    무엇이 잘못돼 있었나
+      아침에 오염 621건을 `clean_contaminated --apply` 로 손수 표시했다. `convert_dump` 에는
+      '표시된 것을 날짜 없는 재병합이 못 덮는다'는 가드까지 넣었다. 그런데 그 가드는
+      **이미 표시된 것**만 지킨다. 15:32 회차에 새 덤프가 **표시된 적 없는** 유령 22건을
+      들여왔고 아무도 막지 않았다. 그 결과 밴드업무추출에서 정기점검 UJ2601407 이
+      1건 → **23건**으로 부풀었다(reports/밴드업무추출_전체_20260807_1502.csv → _1635.csv).
+      화면도 리포트도 멀쩡해 보였다 — 숫자만 틀렸다. 사람이 매번 알아채야 하는 조치는
+      결국 안 하게 된다. 그래서 판정을 병합 경로 **안으로** 옮겼다.
+
+    지키는 것
+      ① convert_dump 가 캐시를 쓰기 **전에** clean_contaminated.find 로 새 오염을 표시한다.
+      ② 옆 파일 import 가 조용히 실패해 보호가 통째로 꺼지지 않게 제 폴더를 경로에 넣는다.
+      ③ 표시는 재병합을 견딘다(기존 226행 가드) — 둘이 함께 있어야 유령이 안 되살아난다.
+    """
+    src = open(os.path.join(ROOT, "band", "convert_dump.py"), encoding="utf-8").read()
+    write_at = src.index('out = {"band_name"')
+    guard = src[:write_at]
+    assert "clean_contaminated" in guard, \
+        "병합이 캐시를 쓰기 전에 오염 판정을 하지 않는다 — 새 유령이 그대로 들어간다"
+    assert "clean_contaminated.find(merged)" in guard, \
+        "판정 대상이 병합 결과(merged)가 아니다"
+    assert '"contaminated": True' in guard, "찾아 놓고 표시하지 않는다"
+    assert "sys.path.insert(0, _here)" in guard, \
+        "옆 폴더 import 가 실패하면 보호가 조용히 꺼진다 — 제 폴더를 경로에 넣어야 한다"
+    # 기존 재병합 생존 가드가 함께 살아 있어야 한다(하나만으로는 유령이 되살아난다)
+    assert 'cur.get("contaminated") and not rec.get("created_at")' in src, \
+        "표시가 날짜 없는 재병합에 덮인다 — [135]⑦ 회귀"
+
+    # 판정기 자체: 표시된 스텁을 다시 오염으로 잡지 않아야 한다(무한 재표시 방지)
+    import importlib
+    cc = importlib.import_module("band.clean_contaminated")
+    stub = {"contaminated": True, "captured_at": 1, "why": "x"}
+    posts = {"1": stub, "2": stub, "3": {"content": "진짜 글", "created_at": "2026-08-07 10:00"}}
+    assert cc.find(posts) == [] or all(k not in cc.find(posts) for k in ("1", "2")), \
+        "이미 표시된 스텁을 또 오염으로 잡는다"
+    print("  [137] 오염 판정이 병합마다 자동 실행 · 표시가 재병합을 견딤 ✅")
+
+
+def t136_work_lanes():
+    """작업 차선 — 수집 창과 앱·엑셀 창이 하루 종일 나란히 돌 수 있나 (2026-08-07 지시).
+
+    지키는 것은 네 가지다:
+      ① 차선을 **안 정한 세션은 아무것도 막히지 않는다** (기존 세션·스케줄러 보호)
+      ② 내 차선 밖 자원은 못 잡는다 (수집 창이 code 를 집어 가면 앱 창이 되잡지 못한다)
+      ③ 남의 차선은 못 빼앗는다 (살아 있는 주인이 있으면 거절)
+      ④ 죽은 세션의 차선은 **즉시** 비워진다 (45분 기다리면 다음 창이 놀게 된다)
+    """
+    import importlib
+    import socket as _socket
+    lanes = importlib.import_module("lanes")
+    ac = importlib.import_module("ai_claim")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # 점유 파일 자리를 옮기면 차선도 따라온다 — 그래서 이 세션이 어느 차선에
+        # 서 있든 검증은 빈 차선에서 시작한다(그러지 않으면 검증을 못 돌린다).
+        keep_claims, keep_sid = ac.CLAIMS, lanes._me
+        ac.CLAIMS = os.path.join(tmp, "ai_claims.json")
+        try:
+            lanes._me = lambda: "SESS-A"
+            assert os.path.dirname(lanes._path()) == tmp, "차선 파일이 점유 자리를 안 따라간다"
+
+            # ① 차선 밖이면 전부 허용 — 이 예외가 없으면 기존 자동화가 통째로 멈춘다
+            for res in ("code", "ledger", "band", "publish"):
+                ok, _ = lanes.can(res)
+                assert ok, f"차선을 안 정했는데 '{res}' 가 막혔다 — 기존 세션이 멈춘다"
+
+            assert lanes.take("collect", "claude", "수집 전담") == 0, "수집 차선을 못 잡는다"
+            assert lanes.my_lane() == "collect", "잡은 차선이 내 것으로 안 보인다"
+
+            # ② 차선 밖 자원은 막히고, 안쪽은 열린다
+            for res in ("code", "ledger", "publish"):
+                ok, why = lanes.can(res)
+                assert not ok, f"수집 차선인데 '{res}' 가 열려 있다 — 앱 창과 부딪친다"
+                assert "차선" in why, "왜 막혔는지 안 알려 준다"
+            for res in ("band", "read", "report"):
+                assert lanes.can(res)[0], f"수집 차선인데 '{res}' 가 막혔다"
+
+            # ai_claim 이 실제로 그 문을 본다 (배선 확인 — 함수만 있고 안 부르면 소용없다)
+            assert ac._lane_gate("band"), "차선 안 자원인데 점유가 거절됐다"
+            assert not ac._lane_gate("code"), "ai_claim 이 차선을 안 본다"
+
+            # ③ 살아 있는 남의 차선은 못 빼앗는다
+            lanes._me = lambda: "SESS-B"
+            assert lanes.take("collect", "claude", "가로채기") == 2, \
+                "남의 차선을 빼앗았다 — 두 창이 같은 파일에서 만난다"
+            assert lanes.take("build", "claude", "앱·엑셀") == 0, "빈 차선을 못 잡는다"
+            # 앱 창은 code·ledger 가 열려 있어야 한다 — 그게 이 기능의 목적이다
+            for res in ("code", "ledger", "publish"):
+                assert lanes.can(res)[0], f"앱·엑셀 차선인데 '{res}' 가 막혔다"
+            assert not lanes.can("band")[0], "앱 차선이 수집 자원까지 쥔다"
+
+            # 한 세션은 한 차선 — 옮기면 앞 차선에서 빠진다
+            lanes._me = lambda: "SESS-A"
+            assert lanes.free("claude") == 0, "내 차선을 못 놓는다"
+            lanes._me = lambda: "SESS-B"
+            assert lanes.take("collect", "claude", "옮김") == 0, "빈 차선으로 못 옮긴다"
+            d = lanes._load()
+            assert "build" not in d, "차선을 옮겼는데 앞 차선이 남아 있다 — 분업표가 깨진다"
+
+            # ④ 죽은 세션의 차선은 즉시 빈다
+            d = lanes._load()
+            # 호스트는 **이 PC** 여야 한다 — 다른 PC 의 점유는 판정하지 않고
+            # 보수적으로 '살아 있다'로 보기 때문이다(ai_claim._pid_alive).
+            d["build"] = {"who": "claude", "sid": "SESS-DEAD", "at": 0,
+                          "agent_pid": 999999, "host": _socket.gethostname()}
+            lanes._save(d)
+            assert lanes.owner("build") is None, \
+                "죽은 세션의 차선이 살아 있다 — 다음 창이 영영 못 들어온다"
+        finally:
+            ac.CLAIMS, lanes._me = keep_claims, keep_sid
+
+    src = open(os.path.join(ROOT, "ai_claim.py"), encoding="utf-8").read()
+    assert "_lane_gate(what)" in src, "ai_claim.take 이 차선 문을 안 지난다"
+    print("  [136] 작업 차선 — 수집 창·앱 창 병렬 ✅")
+
+
 def t134_section_fold():
     """[134] 구역 머리를 눌러 접었다 폈다 (2026-08-07 지시).
 
@@ -8073,6 +8192,7 @@ if __name__ == "__main__":
     t133_inline_style_dark_safe()
     t134_section_fold()
     t136_work_lanes()
+    t137_contamination_marked_every_merge()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

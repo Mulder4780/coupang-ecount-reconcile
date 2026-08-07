@@ -278,6 +278,24 @@ def main():
                           cap_ms, d.get("notime") or {})
         except Exception:
             pass
+        # ★ 오염 표시는 **병합 때마다** 다시 매긴다 (2026-08-07 두 번째 실사고).
+        #   위 226행 가드는 '이미 표시된 것'을 지켜 줄 뿐, **새로 들어온 가짜**는 못 막는다.
+        #   그래서 아침에 621건을 손으로 표시해 두었는데 15:32 회차에 새 덤프가 유령 22건을
+        #   들여왔고, 업무추출에서 정기점검 UJ2601407 이 1건 → 23건으로 부풀었다.
+        #   화면은 멀쩡해 보였다 — 아무도 몰랐다. 한 번 치우는 것으로는 끝나지 않는다.
+        try:
+            # 다른 폴더에서 이 파일을 모듈로 불러도 옆 파일을 찾도록 제 폴더를 먼저 넣는다.
+            # (여기서 조용히 실패하면 보호가 통째로 꺼진다 — 그게 이 사고의 재발 경로다)
+            _here = os.path.dirname(os.path.abspath(__file__))
+            if _here not in sys.path:
+                sys.path.insert(0, _here)
+            import clean_contaminated
+            for no in clean_contaminated.find(merged):
+                merged[no] = {"contaminated": True,
+                              "captured_at": (merged.get(no) or {}).get("captured_at") or cap_ms,
+                              "why": "iframe 리다이렉트로 피드 본문이 잡힌 가짜 기록(병합 시 자동 판정)"}
+        except Exception as e:
+            print(f"  · 오염 자동판정 건너뜀({band}): {e}")
         out = {"band_name": d.get("name", band), "posts": merged}
         # ★ 임시파일에 다 쓴 뒤 **한 번에 갈아끼운다** (2026-08-07 실사고).
         #   예전에는 `open(dst,"w")` 로 정본을 **먼저 비우고** 19MB 를 흘려 넣었다.
