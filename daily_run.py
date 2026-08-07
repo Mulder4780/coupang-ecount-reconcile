@@ -324,6 +324,14 @@ def _run_pipeline():
                       "out": "스킵 — band/docs_inbox/에 사진 없음"})
         steps.append({"name": "문서 OCR 교차검증", "ok": None, "out": "스킵 — 사진 없음"})
 
+    # 미수집 원본·사진·텍스트를 **매일 조금씩** 굳힌다 (2026-08-08 지시:
+    # "미수집 데이터들 싹 다 긁어모아 … 두번 일 안하게"). 한 번에 다 하려 들면
+    # 회차가 시간 제한에 걸려 통째로 실패한다 — 상한을 두고 매일 이어 간다.
+    # 이미 있는 것은 파일을 열지도 않으므로 다 끝난 뒤에는 몇 초로 끝난다.
+    # 로그인이 필요한 수집(밴드·ERP)은 여기에 없다 — 그건 사람 몫이다(절대규칙 3).
+    steps.append(run("미수집 원본·사진·텍스트 보관", [os.path.join(ROOT, "collect_all.py"),
+                                                     "--run", "--limit", "600"], timeout=3600))
+
     # 완료보고서와 문서발행 표시는 프로젝트NO가 정확히 일치하는 근거만 빈칸에 큐잉한다.
     # 실제 ZIP 패치는 바로 아래 ledger_writer 한 번으로 합쳐 버전 난립과 충돌을 막는다.
     steps.append(run("완료보고서 확정분 큐", [os.path.join(ROOT, "confirm_fill.py"), "--queue"]))

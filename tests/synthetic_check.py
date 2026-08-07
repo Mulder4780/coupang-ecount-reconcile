@@ -8347,6 +8347,85 @@ def t145_redirect_deleted_needs_two_rounds():
     print("  [145] 리다이렉트 삭제 판정 — 회차 둘 이상·수확 0 회차 제외 ✅")
 
 
+def t148_collect_all_idempotent_and_no_login_scrape():
+    """[148] 미수집 자료 몰이 — 두 번 일 하지 않고, 사람 몫을 몰래 하지 않나 (2026-08-08).
+
+    사용자 지시: "미수집 데이터들 싹 다 긁어모아, 알고리즘 구성해서 두번 일 안하게
+    정리하고, 원본 데이터, 사진, 텍스트등 모두 가져와서 저장하고 보고서 작성해".
+
+    두 가지가 어긋나면 조용히 망가진다:
+      ① **없는 글까지 모수로 세면** '미수집'이 영영 0 이 안 된다. 밴드는 없는 번호에도
+         껍데기를 준다(2026-08-07 사고 — 마흔 건이 전부 같은 글이었다). 시각 없는 것은
+         모수가 아니다.
+      ② **로그인이 필요한 수집을 무인으로 돌리면** 로그인 화면을 본문으로 착각해
+         캐시를 더럽힌다. 그래서 이 도구는 '이미 캐시에 든 것을 파일로 굳히는 일'만 한다.
+    """
+    import collect_all as C
+
+    # ① 모수에 **시각 없는 글이 안 들어가야** 한다
+    with tempfile.TemporaryDirectory() as t:
+        cache, band = os.path.join(t, "cache"), os.path.join(t, "band")
+        os.makedirs(cache); os.makedirs(band)
+        json.dump({"band_name": "테스트", "posts": {
+            "10": {"created_at": 1, "images": ["a", "b"]},      # 진짜 글
+            "11": {"created_at": 2, "images": []},              # 진짜 글, 사진 없음
+            "12": {"content": "앞 글 본문이 잡힌 껍데기"},        # ★ 시각 없음 — 모수 아님
+            "13": {"deleted": True},                            # 묘비 — 모수 아님
+        }}, open(os.path.join(cache, "90610953.json"), "w", encoding="utf-8"))
+        # raw_* 는 중간 산물이다 — 세면 모수가 부풀어 영영 안 끝난다
+        json.dump({"posts": {"99": {"created_at": 9}}},
+                  open(os.path.join(cache, "raw_90610953.json"), "w", encoding="utf-8"))
+        open(os.path.join(band, "a.pdf"), "w").close()
+        open(os.path.join(band, "a.txt"), "w").close()
+
+        s = C.survey(cache_dir=cache, band_root=band)
+        assert s["밴드글_캐시"] == 2, f"모수가 {s['밴드글_캐시']} — 없는 글까지 셌다"
+        assert s["사진_URL"] == 2
+        assert s["밴드글_보관"] == 1 and s["밴드글_남음"] == 1
+
+        # ② 보고서가 **남은 것**과 **사람 몫**을 적는가
+        p = C.write_report(s, s, [{"단계": "밴드글 보관", "결과": "됨", "초": 1, "끝줄": []}],
+                           [("ERP 홈택스", "4일 밀림", "erp_grab.py --all")])
+        txt = open(p, encoding="utf-8").read()
+        assert "사람이 있어야 되는 것" in txt and "ERP 홈택스" in txt
+        assert txt.index("사람이 있어야 되는 것") < txt.index("얼마나 모였나"), \
+            "사람이 해야 할 것이 보고서 아래로 밀렸다 — 그러면 안 읽힌다"
+        assert "이어서 한다" in txt, "남은 것을 어떻게 이어 받는지가 없다"
+
+    # ③ ★ 로그인이 필요한 수집기를 무인으로 부르지 않는다
+    돌리는것 = " ".join(" ".join(a) for _n, a, _t in C.STEPS)
+    for 금지 in ("collect_", "convert_dump", "upload_intake", "daily_run"):
+        assert 금지 not in 돌리는것, \
+            f"{금지} 를 무인으로 돌린다 — 로그인 화면을 본문으로 착각해 캐시를 더럽힌다"
+    assert "archive_posts.py" in 돌리는것 and "fetch_images.py" in 돌리는것, \
+        "원본·사진·텍스트를 굳히는 단계가 빠졌다"
+    assert "datalake.py" in 돌리는것, "긁어 놓고 보관소에 안 넣는다"
+
+    # ④ 실패를 삼키지 않는가 — 한 단계가 죽어도 멈추지 않되 **실패로 남겨야** 한다
+    src = open(os.path.join(ROOT, "collect_all.py"), encoding="utf-8").read()
+    assert "ok=ok" in src, "단계 실패가 로그에 안 남는다 — 다음 회차가 '다 됐다'로 읽는다"
+
+    # ⑤ ★ **기록이 수집을 막으면 안 된다.** 보관소 DB 가 잠겨 있어도(옆 세션이 주사
+    #    중일 수 있다) 긁는 일은 그대로 가야 한다. 2026-08-08 실측: 로그 한 줄을
+    #    못 써서 'database is locked' 로 회차 전체가 죽었다.
+    calls = []
+    real = C._py
+    C._py = lambda *a, **k: (calls.append(a), (True, ["가짜"]))[1]
+    try:
+        import datalake as D
+        real_connect = D.connect
+        D.connect = lambda *a, **k: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked"))
+        try:
+            got = C.run(limit=1)
+        finally:
+            D.connect = real_connect
+    finally:
+        C._py = real
+    assert len(got) == len(C.STEPS) and calls, \
+        "보관소가 잠겼다고 수집을 통째로 건너뛰었다 — 꼬리가 몸통을 흔든다"
+    print("  [148] 미수집 몰이 — 모수 정확·사람 몫 분리·이어받기·실패 기록 ✅")
+
+
 def t147_datalake_schema_and_incremental():
     """[147] 전 자료 보관소 — 표·append-only·증분·묘비 (2026-08-07 지시).
 
@@ -9084,6 +9163,7 @@ if __name__ == "__main__":
     t145_redirect_deleted_needs_two_rounds()
     t146_erp_bulk_grab_registry()
     t147_datalake_schema_and_incremental()
+    t148_collect_all_idempotent_and_no_login_scrape()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

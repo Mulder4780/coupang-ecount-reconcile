@@ -78,6 +78,8 @@ def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+COMMIT_EVERY = 300      # 주사 중 커밋 간격(건). 길게 잡으면 남을 잠그고, 짧으면 느리다
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS asset(
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,7 +172,9 @@ def connect(path=None):
     """
     p = path or db_path()
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    con = sqlite3.connect(p, timeout=30)
+    # ★ 넉넉히 기다린다. WAL 이라도 **쓰기는 한 번에 하나**다. Z: 주사가 도는 동안
+    #   다른 도구가 로그 한 줄을 못 써서 죽는 일이 있었다(2026-08-08 실측).
+    con = sqlite3.connect(p, timeout=120)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
@@ -337,6 +341,12 @@ def scan(con, rescan=False, limit_roots=None, quiet=False):
                     tally["오류"] += 1
                     log(con, "intake", "datalake.scan.file", ok=False,
                         detail={"path": p, "왜": str(e)[:200]})
+                # ★ 자주 끊어 커밋한다. 뿌리 하나를 다 훑고 커밋하면 트랜잭션이
+                #   수십 분 열려 있고, 그동안 **다른 도구가 로그 한 줄을 못 써서
+                #   죽는다**(2026-08-08 실측: collect_all 이 'database is locked').
+                #   중간에 끊겨도 여기까지는 남는다는 뜻이기도 하다.
+                if tally["본것"] % COMMIT_EVERY == 0:
+                    con.commit()
         con.commit()
 
     tally["묘비"] = mark_gone(con, seen, tops)
