@@ -6446,141 +6446,142 @@ async function flowToPng43(){
   ctx.strokeStyle = LINE; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(PAD, PAD+HEAD-16); ctx.lineTo(W-PAD, PAD+HEAD-16); ctx.stroke();
   const bodyY = PAD + HEAD, bodyH = H - bodyY - 42, bodyW = W - PAD*2;
-  // ── 마인드맵 배치 (2026-08-07 지시: "나뭇가지처럼 뻗어가는 구조")
-  //    가운데 뿌리에서 **양쪽으로** 가지가 뻗는다. 앞 판(2열 목록)은 가지가 아니라
-  //    표처럼 보였다. 왼쪽이 앞 절반, 오른쪽이 뒷 절반이라 번호는 그대로 1→N 이다.
-  // ★ ROOTGAP 이 좁으면 굽은 가지가 카드에 붙어 **세로 다발**로 보인다(실측 60px 일 때).
-  //   번호 마디가 그 틈의 바깥 31px 를 쓰므로, 곡선이 살려면 100px 는 있어야 한다.
-  const ROOTW = 196, ROOTH = 72, ROOTGAP = 100, VGAP = 12, BADGE = 15;
-  const sideW = (bodyW - ROOTW - ROOTGAP*2) / 2;   // 한쪽에 주는 폭
-  const cardW = sideW;
-  const measure = () => {
-    const laid = steps.map(s=>{
+  /* ══ 뱀 모양 배치 (2026-08-08 지시) ══════════════════════════════════════
+     "중간에서 번호로 뿌려지는 구조 말고 순서대로 치고 치고 나가게 / 왼쪽에서
+      오른쪽으로 가서 용지 공간이 없으면 다시 아래로 내려가서 왼쪽으로 다시
+      꺾어서 순서대로 가는 구조로 깔끔하게"
+
+     앞 판(마인드맵)은 보기엔 좋았지만 1→N 을 눈으로 좇을 수 없었다 — 뿌리에서
+     양쪽으로 뻗으니 "다음이 어느 쪽인가"를 번호로만 알 수 있었다. 사용자 판단이 맞다.
+     이제 **한 줄로 이어 간다**: 첫 줄은 왼→오, 줄이 차면 아래로 내려가 오→왼.
+     되짚어 올라가는 긴 선이 없어서 화살표만 따라가면 순서가 그대로 읽힌다.
+
+     ★ 갈래(같은 `갈래` 값이 잇달아 오는 단계들)는 **한 칸에 세로로 쌓는다.**
+       나란히 일어나는 일이라는 것을 자리로 말하고, 그 칸에서 화살표 하나가 나간다
+       — 그게 '합류'다. 흩어 놓으면 개발자가 차례로 일어나는 일로 읽는다.
+     ★ 넘쳐도 자르지 않는다. 통째로 줄인다(검증 [142]).                        */
+  const HGAP = 40, RGAP = 38, VGAP2 = 10;
+  const cells = [];
+  flowGroups(steps).forEach(g=>{
+    if(g.branch && g.items.length > 1) cells.push({items: g.items.slice(), branch: g.branch});
+    else g.items.forEach(i => cells.push({items: [i], branch: ''}));
+  });
+  const layout = (cols)=>{
+    const cw = (bodyW - HGAP*(cols-1)) / cols;
+    const laid = steps.map((s,i)=>{
       ctx.font = F(13,800);
-      const dayW = Number.isFinite(+s.소요일) ? ctx.measureText('D+'+(+s.소요일)).width + 22 : 0;
-      const tw = cardW - 33 - (dayW ? dayW + 10 : 0);
-      const name = _wrapCv(ctx, s.단계, F(16,800), tw, 2);
+      const dayW = Number.isFinite(+s.소요일) ? ctx.measureText('D+'+(+s.소요일)).width + 20 : 0;
+      const tw = cw - 30 - (dayW ? dayW + 8 : 0);
+      // 번호를 제목 앞에 붙인다 — 따로 마디를 그리면 그게 바로 "중간에 뿌려진 번호"다.
+      const name = _wrapCv(ctx, `${i+1}. ${s.단계}`, F(15.5,800), tw, 2);
       const who  = String(s.담당||'').trim();
       const rest = [s.근거].filter(Boolean).join(' · ');
-      const sub  = (who||rest) ? _wrapCv(ctx, rest, F(12.5,500),
-                     tw - (who ? ctx.measureText(who).width + 26 : 0), 1) : [];
-      const memo = s.메모 ? _wrapCv(ctx, s.메모, F(12.5,500), tw, 2) : [];
-      const h = Math.max(58, 13 + name.length*20 + ((who||sub.length)?17:0) + memo.length*16 + 13);
+      const sub  = (who||rest) ? _wrapCv(ctx, rest, F(12,500),
+                     tw - (who ? ctx.measureText(who).width + 24 : 0), 1) : [];
+      const memo = s.메모 ? _wrapCv(ctx, s.메모, F(12,500), tw, 2) : [];
+      const h = Math.max(54, 12 + name.length*19 + ((who||sub.length)?17:0) + memo.length*15 + 12);
       return {s, name, who, sub, memo, h, dayW};
     });
-    const per = Math.ceil(laid.length / 2);
-    const sideH = c => { let n = 0;
-      for(let i=c*per;i<Math.min((c+1)*per, laid.length);i++) n += laid[i].h + VGAP;
-      return Math.max(0, n - VGAP); };
-    return {laid, per, maxH: Math.max(sideH(0), sideH(1), ROOTH), h0:sideH(0), h1:sideH(1)};
+    const cellH = c => c.items.reduce((n,i,x)=>n + laid[i].h + (x?VGAP2:0), 0) + (c.branch?17:0);
+    const rows = [];
+    for(let i=0;i<cells.length;i+=cols) rows.push(cells.slice(i,i+cols));
+    const rowH = rows.map(r=>Math.max(...r.map(cellH)));
+    const total = rowH.reduce((a,b)=>a+b,0) + RGAP*Math.max(0, rows.length-1);
+    return {cols, cw, laid, rows, rowH, total, cellH};
   };
-  const L = measure();
-  // 넘치면 통째로 줄인다 — 자르지 않는다. 잘린 그림은 없는 단계를 없다고 말한다.
-  const k = Math.min(1, bodyH / L.maxH);
-  window.__flow43 = {꼴:'mindmap', k:+k.toFixed(3), 그린단계:L.laid.length,
-                     넘침:L.maxH*k > bodyH + .5, 갈림마디:0};
+  // 4열이 기본이다(카드가 너무 좁지도, 줄이 너무 많지도 않다). 안 들어가면 넓은 쪽부터.
+  let L = null;
+  for(const c of [4,3,5,6]){
+    const t = layout(c);
+    if(t.total <= bodyH){ L = t; break; }
+    if(!L || t.total < L.total) L = t;
+  }
+  const k = Math.min(1, bodyH / L.total);
+  window.__flow43 = {꼴:'serpentine', k:+k.toFixed(3), 열:L.cols, 줄:L.rows.length,
+                     그린단계:L.laid.length, 칸:cells.length,
+                     갈림칸:cells.filter(c=>c.branch).length,
+                     넘침: L.total*k > bodyH + .5};
+  const arrow = (x1,y1,x2,y2,color)=>{
+    ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    const a = Math.atan2(y2-y1, x2-x1), hl = 9.5;
+    ctx.beginPath(); ctx.moveTo(x2,y2);
+    ctx.lineTo(x2 - hl*Math.cos(a-Math.PI/7), y2 - hl*Math.sin(a-Math.PI/7));
+    ctx.lineTo(x2 - hl*Math.cos(a+Math.PI/7), y2 - hl*Math.sin(a+Math.PI/7));
+    ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+  };
   ctx.save();
-  // 줄인 뒤에도 가운데에 오도록, 축소 좌표계 안에서 폭·높이를 되돌려 잡는다
-  ctx.translate(W/2, bodyY + bodyH/2); ctx.scale(k,k);
-  const halfW = (bodyW/2) / k;                      // 줄인 좌표계에서의 반쪽 폭
-  const rootR = ROOTW/2;
-  const sides = [
-    {dir:-1, from: 0, to: Math.min(L.per, L.laid.length), top: -L.h0/2},
-    {dir: 1, from: L.per, to: L.laid.length,              top: -L.h1/2},
-  ];
-  // ── 갈림 마디를 먼저 정한다. 카드 자리를 알아야 "어디서 갈라지나"를 놓을 수 있다.
-  const CY = {};
-  sides.forEach(sd=>{ let y = sd.top;
-    for(let i=sd.from;i<sd.to;i++){ CY[i] = y + L.laid[i].h/2; y += L.laid[i].h + VGAP; } });
-  const FORK = {};
-  flowGroups(steps).forEach(g=>{
-    if(!g.branch || g.items.length < 2) return;
-    const side = i => (i < L.per ? 0 : 1);
-    if(new Set(g.items.map(side)).size > 1) return;   // 두 쪽에 걸치면 마디를 못 놓는다
-    const ys = g.items.map(i=>CY[i]);
-    const mid = (Math.min(...ys) + Math.max(...ys)) / 2;
-    g.items.forEach((i,n)=>{ FORK[i] = {y: mid, label: g.branch, n: g.items.length,
-                                        first: n === 0}; });
-    window.__flow43.갈림마디++;
-  });
-  sides.forEach(sd=>{
-    let y = sd.top;
-    for(let idx=sd.from; idx<sd.to; idx++){
-      const it = L.laid[idx], color = colOf(it.s), cy = y + it.h/2;
-      // 카드 자리 — 뿌리에서 바깥으로. dir -1 이면 왼쪽이라 좌표를 뒤집어 잡는다.
-      const cardX = sd.dir<0 ? -halfW : halfW - cardW;   // 카드의 왼쪽 x
-      const inner = sd.dir<0 ? cardX + cardW : cardX;    // 뿌리를 바라보는 모서리
-      // ① 굽은 가지 — 뿌리(또는 갈림 마디)에서 **가로로 출발해** 카드 쪽으로 휜다.
-      //    조종점을 이렇게 둬야 S 자로 부풀어 나뭇가지로 보인다(둘 다 카드 쪽이면 직선).
-      //    ★ 나란한 갈래는 **한 마디에서 함께 갈라진다** — 저마다 뿌리에서 뻗으면
-      //      개발자가 차례로 일어나는 네 단계로 읽는다(그게 이 화면의 목적이다).
-      const fk = FORK[idx];
-      const ox = fk ? sd.dir*(rootR + ROOTGAP*0.42) : sd.dir*rootR;
-      const oy = fk ? fk.y : 0;
-      if(fk && fk.first){                    // 뿌리 → 갈림 마디 줄기 + 갈래 이름
-        ctx.beginPath(); ctx.moveTo(sd.dir*rootR, 0);
-        ctx.bezierCurveTo(sd.dir*(rootR+30), 0, ox - sd.dir*22, oy, ox, oy);
-        ctx.strokeStyle = '#475467'; ctx.globalAlpha = .75; ctx.lineWidth = 3;
-        ctx.lineCap = 'round'; ctx.stroke(); ctx.globalAlpha = 1;
-        ctx.beginPath(); ctx.arc(ox, oy, 5, 0, Math.PI*2);
-        ctx.fillStyle = '#475467'; ctx.fill();
-        txt(`${fk.label} · ${fk.n}갈래 중 하나`, ox + sd.dir*10, oy - 14,
-            F(11.5,700), '#475467', sd.dir<0 ? 'right' : 'left');
+  // 줄여도 가운데에 오게 — 재 놓은 좌표(0..bodyW × 0..total)를 그대로 쓰고 통째로 축소한다.
+  ctx.translate(PAD + (bodyW - bodyW*k)/2, bodyY + (bodyH - L.total*k)/2);
+  ctx.scale(k, k);
+  let ry = 0, cellPos = {};
+  L.rows.forEach((row, ri)=>{
+    const rtl = ri % 2 === 1;                 // 첫 줄 왼→오, 다음 줄 오→왼 (되짚는 선이 없다)
+    const cy = ry + L.rowH[ri]/2;
+    row.forEach((cell, ci)=>{
+      const slot = rtl ? (L.cols - 1 - ci) : ci;
+      const cx = slot * (L.cw + HGAP);
+      const ch = L.cellH(cell);
+      let y = ry + (L.rowH[ri] - ch)/2;
+      cellPos[cells.indexOf(cell)] = {cx, cy, slot, ri};
+      if(cell.branch){                        // 갈래 이름 + 세로 묶음선
+        txt(`${cell.branch} · ${cell.items.length}갈래 (나란히)`, cx + 2, y + 7,
+            F(11.5,800), '#475467');
+        y += 17;
+        ctx.save(); ctx.setLineDash([4,4]); ctx.strokeStyle = '#98A2B3'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(cx - 8, y + 2); ctx.lineTo(cx - 8, y + ch - 19); ctx.stroke();
+        ctx.restore();
       }
-      ctx.beginPath();
-      ctx.moveTo(ox, oy);
-      ctx.bezierCurveTo(ox + sd.dir*26, oy, sd.dir*(rootR+25), cy, inner, cy);
-      ctx.strokeStyle = color; ctx.globalAlpha = .5; ctx.lineWidth = 2.5;
-      ctx.lineCap = 'round'; ctx.stroke(); ctx.globalAlpha = 1;
-      // ② 카드
-      box(cardX, y, cardW, it.h, CARD, 12);
-      ctx.strokeStyle = LINE; ctx.lineWidth = 1;
-      ctx.beginPath();
-      if(ctx.roundRect) ctx.roundRect(cardX+.5, y+.5, cardW-1, it.h-1, 12);
-      ctx.stroke();
-      // 담당 색 띠는 **뿌리 쪽 모서리**에 — 어느 가지에서 왔는지가 붙어 보인다
-      box(sd.dir<0 ? cardX+cardW-5 : cardX, y, 5, it.h, color, 3);
-      // ③ 번호 마디 — 가지와 카드가 만나는 곳
-      const bx = inner + sd.dir*(-BADGE - 1);
-      ctx.beginPath(); ctx.arc(bx, cy, BADGE, 0, Math.PI*2);
-      ctx.fillStyle = CARD; ctx.fill();
-      ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();
-      txt(idx+1, bx, cy, F(13,800), color, 'center');
-      // ④ 글 — D+ 알약은 바깥 모서리, 글은 그 안쪽부터
-      const lane = it.dayW ? it.dayW + 10 : 0;
-      const textX = (sd.dir<0 ? cardX + 14 + lane : cardX + 19);
-      let ty = y + 23;
-      it.name.forEach(ln=>{ txt(ln, textX, ty, F(16,800), INK); ty += 20; });
-      if(it.who || it.sub.length){
-        let sx = textX;
-        if(it.who){
-          ctx.font = F(12,800); const w2 = ctx.measureText(it.who).width;
-          box(sx, ty-8, w2+16, 17, color+'22', 9);
-          txt(it.who, sx+8, ty, F(12,800), color); sx += w2 + 24;
+      cell.items.forEach(idx=>{
+        const it = L.laid[idx], color = colOf(it.s);
+        box(cx, y, L.cw, it.h, CARD, 12);
+        ctx.strokeStyle = LINE; ctx.lineWidth = 1;
+        ctx.beginPath();
+        if(ctx.roundRect) ctx.roundRect(cx+.5, y+.5, L.cw-1, it.h-1, 12);
+        ctx.stroke();
+        box(cx, y, 5, it.h, color, 3);                    // 담당 색 띠
+        const textX = cx + 17;
+        let ty = y + 21;
+        it.name.forEach(ln=>{ txt(ln, textX, ty, F(15.5,800), INK); ty += 19; });
+        if(it.who || it.sub.length){
+          let sx = textX;
+          if(it.who){
+            ctx.font = F(11.5,800); const w2 = ctx.measureText(it.who).width;
+            box(sx, ty-8, w2+14, 17, color+'22', 9);
+            txt(it.who, sx+7, ty, F(11.5,800), color); sx += w2 + 21;
+          }
+          it.sub.forEach(ln=>txt(ln, sx, ty, F(12,500), SUB));
+          ty += 17;
         }
-        it.sub.forEach(ln=>txt(ln, sx, ty, F(12.5,500), SUB));
-        ty += 17;
+        it.memo.forEach(ln=>{ txt(ln, textX, ty, F(12,500), SUB); ty += 15; });
+        if(it.dayW){
+          const px = cx + L.cw - it.dayW - 12;
+          box(px, y + 10, it.dayW, 21, color, 10);
+          txt('D+'+(+it.s.소요일), px + it.dayW/2, y + 20.5, F(12.5,800), '#FFFFFF', 'center');
+        }
+        y += it.h + VGAP2;
+      });
+      // ① 같은 줄 안 — 옆 칸으로 가는 가로 화살표
+      if(ci < row.length - 1){
+        const gapL = rtl ? cx - HGAP + 7 : cx + L.cw + 7;
+        const gapR = rtl ? cx - 7          : cx + L.cw + HGAP - 7;
+        arrow(rtl ? gapR : gapL, cy, rtl ? gapL : gapR, cy, '#98A2B3');
       }
-      it.memo.forEach(ln=>{ txt(ln, textX, ty, F(12.5,500), SUB); ty += 16; });
-      if(it.dayW){
-        const px = sd.dir<0 ? cardX + 14 : cardX + cardW - it.dayW - 19;
-        box(px, cy-11, it.dayW, 22, color, 11);
-        txt('D+'+(+it.s.소요일), px + it.dayW/2, cy, F(13,800), '#FFFFFF', 'center');
-      }
-      y += it.h + VGAP;
+    });
+    // ② 줄 끝 — 아래로 꺾어 다음 줄로. 다음 줄은 반대 방향이라 되짚는 선이 없다.
+    if(ri < L.rows.length - 1){
+      const last = row[row.length-1];
+      const endSlot = rtl ? (L.cols - row.length) : (row.length - 1);
+      const ex = endSlot * (L.cw + HGAP) + L.cw/2;
+      const top = ry + L.rowH[ri], bot = top + RGAP;
+      arrow(ex, top + 4, ex, bot - 4, '#98A2B3');
+      txt('↓ 다음 줄', ex + 10, (top+bot)/2, F(10.5,700), '#98A2B3');
     }
+    ry += L.rowH[ri] + RGAP;
   });
-  // ⑤ 뿌리 — 가지가 모두 여기서 나온다
-  box(-rootR, -ROOTH/2, ROOTW, ROOTH, '#0B2A5B', 20);
-  const g = ctx.createLinearGradient(-rootR, -ROOTH/2, rootR, ROOTH/2);
-  g.addColorStop(0,'#0B2A5B'); g.addColorStop(1,'#0062CC');
-  box(-rootR, -ROOTH/2, ROOTW, ROOTH, g, 20);
-  txt('돌발 AS', 0, -8, F(21,800), '#FFFFFF', 'center');
-  txt(`${steps.length}단계` + (lastD?` · D+${+lastD.소요일}`:''), 0, 15,
-      F(12.5,600), 'rgba(255,255,255,.82)', 'center');
   ctx.restore();
   txt('CSOS 업무센터 · 흐름 정본은 앱에서 고칩니다', PAD, H-24, F(12,500), SUB);
-  txt(`${L.cols}열 · 4:3`, W-PAD, H-24, F(12,500), SUB, 'right');
+  txt(`${L.cols}열 ${L.rows.length}줄 · 순서대로 · 4:3`, W-PAD, H-24, F(12,500), SUB, 'right');
   return new Promise(res=>cv.toBlob(res,'image/png'));
 }
 /* ── 개발자 사양 내려받기 (2026-08-07 지시) ─────────────────────────────────

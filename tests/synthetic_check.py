@@ -8816,7 +8816,11 @@ def t142_flow_editable():
         "갈래를 묶어 보이지 않는다 — 개발자가 차례로 일어나는 단계로 읽는다"
     assert 'data-f="갈래"' in live and "갈래:g('갈래')" in live, \
         "갈래를 사람이 고칠 수 없다"
-    assert "const fk = FORK[idx];" in cap, "캡처가 갈래를 한 마디에서 갈라 그리지 않는다"
+    # 뱀 모양에서는 '마디'가 아니라 **한 칸**이 갈래를 묶는다(위 ⑩에서 확인).
+    # 여기서는 그 칸이 이름과 묶음선을 달고 있는지를 본다 — 이름 없이 쌓기만 하면
+    # "왜 이 넷만 세로인가"를 그림이 설명하지 못한다.
+    assert "갈래 (나란히)" in cap and "setLineDash" in cap, \
+        "갈래 칸에 이름·묶음선이 없다 — 왜 세로로 쌓였는지 그림이 말하지 않는다"
     # ⑬ 개발 사양 — 그림만으로는 못 만든다
     assert "function flowDevSpec(" in live, "개발자용 사양이 없다"
     spec = live.split("function flowDevSpec(")[1].split("\nfunction flow43Name")[0]
