@@ -8134,7 +8134,13 @@ def t140_freshness_tells_the_truth():
     # ③ 60분이 넘으면 '194분 전' 이 아니라 시간으로 읽는다.
     assert "function swrAgeText(" in live and "'시간 '" in live
     # ④ 잠깐 끝나는 갱신에는 칩을 띄우지 않는다("너무 자주 뜨고").
-    assert "SWR_CHIP_DELAY_MS" in live and "Date.now() < SWR_SHOW_AT" in live
+    # ★ 철자 하나를 잡지 말 것 (2026-08-08). 옆 세션이 `Date.now()` 를 `now` 로 한 번
+    #   끌어올리는 무해한 정리를 했는데, 이 줄이 리터럴을 찾다가 빨간불이 됐다.
+    #   그러면 **아무 잘못 없는 세션의 실작업 관문이 막힌다.** 지켜야 할 것은
+    #   "지연 관문이 있는가"이지 그것을 어떤 낱말로 썼는가가 아니다.
+    assert "SWR_CHIP_DELAY_MS" in live, "칩 지연 관문이 사라졌다"
+    assert re.search(r"(Date\.now\(\)|now)\s*<\s*SWR_SHOW_AT", live), \
+        "금방 끝날 갱신을 걸러내는 관문이 없다 — 칩이 다시 깜빡인다"
     # ⑤ 한 곳이 끝났다고 칩을 지우지 않는다 — 대기 목록이 빌 때만 지운다.
     assert "if(!SWR_WAIT.size){" in live, "대기 목록과 무관하게 칩을 지운다"
 

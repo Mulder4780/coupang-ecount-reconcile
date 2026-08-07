@@ -2305,6 +2305,9 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
 .flow-hero h3{margin:2px 0 0;font-size:23px;font-weight:800;letter-spacing:-.4px;color:#fff}
 .flow-hero-sub{font-size:12.5px;color:rgba(255,255,255,.78);margin-top:5px}
 .flow-hero-cap{display:flex;gap:7px;flex-wrap:wrap}
+/* 사이드바 메뉴와 **같은 모양**으로 — 아이콘 + 글이 나란히 (2026-08-08 지시) */
+.flow-hero-cap .abtn{display:inline-flex;align-items:center;gap:7px}
+.flow-hero-cap .abtn .bi{width:16px;height:16px;flex:0 0 auto}
 /* ★ 반투명(rgba) 바탕을 쓰지 않는다. 눈에는 유리처럼 예쁘지만 명암비를 재는 쪽에서는
    '흰 글자 위 흰 바탕'으로 보여 1.0 이 나온다(검증 [26]). 불투명한 남색을 깐다 —
    실제로도 그래야 그라데이션 어느 지점에서든 글자가 같은 세기로 읽힌다. */
@@ -2807,10 +2810,10 @@ body.dash-drag-live #dashGuides{display:grid}
           <div class="flow-hero-sub" id="flowMeta"></div>
         </div>
         <div class="flow-hero-cap">
-          <button class="abtn primary" onclick="flowCapture43()">4:3 캡처</button>
-          <button class="abtn" onclick="flowCopy43()">복사</button>
-          <button class="abtn" onclick="flowDevSpec()">개발 사양</button>
-          <button class="abtn" onclick="flowPrint43()">인쇄</button>
+          <button class="abtn primary" onclick="flowCapture43()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-camera-fill"/></svg>4:3 캡처</button>
+          <button class="abtn" onclick="flowCopy43()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>복사</button>
+          <button class="abtn" onclick="flowDevSpec()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-text-fill"/></svg>개발 사양</button>
+          <button class="abtn" onclick="flowPrint43()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-receipt"/></svg>인쇄</button>
         </div>
       </div>
       <div class="flow-hero-stats" id="flowStats"></div>
