@@ -3999,7 +3999,25 @@ def t93_ledger_db_and_ux():
     assert "uxEvent('view',v)" in live and "uxEvent('slow'" in live
     assert "renderApplyWindow(s.applywin)" in live, "앱이 다음 반영 시각을 알리지 않는다"
     assert "runTask('writer_apply')" not in live, "앱 화면에 즉시 Excel 반영 호출이 남아 있다"
-    assert "지금 바로 엑셀에 반영" not in live, "앱 안내가 아직 즉시 반영을 약속한다"
+
+    # ★ 즉시 반영은 **사람이 누를 때만** 열린다 (2026-08-07 지시: "이런거 무시하고
+    #   내가 명령 내리면 실시간으로 엑셀 반영하는 알고리즘 추가").
+    #   금지의 뜻이 바뀐 것이 아니다 — 막으려던 것은 '도구가 채울 때마다 저절로
+    #   vN+1 이 생기는 것'이었지(그래서 하루에 버전이 수십 개 늘었다), 사람이
+    #   스스로 내린 명령이 아니었다. 그래서 규칙을 이렇게 좁혀 다시 세운다:
+    #   ① 사람 손을 거치지 않는 자동 경로는 여전히 금지(위 writer_apply 단언들)
+    #   ② 사람이 누르는 길은 확인창을 거치고 --force 로 기록을 남긴다
+    assert '"ledger_now"' in server, "사람이 지시하는 즉시 반영 경로가 없다"
+    assert '"--apply", "--force"' in server, "즉시 반영이 강제 표시 없이 원장을 연다(추적 불가)"
+    assert "function applyExcelNow(" in live and "runTask('ledger_now')" in live, \
+        "앱에 '지금 바로 반영' 이 이어져 있지 않다"
+    assert "askYesNo(" in live.split("function applyExcelNow(")[1][:700], \
+        "즉시 반영이 확인 없이 실행된다 — vN+1 은 되돌릴 수 없다"
+    # 자동으로 도는 것들(스케줄러·daily_run)이 이 키를 부르면 두 회차 규칙이 무너진다.
+    for auto in ("daily_run.py", "session_wrapup.py"):
+        src = open(os.path.join(ROOT, auto), encoding="utf-8").read()
+        assert "ledger_now" not in src and "--apply\", \"--force" not in src, \
+            f"{auto} 가 사람 없이 즉시 반영을 부른다"
 
     band_collector = open(os.path.join(ROOT, "band", "collect_band.js"), encoding="utf-8").read()
     assert "window.scrollBy(0, SCROLL_STEP)" in band_collector, \
@@ -8066,6 +8084,49 @@ def t139_new_version_is_atomic():
     print("  [139] 관리대장 새 버전은 검증 통과 후에만 정본이 된다(원자적 교체) ✅")
 
 
+def t140_freshness_tells_the_truth():
+    """'몇 분 전 자료' 와 '에이전트 실행 시각' 이 거짓말하지 않나 (2026-08-07 지시).
+
+    사용자 지적 셋이 실은 **같은 병**이었다 — 화면이 자기 나이를 모른 채 말한다.
+      "계속 194분전 갱신중 … 분이 이상해"        → 나이 표기가 시간 단위를 모른다
+      "계속 몇분전 이라고 표시하는데 계속 내용이 달라" → 칩 하나를 11개 경로가 덮어썼다
+      "에이전트 실행 시간이 맞지 않아"              → 어제 중단된 회차가 초록 점을 달고 있었다
+    셋 다 '조용한 사고'(CLAUDE.md)의 얼굴이다. 여기서 지키는 것은 표현이 아니라
+    **모르면 모른다고 말하는가**이다.
+    """
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+
+    # ① 칩의 나이는 '아직 안 들어온 것 중 가장 오래된 것' 하나로 정한다.
+    #    경로마다 제 나이를 쓰면 숫자가 오간다 — 그게 "내용이 달라"였다.
+    assert "const SWR_WAIT" in live and "const SWR_INFLIGHT" in live
+    assert "Math.min(...vals.map(v => v.t))" in live, "칩이 여전히 마지막에 쓴 값을 보여 준다"
+    assert "swrChip(Date.now() - hit.t)" not in live, "경로별 나이를 그대로 칩에 쓰던 옛 길이 남아 있다"
+    # ② 갱신 실패를 삼키지 않는다. 삼키면 옛 값이 늙는 동안 '갱신 중'이 영원히 남는다.
+    assert ".catch(() => { swrDone(key, false); })" in live, "SWR 갱신 실패를 다시 삼킨다"
+    assert "갱신 실패" in live, "실패를 사람에게 말하지 않는다"
+    # ③ 60분이 넘으면 '194분 전' 이 아니라 시간으로 읽는다.
+    assert "function swrAgeText(" in live and "'시간 '" in live
+    # ④ 잠깐 끝나는 갱신에는 칩을 띄우지 않는다("너무 자주 뜨고").
+    assert "SWR_CHIP_DELAY_MS" in live and "Date.now() < SWR_SHOW_AT" in live
+    # ⑤ 한 곳이 끝났다고 칩을 지우지 않는다 — 대기 목록이 빌 때만 지운다.
+    assert "if(!SWR_WAIT.size){" in live, "대기 목록과 무관하게 칩을 지운다"
+
+    # ⑥ 숫자의 나이는 **원장이 저장된 시각**이지 지금 시각이 아니다.
+    assert "def _data_asof_iso(" in server
+    assert '"데이터최종갱신일": _data_asof_iso()' in server, \
+        "대표 보고 meta 가 다시 datetime.now() 로 '방금'이라 말한다"
+    assert "const _asOf" in live, "화면과 캡처가 각자 시각을 만든다 — 갈라진다"
+    assert "new Date().toISOString().slice(0,16).replace('T',' ')}</span>" not in live, \
+        "근거 없이 지금 시각을 데이터 갱신 시각으로 찍는 자리가 남아 있다"
+
+    # ⑦ 에이전트 배지는 밀리면 밀렸다고 말한다(초록 점 금지).
+    assert '"agent_stale"' in server and '"agent_aborted"' in server
+    assert "agent_age_h >= 20" in server, "몇 시간째 미완주인지 판정하는 자리가 없다"
+    assert "s.agent_stale" in live and "미완주" in live, "앱이 밀린 회차를 정상처럼 보여 준다"
+    print("  [140] 신선도 표기 — 나이는 하나·실패는 말한다·에이전트 밀림 표시 ✅")
+
+
 def t136_work_lanes():
     """작업 차선 — 수집 창과 앱·엑셀 창이 하루 종일 나란히 돌 수 있나 (2026-08-07 지시).
 
@@ -8296,6 +8357,7 @@ if __name__ == "__main__":
     t137_contamination_marked_every_merge()
     t138_daily_run_completion_watch()
     t139_new_version_is_atomic()
+    t140_freshness_tells_the_truth()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

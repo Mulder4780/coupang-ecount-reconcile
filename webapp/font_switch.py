@@ -43,9 +43,23 @@ FILES = (
 )
 
 # 기본값 — 각 기기가 제 UI 에 쓰는 글꼴을 먼저 쓴다(내려받을 것이 없다).
+#
+# ★ 순서가 곧 결과다 (2026-08-07 사용자 지적: "글씨가 잘 안보이는게 많아 /
+#   아이폰이나 갤럭시처럼 눈에 잘 보이는 폰트로").
+#   예전 순서는 …"Segoe UI","Malgun Gothic",Roboto,"Noto Sans KR"… 였다. 그런데
+#   **Segoe UI 에는 한글이 없다.** 브라우저는 글자 하나하나마다 스택을 걸어 내려가며
+#   그 글자가 있는 첫 글꼴을 쓰므로, 한글은 언제나 `맑은 고딕`에서 멈췄다 —
+#   Noto Sans KR 은 뒤에 적혀 있어 영원히 차례가 오지 않았다. 실측(2026-08-07,
+#   이 PC): Pretendard **미설치**, Noto Sans KR **설치됨**, 실제 렌더 = 맑은 고딕.
+#   맑은 고딕은 12~13px 에서 획이 얇아 흐릿하다 — 그게 "잘 안 보인다"의 정체다.
+#   그래서 **폰이 쓰는 한글 글꼴을 맑은 고딕 앞으로** 올린다:
+#     아이폰 → Apple SD Gothic Neo · 갤럭시/안드로이드 → Roboto + Noto Sans KR(본고딕)
+#     윈도우 → 라틴은 Segoe UI, 한글은 Noto Sans KR
+#   맑은 고딕은 **지우지 않고 맨 뒤**에 남긴다(Noto 가 없는 PC 의 마지막 보루).
 MODERN = ('-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard Variable",'
-          'Pretendard,"Segoe UI Variable Text","Segoe UI","Malgun Gothic","맑은 고딕",'
-          'Roboto,"Noto Sans KR","Helvetica Neue",Arial,sans-serif')
+          'Pretendard,"Segoe UI Variable Text","Segoe UI",Roboto,'
+          '"Noto Sans KR","Source Han Sans KR","본고딕","Malgun Gothic","맑은 고딕",'
+          '"Helvetica Neue",Arial,sans-serif')
 
 ACTIVE = re.compile(r"(--font-ui\s*:\s*)(.+?)(;)")
 LEGACY = re.compile(r"--font-ui-legacy\s*:\s*(.+?);")

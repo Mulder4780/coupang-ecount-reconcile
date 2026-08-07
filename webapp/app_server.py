@@ -1493,6 +1493,14 @@ TASKS = {
     # 예전 키는 설치된 앱·브라우저 캐시와의 호환 때문에 유지한다. 동작은 즉시 엑셀
     # 반영이 아니라 JSON 큐를 SQLite로 넘기는 것뿐이다.
     "writer_apply":  ("입력 DB 적재", [os.path.join(ROOT, "ledger_db.py"), "--intake"]),
+    # ★ 사람이 **직접 명령했을 때만** 도는 즉시 반영 (2026-08-07 지시:
+    #   "이런거 무시하고 내가 명령 내리면 실시간으로 엑셀 반영하는 알고리즘 추가").
+    #   11:00·15:00 두 회차 규칙은 그대로다 — 그건 도구들이 채울 때마다 vN+1 이
+    #   쏟아지던 것을 묶으려고 만든 규칙이고, 사람이 스스로 누른 한 번은 그 대상이
+    #   아니다. 큐 흡수(--intake)까지 같이 해야 방금 넣은 입력이 함께 들어간다.
+    #   --force 는 batch 표에 '강제'로 남아 나중에 왜 이 시각에 열렸는지 추적된다.
+    "ledger_now":    ("지금 엑셀에 반영(사람 지시)",
+                      [os.path.join(ROOT, "ledger_db.py"), "--intake", "--apply", "--force", "--now"]),
     "upload_dry":    ("전표 전송대기 확인", [os.path.join(ROOT, "ecount_upload.py")]),
     # "upload_post" 제거(2026-08-05 사용자 지시) — ERP 실전송은 앱·AI가 하지 않는다.
     # 옛 앱·브라우저 캐시가 이 키를 보내도 아래 가드가 거부한다. 되살리지 말 것.
@@ -4082,10 +4090,23 @@ def _compute_status():
         st = ws()
         # 동기화 백본: 에이전트가 쓴 agent_status.json 우선 (없으면 md 리포트 파싱)
         steps, rt = [], ""
+        agent_aborted, agent_age_h, agent_failed = False, None, []
         try:
             aj = json.load(open(os.path.join(ROOT, "reports", "agent_status.json"), encoding="utf-8"))
             steps = aj.get("steps", [])
             rt = aj.get("time", "")[:16].replace("T", " ")
+            # ★ 이 시각이 **어제 것이면 어제 것이라고 말해야 한다**(2026-08-07 사용자 지적:
+            #   "에이전트 실행 시간이 맞지 않아 지금 날짜로 반영이 안되었어").
+            #   08-06 21:01 에서 멈춘 회차가 초록 점과 함께 떠 있어 정상으로 보였다.
+            #   스케줄러는 앞 회차가 도는 동안 다음 회차를 조용히 건너뛰므로, 시각만으로는
+            #   사람이 알아챌 수 없다 — 중단 여부와 몇 시간째인지를 같이 내려보낸다.
+            agent_aborted = bool(aj.get("aborted"))
+            try:
+                _mt = os.path.getmtime(os.path.join(ROOT, "reports", "agent_status.json"))
+                agent_age_h = round((datetime.now().timestamp() - _mt) / 3600.0, 1)
+            except OSError:
+                agent_age_h = None
+            agent_failed = [s.get("name") or s.get("n") for s in steps if not (s.get("ok") or s.get("s") == "ok")]
         except Exception:
             for s in st.get("report_summary", []):
                 mark = "ok" if "✅" in s else ("skip" if "스킵" in s else "fail")
@@ -4187,6 +4208,10 @@ def _compute_status():
             agent_route = {}
         return {"master": os.path.basename(st.get("master", "") or "") + "  " + st.get("master_label", ""),
                 "fork": st.get("fork", []), "agent_last": rt or "기록 없음", "steps": steps,
+                "agent_aborted": agent_aborted, "agent_age_h": agent_age_h,
+                "agent_failed": [f for f in agent_failed if f][:4],
+                # 20시간이면 오늘 09:50 회차가 통째로 빠졌다는 뜻이다(일일대조는 하루 한 번).
+                "agent_stale": bool(agent_aborted or (agent_age_h is not None and agent_age_h >= 20)),
                 "pending_updates": st["pending_updates"], "inbox": st["inbox"],
                 "kakao": st["kakao"], "band": st["band_auth"], "demo": False, "tunnel": tunnel,
                 "sources": srcs, "build": build_id(), "recalc": get_recalc_pending(),

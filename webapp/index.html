@@ -93,7 +93,7 @@ window.addEventListener('beforeinstallprompt', function(e){
    검증 [126] 이 이 구조를 지킨다. */
 :root{
   --font-ui-legacy:"Nanum Gothic","NanumGothic","나눔고딕","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
-  --font-ui:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard Variable",Pretendard,"Segoe UI Variable Text","Segoe UI","Malgun Gothic","맑은 고딕",Roboto,"Noto Sans KR","Helvetica Neue",Arial,sans-serif;
+  --font-ui:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard Variable",Pretendard,"Segoe UI Variable Text","Segoe UI",Roboto,"Noto Sans KR","Source Han Sans KR","본고딕","Malgun Gothic","맑은 고딕","Helvetica Neue",Arial,sans-serif;
 }
 /* 사람이 제 기기에서만 예전 글꼴로 돌리는 스위치 (설정 화면에서 켠다) */
 :root[data-font="legacy"]{ --font-ui:var(--font-ui-legacy); }
@@ -160,7 +160,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 /* ★ 실제 폰에서 이 줄이 **한 글자씩 세로로** 쪼개져 헤더가 화면 절반을 먹었다.
    flex 안에서 폭이 0까지 눌리면 한글은 글자 단위로 줄바꿈된다. 한 줄로 못박고,
    좁은 화면에서는 아예 숨긴다 — 회사 이름은 옆 로고가 이미 보여 준다. */
-.appbar h1 small{display:block;font-size:12.5px;font-weight:600;color:#9FB4E8;letter-spacing:0;
+.appbar h1 small{display:block;font-size:13.5px;font-weight:600;color:#9FB4E8;letter-spacing:0;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 @media(max-width:719px){ .appbar h1 small{display:none} }
 .appbar .sub{font-size:13px;color:#8FA3D9;font-variant-numeric:tabular-nums}
@@ -399,7 +399,7 @@ body.calendar-only .cal2-only-note{display:block}
     background:color-mix(in srgb,var(--c) 12%,transparent);color:var(--ink);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .cal2-tx .tm{color:var(--ink-3);font-weight:800;margin-right:4px;font-variant-numeric:tabular-nums}
-  .cal2-txmore{font-size:11.5px;font-weight:800;color:var(--ink-3);padding:0 6px;text-align:left}
+  .cal2-txmore{font-size:12.5px;font-weight:800;color:var(--ink-3);padding:0 6px;text-align:left}
   .cal2-day.out .cal2-tx{opacity:.5}
 }
 .cal2-agenda{display:grid;gap:7px}
@@ -412,7 +412,7 @@ body.calendar-only .cal2-only-note{display:block}
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cal2-ev .t2{font-size:13px;color:var(--ink-2);margin-top:2px;font-weight:600;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cal2-ev .k{display:inline-block;font-size:11.5px;font-weight:800;color:var(--c);
+.cal2-ev .k{display:inline-block;font-size:12.5px;font-weight:800;color:var(--c);
   background:color-mix(in srgb,var(--c) 13%,transparent);border-radius:6px;padding:1px 6px;margin-right:5px}
 .cal2-ev.on{border-color:var(--c);box-shadow:0 4px 12px rgba(16,24,40,.09)}
 @media(hover:hover){.cal2-ev:hover{border-color:var(--c)}}
@@ -501,7 +501,7 @@ body.calendar-only .cal2-only-note{display:block}
    기간이 없으면 750건이 올해 전체인지 이번 달인지 읽는 사람이 알 수 없다. */
 .hero .hero-period{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:4px 10px;
   border-radius:999px;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.18);
-  font-size:12.5px;font-weight:700;color:rgba(255,255,255,.92);font-variant-numeric:tabular-nums}
+  font-size:13.5px;font-weight:700;color:rgba(255,255,255,.92);font-variant-numeric:tabular-nums}
 .hero .hero-period small{font-weight:600;color:rgba(255,255,255,.6);font-size:12px}
 /* 통계: 줄바꿈으로 어긋나지 않게 균등 칸. 숫자는 자릿수가 흔들리지 않는 tabular-nums. */
 /* ★ 균등 grid(1fr)로 하면 칸 폭이 같아져 "460,119,530원" 같은 긴 값이 잘렸다.
@@ -615,7 +615,7 @@ body.calendar-only .cal2-only-note{display:block}
   transition:background .15s,height .2s;min-height:2px}
 .mbar.on i{background:var(--brand-btn)}
 .mbar:hover i{background:var(--brand-dk)}
-.mbar b{font-size:12.5px;color:var(--ink-3);font-weight:600;white-space:nowrap}
+.mbar b{font-size:13.5px;color:var(--ink-3);font-weight:600;white-space:nowrap}
 /* 막대 2개(ERP 실매출 · 대장 정산)를 나란히 — 대장에 없는 달도 실적이 보이게 */
 .bstack{display:flex;align-items:flex-end;gap:2px;width:100%;max-width:34px;height:78px}
 .bstack i{flex:1;max-width:none}
@@ -1199,7 +1199,7 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
     flex-wrap:wrap!important;overflow-x:visible;row-gap:7px}
   .icon-btn{flex-basis:58px!important;width:58px;height:58px;border-radius:12px!important}
   .icon-btn img,.icon-btn svg{width:22px;height:22px}
-  .icon-btn::after{font-size:11.5px;max-width:54px}
+  .icon-btn::after{font-size:12.5px;max-width:54px}
 }
 
 /* ═══ 보고서(캡처 최적화) ═══ */
@@ -1221,12 +1221,12 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
 .rcell.clk:active{transform:scale(.97)}
 .rcell .go{color:var(--brand);font-weight:800}
 .rcell .v{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.4px}
-.rcell .l{font-size:12.5px;color:var(--ink-3);font-weight:700;margin-top:1px}
+.rcell .l{font-size:13.5px;color:var(--ink-3);font-weight:700;margin-top:1px}
 .rpt table{width:100%;border-collapse:collapse;font-size:14px}
 .rpt table th{background:var(--panel);padding:7px 9px;text-align:left;font-size:13px;color:var(--ink-2);border:1px solid var(--line)}
 .rpt table td{padding:6.5px 9px;border:1px solid var(--line);font-variant-numeric:tabular-nums}
 .rpt .rfoot{margin-top:16px;padding-top:10px;border-top:1px solid var(--line);
-  display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-3)}
+  display:flex;justify-content:space-between;font-size:13.5px;color:var(--ink-3)}
 @media(min-width:900px){.rgrid{grid-template-columns:repeat(6,1fr)}
   /* 핵심 지표는 7칸이라 6칸 격자에선 마지막 하나가 아래로 떨어진다 → 한 줄에 7칸 */
   .rgrid.k7{grid-template-columns:repeat(7,1fr)}
@@ -1399,7 +1399,7 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
 .ryu-selected .key{font-size:18px;font-weight:950}.ryu-selected .camp{font-weight:800;color:var(--ink-2);margin-top:3px}
 .ryu-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:10px}
 .ryu-detail-item{padding:8px 9px;border-radius:9px;background:var(--surface);border:1px solid #E2E7F1;min-width:0}
-.ryu-detail-item small{display:block;color:var(--ink-3);font-size:12.5px;font-weight:800}
+.ryu-detail-item small{display:block;color:var(--ink-3);font-size:13.5px;font-weight:800}
 .ryu-detail-item span{display:block;margin-top:3px;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ryu-entry-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
 .ryu-entry-fields label{display:grid;gap:5px;color:var(--ink-2);font-size:13px;font-weight:850}
@@ -1438,7 +1438,7 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
 body.ryu-mode .tabbar button[data-v="run"]{display:none}
 /* .brand 는 >=900px 남색 사이드바에서만 보인다 — 색도 그 문맥 안에서 정한다 */
 @media(min-width:900px){
-  body.ryu-mode .tabbar .brand .bt::after{content:" · " attr(data-staff);display:block;color:#B9C7F0;font-size:11.5px}
+  body.ryu-mode .tabbar .brand .bt::after{content:" · " attr(data-staff);display:block;color:#B9C7F0;font-size:12.5px}
 }
 body.staff-mode .tabbar button[data-v="run"],
 body.staff-mode .tabbar button[data-v="daily"],
@@ -1476,7 +1476,7 @@ body.ryu-mode .tabbar button[data-v="report"]{display:none}
   box-shadow:0 7px 16px color-mix(in srgb,var(--wc) 27%,transparent)}
 .workcenter-person .wc-icon svg{width:21px;height:21px;fill:currentColor}
 .workcenter-person .wc-copy{display:flex;flex-direction:column;min-width:0;line-height:1.22}
-.workcenter-person .wc-copy small{font-size:12.5px;color:var(--brand);font-weight:700;margin-top:4px}
+.workcenter-person .wc-copy small{font-size:13.5px;color:var(--brand);font-weight:700;margin-top:4px}
 .workcenter-person .wc-arrow{margin-left:auto;font-size:18px;color:var(--wc);
   transition:transform .22s cubic-bezier(.2,.75,.25,1)}
 .workcenter-person:hover,.workcenter-person:focus-visible{transform:translateY(-4px) scale(1.012);
@@ -1503,7 +1503,7 @@ body.ryu-mode .tabbar button[data-v="report"]{display:none}
 .notice-bell{position:relative;width:40px;height:40px;border:1.5px solid rgba(255,255,255,.55);
   border-radius:12px;background:transparent;display:grid;place-items:center;box-shadow:none}
 .notice-bell svg{width:21px;height:21px;fill:#fff;color:#fff}   /* 남색 헤더 위 — 흰 아이콘 */.notice-badge{position:absolute;right:-5px;top:-6px;min-width:20px;height:20px;
-  padding:0 5px;border-radius:999px;background:#D92D20;color:#fff;font-size:12.5px;font-weight:900;
+  padding:0 5px;border-radius:999px;background:#D92D20;color:#fff;font-size:13.5px;font-weight:900;
   display:none;align-items:center;justify-content:center;border:2px solid #fff}
 .notice-panel{position:absolute;right:0;top:48px;width:min(390px,calc(100vw - 22px));max-height:60vh;overflow:auto;
   display:none;padding:10px;background:var(--surface);border:1px solid #D7DEEA;border-radius:14px;
@@ -1644,13 +1644,13 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .icon-btn::after{max-width:80px;font-size:12px}
 @media(max-width:420px){
   .icon-btn{flex-basis:74px!important;width:74px;height:66px}
-  .icon-btn::after{max-width:68px;font-size:11.5px}
+  .icon-btn::after{max-width:68px;font-size:12.5px}
 }
 
 /* ② 하단 탭바 — 여기만은 키우지 않는다. 탭이 7~8개라 375px 폰에서 한 칸이 47px 뿐이고,
       13px 로 키우면 '대시보드' 네 글자가 칸을 넘어 줄이 깨진다. 아이콘이 이미 크므로
       라벨은 작아도 읽힌다 — 이 자리는 글자보다 **아이콘**이 길잡이다. */
-.tabbar button{font-size:11.5px;letter-spacing:-.4px}
+.tabbar button{font-size:12.5px;letter-spacing:-.4px}
 @media(max-width:400px){ .tabbar button{font-size:11px} }
 
 /* ═══ 전역 격자 마무리 — 통계 타일·카드도 좌우 빈틈 없이 (사용자 지시 2026-07-31) ═══
@@ -1689,7 +1689,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .wt-basis>span{grid-row:1/3;font-size:12px;font-weight:800;color:var(--ink-3);white-space:nowrap}
 .wt-basis input{width:146px;height:36px;border:1px solid var(--line);border-radius:9px;padding:0 9px;
   background:var(--panel);color:var(--ink);font-family:inherit;font-size:13px;font-weight:700}
-.wt-basis b{font-size:11.5px;color:var(--brand);font-variant-numeric:tabular-nums}
+.wt-basis b{font-size:12.5px;color:var(--brand);font-variant-numeric:tabular-nums}
 .wt-kpis{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:12px}
 .wt-kpi{flex:1 1 130px;min-width:0;background:var(--surface);border:1px solid var(--line);
   border-radius:var(--r);box-shadow:var(--sh);padding:12px 13px;cursor:pointer;text-align:center;
@@ -1709,9 +1709,9 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .wt-meta{color:var(--ink-3);font-size:13px;margin:5px 1px 9px}
 .wt-card{border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:9px;background:var(--surface)}
 .wt-card .top{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.wt-card .meta{display:flex;flex-wrap:wrap;gap:10px;color:var(--ink-3);font-size:12.5px;margin-top:3px}
+.wt-card .meta{display:flex;flex-wrap:wrap;gap:10px;color:var(--ink-3);font-size:13.5px;margin-top:3px}
 .wt-open{margin-left:auto;border:1px solid var(--line);background:none;border-radius:8px;
-  padding:5px 10px;font-family:inherit;font-size:12.5px;cursor:pointer;color:var(--ink-2)}
+  padding:5px 10px;font-family:inherit;font-size:13.5px;cursor:pointer;color:var(--ink-2)}
 .wt-edit{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
 .wt-edit label{flex:1 1 150px;min-width:0;display:grid;gap:3px;font-size:12px;font-weight:800;color:var(--ink-3)}
 .wt-edit input,.wt-edit select{height:40px;border:1px solid var(--line);border-radius:9px;
@@ -1759,7 +1759,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .remote-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
 @media(max-width:720px){.remote-grid2{grid-template-columns:1fr}}
 .remote-grid2 fieldset{border:0;border-radius:16px;background:var(--panel);padding:14px 14px 10px;margin:0;min-width:0}
-.remote-grid2 legend{padding:0 2px 9px;font-size:12.5px;font-weight:800;color:var(--ink-2);letter-spacing:.03em}
+.remote-grid2 legend{padding:0 2px 9px;font-size:13.5px;font-weight:800;color:var(--ink-2);letter-spacing:.03em}
 .remote-grid2 input,.remote-grid2 select{display:block;width:100%;margin:0 0 9px;padding:11px 13px;
   font-size:15px;border:1px solid #E2E6EF;border-radius:12px;background:var(--surface);color:var(--ink);
   -webkit-appearance:none;appearance:none;outline:none;min-height:44px;box-sizing:border-box}
@@ -1773,11 +1773,11 @@ table.remote-mini th{background:var(--panel);color:var(--brand);font-size:12px;f
 table.remote-mini td{border-top:1px solid #EEF2F7;padding:10px 12px;text-align:left;font-size:14px;color:var(--ink)}
 ul.remote-plain{list-style:none;padding:0;margin:8px 0}
 ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14px}
-.remote-rule{font-size:12.5px;color:var(--ink-2);margin:2px 0 6px}
+.remote-rule{font-size:13.5px;color:var(--ink-2);margin:2px 0 6px}
 /* 버전·한도초과 표시(2026-08-04 재고표 반영) — 숫자만 보면 어느 물건인지 모른다 */
-.remote-ver{font-size:11.5px;color:var(--ink-3)}
+.remote-ver{font-size:12.5px;color:var(--ink-3)}
 .remote-over{color:var(--danger)}
-.remote-warn{font-size:12.5px;color:var(--danger);background:var(--danger-bg);
+.remote-warn{font-size:13.5px;color:var(--danger);background:var(--danger-bg);
   border-radius:10px;padding:8px 11px;margin:2px 0 8px}
 /* 줄마다 붙는 고치기·지우기(2026-08-06 지시) — 표를 밀어내지 않게 작게 둔다 */
 td.remote-ops{white-space:nowrap;text-align:right}
@@ -1805,22 +1805,22 @@ fieldset.remote-edit>input{margin:0 0 9px}
 /* 보유·불출 기준 안내(2026-08-04 지시) — 규칙을 화면에서 읽게 한다. 공지를 찾아
    다시 읽게 하면 결국 아무도 안 읽는다. */
 .remote-std{background:var(--brand-tint);border-radius:12px;padding:12px 14px;margin:2px 0 12px;
-  font-size:12.5px;color:var(--brand);line-height:1.6}
+  font-size:13.5px;color:var(--brand);line-height:1.6}
 .remote-std b{display:block;margin:6px 0 3px;font-size:13px;color:var(--brand-dk)}
 .remote-std b:first-child{margin-top:0}
 .remote-std ul{margin:0 0 4px;padding-left:17px}
 .remote-std li{margin:1px 0}
-.remote-std li b{display:inline;margin:0;font-size:12.5px;color:inherit}
+.remote-std li b{display:inline;margin:0;font-size:13.5px;color:inherit}
 /* 미실시 핫이슈(2026-08-04 대표 지시) — 스케줄을 못 잡아 미룬 건만 따로 붉게 */
 .bhot{background:var(--warn-bg);border:1px solid #F3C6C2;border-left:4px solid var(--danger);
   border-radius:11px;padding:10px 12px;margin:7px 0}
 .bhot .bnh{color:var(--danger);font-weight:800;font-size:13.5px}
 .bhot .bnh span{font-weight:600;color:var(--ink-2)}
-.bhr{font-size:12.5px;color:var(--danger);margin-top:5px;line-height:1.5;overflow-wrap:anywhere}
+.bhr{font-size:13.5px;color:var(--danger);margin-top:5px;line-height:1.5;overflow-wrap:anywhere}
 .bhr b{color:var(--brand-dk)}
 .bhr span{color:var(--ink-2)}
 /* 진행 속도 — 기간 경과율 대비 진행률 */
-.bpace{font-size:12.5px;margin:6px 0 2px;padding:7px 10px;border-radius:9px;
+.bpace{font-size:13.5px;margin:6px 0 2px;padding:7px 10px;border-radius:9px;
   background:var(--ok-bg);color:var(--ok)}
 .bpace.late{background:var(--warn-bg);color:var(--warn)}
 .bpace em{font-style:normal;font-weight:800}
@@ -1871,7 +1871,7 @@ fieldset.remote-edit>input{margin:0 0 9px}
 /* 접히는 것은 **바로 다음 형제 하나**다. 구역마다 카드가 하나씩 오는 지금 구조와 맞는다. */
 .ios-sec-h.folded + *{display:none!important}
 /* 접었을 때 무엇이 숨었는지 알려 준다 — 안 그러면 사라진 것처럼 보인다 */
-.ios-sec-h .fold-hint{margin-left:auto;font-weight:600;color:var(--ink-3);font-size:11.5px}
+.ios-sec-h .fold-hint{margin-left:auto;font-weight:600;color:var(--ink-3);font-size:12.5px}
 @media print{ .ios-sec-h::before,.ios-sec-h .fold-hint{display:none}
   .ios-sec-h.folded + *{display:block!important} }   /* 인쇄는 접힌 것도 다 보여 준다 */
 #v-center .card.ios-inset{padding:14px;margin-bottom:4px}
@@ -1916,7 +1916,7 @@ fieldset.remote-edit>input{margin:0 0 9px}
 .ui-card-ic svg{width:18px;height:18px;fill:currentColor}
 .ui-card-tx{min-width:0;flex:1}
 .ui-card-tx b{display:block;font-size:14.5px;font-weight:700;letter-spacing:-.25px;line-height:1.3}
-.ui-card-tx span{display:block;font-size:12.5px;color:var(--ink-3);margin-top:3px;line-height:1.4}
+.ui-card-tx span{display:block;font-size:13.5px;color:var(--ink-3);margin-top:3px;line-height:1.4}
 .ui-card.danger .ui-card-ic{background:var(--danger-bg);color:var(--danger)}
 .ui-card.danger .ui-card-tx b{color:var(--warn)}
 .ui-card.primary .ui-card-ic{background:var(--brand-btn);color:#fff}
@@ -1989,7 +1989,7 @@ fieldset.remote-edit>input{margin:0 0 9px}
 .pm-how>summary::-webkit-details-marker{display:none}
 .pm-how>summary::after{content:'▾';margin-left:auto;color:var(--ink-3);transition:transform .18s ease}
 .pm-how[open]>summary::after{transform:rotate(180deg)}
-.pm-how>summary span{font-weight:600;color:var(--ink-3);font-size:12.5px}
+.pm-how>summary span{font-weight:600;color:var(--ink-3);font-size:13.5px}
 .pm-how-body{padding:0 15px 14px;font-size:13.5px;line-height:1.65;color:var(--ink-2)}
 .pm-how-body p{margin:0 0 9px}
 .pm-how-body ul{margin:0 0 9px;padding-left:19px}
@@ -2010,7 +2010,7 @@ fieldset.remote-edit>input{margin:0 0 9px}
 #v-sources .src-tx{min-width:0;flex:1}
 #v-sources .src-tx b{display:block;font-size:15px;font-weight:650;letter-spacing:-.25px;
   line-height:1.32;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#v-sources .src-tx span{display:block;font-size:12.5px;color:var(--ink-3);margin-top:2px;
+#v-sources .src-tx span{display:block;font-size:13.5px;color:var(--ink-3);margin-top:2px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #v-sources .src-go{flex:none;color:var(--ink-3);font-size:17px;font-weight:700;opacity:.55}
 #v-sources .src-empty{grid-column:1/-1;padding:34px 14px;text-align:center;color:var(--ink-2);font-size:14px;
@@ -2035,14 +2035,14 @@ fieldset.remote-edit>input{margin:0 0 9px}
   padding:12px 15px}
 .dash-customizer-copy{min-width:0}
 .dash-customizer-copy b{display:block;font-size:15px;color:var(--ink)}
-.dash-customizer-copy span{display:block;font-size:12.5px;color:var(--ink-2);margin-top:2px}
+.dash-customizer-copy span{display:block;font-size:13.5px;color:var(--ink-2);margin-top:2px}
 .dash-customizer-toggle{border:0;border-radius:10px;background:var(--brand-tint);color:var(--brand);
   min-height:38px;padding:8px 13px;font:700 13.5px inherit;cursor:pointer;white-space:nowrap}
 .dash-customizer-panel{border-top:1px solid var(--line);padding:13px 15px 15px;background:var(--panel)}
 .dash-customizer-panel[hidden]{display:none}
 .dash-palette-section+.dash-palette-section{margin-top:14px;padding-top:14px;border-top:1px solid #E4E9F2}
 .dash-palette-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 1px 8px;
-  color:var(--ink-2);font-size:12.5px;font-weight:800}
+  color:var(--ink-2);font-size:13.5px;font-weight:800}
 .dash-palette-title span{color:var(--ink-3);font-weight:600}
 .dash-palette{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}
 .dash-choice{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:9px;min-height:52px;
@@ -2053,13 +2053,13 @@ fieldset.remote-edit>input{margin:0 0 9px}
 .dash-choice.dash-choice-target{border-color:var(--brand);box-shadow:0 0 0 2px rgba(36,82,230,.12)}
 .dash-choice input{width:19px;height:19px;accent-color:var(--brand);cursor:pointer}
 .dash-choice-copy{min-width:0}.dash-choice-copy b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  color:var(--ink);font-size:13.5px}.dash-choice-copy small{display:block;margin-top:2px;color:var(--ink-3);font-size:11.5px}
+  color:var(--ink);font-size:13.5px}.dash-choice-copy small{display:block;margin-top:2px;color:var(--ink-3);font-size:12.5px}
 .dash-choice-grip{color:var(--ink-3);font-size:18px;font-weight:900;letter-spacing:-3px;padding-right:3px}
 .dash-customizer-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .dash-customizer-actions button{border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink-2);
   min-height:38px;padding:8px 12px;font:700 13px inherit;cursor:pointer}
 .dash-customizer-actions button.primary{background:var(--brand-btn);border-color:var(--brand);color:#fff}
-.dash-layout-status{font-size:12.5px;color:var(--ink-2);margin-top:9px;min-height:18px}
+.dash-layout-status{font-size:13.5px;color:var(--ink-2);margin-top:9px;min-height:18px}
 #dashGrid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-flow:row dense;
   align-items:start;gap:14px}
 #dashGrid>.dash-block{grid-column:span var(--dash-span,12);position:relative;min-width:0;margin-bottom:0}
@@ -2103,7 +2103,7 @@ body.dash-picking .dash-choice:not(.dash-picked):hover{outline-style:solid!impor
 .dash-block-tools .dash-drag-handle:active{cursor:grabbing}
 .dash-block-tools .dash-size{min-width:48px;letter-spacing:-.2px}
 .dash-block-tools .dash-visible-toggle{display:flex;align-items:center;gap:4px;min-width:auto;padding:0 8px;
-  color:var(--brand-dk);font-size:11.5px;font-weight:800;cursor:pointer}
+  color:var(--brand-dk);font-size:12.5px;font-weight:800;cursor:pointer}
 .dash-block-tools .dash-visible-toggle input{width:15px;height:15px;accent-color:var(--brand)}
 /* KPI 숫자도 하나의 카드다. 편집 중에는 각 KPI를 따로 이동·체크·숨김할 수 있다. */
 .dash-kpi-tools{display:none;position:absolute;z-index:4;right:6px;top:6px;align-items:center;gap:3px;
@@ -3617,26 +3617,79 @@ function netBanner(on){
   if(!el){ el=document.createElement('div'); el.id='swrChip'; document.body.appendChild(el); }
   el.style.cssText='position:fixed;left:50%;transform:translateX(-50%);'
     +'top:'+chipTop()+';z-index:30;background:#7A271A;color:#FEE4E2;'
-    +'border:1px solid #F04438;border-radius:999px;padding:5px 12px;font-size:12.5px;'
+    +'border:1px solid #F04438;border-radius:999px;padding:5px 12px;font-size:13.5px;'
     +'font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer';
   el.textContent='서버에 닿지 않습니다 — 지금 숫자는 옛 자료 · 눌러서 다시 시도';
   el.onclick=()=>{ netBanner(false); location.reload(); };
 }
-function swrChip(ageMs){
+/* ── '몇 분 전 자료' 칩 — 하나의 진실만 말한다 (2026-08-07 사용자 지적) ──────────
+   증상: "194분 전 자료·갱신 중" 이 계속 떠 있고, 볼 때마다 숫자가 달랐다.
+   원인이 셋인데 전부 이 한 함수와 api() 에 있었다.
+   ① **마지막에 쓴 쪽이 숫자를 정했다.** SWR 대상이 11곳인데 칩은 하나라 각 경로가
+      제 나이를 덮어썼다 — 그래서 3분↔194분이 오갔다("계속 내용이 달라"의 정체).
+      이제 나이는 **아직 안 들어온 것 중 가장 오래된 것** 하나로 정한다.
+   ② **한 곳이 끝나면 칩을 지웠다**(swrChip(0)). 나머지 열 곳이 아직 옛 값인데도
+      최신처럼 보였고, 다음 경로가 다시 띄워서 깜빡였다("너무 자주 뜨고").
+      이제 **대기 목록이 빌 때만** 지운다. 그리고 1.2초 안에 끝나는 흔한 갱신은
+      아예 띄우지 않는다 — 화면을 옮길 때마다 뜨던 것이 이걸로 없어진다.
+   ③ **실패를 삼켰다**(.catch(()=>{})). 서버가 느려 갱신이 실패하면 옛 값은 그대로
+      늙어 가는데 칩은 영원히 '갱신 중'이라고 했다 — 그 194분의 정체다.
+      이제 실패는 **빨간 칩 + 눌러서 다시**로 말한다(절대규칙 1: 숨기지 않는다).
+   ④ 60분이 넘으면 '194분 전' 대신 '3시간 14분 전'으로 읽는다("분이 이상해"). */
+const SWR_WAIT = new Map();       // 경로 -> {t: 그 값을 받았던 시각, failed}
+const SWR_INFLIGHT = new Set();   // 같은 경로를 여러 로더가 불러도 한 번만 나간다
+const SWR_CHIP_DELAY_MS = 1200;
+let SWR_SHOW_AT = 0, SWR_TICK = null;
+function swrMark(key, t){
+  if(!SWR_WAIT.size) SWR_SHOW_AT = Date.now() + SWR_CHIP_DELAY_MS;
+  SWR_WAIT.set(key, {t: t, failed: false});
+  swrStartTick();
+}
+function swrDone(key, ok){
+  const it = SWR_WAIT.get(key);
+  if(!it) return;
+  if(ok) SWR_WAIT.delete(key); else it.failed = true;
+  swrPaint();
+}
+function swrStartTick(){
+  if(SWR_TICK) return;
+  SWR_TICK = setInterval(swrPaint, 1000);     // 나이는 1초마다 스스로 자란다
+  swrPaint();
+}
+function swrPaint(){
+  if(!SWR_WAIT.size){
+    if(SWR_TICK){ clearInterval(SWR_TICK); SWR_TICK = null; }
+    swrChip(0);
+    return;
+  }
+  if(Date.now() < SWR_SHOW_AT) return;        // 금방 끝날 갱신은 사람에게 알리지 않는다
+  const vals = [...SWR_WAIT.values()];
+  swrChip(Date.now() - Math.min(...vals.map(v => v.t)), vals.some(v => v.failed));
+}
+function swrAgeText(ms){
+  const m = Math.round(ms / 60000);
+  if(m < 1) return '방금 받은';
+  if(m < 60) return m + '분 전';
+  const h = Math.floor(m / 60), r = m % 60;
+  if(h < 24) return h + '시간 ' + (r ? r + '분 전' : '전');
+  return Math.floor(h / 24) + '일 전';
+}
+function swrChip(ageMs, failed){
   if(NET_OFFLINE) return;                      // 끊김 알림이 '갱신 중' 보다 우선이다
   let el = document.getElementById('swrChip');
   if(!ageMs){ if(el) el.remove(); return; }
   if(!el){
     el = document.createElement('div');
     el.id = 'swrChip';
-    el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);'
-      + 'top:'+chipTop()+';z-index:29;background:#1D2939;color:#E5E7EB;'
-      + 'border:1px solid #475467;border-radius:999px;padding:5px 12px;font-size:12.5px;'
-      + 'font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.2);pointer-events:none';
     document.body.appendChild(el);
   }
-  const m = Math.round(ageMs / 60000);
-  el.textContent = (m < 1 ? '방금 받은' : m + '분 전') + ' 자료 · 갱신 중';
+  el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);'
+    + 'top:'+chipTop()+';z-index:29;border-radius:999px;padding:5px 12px;font-size:13.5px;'
+    + 'font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.2);'
+    + (failed ? 'background:#7A271A;color:#FEE4E2;border:1px solid #F04438;cursor:pointer'
+              : 'background:#1D2939;color:#E5E7EB;border:1px solid #475467;pointer-events:none');
+  el.textContent = swrAgeText(ageMs) + ' 자료 · ' + (failed ? '갱신 실패 — 눌러서 다시' : '갱신 중');
+  el.onclick = failed ? (() => { SWR_WAIT.clear(); swrPaint(); reloadHere(); }) : null;
 }
 async function _apiNet(path, opt={}){
   opt.headers = Object.assign({'X-Pin': PIN}, opt.headers||{});
@@ -3780,15 +3833,19 @@ async function api(path, opt={}){
     const hit = swrGet(path);
     if(hit){
       if(Date.now() - hit.t < SWR_FRESH_MS) return hit.v;   // 방금 받은 값 — 또 부르지 않는다
-      _apiNet(path, opt).then(d => {                        // 새 값은 뒤에서 받아 온다
-        swrSet(path, d); swrChip(0); swrRerun(key);
-      }).catch(()=>{});
-      swrChip(Date.now() - hit.t);
+      if(!SWR_INFLIGHT.has(key)){          // 한 화면이 같은 주소를 여러 번 부른다 — 한 번만 나간다
+        SWR_INFLIGHT.add(key);
+        swrMark(key, hit.t);                                // 무엇을 기다리는지 칩이 안다
+        _apiNet(path, opt).then(d => {                      // 새 값은 뒤에서 받아 온다
+          swrSet(path, d); swrDone(key, true); swrRerun(key);
+        }).catch(() => { swrDone(key, false); })            // 실패는 삼키지 않고 칩에 띄운다
+          .then(() => { SWR_INFLIGHT.delete(key); });
+      }
       return hit.v;                                         // 옛 값이라도 **지금** 그린다
     }
   }
   const d = await _apiNet(path, opt);
-  if(cacheable){ swrSet(path, d); swrChip(0); }
+  if(cacheable){ swrSet(path, d); swrDone(key, true); }
   return d;
 }
 function escNotice(s){return esc2(String(s||''));}
@@ -6227,7 +6284,28 @@ async function loadStatus(){
   // 히어로 배너
   const now = new Date();
   $('heroDate').textContent = now.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
-  $('heroAgent').textContent = '에이전트 ' + (s.agent_last ? s.agent_last.slice(5,16) + ' 실행' : '대기');
+  // ★ 에이전트 배지는 **밀렸으면 밀렸다고 말한다**(2026-08-07 사용자 지적: "에이전트
+  //   실행 시간이 맞지 않아 지금 날짜로 반영이 안되었어"). 08-06 21:01 에서 중단된
+  //   회차가 초록 점을 달고 떠 있어 정상으로 보였다 — 화면은 멀쩡한데 숫자는 어제 것.
+  //   스케줄러는 앞 회차가 도는 동안 다음 회차를 조용히 건너뛰므로 시각만으로는 모른다.
+  const agStale = !!s.agent_stale, agBadge = $('heroAgent').closest('.badge');
+  $('heroAgent').textContent = '에이전트 ' + (s.agent_last
+    ? s.agent_last.slice(5,16) + (agStale
+        ? ' — ' + (s.agent_aborted ? '중단됨' : (s.agent_age_h != null ? Math.round(s.agent_age_h) + '시간째 미완주' : '밀림'))
+        : ' 실행')
+    : '대기');
+  if(agBadge){
+    agBadge.style.background = agStale ? 'rgba(240,68,56,.22)' : '';
+    agBadge.style.border = agStale ? '1px solid #F04438' : '';
+    agBadge.style.cursor = agStale ? 'pointer' : '';
+    agBadge.title = agStale
+      ? '오늘 회차가 완주하지 않았습니다' + ((s.agent_failed||[]).length
+          ? ' · 실패 단계: ' + s.agent_failed.join(', ') : '') + '\n눌러서 지금 다시 실행'
+      : '';
+    agBadge.onclick = agStale ? (()=>confirmRun('daily','오늘 회차가 밀려 있습니다 — 지금 일일 자동대조를 실행할까요?')) : null;
+    const dot = agBadge.querySelector('.dot');
+    if(dot) dot.style.background = agStale ? '#F04438' : '';
+  }
   // 집계 기간(2026-08-05 지시): "몇월 몇일부터 몇월 몇일까지 현황인가".
   // 임의로 '올해'라고 쓰지 않고 **실제 데이터의 최초·최종 작업일**을 그대로 말한다.
   renderHeroPeriod(rows);
@@ -6531,8 +6609,8 @@ function vbadge(id){
   const c = checks[id]; if(!c) return '';
   const one = (label,v)=>{ if(!v) return '';
     const good = v.startsWith('확인')||v==='일치';
-    return `<span class="chip ${good?'c-ok':'c-danger'}" style="font-size:12.5px">${label} ${good?'✓':'✗'}</span>`; };
-  return one('카톡',c.kakao)+one('밴드',c.band)+(c.erp?`<span class="chip c-warn" style="font-size:12.5px">ERP ${c.erp.slice(0,14)}</span>`:'')+(c.po?`<span class="chip c-warn" style="font-size:12.5px">PO ${c.po.slice(0,14)}</span>`:'');
+    return `<span class="chip ${good?'c-ok':'c-danger'}" style="font-size:13.5px">${label} ${good?'✓':'✗'}</span>`; };
+  return one('카톡',c.kakao)+one('밴드',c.band)+(c.erp?`<span class="chip c-warn" style="font-size:13.5px">ERP ${c.erp.slice(0,14)}</span>`:'')+(c.po?`<span class="chip c-warn" style="font-size:13.5px">PO ${c.po.slice(0,14)}</span>`:'');
 }
 /* ── 기간 필터 ────────────────────────────────────────────────
    탭마다 기준 날짜가 다르므로(정산=완료일, AS=접수일, 점검=예정일)
@@ -7453,7 +7531,7 @@ function renderPeriod(){
     const sel = m===mm;
     return `<div class="mbar ${sel?'on':''}" onclick="setRange(${sel?1:+mm},${sel?12:+mm})"
       title="${i+1}월 — 대장 정산 ${fmt(x.amt)}원(${x.cnt}건) / ERP 계산서 ${fmt(x.erp)}원(${x.ecnt}장)">
-      ${sel&&(x.amt||x.erp)?`<span style="font-size:11.5px;font-weight:800;color:var(--brand);white-space:nowrap">${Math.round((x.amt||x.erp)/10000).toLocaleString()}만</span>`:''}
+      ${sel&&(x.amt||x.erp)?`<span style="font-size:12.5px;font-weight:800;color:var(--brand);white-space:nowrap">${Math.round((x.amt||x.erp)/10000).toLocaleString()}만</span>`:''}
       <span class="bstack">
         <i class="erp" style="height:${Math.round(x.erp/max*76)+(x.erp?2:0)}px"></i>
         <i style="height:${Math.round(x.amt/max*76)+(x.amt?2:0)}px"></i>
@@ -7515,6 +7593,18 @@ async function runTask(key){
   if(!polling) polling = setInterval(pollLog, 1200);
   pollLog();
 }
+/* ★ 사람이 명령하면 회차를 기다리지 않고 지금 엑셀에 넣는다 (2026-08-07 지시).
+   확인을 한 번 받는 이유는 되돌릴 수 없어서다 — vN+1 이 실제로 만들어진다.
+   무엇이 들어가는지 먼저 말해 주고, 끝나면 화면을 다시 읽어 숫자를 맞춘다. */
+async function applyExcelNow(){
+  const n = (APPLY_WIN && +APPLY_WIN.대기) || 0;
+  const ok = await askYesNo(
+    n ? `대기 중인 입력 ${n.toLocaleString()}건을 지금 엑셀에 반영합니다.`
+      : '대기 중인 입력은 없지만, 지금 반영 회차를 한 번 돌립니다.',
+    {desc:'관리대장 새 버전(vN+1)이 만들어집니다. 진행할까요?'});
+  if(!ok) return;
+  await runTask('ledger_now');
+}
 async function pollLog(){
   const d = await api('/api/tasklog');
   $('livedot').className = 'dot' + (d.busy?' busy':'');
@@ -7558,18 +7648,25 @@ function mdRender(t){
     v259 처럼 엉뚱한 건에 붙는다) */
 /* 하루 두 번(11:00·15:00)만 엑셀에 쓴다. 그 사이에 넣은 것은 DB에 쌓여 있을 뿐이므로
    "지금 넣은 게 왜 엑셀에 없지?" 라는 오해가 생긴다 — 남은 시간과 건수를 늘 보여 준다. */
+let APPLY_WIN = null;                  // '지금 바로 반영' 이 몇 건인지 말해 주려고 들고 있는다
 function renderApplyWindow(w){
   const card=$('applywin'); if(!card) return;
+  APPLY_WIN = w || null;
   if(!w || !w.다음반영){ card.style.display='none'; return; }
   const n=+w.대기||0, m=+w.남은분||0;
   const when=String(w.다음반영).replace('T',' ').slice(5,16);
   const h=Math.floor(m/60), left = h? `${h}시간 ${m%60}분` : `${m}분`;
   card.style.display='block';
-  $('applywinmsg').innerHTML = n
+  // ★ '기다리라'고만 하지 않는다 — 사람이 지금 넣겠다면 지금 넣는다(2026-08-07 지시).
+  //   두 회차 규칙은 **자동으로 도는 것들**을 묶는 규칙이고, 사람이 스스로 누른
+  //   한 번은 그 대상이 아니다. 강제 반영은 batch 표에 이유와 함께 남는다.
+  const nowBtn = `<button class="abtn" style="margin-top:9px;width:100%;justify-content:center;flex-direction:row"
+      onclick="applyExcelNow()">지금 바로 엑셀에 반영</button>`;
+  $('applywinmsg').innerHTML = (n
     ? `입력한 <b>${n.toLocaleString()}건</b>이 저장돼 있고, <b>${esc2(when)}</b>에 엑셀로 한 번에 들어갑니다 (약 ${left} 뒤).<br>
        <span style="color:var(--muted)">엑셀 반영은 하루 두 번 — ${esc2((w.반영시각||[]).join(' · '))}. 그 전까지는 앱에만 보입니다.</span>`
     : `반영 대기 없음 · 다음 반영 <b>${esc2(when)}</b> (약 ${left} 뒤)<br>
-       <span style="color:var(--muted)">엑셀 반영은 하루 두 번 — ${esc2((w.반영시각||[]).join(' · '))}</span>`;
+       <span style="color:var(--muted)">엑셀 반영은 하루 두 번 — ${esc2((w.반영시각||[]).join(' · '))}</span>`) + nowBtn;
 }
 
 function renderRecalc(rc){
@@ -8158,7 +8255,7 @@ function showOutsideBanner(isIOS){
     + 'z-index:32;background:#0E1B3F;color:#fff;border-radius:16px;padding:13px 14px;'
     + 'box-shadow:0 10px 28px rgba(0,0,0,.3);display:flex;align-items:center;gap:10px;flex-wrap:wrap';
   bar.innerHTML = `<b style="font-size:14.5px">${app}에서 열면 앱으로 설치됩니다</b>
-    <span style="flex:1 1 100%;font-size:12.5px;color:#C9D5FA;line-height:1.5">지금은 카카오톡·밴드 안의
+    <span style="flex:1 1 100%;font-size:13.5px;color:#C9D5FA;line-height:1.5">지금은 카카오톡·밴드 안의
       브라우저라 홈 화면에 아이콘을 만들 수 없습니다.</span>
     <span style="flex:1 1 100%;display:flex;gap:8px;margin-top:2px">
       <button id="siOut" style="flex:1;appearance:none;border:0;border-radius:11px;padding:10px;background:#2452E6;color:#fff;font:inherit;font-weight:750;cursor:pointer">${app}로 열기</button>
@@ -8187,7 +8284,7 @@ function showInstallBanner(){
     + 'z-index:32;background:#0E1B3F;color:#fff;border-radius:16px;padding:13px 14px;'
     + 'box-shadow:0 10px 28px rgba(0,0,0,.3);display:flex;align-items:center;gap:10px;flex-wrap:wrap';
   bar.innerHTML = `<b style="font-size:14.5px">쿠팡 캘린더를 앱으로 설치</b>
-    <span style="flex:1 1 100%;font-size:12.5px;color:#C9D5FA;line-height:1.5">${
+    <span style="flex:1 1 100%;font-size:13.5px;color:#C9D5FA;line-height:1.5">${
       isIOS ? '아래 <b>공유</b> 버튼 → <b>홈 화면에 추가</b> 를 누르면 앱처럼 열립니다.'
             : '홈 화면에서 바로 열 수 있습니다. 링크를 다시 찾지 않아도 됩니다.'}</span>
     <span style="flex:1 1 100%;display:flex;gap:8px;margin-top:2px">
@@ -9560,7 +9657,7 @@ function bundleHtml(y){
         const list = String(r.포함프로젝트||'').split(',').map(s=>s.trim()).filter(Boolean);
         return `<tr><td class="hd">${r.전표}</td>
           <td data-l="판정"><span style="color:${col};font-weight:700">${k}</span>${
-            v.includes('(') && k==='확정' ? `<div style="font-size:12.5px;color:var(--ink-3)">${v.slice(v.indexOf('(')+1,-1)}</div>` : ''}</td>
+            v.includes('(') && k==='확정' ? `<div style="font-size:13.5px;color:var(--ink-3)">${v.slice(v.indexOf('(')+1,-1)}</div>` : ''}</td>
           <td data-l="공급가액(부가세 별도)" style="text-align:right">${fmt(r.공급가액)}</td>
           <td class="prjs" data-l="포함 프로젝트NO"><div class="chips">${
             list.map(k=>`<span class="prj" onclick="openByPrj('${k}')">${k}</span>`).join('')
@@ -9689,7 +9786,7 @@ function renderDaily(){
     ${_rep?`<h4>대표 예외보고 <span class="norm">— 정상은 합계만·예외는 상세 (${_rep.signal} 신호)</span></h4>
     <div class="rgrid">${_rep.metrics.map(t=>cell(t[0],t[1])).join('')}</div>
     ${_rep.summary?`<div style="font-size:13px;color:var(--ink-3);margin-top:6px">${esc2(_rep.summary)}</div>`:''}
-    ${_rep.docTypes.length?`<div style="font-size:12.5px;color:var(--ink-3);margin-top:4px">${_rep.docTypes.map(esc2).join('<br>')}</div>`:''}`
+    ${_rep.docTypes.length?`<div style="font-size:13.5px;color:var(--ink-3);margin-top:4px">${_rep.docTypes.map(esc2).join('<br>')}</div>`:''}`
     :`<h4>대표 예외보고</h4><div style="font-size:13px;color:#B54708">예외보고 API 미수신 — 새로고침 후 다시 캡처하세요.</div>`}
     <h4>${+m}월 실적 <span class="norm">— 선택 기준일 ${selectedDay}</span></h4>
     <div class="rgrid">

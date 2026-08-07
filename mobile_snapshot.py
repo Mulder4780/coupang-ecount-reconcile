@@ -98,7 +98,7 @@ PAGE = """<style>
    또는 --font-ui 값을 --font-ui-legacy 로 바꾼다. legacy 값은 원래 값 그대로 남긴다. */
 :root{
   --font-ui-legacy:"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
-  --font-ui:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard Variable",Pretendard,"Segoe UI Variable Text","Segoe UI","Malgun Gothic","맑은 고딕",Roboto,"Noto Sans KR","Helvetica Neue",Arial,sans-serif;
+  --font-ui:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard Variable",Pretendard,"Segoe UI Variable Text","Segoe UI",Roboto,"Noto Sans KR","Source Han Sans KR","본고딕","Malgun Gothic","맑은 고딕","Helvetica Neue",Arial,sans-serif;
 }
 :root[data-font="legacy"]{ --font-ui:var(--font-ui-legacy); }
 *{box-sizing:border-box}
