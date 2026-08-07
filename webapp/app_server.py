@@ -4870,6 +4870,10 @@ self.addEventListener('fetch', e => {
             return self._send(200, get_erpdocs())
         if p == "/api/checks":
             return self._send(200, get_checks())
+        if p == "/api/flow":
+            # AS 접수 → 수금 업무 흐름 (2026-08-07 지시). 정본은 DB 다.
+            import ledger_db
+            return self._send(200, {"steps": ledger_db.flow_steps()})
         if p == "/api/reports":
             return self._send(200, {"reports": latest_reports()})
         if p == "/api/tasklog":
@@ -5136,6 +5140,23 @@ self.addEventListener('fetch', e => {
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             except Exception as e:
                 return self._send(500, {"ok": False, "error": f"엑셀 생성 실패: {str(e)[:160]}"})
+        if p == "/api/flow":
+            # 흐름 저장·되돌리기 (2026-08-07 지시). 통째로 받는다 — 순서 바꾸기·지우기가
+            # 섞이면 부분 갱신은 어긋나고, 단계는 많아야 서른 개라 통째가 안전하다.
+            if not self._require_admin():
+                return
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 200_000:
+                return self._send(400, {"ok": False, "error": "저장 내용 크기가 올바르지 않습니다"})
+            b = json.loads(self.rfile.read(ln) or b"{}")
+            import ledger_db
+            who = str(b.get("저장자") or "앱 사용자")[:40]
+            try:
+                n = (ledger_db.flow_restore(who) if b.get("되돌리기")
+                     else ledger_db.flow_save(b.get("steps") or [], who))
+            except ValueError as e:
+                return self._send(400, {"ok": False, "error": str(e)})
+            return self._send(200, {"ok": True, "단계수": n, "steps": ledger_db.flow_steps()})
         if p == "/api/policy":
             if not self._require_admin():
                 return

@@ -8156,6 +8156,54 @@ def t141_long_text_folds():
     print("  [141] 긴 글 접기 — 재서 정함·기능 숨김 금지·인쇄는 전부 펼침 ✅")
 
 
+def t142_flow_editable():
+    """AS 접수→수금 워크플로우 — 고칠 수 있고 되돌릴 수 있나 (2026-08-07 지시).
+
+    사용자 지시: "AS 접수부터 처리 수금까지의 과정을 워크플로우로 만들어서
+    수정할 수 있는 기능도 추가해서 디테일하게 / 텍스트는 딱 필요한 것만".
+    '고칠 수 있다'는 **'되돌릴 수 있다'와 짝**이어야 한다 — 되돌릴 길이 없으면
+    사람은 잘못 고칠까 봐 결국 안 고치고, 화면은 실제 업무와 어긋난 채 남는다.
+    """
+    import ledger_db as L
+    before = L.flow_steps()
+    assert before and before[0]["단계"] and before[-1]["단계"], "기본 흐름이 비어 있다"
+    # ① 통째 저장 → 되돌리기 왕복이 무손실인가
+    mod = [dict(x) for x in before]
+    mod[0] = dict(mod[0], 메모="검증용")
+    mod.append({"단계": "검증용 단계", "담당": "", "소요일": 99, "근거": "", "메모": ""})
+    assert L.flow_save(mod, who="synthetic") == len(before) + 1
+    assert len(L.flow_steps()) == len(before) + 1
+    L.flow_restore(who="synthetic")
+    after = L.flow_steps()
+    assert [(s["단계"], s["담당"], s["소요일"], s["근거"], s["메모"]) for s in after] == \
+           [(s["단계"], s["담당"], s["소요일"], s["근거"], s["메모"]) for s in before], \
+        "되돌리기가 원래 모습으로 돌아오지 않는다"
+    # ② 빈 흐름·이름 없는 줄은 저장하지 않는다(빈 화면이 남으면 아무도 못 고친다)
+    for bad in ([], [{"단계": "  "}]):
+        try:
+            L.flow_save(bad, "synthetic")
+            raise AssertionError("빈 흐름이 저장됐다")
+        except ValueError:
+            pass
+
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert 'if p == "/api/flow"' in server and "ledger_db.flow_restore" in server
+    assert "_require_admin()" in server.split('if p == "/api/flow"')[2][:300], \
+        "흐름 저장이 인증 없이 열려 있다"
+    # ③ 화면: 좌측 카테고리 · 뷰 · 수정/저장/되돌리기가 실제로 이어져 있나
+    assert 'data-v="flow"' in live and 'id="v-flow"' in live
+    assert "if(v==='flow' && !FLOW_EDITING) loadFlow();" in live, \
+        "고치는 중에 다시 불러 덮어쓴다 — 입력하던 것이 사라진다"
+    for fn in ("loadFlow", "flowRender", "flowEdit", "flowSave", "flowUndo",
+               "flowAddStep", "flowDel", "flowMove", "flowCollect"):
+        assert f"function {fn}(" in live, f"{fn} 이 없다"
+    # ④ 아이콘은 스프라이트에 있는 것만 쓴다(없으면 빈 네모가 뜬다 — 검증 [91])
+    icon = live.split('data-v="flow"')[1].split('href="#')[1].split('"')[0]
+    assert f'id="{icon}"' in live, f"워크플로우 아이콘 {icon} 이 스프라이트에 없다"
+    print("  [142] 워크플로우 — 통째 저장·되돌리기 왕복 무손실·빈 흐름 거부·화면 배선 ✅")
+
+
 def t136_work_lanes():
     """작업 차선 — 수집 창과 앱·엑셀 창이 하루 종일 나란히 돌 수 있나 (2026-08-07 지시).
 
@@ -8388,6 +8436,7 @@ if __name__ == "__main__":
     t139_new_version_is_atomic()
     t140_freshness_tells_the_truth()
     t141_long_text_folds()
+    t142_flow_editable()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

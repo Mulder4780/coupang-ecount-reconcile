@@ -358,7 +358,7 @@ body.calendar-only .cal2-only-note{display:block}
   font-size:19px;font-weight:800;color:var(--brand);background:var(--brand-tint)}
 .cal2-nav button.cal2-today{width:auto;padding:0 12px;font-size:13.5px;font-weight:800}
 .cal2-dow,.cal2-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
-.cal2-dow span{text-align:center;font-size:12px;font-weight:700;color:var(--ink-3);padding:4px 0 6px}
+.cal2-dow span{text-align:center;font-size:13px;font-weight:700;color:var(--ink-3);padding:4px 0 6px}
 .cal2-dow span:first-child{color:var(--danger)}.cal2-dow span:last-child{color:var(--brand)}
 /* ★ 날짜 글씨 키움 (2026-08-06 지시 "캘린더 날짜 크기 크게 변경").
    달력에서 제일 먼저 찾는 것은 숫자다. 14px 은 점(dots)보다도 작아 보였다. */
@@ -374,7 +374,9 @@ body.calendar-only .cal2-only-note{display:block}
 .cal2-day.on .d{background:var(--brand-btn);color:#fff}
 .cal2-dots{display:flex;gap:2.5px;flex-wrap:wrap;justify-content:center;max-width:100%;padding:0 1px}
 .cal2-dots i{width:5px;height:5px;border-radius:50%;background:var(--c);display:block}
-.cal2-dots .more{font-size:9px;font-weight:800;color:var(--ink-3);line-height:5px}
+/* '+N' 표시가 9px 이라 사실상 안 보였다(2026-08-07). line-height 는 고정이라
+   칸 높이에는 영향이 없다 — 글자만 읽을 수 있는 크기로 올린다. */
+.cal2-dots .more{font-size:11px;font-weight:800;color:var(--ink-3);line-height:5px}
 @media(hover:hover){.cal2-day:hover{background:var(--panel)}}
 
 /* ═══ PC 는 칸 안에 **글자**로 (2026-08-06 지시) ═══
@@ -394,7 +396,7 @@ body.calendar-only .cal2-only-note{display:block}
   .cal2-day.on{border-color:var(--brand)}
   .cal2-dots{display:none}
   .cal2-txs{display:flex;flex-direction:column;gap:2px;width:100%;min-width:0;overflow:hidden}
-  .cal2-tx{display:block;width:100%;text-align:left;font-size:12px;font-weight:700;line-height:1.35;
+  .cal2-tx{display:block;width:100%;text-align:left;font-size:13px;font-weight:700;line-height:1.35;
     padding:2px 6px;border-radius:6px;border-left:3px solid var(--c);
     background:color-mix(in srgb,var(--c) 12%,transparent);color:var(--ink);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -502,7 +504,7 @@ body.calendar-only .cal2-only-note{display:block}
 .hero .hero-period{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:4px 10px;
   border-radius:999px;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.18);
   font-size:13.5px;font-weight:700;color:rgba(255,255,255,.92);font-variant-numeric:tabular-nums}
-.hero .hero-period small{font-weight:600;color:rgba(255,255,255,.6);font-size:12px}
+.hero .hero-period small{font-weight:600;color:rgba(255,255,255,.6);font-size:13px}
 /* 통계: 줄바꿈으로 어긋나지 않게 균등 칸. 숫자는 자릿수가 흔들리지 않는 tabular-nums. */
 /* ★ 균등 grid(1fr)로 하면 칸 폭이 같아져 "460,119,530원" 같은 긴 값이 잘렸다.
    내용에 맞춰 늘어나는 flex 로 바꾼다 — 긴 항목은 넓게, 짧은 항목은 좁게 가져가고
@@ -904,7 +906,7 @@ b.prjno{font-weight:800;font-variant-numeric:tabular-nums;color:var(--ink)}
 .srow .oktag.bad{color:var(--danger);background:var(--danger-bg)}
 .ecell.has-help,.gi .has-help{cursor:pointer}
 .qm{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
-  border-radius:50%;background:var(--brand-btn);color:#fff;font-size:12px;font-weight:800;
+  border-radius:50%;background:var(--brand-btn);color:#fff;font-size:13px;font-weight:800;
   font-style:normal;margin-left:5px;vertical-align:middle}
 .srow .amt{font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
 .srow .meta{display:flex;gap:6px 11px;font-size:13px;color:var(--ink-3);margin-top:7px;flex-wrap:wrap;align-items:center}
@@ -1128,12 +1130,12 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
   .check-toolbar input{grid-column:1/-1}
 }
 @media(max-width:420px){
-  .tabbar button{font-size:12px;padding-left:0;padding-right:0;gap:3px}
+  .tabbar button{font-size:13px;padding-left:0;padding-right:0;gap:3px}
   .tabbar svg{width:28px;height:28px}
   /* 아주 좁은 폰(≤360px)에서도 7개 탭이 한 줄에 들어가야 한다 — 넘치면 마지막 탭이 잘린다.
      아이콘은 지키고 글자만 더 줄인다(아이콘이 먼저 보여야 한다는 원칙 유지). */
   @media(max-width:360px){
-    .tabbar button{font-size:11px;letter-spacing:-.5px}
+    .tabbar button{font-size:12.5px;letter-spacing:-.5px}
     .tabbar svg{width:26px;height:26px}
   }
   .check-groups{grid-template-columns:1fr}
@@ -1174,7 +1176,7 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
   transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease,background .14s ease}
 .icon-btn img,.icon-btn svg{display:block;width:24px;height:24px;pointer-events:none;fill:currentColor}
 .icon-btn::after{content:attr(aria-label);display:block;max-width:62px;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.1;font-weight:800;color:var(--brand-dk)}
+  text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:1.1;font-weight:800;color:var(--brand-dk)}
 .icon-btn.primary::after{color:#fff}
 .icon-btn:hover{transform:translateY(-2px);border-color:#8EA6F4!important;
   box-shadow:0 7px 18px rgba(36,82,230,.16)!important}
@@ -1232,7 +1234,7 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
   .rgrid.k7{grid-template-columns:repeat(7,1fr)}
   .rgrid.k7 .rcell{padding:10px 8px}
   .rgrid.k7 .rcell .v{font-size:16px;letter-spacing:-.5px}
-  .rgrid.k7 .rcell .l{font-size:12px}}
+  .rgrid.k7 .rcell .l{font-size:13px}}
 @media(min-width:600px) and (max-width:899px){.rgrid{grid-template-columns:repeat(4,1fr)}}
 /* 보고 표 — 열 너비 고정 + 한글 단어 보존(어절 단위로만 줄바꿈) */
 .rpt table{table-layout:fixed;word-break:keep-all;overflow-wrap:anywhere}
@@ -1294,7 +1296,7 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
   .tabbar .brand{display:flex;align-items:center;gap:11px;padding:22px 20px 18px;
     border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:10px;color:#fff}
   .tabbar .brand .bt{font-size:15px;font-weight:800;letter-spacing:-.3px;line-height:1.2}
-  .tabbar .brand .bt small{display:block;font-size:12px;font-weight:600;color:#8FA3D9;letter-spacing:.5px}
+  .tabbar .brand .bt small{display:block;font-size:13px;font-weight:600;color:#8FA3D9;letter-spacing:.5px}
   .tabbar button{flex:0 0 auto;flex-direction:row;justify-content:flex-start;gap:12px;
     padding:12px 20px;font-size:14.5px;color:#93A5D6;margin:1px 10px;border-radius:10px}
   .tabbar button:hover{background:rgba(255,255,255,.06);color:#fff}
@@ -1641,7 +1643,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 /* ① 아이콘 버튼 — 라벨이 9.5px → 12px 가 되면서 62px 안에 안 들어간다.
       버튼과 라벨 폭을 같이 넓힌다. 안 넓히면 '이미지 저장'이 '이미지 …' 로 잘린다. */
 .icon-btn{flex-basis:86px!important;width:86px;height:70px}
-.icon-btn::after{max-width:80px;font-size:12px}
+.icon-btn::after{max-width:80px;font-size:13px}
 @media(max-width:420px){
   .icon-btn{flex-basis:74px!important;width:74px;height:66px}
   .icon-btn::after{max-width:68px;font-size:12.5px}
@@ -1651,7 +1653,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
       13px 로 키우면 '대시보드' 네 글자가 칸을 넘어 줄이 깨진다. 아이콘이 이미 크므로
       라벨은 작아도 읽힌다 — 이 자리는 글자보다 **아이콘**이 길잡이다. */
 .tabbar button{font-size:12.5px;letter-spacing:-.4px}
-@media(max-width:400px){ .tabbar button{font-size:11px} }
+@media(max-width:400px){ .tabbar button{font-size:12.5px} }
 
 /* ═══ 전역 격자 마무리 — 통계 타일·카드도 좌우 빈틈 없이 (사용자 지시 2026-07-31) ═══
    버튼·아이콘 줄은 위(07-30 블록)에서 끝냈고, 남아 있던 것이 **통계 타일·카드 격자**다.
@@ -1686,7 +1688,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .wt-basis{flex:0 0 auto;min-width:268px;display:grid;grid-template-columns:auto 1fr;align-items:center;
   gap:3px 10px;padding:10px 12px;background:var(--surface);border:1px solid var(--line);
   border-radius:13px;box-shadow:var(--sh)}
-.wt-basis>span{grid-row:1/3;font-size:12px;font-weight:800;color:var(--ink-3);white-space:nowrap}
+.wt-basis>span{grid-row:1/3;font-size:13px;font-weight:800;color:var(--ink-3);white-space:nowrap}
 .wt-basis input{width:146px;height:36px;border:1px solid var(--line);border-radius:9px;padding:0 9px;
   background:var(--panel);color:var(--ink);font-family:inherit;font-size:13px;font-weight:700}
 .wt-basis b{font-size:12.5px;color:var(--brand);font-variant-numeric:tabular-nums}
@@ -1713,11 +1715,11 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .wt-open{margin-left:auto;border:1px solid var(--line);background:none;border-radius:8px;
   padding:5px 10px;font-family:inherit;font-size:13.5px;cursor:pointer;color:var(--ink-2)}
 .wt-edit{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
-.wt-edit label{flex:1 1 150px;min-width:0;display:grid;gap:3px;font-size:12px;font-weight:800;color:var(--ink-3)}
+.wt-edit label{flex:1 1 150px;min-width:0;display:grid;gap:3px;font-size:13px;font-weight:800;color:var(--ink-3)}
 .wt-edit input,.wt-edit select{height:40px;border:1px solid var(--line);border-radius:9px;
   padding:0 9px;font-family:inherit;font-size:13.5px;background:var(--panel);width:100%}
 .wt-done{border-color:#12813F;color:var(--ok);background:var(--panel);font-weight:800}
-.wt-pend{margin-left:5px;color:var(--warn);font-style:normal;font-size:11px;border:1px solid #F2C4A0;
+.wt-pend{margin-left:5px;color:var(--warn);font-style:normal;font-size:12.5px;border:1px solid #F2C4A0;
   border-radius:6px;padding:0 5px;background:var(--warn-bg)}
 .wt-board{display:flex;gap:10px;overflow-x:auto;align-items:flex-start;padding-bottom:6px}
 .wt-col{flex:0 0 290px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:9px}
@@ -1769,7 +1771,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .remote-grid2 .abtn{display:flex;width:100%;justify-content:center;border-radius:13px;min-height:47px;
   font-size:15.5px;font-weight:800;margin-top:2px}
 table.remote-mini{border-collapse:collapse;width:100%;margin:8px 0;background:var(--surface);border-radius:13px;overflow:hidden}
-table.remote-mini th{background:var(--panel);color:var(--brand);font-size:12px;font-weight:800;padding:9px 12px;text-align:left}
+table.remote-mini th{background:var(--panel);color:var(--brand);font-size:13px;font-weight:800;padding:9px 12px;text-align:left}
 table.remote-mini td{border-top:1px solid #EEF2F7;padding:10px 12px;text-align:left;font-size:14px;color:var(--ink)}
 ul.remote-plain{list-style:none;padding:0;margin:8px 0}
 ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14px}
@@ -1781,7 +1783,7 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:14p
   border-radius:10px;padding:8px 11px;margin:2px 0 8px}
 /* 줄마다 붙는 고치기·지우기(2026-08-06 지시) — 표를 밀어내지 않게 작게 둔다 */
 td.remote-ops{white-space:nowrap;text-align:right}
-td.remote-ops .abtn.tiny{display:inline-flex;min-height:0;padding:5px 9px;font-size:12px;
+td.remote-ops .abtn.tiny{display:inline-flex;min-height:0;padding:5px 9px;font-size:13px;
   font-weight:700;border-radius:8px;margin-left:5px}
 .abtn.tiny.warn{color:var(--danger);border-color:var(--danger)}
 /* 수정 상자 — 표 바로 아래에서 열려 어느 줄을 고치는지가 눈에 남는다 */
@@ -1789,7 +1791,7 @@ fieldset.remote-edit{border:1px solid var(--brand);border-radius:16px;background
   padding:14px;margin:12px 0}
 fieldset.remote-edit legend{padding:0 6px;font-size:13px;font-weight:800;color:var(--brand)}
 .remote-edit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:9px;margin-bottom:9px}
-.remote-edit-grid label{display:block;font-size:12px;font-weight:700;color:var(--ink-2)}
+.remote-edit-grid label{display:block;font-size:13px;font-weight:700;color:var(--ink-2)}
 .remote-edit-grid input,.remote-edit-grid select,fieldset.remote-edit>input{display:block;width:100%;
   margin-top:4px;padding:10px 12px;font-size:14.5px;border:1px solid #E2E6EF;border-radius:11px;
   background:var(--surface);color:var(--ink);box-sizing:border-box;min-height:42px}
@@ -1895,7 +1897,7 @@ fieldset.remote-edit>input{margin:0 0 9px}
 .cc-chk span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cc-btns{display:flex;gap:5px;flex:none}
 .cc-mini{border:0;background:var(--neu-bg);color:var(--ink-1);border-radius:8px;
-  width:30px;height:28px;font-size:12px;cursor:pointer}
+  width:30px;height:28px;font-size:13px;cursor:pointer}
 .cc-mini:disabled{opacity:.32;cursor:default}
 @media(hover:hover){.cc-mini:not(:disabled):hover{background:var(--panel-2)}}
 .cc-block[hidden]{display:none}
@@ -1960,7 +1962,7 @@ fieldset.remote-edit>input{margin:0 0 9px}
 #v-sources .src-seg-label{grid-column:1/-1;min-width:0;font-size:13.5px;font-weight:750;letter-spacing:-.3px;line-height:1.25;
   white-space:normal;overflow-wrap:anywhere}
 #v-sources .src-seg-check{grid-column:2;grid-row:1;display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--brand-btn);
-  color:#fff;font-size:10px;font-weight:900;opacity:0;transform:scale(.72);transition:opacity .16s ease,transform .16s ease}
+  color:#fff;font-size:11.5px;font-weight:900;opacity:0;transform:scale(.72);transition:opacity .16s ease,transform .16s ease}
 #v-sources .src-seg.on{border-color:var(--brand);background:var(--panel);box-shadow:0 0 0 2px rgba(36,82,230,.11),0 7px 17px rgba(29,45,95,.1)}
 #v-sources .src-seg.on .src-seg-check{opacity:1;transform:scale(1)}
 #v-sources .src-seg:focus-visible,#v-sources .src-mbtn:focus-visible{outline:3px solid rgba(0,122,255,.28);outline-offset:2px}
@@ -2184,6 +2186,28 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
   background:var(--surface);color:var(--brand-dk);font:800 12.5px inherit;
   padding:6px 14px;cursor:pointer;box-shadow:0 2px 8px rgba(16,24,40,.10)}
 .dash-more button:hover{background:var(--brand-tint)}
+/* ── 워크플로우 (2026-08-07 지시) ──────────────────────────────────────────
+   단계를 세로로 잇고 사이에 화살표를 둔다. 가로로 늘어놓으면 폰에서 잘리고,
+   단계가 늘 때마다 글자가 작아진다 — 세로는 몇 개가 되든 읽히는 크기를 지킨다. */
+.flow-wrap{display:flex;flex-direction:column;gap:0;margin-top:6px}
+.flow-step{display:grid;grid-template-columns:30px 1fr auto;gap:10px;align-items:center;
+  padding:11px 13px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+.flow-no{width:26px;height:26px;border-radius:999px;background:var(--brand-tint);
+  color:var(--brand-dk);font:800 13px inherit;display:grid;place-items:center}
+.flow-name{font-weight:800;font-size:15px}
+.flow-sub{font-size:13px;color:var(--ink-3);margin-top:2px}
+.flow-day{font:800 13px inherit;color:var(--brand-dk);white-space:nowrap;
+  background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:4px 10px}
+.flow-arrow{height:16px;position:relative}
+.flow-arrow::before{content:'';position:absolute;left:28px;top:0;bottom:0;
+  width:2px;background:var(--line)}
+.flow-edit{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}
+.flow-edit input{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:9px;
+  background:var(--surface);color:var(--ink);font:inherit;font-size:13.5px}
+.flow-edit .wide{grid-column:1/-1}
+.flow-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.flow-del{border:1px solid var(--line);border-radius:9px;background:var(--surface);
+  color:var(--danger);font:800 13px inherit;padding:5px 10px;cursor:pointer}
 /* ── 긴 글은 접어 둔다 (2026-08-07 지시: "스크롤이 긴 부분(설명란) … 누르면
    자세히 펼쳐지면서 보는 기능") ────────────────────────────────────────────
    대시보드 카드가 쓰던 '넘치면 펼쳐보기'를 **글 블록에도** 쓸 수 있게 뺐다.
@@ -2658,6 +2682,23 @@ body.dash-drag-live #dashGuides{display:grid}
     <div class="card"><div id="remoteHost"></div></div>
   </section>
 
+  <!-- ── 워크플로우 — AS 접수부터 수금까지 (2026-08-07 지시) ──────────────────
+       화면에 글을 늘어놓지 않는다("딱 필요한 텍스트만"). 단계마다 보이는 것은
+       넷뿐이다: 무슨 단계인가 · 누가 · 며칠 안에 · 무엇으로 확인하나.
+       정본은 DB(flow_step)라 어느 PC 에서 고쳐도 같은 것을 본다. -->
+  <section class="view" id="v-flow">
+    <div class="card" data-lc-skip>
+      <h3>AS 접수 → 수금 <span class="norm" id="flowMeta"></span></h3>
+      <div class="flow-wrap" id="flowWrap"></div>
+      <div class="flow-actions">
+        <button class="abtn" onclick="flowEdit()" id="flowEditBtn">수정</button>
+        <button class="abtn primary" onclick="flowSave()" id="flowSaveBtn" hidden>저장</button>
+        <button class="abtn" onclick="flowRender()" id="flowCancelBtn" hidden>취소</button>
+        <button class="abtn" onclick="flowAddStep()" id="flowAddBtn" hidden>단계 추가</button>
+        <button class="abtn" onclick="flowUndo()" id="flowUndoBtn">되돌리기</button>
+      </div>
+    </div>
+  </section>
   <section class="view" id="v-settle">
     <div class="seg" id="seg">
       <button class="on" data-m="settle" onclick="setMode('settle')">정산·청구</button>
@@ -3319,6 +3360,7 @@ body.dash-drag-live #dashGuides{display:grid}
   <!-- 리모컨은 AS 기사가 현장에 들고 나가는 물건이라 돌발 AS 바로 아래 둔다(2026-08-04 지시). -->
   <button class="worktab-nav" data-v="remote" onclick="routeNav('remote')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-box-seam"/></svg>리모컨</button>
   <button class="staff-worklog-nav" data-v="worklog" onclick="routeNav('worklog')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>대표보고 일지</button>
+  <button data-v="flow" onclick="routeNav('flow')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-up-right"/></svg>워크플로우</button>
   <button data-v="settle" onclick="routeNav('settle')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-receipt"/></svg>정산</button>
   <button data-v="run" onclick="routeNav('run')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-play-fill"/></svg>실행</button>
   <button data-v="daily" onclick="routeNav('daily')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-camera-fill"/></svg>보고</button>
@@ -5350,6 +5392,7 @@ function applyView(v){
     else renderCalendarPage();
   }
   if(v==='check') renderCheckHub();
+  if(v==='flow' && !FLOW_EDITING) loadFlow();   // 고치는 중이면 덮지 않는다
   try{ applySecFold(); }catch(e){}   // 이 화면의 구역 머리에도 접힘 상태를 입힌다
   lcScanSoon($('v-'+v));             // 이 화면의 긴 글을 재서 접는다(짧으면 그대로 둔다)
   try{ localStorage.setItem('cw_view', v); }catch(e){}   // 새로고침 후 같은 화면으로 복귀
@@ -5825,6 +5868,108 @@ function dashMeasureOverflow(){
       b.setAttribute('aria-label',`${el.dataset.dashLabel||'카드'} ${open?'접기':'펼쳐보기'}`);
     }
   });
+}
+/* ══ 워크플로우 — AS 접수부터 수금까지 (2026-08-07 지시) ═══════════════════
+   사용자 지시: "AS 접수부터 처리 수금까지의 과정을 워크플로우로 만들어서
+   수정할 수 있는 기능도 추가해서 디테일하게 / 텍스트는 딱 필요한 것만".
+
+   보이는 것은 단계마다 넷뿐이다 — 무슨 단계 · 누가 · 며칠 안에 · 무엇으로 확인.
+   '며칠 안에'는 **접수일로부터 누계(D+N)** 다. 단계별 소요일을 따로 적으면
+   사람이 머릿속으로 더해야 하는데, 실제로 묻는 것은 "언제까지냐" 하나다.
+   정본은 DB(flow_step)이라 어느 PC 에서 고쳐도 같은 것을 본다. */
+let FLOW = [], FLOW_EDITING = false;
+async function loadFlow(){
+  try{
+    const d = await api('/api/flow');
+    FLOW = d.steps || [];
+  }catch(e){ FLOW = []; }
+  flowRender();
+}
+function flowRender(){
+  FLOW_EDITING = false;
+  const w = $('flowWrap'); if(!w) return;
+  ['flowSaveBtn','flowCancelBtn','flowAddBtn'].forEach(i=>{const b=$(i); if(b) b.hidden=true;});
+  ['flowEditBtn','flowUndoBtn'].forEach(i=>{const b=$(i); if(b) b.hidden=false;});
+  if(!FLOW.length){ w.innerHTML='<div class="flow-sub">흐름이 비어 있습니다 — [수정]에서 단계를 추가하세요.</div>'; return; }
+  let cum = 0;
+  w.innerHTML = FLOW.map((s,i)=>{
+    const d = Number.isFinite(+s.소요일) ? +s.소요일 : null;
+    if(d!=null) cum = d;                       // 저장값이 이미 누계(D+N)다
+    const sub = [s.담당, s.근거].filter(Boolean).map(esc2).join(' · ');
+    return (i?'<div class="flow-arrow"></div>':'') +
+      `<div class="flow-step">
+         <div class="flow-no">${i+1}</div>
+         <div><div class="flow-name">${esc2(s.단계||'')}</div>
+              ${sub?`<div class="flow-sub">${sub}</div>`:''}
+              ${s.메모?`<div class="flow-sub">${esc2(s.메모)}</div>`:''}</div>
+         <div class="flow-day">${d==null?'—':'D+'+d}</div>
+       </div>`;
+  }).join('');
+  const last = FLOW.filter(s=>Number.isFinite(+s.소요일)).pop();
+  $('flowMeta').textContent = `— ${FLOW.length}단계` + (last?` · 접수에서 수금까지 D+${+last.소요일}`:'');
+}
+function flowEdit(){
+  FLOW_EDITING = true;
+  const w = $('flowWrap');
+  ['flowSaveBtn','flowCancelBtn','flowAddBtn'].forEach(i=>{const b=$(i); if(b) b.hidden=false;});
+  ['flowEditBtn','flowUndoBtn'].forEach(i=>{const b=$(i); if(b) b.hidden=true;});
+  w.innerHTML = FLOW.map((s,i)=>`
+    <div class="flow-step" data-i="${i}" style="display:block">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="flow-no">${i+1}</div>
+        <button class="flow-del" onclick="flowDel(${i})">삭제</button>
+        <button class="flow-del" style="color:var(--brand-dk)" onclick="flowMove(${i},-1)">↑</button>
+        <button class="flow-del" style="color:var(--brand-dk)" onclick="flowMove(${i},1)">↓</button>
+      </div>
+      <div class="flow-edit">
+        <input class="wide" data-f="단계" value="${esc2(s.단계||'')}" placeholder="단계 이름">
+        <input data-f="담당" value="${esc2(s.담당||'')}" placeholder="담당">
+        <input data-f="소요일" value="${s.소요일==null?'':s.소요일}" placeholder="접수 후 D+며칠" inputmode="numeric">
+        <input class="wide" data-f="근거" value="${esc2(s.근거||'')}" placeholder="무엇으로 확인하나">
+        <input class="wide" data-f="메모" value="${esc2(s.메모||'')}" placeholder="메모(선택)">
+      </div>
+    </div>`).join('<div class="flow-arrow"></div>');
+}
+function flowCollect(){
+  return [...document.querySelectorAll('#flowWrap .flow-step[data-i]')].map(el=>{
+    const g = f => { const i = el.querySelector(`[data-f="${f}"]`); return i ? i.value.trim() : ''; };
+    const d = g('소요일');
+    return {단계:g('단계'), 담당:g('담당'), 근거:g('근거'), 메모:g('메모'),
+            소요일: d==='' ? null : (Number.isFinite(+d) ? +d : null)};
+  });
+}
+function flowDel(i){ FLOW = flowCollect(); FLOW.splice(i,1); flowEdit(); }
+function flowMove(i,d){
+  FLOW = flowCollect();
+  const j = i+d; if(j<0 || j>=FLOW.length) return;
+  [FLOW[i], FLOW[j]] = [FLOW[j], FLOW[i]];
+  flowEdit();
+}
+function flowAddStep(){
+  FLOW = flowCollect();
+  FLOW.push({단계:'', 담당:'', 소요일:null, 근거:'', 메모:''});
+  flowEdit();
+}
+async function flowSave(){
+  const steps = flowCollect().filter(s=>s.단계);
+  if(!steps.length) return notice('단계 이름이 있는 줄이 하나도 없습니다');
+  try{
+    const r = await api('/api/flow',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({steps, 저장자:((STAFF_CENTERS[staffSlug]||{}).name||'앱 사용자')})});
+    if(!r.ok) throw new Error(r.error||'저장 실패');
+    FLOW = r.steps || steps; flowRender(); toast(`${r.단계수}단계 저장했습니다`);
+    uxEvent('tap','flow-save', String(r.단계수));
+  }catch(e){ notice('저장 실패: '+e.message); }
+}
+async function flowUndo(){
+  // '고칠 수 있다'는 '되돌릴 수 있다'와 짝이어야 한다 — 아니면 사람이 못 고친다.
+  if(!await askYesNo('바로 앞 모습으로 되돌릴까요?',{desc:'가장 최근 저장 하나를 취소합니다.'})) return;
+  try{
+    const r = await api('/api/flow',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({되돌리기:true, 저장자:((STAFF_CENTERS[staffSlug]||{}).name||'앱 사용자')})});
+    if(!r.ok) throw new Error(r.error||'되돌리기 실패');
+    FLOW = r.steps || []; flowRender(); toast('되돌렸습니다');
+  }catch(e){ notice('되돌리기 실패: '+e.message); }
 }
 /* ── 긴 글 접기 — 재서 정한다 (2026-08-07 지시) ──────────────────────────
    대시보드 카드의 '넘치면 펼쳐보기'와 같은 규칙을 글 블록에 쓴다.

@@ -211,7 +211,38 @@ CREATE TABLE IF NOT EXISTS call_note(        -- 통화·회의 기록 (2026-08-0
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_call_note_on ON call_note(on_date);
+
+CREATE TABLE IF NOT EXISTS flow_step(        -- AS 접수→수금 업무 흐름 (2026-08-07 지시)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,      -- ★ 파일이 아니라 여기가 정본이다. 여러 PC·
+  ord INTEGER NOT NULL,                      --   세션이 같은 흐름을 봐야 하기 때문이다.
+  name TEXT NOT NULL,                        -- 단계 이름(짧게)
+  owner TEXT DEFAULT '',                     -- 누가 한다
+  days INTEGER,                              -- 목표 소요일(앞 단계로부터 +N일). NULL=정하지 않음
+  source TEXT DEFAULT '',                    -- 무엇으로 확인하나(밴드·ERP·관리대장…)
+  note TEXT DEFAULT '',                      -- 한 줄 메모
+  updated_at TEXT NOT NULL,
+  updated_by TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS flow_audit(       -- 흐름을 언제 누가 바꿨나(되돌릴 근거)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL, who TEXT DEFAULT '',
+  steps_json TEXT NOT NULL                   -- 바꾸기 **직전** 모습 통째로
+);
 """
+
+# 처음 열었을 때 보여 줄 기본 흐름. 사용자가 고치면 DB 가 정본이 되고 이 값은 다시 안 쓴다.
+# ★ 지어내지 않는다 — 이 프로젝트가 실제로 다루는 단계 그대로다(밴드 접수 → ERP 수금).
+FLOW_DEFAULT = [
+    ("접수",          "유수비",  0, "밴드·카톡",      "쿠팡AS 밴드 글 / 카톡 요청"),
+    ("배정",          "류지영",  0, "관리대장 24시트", "담당기사 지정"),
+    ("현장 조치",      "담당기사", 1, "밴드 완료 사진",  "수리·부품 교체"),
+    ("완료 보고",      "담당기사", 1, "밴드",          "완료 내용·사진 게시"),
+    ("서류 정리",      "류지영",  2, "밴드 문서 OCR",   "작업내역서·사진 정리"),
+    ("정산 등록",      "류지영",  3, "관리대장 06시트", "정산ID·공급가액"),
+    ("거래명세서 발행", "오종현",  5, "이카운트",       "ERP 매출전표"),
+    ("세금계산서 발행", "오종현",  7, "이카운트",       "월말 일괄"),
+    ("수금 확인",      "오종현", 30, "입금 자료",      "입금 대조로 마감"),
+]
 
 # 리모컨 불출 규칙(2026-08-03 사용자 지시) — 지점별 불출 담당과 담당자당 보유 한도.
 REMOTE_BRANCH_ISSUERS = {"부산": "오종현", "시화": "안은숙", "증평": "류지영"}
@@ -639,6 +670,72 @@ def staff_resolution_summary():
 #   `0. 원본 자료/10. 통화·회의 기록/` 으로 복사해 두었는데 그 폴더는 **공유 폴더**라
 #   앱 '원본 자료' 목록에 그대로 떴다(2026-08-07 실측: 통화_20260805_김준형.md 노출).
 #   파일을 아예 두지 않으면 샐 곳이 없다 — 숨기는 것이 아니라 두지 않는 것이 조치다.
+
+# ── AS 접수 → 수금 업무 흐름 (2026-08-07 지시) ──────────────────────────────
+#   "AS 접수부터 처리 수금까지의 과정을 워크플로우로 만들어서 수정할 수 있는 기능도"
+#   흐름은 사람이 고친다. 그래서 ① DB 가 정본이고(여러 PC 가 같은 것을 본다)
+#   ② 고치기 **직전 모습을 통째로 남긴다**(flow_audit) — 잘못 고쳤을 때 되돌릴
+#   근거가 없으면 사람은 화면을 못 믿고 결국 안 쓰게 된다.
+
+FLOW_COLS = ("name", "owner", "days", "source", "note")
+
+
+def flow_steps():
+    """지금의 흐름. 비어 있으면 기본 흐름을 그대로 돌려준다(그때는 저장하지 않는다 —
+       사람이 한 번도 손대지 않았다는 사실 자체가 정보다)."""
+    with conn() as c:
+        rows = c.execute("SELECT ord,name,owner,days,source,note FROM flow_step"
+                         " ORDER BY ord, id").fetchall()
+    if rows:
+        return [{"순서": r[0], "단계": r[1], "담당": r[2] or "", "소요일": r[3],
+                 "근거": r[4] or "", "메모": r[5] or ""} for r in rows]
+    return [{"순서": i, "단계": d[0], "담당": d[1], "소요일": d[2], "근거": d[3], "메모": d[4]}
+            for i, d in enumerate(FLOW_DEFAULT)]
+
+
+def flow_save(steps, who=""):
+    """흐름을 통째로 바꾼다. 부분 수정이 아니라 통째다 — 순서 바꾸기·지우기가
+       섞이면 부분 갱신은 어긋나기 쉽고, 단계는 많아야 스물 몇 개라 통째가 안전하다."""
+    clean = []
+    for i, s in enumerate(steps or []):
+        name = str(s.get("단계") or "").strip()[:40]
+        if not name:
+            continue                                  # 이름 없는 단계는 화면에서 빈칸으로 남는다
+        try:
+            days = int(s.get("소요일"))
+        except (TypeError, ValueError):
+            days = None
+        clean.append((i, name, str(s.get("담당") or "").strip()[:20], days,
+                      str(s.get("근거") or "").strip()[:40],
+                      str(s.get("메모") or "").strip()[:80]))
+    if not clean:
+        raise ValueError("단계가 하나도 없습니다 — 빈 흐름은 저장하지 않습니다")
+    if len(clean) > 30:
+        raise ValueError("단계는 30개까지입니다")
+    now = datetime.now().isoformat(timespec="seconds")
+    before = json.dumps(flow_steps(), ensure_ascii=False)
+    with conn() as c:
+        c.execute("INSERT INTO flow_audit(at,who,steps_json) VALUES(?,?,?)",
+                  (now, str(who or "")[:40], before))
+        c.execute("DELETE FROM flow_step")
+        c.executemany("INSERT INTO flow_step(ord,name,owner,days,source,note,updated_at,updated_by)"
+                      " VALUES(?,?,?,?,?,?,?,?)",
+                      [r + (now, str(who or "")[:40]) for r in clean])
+    return len(clean)
+
+
+def flow_restore(who=""):
+    """바로 앞 모습으로 되돌린다. '고칠 수 있다'는 '되돌릴 수 있다'와 짝이어야 한다."""
+    with conn() as c:
+        row = c.execute("SELECT id,steps_json FROM flow_audit ORDER BY id DESC LIMIT 1").fetchone()
+    if not row:
+        raise ValueError("되돌릴 기록이 없습니다")
+    prev = json.loads(row[1])
+    n = flow_save(prev, who)                          # 되돌리기도 기록에 남는다
+    with conn() as c:
+        c.execute("DELETE FROM flow_audit WHERE id=?", (row[0],))
+    return n
+
 
 def call_note_save(file, body, whom="", on="", todos=None):
     """통화 메모 본문을 DB 에 보관한다. 같은 파일 이름이면 갱신한다."""
