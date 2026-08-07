@@ -313,6 +313,34 @@ def band_latest_days():
     return out
 
 
+def band_dateless():
+    """밴드마다 **본문은 있는데 작성일이 없는 글**이 몇 건인가 (2026-08-07).
+
+    `band_latest_days()` 는 가장 최근 '날짜 있는' 글만 본다. 그래서 날짜 없는
+    글은 신선도 판정에 전혀 안 잡힌다 — 밴드를 다 긁어 왔는데도 그중 621건이
+    조용히 대조 밖에 있었다. 구멍도 아니고(번호가 있다) 오래된 것도 아니라
+    (오늘 받았다) **어느 목록에도 안 뜨는** 종류다.
+
+    원인은 수집 순간이다: 밴드가 본문을 먼저 칠하고 작성시각을 조금 뒤에
+    채우는데 그 사이에 가져가면 날짜가 빈다. 지운 글(묘비)과는 다르다 —
+    묘비는 본문 자체가 없고, 이쪽은 본문이 멀쩡하다. 그래서 다시 열기만 하면 된다.
+    """
+    out = {}
+    for p in glob.glob(os.path.join(BASE, "band", "cache", "*.json")):
+        name = os.path.basename(p)[:-5]
+        if not name.isdigit():
+            continue
+        try:
+            doc = json.load(open(p, encoding="utf-8")) or {}
+        except Exception:
+            continue
+        n = sum(1 for v in (doc.get("posts") or {}).values()
+                if isinstance(v, dict) and not v.get("deleted") and not v.get("created_at"))
+        if n:
+            out[doc.get("band_name") or name] = n
+    return out
+
+
 def data_freshness(today=None):
     """수집이 **얼마나 밀렸나**. 오늘(2026-08-06) 사고의 진짜 원인이 여기였다.
 
@@ -392,6 +420,7 @@ def collect():
         "진행체크포인트": read_checkpoint(),
         "지시문사본": rule_copies(),
         "수집신선도": data_freshness(),
+        "밴드날짜없음": band_dateless(),
         "워크트리": _worktree_state(),
     }
 
@@ -413,6 +442,17 @@ def blockers(st, for_sol=False):
     if st["큐잔량"]:
         out.append(("입력 큐에 %d건이 반영되지 않았다" % st["큐잔량"],
                     "python ledger_db.py --intake  # Excel은 다음 11:00·15:00 회차"))
+    # ★ 날짜 없는 글은 **신선도 판정에 안 잡힌다** — band_latest_days() 는 날짜 있는
+    #   글만 보기 때문이다. 그래서 "밴드 최신 = 오늘" 인데도 그 밑에 수백 건이
+    #   대조 밖에 있을 수 있다. 조용한 사고라 여기서 말해 준다.
+    dl = st.get("밴드날짜없음") or {}
+    if sum(dl.values()) >= 50:
+        out.append(("밴드에 **본문은 있는데 날짜가 없는 글**이 %d건 (%s) — "
+                    "날짜가 없으면 어떤 작업과도 대조되지 않는다"
+                    % (sum(dl.values()),
+                       ", ".join("%s %d" % (k, v) for k, v in sorted(dl.items()))),
+                    "크롬 창을 **앞으로 꺼낸 뒤** python band/recheck_plan.py 로 "
+                    "'날짜없음' 목록을 뽑아 재수집 (숨은 탭에서는 수집기가 시작을 거절한다)"))
     if st["임시파일"]:
         out.append(("원장 임시파일이 남았다(만들다 끊김): %s" % ", ".join(st["임시파일"][:3]),
                     "내용 확인 후 삭제 — 정식 vN+1 로 승격되지 않은 파일이다"))
