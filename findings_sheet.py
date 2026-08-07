@@ -171,7 +171,18 @@ def upsert(master, new_xml, sheet_name=SHEET_NAME, headers=None):
             "</Types>",
             f'<Override PartName="/{target}" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>', 1).encode("utf-8")
 
-    zout = zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED)
+    # ★ 정본 이름에 바로 쓰지 않는다 (2026-08-07). 여기는 Z: SMB 네트워크 드라이브이고
+    #   수십 MB 를 흘려 넣는 중에 프로세스가 죽으면 **이름은 멀쩡한 _v{N+1}.xlsx, 내용은
+    #   잘린 zip** 이 남는다. resolve_master() 는 v번호가 가장 큰 것을 정본으로 집으므로
+    #   앱·모든 대조 도구·다음 회차가 그 깨진 파일을 정본으로 읽게 된다. 오늘 실제로
+    #   스케줄러가 3시간 한도로 프로세스를 강제 종료(0x41306)했고 Z: 는 WinError 1231 을
+    #   낸 적이 있다 — 가정이 아니라 일어날 수 있는 일이다.
+    #   workbook_patch.py 가 이미 쓰는 방식 그대로: 임시파일 → 무결성 확인 → os.replace.
+    tmp = dst[:-5] + ".tmp.xlsx"
+    if os.path.exists(tmp):
+        zin.close()
+        raise FileExistsError(f"임시 결과가 이미 존재: {tmp}")
+    zout = zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED)
     for it in zin.infolist():
         data = edits.get(it.filename, None)
         zout.writestr(it.filename, data if data is not None else zin.read(it.filename))
@@ -179,21 +190,30 @@ def upsert(master, new_xml, sheet_name=SHEET_NAME, headers=None):
         if name not in zin.namelist():          # 신규 시트 파트
             zout.writestr(name, data)
     zout.close(); zin.close()
-
-    # 검증: 무결성 / 시트 판독 / 타 파트 동일성
-    z = zipfile.ZipFile(dst)
-    assert z.testzip() is None, "zip 무결성 실패"
-    import openpyxl
-    w = openpyxl.load_workbook(dst, read_only=True)
-    assert sheet_name in w.sheetnames, "시트 미생성"
-    ws = w[sheet_name]
-    hdr = [c.value for c in next(ws.iter_rows(min_row=4, max_row=4, max_col=len(headers)))]
-    assert hdr == headers, f"머리글 불일치: {hdr}"
-    w.close()
-    zsrc = zipfile.ZipFile(master)
-    diff = [n for n in zsrc.namelist() if n not in edits and zsrc.read(n) != z.read(n)]
-    assert not diff, f"의도치 않은 파트 변경: {diff}"
-    zsrc.close(); z.close()
+    # 검증은 **임시파일에** 한다 — 통과한 것만 정본 이름을 얻는다.
+    # (예전에는 정본 이름으로 먼저 쓰고 그 뒤에 검사했다. 그 사이 다른 도구가 그 파일을
+    #  이미 '최신 관리대장'으로 집어 갈 수 있었고, 검증이 실패해도 되돌릴 방법이 없었다.)
+    try:
+        z = zipfile.ZipFile(tmp)
+        assert z.testzip() is None, "zip 무결성 실패"
+        import openpyxl
+        w = openpyxl.load_workbook(tmp, read_only=True)
+        assert sheet_name in w.sheetnames, "시트 미생성"
+        ws = w[sheet_name]
+        hdr = [c.value for c in next(ws.iter_rows(min_row=4, max_row=4, max_col=len(headers)))]
+        assert hdr == headers, f"머리글 불일치: {hdr}"
+        w.close()
+        zsrc = zipfile.ZipFile(master)
+        diff = [n for n in zsrc.namelist() if n not in edits and zsrc.read(n) != z.read(n)]
+        assert not diff, f"의도치 않은 파트 변경: {diff}"
+        zsrc.close(); z.close()
+    except BaseException:
+        try:
+            os.remove(tmp)          # 반쪽짜리를 남기지 않는다 — 다음 실행이 막힌다
+        except OSError:
+            pass
+        raise
+    os.replace(tmp, dst)            # 여기서 처음으로 정본이 된다(원자적)
     return dst, f"v{v} → v{v+1} ({'시트 갱신' if exists else '시트 신규 추가'})"
 
 

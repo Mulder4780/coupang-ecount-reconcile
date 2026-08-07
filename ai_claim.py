@@ -265,8 +265,29 @@ def _workcenter_priority_gate(what):
     return True
 
 
+def _lane_gate(what):
+    """내 세션이 선 **차선** 밖의 자원이면 잡지 않는다 (2026-08-07 지시).
+
+    자물쇠(이 파일)보다 한 층 위의 약속이다 — "이 창은 무슨 일을 하는 창인가".
+    수집 창이 겸사겸사 코드를 집어 가면 앱 창이 되잡지 못하고, 두 창이 같은 파일에서
+    만난다. 차선을 **안 정한 세션은 아무 영향도 받지 않는다**(기존 동작 그대로).
+    """
+    try:
+        import lanes
+        ok, why = lanes.can(what)
+    except Exception:
+        return True                      # 차선 기능이 없거나 깨져도 점유를 막지 않는다
+    if not ok:
+        print(f"★ {why}")
+        print("  → 차선을 바꾸려면: python lanes.py --take <collect|build> --who claude")
+        print("     지금 차선에서 할 일을 계속하려면 그대로 두세요.")
+    return ok
+
+
 def take(who, what, why=""):
     label, excl = LOCKS.get(what, (what, True))
+    if not _lane_gate(what):
+        return False
     if not _workcenter_priority_gate(what):
         return False
     if not _sol_write_gate(who, what):

@@ -436,6 +436,15 @@ def _main():
         xmls[hand] = hx
 
     ct = rels = None
+    # ★ 정본 이름에 바로 쓰지 않는다 (2026-08-07). Z: 는 SMB 네트워크 드라이브이고,
+    #   수십 MB 를 흘려 넣는 중에 프로세스가 죽으면 **이름은 멀쩡한 _v{N+1}.xlsx, 내용은
+    #   잘린 zip** 이 남는다. resolve_master() 가 v번호 최대를 정본으로 집으므로 앱·대조
+    #   도구·다음 회차가 전부 그 깨진 파일을 읽는다. 되돌릴 방법은 손으로 지우는 것뿐이다.
+    #   검증도 임시파일에 한다 — **통과한 것만** 정본 이름을 얻는다.
+    final_dst, dst = dst, dst[:-5] + ".tmp.xlsx"
+    if os.path.exists(dst):
+        zin.close()
+        raise FileExistsError(f"임시 결과가 이미 존재: {dst}")
     zout = zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED)
     for it in zin.infolist():
         data = zin.read(it.filename)
@@ -488,7 +497,14 @@ def _main():
             d = wanted[key]
             bad.append((_label(d), d.get("col", d.get("colL", "")), "셀 미검출"))
     w.close(); z.close()
+    if bad:
+        try:
+            os.remove(dst)          # 반쪽짜리를 남기지 않는다 — 다음 회차가 막힌다
+        except OSError:
+            pass
     assert not bad, f"검증 실패: {bad}"
+    os.replace(dst, final_dst)      # 여기서 처음으로 정본이 된다(원자적)
+    dst = final_dst
 
     # 큐 정리·보관
     os.makedirs(UPD_DIR, exist_ok=True)

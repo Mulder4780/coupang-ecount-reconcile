@@ -8030,6 +8030,42 @@ def t138_daily_run_completion_watch():
     print("  [138] 일일대조 완주 감시 — 중단·장기 미완주를 '먼저 처리할 것'으로 ✅")
 
 
+def t139_new_version_is_atomic():
+    """[139] 관리대장 새 버전은 **검증을 통과한 뒤에야** 정본 이름을 얻는다 (2026-08-07).
+
+    무엇이 위험했나
+      `findings_sheet.upsert()` 와 `ledger_writer` 는 vN+1 을 **정본 이름으로 먼저 만들고**
+      그 다음에 무결성을 검사했다. 원장은 Z: SMB 네트워크 드라이브에 있는 수십 MB 짜리다.
+      쓰는 도중 프로세스가 죽으면 — 오늘 실제로 스케줄러가 3시간 한도로 프로세스를
+      강제 종료(0x41306)했고, Z: 는 WinError 1231 을 낸 적이 있다 — **이름은 멀쩡한
+      `_v{N+1}.xlsx`, 내용은 잘린 zip** 이 남는다. `resolve_master()` 는 v번호가 가장 큰
+      것을 정본으로 집으므로(`ecount_reconcile.py`) 앱도, 모든 대조 도구도, 다음 회차도
+      그 깨진 파일을 정본으로 읽는다. `~$` 임시파일은 걸러도 이런 반쪽 파일은 못 거른다.
+      바로 옆 `workbook_patch.py` 는 처음부터 tmp → 검증 → os.replace 를 하고 있었다.
+
+    지키는 것
+      ① 두 파일 모두 `.tmp.xlsx` 에 쓴다 — 정본 이름은 마지막에 os.replace 로만 얻는다.
+      ② 검증(zip 무결성·재독)이 **tmp 를 대상으로** 돈다. 통과 못 하면 정본이 되지 않는다.
+      ③ 실패하면 tmp 를 지운다 — 남기면 '임시 결과가 이미 존재'로 다음 회차가 막힌다.
+    """
+    for fn, anchor in (("findings_sheet.py", "zipfile.ZipFile(tmp,"),
+                       ("ledger_writer.py", "final_dst, dst = dst")):
+        src = open(os.path.join(ROOT, fn), encoding="utf-8").read()
+        assert ".tmp.xlsx" in src, f"{fn}: 임시파일을 쓰지 않는다 — 정본에 직접 쓴다"
+        assert anchor in src, f"{fn}: 임시파일로 쓰는 자리가 사라졌다"
+        assert "os.replace(" in src, f"{fn}: 원자적 교체가 없다"
+        # 검증이 정본이 아니라 tmp 를 향해야 한다
+        assert "zipfile.ZipFile(dst)" not in src or fn == "ledger_writer.py", \
+            f"{fn}: 검증이 아직 정본(dst)을 연다"
+        assert "os.remove(" in src, f"{fn}: 검증 실패 시 반쪽 임시파일을 치우지 않는다"
+
+    # ledger_writer 는 dst 를 tmp 로 바꿔치기하므로, 검증 뒤 교체까지가 한 덩어리여야 한다
+    lw = open(os.path.join(ROOT, "ledger_writer.py"), encoding="utf-8").read()
+    assert lw.index("assert not bad") < lw.index("os.replace(dst, final_dst)"), \
+        "검증보다 먼저 정본으로 바꾼다 — 검증이 무의미해진다"
+    print("  [139] 관리대장 새 버전은 검증 통과 후에만 정본이 된다(원자적 교체) ✅")
+
+
 def t136_work_lanes():
     """작업 차선 — 수집 창과 앱·엑셀 창이 하루 종일 나란히 돌 수 있나 (2026-08-07 지시).
 
@@ -8259,6 +8295,7 @@ if __name__ == "__main__":
     t136_work_lanes()
     t137_contamination_marked_every_merge()
     t138_daily_run_completion_watch()
+    t139_new_version_is_atomic()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
