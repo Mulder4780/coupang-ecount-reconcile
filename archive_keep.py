@@ -204,13 +204,84 @@ def commit_count():
         return "?"
 
 
+def prev_day_dir(day_dir):
+    """바로 앞 회차 폴더. 없으면 None(첫 회차 — 그때는 전부 복사한다)."""
+    root, me = os.path.dirname(day_dir), os.path.basename(day_dir)
+    try:
+        days = sorted(d for d in os.listdir(root)
+                      if d < me and parse_day(d) and os.path.isdir(os.path.join(root, d)))
+    except OSError:
+        return None
+    return os.path.join(root, days[-1]) if days else None
+
+
+INDEX_NAME = ".index.json"
+
+
+def load_index(day_dir):
+    """앞 회차가 담은 것의 목록 {상대경로: [크기, 수정시각]}.
+
+    ★ 이게 없으면 파일마다 Z: 에 `os.stat` 을 한 번씩 날려야 한다 — 실측 SMB 왕복이
+      **파일당 약 150ms** 라 1,683개면 그것만으로 4분이다. 링크로 아낀 시간을
+      비교하느라 도로 쓰는 꼴이다. 목록 파일 하나를 읽으면 왕복이 한 번으로 끝난다.
+    · 목록이 없는 옛 회차 폴더에서는 None 을 돌려주고, 그때만 `os.stat` 으로 돌아간다.
+    """
+    try:
+        with open(os.path.join(day_dir, INDEX_NAME), encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def unchanged(src_st, prev_path, prev_index=None, rel=None):
+    """앞 회차의 같은 파일인가. 크기와 수정시각으로 본다 — 해시를 쓰면 결국
+       파일을 다 읽게 되어(그게 지금 느린 이유다) 아낀 것이 없어진다.
+       copy2 가 수정시각을 그대로 옮기므로 이 비교가 성립한다. 네트워크 드라이브의
+       시각 해상도를 감안해 2초까지는 같은 것으로 본다."""
+    if prev_index is not None:
+        rec = prev_index.get(rel)
+        if not rec:
+            return False
+        return rec[0] == src_st.st_size and abs(rec[1] - src_st.st_mtime) < 2
+    try:
+        ps = os.stat(prev_path)
+    except OSError:
+        return False
+    return ps.st_size == src_st.st_size and abs(ps.st_mtime - src_st.st_mtime) < 2
+
+
 def collect(day_dir, dry=False):
-    n = size = skipped = 0
+    """★ 증분으로 바꿨다 (2026-08-07).
+
+    예전에는 회차마다 **프로젝트 전체를 다시 복사**했다 — 실측 완주 ~1,475초(25분).
+    daily_run 한 회차의 절반 가까이를 여기서 썼고, 예산을 넘겨 실패하면 재시도까지
+    붙어 회차당 80분을 더 먹었다.
+
+    그런데 하루 사이에 실제로 바뀌는 파일은 몇 개뿐이다. 그래서 앞 회차 폴더와
+    **크기·수정시각이 같으면 복사하지 않고 하드링크로 잇는다**(rsync --link-dest 와
+    같은 생각). 링크는 바이트를 옮기지 않으므로 사실상 공짜이고, 디스크도 안 먹는다.
+    ★ 그러면서도 **각 날짜 폴더는 여전히 온전한 한 벌**이다 — 복구할 때 그 날 폴더
+      하나만 보면 된다는 성질이 깨지지 않는다. 이게 증분 백업 대신 링크를 쓴 이유다.
+    ★ 하드링크가 안 되는 곳(다른 볼륨·지원 안 하는 SMB)에서는 조용히 복사로 돌아간다.
+    ★ 비밀 검사도 '바뀐 파일'만 한다. 안 바뀐 파일은 앞 회차가 이미 통과시켰다
+      (통과 못 했으면 앞 회차 폴더에 아예 없으므로 링크 대상이 되지 않는다).
+    """
+    n = size = skipped = linked = 0
+    prev = prev_day_dir(day_dir) if not dry else None
+    prev_index = load_index(prev) if prev else None
+    index = {}
     for path in glob.glob(os.path.join(ROOT, "**", "*"), recursive=True):
         if not os.path.isfile(path) or not wanted(path, ROOT):
             continue
         rel = os.path.relpath(path, ROOT)
-        if rel.endswith((".md", ".json", ".txt", ".csv")) and os.path.getsize(path) < 2_000_000:
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        prev_path = os.path.join(prev, rel) if prev else None
+        same = bool(prev_path) and unchanged(st, prev_path, prev_index, rel)
+        if not same and rel.endswith((".md", ".json", ".txt", ".csv")) and st.st_size < 2_000_000:
             try:
                 if has_secret(open(path, encoding="utf-8", errors="replace").read(200_000)):
                     skipped += 1
@@ -218,12 +289,29 @@ def collect(day_dir, dry=False):
             except OSError:
                 pass
         n += 1
-        size += os.path.getsize(path)
-        if not dry:
-            dst = os.path.join(day_dir, rel)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(path, dst)
-    return n, size, skipped
+        size += st.st_size
+        if dry:
+            continue
+        index[rel] = [st.st_size, st.st_mtime]
+        dst = os.path.join(day_dir, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        if same:
+            try:
+                os.link(prev_path, dst)
+                linked += 1
+                continue
+            except OSError:
+                pass                          # 링크가 안 되면 그냥 복사한다
+        shutil.copy2(path, dst)
+    if not dry:
+        # 다음 회차가 이걸 읽어 파일마다 Z: 를 찔러 보지 않아도 되게 한다.
+        try:
+            os.makedirs(day_dir, exist_ok=True)
+            with open(os.path.join(day_dir, INDEX_NAME), "w", encoding="utf-8") as f:
+                json.dump(index, f)
+        except OSError:
+            pass                              # 목록을 못 남겨도 다음 회차는 stat 으로 돈다
+    return n, size, skipped, linked
 
 
 def ledger_copy(day_dir, dry=False):
@@ -336,8 +424,10 @@ def main():
     lines = []
     b, msg = git_bundle(os.path.join(day_dir, "coupang_repo.bundle"), dry)
     lines.append(msg)
-    n, size, skipped = collect(day_dir, dry)
-    lines.append(f"기록 파일 {n}개 {size // 1024}KB" + (f" · 비밀키 의심 {skipped}개 제외" if skipped else ""))
+    n, size, skipped, linked = collect(day_dir, dry)
+    lines.append(f"기록 파일 {n}개 {size // 1024}KB"
+                 + (f" · 앞 회차와 같아 링크 {linked}개(복사 {n - linked}개)" if linked else "")
+                 + (f" · 비밀키 의심 {skipped}개 제외" if skipped else ""))
     lines.append(ledger_copy(day_dir, dry))
     lines.append(ledger_db_copy(day_dir, dry))
     if not dry:
