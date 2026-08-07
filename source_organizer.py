@@ -134,7 +134,43 @@ def po_dir_for(path: str) -> str:
     return os.path.join(PO_DIR, f"{year:04d}", key)
 
 
+class TimeBudgetExceeded(RuntimeError):
+    """정해진 시간 안에 못 끝냈다. 반쪽 결과를 내는 대신 소리 내어 멈춘다."""
+
+
+# ★ 스스로 끊는 상한 (2026-08-07 실사고 — 이날 하루를 통째로 잃었다)
+#   09:35 회차가 **10시간 6분** 돌았다. 작업 스케줄러는 3시간 제한대로 12:35 에
+#   종료를 시도했고 결과도 0x41306(강제종료)으로 남았는데, 정작 이 python
+#   프로세스는 20:15 까지 살아 있었다 — 스케줄러가 죽이는 것은 **제가 띄운
+#   껍데기**지 그 아래 손자 프로세스가 아니다. 즉 밖에서 거는 제한은 믿을 수 없다.
+#   그 10시간 동안 Z: 를 계속 두드려 09:50 일일대조가 매일 조용히 건너뛰었고,
+#   앱의 에이전트 날짜가 08-06 에 멈춰 있었다(사용자 지적: "지금 날짜로 반영이
+#   안되었어"). 그래서 **안에서** 끊는다.
+#   시간을 넘기면 반쪽 정리를 남기지 않고 **실패로 끝낸다.** 반쪽은 '멀쩡해 보이는
+#   거짓말'이라 사고를 더 늦게 발견하게 만든다 — 이 프로젝트가 1순위로 막는 것이다.
+BUDGET_SEC = int(os.environ.get("SOURCE_ORGANIZER_BUDGET_SEC", "7200"))
+_DEADLINE = 0.0
+_BUDGET = 0
+_SCANNED = 0
+
+
+def start_clock(budget_sec: int | None = None) -> None:
+    global _DEADLINE, _BUDGET, _SCANNED
+    _BUDGET = int(budget_sec or BUDGET_SEC)
+    _DEADLINE = time.time() + _BUDGET
+    _SCANNED = 0
+
+
+def check_clock(where: str = "") -> None:
+    if _DEADLINE and time.time() > _DEADLINE:
+        raise TimeBudgetExceeded(
+            "원본 정리가 제한 %d분을 넘겼다(%s · 훑은 파일 %d개) — Z: 가 느리거나 "
+            "폴더가 너무 커졌다. 반쪽으로 남기지 않고 중단한다."
+            % (_BUDGET // 60, where or "훑는 중", _SCANNED))
+
+
 def _iter_files(folder: str):
+    global _SCANNED
     if not os.path.isdir(folder):
         return
     for base, dirs, files in os.walk(folder):
@@ -142,6 +178,9 @@ def _iter_files(folder: str):
         for name in files:
             if name.startswith("~$") or name in ("Thumbs.db", ".DS_Store"):
                 continue
+            _SCANNED += 1
+            if _SCANNED % 200 == 0:          # SMB 왕복이 비싸 자주 재지 않는다
+                check_clock(base)
             yield os.path.join(base, name)
 
 
@@ -381,6 +420,9 @@ def apply_moves(moves: list[Move], root: str = ORIGIN_ROOT) -> tuple[int, list[s
             if len(history_batch) >= 25:
                 _append_history(history_batch, root)
                 history_batch.clear()
+                # 이력을 확정한 직후에만 시계를 본다 — 여기서 멈추면 이미 옮긴 것은
+                # 전부 이력에 남아 있어 되돌릴 수 있다(파일 하나가 뜨는 일이 없다).
+                check_clock("이동 %d개째" % done_count)
         except OSError as e:
             errors.append(f"{m.src}: {e}")
     if history_batch:
@@ -418,11 +460,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="실제 정리")
     ap.add_argument("--limit", type=int, default=0, help="테스트용 처리 한도")
+    ap.add_argument("--budget-min", type=int, default=BUDGET_SEC // 60,
+                    help="이 시간을 넘기면 반쪽으로 두지 않고 중단한다(기본 120분)")
     args = ap.parse_args()
     if not os.path.isdir(ORIGIN_ROOT):
         print("원본 자료 폴더에 접근할 수 없습니다:", ORIGIN_ROOT)
         return 2
-    moves = planned_moves()
+    start_clock(max(1, args.budget_min) * 60)
+    try:
+        moves = planned_moves()
+    except TimeBudgetExceeded as e:
+        # 조용히 성공한 척하지 않는다 — 이게 안 보여서 열 시간을 잃었다.
+        print("중단:", e)
+        return 4
     if args.limit > 0:
         moves = moves[:args.limit]
     print(f"{'정리 실행' if args.apply else '미리보기'} — 이동 대상 {len(moves)}개")
@@ -443,6 +493,9 @@ def main():
         return 3
     try:
         done, errors = apply_moves(moves)
+    except TimeBudgetExceeded as e:
+        print("중단:", e)
+        return 4
     finally:
         _lock_release()
     print(f"완료: {done}개 이동 · 오류 {len(errors)}개")
