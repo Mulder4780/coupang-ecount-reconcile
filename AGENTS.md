@@ -2680,3 +2680,23 @@ ERP 판매조회(978행)의 `진행상태` 로 대조한 결과, 원장이 '세�
   구조 손실은 없다(v524·v533 모두 77파트·29시트·차트5 로 동일 — 확인함).
   하지만 사용자가 "필요없는 엑셀은 지워"라고 한 것에는 이 중간본들도 들어간다.
   → **할 일: 한 회차는 vN+1 **하나만** 만들도록 묶고, 중간본 정리 규칙을 정한다.**
+
+### ★★ 제일 먼저 고칠 것 — 합성검증 [8] 이 빨갛다 (2026-08-07 세션이 남긴 회귀)
+**master 가 지금 빨간 상태다. 실데이터 작업 전에 이것부터 고친다.**
+
+- 증상: `[8] 확인필요 시트 통합` 의 **멱등 검사**가 깨졌다.
+  `AssertionError: 확인필요 1985건 → 23_확인필요현황: v2 → v3 (시트 갱신)`
+  같은 내용으로 두 번 돌리면 두 번째는 "변경 없음"이어야 하는데 새 버전을 만든다.
+- 원인 후보(확인 중이었다): 커밋 `e01eddf` 로 `findings_sheet.flatten` 을 8열 →
+  12열로 바꿨다. 그 뒤 두 번 실행한 XML 이 서로 달라진다.
+  → **다음 세션이 할 일**: 아래 한 줄로 `flatten` 이 결정적(deterministic)인지 먼저 본다.
+  ```
+  python -c "import sys;sys.path.insert(0,'.');import findings_sheet as F;from ecount_reconcile import load_config,resolve_master;m=resolve_master(load_config()['reconcile']['master_xlsx']);a=F.flatten(F.collect(m));b=F.flatten(F.collect(m));print(len(a),a==b)"
+  ```
+  · 같지 않으면 → `collect()` 안에 실행마다 달라지는 값(시각·정렬 없는 집합)이 있다.
+    새로 열로 뺀 `확인방법`·`판정` 쪽을 먼저 본다(예전엔 `[:60]` 으로 잘려 가려졌다).
+  · 같으면 → `upsert` 의 XML 비교 쪽이다(`build_generic_sheet` 가 None/"" 를
+    다르게 쓰는지). 그때는 `flatten` 이 아니라 `cell()` 을 본다.
+- **되돌리지 말 것.** 12열 자체는 사용자 지시(별도 엑셀 폐지)의 핵심이다.
+  깨진 것은 멱등성이지 열 구성이 아니다.
+- 이 회귀 전까지는 ALL GREEN 이었다(커밋 `b8c7152` 기준).
