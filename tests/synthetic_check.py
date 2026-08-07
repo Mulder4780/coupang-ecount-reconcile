@@ -5201,6 +5201,37 @@ def t112_band_plan_order_and_scope():
     assert not re.search(r'customer_index\.py"\)\s*,\s*"--sheet"', _dr0), \
         "daily_run 이 관리대장을 직접 연다 — 엑셀 반영은 11:00·15:00 회차만"
 
+    # ★ 옛 별도 엑셀 접기 — **시트가 채워진 것을 확인한 뒤에만** 옮긴다.
+    #   순서가 뒤집히면(파일 먼저 정리, 시트는 비어 있음) 그 자료는 그 순간 아무 데도 없다.
+    import side_excel_retire as _SR
+    assert _SR.ARCHIVE == "OLD", "정리 자리는 프로젝트 관례대로 OLD/ 다"
+    _sheets = {s for s, _f in _SR.PAIRS}
+    assert {"23_확인필요현황", "29_거래처코드"} <= _sheets, _SR.PAIRS
+    _tmpd = tempfile.mkdtemp()
+    _m = os.path.join(_tmpd, "합성대장R_v1.xlsx")
+    make_ledger(_m)
+    for _sh, _side in _SR.PAIRS:                    # 시트가 없으면 '보류'여야 한다
+        _ok, _why = _SR.check(_m, _sh)
+        assert _ok is False, f"{_sh}: 시트가 없는데 옮겨도 된다고 했다 — {_why}"
+    open(os.path.join(_tmpd, "쿠팡_확인필요현황_최신.xlsx"), "w").close()
+    _res = _SR.run(apply=True, master=_m)           # --apply 라도 옮기면 안 된다
+    assert os.path.exists(os.path.join(_tmpd, "쿠팡_확인필요현황_최신.xlsx")), \
+        "시트가 비었는데 별도 엑셀을 옮겼다 — 자료가 아무 데도 없게 된다"
+    assert any("보류" in _m2 for _s2, _f2, _o2, _m2 in _res), _res
+    # 시트를 채운 뒤에는 옮겨야 한다
+    subprocess.run([PY, os.path.join(ROOT, "findings_sheet.py"), "--master", _m],
+                   capture_output=True, text=True, encoding="utf-8", cwd=ROOT,
+                   env={**os.environ, "COUPANG_REPORT_DIR": _tmpd, "COUPANG_UPDATES_DIR": _tmpd})
+    _m2f = _m.replace("_v1.xlsx", "_v2.xlsx")     # 같은 폴더라 별도 엑셀은 그대로 옆에 있다
+    assert _SR.check(_m2f, "23_확인필요현황")[0], "채워진 시트를 '보류'로 봤다"
+    _SR.run(apply=True, master=_m2f)
+    assert os.path.exists(os.path.join(_tmpd, "OLD", "쿠팡_확인필요현황_최신.xlsx")), \
+        "OLD/ 로 옮기지 않았다"
+    assert not os.path.exists(os.path.join(_tmpd, "쿠팡_확인필요현황_최신.xlsx"))
+    _ldr = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    assert _ldr.index("side_excel_retire.py") > _ldr.index('"29_거래처코드"'), \
+        "별도 엑셀 정리가 시트 갱신보다 앞에 있다 — 한 회차를 헛돈다"
+
     # ★ 도구가 있는데 아무도 안 부르는 것이 가장 조용한 누락이다 (2026-08-07 발견).
     #   `fill_erp_status.py` 는 2026-07-28 에 만들어졌는데 daily_run 에 없었다.
     #   손으로 돌린 사람이 있을 때만 채워졌다는 뜻이다 — 그냥 돌려 보니 52칸이 남아

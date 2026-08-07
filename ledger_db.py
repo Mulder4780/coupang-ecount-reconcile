@@ -1438,6 +1438,10 @@ def scheduled_workbook_maintenance(now=None):
         # 2026-08-07 지시로 별도 엑셀(쿠팡_거래처코드_최신.xlsx)을 없애고 시트로 옮겼다.
         # 엑셀 쓰기라 여기(11:00·15:00 회차)에 둔다 — daily_run 은 집계만 본다.
         ("29_거래처코드", [os.path.join(ROOT, "customer_index.py"), "--sheet"]),
+        # 시트가 **실제로 채워진 것을 확인한 뒤에만** 옛 별도 엑셀을 OLD/ 로 접는다.
+        # 반드시 위 두 시트 단계 **뒤**에 온다 — 앞에 두면 이번 회차 갱신을 못 보고
+        # 한 회차를 헛돈다. 옮기지 못해도(사람이 열어 둠) 회차는 계속된다.
+        ("별도 엑셀 정리", [os.path.join(ROOT, "side_excel_retire.py"), "--apply"]),
         ("워크북 무결성 복구", [os.path.join(ROOT, "fix_workbook.py"), "--apply"]),
         ("Excel 수식 재계산", [os.path.join(ROOT, "excel_recalc.py"), "--run"]),
     ])
