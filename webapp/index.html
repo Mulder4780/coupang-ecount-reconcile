@@ -1291,10 +1291,24 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
 
 /* ═══ 데스크톱 (≥900px): 다크 사이드바 ═══ */
 @media(min-width:900px){
+  /* ★ 사이드바는 **제 안에서** 굴러야 한다 (2026-08-08 지시: "카테고리에 마우스
+     커서를 가져다 대고 위 아래로 스크롤 하면 카테고리를 위로 아래로 올리고
+     내리면서 확인하고 클릭할 수 있는 구조").
+     예전에는 height:100vh 에 overflow 가 없어, 화면이 낮으면 아래 항목이 **잘려
+     보이지도 않고** 휠을 굴리면 뒤 본문이 움직였다. overscroll-behavior:contain 이
+     끝에 닿아도 본문으로 넘어가지 않게 막는다 — 그래야 '카테고리만' 굴러간다. */
   .tabbar{top:0;bottom:auto;left:0;right:auto;width:216px;height:100vh;flex-direction:column;
-    background:var(--navy-900);border:none;box-shadow:none;padding:0;justify-content:flex-start}
+    background:var(--navy-900);border:none;box-shadow:none;padding:0;justify-content:flex-start;
+    overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-width:thin;
+    scrollbar-color:rgba(255,255,255,.28) transparent}
+  .tabbar::-webkit-scrollbar{width:8px}
+  .tabbar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.24);border-radius:8px}
+  .tabbar::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.42)}
+  .tabbar::-webkit-scrollbar-track{background:transparent}
+  /* 굴려도 무엇을 보고 있는지 잃지 않게 머리는 붙어 있는다 */
   .tabbar .brand{display:flex;align-items:center;gap:11px;padding:22px 20px 18px;
-    border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:10px;color:#fff}
+    border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:10px;color:#fff;
+    position:sticky;top:0;z-index:2;background:var(--navy-900)}
   .tabbar .brand .bt{font-size:15px;font-weight:800;letter-spacing:-.3px;line-height:1.2}
   .tabbar .brand .bt small{display:block;font-size:13px;font-weight:600;color:#8FA3D9;letter-spacing:.5px}
   .tabbar button{flex:0 0 auto;flex-direction:row;justify-content:flex-start;gap:12px;
@@ -3775,6 +3789,51 @@ function chipTop(){
   const h = bar ? Math.round(bar.getBoundingClientRect().height) : 0;
   return h ? (h + 8) + 'px' : 'calc(env(safe-area-inset-top) + 56px)';
 }
+/* ── 알림 칩을 **빈 자리에** 앉힌다 (2026-08-08 지시: "모바일이나 PC에서나 볼 때
+   모두 빈 공간으로 팝업뜨게") ──────────────────────────────────────────────
+   증상: 칩이 늘 화면 위 한가운데 고정이라 [이미지 저장] 같은 단추를 덮었다.
+   ★ 자리를 화면 크기로 나누지 않는다(폰/PC 를 따로 재면 둘 중 하나는 반드시 어긋난다).
+     대신 **그 순간 화면에 실제로 무엇이 있는지**를 재서 고른다 — 후보 자리마다
+     아홉 점을 찍어 보고 단추·링크·입력칸을 덜 가리는 자리를 쓴다.
+   ★ 완전히 빈 자리가 없으면 **가장 덜 가리는 곳**으로 간다. 알림을 지우지는 않는다. */
+const CHIP_SPOTS = [
+  {k:'top-c',    x:.5,  from:'top'},   {k:'top-r',  x:.78, from:'top'},
+  {k:'bot-c',    x:.5,  from:'bot'},   {k:'bot-r',  x:.78, from:'bot'},
+  {k:'top-l',    x:.22, from:'top'},
+];
+function chipPlace(el){
+  const W = innerWidth, H = innerHeight;
+  const bar = document.querySelector('.appbar');
+  const tabs = document.querySelector('.tabbar,.tabs,nav.bottom');
+  const topY = (bar ? bar.getBoundingClientRect().bottom : 48) + 8;
+  const botY = H - ((tabs ? H - tabs.getBoundingClientRect().top : 0) + 8);
+  const cw = Math.min(el.offsetWidth || 220, W - 24), ch = el.offsetHeight || 30;
+  const hit = (cx, cy) => {                    // 이 자리에 놓으면 몇 개를 가리나
+    let n = 0;
+    for(const dx of [-.5, 0, .5]) for(const dy of [-.5, 0, .5]){
+      const x = Math.max(2, Math.min(W-2, cx + dx*cw)), y = Math.max(2, Math.min(H-2, cy + dy*ch));
+      const t = document.elementFromPoint(x, y);
+      if(!t || t === el || t === document.body || t === document.documentElement) continue;
+      if(t.closest('button,a[href],input,select,textarea,[onclick],.seg,.abtn,.toolbar')) n += 2;
+      else n += 1;                             // 글·카드 위도 조금은 손해다
+    }
+    return n;
+  };
+  let best = null;
+  for(const s of CHIP_SPOTS){
+    const cy = s.from === 'top' ? topY + ch/2 : botY - ch/2;
+    if(cy < 0 || cy > H) continue;
+    const cx = Math.max(cw/2 + 8, Math.min(W - cw/2 - 8, W * s.x));
+    const n = hit(cx, cy);
+    if(!best || n < best.n) best = {n, cx, cy, k:s.k};
+    if(n === 0) break;                          // 완전히 빈 자리를 찾았으면 더 볼 것 없다
+  }
+  if(!best) return;
+  el.style.left = Math.round(best.cx) + 'px';
+  el.style.top = Math.round(best.cy) + 'px';
+  el.style.transform = 'translate(-50%,-50%)';
+  el.dataset.spot = best.k + ':' + best.n;      // 어디에 왜 앉았나 — 확인용
+}
 let NET_DOWN_AT=0, NET_LAST_LOG=0, NET_OFFLINE=false;
 function netDown(path,e){
   const now=Date.now();
@@ -3801,6 +3860,7 @@ function netBanner(on){
     +'font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer';
   el.textContent='서버에 닿지 않습니다 — 지금 숫자는 옛 자료 · 눌러서 다시 시도';
   el.onclick=()=>{ netBanner(false); location.reload(); };
+  chipPlace(el);
 }
 /* ── '몇 분 전 자료' 칩 — 하나의 진실만 말한다 (2026-08-07 사용자 지적) ──────────
    증상: "194분 전 자료·갱신 중" 이 계속 떠 있고, 볼 때마다 숫자가 달랐다.
@@ -3818,8 +3878,18 @@ function netBanner(on){
    ④ 60분이 넘으면 '194분 전' 대신 '3시간 14분 전'으로 읽는다("분이 이상해"). */
 const SWR_WAIT = new Map();       // 경로 -> {t: 그 값을 받았던 시각, failed}
 const SWR_INFLIGHT = new Set();   // 같은 경로를 여러 로더가 불러도 한 번만 나간다
-const SWR_CHIP_DELAY_MS = 1200;
-let SWR_SHOW_AT = 0, SWR_TICK = null;
+/* ★ 얼마나 참았다가 띄우나 (2026-08-08 사용자 지적: "너무 자주 안뜨게").
+   1.2초는 너무 짧았다 — 화면을 옮길 때마다 뜨는 흔한 갱신이 거의 다 걸렸다.
+   이제 세 관문을 **모두** 넘어야 뜬다:
+     ① 4초 넘게 안 끝난 갱신일 것          (금방 끝나면 알릴 일이 아니다)
+     ② 지금 보이는 값이 10분보다 오래됐을 것 (30초 된 값에 '갱신 중'은 잡음이다)
+     ③ 마지막으로 사라진 지 2분은 지났을 것  (연달아 깜빡이지 않게)
+   ★ 실패는 이 관문을 **건너뛴다** — 숨기지 않는다(절대규칙 1). 옛 값이 옛 값인 채로
+     늙어 가는 것을 사람이 모르면 그게 조용한 사고다. */
+const SWR_CHIP_DELAY_MS = 4000;
+const SWR_MIN_AGE_MS = 600000;      // 이보다 새 값이면 굳이 알리지 않는다
+const SWR_QUIET_MS = 120000;        // 사라진 뒤 이만큼은 다시 띄우지 않는다
+let SWR_SHOW_AT = 0, SWR_TICK = null, SWR_HID_AT = 0;
 function swrMark(key, t){
   if(!SWR_WAIT.size) SWR_SHOW_AT = Date.now() + SWR_CHIP_DELAY_MS;
   SWR_WAIT.set(key, {t: t, failed: false});
@@ -3837,14 +3907,22 @@ function swrStartTick(){
   swrPaint();
 }
 function swrPaint(){
+  const now = Date.now();
   if(!SWR_WAIT.size){
     if(SWR_TICK){ clearInterval(SWR_TICK); SWR_TICK = null; }
+    if(document.getElementById('swrChip')) SWR_HID_AT = now;   // 조용할 기간을 여기서 시작
     swrChip(0);
     return;
   }
-  if(Date.now() < SWR_SHOW_AT) return;        // 금방 끝날 갱신은 사람에게 알리지 않는다
   const vals = [...SWR_WAIT.values()];
-  swrChip(Date.now() - Math.min(...vals.map(v => v.t)), vals.some(v => v.failed));
+  const failed = vals.some(v => v.failed);
+  const age = now - Math.min(...vals.map(v => v.t));
+  if(failed) return swrChip(age, true);       // 실패는 관문을 건너뛴다 — 숨기지 않는다
+  if(now < SWR_SHOW_AT) return;               // ① 금방 끝날 갱신은 알리지 않는다
+  if(age < SWR_MIN_AGE_MS) return;            // ② 새 값이면 '갱신 중'은 잡음이다
+  if(!document.getElementById('swrChip')
+     && now - SWR_HID_AT < SWR_QUIET_MS) return;   // ③ 사라진 직후 다시 띄우지 않는다
+  swrChip(age, false);
 }
 function swrAgeText(ms){
   const m = Math.round(ms / 60000);
@@ -3863,13 +3941,14 @@ function swrChip(ageMs, failed){
     el.id = 'swrChip';
     document.body.appendChild(el);
   }
-  el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);'
-    + 'top:'+chipTop()+';z-index:29;border-radius:999px;padding:5px 12px;font-size:13.5px;'
-    + 'font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.2);'
+  el.style.cssText = 'position:fixed;left:50%;top:'+chipTop()+';transform:translateX(-50%);'
+    + 'z-index:29;border-radius:999px;padding:5px 12px;font-size:13.5px;max-width:calc(100% - 24px);'
+    + 'font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.2);white-space:nowrap;'
     + (failed ? 'background:#7A271A;color:#FEE4E2;border:1px solid #F04438;cursor:pointer'
               : 'background:#1D2939;color:#E5E7EB;border:1px solid #475467;pointer-events:none');
   el.textContent = swrAgeText(ageMs) + ' 자료 · ' + (failed ? '갱신 실패 — 눌러서 다시' : '갱신 중');
   el.onclick = failed ? (() => { SWR_WAIT.clear(); swrPaint(); reloadHere(); }) : null;
+  chipPlace(el);            // 글을 넣은 **뒤에** 재야 폭이 정확하다
 }
 async function _apiNet(path, opt={}){
   opt.headers = Object.assign({'X-Pin': PIN}, opt.headers||{});

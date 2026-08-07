@@ -306,6 +306,217 @@ MENUS = {
     "판매현황": "금월(~오늘)",
 }
 
+# ── 화면 등록부 ────────────────────────────────────────────────────────────────
+# ★ **메뉴 이름을 코드에 박아 두고 추측하지 말 것** (2026-08-07 실측).
+#   같은 화면이 모듈마다 이름이 다르다(`매출(세금)계산서현황` ↔ `…(재고)`).
+#   그래서 등록부는 '확인된 것'과 '아직 이름을 모르는 것'을 **나눠서** 들고 있고,
+#   모르는 것은 `--find` 가 **화면에서 찾아** 채운다. 못 찾으면 못 찾았다고 말한다 —
+#   비슷한 이름을 골라 누르면 엉뚱한 화면의 Excel 을 받아 놓고 맞다고 믿게 된다.
+#
+# 사람이 고친 등록부는 config/erp_screens.json 이 이긴다(코드 판올림에 안 지워진다).
+SCREENS_CFG = os.path.join(ROOT, "config", "erp_screens.json")
+
+SCREENS = {
+    # 키          메뉴명(정확히)                모듈       프리셋           색인 kind
+    "ledger":   {"메뉴": "계정별원장",               "모듈": "회계 I", "프리셋": "금월(~오늘)", "kind": "ERP:ledger", "prgId": "E010807"},
+    "tax":      {"메뉴": "매출(세금)계산서현황",      "모듈": "회계 I", "프리셋": "금월(~오늘)", "kind": "ERP:tax",    "prgId": "E010845"},
+    "slips":    {"메뉴": "회계거래현황",             "모듈": "회계 I", "프리셋": "금월(~오늘)", "kind": "ERP:slips",  "prgId": "E010847"},
+    "taxinv":   {"메뉴": "매출(세금)계산서현황(재고)", "모듈": "재고 I", "프리셋": "금월(~오늘)", "kind": "ERP:taxinv", "prgId": "E040218"},
+}
+
+# 아직 **정확한 메뉴 이름을 확인하지 못한** 화면. `--find` 로 찾아 등록부에 넣는다.
+# 사용자 지시(2026-08-07): "세금계산서 ERP에서 잔량 다운로드 받을 수 있어,
+#                          매출 전표랑 같이해서 찾아서 전부 다운로드 받아"
+WANTED = {
+    "taxleft":   {"찾을말": ["잔량", "미발행", "발행잔량"], "무엇": "세금계산서 잔량",
+                  "kind": "ERP:taxleft", "프리셋": "금월(~오늘)"},
+    "salesslip": {"찾을말": ["매출전표", "매출 전표", "판매전표"], "무엇": "매출 전표",
+                  "kind": "ERP:salesslip", "프리셋": "금월(~오늘)"},
+}
+
+
+def load_screens():
+    """코드 기본값 위에 config/erp_screens.json 을 덮어 돌려준다."""
+    out = {k: dict(v) for k, v in SCREENS.items()}
+    try:
+        doc = json.load(open(SCREENS_CFG, encoding="utf-8"))
+        for k, v in (doc.get("screens") or {}).items():
+            if isinstance(v, dict) and v.get("메뉴"):
+                out[k] = {**out.get(k, {}), **v}
+    except Exception:
+        pass
+    return out
+
+
+def save_screen(key, rec):
+    """`--find` 가 찾아낸 메뉴 이름을 등록부에 적는다(다음부터는 안 찾아도 된다)."""
+    try:
+        doc = json.load(open(SCREENS_CFG, encoding="utf-8"))
+    except Exception:
+        doc = {}
+    doc.setdefault("screens", {})[key] = rec
+    doc["갱신"] = datetime.now().isoformat(timespec="seconds")
+    os.makedirs(os.path.dirname(SCREENS_CFG), exist_ok=True)
+    tmp = SCREENS_CFG + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, SCREENS_CFG)
+
+
+FIND_JS = r"""
+// 사이트맵에서 **이름을 찾아본다** — 누르지 않는다. 읽기만 하는 탐침이다.
+// 왜 필요한가: 같은 화면이 모듈마다 이름이 다르다(`매출(세금)계산서현황` ↔ `…(재고)`).
+//   이름을 추측해 누르면 **엉뚱한 화면의 Excel** 을 받아 놓고 맞다고 믿게 된다.
+// ★ 사이트맵은 **지금 있는 모듈 것만** 보여 준다. 못 찾으면 모듈 막대를 바꾼 뒤 다시 돌린다.
+window.__ERPFIND = {단계: '시작', 모듈: null, 링크수: 0, 찾음: [], 전체: []};
+(async () => {
+  const F = window.__ERPFIND;
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const sm = [...document.querySelectorAll('a,button,span,div')]
+    .find(e => (e.textContent||'').trim() === '사이트맵');
+  if (sm) sm.click();
+  await wait(1200);
+  const w = document.querySelector('.wrapper-sitemap');
+  if (w) w.classList.add('visible');
+  await wait(500);
+  // ★ 좁게 훑는다. `ul,div` 전수 스캔은 렌더러를 얼린다(CDP 45초 시간초과 실측).
+  const links = [...(w || document).querySelectorAll('a')]
+    .map(a => (a.textContent||'').trim()).filter(t => t && t.length < 40);
+  if (w) w.classList.remove('visible');            // ★ 반드시 닫는다
+  const words = %(words)s;
+  const hit = [...new Set(links.filter(t => words.some(x => t.includes(x))))];
+  F.모듈 = ([...document.querySelectorAll('.module a, .gnb a')]
+             .find(a => a.className.includes('on')) || {}).textContent || '?';
+  F.링크수 = links.length;
+  F.찾음 = hit;
+  F.전체 = [...new Set(links)].slice(0, 400);      // 못 찾았을 때 사람이 눈으로 고를 수 있게
+  F.단계 = '끝';
+})();
+window.__ERPFIND;
+"""
+
+
+def emit_find(words=None):
+    """사이트맵에서 메뉴 이름을 찾는 탐침 스크립트를 찍는다."""
+    ws = list(words or [])
+    if not ws:
+        for v in WANTED.values():
+            ws.extend(v["찾을말"])
+    print(FIND_JS % {"words": json.dumps(sorted(set(ws)), ensure_ascii=False)})
+    return 0
+
+
+ALL_JS = r"""
+// ERP **전 화면 몰이** — 로그인된 ec5 탭에서 한 번 넣으면 목록을 끝까지 돈다.
+// 사용자 지시(2026-08-07): "긁어오라고 하면 모두 긁어와서".
+//
+// ★ 던져 놓고 폴링한다. 화면 하나에 25초가 넘는데 CDP `Runtime.evaluate` 는 45초에
+//   끊긴다. 끝을 기다리며 실행하면 도중에 잘리고 **잘린 자리를 알 수 없다.**
+//       window.__ERPALL   → {지금, 끝난것:[{키,결과,행,기간}], 남은것:[…], 완료}
+// ★ 한 화면이 실패해도 **멈추지 않는다.** 멈추면 뒤의 멀쩡한 화면까지 못 받는다.
+//   대신 무엇이 왜 실패했는지 남긴다 — 조용히 건너뛰면 '전부 받았다'로 읽힌다.
+window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: false};
+(async () => {
+  const A = window.__ERPALL;
+  const PLAN = %(plan)s;
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const kill = () => {                       // 경고 대화상자는 '취소'가 진행이다
+    const d = [...document.querySelectorAll('.ui-dialog')].find(x => x.offsetParent !== null);
+    if (!d) return false;
+    const c = [...d.querySelectorAll('button')].find(b => (b.textContent||'').trim() === '취소');
+    if (c) { c.click(); return true; }
+    return false;
+  };
+  const want = preset => {
+    const t = new Date(), p2 = n => String(n).padStart(2, '0');
+    const fmt = d => `${d.getFullYear()}/${p2(d.getMonth()+1)}/${p2(d.getDate())}`;
+    const back = n => { const d = new Date(t); d.setDate(d.getDate() - n); return fmt(d); };
+    const to = fmt(t);
+    if (preset === '금일')        return {from: to, to};
+    if (preset === '전일')        return {from: back(1), to: back(1)};
+    if (preset === '금주(~오늘)') return {from: back(7), to};
+    if (preset === '금월(~오늘)') return {from: `${t.getFullYear()}/${p2(t.getMonth()+1)}/01`, to};
+    return {from: back(45), to};
+  };
+
+  for (const step of PLAN) {
+    A.지금 = step.키;
+    A.남은것 = A.남은것.filter(k => k !== step.키);
+    const done = r => A.끝난것.push(Object.assign({키: step.키, 메뉴: step.메뉴}, r));
+    try {
+      // ① 모듈이 다르면 먼저 바꾼다 — 사이트맵은 **지금 모듈 것만** 보여 준다.
+      if (step.모듈) {
+        const mod = [...document.querySelectorAll('a')]
+          .find(a => (a.textContent||'').trim() === step.모듈);
+        if (mod) { mod.click(); await wait(3500); }
+      }
+      // ② 사이트맵 → 메뉴
+      const sm = [...document.querySelectorAll('a,button,span,div')]
+        .find(e => (e.textContent||'').trim() === '사이트맵');
+      if (sm) sm.click();
+      await wait(1500);
+      const w = document.querySelector('.wrapper-sitemap');
+      if (w) w.classList.add('visible');
+      await wait(600);
+      const menu = [...document.querySelectorAll('a')]
+        .find(a => (a.textContent||'').trim() === step.메뉴);
+      if (w) w.classList.remove('visible');        // ★ 반드시 닫는다
+      if (!menu) { done({결과: '실패', 왜: '메뉴를 못 찾음 — 모듈이 다를 수 있다'}); continue; }
+      menu.click();
+      await wait(4500);
+      // ③ 기간 프리셋
+      const p = [...document.querySelectorAll('button[data-cid="simpleSearch"]')]
+        .find(b => (b.textContent||'').trim() === step.프리셋);
+      if (!p) { done({결과: '실패', 왜: '기간 프리셋을 못 찾음: ' + step.프리셋}); continue; }
+      p.click(); await wait(2500); kill(); await wait(4500);
+      // ④ 조회
+      const s = [...document.querySelectorAll('button[data-cid="searchGroup"]')]
+        .find(b => (b.textContent||'').trim().startsWith('검색'));
+      if (!s) { done({결과: '실패', 왜: '검색 버튼을 못 찾음'}); continue; }
+      s.click(); await wait(3000); kill(); await wait(9000);
+      // ⑤ 조회가 **정말** 걸렸는지 — 행 수가 아니라 **격자에 찍힌 날짜**로 잰다.
+      //   행 수로 재면 양쪽으로 다 틀린다(옛 결과를 새 기간으로 착각 / 5행→5행을 실패로 오판).
+      const g = document.querySelector('[id^="grid-"]');
+      const seen = [...(g ? g.querySelectorAll('tr') : [])]
+        .map(t => ((t.textContent||'').match(/20\d\d\/\d\d\/\d\d/)||[])[0]).filter(Boolean);
+      const rng = want(step.프리셋);
+      const inR = seen.filter(d => d >= rng.from && d <= rng.to);
+      if (!seen.length) { done({결과: '건너뜀', 왜: '격자에 날짜가 없다 — 0건이거나 조건이 더 필요한 화면',
+                                기간: `${rng.from} ~ ${rng.to}`}); continue; }
+      if (!inR.length)  { done({결과: '실패', 왜: '격자 날짜가 요청 기간 밖 — 조회가 안 걸렸다. Excel 안 누름',
+                                기간: `${rng.from} ~ ${rng.to}`}); continue; }
+      // ⑥ 엑셀
+      const x = document.querySelector('[data-cid="outputExcel"]');
+      if (!x) { done({결과: '실패', 왜: '엑셀 버튼이 없다 — 인쇄 미리보기 안에만 있는 화면일 수 있다'}); continue; }
+      x.click(); await wait(5000);
+      done({결과: '받음', 행: seen.length, 기간안: inR.length, 기간: `${rng.from} ~ ${rng.to}`});
+    } catch (e) {
+      done({결과: '실패', 왜: '예외: ' + (e && e.message)});
+    }
+  }
+  A.지금 = null; A.완료 = true;
+})();
+window.__ERPALL;
+"""
+
+
+def emit_all(keys=None, preset=None):
+    """등록부의 화면을 **한 번에** 도는 스크립트를 찍는다."""
+    screens = load_screens()
+    want = [k for k in (keys or screens) if k in screens]
+    미확인 = [k for k in (keys or []) if k not in screens]
+    if 미확인:
+        print(f"i 등록부에 없는 화면: {', '.join(미확인)}")
+        print("  먼저 `python erp_grab.py --find` 로 사이트맵에서 이름을 찾아 등록하라")
+    if not want:
+        print("✗ 돌 화면이 없다 — 등록부가 비었다")
+        return 1
+    plan = [{"키": k, "메뉴": screens[k]["메뉴"], "모듈": screens[k].get("모듈"),
+             "프리셋": preset or screens[k].get("프리셋", "금월(~오늘)")} for k in want]
+    print(ALL_JS % {"keys": json.dumps(want, ensure_ascii=False),
+                    "plan": json.dumps(plan, ensure_ascii=False)})
+    return 0
+
 
 def emit_js(menu, preset=None):
     if menu not in MENUS and preset is None:
@@ -321,7 +532,37 @@ def main(argv=None):
     ap.add_argument("--limit", type=int, default=DEFAULT_LIMIT_DAYS)
     ap.add_argument("--js", metavar="메뉴명", help="브라우저에 넣을 수집 스크립트를 찍는다")
     ap.add_argument("--preset", help="기간 프리셋(금일·전일·금주(~오늘)·금월(~오늘)·전월…)")
+    ap.add_argument("--find", nargs="*", metavar="낱말",
+                    help="사이트맵에서 메뉴 이름을 찾는다(안 주면 아직 못 찾은 것 전부)")
+    ap.add_argument("--all", nargs="*", metavar="화면키",
+                    help="등록부 화면을 한 번에 몬다(안 주면 전부)")
+    ap.add_argument("--register", nargs=3, metavar=("키", "메뉴명", "모듈"),
+                    help="--find 로 찾은 메뉴 이름을 등록부에 적는다")
+    ap.add_argument("--screens", action="store_true", help="등록부를 보여 준다")
     a = ap.parse_args(argv)
+    if a.register:
+        key, menu, mod = a.register
+        want = WANTED.get(key) or {}
+        save_screen(key, {"메뉴": menu, "모듈": mod,
+                          "프리셋": want.get("프리셋", "금월(~오늘)"),
+                          "kind": want.get("kind", f"ERP:{key}")})
+        print(f"등록 — [{key}] {menu} ({mod}) → {SCREENS_CFG}")
+        return 0
+    if a.screens:
+        cur = load_screens()
+        print(f"등록된 화면 {len(cur)}종")
+        for k, v in cur.items():
+            print(f"  {k:<10} {v['메뉴']:<26} {v.get('모듈') or '-':<7} {v.get('프리셋')}")
+        미 = [k for k in WANTED if k not in cur]
+        if 미:
+            print(f"\n★ 아직 메뉴 이름을 못 찾은 것 {len(미)}종 — `--find` 로 찾는다:")
+            for k in 미:
+                print(f"  · {k:<10} {WANTED[k]['무엇']} (찾을말: {', '.join(WANTED[k]['찾을말'])})")
+        return 0
+    if a.find is not None:
+        return emit_find(a.find)
+    if a.all is not None:
+        return emit_all(a.all or None, a.preset)
     if a.js:
         return emit_js(a.js, a.preset)
     return run(a.limit)

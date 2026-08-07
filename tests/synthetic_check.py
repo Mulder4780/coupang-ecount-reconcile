@@ -8160,6 +8160,28 @@ def t140_freshness_tells_the_truth():
         "가진 자료가 있는데도 기다린다"
     assert "function rptOfferResave(" in live and "_rptData.updatedAt === mark" in live, \
         "저장 뒤 더 새 자료가 와도 알려 주지 않는다"
+    # 9. 칩이 **덜 뜨고**, 뜰 때는 **빈 자리에** 앉는다 (2026-08-08 지시)
+    #   "자료 갱신중 팝업을 너무 자주 안뜨게 / 모바일이나 PC에서나 볼 때 모두
+    #    빈 공간으로 팝업뜨게". 사진에서 칩이 [이미지 저장] 단추를 덮고 있었다.
+    for need, why in (("SWR_CHIP_DELAY_MS = 4000", "1.2초는 짧아 화면을 옮길 때마다 떴다"),
+                      ("SWR_MIN_AGE_MS", "30초 된 값에도 '갱신 중'을 띄운다"),
+                      ("SWR_QUIET_MS", "사라진 직후 다시 떠 깜빡인다")):
+        assert need in live, why
+    paint = live.split("function swrPaint(")[1].split("function swrAgeText")[0]
+    assert "if(failed) return swrChip(age, true);" in paint, (
+        "실패까지 관문에 걸려 조용해진다 - 옛 값이 늙는 것을 아무도 모른다(조용한 사고)")
+    assert paint.index("if(failed)") < paint.index("SWR_MIN_AGE_MS"), (
+        "실패가 나이 관문 뒤에 있다 - 새 값이면 실패를 숨기게 된다")
+    # 자리는 화면 크기로 나누지 않는다 - 재서 고른다(폰/PC 를 따로 재면 하나는 어긋난다)
+    assert "function chipPlace(" in live and "elementFromPoint" in live, (
+        "칩 자리를 실제 화면을 재지 않고 고정으로 둔다")
+    place = live.split("function chipPlace(")[1][:2000]
+    assert "button,a[href],input,select,textarea,[onclick]" in place, (
+        "단추를 덮는지 보지 않는다 - 사진의 [이미지 저장]이 가려진 이유다")
+    assert live.count("chipPlace(el)") >= 2, "칩 두 종류 중 하나만 자리를 고른다"
+    # 사이드바는 제 안에서 구른다 (2026-08-08 지시)
+    assert "overscroll-behavior:contain" in live.split(".tabbar{top:0")[1][:900], (
+        "사이드바 휠이 본문으로 넘어간다 - 카테고리만 굴러가야 한다")
     assert "toast('최신 자료를 받아 그리는 중…')" not in live, \
         "이제 기다리지 않는데 기다린다고 말한다"
     print("  [140] 신선도 표기 — 나이는 하나·실패는 말한다·캡처는 곧바로 ✅")
@@ -8276,6 +8298,60 @@ def t145_redirect_deleted_needs_two_rounds():
     assert 2 not in (R.plan("b", posts, floor=1) or {}).get("gaps", []), \
         "묘비를 세웠는데도 매 회차 같은 번호를 다시 뽑는다 — [13] 이 안 고쳐졌다"
     print("  [145] 리다이렉트 삭제 판정 — 회차 둘 이상·수확 0 회차 제외 ✅")
+
+
+def t146_erp_bulk_grab_registry():
+    """ERP 전 화면 몰이 — **이름을 추측하지 않고 찾아서** 돌리나 (2026-08-07 지시).
+
+    사용자 지시: "세금계산서 ERP에서 잔량 다운로드 받을 수 있어, 매출 전표랑 같이해서
+    찾아서 전부 다운로드 받아 … 긁어오라고 하면 모두 긁어와서".
+
+    여기서 제일 위험한 것은 '못 받는 것'이 아니라 **엉뚱한 것을 받아 놓고 맞다고
+    믿는 것**이다. 같은 화면이 모듈마다 이름이 다르고(`매출(세금)계산서현황` ↔ `…(재고)`),
+    비슷한 이름을 골라 누르면 다른 화면의 Excel 이 같은 자리에 떨어진다.
+    그래서 모르는 메뉴는 **모른다고 남겨 두고** `--find` 가 화면에서 찾게 한다.
+    """
+    import importlib.util
+    p = os.path.join(ROOT, "erp_grab.py")
+    spec = importlib.util.spec_from_file_location("_eg_t146", p)
+    E = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(E)
+
+    # ① 아직 이름을 모르는 화면은 **등록부에 없어야** 한다(추측해 넣으면 안 된다).
+    for k in ("taxleft", "salesslip"):
+        assert k in E.WANTED, f"{k} 를 찾을 목록에서 잃었다"
+        assert k not in E.SCREENS, \
+            f"{k} 메뉴 이름을 확인도 없이 코드에 박아 넣었다 — 엉뚱한 화면을 받게 된다"
+    assert "잔량" in E.WANTED["taxleft"]["찾을말"]
+
+    # ② --find 는 **읽기만** 한다. 탐침이 메뉴를 눌러 버리면 화면이 갈려 사람이 놀란다.
+    find_js = E.FIND_JS % {"words": '["잔량"]'}
+    assert "menu.click()" not in find_js and "outputExcel" not in find_js, \
+        "찾기 탐침이 메뉴를 누르거나 엑셀을 받는다 — 읽기만 해야 한다"
+    assert "classList.remove('visible')" in find_js, \
+        "사이트맵을 열어 놓고 안 닫는다 — 그 뒤 모든 클릭을 가로챈다"
+    # DOM 전수 스캔 금지(절대규칙) — 렌더러가 언다.
+    assert "querySelectorAll('ul,div')" not in find_js
+
+    # ③ --all 은 한 화면이 실패해도 멈추지 않되, **왜 실패했는지 남긴다.**
+    E.emit_all  # 존재 확인
+    all_js = E.ALL_JS % {"keys": '["ledger"]', "plan": '[{"키":"ledger"}]'}
+    assert "continue;" in all_js and "결과: '실패'" in all_js, \
+        "한 화면이 실패하면 뒤의 멀쩡한 화면까지 못 받는다"
+    assert "왜:" in all_js, "조용히 건너뛴다 — '전부 받았다'로 읽힌다"
+    # ④ ★ 조회가 걸렸는지를 **행 수가 아니라 격자 날짜**로 잰다(양쪽으로 다 틀렸던 자리).
+    assert "seen.filter(d => d >= rng.from && d <= rng.to)" in all_js
+    assert "Excel 안 누름" in all_js, \
+        "조회가 안 걸렸는데도 엑셀을 받는다 — 옛 결과를 새 기간으로 착각하게 된다"
+    # ⑤ 모듈 전환이 메뉴 찾기보다 **먼저** 와야 한다(사이트맵은 지금 모듈 것만 보여 준다).
+    #    재는 자리는 '모듈 전환'과 **사이트맵에서 메뉴를 고르는 줄**의 순서다.
+    #    (`step.메뉴` 자체는 결과 기록용으로 위쪽에 한 번 더 나온다 — 그건 순서가 아니다)
+    assert all_js.index("if (step.모듈)") < all_js.index("=== step.메뉴"), \
+        "모듈을 바꾸기 전에 메뉴를 찾는다 — 다른 모듈 메뉴는 목록에 아예 없다"
+
+    # ⑥ 사람이 고친 등록부(config)가 코드 기본값을 이긴다 — 판올림에 안 지워진다.
+    assert "config" in E.SCREENS_CFG and callable(E.load_screens) and callable(E.save_screen)
+    print("  [146] ERP 전 화면 몰이 — 이름은 찾아서·실패해도 계속·날짜로 검증 ✅")
 
 
 def t141_long_text_folds():
@@ -8716,6 +8792,7 @@ if __name__ == "__main__":
     t143_originals_one_tap()
     t144_topmost_pin_always_restores()
     t145_redirect_deleted_needs_two_rounds()
+    t146_erp_bulk_grab_registry()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
