@@ -4032,11 +4032,19 @@ def get_status():
     로컬 단독으로는 4초면 끝나지만, Codex·일일실행이 같은 드라이브를 쓰는 동안에는
     280초~600초까지 늘어난다. 대시보드는 이걸 주기적으로 폴링하므로 캐시가 없으면
     **앱이 열리지 않는다**(2026-07-29 실측). 다른 데이터 API와 같은 캐시를 쓴다:
-    원장이 바뀌면 즉시, 아니면 120초 TTL."""
-    with _readlock:
-        c = _fresh("status")
-        if c:
-            return c
+    원장이 바뀌면 즉시, 아니면 120초 TTL.
+
+    ★ **캐시를 보는 데는 락이 필요 없다** (2026-08-07). 예전에는 이 첫 조회에서도
+      `_readlock` 을 잡았다. 그런데 그 락은 다른 요청이 Z: 를 콜드로 읽는 동안
+      계속 잡혀 있고(실측 `get_works` 첫 계산 111초 · 대표 예외보고 187초),
+      그동안 여기서 **옛 값을 돌려주는 것조차 막혔다** — 기다리지 않게 하려고
+      만든 stale-while-revalidate 인데 정작 그 길이 잠겨 있었다.
+      락이 지키는 것은 'Z: 를 동시에 읽지 않는 것'이지 캐시 딕셔너리가 아니다
+      (issues·erpdocs 는 이미 락 없이 `_fresh` 를 쓴다). 실제로 읽을 때만 잡는다
+      — 그 자리는 `_refresh_status_now()` 다."""
+    c = _fresh("status")
+    if c:
+        return c
     # ★ TTL 만료 시 옛 값을 **즉시** 돌려주고 재계산은 뒤에서 한 번만 한다(2026-08-03 UX).
     #   실측: /api/status 1,550회 호출에 평균 5.2초 — 만료 순간마다 Z: 재계산이 요청을
     #   통째로 잡고 있었다. 원장이 바뀌면 _fresh 가 stale 까지 비우므로 낡은 값이 남지 않는다.
@@ -4062,10 +4070,17 @@ def _refresh_status_now():
         return c
 
 
+_STATUS_REFRESH_LOCK = threading.Lock()
+
+
 def _spawn_status_refresh():
-    if _STATUS_REFRESH["busy"]:
-        return
-    _STATUS_REFRESH["busy"] = True
+    # ★ '보고 나서 세우기'는 둘이 동시에 통과할 수 있다 — 폴링이 30초마다 오고
+    #   재계산이 100초 넘게 걸리므로 실제로 겹친다. 그러면 무거운 Z: 재계산이
+    #   두 벌 떠서 서로 락을 기다린다. 세우는 순간을 잠가 한 벌만 뜨게 한다.
+    with _STATUS_REFRESH_LOCK:
+        if _STATUS_REFRESH["busy"]:
+            return
+        _STATUS_REFRESH["busy"] = True
 
     def _run():
         try:
