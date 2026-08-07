@@ -5159,6 +5159,17 @@ def t112_band_plan_order_and_scope():
     #   **어느 목록에도 안 잡혔다** — 가장 알아채기 어려운 종류의 구멍이다.
     assert re.search(r"for \(let i = 0; i < \d+ && !txt\(main, '\.postListInfoWrap \.time",
                      js), "본문만 보고 바로 가져간다 — 작성시각을 기다리지 않는다"
+    # ★ 캐시 정본은 **임시파일에 다 쓴 뒤 갈아끼운다** (2026-08-07 실사고).
+    #   `open(dst,"w")` 는 정본을 먼저 비운다. 19MB 를 흘려 넣는 몇 초 동안 읽는 쪽은
+    #   반쪽짜리 JSON 을 보고, 그 사이 합성검증이 두 번 죽었다(죽은 자리가 매번 달라
+    #   한동안 "캐시가 깨졌다"고 오해했다). 쓰다가 프로세스가 죽으면 **정말로** 깨져
+    #   8,500 글을 다시 긁어야 한다 — 밤샘 한 번 분량이다.
+    _cd = open(os.path.join(ROOT, "band", "convert_dump.py"), encoding="utf-8").read()
+    assert re.search(r'os\.replace\(\s*tmp\s*,\s*dst\s*\)', _cd), \
+        "캐시를 원자적으로 갈아끼우지 않는다 — 쓰는 중에 읽으면 반쪽 JSON 이 보인다"
+    assert not re.search(r'json\.dump\([^)]*open\(\s*dst\s*,\s*"w"', _cd), \
+        "정본에 바로 쓴다(open(dst,'w')) — 임시파일 + os.replace 로 바꿀 것"
+
     import band.recheck_plan as _RP2
     _p = _RP2.plan("1", {
         "10": {"created_at": 1, "captured_at": _RP2.ERA_MS + 1},

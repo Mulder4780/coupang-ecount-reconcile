@@ -201,7 +201,18 @@ def main():
         if gone:
             print(f"  · 삭제된 글 {gone}건 기록({band}) — 다음 회차부터 다시 훑지 않는다")
         out = {"band_name": d.get("name", band), "posts": merged}
-        json.dump(out, open(dst, "w", encoding="utf-8"), ensure_ascii=False)
+        # ★ 임시파일에 다 쓴 뒤 **한 번에 갈아끼운다** (2026-08-07 실사고).
+        #   예전에는 `open(dst,"w")` 로 정본을 **먼저 비우고** 19MB 를 흘려 넣었다.
+        #   그 몇 초 동안 파일을 읽는 쪽은 **반쪽짜리 JSON** 을 본다 — 이날 합성검증이
+        #   두 번 죽었고, 죽은 자리가 매번 달라서(char 2,581,022 → 9,738,084) 한동안
+        #   "캐시가 깨졌다"고 오해했다. 실제로는 쓰는 중이었을 뿐이다.
+        #   더 나쁜 경우는 쓰다가 프로세스가 죽는 것이다 — 그때는 **정말로** 깨지고,
+        #   8,500 글을 다시 긁어야 한다(밤샘 한 번 분량). os.replace 는 원자적이라
+        #   읽는 쪽은 옛 파일이나 새 파일만 보고 그 중간은 못 본다.
+        tmp = dst + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(out, fh, ensure_ascii=False)
+        os.replace(tmp, dst)
         # 원본 자료 정본은 이름·내용 그대로 둔다. 로컬 처리함의 dump만 raw로 바꿔
         # 다음 실행에서 반복 변환되지 않게 한다.
         try:
