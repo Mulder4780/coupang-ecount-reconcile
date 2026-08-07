@@ -6388,13 +6388,14 @@ function showFixedEntry(){
     b.textContent = '복사됨'; setTimeout(()=>{ b.textContent = '복사'; }, 1600);
   };
 }
-async function loadSettle(){
+async function loadSettle(fresh){
   /* ★ 전에는 8곳을 **한 줄로 세워** 불렀다. 서로 아무 관계가 없는데도 앞이 끝나야
      다음이 시작하니, 각 1~3초면 화면이 10초를 넘긴다(ux 기록의 정산 화면 지연).
-     동시에 부르면 **가장 느린 하나**만 기다리면 된다. 실패는 그대로 각자 삼킨다. */
-  const one = (p, dflt) => api(p).catch(() => dflt);
+     동시에 부르면 **가장 느린 하나**만 기다리면 된다. 실패는 그대로 각자 삼킨다.
+     fresh=true 는 캡처용 — SWR 옛 값을 건너뛰고 지금 값을 받아온다. */
+  const one = (p, dflt) => api(p, fresh?{fresh:true}:{}).catch(() => dflt);
   const [d, w, iss, ck, ex, rep, docs] = await Promise.all([
-    api('/api/settlements'),
+    api('/api/settlements', fresh?{fresh:true}:{}),
     one('/api/works', works),
     one('/api/issues', issuesData),
     one('/api/checks', checks),
@@ -9639,6 +9640,26 @@ function renderDaily(){
   reg('q_set',  `${qNo}분기 정산`, Sq);
   reg('q_as',   `${qNo}분기 돌발AS`, AS_q, 'as');
   reg('q_pm',   `${qNo}분기 정기점검`, PM_q, 'pm');
+  /* 유수비 대표 예외 틀(정상은 합계만·예외는 상세) — renderRepresentative 와 같은 원천을
+     캡처·화면 맨 앞에 싣는다. 대표가 캡처만 보고 되물을 일을 없애는 것이 목적(2026-08-07). */
+  const _ra=(repData&&repData['돌발AS'])||{}, _rp2=(repData&&repData['정기점검'])||{},
+        _rd2=(repData&&repData['거래명세서'])||{}, _rpol=(repData&&repData['업무기준확인필요'])||[];
+  const _rgap=Number(_rp2['계획대비']||0), _run=(_rd2['미발행목록']||[]).length;
+  const _rep=(repData&&Object.keys(repData).length)?{
+    signal:String(_rp2['신호']||'녹색'), summary:repData['한줄종합보고']||'',
+    metrics:[
+      [(_ra['전산상미완료']||0)+'건','AS 전산상 미완료(완료 미확인)', _ra['전산상미완료']?'#C0212E':'#12813F'],
+      [(_ra['D+2초과']||0)+'건','AS D+2 초과 · 지속보고 대상', _ra['D+2초과']?'#C0212E':'#12813F'],
+      [(_ra['현장완료서류미정리']||0)+'건','현장완료·서류 미정리', _ra['현장완료서류미정리']?'#B54708':'#12813F'],
+      [(_rgap>=0?'+':'')+_rgap+'건',`정기점검 계획대비(목표 ${_rp2['목표누계']||0}·실제 ${_rp2['실제완료']||0})`, _rgap<0?'#C0212E':'#12813F'],
+      [_run+'건','거래명세서 미발행(유상 대상)', _run?'#B54708':'#12813F'],
+      [_rpol.length+'건','업무기준 확인 필요', _rpol.length?'#B54708':'#12813F'],
+    ],
+    docTypes:((_rd2['업무유형별'])||[]).slice(0,4).map(d=>
+      `${d.업무유형||''}: 발행대상 ${d.발행대상||0} · 발행 ${d.발행완료||0} · 미발행 ${d.미발행||0}`)
+  }:null;
+  const _monthNote=(Sm.length||AS_m.length||PM_m.length)?'' :
+    `※ ${+m}월 집계가 모두 0건 — ${+m}월 원장(06시트)·ERP 자료가 아직 없어서입니다. 자료가 들어오면 자동 반영됩니다.`;
   const cell = (v,l,k)=>{
     const on = k && KS[k] && KS[k].rows.length;
     return `<div class="rcell${on?' clk':''}"${on?` onclick="openKpi('${k}')"`:''}>` +
@@ -9659,6 +9680,11 @@ function renderDaily(){
           border-radius:8px;padding:5px 10px;font-size:13px;font-weight:800;font-family:inherit;
       cursor:pointer"><svg class="inline-bi bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar3"/></svg>날짜 변경</button></div>
     </div>
+    ${_rep?`<h4>대표 예외보고 <span class="norm">— 정상은 합계만·예외는 상세 (${_rep.signal} 신호)</span></h4>
+    <div class="rgrid">${_rep.metrics.map(t=>cell(t[0],t[1])).join('')}</div>
+    ${_rep.summary?`<div style="font-size:13px;color:var(--ink-3);margin-top:6px">${esc2(_rep.summary)}</div>`:''}
+    ${_rep.docTypes.length?`<div style="font-size:12.5px;color:var(--ink-3);margin-top:4px">${_rep.docTypes.map(esc2).join('<br>')}</div>`:''}`
+    :`<h4>대표 예외보고</h4><div style="font-size:13px;color:#B54708">예외보고 API 미수신 — 새로고침 후 다시 캡처하세요.</div>`}
     <h4>${+m}월 실적 <span class="norm">— 선택 기준일 ${selectedDay}</span></h4>
     <div class="rgrid">
       ${cell(Sm.length+'건','정산','m_set')}
@@ -9668,6 +9694,7 @@ function renderDaily(){
       ${cell(PM_m.length+'건','정기점검','m_pm')}
       ${cell(Sm.filter(r=>needAction(r)).length+'건','당월 조치필요','m_iss')}
     </div>
+    ${_monthNote?`<div style="font-size:13px;color:var(--ink-3);margin-top:6px">${_monthNote}</div>`:''}
     <h4>${y}년 ${qNo}분기 통계 <span class="norm">— ${+qFrom}~${+qTo}월</span></h4>
     <div class="rgrid">
       ${cell(Sq.length+'건','분기 정산','q_set')}
@@ -9747,6 +9774,7 @@ function renderDaily(){
   const capturePm = pmStats();
   const captureWorkLog = ((BRIEF&&BRIEF['일지대조'])||{});
   const captureBriefAs = ((BRIEF&&BRIEF['돌발AS'])||{});
+  const captureBriefPm = ((BRIEF&&BRIEF['정기점검'])||{});
   const captureDailyTasks = ((BRIEF&&BRIEF['당일처리목록'])||[]).map(x=>({
     project: x['프로젝트NO'] || '프로젝트 미확정',
     camp: x['캠프명'] || '-',
@@ -9792,10 +9820,18 @@ function renderDaily(){
         [`${captureBriefAs['신규접수']||0}건`, '돌발AS 신규 접수'],
         [`${captureBriefAs['완료']||0}건`, '돌발AS 당일 완료', '#12813F'],
         [`${captureBriefAs['업무처리']||captureDailyTasks.length}건`, '당일 별도 업무 처리',
-          captureDailyTasks.length?'#1B41BC':'#12813F']
+          captureDailyTasks.length?'#1B41BC':'#12813F'],
+        // 정기점검 하루치 — 대표 지시(2026-08-07): 돌발AS 카드 아랫줄에 점검도 나란히
+        [`${captureBriefPm['예정']||0}건`,
+          `정기점검 당일 예정${captureBriefPm['예정장비']?`(장비 ${captureBriefPm['예정장비']}대)`:''}`],
+        [`${captureBriefPm['완료']||0}건`,
+          `정기점검 당일 완료${captureBriefPm['완료장비']?`(장비 ${captureBriefPm['완료장비']}대)`:''}`, '#12813F'],
+        [`${Math.max(0,(captureBriefPm['예정']||0)-(captureBriefPm['완료']||0))}건`, '정기점검 당일 미실행',
+          ((captureBriefPm['예정']||0)-(captureBriefPm['완료']||0))>0?'#B54708':'#12813F']
       ],
       activities: captureDailyTasks
     } : null,
+    rep:_rep, monthNote:_monthNote,
     kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(ledgerYTD),'원장 정산 공급가액(부가세 별도·원)'],
           ...(erpYTD?[[fmt(erpYTD),'ERP 계산서 발행 누적(원)']]:[]),
           ...(erpGap?[[fmt(erpGap),'원장 미반영(원)','#B54708']]:[]),
@@ -11276,7 +11312,12 @@ async function reportToPng(){
   }));
   const sourceRowHeight = r => Math.max(44, 20 + Math.ceil(Math.max(1,(r.missProjects||[]).length)/3)*32);
   const sourceTableH = 32 + sourceDetails.reduce((n,r)=>n+sourceRowHeight(r),0);
-  let H = 108 + 34 + tiles((D.month||[]).length) + quarterH
+  // 대표 예외보고 블록 — 없을 때도 '미수신' 안내 한 줄을 그리므로 높이를 잡는다
+  const repH = D.rep
+    ? 44 + (D.rep.summary?22:0) + tiles((D.rep.metrics||[]).length)
+        + ((D.rep.docTypes||[]).length ? D.rep.docTypes.length*20+6 : 0)
+    : 44 + 22;
+  let H = 108 + repH + 34 + tiles((D.month||[]).length) + (D.monthNote?18:0) + quarterH
           + 34 + tiles((D.kpi||[]).length) + (D.kpiNote ? 18 : 0)
           + execSecH
           + dailyBriefH + pmProgressH + workLogH
@@ -11392,7 +11433,19 @@ async function reportToPng(){
 
   // ── 통계는 현재 월 → 이번 분기 → 해당 연도 순서로 고정한다.
   const lines = arr => { arr.forEach(t=>{ txt(clip(t, W-70), 34, y+8, F(12), '#475467'); y += 20; }); y += 6; };
+  // ── 대표 예외보고를 맨 앞에 — "정상은 합계만, 예외는 상세" (유수비 대표 틀)
+  if(D.rep){
+    section('대표 예외보고 — '+D.rep.signal+' 신호', null, '#C0212E');
+    if(D.rep.summary){ txt(clip(D.rep.summary, W-70), 34, y+8, F(11.5,700), '#475467'); y+=22; }
+    grid(D.rep.metrics||[]);
+    if((D.rep.docTypes||[]).length) lines(D.rep.docTypes);
+  }else{
+    section('대표 예외보고', null, '#C0212E');
+    txt('예외보고 API 미수신 — 이 캡처에는 예외 집계가 없습니다. 새로고침 후 다시 캡처하세요.',
+        34, y+8, F(11,700), '#B54708'); y+=22;
+  }
   section(D.monthTitle||'현재 월 통계',null,'#4960DF'); grid(D.month||[]);
+  if(D.monthNote){ txt(D.monthNote,30,y+8,F(10),'#98A2B3'); y+=18; }
   if((D.quarter||[]).length){ section(D.quarterTitle||'이번 분기 통계',null,'#2B9560'); grid(D.quarter); }
   section(D.kpiTitle||`${APP_YEAR}년 누적`,null,'#9A5A12'); grid(D.kpi||[]);
   if(D.kpiNote){ txt(D.kpiNote,30,y+8,F(10),'#98A2B3');y+=18; }
@@ -11896,6 +11949,12 @@ async function waitBrief(){
 async function captureReport(){
   let blob;
   try{
+    toast('최신 자료를 받아 그리는 중…');
+    // ★ 0건 캡처의 뿌리: 정산·ERP·예외 7원천이 오기 전에 그리면 전부 0으로 저장되고,
+    //   늦게 온 데이터는 화면만 고칠 뿐 PNG는 못 고친다(2026-08-07 실측 — 누적 4.4억이
+    //   0건으로 나갔다). 캐시도 건너뛰고(fresh) 지금 값을 받은 뒤에만 그린다.
+    //   정산 API가 실패하면 0건 이미지를 만드느니 캡처를 멈추고 알린다.
+    await loadSettle(true);
     // 클릭 시점의 최신 4원천 집계를 다시 묶어 화면과 저장 이미지가 항상 같게 한다.
     await loadRemoteStat();            // 리모컨 현황도 캡처에 싣는다(2026-08-03)
     // ★ BRIEF(일지 대조·핫이슈·분기 경과율)가 로딩 전이면 캡처가 대표 지시 블록을
@@ -11912,6 +11971,8 @@ async function captureReport(){
 async function shareReport(){
   let blob;
   try{
+    toast('최신 자료를 받아 그리는 중…');
+    await loadSettle(true);            // 캡처와 같은 이유 — 0건 통계로 공유되지 않게
     await loadRemoteStat();
     await waitBrief();                 // 캡처와 같은 이유 — 빈 브리핑으로 공유되지 않게
     renderDaily();
