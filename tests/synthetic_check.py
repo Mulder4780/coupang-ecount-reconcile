@@ -251,11 +251,17 @@ def t5_writer(tmp):
     import workbook_patch as WP
     v3 = src.replace("_v1.xlsx", "_v3.xlsx")
     WP.patch(dst, v3, "2026-07-28 #합성", "보완", "상세",
-             "새 사용법", "18 갱신", "20 갱신")
+             "새 사용법", "18 갱신", "20 갱신",
+             extra_rows=[("2026-07-28 #합성2", "묶음제목", "묶음상세")])
     w3 = openpyxl.load_workbook(v3, read_only=True)
     assert w3["00_대시보드"]["A2"].value == "새 사용법"
     assert w3["18_문서발행업무매뉴얼"]["A2"].value == "18 갱신"
     assert w3["20_쿠팡통합업무상세매뉴얼"]["D2"].value == "20 갱신"
+    hand_ws = w3["19_AI작업인수인계"]
+    hand_ws.reset_dimensions()      # 합성 시트 dimension 이 A열뿐이라 B열이 가려진다
+    hand3 = [c.value for row in hand_ws.iter_rows() for c in row]
+    assert "보완" in hand3 and "묶음제목" in hand3, \
+        "예약 여러 건이 한 버전(vN+1 하나)에 함께 실리지 않는다"
     w3.close()
     # 회귀: 스타일만 있는 자기닫힘 빈 셀(<c s=.../>) 바로 뒤에 수식 셀 — 오매칭으로 '값 있음' 오판했던 실사고
     import ledger_writer as LW
@@ -3973,6 +3979,8 @@ def t93_ledger_db_and_ux():
         "11·15시 회차가 구조 시트·재계산을 함께 수행하지 않는다"
     assert "def handoff_add(" in src and '"workbook_patch.py"' in src, \
         "19시트 종료 인수인계가 11·15시 회차에 예약되지 않는다"
+    assert '"--batch"' in src and "for item in pending_handoffs()" not in src, \
+        "19시트 예약을 건마다 따로 반영해 vN+1 이 건수만큼 폭증한다(--batch 로 묶을 것)"
     schedule = open(os.path.join(ROOT, "install_ledger_schedule.ps1"), encoding="utf-8").read()
     assert '"11:00"' in schedule and '"15:00"' in schedule
     assert "MultipleInstances IgnoreNew" in schedule and "ledger_db.py --apply" in schedule

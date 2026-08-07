@@ -10,6 +10,7 @@ workbook_patch.py — 관리대장 안전 버전업 도구 (vN → vN+1)
 
 사용:
     python workbook_patch.py --b "작업 제목" --c "상세 내용"
+    python workbook_patch.py --batch rows.json     # [{"b":…,"c":…}…] 여러 행을 vN+1 하나에
     (--a 생략 시 오늘 날짜 + 자동 순번, 원본은 보존되고 vN+1 파일이 새로 생성됨)
 """
 import sys, os, re, json, glob, zipfile, argparse
@@ -158,17 +159,22 @@ def set_dashboard_cutoff(zin, changed, verify, cutoff):
     if n != 1:
         raise AssertionError("dashboard cutoff number format 177 not found")
     changed["xl/styles.xml"] = updated.encode("utf-8")
-    verify[dash_name] = ("cutoff", (display, number_format))
+    verify[dash_name] = [("cutoff", (display, number_format))]
 
 
 def patch(src, dst, a, b, c, a2="", manual18="", manual20="",
-          manual20_title="", manual20_area="", cutoff=""):
+          manual20_title="", manual20_area="", cutoff="", extra_rows=None):
+    """extra_rows=[(a,b,c)…] 를 주면 19시트 여러 행이 **한 버전(vN+1 하나)** 에 함께 실린다.
+    건마다 따로 부르면 버전이 건수만큼 늘어난다 — 2026-08-07 실사고(25분 새 v542→v554)."""
     zin = zipfile.ZipFile(src)
     target = sheet_xml_path(zin, SHEET_NAME)
-    xml, nr = append_row(zin.read(target).decode("utf-8"),
-                         [("A", a, False), ("B", b, False), ("C", c, False)])
+    xml = zin.read(target).decode("utf-8")
+    added = []
+    for ra, rb, rc in [(a, b, c)] + [tuple(r) for r in (extra_rows or [])]:
+        xml, nr = append_row(xml, [("A", ra, False), ("B", rb, False), ("C", rc, False)])
+        added.append((nr, [ra, rb, rc]))
     changed = {target: xml.encode("utf-8")}
-    verify = {SHEET_NAME: (nr, [a, b, c])}
+    verify = {SHEET_NAME: added}
 
     if a2:
         path = sheet_xml_path(zin, "00_대시보드")
@@ -181,7 +187,7 @@ def patch(src, dst, a, b, c, a2="", manual18="", manual20="",
         path = sheet_xml_path(zin, name)
         x, rown = append_row(zin.read(path).decode("utf-8"), [("A", manual18, False)])
         changed[path] = x.encode("utf-8")
-        verify[name] = (rown, [manual18])
+        verify[name] = [(rown, [manual18])]
     if manual20:
         name = "20_쿠팡통합업무상세매뉴얼"
         path = sheet_xml_path(zin, name)
@@ -196,7 +202,7 @@ def patch(src, dst, a, b, c, a2="", manual18="", manual20="",
             ("D", manual20, False),
         ])
         changed[path] = x.encode("utf-8")
-        verify[name] = (rown, [rown, title, area, manual20])
+        verify[name] = [(rown, [rown, title, area, manual20])]
 
     tmp = dst[:-5] + ".tmp.xlsx"
     if os.path.exists(tmp):
@@ -214,18 +220,19 @@ def patch(src, dst, a, b, c, a2="", manual18="", manual20="",
     assert z.testzip() is None, "zip 무결성 실패"
     import openpyxl
     w = openpyxl.load_workbook(tmp, read_only=True)
-    for name, (rown, expected) in verify.items():
-        if rown == "cutoff":
-            dash = w[name]
-            display, number_format = expected
-            expected_value = timedelta(days=1) if display == "24:00" else clock_time(*map(int, display.split(":")))
-            assert dash["B5"].value == expected_value, f"dashboard B5 is not {display}"
-            assert dash["B5"].number_format == number_format, "dashboard B5 number format mismatch"
-            assert dash["C3"].value and display in str(dash["C3"].value), "dashboard cutoff guide missing"
-            continue
-        vals = [cell.value for cell in next(
-            w[name].iter_rows(min_row=rown, max_row=rown, max_col=len(expected)))]
-        assert vals == expected, f"{name} 행 재독 실패: {vals}"
+    for name, entries in verify.items():
+        for rown, expected in entries:
+            if rown == "cutoff":
+                dash = w[name]
+                display, number_format = expected
+                expected_value = timedelta(days=1) if display == "24:00" else clock_time(*map(int, display.split(":")))
+                assert dash["B5"].value == expected_value, f"dashboard B5 is not {display}"
+                assert dash["B5"].number_format == number_format, "dashboard B5 number format mismatch"
+                assert dash["C3"].value and display in str(dash["C3"].value), "dashboard cutoff guide missing"
+                continue
+            vals = [cell.value for cell in next(
+                w[name].iter_rows(min_row=rown, max_row=rown, max_col=len(expected)))]
+            assert vals == expected, f"{name} 행 재독 실패: {vals}"
     if a2:
         assert w["00_대시보드"]["A2"].value == a2, "00_대시보드 A2 재독 실패"
     w.close()
@@ -234,7 +241,7 @@ def patch(src, dst, a, b, c, a2="", manual18="", manual20="",
     assert not diff, f"의도치 않은 파트 변경: {diff}"
     zsrc.close(); z.close()
     os.replace(tmp, dst)
-    return nr
+    return [n for n, _ in added]
 
 
 def main():
@@ -243,8 +250,10 @@ def main():
     require("ledger", "workbook_patch")
     ap = argparse.ArgumentParser()
     ap.add_argument("--a", default="", help="A열(날짜 #순번). 생략 시 자동")
-    ap.add_argument("--b", required=True, help="B열(작업 제목)")
-    ap.add_argument("--c", required=True, help="C열(상세 내용)")
+    ap.add_argument("--b", default="", help="B열(작업 제목)")
+    ap.add_argument("--c", default="", help="C열(상세 내용)")
+    ap.add_argument("--batch", default="", metavar="JSON",
+                    help="여러 행을 한 버전(vN+1 하나)에 함께: [{'a'?,'b','c'}…] JSON 파일")
     ap.add_argument("--a2", default="", help="00_대시보드 A2 사용법 전체 문구 교체(선택)")
     ap.add_argument("--manual18", default="", help="18_문서발행업무매뉴얼 끝행 추가 문구(선택)")
     ap.add_argument("--manual20", default="", help="20_쿠팡통합업무상세매뉴얼 끝행 추가 설명(선택)")
@@ -256,17 +265,35 @@ def main():
                     help="호환용 별칭: --cutoff 24:00")
     args = ap.parse_args()
 
+    rows = []
+    if args.batch:
+        data = json.load(open(args.batch, encoding="utf-8"))
+        if not isinstance(data, list) or not data:
+            sys.exit("--batch JSON 은 비어 있지 않은 목록이어야 합니다")
+        for i, it in enumerate(data, 1):
+            bt, ct = str(it.get("b") or "").strip(), str(it.get("c") or "").strip()
+            if not bt or not ct:
+                sys.exit(f"--batch {i}번째 항목에 b·c 가 모두 필요합니다")
+            rows.append((str(it.get("a") or "").strip()
+                         or f"{date.today().isoformat()} #auto{i}", bt, ct))
+    if args.b or args.c:
+        if not (args.b and args.c):
+            ap.error("--b 와 --c 는 함께 필요합니다")
+        rows.insert(0, (args.a or f"{date.today().isoformat()} #auto", args.b, args.c))
+    if not rows:
+        ap.error("--b/--c 또는 --batch 가 필요합니다")
+
     src, v = latest_master()
     dst = src.replace(f"_v{v}.xlsx", f"_v{v+1}.xlsx")
     if os.path.exists(dst):
         sys.exit(f"{os.path.basename(dst)} 이미 존재 — 중복 실행 방지를 위해 중단")
-    a = args.a or f"{date.today().isoformat()} #auto"
     if args.cutoff and args.cutoff24:
         ap.error("--cutoff과 --cutoff24는 함께 사용할 수 없습니다")
     cutoff = args.cutoff or ("24:00" if args.cutoff24 else "")
-    nr = patch(src, dst, a, args.b, args.c, args.a2, args.manual18, args.manual20,
-               args.manual20_title, args.manual20_area, cutoff)
-    print(f"OK: v{v} → v{v+1} 생성, {SHEET_NAME} {nr}행 추가, 검증 3종 통과")
+    (a0, b0, c0), extra = rows[0], rows[1:]
+    nrs = patch(src, dst, a0, b0, c0, args.a2, args.manual18, args.manual20,
+                args.manual20_title, args.manual20_area, cutoff, extra_rows=extra)
+    print(f"OK: v{v} → v{v+1} 생성, {SHEET_NAME} {len(nrs)}행 추가, 검증 3종 통과")
     print("   ", dst)
 
 

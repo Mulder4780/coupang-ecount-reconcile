@@ -1461,11 +1461,17 @@ def scheduled_workbook_maintenance(now=None):
             results.append({"단계": name, "성공": False,
                             "메모": f"{type(exc).__name__}: {exc}"[:240]})
     # 인수인계는 이 회차에서 만들어진 최종본의 19시트에 마지막으로 기록한다.
-    for item in pending_handoffs():
+    # ★ 예약이 몇 건이든 workbook_patch **한 번(--batch)** 으로 묶는다 — 건마다 따로
+    #   부르면 vN+1 이 건수만큼 생긴다(2026-08-07 실사고: 25분 새 v542→v554).
+    items = pending_handoffs()
+    if items:
         try:
+            os.makedirs(REPORT_DIR, exist_ok=True)
+            batch_file = os.path.join(REPORT_DIR, "handoff_batch.json")
+            atomic_json_dump([{"b": i["title"], "c": i["detail"]} for i in items], batch_file)
             r = subprocess.run(
                 [sys.executable, os.path.join(ROOT, "workbook_patch.py"),
-                 "--b", item["title"], "--c", item["detail"]],
+                 "--batch", batch_file],
                 cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
                 errors="replace", timeout=1800, env=env,
             )
@@ -1473,13 +1479,15 @@ def scheduled_workbook_maintenance(now=None):
                      if x.strip()]
             ok = r.returncode == 0
             results.append({"단계": "19_AI작업인수인계", "성공": ok,
-                            "메모": (lines[-1] if lines else "")[:240]})
+                            "메모": (f"{len(items)}건 일괄 · "
+                                    + (lines[-1] if lines else ""))[:240]})
             if ok:
                 with conn() as c:
-                    c.execute(
+                    c.executemany(
                         "UPDATE handoff SET status='applied',applied_at=?"
                         " WHERE id=? AND status='pending'",
-                        (datetime.now().isoformat(timespec="seconds"), item["id"]),
+                        [(datetime.now().isoformat(timespec="seconds"), i["id"])
+                         for i in items],
                     )
         except Exception as exc:
             results.append({"단계": "19_AI작업인수인계", "성공": False,
