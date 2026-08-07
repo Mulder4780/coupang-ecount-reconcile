@@ -2189,18 +2189,44 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
 /* ── 워크플로우 (2026-08-07 지시) ──────────────────────────────────────────
    단계를 세로로 잇고 사이에 화살표를 둔다. 가로로 늘어놓으면 폰에서 잘리고,
    단계가 늘 때마다 글자가 작아진다 — 세로는 몇 개가 되든 읽히는 크기를 지킨다. */
-.flow-wrap{display:flex;flex-direction:column;gap:0;margin-top:6px}
-.flow-step{display:grid;grid-template-columns:30px 1fr auto;gap:10px;align-items:center;
-  padding:11px 13px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
-.flow-no{width:26px;height:26px;border-radius:999px;background:var(--brand-tint);
-  color:var(--brand-dk);font:800 13px inherit;display:grid;place-items:center}
-.flow-name{font-weight:800;font-size:15px}
-.flow-sub{font-size:13px;color:var(--ink-3);margin-top:2px}
-.flow-day{font:800 13px inherit;color:var(--brand-dk);white-space:nowrap;
-  background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:4px 10px}
-.flow-arrow{height:16px;position:relative}
-.flow-arrow::before{content:'';position:absolute;left:28px;top:0;bottom:0;
-  width:2px;background:var(--line)}
+/* ★ 마인드맵 꼴 (2026-08-07 지시) — 줄기 하나에 가지가 달린 모양.
+   줄기는 왼쪽 세로선, 번호는 줄기 위의 마디, 카드는 거기서 뻗어 나온 가지다.
+   가지 색은 **담당**으로 나눈다 — 색이 곧 "누가 하느냐"라서 눈으로 구간이 보인다
+   (장식용 색은 쓰지 않는다. 뜻 없는 색은 읽는 사람을 헷갈리게 한다). */
+.flow-wrap{position:relative;padding-left:40px;margin-top:10px}
+.flow-wrap::before{content:'';position:absolute;left:17px;top:14px;bottom:14px;width:3px;
+  border-radius:3px;background:linear-gradient(180deg,var(--brand),var(--ok) 55%,#B25000)}
+.flow-step{position:relative;display:grid;grid-template-columns:1fr auto;gap:10px;
+  align-items:center;padding:12px 14px;border:1px solid var(--line);border-radius:16px;
+  background:var(--surface);box-shadow:0 1px 3px rgba(16,24,40,.06);
+  border-left:5px solid var(--flow-c,var(--brand));margin-bottom:12px;
+  transition:transform .12s ease, box-shadow .12s ease}
+.flow-step::before{content:'';position:absolute;left:-26px;top:50%;width:26px;height:2px;
+  background:var(--line)}                                  /* 줄기에서 뻗은 가지 */
+/* -43px 인 이유: 절대위치는 **테두리 안쪽**(패딩 상자) 기준이라, 카드의 5px 왼쪽
+   테두리만큼 마디가 오른쪽으로 밀린다. 그만큼 빼야 줄기 한가운데에 앉는다
+   (보정 전 실측 3.3px 어긋남 — 선과 마디가 어긋나면 마인드맵으로 안 보인다). */
+.flow-no{position:absolute;left:-43px;top:50%;transform:translateY(-50%);
+  width:34px;height:34px;border-radius:999px;background:var(--surface);
+  border:3px solid var(--flow-c,var(--brand));color:var(--flow-c,var(--brand-dk));
+  font:800 14px inherit;display:grid;place-items:center;z-index:2}
+.flow-name{font-weight:800;font-size:15.5px;letter-spacing:-.2px}
+.flow-sub{font-size:13.5px;color:var(--ink-3);margin-top:3px}
+.flow-who{display:inline-block;font:800 12.5px inherit;color:var(--flow-c,var(--brand-dk));
+  background:var(--flow-bg,var(--brand-tint));border-radius:999px;padding:2px 9px;margin-right:6px}
+.flow-day{font:800 14px inherit;color:var(--surface);white-space:nowrap;
+  background:var(--flow-c,var(--brand));border-radius:999px;padding:5px 12px}
+/* 길게 눌러 집었을 때 — 집힌 카드는 떠 보이고, 놓을 자리는 점선으로 열린다 */
+.flow-step.held{transform:scale(1.02);box-shadow:0 10px 24px rgba(16,24,40,.22);
+  border-style:dashed;z-index:3}
+.flow-drop{height:34px;margin:-6px 0 6px;border:2px dashed var(--brand);border-radius:12px;
+  background:var(--brand-tint);cursor:pointer;display:grid;place-items:center;
+  font:800 12.5px inherit;color:var(--brand-dk)}
+.flow-bar{position:sticky;bottom:8px;z-index:4;display:flex;gap:8px;flex-wrap:wrap;
+  background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:8px;
+  box-shadow:0 6px 20px rgba(16,24,40,.18);margin-top:8px}
+.flow-bar b{align-self:center;font-size:13.5px;margin:0 4px}
+@media (prefers-reduced-motion:reduce){.flow-step{transition:none}}
 .flow-edit{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}
 .flow-edit input{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:9px;
   background:var(--surface);color:var(--ink);font:inherit;font-size:13.5px}
@@ -5392,7 +5418,8 @@ function applyView(v){
     else renderCalendarPage();
   }
   if(v==='check') renderCheckHub();
-  if(v==='flow' && !FLOW_EDITING) loadFlow();   // 고치는 중이면 덮지 않는다
+  // 고치는 중이거나 아직 저장 안 한 변경이 있으면 덮지 않는다 — 덮으면 말없이 사라진다
+  if(v==='flow' && !FLOW_EDITING && !FLOW_DIRTY) loadFlow();
   // ★ 여기가 비어 있었다 — [보고] 를 열어도 아무것도 안 받고, **누른 다음에야**
   //   받기 시작해서 버튼이 굳었다(2026-08-07 지시로 재설계). 화면은 막지 않는다.
   if(v==='daily') warmReport();
@@ -5886,30 +5913,124 @@ async function loadFlow(){
     const d = await api('/api/flow');
     FLOW = d.steps || [];
   }catch(e){ FLOW = []; }
+  FLOW_DIRTY = false;            // 방금 서버에서 받았다 — 저장할 것이 없다
   flowRender();
 }
+/* 담당마다 고정된 색. 이름이 같으면 언제나 같은 색이라 눈이 구간을 기억한다.
+   목록에 없는 이름은 이름 글자에서 색을 뽑아 쓴다(새 담당이 생겨도 색이 생긴다). */
+const FLOW_COLORS = ['#0062CC','#12813F','#B25000','#7A3DB8','#0E7490','#B3261E'];
+/* 색은 **등장 순서**로 준다. 이름 해시로 뽑았더니 담당 둘이 같은 색을 받았고
+   (실측: 류지영·담당기사 둘 다 초록) 그러면 "색이 곧 담당"이라는 뜻이 깨진다.
+   실제 담당은 넷 안팎이라 순서 배정이면 충돌이 없다. */
+function flowPalette(steps){
+  const seen = [];
+  (steps||[]).forEach(s=>{ const k=String(s.담당||'').trim();
+    if(k && !seen.includes(k)) seen.push(k); });
+  const m = {};
+  seen.forEach((k,i)=>{ const c=FLOW_COLORS[i % FLOW_COLORS.length];
+    m[k] = {c, bg:c+'1A'};});                  // 1A = 10% 불투명 — 옅은 바탕
+  return m;
+}
+function flowColor(who, pal){
+  const k = String(who||'').trim();
+  return (k && pal && pal[k]) || {c:'var(--ink-3)', bg:'var(--panel)'};
+}
+let FLOW_HELD = -1;                            // 길게 눌러 집은 카드(없으면 -1)
 function flowRender(){
-  FLOW_EDITING = false;
+  FLOW_EDITING = false; FLOW_HELD = -1;
   const w = $('flowWrap'); if(!w) return;
   ['flowSaveBtn','flowCancelBtn','flowAddBtn'].forEach(i=>{const b=$(i); if(b) b.hidden=true;});
   ['flowEditBtn','flowUndoBtn'].forEach(i=>{const b=$(i); if(b) b.hidden=false;});
   if(!FLOW.length){ w.innerHTML='<div class="flow-sub">흐름이 비어 있습니다 — [수정]에서 단계를 추가하세요.</div>'; return; }
-  let cum = 0;
+  const pal = flowPalette(FLOW);
   w.innerHTML = FLOW.map((s,i)=>{
     const d = Number.isFinite(+s.소요일) ? +s.소요일 : null;
-    if(d!=null) cum = d;                       // 저장값이 이미 누계(D+N)다
-    const sub = [s.담당, s.근거].filter(Boolean).map(esc2).join(' · ');
-    return (i?'<div class="flow-arrow"></div>':'') +
-      `<div class="flow-step">
+    const col = flowColor(s.담당, pal);
+    const rest = [s.근거].filter(Boolean).map(esc2).join(' · ');
+    return `<div class="flow-step" data-i="${i}" style="--flow-c:${col.c};--flow-bg:${col.bg}">
          <div class="flow-no">${i+1}</div>
          <div><div class="flow-name">${esc2(s.단계||'')}</div>
-              ${sub?`<div class="flow-sub">${sub}</div>`:''}
+              <div class="flow-sub">${s.담당?`<span class="flow-who">${esc2(s.담당)}</span>`:''}${rest}</div>
               ${s.메모?`<div class="flow-sub">${esc2(s.메모)}</div>`:''}</div>
          <div class="flow-day">${d==null?'—':'D+'+d}</div>
        </div>`;
   }).join('');
+  flowBindHold(w);
   const last = FLOW.filter(s=>Number.isFinite(+s.소요일)).pop();
-  $('flowMeta').textContent = `— ${FLOW.length}단계` + (last?` · 접수에서 수금까지 D+${+last.소요일}`:'');
+  $('flowMeta').textContent = `— ${FLOW.length}단계` + (last?` · 접수에서 수금까지 D+${+last.소요일}`:'')
+    + ' · 카드를 길게 누르면 옮기거나 고칠 수 있습니다';
+}
+/* ── 길게 눌러 집기 (2026-08-07 지시) ──────────────────────────────────────
+   대시보드 카드가 이미 쓰는 말투 그대로다 — **집고, 놓을 자리를 누른다**(검증 [128]).
+   끌기(drag)로 하지 않는 이유: 폰에서 끌면 화면이 같이 스크롤돼 긴 목록에서
+   먼 자리로 못 옮긴다. 집어 두면 스크롤은 그대로 되고 자리만 누르면 된다. */
+const FLOW_HOLD_MS = 500;
+function flowBindHold(w){
+  w.querySelectorAll('.flow-step[data-i]').forEach(el=>{
+    let t = null;
+    const start = e => {
+      if(FLOW_HELD >= 0) return;               // 이미 집은 것이 있으면 그것부터 놓는다
+      const i = +el.dataset.i;
+      t = setTimeout(()=>{ t=null; flowHold(i); }, FLOW_HOLD_MS);
+    };
+    const cancel = () => { if(t){ clearTimeout(t); t=null; } };
+    el.addEventListener('pointerdown', start);
+    ['pointerup','pointerleave','pointercancel'].forEach(ev=>el.addEventListener(ev, cancel));
+    el.addEventListener('contextmenu', e=>{ if(FLOW_HELD>=0) e.preventDefault(); });
+  });
+}
+function flowHold(i){
+  FLOW_HELD = i;
+  try{ navigator.vibrate && navigator.vibrate(12); }catch(_){}   // 집혔다는 손끝 신호
+  const w = $('flowWrap');
+  w.querySelectorAll('.flow-step').forEach(el=>el.classList.toggle('held', +el.dataset.i===i));
+  // 놓을 자리를 연다 — 집은 카드의 제자리와 바로 뒤는 옮길 곳이 아니라 열지 않는다
+  [...w.querySelectorAll('.flow-step')].forEach((el,idx)=>{
+    if(idx===i || idx===i+1) return;
+    const z = document.createElement('div');
+    z.className = 'flow-drop'; z.textContent = '여기로';
+    z.onclick = () => flowDropAt(idx);
+    el.parentNode.insertBefore(z, el);
+  });
+  if(i !== FLOW.length-1){
+    const z = document.createElement('div');
+    z.className='flow-drop'; z.textContent='맨 아래로';
+    z.onclick = () => flowDropAt(FLOW.length);
+    w.appendChild(z);
+  }
+  const bar = document.createElement('div');
+  bar.className = 'flow-bar';
+  bar.innerHTML = `<b>${esc2(FLOW[i].단계||'이 단계')}</b>`;
+  const add = (label, fn, danger) => {
+    const b=document.createElement('button'); b.className='abtn'; b.textContent=label;
+    if(danger) b.style.color='var(--danger)';
+    b.onclick=fn; bar.appendChild(b);
+  };
+  add('수정', ()=>{ const k=FLOW_HELD; flowEdit(); setTimeout(()=>{
+        const f=document.querySelector(`.flow-step[data-i="${k}"] [data-f="단계"]`);
+        if(f){ f.focus(); f.scrollIntoView({block:'center'}); } },60); });
+  add('삭제', async ()=>{
+        if(!await askYesNo(`'${FLOW[FLOW_HELD].단계}' 단계를 지울까요?`)) return;
+        FLOW.splice(FLOW_HELD,1); flowRender(); toast('지웠습니다 — [저장]을 눌러야 반영됩니다');
+        flowMarkDirty(); }, true);
+  add('취소', ()=>flowRender());
+  w.appendChild(bar);
+  bar.scrollIntoView({block:'nearest'});
+}
+function flowDropAt(to){
+  const from = FLOW_HELD; if(from<0) return;
+  const [it] = FLOW.splice(from,1);
+  FLOW.splice(to > from ? to-1 : to, 0, it);
+  flowRender(); flowMarkDirty();
+  toast('옮겼습니다 — [저장]을 눌러야 반영됩니다');
+}
+/* 옮기거나 지운 것은 아직 DB 에 안 들어갔다. 그 사실을 화면이 말한다 —
+   말하지 않으면 사람은 저장한 줄 알고 나가 버리고, 다음에 열면 그대로다. */
+let FLOW_DIRTY = false;
+function flowMarkDirty(){
+  FLOW_DIRTY = true;
+  const b=$('flowSaveBtn'); if(b){ b.hidden=false; b.textContent='저장(변경됨)'; }
+  const c=$('flowCancelBtn'); if(c) c.hidden=false;
 }
 function flowEdit(){
   FLOW_EDITING = true;
@@ -5954,7 +6075,9 @@ function flowAddStep(){
   flowEdit();
 }
 async function flowSave(){
-  const steps = flowCollect().filter(s=>s.단계);
+  // 수정 모드면 입력칸에서 걷고, 보기 모드에서 옮기거나 지운 것이면 FLOW 가 이미 정답이다.
+  // (예전엔 언제나 입력칸을 읽어, 길게 눌러 옮긴 뒤 저장하면 빈 목록이 됐다)
+  const steps = (FLOW_EDITING ? flowCollect() : FLOW).filter(s=>s.단계);
   if(!steps.length) return notice('단계 이름이 있는 줄이 하나도 없습니다');
   try{
     const r = await api('/api/flow',{method:'POST',headers:{'Content-Type':'application/json'},

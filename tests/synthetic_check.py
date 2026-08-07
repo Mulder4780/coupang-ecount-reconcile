@@ -8205,15 +8205,32 @@ def t142_flow_editable():
         "흐름 저장이 인증 없이 열려 있다"
     # ③ 화면: 좌측 카테고리 · 뷰 · 수정/저장/되돌리기가 실제로 이어져 있나
     assert 'data-v="flow"' in live and 'id="v-flow"' in live
-    assert "if(v==='flow' && !FLOW_EDITING) loadFlow();" in live, \
-        "고치는 중에 다시 불러 덮어쓴다 — 입력하던 것이 사라진다"
+    assert "if(v==='flow' && !FLOW_EDITING && !FLOW_DIRTY) loadFlow();" in live, \
+        "고치는 중이거나 저장 전 변경이 있는데 다시 불러 덮어쓴다 — 말없이 사라진다"
     for fn in ("loadFlow", "flowRender", "flowEdit", "flowSave", "flowUndo",
                "flowAddStep", "flowDel", "flowMove", "flowCollect"):
         assert f"function {fn}(" in live, f"{fn} 이 없다"
     # ④ 아이콘은 스프라이트에 있는 것만 쓴다(없으면 빈 네모가 뜬다 — 검증 [91])
     icon = live.split('data-v="flow"')[1].split('href="#')[1].split('"')[0]
     assert f'id="{icon}"' in live, f"워크플로우 아이콘 {icon} 이 스프라이트에 없다"
-    print("  [142] 워크플로우 — 통째 저장·되돌리기 왕복 무손실·빈 흐름 거부·화면 배선 ✅")
+    # ⑤ 길게 눌러 집기 (2026-08-07 지시: "각 카드를 길게 눌러 이동 수정 가능한 구조").
+    #   대시보드 카드와 **같은 말투**여야 한다 — 집고, 놓을 자리를 누른다(검증 [128]).
+    #   끌기로 하지 않는 이유: 폰에서 끌면 화면이 같이 스크롤돼 먼 자리로 못 옮긴다.
+    assert "function flowHold(" in live and "function flowDropAt(" in live
+    assert "FLOW_HOLD_MS" in live and "pointerdown" in live.split("function flowBindHold(")[1][:600], \
+        "길게 누르기가 배선돼 있지 않다"
+    # ⑥ 옮긴 뒤 저장하면 **화면의 순서**가 저장돼야 한다. 예전엔 언제나 입력칸을
+    #   읽어서, 보기 모드에서 옮긴 뒤 저장하면 빈 목록이 됐다.
+    assert "(FLOW_EDITING ? flowCollect() : FLOW)" in live, \
+        "보기 모드에서 옮긴 순서가 저장되지 않는다"
+    # ⑦ 저장 안 한 변경을 말없이 덮지 않는다
+    assert "!FLOW_EDITING && !FLOW_DIRTY" in live, "저장 전 변경을 다시 불러 덮는다"
+    assert "function flowMarkDirty(" in live and "저장(변경됨)" in live, \
+        "안 저장된 변경이 있다는 것을 화면이 말하지 않는다"
+    # ⑧ 색은 등장 순서로 — 해시로 뽑으면 담당 둘이 같은 색을 받는다(실측)
+    assert "function flowPalette(" in live and "seen.includes(k)" in live, \
+        "담당 색이 충돌할 수 있다 — 색이 곧 담당이라는 뜻이 깨진다"
+    print("  [142] 워크플로우 — 저장/되돌리기 왕복·길게 눌러 집기·담당색 충돌 없음 ✅")
 
 
 def t136_work_lanes():
