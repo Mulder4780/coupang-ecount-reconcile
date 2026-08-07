@@ -25,6 +25,8 @@ import sys
 from ctypes import wintypes
 
 SW_SHOWNOACTIVATE = 4          # 보이게 하되 활성화하지 않는다 (초점 유지)
+HWND_TOP = 0
+SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE = 0x0002, 0x0001, 0x0010
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -69,20 +71,28 @@ def run(apply=False, title="Chrome"):
     if not found:
         print(f"✗ 제목에 '{title}' 이 든 창을 못 찾았다 — 크롬이 떠 있는지 확인할 것")
         return 1
-    changed = 0
+    u, changed = _u32(), 0
     for hwnd, name, minimized in found:
         state = "최소화됨" if minimized else "보임"
         print(f"  [{state}] {name[:60]}")
-        if minimized and apply:
-            # 초점을 옮기지 않는다 — 옆 세션에서 타이핑 중일 수 있다.
-            _u32().ShowWindow(hwnd, SW_SHOWNOACTIVATE)
-            changed += 1
+        if not apply:
+            continue
+        # 초점은 절대 옮기지 않는다 — 옆 세션에서 타이핑 중일 수 있다.
+        if minimized:
+            u.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
+        else:
+            # ★ '보임'인데도 hidden 인 경우가 있다 (2026-08-07 실측).
+            #   크롬은 **다른 창에 완전히 가려진** 창의 탭도 hidden 으로 본다
+            #   (native window occlusion). 최소화가 아니므로 ShowWindow 로는 안 풀린다.
+            #   Z순서만 위로 올리고 활성화는 하지 않는다 — 키보드 초점은 그대로다.
+            u.SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0,
+                           SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+        changed += 1
     if not apply:
         print("  (바꾸지 않음 — 실제로 되살리려면 --apply)")
-    elif changed:
-        print(f"→ {changed}개 창을 초점 없이 되살렸다. 이제 수집기가 시작할 수 있다.")
     else:
-        print("→ 최소화된 창이 없다. 그래도 hidden 이면 탭이 그 창의 활성 탭이 아니다.")
+        print(f"→ {changed}개 창을 초점 없이 앞으로 올렸다. 이제 수집기가 시작할 수 있다.")
+        print("  (키보드 초점은 쓰던 창에 그대로 — 옆 세션 작업이 끊기지 않는다)")
     return 0
 
 
