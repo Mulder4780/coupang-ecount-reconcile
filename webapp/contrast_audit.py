@@ -68,6 +68,10 @@ def over(fg, alpha, bg):
 def parse_color(value, vars_, bg):
     """CSS 색 문자열 → (r,g,b). 못 읽으면 None. var()·rgba()·#RGB(A) 를 다룬다."""
     v = str(value or "").strip().lower()
+    mp = mix_parts(v)
+    if mp:                                  # color-mix(in srgb, X p%, transparent)
+        base = parse_color(mp[0], vars_, bg)
+        return over(base, mp[1], bg) if base else None
     for _ in range(4):                      # var(--a, var(--b, #fff)) 중첩 풀기
         m = re.match(r"var\(\s*(--[\w-]+)\s*(?:,\s*(.+))?\)$", v)
         if not m:
@@ -195,8 +199,33 @@ def bg_value(decl):
     raw = decl.get("background-color") or decl.get("background") or ""
     if not raw:
         return ""
+    # ★ `color-mix()` 를 **먼저** 잡는다 (2026-08-08 실측).
+    #   안에 `var(--danger)` 가 들어 있어서 아래 var 규칙이 그것만 뜯어 갔다.
+    #   그러면 12% 옅은 배경이 **원색 그대로**로 읽혀, 같은 색 글자가 명암비 1.0 이
+    #   된다 — 멀쩡한 화면에 없는 문제를 만들어 낸다(`.pj-stat.warn .v`).
+    m = re.search(r"color-mix\([^()]*(?:\([^()]*\)[^()]*)*\)", raw, re.I)
+    if m:
+        return m.group(0)
     m = re.search(r"(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|var\(\s*--[\w-]+[^)]*\))", raw)
     return m.group(1) if m else raw.split()[0]
+
+
+def mix_parts(value):
+    """`color-mix(in srgb, X p%, transparent)` → (X, 0~1 불투명도). 아니면 None.
+
+    투명과 섞은 색은 **밑에 무엇이 깔렸느냐**로 실제 색이 달라진다 — rgba 와 같다.
+    그래서 여기서 확정하지 않고 조상 배경 위에 합성해야 참값이 나온다.
+    """
+    m = re.match(r"color-mix\(\s*in\s+srgb\s*,(.+)\)$", str(value or "").strip(), re.I)
+    if not m:
+        return None
+    parts = [p.strip() for p in re.split(r",(?![^()]*\))", m.group(1))]
+    if len(parts) != 2 or parts[1].lower().rstrip("0123456789%. ") not in ("transparent",):
+        return None
+    pm = re.match(r"(.+?)\s+([\d.]+)%$", parts[0])
+    if not pm:
+        return None
+    return pm.group(1).strip(), max(0.0, min(1.0, float(pm.group(2)) / 100.0))
 
 
 def opaque(value, vars_):
@@ -208,6 +237,8 @@ def opaque(value, vars_):
     반투명이면 여기서 확정하지 않고 **더 위 조상**을 계속 찾는다.
     """
     v = str(value or "").strip().lower()
+    if mix_parts(v):
+        return False        # 투명과 섞였다 — 밑을 봐야 실제 색이 나온다(rgba 와 같다)
     for _ in range(4):
         m = re.match(r"var\(\s*(--[\w-]+)\s*(?:,\s*(.+))?\)$", v)
         if not m:

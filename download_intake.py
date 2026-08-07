@@ -101,7 +101,7 @@ def plan_moves():
                 kind = classify(p)
             except Exception:
                 continue
-            if kind in ("taxinv", "ledger", "sales", "tax", "stmt", "slips", "hometax", "po", "receipt"):
+            if kind in ("taxinv", "taxstep", "ledger", "sales", "tax", "stmt", "slips", "hometax", "po", "receipt"):
                 base = S.COUPANG_DIR if kind == "po" else (S.RECEIPT_DIR if kind == "receipt" else S.ERP_DIR)
                 moves.append((p, _dated(base), f"내용판별({kind})"))
             elif _erp_filename(os.path.basename(p)):

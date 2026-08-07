@@ -135,6 +135,7 @@ KIND_LABEL = {
     "ERP:sales":  "매출계산서조회",
     "ERP:taxinv": "매출세금계산서",
     "ERP:tax":    "세금계산서현황",
+    "ERP:taxstep": "계산서진행단계(잔량)",
     "ERP:slips":  "회계전표·거래",
     "ERP:hometax": "홈택스",
     "ERP 거래명세서(건별 PDF)": "거래명세서 PDF",
@@ -434,6 +435,36 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
     if (c) { c.click(); return true; }
     return false;
   };
+  // ★ 화면마다 마크업이 **두 종류**다 (2026-08-08 실측).
+  //   · 계정별원장류 → `data-cid="simpleSearch|searchGroup|outputExcel"` 가 있다.
+  //   · (세금)계산서진행단계(E010849)·매출(세금)계산서현황(세무) → `data-cid` 가
+  //     `year`·`month` 뿐이고 버튼은 **글자로만** 잡힌다. 격자는 `#grid-main`.
+  //   그래서 cid 로 먼저 찾고, 없으면 글자로 다시 찾는다. cid 만 보면 이 두 화면은
+  //   영영 "기간 프리셋 없음"으로 실패한다 — 버튼은 멀쩡히 있는데도.
+  const shown = e => {                       // ★ `offsetParent` 로 재지 말 것.
+    // position:fixed 안의 버튼은 offsetParent 가 null 이다. 실측에서 `검색(F8)` 이
+    // '후보 1개, 보이는 것 0개'로 걸러졌다. 사각형 유무가 정확한 잣대다.
+    try { return e.getClientRects().length > 0; } catch (_) { return true; }
+  };
+  const pick = (cid, txt, exact) => {
+    const hit = list => list.find(e => {
+      const t = (e.textContent || '').trim();
+      return exact ? t === txt : t.startsWith(txt);
+    });
+    if (cid) {
+      const byCid = [...document.querySelectorAll('button[data-cid="' + cid + '"]')];
+      const c = hit(byCid.filter(shown)) || hit(byCid);
+      if (c) return c;
+    }
+    // 글자로 다시 — 후보만 모으고 그 몇 개에만 사각형을 묻는다(전수 스캔 금지).
+    const byTxt = [...document.querySelectorAll('button,a,input[type="button"]')]
+      .filter(e => {
+        const t = (e.textContent || e.value || '').trim();
+        return exact ? t === txt : t.startsWith(txt);
+      });
+    return byTxt.filter(shown)[0] || byTxt[0] || null;
+  };
+
   const want = preset => {
     const t = new Date(), p2 = n => String(n).padStart(2, '0');
     const fmt = d => `${d.getFullYear()}/${p2(d.getMonth()+1)}/${p2(d.getDate())}`;
@@ -472,13 +503,11 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
       menu.click();
       await wait(4500);
       // ③ 기간 프리셋
-      const p = [...document.querySelectorAll('button[data-cid="simpleSearch"]')]
-        .find(b => (b.textContent||'').trim() === step.프리셋);
+      const p = pick('simpleSearch', step.프리셋, true);
       if (!p) { done({결과: '실패', 왜: '기간 프리셋을 못 찾음: ' + step.프리셋}); continue; }
       p.click(); await wait(2500); kill(); await wait(4500);
       // ④ 조회
-      const s = [...document.querySelectorAll('button[data-cid="searchGroup"]')]
-        .find(b => (b.textContent||'').trim().startsWith('검색'));
+      const s = pick('searchGroup', '검색', false);
       if (!s) { done({결과: '실패', 왜: '검색 버튼을 못 찾음'}); continue; }
       s.click(); await wait(3000); kill(); await wait(9000);
       // ⑤ 조회가 **정말** 걸렸는지 — 행 수가 아니라 **격자에 찍힌 날짜**로 잰다.
@@ -493,7 +522,10 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
       if (!inR.length)  { done({결과: '실패', 왜: '격자 날짜가 요청 기간 밖 — 조회가 안 걸렸다. Excel 안 누름',
                                 기간: `${rng.from} ~ ${rng.to}`}); continue; }
       // ⑥ 엑셀
-      const x = document.querySelector('[data-cid="outputExcel"]');
+      // ★ 여기서만 **한 번** 누른다. 진행단계 화면처럼 Excel 단추가 둘인 곳에서
+      //   후보를 모두 누르면 같은 파일이 두 벌 떨어진다(2026-08-08 실측 289KB ×2).
+      const x = document.querySelector('[data-cid="outputExcel"]')
+             || pick(null, 'Excel', true) || pick(null, '엑셀', true);
       if (!x) { done({결과: '실패', 왜: '엑셀 버튼이 없다 — 인쇄 미리보기 안에만 있는 화면일 수 있다'}); continue; }
       x.click(); await wait(5000);
       done({결과: '받음', 행: seen.length, 기간안: inR.length, 기간: `${rng.from} ~ ${rng.to}`});

@@ -182,7 +182,7 @@ def classify_target(path: str, root: str) -> tuple[str, str, str]:
             return dated_dir(p["coupang"], path), "coupang_po", "엑셀 내용: 쿠팡 PO 목록"
         if kind == "receipt":
             return dated_dir(p["receipt"], path), "receipt", "엑셀 내용: 입금·수금 내역"
-        if kind in {"ledger", "sales", "tax", "stmt", "slips", "taxinv", "hometax"}:
+        if kind in {"ledger", "sales", "tax", "stmt", "slips", "taxinv", "taxstep", "hometax"}:
             return dated_dir(p["erp"], path), f"erp_{kind}", f"엑셀 내용: {kind}"
 
     if any(k in blob for k in ("입금내역", "입금 내역", "수금내역", "수금 내역", "송금명세")):

@@ -607,7 +607,19 @@ def t18_erp_docs():
     assert classify_rows([["회사명"], ["전표번호", "입력메뉴", "금액", "거래처명", "적요명"]]) == "slips"
     assert classify_rows([["아무 표"], ["가", "나"]]) == "unknown"
     assert classify_rows([["일자", "적요", "차변금액", "대변금액"]]) == "ledger"
-    print("  [18] ERP 매출서류 유형분류·inbox 내용판별 ✅")
+    # ★ 잔량 — `(세금)계산서진행단계`(E010849). '아직 발행 안 한 것'이라 다른 매출
+    #   자료와 **묻으면 안 된다**. 그런데 `내역보기`+`공급가액`+`부가세` 를 다 가지고
+    #   있어 taxinv 가 먼저 삼켰다(2026-08-08 실측: 101행이 매출세금계산서로 들어갔다).
+    #   묻히면 잔량이 밀려도 밀림 보고에 안 잡힌다 — 조용한 사고다.
+    잔량 = [["회사명 : 주식회사 유니버셜"],
+            ["일자-No.", "프로젝트그룹1명", "적요명", "발행일자", "거래처명", "공급가액",
+             "부가세", "합계금액", "종류", "전자(세금)계산서 진행단계", "단계별기능",
+             "승인번호", "내역보기"]]
+    assert classify_rows(잔량) == "taxstep", "잔량이 다른 매출 자료에 묻힌다"
+    # 옆 화면을 잘못 물지 않는가 — `단계별기능` 이 없으면 예전 판정 그대로다
+    assert classify_rows([["회사명"], ["일자-No.", "거래처명", "공급가액", "부가세",
+                                       "내역보기"]]) == "taxinv"
+    print("  [18] ERP 매출서류 유형분류·inbox 내용판별(잔량 분리 포함) ✅")
 
 
 def t19_workbook_integrity(tmp):
@@ -5562,6 +5574,20 @@ def t115_text_contrast():
     abad, aunk, _ao = CA.audit_theme("", avatar, CA.root_vars(avatar)["기본"])
     assert not abad and aunk, "실행 중에 정해지는 아바타색을 흰색으로 단정했다"
 
+    # ── `color-mix(… X p%, transparent)` — 감사기가 세 번째로 틀렸던 자리 (2026-08-08) ──
+    # 옅은 경고 배경 `color-mix(in srgb,var(--danger) 12%,transparent)` 안의
+    # `var(--danger)` 만 뜯어 가서 **12% 를 원색으로** 읽었다. 그러니 그 위의 danger
+    # 글자가 '명암비 1.0' 이 되어, 멀쩡한 화면 두 곳이 미달로 잡혔다.
+    # 투명과 섞인 색은 rgba 와 똑같이 **밑에 깔린 것 위에 합성**해야 참값이 나온다.
+    assert CA.bg_value({"background": "color-mix(in srgb,var(--danger) 12%,transparent)"}) \
+        == "color-mix(in srgb,var(--danger) 12%,transparent)", "안쪽 var 만 뜯어 갔다"
+    assert CA.mix_parts("color-mix(in srgb,var(--danger) 12%,transparent)") == ("var(--danger)", .12)
+    assert CA.mix_parts("color-mix(in srgb,#fff 50%,#000)") is None, "불투명 혼합까지 건드렸다"
+    assert not CA.opaque("color-mix(in srgb,var(--danger) 12%,transparent)", {}), \
+        "투명 혼합을 불투명으로 봤다 — 조상 배경을 안 찾아 엉뚱한 색으로 잰다"
+    assert CA.parse_color("color-mix(in srgb,#c7362b 12%,transparent)", {}, (255, 255, 255)) \
+        == (248, 231, 230), "흰 바탕 위 12% 합성이 안 된다"
+
     # 실제 화면 세 벌에 미달이 0 이어야 한다 — 아이콘까지 포함해서
     for name in ("webapp/index.html", "docs/app.html", "docs/cal.html"):
         b, _u2, o2 = CA.audit(os.path.join(ROOT, *name.split("/")))
@@ -5986,7 +6012,22 @@ def t120_calendar_sheet_and_share():
     # ⑧ 설치한 아이콘은 주소의 `#k=` 를 못 가져간다 — 기기에 기억해 두지 않으면 매번 막힌다
     assert "localStorage.setItem(KSTORE" in cal and "localStorage.getItem(KSTORE)" in cal, \
         "열쇠를 기억하지 않는다 — 설치한 아이콘이 '열쇠가 없는 주소입니다'만 띄운다"
-    print("  [120] 캘린더 — 날짜 창(폰 레이어·PC 모달)·PC 텍스트 격자·고정 주소·크롬 설치 ✅")
+    # ★ 캡처 목록 가운데 칸에 사유·진행내용 (2026-08-08 지시: "캘린더 캡처 화면 아래
+    #   리스트 중간 빈 공간에 사유 진행내용 등 표기해"). 캠프명만 늘어서 있으면
+    #   "무슨 건인지"를 알려고 앱을 다시 열어야 한다.
+    assert "function calWhyOf(" in live, "캡처 목록 가운데가 여전히 비어 있다"
+    why = live.split("function calWhyOf(")[1].split("\n}")[0]
+    assert "'-'" not in why and '"-"' not in why, \
+        "자료가 없을 때 '-' 로 채운다 — 빈칸은 '없다'는 사실 그대로 두어야 한다"
+    assert "신청내용" in why and "진행상태" in why, "사유·진행내용이 빠져 있다"
+    cap = live.split("async function calendarCapture(")[1].split("\nasync function ")[0]
+    assert "calWhyOf(e)" in cap, "캡처가 사유 칸을 그리지 않는다"
+    assert "measureText(campTxt)" in cap, \
+        "캠프명을 고정폭으로 잘라 사유 자리를 만든다 — 현장 이름이 잘리면 안 된다"
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    done = srv.split('"as_done", f"돌발AS 완료')[1][:400]
+    assert "신청내용" in done, "완료 건에는 무슨 일이었는지가 실리지 않는다"
+    print("  [120] 캘린더 — 날짜 창·PC 텍스트 격자·고정 주소·크롬 설치·캡처 사유칸 ✅")
 
 
 def t121_layer_dialogs():
@@ -8357,7 +8398,25 @@ def t146_erp_bulk_grab_registry():
 
     # ⑥ 사람이 고친 등록부(config)가 코드 기본값을 이긴다 — 판올림에 안 지워진다.
     assert "config" in E.SCREENS_CFG and callable(E.load_screens) and callable(E.save_screen)
-    print("  [146] ERP 전 화면 몰이 — 이름은 찾아서·실패해도 계속·날짜로 검증 ✅")
+
+    # ⑦ ★ 버튼은 **cid 로 찾고 없으면 글자로** 찾는다 (2026-08-08 실측).
+    #    `(세금)계산서진행단계`(E010849)·`매출(세금)계산서현황(세무)` 는 data-cid 가
+    #    `year`·`month` 뿐이다. cid 만 보면 이 화면들은 버튼이 멀쩡히 있는데도
+    #    "기간 프리셋을 못 찾음"으로 영영 실패한다.
+    assert "const pick = (cid, txt, exact)" in all_js, "글자 대체 경로가 없다"
+    for cid in ("simpleSearch", "searchGroup"):
+        assert f"pick('{cid}'" in all_js, f"{cid} 를 아직 cid 로만 찾는다"
+        assert f"""querySelectorAll('button[data-cid="{cid}"]')""" not in all_js, \
+            f"{cid} 를 cid 로만 직접 긁는 옛 줄이 남아 있다"
+    assert "pick(null, 'Excel', true)" in all_js, "엑셀 버튼도 글자로 찾을 수 있어야 한다"
+    # ⑧ 보임 판정은 `offsetParent` 가 아니라 **사각형 유무**다.
+    #    position:fixed 안의 `검색(F8)` 이 '후보 1 · 보이는 것 0' 으로 걸러졌던 자리다.
+    assert "getClientRects().length > 0" in all_js
+    assert "e.offsetParent !== null" not in all_js, \
+        "offsetParent 로 보임을 재면 fixed 안의 버튼을 잃는다"
+    # ⑨ 엑셀은 **한 번만** 누른다 — 후보를 전부 누르면 같은 파일이 두 벌 떨어진다.
+    assert "x.click()" in all_js and "forEach(x => x.click())" not in all_js
+    print("  [146] ERP 전 화면 몰이 — 이름은 찾아서·cid 없으면 글자로·날짜로 검증 ✅")
 
 
 def t141_long_text_folds():
@@ -8387,6 +8446,68 @@ def t141_long_text_folds():
     # ⑤ 화면을 그린 뒤 실제로 불린다 — 안 부르면 코드만 있고 아무 일도 안 일어난다
     assert "lcScanSoon($('v-'+v))" in live, "화면 전환 뒤 긴 글을 재지 않는다"
     print("  [141] 긴 글 접기 — 재서 정함·기능 숨김 금지·인쇄는 전부 펼침 ✅")
+
+
+def t147_project_history():
+    """현장(프로젝트) 이력 창 — 과거·현황·예측을 한 창에 (2026-08-08 지시).
+
+    사용자 지시: "정기점검 예측에 프로젝트를 클릭하면 과거에 했던 내역들이 다 보이게
+    밑에서 위로 올리는 창으로 / 돌발 AS 건 등 사진에 보이는 모든 프로젝트를 클릭하면
+    과거 돌발AS 또는 정기점검 리스트가 보이게 / 지금 현황 예측 현황도 다 같이".
+
+    지키는 것은 다섯이다:
+      ① **문턱이 같다** — 같은 원장 행을 다시 묶어 보여 줄 뿐이라 `/api/works`·
+         `/api/calendar` 와 다른 문턱을 쓰면 화면마다 말이 달라진다.
+      ② **필터를 타지 않는다** — 사람이 꺼 둔 캘린더 종류 때문에 과거가 사라지면
+         "이 현장은 두 번뿐"으로 잘못 읽는다. 서버에 다시 묻는다.
+      ③ **날짜 없는 행을 감추지 않는다** — 못 센 것을 안 보여 주면 그게 조용한 사고다.
+      ④ **모르는 것에 '완료' 색·말을 붙이지 않는다** — 날짜 미기입은 회색(etc)이다.
+      ⑤ **맞출 것이 없으면 단추를 만들지 않는다** — 눌러도 아무 일 없는 단추는 고장이다.
+    """
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # ① 문턱 — /api/works 와 같아야 한다(둘 다 별도 admin 게이트를 두지 않는다)
+    route = server.split('if p == "/api/project-history":')[1][:500]
+    assert "_require_admin()" not in route, \
+        "이력만 관리자 전용이다 — 같은 자료를 보는 화면끼리 문턱이 갈린다"
+    assert "project_history(" in route, "이력 길이 함수를 부르지 않는다"
+
+    fn = server.split("def project_history(")[1].split("\ndef ")[0]
+    # ② 원장에서 직접 만든다(캘린더 결과를 다시 세지 않는다)
+    assert "get_works()" in fn, "캘린더 결과를 다시 세면 화면 필터가 과거를 지운다"
+    # ③ 날짜 없는 행을 따로 돌려준다
+    assert "날짜없음" in fn, "날짜가 빈 행이 조용히 사라진다"
+    # ④ 모르는 것은 회색 — '완료'로 칠하지 않는다
+    assert 'item("etc", "", "날짜 미기입"' in fn, \
+        "날짜를 모르는 행에 완료·미처리 색을 붙인다"
+    # 평균 주기는 두 번 이상일 때만 — 한 번뿐인데 주기를 말하면 지어낸 숫자다
+    assert "len(pmdone) >= 2" in fn, "점검이 한 번뿐인데 평균 주기를 만든다"
+    # 캠프명으로 맞춘다(예측 일정은 프로젝트NO 가 자주 비어 있다)
+    assert "_camp_key(" in fn, "프로젝트NO 로만 맞추면 '프로젝트 미확정' 이 통째로 빠진다"
+
+    # ⑤ 화면 — 맞출 것이 없으면 단추를 만들지 않는다
+    assert "function pjHas(" in live, "현장을 못 맞추는 일정에도 단추를 만든다"
+    assert "if(!pjHas(e)) return '';" in live, "목록 단추가 빈 일정에도 붙는다"
+    # 제목을 캠프명 대신 쓰지 않는다 — "정기점검 예측 · 부산4MB" 로는 못 맞춘다
+    pjcall = live.split("function pjCall(")[1].split("\nfunction ")[0]
+    assert "e.제목" not in pjcall, "꾸민 제목을 현장 이름으로 보낸다 — 맞을 리가 없다"
+    # 밑에서 위로 올라오는 창이고, 날짜 창 위에 겹친다
+    assert ".pj-sheet-wrap{z-index:70}" in live, "날짜 창 안에서 누르면 뒤에 숨는다"
+    assert 'id="pjSheet"' in live and "cal2-sheet-wrap pj-sheet-wrap" in live, \
+        "날짜 창과 같은 옷(밑에서 올라오는 레이어)을 쓰지 않는다"
+    # PC 가운데 정렬을 이 창에도 다시 적어 둔다(실측: 안 적으면 화면 밖으로 나갔다)
+    assert ".pj-sheet-wrap.in .cal2-sheet{transform:translate(-50%,-50%) scale(1)" in live, \
+        "PC 에서 창이 가운데로 오지 않는다(2026-08-08 실측 — 오른쪽·아래로 밀림)"
+    # 누를 수 있는 자리 넷: 달력 칸 · 아래 목록 · 날짜 창 · 상세(정산/작업)
+    assert live.count("pjHistBtn(e)") >= 2, "아래 목록과 날짜 창 중 한쪽에만 붙어 있다"
+    assert "pjCall(e, true)" in live, "달력 칸의 현장 이름을 눌러도 이력이 안 뜬다"
+    assert "event.stopPropagation();" in live.split("function pjCall(")[1][:400], \
+        "달력 칸을 누르면 날짜 창과 이력 창이 함께 뜬다"
+    assert live.count("pjHistWide(") >= 3, "상세 화면(정산·작업)에 이력 단추가 없다"
+    # 실패를 성공처럼 그리지 않는다
+    assert "이력을 불러오지 못했습니다" in live, "서버가 못 주면 빈 이력을 '없음'으로 그린다"
+    print("  [147] 현장 이력 창 — 같은 문턱·필터 무관·모르는 것은 회색 ✅")
 
 
 def t143_originals_one_tap():
@@ -8559,7 +8680,19 @@ def t142_flow_editable():
     assert "확인 전" in spec, \
         "'(확인 전)'을 지운 채 넘긴다 — 개발자가 추정을 사실로 만든다"
     assert 'onclick="flowDevSpec()"' in live, "개발 사양 단추가 화면에 없다"
-    print("  [142] 워크플로우 — 저장/되돌리기 왕복·길게 눌러 집기·담당색·머리카드·4:3 마인드맵 ✅")
+    # ★ 담당기사는 네 사람뿐이다 (2026-08-08 지시: "쿠팡 담당기사 차동호 팀장 /
+    #   김준형 권오철 김필우 / 플로우 차트에 이 4명만 반영해 기사는").
+    #   한 곳(AS_TECHS)에서 정해 두어야 사람이 바뀔 때 한 줄만 고친다.
+    import ledger_db as _L
+    assert _L.AS_TECHS == ("차동호", "김준형", "권오철", "김필우"), \
+        "담당기사 명단이 바뀌었다 — 흐름·화면이 같은 이름을 봐야 한다"
+    assert len(_L.AS_TECH_LABEL) <= 20, \
+        "담당 칸 한도(20자)를 넘는다 — flow_save 가 잘라 이름 하나가 사라진다"
+    owners = {s[1] for s in _L.FLOW_DEFAULT}
+    assert "담당기사" not in owners, \
+        "기본 흐름에 이름 없는 '담당기사' 가 남아 있다 — 누구인지 화면이 말하지 않는다"
+    assert _L.AS_TECH_LABEL in owners, "기본 흐름이 네 사람 명단을 쓰지 않는다"
+    print("  [142] 워크플로우 — 저장/되돌리기·길게 눌러 집기·담당색·머리카드·4:3·기사 4인 ✅")
 
 
 def t136_work_lanes():
@@ -8796,6 +8929,7 @@ if __name__ == "__main__":
     t141_long_text_folds()
     t142_flow_editable()
     t143_originals_one_tap()
+    t147_project_history()
     t144_topmost_pin_always_restores()
     t145_redirect_deleted_needs_two_rounds()
     t146_erp_bulk_grab_registry()
