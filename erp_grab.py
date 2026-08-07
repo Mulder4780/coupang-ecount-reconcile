@@ -338,8 +338,15 @@ SCREENS = {
 WANTED = {
     "taxleft":   {"찾을말": ["잔량", "미발행", "발행잔량"], "무엇": "세금계산서 잔량",
                   "kind": "ERP:taxleft", "프리셋": "금월(~오늘)"},
-    "salesslip": {"찾을말": ["매출전표", "매출 전표", "판매전표"], "무엇": "매출 전표",
-                  "kind": "ERP:salesslip", "프리셋": "금월(~오늘)"},
+}
+
+# ★ **누르면 안 되는 화면** — 이름이 맞는데 받을 것이 없는 곳 (2026-08-08 실측).
+#   찾다가 여기에 닿으면 "아직 못 찾았다"고 착각해 다시 뒤지게 된다. 그래서 왜 아닌지를
+#   남긴다. 값은 사람이 읽는 설명이다.
+NOT_GRABBABLE = {
+    "매출전표 I": "prgId E010301 — **입력 화면**이다. 저장(F8)·저장/전표(F7)뿐이고 "
+                  "검색·격자·Excel 이 없다. 여기서 단추를 누르면 실제 전표가 만들어진다. "
+                  "사용자가 말한 '매출 전표'의 **조회**는 `회계거래조회`(E010701) 다.",
 }
 
 
@@ -492,14 +499,23 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
       const sm = [...document.querySelectorAll('a,button,span,div')]
         .find(e => (e.textContent||'').trim() === '사이트맵');
       if (sm) sm.click();
-      await wait(1500);
-      const w = document.querySelector('.wrapper-sitemap');
-      if (w) w.classList.add('visible');
-      await wait(600);
-      const menu = [...document.querySelectorAll('a')]
+      // ★ 고정 대기로는 **빈 사이트맵**을 읽는다 (2026-08-08 실측 — 이것 때문에
+      //   '메뉴 못 찾음'이 나왔고, 모듈이 다른 줄 알고 엉뚱한 데를 뒤졌다).
+      //   링크 824개가 만들어지는 데 시간이 걸린다. 채워질 때까지 기다린다.
+      let w = null;
+      for (let i = 0; i < 16; i++) {              // 최대 8초
+        w = document.querySelector('.wrapper-sitemap');
+        if (w) { w.classList.add('visible'); if (w.querySelectorAll('a').length > 50) break; }
+        await wait(500);
+      }
+      await wait(400);
+      const 링크수 = w ? w.querySelectorAll('a').length : 0;
+      const menu = w && [...w.querySelectorAll('a')]
         .find(a => (a.textContent||'').trim() === step.메뉴);
       if (w) w.classList.remove('visible');        // ★ 반드시 닫는다
-      if (!menu) { done({결과: '실패', 왜: '메뉴를 못 찾음 — 모듈이 다를 수 있다'}); continue; }
+      if (!menu) { done({결과: '실패', 링크수,
+                         왜: 링크수 ? '메뉴를 못 찾음 — 모듈이 다를 수 있다'
+                                    : '사이트맵이 안 열렸다(빈 채로 읽음)'}); continue; }
       menu.click();
       await wait(4500);
       // ③ 기간 프리셋
