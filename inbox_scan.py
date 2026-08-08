@@ -134,6 +134,7 @@ def classify_rows(rows):
         return "receipt"
 
     # ERP 판매조회에는 PO번호 열이 함께 있어 아래 PO 규칙이 먼저 잡으면 쿠팡 목록으로
+    # (이 아래로는 내용 휴리스틱 — 파일명 지문은 classify() 맨 앞에서 이미 봤다)
     # 잘못 분류된다. 판매 진행상태+공급가액+거래처/품목 조합은 ERP 판매가 우선이다.
     if has("진행상태") and has("공급가액") and has("거래처", "거래처명", "품목", "품목명"):
         return "sales"
@@ -150,7 +151,27 @@ def classify_rows(rows):
     return "unknown"
 
 
+# ★ ERP 내보내기 파일명은 **화면코드를 그대로 단다** — 내용보다 확실한 지문이다
+#   (2026-08-08 실측). 매출(세금)계산서조회(E010727)·거래명세서현황·재고쪽 조회는
+#   내려받은 엑셀이 **셋 다 똑같이 생겼다**: 시트 '거래명세서' · 머리글 '일자 - 번호'.
+#   그래서 내용 휴리스틱으로는 못 가르고, E010727 이 통째로 `taxinv` 로 빨려 들어갔다.
+#
+#   조용한 사고인 이유: 화면을 **제대로 긁어 왔는데도** 신선도표의 '매출계산서조회'는
+#   계속 "3일 밀림"으로 남는다. 종류가 다른 통에 들어갔으니 그 통은 영영 안 차고,
+#   다음 세션이 같은 화면을 또 긁는다. 받은 사람만 받았다고 믿는다.
+#
+#   ★ **증거가 있는 것만 적는다.** 화면을 실제로 긁어 그 파일이 떨어지는 것을 본 것만
+#     넣을 것 — 짐작으로 적으면 멀쩡한 자료를 엉뚱한 통으로 보낸다.
+ERP_FILE_PREFIX = {
+    "EBG006M": "sales",      # 매출(세금)계산서조회 E010727 (2026-08-08 실측으로 확인)
+}
+
+
 def classify(path):
+    base = os.path.basename(path or "")
+    for pre, kind in ERP_FILE_PREFIX.items():
+        if base.startswith(pre):
+            return kind
     try:
         return classify_rows(_cells(path))
     except Exception:
