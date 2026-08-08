@@ -2,7 +2,12 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- ★ 확대·축소 고정 (2026-08-08 지시: "모바일 화면은 전체적으로 각 담당자 업무센터
+     포함해서 확대 축소 안되게 고정해"). 손가락으로 벌리다 화면이 틀어지면 표가 잘리고
+     캡처도 어긋난다. maximum-scale·user-scalable 둘 다 넣는다 — iOS 사파리는
+     user-scalable 을 무시하는 판이 있어 maximum-scale 이 실제로 막는 쪽이다.
+     ★ 더블탭 확대는 meta 로 안 막힌다 — `touch-action: manipulation` 이 막는다(CSS). -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#060D2B">
 <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -114,6 +119,12 @@ window.addEventListener('beforeinstallprompt', function(e){
 #themeBtn{font-size:15px;line-height:1}
 *{margin:0;padding:0;box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
+/* ★ 확대·축소 고정의 나머지 절반 (2026-08-08 지시). viewport meta 는 **핀치**를 막고,
+   **더블탭 확대**는 이것이 막는다 — 표를 두 번 눌렀다가 화면이 튀는 것이 그 경우다.
+   `manipulation` 이지 `none` 이 아니다: none 이면 스크롤까지 죽는다.
+   ★ 가로 스크롤이 필요한 자리(표·캡처)는 제 규칙에서 touch-action 을 따로 준다 —
+     여기 값은 상속이 아니라 요소마다 정해지므로 그쪽이 이긴다. */
+html,body{touch-action:manipulation}
 /* 글꼴은 위 :root 의 --font-ui 한 곳에서 정한다(되돌리기 포함). 여기 직접 쓰지 말 것. */
 body{font-family:var(--font-ui);
   background:var(--bg);color:var(--ink);font-size:16px;line-height:1.55;letter-spacing:-.24px;

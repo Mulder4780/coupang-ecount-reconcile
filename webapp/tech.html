@@ -2,7 +2,8 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- 확대·축소 고정 (2026-08-08 지시) — 네 화면 모두 같은 값이다. 자세한 이유는 index.html -->
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0B2A5B">
 <meta name="robots" content="noindex,nofollow">
 <title>AS 기사 업무</title>
@@ -22,6 +23,8 @@
     다른 API 를 불러도 401 이다.
 -->
 <style>
+html,body{touch-action:manipulation}   /* 더블탭 확대 차단 — 2026-08-08 지시 */
+
 :root{
   --font-ui:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',
     'Segoe UI Variable','Segoe UI','Noto Sans KR',Roboto,'Malgun Gothic',sans-serif;

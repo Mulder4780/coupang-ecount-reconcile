@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- 확대·축소 고정 (2026-08-08 지시) — 네 화면 모두 같은 값이다. 자세한 이유는 webapp/index.html -->
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>CSOS — PC 독립</title>
 <link rel="icon" href="icon-32.png?v=csos-20260730" sizes="32x32" type="image/png">
 <link rel="icon" href="icon.svg?v=csos-20260730" type="image/svg+xml">
@@ -11,6 +12,8 @@
 <meta name="theme-color" content="#0E1B3F">
 <meta name="robots" content="noindex,nofollow">
 <style>
+html,body{touch-action:manipulation}   /* 더블탭 확대 차단 — 2026-08-08 지시 */
+
 :root{--ink-1:#111826;--ink-2:#414b60;--ink-3:#5f6a7d;--line:#dfe4ec;--bg:#f5f7fa;--card:#fff;
  --navy:#0e1b3f;--brand:#1c4fd8;--brand-btn:#1c4fd8;--ok:#0f7a3d;--warn:#a85a06;--bad:#b3202c;
  --okbg:#e6f4ec;--warnbg:#fdf0e0;--badbg:#fbe9eb;--sel:#EAF1FF}

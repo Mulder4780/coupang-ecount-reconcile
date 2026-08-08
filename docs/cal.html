@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- 확대·축소 고정 (2026-08-08 지시) — 네 화면 모두 같은 값이다. 자세한 이유는 webapp/index.html -->
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0E1B3F">
 <!-- ★ 검색엔진에 올리지 않는다. 이 페이지는 '링크를 받은 사람'만 보는 자리다. -->
 <meta name="robots" content="noindex,nofollow,noarchive">
@@ -13,6 +14,8 @@
      아이콘을 누르면 PIN 로그인 화면이 떴다 — 그래서 아무도 설치하지 않았다. -->
 <link rel="manifest" href="cal-manifest.json">
 <style>
+html,body{touch-action:manipulation}   /* 더블탭 확대 차단 — 2026-08-08 지시 */
+
 :root{--navy:#0E1B3F;--brand:#2452E6;--bg:#F2F2F7;--card:#fff;--line:#E4E7EC;
   --ink:#101828;--ink-2:#344054;--ink-3:#5f6a7d;
   /* 일요일 날짜·경고 글자에 쓴다. #D92D20 은 흰 바탕에서 4.33 이라 기준(4.5)에 못 미쳤다. */
