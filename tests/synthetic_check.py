@@ -2266,7 +2266,9 @@ def t41_dates_explicit():
     for raw, want in (("000 (캠프상태확인 및 스케쥴 세팅)", ""),
                       ("자) - 각캠프담당자 캠프 컨디션상태 체크", ""),
                       ("하이테크 + 엄진언", "엄진언"),      # 업체는 빼고 사람만
-                      ("김혜진 대신택배", "김혜진"),
+                      # 2026-08-08 인계 반영 — 이 이름은 이제 현재 담당자로 읽힌다([155]).
+                      # 업체(대신택배)를 빼는 규칙 자체는 그대로다.
+                      ("김혜진 대신택배", "류지영"),
                       ("김승기기장", "김승기"),             # 붙여 쓴 직책 분리
                       ("김필우 기사", "김필우"),
                       ("권오절", "권오철"),                 # 기존 오탈자 교정 유지
@@ -9083,6 +9085,94 @@ def t154_amount_basis():
           "ERP 비교는 돌발AS·정기점검만 ✅")
 
 
+def t155_cancel_and_handover():
+    """[155] 접수 취소 · 사람 인계 (2026-08-08 지시).
+
+    사용자 지시 ①: **"접수 했다가 접수 취소하는 경우도 많은데 이것도 잡아내는
+    알고리즘 추가해"** — 밴드 댓글 "작동 원활함. 접수 취소 하세요".
+    사용자 지시 ②: **"김혜진 매니저 퇴사한지 1달이 넘었어. 카톡에 이렇게 올라와도
+    류지영으로 인식하는 알고리즘 추가. 번호는 같아"**
+
+    ★ 이 검증이 정말 지키는 것은 **취소로 잘못 죽이지 않는 것**이다. 접수를 취소로
+      처리하면 그 현장은 아무도 안 가는데 목록에서도 사라진다 — 미실시로 남는 것보다
+      나쁘다. 실측에서 두 번 새어 나갔다:
+        · "바디부분 아크릴판은 캠프담당 취소요청함" (부품 취소)
+        · "택배발송 취소요청하심" 바로 뒤에 밴드 양식의 `● A/S 완료 :` 줄이 붙어,
+          'A/S 가 곁에 있으면 취소'라는 규칙이 **모든 글**을 삼켰다.
+      그래서 근거는 '접수'가 '취소'에 붙어 있는 것 하나로 좁혔다.
+    """
+    import band_extract as B
+    import people_alias as P
+
+    # ── ① 잡아야 하는 것 ─────────────────────────────────────────────
+    for t in ("접수 취소 하세요", "접수취소", "통화 완료 했습니다 작동 원활함. 접수 취소 하세요",
+              "✅ 접수 취소", "✔️UJ2601291랑 같은내용으로 접수취소", "*이상없음 접수취소",
+              "접수를 취소해주세요", "접수건 취소 부탁드립니다", "접수 철회", "접수 반려",
+              "오접수 입니다", "✅ 중복접수 처리완료"):
+        assert B.cancel_hit(t), f"접수 취소를 놓쳤다: {t}"
+
+    # ── ② 잡으면 안 되는 것 (여기가 진짜 관문) ────────────────────────
+    for t in ("바디부분 아크릴판은 캠프담당 취소요청함.",
+              "본사 상신,승인 진행되지 않았으며, 택배발송 취소요청하심. ● A/S 완료 :",
+              "*담당자 접수전, 정기점검 취소되어 도어락만 교체진행됨",
+              "부품 취소 요청", "예약 취소불가 안내", "접수 취소 불가",
+              "취소된 건 없음", "작업 완료", ""):
+        assert not B.cancel_hit(t), f"취소가 아닌 것을 취소로 죽인다: {t}"
+
+    # ── ③ 댓글 자리 — 지금은 캐시에 본문이 없다. 그 사실을 세어야 한다 ──
+    assert B.comment_text({"comments": [{"content": "접수 취소 하세요"}]}) == "접수 취소 하세요"
+    assert B.comment_text({"comment_count": 3}) == "", "없는 댓글을 있는 것처럼 만든다"
+    assert B.cancel_blind_count({"1": {"comment_count": 3},
+                                 "2": {"comment_count": 0},
+                                 "3": {"comment_count": "2"},
+                                 "4": {"comment_count": 1,
+                                       "comments": [{"content": "x"}]}}) == 2, \
+        "댓글은 있는데 본문을 못 읽는 사각지대를 0건이라 말하면 안 된다"
+
+    # ── ④ 순서: 댓글 취소 > 완료 제목 > 본문 취소 ────────────────────
+    def _post(body, comments=None):
+        return {"content": body, "created_at": 1767225600000,
+                **({"comments": comments} if comments else {})}
+    head = "♣ ［ 돌발 유료 A/S 완료 ]\n● 프로젝트NO : UJ2600001\n"
+    done = B.parse_post("1", _post(head), "밴드")
+    assert done and done["진행상태"] == "작업완료"
+    later = B.parse_post("1", _post(head, [{"content": "접수 취소 하세요"}]), "밴드")
+    assert later["진행상태"] == "취소", "댓글은 글보다 나중이다 — 취소가 이겨야 한다"
+    body_only = B.parse_post("1", _post(head + "정기점검 취소되어 도어락만 교체"), "밴드")
+    assert body_only["진행상태"] == "작업완료", \
+        "완료 글 본문의 딴 얘기 취소가 완료를 덮었다"
+
+    # ── ⑤ 사람 인계 — 원문은 두고 읽을 때만 옮긴다 ────────────────────
+    assert P.resolve_person("김혜진 매니저") == "류지영"
+    assert P.resolve_person("김혜진 매니저님") == "류지영"
+    assert P.resolve_person("", "010-6645-4535") == "류지영", "번호가 같으면 그 자리다"
+    assert P.resolve_person("", "01066454535") == "류지영", "하이픈 유무로 갈리면 안 된다"
+    assert P.resolve_person("김혜진", when="2026-03-01") == "김혜진", \
+        "인계 전 글까지 소급해 바꾸면 '그때 누구였나'를 잃는다"
+    assert P.resolve_person("김준형") == "김준형", "관계없는 사람을 건드렸다"
+    assert P.resolve_text("[휴대전화] 010-6645-4535") == "류지영"
+    assert P.resolve_text("[담당이름] 김혜진 매니저") == "류지영"
+    assert P.resolve_text("아무 말도 없는 글") == ""
+    assert "김혜진" in P.note_of("김혜진") and "류지영" in P.note_of("김혜진"), \
+        "왜 이름이 바뀌었는지 근거가 없으면 사람이 못 믿는다"
+    assert B.normalize_tech("김혜진", when="2026-08-08") == "류지영"
+    assert B.normalize_tech("김혜진", when="2026-03-01") == "김혜진"
+
+    # ── ⑥ 회차에 매여 있나 · 엑셀을 직접 열지 않나 ────────────────────
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert '"cancel_watch.py"), "--queue"' in daily, \
+        "취소 확인이 09:50 회차에 없다 — 대화에 남긴 것은 사라진다"
+    watch = open(os.path.join(ROOT, "cancel_watch.py"), encoding="utf-8").read()
+    assert "openpyxl" not in watch and "workbook_patch" not in watch, \
+        "취소 확인이 엑셀을 직접 연다 — 반영은 11:00·15:00 회차 몫이다"
+    assert 'ledger_db.enqueue' in watch and '"only_if_empty": True' in watch, \
+        "사람이 적어 둔 칸을 덮어쓴다"
+    for scrape in ("collect_", "convert_dump", "requests.", "webdriver"):
+        assert scrape not in watch, f"코딩 세션 도구가 수집을 한다: {scrape}"
+    print("  [155] 접수 취소 — 부품·택배 취소와 분리 · 댓글 우선 · 사각지대 집계 · "
+          "사람 인계(번호 근거·소급 금지) ✅")
+
+
 def t149_tech_center():
     """AS 담당기사 전용 화면 — 비밀번호 없이, 그러나 누구나는 아니다 (2026-08-08 지시).
 
@@ -9712,6 +9802,7 @@ if __name__ == "__main__":
     t149_tech_center()
     t160_master_book_cache()
     t154_amount_basis()
+    t155_cancel_and_handover()
     t144_topmost_pin_always_restores()
     t145_redirect_deleted_needs_two_rounds()
     t146_erp_bulk_grab_registry()

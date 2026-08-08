@@ -23,6 +23,9 @@ band_extract.py — 밴드 게시글 → 구조화 업무 레코드 추출 (월�
 import sys, os, re, csv, json, glob
 from datetime import datetime
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import people_alias as _ALIAS
+
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -59,7 +62,7 @@ def _looks_like_name(t):
     return bool(re.fullmatch(r"[가-힣]{2,4}", t))
 
 
-def normalize_tech(raw):
+def normalize_tech(raw, when=""):
     """기사명만 남긴다 — 설명·직책·업체·자리표시자는 걸러낸다.
 
     ★ 2026-07-28 실사고: 이 함수가 '첫 조각'을 그대로 통과시켜
@@ -70,6 +73,12 @@ def normalize_tech(raw):
     cleaned = str(raw or "").strip()
     for wrong, right in TECH_ALIASES.items():
         cleaned = cleaned.replace(wrong, right)
+    # ★ 그만둔 사람 이름이 양식 문구를 타고 담당 칸에 들어온다(2026-08-08 실측 35건).
+    #   원문은 두고 **읽을 때만** 지금 담당자로 옮긴다 — people_alias 가 근거를 갖는다.
+    for _h in _ALIAS.HANDOVERS:
+        if _h["before"] in cleaned:
+            cleaned = cleaned.replace(_h["before"],
+                                      _ALIAS.resolve_person(_h["before"], when=when))
     tech = ", ".join(t for t in TECHS if t in cleaned)
     if tech:
         return tech
@@ -91,6 +100,84 @@ def normalize_tech(raw):
         if _looks_like_name(part):
             names.append(part)
     return ", ".join(dict.fromkeys(names))
+
+
+# ── 접수 취소 ────────────────────────────────────────────────────────────
+# 사용자 지시(2026-08-08): **"접수 했다가 접수 취소하는 경우도 많은데 이것도
+# 잡아내는 알고리즘 추가해"**
+#
+# 실제 사례(밴드 댓글): "통화 완료 했습니다 / 작동 원활함. 접수 취소 하세요"
+#
+# ★ 예전 규칙은 `"접수취소" in 본문` **한 줄**이었다. 두 군데서 새어 나갔다:
+#   ① **띄어쓰기** — 사람은 '접수 취소'라고 쓴다. 붙여 쓴 것만 잡고 있었다.
+#   ② **자리** — 취소는 본문이 아니라 **댓글**로 온다. 접수 글은 이미 올라간
+#      뒤이므로 고칠 것이 댓글밖에 없다. 본문만 보면 영영 못 본다.
+#   그래서 취소된 건이 '돌발AS 미처리'로 남아 AS 미실시 숫자를 계속 부풀렸다.
+# ★★ '취소'라는 낱말만으로 판정하면 **멀쩡한 건이 죽는다.** 실측에서 그대로 나왔다:
+#      "바디부분 아크릴판은 캠프담당 취소요청함" · "택배발송 취소요청하심"
+#    둘 다 부품·택배 취소지 AS 접수 취소가 아니다. 취소로 처리하면 그 현장은
+#    아무도 안 가는데 목록에서도 사라진다 — 미실시로 남는 것보다 나쁘다.
+#    그래서 **'취소' 곁에 '접수'나 A/S 가 있을 때만** 접수 취소로 본다.
+#    ★ '취소' 곁에 A/S 가 있으면 되게 했더니 **모든 글이 걸렸다** — 밴드 양식에
+#      `● A/S 완료 :` 줄이 늘 따라붙기 때문이다(실측 2620: '택배발송 취소요청하심'
+#      바로 뒤가 그 줄이었다). 그래서 근거는 **'접수'가 '취소'에 붙어 있는 것** 하나다.
+_CANCEL = re.compile(
+    r"(접\s*수\s*[^가-힣A-Za-z0-9\n]{0,3}(를|건|은|이)?\s*(요\s*청)?\s*취\s*소"  # 접수(를/건) 취소
+    r"|취\s*소\s*[^가-힣A-Za-z0-9\n]{0,3}(된|할|하실)?\s*접\s*수"                # 취소 접수
+    r"|오\s*접\s*수"                                   # 오접수
+    r"|중\s*복\s*접\s*수"                              # 중복접수
+    r"|접\s*수\s*(를\s*)?(철\s*회|반\s*려))")          # 접수 철회/반려
+# 취소가 아닌데 '취소'가 들어간 말 — 걸러 내지 않으면 멀쩡한 건이 취소로 죽는다.
+_NOT_CANCEL = re.compile(r"(접\s*수\s*취\s*소\s*(불\s*가|없|아\s*님|안\s*됨)"
+                         r"|취\s*소\s*된\s*건\s*없)")
+
+
+def cancel_hit(text):
+    """이 글/댓글이 **접수 취소**를 말하고 있나.
+
+    부품·택배 취소와 갈라야 한다(위 주석). 근거는 '접수'가 '취소'에 붙어 있는 것,
+    그리고 오접수·중복접수·접수철회다. 그냥 '취소'는 판정하지 않는다 —
+    취소로 잘못 처리하면 그 현장은 아무도 안 가는데 목록에서도 사라진다.
+    """
+    s = str(text or "")
+    if not s or _NOT_CANCEL.search(s):
+        return False
+    return bool(_CANCEL.search(s))
+
+
+def comment_text(post):
+    """글에 달린 댓글 본문을 한 덩어리로 — 캐시에 댓글이 없으면 빈 문자열.
+
+    ★ 지금 밴드 캐시는 `comment_count`(숫자)만 담고 본문은 없다. 그래서 이 함수는
+      **댓글이 수집되기 시작하면 그날부터 저절로 동작**하도록 미리 이어 둔 자리다.
+      수집은 'CSOS 리서치 및 자료 수집' 세션 몫이라 여기서 긁지 않는다(CLAUDE.md).
+      숫자만 있고 본문이 없다는 사실 자체는 `cancel_blind_count()` 가 센다 —
+      "댓글은 있는데 못 읽는다"를 조용히 넘기지 않기 위해서다.
+    """
+    if not isinstance(post, dict):
+        return ""
+    out = []
+    for c in (post.get("comments") or []):
+        if isinstance(c, dict):
+            out.append(str(c.get("content") or c.get("body") or ""))
+        else:
+            out.append(str(c or ""))
+    return "\n".join(out)
+
+
+def cancel_blind_count(posts):
+    """댓글이 달렸는데 본문을 못 읽는 글 수 — 취소를 놓칠 수 있는 사각지대의 크기."""
+    n = 0
+    for p in (posts or {}).values():
+        if not isinstance(p, dict):
+            continue
+        try:                       # 캐시에 따라 숫자가 문자열로 들어 있다
+            cnt = int(str(p.get("comment_count") or 0).strip() or 0)
+        except ValueError:
+            cnt = 0
+        if cnt > 0 and not comment_text(p):
+            n += 1
+    return n
 
 
 def tech_note(raw, kept):
@@ -116,8 +203,12 @@ def parse_post(no, p, band):
     if prj_no and set(prj_no[2:]) == {"0"}:      # UJ000000 = 양식 템플릿 게시글
         return None
 
+    ts = p.get("created_at")
+    posted = datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d") if ts else ""
+
     tech_raw = (RE_TECH.search(c).group(1).strip() if RE_TECH.search(c) else "")
-    tech = normalize_tech(tech_raw)
+    # 게시일을 함께 넘긴다 — 인계 **전** 글은 그때 담당자 그대로 둬야 한다.
+    tech = normalize_tech(tech_raw, when=posted)
 
     camp = (RE_CAMP.search(c).group(1).strip() if RE_CAMP.search(c) else "")
     camp = re.sub(r"\s*\.{3}더보기.*$", "", camp).strip()
@@ -134,10 +225,16 @@ def parse_post(no, p, band):
     if "동시" in title or "동시진행" in c:
         kind += "(동시진행)"
     cost = "유상" if "유료" in title else ("무상" if "무료" in title else "")
-    if "접수취소" in c:
+    # ★ 순서가 뜻을 가진다. 댓글은 글보다 **나중**에 달리므로 완료 글이라도 댓글의
+    #   취소가 이긴다. 반대로 제목이 '완료'인 글의 본문에 나온 취소는 그 작업 얘기가
+    #   아닐 때가 많다(실측 4979: '접수전 정기점검 취소되어 도어락만 교체진행됨' —
+    #   작업은 실제로 했다). 그래서 본문 취소는 완료 제목에 양보한다.
+    if cancel_hit(comment_text(p)):
         status = "취소"
     elif "완료" in title:
         status = "작업완료"
+    elif cancel_hit(c):
+        status = "취소"
     elif "안내" in title:
         status = "접수·예정"
     else:
@@ -145,8 +242,6 @@ def parse_post(no, p, band):
 
     docs = [d for d, kw in (("판매전표", "판매전표"), ("거래명세서", "거래명세서"),
                             ("견적서", "견적서"), ("메일발송", "메일발송")) if kw in c]
-    ts = p.get("created_at")
-    posted = datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d") if ts else ""
     return {"프로젝트NO": prj_no, "업무유형": kind, "비용구분": cost,
             "작업일": work_date, "담당기사": tech, "캠프명": camp, "진행상태": status,
             "문서상태": "+".join(docs), "사진": p.get("photo_count", 0),
