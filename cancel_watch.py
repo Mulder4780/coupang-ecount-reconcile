@@ -18,9 +18,16 @@
      2026-08-08 에 담는 쪽 둘(화면 긁기 `grab_posts.js`→`convert_dump` · API
      `band_sync`)이 `comments: [{author, created_at, content}]` 로 담기 시작했다 —
      이 도구는 고칠 것이 없었다. 읽는 자리를 미리 하나로 두었기 때문이다(검증 [162]).
-     그래도 **접힌 댓글은 다 안 펴질 수 있다.** 그래서 "적힌 수만큼 못 읽은 글이 몇
-     건인가"를 계속 함께 보고한다 — 사각지대를 0건이라 말하지 않기 위해서다.
+     그래도 **접힌 댓글은 다 안 펴질 수 있다.** 그래서 못 읽은 글이 몇 건인가를
+     계속 함께 보고한다 — 사각지대를 0건이라 말하지 않기 위해서다.
      캐시를 채우는 수집 자체는 'CSOS 리서치 및 자료 수집' 세션 몫이다.
+  ★★ 그 사각지대 계기마저 `comment_count` 에 기대고 있었다 (2026-08-08 저녁 실측).
+     캐시 10,312글 중 `comment_count>0` 은 **6글**, 댓글 본문은 **0글**이다 —
+     밴드에 댓글이 없어서가 아니라 **수집기가 그 숫자를 안 담아서**다. 그래서 계기가
+     "사각지대 0건"이라 말했다. **재는 도구가 같은 결측에 눈이 멀어 있었다.**
+     이제 `comments` 키가 아예 없는 글(= 한 번도 안 들여다본 글)도 사각지대로 센다.
+     고친 뒤 실측 사각지대는 **8,259건 / 8,561건**이다. 그 값이 절반을 넘는 동안은
+     이 리포트를 "취소가 이것뿐"이라는 뜻으로 읽으면 안 된다(리포트가 스스로 경고한다).
 
 엑셀은 열지 않는다. 바꿀 것은 `ledger_db.enqueue()` 로 넣고 11:00·15:00 회차가 반영한다.
 
@@ -98,7 +105,7 @@ def scan_band(quiet=False):
     if not quiet:
         print(f"  밴드 {total}글 훑음 — 취소로 읽히는 건 {len(hits)}건"
               f" · 댓글을 못 읽어 놓쳤을 수 있는 글 {blind}건")
-    return hits, blind
+    return hits, blind, total
 
 
 def open_ledger_rows():
@@ -126,7 +133,7 @@ def open_ledger_rows():
 
 
 def build(quiet=False):
-    hits, blind = scan_band(quiet=quiet)
+    hits, blind, total = scan_band(quiet=quiet)
     ledger = open_ledger_rows()
     rows = []
     for prj, h in sorted(hits.items()):
@@ -134,10 +141,10 @@ def build(quiet=False):
             if not t["key"]:
                 continue
             rows.append({**h, **t})
-    return rows, hits, blind
+    return rows, hits, blind, total
 
 
-def write_report(rows, hits, blind):
+def write_report(rows, hits, blind, total=0):
     os.makedirs(os.path.dirname(REPORT), exist_ok=True)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     with open(REPORT, "w", encoding="utf-8") as f:
@@ -146,8 +153,16 @@ def write_report(rows, hits, blind):
                 "남아 `AS 미실시`·`정기점검 대기`에 얹혀 있습니다.\n\n")
         f.write(f"- 밴드에서 취소로 읽힌 건: **{len(hits)}건**\n")
         f.write(f"- 그중 원장이 아직 안 끝낸 건: **{len(rows)}건** ← 정리 대상\n")
-        f.write(f"- 댓글을 다 못 읽어 **놓쳤을 수 있는 글: {blind}건**"
-                " (달린 수만큼 본문이 캐시에 없음 — 수집 세션 몫)\n\n")
+        f.write(f"- 댓글을 못 읽어 **놓쳤을 수 있는 글: {blind}건** / 전체 {total}건"
+                "\n  (댓글을 한 번도 안 들여다본 글 + 달린 수만큼 본문이 없는 글."
+                " 긁는 것은 수집 세션 몫입니다)\n")
+        if total and blind * 2 > total:
+            # ★ 이 숫자가 절반을 넘으면 '몇 건 놓쳤나'가 아니라 **이 리포트를 믿을 수
+            #   있나**의 문제다. 위의 '취소로 읽힌 건'은 읽은 것 중에서만 센 값이다.
+            f.write("\n> ⚠ 사각지대가 절반을 넘습니다 — 위 '취소로 읽힌 건'은 **읽은 글**"
+                    " 안에서만 센 숫자입니다. 댓글 수집이 채워지기 전까지 이 리포트를"
+                    " '취소가 이것뿐'이라는 뜻으로 읽으면 안 됩니다.\n")
+        f.write("\n")
         if rows:
             f.write("| 프로젝트NO | 업무 | 캠프 | 지금 상태 | 취소 근거 | 자리 | 밴드/글 | 게시일 |\n")
             f.write("|---|---|---|---|---|---|---|---|\n")
@@ -182,14 +197,15 @@ def main(argv=None):
     ap.add_argument("--queue", action="store_true", help="원장 반영 대기열에 넣는다")
     ap.add_argument("--quiet", action="store_true")
     a = ap.parse_args(argv)
-    rows, hits, blind = build(quiet=a.quiet)
-    path = write_report(rows, hits, blind)
+    rows, hits, blind, total = build(quiet=a.quiet)
+    path = write_report(rows, hits, blind, total)
     added = queue(rows) if a.queue else 0
     if not a.quiet:
         print(f"  취소로 읽힌 {len(hits)}건 중 원장이 아직 안 끝낸 {len(rows)}건"
               + (f" → 대기열 {added}건 추가" if a.queue else " (보기만 — 넣으려면 --queue)"))
         if blind:
-            print(f"  ※ 댓글을 달린 수만큼 못 읽은 글 {blind}건 — 그 글의 취소는 아직 못 본다")
+            print(f"  ※ 댓글을 못 읽은 글 {blind}건 / 전체 {total}건"
+                  " — 한 번도 안 들여다본 글까지 센다. 그 글의 취소는 아직 못 본다")
         print(f"  {path}")
     return 0
 

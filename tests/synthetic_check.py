@@ -8463,8 +8463,19 @@ def t152_band_recollect_window():
         "날짜 꼬리표(260807)를 밴드번호로 읽었다 — 두 밴드가 유령 하나로 합쳐진다"
     assert CD.band_from_name("dump_api2_90610953.json", known) == "90610953", \
         "앞의 버전 숫자가 섞였다"
-    assert CD.band_from_name("dump_260807.json", set()) == "260807", \
-        "후보가 하나뿐이면 그대로 써야 한다"
+    # ★ '후보가 하나뿐이면 그대로 쓴다' 를 **버렸다** (2026-08-08 두 번째 사고).
+    #   하나뿐인 후보가 날짜(6자리)나 시각 도장(12자리)이면, 그대로 쓰는 순간
+    #   있지도 않은 밴드가 캐시에 생긴다. 실제로 `dump_202608082047_null.json` 이
+    #   유령 밴드 `202608082047` 을 만들었고, 그 빈 캐시가 make_oneclick 을 첫 밴드에서
+    #   죽여 **모든 밴드의 붙여넣기 파일이 하나도 안 만들어졌다.**
+    #   모르면 None 을 준다 — convert_dump 가 파일명 해시로 담으므로 숫자로 안 보이고,
+    #   어떤 도구도 그것을 밴드로 착각하지 않는다.
+    assert CD.band_from_name("dump_260807.json", set()) is None, \
+        "날짜 6자리를 밴드번호로 받아들였다 — 없는 밴드가 생긴다"
+    assert CD.band_from_name("dump_202608082047_null.json", set()) is None, \
+        "시각 도장 12자리를 밴드번호로 받아들였다 — 유령 밴드 202608082047 이 그렇게 생겼다"
+    assert CD.band_from_name("dump_202608082047_90610953.json", set()) == "90610953", \
+        "시각 도장과 진짜 밴드가 같이 있으면 밴드를 골라야 한다(8자리)"
 
     # ① 날짜 읽기 — 밀리초·초·ISO·쓰레기
     assert D.band_day(1766704935000) == D.band_day("1766704935000") != "", "밀리초를 못 읽는다"
@@ -9235,6 +9246,95 @@ def t168_erp_progress_glob_is_cached():
     print("  [168] erp_progress — 비싼 glob 앞에 캐시 검사가 온다(행마다 Z: 재귀탐색 금지) ✅")
 
 
+def t170_po_amount_ladder():
+    """[170] PO 대조는 **앱 화면과 같은 금액**을 봐야 한다 (2026-08-08 사용자 질문에서).
+
+    유형C(금액 불일치)가 51건 중 **44건**으로 나왔다. 근거는 전부 `원장공급가액합: 0` —
+    06시트 공급가액이 사람 손 입력이라 비어 있었을 뿐이고, ERP 로 대면 원 단위까지
+    맞았다(PO327948 쿠팡 7,551,500 = ERP 합 7,551,500). 앱은 이미 실제작업 → ERP →
+    명세서 사다리로 채워 보여 주고 있었으니 **화면과 대조기가 서로 다른 금액을 봤다.**
+
+    ★ 경보가 44/51 이면 그 경보는 아무도 안 본다. 조용한 사고의 반대편이지만 결과는 같다.
+      고친 뒤 C 는 35건이 됐고, 그 35건은 **원장 연결 누락 20 · 진짜 금액 차이 15** 로
+      갈렸다 — 고칠 곳이 서로 다르다.
+
+    ★★ 그리고 **유형D 만은 사다리를 쓰지 않는다.** A~C 는 경보라 금액 출처를 넓혀도
+       잃는 것이 없지만, D 는 06시트에 PO번호를 **써 넣는** 길이다. 짐작으로 채운
+       금액으로 짝을 지으면 틀린 PO번호가 원장에 박히고 그건 빈 칸보다 나쁘다.
+    """
+    import po_reconcile as P
+    src = open(os.path.join(ROOT, "po_reconcile.py"), encoding="utf-8").read()
+
+    # ① 사다리: 원장 → ERP → 명세서(÷1.1) → 0
+    P._ERP_SUPPLY = {"UJ-T1": 500000}
+    assert P.supply_of({"원장_공급가액": 403000, "프로젝트NO": "UJ-T1"}) == 403000, \
+        "원장 값이 있으면 그것이 먼저다"
+    assert P.supply_of({"원장_공급가액": None, "프로젝트NO": "UJ-T1"}) == 500000, \
+        "원장이 비면 ERP 로 내려가야 한다 — 이게 없어서 44/51 이 됐다"
+    assert P.supply_of({"원장_공급가액": 0, "프로젝트NO": "없음",
+                        "원장_거래명세서합계": 476300}) == 433000, \
+        "명세서(부가세 포함)는 ÷1.1 로 환산한다"
+    assert P.supply_of({"프로젝트NO": "없음"}) == 0, "근거가 하나도 없으면 0"
+
+    # ② 유형C 는 supply_of, 유형D 는 원장 직접입력만 — 자동으로 쓰는 자리는 넓히지 않는다
+    body = src.split("def main(", 1)[1]
+    c_part = body.split("# 유형D", 1)[0]
+    d_part = body.split("# 유형D", 1)[1].split("def ", 1)[0]
+    # ★ 주석을 걷어내고 본다 — 여기 '왜 안 쓰는지' 를 적어 두면 그 설명 자체가 걸린다
+    #   (검증 [155] 가 같은 방식으로 한 번 걸렸다: 내가 쓴 산문이 코드로 읽혔다).
+    d_code = "\n".join(ln for ln in d_part.splitlines() if not ln.strip().startswith("#"))
+    assert "supply_of(r) for r in lrows" in c_part, "유형C 합계가 사다리를 안 쓴다"
+    assert "supply_of" not in d_code, \
+        "유형D 는 06시트에 PO번호를 쓰는 길이다 — 짐작한 금액으로 짝지으면 안 된다"
+
+    # ③ 차액이 '왜' 나는지를 말해야 한다 — 연결 누락과 금액 오류는 고칠 곳이 다르다
+    assert "ERP전표합" in c_part and "원장 연결 누락" in c_part, \
+        "쿠팡=ERP 인데 원장만 모자란 경우를 따로 말해야 한다"
+
+    # ④ 앱도 '미발행' 을 사유별로 갈라 내려보낸다(류지영 몫 vs 전표 등록 몫)
+    app = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    seg = app.split("def app_settle", 1)[-1].split("\ndef ", 1)[0] if "def app_settle" in app else app
+    assert '"미발행사유"' in app, "미발행 사유를 안 내려보낸다"
+    assert "발행 대기(ERP 4단계)" in app and "ERP 전표 없음" in app, \
+        "'미발행' 한 덩어리에 가야 할 사람이 다른 두 가지가 섞여 있으면 안 된다"
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "미발행사유" in idx, "화면이 그 사유를 안 보여 주면 갈라 놓은 뜻이 없다"
+    print("  [170] PO 대조가 앱과 같은 금액 사다리를 본다(D 는 제외) · "
+          "'미발행'을 발행대기/전표없음으로 가른다 ✅")
+
+
+def t169_blind_count_sees_unlooked():
+    """[169] 사각지대 계기가 **같은 결측에 눈이 멀면** 안 된다 (2026-08-08 저녁 실측).
+
+    `cancel_blind_count` 는 `comment_count > 담긴 댓글 수` 로 사각지대를 셌다. 그런데
+    캐시 10,312글 중 `comment_count>0` 은 **6글**이고 댓글 본문은 **0글**이다 —
+    밴드에 댓글이 없어서가 아니라 **수집기가 그 숫자를 안 담아서**다. 그래서 계기가
+    "사각지대 0건" 이라고 말했다. 고치자 **8,259건 / 8,561건**이 됐다.
+
+    ★ 이 종류가 제일 나쁘다. 값이 비면 사람이 알아채지만, **재는 도구가 0을 내면
+      아무도 의심하지 않는다.** 없는 것과 안 본 것을 구별하는 것이 전부다:
+        · `comments` 키가 아예 없다 → 한 번도 안 들여다봤다 → 사각지대
+        · `comments: []`           → 보긴 봤고 없었다 → 사각지대 아님
+      그리고 리포트는 사각지대가 절반을 넘으면 **스스로 못 믿겠다고 말해야 한다** —
+      "취소로 읽힌 건 N건" 은 읽은 글 안에서만 센 숫자이기 때문이다.
+    """
+    import band_extract as B
+
+    never = {"1": {"comment_count": 0, "content": "접수합니다"}}          # comments 키 없음
+    assert B.cancel_blind_count(never) == 1, \
+        "댓글을 한 번도 안 본 글을 사각지대로 안 센다 — 계기가 결측에 눈이 먼다"
+    looked = {"1": {"comment_count": 0, "comments": []}}
+    assert B.cancel_blind_count(looked) == 0, \
+        "보고 나서 없었던 글까지 사각지대로 세면 숫자가 소음이 된다"
+    half = {"1": {"comment_count": 3, "comments": [{"content": "a"}]}}
+    assert B.cancel_blind_count(half) == 1, "반쯤 읽은 글은 예전처럼 사각지대다"
+
+    body = open(os.path.join(ROOT, "cancel_watch.py"), encoding="utf-8").read()
+    assert "blind * 2 > total" in body, \
+        "사각지대가 절반을 넘어도 리포트가 스스로 경고하지 않는다"
+    print("  [169] 사각지대 계기 — '댓글이 없다'와 '안 봤다'를 가르고, 절반 넘으면 리포트가 스스로 경고 ✅")
+
+
 def t161_erp_filename_fingerprint():
     """[161] ERP 내보내기는 **파일명 화면코드**로 가른다 (2026-08-08 실측).
 
@@ -9623,12 +9723,21 @@ def t155_cancel_and_handover():
     # ── ③ 댓글 자리 — 지금은 캐시에 본문이 없다. 그 사실을 세어야 한다 ──
     assert B.comment_text({"comments": [{"content": "접수 취소 하세요"}]}) == "접수 취소 하세요"
     assert B.comment_text({"comment_count": 3}) == "", "없는 댓글을 있는 것처럼 만든다"
+    # ★ 기대값이 2 → 3 으로 바뀌었다 (2026-08-08 저녁, 검증 [169]).
+    #   "2" 는 `comment_count: 0` 이고 `comments` 키가 **없다** — 예전에는 '댓글이 없는
+    #   글'로 보고 넘겼다. 그런데 실측에서 캐시 10,312글 중 `comment_count>0` 이 6글뿐인
+    #   것이 드러났다. 밴드에 댓글이 없어서가 아니라 **수집기가 그 숫자를 안 담아서**다.
+    #   즉 그 0 은 '없다'가 아니라 '안 봤다'였고, 계기는 그것을 믿고 사각지대 0건이라
+    #   말했다. 이제 `comments` 키가 없으면 **안 본 것**으로 세고, `comments: []`(보긴
+    #   봤고 없었다)와 가른다. 그래서 1·2·3 이 사각지대이고 4 만 아니다.
     assert B.cancel_blind_count({"1": {"comment_count": 3},
                                  "2": {"comment_count": 0},
                                  "3": {"comment_count": "2"},
                                  "4": {"comment_count": 1,
-                                       "comments": [{"content": "x"}]}}) == 2, \
+                                       "comments": [{"content": "x"}]}}) == 3, \
         "댓글은 있는데 본문을 못 읽는 사각지대를 0건이라 말하면 안 된다"
+    assert B.cancel_blind_count({"2": {"comment_count": 0, "comments": []}}) == 0, \
+        "보고 나서 없었던 글까지 세면 안 된다 — '없다'와 '안 봤다'는 다르다"
 
     # ── ④ 순서: 댓글 취소 > 완료 제목 > 본문 취소 ────────────────────
     def _post(body, comments=None):
@@ -10501,6 +10610,8 @@ if __name__ == "__main__":
     t166_billing_status_ladder()
     t167_daily_run_inflight()
     t168_erp_progress_glob_is_cached()
+    t169_blind_count_sees_unlooked()
+    t170_po_amount_ladder()
     t161_erp_filename_fingerprint()
     t160_master_book_cache()
     t154_amount_basis()

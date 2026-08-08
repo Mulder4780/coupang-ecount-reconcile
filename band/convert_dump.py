@@ -91,6 +91,12 @@ def band_from_name(basename, known=None):
     그래서 자리(앞/뒤)가 아니라 **무엇처럼 생겼는가**로 고른다:
       ① 이미 캐시에 있는 밴드번호가 후보에 있으면 그것 — 가장 확실한 근거
       ② 없으면 **가장 긴** 숫자 덩어리 — 밴드번호는 8자리, 날짜 꼬리표는 6자리다
+    ★ ②의 '가장 긴' 은 **위로도 막아야 한다** (2026-08-08 두 번째 실사고).
+      `dump_202608082047_null.json` 의 `202608082047` 은 12자리 **시각 도장**인데
+      6자리 날짜보다 길어서 ②가 그것을 골랐다 — 유령 밴드 `202608082047` 이
+      캐시에 생겼고, 그 빈 캐시가 `make_oneclick` 을 첫 밴드에서 죽여 **모든 밴드의
+      붙여넣기 파일이 하나도 안 만들어졌다.** 앞 사고와 방향만 반대일 뿐 같은 일이다.
+      밴드번호는 8자리다. 그러니 후보를 **8자리에 가까운 것**으로 좁힌다.
     """
     nums = re.findall(r"(\d{6,})", basename)
     if not nums:
@@ -99,8 +105,13 @@ def band_from_name(basename, known=None):
     for n in nums:
         if n in known:
             return n
-    longest = max(len(n) for n in nums)
-    return [n for n in nums if len(n) == longest][-1]
+    # 밴드번호로 있을 수 있는 길이만 남긴다(관측된 밴드는 전부 8자리 — 7~10 만 허용).
+    #   날짜 꼬리표(6자리)도 시각 도장(12·14자리)도 여기서 함께 떨어진다.
+    plausible = [n for n in nums if 7 <= len(n) <= 10]
+    if not plausible:
+        return None          # 모르면 **모른다고 한다** — 없는 밴드를 만드는 것보다 낫다
+    longest = max(len(n) for n in plausible)
+    return [n for n in plausible if len(n) == longest][-1]
 
 
 def dump_files():

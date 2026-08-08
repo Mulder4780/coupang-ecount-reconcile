@@ -296,6 +296,13 @@ window.__ERPGRAB = {단계: '시작', 조회전: null, 조회후: null, 완료: 
     if (preset === '금주(~오늘)') return {from: back(7),  to};
     if (preset === '최근30일')    return {from: back(30), to};
     if (preset === '금월(~오늘)') return {from: `${t.getFullYear()}/${p2(t.getMonth()+1)}/01`, to};
+    // 기수(회계연도) — 이 회사는 기수 = 달력해다. 없으면 2025년 조회가 '기간 밖'으로 버려진다.
+    if (preset === '이번기수') return {from: `${t.getFullYear()}/01/01`, to};
+    // ★ 화면에 있는 낱말은 '직전기수' 다 (2026-08-08 실측으로 확인 — '전기수' 라고
+    //   짐작했다가 '프리셋을 못 찾음' 으로 헛발질할 뻔했다). 둘 다 받아 둔다.
+    if (preset === '직전기수' || preset === '전기수')
+                              return {from: `${t.getFullYear()-1}/01/01`,
+                                      to:   `${t.getFullYear()-1}/12/31`};
     return {from: back(45), to};              // 모르는 프리셋은 넉넉하게 본다
   })();
   const g = document.querySelector('[id^="grid-"]');
@@ -365,6 +372,14 @@ NEEDS_HUMAN = {
                 "거래처 칸에 '쿠팡' 입력 후 Enter → **거래처검색 창에서 사람이 줄을 클릭** → 검색(F8) → Excel",
         "막힌 곳": "거래처검색 창의 줄은 합성 이벤트(click·dblclick)로 안 골라진다. "
                    "창에 확인·선택 단추도 없다 — 실제 마우스 클릭이 있어야 한다.",
+        "여기까지는 된다": "★ 2026-08-08 실측 — 이 창은 **키보드로 만든 창**이다. 창 안에 "
+                   "단축키 안내표가 있다: `검색/커서위치적용 Enter · 다음페이지 → · 5행 위 Shift+↑`. "
+                   "CDP 로 보낸 진짜 키 입력(↓ 5번)이 먹어서 `2548801036 쿠팡로지스틱스서비스` 줄에 "
+                   "`class=\"tr-odd active-kbd\"` 가 붙었다 — **줄 고르기는 키보드로 된다.** "
+                   "다만 그 상태에서 Enter 를 눌러도 창이 안 닫혔다(그때 activeElement 가 BODY 였다 — "
+                   "격자가 키 초점을 안 쥔 듯). 남은 것은 '적용' 한 번뿐이다. "
+                   "★ 함정: `input[data-cid=\"__headerQuick\"]` 이 **두 개**다. 첫째는 숨은 미끼라 "
+                   "`querySelector` 로 잡으면 focus 가 안 붙는다 — `offsetParent !== null` 인 것을 고를 것.",
         "왜 필요한가": "입금 귀속의 **유일한 근거**다. 은행 원본·정리표에는 거래처명과 금액뿐이라 "
                        "어느 청구건에 붙는지 알 수 없다(적요 10종이 전부 거래처명이었다). "
                        "이 원장에는 적요·전표번호가 있다. 지금 이 자료는 **한 번도 수집된 적이 없다**.",
@@ -530,6 +545,16 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
     if (preset === '전일')        return {from: back(1), to: back(1)};
     if (preset === '금주(~오늘)') return {from: back(7), to};
     if (preset === '금월(~오늘)') return {from: `${t.getFullYear()}/${p2(t.getMonth()+1)}/01`, to};
+    // ★ 기수(회계연도) 프리셋 — 이 회사는 기수 = 달력해다(E010809 요령에 '이번기수(=올해 전체)').
+    //   이것이 없으면 2025년을 받으려 해도 want 가 '최근 45일'로 떨어져서, 격자에
+    //   2025년 날짜만 있는 화면이 **'기간 밖 → 실패'** 로 버려진다. 조회는 제대로
+    //   됐는데 Excel 을 안 누르고 실패로 적는다 — 화면만 보면 이유를 알 수 없다.
+    if (preset === '이번기수') return {from: `${t.getFullYear()}/01/01`, to};
+    // ★ 화면에 있는 낱말은 '직전기수' 다 (2026-08-08 실측으로 확인 — '전기수' 라고
+    //   짐작했다가 '프리셋을 못 찾음' 으로 헛발질할 뻔했다). 둘 다 받아 둔다.
+    if (preset === '직전기수' || preset === '전기수')
+                              return {from: `${t.getFullYear()-1}/01/01`,
+                                      to:   `${t.getFullYear()-1}/12/31`};
     return {from: back(45), to};
   };
 

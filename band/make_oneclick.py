@@ -53,6 +53,11 @@ def build(band, limit, nos=None, why=""):
         floor = int((sc.get("floor") or {}).get(str(band), 0) or 0)
         ahead = int(sc.get("ahead") or 40)
         p = RP.plan(str(band), posts, floor, ahead)
+        if not p:
+            # 계획을 못 세우는 밴드가 있다 — 유령 밴드의 **빈 캐시**가 그렇다.
+            # 예전에는 여기서 TypeError 로 죽어 **뒤에 있는 진짜 밴드까지 전부**
+            # 붙여넣기 파일을 못 만들었다(2026-08-08). 한 밴드가 나머지를 죽이면 안 된다.
+            return None, "계획을 세울 수 없다(빈 캐시일 수 있다)"
         todo = (p["new"] + sorted(p["gaps"], reverse=True)
                 + sorted(p["stale"], reverse=True))[:limit]
     else:
@@ -115,16 +120,26 @@ def main():
     bands = [a.band] if a.band else sorted(
         f[:-5] for f in os.listdir(RP.CACHE)
         if f.endswith(".json") and f[:-5].isdigit())
+    made = 0
     for band in bands:
-        js, note = build(band, a.limit)
+        # ★ 한 밴드에서 무슨 일이 나든 **나머지는 계속 만든다.** 실측 2026-08-08:
+        #   유령 밴드 하나가 TypeError 로 죽어 진짜 밴드 두 개의 파일이 안 만들어졌고,
+        #   사람 손에 가는 것은 디스크에 있는 그 파일이라 **아무것도 못 긁었다.**
+        try:
+            js, note = build(band, a.limit)
+        except Exception as e:
+            print(f"밴드 {band}: 만들지 못했다 — {type(e).__name__}: {e}")
+            continue
         if not js:
             print(f"밴드 {band}: {note}")
             continue
         path = os.path.join(a.out, f"수집_붙여넣기_{band}.js")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(js)
+        made += 1
         print(f"밴드 {band}: {note} → {path}")
-    print("\n쓰는 법: 파일 열기 → 전체 복사 → 로그인된 밴드 탭에서 F12 → Console 에 붙여넣기 → Enter")
+    print(f"\n만든 파일 {made}개 / 밴드 {len(bands)}개")
+    print("쓰는 법: 파일 열기 → 전체 복사 → 로그인된 밴드 탭에서 F12 → Console 에 붙여넣기 → Enter")
     return 0
 
 
