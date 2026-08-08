@@ -313,7 +313,15 @@ def _read_ledger_uncached(xlsx_path):
                        "비용구분", "실제작업공급가액", "실제작업부가세", "실제작업합계",
                        "거래명세서번호", "거래명세서발행일", "거래명세서공급가액", "거래명세서합계",
                        "세금계산서발행일", "세금계산서합계", "입금일", "입금액",
-                       "청구일", "지급예정일", "PO필요여부", "PO번호", "PO발행일"])
+                       "청구일", "지급예정일", "PO필요여부", "PO번호", "PO발행일",
+                       # ★ 청구상태(AH)는 **사람이 손으로 채우는 단계 딱지**다. 여기 없으면
+                       #   `r.get("원장_청구상태")` 가 750행 전부 None 을 돌려준다 —
+                       #   비어 있는 게 아니라 **읽지도 않은 것**인데 세어 보면 '빈칸 750'
+                       #   으로 나온다(2026-08-08 실사고: 그 숫자로 '완료 반영 대상 286건'
+                       #   이라는 결론을 낼 참이었다. 실제로 채워진 행이 63개 있었다).
+                       #   없는 열을 물어보면 col_index 가 None 을 주고 조용히 넘어가므로
+                       #   **틀린 게 아니라 안 보이는** 종류의 사고가 된다.
+                       "청구상태"])
     for row in ws.iter_rows(min_row=FIRST_DATA, values_only=True):
         sid = row[c["정산ID"]] if c["정산ID"] is not None else None
         if not sid:
@@ -339,6 +347,7 @@ def _read_ledger_uncached(xlsx_path):
             "원장_입금일": _d(row[c["입금일"]]),
             "원장_입금액": _num(row[c["입금액"]]),
             "원장_청구일": _d(row[c["청구일"]]) if c["청구일"] is not None else "",
+            "원장_청구상태": _d(row[c["청구상태"]]) if c["청구상태"] is not None else "",
             "원장_지급예정일": _d(row[c["지급예정일"]]) if c["지급예정일"] is not None else "",
             "원장_PO필요여부": _d(row[c["PO필요여부"]]) if c["PO필요여부"] is not None else "",
             "원장_PO번호": _d(row[c["PO번호"]]) if c["PO번호"] is not None else "",

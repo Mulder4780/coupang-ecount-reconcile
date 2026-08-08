@@ -260,6 +260,14 @@ def _run_pipeline():
     #         billing_fill 이 SHA256 으로 같은 파일을 한 번만 읽으므로 자동에 태워도 안전하다.
     steps.append(run("청구 근거 갱신(06시트)", [os.path.join(ROOT, "billing_fill.py"), "--queue"]))
 
+    # 2.9555 청구상태(06시트 AH)를 ERP 수금확인으로 맞춘다 — 사용자 지시(2026-08-08)
+    #        "ERP 기준으로 확정하고 객관적으로 입증되면 엑셀에 완료처리해".
+    #        ★ 회차로 만드는 이유: 수금은 **매일 새로 생긴다.** 한 번 손으로 맞춰 두면
+    #          그날 이후로는 다시 낡는데, 낡은 단계 딱지는 비어 있지 않아서
+    #          **아무 화면에도 티가 안 난다** — 이 프로젝트가 계속 당해 온 종류다.
+    steps.append(run("청구상태 ERP 수금확인 반영",
+                     [os.path.join(ROOT, "billing_status.py"), "--queue"]))
+
     # 2.96 재계산 대기 세기 — 원장엔 올라왔는데 엑셀이 아직 계산 안 해 앱에 안 나오는 건.
     #      숫자가 틀린 게 아니라 대기 중이라는 걸 앱이 스스로 말하게 한다(사용자 오해 방지).
     steps.append(run("재계산 대기 확인", [os.path.join(ROOT, "recalc_pending.py")]))

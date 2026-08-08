@@ -9049,8 +9049,12 @@ def t141_long_text_folds():
     print("  [141] 긴 글 접기 — 재서 정함·기능 숨김 금지·인쇄는 전부 펼침 ✅")
 
 
-def t162_deposit_dedupe():
-    """[162] 같은 입금이 여러 파일에 있으면 **한 번만** 센다 (2026-08-08 실사고).
+def t164_deposit_dedupe():
+    """[164] 같은 입금이 여러 파일에 있으면 **한 번만** 센다 (2026-08-08 실사고).
+
+    ※ 번호는 세션끼리 **같은 이름공간**이다. 처음 [162] 로 달았는데 옆 세션이 같은 번호로
+      `t162_band_comments_collected` 를 올려 두 개가 됐다. 번호가 겹치면 "검증 [162]" 라는
+      말이 어느 것을 가리키는지 알 수 없어 문서가 쓸모없어진다 — **내 것을 옮긴다.**
 
     실측: 입금 합계 2,417,075,528원인데 청구 합계는 545,353,633원 — 4.4배였다.
     같은 입금이 오종현 정리본과 은행 원본 **양쪽에** 들어 있어 46쌍 1,053,446,894원이
@@ -9088,7 +9092,81 @@ def t162_deposit_dedupe():
         "거래처가 다른 입금을 합쳤다 — 다른 돈이다"
     assert sum(1 for r in kept if r["금액"] == 55000.0) == 2, \
         "같은 파일 안의 두 줄을 합쳤다 — 이체가 두 번이면 두 번이다"
-    print("  [162] 입금 중복 — 파일 겹침만 합치고(은행 원본 우선) 거래처·같은파일 두 줄은 남긴다 ✅")
+    print("  [164] 입금 중복 — 파일 겹침만 합치고(은행 원본 우선) 거래처·같은파일 두 줄은 남긴다 ✅")
+
+
+def t165_ledger_reads_billing_status():
+    """[165] 06시트 `청구상태`(AH)를 **읽는지** 지킨다 (2026-08-08 실사고).
+
+    `read_ledger` 의 열 목록에 이름이 없으면 `col_index` 가 None 을 돌려주고, 그 열은
+    **오류 없이 사라진다.** 그날 실측: `r.get("원장_청구상태")` 가 750행 전부 None 이라
+    '완료 반영 대상 286건(전부 빈칸)' 이라는 결론이 나올 참이었다. 실제로 사람이 채워 둔
+    행이 63개(작업완료 59·거래명세서발행 4) 있었다 — **빈 게 아니라 안 보던 것**이다.
+
+    ★ 비어 있는 값은 눈에 띄지만 **읽지 않은 열은 빈칸과 똑같이 보인다.** 그래서
+      "열 목록에 이름이 있다"와 "레코드에 키가 있다" 둘 다 못을 박는다.
+    """
+    import inspect, ecount_reconcile as R
+
+    # ★ 읽는 곳은 `read_ledger`(캐시 껍데기)가 아니라 `_read_ledger_uncached` 다.
+    #   껍데기를 들여다보면 열 목록이 안 보여 **테스트가 그냥 통과해 버린다**
+    #   (이 테스트도 처음에 그렇게 썼다 — 다행히 빨간불로 났다).
+    src = inspect.getsource(R._read_ledger_uncached)
+    assert '"청구상태"' in src, \
+        "read_ledger 열 목록에서 청구상태가 빠졌다 — 750행이 조용히 빈칸으로 보인다"
+    assert '"원장_청구상태"' in src, \
+        "청구상태를 읽어도 레코드에 담지 않으면 아무도 못 쓴다"
+    # 대입 자리를 통째로 본다 — 이름만 세면 **주석에 적힌 이름**이 걸려 통과한다
+    # (실제로 그렇게 통과할 뻔했다: 위 열 목록 주석에 같은 낱말이 들어 있다).
+    assert '"원장_청구상태": _d(row[c["청구상태"]])' in src, \
+        "원장_청구상태가 엉뚱한 열에서 오거나 대입 자리가 사라졌다"
+    print("  [165] 06시트 청구상태를 읽는다(사람이 채운 단계 딱지 63건이 보인다) ✅")
+
+
+def t166_billing_status_ladder():
+    """[166] 청구상태는 **사다리를 거꾸로 가지 않는다** (2026-08-08 지시).
+
+    지시: "ERP 기준으로 확정하고 객관적으로 입증되면 엑셀에 완료처리해".
+
+    ★ 여기서 위험한 것은 안 쓰는 게 아니라 **잘못 쓰는 것**이다. 이 칸은 사람이 보고
+      고르는 칸이라(데이터유효성 안내문: "[필수] 작업완료부터 입금완료까지 현재 단계를
+      고릅니다"), 값이 틀리면 **사람이 틀린 단계를 보고 일한다.** 그래서 셋을 못 박는다:
+        ① 마지막 낱말은 `입금완료` 다 — '완료' 같은 새 낱말을 지어내면 사람이 쓰던
+           사다리에 없는 값이 섞여 정렬·필터가 조용히 어긋난다.
+        ② 빈칸은 `only_if_empty=True`, 낡은 단계는 `False` — 덮는 자리를 **가른다.**
+        ③ **뜻을 모르는 낱말은 큐에 넣지 않는다.** 사람이 적은 값을 덮는 게 위험한 게
+           아니라, 무슨 뜻인지 모르는 값을 덮는 게 위험하다.
+    """
+    import billing_status as B
+
+    assert B.LADDER[-1] == B.DONE == "입금완료", \
+        "마지막 단계 낱말이 바뀌었다 — 사람이 쓰던 사다리에 없는 값이 된다: %r" % (B.LADDER,)
+    assert B.LADDER.index("작업완료") < B.LADDER.index("거래명세서발행") < B.LADDER.index(B.DONE), \
+        "사다리 순서가 어긋났다"
+
+    p = {
+        "채움":   [{"정산ID": "JS-A", "프로젝트NO": "P1", "캠프명": "", "업무구분": "", "지금": "(빈칸)"}],
+        "올림":   [{"정산ID": "JS-B", "프로젝트NO": "P2", "캠프명": "", "업무구분": "", "지금": "작업완료"}],
+        "이미맞음": [{"정산ID": "JS-C", "프로젝트NO": "P3", "캠프명": "", "업무구분": "", "지금": B.DONE}],
+        "모르는값": [{"정산ID": "JS-D", "프로젝트NO": "P4", "캠프명": "", "업무구분": "", "지금": "보류(류지영확인)"}],
+    }
+    items = B.items_for_queue(p)
+    keys = {it["key"]: it for it in items}
+    assert set(keys) == {"JS-A", "JS-B"}, \
+        "이미맞음·모르는값이 큐에 섞였다: %r" % (sorted(keys),)
+    assert keys["JS-A"]["only_if_empty"] is True, "빈칸을 덮어쓰기로 넣었다"
+    assert keys["JS-B"]["only_if_empty"] is False, "낡은 단계를 못 올린다(빈칸만 채우게 돼 있다)"
+    assert all(it["col"] == "청구상태" and it["value"] == B.DONE
+               and it["sheet"] == "06_거래서류청구수금" and it["key_col"] == "정산ID"
+               for it in items), "엉뚱한 시트·열·키로 넣는다"
+    assert all("7.수금완료" in it["evidence"] for it in items), \
+        "근거에 무엇이 입증했는지가 없다 — 나중에 되짚을 수 없다"
+
+    # 엑셀은 열지 않는다(11:00·15:00 회차 몫). 무인 경로가 --apply 를 부르면 사고다.
+    body = open(os.path.join(ROOT, "billing_status.py"), encoding="utf-8").read()
+    assert "--apply" not in body and "openpyxl" not in body, \
+        "billing_status 가 엑셀을 직접 연다 — 반영은 11:00·15:00 회차 몫이다"
+    print("  [166] 청구상태 — 마지막 낱말은 '입금완료'·빈칸과 낡은단계를 가르고·모르는 값은 안 건드린다 ✅")
 
 
 def t161_erp_filename_fingerprint():
@@ -10352,7 +10430,9 @@ if __name__ == "__main__":
     t147_project_history()
     t148_input_suggest()
     t149_tech_center()
-    t162_deposit_dedupe()
+    t164_deposit_dedupe()
+    t165_ledger_reads_billing_status()
+    t166_billing_status_ladder()
     t161_erp_filename_fingerprint()
     t160_master_book_cache()
     t154_amount_basis()
