@@ -8580,6 +8580,50 @@ def t152_band_recollect_window():
     print("  [152] 밴드 재수집 08:00 — 30일 창·바뀐 것만·인계 맨 위·유령밴드 차단 ✅")
 
 
+
+def t154_wrapup_drops_huge_files():
+    """[154] 자동 마무리가 **거대 파일을 커밋에 담지 않는다** (2026-08-08 실사고).
+
+    `db/source_index_cache.json` 이 106MB 로 자라 자동 커밋에 실려 갔고, GitHub 은
+    100MB 넘는 blob 을 pre-receive 에서 거절한다. 그때 죽는 것은 그 커밋 하나가
+    아니라 **저장소의 모든 푸시**다 — 그 커밋을 지나야 뒤가 올라가기 때문이다.
+    푸시가 죽으면 폰에서 이어받기(푸시된 것만 보인다)도 같이 죽는다.
+
+    `add -A` 는 옆 세션 파일까지 담으므로 무엇이 올라올지 미리 알 수 없다.
+    그래서 막는 자리는 '무엇을 담을까'가 아니라 **커밋 직전 크기 검사**다.
+    """
+    import io, subprocess, tempfile
+    import session_wrapup as W
+
+    assert W.HUGE <= 100 * 1024 * 1024, "한도가 GitHub 거절선(100MB)을 넘으면 막는 뜻이 없다"
+    src = io.open(os.path.join(ROOT, "session_wrapup.py"), encoding="utf-8").read()
+    i_add, i_drop, i_scan = (src.index('git("add", "-A")'),
+                             src.index("huge = _unstage_huge()"),
+                             src.index('git("grep", "--cached"'))
+    assert i_add < i_drop < i_scan, "거대파일 제외는 add 뒤·커밋 전에 와야 한다"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for a in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
+            subprocess.run(["git"] + a, cwd=tmp, capture_output=True)
+        big, small = os.path.join(tmp, "big.json"), os.path.join(tmp, "small.txt")
+        with open(big, "wb") as f:              # 성긴 파일 — 디스크를 실제로 쓰지 않는다
+            f.seek(W.HUGE + 4096 - 1)
+            f.write(bytes(1))
+        io.open(small, "w", encoding="utf-8").write("ok")
+        subprocess.run(["git", "add", "-A"], cwd=tmp, capture_output=True)
+        old = W.ROOT
+        try:
+            W.ROOT = tmp
+            dropped = W._unstage_huge()
+            staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=tmp,
+                                    capture_output=True, text=True).stdout.split()
+        finally:
+            W.ROOT = old
+    assert dropped == ["big.json"], "거대 파일을 빼지 못했다: %r" % (dropped,)
+    assert staged == ["small.txt"], "멀쩡한 파일까지 같이 뺐다: %r" % (staged,)
+    print("  [154] 자동 마무리 — 90MB 넘는 파일은 커밋 전에 뺀다(푸시 전체가 막힌다) ✅")
+
+
 def t153_erp_excel_to_records():
     """[153] ERP 엑셀 → 건별 기록 — 겹치는 회차에도 **바뀜이 진짜 바뀜** (분담판 24).
 
@@ -9892,6 +9936,7 @@ if __name__ == "__main__":
     t151_collect_all_idempotent_and_no_login_scrape()
     t152_band_recollect_window()
     t153_erp_excel_to_records()
+    t154_wrapup_drops_huge_files()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

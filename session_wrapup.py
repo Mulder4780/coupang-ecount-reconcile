@@ -62,6 +62,43 @@ def git(*args):
     return ok, out
 
 
+HUGE = 90 * 1024 * 1024          # GitHub 거절선은 100MB. 여유를 두고 90MB 에서 뺀다.
+
+
+def _unstage_huge():
+    """스테이징에 올라온 거대 파일을 도로 뺀다. 뺀 경로 목록을 준다.
+
+    2026-08-08 실사고: `db/source_index_cache.json` 이 106MB 로 자라 그대로
+    커밋됐고, GitHub pre-receive 가 거절해 **저장소의 모든 푸시가 막혔다.**
+    커밋 하나가 거절된 것이 아니라 그 커밋을 지나야 하는 뒤의 모든 푸시가
+    같이 죽는다 — 폰에서 이어받기(푸시된 것만 보인다)도 그때 같이 죽었다.
+
+    `add -A` 는 옆 세션 파일까지 담으므로 무엇이 올라올지 미리 알 수 없다.
+    그래서 커밋 **전에** 크기로 한 번 거른다. 캐시·덤프는 다시 만들면 되고,
+    정말 필요한 큰 파일이라면 사람이 LFS 로 넣을 일이지 자동 커밋이 밀 것이 아니다.
+    """
+    try:
+        r = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=ROOT,
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=120)
+    except Exception:
+        return []
+    dropped = []
+    for rel in (r.stdout or "").splitlines():
+        rel = rel.strip()
+        if not rel:
+            continue
+        try:
+            if os.path.getsize(os.path.join(ROOT, rel)) <= HUGE:
+                continue
+        except OSError:
+            continue                      # 지워진 파일 — 삭제 스테이징은 그대로 둔다
+        ok, _ = git("reset", "-q", "--", rel)
+        if ok:
+            dropped.append(rel)
+    return dropped
+
+
 def step_intake(steps):
     ok, note = run([sys.executable, os.path.join(ROOT, "ledger_db.py"), "--intake"])
     steps.append({"단계": "① 입력 큐 → DB", "성공": ok, "메모": note})
@@ -101,6 +138,7 @@ def step_commit(who, reason, steps):
         steps.append({"단계": "③ 커밋", "성공": True, "메모": "미커밋 없음 — 만들지 않았다"})
         return
     git("add", "-A")
+    huge = _unstage_huge()               # 90MB 넘는 것은 커밋 전에 뺀다 — 푸시가 통째로 막힌다
     leaked, hits = git("grep", "--cached", "-nEI",
                        r"(api_?key|secret|password|passwd|token)[[:space:]]*[:=][[:space:]]*[\"'][A-Za-z0-9_-]{12,}")
     if leaked and hits.strip():          # grep 은 '찾으면' 0 을 준다 — 찾은 것이 사고다
@@ -115,17 +153,26 @@ def step_commit(who, reason, steps):
     if others:
         msg += ("\n\n다른 세션이 같은 작업 폴더에서 일하는 중이라 이 커밋에는 그쪽 파일이"
                 "\n섞여 있을 수 있다. 그래서 **푸시하지 않았다** — 확인 후 사람이 밀 것.")
+    if huge:
+        msg += ("\n\n90MB 를 넘어 커밋에서 뺀 파일: %s"
+                "\n(GitHub 100MB 한도 — 담았다면 이 저장소의 푸시가 전부 막힌다)"
+                % ", ".join(huge))
     ok, note = git("commit", "-q", "-m", msg)
+    tail = (" · 거대파일 %d개 제외(%s)" % (len(huge), ", ".join(huge))) if huge else ""
     if not ok:
-        steps.append({"단계": "③ 커밋", "성공": False, "메모": note or "커밋 실패"})
+        steps.append({"단계": "③ 커밋", "성공": False, "메모": (note or "커밋 실패") + tail})
         return
     if others:
         steps.append({"단계": "③ 커밋", "성공": True,
-                      "메모": "커밋 완료 · 다른 세션 %d개가 작업 중이라 푸시는 보류" % len(others)})
+                      "메모": ("커밋 완료 · 다른 세션 %d개가 작업 중이라 푸시는 보류"
+                               % len(others)) + tail})
         return
-    pushed, _ = git("push", "-q")
+    pushed, why = git("push", "-q")
     steps.append({"단계": "③ 커밋", "성공": True,
-                  "메모": "커밋 완료" + (" · 푸시 완료" if pushed else " · 푸시 실패(커밋은 남음)")})
+                  "메모": "커밋 완료"
+                          + (" · 푸시 완료" if pushed
+                             else " · 푸시 실패(커밋은 남음): %s" % (why or "이유 불명"))
+                          + tail})
 
 
 def step_handoff(who, reason, steps):
