@@ -50,3 +50,4 @@ config/gcal.json
 reports/inbox_classify.json
 config/erp_allowed_ips.json
 reports/erp_ip.json
+db/source_index_cache.json
