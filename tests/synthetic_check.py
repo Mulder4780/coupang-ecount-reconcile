@@ -9076,7 +9076,22 @@ def t161_erp_filename_fingerprint():
     # 지문에 없는 이름은 예전 길로 간다 — 못 읽으면 unknown
     assert S.classify(os.path.join("아무데나", "ESD009M.xlsx")) == "unknown", \
         "지문에 없는 파일까지 가로챘다"
-    print("  [161] ERP 내보내기 — 파일명 화면코드가 내용보다 먼저(E010727→sales) ✅")
+    # ★ 규칙을 고쳐도 **색인이 옛 판정을 들고 있으면 헛일이다** (2026-08-08 실측).
+    #   실제로 그랬다: 위 지문을 넣고 색인을 다시 돌렸는데 ERP:sales 가 10건 그대로였다.
+    #   색인 캐시 열쇠는 `경로|크기|시각` 이라 파일이 안 바뀌면 옛 갈래를 돌려주고,
+    #   그걸 막는 규칙 지문에는 **폴더 규칙만** 들어 있었다(내용 판별은 빠져 있었다).
+    #   고친 규칙이 안 먹는 것은 안 고친 것보다 나쁘다 — 고쳤다고 믿게 된다.
+    import source_index as IX
+    v0 = IX.rules_version()
+    old = S.ERP_FILE_PREFIX
+    try:
+        S.ERP_FILE_PREFIX = dict(old, ZZZTEST="stmt")
+        assert IX.rules_version() != v0, \
+            "내용 분류 규칙이 바뀌었는데 색인 지문이 그대로다 — 색인이 옛 갈래를 계속 쓴다"
+    finally:
+        S.ERP_FILE_PREFIX = old
+    assert IX.rules_version() == v0, "지문이 원래대로 안 돌아온다"
+    print("  [161] ERP 내보내기 — 파일명이 내용보다 먼저 · 규칙 바뀌면 색인도 다시 판별 ✅")
 
 
 def t160_master_book_cache():

@@ -149,8 +149,27 @@ RULES_KEY = "__rules__"
 
 
 def rules_version():
+    """★ 폴더 규칙만 해싱하면 **반쪽이다** (2026-08-08 실사고 — 같은 사고 두 번째).
+
+    갈래를 정하는 것은 둘이다: 폴더 규칙(FOLDER_KIND)과 **내용 판별**(inbox_scan).
+    그런데 지문에 앞엣것만 들어 있었다. 그래서 EBG006M(E010727)이 taxinv 로 새는 것을
+    inbox_scan 에서 고치고 색인을 다시 돌렸는데 **결과가 하나도 안 바뀌었다** —
+    파일이 안 바뀌었으니 캐시가 옛 갈래를 그대로 돌려줬다(ERP:sales 10건 그대로).
+    2026-08-05 주석이 "앞으로 규칙을 고칠 때마다 조용히 헛일이 된다"고 경고한 그대로다.
+
+    그래서 내용 판별의 **실제 코드**를 같이 지문에 넣는다. 주석만 고쳐도 다시 도는 것이
+    아깝지만, 고친 규칙이 안 먹는 것보다 낫다 — 안 먹으면 아무도 모른다.
+    """
     import hashlib
-    return hashlib.sha1(repr(FOLDER_KIND).encode("utf-8")).hexdigest()[:10]
+    parts = [repr(FOLDER_KIND)]
+    try:
+        import inspect, inbox_scan
+        parts.append(repr(getattr(inbox_scan, "ERP_FILE_PREFIX", {})))
+        parts.append(inspect.getsource(inbox_scan.classify_rows))
+        parts.append(inspect.getsource(inbox_scan.classify))
+    except Exception:
+        parts.append("<inbox_scan 못 읽음>")   # 못 읽으면 예전대로 — 색인을 막지는 않는다
+    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:10]
 
 
 def load_cache():
