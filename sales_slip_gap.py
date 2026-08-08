@@ -75,10 +75,37 @@ def collect(con, since, until):
     return inv, slip
 
 
-def diagnose(inv, slip):
-    """네 갈래로 가른다. 짝은 **전표번호**로만 맞춘다(추측하지 않는다)."""
+def issued_index(con, since, until):
+    """**다른 화면이 아는 발행분** — 매출계산서현황·전자(세금)계산서.
+
+    진행단계 화면만 보면 일자가 어긋나 발행된 것을 '안 나갔다'고 하게 된다.
+    여기서 만드는 (거래처, 금액) 집합이 그 오판을 지운다.
+    """
+    seen = set()
+    for kind in ("ERP:tax", "ERP:taxinv", "ERP:hometax"):
+        for r in con.execute(
+                "SELECT party,amount FROM record WHERE kind=? AND biz_date>=? AND biz_date<=?"
+                " AND amount IS NOT NULL", (kind, since, until)):
+            seen.add((str(r["party"] or "").strip(), int(r["amount"])))
+    return seen
+
+
+def diagnose(inv, slip, issued=None):
+    """네 갈래로 가른다. 짝은 **전표번호**로 맞추되, 남은 것은 한 번 더 거른다.
+
+    ★ 전표번호만으로 끝내면 안 된다 (2026-08-08 실측). 진행단계 화면의 `일자-No.` 는
+      **전표 일자가 아니다** — 7/25 전표 5건이 진행단계에는 7/10·7/20 으로 들어 있다.
+      그대로 두면 "계산서가 안 나갔다" 5건이 뜨는데, 실제로는 매출계산서현황·
+      전자계산서 화면 둘 다에 7/25 자로 **발행돼 있었다.** 없는 일을 시키는 보고다.
+      그래서 `issued`(다른 화면이 아는 발행분: 거래처+금액)로 한 번 더 거른다.
+      추측으로 잇는 것이 아니라 **다른 증거로 지우는** 것이라 방향이 안전하다.
+    """
+    issued = issued or set()
+    def _seen(v):
+        return (str(v.get("거래처") or "").strip(), int(v.get("금액") or 0)) in issued
     only_inv = [dict(v, 전표번호=k) for k, v in sorted(inv.items()) if k not in slip]
-    only_slip = [dict(v, 전표번호=k) for k, v in sorted(slip.items()) if k not in inv]
+    only_slip = [dict(v, 전표번호=k) for k, v in sorted(slip.items())
+                 if k not in inv and not _seen(v)]
     diff = []
     for k in sorted(set(inv) & set(slip)):
         a, b = inv[k], slip[k]
@@ -182,7 +209,7 @@ def main(argv=None):
     con = D.connect()
     try:
         inv, slip = collect(con, since, until)
-        g = diagnose(inv, slip)
+        g = diagnose(inv, slip, issued_index(con, since, until))
         tbl = month_table(inv, slip)
         md = report(g, tbl, since, until)
         D.log(con, "erp", "sales_slip_gap", ok=True,
