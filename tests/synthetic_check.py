@@ -9049,6 +9049,36 @@ def t141_long_text_folds():
     print("  [141] 긴 글 접기 — 재서 정함·기능 숨김 금지·인쇄는 전부 펼침 ✅")
 
 
+def t161_erp_filename_fingerprint():
+    """[161] ERP 내보내기는 **파일명 화면코드**로 가른다 (2026-08-08 실측).
+
+    매출(세금)계산서조회(E010727)를 제대로 긁어 왔는데도 신선도표는 계속 '3일 밀림'
+    이었다. 내려받은 엑셀이 거래명세서현황·재고쪽 조회와 **셋 다 똑같이 생겨서**
+    (시트 '거래명세서' · 머리글 '일자 - 번호') 내용 휴리스틱이 taxinv 로 삼켰기 때문이다.
+    받은 것이 다른 통에 들어가면 그 통은 영영 안 차고 다음 세션이 같은 화면을 또 긁는다 —
+    **받은 사람만 받았다고 믿는** 조용한 사고다.
+
+    지키는 것: ① 파일명 지문이 내용보다 **먼저** 온다 ② 지문에 없는 파일은 예전 그대로
+    내용으로 가른다(지문이 다른 자료를 가로채면 안 된다).
+    """
+    import io
+    import inbox_scan as S
+
+    assert S.ERP_FILE_PREFIX.get("EBG006M") == "sales", \
+        "E010727(EBG006M) 이 sales 로 안 간다 — 신선도표가 계속 밀림으로 남는다"
+    src = io.open(os.path.join(ROOT, "inbox_scan.py"), encoding="utf-8").read()
+    body = src[src.index("def classify(path):"):]
+    assert body.index("ERP_FILE_PREFIX") < body.index("classify_rows"), \
+        "파일명 지문이 내용 판별보다 뒤에 있다 — 뒤면 아무 소용이 없다"
+
+    # 지문 파일은 열지도 않고 바로 갈린다(없는 경로여도 된다 — 그게 요점이다)
+    assert S.classify(os.path.join("아무데나", "EBG006M__dl154027.xlsx")) == "sales"
+    # 지문에 없는 이름은 예전 길로 간다 — 못 읽으면 unknown
+    assert S.classify(os.path.join("아무데나", "ESD009M.xlsx")) == "unknown", \
+        "지문에 없는 파일까지 가로챘다"
+    print("  [161] ERP 내보내기 — 파일명 화면코드가 내용보다 먼저(E010727→sales) ✅")
+
+
 def t160_master_book_cache():
     """관리대장을 한 번만 파싱한다 (worksplit #17, 2026-08-08).
 
