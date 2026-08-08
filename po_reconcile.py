@@ -85,6 +85,29 @@ def parse_po_export(path):
     return list(pos.values())
 
 
+_ERP_IDX = None
+
+
+def erp_idx():
+    """ERP 판매조회 색인 — **이 파일에서 한 번만** 만든다.
+
+    ★ 검증 [168] 과 같은 함정을 그대로 다시 밟았다(2026-08-08). 색인을 쓰는 곳이
+      네 군데(공급가액·PO합계·진행상태·유형E)로 늘었는데 각자 `build()` 를 불러
+      **Z: 를 네 번 통째로 훑었다.** 증상은 "느리다"가 아니라 **답이 안 온다**였다 —
+      560초 제한에 걸려 요약 한 줄도 못 찍고 죽었다. 비싼 탐색은 쓰는 곳이 늘어날 때
+      **한 곳으로 모은다.**
+    """
+    global _ERP_IDX
+    if _ERP_IDX is None:
+        try:
+            import erp_sales_index
+            _ERP_IDX = erp_sales_index.build()[0]
+        except Exception as e:
+            print(f"  (ERP 판매조회 색인 생략: {e})")
+            _ERP_IDX = {}
+    return _ERP_IDX
+
+
 _ERP_SUPPLY = None
 
 
@@ -93,9 +116,7 @@ def erp_supply_index():
     global _ERP_SUPPLY
     if _ERP_SUPPLY is None:
         try:
-            import erp_sales_index
-            idx, _ = erp_sales_index.build()
-            _ERP_SUPPLY = {k: (v.get("supply") or 0) for k, v in idx.items()}
+            _ERP_SUPPLY = {k: (v.get("supply") or 0) for k, v in erp_idx().items()}
         except Exception as e:
             print(f"  (ERP 판매조회 색인 생략: {e})")
             _ERP_SUPPLY = {}
@@ -116,15 +137,38 @@ def erp_sum_by_po():
     if _ERP_BY_PO is None:
         out = defaultdict(int)
         try:
-            import erp_sales_index
-            idx, _ = erp_sales_index.build()
-            for v in idx.values():
+            for v in erp_idx().values():
                 for token in PO_PAT.finditer(str(v.get("po") or "")):
                     out["PO" + token.group(1)] += (v.get("supply") or 0)
         except Exception as e:
             print(f"  (ERP PO 합계 생략: {e})")
         _ERP_BY_PO = dict(out)
     return _ERP_BY_PO
+
+
+_ERP_STATE_BY_PO = None
+
+
+def erp_state_by_po():
+    """PO번호 → 그 PO 로 끊긴 ERP 전표들의 진행상태 집합.
+
+    ★ 2026-08-08: 유형A(미청구)는 **금액이 같은 계산서가 ERP 에 있나**로만 판정했다.
+      그래서 `PO336120`(쿠팡 38,000,000)이 미청구로 나왔는데, ERP 를 프로젝트로 보면
+      `UJ2600211 · 6.세금계산서발행 · 37,577,911` — **이미 끊긴 것**이었다.
+      금액이 422,089원 달라서 금액 대조가 못 잡았을 뿐이다.
+      번호로 물으면 될 것을 금액으로 물으면 이렇게 빗나간다.
+    """
+    global _ERP_STATE_BY_PO
+    if _ERP_STATE_BY_PO is None:
+        out = defaultdict(set)
+        try:
+            for v in erp_idx().values():
+                for m in PO_PAT.finditer(str(v.get("po") or "")):
+                    out["PO" + m.group(1)].add(str(v.get("state") or ""))
+        except Exception as e:
+            print(f"  (ERP 진행상태 색인 생략: {e})")
+        _ERP_STATE_BY_PO = dict(out)
+    return _ERP_STATE_BY_PO
 
 
 def supply_of(r):
@@ -148,6 +192,28 @@ def supply_of(r):
     if conv is not None:
         return int(conv)
     return 0
+
+
+def b_verdict(lrows, po_span):
+    """유형B 를 **오기입**과 **목록 기간 밖**으로 가른다.
+
+    ★ 2026-08-08: 한 줄에 "번호 오기입 또는 목록 기간 밖"이라고 둘을 같이 적어 뒀더니
+      사람이 **없는 오타를 찾아 나선다.** 실측 PO372936 은 8월 정산에 붙어 있는데
+      쿠팡 목록은 2026-01-08~07-23 이었다 — 오기입이 아니라 목록에 아직 없는 것이다.
+      가를 수 있는 것을 '또는'으로 묶어 두면 그 경보는 일을 만들 뿐이다.
+    """
+    last = po_span[1] if po_span else ""
+    if last:
+        dates = [str(r.get("작업완료일") or r.get("원장_청구일") or "")[:10] for r in lrows]
+        dates = [d for d in dates if d]
+        if dates and min(dates) > last:
+            return (f"목록 기간 밖 — 이 정산은 {min(dates)} 이후인데 쿠팡 PO목록은 "
+                    f"{last} 까지입니다. 새 PO목록을 받으면 사라집니다")
+        if dates and max(dates) > last:
+            # 일부만 기간 밖이면 **단정하지 않는다** — 둘 중 무엇인지 여기서는 못 가른다.
+            return (f"쿠팡 목록에 없음 — 이 PO 의 정산이 {min(dates)}~{max(dates)} 에 걸쳐 있고 "
+                    f"목록은 {last} 까지입니다. 새 PO목록부터 받아 보십시오")
+    return "쿠팡 목록에 없음 — 번호 오기입 의심(목록 기간 안인데도 없습니다)"
 
 
 def ledger_po_view(master):
@@ -185,6 +251,11 @@ def main():
         coupang += part
         print(f"'{os.path.basename(f)}': PO {len(part)}건 파싱")
     cp_by_no = {p["po"]: p for p in coupang}
+
+    _pd = sorted(p["date"] for p in coupang if p.get("date"))
+    po_span = (_pd[0], _pd[-1]) if _pd else None
+    if po_span:
+        print(f"쿠팡 PO목록 기간: {po_span[0]} ~ {po_span[1]}")
 
     by_po, no_po, recs = ledger_po_view(master)
     tol = cfg["reconcile"].get("금액허용오차", 0)
@@ -242,10 +313,18 @@ def main():
             st = b.get("상태") or []
             amount_billed = invoiced(p["amount"])
             band_billed = "발행완료" in st
-            if amount_billed or band_billed:
+            # ★ 번호로 물을 수 있으면 금액으로 묻지 않는다(2026-08-08).
+            #   ERP 전표가 이 PO 를 달고 있고 그 상태가 전부 6·7 이면 이미 끊긴 것이다.
+            #   금액은 정산 과정에서 조금씩 어긋나므로(PO336120: 422,089원 차이)
+            #   금액 대조만으로는 발행된 건을 '미청구'라고 부르게 된다.
+            _states = erp_state_by_po().get(po) or set()
+            erp_billed = bool(_states) and all(s[:2] in ("6.", "7.") for s in _states)
+            if amount_billed or band_billed or erp_billed:
                 billed += 1          # 문제 목록에서는 발행 정황으로 제외한다.
                 if band_billed:
                     billed_rows[po] = {**p, "basis": "밴드 세금계산서 발행완료"}
+                elif erp_billed:
+                    billed_rows[po] = {**p, "basis": "ERP 진행상태 " + "/".join(sorted(_states))}
                 elif uniquely_invoiced(p["amount"]):
                     billed_rows[po] = {**p, "basis": "ERP 계산서 금액 유일 일치"}
                 else:
@@ -284,7 +363,7 @@ def main():
         if po not in cp_by_no:
             B.append({"PO번호": po, "정산ID": ",".join(r["정산ID"] for r in lrows),
                       "원장공급가액합": sum(supply_of(r) for r in lrows),
-                      "판정": "쿠팡 목록에 없음 — 번호 오기입 또는 목록 기간 밖"})
+                      "판정": b_verdict(lrows, po_span)})
 
     # 유형D: 미등록 PO ↔ PO없는 유상 정산 — 금액 유일 매칭이면 자동입력 후보
     # ★ 여기만 supply_of() 를 쓰지 않는다(2026-08-08). A~C 는 **경보**라 금액 출처를
@@ -326,9 +405,7 @@ def main():
     E = []
     erp_po_of = {}
     try:
-        import erp_sales_index
-        _idx, _ = erp_sales_index.build()
-        for prj, v in _idx.items():
+        for prj, v in erp_idx().items():
             toks = {"PO" + m.group(1) for m in PO_PAT.finditer(str(v.get("po") or ""))}
             if len(toks) == 1:                       # ① 하나로 확정될 때만
                 erp_po_of[prj] = toks.pop()
