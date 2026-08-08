@@ -254,10 +254,20 @@ window.__ERPGRAB = {단계: '시작', 조회전: null, 조회후: null, 완료: 
   if (w) w.classList.remove('visible');      // ★ 반드시 닫는다
   await wait(4000);
 
-  // ② 기간 프리셋
-  const p = [...document.querySelectorAll('button[data-cid="simpleSearch"]')]
+  // ② 기간 프리셋 — 없으면 조회조건이 접힌 것이니 한 번 펴고 다시 본다
+  //    (매출(세금)계산서조회 E010727 이 그랬다. 펴기 전에 실패로 끝내면 "없다"고 잘못 적는다)
+  const preset = () => [...document.querySelectorAll('button[data-cid="simpleSearch"]')]
     .find(b => (b.textContent||'').trim() === '%(preset)s');
-  if (!p) { say({오류:'기간 프리셋을 못 찾음'}); return; }
+  let p = preset();
+  if (!p) {
+    // 여는 손잡이만 누른다 — 저장·전표 단추는 글자가 달라 안 걸린다(E010301 실사고)
+    const h = [...document.querySelectorAll('button,a,span[class*="btn"],[class*="fold"]')]
+      .filter(e => { const t=(e.textContent||'').trim();
+                     return t.length <= 8 && /^(조회조건|검색조건|상세조건|조건)/.test(t); })
+      .filter(e => { try { return e.getClientRects().length > 0; } catch(_) { return true; } })[0];
+    if (h) { h.click(); await wait(1800); p = preset(); }
+  }
+  if (!p) { say({오류:'기간 프리셋을 못 찾음(조회조건도 펴 봤다)'}); return; }
   p.click(); await wait(2500); kill(); await wait(5000);
 
   // ③ 조회 — 걸렸는지 **행 수 변화로** 확인한다(안 걸리면 옛 결과를 새 기간으로 착각한다)
@@ -454,6 +464,27 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
     // '후보 1개, 보이는 것 0개'로 걸러졌다. 사각형 유무가 정확한 잣대다.
     try { return e.getClientRects().length > 0; } catch (_) { return true; }
   };
+  // ★ 조회조건이 **접혀 있는 화면**이 있다 (매출(세금)계산서조회 E010727 등).
+  //   버튼이 없는 게 아니라 접힌 칸 안에 있어 안 잡힌다. 그래서 프리셋을 못 찾으면
+  //   여기서 한 번 펴고 다시 본다 — 펴기 전에 실패로 끝내면 "없다"고 잘못 적게 된다.
+  //   ★ 누르는 것은 **여는 손잡이뿐**이다. 저장·전표 같은 단추는 글자가 달라 안 걸린다
+  //     (E010301 실사고 — 입력 화면에서 단추를 누르면 진짜 전표가 만들어진다).
+  //   ★ 전수 스캔 금지: 후보를 글자로 먼저 좁히고 그 몇 개에만 사각형을 묻는다.
+  const expandSearch = async () => {
+    const 손잡이 = ['조회조건', '검색조건', '상세조건', '조건'];
+    const cand = [...document.querySelectorAll(
+        'button,a,span[class*="btn"],div[class*="toggle"],[class*="fold"],[class*="collapse"]')]
+      .filter(e => {
+        const t = (e.textContent || '').trim();
+        return t.length <= 8 && 손잡이.some(k => t === k || t.startsWith(k));
+      });
+    const h = cand.filter(shown)[0];
+    if (!h) return false;
+    h.click();
+    await wait(1800);
+    return true;
+  };
+
   const pick = (cid, txt, exact) => {
     const hit = list => list.find(e => {
       const t = (e.textContent || '').trim();
@@ -519,9 +550,11 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
                                     : '사이트맵이 안 열렸다(빈 채로 읽음)'}); continue; }
       menu.click();
       await wait(4500);
-      // ③ 기간 프리셋
-      const p = pick('simpleSearch', step.프리셋, true);
-      if (!p) { done({결과: '실패', 왜: '기간 프리셋을 못 찾음: ' + step.프리셋}); continue; }
+      // ③ 기간 프리셋 — 없으면 **조회조건이 접힌 것**이니 한 번 펴고 다시 본다
+      let p = pick('simpleSearch', step.프리셋, true);
+      if (!p && await expandSearch()) p = pick('simpleSearch', step.프리셋, true);
+      if (!p) { done({결과: '실패', 왜: '기간 프리셋을 못 찾음(조회조건도 펴 봤다): '
+                                       + step.프리셋}); continue; }
       p.click(); await wait(2500); kill(); await wait(4500);
       // ④ 조회
       const s = pick('searchGroup', '검색', false);
