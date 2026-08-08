@@ -22,7 +22,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
 import ledger_db
-from ecount_reconcile import load_config, read_ledger, resolve_master, settle_status
+from ecount_reconcile import load_config, read_ledger, resolve_master
 from settlement_completion import _money, _po, dedup_quote_rows
 
 REPORT_MD = os.path.join(ROOT, "reports", "견적명세_불일치.md")
@@ -44,7 +44,13 @@ def diagnose(records, quotes, resolutions=None):
 
     rows = []
     for sid, r in sorted((records or {}).items()):
-        if settle_status(r) != "금액 재계산 대기":
+        # ★ 2026-08-08 이전에는 '금액 재계산 대기' 상태로 골랐다. 그런데 그날 ÷1.1 환산이
+        #   들어오면서 그 상태가 대부분 사라졌고, **진단이 통째로 조용해졌다** — 교차 의심은
+        #   금액이 확정됐다고 없어지는 문제가 아니다(남의 견적과 같은 금액이라는 사실은
+        #   그대로다). 그래서 상태가 아니라 **금액이 명세서에 기대고 있는가**로 고른다.
+        if r.get("원장_공급가액") or not r.get("원장_거래명세서합계"):
+            continue
+        if not str(r.get("원천업무ID") or "").startswith("AS-"):
             continue
         if str((resolutions.get(sid) or {}).get("status") or "").startswith("완료("):
             continue

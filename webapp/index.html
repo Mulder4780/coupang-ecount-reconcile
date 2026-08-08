@@ -7146,7 +7146,11 @@ async function loadStatus(){
   $('demobadge').textContent = s.demo ? '· 데모(합성데이터)' : '';
   const rows = settleRows.length ? settleRows : [];
   const 유상 = rows.filter(r=>r.비용구분==='유상');
-  const 발행 = 유상.filter(r=>r.계산서==='발행').length;
+  /* ★ 사용자 지시(2026-08-08): 발행 판정은 06시트 칸이 아니라 **근거**로 한다.
+     '발행'(원장 발행일) · '발행(근거확인)'(완료 DB) · '발행(ERP확인)'(ERP 6·7단계)이
+     모두 발행이다. 예전엔 첫 번째만 세어 유상 716건 중 6건 → 발행율 0.9% 가 나왔는데,
+     ERP 기준으로는 450건이 이미 나가 있었다. 0.9% 는 미발행이 아니라 빈 칸이었다. */
+  const 발행 = 유상.filter(r=>String(r.계산서||'').startsWith('발행')).length;
   const 미수 = rows.reduce((a,r)=>a+(+r.미수금||0),0);
   const issues = rows.filter(r=>needAction(r));
   const asPend = asPendingRows();                 // 접수됐는데 아직 안 한 건(취소 제외)
@@ -7363,6 +7367,14 @@ function reportForDates(d,reportDay,baseDay){
   };
   return d;
 }
+/* ★ 원장(06시트)이 실제로 담는 ERP 유형 — 사용자 지시(2026-08-08): "여기서는 돌발AS
+   정기점검만 집계해". ERP 는 같은 거래처에 신규납품·철거·계단·기타까지 발행하지만
+   관리대장은 이 둘만 원장에 올린다. 통째로 빼면 **있지도 않은 누락**이 만들어졌다 —
+   2026 누적 실측에서 '원장 미반영 930,539,994원'의 894,118,514원이 전부 관리 범위 밖
+   업무였다(신규납품 440.6M·기타 362.2M·철거 47.7M·계단 43.6M). 같은 종류끼리 대면
+   돌발AS +10.8M · 정기점검 −0.6M 로 거의 맞는다. */
+const ERP_LEDGER_KINDS = ['돌발AS','정기점검'];
+const erpKindSum = (v)=>ERP_LEDGER_KINDS.reduce((s,k)=>s+(+((v||{})[k])||0),0);
 function cleanErp2026(d){
   const rows=(d.rows||[]).filter(r=>rowIs2026(r,'erp')).map(hide2025), months={}, kinds={};
   let total=0;
@@ -7371,7 +7383,9 @@ function cleanErp2026(d){
     const m=months[mo] ||= {합계:0,건수:0}; m.합계+=sup; m.건수++; m[kind]=(m[kind]||0)+sup;
     kinds[kind]=(kinds[kind]||0)+sup; total+=sup;
   });
-  return {...d,rows,months,kinds,total};
+  // 원장이 다루는 몫과 ERP 에만 있는 몫을 갈라 둔다 — 화면마다 다시 세지 않게.
+  const ledgerTotal = ERP_LEDGER_KINDS.reduce((s,k)=>s+(+kinds[k]||0),0);
+  return {...d,rows,months,kinds,total,ledgerTotal,otherTotal:total-ledgerTotal};
 }
 /* ★ 이 주소는 **어떤 일이 있어도 바뀌지 않는다**(2026-07-27 확정).
    경유하는 터널 주소는 띄울 때마다 새로 받지만, 폰이 아는 주소는 늘 이것 하나다.
@@ -10962,7 +10976,11 @@ function renderDaily(){
   const outYTD = settleRows.length - S.length;
   const Sm = S.filter(r=>inPeriod(r.완료일||'', y, m));
   const 유상 = S.filter(r=>r.비용구분==='유상');
-  const 발행 = 유상.filter(r=>r.계산서==='발행').length;
+  /* ★ 사용자 지시(2026-08-08): 발행 판정은 06시트 칸이 아니라 **근거**로 한다.
+     '발행'(원장 발행일) · '발행(근거확인)'(완료 DB) · '발행(ERP확인)'(ERP 6·7단계)이
+     모두 발행이다. 예전엔 첫 번째만 세어 유상 716건 중 6건 → 발행율 0.9% 가 나왔는데,
+     ERP 기준으로는 450건이 이미 나가 있었다. 0.9% 는 미발행이 아니라 빈 칸이었다. */
+  const 발행 = 유상.filter(r=>String(r.계산서||'').startsWith('발행')).length;
   const 미수 = S.reduce((a,r)=>a+(+r.미수금||0),0);
   const issues = S.filter(r=>needAction(r));
   const asOpen = asPendingRows();          // 취소 제외 — 대시보드와 같은 정의(asNotDone)
@@ -10985,14 +11003,17 @@ function renderDaily(){
      세금계산서 전부다. 예전 화면은 원장이 비는 달만 ERP로 채워서, 원장이 채워질수록
      ERP 보완이 꺼지며 누적이 **줄어드는 것처럼** 보였다(7억→4.4억). 두 숫자를 나란히
      보여야 "줄었다"가 아니라 "원장 반영이 덜 됐다"로 읽힌다. */
-  const erpYTD = Object.entries(erpDocs.months||{}).filter(([k])=>k.startsWith(y))
-                   .reduce((a,[,v])=>a+(+v.합계||0),0);
+  const erpMonths = Object.entries(erpDocs.months||{}).filter(([k])=>k.startsWith(y));
+  const erpYTD = erpMonths.reduce((a,[,v])=>a+erpKindSum(v),0);          // 돌발AS+정기점검만
+  const erpAllYTD = erpMonths.reduce((a,[,v])=>a+(+v.합계||0),0);         // ERP 발행 전체
+  const erpOtherYTD = Math.max(0, erpAllYTD - erpYTD);                   // 원장 관리 밖 업무
   const ledgerYTD = S.reduce((a,r)=>a+(+r.공급가액||0),0);
   const erpGap = Math.max(0, erpYTD - ledgerYTD);
   reg('k_all',  `정산 총계 (${y}년 누적)`, S);
   reg('k_amt',  `공급가액(부가세 별도) · ${y}년 누적`, [...S].sort((a,b)=>(+b.공급가액||0)-(+a.공급가액||0)));
   reg('k_due',  '미수금 보유 건', S.filter(r=>(+r.미수금||0)>0));
-  reg('k_tax',  '계산서 미발행 (유상 기준)', 유상.filter(r=>r.계산서!=='발행'));
+  reg('k_tax',  '계산서 미발행 (유상 기준)',
+      유상.filter(r=>!String(r.계산서||'').startsWith('발행')));
   reg('k_iss',  '조치 필요', issues);
   reg('k_as',   'AS 미실시 (접수 후 미완료)', asOpen, 'as');
   reg('m_asp',  `${+m}월 AS 미실시`, AS_m.filter(asNotDone), 'as');
@@ -11079,8 +11100,9 @@ function renderDaily(){
     <div class="rgrid k7">
       ${cell(S.length+'건','정산 총계','k_all')}
       ${cell(fmt(ledgerYTD),'원장 정산 공급가액(부가세 별도·원)','k_amt')}
-      ${erpYTD?cell(fmt(erpYTD),'ERP 계산서 발행 누적(원)'):''}
-      ${erpGap?cell(fmt(erpGap),'원장 미반영(원)'):''}
+      ${erpYTD?cell(fmt(erpYTD),'ERP 발행 누적 — 돌발AS·정기점검(원)'):''}
+      ${erpGap?cell(fmt(erpGap),'원장 미반영 — 돌발AS·정기점검(원)'):''}
+      ${erpOtherYTD?cell(fmt(erpOtherYTD),'ERP 전용 매출 — 원장 관리 밖(원)'):''}
       ${cell(fmt(미수),'미수금(원)','k_due')}
       ${cell(pctText(발행,유상.length,'0.0%'),'계산서 발행율','k_tax')}
       ${cell(issues.length+'건','조치 필요','k_iss')}
@@ -11089,11 +11111,13 @@ function renderDaily(){
     </div>
     ${outYTD?`<div style="font-size:13px;color:var(--ink-3);margin-top:6px">
       ※ 완료일이 없거나 ${y}년·선택 기준일 이후인 ${outYTD}건은 누적에서 제외</div>`:''}
-    ${erpGap?`<div style="font-size:13px;color:var(--ink-3);margin-top:6px">
-      ※ '원장 정산'은 06시트에 정산 행이 만들어진 작업만 셉니다. ERP가 실제 발행한
-      세금계산서 누적(${fmt(erpYTD)}원)과의 차액 <b>${fmt(erpGap)}원</b>은 아직 원장에
-      반영되지 않은 매출입니다 — 원장이 채워지면 '원장 정산'이 이 값에 다가갑니다
-      (자세한 월별 내역은 아래 'ERP 매출' 표).</div>`:''}
+    ${(erpGap||erpOtherYTD)?`<div style="font-size:13px;color:var(--ink-3);margin-top:6px">
+      ※ ERP 비교는 <b>${ERP_LEDGER_KINDS.join('·')}</b>만 셉니다 — 관리대장이 원장에 담는
+      업무가 이 둘이기 때문입니다. 같은 종류끼리 대면 ERP ${fmt(erpYTD)}원 대 원장
+      ${fmt(ledgerYTD)}원, 차액 <b>${fmt(erpGap)}원</b>이 아직 원장에 안 들어온 몫입니다.
+      ${erpOtherYTD?`ERP가 같은 해에 추가로 발행한 <b>${fmt(erpOtherYTD)}원</b>(신규납품·철거·계단·기타)은
+      원장이 관리하는 업무가 아니라 <b>누락이 아닙니다</b> — 'ERP 전용 매출'로 따로 표시합니다.`:''}
+      (월별 내역은 아래 'ERP 매출' 표)</div>`:''}
     ${erpHtml(y)}
     ${execHtml()}
     ${(()=>{ window._issueSets = {}; Object.entries(byType).forEach(([t,l])=>window._issueSets[t]=l); return ''; })()}
@@ -11214,8 +11238,9 @@ function renderDaily(){
     } : null,
     rep:_rep, monthNote:_monthNote,
     kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(ledgerYTD),'원장 정산 공급가액(부가세 별도·원)'],
-          ...(erpYTD?[[fmt(erpYTD),'ERP 계산서 발행 누적(원)']]:[]),
-          ...(erpGap?[[fmt(erpGap),'원장 미반영(원)','#B54708']]:[]),
+          ...(erpYTD?[[fmt(erpYTD),'ERP 발행 누적 — 돌발AS·정기점검(원)']]:[]),
+          ...(erpGap?[[fmt(erpGap),'원장 미반영 — 돌발AS·정기점검(원)','#B54708']]:[]),
+          ...(erpOtherYTD?[[fmt(erpOtherYTD),'ERP 전용 매출 — 원장 관리 밖(원)']]:[]),
           [fmt(미수),'미수금(원)', 미수?'#B54708':'#12813F'],
           [pctText(발행,유상.length,'0.0%'),'계산서 발행율'],
           [issues.length+'건','조치 필요', issues.length?'#C0212E':'#12813F'],
@@ -13056,7 +13081,11 @@ async function dashToPng(){
   const S = 2, W = 900;
   const F = (sz,w) => `${w||400} ${sz}px ${uiFont()}`;
   const rows = settleRows, 유상 = rows.filter(r=>r.비용구분==='유상');
-  const 발행 = 유상.filter(r=>r.계산서==='발행').length;
+  /* ★ 사용자 지시(2026-08-08): 발행 판정은 06시트 칸이 아니라 **근거**로 한다.
+     '발행'(원장 발행일) · '발행(근거확인)'(완료 DB) · '발행(ERP확인)'(ERP 6·7단계)이
+     모두 발행이다. 예전엔 첫 번째만 세어 유상 716건 중 6건 → 발행율 0.9% 가 나왔는데,
+     ERP 기준으로는 450건이 이미 나가 있었다. 0.9% 는 미발행이 아니라 빈 칸이었다. */
+  const 발행 = 유상.filter(r=>String(r.계산서||'').startsWith('발행')).length;
   const 미수 = rows.reduce((a,r)=>a+(+r.미수금||0),0);
   const issues = rows.filter(r=>needAction(r));
   const asOpen = (works.as||[]).filter(r=>r.진행상태 && r.진행상태!=='작업완료').length;

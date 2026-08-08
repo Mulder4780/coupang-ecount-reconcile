@@ -2022,7 +2022,9 @@ def demo_settlements():
 
 
 def real_settlements():
-    from ecount_reconcile import read_ledger, load_config, settle_status, has_statement
+    from ecount_reconcile import (read_ledger, load_config, settle_status, has_statement,
+                                  supply_from_statement, erp_progress)
+    _erp_progress_map = erp_progress() or {}
     try:
         from ledger_db import resolutions
         objective_done = resolutions()
@@ -2047,10 +2049,21 @@ def real_settlements():
         #      그래서 ERP 공급가액을 ② 로 끼워 넣고, ③ 으로 떨어질 때는 화면이
         #      '부가세 포함'이라고 밝히도록 `금액출처`를 내려보낸다.
         _erp = _erp_sales_index().get(str(r.get("프로젝트NO") or "")) or {}
+        # ★ 사용자 지시(2026-08-08): 계산서 발행율이 0.9% 로 나오던 것은 미발행이 아니라
+        #   **06시트 '계산서' 칸이 사람 손 입력이라 비어 있어서**였다(유상 716건 중 6건).
+        #   ERP 가 '6.세금계산서발행'·'7.수금완료' 라고 말하면 그건 이미 나간 것이다.
+        #   판정은 erp_progress() 를 쓴다 — 한 프로젝트에 상태가 섞이면 '혼재(...)' 를
+        #   돌려주므로 여기서도 발행으로 세지 않는다(settle_status 와 같은 근거).
+        _erp_issued = str(_erp_progress_map.get(str(r.get("프로젝트NO") or "")) or "")[:2] \
+            in ("6.", "7.")
         if r.get("원장_공급가액"):
             amt, src = int(r["원장_공급가액"]), "실제작업"
         elif _erp.get("supply"):
             amt, src = int(_erp["supply"]), "ERP"
+        elif supply_from_statement(r.get("원장_거래명세서합계")) is not None:
+            # ★ 2026-08-08 지시로 ÷1.1 환산이 확정 금액이 됐다. 예전처럼 부가세 포함액을
+            #   그대로 싣지 않는다 — 그 값이 '부가세 별도' 칸에 앉아 금액을 10% 부풀렸다.
+            amt, src = supply_from_statement(r["원장_거래명세서합계"]), "명세서(부가세 환산)"
         elif r.get("원장_거래명세서합계"):
             amt, src = int(r["원장_거래명세서합계"]), "명세서(부가세포함)"
         else:
@@ -2064,7 +2077,9 @@ def real_settlements():
                      "명세서": "있음" if has_stmt else "없음",
                      "명세서번호": r.get("원장_거래명세서번호") or "",
                      "명세서발행일": str(r.get("원장_거래명세서발행일") or "")[:10],
-                     "계산서": "발행(근거확인)" if issued_by_evidence else ("발행" if issued else "미발행"),
+                     "계산서": ("발행(근거확인)" if issued_by_evidence else
+                              "발행" if issued else
+                              "발행(ERP확인)" if _erp_issued else "미발행"),
                      "계산서발행일": str(issued or "")[:10],
                      "승인번호": r.get("원장_세금계산서승인번호") or "",
                      "청구일": str(r.get("원장_청구일") or "")[:10],

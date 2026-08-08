@@ -397,6 +397,29 @@ def has_statement(r):
     return bool(r.get("원장_거래명세서발행일")) and bool(r.get("원장_거래명세서합계"))
 
 
+def supply_from_statement(total):
+    """거래명세서합계(**부가세 포함**)에서 공급가액을 되돌린다.
+
+    사용자 지시(2026-08-08): "부가세 포함 금액 ÷1.1 자동 환산". 실측 35건이 전부
+    10원 단위로 딱 떨어졌다(506,000→460,000 · 621,500→565,000 · 297,000→270,000).
+
+    ★ **깨끗하게 떨어질 때만** 돌려준다. 되돌려 곱한 값이 원본과 다르거나 10원 단위가
+      아니면 `None` 이다 — 그런 건은 부가세 포함이 아니거나 다른 사연이 있는 것이라
+      '금액 재계산 대기'로 남겨 사람이 본다. 환산이 안 되는 건까지 억지로 숫자를
+      만들면, 틀린 금액이 화면에서 '확정'처럼 보인다(조용한 사고).
+    """
+    try:
+        t = int(total or 0)
+    except (TypeError, ValueError):
+        return None
+    if t <= 0:
+        return None
+    supply = round(t / 1.1)
+    if supply % 10 or round(supply * 1.1) != t:
+        return None
+    return supply
+
+
 _ERP_PROGRESS = {"sig": None, "map": {}, "statuses": {}}
 # ERP 판매조회의 진행상태 중 '계산서가 이미 나갔다'는 뜻인 값들
 _ERP_ISSUED = ("6.세금계산서발행", "7.수금완료")
@@ -525,7 +548,15 @@ def settle_status(r):
         return "완료(ERP 수금확인)"
     src = str(r.get("원천업무ID") or "")
     if not r.get("원장_공급가액") and src.startswith("AS-"):
-        return "금액 재계산 대기" if r.get("원장_거래명세서합계") else "금액 미입력"
+        # ★ 사용자 지시(2026-08-08): 부가세 포함 명세서 금액은 ÷1.1 로 **확정**한다.
+        #   깨끗이 떨어지면 금액을 모르는 것이 아니라 아는 것이다 — 재계산을 기다릴
+        #   이유가 없다. 안 떨어지는 건만 예전처럼 대기로 남는다.
+        if supply_from_statement(r.get("원장_거래명세서합계")) is not None:
+            pass
+        elif r.get("원장_거래명세서합계"):
+            return "금액 재계산 대기"
+        else:
+            return "금액 미입력"
     if not has_statement(r):
         return "미청구(전표 없음)"
     if not (r.get("원장_세금계산서실제발행일") or r.get("원장_세금계산서발행일")):
