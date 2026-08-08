@@ -46,19 +46,75 @@ def _cells(path, sheets=4, rows=30):
     return out
 
 
+# ── 회계 원장류 네 화면 ────────────────────────────────────────
+# ★ 2026-08-08 실측 사고 — **네 화면이 한 통에 들어가 있었다.**
+#   예전 규칙은 "'적요' 와 차변/대변이 같은 표에 있으면 ledger" 한 줄이었다. 그런데
+#   이카운트 회계 원장류는 넷 다 그 모양이다. 실측으로 `pick("ledger")` 12개 중
+#   **거래처별계정별원장은 5개뿐**이고 계정별원장 5 · 분개장 1 · 현금출납장 1 이었다.
+#
+#   그래서 `erp_ledger_check` 가 **전 거래처 전표를 쿠팡 것으로 읽었다**:
+#   전표 5,157건을 대조해 **원장 매칭 정상 0건** · 유형A(‘설치·작업 근거 확인 필요 ★’)
+#   **1,856건**. 그 1,856건 대부분은 남의 회사 거래다 — 아무도 가서 확인할 수 없는
+#   현장 확인 지시가 매일 09:50 회차마다 새로 찍혔다. 파일도 있고 숫자도 나오니
+#   **실패한 티가 안 났다.** ‘매칭 0건’ 이 유일한 신호였는데 아무도 안 봤다.
+#
+#   가르는 근거는 **머리글**이다(제목줄은 사람이 바꿀 수 있고 잘리기도 한다):
+#     거래처별계정별원장 E010809 : 일자-No. 적요 차변금액 대변금액 잔액
+#                                  → 거래처가 **조회 조건**이라 표에는 거래처 열이 없다
+#     계정별원장        E010807 : 위 + **거래처명** 열 (계정 하나, 전 거래처)
+#     분개장                     : 전표번호 계정명 거래처 차변 대변 적요
+#     현금출납장                 : 일자-No. **상대계정명 상대거래처명** 적요 차변 대변 잔액
+#   회계거래조회(slips)는 금액이 `금액` 한 열이라 차변/대변 관문에서 이미 걸러진다(실측).
+LEDGER_SCREENS = {
+    "ledger":      "거래처별계정별원장",
+    "ledger_acct": "계정별원장(전 거래처)",
+    "journal":     "분개장",
+    "cashbook":    "현금출납장",
+}
+
+
+def ledger_kind(rows):
+    """회계 원장류 네 화면을 가른다. 원장류가 아니면 None. (순수 함수 — 합성검증 대상)"""
+    for r in rows:
+        names = [c for c in r if c]
+        # 차변/대변이 없으면 원장류가 아니다 — 이 관문이 회계거래조회를 막는다
+        if not any(("대변" in n or "차변" in n) for n in names):
+            continue
+        if any(("상대계정" in n or "상대거래처" in n) for n in names):
+            return "cashbook"
+        # 분개장 검사가 '적요' 검사보다 **먼저**여야 한다 — 분개장에도 적요·거래처가 있어서
+        # 순서가 뒤집히면 분개장이 계정별원장으로 읽힌다
+        if any("전표번호" in n for n in names) and any("계정명" in n for n in names):
+            return "journal"
+        if not any("적요" in n for n in names):
+            continue
+        if any("거래처" in n for n in names):
+            return "ledger_acct"
+        return "ledger"
+    return None
+
+
 def classify_rows(rows):
     """머리글·값 패턴으로 종류 결정 (순수 함수 — 합성검증 대상)"""
     flat = [c for r in rows for c in r if c]
     joined = " ".join(flat)
     has = lambda *ks: any(k in c for c in flat for k in ks)
 
-    # 원장: '적요'와 차변/대변이 같은 표에 있다
-    for r in rows:
-        names = [c for c in r if c]
-        if any("적요" in n for n in names) and any(("대변" in n or "차변" in n) for n in names):
-            return "ledger"
-    if "계정별원장" in joined or "거래처별계정별" in joined:
+    # 회계 원장류 — 네 화면이 서로 비슷하게 생겼다. ledger_kind() 가 가른다.
+    k = ledger_kind(rows)
+    if k:
+        return k
+    # 표를 못 읽었을 때의 차선: 제목줄 낱말.
+    # ★ 순서가 뜻을 갖는다 — '거래처별계정별원장' 은 '계정별원장' 을 **부분문자열로 품는다**.
+    #   계정별원장을 먼저 보면 거래처별이 통째로 그쪽으로 간다.
+    if "거래처별계정별" in joined:
         return "ledger"
+    if "현금출납" in joined:
+        return "cashbook"
+    if "분개장" in joined:
+        return "journal"
+    if "계정별원장" in joined:
+        return "ledger_acct"
 
     # 홈택스 전자(세금)계산서 리스트 — '승인번호'가 있으면 이것 말고 없다.
     # (회계 I > 전자(세금)계산서 > 홈택스자료조회 에서 Excel 로 내려받은 것)
@@ -210,23 +266,31 @@ def _cls_save():
         pass
 
 
+# ★ **규칙을 고쳐도 캐시가 옛 답을 붙들고 있었다** (2026-08-08).
+#   캐시 열쇠가 (크기, 수정시각) 뿐이라, 파일이 안 바뀌면 영원히 옛 종류를 돌려준다.
+#   원본 엑셀은 한 번 떨어지면 다시 안 바뀌므로 **분류 규칙을 고친 보람이 아무 데도
+#   안 닿는다** — 고친 사람은 고쳤다고 믿고, 화면은 어제와 똑같다. 오류도 안 난다.
+#   그래서 규칙을 손댈 때마다 이 숫자를 올린다. 열쇠에 들어가므로 전부 한 번 다시 읽는다.
+RULES_VERSION = 2       # 2: 회계 원장류 네 화면 가름(ledger/ledger_acct/journal/cashbook)
+
+
 def classify_cached(path):
-    """내용이 그대로면 캐시값을 쓴다. 바뀌었으면 그때만 다시 열어 본다."""
+    """내용이 그대로면 캐시값을 쓴다. 바뀌었으면(또는 규칙이 바뀌었으면) 다시 열어 본다."""
     try:
         st = os.stat(path)
-        sig = [st.st_size, int(st.st_mtime)]
+        sig = [st.st_size, int(st.st_mtime), RULES_VERSION]
     except OSError:
         return classify(path)
     hit = _CLS_MEM.get(path)
-    if hit and hit[0] == sig[0] and hit[1] == sig[1]:
-        return hit[2]
+    if hit and list(hit[:3]) == sig:
+        return hit[3]
     disk = _cls_load().get(path)
-    if disk and disk[0] == sig[0] and disk[1] == sig[1]:
-        _CLS_MEM[path] = (sig[0], sig[1], disk[2])
-        return disk[2]
+    if disk and len(disk) == 4 and list(disk[:3]) == sig:
+        _CLS_MEM[path] = tuple(sig) + (disk[3],)
+        return disk[3]
     kind = classify(path)
-    _CLS_MEM[path] = (sig[0], sig[1], kind)
-    _cls_load()[path] = [sig[0], sig[1], kind]
+    _CLS_MEM[path] = tuple(sig) + (kind,)
+    _cls_load()[path] = sig + [kind]
     _cls_save()
     return kind
 
@@ -295,7 +359,10 @@ def pick(kind, folder=None):
             and any(h.lower() in os.path.basename(p).lower() for h in hints.get(kind, ()))]
 
 
-LABEL = {"ledger": "거래처별계정별원장", "po": "쿠팡 PO 목록",
+LABEL = {"ledger": "거래처별계정별원장",
+         "ledger_acct": "계정별원장(전 거래처)", "journal": "분개장", "cashbook": "현금출납장",
+         "taxstep": "전자(세금)계산서 진행단계", "quote": "견적서조회",
+         "po": "쿠팡 PO 목록",
          "sales": "판매·세금계산서 내보내기", "tax": "매출(세금)계산서현황",
          "stmt": "거래명세서 현황", "slips": "회계거래(전표) 현황",
          "taxinv": "매출(세금)계산서조회(재고)", "hometax": "홈택스 전자(세금)계산서",

@@ -172,20 +172,63 @@ def run(name, args, timeout=600, retry=None):
     return got
 
 
-def _run_once(name, args, timeout):
+def _kill_tree(p):
+    """Windows 는 `kill()` 로 **자식의 자식까지 안 죽인다** — 나무째 끊는다."""
+    if os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)],
+                           capture_output=True, timeout=30)
+        except Exception:
+            pass
     try:
-        r = subprocess.run([PY] + args, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", cwd=ROOT, timeout=timeout, env=ENV)
-        # 예외 이름과 원인은 traceback 끝에 있다. 앞 500자만 남기면 호출 위치만 보이고
-        # 실제 TimeoutError/PermissionError가 잘려, 2026-08-01 큐 실패를 진단하지 못했다.
-        out = (r.stdout or "") + (("\n[stderr] " + r.stderr[-2000:]) if r.returncode != 0 and r.stderr else "")
-        # 토큰 절약: 노이즈 제거 후 요약만 보존(상세는 각 모듈이 reports/에 파일로 남긴다)
-        keep = [ln for ln in out.splitlines()
-                if ln.strip() and not any(x in ln for x in
-                    ("UserWarning", "warn(msg)", "  [예정]", "  [건너뜀]", "i 관리대장 최신본"))]
-        return {"name": name, "ok": r.returncode == 0, "out": "\n".join(keep[-12:]).strip()}
+        p.kill()
+    except Exception:
+        pass
+
+
+def _tidy(out):
+    # 토큰 절약: 노이즈 제거 후 요약만 보존(상세는 각 모듈이 reports/에 파일로 남긴다)
+    keep = [ln for ln in out.splitlines()
+            if ln.strip() and not any(x in ln for x in
+                ("UserWarning", "warn(msg)", "  [예정]", "  [건너뜀]", "i 관리대장 최신본"))]
+    return "\n".join(keep[-12:]).strip()
+
+
+def _run_once(name, args, timeout):
+    """★ `subprocess.run(timeout=)` 을 쓰면 안 된다 — **윈도우에서 영원히 멈춘다**
+       (2026-08-08 실사고).
+
+    CPython 의 `subprocess.run` 은 시간이 넘으면 `process.kill()` 을 부른 뒤
+    윈도우에서만 **시간제한 없는** `process.communicate()` 를 한 번 더 부른다.
+    자식이 SMB(Z:) 읽기처럼 **끊기지 않는 대기**에 걸려 있으면 TerminateProcess 가
+    먹지 않고, 그 두 번째 드레인이 끝나지 않는다. 30분 제한을 걸어 둔 단계가
+    **13시간 30분**을 매달려 있었다(부모 CPU 0.4초 · 자식 0.5초 — 둘 다 그냥 서 있었다).
+
+    그리고 그동안 회차는 **락을 쥔 채**라 다음 회차가 "이미 실행 중"으로 조용히
+    건너뛴다. 스케줄러는 '성공'이라 적는다. 즉 **하루치 대조가 통째로 안 돌면서
+    아무 데도 티가 안 난다** — 09:50 이 하는 일(접수취소·객관완료·청구상태)이 전부 멈춘다.
+
+    그래서: ① 나무째 죽이고 ② 드레인에도 **제한을 건다** ③ 그래도 안 죽으면
+    포기하고 **다음 단계로 넘어간다**. 안 죽은 자식은 리포트에 pid 로 남긴다 —
+    회차 하나를 살리자고 회차 전체를 세우지는 않는다.
+    """
+    p = subprocess.Popen([PY] + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, encoding="utf-8", errors="replace", cwd=ROOT, env=ENV)
+    try:
+        so, se = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
+        _kill_tree(p)
+        try:
+            p.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            return {"name": name, "ok": False,
+                    "out": f"시간초과({timeout}s) — 죽이려 해도 안 죽는다(pid {p.pid}). "
+                           "Z: 대기에 걸린 것으로 보고 다음 단계로 넘어갔다"}
         return {"name": name, "ok": False, "out": f"시간초과({timeout}s)"}
+    # 예외 이름과 원인은 traceback 끝에 있다. 앞 500자만 남기면 호출 위치만 보이고
+    # 실제 TimeoutError/PermissionError가 잘려, 2026-08-01 큐 실패를 진단하지 못했다.
+    out = (so or "") + (("\n[stderr] " + se[-2000:]) if p.returncode != 0 and se else "")
+    return {"name": name, "ok": p.returncode == 0, "out": _tidy(out)}
 
 
 def _run_pipeline():

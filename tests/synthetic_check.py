@@ -3965,7 +3965,11 @@ def t93_ledger_db_and_ux():
 
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert "ledger_db.py" in daily, "일일 실행이 DB 게이트를 지나지 않는다"
-    assert "r.stderr[-2000:]" in daily, "실패 리포트가 예외 원인을 다시 잘라낸다"
+    # 변수 이름이 아니라 **지키려는 것**을 본다: stderr 를 앞에서 자르지 말고 **꼬리**를
+    # 남겨야 예외 이름과 원인이 보인다(앞 500자만 남기면 호출 위치만 나온다).
+    # 2026-08-08 에 _run_once 를 Popen 으로 바꾸며 `r.stderr` 가 `se` 가 됐는데,
+    # 이름을 박아 둔 검증이 거기서 깨졌다 — 뜻은 그대로였다.
+    assert "[-2000:]" in daily, "실패 리포트가 예외 원인을 다시 잘라낸다"
     assert '"zscan.py"' in daily and '"--docs"' in daily, \
         "Z: 상시 공백·서류 대조가 09:50 자동실행에 연결되지 않았다"
     assert '"ledger_writer.py"), "--apply"' not in daily,         "일일 실행이 아직 엑셀에 곧바로 쓴다 — 하루 두 번 규칙이 깨진다"
@@ -9246,6 +9250,179 @@ def t168_erp_progress_glob_is_cached():
     print("  [168] erp_progress — 비싼 glob 앞에 캐시 검사가 온다(행마다 Z: 재귀탐색 금지) ✅")
 
 
+def t172_ledger_screens_are_split():
+    """[172] 회계 원장류 **네 화면**을 한 통에 담지 않는다 (2026-08-08 실사고).
+
+    예전 규칙은 "'적요' 와 차변/대변이 같은 표에 있으면 ledger" 한 줄이었다. 그런데
+    이카운트 회계 원장류는 넷 다 그 모양이다. 실측: `pick("ledger")` 12개 중
+    **거래처별계정별원장은 5개뿐**이고 계정별원장 5 · 분개장 1 · 현금출납장 1 이었다.
+    게다가 계정별원장 한 파일은 한 시트에 **52개 계정이 층층이** 쌓여 있어(현금·보통예금·
+    외상매입금·부가세예수금 …) 8,980행이 통째로 '쿠팡 매출 전표'로 읽혔다.
+
+    그 결과 `erp_ledger_check` 가 전표 **5,157건**을 대조해 **원장 매칭 정상 0건** ·
+    유형A('설치·작업 근거 확인 필요 ★') **1,856건**을 냈다. 그 대부분은 남의 회사
+    거래라 아무도 확인하러 갈 수 없는 지시였고, 그것이 매일 09:50 회차마다 새로 찍혔다.
+    파일도 있고 숫자도 나오니 **실패한 티가 안 났다** — '매칭 0건' 이 유일한 신호였다.
+
+    지키는 것: ① 네 화면이 서로 다른 갈래로 간다 ② 분개장 판정이 '적요' 판정보다
+    **먼저** 온다(분개장에도 적요·거래처가 있어 순서가 뒤집히면 계정별원장으로 읽힌다)
+    ③ 회계거래조회(금액 한 열)는 원장류로 새지 않는다 ④ 제목줄 차선책에서
+    '거래처별계정별' 을 '계정별원장' 보다 먼저 본다(부분문자열 함정).
+    """
+    import inbox_scan as S
+
+    # 실제 내보내기에서 그대로 옮긴 머리글 (2026-08-08 측정)
+    HDR = {
+        "ledger":      ["일자-No.", "적요", "차변금액", "대변금액", "잔액"],
+        "ledger_acct": ["일자-No.", "적요", "거래처명", "차변금액", "대변금액", "잔액"],
+        "journal":     ["전표번호", "계정명", "거래처", "차변", "대변", "적요"],
+        "cashbook":    ["일자-No.", "상대계정명", "상대거래처명", "적요",
+                        "차변금액", "대변금액", "잔액"],
+    }
+    for want, hdr in HDR.items():
+        rows = [["회사명 : 주식회사 유니버셜리프트앤히타치코리아"], hdr,
+                ["2026/01/10 -2", "26년1분기정기점검-1(일산7MB 외 15캠프)", "8306650"]]
+        got = S.ledger_kind(rows)
+        assert got == want, f"{want} 를 {got} 로 읽었다 — 머리글 {hdr}"
+        assert S.classify_rows(rows) == want, f"classify_rows 가 {want} 를 안 돌려준다"
+
+    # 회계거래조회(slips)는 금액이 '금액' 한 열이라 원장류가 아니다 — 실측 머리글
+    slips = [["전표번호", "거래유형", "금액", "거래처명", "적요"],
+             ["26/01/02-2", "매출", "3289000", "쿠팡로지스틱스서비스 유한회사", "AS"]]
+    assert S.ledger_kind(slips) is None, "회계거래조회가 원장류로 샜다"
+
+    # 표를 못 읽었을 때의 제목줄 차선책 — '거래처별계정별원장' 은 '계정별원장' 을 품는다
+    assert S.classify_rows([["... / 거래처별계정별원장 / 1089(외상매출금)"]]) == "ledger"
+    assert S.classify_rows([["... / 계정별원장 / 1019(현금)"]]) == "ledger_acct"
+    assert S.classify_rows([["... / 분개장"]]) == "journal"
+    assert S.classify_rows([["... / 현금출납장"]]) == "cashbook"
+
+    # 새 갈래가 이름표·수집 목록에도 올라야 한다 — 안 올리면 Downloads 에서 안 가져온다
+    import collect_sources as C
+    for k in ("ledger", "ledger_acct", "journal", "cashbook"):
+        assert k in S.LABEL, f"{k} 이름표가 없다"
+        assert k in C.KNOWN, f"{k} 이 수집 대상에서 빠졌다 — 자료가 조용히 끊긴다"
+    print("  [172] 회계 원장류 — 네 화면이 갈린다(분개장→적요 순서·slips 안 샘) ✅")
+
+
+def t175_step_timeout_cannot_hang_forever():
+    """[175] 회차 한 단계가 **영원히 멈추면 안 된다** (2026-08-08 실사고).
+
+    CPython 의 `subprocess.run(timeout=)` 은 시간이 넘으면 `kill()` 뒤 윈도우에서만
+    **시간제한 없는** `communicate()` 를 한 번 더 부른다. 자식이 SMB(Z:) 읽기처럼
+    끊기지 않는 대기에 걸려 있으면 TerminateProcess 가 안 먹고 그 드레인이 안 끝난다.
+    실측: `timeout=1800` 을 걸어 둔 '원본 폴더 정리' 단계가 **13시간 30분**을 매달렸다
+    (부모 CPU 0.4초 · 자식 0.5초 — 둘 다 그냥 서 있었다).
+
+    조용한 이유가 여기 있다: 멈춘 회차가 **락을 쥔 채**라 다음 회차는 "이미 실행 중"
+    으로 건너뛰고, 스케줄러는 '성공'이라 적는다. 09:50 이 하는 일(접수취소·객관완료·
+    청구상태·대조)이 하루 종일 안 돌면서 **어느 화면에도 티가 안 난다.**
+
+    지키는 것: ① `_run_once` 가 `subprocess.run(timeout=)` 을 쓰지 않는다
+    ② 나무째 죽인다(윈도우는 `kill()` 이 손자를 안 죽인다) ③ 죽인 뒤 드레인에도
+    **제한이 있다** ④ 그래도 안 죽으면 회차는 다음 단계로 간다.
+    """
+    import io, inspect, subprocess
+    import daily_run as D
+
+    src = inspect.getsource(D._run_once)
+    # 설명문에는 "쓰면 안 된다" 고 적혀 있다 — **본문만** 본다
+    body = src.split('"""')[-1] if src.count('"""') >= 2 else src
+    assert "subprocess.run(" not in body, \
+        "_run_once 가 subprocess.run 을 쓴다 — 윈도우에서 kill 뒤 무제한 대기에 걸린다"
+    assert "Popen" in src and "communicate(timeout=" in src, \
+        "시간제한 있는 communicate 가 없다"
+    assert src.count("communicate(timeout=") >= 2, \
+        "죽인 뒤 드레인에 제한이 없다 — 바로 거기서 13시간을 섰다"
+    assert "_kill_tree" in src, "나무째 안 죽인다 — 손자가 살아남아 파이프를 붙든다"
+
+    tree = inspect.getsource(D._kill_tree)
+    assert "taskkill" in tree and "/T" in tree, \
+        "윈도우에서 자식의 자식까지 끊지 않는다"
+
+    # 시간초과가 나도 **예외로 회차를 세우지 않는다** — 결과를 돌려주고 다음 단계로 간다
+    got = D._run_once("멈춘 단계", ["-c", "import time; time.sleep(30)"], timeout=1)
+    assert got["ok"] is False and "시간초과" in got["out"], got
+    print("  [175] 회차 단계 — 시간초과가 영원한 대기로 바뀌지 않는다(나무째 종료) ✅")
+
+
+def t174_zero_match_blames_the_key():
+    """[174] 짝이 하나도 안 지어지면 **열쇠를 의심한다** (2026-08-08 실측).
+
+    ERP원장대조는 06시트 `거래명세서번호` = ERP `일자-No.` 를 전제로 짝을 짓는다.
+    실측하니 ERP 302 전표 대 원장 명세서번호 65개 중 **겹침 6** — 서로 다른 순번이었다.
+    그런데 열쇠가 안 맞아도 리포트는 조용하다. 짝이 안 지어진 것이 전부
+    'A. ERP에만 있는 전표 (설치·작업 근거 확인 필요 ★)' 로 나오기 때문이다.
+    자료가 없어서 0건인 것과 열쇠가 안 맞아 0건인 것은 **겉이 똑같다.**
+    유일한 신호였던 '정상 0건' 은 머리글 한 줄이라 1,856건이던 시절에도 아무도 안 봤다.
+
+    가르는 것은 비율이다 — 열쇠가 맞으면 몇 건은 반드시 걸린다. 다만 전표가 몇 건뿐일
+    때는 비율을 말할 수 없으므로 **아무 말도 하지 않는다**(경보를 남발하면 안 본다).
+    """
+    from erp_ledger_check import key_looks_wrong
+
+    assert key_looks_wrong(6, 302), "302건 중 6건만 걸렸는데 조용하다 — 열쇠 이야기다"
+    assert key_looks_wrong(0, 100), "한 건도 안 걸렸는데 조용하다"
+    assert not key_looks_wrong(65, 302), "3분의 1 가까이 걸렸는데 열쇠 탓을 한다"
+    assert not key_looks_wrong(31, 302), "10% 넘게 걸리면 열쇠는 도는 것이다"
+    # 표본이 작으면 말하지 않는다 — 회차를 막 시작한 자리를 겁주지 않는다
+    assert not key_looks_wrong(0, 9), "전표 9건으로 열쇠를 단정했다"
+    assert not key_looks_wrong(0, 0), "전표가 없는데 경보를 냈다"
+    print("  [174] ERP원장대조 — 짝이 거의 없으면 열쇠를 의심하라고 말한다 ✅")
+
+
+def t173_classify_cache_follows_rules():
+    """[173] 분류 **규칙을 고치면 캐시도 다시 판별**해야 한다 (2026-08-08).
+
+    `classify_cached` 의 열쇠가 (크기, 수정시각) 뿐이었다. 원본 엑셀은 한 번 떨어지면
+    다시 안 바뀌므로, 규칙을 고쳐도 캐시가 **영원히 옛 갈래**를 돌려준다. 고친 사람은
+    고쳤다고 믿고 화면은 어제와 똑같다 — 오류도 안 난다. [161] 이 색인 쪽에서 같은
+    사고를 한 번 잡았는데, 이번에는 `inbox_classify.json` 쪽이 그대로였다.
+
+    그리고 세 번째 판이 있었다: `source_index.rules_version()` 은 `classify_rows` 만
+    해싱하는데 판별의 일부가 `ledger_kind` 로 나갔다 — 그쪽만 고치면 지문이 안 움직인다.
+    """
+    import io, json, tempfile, inspect
+    import inbox_scan as S
+    import source_index as IX
+
+    src = io.open(os.path.join(ROOT, "inbox_scan.py"), encoding="utf-8").read()
+    body = src[src.index("def classify_cached("):]
+    body = body[:body.index("\n_SCAN_MEM")] if "\n_SCAN_MEM" in body else body
+    assert "RULES_VERSION" in body, \
+        "classify_cached 열쇠에 규칙판이 없다 — 규칙을 고쳐도 옛 갈래가 그대로 나온다"
+
+    # 규칙판을 올리면 같은 파일을 **다시 열어 본다**
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "aaa.xlsx")
+    io.open(p, "w").write("x")
+    calls = []
+    real = S.classify
+    try:
+        S.classify = lambda path: (calls.append(path), "ledger")[1]
+        assert S.classify_cached(p) == "ledger" and len(calls) == 1
+        S.classify_cached(p)
+        assert len(calls) == 1, "캐시가 안 먹는다 — 매번 파일을 연다"
+        S.RULES_VERSION += 1
+        S.classify_cached(p)
+        assert len(calls) == 2, "규칙판을 올렸는데 옛 답을 그대로 돌려줬다"
+    finally:
+        S.classify = real
+        S.RULES_VERSION -= 1
+
+    # 색인 지문은 ledger_kind 도 본다
+    assert "ledger_kind" in inspect.getsource(IX.rules_version), \
+        "rules_version 이 ledger_kind 를 안 본다 — 그 함수만 고치면 색인이 안 도로 돈다"
+    v0 = IX.rules_version()
+    S.RULES_VERSION += 1
+    try:
+        assert IX.rules_version() != v0, "규칙판을 올렸는데 색인 지문이 그대로다"
+    finally:
+        S.RULES_VERSION -= 1
+    assert IX.rules_version() == v0, "지문이 원래대로 안 돌아온다"
+    print("  [173] 분류 캐시·색인 지문 — 규칙을 고치면 둘 다 다시 판별한다 ✅")
+
+
 def t171_cache_swap_waits_for_readers():
     """[171] 흡수가 **읽는 쪽에 막혀 조용히 죽으면** 안 된다 (2026-08-08 실사고).
 
@@ -10678,6 +10855,10 @@ if __name__ == "__main__":
     t169_blind_count_sees_unlooked()
     t170_po_amount_ladder()
     t171_cache_swap_waits_for_readers()
+    t172_ledger_screens_are_split()
+    t173_classify_cache_follows_rules()
+    t174_zero_match_blames_the_key()
+    t175_step_timeout_cannot_hang_forever()
     t161_erp_filename_fingerprint()
     t160_master_book_cache()
     t154_amount_basis()

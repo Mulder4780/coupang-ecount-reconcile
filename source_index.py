@@ -165,8 +165,15 @@ def rules_version():
     try:
         import inspect, inbox_scan
         parts.append(repr(getattr(inbox_scan, "ERP_FILE_PREFIX", {})))
-        parts.append(inspect.getsource(inbox_scan.classify_rows))
-        parts.append(inspect.getsource(inbox_scan.classify))
+        # ★ 같은 사고 **세 번째** (2026-08-08). classify_rows 만 해싱했는데 판별의
+        #   일부가 `ledger_kind` 라는 딴 함수로 나가면 지문이 안 움직인다. 그래서
+        #   ① 손으로 올리는 `RULES_VERSION` 을 넣고 ② 판별을 나눠 가진 함수도 같이
+        #   해싱한다. 둘 중 하나만 있어도 되지만, 하나를 빠뜨리는 것이 이 사고의 본체다.
+        parts.append(repr(getattr(inbox_scan, "RULES_VERSION", 0)))
+        for fn in ("classify_rows", "classify", "ledger_kind"):
+            f = getattr(inbox_scan, fn, None)
+            if f is not None:
+                parts.append(inspect.getsource(f))
     except Exception:
         parts.append("<inbox_scan 못 읽음>")   # 못 읽으면 예전대로 — 색인을 막지는 않는다
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:10]

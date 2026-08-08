@@ -59,6 +59,18 @@ def in_erp_period(row, slip, start, end):
     return not (start and end and day) or start <= day <= end
 
 
+def key_looks_wrong(matched, unique_slips, floor=10):
+    """짝이 이만큼 안 지어지면 'A·B 가 많다'가 아니라 **열쇠가 안 맞는다**로 읽는다.
+
+    자료가 정말 없어서 0건인 것과 열쇠가 안 맞아 0건인 것은 겉이 똑같다. 가르는 기준은
+    비율이다 — 열쇠가 맞으면 몇 건은 반드시 걸린다. 전표가 `floor` 건도 안 되면
+    비율을 말할 수 없으므로 아무 말도 하지 않는다(막 시작한 회차를 겁주지 않는다).
+    """
+    if unique_slips < floor:
+        return False
+    return matched * 10 < unique_slips
+
+
 def parse_erp_export(path):
     """거래처별계정별원장 엑셀 파싱 → [{slip, date, remark, amount}]  (차변=매출)"""
     import openpyxl
@@ -182,6 +194,20 @@ def main():
             f.write(f"- ERP 조회기간 {period_start} ~ {period_end}; B(원장에만)는 이 기간의 원장 행만 집계\n")
         if totals:
             f.write(f"- ERP 월계: {json.dumps(totals, ensure_ascii=False)}\n")
+        # ★ **매칭이 거의 없으면 그건 A·B 가 아니라 열쇠 이야기다** (2026-08-08 실측).
+        #   이 리포트는 전표번호로 짝을 짓는데, 열쇠가 안 맞으면 짝이 하나도 안 지어지고
+        #   그 결과가 "A 296건 · B 56건" 이라는 **그럴듯한 경보**로 나온다. 정상 0건이
+        #   유일한 신호인데 머리글 한 줄에 작게 적혀 아무도 안 봤다(1,856건이던 시절에도
+        #   0건이었다). 실측: ERP 302 전표 대 원장 명세서번호 65개 중 겹침 6 — 06시트
+        #   거래명세서번호와 회계 전표번호는 **서로 다른 순번**이다.
+        matched = len(OK) + len(D)
+        if key_looks_wrong(matched, len(erp_by_slip)):
+            f.write(
+                f"\n> ⚠ **짝이 지어진 전표가 {matched}건뿐입니다"
+                f"(ERP 고유 전표 {len(erp_by_slip)}건).** 아래 A·B 는 '없는 것'이 아니라\n"
+                "> **열쇠가 안 맞아 못 찾은 것**일 수 있습니다. 이 대조는 06시트\n"
+                "> `거래명세서번호` = ERP `일자-No.` 를 전제로 하는데, 실측에서 그 둘은\n"
+                "> 서로 다른 순번이었습니다. 현장 확인을 지시하기 전에 열쇠부터 확인하세요.\n")
         for title, rows_ in [("A. ERP에만 있는 전표 (설치·작업 근거 확인 필요 ★)", A),
                              ("B. 원장 유상건인데 ERP 미확인 (매출 누락 위험)", B),
                              ("C. 회계반영O·세금계산서 미발행", C),

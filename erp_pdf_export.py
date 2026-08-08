@@ -37,6 +37,7 @@ except Exception:
 KIND_LABEL = {
     "sales": "판매조회", "tax": "매출계산서현황", "taxinv": "계산서진행단계",
     "hometax": "홈택스전자계산서", "ledger": "거래처별계정별원장",
+    "ledger_acct": "계정별원장", "journal": "분개장", "cashbook": "현금출납장",
     "receivable": "거래처별채권", "collect": "수금현황", "quote": "견적서",
     "purchase": "구매조회", "unknown": "기타",
 }

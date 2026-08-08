@@ -61,7 +61,11 @@ DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
 DOWNLOAD_DAYS = 14      # 오래된 건 이미 반영됐거나 무관하다
 # ★ Downloads 는 개인 폴더다. **아무 파일이나 퍼 오지 않는다** —
 #   내용을 열어 아는 종류로 판별된 것만 가져온다.
-KNOWN = ("ledger", "po", "sales", "tax", "stmt", "slips", "taxinv", "hometax", "receipt")
+#   ★ 2026-08-08: 회계 원장류를 넷으로 가르면서 여기도 같이 넓혔다. 안 넓히면 새 이름을
+#     단 순간 계정별원장·분개장·현금출납장이 **'모르는 종류'가 되어 안 가져온다** —
+#     분류를 고친 대가로 자료가 조용히 끊긴다.
+KNOWN = ("ledger", "ledger_acct", "journal", "cashbook",
+         "po", "sales", "tax", "stmt", "slips", "taxinv", "hometax", "receipt")
 
 
 def plan():
