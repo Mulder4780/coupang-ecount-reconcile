@@ -26,6 +26,7 @@ import os
 import re
 import sys
 import hashlib
+import collections
 from datetime import date, datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -164,7 +165,8 @@ def parse_deposit_list(path):
                 names = {str(c).strip(): j for j, c in enumerate(r) if c is not None}
                 if "거래일시" in names and "입금" in names:
                     hdr_i = i
-                    idx = {"date": names["거래일시"], "amt": names["입금"]}
+                    idx = {"date": names["거래일시"], "amt": names["입금"],
+                           "__양식": "은행원본"}
                     for key in ("상대계좌예금주명", "거래내용"):
                         if key in names:
                             idx["cust"] = names[key]
@@ -188,6 +190,7 @@ def parse_deposit_list(path):
                 "일자": d, "금액": a,
                 "거래처": norm_cust(r[idx["cust"]] if idx.get("cust") is not None else ""),
                 "전표": "", "적요": str(r[idx["cust"]] or "") if idx.get("cust") is not None else "",
+                "양식": idx.get("__양식", "정리표"),
                 "출처": os.path.basename(path),
             })
     wb.close()
@@ -215,8 +218,49 @@ def _unique_deposit_files(paths):
     return unique
 
 
+def dedupe_deposits(rows):
+    """**같은 입금이 서로 다른 파일에 들어 있는 것**을 합친다 (2026-08-08 실사고).
+
+    무엇이 문제였나: 입금 합계가 2,417,075,528원인데 청구 합계는 545,353,633원 —
+    4.4배였다. 같은 입금이 오종현 정리본과 은행 원본 **양쪽에** 들어 있었고,
+    46쌍 1,056,769,994원이 두 번 세어지고 있었다.
+    위 `_unique_deposit_files` 는 **똑같은 파일**만 거른다(SHA-256). 이건 서로 다른
+    파일이다 — 사람이 정리한 표와 은행 원본이라 **모양이 달라 안 걸렸다.** 같은 돈인데.
+    입금액 칸이 비어 있어서 다행이었다. 자동입력이 돌았다면 10억이 두 번 들어갔다.
+
+    ★ 어려운 것은 합치는 게 아니라 **멀쩡한 입금을 지우지 않는 것**이다.
+      실측으로 갈라야 할 것이 둘 있었다:
+        · 같은 날 같은 금액인데 **거래처가 다른** 입금 — 다른 돈이다(2026-05-06 387,200원
+          세 건이 그랬다). 그래서 열쇠에 거래처가 들어간다.
+        · **같은 파일 안에서** 같은 날·금액·거래처가 두 번 — 그건 실제로 두 번 들어온
+          것이다(은행 원본에 두 줄이면 이체가 두 번이다). 그래서 **파일 경계를 넘을 때만**
+          합친다. 파일 안의 개수는 그대로 둔다.
+      지워서 나는 사고가 더 크다 — 두 번 세면 눈에 띄지만, 지운 입금은 영영 안 들어온
+      것으로 남는다.
+
+    어느 쪽을 남기나: **은행 원본**이다. 사람 손이 안 닿았으니 정본에 가깝다
+    (parse_deposit_list 주석과 같은 판단). 은행 원본에 없는 기간은 정리표가 채운다.
+    """
+    groups = collections.OrderedDict()
+    for r in rows:
+        key = (r["일자"], int(round(r["금액"])), r.get("거래처") or "")
+        groups.setdefault(key, []).append(r)
+    out, dropped = [], []
+    for key, g in groups.items():
+        bank = [r for r in g if r.get("양식") == "은행원본"]
+        keep = bank if bank else g
+        # 파일 안의 개수는 보존한다 — 은행 원본에 두 줄이면 두 번 들어온 것이다.
+        out.extend(keep)
+        if bank and len(g) > len(bank):
+            dropped.extend([r for r in g if r.get("양식") != "은행원본"])
+    return out, dropped
+
+
 def load_deposits():
-    """입금내역 폴더의 엑셀을 전부 읽는다(사용자 지시 — 여기가 정본)."""
+    """입금내역 폴더의 엑셀을 전부 읽는다(사용자 지시 — 여기가 정본).
+
+    같은 입금이 여러 파일에 겹쳐 있으면 **한 번만** 센다(dedupe_deposits).
+    """
     import glob
     from source_dirs import receipt_dirs
     out, candidates = [], []
@@ -228,6 +272,11 @@ def load_deposits():
     files = _unique_deposit_files(candidates)
     for f in files:
         out += parse_deposit_list(f)
+    out, dropped = dedupe_deposits(out)
+    if dropped:
+        print("  ※ 파일이 겹쳐 두 번 세어진 입금 %d건 %s원을 뺐습니다"
+              " (은행 원본을 남깁니다)"
+              % (len(dropped), format(int(sum(r["금액"] for r in dropped)), ",")))
     return out, files
 
 
