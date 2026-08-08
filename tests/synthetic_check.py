@@ -10084,6 +10084,7 @@ if __name__ == "__main__":
     t147_project_history()
     t148_input_suggest()
     t149_tech_center()
+    t161_erp_filename_fingerprint()
     t160_master_book_cache()
     t154_amount_basis()
     t155_cancel_and_handover()
