@@ -480,6 +480,8 @@ _DATE_RE = re.compile(r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})")
 
 
 _DATE2_RE = re.compile(r"^(\d{2})[./-](\d{1,2})[./-](\d{1,2})\b")
+# 내보내기 꼬리말의 인쇄 시각: `2026/08/05(수)오전11:11:15`
+_FOOTER_RE = re.compile(r"\([월화수목금토일]\)\s*(오전|오후)")
 
 
 def _erp_day(v):
@@ -610,6 +612,17 @@ def ingest_erp(con, quiet=False, only=None, force=False, limit=None):
                     day = _erp_day(get(r, spec["날짜"]))
                     if not day:
                         continue
+                    # ★ 내보내기 **인쇄 꼬리말**을 한 건으로 세지 않는다 (2026-08-08).
+                    #   `2026/08/05(수)오전11:11:15` — 날짜처럼 생겨 통과했고, 거래처·
+                    #   금액이 빈 채로 record 에 앉아 대조표 '어긋남' 칸에 여덟 건이
+                    #   올라왔다. 없는 일을 쫓게 만드는 줄이다.
+                    #   ★ 처음엔 '내용이 하나도 없는 줄'로 넓게 걸렀다가 **진짜 줄
+                    #     8건까지 잃었다**(적요를 안 적어 둔 화면에서는 늘 빈칸이라).
+                    #     그래서 꼬리말의 **생김새 자체**만 집는다 — 인쇄 시각이다.
+                    if _FOOTER_RE.search(str(get(r, spec["날짜"]) or "")):
+                        continue
+                    _party = str(get(r, spec.get("거래처")) or "").strip()
+                    _amt = _erp_num(get(r, spec.get("금액")))
                     # ★ 그래도 남는 겹침에는 **그 전표 안에서 몇 번째 줄인가**를 붙인다.
                     #   열을 아무리 더해도 완전히 같은 줄이 두 번 나오는 화면이 있다
                     #   (원장의 차변·대변 짝). 순번을 안 붙이면 둘이 한 건으로 뭉개져
@@ -628,9 +641,7 @@ def ingest_erp(con, quiet=False, only=None, force=False, limit=None):
                     #   '바뀜'** 이 된다 — 첫 시험에서 2,304행 중 1,669행이 그렇게 잡혔다.
                     #   그러면 record_rev 가 가짜로 부풀고 진짜 변경이 그 안에 묻힌다.
                     #   출처는 `asset_id` 가 이미 가리키고 있다.
-                    final[key] = (a["kind"], payload, day,
-                                  str(get(r, spec.get("거래처")) or "")[:60],
-                                  _erp_num(get(r, spec.get("금액"))),
+                    final[key] = (a["kind"], payload, day, _party[:60], _amt,
                                   str(get(r, spec.get("상태")) or "")[:40],
                                   a["id"], core_cols)
                     n += 1
