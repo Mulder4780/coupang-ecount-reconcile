@@ -264,6 +264,75 @@ def match(receipts, rows):
     return paired, spare
 
 
+# ── 묶음 입금 분해 ────────────────────────────────────────────────────────────
+# ★ 왜 필요한가 (2026-08-08 지시).
+#   위 match() 는 **한 입금 = 한 정산**일 때만 채운다. 그런데 쿠팡은 여러 건을 묶어
+#   한 번에 넣는다. 그래서 이 도구가 매일 도는데도 결과가 **늘 0건**이었다 —
+#   실측 입금 147건 2,417,075,528원이 전부 '보류'였고 06시트 입금액 칸은 724행이
+#   통째로 비어 있었다. 코드도 자료도 멀쩡한데 규칙이 현실과 안 맞았던 것이다.
+#   비어 보이지도 않는다: 매일 "보류 147건"을 성실히 찍으니 도는 줄로만 안다.
+#
+# ★ 어려운 것은 맞추는 게 아니라 **잘못 맞추지 않는 것**이다.
+#   금액 하나에 우연히 합이 맞는 조합은 얼마든지 나온다. 엉뚱한 정산행에 입금을 붙이면
+#   그 건은 받은 것으로 처리돼 미수 목록에서 사라지고, 정작 못 받은 건은 영영 안 보인다.
+#   그래서 근거는 하나뿐이다 — **합이 딱 맞는 조합이 정확히 하나일 때만** 채운다.
+#   둘 이상이면 어느 쪽이 맞는지 알 방법이 없으므로 사람에게 넘긴다(예전과 같다).
+MAX_PARTS = 8          # 한 번에 묶이는 건수 상한 — 넘으면 우연한 합이 급격히 늘어난다
+MAX_POOL = 40          # 후보 상한. 넘으면 경우의 수가 터져 계산이 끝나지 않는다
+MAX_STATES = 400_000   # 부분합 표 상한 — 넘으면 '못 셌다'로 두고 사람에게 넘긴다
+
+
+def unique_subset(pool, target):
+    """합이 `target` 인 조합이 **정확히 하나**일 때만 그 조합을 준다.
+
+    반환: (조합 or None, 왜)
+      · 조합을 세다 2개째가 나오면 즉시 포기한다 — 전부 셀 이유가 없다.
+      · 금액은 원 단위 정수로 다룬다(부동소수 오차로 합이 어긋나면 안 된다).
+    """
+    tgt = int(round(target))
+    items = [(int(round(s["청구액"])), s) for s in pool if 0 < round(s["청구액"]) <= tgt]
+    if not items or len(items) > MAX_POOL:
+        return None, ("후보 없음" if not items else "후보 %d건 — 상한 초과" % len(items))
+    # dp[합] = (조합수(2에서 멈춤), 조합 예시)
+    dp = {0: (1, ())}
+    for amt, row in items:
+        nxt = dict(dp)
+        for s, (n, ex) in dp.items():
+            if len(ex) >= MAX_PARTS:
+                continue
+            t = s + amt
+            if t > tgt:
+                continue
+            on, oex = nxt.get(t, (0, ()))
+            nxt[t] = (min(2, on + n), oex or (ex + (row,)))
+        dp = nxt
+        if len(dp) > MAX_STATES:
+            return None, "경우의 수가 너무 많다(%d) — 사람 확인" % len(dp)
+    n, ex = dp.get(tgt, (0, ()))
+    if n == 1 and len(ex) >= 2:
+        return list(ex), "유일 조합 %d건" % len(ex)
+    if n == 0:
+        return None, "맞는 조합 없음"
+    return None, "조합이 둘 이상 — 어느 쪽인지 알 수 없다"
+
+
+def match_bundles(spare, rows, taken):
+    """보류된 묶음 입금을 분해한다. 이미 쓴 정산행(taken)은 다시 쓰지 않는다."""
+    made, still = [], []
+    for rc, why in spare:
+        pool = [s for s in rows
+                if s["정산ID"] not in taken
+                and (s["발행일"] is None or s["발행일"] <= rc["일자"])]
+        combo, note = unique_subset(pool, rc["금액"])
+        if combo:
+            for s in combo:
+                taken.add(s["정산ID"])
+            made.append((rc, combo, note))
+        else:
+            still.append((rc, why + " · 묶음분해: " + note))
+    return made, still
+
+
 def billing_totals(master):
     """06시트 청구·입금 총액. 건별 귀속이 안 될 때 **총액으로는** 대사할 수 있다."""
     from ecount_reconcile import read_ledger
@@ -369,8 +438,21 @@ def main():
         print("  · %s %s %s %s원 → %s (%s)"
               % (s["정산ID"], s["프로젝트NO"], s["캠프명"][:14],
                  format(int(rc["금액"]), ","), rc["일자"], rc["적요"][:20]))
+    # ★ 여기서 끝내면 매일 "보류 147건"만 찍는다 — 묶음 입금을 분해해 본다.
+    taken = {s["정산ID"] for _, s in paired}
+    bundles, spare = match_bundles(spare, rows, taken)
+    if bundles:
+        print("  [묶음분해] %d건 — 합이 딱 맞는 조합이 **하나뿐**일 때만 채운다"
+              % len(bundles))
+        for rc, combo, note in bundles[:10]:
+            print("    · %s %s원 → %d건 (%s)"
+                  % (rc["일자"], format(int(rc["금액"]), ","), len(combo), note))
+            for s in combo[:6]:
+                print("        %s %s %s %s원"
+                      % (s["정산ID"], s["프로젝트NO"], s["캠프명"][:12],
+                         format(int(s["청구액"]), ",")))
     if spare:
-        print("  [보류] %d건 — 묶음 입금이거나 금액이 겹칩니다(사람 확인)" % len(spare))
+        print("  [보류] %d건 — 조합이 둘 이상이거나 맞는 조합이 없습니다(사람 확인)" % len(spare))
     if not receipts:
         print("  ※ 대변(입금) 행이 0건입니다 — '대표거래처로 합산' 이 켜져 있으면 캠프별 거래처의")
         print("     입금이 빠집니다. 검색 조건을 '개별거래처기준' 으로 다시 뽑아 주세요.")
@@ -380,14 +462,23 @@ def main():
         return 0
 
     items = []
-    for rc, s in paired:
-        ev = "거래처별계정별원장 대변 %s %d원 (금액 유일매칭)" % (rc["일자"], int(rc["금액"]))
+    # 묶음으로 풀린 건도 같은 방식으로 채운다. 다만 **입금액은 그 정산행의 청구액**이다 —
+    # 입금 총액을 각 행에 적으면 한 건이 여러 번 들어온 것처럼 보인다.
+    pairs = [(rc, s, "거래처별계정별원장 대변 %s %d원 (금액 유일매칭)"
+                     % (rc["일자"], int(rc["금액"])), int(rc["금액"]))
+             for rc, s in paired]
+    for rc, combo, note in bundles:
+        ev = ("거래처별계정별원장 대변 %s %d원 묶음입금 %d건으로 분해 (%s)"
+              % (rc["일자"], int(rc["금액"]), len(combo), note))
+        for s in combo:
+            pairs.append((rc, s, ev, int(round(s["청구액"]))))
+    for rc, s, ev, amount in pairs:
         for sheet in ("06_거래서류청구수금", "16_입금수금관리"):
             items.append({"sheet": sheet, "key_col": "정산ID", "key": s["정산ID"],
                           "col": "입금일", "value": rc["일자"].isoformat(), "vtype": "date",
                           "evidence": ev, "only_if_empty": True})
             items.append({"sheet": sheet, "key_col": "정산ID", "key": s["정산ID"],
-                          "col": "입금액", "value": str(int(rc["금액"])), "vtype": "number",
+                          "col": "입금액", "value": str(amount), "vtype": "number",
                           "evidence": ev, "only_if_empty": True})
     if not items:
         print("적재할 항목 없음")

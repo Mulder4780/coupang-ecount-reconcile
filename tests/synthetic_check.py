@@ -9585,6 +9585,21 @@ def t162_band_comments_collected():
     mo = open(os.path.join(ROOT, "band", "make_oneclick.py"), encoding="utf-8").read()
     assert 'open(os.path.join(HERE, "grab_posts.js")' in mo, \
         "붙여넣기 파일이 grab_posts.js 를 싣지 않는다 — 고쳐도 사람 손에는 옛 JS 가 간다"
+
+    # ── ⑦ 이미 만들어 둔 붙여넣기 파일이 낡으면 **스스로** 다시 만드나 ──────
+    #   수집 규칙을 고쳐도 사람 손에 가는 것은 디스크에 있는 그 파일이다. 실측:
+    #   댓글 수집을 붙인 날 붙여넣기 파일 4개가 전부 그 이전 것이었다 — 그대로
+    #   붙여넣었으면 댓글이 한 건도 안 들어오는데 수집은 '성공'으로 끝났을 것이다.
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    assert "def heal_stale_pastefiles" in wd and "heal_stale_pastefiles(dry)," in wd, \
+        "낡은 붙여넣기 파일을 아무도 다시 안 만든다 — 30분 워치독에 걸려 있어야 한다"
+    heal = wd.split("def heal_stale_pastefiles")[1].split("\ndef ", 1)[0]
+    assert "os.path.getmtime(p) < js_mt" in heal, \
+        "판정 근거가 grab_posts.js mtime 이 아니다(회차 번호가 매번 달라 내용 비교는 못 쓴다)"
+    assert "os.path.getmtime(p) >= js_mt" in heal and "os.unlink(p)" in heal, \
+        "끝난 코드만 보고 성공으로 센다 — 훑을 것이 없는 밴드는 파일이 안 써지는데도 0 이다"
+    for scrape in ("band_sync", "requests.", "webdriver", "convert_dump"):
+        assert scrape not in heal, f"자동복구가 수집을 한다: {scrape}"
     print("  [162] 밴드 댓글 — 두 경로 같은 모양 · 시각 없으면 버림 · 재병합 무손실 · "
           "반쯤 읽음을 사각지대로 셈 ✅")
 
