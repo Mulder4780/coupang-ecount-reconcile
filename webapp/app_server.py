@@ -2114,8 +2114,23 @@ def real_settlements():
         #   ERP 가 '6.세금계산서발행'·'7.수금완료' 라고 말하면 그건 이미 나간 것이다.
         #   판정은 erp_progress() 를 쓴다 — 한 프로젝트에 상태가 섞이면 '혼재(...)' 를
         #   돌려주므로 여기서도 발행으로 세지 않는다(settle_status 와 같은 근거).
-        _erp_issued = str(_erp_progress_map.get(str(r.get("프로젝트NO") or "")) or "")[:2] \
-            in ("6.", "7.")
+        _erp_state = str(_erp_progress_map.get(str(r.get("프로젝트NO") or "")) or "")
+        _erp_issued = _erp_state[:2] in ("6.", "7.")
+        # ★ '미발행' 한 덩어리 안에 **가야 할 사람이 다른 두 가지**가 섞여 있었다
+        #   (2026-08-08 사용자 질문 "작업은 완료인데 왜 계산서 발행이 안된거지").
+        #   · ERP 가 `4.세금계산서발행대기` 라고 적어 둔 것 — PO 도 왔고 금액도 맞고
+        #     명세서도 나갔다. ERP 에서 발행으로 넘기는 **류지영 손**만 남았다(실측 122건).
+        #   · ERP 색인에 **전표 자체가 없는** 것 — 발행 대기가 아니라 아직 안 올라간 것.
+        #     이건 전표 등록부터다. (실측 UJ2600015)
+        #   같은 빨간 딱지로 묶어 두면 화면이 "누구에게 넘길지"를 말해 주지 못한다.
+        if _erp_issued:
+            _why = ""
+        elif _erp_state[:2] == "4.":
+            _why = "발행 대기(ERP 4단계)"
+        elif not _erp_state:
+            _why = "ERP 전표 없음"
+        else:
+            _why = "ERP " + _erp_state
         if r.get("원장_공급가액"):
             amt, src = int(r["원장_공급가액"]), "실제작업"
         elif _erp.get("supply"):
@@ -2141,6 +2156,7 @@ def real_settlements():
                               "발행" if issued else
                               "발행(ERP확인)" if _erp_issued else "미발행"),
                      "계산서발행일": str(issued or "")[:10],
+                     "미발행사유": "" if (issued or issued_by_evidence or _erp_issued) else _why,
                      "승인번호": r.get("원장_세금계산서승인번호") or "",
                      "청구일": str(r.get("원장_청구일") or "")[:10],
                      "지급예정일": str(r.get("원장_지급예정일") or "")[:10],

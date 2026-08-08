@@ -7854,6 +7854,7 @@ function renderSettle(){
         <div class="top"><span class="camp">${r.업무구분||''}</span><span class="amt">${fmt(r.공급가액)}원 <small>${r.금액출처&&r.금액출처.indexOf('부가세포함')>=0?'· 부가세 포함 · 명세서 기준':'· 부가세 별도'+(r.금액출처==='ERP'?' · ERP 기준':'')}</small></span></div>
         <div class="meta"><span class="sid">${r.정산ID}</span>${r.거래처코드?`<span title="ERP 거래처코드">${esc2(r.거래처코드)}</span>`:''}<span>완료 ${r.완료일||'-'}</span>
           <span>명세서 ${r.명세서번호||r.명세서}</span><span>계산서 ${r.계산서}</span>
+          ${r.미발행사유?`<span class="chip ${r.미발행사유.indexOf('전표 없음')>=0?'c-danger':'c-warn'}" style="font-size:13.5px">${r.미발행사유}</span>`:''}
           ${r.입금일?`<span>입금 ${r.입금일}</span>`:''} ${vbadge(r.정산ID)}
           ${r.적요?`<span style="flex:1 1 100%;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.적요}</span>`:''}</div>
       </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';

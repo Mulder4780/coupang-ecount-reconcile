@@ -26,7 +26,7 @@ try:
 except Exception:
     pass
 
-from ecount_reconcile import read_ledger, load_config, _num, _d
+from ecount_reconcile import read_ledger, load_config, _num, _d, supply_from_statement
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INBOX_DIR = os.path.join(BASE_DIR, "inbox")
@@ -80,6 +80,71 @@ def parse_po_export(path):
                            "desc": blob[:120].replace("\n", " ")}
     wb.close()
     return list(pos.values())
+
+
+_ERP_SUPPLY = None
+
+
+def erp_supply_index():
+    """프로젝트NO → ERP 판매조회 공급가액. 한 번만 만든다(Z: 재귀 탐색이라 비싸다)."""
+    global _ERP_SUPPLY
+    if _ERP_SUPPLY is None:
+        try:
+            import erp_sales_index
+            idx, _ = erp_sales_index.build()
+            _ERP_SUPPLY = {k: (v.get("supply") or 0) for k, v in idx.items()}
+        except Exception as e:
+            print(f"  (ERP 판매조회 색인 생략: {e})")
+            _ERP_SUPPLY = {}
+    return _ERP_SUPPLY
+
+
+_ERP_BY_PO = None
+
+
+def erp_sum_by_po():
+    """PO번호 → 그 PO 로 끊긴 ERP 전표 공급가액 합.
+
+    ★ 차액이 '얼마나' 안 맞는지보다 **왜** 안 맞는지가 중요하다(2026-08-08).
+      쿠팡금액 = ERP합 인데 원장합만 모자라면 그건 금액 오류가 아니라
+      **원장에 그 PO 로 연결된 정산행이 빠진 것**이다 — 고칠 곳이 아주 다르다.
+    """
+    global _ERP_BY_PO
+    if _ERP_BY_PO is None:
+        out = defaultdict(int)
+        try:
+            import erp_sales_index
+            idx, _ = erp_sales_index.build()
+            for v in idx.values():
+                for token in PO_PAT.finditer(str(v.get("po") or "")):
+                    out["PO" + token.group(1)] += (v.get("supply") or 0)
+        except Exception as e:
+            print(f"  (ERP PO 합계 생략: {e})")
+        _ERP_BY_PO = dict(out)
+    return _ERP_BY_PO
+
+
+def supply_of(r):
+    """정산 한 행의 공급가액 — **앱 화면과 같은 사다리**를 쓴다.
+
+    ★ 2026-08-08: 여기가 원장 06시트 공급가액 하나만 보던 탓에 유형C(금액 불일치)가
+      51건 중 44건으로 나왔다. 근거는 전부 `원장공급가액합: 0` — 그 칸은 사람 손
+      입력이라 비어 있을 뿐이었다. 정작 ERP 로 대면 원 단위까지 맞았다
+      (PO327948 쿠팡 7,551,500 = ERP 합 7,551,500).
+      앱 `app_server` 는 이미 실제작업 → ERP → 명세서 순으로 채워 보여 주고 있었으니
+      **화면과 대조기가 서로 다른 금액을 보고 있었다.** 경보가 44/51 이면 아무도
+      안 본다 — 조용한 사고의 반대편이지만 결과는 같다.
+    """
+    v = r.get("원장_공급가액")
+    if v:
+        return int(v)
+    erp = erp_supply_index().get(str(r.get("프로젝트NO") or ""))
+    if erp:
+        return int(erp)
+    conv = supply_from_statement(r.get("원장_거래명세서합계"))
+    if conv is not None:
+        return int(conv)
+    return 0
 
 
 def ledger_po_view(master):
@@ -193,20 +258,36 @@ def main():
                       "밴드상태": ",".join(st),
                       "판정": "미청구 — 쿠팡 PO는 받았는데 계산서가 발행되지 않았습니다" + note})
             continue
-        led_sum = sum((r.get("원장_공급가액") or 0) for r in lrows)
+        led_sum = sum(supply_of(r) for r in lrows)
+        raw_sum = sum((r.get("원장_공급가액") or 0) for r in lrows)
         ids = ",".join(r["정산ID"] for r in lrows)
         if p["amount"] is not None and abs(led_sum - p["amount"]) > tol:
+            erp_sum = erp_sum_by_po().get(po, 0)
+            if erp_sum and abs(erp_sum - p["amount"]) <= tol:
+                # 쿠팡 = ERP 인데 원장만 모자라다 → 금액이 틀린 게 아니라 연결이 빠졌다.
+                verdict = ("원장 연결 누락 — 쿠팡·ERP 금액은 일치하는데 "
+                           "이 PO 로 묶인 원장 정산행이 모자랍니다")
+            elif erp_sum:
+                verdict = "쿠팡·ERP·원장 세 값이 모두 다릅니다 — 금액 확인 필요"
+            else:
+                verdict = "ERP 전표 없음 — 원장 금액과만 비교했습니다"
             C.append({"PO번호": po, "정산ID": ids, "쿠팡금액": p["amount"], "원장공급가액합": led_sum,
-                      "차액": round((p["amount"] or 0) - led_sum)})
+                      "원장직접입력합": raw_sum, "ERP전표합": erp_sum,
+                      "금액출처": "원장" if raw_sum == led_sum else "원장+ERP·명세서 보완",
+                      "차액": round((p["amount"] or 0) - led_sum), "판정": verdict})
         else:
             OK.append(po)
     for po, lrows in sorted(by_po.items()):
         if po not in cp_by_no:
             B.append({"PO번호": po, "정산ID": ",".join(r["정산ID"] for r in lrows),
-                      "원장공급가액합": sum((r.get("원장_공급가액") or 0) for r in lrows),
+                      "원장공급가액합": sum(supply_of(r) for r in lrows),
                       "판정": "쿠팡 목록에 없음 — 번호 오기입 또는 목록 기간 밖"})
 
     # 유형D: 미등록 PO ↔ PO없는 유상 정산 — 금액 유일 매칭이면 자동입력 후보
+    # ★ 여기만 supply_of() 를 쓰지 않는다(2026-08-08). A~C 는 **경보**라 금액 출처를
+    #   넓혀도 잃는 것이 없지만, D 는 06시트에 PO번호를 **써 넣는** 길이다.
+    #   짐작으로 채운 금액으로 짝을 지으면 틀린 PO번호가 원장에 박히고, 그건 빈 칸보다
+    #   나쁘다. 자동으로 쓰는 자리는 **사람이 직접 적은 금액**만 근거로 삼는다.
     unmatched_po = [p for p in coupang if p["po"] not in by_po and p["amount"]]
     queue_items = []
     for p in unmatched_po:
