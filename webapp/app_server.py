@@ -5113,8 +5113,13 @@ class H(BaseHTTPRequestHandler):
             tslug = tech_match.group(1)
             if tslug not in AS_TECH_CENTERS:
                 return self._send(404, {"error": "등록되지 않은 기사"})
-            from urllib.parse import parse_qs, urlparse
-            key = (parse_qs(urlparse(self.path).query).get("k", [""])[0] or "").strip()
+            # ★ 여기서 `from urllib.parse import parse_qs` 를 하면 **안 된다.**
+            #   함수 안 import 는 그 이름을 함수 전체의 지역변수로 만든다 — 이 가지를
+            #   안 지나간 다른 가지(/manifest.json)에서 `parse_qs` 가 '아직 값이 없는
+            #   지역변수'가 되어 500 이 났다. 2026-08-07~08 이틀간 매니페스트가 통째로
+            #   500 이었고, 그래서 **설치 안내가 아예 안 뜬 것**이다(모듈 맨 위 25행에
+            #   이미 import 돼 있다).
+            key = (parse_qs(urlsplit(self.path).query).get("k", [""])[0] or "").strip()
             if key:
                 # ★ 열쇠는 **주소창에서 지운다.** 카톡·밴드에 붙여 넣은 화면 갈무리로
                 #   열쇠가 새는 것이 가장 흔한 사고다. 한 번 쓰고 쿠키로 바꾼 뒤 넘긴다.
@@ -5286,9 +5291,22 @@ self.addEventListener('fetch', e => {
             start_url = f"/staff/{staff_slug}" if center else "/"
             app_name = center["title"] if center else "Coupang Service Operations System"
             app_id = start_url if center else "/"
+            # ★ 기사용(2026-08-08 지시 "링크를 열었을 때 크롬으로 자동 설치").
+            #   `/t/<slug>` 는 매니페스트에 `?tech=` 를 붙여 왔는데 **여기서 그걸 안 읽었다.**
+            #   그래서 기사가 설치해도 아이콘이 `start_url="/"` — 즉 **PIN 걸린 관리자
+            #   화면**으로 갔다. 설치는 됐는데 못 들어가니 아무도 안 쓰게 된다.
+            #   ★ start_url 에 **열쇠는 넣지 않는다.** 매니페스트는 캐시되고 기기에 남는다 —
+            #     거기 열쇠가 박히면 비밀번호를 파일로 뿌리는 것과 같다. 세션 쿠키가
+            #     `/t/<slug>` 를 열어 주므로 필요도 없다.
+            tech_slug = str((query.get("tech") or [""])[0]).strip()
+            tech = AS_TECH_CENTERS.get(tech_slug)
+            if tech:
+                start_url = app_id = f"/t/{tech_slug}"
+                app_name = f"{tech['name']} · 쿠팡 AS"
             return self._send(200, {
                 "name": app_name,
-                "short_name": center["name"] if center else "CSOS",
+                "short_name": (tech["name"] if tech else
+                               center["name"] if center else "CSOS"),
                 "id": app_id, "start_url": start_url, "scope": "/", "display": "standalone",
                 "background_color": "#060D2B", "theme_color": "#060D2B",
                 "icons": [
@@ -5337,8 +5355,8 @@ self.addEventListener('fetch', e => {
             #   내려보내고, 무엇으로 열지는 **기기가** 정한다 — 폰이면 폰의 뷰어로 뜬다.
             if not self._require_admin():
                 return
-            from urllib.parse import parse_qs, quote, urlparse
-            qs = parse_qs(urlparse(self.path).query)
+            from urllib.parse import quote          # parse_qs 는 모듈 맨 위에 있다(윗 주석)
+            qs = parse_qs(urlsplit(self.path).query)
             want = (qs.get("path", [""])[0] or "").strip()
             doc = _source_index() or {}
             # ★ 화이트리스트는 **색인 하나**다. 임의 경로를 열어 주면 서버 파일이 통째로 샌다.
@@ -5407,13 +5425,11 @@ self.addEventListener('fetch', e => {
             #   알려 주고 저기서 막으면, 어떤 파일이 있는지가 미인증에게 새어 나간다.
             if not self._require_admin():
                 return
-            from urllib.parse import parse_qs, urlparse
-            qs = parse_qs(urlparse(self.path).query)
+            qs = parse_qs(urlsplit(self.path).query)   # 함수 안 import 금지(윗 주석)
             g = lambda k: (qs.get(k, [""])[0] or "").strip()
             return self._send(200, _originals_for(g("uj"), g("po"), g("slip")))
         if p == "/api/sources":
-            from urllib.parse import parse_qs, urlparse
-            qs = parse_qs(urlparse(self.path).query)
+            qs = parse_qs(urlsplit(self.path).query)   # 함수 안 import 금지(윗 주석)
             # 원본 자료 색인(source_index.py 산출물) — 앱에서 필터·검색해 클릭 한 번에 연다.
             # 파일이 수만 개가 될 수 있어 서버에서 먼저 거른다(q·kind·limit).
             doc = _source_index()
@@ -5539,16 +5555,14 @@ self.addEventListener('fetch', e => {
             return self._send(200, get_calendar())
         if p == "/api/suggest":
             # 입력 자동완성. 원장에 이미 있는 값만 돌려준다(문턱은 /api/works 와 같다).
-            from urllib.parse import parse_qs, urlparse
-            qs = parse_qs(urlparse(self.path).query)
+            qs = parse_qs(urlsplit(self.path).query)   # 함수 안 import 금지(윗 주석)
             g = lambda k: (qs.get(k, [""])[0] or "").strip()
             return self._send(200, suggest_values(g("f"), g("q"), g("n") or 40))
         if p == "/api/project-history":
             # 현장 한 곳의 과거 내력 + 지금 현황 + 예측. 캘린더·업무 화면의 '이력' 창이 쓴다.
             # ★ 문턱은 `/api/calendar`·`/api/works` 와 **같다** — 같은 원장 행을 다시
             #   묶어 보여 줄 뿐이라 여기만 더 열거나 더 잠그면 화면마다 말이 달라진다.
-            from urllib.parse import parse_qs, urlparse
-            qs = parse_qs(urlparse(self.path).query)
+            qs = parse_qs(urlsplit(self.path).query)   # 함수 안 import 금지(윗 주석)
             g = lambda k: (qs.get(k, [""])[0] or "").strip()
             return self._send(200, project_history(g("camp"), g("pj")))
         if p == "/api/erpdocs":

@@ -9146,6 +9146,59 @@ def t154_amount_basis():
           "ERP 비교는 돌발AS·정기점검만 ✅")
 
 
+def t157_tech_install():
+    """[157] 기사 링크를 열면 크롬으로 넘어가고 설치가 뜬다 (2026-08-08 지시).
+
+    사용자 지시: **"as 각 기사 링크를 보내고 열었을때 크롬으로 자동 설치되는 코딩 진행"**
+
+    ★ 설치가 한 번도 안 됐던 진짜 이유는 UI 가 아니었다 — **`/manifest.json` 이 통째로
+      500 이었다.** `do_GET` 안에서 `from urllib.parse import parse_qs` 를 했더니 그
+      이름이 **함수 전체의 지역변수**가 되어, 그 가지를 안 지나간 매니페스트 가지에서
+      `cannot access local variable 'parse_qs'` 로 죽었다. 매니페스트가 없으면 크롬은
+      `beforeinstallprompt` 를 아예 안 던진다. 화면은 멀쩡했다.
+    ★ 두 번째 이유: `/t/<slug>` 는 매니페스트에 `?tech=` 를 붙여 보내는데 서버는
+      `staff=` 만 읽었다. 그래서 설치해도 아이콘이 `start_url="/"` — **PIN 걸린 관리자
+      화면**으로 갔다. 설치는 됐는데 못 들어가니 아무도 안 쓴다.
+    ★ 그리고 **열쇠는 매니페스트에 넣지 않는다.** 매니페스트는 캐시돼 기기에 남는다 —
+      거기 열쇠가 박히면 비밀번호를 파일로 뿌리는 것과 같다.
+    """
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    tech = open(os.path.join(ROOT, "webapp", "tech.html"), encoding="utf-8").read()
+
+    # ① 함수 안 import 로 이름을 가리지 않는가 — 이것이 500 의 원인이었다.
+    body = server[server.find("    def do_GET("): server.find("    def do_POST(")]
+    # ★ 주석은 빼고 **실제 문장**만 본다 — 이 함정을 설명한 주석 자체가 그 문구를
+    #   담고 있어서, 문자열만 찾으면 제 주석에 제가 걸린다(실제로 걸렸다).
+    stmts = [ln for ln in body.splitlines() if not ln.lstrip().startswith("#")]
+    assert not any("from urllib.parse import parse_qs" in ln for ln in stmts), \
+        "do_GET 안에서 parse_qs 를 import 하면 매니페스트 가지가 500 이 된다"
+
+    # ② 기사 매니페스트가 기사 화면을 가리키는가 · 열쇠가 안 새는가
+    i = server.find('if p == "/manifest.json"')
+    mani = server[i: i + 2600]
+    assert 'query.get("tech")' in mani, "`?tech=` 를 안 읽는다 — 아이콘이 관리자 화면으로 간다"
+    assert 'f"/t/{tech_slug}"' in mani, "start_url 이 기사 화면이 아니다"
+    assert "tech_keys()" not in mani and "?k=" not in mani, \
+        "매니페스트에 열쇠가 들어간다 — 기기에 캐시되는 파일이다"
+
+    # ③ 크롬으로 **저절로** 넘어가는가 · 무한 반복은 막았는가
+    assert "function autoOpenChrome(" in tech and "location.href = chromeIntent()" in tech, \
+        "인앱 브라우저에서 사람이 단추를 눌러야만 크롬으로 간다"
+    assert "sessionStorage" in tech and "AUTO_KEY" in tech, \
+        "크롬 전환이 실패하면 무한 반복된다 — 화면이 깜빡이며 아무것도 못 한다"
+    assert "IS_IOS" in tech and "Safari" in tech, "iOS 에 없는 기능을 있다고 말한다"
+
+    # ④ 설치는 첫 터치에 뜨는가 · once 덫에 걸리지 않았는가
+    assert "function armFirstTouch(" in tech and "beforeinstallprompt" in tech
+    assert "{once:true, capture:true}" not in tech, \
+        "배너를 눌러 그냥 돌아온 경우에도 귀가 떨어져 그다음 터치에서 영영 안 뜬다"
+    assert "removeEventListener('pointerdown', fire, true)" in tech, \
+        "설치창이 누를 때마다 뜬다 — 일을 못 한다"
+    assert "SKIP_KEY" in tech, "'나중에' 를 눌러도 계속 뜬다"
+    print("  [157] 기사 설치 — 매니페스트 500 원인 차단 · 아이콘이 기사 화면으로 · "
+          "열쇠 비노출 · 크롬 자동전환(1회) · 첫 터치 설치 ✅")
+
+
 def t156_refresh_fast():
     """[156] 갱신은 사람을 기다리게 하지 않는다 (2026-08-08 지시 "갱신 빨리빨리하게").
 
@@ -9963,6 +10016,7 @@ if __name__ == "__main__":
     t154_amount_basis()
     t155_cancel_and_handover()
     t156_refresh_fast()
+    t157_tech_install()
     t144_topmost_pin_always_restores()
     t145_redirect_deleted_needs_two_rounds()
     t146_erp_bulk_grab_registry()
