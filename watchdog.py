@@ -174,6 +174,68 @@ def heal_stale_server(dry):
         return "서버 코드나이 확인 실패: %s" % str(exc)[:40]
 
 
+def heal_stale_pastefiles(dry):
+    """붙여넣기 파일이 **옛 수집 JS**를 담고 있으면 다시 만든다 (2026-08-08).
+
+    ★ 서버가 옛 코드로 도는 것과 **똑같은 종류의 조용한 사고**다. 수집 규칙을 고쳐도
+      사람 손에 가는 것은 디스크에 있는 그 파일이다. 2026-08-08 에 댓글 수집을
+      붙였는데 band/*_붙여넣기_*.js 네 개는 전부 그 이전에 만들어진 것이었다 —
+      그대로 붙여넣었으면 **댓글이 한 건도 안 들어오는데 수집은 성공으로 끝났다.**
+      개수도 날짜도 멀쩡해서 아무도 몰랐을 것이다.
+    ★ 판단은 **파일 mtime 대 grab_posts.js mtime** 하나다(내용 비교가 아니다) —
+      회차 번호는 매번 달라지므로 내용은 원래 다르다.
+    ★ 이것은 **수집이 아니라 파일 만들기**다. 캐시를 읽기만 하고 밴드에 접속하지
+      않는다 — 코딩 세션이 해도 되는 일이다(CLAUDE.md 의 수집 금지와 어긋나지 않는다).
+    """
+    import glob as _g
+    band_dir = os.path.join(ROOT, "band")
+    js = os.path.join(band_dir, "grab_posts.js")
+    try:
+        js_mt = os.path.getmtime(js)
+    except OSError:
+        return "붙여넣기 확인 생략(grab_posts.js 없음)"
+    old = [p for p in _g.glob(os.path.join(band_dir, "*붙여넣기_*.js"))
+           if os.path.getmtime(p) < js_mt]
+    if not old:
+        return "붙여넣기 파일 최신"
+    names = ", ".join(os.path.basename(p) for p in old[:3])
+    if dry:
+        return "붙여넣기 옛 JS(dry — 생성 생략): %s" % names
+    made, failed = 0, 0
+    for p in old:
+        base = os.path.basename(p)
+        band = base.rsplit("_", 1)[-1][:-3]
+        try:
+            if base.startswith("재수집"):
+                # 재수집은 08:00 회차가 대상 번호를 정한다. 여기서 대상까지 새로
+                # 고르면 회차의 판단을 가로챈다 — 그래서 **지운다.** 다음 회차가
+                # 새 JS 로 다시 만든다. 옛 JS 를 남겨 두는 것보다 없는 편이 낫다.
+                os.unlink(p)
+                made += 1
+                continue
+            import subprocess
+            subprocess.run([sys.executable, os.path.join(band_dir, "make_oneclick.py"),
+                            "--band", band], cwd=ROOT, capture_output=True, timeout=180)
+            # ★ **끝난 코드로 성공을 판단하지 않는다.** 훑을 것이 없는 밴드에서는
+            #   생성기가 아무 파일도 안 쓰고 정상 종료한다(0). 그걸 성공으로 세면
+            #   낡은 파일이 그대로 남은 채 "새로 만들었다"고 적힌다 — 거짓 보고다.
+            #   실제로 파일이 새로워졌는지 mtime 으로 본다.
+            if os.path.exists(p) and os.path.getmtime(p) >= js_mt:
+                made += 1
+            else:
+                # 만들 것이 없다 = 이 파일은 있을 이유가 없다. 남겨 두면 사람이
+                # 옛 JS 를 붙여넣는다. 지우면 필요할 때 다시 만들어진다.
+                try:
+                    os.unlink(p)
+                    made += 1
+                except OSError:
+                    failed += 1
+        except Exception:
+            failed += 1
+    return "붙여넣기 옛 JS %d개 → 새로 %d개%s (%s)" % (
+        len(old), made, (" · 실패 %d" % failed) if failed else "", names)
+
+
 def heal_fixed_funnel(dry):
     """Check the same public path a phone uses and refresh stale Funnel TLS."""
     try:
@@ -363,6 +425,7 @@ def main():
     # 워치독이 낮은 버전 포크를 OLD로 옮겨 증거를 숨기는 일을 막는다.
     gap = gap_note(last_log_line(), datetime.now())     # 기록은 healing 전에 읽는다
     results = [sync_uploads(dry), sync_cloud_queue(dry), heal_server(dry), heal_fixed_funnel(dry),
+               heal_stale_pastefiles(dry),
                heal_tunnel(dry), publish_endpoint(dry), clean_reports(dry),
                snapshot_handoff(dry), resume_deferred_apply(dry)]
     if gap:
