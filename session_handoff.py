@@ -515,7 +515,28 @@ def collect():
         "워크트리": _worktree_state(),
         "일일대조": daily_run_health(),
         "밴드재수집": band_recollect(),
+        "앱서버": app_server_health(),
     }
+
+
+def app_server_health():
+    """앱 서버가 **옛 코드로 돌고 있나** (2026-08-08 실사고).
+
+    그날 반나절을 이것에 썼다. 어제 저녁에 뜬 서버가 하루치 변경을 하나도 반영하지
+    못한 채 돌고 있었는데, 서버는 200 을 주고 화면도 숫자를 보여 줬다 —
+    **고친 사람만 모르고 있었다.** 코드를 고치고 "왜 안 바뀌지"를 반복하는 것이
+    이 사고의 모양이다. 그래서 세션 인계가 매번 이것을 본다.
+    """
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "webapp"))
+        import restart_server
+        s = restart_server.stale()
+        if not s:
+            return {"떠있음": bool(restart_server.running()), "옛코드": False}
+        return {"떠있음": True, "옛코드": True, "pid": s[0], "뜬시각": s[1],
+                "더새로운파일": s[2]}
+    except Exception:
+        return {}
 
 
 def band_recollect():
@@ -589,6 +610,15 @@ def blockers(st, for_sol=False):
                     "(앞 회차가 도는 동안 다음 회차가 조용히 건너뛴다)%s"
                     % (why, (" · 실패단계: " + ", ".join(bad[:4])) if bad else ""),
                     "python daily_run.py    # 먼저 tasklist 로 앞 회차가 도는지 확인"))
+    # ★ 앱 서버가 옛 코드로 돌면 **고쳐도 화면이 안 바뀐다.** 서버는 200 을 주고
+    #   화면은 숫자를 보여 주므로 아무도 옛 서버인 줄 모른다(2026-08-08 반나절).
+    ap = st.get("앱서버") or {}
+    if ap.get("옛코드"):
+        out.append(("앱 서버가 **옛 코드**로 돌고 있다 (pid %s · 뜬 시각 %s) — "
+                    "%s 가 서버보다 새것이다. 고쳐도 화면이 안 바뀐다"
+                    % (ap.get("pid"), ap.get("뜬시각"),
+                       ", ".join((ap.get("더새로운파일") or [])[:4])),
+                    "python webapp/restart_server.py"))
     if st["큐잔량"]:
         out.append(("입력 큐에 %d건이 반영되지 않았다" % st["큐잔량"],
                     "python ledger_db.py --intake  # Excel은 다음 11:00·15:00 회차"))

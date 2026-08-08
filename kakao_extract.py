@@ -206,6 +206,7 @@ def status_of(head):
 def extract(paths=None):
     kr = _load_reconcile()
     from band_extract import normalize_tech      # 기사명 정규화는 한 곳에만 둔다
+    import people_alias                          # 그만둔 사람 이름 → 지금 담당자
     paths = source_paths() if paths is None else paths
     seen, out = {}, []
     for path in paths:
@@ -227,7 +228,20 @@ def extract(paths=None):
             head = head_of(text)
             state = status_of(head)
             raw_tech = fields.get("AS담당", "") or fields.get("철거담당", "")
-            tech = normalize_tech(raw_tech)
+            # ★ 사용자 지시(2026-08-08): **"카톡에 이렇게 올라와도 류지영으로 인식"**.
+            #   접수 안내 문구가 양식으로 박혀 있어 사람이 그만둬도 그대로 돈다
+            #   ([담당이름] 김혜진 매니저 / [휴대전화] 010-6645-4535).
+            #   근거는 번호다 — 이름 철자가 틀려도 번호가 같으면 그 자리를 이어받은 것이다.
+            #   글이 쓰인 날을 함께 넘겨 **인계 전 글은 그때 담당자 그대로** 둔다.
+            msg_day = msg["date"].isoformat()
+            tech = normalize_tech(raw_tech, when=msg_day)
+            coupang_person = people_alias.resolve_person(
+                fields.get("쿠팡담당자", ""), fields.get("쿠팡담당번호", ""), when=msg_day)
+            # ★ 이름은 **필드가 아니라 본문 안내 문구**에 있다 — 실측: 카톡 원본 34개에
+            #   '김혜진' 3,490회, 그런데 쿠팡담당자 칸에는 한 번도 없었다. 칸만 보면
+            #   지시가 아무 데도 안 닿는다. 그래서 본문에서도 읽어 '지금 접수는 누구'를
+            #   따로 싣는다(원문 필드는 건드리지 않는다).
+            접수담당 = people_alias.resolve_text(text, when=msg_day)
             rec = {
                 "프로젝트NO": code,
                 "시트": kind_of(head) or kind_by_room(room),   # 머리글 우선, 없으면 방 이름
@@ -244,7 +258,11 @@ def extract(paths=None):
                 "신청내용": fields.get("신청내용", ""),
                 # 빈 양식은 값으로 치지 않는다 — 완료 글의 진짜 내용이 병합에서 살아남아야 한다
                 "작업내용": work_content(fields.get("AS내용", "")),
-                "쿠팡담당자": fields.get("쿠팡담당자", ""),
+                "쿠팡담당자": coupang_person,
+                "접수담당": 접수담당,
+                # 원문은 버리지 않는다 — "그때 글에는 누구라고 쓰여 있었나"가 근거다.
+                "쿠팡담당원문": ("" if coupang_person == fields.get("쿠팡담당자", "")
+                              else fields.get("쿠팡담당자", "")),
                 "쿠팡담당번호": fields.get("쿠팡담당번호", ""),
                 "출처파일": os.path.basename(path),
                 "카톡일시": "%s %s" % (msg["date"].isoformat(), msg["time"]),

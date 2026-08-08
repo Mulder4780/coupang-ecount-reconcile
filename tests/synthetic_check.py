@@ -9206,8 +9206,42 @@ def t156_refresh_fast():
         A._master_mtime = saved_mt
         A._cache.clear()
         A._cache.update(saved_cache)
+    # ── 옛 코드로 도는 서버를 잡는가 (2026-08-08 반나절짜리 사고) ──────────
+    # 서버는 200 을 주고 화면도 숫자를 보여 주는데 그 코드가 어제 것이었다.
+    # **고친 사람만 모르고 있었다** — 그래서 사람이 아니라 기계가 보게 만든다.
+    import restart_server as RS
+    saved_running = RS.running
+    try:
+        RS.running = lambda: [(1234, "08/07/2026 20:48:45")]     # 어제 뜬 서버
+        s = RS.stale()
+        assert s and s[0] == 1234 and s[2], \
+            "오늘 고친 코드를 어제 서버가 물고 있는데 아무도 말하지 않는다"
+        assert "webapp/app_server.py" in s[2] or "webapp/index.html" in s[2]
+        from datetime import datetime, timedelta
+        soon = (datetime.now() + timedelta(days=1)).strftime("%m/%d/%Y %H:%M:%S")
+        RS.running = lambda: [(1234, soon)]                      # 방금 띄운 서버
+        assert RS.stale() is None, "최신인데 옛 코드라고 거짓 경보를 낸다"
+        RS.running = lambda: []                                  # 안 떠 있으면 판단 없음
+        assert RS.stale() is None
+        assert RS._started_epoch("nonsense") is None, \
+            "시각을 못 읽으면 조용히 지나가야 한다(틀린 판정보다 낫다)"
+    finally:
+        RS.running = saved_running
+    handoff = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert "def app_server_health(" in handoff and '"앱서버"' in handoff, \
+        "세션 인계가 앱 서버 상태를 안 본다"
+    assert 'ap.get("옛코드")' in handoff and "restart_server.py" in handoff, \
+        "옛 코드로 도는 서버가 '먼저 처리할 것'에 안 올라온다"
+
+    # ── 카톡에서도 사람 인계가 되는가 (2026-08-08 지시: "카톡에 이렇게 올라와도") ──
+    kakao = open(os.path.join(ROOT, "kakao_extract.py"), encoding="utf-8").read()
+    assert "import people_alias" in kakao and "people_alias.resolve_text(text" in kakao, \
+        "이름이 **필드가 아니라 본문 안내 문구**에 있다 — 칸만 보면 지시가 안 닿는다"
+    assert '"접수담당": 접수담당' in kakao and "쿠팡담당원문" in kakao, \
+        "옮긴 이름만 남기고 원문을 지우면 '그때 누구라고 쓰여 있었나'를 잃는다"
+    assert "when=msg_day" in kakao, "인계 전 카톡까지 소급해 바꾼다"
     print("  [156] 갱신 — 원장시각 2초 캐시 · 만료 시 옛 값 즉시 + 뒤에서 한 번 · "
-          "예열은 강제 재계산 · 원장 바뀌면 옛 값 폐기 ✅")
+          "예열은 강제 재계산 · 옛 코드 서버 감지 · 카톡 인계 ✅")
 
 
 def t155_cancel_and_handover():

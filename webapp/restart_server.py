@@ -25,6 +25,52 @@ except Exception:
     pass
 
 
+# 서버가 물고 있는 코드 — 이 파일들 중 하나라도 서버보다 새것이면 옛 코드로 도는 것이다.
+WATCHED = ("webapp/app_server.py", "webapp/index.html", "webapp/tech.html",
+           "ecount_reconcile.py", "ledger_db.py")
+
+
+def stale():
+    """서버가 **옛 코드로 돌고 있나**. 돌고 있으면 (pid, 뜬시각, 더 새로운 파일들).
+
+    ★ 이것이 오늘(2026-08-08) 반나절을 먹은 조용한 사고다. 서버는 멀쩡히 200 을 주고
+      화면도 숫자를 보여 주는데, 그 코드가 어제 것이었다. 고친 사람만 모르고 있었다.
+      `app_server.main` 도 이 상황을 알아보고 안내를 찍지만 **새로 띄우려 한 사람만**
+      본다 — 폰으로 쓰는 사람에게도, 다음 세션에게도 아무 표시가 없었다.
+    ★ 판단은 **파일 mtime 대 프로세스 시작시각**이다. git 커밋 시각이 아니다 —
+      받아만 놓고 안 띄운 경우(pull 직후)까지 잡아야 한다.
+    """
+    cur = running()
+    if not cur:
+        return None
+    pid, when = cur[0]
+    started = _started_epoch(when)
+    if started is None:
+        return None
+    newer = []
+    for rel in WATCHED:
+        p = os.path.join(ROOT, rel)
+        try:
+            if os.path.getmtime(p) > started + 5:      # 5초는 기동 중 저장 여유
+                newer.append(rel)
+        except OSError:
+            pass
+    return (pid, when, newer) if newer else None
+
+
+def _started_epoch(when):
+    """PowerShell 이 준 시각 문자열을 epoch 로. 형식이 기계마다 달라 여러 개를 시도한다."""
+    from datetime import datetime
+    s = str(when or "").strip()
+    for fmt in ("%m/%d/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S",
+                "%m/%d/%Y %p %I:%M:%S", "%Y-%m-%d %p %I:%M:%S"):
+        try:
+            return datetime.strptime(s, fmt).timestamp()
+        except ValueError:
+            continue
+    return None
+
+
 def _port():
     """주소를 손으로 적지 않는다 — 서버가 정하는 포트를 그대로 읽는다.
 
@@ -98,6 +144,12 @@ def main(argv=None):
             print("앱 서버가 떠 있지 않습니다.")
         for pid, when in cur:
             print(f"  pid {pid} · 뜬 시각 {when}")
+        s = stale()
+        if s:
+            print(f"★ 옛 코드로 돌고 있습니다 — {', '.join(s[2][:4])} 가 서버보다 새것입니다.")
+            print("  고쳐도 화면이 안 바뀝니다:  python webapp/restart_server.py")
+        elif cur:
+            print("  코드는 최신입니다.")
         return 0
 
     if cur:
