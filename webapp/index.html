@@ -121,9 +121,10 @@ window.addEventListener('beforeinstallprompt', function(e){
 html{-webkit-text-size-adjust:100%}
 /* ★ 확대·축소 고정의 나머지 절반 (2026-08-08 지시). viewport meta 는 **핀치**를 막고,
    **더블탭 확대**는 이것이 막는다 — 표를 두 번 눌렀다가 화면이 튀는 것이 그 경우다.
-   `manipulation` 이지 `none` 이 아니다: none 이면 스크롤까지 죽는다.
-   ★ 가로 스크롤이 필요한 자리(표·캡처)는 제 규칙에서 touch-action 을 따로 준다 —
-     여기 값은 상속이 아니라 요소마다 정해지므로 그쪽이 이긴다. */
+   `manipulation` 이지 `none` 이 아니다: none 이면 **스크롤까지 죽는다**(표를 못 넘긴다).
+   manipulation 은 위아래·좌우 스크롤을 그대로 두고 **더블탭 확대만** 뺀다.
+   ★ touch-action 은 조상에서 정하면 그 안에서 시작한 터치 전체에 걸린다 — 그래서
+     여기 한 줄이면 화면 전체가 덮인다(요소마다 다시 적을 필요 없다). */
 html,body{touch-action:manipulation}
 /* 글꼴은 위 :root 의 --font-ui 한 곳에서 정한다(되돌리기 포함). 여기 직접 쓰지 말 것. */
 body{font-family:var(--font-ui);
