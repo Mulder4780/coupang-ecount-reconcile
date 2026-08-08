@@ -8707,6 +8707,23 @@ def t153_erp_excel_to_records():
     assert D._erp_day("26/01/02-2-1") == "2026-01-02" and D._erp_day("2026/07/01 -1") == "2026-07-01"
     assert D._erp_day("합계") == "" and D._erp_day(None) == ""
 
+    # 열지도 자체가 성한가 — 값 하나가 어긋나면 화면 하나가 통째로 빈다
+    for kind, spec in D.ERP_MAP.items():
+        for s in (spec if isinstance(spec, list) else [spec]):
+            assert s.get("키") and s.get("날짜"), "%s 에 키/날짜가 없다" % kind
+            assert s["날짜"] in s["키"] or s.get("거래처") or s.get("금액"), \
+                "%s 가 날짜 말고 아무 칸도 안 본다" % kind
+    # ★ 매출/매입을 갈라야 하는 화면은 **상태 칸을 반드시 적어 둔다**.
+    #   빠지면 갈래를 payload 에서 이름으로 찾게 되고, 화면마다 그 칸 이름이 달라
+    #   (입력메뉴 / 거래유형) 한쪽이 통째로 빠진다 — 실제로 50건이 사라져
+    #   "7월 매출전표 5건"이라는 유령 구멍을 만들었다(2026-08-08).
+    for s in D.ERP_MAP["ERP:slips"]:
+        assert s.get("상태"), "회계거래 화면에 매출/매입을 가를 상태 칸이 없다"
+    assert len(D.ERP_MAP["ERP:slips"]) >= 2, "회계거래조회/현황 두 모양을 다 알아야 한다"
+    gap = open(os.path.join(ROOT, "sales_slip_gap.py"), encoding="utf-8").read()
+    assert 'r["status"]' in gap and "입력메뉴" not in gap.split("def diagnose")[0].split(
+        "★")[0], "대조기가 아직 payload 의 특정 칸 이름으로 매출을 가른다"
+
     # 매일 도는 자리에 들어가 있는가 — 파일에만 있고 안 도는 것을 막는다
     src = open(os.path.join(ROOT, "collect_all.py"), encoding="utf-8").read()
     assert '"--erp"' in src and '"--band"' in src, \
