@@ -185,8 +185,11 @@ def step_handoff(who, reason, steps):
     detail = ("컨텍스트 한도로 대화가 요약되기 전 자동 인계. 계기=%s · 기준커밋 %s · %s. "
               "입력 큐는 DB 로 넘겼고 점유는 해제했다. 재개 지점은 reports/세션인계.md."
               % (reason, head or "?", datetime.now().strftime("%Y-%m-%d %H:%M")))
+    # --supersede: 이 줄은 컨텍스트가 찰 때마다 다시 만들어진다. 상세에 시각·기준커밋이
+    #   들어가 매번 다른 줄이 되므로 중복 인덱스가 못 걸렀고, 실측 하루 44줄이 쌓여
+    #   19시트(사람이 읽는 원장)를 덮을 참이었다. 마지막 하나만 남긴다.
     ok1, note1 = run([sys.executable, os.path.join(ROOT, "ledger_db.py"),
-                      "--handoff", "--b", title, "--c", detail])
+                      "--handoff", "--supersede", "--b", title, "--c", detail])
     steps.append({"단계": "④ 19시트 인수인계 예약", "성공": ok1, "메모": note1})
     ok2, note2 = run([sys.executable, os.path.join(ROOT, "session_handoff.py"), "--snapshot"])
     steps.append({"단계": "④ 세션인계 스냅샷", "성공": ok2, "메모": note2})

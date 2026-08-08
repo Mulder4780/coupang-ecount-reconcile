@@ -266,6 +266,15 @@ def main():
 
     done = _archive_old_versions(master, quiet=False)
     print(f"\n{done}개 정리 완료 — 보관 위치: {archive_folder(os.path.dirname(master))}")
+    # ★ "접을 것 2개"라 해 놓고 "0개 정리 완료"로 끝나면 사람은 실패로 읽는다.
+    #   실제로는 _in_use() 가 최근 저장·열림을 보고 **일부러** 보류한 것이다(2026-07-31 실사고).
+    #   왜 안 옮겼는지 말하지 않으면 다음 사람이 같은 자리에서 또 멈춘다.
+    held = [v for v in move if _in_use(v["path"])]
+    if held:
+        print(f"  보류 {len(held)}개 — 열려 있거나 최근 {RECENT_MIN}분 안에 저장됐다"
+              f"(사람이 편집 중일 수 있어 옮기지 않는다): "
+              + ", ".join("v%s" % v["v"] for v in held[:8]))
+        print("  잠시 뒤 다시 실행하면 자동으로 접힌다 — 실패가 아니다.")
     # 최신본이 그대로인지 마지막 확인 — 이게 사라지면 모든 도구가 멈춘다
     assert os.path.exists(master), "최신본이 사라졌습니다"
     print("  최신본 확인:", os.path.basename(master))

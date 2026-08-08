@@ -8581,8 +8581,50 @@ def t152_band_recollect_window():
 
 
 
-def t157_wrapup_drops_huge_files():
-    """[157] 자동 마무리가 **거대 파일을 커밋에 담지 않는다** (2026-08-08 실사고).
+def t159_handoff_supersede():
+    """[159] 기계가 반복해 남기는 인계 줄은 **마지막 하나만** 남는다 (2026-08-08).
+
+    실사고: 자동 마무리는 컨텍스트가 찰 때마다 19시트 인계를 예약하는데, 상세에
+    시각·기준커밋이 들어가 **매번 다른 줄**이 됐다. 중복 인덱스는 (title, detail) 이라
+    이걸 못 걸렀고 대기가 45건까지 쌓였다 — 그중 44건이 같은 자동 마무리였다.
+    회차가 돌면 **사람이 읽는 19시트에 거의 같은 줄 44개**가 박히고, 그 안에 섞인
+    진짜 인계 한 줄은 아무도 못 찾는다. 비어 보이는 사고가 아니라 **묻히는** 사고다.
+
+    지키는 것 둘:
+      ① supersede=True 는 같은 제목의 대기를 내리고 새 줄만 남긴다
+      ② 기본값은 그대로다 — **사람이 쓴 인계는 줄마다 다른 사실이라 하나도 안 지운다**
+      ③ 자동 마무리가 실제로 그 길로 예약한다(배선이 끊기면 ①②가 있어도 소용없다)
+    """
+    import io, sqlite3, tempfile
+    import ledger_db as L
+
+    src = io.open(os.path.join(ROOT, "session_wrapup.py"), encoding="utf-8").read()
+    assert '"--handoff", "--supersede"' in src, \
+        "자동 마무리가 --supersede 로 예약하지 않는다 — 줄이 또 쌓인다"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        old = L.DB_PATH
+        try:
+            L.DB_PATH = os.path.join(tmp, "t.db")
+            for i in range(3):                     # 기계가 세 번 돈 것처럼
+                L.handoff_add("세션 자동 마무리(claude)", "계기=auto · 커밋 %d" % i,
+                              supersede=True)
+            L.handoff_add("사람이 쓴 인계 A", "내용 1")
+            L.handoff_add("사람이 쓴 인계 B", "내용 2")
+            p = L.pending_handoffs()
+        finally:
+            L.DB_PATH = old
+
+    auto = [r for r in p if r["title"].startswith("세션 자동 마무리")]
+    assert len(auto) == 1, "자동 줄이 %d개 남았다 — 접히지 않았다" % len(auto)
+    assert auto[0]["detail"].endswith("2"), "남긴 것이 마지막 줄이 아니다: %r" % auto[0]
+    assert len([r for r in p if r["title"].startswith("사람이")]) == 2, \
+        "사람이 쓴 인계까지 접었다 — 줄마다 다른 사실이라 지우면 안 된다"
+    print("  [159] 인계 예약 — 기계 줄은 마지막 하나만·사람 줄은 그대로 ✅")
+
+
+def t158_wrapup_drops_huge_files():
+    """[158] 자동 마무리가 **거대 파일을 커밋에 담지 않는다** (2026-08-08 실사고).
 
     `db/source_index_cache.json` 이 106MB 로 자라 자동 커밋에 실려 갔고, GitHub 은
     100MB 넘는 blob 을 pre-receive 에서 거절한다. 그때 죽는 것은 그 커밋 하나가
@@ -8621,7 +8663,7 @@ def t157_wrapup_drops_huge_files():
             W.ROOT = old
     assert dropped == ["big.json"], "거대 파일을 빼지 못했다: %r" % (dropped,)
     assert staged == ["small.txt"], "멀쩡한 파일까지 같이 뺐다: %r" % (staged,)
-    print("  [157] 자동 마무리 — 90MB 넘는 파일은 커밋 전에 뺀다(푸시 전체가 막힌다) ✅")
+    print("  [158] 자동 마무리 — 90MB 넘는 파일은 커밋 전에 뺀다(푸시 전체가 막힌다) ✅")
 
 
 def t153_erp_excel_to_records():
@@ -10024,7 +10066,8 @@ if __name__ == "__main__":
     t151_collect_all_idempotent_and_no_login_scrape()
     t152_band_recollect_window()
     t153_erp_excel_to_records()
-    t157_wrapup_drops_huge_files()
+    t158_wrapup_drops_huge_files()
+    t159_handoff_supersede()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

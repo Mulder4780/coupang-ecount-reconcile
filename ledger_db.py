@@ -1454,13 +1454,30 @@ def pending_rows():
                           "evidence", "only_if_empty"), r)) for r in cur.fetchall()]
 
 
-def handoff_add(title, detail):
-    """19시트 인수인계를 Excel 대신 DB에 예약한다."""
+def handoff_add(title, detail, supersede=False):
+    """19시트 인수인계를 Excel 대신 DB에 예약한다.
+
+    ★ supersede=True 는 **기계가 반복해서 남기는 줄**에만 쓴다 (2026-08-08).
+      같은 제목의 대기 줄을 먼저 'superseded' 로 내리고 새 줄만 남긴다.
+
+      왜: 중복 방지 인덱스는 (title, detail) 이라 상세에 시각·기준커밋이 들어가면
+      **매번 다른 줄이 된다.** 자동 마무리는 컨텍스트가 찰 때마다 도니 실측 하루
+      44줄이 쌓였고, 그게 전부 19시트로 들어갈 참이었다. 19시트는 사람과 AI 가
+      같이 읽는 원장이다 — 거기서 44줄은 기록이 아니라 소음이고, 진짜 인계 한 줄을
+      덮는다(같은 날 실측: 의미 있는 줄은 1개였다).
+      마지막 것만 남겨도 잃는 정보가 없다 — 재개 지점은 늘 reports/세션인계.md 이고
+      기준커밋은 git 이력에 있다.
+
+      **사람이 쓴 인계는 절대 이 길로 보내지 않는다.** 그건 줄마다 다른 사실이다.
+    """
     title = str(title or "").strip()
     detail = str(detail or "").strip()
     if not title or not detail:
         raise ValueError("인수인계 제목과 상세가 모두 필요합니다")
     with conn() as c:
+        if supersede:
+            c.execute("UPDATE handoff SET status='superseded' "
+                      "WHERE status='pending' AND title=?", (title[:500],))
         before = c.total_changes
         c.execute(
             "INSERT OR IGNORE INTO handoff(ts,title,detail,status) VALUES(?,?,?,'pending')",
@@ -2039,8 +2056,10 @@ def main():
             detail = sys.argv[sys.argv.index("--c") + 1]
         except (ValueError, IndexError):
             sys.exit("사용: python ledger_db.py --handoff --b \"제목\" --c \"상세\"")
-        n = handoff_add(title, detail)
-        print("19시트 인수인계 DB 예약:", "추가 1건" if n else "이미 같은 예약 있음")
+        sup = "--supersede" in sys.argv   # 기계가 반복해 남기는 줄 — 같은 제목의 대기는 내린다
+        n = handoff_add(title, detail, supersede=sup)
+        print("19시트 인수인계 DB 예약:", "추가 1건" if n else "이미 같은 예약 있음",
+              "(같은 제목의 앞선 대기는 내림)" if sup else "")
         print("Excel 기록은 다음 11:00·15:00 회차 마지막에 수행")
         return
     if "--apply" in sys.argv:
