@@ -59,6 +59,34 @@
     return '';
   };
 
+  // ── 댓글 본문 (2026-08-08) ────────────────────────────────────────────────
+  // 접수 취소 통보는 대부분 **글이 아니라 댓글**로 온다("작동 원활함. 접수 취소 하세요").
+  // 그동안 캐시에는 `comment_count` 숫자만 있어 cancel_watch 가 반쪽으로 돌았다.
+  // 원칙은 본문과 같다 — **시각 없는 수확은 버린다.** 밴드는 아직 안 그려진 자리에도
+  // 빈 껍데기를 두므로 시각이 없으면 직전 화면이 묻어 온 것일 수 있다.
+  // 그리고 **몇 개를 봤는지 같이 적는다**: 접힌 댓글을 다 펴지 못했을 때
+  // "댓글이 없다"와 "못 읽었다"를 읽는 쪽이 갈라야 한다(못 가르면 조용한 사고가 된다).
+  const CMT_ITEM = 'ul.commentList > li, .commentList .commentItem, .cComment li, [class*="commentItem"]';
+  const CMT_BODY = '.commentText, ._commentContent, .txt, [class*="commentText"]';
+  const CMT_TIME = '.time, .date, [class*="time"]';
+  const CMT_WHO = '.uName, .commentWriterInfo .text, .writeInfo .name, [class*="writerName"]';
+  function readComments(root) {
+    let items = [];
+    for (const s of CMT_ITEM.split(',')) {
+      items = [...root.querySelectorAll(s.trim())];
+      if (items.length) break;
+    }
+    const out = [];
+    for (const it of items) {
+      // 둘 다 있어야 담는다 — 이 조건이 엉뚱한 <li> 를 댓글로 오해하는 것도 같이 막는다.
+      const content = txt(it, CMT_BODY);
+      const timeText = txt(it, CMT_TIME);
+      if (!content || !timeText) continue;
+      out.push({ author: txt(it, CMT_WHO), timeText, content: content.slice(0, 2000) });
+    }
+    return out;
+  }
+
   // 상세 페이지 한 글을 iframe 으로 열어 본문·글쓴이·시각·사진/댓글 수를 뜯는다.
   // ★ 없는 글을 열면 밴드가 `alert('삭제되었거나 찾을 수 없습니다.')` 를 띄운다
   //   (2026-08-06 실측). 모달은 **탭 전체를 멈춘다** — 사람이 누를 때까지 수집이 선다.
@@ -161,6 +189,14 @@
         .map((i) => i.src).filter((s) => /pstatic|phinf/.test(s));
       const cmt = (txt(main, '._commentCount, .comment .count, .uComment .count')
         .match(/\d+/) || [''])[0];
+      // 댓글은 본문보다 늦게 그려진다 — 있다고 적힌 만큼 보일 때까지 잠깐만 더 기다린다.
+      // 무한정 기다리지 않는다(접힌 댓글은 끝내 안 펴질 수 있고, 그건 아래 comments_full 이 말한다).
+      const want = parseInt(cmt || '0', 10) || 0;
+      let cts = readComments(d);
+      for (let i = 0; i < 8 && cts.length < want; i++) {
+        await sleep(250);
+        cts = readComments(d);
+      }
       return {
         status: 'ok',
         post: {
@@ -169,6 +205,9 @@
           content: txt(main, '.postText, .dPostTextView'),
           photo_count: String(imgs.length),
           comment_count: cmt || '0',
+          comments: cts,
+          // 적힌 개수만큼 실제로 읽었나. false 면 읽는 쪽은 '댓글 없음'으로 단정하지 않는다.
+          comments_full: cts.length >= want,
           images: [...new Set(imgs)],
         },
       };

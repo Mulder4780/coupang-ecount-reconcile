@@ -9380,8 +9380,24 @@ def t156_refresh_fast():
     assert '"접수담당": 접수담당' in kakao and "쿠팡담당원문" in kakao, \
         "옮긴 이름만 남기고 원문을 지우면 '그때 누구라고 쓰여 있었나'를 잃는다"
     assert "when=msg_day" in kakao, "인계 전 카톡까지 소급해 바꾼다"
+    # ── 대표보고도 같은 규칙을 따르나 (2026-08-08 사용 기록에서 느린 화면 1등) ──
+    #   실측 최근 24시간: /api/exec_report 648회 · 평균 110초. 계산이 무거운 게 아니라
+    #   **캐시를 보러 가는 길에 락이 잠겨 있었다** — /api/status 는 하루 전에 같은
+    #   이유로 고쳐졌는데 여기만 남아 있었다.
+    app = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    # 함수 **전체**를 본다. 앞에서 N자만 잘라 보면 안 된다 — 이 함수는 DEMO 분기가
+    # 길어 락 지점이 한참 뒤에 있고, 자르는 순간 "그런 코드 없음"으로 읽힌다.
+    ex = app.split("def get_exec_report", 1)[1].split("\ndef ", 1)[0]
+    assert ex.index('_fresh("exec")') < ex.index("with _readlock"), \
+        "대표보고가 캐시를 보기 전에 락을 잡는다 — 만들어 둔 값을 두고 줄을 선다"
+    assert '_cache.get("exec_stale")' in ex and '_cache["exec_stale"] = r' in ex, \
+        "만료 순간마다 누군가 한 명이 콜드 재계산을 통째로 맞는다"
+    assert 'get_exec_report(None, _force=True)' in ex, \
+        "뒤에서 도는 갱신이 옛 값을 그대로 되돌려 저장한다 — 영원히 안 새로워진다"
+    assert '("exec", lambda: get_exec_report(None, _force=True))' in app, \
+        "대표보고가 예열 목록에 없다 — 서버가 뜬 뒤 첫 사람이 콜드 계산을 맞는다"
     print("  [156] 갱신 — 원장시각 2초 캐시 · 만료 시 옛 값 즉시 + 뒤에서 한 번 · "
-          "예열은 강제 재계산 · 옛 코드 서버 감지 · 카톡 인계 ✅")
+          "예열은 강제 재계산(대표보고 포함) · 옛 코드 서버 감지 · 카톡 인계 ✅")
 
 
 def t155_cancel_and_handover():
@@ -9466,10 +9482,176 @@ def t155_cancel_and_handover():
         "취소 확인이 엑셀을 직접 연다 — 반영은 11:00·15:00 회차 몫이다"
     assert 'ledger_db.enqueue' in watch and '"only_if_empty": True' in watch, \
         "사람이 적어 둔 칸을 덮어쓴다"
+    # ★ 산문이 아니라 **코드**를 본다. 머리말 설명글은 "convert_dump 가 담는다"처럼
+    #   도구 이름을 대는 것이 마땅한데, 그걸 호출로 오해하면 문서를 못 쓰게 된다
+    #   (검증이 제 설명글에 걸리는 일은 [157] 에서도 한 번 있었다).
+    watch_code = watch.split('"""', 2)[-1]
+    watch_code = "\n".join(l for l in watch_code.splitlines()
+                           if not l.strip().startswith("#"))
     for scrape in ("collect_", "convert_dump", "requests.", "webdriver"):
-        assert scrape not in watch, f"코딩 세션 도구가 수집을 한다: {scrape}"
+        assert scrape not in watch_code, f"코딩 세션 도구가 수집을 한다: {scrape}"
     print("  [155] 접수 취소 — 부품·택배 취소와 분리 · 댓글 우선 · 사각지대 집계 · "
           "사람 인계(번호 근거·소급 금지) ✅")
+
+
+def t162_band_comments_collected():
+    """[162] 밴드 댓글 본문 수집 — 담는 쪽 둘, 읽는 쪽 하나 (2026-08-08 지시).
+
+    사용자 지시: **"밴드 댓글도 같이 수집하는 알고리즘 실행"**
+
+    왜 필요했나 — `[155]` 로 취소 판정을 만들어 놓고도 **반쪽**이었다. 취소 통보는
+    거의 다 댓글로 오는데("작동 원활함. 접수 취소 하세요") 캐시에는 `comment_count`
+    숫자만 있고 본문이 없었다. 판정 코드는 멀쩡히 돌면서 **아무것도 못 잡았다.**
+
+    ★ 이 검증이 지키는 것 셋 — 전부 '조용한 사고' 쪽이다:
+      ① **모양이 갈리지 않을 것.** 담는 쪽이 둘(화면 긁기 convert_dump · API band_sync)
+         인데 읽는 쪽은 하나(band_extract.comment_text)다. 한쪽만 고치면 그 경로로
+         들어온 댓글은 영영 안 읽힌다 — 오류도 안 난다.
+      ② **시각 없는 댓글을 버릴 것.** 본문과 같은 규칙이다(`[130]`). 시각이 없으면
+         '댓글이 글보다 나중'이라는 취소 판정의 순서 자체를 세울 수 없다.
+      ③ **합치되 잃지 말 것.** 덤프는 매 실행 전부 재처리된다. 댓글이 없던 시절의
+         옛 덤프가 나중에 이기면 애써 모은 댓글이 통째로 사라진다.
+    """
+    import importlib
+    B = importlib.import_module("band_extract")
+    sys.path.insert(0, os.path.join(ROOT, "band"))
+    CD = importlib.import_module("convert_dump")
+
+    # ── ① 시각 없는 댓글은 버린다 · 중복은 접힌다 · 시간순으로 선다 ──────
+    cap = 1767000000000
+    got = CD.conv_comments([
+        {"author": "차동호", "content": "확인했습니다", "created_at": 1766000002000},
+        {"author": "차동호", "content": "확인했습니다", "created_at": 1766000002000},   # 중복
+        {"author": "류지영", "content": "접수 취소 하세요", "created_at": 1766000001000},
+        {"author": "유령", "content": "시각이 없다"},                                   # 버려야
+        {"author": "빈", "content": "", "created_at": 1766000003000},                   # 버려야
+    ], cap)
+    assert [c["content"] for c in got] == ["접수 취소 하세요", "확인했습니다"], \
+        "시각 없는 댓글이 남았거나, 중복이 안 접혔거나, 시간순이 아니다: %r" % (got,)
+    assert all(isinstance(c["created_at"], int) for c in got), \
+        "created_at 이 정수가 아니다 — 날짜가 날짜가 아니었던 사고(2026-08-08)와 같은 모양이다"
+    # timeText 만 있어도 살려낸다(화면 긁기 경로)
+    assert CD.conv_comments([{"content": "취소요", "timeText": "1시간 전"}], cap), \
+        "화면에서 긁은 상대시각('1시간 전')을 못 살린다"
+
+    # ── ② 담는 쪽 둘이 **같은 모양**인가 ─────────────────────────────────
+    BS = open(os.path.join(ROOT, "band", "band_sync.py"), encoding="utf-8").read()
+    api_from_json = json.loads(json.dumps({          # API 응답 흉내
+        "latest_comments": [
+            {"author": {"name": "류지영"}, "body": "접수 취소 하세요", "created_at": 1766000001000},
+            {"author": {"name": "유령"}, "body": "시각 없음"},
+        ]}))
+    ns = {}
+    exec(compile(BS[BS.index("def api_comments"):BS.index("def main()")],
+                 "band_sync-part", "exec"), ns)
+    api_out = ns["api_comments"](api_from_json)
+    assert api_out == [{"author": "류지영", "created_at": 1766000001000,
+                        "content": "접수 취소 하세요"}], \
+        "API 경로가 화면 긁기와 다른 모양으로 담는다 — 읽는 쪽이 하나라 한쪽이 조용히 죽는다: %r" % (api_out,)
+    assert set(api_out[0]) == set(got[0]), "칸 이름이 두 경로에서 다르다"
+
+    # ── ③ 읽는 쪽은 하나 — 그 하나가 두 경로를 다 읽나 ───────────────────
+    post = {"comment_count": 2, "comments": got}
+    assert "접수 취소" in B.comment_text(post) and "확인했습니다" in B.comment_text(post)
+    assert B.cancel_hit(B.comment_text(post)), "댓글로 온 취소를 못 잡는다"
+
+    # ── ④ 반쯤 읽은 것을 다 읽은 것으로 세지 않나 ────────────────────────
+    half = {"3": {"comment_count": 3, "comments": got}}          # 3개 중 2개만
+    assert B.cancel_blind_count(half) == 1, \
+        "접힌 댓글을 반만 읽고도 사각지대 0으로 센다 — 제일 나쁜 종류의 안심이다"
+    full = {"3": {"comment_count": 2, "comments": got}}
+    assert B.cancel_blind_count(full) == 0
+    none = {"4": {"comment_count": 0, "comments": []}}
+    assert B.cancel_blind_count(none) == 0, "댓글이 없는 글까지 사각지대로 센다"
+
+    # ── ⑤ 합치되 잃지 않나 (옛 덤프가 나중에 이겨도) ─────────────────────
+    conv = open(os.path.join(ROOT, "band", "convert_dump.py"), encoding="utf-8").read()
+    assert 'rec["comments"] = conv_comments(' in conv and 'cur.get("comments")' in conv, \
+        "재병합이 댓글을 덮어쓴다 — 댓글 없던 옛 덤프가 이기면 통째로 사라진다"
+    assert 'rec.get("comments_full") or cur.get("comments_full")' in conv, \
+        "'다 읽었다'는 사실이 재병합에서 지워진다"
+    assert '"comments": api_comments(it)' in BS and "merge_comments(old.get" in BS, \
+        "API 경로가 아는 글의 댓글을 안 받는다 — 댓글은 글보다 **나중에** 달린다"
+
+    # ── ⑥ 긁는 쪽(붙여넣기 JS)이 실제로 댓글을 담나 ──────────────────────
+    js = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
+    body = "\n".join(l for l in js.splitlines() if not l.strip().startswith("//"))
+    assert "readComments" in body and "comments: cts" in body, \
+        "화면 긁기가 댓글을 안 담는다 — 흡수기만 고치면 아무 일도 안 일어난다"
+    assert "comments_full: cts.length >= want" in body, \
+        "'다 읽었나'를 안 적는다 — '댓글 없음'과 '못 읽음'이 캐시에서 똑같아 보인다"
+    assert "if (!content || !timeText) continue" in body, \
+        "시각 없는 댓글을 담는다(본문 규칙 [130] 과 어긋난다)"
+    mo = open(os.path.join(ROOT, "band", "make_oneclick.py"), encoding="utf-8").read()
+    assert 'open(os.path.join(HERE, "grab_posts.js")' in mo, \
+        "붙여넣기 파일이 grab_posts.js 를 싣지 않는다 — 고쳐도 사람 손에는 옛 JS 가 간다"
+    print("  [162] 밴드 댓글 — 두 경로 같은 모양 · 시각 없으면 버림 · 재병합 무손실 · "
+          "반쯤 읽음을 사각지대로 셈 ✅")
+
+
+def t163_last_run_shown():
+    """[163] 실행 화면 상단의 '마지막 실행 시각' (2026-08-08 지시).
+
+    사용자 지시: **"이 화면 상단에 최근 마지막 실행 날짜 시간이 어떻게 되는지 표시해"**
+
+    ★ 이 검증이 지키는 것은 **거짓 표시를 안 하는 것**이다:
+      ① **서버가 다시 떠도 남을 것.** 이 서버는 코드를 고칠 때마다 다시 뜬다.
+         메모리에만 두면 재시작 때마다 "기록 없음"이 되어, 오늘 아침에 돈 대조까지
+         안 돈 것처럼 보인다 — 없는 것보다 나쁜 표시다.
+      ② **앱 밖에서 돈 것도 셀 것.** 전체 대조는 09:50 스케줄러가 매일 돌린다.
+         앱 단추 기록만 보여 주면 사람이 방금 돈 것을 또 누른다(한 번이 몇 분이다).
+      ③ **실패를 성공과 같은 모양으로 적지 않을 것.** 돌긴 돌았는데 실패한 것을
+         '돌았다'로만 보여 주면 사람이 됐다고 믿는다.
+    """
+    src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "LAST_RUN_PATH" in src and "_note_last_run(key, title, local_returncode)" in src, \
+        "작업이 끝나도 마지막 실행 시각이 남지 않는다"
+    assert "os.replace(tmp, LAST_RUN_PATH)" in src, \
+        "반쯤 쓰인 기록 파일이 남을 수 있다(읽는 쪽이 통째로 못 읽는다)"
+    assert '"last": last_runs(merge_auto=True)' in src, \
+        "/api/tasklog 가 마지막 실행 시각을 안 준다 — 화면이 읽을 자리가 없다"
+    assert 'agent_status.json' in src.split("def last_runs")[1][:900], \
+        "09:50 자동 회차가 안 세어진다 — 아침에 돈 대조가 화면에서 사라진다"
+
+    # 실제로 남고, 다시 읽히나 (파일 하나짜리 계약이라 여기서 돌려 본다)
+    import importlib, json as _j, tempfile
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    A = importlib.import_module("app_server")
+    keep = A.LAST_RUN_PATH
+    try:
+        A.LAST_RUN_PATH = os.path.join(tempfile.gettempdir(), "_t163_last_run.json")
+        if os.path.exists(A.LAST_RUN_PATH):
+            os.unlink(A.LAST_RUN_PATH)
+        assert A.last_runs() == {}, "기록이 없을 때 빈 값이 아니다"
+        A._note_last_run("synthetic", "합성검증", 0)
+        A._note_last_run("po", "쿠팡 PO 대조", 2)
+        got = A.last_runs()
+        assert set(got) == {"synthetic", "po"}, got
+        assert got["synthetic"]["코드"] == 0 and got["po"]["코드"] == 2, \
+            "실패한 실행이 성공과 구별되지 않는다"
+        assert len(str(got["po"]["끝난시각"])) >= 16, "시각이 날짜만 있고 시간이 없다"
+        # 두 번째 기록이 첫 번째를 지우지 않는다(작업마다 따로 남아야 화면이 다 보여 준다)
+        A._note_last_run("synthetic", "합성검증", 0)
+        assert set(A.last_runs()) == {"synthetic", "po"}
+    finally:
+        A.LAST_RUN_PATH = keep
+        try:
+            os.unlink(os.path.join(tempfile.gettempdir(), "_t163_last_run.json"))
+        except OSError:
+            pass
+
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert 'id="lastRuns"' in html and "function renderLastRuns" in html, \
+        "화면에 마지막 실행 줄이 없다"
+    assert "renderLastRuns(d.last)" in html, "받아 놓고 안 그린다"
+    assert "if(v==='run'){ pollLog(); }" in html, \
+        "실행 화면을 열 때 갱신하지 않는다 — 열어 둔 채 시간이 지나면 '3시간 전'이 거짓이 된다"
+    assert "String(v.끝난시각).replace('T',' ').slice(0,16)" in html, \
+        "절대시각(날짜+시간)을 안 적는다 — 지시가 '날짜 시간'이었다"
+    assert "bad" in html.split("function renderLastRuns")[1][:1400], \
+        "실패한 실행이 성공과 같은 모양으로 보인다"
+    print("  [163] 마지막 실행 시각 — 재시작에도 남음 · 자동 회차 포함 · 실패 구별 · "
+          "절대시각+상대시각 ✅")
 
 
 def t149_tech_center():
@@ -10103,6 +10285,8 @@ if __name__ == "__main__":
     t160_master_book_cache()
     t154_amount_basis()
     t155_cancel_and_handover()
+    t162_band_comments_collected()
+    t163_last_run_shown()
     t156_refresh_fast()
     t157_tech_install()
     t144_topmost_pin_always_restores()

@@ -1231,6 +1231,9 @@ def warm_caches():
                          ("settlements", lambda: refresh_now("settle", _build_settlements)),
                          ("issues", lambda: refresh_now("issues", _build_issues)),
                          ("erpdocs", lambda: refresh_now("erpdocs", _build_erpdocs)),
+                         # 대표보고는 최근 24시간 사용 기록에서 **느린 화면 1등**이었다
+                         # (648회·평균 110초). 데우는 목록에 없던 것이 이유의 절반이다.
+                         ("exec", lambda: get_exec_report(None, _force=True)),
                          ("ryu", get_ryu_records)):
             try:
                 fn()
@@ -1801,8 +1804,58 @@ def start_task(key):
                 except Exception as exc:
                     runner["log"].append(f"[AI 연계] 후속 검토 실행 실패: {str(exc)[:160]}")
             runner["busy"], runner["done_at"] = False, datetime.now().isoformat()
+            _note_last_run(key, title, local_returncode)
     threading.Thread(target=work, daemon=True).start()
     return True, "started"
+
+
+# ── 마지막 실행 시각 (2026-08-08 지시: "이 화면 상단에 최근 마지막 실행 날짜 시간") ──
+#   ★ 메모리에 두면 안 된다. 이 서버는 코드를 고칠 때마다 다시 뜬다(하루에도 여러 번).
+#     그때마다 화면이 "실행 기록 없음"으로 돌아가면, 오늘 아침에 돌린 대조까지
+#     안 돈 것처럼 보인다 — 없는 것보다 나쁜 표시다. 그래서 파일에 남긴다.
+LAST_RUN_PATH = os.path.join(ROOT, "reports", "작업_마지막실행.json")
+
+
+def _note_last_run(key, title, returncode):
+    try:
+        d = last_runs()
+        d[key] = {"제목": title, "끝난시각": datetime.now().isoformat(timespec="seconds"),
+                  "코드": int(returncode if returncode is not None else -1)}
+        os.makedirs(os.path.dirname(LAST_RUN_PATH), exist_ok=True)
+        tmp = LAST_RUN_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(d, fh, ensure_ascii=False, indent=1)
+        os.replace(tmp, LAST_RUN_PATH)          # 반쯤 쓰인 파일을 남기지 않는다
+    except Exception:
+        pass                                     # 기록에 실패해도 작업 자체는 끝난 것이다
+
+
+def last_runs(merge_auto=False):
+    """{작업키: {제목, 끝난시각, 코드}} — 없으면 빈 딕셔너리.
+
+    `merge_auto` 면 **앱 밖에서 돈 것**도 합친다. 전체 대조는 09:50 스케줄러가
+    매일 돌리는데, 앱 단추 기록만 보여 주면 오늘 아침에 이미 돈 대조를 두고
+    화면이 "3일 전"이라 말한다 — 사람이 그걸 보고 또 누른다.
+    근거는 daily_run 이 끝나며 남기는 `reports/agent_status.json` 의 `time` 이다.
+    """
+    try:
+        with open(LAST_RUN_PATH, encoding="utf-8") as fh:
+            d = json.load(fh)
+        d = d if isinstance(d, dict) else {}
+    except Exception:
+        d = {}
+    if merge_auto:
+        try:
+            with open(os.path.join(ROOT, "reports", "agent_status.json"),
+                      encoding="utf-8") as fh:
+                st = json.load(fh)
+            t = str(st.get("time") or "")[:19]
+            if t and t > str((d.get("daily") or {}).get("끝난시각") or ""):
+                d["daily"] = {"제목": TASKS["daily"][0], "끝난시각": t,
+                              "코드": 1 if st.get("aborted") else 0, "자동": True}
+        except Exception:
+            pass
+    return d
 
 
 _deferred_tasks = set()
@@ -3367,7 +3420,14 @@ def _augment_exec_daily(report):
     return report
 
 
-def get_exec_report(day=None):
+def get_exec_report(day=None, _force=False):
+    """`_force` 는 **뒤에서 도는 갱신·예열**이 쓴다.
+
+    ★ 이것이 없으면 갱신이 아무 일도 안 한다: 갱신 스레드가 그냥 이 함수를 부르면
+      아래 stale 가지를 타고 **옛 값을 그대로 돌려주고**, 부른 쪽은 그걸 새 값으로
+      저장한다 — 화면은 영원히 낡은 채로 '갱신했다'고 말한다. warm_caches 가
+      2026-08-08 에 같은 함정을 밟았다(`refresh_now` 로 고쳤다).
+    """
     requested = norm_date(day)
     # 사람이 날짜를 고른 것인지, 우리가 어제로 기본값을 채운 것인지 갈라 둔다.
     # ★ 이 구분이 없어서 **보고일까지 어제로 찍혔다**(2026-08-06 지시로 발견).
@@ -3437,6 +3497,21 @@ def get_exec_report(day=None):
             ],
             "details": details,
         }
+    # ★ **캐시를 보는 데 락은 필요 없다** (2026-08-08). `/api/status` 가 2026-08-07 에
+    #   같은 이유로 고쳐졌는데 여기만 그대로 남아 있었다. `_readlock` 은 다른 요청이
+    #   Z: 를 콜드로 읽는 동안 계속 잡혀 있고, 그동안 여기서는 **이미 만들어 둔 값을
+    #   돌려주는 것조차** 막혔다. 실측(최근 24시간 사용 기록): 대표보고가 느린 화면
+    #   648회로 1등 — 평균 110초. 계산이 무거운 게 아니라 줄을 서 있었던 것이다.
+    #   락이 지키는 것은 'Z: 를 동시에 읽지 않는 것'이지 캐시 딕셔너리가 아니다.
+    if not requested and not _force:
+        r = _fresh("exec")
+        if r:
+            return r
+        # 만료됐으면 옛 값을 즉시 주고 재계산은 뒤에서 한 번만 한다(works·status 와 같다).
+        stale = _cache.get("exec_stale")
+        if stale is not None:
+            _spawn_refresh("exec", lambda: get_exec_report(None, _force=True))
+            return stale
     with _readlock:
         r = _fresh("exec") if not requested else None
         if r:
@@ -3490,6 +3565,9 @@ def get_exec_report(day=None):
         _augment_exec_daily(r)
         _append_remote_section(r)
         _append_kakao_warning(r)
+        # 옛 값 자리도 같이 채운다 — 이게 없으면 stale 가지가 영영 안 열려
+        # TTL 이 끝나는 순간마다 누군가 한 명은 콜드 재계산을 통째로 맞는다.
+        _cache["exec_stale"] = r
         return _store_cache("exec", r)
 
 
@@ -5577,7 +5655,8 @@ self.addEventListener('fetch', e => {
             return self._send(200, {"reports": latest_reports()})
         if p == "/api/tasklog":
             return self._send(200, {"busy": runner["busy"], "task": runner["task"],
-                                    "log": list(runner["log"])[-300:]})
+                                    "log": list(runner["log"])[-300:],
+                                    "last": last_runs(merge_auto=True)})
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):

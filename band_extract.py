@@ -148,10 +148,11 @@ def cancel_hit(text):
 def comment_text(post):
     """글에 달린 댓글 본문을 한 덩어리로 — 캐시에 댓글이 없으면 빈 문자열.
 
-    ★ 지금 밴드 캐시는 `comment_count`(숫자)만 담고 본문은 없다. 그래서 이 함수는
-      **댓글이 수집되기 시작하면 그날부터 저절로 동작**하도록 미리 이어 둔 자리다.
-      수집은 'CSOS 리서치 및 자료 수집' 세션 몫이라 여기서 긁지 않는다(CLAUDE.md).
-      숫자만 있고 본문이 없다는 사실 자체는 `cancel_blind_count()` 가 센다 —
+    ★ 캐시 모양은 `comments: [{author, created_at, content}]` 하나다 (2026-08-08부터
+      화면 긁기·API 양쪽이 같은 모양으로 담는다). 담는 쪽이 둘이라 **읽는 쪽은
+      반드시 하나**여야 한다 — 갈리면 한쪽만 고쳐지고 다른 쪽은 조용히 옛것으로 남는다.
+      수집 자체는 'CSOS 리서치 및 자료 수집' 세션 몫이다(CLAUDE.md).
+      적힌 수만큼 못 읽은 글은 `cancel_blind_count()` 가 센다 —
       "댓글은 있는데 못 읽는다"를 조용히 넘기지 않기 위해서다.
     """
     if not isinstance(post, dict):
@@ -166,7 +167,13 @@ def comment_text(post):
 
 
 def cancel_blind_count(posts):
-    """댓글이 달렸는데 본문을 못 읽는 글 수 — 취소를 놓칠 수 있는 사각지대의 크기."""
+    """댓글이 달렸는데 **다 못 읽은** 글 수 — 취소를 놓칠 수 있는 사각지대의 크기.
+
+    ★ '하나도 못 읽음'이 아니라 '적힌 수만큼 못 읽음'으로 센다 (2026-08-08).
+      접힌 댓글을 한 개만 펴서 담은 글은 본문이 있으니 예전 기준으로는 안 걸렸는데,
+      정작 취소 통보는 **못 편 그 댓글**일 수 있다. 반쯤 읽은 것을 다 읽은 것으로
+      세면 사각지대가 0으로 보인다 — 제일 나쁜 종류의 안심이다.
+    """
     n = 0
     for p in (posts or {}).values():
         if not isinstance(p, dict):
@@ -175,7 +182,10 @@ def cancel_blind_count(posts):
             cnt = int(str(p.get("comment_count") or 0).strip() or 0)
         except ValueError:
             cnt = 0
-        if cnt > 0 and not comment_text(p):
+        if cnt <= 0:
+            continue
+        got = len([c for c in (p.get("comments") or []) if isinstance(c, dict)])
+        if got < cnt and not p.get("comments_full"):
             n += 1
     return n
 

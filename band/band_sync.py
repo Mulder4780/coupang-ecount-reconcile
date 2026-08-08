@@ -44,6 +44,41 @@ def get(path, params):
         raise RuntimeError(f"BAND API 오류 {d.get('result_code')}: {json.dumps(d, ensure_ascii=False)[:200]}")
     return d["result_data"]
 
+def api_comments(item):
+    """목록 API 가 실어 주는 최근 댓글을 캐시 모양으로 옮긴다 (2026-08-08).
+
+    캐시 모양은 화면 긁기(convert_dump)와 **한 글자도 다르면 안 된다** —
+    읽는 쪽(band_extract.comment_text → cancel_watch)이 한 곳이기 때문이다.
+    시각 없는 댓글은 여기서도 버린다: 순서를 못 세우면 취소 판정의 근거가 없다.
+    """
+    out = []
+    for c in (item.get("latest_comments") or item.get("comments") or []):
+        if not isinstance(c, dict):
+            continue
+        body = str(c.get("content") or c.get("body") or "").strip()
+        ms = c.get("created_at")
+        if not body or not ms:
+            continue
+        out.append({"author": str((c.get("author") or {}).get("name") or "").strip(),
+                    "created_at": int(ms), "content": body[:2000]})
+    return out
+
+
+def merge_comments(old, new):
+    """댓글은 쌓이는 것이라 **합친다**(같은 사람·같은 시각·같은 말은 한 번만)."""
+    seen, out = set(), []
+    for c in list(old or []) + list(new or []):
+        if not isinstance(c, dict) or not c.get("created_at") or not c.get("content"):
+            continue
+        key = (c.get("author") or "", int(c["created_at"]), c["content"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"author": key[0], "created_at": key[1], "content": key[2]})
+    out.sort(key=lambda c: c["created_at"])
+    return out
+
+
 def main():
     bands = get("/v2.1/bands", {"access_token": TOKEN}).get("bands", [])
     print(f"가입 밴드 {len(bands)}개:")
@@ -76,6 +111,15 @@ def main():
                     continue
                 if pk in known:
                     hit_known = True
+                    # ★ 아는 글이라고 그냥 넘기면 **댓글이 영영 안 들어온다** (2026-08-08).
+                    #   댓글은 글보다 나중에 달린다 — 접수 취소 통보가 바로 그 모양이다.
+                    #   그래서 글 자체는 그대로 두고 댓글만 합친다(있을 때만).
+                    cm = api_comments(it)
+                    if cm:
+                        old = cache["posts"].get(pk) or {}
+                        old["comments"] = merge_comments(old.get("comments"), cm)
+                        old["comment_count"] = it.get("comment_count", old.get("comment_count", 0))
+                        cache["posts"][pk] = old
                     continue
                 cache["posts"][pk] = {
                     "created_at": it.get("created_at"),
@@ -86,6 +130,10 @@ def main():
                     "content": (it.get("content") or "")[:20000],
                     "photo_count": len(it.get("photos") or []),
                     "comment_count": it.get("comment_count", 0),
+                    # ★ 댓글 본문 (2026-08-08). 취소 통보는 대부분 댓글로 온다.
+                    "comments": api_comments(it),
+                    # 목록 API 는 최근 댓글만 준다 — 적힌 수만큼 왔을 때만 '다 읽었다'.
+                    "comments_full": len(api_comments(it)) >= int(it.get("comment_count", 0) or 0),
                 }
                 new_cnt += 1
             nxt = (data.get("paging") or {}).get("next_params")

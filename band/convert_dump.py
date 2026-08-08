@@ -35,6 +35,39 @@ def parse_dt(text, captured_ms):
     return None
 
 
+def conv_comments(raw, captured_ms):
+    """덤프의 댓글을 캐시 모양 `{author, created_at, content}` 로 옮긴다 (2026-08-08).
+
+    ★ **시각이 안 잡히면 버린다.** 글 본문과 같은 규칙이다 — 밴드는 아직 안 그려진
+      자리에도 껍데기를 주므로 시각 없는 수확은 직전 화면이 묻어 온 것일 수 있다.
+      취소 판정은 '댓글이 글보다 나중'이라는 순서를 근거로 삼는데, 시각이 없으면
+      그 순서 자체를 세울 수 없다.
+    ★ 같은 사람이 같은 말을 같은 시각에 두 번 남길 수는 없다 — 회차가 겹쳐 들어와도
+      중복은 여기서 접는다(캐시 합치기가 댓글을 더하기만 하면 계속 불어난다).
+    """
+    out, seen = [], set()
+    for c in (raw or []):
+        if not isinstance(c, dict):
+            continue
+        body = str(c.get("content") or c.get("body") or "").strip()
+        if not body:
+            continue
+        ms = c.get("created_at")
+        if not ms:
+            dt = parse_dt(c.get("timeText"), captured_ms)
+            ms = int(dt.timestamp() * 1000) if dt else None
+        if not ms:
+            continue
+        author = str(c.get("author") or "").strip()
+        key = (author, int(ms), body)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"author": author, "created_at": int(ms), "content": body[:2000]})
+    out.sort(key=lambda c: c["created_at"])
+    return out
+
+
 def known_bands():
     """캐시에 이미 있는 밴드번호 — 파일명이 애매할 때의 가장 좋은 근거다."""
     try:
@@ -307,6 +340,12 @@ def main():
                     "content": (p.get("content") or "")[:20000],
                          "photo_count": p.get("photo_count", 0),
                          "comment_count": p.get("comment_count", 0),
+                         # ★ 댓글 본문 (2026-08-08). 취소 통보는 대부분 댓글로 온다.
+                         #   시각 없는 댓글은 버린다 — 본문과 같은 규칙이다.
+                         "comments": conv_comments(p.get("comments"), cap),
+                         # 적힌 개수만큼 못 읽었으면 그 사실을 남긴다. 이것이 없으면
+                         # '댓글 없음'과 '못 읽음'이 캐시에서 똑같아 보인다(조용한 사고).
+                         "comments_full": bool(p.get("comments_full")),
                          # ★ 사진 URL 보존(2026-08-05). 예전에는 여기서 images 를 버려
                          #   캐시에 URL 이 남지 않았고, 게시글 보관이 사진을 **0장** 받았다
                          #   (본문·사진수는 있는데 주소가 없어 내려받을 수가 없었다).
@@ -342,6 +381,14 @@ def main():
             if not cur:
                 merged[no] = rec
                 continue
+            # ★ 댓글은 **합친다** — 어느 분기가 이기든 잃지 않는다 (2026-08-08).
+            #   덤프는 매 실행 전부 재처리되므로, 댓글을 못 담던 시절의 옛 덤프가
+            #   나중에 이기면 애써 모은 댓글이 통째로 사라진다. 본문과 달리 댓글은
+            #   '고쳐지는' 것이 아니라 **쌓이는** 것이라 합치는 쪽이 언제나 옳다.
+            #   (conv_comments 가 같은 사람·같은 시각·같은 말을 접는다)
+            rec["comments"] = conv_comments(
+                (cur.get("comments") or []) + (rec.get("comments") or []), cap_ms)
+            rec["comments_full"] = bool(rec.get("comments_full") or cur.get("comments_full"))
             new_txt, old_txt = rec["content"] or "", cur.get("content") or ""
             # '…더보기'로 잘린 피드 수집분이 상세 전문을 덮어쓰지 않게 한다.
             truncated = len(new_txt) < len(old_txt) * 0.9 and old_txt.startswith(new_txt[:200])
