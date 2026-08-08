@@ -8581,8 +8581,8 @@ def t152_band_recollect_window():
 
 
 
-def t154_wrapup_drops_huge_files():
-    """[154] 자동 마무리가 **거대 파일을 커밋에 담지 않는다** (2026-08-08 실사고).
+def t157_wrapup_drops_huge_files():
+    """[157] 자동 마무리가 **거대 파일을 커밋에 담지 않는다** (2026-08-08 실사고).
 
     `db/source_index_cache.json` 이 106MB 로 자라 자동 커밋에 실려 갔고, GitHub 은
     100MB 넘는 blob 을 pre-receive 에서 거절한다. 그때 죽는 것은 그 커밋 하나가
@@ -8621,7 +8621,7 @@ def t154_wrapup_drops_huge_files():
             W.ROOT = old
     assert dropped == ["big.json"], "거대 파일을 빼지 못했다: %r" % (dropped,)
     assert staged == ["small.txt"], "멀쩡한 파일까지 같이 뺐다: %r" % (staged,)
-    print("  [154] 자동 마무리 — 90MB 넘는 파일은 커밋 전에 뺀다(푸시 전체가 막힌다) ✅")
+    print("  [157] 자동 마무리 — 90MB 넘는 파일은 커밋 전에 뺀다(푸시 전체가 막힌다) ✅")
 
 
 def t153_erp_excel_to_records():
@@ -9970,7 +9970,7 @@ if __name__ == "__main__":
     t151_collect_all_idempotent_and_no_login_scrape()
     t152_band_recollect_window()
     t153_erp_excel_to_records()
-    t154_wrapup_drops_huge_files()
+    t157_wrapup_drops_huge_files()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()
