@@ -264,7 +264,18 @@ def scan(rescan=False):
                 out.append(hit)
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)
     cache[RULES_KEY] = rules_version()      # 어떤 규칙으로 판별한 캐시인지 같이 적는다
-    json.dump(cache, open(CACHE, "w", encoding="utf-8"), ensure_ascii=False)
+    # ★ 통째 덮어쓰기(`open(CACHE,"w")`)는 **여는 순간 원본을 0바이트로 만든다.**
+    #   이 파일은 수 MB 고 채우는 데 시간이 걸리는데, 그 사이에 세션이 끊기거나
+    #   **다른 세션이 같은 색인을 돌면** 두 글이 섞여 읽을 수 없는 파일이 남는다.
+    #   실측 2026-08-08: 색인 한 번이 Z: 에서 6시간 넘게 걸렸고 그동안 09:50 회차가
+    #   같은 폴더를 훑고 있었다 — 겹칠 창이 여섯 시간이나 열려 있었다는 뜻이다.
+    #   `load_cache` 가 깨진 파일을 {} 로 삼켜 주긴 하지만, 그 대가가 **또 6시간**이다.
+    try:
+        from ledger_writer import atomic_json_dump
+        atomic_json_dump(cache, CACHE)      # (값, 경로) 순서다 — 뒤집으면 조용히 실패한다
+    except Exception:
+        # 헬퍼를 못 불러도 색인은 끝내야 한다 — 예전 방식으로라도 남긴다.
+        json.dump(cache, open(CACHE, "w", encoding="utf-8"), ensure_ascii=False)
     return out
 
 

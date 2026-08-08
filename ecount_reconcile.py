@@ -429,7 +429,16 @@ def supply_from_statement(total):
     return supply
 
 
-_ERP_PROGRESS = {"sig": None, "map": {}, "statuses": {}}
+_ERP_PROGRESS = {"sig": None, "map": {}, "statuses": {}, "checked": 0.0}
+
+# ★ 원본이 바뀌었는지 **다시 확인하기까지** 기다리는 시간 (2026-08-08 실사고).
+#   판매조회 파일을 찾는 일은 Z:(SMB) 를 **재귀로 훑는** glob 이다. 그런데 그 glob 이
+#   캐시 검사보다 **앞에** 있어서, `settle_status` 를 750행 돌리면 Z: 를 750번 훑었다.
+#   증상은 "왜 이렇게 느리지" 가 아니라 **아무 답도 안 오는 것**이었다 — 같은 집계가
+#   600초 제한에 두 번 걸려 죽었고, 세 번째는 45분을 넘겨도 안 끝났다. 느린 것과
+#   멈춘 것은 구별이 안 된다.
+#   30초면 한 번의 집계 안에서는 한 번만 훑고, 회차와 회차 사이에는 새 파일을 본다.
+_ERP_SIG_TTL = 30.0
 # ERP 판매조회의 진행상태 중 '계산서가 이미 나갔다'는 뜻인 값들
 _ERP_ISSUED = ("6.세금계산서발행", "7.수금완료")
 
@@ -470,6 +479,14 @@ def erp_progress():
     # 재귀 탐색해 10분 넘게 멈췄다. 합성 모드에서는 원본 진행상태가 없는 조건만 시험한다.
     if os.environ.get("CSOS_SYNTHETIC") == "1":
         return {}
+    # ★ 원본을 찾는 glob 자체가 비싸다 — 그러니 **캐시 검사보다 앞에 두면 안 된다.**
+    #   방금 확인했고 그때 읽은 것이 있으면 그대로 쓴다(자세한 이유는 _ERP_SIG_TTL).
+    #   ★ '못 찾음'도 기억한다 — 판매조회가 아예 없을 때 750번 헛되이 훑는 것이
+    #     제일 느리다(찾을 것이 없으면 glob 은 폴더를 **끝까지** 다 본다).
+    import time as _t
+    if _t.monotonic() - _ERP_PROGRESS["checked"] < _ERP_SIG_TTL:
+        return _ERP_PROGRESS["map"]
+    _ERP_PROGRESS["checked"] = _t.monotonic()
     try:
         import glob as _g
         from source_dirs import ERP_DIR

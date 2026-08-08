@@ -554,6 +554,27 @@ def band_recollect():
 
 
 DAILY_STALE_H = 20          # 하루 한 번 도는 것이니 20시간이면 한 회차를 통째로 건넜다
+DAILY_SLOW_H = 3            # 정상 회차는 길어도 ~25분이다. 3시간이면 무언가에 막힌 것이다
+
+
+def _daily_run_inflight():
+    """지금 돌고 있는 daily_run 회차의 나이(시간). 없으면 None.
+
+    ★ 잠금 파일이 있다고 돌고 있는 것이 아니다 — 죽은 회차의 잠금이 남아 있을 수 있다.
+      판정은 `pid_alive` 한 곳에서 한다(검증 [121]). 모르면 '살아 있다'로 본다.
+    """
+    try:
+        from pid_alive import alive
+    except Exception:
+        return None
+    try:
+        d = json.load(open(os.path.join(REPORT_DIR, ".daily_run.lock"), encoding="utf-8"))
+        if not alive(d.get("pid")):
+            return None
+        started = datetime.fromisoformat(str(d.get("started_at")))
+        return round((datetime.now(started.tzinfo) - started).total_seconds() / 3600.0, 1)
+    except Exception:
+        return None
 
 
 def daily_run_health():
@@ -565,11 +586,18 @@ def daily_run_health():
     (앞 회차가 3시간씩 걸리니 다음 회차는 늘 잠겨 있다. 서로를 가려 준다.)
     완주 표식은 `finish()` 가 쓰는 agent_status.json 하나뿐이므로 그 나이를 본다.
     """
+    # ★ '완주한 지 오래됨' 과 '지금 돌고 있음' 은 **다른 사실**이다 (2026-08-08 실측).
+    #   그날 09:50 회차가 **12시간째** 돌고 있었는데, 이 함수는 완주 시각만 보니
+    #   "20시간째 완주하지 않았다"고만 말할 수 있었다 — 안 돈 것과 구별이 안 된다.
+    #   조치가 정반대다: 안 돌았으면 **띄워야** 하고, 돌고 있으면 **기다려야** 한다.
+    #   그래서 잠금 파일에서 앞 회차의 나이를 같이 읽는다(살아 있는 pid 일 때만).
+    running = _daily_run_inflight()
     p = os.path.join(REPORT_DIR, "agent_status.json")
     try:
         age_h = (datetime.now().timestamp() - os.path.getmtime(p)) / 3600.0
     except OSError:
-        return {"완주없음": True, "경과시간": None, "중단": False, "실패단계": [], "밀림": True}
+        return {"완주없음": True, "경과시간": None, "중단": False, "실패단계": [],
+                "진행중": running, "밀림": True}
     # ★ 나이만 보면 놓친다 — 마지막 회차가 **중단(aborted)** 으로 끝났을 수 있다.
     #   실측 2026-08-06 21:01 회차가 그랬다: aborted=True 인데 파일은 최신이라 조용했다.
     aborted, failed = False, []
@@ -580,7 +608,7 @@ def daily_run_health():
     except (OSError, ValueError, TypeError, AttributeError):
         pass
     return {"완주없음": False, "경과시간": round(age_h, 1), "중단": aborted,
-            "실패단계": [f for f in failed if f],
+            "실패단계": [f for f in failed if f], "진행중": running,
             "밀림": age_h >= DAILY_STALE_H or aborted}
 
 
@@ -601,15 +629,27 @@ def blockers(st, for_sol=False):
     # ★ 스케줄러가 '성공'이라 말해도 완주하지 않았을 수 있다 — 잠금을 못 잡은 회차가
     #   조용히 exit 0 으로 끝나기 때문이다. 그 사이 자료현황·대조 리포트가 통째로 멈춘다.
     dr = st.get("일일대조") or {}
+    run_h = dr.get("진행중")
     if dr.get("밀림"):
         hrs = dr.get("경과시간")
         why = ("마지막 회차가 **중단**으로 끝났다" if dr.get("중단")
                else "%s 완주하지 않았다" % ("한 번도" if hrs is None else "%.0f시간째" % hrs))
         bad = dr.get("실패단계") or []
+        # ★ 지금 돌고 있으면 **띄우라고 하면 안 된다** — 잠금에 막혀 조용히 건너뛴다.
+        #   기다리라고 말해야 한다. 조치가 정반대라 이 한 줄이 갈림길이다.
+        act = ("(지금 %.0f시간째 돌고 있다 — 새로 띄우지 말고 끝나기를 기다린다)" % run_h
+               if run_h is not None
+               else "python daily_run.py    # 먼저 tasklist 로 앞 회차가 도는지 확인")
         out.append(("일일자동대조 — %s. 스케줄러는 '성공'으로 보고한다"
                     "(앞 회차가 도는 동안 다음 회차가 조용히 건너뛴다)%s"
-                    % (why, (" · 실패단계: " + ", ".join(bad[:4])) if bad else ""),
-                    "python daily_run.py    # 먼저 tasklist 로 앞 회차가 도는지 확인"))
+                    % (why, (" · 실패단계: " + ", ".join(bad[:4])) if bad else ""), act))
+    elif run_h is not None and run_h >= DAILY_SLOW_H:
+        # 완주 기록은 아직 싱싱한데 **지금 회차가 비정상적으로 길다.** 이대로 두면
+        # 20시간을 넘겨서야 위 경보가 뜬다 — 그때는 이미 하루를 잃은 뒤다.
+        out.append(("일일자동대조가 **%.0f시간째** 돌고 있다 (보통 25분) — Z: 를 훑는 다른"
+                    " 작업과 겹쳤을 수 있다. 이 회차가 끝날 때까지 다음 회차는 조용히 건너뛴다"
+                    % run_h,
+                    "python session_handoff.py --check   # 끝나면 저절로 사라진다"))
     # ★ 앱 서버가 옛 코드로 돌면 **고쳐도 화면이 안 바뀐다.** 서버는 200 을 주고
     #   화면은 숫자를 보여 주므로 아무도 옛 서버인 줄 모른다(2026-08-08 반나절).
     ap = st.get("앱서버") or {}

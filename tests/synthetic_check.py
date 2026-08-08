@@ -9169,6 +9169,43 @@ def t166_billing_status_ladder():
     print("  [166] 청구상태 — 마지막 낱말은 '입금완료'·빈칸과 낡은단계를 가르고·모르는 값은 안 건드린다 ✅")
 
 
+def t167_daily_run_inflight():
+    """[167] '안 돌았다' 와 '지금 돌고 있다' 를 가른다 (2026-08-08 실측).
+
+    그날 09:50 회차가 **12시간째** 돌고 있었다(보통 25분). 그런데 건강검사는 완주 시각만
+    보므로 할 수 있는 말이 "20시간째 완주하지 않았다" 뿐이었고, 그 옆에 붙은 조치는
+    `python daily_run.py` 였다. **정반대의 조치다** — 앞 회차가 잠금을 쥐고 있으니 새로
+    띄운 회차는 한 줄 찍고 조용히 끝난다. 사람은 "돌렸다"고 믿고 넘어간다.
+
+    ★ 그리고 20시간을 기다릴 필요도 없다. 회차가 3시간을 넘기면 그 자체가 사건이므로
+      완주 기록이 아직 싱싱해도 먼저 말한다 — 20시간째에 아는 것은 하루를 잃은 뒤다.
+    """
+    import session_handoff as H
+
+    # blockers 는 여러 갈래를 한 번에 본다 — 조용한 상태를 만들어 두고 이 갈래만 읽는다.
+    CALM = {"큐잔량": 0, "임시파일": [], "옛버전편집": [], "점유": [],
+            "미푸시": [], "지시문사본": []}
+
+    def acts(dr):
+        st = dict(CALM, 일일대조=dr)
+        return [a for msg, a in H.blockers(st) if "일일자동대조" in msg]
+
+    a = acts({"밀림": True, "경과시간": 20.2, "진행중": 12.0})
+    assert a and "기다린다" in a[0] and "daily_run.py" not in a[0], \
+        "돌고 있는데 새로 띄우라고 한다 — 잠금에 막혀 조용히 건너뛴다: %r" % (a,)
+
+    a = acts({"밀림": True, "경과시간": 22.0, "진행중": None})
+    assert a and "daily_run.py" in a[0], \
+        "정말 안 돌고 있을 때는 띄우라고 해야 한다: %r" % (a,)
+
+    a = acts({"밀림": False, "경과시간": 2.0, "진행중": 4.0})
+    assert a, "완주 기록이 싱싱해도 4시간째 도는 회차는 말해야 한다(보통 25분)"
+
+    a = acts({"밀림": False, "경과시간": 2.0, "진행중": 0.5})
+    assert not a, "정상 속도로 도는 회차까지 경보로 올리면 경보가 소음이 된다: %r" % (a,)
+    print("  [167] 일일대조 — '안 돌았다'와 '12시간째 돌고 있다'를 가르고 조치를 뒤집지 않는다 ✅")
+
+
 def t161_erp_filename_fingerprint():
     """[161] ERP 내보내기는 **파일명 화면코드**로 가른다 (2026-08-08 실측).
 
@@ -10433,6 +10470,7 @@ if __name__ == "__main__":
     t164_deposit_dedupe()
     t165_ledger_reads_billing_status()
     t166_billing_status_ladder()
+    t167_daily_run_inflight()
     t161_erp_filename_fingerprint()
     t160_master_book_cache()
     t154_amount_basis()
