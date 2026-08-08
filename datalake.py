@@ -295,16 +295,50 @@ def _s(v):
     return "" if v is None else str(v)
 
 
-def ingest_band(con, quiet=False):
+def band_day(v):
+    """밴드 캐시의 `created_at` → `YYYY-MM-DD`. 못 읽으면 빈 문자열.
+
+    ★ 캐시가 담는 값은 **밀리초 정수**다(convert_dump). 예전에는 이것을 문자열로
+      바꿔 앞 열 자를 잘랐다 — `1766704935000` → `"1766704935"`. 날짜처럼 생기지도
+      않은 값이 `biz_date` 에 7,782건 들어앉아 있었다(2026-08-08 발견).
+      숫자라서 조용했다: 정렬도 되고 비교도 되니 아무 도구도 불평하지 않았고,
+      "최근 30일"·"이번 달" 같은 **어떤 기간 질문에도 한 건도 안 걸렸다.**
+      비어 있으면 눈에 띄지만 틀린 값은 안 띈다 — 그래서 여기 한 곳으로 모은다.
+    """
+    if v is None or v == "":
+        return ""
+    if isinstance(v, (int, float)) or str(v).isdigit():
+        n = int(v)
+        if n > 10 ** 12:                    # 밀리초
+            n //= 1000
+        if n <= 0:
+            return ""
+        try:
+            return datetime.fromtimestamp(n).strftime("%Y-%m-%d")
+        except (OverflowError, OSError, ValueError):
+            return ""
+    s = str(v).strip()
+    return s[:10] if len(s) >= 10 and s[4] == "-" and s[7] == "-" else ""
+
+
+def ingest_band(con, quiet=False, since=None, why="밴드 캐시 흡수"):
     """밴드 캐시(band/cache/*.json)의 글을 record 로 옮긴다.
 
     ★ **여기서 밴드를 긁지 않는다.** 수집은 'CSOS 리서치 및 자료 수집' 세션이 맡는다
       (CLAUDE.md). 이 함수는 이미 모여 있는 캐시 파일을 **읽기만** 한다.
     ★ 시각이 없는 글은 버린다 — 2026-08-07 실사고에서 밴드가 없는 글 번호에도 앱
       껍데기를 줘서 직전 글 본문이 마흔 건 복제됐다. 그 지문이 '시각 없음'이었다.
+
+    `since`(YYYY-MM-DD) 를 주면 **그 날짜 이후 글만** 본다. 재수집 회차
+    (`band/recollect.py`)가 최근 30일 창을 흡수할 때 쓴다 — 전량을 매번 다시
+    비교하면 회차가 길어지고, 무엇이 이번 창에서 바뀌었는지도 흐려진다.
+
+    돌려주는 값에 **무엇이** 바뀌었는지(`바뀐글`·`새글`)를 담는다. 개수만으로는
+    인계 문서에 "3건 바뀜"밖에 못 적고, 사람은 결국 DB 를 다시 뒤져야 한다.
     """
     import glob as _g
-    made = same = changed = skipped = 0
+    made = same = changed = skipped = junk = 0
+    hit_new, hit_chg = [], []
     for fp in sorted(_g.glob(_shared("band", "cache", "*.json"))):
         base = os.path.basename(fp)
         if base.startswith("raw"):          # 원본 덤프는 convert_dump 가 다룬다
@@ -316,9 +350,23 @@ def ingest_band(con, quiet=False):
         band_id = os.path.splitext(base)[0]
         bname = str(d.get("band_name") or "")
         for no, post in sorted((d.get("posts") or {}).items()):
-            created = str((post or {}).get("created_at") or "").strip()
-            if not created:
+            if not str(no).isdigit() or not isinstance(post, dict):
+                continue
+            # ★ **삭제·오염·유령은 업무 기록이 아니다** (2026-08-08 발견).
+            #   수집기·재수집·recheck_plan 은 셋 다 이것들을 걸렀는데 흡수기만 안 걸렀다.
+            #   그래서 `contaminated`(남의 본문이 잡힌 기록)와 `absent`(처음부터 없던
+            #   번호)가 record 표에 **진짜 업무 한 건**으로 앉았다. 캐시는 표시를
+            #   달아 두는데 DB 는 그 표시를 안 읽으니, 표시해 둔 보람이 없었다.
+            #   거르는 근거는 recheck_plan·recollect 와 **같은 네 가지**여야 한다 —
+            #   한 곳만 다르면 화면마다 건수가 달라진다.
+            if post.get("deleted") or post.get("contaminated") or post.get("absent"):
+                junk += 1
+                continue
+            day = band_day(post.get("created_at"))
+            if not day:
                 skipped += 1                # 시각 없는 수확은 믿지 않는다
+                continue
+            if since and day < str(since):
                 continue
             key = f"{band_id}/{no}"
             _rid, how = put_record(
@@ -328,22 +376,91 @@ def ingest_band(con, quiet=False):
                  "본문": (post.get("content") or "")[:4000],
                  "사진수": post.get("photo_count"), "댓글수": post.get("comment_count"),
                  "수집시각": post.get("captured_at") or ""},
-                biz_date=created[:10], party=(post.get("author") or ""),
-                status="", why="밴드 캐시 흡수")
+                biz_date=day, party=(post.get("author") or ""),
+                status="", why=why)
+            row = {"밴드": bname or band_id, "밴드ID": band_id, "글번호": no,
+                   "작성일": day, "글쓴이": (post.get("author") or ""),
+                   "요약": " ".join((post.get("content") or "").split())[:60]}
             if how == "new":
                 made += 1
+                hit_new.append(row)
             elif how == "changed":
                 changed += 1
+                hit_chg.append(row)
             else:
                 same += 1
     con.commit()
     log(con, "band", "ingest_records", ok=True,
-        detail={"신규": made, "변경": changed, "그대로": same, "시각없음버림": skipped})
+        detail={"신규": made, "변경": changed, "그대로": same, "시각없음버림": skipped,
+                "삭제·오염·유령제외": junk, "창": since or "전체"})
     con.commit()
     if not quiet:
         print(f"  밴드 글 → 기록: 신규 {made} · 변경 {changed} · 그대로 {same}"
-              f" · 시각 없어 버림 {skipped}")
-    return {"신규": made, "변경": changed, "그대로": same, "버림": skipped}
+              f" · 시각 없어 버림 {skipped} · 삭제/오염/유령 제외 {junk}")
+    return {"신규": made, "변경": changed, "그대로": same, "버림": skipped, "제외": junk,
+            "새글": hit_new, "바뀐글": hit_chg}
+
+
+def repair_band_dates(con, quiet=False):
+    """`band_post` 의 망가진 `biz_date`(에포크 초 문자열)를 날짜로 되돌린다.
+
+    ★ 이것은 **원본이 바뀐 것이 아니라 우리가 잘못 적은 것**이다. 그래서 record_rev
+      에 7,782줄을 남기지 않는다 — 남기면 진짜 변경(밴드 글 수정)이 그 더미에 묻혀
+      영영 안 보인다. 대신 event 에 한 줄, 몇 건을 고쳤는지 사실만 적는다.
+      되돌릴 근거는 캐시(원본)라서 언제든 다시 만들 수 있다.
+    `--repair-band-date` 로 부른다. 이미 고쳐졌으면 0건이라 다시 돌려도 안전하다.
+    """
+    rows = con.execute("SELECT id,natural_key,biz_date FROM record WHERE kind='band_post'"
+                       " AND (biz_date IS NULL OR biz_date NOT LIKE '____-__-__')").fetchall()
+    fixed = dead = 0
+    for r in rows:
+        day = band_day(r["biz_date"])
+        if day:
+            con.execute("UPDATE record SET biz_date=? WHERE id=?", (day, r["id"]))
+            fixed += 1
+        else:
+            dead += 1
+    con.commit()
+    log(con, "band", "repair_biz_date", ok=True,
+        detail={"고침": fixed, "못고침": dead, "본것": len(rows)})
+    con.commit()
+    if not quiet:
+        print(f"밴드 글 날짜 교정: {fixed}건 고침"
+              + (f" · {dead}건은 값이 없어 못 고침(재수집 대상)" if dead else "")
+              + ("" if rows else " — 고칠 것 없음"))
+    return {"고침": fixed, "못고침": dead}
+
+
+def record_changes(con, kind=None, at_since=None, limit=200):
+    """record_rev 를 사람이 읽는 줄로. **언제·무엇이·어떻게** 바뀌었나.
+
+    `at_since` 는 **바뀐 시각**(수집 시각)이지 업무 날짜가 아니다 — 재수집 회차가
+    "이번 회차에 달라진 것"을 뽑을 때 쓰므로 기준이 회차 시각이어야 한다.
+    본문 변경은 해시끼리 비교라 사람에게 뜻이 없다 → '본문 바뀜'으로 적는다.
+    """
+    q = ("SELECT v.at,v.who,v.field,v.old,v.new,v.why,r.kind,r.natural_key,r.biz_date,r.party"
+         " FROM record_rev v JOIN record r ON r.id=v.record_id")
+    w, args = [], []
+    if kind:
+        w.append("r.kind=?")
+        args.append(kind)
+    if at_since:
+        w.append("v.at>=?")
+        args.append(str(at_since))
+    if w:
+        q += " WHERE " + " AND ".join(w)
+    q += " ORDER BY v.at DESC, v.id DESC LIMIT ?"
+    args.append(int(limit))
+    out = []
+    for r in con.execute(q, args).fetchall():
+        d = dict(r)
+        if d["field"] == "payload":
+            d["어떻게"] = "본문 바뀜"
+        else:
+            d["어떻게"] = "%s: %s → %s" % (d["field"], d["old"] or "(빈칸)",
+                                           d["new"] or "(빈칸)")
+        out.append(d)
+    return out
 
 
 # ── 이음(link) + 흐름 그림 (worksplit #22) ───────────────────────────────────
@@ -775,6 +892,8 @@ def main(argv=None):
     #   (수집은 'CSOS 리서치 및 자료 수집' 세션이 맡는다 — CLAUDE.md).
     ap.add_argument("--band", action="store_true",
                     help="밴드 캐시(band/cache)의 글을 record 로 흡수(수집 아님)")
+    ap.add_argument("--repair-band-date", action="store_true",
+                    help="밴드 글의 망가진 biz_date(에포크 초)를 날짜로 교정")
     ap.add_argument("--flow", nargs="*", metavar="키=값",
                     help="이어진 건들을 Mermaid 흐름도로 (kind=… since=…)")
     a = ap.parse_args(argv)
@@ -823,6 +942,8 @@ def main(argv=None):
                       f"  {(r['detail'] or '')[:90]}")
             if not rows:
                 print("  (해당하는 로그 없음)")
+        if a.repair_band_date:
+            repair_band_dates(con)
         if a.band:
             ingest_band(con)
         if a.flow is not None:
@@ -830,7 +951,8 @@ def main(argv=None):
             print(flow_mermaid(con, kind=f.get("kind"), since=f.get("since"),
                                limit=int(f.get("limit") or a.limit)))
         if a.status or not (a.scan or a.fill_sha1 or a.reclassify or a.find is not None
-                            or a.log is not None or a.band or a.flow is not None):
+                            or a.log is not None or a.band or a.flow is not None
+                            or a.repair_band_date):
             s = status(con)
             print(f"보관소: {db_path()}")
             print(f"  자산 {s['자산']}건 (사라짐 {s['사라짐']}) · 변경이력 {s['이력']}"

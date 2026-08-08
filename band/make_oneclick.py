@@ -31,8 +31,13 @@ import recheck_plan as RP
 BATCH_MAX = 250
 
 
-def build(band, limit):
+def build(band, limit, nos=None, why=""):
     """남은 것을 **250씩 여러 회차로** 끊어 한 파일에 담는다.
+
+    `nos` 를 주면 recheck_plan 대신 **그 번호들을** 훑는다 — 재수집 회차
+    (`band/recollect.py`)가 최근 30일 창을 넘길 때 쓴다. 붙여넣기 파일을 두 벌
+    만들지 않기 위해 갈래를 여기 하나로 둔다(회차 JS·배치 상한·저장 규칙이
+    갈리면 한쪽만 고쳐지고 다른 쪽은 조용히 옛날 것으로 남는다).
 
     왜 한 파일에 다 넣나 (2026-08-06 지시: "내 손 안 가게")
       250 은 탭이 얼지 않는 한 배치의 상한이지, 사람이 붙여넣어야 하는 횟수가 아니다.
@@ -40,20 +45,23 @@ def build(band, limit):
       메모리는 250건어치로 유지되면서 회차만 계속 이어 갈 수 있다.
       그래서 **붙여넣기는 밴드당 한 번**이면 끝난다(예전엔 250건마다 한 번이었다).
     """
-    posts = RP.load(band)
-    if posts is None:
-        return None, "캐시 없음"
-    sc = RP.scope()
-    floor = int((sc.get("floor") or {}).get(str(band), 0) or 0)
-    ahead = int(sc.get("ahead") or 40)
-    p = RP.plan(str(band), posts, floor, ahead)
-    todo = (p["new"] + sorted(p["gaps"], reverse=True)
-            + sorted(p["stale"], reverse=True))[:limit]
+    if nos is None:
+        posts = RP.load(band)
+        if posts is None:
+            return None, "캐시 없음"
+        sc = RP.scope()
+        floor = int((sc.get("floor") or {}).get(str(band), 0) or 0)
+        ahead = int(sc.get("ahead") or 40)
+        p = RP.plan(str(band), posts, floor, ahead)
+        todo = (p["new"] + sorted(p["gaps"], reverse=True)
+                + sorted(p["stale"], reverse=True))[:limit]
+    else:
+        todo = [int(n) for n in nos][:limit]
     if not todo:
         return None, "훑을 것이 없다"
     rounds = [todo[i:i + BATCH_MAX] for i in range(0, len(todo), BATCH_MAX)]
     body = open(os.path.join(HERE, "grab_posts.js"), encoding="utf-8").read()
-    js = f"""/* ── 밴드 {band} 수집 — 이 파일 전체를 복사해 밴드 탭 콘솔(F12)에 붙여넣으세요 ──
+    js = f"""/* ── 밴드 {band} {why or '수집'} — 이 파일 전체를 복사해 밴드 탭 콘솔(F12)에 붙여넣으세요 ──
  * 붙여넣는 즉시 시작하고 **끝까지 알아서 갑니다**. 붙여넣기는 이 한 번뿐입니다.
  *   {len(todo)}건 · {len(rounds)}회차(회차당 최대 {BATCH_MAX}건) · 대략 {len(todo) * 5 // 60}분.
  * 회차가 끝날 때마다 dump 파일이 **자동으로 다운로드**되고 탭 메모리는 비워집니다

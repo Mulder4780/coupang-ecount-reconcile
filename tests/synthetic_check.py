@@ -8426,6 +8426,153 @@ def t151_collect_all_idempotent_and_no_login_scrape():
     print("  [151] 미수집 몰이 — 모수 정확·사람 몫 분리·이어받기·실패 기록 ✅")
 
 
+def t152_band_recollect_window():
+    """[152] 매일 08:00 재수집 — 최근 30일만·바뀐 것만·인계 맨 위 (2026-08-08 지시).
+
+    사용자 지시: "매일 08:00 회차에 최근 30일(예: 30일) 글만 재수집 대상으로 뽑아 →
+    캐시에 다시 넣고 → put_record가 바뀐 것만 record_rev에 남기고 → 바뀐 게 있으면
+    인계 문서 맨 위에 올린다."
+
+    지키는 것
+      ① 밴드 날짜 읽기 — 캐시는 **밀리초 정수**다. 문자열로 잘라 쓰면
+         `1766704935000` → `"1766704935"` 가 되어 어떤 기간 질문에도 안 걸린다
+         (7,782건이 그 상태였다). 이 한 곳(`band_day`)이 갈래를 다 흡수하는가.
+      ② 창 — 30일 밖 글이 대상에 안 들어가고, 삭제·오염·유령은 어느 창에서도 빠지는가.
+      ③ 바뀐 것만 — 같은 내용을 두 번 흡수하면 record_rev 가 **안 늘어나는가**.
+         늘어나면 매일 아침 배너가 켜져 아무도 안 보게 된다.
+      ④ 인계 맨 위 — 바뀐 것이 있으면 `banner()` 가 주고, `--ack` 전까지 남고,
+         `to_md` 가 그것을 **먼저 처리할 것보다 위에** 놓는가.
+      ⑤ 덤프 파일명의 밴드번호 — 날짜 꼬리표를 밴드로 오인하지 않는가(2026-08-08 사고).
+    """
+    import sqlite3 as _sq
+    sys.path.insert(0, os.path.join(ROOT, "band"))
+    import datalake as D
+    import convert_dump as CD
+    import recollect as RC
+
+    # ⑤ 파일명 → 밴드번호. 두 사고를 **동시에** 막아야 한다(앞 숫자·뒤 날짜).
+    known = {"84789192", "90610953"}
+    assert CD.band_from_name("84789192_260807.json", known) == "84789192", \
+        "날짜 꼬리표(260807)를 밴드번호로 읽었다 — 두 밴드가 유령 하나로 합쳐진다"
+    assert CD.band_from_name("dump_api2_90610953.json", known) == "90610953", \
+        "앞의 버전 숫자가 섞였다"
+    assert CD.band_from_name("dump_260807.json", set()) == "260807", \
+        "후보가 하나뿐이면 그대로 써야 한다"
+
+    # ① 날짜 읽기 — 밀리초·초·ISO·쓰레기
+    assert D.band_day(1766704935000) == D.band_day("1766704935000") != "", "밀리초를 못 읽는다"
+    assert D.band_day(1766704935) == D.band_day(1766704935000), "초·밀리초가 달라진다"
+    assert D.band_day("2026-07-15T10:00:00") == "2026-07-15", "ISO 를 못 읽는다"
+    assert D.band_day(None) == "" and D.band_day(0) == "" and D.band_day("없음") == "", \
+        "못 읽는 값을 날짜인 척 돌려주면 안 된다"
+
+    from datetime import datetime as _dt, timedelta as _td
+    day = _dt.now()
+    ms = lambda back: int((day - _td(days=back)).timestamp() * 1000)
+    posts = {
+        "10": {"created_at": ms(2), "content": "최근 글", "author": "가"},
+        "11": {"created_at": ms(29), "content": "창 가장자리", "author": "가"},
+        "12": {"created_at": ms(45), "content": "창 밖", "author": "가"},
+        "13": {"created_at": ms(1), "content": "지워짐", "deleted": True},
+        "14": {"created_at": ms(1), "content": "남의 본문", "contaminated": True},
+        "15": {"created_at": ms(1), "content": "없던 번호", "absent": True},
+        "16": {"content": "시각 없음"},
+    }
+    # ② 창
+    nos, floor = RC.targets("77", posts, days=30)
+    assert nos == [11, 10], "창 판정이 틀렸다 — 뽑힌 것: %s" % nos
+    assert 12 not in nos and 13 not in nos and 14 not in nos and 15 not in nos and 16 not in nos, \
+        "창 밖·삭제·오염·유령·시각없음 중 하나가 재수집 대상에 들어왔다"
+    assert RC.targets("77", posts, days=60)[0] == [12, 11, 10], "창을 넓혀도 12가 안 들어온다"
+    # 거르는 근거는 recheck_plan 과 같아야 한다 — 갈리면 한쪽은 긁으라 하고 한쪽은 말린다
+    for flag in ("deleted", "contaminated", "absent"):
+        assert flag in open(os.path.join(ROOT, "band", "recollect.py"),
+                            encoding="utf-8").read(), "%s 를 안 거른다" % flag
+
+    with tempfile.TemporaryDirectory() as tmp:
+        dbp = os.path.join(tmp, "t152.db")
+        cache = os.path.join(tmp, "band", "cache")
+        os.makedirs(cache)
+        real_shared = D._shared
+        D._shared = lambda *p: (os.path.join(cache, p[-1])
+                                if p[:2] == ("band", "cache") else real_shared(*p))
+        try:
+            doc = {"band_name": "시험밴드", "posts": posts}
+            json.dump(doc, open(os.path.join(cache, "77.json"), "w", encoding="utf-8"))
+            con = D.connect(dbp)
+            try:
+                g1 = D.ingest_band(con, quiet=True, since=floor)
+                assert g1["신규"] == 2 and g1["버림"] == 1, \
+                    "창 흡수가 틀렸다: %s" % {k: g1[k] for k in ("신규", "변경", "그대로", "버림")}
+                assert all(len(r["작성일"]) == 10 and r["작성일"][4] == "-"
+                           for r in g1["새글"]), "작성일이 날짜 모양이 아니다(밀리초가 샜다)"
+                rev0 = con.execute("SELECT COUNT(*) FROM record_rev").fetchone()[0]
+
+                # ③ 같은 것을 다시 — 아무것도 안 쌓여야 한다
+                g2 = D.ingest_band(con, quiet=True, since=floor)
+                assert g2["그대로"] == 2 and not g2["바뀐글"], "안 바뀐 글을 바뀌었다고 한다"
+                assert con.execute("SELECT COUNT(*) FROM record_rev").fetchone()[0] == rev0, \
+                    "안 바뀐 글이 record_rev 를 늘렸다 — 매일 아침 배너가 켜져 아무도 안 본다"
+
+                # 진짜 수정 — 밴드가 같은 번호의 글을 고쳐 다시 올린 상황
+                posts["10"]["content"] = "최근 글 — 완료 처리"
+                json.dump(doc, open(os.path.join(cache, "77.json"), "w", encoding="utf-8"))
+                g3 = D.ingest_band(con, quiet=True, since=floor)
+                assert g3["변경"] == 1 and g3["바뀐글"][0]["글번호"] == "10", \
+                    "고쳐진 글을 못 잡았다: %s" % g3["바뀐글"]
+                assert con.execute("SELECT COUNT(*) FROM record_rev").fetchone()[0] > rev0, \
+                    "바뀌었는데 record_rev 에 안 남았다 — 어제와 숫자가 다른 이유를 설명 못 한다"
+                chg = D.record_changes(con, kind="band_post", limit=10)
+                assert chg and chg[0]["natural_key"] == "77/10" and chg[0]["어떻게"], \
+                    "변경 이력을 사람이 읽는 줄로 못 뽑는다"
+            finally:
+                con.close()
+        finally:
+            D._shared = real_shared
+
+        # ④ 인계 문서 맨 위 — 배너는 ack 전까지 남고, 먼저 처리할 것보다 위다
+        real_state = RC.STATE
+        RC.STATE = os.path.join(tmp, "재수집.json")
+        try:
+            assert RC.banner() is None, "회차를 돌기도 전에 배너가 뜬다"
+            # 새 글만으로는 배너를 켜지 않는다 — 매일 켜져 있으면 아무도 안 본다
+            RC.save_state({"회차": "x", "창일수": 30, "확인함": False,
+                           "최근변경": {"회차": "x", "바뀐글": [],
+                                        "새글": [{"글번호": "20"}], "변경상세": []}})
+            assert RC.banner() is None, "새 글이 들어온 것만으로 맨 위 칸을 켰다"
+            RC.save_state({"회차": "2026-08-08 08:00:00", "창일수": 30, "확인함": False,
+                           "최근변경": {"회차": "2026-08-08 08:00:00", "새글": [],
+                                        "바뀐글": [{"밴드": "시험밴드", "밴드ID": "77",
+                                                    "글번호": "10", "작성일": "2026-08-06",
+                                                    "요약": "완료 처리"}],
+                                        "변경상세": [{"글": "77/10", "어떻게": "본문 바뀜"}]}})
+            b = RC.banner()
+            assert b and len(b["바뀐글"]) == 1, "바뀐 것이 있는데 배너가 안 뜬다"
+            # 다음 회차가 아무것도 못 찾아도 지워지면 안 된다(아무도 안 본 채로 사라진다)
+            keep = RC.load_state()
+            keep["바뀐글"], keep["새글"] = [], []
+            RC.save_state(keep)
+            assert RC.banner(), "다음 회차가 조용하다고 어제 경보를 지웠다"
+            import session_handoff as SH
+            md = SH.to_md({"시각": "x", "원장": {}, "미커밋": [], "최근커밋": [],
+                           "다음할일": [], "밴드재수집": b, "점유": [], "큐잔량": 0,
+                           "임시파일": [], "옛버전편집": [], "지시문사본": [],
+                           "수집신선도": [], "미푸시": [], "미머지": []})
+            i_top, i_block = md.find("밴드 글이 바뀌었다"), md.find("먼저 처리할 것")
+            assert 0 <= i_top < i_block, "바뀐 소식이 '먼저 처리할 것'보다 아래에 있다"
+            assert "77" in md or "시험밴드" in md, "무슨 글이 바뀌었는지 안 적혀 있다"
+            RC.ack()
+            assert RC.banner() is None, "--ack 를 해도 배너가 안 내려간다"
+        finally:
+            RC.STATE = real_state
+
+    # 08:00 스케줄러가 실제로 이 회차를 부르는가 — 파일에만 있고 안 도는 것을 막는다
+    ps = open(os.path.join(ROOT, "install_recollect_schedule.ps1"), encoding="utf-8").read()
+    assert "recollect.py --run" in ps and '"08:00"' in ps, \
+        "08:00 트리거나 실행 인자가 스케줄러 설치본에 없다"
+    print("  [152] 밴드 재수집 08:00 — 30일 창·바뀐 것만·인계 맨 위·유령밴드 차단 ✅")
+
+
 def t150_datalake_schema_and_incremental():
     """[150] 전 자료 보관소 — 표·append-only·증분·묘비 (2026-08-07 지시).
 
@@ -9363,6 +9510,7 @@ if __name__ == "__main__":
     t146_erp_bulk_grab_registry()
     t150_datalake_schema_and_incremental()
     t151_collect_all_idempotent_and_no_login_scrape()
+    t152_band_recollect_window()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

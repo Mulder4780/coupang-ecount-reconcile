@@ -35,6 +35,41 @@ def parse_dt(text, captured_ms):
     return None
 
 
+def known_bands():
+    """캐시에 이미 있는 밴드번호 — 파일명이 애매할 때의 가장 좋은 근거다."""
+    try:
+        return {f[:-5] for f in os.listdir(CACHE)
+                if f.endswith(".json") and f[:-5].isdigit()}
+    except OSError:
+        return set()
+
+
+def band_from_name(basename, known=None):
+    """파일명에서 밴드번호를 고른다.
+
+    ★ **맨 뒤 숫자를 집으면 안 된다** (2026-08-08 실사고). 수집본 파일명에 날짜
+      꼬리표가 붙는다 — `84789192_260807.json` 의 `260807` 은 2026-08-07 이다.
+      맨 뒤를 집은 탓에 **두 밴드가 `260807` 이라는 없는 밴드 하나로 합쳐졌고**,
+      캐시에 5,453글짜리 유령 밴드가 생겼다. 아무도 이상하다 하지 않았다 —
+      글도 있고 날짜도 있고 개수도 그럴듯했기 때문이다. 재수집 회차가 그 밴드에
+      붙여넣기 파일까지 만들어 놓고 나서야 드러났다(있지도 않은 밴드를 긁으라고).
+    ★ 그렇다고 맨 앞도 아니다. 예전 사고는 반대 방향이었다 —
+      `dump_api2_90610953` 에서 앞의 버전 숫자가 섞이면 다른 밴드가 된다.
+    그래서 자리(앞/뒤)가 아니라 **무엇처럼 생겼는가**로 고른다:
+      ① 이미 캐시에 있는 밴드번호가 후보에 있으면 그것 — 가장 확실한 근거
+      ② 없으면 **가장 긴** 숫자 덩어리 — 밴드번호는 8자리, 날짜 꼬리표는 6자리다
+    """
+    nums = re.findall(r"(\d{6,})", basename)
+    if not nums:
+        return None
+    known = known_bands() if known is None else known
+    for n in nums:
+        if n in known:
+            return n
+    longest = max(len(n) for n in nums)
+    return [n for n in nums if len(n) == longest][-1]
+
+
 def dump_files():
     """로컬 처리함과 0. 원본 자료의 밴드 JSON 정본을 함께 읽는다."""
     paths = list(glob.glob(os.path.join(CACHE, "dump_*.json")))
@@ -250,11 +285,8 @@ def main():
         d = json.load(open(f, encoding="utf-8"))
         if not isinstance(d, dict) or not isinstance(d.get("posts"), (dict, list)):
             continue
-        # 밴드번호는 **파일명 맨 뒤 숫자 덩어리**다. 전체에서 숫자만 뽑으면
-        # dump_api2_90610953 → "290610953" 처럼 앞의 버전 숫자가 섞여 다른 밴드가 된다.
-        nums = re.findall(r"(\d{6,})", os.path.basename(f))
-        band = str(d.get("band") or (nums[-1] if nums else hashlib.sha256(
-            os.path.basename(f).encode("utf-8")).hexdigest()[:10]))
+        band = str(d.get("band") or band_from_name(os.path.basename(f)) or
+                   hashlib.sha256(os.path.basename(f).encode("utf-8")).hexdigest()[:10])
         cap = d.get("capturedAt")
         posts = {}
         source_posts = d.get("posts") or {}

@@ -514,7 +514,22 @@ def collect():
         "밴드오염": band_contaminated(),
         "워크트리": _worktree_state(),
         "일일대조": daily_run_health(),
+        "밴드재수집": band_recollect(),
     }
+
+
+def band_recollect():
+    """08:00 재수집 회차가 **최근 30일에서 무엇이 달라졌나**를 찾았는가.
+
+    사용자 지시(2026-08-08): "바뀐 게 있으면 인계 문서 맨 위에 올린다."
+    판정은 `band/recollect.banner()` 한 곳이 한다 — 여기서 따로 세면 두 곳이 어긋난다.
+    """
+    try:
+        sys.path.insert(0, os.path.join(BASE, "band"))
+        import recollect as RC
+        return RC.banner()
+    except Exception:
+        return None
 
 
 DAILY_STALE_H = 20          # 하루 한 번 도는 것이니 20시간이면 한 회차를 통째로 건넜다
@@ -645,6 +660,32 @@ def to_md(st, for_sol=False):
          "- 기준: %s · 관리대장 **v%s**(%s)" % (st["시각"], st["원장"].get("버전", "?"),
                                                st["원장"].get("수정", "")),
          "- 이 문서는 워치독이 30분마다 갱신한다. **세션이 갑자기 끊겨도 여기까지는 남는다.**", ""]
+    # ★ 맨 위 — 밴드 글이 **고쳐졌다**는 소식 (2026-08-08 지시).
+    #   밀림('못 받은 글이 있다')과 다른 종류의 사고다. 글은 다 받았는데 **받은 뒤에
+    #   내용이 바뀐** 것이라, 개수·날짜 어디를 봐도 티가 안 난다. 그래서 아래 어느
+    #   칸도 아니고 맨 위다. 사람이 `--ack` 로 내리기 전까지 남는다.
+    rc = st.get("밴드재수집") or {}
+    if rc:
+        chg, new = rc.get("바뀐글") or [], rc.get("새글") or []
+        L += ["## ★ 밴드 글이 바뀌었다 — 최근 %d일 재수집 (%s)"
+              % (rc.get("창일수", 30), rc.get("회차", "")), "",
+              "- **고쳐진 글 %d건** · 새로 들어온 글 %d건. "
+              "밴드는 상태가 바뀌면 **같은 번호의 글을 고쳐** 다시 올린다 —"
+              " 개수도 날짜도 그대로라 여기 말고는 티가 안 난다." % (len(chg), len(new)), ""]
+        if chg:
+            L += ["| 밴드 | 글번호 | 작성일 | 무엇이 바뀌었나 |", "|---|---:|---|---|"]
+            det = {c.get("글"): c.get("어떻게", "") for c in (rc.get("변경상세") or [])}
+            for c in chg[:15]:
+                key = "%s/%s" % (c.get("밴드ID"), c.get("글번호"))
+                L.append("| %s | %s | %s | %s |"
+                         % (c.get("밴드", ""), c.get("글번호", ""), c.get("작성일", ""),
+                            det.get(key) or (c.get("요약") or "본문 바뀜")))
+            if len(chg) > 15:
+                L.append("| … | | | 그 밖 %d건 |" % (len(chg) - 15))
+            L.append("")
+        L += ["> 대조·보고서가 이 글들을 근거로 쓰고 있었다면 **다시 뽑아야 한다**.",
+              "> 전체는 `python band/recollect.py --print` · "
+              "확인했으면 `python band/recollect.py --ack` 로 이 칸을 내린다.", ""]
     cp = st.get("진행체크포인트") or {}
     if cp:
         L += ["## ★ 진행 중 작업 — 여기서 바로 재개", "",
