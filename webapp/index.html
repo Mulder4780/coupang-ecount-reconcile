@@ -2577,8 +2577,6 @@ body.dash-drag-live #dashGuides{display:grid}
              화면(tech.html · /t/&lt;slug&gt;)은 만들어 뒀는데 **들어갈 문이 없었다.**
              기사 주소에는 열쇠가 붙으므로 관리자로 로그인했을 때만 채운다. -->
       </div>
-      <div class="workcenter-buttons" id="techButtons"></div>
-      <div class="muted" id="techHint" style="display:none"></div>
 	    </div>
 	    <!-- 반영은 하루 두 번(11:00·15:00). 그 사이 입력은 DB에만 있다 — 앱이 그 사실을 말한다. -->
     <div class="card" id="applywin" style="display:none;border-left:3px solid var(--brand)">
@@ -2740,6 +2738,25 @@ body.dash-drag-live #dashGuides{display:grid}
               <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-receipt"/></svg></span>
               <span class="ui-card-tx"><b>정산 화면</b><span>청구·발행·입금 현황</span></span></button>
           </div>
+        </div>
+      </div>
+
+      <!-- AS 담당기사 4명 (2026-08-08 지시: "as 담당자 업무센터 왜 안들어감" ·
+           "업무센터에 AS 담당자들 어디갔지").
+           ★ 한 번 넣었던 것이 **레이아웃이 바뀌면서 고아가 됐다.** 옛 구역(#techButtons)은
+             화면에서 빠졌는데 채우는 코드만 남아, 아무 오류 없이 아무것도 안 보였다.
+             그래서 이제 다른 사람들과 **같은 자리·같은 모양**(cc-block)에 둔다 —
+             따로 있으면 다음 개편에서 또 혼자 떨어져 나간다.
+           ★ 기사 주소에는 열쇠가 붙는다(비밀번호와 같다). 그래서 관리자로 로그인했을
+             때만 채워지고, 아니면 안내 한 줄만 남는다. -->
+      <div class="cc-block" data-cb="tech">
+        <div class="card ios-person">
+          <div class="ios-person-head">
+            <span class="ios-avatar" style="background:linear-gradient(180deg,#FFB86B,#C2410C)">AS</span>
+            <div class="ios-person-id"><b>AS 담당기사</b><span>차동호 · 김준형 · 권오철 · 김필우</span></div>
+          </div>
+          <div class="wt-meta ios-footnote" id="techHint">주소를 불러오는 중…</div>
+          <div class="ui-cards" id="techButtons"></div>
         </div>
       </div>
 
@@ -5194,6 +5211,7 @@ const CENTER_KEY='csos_center_layout_v1';
 const CENTER_BLOCKS=[
   {id:'ryu',    label:'류지영 — 돌발AS·정기점검'},
   {id:'oh',     label:'오종현 — PO·구매·입금'},
+  {id:'tech',   label:'AS 담당기사 4명 — 현장'},
   {id:'sources',label:'원본 자료 갈래'},
   {id:'upload', label:'입금·원천자료 등록'},
   {id:'remote', label:'리모컨 관리'},
@@ -7441,17 +7459,18 @@ async function showTechEntries(){
   catch(e){ links = []; }
   if(!links.length){
     box.innerHTML = '';
-    if(hint){ hint.style.display=''; hint.textContent =
-      'AS 담당기사 주소는 관리자로 로그인했을 때만 보입니다(주소에 열쇠가 붙기 때문입니다).'; }
+    if(hint) hint.textContent =
+      'AS 담당기사 주소는 관리자로 로그인했을 때만 보입니다(주소에 열쇠가 붙기 때문입니다).';
     return;
   }
-  if(hint){ hint.style.display=''; hint.textContent =
-    '기사에게는 아래 주소를 그대로 보내면 됩니다 — 비밀번호 없이 열리고, 그 기사 일만 보입니다.'; }
+  if(hint) hint.textContent =
+    '기사에게는 아래 주소를 그대로 보내면 됩니다 — 비밀번호 없이 열리고, 그 기사 일만 보입니다.';
+  // 다른 사람 카드(센터 열기)와 **같은 모양**이다. 모양이 다르면 "이건 뭐지"가 되고,
+  // 다음 개편에서 이 자리만 또 빠진다.
   box.innerHTML = links.map(t=>`
-    <a class="workcenter-person" href="${esc2(t['링크']||('/t/'+(t.slug||'')))}" target="_blank" rel="noopener">
-      <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-badge-fill"/></svg></span>
-      <span class="wc-copy">${esc2([t['이름'],t['직함']].filter(Boolean).join(' ')||t.slug||'')}<small>돌발AS · 정기점검 현장</small></span>
-      <span class="wc-arrow">↗</span></a>`).join('');
+    <a class="ui-card" href="${esc2(t['링크']||('/t/'+(t.slug||'')))}" target="_blank" rel="noopener">
+      <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-person-badge-fill"/></svg></span>
+      <span class="ui-card-tx"><b>${esc2([t['이름'],t['직함']].filter(Boolean).join(' ')||t.slug||'')}</b><span>돌발AS · 정기점검 현장</span></span></a>`).join('');
 }
 
 function showFixedEntry(){
