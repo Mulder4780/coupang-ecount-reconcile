@@ -9206,6 +9206,35 @@ def t167_daily_run_inflight():
     print("  [167] 일일대조 — '안 돌았다'와 '12시간째 돌고 있다'를 가르고 조치를 뒤집지 않는다 ✅")
 
 
+def t168_erp_progress_glob_is_cached():
+    """[168] 원본을 **찾는 일**이 캐시보다 앞에 있으면 안 된다 (2026-08-08 실사고).
+
+    `erp_progress` 는 판매조회 파일을 `glob(ERP_DIR/**, recursive=True)` 로 찾는다 —
+    Z:(SMB) 를 재귀로 훑는, 이 함수에서 제일 비싼 일이다. 그런데 그 glob 이 캐시
+    검사보다 **앞에** 있었다. `settle_status` 는 행마다 이 함수를 부르므로 750행이면
+    **Z: 를 750번 훑었다.**
+
+    ★ 증상이 "느리다"가 아니라 **"아무 답도 안 온다"** 였다는 점이 중요하다. 같은 집계가
+      600초 제한에 두 번 걸려 죽었고 세 번째는 45분을 넘겨도 안 끝났다 — 그 사이
+      "Z: 가 붐비나 보다"로 읽혔다. TTL 을 넣자 같은 집계가 1분 안에 끝났다.
+      **느린 것과 멈춘 것은 겉으로 구별되지 않는다.**
+
+    구조로 못을 박는다. 실행 시간으로 시험하면 기계·네트워크를 타서 못 믿는다.
+    """
+    import inspect, ecount_reconcile as R
+
+    assert getattr(R, "_ERP_SIG_TTL", 0) > 0, "_ERP_SIG_TTL 이 사라졌다"
+    assert "checked" in R._ERP_PROGRESS, "마지막 확인 시각을 기억하지 않는다"
+
+    src = inspect.getsource(R.erp_progress)
+    i_ttl = src.find("_ERP_SIG_TTL")
+    i_glob = src.find("_g.glob")
+    assert i_ttl > 0 and i_glob > 0, "TTL 검사나 glob 이 사라졌다"
+    assert i_ttl < i_glob, \
+        "캐시 검사가 glob 뒤에 있다 — 행마다 Z: 를 통째로 훑게 된다(750배)"
+    print("  [168] erp_progress — 비싼 glob 앞에 캐시 검사가 온다(행마다 Z: 재귀탐색 금지) ✅")
+
+
 def t161_erp_filename_fingerprint():
     """[161] ERP 내보내기는 **파일명 화면코드**로 가른다 (2026-08-08 실측).
 
@@ -10471,6 +10500,7 @@ if __name__ == "__main__":
     t165_ledger_reads_billing_status()
     t166_billing_status_ladder()
     t167_daily_run_inflight()
+    t168_erp_progress_glob_is_cached()
     t161_erp_filename_fingerprint()
     t160_master_book_cache()
     t154_amount_basis()
