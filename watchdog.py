@@ -125,13 +125,53 @@ def start_hidden(script):
 
 def heal_server(dry):
     if ping():
-        return "서버 정상"
+        return heal_stale_server(dry)
     if dry:
         return "서버 죽음(dry — 복구 생략)"
     kill_by_cmdline("app_server.py")
     start_hidden(os.path.join("webapp", "app_server.py"))
     time.sleep(4)
     return "서버 재시작 → " + ("성공" if ping() else "실패(다음 주기 재시도)")
+
+
+def heal_stale_server(dry):
+    """살아 있지만 **옛 코드로 도는** 서버를 스스로 새 코드로 올린다 (2026-08-08).
+
+    ★ 죽은 서버는 원래 잡고 있었다. 그런데 **살아 있는데 옛 코드인 경우**는 아무도
+      안 봤다 — 서버는 200 을 주고 화면도 숫자를 보여 주므로 정상으로 보인다.
+      2026-08-08 하루에만 세 번 그 상태가 됐고(어제 20:48 서버가 하루치 변경을 통째로
+      못 실은 채 돌았다), 그중 두 번은 **옆 세션이 파일을 고쳐서** 생겼다.
+      사람이 고칠 때마다 기억해서 눌러야 하는 일은 결국 안 눌린다.
+
+    ★ 안전장치 — 함부로 끄지 않는다:
+      · 파일이 **1분 이상** 안정된 뒤에만 올린다. 편집 중간에 끄면 반쯤 저장된 코드로
+        올라간다(그게 더 나쁘다).
+      · 30분 주기 안에서 **한 번만** 시도한다. 실패가 반복되면 그냥 두고 인계에 남긴다
+        — 계속 끄고 켜면 쓰는 사람이 아무것도 못 한다.
+      · 재시작 뒤 응답을 확인한다. 못 살아나면 그 사실을 그대로 적는다.
+    """
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "webapp"))
+        import restart_server
+        s = restart_server.stale()
+        if not s:
+            return "서버 정상"
+        _pid, _when, newer = s
+        # 편집이 끝났는지 — 가장 최근에 바뀐 파일이 60초 넘게 조용해야 한다.
+        newest = max((os.path.getmtime(os.path.join(ROOT, f))
+                      for f in newer if os.path.isfile(os.path.join(ROOT, f))),
+                     default=0)
+        if time.time() - newest < 60:
+            return "서버 옛코드 — 방금 편집 중이라 미룸(%s)" % ", ".join(newer[:2])
+        if dry:
+            return "서버 옛코드(dry — 재시작 생략): %s" % ", ".join(newer[:3])
+        rc = restart_server.main([])
+        ok = ping()
+        return ("서버 옛코드 → 재시작 %s (%s)"
+                % ("성공" if (rc == 0 and ok) else "실패(다음 주기 재시도)",
+                   ", ".join(newer[:3])))
+    except Exception as exc:
+        return "서버 코드나이 확인 실패: %s" % str(exc)[:40]
 
 
 def heal_fixed_funnel(dry):
