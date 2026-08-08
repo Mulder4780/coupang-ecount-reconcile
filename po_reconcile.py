@@ -10,6 +10,9 @@ po_reconcile.py — 쿠팡 발행 PO ↔ 관리대장 자동 대조
   [유형C] 금액 불일치                    : 쿠팡 PO 금액 ≠ 원장 정산 공급가액 합
   [유형D] 미연결 제안                    : PO필요·번호없는 정산 ↔ 미등록 PO 금액 매칭 후보
           └ 금액이 양방향 유일 일치하면 자동입력 큐(06 PO번호·PO발행일, 빈 칸만)에 적재
+  [유형E] ERP 근거 PO 연결               : ERP 판매전표가 프로젝트NO 와 PO번호를 한 줄에
+          담고 있다 — 짐작이 아니라 원본이 직접 말한 것이라 D 보다 근거가 세다.
+          └ ERP PO 토큰이 유일 + 쿠팡 목록에 실재 + 원장 칸이 빌 때만 자동입력 큐
 
 파서는 머리글 자동탐지 + 전체 셀에서 PO번호 패턴(PO+숫자) 추출이라
 쿠팡 내보내기 형식이 달라도 동작한다. 원장은 read-only. 결과는 reports/.
@@ -158,7 +161,7 @@ def ledger_po_view(master):
         elif r.get("비용구분") == "유상" and r.get("원장_공급가액") and \
                 str(r.get("원장_PO필요여부", "")).startswith("필요"):
             no_po.append(r)
-    return by_po, no_po
+    return by_po, no_po, recs
 
 
 def main():
@@ -183,7 +186,7 @@ def main():
         print(f"'{os.path.basename(f)}': PO {len(part)}건 파싱")
     cp_by_no = {p["po"]: p for p in coupang}
 
-    by_po, no_po = ledger_po_view(master)
+    by_po, no_po, recs = ledger_po_view(master)
     tol = cfg["reconcile"].get("금액허용오차", 0)
 
     # ERP가 이미 계산서를 끊었는지부터 본다.
@@ -308,6 +311,49 @@ def main():
                     queue_items.append({"sheet": "06_거래서류청구수금", "key_col": "정산ID", "key": sid,
                                         "col": "PO발행일", "value": p["date"], "vtype": "date",
                                         "evidence": "쿠팡 PO목록 발행일", "only_if_empty": True})
+    # ── 유형E: ERP 전표가 스스로 말하는 PO 연결 ────────────────────────────────
+    # ★ 2026-08-08 사용자 지시 "근거 찾아서 완료 처리할 수 있는건 다 완료 처리해".
+    #   유형C 35건 중 20건이 '원장 연결 누락' — 쿠팡·ERP 금액은 맞는데 원장에 그 PO 로
+    #   묶인 정산행이 모자란 것이었다. 그런데 **누가 빠졌는지는 짐작할 필요가 없다**:
+    #   ERP 판매전표가 프로젝트NO 와 PO번호를 **한 줄에 같이** 담고 있다.
+    #   금액이 우연히 같아서 고른 D 와 달리 이건 원본이 직접 말한 것이라 근거가 세다.
+    #
+    #   그래도 자동으로 쓰는 자리이므로 문을 넷 건다:
+    #     ① ERP 의 po 칸에서 PO 토큰이 **정확히 하나**일 것(PO326238/PR457592 는 하나)
+    #     ② 그 번호가 **쿠팡 PO 목록에 실재**할 것 — ERP 오타를 원장에 옮기지 않는다
+    #     ③ 원장 PO번호 칸이 **비어 있을 때만**(only_if_empty 로 한 번 더 막는다)
+    #     ④ 프로젝트NO 가 있고 06시트에 그 정산행이 있을 것
+    E = []
+    erp_po_of = {}
+    try:
+        import erp_sales_index
+        _idx, _ = erp_sales_index.build()
+        for prj, v in _idx.items():
+            toks = {"PO" + m.group(1) for m in PO_PAT.finditer(str(v.get("po") or ""))}
+            if len(toks) == 1:                       # ① 하나로 확정될 때만
+                erp_po_of[prj] = toks.pop()
+    except Exception as e:
+        print(f"  (ERP PO 연결 근거 생략: {e})")
+    for sid, r in sorted(recs.items()):
+        if norm_po(r.get("원장_PO번호")):
+            continue                                  # ③ 이미 적혀 있으면 안 건드린다
+        prj = str(r.get("프로젝트NO") or "")
+        po = erp_po_of.get(prj)
+        if not po or po not in cp_by_no:               # ② 쿠팡 목록에 없는 번호는 안 쓴다
+            continue
+        E.append({"정산ID": sid, "프로젝트NO": prj, "PO번호": po,
+                  "쿠팡발행일": cp_by_no[po].get("date") or "",
+                  "판정": "ERP 판매전표가 이 프로젝트를 이 PO 로 끊었습니다 — 원장 PO번호 자동 채움"})
+        queue_items.append({"sheet": "06_거래서류청구수금", "key_col": "정산ID", "key": sid,
+                            "col": "PO번호", "value": po, "vtype": "text",
+                            "evidence": f"ERP 판매전표 PO 연결({prj})", "only_if_empty": True})
+        if cp_by_no[po].get("date"):
+            queue_items.append({"sheet": "06_거래서류청구수금", "key_col": "정산ID", "key": sid,
+                                "col": "PO발행일", "value": cp_by_no[po]["date"], "vtype": "date",
+                                "evidence": "쿠팡 PO목록 발행일", "only_if_empty": True})
+    if E:
+        print(f"E(ERP 근거 PO 연결) {len(E)}건 — 원장 빈 PO번호를 ERP 전표 근거로 채웁니다")
+
     if queue_items and "--no-queue" not in args:
         try:
             from ledger_writer import queue_add
@@ -330,7 +376,8 @@ def main():
                 for r in rows_:
                     f.write("| " + " | ".join(str(r[c]) for c in cols) + " |\n")
     allrows = ([{"유형": "A", **r} for r in A] + [{"유형": "B", **r} for r in B]
-               + [{"유형": "C", **r} for r in C] + [{"유형": "D", **r} for r in D])
+               + [{"유형": "C", **r} for r in C] + [{"유형": "D", **r} for r in D]
+               + [{"유형": "E", **r} for r in E])
     if allrows:
         keys = []
         for r in allrows:

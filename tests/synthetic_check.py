@@ -9299,6 +9299,19 @@ def t170_po_amount_ladder():
         "'미발행' 한 덩어리에 가야 할 사람이 다른 두 가지가 섞여 있으면 안 된다"
     idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     assert "미발행사유" in idx, "화면이 그 사유를 안 보여 주면 갈라 놓은 뜻이 없다"
+
+    # ⑤ 유형E — ERP 전표가 스스로 말하는 PO 연결. D 와 달리 **짐작이 아니다**.
+    #    그래도 자동으로 쓰는 자리이므로 문 넷이 코드에 남아 있어야 한다.
+    e_part = body.split("유형E", 1)[1].split("if queue_items", 1)[0]
+    e_code = "\n".join(ln for ln in e_part.splitlines() if not ln.strip().startswith("#"))
+    assert "len(toks) == 1" in e_code, \
+        "ERP po 칸에 PO 가 둘 이상이면 어느 것인지 모른다 — 유일할 때만 쓴다"
+    assert "po not in cp_by_no" in e_code, \
+        "쿠팡 목록에 없는 번호를 쓰면 ERP 오타를 원장에 옮기는 것이다"
+    assert 'if norm_po(r.get("원장_PO번호")):' in e_code and "continue" in e_code, \
+        "이미 사람이 적어 둔 PO번호를 덮으면 안 된다"
+    assert '"only_if_empty": True' in e_code, \
+        "큐에서도 한 번 더 막는다 — 대조와 반영 사이에 사람이 채웠을 수 있다"
     print("  [170] PO 대조가 앱과 같은 금액 사다리를 본다(D 는 제외) · "
           "'미발행'을 발행대기/전표없음으로 가른다 ✅")
 
