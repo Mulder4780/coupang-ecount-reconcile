@@ -2551,7 +2551,12 @@ body.dash-drag-live #dashGuides{display:grid}
 	          <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-workspace"/></svg></span><span class="wc-copy">류지영<small>돌발AS · 정기점검 · 회계</small></span><span class="wc-arrow">↗</span></a>
 	        <a class="workcenter-person" href="/staff/oh-jonghyeon" target="_blank" rel="noopener">
 	          <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-badge-fill"/></svg></span><span class="wc-copy">오종현<small>PO · 구매 원천자료</small></span><span class="wc-arrow">↗</span></a>
-	      </div>
+        <!-- AS 담당기사 4명 — 2026-08-08 지시("as 담당자 업무센터 왜 안들어감").
+             화면(tech.html · /t/&lt;slug&gt;)은 만들어 뒀는데 **들어갈 문이 없었다.**
+             기사 주소에는 열쇠가 붙으므로 관리자로 로그인했을 때만 채운다. -->
+      </div>
+      <div class="workcenter-buttons" id="techButtons"></div>
+      <div class="muted" id="techHint" style="display:none"></div>
 	    </div>
 	    <!-- 반영은 하루 두 번(11:00·15:00). 그 사이 입력은 DB에만 있다 — 앱이 그 사실을 말한다. -->
     <div class="card" id="applywin" style="display:none;border-left:3px solid var(--brand)">
@@ -7391,6 +7396,34 @@ function cleanErp2026(d){
    경유하는 터널 주소는 띄울 때마다 새로 받지만, 폰이 아는 주소는 늘 이것 하나다.
    배너로 띄워 닫게 하지 않고, 대시보드에 **항상 보이게** 박아 둔다. */
 const FIXED_ENTRY = "https://mulder4780.github.io/coupang-ecount-reconcile/";
+/* AS 담당기사 업무센터 문 — 2026-08-08 지시("as 담당자 업무센터 왜 안들어감 빨리 해").
+   화면(tech.html)과 주소(/t/<slug>)는 이미 있는데 **대시보드에 문이 없어서**
+   기사에게 보낼 링크를 사람이 손으로 만들어야 했다. 여기서 열어 준다.
+
+   ★ 기사 주소에는 열쇠가 붙는다. 열쇠는 비밀번호와 같아서 아무 화면에나 뿌리면 안 된다 —
+     `/api/tech/links` 는 관리자만 200 을 준다(그 외에는 403). 그래서 실패하면 조용히
+     '관리자로 로그인하면 보입니다'만 남기고 아무것도 그리지 않는다. */
+async function showTechEntries(){
+  const box = $('techButtons'), hint = $('techHint');
+  if(!box) return;
+  let links = [];
+  try{ links = (await api('/api/tech/links')).links || []; }
+  catch(e){ links = []; }
+  if(!links.length){
+    box.innerHTML = '';
+    if(hint){ hint.style.display=''; hint.textContent =
+      'AS 담당기사 주소는 관리자로 로그인했을 때만 보입니다(주소에 열쇠가 붙기 때문입니다).'; }
+    return;
+  }
+  if(hint){ hint.style.display=''; hint.textContent =
+    '기사에게는 아래 주소를 그대로 보내면 됩니다 — 비밀번호 없이 열리고, 그 기사 일만 보입니다.'; }
+  box.innerHTML = links.map(t=>`
+    <a class="workcenter-person" href="${esc2(t['링크']||('/t/'+(t.slug||'')))}" target="_blank" rel="noopener">
+      <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-badge-fill"/></svg></span>
+      <span class="wc-copy">${esc2([t['이름'],t['직함']].filter(Boolean).join(' ')||t.slug||'')}<small>돌발AS · 정기점검 현장</small></span>
+      <span class="wc-arrow">↗</span></a>`).join('');
+}
+
 function showFixedEntry(){
   const a = $('fixedurl'); if(!a) return;
   a.textContent = FIXED_ENTRY.replace(/^https:\/\//,'').replace(/\/$/,'');
@@ -13507,6 +13540,7 @@ async function refreshAll(){
   const newWorkDate=document.querySelector('#newWorkForm [name="work_date"]');
   if(newWorkDate&&!newWorkDate.value) newWorkDate.value=todayISO();
   showFixedEntry();          // 고정 주소는 로그인·데이터 로딩과 무관하게 **항상** 보인다
+  showTechEntries();         // AS 담당기사 4명 문 열기(관리자로 로그인했을 때만)
   loadCodes();               // 드롭다운 선택지(10_코드관리)
   applyView(curView());                  // 새로고침 전에 보던 화면으로 복귀(뒤로가기 기록은 안 쌓는다)
   // ★ 여분 항목 하나를 미리 쌓아 둔다. 이게 없으면 **첫 뒤로가기가 앱 밖으로 나가** 버려서

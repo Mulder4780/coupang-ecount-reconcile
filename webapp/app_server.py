@@ -1223,8 +1223,15 @@ def warm_caches():
     first = True
     while True:
         t0 = _t.time()
-        for name, fn in (("works", get_works), ("settlements", get_settlements),
-                         ("issues", get_issues), ("ryu", get_ryu_records)):
+        # ★ 데우기는 **진짜로 다시 계산해야** 한다 (2026-08-08). 2026-08-08 부터
+        #   조회 함수들이 만료 시 옛 값을 즉시 돌려주므로(stale-while-revalidate),
+        #   여기서 그냥 부르면 옛 값만 받고 아무것도 안 데운 채 240초를 또 잔다.
+        #   그러면 정작 사람이 열 때 뒤늦은 재계산을 맞는다 — 데우기의 뜻이 사라진다.
+        for name, fn in (("works", lambda: refresh_now("works", real_works)),
+                         ("settlements", lambda: refresh_now("settle", _build_settlements)),
+                         ("issues", lambda: refresh_now("issues", _build_issues)),
+                         ("erpdocs", lambda: refresh_now("erpdocs", _build_erpdocs)),
+                         ("ryu", get_ryu_records)):
             try:
                 fn()
             except Exception as e:
@@ -2335,12 +2342,30 @@ def demo_works():
     return {"as": a, "pm": p}
 
 
+_MT = {"at": 0.0, "v": 0}
+_MT_TTL = 2.0
+
+
 def _master_mtime():
+    """관리대장이 마지막으로 저장된 시각. **2초 캐시**를 둔다 (2026-08-08).
+
+    ★ `resolve_master` 는 Z: 폴더를 훑어 최신 vN 을 고른다(실측 1.24초). 그런데
+      `_fresh()` 가 **모든 캐시 조회마다** 이걸 불렀다 — 화면 하나가 API 를 예닐곱 개
+      부르므로 아무것도 안 바뀐 상태에서도 Z: 를 예닐곱 번 훑었다. 갱신이 오래
+      걸리던 가장 큰 몫이 여기였다(사용자 지시 2026-08-08: "갱신 빨리빨리하게").
+    ★ 2초는 안전하다. 원장 저장은 11:00·15:00 회차나 사람 손으로 일어나고,
+      2초 늦게 알아차려도 그다음 조회가 바로 잡는다.
+    """
+    now = time.time()
+    if now - _MT["at"] < _MT_TTL:
+        return _MT["v"]
     try:
         from ecount_reconcile import load_config, resolve_master
-        return os.path.getmtime(resolve_master(load_config()["reconcile"]["master_xlsx"]))
+        v = os.path.getmtime(resolve_master(load_config()["reconcile"]["master_xlsx"]))
     except Exception:
-        return 0
+        v = 0
+    _MT["at"], _MT["v"] = now, v
+    return v
 
 
 def _data_asof_iso():
@@ -2541,15 +2566,70 @@ def _store_cache(key, value):
     return value
 
 
+# ── TTL 이 끝났다고 사람을 기다리게 하지 않는다 (2026-08-08 지시: "갱신 빨리빨리하게") ──
+#
+# `status` 에만 있던 stale-while-revalidate 를 무거운 자료 전부로 넓힌다. 예전에는
+# TTL(600초)이 끝나는 **그 순간에 들어온 요청**이 Z: 콜드 재계산을 통째로 뒤집어썼다
+# (실측 get_works 첫 계산 111초). 화면은 그동안 '갱신 중'에 멈춰 있었다.
+#
+# ★ 원장이 바뀌면 `_fresh` 가 `_cache` 를 통째로 비우므로 `_stale` 도 함께 사라진다.
+#   **일부러 그렇게 둔다** — 바뀐 뒤의 옛 숫자를 '지금 값'처럼 보여 주는 것이 이
+#   프로젝트가 1순위로 막는 조용한 사고다. 그때 한 번은 정직하게 기다린다.
+_REFRESHING = {}
+_REFRESH_LOCK = threading.Lock()
+
+
+def _compute_locked(key, build):
+    """Z: 를 실제로 읽는 자리. 락은 여기서만 잡는다(캐시 조회는 락 없이)."""
+    with _readlock:
+        c = _fresh(key)
+        if c is not None:
+            return c
+        v = build()
+        _store_cache(key, v)
+        _cache[key + "_stale"] = v
+        return v
+
+
+def _spawn_refresh(key, build):
+    with _REFRESH_LOCK:
+        if _REFRESHING.get(key):
+            return
+        _REFRESHING[key] = True
+
+    def run():
+        try:
+            _compute_locked(key, build)
+        except Exception:
+            pass                     # 뒤에서 도는 갱신이 실패해도 화면은 옛 값으로 산다
+        finally:
+            with _REFRESH_LOCK:
+                _REFRESHING[key] = False
+
+    threading.Thread(target=run, name=f"refresh-{key}", daemon=True).start()
+
+
+def refresh_now(key, build):
+    """캐시를 **실제로** 다시 만든다(예열용). 만료돼 있으면 계산하고, 아니면 그대로."""
+    return _compute_locked(key, build)
+
+
+def cached_data(key, build):
+    """캐시가 있으면 즉시 · 만료면 옛 값을 즉시 주고 뒤에서 한 번만 다시 만든다."""
+    c = _fresh(key)
+    if c is not None:
+        return c
+    stale = _cache.get(key + "_stale")
+    if stale is not None:
+        _spawn_refresh(key, build)
+        return stale
+    return _compute_locked(key, build)
+
+
 def get_works():
     if DEMO:
         return demo_works()
-    with _readlock:
-        w = _fresh("works")
-        if w:
-            return w
-        w = real_works()
-        return _store_cache("works", w)
+    return cached_data("works", real_works)
 
 
 def _fmtv(v):
@@ -3667,9 +3747,10 @@ def get_issues():
     if DEMO:
         return {"rows": [{"문제유형": "세금계산서 미발행", "업무ID": "JS-2607-002", "캠프명": "울산2캠프",
                           "문제내용": "명세서 발행 후 계산서 미발행", "담당자": "류지영"}], "cols": []}
-    r = _fresh("issues")
-    if r:
-        return r
+    return cached_data("issues", _build_issues)
+
+
+def _build_issues():
     import openpyxl
     from ecount_reconcile import load_config, resolve_master
     master = resolve_master(load_config()["reconcile"]["master_xlsx"])
@@ -3732,8 +3813,7 @@ def get_issues():
         for k in r:
             if k not in cols:
                 cols.append(k)
-    out = {"rows": rows, "cols": cols}
-    return _store_cache("issues", out)
+    return {"rows": rows, "cols": cols}
 
 
 def build_id():
@@ -3796,9 +3876,10 @@ def get_erpdocs():
     ERP는 여러 작업을 한 장으로 묶어 발행하므로 1행 = 작업 1건이 아니다."""
     if DEMO:
         return {"rows": [], "months": {}, "total": 0}
-    r = _fresh("erpdocs")
-    if r:
-        return r
+    return cached_data("erpdocs", _build_erpdocs)
+
+
+def _build_erpdocs():
     import openpyxl
     from ecount_reconcile import load_config, resolve_master
     master = resolve_master(load_config()["reconcile"]["master_xlsx"])
@@ -3839,7 +3920,7 @@ def get_erpdocs():
     except Exception as e:
         out["error"] = str(e)
     out["rows"] = sort_by_date(app_year_rows(out["rows"], "erp"), "erpdocs")
-    return _store_cache("erpdocs", out)
+    return out
 
 
 def _ux_summary():
@@ -4529,23 +4610,23 @@ def erp_work_rows(existing, kind):
     return out
 
 
+def _build_settlements():
+    rows = real_settlements()
+    try:
+        rows = rows + erp_settlement_rows(rows)
+        idx = build_prj_index(get_works())
+        apply_rep_no(rows, idx, "명세서번호")
+        rows = app_year_rows(rows, "settle")
+        rows = sort_by_date(rows, "settle", "정산ID")
+    except Exception:
+        pass
+    return rows
+
+
 def get_settlements():
     if DEMO:
         return demo_settlements()
-    with _readlock:
-        r = _fresh("settle")
-        if r:
-            return r
-        rows = real_settlements()
-        try:
-            rows = rows + erp_settlement_rows(rows)
-            idx = build_prj_index(get_works())
-            apply_rep_no(rows, idx, "명세서번호")
-            rows = app_year_rows(rows, "settle")
-            rows = sort_by_date(rows, "settle", "정산ID")
-        except Exception:
-            pass
-        return _store_cache("settle", rows)
+    return cached_data("settle", _build_settlements)
 
 
 def get_status():

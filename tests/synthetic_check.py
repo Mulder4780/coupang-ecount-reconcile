@@ -9102,6 +9102,70 @@ def t154_amount_basis():
           "ERP 비교는 돌발AS·정기점검만 ✅")
 
 
+def t156_refresh_fast():
+    """[156] 갱신은 사람을 기다리게 하지 않는다 (2026-08-08 지시 "갱신 빨리빨리하게").
+
+    화면에 `2시간 1분 전 자료 · 갱신 중` 이 오래 떠 있었다. 세 군데가 겹쳤다:
+      ① `_fresh()` 가 **캐시를 볼 때마다** `resolve_master` 로 Z: 폴더를 훑었다
+         (실측 1.24초). 화면 하나가 API 를 예닐곱 개 부르니 아무것도 안 바뀐
+         상태에서도 Z: 를 예닐곱 번 훑었다 → 2초 캐시.
+      ② TTL 이 끝나는 **그 순간에 들어온 요청**이 콜드 재계산을 통째로 뒤집어썼다
+         (실측 get_works 첫 계산 111초). `status` 에만 있던 stale-while-revalidate
+         를 works·settle·issues·erpdocs 로 넓혔다.
+      ③ 예열 고리가 조회 함수를 그냥 부르면, ②가 생긴 뒤로는 **옛 값만 받고
+         아무것도 안 데운 채** 240초를 또 잔다 → 예열은 `refresh_now` 로 강제한다.
+
+    ★ 빠르게 만들면서 **낡은 값을 '지금 값'이라 말하지 않는 것**이 이 검증의 핵심이다.
+      원장이 바뀌면 `_fresh` 가 `_cache` 를 통째로 비우므로 `_stale` 도 사라져야 한다.
+      남겨 두면 화면이 바뀐 뒤의 옛 숫자를 새것처럼 보여 준다(조용한 사고).
+    """
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "_MT_TTL" in server and 'if now - _MT["at"] < _MT_TTL' in server, \
+        "캐시를 볼 때마다 Z: 를 훑는다"
+    for fn in ("def cached_data(", "def _compute_locked(", "def _spawn_refresh(",
+               "def refresh_now("):
+        assert fn in server, f"{fn} 가 없다 — 갱신이 요청을 붙잡는 구조로 되돌아갔다"
+    for key in ('cached_data("works"', 'cached_data("settle"',
+                'cached_data("issues"', 'cached_data("erpdocs"'):
+        assert key in server, f"{key} 가 옛 방식(만료 시 그 자리에서 재계산)이다"
+    assert 'refresh_now("works"' in server and 'refresh_now("settle"' in server, \
+        "예열이 옛 값만 받고 실제로는 데우지 않는다"
+    # 캐시 조회는 락 밖이어야 한다 — 락 안에서 보면 남의 콜드 읽기에 갇힌다.
+    i = server.find("def cached_data(")
+    body = server[i: server.find("\ndef ", i + 10)]
+    assert "_readlock" not in body, "캐시를 보는 데 락을 잡으면 옛 값조차 못 준다"
+
+    # 원장이 바뀌면 stale 까지 사라지는가 — 실제로 돌려 확인한다.
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as A
+    saved_mt, saved_cache = A._master_mtime, dict(A._cache)
+    try:
+        A._cache.clear()
+        A._master_mtime = lambda: 111
+        calls = []
+
+        def build():
+            calls.append(1)
+            return {"n": len(calls)}
+
+        assert A.cached_data("t156", build) == {"n": 1}
+        assert A.cached_data("t156", build) == {"n": 1}, "캐시가 안 먹었다"
+        assert A._cache.get("t156_stale") == {"n": 1}, "옛 값 자리가 안 생겼다"
+        A._cache.pop("t156"), A._cache.pop("t156_ts")          # TTL 만료 흉내
+        assert A.cached_data("t156", build) == {"n": 1}, \
+            "만료 순간 요청이 재계산을 뒤집어썼다 — 옛 값을 즉시 줘야 한다"
+        A._master_mtime = lambda: 222                          # 원장이 바뀌었다
+        A._fresh("t156")
+        assert "t156_stale" not in A._cache, \
+            "원장이 바뀌었는데 옛 숫자가 남았다 — 그것을 '지금 값'으로 보여 주게 된다"
+    finally:
+        A._master_mtime = saved_mt
+        A._cache.clear()
+        A._cache.update(saved_cache)
+    print("  [156] 갱신 — 원장시각 2초 캐시 · 만료 시 옛 값 즉시 + 뒤에서 한 번 · "
+          "예열은 강제 재계산 · 원장 바뀌면 옛 값 폐기 ✅")
+
+
 def t155_cancel_and_handover():
     """[155] 접수 취소 · 사람 인계 (2026-08-08 지시).
 
@@ -9820,6 +9884,7 @@ if __name__ == "__main__":
     t160_master_book_cache()
     t154_amount_basis()
     t155_cancel_and_handover()
+    t156_refresh_fast()
     t144_topmost_pin_always_restores()
     t145_redirect_deleted_needs_two_rounds()
     t146_erp_bulk_grab_registry()
