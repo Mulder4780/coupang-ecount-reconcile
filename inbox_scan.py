@@ -91,6 +91,21 @@ def classify_rows(rows):
     if has("내역보기") and has("공급가액") and has("부가세"):
         return "taxinv"
 
+    # ★ 견적서조회 — **거래명세서로 잘못 분류되고 있었다** (2026-08-08 발견).
+    #   `일자-No.` + `공급가액` + `부가세` 가 있어 아래 stmt 규칙에 먼저 걸렸다.
+    #   그래서 900행짜리 견적 4장이 '거래명세서' 통에 앉아 있었고, ERP 엑셀 흡수기가
+    #   머리행을 못 찾아 **한 건도 못 읽었다**(그것을 신고해서 드러났다).
+    #   견적만 가진 것: 진행상태(03.입찰참여·07.수주확정) · 견적○○합계 · 영업지원 담당자.
+    #   이 판정은 stmt·tax 보다 **먼저** 와야 한다.
+    for r in rows:
+        n = [c for c in r if c]
+        if any("진행상태" in x for x in n) and (
+                any(x.startswith("견적") and "합계" in x for x in n)
+                or any("영업지원" in x for x in n)):
+            return "quote"
+    if "견적서조회" in joined:
+        return "quote"
+
     # 이카운트 매출 관련 현황 3종 (파일명이 무작위라 머리글로만 구분된다)
     for r in rows:
         n = [c for c in r if c]

@@ -438,32 +438,60 @@ def ingest_band(con, quiet=False, since=None, why="밴드 캐시 흡수"):
 ERP_MAP = {
     # ★ 원장은 전표 하나에 **여러 줄**이다(차변·대변·적요별). `일자-No.` 만으로는
     #   8,820줄이 1,924키로 뭉개져, 같은 키를 서로 덮어쓰며 매번 '바뀜'이 됐다.
-    "ERP:ledger":  {"키": ["일자-No.", "거래처명", "적요"], "날짜": "일자-No.",
-                    "거래처": "거래처명", "금액": "차변금액", "적요": "적요"},
+    "ERP:ledger":  [{"키": ["일자-No.", "거래처명", "적요"], "날짜": "일자-No.",
+                     "거래처": "거래처명", "금액": "차변금액", "적요": "적요"},
+                    # 분개장 — 같은 `ledger` 통이지만 전표번호가 `26/01/02-2-1`(두 자리 해)다
+                    {"키": ["전표번호", "계정명", "거래처", "적요"], "날짜": "전표번호",
+                     "거래처": "거래처", "금액": "차변", "적요": "적요"}],
     "ERP:tax":     {"키": ["일자-No."], "날짜": "일자-No.", "거래처": "거래처명",
                     "금액": "매출합계"},
     "ERP:taxstep": {"키": ["일자-No."], "날짜": "일자-No.", "거래처": "거래처명",
                     "금액": "합계금액", "상태": "전자(세금)계산서 진행"},
     "ERP:slips":   {"키": ["전표번호"], "날짜": "전표번호", "거래처": "거래처명",
                     "금액": "금액", "적요": "적요명"},
-    "ERP:sales":   {"키": ["일자", "PO번호", "거래처명", "품목명(요약)"], "날짜": "일자",
-                    "거래처": "거래처명", "금액": "금액합계", "상태": "진행상태"},
-    "ERP:stmt":    {"키": ["일자", "품목명[규격]"], "날짜": "일자",
-                    "금액": "공급가액", "적요": "적요"},
+    "ERP:sales":   [{"키": ["일자", "PO번호", "거래처명", "품목명(요약)"], "날짜": "일자",
+                     "거래처": "거래처명", "금액": "금액합계", "상태": "진행상태"},
+                    # 주문서현황내역 — 판매현황과 같은 `sales` 통에 들어오지만 표가 다르다
+                    {"키": ["발주일", "프로젝트코드", "프로젝트명"], "날짜": "발주일",
+                     "거래처": "프로젝트명", "상태": "주문형태"}],
+    # ★ 한 종류에 **표 모양이 둘 이상**일 수 있다 (2026-08-08). 거래명세서는
+    #   낱장(상세: 일자·품목명[규격]·수량·단가)과 현황 목록(일자-No.·진행상태·
+    #   금액합계)이 같은 `stmt` 로 분류된다. 앞의 것 하나만 적어 두면 뒤의 것은
+    #   머리행을 못 찾아 **한 건도 안 읽힌다** — 그런데 파일은 있으니 아무도 모른다.
+    "ERP:stmt":    [{"키": ["일자", "품목명[규격]"], "날짜": "일자",
+                     "금액": "공급가액", "적요": "적요"},
+                    {"키": ["일자-No.", "거래처명", "품목명"], "날짜": "일자-No.",
+                     "거래처": "거래처명", "금액": "금액합계", "상태": "진행상태"}],
     "ERP:hometax": {"키": ["승인번호"], "날짜": "일자", "거래처": "공급받는자상호",
                     "금액": "공급가액", "상태": "계산서종류"},
     "ERP:taxinv":  {"키": ["일자 - 번호"], "날짜": "일자 - 번호", "거래처": "거래처명",
                     "금액": "합 계"},
+    "ERP:quote":   {"키": ["일자-No.", "프로젝트코드코드", "품목명(요약)"], "날짜": "일자-No.",
+                    "거래처": "거래처명", "금액": "견적금액합계", "상태": "진행상태",
+                    "적요": "적요/수리내역/작업지시내용"},
 }
 _DATE_RE = re.compile(r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})")
 
 
+_DATE2_RE = re.compile(r"^(\d{2})[./-](\d{1,2})[./-](\d{1,2})\b")
+
+
 def _erp_day(v):
-    """`2026/07/01 -1` · `2026-07-01` · 엑셀 날짜 → `YYYY-MM-DD`. 못 읽으면 빈 값."""
+    """`2026/07/01 -1` · `2026-07-01` · `26/01/02-2-1` · 엑셀 날짜 → `YYYY-MM-DD`.
+
+    ★ 분개장의 전표번호는 **두 자리 해**다(`26/01/02-2-1`). 네 자리만 찾으면 이 화면이
+      통째로 안 읽힌다 — 파일은 있는데 건수가 0인, 아무도 모르는 구멍이 된다.
+    """
     if isinstance(v, datetime):
         return v.strftime("%Y-%m-%d")
-    m = _DATE_RE.search(str(v or ""))
-    return "%s-%02d-%02d" % (m.group(1), int(m.group(2)), int(m.group(3))) if m else ""
+    s = str(v or "").strip()
+    m = _DATE_RE.search(s)
+    if m:
+        return "%s-%02d-%02d" % (m.group(1), int(m.group(2)), int(m.group(3)))
+    m = _DATE2_RE.match(s)
+    if m:
+        return "20%s-%02d-%02d" % (m.group(1), int(m.group(2)), int(m.group(3)))
+    return ""
 
 
 def _erp_num(v):
@@ -520,18 +548,18 @@ def ingest_erp(con, quiet=False, only=None, force=False, limit=None):
     hit_chg, noheader = [], []
     final = {}                  # 자연키 → 이 회차의 최종값. 다 읽은 뒤 한 번만 쓴다.
     for a in todo:
-        fp = "%s:%s" % (a["mtime"], a["size"])
+        # ★ 지문에 **종류**를 넣는다 (2026-08-08). 파일은 그대로인데 분류가 고쳐진
+        #   경우가 있다 — 견적서조회 3장이 '거래명세서'로 앉아 있다가 바로잡혔다.
+        #   크기·수정시각만 보면 "이미 뜯었다"고 넘어가, **규칙을 고쳐도 그 파일만
+        #   영영 안 읽힌다.** 종류가 달라졌으면 다시 뜯어야 한다.
+        fp = "%s:%s:%s" % (a["kind"], a["mtime"], a["size"])
         if not force and seen.get(a["id"]) == fp:
             skipped += 1
             continue
         if limit and files >= int(limit):
             break
-        spec = ERP_MAP[a["kind"]]
-        want = [spec[k] for k in ("날짜", "거래처", "금액", "상태", "적요") if spec.get(k)]
-        want += spec["키"]
-        # 변경 판정에 쓸 칸 — 이 화면에서 **업무상 뜻이 있다고 적어 둔 것**만.
-        # 나머지(잔액·누계 같은 회차 의존 값)는 담아서 보여 주되 변경으로 세지 않는다.
-        core_cols = sorted(set(want))
+        specs = ERP_MAP[a["kind"]]
+        specs = specs if isinstance(specs, list) else [specs]
         try:
             wb = openpyxl.load_workbook(a["path"], data_only=True, read_only=False)
         except Exception:
@@ -541,12 +569,25 @@ def ingest_erp(con, quiet=False, only=None, force=False, limit=None):
         try:
             for ws in wb.worksheets:
                 rows = list(ws.iter_rows(values_only=True))
-                hi, cols = _erp_header(rows, want)
-                if hi is None:
+                # 모양이 여럿이면 **가장 잘 맞는 것**을 쓴다(칸 이름이 가장 많이 보이는 것)
+                hi, cols, spec, want, best = None, {}, specs[0], [], 0
+                for cand in specs:
+                    w = [cand[k] for k in ("날짜", "거래처", "금액", "상태", "적요")
+                         if cand.get(k)] + cand["키"]
+                    h, c = _erp_header(rows, w)
+                    score = sum(1 for x in w if x in c) if h is not None else 0
+                    if score > best:
+                        hi, cols, spec, want, best = h, c, cand, w, score
+                # 변경 판정에 쓸 칸 — 이 화면에서 **업무상 뜻이 있다고 적어 둔 것**만.
+                # 나머지(잔액·누계 같은 회차 의존 값)는 담아 보여 주되 변경으로 세지 않는다.
+                core_cols = sorted(set(want))
+                if hi is None or not all(k in cols for k in spec["키"][:1]):
                     # ★ **조용히 건너뛰지 않는다.** 머리행을 못 찾았다는 것은 대개
                     #   '이 파일이 그 종류가 아니다'라는 뜻이다(분류가 틀렸다).
                     #   말없이 넘기면 그 화면 건수가 영원히 모자란 채로 맞아 보인다.
-                    noheader.append(os.path.basename(a["path"]))
+                    #   ★ 다만 **시트 하나**가 안 맞는 것은 흔하다(빈 시트·요약 시트).
+                    #     파일 안 어느 시트도 못 읽었을 때만 신고한다 — 안 그러면
+                    #     정상 파일이 매 회차 경고에 올라 경고가 값을 잃는다.
                     continue
                 get = lambda r, name: (r[cols[name]] if cols.get(name) is not None
                                        and cols[name] < len(r) else None)
@@ -589,6 +630,8 @@ def ingest_erp(con, quiet=False, only=None, force=False, limit=None):
                     n += 1
         finally:
             wb.close()
+        if not n:
+            noheader.append(os.path.basename(a["path"]))
         con.execute("INSERT OR REPLACE INTO parsed(asset_id,fingerprint,rows,at)"
                     " VALUES(?,?,?,?)", (a["id"], fp, n, now()))
         con.commit()
@@ -967,20 +1010,27 @@ def fill_sha1(con, limit=2000, quiet=False):
     return n
 
 
-def reclassify(con, limit=500, quiet=False):
+def reclassify(con, limit=500, quiet=False, deep=False):
     """종류가 아직 **거친** 엑셀을 내용으로 다시 갈라 준다 → 바꾼 수.
 
     주사는 새것·바뀐 것에만 내용 판별을 돌린다(엑셀을 여는 일이라 느리다). 그래서
     판별 규칙을 **나중에 고치면** 이미 들어와 있는 파일은 옛 종류 그대로 남는다 —
     잔량(`taxstep`) 규칙을 새로 넣고도 101행짜리 파일이 계속 'ERP' 였던 이유다.
     이 함수가 그 뒤처리를 맡는다. 한 번에 다 하지 않고 상한을 둔다.
+
+    `deep=True` 면 **이미 갈라진 `ERP:*` 도 다시 본다** (2026-08-08 추가).
+    기본값이 '거친 것만'인 데에는 이유가 있다 — 매번 전부 다시 여는 것은 느리다.
+    그런데 그 때문에 **판별이 틀렸던 것은 규칙을 고쳐도 영영 안 고쳐졌다**:
+    견적서조회 3장이 '거래명세서'로 앉아 있었고, 규칙을 바로잡아도 여기 안 걸렸다.
+    규칙을 고친 뒤에는 `--reclassify-deep` 을 한 번 돌린다.
     """
     try:
         from inbox_scan import classify
     except Exception:
         return 0
+    where = ("kind LIKE 'ERP%'" if deep else "kind NOT LIKE '%:%'")
     rows = con.execute(
-        "SELECT id, path FROM asset WHERE gone_at IS NULL AND kind NOT LIKE '%:%'"
+        "SELECT id, path, kind FROM asset WHERE gone_at IS NULL AND " + where +
         " AND path LIKE '%.xlsx' LIMIT ?", (int(limit),)).fetchall()
     n = 0
     for r in rows:
@@ -988,11 +1038,12 @@ def reclassify(con, limit=500, quiet=False):
             k = classify(r["path"])
         except Exception:
             continue
-        if k and k != "unknown":
+        if k and k != "unknown" and f"ERP:{k}" != r["kind"]:
             con.execute("UPDATE asset SET kind=? WHERE id=?", (f"ERP:{k}", r["id"]))
             n += 1
     con.commit()
-    log(con, "intake", "datalake.reclassify", detail={"바꿈": n, "본것": len(rows)})
+    log(con, "intake", "datalake.reclassify", detail={"바꿈": n, "본것": len(rows),
+                                                      "깊게": bool(deep)})
     con.commit()
     if not quiet:
         print(f"내용 재판별: {n}건 갈라냄 (본 것 {len(rows)})")
@@ -1118,6 +1169,8 @@ def main(argv=None):
     #   (수집은 'CSOS 리서치 및 자료 수집' 세션이 맡는다 — CLAUDE.md).
     ap.add_argument("--band", action="store_true",
                     help="밴드 캐시(band/cache)의 글을 record 로 흡수(수집 아님)")
+    ap.add_argument("--reclassify-deep", type=int, nargs="?", const=1000, metavar="N",
+                    help="이미 갈라진 ERP:* 도 다시 판별한다(판별 규칙을 고친 뒤 한 번)")
     ap.add_argument("--erp", action="store_true",
                     help="ERP 내보내기 엑셀을 한 건씩 record 로 흡수(내려받기 아님)")
     ap.add_argument("--erp-force", action="store_true",
@@ -1137,6 +1190,8 @@ def main(argv=None):
             fill_sha1(con, limit=a.fill_sha1)
         if a.reclassify:
             reclassify(con, limit=a.reclassify)
+        if a.reclassify_deep:
+            reclassify(con, limit=a.reclassify_deep, deep=True)
         if a.find is not None:
             f = _kv(a.find)
             on = f.pop("on", "asset")
@@ -1185,7 +1240,8 @@ def main(argv=None):
                                limit=int(f.get("limit") or a.limit)))
         if a.status or not (a.scan or a.fill_sha1 or a.reclassify or a.find is not None
                             or a.log is not None or a.band or a.flow is not None
-                            or a.repair_band_date or a.erp or a.erp_force):
+                            or a.repair_band_date or a.erp or a.erp_force
+                            or a.reclassify_deep):
             s = status(con)
             print(f"보관소: {db_path()}")
             print(f"  자산 {s['자산']}건 (사라짐 {s['사라짐']}) · 변경이력 {s['이력']}"

@@ -136,6 +136,7 @@ KIND_LABEL = {
     "ERP:taxinv": "매출세금계산서",
     "ERP:tax":    "세금계산서현황",
     "ERP:taxstep": "계산서진행단계(잔량)",
+    "ERP:quote": "견적서조회",
     "ERP:slips":  "회계전표·거래",
     "ERP:hometax": "홈택스",
     "ERP 거래명세서(건별 PDF)": "거래명세서 PDF",

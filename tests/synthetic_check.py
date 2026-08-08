@@ -4083,9 +4083,14 @@ def t95_objective_completion_db_only():
         as_wait = {**base, "원천업무ID": "AS-1", "원장_공급가액": 0,
                    "원장_거래명세서합계": 110}
         assert E.settle_status({**as_wait, "프로젝트NO": "P7"}) == "완료(ERP 수금확인)"
-        assert E.settle_status({**as_wait, "프로젝트NO": "P6"}) == "금액 재계산 대기"
-        assert E.settle_status({**as_wait, "프로젝트NO": "PMIX"}) == "금액 재계산 대기", \
+        # ★ 2026-08-08 지시로 ÷1.1 이 **깨끗이 떨어지면** 금액을 아는 것이라 대기가 아니다.
+        #   110 → 100 은 떨어지므로 사다리를 계속 내려가 발행·수금 판정이 나온다.
+        assert E.settle_status({**as_wait, "프로젝트NO": "P6"}) == "입금 대기"
+        assert E.settle_status({**as_wait, "프로젝트NO": "PMIX"}) == "세금계산서 미발행", \
             "한 프로젝트에 수금완료·미완료 전표가 섞였는데 전체 완료로 올렸다"
+        #   안 떨어지는 금액은 예전 그대로 사람에게 남긴다 — 억지로 숫자를 만들지 않는다.
+        odd = {**as_wait, "원장_거래명세서합계": 111}
+        assert E.settle_status({**odd, "프로젝트NO": "PMIX"}) == "금액 재계산 대기"
         assert E._collapse_erp_progress(["7.수금완료", "7.수금완료"]) == "7.수금완료"
         assert E._collapse_erp_progress(["7.수금완료", "6.세금계산서발행"]) == \
             "6.세금계산서발행"
@@ -8675,8 +8680,30 @@ def t153_erp_excel_to_records():
             con.commit()
             assert D.ingest_erp(con, quiet=True)["머리행못찾음"], \
                 "머리행을 못 찾은 파일을 말없이 건너뛰었다 — 건수가 영영 모자란 채로 맞아 보인다"
+
+            # ★ 한 종류에 **표 모양이 둘 이상** — 분개장은 같은 ledger 인데 열이 다르고
+            #   전표번호가 두 자리 해다. 모양 하나만 알면 이 화면이 통째로 안 읽힌다.
+            jr = os.path.join(tmp, "분개장.xlsx")
+            wb = openpyxl.Workbook(); ws = wb.active
+            ws.append(["회사명 : 합성"])
+            ws.append(["전표번호", "계정명", "거래처", "차변", "대변", "적요"])
+            ws.append(["26/01/02-2-1", "외상매출금", "쿠팡", 3289000, None, "AS 작업"])
+            wb.save(jr); wb.close()
+            con.execute("INSERT INTO asset(path,kind,bucket,mtime,size,biz_date,"
+                        "first_seen,last_seen) VALUES(?,?,?,?,?,?,?,?)",
+                        (jr, "ERP:ledger", "시험", os.path.getmtime(jr),
+                         os.path.getsize(jr), "2026-08-08", D.now(), D.now()))
+            con.commit()
+            g4 = D.ingest_erp(con, quiet=True)
+            assert g4["신규"] == 1, "다른 표 모양(분개장)을 못 읽었다: %s" % g4
+            got = con.execute("SELECT biz_date FROM record WHERE natural_key LIKE '%외상매출금%'"
+                              ).fetchone()
+            assert got and got[0] == "2026-01-02", \
+                "두 자리 해(26/01/02)를 못 읽었다 — 화면 하나가 통째로 비게 된다"
         finally:
             con.close()
+    assert D._erp_day("26/01/02-2-1") == "2026-01-02" and D._erp_day("2026/07/01 -1") == "2026-07-01"
+    assert D._erp_day("합계") == "" and D._erp_day(None) == ""
 
     # 매일 도는 자리에 들어가 있는가 — 파일에만 있고 안 도는 것을 막는다
     src = open(os.path.join(ROOT, "collect_all.py"), encoding="utf-8").read()
@@ -8987,6 +9014,73 @@ def t160_master_book_cache():
         except OSError:
             pass
     print("  [160] 관리대장 한 번만 파싱 — 행만 캐시·값 동일·셀 개체 거부·mtime 무효화 ✅")
+
+
+def t154_amount_basis():
+    """[154] 금액을 맞추는 세 가지 기준 (2026-08-08 지시).
+
+    사용자 지시: **"여기서는 돌발AS 정기점검만 집계해 / 그리고 나머지 다 진행해서
+    맞춰서 완료 처리로 변경해"**.
+
+    세 숫자가 다 '틀린 금액'처럼 보였지만 셋 다 **기준 문제**였다. 실측:
+      ① 원장 미반영 930,539,994원 → 그중 894,118,514원이 ERP 에만 있는 업무
+         (신규납품 440.6M·기타 362.2M·철거 47.7M·계단 43.6M)였다. 관리대장은
+         돌발AS·정기점검만 원장에 담는다. 같은 종류끼리 대면 +10.8M / −0.6M.
+      ② 계산서 발행율 0.9% → 06시트 '계산서' 칸이 사람 손 입력이라 유상 716건 중
+         6건만 채워져 있었다. ERP 는 450건을 이미 발행(6·7단계)했다 → 63.7%.
+      ③ 금액 재계산 대기 37건 → 명세서 부가세포함액이라 ÷1.1 하면 10원 단위로
+         딱 떨어졌다(506,000→460,000). 떨어지는 것은 아는 금액이지 대기가 아니다.
+
+    ★ 이 검증이 지키는 것은 "숫자가 크다/작다"가 아니라 **환산을 함부로 하지 않는 것**이다.
+      안 떨어지는 금액까지 억지로 나누면 틀린 값이 화면에서 확정처럼 보인다.
+    """
+    import ecount_reconcile as E
+
+    # ── ③ 환산은 깨끗할 때만 ──────────────────────────────────────────
+    for total, want in ((506000, 460000), (528000, 480000), (704000, 640000),
+                        (621500, 565000), (297000, 270000), (110, 100)):
+        assert E.supply_from_statement(total) == want, f"{total} 환산이 틀렸다"
+        assert round(want * 1.1) == total, "되돌려 곱해도 원본이 나와야 한다"
+    for bad in (111, 0, None, -100, "", "abc", 105):
+        assert E.supply_from_statement(bad) is None, \
+            f"{bad!r} 은 부가세 포함액이라는 근거가 없다 — 환산하면 안 된다"
+
+    # ── ② 발행 판정은 근거 세 갈래를 모두 인정한다 ────────────────────
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert '"발행(ERP확인)" if _erp_issued else "미발행"' in server, \
+        "ERP 가 발행했다고 말하는 건을 화면이 미발행으로 센다"
+    assert "_erp_progress_map.get" in server and "erp_progress" in server, \
+        "발행 판정 근거가 erp_progress 가 아니면 '혼재' 프로젝트를 발행으로 세게 된다"
+    assert "r.계산서==='발행'" not in live, \
+        "발행율이 06시트 칸 하나만 보고 있다 — 그 칸이 비어 0.9% 가 나왔던 자리다"
+    assert live.count("String(r.계산서||'').startsWith('발행')") >= 3, \
+        "발행 집계 자리 중 일부만 고쳐졌다 — 화면마다 발행율이 달라진다"
+    assert "!String(r.계산서||'').startsWith('발행')" in live, \
+        "'미발행 목록'이 발행된 건을 다시 담는다"
+
+    # ── ① ERP 비교는 원장이 담는 업무만 ───────────────────────────────
+    assert "const ERP_LEDGER_KINDS = ['돌발AS','정기점검'];" in live, \
+        "비교 대상 유형이 한 곳에 정의돼 있지 않다"
+    assert "erpKindSum(v)" in live and "erpOtherYTD" in live, \
+        "ERP 전체를 원장과 대 놓고 '미반영'이라 부르던 자리가 남아 있다"
+    assert "ERP 전용 매출" in live, \
+        "원장 관리 밖 업무를 따로 보여 주지 않으면 없어진 매출처럼 보인다"
+
+    # ── 상태 사다리: 환산되면 흘러가고, 안 되면 사람에게 남는다 ────────
+    saved = E.erp_progress
+    try:
+        E.erp_progress = lambda: {"P6": "6.세금계산서발행"}
+        row = {"비용구분": "유상", "원천업무ID": "AS-1", "원장_공급가액": 0,
+               "원장_거래명세서번호": "20260101-1", "프로젝트NO": "P6"}
+        assert E.settle_status({**row, "원장_거래명세서합계": 110}) == "입금 대기", \
+            "환산으로 금액을 알았는데도 '재계산 대기'에 붙잡혀 있다"
+        assert E.settle_status({**row, "원장_거래명세서합계": 111}) == "금액 재계산 대기"
+        assert E.settle_status({**row, "원장_거래명세서합계": 0}) == "금액 미입력"
+    finally:
+        E.erp_progress = saved
+    print("  [154] 금액 기준 셋 — ÷1.1 은 깨끗할 때만 · 발행은 근거 세 갈래 · "
+          "ERP 비교는 돌발AS·정기점검만 ✅")
 
 
 def t149_tech_center():
@@ -9617,6 +9711,7 @@ if __name__ == "__main__":
     t148_input_suggest()
     t149_tech_center()
     t160_master_book_cache()
+    t154_amount_basis()
     t144_topmost_pin_always_restores()
     t145_redirect_deleted_needs_two_rounds()
     t146_erp_bulk_grab_registry()
