@@ -8573,6 +8573,118 @@ def t152_band_recollect_window():
     print("  [152] 밴드 재수집 08:00 — 30일 창·바뀐 것만·인계 맨 위·유령밴드 차단 ✅")
 
 
+def t153_erp_excel_to_records():
+    """[153] ERP 엑셀 → 건별 기록 — 겹치는 회차에도 **바뀜이 진짜 바뀜** (분담판 24).
+
+    사용자 지시: "긁어오라고하면 모두 긁어와서 앱 DB에 우선 반영해서 앱에서 바로보고
+    캡처하고 활용할 수 있게 정리하고 다 되면 엑셀에 반영하는 알고리즘 추가해."
+
+    ERP 내보내기는 **기간이 서로 겹친다** — 같은 전표가 파일 열 개에 들어 있다.
+    그래서 이 검사의 핵심은 '읽어지나'가 아니라 **'같은 것을 다시 읽어도 조용한가'**다.
+    실측에서 세 번 부풀었다: 파일명을 payload 에 넣어서(1,669) · 원장 잔액처럼 회차마다
+    달라지는 칸까지 비교해서(11,227) · 회차 안에서 파일마다 곧바로 덮어써서(1,310).
+    셋 다 record_rev 를 가짜로 채워 **진짜 변경을 묻는** 실패다.
+    """
+    import datalake as D
+    try:
+        import openpyxl
+    except ImportError:
+        print("  [153] openpyxl 없음 — 건너뜀")
+        return
+
+    def book(path, rows):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["회사명 : 합성"])                     # 머리행은 2행 — 위치로 찾으면 안 된다
+        ws.append(["일자-No.", "거래처명", "적요", "차변금액", "대변금액", "잔액"])
+        for r in rows:
+            ws.append(r)
+        wb.save(path)
+        wb.close()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        dbp = os.path.join(tmp, "t153.db")
+        old = os.path.join(tmp, "old.xlsx")
+        new = os.path.join(tmp, "new.xlsx")
+        # 같은 전표가 두 회차에 겹쳐 있다. 잔액은 뽑은 기간이 달라 서로 다르다.
+        book(old, [["2026/07/01 -1", "쿠팡", "매출", 1000, None, 1000],
+                   ["2026/07/01 -1", "쿠팡", "입금", None, 1000, 0],
+                   ["2026/07/02 -1", "쿠팡", "매출", 2000, None, 2000],
+                   ["2026/07 계", None, None, 3000, None, None]])       # 합계 — 버려야 한다
+        book(new, [["2026/07/01 -1", "쿠팡", "매출", 1000, None, 55555],   # 잔액만 다르다
+                   ["2026/07/01 -1", "쿠팡", "입금", None, 1000, 55555],
+                   ["2026/07/02 -1", "쿠팡", "매출", 2500, None, 55555]])  # ← 진짜 정정
+
+        con = D.connect(dbp)
+        try:
+            for p, day in ((old, "2026-07-31"), (new, "2026-08-05")):
+                con.execute("INSERT INTO asset(path,kind,bucket,mtime,size,biz_date,"
+                            "first_seen,last_seen) VALUES(?,?,?,?,?,?,?,?)",
+                            (p, "ERP:ledger", "시험", os.path.getmtime(p),
+                             os.path.getsize(p), day, D.now(), D.now()))
+            con.commit()
+
+            g1 = D.ingest_erp(con, quiet=True)
+            assert g1["파일"] == 2, "두 파일을 다 안 뜯었다: %s" % g1
+            # 한 전표에 두 줄(매출·입금)이 있다 — 뭉개지면 서로 덮어쓴다
+            keys = [r[0] for r in con.execute(
+                "SELECT natural_key FROM record WHERE kind='ERP:ledger' ORDER BY natural_key")]
+            assert len(keys) == 3, "전표 줄이 뭉개졌다(키 %d개): %s" % (len(keys), keys)
+            assert not any("계" == r[0] for r in con.execute(
+                "SELECT party FROM record WHERE kind='ERP:ledger'")), "합계 줄이 한 건으로 들어왔다"
+            assert g1["변경"] == 0, \
+                "첫 흡수인데 '바뀜'이 나왔다 — 회차 안에서 파일마다 덮어썼다는 뜻이다(%d)" % g1["변경"]
+            # 새 회차가 이겨야 한다 — 2026/07/02 는 2000 이 아니라 2500
+            amt = dict(con.execute("SELECT natural_key,amount FROM record WHERE kind='ERP:ledger'"))
+            got = [v for k, v in amt.items() if "07/02" in k][0]
+            assert got == 2500, "오래된 회차가 새 회차를 덮었다 (금액 %s)" % got
+
+            # ★ 같은 것을 그대로 다시 — 한 줄도 바뀌면 안 된다
+            rev0 = con.execute("SELECT COUNT(*) FROM record_rev").fetchone()[0]
+            g2 = D.ingest_erp(con, quiet=True, force=True)
+            assert g2["변경"] == 0 and g2["신규"] == 0 and g2["그대로"] == 3, \
+                "같은 파일을 다시 뜯었더니 바뀌었다고 한다: %s" % \
+                {k: g2[k] for k in ("신규", "변경", "그대로")}
+            assert con.execute("SELECT COUNT(*) FROM record_rev").fetchone()[0] == rev0, \
+                "안 바뀐 것이 record_rev 를 늘렸다 — 진짜 변경이 이 안에 묻힌다"
+            # 안 뜯어도 되는 파일은 안 연다(회차가 못 끝난다)
+            assert D.ingest_erp(con, quiet=True)["건너뜀"] == 2, "이미 뜯은 파일을 또 뜯는다"
+
+            # 진짜 변경 — 발행 상태가 바뀐 것처럼 금액을 고쳐 새 회차를 넣는다
+            newer = os.path.join(tmp, "newer.xlsx")
+            book(newer, [["2026/07/02 -1", "쿠팡", "매출", 9900, None, 1]])
+            con.execute("INSERT INTO asset(path,kind,bucket,mtime,size,biz_date,"
+                        "first_seen,last_seen) VALUES(?,?,?,?,?,?,?,?)",
+                        (newer, "ERP:ledger", "시험", os.path.getmtime(newer),
+                         os.path.getsize(newer), "2026-08-08", D.now(), D.now()))
+            con.commit()
+            g3 = D.ingest_erp(con, quiet=True)
+            assert g3["변경"] == 1, "진짜 금액 정정을 못 잡았다: %s" % g3["바뀐건"]
+            chg = D.record_changes(con, kind="ERP:ledger", limit=5)
+            assert any("9900" in (c["new"] or "") for c in chg), \
+                "무엇이 어떻게 바뀌었는지 record_rev 에 안 남았다"
+
+            # 분류가 틀린 파일은 **조용히 넘어가지 않는다**
+            odd = os.path.join(tmp, "odd.xlsx")
+            wb = openpyxl.Workbook(); wb.active.append(["전혀", "다른", "화면"])
+            wb.save(odd); wb.close()
+            con.execute("INSERT INTO asset(path,kind,bucket,mtime,size,biz_date,"
+                        "first_seen,last_seen) VALUES(?,?,?,?,?,?,?,?)",
+                        (odd, "ERP:ledger", "시험", os.path.getmtime(odd),
+                         os.path.getsize(odd), "2026-08-08", D.now(), D.now()))
+            con.commit()
+            assert D.ingest_erp(con, quiet=True)["머리행못찾음"], \
+                "머리행을 못 찾은 파일을 말없이 건너뛰었다 — 건수가 영영 모자란 채로 맞아 보인다"
+        finally:
+            con.close()
+
+    # 매일 도는 자리에 들어가 있는가 — 파일에만 있고 안 도는 것을 막는다
+    src = open(os.path.join(ROOT, "collect_all.py"), encoding="utf-8").read()
+    assert '"--erp"' in src and '"--band"' in src, \
+        "ERP·밴드 건별 기록 단계가 collect_all(09:50 daily_run) 에 없다"
+    print("  [153] ERP 엑셀 → 건별 기록 — 겹친 회차·합계줄·멱등·틀린분류 신고 ✅")
+
+
 def t150_datalake_schema_and_incremental():
     """[150] 전 자료 보관소 — 표·append-only·증분·묘비 (2026-08-07 지시).
 
@@ -9511,6 +9623,7 @@ if __name__ == "__main__":
     t150_datalake_schema_and_incremental()
     t151_collect_all_idempotent_and_no_login_scrape()
     t152_band_recollect_window()
+    t153_erp_excel_to_records()
     t120_calendar_sheet_and_share()
     t121_pid_alive()
     t106_calendar_kind_colors()

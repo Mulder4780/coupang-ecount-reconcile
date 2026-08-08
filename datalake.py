@@ -33,6 +33,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -155,6 +156,18 @@ CREATE TABLE IF NOT EXISTS link(
 );
 CREATE INDEX IF NOT EXISTS ix_link_dst ON link(dst);
 
+-- ★ 어느 파일을 **어떤 모습일 때** 이미 뜯어 봤나 (worksplit #24).
+--   ERP 엑셀은 100개가 넘고 하나 여는 데 수 초다. 매 회차 전부 다시 열면 회차가
+--   못 끝난다. 그렇다고 '한 번 봤으면 끝'도 안 된다 — 같은 이름으로 **다시 받은**
+--   파일이 내용만 다를 때 그것을 놓친다. 그래서 기억하는 것은 파일이 아니라
+--   **그때의 모습(크기·수정시각)**이다. 모습이 달라지면 다시 뜯는다.
+CREATE TABLE IF NOT EXISTS parsed(
+  asset_id INTEGER PRIMARY KEY REFERENCES asset(id),
+  fingerprint TEXT NOT NULL,
+  rows INTEGER DEFAULT 0,
+  at   TEXT NOT NULL
+);
+
 -- ★ 로그는 고칠 수도 지울 수도 없다. 고쳐질 수 있으면 근거가 아니다.
 --   "8/5 돌발AS 가 왜 1건이었나"를 되짚을 때 믿을 것이 이 표뿐이다.
 CREATE TRIGGER IF NOT EXISTS ev_no_update BEFORE UPDATE ON event
@@ -254,12 +267,28 @@ _REC_TRACK = ("biz_date", "party", "amount", "status")
 
 
 def put_record(con, kind, natural_key, payload, biz_date=None, party="",
-               amount=None, status="", asset_id=None, why="", actor=None):
+               amount=None, status="", asset_id=None, why="", actor=None,
+               hash_on=None):
     """한 건을 넣거나 갱신한다. 바뀐 것이 없으면 아무것도 쓰지 않는다.
+
+    `hash_on` 은 **'바뀌었나'를 판정할 때 볼 칸들**이다. 안 주면 payload 전체를 본다.
+    ★ 왜 필요한가 (2026-08-08 실측): ERP 내보내기에는 **회차마다 달라지는 칸**이
+      섞여 있다 — 계정별원장의 `잔액` 은 뽑은 기간이 어디서 시작하느냐에 따라 달라진다.
+      전표 내용은 한 글자도 안 바뀌었는데 잔액이 달라서 '바뀜'이 됐고, 첫 흡수에서
+      22,260번의 재회 중 **11,227번이 가짜 변경**으로 잡혔다. 그렇게 부푼 record_rev
+      안에서는 진짜 변경(발행→완료, 금액 정정)을 영영 못 찾는다.
+      그래서 판정은 **업무상 뜻이 있는 칸**으로만 한다. 나머지는 payload 에 그대로
+      담아 화면에 보여 주되, 그것이 달라졌다고 변경으로 세지는 않는다.
 
     돌려주는 값은 (record_id, 'new'|'same'|'changed')."""
     body = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
-    h = hashlib.sha1(body.encode("utf-8")).hexdigest()
+    if hash_on:
+        core = {k: payload.get(k) for k in hash_on}
+        core.update({"_날짜": biz_date, "_거래처": party, "_금액": amount, "_상태": status})
+        seed = json.dumps(core, ensure_ascii=False, sort_keys=True, default=str)
+    else:
+        seed = body
+    h = hashlib.sha1(seed.encode("utf-8")).hexdigest()
     ts = now()
     cur = con.execute("SELECT id,hash,biz_date,party,amount,status FROM record"
                       " WHERE kind=? AND natural_key=?", (kind, natural_key)).fetchone()
@@ -399,6 +428,203 @@ def ingest_band(con, quiet=False, since=None, why="밴드 캐시 흡수"):
               f" · 시각 없어 버림 {skipped} · 삭제/오염/유령 제외 {junk}")
     return {"신규": made, "변경": changed, "그대로": same, "버림": skipped, "제외": junk,
             "새글": hit_new, "바뀐글": hit_chg}
+
+
+# ── ERP 엑셀 → 기록 (worksplit #24) ──────────────────────────────────────────
+# 화면마다 열 이름이 다르다. **어느 열이 그 화면의 신분증인가**만 여기 적어 두면
+# 나머지(머리행 찾기·숫자 읽기·합계행 버리기)는 공통으로 처리된다.
+#   키   = 자연키를 만드는 열들. 다시 받아도 같은 값이어야 한다(그래야 '바뀜'을 안다)
+#   날짜 = 업무 날짜를 캐낼 열. `2026/07/01 -1` 처럼 번호가 붙어 있어도 앞 열 자를 쓴다
+ERP_MAP = {
+    # ★ 원장은 전표 하나에 **여러 줄**이다(차변·대변·적요별). `일자-No.` 만으로는
+    #   8,820줄이 1,924키로 뭉개져, 같은 키를 서로 덮어쓰며 매번 '바뀜'이 됐다.
+    "ERP:ledger":  {"키": ["일자-No.", "거래처명", "적요"], "날짜": "일자-No.",
+                    "거래처": "거래처명", "금액": "차변금액", "적요": "적요"},
+    "ERP:tax":     {"키": ["일자-No."], "날짜": "일자-No.", "거래처": "거래처명",
+                    "금액": "매출합계"},
+    "ERP:taxstep": {"키": ["일자-No."], "날짜": "일자-No.", "거래처": "거래처명",
+                    "금액": "합계금액", "상태": "전자(세금)계산서 진행"},
+    "ERP:slips":   {"키": ["전표번호"], "날짜": "전표번호", "거래처": "거래처명",
+                    "금액": "금액", "적요": "적요명"},
+    "ERP:sales":   {"키": ["일자", "PO번호", "거래처명", "품목명(요약)"], "날짜": "일자",
+                    "거래처": "거래처명", "금액": "금액합계", "상태": "진행상태"},
+    "ERP:stmt":    {"키": ["일자", "품목명[규격]"], "날짜": "일자",
+                    "금액": "공급가액", "적요": "적요"},
+    "ERP:hometax": {"키": ["승인번호"], "날짜": "일자", "거래처": "공급받는자상호",
+                    "금액": "공급가액", "상태": "계산서종류"},
+    "ERP:taxinv":  {"키": ["일자 - 번호"], "날짜": "일자 - 번호", "거래처": "거래처명",
+                    "금액": "합 계"},
+}
+_DATE_RE = re.compile(r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})")
+
+
+def _erp_day(v):
+    """`2026/07/01 -1` · `2026-07-01` · 엑셀 날짜 → `YYYY-MM-DD`. 못 읽으면 빈 값."""
+    if isinstance(v, datetime):
+        return v.strftime("%Y-%m-%d")
+    m = _DATE_RE.search(str(v or ""))
+    return "%s-%02d-%02d" % (m.group(1), int(m.group(2)), int(m.group(3))) if m else ""
+
+
+def _erp_num(v):
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = re.sub(r"[^\d.\-]", "", str(v or ""))
+    try:
+        return float(s) if s not in ("", "-", ".") else None
+    except ValueError:
+        return None
+
+
+def _erp_header(rows, want):
+    """머리행을 **이름으로** 찾는다.
+
+    ★ '몇 번째 줄'로 정하면 안 된다 — 거래명세서는 6행, 나머지는 2행이고, 화면이
+      바뀌면 또 달라진다. 찾는 열 이름이 가장 많이 보이는 줄이 머리행이다.
+    """
+    best, bi, cols = 0, None, {}
+    for i, r in enumerate(rows[:15]):
+        names = {str(c).strip(): j for j, c in enumerate(r) if c is not None}
+        hit = sum(1 for w in want if w in names)
+        if hit > best:
+            best, bi, cols = hit, i, names
+    return (bi, cols) if best >= 1 else (None, {})
+
+
+def ingest_erp(con, quiet=False, only=None, force=False, limit=None):
+    """ERP 내보내기 엑셀을 **한 건씩** record 로 옮긴다 (worksplit #24).
+
+    ★ 여기서 ERP 를 내려받지 않는다. `erp_grab.py` 가 받아 Z: 에 둔 것을 읽기만 한다.
+    ★ 이미 뜯어 본 파일은 건너뛴다(`parsed` 표). 판단 근거는 이름이 아니라
+      **크기·수정시각**이라, 같은 이름으로 다시 받으면 다시 뜯는다.
+    ★ 합계·소계 줄은 버린다 — 그것을 한 건으로 넣으면 금액이 두 번 세어진다.
+
+    ★ **회차 안에서는 한 건을 한 번만 쓴다** (2026-08-08 실측). ERP 내보내기는 기간이
+      서로 겹친다 — 같은 전표가 파일 열 개에 들어 있다. 파일마다 곧바로 쓰면 한 회차
+      안에서 같은 건이 열 번 덮어써지고, 그 왕복이 전부 '바뀜'으로 기록된다.
+      같은 파일들을 그대로 다시 뜯어도 **또 1,310건이 바뀌었다고 나왔다** — 아무것도
+      안 변했는데. 그래서 먼저 전부 읽어 **오래된 것 → 새것** 순으로 겹쳐 최종값을
+      만들고, 그 최종값만 한 번 쓴다. 그제야 '바뀜'이 진짜 바뀜을 뜻한다.
+    """
+    try:
+        import openpyxl
+    except ImportError:
+        return {"오류": "openpyxl 없음"}
+    kinds = [only] if only else list(ERP_MAP)
+    # 오래된 것부터 — 뒤에 오는(더 새로운) 내보내기가 앞의 값을 덮는다.
+    q = ("SELECT id,path,kind,mtime,size FROM asset WHERE gone_at IS NULL AND kind IN (%s)"
+         " ORDER BY biz_date ASC, id ASC" % ",".join("?" * len(kinds)))
+    todo = con.execute(q, kinds).fetchall()
+    seen = {r["asset_id"]: r["fingerprint"] for r in con.execute("SELECT * FROM parsed")}
+    made = same = changed = files = skipped = bad = 0
+    hit_chg, noheader = [], []
+    final = {}                  # 자연키 → 이 회차의 최종값. 다 읽은 뒤 한 번만 쓴다.
+    for a in todo:
+        fp = "%s:%s" % (a["mtime"], a["size"])
+        if not force and seen.get(a["id"]) == fp:
+            skipped += 1
+            continue
+        if limit and files >= int(limit):
+            break
+        spec = ERP_MAP[a["kind"]]
+        want = [spec[k] for k in ("날짜", "거래처", "금액", "상태", "적요") if spec.get(k)]
+        want += spec["키"]
+        # 변경 판정에 쓸 칸 — 이 화면에서 **업무상 뜻이 있다고 적어 둔 것**만.
+        # 나머지(잔액·누계 같은 회차 의존 값)는 담아서 보여 주되 변경으로 세지 않는다.
+        core_cols = sorted(set(want))
+        try:
+            wb = openpyxl.load_workbook(a["path"], data_only=True, read_only=False)
+        except Exception:
+            bad += 1
+            continue
+        n, seq = 0, {}
+        try:
+            for ws in wb.worksheets:
+                rows = list(ws.iter_rows(values_only=True))
+                hi, cols = _erp_header(rows, want)
+                if hi is None:
+                    # ★ **조용히 건너뛰지 않는다.** 머리행을 못 찾았다는 것은 대개
+                    #   '이 파일이 그 종류가 아니다'라는 뜻이다(분류가 틀렸다).
+                    #   말없이 넘기면 그 화면 건수가 영원히 모자란 채로 맞아 보인다.
+                    noheader.append(os.path.basename(a["path"]))
+                    continue
+                get = lambda r, name: (r[cols[name]] if cols.get(name) is not None
+                                       and cols[name] < len(r) else None)
+                for r in rows[hi + 1:]:
+                    if r is None or all(c is None for c in r):
+                        continue
+                    parts = [str(get(r, k) or "").strip() for k in spec["키"]]
+                    if not parts[0]:
+                        continue
+                    joined = " ".join(str(c) for c in r if c is not None)
+                    # 합계·소계·이월 — 한 건이 아니라 요약이다. 넣으면 금액이 겹친다.
+                    if re.search(r"(월\s*계|누\s*계|소\s*계|합\s*계|이\s*월|총\s*계)", joined):
+                        continue
+                    day = _erp_day(get(r, spec["날짜"]))
+                    if not day:
+                        continue
+                    # ★ 그래도 남는 겹침에는 **그 전표 안에서 몇 번째 줄인가**를 붙인다.
+                    #   열을 아무리 더해도 완전히 같은 줄이 두 번 나오는 화면이 있다
+                    #   (원장의 차변·대변 짝). 순번을 안 붙이면 둘이 한 건으로 뭉개져
+                    #   서로 덮어쓰고, 매 회차 '바뀜'으로 잡힌다 — 진짜 변경이 묻힌다.
+                    #   순번은 **한 전표 안**에서만 세므로 뽑은 기간이 달라져도 안 흔들린다.
+                    base = "%s/%s" % (a["kind"].split(":")[-1],
+                                      "|".join(p for p in parts if p))
+                    seq[base] = seq.get(base, 0) + 1
+                    key = base if seq[base] == 1 else "%s#%d" % (base, seq[base])
+                    payload = {str(name): (str(r[j]).strip() if j < len(r) and r[j] is not None
+                                           else "")
+                               for name, j in cols.items() if j is not None}
+                    # ★ **어느 파일에서 왔는지를 payload 에 넣지 말 것** (2026-08-08 실측).
+                    #   payload 는 해시로 '바뀌었나'를 판정하는 통이다. 파일명을 넣으면
+                    #   같은 건을 다른 회차 파일에서 다시 만날 때마다 **내용이 똑같아도
+                    #   '바뀜'** 이 된다 — 첫 시험에서 2,304행 중 1,669행이 그렇게 잡혔다.
+                    #   그러면 record_rev 가 가짜로 부풀고 진짜 변경이 그 안에 묻힌다.
+                    #   출처는 `asset_id` 가 이미 가리키고 있다.
+                    final[key] = (a["kind"], payload, day,
+                                  str(get(r, spec.get("거래처")) or "")[:60],
+                                  _erp_num(get(r, spec.get("금액"))),
+                                  str(get(r, spec.get("상태")) or "")[:40],
+                                  a["id"], core_cols)
+                    n += 1
+        finally:
+            wb.close()
+        con.execute("INSERT OR REPLACE INTO parsed(asset_id,fingerprint,rows,at)"
+                    " VALUES(?,?,?,?)", (a["id"], fp, n, now()))
+        con.commit()
+        files += 1
+
+    for i, (key, v) in enumerate(sorted(final.items())):
+        kind, payload, day, party, amount, status, aid, core_cols = v
+        _rid, how = put_record(con, kind, key, payload, biz_date=day, party=party,
+                               amount=amount, status=status, asset_id=aid,
+                               why="ERP 엑셀 흡수", hash_on=core_cols)
+        if how == "new":
+            made += 1
+        elif how == "changed":
+            changed += 1
+            hit_chg.append({"종류": kind, "건": key, "날짜": day})
+        else:
+            same += 1
+        if i % 2000 == 1999:            # Z: 주사처럼 한 거래를 오래 붙들지 않는다
+            con.commit()
+    con.commit()
+    log(con, "erp", "ingest_records", ok=not noheader,
+        detail={"파일": files, "건너뜀(그대로)": skipped, "못연파일": bad,
+                "신규": made, "변경": changed, "그대로": same,
+                "머리행못찾음": sorted(set(noheader))[:20]})
+    con.commit()
+    if not quiet:
+        print(f"  ERP 엑셀 → 기록: 파일 {files}개(건너뜀 {skipped}"
+              + (f" · 못 연 것 {bad}" if bad else "") + ")"
+              + f" · 신규 {made} · 변경 {changed} · 그대로 {same}")
+        if noheader:
+            u = sorted(set(noheader))
+            print(f"  ※ 머리행을 못 찾은 파일 {len(u)}개 — 분류가 틀렸을 수 있다:"
+                  f" {', '.join(u[:3])}" + (" …" if len(u) > 3 else ""))
+    return {"파일": files, "건너뜀": skipped, "못연파일": bad, "신규": made,
+            "변경": changed, "그대로": same, "바뀐건": hit_chg,
+            "머리행못찾음": sorted(set(noheader))}
 
 
 def repair_band_dates(con, quiet=False):
@@ -892,6 +1118,11 @@ def main(argv=None):
     #   (수집은 'CSOS 리서치 및 자료 수집' 세션이 맡는다 — CLAUDE.md).
     ap.add_argument("--band", action="store_true",
                     help="밴드 캐시(band/cache)의 글을 record 로 흡수(수집 아님)")
+    ap.add_argument("--erp", action="store_true",
+                    help="ERP 내보내기 엑셀을 한 건씩 record 로 흡수(내려받기 아님)")
+    ap.add_argument("--erp-force", action="store_true",
+                    help="이미 뜯어 본 파일도 다시 뜯는다")
+    ap.add_argument("--erp-kind", help="ERP 화면 한 종류만 (예: ERP:taxstep)")
     ap.add_argument("--repair-band-date", action="store_true",
                     help="밴드 글의 망가진 biz_date(에포크 초)를 날짜로 교정")
     ap.add_argument("--flow", nargs="*", metavar="키=값",
@@ -942,6 +1173,8 @@ def main(argv=None):
                       f"  {(r['detail'] or '')[:90]}")
             if not rows:
                 print("  (해당하는 로그 없음)")
+        if a.erp or a.erp_force:
+            ingest_erp(con, only=a.erp_kind, force=a.erp_force)
         if a.repair_band_date:
             repair_band_dates(con)
         if a.band:
@@ -952,7 +1185,7 @@ def main(argv=None):
                                limit=int(f.get("limit") or a.limit)))
         if a.status or not (a.scan or a.fill_sha1 or a.reclassify or a.find is not None
                             or a.log is not None or a.band or a.flow is not None
-                            or a.repair_band_date):
+                            or a.repair_band_date or a.erp or a.erp_force):
             s = status(con)
             print(f"보관소: {db_path()}")
             print(f"  자산 {s['자산']}건 (사라짐 {s['사라짐']}) · 변경이력 {s['이력']}"
