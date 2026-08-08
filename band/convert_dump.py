@@ -17,6 +17,34 @@ CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
 ABS = re.compile(r"(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*(오전|오후)?\s*(\d{1,2}):(\d{2})")
 
 
+def swap_in(tmp, dst, tries=6, wait=0.5):
+    """`os.replace(tmp, dst)` — 단, 윈도우에서 **읽는 쪽이 물고 있으면 실패한다.**
+
+    ★ 2026-08-08 실사고: 흡수가 `PermissionError [WinError 5]` 로 한 번 죽었다.
+      앱 서버가 마침 `band/cache/84789192.json`(5MB)을 읽는 중이었던 것으로 보인다.
+      리눅스와 달리 윈도우는 **열려 있는 파일을 갈아끼우지 못한다.**
+      그때 남는 것은 5MB `.tmp` 하나와 **옛 캐시** 뿐이다 — 새 글을 다 긁어 놓고도
+      캐시는 어제 것이고, 다음 회차는 그 옛 캐시를 보고 "바뀐 것 없음"을 내놓는다.
+      **아무 일도 안 일어났는데 안심시키는 결과다.** 조용한 사고의 전형이다.
+
+    읽는 쪽은 곧 파일을 놓으므로 **잠깐 기다렸다 다시** 걸면 대개 풀린다(실측 재시도 1회).
+    끝내 안 되면 `.tmp` 를 지우지 않고 **예외를 올린다** — 애써 만든 새 캐시를 버리는
+    것보다, 실패를 실패라고 말하고 사람이 그 `.tmp` 를 쓰게 두는 편이 낫다.
+    """
+    import time
+    for i in range(tries):
+        try:
+            os.replace(tmp, dst)
+            if i:
+                print(f"  · 캐시 갈아끼우기 {i + 1}번째에 성공({os.path.basename(dst)}) "
+                      f"— 누가 읽는 중이었습니다")
+            return
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(wait * (i + 1))       # 0.5s → 1.0s → … 물러서며 기다린다
+
+
 def parse_dt(text, captured_ms):
     m = ABS.search(text or "")
     if m:
@@ -488,7 +516,7 @@ def main():
         tmp = dst + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(out, fh, ensure_ascii=False)
-        os.replace(tmp, dst)
+        swap_in(tmp, dst)
         # 원본 자료 정본은 이름·내용 그대로 둔다. 로컬 처리함의 dump만 raw로 바꿔
         # 다음 실행에서 반복 변환되지 않게 한다.
         try:
@@ -527,7 +555,7 @@ def main():
         tmp = dst + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(doc, fh, ensure_ascii=False)
-        os.replace(tmp, dst)
+        swap_in(tmp, dst)
         print(f"  · 리다이렉트로 확인된 삭제 글 {n}건 기록({band}) "
               f"— 서로 다른 회차 {REDIRECT_ROUNDS_FOR_DELETED}번 이상. 다시 훑지 않는다")
 

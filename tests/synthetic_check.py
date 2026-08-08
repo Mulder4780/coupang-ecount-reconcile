@@ -9246,6 +9246,58 @@ def t168_erp_progress_glob_is_cached():
     print("  [168] erp_progress — 비싼 glob 앞에 캐시 검사가 온다(행마다 Z: 재귀탐색 금지) ✅")
 
 
+def t171_cache_swap_waits_for_readers():
+    """[171] 흡수가 **읽는 쪽에 막혀 조용히 죽으면** 안 된다 (2026-08-08 실사고).
+
+    `convert_dump` 의 `os.replace(tmp, dst)` 가 `PermissionError [WinError 5]` 로 죽었다.
+    앱 서버가 마침 `band/cache/84789192.json`(5MB)을 읽는 중이었다. 리눅스와 달리
+    윈도우는 **열려 있는 파일을 갈아끼우지 못한다.**
+
+    ★ 남는 그림이 나쁘다: 새 글을 다 긁어 놓고도 캐시는 **어제 것**이고 `.tmp` 만
+      덩그러니 남는다. 다음 회차는 그 옛 캐시를 보고 **"바뀐 것 없음"** 을 내놓는다 —
+      아무 일도 안 일어났는데 안심시키는 결과다. 실패가 성공처럼 보이는 자리다.
+
+    읽는 쪽은 곧 놓으므로 물러서며 몇 번 다시 건다. 끝내 안 되면 **예외를 올린다** —
+    `.tmp` 를 지우고 조용히 넘어가면 애써 만든 새 캐시까지 잃는다.
+    """
+    import tempfile, threading, time as _t
+    sys.path.insert(0, os.path.join(ROOT, "band"))
+    import convert_dump as C
+
+    src = open(os.path.join(ROOT, "band", "convert_dump.py"), encoding="utf-8").read()
+    body = "\n".join(ln for ln in src.splitlines() if not ln.strip().startswith("#"))
+    assert "os.replace(tmp, dst)" not in body.split("def swap_in", 1)[1].split("\ndef ", 1)[1], \
+        "캐시를 갈아끼우는 자리가 swap_in 을 안 거치면 재시도가 아무 소용 없다"
+    assert body.count("swap_in(tmp, dst)") >= 2, "캐시 쓰는 자리가 둘 다 거쳐야 한다"
+
+    d = tempfile.mkdtemp()
+    dst = os.path.join(d, "c.json")
+    tmp = dst + ".tmp"
+    open(dst, "w").write("old")
+    open(tmp, "w").write("new")
+    fh = open(dst, "r")                       # 읽는 쪽이 물고 있다
+    threading.Thread(target=lambda: (_t.sleep(0.9), fh.close()), daemon=True).start()
+    C.swap_in(tmp, dst)                       # 기다렸다 다시 걸어 성공해야 한다
+    assert open(dst).read() == "new", "물고 있다 놓으면 결국 새 캐시가 들어가야 한다"
+    assert not os.path.exists(tmp), "성공했으면 .tmp 는 사라진다"
+
+    # 끝내 안 풀리면 조용히 넘어가지 않는다 — .tmp 를 남기고 예외를 올린다
+    open(dst, "w").write("old")
+    open(tmp, "w").write("new")
+    keep = open(dst, "r")
+    try:
+        C.swap_in(tmp, dst, tries=2, wait=0.05)
+        raised = False
+    except PermissionError:
+        raised = True
+    finally:
+        keep.close()
+    if os.name == "nt":                       # 윈도우에서만 성립하는 잠금이다
+        assert raised, "못 갈아끼웠으면 실패라고 말해야 한다 — 조용히 넘어가면 옛 캐시가 산다"
+        assert os.path.exists(tmp), "실패해도 새 캐시(.tmp)는 버리지 않는다"
+    print("  [171] 캐시 갈아끼우기 — 읽는 쪽을 기다렸다 재시도, 끝내 안 되면 .tmp 남기고 실패 ✅")
+
+
 def t170_po_amount_ladder():
     """[170] PO 대조는 **앱 화면과 같은 금액**을 봐야 한다 (2026-08-08 사용자 질문에서).
 
@@ -10625,6 +10677,7 @@ if __name__ == "__main__":
     t168_erp_progress_glob_is_cached()
     t169_blind_count_sees_unlooked()
     t170_po_amount_ladder()
+    t171_cache_swap_waits_for_readers()
     t161_erp_filename_fingerprint()
     t160_master_book_cache()
     t154_amount_basis()
