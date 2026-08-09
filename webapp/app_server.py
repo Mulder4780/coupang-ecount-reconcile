@@ -4919,6 +4919,11 @@ def _compute_status():
             agent_route = agent_dispatch_status()
         except Exception:
             agent_route = {}
+        try:
+            import autopilot as _autopilot
+            autopilot_status = _autopilot.status()
+        except Exception:
+            autopilot_status = {}
         return {"master": os.path.basename(st.get("master", "") or "") + "  " + st.get("master_label", ""),
                 "fork": st.get("fork", []), "agent_last": rt or "기록 없음", "steps": steps,
                 "agent_aborted": agent_aborted, "agent_age_h": agent_age_h,
@@ -4929,7 +4934,7 @@ def _compute_status():
                 "kakao": st["kakao"], "band": st["band_auth"], "demo": False, "tunnel": tunnel,
                 "sources": srcs, "build": build_id(), "recalc": get_recalc_pending(),
                 "applywin": get_apply_window(),
-                "agent_dispatch": agent_route}
+                "agent_dispatch": agent_route, "autopilot": autopilot_status}
     except Exception as e:
         return {"error": str(e)}
 
@@ -5524,6 +5529,13 @@ self.addEventListener('fetch', e => {
             return self._send(401, {"error": "PIN"})
         if p == "/api/status":
             return self._send(200, get_status())
+        if p == "/api/autopilot":
+            # 읽기 전용 상태. 실제 재시도는 워치독 한 곳만 실행해 중복을 막는다.
+            try:
+                import autopilot as _autopilot
+                return self._send(200, _autopilot.status())
+            except Exception as exc:
+                return self._send(200, {"active": 0, "error": str(exc)[:180]})
         if p == "/api/notifications":
             return self._send(200, get_notifications())
         if p == "/api/staff/centers":

@@ -1,0 +1,312 @@
+# -*- coding: utf-8 -*-
+"""쿠팡 업무 자율복구 제어기.
+
+결정론적 업무 스크립트가 먼저 일하고, 공용 자원(Z:·관리대장) 장애는 실패 도미노로
+만들지 않고 영속 대기열에 둔다. 워치독이 30분마다 안전한 항목만 재개하며 같은 코드·
+시간초과가 세 번 반복될 때만 Claude Code→Codex 검토 큐로 넘긴다.
+
+세금계산서 실발행·외부 메시지·로그인은 자동 실행하지 않는다. 인증 세션이 생기면
+그 뒤 단계는 자동 재개하지만, 비밀번호나 법적 발행 승인을 대신하는 것은 자동화가
+아니라 권한 탈취이기 때문이다.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import sys
+import tempfile
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Iterable
+
+from proc_guard import run_tree
+
+
+ROOT = Path(__file__).resolve().parent
+REPORTS = ROOT / "reports"
+QUEUE_PATH = REPORTS / "autopilot_queue.json"
+STATUS_PATH = REPORTS / "autopilot_status.json"
+REPORT_PATH = REPORTS / "자율자동화_상태.md"
+PY = sys.executable
+MAX_ATTEMPTS_BEFORE_AI = 3
+BASE_BACKOFF_MINUTES = 30
+
+RESOURCE_MARKERS = (
+    "관리대장을 찾을 수 없음",
+    "관리대장 v*.xlsx 를 찾을 수 없습니다",
+    "네트워크 경로를 찾지 못했습니다",
+    "폴더에 닿지 못했습니다",
+    "정기점검 원본 폴더가 없습니다",
+    "winerror 53",
+    "z:\\",
+    "z:/",
+)
+AUTH_MARKERS = (
+    "로그인이 필요", "인증 없음", "not authenticated", "login required",
+    "밴드 미인증", "ecount 로그인",
+)
+IRREVERSIBLE_MARKERS = (
+    "실전송", "세금계산서 발행", "외부 메시지", "카카오톡 전송", "밴드 게시",
+)
+NON_RETRY_FLAGS = {"--apply", "--queue", "--send", "--post", "--upload", "--delete"}
+
+
+def _now() -> datetime:
+    return datetime.now().astimezone()
+
+
+def _atomic_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(prefix=path.stem + "_", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            json.dump(value, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        os.replace(temp, path)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+
+
+def _load_queue() -> dict[str, Any]:
+    try:
+        doc = json.loads(QUEUE_PATH.read_text(encoding="utf-8"))
+        if isinstance(doc, dict) and isinstance(doc.get("items"), list):
+            return doc
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+    return {"version": 1, "items": []}
+
+
+def command_key(name: str, args: Iterable[str]) -> str:
+    raw = json.dumps([name, *map(str, args)], ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+
+
+def retry_safe(args: Iterable[str]) -> bool:
+    """읽기·멱등 도구만 자동 재실행한다. 쓰기 가능 플래그는 사람이 아닌 정규 회차 몫."""
+    values = {str(x).lower() for x in args}
+    return not bool(values & NON_RETRY_FLAGS)
+
+
+def classify_failure(output: str) -> str:
+    text = " ".join(str(output or "").lower().split())
+    if any(x.lower() in text for x in AUTH_MARKERS):
+        return "auth"
+    if any(x.lower() in text for x in RESOURCE_MARKERS):
+        return "resource"
+    if "시간초과" in text or "timed out" in text or "timeout" in text:
+        return "timeout"
+    return "code"
+
+
+def defer(name: str, args: list[str], timeout: int, output: str) -> dict[str, Any] | None:
+    """안전한 실패를 중복 없이 대기열에 넣는다. 위험 작업은 절대 우회 재실행하지 않는다."""
+    kind = classify_failure(output)
+    # 합성검증은 회차의 안전문이다. 이것을 '나중에'로 돌리고 업무를 계속하면 안 된다.
+    if name == "합성검증" or not retry_safe(args):
+        return None
+    now = _now()
+    doc = _load_queue()
+    key = command_key(name, args)
+    item = next((x for x in doc["items"] if x.get("key") == key), None)
+    if item is None:
+        item = {
+            "key": key,
+            "name": name,
+            "args": list(args),
+            "timeout": int(timeout),
+            "created_at": now.isoformat(timespec="seconds"),
+            "attempts": 0,
+            "status": "waiting",
+            "ai_ticket": "",
+        }
+        doc["items"].append(item)
+    item.update({
+        "kind": kind,
+        "status": "blocked" if kind == "auth" else "waiting",
+        "last_error": " ".join(str(output or "").split())[-1200:],
+        "updated_at": now.isoformat(timespec="seconds"),
+        "next_attempt": (now + timedelta(minutes=BASE_BACKOFF_MINUTES)).isoformat(timespec="seconds"),
+    })
+    _atomic_json(QUEUE_PATH, doc)
+    write_status(doc)
+    return item
+
+
+def resolve(name: str, args: list[str]) -> None:
+    doc = _load_queue()
+    key = command_key(name, args)
+    changed = False
+    for item in doc["items"]:
+        if item.get("key") == key and item.get("status") != "done":
+            item.update({"status": "done", "resolved_at": _now().isoformat(timespec="seconds")})
+            changed = True
+    if changed:
+        _atomic_json(QUEUE_PATH, doc)
+        write_status(doc)
+
+
+def _due(item: dict[str, Any], now: datetime) -> bool:
+    if item.get("status") not in ("waiting", "retry", "blocked"):
+        return False
+    try:
+        return datetime.fromisoformat(str(item.get("next_attempt") or "")) <= now
+    except (TypeError, ValueError):
+        return True
+
+
+def _escalate(item: dict[str, Any]) -> str:
+    """같은 안전 작업이 세 번 실패한 경우에만 AI 한 장을 만든다(중복 금지)."""
+    if (item.get("ai_ticket") or item.get("kind") in ("resource", "auth") or
+            int(item.get("attempts") or 0) < MAX_ATTEMPTS_BEFORE_AI):
+        return ""
+    try:
+        from agent_dispatch import dispatch_async, enqueue
+        ticket = enqueue(
+            "autopilot-" + str(item["key"]),
+            "자율복구 반복 실패: " + str(item.get("name") or ""),
+            list(item.get("args") or []),
+        )
+        # 큐 파일이 만들어진 순간 인계는 내구성을 얻었다. 워커 기동이 실패해도 다음
+        # 점검이 같은 티켓을 소비하게 두고, 새 티켓을 계속 만들지는 않는다.
+        item["ai_ticket"] = str(ticket.get("id") or "queued")
+        dispatch_async(ticket, local_returncode=1)
+        return item["ai_ticket"]
+    except Exception as exc:
+        item["ai_error"] = f"{type(exc).__name__}: {str(exc)[:180]}"
+    return ""
+
+
+def heal(*, limit: int = 2, budget_seconds: int = 600, dry: bool = False) -> dict[str, Any]:
+    """워치독 회차에서 만기 항목을 조금씩 재개한다. 한 항목이 회차를 독점하지 않는다."""
+    doc = _load_queue()
+    now = _now()
+    actions: list[dict[str, Any]] = []
+    spent = 0
+    for item in doc["items"]:
+        if len(actions) >= max(0, int(limit)) or spent >= max(1, int(budget_seconds)):
+            break
+        if not _due(item, now):
+            continue
+        args = list(item.get("args") or [])
+        if not retry_safe(args):
+            item.update({"status": "manual", "last_error": "자동 재실행 금지 플래그 포함"})
+            continue
+        if dry:
+            actions.append({"name": item.get("name"), "result": "dry"})
+            continue
+        timeout = min(int(item.get("timeout") or 600), max(30, budget_seconds - spent))
+        started = _now()
+        result = run_tree([PY, *args], cwd=ROOT, timeout=timeout, drain_timeout=30)
+        spent += max(1, int((_now() - started).total_seconds()))
+        combined = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+        item["attempts"] = int(item.get("attempts") or 0) + 1
+        item["last_attempt"] = _now().isoformat(timespec="seconds")
+        if result.returncode == 0 and not result.timed_out:
+            item.update({"status": "done", "resolved_at": item["last_attempt"], "last_error": ""})
+            outcome = "done"
+        else:
+            kind = "timeout" if result.timed_out else classify_failure(combined)
+            delay = min(12 * 60, BASE_BACKOFF_MINUTES * (2 ** min(item["attempts"], 4)))
+            item.update({
+                "status": "blocked" if kind == "auth" else "retry",
+                "kind": kind,
+                "last_error": (combined or f"returncode={result.returncode}")[-1200:],
+                "next_attempt": (_now() + timedelta(minutes=delay)).isoformat(timespec="seconds"),
+            })
+            _escalate(item)
+            outcome = item["status"]
+        actions.append({"name": item.get("name"), "result": outcome})
+    doc["updated_at"] = _now().isoformat(timespec="seconds")
+    _atomic_json(QUEUE_PATH, doc)
+    summary = write_status(doc, actions=actions)
+    return {**summary, "actions": actions}
+
+
+def summary(doc: dict[str, Any] | None = None) -> dict[str, Any]:
+    doc = doc or _load_queue()
+    items = list(doc.get("items") or [])
+    counts = {key: sum(1 for x in items if x.get("status") == key)
+              for key in ("waiting", "retry", "blocked", "manual", "done")}
+    active = [x for x in items if x.get("status") not in ("done", "superseded")]
+    return {
+        "time": _now().isoformat(timespec="seconds"),
+        "mode": "deterministic-first-ai-on-exception",
+        "active": len(active),
+        "counts": counts,
+        "human_gates": [
+            "밴드·이카운트 최초 로그인/세션 만료 복구",
+            "세금계산서 실발행·외부 메시지·취소 확정 같은 비가역 승인",
+            "은행·PO 등 원천 자료가 아직 제공되지 않은 건",
+        ],
+        "items": active[:30],
+    }
+
+
+def write_status(doc: dict[str, Any] | None = None, *, actions: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    value = summary(doc)
+    value["last_actions"] = actions or []
+    _atomic_json(STATUS_PATH, value)
+    REPORTS.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# 자율자동화 상태", "",
+        f"- 갱신: {value['time']}",
+        f"- 방식: 결정론적 자동처리 → 제한 재시도 → 코드·시간초과 3회 반복만 AI 자동 인계",
+        f"- 자동복구 대기: {value['active']}건",
+        "",
+        "## 자동화가 넘지 않는 경계", "",
+    ]
+    lines.extend(f"- {x}" for x in value["human_gates"])
+    lines += ["", "## 대기 항목", ""]
+    if not value["items"]:
+        lines.append("- 없음")
+    else:
+        for item in value["items"]:
+            lines.append("- **%s** · %s · 시도 %s회 · %s" % (
+                item.get("name"), item.get("status"), item.get("attempts", 0),
+                item.get("kind", "")))
+    REPORT_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return value
+
+
+def status() -> dict[str, Any]:
+    try:
+        return json.loads(STATUS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        # 상태 조회/API GET은 읽기 전용이다. 첫 회차 전에는 메모리 요약만 돌려준다.
+        return summary()
+
+
+def selftest() -> None:
+    assert classify_failure("FileNotFoundError: 관리대장을 찾을 수 없음: Z:/x") == "resource"
+    assert classify_failure("로그인이 필요합니다") == "auth"
+    assert classify_failure("시간초과(600s)") == "timeout"
+    assert classify_failure("AssertionError") == "code"
+    assert retry_safe(["read_only.py"])
+    assert not retry_safe(["ledger_db.py", "--apply"])
+    assert command_key("a", ["b"]) == command_key("a", ["b"])
+    print("autopilot self-test: OK")
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--heal", action="store_true")
+    ap.add_argument("--dry", action="store_true")
+    ap.add_argument("--status", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--limit", type=int, default=2)
+    ap.add_argument("--budget", type=int, default=600)
+    ns = ap.parse_args(argv)
+    if ns.selftest:
+        selftest()
+        return 0
+    value = heal(limit=ns.limit, budget_seconds=ns.budget, dry=ns.dry) if ns.heal else status()
+    print(json.dumps(value, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

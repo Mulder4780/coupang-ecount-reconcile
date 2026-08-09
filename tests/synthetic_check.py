@@ -7268,12 +7268,14 @@ def t83_agent_dispatch_and_calendar():
         try:
             def quota_then_codex(command, **_kwargs):
                 if "claude" in command[0].lower():
-                    return SimpleNamespace(returncode=1, stdout="", stderr="credit quota exhausted")
-                return SimpleNamespace(returncode=0, stdout="codex 1.0", stderr="")
+                    return SimpleNamespace(returncode=1, stdout="", stderr="credit quota exhausted",
+                                           timed_out=False, stuck_pid=0)
+                return SimpleNamespace(returncode=0, stdout="codex 1.0", stderr="",
+                                       timed_out=False, stuck_pid=0)
 
             with patch.object(A, "resolve_agent_executable",
                               side_effect=lambda name: str(Path(td) / f"{name}.exe")), \
-                 patch.object(A.subprocess, "run", side_effect=quota_then_codex):
+                 patch.object(A, "run_tree", side_effect=quota_then_codex):
                 route = A.route_status()
                 assert route["primary"] == "claude" and route["selected"] == "codex", route
                 ticket = A.enqueue("synthetic", "합성 AI 연계", ["tests/synthetic_check.py"])
@@ -7304,8 +7306,10 @@ def t83_agent_dispatch_and_calendar():
                 if "claude" in command[0].lower():
                     return SimpleNamespace(
                         returncode=1, stdout="", stderr="credit quota exhausted",
+                        timed_out=False, stuck_pid=0,
                     )
-                return SimpleNamespace(returncode=0, stdout="codex completed", stderr="")
+                return SimpleNamespace(returncode=0, stdout="codex completed", stderr="",
+                                       timed_out=False, stuck_pid=0)
 
             ready_route = {
                 "primary": "claude",
@@ -7317,7 +7321,7 @@ def t83_agent_dispatch_and_calendar():
             with patch.object(A, "route_status", return_value=ready_route), \
                  patch.object(A, "resolve_agent_executable",
                               side_effect=lambda name: str(Path(td) / f"{name}.exe")), \
-                 patch.object(A.subprocess, "run", side_effect=claude_exec_then_codex):
+                 patch.object(A, "run_tree", side_effect=claude_exec_then_codex):
                 consumed = A.run_ticket(runtime_path, 0)
                 assert consumed["status"] == "done", consumed
                 assert consumed["selected"] == "codex", consumed
@@ -11751,6 +11755,65 @@ def t136_work_lanes():
 LEGACY_DUP = {41, 84, 98, 121, 153, 172}
 
 
+def t190_autopilot_retries_without_failure_cascade():
+    """[190] 자원 장애 하나를 실패 수십 개로 만들지 않고 자동 재개한다."""
+    import importlib
+    from pathlib import Path as _Path
+
+    A = importlib.import_module("autopilot")
+    keep = (A.QUEUE_PATH, A.STATUS_PATH, A.REPORT_PATH)
+    old_runner = A.run_tree
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            A.QUEUE_PATH = _Path(tmp) / "queue.json"
+            A.STATUS_PATH = _Path(tmp) / "status.json"
+            A.REPORT_PATH = _Path(tmp) / "status.md"
+            args = [os.path.join(ROOT, "read_only_probe.py")]
+
+            one = A.defer("관리대장 읽기", args, 60,
+                          "FileNotFoundError: 관리대장을 찾을 수 없음: Z:/ledger")
+            two = A.defer("관리대장 읽기", args, 60,
+                          "FileNotFoundError: 관리대장을 찾을 수 없음: Z:/ledger")
+            doc = json.loads(A.QUEUE_PATH.read_text(encoding="utf-8"))
+            assert one and two and len(doc["items"]) == 1, \
+                "같은 장애가 단계 수만큼 쌓이면 실패 도미노를 대기열로 옮긴 것뿐이다"
+            assert doc["items"][0]["kind"] == "resource"
+
+            unsafe = A.defer("원장 반영", ["ledger_db.py", "--apply"], 60,
+                             "관리대장을 찾을 수 없음: Z:/ledger")
+            assert unsafe is None, "비가역·쓰기 단계까지 자동 재실행하면 중복 반영될 수 있다"
+
+            # 자원이 돌아오면 워치독 회차가 성공 확인 뒤 닫는다.
+            doc["items"][0]["next_attempt"] = "2000-01-01T00:00:00+09:00"
+            A.QUEUE_PATH.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+            A.run_tree = lambda *a, **k: type("R", (), {
+                "returncode": 0, "stdout": "OK", "stderr": "", "timed_out": False,
+                "stuck_pid": 0})()
+            healed = A.heal(limit=1, budget_seconds=60)
+            assert healed["actions"][0]["result"] == "done"
+            assert healed["active"] == 0, "성공한 대기열이 계속 남으면 같은 일을 반복한다"
+    finally:
+        A.QUEUE_PATH, A.STATUS_PATH, A.REPORT_PATH = keep
+        A.run_tree = old_runner
+
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    watch = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    agent = open(os.path.join(ROOT, "agent_dispatch.py"), encoding="utf-8").read()
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    font = open(os.path.join(ROOT, "webapp", "font_switch.py"), encoding="utf-8").read()
+    assert "_autopilot_defer" in daily and "deferred" in daily
+    assert "heal_autopilot(dry)" in watch, "워치독에 안 묶이면 대기열은 사람이 눌러야만 돈다"
+    assert '"autopilot": autopilot_status' in server and '/api/autopilot' in server
+    assert "run_tree(command" in agent, "AI CLI가 SMB형 timeout에서 회차를 영원히 붙든다"
+    assert 'newline=""' in font, "글꼴 왕복이 CRLF를 LF로 바꾸면 파일 전체가 달라진다"
+    from proc_guard import run_tree as _guarded_run
+    timed = _guarded_run([sys.executable, "-c", "import time; time.sleep(30)"],
+                         cwd=ROOT, timeout=0.2, drain_timeout=3)
+    assert timed.timed_out and timed.returncode != 0, \
+        "공용 실행기가 시간초과 뒤 반환하지 않으면 AI 한 건이 워치독을 붙든다"
+    print("  [190] 자원장애 실패도미노 차단 · 영속 대기열 · 안전 재개 · AI 제한 인계 ✅")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 두 검증에서 같이 쓰이면 실패시킨다."""
     import collections as _c
@@ -11950,6 +12013,7 @@ if __name__ == "__main__":
     t187_free_vs_insurance_are_not_one_label()
     t188_worklog_shows_this_month_only()
     t189_worklog_reflects_without_hands()
+    t190_autopilot_retries_without_failure_cascade()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()

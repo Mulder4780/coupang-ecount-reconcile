@@ -66,7 +66,10 @@ LEGACY = re.compile(r"--font-ui-legacy\s*:\s*(.+?);")
 
 
 def _read(path):
-    with open(os.path.join(ROOT, path), encoding="utf-8") as f:
+    # 줄바꿈도 원본의 일부다. ``newline=None``(기본값)으로 읽으면 Windows의
+    # CRLF가 LF로 정규화되어 글꼴 한 줄만 바꿔도 파일 전체가 달라진다.
+    # 읽기·쓰기를 모두 ``newline=""``로 맞춰 왕복 시 바이트를 보존한다.
+    with open(os.path.join(ROOT, path), encoding="utf-8", newline="") as f:
         return f.read()
 
 

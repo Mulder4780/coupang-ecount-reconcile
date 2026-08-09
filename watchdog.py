@@ -415,6 +415,22 @@ def resume_deferred_apply(dry):
         return f"연기 반영 점검 실패({type(exc).__name__})"
 
 
+def heal_autopilot(dry):
+    """공용 자원 장애로 미뤄 둔 안전 작업을 30분마다 조금씩 이어 간다."""
+    try:
+        import autopilot
+        result = autopilot.heal(limit=2, budget_seconds=600, dry=dry)
+        actions = result.get("actions") or []
+        if not actions:
+            return "자율복구 대기 없음" if not result.get("active") else (
+                "자율복구 %d건 대기(재시도 시각 전·인증 대기)" % result.get("active", 0))
+        done = sum(1 for x in actions if x.get("result") == "done")
+        return "자율복구 %d건 실행 · 완료 %d · 남음 %d" % (
+            len(actions), done, result.get("active", 0))
+    except Exception as exc:
+        return "자율복구 점검 실패(%s)" % type(exc).__name__
+
+
 def sync_worklog(dry):
     """일지 원본이 바뀌면 **기다리지 않고** 바로 대조해 큐에 넣는다 (2026-08-09 지시).
 
@@ -483,6 +499,7 @@ def main():
     results = [sync_uploads(dry), sync_worklog(dry),
                sync_cloud_queue(dry), heal_server(dry), heal_fixed_funnel(dry),
                heal_stale_pastefiles(dry),
+               heal_autopilot(dry),
                heal_tunnel(dry), publish_endpoint(dry), clean_reports(dry),
                snapshot_handoff(dry), resume_deferred_apply(dry)]
     if gap:

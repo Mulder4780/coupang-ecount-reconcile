@@ -21,6 +21,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from proc_guard import run_tree
+
 
 ROOT = Path(__file__).resolve().parent
 REPORT_DIR = ROOT / "reports" / "agent_dispatch"
@@ -97,14 +99,14 @@ def probe_agent(name: str) -> dict[str, str]:
     if not executable:
         return {"agent": name, "state": "unavailable", "reason": "실행 명령을 찾지 못함"}
     try:
-        result = subprocess.run(
-            [executable, "--version"], capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=PROBE_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        return {"agent": name, "state": "unavailable", "reason": "버전 확인 시간 초과"}
+        result = run_tree([executable, "--version"], cwd=ROOT,
+                          timeout=PROBE_TIMEOUT_SECONDS, drain_timeout=5,
+                          output_limit=4000)
     except OSError as exc:
         return {"agent": name, "state": "unavailable", "reason": _clean_message(str(exc))}
+
+    if result.timed_out:
+        return {"agent": name, "state": "unavailable", "reason": "버전 확인 시간 초과"}
 
     message = _clean_message((result.stdout or "") + " " + (result.stderr or ""))
     if result.returncode == 0:
@@ -248,11 +250,12 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
     _atomic_json(path, record)
     command = _agent_command(agent, executable, _ticket_prompt(record, local_returncode), last_message)
     try:
-        result = subprocess.run(
-            command, cwd=ROOT, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=AGENT_TIMEOUT_SECONDS,
-        )
+        result = run_tree(command, cwd=ROOT, timeout=AGENT_TIMEOUT_SECONDS,
+                          drain_timeout=60, output_limit=200_000)
         combined = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+        if result.timed_out:
+            combined += ("\nAI 후속 검토 60분 시간 초과" +
+                         (f" · 종료되지 않은 pid {result.stuck_pid}" if result.stuck_pid else ""))
         # `claude --version` can succeed even when the account has exhausted its
         # credits.  Detect that only after the real task starts and immediately
         # hand the same review ticket to Codex once.  The deterministic local
@@ -273,10 +276,8 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
                     "codex", codex_executable,
                     _ticket_prompt(record, local_returncode), last_message,
                 )
-                result = subprocess.run(
-                    command, cwd=ROOT, capture_output=True, text=True,
-                    encoding="utf-8", errors="replace", timeout=AGENT_TIMEOUT_SECONDS,
-                )
+                result = run_tree(command, cwd=ROOT, timeout=AGENT_TIMEOUT_SECONDS,
+                                  drain_timeout=60, output_limit=200_000)
                 codex_output = (result.stdout or "") + (
                     "\n" + result.stderr if result.stderr else ""
                 )
@@ -293,12 +294,6 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
             "completed_at": datetime.now().isoformat(timespec="seconds"),
             "last_message": last_message.name if last_message.exists() else "",
             "error": "" if result.returncode == 0 else _clean_message(combined, 500),
-        })
-    except subprocess.TimeoutExpired:
-        record.update({
-            "status": "failed",
-            "completed_at": datetime.now().isoformat(timespec="seconds"),
-            "error": "AI 후속 검토 60분 시간 초과",
         })
     except OSError as exc:
         record.update({

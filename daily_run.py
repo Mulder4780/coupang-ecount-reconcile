@@ -242,17 +242,47 @@ def run(name, args, timeout=600, retry=None):
         if "시간초과" in str(got.get("out", "")):
             got["out"] = (got["out"] + " — 재시도하지 않습니다"
                           "(다시 해도 또 넘깁니다. 다음 회차가 이어서 합니다)")
+            deferred = _autopilot_defer(name, args, timeout, got["out"])
+            if deferred:
+                got["ok"] = None
+                got["deferred"] = True
+                got["out"] += "\n자율복구 대기열에 저장 — 워치독이 제한 재시도합니다"
             note_progress(name, "끝", {"결과": False, "시간초과": True})
             return got
         if got["ok"] or attempt >= retry:
             if not got["ok"] and attempt:
                 got["out"] = (got["out"] + "\n[재시도 후에도 실패]").strip()
+            if got["ok"]:
+                _autopilot_resolve(name, args)
+            else:
+                deferred = _autopilot_defer(name, args, timeout, got["out"])
+                if deferred:
+                    got["ok"] = None
+                    got["deferred"] = True
+                    got["out"] += "\n자율복구 대기열에 저장 — 자원 복구 뒤 자동 재개합니다"
             note_progress(name, "끝", {"결과": bool(got.get("ok"))})
             return got
         note_progress(name, "재시도")
         time.sleep(20)          # 상대가 파일을 놓을 시간을 준다
     note_progress(name, "끝", {"결과": False})
     return got
+
+
+def _autopilot_defer(name, args, timeout, output):
+    """자율복구 기록 실패가 본 업무 회차를 세우지 않게 하는 얇은 경계."""
+    try:
+        import autopilot
+        return autopilot.defer(name, list(args), int(timeout), str(output or ""))
+    except Exception:
+        return None
+
+
+def _autopilot_resolve(name, args):
+    try:
+        import autopilot
+        autopilot.resolve(name, list(args))
+    except Exception:
+        pass
 
 
 def _kill_tree(p):
@@ -724,7 +754,9 @@ def finish(steps, aborted=False):
     # 동기화 백본: 앱(웹·워크벤치)이 읽는 기계 판독용 상태 파일 — 에이전트가 유일한 작성자
     import json
     json.dump({"time": datetime.now().isoformat(), "aborted": aborted,
-               "steps": [{"n": s["name"], "s": ("ok" if s["ok"] else ("skip" if s["ok"] is None else "fail"))}
+               "steps": [{"n": s["name"], "s": ("deferred" if s.get("deferred") else
+                                                    ("ok" if s["ok"] else
+                                                     ("skip" if s["ok"] is None else "fail")))}
                           for s in steps]},
               open(os.path.join(REPORT_DIR, "agent_status.json"), "w", encoding="utf-8"), ensure_ascii=False)
     base = os.path.join(REPORT_DIR, f"종합리포트_{datetime.now():%Y%m%d_%H%M}.md")
@@ -734,14 +766,23 @@ def finish(steps, aborted=False):
             f.write("**★ 합성검증 실패로 중단 — 아래 로그 확인 후 코드 수정 필요**\n\n")
         f.write("| 단계 | 결과 |\n|---|---|\n")
         for s in steps:
-            mark = "✅" if s["ok"] else ("⏭ 스킵" if s["ok"] is None else "❌ 실패")
+            mark = ("⏳ 자동복구 대기" if s.get("deferred") else
+                    ("✅" if s["ok"] else ("⏭ 스킵" if s["ok"] is None else "❌ 실패")))
             f.write(f"| {s['name']} | {mark} |\n")
         f.write("\n---\n")
         for s in steps:
             f.write(f"\n## {s['name']}\n```\n{s['out']}\n```\n")
+    # 종합리포트가 완성된 뒤 자율복구 현황도 같은 시각으로 맞춘다. 실패해도
+    # 종합리포트와 회차 잠금 해제는 반드시 진행되어야 한다.
+    try:
+        import autopilot
+        autopilot.write_status()
+    except Exception:
+        pass
     print(f"\n종합리포트: {base}")
     for s in steps:
-        mark = "OK " if s["ok"] else ("SKIP" if s["ok"] is None else "FAIL")
+        mark = ("DEFER" if s.get("deferred") else
+                ("OK " if s["ok"] else ("SKIP" if s["ok"] is None else "FAIL")))
         print(f"  [{mark}] {s['name']}")
 
 
