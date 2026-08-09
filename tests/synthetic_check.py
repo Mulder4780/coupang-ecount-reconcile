@@ -10135,6 +10135,83 @@ def t185_datalake_shown_in_app():
     print("  [185] datalake record 앱 노출 — 정본 질의 하나·큰갈래·기간·읽기전용·배선 ✅")
 
 
+def t186_kakao_round_and_stale_tmp():
+    """[186] 카톡 한 파일을 **끝까지** 반영 · 죽은 회차가 남긴 tmp 가 다음 회차를 막지 않는다
+    (2026-08-09 지시: "이거 반영하고 엑셀 및 앱에 반영해").
+
+    두 가지가 한 지시에서 나왔다.
+
+    ★ 하나 — **없는 파일을 조용히 건너뛰지 않는다.** 사람이 준 경로가 실제로 없을 때
+      나머지 단계가 멀쩡히 돌면 '0건 반영 성공'으로 끝난다. 숫자도 나오고 오류도 안 나서
+      아무도 안 본다([169] 와 같은 모양). 그래서 하나라도 없으면 **멈춘다**(exit 2).
+
+    ★ 둘 — **실패 하나가 모든 다음 회차를 영원히 막을 수 있었다.** 실사고: 11:00 회차가
+      쓰다 죽으며 `v571.tmp.xlsx` 를 남겼고, 그 뒤 11:00·15:00·사람 지시 반영이 **전부**
+      `FileExistsError` 로 실패했다. 화면은 "반영 대기 N건"만 계속 보여 준다 —
+      실패가 성공처럼 보이는 자리다.
+      가르는 근거는 **나이**다: 방금 생긴 tmp 는 **다른 writer 가 쓰는 중**이라 손대면
+      안 되고(그대로 멈춘다), 오래된 것은 죽은 회차의 찌꺼기라 **옆으로 치우고 계속 간다**.
+      지우지 않는 이유는 그 안에 마지막 회차 결과가 들어 있을 수 있어서다 — 판단은 사람 몫.
+    """
+    import ledger_writer as W
+
+    # ① 나이로 가른다 — 값이 아니라 **뜻**을 지킨다
+    assert isinstance(W.STALE_TMP_MIN, int) and W.STALE_TMP_MIN >= 5, \
+        "찌꺼기 판정 나이가 너무 짧다 — 쓰는 중인 tmp 를 빼앗을 수 있다"
+    src = open(os.path.join(ROOT, "ledger_writer.py"), encoding="utf-8").read()
+    i = src.index('final_dst, dst = dst, dst[:-5] + ".tmp.xlsx"')
+    blk = src[i:i + 2000]
+    assert "os.path.getmtime(dst)" in blk, "tmp 나이를 재지 않는다 — 둘을 못 가른다"
+    assert "age_min < STALE_TMP_MIN" in blk, "방금 생긴 tmp 도 치운다 — 쓰는 중인 회차를 깬다"
+    assert "os.path.exists(final_dst)" in blk, \
+        "정본이 이미 나왔는데도 치운다 — 그 tmp 는 남의 것이다"
+    assert ".stale-" in blk and "os.remove" not in blk, \
+        "찌꺼기를 **지운다** — 마지막 회차 결과가 그 안에 있을 수 있다"
+    assert "raise FileExistsError" in blk, \
+        "못 치웠는데 계속 간다 — 두 writer 가 같은 파일을 쓴다"
+
+    # ② 실제로 갈리는가 — 오래된 것은 치우고, 갓 생긴 것은 못 치운다
+    with tempfile.TemporaryDirectory(prefix="stale-tmp-") as td:
+        old = os.path.join(td, "장부_v9.tmp.xlsx")
+        open(old, "w").close()
+        os.utime(old, (time.time() - (W.STALE_TMP_MIN + 10) * 60,) * 2)
+        age = (time.time() - os.path.getmtime(old)) / 60.0
+        assert age >= W.STALE_TMP_MIN, "오래된 tmp 가 찌꺼기로 안 읽힌다"
+        fresh = os.path.join(td, "장부_v10.tmp.xlsx")
+        open(fresh, "w").close()
+        assert (time.time() - os.path.getmtime(fresh)) / 60.0 < W.STALE_TMP_MIN, \
+            "방금 만든 tmp 가 찌꺼기로 읽힌다 — 쓰는 중인 회차를 깬다"
+
+    # ③ 카톡 회차 — 조각을 잇는 것이 전부이므로 **순서와 문**만 지킨다
+    ka = open(os.path.join(ROOT, "kakao_apply.py"), encoding="utf-8").read()
+    assert "kakao_extract.py" in ka and "ledger_db.py" in ka, "조각이 이어져 있지 않다"
+    assert ka.index("kakao_extract.py") < ka.index('"--intake", "--apply"'), \
+        "추출보다 엑셀 반영이 먼저다 — 아직 안 만든 것을 반영한다"
+    assert "return 2" in ka and "찾지 못했습니다" in ka, \
+        "없는 파일을 조용히 건너뛴다 — '0건 반영 성공'이 된다"
+    assert 'if rc != 0:' in ka and "실패한 채로 반영하면" in ka, \
+        "추출이 실패해도 엑셀을 연다 — 없는 것이 반영된 것처럼 보인다"
+    assert "shutil.copy2" in ka and "shutil.move" not in ka, \
+        "사람이 준 원본을 옮긴다 — '그때 무엇을 받았나'를 사람 쪽에서 잃는다"
+    assert "COUPANG_UNATTENDED" in ka, "무인 실행도 즉시 반영을 쓸 수 있다"
+    # `subprocess.run(timeout=)` 은 윈도우에서 영원히 매달린다([175]) — 주석에 적힌 것과
+    # 실제로 부르는 것을 가른다. 코드 줄에서만 찾는다.
+    code = "\n".join(l for l in ka.splitlines() if not l.lstrip().startswith("#"))
+    assert "subprocess.run(" not in code, "윈도우에서 영원히 매달릴 수 있다([175])"
+    assert "subprocess.Popen(" in code and "communicate(timeout=" in code, \
+        "자식을 시간제한 없이 기다린다([175])"
+    assert "taskkill" in code, "죽일 때 나무째 죽이지 않는다([175])"
+
+    # ④ 즉시반영은 **사람 길에만** 있다 — 무인 회차가 이 문을 쓰면 [93] 이 무너진다
+    for auto in ("daily_run.py", "session_wrapup.py"):
+        a = open(os.path.join(ROOT, auto), encoding="utf-8").read()
+        assert "kakao_apply.py" not in a or "--now" not in a, \
+            "%s 가 카톡 회차를 즉시반영으로 부른다 — 하루 두 번 규칙이 조용히 깨진다" % auto
+
+    print("  [186] 카톡 한 줄 반영(없는 파일에 멈춤·추출 실패 시 안 씀) · "
+          "죽은 회차 tmp 는 치우고 쓰는 중인 tmp 는 안 건드림 ✅")
+
+
 def t172_typo_watch_does_not_cry_wolf():
     """[172] 오기입 탐지 — **잡는 것보다 잘못 지목하지 않는 것**이 어렵다 (2026-08-09 지시).
 
@@ -11675,6 +11752,7 @@ if __name__ == "__main__":
     t183_collect_survives_pc_off()
     t184_phone_answers_with_the_same_rules()
     t185_datalake_shown_in_app()
+    t186_kakao_round_and_stale_tmp()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()

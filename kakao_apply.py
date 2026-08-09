@@ -145,8 +145,8 @@ def absorb(paths, folder):
 
 
 def run(args, minutes=20):
-    """자식은 Popen + communicate(timeout=) 로만 돌린다 — `subprocess.run(timeout=)` 은
-    윈도우에서 영원히 매달릴 수 있다([175])."""
+    """자식은 Popen + communicate(timeout=) 로만 돌린다.
+    편의 함수 쪽 timeout 은 윈도우에서 영원히 매달릴 수 있다([175])."""
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
     p = subprocess.Popen([sys.executable] + args, cwd=ROOT, env=env,
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
