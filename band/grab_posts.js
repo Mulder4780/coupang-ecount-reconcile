@@ -66,6 +66,22 @@
   // 빈 껍데기를 두므로 시각이 없으면 직전 화면이 묻어 온 것일 수 있다.
   // 그리고 **몇 개를 봤는지 같이 적는다**: 접힌 댓글을 다 펴지 못했을 때
   // "댓글이 없다"와 "못 읽었다"를 읽는 쪽이 갈라야 한다(못 가르면 조용한 사고가 된다).
+  // ★★ 여기가 지금 막힌 자리다 — **댓글은 클릭 전에는 DOM 에 없다** (2026-08-09 실측).
+  //   로그인된 탭에서 글 4369(댓글 6개)를 iframe 으로 열고 직접 뜯어 본 결과:
+  //     · 개수는 `댓글6` 이라는 **글자**로 있다(공백 없음). `._commentCount` 요소는
+  //       존재하지만 textContent 가 비어 있어 예전 선택자가 null 을 돌려줬다.
+  //       → 아래 grabOne 의 '댓글 N' 글자 되짚기가 이미 이것을 잡는다(확인함).
+  //     · 그런데 **본문 목록이 없다**: `ul.commentList > li` 등 아래 CMT_ITEM 이
+  //       전부 0개다. 화면에 있는 것은 `_commentCountLayerBtn` · `_commentLayerBtn` ·
+  //       `_commentListRegion` 뿐이고, 목록은 **그 레이어를 열어야 비로소 그려진다.**
+  //   그래서 선택자를 아무리 고쳐도 안 잡힌다. 고칠 것은 선택자가 아니라 **순서**다:
+  //     ① `_commentCountLayerBtn`(또는 `_commentLayerBtn`)을 click()
+  //     ② `_commentListRegion` 안에 항목이 생길 때까지 짧게 기다린다
+  //     ③ 그때 읽는다. 안 열리면 **읽지 않는다** — [178] 대로 comments 키를 안 단다
+  //        (못 읽은 글이 '읽은 글'로 둔갑하는 것이 이 사고의 본체였다)
+  //   ※ 클릭은 사람 로그인 세션에서만 뜻이 있다(절대규칙 3). 검증 [178] 이
+  //     "확인 못 하면 기록 안 한다"를 이미 지키고 있으므로, 이 자리가 고쳐지기
+  //     전까지 수집은 **정직하게 빈손**으로 끝난다 — 거짓 성공은 나지 않는다.
   const CMT_ITEM = 'ul.commentList > li, .commentList .commentItem, .cComment li, [class*="commentItem"]';
   const CMT_BODY = '.commentText, ._commentContent, .txt, [class*="commentText"]';
   const CMT_TIME = '.time, .date, [class*="time"]';
