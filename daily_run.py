@@ -442,13 +442,13 @@ def _run_pipeline():
         # 사진 1장에 OCR 1초 남짓. 첫 회는 1,458장에 25분이 걸려 600초 제한에 걸렸다(2026-07-26).
         # doc_ocr가 결과를 band/ocr_cache/에 저장하므로 두 번째 실행부터는 몇 초로 끝난다.
         steps.append(run("밴드 문서 이미지 대조·입력", [os.path.join(ROOT, "band", "doc_ocr.py"),
-                                                       "--scan", "--apply"], timeout=3600))
+                                                       "--scan", "--apply"], timeout=1800))
         # 그 위에 교차검증을 한 겹 더 얹는다(2026-08-06 지시). 엔진 하나의 답만 믿으면
         # 틀린 값이 조용히 원장에 들어간다 — 서로 다른 엔진 둘이 **같은 값**을 낸 항목만
         # 빈칸에 넣고, 갈리면 사람에게 넘긴다. 전량을 두 번 읽지는 않는다:
         # 금액 정합성이 깨졌거나 핵심 항목을 못 읽은 건, 그리고 원장에 쓰려는 건만 재검한다.
         steps.append(run("문서 OCR 교차검증", [os.path.join(ROOT, "band", "ocr_crosscheck.py"),
-                                               "--scan", "--apply"], timeout=3600))
+                                               "--scan", "--apply"], timeout=1800))
     else:
         steps.append({"name": "밴드 문서 이미지 대조", "ok": None,
                       "out": "스킵 — band/docs_inbox/에 사진 없음"})
@@ -459,8 +459,15 @@ def _run_pipeline():
     # 회차가 시간 제한에 걸려 통째로 실패한다 — 상한을 두고 매일 이어 간다.
     # 이미 있는 것은 파일을 열지도 않으므로 다 끝난 뒤에는 몇 초로 끝난다.
     # 로그인이 필요한 수집(밴드·ERP)은 여기에 없다 — 그건 사람 몫이다(절대규칙 3).
+    # ★ 시간제한을 3600초(1시간)에서 1200초로 줄였다 (2026-08-09 실측).
+    #   이 한 단계가 **회차 전체를 먹고 있었다** — 09:50 회차가 2시간째일 때 계속
+    #   이 단계에 있었고(한 단계에 65분+), 그 뒤 단계들은 시작조차 못 했다.
+    #   그게 '32시간째 미완주'의 실제 모습이다.
+    #   ※ 상한을 줄여도 **잃는 것이 없다.** 이 단계는 원래 "매일 조금씩 굳히는" 것이라
+    #     이번에 못 한 몫은 내일 이어서 한다. 반면 회차가 안 끝나면 그 뒤의 대조·큐가
+    #     **전부** 멈춘다. 하나를 다 하려다 나머지를 다 잃는 거래는 하지 않는다.
     steps.append(run("미수집 원본·사진·텍스트 보관", [os.path.join(ROOT, "collect_all.py"),
-                                                     "--run", "--limit", "600"], timeout=3600))
+                                                     "--run", "--limit", "600"], timeout=1200))
 
     # 완료보고서와 문서발행 표시는 프로젝트NO가 정확히 일치하는 근거만 빈칸에 큐잉한다.
     # 실제 ZIP 패치는 바로 아래 ledger_writer 한 번으로 합쳐 버전 난립과 충돌을 막는다.
@@ -525,13 +532,13 @@ def _run_pipeline():
     #   회차마다 상한을 둬 daily_run 이 길어지지 않게 한다 — 남은 건 다음 회차가 잇는다.
     steps.append(run("밴드 게시글 보관(PDF·텍스트·사진)",
                      [os.path.join(ROOT, "band", "archive_posts.py"), "--limit", "150"],
-                     timeout=2400))
+                     timeout=1800))
     steps.append(run("명세서 건별 PDF 보관",
                      [os.path.join(ROOT, "stmt_archive.py"), "--limit", "150"],
-                     timeout=2400))
+                     timeout=1800))
     steps.append(run("세금계산서 건별 PDF 보관",
                      [os.path.join(ROOT, "tax_archive.py"), "--limit", "150"],
-                     timeout=2400))
+                     timeout=1800))
     # ★ 원본이 늘면 분석 3종(미발행·불일치·확인필요현황)이 10분을 넘긴다 —
     #   2026-08-04 거래명세서 785건 흡수 후 기본 600초에 셋 다 타임아웃으로 FAIL했다.
     #   단독 재실행은 전부 성공(로직 문제 아님) → 시간만 넉넉히 준다.
@@ -601,7 +608,7 @@ def _run_pipeline():
     # 업무센터 UX 점검은 3일마다 12:00 별도 스케줄러가 돈다(쿠팡업무_업무센터UX점검).
     #   daily_run 에서도 가볍게 한 번 더 갱신해 리포트가 오래되지 않게 한다.
     steps.append(run("업무센터 UX 점검", [os.path.join(ROOT, "ux_review.py")], timeout=600))
-    steps.append(run("원본 색인 갱신", [os.path.join(ROOT, "source_index.py")], timeout=2400))
+    steps.append(run("원본 색인 갱신", [os.path.join(ROOT, "source_index.py")], timeout=1800))
     steps.append(run("원본 폴더 정리·바로가기", [os.path.join(ROOT, "source_tidy.py")], timeout=1800))
     # 캐시가 어긋나면 Z: 원본 전체를 다시 훑는다 — 실측 콜드 222초, 경합 아래서는 600초를
     # 넘겨 매 회차 FAIL 이었다(2026-08-07). `_보관` 제외로 줄였지만 여유를 둔다.

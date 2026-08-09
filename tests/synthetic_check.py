@@ -9663,7 +9663,17 @@ def t176_round_leaves_footprints_and_finishes():
     # ④ 완주했든 죽었든 마지막 자국을 남긴다
     assert 'note_progress("(회차 끝)"' in src, \
         "끝 표식이 없으면 '아직 도는 중'과 '죽었다'를 구별할 수 없다"
-    # ⑤ 경보가 **단계 이름을 댄다** — 이것이 이 검증의 목적이다
+    # ⑤ **한 단계가 회차를 통째로 먹으면 안 된다.** 실측 2026-08-09: `collect_all` 이
+    #    timeout=3600 이라 09:50 회차가 2시간째일 때도 계속 그 단계에 있었고 뒤 단계는
+    #    시작조차 못 했다 — 그게 '32시간 미완주'의 실제 모습이다.
+    #    한 단계 상한은 회차 예산의 **1/5** 을 넘지 않는다(150분 예산 → 30분).
+    cap = D.ROUND_BUDGET_MIN * 60 // 5
+    big = [int(m) for m in re.findall(r"timeout=(\d+)", src)]
+    assert big and max(big) <= cap, \
+        f"한 단계 상한 {max(big) if big else '?'}초가 회차 예산({D.ROUND_BUDGET_MIN}분)의 " \
+        f"1/5({cap}초)을 넘는다 — 그 하나가 회차를 먹는다"
+
+    # ⑥ 경보가 **단계 이름을 댄다** — 이것이 이 검증의 목적이다
     hs = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
     assert "def daily_step_now" in hs and "_step_hint()" in hs, \
         "'몇 시간째'만 말하고 '어느 단계'를 못 대면 원인을 못 찾는다"
@@ -10486,8 +10496,15 @@ def t162_band_comments_collected():
         "화면 긁기가 댓글을 안 담는다 — 흡수기만 고치면 아무 일도 안 일어난다"
     assert re.search(r"comments_full\W+=?:?\s*cts\.length >= want", body), \
         "'다 읽었나'를 안 적는다 — '댓글 없음'과 '못 읽음'이 캐시에서 똑같아 보인다"
-    assert "if (!content || !timeText) continue" in body, \
+    # 시각 없는 댓글은 버린다([130]). 본문은 사진/스티커만 있는 댓글이면 빌 수 있어
+    #   더는 요구하지 않는다(2026-08-09 실측 — 각 댓글은 div.cComment 자체이고
+    #   본문 셀렉터는 ._commentContent, 시각은 .time). 뜻(시각 가드)만 본다.
+    assert re.search(r"if \(!timeText\) continue", body), \
         "시각 없는 댓글을 담는다(본문 규칙 [130] 과 어긋난다)"
+    # 각 댓글 항목 셀렉터가 **한 칸 아래**(.cComment li)를 가리켜 6개를 0개로 읽던
+    #   사고를 다시 밟지 않게, 항목 셀렉터가 cComment 자체를 집는지 확인한다.
+    assert "cComment" in body and re.search(r"CMT_ITEM\s*=\s*'div\.cComment", body), \
+        "댓글 항목 셀렉터가 cComment 자체가 아니라 그 하위를 가리킨다 — 늘 0개로 읽힌다"
     mo = open(os.path.join(ROOT, "band", "make_oneclick.py"), encoding="utf-8").read()
     assert 'open(os.path.join(HERE, "grab_posts.js")' in mo, \
         "붙여넣기 파일이 grab_posts.js 를 싣지 않는다 — 고쳐도 사람 손에는 옛 JS 가 간다"
