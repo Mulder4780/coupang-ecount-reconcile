@@ -265,6 +265,10 @@ def _run_pipeline():
         steps.append({"name": "ERP원장 4유형 대조", "ok": None,
                       "out": "스킵 — 내용 판별 가능한 계정별원장 파일 없음"})
 
+    # 2.45 오기입 확인 — 손으로 적는 칸의 오타를 찾는다(읽기 전용, 아무것도 안 고친다)
+    #   오기입은 매일 새로 생기고, **틀린 값은 비어 있지 않아서 어느 화면에도 안 띈다.**
+    steps.append(run("오기입 확인", [os.path.join(ROOT, "typo_watch.py")]))
+
     # 2.5 쿠팡 PO 대조 (inbox에 'PO' 파일 있을 때만)
     if has_inbox_kind("po"):
         steps.append(run("쿠팡 PO 대조", [os.path.join(ROOT, "po_reconcile.py")]))
