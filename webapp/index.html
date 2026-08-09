@@ -2887,6 +2887,45 @@ body.dash-drag-live #dashGuides{display:grid}
   <!-- 원본 자료 — 모든 원천 파일을 한 곳에서 찾고 클릭 한 번으로 연다(2026-08-05 지시).
        색인은 source_index.py 가 만든다(reports/원본색인.json). -->
   <section class="view" id="v-sources">
+    <!-- ★ 자료창고 — ERP·밴드가 DB(datalake record)로 흡수된 업무 레코드를 앱에서
+         **보고 캡처**한다 ([24] 앱 화면 노출, 2026-08-09). 원본 파일 목록(아래
+         source-canvas)과 다른 층이다: 이건 파일에서 뽑아낸 '업무 한 건'들이다.
+         읽기 전용 — 큐에도 안 넣고 엑셀도 안 연다(비싼 Z: 탐색도 없다, datalake.db 는 로컬). -->
+    <style>
+      #dlw{margin:0 0 18px}
+      #dlw .dlw-kinds{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0 12px}
+      #dlw .dlw-kinds button{font-size:12.5px;padding:5px 11px;border-radius:999px;
+        border:1px solid var(--line,rgba(127,127,127,.35));background:transparent;
+        color:inherit;cursor:pointer;font-variant-numeric:tabular-nums}
+      #dlw .dlw-kinds button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+      #dlw .dlw-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+      #dlw .dlw-bar input[type=text]{flex:1;min-width:200px;padding:9px 12px;font-size:15px;
+        border-radius:10px;border:1px solid var(--line,rgba(127,127,127,.35));background:var(--panel);color:inherit}
+      #dlw .dlw-bar input[type=date]{padding:8px 10px;border-radius:9px;
+        border:1px solid var(--line,rgba(127,127,127,.35));background:var(--panel);color:inherit}
+      #dlw .dlw-note{font-size:12.5px;color:var(--muted,#888);margin-bottom:8px;line-height:1.5}
+      #dlw .dlw-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+      #dlw table{border-collapse:collapse;width:100%;font-size:13px;min-width:640px}
+      #dlw th,#dlw td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line,rgba(127,127,127,.18));
+        white-space:nowrap;vertical-align:top}
+      #dlw td.amt{text-align:right;font-variant-numeric:tabular-nums}
+      #dlw td.key{white-space:normal;max-width:360px;color:var(--ink-2,#555);font-size:12px}
+      #dlw .dlw-kd{display:inline-block;font-size:11.5px;padding:1px 7px;border-radius:6px;
+        background:var(--panel-2,rgba(127,127,127,.14));font-weight:700}
+    </style>
+    <div class="card" id="dlw">
+      <h3>자료창고 <span class="norm">— ERP·밴드가 DB로 흡수된 업무 레코드 (읽기 전용)</span>
+        <button class="abtn" type="button" style="float:right;font-size:12.5px;padding:4px 10px" onclick="warehouseCsv()">CSV 저장</button>
+      </h3>
+      <div class="dlw-kinds" id="dlwKinds"></div>
+      <div class="dlw-bar">
+        <input type="text" id="dlwQ" placeholder="검색 — 프로젝트NO·PO·거래처·적요" oninput="warehouseDebounce()" aria-label="자료창고 검색">
+        <input type="date" id="dlwSince" title="업무일 시작" onchange="loadWarehouse(true)">
+        <input type="date" id="dlwUntil" title="업무일 종료" onchange="loadWarehouse(true)">
+      </div>
+      <div class="dlw-note" id="dlwNote"></div>
+      <div class="dlw-scroll"><div id="dlwList"></div></div>
+    </div>
     <div class="source-canvas">
       <div class="source-head">
         <div class="ios-large"><h2>원본 자료</h2>
@@ -5840,7 +5879,7 @@ function applyView(v){
   if(v==='pm'||v==='as'){ renderWorkTab(v); if(!(works.as||[]).length&&PIN) loadSettle().catch(()=>{}); }
   if(v==='center'){ renderCenter(); if(!(works.as||[]).length&&PIN) loadSettle().catch(()=>{}); }
   if(v==='remote') renderRemoteCard('remoteHost');
-  if(v==='sources') loadSources();
+  if(v==='sources'){ loadSources(); loadWarehouse(); }
   if(v==='ryu' && PIN && !RYU) loadRyuRecords();
   if(v==='worklog' && PIN) loadWorkLogStatus();
   if(v==='dash' && !CAL) loadCalendar();
@@ -10018,6 +10057,95 @@ async function loadSources(){
   try{ SRC = await api('/api/sources?limit=400'); }
   catch(e){ if(note) note.textContent='색인을 읽지 못했습니다: '+e; return; }
   renderSegs(); renderYears(); renderMonths(); renderSources();
+}
+/* ── 자료창고 (datalake record) — [24] 앱 화면 노출 (2026-08-09) ─────────────
+   ERP·밴드가 DB로 흡수된 업무 레코드를 **보고 캡처**한다. 읽기 전용 —
+   서버 `/api/records` 도 큐·엑셀·Z: 를 건드리지 않는다. 정본 질의는 서버
+   `datalake.find(on='record')` 하나다(두 벌로 만들면 결과가 갈린다). */
+let WAREHOUSE = {kind:'', q:'', since:'', until:''};
+let WAREHOUSE_ROWS = [], WAREHOUSE_KINDS = [], WAREHOUSE_T = null, WAREHOUSE_LOADED = false;
+function warehouseDebounce(){ clearTimeout(WAREHOUSE_T); WAREHOUSE_T=setTimeout(()=>loadWarehouse(true), 300); }
+function warehouseWon(n){
+  if(n===null||n===undefined||n==='') return '';
+  const v = Number(n); return isNaN(v) ? '' : v.toLocaleString('ko-KR');
+}
+async function loadWarehouse(useFilters){
+  const host=$('dlwList'); if(!host) return;         // 이 화면이 아니면 카드가 없다
+  if(useFilters){
+    WAREHOUSE.q = ($('dlwQ')?.value || '').trim();
+    WAREHOUSE.since = $('dlwSince')?.value || '';
+    WAREHOUSE.until = $('dlwUntil')?.value || '';
+  }
+  const note=$('dlwNote'); if(note && !WAREHOUSE_LOADED) note.textContent='자료창고 읽는 중…';
+  const qs = new URLSearchParams();
+  if(WAREHOUSE.kind)  qs.set('kind', WAREHOUSE.kind);
+  if(WAREHOUSE.q)     qs.set('q', WAREHOUSE.q);
+  if(WAREHOUSE.since) qs.set('since', WAREHOUSE.since);
+  if(WAREHOUSE.until) qs.set('until', WAREHOUSE.until);
+  qs.set('limit','300');
+  let d;
+  try{ d = await api('/api/records?'+qs.toString(), {fresh:true}); }
+  catch(e){ if(note) note.textContent='자료창고를 읽지 못했습니다: '+e; return; }
+  if(d && d.error){ if(note) note.textContent='자료창고 오류: '+d.error; host.innerHTML=''; return; }
+  WAREHOUSE_LOADED = true;
+  WAREHOUSE_ROWS = (d && d.rows) || [];
+  WAREHOUSE_KINDS = (d && d.kinds) || [];
+  warehouseRenderKinds(d);
+  warehouseRenderList(d, note);
+}
+function warehouseRenderKinds(d){
+  const host=$('dlwKinds'); if(!host) return;
+  const total = (d && d.total) || 0;
+  let html = `<button type="button" class="${WAREHOUSE.kind?'':'on'}" onclick="warehousePickKind('')">전체 <b>${total.toLocaleString('ko-KR')}</b></button>`;
+  html += WAREHOUSE_KINDS.map(k=>{
+    const on = k.kind===WAREHOUSE.kind ? 'on' : '';
+    return `<button type="button" class="${on}" onclick="warehousePickKind('${esc2(k.kind)}')">${esc2(k.kind)} <b>${Number(k.count).toLocaleString('ko-KR')}</b></button>`;
+  }).join('');
+  host.innerHTML = html;
+}
+function warehousePickKind(k){ WAREHOUSE.kind = (k===WAREHOUSE.kind ? '' : k); loadWarehouse(true); }
+function warehouseRenderList(d, note){
+  const host=$('dlwList'); if(!host) return;
+  const rows = WAREHOUSE_ROWS;
+  if(note){
+    const parts = [`보이는 ${rows.length}건 / 전체 ${((d&&d.total)||0).toLocaleString('ko-KR')}건`];
+    if(d && d.shown >= (d.filter?.limit||300)) parts.push('상한까지 채워졌습니다 — 검색·기간으로 좁히면 나머지가 보입니다');
+    if(d && d.note) parts.push(d.note);           // 예: FTS 없는 파이썬에서 자유문 검색 불가
+    if(d && d.fts===false && WAREHOUSE.q) parts.push('이 서버는 자유문 검색이 없어 목록만 보여 줍니다');
+    note.textContent = parts.join(' · ');
+  }
+  if(!rows.length){ host.innerHTML='<div style="padding:14px 4px;color:var(--muted,#888)">해당하는 레코드가 없습니다.</div>'; return; }
+  const body = rows.map(r=>{
+    return '<tr>'
+      + `<td><span class="dlw-kd">${esc2(r.kind)}</span></td>`
+      + `<td>${esc2(r.date||'')}</td>`
+      + `<td>${esc2(r.party||'')}</td>`
+      + `<td class="amt">${warehouseWon(r.amount)}</td>`
+      + `<td>${esc2(r.status||'')}</td>`
+      + `<td class="key">${esc2(r.key||'')}</td>`
+      + '</tr>';
+  }).join('');
+  host.innerHTML = '<table><thead><tr>'
+    + '<th>갈래</th><th>업무일</th><th>거래처</th><th>금액</th><th>상태</th><th>키 (적요·프로젝트·PO)</th>'
+    + '</tr></thead><tbody>'+body+'</tbody></table>';
+}
+/* 지금 화면에 보이는 것을 그대로 CSV 로 — '캡처'의 한 형태다. 클라이언트에서만
+   만든다(서버는 읽기 전용). BOM 을 붙여 엑셀이 한글을 깨지 않게 한다. */
+function warehouseCsv(){
+  if(!WAREHOUSE_ROWS.length){ notice('내보낼 레코드가 없습니다.'); return; }
+  const head = ['갈래','업무일','거래처','금액','상태','키'];
+  const q = s => '"' + String(s==null?'':s).replace(/"/g,'""') + '"';
+  const lines = [head.map(q).join(',')];
+  WAREHOUSE_ROWS.forEach(r=>{
+    lines.push([r.kind, r.date, r.party, r.amount, r.status, r.key].map(q).join(','));
+  });
+  const blob = new Blob(['﻿'+lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  const tag = (WAREHOUSE.kind||'전체').replace(/[:/]/g,'_');
+  a.href = URL.createObjectURL(blob);
+  a.download = '자료창고_'+tag+'_'+WAREHOUSE_ROWS.length+'건.csv';
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
 }
 function renderSegs(){
   const host=$('srcSegs'); if(!host) return;

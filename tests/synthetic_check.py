@@ -10054,6 +10054,75 @@ def t184_phone_answers_with_the_same_rules():
           "만든시각 표시·갈래 %d개 일치 ✅" % (len(every), len(L.PROBES)))
 
 
+def t185_datalake_shown_in_app():
+    """[185] ERP·밴드가 DB로 흡수된 record 를 **앱에서 보고 캡처**한다 ([24], 2026-08-09).
+
+    사용자 지시(분담판 [24]): "ERP Excel → 앱 DB(datalake) 흡수 + 앱 화면 노출 —
+    받은 Excel 을 파싱해 record 표로. 그 뒤 앱에서 보고 캡처."
+
+    흡수(ingest_erp)는 이미 돌고 있었다(record 29,568건). 빠져 있던 반쪽은 **화면 노출**
+    이었다 — app_server 는 datalake 를 한 줄도 안 읽고 있었다. 이 검증이 지키는 것:
+      ① 정본 질의는 **하나**다 — 앱도 `datalake.find(on='record')` 를 부른다(두 벌이면 갈린다).
+      ② 큰 갈래로 물으면 하위까지 잡힌다(`kind='ERP'` → `ERP:sales`·`ERP:stmt`…).
+      ③ 기간 필터가 실제로 좁힌다(since/until).
+      ④ **읽기 전용** — 노출 함수가 큐·엑셀·INSERT/UPDATE 를 건드리지 않는다
+         (물어봤을 뿐인데 원장이 바뀌면 안 된다, `[181]` 과 같은 선).
+      ⑤ 라우트(`/api/records`)와 화면(자료창고 카드·loadWarehouse)이 배선돼 있나.
+    """
+    import importlib, tempfile
+    D = importlib.import_module("datalake")
+
+    # ① ② ③ find(on='record') 의미 — 임시 DB 로 격리(실데이터를 안 흔든다)
+    tmp = tempfile.mkdtemp(prefix="dlw185_")
+    dbp = os.path.join(tmp, "datalake.db")
+    con = D.connect(dbp)
+    try:
+        D.put_record(con, "ERP:sales", "s1", {"x": 1}, biz_date="2026-08-01",
+                     party="쿠팡", amount=1000, status="3.오더처리")
+        D.put_record(con, "ERP:stmt", "t1", {"x": 2}, biz_date="2026-07-01",
+                     party="쿠팡", amount=2000, status="발행")
+        D.put_record(con, "band_post", "b1", {"x": 3}, biz_date="2026-08-05",
+                     party="", amount=None, status="")
+        con.commit()
+        all_rows = D.find(con, on="record", limit=50)
+        assert len(all_rows) == 3, "넣은 record 3건이 다 안 나온다"
+        erp = D.find(con, on="record", kind="ERP", limit=50)
+        kinds = sorted({r["kind"] for r in erp})
+        assert kinds == ["ERP:sales", "ERP:stmt"], \
+            "kind='ERP' 가 하위 갈래를 못 잡거나 밴드까지 삼켰다: %s" % kinds
+        aug = D.find(con, on="record", since="2026-08-01", limit=50)
+        got = sorted({r["natural_key"] for r in aug})
+        assert got == ["b1", "s1"], "기간 필터(since)가 안 좁힌다: %s" % got
+    finally:
+        con.close()
+        import shutil as _sh
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    # ④ ⑤ 앱 배선 — 노출 함수는 읽기 전용이고, 라우트·화면이 붙어 있어야 한다
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "def datalake_records(" in srv, "노출 함수가 없다 — DB 가 화면에 안 뜬다"
+    i = srv.index("def datalake_records(")
+    j = srv.index("\nclass H(", i)             # 함수는 핸들러 클래스 바로 앞에 있다
+    body = srv[i:j]
+    assert 'on="record"' in body, "정본 질의(find on='record')를 안 쓴다 — 두 벌이면 갈린다"
+    for bad in ("enqueue", "queue_add", "--apply", "workbook_patch",
+                "INSERT", "UPDATE", ".save("):
+        assert bad not in body, "노출 함수가 쓰기(%s)를 한다 — 읽기 전용이어야 한다" % bad
+    assert '/api/records' in srv, "라우트 /api/records 가 안 걸렸다"
+
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert 'id="dlw"' in idx, "자료창고 카드가 화면에 없다"
+    assert "function loadWarehouse(" in idx and "/api/records" in idx, \
+        "화면이 /api/records 를 안 부른다"
+    assert "v==='sources'" in idx and "loadWarehouse()" in idx, \
+        "원본 화면을 열 때 자료창고를 안 읽는다"
+    assert "function warehouseCsv(" in idx, "캡처(CSV 저장) 경로가 없다 — '보고 캡처'의 반쪽"
+    # 화면이 datalake 를 **다시 구현**하면 안 된다 — 서버 한 곳만 판단한다
+    assert "datalake" not in idx.lower() or "/api/records" in idx, \
+        "화면이 서버를 안 거치고 자체 판단하려 한다"
+    print("  [185] datalake record 앱 노출 — 정본 질의 하나·큰갈래·기간·읽기전용·배선 ✅")
+
+
 def t172_typo_watch_does_not_cry_wolf():
     """[172] 오기입 탐지 — **잡는 것보다 잘못 지목하지 않는 것**이 어렵다 (2026-08-09 지시).
 
@@ -11593,6 +11662,7 @@ if __name__ == "__main__":
     t182_app_collects_without_claude()
     t183_collect_survives_pc_off()
     t184_phone_answers_with_the_same_rules()
+    t185_datalake_shown_in_app()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()

@@ -5114,6 +5114,67 @@ def save_workcenter_improvement(fields, files, source_ip=""):
     return ticket
 
 
+def datalake_records(qs):
+    """자료창고(datalake record) 조회 — 읽기 전용 ([24] 앱 화면 노출).
+
+    ERP Excel·밴드 글이 흡수된 `record` 표를 앱에서 **보고 캡처**할 수 있게 한다.
+    · 정본 질의는 하나다 — CLI 도 앱도 `datalake.find(on='record')` 를 부른다
+      (두 벌로 만들면 결과가 갈린다, 설계서).
+    · **읽기 전용**: 큐에도 안 넣고 엑셀도 안 연다. 비싼 Z: glob 도 없다(datalake.db 는 로컬).
+    · 자유문 검색은 FTS5 가 있을 때만. 없으면 조용히 목록만 준다(있는 척하지 않는다).
+    """
+    def g(k, d=""):
+        return (qs.get(k, [d])[0] or d).strip()
+    kind = g("kind")
+    since = g("since")
+    until = g("until")
+    q = g("q")
+    party = g("party")
+    try:
+        limit = max(1, min(500, int(g("limit", "100"))))
+    except ValueError:
+        limit = 100
+    try:
+        import datalake as D
+    except Exception as e:  # pragma: no cover
+        return {"error": f"datalake 로드 실패: {e}", "rows": [], "kinds": [], "total": 0}
+    con = None
+    try:
+        con = D.connect()
+        total = con.execute("SELECT COUNT(*) c FROM record").fetchone()["c"]
+        # kind 요약 — 사람이 어떤 갈래가 얼마나 있는지 먼저 본다
+        kinds = [{"kind": r["kind"], "count": r["c"], "last": r["last"]}
+                 for r in con.execute(
+                     "SELECT kind, COUNT(*) c, MAX(biz_date) last FROM record"
+                     " GROUP BY kind ORDER BY c DESC")]
+        fts = D.has_fts(con)
+        note = ""
+        rows = []
+        try:
+            recs = D.find(con, on="record", kind=(kind or None), since=(since or None),
+                          until=(until or None), q=(q or None), party=(party or None),
+                          limit=limit)
+        except RuntimeError as e:
+            # FTS 없는 파이썬에서 자유문 검색을 요청한 경우 — 목록은 주되 이유를 밝힌다
+            note = str(e)
+            recs = D.find(con, on="record", kind=(kind or None), since=(since or None),
+                          until=(until or None), party=(party or None), limit=limit)
+        for r in recs:
+            rows.append({"id": r["id"], "kind": r["kind"], "key": r["natural_key"],
+                         "date": r["biz_date"], "party": r["party"],
+                         "amount": r["amount"], "status": r["status"]})
+        return {"rows": rows, "kinds": kinds, "total": total, "shown": len(rows),
+                "fts": fts, "note": note,
+                "filter": {"kind": kind, "since": since, "until": until,
+                           "q": q, "party": party, "limit": limit}}
+    except Exception as e:  # pragma: no cover
+        return {"error": f"{e}", "rows": [], "kinds": [], "total": 0}
+    finally:
+        if con is not None:
+            try: con.close()
+            except Exception: pass
+
+
 # ───────────────────────── HTTP ─────────────────────────
 class H(BaseHTTPRequestHandler):
     def handle_one_request(self):
@@ -5718,6 +5779,11 @@ self.addEventListener('fetch', e => {
             # AS 접수 → 수금 업무 흐름 (2026-08-07 지시). 정본은 DB 다.
             import ledger_db
             return self._send(200, {"steps": ledger_db.flow_steps()})
+        if p == "/api/records":
+            # 자료창고(datalake record) 조회 — 읽기 전용 ([24] 앱 화면 노출)
+            #   qs 는 이 분기에서 직접 판다 — 위 분기들의 qs 는 그 분기 안에서만 산다
+            rq = parse_qs(urlsplit(self.path).query)
+            return self._send(200, datalake_records(rq))
         if p == "/api/reports":
             return self._send(200, {"reports": latest_reports()})
         if p == "/api/tasklog":
