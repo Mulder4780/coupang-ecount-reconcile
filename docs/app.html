@@ -147,6 +147,20 @@ input,button,select{font-family:inherit;font-size:15px}
  .dlg{border-radius:18px;padding:18px 20px}
  .dlggrip{display:none}
 }
+/* CSOS 챗봇 — 말풍선. 폰에서는 이 카드가 화면 맨 위라 높이를 묶어 둔다. */
+.chatlog{margin-top:10px;max-height:46vh;overflow-y:auto;display:flex;flex-direction:column;gap:9px}
+.chatlog:empty{display:none}
+.cmsg{max-width:90%;padding:9px 12px;border-radius:14px;font-size:14.5px;line-height:1.6;
+      white-space:pre-wrap;word-break:break-word}
+.cmsg.me{align-self:flex-end;background:var(--brand,#2f6fed);color:#fff;border-bottom-right-radius:5px}
+.cmsg.bot{align-self:flex-start;background:rgba(127,127,127,.14);border-bottom-left-radius:5px}
+.cmsg.think{opacity:.6;font-style:italic}
+.cmsg .cnext{margin-top:6px;font-size:13.5px}
+.cmsg .csrc{margin-top:5px;font-size:12.5px;opacity:.72}
+.cmsg .cage{margin-top:6px;font-size:12.5px;color:var(--warn,#e0a800)}
+.chatchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.chatchips button{font-size:12.5px;padding:5px 10px;border-radius:999px;
+                  border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit}
 </style></head>
 <body>
 <header><div class="wrap">
@@ -418,12 +432,40 @@ function askNum(q){
   return rec || {'답': key + ' — 이 사본에는 없는 번호입니다.',
                  '다음': 'PC 가 켜진 뒤 다시 물어보시거나, 사본을 새로 올리십시오.'};
 }
+/* 답에 실려 오는 **굵게**만 굵게 만든다. 글자로 바꾼 **뒤에** 하므로 남의 태그는 못 들어온다. */
+function askMd(s){ return esc(String(s == null ? '' : s)).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>'); }
+function chatBubble(who, html, cls){
+  const log = $('chatlog'), d = document.createElement('div');
+  d.className = 'cmsg ' + who + (cls ? ' ' + cls : '');
+  d.innerHTML = html;
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+  return d;
+}
+const CHAT_CHIPS = ['왜 계산서 발행이 안된거지', '엑셀 언제 반영돼', '수집 밀렸어?',
+                    '취소된 거 있나', '지금 뭐부터 하면 돼'];
+function chatChips(){
+  const box = $('chatchips');
+  if(!box || box.dataset.done) return;
+  box.dataset.done = '1';
+  box.innerHTML = CHAT_CHIPS.map(c => '<button type="button">' + esc(c) + '</button>').join('');
+  box.querySelectorAll('button').forEach(b => b.onclick = () => {
+    $('askq').value = b.textContent; doAsk();
+  });
+}
+let CHAT_CTX = '';                 // 마지막으로 번호를 물었던 문장(이어 묻기용)
 function doAsk(){
-  const q = ($('askq').value || '').trim(), out = $('askout');
-  if(!q){ out.innerHTML = ''; return; }
+  let q = ($('askq').value || '').trim();
+  if(!q) return;
+  $('askq').value = '';
+  chatBubble('me', esc(q));
+  const out = chatBubble('bot', '찾는 중…', 'think');
   const A = D.ask;
-  if(!A){ out.innerHTML = '<div class="err">이 사본에는 답 꾸러미가 실려 있지 않습니다 — ' +
-      'PC 에서 사본을 다시 올려야 합니다.</div>'; return; }
+  if(!A){ out.className = 'cmsg bot';
+    out.innerHTML = '이 사본에는 답 꾸러미가 실려 있지 않습니다 — PC 에서 사본을 다시 올려야 합니다.';
+    return; }
+  // 이어 묻기 — 번호가 빠진 물음은 **사람이 방금 한 말**을 뒤에 붙여 다시 본다.
+  // 앱이 번호를 짐작하지는 않는다.
+  if(CHAT_CTX && !askPick(q) && !askNum(q)) q = q + ' ' + CHAT_CTX;
   const made = A['만든때'] || '', intent = askPick(q), M = A['답'] || {};
   // ★ '규칙에 없는 질문' 과 '규칙은 있는데 근거가 없어 답이 안 실린 것' 은 **다른 말**이다.
   //   둘을 한 문장으로 뭉치면 사람이 없는 규칙을 만들러 간다(실측: 앱서버 갈래가 그랬다).
@@ -431,13 +473,14 @@ function doAsk(){
                                 Object.prototype.hasOwnProperty.call(M, intent));
   let r = (intent === '프로젝트조회') ? askNum(q) : (intent ? M[intent] : null);
   if(!r) r = askNum(q);          // 말투에 안 걸려도 번호가 들어 있으면 답한다
+  if(r && intent === '프로젝트조회') CHAT_CTX = q;
   let h = '', esct = '';
   if(r){
-    h += '<div style="margin-top:12px;white-space:pre-wrap">' + esc(r['답'] || '') + '</div>';
-    if(r['다음']) h += '<div class="note" style="margin-top:6px">→ ' + esc(r['다음']) + '</div>';
-    if(r['근거']) h += '<div class="note">' + esc(r['근거']) + '</div>';
-    h += '<div class="note" style="color:var(--warn);margin-top:6px">이 답은 PC 가 <b>' +
-         esc(made) + '</b> 에 만든 것입니다. 그 뒤에 바뀐 것은 담기지 않았습니다.</div>';
+    h += askMd(r['답'] || '');
+    if(r['다음']) h += '<div class="cnext">▶ ' + askMd(r['다음']) + '</div>';
+    if(r['근거']) h += '<div class="csrc">' + esc(r['근거']) + '</div>';
+    h += '<div class="cage">이 답은 PC 가 <b>' + esc(made) +
+         '</b> 에 만든 것입니다. 그 뒤에 바뀐 것은 담기지 않았습니다.</div>';
   }else{
     const 사유 = 아는갈래
       ? '이 사본을 만들 때 그 갈래의 **근거 파일이 없어** 답이 실리지 않았습니다(갈래: ' + intent + ').'
@@ -446,22 +489,25 @@ function doAsk(){
            '\n· 사본 만든 때: ' + made +
            '\n· ' + 사유.replace(/\*\*/g, '') + ' 앱이 지어내지 않았습니다.' +
            '\n\n질문: ' + q;
-    h += '<div class="err" style="margin-top:12px">' + esc(사유.replace(/\*\*/g, '')) +
-         ' — <b>지어내지 않습니다.</b></div>' +
-         '<div class="note">아래를 그대로 클로드에게 붙여넣으면 처음부터 뒤질 일이 없습니다.</div>' +
-         '<textarea class="in" id="askesc" rows="4" readonly style="width:100%;margin-top:6px"></textarea>' +
-         '<button class="btn ghost" id="askcopy" style="width:100%;margin-top:6px">문구 복사</button>';
+    h += askMd(사유) + ' — <b>지어내지 않습니다.</b>' +
+         '<div class="csrc">아래를 그대로 클로드에게 붙여넣으면 처음부터 뒤질 일이 없습니다.</div>' +
+         '<textarea class="in askesc" rows="4" readonly style="width:100%;margin-top:6px"></textarea>' +
+         '<button class="btn ghost askcopy" style="width:100%;margin-top:6px">문구 복사</button>';
   }
+  out.className = 'cmsg bot';
   out.innerHTML = h;
   if(esct){
-    $('askesc').value = esct;
-    $('askcopy').onclick = () => {
-      $('askesc').select();
+    // 말풍선이 여러 개라 id 로 잡으면 **첫 번째 것만** 복사된다.
+    const ta = out.querySelector('.askesc'), btn = out.querySelector('.askcopy');
+    ta.value = esct;
+    btn.onclick = () => {
+      ta.select();
       (navigator.clipboard ? navigator.clipboard.writeText(esct) : Promise.reject())
-        .then(() => { $('askcopy').textContent = '복사했습니다'; })
-        .catch(() => { $('askcopy').textContent = '길게 눌러 복사하십시오'; });
+        .then(() => { btn.textContent = '복사했습니다'; })
+        .catch(() => { btn.textContent = '길게 눌러 복사하십시오'; });
     };
   }
+  $('chatlog').scrollTop = 1e9;
 }
 
 /* ── 대표 브리핑: 당일 업무 처리 + 오래된 완료일 미기입 ──
@@ -1017,6 +1063,7 @@ async function boot(pin){
     if(box) box.parentNode.insertBefore(b, box);
   }
   $('stamp').textContent = '사본 기준 ' + (D.gen || D['기준'] || '') + ' · 코드 ' + Object.keys(D.codes||{}).length;
+  chatChips();
   renderBrief(); renderAlert(); renderTabs(); renderList(); updateMode(); syncQueue();
   return true;
 }
