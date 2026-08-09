@@ -30,6 +30,9 @@ except Exception:
     pass
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 남은 `.tmp.xlsx` 를 '지금 쓰는 중'과 '죽은 회차의 찌꺼기'로 가르는 나이(분).
+# 한 회차의 쓰기는 Z: 라도 몇 분이면 끝난다 — 30분을 넘겼으면 그 회차는 이미 죽었다.
+STALE_TMP_MIN = int(os.environ.get("COUPANG_STALE_TMP_MIN") or 30)
 UPD_DIR = os.environ.get("COUPANG_UPDATES_DIR") or os.path.join(BASE_DIR, "updates")
 PENDING = os.path.join(UPD_DIR, "pending_updates.json")
 HDR_ROW, FIRST = 4, 5
@@ -443,8 +446,28 @@ def _main():
     #   검증도 임시파일에 한다 — **통과한 것만** 정본 이름을 얻는다.
     final_dst, dst = dst, dst[:-5] + ".tmp.xlsx"
     if os.path.exists(dst):
-        zin.close()
-        raise FileExistsError(f"임시 결과가 이미 존재: {dst}")
+        # ★ 남은 tmp 는 두 가지 뜻이다 — 가르지 않으면 **모든 다음 회차가 영원히 막힌다**
+        #   (2026-08-09 실사고). 11:00 회차가 쓰다 죽으며 v571.tmp.xlsx 를 남겼고,
+        #   그 뒤 11:00·15:00·사람 지시 반영이 **전부 FileExistsError 로 실패**했다.
+        #   실패 메시지는 리포트 깊숙이 한 줄로만 남아 아무도 안 봤다 — 화면은 여전히
+        #   "반영 대기 N건"만 보여 준다. 실패가 조용한 자리다.
+        #   ① 방금 생긴 것 = **다른 writer 가 지금 쓰는 중** → 손대면 안 된다(그대로 멈춘다).
+        #   ② 오래된 것 = 죽은 회차의 찌꺼기 → **지우지 않고 옆으로 치우고** 계속 간다.
+        #      지우지 않는 이유: 그 안에 마지막 회차의 결과가 들어 있을 수 있고,
+        #      깨진 zip 인지 사람이 열어 봐야 안다. 판단은 사람 몫으로 남긴다.
+        age_min = (time.time() - os.path.getmtime(dst)) / 60.0
+        if age_min < STALE_TMP_MIN or os.path.exists(final_dst):
+            zin.close()
+            raise FileExistsError(
+                f"임시 결과가 이미 존재: {dst} ({age_min:.0f}분 전 — 다른 회차가 쓰는 중일 수 있다)")
+        aside = dst[:-5] + time.strftime(".stale-%Y%m%d-%H%M.xlsx")
+        try:
+            os.replace(dst, aside)
+            print(f"! 죽은 회차가 남긴 임시본을 치웠습니다({age_min:.0f}분 전): "
+                  f"{os.path.basename(aside)} — 내용 확인 뒤 지우십시오")
+        except OSError as e:                     # 누가 물고 있으면 못 치운다 — 그건 ① 이다
+            zin.close()
+            raise FileExistsError(f"임시 결과가 이미 존재하고 치울 수도 없음: {dst} ({e})")
     zout = zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED)
     for it in zin.infolist():
         data = zin.read(it.filename)
