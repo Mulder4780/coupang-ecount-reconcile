@@ -1142,11 +1142,26 @@ def t6_webapp():
                          cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         base = f"http://127.0.0.1:{port}"
-        for _ in range(30):                       # 기동 대기
+        # ★ 기동 대기를 9초(30×0.3)에서 45초로 늘리고, **안 떴으면 안 떴다고 말한다**
+        #   (2026-08-09 실사고). 합성검증이 두 번 연속 `ConnectionResetError` 로 죽었다.
+        #   원인은 코드가 아니라 **부하**였다 — daily_run 회차가 Z: 를 훑는 동안
+        #   데모 서버가 9초 안에 포트를 못 잡았다. 그런데 대기 루프는 30번 다 실패해도
+        #   **그냥 빠져나가** 첫 요청이 연결 거부로 터졌다. 그래서 화면에 뜬 이유가
+        #   "서버가 안 떴다"가 아니라 엉뚱한 소켓 오류였고, 한참 헤맸다.
+        #   ※ 이건 **관문**이다. 여기가 거짓 빨간불이면 실작업이 통째로 막히고
+        #     daily_run 0단계도 회차를 중단시킨다 — 느린 것을 고장으로 읽으면 안 된다.
+        up = False
+        for _ in range(150):                      # 45초까지 기다린다
+            if p.poll() is not None:              # 프로세스가 죽었으면 더 기다릴 것 없다
+                break
             try:
-                urllib.request.urlopen(base + "/api/ping", timeout=1); break
+                urllib.request.urlopen(base + "/api/ping", timeout=1); up = True; break
             except Exception:
                 time.sleep(0.3)
+        assert up, ("데모 웹앱이 45초 안에 포트 %d 를 잡지 못했습니다"
+                    "(프로세스 종료코드 %s) — 포트를 다른 것이 쓰고 있거나 "
+                    "기계가 몹시 바쁩니다. 소켓 오류로 터지기 전에 여기서 멈춥니다"
+                    % (port, p.poll()))
         # 로그인(잘못된 PIN → 401, 데모 PIN 0000 → ok)
         req = urllib.request.Request(base + "/api/login", data=b'{"pin":"9999"}', method="POST")
         try:
