@@ -9769,6 +9769,142 @@ def t179_comments_everywhere_and_crossed():
     print("  [179] 댓글 구멍을 회차로 · 카톡↔밴드를 캠프·날짜·사건 셋으로 묶는다 ✅")
 
 
+def t181_app_answers_before_claude_is_called():
+    """[181] 앱이 스스로 답한다 — 크레딧은 계산이 아니라 **왕복**에서 샜다 (2026-08-09 지시).
+
+    사용자 지시: "클로드 코드 또는 코덱스 없이 앱 자체적으로 처리할 수 있는 AI 알고리즘
+    기능 넣어서 클로드코드 크래딧 사용 최대한 아낄 수 있게 설계하고 알고리즘에 반영해"
+
+    지금까지의 자동화는 전부 **일을 하는** 쪽이었다(수집·대조·큐·반영). 그런데 크레딧은
+    거기서 안 샜다. 샌 자리는 이렇다 — 사람이 앱을 열어 이상한 숫자를 보고, **앱이
+    이유를 못 말해서** 클로드에게 묻는다. 그러면 클로드는 리포트를 열고 ERP 를 대 보고
+    원장을 뒤져서 **이미 디스크에 있는 사실**을 다시 조립한다. 실측된 예: "작업은
+    완료인데 왜 계산서 발행이 안된거지" 한 마디가 도구 호출 열몇 번이 됐는데, 답은
+    `ERP 4.세금계산서발행대기` 라는 **파일에 이미 적혀 있던 한 줄**이었다.
+
+    ★ 이 검증이 지키는 것은 '똑똑한가'가 아니라 **거짓말하지 않는가**다.
+      답변기가 지어내기 시작하면 사람은 한 번 속고 그 뒤로 앱을 안 믿는다 —
+      그러면 왕복이 도로 살아난다.
+    """
+    import importlib
+    import local_ai as L
+
+    # ① 자가점검이 **갈래까지** 본다.
+    #    첫 판 자가점검은 "터지지 않으면 통과"였다. 그래서 이 프로젝트에서 제일 자주 온
+    #    질문("왜 계산서 발행이 안된거지")이 **모름으로 떨어졌는데도 '모두 통과'**라고
+    #    말했다 — 계기가 0을 내면 아무도 의심하지 않는다(`[169]` 와 같은 모양).
+    src_txt = open(os.path.join(ROOT, "local_ai.py"), encoding="utf-8").read()
+    code = "\n".join(ln for ln in src_txt.splitlines() if not ln.strip().startswith("#"))
+    assert "PROBES" in code and 'r.get("분류") != want' in code, \
+        "자가점검이 '기대한 갈래로 갔는가'를 안 보면, 대표 질문이 조용히 모름이 돼도 통과한다"
+    assert not L.selftest(), "자가점검이 통과해야 한다: %s" % L.selftest()
+
+    # ② 근거가 하나도 없어도 **터지지 않고**, 못 답하면 반드시 클로드 문구를 준다.
+    #    빈손으로 돌려보내면 사람은 결국 클로드에게 처음부터 묻는다 — 절약이 0이 된다.
+    with tempfile.TemporaryDirectory() as td:
+        old = L.REPORT_DIR
+        try:
+            L.REPORT_DIR = td
+            L.LOG = os.path.join(td, "앱_자문기록.json")
+            for q in ("왜 계산서 발행이 안된거지", "UJ2600021", "지금 뭐부터 하면 돼",
+                      "아무 상관 없는 질문"):
+                r = L.ask(q, log=False)
+                assert isinstance(r, dict) and "답" in r, f"답 모양이 무너졌다: {q}"
+                assert r["답함"] or r.get("클로드문구"), \
+                    f"못 답했으면 클로드 문구라도 줘야 한다: {q}"
+            # 근거가 없으면 **확신이 '높'일 수 없다** — 빈 디스크에서 자신 있게 답하면
+            # 그건 지어낸 것이다.
+            r = L.ask("지금 뭐부터 하면 돼", log=False)
+            assert not r["답함"], "근거 파일이 하나도 없는데 답했다면 지어낸 것이다"
+        finally:
+            L.REPORT_DIR = old
+            importlib.reload(L)
+
+    # ③ 읽기 전용이다. 물어봤을 뿐인데 값이 바뀌면 아무도 안 묻는다.
+    for banned in ("enqueue", "queue_add", "workbook_patch", "ledger_writer",
+                   "--apply", "openpyxl"):
+        assert banned not in code, f"답변기는 아무것도 고치면 안 된다: {banned}"
+
+    # ④ 비싼 탐색을 하지 않는다(`[168]`). 질문 하나에 1초를 넘기면 사람은 그냥 클로드에게
+    #    묻는다 — Z: 재귀 glob 은 리포트 답변에 필요 없다.
+    assert "recursive=True" not in code and "ERP_DIR" not in code, \
+        "답변기가 Z: 를 훑기 시작하면 느려서 아무도 안 쓴다"
+
+    # ⑤ 근거를 **항상 같이** 준다. 출처 없는 답은 이 프로젝트에서 소문과 같다.
+    assert "_age_note" in code, "답마다 어느 파일 몇 시간 전 자료인지 붙어야 한다"
+    assert "낡" in code or "신선" in code, \
+        "낡은 근거로 자신 있게 답하는 것이 조용한 사고의 본체다 — 밝히고 답해야 한다"
+
+    # ⑥ 앱에 실제로 붙어 있나. 붙지 않으면 사람 손에는 안 간다.
+    app = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert '"/api/ask"' in app and "local_ai" in app, \
+        "앱에 길이 안 나 있으면 명령줄 도구일 뿐이라 크레딧을 못 아낀다"
+
+    # ⑦ 못 답한 질문이 **다음에 만들 규칙의 목록**이 된다 — 모델 없이 자라는 유일한 길.
+    assert "def stats" in code and "못답한갈래" in code, \
+        "못 답한 갈래를 안 세면 무엇을 더 만들지가 추측이 된다"
+    print("  [181] 앱 자체 답변 — 갈래까지 자가점검 · 못 하면 클로드 문구 · 읽기 전용 ✅")
+
+
+def t182_app_collects_without_claude():
+    """[182] 앱이 스스로 수집한다 — 수집 루프에서 Claude Code 가 빠진다 (2026-08-09 지시).
+
+    사용자 지시: "클로드 코드 또는 코덱스 없이 앱 자체적으로 처리할 수 있는 AI 알고리즘
+    기능 넣어서 클로드코드 크래딧 사용 최대한 아낄 수 있게 설계하고 알고리즘에 반영해"
+
+    밴드는 조회 API 가 없어 로그인된 브라우저 DOM 안에서만 읽힌다. 그 DOM 에서 JS 를
+    돌릴 수 있는 것은 Claude Code(브라우저 도구)나 사람 브라우저 안의 스크립트뿐이었다.
+    지금까지는 Claude Code 가 매번 수집기를 주입해 크레딧을 썼다. 이제 유저스크립트가
+    그 자리를 대신한다: 앱이 회차에서 미리 계산한 **수집계획**을 `/api/collect_plan` 으로
+    내려 주고, 로그인된 밴드 탭의 유저스크립트가 앱이 주는 **정본 수집기**로 스스로 긁는다.
+
+    ★ 이 검증이 지키는 것: ① 계획은 라운드트립으로 살아 있나 ② 앱이 정본 수집기를
+      내려 주나(딴 사본이 아니라) ③ 계획은 **회차가** 다시 채우나(안 그러면 하루면 낡는다).
+    """
+    import importlib
+    sys.path.insert(0, os.path.join(ROOT, "band"))
+    cb = importlib.import_module("comment_backfill")
+
+    # ① 계획 라운드트립 — 앱이 읽는 그 파일이 우선순위대로 nos 를 준다.
+    p = cb.PLAN_PATH
+    bak = open(p, encoding="utf-8").read() if os.path.exists(p) else None
+    try:
+        cb.write_plan({"90610953": {"nos": [5435, 5425], "tiers": {"1": 2}}},
+                      when="2026-08-09 00:00")
+        got = cb.load_plan("90610953")
+        assert got["nos"] == [5435, 5425] and got["tiers"] == {"1": 2}, got
+        assert cb.load_plan("999")["nos"] == [], "모르는 밴드는 빈 목록이어야 한다"
+    finally:
+        if bak is not None:
+            open(p, "w", encoding="utf-8").write(bak)
+        elif os.path.exists(p):
+            os.remove(p)
+
+    # ② 앱이 정본 수집기·계획·유저스크립트를 실제로 서빙하나 (라우트 존재).
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    for route in ('/grab_posts.js', '/api/collect_plan', '/band_auto_collect.user.js'):
+        assert ('"%s"' % route) in srv or ("'%s'" % route) in srv, \
+            "앱이 %s 를 안 내려 준다 — 유저스크립트가 받을 게 없다" % route
+    assert "load_plan" in srv, "collect_plan 이 미리 계산된 계획을 안 읽는다"
+
+    # ③ 유저스크립트는 **앱이 주는** 수집기를 쓴다(딴 사본을 심지 않는다) — 정본이 하나여야
+    #    규칙을 고쳐도 사람 손에 옛 수집기가 안 간다([162] 와 같은 원칙).
+    us = open(os.path.join(ROOT, "band", "band_auto_collect.user.js"),
+              encoding="utf-8").read()
+    assert "/grab_posts.js" in us and "/api/collect_plan" in us, \
+        "유저스크립트가 앱의 정본 수집기·계획을 안 받는다"
+    assert "__grabStart" in us, "유저스크립트가 수집기를 실행하지 않는다"
+
+    # ④ 계획은 **회차가** 다시 채운다 — 안 그러면 하루 지나 낡은 계획으로 긁는다.
+    dr = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "comment_backfill.py" in dr and "--write" in dr, \
+        "회차가 comment_backfill --write 를 안 부른다 — 계획이 낡는다"
+    src = open(os.path.join(ROOT, "band", "comment_backfill.py"), encoding="utf-8").read()
+    assert "write_plan(" in src and "if a.write" in src, \
+        "--write 가 계획 파일을 안 만든다 — 붙여넣기 파일만 만들고 앱은 굶는다"
+    print("  [182] 앱 자체 수집 — 계획 라운드트립 · 정본 수집기 서빙 · 회차가 갱신 ✅")
+
+
 def t172_typo_watch_does_not_cry_wolf():
     """[172] 오기입 탐지 — **잡는 것보다 잘못 지목하지 않는 것**이 어렵다 (2026-08-09 지시).
 
@@ -10527,6 +10663,11 @@ def t162_band_comments_collected():
     #   사고를 다시 밟지 않게, 항목 셀렉터가 cComment 자체를 집는지 확인한다.
     assert "cComment" in body and re.search(r"CMT_ITEM\s*=\s*'div\.cComment", body), \
         "댓글 항목 셀렉터가 cComment 자체가 아니라 그 하위를 가리킨다 — 늘 0개로 읽힌다"
+    # '확인된 0개'와 '못 읽음'을 가른다 (2026-08-09 실측). 댓글 0 인 글은 '댓글 N'
+    #   표시가 없어 countKnown 이 false 다 — 그것을 전부 미확인으로 두면 0개짜리 글이
+    #   영원히 다시 뽑혀 백필이 수렴하지 못한다. 입력창이 있는데 목록이 0 이면 확인된 0개다.
+    assert "commentUiReady" in body and "_commentInputRegion" in body, \
+        "0개짜리 글을 '확인된 0개'로 못 가른다 — 매 회차 다시 뽑혀 백필이 안 끝난다"
     mo = open(os.path.join(ROOT, "band", "make_oneclick.py"), encoding="utf-8").read()
     assert 'open(os.path.join(HERE, "grab_posts.js")' in mo, \
         "붙여넣기 파일이 grab_posts.js 를 싣지 않는다 — 고쳐도 사람 손에는 옛 JS 가 간다"
@@ -11299,6 +11440,7 @@ if __name__ == "__main__":
     t172_typo_watch_does_not_cry_wolf()
     t179_comments_everywhere_and_crossed()
     t180_round_leaves_footprints_and_finishes()
+    t181_app_answers_before_claude_is_called()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()

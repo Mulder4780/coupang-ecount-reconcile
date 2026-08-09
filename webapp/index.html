@@ -2597,6 +2597,19 @@ body.dash-drag-live #dashGuides{display:grid}
       </div>
     </div>
     <div class="kpis" id="kpis"></div>
+    <!-- ★ 앱에게 먼저 물어본다 (2026-08-09 지시) — 클로드를 부르기 전 단계.
+         화면이 숫자만 보여 주고 **이유를 못 말해서** 사람이 매번 AI 에게 물었다.
+         그 이유는 대개 리포트에 이미 적혀 있다. 여기서 바로 읽어 준다.
+         못 답하면 지어내지 않고 **클로드에게 붙여넣을 문구**를 만들어 준다. -->
+    <div class="card"><h3>앱에게 물어보기 <span class="norm">— 이유를 앱이 먼저 답합니다</span></h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="askq" placeholder="예: 왜 계산서 발행이 안된거지 / UJ2600021 / 엑셀 언제 반영돼"
+               style="flex:1;min-width:220px;padding:9px 11px;font-size:15px;border-radius:8px"
+               onkeydown="if(event.key==='Enter')doAsk()">
+        <button class="abtn" onclick="doAsk()">묻기</button>
+      </div>
+      <div id="askout" style="margin-top:10px;font-size:14.5px;white-space:pre-wrap"></div>
+    </div>
     <div class="card"><h3>에이전트 최근 실행 <span id="agentTime" style="font-weight:400"></span></h3>
       <div class="steps" id="steps"></div></div>
     <div class="card" id="forkcard" style="display:none;border:2px solid var(--danger)">
@@ -4199,6 +4212,46 @@ try{ applyTheme(localStorage.getItem('cw_theme') || 'light'); }catch(e){ applyTh
 watchSystemTheme(true);
 
 let API_FRESH = 0;                     // >0 이면 이번 호출들은 캐시를 건너뛴다
+// ★ 앱에게 먼저 물어보기 (2026-08-09 지시) — 클로드를 부르기 전 단계.
+//   답을 **그대로 글자로** 넣는다(HTML 로 해석하지 않는다). 리포트 본문이 답에 실려
+//   오는데 거기에 꺾쇠가 있으면 화면이 깨지고, 더 나쁘게는 남의 글이 화면에 심어진다.
+function _askEsc(s){
+  const d = document.createElement('div'); d.textContent = String(s == null ? '' : s);
+  return d.innerHTML;
+}
+async function doAsk(){
+  const q = (document.getElementById('askq').value || '').trim();
+  const box = document.getElementById('askout');
+  if(!q){ box.innerHTML = ''; return; }
+  box.innerHTML = '<span class="norm">찾는 중…</span>';
+  let r;
+  try{
+    r = await api('/api/ask?q=' + encodeURIComponent(q), {fresh: true});
+  }catch(e){
+    box.innerHTML = '<span class="norm">답변기에 닿지 못했습니다.</span>'; return;
+  }
+  const parts = [];
+  parts.push('<div style="font-weight:600">' + _askEsc(r['답'] || '') + '</div>');
+  if(r['다음']) parts.push('<div style="margin-top:8px">▶ ' + _askEsc(r['다음']) + '</div>');
+  if(r['근거']) parts.push('<div class="norm" style="margin-top:6px;font-size:13px">'
+                           + _askEsc(r['근거']) + '</div>');
+  // 못 답했으면 **빈손으로 돌려보내지 않는다** — 클로드에 붙여넣을 문구를 준다.
+  // 앱이 이미 확인한 사실이 그 안에 들어 있어 왕복 한 번이 짧아진다.
+  if(r['클로드문구']){
+    parts.push('<div style="margin-top:10px"><b>클로드에게 물을 문구</b> '
+      + '<button class="abtn" style="padding:2px 8px;font-size:13px" onclick="_askCopy()">복사</button></div>'
+      + '<textarea id="askesc" readonly style="width:100%;height:120px;margin-top:5px;'
+      + 'font-size:13px;border-radius:8px;padding:8px">' + _askEsc(r['클로드문구']) + '</textarea>');
+  }
+  box.innerHTML = parts.join('');
+}
+function _askCopy(){
+  const t = document.getElementById('askesc');
+  if(!t) return;
+  t.select();
+  try{ navigator.clipboard.writeText(t.value); }catch(e){ document.execCommand('copy'); }
+}
+
 async function apiFresh(fn){           // 이 안에서 일어나는 api() 는 전부 새로 받는다
   API_FRESH++;
   try{ return await fn(); }

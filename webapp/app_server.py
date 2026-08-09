@@ -5411,6 +5411,37 @@ self.addEventListener('fetch', e => {
                 "application/manifest+json")
         if p == "/api/ping":
             return self._send(200, {"app": "coupang-work", "demo": DEMO, "build": build_id()})
+        # ── 밴드 자동수집 (2026-08-09 지시: Claude Code 없이 앱이 스스로 수집) ─────────
+        #   로그인된 밴드 탭의 유저스크립트가 이 둘을 읽어 스스로 긁는다 — Claude Code 가
+        #   수집 루프에서 빠져 크레딧을 안 쓴다. _send 가 이미 CORS(*)·사설망 허용을
+        #   붙이므로 band.us 페이지에서 곧바로 fetch 된다. 계획은 회차가 미리 계산해 둔
+        #   것을 그대로 내려 준다(원장 읽기가 비싸 요청마다 다시 계산하지 않는다).
+        if p == "/grab_posts.js":
+            try:
+                js = open(os.path.join(ROOT, "band", "grab_posts.js"),
+                          encoding="utf-8").read()
+            except OSError:
+                return self._send(404, {"error": "수집기 없음"})
+            return self._send(200, js.encode("utf-8"),
+                              "application/javascript; charset=utf-8")
+        if p == "/band_auto_collect.user.js":
+            try:
+                js = open(os.path.join(ROOT, "band", "band_auto_collect.user.js"),
+                          encoding="utf-8").read()
+            except OSError:
+                return self._send(404, {"error": "유저스크립트 없음"})
+            return self._send(200, js.encode("utf-8"),
+                              "application/javascript; charset=utf-8")
+        if p == "/api/collect_plan":
+            q = parse_qs(urlsplit(self.path).query)
+            band = (q.get("band", [""])[0] or "").strip()
+            try:
+                sys.path.insert(0, os.path.join(ROOT, "band"))
+                import comment_backfill as _cb
+                return self._send(200, _cb.load_plan(band or None))
+            except Exception as e:
+                return self._send(200, {"band": band, "nos": [],
+                                        "error": type(e).__name__})
         if p == "/api/auth/session":
             session = auth_session_from_cookie(self.headers.get("Cookie", ""))
             if not session:
@@ -5645,6 +5676,26 @@ self.addEventListener('fetch', e => {
             return self._send(200, report)
         if p == "/api/ux":
             return self._send(200, {"summary": _ux_summary()})
+        if p == "/api/ask":
+            # ★ 앱이 스스로 답한다 — 클로드를 부르기 전에 여기서 먼저 묻는다.
+            #   크레딧이 새던 자리는 계산이 아니라 **왕복**이었다: 사람이 이상한 숫자를
+            #   보고 앱이 이유를 못 말해서 클로드에게 묻고, 클로드는 이미 디스크에 있는
+            #   사실을 다시 조립했다. 이 길은 그 사실을 바로 돌려준다.
+            #   읽기 전용이다 — 물어봤을 뿐인데 값이 바뀌는 일은 없다.
+            q = (parse_qs(urlsplit(self.path).query).get("q", [""])[0] or "").strip()
+            if not q:
+                return self._send(400, {"ok": False, "error": "질문이 비었습니다"})
+            try:
+                import local_ai
+                return self._send(200, {"ok": True, **local_ai.ask(q)})
+            except Exception as exc:
+                # 답변기가 깨져도 **화면은 살아 있어야 한다.** 여기서 500 을 주면
+                # 사람은 앱을 못 믿고 결국 클로드에게 묻는다(없애려던 그 왕복이다).
+                return self._send(200, {
+                    "ok": False, "질문": q, "답함": False, "분류": None, "확신": "없음",
+                    "답": "답변기가 답하지 못했습니다: %s" % str(exc)[:140],
+                    "다음": "아래 문구를 클로드에게 붙여넣으십시오.",
+                    "근거": "", "클로드문구": q})
         if p == "/api/calendar":
             return self._send(200, get_calendar())
         if p == "/api/suggest":
