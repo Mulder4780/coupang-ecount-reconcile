@@ -10959,7 +10959,17 @@ function briefBlock(){
     <span class="bpill warn">미처리 ${a.미처리||0}<em>최근 30일</em></span></div>`;
   if(Object.keys(wla).length){
     const reasons=wla.미처리사유||[];
-    h += `<div class="bglab">현장 일지 대조 · 발생 ${wla.발생||0}건 · 처리완료 ${wla.처리완료||0}건 · 미처리 ${wla.미처리||0}건 · 취소 ${wla.취소||0}건</div>
+    /* 대표 지시(2026-08-09): 이 대조는 **이번 달만** 센다. 원본 파일은 '7.1~' 처럼
+       여러 달이 쌓이므로 안 자르면 8월 화면에 7월 숫자가 그대로 남는다.
+       ★ 0건이면 반드시 이유를 붙인다 — '이번 달은 한 건도 없었다'가 아니라
+         '원본이 아직 이번 달을 안 담았다'일 수 있고, 둘은 완전히 다른 말이다. */
+    const _m = wla.기준월||'', _mt = _m?`${Number(_m.slice(5,7))}월`:'이번 달';
+    if(wla.이번달자료없음) h += `<div class="bneed"><div class="bnh">
+      ⚠ 원본 일지에 <b>${_e(_mt)} 자료가 아직 없습니다</b>
+      <span>— 아래 0건은 '없다'는 뜻이 아닙니다</span></div>
+      <div class="bnd">원본이 담은 범위: ${_e(wla.원본시작일||'-')} ~ ${_e(wla.원본종료일||'-')}
+      (${wla.원본전체건수||0}건) · 이번 달 일지를 <b>0. 원본 자료 / 8. 정기점검, 돌발AS 일지</b> 에 넣어 주십시오</div></div>`;
+    h += `<div class="bglab">현장 일지 대조 · ${_e(_mt)} · 발생 ${wla.발생||0}건 · 처리완료 ${wla.처리완료||0}건 · 미처리 ${wla.미처리||0}건 · 취소 ${wla.취소||0}건</div>
       <div class="pmstats">
         <button class="done" onclick="openWorkLogBrief('done')">처리완료<b>${wla.처리완료||0}건</b></button>
         <button class="warn" onclick="openWorkLogBrief('open')">미처리<b>${wla.미처리||0}건</b></button>
@@ -13452,9 +13462,22 @@ async function reportToPng(){
   // 유수비 대표 요청: 돌발AS는 단순 진행중 숫자가 아니라 원본 일지 기준으로
   // 발생·처리·미처리·취소와 미처리 사유까지 한 화면/한 이미지에서 확인한다.
   if(Object.keys(wlAs).length){
-    const rangeStart = wlAs.기준시작일 || '-';
-    const rangeEnd = wlAs.기준종료일 || '-';
-    section(`돌발AS 현장 일지 대조 · ${rangeStart} ~ ${rangeEnd}`);
+    // 대표 지시(2026-08-09): 이 대조는 **이번 달만** 본다. 원본은 '7.1~' 처럼 여러 달이
+    // 한 파일에 쌓여서, 안 자르면 8월 보고에 7월 숫자가 그대로 실린다.
+    const mon = wlAs.기준월 || '';
+    const monTitle = mon ? `${mon.slice(0,4)}년 ${Number(mon.slice(5,7))}월` : '이번 달';
+    const rangeStart = wlAs.기준시작일 || '';
+    const rangeEnd = wlAs.기준종료일 || '';
+    const rangeTxt = (rangeStart && rangeEnd) ? ` · ${rangeStart} ~ ${rangeEnd}` : '';
+    section(`돌발AS 현장 일지 대조 · ${monTitle}${rangeTxt}`);
+    // ★ 0건일 때가 제일 위험하다 — '이번 달은 한 건도 없었다'로 읽히면 안 된다.
+    //   원본이 아직 이번 달을 안 담은 것뿐이라면 그렇게 말한다.
+    if(wlAs.이번달자료없음){
+      txt(`원본 일지에 ${monTitle} 자료가 아직 없습니다 — 아래 숫자는 0이지만 '없다'는 뜻이 아닙니다.`,
+          30, y+8, F(12,800), '#A63737'); y += 20;
+      txt(`원본이 담은 범위: ${wlAs.원본시작일||'-'} ~ ${wlAs.원본종료일||'-'} (${wlAs.원본전체건수||0}건)`,
+          30, y+6, F(11), '#98A2B3'); y += 18;
+    }
     grid([
       [String(wlAs.발생||0)+'건', '발생'],
       [String(wlAs.처리완료||0)+'건', '처리완료', '#12813F'],

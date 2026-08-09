@@ -7124,8 +7124,19 @@ def t79_work_log_source_sync_and_report_capture():
         pmw.append(["PM-1", "UJ2609001", "점검캠프", "2026-07-10", "", ""])
         mw.save(master)
 
-        payload = W.analyze(master, source)
+        # 이 대조는 **이번 달만** 센다([188]). 합성 자료는 7월이므로 기준 달을 7월로
+        # 두고 본다 — 안 그러면 이 검증이 달마다 통과·실패를 오간다.
+        _keep = os.environ.get("COUPANG_WORKLOG_MONTH")
+        os.environ["COUPANG_WORKLOG_MONTH"] = "2026-07"
+        try:
+            payload = W.analyze(master, source)
+        finally:
+            if _keep is None:
+                os.environ.pop("COUPANG_WORKLOG_MONTH", None)
+            else:
+                os.environ["COUPANG_WORKLOG_MONTH"] = _keep
         as_summary = payload["요약"]["돌발AS"]
+        assert as_summary["기준월"] == "2026-07" and not as_summary["이번달자료없음"]
         assert as_summary["발생"] == 3 and as_summary["처리완료"] == 1
         assert as_summary["미처리"] == 1 and as_summary["취소"] == 1
         assert (as_summary["기준시작일"], as_summary["기준종료일"]) == (
@@ -10286,6 +10297,61 @@ def t187_free_vs_insurance_are_not_one_label():
           "보험사 입금 양방향 탐색·유일일치만 반영 ✅")
 
 
+def t188_worklog_shows_this_month_only():
+    """[188] 돌발AS 일지 대조는 **이번 달만** · 0건이면 이유를 댄다 (2026-08-09 지시).
+
+    사용자 지시: "캡처 화면에서 돌발 AS일지 대조는 현재 월만 표시하게 알고리즘 변경"
+
+    ★ 원본은 `정기점검, 돌발AS 일지 (7.1~).xlsx` 처럼 **여러 달이 한 파일에 쌓인다.**
+      안 자르면 8/9 에 뽑은 대표 보고 제목이 `2026-07-01 ~ 2026-07-28` 이 된다 —
+      두 달 전 숫자가 오늘 것처럼 실린다.
+    ★ 그런데 **자르면 0이 되는 달이 있다.** 실측 2026-08: 원본 86건이 전부 7월이라
+      이번 달은 0건이다. 그때 0건만 보여 주면 **'이번 달은 돌발AS 가 한 건도 없었다'**
+      로 읽힌다 — 사실이 아니라 **자료가 아직 안 담긴 것**이다. 둘은 완전히 다른 말이고,
+      이 프로젝트에서 0 은 언제나 '없는 건가, 안 본 건가'를 물어야 한다([169]).
+    """
+    import work_log_sync as W
+
+    # ① 기준 달은 바꿀 수 있어야 검증이 '자료 없는 달'을 재현한다
+    old = os.environ.get("COUPANG_WORKLOG_MONTH")
+    try:
+        os.environ["COUPANG_WORKLOG_MONTH"] = "2026-03"
+        assert W.current_month() == "2026-03", "기준 달을 바꿀 수 없다"
+    finally:
+        if old is None:
+            os.environ.pop("COUPANG_WORKLOG_MONTH", None)
+        else:
+            os.environ["COUPANG_WORKLOG_MONTH"] = old
+    assert len(W.current_month()) == 7 and W.current_month()[4] == "-", W.current_month()
+
+    src = open(os.path.join(ROOT, "work_log_sync.py"), encoding="utf-8").read()
+    assert 'startswith(month)' in src, "이번 달로 자르지 않는다 — 지난달 숫자가 그대로 실린다"
+    assert '"기준월": month' in src and '"이번달자료없음": month_empty' in src, \
+        "이번 달만 센 숫자라는 표시가 없다"
+    for k in ('"원본시작일"', '"원본종료일"', '"원본전체건수"'):
+        assert k in src, "0건일 때 원본이 어디까지 담았는지 못 말한다 — %s" % k
+    # 자르기 **전** 목록을 남겨 둬야 원본 범위를 셀 수 있다
+    assert "as_all = [r for r in compared" in src and "as_rows = [r for r in as_all" in src, \
+        "원본 전체를 버리고 잘라서, 무엇을 못 봤는지 말할 수 없다"
+
+    # ② 화면과 캡처가 **둘 다** 말한다 — 한쪽만 고치면 그쪽만 정직해진다
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert idx.count("이번달자료없음") >= 2, \
+        "대시보드 카드와 대표 캡처 중 한 곳만 이유를 댄다"
+    assert "2026-07-01 ~ 2026-07-28" not in idx
+    assert "돌발AS 현장 일지 대조 · ${monTitle}" in idx, "캡처 제목이 아직 날짜 범위다"
+    assert "현장 일지 대조 · ${_e(_mt)}" in idx, "화면 카드가 어느 달인지 안 밝힌다"
+
+    # ③ 아침 브리핑에 달을 손으로 적어 두지 않는다 — 다음 달이면 그대로 거짓말이다
+    brief = open(os.path.join(ROOT, "daily_brief.py"), encoding="utf-8").read()
+    assert "일지 대조 (7월 원본)" not in brief, "'7월'이 박혀 있다"
+    assert '일지 대조 (%s 원본)' in brief and "이번달자료없음" in brief, \
+        "브리핑이 기준 달·자료 없음을 안 쓴다"
+
+    print("  [188] 돌발AS 일지 대조 이번 달만 · 0건이면 원본 범위를 대고 이유를 말함 "
+          "(화면·캡처·브리핑 셋 다) ✅")
+
+
 def t172_typo_watch_does_not_cry_wolf():
     """[172] 오기입 탐지 — **잡는 것보다 잘못 지목하지 않는 것**이 어렵다 (2026-08-09 지시).
 
@@ -11828,6 +11894,7 @@ if __name__ == "__main__":
     t185_datalake_shown_in_app()
     t186_kakao_round_and_stale_tmp()
     t187_free_vs_insurance_are_not_one_label()
+    t188_worklog_shows_this_month_only()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()

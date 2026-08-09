@@ -503,7 +503,15 @@ def text(b):
     log = b.get("일지대조", {}) if isinstance(b, dict) else {}
     log_as = log.get("돌발AS", {}) if isinstance(log, dict) else {}
     if log_as:
-        L.append("\n■ 정기점검·돌발AS 일지 대조 (7월 원본)")
+        # 달을 손으로 적어 두면 다음 달에 그대로 거짓말이 된다(2026-08-09 지시).
+        _m = log_as.get("기준월") or ""
+        _mt = ("%d월" % int(_m[5:7])) if len(_m) >= 7 else "이번 달"
+        L.append("\n■ 정기점검·돌발AS 일지 대조 (%s 원본)" % _mt)
+        if log_as.get("이번달자료없음"):
+            L.append("   ⚠ 원본 일지에 %s 자료가 아직 없습니다 — 아래 0건은 '없다'는 뜻이 아닙니다" % _mt)
+            L.append("   원본이 담은 범위: %s ~ %s (%d건)"
+                     % (log_as.get("원본시작일") or "-", log_as.get("원본종료일") or "-",
+                        log_as.get("원본전체건수") or 0))
         L.append(f"   돌발AS 발생 {log_as.get('발생', 0)}건 · 처리완료 {log_as.get('처리완료', 0)}건 · "
                  f"미처리 {log_as.get('미처리', 0)}건 · 취소 {log_as.get('취소', 0)}건")
         reasons = log_as.get("미처리사유", []) or []

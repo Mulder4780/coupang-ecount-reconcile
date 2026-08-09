@@ -37,6 +37,15 @@ if ROOT not in sys.path:
 from ecount_reconcile import load_config, resolve_master
 from findings_sheet import build_generic_sheet, upsert
 from source_dirs import WORK_LOG_DIR, work_log_dirs
+
+
+def current_month():
+    """대표 보고 돌발AS 일지 대조의 기준 달(YYYY-MM).
+
+    `COUPANG_WORKLOG_MONTH` 로 바꿀 수 있다 — 지난달을 다시 뽑아 보거나 검증이
+    '자료 없는 달'을 재현할 때 쓴다. 없으면 오늘이 속한 달이다.
+    """
+    return os.environ.get("COUPANG_WORKLOG_MONTH") or datetime.now().strftime("%Y-%m")
 from zscan import camp_key
 
 try:
@@ -373,8 +382,20 @@ def analyze(master: str, source: str | None = None) -> dict:
                 x["대조결과"] = "원장 대조 완료"
         compared.append(x)
 
-    as_rows = [r for r in compared if r["구분"] == "돌발AS"]
+    as_all = [r for r in compared if r["구분"] == "돌발AS"]
     pm_rows = [r for r in compared if r["구분"] == "정기점검"]
+
+    # ★ 대표 보고의 돌발AS 일지 대조는 **이번 달만** 본다 (2026-08-09 지시).
+    #   원본은 '7.1~' 처럼 여러 달이 한 파일에 쌓이므로, 안 자르면 화면이 두 달 전
+    #   숫자를 오늘 것처럼 보여 준다(실측: 8/9 인데 제목이 '2026-07-01 ~ 2026-07-28').
+    # ★ 그런데 **자르면 0이 되는 달이 있다** — 원본이 아직 이번 달을 안 담은 때다.
+    #   그때 그냥 0건을 보여 주면 '이번 달은 돌발AS 가 한 건도 없었다'로 읽힌다.
+    #   그건 사실이 아니라 **자료가 아직 없는 것**이다. 그래서 무엇을 봤고 원본이
+    #   어디까지 담고 있는지를 같이 내려보내 화면이 그 말을 하게 한다([169]).
+    month = current_month()
+    src_dates = sorted({r["일자"] for r in as_all if r.get("일자")})
+    as_rows = [r for r in as_all if str(r.get("일자") or "").startswith(month)]
+    month_empty = not as_rows
     as_done = [r for r in as_rows if r["종류"] == "as_done" and r["상태"] == "완료"]
     as_open = [r for r in as_rows if r["종류"] == "as_open" and r["상태"] in ("미실시", "예정")]
     as_cancel = [r for r in as_rows if r["종류"] == "as_open" and r["상태"] == "취소"]
@@ -403,6 +424,13 @@ def analyze(master: str, source: str | None = None) -> dict:
                 "취소": len(as_cancel), "처리완료일확인": len(as_done_unknown),
                 "기준시작일": as_dates[0] if as_dates else "",
                 "기준종료일": as_dates[-1] if as_dates else "",
+                # 이번 달만 센 숫자라는 것과, 원본이 실제로 어디까지 담고 있는지를
+                # 같이 내려보낸다. 0건일 때 '없는 것'과 '아직 안 담긴 것'을 가르는 근거다.
+                "기준월": month,
+                "원본시작일": src_dates[0] if src_dates else "",
+                "원본종료일": src_dates[-1] if src_dates else "",
+                "원본전체건수": len(as_all),
+                "이번달자료없음": month_empty,
                 "미처리사유": reasons, "미처리목록": as_open,
                 "핫이슈": len(hot), "핫이슈목록": hot, "책임구분": blockers,
                 "처리완료목록": as_done, "취소목록": as_cancel,
