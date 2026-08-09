@@ -11786,6 +11786,11 @@ def t190_autopilot_retries_without_failure_cascade():
             # 자원이 돌아오면 워치독 회차가 성공 확인 뒤 닫는다.
             doc["items"][0]["next_attempt"] = "2000-01-01T00:00:00+09:00"
             A.QUEUE_PATH.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+            A.STATUS_PATH.unlink(missing_ok=True)
+            before_dry = A.QUEUE_PATH.read_bytes()
+            dry_result = A.heal(limit=1, budget_seconds=60, dry=True)
+            assert dry_result["actions"] and A.QUEUE_PATH.read_bytes() == before_dry
+            assert not A.STATUS_PATH.exists(), "--dry가 상태 시각을 쓰면 실제 실행으로 보인다"
             A.run_tree = lambda *a, **k: type("R", (), {
                 "returncode": 0, "stdout": "OK", "stderr": "", "timed_out": False,
                 "stuck_pid": 0})()

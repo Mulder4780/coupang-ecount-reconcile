@@ -220,10 +220,13 @@ def heal(*, limit: int = 2, budget_seconds: int = 600, dry: bool = False) -> dic
             _escalate(item)
             outcome = item["status"]
         actions.append({"name": item.get("name"), "result": outcome})
+    if dry:
+        # --dry는 판단만 한다. 상태 파일의 시각까지 바꾸면 '실행했다'는 거짓 자국이다.
+        return {**summary(doc), "actions": actions}
     doc["updated_at"] = _now().isoformat(timespec="seconds")
     _atomic_json(QUEUE_PATH, doc)
-    summary = write_status(doc, actions=actions)
-    return {**summary, "actions": actions}
+    status_value = write_status(doc, actions=actions)
+    return {**status_value, "actions": actions}
 
 
 def summary(doc: dict[str, Any] | None = None) -> dict[str, Any]:
