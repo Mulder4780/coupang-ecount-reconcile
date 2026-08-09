@@ -593,6 +593,14 @@ body.calendar-only .cal2-only-note{display:block}
   background:rgba(255,255,255,.14);border:.5px solid rgba(255,255,255,.2);border-radius:99px;
   padding:4px 10px;font-size:13px;font-weight:600;white-space:nowrap;
   -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+/* 실기기 375px 검증: 실행 배지가 제목 폭을 절반 가까이 차지해 기간 칩이
+   한두 글자씩 세로로 찢어졌다. 좁은 화면에서는 제목·배지를 위아래로 둔다. */
+@media(max-width:520px){
+  .hero-top{flex-direction:column;align-items:stretch;gap:9px}
+  .hero-title{width:100%}
+  .hero .hero-period{display:flex;width:100%;flex-wrap:wrap;line-height:1.4;border-radius:14px}
+  .hero .badge{align-self:flex-start}
+}
 
 /* ═══ 유수비 대표 예외보고 — 정상 상세은 접고 예외만 전면에 ═══ */
 .rep-card{border-color:#C8D5F3;background:
@@ -1217,6 +1225,55 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
 .check-row .check-desc{font-size:13.5px;color:var(--ink-2);line-height:1.55;margin-top:5px;
   overflow-wrap:anywhere}
 .check-row .check-money{font-weight:800;color:var(--warn);white-space:nowrap}
+/* 자료 하나가 실패해도 화면 전체를 비우지 않는다. 마지막 정상값의 기준시각과 그 자료만
+   다시 부르는 버튼을 함께 보여 줘, 담당자가 "빈칸=0건"으로 오해하지 않게 한다. */
+.data-health{display:none;margin:0 0 13px;background:var(--surface);border:1px solid #F2C7A5;
+  border-radius:15px;box-shadow:var(--sh);padding:12px 14px;min-width:0}
+.data-health.on{display:block}
+.data-health-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+  margin-bottom:9px;min-width:0}
+.data-health-head strong{display:block;color:var(--warn);font-size:14.5px;line-height:1.35}
+.data-health-head span{display:block;color:var(--ink-2);font-size:13px;line-height:1.45;margin-top:2px;
+  overflow-wrap:anywhere}
+.data-health-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.data-health-item{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;
+  border:1px solid var(--line);border-radius:11px;background:var(--panel);padding:8px 9px 8px 11px}
+.data-health-copy{min-width:0;font-size:13px;line-height:1.42;color:var(--ink-2);overflow-wrap:anywhere}
+.data-health-copy b{display:block;color:var(--ink);font-size:13.5px}
+.data-health-copy .err{display:block;color:var(--danger);margin-top:2px}
+.data-health-item button{flex:none;min-width:82px;min-height:44px;padding:8px 11px;border-radius:10px;
+  border:1px solid #BFCDF3;background:var(--surface);color:var(--brand);font:inherit;font-size:13px;
+  font-weight:800}
+.data-health-item button[disabled]{color:var(--ink-3);border-color:var(--line);cursor:wait}
+
+/* 확인 카드는 네이티브 button으로 만들어 Enter·Space가 자동으로 동작한다. */
+button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:inherit;font:inherit;
+  appearance:none;-webkit-appearance:none;overflow:hidden}
+.check-row .check-open-hint{display:block;margin-top:7px;color:var(--brand);font-size:12.5px;font-weight:800}
+.check-lane{display:inline-flex;align-items:center;min-height:26px;border-radius:999px;padding:3px 9px;
+  font-size:12.5px;font-weight:850;white-space:nowrap;border:1px solid transparent}
+.check-lane.auto{color:var(--ok);background:var(--ok-bg);border-color:#BFE8CD}
+.check-lane.login{color:#5E35B1;background:#F1ECFF;border-color:#D8CBFA}
+.check-lane.data{color:var(--brand-dk);background:var(--brand-tint);border-color:#C7D4F5}
+.check-lane.approval{color:var(--danger);background:var(--danger-bg);border-color:#F5C2C7}
+.check-lane.human{color:var(--warn);background:var(--warn-bg);border-color:#F3D2A8}
+.check-drawer-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;min-width:0}
+.check-drawer-head>div{min-width:0}
+.check-drawer-head h2{overflow-wrap:anywhere}
+.check-drawer-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:12px 0}
+.check-drawer-block{min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--panel);
+  padding:11px 12px}
+.check-drawer-block.wide{grid-column:1/-1}
+.check-drawer-block h3{font-size:12.5px;color:var(--ink-3);margin:0 0 5px;letter-spacing:.2px}
+.check-drawer-block p{font-size:14px;line-height:1.55;color:var(--ink);margin:0;overflow-wrap:anywhere}
+.check-drawer-evidence{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:7px;min-width:0}
+.check-drawer-evidence .basis{font-size:12.5px;color:var(--ink-3);overflow-wrap:anywhere}
+.check-drawer-raw{margin:10px 0 2px;border:1px solid var(--line);border-radius:11px;overflow:hidden}
+.check-drawer-raw summary{min-height:44px;display:flex;align-items:center;padding:9px 11px;
+  cursor:pointer;color:var(--brand);font-size:13px;font-weight:800;background:var(--surface)}
+.check-drawer-raw .dl{padding:11px;background:var(--panel);min-width:0}
+.check-drawer-actions{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+.check-drawer-actions .abtn{min-width:0;min-height:48px;justify-content:center;overflow-wrap:anywhere}
 @media(max-width:899px){
   .check-hero{align-items:flex-start;flex-direction:column}
   .check-hero .actions{flex:0 0 auto;width:100%}
@@ -1224,6 +1281,12 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
   .check-grid{grid-template-columns:1fr}
   .check-toolbar{grid-template-columns:1fr 1fr}
   .check-toolbar input{grid-column:1/-1}
+}
+@media(max-width:767px){
+  .data-health-list{grid-template-columns:1fr}
+  .data-health-item{align-items:flex-start}
+  .check-drawer-grid{grid-template-columns:1fr}
+  .check-drawer-block.wide{grid-column:auto}
 }
 @media(max-width:420px){
   .tabbar button{font-size:13px;padding-left:0;padding-right:0;gap:3px}
@@ -1237,6 +1300,14 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
   .check-groups{grid-template-columns:1fr}
   .check-toolbar{grid-template-columns:1fr}
   .check-toolbar input{grid-column:auto}
+  .data-health{padding:10px;margin-left:-2px;margin-right:-2px}
+  .data-health-head{display:block}
+  .data-health-item{display:grid;grid-template-columns:minmax(0,1fr) auto}
+  .check-drawer-head{display:block}
+  .check-drawer-head .check-lane{margin-top:7px}
+  .check-drawer-actions{grid-template-columns:1fr!important}
+  .check-drawer-raw .dl{grid-template-columns:1fr;gap:3px}
+  .check-drawer-raw .dl dd{margin:0 0 8px;overflow-wrap:anywhere;word-break:break-word}
 }
 
 /* ═══ TOP 리스트 ═══ */
@@ -2488,6 +2559,19 @@ body.dash-drag-live #dashGuides{display:grid}
   body.dash-even #dashGrid>.dash-block{max-height:var(--dash-card-h-sm,300px)}
   #dashGuides{display:none!important}
 }
+/* 실브라우저 375px·768px 측정으로 보강한 터치 규칙.
+   메뉴 12개를 한 화면에 압축하면 실제 버튼 폭이 28px까지 줄었다. 탭바 자체만
+   가로로 넘기고 각 항목은 카드 버튼 폭을 지켜, 페이지 전체 가로스크롤은 만들지 않는다. */
+@media(max-width:860px){
+  .tabbar{justify-content:flex-start;overflow-x:auto;overscroll-behavior-x:contain;
+    scroll-snap-type:x proximity;scrollbar-width:none}
+  .tabbar::-webkit-scrollbar{display:none}
+  .tabbar button{flex:0 0 68px;min-width:68px;min-height:64px;scroll-snap-align:start}
+  .account-pin,.notice-bell{width:44px;height:44px;min-width:44px;min-height:44px}
+  .chatcard .chatclear,.chatcard .chatchips button,.lc-btn,.dash-customizer-toggle,
+  #copyfixed,.pctrl select,.pctrl .pbtn,.pctrl>button,#d_report,#d_base{min-height:44px}
+  .chatcard .chatchips button{padding:9px 12px}
+}
 @media print{.dash-customizer,.dash-block-tools,.dash-kpi-tools,.dash-more,#dashGuides{display:none!important}
   #dashGrid{display:block}#dashGrid>.dash-block{margin-bottom:14px;max-height:none!important;overflow:visible!important}}
 </style>
@@ -2586,6 +2670,7 @@ body.dash-drag-live #dashGuides{display:grid}
 </div>
 
 <main class="shell">
+  <aside class="data-health" id="dataHealth" role="status" aria-live="polite" aria-atomic="false" hidden></aside>
 
   <!-- 대시보드 -->
   <section class="view active" id="v-dash">
@@ -2648,9 +2733,9 @@ body.dash-drag-live #dashGuides{display:grid}
              기사 주소에는 열쇠가 붙으므로 관리자로 로그인했을 때만 채운다. -->
       </div>
 	    </div>
-	    <!-- 반영은 하루 두 번(11:00·15:00). 그 사이 입력은 DB에만 있다 — 앱이 그 사실을 말한다. -->
+    <!-- 앱 DB는 즉시 정본. 11:00·15:00에는 사람이 쓰지 않는 Excel 보관본만 만든다. -->
     <div class="card" id="applywin" style="display:none;border-left:3px solid var(--brand)">
-      <h3>엑셀 반영 예정</h3><div id="applywinmsg" style="font-size:14.5px;line-height:1.6"></div>
+      <h3>Excel 보관본 생성 예정</h3><div id="applywinmsg" style="font-size:14.5px;line-height:1.6"></div>
     </div>
     <div class="card rep-card" id="repCard">
       <div class="rep-head">
@@ -2683,13 +2768,13 @@ body.dash-drag-live #dashGuides{display:grid}
       <div id="tunnelrow" style="display:none;font-size:13.5px;color:var(--muted);margin-top:6px;
         padding-top:6px;border-top:1px solid var(--line);word-break:break-all">
         현재 경유 주소(수시 변동) <a id="tunnelurl" href="#" target="_blank"></a></div></div>
-    <div class="card"><h3>보고 기준일 <span class="norm">— 엑셀 00_대시보드 B3·B4에 반영</span></h3>
+    <div class="card"><h3>보고 기준일 <span class="norm">— 앱 DB 즉시 저장 · Excel 보관본에 포함</span></h3>
       <div class="pctrl" style="margin-bottom:0;flex-wrap:wrap">
         <label style="flex:1;min-width:150px;font-size:13.5px;color:var(--ink-3);font-weight:700">보고일
           <input type="date" id="d_report" style="width:100%;padding:9px 11px;border:1.5px solid var(--line);border-radius:10px;font-size:14px;margin-top:3px"></label>
         <label style="flex:1;min-width:150px;font-size:13.5px;color:var(--ink-3);font-weight:700">집계기준일
           <input type="date" id="d_base" style="width:100%;padding:9px 11px;border:1.5px solid var(--line);border-radius:10px;font-size:14px;margin-top:3px"></label>
-        <button onclick="setDates()" style="align-self:flex-end;padding:10px 18px;background:var(--brand-btn);color:#fff;border-radius:10px;font-weight:700;font-size:14.5px;box-shadow:0 4px 12px rgba(36,82,230,.3)">엑셀 반영</button>
+        <button onclick="setDates()" style="align-self:flex-end;padding:10px 18px;background:var(--brand-btn);color:#fff;border-radius:10px;font-weight:700;font-size:14.5px;box-shadow:0 4px 12px rgba(36,82,230,.3)">기준일 저장</button>
       </div></div>
     <div class="card"><h3>월별·연도별 현황 <span class="norm" id="ptitle"></span></h3>
       <div class="pctrl">
@@ -3215,7 +3300,7 @@ body.dash-drag-live #dashGuides{display:grid}
       <div>
         <div class="eyebrow">2026년 확인 업무 전용</div>
         <h2>확인 필요</h2>
-        <p>문제유형과 담당자별로 건을 좁혀 보고, 프로젝트 번호를 눌러 정확한 업무 기록을 확인할 수 있습니다.</p>
+        <p>문제유형과 담당자별로 좁혀 보고, 카드를 눌러 미확인 이유·근거·안전등급·다음 행동을 먼저 확인합니다.</p>
       </div>
       <div class="actions">
         <button class="abtn" onclick="confirmRun('evidence_sync','ERP·PO·계산서 원본을 다시 대조하고, 객관근거가 완결된 건만 완료 DB에 반영할까요? 실제 계산서 발행이나 외부 전송은 하지 않습니다.')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>근거 재대조</button>
@@ -3243,7 +3328,7 @@ body.dash-drag-live #dashGuides{display:grid}
       <div class="toplist" id="checkpolicies">불러오는 중...</div>
     </div>
     <div class="card">
-      <h3>확인 필요 전체 목록 <span class="norm">— 프로젝트·캠프·담당자·근거 검색</span></h3>
+      <h3>확인 필요 전체 목록 <span class="norm">— 카드를 누르면 이유·근거·조치가 열립니다</span></h3>
       <div class="check-toolbar">
         <input id="checkq" placeholder="프로젝트·ID·캠프·담당자·근거 검색" oninput="renderCheckList()">
         <select id="checktype" onchange="renderCheckList()"><option value="">문제유형 전체</option></select>
@@ -4192,6 +4277,29 @@ function swrChip(ageMs, failed){
   el.onclick = failed ? (() => { SWR_WAIT.clear(); swrPaint(); reloadHere(); }) : null;
   chipPlace(el);            // 글을 넣은 **뒤에** 재야 폭이 정확하다
 }
+class ApiError extends Error{
+  constructor(message, info={}){
+    super(String(message||'API 요청에 실패했습니다.'));
+    this.name='ApiError';
+    this.path=String(info.path||'');
+    this.status=Number(info.status||0);
+    this.code=String(info.code||'API_ERROR');
+    this.contentType=String(info.contentType||'');
+    this.bodyPreview=String(info.bodyPreview||'').slice(0,180);
+    this.cause=info.cause;
+  }
+  toJSON(){
+    return {name:this.name,message:this.message,path:this.path,status:this.status,code:this.code};
+  }
+}
+function apiErrorText(err){
+  if(err instanceof ApiError) return err.message;
+  return String((err&&(err.message||err))||'알 수 없는 오류');
+}
+function apiJsonType(contentType){
+  const c=String(contentType||'').toLowerCase();
+  return c.includes('/json')||c.includes('+json');
+}
 async function _apiNet(path, opt={}){
   opt.headers = Object.assign({'X-Pin': PIN}, opt.headers||{});
   if(staffSlug) opt.headers['X-Staff-Slug']=staffSlug;
@@ -4202,7 +4310,10 @@ async function _apiNet(path, opt={}){
     r=await fetch(path,opt);
   }catch(e){
     netDown(path,e);
-    throw e;
+    const err=new ApiError('서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.',
+      {path,code:'NETWORK_ERROR',cause:e});
+    uxEvent('error',String(path).split('?')[0],err.code);
+    throw err;
   }
   netUp();
   const elapsed=performance.now()-started;
@@ -4213,9 +4324,52 @@ async function _apiNet(path, opt={}){
     uxEvent('slow',String(path).split('?')[0],'',elapsed);
   if(r.status===401){
     PIN=''; localStorage.removeItem('cw_pin');   // 인증 만료 → 자동 폴링 중단
-    $('gate').style.display='flex'; throw 'PIN';
+    $('gate').style.display='flex';
+    const err=new ApiError('로그인이 만료되었습니다. PIN을 다시 입력해 주세요.',
+      {path,status:401,code:'AUTH_EXPIRED',contentType:r.headers.get('content-type')||''});
+    uxEvent('error',String(path).split('?')[0],err.code);
+    throw err;
   }
-  return r.json();
+  const contentType=r.headers.get('content-type')||'';
+  let text='';
+  try{
+    text=await r.text();
+  }catch(e){
+    const err=new ApiError('서버 응답을 끝까지 읽지 못했습니다. 다시 시도해 주세요.',
+      {path,status:r.status,code:'BODY_READ_ERROR',contentType,cause:e});
+    uxEvent('error',String(path).split('?')[0],err.code);
+    throw err;
+  }
+  const trimmed=text.trim();
+  let parsed=null;
+  if(trimmed&&apiJsonType(contentType)){
+    try{ parsed=JSON.parse(trimmed); }
+    catch(e){
+      const err=new ApiError('서버 응답 형식이 완전하지 않습니다. 잠시 뒤 다시 시도해 주세요.',
+        {path,status:r.status,code:'INVALID_JSON',contentType,bodyPreview:trimmed,cause:e});
+      uxEvent('error',String(path).split('?')[0],err.code);
+      throw err;
+    }
+  }
+  if(!r.ok){
+    const msg=(parsed&&(parsed.error||parsed.msg||parsed.message))||`서버 요청이 실패했습니다 (HTTP ${r.status}).`;
+    const err=new ApiError(msg,{path,status:r.status,code:'HTTP_ERROR',contentType,bodyPreview:trimmed});
+    uxEvent('error',String(path).split('?')[0],`${err.code}:${r.status}`);
+    throw err;
+  }
+  if(!trimmed){
+    const err=new ApiError('서버가 빈 응답을 보냈습니다. 기존 자료는 그대로 유지합니다.',
+      {path,status:r.status,code:'EMPTY_BODY',contentType});
+    uxEvent('error',String(path).split('?')[0],err.code);
+    throw err;
+  }
+  if(!apiJsonType(contentType)){
+    const err=new ApiError('JSON 대신 다른 형식의 응답을 받았습니다. 기존 자료는 그대로 유지합니다.',
+      {path,status:r.status,code:'UNEXPECTED_CONTENT_TYPE',contentType,bodyPreview:trimmed});
+    uxEvent('error',String(path).split('?')[0],`${err.code}:${contentType}`);
+    throw err;
+  }
+  return parsed;
 }
 /* ★ 사람이 **직접 누른** 새로고침은 캐시를 건너뛴다 (2026-08-06 지시: "새로고침 누르면
    바로바로 반영되게"). 예전에는 stale-while-revalidate 가 그 버튼까지 막았다:
@@ -4447,7 +4601,9 @@ async function api(path, opt={}){
         swrMark(key, hit.t);                                // 무엇을 기다리는지 칩이 안다
         _apiNet(path, opt).then(d => {                      // 새 값은 뒤에서 받아 온다
           swrSet(path, d); swrDone(key, true); swrRerun(key);
-        }).catch(() => { swrDone(key, false); })            // 실패는 삼키지 않고 칩에 띄운다
+        }).catch((e) => {                                   // 실패한 자료 묶음과 이유를 함께 남긴다
+          swrDone(key, false); dataSectionBackgroundFailure(key, e);
+        })
           .then(() => { SWR_INFLIGHT.delete(key); });
       }
       return hit.v;                                         // 옛 값이라도 **지금** 그린다
@@ -7751,6 +7907,122 @@ function showFixedEntry(){
     b.textContent = '복사됨'; setTimeout(()=>{ b.textContent = '복사'; }, 1600);
   };
 }
+const DATA_SECTION_DEFS={
+  settlements:{label:'정산·청구',path:'/api/settlements'},
+  works:{label:'돌발AS·정기점검',path:'/api/works'},
+  issues:{label:'확인 필요',path:'/api/issues'},
+  checks:{label:'4원천 검증',path:'/api/checks'},
+  exec:{label:'대표보고',path:'/api/exec_report'},
+  representative:{label:'대표 예외·진도',path:'/api/v1/reports/daily/exceptions'},
+  erpdocs:{label:'ERP 매출서류',path:'/api/erpdocs'},
+};
+const DATA_SECTION_STATE=Object.fromEntries(Object.keys(DATA_SECTION_DEFS).map(k=>[k,{
+  key:k,label:DATA_SECTION_DEFS[k].label,path:DATA_SECTION_DEFS[k].path,
+  hasGood:false,asOf:'',error:null,loading:false,retrying:false
+}]));
+function dataSectionKey(path){
+  const p=String(path||'').split('?')[0];
+  return Object.keys(DATA_SECTION_DEFS).find(k=>DATA_SECTION_DEFS[k].path===p)||'';
+}
+function dataStampOf(data, fallbackMs){
+  const meta=(data&&data.meta)||{};
+  const candidates=[data&&data.generated_at,data&&data.updated_at,data&&data.verified_at,
+    data&&data.checked_at,data&&data['기준시각'],data&&data['갱신'],meta.generated_at,
+    meta.updated_at,data&&data['기준일']];
+  const raw=candidates.find(v=>String(v||'').trim());
+  return String(raw||new Date(fallbackMs||Date.now()).toISOString());
+}
+function dataStampText(raw){
+  const s=String(raw||'').trim(); if(!s) return '기준시각 없음';
+  const d=new Date(s.length===10?s+'T00:00:00':s);
+  if(Number.isNaN(d.getTime())) return s.replace('T',' ');
+  const date=d.toLocaleDateString('ko-KR',{month:'2-digit',day:'2-digit'});
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? date : `${date} ${d.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}`;
+}
+function renderDataHealth(){
+  const host=$('dataHealth'); if(!host) return;
+  const states=Object.values(DATA_SECTION_STATE).filter(s=>s.error||s.loading||s.retrying);
+  if(!states.length){ host.classList.remove('on'); host.hidden=true; host.innerHTML=''; return; }
+  host.hidden=false; host.classList.add('on');
+  const failed=states.filter(s=>s.error).length, active=states.filter(s=>s.loading||s.retrying).length;
+  host.innerHTML=`<div class="data-health-head"><div><strong>${failed?'일부 자료를 최신 상태로 바꾸지 못했습니다':'자료를 갱신하고 있습니다'}</strong>
+    <span>${failed?'마지막 정상 자료는 그대로 두었습니다. 실패한 자료만 다시 시도할 수 있습니다.':`${active}개 자료 묶음을 확인하는 중입니다.`}</span></div></div>
+    <div class="data-health-list">${states.map(s=>{
+      const busy=s.loading||s.retrying;
+      const basis=s.hasGood?`기존 자료 유지 · 기준 ${dataStampText(s.asOf)}`:'표시할 이전 정상 자료 없음';
+      return `<div class="data-health-item"><div class="data-health-copy"><b>${esc2(s.label)}</b>
+        <span>${esc2(busy?'다시 확인 중':basis)}</span>${s.error?`<span class="err">${esc2(apiErrorText(s.error))}</span>`:''}</div>
+        <button type="button" onclick="retryDataSection(${esc4(s.key)})" ${busy?'disabled aria-busy="true"':''}>${busy?'확인 중':'다시 시도'}</button></div>`;
+    }).join('')}</div>`;
+}
+function markDataSectionSuccess(key,data){
+  const s=DATA_SECTION_STATE[key]; if(!s) return;
+  const cached=swrGet(s.path);
+  s.hasGood=true; s.asOf=dataStampOf(data,cached&&cached.t); s.error=null;
+  s.loading=false; s.retrying=false; renderDataHealth();
+}
+function markDataSectionFailure(key,error){
+  const s=DATA_SECTION_STATE[key]; if(!s) return;
+  s.error=error instanceof ApiError?error:new ApiError(apiErrorText(error),{path:s.path,cause:error});
+  s.loading=false; s.retrying=false; renderDataHealth();
+}
+function dataSectionBackgroundFailure(path,error){
+  const key=dataSectionKey(path); if(key) markDataSectionFailure(key,error);
+}
+async function fetchDataSection(key,opt={}){
+  const s=DATA_SECTION_STATE[key], def=DATA_SECTION_DEFS[key];
+  if(!s||!def) return {ok:false,error:new ApiError('알 수 없는 자료 구분입니다.',{code:'UNKNOWN_SECTION'})};
+  s.loading=!opt.retry; s.retrying=!!opt.retry; renderDataHealth();
+  try{
+    const data=await api(def.path,opt.fresh?{fresh:true}:{});
+    markDataSectionSuccess(key,data);
+    return {ok:true,data};
+  }catch(error){
+    markDataSectionFailure(key,error);
+    return {ok:false,error};
+  }
+}
+function applyDataSection(key,data){
+  if(key==='settlements'){
+    const rows=Array.isArray(data&&data.rows)?data.rows:[];
+    settleRows=rows.filter(r=>rowIs2026(r,'settle')&&!isSideWork(r)).map(hide2025);
+  }else if(key==='works'){
+    const next=(data&&typeof data==='object')?data:{};
+    works={...next,
+      as:(Array.isArray(next.as)?next.as:[]).filter(r=>rowIs2026(r,'as')&&!isSideWork(r)).map(hide2025),
+      pm:(Array.isArray(next.pm)?next.pm:[]).filter(r=>rowIs2026(r,'pm')&&!isSideWork(r)).map(hide2025)};
+  }else if(key==='issues'){
+    const next=(data&&typeof data==='object')?data:{};
+    issuesData={...next,rows:(Array.isArray(next.rows)?next.rows:[])
+      .filter(r=>rowIs2026(r,'issue')&&!isSideWork(r)).map(hide2025)};
+  }else if(key==='checks'){
+    const next=(data&&typeof data==='object')?data:{};
+    checks=Object.fromEntries(Object.entries(next).filter(([k])=>rowIs2026({ID:k},'issue')));
+  }else if(key==='exec') execRep=cleanExec2026((data&&typeof data==='object')?data:{});
+  else if(key==='representative') repData=(data&&typeof data==='object')?data:{};
+  else if(key==='erpdocs') erpDocs=cleanErp2026((data&&typeof data==='object')?data:{});
+}
+function renderSettleDependents(){
+  syncSortUI(); fillStatOptions(); renderSettle(); periodInit();
+  try{ renderBoard(); }catch(e){ console.warn('board',e); }
+  try{ if(['pm','as'].includes(curView())) renderWorkTab(curView()); }catch(e){ console.warn('work tab',e); }
+  try{ if(curView()==='center') renderCenter(); }catch(e){ console.warn('center',e); }
+  try{ renderRepresentative(); }catch(e){ console.warn('representative report',e); }
+  try{ renderCheckHub(); }catch(e){ console.warn('check hub',e); }
+  try{ $('helpcard').innerHTML=helpAll(); }catch(e){ console.warn('help',e); }
+  if(window.__view==='daily') try{ renderDaily(); }catch(e){ console.warn('daily refresh',e); }
+}
+async function retryDataSection(key){
+  const s=DATA_SECTION_STATE[key]; if(!s||s.retrying) return false;
+  try{
+    const result=await fetchDataSection(key,{fresh:true,retry:true});
+    if(!result.ok){ toast(`${s.label} 갱신 실패 · 기존 자료를 유지합니다`); return false; }
+    applyDataSection(key,result.data); renderSettleDependents();
+    toast(`${s.label} 갱신 완료 · 기준 ${dataStampText(s.asOf)}`); return true;
+  }catch(error){
+    markDataSectionFailure(key,error); toast(`${s.label} 갱신 실패 · 기존 자료를 유지합니다`); return false;
+  }
+}
 let settleFlight=null, settleFlightFresh=false;
 function loadSettle(fresh){
   /* 여러 SWR 경로와 화면 전환이 같은 순간 이 로더를 불러도 7개 API 묶음은 한 번만
@@ -7761,47 +8033,27 @@ function loadSettle(fresh){
     return settleFlight;
   }
   settleFlightFresh=!!fresh;
-  settleFlight=loadSettleOnce(fresh).finally(()=>{ settleFlight=null; settleFlightFresh=false; });
+  settleFlight=loadSettleOnce(fresh).catch(error=>{
+    console.error('loadSettle',error); uxEvent('error','loadSettle',apiErrorText(error)); return false;
+  }).finally(()=>{ settleFlight=null; settleFlightFresh=false; });
   return settleFlight;
 }
 async function loadSettleOnce(fresh){
   /* ★ 전에는 8곳을 **한 줄로 세워** 불렀다. 서로 아무 관계가 없는데도 앞이 끝나야
      다음이 시작하니, 각 1~3초면 화면이 10초를 넘긴다(ux 기록의 정산 화면 지연).
-     동시에 부르면 **가장 느린 하나**만 기다리면 된다. 실패는 그대로 각자 삼킨다.
+     동시에 부르면 **가장 느린 하나**만 기다리면 된다. 실패한 묶음은 기존 정상값을
+     유지하고 기준시각·오류·재시도 상태를 화면에 남긴다.
      fresh=true 는 캡처용 — SWR 옛 값을 건너뛰고 지금 값을 받아온다. */
-  const one = (p, dflt) => api(p, fresh?{fresh:true}:{}).catch(() => dflt);
-  const [d, w, iss, ck, ex, rep, docs] = await Promise.all([
-    api('/api/settlements', fresh?{fresh:true}:{}),
-    one('/api/works', works),
-    one('/api/issues', issuesData),
-    one('/api/checks', checks),
-    one('/api/exec_report', execRep),
-    one('/api/v1/reports/daily/exceptions', {}),
-    one('/api/erpdocs', {rows:[],months:{},kinds:{},total:0}),
-  ]);
-  settleRows = (d.rows||[]).filter(r=>rowIs2026(r,'settle') && !isSideWork(r)).map(hide2025);
-  works = w; issuesData = iss; checks = ck; execRep = ex; repData = rep; erpDocs = docs;
-  works.as = (works.as||[]).filter(r=>rowIs2026(r,'as') && !isSideWork(r)).map(hide2025);
-  works.pm = (works.pm||[]).filter(r=>rowIs2026(r,'pm') && !isSideWork(r)).map(hide2025);
-  issuesData.rows = (issuesData.rows||[]).filter(r=>rowIs2026(r,'issue') && !isSideWork(r)).map(hide2025);
-  checks = Object.fromEntries(Object.entries(checks||{}).filter(([k])=>rowIs2026({ID:k},'issue')));
-  execRep = cleanExec2026(execRep||{});
-  erpDocs = cleanErp2026(erpDocs||{});
+  const keys=Object.keys(DATA_SECTION_DEFS);
+  const results=await Promise.all(keys.map(key=>fetchDataSection(key,{fresh:!!fresh})));
+  results.forEach((result,i)=>{ if(result.ok) applyDataSection(keys[i],result.data); });
   if(!brandLoaded){
-    brandLoaded=true;
-    try{ brandLogo = (await api('/api/brand')).logo || ''; }catch(e){ brandLogo=''; }
+    try{ brandLogo=(await api('/api/brand')).logo||''; brandLoaded=true; }
+    catch(e){ console.warn('brand',apiErrorText(e)); }
   }
   applyBrand();
-  syncSortUI(); fillStatOptions(); renderSettle(); periodInit();
-  try{ renderBoard(); }catch(e){ console.warn('board', e); }
-  try{ if(['pm','as'].includes(curView())) renderWorkTab(curView()); }catch(e){}
-  try{ if(curView()==='center') renderCenter(); }catch(e){}
-  try{ renderRepresentative(); }catch(e){ console.warn('representative report', e); }
-  try{ renderCheckHub(); }catch(e){ console.warn('check hub', e); }
-  try{ $('helpcard').innerHTML = helpAll(); }catch(e){ console.warn('help', e); }
-  // API 응답이 큰 경우 [보고]를 먼저 연 사용자가 0/0을 보지 않도록, 원천 업무가
-  // 모두 도착한 뒤 현재 열린 일일보고를 한 번 더 그린다.
-  if(window.__view==='daily') try{ renderDaily(); }catch(e){ console.warn('daily refresh', e); }
+  renderSettleDependents();
+  return results.every(x=>x.ok);
 }
 function setMode(m){
   mode = m;
@@ -8733,7 +8985,7 @@ function inputForm(kind, r, id){
   if(!spec) return '';
   const empty = spec.fields.filter(f=>!f.cur(r));
   if(!empty.length) return '';
-  return `<div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">빈 항목 입력 → 엑셀 반영 (빈 칸만·기존 값 보호·새 버전 생성)</div>
+  return `<div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">빈 항목 입력 → 앱 DB 즉시 저장 (빈 칸만·기존 값 보호·변경이력 기록)</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">` +
     empty.map((f,i)=>`<div style="display:flex;gap:8px;align-items:center">
       <span style="width:110px;font-size:14px;color:var(--ink-3);font-weight:600">${f.label}</span>
@@ -8741,7 +8993,7 @@ function inputForm(kind, r, id){
     </div>`).join('') +
     `</div><button onclick="saveInputs('${kind}','${id}',${empty.length})" style="margin-top:10px;width:100%;
       padding:12px;background:var(--brand-btn);color:#fff;border-radius:11px;font-weight:700;font-size:14px">💾 입력 저장</button>
-    <div style="font-size:13px;color:var(--ink-3);margin-top:6px">입력은 즉시 DB에 안전하게 저장되고, 엑셀은 다음 11시·15시 회차에 한 번에 반영됩니다.</div>`;
+    <div style="font-size:13px;color:var(--ink-3);margin-top:6px">입력은 즉시 앱에 반영됩니다. Excel은 조회·입력용이 아니라 11시·15시 단방향 보관본입니다.</div>`;
 }
 async function saveInputs(kind, id, n){
   const spec = INPUT_SPEC[kind];
@@ -8756,7 +9008,7 @@ async function saveInputs(kind, id, n){
   }
   if(!queued){ notice('입력된 값이 없습니다'); return; }
   closeSheetAll();      // 저장이 끝났으면 목록으로 되돌아갈 게 아니라 통째로 닫는다
-  toast(`${queued}건 DB 저장 완료 · 엑셀은 다음 11시·15시 회차에 반영됩니다`);
+  toast(`${queued}건 앱 DB 저장 완료 · 화면에 즉시 반영됩니다`);
   loadStatus();
 }
 
@@ -8885,7 +9137,10 @@ function renderPeriod(){
 }
 
 /* ── 실행 ── */
-async function confirmRun(key,msg){ if(await askYesNo(msg,{desc:'진행할까요?'})) runTask(key); }
+async function confirmRun(key,msg){
+  try{ if(await askYesNo(msg,{desc:'진행할까요?'})) return await runTask(key); }
+  catch(error){ notice('실행 요청 실패: '+apiErrorText(error)); return false; }
+}
 /* 워크벤치 대체: 로컬 파일·폴더 열기 (서버가 도는 PC에서만 허용) */
 async function openLocal(what){
   try{
@@ -8895,11 +9150,17 @@ async function openLocal(what){
   }catch(e){ notice('사무실 PC에서만 사용할 수 있는 기능입니다.'); }
 }
 async function runTask(key){
-  show('run');
-  const r = await api('/api/run/'+key,{method:'POST'});
-  if(!r.ok && r.msg!=='demo'){ notice(r.msg); return; }
-  if(!polling) polling = setInterval(pollLog, 1200);
-  pollLog();
+  try{
+    show('run');
+    const r=await api('/api/run/'+key,{method:'POST'});
+    if(!r.ok&&r.msg!=='demo'){ notice(r.msg||'작업을 시작하지 못했습니다.'); return false; }
+    if(!polling) polling=setInterval(pollLog,1200);
+    const firstLog=pollLog(); if(firstLog&&firstLog.catch) firstLog.catch(()=>{});
+    return true;
+  }catch(error){
+    notice('작업을 시작하지 못했습니다: '+apiErrorText(error));
+    uxEvent('error','runTask',`${key}:${apiErrorText(error)}`); return false;
+  }
 }
 /* ★ 사람이 명령하면 회차를 기다리지 않고 지금 엑셀에 넣는다 (2026-08-07 지시).
    확인을 한 번 받는 이유는 되돌릴 수 없어서다 — vN+1 이 실제로 만들어진다.
@@ -8945,16 +9206,24 @@ function renderLastRuns(last){
   }).join('');
 }
 async function pollLog(){
-  const d = await api('/api/tasklog');
-  renderLastRuns(d.last);
-  $('livedot').className = 'dot' + (d.busy?' busy':'');
-  document.body.classList.toggle('agent-running', !!d.busy);
-  if(d.busy){
-    $('heroAgent').textContent = `에이전트 실행 중${d.task?' · '+d.task:''}`;
-    if(!polling) polling = setInterval(pollLog, 1200);
+  try{
+    const d=await api('/api/tasklog');
+    renderLastRuns(d.last);
+    $('livedot').className='dot'+(d.busy?' busy':'');
+    document.body.classList.toggle('agent-running',!!d.busy);
+    if(d.busy){
+      $('heroAgent').textContent=`에이전트 실행 중${d.task?' · '+d.task:''}`;
+      if(!polling) polling=setInterval(()=>{ pollLog(); },1200);
+    }
+    if(Array.isArray(d.log)&&d.log.length){ $('logbox').textContent=d.log.join('\n'); $('logbox').scrollTop=1e9; }
+    if(!d.busy&&polling){ clearInterval(polling); polling=null; loadStatus(); loadSettle(); }
+    return true;
+  }catch(error){
+    console.warn('tasklog',apiErrorText(error));
+    uxEvent('error','/api/tasklog',apiErrorText(error));
+    if(polling){ clearInterval(polling); polling=null; }
+    return false;
   }
-  if(d.log.length) { $('logbox').textContent = d.log.join('\n'); $('logbox').scrollTop = 1e9; }
-  if(!d.busy && polling){ clearInterval(polling); polling=null; loadStatus(); loadSettle(); }
 }
 
 /* ── 리포트 ── */
@@ -8986,9 +9255,9 @@ function mdRender(t){
    옛 건수만 읽는다 — 숫자가 틀린 게 아니라 아직 안 나온 것이다. 그 사실을 화면이 말한다.
    (도구로 대신 계산할 수 없다: 엑셀 수식은 엑셀만 계산하고, 빈 행에 미리 써넣으면
     v259 처럼 엉뚱한 건에 붙는다) */
-/* 하루 두 번(11:00·15:00)만 엑셀에 쓴다. 그 사이에 넣은 것은 DB에 쌓여 있을 뿐이므로
-   "지금 넣은 게 왜 엑셀에 없지?" 라는 오해가 생긴다 — 남은 시간과 건수를 늘 보여 준다. */
-let APPLY_WIN = null;                  // '지금 바로 반영' 이 몇 건인지 말해 주려고 들고 있는다
+/* 하루 두 번(11:00·15:00) 검증된 Excel 보관본을 만든다. 앱 입력은 그 전에 이미 끝났고,
+   이 카드는 데이터 반영 대기가 아니라 감사·보관용 산출물의 다음 시각을 보여 준다. */
+let APPLY_WIN = null;
 function renderApplyWindow(w){
   const card=$('applywin'); if(!card) return;
   APPLY_WIN = w || null;
@@ -8997,16 +9266,15 @@ function renderApplyWindow(w){
   const when=String(w.다음반영).replace('T',' ').slice(5,16);
   const h=Math.floor(m/60), left = h? `${h}시간 ${m%60}분` : `${m}분`;
   card.style.display='block';
-  // ★ '기다리라'고만 하지 않는다 — 사람이 지금 넣겠다면 지금 넣는다(2026-08-07 지시).
-  //   두 회차 규칙은 **자동으로 도는 것들**을 묶는 규칙이고, 사람이 스스로 누른
-  //   한 번은 그 대상이 아니다. 강제 반영은 batch 표에 이유와 함께 남는다.
+  // 필요하면 현재 DB revision의 로컬 보관본 계획을 지금 준비한다. Excel 셀을 역수입하거나
+  // DB 정본을 다시 덮는 기능이 아니다.
   const nowBtn = `<button class="abtn" style="margin-top:9px;width:100%;justify-content:center;flex-direction:row"
-      onclick="applyExcelNow()">지금 바로 엑셀에 반영</button>`;
+      onclick="applyExcelNow()">지금 보관본 준비</button>`;
   $('applywinmsg').innerHTML = (n
-    ? `입력한 <b>${n.toLocaleString()}건</b>이 저장돼 있고, <b>${esc2(when)}</b>에 엑셀로 한 번에 들어갑니다 (약 ${left} 뒤).<br>
-       <span style="color:var(--muted)">엑셀 반영은 하루 두 번 — ${esc2((w.반영시각||[]).join(' · '))}. 그 전까지는 앱에만 보입니다.</span>`
-    : `반영 대기 없음 · 다음 반영 <b>${esc2(when)}</b> (약 ${left} 뒤)<br>
-       <span style="color:var(--muted)">엑셀 반영은 하루 두 번 — ${esc2((w.반영시각||[]).join(' · '))}</span>`) + nowBtn;
+    ? `앱에는 이미 반영된 <b>${n.toLocaleString()}건</b>을 <b>${esc2(when)}</b>에 Excel 보관본으로 만듭니다 (약 ${left} 뒤).<br>
+       <span style="color:var(--muted)">보관본 생성은 하루 두 번 — ${esc2((w.보관본시각||w.반영시각||[]).join(' · '))}. 업무는 앱에서 계속 처리하면 됩니다.</span>`
+    : `보관본 대기 없음 · 다음 생성 <b>${esc2(when)}</b> (약 ${left} 뒤)<br>
+       <span style="color:var(--muted)">보관본 생성은 하루 두 번 — ${esc2((w.보관본시각||w.반영시각||[]).join(' · '))}</span>`) + nowBtn;
 }
 
 function renderRecalc(rc){
@@ -10452,7 +10720,7 @@ function pickReport(i){
   $('mdbox').innerHTML = reports[i] ? mdRender(reports[i].text) : '리포트가 아직 없습니다';
 }
 
-/* ── 보고 기준일 → 엑셀 00_대시보드 B3·B4 ── */
+/* ── 보고 기준일 → 앱 DB 정본(Excel 보관본에는 단방향 포함) ── */
 function initDates(){
   const cur = todayISO();
   $('d_report').value = cur;
@@ -10461,9 +10729,9 @@ function initDates(){
 async function setDates(){
   const 보고일 = $('d_report').value, 집계기준일 = $('d_base').value;
   if(!보고일 && !집계기준일){ notice('날짜를 선택하세요'); return; }
-  if(!await askYesNo(`보고 기준일을 입력 DB에 저장합니다:\n보고일 ${보고일||'-'} · 집계기준일 ${집계기준일||'-'}\n\n엑셀은 다음 11시·15시 회차에 반영됩니다. 진행할까요?`)) return;
+  if(!await askYesNo(`보고 기준일을 앱 DB에 저장합니다:\n보고일 ${보고일||'-'} · 집계기준일 ${집계기준일||'-'}\n\n저장 즉시 앱 전체에 적용됩니다. 진행할까요?`)) return;
   const r = await api('/api/set_dates',{method:'POST',body:JSON.stringify({보고일, 집계기준일})});
-  if(r.ok){ toast('기준일 DB 저장 완료 · 다음 11시·15시 엑셀 반영'); loadStatus(); }
+  if(r.ok){ toast('기준일 앱 DB 저장 완료 · 즉시 반영'); loadStatus(); }
   else notice(r.error||'실패');
 }
 
@@ -10491,7 +10759,7 @@ function openRptDates(){
       </div>
       <button onclick="saveRptDates()" style="width:100%;padding:13px;background:var(--brand-btn);color:#fff;
         border:0;border-radius:11px;font-weight:800;font-size:15px;font-family:inherit;cursor:pointer">
-        저장하고 반영</button>
+        저장하고 보관본 준비</button>
       <button onclick="previewRptDate(false)" style="width:100%;padding:12px;background:var(--panel);
         color:var(--brand);border:1.5px solid #C7D2FE;border-radius:11px;font-weight:800;
         font-size:14px;font-family:inherit;cursor:pointer">선택 날짜 보고 미리보기</button>
@@ -10553,22 +10821,20 @@ async function saveRptDates(){
   if(보고일 && 집계기준일 && 집계기준일 > 보고일 &&
      !await askYesNo(`집계기준일(${집계기준일})이 보고일(${보고일})보다 뒤입니다.
 그대로 진행할까요?`)) return;
-  if(!await askYesNo(`보고 기준일을 지금 엑셀에 반영합니다:
+  if(!await askYesNo(`보고 기준일을 앱 DB에 저장하고 보관본을 준비합니다:
 보고일 ${보고일||'-'} · 집계기준일 ${집계기준일||'-'}
 
-진행할까요? (관리대장이 열려 있으면 반영하지 않습니다)`)) return;
-  // ★ 2026-08-06 지시: 「저장하고 반영」— 회차를 기다리지 않고 지금 넣는다.
+앱 화면에는 즉시 반영되며 Excel은 보관용으로만 준비됩니다. 진행할까요?`)) return;
   const r = await api('/api/set_dates',{method:'POST',
     body:JSON.stringify({보고일, 집계기준일, apply:true})});
   if(!r.ok){ notice(r.error||'실패'); return; }
   closeSheetAll();      // 곧 [실행] 탭으로 넘어가므로 시트를 남겨 두면 안 된다
   // 대시보드 카드도 같은 값으로 맞춰 둔다(두 곳이 다르면 헷갈린다)
   try{ if($('d_report')) $('d_report').value = 보고일; if($('d_base')) $('d_base').value = 집계기준일; }catch(e){}
-  const a = r.applied || {};
-  // 반영이 막힌 이유(관리대장 열림 등)는 숨기지 않고 그대로 보여 준다.
-  toast(a.상태==='반영' ? `엑셀 반영 완료 · ${a.셀||0}셀`
-        : a.사유 ? `저장했지만 반영 보류 — ${a.사유}`
-        : '기준일 저장 완료');
+  const a = r.archive || {};
+  toast(a.prepared ? '기준일 저장 완료 · 검증된 보관본 준비 완료'
+        : a.error ? `기준일은 저장됨 · 보관본 준비 실패 — ${a.error}`
+        : '기준일 앱 DB 저장 완료');
   loadStatus();
 }
 
@@ -12293,7 +12559,7 @@ function openCheckType(type){
 function openCheckOwner(owner){
   const rows=checkRows().filter(r=>checkOwnerOf(r)===owner);
   openCheckRows(`${owner} 확인 요청`,rows,
-    `${APP_YEAR}년 확인필요 원장에서 담당자가 “${owner}”인 건 · 프로젝트 번호를 누르면 원기록으로 이동`);
+    `${APP_YEAR}년 확인필요 원장에서 담당자가 “${owner}”인 건 · 카드를 누르면 미확인 이유·근거·다음 행동을 먼저 확인`);
 }
 function openCheckFiltered(){
   const rows=window._checkVisible||checkRows();
@@ -12311,38 +12577,116 @@ function checkTargetExists(project){
     (works.as||[]).some(r=>String(r.프로젝트NO||'')===p) ||
     (works.pm||[]).some(r=>String(r.프로젝트NO||'')===p);
 }
+function checkSafetyOf(r){
+  const type=checkTypeOf(r), state=String(r.근거상태||'').trim();
+  const text=`${state} ${type} ${checkDescOf(r)}`;
+  if(/승인\s*필요|발행\s*승인|사람\s*승인/.test(text)) return {
+    key:'approval',label:'승인 필요',
+    note:'실제 발행·ERP 확정은 사람이 승인해야 하므로 자동 완료하지 않습니다.',
+    next:'ERP 또는 원문에서 실제 처리 여부를 확인하고, 승인한 뒤 원장 상태를 기록해 주세요.'};
+  if(/자료\s*필요|연결자료|원본\s*(누락|필요)|비용구분\s*미입력/.test(text)) return {
+    key:'data',label:'자료 필요',
+    note:'판정에 필요한 원본이나 연결값이 아직 없어 완료 여부를 확정할 수 없습니다.',
+    next:'관련 PO·ERP·카톡·밴드 원본을 업무센터에 올린 뒤 근거 재대조를 실행해 주세요.'};
+  if(/자동\s*추적|선행업무\s*진행|시스템\s*진단/.test(text)) return {
+    key:'auto',label:'자동 추적',
+    note:'지금 사람이 완료 처리할 항목이 아니라 다음 자동 대조에서 상태를 다시 확인합니다.',
+    next:'원천 상태가 바뀌면 자동 대조가 갱신합니다. 급하면 근거 재대조만 실행해 주세요.'};
+  if(/로그인\s*필요|로그인된|밴드\s*수집|ERP\s*조회/.test(text)) return {
+    key:'login',label:'로그인 필요',
+    note:'로그인된 원천 화면을 사람이 열어야 읽을 수 있는 항목입니다.',
+    next:'로그인된 밴드·ERP 화면에서 원문을 수집한 뒤 근거 재대조를 실행해 주세요.'};
+  return {
+    key:'human',label:'사람 확인',
+    note:'객관 근거가 한 방향으로 완결되지 않아 담당자의 확인이 필요합니다.',
+    next:'아래 근거와 연결 원장을 함께 확인하고, 확인된 값만 원장에 기록해 주세요.'};
+}
+function checkEvidenceAsOf(r){
+  const raw=r.근거확인시각||r.확인시각||r.갱신시각||r.기준시각||checkDateOf(r);
+  return raw||((DATA_SECTION_STATE.issues||{}).asOf||'');
+}
+function checkFieldText(v){
+  if(v==null) return '';
+  if(typeof v==='object'){
+    try{ return JSON.stringify(v,null,2).slice(0,1800); }catch(e){ return String(v); }
+  }
+  return String(v);
+}
+function openCheckDrawer(r){
+  if(!r) return;
+  const x=checkLink(r), safety=checkSafetyOf(r), type=checkTypeOf(r);
+  const reason=checkTypeDesc(type)||`${type} 상태가 객관 근거로 아직 닫히지 않았습니다.`;
+  const evidence=checkDescOf(r)||'구체 근거 문구가 아직 없습니다. 원본 자료와 연결 원장을 확인해야 합니다.';
+  const asOf=checkEvidenceAsOf(r), owner=checkOwnerOf(r), linked=x.kind||checkTargetExists(x.project);
+  window._activeCheckRow=r;
+  const fields=Object.entries(r).filter(([,v])=>checkFieldText(v).trim());
+  openPane(`<div class="check-drawer-head"><div><h2>${esc2(type)}</h2>
+      <div class="sub">${esc2(x.project||x.issueId||'확인 항목')} · ${esc2(x.camp||'캠프 미상')} · ${esc2(owner)}</div></div>
+      <span class="check-lane ${esc2(safety.key)}">${esc2(safety.label)}</span></div>
+    <div class="check-drawer-grid">
+      <section class="check-drawer-block"><h3>왜 아직 미확인인가</h3><p>${esc2(reason)}</p></section>
+      <section class="check-drawer-block"><h3>안전등급</h3><p>${esc2(safety.note)}</p></section>
+      <section class="check-drawer-block wide"><h3>현재 확인된 근거</h3>
+        <div class="check-drawer-evidence"><span class="chip c-info">${esc2(r.근거상태||'근거상태 미표기')}</span>
+          ${asOf?`<span class="basis">기준 ${esc2(dataStampText(asOf))}</span>`:''}</div><p>${esc2(evidence)}</p></section>
+      <section class="check-drawer-block wide"><h3>다음 행동</h3><p>${esc2(safety.next)}</p></section>
+    </div>
+    <details class="check-drawer-raw"><summary>확인 원문 필드 보기</summary>
+      <div class="dl">${fields.map(([k,v])=>`<dt>${esc2(k)}</dt><dd>${esc2(checkFieldText(v))}</dd>`).join('')}</div></details>
+    <div class="actions sticky check-drawer-actions">
+      <button type="button" class="abtn" onclick="recheckActiveIssue()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>근거 재대조</button>
+      <button type="button" class="abtn" onclick="openCheckUpload()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-upload"/></svg>자료 올리기</button>
+      <button type="button" class="abtn primary" onclick="openCheckRecordFromDrawer()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>${linked?'연결 원장 보기':'원본표 보기'}</button>
+      <button type="button" class="abtn" onclick="closeSheetAll()">닫기</button>
+    </div>`);
+}
 function openCheckSource(r){
-  const x=checkLink(r);
-  window._singleCheckRow=r;
-  const fields=Object.entries(r).filter(([,v])=>String(v==null?'':v).trim());
-  openPane(`<h2>${esc2(checkTypeOf(r))} ${chip('원장 연결 확인')}</h2>
-    <div class="sub">${esc2(x.project||x.issueId||'확인 항목')} · 연결된 AS·점검·정산 원장 행이 없어 확인 원문을 엽니다.</div>
-    <div class="metric-basis"><b>다음 조치</b> 프로젝트 번호·PO 번호로 원장을 확인한 뒤,
-      해당 업무가 등록되면 이 화면에서 자동으로 원기록과 연결됩니다.</div>
-    <div class="dl">${fields.map(([k,v])=>`<dt>${esc2(k)}</dt><dd>${esc2(v)}</dd>`).join('')}</div>
-    ${helpBox(checkTypeOf(r))}
-    <div class="actions sticky">
-      <button class="abtn primary" onclick="openSingleCheckCapture()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>이 항목 목록 열기</button>
-      <button class="abtn" onclick="showCheckRaw()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>원본표 보기</button></div>`);
+  openCheckDrawer(r);
 }
 function openSingleCheckCapture(){
-  const r=window._singleCheckRow; if(r) openCheckRows(checkTypeOf(r),[r],'원장 연결을 확인할 단일 항목');
+  const r=window._activeCheckRow; if(r) openCheckRows(checkTypeOf(r),[r],'원장 연결을 확인할 단일 항목');
 }
 function openCheckByKey(id,project){
   const rows=checkRows();
   const r=rows.find(x=>checkIdOf(x)===String(id||'')) ||
           rows.find(x=>checkProjectOf(x)===String(project||'')); if(!r) return;
-  const link=checkLink(r);
-  if(link.kind) openRecord(link.kind,link.id,link.project);
-  else if(checkTargetExists(link.project)) openByPrj(link.project);
-  else openCheckSource(r);
+  openCheckDrawer(r);
 }
 function openCheckItem(i){
   const r=(window._checkVisible||[])[i]; if(!r) return;
-  const x=checkLink(r);
-  if(x.kind) openRecord(x.kind,x.id,x.project);
-  else if(checkTargetExists(x.project)) openByPrj(x.project);
-  else openCheckSource(r);
+  openCheckDrawer(r);
+}
+async function recheckActiveIssue(){
+  try{
+    const ok=await askYesNo('ERP·PO·계산서 원본을 다시 대조하고, 객관근거가 완결된 건만 완료 DB에 반영할까요?',
+      {title:'근거 재대조',desc:'실제 계산서 발행이나 외부 전송은 하지 않습니다.'});
+    if(!ok) return false;
+    closeSheetAll(); return await runTask('evidence_sync');
+  }catch(error){ notice('근거 재대조를 시작하지 못했습니다: '+apiErrorText(error)); return false; }
+}
+function openCheckUpload(){
+  closeSheetAll();
+  setTimeout(()=>{
+    if(staffSlug){
+      show('ryu');
+      setTimeout(()=>{
+        const target=$('ryuUploadPanel'); if(target) target.scrollIntoView({behavior:'smooth',block:'start'});
+        toast('필요한 원본을 등록한 뒤 근거 재대조를 실행해 주세요');
+      },120);
+    }else{
+      show('center');
+      toast('담당자 업무센터의 원본 자료 등록 카드에서 자료를 올려 주세요');
+    }
+  },40);
+}
+function openCheckRecordFromDrawer(){
+  const r=window._activeCheckRow; if(!r) return;
+  const x=checkLink(r); closeSheetAll();
+  setTimeout(()=>{
+    if(x.kind) openRecord(x.kind,x.id,x.project);
+    else if(checkTargetExists(x.project)) openByPrj(x.project);
+    else showCheckRaw();
+  },40);
 }
 function showCheckRaw(){
   show('settle'); setMode('check');
@@ -12369,18 +12713,20 @@ function renderCheckList(){
   $('checklist').innerHTML=rows.map((r,i)=>{
     const x=checkLink(r), id=x.id||'', prj=x.project||'프로젝트 미확정';
     const amount=Number(String(r.금액||'').replace(/[^0-9.-]/g,''))||0;
-    return `<div class="srow check-row metric-row" role="button" tabindex="0" onclick="openCheckItem(${i})"
-      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCheckItem(${i})}">
+    const safety=checkSafetyOf(r);
+    return `<button type="button" class="srow check-row metric-row" onclick="openCheckItem(${i})"
+      aria-label="${esc2(prj)} ${esc2(x.camp||'캠프 미상')} · ${esc2(checkTypeOf(r))} · 이유와 다음 행동 보기">
       <div class="top"><span class="project-line"><span class="prjno">${esc2(prj)}</span>
         ${id!==prj?`<span class="sid">· ${esc2(id)}</span>`:''}
         <span class="camp-name">${esc2(x.camp||'캠프 미상')}</span></span>
         ${amount?`<span class="check-money">${fmt(Math.abs(amount))}원</span>`:chip(checkTypeOf(r))}</div>
       <div class="meta"><span class="metric-date">${esc2(checkDateOf(r)||'-')}</span>
         <span>${esc2(checkOwnerOf(r))}</span><span>${esc2(r.구분||'')}</span>
-        ${r.근거상태?`<span class="chip c-info">${esc2(r.근거상태)}</span>`:''}
+        <span class="check-lane ${esc2(safety.key)}">${esc2(safety.label)}</span>
         ${amount?chip(checkTypeOf(r)):''}</div>
       ${checkDescOf(r)?`<div class="check-desc">${esc2(checkDescOf(r))}</div>`:''}
-    </div>`;
+      <span class="check-open-hint">눌러서 미확인 이유·근거·다음 행동 보기</span>
+    </button>`;
   }).join('')||'<div class="card">조건에 맞는 확인 항목이 없습니다 🎉</div>';
 }
 /* 확인필요 유형 코드 설명(2026-08-03 지시) — 'ERP B'·'PO A'가 무엇인지 화면에서 바로.
@@ -12634,6 +12980,7 @@ function openExecMetric(label){
   const d=metricDetail(label), rows=d.rows||[];
   window._curMetricLabel=label;
   const amount=(+d.amount||0), projects=d.project_count;
+  const containsCheck=rows.some(r=>String(r.종류||'')==='check');
   const summary = projects!=null ? `${projects}개 프로젝트 · ${rows.length}개 문제 행`
                 : `${rows.length}건${amount?` · ${fmt(Math.abs(amount))}원`:''}`;
   const body = rows.map(r=>{
@@ -12653,7 +13000,9 @@ function openExecMetric(label){
     </div>`;
   }).join('');
   openPane(`<h2>${esc2(label)} <span class="chip c-warn">${summary}</span></h2>
-    <div class="sub">프로젝트 번호를 누르면 이 목록의 정확한 업무 기록으로 이동합니다.</div>
+    <div class="sub">${containsCheck
+      ?'확인 필요 항목은 카드를 누르면 미확인 이유·근거·다음 행동을 먼저 보여 줍니다.'
+      :'프로젝트 번호를 누르면 이 목록의 정확한 업무 기록으로 이동합니다.'}</div>
     <div class="metric-basis"><b>집계 기준</b> ${esc2(d.basis||'')}</div>
     <div class="lhead"><b>목록</b><span>${rows.length}건</span></div>
     <div class="slist">${body||'<div class="card">해당 건이 없습니다.</div>'}</div>

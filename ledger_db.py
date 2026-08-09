@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-ledger_db.py — 모든 반영을 **DB에 모았다가 하루 두 번만 엑셀에 쓴다**
+ledger_db.py — 앱 DB 즉시 저장 + 하루 두 번 Excel 보관본 생성 outbox
 ===============================================================================
-사용자 지시(2026-07-30):
+과거 사용자 지시(2026-07-30, 최신 DB 정본 규칙으로 재정의):
   "앱이나 클로드코드 명령, 코덱스 명령으로 반영은 모두 DB로 저장했다가 엑셀에 한 번에 반영"
   "엑셀 반영 시점은 오전 11시, 오후 3시 하루에 딱 두 번"
+
+최신 확정(2026-08-10): 앱 뒤 SQLite가 업무 정본이고 모든 입력은 즉시 보인다.
+Excel은 단방향 보관본이며 11:00·15:00은 DB 변경을 새 버전으로 보존하는 회차다.
 
 ## 왜 바꾸나 (지금 방식의 문제)
 지금은 도구가 무언가 채울 때마다 `ledger_writer --apply` 가 곧바로 vN+1 을 만든다.
@@ -37,7 +40,7 @@ ledger_db.py — 모든 반영을 **DB에 모았다가 하루 두 번만 엑셀�
   python ledger_db.py --apply --force   # 시각을 무시하고 즉시(긴급용, 이유가 기록된다)
   python ledger_db.py --self-test
 """
-import sys, os, json, sqlite3, subprocess, glob, tempfile, time, re
+import sys, os, json, sqlite3, subprocess, glob, tempfile, time, re, hashlib
 from datetime import datetime, timedelta, time as dtime
 from contextlib import contextmanager
 
@@ -80,11 +83,15 @@ CREATE TABLE IF NOT EXISTS pending(
   evidence TEXT,
   only_if_empty INTEGER DEFAULT 1,
   ingest_key TEXT,                 -- JSON staging 파일+순번(중단 후 재시도 중복 방지)
-  status TEXT NOT NULL DEFAULT 'pending',   -- pending | applied | skipped
+  target_key TEXT,                 -- 같은 업무 필드의 더 최신 입력이 오면 앞 입력을 대체
+  status TEXT NOT NULL DEFAULT 'pending',   -- pending | applied | skipped | superseded
   batch_id INTEGER,
-  applied_at TEXT
+  applied_at TEXT,
+  result_note TEXT,
+  superseded_by INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_pending_status ON pending(status);
+CREATE INDEX IF NOT EXISTS ix_pending_target ON pending(target_key,status);
 CREATE TABLE IF NOT EXISTS batch(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slot TEXT NOT NULL,            -- 어느 회차인가(2026-07-30 11:00)
@@ -299,12 +306,14 @@ def conn():
         c.executescript(SCHEMA)
         # 기존 DB도 안전하게 올린다. CREATE TABLE IF NOT EXISTS만으로는 새 열이 생기지 않는다.
         cols = {row[1] for row in c.execute("PRAGMA table_info(pending)").fetchall()}
-        if "ingest_key" not in cols:
-            try:
-                c.execute("ALTER TABLE pending ADD COLUMN ingest_key TEXT")
-            except sqlite3.OperationalError as exc:
-                if "duplicate column" not in str(exc).lower():
-                    raise
+        for col, decl in (("ingest_key", "TEXT"), ("target_key", "TEXT"),
+                          ("result_note", "TEXT"), ("superseded_by", "INTEGER")):
+            if col not in cols:
+                try:
+                    c.execute(f"ALTER TABLE pending ADD COLUMN {col} {decl}")
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" not in str(exc).lower():
+                        raise
         # 리모컨 공지(2026-08-04): 불출 일자·투입 예정 캠프명을 불출 기록에 남긴다.
         # 같은 날 2차: 실제 재고표가 버전(기존형·VER.3·VER.4)과 처리유형(사용·교체·
         # 샘플·택배출고)으로 관리되고 있어 세 표에 열을 더 붙인다.
@@ -324,6 +333,8 @@ def conn():
                             raise
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_pending_ingest"
                   " ON pending(ingest_key) WHERE ingest_key IS NOT NULL")
+        c.execute("CREATE INDEX IF NOT EXISTS ix_pending_target"
+                  " ON pending(target_key,status)")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_batch_done_slot"
                   " ON batch(slot) WHERE ok=1")
         yield c
@@ -1387,28 +1398,92 @@ def pending_work_completion_entries(today=None):
     return list(out.values())
 
 
+def _pending_target(item):
+    """같은 업무 필드를 안정적으로 가리키는 보관본 큐 키를 만든다."""
+    d = dict(item or {})
+    sheet = str(d.get("sheet") or "").strip()
+    cell = str(d.get("cell") or "").strip().upper()
+    if cell:
+        return f"{sheet}|cell|{cell}"
+    return "|".join((
+        sheet,
+        str(d.get("key_col") or "").strip(),
+        str(d.get("key") or "").strip(),
+        str(d.get("col") or "").strip(),
+    ))
+
+
+def _pending_ingest_key(source, item, target, ingest_prefix, pos):
+    # staging 파일명은 매 회차 달라지므로 키에 넣으면 같은 셀이 81번씩 다시 쌓인다.
+    # 실제 보관본 명령의 내용만 해시해 재시도·다른 staging에서도 멱등하게 만든다.
+    d = dict(item or {})
+    value = d.get("value")
+    body = {
+        "source": str(source or "tool"),
+        "target": target,
+        "value": value if isinstance(value, str) else json.dumps(
+            value, ensure_ascii=False, sort_keys=True, default=str),
+        "vtype": str(d.get("vtype") or "text"),
+        "only_if_empty": bool(d.get("only_if_empty", True)),
+    }
+    raw = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "cell:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def enqueue(items, source="tool", ingest_prefix=None):
-    """반영할 셀을 DB에 넣는다. **여기서는 엑셀을 건드리지 않는다.**"""
+    """앱 DB에 즉시 저장하고 Excel 보관본 생성 큐에는 최신 값만 남긴다."""
+    items = [dict(item or {}) for item in (items or [])]
+    if not items:
+        return 0
+
+    # 앱 DB가 업무 정본이다. 이 호출이 성공하기 전에는 UI에 저장 성공을 반환하지 않는다.
+    # 초기 배포 중 모듈 자체가 아직 없는 경우만 과거 큐로 호환하고, 그 밖의 오류는 숨기지 않는다.
+    try:
+        import app_store
+    except ImportError:
+        app_store = None
+    if app_store is not None:
+        canonical = app_store.apply_legacy_items(
+            items,
+            source=source,
+            idempotency_key=ingest_prefix,
+        )
+        if not canonical.get("ok", False):
+            errors = canonical.get("errors") or []
+            detail = "; ".join(str(e.get("message") or e) for e in errors[:3])
+            raise RuntimeError(f"앱 DB 즉시 저장 실패: {detail or '원인 미상'}")
+
     rows = []
     now = datetime.now().isoformat(timespec="seconds")
-    for pos, it in enumerate(items or []):
-        d = dict(it or {})
+    for pos, d in enumerate(items):
         v = d.get("value")
+        target = _pending_target(d)
+        ingest_key = _pending_ingest_key(source, d, target, ingest_prefix, pos)
         rows.append((now, source, d.get("sheet") or "", d.get("key_col"), d.get("key"),
                      d.get("cell"), d.get("col"),
                      v if isinstance(v, str) else json.dumps(v, ensure_ascii=False, default=str),
                      d.get("vtype") or "text", d.get("evidence"),
                      1 if d.get("only_if_empty", True) else 0,
-                     f"{ingest_prefix}:{pos}" if ingest_prefix else None))
-    if not rows:
-        return 0
+                     ingest_key, target))
     with conn() as c:
-        before = c.total_changes
-        c.executemany(
+        added = 0
+        for row in rows:
+            cur = c.execute(
             "INSERT OR IGNORE INTO pending"
-            "(ts,source,sheet,key_col,key,cell,col,value,vtype,evidence,only_if_empty,ingest_key)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", rows)
-        added = c.total_changes - before
+                "(ts,source,sheet,key_col,key,cell,col,value,vtype,evidence,only_if_empty,"
+                "ingest_key,target_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                row,
+            )
+            if cur.rowcount != 1:
+                continue
+            added += 1
+            new_id = int(cur.lastrowid)
+            c.execute(
+                "UPDATE pending SET status='superseded',superseded_by=?,"
+                "result_note='더 최신 앱 입력으로 대체' "
+                "WHERE status='pending' AND target_key=? AND id<>?",
+                (new_id, row[-1], new_id),
+            )
     # 로그 일원화(worksplit #20) — "이 값이 언제 어디서 들어왔나"를 한 표에 모은다.
     # ★ `note()` 는 무슨 일이 있어도 예외를 내지 않는다. 로그를 남기려다 입력을
     #   막으면 그 순간 아무도 안 쓰게 된다.
@@ -1517,12 +1592,18 @@ def status(now=None):
     p, by, done = counts()
     nxt = next_window(now)
     handoffs = len(pending_handoffs())
-    doc = {"확인": now.isoformat(timespec="seconds"), "대기": p, "인수인계대기": handoffs,
+    next_text = nxt.isoformat(timespec="minutes")
+    windows = [f"{w.hour:02d}:{w.minute:02d}" for w in WINDOWS]
+    doc = {"확인": now.isoformat(timespec="seconds"),
+           "대기": p, "보관본대기": p, "인수인계대기": handoffs,
            "출처별": by,
-           "다음반영": nxt.isoformat(timespec="minutes"),
+           "다음반영": next_text,       # 옛 앱 호환 별칭
+           "다음보관본": next_text,
            "남은분": max(0, int((nxt - now).total_seconds() // 60)),
            "지금회차": slot_of(now), "밀린회차": missed_slots(now, done),
-           "반영시각": [f"{w.hour:02d}:{w.minute:02d}" for w in WINDOWS]}
+           "반영시각": windows,         # 옛 앱 호환 별칭
+           "보관본시각": windows,
+           "정본": "SQLite", "Excel역할": "단방향 보관본"}
     os.makedirs(os.path.dirname(STATUS_CACHE), exist_ok=True)
     json.dump(doc, open(STATUS_CACHE, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     return doc
@@ -1580,6 +1661,39 @@ def scheduled_workbook_maintenance(now=None):
     다음 회차에서 다시 시도할 수 있도록 보고서에 단계별 결과를 남긴다.
     """
     from ledger_writer import atomic_json_dump
+    # 정본 전환 뒤 Excel은 단방향 보관본이다. 예전 시트별 mutator를 다시 돌리면
+    # Excel 값이 DB로 역류하는 두 번째 정본이 생기므로, DB 스냅샷과 현재 보관본의
+    # 로컬 검증 묶음만 만들고 과거 mutator는 실행하지 않는다.
+    try:
+        import app_store
+        store_state = app_store.status()
+    except Exception:
+        store_state = {}
+    if store_state.get("source_of_truth_mode") == "db_primary_export":
+        try:
+            from archive_export import ArchiveExporter
+            from ecount_reconcile import load_config, resolve_master
+            master = resolve_master(load_config()["reconcile"]["master_xlsx"])
+            prepared = ArchiveExporter(app_store.default_store()).prepare(
+                template_path=master)
+            results = [{
+                "단계": "앱 DB 보관 스냅샷", "성공": True,
+                "메모": (f"{prepared.get('export_id')} · {prepared.get('status')} · "
+                         "Excel 역수입 없음")[:240],
+            }]
+        except Exception as exc:
+            results = [{
+                "단계": "앱 DB 보관 스냅샷", "성공": False,
+                "메모": f"{type(exc).__name__}: {exc}"[:240],
+            }]
+        os.makedirs(REPORT_DIR, exist_ok=True)
+        atomic_json_dump(
+            {"시각": (now or datetime.now()).isoformat(timespec="seconds"),
+             "정본": "SQLite", "Excel": "단방향 보관본", "결과": results},
+            os.path.join(REPORT_DIR, "scheduled_workbook_maintenance.json"),
+        )
+        return results
+
     try:
         from inbox_scan import pick
         has_tax = bool(pick("tax"))
@@ -1614,12 +1728,13 @@ def scheduled_workbook_maintenance(now=None):
     results = []
     for name, cmd in jobs:
         try:
-            r = subprocess.run(
-                [sys.executable, *cmd], cwd=ROOT, capture_output=True, text=True,
-                encoding="utf-8", errors="replace", timeout=1800, env=env,
-            )
+            from proc_guard import run_tree
+            r = run_tree([sys.executable, *cmd], cwd=ROOT, timeout=1800,
+                         drain_timeout=30, env=env)
             lines = [x.strip() for x in ((r.stdout or "") + "\n" + (r.stderr or "")).splitlines()
                      if x.strip()]
+            if r.timed_out:
+                lines.append(f"시간초과 · 잔류 pid {r.stuck_pid or 0}")
             results.append({"단계": name, "성공": r.returncode == 0,
                             "메모": (lines[-1] if lines else "")[:240]})
         except Exception as exc:
@@ -1634,14 +1749,16 @@ def scheduled_workbook_maintenance(now=None):
             os.makedirs(REPORT_DIR, exist_ok=True)
             batch_file = os.path.join(REPORT_DIR, "handoff_batch.json")
             atomic_json_dump([{"b": i["title"], "c": i["detail"]} for i in items], batch_file)
-            r = subprocess.run(
+            from proc_guard import run_tree
+            r = run_tree(
                 [sys.executable, os.path.join(ROOT, "workbook_patch.py"),
                  "--batch", batch_file],
-                cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
-                errors="replace", timeout=1800, env=env,
+                cwd=ROOT, timeout=1800, drain_timeout=30, env=env,
             )
             lines = [x.strip() for x in ((r.stdout or "") + "\n" + (r.stderr or "")).splitlines()
                      if x.strip()]
+            if r.timed_out:
+                lines.append(f"시간초과 · 잔류 pid {r.stuck_pid or 0}")
             ok = r.returncode == 0
             results.append({"단계": "19_AI작업인수인계", "성공": ok,
                             "메모": (f"{len(items)}건 일괄 · "
@@ -1799,7 +1916,8 @@ def apply_now(force=False, now=None, resume_slot=None, ignore_input_window=False
     payload = []
     for r in rows:
         d = {"sheet": r["sheet"], "value": r["value"], "vtype": r["vtype"],
-             "evidence": r["evidence"], "only_if_empty": bool(r["only_if_empty"])}
+             "evidence": r["evidence"], "only_if_empty": bool(r["only_if_empty"]),
+             "db_pending_id": r["id"]}
         if r["cell"]:
             d["cell"] = r["cell"]
         else:
@@ -1815,18 +1933,28 @@ def apply_now(force=False, now=None, resume_slot=None, ignore_input_window=False
     # 실패 후 재흡수 중복과, 반영 도중 들어온 새 입력의 유실을 모두 막는다.
     from ledger_writer import atomic_json_dump
     batch_queue = os.path.join(ROOT, "updates", f".ledger_db_batch_{batch_id}.json")
+    result_path = os.path.join(ROOT, "updates", f".ledger_db_result_{batch_id}.json")
     atomic_json_dump(payload, batch_queue)
+    result = None
     try:
-        r = subprocess.run(
+        from proc_guard import run_tree
+        r = run_tree(
             [sys.executable, os.path.join(ROOT, "ledger_writer.py"),
              "--queue", batch_queue, "--apply"],
-            cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
-            errors="replace", timeout=1800,
+            cwd=ROOT, timeout=1800, drain_timeout=30,
             env={**os.environ, "PYTHONIOENCODING": "utf-8",
-                 "COUPANG_LEDGER_GATE": "1", "CSOS_AI": "scheduler"},
+                 "COUPANG_LEDGER_GATE": "1", "CSOS_AI": "scheduler",
+                 "COUPANG_LEDGER_RESULT": result_path},
         )
-        ok = r.returncode == 0
+        if r.returncode == 0 and os.path.exists(result_path):
+            with open(result_path, encoding="utf-8") as handle:
+                result = json.load(handle)
+        ok = r.returncode == 0 and isinstance(result, dict)
         output = "\n".join(x for x in (r.stdout or "", r.stderr or "") if x)
+        if r.timed_out:
+            output += f"\n시간초과: 자식 나무 종료, 잔류 pid={r.stuck_pid or 0}"
+        elif r.returncode == 0 and result is None:
+            output += "\n결과 파일 없음 — 실제 반영 여부를 확정할 수 없어 대기 유지"
     except Exception as exc:
         ok = False
         output = f"{type(exc).__name__}: {exc}"
@@ -1835,19 +1963,59 @@ def apply_now(force=False, now=None, resume_slot=None, ignore_input_window=False
             os.unlink(batch_queue)
         except FileNotFoundError:
             pass
+    applied_ids = {
+        int(item["db_pending_id"])
+        for item in ((result or {}).get("applied") or [])
+        if str(item.get("db_pending_id") or "").isdigit()
+    }
+    skipped_by_id = {
+        int(item["db_pending_id"]): str(item.get("사유") or "보관본 생성 제외")
+        for item in ((result or {}).get("skipped") or [])
+        if str(item.get("db_pending_id") or "").isdigit()
+    }
+    expected_ids = {int(row["id"]) for row in rows}
+    accounted_ids = applied_ids | set(skipped_by_id)
+    if ok and accounted_ids != expected_ids:
+        ok = False
+        missing = sorted(expected_ids - accounted_ids)
+        extra = sorted(accounted_ids - expected_ids)
+        output += f"\n결과 수 불일치: 미확정={missing[:20]}, 다른배치={extra[:20]}"
+
     tail = [line for line in output.splitlines() if line.strip()][-1:] or [""]
+    version = str((result or {}).get("version") or "미확정")
+    batch_note = (f"{version}: 적용 {len(applied_ids)} / 제외 {len(skipped_by_id)}"
+                  + ("" if ok else f" · {tail[0]}"))[:500]
+    finished = datetime.now().isoformat(timespec="seconds")
     with conn() as c:
         c.execute("UPDATE batch SET finished=?,ok=?,note=? WHERE id=?",
                   (datetime.now().isoformat(timespec="seconds"), 1 if ok else 0,
-                   tail[0][:200], batch_id))
-        if ok and rows:
-            ids = [row["id"] for row in rows]
+                   batch_note, batch_id))
+        if applied_ids:
+            ids = sorted(applied_ids)
             marks = ",".join("?" for _ in ids)
             c.execute(
-                f"UPDATE pending SET status='applied',batch_id=?,applied_at=?"
+                f"UPDATE pending SET status='applied',batch_id=?,applied_at=?,result_note=?"
                 f" WHERE status='pending' AND id IN ({marks})",
-                (batch_id, datetime.now().isoformat(timespec="seconds"), *ids),
+                (batch_id, finished, version, *ids),
             )
+        for pending_id, reason in skipped_by_id.items():
+            c.execute(
+                "UPDATE pending SET status='skipped',batch_id=?,applied_at=?,result_note=? "
+                "WHERE status='pending' AND id=?",
+                (batch_id, finished, reason[:500], pending_id),
+            )
+    if result is not None:
+        try:
+            import archive_export
+            archive_export.record_ledger_result(
+                batch_id=batch_id,
+                slot=slot_name,
+                result=result,
+                ok=ok,
+                source_result=result_path,
+            )
+        except (ImportError, AttributeError):
+            pass
     if ok:
         maintenance = scheduled_workbook_maintenance(now)
     else:
@@ -1858,7 +2026,9 @@ def apply_now(force=False, now=None, resume_slot=None, ignore_input_window=False
         except Exception:
             pass
     status(now)
-    return {"상태": "반영" if ok else "실패", "회차": slot_name, "셀": len(payload),
+    return {"상태": "보관본 생성" if ok else "실패", "회차": slot_name,
+            "적용": len(applied_ids), "제외": len(skipped_by_id),
+            "미확정": len(expected_ids - accounted_ids), "버전": version,
             "메모": tail[0][:120], "구조갱신": maintenance}
 
 
@@ -1919,7 +2089,7 @@ def resume_deferred(now=None):
         return {"상태": "없음", "사유": "연기된 회차 없음"}
     with apply_lock():
         result = apply_now(now=now, resume_slot=slots[-1])
-    if result.get("상태") in ("반영", "없음", "대기"):
+    if result.get("상태") in ("보관본 생성", "반영", "없음", "대기"):
         # 큐는 하나라 최신 회차 반영이 전부를 포함한다 — 나머지 연기 회차도 완료로 남긴다.
         stamp = datetime.now().isoformat(timespec="seconds")
         with conn() as c:
@@ -2030,8 +2200,10 @@ def self_test():
     global DB_PATH
     import tempfile
     old = DB_PATH
+    old_app_db = os.environ.get("COUPANG_APP_DB_PATH")
     with tempfile.TemporaryDirectory() as td:
         DB_PATH = os.path.join(td, "t.db")
+        os.environ["COUPANG_APP_DB_PATH"] = os.path.join(td, "app_store.db")
         try:
             item = {"sheet": "02_돌발AS접수", "cell": "C9", "value": "AS-1",
                     "evidence": "테스트"}
@@ -2040,6 +2212,20 @@ def self_test():
                 print("  [FAIL] DB 적재"); bad += 1
             if enqueue([item], source="claude", ingest_prefix="same") != 0:
                 print("  [FAIL] staging 재시도 중복"); bad += 1
+            newer = {**item, "value": "AS-2"}
+            if enqueue([newer], source="claude", ingest_prefix="different-stage") != 1:
+                print("  [FAIL] 같은 필드 최신값 추가"); bad += 1
+            with conn() as c:
+                active = c.execute(
+                    "SELECT value FROM pending WHERE status='pending' AND target_key=?",
+                    (_pending_target(item),),
+                ).fetchall()
+                old_count = c.execute(
+                    "SELECT COUNT(*) FROM pending WHERE status='superseded' AND target_key=?",
+                    (_pending_target(item),),
+                ).fetchone()[0]
+            if active != [("AS-2",)] or old_count != 1:
+                print("  [FAIL] 최신값 하나만 활성", active, old_count); bad += 1
             if enqueue([], source="x") != 0:
                 print("  [FAIL] 빈 목록"); bad += 1
             if ux_add([{"kind": "tap", "target": "정산"}]) != 1:
@@ -2053,6 +2239,10 @@ def self_test():
                 print("  [FAIL] 집계", p, by); bad += 1
         finally:
             DB_PATH = old
+            if old_app_db is None:
+                os.environ.pop("COUPANG_APP_DB_PATH", None)
+            else:
+                os.environ["COUPANG_APP_DB_PATH"] = old_app_db
     print("ledger_db self-test:", "OK" if not bad else f"{bad}건 실패")
     return bad == 0
 

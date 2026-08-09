@@ -99,9 +99,11 @@ def proc_running(image):
     """PowerShell Get-Process 기반(로케일·wmic 무관, 신뢰성 우선)"""
     name = image.replace(".exe", "")
     try:
-        out = subprocess.run(["powershell", "-NoProfile", "-Command",
-                              f"(Get-Process {name} -ErrorAction SilentlyContinue).Count"],
-                             capture_output=True, text=True, timeout=20).stdout.strip()
+        out = run_tree(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-Process {name} -ErrorAction SilentlyContinue).Count"],
+            timeout=20, drain_timeout=5,
+        ).stdout.strip()
         return out.isdigit() and int(out) > 0
     except Exception:
         return False
@@ -113,8 +115,8 @@ def kill_by_cmdline(needle):
           f"Where-Object {{ $_.CommandLine -like '*{needle}*' }} | "
           "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }")
     try:
-        subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                       capture_output=True, timeout=30)
+        run_tree(["powershell", "-NoProfile", "-Command", ps],
+                 timeout=30, drain_timeout=5)
     except Exception:
         pass
 
@@ -214,9 +216,8 @@ def heal_stale_pastefiles(dry):
                 os.unlink(p)
                 made += 1
                 continue
-            import subprocess
-            subprocess.run([sys.executable, os.path.join(band_dir, "make_oneclick.py"),
-                            "--band", band], cwd=ROOT, capture_output=True, timeout=180)
+            run_tree([sys.executable, os.path.join(band_dir, "make_oneclick.py"),
+                      "--band", band], cwd=ROOT, timeout=180, drain_timeout=10)
             # ★ **끝난 코드로 성공을 판단하지 않는다.** 훑을 것이 없는 밴드에서는
             #   생성기가 아무 파일도 안 쓰고 정상 종료한다(0). 그걸 성공으로 세면
             #   낡은 파일이 그대로 남은 채 "새로 만들었다"고 적힌다 — 거짓 보고다.
@@ -297,13 +298,12 @@ def heal_tunnel(dry):
 
 def kill_stale_tunnel():
     """죽은 터널을 붙들고 있는 cloudflared·tunnel_run을 정리한다."""
-    import subprocess as sp
     ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'cloudflared.exe' -or "
           "$_.CommandLine -like '*tunnel_run*' } | ForEach-Object { "
           "Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }")
     try:
-        r = sp.run(["powershell", "-NoProfile", "-Command", ps],
-                   capture_output=True, text=True, timeout=60)
+        r = run_tree(["powershell", "-NoProfile", "-Command", ps],
+                     timeout=60, drain_timeout=10)
         n = len([x for x in (r.stdout or "").split() if x.strip().isdigit()])
         return f" (좀비 {n}개 정리)" if n else ""
     except Exception:
@@ -321,9 +321,8 @@ def snapshot_handoff(dry):
     if dry:
         return "세션인계(dry)"
     try:
-        r = subprocess.run([PY, os.path.join(ROOT, "session_handoff.py"), "--snapshot"],
-                           cwd=ROOT, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=120)
+        r = run_tree([PY, os.path.join(ROOT, "session_handoff.py"), "--snapshot"],
+                     cwd=ROOT, timeout=120, drain_timeout=10)
         line = [x for x in (r.stdout or "").splitlines() if "세션인계" in x]
         return line[-1] if line else "세션인계 갱신"
     except Exception as e:
@@ -348,9 +347,8 @@ def publish_endpoint(dry):
     if dry:
         return "게시(dry)"
     try:
-        r = subprocess.run([PY, os.path.join(ROOT, "publish_endpoint.py")], cwd=ROOT,
-                           capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=120)
+        r = run_tree([PY, os.path.join(ROOT, "publish_endpoint.py")], cwd=ROOT,
+                     timeout=120, drain_timeout=10)
         return (r.stdout or "").strip().splitlines()[-1][:60] if r.stdout.strip() else "게시 무응답"
     except Exception as e:
         return f"게시 오류: {str(e)[:40]}"
@@ -361,14 +359,11 @@ def sync_cloud_queue(dry):
     if dry:
         return "클라우드 예약 반영(dry)"
     try:
-        r = subprocess.run(
+        r = run_tree(
             [PY, os.path.join(ROOT, "cloud_queue_sync.py")],
             cwd=ROOT,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=180,
+            drain_timeout=10,
         )
         line = (r.stdout or r.stderr or "").strip().splitlines()
         return ("클라우드 예약 " + line[-1][:80]) if line else "클라우드 예약 확인"
@@ -381,10 +376,9 @@ def sync_uploads(dry):
     if dry:
         return "업로드 투입함(dry)"
     try:
-        r = subprocess.run(
+        r = run_tree(
             [PY, os.path.join(ROOT, "upload_intake.py"), "--apply"],
-            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=300,
+            cwd=ROOT, timeout=300, drain_timeout=15,
         )
         line = (r.stdout or r.stderr or "").strip().splitlines()
         summary = line[-1] if line else "업로드 분류 무응답"

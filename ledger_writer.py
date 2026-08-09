@@ -145,6 +145,17 @@ def atomic_json_dump(value, path):
             os.unlink(tmp)
 
 
+def _result_path(stamp):
+    """Return this run's result file without guessing by minute.
+
+    ``ledger_db`` passes a unique path for each archive batch so it can mark
+    only commands that were actually applied or skipped.  Direct callers keep
+    the historical ``updates/applied_*.json`` naming.
+    """
+    requested = str(os.environ.get("COUPANG_LEDGER_RESULT") or "").strip()
+    return requested or os.path.join(UPD_DIR, f"applied_{stamp}.json")
+
+
 def queue_add(items):
     """대조 모듈이 호출: 확정 업데이트를 큐에 중복 없이 추가"""
     with queue_lock():
@@ -390,7 +401,14 @@ def _main():
         print("\n미리보기 모드 — DB 적재: python ledger_db.py --intake"
               " (Excel은 11:00·15:00만 반영)"); return
     if not plans:
-        print("반영할 항목 없음"); return
+        os.makedirs(UPD_DIR, exist_ok=True)
+        stamp0 = datetime.now().strftime("%Y%m%d_%H%M%S")
+        atomic_json_dump({"applied": [], "skipped": skips,
+                          "version": "미생성(대상 없음)"},
+                         _result_path(stamp0))
+        atomic_json_dump([], PENDING)
+        print("반영할 항목 없음")
+        return
     if os.path.exists(dst):
         sys.exit(f"{os.path.basename(dst)} 이미 존재 — 중단")
 
@@ -413,9 +431,9 @@ def _main():
     if not done:
         zin.close()
         os.makedirs(UPD_DIR, exist_ok=True)
-        stamp0 = datetime.now().strftime("%Y%m%d_%H%M")
+        stamp0 = datetime.now().strftime("%Y%m%d_%H%M%S")
         atomic_json_dump({"applied": [], "skipped": skips + skipped2, "version": "미생성(0건)"},
-                         os.path.join(UPD_DIR, f"applied_{stamp0}.json"))
+                         _result_path(stamp0))
         atomic_json_dump([], PENDING)
         print(f"\n입력할 빈 칸 없음(전부 기존 값 보유) — 새 버전 미생성, 큐 {len(skipped2)}건 정리 완료")
         return
@@ -531,9 +549,9 @@ def _main():
 
     # 큐 정리·보관
     os.makedirs(UPD_DIR, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     atomic_json_dump({"applied": done, "skipped": skips + skipped2, "version": f"v{v+1}"},
-                     os.path.join(UPD_DIR, f"applied_{stamp}.json"))
+                     _result_path(stamp))
     atomic_json_dump([], PENDING)
     print(f"\n반영 완료: v{v} → v{v+1}, 입력 {len(done)}건 / 건너뜀 {len(skipped2)}건 (검증 통과)")
     print("   ", dst)

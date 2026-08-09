@@ -12,7 +12,7 @@ PC에서 실행하면 같은 와이파이의 휴대폰·다른 PC가 브라우�
 
 보안: 4자리 PIN(첫 요청 시 입력, 기기에 저장). 사내 LAN 전용 설계 — 외부 인터넷 개방 금지.
 """
-import sys, os, re, json, glob, time, threading, random, subprocess, hashlib, io, shutil, secrets
+import sys, os, re, json, glob, time, threading, random, hashlib, io, shutil, secrets, copy
 import base64, hmac
 import ipaddress
 import socket
@@ -193,8 +193,7 @@ def tech_board(slug, limit=60):
 
 
 def tech_report(slug, wid, when, note):
-    """기사가 올리는 완료 보고. **엑셀에 바로 쓰지 않는다** — 큐에 넣는다
-       (11:00·15:00 회차에 반영된다는 규칙은 기사 화면에서도 같다)."""
+    """기사가 올리는 완료 보고. 앱 DB에는 즉시, Excel은 보관본으로만 남긴다."""
     cfg = AS_TECH_CENTERS.get(slug)
     if not cfg:
         return {"ok": False, "error": "등록되지 않은 기사입니다"}
@@ -211,18 +210,19 @@ def tech_report(slug, wid, when, note):
     sheet = "02_돌발AS접수" if kind == "돌발AS" else "04_정기점검"
     keycol = "접수ID" if kind == "돌발AS" else "점검ID"
     col = "작업완료일" if kind == "돌발AS" else "실제점검일"
-    import ledger_db
     # ★ 조치 내용은 **원장 칸에 쓰지 않고 근거로 남긴다.** 02시트에는 '조치 내용' 칸이
     #   없다. 가까워 보인다고 `신청내용`(고객이 무엇을 요청했나)에 적으면 그 칸의 뜻이
     #   망가지고, 나중에 아무도 그게 요청인지 조치인지 구별하지 못한다.
     ev = f"기사 앱 완료보고 · {cfg['name']}" + (f" · 조치: {note}" if note else "")
-    n = ledger_db.enqueue(
+    saved = enqueue_for_scheduled_apply(
         [{"sheet": sheet, "key_col": keycol, "key": wid, "col": col,
           "value": when, "vtype": "date", "only_if_empty": True, "evidence": ev}],
-        source="tech-app", ingest_prefix=f"tech:{slug}:{wid}")
-    return {"ok": True, "queued": n, "건": wid, "완료일": when,
+        source="tech-app", actor=f"tech:{slug}",
+        idempotency_key=f"tech:{slug}:{wid}:{when}")
+    return {**saved, "건": wid, "완료일": when,
             "메모기록": bool(note),
-            "안내": "엑셀 반영은 11:00·15:00 회차에 함께 들어갑니다."}
+            "안내": ("앱 DB 저장 완료 · Excel 보관본은 11:00·15:00 회차에 생성됩니다."
+                   if saved.get("ok") else saved.get("msg"))}
 
 
 def staff_centers_payload():
@@ -1216,7 +1216,7 @@ def warm_caches():
     ★ 실패해도 서버는 그대로 간다. 데우기는 편의지 필수가 아니다.
     ★ 한 번만 데우면 안 된다 — 항목별 TTL 이 issues 300초 · works/settle 600초라
       만료되는 순간 **다음 사람이 다시 111초를 맞는다.** 게다가 원장 mtime 이 바뀌면
-      (11:00·15:00 반영 직후) 캐시가 통째로 비워진다. 그래서 주기적으로 다시 데운다.
+      (11:00·15:00 보관본 생성 직후) 캐시가 통째로 비워진다. 그래서 주기적으로 다시 데운다.
       간격은 가장 짧은 TTL(300초)보다 짧아야 의미가 있다 → 240초.
     """
     import time as _t
@@ -1402,42 +1402,254 @@ def _save_ryu_evidence(file_info, category, record_key):
     return name
 
 
-def enqueue_for_scheduled_apply(items, source="app"):
-    """확정 입력을 보존한 뒤 SQLite로 넘긴다. 여기서는 엑셀을 절대 열지 않는다.
+def _stable_request_key(source, actor, items, record=None, supplied=None):
+    """헤더가 없어도 동일 요청 재전송은 같은 DB 명령이 되게 한다."""
+    raw = str(supplied or "").strip()
+    payload = {"source": source, "actor": actor, "items": items, "record": record or {}}
+    digest = hashlib.sha256(json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
+    ).encode("utf-8")).hexdigest()
+    if not raw:
+        return f"app:{digest}"
+    # 같은 클라이언트 키를 다른 본문에 재사용하면 저장소가 request hash 충돌로 거부해야
+    # 한다. 본문 digest를 키에 섞으면 서로 다른 키가 되어 그 관문을 우회하므로 넣지 않는다.
+    clean = re.sub(r"[^0-9A-Za-z._:-]", "_", raw)[:160]
+    return f"client:{clean}:{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:24]}"
 
-    기존 대조 도구와의 호환을 위해 먼저 원자적 JSON 큐에 넣고, 곧바로 ledger_db가
-    staging 파일로 떼어 흡수한다. DB가 잠시 잠겨도 JSON 원문은 남으므로 입력이 유실되지
-    않으며, 실제 관리대장 반영은 작업 스케줄러의 11:00·15:00 회차만 수행한다.
-    """
-    from ledger_writer import queue_add, load_queue
-    added = queue_add(items) if items else 0
-    moved = 0
-    state = {}
-    db_error = ""
+
+def _app_db_stamp():
     try:
-        import ledger_db
-        moved = ledger_db.intake_json(source=source)
-        state = ledger_db.status()
+        from app_store import default_store
+        path = str(default_store().db_path)
+        return tuple(os.path.getmtime(p) if os.path.exists(p) else 0
+                     for p in (path, path + "-wal"))
+    except Exception:
+        return (0, 0)
+
+
+def _invalidate_app_data_caches():
+    """현재 캐시는 무효화하되 DB overlay를 입힌 last-good은 즉시 응답용으로 남긴다."""
+    cache = globals().get("_cache")
+    if not isinstance(cache, dict):
+        return
+    # Z: Excel 재독기는 오래 걸릴 수 있다. 이미 읽은 Excel base가 있으면 그것을 복사해
+    # 방금 커밋한 DB만 즉시 overlay하고, 뒤쪽 refresh가 새 base를 다시 계산하게 한다.
+    for key in ("works", "settle"):
+        previous = cache.get(key) or cache.get(key + "_stale")
+        if previous is not None:
+            try:
+                patched = copy.deepcopy(previous)
+                patched = (_overlay_app_store_works(patched) if key == "works"
+                           else _overlay_app_store_settlements(patched))
+                cache[key + "_stale"] = patched
+            except Exception:
+                cache.pop(key + "_stale", None)
+        cache.pop(key, None)
+        cache.pop(key + "_ts", None)
+        cache[key + "_app_db_stamp"] = _app_db_stamp()
+    for key in ("issues", "exec", "status"):
+        for suffix in ("", "_ts", "_stale"):
+            cache.pop(key + suffix, None)
+
+
+def _safety_spool(items, error):
+    """DB 실패 때만 쓰는 복구용 JSON. 이것은 저장 성공이 아니다."""
+    added = 0
+    spool_error = ""
+    try:
+        if items:
+            from ledger_writer import queue_add
+            added = queue_add(items)
     except Exception as exc:
-        db_error = str(exc)[:160]
-    pending = state.get("대기")
-    if pending is None:
-        pending = len(load_queue())
-    next_at = str(state.get("다음반영") or "다음 11:00·15:00 회차")
-    msg = f"입력 DB 저장 완료 · 엑셀 반영 {next_at}"
-    if db_error:
-        msg = "안전 임시 큐에 저장 · DB 흡수는 다음 상태 확인 때 재시도"
+        spool_error = str(exc)[:200]
     return {
-        "queued": added,
-        "ingested": moved,
-        "pending": pending,
-        "applying": False,
-        "next_apply": state.get("다음반영"),
-        "msg": msg,
+        "spooled": bool(items) and not spool_error,
+        "spool_added": added,
+        "spool_error": spool_error,
+        "error": str(error)[:300],
     }
 
 
-def save_ryu_entry(fields, files, source_ip=""):
+def _prepare_archive_export(actor="app"):
+    """외부 쓰기 없이 로컬 DB 스냅샷·템플릿 사본·명령계획만 검증해 만든다."""
+    from archive_export import ArchiveExporter
+    from app_store import default_store
+    from ecount_reconcile import load_config, resolve_master
+
+    template = resolve_master(load_config()["reconcile"]["master_xlsx"])
+    prepared = ArchiveExporter(default_store()).run_local(
+        template_path=template, adapter=None, dry_run=True,
+    )
+    rendered = bool(prepared.get("archive"))
+    return {
+        "ok": True,
+        "prepared": True,
+        "rendered": rendered,
+        "actor": actor,
+        "label": "보관본 지금 생성",
+        "msg": ("검증된 Excel 보관본 확인 완료" if rendered else
+                "보관본 생성 계획·DB 스냅샷 준비 완료 · Excel 렌더 검증 대기"),
+        **prepared,
+    }
+
+
+def enqueue_for_scheduled_apply(items, source="app", actor="app",
+                                idempotency_key=None, record=None):
+    """앱 DB를 먼저 커밋하고, 성공한 값만 Excel 보관본 outbox에 남긴다.
+
+    JSON은 정본이 아니다. 앱 DB 커밋이 실패했을 때만 복구용 안전 스풀로 쓰며,
+    그런 경우 호출자에게 반드시 ``ok=False``를 돌려 거짓 저장 성공을 막는다.
+    ``record``는 Excel 행 번호 없이 만드는 신규 업무용 명세다.
+    """
+    items = [dict(item or {}) for item in (items or [])]
+    actor = str(actor or "app")[:200]
+    request_key = _stable_request_key(
+        source, actor, items, record=record, supplied=idempotency_key,
+    )
+    canonical_committed = False
+    records = []
+    try:
+        from app_store import NotFoundError, default_store
+        store = default_store()
+        records = []
+        if record:
+            spec = dict(record)
+            kind = str(spec.get("kind") or "").strip()
+            business_key = str(spec.get("business_key") or "").strip()
+            if not kind or not business_key:
+                raise ValueError("신규 업무의 kind/business_key가 없습니다")
+            try:
+                current = store.get_work(kind=kind, business_key=business_key)
+            except NotFoundError:
+                current = None
+            public_id = str((current or {}).get("public_id") or "").strip()
+            if not public_id:
+                reserved = store.reserve_public_id(
+                    kind, spec.get("work_date"), str(spec.get("id_prefix") or kind),
+                )
+                public_id = reserved["public_id"]
+            fields = dict(spec.get("fields") or {})
+            id_col = str(spec.get("id_col") or "").strip()
+            if id_col:
+                fields[id_col] = public_id
+            desired_core = {
+                "public_id": public_id,
+                "project_no": spec.get("project_no"),
+                "camp_name": spec.get("camp_name"),
+                "status": str(spec.get("status") or ""),
+            }
+            if current:
+                same = all(
+                    json.dumps(current.get(name), ensure_ascii=False, sort_keys=True, default=str)
+                    == json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+                    for name, value in desired_core.items()
+                ) and all(
+                    json.dumps((current.get("fields") or {}).get(name), ensure_ascii=False,
+                               sort_keys=True, default=str)
+                    == json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+                    for name, value in fields.items()
+                )
+                if same:
+                    response = {"work": current, "event_id": None, "event_seq": None,
+                                "idempotent_replay": True, "no_change": True}
+                else:
+                    response = store.update_work(
+                        current["id"], expected_version=int(current["record_version"]),
+                        patch={**desired_core, "fields": fields},
+                        actor=actor, source=source,
+                        evidence=str(spec.get("evidence") or ""),
+                        source_ref=str(spec.get("source_ref") or ""),
+                        idempotency_key=f"{request_key}:update",
+                    )
+            else:
+                response = store.create_work(
+                    kind=kind,
+                    business_key=business_key,
+                    fields=fields,
+                    actor=actor,
+                    source=source,
+                    evidence=str(spec.get("evidence") or ""),
+                    source_ref=str(spec.get("source_ref") or ""),
+                    idempotency_key=request_key,
+                    **desired_core,
+                )
+            records.append(response)
+            canonical_committed = True
+            archive_queued = 0  # DB-only 신규 행은 snapshot exporter가 행을 생성한다.
+        else:
+            applied = store.apply_legacy_items(
+                items, source=source, actor=actor, idempotency_key=request_key,
+            )
+            canonical_committed = bool(
+                int(applied.get("created") or 0)
+                + int(applied.get("updated") or 0)
+                + int(applied.get("settings") or 0)
+                + int(applied.get("skipped") or 0)
+            ) or not items
+            if not applied.get("ok"):
+                raise RuntimeError("; ".join(
+                    str(e.get("message") or e) for e in (applied.get("errors") or [])
+                ) or "앱 DB 입력 일부가 커밋되지 않았습니다")
+            records = list(applied.get("items") or [])
+            # 기존 셀 명령은 11·15시 보관본 회차와 호환되도록 DB outbox에도 넣는다.
+            # ledger_db가 같은 값을 앱 DB에 한 번 더 제시하지만 already_equal/idempotency로
+            # 감사 이벤트를 중복 생성하지 않는다.
+            import ledger_db
+            archive_queued = ledger_db.enqueue(
+                items, source=source, ingest_prefix=f"archive:{request_key}",
+            ) if items else 0
+
+        state = store.status()
+        try:
+            import ledger_db
+            archive_state = ledger_db.status()
+        except Exception:
+            archive_state = {}
+        _invalidate_app_data_caches()
+        pending = int(archive_state.get("대기") or state.get("outbox_pending") or 0)
+        return {
+            "ok": True,
+            "committed": True,
+            "queued": archive_queued,
+            "ingested": len(records),
+            "records": records,
+            "pending": pending,
+            "archive_outbox_pending": pending,
+            "app_outbox_pending": int(state.get("outbox_pending") or 0),
+            "applying": False,
+            "next_archive": archive_state.get("다음반영"),
+            "next_apply": archive_state.get("다음반영"),
+            "msg": "앱 DB 저장·보관본 생성 예정",
+        }
+    except Exception as exc:
+        if canonical_committed:
+            _invalidate_app_data_caches()
+        retryable = type(exc).__name__ not in {
+            "ValidationError", "IdempotencyConflict", "VersionConflict", "ValueError",
+        }
+        recovery = (_safety_spool(items, exc) if retryable else {
+            "spooled": False, "spool_added": 0, "spool_error": "",
+            "error": str(exc)[:300],
+        })
+        return {
+            "ok": False,
+            "committed": canonical_committed,
+            "partial_commit": canonical_committed,
+            "retryable": retryable,
+            "queued": 0,
+            "ingested": 0,
+            "pending": recovery.get("spool_added", 0),
+            "applying": False,
+            "msg": (("앱 DB 저장 완료 · 보관본 outbox 실패 · 안전 임시 큐 보관"
+                     if recovery.get("spooled") else "앱 DB 저장 완료 · 보관본 outbox 실패")
+                    if canonical_committed else
+                    ("앱 DB 저장 실패 · 안전 임시 큐 보관(미반영)"
+                     if recovery.get("spooled") else "앱 DB 저장 실패 · 미반영")),
+            **recovery,
+        }
+
+
+def save_ryu_entry(fields, files, source_ip="", actor="app", idempotency_key=None):
     """선택한 기존 업무의 빈 원천 칸만 큐에 넣고, 첨부 근거는 원본 폴더에 보존한다."""
     requested = str(fields.get("category") or "").strip()
     category = requested
@@ -1497,86 +1709,114 @@ def save_ryu_entry(fields, files, source_ip=""):
         "추가근거": evidence_name, "입력항목": [item["col"] for item in items],
     }
     if DEMO:
-        return {"queued": len(items), "pending": len(items), "manifest": manifest,
+        return {"ok": True, "committed": False, "queued": len(items),
+                "pending": len(items), "manifest": manifest,
                 "applying": False, "msg": "데모 입력"}
-    os.makedirs(os.path.join(ROOT, "reports"), exist_ok=True)
-    with open(os.path.join(ROOT, "reports", "ryu_submissions.jsonl"), "a", encoding="utf-8") as out:
-        out.write(json.dumps(manifest, ensure_ascii=False) + "\n")
     if not items and not evidence_name:
         raise ValueError("보충할 항목 또는 근거 파일을 입력해 주세요")
-    queued = enqueue_for_scheduled_apply(items, source="app-ryu")
+    queued = enqueue_for_scheduled_apply(
+        items, source="app-ryu", actor=actor, idempotency_key=idempotency_key,
+    )
+    if queued.get("ok"):
+        os.makedirs(os.path.join(ROOT, "reports"), exist_ok=True)
+        with open(os.path.join(ROOT, "reports", "ryu_submissions.jsonl"),
+                  "a", encoding="utf-8") as out:
+            out.write(json.dumps(manifest, ensure_ascii=False) + "\n")
     if not items:
         queued["msg"] = "근거 파일만 저장했습니다"
     return {**queued, "manifest": manifest}
 
 
-def save_new_workcenter_job(fields, files, source_ip=""):
-    """업무센터 신규 AS·정기점검을 새 원장 행 대기열로 등록한다."""
+def save_new_workcenter_job(fields, files, source_ip="", actor="app",
+                            idempotency_key=None):
+    """신규 AS·정기점검을 Excel 행 번호 없이 앱 DB에 즉시 등록한다."""
     category = str(fields.get("category") or "").strip()
     if category not in ("as", "pm"):
         raise ValueError("신규 업무는 돌발AS 또는 정기점검만 등록할 수 있습니다")
-    from project_resolve import evidence, mint, row_items, norm
+    from project_resolve import norm
     project_no = norm(fields.get("project_no"))
-    if not project_no or not project_no.startswith("UJ26"):
+    if not re.fullmatch(r"UJ26\d{5}", project_no or "", re.I):
         raise ValueError("2026년 프로젝트번호(UJ + 숫자 7자리)를 입력해 주세요")
     work_date = str(fields.get("work_date") or "").strip()
-    if not re.fullmatch(r"2026-\d{2}-\d{2}", work_date):
+    try:
+        parsed_work_date = date.fromisoformat(work_date)
+    except ValueError:
+        parsed_work_date = None
+    if not parsed_work_date or parsed_work_date.year != 2026:
         raise ValueError("업무일은 2026년 YYYY-MM-DD 형식으로 입력해 주세요")
     camp = str(fields.get("camp_name") or "").strip()
     if not camp:
         raise ValueError("캠프명을 입력해 주세요")
-    ev = evidence()
-    existing = (ev.get("ledger") or {}).get(project_no)
     sheet = "02_돌발AS접수" if category == "as" else "04_정기점검"
-    if existing and sheet in (existing.get("sheets") or {}):
-        raise ValueError(f"{project_no}는 이미 {sheet}에 등록되어 있습니다")
-    row = int((ev.get("tail") or {}).get(sheet, 4)) + 1
-    if row > int((ev.get("cap") or {}).get(sheet, 0)):
-        raise ValueError("관리대장 빈 행이 부족합니다. 알림에 자동 확장 필요로 등록했습니다")
     prefix = "AS" if category == "as" else "PM"
     id_col = "접수ID" if category == "as" else "점검ID"
-    work_id = mint(prefix, work_date, row)
     status = str(fields.get("status") or ("접수" if category == "as" else "예정")).strip()
-    res = {
-        "ok": True, "code": project_no, "sheet": sheet, "row": row,
-        "ids": {id_col: work_id}, "src": {},
-        "camp": camp, "date": work_date,
-        "tech": str(fields.get("assignee") or "").strip(),
-        "cost": str(fields.get("cost_type") or "").strip(),
-        "kind": "돌발AS" if category == "as" else "정기점검",
-        "status": status,
-    }
+    kind = "돌발AS" if category == "as" else "정기점검"
+    tech = str(fields.get("assignee") or "").strip()
+    cost = str(fields.get("cost_type") or "").strip()
     note = str(fields.get("description") or "").strip()
-    # row_items의 신청내용은 kind를 기본으로 쓰므로 AS 신청내용은 확인된 설명으로 보강한다.
-    items = row_items(res, ev)
-    if category == "as" and note:
-        for item in items:
-            if item.get("col") == "신청내용":
-                item["value"] = note
-    evidence_name = _save_ryu_evidence(files.get("evidence_file"), category, work_id)
+    data = {
+        "프로젝트NO": project_no,
+        "캠프명": camp,
+        ("접수일자" if category == "as" else "점검예정일"): work_date,
+        "담당기사": tech,
+        ("진행상태" if category == "as" else "점검상태"): status,
+        "유상·무상·보험": cost,
+    }
+    if note:
+        data["신청내용" if category == "as" else "점검내용"] = note
+    evidence_name = _save_ryu_evidence(files.get("evidence_file"), category, project_no)
     evidence_text = (f"업무센터 신규등록({source_ip or '앱'})"
                      f"{' · 근거 ' + evidence_name if evidence_name else ''}")
-    for item in items:
-        item["evidence"] = evidence_text
-    # 수식 ID는 셀에 덮어쓰지 않는다. 프로젝트번호가 들어오면 관리대장 수식이 같은 ID를 만든다.
-    if not items:
-        raise ValueError("신규 업무를 반영할 입력 항목을 만들지 못했습니다")
+    # DB 장애 때 원문을 잃지 않기 위한 안전 스풀 모양이다. 정상 경로에서는 JSON에 쓰지 않는다.
+    items = [{
+        "sheet": sheet, "key_col": "프로젝트NO", "key": project_no,
+        "col": col, "value": value, "vtype": "date" if "일" in col else "text",
+        "evidence": evidence_text, "only_if_empty": False,
+    } for col, value in data.items() if value not in (None, "")]
+    record = {
+        "kind": kind,
+        "business_key": project_no,
+        "project_no": project_no,
+        "camp_name": camp,
+        "status": status,
+        "fields": data,
+        "work_date": work_date,
+        "id_prefix": prefix,
+        "id_col": id_col,
+        "evidence": evidence_text,
+        "source_ref": evidence_name,
+    }
+    if DEMO:
+        manifest = {
+            "등록일시": datetime.now().isoformat(timespec="seconds"),
+            "등록자": str(fields.get("submitter") or STAFF_CENTERS["ryu-jiyeong"]["name"]),
+            "입력유형": "신규 업무", "업무구분": kind,
+            "업무ID": f"{prefix}-DEMO", "프로젝트NO": project_no, "캠프명": camp,
+            "업무일": work_date, "담당자": tech, "상태": status,
+            "내용": note, "근거": evidence_name,
+        }
+        return {"ok": True, "committed": False, "queued": 0, "pending": 0,
+                "manifest": manifest, "applying": False, "msg": "데모 신규등록"}
+    queued = enqueue_for_scheduled_apply(
+        items, source="app-new-job", actor=actor,
+        idempotency_key=idempotency_key, record=record,
+    )
+    work = (((queued.get("records") or [{}])[0]).get("work") or {})
+    work_id = str(work.get("public_id") or work.get("id") or "")
     manifest = {
         "등록일시": datetime.now().isoformat(timespec="seconds"),
         "등록자": str(fields.get("submitter") or STAFF_CENTERS["ryu-jiyeong"]["name"]),
-        "입력유형": "신규 업무", "업무구분": res["kind"],
+        "입력유형": "신규 업무", "업무구분": kind,
         "업무ID": work_id, "프로젝트NO": project_no, "캠프명": camp,
-        "업무일": work_date, "담당자": res["tech"], "상태": status,
+        "업무일": work_date, "담당자": tech, "상태": status,
         "내용": note, "근거": evidence_name,
     }
-    if DEMO:
-        return {"queued": len(items), "pending": len(items), "manifest": manifest,
-                "applying": False, "msg": "데모 신규등록"}
-    os.makedirs(os.path.join(ROOT, "reports"), exist_ok=True)
-    with open(os.path.join(ROOT, "reports", "workcenter_new_jobs.jsonl"),
-              "a", encoding="utf-8") as out:
-        out.write(json.dumps(manifest, ensure_ascii=False) + "\n")
-    queued = enqueue_for_scheduled_apply(items, source="app-new-job")
+    if queued.get("ok"):
+        os.makedirs(os.path.join(ROOT, "reports"), exist_ok=True)
+        with open(os.path.join(ROOT, "reports", "workcenter_new_jobs.jsonl"),
+                  "a", encoding="utf-8") as out:
+            out.write(json.dumps(manifest, ensure_ascii=False) + "\n")
     return {**queued, "manifest": manifest}
 
 
@@ -1655,17 +1895,12 @@ TASKS = {
     "daily":         ("전체 대조 실행", [os.path.join(ROOT, "daily_run.py")]),
     "synthetic":     ("합성검증", [os.path.join(ROOT, "tests", "synthetic_check.py")]),
     "writer_prev":   ("자동입력 미리보기", [os.path.join(ROOT, "ledger_writer.py")]),
-    # 예전 키는 설치된 앱·브라우저 캐시와의 호환 때문에 유지한다. 동작은 즉시 엑셀
-    # 반영이 아니라 JSON 큐를 SQLite로 넘기는 것뿐이다.
+    # 예전 키는 설치된 앱·브라우저 캐시와의 호환 때문에 유지한다. 동작은 DB 장애 때
+    # 남긴 안전 스풀을 정본 DB로 회수하는 것이며 Excel을 정본으로 읽어들이지 않는다.
     "writer_apply":  ("입력 DB 적재", [os.path.join(ROOT, "ledger_db.py"), "--intake"]),
-    # ★ 사람이 **직접 명령했을 때만** 도는 즉시 반영 (2026-08-07 지시:
-    #   "이런거 무시하고 내가 명령 내리면 실시간으로 엑셀 반영하는 알고리즘 추가").
-    #   11:00·15:00 두 회차 규칙은 그대로다 — 그건 도구들이 채울 때마다 vN+1 이
-    #   쏟아지던 것을 묶으려고 만든 규칙이고, 사람이 스스로 누른 한 번은 그 대상이
-    #   아니다. 큐 흡수(--intake)까지 같이 해야 방금 넣은 입력이 함께 들어간다.
-    #   --force 는 batch 표에 '강제'로 남아 나중에 왜 이 시각에 열렸는지 추적된다.
-    "ledger_now":    ("지금 엑셀에 반영(사람 지시)",
-                      [os.path.join(ROOT, "ledger_db.py"), "--intake", "--apply", "--force", "--now"]),
+    # 앱 DB가 정본이다. 이 키는 더 이상 원본 Excel을 직접 고치지 않고, 로컬 스냅샷과
+    # 명령계획을 만든 뒤 별도 렌더·검증 단계가 이어받을 보관본 작업만 준비한다.
+    "ledger_now":    ("보관본 지금 생성", []),
     "upload_dry":    ("전표 전송대기 확인", [os.path.join(ROOT, "ecount_upload.py")]),
     # "upload_post" 제거(2026-08-05 사용자 지시) — ERP 실전송은 앱·AI가 하지 않는다.
     # 옛 앱·브라우저 캐시가 이 키를 보내도 아래 가드가 거부한다. 되살리지 말 것.
@@ -1733,7 +1968,7 @@ def get_codes():
 
 
 def enqueue_codes(codes):
-    """폰이 예약한 프로젝트 코드를 다음 11:00·15:00 원장 반영 대기열에 등록한다."""
+    """폰 예약을 앱 DB에 즉시 저장하고 다음 보관본 생성 outbox에 등록한다."""
     import project_resolve as P
     ev = P.evidence()
     items, done, skip = [], [], []
@@ -1754,7 +1989,7 @@ def enqueue_codes(codes):
         return {"ok": True, "queued": 0, "applied": 0, "skipped": skip}
     queued = enqueue_for_scheduled_apply(items, source="phone-reservation")
     runner["log"].append(
-        f"[폰 예약] {len(done)}건 DB 저장 — 엑셀은 다음 11:00·15:00 회차 반영")
+        f"[폰 예약] {len(done)}건 DB 저장 — Excel은 다음 11:00·15:00 보관본 생성")
     return {"ok": True, "applied": 0, "codes": done, "skipped": skip, **queued}
 
 
@@ -1780,26 +2015,36 @@ def start_task(key):
     def work():
         title, args = TASKS[key]
         local_returncode = 1
+        timed_out = False
         timeout = TASK_TIMEOUTS.get(key, 1800)
         runner["log"].append(f"===== {title} 시작 {datetime.now():%H:%M:%S} =====")
         runner["log"].append(f"[자동화] {runner['agent_route']} · 제한시간 {timeout // 60}분")
         try:
-            from proc_guard import run_tree
-            result = run_tree([PY] + args, cwd=ROOT, env=ENV, timeout=timeout,
-                              drain_timeout=30, output_limit=240_000)
-            output = (result.stdout or "") + (("\n" + result.stderr) if result.stderr else "")
-            for ln in output.splitlines():
-                if "UserWarning" not in ln and "warn(msg)" not in ln:
-                    runner["log"].append(ln.rstrip())
-            local_returncode = result.returncode
-            if result.timed_out:
-                runner["log"].append(
-                    f"===== 제한시간 종료 · 자식나무 정리 (pid {result.stuck_pid or '정리됨'}) =====")
+            if key == "ledger_now":
+                prepared = _prepare_archive_export(actor="admin-task")
+                output = json.dumps(prepared, ensure_ascii=False, default=str)
+                runner["log"].append(prepared["msg"])
+                runner["log"].append(f"계획: {prepared.get('export_id', '')}")
+                local_returncode = 0
+                runner["log"].append("===== 보관본 준비 종료 (코드 0) =====")
             else:
-                runner["log"].append(f"===== 종료 (코드 {result.returncode}) =====")
+                from proc_guard import run_tree
+                result = run_tree([PY] + args, cwd=ROOT, env=ENV, timeout=timeout,
+                                  drain_timeout=30, output_limit=240_000)
+                output = (result.stdout or "") + (("\n" + result.stderr) if result.stderr else "")
+                for ln in output.splitlines():
+                    if "UserWarning" not in ln and "warn(msg)" not in ln:
+                        runner["log"].append(ln.rstrip())
+                local_returncode = result.returncode
+                timed_out = bool(result.timed_out)
+                if result.timed_out:
+                    runner["log"].append(
+                        f"===== 제한시간 종료 · 자식나무 정리 (pid {result.stuck_pid or '정리됨'}) =====")
+                else:
+                    runner["log"].append(f"===== 종료 (코드 {result.returncode}) =====")
             try:
                 import autopilot
-                if local_returncode == 0 and not result.timed_out:
+                if local_returncode == 0 and not timed_out:
                     autopilot.resolve(title, args)
                 else:
                     item = autopilot.defer(title, args, timeout,
@@ -2102,17 +2347,73 @@ def demo_settlements():
     return sort_by_date(app_year_rows(rows, "settle"), "settle", "정산ID")
 
 
+def _mark_app_store_row(row):
+    if row.get("_store_id"):
+        row["앱DB_ID"] = row.get("_store_id")
+        row["DB버전"] = row.get("_record_version") or 0
+        row["출처"] = "앱 DB"
+    return row
+
+
+def _overlay_app_store_settlements(rows):
+    """Excel 읽기모델 위에 정본 DB와 계산서·입금 sidecar를 덮는다."""
+    try:
+        from app_store import default_store
+        store = default_store()
+        merged = store.overlay_rows("06_거래서류청구수금", rows, "정산ID")
+        by_id = {str(r.get("정산ID") or "").strip(): r for r in merged
+                 if str(r.get("정산ID") or "").strip()}
+        projects = {}
+        for row in merged:
+            pno = str(row.get("프로젝트NO") or "").strip()
+            if pno:
+                projects.setdefault(pno, []).append(row)
+        for sheet in ("15_세금계산서관리", "16_입금수금관리"):
+            for side in store.list_sheet_rows(sheet):
+                key = str(side.get("_business_key") or "").strip()
+                pno = str(side.get("프로젝트NO") or "").strip()
+                target = by_id.get(key)
+                if target is None and pno and len(projects.get(pno) or []) == 1:
+                    target = projects[pno][0]
+                if target is None and key and len(projects.get(key) or []) == 1:
+                    target = projects[key][0]
+                if target is None:
+                    target = {"정산ID": key or side.get("_store_id") or ""}
+                    if re.fullmatch(r"UJ26\d{5}", key, re.I):
+                        target["프로젝트NO"] = key.upper()
+                    merged.append(target)
+                    if target.get("정산ID"):
+                        by_id[str(target["정산ID"])] = target
+                target.update({k: v for k, v in side.items()
+                               if not str(k).startswith("_")})
+                target["앱DB_ID"] = side.get("_store_id") or target.get("앱DB_ID")
+                target["DB버전"] = side.get("_record_version") or target.get("DB버전") or 0
+                target["출처"] = "앱 DB"
+        return [_mark_app_store_row(dict(row)) for row in merged]
+    except Exception:
+        # 정본 DB 장애는 /api/app-store/status가 별도로 드러낸다. 기존 읽기 화면까지
+        # 통째로 닫지는 않아 운영자가 상태 페이지에서 복구할 수 있게 한다.
+        return [dict(row) for row in rows]
+
+
 def real_settlements():
     from ecount_reconcile import (read_ledger, load_config, settle_status, has_statement,
                                   supply_from_statement, erp_progress)
-    _erp_progress_map = erp_progress() or {}
+    try:
+        _erp_progress_map = erp_progress() or {}
+    except Exception:
+        _erp_progress_map = {}
     try:
         from ledger_db import resolutions
         objective_done = resolutions()
     except Exception:
         objective_done = {}
     cfg = load_config()
-    recs = read_ledger(cfg["reconcile"]["master_xlsx"])
+    try:
+        recs = read_ledger(cfg["reconcile"]["master_xlsx"])
+    except Exception:
+        # 앱 DB가 정본이므로 Excel 보관본을 못 읽어도 DB 신규행은 계속 조회된다.
+        recs = {}
     rows = []
     for sid, r in sorted(recs.items()):
         issued = r.get("원장_세금계산서실제발행일") or r.get("원장_세금계산서발행일")
@@ -2191,7 +2492,42 @@ def real_settlements():
                      "상태": st, "완료일": str(r.get("작업완료일") or "")[:10],
                      "완료근거": resolved.get("basis") or "",
                      "완료확인일": str(resolved.get("first_seen") or "")[:10]})
+    rows = _overlay_app_store_settlements(rows)
     return sort_by_date(app_year_rows(rows, "settle"), "settle", "정산ID")
+
+
+def _overlay_app_store_works(out):
+    try:
+        from app_store import default_store
+        store = default_store()
+        out["as"] = store.overlay_rows("02_돌발AS접수", out.get("as") or [], "접수ID")
+        out["pm"] = store.overlay_rows("04_정기점검", out.get("pm") or [], "점검ID")
+        for kind in ("as", "pm"):
+            # 컷오버 전 Excel 수식 ID 캐시가 비었어도 같은 프로젝트를 두 카드로 만들지
+            # 않는다. 프로젝트가 양쪽에서 각각 정확히 한 건일 때만 보수적으로 합친다.
+            db_by_project = {}
+            legacy_by_project = {}
+            for row in out[kind]:
+                pno = str(row.get("프로젝트NO") or "").strip().upper()
+                if not pno:
+                    continue
+                target = db_by_project if row.get("_store_id") else legacy_by_project
+                target.setdefault(pno, []).append(row)
+            remove_ids = set()
+            for pno, db_rows in db_by_project.items():
+                legacy_rows = legacy_by_project.get(pno) or []
+                if len(db_rows) == 1 and len(legacy_rows) == 1:
+                    legacy_rows[0].update(db_rows[0])
+                    remove_ids.add(id(db_rows[0]))
+            if remove_ids:
+                out[kind] = [row for row in out[kind] if id(row) not in remove_ids]
+            for row in out[kind]:
+                _mark_app_store_row(row)
+                derive_status(row, kind)
+                derive_effective_verification(row, kind)
+    except Exception:
+        pass
+    return out
 
 
 def real_works():
@@ -2205,8 +2541,14 @@ def real_works():
     except Exception:
         # DB가 잠깐 잠겨도 원장 자체 화면은 계속 열려야 한다.
         objective_done = {}
-    master = resolve_master(load_config()["reconcile"]["master_xlsx"])
-    wb = master_book(master)
+    try:
+        master = resolve_master(load_config()["reconcile"]["master_xlsx"])
+        wb = master_book(master)
+    except Exception:
+        out = _overlay_app_store_works({"as": [], "pm": []})
+        out["as"] = sort_by_date(app_year_rows(out["as"], "as"), "as", "접수ID")
+        out["pm"] = sort_by_date(app_year_rows(out["pm"], "pm"), "pm", "점검ID")
+        return out
     # 03시트는 접수ID·프로젝트NO가 02 완료행을 순서대로 끌어오는 배열수식이라
     # 캐시가 비어도 같은 순서를 재현해 돌발AS 카드에 현장 검증 상태를 붙인다.
     field_status = derived_field_status_map(wb)
@@ -2275,6 +2617,7 @@ def real_works():
     # 이미 프로젝트 행으로 표시되므로 중복하지 않고, 아직 04에 없는 미래 월만 읽기 전용으로 보탠다.
     source_schedule = _sheet_records(wb, "27_정기점검원본일정")
     wb.close()
+    _overlay_app_store_works(out)
     try:
         pm_report = json.load(open(os.path.join(ROOT, "reports", "pm_schedule_sync.json"),
                                    encoding="utf-8"))
@@ -2640,6 +2983,14 @@ def _fresh(key):
     if _cache.get("mt") != mt:
         _cache.clear()
         _cache["mt"] = mt
+    if key in ("works", "settle"):
+        # WAL 커밋은 본 DB 파일 mtime을 바로 바꾸지 않을 수 있으므로 WAL도 본다.
+        app_stamp = _app_db_stamp()
+        stamp_key = key + "_app_db_stamp"
+        if _cache.get(stamp_key) != app_stamp:
+            for suffix in ("", "_ts", "_stale"):
+                _cache.pop(key + suffix, None)
+            _cache[stamp_key] = app_stamp
     if key == "works":
         try:
             from ledger_db import DB_PATH
@@ -4061,11 +4412,14 @@ def sync_installed_app_icons():
     if not os.path.isfile(script):
         return ""
     try:
-        result = subprocess.run(
+        from proc_guard import run_tree
+        result = run_tree(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
-            cwd=ROOT, env=ENV, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=60,
+            cwd=ROOT, env=ENV, timeout=60, drain_timeout=10, output_limit=20_000,
         )
+        if result.timed_out:
+            return ("아이콘 자동동기화 시간초과 · 자식나무 정리"
+                    f" · 잔류 pid={result.stuck_pid or 0}")
         return (result.stdout or result.stderr or "").strip()[-300:]
     except Exception as exc:
         return f"아이콘 자동동기화 실패: {type(exc).__name__}"
@@ -4151,14 +4505,14 @@ def _ux_summary():
 
 
 def get_apply_window():
-    """다음 엑셀 반영까지 얼마나 남았나 — 앱이 항상 보여 준다.
+    """다음 Excel 보관본 생성까지 얼마나 남았나 — 앱이 항상 보여 준다.
 
-    사용자 지시(2026-07-30): 반영은 하루 두 번(11:00·15:00)뿐이다. 그 사이에 넣은 것은
-    **DB에 쌓여 있을 뿐 아직 엑셀에 없다.** 앱이 그 사실을 말하지 않으면 "왜 안 들어갔지"가 된다."""
+    앱 DB 입력은 즉시 확정된다. 11:00·15:00은 Excel 정본 반영 시간이 아니라
+    단방향 보관본 생성 회차다. 기존 응답 키는 설치된 앱 호환을 위해 유지한다."""
     try:
         import ledger_db
-        # 앱·도구가 기존 JSON 큐에 넣은 값도 여기서 SQLite로 안전하게 넘긴다.
-        # 엑셀에는 쓰지 않으며, 실제 반영은 작업 스케줄러의 11시·15시 두 회차뿐이다.
+        # DB 장애 때 남긴 안전 JSON 스풀도 여기서 정본 DB로 회수한다.
+        # Excel은 정본으로 역수입하지 않으며 11시·15시는 보관본 생성 회차다.
         ledger_db.intake_json(source="json-queue")
         return ledger_db.status()
     except Exception:
@@ -5144,13 +5498,15 @@ def install_staff_shortcut(slug):
     if not os.path.isfile(script) or not os.path.isfile(icon):
         raise RuntimeError("설치 구성 파일이 준비되지 않았습니다")
     url = f"{FIXED_LIVE_ENTRY}/staff/{slug}"
-    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    result = subprocess.run(
+    from proc_guard import run_tree
+    result = run_tree(
         ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
          "-File", script, "-Url", url, "-Name", center["title"], "-Icon", icon],
-        cwd=BASE, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=20, creationflags=creationflags,
+        cwd=BASE, env=ENV, timeout=20, drain_timeout=10, output_limit=20_000,
     )
+    if result.timed_out:
+        raise RuntimeError("바로가기 생성 시간초과 · 자식나무 정리"
+                           f" · 잔류 pid={result.stuck_pid or 0}")
     if result.returncode:
         raise RuntimeError((result.stderr or result.stdout or "바로가기 생성 실패").strip()[:240])
     return {"installed": True, "title": center["title"], "url": url}
@@ -5165,13 +5521,13 @@ def get_notifications():
         if pending:
             items.append({
                 "id": "ledger_pending", "severity": "warning",
-                "title": f"자동 반영 대기 {pending}개",
-                "detail": "업무센터 입력은 저장됐으며 관리대장 반영을 기다리고 있습니다.",
+                "title": f"Excel 보관본 생성 대기 {pending}개",
+                "detail": "업무센터 입력은 앱 DB에 저장됐으며 Excel 보관본 생성을 기다립니다.",
             })
     except Exception as exc:
         items.append({
             "id": "ledger_queue_error", "severity": "error",
-            "title": "자동 반영 대기열 확인 실패", "detail": str(exc)[:180],
+            "title": "Excel 보관본 생성 대기열 확인 실패", "detail": str(exc)[:180],
         })
     try:
         issue_path = os.path.join(ROOT, "reports", "realtime_issues.json")
@@ -5198,7 +5554,7 @@ def get_notifications():
         items.append({
             "id": "runner_busy", "severity": "info",
             "title": f"{runner.get('task') or '자동 작업'} 실행 중",
-            "detail": "완료 후 대기 중인 업무센터 입력을 순서대로 반영합니다.",
+            "detail": "완료 후 대기 중인 앱 DB 변경을 보관본 생성 순서로 넘깁니다.",
         })
     return {"count": sum(1 for x in items if x["severity"] != "info"),
             "items": items, "checked_at": datetime.now().isoformat(timespec="seconds")}
@@ -5354,6 +5710,18 @@ class H(BaseHTTPRequestHandler):
             return {"role": "admin", "staff_slug": "", "legacy_local": True}
         return {"role": "unknown", "staff_slug": ""}
 
+    def _actor_name(self):
+        actor = self._actor()
+        role = str(actor.get("role") or "unknown")
+        slug = str(actor.get("staff_slug") or "").strip()
+        return f"{role}:{slug}" if slug else role
+
+    def _idempotency_key(self, body=None):
+        key = str(self.headers.get("Idempotency-Key") or "").strip()
+        if not key and isinstance(body, dict):
+            key = str(body.get("idempotency_key") or "").strip()
+        return key[:240]
+
     def _require_admin(self):
         if self._actor().get("role") != "admin":
             self._send(403, {"ok": False, "error": "관리자 전용 기능입니다"})
@@ -5372,7 +5740,8 @@ class H(BaseHTTPRequestHandler):
         """브라우저 수집기(band.us 페이지)에서 보내는 사전 요청 허용 — 로컬에서만 쓴다"""
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Pin, X-Staff-Slug")
+        self.send_header("Access-Control-Allow-Headers",
+                         "Content-Type, X-Pin, X-Staff-Slug, Idempotency-Key")
         self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
         # Chrome의 Private Network Access: 공개 사이트(https)에서 로컬 주소로 보낼 때 필요
         self.send_header("Access-Control-Allow-Private-Network", "true")
@@ -5651,6 +6020,20 @@ self.addEventListener('fetch', e => {
             return self._send(401, {"error": "PIN"})
         if p == "/api/status":
             return self._send(200, get_status())
+        if p == "/api/app-store/status":
+            try:
+                from app_store import default_store
+                state = default_store().status()
+                db_path = str(state.pop("db_path", ""))
+                return self._send(200, {
+                    **state,
+                    "canonical": True,
+                    "db_file": os.path.basename(db_path),
+                    "pending_meaning": "Excel 보관본 생성 outbox",
+                })
+            except Exception as exc:
+                return self._send(503, {"ok": False, "canonical": True,
+                                        "error": str(exc)[:240]})
         if p == "/api/autopilot":
             # 읽기 전용 상태. 실제 재시도는 워치독 한 곳만 실행해 중복을 막는다.
             try:
@@ -5972,6 +6355,27 @@ self.addEventListener('fetch', e => {
             return self._band_dump()
         if not self._auth():
             return self._send(401, {"error": "PIN"})
+        if p == "/api/archive/export":
+            if not self._require_admin():
+                return
+            ln = int(self.headers.get("Content-Length", 0) or 0)
+            if ln > 50_000:
+                return self._send(413, {"ok": False, "error": "보관본 요청이 너무 큽니다"})
+            try:
+                body = json.loads(self.rfile.read(ln) or b"{}") if ln else {}
+            except Exception:
+                return self._send(400, {"ok": False, "error": "요청 형식이 올바르지 않습니다"})
+            if not isinstance(body, dict):
+                return self._send(400, {"ok": False, "error": "JSON 객체가 필요합니다"})
+            if body.get("dry_run") is False or body.get("publish") or body.get("external"):
+                return self._send(400, {"ok": False,
+                                        "error": "앱에서는 검증된 로컬 보관본 준비만 허용합니다"})
+            try:
+                result = _prepare_archive_export(actor=self._actor_name())
+                return self._send(200, result)
+            except Exception as exc:
+                return self._send(500, {"ok": False, "prepared": False,
+                                        "error": str(exc)[:300]})
         if p == "/api/auth/change-pin":
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 20_000:
@@ -6186,8 +6590,12 @@ self.addEventListener('fetch', e => {
                                                 self.rfile.read(ln))
                 fields["staff_slug"] = actor_slug
                 fields["submitter"] = STAFF_CENTERS[actor_slug]["name"]
-                result = save_new_workcenter_job(fields, files, ip)
-                return self._send(200, {"ok": True, **result})
+                result = save_new_workcenter_job(
+                    fields, files, ip,
+                    actor=self._actor_name(),
+                    idempotency_key=self._idempotency_key(),
+                )
+                return self._send(200 if result.get("ok") else 503, result)
             except Exception as exc:
                 return self._send(400, {"ok": False, "error": str(exc)[:300]})
         if p == "/api/export_xlsx":
@@ -6267,8 +6675,12 @@ self.addEventListener('fetch', e => {
                 fields, files = multipart_parts(self.headers.get("Content-Type", ""),
                                                 self.rfile.read(ln))
                 fields["submitter"] = STAFF_CENTERS[actor_slug]["name"]
-                result = save_ryu_entry(fields, files, ip)
-                return self._send(200, {"ok": True, **result})
+                result = save_ryu_entry(
+                    fields, files, ip,
+                    actor=self._actor_name(),
+                    idempotency_key=self._idempotency_key(),
+                )
+                return self._send(200 if result.get("ok") else 503, result)
             except Exception as e:
                 return self._send(400, {"ok": False, "error": str(e)[:300]})
         if p == "/api/enqueue":
@@ -6280,7 +6692,8 @@ self.addEventListener('fetch', e => {
             codes = (json.loads(self.rfile.read(ln) or b"{}").get("codes") or [])[:50]
             if DEMO:
                 return self._send(200, {"ok": True, "applied": 0, "msg": "데모"})
-            return self._send(200, enqueue_codes(codes))
+            result = enqueue_codes(codes)
+            return self._send(200 if result.get("ok") else 503, result)
         m = re.match(r"^/api/run/(\w+)$", p)
         if m:
             if not self._require_admin():
@@ -6327,8 +6740,8 @@ self.addEventListener('fetch', e => {
             except Exception as e:
                 return self._send(500, {"ok": False, "error": str(e)[:200]})
         if p == "/api/set_dates":
-            # 보고일·집계기준일 → DB 대기 → 11:00·15:00에 00_대시보드 B3·B4 반영.
-            # 일일 갱신 입력칸이라 덮어쓰기 허용 화이트리스트지만 시각 게이트는 예외가 없다.
+            # 보고일·집계기준일은 앱 DB에 즉시 커밋한다. B3·B4는 보관본 렌더 대상일 뿐
+            # Excel에서 다시 앱 DB로 역수입하지 않는다.
             ln = int(self.headers.get("Content-Length", 0))
             b = json.loads(self.rfile.read(ln) or b"{}")
             items = []
@@ -6344,22 +6757,25 @@ self.addEventListener('fetch', e => {
                 return self._send(400, {"ok": False, "error": "날짜 없음"})
             if DEMO:
                 return self._send(200, {"ok": True, "demo": True})
-            queued = enqueue_for_scheduled_apply(items, source="app-dates")
-            # ★ 「저장하고 반영」(2026-08-06 지시) — 사람이 그 버튼을 누른 것 자체가
-            #   "지금 넣어라"는 지시다. 11:00·15:00 회차를 기다리지 않고 바로 쓴다.
-            #   보호장치는 그대로다: 관리대장이 **열려 있으면**(~$ 잠금) 하지 않는다.
-            #   그건 시각 문제가 아니라 실제 충돌이라 지시가 있어도 덮으면 안 된다.
+            queued = enqueue_for_scheduled_apply(
+                items, source="app-dates", actor=self._actor_name(),
+                idempotency_key=self._idempotency_key(b),
+            )
+            if not queued.get("ok"):
+                return self._send(503, queued)
+            # 예전 '즉시 반영'은 Excel 정본 시절의 문맥이다. 지금은 앱 DB 커밋 뒤
+            # 로컬 스냅샷·명령계획을 준비하고, 렌더·검증 전에는 생성 완료라 하지 않는다.
             if b.get("apply"):
                 try:
-                    import ledger_db
-                    r = ledger_db.apply_now(force=True, ignore_input_window=True)
-                    return self._send(200, {"ok": True, **queued, "applied": r})
+                    archive = _prepare_archive_export(actor=self._actor_name())
+                    return self._send(200, {**queued, "archive": archive})
                 except Exception as exc:
-                    return self._send(200, {"ok": True, **queued,
-                                            "applied": {"상태": "실패", "사유": str(exc)[:200]}})
-            return self._send(200, {"ok": True, **queued})
+                    return self._send(500, {**queued, "ok": False, "committed": True,
+                                            "archive": {"ok": False,
+                                                        "error": str(exc)[:240]}})
+            return self._send(200, queued)
         if p == "/api/input":
-            # 앱 → DB 입력. 빈 칸만 정책과 실제 Excel 쓰기는 11:00·15:00 반영 단계에서 강제한다.
+            # 앱 → 정본 DB 즉시 입력. 빈 칸 보호는 DB에서 강제하고 Excel은 보관본 전용이다.
             ln = int(self.headers.get("Content-Length", 0))
             b = json.loads(self.rfile.read(ln) or b"{}")
             ALLOW = {"02_돌발AS접수", "04_정기점검", "06_거래서류청구수금",
@@ -6384,16 +6800,25 @@ self.addEventListener('fetch', e => {
                          and b.get("col") in OVERWRITE_COLS.get(b.get("sheet"), set()))
             if DEMO:
                 return self._send(200, {"ok": True, "queued": 1, "demo": True})
+            key_col = str(b.get("key_col") or {
+                "02_돌발AS접수": "접수ID",
+                "04_정기점검": "점검ID",
+                "06_거래서류청구수금": "정산ID",
+                "15_세금계산서관리": "프로젝트NO",
+                "16_입금수금관리": "프로젝트NO",
+            }.get(b.get("sheet"), "정산ID"))
             queued = enqueue_for_scheduled_apply(
-                [{"sheet": b["sheet"], "key_col": b.get("key_col", "정산ID"),
+                [{"sheet": b["sheet"], "key_col": key_col,
                   "key": b["key"], "col": b["col"], "value": b["value"],
                   "vtype": b["vtype"],
                   "evidence": (f"앱 {'수정' if overwrite else '입력'}({ip})"
                                f" {datetime.now():%m-%d %H:%M}"),
                   "only_if_empty": not overwrite}],
                 source="app-input",
+                actor=self._actor_name(),
+                idempotency_key=self._idempotency_key(b),
             )
-            return self._send(200, {"ok": True, **queued})
+            return self._send(200 if queued.get("ok") else 503, queued)
         return self._send(404, {"error": "not found"})
 
     def _band_dump(self):
@@ -6452,11 +6877,19 @@ def publish_loop():
         try:
             # 자동 게시도 사람·다른 AI의 수동 게시를 밟지 않게 publish 점유를 강제한다.
             publish_env = {**ENV, "CSOS_AI": "server"}
-            r = subprocess.run([PY, os.path.join(ROOT, "cloud_publish.py"), "--push"],
-                               cwd=ROOT, env=publish_env, capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", timeout=900)
-            tail = [l for l in (r.stdout or "").splitlines() if l.strip()][-1:] or [""]
-            runner["log"].append(f"[사본 자동 게시] {tail[0][:120]}")
+            from proc_guard import run_tree
+            r = run_tree([PY, os.path.join(ROOT, "cloud_publish.py"), "--push"],
+                         cwd=ROOT, env=publish_env, timeout=900,
+                         drain_timeout=30, output_limit=80_000)
+            if r.timed_out:
+                runner["log"].append(
+                    "[사본 자동 게시] 시간초과 · 자식나무 정리"
+                    f" · 잔류 pid={r.stuck_pid or 0} · 다음 주기에 재시도")
+            else:
+                output = "\n".join(x for x in (r.stdout or "", r.stderr or "") if x)
+                tail = [line for line in output.splitlines() if line.strip()][-1:] or [""]
+                runner["log"].append(
+                    f"[사본 자동 게시] 코드 {r.returncode} · {tail[0][:120]}")
         except Exception as e:
             runner["log"].append(f"[사본 자동 게시] 실패 {type(e).__name__}")
         time.sleep(PUBLISH_EVERY)

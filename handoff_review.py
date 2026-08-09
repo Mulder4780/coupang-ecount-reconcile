@@ -16,11 +16,12 @@ import argparse
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 from datetime import datetime
 from typing import Any
+
+from proc_guard import run_tree
 
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -42,11 +43,11 @@ SECRET_LITERAL = re.compile(
 )
 
 
-def _git(*args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args], cwd=BASE, text=True, encoding="utf-8", errors="replace",
-        capture_output=True, timeout=120, check=check,
-    )
+def _git(*args: str, check: bool = False):
+    result = run_tree(["git", *args], cwd=BASE, timeout=120, drain_timeout=10)
+    if check and result.returncode:
+        raise RuntimeError((result.stderr or result.stdout or "git 실패")[-1000:])
+    return result
 
 
 def _git_text(*args: str) -> str:
@@ -206,19 +207,30 @@ def _compile_python(files: list[str]) -> tuple[bool, str]:
     python_files = [os.path.join(BASE, p) for p in files if p.endswith(".py") and os.path.isfile(os.path.join(BASE, p))]
     if not python_files:
         return True, "변경된 Python 파일 없음"
-    r = subprocess.run(
+    r = run_tree(
         [sys.executable, "-m", "py_compile", *python_files], cwd=BASE,
-        text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=120,
+        timeout=120, drain_timeout=10,
     )
     return r.returncode == 0, "Python 문법 검사 통과" if r.returncode == 0 else "Python 문법 검사 실패"
 
 
 def _synthetic_check() -> tuple[bool, str]:
-    r = subprocess.run(
-        [sys.executable, os.path.join(BASE, "tests", "synthetic_check.py")], cwd=BASE,
-        text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=600,
-    )
+    # Windows subprocess.run(timeout=...)은 SMB 대기에 걸린 자식의 communicate()에서
+    # 다시 무기한 멈출 수 있다. 자식 트리와 출력 드레인까지 유한한 공용 실행기를 쓴다.
+    # 합성 플래그와 보고서 경로도 자식 환경에서 강제해 호출자의 셸 설정에 좌우되지 않게 한다.
+    with tempfile.TemporaryDirectory(prefix="csos-handoff-synthetic-") as sandbox:
+        env = dict(os.environ)
+        env["CSOS_SYNTHETIC"] = "1"
+        env["COUPANG_REPORT_DIR"] = os.path.join(sandbox, "reports")
+        env["COUPANG_UPDATES_DIR"] = os.path.join(sandbox, "updates")
+        r = run_tree(
+            [sys.executable, os.path.join(BASE, "tests", "synthetic_check.py")],
+            cwd=BASE, env=env, timeout=600, drain_timeout=30,
+        )
     output = (r.stdout or "") + ("\n" + r.stderr if r.stderr else "")
+    if r.timed_out:
+        tail = " (종료되지 않은 PID %s)" % r.stuck_pid if r.stuck_pid else ""
+        return False, "합성 검증 시간초과%s" % tail
     return r.returncode == 0 and "ALL GREEN" in output, "합성 검증 ALL GREEN" if r.returncode == 0 and "ALL GREEN" in output else "합성 검증 실패"
 
 

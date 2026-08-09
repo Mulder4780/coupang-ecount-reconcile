@@ -12,7 +12,7 @@ synthetic_check.py — 합성데이터 상시 검증 (실데이터·실서버 �
 
 실행:  python tests/synthetic_check.py   (전부 통과 시 exit 0, 'ALL GREEN')
 """
-import sys, os, re, tempfile, subprocess, hashlib, json, sqlite3, time
+import sys, os, re, tempfile, subprocess, hashlib, json, sqlite3, time, contextlib
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
@@ -26,6 +26,29 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = sys.executable
 # 합성검증 중 resolve_master가 불려도 실관리대장 구버전 정리가 실행되면 안 된다.
 os.environ["CSOS_SYNTHETIC"] = "1"
+
+
+def _snapshot_output_bytes(paths):
+    """파일의 존재 여부와 바이트를 그대로 잰다(줄바꿈·인코딩 정규화 금지)."""
+    out = {}
+    for path in paths:
+        path = os.path.abspath(path)
+        if os.path.isfile(path):
+            with open(path, "rb") as f:
+                out[path] = (True, f.read())
+        else:
+            out[path] = (False, b"")
+    return out
+
+
+# 전체 합성검증이 시작되기 **전** 상태. [192]가 끝에서 다시 재어, 중간 어느 검증이든
+# 계획·게시 산출물을 바꿨으면 잡는다. 기존 dirty 파일도 바이트 그대로 기준에 포함된다.
+_SYNTHETIC_OUTPUT_PATHS = [
+    os.path.join(ROOT, "reports", "밴드_수집계획.json"),
+    os.path.join(ROOT, "docs", "collect", "plan.json"),
+    os.path.join(ROOT, "docs", "collect", "grab_posts.js"),
+]
+_SYNTHETIC_OUTPUT_BASELINE = _snapshot_output_bytes(_SYNTHETIC_OUTPUT_PATHS)
 
 
 def make_ledger(path):
@@ -1946,7 +1969,7 @@ def t36_mobile_input():
     _rd = idx[idx.index("function openRptDates"):][:2800]
     assert 'type="date"' in _rd, "보고 날짜가 달력으로 안 뜬다"
     _sv = idx[idx.index("function saveRptDates"):][:1200]
-    assert "/api/set_dates" in _sv, "엑셀 00_대시보드에 안 쓴다"
+    assert "/api/set_dates" in _sv, "보고 기준일이 앱 DB 저장 API에 이어지지 않는다"
     # 집계기준일이 보고일보다 뒤면 잘못 고른 것이다 — 그대로 쓰면 보고서가 어긋난다
     assert "집계기준일 > 보고일" in _sv.replace("집계기준일 &gt; 보고일", "집계기준일 > 보고일"),         "집계기준일이 보고일보다 뒤인 경우를 안 막는다"
     # 사용자 확정 기준: 보고일은 오늘, 집계기준일은 주말 여부와 무관하게 정확한 전날
@@ -2158,7 +2181,6 @@ def t41_dates_explicit():
     #   처음 구현이 `*_v*.xlsx` 를 통째로 잡아 합성검증용 임시 파일까지 옮겨 시험이 깨졌다.
     import tempfile as _tf, shutil as _sh
     _d = _tf.mkdtemp()
-    _synthetic_flag = os.environ.pop("CSOS_SYNTHETIC", None)
     try:
         for _n in ("합성대장F_v1.xlsx", "합성대장F_v2.xlsx", "기타자료_v3.xlsx"):
             open(os.path.join(_d, _n), "w").write("x")
@@ -2175,8 +2197,14 @@ def t41_dates_explicit():
         _keep, _move = LV.plan(os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v3.xlsx"))
         assert [x["v"] for x in _keep] == [3] and sorted(x["v"] for x in _move) == [1, 2], \
             "KEEP_DAYS=0인데 날짜별 구버전을 작업 폴더에 남긴다"
+        # 합성 모드는 끝까지 유지한다. 예전 검증은 이 구간에서 CSOS_SYNTHETIC 을
+        # 잠시 지웠고, 그 사이 다른 코드가 resolve_master 를 부르면 실 관리대장을
+        # 정리할 수 있었다. 이동 알고리즘은 임시 폴더에 한정해 내부 함수를 직접 검증한다.
         LV._AUTODONE = False
-        assert LV.autoprune(os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v3.xlsx")) == 2, \
+        assert LV.autoprune(os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v3.xlsx")) == 0, \
+            "합성 모드인데 autoprune 이 파일을 옮기려 한다"
+        assert LV._archive_old_versions(
+            os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v3.xlsx")) == 2, \
             "옛 버전 2개가 접히지 않았다"
         left = sorted(x for x in os.listdir(_d) if x.endswith(".xlsx"))
         assert "쿠팡_통합업무_일일보고_관리대장_v3.xlsx" in left, "최신본이 접혔다"
@@ -2196,7 +2224,8 @@ def t41_dates_explicit():
         # '병합이 되는가'이므로 mtime 을 오래된 것으로 둔다.
         os.utime(_legacy_v2, (_stamp, _stamp))
         LV._AUTODONE = False
-        assert LV.autoprune(os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v3.xlsx")) == 1, \
+        assert LV._archive_old_versions(
+            os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v3.xlsx")) == 1, \
             "예전 보관 폴더의 파일이 OLD로 합쳐지지 않았다"
         assert not os.listdir(_legacy), "예전 보관 폴더에 관리대장이 남았다"
         archived = sorted(os.listdir(os.path.join(_d, "OLD")))
@@ -2204,8 +2233,6 @@ def t41_dates_explicit():
         assert any("__from_이전버전" in name for name in archived), \
             "동명 구버전을 덮어쓰지 않고 보존하지 못했다"
     finally:
-        if _synthetic_flag is not None:
-            os.environ["CSOS_SYNTHETIC"] = _synthetic_flag
         LV._AUTODONE = False
         _sh.rmtree(_d, ignore_errors=True)
 
@@ -3937,25 +3964,25 @@ def t92_excel_recalc_agent():
 
 
 def t93_ledger_db_and_ux():
-    """반영은 DB에 모았다가 하루 두 번만 · 앱 UX는 기록으로 (2026-07-30 지시).
+    """앱 입력은 DB에 즉시 확정 · Excel은 하루 두 번 보관본만 (최신 확정 2026-08-10).
 
-    ★ 채울 때마다 엑셀을 쓰면 하루에 관리대장 버전이 수십 개 늘고(v311→v327) 정본이 흔들린다.
-      그래서 11:00·15:00 두 번만 쓴다. **시각이 아니면 아무것도 하지 않는 것**이 핵심이다.
-    ★ 놓친 회차의 입력은 버리지 않고 다음 **허용된** 11시/15시 회차에 함께 처리한다.
+    ★ 저장 성공의 기준은 SQLite 정본 커밋이다. 시각과 무관하게 즉시 읽혀야 한다.
+    ★ 11:00·15:00은 DB 입력 반영 시간이 아니라 DB→Excel 읽기 전용 보관본 생성 회차다.
+      놓친 회차가 있어도 DB 정본은 이미 최신이며, 다음 회차는 그 시점 스냅샷만 만든다.
     """
     import ledger_db as L
     assert L.self_test(), "ledger_db 자체 검증 실패"
-    assert [w.hour for w in L.WINDOWS] == [11, 15], "반영 시각이 11시·15시가 아니다"
+    assert [w.hour for w in L.WINDOWS] == [11, 15], "Excel 보관본 생성 시각이 11시·15시가 아니다"
 
     from datetime import datetime as _dt
     assert L.slot_of(_dt(2026, 7, 30, 11, 5)), "11시 회차를 인식하지 못한다"
-    assert L.slot_of(_dt(2026, 7, 30, 13, 0)) is None, "반영 시각이 아닌데 열려 있다"
+    assert L.slot_of(_dt(2026, 7, 30, 13, 0)) is None, "보관본 생성 시각이 아닌데 열려 있다"
     assert L.next_window(_dt(2026, 7, 30, 12, 0)).hour == 15
     assert L.eligible_slot(_dt(2026, 7, 30, 13, 0), []) is None, \
-        "놓친 회차를 이유로 임의 시각에 반영한다"
+        "놓친 회차를 이유로 임의 시각에 Excel 보관본을 만든다"
     assert L.eligible_slot(
         _dt(2026, 7, 30, 11, 5), ["2026-07-30 11:00"]) is None, \
-        "같은 11시 회차를 두 번 반영한다"
+        "같은 11시 DB 스냅샷 보관본을 두 번 만든다"
 
     with tempfile.TemporaryDirectory(prefix="ledger-json-lock-") as lock_tmp:
         queue_path = os.path.join(lock_tmp, "pending.json")
@@ -3972,9 +3999,14 @@ def t93_ledger_db_and_ux():
     assert "finally:" in src and "c.close()" in src, "DB 연결을 닫지 않으면 파일이 잠긴다"
     assert "ingest_key" in src and "INSERT OR IGNORE INTO pending" in src, \
         "중단 후 JSON staging 재흡수 시 중복될 수 있다"
-    assert "id IN ({marks})" in src, "반영 중 새로 들어온 DB 행까지 완료 처리할 수 있다"
-    assert '"--queue", batch_queue, "--apply"' in src, "공용 JSON 큐와 일괄반영 배치가 섞인다"
-    assert '"COUPANG_LEDGER_GATE": "1"' in src, "11·15시 DB 회차가 내부 쓰기 게이트를 열지 않는다"
+    enqueue_src = src.split("def enqueue(", 1)[1].split("\ndef ", 1)[0]
+    assert "app_store.apply_legacy_items" in enqueue_src, \
+        "앱 입력이 Excel 보관 큐보다 먼저 SQLite 정본에 즉시 저장되지 않는다"
+    assert enqueue_src.index("app_store.apply_legacy_items") < enqueue_src.index("INSERT OR IGNORE INTO pending"), \
+        "보관본 큐를 먼저 성공 처리한 뒤 SQLite 정본 저장을 시도한다"
+    assert "id IN ({marks})" in src, "보관본 생성 중 새로 들어온 DB 행까지 처리했다고 오기록할 수 있다"
+    assert '"--queue", batch_queue, "--apply"' in src, "공용 JSON 큐와 Excel 보관본 배치가 섞인다"
+    assert '"COUPANG_LEDGER_GATE": "1"' in src, "11·15시 보관본 회차가 내부 쓰기 게이트를 열지 않는다"
     assert 'os.environ.get("COUPANG_LEDGER_GATE") != "1"' in writer, \
         "ledger_writer 직접 --apply를 막는 강제 게이트가 없다"
 
@@ -3987,7 +4019,8 @@ def t93_ledger_db_and_ux():
     assert "[-2000:]" in daily, "실패 리포트가 예외 원인을 다시 잘라낸다"
     assert '"zscan.py"' in daily and '"--docs"' in daily, \
         "Z: 상시 공백·서류 대조가 09:50 자동실행에 연결되지 않았다"
-    assert '"ledger_writer.py"), "--apply"' not in daily,         "일일 실행이 아직 엑셀에 곧바로 쓴다 — 하루 두 번 규칙이 깨진다"
+    assert '"ledger_writer.py"), "--apply"' not in daily, \
+        "일일 대조가 SQLite 정본을 건너뛰고 Excel 보관본을 직접 만든다"
     for direct in (
         '"excel_recalc.py"), "--run"',
         '"erp_docs_check.py"), "--sheet"',
@@ -4007,13 +4040,13 @@ def t93_ledger_db_and_ux():
         '"fix_workbook.py"), "--apply"',
         '"excel_recalc.py"), "--run"',
     ):
-        assert scheduled in src, f"11·15시 구조 갱신에서 빠진 작업: {scheduled}"
+        assert scheduled in src, f"11·15시 Excel 보관본 구조 갱신에서 빠진 작업: {scheduled}"
     assert "scheduled_workbook_maintenance(now)" in src, \
-        "11·15시 회차가 구조 시트·재계산을 함께 수행하지 않는다"
+        "11·15시 보관본 회차가 구조 시트·재계산을 함께 수행하지 않는다"
     assert "def handoff_add(" in src and '"workbook_patch.py"' in src, \
-        "19시트 종료 인수인계가 11·15시 회차에 예약되지 않는다"
+        "19시트 종료 인수인계가 11·15시 보관본 회차에 예약되지 않는다"
     assert '"--batch"' in src and "for item in pending_handoffs()" not in src, \
-        "19시트 예약을 건마다 따로 반영해 vN+1 이 건수만큼 폭증한다(--batch 로 묶을 것)"
+        "19시트 예약을 건마다 따로 보관해 vN+1 이 건수만큼 폭증한다(--batch 로 묶을 것)"
     schedule = open(os.path.join(ROOT, "install_ledger_schedule.ps1"), encoding="utf-8").read()
     assert '"11:00"' in schedule and '"15:00"' in schedule
     assert "MultipleInstances IgnoreNew" in schedule and "ledger_db.py --apply" in schedule
@@ -4023,34 +4056,31 @@ def t93_ledger_db_and_ux():
     assert "get_apply_window" in server and '"applywin"' in server
     assert '"writer_apply":  ("입력 DB 적재"' in server
     assert 'start_task("writer_apply")' not in server, \
-        "앱이 아직 즉시 Excel 반영 작업을 시작한다"
+        "앱이 SQLite 저장 대신 옛 즉시 Excel 셀 반영 작업을 시작한다"
     assert 'os.path.join(ROOT, "ledger_writer.py"), "--apply"' not in server, \
         "앱 서버에 직접 ledger_writer --apply 경로가 남아 있다"
-    assert "enqueue_for_scheduled_apply" in server, "앱 입력이 DB 일괄반영 큐를 거치지 않는다"
+    assert "enqueue_for_scheduled_apply" in server, "앱 입력이 SQLite 즉시저장·보관본 큐 경로를 거치지 않는다"
     assert 'if p == "/api/ux":' in server and "ledger_db.ux_add(events)" in server
     assert "function uxEvent(" in live and "function uxFlush(" in live
     assert "uxEvent('view',v)" in live and "uxEvent('slow'" in live
-    assert "renderApplyWindow(s.applywin)" in live, "앱이 다음 반영 시각을 알리지 않는다"
-    assert "runTask('writer_apply')" not in live, "앱 화면에 즉시 Excel 반영 호출이 남아 있다"
+    assert "renderApplyWindow(s.applywin)" in live, "앱이 다음 Excel 보관본 생성 시각을 알리지 않는다"
+    assert "runTask('writer_apply')" not in live, "앱 화면에 옛 즉시 Excel 셀 반영 호출이 남아 있다"
 
-    # ★ 즉시 반영은 **사람이 누를 때만** 열린다 (2026-08-07 지시: "이런거 무시하고
-    #   내가 명령 내리면 실시간으로 엑셀 반영하는 알고리즘 추가").
-    #   금지의 뜻이 바뀐 것이 아니다 — 막으려던 것은 '도구가 채울 때마다 저절로
-    #   vN+1 이 생기는 것'이었지(그래서 하루에 버전이 수십 개 늘었다), 사람이
-    #   스스로 내린 명령이 아니었다. 그래서 규칙을 이렇게 좁혀 다시 세운다:
-    #   ① 사람 손을 거치지 않는 자동 경로는 여전히 금지(위 writer_apply 단언들)
-    #   ② 사람이 누르는 길은 확인창을 거치고 --force 로 기록을 남긴다
-    assert '"ledger_now"' in server, "사람이 지시하는 즉시 반영 경로가 없다"
-    assert '"--apply", "--force"' in server, "즉시 반영이 강제 표시 없이 원장을 연다(추적 불가)"
+    # ★ 사람이 누르는 즉시 기능도 DB 값을 Excel로 '반영'하지 않는다. 현재 DB revision의
+    #   보관본 생성 계획만 준비하며, SQLite 정본은 이미 저장 시점에 확정돼 있다.
+    assert '"ledger_now"' in server and "보관본 지금 생성" in server, \
+        "사람이 요청하는 즉시 Excel 보관본 준비 경로가 없다"
+    archive_now = server.split('if key == "ledger_now":', 1)[1].split("else:", 1)[0]
+    assert "_prepare_archive_export" in archive_now and "ledger_writer" not in archive_now, \
+        "보관본 지금 생성이 다시 Excel 역수입·직접 셀 반영 경로로 돌아갔다"
     assert "function applyExcelNow(" in live and "runTask('ledger_now')" in live, \
-        "앱에 '지금 바로 반영' 이 이어져 있지 않다"
+        "앱의 지금 생성 버튼이 검증된 보관본 준비 작업에 이어져 있지 않다"
     assert "askYesNo(" in live.split("function applyExcelNow(")[1][:700], \
-        "즉시 반영이 확인 없이 실행된다 — vN+1 은 되돌릴 수 없다"
-    # 자동으로 도는 것들(스케줄러·daily_run)이 이 키를 부르면 두 회차 규칙이 무너진다.
+        "즉시 보관본 생성이 확인 없이 실행된다"
+    # 자동 회차는 정해진 11·15시 exporter를 쓰며 사람용 '지금 생성' 키를 재사용하지 않는다.
     for auto in ("daily_run.py", "session_wrapup.py"):
         src = open(os.path.join(ROOT, auto), encoding="utf-8").read()
-        assert "ledger_now" not in src and "--apply\", \"--force" not in src, \
-            f"{auto} 가 사람 없이 즉시 반영을 부른다"
+        assert "ledger_now" not in src, f"{auto} 가 사람용 보관본 지금 생성을 대신 누른다"
 
     band_collector = open(os.path.join(ROOT, "band", "collect_band.js"), encoding="utf-8").read()
     assert "window.scrollBy(0, SCROLL_STEP)" in band_collector, \
@@ -4069,10 +4099,10 @@ def t93_ledger_db_and_ux():
     # 상시 규칙이 문서에 남아 있어야 다음 세션·Codex 가 따른다
     rules = (open(os.path.join(ROOT, "CLAUDE.md"), encoding="utf-8").read()
              + open(os.path.join(ROOT, "AGENTS.md"), encoding="utf-8").read())
-    assert "엑셀은 하루 두 번만" in rules and "UX 기록" in rules
+    assert "SQLite가 유일한 정본" in rules and "Excel 보관본" in rules and "UX 기록" in rules
     archive = open(os.path.join(ROOT, "archive_keep.py"), encoding="utf-8").read()
     assert "ledger_db_copy" in archive and "ledger_queue.db" in archive
-    print("  [93] 반영 DB 게이트(11·15시)·UX 기록·업무센터 균등배치·빠른실행 제거 ✅")
+    print("  [93] SQLite 즉시 정본·11·15시 Excel 보관본·UX 기록·업무센터 안전 UI ✅")
 
 
 def t95_objective_completion_db_only():
@@ -4166,6 +4196,9 @@ def t95_objective_completion_db_only():
             assert work[("as", "UJ2600001")]["first_seen"] == work_first
 
             # Excel 반영 전 신규행도 실제 완료일과 원천 근거가 있으면 DB 완료 정본에 잡힌다.
+            # 같은 H10 완료일을 두 번 받은 것은 정본·보관본 모두 한 사건이다.
+            # 앱 DB 전환 뒤에는 내용 해시로 중복 명령을 버리므로 10개 입력 중
+            # 보관본 큐에 새로 들어가는 것은 9개여야 한다.
             assert L.enqueue([
                 {"sheet": "04_정기점검", "cell": "B10", "col": "프로젝트NO",
                  "value": "UJ2600999", "evidence": "카톡 UJ2600999 완료보고"},
@@ -4187,7 +4220,7 @@ def t95_objective_completion_db_only():
                  "value": "UJ2600996", "evidence": "새 업무"},
                 {"sheet": "04_정기점검", "cell": "H13", "col": "실제점검일",
                  "value": "2026-07-29", "evidence": "이전 업무의 완료 근거"},
-            ], source="test") == 10
+            ], source="test") == 9
             pending_done = L.pending_work_completion_entries(today="2026-08-02")
             assert len(pending_done) == 1 and pending_done[0]["project"] == "UJ2600999"
             assert pending_done[0]["basis"].startswith("반영대기 04_정기점검!H10")
@@ -4266,7 +4299,8 @@ def t95_objective_completion_db_only():
 def t96_work_management_tabs():
     """[96] 정기점검·돌발AS 정밀 관리 탭 (사용자 지시 2026-07-31).
 
-    · 입력은 전부 /api/input → DB 큐(11·15시 회차) — 엑셀 직접 쓰기 없음(DB-only).
+    · 입력은 전부 /api/input → SQLite 즉시 정본 → 11·15시 Excel 보관본 큐.
+      저장 직후 앱에서 읽히며 Excel은 정본 입력 경로가 아니다.
     · 배정·상태·일정만 덮어쓰기 허용(OVERWRITE_COLS) — 그 밖은 빈 칸만 채운다.
       류지영 매니저가 엑셀에서 담당기사를 한 건씩 고치다 유실 사고가 난 그 작업을
       앱에서 안전하게 하게 하는 것이 이 탭의 존재 이유다.
@@ -4285,13 +4319,13 @@ def t96_work_management_tabs():
         "기준일 범위·정렬·초기화 필터가 완성되지 않았다"
     assert ".tabbar.worktab-nav{display:none}" in html.replace(" ", ""), \
         "폰 하단바 칸 부족 대책(사이드바 전용 노출)이 없다"
-    # 인라인 편집이 DB 큐 경로(/api/input)로만 가는가 — 다른 쓰기 경로가 생기면 안 된다
+    # 인라인 편집이 SQLite 즉시저장 경로(/api/input)로만 가는가 — Excel 직접 쓰기는 안 된다
     # ★ 검사 범위는 wtEdit **함수 몸통만**이다. 다음 함수 선언 직전까지로 자른다 —
     #   wtBoard 까지 넓게 잡으면 사이에 끼는 무관한 코드(업무센터 업로드의 accept=".xlsx")가
     #   오탐을 낸다(2026-07-31 실제로 그랬다).
     _ws = html.index("async function wtEdit")
     seg = html[_ws:html.index("function ", _ws + 30)]
-    assert "/api/input" in seg and "overwrite:true" in seg, "편집이 DB 큐 경로를 안 탄다"
+    assert "/api/input" in seg and "overwrite:true" in seg, "편집이 SQLite 즉시저장 경로를 안 탄다"
     assert "ledger_writer" not in seg and "xlsx" not in seg, "편집이 엑셀로 새어 나간다"
     # 서버: 덮어쓰기는 허용열에서만, 근거에 '수정'이 남는가
     srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
@@ -4316,7 +4350,7 @@ def t96_work_management_tabs():
         "입금 자료가 지정 저장소(7. 입금내역)로 가지 않는다"
     blk2 = srv[srv.index('"/api/staff/receipt-upload"'):srv.index('"/api/staff/receipt-upload"') + 900]
     assert '"admin"' in blk2 and "oh-jonghyeon" in blk2, "관리자·오종현 외에도 업로드가 열려 있다"
-    print("  [96] 정밀 관리 탭 + 업무센터·입금 업로드(DB 큐·Z: 저장·즉시 대조·권한) ✅")
+    print("  [96] 정밀 관리 탭 + SQLite 즉시 정본·Excel 보관본·입금 업로드 권한 ✅")
 
 
 def t97_settlement_source_completion():
@@ -4994,10 +5028,11 @@ def t105_settle_report():
 
 
 def t107_report_dates_and_capture():
-    """[106] 보고 기준일 즉시 반영·자동 갱신 · 숨은 화면에서도 캡처 (2026-08-06 지시).
+    """[107] 보고 기준일 DB 즉시저장·보관본 준비 · 숨은 화면에서도 캡처.
 
     세 지시가 한 뿌리다: **버튼이 말한 대로 되게 하라**.
-      · "저장하고 반영 대기 → 저장하고 반영으로 바꾸고 누르면 바로 반영"
+      · 과거 "저장하고 반영"은 Excel 정본 시절 문맥이다. 이제 앱 DB에 즉시 저장하고
+        Excel은 검증된 단방향 보관본만 준비한다.
       · "선택 날짜 보고 바로 캡처 버튼 동작 안함"
       · "보고일이 오늘 날짜로 자동 변경되는 알고리즘"
     """
@@ -5015,16 +5050,16 @@ def t107_report_dates_and_capture():
         not in live, "숨은 화면에서 멈추는 rAF 대기가 남아 있다"
     assert "await nextPaint();" in live and "await captureReport();" in live
 
-    # (2) 「저장하고 반영」 — 문구와 동작이 같아야 한다.
-    assert "저장하고 반영</button>" in live, "버튼 문구가 그대로다"
-    assert "저장하고 반영 대기" not in live
+    # (2) 앱 DB 저장과 보관본 준비를 같은 동작처럼 오해시키지 않는다.
+    assert "저장하고 보관본 준비</button>" in live, "버튼이 새 정본 역할을 설명하지 않는다"
+    assert "저장하고 반영 대기" not in live and "지금 바로 엑셀에 반영" not in live
     assert '"apply":true' in live.replace(" ", "") or "apply:true" in live.replace(" ", ""), \
-        "버튼이 즉시 반영을 요청하지 않는다"
-    assert 'if b.get("apply"):' in srv and "ignore_input_window=True" in srv, \
-        "서버가 즉시 반영 경로를 갖고 있지 않다"
-    # 보호장치는 남아 있어야 한다 — 관리대장이 열려 있으면 지시가 있어도 쓰지 않는다.
-    ldb = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
-    assert "관리대장이 열려 있음" in ldb, "열린 원장을 덮어쓸 수 있다"
+        "버튼이 보관본 준비를 요청하지 않는다"
+    assert 'if b.get("apply"):' in srv and "_prepare_archive_export" in srv, \
+        "서버가 DB 저장 뒤 보관본 준비 경로를 갖고 있지 않다"
+    date_route = srv.split('if p == "/api/set_dates":', 1)[1].split('if p == "/api/input":', 1)[0]
+    assert "ledger_writer" not in date_route and "ignore_input_window" not in date_route, \
+        "기준일 저장이 다시 Excel 직접 쓰기로 돌아갔다"
 
     # (3) 보고일 자동 갱신 — 오늘/전날. 이미 맞으면 큐를 늘리지 않는다(멱등).
     w = RD.wanted(date(2026, 8, 7))
@@ -5039,7 +5074,7 @@ def t107_report_dates_and_capture():
     assert "report_dates.py" in daily, "daily_run 이 보고일을 갱신하지 않는다"
     assert daily.index("report_dates.py") < daily.index("upload_intake.py"), \
         "보고일 갱신이 뒤 단계들보다 늦다"
-    print("  [107] 보고 기준일 즉시 반영·자동 갱신 · 숨은 화면 캡처 ✅")
+    print("  [107] 보고 기준일 DB 즉시저장·보관본 준비·자동 갱신·숨은 화면 캡처 ✅")
 
 
 def t108_pm_source_fallback():
@@ -9865,6 +9900,28 @@ def t181_app_answers_before_claude_is_called():
     print("  [181] 앱 자체 답변 — 갈래까지 자가점검 · 못 하면 클로드 문구 · 읽기 전용 ✅")
 
 
+@contextlib.contextmanager
+def _isolated_collect_outputs(comment_backfill):
+    """comment_backfill의 쓰기 산출물을 임시 폴더로 완전히 격리한다.
+
+    ``write_plan`` 은 주 계획뿐 아니라 ``docs/collect``의 두 게시 파일도 바꾼다.
+    텍스트로 읽었다가 되쓰는 복구는 줄바꿈·인코딩과 기존 미커밋 바이트를 보존하지
+    못하고, 검증이 중단되면 복구 자체가 실행되지 않을 수도 있다. 실제 경로에는 처음부터
+    쓰지 않는 것이 유일하게 안전하다.
+    """
+    old_plan = comment_backfill.PLAN_PATH
+    old_docs = comment_backfill.DOCS_COLLECT
+    with tempfile.TemporaryDirectory(prefix="csos-collect-synthetic-") as tmp:
+        comment_backfill.PLAN_PATH = os.path.join(tmp, "reports", "plan.json")
+        comment_backfill.DOCS_COLLECT = os.path.join(tmp, "docs", "collect")
+        os.makedirs(os.path.dirname(comment_backfill.PLAN_PATH), exist_ok=True)
+        try:
+            yield
+        finally:
+            comment_backfill.PLAN_PATH = old_plan
+            comment_backfill.DOCS_COLLECT = old_docs
+
+
 def t182_app_collects_without_claude():
     """[182] 앱이 스스로 수집한다 — 수집 루프에서 Claude Code 가 빠진다 (2026-08-09 지시).
 
@@ -9884,20 +9941,15 @@ def t182_app_collects_without_claude():
     sys.path.insert(0, os.path.join(ROOT, "band"))
     cb = importlib.import_module("comment_backfill")
 
-    # ① 계획 라운드트립 — 앱이 읽는 그 파일이 우선순위대로 nos 를 준다.
-    p = cb.PLAN_PATH
-    bak = open(p, encoding="utf-8").read() if os.path.exists(p) else None
-    try:
+    # ① 계획 라운드트립 — 실제 reports/·docs/ 산출물과 완전히 분리한다.
+    # write_plan 은 PLAN_PATH 하나뿐 아니라 게시용 plan.json·grab_posts.js 까지 쓴다.
+    # 일부만 백업했다 복원하면 이미 있던 미커밋 바이트를 잃으므로 경로 자체를 바꾼다.
+    with _isolated_collect_outputs(cb):
         cb.write_plan({"90610953": {"nos": [5435, 5425], "tiers": {"1": 2}}},
                       when="2026-08-09 00:00")
         got = cb.load_plan("90610953")
         assert got["nos"] == [5435, 5425] and got["tiers"] == {"1": 2}, got
         assert cb.load_plan("999")["nos"] == [], "모르는 밴드는 빈 목록이어야 한다"
-    finally:
-        if bak is not None:
-            open(p, "w", encoding="utf-8").write(bak)
-        elif os.path.exists(p):
-            os.remove(p)
 
     # ② 앱이 정본 수집기·계획·유저스크립트를 실제로 서빙하나 (라우트 존재).
     srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
@@ -9944,13 +9996,10 @@ def t183_collect_survives_pc_off():
     cb = importlib.import_module("comment_backfill")
 
     # ① ② ③ 게시 사본 — plan.json(ASCII) + grab_posts.js(정본 복사)
-    docs_collect = cb.DOCS_COLLECT
-    plan_pub = os.path.join(docs_collect, "plan.json")
-    grab_pub = os.path.join(docs_collect, "grab_posts.js")
-    bak_plan = open(plan_pub, encoding="utf-8").read() if os.path.exists(plan_pub) else None
-    p = cb.PLAN_PATH
-    bak_main = open(p, encoding="utf-8").read() if os.path.exists(p) else None
-    try:
+    with _isolated_collect_outputs(cb):
+        docs_collect = cb.DOCS_COLLECT
+        plan_pub = os.path.join(docs_collect, "plan.json")
+        grab_pub = os.path.join(docs_collect, "grab_posts.js")
         cb.write_plan({"90610953": {"nos": [5435, 5425], "tiers": {"1": 2}}},
                       when="2026-08-09 00:00")
         # ① ASCII 이름 — 한글 URL 이 아니어야 폰 fetch 가 안 깨진다
@@ -9963,16 +10012,6 @@ def t183_collect_survives_pc_off():
         canon = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
         assert open(grab_pub, encoding="utf-8").read() == canon, \
             "게시 수집기가 정본과 다르다 — 규칙을 고쳐도 옛 수집기가 폰에 간다([162])"
-    finally:
-        # 게시 사본은 실제 산출물이므로 원상복구(테스트가 실데이터를 흔들지 않게)
-        if bak_plan is not None:
-            open(plan_pub, "w", encoding="utf-8").write(bak_plan)
-        elif os.path.exists(plan_pub):
-            os.remove(plan_pub)
-        if bak_main is not None:
-            open(p, "w", encoding="utf-8").write(bak_main)
-        elif os.path.exists(p):
-            os.remove(p)
 
     # ④ ⑤ 유저스크립트: Pages 폴백이 있고, 로컬 앱이 **먼저**다
     us = open(os.path.join(ROOT, "band", "band_auto_collect.user.js"),
@@ -11884,6 +11923,407 @@ def t191_confirmation_truth_and_fast_refresh():
     print("  [191] 확인필요 근거 분리 · PO묶음 안전완료 · 단일 갱신 · 캐시 선조회 · 유한 실행 OK")
 
 
+def t193_app_db_cutover_archive_and_frontend():
+    """[193] SQLite 즉시 정본·안전 컷오버·Excel 보관결과·확인필요 UX 통합 관문.
+
+    실제 공유 DB·점유·Z:·관리대장은 전혀 열지 않는다. 모든 DB·보고서·XLSX·writer
+    결과는 TemporaryDirectory 아래에 만들고, ledger_writer 프로세스는 결과 계약만
+    합성한다. [192]가 이 검증 뒤에도 공유 산출물 바이트가 그대로인지 다시 확인한다.
+    """
+    import types as _types
+    from datetime import datetime as _dt
+    from pathlib import Path as _Path
+
+    import app_store as A
+    import db_cutover as C
+    import ledger_db as L
+    import proc_guard as PG
+
+    def make_cutover_book(path, duplicate_conflict=False):
+        book = openpyxl.Workbook()
+        specs = [
+            ("02_돌발AS접수", ["접수ID", "프로젝트NO", "캠프명", "진행상태"],
+             ["AS-CUT-193", "UJ-CUT-193", "합성AS캠프", "작업완료"]),
+            ("04_정기점검", ["점검ID", "프로젝트NO", "캠프명", "점검상태"],
+             ["PM-CUT-193", "UJ-PM-193", "합성점검캠프", "완료"]),
+            ("06_거래서류청구수금",
+             ["정산ID", "원천업무ID", "프로젝트NO", "캠프명", "청구상태"],
+             ["JS-CUT-193", "AS-CUT-193", "UJ-CUT-193", "합성AS캠프", "청구완료"]),
+            ("15_세금계산서관리", ["정산ID", "프로젝트NO", "캠프명", "발행상태"],
+             ["JS-CUT-193", "UJ-CUT-193", "합성AS캠프", "발행완료"]),
+            ("16_입금수금관리", ["정산ID", "프로젝트NO", "캠프명", "수금상태"],
+             ["JS-CUT-193", "UJ-CUT-193", "합성AS캠프", "수금완료"]),
+        ]
+        for pos, (name, header, row) in enumerate(specs):
+            ws = book.active if pos == 0 else book.create_sheet()
+            ws.title = name
+            ws.append(header)
+            ws.append(row)
+        if duplicate_conflict:
+            book["02_돌발AS접수"].append(
+                ["AS-CUT-193", "UJ-CUT-193", "다른캠프", "접수"])
+        book.save(path)
+        book.close()
+
+    with tempfile.TemporaryDirectory(prefix="app-db-193-") as tmp:
+        tmp_path = _Path(tmp)
+
+        # ① AppStore: 즉시 create/update, 낙관잠금, 멱등, audit/outbox, soft delete.
+        store_path = tmp_path / "app-store.db"
+        store = A.AppStore(store_path).initialize()
+        create_args = dict(
+            kind="돌발AS", business_key="AS-APP-193", public_id="AS-APP-193",
+            project_no="UJ-APP-193", camp_name="합성앱캠프", status="접수",
+            fields={"진행상태": "접수", "담당기사": "류지영"},
+            actor="synthetic", source="synthetic", evidence="t193",
+            idempotency_key="t193-create",
+        )
+        created = store.create_work(**create_args)
+        replay = store.create_work(**create_args)
+        assert replay["work"]["id"] == created["work"]["id"]
+        assert replay["idempotent_replay"] is True, "같은 저장 재전송이 새 이벤트를 만든다"
+        work_id = created["work"]["id"]
+        updated = store.update_work(
+            work_id, expected_version=1,
+            patch={"status": "작업완료", "fields": {"진행상태": "작업완료"}},
+            actor="synthetic", source="synthetic", evidence="객관 근거",
+            idempotency_key="t193-update",
+        )
+        assert updated["work"]["record_version"] == 2
+        try:
+            store.update_work(work_id, expected_version=1, patch={"status": "오래된 수정"})
+            raise AssertionError("낡은 record_version 수정이 받아들여졌다")
+        except A.VersionConflict:
+            pass
+
+        # 기존 /api/input 모양도 Excel 없이 즉시 DB에 저장되고 legacy read-model 위에 겹친다.
+        legacy_items = [
+            {"sheet": "02_돌발AS접수", "key_col": "접수ID", "key": "AS-LEGACY-193",
+             "col": "진행상태", "value": "접수", "vtype": "text",
+             "only_if_empty": False, "evidence": "t193 legacy"},
+            {"sheet": "02_돌발AS접수", "key_col": "접수ID", "key": "AS-LEGACY-193",
+             "col": "담당기사", "value": "김필우", "vtype": "text",
+             "only_if_empty": False, "evidence": "t193 legacy"},
+        ]
+        legacy = store.apply_legacy_items(
+            legacy_items, "t193-legacy", idempotency_key="t193-legacy-batch")
+        assert legacy["ok"] and legacy["created"] == 1 and legacy["updated"] == 1, legacy
+        legacy_replay = store.apply_legacy_items(
+            legacy_items, "t193-legacy", idempotency_key="t193-legacy-batch")
+        assert legacy_replay["idempotent_replay"] is True
+        overlaid = store.overlay_rows(
+            "02_돌발AS접수",
+            [{"접수ID": "AS-LEGACY-193", "담당기사": "옛값", "excel_only": "보존"}],
+            "접수ID",
+        )
+        assert overlaid[0]["담당기사"] == "김필우" and overlaid[0]["excel_only"] == "보존"
+
+        # project_resolve형 신규행은 같은 Excel 행의 좌표 셀을 서로 다른 설정으로 흩지 않고
+        # 한 work_item으로 묶는다. 접수ID가 아직 없어도 프로젝트NO가 안정 키가 된다.
+        row_cells = [
+            {"sheet": "02_돌발AS접수", "cell": "B193", "key_col": "-", "key": "B193",
+             "col": "프로젝트NO", "value": "UJ-ROW-193", "vtype": "text",
+             "only_if_empty": True, "evidence": "t193 project_resolve"},
+            {"sheet": "02_돌발AS접수", "cell": "C193", "key_col": "-", "key": "C193",
+             "col": "접수일자", "value": "2026-08-10", "vtype": "date",
+             "only_if_empty": True, "evidence": "t193 project_resolve"},
+            {"sheet": "02_돌발AS접수", "cell": "D193", "key_col": "-", "key": "D193",
+             "col": "캠프명", "value": "행그룹합성캠프", "vtype": "text",
+             "only_if_empty": True, "evidence": "t193 project_resolve"},
+            {"sheet": "02_돌발AS접수", "cell": "E193", "key_col": "-", "key": "E193",
+             "col": "진행상태", "value": "접수", "vtype": "text",
+             "only_if_empty": True, "evidence": "t193 project_resolve"},
+        ]
+        grouped = store.apply_legacy_items(
+            row_cells, "t193-project-resolve", idempotency_key="t193-row-group")
+        assert grouped["ok"] and grouped["created"] == 1 and grouped["settings"] == 0, grouped
+        grouped_work = store.get_work(kind="돌발AS", business_key="UJ-ROW-193")
+        assert grouped_work["project_no"] == "UJ-ROW-193"
+        assert grouped_work["camp_name"] == "행그룹합성캠프" and grouped_work["status"] == "접수"
+        assert grouped_work["fields"]["접수일자"] == "2026-08-10"
+        sheet_now = store.list_sheet_rows("02_돌발AS접수")
+        assert any(row.get("프로젝트NO") == "UJ-ROW-193" for row in sheet_now)
+        grouped_overlay = store.overlay_rows(
+            "02_돌발AS접수",
+            [{"프로젝트NO": "UJ-ROW-193", "캠프명": "옛캠프", "excel_only": "보존"}],
+            "프로젝트NO",
+        )
+        grouped_row = next(row for row in grouped_overlay if row.get("프로젝트NO") == "UJ-ROW-193")
+        assert grouped_row["캠프명"] == "행그룹합성캠프" and grouped_row["excel_only"] == "보존"
+        with store.reader() as conn:
+            scattered = conn.execute(
+                "SELECT COUNT(*) FROM app_setting WHERE key LIKE 'excel-cell:02_돌발AS접수:%193'"
+            ).fetchone()[0]
+        assert scattered == 0, "같은 신규행이 work_item 대신 excel-cell 설정 네 개로 흩어졌다"
+
+        deleted = store.soft_delete_work(
+            work_id, expected_version=2, actor="synthetic", reason="t193",
+            idempotency_key="t193-delete")
+        assert deleted["work"]["deleted_at"] and deleted["work"]["record_version"] == 3
+        try:
+            store.get_work(work_id)
+            raise AssertionError("soft delete 행이 기본 조회에 노출된다")
+        except A.NotFoundError:
+            pass
+        assert store.get_work(work_id, include_deleted=True)["deleted_at"]
+        with store.reader() as conn:
+            actions = [row[0] for row in conn.execute(
+                "SELECT action FROM change_event WHERE work_id=? ORDER BY id", (work_id,))]
+        assert actions == ["create", "update", "soft_delete"], actions
+        lease, outbox = store.lease_outbox(limit=100)
+        assert outbox and store.ack_outbox(lease, [row["id"] for row in outbox]) == len(outbox)
+
+        # ② 컷오버: 실제 합성 XLSX 후보/중복충돌/parity/정본 모드 전환.
+        old_cutover_root, old_report_dir = C.ROOT, C.REPORT_DIR
+        try:
+            C.ROOT = tmp_path / "cutover-root"
+            C.REPORT_DIR = tmp_path / "cutover-reports"
+            valid_book = tmp_path / "valid-master.xlsx"
+            duplicate_book = tmp_path / "duplicate-master.xlsx"
+            make_cutover_book(valid_book)
+            make_cutover_book(duplicate_book, duplicate_conflict=True)
+
+            candidates = C.read_candidates(valid_book)
+            assert candidates["row_count"] == 5 and not candidates["blocking"], candidates
+            dup = C.read_candidates(duplicate_book)
+            assert any("중복키 값 충돌 AS-CUT-193" in item for item in dup["blocking"]), dup
+            plan = C.cutover(valid_book, str(tmp_path / "plan-unused.db"), apply=False)
+            assert plan["status"] == "ready" and plan["candidate_rows"] == 5
+
+            clean_db = tmp_path / "cutover-clean.db"
+            complete = C.cutover(valid_book, str(clean_db), apply=True)
+            assert complete["status"] == "complete" and complete["db_rows"] == 5, complete
+            assert not complete["blocking"] and complete["source_of_truth_mode"] == "db_primary_export"
+            clean_store = A.AppStore(clean_db).initialize()
+            assert clean_store.get_setting("source_of_truth_mode")["value"] == "db_primary_export"
+            assert len(clean_store.list_work(limit=100)) == candidates["row_count"], \
+                "Excel 후보와 SQLite 연결 행 parity가 맞지 않는다"
+
+            conflict_db = tmp_path / "cutover-conflict.db"
+            conflict_store = A.AppStore(conflict_db).initialize()
+            conflict_store.create_work(
+                kind="돌발AS", business_key="AS-CUT-193", public_id="AS-CUT-193",
+                project_no="UJ-OLD-193", camp_name="기존DB캠프", status="기존상태",
+                fields={"접수ID": "AS-CUT-193", "프로젝트NO": "UJ-OLD-193",
+                        "캠프명": "기존DB캠프", "진행상태": "기존상태"},
+                idempotency_key="t193-cutover-conflict",
+            )
+            blocked = C.cutover(valid_book, str(conflict_db), apply=True)
+            assert blocked["status"] == "blocked" and blocked["conflicts"] > 0, blocked
+            assert blocked["source_of_truth_mode"] == "shadow_compare"
+            assert any("필드 해시 불일치" in item or "충돌" in item
+                       for item in blocked["blocking"]), blocked["blocking"]
+            assert conflict_store.get_setting("source_of_truth_mode")["value"] == "shadow_compare"
+        finally:
+            C.ROOT, C.REPORT_DIR = old_cutover_root, old_report_dir
+
+        # ③ 같은 target 최신값만 보관 큐에 남고, writer applied=0/skipped=N을
+        #    pending.applied로 오기록하지 않는지 실제 임시 ledger DB로 확인한다.
+        ledger_old = {name: getattr(L, name) for name in
+                      ("ROOT", "DB_DIR", "DB_PATH", "JSON_QUEUE", "REPORT_DIR",
+                       "STATUS_CACHE", "APPLY_LOCK", "intake_json",
+                       "scheduled_workbook_maintenance", "_wait_editing_clear")}
+        old_app_db_env = os.environ.get("COUPANG_APP_DB_PATH")
+        old_run_tree = PG.run_tree
+        old_datalake = sys.modules.get("datalake")
+        old_archive = sys.modules.get("archive_export")
+        archive_calls = []
+        app_db_path = tmp_path / "ledger-canonical.db"
+        try:
+            L.ROOT = str(tmp_path / "ledger-root")
+            L.DB_DIR = str(tmp_path / "ledger-db")
+            L.DB_PATH = str(tmp_path / "ledger-db" / "queue.db")
+            L.JSON_QUEUE = str(tmp_path / "ledger-root" / "updates" / "pending.json")
+            L.REPORT_DIR = str(tmp_path / "ledger-root" / "reports")
+            L.STATUS_CACHE = str(tmp_path / "ledger-root" / "reports" / "status.json")
+            L.APPLY_LOCK = str(tmp_path / "ledger-root" / "reports" / ".apply.lock")
+            # intake_json()의 기본 인자는 import 때 공유 경로로 묶였으므로 명시적으로 차단한다.
+            L.intake_json = lambda *args, **kwargs: 0
+            L.scheduled_workbook_maintenance = lambda now=None: []
+            L._wait_editing_clear = lambda now, slot: None
+            os.environ["COUPANG_APP_DB_PATH"] = str(app_db_path)
+            sys.modules["datalake"] = _types.SimpleNamespace(note=lambda *a, **k: None)
+            sys.modules["archive_export"] = _types.SimpleNamespace(
+                record_ledger_result=lambda **kw: archive_calls.append(kw))
+
+            def fake_run_tree(args, cwd=None, timeout=None, drain_timeout=None, env=None):
+                queue_path = args[args.index("--queue") + 1]
+                with open(queue_path, encoding="utf-8") as handle:
+                    payload = json.load(handle)
+                result_path = env["COUPANG_LEDGER_RESULT"]
+                os.makedirs(os.path.dirname(result_path), exist_ok=True)
+                with open(result_path, "w", encoding="utf-8") as handle:
+                    json.dump({
+                        "applied": [],
+                        "skipped": [{**item, "사유": "보관본에 이미 같은 값"}
+                                    for item in payload],
+                        "version": "미생성(0건)",
+                    }, handle, ensure_ascii=False)
+                return _types.SimpleNamespace(
+                    returncode=0, stdout="", stderr="", timed_out=False, stuck_pid=None)
+
+            PG.run_tree = fake_run_tree
+            base = {"sheet": "02_돌발AS접수", "key_col": "접수ID",
+                    "key": "AS-QUEUE-193", "col": "진행상태", "vtype": "text",
+                    "only_if_empty": False, "evidence": "t193 latest target"}
+            assert L.enqueue([{**base, "value": "접수"}], source="t193") == 1
+            assert L.enqueue([{**base, "value": "작업완료"}], source="t193") == 1
+            pending = L.pending_rows()
+            assert len(pending) == 1 and pending[0]["value"] == "작업완료", pending
+            result = L.apply_now(force=True, now=_dt(2026, 8, 10, 11, 5))
+            assert result["상태"] == "보관본 생성" and result["적용"] == 0
+            assert result["제외"] == 1 and result["미확정"] == 0, result
+            with L.conn() as conn:
+                ledger_rows = conn.execute(
+                    "SELECT value,status,target_key,result_note FROM pending ORDER BY id").fetchall()
+                batch_note = conn.execute("SELECT note FROM batch ORDER BY id DESC LIMIT 1").fetchone()[0]
+            assert [row[1] for row in ledger_rows] == ["superseded", "skipped"], ledger_rows
+            assert len({row[2] for row in ledger_rows}) == 1, "같은 target_key가 갈라졌다"
+            assert not any(row[1] == "applied" for row in ledger_rows)
+            assert "적용 0 / 제외 1" in batch_note and archive_calls
+            canonical = A.AppStore(app_db_path).initialize().list_sheet_rows("02_돌발AS접수")
+            latest = next(row for row in canonical if row.get("접수ID") == "AS-QUEUE-193")
+            assert latest["진행상태"] == "작업완료", "11시 전에도 SQLite 정본은 최신이어야 한다"
+        finally:
+            PG.run_tree = old_run_tree
+            for name, value in ledger_old.items():
+                setattr(L, name, value)
+            if old_app_db_env is None:
+                os.environ.pop("COUPANG_APP_DB_PATH", None)
+            else:
+                os.environ["COUPANG_APP_DB_PATH"] = old_app_db_env
+            if old_datalake is None:
+                sys.modules.pop("datalake", None)
+            else:
+                sys.modules["datalake"] = old_datalake
+            if old_archive is None:
+                sys.modules.pop("archive_export", None)
+            else:
+                sys.modules["archive_export"] = old_archive
+
+        ledger_src = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+        writer_src = open(os.path.join(ROOT, "ledger_writer.py"), encoding="utf-8").read()
+        assert "applied_ids = {" in ledger_src and "skipped_by_id = {" in ledger_src
+        assert "if applied_ids:" in ledger_src and "status='skipped'" in ledger_src
+        assert '{"applied": [], "skipped": skips + skipped2' in writer_src, \
+            "writer 0건 경로가 skipped 목록을 결과 계약에 남기지 않는다"
+
+        # ④ 프런트: 구조화 오류, last-good/기준시각/개별 재시도, 공통 drawer와 반응형·키보드.
+        live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+        for marker in ("class ApiError extends Error", "HTTP_ERROR", "EMPTY_BODY",
+                       "UNEXPECTED_CONTENT_TYPE", "INVALID_JSON", "BODY_READ_ERROR"):
+            assert marker in live, f"구조화 API 오류 마커 누락: {marker}"
+        for marker in ("DATA_SECTION_STATE", "hasGood:false", "dataStampOf",
+                       "markDataSectionSuccess", "markDataSectionFailure",
+                       "retryDataSection", "Promise.all(keys.map"):
+            assert marker in live, f"마지막 정상값·섹션 재시도 마커 누락: {marker}"
+        for marker in ("function openCheckDrawer", "왜 아직 미확인인가", "현재 확인된 근거",
+                       "안전등급", "다음 행동", "runTask('evidence_sync')",
+                       "openCheckUpload", "openCheckRecordFromDrawer"):
+            assert marker in live, f"확인필요 drawer 마커 누락: {marker}"
+        assert 'button type="button" class="srow check-row' in live, \
+            "확인 카드가 키보드 Enter·Space를 지원하는 native button이 아니다"
+        assert "button:focus-visible" in live and "min-height:44px" in live
+        for media in ("@media(max-width:420px)", "@media(max-width:767px)",
+                      "@media(max-width:899px)", "@media(min-width:900px)"):
+            assert media in live, f"375/768/desktop 반응형 구간 누락: {media}"
+        assert "overflow-wrap:anywhere" in live and "overflow-x:hidden" in live
+
+    print("  [193] 앱 DB 즉시정본·컷오버 parity/충돌·보관결과 진실·확인 drawer 반응형 ✅")
+
+
+def t192_synthetic_check_is_harmless():
+    """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
+
+    검증이 성공해도 기존 미커밋 파일이나 공용 점유를 바꾸면 관문이 아니라 사고다.
+    특히 [182]의 ``write_plan``은 세 파일을 쓰므로, 텍스트 복원 여부가 아니라 애초에
+    실제 경로로 쓰지 않는지를 임의의 바이너리 바이트로 확인한다.
+    """
+    import importlib
+    import ai_claim
+    import handoff_review
+
+    sys.path.insert(0, os.path.join(ROOT, "band"))
+    cb = importlib.import_module("comment_backfill")
+    snap = _snapshot_output_bytes
+
+    assert snap(_SYNTHETIC_OUTPUT_PATHS) == _SYNTHETIC_OUTPUT_BASELINE, \
+        "합성검증 시작 뒤 [192]에 오기 전에 실제 계획·게시본이 이미 바뀌었다"
+
+    protected = [
+        cb.PLAN_PATH,
+        os.path.join(cb.DOCS_COLLECT, "plan.json"),
+        os.path.join(cb.DOCS_COLLECT, "grab_posts.js"),
+        ai_claim.CLAIMS,
+    ]
+    before = snap(protected)
+
+    # 이미 수정돼 있던 파일은 UTF-8 텍스트라는 보장도 없다. 바이트 그대로 남아야 한다.
+    old_plan, old_docs = cb.PLAN_PATH, cb.DOCS_COLLECT
+    with tempfile.TemporaryDirectory(prefix="csos-dirty-artifacts-") as dirty:
+        cb.PLAN_PATH = os.path.join(dirty, "reports", "밴드_수집계획.json")
+        cb.DOCS_COLLECT = os.path.join(dirty, "docs", "collect")
+        os.makedirs(os.path.dirname(cb.PLAN_PATH), exist_ok=True)
+        os.makedirs(cb.DOCS_COLLECT, exist_ok=True)
+        dirty_paths = [
+            cb.PLAN_PATH,
+            os.path.join(cb.DOCS_COLLECT, "plan.json"),
+            os.path.join(cb.DOCS_COLLECT, "grab_posts.js"),
+        ]
+        dirty_bytes = (b"dirty-main\x00\xff\r\n", b"dirty-plan\r\n", b"dirty-grab\x00\xfe")
+        for path, value in zip(dirty_paths, dirty_bytes):
+            with open(path, "wb") as f:
+                f.write(value)
+        dirty_before = snap(dirty_paths)
+        try:
+            t182_app_collects_without_claude()
+            t183_collect_survives_pc_off()
+            assert snap(dirty_paths) == dirty_before, \
+                "기존 dirty 산출물의 바이트가 합성검증 뒤 바뀌었다"
+            assert cb.PLAN_PATH == dirty_paths[0] and cb.DOCS_COLLECT == os.path.dirname(dirty_paths[1]), \
+                "격리 뒤 comment_backfill 경로가 호출 전 값으로 복원되지 않았다"
+        finally:
+            cb.PLAN_PATH, cb.DOCS_COLLECT = old_plan, old_docs
+
+    assert snap(protected) == before, "합성검증이 실제 계획·게시본·공용 점유를 변경했다"
+    assert snap(_SYNTHETIC_OUTPUT_PATHS) == _SYNTHETIC_OUTPUT_BASELINE, \
+        "합성검증 실행 전후 계획·게시 산출물의 바이트가 다르다"
+    assert os.environ.get("CSOS_SYNTHETIC") == "1", "합성 모드가 실행 중 해제됐다"
+    own_src = open(__file__, encoding="utf-8").read()
+    unsafe_clear = "os.environ." + 'pop("CSOS_SYNTHETIC"'
+    assert unsafe_clear not in own_src, \
+        "합성검증이 중간에 실데이터 보호 플래그를 해제한다"
+
+    # Terra→Sol 관문도 호출자 환경과 무관하게 합성 플래그·임시 보고서 경로를 강제하고,
+    # Windows에서 영원히 멈출 수 있는 subprocess.run(timeout=)을 쓰지 않아야 한다.
+    seen = {}
+    old_runner = handoff_review.run_tree
+    try:
+        def fake_runner(command, **kwargs):
+            seen["command"] = command
+            seen.update(kwargs)
+            return type("R", (), {"returncode": 0, "stdout": "ALL GREEN", "stderr": "",
+                                    "timed_out": False, "stuck_pid": 0})()
+        handoff_review.run_tree = fake_runner
+        ok, summary = handoff_review._synthetic_check()
+    finally:
+        handoff_review.run_tree = old_runner
+    assert ok and "ALL GREEN" in summary
+    assert seen["env"].get("CSOS_SYNTHETIC") == "1"
+    assert seen["env"].get("COUPANG_REPORT_DIR") != handoff_review.REPORT_DIR
+    import ast
+    review_src = open(os.path.join(ROOT, "handoff_review.py"), encoding="utf-8").read()
+    tree = ast.parse(review_src)
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+              and n.name == "_synthetic_check")
+    calls = [n.func for n in ast.walk(fn) if isinstance(n, ast.Call)]
+    assert any(isinstance(c, ast.Name) and c.id == "run_tree" for c in calls)
+    assert not any(isinstance(c, ast.Attribute) and c.attr == "run"
+                   and isinstance(c.value, ast.Name) and c.value.id == "subprocess"
+                   for c in calls)
+    print("  [192] 합성검증 전후 무해 — dirty 3파일 바이트·공용 점유 보존·합성 플래그·유한 실행 ✅")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 두 검증에서 같이 쓰이면 실패시킨다."""
     import collections as _c
@@ -12134,5 +12574,8 @@ if __name__ == "__main__":
     t48_excel_2026_stats_and_verified_completion()
     t39_realtime_monitor()
     t6_webapp()
+    t193_app_db_cutover_archive_and_frontend()
+    # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
+    t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
