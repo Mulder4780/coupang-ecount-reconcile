@@ -9608,6 +9608,69 @@ def t173_classify_cache_follows_rules():
     print("  [173] 분류 캐시·색인 지문 — 규칙을 고치면 둘 다 다시 판별한다 ✅")
 
 
+def t174_round_leaves_footprints_and_finishes():
+    """[174] 회차는 **자국을 남기고 반드시 끝난다** (2026-08-09 지시).
+
+    사용자 지시: "32시간째 미완주 왜그런거야 해결해 이런 문제 생기면 코딩해서
+    다시는 안생기게 처리하는 알고리즘 구성해서 적용하고 보고해"
+
+    ★ 진짜 문제는 '느리다'가 아니라 **둘**이었다:
+      ① **어디서 멈췄는지 아무도 몰랐다.** 종합리포트는 `finish()` 가 **맨 끝에 한 번**
+         쓴다. 그러니 완주하지 못한 회차는 **기록을 한 줄도 안 남긴다.** 화면은
+         '08-08 01:38 — 32시간째 미완주'만 말할 수 있었고 이유를 못 댔다.
+      ② **안 끝나는 회차가 다음 회차를 막았다.** 잠금을 쥔 채 몇 시간을 끌면 다음
+         회차는 "이미 실행 중"으로 조용히 건너뛴다. 스케줄러는 '성공'이라 적는다.
+         그것이 이틀 쌓이면 32시간이 된다.
+
+    그래서 ① 단계마다 `.daily_run.progress.json` 에 자국을 남기고(죽어도 남는다)
+    ② **회차 예산**을 두어 넘으면 남은 단계를 건너뛰고 **완주시킨다.**
+    반쯤이라도 완주한 회차가 영원히 안 끝나는 회차보다 낫다 — 완주해야 리포트가
+    써지고 잠금이 풀리고 **다음 회차가 돈다.**
+    """
+    import importlib
+    from datetime import timedelta, datetime as _dt
+    sys.path.insert(0, ROOT)
+    D = importlib.import_module("daily_run")
+    S = importlib.import_module("session_handoff")
+
+    keep = D.PROGRESS
+    D.PROGRESS = os.path.join(tempfile.mkdtemp(), "p.json")
+    try:
+        # ① 단계마다 자국이 남는다 — 죽어도 남는 것이 요점이다
+        D._ROUND_T0[0] = _dt.now()
+        D.note_progress("가벼운단계", "시작")
+        D.note_progress("가벼운단계", "끝", {"결과": True})
+        with open(D.PROGRESS, encoding="utf-8") as fh:
+            got = json.load(fh)
+        assert got["단계"] == "가벼운단계" and got["상태"] == "끝", got
+        assert got["끝난단계"] == ["가벼운단계"], "끝낸 단계가 쌓여야 어디까지 왔는지 안다"
+        assert "경과분" in got and "예산분" in got, "회차 나이와 예산이 함께 있어야 판단이 된다"
+
+        # ② 예산을 넘으면 **남은 단계를 건너뛰고** 회차를 끝낸다(중단이 아니다)
+        D._OVER_BUDGET[0] = False
+        D._ROUND_T0[0] = _dt.now() - timedelta(minutes=D.ROUND_BUDGET_MIN + 1)
+        g = D.run("무거운단계", [os.path.join(ROOT, "nonexistent_xyz.py")])
+        assert g["ok"] is None and "예산" in g["out"], g
+        assert D._OVER_BUDGET[0], "예산 초과는 회차 끝 표식에도 남아야 한다"
+        assert "다음 회차가 이어서" in g["out"], \
+            "조용히 건너뛰면 '돌았는데 왜 결과가 없나'가 된다 — 이유를 적어 남긴다"
+    finally:
+        D.PROGRESS = keep
+
+    # ③ 예산은 **밖에서 조절**할 수 있어야 한다(Z: 가 느린 날이 있다)
+    src = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "COUPANG_ROUND_BUDGET_MIN" in src, "예산을 코드에 못 박으면 느린 날 손을 못 쓴다"
+    # ④ 완주했든 죽었든 마지막 자국을 남긴다
+    assert 'note_progress("(회차 끝)"' in src, \
+        "끝 표식이 없으면 '아직 도는 중'과 '죽었다'를 구별할 수 없다"
+    # ⑤ 경보가 **단계 이름을 댄다** — 이것이 이 검증의 목적이다
+    hs = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert "def daily_step_now" in hs and "_step_hint()" in hs, \
+        "'몇 시간째'만 말하고 '어느 단계'를 못 대면 원인을 못 찾는다"
+    print("  [174] 회차가 단계마다 자국을 남기고 · 예산을 넘으면 완주시키고 · "
+          "경보가 단계 이름을 댄다 ✅")
+
+
 def t173_comments_everywhere_and_crossed():
     """[173] 댓글을 **다 찾아 담고**, 카톡과 **한 사건으로 묶는다** (2026-08-09 지시).
 
@@ -11163,6 +11226,7 @@ if __name__ == "__main__":
     t171_cache_swap_waits_for_readers()
     t172_typo_watch_does_not_cry_wolf()
     t173_comments_everywhere_and_crossed()
+    t174_round_leaves_footprints_and_finishes()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()
