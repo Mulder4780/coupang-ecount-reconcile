@@ -74,10 +74,35 @@
   // 빈 껍데기를 두므로 시각이 없으면 직전 화면이 묻어 온 것일 수 있다.
   // 그리고 **몇 개를 봤는지 같이 적는다**: 접힌 댓글을 다 펴지 못했을 때
   // "댓글이 없다"와 "못 읽었다"를 읽는 쪽이 갈라야 한다(못 가르면 조용한 사고가 된다).
-  const CMT_ITEM = 'ul.commentList > li, .commentList .commentItem, .cComment li, [class*="commentItem"]';
-  const CMT_BODY = '.commentText, ._commentContent, .txt, [class*="commentText"]';
+  // ★ 진짜 원인을 실측으로 잡았다 (2026-08-09, 글 4369·댓글 6개를 **숨은 iframe** 으로
+  //   열어 직접 뜯음 — grabOne 과 똑같은 방식이다).
+  //     · **레이어를 열 필요가 없다.** 상세 페이지(/band/<no>/post/<no>)는 댓글을
+  //       처음부터 그린다. 앞서 "클릭해야 나온다"고 본 것은 **피드(/post) 화면**이었다.
+  //       상세 페이지는 다르다 — hidden 탭 iframe 에서도 6개 전부, 시각까지 그려졌다.
+  //     · 막혔던 진짜 이유는 **선택자가 항목 한 칸 아래를 가리켰다**는 것이다.
+  //       각 댓글은 `div.cComment[data-viewname="DCommentLayoutView"]` **자체**인데
+  //       예전 CMT_ITEM 은 `.cComment li`(그 안의 <li>)를 찾아 늘 0개였다.
+  //     · 실측 셀렉터(각 cComment 안): 작성자 `.name` · 시각 `.time` ·
+  //       본문 `.txt._commentContent`(= `._commentContent`).
+  //   개수는 grabOne 의 '댓글 N' 글자 되짚기가 이미 잡는다(확인함).
+  //   ※ 검증 [178] 이 "확인 못 하면 comments 키를 안 단다"를 지키므로, 셀렉터가
+  //     밴드 화면 변경으로 또 어긋나면 수집은 **정직하게 빈손**으로 끝난다(거짓 성공 없음).
+  // 각 댓글 항목. 첫 후보가 실측으로 확정된 것이고, 뒤는 화면이 바뀌었을 때의 대비다.
+  const CMT_ITEM = 'div.cComment[data-viewname="DCommentLayoutView"], div.cComment, ul.commentList > li, .commentList .commentItem, [class*="commentItem"], li[data-viewname]';
+  const CMT_BODY = '.txt._commentContent, ._commentContent, .commentText, [class*="commentText"]';
   const CMT_TIME = '.time, .date, [class*="time"]';
-  const CMT_WHO = '.uName, .commentWriterInfo .text, .writeInfo .name, [class*="writerName"]';
+  const CMT_WHO = '.name, .uName, .commentWriterInfo .text, .writeInfo .name, [class*="writerName"]';
+  // 상세 페이지는 레이어 없이 그리지만, 만일 접혀 있는 화면을 만나면 한 번 눌러 편다.
+  // 이미 항목이 그려져 있으면 아무것도 안 한다(무해).
+  const CMT_OPEN = '._commentCountLayerBtn, ._commentLayerBtn, ._commentCountBtn, ._commentMainBtn';
+  function openComments(root) {
+    if (root.querySelector(CMT_ITEM.split(',')[0].trim())) return false;   // 이미 그려짐
+    for (const b of root.querySelectorAll(CMT_OPEN)) {
+      try { b.click(); return true; } catch (e) { /* 다음 후보 */ }
+    }
+    return false;
+  }
+
   function readComments(root) {
     let items = [];
     for (const s of CMT_ITEM.split(',')) {
@@ -86,10 +111,11 @@
     }
     const out = [];
     for (const it of items) {
-      // 둘 다 있어야 담는다 — 이 조건이 엉뚱한 <li> 를 댓글로 오해하는 것도 같이 막는다.
-      const content = txt(it, CMT_BODY);
+      // 시각이 있어야 담는다([130]) — 이 조건이 엉뚱한 요소를 댓글로 오해하는 것도 막는다.
+      // 본문은 사진/스티커만 있는 댓글이면 빌 수 있으므로 없어도 시각이 있으면 담는다.
       const timeText = txt(it, CMT_TIME);
-      if (!content || !timeText) continue;
+      if (!timeText) continue;
+      const content = txt(it, CMT_BODY);
       out.push({ author: txt(it, CMT_WHO), timeText, content: content.slice(0, 2000) });
     }
     return out;
@@ -221,7 +247,9 @@
       // '읽었는데 댓글이 없더라'로 굳는다.
       const tries = countKnown ? 8 : 4;
       for (let i = 0; i < tries && cts.length < (countKnown ? want : 1); i++) {
-        await sleep(250);
+        // 안 보이면 **레이어를 열어 본다** — 선택자가 아니라 이 클릭이 관건이었다
+        if (want > 0 || i === 0) openComments(d);
+        await sleep(400);
         cts = readComments(d);
       }
       const post = {
