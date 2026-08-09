@@ -9305,6 +9305,58 @@ def t172_ledger_screens_are_split():
     print("  [172] 회계 원장류 — 네 화면이 갈린다(분개장→적요 순서·slips 안 샘) ✅")
 
 
+def t176_rules_bump_does_not_wipe_the_index():
+    """[176] 규칙이 바뀌었다고 **색인 11만 건을 통째로 버리면 안 된다** (2026-08-09).
+
+    [173] 대로 분류 규칙을 고치면 캐시도 다시 판별해야 한다. 그런데 `load_cache` 는
+    지문이 다르면 `{}` 를 돌려줬다 — **색인 전체를 버린 것이다.**
+
+    왜 그게 사고가 되나: 색인을 처음부터 만드는 데 Z: 에서 **6시간**이 걸리는데
+    `daily_run` 이 그 단계에 주는 몫은 **40분**이고, 캐시는 스캔이 **다 끝난 뒤 한 번만**
+    쓴다. 그래서 매일 40분을 태우고 매일 실패하며 **진행이 하나도 안 남는다** —
+    규칙 한 줄 고친 벌로 색인이 영영 안 돌아온다. 게다가 실패는 회차 로그 한 줄이라
+    조용하다.
+
+    그리고 버릴 이유도 없었다. 11만 건 중 분류 규칙에 기대는 것은 **ERP 엑셀뿐**이고
+    나머지는 폴더·파일명으로 정한다. 실측: 111,868건 중 다시 볼 것은 **144건**이었다.
+    """
+    import source_index as X
+
+    # 규칙에 기댄 것 = ERP 엑셀. 나머지는 규칙을 고쳐도 답이 안 바뀐다
+    assert X.content_classified({"ext": "xlsx", "kind": "ERP:ledger"})
+    assert X.content_classified({"ext": "xlsx", "kind": "ERP"})
+    assert X.content_classified({"ext": "xlsx", "kind": "기타"})
+    assert not X.content_classified({"ext": "pdf", "kind": "ERP 거래명세서(건별 PDF)"})
+    assert not X.content_classified({"ext": "xlsx", "kind": "밴드"})
+    assert not X.content_classified({"ext": "jpg", "kind": "기타"})
+    assert not X.content_classified("문자열")
+
+    # 지문이 달라도 **폴더로 정해진 항목은 살아남는다**
+    import io, json, tempfile, os as _os
+    d = tempfile.mkdtemp()
+    p = _os.path.join(d, "c.json")
+    data = {
+        "a|1|2": {"ext": "pdf", "kind": "ERP 거래명세서(건별 PDF)"},
+        "b|1|2": {"ext": "xlsx", "kind": "ERP:ledger"},
+        "c|1|2": {"ext": "jpg", "kind": "밴드"},
+        X.RULES_KEY: "옛날지문",
+    }
+    json.dump(data, io.open(p, "w", encoding="utf-8"), ensure_ascii=False)
+    old = X.CACHE
+    try:
+        X.CACHE = p
+        kept = X.load_cache()
+        assert set(kept) == {"a|1|2", "c|1|2"}, \
+            "지문이 다르다고 폴더로 정해진 항목까지 버렸다 — 6시간짜리 재작성이 매일 실패한다"
+        # 지문이 같으면 전부 남는다
+        data[X.RULES_KEY] = X.rules_version()
+        json.dump(data, io.open(p, "w", encoding="utf-8"), ensure_ascii=False)
+        assert len(X.load_cache()) == 3, "지문이 같은데도 버렸다"
+    finally:
+        X.CACHE = old
+    print("  [176] 색인 캐시 — 규칙이 바뀌면 **규칙에 기댄 것만** 다시 본다 ✅")
+
+
 def t175_step_timeout_cannot_hang_forever():
     """[175] 회차 한 단계가 **영원히 멈추면 안 된다** (2026-08-08 실사고).
 
@@ -10859,6 +10911,7 @@ if __name__ == "__main__":
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()
     t175_step_timeout_cannot_hang_forever()
+    t176_rules_bump_does_not_wipe_the_index()
     t161_erp_filename_fingerprint()
     t160_master_book_cache()
     t154_amount_basis()

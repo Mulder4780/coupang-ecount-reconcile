@@ -179,13 +179,37 @@ def rules_version():
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:10]
 
 
+def content_classified(v):
+    """이 항목이 **내용 판별**(=분류 규칙)에 기대고 있나.
+
+    색인 11만 건 중 규칙에 기대는 것은 **ERP 엑셀뿐**이다 — 나머지는 폴더·파일명만
+    보고 정하므로 `classify_rows` 를 아무리 고쳐도 답이 안 바뀐다. `scan()` 안의
+    조건(`ext == ".xlsx"` 이고 folder_kind 가 `ERP` 또는 빈 값)을 뒤집어 본 것이다.
+    """
+    if not isinstance(v, dict):
+        return False
+    if str(v.get("ext") or "").lower() not in ("xlsx", "xlsm"):
+        return False
+    kind = str(v.get("kind") or "")
+    # folder_kind 가 "" 였던 것은 저장될 때 '기타' 가 된다
+    return kind.startswith("ERP") or kind == "기타"
+
+
 def load_cache():
     try:
         d = json.load(open(CACHE, encoding="utf-8"))
     except Exception:
         return {}
-    if not isinstance(d, dict) or d.pop(RULES_KEY, None) != rules_version():
+    if not isinstance(d, dict):
         return {}
+    if d.pop(RULES_KEY, None) != rules_version():
+        # ★ 규칙이 바뀌었다고 **11만 건을 통째로 버리면 안 된다** (2026-08-09).
+        #   다시 만드는 데 Z: 에서 6시간이 걸리는데 회차의 몫은 40분이고, 캐시는
+        #   **맨 끝에서 한 번만** 쓴다. 즉 매일 40분을 태우고 매일 실패하며 진행이
+        #   하나도 안 남는다 — 규칙을 고친 벌로 색인이 영영 안 돌아오는 셈이다.
+        #   (분류 규칙을 고치면 캐시도 다시 판별해야 한다는 [173] 은 그대로다.
+        #    다만 '다시 볼 것'은 규칙에 기댄 항목뿐이지 색인 전체가 아니다.)
+        return {k: v for k, v in d.items() if not content_classified(v)}
     return d
 
 
