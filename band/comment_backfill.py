@@ -242,6 +242,38 @@ def write_paste(band, nos):
     return p
 
 
+# ── 앱이 읽는 수집 계획 (2026-08-09 지시: Claude Code 없이 앱이 스스로 수집) ────────
+#   여기(스케줄된 회차)서 **미리** 골라 둔 것을 앱이 그대로 내려 준다. 브라우저 유저
+#   스크립트가 이 계획을 받아 로그인된 밴드 탭에서 스스로 긁으므로 Claude Code 가
+#   수집 루프에서 완전히 빠진다. 우선순위 알고리즘은 회차에서 한 번만 돌아(원장 읽기가
+#   비싸다) 웹 요청마다 다시 계산하지 않는다.
+PLAN_PATH = os.path.join(ROOT, "reports", "밴드_수집계획.json")
+
+
+def write_plan(plan, when=None):
+    """plan = {band: {"nos":[...], "tiers":{"1":n,...}}}. 시각은 밖에서 받는다(테스트 가능)."""
+    doc = {"bands": plan}
+    if when:
+        doc["generated"] = when
+    tmp = PLAN_PATH + ".tmp"
+    io.open(tmp, "w", encoding="utf-8").write(json.dumps(doc, ensure_ascii=False))
+    os.replace(tmp, PLAN_PATH)
+    return PLAN_PATH
+
+
+def load_plan(band=None):
+    """앱이 부른다. band 를 주면 그 밴드의 nos 만, 없으면 전체 문서."""
+    try:
+        doc = json.load(io.open(PLAN_PATH, encoding="utf-8"))
+    except Exception:
+        return ({} if band is None else {"band": band, "nos": []})
+    if band is None:
+        return doc
+    b = (doc.get("bands") or {}).get(str(band)) or {}
+    return {"band": str(band), "nos": b.get("nos") or [],
+            "tiers": b.get("tiers") or {}, "generated": doc.get("generated")}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=90,
@@ -266,6 +298,7 @@ def main(argv=None):
             print("⚠ 밴드 %s — %s\n" % (b, warn))
 
     grand = collections.Counter()
+    plan = {}
     for b in ([a.band] if a.band else bands()):
         rows = blind(b, a.days or None, opens)
         if a.tier:
@@ -282,8 +315,15 @@ def main(argv=None):
         head = collections.Counter(t for t, _d, _n in rows[:a.limit])
         print("   이번 배치 %d건 — %s"
               % (len(nos), " · ".join("%d순위 %d" % (t, head[t]) for t in sorted(head))))
+        # 앱(유저스크립트)이 그대로 받아 쓸 계획 — 우선순위대로, 배치 한도까지.
+        plan[str(b)] = {"nos": nos, "tiers": {str(t): head[t] for t in sorted(head)}}
         if a.write:
             print("   →", write_paste(b, nos))
+
+    if a.write:
+        # 시각은 여기서 찍는다(모듈 함수는 시험 가능하게 밖에서 받는다).
+        from datetime import datetime
+        write_plan(plan, when=datetime.now().strftime("%Y-%m-%d %H:%M"))
 
     if grand:
         print()

@@ -11441,6 +11441,7 @@ if __name__ == "__main__":
     t179_comments_everywhere_and_crossed()
     t180_round_leaves_footprints_and_finishes()
     t181_app_answers_before_claude_is_called()
+    t182_app_collects_without_claude()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()

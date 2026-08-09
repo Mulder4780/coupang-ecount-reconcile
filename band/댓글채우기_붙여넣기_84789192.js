@@ -266,13 +266,27 @@
       //   '댓글이 없다'가 아니라 '못 읽었다'다. 그런데 `comments` 키를 달아 두면
       //   그 글은 사각지대 계기·수집 목록에서 **읽은 글로 세어져 영영 다시 안 뽑힌다.**
       //   못 읽은 글이 읽은 글로 둔갑하는 것이 이 사고의 본체였다.
+      // ★ 그러나 '확인된 0개'는 못 읽은 것이 아니다 (2026-08-09 실측).
+      //   댓글이 0인 글은 **'댓글 N' 표시 자체가 없어** countKnown 이 false 다. 그것을
+      //   전부 미확인으로 두면 0개짜리 글(1순위 대부분)이 영원히 안 끝나 매 회차 다시
+      //   뽑힌다 — 백필이 수렴하지 못한다. 가르는 근거는 **댓글 입력창**이다:
+      //   입력창(`_commentInputRegion`)은 댓글 수와 무관하게 늘 그려지므로, 그것이
+      //   있는데 목록이 0 이면 **댓글 영역이 렌더됐고 정말 0개**다. 입력창조차 없으면
+      //   댓글 영역이 안 그려진 것이라 그때는 '못 읽음'이다.
+      const commentUiReady = !!d.querySelector(
+        '._commentInputRegion, .cCommentWriteNew, ._messageInputView, [class*="commentInput"]');
       if (countKnown || cts.length) {
         post.comment_count = cmt || '0';
         post.comments = cts;
         // 적힌 개수만큼 실제로 읽었나. false 면 읽는 쪽은 '댓글 없음'으로 단정하지 않는다.
         post.comments_full = cts.length >= want;
+      } else if (commentUiReady) {
+        // 입력창은 있는데 목록이 0 → 댓글 영역이 그려졌고 확인된 0개다.
+        post.comment_count = '0';
+        post.comments = [];
+        post.comments_full = true;
       } else {
-        post.comments_unverified = true;   // 다음 회차가 이 글을 다시 뽑는다
+        post.comments_unverified = true;   // 댓글 영역 자체가 안 그려짐 — 다음 회차가 다시 뽑는다
       }
       return { status: 'ok', post };
     } catch (e) {
