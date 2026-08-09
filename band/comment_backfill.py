@@ -219,6 +219,11 @@ def main(argv=None):
         print("원장에서 아직 안 끝난 프로젝트 %d개 — 이 안에 드는 글만 1순위입니다.\n"
               % len(opens))
 
+    for b in ([a.band] if a.band else bands()):
+        warn = harvest_looks_broken(b)
+        if warn:
+            print("⚠ 밴드 %s — %s\n" % (b, warn))
+
     grand = collections.Counter()
     for b in ([a.band] if a.band else bands()):
         rows = blind(b, a.days or None, opens)
