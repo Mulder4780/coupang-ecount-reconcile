@@ -118,6 +118,11 @@ def blind(band, days=None, opens=None):
         from band_extract import parse_post
     except Exception:
         parse_post = None
+    # ★ 수확이 깨져 있으면 `comments` 키를 **믿지 않는다** (2026-08-09).
+    #   250건을 실패 0 으로 긁고도 댓글이 한 건도 안 들어온 적이 있다. 그때 생긴
+    #   `comments: []` 를 '읽었다'로 세면 그 글은 영영 다시 안 뽑힌다. 캐시는 고치지
+    #   않는다 — 읽을 때만 무시한다. 진짜 댓글이 들어오는 순간 이 조건은 저절로 풀린다.
+    distrust = bool(harvest_looks_broken(band))
     out = []
     for k, v in posts.items():
         if not str(k).isdigit() or not isinstance(v, dict):
@@ -126,8 +131,8 @@ def blind(band, days=None, opens=None):
             continue
         if not v.get("created_at"):          # 시각 없는 수확은 믿지 않는다 (검증 [130])
             continue
-        if "comments" in v:                  # 열어 본 적이 있다 — 비었어도 본 것이다
-            continue
+        if "comments" in v and not (distrust and not v.get("comments")):
+            continue                         # 열어 본 적이 있다 — 비었어도 본 것이다
         day = _day(v.get("created_at"))
         tier = 2
         if parse_post is not None:
@@ -154,6 +159,42 @@ def blind(band, days=None, opens=None):
 def _neg_day(day):
     """같은 갈래 안에서는 최근 것이 앞으로 오게 한다(문자열 날짜의 역순 정렬)."""
     return tuple(-ord(c) for c in day)
+
+
+def harvest_looks_broken(band, floor=30):
+    """수확이 '성공'했는데 **댓글이 하나도 없으면** 그건 없는 게 아니라 못 읽은 것이다.
+
+    ★ 2026-08-09 실사고. 250건을 실패 0으로 긁었는데 캐시에 댓글이 **한 건도** 안
+      들어왔다. 원인은 `grab_posts.js` 의 개수 선택자
+      (`._commentCount, .comment .count, .uComment .count`)가 지금 밴드 화면과 안
+      맞는 것이다 — 개수를 0으로 읽으니 댓글이 그려질 때까지 기다리지 않고, 그리기
+      전에 읽어 **빈 배열**을 담는다.
+
+      무서운 것은 그다음이다: `comments` 키가 **생기기 때문에** 그 글은 '들여다봤다'로
+      세어지고, 사각지대 계기에서도 목록에서도 빠진다. 즉 **못 읽은 글이 읽은 글로
+      둔갑해 영영 다시 안 뽑힌다.** 수집은 성공으로 끝나고 아무 데도 티가 안 난다.
+
+      그래서 계기가 스스로 의심한다 — CLAUDE.md "무엇이든 0건이 나오면 묻는다:
+      정말 없는 건가, 아니면 안 본 건가."
+    """
+    path = os.path.join(CACHE_DIR, "%s.json" % band)
+    try:
+        d = json.load(io.open(path, encoding="utf-8"))
+    except Exception:
+        return ""
+    posts = d.get("posts") or d
+    looked = [v for v in posts.values()
+              if isinstance(v, dict) and "comments" in v]
+    if len(looked) < floor:            # 표본이 적으면 아무 말도 하지 않는다
+        return ""
+    got = sum(1 for v in looked if v.get("comments"))
+    if got:
+        return ""
+    return ("들여다봤다고 기록된 %d글 중 **댓글이 있는 글이 0건**입니다. "
+            "밴드에 댓글이 없어서가 아니라 **수집기가 못 읽은 것**일 수 있습니다"
+            "(개수 선택자가 화면과 어긋나면 0으로 읽고 기다리지 않습니다). "
+            "그 글들은 '읽음'으로 세어져 목록에서 빠지므로, 고치기 전에는 "
+            "이 밴드 댓글 수집을 **성공으로 읽지 마십시오**." % len(looked))
 
 
 def bands():

@@ -9305,6 +9305,63 @@ def t172_ledger_screens_are_split():
     print("  [172] 회계 원장류 — 네 화면이 갈린다(분개장→적요 순서·slips 안 샘) ✅")
 
 
+def t178_unverified_harvest_is_not_read():
+    """[178] **확인 못 한 것을 '읽었다'로 세지 않는다** (2026-08-09 실사고).
+
+    250건을 실패 0 으로 긁었는데 캐시에 댓글이 **한 건도** 안 들어왔다. 원인은
+    `grab_posts.js` 의 개수 선택자가 지금 밴드 화면과 안 맞는 것이다 — 개수를 0 으로
+    읽으니 댓글이 그려질 때까지 기다리지 않고 빈 배열을 담았다.
+
+    무서운 것은 그다음이다. `comments` 키가 **생기기 때문에** 그 글은 '들여다봤다'로
+    세어져 사각지대 계기에서도 수집 목록에서도 빠진다. **못 읽은 글이 읽은 글로
+    둔갑해 영영 다시 안 뽑힌다.** 수집은 성공으로 끝나고 아무 데도 티가 안 난다.
+    실측으로 1순위가 80 → 69 로 '줄어' 있었다 — 11건이 그렇게 사라진 것이다.
+
+    선택자를 다시 맞추는 것은 답이 아니다(밴드가 화면을 고치면 또 깨진다). 그래서:
+      ① 수집기는 개수를 모르고 댓글도 못 봤으면 `comments` 키를 **안 단다**
+         (`comments_unverified`). 다음 회차가 그 글을 다시 뽑는다.
+      ② 읽는 쪽은 밴드 전체에 댓글 있는 글이 0건이면 `comments` 키를 **안 믿는다**.
+         캐시는 고치지 않는다 — 진짜 댓글이 들어오면 이 조건은 저절로 풀린다.
+    """
+    import sys as _s
+    _s.path.insert(0, os.path.join(ROOT, "band"))
+    import comment_backfill as CB
+
+    js = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
+    assert "comments_unverified" in js, \
+        "개수를 못 읽었을 때 표시가 없다 — 못 읽은 글이 읽은 글로 둔갑한다"
+    assert "countKnown" in js and "if (countKnown || cts.length)" in js, \
+        "확인 못 한 수확에도 comments 키를 달고 있다"
+    assert "^댓글\\s*([0-9,]+)$" in js or "댓글\\s*([0-9,]+)" in js, \
+        "고정 선택자 하나만 믿는다 — 화면이 바뀌면 같은 자리에서 또 깨진다"
+
+    # 계기: 표본이 충분한데 댓글 있는 글이 0건이면 스스로 의심한다
+    class _F:
+        def __init__(self, s): self.s = s
+        def read(self): return self.s
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    real = CB.io.open
+    try:
+        broken = {str(i): {"comments": [], "comment_count": "0"} for i in range(40)}
+        CB.io.open = lambda *a, **k: _F(json.dumps({"posts": broken}))
+        assert CB.harvest_looks_broken("90610953"), "0건인데 의심하지 않는다"
+
+        ok = dict(broken)
+        ok["5"] = {"comments": [{"content": "취소요청"}], "comment_count": "1"}
+        CB.io.open = lambda *a, **k: _F(json.dumps({"posts": ok}))
+        assert not CB.harvest_looks_broken("90610953"), \
+            "댓글이 들어왔는데도 계속 의심한다 — 경보가 안 꺼지면 아무도 안 본다"
+
+        few = {"1": {"comments": []}}
+        CB.io.open = lambda *a, **k: _F(json.dumps({"posts": few}))
+        assert not CB.harvest_looks_broken("90610953"), "표본 1건으로 단정했다"
+    finally:
+        CB.io.open = real
+    print("  [178] 수확 검증 — 확인 못 한 것을 '읽었다'로 세지 않는다 ✅")
+
+
 def t177_comment_collection_is_targeted():
     """[177] 수집은 **날짜가 아니라 쓸모로** 고른다 (2026-08-09 지시).
 
@@ -11109,6 +11166,7 @@ if __name__ == "__main__":
     t175_step_timeout_cannot_hang_forever()
     t176_rules_bump_does_not_wipe_the_index()
     t177_comment_collection_is_targeted()
+    t178_unverified_harvest_is_not_read()
     t161_erp_filename_fingerprint()
     t160_master_book_cache()
     t154_amount_basis()
