@@ -195,30 +195,55 @@
       }
       const imgs = [...main.querySelectorAll('img')]
         .map((i) => i.src).filter((s) => /pstatic|phinf/.test(s));
-      const cmt = (txt(main, '._commentCount, .comment .count, .uComment .count')
+      // ★ 개수는 **고정 선택자로 찾지 않는다** (2026-08-09 실사고).
+      //   `._commentCount, .comment .count, .uComment .count` 로 찾던 것이 지금 밴드
+      //   화면과 안 맞아 250건을 실패 0 으로 긁고도 **댓글이 한 건도 안 들어왔다.**
+      //   개수를 0 으로 읽으니 댓글이 그려질 때까지 기다리지 않고 빈 배열을 담았다.
+      //   선택자를 다시 맞춰 봐야 밴드가 화면을 고치면 또 같은 자리에서 깨진다.
+      //   그래서 ① 선택자 → ② **글자 모양('댓글 12')** 순으로 찾고,
+      //   ③ 그래도 모르면 **모른다고 적는다**(아래 countKnown).
+      let cmt = (txt(main, '._commentCount, .comment .count, .uComment .count')
         .match(/\d+/) || [''])[0];
+      let countKnown = cmt !== '';
+      if (!countKnown) {
+        for (const el of main.querySelectorAll('a, button, span, div')) {
+          const t = (el.textContent || '').trim();
+          if (t.length > 12) continue;                 // 본문을 훑지 않는다
+          const m = t.match(/^댓글\s*([0-9,]+)$/);
+          if (m) { cmt = m[1].replace(/,/g, ''); countKnown = true; break; }
+        }
+      }
       // 댓글은 본문보다 늦게 그려진다 — 있다고 적힌 만큼 보일 때까지 잠깐만 더 기다린다.
       // 무한정 기다리지 않는다(접힌 댓글은 끝내 안 펴질 수 있고, 그건 아래 comments_full 이 말한다).
       const want = parseInt(cmt || '0', 10) || 0;
       let cts = readComments(d);
-      for (let i = 0; i < 8 && cts.length < want; i++) {
+      // 개수를 모를 때도 **한 번은 기다려 본다** — 0 으로 단정하고 지나가면 그 글은
+      // '읽었는데 댓글이 없더라'로 굳는다.
+      const tries = countKnown ? 8 : 4;
+      for (let i = 0; i < tries && cts.length < (countKnown ? want : 1); i++) {
         await sleep(250);
         cts = readComments(d);
       }
-      return {
-        status: 'ok',
-        post: {
-          author: txt(main, '.postWriterInfoWrap .text, .postWriter .text, .uProfileText'),
-          timeText,
-          content: txt(main, '.postText, .dPostTextView'),
-          photo_count: String(imgs.length),
-          comment_count: cmt || '0',
-          comments: cts,
-          // 적힌 개수만큼 실제로 읽었나. false 면 읽는 쪽은 '댓글 없음'으로 단정하지 않는다.
-          comments_full: cts.length >= want,
-          images: [...new Set(imgs)],
-        },
+      const post = {
+        author: txt(main, '.postWriterInfoWrap .text, .postWriter .text, .uProfileText'),
+        timeText,
+        content: txt(main, '.postText, .dPostTextView'),
+        photo_count: String(imgs.length),
+        images: [...new Set(imgs)],
       };
+      // ★ **확인 못 한 것은 적지 않는다.** 개수도 모르고 댓글도 못 봤으면 그것은
+      //   '댓글이 없다'가 아니라 '못 읽었다'다. 그런데 `comments` 키를 달아 두면
+      //   그 글은 사각지대 계기·수집 목록에서 **읽은 글로 세어져 영영 다시 안 뽑힌다.**
+      //   못 읽은 글이 읽은 글로 둔갑하는 것이 이 사고의 본체였다.
+      if (countKnown || cts.length) {
+        post.comment_count = cmt || '0';
+        post.comments = cts;
+        // 적힌 개수만큼 실제로 읽었나. false 면 읽는 쪽은 '댓글 없음'으로 단정하지 않는다.
+        post.comments_full = cts.length >= want;
+      } else {
+        post.comments_unverified = true;   // 다음 회차가 이 글을 다시 뽑는다
+      }
+      return { status: 'ok', post };
     } catch (e) {
       return { status: 'fail', error: String(e) };
     } finally {

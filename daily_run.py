@@ -151,6 +151,67 @@ def _retryable(args):
     return not any(n in joined for n in NO_RETRY_NAMES)
 
 
+PROGRESS = os.path.join(REPORT_DIR, ".daily_run.progress.json")
+ROUND_BUDGET_MIN = int(os.environ.get("COUPANG_ROUND_BUDGET_MIN", "150"))
+_ROUND_T0 = [None]          # 회차 시작 시각 — main() 이 채운다
+_OVER_BUDGET = [False]
+
+
+def note_progress(step, state, extra=None):
+    """**단계마다** 어디까지 왔는지 디스크에 남긴다 (2026-08-09 지시).
+
+    ★ 32시간 미완주의 진짜 문제는 '느리다'가 아니라 **어디서 멈췄는지 아무도 모른다**는
+      것이었다. 종합리포트는 **맨 끝에 한 번** 쓰이므로 회차가 완주하지 못하면
+      기록이 **한 줄도 안 남는다.** 스케줄러는 그동안 '성공'이라 적는다.
+      그래서 화면은 '08-08 01:38 — 32시간째 미완주'만 보여 주고 이유를 못 댔다.
+    이제 이 파일 하나로 "지금 몇 번째 단계 · 무엇 · 언제 시작"이 항상 남는다.
+    죽어도 남는다 — 그게 요점이다.
+    """
+    try:
+        os.makedirs(REPORT_DIR, exist_ok=True)
+        cur = {}
+        if os.path.exists(PROGRESS):
+            try:
+                with open(PROGRESS, encoding="utf-8") as fh:
+                    cur = json.load(fh)
+            except (OSError, ValueError):
+                cur = {}
+        cur.update({"pid": os.getpid(), "단계": step, "상태": state,
+                    "시각": datetime.now().astimezone().isoformat(timespec="seconds")})
+        if _ROUND_T0[0]:
+            cur["회차시작"] = _ROUND_T0[0].astimezone().isoformat(timespec="seconds")
+            cur["경과분"] = round((datetime.now() - _ROUND_T0[0]).total_seconds() / 60, 1)
+        cur["예산분"] = ROUND_BUDGET_MIN
+        if extra:
+            cur.update(extra)
+        done = cur.get("끝난단계") or []
+        if state == "끝":
+            done = (done + [step])[-60:]
+            cur["끝난단계"] = done
+        tmp = PROGRESS + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(cur, fh, ensure_ascii=False)
+        os.replace(tmp, PROGRESS)
+    except Exception:
+        pass          # 진행 기록을 남기려다 회차를 세우지 않는다
+
+
+def over_budget():
+    """회차가 예산을 넘었나 — 넘으면 **남은 단계를 건너뛰고 완주시킨다**.
+
+    ★ 왜 중단이 아니라 완주인가: 회차가 끝나야 종합리포트가 써지고 잠금이 풀리고
+      **다음 회차가 돈다.** 예산 없이 무한정 끌면 다음 회차가 "이미 실행 중"으로
+      조용히 건너뛰고, 그것이 이틀·사흘 쌓여 '32시간 미완주'가 된다.
+      반쯤이라도 완주한 회차가, 영원히 안 끝나는 회차보다 낫다.
+    """
+    if not _ROUND_T0[0]:
+        return False
+    if (datetime.now() - _ROUND_T0[0]).total_seconds() / 60 >= ROUND_BUDGET_MIN:
+        _OVER_BUDGET[0] = True
+        return True
+    return False
+
+
 def run(name, args, timeout=600, retry=None):
     """한 단계를 돌린다. 실패하면 **한 번만** 쉬었다 다시 해 본다.
 
@@ -160,15 +221,26 @@ def run(name, args, timeout=600, retry=None):
       진짜 결함(오늘 잡은 stmt_link 회귀 같은 것)이 잡음에 묻혔다.
       ※ 되풀이해도 되는 것만 재시도한다 — 큐·반영·파일 이동 단계는 자동으로 제외된다.
     """
+    if over_budget():
+        # 예산을 넘었으면 **남은 단계를 건너뛰고** 회차를 끝낸다. 이유를 적어 남긴다 —
+        # 조용히 건너뛰면 "돌았는데 왜 결과가 없나"가 된다(그게 지금까지의 증상이었다).
+        note_progress(name, "건너뜀(예산초과)")
+        return {"name": name, "ok": None,
+                "out": f"건너뜀 — 회차 예산 {ROUND_BUDGET_MIN}분 초과. "
+                       f"다음 회차가 이어서 합니다(완주를 우선합니다)"}
     if retry is None:
         retry = 1 if _retryable(args) else 0
+    note_progress(name, "시작", {"명령": os.path.basename(str(args[0])) if args else ""})
     for attempt in range(retry + 1):
         got = _run_once(name, args, timeout)
         if got["ok"] or attempt >= retry:
             if not got["ok"] and attempt:
                 got["out"] = (got["out"] + "\n[재시도 후에도 실패]").strip()
+            note_progress(name, "끝", {"결과": bool(got.get("ok"))})
             return got
+        note_progress(name, "재시도")
         time.sleep(20)          # 상대가 파일을 놓을 시간을 준다
+    note_progress(name, "끝", {"결과": False})
     return got
 
 
@@ -611,9 +683,15 @@ def main():
     if not token:
         print("다른 daily_run 프로세스가 이미 실행 중 — 중복 실행을 시작하지 않습니다.")
         return
+    _ROUND_T0[0] = datetime.now()
+    note_progress("(회차 시작)", "시작", {"끝난단계": []})
     try:
         return _run_pipeline()
     finally:
+        # ★ 완주했든 죽었든 **마지막 자국을 남긴다.** 이 한 줄이 없으면 회차가
+        #   중간에 죽었을 때 진행 기록이 '시작' 인 채로 굳어, 다음 회차가
+        #   "아직 돌고 있나"와 "죽었나"를 구별하지 못한다.
+        note_progress("(회차 끝)", "완주" if not _OVER_BUDGET[0] else "완주(예산초과로 일부 건너뜀)")
         release_run_lock(token)
 
 

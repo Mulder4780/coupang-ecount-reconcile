@@ -612,6 +612,45 @@ def daily_run_health():
             "밀림": age_h >= DAILY_STALE_H or aborted}
 
 
+def daily_step_now():
+    """지금 회차가 **어느 단계**에 있나 — `.daily_run.progress.json` 을 읽는다.
+
+    ★ 2026-08-09 지시("32시간째 미완주 왜그런거야"). 그때까지 경보는 '몇 시간째'만
+      말할 수 있었다. 종합리포트는 **맨 끝에 한 번** 써지므로 완주하지 못한 회차는
+      **기록을 한 줄도 안 남긴다** — 그래서 원인을 물어도 댈 말이 없었다.
+      이제 daily_run 이 단계마다 자국을 남기고, 여기서 그것을 읽어 **이름을 댄다.**
+    """
+    p = os.path.join(REPORT_DIR, ".daily_run.progress.json")
+    try:
+        with open(p, encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    try:
+        since = (datetime.now().astimezone()
+                 - datetime.fromisoformat(d["시각"])).total_seconds() / 60.0
+    except (KeyError, ValueError, TypeError):
+        since = None
+    return {"단계": d.get("단계"), "상태": d.get("상태"), "머문분": (round(since, 1) if since is not None else None),
+            "경과분": d.get("경과분"), "예산분": d.get("예산분"),
+            "끝낸수": len(d.get("끝난단계") or [])}
+
+
+def _step_hint():
+    """경보 뒤에 붙일 한 줄 — **어느 단계에 머물러 있나**. 없으면 빈 문자열."""
+    s = daily_step_now()
+    if not s or not s.get("단계"):
+        return ""
+    txt = " · 지금 단계: **%s**(%s)" % (s["단계"], s.get("상태") or "")
+    if s.get("머문분") is not None:
+        txt += " %.0f분째" % s["머문분"]
+    if s.get("끝낸수"):
+        txt += " · 끝낸 단계 %d개" % s["끝낸수"]
+    if s.get("경과분") and s.get("예산분"):
+        txt += " · 회차 %.0f/%s분" % (s["경과분"], s["예산분"])
+    return txt
+
+
 def blockers(st, for_sol=False):
     """다음 세션이 **먼저 처리해야** 하는 것 — 안 하면 조용히 어긋난다."""
     out = []
@@ -640,15 +679,16 @@ def blockers(st, for_sol=False):
         act = ("(지금 %.0f시간째 돌고 있다 — 새로 띄우지 말고 끝나기를 기다린다)" % run_h
                if run_h is not None
                else "python daily_run.py    # 먼저 tasklist 로 앞 회차가 도는지 확인")
+        why += _step_hint()
         out.append(("일일자동대조 — %s. 스케줄러는 '성공'으로 보고한다"
                     "(앞 회차가 도는 동안 다음 회차가 조용히 건너뛴다)%s"
                     % (why, (" · 실패단계: " + ", ".join(bad[:4])) if bad else ""), act))
     elif run_h is not None and run_h >= DAILY_SLOW_H:
         # 완주 기록은 아직 싱싱한데 **지금 회차가 비정상적으로 길다.** 이대로 두면
         # 20시간을 넘겨서야 위 경보가 뜬다 — 그때는 이미 하루를 잃은 뒤다.
-        out.append(("일일자동대조가 **%.0f시간째** 돌고 있다 (보통 25분) — Z: 를 훑는 다른"
+        out.append(("일일자동대조가 **%.0f시간째** 돌고 있다 (보통 25분)%s — Z: 를 훑는 다른"
                     " 작업과 겹쳤을 수 있다. 이 회차가 끝날 때까지 다음 회차는 조용히 건너뛴다"
-                    % run_h,
+                    % (run_h, _step_hint()),
                     "python session_handoff.py --check   # 끝나면 저절로 사라진다"))
     # ★ 앱 서버가 옛 코드로 돌면 **고쳐도 화면이 안 바뀐다.** 서버는 200 을 주고
     #   화면은 숫자를 보여 주므로 아무도 옛 서버인 줄 모른다(2026-08-08 반나절).
