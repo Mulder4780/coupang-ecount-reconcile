@@ -89,11 +89,11 @@ def main():
     # 1) 대상 선정: 유상 & 공급가액>0 & 작업완료일 존재 & 미업로드
     recs = read_ledger(cfg["reconcile"]["master_xlsx"])
     state = load_state()
-    targets, skipped = [], {"무상/보험": 0, "금액없음": 0, "완료일없음": 0, "업로드완료": 0,
+    targets, skipped = [], {"유상 아님(무상·보험·미입력)": 0, "금액없음": 0, "완료일없음": 0, "업로드완료": 0,
                             "ERP기등록추정(명세서번호있음)": 0}
     for sid, r in sorted(recs.items()):
         if r.get("비용구분") != "유상":
-            skipped["무상/보험"] += 1; continue
+            skipped["유상 아님(무상·보험·미입력)"] += 1; continue
         if not r.get("원장_공급가액"):
             skipped["금액없음"] += 1; continue
         if not yyyymmdd(r.get("작업완료일")):

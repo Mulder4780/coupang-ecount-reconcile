@@ -7482,7 +7482,7 @@ async function loadStatus(){
     /* 재계산이 풀리면 저절로 채워지는 건이라 경고색을 쓰지 않는다 — 조치 대상이 아니다 */
     '금액 재계산 대기':'#9AAECB',
     /* 이미 나간 계산서다 — 붉은색을 쓰면 '발행해야 할 것'으로 읽혀 이중발행을 부른다 */
-    '계산서 발행됨·원장 미기재':'#1F7A5C','완료(ERP 수금확인)':'#12813F','완료(ERP 발행확인)':'#1F7A5C','무상/보험':'#B9C3D3'};
+    '계산서 발행됨·원장 미기재':'#1F7A5C','완료(ERP 수금확인)':'#12813F','완료(ERP 발행확인)':'#1F7A5C','무상/보험':'#B9C3D3','무상':'#B9C3D3','보험':'#3E7BD6','비용구분 미입력':'#C77A11'};
   const dist = {};
   rows.forEach(r=>{ dist[r.상태]=(dist[r.상태]||0)+1; });
   const entries = Object.entries(dist).sort((a,b)=>b[1]-a[1]);
@@ -7935,12 +7935,14 @@ function needAction(r){
   /* 완료( 로 시작하는 상태는 모두 객관근거로 입증된 완료다 — 근거 종류가 늘어도
      여기를 고치지 않게 접두어로 판정한다(2026-08-05: ERP 발행상태확인 등 5종). */
   if(String(r.상태||'').startsWith('완료(')) return false;
-  return !['정상','무상/보험','ERP 계산서(묶음)'].includes(r.상태);
+  // 무상·보험은 청구 대상이 아니다. **미입력은 뺀 게 아니다** — 아직 모르는 것이라
+  // 사람이 봐야 한다(2026-08-09: 빈칸 32건이 '무상/보험'으로 숨어 있었다).
+  return !['정상','무상','보험','무상/보험','ERP 계산서(묶음)'].includes(r.상태);
 }
 function chip(st){
   const ok=['정상','작업완료','완료','없음'], warn=['입금 대기','방문예정','작업중','예정','접수'];
   if(String(st||'').startsWith('완료(')) return `<span class="chip c-ok">${esc2(st)}</span>`;
-  const skip=['무상/보험','ERP 계산서(묶음)'];
+  const skip=['무상','보험','무상/보험','ERP 계산서(묶음)'];
   const cls = ok.includes(st)?'c-ok': skip.includes(st)?'c-skip': warn.includes(st)?'c-warn':'c-danger';
   return `<span class="chip ${cls}">${st||'-'}</span>`;
 }
@@ -13579,7 +13581,7 @@ async function dashToPng(){
     /* 재계산이 풀리면 저절로 채워지는 건이라 경고색을 쓰지 않는다 — 조치 대상이 아니다 */
     '금액 재계산 대기':'#9AAECB',
     /* 이미 나간 계산서다 — 붉은색을 쓰면 '발행해야 할 것'으로 읽혀 이중발행을 부른다 */
-    '계산서 발행됨·원장 미기재':'#1F7A5C','완료(ERP 수금확인)':'#12813F','완료(ERP 발행확인)':'#1F7A5C','무상/보험':'#B9C3D3'};
+    '계산서 발행됨·원장 미기재':'#1F7A5C','완료(ERP 수금확인)':'#12813F','완료(ERP 발행확인)':'#1F7A5C','무상/보험':'#B9C3D3','무상':'#B9C3D3','보험':'#3E7BD6','비용구분 미입력':'#C77A11'};
   const byType = {}; issues.forEach(r=>{ (byType[r.상태]=byType[r.상태]||[]).push(r); });
   const typeE = Object.entries(byType).sort((a,b)=>b[1].length-a[1].length);
   const steps = (window._agentSteps||[]);

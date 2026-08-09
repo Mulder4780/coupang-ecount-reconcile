@@ -82,7 +82,11 @@ def settle_issues(master):
             # 원천이 사라졌다는 이유로 과거 완료를 지우지는 않는다. 현재 ERP에서 같은
             # 프로젝트의 완료·미완료 전표가 **동시에** 보이는 명시적 충돌만 철회한다.
             retracted.append(sid)
-        if st in ("무상/보험", "정상"):
+        # 무상·보험은 쿠팡에 청구하지 않으므로 조치 목록에서 뺀다.
+        # **'비용구분 미입력'은 빼지 않는다** — 그건 무상이 아니라 아직 모르는 것이고,
+        # 예전에 '무상/보험'으로 뭉뚱그려져 32건이 조용히 빠져 있던 자리다(2026-08-09).
+        from ecount_reconcile import is_non_billable
+        if st == "정상" or is_non_billable(st):
             continue
         rows.append({"정산ID": sid, "문제유형": st, "캠프명": r.get("캠프명"),
                      "프로젝트NO": r.get("프로젝트NO"), "공급가액": r.get("원장_공급가액") or 0,

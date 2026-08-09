@@ -10212,6 +10212,80 @@ def t186_kakao_round_and_stale_tmp():
           "죽은 회차 tmp 는 치우고 쓰는 중인 tmp 는 안 건드림 ✅")
 
 
+def t187_free_vs_insurance_are_not_one_label():
+    """[187] 무상은 무상, 보험은 보험 · 빈칸은 **무상이 아니다** (2026-08-09 지시).
+
+    사용자 지시: "무상이면 무상 보험이면 보험 표시 / 보험사에서 돈이 입금 되면
+                  그것도 찾아 반영하는 알고리즘 구성"
+
+    ★ 딱지 하나가 세 가지를 덮고 있었다. `비용구분 != '유상'` 이면 전부 `무상/보험`.
+      실측 750행: 유상 716 · **무상 2** · 보험 **0** · 미확정 4 · 빈칸 26 · '0' 2.
+      즉 회색 '무상/보험' 34건 중 진짜 무상은 2건이고 **32건은 아직 안 적은 칸**이었다.
+      그 32건 중 **31건에 금액이 있다**(UJ2601280 울산2캠프 3,049,310원 ·
+      UJ2601288 인천5MB 672,540원 — 형님 화면에 찍힌 바로 그 카드들이다).
+      무상이라 부르는 순간 청구 대상에서 조용히 빠진다 — **빈칸이 무상으로 위장하는 자리**다.
+      비어 있는 값은 눈에 띄지만 **틀린 딱지는 안 띈다**([165] 와 같은 종류).
+
+    ★ 딱지를 가르면 그 문자열을 손으로 적어 둔 곳들이 **오류 없이** 안 걸리게 된다.
+      그래서 '청구하지 않음'을 읽는 자리를 `NON_BILLABLE` 한 곳으로 모았다.
+    """
+    import ecount_reconcile as E
+
+    # ① 원장이 말한 그대로 — 뭉치지도 지어내지도 않는다
+    mk = lambda kind: {"비용구분": kind, "프로젝트NO": "", "원천업무ID": ""}
+    assert E.settle_status(mk("무상")) == "무상", "무상이 무상으로 안 나온다"
+    assert E.settle_status(mk("보험")) == "보험", "보험이 보험으로 안 나온다"
+    for blank in ("", None, "미확정", "0", "   "):
+        got = E.settle_status(mk(blank))
+        assert got == E.UNKNOWN_COST, \
+            "비용구분 %r 을 %r 라고 부른다 — 모르는 것을 아는 것처럼 말한다" % (blank, got)
+
+    # ② '청구하지 않음'은 한 곳에서만 읽는다 — 미입력은 절대 여기 들어오지 않는다
+    assert E.is_non_billable("무상") and E.is_non_billable("보험")
+    assert E.is_non_billable("무상/보험"), "예전 값이 안 걸린다 — 이미 적힌 기록이 무시된다"
+    assert not E.is_non_billable(E.UNKNOWN_COST), \
+        "미입력을 청구 대상에서 뺀다 — 32건이 다시 조용히 사라진다"
+    assert not E.is_non_billable("유상")
+
+    # ③ 소비처가 새 딱지를 안다 — 한 곳이라도 빠지면 그쪽만 조용히 안 걸린다
+    fe = open(os.path.join(ROOT, "findings_export.py"), encoding="utf-8").read()
+    assert "is_non_billable" in fe, "조치 목록이 아직 문자열을 손으로 비교한다"
+    assert '"무상/보험", "정상"' not in fe, "옛 비교가 남아 있다 — 무상 2건이 조치로 쏟아진다"
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert '"무상", "보험", "무상/보험"' in srv, "서버 집계가 무상·보험을 못 알아본다"
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for tag in ("'무상':", "'보험':", "'비용구분 미입력':"):
+        assert tag in idx, "화면이 %s 딱지 색을 모른다 — 검은 글씨가 된다" % tag
+    assert "'무상','보험','무상/보험'" in idx.replace(" ", ""), \
+        "화면 필터가 무상·보험을 못 걸러 조치 목록에 섞인다"
+    assert "'비용구분 미입력'," not in idx.replace(" ", "").replace(
+        "'비용구분 미입력':'#C77A11'", ""), \
+        "미입력을 화면에서도 걸러낸다 — 숨기려고 만든 딱지가 아니다"
+
+    # ④ 보험사 입금 — 업종 낱말로 고른다(회사 이름을 박으면 목록 밖 보험사는 영영 안 보인다)
+    import insurance_watch as W
+    for name in ("삼성화재해상보험", "DB손해보험", "현대해상", "메리츠화재", "한국지역난방공제회"):
+        assert W.looks_insurer(name), "보험사 %s 를 못 알아본다" % name
+    for name in ("쿠팡로지스틱스", "모벤티스", "코리아종합물류", "화재감지기설치", "소방안전"):
+        assert not W.looks_insurer(name), "%s 를 보험사로 본다 — 남의 돈이 꽂힌다" % name
+
+    # ⑤ 쓰는 문은 좁다 — 금액이 유일할 때만. 보험금은 자기부담금 때문에 대개 안 맞는다.
+    ins = open(os.path.join(ROOT, "insurance_watch.py"), encoding="utf-8").read()
+    assert "len(cands) == 1 and len(rivals) == 1" in ins, \
+        "짝이 여럿인데도 자동 반영한다 — 엉뚱한 현장에 남의 돈이 꽂힌다"
+    assert '"only_if_empty": True' in ins, "사람이 이미 적은 입금을 덮는다"
+    assert "ledger_writer" not in ins, "엑셀을 직접 연다 — 반영은 11:00·15:00 몫이다"
+    # 0건일 때 '없는 것'과 '안 본 것'을 가른다([169])
+    assert "없는 것인가, 안 본 것인가" in ins, "0건을 그냥 0이라고만 적는다"
+    assert "본자료" in ins, "무엇을 보고 0이라 했는지 안 밝힌다"
+
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "insurance_watch.py" in daily, "회차에 안 걸렸다 — 다음 세션에 그대로 다시 요구된다"
+
+    print("  [187] 무상·보험·미입력을 가름(빈칸 32건이 무상으로 숨어 있었다) · "
+          "보험사 입금 양방향 탐색·유일일치만 반영 ✅")
+
+
 def t172_typo_watch_does_not_cry_wolf():
     """[172] 오기입 탐지 — **잡는 것보다 잘못 지목하지 않는 것**이 어렵다 (2026-08-09 지시).
 
@@ -11753,6 +11827,7 @@ if __name__ == "__main__":
     t184_phone_answers_with_the_same_rules()
     t185_datalake_shown_in_app()
     t186_kakao_round_and_stale_tmp()
+    t187_free_vs_insurance_are_not_one_label()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()

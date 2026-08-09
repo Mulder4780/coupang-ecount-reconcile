@@ -355,6 +355,12 @@ def _run_pipeline():
     #   오기입은 매일 새로 생기고, **틀린 값은 비어 있지 않아서 어느 화면에도 안 띈다.**
     steps.append(run("오기입 확인", [os.path.join(ROOT, "typo_watch.py")]))
 
+    # 2.46 보험 건·보험사 입금 — 보험금은 **쿠팡이 아니라 보험사가** 낸다.
+    #   입금을 찾는 receipt_fill 은 쿠팡 입금내역만 보므로 보험금은 어느 화면에도 안 떴다.
+    #   받을 돈인데 안 받아도 티가 안 나는 자리다(2026-08-09 지시).
+    steps.append(run("보험 입금 확인",
+                     [os.path.join(ROOT, "insurance_watch.py"), "--queue"]))
+
     # 2.5 쿠팡 PO 대조 (inbox에 'PO' 파일 있을 때만)
     if has_inbox_kind("po"):
         steps.append(run("쿠팡 PO 대조", [os.path.join(ROOT, "po_reconcile.py")]))
