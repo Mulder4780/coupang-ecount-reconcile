@@ -2400,6 +2400,18 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
   border-radius:12px;padding:7px 12px;min-width:74px}
 .flow-hero-stats .st b{display:block;font-size:18px;font-weight:800;line-height:1.15}
 .flow-hero-stats .st span{font-size:11.5px;color:rgba(255,255,255,.76)}
+/* ★ 폰에서 좌우를 꽉 채운다 (2026-08-09 지시). flex+wrap 은 남는 자리를 오른쪽에
+   그대로 두어 단추와 숫자 칸이 화면 폭보다 짧게 끝났다 — 카드 안이 비어 보인다.
+   칸을 균등하게 나누면 어느 폭에서도 오른쪽 끝까지 맞는다. `min-width:0` 이 없으면
+   긴 글이 칸을 밀어내 다시 삐져나간다. */
+@media (max-width:640px){
+  .flow-hero-top{flex-direction:column;gap:12px}
+  .flow-hero-top>div:first-child{width:100%}
+  .flow-hero-cap{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;gap:8px}
+  .flow-hero-cap .abtn{justify-content:center;min-width:0;padding-left:8px;padding-right:8px}
+  .flow-hero-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}
+  .flow-hero-stats .st{min-width:0;text-align:center}
+}
 .flow-del{border:1px solid var(--line);border-radius:9px;background:var(--surface);
   color:var(--danger);font:800 13px inherit;padding:5px 10px;cursor:pointer}
 /* ── 긴 글은 접어 둔다 (2026-08-07 지시: "스크롤이 긴 부분(설명란) … 누르면
@@ -2977,7 +2989,7 @@ body.dash-drag-live #dashGuides{display:grid}
           <div class="flow-hero-sub" id="flowMeta"></div>
         </div>
         <div class="flow-hero-cap">
-          <button class="abtn primary" onclick="flowCapture43()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-camera-fill"/></svg>4:3 캡처</button>
+          <button class="abtn primary" onclick="flowCapture43()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-camera-fill"/></svg>캡처</button>
           <button class="abtn" onclick="flowCopy43()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>복사</button>
           <button class="abtn" onclick="flowDevSpec()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-text-fill"/></svg>개발 사양</button>
           <button class="abtn" onclick="flowPrint43()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-receipt"/></svg>인쇄</button>
@@ -7646,12 +7658,29 @@ const FIXED_ENTRY = "https://mulder4780.github.io/coupang-ecount-reconcile/";
    ★ 기사 주소에는 열쇠가 붙는다. 열쇠는 비밀번호와 같아서 아무 화면에나 뿌리면 안 된다 —
      `/api/tech/links` 는 관리자만 200 을 준다(그 외에는 403). 그래서 실패하면 조용히
      '관리자로 로그인하면 보입니다'만 남기고 아무것도 그리지 않는다. */
+/* ★ 폰에서는 이 문이 **안 보였다** (2026-08-09 지시: "폰에서 업무센터 에이에스 기사
+   목록이 안보여"). 기사 카드는 데스크톱 쪽 블록(`#techButtons`)에만 그렸는데,
+   폰은 그 블록 대신 위쪽 **업무센터 허브**(`#workcenterButtons`, mobile-only)를 본다.
+   거기에는 류지영·오종현만 손으로 적혀 있었다 — 코드가 채우는 자리가 아니라서
+   기사가 늘어도 줄어도 **영원히 둘뿐**이었다. 이제 같은 목록으로 둘 다 채운다. */
+function techIntoHub(links){
+  const hub = $('workcenterButtons');
+  if(!hub) return;
+  hub.querySelectorAll('.wc-tech').forEach(e => e.remove());   // 다시 그려도 안 쌓인다
+  hub.insertAdjacentHTML('beforeend', (links || []).map(t => `
+    <a class="workcenter-person wc-tech" href="${esc2(t['링크']||('/t/'+(t.slug||'')))}"
+       target="_blank" rel="noopener">
+      <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-badge-fill"/></svg></span>
+      <span class="wc-copy">${esc2([t['이름'],t['직함']].filter(Boolean).join(' ')||t.slug||'')}<small>돌발AS · 정기점검 현장</small></span>
+      <span class="wc-arrow">↗</span></a>`).join(''));
+}
 async function showTechEntries(){
   const box = $('techButtons'), hint = $('techHint');
-  if(!box) return;
   let links = [];
   try{ links = (await api('/api/tech/links')).links || []; }
   catch(e){ links = []; }
+  techIntoHub(links);          // 폰 허브는 `#techButtons` 가 없어도 채운다
+  if(!box) return;
   if(!links.length){
     box.innerHTML = '';
     if(hint) hint.textContent =
