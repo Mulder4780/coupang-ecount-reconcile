@@ -232,7 +232,11 @@ body.agent-running .tabbar button[data-v="run"] svg{animation:agentRunIcon .72s 
 body.agent-running .tabbar button[data-v="run"]{color:#fff;background:linear-gradient(135deg,#2E52D6,#243168)}
 
 /* ═══ 레이아웃 ═══ */
-.shell{max-width:1220px;margin:0 auto;padding:16px 14px 92px}
+/* ★ 무엇이 넓어져도 **화면은 옆으로 밀리지 않는다** (2026-08-09 지시).
+   `clip` 을 쓴다 — `hidden` 은 스크롤 상자를 만들어 안쪽 sticky(표 머리줄·상단바)를
+   같이 죽인다. `clip` 은 넘치는 것만 자르고 스크롤 상자를 만들지 않는다.
+   넓은 것은 제 상자 안에서 흐르게 하는 것이 원칙이고(.gridwrap), 이건 마지막 그물이다. */
+.shell{max-width:1220px;margin:0 auto;padding:16px 14px 92px;overflow-x:clip}
 .view{display:none;transform-origin:50% 12px}
 .view.active{display:block;animation:viewEnter .34s cubic-bezier(.22,.8,.25,1)}
 @keyframes viewEnter{
@@ -986,6 +990,19 @@ table.grid{width:100%;border-collapse:collapse;background:var(--surface);border:
 table.grid th{position:sticky;top:0;background:var(--panel);font-size:13px;color:var(--ink-3);font-weight:800;
   letter-spacing:.4px;text-align:left;padding:11px 13px;border-bottom:1px solid var(--line);white-space:nowrap}
 table.grid td{padding:10.5px 13px;border-bottom:1px solid #F0F3F7;font-size:14px;font-variant-numeric:tabular-nums}
+/* ★ 넓은 표를 담는 상자 (2026-08-09 지시: "확대하면 바깥으로 나가고 고정이 안된다").
+   전에는 표가 벌거벗은 채 놓여 있어, 열이 화면보다 넓어지면 **문서 전체**가 옆으로
+   늘어났다. 그러면 확대했을 때 왼쪽 메뉴·머리줄까지 같이 밀린다 — 화면이 통째로
+   흔들리니 '고정이 안 된다'로 보인다.
+   ★ 세로도 이 상자가 맡는다. `overflow-x:auto` 를 걸면 세로도 자동으로 스크롤 상자가
+     되어(CSS 규칙상 visible 이 auto 로 바뀐다) 머리줄 sticky 가 붙을 곳을 잃는다.
+     그래서 높이를 정해 주고 머리줄을 **이 상자 위**에 붙인다. 결과는 더 낫다:
+     표만 움직이고 머리줄은 늘 보인다. */
+.gridwrap{max-width:100%;overflow:auto;-webkit-overflow-scrolling:touch;
+  overscroll-behavior-x:contain;max-height:calc(100vh - 250px);border-radius:var(--r)}
+.gridwrap>table.grid{min-width:max-content;box-shadow:none;border-radius:0}
+/* 한 글자씩 세로로 끊기던 칸 — 이제 옆으로 흐를 자리가 있으니 끊지 않는다 */
+.gridwrap table.grid td{white-space:nowrap}
 table.grid tr:last-child td{border-bottom:none}
 table.grid tbody tr{transition:background .1s}
 table.grid tr:hover td{background:var(--panel)}
@@ -3054,7 +3071,10 @@ body.dash-drag-live #dashGuides{display:grid}
     <div id="fnote" class="fnote"></div>
     <div class="kpis" id="skpis" style="grid-template-columns:repeat(3,1fr)"></div>
     <div class="slist" id="slist"></div>
-    <table class="grid" id="sgrid"></table>
+    <!-- ★ 넓은 표는 **제 안에서** 옆으로 흐른다 (2026-08-09 지시). 감싸는 것이 없으면
+         표가 화면보다 넓어질 때 **화면 전체**가 옆으로 밀려, 확대했을 때 왼쪽 메뉴와
+         머리줄이 같이 따라가 버린다("고정이 안된다"의 정체). -->
+    <div class="gridwrap"><table class="grid" id="sgrid"></table></div>
   </section>
 
   <!-- 상세 시트 -->
