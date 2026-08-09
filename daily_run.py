@@ -233,6 +233,17 @@ def run(name, args, timeout=600, retry=None):
     note_progress(name, "시작", {"명령": os.path.basename(str(args[0])) if args else ""})
     for attempt in range(retry + 1):
         got = _run_once(name, args, timeout)
+        # ★ **시간 초과는 재시도하지 않는다** (2026-08-09 실측).
+        #   재시도는 원래 **경합**을 위한 것이다(Z: 대량 작업·엑셀 점유와 겹친 순간) —
+        #   그건 금방 실패하고 한 번 쉬면 지나간다. 그런데 시간 초과는 다르다:
+        #   "이 단계는 준 시간보다 오래 걸린다"는 뜻이라 다시 해도 또 넘긴다.
+        #   실측: 09:50 회차가 2시간째일 때 collect_all 이 1시간 만에 초과로 죽고
+        #   **똑같이 한 시간을 더 쓰는 중**이었다. 회차 예산을 그 하나가 두 번 먹는다.
+        if "시간초과" in str(got.get("out", "")):
+            got["out"] = (got["out"] + " — 재시도하지 않습니다"
+                          "(다시 해도 또 넘깁니다. 다음 회차가 이어서 합니다)")
+            note_progress(name, "끝", {"결과": False, "시간초과": True})
+            return got
         if got["ok"] or attempt >= retry:
             if not got["ok"] and attempt:
                 got["out"] = (got["out"] + "\n[재시도 후에도 실패]").strip()

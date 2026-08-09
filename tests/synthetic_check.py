@@ -9673,7 +9673,14 @@ def t176_round_leaves_footprints_and_finishes():
         f"한 단계 상한 {max(big) if big else '?'}초가 회차 예산({D.ROUND_BUDGET_MIN}분)의 " \
         f"1/5({cap}초)을 넘는다 — 그 하나가 회차를 먹는다"
 
-    # ⑥ 경보가 **단계 이름을 댄다** — 이것이 이 검증의 목적이다
+    # ⑥ **시간 초과는 재시도하지 않는다.** 재시도는 경합용이다 — 경합은 금방 실패하고
+    #    한 번 쉬면 지나간다. 시간 초과는 "준 시간보다 오래 걸린다"는 뜻이라 다시 해도
+    #    또 넘긴다. 실측: collect_all 이 1시간 만에 초과로 죽고 **또 한 시간**을 쓰는
+    #    중이었다 — 회차 예산을 한 단계가 두 번 먹는다.
+    assert '"시간초과" in str(got.get("out"' in src,         "시간 초과를 재시도하면 그 단계가 회차 예산을 두 번 먹는다"
+    assert "재시도하지 않습니다" in src, "왜 안 하는지 적어 남긴다 — 조용히 넘기면 오해한다"
+
+    # ⑦ 경보가 **단계 이름을 댄다** — 이것이 이 검증의 목적이다
     hs = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
     assert "def daily_step_now" in hs and "_step_hint()" in hs, \
         "'몇 시간째'만 말하고 '어느 단계'를 못 대면 원인을 못 찾는다"
