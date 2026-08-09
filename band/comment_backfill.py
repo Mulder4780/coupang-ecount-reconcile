@@ -9,24 +9,46 @@ comment_backfill.py — **댓글을 한 번도 안 들여다본 글**을 골라 
   오므로(CLAUDE.md '접수했다가 취소되는 건'), 그 상태에서 `cancel_watch` 는
   오류 없이 **반쪽으로** 돈다. 실측 2026-08-08: 8,259 / 8,561 글이 그랬다.
 
-무엇을 고르나 (고르는 규칙 한 곳)
-  · `comments` 키가 **아예 없는** 글 — 한 번도 안 열어 본 글이다.
-    `comments: []`(열어 봤고 없었다)와는 가른다. `band_extract.cancel_blind_count`
-    가 세는 것과 **같은 기준**이다 — 세는 쪽과 고르는 쪽이 갈리면 계기는 줄어드는데
-    목록은 안 줄어든다(또는 그 반대).
-  · 삭제·오염·유령·시각없음은 뺀다. 없는 글을 긁으면 캐시에 쓰레기가 들어간다
-    (2026-08-07 사고 — CLAUDE.md "'★밀림'을 보고 없는 번호를 긁지 말 것").
-  · **최근 것부터.** 취소가 뜻을 갖는 것은 아직 안 끝난 일이다. 오래된 글의 댓글은
-    이미 결과가 원장에 반영돼 있어 지금 와서 바꿀 것이 없다.
+★ 무엇을 고르나 — **날짜가 아니라 쓸모로 고른다** (2026-08-09 지시:
+  "무작정 자료 수집만 하지 말고 정확한 알고리즘을 만들어 수집하게 코딩해")
 
-  ★ 전량은 한 번에 못 한다 — 7,475건 × 5초 ≈ 10시간이다. `--days` 로 창을 좁히고
-    `--limit`(한 배치 250건, 그 위로는 탭이 언다)로 끊는다. 남은 것은 다음 회차 몫이다.
+  처음엔 '최근 90일치 250건씩'이었다. 그건 결국 무작정이다 — 7,475건 × 5초 ≈ 10시간을
+  긁으면서 그중 무엇이 무엇을 바꾸는지 아무도 모른다.
+
+  기준은 **읽는 쪽의 판정을 그대로 쓴다.** `cancel_watch.build()` 는 취소를 발견해도
+  그 프로젝트에 **아직 안 끝난 원장 행**이 있을 때만 대기열 행을 만든다
+  (`open_ledger_rows()`). 그러므로 그 집합 밖의 글은 댓글을 다 읽어도
+  **오늘 단 한 줄도 못 바꾼다.** 짐작이 아니라 소비자의 코드에서 나온 기준이다.
+
+  실측 2026-08-09 — 댓글 미확인 7,475건의 정체:
+      제외: 업무글이 아님(공지·자료·양식)      3,070   ← parse_post 가 None
+      제외: 프로젝트NO 없음                   2,641
+      [3] 원장에 없거나 이미 닫혔다            1,684
+      [1] **열린 원장 행이 있다**                 80   ← 이것만 긁으면 된다
+  10시간이 **7분**이 된다.
+
+  갈래
+    [1] 열린 원장 행이 있다 — 취소 댓글이 **오늘 숫자를 바꾼다**. **날짜 제한 없음**
+        (반년 전 미실시가 그대로 얹혀 있는 것이 바로 이 사고의 본체다)
+    [2] 업무글인데 원장에 없다 — 접수 누락일 수 있다. 최근 것부터
+    [3] 나머지 업무글 — 결과가 이미 정해졌다. 남는 예산에만
+    제외    업무글이 아니다 — 댓글이 바꿀 것이 없다. **긁지 않는다**
+
+  공통 관문(어느 갈래든)
+    · `comments` 키가 **아예 없는** 글만. `comments: []`(열어 봤고 없었다)와 가른다 —
+      `band_extract.cancel_blind_count` 가 세는 것과 **같은 기준**이다. 세는 쪽과
+      고르는 쪽이 갈리면 계기는 줄어드는데 목록은 안 줄고, 또는 그 반대가 된다.
+    · 삭제·오염·유령·시각없음은 뺀다. 없는 글을 긁으면 캐시에 쓰레기가 들어간다
+      (2026-08-07 사고 — CLAUDE.md "'★밀림'을 보고 없는 번호를 긁지 말 것").
+    · 한 배치 250건 — 그 위로는 탭 렌더러가 언다(grab_posts.js 와 같은 값).
 
 사용
-  python band/comment_backfill.py                      # 어디가 비었나만 (쓰기 없음)
-  python band/comment_backfill.py --days 90 --write    # 붙여넣기 파일까지 만든다
+  python band/comment_backfill.py                  # 무엇을 왜 긁을지만 (쓰기 없음)
+  python band/comment_backfill.py --write          # 붙여넣기 파일까지 만든다
+  python band/comment_backfill.py --tier 1         # 1순위만
 """
 import argparse
+import collections
 import json
 import io
 import os
@@ -54,8 +76,36 @@ def _day(v):
         return str(v or "")[:10]
 
 
-def blind(band, days=None):
-    """[(날짜, 글번호)] — 댓글을 한 번도 안 들여다본 글, 최근 것부터."""
+TIER_WHY = {
+    1: "열린 원장 행이 있다 — 취소 댓글이 오늘 숫자를 바꾼다",
+    2: "업무글인데 원장에 없다 — 접수 누락일 수 있다",
+    3: "업무글이지만 원장이 이미 닫혔다 — 남는 예산에만",
+}
+
+
+def open_projects():
+    """아직 안 끝난 원장 행이 있는 프로젝트NO 집합.
+
+    ★ **읽는 쪽의 판정을 그대로 빌린다.** `cancel_watch.build()` 는 취소를 발견해도
+      이 집합 안에 있을 때만 대기열 행을 만든다. 여기서 따로 '열렸다'를 정의하면
+      언젠가 둘이 갈리고, 그때 수집기는 열심히 긁는데 아무것도 안 나온다.
+    """
+    try:
+        sys.path.insert(0, ROOT)
+        import cancel_watch
+        return set(cancel_watch.open_ledger_rows())
+    except Exception as e:
+        print("  ! 원장 열린 행을 못 읽었다(%s) — 갈래 없이 최근순으로만 고른다"
+              % type(e).__name__)
+        return None
+
+
+def blind(band, days=None, opens=None):
+    """[(갈래, 날짜, 글번호)] — 댓글을 한 번도 안 들여다본 글. 갈래 오름차순·최근순.
+
+    `opens` 가 None 이면(원장을 못 읽으면) 전부 갈래 2로 두고 날짜로만 고른다 —
+    **모르면서 1순위라고 우기지 않는다.**
+    """
     path = os.path.join(CACHE_DIR, "%s.json" % band)
     try:
         d = json.load(io.open(path, encoding="utf-8"))
@@ -63,6 +113,11 @@ def blind(band, days=None):
         return []
     posts = d.get("posts") or d
     cut = (date.today() - timedelta(days=days)).isoformat() if days else ""
+    try:
+        sys.path.insert(0, ROOT)
+        from band_extract import parse_post
+    except Exception:
+        parse_post = None
     out = []
     for k, v in posts.items():
         if not str(k).isdigit() or not isinstance(v, dict):
@@ -74,11 +129,31 @@ def blind(band, days=None):
         if "comments" in v:                  # 열어 본 적이 있다 — 비었어도 본 것이다
             continue
         day = _day(v.get("created_at"))
-        if cut and day < cut:
+        tier = 2
+        if parse_post is not None:
+            try:
+                rec = parse_post(int(k), v, band)
+            except Exception:
+                rec = None
+            if rec is None:
+                continue                     # 업무글이 아니다 — 댓글이 바꿀 것이 없다
+            prj = str(rec.get("프로젝트NO") or "").strip().upper()
+            if not prj:
+                continue                     # 어느 원장 행에도 못 닿는다
+            if opens is not None:
+                tier = 1 if prj in opens else 3
+        # 1순위는 **날짜로 자르지 않는다** — 반년 전 미실시가 그대로 얹혀 있는 것이
+        # 바로 이 사고의 본체다. 2·3순위만 최근 것으로 줄인다.
+        if tier != 1 and cut and day < cut:
             continue
-        out.append((day, int(k)))
-    out.sort(reverse=True)
+        out.append((tier, day, int(k)))
+    out.sort(key=lambda t: (t[0], _neg_day(t[1])))
     return out
+
+
+def _neg_day(day):
+    """같은 갈래 안에서는 최근 것이 앞으로 오게 한다(문자열 날짜의 역순 정렬)."""
+    return tuple(-ord(c) for c in day)
 
 
 def bands():
@@ -128,8 +203,10 @@ def write_paste(band, nos):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--days", type=int, default=90, help="며칠치까지 볼까 (0=전량)")
+    ap.add_argument("--days", type=int, default=90,
+                    help="2·3순위를 며칠치로 줄일까 (1순위는 안 자른다, 0=전량)")
     ap.add_argument("--limit", type=int, default=BATCH_MAX, help="한 배치 글 수")
+    ap.add_argument("--tier", type=int, help="이 갈래까지만 (1=열린 원장 행만)")
     ap.add_argument("--band", help="한 밴드만")
     ap.add_argument("--write", action="store_true", help="붙여넣기 파일까지 만든다")
     a = ap.parse_args(argv)
@@ -137,22 +214,40 @@ def main(argv=None):
         print("한 배치는 %d건까지입니다(그 위로는 탭이 업니다)." % BATCH_MAX)
         a.limit = BATCH_MAX
 
-    total_all = 0
+    opens = open_projects()
+    if opens is not None:
+        print("원장에서 아직 안 끝난 프로젝트 %d개 — 이 안에 드는 글만 1순위입니다.\n"
+              % len(opens))
+
+    grand = collections.Counter()
     for b in ([a.band] if a.band else bands()):
-        allb = blind(b, None)
-        win = blind(b, a.days or None)
-        total_all += len(allb)
-        print("밴드 %s — 댓글 미확인 전체 %d건 · 최근 %s일 %d건"
-              % (b, len(allb), a.days or "전", len(win)))
-        if not win:
+        rows = blind(b, a.days or None, opens)
+        if a.tier:
+            rows = [r for r in rows if r[0] <= a.tier]
+        by = collections.Counter(t for t, _d, _n in rows)
+        for t, n in by.items():
+            grand[t] += n
+        if not rows:
             continue
-        nos = [n for _d, n in win][:a.limit]
-        print("   이번 배치 %d건 (%d~%d)" % (len(nos), max(nos), min(nos)))
+        print("밴드 %s" % b)
+        for t in sorted(by):
+            print("   [%d] %-42s %4d건" % (t, TIER_WHY.get(t, ""), by[t]))
+        nos = [n for _t, _d, n in rows][:a.limit]
+        head = collections.Counter(t for t, _d, _n in rows[:a.limit])
+        print("   이번 배치 %d건 — %s"
+              % (len(nos), " · ".join("%d순위 %d" % (t, head[t]) for t in sorted(head))))
         if a.write:
             print("   →", write_paste(b, nos))
-    if total_all:
-        print("\n전체 %d건이 아직 댓글을 한 번도 안 들여다봤습니다." % total_all)
-        print("접수취소는 대부분 댓글로 옵니다 — 그동안 cancel_watch 는 반쪽으로 돕니다.")
+
+    if grand:
+        print()
+        for t in sorted(grand):
+            print("전체 [%d] %-42s %5d건" % (t, TIER_WHY.get(t, ""), grand[t]))
+        if grand.get(1):
+            print("\n★ 1순위 %d건만 긁으면 오늘 바뀔 수 있는 것은 다 봅니다"
+                  " (약 %d분)." % (grand[1], max(1, round(grand[1] * 5 / 60))))
+        print("업무글이 아닌 글(공지·자료·양식)과 프로젝트NO 없는 글은"
+              " **애초에 목록에 없습니다** — 댓글이 바꿀 것이 없기 때문입니다.")
     return 0
 
 

@@ -9305,6 +9305,82 @@ def t172_ledger_screens_are_split():
     print("  [172] 회계 원장류 — 네 화면이 갈린다(분개장→적요 순서·slips 안 샘) ✅")
 
 
+def t177_comment_collection_is_targeted():
+    """[177] 수집은 **날짜가 아니라 쓸모로** 고른다 (2026-08-09 지시).
+
+    사용자 지시: "무작정 자료 수집만 하지 말고 정확한 알고리즘을 만들어 수집하게 코딩해".
+    처음 만든 것은 '최근 90일치 250건씩'이었다 — 그건 결국 무작정이다. 7,475건을
+    10시간 긁으면서 그중 무엇이 무엇을 바꾸는지 아무도 모른다.
+
+    기준은 **읽는 쪽에서 빌린다.** `cancel_watch.build()` 는 취소를 찾아도 그
+    프로젝트에 **아직 안 끝난 원장 행**이 있을 때만 대기열 행을 만든다. 그 집합 밖의
+    글은 댓글을 다 읽어도 오늘 단 한 줄도 못 바꾼다. 실측 7,475건의 정체:
+    업무글 아님 3,070 · 프로젝트NO 없음 2,641 · 닫힘 1,684 · **열림 80**.
+    10시간이 7분이 된다.
+
+    지키는 것: ① 업무글이 아니면 목록에 **아예 안 넣는다** ② 프로젝트NO 가 없으면
+    안 넣는다 ③ 열린 원장 행이 있으면 1순위이고 **날짜로 안 자른다**(반년 전 미실시가
+    이 사고의 본체다) ④ 원장을 못 읽으면 1순위라고 **우기지 않는다**.
+    """
+    import sys as _s
+    _s.path.insert(0, os.path.join(ROOT, "band"))
+    import comment_backfill as CB
+
+    made = []
+
+    def fake_parse(no, p, band):
+        return None if p.get("kind") == "공지" else {"프로젝트NO": p.get("prj", "")}
+
+    import band_extract
+    real = band_extract.parse_post
+    real_load = CB.io.open
+    import time as _t
+    NOW = int(_t.time() * 1000)          # 최근 — 날짜 창 안
+    OLD = 1                              # 1970년 — 날짜 창 **밖**
+    posts = {
+        # ★ 열린 원장 행이면 **아무리 오래돼도** 뽑힌다. 반년 전 미실시가 그대로
+        #   얹혀 있는 것이 이 사고의 본체다 — 그래서 일부러 1970년으로 둔다.
+        "10": {"created_at": OLD, "prj": "UJ2600001"},             # 열림 → 1
+        "11": {"created_at": NOW, "prj": "UJ2699999"},             # 닫힘·최근 → 3
+        "17": {"created_at": OLD, "prj": "UJ2699999"},             # 닫힘·오래됨 → 제외
+        "12": {"created_at": NOW, "kind": "공지"},                  # 업무글 아님 → 제외
+        "13": {"created_at": NOW, "prj": ""},                       # 프로젝트NO 없음 → 제외
+        "14": {"created_at": NOW, "prj": "UJ2600001", "comments": []},   # 이미 봤다 → 제외
+        "15": {"created_at": NOW, "prj": "UJ2600001", "deleted": True},  # 삭제 → 제외
+        "16": {"prj": "UJ2600001"},                                 # 시각 없음 → 제외
+    }
+
+    class _F:
+        def __init__(self, s): self.s = s
+        def read(self): return self.s
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    try:
+        band_extract.parse_post = fake_parse
+        CB.io.open = lambda *a, **k: _F(json.dumps({"posts": posts}))
+        got = CB.blind("90610953", 90, {"UJ2600001"})
+        nums = [n for _t, _d, n in got]
+        assert nums == [10, 11], "고른 것이 다르다: %r" % (got,)
+        assert got[0][0] == 1 and got[1][0] == 3, "갈래가 틀렸다: %r" % (got,)
+
+        # 원장을 못 읽으면 1순위라고 우기지 않는다 — 전부 2순위(모름)
+        got2 = CB.blind("90610953", 90, None)
+        assert {t for t, _d, _n in got2} == {2}, "원장을 모르는데 갈래를 단정했다"
+    finally:
+        band_extract.parse_post = real
+        CB.io.open = real_load
+
+    assert CB.BATCH_MAX == 250, "한 배치 상한이 grab_posts.js 와 어긋난다(탭이 언다)"
+    src = open(os.path.join(ROOT, "band", "comment_backfill.py"),
+               encoding="utf-8").read()
+    assert "open_ledger_rows" in src, \
+        "'열렸다'를 여기서 따로 정의하면 cancel_watch 와 갈린다 — 빌려 써야 한다"
+    assert "tier != 1 and cut" in src, \
+        "1순위까지 날짜로 자르고 있다 — 오래된 미실시가 이 사고의 본체다"
+    print("  [177] 댓글 수집 — 날짜가 아니라 '오늘 숫자를 바꾸는가'로 고른다 ✅")
+
+
 def t176_rules_bump_does_not_wipe_the_index():
     """[176] 규칙이 바뀌었다고 **색인 11만 건을 통째로 버리면 안 된다** (2026-08-09).
 
@@ -9473,6 +9549,58 @@ def t173_classify_cache_follows_rules():
         S.RULES_VERSION -= 1
     assert IX.rules_version() == v0, "지문이 원래대로 안 돌아온다"
     print("  [173] 분류 캐시·색인 지문 — 규칙을 고치면 둘 다 다시 판별한다 ✅")
+
+
+def t172_typo_watch_does_not_cry_wolf():
+    """[172] 오기입 탐지 — **잡는 것보다 잘못 지목하지 않는 것**이 어렵다 (2026-08-09 지시).
+
+    사용자 지시: "오타 오기입 이런거 잡아낼 수 있는 알고리즘 구성해서 적용해"
+
+    첫판이 750행에서 **163건**을 쏟았다. 두 번 다 규칙이 틀린 것이었다:
+      · 날짜 160건 — 전부 **명세서발행일이 완료일보다 1~3일 앞선 것**이었다.
+        그건 오타가 아니라 정상 업무다(명세서를 먼저 끊는다). 이제 **연도 한 자리
+        차이**나 **1년 이상** 앞선 것만 본다.
+      · 캠프명 `제주3캠프` → `양주3캠프` — 그런데 제주에는 제주1·2·3캠프가 **다 실재한다.**
+        '드물게 쓰인 것'과 '잘못 쓰인 것'은 다르다. 이제 **괄호 안 지명이 같은데 앞
+        숫자만 다른 것**만 본다(`송파1MB(감일동)` ↔ `송파5MB(감일동)`).
+    163 → **1건**이 됐고 그 1건은 근거가 선다.
+
+    ★ 오타라고 잘못 부르면 사람이 **멀쩡한 값을 고치러 간다** — 못 잡는 것보다 나쁘다.
+      그래서 이 도구는 **아무것도 고치지 않고 큐에도 넣지 않는다.** 무엇이 맞는지는
+      사람만 안다. 자동으로 고치면 "그때 정말 뭐라고 적혀 있었나"를 잃는다.
+    """
+    import typo_watch as T
+
+    # ① 오타로 봐야 하는 것
+    assert T.edit1("PO372139", "PO372136"), "한 글자 치환은 오타 후보다"
+    assert T.swap_typo("PO372139", "PO372193"), "이웃 두 글자 자리바꿈은 가장 흔한 손오타다"
+    assert T.digit_slip(4030000, 403000) == "10배", "0 하나 더 친 것"
+    assert T.digit_slip(403000, 4030000) == "1/10", "0 하나 덜 친 것"
+
+    # ② 오타로 보면 **안 되는** 것 — 여기가 이 도구의 값어치다
+    assert not T.edit1("PO37213", "PO372139"), "자리 수가 다르면 오타가 아니라 다른 체계다"
+    assert not T.edit1("PO372139", "PO372236"), "두 글자 차이는 짐작이다"
+    assert T.digit_slip(403000, 402000) is None, "어중간한 차이는 자릿수 실수가 아니다"
+    assert len(T.near("PO0002", {"PO0001", "PO0003"})) == 2, \
+        "후보가 둘이면 둘 다 돌려줘 **지목을 막아야** 한다"
+
+    src = open(os.path.join(ROOT, "typo_watch.py"), encoding="utf-8").read()
+    code = "\n".join(ln for ln in src.splitlines() if not ln.strip().startswith("#"))
+
+    # ③ 날짜: 며칠 앞선 것은 안 본다(160건의 정체)
+    assert "gap >= 365" in code and "yr_slip" in code, \
+        "완료일보다 며칠 앞선 명세서는 정상 업무다 — 그걸 세면 경보가 160건이 된다"
+    # ④ 캠프명: 괄호 안 지명이 같을 때만
+    assert 'endswith("(" + loc.group(1) + ")")' in code, \
+        "'드물게 쓰인 이름'만으로 지목하면 제주3캠프 같은 실재 이름을 오타로 부른다"
+    # ⑤ 절대 고치지 않는다 — 큐도 엑셀도 건드리면 안 된다
+    for banned in ("queue_add", "enqueue", "workbook_patch", "ledger_writer"):
+        assert banned not in code, f"오기입 탐지는 읽기 전용이어야 한다: {banned}"
+
+    # ⑥ 회차에 들어가 있나 — 대화에 남긴 것은 사라지고 스케줄에 넣은 것만 산다
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "typo_watch.py" in daily, "일일대조 회차에 안 들어가면 한 번 돌고 끝난다"
+    print("  [172] 오기입 탐지 — 지목은 유일할 때만 · 며칠 차이는 정상 · 읽기 전용 ✅")
 
 
 def t171_cache_swap_waits_for_readers():
@@ -10907,11 +11035,13 @@ if __name__ == "__main__":
     t169_blind_count_sees_unlooked()
     t170_po_amount_ladder()
     t171_cache_swap_waits_for_readers()
+    t172_typo_watch_does_not_cry_wolf()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()
     t175_step_timeout_cannot_hang_forever()
     t176_rules_bump_does_not_wipe_the_index()
+    t177_comment_collection_is_targeted()
     t161_erp_filename_fingerprint()
     t160_master_book_cache()
     t154_amount_basis()
