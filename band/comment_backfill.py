@@ -249,6 +249,31 @@ def write_paste(band, nos):
 #   비싸다) 웹 요청마다 다시 계산하지 않는다.
 PLAN_PATH = os.path.join(ROOT, "reports", "밴드_수집계획.json")
 
+# ── PC 가 꺼져 있어도 받게 — 게시용 정적 사본 (2026-08-09 지시: "이 컴퓨터가
+#   꺼져있어 연결되어있지 않더라도 앱 자체적으로 처리"). 로컬 앱(localhost)이 없으면
+#   유저스크립트가 GitHub Pages 의 이 사본에서 계획·수집기를 받아 스스로 긁는다.
+#   비밀 없음: 계획은 **글 번호**뿐, 수집기는 DOM 을 읽는 JS 뿐이다(data.enc 처럼
+#   암호화할 것이 없다). 파일 이름은 **ASCII** 로 둔다 — 폰 fetch 가 한글 URL 인코딩에
+#   안 걸리게(`plan.json`). 검증 [183].
+DOCS_COLLECT = os.path.join(ROOT, "docs", "collect")
+
+
+def publish_collect(plan, when=None):
+    """게시 사본을 만든다: docs/collect/plan.json + grab_posts.js(정본 복사)."""
+    import shutil
+    os.makedirs(DOCS_COLLECT, exist_ok=True)
+    doc = {"bands": plan}
+    if when:
+        doc["generated"] = when
+    tmp = os.path.join(DOCS_COLLECT, "plan.json.tmp")
+    io.open(tmp, "w", encoding="utf-8").write(json.dumps(doc, ensure_ascii=False))
+    os.replace(tmp, os.path.join(DOCS_COLLECT, "plan.json"))
+    # 정본 수집기를 그대로 복사한다 — 앱이 /grab_posts.js 로 내려 주는 것과 **같은 파일**.
+    # 규칙이 바뀌면 이 파일만 바뀌고 유저스크립트는 안 바꾼다(붙여넣기 파일과 같은 원칙).
+    shutil.copy(os.path.join(HERE, "grab_posts.js"),
+                os.path.join(DOCS_COLLECT, "grab_posts.js"))
+    return DOCS_COLLECT
+
 
 def write_plan(plan, when=None):
     """plan = {band: {"nos":[...], "tiers":{"1":n,...}}}. 시각은 밖에서 받는다(테스트 가능)."""
@@ -258,6 +283,11 @@ def write_plan(plan, when=None):
     tmp = PLAN_PATH + ".tmp"
     io.open(tmp, "w", encoding="utf-8").write(json.dumps(doc, ensure_ascii=False))
     os.replace(tmp, PLAN_PATH)
+    # PC 가 꺼져도 폰/브라우저가 받게 게시 사본까지 — 실패해도 로컬 계획은 남긴다.
+    try:
+        publish_collect(plan, when)
+    except Exception as e:
+        print("  ! 게시 사본 실패(%s) — 로컬 계획은 정상" % type(e).__name__)
     return PLAN_PATH
 
 

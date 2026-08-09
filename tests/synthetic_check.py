@@ -9905,6 +9905,155 @@ def t182_app_collects_without_claude():
     print("  [182] 앱 자체 수집 — 계획 라운드트립 · 정본 수집기 서빙 · 회차가 갱신 ✅")
 
 
+def t183_collect_survives_pc_off():
+    """[183] PC 가 꺼져 있어도 수집은 돈다 — 게시 사본 폴백 (2026-08-09 지시).
+
+    사용자 지시: "만약 이 컴퓨터가 꺼져있어 연결되어있지 않더라도 앱 자체적으로
+    처리할 수 있는 알고리즘 구현해"
+
+    [182] 는 로컬 앱(localhost)이 켜져 있을 때 Claude 를 뺐다. 그런데 PC 가 꺼지면
+    localhost 도 없다 — 그러면 유저스크립트가 굶는다. 그래서 회차가 계획·정본 수집기를
+    **GitHub Pages 에 게시**해 두고(비밀 없음: 글 번호·DOM 읽는 JS 뿐), 유저스크립트는
+    localhost 를 못 찾으면 그 게시본으로 폴백한다. 그러면 폰만 있어도 긁는다.
+
+    ★ 이 검증이 지키는 것: ① 게시 사본이 **ASCII 이름**으로 나오나(폰 fetch 가 한글 URL
+      인코딩에 안 걸리게) ② 계획·수집기 **둘 다** 나오나 ③ 게시 수집기가 정본과 같나
+      ④ 유저스크립트에 Pages 폴백이 배선돼 있나 ⑤ 로컬 앱이 **먼저**인가(최신·빠름).
+    """
+    import importlib
+    sys.path.insert(0, os.path.join(ROOT, "band"))
+    cb = importlib.import_module("comment_backfill")
+
+    # ① ② ③ 게시 사본 — plan.json(ASCII) + grab_posts.js(정본 복사)
+    docs_collect = cb.DOCS_COLLECT
+    plan_pub = os.path.join(docs_collect, "plan.json")
+    grab_pub = os.path.join(docs_collect, "grab_posts.js")
+    bak_plan = open(plan_pub, encoding="utf-8").read() if os.path.exists(plan_pub) else None
+    p = cb.PLAN_PATH
+    bak_main = open(p, encoding="utf-8").read() if os.path.exists(p) else None
+    try:
+        cb.write_plan({"90610953": {"nos": [5435, 5425], "tiers": {"1": 2}}},
+                      when="2026-08-09 00:00")
+        # ① ASCII 이름 — 한글 URL 이 아니어야 폰 fetch 가 안 깨진다
+        assert os.path.exists(plan_pub), "게시용 plan.json 이 안 나왔다 — PC 꺼지면 굶는다"
+        doc = json.load(open(plan_pub, encoding="utf-8"))
+        assert (doc.get("bands") or {}).get("90610953", {}).get("nos") == [5435, 5425], \
+            "게시 계획이 회차 계획과 다르다"
+        # ② ③ 정본 수집기가 그대로 실려야 한다(딴 사본이 아니라)
+        assert os.path.exists(grab_pub), "게시용 grab_posts.js 가 없다 — 폴백해도 수집기가 없다"
+        canon = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
+        assert open(grab_pub, encoding="utf-8").read() == canon, \
+            "게시 수집기가 정본과 다르다 — 규칙을 고쳐도 옛 수집기가 폰에 간다([162])"
+    finally:
+        # 게시 사본은 실제 산출물이므로 원상복구(테스트가 실데이터를 흔들지 않게)
+        if bak_plan is not None:
+            open(plan_pub, "w", encoding="utf-8").write(bak_plan)
+        elif os.path.exists(plan_pub):
+            os.remove(plan_pub)
+        if bak_main is not None:
+            open(p, "w", encoding="utf-8").write(bak_main)
+        elif os.path.exists(p):
+            os.remove(p)
+
+    # ④ ⑤ 유저스크립트: Pages 폴백이 있고, 로컬 앱이 **먼저**다
+    us = open(os.path.join(ROOT, "band", "band_auto_collect.user.js"),
+              encoding="utf-8").read()
+    assert "github.io" in us and "/plan.json" in us, \
+        "유저스크립트에 Pages 폴백이 없다 — PC 꺼지면 못 긁는다"
+    assert us.index("findApp") < us.index("PAGES_BASE") or "resolveSource" in us, \
+        "로컬 앱을 게시본보다 먼저 봐야 한다(최신·빠름)"
+    assert "resolveSource" in us, "폴백은 한 곳(resolveSource)에서 골라야 갈리지 않는다"
+    print("  [183] PC 꺼져도 수집 — 게시 plan.json(ASCII)·정본 수집기·Pages 폴백 ✅")
+
+
+def t184_phone_answers_with_the_same_rules():
+    """[184] 폰이 PC 없이 답한다 — 규칙은 **한 곳**, 답은 미리 만들어 싣는다 (2026-08-09 지시).
+
+    사용자 지시: "대시보드에 내가 앱에 텍스트로 명령하면 클로드 코드처럼 조사하고
+    정리하고 답변주고 구현하는 기능을 앱에 탑재해서 클로드 코드 안 거치고 대시보드에서
+    처리할 수 있는 기능 코딩해 (PC가 꺼져있어도 휴대폰으로 들고다니면서 업무처리할 수 있게)"
+
+    [181] 이 만든 답변기는 **PC 가 켜져 있을 때만** 돌았다(`/api/ask`). 폰 사본은
+    GitHub Pages 의 잠긴 `data.enc` 라 파이썬이 없다. 그렇다고 규칙을 JS 로 옮겨 적으면
+    같은 판단이 두 곳에 생기고, **갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.**
+    그래서 답을 **미리 만들어**(`answer_pack`) 사본에 싣고, 폰은 말투로 갈래만 고른다.
+
+    ★ 이 검증이 지키는 것:
+      ① 사본에 꾸러미가 실리나(`cloud_publish.payload`)
+      ② 말투가 **JS 에서도 컴파일되나** — 파이썬에서만 되는 문법을 쓰면 폰에서 그
+         갈래가 조용히 죽는다(오류도 안 난다. `[169]` 와 같은 모양)
+      ③ 폰이 **규칙을 베껴 적지 않았나** — 정규식이 app.html 에 박혀 있으면 안 된다
+      ④ **만든 시각을 화면에 띄우나** — 꾸러미는 PC 가 꺼진 동안 낡는다. 낡은 답을
+         시각 없이 자신 있게 보여 주는 것이 여기서 제일 위험하다
+      ⑤ '규칙에 없는 질문' 과 '근거가 없어 답이 안 실린 갈래' 를 **가르나** — 뭉치면
+         사람이 이미 있는 규칙을 다시 만들러 간다(실측: 앱서버 갈래가 그랬다)
+    """
+    import importlib
+    import local_ai as L
+    importlib.reload(L)
+
+    # ① 사본에 실리나 — payload() 를 통째로 돌리면 Z: 를 훑으므로 배선만 본다([168]).
+    cp = open(os.path.join(ROOT, "cloud_publish.py"), encoding="utf-8").read()
+    assert 'd["ask"]' in cp and "answer_pack()" in cp, \
+        "폰 사본에 답 꾸러미가 안 실린다 — PC 가 꺼지면 폰은 아무것도 못 답한다"
+    assert cp.index('d["ask"]') < cp.index('d["gen"]'), "꾸러미는 payload() 안에 있어야 한다"
+
+    pack = L.answer_pack()
+    for k in ("만든때", "규칙", "답", "번호", "번호말투", "탈출머리말"):
+        assert k in pack, "꾸러미에 '%s' 가 없다" % k
+    assert pack["규칙"], "말투가 안 실렸다 — 폰은 갈래를 하나도 못 고른다"
+    # 말투는 갈래용·번호용 **둘 다** 사본이 준다. 폰이 제 손으로 적으면 그것도 갈릴 사본이다.
+    every = [p for r in pack["규칙"] for p in r["말투"]] + list(pack["번호말투"].values())
+
+    # ② 파이썬에서만 되는 문법은 폰에서 **그 갈래만 조용히 죽는다**.
+    js_bad = re.compile(r"\(\?P|\(\?#|\\A(?![-\w])|\\Z|\(\?i\)|\(\?m\)|\(\?s\)|\(\?x\)")
+    for pat in every:
+        assert not js_bad.search(pat), \
+            "말투 %r 은 JS 에서 안 돈다 — 폰에서 그 갈래가 말없이 죽는다" % pat
+
+    app = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+
+    # ③ 규칙을 베껴 적지 않았나 — 판단은 파이썬 한 곳에서만 한다.
+    for pat in every:
+        if len(pat) < 8:
+            continue                          # '오타'·'취소' 같은 낱말은 본문에도 나온다
+        assert pat not in app, \
+            "app.html 에 규칙 %r 이 박혀 있다 — 두 곳에서 판단하면 언젠가 갈린다" % pat
+
+    # ④ 만든 시각을 화면에 띄우나
+    assert "askPick" in app and "function doAsk" in app and "$('askgo')" in app, \
+        "폰에 물어보기 카드가 배선되지 않았다"
+    assert "D.ask" in app, "폰이 꾸러미를 안 읽는다"
+    i = app.index("function doAsk")
+    body = app[i:i + 3000]
+    assert "만든때" in body, "만든 시각을 안 띄운다 — 낡은 답이 확정처럼 보인다"
+
+    # ⑤ '규칙에 없다' 와 '근거가 없어 안 실렸다' 를 가르나
+    assert "hasOwnProperty" in body, \
+        "아는 갈래와 모르는 갈래를 안 가른다 — 사람이 이미 있는 규칙을 다시 만들러 간다"
+
+    # 지어내지 않는 자리 — 못 답하면 클로드 문구를 준다
+    assert "탈출머리말" in app, "폰이 못 답할 때 붙여넣을 문구를 안 만든다"
+
+    # 폰이 실제로 고르는 갈래가 PC 와 같은가 — 꾸러미의 말투 그대로 흉내 낸다.
+    # (파이썬 정규식으로 돌리므로 JS 자체 시험은 아니다. 그래서 ② 가 따로 있다.)
+    order = [(r["이름"], [re.compile(p, re.I) for p in r["말투"]]) for r in pack["규칙"]]
+    for q, want in L.PROBES:
+        got = None
+        for name, pats in order:
+            if any(p.search(q) for p in pats):
+                got = name
+                break
+        assert got == want, "폰이 고른 갈래가 PC 와 다르다: %r → %r (기대 %r)" % (q, got, want)
+        if want is None:
+            continue
+        known = want == "프로젝트조회" or want in pack["답"]
+        assert known, "갈래 '%s' 가 꾸러미에 자리조차 없다 — 폰이 이유를 못 댄다" % want
+
+    print("  [184] 폰이 PC 없이 답함 — 꾸러미 배선·JS 안전 말투 %d개·규칙 비복제·"
+          "만든시각 표시·갈래 %d개 일치 ✅" % (len(every), len(L.PROBES)))
+
+
 def t172_typo_watch_does_not_cry_wolf():
     """[172] 오기입 탐지 — **잡는 것보다 잘못 지목하지 않는 것**이 어렵다 (2026-08-09 지시).
 
@@ -11442,6 +11591,8 @@ if __name__ == "__main__":
     t180_round_leaves_footprints_and_finishes()
     t181_app_answers_before_claude_is_called()
     t182_app_collects_without_claude()
+    t183_collect_survives_pc_off()
+    t184_phone_answers_with_the_same_rules()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()

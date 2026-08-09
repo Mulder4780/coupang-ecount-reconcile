@@ -2,7 +2,7 @@
 // @name         쿠팡업무 — 밴드 자동 댓글수집 (Claude Code 없이)
 // @namespace    coupang-ecount
 // @version      1.0
-// @description  로그인된 밴드 탭에서 앱의 수집계획을 받아 스스로 댓글을 긁는다. Claude Code/Codex 크레딧을 안 쓴다.
+// @description  로그인된 밴드 탭에서 수집계획을 받아 스스로 댓글을 긁는다. 로컬 앱이 없으면(PC 꺼짐) GitHub Pages 게시본으로 폴백한다. Claude Code/Codex 크레딧을 안 쓴다.
 // @match        https://www.band.us/band/*
 // @run-at       document-idle
 // @grant        none
@@ -37,6 +37,10 @@
   'use strict';
 
   var APP_CANDIDATES = ['http://localhost:8899', 'http://127.0.0.1:8899'];
+  // PC 가 꺼져 있으면 localhost 앱이 없다 — 그때는 GitHub Pages 의 게시 사본에서
+  // 계획·수집기를 받아 스스로 긁는다(2026-08-09 지시 "컴퓨터 꺼져있어도").
+  // 게시는 comment_backfill.publish_collect 가 회차에서 만든다. 검증 [183].
+  var PAGES_BASE = 'https://mulder4780.github.io/coupang-ecount-reconcile/collect';
   var GAP_MS = 3 * 60 * 60 * 1000;          // 밴드당 최소 간격 (몰아 긁기 방지)
   var POLL_MS = 4000;                       // 진행 폴링 간격
   var MAX_WAIT_MS = 30 * 60 * 1000;         // 한 배치 최대 대기(안 끝나면 저장하고 끝)
@@ -66,14 +70,38 @@
     return tryOne();
   }
 
-  function loadCollector(base) {
+  function loadCollector(url) {
     return new Promise(function (res, rej) {
       if (typeof window.__grabStart === 'function') return res(true);
       var s = document.createElement('script');
-      s.src = base + '/grab_posts.js?v=' + Date.now();   // 정본을 앱에서 받는다
+      s.src = url + (url.indexOf('?') < 0 ? '?v=' : '&v=') + Date.now();  // 정본
       s.onload = function () { res(true); };
       s.onerror = function () { rej(new Error('grab_posts.js 로드 실패')); };
       document.head.appendChild(s);
+    });
+  }
+
+  // 어디서 계획·수집기를 받을지 정한다: 로컬 앱(최신·빠름)이 먼저, 없으면 게시 사본.
+  //   반환 {collector: <grab_posts.js URL>, nos: [글번호]}. 둘 다 없으면 null.
+  function resolveSource(band) {
+    return findApp().then(function (base) {
+      if (base) {
+        // 서버: 밴드별 계획을 바로 준다(우선순위는 회차가 미리 계산해 둔 것).
+        return fetch(base + '/api/collect_plan?band=' + band, { mode: 'cors' })
+          .then(function (r) { return r.json(); })
+          .then(function (plan) {
+            return { collector: base + '/grab_posts.js', nos: (plan && plan.nos) || [] };
+          });
+      }
+      // 게시 사본(Pages): PC 가 꺼져 있다 — 정적 plan.json 에서 이 밴드만 골라 쓴다.
+      return fetch(PAGES_BASE + '/plan.json', { mode: 'cors' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (doc) {
+          if (!doc) return null;
+          var b = (doc.bands || {})[String(band)] || {};
+          return { collector: PAGES_BASE + '/grab_posts.js', nos: b.nos || [] };
+        })
+        .catch(function () { return null; });
     });
   }
 
@@ -86,15 +114,12 @@
     // 시작 표시를 **먼저** 찍는다 — 실패해도 다음 로드에서 곧바로 또 긁지 않게.
     localStorage.setItem(keyLast(band), String(Date.now()));
 
-    findApp().then(function (base) {
-      if (!base) return;                     // 앱이 꺼져 있다 — 사람이 여는 게 먼저다
-      return fetch(base + '/api/collect_plan?band=' + band, { mode: 'cors' })
-        .then(function (r) { return r.json(); })
-        .then(function (plan) {
-          var nos = (plan && plan.nos) || [];
-          if (!nos.length) return;           // 이 밴드는 긁을 게 없다
-          return loadCollector(base).then(function () { return startAndSave(band, nos); });
-        });
+    resolveSource(band).then(function (src) {
+      if (!src) return;                      // 서버도 게시 사본도 없다 — 다음 회차에
+      if (!src.nos.length) return;           // 이 밴드는 긁을 게 없다
+      return loadCollector(src.collector).then(function () {
+        return startAndSave(band, src.nos);
+      });
     }).catch(function () { /* 조용히 — 앱/네트워크 문제는 다음 회차에 다시 시도 */ });
   }
 
