@@ -82,15 +82,35 @@
   //   ※ 클릭은 사람 로그인 세션에서만 뜻이 있다(절대규칙 3). 검증 [178] 이
   //     "확인 못 하면 기록 안 한다"를 이미 지키고 있으므로, 이 자리가 고쳐지기
   //     전까지 수집은 **정직하게 빈손**으로 끝난다 — 거짓 성공은 나지 않는다.
-  const CMT_ITEM = 'ul.commentList > li, .commentList .commentItem, .cComment li, [class*="commentItem"]';
+  const CMT_LIST_REGION = '._commentListRegion, .commentListRegion, [class*="commentListRegion"]';
+  const CMT_ITEM = 'ul.commentList > li, .commentList .commentItem, .cComment li, [class*="commentItem"], li[data-viewname], .cComment .uComment';
   const CMT_BODY = '.commentText, ._commentContent, .txt, [class*="commentText"]';
   const CMT_TIME = '.time, .date, [class*="time"]';
   const CMT_WHO = '.uName, .commentWriterInfo .text, .writeInfo .name, [class*="writerName"]';
+  // 댓글 레이어를 연다. **댓글은 열기 전에는 DOM 에 없다**(2026-08-09 실측) —
+  // 그래서 이 한 번의 클릭이 선택자보다 중요하다. 이미 열려 있으면 아무것도 안 한다.
+  const CMT_OPEN = '._commentCountLayerBtn, ._commentLayerBtn, ._commentCountBtn, ._commentMainBtn';
+  function openComments(root) {
+    if (root.querySelector(CMT_LIST_REGION + ' ' + CMT_ITEM.split(',')[0].trim())) return false;
+    for (const b of root.querySelectorAll(CMT_OPEN)) {
+      try { b.click(); return true; } catch (e) { /* 다음 후보 */ }
+    }
+    return false;
+  }
+
   function readComments(root) {
     let items = [];
+    // 레이어 안쪽을 **먼저** 본다 — 바깥에도 비슷한 <li> 가 있어 엉뚱한 것을 잡을 수 있다.
+    const region = root.querySelector(CMT_LIST_REGION);
     for (const s of CMT_ITEM.split(',')) {
-      items = [...root.querySelectorAll(s.trim())];
+      items = [...(region || root).querySelectorAll(s.trim())];
       if (items.length) break;
+    }
+    if (!items.length && region) {
+      for (const s of CMT_ITEM.split(',')) {
+        items = [...root.querySelectorAll(s.trim())];
+        if (items.length) break;
+      }
     }
     const out = [];
     for (const it of items) {
@@ -229,7 +249,9 @@
       // '읽었는데 댓글이 없더라'로 굳는다.
       const tries = countKnown ? 8 : 4;
       for (let i = 0; i < tries && cts.length < (countKnown ? want : 1); i++) {
-        await sleep(250);
+        // 안 보이면 **레이어를 열어 본다** — 선택자가 아니라 이 클릭이 관건이었다
+        if (want > 0 || i === 0) openComments(d);
+        await sleep(400);
         cts = readComments(d);
       }
       const post = {
