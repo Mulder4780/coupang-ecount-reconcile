@@ -9608,8 +9608,8 @@ def t173_classify_cache_follows_rules():
     print("  [173] 분류 캐시·색인 지문 — 규칙을 고치면 둘 다 다시 판별한다 ✅")
 
 
-def t174_round_leaves_footprints_and_finishes():
-    """[174] 회차는 **자국을 남기고 반드시 끝난다** (2026-08-09 지시).
+def t176_round_leaves_footprints_and_finishes():
+    """[176] 회차는 **자국을 남기고 반드시 끝난다** (2026-08-09 지시).
 
     사용자 지시: "32시간째 미완주 왜그런거야 해결해 이런 문제 생기면 코딩해서
     다시는 안생기게 처리하는 알고리즘 구성해서 적용하고 보고해"
@@ -9667,12 +9667,12 @@ def t174_round_leaves_footprints_and_finishes():
     hs = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
     assert "def daily_step_now" in hs and "_step_hint()" in hs, \
         "'몇 시간째'만 말하고 '어느 단계'를 못 대면 원인을 못 찾는다"
-    print("  [174] 회차가 단계마다 자국을 남기고 · 예산을 넘으면 완주시키고 · "
+    print("  [176] 회차가 단계마다 자국을 남기고 · 예산을 넘으면 완주시키고 · "
           "경보가 단계 이름을 댄다 ✅")
 
 
-def t173_comments_everywhere_and_crossed():
-    """[173] 댓글을 **다 찾아 담고**, 카톡과 **한 사건으로 묶는다** (2026-08-09 지시).
+def t175_comments_everywhere_and_crossed():
+    """[175] 댓글을 **다 찾아 담고**, 카톡과 **한 사건으로 묶는다** (2026-08-09 지시).
 
     사용자 지시: "밴드도 댓글도 다 찾아 저장하는 알고리즘 구성하고, 카톡도 댓글이랑
     연관지어서 생각하고 반영하는 알고리즘 구현해"
@@ -9734,7 +9734,7 @@ def t173_comments_everywhere_and_crossed():
     # ⑦ 회차에 들어가 있나
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert "cross_signal.py" in daily, "일일대조에 없으면 한 번 돌고 끝난다"
-    print("  [173] 댓글 구멍을 회차로 · 카톡↔밴드를 캠프·날짜·사건 셋으로 묶는다 ✅")
+    print("  [175] 댓글 구멍을 회차로 · 카톡↔밴드를 캠프·날짜·사건 셋으로 묶는다 ✅")
 
 
 def t172_typo_watch_does_not_cry_wolf():
@@ -11225,8 +11225,8 @@ if __name__ == "__main__":
     t170_po_amount_ladder()
     t171_cache_swap_waits_for_readers()
     t172_typo_watch_does_not_cry_wolf()
-    t173_comments_everywhere_and_crossed()
-    t174_round_leaves_footprints_and_finishes()
+    t175_comments_everywhere_and_crossed()
+    t176_round_leaves_footprints_and_finishes()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()
