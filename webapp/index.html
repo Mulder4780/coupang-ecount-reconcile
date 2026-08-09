@@ -3218,6 +3218,7 @@ body.dash-drag-live #dashGuides{display:grid}
         <p>문제유형과 담당자별로 건을 좁혀 보고, 프로젝트 번호를 눌러 정확한 업무 기록을 확인할 수 있습니다.</p>
       </div>
       <div class="actions">
+        <button class="abtn" onclick="confirmRun('evidence_sync','ERP·PO·계산서 원본을 다시 대조하고, 객관근거가 완결된 건만 완료 DB에 반영할까요? 실제 계산서 발행이나 외부 전송은 하지 않습니다.')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>근거 재대조</button>
         <button class="abtn primary" onclick="openCheckFiltered()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>현재 목록 보기</button>
         <button class="abtn" onclick="showCheckRaw()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>원본표 보기</button>
       </div>
@@ -7750,7 +7751,20 @@ function showFixedEntry(){
     b.textContent = '복사됨'; setTimeout(()=>{ b.textContent = '복사'; }, 1600);
   };
 }
-async function loadSettle(fresh){
+let settleFlight=null, settleFlightFresh=false;
+function loadSettle(fresh){
+  /* 여러 SWR 경로와 화면 전환이 같은 순간 이 로더를 불러도 7개 API 묶음은 한 번만
+     나간다. 사람이 누른 강제 갱신이 일반 갱신 뒤에 들어오면 일반 결과를 기다린 뒤
+     한 번 더 새로 받아, 버튼의 뜻을 잃지 않는다. */
+  if(settleFlight){
+    if(fresh&&!settleFlightFresh) return settleFlight.then(()=>loadSettle(true));
+    return settleFlight;
+  }
+  settleFlightFresh=!!fresh;
+  settleFlight=loadSettleOnce(fresh).finally(()=>{ settleFlight=null; settleFlightFresh=false; });
+  return settleFlight;
+}
+async function loadSettleOnce(fresh){
   /* ★ 전에는 8곳을 **한 줄로 세워** 불렀다. 서로 아무 관계가 없는데도 앞이 끝나야
      다음이 시작하니, 각 1~3초면 화면이 10초를 넘긴다(ux 기록의 정산 화면 지연).
      동시에 부르면 **가장 느린 하나**만 기다리면 된다. 실패는 그대로 각자 삼킨다.
@@ -7773,7 +7787,10 @@ async function loadSettle(fresh){
   checks = Object.fromEntries(Object.entries(checks||{}).filter(([k])=>rowIs2026({ID:k},'issue')));
   execRep = cleanExec2026(execRep||{});
   erpDocs = cleanErp2026(erpDocs||{});
-  try{ brandLogo = (await api('/api/brand')).logo || ''; }catch(e){ brandLogo=''; }
+  if(!brandLoaded){
+    brandLoaded=true;
+    try{ brandLogo = (await api('/api/brand')).logo || ''; }catch(e){ brandLogo=''; }
+  }
   applyBrand();
   syncSortUI(); fillStatOptions(); renderSettle(); periodInit();
   try{ renderBoard(); }catch(e){ console.warn('board', e); }
@@ -10557,6 +10574,7 @@ async function saveRptDates(){
 
 /* ── 대표 보고서: 생성 → 캡처(PNG) → 공유 ── */
 let brandLogo = '';      // webapp/brand/ 에 넣은 고객사 CI 파일명(없으면 기본 마크)
+let brandLoaded = false; // 정적 설정은 부트에서 한 번만 읽는다 — 화면 갱신마다 재호출 금지
 let erpDocs = {rows:[],months:{},kinds:{},total:0};   // 25_ERP매출서류 (이카운트 계산서 원본)
 let srcStats = {};                     // /api/status 의 sources (4원천 실집계)
 let _rptData = null;                   // 보고서 데이터(HTML·Canvas 공용)
@@ -12359,6 +12377,7 @@ function renderCheckList(){
         ${amount?`<span class="check-money">${fmt(Math.abs(amount))}원</span>`:chip(checkTypeOf(r))}</div>
       <div class="meta"><span class="metric-date">${esc2(checkDateOf(r)||'-')}</span>
         <span>${esc2(checkOwnerOf(r))}</span><span>${esc2(r.구분||'')}</span>
+        ${r.근거상태?`<span class="chip c-info">${esc2(r.근거상태)}</span>`:''}
         ${amount?chip(checkTypeOf(r)):''}</div>
       ${checkDescOf(r)?`<div class="check-desc">${esc2(checkDescOf(r))}</div>`:''}
     </div>`;
@@ -12375,6 +12394,11 @@ const CHECK_TYPE_DESC = {
   'PO B':'원장(관리대장 엑셀) PO번호가 쿠팡 목록에 없음 — 오기입 의심',
   'PO C':'쿠팡 PO 금액과 원장(관리대장 엑셀) 금액이 다름',
   'PO D':'미연결 PO와 정산의 금액 매칭 후보',
+  '세금계산서 발행 승인 대기':'ERP 판매조회가 발행대기 단계 — 사람의 ERP 발행 승인 필요',
+  'ERP 선행업무 진행 중':'오더처리·메일발송 등 발행 전 단계 — 현재는 계산서 발행 대상 아님',
+  '세금계산서 ERP 연결자료 필요':'원장 발행일은 비었고 ERP 프로젝트 색인도 없어 원본 연결 필요',
+  'ERP 연결자료 필요':'현재 프로젝트가 ERP 판매조회 색인에 없어 원본 내보내기·연결 필요',
+  'ERP 매칭키 불일치':'거래명세서번호와 ERP 전표번호 체계가 달라 A·B 개별 조치를 잠금',
 };
 function checkTypeDesc(t){ return CHECK_TYPE_DESC[String(t||'').trim()]||''; }
 function renderCheckHub(){
@@ -13984,9 +14008,10 @@ function tick(){ $('clock').textContent = new Date().toLocaleTimeString('ko-KR',
      나가지 않는다(SWR_FRESH_MS) — 그래서 되돌이가 생기지 않는다. */
 SWR_RERUN['/api/status'] = () => loadStatus().catch(()=>{});
 SWR_RERUN['/api/notifications'] = () => loadNotifications().catch(()=>{});
+const rerunSettle = () => loadSettle().catch(()=>{});
 ['/api/settlements','/api/works','/api/issues','/api/checks','/api/exec_report',
  '/api/erpdocs','/api/v1/reports/daily/exceptions'].forEach(p => {
-  SWR_RERUN[p] = () => loadSettle().catch(()=>{});
+  SWR_RERUN[p] = rerunSettle;
 });
 
 /* ★ 한 줄로 세워 부르지 않는다 (2026-08-06 지시: "빨리빨리 반영되게 해(중요)").

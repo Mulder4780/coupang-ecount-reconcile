@@ -1560,7 +1560,10 @@ def ux_summary(days=7, limit=15):
                         " GROUP BY target ORDER BY 2 DESC LIMIT ?", since, limit),
             "오류": q("SELECT target,detail,COUNT(*) FROM ux WHERE kind='error' AND ts>=?"
                     " GROUP BY target,detail ORDER BY 3 DESC LIMIT ?", since, limit),
-            "느린화면": q("SELECT target,MAX(ms),COUNT(*) FROM ux WHERE kind='slow' AND ts>=?"
+            # 평균을 MAX/COUNT로 흉내 내지 않는다. ux_review가 첫 숫자를 합계로 오해해
+            # '평균'을 실제보다 작게 만드는 버그가 있었다. 평균·횟수·최악을 따로 준다.
+            "느린화면": q("SELECT target,CAST(AVG(ms) AS INTEGER),COUNT(*),MAX(ms)"
+                      " FROM ux WHERE kind='slow' AND ts>=?"
                       " GROUP BY target ORDER BY 2 DESC LIMIT ?", since, limit),
             "빈손검색": q("SELECT detail,COUNT(*) FROM ux WHERE kind='search' AND ms=0 AND ts>=?"
                       " GROUP BY detail ORDER BY 2 DESC LIMIT ?", since, limit),

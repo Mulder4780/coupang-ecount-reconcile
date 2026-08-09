@@ -15,6 +15,7 @@ watchdog.py — 자가치유 워치독 (무인 운영의 심장)
 import sys, os, re, glob, json, time, subprocess, urllib.request
 from datetime import datetime, timedelta
 from operation_window import input_window_label, is_input_window
+from proc_guard import run_tree
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -468,15 +469,13 @@ def sync_worklog(dry):
                 seen = 0.0
         if newest <= seen:
             return "일지 그대로"
-        r = subprocess.run(
-            [PY, os.path.join(ROOT, "work_log_sync.py"), "--queue"],
-            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=900,
-        )
+        r = run_tree([PY, os.path.join(ROOT, "work_log_sync.py"), "--queue"],
+                     cwd=ROOT, timeout=900, drain_timeout=30, output_limit=120_000)
         # ★ 실패했으면 자국을 남기지 않는다 — 남기면 '봤다'가 되어 **다시는 안 본다.**
         #   그 일지는 영영 반영되지 않고 오류도 안 난다.
-        if r.returncode != 0:
-            return "일지 대조 실패(rc=%d) — 다음 회차에 다시 시도" % r.returncode
+        if r.returncode != 0 or r.timed_out:
+            why = "시간초과" if r.timed_out else "rc=%d" % r.returncode
+            return "일지 대조 실패(%s) — 다음 회차에 다시 시도" % why
         with open(stamp, "w", encoding="utf-8", newline="") as f:
             json.dump({"mtime": newest, "파일": os.path.basename(newest_p),
                        "본때": datetime.now().isoformat(timespec="seconds")},

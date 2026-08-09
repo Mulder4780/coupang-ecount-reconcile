@@ -63,7 +63,7 @@ def main():
     clicks = dict(s.get("많이누른것") or [])
     errors = [(a, b, c) for a, b, c in (s.get("오류") or [])]
     empty = dict((s.get("빈손검색") or []))
-    # 느린화면은 (대상, 합계ms, 횟수) 3원소다 — 평균으로 바꿔 본다.
+    # 느린화면은 (대상, 평균ms, 횟수, 최악ms)다. DB가 AVG와 MAX를 따로 계산한다.
     # ★ 2026-08-05: 평균이 164초로 찍히는 것들이 있었다. 사람이 164초를 기다렸을 리 없다 —
     #   **탭이 숨어 있는 동안**의 시간이 섞인 것이다(배경 탭은 타이머가 늦춰진다).
     #   화면 쪽은 고쳤지만 옛 기록은 그대로 남아 있으므로, 여기서도 상한을 둔다.
@@ -72,8 +72,7 @@ def main():
     slow = {}
     for row in (s.get("느린화면") or []):
         try:
-            tgt, total_ms, cnt = row[0], float(row[1]), max(1, int(row[2]))
-            avg = int(total_ms / cnt)
+            tgt, avg, cnt = row[0], int(float(row[1])), max(1, int(row[2]))
             if avg <= SLOW_CAP_MS:
                 slow[tgt] = avg
         except Exception:

@@ -1681,7 +1681,12 @@ TASKS = {
                       [os.path.join(ROOT, "band", "ingest.py"), "--sheet", "--backfill"]),
     "band_docs":     ("밴드 문서 이미지 대조", [os.path.join(ROOT, "band", "doc_ocr.py"), "--scan"]),
     "band_docs_apply": ("밴드 문서 → 대장 입력", [os.path.join(ROOT, "band", "doc_ocr.py"), "--scan", "--apply"]),
+    # 확인 필요 화면의 안전 실행: 객관완료 DB·ERP 매칭키·실제 미발행만 다시 본다.
+    # 계산서 발행·외부 전송·Excel 저장은 evidence_refresh.py 자체가 하지 않는다.
+    "evidence_sync": ("확인 필요 근거 재대조", [os.path.join(ROOT, "evidence_refresh.py")]),
 }
+TASK_TIMEOUTS = {"daily": 9000, "synthetic": 1200, "evidence_sync": 4500,
+                 "band_docs": 2400, "band_docs_apply": 2400, "work_log": 2400}
 runner = {"busy": False, "task": "", "log": deque(maxlen=3000), "done_at": None,
           "agent_route": ""}
 _rlock = threading.Lock()
@@ -1766,45 +1771,59 @@ def start_task(key):
         if DEMO:
             runner["log"].append(f"[데모] '{TASKS[key][0]}' — 합성 환경에서는 실행을 시뮬레이션합니다.")
             return True, "demo"
-        # 작업 스크립트는 로컬에서 한 번만 실행한다. AI 연계는 검토·실패 후속조치용
-        # 인수인계 큐로 분리해, Claude/Codex가 동시에 관리대장을 쓰지 못하게 한다.
-        ticket = None
-        try:
-            from agent_dispatch import enqueue as enqueue_agent, route_label
-            ticket = enqueue_agent(key, TASKS[key][0], TASKS[key][1])
-            runner["agent_route"] = route_label(ticket)
-        except Exception as exc:
-            # AI CLI가 없거나 큐 작성에 실패해도, 사람이 누른 기존 업무 실행은 멈추지 않는다.
-            runner["agent_route"] = "AI 연계 상태 확인 실패"
-            runner["log"].append(f"[AI 연계] 요청 기록 실패: {str(exc)[:160]}")
+        # 성공하는 결정론적 작업을 매번 Claude/Codex에 넘기지 않는다. 같은 안전 작업이
+        # 세 번 실패했을 때만 autopilot이 AI 티켓을 만든다(크레딧 절약 + 중복 작업 방지).
+        runner["agent_route"] = "결정론적 로컬 실행 · 반복 실패만 AI 인계"
         runner["busy"], runner["task"] = True, TASKS[key][0]
         runner["log"].clear()
 
     def work():
         title, args = TASKS[key]
         local_returncode = 1
+        timeout = TASK_TIMEOUTS.get(key, 1800)
         runner["log"].append(f"===== {title} 시작 {datetime.now():%H:%M:%S} =====")
-        if runner.get("agent_route"):
-            runner["log"].append(f"[AI 연계] {runner['agent_route']} · 로컬 업무 스크립트는 1회만 실행")
+        runner["log"].append(f"[자동화] {runner['agent_route']} · 제한시간 {timeout // 60}분")
         try:
-            p = subprocess.Popen([PY] + args, cwd=ROOT, env=ENV, stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
-            for ln in p.stdout:
+            from proc_guard import run_tree
+            result = run_tree([PY] + args, cwd=ROOT, env=ENV, timeout=timeout,
+                              drain_timeout=30, output_limit=240_000)
+            output = (result.stdout or "") + (("\n" + result.stderr) if result.stderr else "")
+            for ln in output.splitlines():
                 if "UserWarning" not in ln and "warn(msg)" not in ln:
                     runner["log"].append(ln.rstrip())
-            p.wait()
-            local_returncode = p.returncode
-            runner["log"].append(f"===== 종료 (코드 {p.returncode}) =====")
+            local_returncode = result.returncode
+            if result.timed_out:
+                runner["log"].append(
+                    f"===== 제한시간 종료 · 자식나무 정리 (pid {result.stuck_pid or '정리됨'}) =====")
+            else:
+                runner["log"].append(f"===== 종료 (코드 {result.returncode}) =====")
+            try:
+                import autopilot
+                if local_returncode == 0 and not result.timed_out:
+                    autopilot.resolve(title, args)
+                else:
+                    item = autopilot.defer(title, args, timeout,
+                                           output or f"returncode={local_returncode}")
+                    if item:
+                        runner["log"].append("[자동복구] 안전 재시도 대기열에 기록")
+            except Exception as exc:
+                runner["log"].append(f"[자동복구] 상태 기록 실패: {str(exc)[:160]}")
         except Exception as e:
             runner["log"].append(f"오류: {e}")
+            try:
+                import autopilot
+                item = autopilot.defer(title, args, timeout, f"{type(e).__name__}: {e}")
+                if item:
+                    runner["log"].append("[자동복구] 안전 재시도 대기열에 기록")
+            except Exception:
+                pass
         finally:
-            if ticket:
-                try:
-                    from agent_dispatch import dispatch_async
-                    if dispatch_async(ticket, local_returncode):
-                        runner["log"].append("[AI 연계] 로컬 작업 결과를 후속 검토 에이전트에 인계")
-                except Exception as exc:
-                    runner["log"].append(f"[AI 연계] 후속 검토 실행 실패: {str(exc)[:160]}")
+            if key == "evidence_sync" and local_returncode == 0:
+                # DB 완료가 늘어났으므로 현재값만 무효화한다. last-good(stale)는 남겨 화면을
+                # 멈추지 않고, 다음 API 조회가 뒤에서 새 값을 한 번만 만든다.
+                for cache_key in ("settle", "issues", "exec"):
+                    _cache.pop(cache_key, None)
+                    _cache.pop(cache_key + "_ts", None)
             runner["busy"], runner["done_at"] = False, datetime.now().isoformat()
             _note_last_run(key, title, local_returncode)
     threading.Thread(target=work, daemon=True).start()
@@ -2414,29 +2433,37 @@ def demo_works():
 
 
 _MT = {"at": 0.0, "v": 0}
-_MT_TTL = 2.0
+_MT_TTL = 30.0
+_MT_LOCK = threading.Lock()
 
 
 def _master_mtime():
-    """관리대장이 마지막으로 저장된 시각. **2초 캐시**를 둔다 (2026-08-08).
+    """관리대장이 마지막으로 저장된 시각. **30초 단일 캐시**를 둔다.
 
     ★ `resolve_master` 는 Z: 폴더를 훑어 최신 vN 을 고른다(실측 1.24초). 그런데
       `_fresh()` 가 **모든 캐시 조회마다** 이걸 불렀다 — 화면 하나가 API 를 예닐곱 개
       부르므로 아무것도 안 바뀐 상태에서도 Z: 를 예닐곱 번 훑었다. 갱신이 오래
       걸리던 가장 큰 몫이 여기였다(사용자 지시 2026-08-08: "갱신 빨리빨리하게").
-    ★ 2초는 안전하다. 원장 저장은 11:00·15:00 회차나 사람 손으로 일어나고,
-      2초 늦게 알아차려도 그다음 조회가 바로 잡는다.
+    ★ 30초는 안전하다. 원장 저장은 11:00·15:00 회차나 사람 손으로 일어나며,
+      화면에는 원장 실제 mtime을 기준시각으로 표시한다. 매 요청이 Z:를 훑는 것보다
+      최대 30초 뒤 다음 조회에서 바뀐 원장을 잡는 편이 빠르고 정직하다.
     """
     now = time.time()
     if now - _MT["at"] < _MT_TTL:
         return _MT["v"]
-    try:
-        from ecount_reconcile import load_config, resolve_master
-        v = os.path.getmtime(resolve_master(load_config()["reconcile"]["master_xlsx"]))
-    except Exception:
-        v = 0
-    _MT["at"], _MT["v"] = now, v
-    return v
+    # 첫 화면 API 7개가 동시에 들어와도 Z: 최신본 탐색은 한 스레드만 한다. 락을
+    # 잡은 뒤 다시 확인하지 않으면 대기하던 여섯 요청이 차례로 같은 탐색을 반복한다.
+    with _MT_LOCK:
+        now = time.time()
+        if now - _MT["at"] < _MT_TTL:
+            return _MT["v"]
+        try:
+            from ecount_reconcile import load_config, resolve_master
+            v = os.path.getmtime(resolve_master(load_config()["reconcile"]["master_xlsx"]))
+        except Exception:
+            v = 0
+        _MT["at"], _MT["v"] = now, v
+        return v
 
 
 def _data_asof_iso():
@@ -3452,6 +3479,18 @@ def get_exec_report(day=None, _force=False):
     #   아래 기본값 로직은 '집계기준일 = 어제'를 노린 것인데, 뒤에서 requested 를
     #   보고일에도 그대로 넣는 바람에 10:30 대표 보고 머리에 어제 날짜가 박혔다.
     picked_by_user = bool(requested)
+    # ★ 캐시 확인은 Z:/Excel 접근보다 **반드시 먼저**다. 예전 코드는 기본 기준일을
+    # 알아내려고 여기서 원장을 먼저 열고, 그 뒤에야 캐시를 봤다. 그래서 캐시가 살아
+    # 있어도 /api/exec_report 요청마다 2~3초가 걸리고, SWR 중복 호출 때 같은 초에
+    # 6~16번 원장을 다시 읽었다. 기본 조회는 마지막 정상값을 즉시 돌려준다.
+    if not picked_by_user and not _force and not DEMO:
+        cached = _fresh("exec")
+        if cached:
+            return cached
+        stale = _cache.get("exec_stale")
+        if stale is not None:
+            _spawn_refresh("exec", lambda: get_exec_report(None, _force=True))
+            return stale
     if not requested and not DEMO:
         # ★ 기본 집계기준일 = **어제**(사용자 지시 2026-08-04 "8월 3일 실적이 하나도
         #   업데이트 안 되었다"). 01_대표보고 시트의 집계기준일은 수동값이라 하루 이상
@@ -3461,12 +3500,7 @@ def get_exec_report(day=None, _force=False):
             from datetime import date, timedelta
             y = date.today() - timedelta(days=1)
             if y.year == int(APP_YEAR):
-                from ecount_reconcile import load_config, resolve_master
-                sheet_base = norm_date((read_exec_report(resolve_master(
-                    load_config()["reconcile"]["master_xlsx"])).get("meta") or {}
-                    ).get("집계기준일"))
-                if not sheet_base or sheet_base < y.isoformat():
-                    requested = y.isoformat()
+                requested = y.isoformat()
         except Exception:
             pass
     if DEMO:
@@ -3521,29 +3555,23 @@ def get_exec_report(day=None, _force=False):
     #   돌려주는 것조차** 막혔다. 실측(최근 24시간 사용 기록): 대표보고가 느린 화면
     #   648회로 1등 — 평균 110초. 계산이 무거운 게 아니라 줄을 서 있었던 것이다.
     #   락이 지키는 것은 'Z: 를 동시에 읽지 않는 것'이지 캐시 딕셔너리가 아니다.
-    if not requested and not _force:
-        r = _fresh("exec")
-        if r:
-            return r
-        # 만료됐으면 옛 값을 즉시 주고 재계산은 뒤에서 한 번만 한다(works·status 와 같다).
-        stale = _cache.get("exec_stale")
-        if stale is not None:
-            _spawn_refresh("exec", lambda: get_exec_report(None, _force=True))
-            return stale
     with _readlock:
-        r = _fresh("exec") if not requested else None
+        r = _fresh("exec") if not picked_by_user and not _force else None
         if r:
             return r
         from ecount_reconcile import load_config, resolve_master
         master = resolve_master(load_config()["reconcile"]["master_xlsx"])
         r = read_exec_report(master)
+        sheet_base = norm_date((r.get("meta") or {}).get("집계기준일"))
+        if not picked_by_user and sheet_base and (not requested or sheet_base > requested):
+            requested = sheet_base
         # ★ 보고일은 **오늘**이다 (2026-08-06 지시: "보고일 오늘 날짜로 자동 변경").
         #   그동안 이 값은 원장 B3 에서 왔고, B3 는 report_dates 가 큐에 넣어 **11:00
         #   회차**에 들어갔다. 대표 보고는 10:30 이다 — 매일 아침 보고 시각까지 B3 는
         #   어제 날짜였다. 어제 날짜로 오늘 보고가 나가는 구조였다.
         #   그래서 원장을 기다리지 않고 여기서 오늘로 맞춘다. 원장 값이 **미래**이거나
         #   사람이 date= 로 고른 경우는 그대로 존중한다(과거 보고를 다시 볼 때).
-        if not requested:
+        if not picked_by_user:
             _today = datetime.now().strftime("%Y-%m-%d")
             _stored = norm_date((r.get("meta") or {}).get("보고일")) or ""
             if _stored < _today:
@@ -3554,7 +3582,7 @@ def get_exec_report(day=None, _force=False):
         base = requested or norm_date((r.get("meta") or {}).get("집계기준일")
                                       or (r.get("meta") or {}).get("보고일"))
         r["details"] = read_exec_details(master, base)
-        if requested:
+        if picked_by_user:
             # 보고일과 집계기준일은 **다른 값**이다. 보고는 다음 날 아침에 하므로
             # 기본은 '보고일=오늘, 집계기준일=어제' 다. 사람이 과거 날짜를 직접 고른
             # 때만 보고일도 그 날짜로 맞춘다(그때는 그 날짜의 보고서를 다시 보는 것이다).
@@ -3580,6 +3608,8 @@ def get_exec_report(day=None, _force=False):
             _append_remote_section(r)
             _append_kakao_warning(r)
             return r
+        if requested:
+            r.setdefault("meta", {})["집계기준일"] = requested
         _augment_exec_daily(r)
         _append_remote_section(r)
         _append_kakao_warning(r)
@@ -3841,9 +3871,95 @@ def _append_remote_section(report):
 def get_issues():
     """07_불일치누락현황 — 엑셀의 '검증 안 된·확인해야 할' 항목 그대로"""
     if DEMO:
-        return {"rows": [{"문제유형": "세금계산서 미발행", "업무ID": "JS-2607-002", "캠프명": "울산2캠프",
-                          "문제내용": "명세서 발행 후 계산서 미발행", "담당자": "류지영"}], "cols": []}
+        return {"rows": [{
+            "구분": "정산", "ID": "JS-2607-002", "프로젝트NO": "UJ261002",
+            "문제유형": "세금계산서 발행 승인 대기", "캠프명": "울산2캠프",
+            "담당자": "류지영", "근거상태": "승인 필요",
+            "내용·근거": "ERP 판매조회 4.세금계산서발행대기 — 실제 발행은 사람 승인",
+        }], "cols": []}
     return cached_data("issues", _build_issues)
+
+
+def _issue_truth_rows(rows):
+    """23시트의 낡은 라벨을 현재 DB·ERP 근거로 재판정해 앱에만 즉시 반영한다.
+
+    Excel은 11·15시 회차 전까지 일부러 건드리지 않는다. 대신 앱이 객관완료 정본을
+    무시하거나 잘못된 ERP 키를 행동 목록으로 내보내지 않게 읽는 순간 진실층을 얹는다.
+    정산 완료는 정산 행만 닫는다 — 같은 JS가 ERP/금액 문제에도 쓰인 경우까지 지우면
+    서로 다른 사건이 같이 사라진다.
+    """
+    try:
+        import ledger_db
+        resolutions = ledger_db.resolutions()
+    except Exception:
+        resolutions = {}
+    try:
+        with open(os.path.join(ROOT, "reports", "ERP판매_프로젝트색인.json"),
+                  encoding="utf-8") as f:
+            sales = json.load(f).get("index") or {}
+    except Exception:
+        sales = {}
+    try:
+        with open(os.path.join(ROOT, "reports", "ERP원장대조_상태.json"),
+                  encoding="utf-8") as f:
+            key_state = json.load(f)
+    except Exception:
+        key_state = {}
+
+    out, removed_done, removed_bad_key = [], 0, 0
+    for raw in rows or []:
+        row = dict(raw)
+        issue_id = str(row.get("ID") or row.get("정산ID") or row.get("업무ID") or "").strip()
+        category = str(row.get("구분") or "").strip()
+        issue = str(row.get("문제유형") or "").strip()
+        resolved = str((resolutions.get(issue_id) or {}).get("status") or "")
+        if category == "정산" and issue_id.startswith("JS-") and resolved.startswith("완료("):
+            removed_done += 1
+            continue
+        if key_state.get("key_looks_wrong") and category == "ERP" and issue.startswith("ERP "):
+            removed_bad_key += 1
+            continue
+
+        project = str(row.get("프로젝트NO") or "").strip().upper()
+        sale = sales.get(project) or {}
+        stage = str(sale.get("state") or sale.get("status") or "").strip()
+        why, lane = "", "사람 확인"
+        if issue in ("세금계산서 미발행", "입금 대기", "미청구(전표 없음)"):
+            if stage.startswith("4."):
+                row["문제유형"] = "세금계산서 발행 승인 대기"
+                why, lane = f"ERP 판매조회 {stage} — 실제 발행은 사람 승인", "승인 필요"
+            elif stage.startswith(("1.", "2.", "3.")) or stage in ("확인", "오더처리"):
+                row["문제유형"] = "ERP 선행업무 진행 중"
+                why, lane = f"ERP 판매조회 {stage} — 아직 계산서/입금 단계 전", "자동 추적"
+            elif not stage:
+                row["문제유형"] = ("세금계산서 ERP 연결자료 필요"
+                                  if issue == "세금계산서 미발행" else "ERP 연결자료 필요")
+                why, lane = "ERP 판매조회 프로젝트 색인에 없음 — 실제 미발행·미입금 확정 아님", "자료 필요"
+            else:
+                why = f"ERP 판매조회 {stage}"
+        elif issue == "비용구분 미입력":
+            why, lane = "유상·무상·보험을 입증할 PO/견적/보험 근거가 필요", "자료 필요"
+        row["근거상태"] = lane
+        if why:
+            row["내용·근거"] = (why + (" · " + str(row.get("내용·근거") or "")
+                                      if row.get("내용·근거") else ""))[:500]
+        out.append(row)
+
+    if key_state.get("key_looks_wrong") and removed_bad_key:
+        counts = key_state.get("counts") or {}
+        out.append({
+            "구분": "시스템", "ID": "ERP-KEY", "문제유형": "ERP 매칭키 불일치",
+            "담당자": "유현민", "근거상태": "시스템 진단",
+            "내용·근거": (
+                f"ERP 고유전표 {key_state.get('erp_unique_slips', 0)}건 중 전표번호 직접매칭 "
+                f"{key_state.get('matched_by_slip', 0)}건. 원시 A {counts.get('A', 0)} / "
+                f"B {counts.get('B', 0)} / C {counts.get('C', 0)} / D {counts.get('D', 0)}는 "
+                "개별 미등록으로 단정하지 않고 프로젝트·PO 직접근거로 재대조합니다."
+            ),
+        })
+    return out, {"objective_done_hidden": removed_done,
+                 "unreliable_erp_hidden": removed_bad_key,
+                 "erp_key_healthy": not bool(key_state.get("key_looks_wrong"))}
 
 
 def _build_issues():
@@ -3862,10 +3978,16 @@ def _build_issues():
             if any(v for v in vals.values()):
                 rows.append(vals)
         wb.close()
+        rows, truth = _issue_truth_rows(rows)
         from responsibility import assign_issue_row
         rows = [assign_issue_row(row) for row in rows]
         rows = app_year_rows(apply_rep_no(rows), "issue")
-        out = {"rows": sort_by_date(rows, "check"), "cols": hdr, "source": "23_확인필요현황"}
+        cols = list(hdr)
+        for name in ("근거상태", "내용·근거"):
+            if name not in cols:
+                cols.append(name)
+        out = {"rows": sort_by_date(rows, "check"), "cols": cols,
+               "source": "23_확인필요현황 + DB/ERP 현재근거", "truth": truth}
         return _store_cache("issues", out)
     if "07_불일치누락현황" in wb.sheetnames:
         ws = wb["07_불일치누락현황"]

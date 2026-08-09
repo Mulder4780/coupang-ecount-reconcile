@@ -52,6 +52,40 @@ def latest_csv(pat):
     return list(csv.DictReader(open(fs[-1], encoding="utf-8-sig")))
 
 
+def reliable_erp_rows():
+    """ERP 대조의 매칭키 건강도가 나쁘면 A·B 개별 경보를 행동 목록에서 뺀다.
+
+    06시트 거래명세서번호와 ERP 회계 ``일자-No.``가 다른 순번인데도 A·B를 그대로
+    수입하면 수백 건의 가짜 현장확인이 생긴다. C·D처럼 실제로 짝이 지어진 결과는
+    보존하고, A·B 전체 대신 원인 한 건을 올린다. 상태 파일과 최신 CSV가 같은 회차일
+    때만 적용해 서로 다른 시점의 판단이 섞이지 않게 한다.
+    """
+    files = sorted(glob.glob(os.path.join(REPORT_DIR, "ERP원장대조_*.csv")))
+    if not files:
+        return []
+    rows = list(csv.DictReader(open(files[-1], encoding="utf-8-sig")))
+    try:
+        with open(os.path.join(REPORT_DIR, "ERP원장대조_상태.json"), encoding="utf-8") as f:
+            state = __import__("json").load(f)
+    except Exception:
+        return rows
+    if (not state.get("key_looks_wrong")
+            or state.get("source_csv") != os.path.basename(files[-1])):
+        return rows
+    kept = [row for row in rows if str(row.get("유형") or "") in ("C", "D")]
+    counts = state.get("counts") or {}
+    kept.append({
+        "유형": "매칭키",
+        "판정": "ERP 매칭키 불일치 — A·B 개별 조치 금지",
+        "내용": (f"ERP 고유전표 {state.get('erp_unique_slips', 0)}건 중 전표번호 직접매칭 "
+                 f"{state.get('matched_by_slip', 0)}건 · 프로젝트 직접확인 "
+                 f"{state.get('matched_by_project', 0)}건 · 원시 A {counts.get('A', 0)} / "
+                 f"B {counts.get('B', 0)}건은 열쇠 교정 전 개별 미등록으로 단정하지 않음"),
+        "담당자": "유현민",
+    })
+    return kept
+
+
 def settle_issues(master):
     rows, resolved, retracted = [], [], []
     try:
@@ -88,10 +122,22 @@ def settle_issues(master):
         from ecount_reconcile import is_non_billable
         if st == "정상" or is_non_billable(st):
             continue
-        rows.append({"정산ID": sid, "문제유형": st, "캠프명": r.get("캠프명"),
+        display_status, why = st, ""
+        if st == "세금계산서 미발행":
+            if any(value.startswith("4.") for value in raw):
+                display_status = "세금계산서 발행 승인 대기"
+                why = "ERP 판매조회 4.세금계산서발행대기 — 사람의 발행 승인 단계"
+            elif raw:
+                display_status = "ERP 선행업무 진행 중"
+                why = "ERP 판매조회 " + " / ".join(sorted(raw)) + " — 아직 발행 단계 전"
+            else:
+                display_status = "세금계산서 ERP 연결자료 필요"
+                why = "원장 발행일 공란이며 ERP 판매조회 프로젝트 색인에도 없음 — 실제 미발행 확정 아님"
+        rows.append({"정산ID": sid, "문제유형": display_status, "캠프명": r.get("캠프명"),
                      "프로젝트NO": r.get("프로젝트NO"), "공급가액": r.get("원장_공급가액") or 0,
                      "완료일": str(r.get("작업완료일") or "")[:10],
-                     "명세서번호": r.get("원장_거래명세서번호") or "", "PO번호": r.get("원장_PO번호") or ""})
+                     "명세서번호": r.get("원장_거래명세서번호") or "", "PO번호": r.get("원장_PO번호") or "",
+                     "확인방법": why})
     if resolved:
         try:
             import ledger_db
@@ -115,7 +161,7 @@ def collect(master):
     data["정산_조치필요"] = settle_issues(master)
     data["밴드_미확인"] = [r for r in latest_csv("밴드대조_*.csv") if r.get("밴드게시") == "미확인"]
     data["카톡_미확인"] = [r for r in latest_csv("카톡대조_*.csv") if r.get("카톡보고") == "미확인"]
-    data["ERP원장_문제"] = latest_csv("ERP원장대조_*.csv")
+    data["ERP원장_문제"] = reliable_erp_rows()
     data["쿠팡PO_문제"] = latest_csv("PO대조_*.csv")
     data["날짜_미상"] = dateless(master)
     data["문서_원장미등록"] = doc_unregistered(master)

@@ -32,6 +32,7 @@ from ecount_reconcile import read_ledger, load_config, _num, _d
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INBOX_DIR = os.path.join(BASE_DIR, "inbox")
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(BASE_DIR, "reports")
+STATUS_JSON = os.path.join(REPORT_DIR, "ERP원장대조_상태.json")
 
 
 def norm_slip(s):
@@ -69,6 +70,35 @@ def key_looks_wrong(matched, unique_slips, floor=10):
     if unique_slips < floor:
         return False
     return matched * 10 < unique_slips
+
+
+def project_sale_match(row, sales):
+    """원장 행과 ERP 판매조회 전표를 프로젝트·PO·금액으로 직접 맞춘다.
+
+    거래명세서번호와 회계 ``일자-No.``가 서로 다른 순번인 환경에서는 전표번호 불일치가
+    곧 ERP 미등록을 뜻하지 않는다. 프로젝트가 같고, 두 쪽에 PO가 있으면 PO도 같고,
+    공급가액/부가세포함 금액 중 하나가 원 단위로 같을 때만 직접 근거로 인정한다.
+    """
+    po_text = str(row.get("원장_PO번호") or "").upper()
+    ledger_amounts = {round(_num(row.get(key)) or 0)
+                      for key in ("원장_공급가액", "원장_합계", "원장_거래명세서합계")}
+    ledger_amounts.discard(0)
+    matched_po = []
+    for sale in sales or []:
+        sale_po = str(sale.get("po") or "").upper()
+        if sale_po and po_text and sale_po not in po_text:
+            continue
+        matched_po.append(sale)
+    erp_amounts = {round(_num(sale.get(key)) or 0)
+                   for sale in matched_po for key in ("supply", "total")}
+    erp_amounts.discard(0)
+    return {
+        "present": bool(matched_po),
+        "amount_match": bool(ledger_amounts and erp_amounts and ledger_amounts & erp_amounts),
+        "ledger_amounts": sorted(ledger_amounts),
+        "erp_amounts": sorted(erp_amounts),
+        "sales": matched_po,
+    }
 
 
 def parse_erp_export(path):
@@ -172,6 +202,16 @@ def main():
                 C.append({"전표": sl, "정산ID": r["정산ID"], "캠프명": r.get("캠프명"),
                           "ERP금액": s["amount"], "판정": "회계반영O·세금계산서 미발행"})
 
+    # 전표번호 키의 건강도는 프로젝트 직접매칭을 섞기 전에 잰다. 이 값이 낮다는 사실이
+    # A·B를 개별 업무로 지시하면 안 된다는 근거다.
+    slip_matched = len(OK) + len(D)
+    try:
+        from settlement_completion import erp_sales_index
+        project_sales = erp_sales_index()
+    except Exception:
+        project_sales = {}
+    project_ok, project_amount_gap = [], []
+
     # 유형B: 원장 유상인데 ERP에 전표 없음
     for sid, r in sorted(recs.items()):
         if r.get("비용구분") != "유상" or not r.get("원장_공급가액"):
@@ -181,7 +221,20 @@ def main():
             continue
         if sl and sl in erp_by_slip:
             continue
-        B.append({"정산ID": sid, "캠프명": r.get("캠프명"), "명세서번호": sl or "(없음)",
+        project = str(r.get("프로젝트NO") or "").strip().upper()
+        direct = project_sale_match(r, project_sales.get(project, []))
+        if direct["present"] and direct["amount_match"]:
+            project_ok.append(sid)
+            continue
+        if direct["present"]:
+            project_amount_gap.append(sid)
+            D.append({"전표": "(프로젝트 직접매칭)", "정산ID": sid,
+                      "프로젝트NO": project, "ERP금액": ",".join(map(str, direct["erp_amounts"])),
+                      "원장합계": ",".join(map(str, direct["ledger_amounts"])),
+                      "차액": "직접 비교 필요"})
+            continue
+        B.append({"정산ID": sid, "프로젝트NO": project,
+                  "캠프명": r.get("캠프명"), "명세서번호": sl or "(없음)",
                   "원장공급가액": r.get("원장_공급가액"),
                   "판정": "ERP 원장에서 전표 미확인" + ("" if sl else " (명세서번호도 없음 — 미청구)")})
 
@@ -200,8 +253,9 @@ def main():
         #   유일한 신호인데 머리글 한 줄에 작게 적혀 아무도 안 봤다(1,856건이던 시절에도
         #   0건이었다). 실측: ERP 302 전표 대 원장 명세서번호 65개 중 겹침 6 — 06시트
         #   거래명세서번호와 회계 전표번호는 **서로 다른 순번**이다.
-        matched = len(OK) + len(D)
-        if key_looks_wrong(matched, len(erp_by_slip)):
+        matched = slip_matched
+        key_wrong = key_looks_wrong(matched, len(erp_by_slip))
+        if key_wrong:
             f.write(
                 f"\n> ⚠ **짝이 지어진 전표가 {matched}건뿐입니다"
                 f"(ERP 고유 전표 {len(erp_by_slip)}건).** 아래 A·B 는 '없는 것'이 아니라\n"
@@ -220,17 +274,37 @@ def main():
                     f.write("| " + " | ".join(str(r[c]) for c in cols) + " |\n")
     allrows = ([{"유형": "A", **r} for r in A] + [{"유형": "B", **r} for r in B]
                + [{"유형": "C", **r} for r in C] + [{"유형": "D", **r} for r in D])
+    csv_path = ""
     if allrows:
         keys = []
         for r in allrows:
             for k in r:
                 if k not in keys:
                     keys.append(k)
-        with open(base + ".csv", "w", encoding="utf-8-sig", newline="") as f:
+        csv_path = base + ".csv"
+        with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
             w = csv.DictWriter(f, fieldnames=keys); w.writeheader(); w.writerows(allrows)
-    print(f"A(ERP에만) {len(A)} / B(원장에만) {len(B)} / C(계산서미발행) {len(C)} / D(금액불일치) {len(D)} / 정상 {len(OK)}")
+    key_wrong = key_looks_wrong(slip_matched, len(erp_by_slip))
+    status = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "source_csv": os.path.basename(csv_path) if csv_path else "",
+        "key_looks_wrong": key_wrong,
+        "erp_unique_slips": len(erp_by_slip),
+        "matched_by_slip": slip_matched,
+        "matched_by_project": len(project_ok),
+        "project_amount_gap": len(project_amount_gap),
+        "counts": {"A": len(A), "B": len(B), "C": len(C), "D": len(D)},
+    }
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    tmp = STATUS_JSON + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(status, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, STATUS_JSON)
+    print(f"A(ERP에만) {len(A)} / B(원장에만) {len(B)} / C(계산서미발행) {len(C)} / "
+          f"D(금액불일치) {len(D)} / 전표키 정상 {len(OK)} / 프로젝트 직접확인 {len(project_ok)}")
     print("리포트:", base + ".md")
-    return {"A": A, "B": B, "C": C, "D": D, "OK": OK}
+    return {"A": A, "B": B, "C": C, "D": D, "OK": OK,
+            "PROJECT_OK": project_ok, "key_looks_wrong": key_wrong}
 
 
 if __name__ == "__main__":

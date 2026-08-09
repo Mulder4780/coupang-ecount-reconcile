@@ -25,7 +25,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
 import ledger_db
-from ecount_reconcile import has_statement, load_config, read_ledger, resolve_master
+from ecount_reconcile import (has_statement, load_config, read_ledger, resolve_master,
+                              supply_from_statement)
 from po_pdf import CACHE_FILE, PO_RE
 
 REPORT = os.path.join(ROOT, "reports", "정산_객관완료.json")
@@ -33,6 +34,7 @@ AMOUNT_STATUS = "완료(견적·명세서 금액확인)"
 ERP_AMOUNT_STATUS = "완료(ERP 전표 금액확인)"
 QUOTE_ONLY_STATUS = "완료(견적 원본확인·담당자확인)"
 INVOICE_STATUS = "완료(ERP 계산서 원본확인)"
+INVOICE_PO_BATCH_STATUS = "완료(ERP 계산서·PO 묶음확인)"
 # ERP 판매조회 진행상태만으로 발행을 입증하는 근거(2026-08-05 지시).
 ERP_STATE_STATUS = "완료(ERP 발행상태확인)"
 ERP_ISSUED_STATES = ("6.세금계산서발행", "7.수금완료")
@@ -218,7 +220,80 @@ def confirmed_invoice_index(master):
         wb.close()
 
 
-def objective_entries(records, quotes, invoices, existing=None, erp_sales=None):
+def confirmed_po_invoice_batches(records, docs, po_meta):
+    """ERP 계산서 한 장과 PO 묶음이 **건수·총액까지 일치**할 때 정산ID별 근거를 만든다.
+
+    프로젝트 번호가 계산서에 직접 적혀 있지 않은 묶음 발행을 안전하게 푸는 보조 경로다.
+    금액만 같거나 건수만 같은 것은 인정하지 않는다. 다음 조건을 모두 만족해야 한다.
+
+    * 계산서 공급가액으로 찾은 밴드/카톡 PO 근거가 유일하고 PO·건수가 있다.
+    * 그 PO에 연결되는 ERP 계산서가 정확히 한 장이다.
+    * 관리대장 같은 PO 행 수가 발주글 건수와 같고, 전부 유상·명세서 보유·동일 업무유형이다.
+    * 행별 거래명세서 합계의 합을 ÷1.1 했을 때 ERP 계산서 공급가액과 정확히
+      맞고, 발주글 금액이 그 공급가액(부가세 별도) 또는 명세서 합계(부가세 포함)와 같다.
+
+    하나라도 어긋나면 빈 결과다. 잘못 완료하는 것보다 미확인으로 남기는 편이 안전하다.
+    """
+    docs_by_po = {}
+    for doc in docs or []:
+        meta = (po_meta or {}).get(_money(doc.get("amt")))
+        po_no = _po((meta or {}).get("PO"))
+        if not po_no or not _money((meta or {}).get("건수")):
+            continue
+        docs_by_po.setdefault(po_no, []).append((doc, meta))
+
+    rows_by_po = {}
+    for settle_id, record in (records or {}).items():
+        po_no = _po(record.get("원장_PO번호"))
+        if po_no:
+            rows_by_po.setdefault(po_no, []).append((settle_id, record))
+
+    out = {}
+    for po_no, pairs in docs_by_po.items():
+        if len(pairs) != 1:                 # 같은 PO 계산서가 둘이면 어느 장인지 모른다
+            continue
+        doc, meta = pairs[0]
+        rows = rows_by_po.get(po_no) or []
+        expected = _money(meta.get("건수"))
+        doc_kind = str(doc.get("kind") or meta.get("유형") or "").strip()
+        projects = [str(row.get("프로젝트NO") or "").strip().upper() for _, row in rows]
+        if not rows or len(rows) != expected or len(set(projects)) != expected or not all(projects):
+            continue
+        if any(row.get("비용구분") != "유상" or not has_statement(row)
+               or str(row.get("업무구분") or "").strip() != doc_kind
+               for _, row in rows):
+            continue
+        statement_total = sum(_money(row.get("원장_거래명세서합계") or row.get("원장_합계"))
+                              for _, row in rows)
+        source_total = _money(meta.get("총금액"))
+        invoice_supply = _money(doc.get("amt"))
+        statement_supply = supply_from_statement(statement_total)
+        # 발주 알림의 '총금액' 표기가 공급가액인지 VAT포함 합계인지 시기별로 달랐다.
+        # 이름을 믿지 않고 ERP 공급가액·명세서합계의 1.1 관계로 기준을 판정한다.
+        if statement_supply != invoice_supply:
+            continue
+        if source_total == invoice_supply:
+            amount_basis = "발주금액=공급가액(부가세 별도)"
+        elif source_total == statement_total:
+            amount_basis = "발주금액=부가세 포함 합계"
+        else:
+            continue
+        evidence = {
+            "po": po_no,
+            "count": expected,
+            "slip": str(doc.get("slip") or ""),
+            "invoice_supply": invoice_supply,
+            "statement_total": statement_total,
+            "amount_basis": amount_basis,
+            "kind": doc_kind,
+        }
+        for settle_id, _record in rows:
+            out[settle_id] = evidence
+    return out
+
+
+def objective_entries(records, quotes, invoices, existing=None, erp_sales=None,
+                      invoice_batches=None):
     """현재 원장 레코드에서 객관완료 DB 항목을 만든다.
 
     이미 ERP 수금완료처럼 더 강한 완료 근거가 있으면 상태를 낮춰 쓰지 않는다. 이
@@ -227,8 +302,9 @@ def objective_entries(records, quotes, invoices, existing=None, erp_sales=None):
     existing = existing or {}
     qindex = quote_index(quotes)
     erp_sales = erp_sales or {}
+    invoice_batches = invoice_batches or {}
     own_statuses = (AMOUNT_STATUS, ERP_AMOUNT_STATUS, QUOTE_ONLY_STATUS, INVOICE_STATUS,
-                    ERP_STATE_STATUS)
+                    INVOICE_PO_BATCH_STATUS, ERP_STATE_STATUS)
     # 프로젝트NO → {부가세포함 총액: 견적행}. 견적이 프로젝트당 정확히 한 금액이면
     # 명세합계가 어긋나 있어도(교차 입력 밀림) 견적 원본이 금액의 유일한 입증이다.
     quotes_by_project = {}
@@ -346,6 +422,28 @@ def objective_entries(records, quotes, invoices, existing=None, erp_sales=None):
             })
             continue
 
+        batch = invoice_batches.get(settle_id)
+        if (
+            record.get("비용구분") == "유상"
+            and has_statement(record)
+            and not issued
+            and batch
+        ):
+            entries.append({
+                "settle_id": settle_id,
+                "project": project,
+                "status": INVOICE_PO_BATCH_STATUS,
+                "basis": (
+                    f"ERP 계산서 원본 {batch['slip']} · {batch['kind']} · {batch['po']} · "
+                    f"밴드/카톡 발주 {batch['count']}건 = 관리대장 동일 PO {batch['count']}건 · "
+                    f"거래명세서 합계 {batch['statement_total']:,}원 · "
+                    f"계산서 공급가액(부가세 별도) {batch['invoice_supply']:,}원 일치 · "
+                    f"{batch['amount_basis']}"
+                ),
+                "evidence_kind": "invoice_po_batch",
+            })
+            continue
+
         # ★ ERP 진행상태 근거(사용자 지시 2026-08-05 "찾아 완료 처리").
         #   판매조회 진행상태가 **6.세금계산서발행 / 7.수금완료** 면 그 프로젝트의 계산서는
         #   ERP 상 실제로 나간 것이다. 금액 일치까지는 못 봐도(묶음 발행이라 건별 배분 불가)
@@ -383,6 +481,8 @@ def write_report(master, entries, synced=0):
         "erp_amount": sum(row.get("evidence_kind") == "erp_amount" for row in entries),
         "quote_only": sum(row.get("evidence_kind") == "quote_only" for row in entries),
         "invoice": sum(row.get("evidence_kind") == "invoice" for row in entries),
+        "invoice_po_batch": sum(row.get("evidence_kind") == "invoice_po_batch"
+                                for row in entries),
         "erp_state": sum(row.get("evidence_kind") == "erp_state" for row in entries),
         "synced": synced,
         "entries": entries,
@@ -404,7 +504,15 @@ def main(argv=None):
     quotes = dedup_quote_rows()
     invoices = confirmed_invoice_index(master)
     erp_sales = erp_sales_index()
-    entries = objective_entries(records, quotes, invoices, existing, erp_sales)
+    try:
+        import erp_bundle
+        _bundle_master, invoice_docs = erp_bundle.load_erp()
+        invoice_batches = confirmed_po_invoice_batches(
+            records, invoice_docs, erp_bundle.band_po_meta())
+    except Exception as exc:
+        invoice_batches = {}
+        print(f"  ! PO 묶음 계산서 근거를 읽지 못해 해당 갈래만 보류: {type(exc).__name__}")
+    entries = objective_entries(records, quotes, invoices, existing, erp_sales, invoice_batches)
     synced = ledger_db.resolution_sync(entries) if args.sync else 0
     # ERP 검증(2026-08-03 지시): 견적 단독 완료였는데 지금 원본 기준으로 ERP 전표와
     # 충돌해 후보에서 빠진 건은 정확한 ID로 철회한다 — 확인 작업(quote_mismatch)으로
@@ -420,7 +528,8 @@ def main(argv=None):
     print(
         f"정산 객관완료 후보 {payload['eligible']}건 "
         f"(금액 {payload['amount']} · ERP전표 {payload['erp_amount']} · "
-        f"견적단독 {payload['quote_only']} · 계산서 {payload['invoice']})"
+        f"견적단독 {payload['quote_only']} · 계산서 {payload['invoice']} · "
+        f"계산서PO묶음 {payload['invoice_po_batch']})"
         + (f" · DB 동기화 {synced}건" if args.sync else " · dry-run")
     )
     print("리포트:", REPORT)

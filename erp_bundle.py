@@ -231,8 +231,40 @@ _PO_NO = re.compile(r"PO\d{5,}")
 _CNT = re.compile(r"(\d{1,3})\s*건")
 
 
+def band_po_meta_from_bodies(bodies):
+    """PO 발주 본문들에서 금액별 **유일한** PO 묶음 근거를 만든다.
+
+    같은 금액으로 서로 다른 PO가 발행되는 일은 실제로 있다. 예전 ``setdefault``는
+    먼저 읽힌 한 건을 조용히 정답으로 고정했다. 그 값으로 묶음 계산서를 완료 처리하면
+    남의 PO를 연결할 수 있으므로, 동일 금액 후보의 PO·품목·건수가 하나로 수렴할 때만
+    반환한다. 같은 글이 밴드·카톡에 중복 보관된 것은 동일 서명으로 합친다.
+    """
+    candidates = {}
+    for body in bodies or []:
+        # 한 글에 여러 발주가 담기기도 한다 — '구매 오더' 단위로 쪼갠다
+        for blk in re.split(r"(?=Coupang이\(가\) 새 구매 오더)", str(body or "")):
+            m = _TOTAL_RE.search(blk)
+            if not m:
+                continue
+            amt = int(m.group(1).replace(",", ""))
+            po = _PO_NO.search(blk)
+            item = _ITEM_LINE.search(blk)
+            item_s = item.group(1).strip() if item else ""
+            cnt = _CNT.search(item_s)
+            rec = {"PO": po.group() if po else "",
+                   "품목": item_s,
+                   "건수": int(cnt.group(1)) if cnt else 0,
+                   "유형": kind_of(item_s),
+                   "총금액": amt}
+            signature = (rec["PO"], rec["품목"], rec["건수"], rec["유형"], rec["총금액"])
+            for key in (amt, round(amt / 1.1)):
+                candidates.setdefault(key, {})[signature] = rec
+    return {amount: next(iter(rows.values()))
+            for amount, rows in candidates.items() if len(rows) == 1}
+
+
 def band_po_meta():
-    """PO 발주글에서 **프로젝트NO가 안 적힌** 건의 단서를 모은다.
+    """PO 발주글에서 **프로젝트NO가 안 적힌** 건의 유일한 단서를 모은다.
 
     이런 글이 대부분이다:
         ★ 총금액 : 25,223,400원
@@ -260,25 +292,7 @@ def band_po_meta():
         except OSError:
             pass
 
-    idx = {}
-    for body in bodies:
-        # 한 글에 여러 발주가 담기기도 한다 — '구매 오더' 단위로 쪼갠다
-        for blk in re.split(r"(?=Coupang이\(가\) 새 구매 오더)", body):
-            m = _TOTAL_RE.search(blk)
-            if not m:
-                continue
-            amt = int(m.group(1).replace(",", ""))
-            po = _PO_NO.search(blk)
-            item = _ITEM_LINE.search(blk)
-            item_s = item.group(1).strip() if item else ""
-            cnt = _CNT.search(item_s)
-            rec = {"PO": po.group() if po else "",
-                   "품목": item_s,
-                   "건수": int(cnt.group(1)) if cnt else 0,
-                   "유형": kind_of(item_s)}
-            for k in (amt, round(amt / 1.1)):
-                idx.setdefault(k, rec)
-    return idx
+    return band_po_meta_from_bodies(bodies)
 
 
 _QTR_RE = re.compile(r"(\d{2})년\s*(\d)\s*분기")

@@ -103,7 +103,7 @@ def t1_erp_check(tmp):
                        env={**os.environ, "COUPANG_REPORT_DIR": tmp,
                             "COUPANG_UPDATES_DIR": tmp})
     out = r.stdout
-    m = re.search(r"A\(ERP에만\) (\d+) / B\(원장에만\) (\d+) / C\(계산서미발행\) (\d+) / D\(금액불일치\) (\d+) / 정상 (\d+)", out)
+    m = re.search(r"A\(ERP에만\) (\d+) / B\(원장에만\) (\d+) / C\(계산서미발행\) (\d+) / D\(금액불일치\) (\d+) / (?:전표키 )?정상 (\d+)", out)
     assert m, f"결과 라인 파싱 실패:\n{out}\n{r.stderr}"
     a, b, c, d, ok = map(int, m.groups())
     assert (a, b, c, d, ok) == (1, 1, 1, 1, 1), f"판정 불일치: A{a} B{b} C{c} D{d} OK{ok} (기대 1,1,1,1,1)"
@@ -7341,7 +7341,11 @@ def t83_agent_dispatch_and_calendar():
     assert 'data-v="calendar"' in idx and "COUPANG_CALENDAR_ID" in idx
     assert "calendar.google.com/calendar/embed" in idx and "openGoogleCalendarDraft" in idx
     assert "previewCalendarDraft();" in idx and "runAgentNote" in idx
-    assert "dispatch_async" in server and "로컬 업무 스크립트는 1회만 실행" in server
+    start_task_src = server.split("def start_task(key):", 1)[1].split(
+        "# ── 마지막 실행 시각", 1)[0]
+    assert "run_tree([PY] + args" in start_task_src and "autopilot.defer" in start_task_src
+    assert "enqueue_agent" not in start_task_src and "dispatch_async" not in start_task_src, \
+        "성공한 결정론적 앱 작업까지 매번 AI 에이전트에 보내면 크레딧과 갱신 시간이 샌다"
     assert "dispatch_async" in bench and "로컬 업무 스크립트는 1회만 실행" in bench
     dispatch = open(os.path.join(ROOT, "agent_dispatch.py"), encoding="utf-8").read()
     for marker in ("resolve_agent_executable", "run_ticket", '"status": "running"',
@@ -11819,6 +11823,67 @@ def t190_autopilot_retries_without_failure_cascade():
     print("  [190] 자원장애 실패도미노 차단 · 영속 대기열 · 안전 재개 · AI 제한 인계 ✅")
 
 
+def t191_confirmation_truth_and_fast_refresh():
+    """[191] 확인필요는 근거를 설명하고, 갱신은 한 번만 실행하며 반드시 끝난다."""
+    import erp_bundle
+    import erp_ledger_check
+    import settlement_completion
+
+    one = """Coupang이(가) 새 구매 오더
+★ 총금액 : 1,100원
+★ 품  목 : 정기점검 2건
+★ 쿠팡오더 No. : PO111111
+"""
+    meta = erp_bundle.band_po_meta_from_bodies([one])
+    assert meta[1000]["PO"] == "PO111111" and meta[1000]["총금액"] == 1100
+    ambiguous = erp_bundle.band_po_meta_from_bodies([
+        one, one.replace("PO111111", "PO222222")])
+    assert 1000 not in ambiguous and 1100 not in ambiguous, \
+        "같은 금액의 서로 다른 PO 중 먼저 읽힌 것을 조용히 고르면 오완료가 난다"
+
+    records = {
+        "S1": {"프로젝트NO": "UJ1", "원장_PO번호": "PO111111", "비용구분": "유상",
+               "업무구분": "정기점검", "원장_거래명세서발행일": "2026-08-01",
+               "원장_거래명세서합계": 550},
+        "S2": {"프로젝트NO": "UJ2", "원장_PO번호": "PO111111", "비용구분": "유상",
+               "업무구분": "정기점검", "원장_거래명세서발행일": "2026-08-01",
+               "원장_거래명세서합계": 550},
+    }
+    docs = [{"amt": 1000, "slip": "2026/08/01-1", "kind": "정기점검"}]
+    batches = settlement_completion.confirmed_po_invoice_batches(records, docs, meta)
+    assert set(batches) == {"S1", "S2"}
+    bad_meta = {1000: dict(meta[1000], 총금액=1090)}
+    assert not settlement_completion.confirmed_po_invoice_batches(records, docs, bad_meta)
+    assert not settlement_completion.confirmed_po_invoice_batches(records, docs * 2, meta)
+
+    sale = {"po": "PO111111", "supply": 1000, "total": 1100}
+    matched = erp_ledger_check.project_sale_match(
+        {"원장_PO번호": "PO111111", "원장_공급가액": 1000, "원장_합계": 1100},
+        [sale])
+    assert matched["present"] and matched["amount_match"]
+    mismatch = erp_ledger_check.project_sale_match(
+        {"원장_PO번호": "PO111111", "원장_공급가액": 900}, [sale])
+    assert mismatch["present"] and not mismatch["amount_match"]
+
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    watch = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    ledger = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    exec_src = server.split("def get_exec_report(", 1)[1].split("def _source_index", 1)[0]
+    assert exec_src.find('_fresh("exec")') < exec_src.find("master = resolve_master"), \
+        "대표보고 캐시보다 Z:/Excel을 먼저 읽으면 화면 갱신마다 수 초씩 막힌다"
+    assert "let settleFlight=null" in live and "const rerunSettle" in live
+    assert "SWR_RERUN[p] = rerunSettle" in live and "brandLoaded" in live
+    assert "_issue_truth_rows" in server and "근거상태" in server
+    start_task_src = server.split("def start_task(key):", 1)[1].split(
+        "# ── 마지막 실행 시각", 1)[0]
+    assert "run_tree([PY] + args" in start_task_src and "enqueue_agent" not in start_task_src
+    sync_src = watch.split("def sync_worklog(dry):", 1)[1].split("def main():", 1)[0]
+    assert "run_tree(" in sync_src and "subprocess.run" not in sync_src
+    assert "AVG(ms)" in ledger
+    print("  [191] 확인필요 근거 분리 · PO묶음 안전완료 · 단일 갱신 · 캐시 선조회 · 유한 실행 OK")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 두 검증에서 같이 쓰이면 실패시킨다."""
     import collections as _c
@@ -12019,6 +12084,7 @@ if __name__ == "__main__":
     t188_worklog_shows_this_month_only()
     t189_worklog_reflects_without_hands()
     t190_autopilot_retries_without_failure_cascade()
+    t191_confirmation_truth_and_fast_refresh()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()
