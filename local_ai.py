@@ -95,6 +95,29 @@ def _latest(pattern):
     return max(hits, key=lambda p: os.path.getmtime(p))
 
 
+# ★ 한 번 읽은 근거는 붙들고 있는다 (`[168]` 을 또 밟았다).
+#   `answer_pack()` 이 프로젝트마다 `a_project()` 를 부르고 그 안에서 `src("PO대조")`
+#   가 **매번 md 를 다시 읽고 다시 파싱했다** — 2,014번. 그래서 꾸러미 하나 만드는 데
+#   94.5초가 걸렸다. 비싼 읽기는 언제나 캐시 검사 **뒤에** 온다.
+#   TTL 을 짧게 둔 이유는 질문 하나 안에서만 붙들면 충분하기 때문이다 —
+#   길게 잡으면 리포트가 갱신됐는데도 옛 답을 주는 반대쪽 사고가 된다.
+_SRC_CACHE = {}
+SRC_TTL = 20.0
+
+
+def _cache_get(name):
+    # ★ 열쇠에 **폴더까지** 넣는다. 이름만으로 잡으면 `COUPANG_REPORT_DIR` 이 바뀌어도
+    #   옛 폴더의 답을 그대로 준다 — 워크트리에서 본체 리포트를 보고 답하는 셈이라
+    #   화면은 멀쩡하고 값만 남의 것이 된다(검증 [181] 이 실제로 이걸 잡았다).
+    hit = _SRC_CACHE.get((REPORT_DIR, name))
+    if not hit:
+        return None
+    at, val = hit
+    if (datetime.now() - at).total_seconds() > SRC_TTL:
+        return None
+    return val
+
+
 def src(name):
     """근거 하나를 읽어 온다.
 
@@ -102,11 +125,16 @@ def src(name):
     **예외를 올리지 않는다** — 근거 하나가 깨졌다고 답변기 전체가 죽으면,
     사람은 앱을 못 믿고 다시 클로드에게 묻는다(그게 이 파일이 없애려는 왕복이다).
     """
+    cached = _cache_get(name)
+    if cached is not None:
+        return cached
     spec = SOURCES.get(name) or {}
     path = _latest(spec.get("glob") or "")
     out = {"이름": name, "파일": None, "있음": False, "나이시간": None,
            "신선": False, "데이터": None}
     if not path or not os.path.exists(path):
+        # '없음'도 기억한다 — 없는 것을 찾는 glob 이 제일 오래 돈다(`[168]`).
+        _SRC_CACHE[(REPORT_DIR, name)] = (datetime.now(), out)
         return out
     out["파일"] = os.path.basename(path)
     out["있음"] = True
@@ -126,6 +154,7 @@ def src(name):
             out["데이터"] = io.open(path, encoding="utf-8", errors="replace").read()
         except OSError:
             out["데이터"] = None
+    _SRC_CACHE[(REPORT_DIR, name)] = (datetime.now(), out)
     return out
 
 
@@ -678,6 +707,79 @@ def selftest():
     return bad
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PC 가 꺼져 있어도 답한다 — 미리 만든 답 꾸러미
+#
+# 사용자 지시(2026-08-09): "만약 이 컴퓨터가 꺼져있어 연결되어있지 않더라도
+# 앱 자체적으로 처리할 수 있는 알고리즘 구현해"
+#
+# ★ **규칙을 JS 로 옮겨 적지 않는다.** 같은 판단을 두 곳에서 하면 언젠가 갈리고,
+#   갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다(이 프로젝트가 여러 번 겪은 일이다).
+#   그래서 파이썬이 **답을 미리 만들어** 싣고, JS 는 그것을 **읽기만** 한다.
+#   분류 말투마저 데이터로 실어 보낸다 — 규칙이 사는 곳은 끝까지 이 파일 하나다.
+#
+# ★ 그리고 **언제 만든 답인지 반드시 같이 싣는다.** 꾸러미는 PC 가 꺼져 있는 동안
+#   낡는다. 낡은 답을 시각 없이 보여 주는 것이 여기서 제일 위험하다 —
+#   화면은 멀쩡한데 어제 상태를 오늘 것처럼 말한다.
+# ─────────────────────────────────────────────────────────────────────────────
+PACK_MAX_NUMBERS = 4000       # 번호 표 상한. 넘으면 **몇 개를 뺐는지 적어 싣는다**
+
+
+def answer_pack():
+    """폰이 PC 없이 쓸 답 꾸러미. `cloud_publish` 가 잠긴 사본에 넣는다."""
+    made = datetime.now()
+
+    # ① 전체 질문 답 — 어차피 데이터 전체를 보는 답이라 미리 만들어 두면 그만이다.
+    answers = {}
+    for name, _pats, fn in INTENTS:
+        if name == "프로젝트조회":
+            continue                      # 번호마다 다르므로 ② 로 간다
+        try:
+            r = fn("")
+        except Exception:
+            r = None
+        answers[name] = ({"답": r.get("답", ""), "다음": r.get("다음", ""),
+                          "근거": r.get("근거", ""), "확신": r.get("확신", "중")}
+                         if r else None)
+
+    # ② 번호 표 — 프로젝트NO·PO번호로 물었을 때의 답을 **문장까지 만들어** 둔다.
+    #    여기서 문장을 안 만들고 값만 실으면 JS 가 `_who_next` 를 다시 써야 한다.
+    nums, dropped = {}, 0
+    idx = src("ERP색인")
+    data = idx.get("데이터") or {}
+    if isinstance(data, dict) and "index" in data:
+        data = data.get("index") or {}
+    for prj in sorted(data if isinstance(data, dict) else {}):
+        if len(nums) >= PACK_MAX_NUMBERS:
+            dropped += 1
+            continue
+        try:
+            r = a_project(prj)
+        except Exception:
+            r = None
+        if not r:
+            continue
+        nums[prj] = {"답": r.get("답", ""), "다음": r.get("다음", ""),
+                     "근거": r.get("근거", "")}
+        # 같은 답을 PO 번호로도 찾을 수 있게 이름표를 더 단다(표를 두 벌 만들지 않는다).
+        for m in PO_PAT.finditer(str((data.get(prj) or {}).get("po") or "")):
+            nums.setdefault("PO" + m.group(1), {"참조": prj})
+
+    return {
+        "만든때": made.isoformat(timespec="seconds"),
+        # 분류 말투를 **데이터로** 보낸다 — JS 가 규칙을 다시 쓰지 않게.
+        "규칙": [{"이름": n, "말투": list(p)} for n, p, _f in INTENTS],
+        "답": answers,
+        "번호": nums,
+        "번호뺀수": dropped,          # 조용히 자르지 않는다
+        "안내": ("이 답은 PC 가 마지막으로 만든 것입니다. PC 가 꺼져 있는 동안에는 "
+                 "낡을 수 있으니 만든 시각을 함께 보십시오."),
+        # 못 답할 때 폰이 만들어 줄 문구의 머리말. 규칙이 없는 질문도 빈손으로
+        # 돌려보내지 않는다 — 여기서도 왕복을 짧게 만드는 것이 요점이다.
+        "탈출머리말": "— 앱(폰 사본)이 먼저 확인한 것:",
+    }
+
+
 def main():
     import sys
     args = sys.argv[1:]
@@ -693,6 +795,13 @@ def main():
             print("아직 규칙이 없는 갈래(다음에 만들 것):")
             for k, v in s["못답한갈래"]:
                 print("  · %s — %d회" % (k, v))
+        return 0
+    if args[0] == "--pack":
+        pk = answer_pack()
+        print("답 꾸러미: 규칙 %d · 미리만든답 %d · 번호 %d%s (만든때 %s)"
+              % (len(pk["규칙"]), sum(1 for v in pk["답"].values() if v),
+                 len(pk["번호"]), (" · 뺀 것 %d" % pk["번호뺀수"]) if pk["번호뺀수"] else "",
+                 pk["만든때"]))
         return 0
     if args[0] == "--selftest":
         bad = selftest()
