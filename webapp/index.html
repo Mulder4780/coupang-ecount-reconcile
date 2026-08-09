@@ -2412,6 +2412,20 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
   .flow-hero-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}
   .flow-hero-stats .st{min-width:0;text-align:center}
 }
+/* 접히는 긴 표 (2026-08-09 지시) — 머리줄에 숫자를 남기고 몸통만 접는다.
+   ★ 접힌 것을 **접힌 줄 모르게** 두면 안 된다. 화살표와 '펼치기/접기' 를 같이 보인다. */
+.foldsec{margin-top:14px;border:1px solid var(--line);border-radius:12px;
+  background:var(--surface);overflow:hidden}
+.foldsec>summary{list-style:none;cursor:pointer;padding:11px 14px;font-size:15px;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface-2,transparent)}
+.foldsec>summary::-webkit-details-marker{display:none}
+.foldsec>summary::before{content:'▸';font-size:13px;color:var(--ink-3);flex:0 0 auto}
+.foldsec[open]>summary::before{content:'▾'}
+.foldsec>summary::after{content:'펼치기';margin-left:auto;font-size:12.5px;color:var(--brand);font-weight:700}
+.foldsec[open]>summary::after{content:'접기'}
+.foldsec>summary:hover{background:var(--brand-tint)}
+.foldsec>*:not(summary){padding-left:14px;padding-right:14px}
+.foldsec>*:last-child{padding-bottom:12px}
 .flow-del{border:1px solid var(--line);border-radius:9px;background:var(--surface);
   color:var(--danger);font:800 13px inherit;padding:5px 10px;cursor:pointer}
 /* ── 긴 글은 접어 둔다 (2026-08-07 지시: "스크롤이 긴 부분(설명란) … 누르면
@@ -9523,6 +9537,16 @@ function sgWire(root){
   let pending = null;
   const run = () => { pending = null; try{ sgWire(document); }catch(e){}
                       try{ chatChips(); }catch(e){} };
+  /* ★ 인쇄·PDF 에는 **접힌 것도 담긴다.** 이 표는 보고의 근거라, 화면에서 접었다는
+     이유로 종이에서 빠지면 보고가 근거를 잃는다. 인쇄가 끝나면 원래대로 되돌린다. */
+  let _wasShut = [];
+  window.addEventListener('beforeprint', () => {
+    _wasShut = [...document.querySelectorAll('details.foldsec:not([open])')];
+    _wasShut.forEach(d => d.open = true);
+  });
+  window.addEventListener('afterprint', () => {
+    _wasShut.forEach(d => d.open = false); _wasShut = [];
+  });
   const kick = () => { if(!pending) pending = setTimeout(run, 200); };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', kick);
   else kick();
@@ -11354,9 +11378,15 @@ function bundleHtml(y){
   const out = rows.filter(r=>kind(r)==='대상외').length;
   const poc = rows.filter(r=>kind(r)==='PO확인').length;
   const unk = rows.length - ok - est - out - poc;
-  return `<h4 style="margin-top:14px">계산서별 포함 프로젝트
-      <span class="norm">— 확정 ${ok}${poc?` · PO확인 ${poc}`:''}${est?` · 추정 ${est}`:''} · 대상외 ${out}${unk?` · 미상 ${unk}`:''} (번호를 누르면 그 건으로 이동)</span></h4>
+  /* ★ 접어 둔다 (2026-08-09 지시). 전표가 96줄이라 펼쳐 두면 보고 화면이 이 표 하나로
+     덮이고, 그 아래 있는 것들을 아무도 못 본다. 그렇다고 지우면 근거가 사라진다 —
+     **머리줄에 숫자를 남기고 몸통만 접는다.** 아래서 올라오는 시트가 아니라 접기를
+     고른 이유: 시트는 인쇄·캡처에 안 담기고, 이 표는 보고 근거라 같이 담겨야 한다
+     (인쇄 직전 `beforeprint` 가 펼친다). */
+  return `<details class="foldsec"><summary><b>계산서별 포함 프로젝트</b>
+      <span class="norm">— 확정 ${ok}${poc?` · PO확인 ${poc}`:''}${est?` · 추정 ${est}`:''} · 대상외 ${out}${unk?` · 미상 ${unk}`:''} · 전표 ${rows.length}장</span></summary>
     <div style="font-size:13px;color:var(--ink-3);margin:-4px 0 6px">
+      번호를 누르면 그 건으로 이동합니다.<br>
       확정 = 밴드에 적힌 구성 그대로 · PO확인 = 쿠팡 PO 번호까지 확인(품목은 아리바에서 조회)<br>
       대상외 = 계단·철거·신규납품처럼 AS·점검이 아닌 별도 공사(원장에 작업 행이 없습니다)</div>
     <table class="stack">
@@ -11380,7 +11410,7 @@ function bundleHtml(y){
     </table>
     <div style="font-size:13px;color:var(--ink-3);margin-top:6px">
       ※ 캠프·유형·기간으로 좁힌 <b>추정</b>입니다. 금액 합이 계산서와 맞으면 '확정'.
-      품목 단위 판매현황이 들어오면 건별로 정확히 배분됩니다.</div>`;
+      품목 단위 판매현황이 들어오면 건별로 정확히 배분됩니다.</div></details>`;
 }
 function srcRow(label, s, emptyMsg){
   if(!s || !s.total) return `<tr><td class="hd">${label}</td><td data-l="결과" colspan="2" style="color:var(--brand)">${emptyMsg}</td></tr>`;
