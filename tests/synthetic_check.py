@@ -10416,9 +10416,12 @@ def t162_band_comments_collected():
     # ── ⑥ 긁는 쪽(붙여넣기 JS)이 실제로 댓글을 담나 ──────────────────────
     js = open(os.path.join(ROOT, "band", "grab_posts.js"), encoding="utf-8").read()
     body = "\n".join(l for l in js.splitlines() if not l.strip().startswith("//"))
-    assert "readComments" in body and "comments: cts" in body, \
+    # ★ 변수 이름이 아니라 **지키려는 것**을 본다. 2026-08-09 에 확인 못 한 수확을
+    #   기록하지 않도록 반환부를 고치며 `comments: cts` 가 `post.comments = cts` 가
+    #   됐는데, 철자를 박아 둔 이 검사가 거기서 깨졌다 — 뜻은 그대로였다([178]).
+    assert "readComments" in body and re.search(r"comments\W+=\W*cts|comments:\s*cts", body), \
         "화면 긁기가 댓글을 안 담는다 — 흡수기만 고치면 아무 일도 안 일어난다"
-    assert "comments_full: cts.length >= want" in body, \
+    assert re.search(r"comments_full\W+=?:?\s*cts\.length >= want", body), \
         "'다 읽었나'를 안 적는다 — '댓글 없음'과 '못 읽음'이 캐시에서 똑같아 보인다"
     assert "if (!content || !timeText) continue" in body, \
         "시각 없는 댓글을 담는다(본문 규칙 [130] 과 어긋난다)"
