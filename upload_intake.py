@@ -47,6 +47,18 @@ class Intake:
     reason: str
 
 
+def looks_worklog(ext: str, blob: str) -> bool:
+    """정기점검·돌발AS 일지 원본인가 — **판별은 여기 한 곳뿐**이다 (2026-08-09).
+
+    담는 길이 둘이다: 업로드함(`upload_intake`)과 바탕화면·다운로드(`download_intake`).
+    규칙을 두 곳에 적어 두면 언젠가 갈리고, 갈린 뒤에는 **한쪽 길로 올린 일지만
+    조용히 안 들어온다** — 파일은 그 자리에 멀쩡히 있고 오류도 안 난다.
+    `blob` 은 파일 이름 + 앞부분 내용을 합친 것이다(이름만 보면 사람이 바꾼 이름에 진다).
+    """
+    return (ext in EXCEL_EXT and "일지" in blob
+            and any(k in blob for k in ("돌발", "정기점검", "미실시")))
+
+
 def _paths(root: str) -> dict[str, str]:
     return {
         "upload": os.path.join(root, "100. 업로드용 자료"),
@@ -160,7 +172,7 @@ def classify_target(path: str, root: str) -> tuple[str, str, str]:
         return p["pm"], "pm_schedule", "정기점검 일정 원본"
     if ext in EXCEL_EXT and ("신규 프로젝트" in blob and any(k in blob for k in ("흐름도", "프로세스"))):
         return p["flow"], "new_project_flow", "신규 프로젝트 업무 흐름도"
-    if ext in EXCEL_EXT and "일지" in blob and any(k in blob for k in ("돌발", "정기점검", "미실시")):
+    if looks_worklog(ext, blob):
         return p["worklog"], "work_log", "정기점검·돌발AS 일지"
 
     kakao_form = (low.startswith("kakaotalk") or

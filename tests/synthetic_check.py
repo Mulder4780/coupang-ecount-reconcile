@@ -10352,6 +10352,60 @@ def t188_worklog_shows_this_month_only():
           "(화면·캡처·브리핑 셋 다) ✅")
 
 
+def t189_worklog_reflects_without_hands():
+    """[189] 일지는 **올려만 두면** 엑셀·앱까지 간다 (2026-08-09 지시).
+
+    사용자 지시: "돌발 AS 일지랑 정기점검 일지 엑셀과 앱에 자동 반영하는 알고리즘 구현해,
+                  담당자 손댈 필요 없이 내가 자료 올리거나 알아서 긁어서"
+
+    ★ 조각은 이미 다 있었다 — 업로드함 분류 · 09:50 `work_log_sync --queue` ·
+      11:00·15:00 엑셀 반영. **빠진 것은 두 곳**이었다:
+      ① 바탕화면·다운로드에 떨군 일지를 `download_intake` 가 **몰랐다.**
+         파일은 그 자리에 멀쩡히 남고 오류도 안 난다 — 올린 사람만 반영된 줄 안다.
+      ② 올려도 **다음 날 09:50 까지** 아무 데도 안 갔다.
+    ★ 판별 규칙은 `upload_intake.looks_worklog` **한 곳**이다. 담는 길이 둘(업로드함 ·
+      다운로드)이라 규칙을 두 곳에 적으면 언젠가 갈리고, 갈리면 **한쪽 길로 올린 일지만
+      조용히 안 들어온다**([162] 와 같은 원칙).
+    """
+    import upload_intake as U
+
+    # ① 규칙은 한 곳 — 이름만이 아니라 내용까지 합쳐 본다
+    assert U.looks_worklog(".xlsx", "정기점검, 돌발AS 일지 (8.1~).xlsx")
+    assert U.looks_worklog(".xlsx", "2026 돌발AS 일지 미실시건.xlsx")
+    assert not U.looks_worklog(".xlsx", "급여대장.xlsx"), "남의 엑셀을 Z: 로 쓸어 담는다"
+    assert not U.looks_worklog(".txt", "돌발AS 일지.txt"), "엑셀이 아닌 것도 가져간다"
+
+    dn = open(os.path.join(ROOT, "download_intake.py"), encoding="utf-8").read()
+    assert "looks_worklog" in dn, \
+        "다운로드 길이 일지를 모른다 — 바탕화면에 떨군 일지가 조용히 남는다"
+    assert "WORK_LOG_DIR" in dn, "일지를 정본 자리가 아닌 곳으로 옮긴다"
+    assert '"일지"' not in dn.replace('"정기점검·돌발AS 일지"', ""), \
+        "판별 규칙을 다운로드 쪽에도 적었다 — 두 길이 언젠가 갈린다"
+
+    # ② 올리면 기다리지 않는다 — 워치독(30분)이 바뀐 일지를 스스로 본다
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    assert "def sync_worklog(" in wd and "sync_worklog(dry)" in wd, \
+        "워치독이 일지를 안 본다 — 오후에 올린 일지는 다음 날 09:50 까지 안 간다"
+    assert 'work_log_sync.py"), "--queue"' in wd.replace("'", '"') or \
+        '"work_log_sync.py"), "--queue"' in wd, "대조를 큐로 넣지 않는다"
+    assert "--apply" not in wd.split("def sync_worklog(")[1].split("def main(")[0], \
+        "워치독이 엑셀을 직접 연다 — 하루 두 번 규칙이 깨진다"
+    body = wd.split("def sync_worklog(")[1].split("def main(")[0]
+    assert "newest <= seen" in body, "안 바뀐 일지도 매 30분 대조한다 — Z: 가 붐빈다([168])"
+    # ★ 실패했는데 자국을 남기면 **다시는 안 본다** — 그 일지는 영영 반영되지 않는다
+    assert body.index("returncode != 0") < body.index("json.dump"), \
+        "실패해도 '봤다'고 자국을 남긴다 — 그 일지는 영영 안 들어온다"
+
+    # ③ 회차와 반영 경로는 그대로 살아 있어야 한다
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert '"work_log_sync.py"), "--queue"' in daily, "09:50 회차가 일지를 안 본다"
+    ldb = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    assert "28_일지대조현황" in ldb, "반영 회차가 일지대조 시트를 안 갱신한다"
+
+    print("  [189] 일지는 올려만 두면 반영 — 두 투입 길이 같은 규칙 하나 · "
+          "워치독이 바뀐 것만 즉시 대조 · 실패는 자국을 안 남김 ✅")
+
+
 def t172_typo_watch_does_not_cry_wolf():
     """[172] 오기입 탐지 — **잡는 것보다 잘못 지목하지 않는 것**이 어렵다 (2026-08-09 지시).
 
@@ -11895,6 +11949,7 @@ if __name__ == "__main__":
     t186_kakao_round_and_stale_tmp()
     t187_free_vs_insurance_are_not_one_label()
     t188_worklog_shows_this_month_only()
+    t189_worklog_reflects_without_hands()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()

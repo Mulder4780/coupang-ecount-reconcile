@@ -101,6 +101,20 @@ def plan_moves():
                 kind = classify(p)
             except Exception:
                 continue
+            # ★ 일지 원본을 **먼저** 본다 (2026-08-09 지시). 전에는 여기 규칙이 없어
+            #   바탕화면·다운로드에 떨군 '정기점검, 돌발AS 일지' 가 조용히 그 자리에
+            #   남았다 — 09:50 회차는 Z: 만 보므로 아무 화면에도 안 뜬다.
+            #   판별은 `upload_intake.looks_worklog` 한 곳을 쓴다(둘로 적으면 갈린다).
+            try:
+                import re as _re
+                from upload_intake import looks_worklog, _text_head
+                _n = os.path.basename(p)
+                blob = _re.sub(r"\s+", " ", f"{_n} {_text_head(p)}").strip()
+                if looks_worklog(os.path.splitext(_n.lower())[1], blob):
+                    moves.append((p, S.WORK_LOG_DIR, "정기점검·돌발AS 일지"))
+                    continue
+            except Exception:
+                pass                      # 판별에 실패해도 아래 규칙으로 이어 간다
             if kind in ("taxinv", "taxstep", "ledger", "ledger_acct", "journal", "cashbook",
                         "sales", "tax", "stmt", "slips", "hometax", "quote", "po", "receipt"):
                 base = S.COUPANG_DIR if kind == "po" else (S.RECEIPT_DIR if kind == "receipt" else S.ERP_DIR)

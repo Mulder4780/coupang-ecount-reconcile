@@ -415,6 +415,62 @@ def resume_deferred_apply(dry):
         return f"연기 반영 점검 실패({type(exc).__name__})"
 
 
+def sync_worklog(dry):
+    """일지 원본이 바뀌면 **기다리지 않고** 바로 대조해 큐에 넣는다 (2026-08-09 지시).
+
+    사용자 지시: "돌발 AS 일지랑 정기점검 일지 엑셀과 앱에 자동 반영 ... 담당자 손댈 필요 없이".
+
+    ★ 조각은 이미 다 있었다 — `upload_intake` 가 정본 자리로 옮기고, 09:50 회차가
+      `work_log_sync --queue` 를 돌리고, 11:00·15:00 이 엑셀에 쓴다.
+      빠진 것은 **속도**다: 오후에 올린 일지는 다음 날 09:50 까지 아무 데도 안 반영된다.
+      그 사이 화면은 옛 숫자를 멀쩡히 보여 주므로 **올린 사람만 반영된 줄 안다.**
+    ★ 파일이 안 바뀌었으면 아무것도 안 한다. 매 30분 대조를 돌리면 Z: 를 계속 훑어
+      앱까지 같이 느려진다([168] · 사고 #29). 판정 근거는 **정본 폴더 최신 mtime** 하나다.
+    """
+    if dry:
+        return "일지 감시(dry)"
+    stamp = os.path.join(ROOT, "reports", ".worklog_seen.json")
+    try:
+        from source_dirs import work_log_dirs
+        newest, newest_p = 0.0, ""
+        for d in work_log_dirs():
+            if not os.path.isdir(d):
+                continue
+            for f in glob.glob(os.path.join(d, "**", "*.xls*"), recursive=True):
+                if os.path.basename(f).startswith("~$"):
+                    continue
+                m = os.path.getmtime(f)
+                if m > newest:
+                    newest, newest_p = m, f
+        if not newest:
+            return "일지 원본 없음"
+        seen = 0.0
+        if os.path.exists(stamp):
+            try:
+                seen = float(json.load(open(stamp, encoding="utf-8")).get("mtime") or 0)
+            except Exception:
+                seen = 0.0
+        if newest <= seen:
+            return "일지 그대로"
+        r = subprocess.run(
+            [PY, os.path.join(ROOT, "work_log_sync.py"), "--queue"],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=900,
+        )
+        # ★ 실패했으면 자국을 남기지 않는다 — 남기면 '봤다'가 되어 **다시는 안 본다.**
+        #   그 일지는 영영 반영되지 않고 오류도 안 난다.
+        if r.returncode != 0:
+            return "일지 대조 실패(rc=%d) — 다음 회차에 다시 시도" % r.returncode
+        with open(stamp, "w", encoding="utf-8", newline="") as f:
+            json.dump({"mtime": newest, "파일": os.path.basename(newest_p),
+                       "본때": datetime.now().isoformat(timespec="seconds")},
+                      f, ensure_ascii=False)
+        tail = [l for l in (r.stdout or "").strip().splitlines() if l.strip()]
+        return "새 일지 반영 대기열 적재 · %s" % (tail[-1][:70] if tail else "요약 없음")
+    except Exception as e:
+        return "일지 감시 오류: %s" % str(e)[:50]
+
+
 def main():
     # 류지영 매니저 입력 중에는 로그 파일조차 갱신하지 않고 즉시 종료한다.
     if is_input_window():
@@ -424,7 +480,8 @@ def main():
     # 원장 버전 정리는 daily_run의 ledger_versions.py 한 곳에서만 수행한다.
     # 워치독이 낮은 버전 포크를 OLD로 옮겨 증거를 숨기는 일을 막는다.
     gap = gap_note(last_log_line(), datetime.now())     # 기록은 healing 전에 읽는다
-    results = [sync_uploads(dry), sync_cloud_queue(dry), heal_server(dry), heal_fixed_funnel(dry),
+    results = [sync_uploads(dry), sync_worklog(dry),
+               sync_cloud_queue(dry), heal_server(dry), heal_fixed_funnel(dry),
                heal_stale_pastefiles(dry),
                heal_tunnel(dry), publish_endpoint(dry), clean_reports(dry),
                snapshot_handoff(dry), resume_deferred_apply(dry)]
