@@ -9551,6 +9551,72 @@ def t173_classify_cache_follows_rules():
     print("  [173] 분류 캐시·색인 지문 — 규칙을 고치면 둘 다 다시 판별한다 ✅")
 
 
+def t173_comments_everywhere_and_crossed():
+    """[173] 댓글을 **다 찾아 담고**, 카톡과 **한 사건으로 묶는다** (2026-08-09 지시).
+
+    사용자 지시: "밴드도 댓글도 다 찾아 저장하는 알고리즘 구성하고, 카톡도 댓글이랑
+    연관지어서 생각하고 반영하는 알고리즘 구현해"
+
+    ★ **고친 것과 채운 것은 다르다.** 2026-08-08 에 수집기가 댓글을 담도록 고쳤지만
+      (검증 [162]) 그건 **그 뒤로 긁는 글**에만 해당한다. 실측 2026-08-09:
+      캐시 8,561글 중 **8,258글이 댓글을 한 번도 안 봤고 본문이 담긴 글은 0건**이었다.
+      그래서 `cancel_watch` 는 지금도 댓글 취소를 하나도 못 잡는다 — 오류도 안 난다.
+      `comment_plan.py` 가 그 구멍을 세어 회차로 만든다(8,107건 · 33회차).
+
+    ★ **같은 사건이 두 군데로 나뉘어 온다.** 캠프는 카톡에 쓰고 기사는 댓글에 단다.
+      `cancel_watch`(밴드)와 `kakao_reconcile`(카톡)은 서로를 모른 채 돌았다.
+      `cross_signal.py` 가 캠프·날짜·사건 종류 셋이 겹칠 때만 묶는다.
+      실측: 밴드 115 · 카톡 58 → 짝지어짐 15 · **카톡에만 43**(기사에게 안 갔을 수 있다).
+    """
+    sys.path.insert(0, os.path.join(ROOT, "band"))
+    import comment_plan as CP
+    import cross_signal as CS
+
+    # ① '안 본 것'과 '보고 없던 것'을 가른다 — 섞으면 8,107 이 영원히 안 준다
+    posts = {"10": {"content": "a"},                       # 안 봤다 → 대상
+             "11": {"content": "b", "comments": []},        # 보고 없었다 → 대상 아님
+             "12": {"content": "c", "comments": [{"content": "x"}]},
+             "13": {"content": "d", "deleted": True},       # 삭제는 업무 기록이 아니다
+             "14": {"content": "e", "ghost": True}}
+    assert CP.unlooked(posts) == [10], f"골라야 할 것만 골라야 한다: {CP.unlooked(posts)}"
+
+    # ② 유령 밴드를 계획에 넣지 않는다 — 날짜 도장은 8자리가 아니다
+    src = open(os.path.join(ROOT, "band", "comment_plan.py"), encoding="utf-8").read()
+    assert "len(b) == 8" in src, \
+        "밴드번호는 8자리다. 넓게 잡으면 202608082047 같은 유령이 헛 계획을 만든다"
+
+    # ③ 최근 글부터 — 도중에 멈춰도 값어치가 남게
+    assert CP.unlooked({"5": {}, "9": {}, "7": {}}) == [9, 7, 5], "번호 큰 것부터다"
+
+    # ④ 사건 종류를 나눠 둔다 — '취소'와 '연기'를 한 덩어리로 두면 다른 사건이 붙는다
+    assert CS.events_in("접수취소 요청드립니다") == {"취소"}
+    assert CS.events_in("다음주로 연기해주세요") == {"연기"}
+    assert CS.events_in("정상 진행합니다") == set(), "아무 말에나 반응하면 안 된다"
+
+    # ⑤ 짝은 캠프·날짜·사건이 **셋 다** 겹칠 때만
+    b = [{"출처": "밴드 댓글", "밴드": "8", "글번호": "1", "날짜": "2026-04-13",
+          "캠프": "용인3MB", "사건": ["취소"], "글": ""}]
+    assert len(CS.pair(b, [{"파일": "k", "날짜": "2026-04-14", "보낸이": "s",
+                            "캠프": "용인3MB", "사건": ["취소"], "글": ""}])[0]) == 1
+    assert len(CS.pair(b, [{"파일": "k", "날짜": "2026-04-14", "보낸이": "s",
+                            "캠프": "용인3MB", "사건": ["연기"], "글": ""}])[0]) == 0, \
+        "사건 종류가 다르면 다른 일이다"
+    assert len(CS.pair(b, [{"파일": "k", "날짜": "2026-05-20", "보낸이": "s",
+                            "캠프": "용인3MB", "사건": ["취소"], "글": ""}])[0]) == 0, \
+        "한 달 떨어진 것을 같은 사건이라 하면 엉뚱한 현장 둘을 묶는다"
+
+    # ⑥ 둘 다 읽기 전용 — 판정을 두 곳에서 하면 언젠가 갈린다
+    cs_src = open(os.path.join(ROOT, "cross_signal.py"), encoding="utf-8").read()
+    code = "\n".join(ln for ln in cs_src.splitlines() if not ln.strip().startswith("#"))
+    for banned in ("queue_add", "enqueue", "workbook_patch"):
+        assert banned not in code, f"교차 확인은 읽기 전용이어야 한다: {banned}"
+
+    # ⑦ 회차에 들어가 있나
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "cross_signal.py" in daily, "일일대조에 없으면 한 번 돌고 끝난다"
+    print("  [173] 댓글 구멍을 회차로 · 카톡↔밴드를 캠프·날짜·사건 셋으로 묶는다 ✅")
+
+
 def t172_typo_watch_does_not_cry_wolf():
     """[172] 오기입 탐지 — **잡는 것보다 잘못 지목하지 않는 것**이 어렵다 (2026-08-09 지시).
 
@@ -11036,6 +11102,7 @@ if __name__ == "__main__":
     t170_po_amount_ladder()
     t171_cache_swap_waits_for_readers()
     t172_typo_watch_does_not_cry_wolf()
+    t173_comments_everywhere_and_crossed()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()
