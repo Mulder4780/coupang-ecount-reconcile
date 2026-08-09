@@ -11931,13 +11931,17 @@ def t193_app_db_cutover_archive_and_frontend():
     합성한다. [192]가 이 검증 뒤에도 공유 산출물 바이트가 그대로인지 다시 확인한다.
     """
     import types as _types
-    from datetime import datetime as _dt
+    from datetime import datetime as _dt, timedelta as _timedelta, time as _time
     from pathlib import Path as _Path
 
     import app_store as A
     import db_cutover as C
     import ledger_db as L
     import proc_guard as PG
+
+    # 실제 관리대장의 [h]:mm 경과시간과 시각 셀도 JSON 정본으로 무손실 진입한다.
+    assert C._json_value(_timedelta(hours=9, minutes=30)) == "9:30:00"
+    assert C._json_value(_time(9, 30)) == "09:30:00"
 
     def make_cutover_book(path, duplicate_conflict=False):
         book = openpyxl.Workbook()

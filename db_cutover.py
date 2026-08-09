@@ -14,7 +14,7 @@ import os
 import re
 import sys
 from collections import Counter, defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, time as time_value, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional
 
@@ -61,6 +61,13 @@ def _text(value: Any) -> str:
 def _json_value(value: Any) -> Any:
     if isinstance(value, (datetime, date)):
         return value.isoformat()[:10]
+    # Excel의 [h]:mm / 경과시간 셀은 openpyxl에서 timedelta로 온다.
+    # 초 숫자로 바꾸면 사람이 읽기 어려우므로 Excel의 의미를 알아볼 수 있는
+    # 문자열로 보관한다. 시각 셀도 같은 원칙으로 ISO 표기를 쓴다.
+    if isinstance(value, timedelta):
+        return str(value)
+    if isinstance(value, time_value):
+        return value.isoformat()
     if isinstance(value, float) and value.is_integer():
         return int(value)
     return value
@@ -274,6 +281,8 @@ def self_test() -> bool:
     assert _text(datetime(2026, 8, 10, 9, 5)) == "2026-08-10"
     assert _json_value(10.0) == 10
     assert _json_value(date(2026, 8, 10)) == "2026-08-10"
+    assert _json_value(timedelta(hours=9, minutes=30)) == "9:30:00"
+    assert _json_value(time_value(9, 30)) == "09:30:00"
     assert len(SPECS) == 5 and SPECS["06_거래서류청구수금"]["kind"] == "정산"
     print("db_cutover self-test: OK")
     return True
