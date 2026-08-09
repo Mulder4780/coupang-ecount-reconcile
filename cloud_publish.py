@@ -172,6 +172,15 @@ def payload():
 
     d["unbilled"] = unbilled()        # 미청구 — 앱이 열릴 때 경과일을 계산해 띄운다
     d["codes"] = codes
+    # ★ 앱이 먼저 답하게 하는 꾸러미 — **PC 가 꺼져 있어도** 폰이 답한다.
+    #   규칙(파이썬)을 JS 로 옮겨 적지 않는다. 대신 답을 **미리 만들어** 싣는다:
+    #   같은 판단을 두 곳에서 하면 언젠가 갈리고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+    #   실측 53KB · 만드는 데 0.2초. 꾸러미가 없어도 사본은 올라가야 하므로 조용히 넘어간다.
+    try:
+        import local_ai
+        d["ask"] = local_ai.answer_pack()
+    except Exception as e:
+        print("  ! 답 꾸러미 건너뜀:", e)
     d["tail"] = ev["tail"]
     d["cap"] = ev["cap"]
     d["app_year"] = "2026"
