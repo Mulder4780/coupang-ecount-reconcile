@@ -10035,6 +10035,18 @@ def t184_phone_answers_with_the_same_rules():
     # 지어내지 않는 자리 — 못 답하면 클로드 문구를 준다
     assert "탈출머리말" in app, "폰이 못 답할 때 붙여넣을 문구를 안 만든다"
 
+    # ⑥ 아는 것만 말한다 — 못 닿은 것을 'PC 꺼짐' 이라고 단정하지 않는다 (2026-08-09 지시).
+    #    실사고: 앱 서버를 재시작하는 몇 초 사이에 폰이 열려 한 번 실패했고, 화면은
+    #    멀쩡히 켜져 있는 PC 를 두고 'PC 꺼짐' 을 띄웠다. **틀린 단정이 못 하는 말보다 나쁘다.**
+    pc = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for phrase in ("PC 꺼짐 —", "PC가 꺼져 있어 이 기기에", "PC가 꺼져 있어 PIN"):
+        assert phrase not in pc, \
+            "화면이 %r 라고 단정한다 — 이 기기가 아는 것은 '못 닿았다' 뿐이다" % phrase
+    assert "서버에 닿지 않습니다 (PC 꺼짐·재시작·외부접속 끊김 중 하나)" in pc, \
+        "못 닿은 이유를 갈라 말하지 않는다"
+    assert pc.count("'/api/auth/session'") >= 2, \
+        "한 번 실패로 오프라인이라 말한다 — 서버 재시작 몇 초를 'PC 꺼짐' 으로 읽는다"
+
     # 폰이 실제로 고르는 갈래가 PC 와 같은가 — 꾸러미의 말투 그대로 흉내 낸다.
     # (파이썬 정규식으로 돌리므로 JS 자체 시험은 아니다. 그래서 ② 가 따로 있다.)
     order = [(r["이름"], [re.compile(p, re.I) for p in r["말투"]]) for r in pack["규칙"]]
