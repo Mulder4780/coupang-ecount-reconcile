@@ -172,6 +172,17 @@ input,button,select{font-family:inherit;font-size:15px}
         이 화면은 사무실 PC와 관계없이 열립니다. 실시간 PC 기능은 연결 가능할 때만 아래에 표시됩니다.
       </div>
     </div>
+    <!-- 앱에게 물어보기 (2026-08-09 지시) — PC 가 꺼져 있어도 답한다.
+         답은 PC 가 미리 만들어 사본에 실어 둔 것이다. 그래서 **만든 시각을 반드시 같이** 띄운다. -->
+    <div class="card">
+      <h3>💬 앱에게 물어보기 <span class="norm">— 이유를 앱이 먼저 답합니다</span></h3>
+      <div class="row">
+        <input class="in" id="askq" style="flex:1;min-width:170px"
+               placeholder="예: 왜 계산서 발행이 안된거지 / UJ2600021" autocomplete="off">
+        <button class="btn" id="askgo">묻기</button>
+      </div>
+      <div id="askout"></div>
+    </div>
     <div id="briefbox"></div>
     <div id="alertbox"></div>
     <div class="card">
@@ -373,6 +384,81 @@ function findCode(){
   if(!done) h += '<button class="btn ghost" id="book" style="width:100%;margin-top:10px">이 건 등록 예약</button>';
   $('res').innerHTML = h;
   if(!done) $('book').onclick = () => queueAdd(c);
+}
+
+/* ── 앱에게 물어보기 — PC 가 꺼져 있어도 답한다 (2026-08-09 지시) ──
+   ★ 규칙을 여기에 옮겨 적지 않는다. 판단은 파이썬(local_ai.py) **한 곳**에서만 하고,
+     여기서는 사본에 실린 말투 목록으로 **갈래만 고르고** 미리 만든 답을 읽는다.
+     같은 판단을 두 곳에서 하면 언젠가 갈리고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+   ★ 꾸러미는 PC 가 꺼져 있는 동안 낡는다. 그래서 **만든 시각을 항상 같이** 띄운다 —
+     낡은 답을 시각 없이 자신 있게 보여 주는 것이 여기서 제일 위험하다. */
+function askPick(q){
+  for(const r of ((D.ask && D.ask['규칙']) || [])){
+    for(const p of (r['말투'] || [])){
+      let re; try{ re = new RegExp(p, 'i'); }catch(e){ continue; }
+      if(re.test(q)) return r['이름'];
+    }
+  }
+  return null;
+}
+function askNum(q){
+  const A = D.ask || {}, N = A['번호'] || {}, P = A['번호말투'] || {};
+  // 번호 모양도 사본이 주는 것을 쓴다 — 여기에 손으로 적으면 그것도 갈릴 사본이다.
+  const re = k => { try{ return new RegExp(P[k], 'i'); }catch(e){ return null; } };
+  const rp = re('프로젝트'), ro = re('PO');
+  let m = rp && rp.exec(q), key = m ? m[1].toUpperCase() : null;
+  if(!key && ro){ m = ro.exec(q); if(m) key = 'PO' + m[1]; }
+  if(!key) return null;
+  let rec = N[key];
+  if(rec && rec['참조']) rec = N[rec['참조']];
+  // 번호를 물었는데 사본에 없으면 **없다고 말한다** — 짐작해서 답하지 않는다.
+  return rec || {'답': key + ' — 이 사본에는 없는 번호입니다.',
+                 '다음': 'PC 가 켜진 뒤 다시 물어보시거나, 사본을 새로 올리십시오.'};
+}
+function doAsk(){
+  const q = ($('askq').value || '').trim(), out = $('askout');
+  if(!q){ out.innerHTML = ''; return; }
+  const A = D.ask;
+  if(!A){ out.innerHTML = '<div class="err">이 사본에는 답 꾸러미가 실려 있지 않습니다 — ' +
+      'PC 에서 사본을 다시 올려야 합니다.</div>'; return; }
+  const made = A['만든때'] || '', intent = askPick(q), M = A['답'] || {};
+  // ★ '규칙에 없는 질문' 과 '규칙은 있는데 근거가 없어 답이 안 실린 것' 은 **다른 말**이다.
+  //   둘을 한 문장으로 뭉치면 사람이 없는 규칙을 만들러 간다(실측: 앱서버 갈래가 그랬다).
+  const 아는갈래 = !!intent && (intent === '프로젝트조회' ||
+                                Object.prototype.hasOwnProperty.call(M, intent));
+  let r = (intent === '프로젝트조회') ? askNum(q) : (intent ? M[intent] : null);
+  if(!r) r = askNum(q);          // 말투에 안 걸려도 번호가 들어 있으면 답한다
+  let h = '', esct = '';
+  if(r){
+    h += '<div style="margin-top:12px;white-space:pre-wrap">' + esc(r['답'] || '') + '</div>';
+    if(r['다음']) h += '<div class="note" style="margin-top:6px">→ ' + esc(r['다음']) + '</div>';
+    if(r['근거']) h += '<div class="note">' + esc(r['근거']) + '</div>';
+    h += '<div class="note" style="color:var(--warn);margin-top:6px">이 답은 PC 가 <b>' +
+         esc(made) + '</b> 에 만든 것입니다. 그 뒤에 바뀐 것은 담기지 않았습니다.</div>';
+  }else{
+    const 사유 = 아는갈래
+      ? '이 사본을 만들 때 그 갈래의 **근거 파일이 없어** 답이 실리지 않았습니다(갈래: ' + intent + ').'
+      : '이 질문은 앱 규칙에 없는 갈래입니다.';
+    esct = (A['탈출머리말'] || '— 앱(폰 사본)이 먼저 확인한 것:') +
+           '\n· 사본 만든 때: ' + made +
+           '\n· ' + 사유.replace(/\*\*/g, '') + ' 앱이 지어내지 않았습니다.' +
+           '\n\n질문: ' + q;
+    h += '<div class="err" style="margin-top:12px">' + esc(사유.replace(/\*\*/g, '')) +
+         ' — <b>지어내지 않습니다.</b></div>' +
+         '<div class="note">아래를 그대로 클로드에게 붙여넣으면 처음부터 뒤질 일이 없습니다.</div>' +
+         '<textarea class="in" id="askesc" rows="4" readonly style="width:100%;margin-top:6px"></textarea>' +
+         '<button class="btn ghost" id="askcopy" style="width:100%;margin-top:6px">문구 복사</button>';
+  }
+  out.innerHTML = h;
+  if(esct){
+    $('askesc').value = esct;
+    $('askcopy').onclick = () => {
+      $('askesc').select();
+      (navigator.clipboard ? navigator.clipboard.writeText(esct) : Promise.reject())
+        .then(() => { $('askcopy').textContent = '복사했습니다'; })
+        .catch(() => { $('askcopy').textContent = '길게 눌러 복사하십시오'; });
+    };
+  }
 }
 
 /* ── 대표 브리핑: 당일 업무 처리 + 오래된 완료일 미기입 ──
@@ -937,6 +1023,8 @@ $('pin').onkeydown = e => { if(e.key === 'Enter') $('go').click(); };
 $('pin').oninput = e => { if(e.target.value.length === 4) $('go').click(); };
 $('find').onclick = findCode;
 $('code').onkeydown = e => { if(e.key === 'Enter') findCode(); };
+$('askgo').onclick = doAsk;
+$('askq').onkeydown = e => { if(e.key === 'Enter') doAsk(); };
 $('reload').onclick = () => location.reload();
 $('sheetclose').onclick = closeBriefSheet;
 $('sheetbg').onclick = e => { if(e.target === $('sheetbg')) closeBriefSheet(); };
