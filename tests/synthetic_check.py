@@ -11942,6 +11942,10 @@ def t193_app_db_cutover_archive_and_frontend():
     # 실제 관리대장의 [h]:mm 경과시간과 시각 셀도 JSON 정본으로 무손실 진입한다.
     assert C._json_value(_timedelta(hours=9, minutes=30)) == "9:30:00"
     assert C._json_value(_time(9, 30)) == "09:30:00"
+    cutover_src = open(os.path.join(ROOT, "db_cutover.py"), encoding="utf-8").read()
+    cutover_body = cutover_src.split("def cutover(", 1)[1].split("def self_test(", 1)[0]
+    assert cutover_body.count("os.path.getmtime(master)") == 1, \
+        "SMB 원본 수정시각을 행마다 다시 조회한다 — 순간 끊김이 이관 전체를 죽인다"
 
     def make_cutover_book(path, duplicate_conflict=False):
         book = openpyxl.Workbook()

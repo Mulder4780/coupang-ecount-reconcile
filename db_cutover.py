@@ -184,6 +184,12 @@ def _write_report(payload: Mapping[str, Any]) -> Path:
 def cutover(master: os.PathLike[str] | str, db_path: Optional[str] = None,
             *, apply: bool = False) -> Dict[str, Any]:
     master = str(Path(master).resolve())
+    # SMB 원본 메타데이터도 시작할 때 한 번만 고정한다. 행마다 getmtime을 다시
+    # 조회하면 이미 워크북을 다 읽은 뒤 공유폴더가 순간 끊긴 것만으로 이관 전체가
+    # 실패한다. 이 시각은 모든 행이 같은 원본 스냅샷에서 왔다는 증거이기도 하다.
+    master_observed_at = datetime.fromtimestamp(
+        os.path.getmtime(master)
+    ).isoformat(timespec="seconds")
     master_sha = sha256_file(master)
     candidates = read_candidates(master)
     summary: Dict[str, Any] = {
@@ -230,7 +236,7 @@ def cutover(master: os.PathLike[str] | str, db_path: Optional[str] = None,
             status=row["status"],
             source_file=master,
             source_sha256=master_sha,
-            observed_at=datetime.fromtimestamp(os.path.getmtime(master)).isoformat(timespec="seconds"),
+            observed_at=master_observed_at,
             evidence="앱 DB 컷오버 Excel 읽기 전용 원본",
             apply_if_missing=True,
             actor="cutover",
