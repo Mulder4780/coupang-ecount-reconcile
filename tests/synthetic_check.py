@@ -3324,7 +3324,7 @@ def t58_check_hub_detail_and_capture():
     # PO번호만 있는 확인 행도 정산 PO번호 연결을 먼저 찾고, 없으면 경고창이 아닌 원문 상세를 연다.
     for token in ("function samePo(", "settleRows.find(r=>samePo(r.PO번호,raw))",
                   "function openCheckSource(", "function openCheckByKey(",
-                  "else openCheckSource(r)", "if(kind==='check')"):
+                  "else showCheckRaw()", "if(kind==='check')"):
         assert token in live, "PO·미연결 확인행 처리 누락: " + token
 
     # 확정된 내부 확인 책임을 적용하고, 그 밖의 현장 확인만 원천 AS/PM 담당기사로 보완한다.
@@ -4066,13 +4066,15 @@ def t93_ledger_db_and_ux():
     assert "renderApplyWindow(s.applywin)" in live, "앱이 다음 Excel 보관본 생성 시각을 알리지 않는다"
     assert "runTask('writer_apply')" not in live, "앱 화면에 옛 즉시 Excel 셀 반영 호출이 남아 있다"
 
-    # ★ 사람이 누르는 즉시 기능도 DB 값을 Excel로 '반영'하지 않는다. 현재 DB revision의
-    #   보관본 생성 계획만 준비하며, SQLite 정본은 이미 저장 시점에 확정돼 있다.
+    # ★ 사람이 누르는 즉시 기능도 원본 Excel을 직접 고치지 않는다. 현재 DB revision을
+    #   새 로컬 파일로 렌더하고 검증한 뒤 last-good 보관본만 승격한다.
     assert '"ledger_now"' in server and "보관본 지금 생성" in server, \
-        "사람이 요청하는 즉시 Excel 보관본 준비 경로가 없다"
-    archive_now = server.split('if key == "ledger_now":', 1)[1].split("else:", 1)[0]
-    assert "_prepare_archive_export" in archive_now and "ledger_writer" not in archive_now, \
-        "보관본 지금 생성이 다시 Excel 역수입·직접 셀 반영 경로로 돌아갔다"
+        "사람이 요청하는 즉시 Excel 보관본 생성 경로가 없다"
+    task_block = server.split("TASKS = {", 1)[1].split("TASK_TIMEOUTS", 1)[0]
+    assert '"ledger_now"' in task_block and '"archive_worker.py"' in task_block and '"--run"' in task_block, \
+        "보관본 지금 생성이 검증 렌더 worker에 연결되지 않았다"
+    assert 'os.path.join(ROOT, "ledger_writer.py"), "--apply"' not in task_block, \
+        "보관본 지금 생성이 다시 Excel 직접 셀 반영 경로로 돌아갔다"
     assert "function applyExcelNow(" in live and "runTask('ledger_now')" in live, \
         "앱의 지금 생성 버튼이 검증된 보관본 준비 작업에 이어져 있지 않다"
     assert "askYesNo(" in live.split("function applyExcelNow(")[1][:700], \
@@ -4843,7 +4845,10 @@ def t103_session_wrapup_hook():
     assert "return 0        # 인계를 남기려다" in src, "실패 시 0 이 아닌 값을 줄 수 있다"
 
     # (6) 훅 배선 — 이것이 없으면 위 전부가 '사람이 손으로 부를 때만' 도는 스크립트다.
-    settings = os.path.join(os.path.dirname(ROOT), ".claude", "settings.json")
+    # 격리 git worktree는 프로젝트 바깥에 놓일 수 있다. 그때도 실제 훅 파일을
+    # 복사/수정하지 않고 읽기 전용 기준 루트를 명시해 같은 배선을 검증한다.
+    project_root = os.environ.get("COUPANG_TEST_PROJECT_ROOT") or os.path.dirname(ROOT)
+    settings = os.path.join(project_root, ".claude", "settings.json")
     assert os.path.exists(settings), ".claude/settings.json 이 없다"
     cfg = json.load(open(settings, encoding="utf-8"))
     assert cfg.get("autoCompactEnabled") is True, "자동 요약이 꺼져 있다"
@@ -5946,7 +5951,8 @@ def t119_context_guard():
     assert "sys.exit(0)" in src, "훅이 실패하면 사람 입력이 막힌다"
 
     # ⑤ 배선 — 훅이 붙어 있고 압축 시점이 한도 안이다
-    st = json.loads(_rd(os.path.join(os.path.dirname(ROOT), ".claude", "settings.json")))
+    project_root = os.environ.get("COUPANG_TEST_PROJECT_ROOT") or os.path.dirname(ROOT)
+    st = json.loads(_rd(os.path.join(project_root, ".claude", "settings.json")))
     ups = json.dumps(st.get("hooks", {}).get("UserPromptSubmit", []), ensure_ascii=False)
     assert "context_guard.py" in ups, "UserPromptSubmit 훅에 배선되지 않았다"
     # ★ 사람 입력이 없는 동안이 가장 위험하다 (2026-08-06 지시 "밤을 새서라도").
@@ -8250,7 +8256,8 @@ def t140_freshness_tells_the_truth():
     assert "Math.min(...vals.map(v => v.t))" in live, "칩이 여전히 마지막에 쓴 값을 보여 준다"
     assert "swrChip(Date.now() - hit.t)" not in live, "경로별 나이를 그대로 칩에 쓰던 옛 길이 남아 있다"
     # ② 갱신 실패를 삼키지 않는다. 삼키면 옛 값이 늙는 동안 '갱신 중'이 영원히 남는다.
-    assert ".catch(() => { swrDone(key, false); })" in live, "SWR 갱신 실패를 다시 삼킨다"
+    assert re.search(r"\.catch\(\s*\(?\w*\)?\s*=>\s*\{[^}]{0,240}swrDone\(key,\s*false\)", live), \
+        "SWR 갱신 실패를 다시 삼킨다"
     assert "갱신 실패" in live, "실패를 사람에게 말하지 않는다"
     # ③ 60분이 넘으면 '194분 전' 이 아니라 시간으로 읽는다.
     assert "function swrAgeText(" in live and "'시간 '" in live
@@ -11344,8 +11351,8 @@ def t149_tech_center():
     # ③ 남의 건에 완료를 못 찍는다 · 열쇠는 상수시간 비교
     tr = server.split("def tech_report(")[1].split("\ndef ")[0]
     assert "내 일감 목록에 없는 건입니다" in tr, "남의 건에 완료를 찍을 수 있다"
-    assert "ledger_db.enqueue(" in tr and "--apply" not in tr, \
-        "기사 보고가 엑셀을 바로 연다 — 반영은 11:00·15:00 회차다"
+    assert "enqueue_for_scheduled_apply(" in tr and "ledger_db.enqueue(" not in tr and "--apply" not in tr, \
+        "기사 보고가 앱 DB 즉시저장을 거치지 않거나 Excel을 바로 연다"
     # 조치 메모를 고객 요청 칸에 쓰지 않는다(그 칸의 뜻이 망가진다)
     assert '"신청내용"' not in tr, "조치 내용을 신청내용 칸에 덮어쓴다"
     assert "hmac.compare_digest" in server.split("def tech_check_key(")[1].split("\ndef ")[0], \
@@ -12243,6 +12250,207 @@ def t193_app_db_cutover_archive_and_frontend():
     print("  [193] 앱 DB 즉시정본·컷오버 parity/충돌·보관결과 진실·확인 drawer 반응형 ✅")
 
 
+def t194_legacy_queue_migration_and_round_truth():
+    """[194] 구형 큐 DB 마이그레이션과 일일 회차 종료 상태는 거짓 성공을 만들지 않는다.
+
+    운영 ``ledger_queue.db``에는 ``target_key``가 없었는데 SCHEMA가 그 열의 인덱스를
+    먼저 만들었다. 그러면 ``conn()``이 ALTER까지 도달하지 못해 09:50 회차 전체가
+    ``no such column: target_key``로 중단된다. 또 ``daily_run``은 예외·단계 실패도
+    finally에서 무조건 '완주'로 덮었고, 진행 JSON은 전 단계의 시간초과·명령을 다음
+    정상 단계에 남겼다. 둘 다 화면만 안심시키는 종류의 실패다.
+    """
+    import importlib
+    import sqlite3 as _sqlite3
+    from datetime import datetime as _dt
+
+    L = importlib.import_module("ledger_db")
+    D = importlib.import_module("daily_run")
+
+    # ① 실제 운영 DB와 같은 구형 pending 표(신규 네 열 없음)를 먼저 만든다.
+    old_db_dir, old_db_path = L.DB_DIR, L.DB_PATH
+    with tempfile.TemporaryDirectory() as td:
+        L.DB_DIR = td
+        L.DB_PATH = os.path.join(td, "legacy_queue.db")
+        try:
+            c = _sqlite3.connect(L.DB_PATH)
+            c.executescript("""
+                CREATE TABLE pending(
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  ts TEXT NOT NULL, source TEXT NOT NULL, sheet TEXT NOT NULL,
+                  key_col TEXT, key TEXT, cell TEXT, col TEXT,
+                  value TEXT, vtype TEXT DEFAULT 'text', evidence TEXT,
+                  only_if_empty INTEGER DEFAULT 1,
+                  status TEXT NOT NULL DEFAULT 'pending',
+                  batch_id INTEGER, applied_at TEXT
+                );
+                CREATE INDEX ix_pending_status ON pending(status);
+            """)
+            c.close()
+
+            # SCHEMA 실행이 먼저 실패하지 않고 ALTER와 인덱스까지 끝나야 한다.
+            with L.conn() as c:
+                cols = {row[1] for row in c.execute("PRAGMA table_info(pending)")}
+                indexes = {row[1] for row in c.execute("PRAGMA index_list(pending)")}
+            assert {"ingest_key", "target_key", "result_note", "superseded_by"} <= cols, cols
+            assert "ix_pending_target" in indexes and "ix_pending_ingest" in indexes, indexes
+            # 두 번째 연결도 멱등이어야 스케줄러 재시작이 안전하다.
+            with L.conn() as c:
+                assert c.execute("SELECT count(*) FROM pending").fetchone()[0] == 0
+        finally:
+            L.DB_DIR, L.DB_PATH = old_db_dir, old_db_path
+
+    # ② 진행 상태는 매번 새 문서다. 이전 시간초과/결과/명령이 다음 단계에 남지 않는다.
+    keep = {
+        "PROGRESS": D.PROGRESS,
+        "is_input_window": D.is_input_window,
+        "acquire_run_lock": D.acquire_run_lock,
+        "release_run_lock": D.release_run_lock,
+        "_run_pipeline": D._run_pipeline,
+        "round_t0": D._ROUND_T0[0],
+        "over_budget": D._OVER_BUDGET[0],
+    }
+    with tempfile.TemporaryDirectory() as td:
+        D.PROGRESS = os.path.join(td, "progress.json")
+        D._ROUND_T0[0] = _dt.now()
+        try:
+            D.note_progress("옛단계", "끝", {
+                "결과": False, "시간초과": True, "명령": "old.py",
+            })
+            D.note_progress("새단계", "시작", {"명령": "new.py"})
+            got = json.load(open(D.PROGRESS, encoding="utf-8"))
+            assert got["단계"] == "새단계" and got["명령"] == "new.py", got
+            assert "시간초과" not in got and "결과" not in got, got
+            D.note_progress("새단계", "끝", {"결과": True})
+            got = json.load(open(D.PROGRESS, encoding="utf-8"))
+            assert "명령" not in got and "시간초과" not in got, got
+            assert got["끝난단계"][-2:] == ["옛단계", "새단계"], got
+
+            released = []
+            D.is_input_window = lambda: False
+            D.acquire_run_lock = lambda: "synthetic-token"
+            D.release_run_lock = lambda token: released.append(token)
+
+            # 정상 완주.
+            D._run_pipeline = lambda: [{"name": "정상", "ok": True}]
+            D.main()
+            got = json.load(open(D.PROGRESS, encoding="utf-8"))
+            assert got["상태"] == "완주" and got["종료구분"] == "완주", got
+
+            # 끝까지 실행했어도 한 단계가 실패했다면 회차 결과는 실패다.
+            D._run_pipeline = lambda: [{"name": "깨진단계", "ok": False}]
+            D.main()
+            got = json.load(open(D.PROGRESS, encoding="utf-8"))
+            assert got["상태"] == "실패" and got["끝까지실행"] is True, got
+            assert got["실패단계"] == ["깨진단계"], got
+
+            # 예외 실패와 사용자 중단도 서로 구분한다.
+            def _boom():
+                raise RuntimeError("synthetic failure")
+            D._run_pipeline = _boom
+            try:
+                D.main()
+            except RuntimeError:
+                pass
+            got = json.load(open(D.PROGRESS, encoding="utf-8"))
+            assert got["상태"] == "실패" and got["오류유형"] == "RuntimeError", got
+
+            def _interrupt():
+                raise KeyboardInterrupt()
+            D._run_pipeline = _interrupt
+            try:
+                D.main()
+            except KeyboardInterrupt:
+                pass
+            got = json.load(open(D.PROGRESS, encoding="utf-8"))
+            assert got["상태"] == "중단" and got["종료구분"] == "중단", got
+            assert released == ["synthetic-token"] * 4, released
+        finally:
+            D.PROGRESS = keep["PROGRESS"]
+            D.is_input_window = keep["is_input_window"]
+            D.acquire_run_lock = keep["acquire_run_lock"]
+            D.release_run_lock = keep["release_run_lock"]
+            D._run_pipeline = keep["_run_pipeline"]
+            D._ROUND_T0[0] = keep["round_t0"]
+            D._OVER_BUDGET[0] = keep["over_budget"]
+
+    print("  [194] 구형 큐 열→인덱스 순서 · 단계 상태 새 문서 · 실패/중단/완주 진실 ✅")
+
+
+def t195_incremental_source_to_db_to_archive():
+    """[195] 새 원본은 앱 DB 정본과 검증된 Excel 보관본까지 사람 손 없이 이어진다."""
+    import importlib
+    from pathlib import Path
+
+    A = importlib.import_module("app_store")
+    B = importlib.import_module("band_canonical")
+    C = importlib.import_module("canonical_sync")
+    W = importlib.import_module("archive_worker")
+    P = importlib.import_module("automation_pipeline")
+
+    assert A.SCHEMA_VERSION >= 2
+    assert B.self_test() is True
+    assert C.self_test() is True
+    archive = W.self_test()
+    assert archive.get("ok") and archive.get("last_good_verified"), archive
+    assert archive.get("bounded_source_stage") and archive.get("source_proof_manifested"), archive
+    assert P.self_test() is True
+
+    with tempfile.TemporaryDirectory(prefix="csos-automation-contract-") as td:
+        root = Path(td)
+        (root / "reports").mkdir(parents=True)
+        store = A.AppStore(root / "db" / "app_store.db").initialize()
+        compact = W.status(root=root, store=store, spool_dir=root / "spool")
+        assert compact["status"] == "missing" and not compact["external_write_performed"], compact
+
+        good = P.submit_kakao_file(
+            "KakaoTalk_합성.txt", "2026-08-10 카카오톡 합성 대화".encode("utf-8"),
+            drop_dir=root / "kakao" / "dropbox",
+        )
+        duplicate = P.submit_kakao_file(
+            "KakaoTalk_다른이름.txt", "2026-08-10 카카오톡 합성 대화".encode("utf-8"),
+            drop_dir=root / "kakao" / "dropbox",
+        )
+        assert good["ok"] and not good["duplicate"] and duplicate["duplicate"]
+        try:
+            P.submit_kakao_file("bad.txt", b"\x00binary", drop_dir=root / "kakao" / "dropbox")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("binary Kakao upload was accepted")
+
+    pipeline_src = open(os.path.join(ROOT, "automation_pipeline.py"), encoding="utf-8").read()
+    band_src = open(os.path.join(ROOT, "band_canonical.py"), encoding="utf-8").read()
+    archive_src = open(os.path.join(ROOT, "archive_worker.py"), encoding="utf-8").read()
+    server_src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    watchdog_src = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    installer = open(os.path.join(ROOT, "install_automation_schedule.ps1"), encoding="utf-8").read()
+
+    for marker in (
+        "submit_kakao_file", "band_canonical.py", "canonical_sync.py",
+        "archive_worker.py", "proc_guard", "human_gates",
+    ):
+        assert marker in pipeline_src, "자동화 파이프라인 연결 누락: " + marker
+    assert "subprocess.run(" not in pipeline_src and "subprocess.run(" not in archive_src
+    assert "cancel_watch/cross_signal" in band_src and "reserve_public_id" in band_src
+    for marker in (
+        '"automation"', '"ledger_now"', "/api/automation/status",
+        "/api/automation/kakao-upload",
+    ):
+        assert marker in server_src, "앱 자동화 API 연결 누락: " + marker
+    for marker in (
+        "automationMonitor", "automationKakaoFile", "loadAutomationStatus",
+        "uploadAutomationKakao", "showMoreChecks", "wtShowMore",
+    ):
+        assert marker in live, "자동화 관제 UX 누락: " + marker
+    results_line = watchdog_src.split("results = [", 1)[1].split("]", 1)[0]
+    assert results_line.strip().startswith("run_incremental_pipeline(dry)"), \
+        "느린 Z: 일지 작업보다 증분 자동화가 뒤에 있다"
+    assert "PT5M" in installer and "IgnoreNew" in installer and "--once" in installer
+
+    print("  [195] 카톡·밴드·ERP 변경감지 → 앱 DB 정본 → 객관근거 → 검증 Excel 보관본 자동화 ✅")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -12585,7 +12793,9 @@ if __name__ == "__main__":
     t48_excel_2026_stats_and_verified_completion()
     t39_realtime_monitor()
     t6_webapp()
+    t194_legacy_queue_migration_and_round_truth()
     t193_app_db_cutover_archive_and_frontend()
+    t195_incremental_source_to_db_to_archive()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

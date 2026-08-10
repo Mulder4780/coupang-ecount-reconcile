@@ -50,7 +50,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports")
 STATE_PATH = os.path.join(REPORT_DIR, "컨텍스트_사용량.json")
-SETTINGS = os.path.join(os.path.dirname(ROOT), ".claude", "settings.json")
+PROJECT_ROOT = os.environ.get("COUPANG_TEST_PROJECT_ROOT") or os.path.dirname(ROOT)
+SETTINGS = os.path.join(PROJECT_ROOT, ".claude", "settings.json")
 
 # 한도를 못 읽었을 때의 보수적 기본값(설정 기본 500,000 의 90%)
 DEFAULT_LIMIT = 450_000
@@ -88,7 +89,7 @@ def _project_dir():
     """
     home = os.path.expanduser("~")
     base = os.path.join(home, ".claude", "projects")
-    for proj in (os.path.dirname(ROOT), ROOT):
+    for proj in (PROJECT_ROOT, ROOT):
         d = os.path.join(base, re.sub(r"[^A-Za-z0-9]", "-", proj))
         if os.path.isdir(d):
             return d

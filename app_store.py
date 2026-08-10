@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_BUSY_TIMEOUT_MS = 30_000
 
 # Canonical kind/core-column routing used by the thin legacy compatibility
@@ -335,6 +335,33 @@ SCHEMA_STATEMENTS: Tuple[str, ...] = (
     """
     CREATE INDEX IF NOT EXISTS ix_shadow_business_key
     ON shadow_import_row(kind, business_key, created_at)
+    """,
+    # Objective completion proof used to live only in the legacy queue DB.
+    # Keep every verified decision in the application system-of-record so a
+    # source refresh, archive export, or UI restart cannot silently lose it.
+    """
+    CREATE TABLE IF NOT EXISTS completion_evidence (
+        id TEXT PRIMARY KEY,
+        owner TEXT NOT NULL DEFAULT '',
+        task_kind TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        project_no TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        completed_on TEXT NOT NULL,
+        basis TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT '',
+        source_ref TEXT NOT NULL DEFAULT '',
+        evidence_sha256 TEXT NOT NULL DEFAULT '',
+        active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(owner, task_kind, record_id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS ix_completion_active
+    ON completion_evidence(active, owner, task_kind, completed_on)
     """,
 )
 
@@ -2376,6 +2403,11 @@ class AppStore:
                         "SELECT COALESCE(MAX(id),0) FROM change_event"
                     ).fetchone()[0]
                 ),
+                "completion_evidence_active": int(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM completion_evidence WHERE active=1"
+                    ).fetchone()[0]
+                ),
             }
             mode_row = conn.execute(
                 "SELECT value_json FROM app_setting WHERE key='source_of_truth_mode'"
@@ -2402,6 +2434,215 @@ class AppStore:
                 "last_export": dict(export) if export else None,
                 **counts,
             }
+
+    def upsert_completion_evidence(
+        self,
+        entries: Iterable[Mapping[str, Any]],
+        *,
+        source: str = "objective-sync",
+        actor: str = "automation",
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist objective completion decisions in the canonical database.
+
+        A repeated observation only advances ``last_seen`` and does not create
+        another event/outbox message.  Retractions are intentionally explicit;
+        a temporarily unavailable source must never erase previously verified
+        proof.
+        """
+
+        normalized: List[Dict[str, Any]] = []
+        for raw in entries or []:
+            item = dict(raw or {})
+            owner = str(item.get("owner") or "").strip()
+            task_kind = _require_text("task_kind", item.get("task_kind"), 200)
+            record_id = _require_text("record_id", item.get("record_id"), 500)
+            completed_on = _require_text(
+                "completed_on", str(item.get("completed_on") or "")[:10], 10
+            )
+            try:
+                completed_date = date.fromisoformat(completed_on)
+            except ValueError as exc:
+                raise ValidationError(
+                    f"invalid completion date for {task_kind}/{record_id}"
+                ) from exc
+            if completed_date > date.today():
+                raise ValidationError(
+                    f"future completion date for {task_kind}/{record_id}"
+                )
+            basis = _require_text("basis", item.get("basis"), 4_000)
+            normalized.append(
+                {
+                    "owner": owner[:200],
+                    "task_kind": task_kind,
+                    "record_id": record_id,
+                    "project_no": str(item.get("project_no") or item.get("project") or "").strip()[:500],
+                    "status": _require_text("status", item.get("status") or "완료", 300),
+                    "completed_on": completed_on,
+                    "basis": basis,
+                    "source_ref": str(item.get("source_ref") or "").strip()[:2_000],
+                    "first_seen": str(item.get("first_seen") or "").strip(),
+                    "last_seen": str(item.get("last_seen") or "").strip(),
+                }
+            )
+        payload = {"entries": normalized, "source": source, "actor": actor}
+        result: Dict[str, Any] = {
+            "ok": True,
+            "accepted": len(normalized),
+            "created": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "event_seq": 0,
+        }
+        now = _utcnow()
+        with self.transaction() as conn:
+            replay, request_hash = self._idempotency_replay(
+                conn, "completion:batch", idempotency_key, payload
+            )
+            if replay is not None:
+                return replay
+            for item in normalized:
+                key = (item["owner"], item["task_kind"], item["record_id"])
+                row = conn.execute(
+                    "SELECT * FROM completion_evidence "
+                    "WHERE owner=? AND task_kind=? AND record_id=?",
+                    key,
+                ).fetchone()
+                proof_sha = sha256_json(
+                    {
+                        "project_no": item["project_no"],
+                        "status": item["status"],
+                        "completed_on": item["completed_on"],
+                        "basis": item["basis"],
+                        "source_ref": item["source_ref"],
+                    }
+                )
+                first_seen = item["first_seen"] or now
+                last_seen = item["last_seen"] or now
+                before = dict(row) if row else None
+                if row is None:
+                    evidence_id = self._new_id("cmp")
+                    conn.execute(
+                        """
+                        INSERT INTO completion_evidence(
+                            id,owner,task_kind,record_id,project_no,status,completed_on,
+                            basis,source,source_ref,evidence_sha256,active,first_seen,
+                            last_seen,updated_at
+                        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)
+                        """,
+                        (
+                            evidence_id,
+                            *key,
+                            item["project_no"],
+                            item["status"],
+                            item["completed_on"],
+                            item["basis"],
+                            source,
+                            item["source_ref"],
+                            proof_sha,
+                            first_seen,
+                            last_seen,
+                            now,
+                        ),
+                    )
+                    action = "completion_create"
+                    result["created"] += 1
+                else:
+                    evidence_id = str(row["id"])
+                    same = (
+                        str(row["project_no"]) == item["project_no"]
+                        and str(row["status"]) == item["status"]
+                        and str(row["completed_on"]) == item["completed_on"]
+                        and str(row["basis"]) == item["basis"]
+                        and str(row["source_ref"]) == item["source_ref"]
+                        and int(row["active"]) == 1
+                    )
+                    if same:
+                        conn.execute(
+                            "UPDATE completion_evidence SET last_seen=? WHERE id=?",
+                            (last_seen, evidence_id),
+                        )
+                        result["unchanged"] += 1
+                        continue
+                    conn.execute(
+                        """
+                        UPDATE completion_evidence SET
+                            project_no=?,status=?,completed_on=?,basis=?,source=?,
+                            source_ref=?,evidence_sha256=?,active=1,last_seen=?,updated_at=?
+                        WHERE id=?
+                        """,
+                        (
+                            item["project_no"],
+                            item["status"],
+                            item["completed_on"],
+                            item["basis"],
+                            source,
+                            item["source_ref"],
+                            proof_sha,
+                            last_seen,
+                            now,
+                            evidence_id,
+                        ),
+                    )
+                    action = "completion_update"
+                    result["updated"] += 1
+                after = dict(
+                    conn.execute(
+                        "SELECT * FROM completion_evidence WHERE id=?", (evidence_id,)
+                    ).fetchone()
+                )
+                _event_id, seq = self._append_event(
+                    conn,
+                    work_id=None,
+                    aggregate_type="completion_evidence",
+                    aggregate_key="|".join(key),
+                    action=action,
+                    actor=actor,
+                    before=before,
+                    after=after,
+                    source=source,
+                    evidence=item["basis"],
+                    source_ref=item["source_ref"],
+                    source_sha256=proof_sha,
+                    topic="completion.changed",
+                )
+                result["event_seq"] = max(result["event_seq"], seq)
+            self._save_idempotency(
+                conn, "completion:batch", idempotency_key, request_hash, result
+            )
+        return result
+
+    def list_completion_evidence(
+        self,
+        *,
+        owner: Optional[str] = None,
+        task_kind: Optional[str] = None,
+        active_only: bool = True,
+        limit: int = 10_000,
+    ) -> List[Dict[str, Any]]:
+        if limit < 1 or limit > 50_000:
+            raise ValidationError("invalid completion evidence limit")
+        clauses: List[str] = []
+        params: List[Any] = []
+        if owner is not None:
+            clauses.append("owner=?")
+            params.append(owner)
+        if task_kind is not None:
+            clauses.append("task_kind=?")
+            params.append(task_kind)
+        if active_only:
+            clauses.append("active=1")
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        with self.reader() as conn:
+            return [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT * FROM completion_evidence"
+                    + where
+                    + " ORDER BY completed_on DESC,id LIMIT ?",
+                    (*params, limit),
+                )
+            ]
 
     def reserve_public_id(
         self,
@@ -2516,6 +2757,19 @@ class AppStore:
                 self._work_from_conn(conn, row["id"], include_deleted=include_deleted)
                 for row in ids
             ]
+            completions = [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT * FROM completion_evidence "
+                    "ORDER BY owner,task_kind,record_id,id"
+                )
+            ]
+            public_id_sequences = [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT * FROM public_id_sequence ORDER BY kind,day,prefix"
+                )
+            ]
             seq = int(
                 conn.execute("SELECT COALESCE(MAX(id),0) AS n FROM change_event").fetchone()[
                     "n"
@@ -2529,6 +2783,8 @@ class AppStore:
                 "include_deleted": bool(include_deleted),
                 "settings": settings,
                 "work_items": works,
+                "completion_evidence": completions,
+                "public_id_sequences": public_id_sequences,
             }
 
     def snapshot(self, *, include_deleted: bool = False) -> Tuple[Dict[str, Any], str]:
@@ -2798,6 +3054,25 @@ def self_test() -> bool:
             idempotency_key="setting-2",
         )
         assert setting2["setting"]["record_version"] == 2
+
+        completion = {
+            "owner": "류지영",
+            "task_kind": "field_as",
+            "record_id": "AS-SELF-001",
+            "project": "UJ-SELF-001",
+            "status": "류지영 완료",
+            "completed_on": "2026-08-09",
+            "basis": "합성 객관근거",
+        }
+        completion_result = store.upsert_completion_evidence(
+            [completion], idempotency_key="completion-1"
+        )
+        assert completion_result["created"] == 1
+        completion_repeat = store.upsert_completion_evidence([completion])
+        assert completion_repeat["unchanged"] == 1
+        completion_rows = store.list_completion_evidence(owner="류지영")
+        assert len(completion_rows) == 1
+        assert completion_rows[0]["record_id"] == "AS-SELF-001"
 
         legacy_items = [
             {

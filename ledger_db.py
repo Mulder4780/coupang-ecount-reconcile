@@ -91,7 +91,6 @@ CREATE TABLE IF NOT EXISTS pending(
   superseded_by INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_pending_status ON pending(status);
-CREATE INDEX IF NOT EXISTS ix_pending_target ON pending(target_key,status);
 CREATE TABLE IF NOT EXISTS batch(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slot TEXT NOT NULL,            -- 어느 회차인가(2026-07-30 11:00)
@@ -331,6 +330,9 @@ def conn():
                     except sqlite3.OperationalError as exc:
                         if "duplicate column" not in str(exc).lower():
                             raise
+        # ★ 인덱스는 반드시 구형 DB 열 마이그레이션 **뒤**에 만든다.
+        # SCHEMA 안에서 target_key 인덱스를 먼저 만들면, 그 열이 없던 운영 DB는
+        # executescript()에서 즉시 실패해 아래 ALTER TABLE까지 도달하지 못한다.
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_pending_ingest"
                   " ON pending(ingest_key) WHERE ingest_key IS NOT NULL")
         c.execute("CREATE INDEX IF NOT EXISTS ix_pending_target"

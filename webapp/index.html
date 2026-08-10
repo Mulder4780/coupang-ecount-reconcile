@@ -1052,6 +1052,60 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
 .lastruns .lr.bad b{color:var(--danger)}
 .lastruns .lr .auto{font-size:11px;opacity:.75}
 
+/* 자동화 관제 — "자동"이라는 말 대신 지금 어느 단계에서 막혔는지 보여 준다.
+   카톡·Band·ERP 원천, 앱 DB 정본, Excel 보관본을 한 카드에서 확인한다. */
+.automation-monitor{padding:0;overflow:hidden;border-color:#C9D6F4}
+.automation-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;
+  padding:17px 18px 13px;background:linear-gradient(135deg,var(--surface),var(--brand-tint));
+  border-bottom:1px solid var(--line);min-width:0}
+.automation-head>div{min-width:0}.automation-head h3{margin:0;color:var(--ink);font-size:17px;font-weight:850}
+.automation-head p{margin:4px 0 0;color:var(--ink-2);font-size:13.5px;line-height:1.5;overflow-wrap:anywhere}
+.automation-overall{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:0}
+.automation-overall small{max-width:210px;color:var(--ink-3);font-size:12px;text-align:right;
+  line-height:1.35;overflow-wrap:anywhere}
+.auto-state{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:4px 10px;border-radius:999px;
+  border:1px solid var(--line);background:var(--neu-bg);color:var(--neu);font-size:12.5px;font-weight:850;
+  white-space:nowrap}
+.auto-state::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.auto-state.ok{background:var(--ok-bg);border-color:#BFE8CD;color:var(--ok)}
+.auto-state.warn,.auto-state.login,.auto-state.data{background:var(--warn-bg);border-color:#F1D09C;color:var(--warn)}
+.auto-state.danger{background:var(--danger-bg);border-color:#F5C2C7;color:var(--danger)}
+.auto-state.busy{background:var(--brand-tint);border-color:#C4D2F5;color:var(--brand)}
+.auto-state.busy::before{animation:autoPulse 1s ease-in-out infinite}
+@keyframes autoPulse{50%{opacity:.28;transform:scale(.72)}}
+.automation-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;padding:13px 18px 4px}
+.auto-node{min-width:0;min-height:94px;padding:11px 12px;border:1px solid var(--line);border-radius:13px;
+  background:var(--panel);display:flex;flex-direction:column;gap:5px}
+.auto-node-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.auto-node-head b{min-width:0;font-size:14px;color:var(--ink);overflow-wrap:anywhere}
+.auto-node .auto-time{font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums;line-height:1.35;
+  overflow-wrap:anywhere}
+.auto-node .auto-detail{margin-top:auto;font-size:12.5px;color:var(--ink-3);line-height:1.4;
+  overflow-wrap:anywhere;word-break:break-word}
+.auto-node .auto-detail.error{color:var(--danger);font-weight:750}
+.automation-loading{grid-column:1/-1;min-height:94px;display:grid;place-items:center;color:var(--ink-3);
+  border:1px dashed var(--line);border-radius:13px;background:var(--panel);font-size:13.5px}
+.automation-error{margin:10px 18px 0;padding:10px 12px;border:1px solid #F5C2C7;border-radius:11px;
+  background:var(--danger-bg);color:var(--danger);font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.automation-error[hidden]{display:none}
+.automation-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px 18px 17px}
+.automation-actions .abtn{min-width:0;min-height:48px;justify-content:center;flex-direction:row;
+  padding:11px 10px;overflow-wrap:anywhere}
+.automation-actions .abtn[disabled]{opacity:.55;cursor:wait;transform:none}
+.automation-upload-result{min-height:20px;margin:-6px 18px 14px;color:var(--ink-3);font-size:13px;
+  line-height:1.45;overflow-wrap:anywhere}
+.automation-upload-result.ok{color:var(--ok);font-weight:750}.automation-upload-result.err{color:var(--danger);font-weight:750}
+.auto-more{width:100%;min-height:48px;margin-top:10px;border:1px solid #BFCDF3;border-radius:12px;
+  background:var(--surface);color:var(--brand);font:inherit;font-size:14px;font-weight:850;cursor:pointer}
+.auto-more:focus-visible{outline:3px solid rgba(36,82,230,.24);outline-offset:2px}
+@media(max-width:899px){.automation-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){
+  .automation-head{display:block;padding:15px 14px 12px}.automation-overall{align-items:flex-start;margin-top:10px}
+  .automation-overall small{text-align:left;max-width:none}.automation-grid{grid-template-columns:1fr;padding:11px 14px 3px}
+  .auto-node{min-height:86px}.automation-actions{grid-template-columns:1fr;padding:11px 14px 15px}
+  .automation-error{margin-left:14px;margin-right:14px}.automation-upload-result{margin-left:14px;margin-right:14px}
+}
+
 /* ═══ 리포트 ═══ */
 .rtabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:11px;padding-bottom:2px}
 .rtabs button{padding:7.5px 15px;border-radius:99px;background:var(--surface);border:1px solid var(--line);
@@ -1215,10 +1269,10 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
 .check-group .hint{display:block;font-size:13px;color:var(--ink-3);margin-top:4px;line-height:1.35}
 .check-group .count{flex:none;font-size:14px;font-weight:800;color:var(--brand);font-variant-numeric:tabular-nums}
 .check-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) 180px 160px auto;gap:8px;margin-bottom:10px}
-.check-toolbar input,.check-toolbar select{min-width:0;padding:10px 12px;border:1.5px solid var(--line);
+.check-toolbar input,.check-toolbar select{min-width:0;min-height:44px;padding:10px 12px;border:1.5px solid var(--line);
   border-radius:10px;background:var(--surface);color:var(--ink);font:inherit}
 .check-toolbar input:focus,.check-toolbar select:focus{outline:none;border-color:var(--brand)}
-.check-toolbar button{padding:9px 13px;border:1px solid var(--line);border-radius:10px;background:var(--panel);
+.check-toolbar button{min-height:44px;padding:9px 13px;border:1px solid var(--line);border-radius:10px;background:var(--panel);
   color:var(--ink-2);font-weight:800}
 .check-summary{font-size:13.5px;color:var(--ink-3);margin:-2px 0 9px}
 .check-summary b{color:var(--brand)}
@@ -2831,7 +2885,7 @@ body.dash-drag-live #dashGuides{display:grid}
   <!-- ═══ 정밀 관리 탭(2026-07-31 지시): 정기점검·돌발AS 입력·출력 전용 ═══
        벤치마킹(Limble·MaintainX·Atlas CMMS 오픈소스): KPI 스트립=클릭 필터 ·
        저장되는 필터 · 카드 인라인 편집(상태/기사/일정) · 기사별 보드 · CSV 출력.
-       입력은 전부 /api/input → DB 큐 → 11:00·15:00 회차 반영(DB-only 원칙). -->
+       입력은 전부 /api/input → 앱 DB 즉시 정본, Excel은 11:00·15:00 자동 보관본(DB-only 원칙). -->
   <!-- 업무센터 탭(2026-07-31 지시): 대시보드 카드에서 사이드바로 승격.
        담당자별 현황·고정 주소·원천자료 등록(입금: 드래그앤드롭·URL)을 한 곳에서. -->
   <section class="view" id="v-center">
@@ -2968,7 +3022,7 @@ body.dash-drag-live #dashGuides{display:grid}
 
   <section class="view" id="v-pm">
     <div class="hero-min wt-hero"><div class="wt-hero-copy"><h2>정기점검 관리</h2>
-      <p class="sub">예정·실행·미실시를 한 화면에서 배정하고 기록합니다. 입력은 DB에 쌓였다가 11시·15시에 관리대장에 들어갑니다.</p></div>
+      <p class="sub">예정·실행·미실시를 한 화면에서 배정하고 기록합니다. 입력은 앱 DB에 즉시 저장되고 Excel은 자동 보관본으로 생성됩니다.</p></div>
       <label class="wt-basis" for="pmBaseDate"><span>조회 기준일</span>
         <input id="pmBaseDate" type="date" min="2026-01-01" max="2026-12-31" onchange="wtSetBase('pm',this.value)">
         <b id="pmBaseLabel">기준일 불러오는 중</b></label></div>
@@ -2999,17 +3053,17 @@ body.dash-drag-live #dashGuides{display:grid}
     </details>
     <div class="wt-kpis" id="pmKpis"></div>
     <div class="card"><div class="wt-toolbar" id="pmToolbar"></div>
-      <div class="wt-meta" id="pmMeta"></div><div id="pmBody"></div></div>
+      <div class="wt-meta" id="pmMeta" role="status" aria-live="polite"></div><div id="pmBody"></div></div>
   </section>
   <section class="view" id="v-as">
     <div class="hero-min wt-hero"><div class="wt-hero-copy"><h2>돌발 AS 관리</h2>
-      <p class="sub">접수→배정→방문→완료를 한 화면에서 관리합니다. 입력은 DB에 쌓였다가 11시·15시에 관리대장에 들어갑니다.</p></div>
+      <p class="sub">접수→배정→방문→완료를 한 화면에서 관리합니다. 입력은 앱 DB에 즉시 저장되고 Excel은 자동 보관본으로 생성됩니다.</p></div>
       <label class="wt-basis" for="asBaseDate"><span>조회 기준일</span>
         <input id="asBaseDate" type="date" min="2026-01-01" max="2026-12-31" onchange="wtSetBase('as',this.value)">
         <b id="asBaseLabel">기준일 불러오는 중</b></label></div>
     <div class="wt-kpis" id="asKpis"></div>
     <div class="card"><div class="wt-toolbar" id="asToolbar"></div>
-      <div class="wt-meta" id="asMeta"></div><div id="asBody"></div></div>
+      <div class="wt-meta" id="asMeta" role="status" aria-live="polite"></div><div id="asBody"></div></div>
   </section>
 
   <!-- 원본 자료 — 모든 원천 파일을 한 곳에서 찾고 클릭 한 번으로 연다(2026-08-05 지시).
@@ -3187,6 +3241,40 @@ body.dash-drag-live #dashGuides{display:grid}
 
   <!-- 실행 -->
   <section class="view" id="v-run">
+    <section class="card automation-monitor" id="automationMonitor" aria-labelledby="automationTitle" aria-busy="true">
+      <div class="automation-head">
+        <div>
+          <h3 id="automationTitle">전체 자동화 상태</h3>
+          <p>원본 수집부터 앱 DB 즉시 저장·Excel 자동 보관본까지, 마지막 성공과 막힌 이유를 한눈에 확인합니다.</p>
+        </div>
+        <div class="automation-overall">
+          <span class="auto-state busy" id="automationOverall">상태 확인 중</span>
+          <small id="automationUpdatedAt">기준 시각을 읽는 중입니다.</small>
+        </div>
+      </div>
+      <div class="automation-grid" id="automationGrid">
+        <div class="automation-loading">카톡·Band·ERP·앱 DB·Excel 상태를 확인하는 중입니다.</div>
+      </div>
+      <div class="automation-error" id="automationError" role="alert" hidden></div>
+      <div class="automation-actions" aria-label="자동화 작업">
+        <button class="abtn primary" id="automationRunBtn" type="button" onclick="runAutomation()">
+          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-play-fill"/></svg>
+          <span>전체 자동화 지금 실행</span>
+        </button>
+        <button class="abtn" id="automationUploadBtn" type="button" onclick="openAutomationKakaoUpload()">
+          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-upload"/></svg>
+          <span>카톡 TXT 바로 올리기</span>
+        </button>
+        <button class="abtn" id="automationRetryBtn" type="button" onclick="loadAutomationStatus(true,true)">
+          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>
+          <span>상태 다시 확인</span>
+        </button>
+      </div>
+      <input class="sr-only" id="automationKakaoFile" type="file" accept=".txt,text/plain"
+        aria-label="자동 대조할 카카오톡 TXT 파일 선택" onchange="uploadAutomationKakao(this)">
+      <div class="automation-upload-result" id="automationUploadResult" role="status" aria-live="polite">카톡 내보내기 TXT 한 개씩 올리면 원본 보존 후 전체 자동화가 이어집니다.</div>
+      <div class="sr-only" id="automationLive" role="status" aria-live="polite"></div>
+    </section>
     <div class="card"><h3>작업 실행 <span class="norm">— 누르면 바로 돌고 아래에 로그가 쌓입니다</span></h3>
       <!-- ★ 마지막 실행 시각 (2026-08-08 지시: "이 화면 상단에 최근 마지막 실행
            날짜 시간이 어떻게 되는지 표시해"). 무엇을 언제 돌렸는지 모르면 방금 돈
@@ -3219,16 +3307,13 @@ body.dash-drag-live #dashGuides{display:grid}
           <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-image-fill"/></svg></span>
           <span class="ui-card-tx"><b>밴드 문서 이미지 대조</b><span>밴드 사진의 금액·번호를 OCR로 읽어 대조</span></span></button>
         <button class="ui-card " onclick="confirmRun('band_docs_apply','밴드에 올라온 거래명세서·세금계산서 사진을 읽어
-확실한 건만(금액 일치) 입력 DB에 보관합니다.
-엑셀은 다음 11시·15시 회차에 빈칸만 반영합니다.')">
+확실한 건만(금액 일치) 앱 DB에 즉시 저장합니다.
+Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
           <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-image-fill"/></svg></span>
-          <span class="ui-card-tx"><b>밴드 문서 → 입력 대기</b><span>금액이 일치하는 확실한 건만 입력 DB에 넣습니다</span></span></button>
+          <span class="ui-card-tx"><b>밴드 문서 → 앱 DB</b><span>금액이 일치하는 확실한 건만 즉시 저장합니다</span></span></button>
         <button class="ui-card " onclick="runTask('writer_prev')">
           <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-pencil-square"/></svg></span>
-          <span class="ui-card-tx"><b>자동입력 미리보기</b><span>엑셀에 무엇이 들어갈지 먼저 봅니다(쓰지 않음)</span></span></button>
-        <button class="ui-card " onclick="loadStatus();toast('입력 대기와 다음 11시·15시 반영 시각을 갱신했습니다')">
-          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-hourglass-split"/></svg></span>
-          <span class="ui-card-tx"><b>반영 대기 확인</b><span>몇 건이 대기 중이고 언제 들어가는지</span></span></button>
+          <span class="ui-card-tx"><b>Excel 보관본 미리보기</b><span>앱 DB 정본으로 만들 보관본을 먼저 확인합니다(쓰지 않음)</span></span></button>
         <button class="ui-card " onclick="runTask('upload_dry')">
           <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-upload"/></svg></span>
           <span class="ui-card-tx"><b>전표 전송대기</b><span>ERP에 보낼 매출전표를 미리 확인(전송 안 함)</span></span></button>
@@ -3330,12 +3415,12 @@ body.dash-drag-live #dashGuides{display:grid}
     <div class="card">
       <h3>확인 필요 전체 목록 <span class="norm">— 카드를 누르면 이유·근거·조치가 열립니다</span></h3>
       <div class="check-toolbar">
-        <input id="checkq" placeholder="프로젝트·ID·캠프·담당자·근거 검색" oninput="renderCheckList()">
-        <select id="checktype" onchange="renderCheckList()"><option value="">문제유형 전체</option></select>
-        <select id="checkowner" onchange="renderCheckList()"><option value="">담당자 전체</option></select>
+        <input id="checkq" aria-label="확인 필요 검색" placeholder="프로젝트·ID·캠프·담당자·근거 검색" oninput="renderCheckList(true)">
+        <select id="checktype" aria-label="문제유형 필터" onchange="renderCheckList(true)"><option value="">문제유형 전체</option></select>
+        <select id="checkowner" aria-label="담당자 필터" onchange="renderCheckList(true)"><option value="">담당자 전체</option></select>
         <button onclick="resetCheckFilters()">초기화</button>
       </div>
-      <div class="check-summary" id="checksummary"></div>
+      <div class="check-summary" id="checksummary" role="status" aria-live="polite"></div>
       <div class="slist" id="checklist"></div>
     </div>
   </section>
@@ -3445,7 +3530,7 @@ body.dash-drag-live #dashGuides{display:grid}
 	              <textarea name="survey_note" placeholder="통화 확인 결과, 담당자 답변, 추가 확인이 필요한 내용을 적습니다. 이 메모는 입력 근거로 남습니다."></textarea>
 	            </label>
 	          </div>
-	          <p class="ryu-save-note">저장하면 관리대장의 해당 업무 ID를 찾아 <b>비어 있는 칸만</b> 반영합니다. 수식·검증결과·자동 상태는 직접 변경하지 않습니다.</p>
+          <p class="ryu-save-note">저장하면 해당 업무 ID의 <b>확인된 값만 앱 DB에 즉시 기록</b>합니다. 수식·검증결과·자동 상태는 직접 변경하지 않으며 Excel은 보관본으로 자동 생성됩니다.</p>
 	          <button class="abtn primary" id="ryuEntrySaveBtn" type="submit" style="width:100%;flex-direction:row;justify-content:center">
 	            <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-check-lg"/></svg>확인 내용 저장·반영
 	          </button>
@@ -3489,7 +3574,7 @@ body.dash-drag-live #dashGuides{display:grid}
 
 	      <div id="ryuOnlySubmission">
 	      <form class="card" id="newWorkForm" onsubmit="submitNewWork(event)">
-	        <h3>신규 업무 입력 <span class="norm">— 엑셀을 열지 않아도 자동 반영 대기열로 전달됩니다</span></h3>
+	        <h3>신규 업무 입력 <span class="norm">— Excel을 열지 않아도 앱 DB에 즉시 저장됩니다</span></h3>
 	        <div class="ryu-fields">
 	          <label>업무 구분
 	            <select name="category" required>
@@ -3509,7 +3594,7 @@ body.dash-drag-live #dashGuides{display:grid}
 	          <label class="wide">사진·문서 근거<input name="evidence_file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.xlsx,.docx,.txt"></label>
 	          <input type="hidden" name="submitter" value="류지영">
 	        </div>
-	        <p class="ryu-save-note">저장하면 시스템 DB와 안전한 자동 반영 대기열에 먼저 기록합니다. 프로젝트 중복·날짜 오류·빈 행 부족은 우측 상단 알림으로 알려드립니다.</p>
+	        <p class="ryu-save-note">저장하면 앱 DB 정본과 감사기록에 즉시 기록합니다. 프로젝트 중복·날짜 오류는 우측 상단 알림으로 알려드리며 Excel은 자동 보관본으로 생성됩니다.</p>
 	        <button class="abtn primary" id="newWorkBtn" type="submit" style="width:100%;flex-direction:row;justify-content:center">
 	          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>신규 업무 저장·자동 반영
 	        </button>
@@ -3833,7 +3918,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
 /* ═══ 오프라인 큐 — PC 가 꺼져 있어도 폰에서 입력한다 (사용자 지시 2026-07-31) ═══
    지금까지는 PC 의 app_server 가 죽어 있으면 폰에서 아무것도 못 넣었다. 이제
      폰 입력 → (서버 없으면) 이 기기 IndexedDB 에 보관 → PC 가 켜지면 자동 전송
-     → ledger_db 큐 → 11:00·15:00 엑셀 반영
+   → 앱 DB 정본 즉시 저장 → Excel 자동 보관본
    으로 이어진다. 뒤쪽 두 단계는 이미 있던 구조라 그대로 쓴다 — 새로 만든 것은 앞의 보관뿐이다.
 
    왜 fetch 를 감싸나: 쓰기 호출이 화면 여러 곳에 흩어져 있다. 호출부를 하나하나 고치면
@@ -3844,7 +3929,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
      **쓰기만** 넣는다. 목록에 없는 주소는 예전처럼 그대로 실패한다(조용히 삼키지 않는다). */
 const OUTBOX_PATHS = ['/api/ryu/entry','/api/staff/new-job','/api/staff/improvement',
   '/api/input','/api/set_dates','/api/enqueue',
-  '/api/ryu/upload','/api/staff/po-upload','/api/staff/work-log-upload','/api/staff/receipt-upload'];
+  '/api/ryu/upload','/api/automation/kakao-upload','/api/staff/po-upload','/api/staff/work-log-upload','/api/staff/receipt-upload'];
 const _netFetch = window.fetch.bind(window);
 
 function obDB(){
@@ -5035,7 +5120,7 @@ async function submitRyuEntry(ev){
     if(r.status===401){PIN='';localStorage.removeItem('cw_pin');$('gate').style.display='flex';throw new Error('PIN을 다시 입력해 주세요');}
     const d=await r.json();if(!r.ok||!d.ok) throw new Error(d.error||`HTTP ${r.status}`);
     result.className='ryu-result ok';
-    result.textContent=d.queued?`${d.queued}개 항목을 입력 DB에 저장했습니다. 엑셀은 다음 11시·15시 회차에 반영됩니다.`:'근거 파일과 조사 기록을 저장했습니다.';
+    result.textContent=d.queued?`${d.queued}개 항목을 앱 DB에 즉시 저장했습니다. Excel은 자동 보관본으로 생성됩니다.`:'근거 파일과 조사 기록을 저장했습니다.';
     toast('류지영 업무센터 입력을 접수했습니다');
     // 레이어로 띄워 둔 상태면 저장 뒤 닫아 준다 — 목록으로 바로 돌아간다.
     // 결과 문구는 토스트로 이미 보였으므로 폼을 붙들고 있을 이유가 없다.
@@ -5069,6 +5154,7 @@ async function submitRyuUpload(ev){
          '자동 대조 예약 상태를 확인해 주세요.')}`;
     [...form.querySelectorAll('input[type=file]')].forEach(x=>x.value='');
     toast('류지영 업무센터 원본 저장 및 자동 대조 접수 완료');
+    loadAutomationStatus(true);
   }catch(e){
     result.className='ryu-result err';result.textContent='업로드 실패 · '+String(e.message||e);
   }finally{
@@ -5086,12 +5172,12 @@ async function submitNewWork(ev){
     const d=await r.json();
     if(!r.ok||!d.ok) throw new Error(d.error||'신규 업무 저장 실패');
     result.className='ryu-result ok';
-    result.innerHTML=`저장 완료 · ${esc2(d.manifest['업무ID'])} · 입력 DB ${fmt(d.queued)}개 항목
-      <br>엑셀은 다음 11시·15시 일괄반영 회차에 기록됩니다.`;
+    result.innerHTML=`저장 완료 · ${esc2(d.manifest['업무ID'])} · 앱 DB ${fmt(d.queued)}개 항목 즉시 저장
+      <br>Excel은 앱 DB 정본에서 자동 보관본으로 생성됩니다.`;
     const keepDate=form.querySelector('[name="work_date"]').value;
     form.reset();form.querySelector('[name="work_date"]').value=keepDate;
     await Promise.all([loadRyuRecords(true),loadNotifications()]);
-    toast('신규 업무를 저장했습니다 · 엑셀은 다음 11시·15시 반영');
+    toast('신규 업무를 앱 DB에 저장했습니다 · Excel 자동 보관');
   }catch(e){
     result.className='ryu-result err';result.textContent='저장 실패 · '+String(e.message||e);
     loadNotifications();
@@ -5416,7 +5502,7 @@ function offlineBanner(){
    설계 근거: 실사용 기록(류지영 매니저가 담당기사 미배정을 엑셀에서 한 건씩 찾아
    입력하다 유실 사고) + 오픈소스 CMMS 벤치마킹(Limble 카드·클릭수 최소화,
    MaintainX 모바일 우선, Atlas CMMS 배정/추적). 원칙:
-   · 입력은 전부 /api/input → DB 큐(11·15시 반영) — 엑셀을 직접 만지지 않는다.
+   · 입력은 전부 /api/input → 앱 DB 즉시 정본 — Excel은 자동 보관본으로만 만든다.
    · 배정·상태·일정만 덮어쓰기 허용(서버 OVERWRITE_COLS) — 나머지는 빈 칸만.
    · 필터는 기기에 저장돼 다음에 열어도 그대로다(저장되는 필터). */
 const WT_CFG = {
@@ -5432,6 +5518,8 @@ const WT_CFG = {
 let WT = (()=>{ try{ return JSON.parse(localStorage.getItem('cw_wt')||'{}'); }catch(e){ return {}; } })();
 const wtSave = () => { try{ localStorage.setItem('cw_wt', JSON.stringify(WT)); }catch(e){} };
 const wtToday = () => new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'});
+const WT_RENDER_STEP=100;
+const WT_RENDER_LIMIT={pm:WT_RENDER_STEP,as:WT_RENDER_STEP};
 function wtState(k){
   const cfg=WT_CFG[k], cur=WT[k]||{};
   const base=/^2026-\d{2}-\d{2}$/.test(String(cur.base||'')) ? cur.base : wtToday();
@@ -5442,7 +5530,7 @@ function wtState(k){
   if(!['asc','desc'].includes(WT[k].sortOrder)) WT[k].sortOrder='desc';
   return WT[k];
 }
-const WT_PENDING = {};       // {id|col: value} — 회차 반영 전까지 '대기' 배지
+const WT_PENDING = {};       // {id|col: value} — 이 화면에서 앱 DB에 저장한 낙관 반영 배지
 function wtStatus(k,r){ return String(r[WT_CFG[k].stCol]||'').trim() || '미기입'; }
 function wtTechs(k){
   const s=new Set();
@@ -5540,22 +5628,32 @@ function renderWorkTab(k){
     `<button class="abtn" onclick="wtCsv('${k}')">CSV 내보내기</button>`);
   const rows=wtRows(k);
   const sortLabel=(cfg.sorts.find(x=>x[0]===st.sortBy)||[st.sortBy,st.sortBy])[1];
-  $(k+'Meta').textContent=`${rows.length}건 표시 (전체 ${all.length}건)`+
+  $(k+'Meta').textContent=`${rows.length}건 검색됨 (전체 ${all.length}건)`+
     ` · 기준 ${st.base} · ${sortLabel} ${st.sortOrder==='asc'?'오름차순':'내림차순'}`+
-    (Object.keys(WT_PENDING).length?` · 반영 대기 입력 ${Object.keys(WT_PENDING).length}건 — 11시·15시에 관리대장으로`:'');
-  $(k+'Body').innerHTML = st.board ? wtBoard(k,rows) : rows.slice(0,400).map(r=>wtCard(k,r)).join('')
-    + (rows.length>400?`<div class="wt-meta">400건까지 표시 — 검색·필터로 좁혀 주세요</div>`:'');
+    (Object.keys(WT_PENDING).length?` · 앱 DB 저장 ${Object.keys(WT_PENDING).length}개 항목 · Excel 자동 보관`: '');
+  const limit=Math.max(WT_RENDER_STEP,Number(WT_RENDER_LIMIT[k]||WT_RENDER_STEP));
+  const visible=rows.slice(0,limit), remain=Math.max(0,rows.length-visible.length);
+  const empty='<div class="card" role="status">현재 조건에 맞는 업무가 없습니다.</div>';
+  $(k+'Body').innerHTML=(visible.length?(st.board?wtBoard(k,visible):visible.map(r=>wtCard(k,r)).join('')):empty)+
+    (remain?`<button type="button" class="auto-more" onclick="wtShowMore('${k}',this)" aria-label="업무 ${Math.min(WT_RENDER_STEP,remain)}건 더 보기">
+      현재 ${visible.length}건 표시 · ${Math.min(WT_RENDER_STEP,remain)}건 더 보기 (남은 ${remain}건)</button>`:'');
 }
-function wtSet(k,key,val){ wtState(k)[key]=val; wtSave(); renderWorkTab(k); }
+function wtShowMore(k,button){
+  WT_RENDER_LIMIT[k]=Math.max(WT_RENDER_STEP,Number(WT_RENDER_LIMIT[k]||0))+WT_RENDER_STEP;
+  renderWorkTab(k);
+  const body=$(k+'Body'), next=body&&body.querySelector('.auto-more');
+  if(next) next.focus(); else if(body){body.setAttribute('tabindex','-1');body.focus({preventScroll:true});}
+}
+function wtSet(k,key,val){ WT_RENDER_LIMIT[k]=WT_RENDER_STEP; wtState(k)[key]=val; wtSave(); renderWorkTab(k); }
 function wtSetBase(k,value){
   const v=/^2026-\d{2}-\d{2}$/.test(String(value||'')) ? value : wtToday();
-  wtState(k).base=v; wtSave(); renderWorkTab(k);
+  WT_RENDER_LIMIT[k]=WT_RENDER_STEP; wtState(k).base=v; wtSave(); renderWorkTab(k);
 }
 function wtReset(k){
   const cur=wtState(k), cfg=WT_CFG[k];
   WT[k]={q:'',st:'',tech:'',board:cur.board,quick:'',dateMode:'',base:cur.base,
     sortBy:cfg.dateCol,sortOrder:'desc'};
-  wtSave(); renderWorkTab(k);
+  WT_RENDER_LIMIT[k]=WT_RENDER_STEP; wtSave(); renderWorkTab(k);
 }
 function wtCard(k,r){
   const cfg=WT_CFG[k], id=String(r[cfg.idCol]||'').trim();
@@ -5596,8 +5694,8 @@ async function wtEdit(k,id,col,value,vtype){
       body:JSON.stringify({sheet:cfg.sheet,key_col:cfg.idCol,key:id,col,value,vtype,overwrite:true})});
     WT_PENDING[id+'|'+col]=value;
     const row=cfg.rows().find(r=>String(r[cfg.idCol]||'').trim()===id);
-    if(row) row[col]=value;                // 낙관적 반영 — 화면은 바로, 원장은 회차에
-    toast(d.queued!==undefined||d.ok?`저장됨 — ${d.message||'11시·15시 회차에 관리대장으로 들어갑니다'}`:'저장 실패');
+    if(row) row[col]=value;                // 낙관적 반영 — 화면과 앱 DB는 즉시, Excel은 보관본
+    toast(d.queued!==undefined||d.ok?`앱 DB 저장됨 — ${d.message||'Excel은 자동 보관본으로 생성됩니다'}`:'저장 실패');
     renderWorkTab(k);
   }catch(e){ toast('저장 실패 — 잠시 후 다시 시도'); }
 }
@@ -6071,7 +6169,7 @@ function wtBoard(k,rows){
   const names=Object.keys(cols).sort((a,b)=>a==='미배정'?-1:b==='미배정'?1:cols[b].length-cols[a].length);
   return `<div class="wt-board">${names.map(t=>`<div class="wt-col${t==='미배정'?' warn':''}">
     <h4>${esc2(t)} <span>${cols[t].length}</span></h4>
-    ${cols[t].slice(0,60).map(r=>wtCard(k,r)).join('')}</div>`).join('')}</div>`;
+    ${cols[t].map(r=>wtCard(k,r)).join('')}</div>`).join('')}</div>`;
 }
 function wtCsv(k){
   const cfg=WT_CFG[k], rows=wtRows(k);
@@ -6105,6 +6203,7 @@ function applyView(v){
     else renderCalendarPage();
   }
   if(v==='check') renderCheckHub();
+  if(v==='run') loadAutomationStatus();
   // 고치는 중이거나 아직 저장 안 한 변경이 있으면 덮지 않는다 — 덮으면 말없이 사라진다
   if(v==='flow' && !FLOW_EDITING && !FLOW_DIRTY) loadFlow();
   // ★ 여기가 비어 있었다 — [보고] 를 열어도 아무것도 안 받고, **누른 다음에야**
@@ -7573,6 +7672,266 @@ function initDashboardLayout(){
   window.addEventListener('storage',e=>{if(e.key===DASH_LAYOUT_KEY) applyDashboardLayout(readDashboardLayout(),true)});
 }
 
+/* ═══ 자동화 관제 ═══════════════════════════════════════════════════════════
+   서버 응답은 수집기별 세부 필드가 조금 달라도 화면 전체가 깨지지 않게 읽는다.
+   새 조회가 실패하면 직전 정상값을 지우지 않고 기준 시각과 실패 이유를 같이 남긴다. */
+const AUTOMATION_STATUS_PATH='/api/automation/status';
+const AUTOMATION_SOURCE_DEFS=[
+  {key:'last',label:'마지막 처리',aliases:['last_run','last_processing','last_completed','최근처리']},
+  {key:'kakao',label:'카카오톡',aliases:['kakao','Kakao','카카오톡','카톡']},
+  {key:'band',label:'Band',aliases:['band','Band','밴드']},
+  {key:'erp',label:'ERP',aliases:['erp','ERP','이카운트','ecount']},
+  {key:'app_db',label:'앱 DB 동기화',aliases:['app_db','appdb','db','app_store','앱DB']},
+  {key:'excel',label:'Excel 자동 보관본',aliases:['excel','excel_archive','archive','last_good','보관본']},
+];
+const AUTOMATION_MON={data:null,error:null,loading:false,asOf:'',flight:null,optimisticRunning:false};
+function autoFirst(obj,keys,fallback=''){
+  if(!obj||typeof obj!=='object') return fallback;
+  for(const key of keys){
+    const value=obj[key];
+    if(value!==undefined&&value!==null&&value!=='') return value;
+  }
+  return fallback;
+}
+function autoObject(value){
+  if(value&&typeof value==='object'&&!Array.isArray(value)) return value;
+  return value!==undefined&&value!==null&&value!==''?{status:String(value)}:{};
+}
+function autoBool(value){
+  if(typeof value==='boolean') return value;
+  return /^(1|true|yes|y|on|필요)$/i.test(String(value||'').trim());
+}
+function autoDateText(value){
+  if(value===undefined||value===null||value==='') return '기록 없음';
+  let raw=value;
+  if(typeof raw==='number'&&raw>0&&raw<1e12) raw*=1000;
+  const date=new Date(raw);
+  if(Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+function autoRecord(data,def){
+  if(!data||typeof data!=='object') return {};
+  if(def.key==='last') return autoObject(autoFirst(data,def.aliases,{}));
+  if(def.key==='app_db') return autoObject(autoFirst(data,def.aliases,{}));
+  if(def.key==='excel') return autoObject(autoFirst(data,def.aliases,{}));
+  const pools=[data.sources,data.connectors,data.source_status,data['원천상태'],data];
+  for(const pool of pools){
+    if(Array.isArray(pool)){
+      const found=pool.find(row=>{
+        const name=String(autoFirst(row,['key','name','source','label','원천'],'')).toLowerCase();
+        return def.aliases.some(alias=>name===String(alias).toLowerCase());
+      });
+      if(found) return autoObject(found);
+      continue;
+    }
+    if(!pool||typeof pool!=='object') continue;
+    for(const alias of def.aliases){
+      if(Object.prototype.hasOwnProperty.call(pool,alias)) return autoObject(pool[alias]);
+      const matched=Object.keys(pool).find(key=>key.toLowerCase()===String(alias).toLowerCase());
+      if(matched) return autoObject(pool[matched]);
+    }
+  }
+  return {};
+}
+function autoStateOf(record){
+  const r=autoObject(record);
+  const raw=String(autoFirst(r,['status','state','result','상태','결과'],'')).trim();
+  const text=`${raw} ${autoFirst(r,['message','detail','reason','error','last_error','메시지','오류'],'')}`.toLowerCase();
+  if(autoBool(autoFirst(r,['login_required','needs_login','auth_required','로그인필요'],false))||/login|required.*auth|로그인\s*필요/.test(text))
+    return {key:'login',label:'로그인 필요'};
+  if(autoFirst(r,['error','last_error','오류'],'')||/fail|error|실패|오류|중단/.test(text))
+    return {key:'danger',label:'실패'};
+  if(autoBool(autoFirst(r,['running','busy','in_progress','실행중'],false))||/running|busy|processing|수집\s*중|처리\s*중|실행\s*중/.test(text))
+    return {key:'busy',label:'처리 중'};
+  if(autoBool(autoFirst(r,['needs_data','data_required','자료필요'],false))||/자료\s*필요|원본\s*필요|미수집/.test(text))
+    return {key:'data',label:'자료 필요'};
+  if(autoBool(autoFirst(r,['stale','overdue','지연'],false))||/stale|overdue|지연|오래됨|밀림/.test(text))
+    return {key:'warn',label:'갱신 필요'};
+  if(autoBool(autoFirst(r,['ok','healthy','synced','success','정상'],false))||/^(ok|success|healthy|synced|ready|complete|completed|정상|완료|동기화)$/.test(raw.toLowerCase()))
+    return {key:'ok',label:'정상'};
+  if(/^(never|missing|none|unknown|기록\s*없음|미확인)$/.test(raw.toLowerCase()))
+    return {key:'neutral',label:'기록 없음'};
+  return {key:'neutral',label:raw||'확인 대기'};
+}
+function autoTimeOf(record,def){
+  const keys=def.key==='last'
+    ?['finished_at','ended_at','completed_at','last_run_at','last_processing_at','끝난시각','처리시각']
+    :def.key==='excel'
+      ?['last_good_at','finished_at','last_export_at','created_at','as_of','기준시각']
+      :['last_success_at','latest_record_at','last_sync_at','updated_at','checked_at','as_of','최신시각','기준시각'];
+  return autoFirst(record,keys,'');
+}
+function autoDetailOf(record,def){
+  const r=autoObject(record);
+  const error=autoFirst(r,['error','last_error','오류'],'');
+  if(error) return {text:String(error),error:true};
+  const detail=autoFirst(r,['gate_message','summary','detail','message','reason','note','설명','메시지'],'');
+  if(detail) return {text:String(detail),error:false};
+  if(def.key==='app_db'){
+    const pending=Number(autoFirst(r,['pending','outbox_pending','대기'],0)||0);
+    const seq=autoFirst(r,['change_seq','revision','snapshot_seq','리비전'],'');
+    return {text:`${pending?`미동기화 ${pending}건`:'미동기화 없음'}${seq!==''?` · revision ${seq}`:''}`,error:false};
+  }
+  if(def.key==='excel'){
+    const seq=autoFirst(r,['snapshot_seq','revision','change_seq'],'');
+    const path=autoFirst(r,['path','local_path','file','파일'],'');
+    return {text:[seq!==''?`snapshot ${seq}`:'',path].filter(Boolean).join(' · ')||'마지막 정상 보관본 기록을 확인합니다.',error:false};
+  }
+  return {text:def.key==='kakao'?'업로드 후 원본 보존·자동 대조 상태':def.key==='band'||def.key==='erp'?'로그인과 최신 수집 상태':'최근 자동화 실행 결과',error:false};
+}
+function autoGateFor(data,def){
+  if(!['kakao','band','erp'].includes(def.key)) return null;
+  const gates=autoFirst(data||{},['login_required','human_gates','gates','로그인필요'],[]);
+  const rows=Array.isArray(gates)?gates:[gates];
+  return rows.find(gate=>{
+    const text=typeof gate==='string'?gate:JSON.stringify(gate||'');
+    return def.aliases.some(alias=>new RegExp(String(alias).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i').test(text));
+  })||null;
+}
+function autoFailureText(data){
+  const value=autoFirst(data||{},['failures','errors','retry_required','last_error','실패'],[]);
+  if(!value||(Array.isArray(value)&&!value.length)) return '';
+  if(typeof value==='string') return value;
+  const rows=Array.isArray(value)?value:[value];
+  return rows.slice(0,3).map(row=>typeof row==='string'?row:String(autoFirst(row,['message','error','reason','detail','메시지'],'실패 기록'))).join(' · ');
+}
+function automationRunning(data){
+  return AUTOMATION_MON.optimisticRunning||autoBool(autoFirst(data||{},['running','busy','in_progress','실행중'],false));
+}
+function renderAutomationStatus(){
+  const monitor=$('automationMonitor'), grid=$('automationGrid'), overall=$('automationOverall');
+  if(!monitor||!grid||!overall) return;
+  const data=AUTOMATION_MON.data, error=AUTOMATION_MON.error;
+  monitor.setAttribute('aria-busy',AUTOMATION_MON.loading?'true':'false');
+  if(!data){
+    grid.innerHTML=`<div class="automation-loading">${error?'자동화 상태를 받지 못했습니다. 아래의 상태 다시 확인을 눌러 주세요.':'카톡·Band·ERP·앱 DB·Excel 상태를 확인하는 중입니다.'}</div>`;
+    overall.className='auto-state '+(error?'danger':'busy'); overall.textContent=error?'상태 확인 실패':'상태 확인 중';
+  }else{
+    const cards=AUTOMATION_SOURCE_DEFS.map(def=>{
+      let record=autoRecord(data,def);
+      const gate=autoGateFor(data,def), gateText=gate&&(typeof gate==='string'?gate:autoFirst(gate,['message','detail','reason','메시지'],''));
+      if(gate){
+        const kind=String(typeof gate==='object'&&gate?autoFirst(gate,['kind','type','종류'],''):'').toLowerCase();
+        record=Object.assign({},record,{
+          login_required:/login|auth|로그인/.test(kind)||/login|auth|로그인/i.test(String(gateText||'')),
+          needs_data:/upload|data|자료|업로드/.test(kind)||/자료|업로드/i.test(String(gateText||'')),
+          gate_message:gateText||''
+        });
+      }
+      const state=autoStateOf(record), when=autoTimeOf(record,def), detail=autoDetailOf(record,def);
+      return {def,state,when,detail,html:`<article class="auto-node">
+        <div class="auto-node-head"><b>${esc2(def.label)}</b><span class="auto-state ${esc2(state.key)}">${esc2(state.label)}</span></div>
+        <div class="auto-time">${esc2(when?`마지막 ${autoDateText(when)}`:'마지막 기록 없음')}</div>
+        <div class="auto-detail${detail.error?' error':''}">${esc2(detail.text)}</div>
+      </article>`};
+    });
+    grid.innerHTML=cards.map(card=>card.html).join('');
+    const states=cards.map(card=>card.state.key), running=automationRunning(data);
+    const gates=autoFirst(data,['human_gates','gates','로그인필요'],[]);
+    const pipelineError=autoFailureText(data);
+    if(running){overall.className='auto-state busy';overall.textContent='자동 처리 중';}
+    else if(error){overall.className='auto-state warn';overall.textContent='마지막 정상값';}
+    else if(pipelineError){overall.className='auto-state danger';overall.textContent='실패·재시도 필요';}
+    else if(states.includes('danger')){overall.className='auto-state danger';overall.textContent='실패 확인 필요';}
+    else if(states.includes('login')||(Array.isArray(gates)&&gates.some(g=>/login|로그인/i.test(JSON.stringify(g))))){overall.className='auto-state login';overall.textContent='로그인 필요';}
+    else if(states.some(state=>state==='warn'||state==='data')){overall.className='auto-state warn';overall.textContent='조치 필요';}
+    else if(states.every(state=>state==='ok')){overall.className='auto-state ok';overall.textContent='자동화 정상';}
+    else{overall.className='auto-state neutral';overall.textContent='일부 상태 확인 대기';}
+  }
+  const basis=autoFirst(data||{},['generated_at','updated_at','as_of','기준시각'],AUTOMATION_MON.asOf);
+  $('automationUpdatedAt').textContent=(error&&data?'마지막 정상 기준 ':'기준 ')+autoDateText(basis||AUTOMATION_MON.asOf);
+  const errorBox=$('automationError');
+  const pipelineError=autoFailureText(data);
+  if(error||pipelineError){
+    errorBox.hidden=false;
+    errorBox.textContent=error
+      ?(data?'새 상태 갱신 실패 — 마지막 정상값을 유지합니다. ':'상태 조회 실패 — ')+apiErrorText(error)
+      :'자동화 실패 기록 — '+pipelineError+' · 상태 다시 확인으로 재시도 결과를 확인해 주세요.';
+  }else{errorBox.hidden=true;errorBox.textContent='';}
+  const running=automationRunning(data);
+  const runBtn=$('automationRunBtn'), retryBtn=$('automationRetryBtn');
+  if(runBtn){runBtn.disabled=running||AUTOMATION_MON.loading;runBtn.setAttribute('aria-busy',running?'true':'false');}
+  if(retryBtn) retryBtn.disabled=AUTOMATION_MON.loading;
+  const live=$('automationLive');
+  if(live) live.textContent=`자동화 상태 ${overall.textContent}. ${error?'새 상태 조회 실패. 마지막 정상값 유지.':''}`;
+}
+async function loadAutomationStatus(force=false,announce=false){
+  if(AUTOMATION_MON.flight) return AUTOMATION_MON.flight;
+  AUTOMATION_MON.loading=true; renderAutomationStatus();
+  AUTOMATION_MON.flight=(async()=>{
+    try{
+      const data=force?await apiFresh(()=>api(AUTOMATION_STATUS_PATH,{fresh:true})):await api(AUTOMATION_STATUS_PATH);
+      if(!data||typeof data!=='object'||Array.isArray(data)||data.error||data.ok===false){
+        const semanticError=(data&&data.error)||autoFirst((data&&data.last_run)||{},['summary','error'],'')||'자동화 상태 응답이 올바르지 않습니다.';
+        throw new ApiError(semanticError,{path:AUTOMATION_STATUS_PATH,code:'INVALID_AUTOMATION_STATUS'});
+      }
+      AUTOMATION_MON.data=data;AUTOMATION_MON.error=null;AUTOMATION_MON.asOf=new Date().toISOString();AUTOMATION_MON.optimisticRunning=false;
+      if(announce) toast('자동화 상태를 최신 기준으로 확인했습니다');
+      return data;
+    }catch(error){
+      AUTOMATION_MON.error=error;
+      if(announce) toast('상태 갱신 실패 · 마지막 정상값을 유지합니다');
+      return null;
+    }finally{
+      AUTOMATION_MON.loading=false;AUTOMATION_MON.flight=null;renderAutomationStatus();
+    }
+  })();
+  return AUTOMATION_MON.flight;
+}
+async function runAutomation(){
+  if(AUTOMATION_MON.loading||automationRunning(AUTOMATION_MON.data)) return false;
+  AUTOMATION_MON.optimisticRunning=true;renderAutomationStatus();
+  const ok=await runTask('automation');
+  if(!ok){AUTOMATION_MON.optimisticRunning=false;renderAutomationStatus();return false;}
+  toast('전체 자동화를 시작했습니다 · 단계별 상태가 자동 갱신됩니다');
+  setTimeout(()=>loadAutomationStatus(true),900);
+  return true;
+}
+function openAutomationKakaoUpload(){
+  const input=$('automationKakaoFile'); if(!input) return;
+  input.value=''; input.click();
+}
+async function uploadAutomationKakao(input){
+  const file=input&&input.files&&input.files[0], button=$('automationUploadBtn'), result=$('automationUploadResult');
+  if(!file||!result) return false;
+  if(!/\.txt$/i.test(file.name||'')){
+    result.className='automation-upload-result err';result.textContent='TXT 파일만 올릴 수 있습니다.';input.value='';return false;
+  }
+  if(file.size>30_000_000){
+    result.className='automation-upload-result err';result.textContent='파일은 30MB 이하여야 합니다.';input.value='';return false;
+  }
+  if(button){button.disabled=true;button.setAttribute('aria-busy','true');}
+  result.className='automation-upload-result';result.textContent=`${file.name} 원본을 보존하고 자동 대조에 연결하는 중입니다.`;
+  try{
+    const body=new FormData();body.append('kakao_file',file,file.name);
+    const response=await api('/api/automation/kakao-upload',{method:'POST',body});
+    if(!response||!response.ok) throw new ApiError((response&&(response.error||response.msg))||'카톡 원본을 접수하지 못했습니다.',
+      {path:'/api/automation/kakao-upload',code:'KAKAO_UPLOAD_FAILED'});
+    if(response.queued){
+      result.className='automation-upload-result ok';
+      result.textContent='서버에 닿지 않아 이 기기에 안전하게 보관했습니다. 연결되면 자동 업로드·대조가 이어집니다.';
+      toast('카톡 원본을 이 기기에 보관했습니다 · 연결 시 자동 전송');
+      input.value='';
+      return true;
+    }
+    const saved=response.saved||{};
+    result.className='automation-upload-result ok';
+    result.textContent=saved.duplicate
+      ?`이미 보존된 같은 원본입니다. 중복 저장 없이 ${response.auto_started?'자동 대조를 확인 중입니다.':'현재 작업 뒤 자동 대조를 이어갑니다.'}`
+      :`원본 저장 완료 · ${response.auto_started?'전체 자동화를 시작했습니다.':'현재 작업 뒤 전체 자동화를 이어갑니다.'}`;
+    toast('카톡 원본 접수 완료 · 자동 대조 상태를 갱신합니다');
+    await loadAutomationStatus(true);
+    input.value='';
+    return true;
+  }catch(error){
+    result.className='automation-upload-result err';
+    result.textContent='업로드 실패 · '+apiErrorText(error)+' · 파일은 선택된 채로 두었습니다. 다시 시도해 주세요.';
+    return false;
+  }finally{
+    if(button){button.disabled=false;button.setAttribute('aria-busy','false');}
+  }
+}
+
 async function loadStatus(){
   const s = await api('/api/status');
   srcStats = s.sources || {};
@@ -8885,7 +9244,7 @@ $('sheetbody').addEventListener('keydown', e=>{
   else if(e.key==='End'){ body.scrollTop=body.scrollHeight; e.preventDefault(); }
 });
 
-/* ── 앱 → 입력 DB → 엑셀 일괄반영 (빈 칸만·근거 기록·11:00/15:00) ── */
+/* ── 앱 → DB 즉시 정본 → Excel 단방향 자동 보관본 ── */
 const INPUT_SPEC = {
   settle: { sheet:'06_거래서류청구수금', key_col:'정산ID', fields:[
     {label:'PO번호', col:'PO번호', vtype:'text', cur:r=>r.PO번호, ph:'예: PO367787'},
@@ -9162,15 +9521,14 @@ async function runTask(key){
     uxEvent('error','runTask',`${key}:${apiErrorText(error)}`); return false;
   }
 }
-/* ★ 사람이 명령하면 회차를 기다리지 않고 지금 엑셀에 넣는다 (2026-08-07 지시).
-   확인을 한 번 받는 이유는 되돌릴 수 없어서다 — vN+1 이 실제로 만들어진다.
-   무엇이 들어가는지 먼저 말해 주고, 끝나면 화면을 다시 읽어 숫자를 맞춘다. */
+/* ★ 사람이 명령하면 예약 회차를 기다리지 않고 현재 DB revision의 Excel 보관본을 만든다.
+   확인을 한 번 받는 이유는 vN+1 보관본 파일이 실제로 생기기 때문이다. */
 async function applyExcelNow(){
   const n = (APPLY_WIN && +APPLY_WIN.대기) || 0;
   const ok = await askYesNo(
-    n ? `대기 중인 입력 ${n.toLocaleString()}건을 지금 엑셀에 반영합니다.`
-      : '대기 중인 입력은 없지만, 지금 반영 회차를 한 번 돌립니다.',
-    {desc:'관리대장 새 버전(vN+1)이 만들어집니다. 진행할까요?'});
+    n ? `앱 DB에 이미 저장된 변경 ${n.toLocaleString()}건의 Excel 보관본을 지금 만듭니다.`
+      : '미보관 변경은 없지만 현재 DB revision의 보관본 생성 회차를 실행합니다.',
+    {desc:'Excel 보관본 새 버전(vN+1)이 만들어집니다. 진행할까요?'});
   if(!ok) return;
   await runTask('ledger_now');
 }
@@ -9216,7 +9574,7 @@ async function pollLog(){
       if(!polling) polling=setInterval(()=>{ pollLog(); },1200);
     }
     if(Array.isArray(d.log)&&d.log.length){ $('logbox').textContent=d.log.join('\n'); $('logbox').scrollTop=1e9; }
-    if(!d.busy&&polling){ clearInterval(polling); polling=null; loadStatus(); loadSettle(); }
+    if(!d.busy&&polling){ clearInterval(polling); polling=null; loadStatus(); loadSettle(); loadAutomationStatus(true); }
     return true;
   }catch(error){
     console.warn('tasklog',apiErrorText(error));
@@ -9285,10 +9643,9 @@ function renderRecalc(rc){
   const 목록 = (rc.항목||[]).map(x=>`<b>${esc2(x.이름)} ${x.대기.toLocaleString()}건</b>`).join(' · ');
   card.style.display='block';
   $('recalcmsg').innerHTML =
-    `관리대장에는 이미 올라와 있지만, 엑셀이 아직 계산하지 않아 <b>이 앱에 안 나오는 건이 ${n.toLocaleString()}건</b> 있습니다.<br>
+    `옛 Excel 수식 원천에서 아직 계산되지 않은 항목이 <b>${n.toLocaleString()}건</b> 있습니다.<br>
      ${목록}<br>
-     <span style="color:var(--muted)">숫자가 틀린 게 아니라 <b>대기 중</b>입니다.
-     관리대장을 엑셀에서 한 번 열었다 닫으면 계산이 끝나고 바로 반영됩니다.</span>`;
+     <span style="color:var(--muted)">Excel을 사람이 열 필요는 없습니다. 앱 DB 정본과 근거 재대조 후 자동 보관본에서 다시 검증합니다.</span>`;
 }
 
 var CAL = null;   // let 이면 applyView 가 먼저 불릴 때 TDZ 로 죽는다
@@ -12142,7 +12499,7 @@ const HELP = {
     where: ['밴드 해당 작업 게시글의 <b>견적서·거래명세서 사진</b>',
             '이카운트 → 판매 → <b>거래명세서</b> 화면에서 해당 현장 조회',
             '담당기사에게 작업 내역·금액 확인'],
-    how: ['<b>앱에서 바로</b>: 이 화면 아래 입력칸에 공급가액(부가세 별도)을 넣고 저장 → 입력 DB 보관 → 다음 11시·15시 회차에 관리대장 빈칸에 기록',
+    how: ['<b>앱에서 바로</b>: 이 화면 아래 입력칸에 공급가액(부가세 별도)을 넣고 저장 → 앱 DB 정본에 즉시 기록 → Excel 자동 보관본으로 검증',
           '<b>사진으로</b>: 명세서 사진을 <code>band/docs_inbox/</code>에 넣으면 OCR이 금액을 읽어 자동 입력(금액 검산 통과분만)'],
     who: '유현민 (금액 확인 후 입력)'
   },
@@ -12287,7 +12644,7 @@ function helpAll(){
     ['원천 데이터', '대조의 근거가 되는 자료입니다. 밴드(작업 증빙) · 카톡(보고) · ERP(회계) · 쿠팡 PO(발주). 넣는 곳은 각각 자동 수집 / <code>kakao/inbox/</code> / <code>inbox/</code> / <code>inbox/</code> 입니다.'],
     ['빈칸만 입력', '에이전트는 <b>비어 있는 칸에만</b> 값을 씁니다. 이미 사람이 넣은 값은 절대 덮어쓰지 않습니다.'],
     ['vN 파일', '관리대장은 수정할 때마다 v47 → v48처럼 새 파일로 저장됩니다. 원본은 그대로 두어 문제가 생기면 되돌릴 수 있습니다. 항상 <b>가장 큰 번호</b>가 최신입니다.'],
-    ['09:50 자동 대조', '매일 오전 9시 50분에 원천자료 전체 대조와 리포트를 만들고 확정값은 입력 DB에 모읍니다. 엑셀 쓰기는 오전 11시·오후 3시에만 한 번씩 수행합니다.']
+    ['09:50 자동 대조', '매일 오전 9시 50분에 원천자료 전체 대조와 리포트를 만들고 확정값은 앱 DB 정본에 즉시 저장합니다. Excel은 앱 DB에서 단방향 자동 보관본으로 생성합니다.']
   ];
   return `<div class="card"><h3>처리 방법 · 용어 설명</h3>
     <div class="toplist">${Object.keys(HELP).map(k=>`
@@ -12562,7 +12919,7 @@ function openCheckOwner(owner){
     `${APP_YEAR}년 확인필요 원장에서 담당자가 “${owner}”인 건 · 카드를 누르면 미확인 이유·근거·다음 행동을 먼저 확인`);
 }
 function openCheckFiltered(){
-  const rows=window._checkVisible||checkRows();
+  const rows=window._checkFilteredRows||window._checkVisible||checkRows();
   const t=$('checktype')&&$('checktype').value, o=$('checkowner')&&$('checkowner').value;
   const bits=[t,o].filter(Boolean), title=bits.length?bits.join(' · '):'확인 필요 전체';
   openCheckRows(title,rows,`${APP_YEAR}년 확인필요 원장 · 현재 화면의 검색·필터 결과 ${rows.length}건`);
@@ -12695,10 +13052,19 @@ function resetCheckFilters(){
   if($('checkq')) $('checkq').value='';
   if($('checktype')) $('checktype').value='';
   if($('checkowner')) $('checkowner').value='';
-  renderCheckList();
+  renderCheckList(true);
 }
-function renderCheckList(){
+const CHECK_RENDER_STEP=100;
+let checkRenderLimit=CHECK_RENDER_STEP;
+function showMoreChecks(button){
+  checkRenderLimit=Math.max(CHECK_RENDER_STEP,checkRenderLimit)+CHECK_RENDER_STEP;
+  renderCheckList(false);
+  const next=$('checklist')&&$('checklist').querySelector('.auto-more');
+  if(next) next.focus(); else if($('checklist')){$('checklist').setAttribute('tabindex','-1');$('checklist').focus({preventScroll:true});}
+}
+function renderCheckList(resetLimit=false){
   if(!$('checklist')) return;
+  if(resetLimit) checkRenderLimit=CHECK_RENDER_STEP;
   const q=String(($('checkq')&&$('checkq').value)||'').trim().toLowerCase();
   const type=String(($('checktype')&&$('checktype').value)||'');
   const owner=String(($('checkowner')&&$('checkowner').value)||'');
@@ -12708,9 +13074,12 @@ function renderCheckList(){
     if(owner&&checkOwnerOf(r)!==owner) return false;
     return !q || Object.values(r).join(' ').toLowerCase().includes(q);
   });
-  window._checkVisible=rows;
-  $('checksummary').innerHTML=`전체 ${all.length}건 중 <b>${rows.length}건</b> 표시 · 오래된 건부터 최근 순`;
-  $('checklist').innerHTML=rows.map((r,i)=>{
+  const visible=rows.slice(0,Math.max(CHECK_RENDER_STEP,checkRenderLimit));
+  const remain=Math.max(0,rows.length-visible.length);
+  window._checkFilteredRows=rows;
+  window._checkVisible=visible;
+  $('checksummary').innerHTML=`전체 ${all.length}건 중 검색 <b>${rows.length}건</b> · 화면 ${visible.length}건 · 오래된 건부터 최근 순`;
+  $('checklist').innerHTML=visible.map((r,i)=>{
     const x=checkLink(r), id=x.id||'', prj=x.project||'프로젝트 미확정';
     const amount=Number(String(r.금액||'').replace(/[^0-9.-]/g,''))||0;
     const safety=checkSafetyOf(r);
@@ -12727,7 +13096,10 @@ function renderCheckList(){
       ${checkDescOf(r)?`<div class="check-desc">${esc2(checkDescOf(r))}</div>`:''}
       <span class="check-open-hint">눌러서 미확인 이유·근거·다음 행동 보기</span>
     </button>`;
-  }).join('')||'<div class="card">조건에 맞는 확인 항목이 없습니다 🎉</div>';
+  }).join('')+(remain?`<button type="button" class="auto-more" onclick="showMoreChecks(this)"
+      aria-label="확인 필요 ${Math.min(CHECK_RENDER_STEP,remain)}건 더 보기">
+      현재 ${visible.length}건 표시 · ${Math.min(CHECK_RENDER_STEP,remain)}건 더 보기 (남은 ${remain}건)</button>`:'')||
+    '<div class="card" role="status">조건에 맞는 확인 항목이 없습니다.</div>';
 }
 /* 확인필요 유형 코드 설명(2026-08-03 지시) — 'ERP B'·'PO A'가 무엇인지 화면에서 바로.
    키(코드)는 담당자 확정 매핑이 걸려 있어 바꾸지 않고 설명만 덧붙인다. */
@@ -12819,7 +13191,7 @@ function renderCheckHub(){
     checkSortGroups(byOwner).map(o=>`<option value="${esc2(o)}">${esc2(o)} (${byOwner[o].length})</option>`).join('');
   if(byType[keepT]) typeEl.value=keepT;
   if(byOwner[keepO]) ownerEl.value=keepO;
-  renderCheckList();
+  renderCheckList(true);
 }
 
 /* onclick 속성에 안전하게 문자열 넣기 */
@@ -14342,6 +14714,7 @@ async function shareReport(){
 function toast(msg){
   let t = document.getElementById('_toast');
   if(!t){ t = document.createElement('div'); t.id='_toast';
+    t.setAttribute('role','status');t.setAttribute('aria-live','polite');t.setAttribute('aria-atomic','true');
     t.style.cssText='position:fixed;left:50%;bottom:80px;transform:translateX(-50%);z-index:60;'+
       'background:#101828;color:#fff;padding:11px 18px;border-radius:11px;font-size:14.5px;'+
       'font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.3);opacity:0;transition:opacity .2s';
@@ -14370,7 +14743,7 @@ const rerunSettle = () => loadSettle().catch(()=>{});
    동시에 부르면 **가장 느린 하나**만 기다린다. 각자의 렌더는 도착하는 대로 돈다. */
 async function refreshAll(){
   const run = f => { try{ return Promise.resolve(f()).catch(()=>{}); }catch(e){ return Promise.resolve(); } };
-  const jobs = [run(loadSettle), run(loadStatus), run(loadNotifications), run(loadRemoteStat)];
+  const jobs = [run(loadSettle), run(loadStatus), run(loadNotifications), run(loadRemoteStat),run(loadAutomationStatus)];
   if(staffSlug) jobs.push(run(()=>staffHeartbeat('view')));
   await Promise.all(jobs);
 }

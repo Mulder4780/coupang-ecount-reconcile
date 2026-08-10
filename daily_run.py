@@ -169,28 +169,39 @@ def note_progress(step, state, extra=None):
     """
     try:
         os.makedirs(REPORT_DIR, exist_ok=True)
-        cur = {}
+        previous = {}
         if os.path.exists(PROGRESS):
             try:
                 with open(PROGRESS, encoding="utf-8") as fh:
-                    cur = json.load(fh)
+                    previous = json.load(fh)
             except (OSError, ValueError):
-                cur = {}
-        cur.update({"pid": os.getpid(), "단계": step, "상태": state,
-                    "시각": datetime.now().astimezone().isoformat(timespec="seconds")})
+                previous = {}
+
+        # ★ 이전 단계의 자유 필드를 update()로 이어받지 않는다. 예전 구현은
+        # `시간초과:true`·`결과:false`·`명령:...`가 다음 정상 단계와 회차 끝에도
+        # 남아, 화면이 이미 끝난 실패를 현재 실패처럼 표시했다. 회차 전체에서
+        # 이어갈 값은 끝난 단계 목록뿐이고, 나머지는 매 상태의 새 사실이어야 한다.
+        done = list(previous.get("끝난단계") or [])[-60:]
+        cur = {
+            "pid": os.getpid(),
+            "단계": step,
+            "상태": state,
+            "시각": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "끝난단계": done,
+        }
         if _ROUND_T0[0]:
             cur["회차시작"] = _ROUND_T0[0].astimezone().isoformat(timespec="seconds")
             cur["경과분"] = round((datetime.now() - _ROUND_T0[0]).total_seconds() / 60, 1)
         cur["예산분"] = ROUND_BUDGET_MIN
         if extra:
             cur.update(extra)
-        done = cur.get("끝난단계") or []
         if state == "끝":
-            done = (done + [step])[-60:]
-            cur["끝난단계"] = done
-        tmp = PROGRESS + ".tmp"
+            cur["끝난단계"] = (list(cur.get("끝난단계") or []) + [step])[-60:]
+        tmp = f"{PROGRESS}.{os.getpid()}.tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(cur, fh, ensure_ascii=False)
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, PROGRESS)
     except Exception:
         pass          # 진행 기록을 남기려다 회차를 세우지 않는다
@@ -727,6 +738,7 @@ def _run_pipeline():
     steps.append(run("관리대장 버전 정리", [os.path.join(ROOT, "ledger_versions.py"), "--prune"]))
 
     finish(steps)
+    return steps
 
 
 def main():
@@ -738,14 +750,52 @@ def main():
         print("다른 daily_run 프로세스가 이미 실행 중 — 중복 실행을 시작하지 않습니다.")
         return
     _ROUND_T0[0] = datetime.now()
+    _OVER_BUDGET[0] = False
     note_progress("(회차 시작)", "시작", {"끝난단계": []})
+    final_state = "중단"
+    final_extra = {"종료구분": "중단"}
     try:
-        return _run_pipeline()
+        result = _run_pipeline()
+        failed = [str(step.get("name") or "") for step in (result or [])
+                  if isinstance(step, dict) and step.get("ok") is False]
+        if failed:
+            final_state = "실패"
+            final_extra = {
+                "종료구분": "실패",
+                "끝까지실행": True,
+                "실패단계": failed[-20:],
+            }
+        elif _OVER_BUDGET[0]:
+            final_state = "완주(예산초과로 일부 건너뜀)"
+            final_extra = {"종료구분": "완주", "일부건너뜀": True}
+        else:
+            final_state = "완주"
+            final_extra = {"종료구분": "완주"}
+        return result
+    except KeyboardInterrupt:
+        final_state = "중단"
+        final_extra = {"종료구분": "중단", "오류유형": "KeyboardInterrupt"}
+        raise
+    except SystemExit as exc:
+        if exc.code in (None, 0):
+            final_state = "완주"
+            final_extra = {"종료구분": "완주"}
+        else:
+            final_state = "실패"
+            final_extra = {"종료구분": "실패", "오류유형": "SystemExit",
+                           "오류": str(exc.code)[:300]}
+        raise
+    except BaseException as exc:
+        final_state = "실패"
+        final_extra = {"종료구분": "실패", "오류유형": type(exc).__name__,
+                       "오류": str(exc)[:300]}
+        raise
     finally:
-        # ★ 완주했든 죽었든 **마지막 자국을 남긴다.** 이 한 줄이 없으면 회차가
+        # ★ 정상 완주·단계 실패·예외 실패·사용자 중단을 서로 다른 사실로 남긴다.
+        # 이 한 줄이 없으면 회차가
         #   중간에 죽었을 때 진행 기록이 '시작' 인 채로 굳어, 다음 회차가
         #   "아직 돌고 있나"와 "죽었나"를 구별하지 못한다.
-        note_progress("(회차 끝)", "완주" if not _OVER_BUDGET[0] else "완주(예산초과로 일부 건너뜀)")
+        note_progress("(회차 끝)", final_state, final_extra)
         release_run_lock(token)
 
 

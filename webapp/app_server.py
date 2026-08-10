@@ -1892,6 +1892,9 @@ def _ok_login(ip):
 
 # ───────────────────────── 작업 러너 ─────────────────────────
 TASKS = {
+    "automation":    ("자료 자동수집 후 앱 DB·Excel 보관본 반영",
+                      [os.path.join(ROOT, "automation_pipeline.py"), "--once",
+                       "--trigger", "app"]),
     "daily":         ("전체 대조 실행", [os.path.join(ROOT, "daily_run.py")]),
     "synthetic":     ("합성검증", [os.path.join(ROOT, "tests", "synthetic_check.py")]),
     "writer_prev":   ("자동입력 미리보기", [os.path.join(ROOT, "ledger_writer.py")]),
@@ -1900,7 +1903,8 @@ TASKS = {
     "writer_apply":  ("입력 DB 적재", [os.path.join(ROOT, "ledger_db.py"), "--intake"]),
     # 앱 DB가 정본이다. 이 키는 더 이상 원본 Excel을 직접 고치지 않고, 로컬 스냅샷과
     # 명령계획을 만든 뒤 별도 렌더·검증 단계가 이어받을 보관본 작업만 준비한다.
-    "ledger_now":    ("보관본 지금 생성", []),
+    "ledger_now":    ("보관본 지금 생성",
+                      [os.path.join(ROOT, "archive_worker.py"), "--run"]),
     "upload_dry":    ("전표 전송대기 확인", [os.path.join(ROOT, "ecount_upload.py")]),
     # "upload_post" 제거(2026-08-05 사용자 지시) — ERP 실전송은 앱·AI가 하지 않는다.
     # 옛 앱·브라우저 캐시가 이 키를 보내도 아래 가드가 거부한다. 되살리지 말 것.
@@ -1920,7 +1924,8 @@ TASKS = {
     # 계산서 발행·외부 전송·Excel 저장은 evidence_refresh.py 자체가 하지 않는다.
     "evidence_sync": ("확인 필요 근거 재대조", [os.path.join(ROOT, "evidence_refresh.py")]),
 }
-TASK_TIMEOUTS = {"daily": 9000, "synthetic": 1200, "evidence_sync": 4500,
+TASK_TIMEOUTS = {"daily": 9000, "automation": 1800, "ledger_now": 1800,
+                 "synthetic": 1200, "evidence_sync": 4500,
                  "band_docs": 2400, "band_docs_apply": 2400, "work_log": 2400}
 runner = {"busy": False, "task": "", "log": deque(maxlen=3000), "done_at": None,
           "agent_route": ""}
@@ -2020,7 +2025,7 @@ def start_task(key):
         runner["log"].append(f"===== {title} 시작 {datetime.now():%H:%M:%S} =====")
         runner["log"].append(f"[자동화] {runner['agent_route']} · 제한시간 {timeout // 60}분")
         try:
-            if key == "ledger_now":
+            if key == "ledger_now" and not args:
                 prepared = _prepare_archive_export(actor="admin-task")
                 output = json.dumps(prepared, ensure_ascii=False, default=str)
                 runner["log"].append(prepared["msg"])
@@ -6034,6 +6039,22 @@ self.addEventListener('fetch', e => {
             except Exception as exc:
                 return self._send(503, {"ok": False, "canonical": True,
                                         "error": str(exc)[:240]})
+        if p == "/api/automation/status":
+            try:
+                import automation_pipeline
+                return self._send(200, automation_pipeline.status())
+            except Exception as exc:
+                # 관제 카드 한 장이 고장 나도 다른 업무 화면은 살아 있어야 한다.
+                return self._send(200, {
+                    "ok": False,
+                    "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                    "running": False,
+                    "last_run": {"status": "error", "summary": str(exc)[:240]},
+                    "sources": {},
+                    "app_db": {"status": "error", "detail": "자동화 상태를 읽지 못했습니다"},
+                    "excel": {"status": "error", "error": str(exc)[:240]},
+                    "human_gates": [],
+                })
         if p == "/api/autopilot":
             # 읽기 전용 상태. 실제 재시도는 워치독 한 곳만 실행해 중복을 막는다.
             try:
@@ -6355,6 +6376,45 @@ self.addEventListener('fetch', e => {
             return self._band_dump()
         if not self._auth():
             return self._send(401, {"error": "PIN"})
+        if p == "/api/automation/kakao-upload":
+            actor = self._actor()
+            allowed = actor.get("role") == "admin" or (
+                actor.get("role") == "staff"
+                and str(actor.get("staff_slug") or "") == "ryu-jiyeong"
+            )
+            if not allowed:
+                return self._send(403, {
+                    "ok": False,
+                    "error": "카카오톡 원본은 관리자 또는 류지영 업무센터에서 등록합니다",
+                })
+            ln = int(self.headers.get("Content-Length", 0) or 0)
+            if ln <= 0 or ln > 31_000_000:
+                return self._send(413, {"ok": False, "error": "카카오톡 파일은 30MB 이하여야 합니다"})
+            try:
+                _fields, files = multipart_parts(
+                    self.headers.get("Content-Type", ""), self.rfile.read(ln)
+                )
+                upload = files.get("kakao_file") or files.get("file")
+                if not upload:
+                    return self._send(400, {"ok": False, "error": "카카오톡 .txt 파일을 선택해 주세요"})
+                import automation_pipeline
+                saved = automation_pipeline.submit_kakao_file(
+                    upload.get("filename") or "KakaoTalk_upload.txt",
+                    upload.get("data") or b"",
+                )
+                started, message = start_task("automation")
+                queued = False if started else defer_task_until_free("automation")
+                return self._send(200, {
+                    "ok": True,
+                    "saved": saved,
+                    "auto_started": started,
+                    "auto_queued": queued,
+                    "msg": message,
+                })
+            except ValueError as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:260]})
+            except Exception as exc:
+                return self._send(500, {"ok": False, "error": str(exc)[:300]})
         if p == "/api/archive/export":
             if not self._require_admin():
                 return
@@ -6835,7 +6895,14 @@ self.addEventListener('fetch', e => {
             os.makedirs(os.path.join(ROOT, "band", "cache"), exist_ok=True)
             path = os.path.join(ROOT, "band", "cache", f"dump_{band}.json")
             open(path, "w", encoding="utf-8").write(json.dumps(d, ensure_ascii=False))
-            return self._send(200, {"ok": True, "saved": len(d.get("posts", {}))})
+            started, _message = start_task("automation")
+            if not started:
+                defer_task_until_free("automation")
+            return self._send(200, {
+                "ok": True,
+                "saved": len(d.get("posts", {})),
+                "auto_started": started,
+            })
         except Exception as e:
             return self._send(400, {"ok": False, "error": str(e)[:200]})
 

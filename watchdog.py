@@ -480,6 +480,33 @@ def sync_worklog(dry):
         return "일지 감시 오류: %s" % str(e)[:50]
 
 
+def run_incremental_pipeline(dry):
+    """Five-minute task의 안전망 — 새 원본이면 앱 DB와 보관본까지 끝낸다.
+
+    별도 작업 스케줄러가 주 경로다. 워치독에도 맨 앞에 두는 이유는 스케줄러가
+    비활성화되거나 PC가 예약 시각에 꺼져 있었어도 다음 30분 회차에서 복구하기
+    위해서다. 파이프라인 자체 PID 잠금과 지문 멱등성이 중복 실행을 막는다.
+    """
+    if dry:
+        return "증분 자동화(dry)"
+    result = run_tree(
+        [PY, os.path.join(ROOT, "automation_pipeline.py"), "--once", "--trigger", "watchdog"],
+        cwd=ROOT,
+        timeout=1500,
+        drain_timeout=30,
+        output_limit=100_000,
+    )
+    if result.timed_out:
+        return "증분 자동화 시간초과 — 자식나무 정리·다음 회차 재시도"
+    if result.returncode != 0:
+        tail = [line for line in (result.stdout or "").splitlines() if line.strip()][-1:]
+        return "증분 자동화 실패(rc=%d)%s" % (
+            result.returncode,
+            (" · " + tail[0][:80]) if tail else "",
+        )
+    return "증분 자동화 완료"
+
+
 def main():
     # 류지영 매니저 입력 중에는 로그 파일조차 갱신하지 않고 즉시 종료한다.
     if is_input_window():
@@ -489,7 +516,7 @@ def main():
     # 원장 버전 정리는 daily_run의 ledger_versions.py 한 곳에서만 수행한다.
     # 워치독이 낮은 버전 포크를 OLD로 옮겨 증거를 숨기는 일을 막는다.
     gap = gap_note(last_log_line(), datetime.now())     # 기록은 healing 전에 읽는다
-    results = [sync_uploads(dry), sync_worklog(dry),
+    results = [run_incremental_pipeline(dry), sync_uploads(dry), sync_worklog(dry),
                sync_cloud_queue(dry), heal_server(dry), heal_fixed_funnel(dry),
                heal_stale_pastefiles(dry),
                heal_autopilot(dry),
