@@ -229,15 +229,29 @@ def guess_date(name, mtime):
     return time.strftime("%Y-%m-%d", time.localtime(mtime))
 
 
+class RootsUnreachable(RuntimeError):
+    """원본 폴더에 **하나도** 닿지 못했다 — '파일이 없다'가 아니라 '못 봤다'이다."""
+
+
 def scan(rescan=False):
     import source_dirs as S
     cache, out = load_cache(), []
-    roots = []
+    roots, missing = [], []
     for attr in ("ERP_DIR", "BAND_DIR", "COUPANG_DIR", "KAKAO_DIR", "RECEIPT_DIR",
                  "DOC_DIR", "ORIGIN_ROOT"):
         p = getattr(S, attr, None)
-        if p and os.path.isdir(p):
-            roots.append(p)
+        if not p:
+            continue
+        (roots if os.path.isdir(p) else missing).append(p)
+    # ★ **0건과 못 봤다를 가른다** (2026-08-10 실사고). Z: 가 잠깐 끊기면 위 `isdir` 이
+    #   전부 False 가 되고, 그러면 아래 `os.walk` 는 **아무 일도 없이** 빈 목록을 돌려준다.
+    #   오류도 안 나고 회차는 '성공'이라 적힌다 — 그리고 멀쩡하던 색인이 0건으로 덮인다.
+    #   실측 2026-08-09 21:06 에 그렇게 되어 앱이 하루 종일 "조건에 맞는 원본이
+    #   없습니다"를 보여 줬다. 파일이 없어서가 아니라 **폴더를 못 봐서**였다([169]).
+    if not roots:
+        raise RootsUnreachable(
+            "원본 폴더에 하나도 닿지 못했습니다(Z: 연결 확인). 못 본 곳 %d개: %s"
+            % (len(missing), " · ".join(os.path.basename(x) or x for x in missing[:4])))
     seen_root = []
     for r in sorted(set(roots), key=len):        # 상위 폴더가 하위를 포함하면 한 번만
         if not any(r.startswith(x + os.sep) for x in seen_root):
@@ -328,8 +342,51 @@ def main():
         _release_lock(token)
 
 
+def _prev_index():
+    try:
+        with open(OUT_JSON, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else None
+    except Exception:
+        return None
+
+
+def _keep_last_good(reason):
+    """마지막 정상 색인을 **그대로 두고** 막힌 이유만 덧붙인다.
+
+    ★ 빈 색인으로 덮는 것이 제일 나쁘다. 화면은 "조건에 맞는 원본이 없습니다"라고
+      말하는데 그건 사실이 아니고, 다음 회차가 성공할 때까지 아무도 원본을 못 찾는다.
+      **못 만든 것과 없는 것은 다르다** — 못 만들었으면 옛것을 남기고 그렇다고 말한다.
+    """
+    prev = _prev_index() or {}
+    prev.setdefault("count", 0)
+    prev.setdefault("rows", [])
+    prev["막힘"] = reason
+    prev["막힌시각"] = time.strftime("%Y-%m-%d %H:%M")
+    os.makedirs(os.path.dirname(OUT_JSON), exist_ok=True)
+    try:
+        from ledger_writer import atomic_json_dump
+        atomic_json_dump(prev, OUT_JSON)
+    except Exception:
+        json.dump(prev, open(OUT_JSON, "w", encoding="utf-8"), ensure_ascii=False)
+    print("★ 색인을 못 만들었습니다 — %s" % reason)
+    print("  마지막 정상 색인 %d개(%s)를 그대로 둡니다."
+          % (prev.get("count") or 0, prev.get("built") or "?"))
+    return 2
+
+
 def _build(rescan):
-    rows = scan(rescan)
+    try:
+        rows = scan(rescan)
+    except RootsUnreachable as e:
+        return _keep_last_good(str(e))
+    prev = _prev_index() or {}
+    # 폴더는 봤는데 한 건도 안 잡혔다면 그것도 의심한다 — 어제까지 있던 것이
+    # 오늘 통째로 사라지는 일은 업무상 일어나지 않는다.
+    if not rows and (prev.get("count") or 0) > 0:
+        return _keep_last_good(
+            "폴더는 열렸는데 한 건도 못 읽었습니다(직전 색인 %d개). "
+            "지우신 것이 아니면 연결·권한을 확인하십시오." % prev["count"])
     rows.sort(key=lambda r: (r["kind"], r["date"]), reverse=True)
     os.makedirs(os.path.dirname(OUT_JSON), exist_ok=True)
     json.dump({"count": len(rows), "built": time.strftime("%Y-%m-%d %H:%M"), "rows": rows},
