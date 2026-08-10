@@ -586,8 +586,11 @@ class SheetState:
     header_by_col: Dict[str, str] = field(default_factory=dict)
     reserved: Dict[int, str] = field(default_factory=dict)
     indexes: Dict[str, Dict[str, List[int]]] = field(default_factory=dict)
+    rows: Dict[int, str] = field(default_factory=dict)
+    column_styles: Dict[str, Optional[str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        self._refresh_rows()
         row = self.row_fragment(HEADER_ROW)
         if not row:
             raise ArchiveRenderError(f"{self.name}: header row {HEADER_ROW} missing")
@@ -604,11 +607,16 @@ class SheetState:
             self.headers[value] = col
             self.header_by_col[col] = value
 
+    def _refresh_rows(self) -> None:
+        self.rows = {
+            number: fragment
+            for number, _start, _end, fragment in _row_fragments(self.xml)
+        }
+        self.indexes.clear()
+        self.column_styles.clear()
+
     def row_fragment(self, row_number: int) -> str:
-        for number, _start, _end, fragment in _row_fragments(self.xml):
-            if number == int(row_number):
-                return fragment
-        return ""
+        return self.rows.get(int(row_number), "")
 
     def cell_fragment(self, row_number: int, col: str) -> str:
         return _cell_fragment(self.row_fragment(row_number), f"{col}{row_number}")
@@ -617,7 +625,31 @@ class SheetState:
         return _cell_value(self.cell_fragment(row_number, col), self.shared_strings)
 
     def row_numbers(self) -> List[int]:
-        return [number for number, _a, _b, _c in _row_fragments(self.xml)]
+        return sorted(self.rows)
+
+    def style_for(self, col: str) -> Optional[str]:
+        if col not in self.column_styles:
+            self.column_styles[col] = ledger_writer.find_col_style(self.xml, col)
+        return self.column_styles[col]
+
+    def set_row(self, row_number: int, fragment: str) -> None:
+        if int(row_number) not in self.rows:
+            raise ArchiveRenderError(f"{self.name}: row {row_number} is not allocated")
+        self.rows[int(row_number)] = fragment
+
+    def materialize(self) -> str:
+        """Apply all cached row edits to the worksheet XML in one linear pass."""
+
+        fragments = _row_fragments(self.xml)
+        parts: List[str] = []
+        cursor = 0
+        for number, start, end, original in fragments:
+            parts.append(self.xml[cursor:start])
+            parts.append(self.rows.get(number, original))
+            cursor = end
+        parts.append(self.xml[cursor:])
+        self.xml = "".join(parts)
+        return self.xml
 
     def index(self, col: str) -> Dict[str, List[int]]:
         if col not in self.indexes:
@@ -642,8 +674,9 @@ class SheetState:
                 values[text].append(row)
 
     def ensure_capacity(self) -> int:
+        self.materialize()
         self.xml, row = _append_blank_row(self.xml)
-        self.indexes.clear()
+        self._refresh_rows()
         return row
 
     def allocate(self, owner: str, occupancy_cols: Sequence[str]) -> int:
@@ -857,20 +890,36 @@ def _patch_cell(
         return "unchanged", CellExpectation(
             state.name, state.member, row, col, header, normalized, value_type, False
         )
-    command = {
-        "row": int(row),
-        "colL": col,
-        "value": normalized,
-        "vtype": value_type,
-        "only_if_empty": False,
-    }
-    changed, xml, reason = ledger_writer.apply_to_xml(state.xml, command)
-    if not changed:
-        raise ArchiveRenderError(
-            f"{state.name}!{col}{row} could not be patched: {reason or 'unknown'}"
-        )
-    state.xml = xml
-    state.indexes.clear()
+    row_fragment = state.row_fragment(row)
+    if row_fragment.endswith("/>"):
+        head = row_fragment[:-2] + ">"
+        body, tail = "", "</row>"
+    else:
+        row_open = re.match(r"(<row\b[^>]*>)(.*)(</row>)$", row_fragment, re.S)
+        if not row_open:
+            raise ArchiveRenderError(f"{state.name}!row={row} cannot parse row XML")
+        head, body, tail = row_open.groups()
+    ref = f"{col}{row}"
+    match = _cell_pattern(ref).search(body)
+    style: Optional[str]
+    if match:
+        old_cell = match.group(0)
+        style_match = re.search(r'\bs="([^"]+)"', old_cell)
+        style = style_match.group(1) if style_match else state.style_for(col)
+        new_cell = ledger_writer.cell_xml(col, row, style, normalized, value_type)
+        body = body[: match.start()] + new_cell + body[match.end() :]
+    else:
+        style = state.style_for(col)
+        new_cell = ledger_writer.cell_xml(col, row, style, normalized, value_type)
+        target_number = ledger_writer.col_num(col)
+        insert_at = len(body)
+        for cell in _CELL_TAG.finditer(body):
+            cell_ref = re.search(r'\br="([A-Z]{1,4})\d+"', cell.group(0))
+            if cell_ref and ledger_writer.col_num(cell_ref.group(1)) > target_number:
+                insert_at = cell.start()
+                break
+        body = body[:insert_at] + new_cell + body[insert_at:]
+    state.set_row(row, head + body + tail)
     return "applied", CellExpectation(
         state.name, state.member, row, col, header, normalized, value_type, False
     )
@@ -964,16 +1013,19 @@ def _validate_output(
             for member in {item.member for item in expectations}
             if member in names
         }
+        row_cache = {
+            member: {
+                number: fragment
+                for number, _start, _end, fragment in _row_fragments(xml)
+            }
+            for member, xml in xml_cache.items()
+        }
         for item in expectations:
             xml = xml_cache.get(item.member)
             if xml is None:
                 errors.append(f"worksheet XML missing: {item.member}")
                 continue
-            row_fragment = ""
-            for number, _a, _b, fragment in _row_fragments(xml):
-                if number == item.row:
-                    row_fragment = fragment
-                    break
+            row_fragment = row_cache.get(item.member, {}).get(item.row, "")
             fragment = _cell_fragment(row_fragment, f"{item.col}{item.row}")
             if item.formula_preserved:
                 formulas += 1
@@ -1090,6 +1142,8 @@ class ArchiveWorker:
                 counts["records_inserted"] += 1
             else:
                 counts["records_updated"] += 1
+        for state in states.values():
+            state.materialize()
         _write_patched_zip(
             template_copy_path,
             output_path,

@@ -72,7 +72,7 @@ SHEET_SPECS: Dict[str, Dict[str, str]] = {
         "public_id": "",
         "project_no": "프로젝트NO",
         "camp_name": "캠프명",
-        "status": "발행상태",
+        "status": "발행상태(자동)",
     },
     "16_입금수금관리": {
         "kind": "입금수금",

@@ -12388,6 +12388,8 @@ def t195_incremental_source_to_db_to_archive():
     P = importlib.import_module("automation_pipeline")
 
     assert A.SCHEMA_VERSION >= 2
+    assert A.SHEET_SPECS["15_세금계산서관리"]["status"] == "발행상태(자동)", \
+        "세금계산서 보관본 상태 열은 실제 원본 머리글과 같아야 한다"
     assert B.self_test() is True
     assert C.self_test() is True
     archive = W.self_test()
