@@ -12448,7 +12448,8 @@ def t195_incremental_source_to_db_to_archive():
     results_line = watchdog_src.split("results = [", 1)[1].split("]", 1)[0]
     assert results_line.strip().startswith("run_incremental_pipeline(dry)"), \
         "느린 Z: 일지 작업보다 증분 자동화가 뒤에 있다"
-    assert "PT5M" in installer and "IgnoreNew" in installer and "--once" in installer
+    assert "RepetitionInterval" in installer and "New-TimeSpan -Minutes 5" in installer
+    assert "IgnoreNew" in installer and "--once" in installer
 
     print("  [195] 카톡·밴드·ERP 변경감지 → 앱 DB 정본 → 객관근거 → 검증 Excel 보관본 자동화 ✅")
 

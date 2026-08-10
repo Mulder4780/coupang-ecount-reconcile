@@ -23,12 +23,16 @@ $Action = New-ScheduledTaskAction `
     -Argument "automation_pipeline.py --once --trigger scheduler" `
     -WorkingDirectory $Root
 
-# A daily trigger whose repetition covers the full day gives a permanent
-# five-minute watcher without a long-running Python process.  IgnoreNew plus
-# the pipeline PID lock prevents overlap when one reconciliation takes longer.
-$Trigger = New-ScheduledTaskTrigger -Daily -At "00:01"
-$Trigger.Repetition.Interval = "PT5M"
-$Trigger.Repetition.Duration = "P1D"
+# Windows PowerShell 5.1 does not expose a writable Repetition object on the
+# Daily trigger returned by New-ScheduledTaskTrigger.  Build the repetition in
+# the cmdlet instead; ten years is effectively permanent and rerunning this
+# installer safely replaces the task.  IgnoreNew plus the pipeline PID lock
+# prevents overlap when one reconciliation takes longer.
+$Trigger = New-ScheduledTaskTrigger `
+    -Once `
+    -At ((Get-Date).AddMinutes(1)) `
+    -RepetitionInterval (New-TimeSpan -Minutes 5) `
+    -RepetitionDuration (New-TimeSpan -Days 3650)
 $Trigger.Repetition.StopAtDurationEnd = $false
 
 $Settings = New-ScheduledTaskSettingsSet `
