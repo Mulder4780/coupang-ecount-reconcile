@@ -12522,6 +12522,10 @@ def t196_stage_words_come_from_one_place():
     assert "openNewWork('${k}')" in live, "돌발AS·정기점검 화면에 신규 등록 길이 없다"
     assert live.count('id="newWorkForm"') == 1, "신규 등록 폼이 둘 이상이다 — 칸이 갈린다"
     assert "layerOpen('newWorkForm'" in live, "화면마다 폼을 새로 그리고 있다"
+    # 류지영 업무센터로 바로 들어와도 선택지가 차 있어야 한다 — 비어 있으면 서버
+    # 기본값으로 메워져 저장은 되고, 그래서 아무도 고장인 줄 모른다.
+    ryu_view = live.split("if(v==='ryu'", 1)[1][:400]
+    assert "fillNewWorkStatus" in ryu_view, "류지영 화면에서 단계 선택지가 빈 채로 뜬다"
 
     # ⑧ 관리자도 등록한다(예전에는 류지영 업무센터 로그인에서만 열렸다).
     newjob = server.split('if p == "/api/staff/new-job":', 1)[1][:1200]

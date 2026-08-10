@@ -6288,6 +6288,11 @@ function applyView(v){
   if(v==='remote') renderRemoteCard('remoteHost');
   if(v==='sources'){ loadSources(); loadWarehouse(); }
   if(v==='ryu' && PIN && !RYU) loadRyuRecords();
+  /* 류지영 업무센터로 바로 들어와도 단계 선택지가 차 있어야 한다. 여기를 빼먹으면
+     그 화면에서만 **선택지가 하나도 없는 빈 목록**이 뜬다 — 서버가 기본값으로 메워
+     주므로 저장은 되고, 그래서 아무도 고장인 줄 모른다. */
+  if(v==='ryu' && PIN)
+    loadFlowStages().then(()=>fillNewWorkStatus((($('newWorkCategory')||{}).value)||'as'));
   if(v==='worklog' && PIN) loadWorkLogStatus();
   if(v==='dash' && !CAL) loadCalendar();
   if(v==='calendar'){
