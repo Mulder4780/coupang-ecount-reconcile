@@ -1750,7 +1750,17 @@ def save_new_workcenter_job(fields, files, source_ip="", actor="app",
     sheet = "02_돌발AS접수" if category == "as" else "04_정기점검"
     prefix = "AS" if category == "as" else "PM"
     id_col = "접수ID" if category == "as" else "점검ID"
-    status = str(fields.get("status") or ("접수" if category == "as" else "예정")).strip()
+    # ★ 단계 낱말을 여기 적지 않는다 (2026-08-10). 예전 기본값 '접수'·'예정' 중
+    #   '접수' 는 관리대장 드롭다운에 아예 없는 낱말이었다 — 앱이 목록 밖 값을
+    #   새로 만들어 넣고 있었다는 뜻이다. 정의는 `work_flow` 한 곳이 정한다.
+    import work_flow
+    status = str(fields.get("status") or "").strip()
+    if not status:
+        status = work_flow.default_stage(category)
+    allowed_stages = work_flow.stage_words(category)
+    if allowed_stages and status and status not in allowed_stages:
+        raise ValueError("현재 상태는 관리대장 목록에 있는 값이어야 합니다: "
+                         + " · ".join(allowed_stages))
     kind = "돌발AS" if category == "as" else "정기점검"
     tech = str(fields.get("assignee") or "").strip()
     cost = str(fields.get("cost_type") or "").strip()
@@ -6319,6 +6329,15 @@ self.addEventListener('fetch', e => {
             # AS 접수 → 수금 업무 흐름 (2026-08-07 지시). 정본은 DB 다.
             import ledger_db
             return self._send(200, {"steps": ledger_db.flow_steps()})
+        if p == "/api/flow-stages":
+            # 돌발AS·정기점검 **단계 정의** (2026-08-10 지시). 화면이 단계 낱말을
+            # 스스로 적지 않고 여기서 받아 간다 — 두 곳에 적으면 언젠가 갈린다([162]).
+            import work_flow
+            try:
+                return self._send(200, {"ok": True,
+                                        **work_flow.definition("refresh" in self.path)})
+            except Exception as exc:
+                return self._send(200, {"ok": False, "error": str(exc)[:200], "갈래": {}})
         if p == "/api/records":
             # 자료창고(datalake record) 조회 — 읽기 전용 ([24] 앱 화면 노출)
             #   qs 는 이 분기에서 직접 판다 — 위 분기들의 qs 는 그 분기 안에서만 산다
@@ -6639,17 +6658,28 @@ self.addEventListener('fetch', e => {
             except Exception as exc:
                 return self._send(400, {"ok": False, "error": str(exc)[:320]})
         if p == "/api/staff/new-job":
-            actor_slug = self._require_staff("ryu-jiyeong")
-            if not actor_slug:
-                return
+            # ★ 관리자도 등록한다 (2026-08-10 지시 — 돌발AS·정기점검 화면에서 바로).
+            #   전에는 류지영 업무센터로 로그인했을 때만 열려 있어, 관리자가 앱에서
+            #   **새 건을 만들 길 자체가 없었다.** 기사(tech)는 위 `_auth()` 가 막는다.
+            actor = self._actor()
+            actor_slug = str(actor.get("staff_slug") or "")
+            is_admin = actor.get("role") == "admin"
+            if not (is_admin or (actor.get("role") == "staff"
+                                 and actor_slug == "ryu-jiyeong")):
+                return self._send(403, {
+                    "ok": False,
+                    "error": "신규 업무는 관리자 또는 류지영 업무센터에서 등록합니다"})
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 30_000_000:
                 return self._send(400, {"ok": False, "error": "신규업무·첨부 용량은 합계 30MB 이하여야 합니다"})
             try:
                 fields, files = multipart_parts(self.headers.get("Content-Type", ""),
                                                 self.rfile.read(ln))
+                # 등록자는 **서버가 정한다** — 화면이 보낸 이름을 믿으면 감사기록이
+                # 누가 했는지를 못 말한다.
                 fields["staff_slug"] = actor_slug
-                fields["submitter"] = STAFF_CENTERS[actor_slug]["name"]
+                fields["submitter"] = (STAFF_CENTERS[actor_slug]["name"]
+                                       if actor_slug in STAFF_CENTERS else "관리자")
                 result = save_new_workcenter_job(
                     fields, files, ip,
                     actor=self._actor_name(),

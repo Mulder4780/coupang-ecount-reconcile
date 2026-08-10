@@ -402,6 +402,12 @@ def _run_pipeline():
     steps.append(run("보험 입금 확인",
                      [os.path.join(ROOT, "insurance_watch.py"), "--queue"]))
 
+    # 2.47 업무 단계 정의 — 관리대장 드롭다운·앱 흐름도가 바뀌었나 (2026-08-10 지시).
+    #   흐름도가 바뀌었는데 **아무 화면에도 티가 안 나는 것**이 제일 위험하다.
+    #   화면은 이 정의를 읽어 단계 선택지를 만들므로, 바뀌면 조용히 따라가 버린다.
+    steps.append(run("업무 단계 정의 확인",
+                     [os.path.join(ROOT, "work_flow.py"), "--check"]))
+
     # 2.5 쿠팡 PO 대조 (inbox에 'PO' 파일 있을 때만)
     if has_inbox_kind("po"):
         steps.append(run("쿠팡 PO 대조", [os.path.join(ROOT, "po_reconcile.py")]))

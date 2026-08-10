@@ -12454,6 +12454,95 @@ def t195_incremental_source_to_db_to_archive():
     print("  [195] 카톡·밴드·ERP 변경감지 → 앱 DB 정본 → 객관근거 → 검증 Excel 보관본 자동화 ✅")
 
 
+def t196_stage_words_come_from_one_place():
+    """[196] 돌발AS·정기점검 단계 낱말은 **한 곳**에서 오고, 바뀌면 자국이 남는다.
+
+    2026-08-10 지시: "돌발 AS 카테고리 및 정기점검 카테고리에 입력창을 만들어 …
+    플로우차트 참고해서 진행할 수 있게 하고 나중에 플로우차트가 변경되면 기능도
+    따라서 연동되게".
+
+    ★ 이 검증이 지키는 것은 '입력창이 있다'가 아니라 **낱말이 한 곳에서만 정해진다**는
+    것이다. 화면·서버가 각자 '접수'·'예정'을 적어 두면 그 순간 사본이 둘이고, 흐름도가
+    바뀌어도 안 따라간다([162]). 실제로 그렇게 어긋나 있었다 — 서버 기본값 '접수' 는
+    관리대장 드롭다운에 **없는 낱말**이었고 그렇게 들어간 행이 원장에 85건 있었다.
+    그리고 화면 선택지는 '지금 목록에 쓰여 있는 값'만 모아서, 드롭다운에 있는
+    기사배정·일정확정·방문중·재방문예정·보류를 **앱에서는 영영 고를 수 없었다.**
+    """
+    import work_flow as W
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    live = open(os.path.join(root, "webapp", "index.html"), encoding="utf-8").read()
+    server = open(os.path.join(root, "webapp", "app_server.py"), encoding="utf-8").read()
+    src = open(os.path.join(root, "work_flow.py"), encoding="utf-8").read()
+
+    # ① 정의는 스스로 낱말을 짓지 않는다 — 근거는 관리대장 드롭다운이다.
+    assert "dataValidation" in src and "_dv_source" in src, \
+        "단계 낱말의 근거가 관리대장 드롭다운이 아니다"
+    assert "10_코드관리" not in src.split('"""', 2)[2] or "_dv_source" in src, \
+        "코드시트 열을 코드에 박아 두면 사람이 드롭다운 출처를 옮긴 날 티가 안 난다"
+
+    # ② 합성 정의로 갈래 판정을 확인한다(실데이터 없이 돈다).
+    flow = [{"순서": 0, "단계": "일정 확정", "담당": "류지영", "근거": "밴드"},
+            {"순서": 1, "단계": "완료 보고", "담당": "기사", "근거": "밴드"}]
+    assert W._link("일정확정", flow) and W._link("일정확정", flow)["담당"] == "류지영"
+    # 근거가 없으면 **붙이지 않는다** — 잘못 붙이면 엉뚱한 담당자를 가리킨다.
+    assert W._link("보류", flow) is None, "근거 없이 흐름 단계를 갖다 붙였다"
+    # 후보가 둘이면 고르지 않는다.
+    two = flow + [{"순서": 2, "단계": "확정 통보", "담당": "오종현", "근거": ""}]
+    assert W._link("확정", two) is None, "후보가 여럿인데 하나를 골랐다"
+
+    # ③ 목록 밖 낱말은 지우지 않고 '목록 밖'으로 표시한다 — 이미 그렇게 적힌 행이 있다.
+    assert "목록 밖" in src and "목록밖" in src, "목록 밖 낱말을 표시하지 않는다"
+    assert "지어내지" in src, "낱말을 짓지 않는다는 근거 주석이 없다"
+
+    # ④ 지문은 '쓰인 건수'로 흔들리지 않는다 — 매일 바뀌면 경보가 죽는다.
+    base = {"갈래": {"as": {"단계": [{"단계": "신규접수", "쓰인건수": 1}]}}}
+    more = {"갈래": {"as": {"단계": [{"단계": "신규접수", "쓰인건수": 999}]}}}
+    assert W.fingerprint_of(base) == W.fingerprint_of(more), \
+        "건수가 늘었다고 '흐름이 바뀌었다'고 하면 아무도 안 본다"
+    other = {"갈래": {"as": {"단계": [{"단계": "신규접수"}, {"단계": "방문중"}]}}}
+    assert W.fingerprint_of(base) != W.fingerprint_of(other), "단계가 늘었는데 지문이 같다"
+
+    # ⑤ 서버가 단계 낱말을 손으로 적지 않는다.
+    job = server.split("def save_new_workcenter_job", 1)[1].split("\ndef ", 1)[0]
+    assert "work_flow.default_stage" in job, "신규 등록 기본 단계를 서버가 지어낸다"
+    assert '"접수" if category' not in job and "'접수' if category" not in job, \
+        "옛 기본값 '접수' 가 남아 있다 — 관리대장 목록에 없는 낱말이다"
+    assert "stage_words" in job, "목록 밖 낱말이 새로 들어오는 것을 막지 않는다"
+
+    # ⑥ 화면도 마찬가지 — 상태 선택지·완료 낱말이 정의에서 온다.
+    assert "/api/flow-stages" in server and "/api/flow-stages" in live, \
+        "단계 정의를 내려 주는·받아 가는 자리가 없다"
+    edit = live.split("if(typ==='status'){", 1)[1].split("}", 1)[0]
+    assert "stageList(k)" in edit, "상태 선택지를 화면이 직접 모은다(정의를 안 본다)"
+    comp = live.split("async function wtComplete", 1)[1].split("\n}", 1)[0]
+    assert "stageDone(k)" in comp, "완료 낱말이 화면에 박혀 있다"
+
+    # ⑦ 입력창이 두 화면에 있고 **폼은 하나**다(사본을 만들지 않는다).
+    assert "openNewWork('${k}')" in live, "돌발AS·정기점검 화면에 신규 등록 길이 없다"
+    assert live.count('id="newWorkForm"') == 1, "신규 등록 폼이 둘 이상이다 — 칸이 갈린다"
+    assert "layerOpen('newWorkForm'" in live, "화면마다 폼을 새로 그리고 있다"
+
+    # ⑧ 관리자도 등록한다(예전에는 류지영 업무센터 로그인에서만 열렸다).
+    newjob = server.split('if p == "/api/staff/new-job":', 1)[1][:1200]
+    assert "is_admin" in newjob and "_require_staff(" not in newjob, \
+        "관리자가 앱에서 신규 건을 만들 길이 없다"
+    assert 'fields["submitter"]' in newjob, "등록자를 화면이 보낸 값으로 믿는다"
+
+    # ⑨ 바뀌면 **자국이 남는다** — 조용히 따라가면 아무도 모른다.
+    assert "def banner" in src and "def ack" in src, "변경 알림을 내릴 길이 없다"
+    hand = open(os.path.join(root, "session_handoff.py"), encoding="utf-8").read()
+    assert "work_flow_change" in hand and "업무흐름" in hand, "인계 문서가 변경을 안 본다"
+    daily = open(os.path.join(root, "daily_run.py"), encoding="utf-8").read()
+    assert "work_flow.py" in daily and "--check" in daily, "회차가 정의를 안 본다"
+
+    # ⑩ 읽기 전용이다 — 정의를 만드는 길이 엑셀을 고치지 않는다.
+    for bad in ("ledger_writer", "--apply", "enqueue"):
+        assert bad not in src, "단계 정의가 원장을 건드린다: " + bad
+
+    print("  [196] 단계 낱말은 관리대장 드롭다운 한 곳에서 오고 바뀌면 인계에 오른다 ✅")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -12747,6 +12836,7 @@ if __name__ == "__main__":
     t189_worklog_reflects_without_hands()
     t190_autopilot_retries_without_failure_cascade()
     t191_confirmation_truth_and_fast_refresh()
+    t196_stage_words_come_from_one_place()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()

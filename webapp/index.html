@@ -3589,7 +3589,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	        <h3>신규 업무 입력 <span class="norm">— Excel을 열지 않아도 앱 DB에 즉시 저장됩니다</span></h3>
 	        <div class="ryu-fields">
 	          <label>업무 구분
-	            <select name="category" required>
+	            <select name="category" id="newWorkCategory" required onchange="fillNewWorkStatus(this.value)">
 	              <option value="as">돌발AS 신규 접수</option>
 	              <option value="pm">정기점검 신규 일정</option>
 	            </select>
@@ -3601,7 +3601,11 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	          <label>비용 구분
 	            <select name="cost_type"><option value="">확인 전</option><option>유상</option><option>무상</option><option>보험</option></select>
 	          </label>
-	          <label>현재 상태<input name="status" placeholder="접수 / 예정 / 작업완료"></label>
+	          <!-- ★ 단계는 손으로 적지 않는다 (2026-08-10). 예전 자리표시글 '접수 / 예정 /
+	               작업완료' 중 '접수' 는 관리대장 드롭다운에 **없는 낱말**이었다 —
+	               앱이 목록 밖 값을 새로 만들어 넣고 있었다(원장 85건이 그것이다). -->
+	          <label>현재 단계<select name="status" id="newWorkStatus"></select>
+	            <small id="newWorkStatusNote" class="muted"></small></label>
 	          <label class="wide">접수·점검 내용<textarea name="description" placeholder="고장 증상, 점검 요청, 확인 내용"></textarea></label>
 	          <label class="wide">사진·문서 근거<input name="evidence_file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.xlsx,.docx,.txt"></label>
 	          <input type="hidden" name="submitter" value="류지영">
@@ -5173,6 +5177,35 @@ async function submitRyuUpload(ev){
     btn.disabled=false;btn.classList.remove('busy');
   }
 }
+/* 단계 선택지를 정의에서 채운다. 화면이 낱말을 적지 않으므로 목록이 바뀌면
+   여기 손대지 않아도 따라간다 — 그것이 '플로우차트 연동'의 실체다. */
+function fillNewWorkStatus(k){
+  const sel=$('newWorkStatus'), note=$('newWorkStatusNote');
+  if(!sel) return;
+  const g=stageDef(k), opts=stageList(k), def=stageDefault(k);
+  sel.innerHTML=opts.map(o=>`<option value="${esc2(o.단계)}"${o.단계===def?' selected':''}>${esc2(o.단계)}${
+    String(o.출처||'').indexOf('목록 밖')>=0?' — 목록 밖':''}</option>`).join('')
+    || '<option value="">단계 목록을 아직 받지 못했습니다</option>';
+  if(note) note.textContent = g&&g['목록출처']
+    ? `관리대장 ${g['목록출처']} 목록을 그대로 씁니다`
+    : '관리대장 목록을 못 읽어 화면에 있는 값만 보여 줍니다';
+}
+/* 돌발AS·정기점검 화면에서 바로 신규 접수를 등록한다 (2026-08-10 지시).
+   ★ 폼은 **하나뿐**이다 — 화면마다 따로 만들면 칸이 갈리고 한쪽만 고쳐진다([162]).
+   류지영 업무센터에 있는 그 폼을 시트로 끌어올려 쓴다. */
+async function openNewWork(k){
+  await loadFlowStages();
+  const form=$('newWorkForm');
+  if(!form){ notice('신규 등록 폼을 찾지 못했습니다'); return; }
+  const cat=$('newWorkCategory'); if(cat) cat.value=k;
+  fillNewWorkStatus(k);
+  const d=form.querySelector('[name="work_date"]');
+  if(d && !d.value) d.value=wtToday();
+  const nm=(k==='pm')?'정기점검':'돌발AS';
+  layerOpen('newWorkForm', {title:nm+' 신규 등록',
+    sub:'저장하면 앱 DB 정본과 감사기록에 즉시 남습니다. Excel은 보관본 회차가 만듭니다.'});
+  uxEvent('tap','wt-new-'+k);
+}
 async function submitNewWork(ev){
   ev.preventDefault();
   markStaffInput('save');
@@ -5187,9 +5220,18 @@ async function submitNewWork(ev){
     result.innerHTML=`저장 완료 · ${esc2(d.manifest['업무ID'])} · 앱 DB ${fmt(d.queued)}개 항목 즉시 저장
       <br>Excel은 앱 DB 정본에서 자동 보관본으로 생성됩니다.`;
     const keepDate=form.querySelector('[name="work_date"]').value;
+    const keepCat=(($('newWorkCategory')||{}).value)||'as';
     form.reset();form.querySelector('[name="work_date"]').value=keepDate;
+    if($('newWorkCategory')) $('newWorkCategory').value=keepCat;
+    fillNewWorkStatus(keepCat);      // reset 이 선택을 되돌리므로 다시 채운다
     await Promise.all([loadRyuRecords(true),loadNotifications()]);
     toast('신규 업무를 앱 DB에 저장했습니다 · Excel 자동 보관');
+    /* 돌발AS·정기점검 화면에서 열었으면 목록을 다시 받아 새 건이 바로 보이게 한다.
+       저장은 됐는데 화면에 안 나타나면 사람은 저장이 안 된 줄 알고 또 누른다. */
+    if(layerIsOpen('newWorkForm')){
+      loadSettle(true).then(()=>{ renderWorkTab(keepCat); }).catch(()=>{});
+      setTimeout(closeSheetAll, 700);
+    }
   }catch(e){
     result.className='ryu-result err';result.textContent='저장 실패 · '+String(e.message||e);
     loadNotifications();
@@ -5527,6 +5569,29 @@ const WT_CFG = {
        sorts:[['접수일자','접수일자'],['방문예정일','방문예정일'],['작업완료일','작업완료일'],['프로젝트NO','프로젝트NO'],['캠프명','캠프명']],
        edit:[['담당기사','tech'],['진행상태','status'],['방문예정일','date'],['작업완료일','date']]},
 };
+/* ═══ 업무 단계 정의 — 낱말을 앱이 정하지 않는다 (2026-08-10 지시) ═══
+   "플로우차트 참고해서 진행할 수 있게 하고 나중에 플로우차트가 변경되면 기능도
+   따라서 연동되게" — 연동은 화면이 정의를 **읽는다**는 뜻이다. 화면·서버·검증이
+   각자 낱말을 적어 두면 그 순간 사본이 셋이 되고 흐름도가 바뀌어도 안 따라간다([162]).
+   정의는 work_flow.py 하나가 만들고 근거는 관리대장 10_코드관리 드롭다운이다. */
+let FLOW_STAGES = null;
+async function loadFlowStages(force){
+  if(FLOW_STAGES && !force) return FLOW_STAGES;
+  try{ const d=await api('/api/flow-stages'); if(d && d['갈래']) FLOW_STAGES=d; }catch(e){}
+  return FLOW_STAGES;
+}
+function stageDef(k){ return (FLOW_STAGES && FLOW_STAGES['갈래'] && FLOW_STAGES['갈래'][k]) || null; }
+function stageList(k){
+  const g=stageDef(k);
+  if(g && (g['단계']||[]).length) return g['단계'];
+  /* 정의를 못 받았으면 **화면에 이미 있는 값**만 쓴다. 낱말을 지어내지 않는다 —
+     못 고르는 것이 없는 낱말을 만들어 넣는 것보다 낫다([166]). */
+  return [...new Set((WT_CFG[k]?WT_CFG[k].rows():[]).map(r=>wtStatus(k,r)).filter(s=>s!=='미기입'))]
+    .sort().map(s=>({단계:s, 출처:'화면에 있는 값'}));
+}
+function stageDone(k){ const g=stageDef(k); return g?String(g['완료단계']||''):''; }
+function stageDefault(k){ const g=stageDef(k); return g?String(g['기본단계']||''):''; }
+
 let WT = (()=>{ try{ return JSON.parse(localStorage.getItem('cw_wt')||'{}'); }catch(e){ return {}; } })();
 const wtSave = () => { try{ localStorage.setItem('cw_wt', JSON.stringify(WT)); }catch(e){} };
 const wtToday = () => new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'});
@@ -5633,6 +5698,8 @@ function renderWorkTab(k){
   const late=wtLateFn(k), due=wtDueFn(k);
   const nLate=all.filter(late).length, nDue=all.filter(due).length;
   $(k+'Toolbar').insertAdjacentHTML('beforeend',
+    // 신규 등록 — 예전에는 류지영 업무센터로 로그인해야만 있는 길이었다(2026-08-10 지시).
+    `<button class="abtn primary wt-new" onclick="openNewWork('${k}')">+ 신규 ${k==='pm'?'점검':'접수'} 등록</button>`+
     `<button class="abtn ${st.quick==='late'?'primary':''}" onclick="wtSet('${k}','quick',${st.quick==='late'?"''":"'late'"})">지연 ${nLate}</button>`+
     `<button class="abtn ${st.quick==='day'?'primary':''}" onclick="wtSet('${k}','quick',${st.quick==='day'?"''":"'day'"})">기준일 ${nDue}</button>`+
     `<button class="abtn ${st.board?'primary':''}" onclick="wtSet('${k}','board',${!st.board})">${st.board?'목록으로':'기사별 보드'}</button>`+
@@ -5690,9 +5757,15 @@ function wtField(k,id,col,typ,cur){
     return `<label>${esc2(col)}${tag}<input type="date" value="${esc2(String(val).slice(0,10))}"
       onchange="wtEdit('${k}',${esc4(id)},${esc4(col)},this.value,'date')"></label>`;
   if(typ==='status'){
-    const opts=[...new Set(WT_CFG[k].rows().map(r=>wtStatus(k,r)).filter(s=>s!=='미기입'))].sort();
+    /* ★ 단계 낱말을 화면이 만들지 않는다 (2026-08-10 지시). 예전에는 **지금 목록에
+       쓰여 있는 값**만 모아 골랐다 — 그래서 관리대장 드롭다운에 있는 기사배정·일정확정·
+       방문중·재방문예정·보류를 **앱에서는 영영 고를 수 없었다**(한 건도 안 쓰여 있으니
+       후보에 안 올라온다). 모든 건이 접수 → 작업완료로만 움직인 이유가 이것이다.
+       정의는 /api/flow-stages 하나이고 그 근거는 관리대장 드롭다운이다. */
+    const opts=stageList(k);
     return `<label>${esc2(col)}${tag}<select onchange="wtEdit('${k}',${esc4(id)},${esc4(col)},this.value,'text')">
-      <option value="">${val?esc2(val):'선택'}</option>${opts.filter(o=>o!==val).map(o=>`<option>${esc2(o)}</option>`).join('')}</select></label>`;
+      <option value="">${val?esc2(val):'선택'}</option>${opts.filter(o=>o.단계!==val).map(o=>
+        `<option value="${esc2(o.단계)}">${esc2(o.단계)}${String(o.출처||'').indexOf('목록 밖')>=0?' — 목록 밖':''}</option>`).join('')}</select></label>`;
   }
   return `<label>${esc2(col)}${tag}<input list="wtTechList" value="${esc2(val)}" placeholder="미배정"
     onchange="wtEdit('${k}',${esc4(id)},${esc4(col)},this.value,'text')"></label>`;
@@ -6166,7 +6239,9 @@ async function remoteDeliver(hostId){
 async function wtComplete(k,id){
   const cfg=WT_CFG[k];
   const stCol=cfg.stCol, doneCol=cfg.doneCol;
-  const doneVal = k==='pm' ? '완료' : '작업완료';
+  /* 완료를 뜻하는 낱말도 정의에서 받는다 — 여기 적어 두면 관리대장 목록이 바뀐 날
+     이 단추만 옛 낱말을 찍는다(오류는 안 난다. 그게 이 사고의 모양이다). */
+  const doneVal = stageDone(k) || (k==='pm' ? '완료' : '작업완료');
   if(!await askYesNo(`${id} — ${stCol} '${doneVal}' + ${doneCol} 오늘 날짜로 저장할까요?`)) return;
   const today=new Date().toISOString().slice(0,10);
   await wtEdit(k,id,stCol,doneVal,'text');
@@ -6203,7 +6278,12 @@ function applyView(v){
   const navView=v==='ryu'?'dash':v;
   document.querySelectorAll('.tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.v===navView));
   if(v==='report' && !reports.length) loadReports();
-  if(v==='pm'||v==='as'){ renderWorkTab(v); if(!(works.as||[]).length&&PIN) loadSettle().catch(()=>{}); }
+  if(v==='pm'||v==='as'){
+    renderWorkTab(v);
+    if(!(works.as||[]).length&&PIN) loadSettle().catch(()=>{});
+    // 단계 정의는 한 번만 받아 두면 된다. 받고 나면 상태 선택지가 정의대로 바뀐다.
+    if(!FLOW_STAGES&&PIN) loadFlowStages().then(d=>{ if(d) renderWorkTab(v); });
+  }
   if(v==='center'){ renderCenter(); if(!(works.as||[]).length&&PIN) loadSettle().catch(()=>{}); }
   if(v==='remote') renderRemoteCard('remoteHost');
   if(v==='sources'){ loadSources(); loadWarehouse(); }

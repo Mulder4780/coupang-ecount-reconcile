@@ -515,8 +515,24 @@ def collect():
         "워크트리": _worktree_state(),
         "일일대조": daily_run_health(),
         "밴드재수집": band_recollect(),
+        "업무흐름": work_flow_change(),
         "앱서버": app_server_health(),
     }
+
+
+def work_flow_change():
+    """돌발AS·정기점검 **단계 정의**가 바뀌었나 (2026-08-10 지시).
+
+    앱 화면은 이 정의를 읽어 단계 선택지를 만든다 — 관리대장 드롭다운이나 앱 흐름도가
+    바뀌면 화면이 **조용히 따라가 버린다.** 따라가는 것 자체는 옳지만, 따라간 사실이
+    어디에도 안 뜨면 "어제와 선택지가 다른데 왜인지 모르는" 상태가 된다.
+    판정은 `work_flow.banner()` 한 곳이 한다.
+    """
+    try:
+        import work_flow
+        return work_flow.banner()
+    except Exception:
+        return None
 
 
 def app_server_health():
@@ -796,6 +812,14 @@ def to_md(st, for_sol=False):
         L += ["> 대조·보고서가 이 글들을 근거로 쓰고 있었다면 **다시 뽑아야 한다**.",
               "> 전체는 `python band/recollect.py --print` · "
               "확인했으면 `python band/recollect.py --ack` 로 이 칸을 내린다.", ""]
+    wf = st.get("업무흐름") or {}
+    if wf.get("바뀜"):
+        L += ["## ★ 업무 단계 정의가 바뀌었다 (%s)" % (wf.get("시각") or ""), "",
+              "- 돌발AS·정기점검 화면의 **단계 선택지**가 이 정의를 읽는다. "
+              "바뀌면 화면이 조용히 따라간다 — 그래서 여기 올린다.", ""]
+        L += ["- %s" % x for x in (wf.get("무엇이") or [])]
+        L += ["", "> 지금 정의는 `python work_flow.py` · "
+                  "확인했으면 `python work_flow.py --ack` 로 이 칸을 내린다.", ""]
     cp = st.get("진행체크포인트") or {}
     if cp:
         L += ["## ★ 진행 중 작업 — 여기서 바로 재개", "",
