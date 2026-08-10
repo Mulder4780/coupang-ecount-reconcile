@@ -19,7 +19,7 @@ import sqlite3
 import tempfile
 import threading
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -1376,6 +1376,7 @@ class AppStore:
         apply_if_missing: bool = False,
         actor: str = "shadow-import",
         idempotency_key: Optional[str] = None,
+        _conn: Optional[sqlite3.Connection] = None,
     ) -> Dict[str, Any]:
         """Inspect one Excel row without overwriting canonical application data.
 
@@ -1417,7 +1418,11 @@ class AppStore:
             "apply_if_missing": apply_if_missing,
             "actor": actor,
         }
-        with self.transaction() as conn:
+        # 대량 초기 이관은 호출자가 연 단일 트랜잭션을 공유한다. 평상시 공개 호출은
+        # 이전과 같이 행 하나가 독립 트랜잭션이다. `_conn`은 내부 컷오버 전용이라
+        # 실시간 앱 입력의 낙관잠금·원자성 계약을 바꾸지 않는다.
+        transaction_scope = nullcontext(_conn) if _conn is not None else self.transaction()
+        with transaction_scope as conn:
             replay, request_hash = self._idempotency_replay(
                 conn, "shadow:import", idempotency_key, payload
             )

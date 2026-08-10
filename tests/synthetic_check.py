@@ -11946,6 +11946,9 @@ def t193_app_db_cutover_archive_and_frontend():
     cutover_body = cutover_src.split("def cutover(", 1)[1].split("def self_test(", 1)[0]
     assert cutover_body.count("os.path.getmtime(master)") == 1, \
         "SMB 원본 수정시각을 행마다 다시 조회한다 — 순간 끊김이 이관 전체를 죽인다"
+    assert "with store.transaction() as batch_conn" in cutover_body \
+        and "_conn=batch_conn" in cutover_body, \
+        "초기 이관이 행마다 FULL fsync한다 — 대량 컷오버가 수십 분 걸린다"
 
     def make_cutover_book(path, duplicate_conflict=False):
         book = openpyxl.Workbook()

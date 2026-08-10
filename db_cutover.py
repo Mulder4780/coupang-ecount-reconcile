@@ -221,32 +221,46 @@ def cutover(master: os.PathLike[str] | str, db_path: Optional[str] = None,
     statuses = Counter()
     imported_ids = set()
     parity_errors = []
-    for row in candidates["rows"]:
-        response = store.shadow_import(
-            import_id=import_id,
-            sheet=row["sheet"],
-            business_key=row["business_key"],
-            business_key_col=row["business_key_col"],
-            row_number=row["row_number"],
-            kind=row["kind"],
-            fields=row["fields"],
-            public_id=row["public_id"] or None,
-            project_no=row["project_no"] or None,
-            camp_name=row["camp_name"] or None,
-            status=row["status"],
-            source_file=master,
-            source_sha256=master_sha,
-            observed_at=master_observed_at,
-            evidence="앱 DB 컷오버 Excel 읽기 전용 원본",
-            apply_if_missing=True,
-            actor="cutover",
-            idempotency_key=f"{import_id}:{row['sheet']}:{row['row_number']}",
-        )
-        statuses[str(response.get("status") or "unknown")] += 1
-        work_id = response.get("work_id")
-        if work_id:
-            imported_ids.add(work_id)
-            stored = store.get_work(work_id)
+    # 1,853행을 행마다 FULL fsync하면 수십 분이 걸린다. 초기 이관은 한 원본 해시의
+    # 단일 사건이므로 하나의 원자 트랜잭션으로 묶는다. 중간 실패 시 신규 행 전체가
+    # 롤백되고, 이미 앞선 재시도에서 확정된 행은 idempotency replay로 건너뛴다.
+    imported_by_locator: Dict[tuple[str, int], str] = {}
+    with store.transaction() as batch_conn:
+        for row in candidates["rows"]:
+            response = store.shadow_import(
+                import_id=import_id,
+                sheet=row["sheet"],
+                business_key=row["business_key"],
+                business_key_col=row["business_key_col"],
+                row_number=row["row_number"],
+                kind=row["kind"],
+                fields=row["fields"],
+                public_id=row["public_id"] or None,
+                project_no=row["project_no"] or None,
+                camp_name=row["camp_name"] or None,
+                status=row["status"],
+                source_file=master,
+                source_sha256=master_sha,
+                observed_at=master_observed_at,
+                evidence="앱 DB 컷오버 Excel 읽기 전용 원본",
+                apply_if_missing=True,
+                actor="cutover",
+                idempotency_key=f"{import_id}:{row['sheet']}:{row['row_number']}",
+                _conn=batch_conn,
+            )
+            statuses[str(response.get("status") or "unknown")] += 1
+            work_id = response.get("work_id")
+            if work_id:
+                imported_ids.add(work_id)
+                imported_by_locator[(row["sheet"], row["row_number"])] = work_id
+
+    # parity는 커밋 뒤 읽기 전용 연결 하나로 전수 검사한다. 행마다 새 연결을 열지 않는다.
+    with store.reader() as parity_conn:
+        for row in candidates["rows"]:
+            work_id = imported_by_locator.get((row["sheet"], row["row_number"]))
+            if not work_id:
+                continue
+            stored = store._work_from_conn(parity_conn, work_id)
             stored_fields = {key: stored["fields"].get(key) for key in row["fields"]}
             if sha256_json(stored_fields) != row["fields_sha256"]:
                 parity_errors.append(
