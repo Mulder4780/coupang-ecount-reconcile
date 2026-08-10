@@ -96,6 +96,19 @@ class ArchiveSourceError(ArchiveWorkerError):
     """A read-only source could not be staged locally within a bounded time."""
 
 
+# Canonical DB audit attributes deliberately have no legacy workbook columns.
+# Keep the unknown-field guard strict for every other name so a typo in a real
+# workbook field still fails closed instead of silently disappearing.
+DB_ONLY_ARCHIVE_FIELDS = frozenset(
+    {
+        "객관완료여부",
+        "객관완료일",
+        "객관완료상태",
+        "객관완료근거",
+    }
+)
+
+
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
@@ -1053,7 +1066,11 @@ class ArchiveWorker:
             meta.setdefault(item.key_col, {})
             for header in sorted(fields):
                 if header not in item.sheet.headers:
-                    if str(header).startswith("__"):
+                    if str(header).startswith("__") or header in DB_ONLY_ARCHIVE_FIELDS:
+                        if header in DB_ONLY_ARCHIVE_FIELDS:
+                            warnings.append(
+                                f"{item.record.get('business_key')}:{header} retained in DB audit only"
+                            )
                         continue
                     raise ArchiveRenderError(
                         f"{item.sheet.name}:{item.record.get('business_key')} "
@@ -1501,7 +1518,15 @@ def self_test() -> Dict[str, Any]:
         store.update_work(
             existing["id"],
             expected_version=int(existing["record_version"]),
-            patch={"fields": {"신청내용": "DB에서 변경"}},
+            patch={
+                "fields": {
+                    "신청내용": "DB에서 변경",
+                    "객관완료여부": True,
+                    "객관완료일": "2026-08-10",
+                    "객관완료상태": "완료",
+                    "객관완료근거": "합성 객관근거",
+                }
+            },
             actor="selftest",
             source="selftest",
             evidence="archive worker existing-row test",
@@ -1556,6 +1581,10 @@ def self_test() -> Dict[str, Any]:
             )
         )
         assert adapter_proof["source_copy_proof"]["sha256"] == template_hash
+        assert sum(
+            "retained in DB audit only" in warning
+            for warning in adapter_proof.get("warnings") or []
+        ) == len(DB_ONLY_ARCHIVE_FIELDS)
         archive_path = Path(first["last_good"]["archive_path"])
         first_hash = sha256_file(archive_path)
         with zipfile.ZipFile(archive_path, "r") as archive:
@@ -1605,6 +1634,7 @@ def self_test() -> Dict[str, Any]:
             "live_lock_respected": True,
             "bounded_source_stage": True,
             "source_proof_manifested": True,
+            "db_only_audit_fields_retained": True,
         }
 
 
