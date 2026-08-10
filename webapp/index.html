@@ -1289,6 +1289,9 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
 .data-health-head strong{display:block;color:var(--warn);font-size:14.5px;line-height:1.35}
 .data-health-head span{display:block;color:var(--ink-2);font-size:13px;line-height:1.45;margin-top:2px;
   overflow-wrap:anywhere}
+/* 원인이 하나인데 손을 일곱 번 쓰게 하지 않는다 (2026-08-10 지시) */
+.data-health-all{flex:none;min-height:44px;padding:8px 14px;border-radius:10px;font-weight:700;
+  font-size:13.5px;cursor:pointer;color:#fff;background:var(--brand-btn);border-color:transparent}
 .data-health-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .data-health-item{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;
   border:1px solid var(--line);border-radius:11px;background:var(--panel);padding:8px 9px 8px 11px}
@@ -2573,6 +2576,16 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
 .srcfold{margin-top:10px}
 .srcfold>.src-toolbar{padding-top:2px}
 .srcsum{font-weight:600;font-size:12.5px;color:var(--ink-3)}
+/* ★ 펼쳐도 목록이 화면 밖으로 밀려나지 않게 (2026-08-10 지시: "이 화면이 맨 위로 가고
+   목록화면이 아래로 위치해서 맨 위에서 필터해서 볼 수 있는 구조").
+   접는 것만으로는 부족했다 — 한 번 펼치면 아이콘 11개 + 연/월이 화면을 통째로 먹어
+   **결과가 몇 건인지조차 안 보였다**(실측 화면: 목록 자리에 '조건에 맞는 원본이
+   없습니다'가 스크롤 한참 아래에 있었다). 그래서 셋을 같이 건다:
+   ① 제목줄은 맨 위에 **붙어 있고**(sticky) ② 펼친 칸은 **제 안에서만 스크롤**하며
+   ③ 갈래·기간을 고르면 **스스로 접히고 목록으로 내려간다**. */
+.srcfold>summary{position:sticky;top:0;z-index:3;background:var(--surface)}
+.srcfold[open]>.src-toolbar{max-height:min(46vh,420px);overflow-y:auto;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .flow-del{border:1px solid var(--line);border-radius:9px;background:var(--surface);
   color:var(--danger);font:800 13px inherit;padding:5px 10px;cursor:pointer}
 /* ── 긴 글은 접어 둔다 (2026-08-07 지시: "스크롤이 긴 부분(설명란) … 누르면
@@ -4472,6 +4485,52 @@ async function _apiNet(path, opt={}){
   }
   return parsed;
 }
+/* ★ **잠깐 끊긴 것과 정말 실패한 것은 다르다** (2026-08-10 지시 "갱신실패 없애고 갱신
+   잘 되게 해").
+
+   폰은 클라우드플레어 터널(`cloudflared tunnel --url http://127.0.0.1:8899`)을 거쳐
+   이 PC 로 온다. 그래서 **앱 서버가 다시 뜨는 2~3초 동안** 터널은 원본을 못 찾고
+   **502** 를 준다. 서버를 다시 띄우는 일은 드물지 않다 — 코드를 고칠 때마다 그렇고
+   (`[156]` 이 그러라고 시킨다) 워치독도 스스로 고친다. 그때마다 폰에는 빨간 카드가
+   일곱 장 뜨고 사람이 '다시 시도'를 **일곱 번** 눌러야 했다.
+
+   끊긴 것은 곧 돌아온다. 그러니 먼저 **스스로 몇 번 다시 걸어 보고**, 그래도 안 되면
+   그때 실패라고 말한다. 자동으로 낫는 것을 사람에게 시키지 않는다.
+   ⚠ 무엇이든 다시 걸면 안 된다 — 401(로그인 만료)·429(잠금)·400(내 요청이 틀림)은
+   백 번 걸어도 같은 답이고, 429 는 다시 걸수록 나빠진다. */
+const TRANSIENT_STATUS = new Set([408, 425, 500, 502, 503, 504]);
+/* 기다리는 시간은 **실측**으로 정한다. 2026-08-10 측정: 앱 서버를 다시 띄우면
+   포트가 답을 주기까지 **9.3초**가 걸린다(파이썬 시작 + openpyxl 등 import).
+   그래서 마지막 시도가 그보다 뒤에 있어야 한다 — 0 · 1.5 · 5.5 · 14.5 · 29.5초.
+   짧게 잡으면 '다시 시도했지만 실패'로 끝나 예전과 똑같아진다.
+   `restart_server.py` 가 이 초를 매번 찍으므로, 재시작이 느려지면 여기도 다시 본다. */
+const RETRY_WAIT_MS = [1500, 4000, 9000, 15000];
+function isTransientError(err){
+  if(!(err instanceof ApiError)) return false;
+  if(err.code==='NETWORK_ERROR'||err.code==='BODY_READ_ERROR') return true;
+  const st=Number(err.status)||0;
+  if(st===401||st===403||st===429) return false;   // 다시 걸어도 같거나 더 나쁘다
+  if(TRANSIENT_STATUS.has(st)) return true;
+  /* 터널이 원본을 못 찾으면 우리 JSON 대신 **HTML 오류 쪽지**를 준다.
+     상태가 200 이어도 그건 앱 서버의 답이 아니다. */
+  return (err.code==='UNEXPECTED_CONTENT_TYPE'||err.code==='INVALID_JSON'
+          ||err.code==='EMPTY_BODY') && st!==401 && st!==429;
+}
+const _wait = ms => new Promise(r=>setTimeout(r, ms));
+/* 실패했을 때만 다시 건다. 성공하면 곧바로 돌려준다 — 정상 경로는 한 번 그대로다. */
+async function apiWithRetry(path, opt={}, onWait){
+  let last=null;
+  for(let i=0;i<=RETRY_WAIT_MS.length;i++){
+    try{ return await api(path, opt); }
+    catch(err){
+      last=err;
+      if(i===RETRY_WAIT_MS.length || !isTransientError(err)) break;
+      if(onWait) onWait(i+1, RETRY_WAIT_MS.length+1);
+      await _wait(RETRY_WAIT_MS[i]);
+    }
+  }
+  throw last;
+}
 /* ★ 사람이 **직접 누른** 새로고침은 캐시를 건너뛴다 (2026-08-06 지시: "새로고침 누르면
    바로바로 반영되게"). 예전에는 stale-while-revalidate 가 그 버튼까지 막았다:
      · 15초 안에 누르면 네트워크에 **아예 안 나갔다** — 화면이 그대로인데
@@ -4703,7 +4762,11 @@ async function api(path, opt={}){
         _apiNet(path, opt).then(d => {                      // 새 값은 뒤에서 받아 온다
           swrSet(path, d); swrDone(key, true); swrRerun(key);
         }).catch((e) => {                                   // 실패한 자료 묶음과 이유를 함께 남긴다
-          swrDone(key, false); dataSectionBackgroundFailure(key, e);
+          /* ★ 끊긴 것이면 위 칩을 아직 '갱신 실패'로 바꾸지 않는다 — 뒤에서 다시
+             걸고 있는 중이다. 여기서 곧장 빨갛게 칠하면, 3초 뒤 저절로 낫는 일에도
+             사람이 먼저 손을 쓴다(2026-08-10 지시). 포기하면 그때 칠한다. */
+          if(!isTransientError(e)) swrDone(key, false);
+          dataSectionBackgroundFailure(key, e);
         })
           .then(() => { SWR_INFLIGHT.delete(key); });
       }
@@ -8402,12 +8465,15 @@ function renderDataHealth(){
   host.hidden=false; host.classList.add('on');
   const failed=states.filter(s=>s.error).length, active=states.filter(s=>s.loading||s.retrying).length;
   host.innerHTML=`<div class="data-health-head"><div><strong>${failed?'일부 자료를 최신 상태로 바꾸지 못했습니다':'자료를 갱신하고 있습니다'}</strong>
-    <span>${failed?'마지막 정상 자료는 그대로 두었습니다. 실패한 자료만 다시 시도할 수 있습니다.':`${active}개 자료 묶음을 확인하는 중입니다.`}</span></div></div>
+    <span>${failed?'마지막 정상 자료는 그대로 두었습니다. 실패한 자료만 다시 시도할 수 있습니다.':`${active}개 자료 묶음을 확인하는 중입니다.`}</span></div>
+    ${failed>1?`<button type="button" class="data-health-all" onclick="retryAllDataSections()">전부 다시 시도 (${failed})</button>`:''}</div>
     <div class="data-health-list">${states.map(s=>{
       const busy=s.loading||s.retrying;
       const basis=s.hasGood?`기존 자료 유지 · 기준 ${dataStampText(s.asOf)}`:'표시할 이전 정상 자료 없음';
+      // 몇 번째로 다시 걸고 있는지 밝힌다 — 그냥 '확인 중'만 있으면 멈춘 줄 알고 또 누른다.
+      const busyText=s.attempt?`연결이 잠시 끊겼습니다 — ${s.attempt}/${s.total||RETRY_WAIT_MS.length+1}번째 다시 시도 중`:'다시 확인 중';
       return `<div class="data-health-item"><div class="data-health-copy"><b>${esc2(s.label)}</b>
-        <span>${esc2(busy?'다시 확인 중':basis)}</span>${s.error?`<span class="err">${esc2(apiErrorText(s.error))}</span>`:''}</div>
+        <span>${esc2(busy?busyText:basis)}</span>${s.error?`<span class="err">${esc2(apiErrorText(s.error))}</span>`:''}</div>
         <button type="button" onclick="retryDataSection(${esc4(s.key)})" ${busy?'disabled aria-busy="true"':''}>${busy?'확인 중':'다시 시도'}</button></div>`;
     }).join('')}</div>`;
 }
@@ -8422,15 +8488,35 @@ function markDataSectionFailure(key,error){
   s.error=error instanceof ApiError?error:new ApiError(apiErrorText(error),{path:s.path,cause:error});
   s.loading=false; s.retrying=false; renderDataHealth();
 }
+/* 뒤에서 새 값을 받아 오다 끊긴 것도 마찬가지다 — 사람이 아무것도 안 눌렀는데
+   빨간 카드가 뜨던 자리다. 끊긴 것이면 **조용히 다시 걸고**, 그래도 안 되면 그때 적는다. */
+const _bgRetry={};
 function dataSectionBackgroundFailure(path,error){
-  const key=dataSectionKey(path); if(key) markDataSectionFailure(key,error);
+  const key=dataSectionKey(path); if(!key) return;
+  const s=DATA_SECTION_STATE[key], def=DATA_SECTION_DEFS[key];
+  const pathKey=def.path.split('?')[0];
+  if(!isTransientError(error) || (_bgRetry[key]||0)>=RETRY_WAIT_MS.length){
+    _bgRetry[key]=0; swrDone(pathKey,false);   // 포기했으니 이제 칩도 실패라고 말한다
+    markDataSectionFailure(key,error); return;
+  }
+  const n=(_bgRetry[key]=(_bgRetry[key]||0)+1);
+  s.retrying=true; s.attempt=n; s.total=RETRY_WAIT_MS.length+1; s.error=null; renderDataHealth();
+  setTimeout(()=>{
+    _apiNet(def.path,{}).then(d=>{
+      _bgRetry[key]=0; swrSet(def.path,d); swrDone(pathKey,true); swrRerun(pathKey);
+      markDataSectionSuccess(key,d);
+    }).catch(e=>dataSectionBackgroundFailure(def.path,e));
+  }, RETRY_WAIT_MS[n-1]);
 }
 async function fetchDataSection(key,opt={}){
   const s=DATA_SECTION_STATE[key], def=DATA_SECTION_DEFS[key];
   if(!s||!def) return {ok:false,error:new ApiError('알 수 없는 자료 구분입니다.',{code:'UNKNOWN_SECTION'})};
-  s.loading=!opt.retry; s.retrying=!!opt.retry; renderDataHealth();
+  s.loading=!opt.retry; s.retrying=!!opt.retry; s.attempt=0; renderDataHealth();
   try{
-    const data=await api(def.path,opt.fresh?{fresh:true}:{});
+    const data=await apiWithRetry(def.path, opt.fresh?{fresh:true}:{}, (n,total)=>{
+      // 기다리는 동안에도 화면이 무슨 일인지 말한다 — 멈춘 것처럼 보이면 사람이 또 누른다.
+      s.attempt=n; s.total=total; s.retrying=true; s.loading=false; renderDataHealth();
+    });
     markDataSectionSuccess(key,data);
     return {ok:true,data};
   }catch(error){
@@ -8478,6 +8564,19 @@ async function retryDataSection(key){
   }catch(error){
     markDataSectionFailure(key,error); toast(`${s.label} 갱신 실패 · 기존 자료를 유지합니다`); return false;
   }
+}
+/* 일곱 번 누르게 하지 않는다 — 서버가 잠깐 끊기면 **일곱 개가 같이** 실패한다.
+   원인이 하나인데 손을 일곱 번 쓰게 하는 것은 화면의 잘못이다. */
+async function retryAllDataSections(){
+  const keys=Object.keys(DATA_SECTION_STATE).filter(k=>DATA_SECTION_STATE[k].error);
+  if(!keys.length) return;
+  const results=await Promise.all(keys.map(k=>fetchDataSection(k,{fresh:true,retry:true})));
+  results.forEach((r,i)=>{ if(r.ok) applyDataSection(keys[i],r.data); });
+  renderSettleDependents();
+  const ok=results.filter(r=>r.ok).length;
+  toast(ok===keys.length?`${ok}개 자료를 모두 갱신했습니다`
+                        :`${ok}/${keys.length}개 갱신 · 나머지는 기존 자료를 유지합니다`);
+  uxEvent('tap','data-health-retry-all');
 }
 let settleFlight=null, settleFlightFresh=false;
 function loadSettle(fresh){
@@ -11014,7 +11113,18 @@ function renderMonths(){
       return `<button class="src-mbtn ${SRC_M===m?'on':''}" role="tab" aria-selected="${SRC_M===m}" onclick="pickSrcMonth('${esc2(m)}')">${esc2(t)}</button>`;
     }).join('');
 }
-function pickSrcGroup(k){ SRC_G=k; renderSegs(); renderSources(); }
+/* 고르고 나면 스스로 접고 목록으로 내려간다 (2026-08-10 지시).
+   고른 순간 사람이 보고 싶은 것은 **결과**다. 필터를 펼친 채로 두면 그 결과가
+   화면 밖에 있고, 사람은 접기 단추를 한 번 더 눌러야 한다.
+   ⚠ 검색어 입력(srcQ)에는 걸지 않는다 — 한 글자마다 접히면 계속 칠 수가 없다. */
+function srcCollapse(){
+  const f=$('srcFold');
+  if(f && f.open){ f.open=false; }
+  const note=$('srcNote');
+  if(note && typeof note.scrollIntoView==='function')
+    try{ note.scrollIntoView({block:'nearest'}); }catch(e){}
+}
+function pickSrcGroup(k){ SRC_G=k; renderSegs(); renderSources(); srcCollapse(); }
 function pickSrcYear(y){
   SRC_Y=y;
   // 고른 달이 그 해가 아니면 놓는다 — 안 그러면 '2025년 + 2026-03' 같은 빈 조건이 된다.
@@ -11024,7 +11134,7 @@ function pickSrcYear(y){
 function pickSrcMonth(m){
   SRC_M=m;
   if(m) SRC_Y=String(m).slice(0,4);       // 달을 고르면 연도도 따라 맞춘다
-  renderYears(); renderMonths(); renderSources();
+  renderYears(); renderMonths(); renderSources(); srcCollapse();
 }
 async function renderSources(){
   const q=($('srcQ')?.value||'').trim();

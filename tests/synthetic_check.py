@@ -8256,8 +8256,19 @@ def t140_freshness_tells_the_truth():
     assert "Math.min(...vals.map(v => v.t))" in live, "칩이 여전히 마지막에 쓴 값을 보여 준다"
     assert "swrChip(Date.now() - hit.t)" not in live, "경로별 나이를 그대로 칩에 쓰던 옛 길이 남아 있다"
     # ② 갱신 실패를 삼키지 않는다. 삼키면 옛 값이 늙는 동안 '갱신 중'이 영원히 남는다.
-    assert re.search(r"\.catch\(\s*\(?\w*\)?\s*=>\s*\{[^}]{0,240}swrDone\(key,\s*false\)", live), \
-        "SWR 갱신 실패를 다시 삼킨다"
+    #    ★ 2026-08-10 부터 **끊긴 것은 곧장 칠하지 않고 다시 건다**(검증 [197]).
+    #      그래도 '영영 안 칠한다'가 되면 안 된다 — 포기하는 자리가 반드시 칠해야 한다.
+    #      그래서 배경 실패 경로에 ⓐ 곧장 칠하는 길 또는 ⓑ 다시 걸다 포기하면 칠하는
+    #      길이 **둘 중 하나는** 있어야 한다.
+    swallow_now = re.search(
+        r"\.catch\(\s*\(?\w*\)?\s*=>\s*\{[^}]{0,600}swrDone\(key,\s*false\)", live)
+    give_up = ("dataSectionBackgroundFailure" in live
+               and "swrDone(pathKey,false)" in live.replace(" ", ""))
+    assert swallow_now or give_up, "SWR 갱신 실패를 다시 삼킨다"
+    if give_up:                       # 다시 거는 길이라면 **끝이 있어야** 한다
+        bg = live.split("function dataSectionBackgroundFailure", 1)[1].split("\n}\n", 1)[0]
+        assert ">=RETRY_WAIT_MS.length" in bg.replace(" ", ""), \
+            "다시 걸기만 하고 포기하지 않으면 '갱신 중'이 영원히 남는다"
     assert "갱신 실패" in live, "실패를 사람에게 말하지 않는다"
     # ③ 60분이 넘으면 '194분 전' 이 아니라 시간으로 읽는다.
     assert "function swrAgeText(" in live and "'시간 '" in live
@@ -12547,6 +12558,73 @@ def t196_stage_words_come_from_one_place():
     print("  [196] 단계 낱말은 관리대장 드롭다운 한 곳에서 오고 바뀌면 인계에 오른다 ✅")
 
 
+def t197_restart_blip_is_not_a_failure():
+    """[197] 서버가 다시 뜨는 동안의 502 는 '갱신 실패'가 아니다.
+
+    2026-08-10 지시: "갱신실패 없애고 갱신 잘 되게 해".
+
+    폰은 클라우드플레어 터널을 거쳐 이 PC 로 온다. 앱 서버를 다시 띄우면 포트가 답을
+    주기까지 **실측 9.3초**가 걸리고, 그동안 터널은 502 를 준다. 예전에는 그 9초가
+    빨간 카드 **일곱 장**이 되어 사람이 '다시 시도'를 일곱 번 눌러야 했다 —
+    저절로 나을 일에 사람 손을 쓰게 한 것이다.
+
+    ★ 이 검증이 지키는 것은 '다시 건다'가 아니라 **기다리는 시간이 실측보다 길다**는
+    것이다. 짧게 잡으면 다시 걸어 놓고도 결국 실패로 끝나 예전과 똑같아진다.
+    그리고 **아무거나 다시 걸지 않는다** — 401·429 는 다시 걸수록 나빠진다.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    live = open(os.path.join(root, "webapp", "index.html"), encoding="utf-8").read()
+    rs = open(os.path.join(root, "webapp", "restart_server.py"), encoding="utf-8").read()
+
+    # ① 기다리는 시간이 재시작 실측(9.3초)보다 뒤까지 간다.
+    m = re.search(r"const RETRY_WAIT_MS = \[([0-9,\s]+)\]", live)
+    assert m, "재시도 간격 표가 없다"
+    waits = [int(x) for x in m.group(1).replace(" ", "").strip(",").split(",")]
+    assert len(waits) >= 3, "한두 번 다시 걸고 마는 것은 9초를 못 넘는다"
+    assert waits == sorted(waits), "간격이 점점 늘지 않으면 뜨는 중인 서버를 몰아친다"
+    last_try_sec = sum(waits) / 1000.0
+    assert last_try_sec >= 9.3, (
+        "마지막 시도가 %.1f초라 재시작 실측 9.3초를 못 넘긴다 — "
+        "다시 걸어 놓고도 실패로 끝난다" % last_try_sec)
+
+    # ② 다시 걸면 안 되는 것을 가른다.
+    fn = live.split("function isTransientError", 1)[1].split("\n}", 1)[0]
+    for code in ("401", "403", "429"):
+        assert code in fn, "%s 를 다시 거는지 안 거는지 판단하지 않는다" % code
+    assert "return false" in fn, "다시 걸면 안 되는 갈래가 없다"
+    st = re.search(r"TRANSIENT_STATUS = new Set\(\[([0-9,\s]+)\]\)", live)
+    assert st, "일시적 상태 목록이 없다"
+    codes = {int(x) for x in st.group(1).replace(" ", "").strip(",").split(",")}
+    assert {502, 503, 504} <= codes, "터널이 주는 502·503·504 를 일시적으로 안 본다"
+    assert 429 not in codes and 401 not in codes, "다시 걸수록 나빠지는 것을 다시 건다"
+
+    # ③ 화면 자료 묶음이 그 재시도를 쓴다.
+    sec = live.split("async function fetchDataSection", 1)[1].split("\n}", 1)[0]
+    assert "apiWithRetry" in sec, "자료 묶음이 한 번만 걸고 실패라 적는다"
+    assert "s.attempt" in sec, "몇 번째 다시 걸고 있는지 화면이 말하지 않는다"
+
+    # ④ 뒤에서 받아 오다 끊긴 것도 곧장 빨갛게 칠하지 않는다.
+    bg = live.split("function dataSectionBackgroundFailure", 1)[1].split("\n}\n", 1)[0]
+    assert "isTransientError" in bg and "_apiNet" in bg, \
+        "배경 갱신 실패를 다시 걸지 않는다 — 사람이 아무것도 안 눌렀는데 빨간 카드가 뜬다"
+    assert "swrDone(pathKey,false)" in bg.replace(" ", ""), \
+        "끝내 포기했는데도 위 칩이 '갱신 중'으로 남는다"
+    swr = live.split("swrDone(key, false); dataSectionBackgroundFailure", 1)
+    assert len(swr) == 1, "배경 실패가 아직도 곧바로 칩을 실패로 칠한다"
+
+    # ⑤ 원인이 하나면 손도 한 번이다.
+    assert "function retryAllDataSections" in live and "data-health-all" in live, \
+        "일곱 개가 같이 실패했는데 일곱 번 누르게 한다"
+
+    # ⑥ '프로세스가 있다'와 '답을 준다'를 가른다 — 그 사이가 502 구간이다.
+    assert "def answering" in rs, "포트가 답하는지 안 보고 '올라왔습니다'를 찍는다"
+    main = rs.split("def main", 1)[1]
+    assert "answering()" in main, "재시작이 답을 기다리지 않는다"
+    assert "502" in main, "재시작이 폰 쪽에서 무슨 일이 나는지 안 알려 준다"
+
+    print("  [197] 재시작 9초의 502 를 스스로 넘긴다 · 다시 걸면 안 될 것은 안 건다 ✅")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -12841,6 +12919,7 @@ if __name__ == "__main__":
     t190_autopilot_retries_without_failure_cascade()
     t191_confirmation_truth_and_fast_refresh()
     t196_stage_words_come_from_one_place()
+    t197_restart_blip_is_not_a_failure()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()

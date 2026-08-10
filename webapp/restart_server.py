@@ -120,6 +120,22 @@ def stop(pids):
     return not running()
 
 
+def answering(timeout=1.0):
+    """포트가 실제로 **답을 주나.** 프로세스 목록에 있는 것만으로는 부족하다 —
+    소켓을 잡기 전 몇 초 동안 터널은 502 를 돌려준다(2026-08-10 지시로 추가).
+    PIN 은 넣지 않는다. 401 이 오면 그것도 '살아 있다'는 답이다."""
+    import socket
+    try:
+        port = int(str(_port()).strip())
+    except (TypeError, ValueError):
+        return False
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 def start():
     exe = sys.executable or "python"
     # pythonw 로 띄우면 창이 안 뜬다(원래 이 서버가 그렇게 돌고 있었다).
@@ -160,16 +176,26 @@ def main(argv=None):
     else:
         print("떠 있는 서버 없음 — 새로 띄웁니다.")
 
+    t0 = time.time()
     start()
-    for _ in range(30):                    # 떴는지 확인하고 끝낸다
+    for _ in range(60):                    # 떴는지 확인하고 끝낸다
         time.sleep(0.5)
         now = running()
-        if now:
-            pid, when = now[0]
-            print(f"올라왔습니다 — pid {pid} · 뜬 시각 {when}")
-            print(f"  PC:  http://localhost:{_port()}   (폰은 같은 와이파이에서 PC 주소)")
-            return 0
-    print("★ 새 서버가 안 보입니다. 손으로 확인하세요: python webapp/app_server.py")
+        if not now:
+            continue
+        # ★ **프로세스가 있는 것과 답을 주는 것은 다르다** (2026-08-10).
+        #   여기서 곧장 '올라왔습니다'를 찍으면, 아직 소켓을 안 잡은 몇 초 동안
+        #   폰(클라우드플레어 터널)은 **502** 를 받는다 — 고친 사람은 성공이라 읽고
+        #   폰을 든 사람만 실패를 본다. 실패가 성공처럼 보이는 자리다.
+        if not answering():
+            continue
+        pid, when = now[0]
+        print(f"올라왔습니다 — pid {pid} · 뜬 시각 {when} "
+              f"(응답까지 {time.time() - t0:.1f}초 — 그동안 폰은 502 를 받습니다)")
+        print(f"  PC:  http://localhost:{_port()}   (폰은 같은 와이파이에서 PC 주소)")
+        return 0
+    print("★ 새 서버가 안 보이거나 답을 주지 않습니다. "
+          "손으로 확인하세요: python webapp/app_server.py")
     return 1
 
 
