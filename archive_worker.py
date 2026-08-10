@@ -785,32 +785,50 @@ def _business_key_column(record: Mapping[str, Any], state: SheetState) -> str:
 
 
 def _candidate_rows(record: Mapping[str, Any], state: SheetState, key_col: str) -> List[int]:
-    probes: List[Tuple[str, Any]] = [(key_col, record.get("business_key"))]
+    # 식별 probe(키·공개ID·프로젝트NO)는 한 업무를 유일하게 가리킨다.
+    # 캠프명은 여러 행이 공유하는 **속성**이라 identity 를 좁히기만(narrow) 하고
+    # 절대 넓히지(union) 않는다 — 그렇지 않으면 같은 캠프의 서로 다른 건들이
+    # 한 키로 뭉쳐 '여러 행에 일치'로 보관본 생성이 통째로 막힌다(2026-08-10 실사고).
     spec = SHEET_SPECS.get(state.name, {})
     fields = dict(record.get("fields") or {})
+    identity_probes: List[Tuple[str, Any]] = [(key_col, record.get("business_key"))]
     for core, raw_name in (
         ("public_id", "public_id"),
         ("project_no", "project_no"),
-        ("camp_name", "camp_name"),
     ):
         header = str(spec.get(core) or "")
         value = fields.get(raw_name)
         if header and value not in (None, ""):
-            probes.append((header, value))
-    found: set[int] = set()
-    strong: List[set[int]] = []
-    for header, value in probes:
+            identity_probes.append((header, value))
+    camp_header = str(spec.get("camp_name") or "")
+    camp_value = fields.get("camp_name")
+
+    id_sets: List[set[int]] = []
+    for header, value in identity_probes:
         col = state.headers.get(header)
         if not col or value in (None, ""):
             continue
         rows = set(state.find(col, value))
         if rows:
-            strong.append(rows)
-            found.update(rows)
-    if strong:
-        intersection = set.intersection(*strong)
-        if intersection:
-            return sorted(intersection)
+            id_sets.append(rows)
+
+    if id_sets:
+        intersection = set.intersection(*id_sets)
+        base = intersection if intersection else set().union(*id_sets)
+        if camp_header and camp_value not in (None, ""):
+            col = state.headers.get(camp_header)
+            if col:
+                narrowed = base & set(state.find(col, camp_value))
+                if narrowed:
+                    base = narrowed
+        return sorted(base)
+
+    # 식별 신호가 없으면(새 기록 등) 예전 동작을 유지한다 — 캠프명 단독 매칭.
+    found: set[int] = set()
+    if camp_header and camp_value not in (None, ""):
+        col = state.headers.get(camp_header)
+        if col:
+            found.update(state.find(col, camp_value))
     return sorted(found)
 
 
