@@ -2568,6 +2568,11 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
 .foldsec>summary:hover{background:var(--brand-tint)}
 .foldsec>*:not(summary){padding-left:14px;padding-right:14px}
 .foldsec>*:last-child{padding-bottom:12px}
+/* 원본 자료 필터 접기 — 아이콘 11개+연/월이 화면을 다 먹지 않게 (2026-08-10 지시).
+   접힘이 기본이고, 제목줄이 지금 걸린 조건을 말한다(#srcFoldSum). */
+.srcfold{margin-top:10px}
+.srcfold>.src-toolbar{padding-top:2px}
+.srcsum{font-weight:600;font-size:12.5px;color:var(--ink-3)}
 .flow-del{border:1px solid var(--line);border-radius:9px;background:var(--surface);
   color:var(--danger);font:800 13px inherit;padding:5px 10px;cursor:pointer}
 /* ── 긴 글은 접어 둔다 (2026-08-07 지시: "스크롤이 긴 부분(설명란) … 누르면
@@ -3116,6 +3121,12 @@ body.dash-drag-live #dashGuides{display:grid}
           <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>
         </button>
       </div>
+      <!-- 대표 지시(2026-08-10): 아이콘 11개 + 연/월 줄이 화면을 다 먹어 목록이 안 보였다.
+           보고 화면과 **같은 방식**으로 접는다(details.foldsec) — 사람이 이미 아는 동작이고
+           인쇄·캡처에서도 펴진다. 접힌 상태에서도 **지금 무엇으로 걸러져 있는지**를
+           제목줄이 말한다. 그걸 안 적으면 접는 순간 "왜 0건인지" 모르게 된다. -->
+      <details class="foldsec srcfold" id="srcFold">
+        <summary>자료 갈래·기간 고르기<span class="srcsum" id="srcFoldSum"></span></summary>
       <div class="src-toolbar">
         <div class="src-search">
           <svg viewBox="0 0 16 16" aria-hidden="true" style="width:18px;height:18px;flex:none;fill:var(--ink-3)"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.44.58.98 1.12l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a7 7 0 0 0-1.12-.98zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/></svg>
@@ -3125,6 +3136,7 @@ body.dash-drag-live #dashGuides{display:grid}
         <div class="src-year" id="srcYears" role="tablist" aria-label="연도 선택"></div>
         <div class="src-month" id="srcMonths" role="tablist" aria-label="월 선택"></div>
       </div>
+      </details>
       <div class="src-note" id="srcNote" aria-live="polite"></div>
       <div class="src-list" id="srcList"></div>
     </div>
@@ -10944,6 +10956,16 @@ async function renderSources(){
   let rows=(d.rows||[]);
   const gl=(SRC_GROUPS.find(g=>g.key===SRC_G)||{}).label||'전체';
   $('srcNote').innerHTML = `${esc2(gl)} · 표시 <b>${fmt(rows.length)}</b>건 (전체 ${fmt(d.count||0)}건) · 색인 ${esc2((d.built||'').slice(5))}`;
+  /* ★ 접어 두면 무엇으로 걸러져 있는지 안 보인다 — 그러면 "왜 0건이지"를 못 푼다.
+     제목줄이 지금 조건을 대신 말한다(갈래·기간·검색어). 2026-08-10 지시. */
+  const _fs=$('srcFoldSum');
+  if(_fs){
+    const bits=[gl];
+    bits.push(SRC_M ? SRC_M : (SRC_Y ? SRC_Y+'년' : '전체 기간'));
+    const _q=($('srcQ')&&$('srcQ').value||'').trim();
+    if(_q) bits.push('검색 “'+_q+'”');
+    _fs.textContent = ' — ' + bits.join(' · ');
+  }
   $('srcList').innerHTML = rows.map(r=>{
     const g=srcGroupOf(r);
     const meta=[r.uj, r.slip?('전표 '+r.slip):'', r.post?('글 '+r.post):'', r.po, r.date,
