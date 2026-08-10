@@ -834,8 +834,9 @@ def _candidate_rows(record: Mapping[str, Any], state: SheetState, key_col: str) 
 
 def _locate_records(
     records: Sequence[Mapping[str, Any]], states: Mapping[str, SheetState], template_sha: str
-) -> List[LocatedRecord]:
+) -> Tuple[List[LocatedRecord], List[Dict[str, Any]]]:
     located: List[LocatedRecord] = []
+    conflicts: List[Dict[str, Any]] = []
     # Located shadow rows are reserved before DB-only records consume empty rows.
     ordered = sorted(
         records,
@@ -854,18 +855,38 @@ def _locate_records(
         key_header = _business_key_column(record, state)
         key_col = state.headers[key_header]
         candidates = _candidate_rows(record, state, key_header)
-        if len(candidates) > 1:
-            raise ArchiveRenderError(
-                f"{sheet_name}:{record.get('business_key')} matches multiple rows {candidates[:20]}"
-            )
         target = record.get("target") or {}
-        row: Optional[int] = candidates[0] if candidates else None
-        inserted = False
         source_row = int(target.get("source_row") or 0)
         source_sha = str((record.get("source") or {}).get("source_sha256") or "")
-        if row is None and source_row and source_sha and source_sha == template_sha:
-            if state.row_fragment(source_row):
-                row = source_row
+        anchored = bool(
+            source_row
+            and source_sha
+            and source_sha == template_sha
+            and state.row_fragment(source_row)
+        )
+        if len(candidates) > 1:
+            # 원본 Excel 행 앵커가 있고 그 행이 후보에 들면 그것이 권위다.
+            if anchored and source_row in candidates:
+                candidates = [source_row]
+            else:
+                # 유일하게 못 붙는 기록(예: 밴드 출처 돌발AS — 프로젝트NO 하나에
+                # Excel 건별 여러 행)은 기존 행을 건드리지 않고 충돌로 남기고 건너뛴다.
+                # 행 하나를 골라 쓰면 엉뚱한 행에 값이 박힌다(빈칸보다 나쁨).
+                # 한 건 때문에 보관본 회차 전체를 세우지 않는다 — 정본 DB엔 그대로 있다.
+                conflicts.append(
+                    {
+                        "sheet": sheet_name,
+                        "business_key": record.get("business_key"),
+                        "work_id": record.get("work_id"),
+                        "rows": candidates[:20],
+                        "reason": "ambiguous-no-anchor",
+                    }
+                )
+                continue
+        row: Optional[int] = candidates[0] if candidates else None
+        inserted = False
+        if row is None and anchored:
+            row = source_row
         if row is None:
             spec = SHEET_SPECS.get(sheet_name, {})
             occupancy = [
@@ -877,13 +898,24 @@ def _locate_records(
             inserted = True
         existing_owner = state.reserved.get(row)
         if existing_owner and existing_owner != owner:
-            raise ArchiveRenderError(
-                f"{sheet_name}!row={row} is claimed by {existing_owner} and {owner}"
+            # 두 정본 기록이 같은 Excel 행을 가리킨다(예: 밴드 출처 여러 건이
+            # 프로젝트NO 하나에 묶임). 먼저 잡은 쪽에 행을 두고 뒤 기록은 충돌로
+            # 남기고 건너뛴다 — 덮으면 남의 값이 그 행에 박힌다(위 정책과 같다).
+            conflicts.append(
+                {
+                    "sheet": sheet_name,
+                    "business_key": record.get("business_key"),
+                    "work_id": record.get("work_id"),
+                    "rows": [row],
+                    "reason": "row-claimed-by-other",
+                    "claimed_by": existing_owner,
+                }
             )
+            continue
         state.reserved[row] = owner
         state.note_index(key_col, record.get("business_key"), row)
         located.append(LocatedRecord(record, state, row, key_header, inserted))
-    return located
+    return located, conflicts
 
 
 def _patch_cell(
@@ -1117,7 +1149,7 @@ class ArchiveWorker:
                 )
                 for name in sorted(required_sheets)
             }
-        located = _locate_records(records, states, template_before)
+        located, locate_conflicts = _locate_records(records, states, template_before)
         counts = {
             "records_inserted": 0,
             "records_updated": 0,
@@ -1126,6 +1158,12 @@ class ArchiveWorker:
             "formula_cells_preserved": 0,
         }
         warnings: List[str] = []
+        for conflict in locate_conflicts:
+            warnings.append(
+                f"{conflict['sheet']}:{conflict.get('business_key')} "
+                f"skipped — matches multiple rows {conflict.get('rows')} "
+                f"(no unique anchor; existing rows untouched)"
+            )
         expectations: List[CellExpectation] = []
         for item in located:
             fields, meta, field_warnings = _translated_fields(item.record, item.sheet.name)
@@ -1176,6 +1214,8 @@ class ArchiveWorker:
             "snapshot_sha256": str(plan["snapshot"]["sha256"]),
             "command_plan_sha256": sha256_json(plan),
             "rows_considered": len(records),
+            "records_skipped_ambiguous": len(locate_conflicts),
+            "conflicts": locate_conflicts[:200],
             "errors": [],
             "warnings": warnings[:500],
             "output_sha256": sha256_file(output_path),
