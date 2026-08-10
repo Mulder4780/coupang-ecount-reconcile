@@ -2583,6 +2583,27 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
    없습니다'가 스크롤 한참 아래에 있었다). 그래서 셋을 같이 건다:
    ① 제목줄은 맨 위에 **붙어 있고**(sticky) ② 펼친 칸은 **제 안에서만 스크롤**하며
    ③ 갈래·기간을 고르면 **스스로 접히고 목록으로 내려간다**. */
+/* ★ 필터를 화면 맨 위로 (2026-08-10 지시 "지금 보이는 화면을 맨 위로 올려줘").
+   markup 을 옮기지 않고 **차례만** 바꾼다 — 자료창고 카드는 읽기 전용 조회라
+   원본을 찾으러 온 사람에게는 뒤에 있는 편이 맞다. 옮기면 되돌리기도 한 줄이다. */
+#v-sources.active{display:flex;flex-direction:column}
+#v-sources .source-canvas{order:1}
+#v-sources #dlwOpen{order:2;margin-top:16px}
+/* ★ 자료창고는 **아래에서 올라오는 시트**로 연다 (2026-08-10 지시 "이 화면은 너무
+   길어서 내리기 불편해"). 끝없는 표를 화면에 붙박아 두면, 원본을 찾으러 온 사람이
+   그 표를 **다 지나가야** 목록에 닿는다. 표 자체는 그대로 두고 **여는 자리**만 바꾼다 —
+   카드를 새로 그리면 사본이 둘이 되고 한쪽만 고쳐진다([162]). */
+#v-sources #dlw{display:none}
+#dlw.in-layer{display:block;order:0}
+#dlw.in-layer .dlw-scroll{max-height:min(62vh,560px);overflow-y:auto;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+/* 제목·설명이 폰에서 두 화면 반을 먹었다 — 필터가 그만큼 아래로 밀린다.
+   제목은 남기고(어느 화면인지는 알아야 한다) 설명은 접는 칸이 대신 말한다. */
+@media (max-width:719px){
+  #v-sources .source-head .sub{display:none}
+  #v-sources .source-head .ios-large h2{margin:0;font-size:24px}
+  #v-sources .source-head{margin-bottom:8px}
+}
 .srcfold>summary{position:sticky;top:0;z-index:3;background:var(--surface)}
 .srcfold[open]>.src-toolbar{max-height:min(46vh,420px);overflow-y:auto;
   -webkit-overflow-scrolling:touch;overscroll-behavior:contain}
@@ -3113,6 +3134,13 @@ body.dash-drag-live #dashGuides{display:grid}
       #dlw .dlw-kd{display:inline-block;font-size:11.5px;padding:1px 7px;border-radius:6px;
         background:var(--panel-2,rgba(127,127,127,.14));font-weight:700}
     </style>
+    <!-- 자료창고 여는 자리. 표 자체(#dlw)는 아래에서 올라오는 시트로 띄운다. -->
+    <div class="card" id="dlwOpen">
+      <h3>자료창고 <span class="norm">— ERP·밴드가 DB로 흡수된 업무 레코드 (읽기 전용)</span></h3>
+      <p class="sub" style="margin:6px 0 10px">원본 파일 목록과 다른 층입니다 — 파일에서 뽑아낸 '업무 한 건'들입니다.</p>
+      <button class="abtn primary" type="button" style="width:100%;flex-direction:row;justify-content:center"
+        onclick="openWarehouse()">자료창고 열기<span class="norm" id="dlwOpenCnt" style="margin-left:6px"></span></button>
+    </div>
     <div class="card" id="dlw">
       <h3>자료창고 <span class="norm">— ERP·밴드가 DB로 흡수된 업무 레코드 (읽기 전용)</span>
         <button class="abtn" type="button" style="float:right;font-size:12.5px;padding:4px 10px" onclick="warehouseCsv()">CSV 저장</button>
@@ -10995,6 +11023,15 @@ async function loadSources(){
 let WAREHOUSE = {kind:'', q:'', since:'', until:''};
 let WAREHOUSE_ROWS = [], WAREHOUSE_KINDS = [], WAREHOUSE_T = null, WAREHOUSE_LOADED = false;
 function warehouseDebounce(){ clearTimeout(WAREHOUSE_T); WAREHOUSE_T=setTimeout(()=>loadWarehouse(true), 300); }
+/* 자료창고를 **아래에서 올라오는 시트**로 연다 (2026-08-10 지시).
+   ★ 열 때 받아 온다 — 화면에 안 보이는 표를 미리 받아 둘 이유가 없다.
+   여는 단추에는 몇 건인지 적어 둔다. 열어 봐야 아는 것은 여는 값어치를 못 말한다. */
+async function openWarehouse(){
+  layerOpen('dlw', {title:'자료창고',
+    sub:'ERP·밴드가 DB로 흡수된 업무 레코드 (읽기 전용) — 원본 파일 목록과 다른 층입니다.'});
+  try{ if(!WAREHOUSE_LOADED) await loadWarehouse(); }catch(e){}
+  uxEvent('tap','warehouse-open');
+}
 function warehouseWon(n){
   if(n===null||n===undefined||n==='') return '';
   const v = Number(n); return isNaN(v) ? '' : v.toLocaleString('ko-KR');
@@ -11022,6 +11059,9 @@ async function loadWarehouse(useFilters){
   WAREHOUSE_KINDS = (d && d.kinds) || [];
   warehouseRenderKinds(d);
   warehouseRenderList(d, note);
+  // 여는 단추가 몇 건인지 미리 말한다 — 열어 봐야 아는 것은 여는 값어치를 못 말한다.
+  const cnt=$('dlwOpenCnt');
+  if(cnt) cnt.textContent = '· '+Number((d&&d.total)||0).toLocaleString('ko-KR')+'건';
 }
 function warehouseRenderKinds(d){
   const host=$('dlwKinds'); if(!host) return;
