@@ -894,7 +894,23 @@ def _locate_records(
                 state.headers.get(str(spec.get("project_no") or ""), ""),
                 state.headers.get(str(spec.get("camp_name") or ""), ""),
             ]
-            row = state.allocate(owner, [c for c in occupancy if c])
+            try:
+                row = state.allocate(owner, [c for c in occupancy if c])
+            except ArchiveRenderError as exc:
+                # 템플릿에 넣을 빈 행이 없다(마지막 행이 공유수식이라 복제 불가 포함).
+                # 못 넣는 기록은 건너뛰고 충돌로 남긴다 — 보관본은 들어가는 것으로 완주한다.
+                # _append_blank_row 는 실패 시 state.xml 을 안 바꾼다(부분 오염 없음).
+                conflicts.append(
+                    {
+                        "sheet": sheet_name,
+                        "business_key": record.get("business_key"),
+                        "work_id": record.get("work_id"),
+                        "rows": [],
+                        "reason": "template-full-cannot-insert",
+                        "detail": str(exc),
+                    }
+                )
+                continue
             inserted = True
         existing_owner = state.reserved.get(row)
         if existing_owner and existing_owner != owner:
@@ -1159,10 +1175,18 @@ class ArchiveWorker:
         }
         warnings: List[str] = []
         for conflict in locate_conflicts:
+            reason = conflict.get("reason", "")
+            if reason == "template-full-cannot-insert":
+                detail = "template full — no empty row to insert (expand template)"
+            elif reason == "row-claimed-by-other":
+                detail = f"row {conflict.get('rows')} already claimed by another record"
+            else:
+                detail = (
+                    f"matches multiple rows {conflict.get('rows')} "
+                    f"(no unique anchor; existing rows untouched)"
+                )
             warnings.append(
-                f"{conflict['sheet']}:{conflict.get('business_key')} "
-                f"skipped — matches multiple rows {conflict.get('rows')} "
-                f"(no unique anchor; existing rows untouched)"
+                f"{conflict['sheet']}:{conflict.get('business_key')} skipped — {detail}"
             )
         expectations: List[CellExpectation] = []
         for item in located:
