@@ -33,14 +33,47 @@ import time
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
+# 색인 한 번은 아무리 길어도 몇 시간이다(실측 최장 6시간, Z: 가 붐빌 때).
+# 그보다 오래 쥐고 있는 잠금은 도는 중이 아니라 **죽은 회차가 남긴 것**이다.
+LOCK_PATH = os.path.join(ROOT, "reports", ".source_index.lock")
+LOCK_STALE_H = float(os.environ.get("COUPANG_INDEX_LOCK_STALE_H") or 8)
+
+
+def _lock_age_h():
+    try:
+        return (time.time() - os.path.getmtime(LOCK_PATH)) / 3600.0
+    except OSError:
+        return 0.0
+
+
 def _acquire_lock():
-    """daily_run 과 같은 방식의 프로세스 간 단발 잠금. 겹치면 None."""
+    """daily_run 과 같은 방식의 프로세스 간 단발 잠금. 겹치면 None.
+
+    ★ **pid 는 다시 쓰인다** (2026-08-10 실사고). 죽은 주인의 잠금은 `_pid_alive` 가
+      회수해 주지만, 윈도우는 pid 를 재사용하므로 **엉뚱한 새 프로세스가 그 번호를
+      갖게 되면 잠금이 영원히 안 풀린다.** 실측: 00:44 에 죽은 회차가 쥔 잠금을
+      13.8시간 뒤에도 '실행 중'으로 읽어, 그동안 색인이 **한 번도 다시 안 만들어졌다.**
+      그런데 화면에는 아무 표시가 없었다 — 건너뛴 회차는 성공으로 적힌다.
+      그래서 나이도 같이 본다. 시간은 pid 와 달리 재사용되지 않는다.
+    """
     try:
         sys.path.insert(0, ROOT)
         from daily_run import acquire_run_lock
-        return acquire_run_lock(os.path.join(ROOT, "reports", ".source_index.lock"))
     except Exception:
         return "no-lock"          # 잠금을 못 쓰면 예전처럼 그냥 돈다(막지는 않는다)
+    token = acquire_run_lock(LOCK_PATH)
+    if token:
+        return token
+    age = _lock_age_h()
+    if age < LOCK_STALE_H:
+        return None                                   # 정말 도는 중일 수 있다
+    try:
+        os.unlink(LOCK_PATH)
+        print("! %0.1f시간째 잡혀 있던 잠금을 치웠습니다 — 죽은 회차가 남긴 것입니다"
+              % age)
+    except OSError:
+        return None
+    return acquire_run_lock(LOCK_PATH)
 
 
 def _release_lock(token):
@@ -334,7 +367,14 @@ def main():
     #   건너뛴다 — 워치독이 30분마다 다시 만들므로 한 번 거르는 편이 낫다.
     token = _acquire_lock()
     if not token:
-        print("다른 source_index 가 실행 중 — 이번 회차는 건너뜁니다(색인은 그대로 유효).")
+        # ★ '색인은 그대로 유효'라고 단정하지 않는다 — 그 말이 하루를 잡아먹었다.
+        #   건너뛴 회차는 색인이 지금 어떤 상태인지 **모른다**. 아는 것만 말한다.
+        prev = _prev_index() or {}
+        print("다른 source_index 가 실행 중(%0.1f시간째) — 이번 회차는 건너뜁니다."
+              % _lock_age_h())
+        print("  지금 색인: %d개 · 만든 때 %s%s"
+              % (prev.get("count") or 0, prev.get("built") or "?",
+                 " · ★막힘: " + str(prev.get("막힘"))[:80] if prev.get("막힘") else ""))
         return 0
     try:
         return _build(a.rescan)
