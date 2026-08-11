@@ -14588,10 +14588,18 @@ def t228_scheduler_rounds_are_watched():
     assert "result = [int]" not in src, "[int] 캐스트가 되살아났다"
     assert "catch {" in src, "작업마다 try/catch 가 없다 — 하나가 터지면 조용히 빠진다"
 
-    # ── ⑤ 읽기 전용: 고치는 명령이 한 줄도 없어야 한다
+    # ── ⑤ 읽기 전용: **실제로 보내는 명령**에 고치는 동사가 없어야 한다.
+    #     ★ 첫 판은 파일 전체를 훑었는데, `declared()` 가 설치본에서
+    #       `Register-ScheduledTask` 라는 **문자열을 찾는** 코드라 빨강이 났다.
+    #       읽는 것과 실행하는 것은 다르다 — 검사는 보내는 명령을 봐야 한다
+    #       (`[229]` 의 sandbox 검사와 같은 자리다).
+    ps_block = src.split('_PS = r"""', 1)[1].split('"""', 1)[0]
     for bad in ("Register-ScheduledTask", "Start-ScheduledTask", "Set-ScheduledTask",
-                "Unregister-ScheduledTask", "Enable-ScheduledTask"):
-        assert bad not in src, "schedule_watch 가 스케줄러를 고치려 한다: %s" % bad
+                "Unregister-ScheduledTask", "Enable-ScheduledTask", "Disable-ScheduledTask"):
+        assert bad not in ps_block, "schedule_watch 가 스케줄러를 고치려 한다: %s" % bad
+    # 스케줄러에 보내는 통로는 **한 곳뿐**이어야 한다 — 늘어나면 위 검사가 눈먼다
+    assert src.count("EncodedCommand") == 1 and src.count("proc_guard.run_tree") == 1, \
+        "PowerShell 을 부르는 자리가 둘 이상이다 — 읽기 전용 검사가 한 곳만 본다"
 
     now = _dt(2026, 8, 12, 14, 0, 0)
 
@@ -14684,11 +14692,23 @@ def t228_scheduler_rounds_are_watched():
             SW.query = real
 
     # ── 있어야 할 회차 목록은 **설치본이 선언한 것**이다(손으로 적은 목록이 아니다)
-    dec = SW.declared()
+    dec, unread = SW.declared()
     assert dec, "install_*.ps1 에서 작업 이름을 하나도 못 읽었다"
     assert any(n.startswith("쿠팡업무_") for n in dec), \
         "한글 이름(-join @([char]0x..)) 을 못 푼다 — 그 회차들이 영영 '있는 줄' 안다"
     assert "CSOS_AutomationPipeline" in dec, "따옴표로 적은 이름을 못 읽는다"
+    # ★ 이름 관례에 기대면 안 된다 — 이 설치본은 `$name = 'CSOS_BrowserChain'` 이라
+    #   `$TaskName = "..."` 만 찾던 첫 판에서 **통째로 빠졌다**(사라져도 경보가 안 뜬다).
+    assert "CSOS_BrowserChain" in dec, \
+        "변수 이름·따옴표가 다른 설치본을 못 읽는다 — 그 회차는 감시 밖이다"
+    # 회차의 두 기둥은 설치본이 있어야 한다 — 기계를 새로 만들면 없어지는 것들이다
+    for must in ("쿠팡업무_일일자동대조", "쿠팡업무_원본자료자동정리"):
+        assert must in dec, "%s 에 설치본이 없다 — 기계를 새로 만들면 안 살아난다" % must
+    assert not unread, "무슨 작업을 등록하는지 못 읽은 설치본이 있다: %s" % unread
+    # 못 읽은 설치본은 **조용히 넘기지 않는다** — '이상 없음'이 아니라 '확인 못 함'이다
+    src_build = src.split("def build(", 1)[1].split("\ndef ", 1)[0]
+    assert "설치본" in src_build and "확인못함" in src_build, \
+        "이름을 못 읽은 설치본을 경보로 안 올린다 — 그 회차는 감시 밖인데 화면은 조용하다"
     miss = SW.alarms([], {"쿠팡업무_없는회차": "install_x.ps1"})
     assert miss and miss[0]["갈래"] == "등록안됨" and "install_x.ps1" in miss[0]["어떻게"], \
         "설치본은 있는데 등록이 안 된 것을 경보로 안 올린다 — 정오회차 사고의 모양이다"

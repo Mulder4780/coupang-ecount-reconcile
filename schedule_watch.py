@@ -160,15 +160,40 @@ def query(timeout=90):
 
 # ─────────────────────────────────────────────────── 설치본이 선언한 '있어야 할 것'
 _CHAR = re.compile(r"\[char\]\s*0x([0-9A-Fa-f]{1,6})")
-_PLAIN = re.compile(r'^\s*\$TaskName\s*=\s*"([^"]+)"', re.M)
-_JOIN = re.compile(r"\$TaskName\s*=\s*-join\s*@\((.*?)\)", re.S)
+#: 설치본이 실제로 **등록에 넘기는 값**. 변수든 따옴표든 가리지 않는다.
+_ARG = re.compile(r"-TaskName\s+(\$[A-Za-z_]\w*|'[^']*'|\"[^\"]*\")")
+
+
+def _resolve(src, tok):
+    """`-TaskName` 에 넘긴 토큰을 실제 이름으로 푼다. 못 풀면 None."""
+    if tok[:1] in ("'", '"'):
+        return tok[1:-1] or None
+    var = re.escape(tok[1:])
+    for pat in (r"\$%s\s*=\s*'([^']*)'" % var, r'\$%s\s*=\s*"([^"]*)"' % var):
+        m = re.search(pat, src)
+        if m:
+            return m.group(1) or None
+    m = re.search(r"\$%s\s*=\s*-join\s*@\((.*?)\)" % var, src, re.S)
+    if m:
+        return "".join(chr(int(h, 16)) for h in _CHAR.findall(m.group(1))) or None
+    return None
 
 
 def declared():
-    """`install_*.ps1` 이 **선언한** 작업 이름들. 목록을 손으로 적지 않는 이유는
-    적는 순간 사본이 둘이 되어, 설치본만 늘고 여기는 안 늘면 새 회차가 등록 안 된 채
-    조용히 빠지기 때문이다 — 그것이 정오회차 사고의 모양이다."""
-    names = {}
+    """`install_*.ps1` 이 **등록하는** 작업 이름들 → `({이름: 파일}, 못읽은파일[])`.
+
+    ★ 목록을 손으로 적지 않는다 — 적는 순간 사본이 둘이 되어, 설치본만 늘고 여기는
+      안 늘면 새 회차가 등록 안 된 채 조용히 빠진다(정오회차 사고의 모양).
+    ★ **이름 관례에 기대지 않는다.** 첫 판은 `$TaskName = "..."` 라는 모양을 찾았는데
+      `install_browser_chain_schedule.ps1` 은 `$name = 'CSOS_BrowserChain'` 이었다 —
+      변수 이름도 따옴표도 달라서 **그 회차만 목록에서 통째로 빠졌다.** 사라져도 아무
+      경보가 안 뜬다는 뜻이고, 그것이 이 파일이 막으려는 바로 그 사고다.
+      그래서 이제 **`-TaskName` 에 실제로 넘기는 값**을 읽는다. 관례는 어긋나지만
+      등록에 넘기는 인자는 어긋날 수 없다 — 어긋나면 설치 자체가 안 된다.
+    ★ **못 읽은 설치본은 조용히 넘기지 않는다**(`[169]`). 등록은 하는데 이름을 못 읽었다면
+      그 회차는 감시 밖에 있다 — '이상 없음'이 아니라 '확인 못 함'이다.
+    """
+    names, unreadable = {}, []
     for fn in sorted(os.listdir(ROOT)):
         if not (fn.startswith("install_") and fn.endswith(".ps1")):
             continue
@@ -176,16 +201,18 @@ def declared():
             src = open(os.path.join(ROOT, fn), encoding="utf-8", errors="replace").read()
         except OSError:
             continue
-        m = _PLAIN.search(src)
-        if m:
-            names[m.group(1)] = fn
-            continue
-        m = _JOIN.search(src)
-        if m:
-            got = "".join(chr(int(h, 16)) for h in _CHAR.findall(m.group(1)))
+        if "Register-ScheduledTask" not in src:
+            continue                                 # 등록하지 않는 도우미 스크립트
+        got = None
+        for tok in _ARG.findall(src):
+            got = _resolve(src, tok)
             if got:
-                names[got] = fn
-    return names
+                break
+        if got:
+            names[got] = fn
+        else:
+            unreadable.append(fn)
+    return names, unreadable
 
 
 # ─────────────────────────────────────────────────────────── 예정 시각 계산
@@ -391,10 +418,16 @@ def build(now=None):
     rows = [judge(t, now, before) for t in tasks] if not err else []
     rows.sort(key=lambda r: (r["갈래"] in ("성공", "도는중"), r["작업"]))
     have = {t.get("name") for t in tasks}
-    missing = {n: f for n, f in declared().items() if n not in have} if not err else {}
+    decl, unreadable = declared()
+    missing = {n: f for n, f in decl.items() if n not in have} if not err else {}
     comp = compaction()
 
     al = alarms(rows, missing) if not err else []
+    for fn in unreadable:
+        al.append({"갈래": "확인못함", "작업": fn,
+                   "무엇": "설치본 `%s` 이 무슨 작업을 등록하는지 못 읽었다 — "
+                           "그 회차는 감시 밖이라 사라져도 아무 경보가 안 뜬다" % fn,
+                   "어떻게": "설치본에서 -TaskName 에 넘기는 값을 확인한다"})
     for x in (comp["빠진것"] if comp["확인"] else [comp["왜"]]):
         al.append({"갈래": "컴팩팅배선", "작업": "세션 자동 마무리",
                    "무엇": "세션이 가득 찰 때 **인계 없이 끊긴다** — %s" % x,
@@ -405,6 +438,7 @@ def build(now=None):
         "조회실패": err,
         "작업": rows,
         "등록안됨": missing,
+        "설치본못읽음": unreadable,
         "컴팩팅": comp,
         "경보": al,
     }
