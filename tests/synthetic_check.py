@@ -12070,7 +12070,8 @@ def t142_flow_editable():
     #     사라진다. 그래서 이 카드만은 제 색을 값으로 가진다(두 테마에서 같은 그림).
     hero = live.split(".flow-hero{")[1][:400]
     assert "var(--brand" not in hero, "머리 카드가 테마 변수를 써서 어두운 테마에서 글자가 사라진다"
-    assert '<h3>돌발 AS 플로우 차트</h3>' in live, "머리 카드 제목이 없다"
+    # 제목은 이제 차트마다 다르다(종전/개선, [222]) — 자리와 기본값만 지킨다.
+    assert '<h3 id="flowTitle">돌발 AS 플로우 차트 (종전)</h3>' in live, "머리 카드 제목이 없다"
     assert 'id="flowStats"' in live and "function flowHead(" in live, \
         "머리 카드 숫자(단계·D+·담당)가 화면과 이어져 있지 않다"
     # ⑩ 4:3 캡처 (2026-08-07 지시: "4대 3 비율로 캡처하는 기능 상단에 추가해")
