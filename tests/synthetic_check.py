@@ -5749,7 +5749,7 @@ def t116_manual_refresh_is_really_fresh():
     assert "API_FRESH" in live and "opt.fresh" in live, live.count("API_FRESH")
     # 읽기만 건너뛰고 쓰기는 남아야 한다
     assert re.search(r"const useCache = cacheable && !\(API_FRESH > 0", live), "읽기/쓰기를 안 갈랐다"
-    assert re.search(r"if\(cacheable\)\{ swrSet\(path, d\)", live), \
+    assert re.search(r"if\(cacheable\s*&&[\s\S]{0,180}?swrSet\(path,\s*d\)", live), \
         "강제 갱신 때 캐시 쓰기까지 막혔다 — 다음 화면이 또 옛 값이 된다"
 
     body = live[live.index("async function reloadHere("):]
@@ -11194,7 +11194,8 @@ def t155_cancel_and_handover():
     head = "♣ ［ 돌발 유료 A/S 완료 ]\n● 프로젝트NO : UJ2600001\n"
     done = B.parse_post("1", _post(head), "밴드")
     assert done and done["진행상태"] == "작업완료"
-    later = B.parse_post("1", _post(head, [{"content": "접수 취소 하세요"}]), "밴드")
+    later = B.parse_post("1", _post(head, [{"content": "접수 취소 하세요",
+                                            "created_at": 1767225700000}]), "밴드")
     assert later["진행상태"] == "취소", "댓글은 글보다 나중이다 — 취소가 이겨야 한다"
     body_only = B.parse_post("1", _post(head + "정기점검 취소되어 도어락만 교체"), "밴드")
     assert body_only["진행상태"] == "작업완료", \
@@ -13255,10 +13256,15 @@ def t207_live_revision_is_shared_and_nonblocking():
 
         state_path.write_text(json.dumps({
             "version": 1, "running": True,
-            "last_run": {"status": "running", "current_stage": "ERP 대조",
+            "active_run_id": "t207-running",
+            "last_run": {"run_id": "t207-running", "status": "running", "current_stage": "ERP 대조",
                          "updated_at": "2026-08-11T23:01:00+00:00"},
             "history": [{"status": "success", "finished_at": "2026-08-11T03:00:00+00:00"}],
         }), encoding="utf-8")
+        from automation_pipeline import PipelineLock
+        pipeline_lock = PipelineLock(root / ".automation_pipeline.lock")
+        pipeline_token = pipeline_lock.acquire("t207-running")
+        assert pipeline_token, "합성 파이프라인 잠금을 못 잡았다"
         running = S.get_live_state(store=store, state_path=state_path)
         assert running["revision"] == changed["revision"], \
             "진행 단계만 바뀌었는데 7개 자료 API 재검증을 깨운다"
@@ -13268,6 +13274,7 @@ def t207_live_revision_is_shared_and_nonblocking():
             "자동화 단계 시각을 자료 갱신시각으로 섞는다"
         assert running["state_updated_at"] != changed["state_updated_at"], \
             "자동화 진행 시각이 관제 상태에 반영되지 않는다"
+        assert pipeline_lock.release(pipeline_token, "t207-running")
 
     server_src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     assert 'p == "/api/live-state"' in server_src
@@ -13854,6 +13861,178 @@ def t211_progress_trace_owner_identity():
     assert "_progress_owner_alive" in step_body, "진행 자국 판정이 신원을 안 본다"
 
     print("  [211] 진행 자국 신원 — 시각·이름(python)으로 pid 재사용 가름 · 죽은 회차를 '돌고 있다'로 안 읽음 ✅")
+
+
+def t213_exact_pid_fingerprint_reaches_every_owner():
+    """[213] 잠금은 pid 번호가 아니라 **그때 그 프로세스**를 소유자로 본다.
+
+    born_before의 5초 여유 안에서 pid가 재사용되거나 오래 산 다른 프로세스가 번호를
+    물려받아도 정확한 생성시각 지문이 다르면 회수한다. 신규 잠금·진행 자국·AI 점유와
+    앱의 ``running`` 표시까지 같은 판정기를 써야 한다.
+    """
+    from pathlib import Path
+    import pid_alive as PA
+    import daily_run as DR
+    import archive_worker as AW
+    import automation_pipeline as AP
+    import app_store as A
+    from webapp import app_server as S
+
+    me = PA.identity()
+    assert me["pid"] == os.getpid() and me.get("pid_started_at"), me
+    assert PA.owner_alive(me["pid"], me["pid_started_at"]) is True
+    assert PA.owner_alive(me["pid"], float(me["pid_started_at"]) - 60) is False, \
+        "같은 pid의 다른 생성시각을 현재 주인으로 오판"
+
+    with tempfile.TemporaryDirectory(prefix="csos-exact-pid-213-") as td:
+        root = Path(td)
+
+        # daily_run JSON 잠금과 진행 자국 모두 exact 지문을 남긴다.
+        daily_lock = root / ".daily_run.lock"
+        token = DR.acquire_run_lock(str(daily_lock))
+        assert token
+        daily_owner = json.loads(daily_lock.read_text(encoding="utf-8"))
+        assert daily_owner.get("pid_started_at"), daily_owner
+        DR.release_run_lock(token, str(daily_lock))
+        assert not daily_lock.exists(), "daily 잠금 소유자가 자기 잠금을 놓지 못한다"
+
+        old_report, old_progress = DR.REPORT_DIR, DR.PROGRESS
+        try:
+            DR.REPORT_DIR = str(root)
+            DR.PROGRESS = str(root / ".daily_run.progress.json")
+            DR.note_progress("합성", "시작")
+            progress = json.loads((root / ".daily_run.progress.json").read_text(encoding="utf-8"))
+            assert progress.get("pid_started_at"), progress
+        finally:
+            DR.REPORT_DIR, DR.PROGRESS = old_report, old_progress
+
+        # 파이프라인 5필드 잠금과 보관 worker JSON 잠금도 같은 지문이다.
+        pipeline_path = root / ".automation_pipeline.lock"
+        pipeline = AP.PipelineLock(pipeline_path)
+        pipeline_token = pipeline.acquire("run-213")
+        status = AP.pipeline_lock_status(pipeline_path)
+        assert pipeline_token and status.get("alive") is True and status.get("pid_started_at")
+        assert status.get("run_id") == "run-213"
+        assert pipeline.release(pipeline_token, "run-213")
+
+        spool = root / "spool"
+        with AW._worker_lock(spool):
+            archive_owner = json.loads((spool / "archive-worker.lock").read_text(encoding="utf-8"))
+            assert archive_owner.get("pid_started_at"), archive_owner
+
+        # state 파일만 running인 죽은 회차는 앱에서 실행 중으로 표시하지 않는다.
+        store = A.AppStore(root / "app.db").initialize()
+        state_path = root / "automation_pipeline_state.json"
+        state_path.write_text(json.dumps({
+            "running": True, "active_run_id": "run-dead",
+            "last_run": {"run_id": "run-dead", "status": "running",
+                         "current_stage": "죽은 단계"},
+        }), encoding="utf-8")
+        dead = S.get_live_state(store=store, state_path=state_path,
+                                lock_path=root / ".automation_pipeline.lock")
+        assert dead["running"] is False and dead["phase"] != "updating", dead
+        live_lock = AP.PipelineLock(root / ".automation_pipeline.lock")
+        live_token = live_lock.acquire("run-dead")
+        live = S.get_live_state(store=store, state_path=state_path,
+                                lock_path=root / ".automation_pipeline.lock")
+        assert live_token and live["running"] is True and live["phase"] == "updating", live
+        assert live_lock.release(live_token, "run-dead")
+
+    claim_src = open(os.path.join(ROOT, "ai_claim.py"), encoding="utf-8").read()
+    handoff_src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert "agent_pid_started_at" in claim_src and "pid_started_at" in claim_src
+    assert "agent_pid_started_at" in handoff_src and "pid_started_at" in handoff_src, \
+        "인계가 exact AI/프로세스 지문을 소비하지 않는다"
+    print("  [213] exact PID 지문 — daily·pipeline·archive·AI점유·인계·live-state가 같은 소유자 판정 ✅")
+
+
+def t214_first_live_revision_cannot_be_falsely_applied():
+    """[214] 첫 live-state도 실제 화면 자료가 성공한 뒤에만 적용 완료다.
+
+    부트의 옛 A 응답이 새 B 뒤에 도착해 화면을 되돌리는 경합을 막고, 직원센터·캘린더도
+    같은 세대 규칙을 쓴다. 실패한 동일 revision은 다음 poll에서 다시 시도해야 한다.
+    """
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    poll = html.split("function pollLiveState", 1)[1].split("async function retryDataSync", 1)[0]
+    assert "if(first&&next) LIVE_SYNC.appliedRevision=next" not in poll, \
+        "첫 poll을 자료 재검증 없이 적용 완료로 표시"
+    assert "next!==LIVE_SYNC.appliedRevision" in poll and "revalidateLiveData" in poll, \
+        "실패한 동일 revision을 다음 poll에서 다시 시도하지 않는다"
+    boot = html.split("function bootstrapAuthenticatedData", 1)[1].split("(async function()", 1)[0]
+    assert "startLiveStateMonitor(true)" in boot and "await firstFlight" in boot, \
+        "첫 poll과 현재 화면 적용 순서가 직렬화되지 않았다"
+    assert "refreshAll(false)" in boot, "부트가 7개 자료 API를 별도로 한 번 더 부른다"
+
+    # 일반 자료·직원센터·캘린더 모두 늦은 요청을 거르는 세대 번호가 있어야 한다.
+    for marker in ("beginDataSectionRequest", "dataSectionRequestCurrent",
+                   "ryuRequestGeneration", "CAL_REQUEST_GENERATION"):
+        assert marker in html, "늦은 A 응답 억제 장치 누락: " + marker
+    assert "if(generation!==ryuRequestGeneration) return false" in html
+    assert "if(generation!==CAL_REQUEST_GENERATION) return false" in html
+    assert "result.ok&&result.accepted" in html, \
+        "거절된 옛 응답을 화면 자료에 적용한다"
+    assert "booting:true" in html and "bootstrapAuthenticatedData();" in html, \
+        "인증 전 applyView가 옛 자료 요청을 먼저 시작할 수 있다"
+    print("  [214] live-state 부트 — 첫 revision 성공 후 확정 · A/B 역전 차단 · 직원·캘린더 동일 세대 ✅")
+
+
+def t215_cancel_timeline_last_explicit_state_wins():
+    """[215] 접수취소는 본문·댓글별 시간축에서 마지막 명시 상태만 반영한다."""
+    import band_extract as B
+    import cancel_watch as C
+
+    assert B.cancel_state("접수 취소 하세요") == "cancel"
+    assert B.cancel_state("접수 취소 후 다시 접수 유지") == "active"
+    assert B.cancel_state("접수 유지했으나 이후 접수 취소") == "cancel"
+    for text in ("보험접수 취소 후 쿠팡측에서 긴급수리요청",
+                 "택배 접수 취소 후 방문수리 전환", "부품 접수 취소"):
+        assert B.cancel_state(text) == "" and not B.cancel_hit(text), \
+            "서비스 접수가 아닌 취소를 자동 취소로 오판: " + text
+
+    post = {
+        "content": "● 프로젝트NO : UJ2600035", "created_at": 1700000000000,
+        "comments": [
+            {"created_at": 1700000100000, "content": "기사님 통화 후 접수 취소 하세요"},
+            {"created_at": 1700000200000, "content": "확인 결과 접수 유지 바랍니다"},
+        ],
+    }
+    event = B.latest_cancel_event(post)
+    assert event and event["state"] == "active" and event["source"] == "댓글", event
+    post["comments"].append(
+        {"created_at": 1700000300000, "content": "다시 접수 취소 처리합니다"})
+    event = B.latest_cancel_event(post)
+    assert event and event["state"] == "cancel" and event["created_at"] == 1700000300000
+
+    # 다른 글의 더 최신 '유지'도 같은 프로젝트의 옛 취소를 제거한다.
+    with tempfile.TemporaryDirectory(prefix="csos-cancel-timeline-215-") as td:
+        old_cache = C.CACHE_DIR
+        try:
+            C.CACHE_DIR = td
+            payload = {"band_name": "90610953", "posts": {
+                "1": {"content": "● 프로젝트NO : UJ2600035",
+                      "created_at": 1700000000000,
+                      "comments": [{"created_at": 1700000100000,
+                                    "content": "접수 취소 하세요"}]},
+                "2": {"content": "● 프로젝트NO : UJ2600035",
+                      "created_at": 1700000200000,
+                      "comments": [{"created_at": 1700000300000,
+                                    "content": "접수 유지합니다"}]},
+                "3": {"content": "● 프로젝트NO : UJ2600999",
+                      "created_at": 1700000400000,
+                      "comments": [{"created_at": 1700000500000,
+                                    "content": "접수 유지"},
+                                   {"created_at": 1700000600000,
+                                    "content": "접수 취소 처리"}]},
+            }}
+            with open(os.path.join(td, "90610953.json"), "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, ensure_ascii=False)
+            hits, _blind, _total = C.scan_band(quiet=True)
+            assert "UJ2600035" not in hits, "최신 접수 유지 뒤에도 옛 취소가 남는다"
+            assert hits.get("UJ2600999", {}).get("게시일") == "2023-11-15", hits
+        finally:
+            C.CACHE_DIR = old_cache
+
+    print("  [215] 취소 시간축 — 댓글별 시각 정렬 · 마지막 취소/유지 승리 · 보험·택배·부품 제외 ✅")
 
 
 def t196_stage_words_come_from_one_place():
@@ -14484,6 +14663,9 @@ if __name__ == "__main__":
     t209_pipeline_lock_owner_cannot_be_forged_or_overwritten()
     t210_pid_reuse_is_not_alive_and_customer_scan_is_one_pass()
     t211_progress_trace_owner_identity()
+    t213_exact_pid_fingerprint_reaches_every_owner()
+    t214_first_live_revision_cannot_be_falsely_applied()
+    t215_cancel_timeline_last_explicit_state_wins()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

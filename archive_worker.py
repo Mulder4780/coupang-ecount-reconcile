@@ -361,7 +361,7 @@ def _worker_lock(spool_dir: Path, wait_seconds: float = 0.0) -> Iterator[None]:
     spool_dir.mkdir(parents=True, exist_ok=True)
     lock = spool_dir / "archive-worker.lock"
     token = {
-        "pid": os.getpid(),
+        **pid_alive.identity(),
         "created_at": _utcnow(),
         "token": uuid.uuid4().hex,
     }
@@ -386,11 +386,22 @@ def _worker_lock(spool_dir: Path, wait_seconds: float = 0.0) -> Iterator[None]:
             owner_pid = owner.get("pid")
             # 잠금이 쓰인 시각보다 뒤에 태어난 프로세스는 주인이 아니다 —
             # pid 재사용 오판 방지(검증 [210]).
-            live = pid_alive.alive(owner_pid, born_before=lock_mtime)
+            live = pid_alive.owner_alive(
+                owner_pid,
+                pid_started_at=owner.get("pid_started_at"),
+                born_before=lock_mtime,
+            )
             # Never reclaim a fresh, half-written or otherwise unidentifiable
             # claim.  Only a definitely dead PID, or an unidentifiable claim
             # older than the stale horizon, is safe to move aside.
-            occupied = live is True or (live is None and age < LOCK_STALE_SECONDS)
+            # A valid PID with an unavailable creation-time lookup remains
+            # occupied conservatively.  Only unidentifiable/corrupt legacy
+            # claims use the stale-age escape hatch.
+            occupied = (
+                live is not False
+                if owner_pid
+                else age < LOCK_STALE_SECONDS
+            )
             if occupied:
                 if time.monotonic() >= deadline:
                     raise ArchiveWorkerBusy(

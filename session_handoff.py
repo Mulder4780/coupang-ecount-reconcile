@@ -123,7 +123,7 @@ def stranded_editor():
         return []
 
 
-def pid_alive(pid, born_before=None):
+def pid_alive(pid, born_before=None, pid_started_at=None):
     """그 프로세스가 아직 살아 있나. **시간보다 확실한 판정이다** —
     세션이 죽으면 45분을 기다릴 것 없이 그 자리에서 잔재로 볼 수 있다.
     판정이 안 되면 None 을 돌려 시간 기준으로 넘긴다(모르면 함부로 죽었다고 하지 않는다).
@@ -137,7 +137,8 @@ def pid_alive(pid, born_before=None):
     #   영원히 안 풀리는 쪽으로 틀렸다.
     try:
         import pid_alive
-        return pid_alive.alive(pid, born_before=born_before)
+        return pid_alive.owner_alive(
+            pid, pid_started_at=pid_started_at, born_before=born_before)
     except Exception:
         return None
 
@@ -193,8 +194,12 @@ def claims():
         #   그것으로 판정하면 **살아 있는 옆 세션의 점유까지 '죽은 잔재'로** 표시하고,
         #   "이 명령으로 푸세요" 라고 안내한다. 실제로 그 안내대로 하면 ai_claim 이
         #   거부하므로(남의 것) 사람은 영문도 모른 채 막힌다. 판정은 한 벌이어야 한다.
+        use_agent = bool(info.get("agent_pid"))
         owner_pid = info.get("agent_pid") or info.get("pid")
-        alive = pid_alive(owner_pid, born_before=born)
+        owner_started_at = (info.get("agent_pid_started_at") if use_agent
+                            else info.get("pid_started_at"))
+        alive = pid_alive(owner_pid, born_before=born,
+                          pid_started_at=owner_started_at)
         stale = (alive is False) or (alive is not True and mins is not None and mins >= STALE_MIN)
         out.append({"lock": lock, "who": info.get("who"), "why": info.get("why", ""),
                     "mins": mins, "pid": owner_pid, "alive": alive, "stale": stale,
@@ -600,7 +605,7 @@ def _daily_run_inflight():
       판정은 `pid_alive` 한 곳에서 한다(검증 [121]). 모르면 '살아 있다'로 본다.
     """
     try:
-        from pid_alive import alive
+        from pid_alive import owner_alive
     except Exception:
         return None
     try:
@@ -609,7 +614,8 @@ def _daily_run_inflight():
         # ★ 잠금 시각보다 뒤에 태어난 프로세스는 주인이 아니다 — pid 재사용이다.
         #   실사고(2026-08-11): 죽은 회차의 pid 를 quick_share_server 가 물려받아
         #   "5시간째 돌고 있다 — 기다려라"(정반대 지시)가 떴다. 검증 [210].
-        if not alive(d.get("pid"), born_before=started.timestamp()):
+        if owner_alive(d.get("pid"), pid_started_at=d.get("pid_started_at"),
+                       born_before=started.timestamp()) is not True:
             return None
         # 생성시각이 우연히 잠금보다 앞서는 재사용(상주 서비스)은 이름으로 가른다([211]).
         if _owner_is_python(d.get("pid")) is False:
@@ -672,7 +678,8 @@ def _progress_owner_alive(d):
             born = t if born is None else min(born, t)
         except (TypeError, ValueError):
             continue
-    res = pid_alive(d.get("pid"), born_before=born)
+    res = pid_alive(d.get("pid"), born_before=born,
+                    pid_started_at=d.get("pid_started_at"))
     if res is True and _owner_is_python(d.get("pid")) is False:
         return False
     return res

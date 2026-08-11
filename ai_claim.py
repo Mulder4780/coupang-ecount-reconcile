@@ -36,6 +36,7 @@ AI끼리 직접 대화할 수단은 없다. 이 프로젝트의 진실의 원천
 import sys, os, json, time, socket, hashlib, subprocess
 from contextlib import contextmanager
 from datetime import datetime
+import pid_alive
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -100,17 +101,16 @@ def agent_pid():
         return 0
 
 
-def _pid_alive(pid, host):
+def _pid_alive(pid, host, pid_started_at=None, born_before=None):
     """다른 PC 의 점유는 판정하지 않는다 — 모르면 살아 있다고 본다(안전한 쪽)."""
     if not pid or host != socket.gethostname():
         return True
     try:
-        if os.name == "nt":
-            out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"],
-                                 capture_output=True, text=True, timeout=15).stdout or ""
-            return str(pid) in out
-        os.kill(pid, 0)
-        return True
+        return pid_alive.owner_alive(
+            pid,
+            pid_started_at=pid_started_at,
+            born_before=born_before,
+        ) is not False
     except Exception:
         return True
 
@@ -136,10 +136,19 @@ def _is_dead(claim):
     # 스케줄러 점유는 agent_pid 가 0 이다(에이전트가 아니라서). 그때는 프로세스
     # `pid` 가 증거다 — session_handoff 의 판정과 같은 폴백을 쓴다(2026-08-07 실사고:
     # 죽은 ledger_writer 점유를 --check 는 죽었다 하고 --adopt 는 살았다 해서 교착).
+    use_agent = bool(claim.get("agent_pid"))
     pid = claim.get("agent_pid") or claim.get("pid")
     if not pid:
         return False                     # 알 수 없으면 살아 있다고 본다
-    return not _pid_alive(int(pid), claim.get("host") or "")
+    fingerprint = (
+        claim.get("agent_pid_started_at")
+        if use_agent
+        else claim.get("pid_started_at")
+    )
+    return not _pid_alive(
+        int(pid), claim.get("host") or "",
+        pid_started_at=fingerprint, born_before=claim.get("at"),
+    )
 
 
 @contextmanager
@@ -308,11 +317,17 @@ def take(who, what, why=""):
                 print("  → 다른 일을 먼저 하거나, 상대가 끝낼 때까지 조회·분석만 하세요.")
                 print(f"  (상대 세션이 죽으면 즉시, 아니면 {STALE // 60}분 뒤 자동 해제됩니다)")
                 return False
+        cli_identity = pid_alive.identity()
+        owner_agent_pid = agent_pid()
+        agent_identity = pid_alive.identity(owner_agent_pid)
         d[what] = {
             "who": who, "why": why, "at": time.time(),
             "when": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "sid": session_id(), "agent_pid": agent_pid(),
-            "pid": os.getpid(), "host": socket.gethostname(),
+            "sid": session_id(), "agent_pid": owner_agent_pid,
+            "agent_pid_started_at": agent_identity.get("pid_started_at"),
+            "pid": cli_identity["pid"],
+            "pid_started_at": cli_identity.get("pid_started_at"),
+            "host": socket.gethostname(),
         }
         _save_unlocked(d)
     print(f"'{label}' 점유 — {who}[{session_id()}]" + (f" · {why}" if why else ""))

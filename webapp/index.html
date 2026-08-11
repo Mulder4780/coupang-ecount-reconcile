@@ -1647,6 +1647,18 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
 .ryu-summary-card small{display:block;color:var(--ink-3);font-weight:800;font-size:13px;margin-bottom:6px}
 .ryu-summary-card strong{font-size:24px;letter-spacing:-.04em}
 .ryu-summary-card .attention{display:block;color:var(--danger);font-size:13px;font-weight:800;margin-top:4px}
+/* 통계 카드 설명(STAT_HELP) — 2026-08-11 지시 "카드들이 뭘 의미하는지 알 수가 없다".
+   부제(.sh)는 항상 보이는 한 줄 뜻, ⓘ(.stat-info)는 계산·근거·기간·제외 상세 레이어. */
+.stat-info{flex:none;margin-left:auto;border:0;background:none;color:var(--ink-3);cursor:pointer;
+  font:inherit;font-size:13px;font-weight:800;padding:2px 5px;border-radius:7px;line-height:1.2}
+.stat-info:hover{color:var(--brand);background:var(--panel)}
+.rcell .sh,.ryu-summary-card .sh{display:block;font-size:12px;line-height:1.35;color:var(--ink-3);
+  font-weight:600;margin-top:3px;white-space:normal}
+.rcell .l .stat-info{font-size:12px;padding:0 3px;margin-left:2px;vertical-align:baseline}
+.ryu-summary-card .stat-info{display:inline-block;margin:5px 0 0;padding:2px 0;font-size:12.5px}
+.stat-help{display:grid;gap:9px;margin-top:8px}
+.stat-help-row{display:grid;grid-template-columns:56px 1fr;gap:10px;font-size:14px;line-height:1.55}
+.stat-help-row b{color:var(--ink-3);font-weight:800}
 .ryu-category-tabs{display:flex;gap:8px;overflow-x:auto;padding:2px 1px 10px;scrollbar-width:thin}
 .ryu-category-tab{flex:1 0 145px;display:flex;align-items:center;justify-content:space-between;gap:8px;
   border:1px solid var(--line);border-radius:13px;background:var(--surface);padding:12px 13px;color:var(--ink-2);
@@ -4838,10 +4850,16 @@ async function apiFresh(fn){           // 이 안에서 일어나는 api() 는 �
 }
 async function api(path, opt={}){
   const key = String(path).split('?')[0];
-  const cacheable = !(opt && opt.method) && SWR_PATHS.indexOf(key) >= 0;
+  /* DATA_SECTION 요청의 세대 표시는 fetch 옵션이 아니라 브라우저 내부 메타다.
+     fetch()로 흘려 보내지 않고, 뒤늦은 SWR 응답이 새 화면을 덮는지만 판정한다. */
+  const sectionGeneration=Number(opt&&opt.__sectionGeneration)||0;
+  const sectionRevision=String((opt&&opt.__sectionRevision)||'');
+  const netOpt={...(opt||{})};
+  delete netOpt.__sectionGeneration; delete netOpt.__sectionRevision;
+  const cacheable = !(netOpt && netOpt.method) && SWR_PATHS.indexOf(key) >= 0;
   // 강제 갱신은 **읽기만** 건너뛴다. 쓰기까지 막으면 방금 받은 최신값을 버리게 되어
   // 다음 화면 전환이 또 옛 값으로 그려진다.
-  const useCache = cacheable && !(API_FRESH > 0 || (opt && opt.fresh));
+  const useCache = cacheable && !(API_FRESH > 0 || (netOpt && netOpt.fresh));
   if(useCache){
     const hit = swrGet(path);
     if(hit){
@@ -4849,22 +4867,25 @@ async function api(path, opt={}){
       if(!SWR_INFLIGHT.has(key)){          // 한 화면이 같은 주소를 여러 번 부른다 — 한 번만 나간다
         SWR_INFLIGHT.add(key);
         swrMark(key, hit.t);                                // 무엇을 기다리는지 칩이 안다
-        _apiNet(path, opt).then(d => {                      // 새 값은 뒤에서 받아 온다
+        _apiNet(path, netOpt).then(d => {                   // 새 값은 뒤에서 받아 온다
+          if(sectionGeneration&&!dataSectionRequestCurrent(dataSectionKey(key),sectionGeneration)) return;
           swrSet(path, d); swrDone(key, true); swrRerun(key);
         }).catch((e) => {                                   // 실패한 자료 묶음과 이유를 함께 남긴다
           /* ★ 끊긴 것이면 위 칩을 아직 '갱신 실패'로 바꾸지 않는다 — 뒤에서 다시
              걸고 있는 중이다. 여기서 곧장 빨갛게 칠하면, 3초 뒤 저절로 낫는 일에도
              사람이 먼저 손을 쓴다(2026-08-10 지시). 포기하면 그때 칠한다. */
           if(!isTransientError(e)) swrDone(key, false);
-          dataSectionBackgroundFailure(key, e);
+          dataSectionBackgroundFailure(key,e,sectionRevision,sectionGeneration);
         })
           .then(() => { SWR_INFLIGHT.delete(key); });
       }
       return hit.v;                                         // 옛 값이라도 **지금** 그린다
     }
   }
-  const d = await _apiNet(path, opt);
-  if(cacheable){ swrSet(path, d); swrDone(key, true); }
+  const d = await _apiNet(path, netOpt);
+  if(cacheable&&(!sectionGeneration||dataSectionRequestCurrent(dataSectionKey(key),sectionGeneration))){
+    swrSet(path, d); swrDone(key, true);
+  }
   return d;
 }
 function escNotice(s){return esc2(String(s||''));}
@@ -5058,14 +5079,20 @@ function markStaffInput(event='input'){
   staffInputPulse=now;
   staffHeartbeat(event);
 }
-let RYU=null, ryuCategory='as', ryuSelected=null, ryuVisible=[];
+let RYU=null, ryuCategory='as', ryuSelected=null, ryuVisible=[], ryuRequestGeneration=0;
 async function loadRyuRecords(force=false){
   if(RYU&&!force){ renderRyuCenter(); return true; }
+  const generation=++ryuRequestGeneration;
   try{
-    RYU=await api('/api/staff/records?ts='+Date.now());
+    const data=await api('/api/staff/records?ts='+Date.now());
+    if(generation!==ryuRequestGeneration) return false;
+    const continuity=uiContinuitySnapshot();
+    RYU=data;
     renderRyuCenter();
+    restoreUiContinuity(continuity);
     return true;
   }catch(e){
+    if(generation!==ryuRequestGeneration) return false;
     const list=$('ryuHistoryList');
     if(list) list.innerHTML='<div class="ryu-result err" style="display:block">업무 목록을 불러오지 못했습니다.</div>';
     return false;
@@ -5078,11 +5105,17 @@ function renderRyuCenter(){
   if(!RYU) return;
   const summary=$('ryuSummaryGrid'), tabs=$('ryuCategoryTabs');
   const mainCats=(RYU.categories||[]).filter(x=>x.key!=='upload');
-  if(summary) summary.innerHTML=mainCats.map(x=>`
+  if(summary) summary.innerHTML=mainCats.map(x=>{
+    // 카드 뜻은 STAT_HELP 한 곳(2026-08-11) — 부제 한 줄 + ⓘ 상세(계산·근거·기간·제외).
+    const hp=statHelpFor('center_'+x.key);
+    return `
     <button class="ryu-summary-card" type="button" onclick="selectRyuCategory('${x.key}')">
       <small>${esc2(x.label)}</small><strong>${fmt(x.count)}건</strong>
       <span class="attention" title="아직 완료 처리되지 않은 건 — 진행 중이거나 확인이 필요한 건의 합계">${x.attention?`미완료 ${fmt(x.attention)}건 · 눌러서 목록`:'전부 완료 — 특이사항 없음'}</span>
-    </button>`).join('');
+      ${hp?`<span class="sh">${esc2(hp.t)}</span><span class="stat-info" role="button" tabindex="0"
+        title="이 숫자의 뜻·계산·근거"
+        onclick="event.stopPropagation();statHelpOpen('center_${x.key}')">ⓘ 계산·근거</span>`:''}
+    </button>`;}).join('');
   /* 리모컨 탭(2026-08-04 지시) — 업무 카테고리와 같은 줄에 둔다. 카드가 화면 아래
      멀리 있어 "어디서 하나"를 물어야 했다. 탭을 누르면 카드로 바로 스크롤한다. */
   if(tabs) tabs.innerHTML=(RYU.categories||[]).map(x=>`
@@ -5643,7 +5676,7 @@ async function login(){
   if(r.ok){ PIN='session'; LEGACY_PIN=''; localStorage.removeItem('cw_pin');
             try{ localStorage.setItem('cw_dev_auth','1'); }catch(e){}
             $('gate').style.display='none';
-            show(curView()); startLiveStateMonitor(); refreshAll(); }
+            LIVE_SYNC.booting=true; show(curView()); bootstrapAuthenticatedData(); }
   else if(r.status===429) $('pinerr').textContent = '시도 초과로 잠금 — 10분 후 다시 시도하세요';
   else $('pinerr').textContent = 'PIN이 올바르지 않습니다';
 }
@@ -6465,23 +6498,23 @@ function applyView(v){
   if(v==='report' && !reports.length) loadReports();
   if(v==='pm'||v==='as'){
     renderWorkTab(v);
-    if(!(works.as||[]).length&&PIN) loadSettle().catch(()=>{});
+    if(!(works.as||[]).length&&PIN&&!LIVE_SYNC.booting) loadSettle().catch(()=>{});
     // 단계 정의는 한 번만 받아 두면 된다. 받고 나면 상태 선택지가 정의대로 바뀐다.
     if(!FLOW_STAGES&&PIN) loadFlowStages().then(d=>{ if(d) renderWorkTab(v); });
   }
-  if(v==='center'){ renderCenter(); if(!(works.as||[]).length&&PIN) loadSettle().catch(()=>{}); }
+  if(v==='center'){ renderCenter(); if(!(works.as||[]).length&&PIN&&!LIVE_SYNC.booting) loadSettle().catch(()=>{}); }
   if(v==='remote') renderRemoteCard('remoteHost');
   if(v==='sources'){ loadSources(); loadWarehouse(); }
-  if(v==='ryu' && PIN && !RYU) loadRyuRecords();
+  if(v==='ryu' && PIN && !RYU && !LIVE_SYNC.booting) loadRyuRecords();
   /* 류지영 업무센터로 바로 들어와도 단계 선택지가 차 있어야 한다. 여기를 빼먹으면
      그 화면에서만 **선택지가 하나도 없는 빈 목록**이 뜬다 — 서버가 기본값으로 메워
      주므로 저장은 되고, 그래서 아무도 고장인 줄 모른다. */
   if(v==='ryu' && PIN)
     loadFlowStages().then(()=>fillNewWorkStatus((($('newWorkCategory')||{}).value)||'as'));
   if(v==='worklog' && PIN) loadWorkLogStatus();
-  if(v==='dash' && !CAL) loadCalendar();
+  if(v==='dash' && !CAL && !LIVE_SYNC.booting) loadCalendar();
   if(v==='calendar'){
-    if(!CAL) loadCalendar().then(renderCalendarPage);
+    if(!CAL && !LIVE_SYNC.booting) loadCalendar().then(renderCalendarPage);
     else renderCalendarPage();
   }
   if(v==='check') renderCheckHub();
@@ -8260,9 +8293,14 @@ async function loadStatus(){
   const pmWait = (works.pm||[]).filter(r=>r.점검상태 && r.점검상태!=='완료').length;
   // 스프라이트 참조로 통일 — <img> 는 currentColor 를 못 받아 선택·경고 상태에 반응하지 못한다.
   const bi=(name)=>`<svg class="bi" aria-hidden="true" focusable="false"><use href="#i-${name}"/></svg>`;
-  const tile=(id,cls,ico,label,val,sub,click)=>`<div class="kpi ${cls}" data-kpi-card="${id}" onclick="kTap(this);${click||''}">
-    <div class="head"><div class="ico">${bi(ico)}</div><div class="l">${label}</div></div>
-    <div class="v">${val}</div>${sub?`<div class="s">${sub}</div>`:''}</div>`;
+  const tile=(id,cls,ico,label,val,sub,click)=>{
+    // 카드 뜻은 STAT_HELP 한 곳에서 온다(2026-08-11) — ⓘ 가 계산·근거·기간·제외를 연다.
+    const hp=statHelpFor(id);
+    return `<div class="kpi ${cls}" data-kpi-card="${id}"${hp?` title="${esc2(hp.t)}"`:''} onclick="kTap(this);${click||''}">
+    <div class="head"><div class="ico">${bi(ico)}</div><div class="l">${label}</div>${hp?`<button class="stat-info" type="button"
+      aria-label="${esc2(label)} 설명" title="이 숫자의 뜻·계산·근거"
+      onclick="event.stopPropagation();statHelpOpen('${id}',${esc4(label)})">ⓘ</button>`:''}</div>
+    <div class="v">${val}</div>${sub?`<div class="s">${sub}</div>`:''}</div>`;};
   $('kpis').innerHTML =
     tile('settle-count','accent','bootstrap-clipboard-data-fill','정산 건수', rows.length||'-', `유상 ${유상.length}건 · 클릭=목록`, "goList('settle','')") +
     tile('supply-amount','','bootstrap-cash-stack','작업 공급가액(부가세 별도)', fmt(billingRows.reduce((a,r)=>a+(+r.공급가액||0),0)), '원 · 취소 제외 실제 작업분 · 클릭=내역', "goList('settle','')") +
@@ -8479,6 +8517,163 @@ function reportForDates(d,reportDay,baseDay){
    돌발AS +10.8M · 정기점검 −0.6M 로 거의 맞는다. */
 const ERP_LEDGER_KINDS = ['돌발AS','정기점검'];
 const erpKindSum = (v)=>ERP_LEDGER_KINDS.reduce((s,k)=>s+(+((v||{})[k])||0),0);
+/* ═══ 통계 카드 설명 사전 — 정의는 여기 한 곳 (2026-08-11 지시) ═══════════════════
+   "대시보드 통계 카드들이 뭘 의미하는지 알 수가 없다" → 모든 숫자 카드가 스스로 뜻을
+   말하게 한다. 대시보드 타일 · 대표보고 화면 · PNG 캡처(reportToPng·dashToPng) ·
+   담당자 업무센터 카드가 **전부 이 사전 하나**를 읽는다. 화면마다 따로 적으면 갈린다 —
+   카드 뜻을 여기 밖에 적지 말 것.
+   항목: n=카드 이름 · t=뜻(한 줄 부제) · c=계산(어떻게 세나) ·
+         s=근거(어느 원본·어느 서버 함수) · p=기간 · x=제외(안 세는 것) */
+const STAT_HELP = {
+ 'settle-count':{n:'정산 건수',t:'관리대장 06시트(정산 원장)에 등록된 정산·청구 건수',
+   c:'정산 목록의 행 수 — 접수취소 건도 행으로는 세고, 금액·미수·발행율 집계에서만 뺀다',
+   s:'관리대장 06시트 → 서버 /api/settle(read_ledger)',p:'현재 연도 원장 전체',x:'없음(취소 건도 건수에는 포함)'},
+ 'supply-amount':{n:'작업 공급가액',t:'실제 작업한 건들의 공급가액 합 — 부가세 별도',
+   c:'Σ공급가액. 06시트 칸이 비면 실제작업 → ERP → 명세서(÷1.1, 깨끗이 떨어질 때만) 순서로 보충',
+   s:'06시트 공급가액 + ERP 색인 + 거래명세서 (서버 supply_of 사다리 · 금액출처 표시)',
+   p:'현재 연도 원장 전체',x:'접수취소 건 · 부가세'},
+ 'receivable':{n:'미수금',t:'계산서 발행 뒤 아직 입금이 확인되지 않은 금액 합',
+   c:'Σ미수금 — 입금내역 대조(receipt_fill)로 입금이 확인되면 자동으로 줄어든다',
+   s:'06시트 입금·미수 칸 + 입금내역 시트 → /api/settle',
+   p:'대시보드=원장 전체 · 대표보고=1/1~선택 기준일',x:'접수취소 건'},
+ 'tax-rate':{n:'계산서 발행율',t:'유상 건 중 세금계산서 발행이 근거로 확인된 비율',
+   c:'발행 건수 ÷ 유상 건수. 발행 판정은 근거 세 갈래 — 원장 발행일(발행) · 완료DB(발행(근거확인)) · ERP 진행 6·7단계(발행(ERP확인))',
+   s:'06시트 계산서 칸 + 완료DB + ERP진행상태 (서버 settle_status)',
+   p:'대시보드=원장 전체 · 대표보고=1/1~선택 기준일',x:'무상·보험·비용구분 미입력(분모에서 제외) · 접수취소'},
+ 'issues-count':{n:'조치 필요',t:'사람이 봐야 하는 정산 건 — 정상·완료 근거가 없는 상태 전부',
+   c:'상태가 정상/무상/보험/ERP 계산서(묶음)/완료(…)가 아니고 취소도 아닌 건(needAction)',
+   s:'상태는 서버 settle_status 가 판정 → 화면 needAction()',
+   p:'대시보드=원장 전체 · 대표보고=1/1~선택 기준일',x:'객관 입증 완료(완료(…)) · 접수취소(청구자료 충돌 건은 남긴다)'},
+ 'as-open':{n:'AS 미실시',t:'접수됐는데 아직 작업완료가 안 된 돌발AS',
+   c:'진행상태가 작업완료·취소가 아니고 작업완료일도 빈 건(asNotDone)',
+   s:'관리대장 02시트 돌발AS → /api/works',p:'현재 연도 원장 전체',x:'접수취소 건 · 작업완료일 있는 건'},
+ 'pm-wait':{n:'정기점검 대기',t:'점검상태가 아직 완료가 아닌 정기점검',
+   c:"점검상태 값이 있고 '완료'가 아닌 건",s:'관리대장 04시트 정기점검 → /api/works',
+   p:'현재 연도 원장 전체',x:'점검상태 빈 건 · 완료 건'},
+ 'erp-sales':{n:'ERP 매출',t:'ERP에서 실제 발행된 세금계산서 합계 — 전 업무 유형 포함',
+   c:'ERP 세금계산서 목록 Σ공급가액(발행 기준) — 돌발AS·정기점검 외 신규납품·철거·계단·기타 포함',
+   s:'ERP 세금계산서 목록(Z:) → /api/erp_docs',p:'현재 연도',x:'미발행 전표'},
+ 'as-pm':{n:'AS진행 · 점검대기',t:'왼쪽=진행 중 돌발AS · 오른쪽=완료 전 정기점검',
+   c:"AS는 진행상태가 있고 '작업완료'가 아닌 건, 점검은 점검상태가 있고 '완료'가 아닌 건",
+   s:'02·04시트 → /api/works',p:'현재 연도 원장 전체',x:'상태 빈 건'},
+ m_set:{n:'월 정산',t:'완료일이 그 달인 정산 건수',c:'완료일 기준 월 필터(취소 제외)',
+   s:'06시트 완료일 → 화면 renderDaily',p:'선택 기준일이 속한 달',x:'접수취소 건 · 완료일 없는 건'},
+ m_amt:{n:'월 공급가액',t:'그 기간 완료 건들의 공급가액 합 — 부가세 별도',
+   c:'기간 안 정산 건들의 Σ공급가액(비면 실제작업→ERP→명세서 사다리로 보충)',
+   s:'06시트 + 서버 supply_of 사다리',p:'화면의 집계 기간(월 실적=그 달 · 통합 캡처=연도 전체)',x:'접수취소 건 · 부가세'},
+ m_pay:{n:'월 입금',t:'그 달 완료 건에 붙은 입금액 합',c:'월 정산 건들의 Σ입금액',
+   s:'06시트 입금액 + 입금내역 대조',p:'선택 기준일이 속한 달(완료일 기준)',x:'접수취소 건'},
+ m_as:{n:'월 돌발AS',t:'그 달 처리(완료 또는 접수)한 돌발AS 건수',
+   c:'작업완료일(없으면 접수일자)이 그 달인 02시트 건수',s:'02시트 → /api/works',
+   p:'선택 기준일이 속한 달',x:'날짜 없는 건'},
+ m_pm:{n:'월 정기점검',t:'그 달 실행(또는 예정)한 정기점검 건수',
+   c:'실제점검일(없으면 점검예정일)이 그 달인 04시트 건수',s:'04시트 → /api/works',
+   p:'선택 기준일이 속한 달',x:'날짜 없는 건'},
+ m_iss:{n:'당월 조치필요',t:'그 달 완료 건 중 사람이 봐야 하는 건',
+   c:"월 정산 중 '조치 필요'와 같은 판정(needAction)이 참인 건",s:'서버 settle_status → needAction()',
+   p:'선택 기준일이 속한 달',x:'정상·무상·보험·완료(…) · 접수취소'},
+ q_set:{n:'분기 정산',t:'완료일이 이번 분기인 정산 건수',c:'완료일 기준 분기(3개월) 필터(취소 제외)',
+   s:'06시트 완료일 → 화면 renderDaily',p:'선택 기준일이 속한 분기',x:'접수취소 건 · 완료일 없는 건'},
+ q_amt:{n:'분기 공급가액',t:'분기 완료 건들의 공급가액 합 — 부가세 별도',
+   c:'분기 정산 건들의 Σ공급가액(비면 실제작업→ERP→명세서 사다리로 보충)',
+   s:'06시트 + 서버 supply_of 사다리',p:'선택 기준일이 속한 분기',x:'접수취소 건 · 부가세'},
+ q_as:{n:'분기 돌발AS',t:'이번 분기에 처리(완료 또는 접수)한 돌발AS 건수',
+   c:'작업완료일(없으면 접수일자)이 분기 안인 02시트 건수',s:'02시트 → /api/works',
+   p:'선택 기준일이 속한 분기',x:'날짜 없는 건'},
+ q_pm:{n:'분기 정기점검',t:'이번 분기에 실행(또는 예정)한 정기점검 건수',
+   c:'실제점검일(없으면 점검예정일)이 분기 안인 04시트 건수',s:'04시트 → /api/works',
+   p:'선택 기준일이 속한 분기',x:'날짜 없는 건'},
+ q_iss:{n:'분기 조치필요',t:'분기 완료 건 중 사람이 봐야 하는 건',
+   c:"분기 정산 중 '조치 필요'와 같은 판정(needAction)이 참인 건",s:'서버 settle_status → needAction()',
+   p:'선택 기준일이 속한 분기',x:'정상·무상·보험·완료(…) · 접수취소'},
+ k_all:{n:'정산 총계',t:'올해 1/1~기준일에 완료된 정산 건수(취소 제외)',
+   c:'완료일이 연간 창 안인 06시트 정산 건수',s:'06시트 완료일 → 화면 renderDaily',
+   p:'1/1 ~ 선택 기준일',x:'접수취소 · 완료일이 없거나 기준일 이후인 건(카드 아래 제외 안내)'},
+ k_amt:{n:'원장 정산 공급가액',t:'연간 누적 정산 건들의 공급가액 합 — 부가세 별도',
+   c:'정산 총계 건들의 Σ공급가액(비면 실제작업→ERP→명세서 사다리로 보충)',
+   s:'06시트 + 서버 supply_of 사다리',p:'1/1 ~ 선택 기준일',x:'접수취소 건 · 부가세'},
+ erp_ytd:{n:'ERP 발행 누적',t:'ERP 세금계산서 중 돌발AS·정기점검 몫만 더한 연간 누적',
+   c:'월별 ERP 발행액에서 ERP_LEDGER_KINDS(돌발AS·정기점검)만 합산(erpKindSum) — 원장이 담는 업무가 이 둘이라 같은 종류끼리만 비교한다',
+   s:'ERP 세금계산서 목록(Z:) → /api/erp_docs',p:'현재 연도',x:'신규납품·철거·계단·기타(ERP 전용 매출 카드로 따로)'},
+ erp_gap:{n:'원장 미반영',t:'같은 종류(돌발AS·정기점검)인데 아직 06시트 정산에 안 들어온 ERP 발행 몫',
+   c:'max(0, ERP 발행 누적 − 원장 정산 공급가액) — 원장 입력이 따라가면 줄어든다. 누락 후보이지 확정 누락이 아니다',
+   s:'ERP 세금계산서 목록 대 06시트 (화면 erpGap 계산)',p:'현재 연도',x:'원장 관리 밖 업무(그건 ERP 전용 매출)'},
+ erp_other:{n:'ERP 전용 매출',t:'원장 관리 밖 업무의 ERP 발행액 — 누락이 아니다',
+   c:'ERP 발행 전체 − 돌발AS·정기점검 몫 = 신규납품·기타·철거·계단 등 06시트가 담지 않는 업무',
+   s:'ERP 세금계산서 목록(Z:) → /api/erp_docs',p:'현재 연도',x:'돌발AS·정기점검(ERP 발행 누적 카드가 담당)'},
+ rep_open:{n:'AS 전산상 미완료',t:'진행상태·완료일 어느 쪽으로도 완료가 확인되지 않은 돌발AS',
+   c:'02시트에서 완료 확인이 안 되는 건을 접수일 경과일과 함께 집계(서버 backlog)',
+   s:'02시트 → 서버 대표 예외보고 집계',p:'현재 연도 원장 전체',x:'완료 확인 건'},
+ rep_d2:{n:'AS D+2 초과',t:'전산상 미완료 중 접수 후 2일을 넘긴 건 — 대표 지속보고 대상',
+   c:'미완료 건의 접수일 기준 경과일 > 2',s:'02시트 접수일자 → 서버 대표 예외보고 집계',
+   p:'현재 연도 원장 전체',x:'경과 2일 이하 · 완료 확인 건'},
+ rep_paper:{n:'현장완료·서류 미정리',t:'작업은 끝났는데 사진·완료보고서·ERP등록 중 빠진 것이 있는 건',
+   c:'완료 확인 건 중 사진등록·완료보고서등록·ERP등록 칸이 미등록인 건',
+   s:'02시트 등록 칸 → 서버 대표 예외보고 집계',p:'현재 연도 원장 전체',x:'서류가 다 갖춰진 건'},
+ rep_plan:{n:'정기점검 계획대비',t:'오늘까지 예정된 점검 대비 실제 완료의 차이(+앞섬 · −뒤짐)',
+   c:'실제완료 − 목표누계. 목표누계는 균등 배분이 아니라 점검예정일이 오늘까지인 건수',
+   s:'04시트 점검예정일·점검상태 → 서버 대표 예외보고 집계',p:'이번 분기',x:'예정일 없는 건'},
+ rep_stmt:{n:'거래명세서 미발행',t:'유상인데 명세서 번호·상태·발행일 어느 근거도 없는 건',
+   c:'유상 정산 중 명세서번호·명세서 상태·발행일이 모두 빈 건 — 하나라도 있으면 발행으로 인정',
+   s:'06시트 명세서 칸 → 서버 대표 예외보고 집계',p:'현재 연도 원장 전체',x:'무상·보험·비용구분 미확정'},
+ rep_policy:{n:'업무기준 확인 필요',t:'아직 확정 답을 못 받은 업무기준(묶음기간·합산 기준 등)의 수',
+   c:'기준 5개(묶음기간·합산기준·건별월합계·PO 전 발행·이월 조건) 중 상태가 확정이 아닌 것',
+   s:'업무기준 저장값(서버 load_policy_state)',p:'상시',x:'확정 내용이 저장된 기준'},
+ center_as:{n:'돌발AS',t:'02시트 돌발AS 전체 — 미완료는 완료 확인이 안 됐거나 검증에 걸린 건',
+   c:'건수=02시트 전체 행. 미완료=상태가 작업완료·완료·정상이 아니거나 검증결과가 정상이 아닌 건',
+   s:'서버 /api/staff/records',p:'현재 연도',x:'없음(전체를 센다)'},
+ center_pm:{n:'정기점검',t:'04시트 정기점검 전체 — 미완료는 완료 확인이 안 됐거나 검증에 걸린 건',
+   c:'건수=04시트 전체 행. 미완료=상태가 완료·정상이 아니거나 검증결과가 정상이 아닌 건',
+   s:'서버 /api/staff/records',p:'현재 연도',x:'없음(전체를 센다)'},
+ center_field:{n:'현장작업',t:'현장작업 기록 전체 — 미완료는 완료 확인이 안 된 건',
+   c:'건수=현장작업 기록 전체. 미완료=상태가 완료·정상이 아니거나 검증결과가 정상이 아닌 건',
+   s:'서버 /api/staff/records',p:'현재 연도',x:'없음(전체를 센다)'},
+ center_settle:{n:'거래서류·청구',t:'06시트 정산 전체 — 미완료는 청구 진행이 필요한 건',
+   c:'미완료=상태가 정상·무상·보험·ERP 계산서(묶음)·완료(…)류가 아닌 건. 비용구분 미입력은 아직 모르는 것이라 미완료에 포함',
+   s:'서버 /api/staff/records',p:'현재 연도',x:'무상·보험·객관 입증 완료는 미완료에서 제외'},
+ center_issue:{n:'확인 필요',t:'자동 대조가 사람 확인으로 남긴 건 — 전부 미완료로 센다',
+   c:'대조(밴드·카톡·ERP·PO) 결과 중 기계가 확정하지 못한 건의 수',
+   s:'서버 /api/staff/records(확인필요 목록)',p:'현재 연도',x:'기계가 근거로 확정한 건'},
+ center_upload:{n:'자료 등록',t:'업로드로 들어온 원본 자료 이력 — 조치 대상이 아니다',
+   c:'업로드 이력 건수',s:'서버 /api/staff/records(업로드 이력)',p:'전체 이력',x:'없음'}
+};
+/* 대표보고 셀·캡처는 라벨 문자열로 카드를 그린다 — 라벨 → 사전 열쇠 명시 연결.
+   동적 꼬리 괄호(목표 N·실제 M 등)는 statHelpFor 가 떼고 다시 찾는다. */
+const STAT_ALIAS = {
+  '정산 건수':'settle-count','작업 공급가액(부가세 별도)':'supply-amount','작업 공급가액':'supply-amount',
+  '미수금':'receivable','미수금(원)':'receivable','계산서 발행율':'tax-rate','조치 필요':'issues-count',
+  'AS 미실시':'as-open','돌발AS 진행중':'as-open','정기점검 대기':'pm-wait','AS진행 · 점검대기':'as-pm',
+  '정산':'m_set','공급가액':'m_amt','공급가액(부가세 별도·원)':'m_amt','입금':'m_pay','입금(원)':'m_pay',
+  '돌발AS':'m_as','정기점검':'m_pm','당월 조치필요':'m_iss',
+  '분기 정산':'q_set','분기 공급가액':'q_amt','분기 공급가액(부가세 별도·원)':'q_amt',
+  '분기 돌발AS':'q_as','분기 돌발 AS':'q_as','분기 정기점검':'q_pm','분기 조치필요':'q_iss',
+  '정산 총계':'k_all','원장 정산 공급가액':'k_amt','원장 정산 공급가액(부가세 별도·원)':'k_amt',
+  'ERP 발행 누적 — 돌발AS·정기점검':'erp_ytd','원장 미반영 — 돌발AS·정기점검':'erp_gap',
+  'ERP 전용 매출 — 원장 관리 밖':'erp_other',
+  'AS 전산상 미완료':'rep_open','AS D+2 초과 · 지속보고 대상':'rep_d2','AS D+2 초과':'rep_d2',
+  '현장완료·서류 미정리':'rep_paper','정기점검 계획대비':'rep_plan',
+  '거래명세서 미발행':'rep_stmt','업무기준 확인 필요':'rep_policy'
+};
+function statHelpFor(key){
+  if(key==null) return null;
+  const k = String(key);
+  const hit = STAT_HELP[k] || STAT_HELP[STAT_ALIAS[k]];
+  if(hit) return hit;
+  const bare = k.replace(/\s*\([^)]*\)\s*$/,'').trim();   // 동적 꼬리 괄호 제거
+  return STAT_HELP[bare] || STAT_HELP[STAT_ALIAS[bare]] || null;
+}
+/* 카드 ⓘ → 뜻·계산·근거·기간·제외 상세 시트. 근거를 확인하지 못한 카드는 사전에
+   없으므로 ⓘ 자체가 안 붙는다 — 지어내서 보여 주지 않는다. */
+function statHelpOpen(key,label){
+  const h = statHelpFor(key) || statHelpFor(label);
+  if(!h) return;
+  try{ uxEvent('view','statHelp',String(key||label||'')); }catch(e){}
+  const row=(k,v)=>v?`<div class="stat-help-row"><b>${k}</b><span>${esc2(v)}</span></div>`:'';
+  showSheet(`<h2>${esc2(h.n||label||'통계 설명')}</h2><p class="sub">${esc2(h.t||'')}</p>
+    <div class="stat-help">${row('계산',h.c)}${row('근거',h.s)}${row('기간',h.p)}${row('제외',h.x)}</div>
+    <p class="sub" style="margin-top:12px">정의는 STAT_HELP 사전 한 곳에서 옵니다 —
+    대시보드·대표보고·캡처·업무센터가 같은 정의를 읽습니다.</p>`);
+}
 function cleanErp2026(d){
   const rows=(d.rows||[]).filter(r=>rowIs2026(r,'erp')).map(hide2025), months={}, kinds={};
   let total=0;
@@ -8573,7 +8768,7 @@ const LIVE_SYNC={
   staffRevision:'',calendarRevision:'',
   stateRevision:'',phase:'',label:'',running:false,currentStage:'',
   pollFlight:null,refreshFlight:null,pollTimer:null,probeTimer:null,
-  listenersReady:false,channel:null,lastReason:''
+  listenersReady:false,channel:null,lastReason:'',booting:true,bootFlight:null
 };
 function firstServerValue(values){
   return values.find(v=>v!==undefined&&v!==null&&String(v).trim()!=='');
@@ -8643,7 +8838,7 @@ function scheduleLiveStatePoll(){
     scheduleLiveStatePoll();
   },delay);
 }
-function startLiveStateMonitor(){
+function startLiveStateMonitor(pollNow=true){
   if(!LIVE_SYNC.listenersReady){
     LIVE_SYNC.listenersReady=true;
     try{
@@ -8657,8 +8852,9 @@ function startLiveStateMonitor(){
       if(!document.hidden){ pollLiveState('visibility'); try{ obFlush(); }catch(_){ } }
     });
   }
+  if(!pollNow) return Promise.resolve(null);
   scheduleLiveStatePoll();             // 기기마다 4.5~5.5초로 흩어 서버 동시 폭주를 막는다.
-  if(PIN) pollLiveState('start');
+  return PIN?pollLiveState('start'):Promise.resolve(null);
 }
 function signalLiveMutation(){
   if(!PIN) return;
@@ -8717,7 +8913,7 @@ function pollLiveState(reason){
       throw new ApiError(String((data&&(data.error||data.label))||'자료 상태를 확인하지 못했습니다.'),
         {path:LIVE_STATE_PATH,code:'LIVE_STATE_ERROR'});
     }
-    const next=serverRevisionOf(data), prior=LIVE_SYNC.revision, first=!LIVE_SYNC.initialized;
+    const next=serverRevisionOf(data), prior=LIVE_SYNC.revision;
     LIVE_SYNC.initialized=true; LIVE_SYNC.pollError=null; syncLiveError();
     LIVE_SYNC.stateRevision=serverStateRevisionOf(data)||LIVE_SYNC.stateRevision;
     LIVE_SYNC.phase=String(data.phase||'').toLowerCase();
@@ -8728,11 +8924,14 @@ function pollLiveState(reason){
     LIVE_SYNC.serverAt=serverDataStampOf(data)||LIVE_SYNC.serverAt;
     LIVE_SYNC.stateAt=serverStateStampOf(data)||LIVE_SYNC.stateAt;
     if(next) LIVE_SYNC.revision=next;
-    if(first&&next) LIVE_SYNC.appliedRevision=next;
     if(next&&next!==prior){
       broadcastLiveRevision();
-      if(!first) revalidateLiveData(reason||'revision',false,next); // 화면은 막지 않고 자료만 갈아 끼운다
     }
+    /* 첫 poll도 예외가 아니다. 서버 revision을 '보았다'는 이유만으로 적용 완료로
+       올리지 않고, 현재 화면 자료가 실제로 성공한 뒤에만 appliedRevision이 움직인다.
+       같은 revision이 실패했으면 다음 poll에서 다시 시도한다. */
+    if(next&&next!==LIVE_SYNC.appliedRevision)
+      revalidateLiveData(reason||'revision',false,next); // 화면은 막지 않고 자료만 갈아 끼운다
     renderDataHealth();
     return data;
   }).catch(error=>{
@@ -8770,8 +8969,17 @@ const DATA_SECTION_DEFS={
 };
 const DATA_SECTION_STATE=Object.fromEntries(Object.keys(DATA_SECTION_DEFS).map(k=>[k,{
   key:k,label:DATA_SECTION_DEFS[k].label,path:DATA_SECTION_DEFS[k].path,
-  hasGood:false,asOf:'',revision:'',error:null,loading:false,retrying:false
+  hasGood:false,asOf:'',revision:'',error:null,loading:false,retrying:false,generation:0
 }]));
+function beginDataSectionRequest(key){
+  const s=DATA_SECTION_STATE[key]; if(!s) return 0;
+  s.generation=Number(s.generation||0)+1;
+  return s.generation;
+}
+function dataSectionRequestCurrent(key,generation){
+  const s=DATA_SECTION_STATE[key];
+  return !!s&&Number(generation)>0&&Number(s.generation||0)===Number(generation);
+}
 function dataSectionKey(path){
   const p=String(path||'').split('?')[0];
   return Object.keys(DATA_SECTION_DEFS).find(k=>DATA_SECTION_DEFS[k].path===p)||'';
@@ -8849,55 +9057,66 @@ function renderDataHealth(){
       <span>${pipelineBusy?esc2([LIVE_SYNC.label,LIVE_SYNC.currentStage].filter(Boolean).join(' · ')||'자료를 갱신하고 있습니다.'):archivePending?esc2(LIVE_SYNC.label||'Excel 보관 대기'):'기존 화면은 유지하고 서버 revision을 다시 확인합니다.'}</span>${!pipelineBusy&&!archivePending?`<span class="err">${esc2(apiErrorText(LIVE_SYNC.error||'서버 연결 확인 필요'))}</span>`:''}</div>
       ${pipelineBusy?'<button type="button" disabled aria-busy="true">진행 중</button>':archivePending?'<button type="button" disabled>자동 대기</button>':'<button type="button" onclick="retryDataSync(this)">다시 확인</button>'}</div>`:''}</div>`;
 }
-function markDataSectionSuccess(key,data,targetRevision=''){
-  const s=DATA_SECTION_STATE[key]; if(!s) return;
+function markDataSectionSuccess(key,data,targetRevision='',generation=0){
+  const s=DATA_SECTION_STATE[key]; if(!s) return false;
+  if(generation&&!dataSectionRequestCurrent(key,generation)) return false;
   /* 응답을 시작할 때 잡아 둔 revision만 기록한다. 요청 중 서버 revision이 더 앞서도
      오래된 응답을 최신 revision의 결과라고 잘못 표시하지 않는다. */
   s.hasGood=true; s.asOf=dataStampOf(data);
   if(targetRevision) s.revision=String(targetRevision);
   s.error=null;
-  s.loading=false; s.retrying=false; renderDataHealth();
+  s.loading=false; s.retrying=false; renderDataHealth(); return true;
 }
-function markDataSectionFailure(key,error){
-  const s=DATA_SECTION_STATE[key]; if(!s) return;
+function markDataSectionFailure(key,error,generation=0){
+  const s=DATA_SECTION_STATE[key]; if(!s) return false;
+  if(generation&&!dataSectionRequestCurrent(key,generation)) return false;
   s.error=error instanceof ApiError?error:new ApiError(apiErrorText(error),{path:s.path,cause:error});
-  s.loading=false; s.retrying=false; renderDataHealth();
+  s.loading=false; s.retrying=false; renderDataHealth(); return true;
 }
 /* 뒤에서 새 값을 받아 오다 끊긴 것도 마찬가지다 — 사람이 아무것도 안 눌렀는데
    빨간 카드가 뜨던 자리다. 끊긴 것이면 **조용히 다시 걸고**, 그래도 안 되면 그때 적는다. */
 const _bgRetry={};
-function dataSectionBackgroundFailure(path,error,targetRevision=''){
+function dataSectionBackgroundFailure(path,error,targetRevision='',generation=0){
   const key=dataSectionKey(path); if(!key) return;
   const s=DATA_SECTION_STATE[key], def=DATA_SECTION_DEFS[key];
+  const requestGeneration=Number(generation)||beginDataSectionRequest(key);
+  if(!dataSectionRequestCurrent(key,requestGeneration)) return;
   const capturedRevision=String(targetRevision||s.revision||'');
   const pathKey=def.path.split('?')[0];
   if(!isTransientError(error) || (_bgRetry[key]||0)>=RETRY_WAIT_MS.length){
     _bgRetry[key]=0; swrDone(pathKey,false);   // 포기했으니 이제 칩도 실패라고 말한다
-    markDataSectionFailure(key,error); return;
+    markDataSectionFailure(key,error,requestGeneration); return;
   }
   const n=(_bgRetry[key]=(_bgRetry[key]||0)+1);
   s.retrying=true; s.attempt=n; s.total=RETRY_WAIT_MS.length+1; s.error=null; renderDataHealth();
   setTimeout(()=>{
+    if(!dataSectionRequestCurrent(key,requestGeneration)) return;
     _apiNet(def.path,{}).then(d=>{
+      if(!dataSectionRequestCurrent(key,requestGeneration)) return;
       _bgRetry[key]=0; swrSet(def.path,d); swrDone(pathKey,true); swrRerun(pathKey);
-      markDataSectionSuccess(key,d,capturedRevision);
-    }).catch(e=>dataSectionBackgroundFailure(def.path,e,capturedRevision));
+      markDataSectionSuccess(key,d,capturedRevision,requestGeneration);
+    }).catch(e=>dataSectionBackgroundFailure(def.path,e,capturedRevision,requestGeneration));
   }, RETRY_WAIT_MS[n-1]);
 }
 async function fetchDataSection(key,opt={}){
   const s=DATA_SECTION_STATE[key], def=DATA_SECTION_DEFS[key];
   if(!s||!def) return {ok:false,error:new ApiError('알 수 없는 자료 구분입니다.',{code:'UNKNOWN_SECTION'})};
+  const generation=beginDataSectionRequest(key);
   s.loading=!opt.retry; s.retrying=!!opt.retry; s.attempt=0; renderDataHealth();
   try{
-    const data=await apiWithRetry(def.path, opt.fresh?{fresh:true}:{}, (n,total)=>{
+    const requestOpt=opt.fresh?{fresh:true}:{};
+    requestOpt.__sectionGeneration=generation;
+    requestOpt.__sectionRevision=String(opt.revision||'');
+    const data=await apiWithRetry(def.path,requestOpt,(n,total)=>{
       // 기다리는 동안에도 화면이 무슨 일인지 말한다 — 멈춘 것처럼 보이면 사람이 또 누른다.
+      if(!dataSectionRequestCurrent(key,generation)) return;
       s.attempt=n; s.total=total; s.retrying=true; s.loading=false; renderDataHealth();
     });
-    markDataSectionSuccess(key,data,opt.revision||'');
-    return {ok:true,data};
+    const accepted=markDataSectionSuccess(key,data,opt.revision||'',generation);
+    return {ok:true,accepted,stale:!accepted,data,generation};
   }catch(error){
-    markDataSectionFailure(key,error);
-    return {ok:false,error};
+    const accepted=markDataSectionFailure(key,error,generation);
+    return {ok:false,accepted,stale:!accepted,error,generation};
   }
 }
 function applyDataSection(key,data){
@@ -8998,14 +9217,12 @@ async function refreshDataKeys(keys,targetRevision){
   const results=await Promise.all(unique.map(k=>fetchDataSection(k,{
     fresh:true,revision:captured
   })));
-  results.forEach((result,i)=>{ if(result.ok) applyDataSection(unique[i],result.data); });
+  results.forEach((result,i)=>{ if(result.ok&&result.accepted) applyDataSection(unique[i],result.data); });
   renderSettleDependents();
-  return results.every(x=>x.ok);
+  return results.every(x=>x.ok&&x.accepted);
 }
 async function refreshStaffCenter(targetRevision=''){
-  const continuity=uiContinuitySnapshot();
   const ok=await loadRyuRecords(true);
-  restoreUiContinuity(continuity);
   if(!ok) throw new ApiError('업무센터 최신 자료를 불러오지 못했습니다. 기존 입력 화면은 유지합니다.',
     {path:'/api/staff/records',code:'STAFF_REFRESH_ERROR'});
   LIVE_SYNC.staffRevision=String(targetRevision||LIVE_SYNC.revision||'');
@@ -9069,11 +9286,14 @@ async function retryDataSection(key){
   try{
     const target=String(LIVE_SYNC.revision||LIVE_SYNC.appliedRevision||'');
     const result=await fetchDataSection(key,{fresh:true,retry:true,revision:target});
-    if(!result.ok){ toast(`${s.label} 갱신 실패 · 기존 자료를 유지합니다`); return false; }
+    if(!result.ok||!result.accepted){
+      if(!result.stale) toast(`${s.label} 갱신 실패 · 기존 자료를 유지합니다`);
+      return false;
+    }
     applyDataSection(key,result.data); renderSettleDependents();
     toast(`${s.label} 갱신 완료 · 기준 ${dataStampText(s.asOf)}`); return true;
   }catch(error){
-    markDataSectionFailure(key,error); toast(`${s.label} 갱신 실패 · 기존 자료를 유지합니다`); return false;
+    toast(`${s.label} 갱신 실패 · 기존 자료를 유지합니다`); return false;
   }
 }
 /* 일곱 번 누르게 하지 않는다 — 서버가 잠깐 끊기면 **일곱 개가 같이** 실패한다.
@@ -9083,9 +9303,9 @@ async function retryAllDataSections(){
   if(!keys.length) return;
   const target=String(LIVE_SYNC.revision||LIVE_SYNC.appliedRevision||'');
   const results=await Promise.all(keys.map(k=>fetchDataSection(k,{fresh:true,retry:true,revision:target})));
-  results.forEach((r,i)=>{ if(r.ok) applyDataSection(keys[i],r.data); });
+  results.forEach((r,i)=>{ if(r.ok&&r.accepted) applyDataSection(keys[i],r.data); });
   renderSettleDependents();
-  const ok=results.filter(r=>r.ok).length;
+  const ok=results.filter(r=>r.ok&&r.accepted).length;
   toast(ok===keys.length?`${ok}개 자료를 모두 갱신했습니다`
                         :`${ok}/${keys.length}개 갱신 · 나머지는 기존 자료를 유지합니다`);
   uxEvent('tap','data-health-retry-all');
@@ -9112,16 +9332,16 @@ async function loadSettleOnce(fresh){
      유지하고 기준시각·오류·재시도 상태를 화면에 남긴다.
      fresh=true 는 캡처용 — SWR 옛 값을 건너뛰고 지금 값을 받아온다. */
   const keys=Object.keys(DATA_SECTION_DEFS);
-  const target=String(LIVE_SYNC.appliedRevision||LIVE_SYNC.revision||'');
+  const target=String(LIVE_SYNC.revision||LIVE_SYNC.appliedRevision||'');
   const results=await Promise.all(keys.map(key=>fetchDataSection(key,{fresh:!!fresh,revision:target})));
-  results.forEach((result,i)=>{ if(result.ok) applyDataSection(keys[i],result.data); });
+  results.forEach((result,i)=>{ if(result.ok&&result.accepted) applyDataSection(keys[i],result.data); });
   if(!brandLoaded){
     try{ brandLogo=(await api('/api/brand')).logo||''; brandLoaded=true; }
     catch(e){ console.warn('brand',apiErrorText(e)); }
   }
   applyBrand();
   renderSettleDependents();
-  return results.every(x=>x.ok);
+  return results.every(x=>x.ok&&x.accepted);
 }
 function setMode(m){
   mode = m;
@@ -10386,7 +10606,7 @@ function renderRecalc(rc){
      <span style="color:var(--muted)">Excel을 사람이 열 필요는 없습니다. 앱 DB 정본과 근거 재대조 후 자동 보관본에서 다시 검증합니다.</span>`;
 }
 
-var CAL = null;   // let 이면 applyView 가 먼저 불릴 때 TDZ 로 죽는다
+var CAL = null, CAL_REQUEST_GENERATION = 0;   // let 이면 applyView 가 먼저 불릴 때 TDZ 로 죽는다
 /* 캘린더도 같은 관문을 지난다 — 철거·납품 일정은 원장(05시트)에 계속 쌓이지만 화면에선 뺀다.
    SHOW_SIDE_WORK 를 켜면 여기도 자동으로 같이 나온다. 목록·카운트·시트 전부 이 함수만 쓴다. */
 function calEvents(){
@@ -10396,8 +10616,14 @@ function calHiddenCount(){
   return ((CAL && CAL.일정) || []).length - calEvents().length;
 }
 async function loadCalendar(fresh=false){
-  try{ CAL = await api('/api/calendar',fresh?{fresh:true}:{}); }
+  const generation=++CAL_REQUEST_GENERATION;
+  try{
+    const data=await api('/api/calendar',fresh?{fresh:true}:{});
+    if(generation!==CAL_REQUEST_GENERATION) return false;
+    CAL=data;
+  }
   catch(e){
+    if(generation!==CAL_REQUEST_GENERATION) return false;
     /* 백그라운드 갱신 실패가 이미 보던 캘린더를 빈 화면으로 만들면 안 된다. */
     if(!CAL) CAL=null;
     return false;
@@ -12971,8 +13197,13 @@ function renderDaily(){
     '확인 불가';
   const cell = (v,l,k)=>{
     const on = k && KS[k] && KS[k].rows.length;
+    // 뜻은 STAT_HELP 한 곳(2026-08-11) — 부제 한 줄은 항상 보이고 ⓘ 는 상세를 연다.
+    const hp = statHelpFor(l);
     return `<div class="rcell${on?' clk':''}"${on?` onclick="openKpi('${k}')"`:''}>` +
-      `<div class="v">${v}</div><div class="l">${l}${on?' <span class="go">▸</span>':''}</div></div>`;
+      `<div class="v">${v}</div><div class="l">${l}${on?' <span class="go">▸</span>':''}${hp?` <button class="stat-info" type="button"
+        aria-label="${esc2(l)} 설명" title="이 숫자의 뜻·계산·근거"
+        onclick="event.stopPropagation();statHelpOpen(${esc4(l)})">ⓘ</button>`:''}</div>` +
+      (hp?`<div class="sh">${esc2(hp.t)}</div>`:'') + `</div>`;
   };
   const rptLogo = `<div class="logo app-icon"><img src="/icon-192.png?v=csos-20260730" alt="CSOS"></div>`;
   $('rpt').innerHTML = `
@@ -14686,7 +14917,10 @@ async function reportToPng(){
   const cv = document.createElement('canvas');
   const ctx = cv.getContext('2d');
   // ── 높이 선계산 (대표보고 섹션 포함)
-  const tiles = r => Math.ceil(r/3)*74;
+  /* 타일 한 칸 88px — 값 아래에 STAT_HELP 부제 한 줄을 그린다(2026-08-11).
+     높이 선계산(tiles)과 그리기(grid)가 같은 수를 봐야 캡처 아래가 안 잘린다. */
+  const TILE_H = 88;
+  const tiles = r => Math.ceil(r/3)*TILE_H;
   const execSections=(D.exec||[]).filter(s=>!/^(정리|요약)$/.test(cleanExecTitle(s.title)));
   const dailyIssueList=D.dailyIssues||[];
   const dailyIssueDetails=D.dailyIssueDetails||[];
@@ -14795,12 +15029,17 @@ async function reportToPng(){
     }
   };
   const grid = arr => { const cw=(W-60-16)/3;
-    arr.forEach((t,i)=>{ const cx=30+(i%3)*(cw+8), cy=y+Math.floor(i/3)*74;
+    arr.forEach((t,i)=>{ const cx=30+(i%3)*(cw+8), cy=y+Math.floor(i/3)*TILE_H;
       const accents=['#4960DF','#2B9560','#D08A2E'], accent=accents[i%3];
-      box(cx,cy,cw,64,'#FAFBFE','#DFE6F2');
+      box(cx,cy,cw,TILE_H-10,'#FAFBFE','#DFE6F2');
       box(cx,cy,cw,4,accent,null,4);
       txt(t[1],cx+14,cy+22,F(11,800),'#667085');
-      txt(t[0],cx+14,cy+44,F(19,800),t[2]||'#101828'); });
+      txt(t[0],cx+14,cy+44,F(19,800),t[2]||'#101828');
+      // STAT_HELP 부제 — 화면과 캡처가 같은 뜻을 말한다(2026-08-11). 글꼴은 uiFont().
+      const hp=statHelpFor(t[1]);
+      if(hp){ ctx.font=F(9); let s=String(hp.t||'');
+        while(s.length>1&&ctx.measureText(s+'…').width>cw-26)s=s.slice(0,-1);
+        txt(s===String(hp.t||'')?s:s+'…',cx+14,cy+66,F(9),'#98A2B3'); } });
     y += tiles(arr.length); };
   const table = (cols,rows,widths)=>{
     const xs=[]; let cx=30; widths.forEach(w=>{xs.push(cx); cx+=w;});
@@ -15139,7 +15378,8 @@ async function dashToPng(){
   const typeE = Object.entries(byType).sort((a,b)=>b[1].length-a[1].length);
   const steps = (window._agentSteps||[]);
 
-  const H = 104 + 34 + 148 + 34 + 190 + 34 + 76 + 34 + (typeE.length+1)*30 + 34 + (steps.length*22+10) + 50;
+  // 타일 148→176: STAT_HELP 부제 한 줄이 들어가 칸이 88px 로 커졌다(2026-08-11).
+  const H = 104 + 34 + 176 + 34 + 190 + 34 + 76 + 34 + (typeE.length+1)*30 + 34 + (steps.length*22+10) + 50;
   const cv = document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
   const ctx = cv.getContext('2d'); ctx.scale(S,S); ctx.textBaseline='middle';
   const txt=(s,x,yy,f,c,a)=>{ctx.font=f;ctx.fillStyle=c||'#101828';ctx.textAlign=a||'left';
@@ -15169,16 +15409,23 @@ async function dashToPng(){
     ctx.lineTo(W-30,yy-8);ctx.stroke();};
 
   section('핵심 지표');
-  const kpi=[[rows.length+'건','정산 건수','#2452E6'],[fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)'],
-    [fmt(미수),'미수금(원)',미수?'#B54708':'#12813F'],
-    [pctText(발행,유상.length,'0.0%'),'계산서 발행율'],
-    [issues.length+'건','조치 필요',issues.length?'#C0212E':'#12813F'],
-    [asOpen+' · '+pmWait,'AS진행 · 점검대기']];
+  // 4번째 칸은 STAT_HELP 열쇠(2026-08-11) — 이 캡처의 공급가액은 연도 전체라 라벨이
+  //   월 실적과 같아도 열쇠로 정확한 정의(supply-amount)를 집는다.
+  const kpi=[[rows.length+'건','정산 건수','#2452E6','settle-count'],
+    [fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)',null,'supply-amount'],
+    [fmt(미수),'미수금(원)',미수?'#B54708':'#12813F','receivable'],
+    [pctText(발행,유상.length,'0.0%'),'계산서 발행율',null,'tax-rate'],
+    [issues.length+'건','조치 필요',issues.length?'#C0212E':'#12813F','issues-count'],
+    [asOpen+' · '+pmWait,'AS진행 · 점검대기',null,'as-pm']];
   const cw=(W-60-16)/3;
-  kpi.forEach((t,i)=>{const cx=30+(i%3)*(cw+8), cy=yy+Math.floor(i/3)*74;
-    box(cx,cy,cw,64,'#F8FAFD','#EEF2F7');
-    txt(t[1],cx+14,cy+22,F(11,700),'#98A2B3'); txt(t[0],cx+14,cy+44,F(19,800),t[2]||'#101828');});
-  yy+=148;
+  kpi.forEach((t,i)=>{const cx=30+(i%3)*(cw+8), cy=yy+Math.floor(i/3)*88;
+    box(cx,cy,cw,78,'#F8FAFD','#EEF2F7');
+    txt(t[1],cx+14,cy+22,F(11,700),'#98A2B3'); txt(t[0],cx+14,cy+44,F(19,800),t[2]||'#101828');
+    const hp=statHelpFor(t[3]||t[1]);
+    if(hp){ ctx.font=F(9); let s=String(hp.t||'');
+      while(s.length>1&&ctx.measureText(s+'…').width>cw-26)s=s.slice(0,-1);
+      txt(s===String(hp.t||'')?s:s+'…',cx+14,cy+66,F(9),'#98A2B3'); }});
+  yy+=176;
 
   section(y+'년 월별 공급가액(부가세 별도)');
   const maxV=Math.max(1,...byM), bw=(W-60)/12-8;
@@ -15523,11 +15770,30 @@ const rerunSettle = () => loadSettle().catch(()=>{});
    아무 관계가 없는데도 **합이 걸리는 시간**이 된다 — 사용 기록의 실측이
    `/api/status` 2.7초 · `/api/notifications` 최악 59초라 새로고침 한 번이 분 단위였다.
    동시에 부르면 **가장 느린 하나**만 기다린다. 각자의 렌더는 도착하는 대로 돈다. */
-async function refreshAll(){
+async function refreshAll(includeData=true){
   const run = f => { try{ return Promise.resolve(f()).catch(()=>{}); }catch(e){ return Promise.resolve(); } };
-  const jobs = [run(loadSettle), run(loadStatus), run(loadNotifications), run(loadRemoteStat),run(loadAutomationStatus)];
+  const jobs = [run(loadStatus), run(loadNotifications), run(loadRemoteStat),run(loadAutomationStatus)];
+  if(includeData) jobs.unshift(run(staffSlug||curView()==='ryu'?()=>loadRyuRecords(true):loadSettle));
   if(staffSlug) jobs.push(run(()=>staffHeartbeat('view')));
   await Promise.all(jobs);
+}
+function bootstrapAuthenticatedData(){
+  if(LIVE_SYNC.bootFlight) return LIVE_SYNC.bootFlight;
+  LIVE_SYNC.booting=true;
+  startLiveStateMonitor(false);             // 리스너만 먼저 설치하고 첫 poll 순서를 고정한다.
+  refreshAll(false);                        // 상태·알림은 자료 revision과 무관하게 병렬 실행한다.
+  LIVE_SYNC.bootFlight=(async()=>{
+    const state=await startLiveStateMonitor(true);
+    const firstFlight=LIVE_SYNC.refreshFlight;
+    if(firstFlight) await firstFlight;       // 첫 revision의 현재 화면 검증까지 기다린다.
+    else if(!state||!LIVE_SYNC.revision)     // live-state 자체가 없을 때만 현재 화면을 직접 채운다.
+      await refreshLiveViewData('',false);
+  })().finally(()=>{
+    LIVE_SYNC.booting=false;
+    queueLiveViewCatchup(curView());
+    renderDataHealth();
+  });
+  return LIVE_SYNC.bootFlight;
 }
 (async function(){
   tick(); setInterval(tick, 30000); initDates(); previewCalendarDraft();
@@ -15552,8 +15818,7 @@ async function refreshAll(){
   if(await restoreRoleSession()){
     $('gate').style.display='none';
     uxEvent('view',curView());
-    startLiveStateMonitor();             // idempotent: 폴링·리스너는 세션당 한 벌만
-    refreshAll();
+    bootstrapAuthenticatedData();        // 첫 poll → 현재 화면 성공 순서로 한 번만 부팅한다.
     pollLog().catch(()=>{});
   }
   if(staffSlug){

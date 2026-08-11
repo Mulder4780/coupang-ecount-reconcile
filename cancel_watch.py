@@ -47,7 +47,8 @@ except Exception:
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
-from band_extract import cancel_hit, comment_text, cancel_blind_count, RE_PRJ  # noqa: E402
+from band_extract import (cancel_hit, latest_cancel_event,
+                          cancel_blind_count, RE_PRJ)  # noqa: E402
 from cancel_resolution import (load_corroborations, outcome_kind, sync_hits)  # noqa: E402
 
 CACHE_DIR = os.path.join(ROOT, "band", "cache")
@@ -69,7 +70,7 @@ def _snippet(text, width=34):
 
 def scan_band(quiet=False):
     """밴드 캐시에서 취소로 읽히는 글을 모은다. **긁지 않는다 — 읽기만 한다.**"""
-    hits, blind, total = {}, 0, 0
+    latest, blind, total = {}, 0, 0
     for fp in sorted(glob.glob(os.path.join(CACHE_DIR, "*.json"))):
         base = os.path.basename(fp)
         if base.startswith("raw"):
@@ -85,35 +86,41 @@ def scan_band(quiet=False):
             if not isinstance(p, dict):
                 continue
             total += 1
-            body, cmt = p.get("content") or "", comment_text(p)
-            where = "댓글" if cancel_hit(cmt) else ("본문" if cancel_hit(body) else "")
-            if not where:
-                continue
+            body = p.get("content") or ""
             m = RE_PRJ.search(body)
             if not m:
                 continue                      # 프로젝트NO 가 없으면 원장에 붙일 수 없다
-            ts = p.get("created_at")
-            try:
-                day = datetime.fromtimestamp(int(ts) / 1000).strftime("%Y-%m-%d") if ts else ""
-            except Exception:
-                day = ""
-            prj = m.group(1).upper()
-            # 같은 프로젝트가 여러 글에 나오면 **가장 나중 글**이 최신 뜻이다.
-            cur = hits.get(prj)
-            if cur and cur["게시일"] > day:
+            event = latest_cancel_event(p)
+            if not event:
                 continue
-            source_text = cmt if where == "댓글" else body
+            epoch = event.get("epoch")
+            day = datetime.fromtimestamp(epoch).strftime("%Y-%m-%d") if epoch is not None else ""
+            prj = m.group(1).upper()
+            # 같은 프로젝트가 여러 글에 나오면 게시일 문자열이 아니라 **상태 사건 시각**을
+            # 비교한다. 나중 글/댓글의 '접수 유지'가 옛 취소를 실제로 해제해야 한다.
+            order_key = (epoch if epoch is not None else float("-inf"), str(no))
+            cur = latest.get(prj)
+            if cur and cur["_order_key"] > order_key:
+                continue
+            source_text = event.get("text") or ""
             observed = p.get("captured_at") or p.get("updated_at") or ""
             work_kind = ("정기점검" if re.search(r"정기\s*점검", body, re.I)
                          else "돌발AS" if re.search(r"돌발|A\s*/?\s*S", body, re.I)
                          else "")
             treatment = outcome_kind(source_text)
-            hits[prj] = {
+            latest[prj] = {
                 "프로젝트NO": prj, "밴드": bname, "게시글": str(no), "게시일": day,
-                "자리": where, "근거": _snippet(source_text), "원문": source_text[:4000],
+                "자리": event.get("source") or "본문",
+                "근거": _snippet(source_text), "원문": source_text[:4000],
                 "관측시각": observed, "업무종류": work_kind, "처리구분": treatment,
                 "근거URL": f"https://band.us/band/{bname}/post/{no}",
+                "_state": event.get("state"), "_order_key": order_key,
             }
+    hits = {}
+    for project, event in latest.items():
+        if event.get("_state") != "cancel":
+            continue                         # 최신 명시 상태가 유지/재개면 옛 취소를 제외한다.
+        hits[project] = {k: v for k, v in event.items() if not k.startswith("_")}
     if not quiet:
         print(f"  밴드 {total}글 훑음 — 취소로 읽히는 건 {len(hits)}건"
               f" · 댓글을 못 읽어 놓쳤을 수 있는 글 {blind}건")

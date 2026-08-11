@@ -5962,7 +5962,7 @@ def get_settlements():
     return cached_data("settle", _build_settlements)
 
 
-def get_live_state(*, store=None, state_path=None):
+def get_live_state(*, store=None, state_path=None, lock_path=None):
     """Return a cheap, server-authoritative revision for every connected device.
 
     This endpoint deliberately does not read Excel, Z:, Band, ERP, or any of the
@@ -6002,6 +6002,29 @@ def get_live_state(*, store=None, state_path=None):
             return max(candidates, key=sort_key)
 
         last_run = pipeline.get("last_run") or {}
+        # state JSON은 프로세스가 비정상 종료되면 ``running:true``인 채 남는다.
+        # 실제 잠금의 pid+생성시각 지문까지 맞을 때만 실행 중으로 인정한다. 임시
+        # state_path를 쓰는 합성검증은 같은 폴더의 잠금만 보므로 운영 잠금을 읽지 않는다.
+        try:
+            from automation_pipeline import pipeline_lock_status
+            resolved_lock_path = (
+                os.fspath(lock_path)
+                if lock_path is not None
+                else os.path.join(os.path.dirname(state_file), ".automation_pipeline.lock")
+            )
+            lock_state = pipeline_lock_status(resolved_lock_path)
+            lock_alive = lock_state.get("alive") is True
+            lock_run_id = str(lock_state.get("run_id") or "")
+            state_run_id = str(last_run.get("run_id") or pipeline.get("active_run_id") or "")
+            pipeline_running = bool(
+                pipeline.get("running") and lock_alive
+                and (not state_run_id or not lock_run_id or state_run_id == lock_run_id)
+            )
+        except Exception:
+            # 판정 자체를 못 하면 state를 거짓 정상으로 만들지 않고 기존 상태를 보수적으로
+            # 유지한다. 정상 경로에서는 공용 판정기가 항상 사용된다.
+            lock_state = {"exists": None, "alive": None}
+            pipeline_running = bool(pipeline.get("running"))
         history = pipeline.get("history") or []
         completed_runs = [
             str(run.get("finished_at") or "")
@@ -6032,7 +6055,9 @@ def get_live_state(*, store=None, state_path=None):
             # 모든 기기가 보관 완료로 오해한다. 검증이 끝난 마지막 export만 표시한다.
             "snapshot_seq": int(last_completed_export.get("snapshot_seq") or 0),
             "export_status": str(last_completed_export.get("status") or ""),
-            "pipeline_running": bool(pipeline.get("running")),
+            "pipeline_running": pipeline_running,
+            "pipeline_lock_alive": lock_state.get("alive"),
+            "pipeline_lock_run_id": str(lock_state.get("run_id") or ""),
             "pipeline_updated_at": str(last_run.get("updated_at") or ""),
             "pipeline_finished_at": str(last_run.get("finished_at") or ""),
             "last_completed_at": last_completed_at,

@@ -26,7 +26,7 @@ ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 RUN_LOCK = os.path.join(REPORT_DIR, ".daily_run.lock")
 
 
-def _pid_alive(pid, born_before=None):
+def _pid_alive(pid, born_before=None, pid_started_at=None):
     """같은 PC의 프로세스가 살아 있는가. 죽은 잠금만 안전하게 회수한다.
 
     ★ 판정은 pid_alive.py 한 곳에서 한다 (2026-08-06 실사고 · 검증 [121]).
@@ -52,7 +52,18 @@ def _pid_alive(pid, born_before=None):
         import pid_alive
     except Exception:
         return True                      # 판정 못 하면 건드리지 않는다
-    return pid_alive.alive(pid, born_before=born_before) is not False
+    return pid_alive.owner_alive(
+        pid, pid_started_at=pid_started_at, born_before=born_before
+    ) is not False
+
+
+def _process_identity():
+    """One shared owner fingerprint shape; unknown creation time stays null."""
+    try:
+        import pid_alive
+        return pid_alive.identity()
+    except Exception:
+        return {"pid": os.getpid(), "pid_started_at": None}
 
 
 def acquire_run_lock(path=RUN_LOCK):
@@ -60,7 +71,7 @@ def acquire_run_lock(path=RUN_LOCK):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     token = f"{os.getpid()}:{time.time_ns()}:{uuid.uuid4().hex}"
     payload = {
-        "pid": os.getpid(),
+        **_process_identity(),
         "token": token,
         "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
@@ -91,7 +102,11 @@ def acquire_run_lock(path=RUN_LOCK):
                     born = os.path.getmtime(path)
                 except OSError:
                     pass
-            if _pid_alive(owner.get("pid"), born_before=born):
+            if _pid_alive(
+                owner.get("pid"),
+                born_before=born,
+                pid_started_at=owner.get("pid_started_at"),
+            ):
                 return None
             try:
                 os.unlink(path)
@@ -199,7 +214,7 @@ def note_progress(step, state, extra=None):
         # 이어갈 값은 끝난 단계 목록뿐이고, 나머지는 매 상태의 새 사실이어야 한다.
         done = list(previous.get("끝난단계") or [])[-60:]
         cur = {
-            "pid": os.getpid(),
+            **_process_identity(),
             "단계": step,
             "상태": state,
             "시각": datetime.now().astimezone().isoformat(timespec="seconds"),

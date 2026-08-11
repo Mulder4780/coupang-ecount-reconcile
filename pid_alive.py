@@ -83,6 +83,54 @@ def started_at(pid):
         return None
 
 
+def identity(pid=None):
+    """Return the process-owner fields written into new lock/claim records."""
+    try:
+        owner_pid = int(os.getpid() if pid is None else pid)
+    except (TypeError, ValueError):
+        owner_pid = 0
+    return {
+        "pid": owner_pid,
+        "pid_started_at": started_at(owner_pid) if owner_pid > 0 else None,
+    }
+
+
+def owner_alive(pid, pid_started_at=None, born_before=None):
+    """Verify that *pid* is still the exact recorded process owner.
+
+    New records pass ``pid_started_at`` and reject PID reuse by exact process
+    creation time.  Legacy records omit it and retain ``born_before`` with the
+    historical five-second slack.  An unavailable creation-time lookup is
+    deliberately ``None`` so callers preserve a possibly live owner's claim.
+    """
+    try:
+        owner_pid = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if owner_pid <= 0:
+        return None
+    exists = _exists(owner_pid)
+    if exists is not True:
+        return exists
+    if pid_started_at not in (None, ""):
+        try:
+            expected = float(pid_started_at)
+        except (TypeError, ValueError):
+            return None
+        observed = started_at(owner_pid)
+        if observed is None:
+            return None
+        return abs(observed - expected) <= FINGERPRINT_TOLERANCE_S
+    if born_before is not None:
+        try:
+            observed = started_at(owner_pid)
+            if observed is not None and observed > float(born_before) + BORN_SLACK_S:
+                return False
+        except (TypeError, ValueError):
+            pass
+    return True
+
+
 def image_name(pid):
     """프로세스의 **실행파일 이름**(소문자, 예: 'python.exe'). 모르면 None.
 
@@ -138,21 +186,7 @@ def alive(pid, born_before=None):
     프로세스라면 번호만 같은 남이므로 False. 원래 주인은 잠금·기록을 남기기 **전에**
     이미 떠 있었을 수밖에 없다 — 그래서 이 판정은 증명이지 짐작이 아니다.
     생성 시각을 모르면 예전과 똑같이 동작한다(산 것을 죽었다고 하지 않는다)."""
-    try:
-        pid = int(pid)
-    except (TypeError, ValueError):
-        return None
-    if pid <= 0:
-        return None
-    res = _exists(pid)
-    if res is True and born_before is not None:
-        try:
-            born = started_at(pid)
-            if born is not None and born > float(born_before) + BORN_SLACK_S:
-                return False    # 그 시각 뒤에 태어났다 — 번호만 같은 남이다
-        except (TypeError, ValueError):
-            pass
-    return res
+    return owner_alive(pid, born_before=born_before)
 
 
 def _exists(pid):

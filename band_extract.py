@@ -133,6 +133,51 @@ _NOT_CANCEL = re.compile(r"(접\s*수\s*취\s*소\s*(불\s*가|없|아\s*님|안
                          r"|(?:보\s*험|택\s*배|부\s*품|예\s*약|주\s*문|발\s*송)\s*접\s*수\s*취\s*소"
                          r"|접\s*수\s*유\s*지|취\s*소\s*된\s*건\s*없)")
 
+# 취소를 **되돌린** 말도 하나의 상태 사건이다. 예전처럼 댓글을 한 덩어리로
+# 합친 뒤 `_NOT_CANCEL.search()`를 하면, 오래된 "접수 취소"와 나중의 "접수 유지"가
+# 같은 문자열에 있다는 이유만으로 둘 다 사라졌다. 이제 문장별·댓글별 사건을 시간순으로
+# 놓고 마지막 명시 상태가 이긴다(2026-08-11 엄격검토).
+_ACTIVE = re.compile(
+    r"(접\s*수\s*(?:는\s*)?(?:유\s*지|계\s*속|진\s*행|재\s*개)"
+    r"|접\s*수(?:는|를)?\s*취\s*소\s*(?:하\s*지\s*않|안\s*함|안\s*하|아\s*님|불\s*가|안\s*됨|보\s*류)"
+    r"|접\s*수\s*취\s*소\s*(?:철\s*회|해\s*제|번\s*복)"
+    r"|취\s*소\s*(?:철\s*회|해\s*제|번\s*복)"
+    r"|취\s*소\s*된\s*건\s*없)"
+)
+_NON_SERVICE_CANCEL = re.compile(
+    r"(?:보\s*험|택\s*배|부\s*품|예\s*약|주\s*문|발\s*송)\s*접\s*수\s*취\s*소"
+)
+
+
+def cancel_state(text):
+    """한 본문/댓글 안의 마지막 명시 상태: ``cancel``·``active``·빈 문자열.
+
+    보험·택배·부품 접수 취소는 서비스 접수 상태가 아니므로 사건에서 제외한다.
+    같은 댓글 안에 정정이 함께 적혀도 **뒤에 쓴 말**이 이긴다. 이 함수는 한 댓글만
+    판단하고, 댓글 사이의 시간 순서는 :func:`latest_cancel_event`가 맡는다.
+    """
+    s = str(text or "")
+    if not s:
+        return ""
+    events = []
+    excluded = list(_NON_SERVICE_CANCEL.finditer(s))
+    for match in _CANCEL.finditer(s):
+        # "보험접수 취소"처럼 다른 종류의 접수 취소와 겹친 매치는 버린다.
+        if any(not (match.end() <= bad.start() or match.start() >= bad.end())
+               for bad in excluded):
+            continue
+        # 바로 뒤의 부정·보류는 취소가 아니라 active 사건으로 아래 _ACTIVE가 잡는다.
+        tail = s[match.start():min(len(s), match.end() + 16)]
+        if _NOT_CANCEL.search(tail):
+            continue
+        events.append((match.start(), match.end(), "cancel"))
+    for match in _ACTIVE.finditer(s):
+        events.append((match.start(), match.end(), "active"))
+    if not events:
+        return ""
+    events.sort(key=lambda item: (item[0], item[1]))
+    return events[-1][2]
+
 
 def cancel_hit(text):
     """이 글/댓글이 **접수 취소**를 말하고 있나.
@@ -141,10 +186,61 @@ def cancel_hit(text):
     그리고 오접수·중복접수·접수철회다. 그냥 '취소'는 판정하지 않는다 —
     취소로 잘못 처리하면 그 현장은 아무도 안 가는데 목록에서도 사라진다.
     """
-    s = str(text or "")
-    if not s or _NOT_CANCEL.search(s):
-        return False
-    return bool(_CANCEL.search(s))
+    return cancel_state(text) == "cancel"
+
+
+def _event_epoch(value):
+    """밴드 밀리초·초·ISO 시각을 정렬 가능한 epoch 초로 바꾼다."""
+    if value in (None, ""):
+        return None
+    try:
+        number = float(value)
+        return number / 1000.0 if number > 10_000_000_000 else number
+    except (TypeError, ValueError):
+        pass
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def latest_cancel_event(post):
+    """본문과 댓글을 시간순으로 놓고 마지막 접수상태 사건을 돌려준다.
+
+    ``{state, source, text, created_at, epoch, order}`` 모양이다. 시각 없는 댓글은
+    수집 단계의 원칙과 같이 버린다. 본문은 게시시각, 댓글은 댓글시각을 사용하므로
+    오래된 취소 댓글 뒤의 최신 "접수 유지"가 정상적으로 취소를 해제한다.
+    """
+    if not isinstance(post, dict):
+        return None
+    events = []
+    body = str(post.get("content") or "")
+    body_state = cancel_state(body)
+    body_epoch = _event_epoch(post.get("created_at"))
+    if body_state:
+        events.append({"state": body_state, "source": "본문", "text": body,
+                       "created_at": post.get("created_at"), "epoch": body_epoch,
+                       "order": 0})
+    for index, comment in enumerate(post.get("comments") or [], 1):
+        if not isinstance(comment, dict):
+            continue
+        text = str(comment.get("content") or comment.get("body") or "")
+        state = cancel_state(text)
+        epoch = _event_epoch(comment.get("created_at"))
+        if not state or epoch is None:  # 시각 없는 댓글로 순서를 지어내지 않는다.
+            continue
+        events.append({"state": state, "source": "댓글", "text": text,
+                       "created_at": comment.get("created_at"), "epoch": epoch,
+                       "order": index})
+    if not events:
+        return None
+    # 본문 시각이 결측이면 알려진 댓글보다 앞선 것으로만 취급한다.
+    events.sort(key=lambda event: (
+        event.get("epoch") is not None,
+        event.get("epoch") if event.get("epoch") is not None else float("-inf"),
+        event.get("order", 0),
+    ))
+    return events[-1]
 
 
 def comment_text(post):
@@ -251,15 +347,15 @@ def parse_post(no, p, band):
     if "동시" in title or "동시진행" in c:
         kind += "(동시진행)"
     cost = "유상" if "유료" in title else ("무상" if "무료" in title else "")
-    # ★ 순서가 뜻을 가진다. 댓글은 글보다 **나중**에 달리므로 완료 글이라도 댓글의
-    #   취소가 이긴다. 반대로 제목이 '완료'인 글의 본문에 나온 취소는 그 작업 얘기가
-    #   아닐 때가 많다(실측 4979: '접수전 정기점검 취소되어 도어락만 교체진행됨' —
-    #   작업은 실제로 했다). 그래서 본문 취소는 완료 제목에 양보한다.
-    if cancel_hit(comment_text(p)):
+    # ★ 본문과 댓글을 한 문자열로 합치지 않는다. 각 댓글의 시각을 읽어 마지막 명시
+    #   상태가 이긴다. 단 완료 제목과 같은 시각의 본문 취소는 기존 안전규칙대로 완료에
+    #   양보한다(실측 4979: 일부 작업만 취소하고 실제 작업은 완료).
+    state_event = latest_cancel_event(p)
+    if state_event and state_event["state"] == "cancel" and state_event["source"] == "댓글":
         status = "취소"
     elif "완료" in title:
         status = "작업완료"
-    elif cancel_hit(c):
+    elif state_event and state_event["state"] == "cancel":
         status = "취소"
     elif "안내" in title:
         status = "접수·예정"

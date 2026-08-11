@@ -131,7 +131,11 @@ def submit_kakao_file(
     }
 
 
-def _pid_alive(pid: int, born_before: Optional[float] = None) -> bool:
+def _pid_alive(
+    pid: int,
+    born_before: Optional[float] = None,
+    pid_started_at: Optional[float] = None,
+) -> bool:
     """Conservative shared PID verdict: only a certain death is reclaimable."""
 
     # Windows ``os.kill(pid, 0)`` is not the process-liveness contract used by
@@ -140,7 +144,57 @@ def _pid_alive(pid: int, born_before: Optional[float] = None) -> bool:
     # owner's lock is more valuable than an eager retry, so unknown means live.
     # ``born_before`` (잠금이 쓰인 시각): 그보다 뒤에 태어난 프로세스는 pid 가
     # 재사용된 남이다 — 번호만 보고 살아 있다고 오판하지 않는다(검증 [210]).
-    return pid_alive.alive(pid, born_before=born_before) is not False
+    return pid_alive.owner_alive(
+        pid, pid_started_at=pid_started_at, born_before=born_before
+    ) is not False
+
+
+def pipeline_lock_status(path: Path = LOCK_PATH) -> Dict[str, Any]:
+    """Read and verify the current pipeline lock without changing it.
+
+    New lock lines are ``pid claim_time token run_id pid_started_at``.  The
+    fifth field is optional so four-field locks already on disk remain valid.
+    """
+    lock_path = Path(path)
+    try:
+        words = lock_path.read_text(encoding="ascii").split()
+        stat = lock_path.stat()
+    except FileNotFoundError:
+        return {"exists": False, "alive": False, "path": str(lock_path)}
+    except OSError:
+        return {"exists": True, "alive": None, "path": str(lock_path)}
+    try:
+        owner_pid = int(words[0]) if words else 0
+    except (TypeError, ValueError):
+        owner_pid = 0
+    try:
+        claimed_at = float(words[1]) if len(words) >= 2 else stat.st_mtime
+    except (TypeError, ValueError):
+        claimed_at = stat.st_mtime
+    try:
+        owner_started_at = float(words[4]) if len(words) >= 5 else None
+    except (TypeError, ValueError):
+        owner_started_at = None
+    verdict = (
+        pid_alive.owner_alive(
+            owner_pid,
+            pid_started_at=owner_started_at,
+            born_before=claimed_at,
+        )
+        if owner_pid > 0
+        else None
+    )
+    return {
+        "exists": True,
+        "alive": verdict,
+        "pid": owner_pid,
+        "claimed_at": claimed_at,
+        "pid_started_at": owner_started_at,
+        "token": words[2] if len(words) >= 3 else "",
+        "run_id": words[3] if len(words) >= 4 else "",
+        "age_seconds": max(0.0, time.time() - stat.st_mtime),
+        "path": str(lock_path),
+    }
 
 
 class LockOwnershipLost(RuntimeError):
@@ -153,45 +207,45 @@ class PipelineLock:
         self.owned = False
         self.token: Optional[str] = None
         self.run_id: Optional[str] = None
+        self.pid_started_at: Optional[float] = None
 
-    def _owner_words(self) -> Tuple[int, str, str]:
-        try:
-            words = self.path.read_text(encoding="ascii").split()
-            pid = int(words[0]) if words else 0
-            token = words[2] if len(words) >= 3 else ""
-            run_id = words[3] if len(words) >= 4 else ""
-            return pid, token, run_id
-        except (OSError, ValueError):
-            return 0, "", ""
+    def _owner_words(self) -> Tuple[int, str, str, Optional[float]]:
+        status = pipeline_lock_status(self.path)
+        return (
+            int(status.get("pid") or 0),
+            str(status.get("token") or ""),
+            str(status.get("run_id") or ""),
+            status.get("pid_started_at"),
+        )
 
     def acquire(self, run_id: str) -> Optional[str]:
         run_id = str(run_id or "").strip()
         if not run_id:
             raise ValueError("pipeline run_id is required")
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        owner_identity = pid_alive.identity()
+        owner_started_at = owner_identity.get("pid_started_at")
         for _attempt in range(2):
             token = uuid.uuid4().hex
             try:
                 fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                 with os.fdopen(fd, "w", encoding="ascii") as handle:
-                    handle.write(
-                        f"{os.getpid()} {time.time():.3f} {token} {run_id}\n"
-                    )
+                    fields = [str(os.getpid()), f"{time.time():.3f}", token, run_id]
+                    if owner_started_at is not None:
+                        fields.append(f"{float(owner_started_at):.7f}")
+                    handle.write(" ".join(fields) + "\n")
                     handle.flush()
                     os.fsync(handle.fileno())
                 self.owned = True
                 self.token = token
                 self.run_id = run_id
+                self.pid_started_at = owner_started_at
                 return token
             except FileExistsError:
-                try:
-                    words = self.path.read_text(encoding="ascii").split()
-                    pid = int(words[0]) if words else 0
-                    born = float(words[1]) if len(words) >= 2 else None
-                    age = time.time() - self.path.stat().st_mtime
-                except (OSError, ValueError):
-                    pid, born, age = 0, None, 999999
-                if pid and _pid_alive(pid, born_before=born):
+                status = pipeline_lock_status(self.path)
+                pid = int(status.get("pid") or 0)
+                age = float(status.get("age_seconds") or 999999)
+                if pid and status.get("alive") is not False:
                     return None
                 if age < 60:
                     return None
@@ -204,9 +258,19 @@ class PipelineLock:
     def is_owner(self, token: Optional[str], run_id: Optional[str]) -> bool:
         if not self.owned or not token or not run_id:
             return False
-        pid, disk_token, disk_run_id = self._owner_words()
+        pid, disk_token, disk_run_id, disk_started_at = self._owner_words()
         return (
             pid == os.getpid()
+            and pid_alive.owner_alive(
+                pid,
+                pid_started_at=disk_started_at,
+            ) is True
+            and (
+                self.pid_started_at is None
+                or disk_started_at is None
+                or abs(float(self.pid_started_at) - float(disk_started_at))
+                <= pid_alive.FINGERPRINT_TOLERANCE_S
+            )
             and token == self.token == disk_token
             and run_id == self.run_id == disk_run_id
         )
@@ -226,6 +290,7 @@ class PipelineLock:
             self.owned = False
             self.token = None
             self.run_id = None
+            self.pid_started_at = None
             return False
         released = False
         try:
@@ -236,6 +301,7 @@ class PipelineLock:
         self.owned = False
         self.token = None
         self.run_id = None
+        self.pid_started_at = None
         return released
 
 
