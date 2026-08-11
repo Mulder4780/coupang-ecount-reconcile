@@ -14769,6 +14769,147 @@ def t228_scheduler_rounds_are_watched():
           "단계별 소요시간 기록 ✅")
 
 
+def t229_band_liveness_contract():
+    """[229] 생존확인 없이는 성공이라 적히지 않는다 (사고 #35 재발방지, 분담판 [36]).
+
+    ★ **몸통은 8/12 새벽에 이미 있었다** — 옆 세션이 `synthetic_check.py` 를 편집 중이라
+      같은 파일 동시 편집 금지에 걸려 `tests/_pending_band_liveness_check.py` 에 따로
+      두고 분담판에 올려 뒀던 것이다. 그런데 **관문 밖에 있는 검사는 아무도 안 돌린다** —
+      "ALL GREEN 확인 후 실작업" 은 이 파일만 본다. 만들어 뒀지만 안 도는 자리는
+      `[228]` 이 스케줄러에서 잡아낸 것과 **같은 모양의 구멍**이다.
+    ★ **문자열 검사로 대신하지 않는다.** 사고 #38 이 남긴 교훈이 그것이다 — 그때 놓친
+      버그(`run()` 이 마지막 한 줄만 준다)는 소스에 그 문자열이 있는지로는 안 잡히고
+      **실제로 돌려야** 드러났다. 그래서 판정 함수를 진짜로 부른다.
+    """
+    band_dir = os.path.join(ROOT, "band")
+    if band_dir not in sys.path:
+        sys.path.insert(0, band_dir)
+    import liveness as L
+
+    def ck(name, got, want):
+        assert got == want, "%s — 얻음 %r · 바람 %r" % (name, got, want)
+
+    def rd(p):
+        with open(p, encoding="utf-8") as f:
+            return f.read()
+
+    # ── ① 판정 계약: 성공은 **생존확인과 수확증가가 다 있을 때만**이다(#35 의 본체)
+    def H(댓글=0, 영개=0, 미확인=0, n=1):
+        return {"합계": {"댓글수": 댓글, "확인된0개": 영개, "미확인": 미확인,
+                        "댓글담김": 1 if 댓글 else 0}, "덤프수": n, "덤프": []}
+
+    A = {"판정": L.ALIVE, "상태": {"ok": 12, "total": 250}}
+    D = {"판정": L.DEAD, "왜": "전역이 없다"}
+    U = {"판정": L.UNKNOWN, "왜": "탐침 실패"}
+    N = {"판정": L.NEVER, "왜": "심장 소리도 없다"}
+    # 수확이 있어도 살아 있음을 확인 못 했으면 성공이 아니다
+    ck("죽음+수확이라도 성공 아님", L.verdict([D], H(댓글=99))[0], 5)
+    ck("모름+수확이라도 성공 아님", L.verdict([U], H(댓글=99))[0], 4)
+    ck("시작안함+수확이라도 성공 아님", L.verdict([N], H(댓글=99))[0], 5)
+    # 살아 있어도 수확이 안 늘면 성공이 아니다([162] — 살아서 0건을 담을 수 있다)
+    ck("생존+미확인만은 성공 아님", L.verdict([A], H(미확인=40))[0], 3)
+    ck("생존+덤프없음은 성공 아님", L.verdict([A], H(n=0))[0], 3)
+    # 둘 다 있으면 성공. '확인된 0개'는 진척으로 센다([199])
+    ck("생존+댓글증가만 성공", L.verdict([A], H(댓글=7))[0], 0)
+    ck("생존+확인된0개도 진척", L.verdict([A], H(영개=30))[0], 0)
+    # 0 을 뭉치지 않는다([169]) — 세 가지가 서로 다른 이름으로 나와야 한다
+    names = {L.verdict([A], H(n=0))[1], L.verdict([A], H(미확인=1))[1],
+             L.verdict([A], H(영개=1))[1]}
+    ck("0건을 세 갈래로 가른다", len(names), 3)
+    ck("죽음 설명이 이유를 말한다", "수집이 아니다" in L.verdict([D], H())[2], True)
+
+    # ── ② 싱싱한 심장 소리는 죽음이 아니다 — 거짓 죽음은 중복 수확을 부른다(#36)
+    now_ms = int(time.time() * 1000)
+    cold = json.dumps({"verdict": "DIED_AFTER_START", "err": "NO __GRAB",
+                       "beat": {"at": now_ms - 3600 * 1000, "running": True}})
+    warm = json.dumps({"verdict": "DIED_AFTER_START", "err": "NO __GRAB",
+                       "beat": {"at": now_ms - 4000, "running": True}})
+    stopped = json.dumps({"verdict": "DIED_AFTER_START", "err": "NO __GRAB",
+                          "beat": {"at": now_ms - 4000, "running": False}})
+    ck("식은 심장 = 죽음", L.classify(cold)["판정"], L.DEAD)
+    ck("싱싱한 심장 = 다른탭 생존", L.classify(warm)["판정"], L.ALIVE_OTHER)
+    ck("다 끝난 심장 = 죽음(생존 아님)", L.classify(stopped)["판정"], L.DEAD)
+    ck("한 번도 안 함 = 죽음과 다른 이름",
+       L.classify(json.dumps({"verdict": "NEVER_STARTED"}))["판정"], L.NEVER)
+    ck("탐침 무응답 = 모름", L.classify(None)["판정"], L.UNKNOWN)
+
+    # ── ③ 수확은 흡수기와 **같은 잣대**로 센다 — 시각 없는 댓글은 댓글이 아니다([130])
+    with tempfile.TemporaryDirectory() as td:
+        p = os.path.join(td, "dump_202608120101_90610953.json")
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"band": "90610953", "posts": {
+                "1": {"comments": [{"author": "가", "created_at": 1, "content": "접수취소"}]},
+                "2": {"comments": [{"author": "나", "created_at": None, "content": ""}]},
+                "3": {"comments": [], "comments_full": True},
+                "4": {},
+            }}, f, ensure_ascii=False)
+        h = L.harvest_since(0, dirs=[td])
+        ck("시각 있는 댓글만 센다", h["합계"]["댓글수"], 1)
+        ck("껍데기는 안 센다", h["합계"]["껍데기"], 1)
+        ck("확인된 0개를 따로 센다", h["합계"]["확인된0개"], 1)
+        ck("미확인을 따로 센다", h["합계"]["미확인"], 2)
+        ck("회차 시작 뒤 덤프만 본다",
+           L.harvest_since(time.time() + 60, dirs=[td])["덤프수"], 0)
+
+    # ── ④ 수집기가 **최상위 이동을 막고 기록하는지**(#35 의 사고 경로)
+    #     ★ 파일 전체를 문자열로 훑지 않고 **실제로 실리는 속성값**을 뜯어 본다.
+    #       첫 판은 `"allow-top-navigation" in js` 였는데 그 플래그를 **왜 안 넣는지
+    #       설명한 주석**에 걸려 빨강이 됐다 — 사고를 적는 행위가 사고 모양을 만든
+    #       자리다(#38 과 같다). 설명은 남기고, 검사는 값을 본다.
+    js = rd(os.path.join(ROOT, "band", "grab_posts.js"))
+    m = re.search(r"setAttribute\(\s*'sandbox'\s*,\s*'([^']*)'\s*\)", js)
+    toks = m.group(1).split() if m else []
+    ck("iframe 에 sandbox 를 건다", bool(m), True)
+    ck("같은 출처 유지(본문을 읽을 수 있어야 한다)", "allow-same-origin" in toks, True)
+    ck("스크립트 허용(SPA 가 그려야 한다)", "allow-scripts" in toks, True)
+    ck("최상위 이동은 허용하지 않는다",
+       [t for t in toks if t.startswith("allow-top-navigation")], [])
+    for k, why in (("__grabDeath", "죽음 기록"), ("__grabBeat", "심장 소리"),
+                   ("beforeunload", "떠나기 직전"), ("pagehide", "감춰질 때"),
+                   ("saveEvery", "중간 저장")):
+        ck("%s(%s) 이 있다" % (k, why), k in js, True)
+    for k in ("tried", "saves", "prevDeath", "prevBeat", "sandboxFellBack"):
+        ck("__grabStatus 가 %s 를 내놓는다" % k, k in js, True)
+
+    # ── ⑤ `NO __GRAB` 은 **파일 셋이 공유하는 계약**이다 — 이름이 갈리면 죽음을 못 알아본다
+    st = rd(os.path.join(ROOT, "band", "band_dump_state.js"))
+    ck("탐침이 NO __GRAB 을 그대로 말한다", "NO __GRAB" in st, True)
+    ck("탐침이 심장 소리를 읽는다", "__grabBeat" in st, True)
+    ck("탐침이 죽음 기록을 읽는다", "__grabDeath" in st, True)
+    ck("탐침이 시작안함과 죽음을 가른다",
+       "NEVER_STARTED" in st and "DIED_AFTER_START" in st, True)
+    ck("browser_chain 이 같은 표식을 본다",
+       "NO __GRAB" in rd(os.path.join(ROOT, "band", "browser_chain.py")), True)
+    ck("liveness 도 같은 표식을 본다", L.DEAD_MARK, "NO __GRAB")
+
+    # ── ⑥ 중간 저장 이름이 **유령 밴드**를 만들지 않는지 — 실제 규칙 함수로 확인한다
+    #     `dump_<12자리>s2_90610953.json` 의 후보는 둘이고, 숫자를 그냥 이어 붙이면
+    #     13자리 덩어리가 되어 없는 밴드가 생긴다(2026-08-08 두 차례 실사고와 같은 모양).
+    import convert_dump as cd
+    for name in ("dump_202608120050_90610953.json",
+                 "dump_202608120050s2_90610953.json",
+                 "dump_202608120050s12_84789192.json"):
+        want = "90610953" if "90610953" in name else "84789192"
+        ck("이름 규칙: %s" % name, cd.band_from_name(name, known=set()), want)
+
+    # ── ⑦ 밴드를 다른 세션이 잡고 있으면 **빼앗지 않고 물러난다**(사고 #27)
+    src = rd(os.path.join(ROOT, "band", "liveness.py"))
+    ck("점유 판정을 ai_claim 에서 빌린다", "_is_dead" in src and "_is_mine" in src, True)
+    ck("못 읽으면 '없음'으로 치지 않는다", "확인할 수 없다" in src, True)
+    # subprocess.run(timeout=) 은 이 프로젝트에서 금지다([175]) — 회차가 영원히 멈춘다
+    ck("subprocess.run(timeout= 을 쓰지 않는다", "subprocess.run(" in src, False)
+    ck("proc_guard.run_tree 를 쓴다", "proc_guard.run_tree" in src, True)
+
+    # ── 관문 밖에 사본이 남아 있으면 안 된다. 두 벌이 되면 한쪽만 고쳐지고,
+    #    고쳐지지 않은 쪽은 **아무도 안 돌리므로 틀린 줄도 모른다**.
+    assert not os.path.exists(os.path.join(ROOT, "tests",
+                                           "_pending_band_liveness_check.py")), \
+        "관문 밖 사본이 남아 있다 — 검사가 두 벌이 되면 한쪽은 영영 안 돈다"
+
+    print("  [229] 생존확인 계약 — 생존+수확 둘 다일 때만 성공 · 싱싱한 심장은 죽음 아님 · "
+          "시각 없는 댓글 제외 · sandbox 값 검사 · NO __GRAB 계약 · 유령 밴드 방지 ✅")
+
+
 def t220_flow_yes_no_cycles():
     """[220] 플로우 예/아니오 순환 검증 (2026-08-11 지시).
 
@@ -15942,6 +16083,7 @@ if __name__ == "__main__":
     t224_wrapup_commit_refusal_paths()
     t225_session_auto_resumes_parked_and_pushes()
     t228_scheduler_rounds_are_watched()
+    t229_band_liveness_contract()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
