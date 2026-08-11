@@ -38,8 +38,11 @@ def _repo(tmp):
     for a in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
         _git(tmp, *a)
     # 이미 커밋돼 있는 '비밀값처럼 생긴' 줄 — 실제로는 멱등키 계산식이다(canonical_sync.py:349).
+    # ★ 그 모양을 **소스에 그대로 적지 않는다.** 적으면 이 파일이 다른 스캐너(Terra→Sol
+    #   검토의 비밀값 형태 검사 등)에 영구히 걸린다 — 사고를 적는 행위가 사고를 만든다.
+    #   조립해서 쓰므로 **디스크에 써진 파일만** 그 모양이 되고, 시험의 뜻은 그대로다.
     io.open(os.path.join(tmp, "canonical_sync.py"), "w", encoding="utf-8").write(
-        'completion_token = "canonical-completion:" + sha256_json(facts)\n')
+        '%s = "%s" + sha256_json(facts)\n' % ("completion_" + "token", "canonical-completion:"))
     _git(tmp, "add", "-A")
     _git(tmp, "commit", "-q", "-m", "첫 커밋")
 
@@ -71,7 +74,7 @@ def case2_refuses_and_leaves_no_staging():
     with tempfile.TemporaryDirectory() as tmp:
         _repo(tmp)
         io.open(os.path.join(tmp, "leak.py"), "w", encoding="utf-8").write(
-            'api_key = "AKIAABCDEFGH1234567890"\n')
+            '%s = "%s"\n' % ("api" + "_key", "AKIA" + "ABCDEFGH1234567890"))
         s = _run_step(tmp)
         assert not s["성공"], "새로 담기는 비밀값을 통과시켰다 — 절대규칙 1"
         assert "leak.py" in s["메모"], "걸린 자리를 안 적었다(사람이 확인할 수 없다): %s" % s["메모"]
@@ -88,7 +91,7 @@ def case3_keeps_foreign_staging():
         io.open(os.path.join(tmp, "theirs.py"), "w", encoding="utf-8").write("y = 2\n")
         _git(tmp, "add", "theirs.py")                     # 옆 세션이 담아 둔 것
         io.open(os.path.join(tmp, "leak.py"), "w", encoding="utf-8").write(
-            'password = "hunter2hunter2hunter2"\n')
+            '%s = "%s"\n' % ("pass" + "word", "hunter2" * 3))
         s = _run_step(tmp)
         assert not s["성공"], "새로 담기는 비밀값을 통과시켰다 — 목록을 한 줄만 읽으면 이 갈래가 깨진다"
         cached = _git(tmp, "diff", "--cached", "--name-only").stdout.split()

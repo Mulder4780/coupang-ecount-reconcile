@@ -233,7 +233,7 @@ def step_commit(who, reason, steps):
     huge = _unstage_huge()               # 90MB 넘는 것은 커밋 전에 뺀다 — 푸시가 통째로 막힌다
     # 비밀값 스캔은 **이번 커밋이 담는 경로만** 본다 (2026-08-11 실사고).
     #   예전에는 인덱스 **전체**를 훑었다. 그래서 어제 커밋된 `canonical_sync.py` 의
-    #   `completion_token = "canonical-completion:" + sha256_json(...)`(비밀값이 아니라
+    #   `completion_token = "canonical-…" + sha256_json(...)`(비밀값이 아니라
     #   멱등키를 만드는 계산식) 한 줄에 걸려 **그날 회차 14번이 전부** 여기서 멈췄다.
     #   커밋을 거부해도 이미 커밋된 줄은 사라지지 않으니 **영구히 잠긴 관문**이었고,
     #   자동 커밋이 하루 종일 한 건도 안 됐는데 화면에는 '4/5 단계 완료'만 떴다.
