@@ -24,7 +24,9 @@ ERP 몰이를 이어서 할 사람이 없으면 아침까지 아무 일도 안 �
 ## 무엇을 이어 하나 (우선순위)
 
   ① 밴드 댓글 백필 — 남은 것이 있으면. 취소 댓글이 오늘 숫자를 바꾼다([177]).
-  ② ERP 전화면 몰이 — 실패가 남아 있고 오늘 다시 안 해 봤으면.
+  ② ERP 전화면 몰이 — 실패가 남아 있고 · **하루 한 번** · **12~13시 창 안**이고 ·
+     다른 세션이 크롬(band/publish)을 잡고 있지 않을 때만 (2026-08-12 지시).
+     창 안에서 어긋나면 남은 tick 이 다시 본다 — 한 번 실패로 그날을 접지 않는다.
 
 쓰는 법:  python band/browser_chain.py            (한 tick)
           python band/browser_chain.py --status   (지금 상태만)
@@ -481,6 +483,19 @@ def main():
             print("  %-22s %s · %s · %s" % (k, v.get("때"), v.get("결과"), v.get("왜")))
         busy, why = looks_busy()
         print("지금:", "수집 중" if busy else "조용함", "—", why)
+        # ★ ERP 회차는 **왜 안 도는지**까지 말한다. '안 돎'만 보이면 사람이 손으로
+        #   돌리러 가고, 그러면 창을 만든 뜻이 없다.
+        rec = (d.get("ERP회차") or {})
+        열림, 창설명 = window_now()
+        막힘, 왜 = other_session_holds()
+        print("ERP 몰이: %s · 오늘(%s) %s · 시도 %d회%s"
+              % (창설명, rec.get("날짜") or "-",
+                 "시작됨" if rec.get("시작됨") else "아직",
+                 rec.get("시도", 0),
+                 (" · 마지막 이유: " + rec["마지막왜"][:80]) if rec.get("마지막왜") else ""))
+        print("        세션 충돌: %s" % 왜)
+        if 열림 and not 막힘 and not rec.get("시작됨"):
+            print("        → 지금 tick 이 돌면 시작한다")
         return 0
     if not lock_take():
         print("앞 회차가 아직 돌고 있다 — 건너뛴다")
