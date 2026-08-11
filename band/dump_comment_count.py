@@ -49,8 +49,16 @@ def count(path):
         #   이 계기가 그것을 '댓글 2개'로 세는 바람에 **"수집기가 댓글을 읽는다"는
         #   증거로 보고됐다.** 쓸 수 없는 것을 수확으로 세면 계기가 거짓말을 한다([169]).
         #   그래서 여기서도 **흡수기와 같은 잣대**로 센다 — 시각이 있어야 댓글이다.
+        #   ★ 2026-08-12 정정. 위 규칙을 `created_at` 하나로 좁혔더니 **화면 긁기
+        #   덤프의 진짜 댓글을 전부 껍데기로 셌다** — 글 4369 의 댓글 6건이
+        #   '댓글담김 0 · 껍데기 12' 로 나왔고, 그 숫자만 보면 "수집기가 댓글을
+        #   못 읽는다"는 결론이 선다. 실제로는 담는 쪽이 둘이라 낱말이 둘이다:
+        #   API 덤프는 `created_at`(ms), 화면 긁기는 `timeText`(사람이 읽는 글자).
+        #   `convert_dump.conv_comments` 가 timeText 를 파싱해 created_at 으로
+        #   바꿔 넣으므로 캐시는 옳았다 — 틀린 것은 계기뿐이었다.
+        #   그래서 잣대는 짐작하지 말고 **흡수기가 쓰는 것과 같은 것**을 쓴다([177]).
         c = [x for x in (p.get("comments") or [])
-             if isinstance(x, dict) and x.get("created_at")]
+             if isinstance(x, dict) and (x.get("created_at") or x.get("timeText"))]
         껍데기 += len(p.get("comments") or []) - len(c)
         if c:
             withc += 1

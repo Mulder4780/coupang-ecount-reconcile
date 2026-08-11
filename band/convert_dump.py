@@ -15,6 +15,15 @@ except Exception:
 
 CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
 ABS = re.compile(r"(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*(오전|오후)?\s*(\d{1,2}):(\d{2})")
+# ★ 밴드는 시각을 **네 가지 모양**으로 적는다 (2026-08-12 실측). ABS 하나만 보던
+#   동안 댓글은 한 건도 캐시에 못 들어왔다 — 수집기가 6건을 멀쩡히 읽어 덤프에
+#   담았는데 여기서 전부 버려졌고, 글은 `comments_full=True` 로 닫혀 '확인된 0개'가
+#   되어 **다시 뽑히지도 않았다.** 오류는 한 줄도 안 났다.
+#   나이별로 이렇게 줄여 적는다: 오늘 `오후 3:57` · 올해 `3월 31일 오전 8:14` ·
+#   지난해부터 `2026년 1월 26일`(시각 없음).
+MD_TIME = re.compile(r"(\d{1,2})월\s*(\d{1,2})일\s*(오전|오후)?\s*(\d{1,2}):(\d{2})")
+ABS_DAY = re.compile(r"(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일")
+HM = re.compile(r"(오전|오후)\s*(\d{1,2}):(\d{2})")
 
 
 def tmp_path(dst):
@@ -72,21 +81,70 @@ def swap_in(tmp, dst, tries=6, wait=0.5):
             time.sleep(wait * (i + 1))       # 0.5s → 1.0s → … 물러서며 기다린다
 
 
+def _hour24(ap, h):
+    return int(h) % 12 + (12 if ap == "오후" else 0)
+
+
 def parse_dt(text, captured_ms):
-    m = ABS.search(text or "")
+    t = text or ""
+    m = ABS.search(t)
     if m:
         y, mo, d, ap, h, mi = m.groups()
-        h = int(h) % 12 + (12 if ap == "오후" else 0)
-        return datetime(int(y), int(mo), int(d), h, int(mi))
+        return datetime(int(y), int(mo), int(d), _hour24(ap, h), int(mi))
     base = datetime.fromtimestamp((captured_ms or 0) / 1000) if captured_ms else datetime.now()
-    t = text or ""
+
+    # 연도가 빠진 모양. 밴드는 미래를 보여 주지 않으므로, 수확 시각보다 뒤로 나오면
+    # 그것은 작년 것이다 — 연도를 짐작하는 것이 아니라 **불가능한 쪽을 지우는** 것이다.
+    m = MD_TIME.search(t)
+    if m:
+        mo, d, ap, h, mi = m.groups()
+        try:
+            dt = datetime(base.year, int(mo), int(d), _hour24(ap, h), int(mi))
+        except ValueError:
+            dt = None
+        if dt:
+            if dt > base + timedelta(days=1):
+                try:
+                    dt = dt.replace(year=base.year - 1)
+                except ValueError:
+                    return None
+            return dt
+
+    # 오늘 것은 시각만 적는다.
+    if "어제" not in t:
+        m = HM.search(t)
+        if m:
+            ap, h, mi = m.groups()
+            return base.replace(hour=_hour24(ap, h), minute=int(mi),
+                                second=0, microsecond=0)
+
     m = re.search(r"(\d+)분 전", t)
     if m: return base - timedelta(minutes=int(m.group(1)))
     m = re.search(r"(\d+)시간 전", t)
     if m: return base - timedelta(hours=int(m.group(1)))
-    if "어제" in t: return base - timedelta(days=1)
+    if "어제" in t:
+        y = base - timedelta(days=1)
+        m = HM.search(t)
+        if m:
+            ap, h, mi = m.groups()
+            return y.replace(hour=_hour24(ap, h), minute=int(mi),
+                             second=0, microsecond=0)
+        return y
     m = re.search(r"(\d+)일 전", t)
     if m: return base - timedelta(days=int(m.group(1)))
+
+    # 날짜만 있고 시각이 없는 모양. **하루의 끝으로 놓는다.**
+    # 아는 것은 날짜뿐이고 시각은 모른다 — 그런데 이 값이 쓰이는 자리는
+    # '댓글이 글보다 나중인가'라는 순서 하나다([155]). 하루의 끝은 그 순서를
+    # 절대 깨지 않는 유일한 지점이다(00:00 으로 놓으면 같은 날 올라온 글보다
+    # 댓글이 앞서서, 실제로 달린 취소 댓글이 순서에서 밀려 안 보이게 된다).
+    m = ABS_DAY.search(t)
+    if m:
+        y, mo, d = m.groups()
+        try:
+            return datetime(int(y), int(mo), int(d), 23, 59, 59)
+        except ValueError:
+            return None
     return None
 
 
