@@ -58,14 +58,35 @@ BUSY_MIN = 20
 # 빼앗아 사람이 쓰지도 못하게 된다 — 경보가 대부분이면 아무도 안 본다([170]).
 RETRY_MIN = 90
 
-# ⚠ ERP 는 더 길게 둔다. `erp_unfinished()` 가 읽는 상태 파일은 **스스로 안 바뀐다** —
-#   몰이의 결과는 브라우저 안 `window.__ERPALL` 에만 있고, 주입 45초 뒤 탐침은 아직
-#   안 끝난 회차를 본다(전역이 막 새로 만들어져 '실패 0' 으로 보이기도 한다). 그
-#   숫자로 '다 됐다'를 판정하면 **끝나지도 않은 것을 끝났다고 적는** 자리가 된다.
-#   그래서 지금은 판정하지 않고 **간격만 넓힌다** — 하룻밤에 한두 번이면 충분하고,
-#   결과를 거두는 것(상태 파일 갱신)은 아직 사람/다음 세션 몫이다. 모르는 것을
-#   아는 것처럼 적지 않는 편이 낫다.
-ERP_RETRY_MIN = 240
+# ── ERP 몰이는 **하루 한 번, 12~13시 창 안에서만** (2026-08-12 지시) ──────────
+#
+# 사용자 지시: "하루한번 12시에서 13시 사이 다른 세션이랑 충돌 안나게 실행 알고리즘
+#              코딩해(자동화 100%, 컴팩팅도 자동화, 내가 손 안대게 처리)"
+#
+# 전에는 15분 tick 이 간격(4시간)만 보고 **하루 중 아무 때나** 몰이를 시작했다.
+# 사고 #35 가 난 것도 그 회차의 21:10 이다. 몰이는 크롬 창을 차지하고 키보드를
+# 빼앗으므로 아무 때나 시작하면 셋과 겹친다:
+#   · 사람이 그 크롬으로 일하는 중 — 포커스를 통째로 빼앗는다
+#   · 'CSOS 리서치 및 자료 수집' 세션의 밴드·ERP 수집 — 같은 크롬·같은 Z: 다
+#   · 이 회차 자신의 밴드 댓글 백필 — 한 tick 은 하나만 시작하지만 앞 tick 이
+#     아직 긁는 중일 수 있다
+# 그래서 **시각으로 자리를 하나 정해 준다.** 점심시간이 그 자리다.
+#
+# ⚠ 결과를 판정하지는 않는다. `erp_unfinished()` 가 읽는 상태 파일은 **스스로 안
+#   바뀐다** — 몰이의 결과는 브라우저 안 `window.__ERPALL` 에만 있고, 주입 45초 뒤
+#   탐침은 아직 안 끝난 회차를 본다(전역이 막 새로 만들어져 '실패 0' 으로 보이기도
+#   한다). 그 숫자로 '다 됐다'를 판정하면 **끝나지도 않은 것을 끝났다고 적는**
+#   자리가 된다. 하루 한 번이라는 문은 시각이 지키고, 수확은 캐시가 센다.
+ERP_WINDOW = os.environ.get("COUPANG_ERP_WINDOW", "12:00-13:00")
+# 창 안에서 실패하면 다음 tick(15분)이 다시 해 본다. 창이 60분이니 최대 네 번이다.
+# **'하루 한 번'은 성공한 시작을 세는 말이지 '시도 한 번'이 아니다** — 첫 시도가
+# 크롬 사정으로 어긋났다고 그날을 접으면 사람이 손을 대야 하고, 그건 "손 안 대게"가
+# 아니다. 반대로 간격이 없으면 실패가 반복될 때 15분마다 포커스를 빼앗는다.
+ERP_WINDOW_RETRY_MIN = 12
+# 몰이가 크롬을 독점하므로 **다른 세션이 잡고 있으면 안 한다.** 판단은 새로 만들지
+# 않고 `ai_claim` 것을 그대로 빌린다([225] 와 같은 이유 — 같은 판단을 두 곳에서
+# 하면 언젠가 갈리고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다).
+ERP_CONFLICT_LOCKS = ("band", "publish")
 
 
 def _now():
@@ -216,6 +237,145 @@ def too_soon(d, 무엇, 분=None):
     return (time.time() - t) / 60.0 < 분
 
 
+# ── ②-b 시각의 문 · 세션의 문 (2026-08-12 지시) ──────────────────────────────
+def _hhmm(s):
+    """'12:00' → 720분. 못 읽으면 None."""
+    try:
+        h, m = str(s).strip().split(":")
+        h, m = int(h), int(m)
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return h * 60 + m
+    except Exception:
+        pass
+    return None
+
+
+def window_bounds(spec=None):
+    """'12:00-13:00' → (720, 780). 못 읽으면 None — **없음이 아니라 모름**이다."""
+    parts = str(ERP_WINDOW if spec is None else spec).split("-")
+    if len(parts) != 2:
+        return None
+    a, b = _hhmm(parts[0]), _hhmm(parts[1])
+    if a is None or b is None or b <= a:
+        return None
+    return (a, b)
+
+
+def window_now(spec=None, now=None):
+    """지금이 창 안인가. 반환 (열림?, 설명).
+
+    ★ 창 설정을 **못 읽으면 열어 준다** — 그리고 그렇게 적는다. 오타 하나로 회차가
+      영원히 조용히 멈추는 편이 더 나쁘다: 안 도는 회차는 아무 화면에도 안 뜬다([169]).
+    """
+    spec_s = ERP_WINDOW if spec is None else spec
+    t = time.localtime() if now is None else now
+    cur = t.tm_hour * 60 + t.tm_min
+    w = window_bounds(spec_s)
+    지금 = "지금 %02d:%02d" % (t.tm_hour, t.tm_min)
+    if w is None:
+        return True, "창 설정을 못 읽었다(%r) — 시각 제한 없이 진행 · %s" % (spec_s, 지금)
+    if w[0] <= cur < w[1]:
+        return True, "창 안 (%s · %s)" % (spec_s, 지금)
+    return False, "창 밖 (%s · %s)" % (spec_s, 지금)
+
+
+def erp_day(d):
+    """오늘치 ERP 회차 기록. 날짜가 바뀌면 새로 시작한다.
+
+    **하루 한 번의 근거는 이 날짜 도장이지 '스케줄러가 떴다'가 아니다.** 스케줄러는
+    무슨 일이 있었든 '성공'이라 적는다 — 이 프로젝트가 여러 번 데인 자리다([180]).
+    """
+    today = time.strftime("%Y-%m-%d")
+    rec = d.get("ERP회차") or {}
+    if rec.get("날짜") != today:
+        rec = {"날짜": today, "시작됨": False, "시도": 0, "마지막왜": "", "창닫힘기록": ""}
+        d["ERP회차"] = rec
+    return rec
+
+
+def other_session_holds(locks=ERP_CONFLICT_LOCKS):
+    """다른 세션이 겹치는 자원을 잡고 있나. 반환 (막힘?, 설명).
+
+    ★ **못 읽으면 막힌 것으로 본다.** '못 읽음'을 '비었음'으로 치면 두 세션이 같은
+      크롬을 동시에 몰게 된다 — 그러면 둘 다 깨지고, 깨진 쪽은 조용하다([169]).
+    ★ 죽은 세션의 점유는 `ai_claim._is_dead` 가 가른다. 여기서 다시 판정하지 않는다.
+    """
+    try:
+        if ROOT not in sys.path:
+            sys.path.insert(0, ROOT)
+        import ai_claim
+        claims = ai_claim.load() or {}
+    except Exception as e:
+        return True, "점유를 못 읽었다(%s: %s) — 안전하게 건너뛴다" % (type(e).__name__, e)
+    me = ""
+    try:
+        me = ai_claim.session_id()
+    except Exception:
+        pass
+    for what in locks:
+        c = claims.get(what)
+        if not isinstance(c, dict):
+            continue
+        try:
+            if ai_claim._is_dead(c):
+                continue                      # 주인이 죽었다 — 겹칠 상대가 없다
+        except Exception:
+            pass                              # 판정이 안 되면 살아 있는 것으로 본다
+        sid = c.get("sid") or "옛형식"
+        if me and sid == me:
+            continue                          # 내 것(스케줄러 실행에서는 거의 없다)
+        return True, "다른 세션이 '%s' 를 잡고 있다 — %s[%s] · %s" % (
+            what, c.get("who", "?"), sid, (c.get("why") or "")[:40])
+    return False, "겹치는 점유 없음"
+
+
+def erp_step(d, 무엇="ERP 전화면 몰이"):
+    """ERP 몰이 한 번. 문을 값싼 것부터 연다([168]).
+
+    반환: 0/1 이면 이 tick 은 그것으로 끝난다. None 이면 아무것도 안 했다.
+    """
+    rec = erp_day(d)
+
+    # ⓪ 오늘 이미 시작했다 — '하루 한 번'이 지시다.
+    if rec.get("시작됨"):
+        return None
+
+    열림, 창설명 = window_now()
+    # ① 창 밖이면 안 한다. 다만 **창이 닫힌 채 오늘을 못 했으면 그 사실을 적는다** —
+    #    조용히 넘어가면 '돌긴 했는데 왜 결과가 없나'가 된다([180]). 하루 한 줄이다.
+    if not 열림:
+        w = window_bounds()
+        t = time.localtime()
+        지났나 = bool(w) and (t.tm_hour * 60 + t.tm_min) >= w[1]
+        if 지났나 and rec.get("창닫힘기록") != rec["날짜"]:
+            rec["창닫힘기록"] = rec["날짜"]
+            note(d, 무엇, "오늘 못 함", "%s · 시도 %d회 · 마지막 이유: %s" % (
+                창설명, rec.get("시도", 0),
+                rec.get("마지막왜") or "창 안에서 한 번도 시작하지 못했다"))
+        return None
+
+    # ② 창 안이라도 방금 어긋났으면 잠깐 둔다 — 다음 tick 이 15분 뒤에 다시 온다.
+    if too_soon(d, 무엇, ERP_WINDOW_RETRY_MIN):
+        return None
+
+    # ③ 다른 세션이 크롬을 쓰고 있으면 **양보한다.** 창 안에 남은 tick 이 다시 본다.
+    막힘, 왜 = other_session_holds()
+    if 막힘:
+        rec["마지막왜"] = 왜
+        note(d, 무엇, "양보", "%s · %s" % (창설명, 왜))
+        return 0
+
+    rec["시도"] = rec.get("시도", 0) + 1
+    ok, msg = inject(os.path.join(HERE, "ERP_전화면몰이_붙여넣기.js"),
+                     "ecount", os.path.join(HERE, "erp_status_ping.js"),
+                     ["NOSTATE"])
+    rec["시작됨"] = bool(ok)
+    rec["마지막왜"] = msg
+    note(d, 무엇, "시작됨" if ok else "실패",
+         "%s · %d번째 시도 · %s" % (창설명, rec["시도"], msg))
+    return 0 if ok else 1
+
+
 # ── ③ 주입하고 **살아 있는지 확인한다** ───────────────────────────────────────
 def inject(js, host, probe, dead_marks):
     """붙여넣고 → 잠시 뒤 상태를 물어본다. 확인 못 한 주입은 수집이 아니다(#35).
@@ -299,18 +459,14 @@ def tick():
             note(d, 무엇, "시작됨" if ok else "실패", msg)
             return 0 if ok else 1
 
-    # ② ERP — 실패가 남아 있으면 다시 몰아 본다.
+    # ② ERP — 하루 한 번, 정해진 창 안에서, 다른 세션과 겹치지 않을 때만.
     if erp_n:
-        무엇 = "ERP 전화면 몰이"
-        if not too_soon(d, 무엇, ERP_RETRY_MIN):
-            ok, msg = inject(os.path.join(HERE, "ERP_전화면몰이_붙여넣기.js"),
-                             "ecount", os.path.join(HERE, "erp_status_ping.js"),
-                             ["NOSTATE"])
-            note(d, 무엇, "시작됨" if ok else "실패", msg)
-            return 0 if ok else 1
+        rc = erp_step(d)
+        if rc is not None:
+            return rc
 
     note(d, "점검", "할 일 없음",
-         "밴드 %s · ERP %s" % (band_n, erp_n))
+         "밴드 %s · ERP %s · %s" % (band_n, erp_n, window_now()[1]))
     return 0
 
 

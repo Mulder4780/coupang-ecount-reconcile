@@ -610,6 +610,7 @@ def collect():
         "워크트리": _worktree_state(),
         "일일대조": daily_run_health(),
         "밴드재수집": band_recollect(),
+        "코딩회차": code_run_banner(),
         "업무흐름": work_flow_change(),
         "세션자동화": session_auto(),
         "앱서버": app_server_health(),
@@ -665,6 +666,20 @@ def app_server_health():
                 "더새로운파일": s[2]}
     except Exception:
         return {}
+
+
+def code_run_banner():
+    """12시 코딩 회차가 남긴 빨강 — 합성검증 실패·컴팩팅 끊김·며칠째 미완주.
+
+    ★ 판정은 `daily_code_run.banner()` 한 곳이 한다. 여기서 파일을 다시 읽어 세면
+      같은 파일을 놓고 두 화면이 다른 말을 하게 된다([217] 에서 겪은 그것).
+    문제가 없으면 None — 매일 '정상'을 적으면 아무도 안 본다([196]).
+    """
+    try:
+        import daily_code_run
+        return daily_code_run.banner()
+    except Exception:
+        return None
 
 
 def band_recollect():

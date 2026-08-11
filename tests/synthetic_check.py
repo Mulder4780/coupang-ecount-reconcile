@@ -14809,6 +14809,79 @@ def t223_superseded_evidence_heals_itself():
           "낡음은 보존 · 워치독 선행 ✅")
 
 
+def t219_noon_round_is_daily_windowed_and_yields():
+    """[219] 정오 회차는 창 안에서 하루 한 번만 돌고, 남의 것을 절대 빼앗지 않는다.
+
+    2026-08-11 지시: "하루한번 12시에서 13시 사이 다른 세션이랑 충돌 안나게 실행
+    알고리즘 코딩해(자동화 100%, 컴팩팅도 자동화, 내가 손 안대게 처리)".
+
+    지키는 것 다섯: ① 창 밖·오늘 완주면 안 돈다 ② `ledger`·`publish` 점유와 도는
+    회차에는 **전부 양보**하고 `--force` 로도 안 뺏는다 ③ `code` 점유는 합성검증만
+    건너뛴다(남의 반쯤 고친 코드가 내는 빨강은 내 회차의 사실이 아니다) ④ **양보를
+    완주로 적지 않는다**(적으면 그날 회차가 영영 안 돈다) ⑤ 단계에 수집·엑셀쓰기·
+    커밋이 없다.
+    """
+    import noon_run as N
+    import datetime as _dt
+
+    noon = _dt.datetime(2026, 8, 12, 12, 30)
+    live = lambda what: [{"what": what, "who": "claude", "sid": "abcd1234", "alive": True}]
+
+    assert N.decide(_dt.datetime(2026, 8, 12, 9, 30), {}, [], [])["kind"] == "창밖"
+    assert N.decide(noon, {"done_date": "2026-08-12"}, [], [])["kind"] == "완주"
+    assert N.decide(noon, {"done_date": "2026-08-11"}, [], [])["go"] is True, \
+        "어제 완주는 오늘을 막지 않는다"
+    for what in ("ledger", "publish"):
+        v = N.decide(noon, {}, live(what), [])
+        assert v["go"] is False and v["kind"] == "양보", what
+        assert N.decide(noon, {}, live(what), [], force=True)["go"] is False, \
+            f"--force 가 남의 '{what}' 점유를 빼앗았다 — 강제는 창·중복만 무시한다"
+    assert N.decide(noon, {}, [], ["일일대조(09:50)"])["go"] is False, "도는 회차에 양보해야 한다"
+    # 죽은 세션의 점유는 잡은 것이 아니다([210]·[213]) — 그것 때문에 매일 건너뛰면 안 된다.
+    dead = [{"what": "ledger", "who": "claude", "sid": "dead", "alive": False}]
+    assert N.decide(noon, {}, dead, [])["go"] is True
+
+    v = N.decide(noon, {}, live("code"), [])
+    assert v["go"] is True and v["skip"] == ["합성검증"], \
+        "code 점유는 전부 양보가 아니라 합성검증만 건너뛴다(대화 세션은 몇 시간씩 잡는다)"
+    assert N.decide(noon, {}, live("band"), [])["skip"] == [], \
+        "이 회차는 수집을 하지 않으므로 band 점유와 부딪히지 않는다"
+    ran = [r["step"] for r in [{"step": s[0]} for s in N.steps()]]
+    assert "합성검증" in ran, "건너뛸 대상 이름이 단계 목록과 어긋나면 아무것도 안 건너뛴다"
+
+    # ④ 양보한 부름이 마커에 '오늘 완주'를 적으면 그날 회차가 영영 안 돈다.
+    with tempfile.TemporaryDirectory(prefix="csos-noon-219-") as td:
+        old = (N.MARKER, N.REPORT_MD, N.EXCLUSIVE)
+        try:
+            N.MARKER = os.path.join(td, "marker.json")
+            N.REPORT_MD = os.path.join(td, "report.md")
+            sys.argv = ["noon_run.py"]                 # 창 밖 시각이라 go=False 경로로 간다
+            os.environ["COUPANG_NOON_WINDOW"] = "00:00-00:01"
+            assert N.main() == 0
+            saved = json.load(open(N.MARKER, encoding="utf-8"))
+            assert "done_date" not in saved and saved.get("skips"), \
+                "양보를 완주로 적었다 — 그날 정오 회차가 다시는 안 돈다"
+        finally:
+            os.environ.pop("COUPANG_NOON_WINDOW", None)
+            N.MARKER, N.REPORT_MD, N.EXCLUSIVE = old
+
+    src = open(os.path.join(ROOT, "noon_run.py"), encoding="utf-8").read()
+    assert "proc_guard" in src and "subprocess.run(" not in src.split("def git_pending")[0], \
+        "회차 단계가 subprocess.run(timeout=) 을 쓰면 윈도우에서 영원히 안 끝날 수 있다([175])"
+    body = src.split("def steps(")[1].split("\ndef ", 1)[0]
+    for banned in ("--queue", "--apply", "band_sync", "convert_dump", "collect_", "upload_intake",
+                   "commit", "workbook_patch"):
+        assert banned not in body, f"정오 회차가 하면 안 되는 일을 한다: {banned}"
+
+    ps = open(os.path.join(ROOT, "install_noon_schedule.ps1"), encoding="utf-8").read()
+    assert 'At "12:00"' in ps and "noon_run.py" in ps, "스케줄러가 12시에 이 회차를 안 부른다"
+    assert "Minutes 10" in ps and "Minutes 55" in ps, \
+        "재시도 반복이 없거나 창(13:00)을 넘는다 — 양보한 날 두 번째 기회가 사라진다"
+
+    print("  [219] 정오 회차 — 창 12~13시·하루 한 번 · 남의 점유 불가침(force 도) · "
+          "code 는 합성검증만 건너뜀 · 양보를 완주로 안 적음 ✅")
+
+
 def t196_stage_words_come_from_one_place():
     """[196] 돌발AS·정기점검 단계 낱말은 **한 곳**에서 오고, 바뀌면 자국이 남는다.
 
