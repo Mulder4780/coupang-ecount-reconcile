@@ -4461,10 +4461,10 @@ def _augment_exec_daily(report):
     put(grp("돌발"), "유상 발생", f"{int(as_day.get('유상발생') or 0)}건")
     put(grp("돌발"), "재방문 예정", f"{int(as_day.get('재방문예정') or 0)}건")
 
-    put(grp("정기점검"), "점검 완료",
-        f"{int(pm.get('완료') or 0)}그룹 · {int(pm.get('완료장비') or 0)}대")
-    put(grp("정기점검"), "점검 예정",
-        f"{int(pm.get('예정') or 0)}그룹 · {int(pm.get('예정장비') or 0)}대")
+    # 건바이건(장비 한 대=1건) — 그룹으로 묶지 않는다(2026-08-12 지시).
+    # 원본은 호기 한 줄씩이라 장비 대수가 곧 건수다.
+    put(grp("정기점검"), "점검 완료", f"{int(pm.get('완료장비') or 0)}건")
+    put(grp("정기점검"), "점검 예정", f"{int(pm.get('예정장비') or 0)}건")
     put(grp("정기점검"), "이상 발견", f"{len((brief or {}).get('이상발견') or [])}건")
     put(grp("정기점검"), "돌발 AS 전환", f"{len((brief or {}).get('AS전환') or [])}건")
     put(grp("정기점검"), "유상 점검", f"{len((brief or {}).get('점검중유상') or [])}건")
@@ -4482,15 +4482,15 @@ def _augment_exec_daily(report):
         el = float(pm.get("분기경과율") or 0)
         gap = round(prog - el, 1)
         put(pm_group, "분기 예정·완료",
-            f"{int(pm.get('분기완료') or 0)} / {int(pm.get('분기예정') or 0)}대")
-        put(pm_group, "분기 장비 진행률", "%.1f%%" % prog)
+            f"{int(pm.get('분기완료') or 0)} / {int(pm.get('분기예정') or 0)}건")
+        put(pm_group, "분기 진행률", "%.1f%%" % prog)
         due = int(pm.get("기준일까지예정") or 0)
         due_done = int(pm.get("기준일까지완료") or 0)
         if due:
             put(pm_group, "기준일까지 이행",
-                f"{due_done} / {due}대 · " + pct_text(due_done, due, "대상 없음"))
+                f"{due_done} / {due}건 · " + pct_text(due_done, due, "대상 없음"))
         if pm.get("예측일정"):
-            put(pm_group, "예측 일정(캘린더)", f"{int(pm.get('예측일정') or 0)}그룹")
+            put(pm_group, "예측 점검(과거 이력)", f"{int(pm.get('예측장비') or 0)}건")
         put(pm_group, "기간 경과 %.1f%% 대비" % el,
             f"{gap:+.1f}%p {'앞섬' if gap >= 0 else '뒤짐'}",
             "#12813F" if gap >= 0 else "#B42318")
