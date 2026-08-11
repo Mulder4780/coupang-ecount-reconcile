@@ -8060,21 +8060,28 @@ def t131_band_quiet_vs_stalled():
         conv.PROBE_LOG = keep_log
 
     # ④ 신선도 판정 — 근거가 최근이면 밀림이 내려가고, 오래되면 그대로 밀림
+    #   ★ 밴드번호는 **실제 캐시에 없는 것**을 쓴다. 판정은 근거의 나이만 보는 것이
+    #     아니라 캐시의 실제 수확과도 대 보므로([217] 추월 판정), 실데이터 밴드번호를
+    #     쓰면 그날 캐시 상태에 따라 이 검증이 흔들린다. 합성검증이 실데이터에
+    #     기대는 것 자체가 냄새다 — 여기서 재는 것은 **나이 규칙** 하나다.
     keep = (SH.band_latest_days, SH.band_quiet)
+    BQ = "99999999"
     try:
-        SH.band_latest_days = lambda: {"84789192": "2026-08-05"}
-        SH.band_quiet = lambda: {"84789192": {"이름": "매출처업무", "수집최대": 3538,
-                                              "확인시각": "2026-08-07 09:52",
-                                              "없음확인": 3539, "연속없음": 2}}
+        SH.band_latest_days = lambda: {BQ: "2026-08-05"}
+        SH.band_quiet = lambda: {BQ: {"이름": "매출처업무", "수집최대": 3538,
+                                      "확인시각": "2026-08-07 09:52",
+                                      "없음확인": 3539, "연속없음": 2}}
         row = [f for f in SH.data_freshness("2026-08-07") if f["이름"].startswith("밴드:")][0]
         assert not row["밀림"], "새 글 없음을 확인했는데도 밀림이라 한다"
         assert "3538" in row.get("조용함", ""), "왜 안 긁어도 되는지가 안 적혔다"
 
-        SH.band_quiet = lambda: {"84789192": {"이름": "매출처업무", "수집최대": 3538,
-                                              "확인시각": "2026-08-01 09:00",
-                                              "없음확인": 3539, "연속없음": 2}}
+        SH.band_quiet = lambda: {BQ: {"이름": "매출처업무", "수집최대": 3538,
+                                      "확인시각": "2026-08-01 09:00",
+                                      "없음확인": 3539, "연속없음": 2}}
         row = [f for f in SH.data_freshness("2026-08-07") if f["이름"].startswith("밴드:")][0]
         assert row["밀림"], "오래된 근거로 밀림을 내렸다 — 그 사이 새 글이 있을 수 있다"
+        assert "낡" in row.get("근거", ""), \
+            "왜 아직 밀림인지를 안 적는다 — 그러면 사람이 또 없는 번호를 긁으러 간다"
 
         # 근거가 아예 없으면 예전처럼 밀림이다(안전한 기본값)
         SH.band_quiet = lambda: {}
@@ -9902,12 +9909,14 @@ def t217_probe_instead_of_scraping_absent_numbers():
         SH = importlib.import_module("session_handoff")
         assert sys.modules.get("recheck_plan") is rp, \
             "인계 문서가 다른 recheck_plan 을 본다 — 근거 판정이 두 벌이 된다"
-        evidence(3539, TODAY)                       # 신선하지만 3539 는 실재한다
-        cut, why = SH._absent_judge(BAND, TODAY)
+        # 근거는 인계 문서가 제 손으로 읽어(`band_quiet`) 넘긴다 — 판정만 빌린다.
+        # 파일을 양쪽이 각자 읽으면 언젠가 서로 다른 한 장을 놓고 답하게 된다.
+        rec = {"이름": BAND, "수집최대": 3538, "없음확인": 3539, "확인시각": TODAY}
+        cut, why = SH._absent_judge(BAND, rec, TODAY)   # 신선하지만 3539 는 실재한다
         assert cut is None and "추월" in why, \
             "신선하기만 하면 믿는다 — 인계 문서가 **없는 조용함**을 확언한다"
-        evidence(3600, TODAY)                       # 신선하고 추월도 안 됐다
-        cut, why = SH._absent_judge(BAND, TODAY)
+        rec = dict(rec, 없음확인=3600, 수집최대=3599)     # 신선하고 추월도 안 됐다
+        cut, why = SH._absent_judge(BAND, rec, TODAY)
         assert cut == 3600, "멀쩡한 근거까지 버리면 매일 밀림 경보가 뜨고 아무도 안 본다"
         fresh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
         body = fresh.split("def data_freshness")[1].split("\ndef ")[0]
