@@ -131,6 +131,43 @@ def owner_alive(pid, pid_started_at=None, born_before=None):
     return True
 
 
+FP_PREFIX = "fp="
+
+
+def stamp(pid=None):
+    """텍스트 잠금에 적을 **소유자 지문 토큰** — `fp=<생성시각>` (검증 [219]).
+
+    ★ 자리로 적지 않고 **이름표를 붙인다.** 같은 판정 함수를 쓰는 잠금이라도 파일마다
+      칸 순서가 다르다 — 실측으로 `ledger_db` 안에서 `{pid} {iso}`(보관본 잠금)와
+      `{pid} {iso} {ns}`(큐 잠금)가 **한 함수**를 쓰고 있었다. 자리로 읽으면 남의 칸
+      (monotonic_ns)을 지문으로 오해해 **살아 있는 주인을 죽었다고** 판정하고 그 잠금을
+      빼앗는다 — 못 잡는 것보다 나쁘다.
+    생성시각을 못 읽으면 빈 문자열이라 잠금 모양이 예전 그대로다(붙일 것이 없으면 안 붙인다).
+    """
+    born = identity(pid).get("pid_started_at")
+    return "" if born is None else f"{FP_PREFIX}{born}"
+
+
+def owner_from_words(words):
+    """텍스트 잠금의 낱말들에서 `(pid, 지문, 잠금시각)` 을 뽑는다 — 없으면 각각 None.
+
+    지문이 없는 **옛 잠금**도 그대로 읽힌다(그때는 `born_before` 만으로 판정한다).
+    """
+    pid = fp = born = None
+    for w in words:
+        if w.startswith(FP_PREFIX):
+            fp = w[len(FP_PREFIX):] or None
+        elif pid is None and w.isdigit():
+            pid = int(w)                     # 맨 앞 숫자가 pid — 뒤의 ns 는 안 집는다
+        elif born is None and "-" in w and ":" in w:
+            try:
+                from datetime import datetime as _dt
+                born = _dt.fromisoformat(w).timestamp()
+            except ValueError:
+                pass
+    return pid, fp, born
+
+
 def image_name(pid):
     """프로세스의 **실행파일 이름**(소문자, 예: 'python.exe'). 모르면 None.
 

@@ -4387,6 +4387,13 @@ def t96_work_management_tabs():
         "입금 자료가 지정 저장소(7. 입금내역)로 가지 않는다"
     blk2 = srv[srv.index('"/api/staff/receipt-upload"'):srv.index('"/api/staff/receipt-upload"') + 900]
     assert '"admin"' in blk2 and "oh-jonghyeon" in blk2, "관리자·오종현 외에도 업로드가 열려 있다"
+    # 2026-08-11: 앱 업로드 csv 는 같은 폴더에 xlsx 변환본을 만들어야 한다 —
+    # load_deposits 는 *.xlsx 만 읽으므로 변환 없는 csv 는 영영 안 읽힌다([165]).
+    blk3 = srv[srv.index("def save_staff_receipt_submission"):]
+    blk3 = blk3[:blk3.index("\ndef ")]
+    assert "_csv_to_xlsx" in blk3, \
+        "앱 업로드 csv 가 xlsx 로 변환되지 않는다 — load_deposits 는 xlsx 만 읽는다"
+    assert "xls 는 자동으로 읽히지 않습니다" in blk3, "xls 못 읽음 안내가 없다"
     print("  [96] 정밀 관리 탭 + SQLite 즉시 정본·Excel 보관본·입금 업로드 권한 ✅")
 
 
@@ -14466,6 +14473,87 @@ def t218_camp_standard_erp_basis_and_pm_units():
     print("  [218] 캠프명 ERP 표준화·호기 분류 — 유일 매칭만 변경 · 비유일 불변 · 근거 동반 · 원문 불변 ✅")
 
 
+def t219_text_locks_use_the_one_owner_judge():
+    """[219] 보관본·큐 잠금도 신원을 본다 — `os.kill(pid,0)` 사본을 지운다.
+
+    [210]·[211] 이 잠금·자국을 고치는 동안 **텍스트 잠금 두 곳이 규칙 밖에 남아 있었다**
+    (`ledger_db._pid_alive` · `ledger_writer._pid_alive`). 둘 다 `os.kill(pid, 0)` 이라
+      ① 신원을 안 봐서 pid 재사용이면 잠금이 **스스로 안 풀리고**(보관본 회차가 매번
+         "이미 실행 중"으로 조용히 건너뛴다)
+      ② 윈도우 파이썬에서 `os.kill` 은 확인이 아니라 **종료 신호**이고(문서), POSIX 에선
+         남의 프로세스에 PermissionError → '죽었다'로 읽혀 **산 주인의 잠금을 빼앗는다**.
+    ★ 지문은 **자리가 아니라 이름표**(`fp=`)로 적는다 — `ledger_db` 안에서 형식이 다른
+      두 잠금(`{pid} {iso}` · `{pid} {iso} {ns}`)이 **한 판정 함수**를 쓰기 때문이다.
+      자리로 읽으면 `monotonic_ns` 를 생성시각으로 오해해 살아 있는 잠금을 죽였다고 한다.
+    """
+    from datetime import datetime as _dt
+    import pid_alive as PA
+    import ledger_db as LDB
+    import ledger_writer as LW
+
+    # ── 사본 금지: 두 파일에 `os.kill` 판정이 다시 들어오면 막는다
+    for fname in ("ledger_db.py", "ledger_writer.py"):
+        src = open(os.path.join(ROOT, fname), encoding="utf-8").read()
+        body = src.split("def _pid_alive", 1)[1].split("\ndef ", 1)[0]
+        # 실제 호출만 본다 — 설명(docstring)에는 왜 버렸는지가 적혀 있어야 한다
+        assert "os.kill(int(" not in body, f"{fname} 이 다시 os.kill 로 생사를 판정한다"
+        assert "pid_alive.owner_alive(" in body, f"{fname} 이 공용 소유자 판정을 안 쓴다"
+        assert "is not False" in body, \
+            f"{fname} 이 '판정 불가'를 죽음으로 읽는다 — 산 주인의 잠금을 빼앗는다"
+
+    # ── 이름표 지문: 자리가 달라도 같은 값이 읽힌다
+    me = os.getpid()
+    fp = PA.stamp()
+    assert fp.startswith("fp="), fp
+    two = f"{me} 2026-08-11T17:00:00 {fp}".split()          # 보관본 잠금 모양
+    three = f"{me} 2026-08-11T17:00:00 123456789 {fp}".split()   # 큐 잠금 모양(ns 가 낀다)
+    for words in (two, three):
+        pid, got, born = PA.owner_from_words(words)
+        assert pid == me, (words, pid)
+        assert got == fp[3:], "지문을 자리로 읽어 남의 칸을 집었다"
+        assert born is not None, "잠금 시각을 못 읽었다"
+    # ns 를 pid 로 착각하지 않는다 — 맨 앞 숫자만 pid 다
+    assert PA.owner_from_words(three)[0] != 123456789
+    # 지문 없는 **옛 잠금**도 그대로 읽힌다(그때는 잠금시각만으로 판정)
+    pid, got, born = PA.owner_from_words(f"{me} 2026-08-11T17:00:00".split())
+    assert pid == me and got is None and born is not None
+
+    # ── 판정: 산 주인은 살리고, 지문이 어긋난 남(=재사용)은 죽었다고 한다
+    real = PA.identity()["pid_started_at"]
+    for mod in (LDB, LW):
+        assert mod._pid_alive(me, pid_started_at=real) is True, "산 주인을 죽였다"
+        assert mod._pid_alive(me, pid_started_at=float(real) - 3600) is False, \
+            "지문이 다른데 살아 있다고 했다 — pid 재사용이 안 걸린다"
+        assert mod._pid_alive(me) is True, "지문 없는 옛 잠금의 산 주인을 죽였다"
+
+    # ── 회수: 재사용된 주인의 잠금은 즉시 회수하고, 산 주인 것은 안 건드린다
+    with tempfile.TemporaryDirectory(prefix="csos-219-") as td:
+        lock = os.path.join(td, "q.lock")
+        stale = f"{me} 2026-08-11T17:00:00 123 fp={float(real) - 3600}"
+        fresh = f"{me} {_dt.now().isoformat()} 123 {fp}"
+        for mod in (LDB, LW):
+            open(lock, "w", encoding="ascii").write(stale)
+            assert mod._dead_or_abandoned_lock(lock, 99999) is True, \
+                "재사용된 pid 의 잠금을 회수하지 못한다 — 회차가 영영 건너뛴다"
+            open(lock, "w", encoding="ascii").write(fresh)
+            assert mod._dead_or_abandoned_lock(lock, 99999) is False, \
+                "살아 있는 주인의 잠금을 빼앗는다"
+
+    # ── 잠금에 지문을 실제로 적는가 (안 적으면 위 판정이 영원히 옛 잠금 취급이다)
+    ldb = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    lw = open(os.path.join(ROOT, "ledger_writer.py"), encoding="utf-8").read()
+    assert ldb.count("_pa.stamp()") >= 2, "ledger_db 의 두 잠금 중 지문을 안 적는 것이 있다"
+    assert "_pa.stamp()" in lw, "ledger_writer 큐 잠금이 지문을 안 적는다"
+    # 연기 감시자도 지문으로 본다 — 번호만 물려받은 남을 '감시중'이라 하면 재개가 멈춘다
+    assert '"watcher_started_at"' in ldb and "watcher_started_at" in ldb, \
+        "연기 감시자 pid 에 지문이 없다"
+    assert 'pid_started_at=state.get("watcher_started_at")' in ldb, \
+        "resume_check 가 감시자 신원을 안 본다"
+
+    print("  [219] 텍스트 잠금 신원 — os.kill 사본 제거 · 이름표 지문(fp=)으로 자리 무관 · "
+          "재사용 회수/산 주인 보호 ✅")
+
+
 def t196_stage_words_come_from_one_place():
     """[196] 돌발AS·정기점검 단계 낱말은 **한 곳**에서 오고, 바뀌면 자국이 남는다.
 
@@ -15096,6 +15184,7 @@ if __name__ == "__main__":
     t209_pipeline_lock_owner_cannot_be_forged_or_overwritten()
     t210_pid_reuse_is_not_alive_and_customer_scan_is_one_pass()
     t211_progress_trace_owner_identity()
+    t219_text_locks_use_the_one_owner_judge()
     t213_exact_pid_fingerprint_reaches_every_owner()
     t214_first_live_revision_cannot_be_falsely_applied()
     t215_cancel_timeline_last_explicit_state_wins()

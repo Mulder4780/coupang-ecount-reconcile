@@ -348,21 +348,43 @@ def conn():
         c.close()
 
 
-def _pid_alive(pid):
+def _pid_alive(pid, pid_started_at=None, born_before=None):
+    """그 pid 가 **아직 그 주인인가** — 판정은 `pid_alive.py` 한 곳에서 한다(검증 [121]).
+
+    ★ 여기 있던 옛 판정은 `os.kill(pid, 0)` 한 줄이었고 **두 가지가 틀렸다**(검증 [219]):
+      ① **신원을 안 본다.** 윈도우가 죽은 회차의 pid 를 다른 프로그램에 물려주면
+         이 잠금은 영원히 '주인이 살아 있다'가 되어 **스스로 못 풀린다** — 그러면
+         보관본 회차가 매번 "이미 실행 중"으로 조용히 건너뛴다([210]·[211] 과 같은 병).
+      ② **`os.kill` 은 확인이 아니라 신호다.** 윈도우 파이썬에서 `CTRL_*` 아닌 신호는
+         문서상 `TerminateProcess` 로 내려간다 — 살아 있나 물어보러 갔다가 **그 주인을
+         끝낼 수 있다.** POSIX 에서도 남의 프로세스면 PermissionError 라 '죽었다'로
+         읽혀 **산 주인의 잠금을 빼앗는다.**
+    모르면 '살아 있다'로 둔다 — 산 주인의 잠금을 빼앗는 쪽이 더 위험하다.
+    """
     try:
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError):
-        return False
+        import pid_alive
+    except Exception:
+        return True                      # 판정할 수 없으면 남의 잠금을 건드리지 않는다
+    return pid_alive.owner_alive(
+        pid, pid_started_at=pid_started_at, born_before=born_before) is not False
 
 
 def _dead_or_abandoned_lock(path, timeout):
-    """PID가 죽었거나 소유자 없는 채 오래 남은 JSON 잠금만 회수한다."""
+    """PID가 죽었거나 소유자 없는 채 오래 남은 JSON 잠금만 회수한다.
+
+    ★ 번호가 같다고 같은 프로세스가 아니다([210]). 잠금에 적어 둔 **생성시각 지문**과
+      **잠금을 쓴 시각**을 같이 넘겨 그 뒤에 태어난 프로세스는 주인에서 뺀다.
+      칸을 자리로 읽지 않는 이유는 `pid_alive.stamp()` 주석에 있다 — 이 함수 하나를
+      **형식이 다른 두 잠금**이 같이 쓴다.
+    """
     try:
+        import pid_alive
         words = open(path, encoding="ascii").read().split()
         if words:
-            return not _pid_alive(int(words[0]))
-    except (OSError, ValueError):
+            pid, fp, born = pid_alive.owner_from_words(words)
+            if pid:
+                return not _pid_alive(pid, pid_started_at=fp, born_before=born)
+    except (OSError, ValueError, ImportError):
         pass
     try:
         return time.time() - os.path.getmtime(path) > timeout
@@ -378,16 +400,22 @@ def apply_lock():
     for _ in range(2):
         try:
             fd = os.open(APPLY_LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(fd, f"{os.getpid()} {datetime.now().isoformat()}".encode("ascii"))
+            import pid_alive as _pa
+            os.write(fd, (f"{os.getpid()} {datetime.now().isoformat()} "
+                          f"{_pa.stamp()}").strip().encode("ascii"))
             os.close(fd)
             owned = True
             break
         except FileExistsError:
+            pid, fp, born = 0, None, None
             try:
-                pid = int(open(APPLY_LOCK, encoding="ascii").read().split()[0])
+                import pid_alive as _pa
+                pid, fp, born = _pa.owner_from_words(
+                    open(APPLY_LOCK, encoding="ascii").read().split())
             except Exception:
                 pid = 0
-            if pid and _pid_alive(pid):
+            # ★ 번호만 같은 남을 '실행 중'이라 하면 보관본 회차가 **영영** 건너뛴다([219]).
+            if pid and _pid_alive(pid, pid_started_at=fp, born_before=born):
                 raise RuntimeError(f"원장 DB 일괄반영이 이미 실행 중입니다(PID {pid})")
             try:
                 os.unlink(APPLY_LOCK)
@@ -411,7 +439,9 @@ def json_queue_lock(path, timeout=30):
     lock = path + ".lock"
     started = time.monotonic()
     fd = None
-    owner = f"{os.getpid()} {datetime.now().isoformat()} {time.monotonic_ns()}"
+    import pid_alive as _pa
+    owner = (f"{os.getpid()} {datetime.now().isoformat()} {time.monotonic_ns()} "
+             f"{_pa.stamp()}").strip()
     while fd is None:
         try:
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -2179,7 +2209,10 @@ def defer_apply(slot_name, spawn=True):
     state = _defer_state()
     slots = sorted(set(state.get("slots") or []) | {slot_name})
     pid = state.get("watcher_pid")
-    if spawn and not (pid and _pid_alive(pid)):
+    # ★ 감시자도 **지문**으로 본다([219]). 번호만 물려받은 남을 '살아 있다'로 읽으면
+    #   새 감시자를 안 띄우고, 그 연기된 회차는 30분 워치독이 올 때까지 아무도 안 잇는다.
+    fp = state.get("watcher_started_at")
+    if spawn and not (pid and _pid_alive(pid, pid_started_at=fp)):
         try:
             proc = subprocess.Popen(
                 [sys.executable, os.path.abspath(__file__), "--resume-watch"],
@@ -2187,9 +2220,14 @@ def defer_apply(slot_name, spawn=True):
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 stdin=subprocess.DEVNULL)
             pid = proc.pid
+            try:
+                import pid_alive as _pa
+                fp = _pa.identity(pid).get("pid_started_at")
+            except Exception:
+                fp = None
         except Exception:
-            pid = None
-    state = {"slots": slots, "watcher_pid": pid,
+            pid, fp = None, None
+    state = {"slots": slots, "watcher_pid": pid, "watcher_started_at": fp,
              "since": state.get("since") or datetime.now().isoformat(timespec="seconds")}
     _defer_write(state)
     return state
@@ -2250,7 +2288,7 @@ def resume_check():
     if not state.get("slots"):
         return {"상태": "없음"}
     pid = state.get("watcher_pid")
-    if pid and _pid_alive(pid):
+    if pid and _pid_alive(pid, pid_started_at=state.get("watcher_started_at")):
         return {"상태": "감시중", "감시자": pid}
     from operation_window import is_input_window
     if not human_editing() and not is_input_window(datetime.now()):

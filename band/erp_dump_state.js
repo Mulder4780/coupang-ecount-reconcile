@@ -1,0 +1,1 @@
+(function(){var s=window.__ERPALL||{err:'NOSTATE'};var j;try{j=JSON.stringify(s,null,1);}catch(e){j='{"err":"'+e.message+'"}';}var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([j],{type:'application/json'}));a.download='__erpstate__.json';document.body.appendChild(a);a.click();a.remove();return 'state '+j.length+' bytes';})()

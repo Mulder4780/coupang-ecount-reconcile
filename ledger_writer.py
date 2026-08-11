@@ -70,12 +70,19 @@ def load_queue():
         return []
 
 
-def _pid_alive(pid):
+def _pid_alive(pid, pid_started_at=None, born_before=None):
+    """그 pid 가 **아직 그 주인인가** — 판정은 `pid_alive.py` 한 곳에서 한다(검증 [121]).
+
+    ★ 옛 판정 `os.kill(pid, 0)` 을 버린 이유는 `ledger_db._pid_alive` 와 같다(검증 [219]):
+      신원(재사용)을 안 보고, 윈도우에서 `os.kill` 은 확인이 아니라 종료 신호다.
+    모르면 '살아 있다'로 둔다 — 산 주인의 잠금을 빼앗는 쪽이 더 위험하다.
+    """
     try:
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError):
-        return False
+        import pid_alive
+    except Exception:
+        return True                      # 판정할 수 없으면 남의 잠금을 건드리지 않는다
+    return pid_alive.owner_alive(
+        pid, pid_started_at=pid_started_at, born_before=born_before) is not False
 
 
 def _dead_or_abandoned_lock(path, timeout):
@@ -83,12 +90,16 @@ def _dead_or_abandoned_lock(path, timeout):
 
     잠금 생성 직후 PID를 쓰기 전의 아주 짧은 구간은 빈 파일일 수 있으므로, 소유자를
     읽지 못한 잠금은 timeout보다 오래됐을 때만 버린다.
+    ★ 번호가 같다고 같은 프로세스가 아니다 — 지문·잠금시각을 같이 넘긴다([219]).
     """
     try:
+        import pid_alive
         words = open(path, encoding="ascii").read().split()
         if words:
-            return not _pid_alive(int(words[0]))
-    except (OSError, ValueError):
+            pid, fp, born = pid_alive.owner_from_words(words)
+            if pid:
+                return not _pid_alive(pid, pid_started_at=fp, born_before=born)
+    except (OSError, ValueError, ImportError):
         pass
     try:
         return time.time() - os.path.getmtime(path) > timeout
@@ -103,7 +114,9 @@ def queue_lock(timeout=30):
     lock = PENDING + ".lock"
     started = time.monotonic()
     fd = None
-    owner = f"{os.getpid()} {datetime.now().isoformat()} {time.monotonic_ns()}"
+    import pid_alive as _pa
+    owner = (f"{os.getpid()} {datetime.now().isoformat()} {time.monotonic_ns()} "
+             f"{_pa.stamp()}").strip()
     while fd is None:
         try:
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
