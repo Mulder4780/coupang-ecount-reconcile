@@ -262,8 +262,14 @@ def guess_date(name, mtime):
     return time.strftime("%Y-%m-%d", time.localtime(mtime))
 
 
-def _walk_stat(root):
+def _walk_stat(root, skip_dirs=None):
     """폴더를 훑으며 **(폴더, 이름, stat)** 을 준다 — `os.stat` 을 따로 부르지 않는다.
+
+    ★ `skip_dirs` 는 **부르는 쪽이 정한다**(2026-08-11). 기본값은 색인의 `SKIP_DIRS`
+      이지만 그것은 *색인의* 규칙이다 — 색인은 `_보관`·`_바로가기` 를 안 담지만
+      **원본 정리는 바로 그 폴더를 손봐야 한다.** 워커를 공용으로 쓰면서 이 목록을
+      말없이 물려주면, 정리 도구가 어느 날부터 그 폴더를 통째로 안 보게 된다 —
+      오류도 안 나고 '정리 완료'라고 적힌다. 빠르게 만들려다 일을 빼먹는 자리다.
 
     ★ 이것이 색인이 두 시간 반씩 걸리던 이유다 (2026-08-11 실측).
       예전 코드는 `os.walk` 로 이름만 받아 온 뒤 파일마다 `os.stat(경로)` 를 다시 불렀다.
@@ -282,6 +288,7 @@ def _walk_stat(root):
     못 들어가는 폴더는 건너뛴다 — 한 폴더 때문에 색인 전체를 세우지 않는다.
     (심볼릭 링크는 따라가지 않는다. `os.walk` 기본값과 같다 — 고리를 만들면 안 끝난다.)
     """
+    skip = SKIP_DIRS if skip_dirs is None else set(skip_dirs)
     stack = [root]
     while stack:
         dirpath = stack.pop()
@@ -293,7 +300,7 @@ def _walk_stat(root):
         for e in entries:
             try:
                 if e.is_dir(follow_symlinks=False):
-                    if e.name not in SKIP_DIRS:   # 내려가기 전에 거른다
+                    if e.name not in skip:        # 내려가기 전에 거른다
                         stack.append(e.path)
                     continue
                 if not e.is_file(follow_symlinks=False):
@@ -302,6 +309,13 @@ def _walk_stat(root):
             except OSError:
                 continue
             yield dirpath, e.name, st
+
+
+# ★ Z: 를 훑는 다른 도구도 **이 하나를 쓴다** (2026-08-11). 같은 병이 세 곳 더 있었다 —
+#   `source_tidy`(13시간 30분 매달렸던 그 단계) · `source_organizer` · `collect_sources`.
+#   walk 로 이름만 받고 파일마다 `os.stat`/`getmtime` 을 다시 부르는 모양은 어디서든
+#   Z: 에서 파일당 왕복 한 번이다. 워커를 베껴 쓰면 한 곳만 고쳐지고 나머지는 남는다.
+walk_stat = _walk_stat
 
 
 class RootsUnreachable(RuntimeError):

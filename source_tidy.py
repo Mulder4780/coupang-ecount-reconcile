@@ -153,19 +153,26 @@ def main():
             return False
 
         removed, kept = 0, []
-        for dirpath, _d, files in os.walk(short):
-            for fn in files:
-                p = os.path.join(dirpath, fn)
-                if os.path.normcase(p) in want:
-                    continue
-                try:
-                    if has_original(fn, os.stat(p).st_size):
-                        os.remove(p)
-                        removed += 1
-                    else:
-                        kept.append(p)
-                except OSError:
+        # ★ 크기는 **목록을 받을 때 이미 딸려 온다** — 파일마다 다시 묻지 않는다
+        #   (2026-08-11, 검증 [198]). 예전엔 walk 로 이름만 받고 `os.stat(p).st_size` 를
+        #   파일마다 불렀는데, Z:(SMB)에서는 그것이 **파일당 왕복 한 번**이라 실측
+        #   135~155 ms 다(딸려 온 값은 0.04 ms). 이 단계가 13시간 30분 매달렸던
+        #   그 단계다([175]는 죽이는 방법을 고쳤고, 여기는 애초에 왜 오래 걸렸나다).
+        #   거를 폴더는 **없다**(빈 set) — 여기는 `_바로가기` 안을 훑는 자리라
+        #   색인의 SKIP_DIRS 를 물려받으면 정리할 것을 통째로 안 보게 된다.
+        from source_index import walk_stat
+        for dirpath, fn, st in walk_stat(short, skip_dirs=()):
+            p = os.path.join(dirpath, fn)
+            if os.path.normcase(p) in want:
+                continue
+            try:
+                if has_original(fn, st.st_size):
+                    os.remove(p)
+                    removed += 1
+                else:
                     kept.append(p)
+            except OSError:
+                kept.append(p)
         for dirpath, _d, files in os.walk(short, topdown=False):   # 빈 폴더 접기
             if not files and not os.listdir(dirpath) and dirpath != short:
                 try:

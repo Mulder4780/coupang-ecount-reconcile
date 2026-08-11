@@ -12743,7 +12743,46 @@ def t198_source_index_no_per_file_stat():
     for dirpath, _fn, _st in SI._walk_stat(_os.path.join(here, "ecount", "tests")):
         assert "__pycache__" not in dirpath, "SKIP_DIRS 폴더로 내려갔다"
 
-    print("  [198] 색인이 파일마다 Z: 를 다시 묻지 않는다(2.5시간 → 24.8초) ✅")
+    # ⑥ ★ 같은 병이 세 곳 더 있었다 — 워커를 **베껴 쓰지 말고 한 곳을 쓴다**.
+    #    베껴 쓰면 한 곳만 고쳐지고 나머지는 남는다. 그래서 공개 이름을 둔다.
+    assert "walk_stat = _walk_stat" in src, "다른 도구가 쓸 공개 이름이 없다"
+
+    for mod, why in (("source_tidy", "13시간 30분 매달렸던 원본 폴더 정리"),
+                     ("source_organizer", "원본 자료 자동정리")):
+        t = open(_os.path.join(_os.path.dirname(SI.__file__), mod + ".py"),
+                 encoding="utf-8").read()
+        assert "walk_stat" in t, "%s(%s) 가 공용 워커를 안 쓴다" % (mod, why)
+
+    # ⑦ source_tidy 는 훑은 자리에서 크기를 다시 묻지 않는다
+    #   ※ **주석은 빼고 본다.** 안 그러면 "예전엔 os.stat 을 불렀다"고 적어 둔 설명이
+    #     그대로 걸린다 — 계기가 글자를 보고 코드를 안 보는 셈이다.
+    st_src = open(_os.path.join(_os.path.dirname(SI.__file__), "source_tidy.py"),
+                  encoding="utf-8").read()
+    code = "\n".join(l for l in st_src.splitlines() if not l.lstrip().startswith("#"))
+    assert "os.stat(p).st_size" not in code, \
+        "source_tidy 가 파일마다 os.stat 을 다시 부른다 — Z: 에서 파일당 왕복 한 번이다"
+
+    # ⑦-2 ★ **색인의 거를 목록을 말없이 물려주지 않는다.** 색인은 `_보관`·`_바로가기`
+    #     를 안 담지만 정리 도구는 바로 그 폴더를 손봐야 한다. 물려받으면 정리가
+    #     그 폴더를 통째로 안 보면서 '완료'라고 적는다 — 오류가 안 나는 종류다.
+    so = open(_os.path.join(_os.path.dirname(SI.__file__), "source_organizer.py"),
+              encoding="utf-8").read()
+    assert "skip_dirs" in src, "워커가 거를 목록을 부르는 쪽에서 못 정한다"
+    assert "skip_dirs=()" in st_src, "source_tidy 가 색인의 거를 목록을 물려받는다"
+    assert "skip_dirs={\".source_organizer.guard\"}" in so or \
+           "skip_dirs={'.source_organizer.guard'}" in so, \
+        "source_organizer 가 예전에 거르던 것과 다른 목록을 쓴다"
+    a, b = SI._walk_stat, None
+    tdir = _os.path.join(_os.path.dirname(SI.__file__), "tests")
+    b = sum(1 for _ in a(tdir, skip_dirs=()))
+    assert b >= sum(1 for _ in a(tdir)), "거를 목록을 비웠는데 오히려 덜 훑는다"
+
+    # ⑧ source_organizer 는 훑을 때 딸려 온 수정시각을 쓴다(없을 때만 다시 묻는다)
+    day = so.split("def _file_day", 1)[1].split("\ndef ", 1)[0]
+    assert "_MTIME.get(" in day, \
+        "_file_day 가 훑을 때 받은 값을 안 쓰고 파일마다 getmtime 을 다시 부른다"
+
+    print("  [198] 색인·정리가 파일마다 Z: 를 다시 묻지 않는다(2.5시간 → 24.8초) ✅")
 
 
 def t192_synthetic_check_is_harmless():

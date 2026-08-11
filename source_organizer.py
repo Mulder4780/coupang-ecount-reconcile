@@ -99,6 +99,10 @@ def _file_day(path: str) -> datetime:
             return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
         except ValueError:
             pass
+    # 훑을 때 딸려 온 값이 있으면 그것을 쓴다 — Z: 에 다시 묻지 않는다(검증 [198])
+    m = _MTIME.get(os.path.normcase(path))
+    if m is not None:
+        return datetime.fromtimestamp(m)
     try:
         return datetime.fromtimestamp(os.path.getmtime(path))
     except OSError:
@@ -152,6 +156,8 @@ BUDGET_SEC = int(os.environ.get("SOURCE_ORGANIZER_BUDGET_SEC", "7200"))
 _DEADLINE = 0.0
 _BUDGET = 0
 _SCANNED = 0
+# 훑으면서 딸려 온 수정시각 (경로 → epoch). Z: 에 두 번 묻지 않기 위한 것뿐이다(검증 [198]).
+_MTIME: dict[str, float] = {}
 
 
 def start_clock(budget_sec: int | None = None) -> None:
@@ -173,15 +179,22 @@ def _iter_files(folder: str):
     global _SCANNED
     if not os.path.isdir(folder):
         return
-    for base, dirs, files in os.walk(folder):
-        dirs[:] = [d for d in dirs if d not in (".source_organizer.guard",)]
-        for name in files:
-            if name.startswith("~$") or name in ("Thumbs.db", ".DS_Store"):
-                continue
-            _SCANNED += 1
-            if _SCANNED % 200 == 0:          # SMB 왕복이 비싸 자주 재지 않는다
-                check_clock(base)
-            yield os.path.join(base, name)
+    # ★ 훑을 때 딸려 온 수정시각을 **적어 둔다** (2026-08-11, 검증 [198]).
+    #   뒤에서 `_file_day()` 가 파일마다 `getmtime` 을 다시 부르는데, Z:(SMB)에서는
+    #   그것이 파일당 왕복 한 번이라 실측 135~155 ms 다(딸려 온 값은 0.04 ms).
+    #   목록을 받을 때 이미 손에 있던 값을 버리고 다시 묻던 자리다.
+    #   거를 폴더는 **예전 그대로** 넘긴다 — 색인의 목록(`_보관`·`_바로가기`)을
+    #   물려받으면 정리해야 할 폴더를 조용히 안 보게 된다.
+    from source_index import walk_stat
+    for base, name, st in walk_stat(folder, skip_dirs={".source_organizer.guard"}):
+        if name.startswith("~$") or name in ("Thumbs.db", ".DS_Store"):
+            continue
+        _SCANNED += 1
+        if _SCANNED % 200 == 0:          # SMB 왕복이 비싸 자주 재지 않는다
+            check_clock(base)
+        p = os.path.join(base, name)
+        _MTIME[os.path.normcase(p)] = st.st_mtime
+        yield p
 
 
 def _already_dated(path: str, base: str) -> bool:
