@@ -120,6 +120,26 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: ["ledger", "tax", "sl
         .filter(t => t && t.length <= 10).slice(0, 20);
     } catch (_) { return []; }
   };
+  // ★ 진단은 10자 이하만 담는다(짧은 손잡이 이름을 보려고). 그래서 **정작 못 찾은
+  //   그 메뉴 이름**은 언제나 빠졌다 — 실측 2026-08-11 `매출(세금)계산서현황(세무)`
+  //   는 16자라 목록에 못 오르고, 사람은 "그 메뉴가 아예 없다"로 읽었다. 계기가 못
+  //   보는 것을 '없다'로 읽는 자리다([169]).
+  //   그래서 이름의 토막으로 **비슷한 것**을 따로 찾아 준다. 답해야 할 질문은
+  //   "메뉴가 없나"가 아니라 "이름이 우리가 아는 것과 다른가"이기 때문이다.
+  const 비슷한말 = (root, name) => {
+    try {
+      const 토막 = String(name).replace(/[()]/g, " ").split(/\s+/)
+        .filter(s => s.length >= 3);
+      if (!토막.length) return [];
+      const out = [];
+      for (const a of root.querySelectorAll("a")) {
+        const t = (a.textContent || "").trim();
+        if (!t || t.length > 40) continue;
+        if (토막.some(c => t.includes(c))) out.push(t);
+      }
+      return [...new Set(out)].slice(0, 12);
+    } catch (_) { return []; }
+  };
 
   const pick = (cid, txt, exact) => {
     const hit = list => list.find(e => {
@@ -193,6 +213,9 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: ["ledger", "tax", "sl
       if (!menu) { done({결과: '실패', 링크수, 홈복귀, 껍데기: sm.껍데기,
                          손잡이있음: sm.손잡이있음,
                          왜: '메뉴 링크를 못 찾음(사이트맵 열기·홈 복귀까지 시도)',
+                         // 이름이 다른 것인지 아예 없는 것인지를 여기서 가른다 —
+                         // 그 둘은 사람이 할 일이 완전히 다르다.
+                         비슷한: 비슷한말(sm.root, step.메뉴),
                          진단: 진단()}); continue; }
       menu.click();
       열어본적 = true;                              // 이제부터는 돌아와야 한다
