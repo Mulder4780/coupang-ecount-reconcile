@@ -10932,6 +10932,12 @@ def t171_cache_swap_waits_for_readers():
     assert "os.replace(tmp, dst)" not in body.split("def swap_in", 1)[1].split("\ndef ", 1)[1], \
         "캐시를 갈아끼우는 자리가 swap_in 을 안 거치면 재시도가 아무 소용 없다"
     assert body.count("swap_in(tmp, dst)") >= 2, "캐시 쓰는 자리가 둘 다 거쳐야 한다"
+    # 2026-08-11: tmp 는 pid 별 이름이어야 한다 — 고정 이름이면 5분 파이프라인·09:50
+    # 회차·dump_watch 가 겹칠 때 서로의 tmp 를 가져가 FileNotFoundError 로 죽는다.
+    assert "def tmp_path(" in body and body.count("tmp = tmp_path(") >= 3, \
+        "캐시 tmp 가 고정 이름이다 — 회차 둘이 겹치면 FileNotFoundError 로 죽는다"
+    assert "os.getpid()" in body.split("def tmp_path(", 1)[1].split("\ndef ", 1)[0], \
+        "tmp_path 에 pid 가 없다 — 이름이 갈리지 않는다"
 
     d = tempfile.mkdtemp()
     dst = os.path.join(d, "c.json")
