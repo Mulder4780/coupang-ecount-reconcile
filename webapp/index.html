@@ -6870,6 +6870,7 @@ function navTabOrder(){
 function swipeBlocked(el){
   if(typeof CAL_ONLY !== 'undefined' && CAL_ONLY) return true;
   if(document.body.classList.contains('dash-drag-live')) return true;
+  if(document.body.classList.contains('tab-drag-live')) return true;   // 탭 순서를 끄는 중
   if(typeof dashLayoutEditing !== 'undefined' && dashLayoutEditing) return true;
   try{ if(sheetIsOpen()) return true; }catch(_){}
   // 손가락 밑에 가로로 스크롤되는 것이 있으면 그쪽에 양보한다
@@ -16898,6 +16899,7 @@ function qpBlocked(){
   try{ if(sheetIsOpen()) return true; }catch(_){}
   if(typeof CAL_ONLY!=='undefined'&&CAL_ONLY) return true;
   if(document.body.classList.contains('dash-drag-live')) return true;
+  if(document.body.classList.contains('tab-drag-live')) return true;   // 탭 순서를 끄는 중
   return false;
 }
 function qpFill(){
@@ -17015,6 +17017,149 @@ try{
     setTimeout(()=>{ try{ toast('화면 맨 위를 끌어내리면 빠른 설정 · 맨 아래를 끌어올리면 빠른 이동'); }catch(_){}} ,2500);
   }
 }catch(_){}
+</script>
+
+<!-- ══ 카테고리 순서 바꾸기 — 길게 눌러 끌어 놓기 (2026-08-12 지시) ═══════════
+     사용자 지시: "이 카테고리들을 마우스로 길게 찍어서 드래그앤 드롭으로 순서 변경"
+     ★ 끌기는 **포인터 이벤트**다 — HTML5 dragstart 는 폰에서 아예 안 난다(2026-08-06
+       대시보드 카드에서 이미 겪었다). 같은 방식을 그대로 쓴다.
+     ★ 탭은 평소 **누르면 이동**하는 물건이다. 그래서 길게(450ms) 눌러야만 끌기가 되고,
+       그전에 조금이라도 움직이면 스크롤·스와이프로 보고 끌기를 취소한다.
+     ★ 순서는 화면 환경설정이라 localStorage 에 둔다(업무값이 아니다 — 정본 규칙 그대로).
+     ★ 스와이프 이동 순서(navTabOrder)는 **탭바 DOM 순서를 그대로 읽는다** — 그래서
+       여기서 순서를 바꾸면 밀어서 넘기는 순서도 저절로 같이 바뀐다(따로 안 적는다). -->
+<style id="taborder-style">
+#tabbar button[data-v]{touch-action:manipulation}
+body.tab-drag-live{-webkit-user-select:none;user-select:none;cursor:grabbing}
+body.tab-drag-live #tabbar button[data-v]{transition:transform .12s ease}
+#tabbar button.tab-dragging{opacity:.92;transform:scale(1.05);position:relative;z-index:5;
+  box-shadow:0 10px 28px rgba(0,0,0,.32);border-radius:12px}
+#tabOrderUndo{position:fixed;left:50%;transform:translateX(-50%);
+  bottom:calc(env(safe-area-inset-bottom,0px) + 88px);z-index:1200;border:0;cursor:pointer;
+  border-radius:999px;padding:11px 18px;font-family:inherit;font-size:13px;font-weight:800;
+  color:#fff;background:#0E1B3F;box-shadow:0 8px 26px rgba(0,0,0,.32)}
+@media (min-width:900px){#tabOrderUndo{bottom:22px}}
+</style>
+<script>
+(function(){
+  const KEY='cw_tab_order', HOLD_MS=450, SLOP=8;
+
+  /* 재정렬 대상은 **여백(nav-spacer) 앞** 카테고리들뿐이다. 쿠팡 캘린더는 여백 뒤에
+     따로 떨어뜨려 둔 자리라, 같이 섞으면 사람이 안 시킨 레이아웃 변화가 생긴다. */
+  function group(){
+    const bar=document.getElementById('tabbar'); if(!bar) return [];
+    const out=[];
+    for(const n of bar.children){
+      if(n.classList && n.classList.contains('nav-spacer')) break;
+      if(n.matches && n.matches('button[data-v]')) out.push(n);
+    }
+    return out;
+  }
+  const idsOf=()=>group().map(b=>b.dataset.v);
+
+  function applyList(list){
+    const bar=document.getElementById('tabbar'); if(!bar||!Array.isArray(list)) return;
+    const stop=bar.querySelector('.nav-spacer');
+    /* 저장에 **없는** 탭은 건드리지 않는다 — 새 카테고리가 생긴 날 옛 목록을 그대로
+       믿으면 그 탭이 조용히 맨 뒤로 밀리거나 사라진 것처럼 보인다. */
+    list.forEach(v=>{
+      if(!v) return;
+      const b=bar.querySelector('button[data-v="'+String(v).replace(/"/g,'')+'"]');
+      if(b && b.parentNode===bar) bar.insertBefore(b, stop||null);
+    });
+  }
+  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(idsOf())); }catch(_){} }
+  function restore(){
+    let saved=null; try{ saved=JSON.parse(localStorage.getItem(KEY)||'null'); }catch(_){}
+    if(Array.isArray(saved) && saved.length) applyList(saved);
+  }
+
+  /* 되돌리기 칩 — 바꾼 **직후에만** 잠깐 뜬다. 이게 없으면 잘못 끌어 놓은 사람이
+     되돌릴 길이 없어 "순서가 망가졌다"가 된다(설정 화면까지 찾아가게 하지 않는다). */
+  function undoChip(prev){
+    let el=document.getElementById('tabOrderUndo');
+    if(el) el.remove();
+    el=document.createElement('button');
+    el.id='tabOrderUndo'; el.type='button'; el.textContent='↩ 순서 되돌리기';
+    el.onclick=()=>{ applyList(prev); save(); el.remove();
+      try{ toast('순서를 되돌렸습니다'); }catch(_){} };
+    document.body.appendChild(el);
+    setTimeout(()=>{ if(el.isConnected) el.remove(); }, 6000);
+  }
+
+  let drag=null;
+  function onDown(e){
+    if(e.button && e.button!==0) return;               // 왼쪽 단추·손가락만
+    const bar=document.getElementById('tabbar'); if(!bar) return;
+    const btn=e.target.closest && e.target.closest('button[data-v]');
+    if(!btn || group().indexOf(btn)<0) return;
+    try{ if(typeof sheetIsOpen==='function' && sheetIsOpen()) return; }catch(_){}
+    const sx=e.clientX, sy=e.clientY, pid=e.pointerId;
+    let held=false;
+
+    const hold=setTimeout(()=>{
+      held=true;
+      drag={btn, moved:false, prev:idsOf()};
+      btn.classList.add('tab-dragging');
+      document.body.classList.add('tab-drag-live');
+      try{ btn.setPointerCapture(pid); }catch(_){}
+      try{ navigator.vibrate && navigator.vibrate(12); }catch(_){}
+      try{ toast('원하는 자리로 끌어 놓으세요'); }catch(_){}
+    }, HOLD_MS);
+
+    function onMove(ev){
+      if(!held){
+        if(Math.abs(ev.clientX-sx)>SLOP || Math.abs(ev.clientY-sy)>SLOP){ clearTimeout(hold); finish(); }
+        return;
+      }
+      if(ev.cancelable) ev.preventDefault();          // 끄는 동안 화면이 같이 밀리지 않게
+      drag.moved=true;
+      const over=document.elementFromPoint(ev.clientX, ev.clientY);
+      const tgt=over && over.closest && over.closest('button[data-v]');
+      if(!tgt || tgt===drag.btn || group().indexOf(tgt)<0) return;
+      /* 세로 사이드바(≥900px)냐 가로 하단바냐를 **실제 좌표로** 판정한다.
+         화면 폭을 코드에 적어 두면 CSS 를 고친 날 조용히 어긋난다. */
+      const r=tgt.getBoundingClientRect();
+      const vertical=r.height>=r.width;
+      const after=vertical ? (ev.clientY > r.top + r.height/2)
+                           : (ev.clientX > r.left + r.width/2);
+      tgt.parentNode.insertBefore(drag.btn, after ? tgt.nextSibling : tgt);
+    }
+    function finish(){
+      clearTimeout(hold);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', finish);
+      document.removeEventListener('pointercancel', finish);
+      if(!drag) return;
+      const {btn:b, moved, prev}=drag; drag=null;
+      b.classList.remove('tab-dragging');
+      document.body.classList.remove('tab-drag-live');
+      try{ b.releasePointerCapture(pid); }catch(_){}
+      if(!moved) return;
+      /* 끌어 놓은 직후의 click 은 '옮겼다'이지 '그 화면으로 가라'가 아니다 — 한 번 삼킨다. */
+      const eat=ev2=>{ ev2.preventDefault(); ev2.stopPropagation(); };
+      b.addEventListener('click', eat, {capture:true, once:true});
+      setTimeout(()=>{ try{ b.removeEventListener('click', eat, true); }catch(_){} }, 400);
+      if(idsOf().join('|')===prev.join('|')) return;   // 제자리에 놓았으면 아무 일도 없다
+      save(); undoChip(prev);
+      try{ toast('카테고리 순서를 바꿨습니다'); }catch(_){}
+      try{ uxEvent('tap','tab-reorder', b.dataset.v); }catch(_){}
+    }
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', finish);
+    document.addEventListener('pointercancel', finish);
+  }
+
+  try{
+    restore();
+    const bar=document.getElementById('tabbar');
+    if(bar) bar.addEventListener('pointerdown', onDown);
+    window.tabOrderReset=function(){                 // 기본 순서로: 저장을 지우고 새로고침
+      try{ localStorage.removeItem(KEY); }catch(_){}
+      location.reload();
+    };
+  }catch(_){}
+})();
 </script>
 </body>
 </html>
