@@ -569,6 +569,34 @@ def resume_parked(dry):
         return "세션자동화 실패: %s: %s" % (type(exc).__name__, str(exc)[:80])
 
 
+def watch_schedules(dry):
+    """회차가 **정말 돌았나** — 스케줄러의 마지막 결과를 읽는다 (2026-08-12, `[228]`).
+
+    ★ 이 프로젝트에서 자동화의 마지막 구멍이 여기였다. 지시문 '자동으로 도는 것'
+      목록에 한 줄을 적으면 자동이 된 것처럼 보이지만, 실제로 도는지를 아는 것은 그
+      목록이 아니라 **작업 스케줄러**다. 실측 2026-08-12 — 일일대조·원본정리가 매일
+      제한시간에 걸려 강제 종료되고 정오회차는 등록조차 안 돼 한 번도 안 돌았는데
+      **아무 화면에도 안 떴다**(`LastTaskResult` 를 읽는 코드가 한 줄도 없었다).
+    ★ **`snapshot_handoff` 보다 먼저**다. 여기서 판정을 새로 써야 같은 회차의 인계
+      문서가 그것을 읽는다 — 뒤에 두면 인계가 언제나 30분 전 판정을 싣는다.
+    ★ **`dry` 여도 묻는다.** 읽기 전용이라 고치는 것이 없고, 안 물으면 `--dry` 로는
+      이 눈이 도는지 확인할 길이 자체가 없다.
+    """
+    try:
+        import schedule_watch
+        st = schedule_watch.build()
+    except Exception as exc:                       # 눈 하나 때문에 회차를 세우지 않는다
+        return "스케줄러 감시 실패: %s" % str(exc)[:60]
+    if st.get("조회실패"):
+        # ★ '이상 없음'이 아니라 '확인 못 함'이다 — 감시자가 눈먼 채 정상을 말하면 안 된다.
+        return "스케줄러 확인 못 함: %s" % st["조회실패"][:60]
+    al = st.get("경보") or []
+    if not al:
+        return "스케줄러 정상(%d회차)" % len(st.get("작업") or [])
+    return "스케줄러 경보 %d건: %s" % (
+        len(al), ", ".join("%s %s" % (a["갈래"], a["작업"]) for a in al[:4]))
+
+
 def main():
     # 류지영 매니저 입력 중에는 로그 파일조차 갱신하지 않고 즉시 종료한다.
     if is_input_window():
@@ -587,6 +615,9 @@ def main():
                heal_autopilot(dry),
                resume_parked(dry),
                heal_tunnel(dry), publish_endpoint(dry), clean_reports(dry),
+               # ★ 스케줄러 판정이 **인계 스냅샷보다 먼저**다 — 뒤에 두면 인계 문서가
+               #   언제나 30분 전 판정을 싣는다(2026-08-12, `[228]`).
+               watch_schedules(dry),
                snapshot_handoff(dry), resume_deferred_apply(dry)]
     if gap:
         results.insert(0, gap)

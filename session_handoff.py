@@ -32,6 +32,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -612,8 +613,25 @@ def collect():
         "밴드재수집": band_recollect(),
         "업무흐름": work_flow_change(),
         "세션자동화": session_auto(),
+        "스케줄러": schedule_health(),
         "앱서버": app_server_health(),
     }
+
+
+def schedule_health():
+    """회차가 **정말 돌았나** — 스케줄러의 마지막 결과 (2026-08-12, `[228]`).
+
+    ★ 아래 '일일자동대조' 판정은 **완주 기록**을 본다 — 즉 "안 끝났다"까지만 안다.
+      **왜** 안 끝났는지는 스케줄러만 안다(제한시간에 걸려 끊겼는지, 앞 회차에 막혀
+      거부됐는지, 아예 등록이 안 돼 한 번도 안 돌았는지). 둘은 겹치지 않는다.
+    ★ 여기서 스케줄러를 다시 묻지 않는다(`[168]`) — 인계 문서는 자주 만들어지고
+      조회는 비싸다. 워치독(30분)이 써 둔 판정을 읽기만 한다.
+    """
+    try:
+        import schedule_watch
+        return schedule_watch.banner()
+    except Exception:
+        return None
 
 
 def session_auto():
@@ -843,6 +861,21 @@ def blockers(st, for_sol=False):
         out.append(("세워 둔 일 **[%s]** 의 막힘이 풀렸다 — %s"
                     % (row.get("id"), (row.get("title") or "")[:60]),
                     "python worksplit.py --take %s --who claude" % row.get("id")))
+    # ★ 회차가 **아예 안 돌았거나 죽었다** — 스케줄러만 아는 사실이다 (2026-08-12, `[228]`).
+    #   아래 '일일대조' 판정은 완주 기록을 보므로 "안 끝났다"까지만 안다. **왜**인지는
+    #   여기가 말한다: 제한시간에 걸려 끊겼는지, 앞 회차에 막혀 거부됐는지, 등록조차
+    #   안 됐는지. 실측 2026-08-12 — 일일대조·원본정리가 매일 강제 종료되고 정오회차는
+    #   등록이 안 돼 한 번도 안 돌았는데 **어느 화면에도 안 떴다.**
+    sw = st.get("스케줄러") or {}
+    if sw.get("조회실패"):
+        # 못 본 것을 정상이라 하지 않는다(`[169]`) — 감시자가 눈멀었다는 것도 소식이다.
+        out.append(("스케줄러 상태를 **확인 못 했다** — %s. 이것은 '이상 없음'이 아니다"
+                    % str(sw["조회실패"])[:80], "python schedule_watch.py"))
+    for a in (sw.get("경보") or [])[:5]:
+        # 바깥에서 한 번 더 굵게 감싸므로 여기서는 `**` 를 쓰지 않는다(겹치면 안 굵어진다).
+        out.append(("회차 [%s] %s" % (a.get("갈래", ""),
+                                    re.sub(r"\*\*", "", str(a.get("무엇") or ""))[:110]),
+                    a.get("어떻게") or "python schedule_watch.py --print"))
     # ★ 스케줄러가 '성공'이라 말해도 완주하지 않았을 수 있다 — 잠금을 못 잡은 회차가
     #   조용히 exit 0 으로 끝나기 때문이다. 그 사이 자료현황·대조 리포트가 통째로 멈춘다.
     dr = st.get("일일대조") or {}

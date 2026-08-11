@@ -14555,6 +14555,175 @@ def t227_text_locks_use_the_one_owner_judge():
           "재사용 회수/산 주인 보호 ✅")
 
 
+def t228_scheduler_rounds_are_watched():
+    """[228] 회차가 **정말 돌았나** — 스케줄러 결과를 읽는 눈 (2026-08-12, 분담판 [35]).
+
+    자동화의 마지막 구멍이 여기였다. 지시문 '자동으로 도는 것' 목록에 한 줄을 적으면
+    자동이 된 것처럼 보이지만, 실제로 도는지를 아는 것은 그 목록이 아니라 **작업
+    스케줄러**다. 실측 2026-08-12 — 일일대조·원본정리가 매일 제한시간에 걸려 강제
+    종료되고 정오회차는 등록조차 안 돼 한 번도 안 돌았는데 **아무 화면에도 안 떴다**
+    (`LastTaskResult` 를 읽는 코드가 프로젝트에 한 줄도 없었다).
+
+    지키는 것:
+      ① **`[long]`** — 결과 코드를 `[int]` 로 받으면 `0xC000013A`·`0x800710E0` 이
+         Int32 를 넘겨 변환이 터지고 **그 작업이 통째로 목록에서 빠진다.** 실측으로
+         빠진 셋이 하필 지금 실패하고 있는 회차들이었다 — 감시자가 **실패한 것만
+         골라 못 보는** 자리다(`[169]`).
+      ② **연속은 회차를 센다** — 관찰이 아니다. 워치독이 30분마다 보므로 관찰을 세면
+         하루 한 번 실패가 "48회 연속"이 되고 밀림 판정이 첫날 아침에 터진다.
+      ③ **가르기** — 도는중·밀림 한 번은 경보가 아니고 죽음·안돎은 한 번이라도
+         경보다. 경보가 대부분이면 아무도 안 본다(`[170]`).
+      ④ **못 본 것을 정상이라 하지 않는다** — 조회 실패는 '이상 없음'이 아니다.
+      ⑤ **읽기 전용** — 회차를 다시 띄우거나 등록하지 않는다.
+      ⑥ **배선** — 워치독이 인계 스냅샷 **앞에서** 부르고, 인계는 다시 안 묻는다(`[168]`).
+    """
+    import schedule_watch as SW
+    from datetime import datetime as _dt, timedelta as _td
+
+    src = open(os.path.join(ROOT, "schedule_watch.py"), encoding="utf-8").read()
+
+    # ── ① 결과 코드는 [long] 이다. [int] 가 돌아오면 실패한 회차만 조용히 빠진다.
+    assert "result = [long]" in src and "missed = [long]" in src, \
+        "결과 코드를 [long] 으로 안 받는다 — 0xC000013A 에서 그 작업이 통째로 빠진다"
+    assert "result = [int]" not in src, "[int] 캐스트가 되살아났다"
+    assert "catch {" in src, "작업마다 try/catch 가 없다 — 하나가 터지면 조용히 빠진다"
+
+    # ── ⑤ 읽기 전용: 고치는 명령이 한 줄도 없어야 한다
+    for bad in ("Register-ScheduledTask", "Start-ScheduledTask", "Set-ScheduledTask",
+                "Unregister-ScheduledTask", "Enable-ScheduledTask"):
+        assert bad not in src, "schedule_watch 가 스케줄러를 고치려 한다: %s" % bad
+
+    now = _dt(2026, 8, 12, 14, 0, 0)
+
+    def task(name, result, last, **kw):
+        t = {"name": name, "state": kw.get("state", "Ready"), "result": result,
+             "last": last, "next": "", "reg": kw.get("reg", "2026-01-01T00:00:00"),
+             "limit": kw.get("limit", "PT3H"), "multi": "IgnoreNew", "missed": 0,
+             "err": kw.get("err", ""), "trig": kw.get("trig", [])}
+        return t
+
+    daily = [{"kind": "MSFT_TaskDailyTrigger", "start": "2026-01-01T09:50:00",
+              "every": "", "span": "", "days": "1", "on": True}]
+    every5 = [{"kind": "MSFT_TaskTimeTrigger", "start": "2026-01-01T00:00:00",
+               "every": "PT5M", "span": "", "days": "", "on": True}]
+
+    # ── ③ 갈래 가르기
+    ok = SW.judge(task("성공회차", 0, "2026-08-12T09:50:00", trig=daily), now)
+    assert ok["갈래"] == "성공", ok
+    run = SW.judge(task("도는회차", 0x800710E0, "2026-08-12T13:59:00",
+                        state="Running", trig=every5), now)
+    assert run["갈래"] == "도는중", "도는 중인 회차를 실패라 부른다 — %s" % run
+    kill = SW.judge(task("죽은회차", 0xC000013A, "2026-08-12T09:50:00", trig=daily), now)
+    assert kill["갈래"] == "강제종료" and "제한시간" in kill["말"], kill
+    push = SW.judge(task("밀린회차", 0x800710E0, "2026-08-12T13:57:00", trig=every5), now)
+    assert push["갈래"] == "밀림", push
+
+    # 죽음은 한 번이라도 경보 · 밀림 한 번은 경보가 아니다
+    al = SW.alarms([ok, run, kill, push], {})
+    kinds = {a["갈래"] for a in al}
+    assert "강제종료" in kinds, "죽은 회차가 경보에 안 올라온다"
+    assert "밀림" not in kinds, "한 번의 밀림을 경보로 올린다 — 5분 회차는 매일 그렇다"
+    assert "성공" not in kinds and "도는중" not in kinds, "정상까지 경보로 올린다"
+
+    # ── ② 연속은 회차를 센다: 같은 마지막실행을 다시 봐도 안 오른다
+    seen = {"밀린회차": push}
+    same = SW.judge(task("밀린회차", 0x800710E0, "2026-08-12T13:57:00", trig=every5),
+                    now, seen)
+    assert same["연속"] == push["연속"], \
+        "같은 회차를 다시 본 것을 새 실패로 센다 — 30분마다 보면 하루가 48회가 된다"
+    moved = SW.judge(task("밀린회차", 0x800710E0, "2026-08-12T14:02:00", trig=every5),
+                     now, {"밀린회차": same})
+    assert moved["연속"] == same["연속"] + 1, "회차가 실제로 새로 돌았는데 안 센다"
+    # 연속이 한도에 닿으면 그때 경보다 — 그 뜻은 '앞 회차가 안 끝나고 있다'이다
+    deep = dict(moved, 연속=SW.REPEAT_LIMIT)
+    assert any(a["갈래"] == "밀림" for a in SW.alarms([deep], {})), \
+        "%d회 연속 밀림도 경보로 안 올린다" % SW.REPEAT_LIMIT
+
+    # ── 1999-11-30 은 실행 기록이 아니다(윈도우의 '한 번도 안 돎')
+    never = SW.judge(task("새회차", 0x00041303, "1999-11-30T00:00:00",
+                          reg="2026-08-12T13:30:00", trig=daily), now)
+    assert never["마지막실행"] == "", "26년 전 날짜를 실행 기록으로 읽는다"
+    # 등록(13:30) 이전의 예정(09:50)으로 나무라지 않는다
+    assert never["갈래"] == "아직안돎", \
+        "오늘 등록한 회차를 어제치 예정으로 '안 돎'이라 한다 — %s" % never
+    assert not any(a["갈래"] == "안돎" for a in SW.alarms([never], {}))
+
+    # 그러나 등록 뒤 예정이 지났는데 기록이 없으면 그때는 안 돎이다
+    late = SW.judge(task("빠진회차", 0x00041303, "",
+                         reg="2026-08-01T00:00:00", trig=daily), now)
+    assert late["갈래"] == "안돎", "예정이 지났는데 실행 기록이 없다 — %s" % late
+    assert any(a["갈래"] == "안돎" for a in SW.alarms([late], {})), "안 돎이 경보가 아니다"
+
+    # ── 예정 시각을 모르는 트리거는 모른다고 한다(억지 밀림 금지)
+    boot = [{"kind": "MSFT_TaskBootTrigger", "start": "2026-01-01T00:00:00",
+             "every": "", "span": "", "days": "", "on": True}]
+    assert SW._due(task("부팅회차", 0, "2026-01-02T00:00:00", trig=boot), now)[0] is None, \
+        "부팅 트리거에 예정 시각을 지어낸다 — 멀쩡한 회차가 매번 밀림으로 나온다"
+
+    # ── ④ 조회 실패는 '이상 없음'이 아니다
+    with tempfile.TemporaryDirectory() as tmp:
+        SW.STATE = os.path.join(tmp, "s.json")
+        SW.REPORT = os.path.join(tmp, "s.md")
+        boom, real = (lambda: (_ for _ in ()).throw(RuntimeError("스케줄러 안 열림"))), SW.query
+        try:
+            SW.query = boom
+            st = SW.build(now)
+            assert st["조회실패"] and not st["작업"], "조회가 터졌는데 정상처럼 적는다"
+            body = open(SW.REPORT, encoding="utf-8").read()
+            assert "확인 못 함" in body and "이상 없음" in body, \
+                "리포트가 '못 본 것'과 '이상 없음'을 안 가른다"
+            b = SW.banner()
+            assert b and b["조회실패"], "인계로 나가는 한 장이 조회 실패를 숨긴다"
+            # 작업 하나만 못 읽은 것도 정상이 아니다
+            SW.query = lambda: [task("반쯤읽힌회차", -1, "", err="CIM 오류")]
+            st = SW.build(now)
+            assert st["작업"][0]["갈래"] == "확인못함", st["작업"]
+            assert any(a["갈래"] == "확인못함" for a in st["경보"]), \
+                "못 읽은 작업을 경보로 안 올린다"
+        finally:
+            SW.query = real
+
+    # ── 있어야 할 회차 목록은 **설치본이 선언한 것**이다(손으로 적은 목록이 아니다)
+    dec = SW.declared()
+    assert dec, "install_*.ps1 에서 작업 이름을 하나도 못 읽었다"
+    assert any(n.startswith("쿠팡업무_") for n in dec), \
+        "한글 이름(-join @([char]0x..)) 을 못 푼다 — 그 회차들이 영영 '있는 줄' 안다"
+    assert "CSOS_AutomationPipeline" in dec, "따옴표로 적은 이름을 못 읽는다"
+    miss = SW.alarms([], {"쿠팡업무_없는회차": "install_x.ps1"})
+    assert miss and miss[0]["갈래"] == "등록안됨" and "install_x.ps1" in miss[0]["어떻게"], \
+        "설치본은 있는데 등록이 안 된 것을 경보로 안 올린다 — 정오회차 사고의 모양이다"
+
+    # ── ⑥ 배선: 워치독이 인계 스냅샷 **앞에서** 부른다
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    assert "def watch_schedules(" in wd, "워치독에 스케줄러 감시 단계가 없다"
+    # 목록만 뽑되 **주석은 걷어낸다** — 설명에 적힌 검증번호(`[228]`)의 대괄호를
+    # 목록 끝으로 읽으면 배선이 멀쩡한데 검증이 실패한다.
+    block = re.search(r"results = \[(.*?)\]\s*\n", wd, re.S)
+    assert block, "워치독 회차 목록을 못 찾겠다"
+    steps = "\n".join(l for l in block.group(1).splitlines()
+                      if not l.strip().startswith("#"))
+    assert "watch_schedules(dry)" in steps, "감시 단계가 회차 목록에 안 들어 있다"
+    assert steps.index("watch_schedules(dry)") < steps.index("snapshot_handoff(dry)"), \
+        "인계 스냅샷 뒤에 있다 — 인계 문서가 언제나 30분 전 판정을 싣는다"
+
+    # 인계는 **다시 묻지 않는다**(비싼 조회는 캐시 뒤에, `[168]`)
+    bannersrc = src.split("def banner(", 1)[1].split("\ndef ", 1)[0]
+    assert "query(" not in bannersrc and "build(" not in bannersrc, \
+        "banner 가 스케줄러를 직접 묻는다 — 인계 문서를 만들 때마다 조회가 돈다"
+    sh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert '"스케줄러": schedule_health()' in sh, "인계 상태에 스케줄러 칸이 없다"
+    assert 'sw = st.get("스케줄러")' in sh, "'먼저 처리할 것' 이 스케줄러를 안 읽는다"
+    assert 'sw.get("조회실패")' in sh, "인계가 '확인 못 함'을 안 올린다"
+
+    # ── 컴팩팅 배선: 셋 다 본다(빠지면 세션이 인계 없이 끊긴다)
+    csrc = src.split("def compaction(", 1)[1].split("\ndef ", 1)[0]
+    for key in ("autoCompactEnabled", "session_wrapup", "context_guard"):
+        assert key in csrc, "컴팩팅 배선 점검이 %s 를 안 본다" % key
+
+    print("  [228] 스케줄러 회차 감시 — long 캐스트로 실패 회차가 안 빠짐 · 연속은 회차를 셈 · "
+          "도는중/밀림/죽음/안돎 가르기 · 확인못함≠정상 · 읽기전용 · 스냅샷 앞 배선 ✅")
+
+
 def t220_flow_yes_no_cycles():
     """[220] 플로우 예/아니오 순환 검증 (2026-08-11 지시).
 
@@ -15727,6 +15896,7 @@ if __name__ == "__main__":
     t219_noon_round_is_daily_windowed_and_yields()
     t224_wrapup_commit_refusal_paths()
     t225_session_auto_resumes_parked_and_pushes()
+    t228_scheduler_rounds_are_watched()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
