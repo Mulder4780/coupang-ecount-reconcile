@@ -8937,6 +8937,12 @@ const STAT_HELP = {
  erp_other:{n:'ERP 전용 매출',t:'원장 관리 밖 업무의 ERP 발행액 — 누락이 아니다',
    c:'ERP 발행 전체 − 돌발AS·정기점검 몫 = 신규납품·기타·철거·계단 등 06시트가 담지 않는 업무',
    s:'ERP 세금계산서 목록(Z:) → /api/erp_docs',p:'현재 연도',x:'돌발AS·정기점검(ERP 발행 누적 카드가 담당)'},
+ erp_as:{n:'돌발AS 계산서 발행',t:'ERP 세금계산서 중 돌발AS 몫의 연간 누적',
+   c:'월별 ERP 발행액에서 유형이 돌발AS인 것만 합산',s:'ERP 세금계산서 목록(Z:) → /api/erp_docs',
+   p:'현재 연도',x:'정기점검·ERP 전용 매출(신규납품·철거 등)'},
+ erp_pm:{n:'정기점검 계산서 발행',t:'ERP 세금계산서 중 정기점검 몫의 연간 누적',
+   c:'월별 ERP 발행액에서 유형이 정기점검인 것만 합산',s:'ERP 세금계산서 목록(Z:) → /api/erp_docs',
+   p:'현재 연도',x:'돌발AS·ERP 전용 매출(신규납품·철거 등)'},
  rep_open:{n:'AS 전산상 미완료',t:'진행상태·완료일 어느 쪽으로도 완료가 확인되지 않은 돌발AS',
    c:'02시트에서 완료 확인이 안 되는 건을 접수일 경과일과 함께 집계(서버 backlog)',
    s:'02시트 → 서버 대표 예외보고 집계',p:'현재 연도 원장 전체',x:'완료 확인 건'},
@@ -8986,6 +8992,8 @@ const STAT_ALIAS = {
   '정산 총계':'k_all','원장 정산 공급가액':'k_amt','원장 정산 공급가액(부가세 별도·원)':'k_amt',
   'ERP 발행 누적 — 돌발AS·정기점검':'erp_ytd','원장 미반영 — 돌발AS·정기점검':'erp_gap',
   'ERP 전용 매출 — 원장 관리 밖':'erp_other',
+  '돌발AS 계산서 발행(원)':'erp_as','돌발AS 계산서 발행':'erp_as',
+  '정기점검 계산서 발행(원)':'erp_pm','정기점검 계산서 발행':'erp_pm',
   'AS 전산상 미완료':'rep_open','AS D+2 초과 · 지속보고 대상':'rep_d2','AS D+2 초과':'rep_d2',
   '현장완료·서류 미정리':'rep_paper','정기점검 계획대비':'rep_plan',
   '거래명세서 미발행':'rep_stmt','업무기준 확인 필요':'rep_policy'
@@ -13642,6 +13650,86 @@ function srcRow(label, s, emptyMsg){
       (s.miss_prj||[]).filter(Boolean).map(k=>
         `<span class="prj" onclick="openByPrj('${k}')">${k}</span>`).join('') || '-'}</div></td></tr>`;
 }
+/* ══ 매출 흐름(퍼널) 집계 — 돌발AS·정기점검 (2026-08-12 지시) ══════════════════
+   "2026년 1월부터 몇 건이 진행됐고 → 거래명세서 → 매출전표 → PO → 세금계산서 →
+   입금 확인까지" 를 종류별로 센다. 근거는 전부 **이미 화면에 내려온 칸**이다:
+   · 작업 진행 = 02·04시트 건수(첫 줄만) · 이하 단계 = 06시트 정산 행(취소 제외)
+   · 세금계산서 = r.계산서 '발행*' — 화면과 같은 근거 3갈래([154])
+   · ERP 전표 = 발행됐거나, 미발행사유가 '전표 없음'이 아닌 것([170] 갈래 그대로)
+   · 입금 예정 = 발행일→입금일 이력의 중앙값. **이력이 5쌍 미만이면 예측하지 않는다**
+     — 지어낸 예정일이 화면에 확정처럼 보이는 것이 제일 위험하다. */
+function buildRevFunnel(S, upTo, y, asWorkN, pmWorkN){
+  const K={'돌발AS':{n:0,amt:0,stmt:0,slip:0,po:0,tax:0,taxAmt:0,paid:0,paidAmt:0,due:0},
+           '정기점검':{n:0,amt:0,stmt:0,slip:0,po:0,tax:0,taxAmt:0,paid:0,paidAmt:0,due:0}};
+  const months={}, lags=[], unpaid=[];
+  const hasStmt=r=>!!(String(r.명세서번호||'').trim()||/발행/.test(String(r.명세서||'')));
+  const hasTax=r=>String(r.계산서||'').startsWith('발행');
+  const hasSlip=r=>hasTax(r)||(r.미발행사유&&String(r.미발행사유).indexOf('전표 없음')<0);
+  const hasPaid=r=>!!(String(r.입금일||'').trim())||(+r.입금액||0)>0;
+  const day=s=>String(s||'').slice(0,10);
+  S.forEach(r=>{
+    const k=K[r.업무구분]; if(!k) return;
+    k.n++; k.amt+=(+r.공급가액||0);
+    if(hasStmt(r)) k.stmt++;
+    if(hasSlip(r)) k.slip++;
+    if(String(r.PO번호||'').trim()) k.po++;
+    if(hasTax(r)){ k.tax++; k.taxAmt+=(+r.공급가액||0); }
+    if(hasPaid(r)){ k.paid++; k.paidAmt+=(+r.입금액||0); }
+    k.due+=(+r.미수금||0);
+    const mo=day(dateOf(r,'settle')).slice(5,7);
+    if(mo){
+      const kk=r.업무구분==='돌발AS'?'as':'pm';
+      const M=months[mo]=months[mo]||{as:{n:0,amt:0},pm:{n:0,amt:0},tax:0,pay:0};
+      M[kk].n++; M[kk].amt+=(+r.공급가액||0);
+      if(hasTax(r)) M.tax++;
+      M.pay+=(+r.입금액||0);
+    }
+    const iss=day(r.계산서발행일);
+    if(hasTax(r)&&!hasPaid(r)) unpaid.push({r,iss});
+    if(iss&&day(r.입금일)){
+      const lag=Math.round((new Date(day(r.입금일)+'T12:00:00')-new Date(iss+'T12:00:00'))/86400000);
+      if(lag>=0&&lag<=365) lags.push(lag);
+    }
+  });
+  lags.sort((a,b)=>a-b);
+  const med=lags.length>=5?lags[Math.floor(lags.length/2)]:null;
+  const addDays=(iso,n)=>{const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+n);
+    const p=x=>String(x).padStart(2,'0');return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());};
+  const late={n:0,amt:0},week={n:0,amt:0},later={n:0,amt:0},noBase={n:0,amt:0};
+  unpaid.forEach(u=>{
+    const amt=(+u.r.미수금||0)||(+u.r.공급가액||0);
+    if(med==null||!u.iss){ noBase.n++; noBase.amt+=amt; return; }
+    const due=addDays(u.iss,med);
+    const b=due<upTo?late:(due<=addDays(upTo,7)?week:later);
+    b.n++; b.amt+=amt;
+  });
+  const a=K['돌발AS'], p=K['정기점검'];
+  const stages=[
+    ['작업 진행 (02·04시트)', asWorkN+'건', pmWorkN+'건'],
+    ['정산 등록 (06시트·취소 제외)', a.n+'건', p.n+'건'],
+    ['공급가액(부가세 별도)', fmt(a.amt)+'원', fmt(p.amt)+'원'],
+    ['거래명세서 발행', a.stmt+'건', p.stmt+'건'],
+    ['ERP 매출전표 확인', a.slip+'건', p.slip+'건'],
+    ['쿠팡 PO 수신', a.po+'건', p.po+'건'],
+    ['세금계산서 발행', a.tax+'건 · '+fmt(a.taxAmt)+'원', p.tax+'건 · '+fmt(p.taxAmt)+'원'],
+    ['입금 확인', a.paid+'건 · '+fmt(a.paidAmt)+'원', p.paid+'건 · '+fmt(p.paidAmt)+'원'],
+    ['미수금', fmt(a.due)+'원', fmt(p.due)+'원'],
+  ];
+  const mrows=Object.keys(months).sort().map(mo=>{const M=months[mo];
+    return [(+mo)+'월',M.as.n+'건',fmt(M.as.amt),M.pm.n+'건',fmt(M.pm.amt),M.tax+'건',fmt(M.pay)];});
+  const qs={};
+  Object.entries(months).forEach(([mo,M])=>{const q=Math.floor((+mo-1)/3)+1;
+    const Q=qs[q]=qs[q]||{asN:0,asA:0,pmN:0,pmA:0,tax:0,pay:0};
+    Q.asN+=M.as.n;Q.asA+=M.as.amt;Q.pmN+=M.pm.n;Q.pmA+=M.pm.amt;Q.tax+=M.tax;Q.pay+=M.pay;});
+  const qrows=Object.keys(qs).sort().map(q=>{const Q=qs[q];
+    return [q+'분기',Q.asN+'건',fmt(Q.asA),Q.pmN+'건',fmt(Q.pmA),Q.tax+'건',fmt(Q.pay)];});
+  const pred=med==null
+    ? `입금 예정 예측: 발행→입금 이력이 ${lags.length}쌍뿐이라 예측하지 않습니다 (5쌍부터 예측)`
+    : `입금 예정 예측(이력 ${lags.length}쌍 · 중앙값 ${med}일): 예정일 경과 ${late.n}건 ${fmt(late.amt)}원 · 7일 내 ${week.n}건 ${fmt(week.amt)}원 · 그 이후 ${later.n}건 ${fmt(later.amt)}원`
+      +(noBase.n?` · 발행일 미상 ${noBase.n}건 ${fmt(noBase.amt)}원`:'');
+  return {stages, mrows, qrows, pred, med,
+          title:`${y}년 매출 흐름 — 돌발AS·정기점검 (1월 ~ 기준일)`};
+}
 function renderDaily(){
   if(!BRIEF && !BRIEF_LOADING) loadBrief();
   const S_ = srcStats || {};
@@ -13691,6 +13779,15 @@ function renderDaily(){
   const erpOtherYTD = Math.max(0, erpAllYTD - erpYTD);                   // 원장 관리 밖 업무
   const ledgerYTD = S.reduce((a,r)=>a+(+r.공급가액||0),0);
   const erpGap = Math.max(0, erpYTD - ledgerYTD);
+  /* ── 매출 흐름(퍼널) — 돌발AS 얼마·정기점검 얼마를 단계별로 (2026-08-12 지시)
+     "ERP 발행 누적" 한 덩어리가 두 업무를 합쳐 보여 줘 금액이 이상해 보였다.
+     이제 종류별 금액을 가르고, 진행→명세서→전표→PO→계산서→입금을 단계로 센다. */
+  const erpAS = erpMonths.reduce((a,[,v])=>a+(+v['돌발AS']||0),0);
+  const erpPM = erpMonths.reduce((a,[,v])=>a+(+v['정기점검']||0),0);
+  const inY = (r,k)=>{ const d=dateOf(r,k); return d && d>=ytdFrom && d<=ytdTo; };
+  const AS_y=(works.as||[]).filter(r=>inY(r,'as')).length;
+  const PM_y=(works.pm||[]).filter(r=>inY(r,'pm')).length;
+  const FUN = buildRevFunnel(S, ytdTo, y, AS_y, PM_y);
   reg('k_all',  `정산 총계 (${y}년 누적)`, S);
   reg('k_amt',  `공급가액(부가세 별도) · ${y}년 누적`, [...S].sort((a,b)=>(+b.공급가액||0)-(+a.공급가액||0)));
   reg('k_due',  '미수금 보유 건', S.filter(r=>(+r.미수금||0)>0));
@@ -13787,17 +13884,31 @@ function renderDaily(){
     <div class="rgrid k7">
       ${cell(S.length+'건','정산 총계','k_all')}
       ${cell(fmt(ledgerYTD),'원장 정산 공급가액(부가세 별도·원)','k_amt')}
-      ${erpYTD?cell(fmt(erpYTD),'ERP 발행 누적 — 돌발AS·정기점검(원)'):''}
-      ${erpGap?cell(fmt(erpGap),'원장 미반영 — 돌발AS·정기점검(원)'):''}
-      ${erpOtherYTD?cell(fmt(erpOtherYTD),'ERP 전용 매출 — 원장 관리 밖(원)'):''}
+      ${cell(fmt(erpAS),'돌발AS 계산서 발행(원)','erp_as')}
+      ${cell(fmt(erpPM),'정기점검 계산서 발행(원)','erp_pm')}
       ${cell(fmt(미수),'미수금(원)','k_due')}
-      ${cell(pctText(발행,유상.length,'0.0%'),'계산서 발행율','k_tax')}
       ${cell(issues.length+'건','조치 필요','k_iss')}
       ${cell(asOpen.length+'건','AS 미실시','k_as')}
       ${cell(pmWait.length+'건','정기점검 대기','k_pm')}
     </div>
     ${outYTD?`<div style="font-size:13px;color:var(--ink-3);margin-top:6px">
       ※ 완료일이 없거나 ${y}년·선택 기준일 이후인 ${outYTD}건은 누적에서 제외</div>`:''}
+    <h4>${y}년 매출 흐름 <span class="norm">— 돌발AS·정기점검 · 단계별 근거 기준</span></h4>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13.5px">
+      <tr style="background:var(--panel-2)"><th style="text-align:left;padding:6px 8px">단계</th>
+        <th style="text-align:right;padding:6px 8px">돌발AS</th><th style="text-align:right;padding:6px 8px">정기점검</th></tr>
+      ${FUN.stages.map((r,i)=>`<tr style="${i%2?'background:var(--panel)':''}">
+        <td style="padding:5px 8px;color:var(--ink-2)">${r[0]}</td>
+        <td style="padding:5px 8px;text-align:right;font-weight:800">${r[1]}</td>
+        <td style="padding:5px 8px;text-align:right;font-weight:800">${r[2]}</td></tr>`).join('')}
+    </table></div>
+    <div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="background:var(--panel-2)">${['기간','AS 건','AS 공급가액','점검 건','점검 공급가액','계산서','입금액']
+        .map((h,i)=>`<th style="text-align:${i?'right':'left'};padding:6px 8px">${h}</th>`).join('')}</tr>
+      ${[...FUN.mrows,...FUN.qrows].map((r,i)=>`<tr style="${r[0].indexOf('분기')>0?'background:var(--brand-tint);font-weight:800':(i%2?'background:var(--panel)':'')}">
+        ${r.map((v,j)=>`<td style="padding:5px 8px;text-align:${j?'right':'left'}">${v}</td>`).join('')}</tr>`).join('')}
+    </table></div>
+    <div style="font-size:13px;font-weight:700;margin-top:6px;color:${FUN.med==null?'#B54708':'var(--brand)'}">${FUN.pred}</div>
     ${(erpGap||erpOtherYTD)?`<div style="font-size:13px;color:var(--ink-3);margin-top:6px">
       ※ ERP 비교는 <b>${ERP_LEDGER_KINDS.join('·')}</b>만 셉니다 — 관리대장이 원장에 담는
       업무가 이 둘이기 때문입니다. 같은 종류끼리 대면 ERP ${fmt(erpYTD)}원 대 원장
@@ -13924,14 +14035,15 @@ function renderDaily(){
       activities: captureDailyTasks
     } : null,
     rep:_rep, monthNote:_monthNote,
+    /* 캡처 정돈(2026-08-12 지시): ERP발행누적·원장미반영·ERP전용매출·발행율을 빼고
+       종류별 발행액 두 칸으로 가른다 — 상세 흐름은 아래 funnel 표가 말한다. */
     kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(ledgerYTD),'원장 정산 공급가액(부가세 별도·원)'],
-          ...(erpYTD?[[fmt(erpYTD),'ERP 발행 누적 — 돌발AS·정기점검(원)']]:[]),
-          ...(erpGap?[[fmt(erpGap),'원장 미반영 — 돌발AS·정기점검(원)','#B54708']]:[]),
-          ...(erpOtherYTD?[[fmt(erpOtherYTD),'ERP 전용 매출 — 원장 관리 밖(원)']]:[]),
+          [fmt(erpAS),'돌발AS 계산서 발행(원)','#1B41BC'],
+          [fmt(erpPM),'정기점검 계산서 발행(원)','#1B41BC'],
           [fmt(미수),'미수금(원)', 미수?'#B54708':'#12813F'],
-          [pctText(발행,유상.length,'0.0%'),'계산서 발행율'],
           [issues.length+'건','조치 필요', issues.length?'#C0212E':'#12813F'],
           [asOpen.length+'건','돌발AS 진행중'], [pmWait.length+'건','정기점검 대기']],
+    funnel: FUN,
     monthTitle: `${+m}월 실적`,
     month: [[Sm.length+'건','정산'], [fmt(Sm.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)'],
             [fmt(Sm.reduce((a,r)=>a+(+r.입금액||0),0)),'입금(원)'],
@@ -15477,6 +15589,10 @@ async function reportToPng(){
   // ★ 타일 개수를 하드코딩(6)하면 지표가 7개일 때 마지막 타일이 캔버스 밖으로 잘린다
   const erpM = D.erpMonths || [];
   const erpH = erpM.length ? 34 + (erpM.length+1)*28 + 20 : 0;
+  // 매출 흐름(퍼널) — 높이 선계산과 그리기가 같은 수를 봐야 캡처 아래가 안 잘린다
+  const fun = D.funnel;
+  const funH = fun ? 34 + 24 + fun.stages.length*24 + 12
+                     + 24 + (fun.mrows.length+fun.qrows.length)*24 + 24 + 16 : 0;
   // 리모컨 현황(2026-08-03) — 지점 재고 줄 + 보유 표 + 최근 납품 표
   const rmt = D.remote;
   const rmtH = rmt ? 48 + (rmt.branchStock?24:0) + 28 + Math.max(1,(rmt.holdings||[]).length)*30
@@ -15522,7 +15638,7 @@ async function reportToPng(){
           + 34 + tiles((D.kpi||[]).length) + (D.kpiNote ? 18 : 0)
           + execSecH
           + dailyBriefH + pmProgressH + workLogH
-          + erpH + rmtH
+          + erpH + funH + rmtH
           + 34 + (D.issues.length+1)*30 + 34 + sourceTableH + 54;
   cv.width = W*S; cv.height = H*S;
   ctx.scale(S,S);
@@ -15655,6 +15771,39 @@ async function reportToPng(){
   if((D.quarter||[]).length){ section(D.quarterTitle||'이번 분기 통계',null,'#2B9560'); grid(D.quarter); }
   section(D.kpiTitle||`${APP_YEAR}년 누적`,null,'#9A5A12'); grid(D.kpi||[]);
   if(D.kpiNote){ txt(D.kpiNote,30,y+8,F(10),'#98A2B3');y+=18; }
+
+  // ── 매출 흐름(퍼널) — 돌발AS 얼마·정기점검 얼마 + 월별·분기별 (2026-08-12 지시)
+  if(fun){
+    section(fun.title, null, '#1B41BC');
+    box(30,y-2,W-60,24,'#F1F5FB',null,6);
+    txt('단계',40,y+10,F(10.5,800),'#475467');
+    txt('돌발AS',520,y+10,F(10.5,800),'#475467','right');
+    txt('정기점검',820,y+10,F(10.5,800),'#475467','right');
+    y+=24;
+    fun.stages.forEach((r,i)=>{
+      if(i%2) box(30,y,W-60,24,'#F8FAFD',null,0);
+      txt(r[0],40,y+12,F(11.3),'#475467');
+      txt(r[1],520,y+12,F(12,800),'#101828','right');
+      txt(r[2],820,y+12,F(12,800),'#101828','right');
+      y+=24;
+    });
+    y+=12;
+    const fx=[40,185,355,470,645,715,830];    // 기간|AS건|AS액|점검건|점검액|계산서|입금액
+    box(30,y-2,W-60,24,'#F1F5FB',null,6);
+    ['기간','AS 건','AS 공급가액','점검 건','점검 공급가액','계산서','입금액'].forEach((h,i)=>
+      txt(h,fx[i],y+10,F(10,800),'#475467',i?'right':'left'));
+    y+=24;
+    [...fun.mrows,...fun.qrows].forEach((r,i)=>{
+      const isQ=String(r[0]).indexOf('분기')>0;
+      if(isQ) box(30,y,W-60,24,'#EAF4FF',null,0);
+      else if(i%2) box(30,y,W-60,24,'#F8FAFD',null,0);
+      r.forEach((v,j)=>txt(v,fx[j],y+12,F(j?11:11.5,(isQ||!j)?800:400),
+                           j?'#344054':'#101828',j?'right':'left'));
+      y+=24;
+    });
+    txt(fun.pred,30,y+12,F(10.5,700), fun.med==null?'#B54708':'#175CD3');
+    y+=24;
+  }
 
   // ── 번호가 붙는 대표 보고 섹션. 빈 '정리'는 버리고 화면 순서대로 1부터 다시 센다.
   const groupCols = gs => {
