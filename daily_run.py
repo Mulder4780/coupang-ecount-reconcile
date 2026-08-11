@@ -442,6 +442,20 @@ def _run_pipeline():
     #   오기입은 매일 새로 생기고, **틀린 값은 비어 있지 않아서 어느 화면에도 안 띈다.**
     steps.append(run("오기입 확인", [os.path.join(ROOT, "typo_watch.py")]))
 
+    # 2.45a 캠프명 ERP 표준화 (2026-08-11 지시: "ERP가 기준이야 … 기존 캠프명을 ERP
+    #   기준으로 변경"). 새로 들어오는 접수·점검에도 비표준 이름이 계속 생기므로 회차다.
+    #   유일 매칭만 승인 경로(앱 DB 감사로그 + Excel 보관 큐)로 바꾸고, 후보 여럿·
+    #   ERP 없음·입력오류는 reports/캠프명_표준화.md 에 사람 몫으로 남는다.
+    steps.append(run("캠프명 ERP 표준화",
+                     [os.path.join(ROOT, "camp_standardize.py"), "--queue"], timeout=1500))
+
+    # 2.45b 정기점검 점검내용 호기 분류·깨진 문자 조사 (같은 지시). 원문 불변 —
+    #   파생 DB(db/pm_content.db)와 reports/정기점검_호기분류.md 만 만든다. 깨진
+    #   내용(?? 호기)은 밴드 원본 근거가 설 때만 --queue 가 교정하므로 여기서는
+    #   조사만 한다(근거 없는 교정은 사람 몫).
+    steps.append(run("정기점검 호기 분류",
+                     [os.path.join(ROOT, "pm_content.py")], timeout=1500))
+
     # 2.46 보험 건·보험사 입금 — 보험금은 **쿠팡이 아니라 보험사가** 낸다.
     #   입금을 찾는 receipt_fill 은 쿠팡 입금내역만 보므로 보험금은 어느 화면에도 안 떴다.
     #   받을 돈인데 안 받아도 티가 안 나는 자리다(2026-08-09 지시).
