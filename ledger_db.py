@@ -235,6 +235,13 @@ CREATE TABLE IF NOT EXISTS flow_audit(       -- 흐름을 언제 누가 바꿨�
   at TEXT NOT NULL, who TEXT DEFAULT '',
   steps_json TEXT NOT NULL                   -- 바꾸기 **직전** 모습 통째로
 );
+CREATE TABLE IF NOT EXISTS flow_note(        -- 차트별 문제점·개선점 (2026-08-11 지시)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,      -- '종전' 차트에는 그 방식의 문제점을,
+  flow_key TEXT NOT NULL,                    -- '개선' 차트에는 앱으로 나아진 점을 적는다.
+  ord INTEGER NOT NULL,                      -- 내용은 여기(DB)가 정본 — 계속 바뀔 예정이다.
+  text TEXT NOT NULL,
+  updated_at TEXT NOT NULL, updated_by TEXT DEFAULT ''
+);
 """
 
 # 처음 열었을 때 보여 줄 기본 흐름. 사용자가 고치면 DB 가 정본이 되고 이 값은 다시 안 쓴다.
@@ -292,6 +299,65 @@ FLOW_DEFAULT_CHECKS = {
     "완료 보고": ("완료 사진·내용이 밴드에서 확인되는가?", "현장 조치"),
 }
 
+# ── 플로우 차트는 여러 장이다 (2026-08-11 지시) ──────────────────────────────
+# 사용자 지시: "상단 돌발 as플로우 차트 옆에 괄호열고 종전 괄호닫기 해서 표시 /
+# 앱을 통해 개선되는 플로우차트를 하나 만들고 옆에 개선 붙이고 스위치 기능을 통해
+# 각 플로우 차트 볼 수 있고 캡처할 수 있게 / 추후에 정기검사 플로우차트도 넣을거야".
+# · 기존 흐름(FLOW_DEFAULT)은 앱 도입 **전** 방식 그대로라 그것이 '(종전)' 이 된다.
+# · 정기점검 차트는 여기 한 줄을 더하면 화면 스위치·캡처·저장이 그대로 따라온다 —
+#   단계 내용은 언제나 DB(flow_step.flow_key)가 정본이고 이 목록은 '어떤 차트가
+#   있나'만 정한다.
+FLOW_CHARTS = (
+    {"key": "as_legacy", "이름": "돌발 AS", "꼬리": "종전",
+     "설명": "앱 도입 전 — 카톡·전화·밴드를 사람 손으로 잇던 방식"},
+    {"key": "as_app", "이름": "돌발 AS", "꼬리": "개선",
+     "설명": "앱(SQLite 정본) 기반 — 접수부터 수금까지 기록·대조가 자동으로 남는 길"},
+)
+
+# '(개선)' 차트의 씨앗 — 앱이 실제로 하는 일 그대로다(지어내지 않는다):
+# 앱 접수 폼([196]) · 자동 수집·대조([162]·[155]) · ERP 사다리([170]) ·
+# 청구상태 자동([166]) · 입금 대조(receipt_fill). 사람이 [수정]에서 계속 바꾼다.
+FLOW_APP_DEFAULT = [
+    ("앱 접수 등록", "류지영·오종현", 0, "앱 신규 접수 폼",
+     "어느 경로로 받았든 앱에 등록 — 저장 즉시 DB 정본+감사로그, 전달 유실 지점 없음", ""),
+    ("기사 배정", "류지영", 0, "앱 상태 변경", "배정을 앱 상태로 기록 — 카톡 합의 결과를 남긴다", ""),
+    ("일정 확정", "류지영", 0, "앱 상태 · 캘린더", "확정 일정이 화면·캡처에 그대로 보인다", ""),
+    ("현장 조치", AS_TECH_LABEL, 1, "밴드 완료 사진", "조치 내용·사진은 밴드에 게시", ""),
+    ("완료 자동 확인", "앱 자동", 1, "밴드·카톡 자동 수집",
+     "수집·대조가 완료·취소를 교차 확인 — 사람 보고를 기다리지 않는다", ""),
+    ("정산 확정", "류지영", 3, "앱 정산 화면 · ERP 대조",
+     "공급가액은 실제작업→ERP→명세서 사다리로 자동 제안", ""),
+    ("PO 수신 확인", "앱 자동", 5, "쿠팡 PO 목록 대조",
+     "PO 대기가 화면에 보인다 — 계산서가 늦으면 이유가 남는다", ""),
+    ("세금계산서 발행", "류지영", 7, "이카운트", "발행 여부는 ERP 6·7단계로 자동 판정", ""),
+    ("수금 확인", "앱 자동", 30, "입금 자료 자동 대조",
+     "청구상태가 ERP 수금확인으로 자동 올라간다", ""),
+]
+FLOW_APP_CHECKS = {
+    "일정 확정": ("기사·캠프가 일정에 합의됐는가?", "기사 배정"),
+    "완료 자동 확인": ("완료 사진·내용이 확인되는가?", "현장 조치"),
+}
+
+# 차트별 문제점·개선점 씨앗 — 전부 이 프로젝트의 실측 사고에서 나온 문장이다.
+# '종전' 은 그 방식의 문제점(캡처 화면에도 실린다), '개선' 은 앱으로 나아진 점.
+FLOW_NOTE_DEFAULT = {
+    "as_legacy": [
+        "접수 경로가 넷(카톡·법인폰·기사폰·개인폰) — 사람 손 전달 두 곳에서 건이 새도 기록이 없다",
+        "접수 원장이 카톡·밴드 글 — 검색·집계가 안 되고 글이 나중에 고쳐져도 티가 안 난다",
+        "취소·연기가 전화로 끝나 원장에 남지 않는다 — 취소된 건이 미실시로 계속 얹힌다",
+        "정산·계산서가 손 엑셀 입력 — 빈칸·오타가 눈에 안 띄어 발행율 같은 숫자가 틀리게 나온다",
+        "PO 대기 시간이 어디에도 안 적힌다 — 계산서가 늦으면 사람 탓으로만 보인다",
+        "채울 때마다 엑셀 버전(vN)이 생겨 하루 수십 개 — 정본이 흔들린다",
+    ],
+    "as_app": [
+        "접수 창구가 앱 하나 — 저장 즉시 SQLite 정본+감사로그, 전달 유실 지점이 없다",
+        "상태 단계 낱말은 드롭다운 정본에서 오고, 바뀌면 자국이 남는다",
+        "밴드·카톡을 자동 수집·대조해 취소·완료를 교차 확인한다",
+        "Excel 은 읽기 전용 보관본 — 손입력 종료·역수입 금지",
+        "계산서·수금은 ERP 대조로 자동 판정한다",
+    ],
+}
+
 # 리모컨 불출 규칙(2026-08-03 사용자 지시) — 지점별 불출 담당과 담당자당 보유 한도.
 REMOTE_BRANCH_ISSUERS = {"부산": "오종현", "시화": "안은숙", "증평": "류지영"}
 REMOTE_BRANCH_LABELS = {"부산": "부산공장", "시화": "시화공장", "증평": "증평본사"}
@@ -329,7 +395,8 @@ def conn():
         # 흐름에 예/아니오 순환 검증을 더한다(2026-08-11 지시 "순환 검증해서 다시
         # 돌아오는 예스 오아 노 구조"). check_q=검증 질문, no_to=아니오일 때
         # 되돌아갈 단계 **이름**(순서 번호로 적으면 단계를 옮길 때마다 어긋난다).
-        for table, cols in (("flow_step", ("branch", "check_q", "no_to")),
+        for table, cols in (("flow_step", ("branch", "check_q", "no_to", "flow_key")),
+                            ("flow_audit", ("flow_key",)),
                             ("remote_issue", ("issued_on", "camp", "version")),
                             ("remote_delivery", ("kind", "version")),
                             ("remote_stock", ("version", "moved_on"))):
@@ -771,24 +838,81 @@ def staff_resolution_summary():
 FLOW_COLS = ("name", "owner", "days", "source", "note", "branch")
 
 
-def flow_steps():
+def _flow_key(key):
+    """차트 열쇠 검증 — 목록(FLOW_CHARTS) 밖 열쇠는 받지 않는다. 조용히 받으면
+       오타 열쇠 하나가 **빈 차트**를 만들고, 저장하면 아무도 못 보는 곳에 쓴다."""
+    k = str(key or "").strip() or "as_legacy"
+    if k not in {c["key"] for c in FLOW_CHARTS}:
+        raise ValueError("모르는 차트입니다: %s" % k[:20])
+    return k
+
+
+def _flow_where(key):
+    """key 에 해당하는 행 조건. 옛 행(flow_key 빈칸)은 전부 '종전' 차트다 —
+       다중 차트 이전에 저장된 것이 곧 종전 방식이기 때문이다."""
+    if key == "as_legacy":
+        return "COALESCE(flow_key,'') IN ('', 'as_legacy')", ()
+    return "flow_key = ?", (key,)
+
+
+def flow_charts():
+    """차트 목록 + 각각의 단계 수. 스위치 화면이 이것 하나로 그려진다 —
+       정기점검 차트를 더하는 날도 FLOW_CHARTS 한 줄이면 화면이 따라온다."""
+    out = []
+    with conn() as c:
+        for ch in FLOW_CHARTS:
+            w, a = _flow_where(ch["key"])
+            n = c.execute("SELECT COUNT(*) FROM flow_step WHERE " + w, a).fetchone()[0]
+            out.append(dict(ch, 단계수=n or len(
+                FLOW_DEFAULT if ch["key"] == "as_legacy" else FLOW_APP_DEFAULT)))
+    return out
+
+
+def flow_steps(key="as_legacy"):
     """지금의 흐름. 비어 있으면 기본 흐름을 그대로 돌려준다(그때는 저장하지 않는다 —
        사람이 한 번도 손대지 않았다는 사실 자체가 정보다)."""
+    key = _flow_key(key)
+    w, a = _flow_where(key)
     with conn() as c:
         rows = c.execute("SELECT ord,name,owner,days,source,note,branch,check_q,no_to"
-                         " FROM flow_step ORDER BY ord, id").fetchall()
+                         " FROM flow_step WHERE " + w + " ORDER BY ord, id", a).fetchall()
     if rows:
         return [{"순서": r[0], "단계": r[1], "담당": r[2] or "", "소요일": r[3],
                  "근거": r[4] or "", "메모": r[5] or "", "갈래": r[6] or "",
                  "검증": r[7] or "", "아니오": r[8] or ""} for r in rows]
+    seed = FLOW_DEFAULT if key == "as_legacy" else FLOW_APP_DEFAULT
+    checks = FLOW_DEFAULT_CHECKS if key == "as_legacy" else FLOW_APP_CHECKS
     return [{"순서": i, "단계": d[0], "담당": d[1], "소요일": d[2], "근거": d[3],
              "메모": d[4], "갈래": d[5],
-             "검증": FLOW_DEFAULT_CHECKS.get(d[0], ("", ""))[0],
-             "아니오": FLOW_DEFAULT_CHECKS.get(d[0], ("", ""))[1]}
-            for i, d in enumerate(FLOW_DEFAULT)]
+             "검증": checks.get(d[0], ("", ""))[0],
+             "아니오": checks.get(d[0], ("", ""))[1]}
+            for i, d in enumerate(seed)]
 
 
-def flow_save(steps, who=""):
+def flow_notes(key="as_legacy"):
+    """차트별 문제점·개선점. DB 가 정본이고 비어 있으면 씨앗을 보여 준다."""
+    key = _flow_key(key)
+    with conn() as c:
+        rows = c.execute("SELECT text FROM flow_note WHERE flow_key=? ORDER BY ord, id",
+                         (key,)).fetchall()
+    return [r[0] for r in rows] or list(FLOW_NOTE_DEFAULT.get(key, ()))
+
+
+def flow_notes_save(key, lines, who=""):
+    """차트의 문제점·개선점을 통째로 바꾼다. 전부 지우면 씨앗으로 돌아간다."""
+    key = _flow_key(key)
+    clean = [str(x or "").strip()[:120] for x in (lines or [])]
+    clean = [x for x in clean if x][:12]
+    now = datetime.now().isoformat(timespec="seconds")
+    with conn() as c:
+        c.execute("DELETE FROM flow_note WHERE flow_key=?", (key,))
+        c.executemany("INSERT INTO flow_note(flow_key,ord,text,updated_at,updated_by)"
+                      " VALUES(?,?,?,?,?)",
+                      [(key, i, t, now, str(who or "")[:40]) for i, t in enumerate(clean)])
+    return len(clean)
+
+
+def flow_save(steps, who="", key="as_legacy"):
     """흐름을 통째로 바꾼다. 부분 수정이 아니라 통째다 — 순서 바꾸기·지우기가
        섞이면 부분 갱신은 어긋나기 쉽고, 단계는 많아야 스물 몇 개라 통째가 안전하다."""
     clean = []
@@ -819,26 +943,37 @@ def flow_save(steps, who=""):
         if r[8] and r[8] not in names:
             raise ValueError("아니오 단계 '%s' 가 흐름에 없습니다 — '%s' 의 검증을 확인하세요"
                              % (r[8], r[1]))
+    key = _flow_key(key)
     now = datetime.now().isoformat(timespec="seconds")
-    before = json.dumps(flow_steps(), ensure_ascii=False)
+    before = json.dumps(flow_steps(key), ensure_ascii=False)
+    w, a = _flow_where(key)
     with conn() as c:
-        c.execute("INSERT INTO flow_audit(at,who,steps_json) VALUES(?,?,?)",
-                  (now, str(who or "")[:40], before))
-        c.execute("DELETE FROM flow_step")
+        c.execute("INSERT INTO flow_audit(at,who,steps_json,flow_key) VALUES(?,?,?,?)",
+                  (now, str(who or "")[:40], before, key))
+        # ★ 지우는 것도 **이 차트의 행만** — 통째 DELETE 는 다중 차트에서 남의 차트를
+        #   말없이 지운다(저장은 성공으로 보이고 다른 차트만 비는 조용한 사고).
+        c.execute("DELETE FROM flow_step WHERE " + w, a)
         c.executemany("INSERT INTO flow_step(ord,name,owner,days,source,note,branch,"
-                      "check_q,no_to,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                      [r + (now, str(who or "")[:40]) for r in clean])
+                      "check_q,no_to,flow_key,updated_at,updated_by)"
+                      " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                      [r + (key, now, str(who or "")[:40]) for r in clean])
     return len(clean)
 
 
-def flow_restore(who=""):
-    """바로 앞 모습으로 되돌린다. '고칠 수 있다'는 '되돌릴 수 있다'와 짝이어야 한다."""
+def flow_restore(who="", key="as_legacy"):
+    """바로 앞 모습으로 되돌린다. '고칠 수 있다'는 '되돌릴 수 있다'와 짝이어야 한다.
+       되돌리는 것도 **그 차트의 기록만** — 옛 기록(flow_key 빈칸)은 종전 차트 몫이다."""
+    key = _flow_key(key)
+    aw = ("COALESCE(flow_key,'') IN ('', 'as_legacy')" if key == "as_legacy"
+          else "flow_key = ?")
+    aa = () if key == "as_legacy" else (key,)
     with conn() as c:
-        row = c.execute("SELECT id,steps_json FROM flow_audit ORDER BY id DESC LIMIT 1").fetchone()
+        row = c.execute("SELECT id,steps_json FROM flow_audit WHERE " + aw
+                        + " ORDER BY id DESC LIMIT 1", aa).fetchone()
     if not row:
         raise ValueError("되돌릴 기록이 없습니다")
     prev = json.loads(row[1])
-    n = flow_save(prev, who)                          # 되돌리기도 기록에 남는다
+    n = flow_save(prev, who, key)                     # 되돌리기도 기록에 남는다
     with conn() as c:
         c.execute("DELETE FROM flow_audit WHERE id=?", (row[0],))
     return n

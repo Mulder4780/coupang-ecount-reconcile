@@ -2572,6 +2572,25 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
 .flow-no-b:disabled{cursor:default;opacity:.65}
 @media(hover:hover){.flow-no-b:not(:disabled):hover{background:#8F1E17}}
 .flow-hl{outline:3px solid rgba(217,165,20,.8);outline-offset:2px;border-radius:14px}
+/* ── 차트 스위치 (종전/개선 · 2026-08-11) — 히어로가 어두운 바탕이라 단색으로([115]) */
+.flow-charts{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
+.flow-ch{appearance:none;cursor:pointer;border:1.5px solid rgba(255,255,255,.45);
+  background:transparent;color:#fff;border-radius:999px;padding:5px 13px;
+  font:600 12.5px inherit}
+.flow-ch b{font-weight:900;margin-left:3px}
+.flow-ch.on{background:#fff;border-color:#fff;color:#1D3557}
+/* 문제점·개선점 카드 — 종전 방식의 문제를 화면·캡처 양쪽에 싣는다 */
+.flow-notes-card{border-left:4px solid #B25000}
+.flow-notes-h{display:inline-block;font:800 12.5px inherit;color:#fff;background:#7A5C00;border-radius:999px;padding:4px 11px;margin-bottom:8px}
+.flow-note-i{position:relative;padding:4px 0 4px 15px;font-size:13px;color:var(--ink-2)}
+.flow-note-i::before{content:'·';position:absolute;left:3px;font-weight:900;color:var(--ink-2)}
+.flow-notes-card.good{border-left-color:#12813F}
+.flow-notes-card.good .flow-notes-h{background:#12813F}
+.flow-edit-notes{margin:0 0 12px;padding:10px 12px;border:1.5px dashed var(--line);
+  border-radius:12px}
+.flow-edit-notes textarea{width:100%;margin-top:6px;border:1px solid var(--line);
+  border-radius:10px;padding:8px 10px;font:500 13px inherit;color:var(--ink-1);
+  background:var(--panel);resize:vertical}
 /* 길게 눌러 집었을 때 — 집힌 카드는 떠 보이고, 놓을 자리는 점선으로 열린다 */
 .flow-step.held{transform:scale(1.02);box-shadow:0 10px 24px rgba(16,24,40,.22);
   border-style:dashed;z-index:3}
@@ -3364,7 +3383,8 @@ body.dash-drag-live #dashGuides{display:grid}
       <div class="flow-hero-top">
         <div>
           <div class="flow-hero-eyebrow">CSOS 업무 흐름</div>
-          <h3>돌발 AS 플로우 차트</h3>
+          <h3 id="flowTitle">돌발 AS 플로우 차트 (종전)</h3>
+          <div class="flow-charts" id="flowCharts"></div>
           <div class="flow-hero-sub" id="flowMeta"></div>
         </div>
         <div class="flow-hero-cap">
@@ -3375,6 +3395,10 @@ body.dash-drag-live #dashGuides{display:grid}
         </div>
       </div>
       <div class="flow-hero-stats" id="flowStats"></div>
+    </div>
+    <div class="card flow-notes-card" data-lc-skip id="flowNotesCard" hidden>
+      <div class="flow-notes-h" id="flowNotesH"></div>
+      <div id="flowNotesList"></div>
     </div>
     <div class="card" data-lc-skip>
       <div class="flow-wrap" id="flowWrap"></div>
@@ -7154,11 +7178,34 @@ function dashMeasureOverflow(){
    사람이 머릿속으로 더해야 하는데, 실제로 묻는 것은 "언제까지냐" 하나다.
    정본은 DB(flow_step)이라 어느 PC 에서 고쳐도 같은 것을 본다. */
 let FLOW = [], FLOW_EDITING = false;
+/* ── 차트는 여러 장이다 (2026-08-11 지시) ─────────────────────────────────────
+   "(종전)" = 앱 도입 전 사람 손 방식, "(개선)" = 앱 기반 — 스위치로 오가며 각각
+   보고 캡처한다. 목록은 서버(ledger_db.FLOW_CHARTS)가 준다 — 추후 정기점검
+   차트가 생겨도 화면은 이 목록을 그대로 그린다(여기에 이름을 적지 않는다). */
+let FLOW_CHART = 'as_legacy', FLOW_CHARTS_LIST = [], FLOW_NOTES = [];
+function flowChartInfo(){
+  return FLOW_CHARTS_LIST.find(c=>c.key===FLOW_CHART)
+      || {key:FLOW_CHART, 이름:'돌발 AS', 꼬리:'종전'};
+}
+function flowChartLabel(){
+  const c = flowChartInfo();
+  return `${c.이름} 플로우 차트${c.꼬리?` (${c.꼬리})`:''}`;
+}
+async function flowPick(key){
+  if(key === FLOW_CHART) return;
+  if(FLOW_EDITING || FLOW_DIRTY)
+    return notice('수정 중입니다 — 저장하거나 취소한 뒤 차트를 바꾸세요');
+  FLOW_CHART = key;
+  uxEvent('tap','flow-chart', key);
+  await loadFlow();
+}
 async function loadFlow(){
   try{
-    const d = await api('/api/flow');
+    const d = await api('/api/flow?chart=' + encodeURIComponent(FLOW_CHART));
     FLOW = d.steps || [];
-  }catch(e){ FLOW = []; }
+    FLOW_CHARTS_LIST = d.charts || FLOW_CHARTS_LIST;
+    FLOW_NOTES = d.notes || [];
+  }catch(e){ FLOW = []; FLOW_NOTES = []; }
   FLOW_DIRTY = false;            // 방금 서버에서 받았다 — 저장할 것이 없다
   flowRender();
 }
@@ -7216,7 +7263,7 @@ function flowRender(){
          <div class="flow-day">${d==null?'—':'D+'+d}</div>
        </div>` + flowCheckHtml(s, i);
   };
-  w.innerHTML = `<div class="flow-root">돌발 AS<span class="rn">${FLOW.length}단계`
+  w.innerHTML = `<div class="flow-root">${esc2(flowChartInfo().이름)} (${esc2(flowChartInfo().꼬리||'')})<span class="rn">${FLOW.length}단계`
     + (last0?` · D+${+last0.소요일}`:'') + `</span></div>`
     + grp.map(g=>{
         const body = g.items.map(i=>card(FLOW[i], i)).join('');
@@ -7291,6 +7338,29 @@ function flowHead(){
     ['담당', who.length + '명'],
     ...(checks ? [['순환 검증', checks + '곳']] : []),
   ].map(([k,v])=>`<div class="st"><b>${esc2(v)}</b><span>${esc2(k)}</span></div>`).join('');
+  // 차트 제목 "(종전)/(개선)" + 스위치 — 목록은 서버가 준다(여기 이름을 안 적는다)
+  const t = $('flowTitle'); if(t) t.textContent = flowChartLabel();
+  const sw = $('flowCharts');
+  if(sw) sw.innerHTML = (FLOW_CHARTS_LIST.length ? FLOW_CHARTS_LIST : [flowChartInfo()])
+    .map(c=>`<button type="button" class="flow-ch${c.key===FLOW_CHART?' on':''}"
+      onclick="flowPick('${esc2(c.key)}')" title="${esc2(c.설명||'')}"
+      aria-pressed="${c.key===FLOW_CHART}">${esc2(c.이름)} <b>${esc2(c.꼬리||'')}</b></button>`).join('');
+  flowNotesRender();
+}
+/* 문제점·개선점 카드 — '종전' 차트에는 그 방식의 문제, '개선' 차트에는 나아진 점.
+   내용은 DB(flow_note)가 정본이고 [수정]의 글상자에서 바꾼다(2026-08-11 지시). */
+function flowNotesHead(){
+  const tag = flowChartInfo().꼬리 || '';
+  return tag === '종전' ? '이 방식(종전)의 문제점 · 개선할 점'
+       : tag === '개선' ? '앱으로 개선된 점' : '메모';
+}
+function flowNotesRender(){
+  const card = $('flowNotesCard'), h = $('flowNotesH'), l = $('flowNotesList');
+  if(!card || !h || !l) return;
+  h.textContent = flowNotesHead();
+  card.classList.toggle('good', (flowChartInfo().꼬리 || '') === '개선');
+  card.hidden = FLOW_EDITING || !FLOW_NOTES.length;
+  l.innerHTML = FLOW_NOTES.map(t=>`<div class="flow-note-i">${esc2(t)}</div>`).join('');
 }
 /* ── 길게 눌러 집기 (2026-08-07 지시) ──────────────────────────────────────
    대시보드 카드가 이미 쓰는 말투 그대로다 — **집고, 놓을 자리를 누른다**(검증 [128]).
@@ -7369,7 +7439,11 @@ function flowEdit(){
   const w = $('flowWrap');
   ['flowSaveBtn','flowCancelBtn','flowAddBtn'].forEach(i=>{const b=$(i); if(b) b.hidden=false;});
   ['flowEditBtn','flowUndoBtn'].forEach(i=>{const b=$(i); if(b) b.hidden=true;});
-  w.innerHTML = FLOW.map((s,i)=>`
+  w.innerHTML = `<div class="flow-edit-notes">
+      <div class="flow-notes-h">${esc2(flowNotesHead())}</div>
+      <textarea id="flowNotesTa" rows="5"
+        placeholder="한 줄에 하나 — 전부 지우고 저장하면 기본 문구로 돌아갑니다">${esc2(FLOW_NOTES.join('\n'))}</textarea>
+    </div>` + FLOW.map((s,i)=>`
     <div class="flow-step" data-i="${i}" style="display:block">
       <div style="display:flex;align-items:center;gap:8px">
         <div class="flow-no">${i+1}</div>
@@ -7432,11 +7506,18 @@ async function flowSave(){
   // (예전엔 언제나 입력칸을 읽어, 길게 눌러 옮긴 뒤 저장하면 빈 목록이 됐다)
   const steps = (FLOW_EDITING ? flowCollect() : FLOW).filter(s=>s.단계);
   if(!steps.length) return notice('단계 이름이 있는 줄이 하나도 없습니다');
+  const body = {steps, chart: FLOW_CHART,
+                저장자:((STAFF_CENTERS[staffSlug]||{}).name||'앱 사용자')};
+  // 문제점·개선점 글상자가 화면에 있을 때만 함께 보낸다 — 없는데 보내면
+  // 보기 모드의 이동·삭제 저장이 남의 메모를 빈 값으로 덮는다.
+  const ta = $('flowNotesTa');
+  if(ta) body.notes = ta.value.split('\n').map(s=>s.trim()).filter(Boolean);
   try{
     const r = await api('/api/flow',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({steps, 저장자:((STAFF_CENTERS[staffSlug]||{}).name||'앱 사용자')})});
+      body:JSON.stringify(body)});
     if(!r.ok) throw new Error(r.error||'저장 실패');
-    FLOW = r.steps || steps; flowRender(); toast(`${r.단계수}단계 저장했습니다`);
+    FLOW = r.steps || steps; FLOW_NOTES = r.notes || FLOW_NOTES;
+    flowRender(); toast(`${r.단계수}단계 저장했습니다`);
     uxEvent('tap','flow-save', String(r.단계수));
   }catch(e){ notice('저장 실패: '+e.message); }
 }
@@ -7445,9 +7526,11 @@ async function flowUndo(){
   if(!await askYesNo('바로 앞 모습으로 되돌릴까요?',{desc:'가장 최근 저장 하나를 취소합니다.'})) return;
   try{
     const r = await api('/api/flow',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({되돌리기:true, 저장자:((STAFF_CENTERS[staffSlug]||{}).name||'앱 사용자')})});
+      body:JSON.stringify({되돌리기:true, chart: FLOW_CHART,
+                           저장자:((STAFF_CENTERS[staffSlug]||{}).name||'앱 사용자')})});
     if(!r.ok) throw new Error(r.error||'되돌리기 실패');
-    FLOW = r.steps || []; flowRender(); toast('되돌렸습니다');
+    FLOW = r.steps || []; FLOW_NOTES = r.notes || FLOW_NOTES;
+    flowRender(); toast('되돌렸습니다');
   }catch(e){ notice('되돌리기 실패: '+e.message); }
 }
 /* ── 4:3 캡처 (2026-08-07 지시: "4대 3 비율로 캡처하는 기능 상단에 추가해") ──
@@ -7500,13 +7583,19 @@ async function flowToPng43(){
   // ── 머리
   const PAD = 38, HEAD = 74;
   const lastD = steps.filter(s=>Number.isFinite(+s.소요일)).pop();
-  txt('돌발 AS 플로우 차트', PAD, PAD+12, F(25,800), INK);
+  txt(flowChartLabel(), PAD, PAD+12, F(25,800), INK);
   txt(`${steps.length}단계` + (lastD?` · 접수에서 수금까지 D+${+lastD.소요일}`:'')
       + ` · 담당 ${seen.length}명`, PAD, PAD+40, F(14,600), SUB);
   txt((BRIEF&&BRIEF['데이터업데이트일시']) || baseDate(), W-PAD, PAD+12, F(13,600), SUB, 'right');
   ctx.strokeStyle = LINE; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(PAD, PAD+HEAD-16); ctx.lineTo(W-PAD, PAD+HEAD-16); ctx.stroke();
-  const bodyY = PAD + HEAD, bodyH = H - bodyY - 42, bodyW = W - PAD*2;
+  const bodyY = PAD + HEAD, bodyW = W - PAD*2;
+  // 문제점·개선점을 캡처에도 싣는다 (2026-08-11 지시 "캡처 화면에 이 방식의
+  // 문제점 및 개선해야될 점 정리"). 화면에만 있으면 회의 그림에서는 사라진다.
+  const noteLines = (FLOW_NOTES||[]).slice(0,6)
+    .map(t=>_wrapCv(ctx, '· '+t, F(11.5,500), bodyW, 1)[0]).filter(Boolean);
+  const noteH = noteLines.length ? 20 + noteLines.length*16 + 6 : 0;
+  const bodyH = H - bodyY - 42 - noteH;
   /* ══ 뱀 모양 배치 (2026-08-08 지시) ══════════════════════════════════════
      "중간에서 번호로 뿌려지는 구조 말고 순서대로 치고 치고 나가게 / 왼쪽에서
       오른쪽으로 가서 용지 공간이 없으면 다시 아래로 내려가서 왼쪽으로 다시
@@ -7563,7 +7652,8 @@ async function flowToPng43(){
     if(!L || t.total < L.total) L = t;
   }
   const k = Math.min(1, bodyH / L.total);
-  window.__flow43 = {꼴:'serpentine', k:+k.toFixed(3), 열:L.cols, 줄:L.rows.length,
+  window.__flow43 = {꼴:'serpentine', 차트:FLOW_CHART, 메모:noteLines.length,
+                     k:+k.toFixed(3), 열:L.cols, 줄:L.rows.length,
                      그린단계:L.laid.length, 칸:cells.length,
                      갈림칸:cells.filter(c=>c.branch).length,
                      넘침: L.total*k > bodyH + .5};
@@ -7574,6 +7664,18 @@ async function flowToPng43(){
     ctx.beginPath(); ctx.moveTo(x2,y2);
     ctx.lineTo(x2 - hl*Math.cos(a-Math.PI/7), y2 - hl*Math.sin(a-Math.PI/7));
     ctx.lineTo(x2 - hl*Math.cos(a+Math.PI/7), y2 - hl*Math.sin(a+Math.PI/7));
+    ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+  };
+  const bend = (x1,y1,x2,y2,color)=>{
+    // ㄱ자 이음 (2026-08-11 지시 "꺾여서 이어지게") — 상자 **아래 모서리**로 나가
+    // 중간에서 꺾여 다음 상자 **위 모서리**로 들어간다. x1==x2 면 곧은 세로선.
+    ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const my = (y1 + y2) / 2;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x1,my);
+    ctx.lineTo(x2,my); ctx.lineTo(x2,y2); ctx.stroke();
+    const hl = 9.5, s7 = Math.sin(Math.PI/7)*hl, c7 = Math.cos(Math.PI/7)*hl;
+    ctx.beginPath(); ctx.moveTo(x2,y2);           // 끝 화살촉은 아래를 향한다
+    ctx.lineTo(x2 - s7, y2 - c7); ctx.lineTo(x2 + s7, y2 - c7);
     ctx.closePath(); ctx.fillStyle = color; ctx.fill();
   };
   ctx.save();
@@ -7628,25 +7730,42 @@ async function flowToPng43(){
         }
         y += it.h + VGAP2;
       });
-      // ① 같은 줄 안 — 옆 칸으로 가는 가로 화살표
+      // ① 같은 줄 안 — 상자 **모서리에서 다음 상자 모서리까지** 끝까지 긋는다
+      //   (2026-08-11 지시 "화살표 박스랑 확실히 연결되게 길게"). 허공에 뜬
+      //   짧은 화살표는 눈이 흐름으로 읽지 못한다. 상자는 줄 가운데 정렬이라
+      //   cy 가 곧 양쪽 상자의 세로 중심이다 — 옆면 한가운데로 들어간다.
       if(ci < row.length - 1){
-        const gapL = rtl ? cx - HGAP + 7 : cx + L.cw + 7;
-        const gapR = rtl ? cx - 7          : cx + L.cw + HGAP - 7;
-        arrow(rtl ? gapR : gapL, cy, rtl ? gapL : gapR, cy, '#98A2B3');
+        const x1 = rtl ? cx : cx + L.cw;                       // 나가는 모서리
+        const x2 = rtl ? cx - HGAP + 2 : cx + L.cw + HGAP - 2; // 들어가는 모서리
+        arrow(x1, cy, x2, cy, '#667085');
       }
     });
-    // ② 줄 끝 — 아래로 꺾어 다음 줄로. 다음 줄은 반대 방향이라 되짚는 선이 없다.
+    // ② 줄 끝 — 마지막 상자 **아래 모서리**에서 나가 ㄱ자로 꺾여 다음 줄 첫 상자
+    //   **위 모서리**로 들어간다(2026-08-11 지시). 예전엔 줄 사이 허공에 짧은
+    //   세로 화살표만 떠 있어 어느 상자에서 어느 상자로 가는지 눈으로 못 좇았다.
     if(ri < L.rows.length - 1){
-      const last = row[row.length-1];
+      const lastCell = row[row.length-1];
       const endSlot = rtl ? (L.cols - row.length) : (row.length - 1);
       const ex = endSlot * (L.cw + HGAP) + L.cw/2;
-      const top = ry + L.rowH[ri], bot = top + RGAP;
-      arrow(ex, top + 4, ex, bot - 4, '#98A2B3');
-      txt('↓ 다음 줄', ex + 10, (top+bot)/2, F(10.5,700), '#98A2B3');
+      const lh = L.cellH(lastCell);
+      const eb = ry + (L.rowH[ri] - lh)/2 + lh;               // 마지막 상자 아래 모서리
+      const rtl2 = (ri+1) % 2 === 1;
+      const nslot = rtl2 ? L.cols - 1 : 0;
+      const nx = nslot * (L.cw + HGAP) + L.cw/2;
+      const nh = L.cellH(L.rows[ri+1][0]);
+      const nyTop = ry + L.rowH[ri] + RGAP + (L.rowH[ri+1] - nh)/2;  // 다음 첫 상자 위
+      bend(ex, eb + 2, nx, nyTop - 2, '#667085');
+      txt('↓ 다음 줄', Math.max(ex, nx) + 10, (eb + nyTop)/2, F(10.5,700), '#98A2B3');
     }
     ry += L.rowH[ri] + RGAP;
   });
   ctx.restore();
+  if(noteLines.length){
+    const noteCol = (flowChartInfo().꼬리 === '개선') ? '#0B5D2C' : '#8A3E00';
+    let ny = bodyY + bodyH + 14;
+    txt(flowNotesHead(), PAD, ny, F(12.5,800), noteCol); ny += 18;
+    noteLines.forEach(ln=>{ txt(ln, PAD, ny, F(11.5,500), SUB); ny += 16; });
+  }
   txt('CSOS 업무센터 · 흐름 정본은 앱에서 고칩니다', PAD, H-24, F(12,500), SUB);
   txt(`${L.cols}열 ${L.rows.length}줄 · 순서대로 · 4:3`, W-PAD, H-24, F(12,500), SUB, 'right');
   return new Promise(res=>cv.toBlob(res,'image/png'));
@@ -7664,7 +7783,7 @@ function flowDevSpec(){
   const gs = flowGroups(F);
   const nid = i => 'S' + (i+1);
   const esc = t => String(t||'').replace(/"/g,"'").replace(/\n/g,' ');
-  const L = ['flowchart TD', '  R(["돌발 AS 발생"])'];
+  const L = ['flowchart TD', `  R(["${esc(flowChartInfo().이름)} 발생"])`];
   gs.forEach((g,gi)=>{
     if(g.branch) L.push(`  subgraph B${gi}["${esc(g.branch)} — ${g.items.length}갈래 중 하나"]`);
     g.items.forEach(i=>{
@@ -7703,9 +7822,11 @@ function flowDevSpec(){
   });
   const 확인전 = F.filter(s=>/\(확인 전\)/.test(s.메모||'')).length;
   const md = [
-    '# 돌발 AS 업무 흐름 — 개발 사양',
+    '# ' + flowChartLabel() + ' — 개발 사양',
     '',
     `기준일 ${baseDate()} · ${F.length}단계 · 정본은 앱 [워크플로우]이며 여기서 고칩니다.`,
+    ...(FLOW_NOTES.length ? ['', '## 0. ' + flowNotesHead(),
+                             '', ...FLOW_NOTES.map(t=>'- ' + t)] : []),
     '',
     '## 1. 흐름도',
     '',
@@ -7735,7 +7856,10 @@ function flowDevSpec(){
     'CSOS_업무흐름_개발사양_' + baseDate() + '.md', '개발 사양을 저장했습니다');
   uxEvent('tap','flow-devspec', String(F.length));
 }
-function flow43Name(){ return 'CSOS_업무흐름_' + baseDate() + '_4x3.png'; }
+function flow43Name(){
+  const c = flowChartInfo();
+  return 'CSOS_업무흐름_' + (c.이름||'') + '_' + (c.꼬리||'') + '_' + baseDate() + '_4x3.png';
+}
 async function flowCapture43(){
   try{ downloadBlobFile(await flowToPng43(), flow43Name(), '4:3 이미지로 저장했습니다');
        uxEvent('tap','flow-capture43', String(FLOW.length)); }
@@ -7746,7 +7870,7 @@ async function flowCopy43(){
   catch(e){ notice('이미지 복사 실패: '+e.message); }
 }
 async function flowPrint43(){
-  try{ printPngBlob(await flowToPng43(), '돌발 AS 플로우 차트'); }
+  try{ printPngBlob(await flowToPng43(), flowChartLabel()); }
   catch(e){ notice('인쇄 이미지 생성 실패: '+e.message); }
 }
 /* ── 긴 글 접기 — 재서 정한다 (2026-08-07 지시) ──────────────────────────

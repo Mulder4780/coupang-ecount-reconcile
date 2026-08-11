@@ -7275,8 +7275,16 @@ self.addEventListener('fetch', e => {
             return self._send(200, get_checks())
         if p == "/api/flow":
             # AS 접수 → 수금 업무 흐름 (2026-08-07 지시). 정본은 DB 다.
+            # 차트는 여러 장(2026-08-11 — 종전/개선, 추후 정기점검): ?chart=<key>
             import ledger_db
-            return self._send(200, {"steps": ledger_db.flow_steps()})
+            key = (qs.get("chart", [""])[0] or "").strip() or "as_legacy"
+            try:
+                steps = ledger_db.flow_steps(key)
+            except ValueError as e:
+                return self._send(400, {"ok": False, "error": str(e)})
+            return self._send(200, {"steps": steps, "chart": key,
+                                    "charts": ledger_db.flow_charts(),
+                                    "notes": ledger_db.flow_notes(key)})
         if p == "/api/flow-stages":
             # 돌발AS·정기점검 **단계 정의** (2026-08-10 지시). 화면이 단계 낱말을
             # 스스로 적지 않고 여기서 받아 간다 — 두 곳에 적으면 언젠가 갈린다([162]).
@@ -7679,12 +7687,19 @@ self.addEventListener('fetch', e => {
             b = json.loads(self.rfile.read(ln) or b"{}")
             import ledger_db
             who = str(b.get("저장자") or "앱 사용자")[:40]
+            key = str(b.get("chart") or "").strip() or "as_legacy"
             try:
-                n = (ledger_db.flow_restore(who) if b.get("되돌리기")
-                     else ledger_db.flow_save(b.get("steps") or [], who))
+                n = (ledger_db.flow_restore(who, key) if b.get("되돌리기")
+                     else ledger_db.flow_save(b.get("steps") or [], who, key))
+                # 문제점·개선점(2026-08-11)도 같은 저장으로 온다 — 키가 있을 때만 바꾼다
+                # (없는 요청이 빈 목록으로 지우면 화면 하나가 남의 메모를 지운다).
+                if "notes" in b and not b.get("되돌리기"):
+                    ledger_db.flow_notes_save(key, b.get("notes") or [], who)
             except ValueError as e:
                 return self._send(400, {"ok": False, "error": str(e)})
-            return self._send(200, {"ok": True, "단계수": n, "steps": ledger_db.flow_steps()})
+            return self._send(200, {"ok": True, "단계수": n, "chart": key,
+                                    "steps": ledger_db.flow_steps(key),
+                                    "notes": ledger_db.flow_notes(key)})
         if p == "/api/policy":
             if not self._require_admin():
                 return

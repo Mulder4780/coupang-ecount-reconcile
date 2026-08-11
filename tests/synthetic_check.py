@@ -14603,6 +14603,126 @@ def t220_flow_yes_no_cycles():
           "화면/캡처/사양 3벌 ✅")
 
 
+def t221_commit_hygiene_under_siblings():
+    """[221] 세션 자동 커밋의 경로 위생 — 사고 #36 재발방지 (worksplit #33).
+
+    `git commit` 은 인덱스 **전체**를 커밋한다. 작업 폴더는 세션끼리 공유하므로
+    `add -A` 한 번이 옆 세션이 만들던 파일까지 딸려 담는다(실사고 dac781f:
+    1개 의도 → 17개 커밋). 그 상태는 실패처럼 안 보인다 — 파일은 디스크에
+    그대로고 커밋도 성공이다. 지키는 겹은 셋:
+      ① 옆 세션이 살아 있으면 커밋 메시지에 '섞여 있을 수 있다'와 **판정 근거(sid)**
+         를 적고 푸시하지 않는다 — 밀면 반쯤 고친 남의 코드가 원격 master 가 된다.
+      ② 멈추는 자리(비밀값 스캔·커밋 실패)는 스테이징을 되돌린다 — 남긴 스테이징은
+         다음 사람의 `git commit -m` 한 번이 통째로 커밋한다(#36 이 그렇게 났다).
+         절차 문구('커밋 전 git status')도 도구가 스스로 말해야 한다.
+      ③ 사람 절차는 정본 지시문에 있다 — 'git add -A 를 쓰지 말 것' ·
+         '경로를 지정해 커밋'. 문서가 지워지면 규칙은 다음 세션에서 사라진다.
+    """
+    import session_wrapup as W
+    calls = []
+    real = (W.git, W.git_lines, W._other_live_sessions, W._unstage_huge)
+
+    def fake_git(*a):
+        calls.append(a)
+        if a[:2] == ("status", "--porcelain"):
+            return True, "M mine.py"
+        if a[0] == "grep":
+            return False, ""                 # 비밀값 없음 (grep 은 '찾으면' 0 을 준다)
+        return True, ""
+
+    def fake_lines(*a):
+        calls.append(a)
+        if "--diff-filter=ACMRT" in a:
+            return True, ["mine.py"]         # 이번 커밋이 담는 경로
+        return True, []                      # 담기 전 인덱스는 비어 있었다
+
+    try:
+        W.git, W.git_lines = fake_git, fake_lines
+        W._unstage_huge = lambda: []
+        W._other_live_sessions = lambda: [{"sid": "t221sib1"}]
+        steps = []
+        W.step_commit("claude", "synthetic-t221", steps)
+        msg = next(a[3] for a in calls if a and a[0] == "commit")
+        assert "섞여 있을 수 있다" in msg and "푸시하지 않았다" in msg, \
+            "옆 세션 생존인데 커밋 메시지가 '섞였을 수 있음'을 말하지 않는다"
+        assert "t221sib1" in msg, "살아 있다고 본 근거(sid)를 커밋에 안 적었다"
+        assert not any(a and a[0] == "push" for a in calls), "옆 세션 생존인데 푸시했다"
+        assert steps and steps[-1]["성공"] and "보류" in steps[-1]["메모"], \
+            "푸시 보류를 단계 기록이 말하지 않는다"
+        # 혼자일 때는 푸시까지 간다 — 보류가 기본값이 되면 아무도 안 미는 저장소가 된다.
+        calls.clear()
+        W._other_live_sessions = lambda: []
+        W.step_commit("claude", "synthetic-t221", [])
+        assert any(a and a[0] == "push" for a in calls), "옆 세션이 없는데도 푸시를 안 한다"
+    finally:
+        W.git, W.git_lines, W._other_live_sessions, W._unstage_huge = real
+    # ② 멈추는 자리마다 되돌림 — 스캔 실패·커밋 실패 두 곳 모두 _rollback 을 거친다.
+    import inspect
+    src = inspect.getsource(W.step_commit)
+    assert src.count("_rollback()") >= 2, \
+        "멈추는 자리가 스테이징을 되돌리지 않는다 — #36 재발 경로"
+    assert "커밋 전 git status" in src, "도구가 'git status 확인' 절차를 말하지 않는다"
+    # ③ 정본 지시문의 사람 절차
+    doc = open(os.path.join(ROOT, "CLAUDE.md"), encoding="utf-8").read()
+    assert "git add -A` 를 쓰지 말 것" in doc and "경로를 지정해 커밋" in doc, \
+        "정본 지시문에서 경로 지정 커밋 규칙이 사라졌다"
+    print("  [221] 커밋 경로 위생 — 옆 세션 표기·푸시 보류 · 스테이징 되돌림 · "
+          "문서 절차 3겹 ✅")
+
+
+def t222_flow_charts_switch_and_capture():
+    """[222] 플로우 차트는 여러 장이다 — 종전/개선 스위치 + 캡처 (2026-08-11 지시).
+
+    사용자 지시: "돌발 as플로우 차트 옆에 (종전) 표시 / 앱을 통해 개선되는
+    플로우차트를 하나 만들고 옆에 개선 / 스위치 기능으로 각 차트 보고 캡처 /
+    (캡처 화면에) 이 방식의 문제점 및 개선해야될 점 정리 / 추후 정기검사
+    플로우차트도 감안". 지키는 것:
+      ① 차트 등록부(FLOW_CHARTS)에 종전·개선이 있고 목록 밖 열쇠는 거부한다 —
+         오타 열쇠를 조용히 받으면 아무도 못 보는 빈 차트에 저장된다.
+      ② **저장 격리** — 한 차트를 저장·되돌려도 다른 차트는 한 행도 안 바뀐다.
+         통째 DELETE 로 돌아가면 남의 차트가 말없이 빈다(조용한 사고).
+      ③ 문제점·개선점은 DB(flow_note) 정본 + 씨앗 — 전부 비우면 씨앗으로 돌아간다.
+      ④ 화면 스위치·캡처(ㄱ자 연결선·문제점 줄)·개발 사양이 다 함께 움직인다.
+    """
+    import ledger_db as L
+    tails = {c["key"]: c["꼬리"] for c in L.FLOW_CHARTS}
+    assert tails.get("as_legacy") == "종전" and tails.get("as_app") == "개선", \
+        "차트 등록부에 종전/개선이 없다"
+    try:
+        L.flow_steps("없는차트")
+        raise AssertionError("목록 밖 차트 열쇠를 받았다")
+    except ValueError:
+        pass
+    # ② 저장·되돌리기 격리
+    legacy_before = L.flow_steps("as_legacy")
+    mod = [dict(x) for x in L.flow_steps("as_app")]
+    mod[0] = dict(mod[0], 메모="t222 합성 표식")
+    L.flow_save(mod, who="synthetic", key="as_app")
+    assert L.flow_steps("as_legacy") == legacy_before, "as_app 저장이 종전 차트를 바꿨다"
+    assert L.flow_steps("as_app")[0]["메모"] == "t222 합성 표식"
+    L.flow_restore("synthetic", "as_app")
+    assert L.flow_steps("as_app")[0]["메모"] != "t222 합성 표식", "차트별 되돌리기가 안 된다"
+    assert L.flow_steps("as_legacy") == legacy_before, "as_app 되돌리기가 종전 차트를 바꿨다"
+    # ③ 문제점·개선점 — 씨앗이 실려 있고, 저장 왕복이 되고, 비우면 씨앗 복귀
+    assert L.flow_notes("as_legacy"), "종전 차트의 문제점 씨앗이 비어 있다"
+    L.flow_notes_save("as_app", ["t222 메모"], "synthetic")
+    assert L.flow_notes("as_app") == ["t222 메모"], "메모 저장 왕복이 안 된다"
+    L.flow_notes_save("as_app", [], "synthetic")
+    assert L.flow_notes("as_app") == list(L.FLOW_NOTE_DEFAULT["as_app"]), \
+        "비우면 씨앗으로 돌아가야 한다"
+    # ④ 화면·캡처·사양 — 스위치, 이름표, 문제점 줄, ㄱ자 연결선
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for need in ("function flowPick(", 'id="flowCharts"', 'id="flowNotesCard"',
+                 "function flowChartLabel(", "flowNotesHead()", "const bend =",
+                 "noteLines", "chart: FLOW_CHART", 'id="flowNotesTa"'):
+        assert need in live, f"차트 스위치·캡처 조각이 없다: {need}"
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert ("flow_charts()" in server and "flow_notes(" in server
+            and 'qs.get("chart"' in server), "서버가 차트 열쇠·메모를 안 내려보낸다"
+    print("  [222] 플로우 차트 여러 장 — 종전/개선 스위치 · 저장 격리 · "
+          "문제점 DB 정본 · 캡처 수록 ✅")
+
+
 def t196_stage_words_come_from_one_place():
     """[196] 돌발AS·정기점검 단계 낱말은 **한 곳**에서 오고, 바뀌면 자국이 남는다.
 
@@ -15235,6 +15355,8 @@ if __name__ == "__main__":
     t211_progress_trace_owner_identity()
     t219_text_locks_use_the_one_owner_judge()
     t220_flow_yes_no_cycles()
+    t221_commit_hygiene_under_siblings()
+    t222_flow_charts_switch_and_capture()
     t213_exact_pid_fingerprint_reaches_every_owner()
     t214_first_live_revision_cannot_be_falsely_applied()
     t215_cancel_timeline_last_explicit_state_wins()
