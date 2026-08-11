@@ -184,6 +184,18 @@ def payload():
     d["tail"] = ev["tail"]
     d["cap"] = ev["cap"]
     d["app_year"] = "2026"
+    # 업무 흐름(종전·개선) 차트 — 정본은 DB(flow_step)이지만 폰 오프라인 사본은
+    # /api/flow 에 못 닿아 차트가 비어 보이고 캡처가 실패했다(2026-08-12 실사고).
+    # 답 꾸러미처럼 **미리 만들어** 싣는다 — 차트가 몇 장 안 되고 작다.
+    try:
+        import ledger_db
+        d["flow"] = {"charts": ledger_db.flow_charts(),
+                     "steps": {c["key"]: ledger_db.flow_steps(c["key"])
+                               for c in ledger_db.FLOW_CHARTS},
+                     "notes": {c["key"]: ledger_db.flow_notes(c["key"])
+                               for c in ledger_db.FLOW_CHARTS}}
+    except Exception as e:
+        print("  ! 업무 흐름 꾸러미 건너뜀:", e)
     # 휴대폰 입력 전용 토큰은 공개 소스가 아니라 PIN 암호화 사본 안에만 넣는다.
     # PC 작업자 토큰은 이 사본에 절대 포함하지 않는다.
     try:
