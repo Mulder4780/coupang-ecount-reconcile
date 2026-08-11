@@ -17,6 +17,33 @@ CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
 ABS = re.compile(r"(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*(오전|오후)?\s*(\d{1,2}):(\d{2})")
 
 
+def tmp_path(dst):
+    """갈아끼우기용 임시 경로 — **pid 를 박아 회차끼리 안 겹치게** 한다.
+
+    ★ 2026-08-11 실측: 5분 파이프라인·09:50 회차·dump_watch 가 같은 밴드를 동시에
+      흡수하면 고정 이름 `dst + ".tmp"` 를 서로 가져가 한쪽 os.replace 가
+      FileNotFoundError 로 죽었다 — 제 tmp 를 상대가 이미 정본으로 옮긴 뒤다.
+      이름에 pid 가 있으면 경쟁 자체가 없다. 크래시가 남긴 옛 pid 의 tmp 는
+      한 시간 뒤 다음 회차가 조용히 치운다(내용은 이미 다음 흡수가 다시 만든다 —
+      덤프는 매 실행 전부 재처리되므로 잃는 것이 없다).
+    """
+    import time
+    try:
+        base = os.path.basename(dst)
+        folder = os.path.dirname(dst) or "."
+        for n in os.listdir(folder):
+            if n.startswith(base + ".") and n.endswith(".tmp"):
+                p = os.path.join(folder, n)
+                try:
+                    if time.time() - os.path.getmtime(p) > 3600:
+                        os.remove(p)
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return dst + f".{os.getpid()}.tmp"
+
+
 def swap_in(tmp, dst, tries=6, wait=0.5):
     """`os.replace(tmp, dst)` — 단, 윈도우에서 **읽는 쪽이 물고 있으면 실패한다.**
 
@@ -300,7 +327,7 @@ def _record_probe(band, name, merged, missing, cap_ms, notime=None):
     doc[str(band)] = {"이름": name, "확인시각": when, "수집최대": top,
                       "없음확인": absent[0], "연속없음": len(absent)}
     os.makedirs(os.path.dirname(PROBE_LOG), exist_ok=True)
-    tmp = PROBE_LOG + ".tmp"
+    tmp = tmp_path(PROBE_LOG)                     # pid 별 이름 — 회차 경쟁 방지
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(doc, fh, ensure_ascii=False, indent=1)
     os.replace(tmp, PROBE_LOG)
@@ -520,7 +547,7 @@ def main():
         #   더 나쁜 경우는 쓰다가 프로세스가 죽는 것이다 — 그때는 **정말로** 깨지고,
         #   8,500 글을 다시 긁어야 한다(밤샘 한 번 분량). os.replace 는 원자적이라
         #   읽는 쪽은 옛 파일이나 새 파일만 보고 그 중간은 못 본다.
-        tmp = dst + ".tmp"
+        tmp = tmp_path(dst)                       # pid 별 이름 — 회차 경쟁 방지
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(out, fh, ensure_ascii=False)
         swap_in(tmp, dst)
@@ -559,7 +586,7 @@ def main():
         if not n:
             continue
         doc["posts"] = merged
-        tmp = dst + ".tmp"
+        tmp = tmp_path(dst)                       # pid 별 이름 — 회차 경쟁 방지
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(doc, fh, ensure_ascii=False)
         swap_in(tmp, dst)

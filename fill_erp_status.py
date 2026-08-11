@@ -265,7 +265,7 @@ def main():
         raise
     os.replace(tmp, dst)
     print(f"\n{len(fills)}칸 채움 → {os.path.basename(dst)}")
-    print("엑셀에서 한 번 열어 주세요 — 검증결과가 다시 계산됩니다.")
+    print("검증결과 재계산은 자동입니다(excel_recalc·보관본 회차) — 엑셀을 열 필요 없습니다.")
     return 0
 
 

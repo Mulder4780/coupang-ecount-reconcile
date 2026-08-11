@@ -255,7 +255,8 @@ def main():
     print(f"\n정리본: {os.path.basename(dst)}")
     n = apply(src, dst, [r for r, _v, _w in refs])
     print(f"  {n}칸 비움 + 열 때 자동 재계산 설정")
-    print("\n엑셀에서 한 번 열어 주세요 — 수식이 다시 계산되며 '당일 실적' 표가 살아납니다.")
+    print("\n수식 재계산은 자동입니다(excel_recalc·보관본 회차) — '당일 실적' 표가 다음"
+          " 회차에 살아납니다. 엑셀을 열어 고치지 마십시오(정본은 앱 DB).")
     return 0
 
 
