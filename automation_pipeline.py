@@ -17,12 +17,14 @@ import re
 import sys
 import tempfile
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from app_store import AppStore, default_store
-from archive_export import ArchiveExporter
+from archive_export import ArchiveExporter, COVERAGE_CONTRACT_VERSION
+import pid_alive
 
 
 ROOT = Path(__file__).resolve().parent
@@ -130,29 +132,55 @@ def submit_kakao_file(
 
 
 def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError, TypeError):
-        return False
+    """Conservative shared PID verdict: only a certain death is reclaimable."""
+
+    # Windows ``os.kill(pid, 0)`` is not the process-liveness contract used by
+    # the rest of this project.  ``pid_alive`` checks the actual exit code and
+    # deliberately returns None when access/API state is inconclusive.  A live
+    # owner's lock is more valuable than an eager retry, so unknown means live.
+    return pid_alive.alive(pid) is not False
+
+
+class LockOwnershipLost(RuntimeError):
+    """The current round no longer owns the lock capability."""
 
 
 class PipelineLock:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.owned = False
+        self.token: Optional[str] = None
+        self.run_id: Optional[str] = None
 
-    def acquire(self) -> bool:
+    def _owner_words(self) -> Tuple[int, str, str]:
+        try:
+            words = self.path.read_text(encoding="ascii").split()
+            pid = int(words[0]) if words else 0
+            token = words[2] if len(words) >= 3 else ""
+            run_id = words[3] if len(words) >= 4 else ""
+            return pid, token, run_id
+        except (OSError, ValueError):
+            return 0, "", ""
+
+    def acquire(self, run_id: str) -> Optional[str]:
+        run_id = str(run_id or "").strip()
+        if not run_id:
+            raise ValueError("pipeline run_id is required")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         for _attempt in range(2):
+            token = uuid.uuid4().hex
             try:
                 fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                 with os.fdopen(fd, "w", encoding="ascii") as handle:
-                    handle.write(f"{os.getpid()} {time.time():.3f}\n")
+                    handle.write(
+                        f"{os.getpid()} {time.time():.3f} {token} {run_id}\n"
+                    )
                     handle.flush()
                     os.fsync(handle.fileno())
                 self.owned = True
-                return True
+                self.token = token
+                self.run_id = run_id
+                return token
             except FileExistsError:
                 try:
                     words = self.path.read_text(encoding="ascii").split()
@@ -161,33 +189,51 @@ class PipelineLock:
                 except (OSError, ValueError):
                     pid, age = 0, 999999
                 if pid and _pid_alive(pid):
-                    return False
+                    return None
                 if age < 60:
-                    return False
+                    return None
                 try:
                     self.path.unlink()
                 except OSError:
-                    return False
-        return False
+                    return None
+        return None
 
-    def heartbeat(self) -> None:
-        if not self.owned:
-            return
+    def is_owner(self, token: Optional[str], run_id: Optional[str]) -> bool:
+        if not self.owned or not token or not run_id:
+            return False
+        pid, disk_token, disk_run_id = self._owner_words()
+        return (
+            pid == os.getpid()
+            and token == self.token == disk_token
+            and run_id == self.run_id == disk_run_id
+        )
+
+    def heartbeat(self, token: Optional[str], run_id: Optional[str]) -> bool:
+        if not self.is_owner(token, run_id):
+            self.owned = False
+            return False
         try:
             os.utime(self.path, None)
+            return True
         except OSError:
-            pass
+            return False
 
-    def release(self) -> None:
-        if not self.owned:
-            return
+    def release(self, token: Optional[str], run_id: Optional[str]) -> bool:
+        if not self.is_owner(token, run_id):
+            self.owned = False
+            self.token = None
+            self.run_id = None
+            return False
+        released = False
         try:
-            words = self.path.read_text(encoding="ascii").split()
-            if words and int(words[0]) == os.getpid():
-                self.path.unlink()
-        except (OSError, ValueError):
-            pass
+            self.path.unlink()
+            released = True
+        except OSError:
+            released = False
         self.owned = False
+        self.token = None
+        self.run_id = None
+        return released
 
 
 def _metadata_signature(paths: Iterable[Path]) -> Tuple[str, Optional[float], int]:
@@ -315,6 +361,8 @@ def _default_state() -> Dict[str, Any]:
     return {
         "version": PIPELINE_VERSION,
         "running": False,
+        "active_run_id": None,
+        "lock_token": None,
         "sources": {
             name: {
                 "status": "never",
@@ -350,12 +398,51 @@ class AutomationPipeline:
         if not isinstance(self.state, dict) or self.state.get("version") != PIPELINE_VERSION:
             self.state = _default_state()
         self.run_record: Dict[str, Any] = {}
+        self._lock_token: Optional[str] = None
+        self._run_id: Optional[str] = None
+
+    def _reload_state(self) -> None:
+        fresh = _read_json(self.state_path, _default_state())
+        self.state = (
+            fresh
+            if isinstance(fresh, dict) and fresh.get("version") == PIPELINE_VERSION
+            else _default_state()
+        )
+
+    def _acquire_run(self) -> bool:
+        run_id = uuid.uuid4().hex
+        token = self.lock.acquire(run_id)
+        if not token:
+            return False
+        self._run_id = run_id
+        self._lock_token = token
+        # Another AutomationPipeline object may have been constructed before a
+        # prior round finished.  Reload only after this round owns the lock so a
+        # stale in-memory history/fingerprint cannot overwrite the newer state.
+        self._reload_state()
+        return True
+
+    def _owns_run(self) -> bool:
+        return self.lock.is_owner(self._lock_token, self._run_id)
+
+    def _release_run(self) -> bool:
+        released = self.lock.release(self._lock_token, self._run_id)
+        self._lock_token = None
+        self._run_id = None
+        return released
 
     def _save(self) -> None:
+        if not self._owns_run():
+            raise LockOwnershipLost(
+                f"automation round {self._run_id or '-'} no longer owns its lock"
+            )
         _atomic_json(self.state_path, self.state)
 
     def _stage(self, name: str, args: Sequence[str], timeout: int) -> Dict[str, Any]:
-        self.lock.heartbeat()
+        if not self.lock.heartbeat(self._lock_token, self._run_id):
+            raise LockOwnershipLost(
+                f"automation round {self._run_id or '-'} lost its lock before {name}"
+            )
         self.run_record["current_stage"] = name
         self.run_record["updated_at"] = _now()
         self.state["last_run"] = self.run_record
@@ -460,6 +547,9 @@ class AutomationPipeline:
         root = self.root
         return [
             ("입력 큐 DB 흡수", [str(root / "ledger_db.py"), "--intake"], 600),
+            # 밴드·카톡의 명시 접수취소를 원천업무 AppStore에 즉시 반영한다.
+            # Excel은 건드리지 않고 아래 archive 회차가 검증된 보관본을 만든다.
+            ("접수취소·원격해결 DB 동기화", [str(root / "cancel_watch.py"), "--sync"], 900),
             ("객관완료 판정", [str(root / "complete_verified.py"), "--queue"], 900),
             ("정산 객관완료", [str(root / "settlement_completion.py"), "--sync"], 1200),
             ("담당자 객관완료", [str(root / "staff_completion.py"), "--sync"], 600),
@@ -506,8 +596,8 @@ class AutomationPipeline:
             if str(manifest.get("status") or "") != export_status:
                 raise ValueError("DB export status differs from manifest")
             contract = manifest.get("coverage_contract") or {}
-            if int(contract.get("version") or 0) < 1:
-                raise ValueError("record coverage contract missing")
+            if int(contract.get("version") or 0) < COVERAGE_CONTRACT_VERSION:
+                raise ValueError("record coverage contract missing or obsolete")
             proof = _read_json(artifact / "adapter-result.json", {})
         except Exception as exc:
             return {
@@ -534,7 +624,11 @@ class AutomationPipeline:
                 revision = int(entry.get("record_version") or 0)
             except (TypeError, ValueError):
                 continue
-            if work_id and revision > 0 and outcome in {"applied", "unchanged"}:
+            if work_id and revision > 0 and outcome in {
+                "applied",
+                "unchanged",
+                "archived_sidecar",
+            }:
                 if revision >= covered.get(work_id, 0):
                     covered[work_id] = revision
                     covered_outcomes[work_id] = outcome
@@ -596,7 +690,7 @@ class AutomationPipeline:
                 self.store.fail_outbox(
                     token,
                     uncovered,
-                    "Excel 보관본의 applied/unchanged 레코드 coverage에 포함되지 않음",
+                    "Excel 보관본의 주 시트/검증 sidecar 레코드 coverage에 포함되지 않음",
                     retry_after_seconds=30,
                 )
                 deferred_uncovered += len(uncovered)
@@ -611,6 +705,11 @@ class AutomationPipeline:
                 "applied": sum(1 for value in covered_outcomes.values() if value == "applied"),
                 "unchanged": sum(
                     1 for value in covered_outcomes.values() if value == "unchanged"
+                ),
+                "archived_sidecar": sum(
+                    1
+                    for value in covered_outcomes.values()
+                    if value == "archived_sidecar"
                 ),
             },
             "deferred_newer": deferred_newer,
@@ -628,7 +727,7 @@ class AutomationPipeline:
         presented to operators as a successful collection run.
         """
 
-        if not self.lock.acquire():
+        if not self._acquire_run():
             return {
                 "ok": True,
                 "status": "already_running",
@@ -653,6 +752,7 @@ class AutomationPipeline:
                 primed.append(source)
             record = {
                 "status": "primed",
+                "run_id": self._run_id,
                 "trigger": trigger,
                 "started_at": primed_at,
                 "finished_at": primed_at,
@@ -664,27 +764,38 @@ class AutomationPipeline:
                 "stages": [],
             }
             self.state["running"] = False
+            self.state["active_run_id"] = None
+            self.state["lock_token"] = None
             self.state["last_run"] = record
             history = list(self.state.get("history") or [])
             history.insert(0, dict(record))
             self.state["history"] = history[:30]
             self._save()
             return {"ok": True, **record}
+        except LockOwnershipLost as exc:
+            return {
+                "ok": False,
+                "status": "lost_lock",
+                "run_id": self._run_id,
+                "summary": str(exc),
+            }
         except Exception as exc:
             return {
                 "ok": False,
                 "status": "failed",
+                "run_id": self._run_id,
                 "summary": f"{type(exc).__name__}: {exc}",
             }
         finally:
-            self.lock.release()
+            self._release_run()
 
     def run_once(self, *, trigger: str = "scheduler", force: bool = False) -> Dict[str, Any]:
-        if not self.lock.acquire():
+        if not self._acquire_run():
             return {"ok": True, "status": "already_running", "message": "자동화가 이미 실행 중입니다"}
         started = _now()
         self.run_record = {
             "status": "running",
+            "run_id": self._run_id,
             "trigger": trigger,
             "started_at": started,
             "finished_at": None,
@@ -692,12 +803,14 @@ class AutomationPipeline:
             "current_stage": "변경 감지",
             "stages": [],
         }
-        self.state["running"] = True
-        self.state["last_run"] = self.run_record
-        self._save()
         failures: List[str] = []
         changed: List[str] = []
         try:
+            self.state["running"] = True
+            self.state["active_run_id"] = self._run_id
+            self.state["lock_token"] = self._lock_token
+            self.state["last_run"] = self.run_record
+            self._save()
             signals = source_signals(self.root)
             for source in ("kakao", "band", "erp"):
                 signal = signals[source]
@@ -753,12 +866,27 @@ class AutomationPipeline:
                 }
             )
             self.state["running"] = False
+            self.state["active_run_id"] = None
+            self.state["lock_token"] = None
             self.state["last_run"] = self.run_record
             history = list(self.state.get("history") or [])
             history.insert(0, dict(self.run_record))
             self.state["history"] = history[:30]
             self._save()
             return {"ok": not failures, **self.run_record}
+        except LockOwnershipLost as exc:
+            # A successor owns the shared state now.  Keep this result local;
+            # writing even a truthful failure here would overwrite that round.
+            self.run_record.update(
+                {
+                    "status": "lost_lock",
+                    "finished_at": _now(),
+                    "current_stage": "잠금 소유권 상실",
+                    "summary": str(exc),
+                    "failures": ["LockOwnershipLost"],
+                }
+            )
+            return {"ok": False, **self.run_record}
         except Exception as exc:
             self.run_record.update(
                 {
@@ -769,12 +897,15 @@ class AutomationPipeline:
                     "failures": [type(exc).__name__],
                 }
             )
-            self.state["running"] = False
-            self.state["last_run"] = self.run_record
-            self._save()
+            if self._owns_run():
+                self.state["running"] = False
+                self.state["active_run_id"] = None
+                self.state["lock_token"] = None
+                self.state["last_run"] = self.run_record
+                self._save()
             return {"ok": False, **self.run_record}
         finally:
-            self.lock.release()
+            self._release_run()
 
 
 def _age_days(value: Optional[str]) -> Optional[float]:
@@ -875,6 +1006,7 @@ def status(
         "app_db": {
             "status": "ok" if app.get("ok") else "error",
             "last_sync_at": last_run.get("finished_at"),
+            "change_seq": int(app.get("change_seq") or 0),
             "pending": int(app.get("import_conflicts_open") or 0),
             "outbox_pending": int(app.get("outbox_pending") or 0),
             "work_active": int(app.get("work_active") or 0),
@@ -946,9 +1078,10 @@ def self_test() -> bool:
         assert set(api["sources"]) == {"kakao", "band", "erp"}
         assert "app_db" in api and "excel" in api and "human_gates" in api
 
-        # Only work revisions explicitly covered as applied/unchanged may be
-        # acknowledged.  A partial artifact can still ACK its covered records
-        # and snapshot-only metadata while leaving conflicts and newer events.
+        # Only work revisions explicitly covered in a main worksheet or the
+        # semantically verified AppDB sidecar may be acknowledged.  A partial
+        # artifact can still ACK its covered records and snapshot-only metadata
+        # while leaving unresolved conflicts and newer events.
         import shutil
 
         from archive_export import _make_minimal_xlsx, sha256_file, sha256_json

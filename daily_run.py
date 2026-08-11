@@ -631,9 +631,9 @@ def _run_pipeline():
         steps.append(run("밴드 업무추출(반영 대기)", [os.path.join(ROOT, "band_extract.py")]))
         # 5.6 접수했다가 취소된 건(2026-08-08 지시). 취소된 건이 원장에 접수 그대로
         #     남으면 'AS 미실시'가 영영 안 줄어든다 — 화면은 멀쩡한데 숫자가 거짓인
-        #     조용한 사고다. 엑셀은 안 연다: 대기열에만 넣고 11:00·15:00 회차가 반영한다.
-        steps.append(run("접수 취소 확인(반영 대기)",
-                         [os.path.join(ROOT, "cancel_watch.py"), "--queue"], timeout=1500))
+        #     조용한 사고다. 앱 DB 정본에 즉시 기록하고 Excel은 자동 보관본만 따라간다.
+        steps.append(run("접수취소·원격해결 DB 동기화",
+                         [os.path.join(ROOT, "cancel_watch.py"), "--sync"], timeout=1500))
         # 5.7 위 단계가 **반쪽으로 도는 것**을 막는다 (2026-08-09). 취소는 대부분 댓글로
         #     오는데 실측 7,475글이 댓글을 한 번도 안 들여다봤다. 그 상태에서도
         #     cancel_watch 는 오류 없이 끝난다 — 사각지대는 오류가 아니라 **없는 자료**다.

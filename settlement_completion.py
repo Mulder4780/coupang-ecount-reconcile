@@ -293,7 +293,7 @@ def confirmed_po_invoice_batches(records, docs, po_meta):
 
 
 def objective_entries(records, quotes, invoices, existing=None, erp_sales=None,
-                      invoice_batches=None):
+                      invoice_batches=None, source_outcomes_map=None):
     """현재 원장 레코드에서 객관완료 DB 항목을 만든다.
 
     이미 ERP 수금완료처럼 더 강한 완료 근거가 있으면 상태를 낮춰 쓰지 않는다. 이
@@ -303,6 +303,12 @@ def objective_entries(records, quotes, invoices, existing=None, erp_sales=None,
     qindex = quote_index(quotes)
     erp_sales = erp_sales or {}
     invoice_batches = invoice_batches or {}
+    if source_outcomes_map is None:
+        try:
+            from cancel_resolution import source_outcomes
+            source_outcomes_map = source_outcomes()
+        except Exception:
+            source_outcomes_map = {}
     own_statuses = (AMOUNT_STATUS, ERP_AMOUNT_STATUS, QUOTE_ONLY_STATUS, INVOICE_STATUS,
                     INVOICE_PO_BATCH_STATUS, ERP_STATE_STATUS)
     # 프로젝트NO → {부가세포함 총액: 견적행}. 견적이 프로젝트당 정확히 한 금액이면
@@ -315,6 +321,11 @@ def objective_entries(records, quotes, invoices, existing=None, erp_sales=None,
             quotes_by_project.setdefault(prj, {})[total] = row
     entries = []
     for settle_id, record in sorted((records or {}).items()):
+        source_id = str(record.get("원천업무ID") or "").strip()
+        if (source_outcomes_map.get(source_id) or {}).get("cancelled"):
+            # 접수취소를 견적·ERP·계산서 자료만으로 정상 정산 완료로 승격하면
+            # 교차입력을 놓친다. 취소건 청구자료는 앱 충돌 목록에서 별도로 확인한다.
+            continue
         old = existing.get(settle_id) or {}
         old_status = str(old.get("status") or "")
         if old_status.startswith("완료(") and old_status not in own_statuses:

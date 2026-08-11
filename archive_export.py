@@ -40,7 +40,7 @@ from app_store import (
 PLAN_FORMAT = "csos-archive-command-plan/v1"
 MANIFEST_FORMAT = "csos-archive-manifest/v1"
 VALIDATION_FORMAT = "csos-archive-validation/v1"
-COVERAGE_CONTRACT_VERSION = 1
+COVERAGE_CONTRACT_VERSION = 2
 CHUNK_SIZE = 1024 * 1024
 _READ_ONLY_MASTER_RESOLVE_LOCK = threading.Lock()
 
@@ -335,7 +335,7 @@ class ArchiveExporter:
                     "enforce per-command idempotency_key",
                     "report snapshot_sha256 and command_plan_sha256",
                     "report rows_considered and an empty errors list before verification",
-                    "report applied/unchanged work_id+record_version coverage for every record",
+                    "report applied/unchanged/archived_sidecar work_id+record_version coverage for every record",
                     "do not publish to Z: or any network share",
                 ],
             },
@@ -380,7 +380,7 @@ class ArchiveExporter:
                 "adapter proof identifies this snapshot and command plan",
                 "adapter reports no errors",
                 "adapter partitions every planned work_id+record_version into covered or conflicted",
-                "only applied/unchanged record coverage can be acknowledged",
+                "only applied/unchanged/verified-sidecar record coverage can be acknowledged",
                 "output is a valid OOXML ZIP with workbook.xml",
                 "only complete record coverage can atomically advance last-good.json",
             ],
@@ -501,7 +501,7 @@ class ArchiveExporter:
                 "coverage_contract": {
                     "version": COVERAGE_CONTRACT_VERSION,
                     "record_identity": "work_id+record_version",
-                    "covered_outcomes": ["applied", "unchanged"],
+                    "covered_outcomes": ["applied", "unchanged", "archived_sidecar"],
                     "partial_last_good_allowed": False,
                 },
                 "files": files,
@@ -615,9 +615,10 @@ class ArchiveExporter:
         """Validate exact work revision coverage reported by an adapter.
 
         A snapshot hash proves which DB state was planned, not that each work
-        revision reached Excel.  Coverage is therefore keyed by the immutable
-        ``work_id`` plus the snapshot's ``record_version``.  Conflicted rows are
-        deliberately absent from coverage and must be named in ``conflicts``.
+        revision reached the archive.  Coverage is therefore keyed by the
+        immutable ``work_id`` plus the snapshot's ``record_version``.  Unsafe
+        main-sheet matches may be covered only by the semantically verified
+        AppDB sidecar; anything else must remain named in ``conflicts``.
         """
 
         expected: Dict[str, Dict[str, Any]] = {}
@@ -638,6 +639,9 @@ class ArchiveExporter:
             expected[work_id] = {
                 "record_version": record_version,
                 "business_key": str(record.get("business_key") or ""),
+                "record_sha256": hashlib.sha256(
+                    canonical_json(record).encode("utf-8")
+                ).hexdigest(),
             }
 
         raw_coverage = proof.get("record_coverage")
@@ -657,7 +661,7 @@ class ArchiveExporter:
                 raise ArchiveVerificationError(
                     f"coverage has invalid revision for {work_id or '<missing>'}"
                 ) from exc
-            if outcome not in {"applied", "unchanged"}:
+            if outcome not in {"applied", "unchanged", "archived_sidecar"}:
                 raise ArchiveVerificationError(
                     f"coverage outcome is not ackable for {work_id or '<missing>'}: {outcome!r}"
                 )
@@ -675,6 +679,15 @@ class ArchiveExporter:
                 raise ArchiveVerificationError(
                     f"coverage business_key mismatch for {work_id}"
                 )
+            if outcome == "archived_sidecar":
+                if str(entry.get("sheet") or "") != "99_AppDB_미매칭보관":
+                    raise ArchiveVerificationError(
+                        f"sidecar coverage has wrong worksheet for {work_id}"
+                    )
+                if str(entry.get("record_sha256") or "") != expected[work_id]["record_sha256"]:
+                    raise ArchiveVerificationError(
+                        f"sidecar canonical record hash mismatch for {work_id}"
+                    )
             entry.update(
                 {
                     "work_id": work_id,
@@ -717,6 +730,74 @@ class ArchiveExporter:
                 )
             conflict_ids.add(work_id)
 
+        sidecar_covered = {
+            work_id: entry
+            for work_id, entry in covered.items()
+            if entry.get("outcome") == "archived_sidecar"
+        }
+        raw_sidecar = proof.get("sidecar") or {}
+        if sidecar_covered:
+            if not isinstance(raw_sidecar, Mapping):
+                raise ArchiveVerificationError("sidecar coverage proof must be an object")
+            if str(raw_sidecar.get("format") or "") != "csos-appdb-sidecar/v1":
+                raise ArchiveVerificationError("sidecar coverage format is invalid")
+            if str(raw_sidecar.get("sheet") or "") != "99_AppDB_미매칭보관":
+                raise ArchiveVerificationError("sidecar coverage worksheet is invalid")
+            raw_entries = raw_sidecar.get("entries")
+            if not isinstance(raw_entries, list):
+                raise ArchiveVerificationError("sidecar entries must be a list")
+            normalized_sidecar = []
+            seen_sidecar: set[str] = set()
+            for raw in raw_entries:
+                if not isinstance(raw, Mapping):
+                    raise ArchiveVerificationError("sidecar entry must be an object")
+                work_id = str(raw.get("work_id") or "")
+                if work_id not in sidecar_covered or work_id in seen_sidecar:
+                    raise ArchiveVerificationError(
+                        f"sidecar entry has unknown/duplicate work_id: {work_id}"
+                    )
+                entry = sidecar_covered[work_id]
+                normalized_entry = {
+                    "work_id": work_id,
+                    "record_version": int(raw.get("record_version") or 0),
+                    "business_key": str(raw.get("business_key") or ""),
+                    "reason": str(raw.get("reason") or ""),
+                    "record_sha256": str(raw.get("record_sha256") or ""),
+                }
+                if normalized_entry != {
+                    "work_id": work_id,
+                    "record_version": int(entry["record_version"]),
+                    "business_key": str(entry.get("business_key") or ""),
+                    "reason": str(entry.get("reason") or ""),
+                    "record_sha256": str(entry.get("record_sha256") or ""),
+                }:
+                    raise ArchiveVerificationError(
+                        f"sidecar entry differs from coverage for {work_id}"
+                    )
+                normalized_sidecar.append(normalized_entry)
+                seen_sidecar.add(work_id)
+            if seen_sidecar != set(sidecar_covered):
+                raise ArchiveVerificationError("sidecar entries do not cover every sidecar outcome")
+            normalized_sidecar.sort(
+                key=lambda item: (item["business_key"], item["work_id"])
+            )
+            semantic_sha = sha256_json(
+                {"format": "csos-appdb-sidecar/v1", "records": normalized_sidecar}
+            )
+            if semantic_sha != str(raw_sidecar.get("semantic_sha256") or ""):
+                raise ArchiveVerificationError("sidecar semantic hash mismatch")
+            validation_sidecar = (proof.get("validation") or {}).get("sidecar") or {}
+            if (
+                str(validation_sidecar.get("sheet") or "") != "99_AppDB_미매칭보관"
+                or int(validation_sidecar.get("records") or -1) != len(normalized_sidecar)
+                or str(validation_sidecar.get("semantic_sha256") or "") != semantic_sha
+            ):
+                raise ArchiveVerificationError(
+                    "adapter did not semantically verify the sidecar worksheet"
+                )
+        elif raw_sidecar and int(raw_sidecar.get("records") or 0) != 0:
+            raise ArchiveVerificationError("sidecar proof exists without sidecar coverage")
+
         uncovered_ids = sorted(set(expected) - set(covered))
         if set(uncovered_ids) != conflict_ids:
             unnamed = sorted(set(uncovered_ids) - conflict_ids)
@@ -739,6 +820,7 @@ class ArchiveExporter:
             "covered_records": len(normalized),
             "uncovered_records": len(uncovered_ids),
             "conflict_records": len(conflict_ids),
+            "sidecar_records": len(sidecar_covered),
             "complete": complete,
         }
         return proof
@@ -1165,8 +1247,16 @@ class ArchiveExporter:
                         errors.append("validation result output hash differs")
                 except Exception as exc:
                     errors.append(f"record coverage validation failed: {exc}")
-            elif manifest_status == "partial":
-                errors.append("partial artifact is missing a record coverage contract")
+            else:
+                # v2 도입 전에 정상 승격된 last-good은 record별 ACK 근거로는
+                # 절대 쓰지 않지만, 다음 v2 보관본을 만들 원본 템플릿으로는 계속
+                # 복구할 수 있어야 한다. 파일/manifest/DB snapshot/최종 XLSX 해시는
+                # 위의 동시대 검증 규칙으로 확인하고, ACK 쪽은 별도로 v2를 강제한다.
+                # 여기서 구 보관본 자체를 오류로 만들면 첫 v2 렌더가 실패한 순간
+                # 정상 last-good까지 잃고 네트워크 원본 fallback에 고착된다.
+                coverage = dict(manifest.get("coverage") or {})
+                coverage.setdefault("version", max(0, coverage_version))
+                coverage["legacy_read_only"] = True
         return {
             "ok": not errors,
             "status": manifest_status or "unknown",
@@ -1502,6 +1592,81 @@ def self_test() -> bool:
         assert pointer and pointer["export_id"] == verified["export_id"]
         assert pointer["external_write_performed"] is False
         assert store.export_run(verified["export_id"])["status"] == "verified"
+
+        # v2 이전 정상 보관본은 새 outbox ACK에는 못 쓰지만, v2 렌더가 실패했을 때
+        # 다음 회차의 읽기 전용 템플릿/복구 원본으로 계속 검증 가능해야 한다.
+        legacy_dir = root / "legacy-v1-last-good"
+        shutil.copytree(Path(verified["artifact_dir"]), legacy_dir)
+        legacy_manifest_path = legacy_dir / "manifest.json"
+        legacy_manifest = json.loads(legacy_manifest_path.read_text(encoding="utf-8"))
+        legacy_manifest.pop("coverage_contract", None)
+        legacy_manifest.pop("coverage", None)
+        legacy_manifest["manifest_sha256"] = _manifest_digest(legacy_manifest)
+        _atomic_write_json(legacy_manifest_path, legacy_manifest)
+        legacy_check = exporter.verify_export(legacy_dir, require_verified=True)
+        assert legacy_check["ok"] and legacy_check["coverage"].get("legacy_read_only"), \
+            legacy_check
+
+        # A sidecar is ackable only when its full canonical record hash, exact
+        # revision and worksheet semantic hash all agree with the command plan.
+        sidecar_record = {
+            "work_id": "wrk-sidecar-selftest",
+            "business_key": "UJ-SIDECAR-001",
+            "record_version": 3,
+            "kind": "돌발AS",
+            "fields": {"프로젝트NO": "UJ-SIDECAR-001", "비고": "모호 행"},
+        }
+        sidecar_record_sha = hashlib.sha256(
+            canonical_json(sidecar_record).encode("utf-8")
+        ).hexdigest()
+        sidecar_entry = {
+            "work_id": sidecar_record["work_id"],
+            "record_version": sidecar_record["record_version"],
+            "business_key": sidecar_record["business_key"],
+            "reason": "ambiguous-no-anchor",
+            "record_sha256": sidecar_record_sha,
+        }
+        sidecar_sha = sha256_json(
+            {"format": "csos-appdb-sidecar/v1", "records": [sidecar_entry]}
+        )
+        sidecar_proof = {
+            "status": "success",
+            "record_coverage": [
+                {
+                    **sidecar_entry,
+                    "outcome": "archived_sidecar",
+                    "sheet": "99_AppDB_미매칭보관",
+                    "sidecar_semantic_sha256": sidecar_sha,
+                }
+            ],
+            "conflicts": [],
+            "sidecar": {
+                "format": "csos-appdb-sidecar/v1",
+                "sheet": "99_AppDB_미매칭보관",
+                "records": 1,
+                "semantic_sha256": sidecar_sha,
+                "entries": [sidecar_entry],
+            },
+            "validation": {
+                "sidecar": {
+                    "sheet": "99_AppDB_미매칭보관",
+                    "records": 1,
+                    "semantic_sha256": sidecar_sha,
+                }
+            },
+        }
+        checked_sidecar = ArchiveExporter._validate_record_coverage(
+            sidecar_proof, [sidecar_record]
+        )
+        assert checked_sidecar["coverage"]["complete"]
+        tampered = json.loads(canonical_json(sidecar_proof))
+        tampered["record_coverage"][0]["record_sha256"] = "0" * 64
+        try:
+            ArchiveExporter._validate_record_coverage(tampered, [sidecar_record])
+        except ArchiveVerificationError:
+            pass
+        else:
+            raise AssertionError("tampered sidecar record hash was accepted")
 
         # A conflicted record is useful forensic output, but is neither fully
         # verified nor eligible to replace the previous last-good pointer.

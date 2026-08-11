@@ -95,7 +95,43 @@ def settle_issues(master):
         objective_done = {}
     prog_basis = None
     raw_progress = erp_progress_statuses()
+    try:
+        from cancel_resolution import source_outcomes, settlement_document_evidence
+        cancelled_sources = source_outcomes()
+        side_documents = settlement_document_evidence()
+    except Exception:
+        cancelled_sources = {}
+        side_documents = {}
+
+    def has_billing_documents(record):
+        keys = ("원장_거래명세서번호", "원장_거래명세서발행일",
+                "원장_세금계산서발행일", "원장_세금계산서승인번호",
+                "원장_PO번호", "원장_PO발행일", "원장_청구일",
+                "원장_입금일", "원장_입금액")
+        return any(str(record.get(key) or "").strip() not in ("", "0", "0.0")
+                   for key in keys)
+
     for sid, r in sorted(read_ledger(master).items()):
+        source_id = str(r.get("원천업무ID") or "").strip()
+        source_outcome = cancelled_sources.get(source_id) or {}
+        if source_outcome.get("cancelled"):
+            # 접수취소는 청구대상이 아니다. 다만 이미 청구자료가 들어간 건은 지우거나
+            # 완료처리하지 않고 별도 교차입력 충돌로 남긴다.
+            if has_billing_documents(r) or sid in side_documents:
+                rows.append({
+                    "정산ID": sid,
+                    "문제유형": "취소건 청구자료 존재 — 교차입력 확인",
+                    "캠프명": r.get("캠프명"), "프로젝트NO": r.get("프로젝트NO"),
+                    "공급가액": r.get("원장_공급가액") or 0,
+                    "완료일": str(r.get("작업완료일") or "")[:10],
+                    "명세서번호": r.get("원장_거래명세서번호") or "",
+                    "PO번호": r.get("원장_PO번호") or "",
+                    "확인방법": (
+                        f"원천업무 {source_id} {source_outcome.get('status') or '취소'}"
+                        "인데 청구자료가 존재 — 자료를 삭제하지 말고 연결 건 확인"
+                    ),
+                })
+            continue
         # 판정은 ecount_reconcile.settle_status 한 곳에서만 한다 — 화면과 엑셀이 어긋나지 않게.
         st = settle_status(r)
         if st.startswith("완료("):

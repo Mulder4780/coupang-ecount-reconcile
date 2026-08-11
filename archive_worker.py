@@ -63,6 +63,11 @@ from archive_export import (
 
 WORKER_STATUS_FORMAT = "csos-archive-worker-status/v1"
 WORKER_PROOF_FORMAT = "csos-archive-worker-proof/v1"
+SIDECAR_SHEET = "99_AppDB_미매칭보관"
+SIDECAR_FORMAT = "csos-appdb-sidecar/v1"
+# 15k Unicode code points remains below Excel's 32,767 UTF-16-unit cell cap
+# even when a payload consists entirely of non-BMP characters.
+SIDECAR_CHUNK_SIZE = 15_000
 HEADER_ROW = int(getattr(ledger_writer, "HDR_ROW", 4))
 FIRST_DATA_ROW = int(getattr(ledger_writer, "FIRST", 5))
 LOCK_STALE_SECONDS = 6 * 60 * 60
@@ -105,6 +110,15 @@ DB_ONLY_ARCHIVE_FIELDS = frozenset(
         "객관완료일",
         "객관완료상태",
         "객관완료근거",
+        # 접수취소·원격해결의 감사 근거는 앱 DB 정본 필드다. 기존 02/04 시트에는
+        # 대응 열이 없으므로 진행/점검상태만 주 시트에 반영하고, 아래 필드들은
+        # snapshot.json·SQLite backup에 원문 그대로 보존한다. 임의의 기존 열에
+        # 밀어 넣으면 오히려 관리대장 의미가 깨진다.
+        "접수취소여부",
+        "접수취소사유",
+        "접수취소확인일",
+        "처리구분",
+        "접수취소근거",
         # '공급가액'(일반)은 06시트에 단일 열이 없다 — 실제작업/거래명세서/세금계산서
         # 공급가액으로 나뉜다. 그 특정 열들이 같은 기록에 이미 있어 이 일반값은
         # 중복 파생값이다. 어느 열인지 짐작해 쓰면 엉뚱한 칸에 박히므로 DB에만 둔다.
@@ -1056,6 +1070,249 @@ def _write_patched_zip(
                 continue
             cloned = copy.copy(info)
             destination.writestr(cloned, data)
+        for name, value in patched_members.items():
+            if name not in source.namelist():
+                destination.writestr(name, value.encode("utf-8"))
+
+
+def _inline_cell(col: str, row: int, value: str) -> str:
+    escaped = html.escape(value, quote=False)
+    preserve = ' xml:space="preserve"' if value != value.strip() else ""
+    return (
+        f'<c r="{col}{row}" t="inlineStr"><is><t{preserve}>'
+        f"{escaped}</t></is></c>"
+    )
+
+
+def _sidecar_payload(
+    records_by_id: Mapping[str, Mapping[str, Any]],
+    conflicts: Sequence[Mapping[str, Any]],
+) -> Tuple[str, List[Dict[str, Any]], str]:
+    """Return a deterministic audit worksheet for records unsafe for main sheets.
+
+    The canonical record is stored in full, split across cells only to respect
+    Excel's 32,767 character cell limit.  Main worksheet rows remain untouched.
+    """
+
+    rows: List[Dict[str, Any]] = []
+    max_chunks = 1
+    for conflict in sorted(
+        conflicts,
+        key=lambda item: (
+            str(item.get("business_key") or ""),
+            str(item.get("work_id") or ""),
+        ),
+    ):
+        work_id = str(conflict.get("work_id") or "")
+        record = records_by_id.get(work_id)
+        if not record:
+            raise ArchiveVerificationError(
+                f"sidecar conflict references missing plan record: {work_id}"
+            )
+        record_json = canonical_json(record)
+        chunks = [
+            record_json[index : index + SIDECAR_CHUNK_SIZE]
+            for index in range(0, len(record_json), SIDECAR_CHUNK_SIZE)
+        ] or [""]
+        max_chunks = max(max_chunks, len(chunks))
+        record_sha = hashlib.sha256(record_json.encode("utf-8")).hexdigest()
+        conflict_json = canonical_json(dict(conflict))
+        rows.append(
+            {
+                "work_id": work_id,
+                "record_version": int(record.get("record_version") or 0),
+                "business_key": str(record.get("business_key") or ""),
+                "kind": str(record.get("kind") or ""),
+                "target_sheet": str(conflict.get("sheet") or ""),
+                "reason": str(conflict.get("reason") or ""),
+                "conflict_json": conflict_json,
+                "record_sha256": record_sha,
+                "chunks": chunks,
+            }
+        )
+    headers = [
+        "work_id",
+        "record_version",
+        "business_key",
+        "DB업무종류",
+        "주 시트 대상",
+        "주 시트 미반영 사유",
+        "충돌 근거(JSON)",
+        "정본 레코드 SHA-256",
+    ] + [f"정본 레코드 JSON {index:03d}" for index in range(1, max_chunks + 1)]
+    xml_rows: List[str] = []
+    for row_no, values in enumerate(
+        [headers]
+        + [
+            [
+                item["work_id"],
+                str(item["record_version"]),
+                item["business_key"],
+                item["kind"],
+                item["target_sheet"],
+                item["reason"],
+                item["conflict_json"],
+                item["record_sha256"],
+                *item["chunks"],
+            ]
+            for item in rows
+        ],
+        1,
+    ):
+        cells = "".join(
+            _inline_cell(ledger_writer.col_letter(index), row_no, str(value))
+            for index, value in enumerate(values, 1)
+        )
+        xml_rows.append(f'<row r="{row_no}">{cells}</row>')
+    last_col = ledger_writer.col_letter(len(headers))
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<worksheet xmlns="{_MAIN_NS}">'
+        f'<dimension ref="A1:{last_col}{max(1, len(rows) + 1)}"/>'
+        '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" '
+        'topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+        '<sheetFormatPr defaultRowHeight="15"/>'
+        f'<sheetData>{"".join(xml_rows)}</sheetData>'
+        f'<autoFilter ref="A1:{last_col}{max(1, len(rows) + 1)}"/>'
+        '</worksheet>'
+    )
+    semantic_rows = [
+        {
+            "work_id": item["work_id"],
+            "record_version": item["record_version"],
+            "business_key": item["business_key"],
+            "reason": item["reason"],
+            "record_sha256": item["record_sha256"],
+        }
+        for item in rows
+    ]
+    return sheet_xml, rows, sha256_json(
+        {"format": SIDECAR_FORMAT, "records": semantic_rows}
+    )
+
+
+def _install_sidecar(
+    template: Path, sheet_xml: str
+) -> Tuple[Dict[str, str], str]:
+    """Return OOXML patches that add or replace the deterministic sidecar."""
+
+    with zipfile.ZipFile(template, "r") as archive:
+        names = set(archive.namelist())
+        sheet_map = ledger_writer.sheet_file_map(archive)
+        if SIDECAR_SHEET in sheet_map:
+            return {sheet_map[SIDECAR_SHEET]: sheet_xml}, sheet_map[SIDECAR_SHEET]
+        workbook = archive.read("xl/workbook.xml").decode("utf-8")
+        rel_name = "xl/_rels/workbook.xml.rels"
+        rels = archive.read(rel_name).decode("utf-8")
+        types = archive.read("[Content_Types].xml").decode("utf-8")
+    sheet_numbers = [
+        int(match.group(1))
+        for name in names
+        if (match := re.fullmatch(r"xl/worksheets/sheet(\d+)\.xml", name))
+    ]
+    sheet_no = max(sheet_numbers or [0]) + 1
+    member = f"xl/worksheets/sheet{sheet_no}.xml"
+    rel_numbers = [int(value) for value in re.findall(r'\bId="rId(\d+)"', rels)]
+    rel_id = f"rId{max(rel_numbers or [0]) + 1}"
+    sheet_ids = [int(value) for value in re.findall(r'\bsheetId="(\d+)"', workbook)]
+    sheet_id = max(sheet_ids or [0]) + 1
+    sheet_tag = (
+        f'<sheet name="{html.escape(SIDECAR_SHEET, quote=True)}" '
+        f'sheetId="{sheet_id}" r:id="{rel_id}"/>'
+    )
+    if "</sheets>" not in workbook:
+        raise ArchiveRenderError("workbook.xml has no sheets collection")
+    workbook = workbook.replace("</sheets>", f"{sheet_tag}</sheets>", 1)
+    relation = (
+        f'<Relationship Id="{rel_id}" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+        f'Target="worksheets/sheet{sheet_no}.xml"/>'
+    )
+    if "</Relationships>" not in rels:
+        raise ArchiveRenderError("workbook relationships are malformed")
+    rels = rels.replace("</Relationships>", f"{relation}</Relationships>", 1)
+    override = (
+        f'<Override PartName="/{member}" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+    )
+    if "</Types>" not in types:
+        raise ArchiveRenderError("content types are malformed")
+    types = types.replace("</Types>", f"{override}</Types>", 1)
+    return {
+        "xl/workbook.xml": workbook,
+        rel_name: rels,
+        "[Content_Types].xml": types,
+        member: sheet_xml,
+    }, member
+
+
+def _validate_sidecar(
+    output: Path, rows: Sequence[Mapping[str, Any]], semantic_sha256: str
+) -> Dict[str, Any]:
+    with zipfile.ZipFile(output, "r") as archive:
+        sheet_map = ledger_writer.sheet_file_map(archive)
+        member = sheet_map.get(SIDECAR_SHEET)
+        if not member:
+            raise ArchiveVerificationError("AppDB sidecar worksheet is missing")
+        xml = archive.read(member).decode("utf-8")
+        shared = _shared_strings(archive)
+        fragments = {
+            number: fragment for number, _a, _b, fragment in _row_fragments(xml)
+        }
+        observed: List[Dict[str, Any]] = []
+        for row_no, expected in enumerate(rows, 2):
+            fragment = fragments.get(row_no, "")
+            fixed = [
+                str(_cell_value(_cell_fragment(fragment, f"{col}{row_no}"), shared))
+                for col in ("A", "B", "C", "D", "E", "F", "G", "H")
+            ]
+            chunks: List[str] = []
+            col_no = 9
+            while True:
+                value = str(
+                    _cell_value(
+                        _cell_fragment(
+                            fragment, f"{ledger_writer.col_letter(col_no)}{row_no}"
+                        ),
+                        shared,
+                    )
+                )
+                if not value:
+                    break
+                chunks.append(value)
+                col_no += 1
+            record_json = "".join(chunks)
+            record_sha = hashlib.sha256(record_json.encode("utf-8")).hexdigest()
+            if fixed != [
+                str(expected["work_id"]),
+                str(expected["record_version"]),
+                str(expected["business_key"]),
+                str(expected["kind"]),
+                str(expected["target_sheet"]),
+                str(expected["reason"]),
+                str(expected["conflict_json"]),
+                str(expected["record_sha256"]),
+            ] or record_sha != str(expected["record_sha256"]):
+                raise ArchiveVerificationError(
+                    f"sidecar semantic mismatch at row {row_no}: {expected['work_id']}"
+                )
+            observed.append(
+                {
+                    "work_id": fixed[0],
+                    "record_version": int(fixed[1]),
+                    "business_key": fixed[2],
+                    "reason": fixed[5],
+                    "record_sha256": record_sha,
+                }
+            )
+    actual = sha256_json({"format": SIDECAR_FORMAT, "records": observed})
+    if actual != semantic_sha256:
+        raise ArchiveVerificationError("sidecar semantic hash mismatch")
+    return {
+        "sheet": SIDECAR_SHEET,
+        "records": len(observed),
+        "semantic_sha256": actual,
+    }
 
 
 def _validate_output(
@@ -1194,7 +1451,8 @@ class ArchiveWorker:
                     f"(no unique anchor; existing rows untouched)"
                 )
             warnings.append(
-                f"{conflict['sheet']}:{conflict.get('business_key')} skipped — {detail}"
+                f"{conflict['sheet']}:{conflict.get('business_key')} "
+                f"main sheet untouched; archived in {SIDECAR_SHEET} — {detail}"
             )
         expectations: List[CellExpectation] = []
         for item in located:
@@ -1257,29 +1515,75 @@ class ArchiveWorker:
                     **record_counts,
                 }
             )
+        records_by_id = {
+            str(record.get("work_id") or ""): record for record in records
+        }
+        sidecar_xml, sidecar_rows, sidecar_sha = _sidecar_payload(
+            records_by_id, locate_conflicts
+        )
+        sidecar_patches, _sidecar_member = _install_sidecar(
+            template_copy_path, sidecar_xml
+        )
+        for row_no, item in enumerate(sidecar_rows, 2):
+            record_coverage.append(
+                {
+                    "work_id": str(item["work_id"]),
+                    "business_key": str(item["business_key"]),
+                    "record_version": int(item["record_version"]),
+                    "sheet": SIDECAR_SHEET,
+                    "row": row_no,
+                    "outcome": "archived_sidecar",
+                    "reason": str(item["reason"]),
+                    "record_sha256": str(item["record_sha256"]),
+                    "sidecar_semantic_sha256": sidecar_sha,
+                }
+            )
         for state in states.values():
             state.materialize()
+        patched_members = {state.member: state.xml for state in states.values()}
+        patched_members.update(sidecar_patches)
         _write_patched_zip(
             template_copy_path,
             output_path,
-            {state.member: state.xml for state in states.values()},
+            patched_members,
         )
         validation = _validate_output(output_path, expectations, states)
+        validation["sidecar"] = _validate_sidecar(
+            output_path, sidecar_rows, sidecar_sha
+        )
         if sha256_file(template_copy_path) != template_before:
             raise ArchiveVerificationError("adapter mutated the template copy")
         return {
             "format": WORKER_PROOF_FORMAT,
-            "status": "partial" if locate_conflicts else "success",
+            "status": "success",
             "snapshot_sha256": str(plan["snapshot"]["sha256"]),
             "command_plan_sha256": sha256_json(plan),
             "rows_considered": len(records),
             "records_skipped_ambiguous": len(locate_conflicts),
+            "records_archived_sidecar": len(sidecar_rows),
             "records_covered": len(record_coverage),
             "record_coverage": record_coverage,
-            # Full identities are required so the exporter/outbox layer can
-            # prove exactly which revisions were not materialized.  Human
-            # warnings stay bounded separately.
-            "conflicts": locate_conflicts,
+            # Unsafe main-sheet matches are not hidden or overwritten.  Their
+            # full canonical records and conflict evidence live in the verified
+            # sidecar, which is a positive coverage outcome rather than an
+            # unresolved conflict.
+            "conflicts": [],
+            "sidecar": {
+                "format": SIDECAR_FORMAT,
+                "sheet": SIDECAR_SHEET,
+                "records": len(sidecar_rows),
+                "semantic_sha256": sidecar_sha,
+                "entries": [
+                    {
+                        "work_id": str(item["work_id"]),
+                        "record_version": int(item["record_version"]),
+                        "business_key": str(item["business_key"]),
+                        "reason": str(item["reason"]),
+                        "record_sha256": str(item["record_sha256"]),
+                    }
+                    for item in sidecar_rows
+                ],
+            },
             "errors": [],
             "warnings": warnings[:500],
             "output_sha256": sha256_file(output_path),
@@ -1710,6 +2014,11 @@ def self_test() -> Dict[str, Any]:
                     "객관완료일": "2026-08-10",
                     "객관완료상태": "완료",
                     "객관완료근거": "합성 객관근거",
+                    "접수취소여부": "예",
+                    "접수취소사유": "유선전화 원격해결",
+                    "접수취소확인일": "2026-08-10",
+                    "처리구분": "원격해결",
+                    "접수취소근거": "밴드·카톡 합성 근거",
                     "공급가액": "1000000",
                 }
             },
@@ -1836,22 +2145,25 @@ def self_test() -> Dict[str, Any]:
             )
             assert imported_conflict["status"] == "created"
         conflict_worker = ArchiveWorker(conflict_store, base / "conflict-spool")
-        partial = conflict_worker.run(template)
-        assert partial["ok"] and partial["state"] == "partial"
-        assert partial["last_good"] is None
+        sidecar_result = conflict_worker.run(template)
+        assert sidecar_result["ok"] and sidecar_result["state"] == "verified"
+        assert sidecar_result["last_good"] is not None
         partial_proof = json.loads(
             (
-                Path(partial["export"]["artifact_dir"]) / "adapter-result.json"
+                Path(sidecar_result["export"]["artifact_dir"]) / "adapter-result.json"
             ).read_text(encoding="utf-8")
         )
         assert partial_proof["coverage"]["planned_records"] == 2
-        assert partial_proof["coverage"]["covered_records"] == 1
-        assert partial_proof["coverage"]["conflict_records"] == 1
-        assert partial_proof["coverage"]["complete"] is False
-        assert partial_proof["conflicts"][0]["reason"] == "row-claimed-by-other"
-        assert conflict_store.export_run(partial["export"]["export_id"])[
+        assert partial_proof["coverage"]["covered_records"] == 2
+        assert partial_proof["coverage"]["conflict_records"] == 0
+        assert partial_proof["coverage"]["sidecar_records"] == 1
+        assert partial_proof["coverage"]["complete"] is True
+        assert not partial_proof["conflicts"]
+        assert partial_proof["sidecar"]["records"] == 1
+        assert partial_proof["sidecar"]["entries"][0]["reason"] == "row-claimed-by-other"
+        assert conflict_store.export_run(sidecar_result["export"]["export_id"])[
             "status"
-        ] == "partial"
+        ] == "verified"
         return {
             "ok": True,
             "existing_row_updated": True,
@@ -1866,7 +2178,7 @@ def self_test() -> Dict[str, Any]:
             "bounded_source_stage": True,
             "source_proof_manifested": True,
             "db_only_audit_fields_retained": True,
-            "partial_conflict_not_promoted": True,
+            "conflict_sidecar_verified": True,
         }
 
 

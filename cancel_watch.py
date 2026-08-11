@@ -29,11 +29,12 @@
      고친 뒤 실측 사각지대는 **8,259건 / 8,561건**이다. 그 값이 절반을 넘는 동안은
      이 리포트를 "취소가 이것뿐"이라는 뜻으로 읽으면 안 된다(리포트가 스스로 경고한다).
 
-엑셀은 열지 않는다. 바꿀 것은 `ledger_db.enqueue()` 로 넣고 11:00·15:00 회차가 반영한다.
+엑셀은 열지 않는다. 명시 근거는 앱 DB 정본에 즉시 저장하고 Excel은 검증된 자동
+보관본 회차가 뒤따라간다. 이미 취소인 행도 사유·근거가 비어 있으면 보강한다.
 
 실행:
   python cancel_watch.py             # 무엇이 걸리는지 보기만(기본)
-  python cancel_watch.py --queue     # 원장 반영 대기열에 넣기
+  python cancel_watch.py --sync      # 앱 DB 정본에 안전 반영(--queue는 구 호환 별칭)
 """
 import sys, os, re, json, glob, argparse
 from datetime import datetime
@@ -47,6 +48,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
 from band_extract import cancel_hit, comment_text, cancel_blind_count, RE_PRJ  # noqa: E402
+from cancel_resolution import (load_corroborations, outcome_kind, sync_hits)  # noqa: E402
 
 CACHE_DIR = os.path.join(ROOT, "band", "cache")
 REPORT = os.path.join(os.environ.get("COUPANG_REPORT_DIR")
@@ -100,8 +102,18 @@ def scan_band(quiet=False):
             cur = hits.get(prj)
             if cur and cur["게시일"] > day:
                 continue
-            hits[prj] = {"프로젝트NO": prj, "밴드": bname, "게시글": no, "게시일": day,
-                         "자리": where, "근거": _snippet(cmt if where == "댓글" else body)}
+            source_text = cmt if where == "댓글" else body
+            observed = p.get("captured_at") or p.get("updated_at") or ""
+            work_kind = ("정기점검" if re.search(r"정기\s*점검", body, re.I)
+                         else "돌발AS" if re.search(r"돌발|A\s*/?\s*S", body, re.I)
+                         else "")
+            treatment = outcome_kind(source_text)
+            hits[prj] = {
+                "프로젝트NO": prj, "밴드": bname, "게시글": str(no), "게시일": day,
+                "자리": where, "근거": _snippet(source_text), "원문": source_text[:4000],
+                "관측시각": observed, "업무종류": work_kind, "처리구분": treatment,
+                "근거URL": f"https://band.us/band/{bname}/post/{no}",
+            }
     if not quiet:
         print(f"  밴드 {total}글 훑음 — 취소로 읽히는 건 {len(hits)}건"
               f" · 댓글을 못 읽어 놓쳤을 수 있는 글 {blind}건")
@@ -109,19 +121,24 @@ def scan_band(quiet=False):
 
 
 def open_ledger_rows():
-    """원장에서 **아직 안 끝난** 돌발AS·정기점검을 프로젝트NO 로 뽑는다."""
-    sys.path.insert(0, os.path.join(ROOT, "webapp"))
-    import app_server
+    """AppStore 정본에서 **아직 안 끝난** AS·정기점검을 프로젝트NO로 뽑는다.
+
+    취소 감시 때문에 매번 Excel/Z:를 다시 읽으면 자료 투입 직후 자동화가 수십 초씩
+    막힌다. 앱 DB가 정본이므로 여기서는 네트워크·Excel을 전혀 보지 않는다.
+    """
+    from app_store import default_store
+
     out = {}
-    works = app_server.get_works()
-    for kind, sheet, key_col in (("as", "02_돌발AS접수", "접수ID"),
-                                 ("pm", "04_정기점검", "점검ID")):
-        for r in works.get(kind) or []:
+    store = default_store()
+    for kind, sheet, key_col, status_col, done_col in (
+            ("as", "02_돌발AS접수", "접수ID", "진행상태", "작업완료일"),
+            ("pm", "04_정기점검", "점검ID", "점검상태", "실제점검일")):
+        for r in store.list_sheet_rows(sheet):
             prj = str(r.get("프로젝트NO") or "").strip().upper()
             if not prj:
                 continue
-            state = str(r.get("진행상태") or r.get("점검상태") or "")
-            done = str(r.get("작업완료일") or r.get("실제점검일") or "").strip()
+            state = str(r.get(status_col) or "")
+            done = str(r.get(done_col) or "").strip()
             if done or any(s in state for s in _SETTLED):
                 continue
             out.setdefault(prj, []).append(
@@ -172,42 +189,54 @@ def write_report(rows, hits, blind, total=0):
                         f"{r['밴드']}/{r['게시글']} | {r['게시일']} |\n")
         else:
             f.write("정리할 건이 없습니다.\n")
-        f.write("\n※ 엑셀은 열지 않습니다. `--queue` 로 넣으면 11:00·15:00 회차가 반영합니다.\n")
+        f.write("\n※ 엑셀은 열지 않습니다. `--sync` 는 앱 DB에 즉시 기록하고 "
+                "Excel은 검증된 자동 보관본으로만 따라갑니다.\n")
     return REPORT
 
 
-def queue(rows):
-    """진행상태를 '취소'로 바꾸도록 대기열에 넣는다(엑셀은 회차가 연다)."""
-    import ledger_db
-    items = []
-    for r in rows:
-        items.append({
-            "sheet": r["sheet"], "key_col": r["key_col"], "key": r["key"],
-            "col": "진행상태", "value": "취소", "vtype": "text",
-            # ★ 이미 사람이 무언가 적어 둔 칸은 덮지 않는다.
-            "only_if_empty": True,
-            "evidence": f"밴드 {r['밴드']} {r['게시글']}글 {r['자리']} — {r['근거']}",
-        })
-    return ledger_db.enqueue(items, source="cancel_watch",
-                             ingest_prefix="cancel") if items else 0
+def sync(hits, *, store=None, corroborations=None):
+    """상태가 이미 취소여도 근거를 보강하는 앱 DB 정본 동기화."""
+
+    return sync_hits(hits, store=store,
+                     corroborations=(corroborations if corroborations is not None
+                                     else load_corroborations()))
+
+
+def queue(rows, *, store=None):
+    """구 호출자 호환 별칭. Excel 셀 큐가 아니라 앱 DB 정본에 반영한다."""
+
+    hits = {}
+    for row in rows or []:
+        project = str(row.get("프로젝트NO") or "").strip().upper()
+        if project:
+            hits[project] = dict(row)
+    return sync(hits, store=store)
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="접수 취소 건 찾기")
-    ap.add_argument("--queue", action="store_true", help="원장 반영 대기열에 넣는다")
+    ap.add_argument("--sync", action="store_true", help="앱 DB 정본에 즉시 반영한다")
+    ap.add_argument("--queue", action="store_true", help="--sync의 구 호환 별칭")
+    ap.add_argument("--project", default="", help="특정 프로젝트만 진단·반영")
     ap.add_argument("--quiet", action="store_true")
     a = ap.parse_args(argv)
     rows, hits, blind, total = build(quiet=a.quiet)
+    if a.project:
+        project = str(a.project).strip().upper()
+        hits = {project: hits[project]} if project in hits else {}
+        rows = [row for row in rows if row.get("프로젝트NO") == project]
     path = write_report(rows, hits, blind, total)
-    added = queue(rows) if a.queue else 0
+    synced = sync(hits) if (a.sync or a.queue) else None
     if not a.quiet:
         print(f"  취소로 읽힌 {len(hits)}건 중 원장이 아직 안 끝낸 {len(rows)}건"
-              + (f" → 대기열 {added}건 추가" if a.queue else " (보기만 — 넣으려면 --queue)"))
+              + (f" → 앱 DB {synced.get('updated', 0)}건 반영 · "
+                 f"동일 {synced.get('unchanged', 0)} · 충돌 {synced.get('conflicts', 0)}"
+                 if synced is not None else " (보기만 — 반영하려면 --sync)"))
         if blind:
             print(f"  ※ 댓글을 못 읽은 글 {blind}건 / 전체 {total}건"
                   " — 한 번도 안 들여다본 글까지 센다. 그 글의 취소는 아직 못 본다")
         print(f"  {path}")
-    return 0
+    return 0 if synced is None or synced.get("ok") else 1
 
 
 if __name__ == "__main__":

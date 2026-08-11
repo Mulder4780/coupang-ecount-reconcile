@@ -15,12 +15,12 @@ cross_signal.py — 카톡과 밴드 댓글을 **한 사건으로 묶는다** (�
 그래서 카톡에만 온 취소는 밴드 화면에 안 뜨고, 댓글에만 달린 취소는 카톡 대조에 안 뜬다.
 **어느 쪽에도 오류는 안 난다.** 조용한 사고다.
 
-## 무엇을 묶나 — 근거는 셋이 겹칠 때만
+## 무엇을 묶나 — 프로젝트번호가 있으면 그것이 최우선
 짝을 지을 근거가 약하면 **엉뚱한 현장 둘을 한 사건으로 만든다.** 그건 못 묶는 것보다
 나쁘다(가지 말아야 할 곳에 사람을 보내거나, 가야 할 곳을 지운다). 그래서:
-  ① **캠프**가 같을 것 — `camp_core` 로 괄호 앞 이름만 본다(카톡은 표기가 제각각이다)
-  ② **날짜가 가까울 것** — 기본 ±3일. 카톡과 댓글은 같은 날 오가지만 하루씩 밀린다
-  ③ **같은 낱말**을 담을 것 — 취소·연기·재방문 같은 사건어가 양쪽에 다 있을 것
+  ① 양쪽의 **프로젝트NO가 정확히 같을 것**. 있으면 캠프 표기가 빠져도 묶는다.
+  ② 프로젝트NO가 한쪽이라도 없을 때만 캠프+날짜(±3일)를 보고용으로 묶는다.
+  ③ 어느 경우든 취소·연기·재방문 같은 사건 종류가 양쪽에 같아야 한다.
 
 ## ★ 아무것도 고치지 않는다
 `cancel_watch` 가 원장 대조와 큐를 맡는다. 이 도구는 **두 원본이 같은 말을 하는지**만
@@ -94,11 +94,14 @@ def band_signals():
                 cmts = " ".join(str(c.get("content") or "")
                                 for c in (p.get("comments") or []) if isinstance(c, dict))
             camp = camp_core(p.get("camp") or _camp_from(body))
+            project_match = band_extract.RE_PRJ.search(body)
+            project = project_match.group(1).upper() if project_match else ""
             for where, text in (("본문", body), ("댓글", cmts)):
                 ev = events_in(text)
-                if ev and camp:
+                if ev and (camp or project):
                     out.append({"출처": f"밴드 {where}", "밴드": b, "글번호": str(no),
                                 "날짜": str(day)[:10], "캠프": camp,
+                                "프로젝트NO": project,
                                 "사건": sorted(ev), "글": text[:160]})
     return out
 
@@ -125,41 +128,55 @@ def kakao_signals():
             if not ev:
                 continue
             camp = camp_core(_camp_from(m["text"]))
-            if not camp:
+            from band_extract import RE_PRJ
+            project_match = RE_PRJ.search(m["text"])
+            project = project_match.group(1).upper() if project_match else ""
+            if not camp and not project:
                 continue
             out.append({"출처": "카톡", "파일": os.path.basename(path),
                         "날짜": m["date"].isoformat(), "보낸이": m.get("sender", ""),
-                        "캠프": camp, "사건": sorted(ev), "글": m["text"][:160]})
+                        "캠프": camp, "프로젝트NO": project,
+                        "사건": sorted(ev), "글": m["text"][:160]})
     return out
 
 
 def pair(bs, ks, near=NEAR_DAYS):
-    """캠프 · 날짜(±near) · **같은 사건 종류** 셋이 겹칠 때만 한 사건으로 본다."""
-    by_camp = defaultdict(list)
-    for k in ks:
-        by_camp[k["캠프"]].append(k)
+    """정확 프로젝트를 우선하고, 없을 때만 캠프·날짜로 보고용 연결한다."""
     matched, band_only = [], []
     used = set()
     for b in bs:
         bd = date.fromisoformat(b["날짜"])
-        hit = None
-        for i, k in enumerate(by_camp.get(b["캠프"], [])):
+        candidates = []
+        for i, k in enumerate(ks):
+            if i in used:
+                continue
             if abs((date.fromisoformat(k["날짜"]) - bd).days) > near:
                 continue
             common = set(b["사건"]) & set(k["사건"])
-            if common:
-                hit = (i, k, sorted(common))
-                break
+            if not common:
+                continue
+            b_project = str(b.get("프로젝트NO") or "").strip().upper()
+            k_project = str(k.get("프로젝트NO") or "").strip().upper()
+            exact_project = bool(b_project and k_project and b_project == k_project)
+            same_camp = bool(b.get("캠프") and b.get("캠프") == k.get("캠프"))
+            if exact_project or (not (b_project and k_project) and same_camp):
+                candidates.append((0 if exact_project else 1,
+                                   abs((date.fromisoformat(k["날짜"]) - bd).days),
+                                   i, k, sorted(common), exact_project))
+        hit = min(candidates, default=None, key=lambda item: (item[0], item[1], item[2]))
         if hit:
-            used.add((b["캠프"], hit[0]))
-            matched.append({"캠프": b["캠프"], "사건": hit[2],
+            _, _, index, kakao, common, exact_project = hit
+            used.add(index)
+            project = str(b.get("프로젝트NO") or kakao.get("프로젝트NO") or "")
+            matched.append({"프로젝트NO": project, "캠프": b.get("캠프") or kakao.get("캠프"),
+                            "연결근거": "프로젝트NO 정확 일치" if exact_project else "캠프+날짜",
+                            "사건": common,
                             "밴드": f"{b['밴드']}/{b['글번호']} ({b['출처']}) {b['날짜']}",
-                            "카톡": f"{hit[1]['파일']} {hit[1]['날짜']} {hit[1]['보낸이']}",
-                            "밴드글": b["글"], "카톡글": hit[1]["글"]})
+                            "카톡": f"{kakao['파일']} {kakao['날짜']} {kakao['보낸이']}",
+                            "밴드글": b["글"], "카톡글": kakao["글"]})
         else:
             band_only.append(b)
-    kakao_only = [k for camp, lst in by_camp.items()
-                  for i, k in enumerate(lst) if (camp, i) not in used]
+    kakao_only = [k for i, k in enumerate(ks) if i not in used]
     return matched, band_only, kakao_only
 
 
@@ -170,7 +187,8 @@ def run(near=NEAR_DAYS):
     L = ["# 카톡 · 밴드 교차 확인", "",
          f"- 생성 {datetime.now():%Y-%m-%d %H:%M} · 밴드 신호 {len(bs)} · 카톡 신호 {len(ks)}",
          f"- 짝지어짐 **{len(matched)}** · 밴드에만 **{len(b_only)}** · 카톡에만 **{len(k_only)}**",
-         "- 근거는 셋이 겹칠 때만: 캠프 · 날짜(±%d일) · 같은 사건 종류" % near,
+         "- 자동연결 1순위: 프로젝트NO 정확 일치 · 같은 사건 · 날짜(±%d일)" % near,
+         "- 프로젝트NO가 없을 때의 캠프+날짜 연결은 보고 근거이며 자동 취소에는 쓰지 않습니다.",
          "- **이 도구는 아무것도 고치지 않습니다.** 원장 대조·큐는 cancel_watch 몫입니다.", ""]
 
     def tbl(title, rows, keys, why=""):
@@ -189,7 +207,8 @@ def run(near=NEAR_DAYS):
             L.append(f"\n… 외 {len(rows) - 150}건 (전체는 카톡_밴드_교차.json)")
         L.append("")
 
-    tbl("두 곳이 같은 말을 한다", matched, ["캠프", "사건", "밴드", "카톡"],
+    tbl("두 곳이 같은 말을 한다", matched,
+        ["프로젝트NO", "캠프", "연결근거", "사건", "밴드", "카톡"],
         "양쪽 원본이 같은 사건을 말합니다 — 근거가 가장 셉니다.")
     tbl("밴드에만 있다", b_only, ["캠프", "날짜", "사건", "출처", "글"],
         "카톡방에는 안 올라온 사건입니다. 캠프가 모르고 있을 수 있습니다.")

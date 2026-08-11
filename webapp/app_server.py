@@ -18,6 +18,7 @@ import ipaddress
 import socket
 from collections import deque
 from datetime import datetime, date, timedelta
+from decimal import Decimal, InvalidOperation
 from email import policy as email_policy
 from email.parser import BytesParser
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -1552,83 +1553,113 @@ def save_staff_entry(staff_slug, body, *, store=None, actor=None):
         request_id = _stable_request_key(
             "staff-entry", who, [], record=request_payload,
         )
-    # AppStore의 공개 CRUD가 가진 멱등 표를 직원 단위 트랜잭션에도 사용한다. 현재값 비교나
-    # 버전 검사보다 먼저 읽어야 같은 재전송이 `no_change`/409로 바뀌지 않는다.
+    from app_store import SHEET_SPECS, VersionConflict
+    sheet_spec = SHEET_SPECS.get(cfg["sheet"], {})
+    core_by_column = {column: core for core, column in sheet_spec.items()
+                      if core in ("public_id", "project_no", "camp_name", "status") and column}
+    # 멱등 확인 → 현재값/버전 확인 → work_item·감사이벤트·outbox 변경 → 최종 직원 응답
+    # 저장까지 한 BEGIN IMMEDIATE에 묶는다. 그래야 같은 키의 동시 요청 둘이 모두
+    # "아직 응답 없음"을 본 뒤 하나는 업무를 바꾸고 바깥 멱등 INSERT에서 409가 나는
+    # 반쪽 성공이 생기지 않는다.
     with store.transaction() as conn:
         replay, request_hash = store._idempotency_replay(
             conn, "staff:entry", request_id, request_payload,
         )
-    if replay is not None:
-        return replay
+        if replay is not None:
+            result = replay
+        else:
+            # BEGIN IMMEDIATE 뒤에 읽는다. 같은 키가 아닌 동시 수정도 이 시점의 한
+            # 버전을 기준으로 판정되며, 이 트랜잭션이 끝날 때까지 다른 쓰기는 못 낀다.
+            sheet_row, current = _staff_store_row(store, category, record_key)
+            changed = {}
+            before_values = {}
+            for name, value in normalized.items():
+                core = core_by_column.get(name)
+                old = current.get(core) if core else (current.get("fields") or {}).get(name)
+                if json.dumps(old, ensure_ascii=False, sort_keys=True, default=str) == json.dumps(
+                        value, ensure_ascii=False, sort_keys=True, default=str):
+                    continue
+                before_values[name] = old
+                changed[name] = value
 
-    sheet_row, current = _staff_store_row(store, category, record_key)
+            if not changed:
+                latest = _staff_public_record(category, sheet_row)
+                result = {
+                    "ok": True, "committed": True, "action": "no_change", "changed": [],
+                    "skipped": sorted(normalized), "record_version": latest["record_version"],
+                    "record": latest, "msg": "이미 같은 값입니다",
+                }
+            else:
+                correction_fields = [
+                    name for name in changed
+                    if (name in clear_fields or
+                        (name in STAFF_REASON_REQUIRED_FIELDS and
+                         before_values.get(name) not in (None, "")))
+                ]
+                if correction_fields and len(reason) < 2:
+                    raise ValueError(
+                        "기존 값 정정 사유를 입력해 주세요: " + ", ".join(correction_fields)
+                    )
+                if int(current.get("record_version") or 0) != expected_version:
+                    raise VersionConflict(
+                        current["id"], expected_version,
+                        int(current.get("record_version") or 0),
+                    )
 
-    from app_store import SHEET_SPECS
-    sheet_spec = SHEET_SPECS.get(cfg["sheet"], {})
-    core_by_column = {column: core for core, column in sheet_spec.items()
-                      if core in ("public_id", "project_no", "camp_name", "status") and column}
-    changed = {}
-    before_values = {}
-    for name, value in normalized.items():
-        core = core_by_column.get(name)
-        old = current.get(core) if core else (current.get("fields") or {}).get(name)
-        if json.dumps(old, ensure_ascii=False, sort_keys=True, default=str) == json.dumps(
-                value, ensure_ascii=False, sort_keys=True, default=str):
-            continue
-        before_values[name] = old
-        changed[name] = value
-    if not changed:
-        latest = _staff_public_record(category, sheet_row)
-        result = {"ok": True, "committed": True, "action": "no_change", "changed": [],
-                  "skipped": sorted(normalized), "record_version": latest["record_version"],
-                  "record": latest, "msg": "이미 같은 값입니다"}
-        with store.transaction() as conn:
+                patch = {"fields": dict(changed)}
+                for name, value in changed.items():
+                    core = core_by_column.get(name)
+                    if core:
+                        patch[core] = value
+                evidence = (
+                    f"{STAFF_CENTERS.get(staff_slug, {'name': '관리자'})['name']} 업무센터"
+                    f" · {reason[:300] if reason else '확인 입력'}"
+                )
+                response = store.update_work(
+                    current["id"], expected_version=expected_version, patch=patch,
+                    actor=who, source="app-staff-entry", evidence=evidence,
+                    source_ref=f"staff:{staff_slug}:{category}:{record_key}",
+                    idempotency_key=(request_id[:220] + ":work"), _conn=conn,
+                )
+
+                # 별도 재조회 연결은 아직 커밋되지 않은 변경을 볼 수 없다. update_work가
+                # 같은 연결에서 돌려준 권위 레코드를 기존 Excel 모양에 덮어 응답을 만든다.
+                after = dict(response["work"])
+                saved_row = dict(sheet_row)
+                saved_row.update(after.get("fields") or {})
+                for core, column in sheet_spec.items():
+                    if core in ("public_id", "project_no", "camp_name", "status") and column:
+                        saved_row[column] = after.get(core)
+                saved_row.update({
+                    "_store_id": after["id"],
+                    "_record_version": after["record_version"],
+                    "_business_key": after["business_key"],
+                    "_source": after.get("source") or "",
+                    "_evidence": after.get("evidence") or "",
+                })
+                authoritative = _staff_public_record(category, saved_row)
+                outbox_pending = int(conn.execute(
+                    "SELECT COUNT(*) FROM outbox "
+                    "WHERE status IN ('pending','failed','leased')"
+                ).fetchone()[0])
+                result = {
+                    "ok": True, "committed": True, "action": "updated",
+                    "changed": sorted(changed),
+                    "skipped": sorted(set(normalized) - set(changed)),
+                    "before": before_values,
+                    "record_version": authoritative["record_version"],
+                    "record": authoritative,
+                    "event_id": response.get("event_id"),
+                    "event_seq": response.get("event_seq"),
+                    "app_outbox_pending": outbox_pending,
+                    "msg": "앱 DB 저장 완료 · Excel 자동 보관본 대기",
+                }
             store._save_idempotency(
                 conn, "staff:entry", request_id, request_hash, result,
             )
-        return result
 
-    correction_fields = [name for name in changed
-                         if (name in clear_fields or
-                             (name in STAFF_REASON_REQUIRED_FIELDS and
-                              before_values.get(name) not in (None, "")))]
-    if correction_fields and len(reason) < 2:
-        raise ValueError("기존 값 정정 사유를 입력해 주세요: " + ", ".join(correction_fields))
-    if int(current.get("record_version") or 0) != expected_version:
-        from app_store import VersionConflict
-        raise VersionConflict(current["id"], expected_version,
-                              int(current.get("record_version") or 0))
-
-    patch = {"fields": dict(changed)}
-    for name, value in changed.items():
-        core = core_by_column.get(name)
-        if core:
-            patch[core] = value
-    evidence = (f"{STAFF_CENTERS.get(staff_slug, {'name': '관리자'})['name']} 업무센터"
-                f" · {reason[:300] if reason else '확인 입력'}")
-    response = store.update_work(
-        current["id"], expected_version=expected_version, patch=patch,
-        actor=who, source="app-staff-entry", evidence=evidence,
-        source_ref=f"staff:{staff_slug}:{category}:{record_key}",
-        idempotency_key=(request_id[:220] + ":work"),
-    )
-    _invalidate_app_data_caches()
-    saved_row, _saved_work = _staff_store_row(store, category, record_key)
-    authoritative = _staff_public_record(category, saved_row)
-    state = store.status()
-    result = {
-        "ok": True, "committed": True, "action": "updated",
-        "changed": sorted(changed), "skipped": sorted(set(normalized) - set(changed)),
-        "before": before_values, "record_version": authoritative["record_version"],
-        "record": authoritative, "event_id": response.get("event_id"),
-        "event_seq": response.get("event_seq"),
-        "app_outbox_pending": int(state.get("outbox_pending") or 0),
-        "msg": "앱 DB 저장 완료 · Excel 자동 보관본 대기",
-    }
-    with store.transaction() as conn:
-        store._save_idempotency(
-            conn, "staff:entry", request_id, request_hash, result,
-        )
+    if result.get("action") == "updated" and not result.get("idempotent_replay"):
+        _invalidate_app_data_caches()
     return result
 
 
@@ -2708,13 +2739,87 @@ def _mark_app_store_row(row):
     return row
 
 
-def _overlay_app_store_settlements(rows):
+def _sidecar_day(value):
+    """Normalize a sidecar date without inventing a day from non-date text."""
+    raw = str(_ryu_display_value(value) or "").strip()[:10]
+    return raw if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw) else ""
+
+
+def _sidecar_amounts(rows):
+    """Return the exact sum of nonblank receipt/invoice amounts, or None."""
+    total = Decimal("0")
+    seen = False
+    for value in rows:
+        if value in (None, "", "-"):
+            continue
+        cleaned = re.sub(r"[^0-9.\-]", "", str(value))
+        if cleaned in ("", "-", ".", "-."):
+            continue
+        try:
+            total += Decimal(cleaned)
+            seen = True
+        except InvalidOperation:
+            continue
+    if not seen:
+        return None
+    return int(total) if total == total.to_integral_value() else float(total)
+
+
+def _sidecar_ids(rows, field):
+    return sorted({str(row.get(field) or "").strip() for row in rows
+                   if str(row.get(field) or "").strip()})
+
+
+def _source_outcome_map(store=None):
+    """원천업무 ID별 취소·원격해결 정본. 프로젝트 유사매칭은 하지 않는다."""
+    try:
+        from cancel_resolution import source_outcomes
+        return source_outcomes(store=store)
+    except Exception:
+        return {}
+
+
+def _settlement_has_documents(row):
+    """취소 뒤에도 보존·확인해야 할 실제 청구자료가 하나라도 있는가."""
+    keys = (
+        "거래명세서번호", "명세서번호", "거래명세서발행일", "명세서발행일",
+        "세금계산서발행일", "계산서발행일", "세금계산서승인번호", "승인번호",
+        "PO번호", "PO발행일", "청구일", "입금일", "입금액",
+    )
+    return any(str(row.get(key) or "").strip() not in ("", "0", "0.0") for key in keys)
+
+
+def _apply_cancelled_source_to_settlement(row, outcome):
+    """취소건은 미발행 경고에서 빼되 기존 청구자료가 있으면 충돌로 보존한다."""
+    if not outcome or not outcome.get("cancelled"):
+        return row
+    row["원천업무취소"] = True
+    row["원천업무상태"] = outcome.get("status") or "취소"
+    row["취소사유"] = outcome.get("reason") or "접수취소"
+    row["처리구분"] = outcome.get("treatment") or "접수취소"
+    row["취소근거"] = outcome.get("evidence") or ""
+    row["청구대상"] = False
+    row["청구제외사유"] = row["취소사유"]
+    row["미발행사유"] = ""
+    if _settlement_has_documents(row):
+        row["취소건청구자료충돌"] = True
+        row["상태"] = "취소건 청구자료 존재 — 교차입력 확인"
+    else:
+        row["취소건청구자료충돌"] = False
+        row["상태"] = ("접수취소(유선해결)" if row["처리구분"] == "원격해결"
+                       else "접수취소(청구대상 아님)")
+    return row
+
+
+def _overlay_app_store_settlements(rows, store=None):
     """Excel 읽기모델 위에 정본 DB와 계산서·입금 sidecar를 덮는다."""
     try:
-        from app_store import default_store
-        store = default_store()
+        if store is None:
+            from app_store import default_store
+            store = default_store()
         merged = store.overlay_rows("06_거래서류청구수금", rows, "정산ID")
         source_cost = {}
+        source_outcome = _source_outcome_map(store)
         for sheet, key_col in (("02_돌발AS접수", "접수ID"), ("04_정기점검", "점검ID")):
             for source in store.list_sheet_rows(sheet):
                 source_id = str(source.get(key_col) or source.get("_business_key") or "").strip()
@@ -2739,36 +2844,112 @@ def _overlay_app_store_settlements(rows):
             pno = str(row.get("프로젝트NO") or "").strip()
             if pno:
                 projects.setdefault(pno, []).append(row)
-        for sheet in ("15_세금계산서관리", "16_입금수금관리"):
-            for side in store.list_sheet_rows(sheet):
-                key = str(side.get("_business_key") or "").strip()
+        grouped = {"15_세금계산서관리": {}, "16_입금수금관리": {}}
+        target_refs = {}
+        for sheet in grouped:
+            id_field = "계산서관리ID" if sheet.startswith("15_") else "입금관리ID"
+            for side in sorted(
+                    store.list_sheet_rows(sheet),
+                    key=lambda item: str(item.get(id_field) or item.get("_business_key") or "")):
+                relation_key = str(side.get("정산ID") or "").strip()
+                legacy_key = str(side.get("_business_key") or "").strip()
                 pno = str(side.get("프로젝트NO") or "").strip()
-                target = by_id.get(key)
-                if target is None and pno and len(projects.get(pno) or []) == 1:
-                    target = projects[pno][0]
-                if target is None and key and len(projects.get(key) or []) == 1:
-                    target = projects[key][0]
-                if target is None:
-                    target = {"정산ID": key or side.get("_store_id") or ""}
-                    if re.fullmatch(r"UJ26\d{5}", key, re.I):
-                        target["프로젝트NO"] = key.upper()
-                    merged.append(target)
-                    if target.get("정산ID"):
-                        by_id[str(target["정산ID"])] = target
-                target.update({k: v for k, v in side.items()
-                               if not str(k).startswith("_")})
-                if sheet == "15_세금계산서관리" and "실제발행일" in side:
-                    issued = str(side.get("실제발행일") or "")[:10]
-                    target["계산서발행일"] = issued
-                    target["계산서"] = "발행" if issued else "미발행"
-                if sheet == "16_입금수금관리":
-                    if "입금일" in side:
-                        target["입금일"] = str(side.get("입금일") or "")[:10]
-                    if "입금액" in side:
-                        target["입금액"] = side.get("입금액") or 0
-                target["앱DB_ID"] = side.get("_store_id") or target.get("앱DB_ID")
-                target["DB버전"] = side.get("_record_version") or target.get("DB버전") or 0
-                target["출처"] = "앱 DB"
+                # 명시 정산ID가 있으면 그것만 신뢰한다. 못 찾았다고 프로젝트의 유일한
+                # 다른 정산행에 붙이면 side의 정산ID가 그 행을 뒤집는 더 큰 오류가 된다.
+                if relation_key:
+                    target = by_id.get(relation_key)
+                    if target is None:
+                        target = {
+                            "정산ID": relation_key,
+                            "연결상태": "정산ID 미연결",
+                            "프로젝트NO": pno,
+                        }
+                        merged.append(target)
+                        by_id[relation_key] = target
+                else:
+                    # v586 이전 business_key=정산ID 레코드만 호환한다. 관리ID는
+                    # by_id에 없으므로 프로젝트가 정확히 한 행일 때만 임시 연결한다.
+                    management_id = str(side.get(id_field) or "").strip()
+                    target = by_id.get(legacy_key)
+                    if (target is None and not management_id and pno
+                            and len(projects.get(pno) or []) == 1):
+                        target = projects[pno][0]
+                    if target is None:
+                        target = {
+                            "정산ID": "", "연결상태": "정산ID 미확인",
+                            "프로젝트NO": pno,
+                        }
+                        merged.append(target)
+                token = id(target)
+                target_refs[token] = target
+                grouped[sheet].setdefault(token, []).append(side)
+
+        # 한 정산에 계산서가 여러 장일 수 있다. 빈 마지막 행이 확인된 발행일을
+        # 지우지 않게 날짜는 전체를 집계하고, 일부만 발행됐으면 그대로 드러낸다.
+        for token, side_rows in grouped["15_세금계산서관리"].items():
+            target = target_refs[token]
+            ids = _sidecar_ids(side_rows, "계산서관리ID")
+            issued_row_days = [day for day in
+                               (_sidecar_day(row.get("실제발행일")) for row in side_rows)
+                               if day]
+            issued_days = sorted(set(issued_row_days))
+            prior_day = _sidecar_day(
+                target.get("계산서발행일") or target.get("세금계산서발행일")
+            )
+            all_days = sorted(set(issued_days + ([prior_day] if prior_day else [])))
+            if ids:
+                target["계산서관리ID"] = " · ".join(ids)
+            target["계산서건수"] = len(side_rows)
+            target["계산서발행건수"] = len(issued_row_days)
+            target["계산서발행일목록"] = " · ".join(issued_days)
+            if all_days:
+                target["계산서발행일"] = all_days[-1]
+            if issued_row_days and len(issued_row_days) < len(side_rows):
+                target["계산서"] = "일부 발행일 확인"
+            elif issued_days or prior_day:
+                target["계산서"] = "발행"
+            else:
+                target["계산서"] = "미발행"
+            invoice_total = _sidecar_amounts(row.get("발행금액") for row in side_rows)
+            if invoice_total is not None:
+                target["계산서발행금액"] = invoice_total
+            target["계산서앱DB_ID"] = " · ".join(
+                sorted({str(row.get("_store_id") or "") for row in side_rows
+                        if str(row.get("_store_id") or "")})
+            )
+            target["계산서DB버전"] = max(
+                [int(row.get("_record_version") or 0) for row in side_rows] or [0]
+            )
+            target["출처"] = "앱 DB"
+
+        # 부분입금은 각 입금 레코드의 합계와 마지막 입금일로 보여 준다. 마지막
+        # side 행 하나를 대입하면 실제 수금액이 줄어들 수 있다.
+        for token, side_rows in grouped["16_입금수금관리"].items():
+            target = target_refs[token]
+            ids = _sidecar_ids(side_rows, "입금관리ID")
+            receipt_days = sorted({day for day in
+                                   (_sidecar_day(row.get("입금일")) for row in side_rows)
+                                   if day})
+            receipt_total = _sidecar_amounts(row.get("입금액") for row in side_rows)
+            if ids:
+                target["입금관리ID"] = " · ".join(ids)
+            target["입금건수"] = len(side_rows)
+            target["입금일목록"] = " · ".join(receipt_days)
+            if receipt_days:
+                target["입금일"] = receipt_days[-1]
+            if receipt_total is not None:
+                target["입금액"] = receipt_total
+            target["입금앱DB_ID"] = " · ".join(
+                sorted({str(row.get("_store_id") or "") for row in side_rows
+                        if str(row.get("_store_id") or "")})
+            )
+            target["입금DB버전"] = max(
+                [int(row.get("_record_version") or 0) for row in side_rows] or [0]
+            )
+            target["출처"] = "앱 DB"
+        for row in merged:
+            source_id = str(row.get("원천업무ID") or "").strip()
+            _apply_cancelled_source_to_settlement(row, source_outcome.get(source_id))
         return [_mark_app_store_row(dict(row)) for row in merged]
     except Exception:
         # 정본 DB 장애는 /api/app-store/status가 별도로 드러낸다. 기존 읽기 화면까지
@@ -2821,27 +3002,64 @@ def _overlay_app_store_ledger_records(recs, store=None):
             pno = str(record.get("프로젝트NO") or "").strip()
             if pno:
                 by_project.setdefault(pno, []).append(sid)
+        invoice_groups = {}
         for side in store.list_sheet_rows("15_세금계산서관리"):
-            key = str(side.get("정산ID") or side.get("_business_key") or "").strip()
-            if key not in out:
-                pno = str(side.get("프로젝트NO") or "").strip()
-                key = (by_project.get(pno) or [""])[0] if len(by_project.get(pno) or []) == 1 else ""
-            if key and key in out and "실제발행일" in side:
-                out[key]["원장_세금계산서실제발행일"] = side.get("실제발행일")
+            relation = str(side.get("정산ID") or "").strip()
+            if relation:
+                key = relation if relation in out else ""
+            else:
+                management_id = str(side.get("계산서관리ID") or "").strip()
+                legacy = str(side.get("_business_key") or "").strip()
+                key = legacy if legacy in out else ""
+                if not key and not management_id:
+                    pno = str(side.get("프로젝트NO") or "").strip()
+                    key = ((by_project.get(pno) or [""])[0]
+                           if len(by_project.get(pno) or []) == 1 else "")
+            if key:
+                invoice_groups.setdefault(key, []).append(side)
+        for key, side_rows in invoice_groups.items():
+            row_days = [day for day in
+                        (_sidecar_day(row.get("실제발행일")) for row in side_rows)
+                        if day]
+            days = sorted(set(row_days))
+            if days:
+                out[key]["원장_세금계산서실제발행일"] = days[-1]
+            out[key]["원장_세금계산서건수"] = len(side_rows)
+            out[key]["원장_세금계산서발행건수"] = len(row_days)
+            out[key]["원장_세금계산서발행일부분확인"] = bool(
+                row_days and len(row_days) < len(side_rows)
+            )
+
+        receipt_groups = {}
         for side in store.list_sheet_rows("16_입금수금관리"):
-            key = str(side.get("정산ID") or side.get("_business_key") or "").strip()
-            if key not in out:
-                pno = str(side.get("프로젝트NO") or "").strip()
-                key = (by_project.get(pno) or [""])[0] if len(by_project.get(pno) or []) == 1 else ""
-            if key and key in out:
-                if "입금일" in side:
-                    out[key]["원장_입금일"] = side.get("입금일")
-                if "입금액" in side:
-                    out[key]["원장_입금액"] = side.get("입금액")
+            relation = str(side.get("정산ID") or "").strip()
+            if relation:
+                key = relation if relation in out else ""
+            else:
+                management_id = str(side.get("입금관리ID") or "").strip()
+                legacy = str(side.get("_business_key") or "").strip()
+                key = legacy if legacy in out else ""
+                if not key and not management_id:
+                    pno = str(side.get("프로젝트NO") or "").strip()
+                    key = ((by_project.get(pno) or [""])[0]
+                           if len(by_project.get(pno) or []) == 1 else "")
+            if key:
+                receipt_groups.setdefault(key, []).append(side)
+        for key, side_rows in receipt_groups.items():
+            days = sorted({day for day in
+                           (_sidecar_day(row.get("입금일")) for row in side_rows)
+                           if day})
+            amount = _sidecar_amounts(row.get("입금액") for row in side_rows)
+            if days:
+                out[key]["원장_입금일"] = days[-1]
+            if amount is not None:
+                out[key]["원장_입금액"] = amount
+            out[key]["원장_입금건수"] = len(side_rows)
 
         # 06 비용구분 수식은 보관본 생성 전까지 옛 값을 보일 수 있다. 원천 AS/PM의
         # 사람이 확정한 비용 사실을 읽기모델에 즉시 연결하되 06 필드 자체는 쓰지 않는다.
         source_cost = {}
+        source_outcome = _source_outcome_map(store)
         for sheet, key_col in (("02_돌발AS접수", "접수ID"), ("04_정기점검", "점검ID")):
             for row in store.list_sheet_rows(sheet):
                 source_id = str(row.get(key_col) or row.get("_business_key") or "").strip()
@@ -2851,6 +3069,13 @@ def _overlay_app_store_ledger_records(recs, store=None):
             source_id = str(record.get("원천업무ID") or "").strip()
             if source_id in source_cost:
                 record["비용구분"] = source_cost[source_id]
+            outcome = source_outcome.get(source_id) or {}
+            if outcome.get("cancelled"):
+                record["원천업무취소"] = True
+                record["원천업무상태"] = outcome.get("status") or "취소"
+                record["원천업무취소사유"] = outcome.get("reason") or "접수취소"
+                record["원천업무처리구분"] = outcome.get("treatment") or "접수취소"
+                record["원천업무취소근거"] = outcome.get("evidence") or ""
         return out
     except Exception:
         return out
@@ -2878,6 +3103,9 @@ def real_settlements():
     rows = []
     for sid, r in sorted(recs.items()):
         issued = r.get("원장_세금계산서실제발행일") or r.get("원장_세금계산서발행일")
+        invoice_partial = bool(r.get("원장_세금계산서발행일부분확인"))
+        invoice_count = int(r.get("원장_세금계산서건수") or 0)
+        invoice_issued_count = int(r.get("원장_세금계산서발행건수") or 0)
         has_stmt = has_statement(r)
         # 판정은 ecount_reconcile.settle_status 한 곳에서만 한다 — 엑셀 산출물과 어긋나지 않게.
         resolved = objective_done.get(sid) or {}
@@ -2899,6 +3127,8 @@ def real_settlements():
         #   돌려주므로 여기서도 발행으로 세지 않는다(settle_status 와 같은 근거).
         _erp_state = str(_erp_progress_map.get(str(r.get("프로젝트NO") or "")) or "")
         _erp_issued = _erp_state[:2] in ("6.", "7.")
+        if invoice_partial and not resolved_status.startswith("완료(") and not _erp_issued:
+            st = "세금계산서 발행일 일부 확인"
         # ★ '미발행' 한 덩어리 안에 **가야 할 사람이 다른 두 가지**가 섞여 있었다
         #   (2026-08-08 사용자 질문 "작업은 완료인데 왜 계산서 발행이 안된거지").
         #   · ERP 가 `4.세금계산서발행대기` 라고 적어 둔 것 — PO 도 왔고 금액도 맞고
@@ -2936,10 +3166,17 @@ def real_settlements():
                      "명세서번호": r.get("원장_거래명세서번호") or "",
                      "명세서발행일": str(r.get("원장_거래명세서발행일") or "")[:10],
                      "계산서": ("발행(근거확인)" if issued_by_evidence else
-                              "발행" if issued else
-                              "발행(ERP확인)" if _erp_issued else "미발행"),
+                              "발행(ERP확인)" if _erp_issued else
+                              "일부 발행일 확인" if invoice_partial else
+                              "발행" if issued else "미발행"),
                      "계산서발행일": str(issued or "")[:10],
-                     "미발행사유": "" if (issued or issued_by_evidence or _erp_issued) else _why,
+                     "계산서건수": invoice_count,
+                     "계산서발행건수": invoice_issued_count,
+                     "미발행사유": (
+                         f"발행일 {invoice_issued_count}/{invoice_count}건 확인"
+                         if invoice_partial else
+                         "" if (issued or issued_by_evidence or _erp_issued) else _why
+                     ),
                      "승인번호": r.get("원장_세금계산서승인번호") or "",
                      "청구일": str(r.get("원장_청구일") or "")[:10],
                      "지급예정일": str(r.get("원장_지급예정일") or "")[:10],
@@ -4718,12 +4955,57 @@ def _issue_truth_rows(rows):
     except Exception:
         key_state = {}
 
-    out, removed_done, removed_bad_key = [], 0, 0
+    # 23시트의 낡은 정산 경고보다 exact 원천업무 관계를 우선한다. 취소건에 실제
+    # 청구자료가 없으면 조치 목록에서 빼고, 있으면 삭제하지 않고 교차입력 충돌 한 건으로
+    # 바꾼다. 프로젝트·캠프 유사매칭은 재무 판정에 쓰지 않는다.
+    cancelled_settlements = {}
+    try:
+        from app_store import default_store
+        store = default_store()
+        outcomes = _source_outcome_map(store)
+        from cancel_resolution import settlement_document_evidence
+        side_documents = settlement_document_evidence(store)
+        for settle in store.list_sheet_rows("06_거래서류청구수금"):
+            settle_id = str(settle.get("정산ID") or settle.get("_business_key") or "").strip()
+            source_id = str(settle.get("원천업무ID") or "").strip()
+            outcome = outcomes.get(source_id) or {}
+            if settle_id and outcome.get("cancelled"):
+                cancelled_settlements[settle_id] = {
+                    "outcome": outcome,
+                    "has_documents": (
+                        _settlement_has_documents(settle)
+                        or bool(side_documents.get(settle_id))
+                    ),
+                }
+    except Exception:
+        cancelled_settlements = {}
+
+    out, removed_done, removed_bad_key, removed_cancelled = [], 0, 0, 0
+    cancel_conflict_added = set()
     for raw in rows or []:
         row = dict(raw)
         issue_id = str(row.get("ID") or row.get("정산ID") or row.get("업무ID") or "").strip()
         category = str(row.get("구분") or "").strip()
         issue = str(row.get("문제유형") or "").strip()
+        cancelled = cancelled_settlements.get(issue_id) or {}
+        if cancelled and (category == "정산" or issue_id.startswith("JS-")):
+            if not cancelled.get("has_documents"):
+                removed_cancelled += 1
+                continue
+            if issue_id in cancel_conflict_added:
+                removed_cancelled += 1
+                continue
+            cancel_conflict_added.add(issue_id)
+            outcome = cancelled.get("outcome") or {}
+            row["문제유형"] = "취소건 청구자료 존재 — 교차입력 확인"
+            row["근거상태"] = "교차입력 확인"
+            row["내용·근거"] = (
+                f"원천업무 {outcome.get('source_id') or '-'} {outcome.get('status') or '취소'}"
+                f" · {outcome.get('reason') or '접수취소'}인데 PO·명세서·계산서·입금 중 "
+                "하나 이상이 존재합니다. 서류는 삭제하지 않고 연결 건만 확인합니다."
+            )
+            out.append(row)
+            continue
         resolved = str((resolutions.get(issue_id) or {}).get("status") or "")
         if category == "정산" and issue_id.startswith("JS-") and resolved.startswith("완료("):
             removed_done += 1
@@ -4771,6 +5053,8 @@ def _issue_truth_rows(rows):
         })
     return out, {"objective_done_hidden": removed_done,
                  "unreliable_erp_hidden": removed_bad_key,
+                 "cancelled_billing_hidden": removed_cancelled,
+                 "cancelled_billing_conflicts": len(cancel_conflict_added),
                  "erp_key_healthy": not bool(key_state.get("key_looks_wrong"))}
 
 
@@ -5678,6 +5962,148 @@ def get_settlements():
     return cached_data("settle", _build_settlements)
 
 
+def get_live_state(*, store=None, state_path=None):
+    """Return a cheap, server-authoritative revision for every connected device.
+
+    This endpoint deliberately does not read Excel, Z:, Band, ERP, or any of the
+    expensive dashboard aggregates.  Phones and PCs poll it and only revalidate
+    their current data when the stable revision changes.  ``generated_at`` is a
+    clock value for display and is *not* part of the revision, so two devices do
+    not refresh each other forever merely because their polling seconds differ.
+    """
+
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    try:
+        from app_store import default_store
+
+        app = (store or default_store()).status()
+        state_file = os.fspath(
+            state_path or os.path.join(ROOT, "reports", "automation_pipeline_state.json")
+        )
+        try:
+            with open(state_file, encoding="utf-8") as handle:
+                pipeline = json.load(handle)
+            state_mtime_ns = int(os.stat(state_file).st_mtime_ns)
+        except (OSError, ValueError, TypeError):
+            pipeline, state_mtime_ns = {}, 0
+
+        def latest_timestamp(*values):
+            candidates = [str(value) for value in values if str(value or "").strip()]
+            if not candidates:
+                return ""
+
+            def sort_key(value):
+                try:
+                    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                    return (parsed.timestamp(), value)
+                except (TypeError, ValueError, OSError):
+                    return (float("-inf"), value)
+
+            return max(candidates, key=sort_key)
+
+        last_run = pipeline.get("last_run") or {}
+        history = pipeline.get("history") or []
+        completed_runs = [
+            str(run.get("finished_at") or "")
+            for run in ([last_run] + (history if isinstance(history, list) else []))
+            if isinstance(run, dict) and run.get("finished_at")
+        ]
+        last_completed_at = latest_timestamp(*completed_runs)
+        last_export = app.get("last_export") or {}
+        last_completed_export = app.get("last_completed_export") or {}
+        if not last_completed_export and str(last_export.get("status") or "") in {
+            "verified",
+            "partial",
+        }:
+            last_completed_export = last_export
+        export_completed_at = str(last_completed_export.get("finished_at") or "")
+        app_changed_at = str(app.get("last_change_at") or "")
+        state_file_updated_at = (
+            datetime.fromtimestamp(state_mtime_ns / 1_000_000_000)
+            .astimezone()
+            .isoformat(timespec="seconds")
+            if state_mtime_ns
+            else ""
+        )
+        stable = {
+            "change_seq": int(app.get("change_seq") or 0),
+            "outbox_pending": int(app.get("outbox_pending") or 0),
+            # 실패/실행 중 export의 snapshot 번호를 최신 보관본처럼 내보내면
+            # 모든 기기가 보관 완료로 오해한다. 검증이 끝난 마지막 export만 표시한다.
+            "snapshot_seq": int(last_completed_export.get("snapshot_seq") or 0),
+            "export_status": str(last_completed_export.get("status") or ""),
+            "pipeline_running": bool(pipeline.get("running")),
+            "pipeline_updated_at": str(last_run.get("updated_at") or ""),
+            "pipeline_finished_at": str(last_run.get("finished_at") or ""),
+            "last_completed_at": last_completed_at,
+            "pipeline_stage": str(last_run.get("current_stage") or ""),
+            "pipeline_state_mtime_ns": state_mtime_ns,
+        }
+        # 업무 자료를 다시 받는 기준과 관제 상태만 다시 그리는 기준을 나눈다.
+        # 파이프라인은 단계마다 state 파일을 갱신한다. 그것을 자료 revision으로 쓰면
+        # 기기마다 7개 대형 API를 단계 수만큼 다시 불러, 바로 이 화면을 또 막는다.
+        data_stable = {
+            "change_seq": stable["change_seq"],
+            "last_completed_at": stable["last_completed_at"],
+        }
+        revision = hashlib.sha256(
+            json.dumps(data_stable, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            .encode("utf-8")
+        ).hexdigest()[:20]
+        state_revision = hashlib.sha256(
+            json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            .encode("utf-8")
+        ).hexdigest()[:20]
+        running = bool(stable["pipeline_running"])
+        pending = int(stable["outbox_pending"])
+        if running:
+            phase, label = "updating", "자료 갱신 중"
+        elif pending:
+            phase, label = "archive_pending", f"Excel 보관 대기 {pending}건"
+        else:
+            phase, label = "current", "최신 자료"
+        data_updated_at = latest_timestamp(
+            app_changed_at,
+            export_completed_at,
+            last_completed_at,
+        )
+        state_updated_at = latest_timestamp(
+            data_updated_at,
+            stable["pipeline_updated_at"],
+            stable["pipeline_finished_at"],
+            state_file_updated_at,
+        )
+        return {
+            "ok": True,
+            "revision": revision,
+            "state_revision": state_revision,
+            "change_seq": stable["change_seq"],
+            "snapshot_seq": stable["snapshot_seq"],
+            "phase": phase,
+            "label": label,
+            "running": running,
+            "current_stage": stable["pipeline_stage"],
+            "outbox_pending": pending,
+            "data_updated_at": data_updated_at,
+            "state_updated_at": state_updated_at,
+            "updated_at": data_updated_at,
+            "server_time": now,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "revision": "",
+            "phase": "error",
+            "label": "상태 확인 지연",
+            "running": False,
+            "data_updated_at": "",
+            "state_updated_at": "",
+            "updated_at": "",
+            "server_time": now,
+            "error": str(exc)[:240],
+        }
+
+
 def get_status():
     """★ 이 함수는 Z: 네트워크 드라이브를 여러 번 읽는다(원장·ERP 내보내기·대조 CSV).
     로컬 단독으로는 4초면 끝나지만, Codex·일일실행이 같은 드라이브를 쓰는 동안에는
@@ -6495,6 +6921,8 @@ self.addEventListener('fetch', e => {
             }, headers={"Set-Cookie": auth_cookie(token)})
         if not self._auth():
             return self._send(401, {"error": "PIN"})
+        if p == "/api/live-state":
+            return self._send(200, get_live_state())
         if p == "/api/status":
             return self._send(200, get_status())
         if p == "/api/app-store/status":

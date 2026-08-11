@@ -6346,7 +6346,7 @@ def t124_no_duplicate_menus():
     그래서 이 검증은 '지금 고쳤다'가 아니라 **다시 생기지 않게** 막는다.
       ① 한 화면 안에 같은 onclick 을 가진 버튼이 두 개 있으면 실패.
       ② 도구줄의 복사 버튼은 무엇을 복사하는지 이름에 있어야 한다.
-      ③ 떠 있는 칩은 앱바 높이를 재서 그 **아래**에 놓는다(고정 top 금지).
+      ③ 갱신 상태는 떠 있는 칩이 아니라 **앱바 안**에 놓는다.
       ④ 헤더는 좁아지면 겹치지 말고 덜어내거나 잘린다.
     """
     import collections
@@ -6390,19 +6390,15 @@ def t124_no_duplicate_menus():
     assert head.count("<button") == 1 and "focusCalendarEntry()" in head, \
         "캘린더 위쪽 큰 버튼이 다시 늘었다 — 저장·전달은 아래 도구줄 한 곳이다"
 
-    # ③ 떠 있는 칩이 헤더를 덮지 않는가
+    # ③ 갱신 상태가 업무 화면 위에 떠 있지 않고 앱바 안에만 있는가
     js = "".join(re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", idx, re.S))
-    assert "function chipTop(" in js, "칩 위치를 앱바 아래로 잡는 코드가 없다"
-    top = js[js.index("function chipTop("):]
-    top = top[: top.index("\nlet ") if "\nlet " in top else 600]
-    assert ".appbar" in top and "getBoundingClientRect" in top, \
-        "앱바 높이를 재지 않고 칩을 띄운다 — 헤더 버튼을 덮는다"
+    assert 'id="dataSyncChip"' in idx and 'data-refresh-ui="compact-header"' in idx, \
+        "갱신 상태가 앱바의 작은 상태표시로 통합되지 않았다"
     for fn in ("function netBanner(", "function swrChip("):
         blk = js[js.index(fn):]
         blk = blk[: blk.index("\nfunction ", 10)]
-        assert "chipTop()" in blk, "%s 가 아직 고정 위치를 쓴다" % fn
-        assert "env(safe-area-inset-top) + 8px" not in blk, \
-            "%s 가 헤더와 같은 자리에 칩을 띄운다" % fn
+        assert "document.body.appendChild" not in blk and "location.reload" not in blk, \
+            "%s 가 다시 업무 화면을 덮거나 문서를 새로고침한다" % fn
 
     # ④ 좁은 화면에서 헤더가 겹치지 않게 덜어낸다
     css = "".join(re.findall(r"<style[^>]*>(.*?)</style>", idx, re.S))
@@ -6415,6 +6411,12 @@ def t124_no_duplicate_menus():
         "자리가 모자랄 때 무엇이 줄어들지 정해 두지 않았다 — 앱 아이콘이 잘린다"
     assert ".appbar-identity{overflow:hidden}" in css, \
         "넘칠 때 겹치지 않게 자르는 안전망이 없다"
+    compact = re.search(
+        r"@media\((?:min-width:600px\)\s*and\s*\()?max-width:899px\)\{(.*?)\n\}",
+        css, re.S,
+    )
+    assert compact and ".data-sync-chip" in compact.group(1), \
+        "600·768px에서 헤더 상태표시를 별도 줄로 피하는 규칙이 없다"
 
     # ⑤ 좁은 폰에서 도구줄은 옆으로 숨지 말고 줄을 바꾼다
     phone = re.search(r"@media\(max-width:640px\)\{(.*?)\n\}", css, re.S)
@@ -6423,7 +6425,7 @@ def t124_no_duplicate_menus():
     assert "flex-wrap:wrap!important" in phone and "overflow-x:visible" in phone, \
         "폰에서 도구줄이 옆으로 스크롤한다 — 마지막 버튼이 안 보인 채 숨는다"
 
-    print("  [124] 겹치는 메뉴 통합 — 화면당 중복 동작 0 · 복사 이름 통일 · 칩/헤더 겹침 차단 ✅")
+    print("  [124] 겹치는 메뉴 통합 — 화면당 중복 동작 0 · 앱바 상태표시 · 헤더 겹침 차단 ✅")
 
 
 def t121_pid_alive():
@@ -6655,6 +6657,7 @@ def t127_dark_mode_no_hardcoded_light_panel():
     ALLOW = {
         ".dot.busy": "상태 점 — 글자가 얹히지 않는다",
         ".mbar i": "막대그래프 채움 — 글자가 얹히지 않는다",
+        ".data-sync-chip[data-state=\"busy\"] .sync-dot": "헤더 갱신 상태점 — 글자가 얹히지 않는다",
     }
 
     def _lum(r, g, b):
@@ -8315,9 +8318,9 @@ def t140_freshness_tells_the_truth():
         "가진 자료가 있는데도 기다린다"
     assert "function rptOfferResave(" in live and "_rptData.updatedAt === mark" in live, \
         "저장 뒤 더 새 자료가 와도 알려 주지 않는다"
-    # 9. 칩이 **덜 뜨고**, 뜰 때는 **빈 자리에** 앉는다 (2026-08-08 지시)
-    #   "자료 갱신중 팝업을 너무 자주 안뜨게 / 모바일이나 PC에서나 볼 때 모두
-    #    빈 공간으로 팝업뜨게". 사진에서 칩이 [이미지 저장] 단추를 덮고 있었다.
+    # 9. 갱신 상태는 **덜 바뀌고**, 업무 본문 위에 절대 뜨지 않는다.
+    #   2026-08-11에는 빈 자리를 찾아 떠다니는 방식 자체를 없애고, 앱바 안의 작은
+    #   상태표시로 통합했다. 실행 화면에서만 큰 상세를 보여 준다.
     for need, why in (("SWR_CHIP_DELAY_MS = 4000", "1.2초는 짧아 화면을 옮길 때마다 떴다"),
                       ("SWR_MIN_AGE_MS", "30초 된 값에도 '갱신 중'을 띄운다"),
                       ("SWR_QUIET_MS", "사라진 직후 다시 떠 깜빡인다")):
@@ -8327,13 +8330,14 @@ def t140_freshness_tells_the_truth():
         "실패까지 관문에 걸려 조용해진다 - 옛 값이 늙는 것을 아무도 모른다(조용한 사고)")
     assert paint.index("if(failed)") < paint.index("SWR_MIN_AGE_MS"), (
         "실패가 나이 관문 뒤에 있다 - 새 값이면 실패를 숨기게 된다")
-    # 자리는 화면 크기로 나누지 않는다 - 재서 고른다(폰/PC 를 따로 재면 하나는 어긋난다)
-    assert "function chipPlace(" in live and "elementFromPoint" in live, (
-        "칩 자리를 실제 화면을 재지 않고 고정으로 둔다")
-    place = live.split("function chipPlace(")[1][:2000]
-    assert "button,a[href],input,select,textarea,[onclick]" in place, (
-        "단추를 덮는지 보지 않는다 - 사진의 [이미지 저장]이 가려진 이유다")
-    assert live.count("chipPlace(el)") >= 2, "칩 두 종류 중 하나만 자리를 고른다"
+    assert 'id="dataSyncChip"' in live and 'data-refresh-ui="compact-header"' in live, (
+        "갱신 상태가 앱바 안의 작은 상태표시로 통합되지 않았다")
+    assert 'id="dataHealth" data-refresh-scope="run-only"' in live, (
+        "실행 화면 밖에서도 큰 갱신 상세가 업무를 가린다")
+    for fn_name in ("function netBanner", "function swrChip"):
+        block = live.split(fn_name, 1)[1].split("\n}", 1)[0]
+        assert "document.body.appendChild" not in block and "location.reload" not in block, (
+            "갱신 상태가 다시 떠다니는 팝업이나 전체 새로고침으로 돌아갔다")
     # 사이드바는 제 안에서 구른다 (2026-08-08 지시)
     assert "overscroll-behavior:contain" in live.split(".tabbar{top:0")[1][:900], (
         "사이드바 휠이 본문으로 넘어간다 - 카테고리만 굴러가야 한다")
@@ -10897,7 +10901,8 @@ def t154_amount_basis():
     # ── ② 발행 판정은 근거 세 갈래를 모두 인정한다 ────────────────────
     server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
-    assert '"발행(ERP확인)" if _erp_issued else "미발행"' in server, \
+    assert '"발행(ERP확인)" if _erp_issued else' in server \
+        and '"미발행"' in server, \
         "ERP 가 발행했다고 말하는 건을 화면이 미발행으로 센다"
     assert "_erp_progress_map.get" in server and "erp_progress" in server, \
         "발행 판정 근거가 erp_progress 가 아니면 '혼재' 프로젝트를 발행으로 세게 된다"
@@ -11122,7 +11127,9 @@ def t155_cancel_and_handover():
     for t in ("접수 취소 하세요", "접수취소", "통화 완료 했습니다 작동 원활함. 접수 취소 하세요",
               "✅ 접수 취소", "✔️UJ2601291랑 같은내용으로 접수취소", "*이상없음 접수취소",
               "접수를 취소해주세요", "접수건 취소 부탁드립니다", "접수 철회", "접수 반려",
-              "오접수 입니다", "✅ 중복접수 처리완료"):
+              "오접수 입니다", "✅ 중복접수 처리완료",
+              "✅ [접수취소] - 유선접화로 해결 완료",
+              "기사님과 유선전화 이후 접수 취소되었습니다"):
         assert B.cancel_hit(t), f"접수 취소를 놓쳤다: {t}"
 
     # ── ② 잡으면 안 되는 것 (여기가 진짜 관문) ────────────────────────
@@ -11130,7 +11137,10 @@ def t155_cancel_and_handover():
               "본사 상신,승인 진행되지 않았으며, 택배발송 취소요청하심. ● A/S 완료 :",
               "*담당자 접수전, 정기점검 취소되어 도어락만 교체진행됨",
               "부품 취소 요청", "예약 취소불가 안내", "접수 취소 불가",
-              "취소된 건 없음", "작업 완료", ""):
+              "보험접수 취소 후 쿠팡측에서 긴급수리요청",
+              "택배 접수 취소 후 방문수리 전환",
+              "취소된 건 없음", "유선전화로 해결 완료", "접수 유지",
+              "접수는 취소하지 않습니다", "접수 취소 보류", "작업 완료", ""):
         assert not B.cancel_hit(t), f"취소가 아닌 것을 취소로 죽인다: {t}"
 
     # ── ③ 댓글 자리 — 지금은 캐시에 본문이 없다. 그 사실을 세어야 한다 ──
@@ -11183,13 +11193,16 @@ def t155_cancel_and_handover():
 
     # ── ⑥ 회차에 매여 있나 · 엑셀을 직접 열지 않나 ────────────────────
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
-    assert '"cancel_watch.py"), "--queue"' in daily, \
+    assert '"cancel_watch.py"), "--sync"' in daily, \
         "취소 확인이 09:50 회차에 없다 — 대화에 남긴 것은 사라진다"
     watch = open(os.path.join(ROOT, "cancel_watch.py"), encoding="utf-8").read()
     assert "openpyxl" not in watch and "workbook_patch" not in watch, \
         "취소 확인이 엑셀을 직접 연다 — 반영은 11:00·15:00 회차 몫이다"
-    assert 'ledger_db.enqueue' in watch and '"only_if_empty": True' in watch, \
-        "사람이 적어 둔 칸을 덮어쓴다"
+    resolution = open(os.path.join(ROOT, "cancel_resolution.py"), encoding="utf-8").read()
+    assert "expected_version" in resolution and "_OPEN_STATES" in resolution, \
+        "빈칸만 쓰는 옛 큐 대신 열린 상태 CAS가 없으면 취소가 적용되지 않거나 완료를 덮는다"
+    assert "완료일 또는 종료상태가 있어 자동 취소하지 않음" in resolution, \
+        "이미 완료된 업무를 취소로 뒤집는 안전관문이 없다"
     # ★ 산문이 아니라 **코드**를 본다. 머리말 설명글은 "convert_dump 가 담는다"처럼
     #   도구 이름을 대는 것이 마땅한데, 그걸 호출로 오해하면 문서를 못 쓰게 된다
     #   (검증이 제 설명글에 걸리는 일은 [157] 에서도 한 번 있었다).
@@ -11198,7 +11211,7 @@ def t155_cancel_and_handover():
                            if not l.strip().startswith("#"))
     for scrape in ("collect_", "convert_dump", "requests.", "webdriver"):
         assert scrape not in watch_code, f"코딩 세션 도구가 수집을 한다: {scrape}"
-    print("  [155] 접수 취소 — 부품·택배 취소와 분리 · 댓글 우선 · 사각지대 집계 · "
+    print("  [155] 접수 취소 — 부품·택배 취소와 분리 · 열린 상태 CAS · 댓글 우선 · 사각지대 집계 · "
           "사람 인계(번호 근거·소급 금지) ✅")
 
 
@@ -12557,6 +12570,7 @@ def t204_staff_finance_entry_is_one_save_and_source_safe():
     낙관잠금으로 막혀야 한다.
     """
     from pathlib import Path
+    import threading
     import app_store as A
     from webapp import app_server as S
 
@@ -12707,6 +12721,193 @@ def t204_staff_finance_entry_is_one_save_and_source_safe():
             pass
         else:
             raise AssertionError("낡은 record_version 저장이 기존 발행일을 덮었다")
+
+        # v586의 15·16 business_key는 관리ID이고, 정산 행 연결키는 별도 정산ID다.
+        # 같은 프로젝트에 정산이 둘일 때 관리ID를 정산ID로 오인하면 가짜 세 번째
+        # 정산 행이 생기므로 exact 관계키만 합쳐지는지 회귀 검증한다.
+        store.shadow_import(
+            import_id="t204-sidecar", sheet="06_거래서류청구수금",
+            business_key="JS-2601-102", business_key_col="정산ID", row_number=6,
+            kind="정산", public_id="JS-2601-102", project_no="UJ2600011",
+            camp_name="송파 프레시 이캠프", status="작업완료",
+            fields={"정산ID": "JS-2601-102", "프로젝트NO": "UJ2600011",
+                    "캠프명": "송파 프레시 이캠프", "청구상태": "작업완료"},
+            source_file="t204.xlsx", source_sha256="a" * 64,
+            apply_if_missing=True, idempotency_key="t204-seed-js-2",
+        )
+        store.shadow_import(
+            import_id="t204-sidecar", sheet="15_세금계산서관리",
+            business_key="TI-2601-101", business_key_col="계산서관리ID", row_number=5,
+            kind="세금계산서", public_id="TI-2601-101", project_no="UJ2600011",
+            camp_name="송파 프레시 이캠프", status="발행완료",
+            fields={"계산서관리ID": "TI-2601-101", "정산ID": "JS-2601-101",
+                    "프로젝트NO": "UJ2600011", "캠프명": "송파 프레시 이캠프",
+                    "실제발행일": "2026-08-11", "발행상태(자동)": "발행완료"},
+            source_file="t204.xlsx", source_sha256="a" * 64,
+            apply_if_missing=True, idempotency_key="t204-seed-invoice-sidecar",
+        )
+        store.shadow_import(
+            import_id="t204-sidecar", sheet="15_세금계산서관리",
+            business_key="TI-2601-101-B", business_key_col="계산서관리ID", row_number=6,
+            kind="세금계산서", public_id="TI-2601-101-B", project_no="UJ2600011",
+            camp_name="송파 프레시 이캠프", status="발행완료",
+            fields={"계산서관리ID": "TI-2601-101-B", "정산ID": "JS-2601-101",
+                    "프로젝트NO": "UJ2600011", "캠프명": "송파 프레시 이캠프",
+                    "실제발행일": "2026-08-11", "발행상태(자동)": "발행완료"},
+            source_file="t204.xlsx", source_sha256="a" * 64,
+            apply_if_missing=True, idempotency_key="t204-seed-invoice-sidecar-2",
+        )
+        store.shadow_import(
+            import_id="t204-sidecar", sheet="15_세금계산서관리",
+            business_key="TI-2601-101-C", business_key_col="계산서관리ID", row_number=8,
+            kind="세금계산서", public_id="TI-2601-101-C", project_no="UJ2600011",
+            camp_name="송파 프레시 이캠프", status="미발행",
+            fields={"계산서관리ID": "TI-2601-101-C", "정산ID": "JS-2601-101",
+                    "프로젝트NO": "UJ2600011", "캠프명": "송파 프레시 이캠프",
+                    "실제발행일": "", "발행상태(자동)": "미발행"},
+            source_file="t204.xlsx", source_sha256="a" * 64,
+            apply_if_missing=True, idempotency_key="t204-seed-invoice-sidecar-3",
+        )
+        for row_no, rid, day, amount in (
+            (5, "RC-2601-101-A", "2026-08-10", 100_000),
+            (6, "RC-2601-101-B", "2026-08-11", 250_000),
+        ):
+            store.shadow_import(
+                import_id="t204-sidecar", sheet="16_입금수금관리",
+                business_key=rid, business_key_col="입금관리ID", row_number=row_no,
+                kind="입금수금", public_id=rid, project_no="UJ2600011",
+                camp_name="송파 프레시 이캠프", status="",
+                fields={"입금관리ID": rid, "정산ID": "JS-2601-101",
+                        "프로젝트NO": "UJ2600011", "캠프명": "송파 프레시 이캠프",
+                        "입금일": day, "입금액": amount},
+                source_file="t204.xlsx", source_sha256="a" * 64,
+                apply_if_missing=True, idempotency_key="t204-seed-" + rid,
+            )
+        # 명시 정산ID가 없는 것이 아니라 '다른 ID'라고 명시된 행이다. 같은 프로젝트에
+        # 정산이 하나뿐이어도 그 행으로 fallback해서는 안 된다.
+        store.shadow_import(
+            import_id="t204-sidecar", sheet="15_세금계산서관리",
+            business_key="TI-UNKNOWN", business_key_col="계산서관리ID", row_number=7,
+            kind="세금계산서", public_id="TI-UNKNOWN", project_no="UJ2600011",
+            camp_name="송파 프레시 이캠프", status="발행완료",
+            fields={"계산서관리ID": "TI-UNKNOWN", "정산ID": "JS-UNKNOWN",
+                    "프로젝트NO": "UJ2600011", "실제발행일": "2026-08-09"},
+            source_file="t204.xlsx", source_sha256="a" * 64,
+            apply_if_missing=True, idempotency_key="t204-seed-invoice-orphan",
+        )
+        store.shadow_import(
+            import_id="t204-sidecar", sheet="15_세금계산서관리",
+            business_key="TI-NOREL", business_key_col="계산서관리ID", row_number=9,
+            kind="세금계산서", public_id="TI-NOREL", project_no="UJ2600011",
+            camp_name="송파 프레시 이캠프", status="미발행",
+            fields={"계산서관리ID": "TI-NOREL", "정산ID": "",
+                    "프로젝트NO": "UJ2600011", "실제발행일": ""},
+            source_file="t204.xlsx", source_sha256="a" * 64,
+            apply_if_missing=True, idempotency_key="t204-seed-invoice-no-relation",
+        )
+        linked = S._overlay_app_store_settlements(
+            [{"정산ID": "JS-2601-101", "프로젝트NO": "UJ2600011"},
+             {"정산ID": "JS-2601-102", "프로젝트NO": "UJ2600011"}],
+            store=store,
+        )
+        assert len(linked) == 4, linked
+        linked_by_id = {str(row.get("정산ID") or ""): row for row in linked}
+        assert set(linked_by_id) == {"", "JS-2601-101", "JS-2601-102", "JS-UNKNOWN"}, linked
+        first = linked_by_id["JS-2601-101"]
+        assert first.get("계산서관리ID") == \
+            "TI-2601-101 · TI-2601-101-B · TI-2601-101-C", first
+        assert first.get("계산서") == "일부 발행일 확인" \
+            and first.get("계산서발행일") == "2026-08-11", first
+        assert first.get("계산서건수") == 3 and first.get("계산서발행건수") == 2, first
+        assert first.get("입금액") == 350_000 and first.get("입금일") == "2026-08-11", first
+        assert first.get("입금건수") == 2, first
+        assert not linked_by_id["JS-2601-102"].get("계산서관리ID"), linked
+        assert linked_by_id["JS-UNKNOWN"].get("연결상태") == "정산ID 미연결", linked
+        assert linked_by_id[""].get("계산서관리ID") == "TI-NOREL" \
+            and linked_by_id[""].get("연결상태") == "정산ID 미확인", linked
+        assert not any(str(row.get("정산ID") or "") == "TI-2601-101" for row in linked), \
+            "계산서관리ID를 정산ID로 오인한 가짜 행이 생겼다"
+
+        ledger_view = S._overlay_app_store_ledger_records(
+            {"JS-2601-101": {"정산ID": "JS-2601-101", "프로젝트NO": "UJ2600011"},
+             "JS-2601-102": {"정산ID": "JS-2601-102", "프로젝트NO": "UJ2600011"}},
+            store=store,
+        )
+        assert set(ledger_view) == {"JS-2601-101", "JS-2601-102"}, ledger_view
+        assert ledger_view["JS-2601-101"]["원장_세금계산서실제발행일"] == "2026-08-11"
+        assert ledger_view["JS-2601-101"]["원장_세금계산서발행일부분확인"] is True
+        assert ledger_view["JS-2601-101"]["원장_세금계산서건수"] == 3 \
+            and ledger_view["JS-2601-101"]["원장_세금계산서발행건수"] == 2
+        assert ledger_view["JS-2601-101"]["원장_입금액"] == 350_000 \
+            and ledger_view["JS-2601-101"]["원장_입금일"] == "2026-08-11"
+
+        # 같은 멱등키의 실제 동시 요청 둘을 한 DB에 부딪친다. 멱등 조회·업무 변경·
+        # 최종 staff 응답 저장이 서로 다른 트랜잭션이면 둘 다 최초 요청으로 판단한 뒤
+        # 하나가 업무를 바꾸고 바깥 멱등 INSERT에서 409가 나는 반쪽 성공이 재현된다.
+        concurrent_before = store.get_work(work_id=pm_import["work_id"])
+        concurrent_events_before = event_count(pm_import["work_id"])
+        concurrent_body = {
+            "category": "pm", "key": "PM-2601-048",
+            "record_version": concurrent_before["record_version"],
+            "values": {"비고": "동시 저장 원자성 확인"},
+            "reason": "두 요청 동일 저장 검증",
+            "idempotency_key": "t204-concurrent-same-command",
+        }
+        gate = threading.Barrier(2)
+        concurrent_results = []
+        concurrent_errors = []
+        result_lock = threading.Lock()
+
+        def _same_command_worker():
+            try:
+                gate.wait(timeout=5)
+                value = S.save_staff_entry(
+                    "oh-jonghyeon", dict(concurrent_body), store=store,
+                    actor="staff:oh-jonghyeon",
+                )
+                with result_lock:
+                    concurrent_results.append(value)
+            except Exception as exc:
+                with result_lock:
+                    concurrent_errors.append(exc)
+
+        workers = [threading.Thread(target=_same_command_worker) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=10)
+        assert not any(worker.is_alive() for worker in workers), \
+            "같은 멱등키 동시 저장 스레드가 끝나지 않았다"
+        assert not concurrent_errors and len(concurrent_results) == 2, \
+            (concurrent_results, concurrent_errors)
+        assert all(result.get("ok") and result.get("action") == "updated"
+                   for result in concurrent_results), concurrent_results
+        assert len({result.get("event_id") for result in concurrent_results}) == 1 \
+            and concurrent_results[0].get("event_id"), \
+            "같은 명령 두 응답이 최초 감사 event_id 하나를 공유하지 않는다"
+        assert sum(bool(result.get("idempotent_replay"))
+                   for result in concurrent_results) == 1, concurrent_results
+        concurrent_after = store.get_work(work_id=pm_import["work_id"])
+        assert concurrent_after["record_version"] == \
+            concurrent_before["record_version"] + 1, concurrent_after
+        assert concurrent_after["fields"]["비고"] == "동시 저장 원자성 확인"
+        assert event_count(pm_import["work_id"]) == concurrent_events_before + 1, \
+            "동시 같은 명령이 업무 이벤트·버전을 두 번 만들었다"
+
+        different_payload = dict(concurrent_body)
+        different_payload["values"] = {"비고": "같은 키의 다른 요청"}
+        try:
+            S.save_staff_entry(
+                "oh-jonghyeon", different_payload, store=store,
+                actor="staff:oh-jonghyeon",
+            )
+        except A.IdempotencyConflict:
+            pass
+        else:
+            raise AssertionError("같은 멱등키의 다른 동시 명령 내용이 통과했다")
+        assert store.get_work(work_id=pm_import["work_id"])["record_version"] == \
+            concurrent_after["record_version"], \
+            "멱등 충돌 요청이 거부되면서도 업무를 바꿨다"
 
         # 브라우저·본문의 이름이 아니라 세션 actor가 감사로그에 남는다.
         with store.reader() as conn:
@@ -12983,6 +13184,487 @@ def t206_finance_archive_keeps_real_headers_and_formulas():
         assert hashlib.sha256(Path(second["last_good"]["archive_path"]).read_bytes()).hexdigest() == first_hash
 
     print("  [206] DB→Excel 보관본 실제 발행상태(자동) 머리글·PM 원천값·06/15 수식 보존 ✅")
+
+
+def t207_live_revision_is_shared_and_nonblocking():
+    """[207] 모든 기기는 서버의 안정 변경번호만 보고 배경 갱신한다.
+
+    표시용 현재 시각이 매 요청 달라진다고 새 자료로 오인하면 휴대폰과 PC가 서로
+    영원히 갱신을 깨운다. 반대로 앱 DB나 자동화 단계가 실제로 바뀌면 어느 기기든
+    같은 revision을 보고 기존 화면을 유지한 채 자료만 다시 받아야 한다.
+    """
+    from pathlib import Path
+    import app_store as A
+    from webapp import app_server as S
+
+    with tempfile.TemporaryDirectory(prefix="csos-live-revision-207-") as td:
+        root = Path(td)
+        store = A.AppStore(root / "app.db").initialize()
+        state_path = root / "automation_pipeline_state.json"
+        state_path.write_text(json.dumps({
+            "version": 1, "running": False,
+            "last_run": {"status": "success", "finished_at": "2026-08-11T03:00:00+00:00"},
+        }), encoding="utf-8")
+
+        first = S.get_live_state(store=store, state_path=state_path)
+        second = S.get_live_state(store=store, state_path=state_path)
+        assert first["ok"] and first["phase"] == "current", first
+        assert first["revision"] == second["revision"], \
+            "표시용 서버 시각 때문에 안정 revision이 매 요청 달라진다"
+        assert first["state_revision"] == second["state_revision"]
+        assert first["updated_at"] == first["data_updated_at"], first
+        assert first["state_updated_at"], first
+
+        store.create_work(
+            kind="돌발AS", business_key="AS-207", public_id="AS-207",
+            project_no="UJ207", camp_name="합성캠프", status="접수",
+            fields={"접수ID": "AS-207", "프로젝트NO": "UJ207"},
+            actor="synthetic", source="synthetic", idempotency_key="t207-create",
+        )
+        changed = S.get_live_state(store=store, state_path=state_path)
+        assert changed["change_seq"] == first["change_seq"] + 1, changed
+        assert changed["revision"] != first["revision"], \
+            "앱 DB 변경을 다른 기기가 알아챌 revision이 그대로다"
+        assert changed["phase"] == "archive_pending" and changed["outbox_pending"] == 1
+        assert changed["data_updated_at"] != first["data_updated_at"], changed
+
+        state_path.write_text(json.dumps({
+            "version": 1, "running": True,
+            "last_run": {"status": "running", "current_stage": "ERP 대조",
+                         "updated_at": "2026-08-11T23:01:00+00:00"},
+            "history": [{"status": "success", "finished_at": "2026-08-11T03:00:00+00:00"}],
+        }), encoding="utf-8")
+        running = S.get_live_state(store=store, state_path=state_path)
+        assert running["revision"] == changed["revision"], \
+            "진행 단계만 바뀌었는데 7개 자료 API 재검증을 깨운다"
+        assert running["state_revision"] != changed["state_revision"]
+        assert running["phase"] == "updating" and running["current_stage"] == "ERP 대조"
+        assert running["data_updated_at"] == changed["data_updated_at"], \
+            "자동화 단계 시각을 자료 갱신시각으로 섞는다"
+        assert running["state_updated_at"] != changed["state_updated_at"], \
+            "자동화 진행 시각이 관제 상태에 반영되지 않는다"
+
+    server_src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert 'p == "/api/live-state"' in server_src
+    body = server_src.split("def get_live_state", 1)[1].split("\ndef ", 1)[0]
+    for forbidden in ("resolve_master", "master_book", "os.walk", "glob("):
+        assert forbidden not in body, "가벼운 기기 동기화 경로가 원본을 읽는다: " + forbidden
+    assert "generated_at" not in body.split("stable =", 1)[1].split("revision =", 1)[0], \
+        "표시 시각이 안정 revision 재료에 들어갔다"
+    assert '"data_updated_at": data_updated_at' in body \
+        and '"state_updated_at": state_updated_at' in body, \
+        "자료 시각과 자동화 관제 시각이 분리되지 않았다"
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert 'id="dataSyncChip"' in live and 'data-refresh-ui="compact-header"' in live
+    assert 'id="dataHealth" data-refresh-scope="run-only"' in live
+    assert "const LIVE_STATE_PATH='/api/live-state'" in live \
+        and "const LIVE_STATE_POLL_MS=5000" in live
+    assert "LIVE_STATE_JITTER_MS" in live and "scheduleLiveStatePoll" in live, \
+        "여러 기기가 같은 5초 경계에 한꺼번에 서버를 두드린다"
+    for marker in ("appliedRevision", "pendingRevision", "refreshTarget"):
+        assert marker in live, "갱신 중 더 최신 revision을 잃는다: " + marker
+    revalidate = live.split("function revalidateLiveData", 1)[1].split(
+        "function pollLiveState", 1
+    )[0]
+    assert "targetRevision" in revalidate and "refreshLiveViewData" in revalidate \
+        and "pendingRevision" in revalidate, \
+        "요청 시작 revision을 붙들고 최신 revision을 한 번 더 처리하지 않는다"
+    assert "while(runTarget)" in revalidate and "const queued=LIVE_SYNC.pendingRevision" in revalidate, \
+        "갱신 중 들어온 마지막 revision을 현재 요청 뒤에 이어서 처리하지 않는다"
+    assert "loadSettle(true)" not in revalidate, \
+        "기기 변경 하나마다 모든 7개 대형 API를 다시 부른다"
+    poll = live.split("function pollLiveState", 1)[1].split("\n}\n", 1)[0]
+    assert "LIVE_SYNC.pollFlight" in poll, "기기 상태 폴링이 겹쳐서 같은 요청을 여러 번 보낸다"
+    assert "AbortController" in poll and "clearTimeout" in poll \
+        and "LIVE_STATE_TIMEOUT" in poll, \
+        "반쯤 열린 상태 요청이 영원히 다음 폴링을 막는다"
+    assert "serverRevisionOf(data)" in poll and "serverStateRevisionOf(data)" in poll
+    assert "data.ok===false" in poll and "LIVE_STATE_ERROR" in poll, \
+        "HTTP 200 오류 상태를 최신 자료로 확정한다"
+    assert "if(next&&next!==prior)" in poll and "revalidateLiveData" in poll, \
+        "자료 revision이 그대로인데도 무거운 자료 묶음을 다시 받는다"
+    render = live.split("function renderDataHealth", 1)[1].split("\n}\n", 1)[0]
+    assert "inRun=view==='run'" in render and "chip.hidden=inRun" in render
+    assert "if(!inRun)" in render and "host.hidden=true" in render, \
+        "실행 밖에서도 큰 갱신 패널이 업무 화면을 가린다"
+    assert "phase==='archive_pending'" in render and "archivePending?'stale'" in render, \
+        "Excel 보관 대기를 최신/초록 상태로 거짓 표시한다"
+    refresh_view = live.split("async function refreshLiveViewData", 1)[1].split(
+        "async function retryDataSection", 1
+    )[0]
+    staff_refresh = live.split("async function refreshStaffCenter", 1)[1].split(
+        "async function refreshCalendarData", 1
+    )[0]
+    assert "refreshStaffCenter" in refresh_view and "staffSlug" in refresh_view \
+        and "loadRyuRecords(true)" in staff_refresh, \
+        "다른 기기의 직원 업무센터 입력을 다시 읽지 않는다"
+    assert "refreshDataKeys" in refresh_view and "Object.keys(DATA_SECTION_DEFS)" in refresh_view, \
+        "현재 화면과 무관한 대형 API를 항상 전부 다시 부른다"
+    assert "function liveViewIsCurrent" in live and "queueLiveViewCatchup(v)" in live, \
+        "같은 revision에서 다른 카테고리로 옮기면 그 화면 자료가 옛 상태로 남는다"
+    success = live.split("function markDataSectionSuccess", 1)[1].split(
+        "function markDataSectionFailure", 1
+    )[0]
+    assert "targetRevision" in success and "LIVE_SYNC.revision" not in success, \
+        "오래된 응답을 요청 도중 바뀐 최신 revision 결과로 잘못 표시한다"
+    for fn_name in ("function netBanner", "function swrChip"):
+        section = live.split(fn_name, 1)[1].split("\n}", 1)[0]
+        assert "location.reload" not in section and "document.body.appendChild" not in section, \
+            "갱신 상태가 떠다니는 팝업이나 문서 새로고침으로 돌아갔다: " + fn_name
+    assert "function uiContinuitySnapshot" in live and "function restoreUiContinuity" in live
+    continuity = live.split("function uiContinuitySnapshot", 1)[1].split(
+        "function restoreUiContinuity", 1
+    )[0]
+    for marker in ("defaultValue", "defaultChecked", "defaultSelected"):
+        assert marker in continuity, \
+            "손대지 않은 서버 필드까지 옛 화면값으로 되돌린다: " + marker
+    view_tail = live.split("function applyView", 1)[1].split("function show", 1)[0]
+    assert "window.__view = v;\n  renderDataHealth();" in view_tail, \
+        "카테고리를 바꾼 직후 실행 상세/header 상태 전환이 늦는다"
+    assert "BroadcastChannel('csos-live-state-v1')" in live \
+        and "pollLiveState('visibility')" in live
+    chip_handler = live.split("function handleDataSyncChip", 1)[1].split(
+        "const DATA_SECTION_DEFS", 1
+    )[0]
+    assert "show('run')" in chip_handler and "retryDataSync" in chip_handler, \
+        "정상 헤더 상태를 눌러도 자료 7개를 다시 읽거나 실행 상세를 열지 못한다"
+
+    print("  [207] 서버 변경번호로 기기간 즉시 동기화 · 화면별 최소 재조회 · 입력 연속성 ✅")
+
+
+def t208_cancel_remote_resolution_is_exact_and_finance_safe():
+    """[208] 밴드·카톡 접수취소를 원천업무에 붙이고 청구 교차입력을 가른다.
+
+    UJ2600035 실사고: 밴드와 카톡은 `접수취소·유선전화 해결`을 말했지만 원천 AS에는
+    근거가 없고 연결 정산에는 유상·PO·명세서·계산서가 남아 미발행 경고가 났다.
+    취소건은 청구대상에서 빼되 이미 생긴 서류는 지우지 않고 충돌로 보존해야 한다.
+    """
+    import cancel_resolution as CR
+    import cross_signal as CS
+    import ecount_reconcile as ER
+    import tax_invoice_watch as TW
+    from app_store import AppStore
+    from webapp import app_server as APP
+
+    assert CR.outcome_kind("✅ [접수취소] - 유선접화로 해결 완료") == "원격해결"
+    assert CR.outcome_kind("기사님과 유선전화 이후 접수 취소되었습니다") == "접수취소"
+    for text in ("유선전화로 해결 완료", "통화 완료", "부품 취소 요청",
+                 "접수 유지", "접수 취소 불가", "접수는 취소하지 않습니다"):
+        assert CR.outcome_kind(text) == "", f"접수취소 근거 없이 자동 취소한다: {text}"
+
+    # 프로젝트번호가 정확히 같으면 캠프 표기가 달라도 우선 연결한다. 프로젝트가 없는
+    # 캠프+날짜 연결은 보고용으로 남지만 cancel_resolution 자동 반영 입력에는 쓰이지 않는다.
+    band = [{"출처": "밴드 본문", "밴드": "90610953", "글번호": "4279",
+             "날짜": "2026-01-06", "캠프": "송파2MB", "프로젝트NO": "UJ2600035",
+             "사건": ["취소"], "글": "접수취소"}]
+    kakao = [{"파일": "k.txt", "날짜": "2026-01-06", "보낸이": "오종현",
+              "캠프": "다른표기", "프로젝트NO": "UJ2600035",
+              "사건": ["취소"], "글": "유선전화 이후 접수 취소"}]
+    matched, _, _ = CS.pair(band, kakao)
+    assert len(matched) == 1 and matched[0]["연결근거"] == "프로젝트NO 정확 일치"
+
+    with tempfile.TemporaryDirectory() as td:
+        store = AppStore(os.path.join(td, "app.db"))
+        store.initialize()
+        source = store.create_work(
+            kind="돌발AS", business_key="AS-2601-048", public_id="AS-2601-048",
+            project_no="UJ2600035", camp_name="송파2MB", status="취소",
+            fields={"접수ID": "AS-2601-048", "프로젝트NO": "UJ2600035",
+                    "진행상태": "취소", "유상·무상·보험": "유상"},
+            idempotency_key="t208-source",
+        )["work"]
+        store.create_work(
+            kind="정산", business_key="JS-2608-108", public_id="JS-2608-108",
+            project_no="UJ2600035", camp_name="송파2MB", status="",
+            fields={"정산ID": "JS-2608-108", "프로젝트NO": "UJ2600035",
+                    "원천업무ID": "AS-2601-048", "비용구분": "유상"},
+            idempotency_key="t208-settle",
+        )
+        hit = {"UJ2600035": {
+            "프로젝트NO": "UJ2600035", "업무종류": "돌발AS",
+            "밴드": "90610953", "게시글": "4279", "자리": "본문",
+            "게시일": "2026-01-06",
+            "근거": "[접수취소] - 유선접화로 해결 완료",
+            "원문": "[접수취소] - 유선접화로 해결 완료",
+            "처리구분": "원격해결", "관측시각": 1785919289584,
+            "근거URL": "https://band.us/band/90610953/post/4279",
+        }}
+        cross = {"UJ2600035": {"카톡": "k.txt 2026-01-06 오종현",
+                                 "카톡글": "기사님과 유선전화 이후 접수 취소되었습니다"}}
+        first = CR.sync_hits(hit, store=store, corroborations=cross)
+        assert first["updated"] == 1 and not first["errors"], first
+        current = store.get_work(source["id"])
+        assert current["status"] == "취소"
+        assert current["fields"]["처리구분"] == "원격해결"
+        assert current["fields"]["접수취소확인일"] == "2026-01-06", \
+            "뒤늦은 수집일이 실제 접수취소 발생일을 덮었다"
+        assert "밴드 90610953/4279" in current["fields"]["접수취소근거"]
+        assert "카톡 교차" in current["fields"]["접수취소근거"]
+        version = current["record_version"]
+        second = CR.sync_hits(hit, store=store, corroborations=cross)
+        assert second["unchanged"] == 1
+        assert store.get_work(source["id"])["record_version"] == version, \
+            "같은 근거 재수집이 이벤트·보관본을 계속 늘린다"
+
+        base = [{"정산ID": "JS-2608-108", "프로젝트NO": "UJ2600035",
+                 "원천업무ID": "AS-2601-048", "비용구분": "유상",
+                 "상태": "세금계산서 미발행", "명세서": "없음", "계산서": "미발행"}]
+        clean = next(row for row in APP._overlay_app_store_settlements(base, store=store)
+                     if row.get("정산ID") == "JS-2608-108")
+        assert clean["상태"] == "접수취소(유선해결)" and clean["청구대상"] is False
+        assert clean["미발행사유"] == "" and not APP._settlement_has_documents(clean)
+
+        # 취소 뒤의 실제 PO·계산서 사실은 지우지 않는다. 정상/완료로도 접지 않고
+        # 별도 교차입력 충돌로 올려 잘못 붙은 528,000원 같은 자료를 찾게 한다.
+        settle = store.get_work(kind="정산", business_key="JS-2608-108")
+        store.update_work(
+            settle["id"], expected_version=settle["record_version"],
+            patch={"fields": {"PO번호": "PO-X", "세금계산서발행일": "2026-01-20"}},
+            idempotency_key="t208-docs",
+        )
+        conflict = next(row for row in APP._overlay_app_store_settlements(base, store=store)
+                        if row.get("정산ID") == "JS-2608-108")
+        assert conflict["상태"] == "취소건 청구자료 존재 — 교차입력 확인"
+        assert conflict["PO번호"] == "PO-X" and conflict["계산서발행일"] == "2026-01-20"
+        assert conflict["취소건청구자료충돌"] is True
+
+        # 실제 발행·입금은 06 정산행이 아니라 15/16 sidecar에만 있을 수도 있다.
+        # exact 정산ID로 연결된 객관자료를 놓쳐 '자료 없는 취소'로 숨기면 안 된다.
+        store.create_work(
+            kind="정산", business_key="JS-SIDECAR", public_id="JS-SIDECAR",
+            project_no="UJ2600035", status="",
+            fields={"정산ID": "JS-SIDECAR", "프로젝트NO": "UJ2600035",
+                    "원천업무ID": "AS-2601-048", "비용구분": "유상"},
+            idempotency_key="t208-side-settle",
+        )
+        store.create_work(
+            kind="세금계산서", business_key="TX-SIDECAR", public_id="TX-SIDECAR",
+            project_no="UJ2600035", status="발행",
+            fields={"계산서관리ID": "TX-SIDECAR", "정산ID": "JS-SIDECAR",
+                    "실제발행일": "2026-01-21", "발행금액": 480000},
+            idempotency_key="t208-side-invoice",
+        )
+        side_evidence = CR.settlement_document_evidence(store)
+        assert "JS-SIDECAR" in side_evidence and "15:실제발행일" in side_evidence["JS-SIDECAR"]
+        side_conflict = next(
+            row for row in APP._overlay_app_store_settlements([], store=store)
+            if row.get("정산ID") == "JS-SIDECAR"
+        )
+        assert side_conflict["상태"] == "취소건 청구자료 존재 — 교차입력 확인"
+        assert side_conflict["계산서발행일"] == "2026-01-21"
+
+        # 같은 프로젝트라도 원천업무ID가 다르면 재무 상태를 전파하지 않는다.
+        store.create_work(
+            kind="돌발AS", business_key="AS-OTHER", public_id="AS-OTHER",
+            project_no="UJ2600035", status="접수",
+            fields={"접수ID": "AS-OTHER", "프로젝트NO": "UJ2600035", "진행상태": "접수"},
+            idempotency_key="t208-other-source",
+        )
+        store.create_work(
+            kind="정산", business_key="JS-OTHER", public_id="JS-OTHER",
+            project_no="UJ2600035", status="",
+            fields={"정산ID": "JS-OTHER", "프로젝트NO": "UJ2600035",
+                    "원천업무ID": "AS-OTHER", "비용구분": "유상"},
+            idempotency_key="t208-other-settle",
+        )
+        other = next(row for row in APP._overlay_app_store_settlements([], store=store)
+                     if row.get("정산ID") == "JS-OTHER")
+        assert not other.get("원천업무취소"), "프로젝트 유사매칭이 다른 원천 정산까지 취소했다"
+
+        # 완료일/종료상태는 자동으로 뒤집지 않는다.
+        finished = store.create_work(
+            kind="돌발AS", business_key="AS-DONE", public_id="AS-DONE",
+            project_no="UJ2600099", status="작업완료",
+            fields={"접수ID": "AS-DONE", "프로젝트NO": "UJ2600099",
+                    "진행상태": "작업완료", "작업완료일": "2026-01-07"},
+            idempotency_key="t208-finished",
+        )["work"]
+        done_hit = {"UJ2600099": {**hit["UJ2600035"], "프로젝트NO": "UJ2600099"}}
+        blocked = CR.sync_hits(done_hit, store=store, corroborations={})
+        assert blocked["conflicts"] == 1
+        assert store.get_work(finished["id"])["status"] == "작업완료"
+
+        # 미발행 경과 감시도 exact 원천업무 취소를 청구대상에서 제외한다.
+        record = {"원천업무ID": "AS-2601-048", "프로젝트NO": "UJ2600035",
+                  "비용구분": "유상", "원장_공급가액": 480000,
+                  "원장_거래명세서번호": "2026/01/20-1",
+                  "원장_거래명세서합계": 528000, "작업완료일": "2026-01-06"}
+        old_progress = ER.erp_progress
+        ER.erp_progress = lambda: {}
+        try:
+            outcomes = CR.source_outcomes(store)
+            assert TW.overdue_rows({"JS-X": record}, {}, {},
+                                   today=__import__("datetime").date(2026, 8, 11),
+                                   source_outcomes_map=outcomes) == []
+        finally:
+            ER.erp_progress = old_progress
+
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    pipeline = open(os.path.join(ROOT, "automation_pipeline.py"), encoding="utf-8").read()
+    completion = open(os.path.join(ROOT, "settlement_completion.py"), encoding="utf-8").read()
+    findings = open(os.path.join(ROOT, "findings_export.py"), encoding="utf-8").read()
+    index_html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert '"cancel_watch.py"), "--sync"' in daily
+    assert '"cancel_watch.py"), "--sync"' in pipeline
+    assert "source_outcomes_map.get(source_id)" in completion, \
+        "취소건 청구자료가 객관완료로 잘못 접힐 수 있다"
+    assert "settlement_document_evidence" in findings, \
+        "15/16 sidecar-only 청구자료가 확인필요에서 사라질 수 있다"
+    assert "function billableSettleRows(rows)" in index_html
+    assert "const S = billableSettleRows(SAll)" in index_html
+    assert "const allRows = settleRows, rows = billableSettleRows(allRows)" in index_html, \
+        "대표보고·PNG가 취소건 공급/미수를 다시 합산한다"
+    print("  [208] 접수취소·유선해결 exact 연결 · App DB 멱등근거 · 완료 CAS 보호 · "
+          "취소 청구제외/서류충돌 보존 ✅")
+
+
+def t209_pipeline_lock_owner_cannot_be_forged_or_overwritten():
+    """[209] 자동화 중복 회차가 산 주인의 잠금·공유 상태를 빼앗지 않는다.
+
+    Windows ``os.kill(pid, 0)`` 오판으로 산 회차의 오래된 잠금을 죽었다고 보고
+    두 회차가 함께 돌았다. 더 늦게 끝난 옛 회차가 새 회차 상태를 덮고 잠금까지
+    지울 수 있었으므로 PID 판정뿐 아니라 토큰과 run_id가 모두 맞아야 저장·해제한다.
+    """
+    from pathlib import Path
+    import threading
+    import automation_pipeline as P
+    from app_store import AppStore
+
+    source = open(os.path.join(ROOT, "automation_pipeline.py"), encoding="utf-8").read()
+    pid_body = source.split("def _pid_alive", 1)[1].split("\nclass LockOwnershipLost", 1)[0]
+    assert "import pid_alive" in source and "return pid_alive.alive(pid) is not False" in pid_body, \
+        "자동화 잠금만 Windows 구형 PID 판정을 계속 쓴다"
+
+    with tempfile.TemporaryDirectory(prefix="csos-pipeline-owner-209-") as td:
+        root = Path(td)
+        reports = root / "reports"
+        reports.mkdir(parents=True)
+        lock_path = reports / ".automation.lock"
+        state_path = reports / "automation-state.json"
+
+        # 판정 불가는 죽음이 아니다. 한도보다 오래됐어도 잠금을 회수하지 않는다.
+        uncertain_path = reports / ".uncertain.lock"
+        uncertain_path.write_text("987654 0 old-token old-run\n", encoding="ascii")
+        os.utime(uncertain_path, (1, 1))
+        real_alive = P.pid_alive.alive
+        try:
+            P.pid_alive.alive = lambda _pid: None
+            assert P._pid_alive(987654) is True
+            assert P.PipelineLock(uncertain_path).acquire("unknown-probe") is None
+            assert uncertain_path.exists(), "판정 불가인 산 주인의 잠금을 빼앗았다"
+
+            P.pid_alive.alive = lambda _pid: False
+            assert P._pid_alive(987654) is False
+            dead_lock = P.PipelineLock(uncertain_path)
+            dead_token = dead_lock.acquire("dead-owner-recovery")
+            assert dead_token and dead_lock.release(dead_token, "dead-owner-recovery")
+        finally:
+            P.pid_alive.alive = real_alive
+
+        # 실제 두 인스턴스를 동시에 진입시킨다. 첫 회차가 stage 안에서 멈춘 동안
+        # 두 번째 회차는 already_running만 돌려주고 상태 바이트를 바꾸지 않는다.
+        race_root = root / "race"
+        (race_root / "reports").mkdir(parents=True)
+        (race_root / "kakao" / "dropbox").mkdir(parents=True)
+        (race_root / "kakao" / "dropbox" / "KakaoTalk_209.txt").write_text(
+            "2026-08-11 합성 대화", encoding="utf-8"
+        )
+        race_state = race_root / "reports" / "state.json"
+        race_lock = race_root / "reports" / ".lock"
+        race_store = AppStore(race_root / "app.db").initialize()
+        entered = threading.Event()
+        resume = threading.Event()
+        first_result = {}
+
+        def slow_stage(name, _args, _timeout):
+            entered.set()
+            assert resume.wait(5), "합성 동시실행 검증이 stage를 놓아주지 못했다"
+            return {"name": name, "ok": True, "returncode": 0, "timed_out": False}
+
+        first = P.AutomationPipeline(
+            root=race_root, state_path=race_state, lock_path=race_lock,
+            store=race_store, stage_runner=slow_stage,
+        )
+        second = P.AutomationPipeline(
+            root=race_root, state_path=race_state, lock_path=race_lock,
+            store=race_store, stage_runner=lambda *_args: {"ok": True},
+        )
+        thread = threading.Thread(
+            target=lambda: first_result.update(first.run_once(trigger="race-first", force=True)),
+            daemon=True,
+        )
+        thread.start()
+        assert entered.wait(5), "첫 자동화 회차가 합성 stage에 들어오지 못했다"
+        while not race_state.exists():
+            time.sleep(0.01)
+        before_race_duplicate = race_state.read_bytes()
+        second_result = second.run_once(trigger="race-second", force=True)
+        assert second_result["status"] == "already_running", second_result
+        assert race_state.read_bytes() == before_race_duplicate, \
+            "동시 중복 인스턴스가 첫 회차의 진행 상태를 덮었다"
+        resume.set()
+        thread.join(10)
+        assert not thread.is_alive() and first_result.get("run_id"), first_result
+
+        initial = P._default_state()
+        initial["history"] = [{"status": "sentinel-before-owner"}]
+        state_path.write_text(
+            json.dumps(initial, ensure_ascii=False), encoding="utf-8"
+        )
+        store = AppStore(root / "app.db").initialize()
+        owner = P.AutomationPipeline(
+            root=root, state_path=state_path, lock_path=lock_path, store=store,
+            stage_runner=lambda *_args: {"ok": True},
+        )
+        assert owner._acquire_run() and owner._lock_token and owner._run_id
+        owner.state["running"] = True
+        owner.state["active_run_id"] = owner._run_id
+        owner.state["lock_token"] = owner._lock_token
+        owner.state["owner_marker"] = "first-owner"
+        owner._save()
+
+        # 같은 프로세스 안의 두 인스턴스도 PID는 같으므로 token/run_id가 관건이다.
+        before_duplicate = state_path.read_bytes()
+        duplicate = P.AutomationPipeline(
+            root=root, state_path=state_path, lock_path=lock_path, store=store,
+            stage_runner=lambda *_args: {"ok": True},
+        )
+        refused = duplicate.run_once(trigger="synthetic-duplicate")
+        assert refused["status"] == "already_running", refused
+        assert state_path.read_bytes() == before_duplicate, \
+            "잠금을 못 잡은 중복 회차가 공유 상태를 덮었다"
+
+        # 후속 회차가 잠금을 소유한다고 가정해 capability를 바꾼다. 옛 소유자는
+        # 같은 PID여도 상태를 저장하거나 후속 잠금을 지울 수 없어야 한다.
+        successor_token = "b" * 32
+        successor_run = "successor-run-209"
+        lock_path.write_text(
+            f"{os.getpid()} {time.time():.3f} {successor_token} {successor_run}\n",
+            encoding="ascii",
+        )
+        successor_state = P._default_state()
+        successor_state.update({
+            "running": True,
+            "active_run_id": successor_run,
+            "lock_token": successor_token,
+            "owner_marker": "successor",
+        })
+        state_path.write_text(
+            json.dumps(successor_state, ensure_ascii=False), encoding="utf-8"
+        )
+        owner.state["owner_marker"] = "stale-owner-overwrite"
+        try:
+            owner._save()
+            raise AssertionError("토큰을 잃은 옛 회차가 공유 상태를 저장했다")
+        except P.LockOwnershipLost:
+            pass
+        assert json.loads(state_path.read_text(encoding="utf-8"))["owner_marker"] == "successor"
+        assert owner._release_run() is False
+        assert lock_path.exists() and successor_token in lock_path.read_text(encoding="ascii"), \
+            "옛 회차가 후속 회차의 잠금을 지웠다"
+
+    print("  [209] 자동화 단일회차 — 공용 PID 판정 · token/run_id 소유 저장·해제 ✅")
 
 
 def t196_stage_words_come_from_one_place():
@@ -13608,6 +14290,9 @@ if __name__ == "__main__":
     t204_staff_finance_entry_is_one_save_and_source_safe()
     t205_three_staff_sessions_cannot_forge_actor()
     t206_finance_archive_keeps_real_headers_and_formulas()
+    t207_live_revision_is_shared_and_nonblocking()
+    t208_cancel_remote_resolution_is_exact_and_finance_safe()
+    t209_pipeline_lock_owner_cannot_be_forged_or_overwritten()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

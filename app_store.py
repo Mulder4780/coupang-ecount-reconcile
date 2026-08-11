@@ -1058,6 +1058,7 @@ class AppStore:
         source_sha256: str = "",
         source_observed_at: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        _conn: Optional[sqlite3.Connection] = None,
     ) -> Dict[str, Any]:
         if not isinstance(expected_version, int) or expected_version < 1:
             raise ValidationError("expected_version must be a positive integer")
@@ -1087,7 +1088,12 @@ class AppStore:
             "source_sha256": source_sha256,
             "source_observed_at": source_observed_at,
         }
-        with self.transaction() as conn:
+        # 직원 업무센터처럼 "상위 명령 멱등 응답"까지 같은 원자 단위에 묶어야 하는
+        # 내부 호출은 이미 BEGIN IMMEDIATE 된 연결을 넘긴다. 이때도 아래의 공개 CRUD
+        # 검증·낙관잠금·감사이벤트·outbox·work:update 멱등 처리를 그대로 한 번만 쓴다.
+        # 공개 호출은 종전과 같이 이 메서드가 독립 트랜잭션을 소유한다.
+        transaction_scope = nullcontext(_conn) if _conn is not None else self.transaction()
+        with transaction_scope as conn:
             replay, request_hash = self._idempotency_replay(
                 conn, "work:update", idempotency_key, payload
             )
@@ -1560,9 +1566,51 @@ class AppStore:
             ).fetchone()
             work_id: Optional[str] = existing_row["id"] if existing_row else None
             conflict_ids: List[int] = []
+            # v586 changed sheets 15/16 from the settlement relation ID to a
+            # dedicated management ID as the row identity.  Records imported
+            # before that change can therefore still have ``business_key`` set
+            # to the settlement ID while already carrying the new management
+            # ID in ``work_field``.  Resolve that legacy identity before the
+            # create path; otherwise ``_create_work_tx`` correctly detects the
+            # duplicate field value and rolls the whole shadow-import batch
+            # back.  Never choose arbitrarily when old data contains duplicate
+            # management IDs: retain a normal import conflict instead.
+            identity_field = _management_identity_field(kind)
+            if work_id is None and identity_field:
+                identity_rows = conn.execute(
+                    """
+                    SELECT w.id FROM work_item w
+                    JOIN work_field f ON f.work_id=w.id
+                    WHERE w.kind=? AND w.deleted_at IS NULL
+                      AND f.field_key=? AND f.value_json=?
+                    ORDER BY w.updated_at DESC,w.id DESC
+                    """,
+                    (kind, identity_field, canonical_json(business_key)),
+                ).fetchall()
+                if len(identity_rows) == 1:
+                    work_id = str(identity_rows[0]["id"])
+                elif len(identity_rows) > 1:
+                    conflict_ids.append(
+                        self._record_import_conflict(
+                            conn,
+                            import_id=import_id,
+                            sheet=sheet,
+                            business_key=business_key,
+                            row_number=row_number,
+                            field_key=identity_field,
+                            incoming=business_key,
+                            current={
+                                "work_ids": [str(row["id"]) for row in identity_rows],
+                                "count": len(identity_rows),
+                            },
+                            reason="duplicate_management_identity",
+                        )
+                    )
             event_id: Optional[str] = None
             event_seq: Optional[int] = None
-            if work_id is None:
+            if conflict_ids:
+                shadow_status = "conflict"
+            elif work_id is None:
                 if apply_if_missing:
                     created = self._create_work_tx(
                         conn,
@@ -2494,6 +2542,10 @@ class AppStore:
         """Return a compact health/readiness status for the app UI."""
 
         with self.reader() as conn:
+            change_tip = conn.execute(
+                "SELECT COALESCE(MAX(id),0) AS change_seq, "
+                "MAX(created_at) AS last_change_at FROM change_event"
+            ).fetchone()
             counts = {
                 "work_active": int(
                     conn.execute(
@@ -2515,11 +2567,7 @@ class AppStore:
                         "SELECT COUNT(*) FROM import_conflict WHERE status='open'"
                     ).fetchone()[0]
                 ),
-                "change_seq": int(
-                    conn.execute(
-                        "SELECT COALESCE(MAX(id),0) FROM change_event"
-                    ).fetchone()[0]
-                ),
+                "change_seq": int(change_tip["change_seq"]),
                 "completion_evidence_active": int(
                     conn.execute(
                         "SELECT COUNT(*) FROM completion_evidence WHERE active=1"
@@ -2532,6 +2580,12 @@ class AppStore:
             export = conn.execute(
                 "SELECT export_id,status,snapshot_seq,local_path,finished_at "
                 "FROM export_run ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            completed_export = conn.execute(
+                "SELECT export_id,status,snapshot_seq,local_path,finished_at "
+                "FROM export_run "
+                "WHERE status IN ('verified','partial') AND finished_at IS NOT NULL "
+                "ORDER BY finished_at DESC,id DESC LIMIT 1"
             ).fetchone()
             return {
                 "ok": True,
@@ -2549,6 +2603,10 @@ class AppStore:
                     else "db_primary_pending_cutover"
                 ),
                 "last_export": dict(export) if export else None,
+                "last_completed_export": (
+                    dict(completed_export) if completed_export else None
+                ),
+                "last_change_at": str(change_tip["last_change_at"] or ""),
                 **counts,
             }
 
@@ -3384,6 +3442,27 @@ def self_test() -> bool:
         assert store.get_work(
             kind="세금계산서", business_key="TX-LEGACY-230"
         )["id"] == legacy_invoice["id"]
+        legacy_shadow = store.shadow_import(
+            import_id="imp-legacy-management-id",
+            sheet="15_세금계산서관리",
+            business_key="TX-LEGACY-230",
+            business_key_col="계산서관리ID",
+            row_number=230,
+            kind="세금계산서",
+            fields={
+                "계산서관리ID": "TX-LEGACY-230",
+                "정산ID": "JS-LEGACY-230",
+            },
+            apply_if_missing=True,
+            idempotency_key="shadow-legacy-management-id",
+        )
+        assert legacy_shadow["status"] == "matched"
+        assert legacy_shadow["work_id"] == legacy_invoice["id"]
+        with store.reader() as conn:
+            assert conn.execute(
+                "SELECT COUNT(*) FROM work_item WHERE kind=? AND business_key=?",
+                ("세금계산서", "TX-LEGACY-230"),
+            ).fetchone()[0] == 0
         try:
             store.create_work(
                 kind="세금계산서",
@@ -3395,6 +3474,67 @@ def self_test() -> bool:
             raise AssertionError("legacy management identity duplicate was accepted")
         except ValidationError:
             pass
+
+        duplicate_legacy = store.create_work(
+            kind="세금계산서",
+            business_key="JS-LEGACY-231",
+            fields={"정산ID": "JS-LEGACY-231"},
+            idempotency_key="legacy-invoice-duplicate-fixture",
+        )["work"]
+        with store.transaction() as conn:
+            store._put_field(
+                conn,
+                duplicate_legacy["id"],
+                "계산서관리ID",
+                "TX-LEGACY-230",
+                "self-test",
+                {"source": "legacy-fixture"},
+                _utcnow(),
+            )
+        duplicate_shadow = store.shadow_import(
+            import_id="imp-duplicate-management-id",
+            sheet="15_세금계산서관리",
+            business_key="TX-LEGACY-230",
+            business_key_col="계산서관리ID",
+            row_number=231,
+            kind="세금계산서",
+            fields={"계산서관리ID": "TX-LEGACY-230"},
+            apply_if_missing=True,
+            idempotency_key="shadow-duplicate-management-id",
+        )
+        assert duplicate_shadow["status"] == "conflict"
+        assert duplicate_shadow["work_id"] is None
+        duplicate_conflicts = store.list_import_conflicts(
+            import_id="imp-duplicate-management-id"
+        )
+        assert len(duplicate_conflicts) == 1
+        assert duplicate_conflicts[0]["reason"] == "duplicate_management_identity"
+
+        legacy_receipt = store.create_work(
+            kind="입금수금",
+            business_key="JS-LEGACY-240",
+            fields={
+                "입금관리ID": "RC-LEGACY-240",
+                "정산ID": "JS-LEGACY-240",
+            },
+            idempotency_key="legacy-receipt-before-v586",
+        )["work"]
+        legacy_receipt_shadow = store.shadow_import(
+            import_id="imp-legacy-receipt-management-id",
+            sheet="16_입금수금관리",
+            business_key="RC-LEGACY-240",
+            business_key_col="입금관리ID",
+            row_number=240,
+            kind="입금수금",
+            fields={
+                "입금관리ID": "RC-LEGACY-240",
+                "정산ID": "JS-LEGACY-240",
+            },
+            apply_if_missing=True,
+            idempotency_key="shadow-legacy-receipt-management-id",
+        )
+        assert legacy_receipt_shadow["status"] == "matched"
+        assert legacy_receipt_shadow["work_id"] == legacy_receipt["id"]
 
         duplicate_relation = store.create_work(
             kind="세금계산서", business_key="TX-SELF-002", public_id="TX-SELF-002",

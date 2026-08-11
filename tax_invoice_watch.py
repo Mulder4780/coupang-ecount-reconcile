@@ -40,10 +40,21 @@ def _day(value):
         return None
 
 
-def overdue_rows(records, resolutions, progress, today=None):
+def overdue_rows(records, resolutions, progress, today=None, source_outcomes_map=None):
     today = today or date.today()
+    if source_outcomes_map is None:
+        try:
+            from cancel_resolution import source_outcomes
+            source_outcomes_map = source_outcomes()
+        except Exception:
+            source_outcomes_map = {}
     rows = []
     for settle_id, record in sorted((records or {}).items()):
+        source_id = str(record.get("원천업무ID") or "").strip()
+        if (source_outcomes_map.get(source_id) or {}).get("cancelled"):
+            # 접수취소는 발행 대상이 아니다. 이미 생긴 서류는 앱의
+            # '취소건 청구자료 존재' 충돌에서 보존·확인한다.
+            continue
         if settle_status(record) != "세금계산서 미발행":
             continue
         resolved = str((resolutions.get(settle_id) or {}).get("status") or "")
