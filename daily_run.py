@@ -217,12 +217,30 @@ def note_progress(step, state, extra=None):
         # 남아, 화면이 이미 끝난 실패를 현재 실패처럼 표시했다. 회차 전체에서
         # 이어갈 값은 끝난 단계 목록뿐이고, 나머지는 매 상태의 새 사실이어야 한다.
         done = list(previous.get("끝난단계") or [])[-60:]
+        now_dt = datetime.now().astimezone()
+        now_iso = now_dt.isoformat(timespec="seconds")
+        # ★ **단계마다 얼마나 걸렸나**를 같이 남긴다 (2026-08-12, `[228]` 이 드러낸 것).
+        #   `[180]` 이 "어디서 멈췄나"를 남기게 했지만 **"어디가 오래 걸렸나"** 는 아직
+        #   아무 데도 없었다. 그래서 회차가 292분을 쓰고 스케줄러 제한(PT3H)에 매일
+        #   강제 종료되는데도 **범인 단계를 짐작으로밖에 말할 수 없었다.**
+        #   회차 예산(`over_budget`)은 단계 **사이**에서만 보므로 한 단계가 길면 그냥
+        #   지나친다 — 그 한 단계가 누구인지 모르면 예산을 조여도 소용이 없다.
+        t0 = previous.get("단계시작") if previous.get("단계") == step else None
+        t0 = t0 or now_iso
+        try:
+            spent = int((now_dt - datetime.fromisoformat(t0)).total_seconds())
+        except (TypeError, ValueError):
+            t0, spent = now_iso, 0
         cur = {
             **_process_identity(),
             "단계": step,
             "상태": state,
-            "시각": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "시각": now_iso,
+            "단계시작": t0,
+            "단계경과초": max(0, spent),
             "끝난단계": done,
+            # 문자열 목록(`끝난단계`)은 읽는 쪽이 있으므로 모양을 안 바꾼다 — 시간은 옆에 따로 쌓는다.
+            "단계기록": list(previous.get("단계기록") or [])[-60:],
         }
         if _ROUND_T0[0]:
             cur["회차시작"] = _ROUND_T0[0].astimezone().isoformat(timespec="seconds")
@@ -232,6 +250,10 @@ def note_progress(step, state, extra=None):
             cur.update(extra)
         if state == "끝":
             cur["끝난단계"] = (list(cur.get("끝난단계") or []) + [step])[-60:]
+            cur["단계기록"] = (list(cur.get("단계기록") or [])
+                             + [{"단계": step, "초": cur["단계경과초"]}])[-60:]
+            # 오래 걸린 순으로 다섯 — 화면·인계가 이 한 줄만 읽어도 범인을 댈 수 있다.
+            cur["느린단계"] = sorted(cur["단계기록"], key=lambda r: -int(r.get("초") or 0))[:5]
         tmp = f"{PROGRESS}.{os.getpid()}.tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(cur, fh, ensure_ascii=False)

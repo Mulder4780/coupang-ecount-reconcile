@@ -815,7 +815,11 @@ def daily_step_now():
     alive_now = None if d.get("단계") == "(회차 끝)" else _progress_owner_alive(d)
     return {"단계": d.get("단계"), "상태": d.get("상태"), "머문분": (round(since, 1) if since is not None else None),
             "경과분": d.get("경과분"), "예산분": d.get("예산분"),
-            "끝낸수": len(d.get("끝난단계") or []), "살아있음": alive_now}
+            "끝낸수": len(d.get("끝난단계") or []), "살아있음": alive_now,
+            # ★ '몇 시간째'만 말하고 **어느 단계가 그 시간을 썼는지** 못 대면 원인을
+            #   영영 못 찾는다 — 292분 회차가 매일 강제 종료되는데 범인을 짐작으로만
+            #   말하던 자리다(2026-08-12, `[228]`).
+            "느린단계": d.get("느린단계") or []}
 
 
 def _step_hint():
@@ -837,7 +841,17 @@ def _step_hint():
         txt += " · 끝낸 단계 %d개" % s["끝낸수"]
     if s.get("경과분") and s.get("예산분"):
         txt += " · 회차 %.0f/%s분" % (s["경과분"], s["예산분"])
-    return txt
+    return txt + _slow_hint(s)
+
+
+def _slow_hint(s):
+    """이 회차에서 **가장 오래 걸린 단계** 둘. 회차 예산은 단계 *사이*에서만 보므로
+    한 단계가 길면 그냥 지나친다 — 그 단계를 이름으로 대야 조일 곳이 정해진다."""
+    slow = [r for r in (s.get("느린단계") or []) if int(r.get("초") or 0) >= 300]
+    if not slow:
+        return ""
+    return " · 오래 걸린 단계: " + ", ".join(
+        "%s %.0f분" % (r.get("단계"), int(r.get("초") or 0) / 60) for r in slow[:2])
 
 
 def blockers(st, for_sol=False):

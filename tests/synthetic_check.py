@@ -14720,8 +14720,33 @@ def t228_scheduler_rounds_are_watched():
     for key in ("autoCompactEnabled", "session_wrapup", "context_guard"):
         assert key in csrc, "컴팩팅 배선 점검이 %s 를 안 본다" % key
 
+    # ── ⑦ 죽은 이유를 대려면 **어느 단계가 시간을 썼는지**가 남아야 한다.
+    #     `[180]` 은 "어디서 멈췄나"까지만 남겼다. 회차 예산은 단계 *사이*에서만
+    #     보므로 한 단계가 길면 그냥 지나친다 — 그 단계를 이름으로 못 대면 조일 곳이
+    #     정해지지 않는다(실측 292분 회차가 매일 PT3H 에 강제 종료됐다).
+    import daily_run as DR
+    with tempfile.TemporaryDirectory() as tmp:
+        keep = DR.PROGRESS
+        try:
+            DR.PROGRESS = os.path.join(tmp, "p.json")
+            DR.note_progress("느린단계", "시작")
+            DR.note_progress("느린단계", "끝")
+            got = json.load(open(DR.PROGRESS, encoding="utf-8"))
+            assert got["끝난단계"] == ["느린단계"] and all(isinstance(x, str) for x in got["끝난단계"]), \
+                "끝난단계 모양이 바뀌었다 — 읽는 쪽(인계·검증)이 문자열 목록을 본다"
+            assert got["단계기록"] and got["단계기록"][-1]["단계"] == "느린단계", got.get("단계기록")
+            assert "초" in got["단계기록"][-1], "단계마다 걸린 시간이 안 남는다"
+            assert got["느린단계"] and got["느린단계"][0]["단계"] == "느린단계", got.get("느린단계")
+        finally:
+            DR.PROGRESS = keep
+    sh_hint = sh.split("def _slow_hint(", 1)
+    assert len(sh_hint) == 2, "인계가 오래 걸린 단계를 말할 길이 없다"
+    assert ">= 300" in sh_hint[1].split("\ndef ", 1)[0], \
+        "짧은 단계까지 '오래 걸린 단계'로 적는다 — 그러면 아무도 안 읽는다"
+
     print("  [228] 스케줄러 회차 감시 — long 캐스트로 실패 회차가 안 빠짐 · 연속은 회차를 셈 · "
-          "도는중/밀림/죽음/안돎 가르기 · 확인못함≠정상 · 읽기전용 · 스냅샷 앞 배선 ✅")
+          "도는중/밀림/죽음/안돎 가르기 · 확인못함≠정상 · 읽기전용 · 스냅샷 앞 배선 · "
+          "단계별 소요시간 기록 ✅")
 
 
 def t220_flow_yes_no_cycles():
