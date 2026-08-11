@@ -4133,91 +4133,132 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
        각 자리에 누가·역할·실시간 상태. 정본은 /api/orgchart, 없으면 ORG_SNAP.
        클래스는 전부 `org-` 접두 — 1.1MB 본문의 .desk·.status·.badge 와 안 부딪히게. -->
   <style id="org-style">
+  /* ── 사무실 배치 평면도 (2026-08-12 지시) ─────────────────────────────────────
+     책상+의자를 위에서 내려다본 자리로 그린다. 자리를 누르면 담당 업무가 아래로
+     펼쳐진다(아코디언). ★ 모든 규칙은 `#v-org` 아래로 좁히고 클래스는 전부 `org-`
+     접두 — 1.1MB 본문의 .ws·.chair·.desk·.duties 와 절대 안 부딪히게. */
   #v-org{--org-busy:#E8890C;--org-idle:#2B9560;--org-off:#8A93A6;--org-live:#0062CC;
     --org-brand:#0062CC;--org-card:#FFFFFF;--org-line:rgba(30,50,90,.12);
     --org-floor:#F7F9FC;--org-wall:#D3DBE8;--org-ink:#0E1B3F;--org-ink2:#5A6785;
     --org-zmgmt:#EAF2FF;--org-zfield:#EAF9F0;--org-zai:#F1ECFF;
+    --org-chair:#C9D3E4;--org-chair-line:rgba(30,50,90,.16);--org-mon:#EEF2F9;
     --org-sh:0 1px 2px rgba(16,30,70,.06),0 6px 20px rgba(16,30,70,.08)}
   /* ★ OS 다크를 자동으로 따라가지 않는다(검증 [91]) — 사람이 고른 data-theme 만 본다.
      이 앱은 화면을 그대로 캡처해 보고서로 올리므로, 사람이 안 골랐는데 검게 나오면 사고다. */
   :root[data-theme="dark"] #v-org{--org-card:#16223C;--org-line:rgba(150,175,225,.16);
     --org-floor:#111A30;--org-wall:#1E2A45;--org-ink:#EAF0FF;--org-ink2:#9FB0D0;
     --org-zmgmt:#152647;--org-zfield:#123322;--org-zai:#231b45;
+    --org-chair:#2A3A5C;--org-chair-line:rgba(150,175,225,.20);--org-mon:#1B2843;
     --org-sh:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.35)}
   :root[data-theme="light"] #v-org{--org-card:#FFFFFF;--org-line:rgba(30,50,90,.12);
     --org-floor:#F7F9FC;--org-wall:#D3DBE8;--org-ink:#0E1B3F;--org-ink2:#5A6785;
-    --org-zmgmt:#EAF2FF;--org-zfield:#EAF9F0;--org-zai:#F1ECFF}
-  #v-org{color:var(--org-ink)}
-  .org-hero{position:relative;overflow:hidden;border-radius:18px;margin:2px 0 12px;
+    --org-zmgmt:#EAF2FF;--org-zfield:#EAF9F0;--org-zai:#F1ECFF;
+    --org-chair:#C9D3E4;--org-chair-line:rgba(30,50,90,.16);--org-mon:#EEF2F9}
+  #v-org{color:var(--org-ink);max-width:100%}
+  /* 머리 — hero + legend (그대로 유지) */
+  #v-org .org-hero{position:relative;overflow:hidden;border-radius:18px;margin:2px 0 12px;max-width:100%;
     background:linear-gradient(135deg,#0E1B3F,#2452E6);color:#fff;padding:18px 18px 16px;
     display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
-  .org-hero::after{content:"";position:absolute;top:-60%;right:-10%;width:60%;height:220%;
+  #v-org .org-hero::after{content:"";position:absolute;top:-60%;right:-10%;width:60%;height:220%;
     background:radial-gradient(closest-side,rgba(255,255,255,.18),transparent);
     animation:orgDrift 12s ease-in-out infinite alternate;pointer-events:none}
-  .org-hero-in{min-width:0}
-  .org-eyebrow{font-size:11.5px;letter-spacing:.14em;color:#AEC2F5;font-weight:700}
-  .org-h1{margin:2px 0 0;font-size:21px;font-weight:850;letter-spacing:-.4px}
-  .org-lead{margin:6px 0 0;font-size:13px;color:#C9D7FA;line-height:1.5}
-  .org-gen{margin-top:8px;font-size:11.5px;color:#9FB4E8}
-  .org-tools{display:flex;gap:8px;flex-wrap:wrap;position:relative;z-index:1}
-  .org-btn{border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:#fff;
+  #v-org .org-hero-in{min-width:0}
+  #v-org .org-eyebrow{font-size:11.5px;letter-spacing:.14em;color:#AEC2F5;font-weight:700}
+  #v-org .org-h1{margin:2px 0 0;font-size:21px;font-weight:850;letter-spacing:-.4px}
+  #v-org .org-lead{margin:6px 0 0;font-size:13px;color:#C9D7FA;line-height:1.5}
+  #v-org .org-gen{margin-top:8px;font-size:11.5px;color:#9FB4E8}
+  #v-org .org-tools{display:flex;gap:8px;flex-wrap:wrap;position:relative;z-index:1}
+  #v-org .org-btn{border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:#fff;
     border-radius:10px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;
     font-family:inherit;transition:background .15s,transform .1s}
-  .org-btn:hover{background:rgba(255,255,255,.22)} .org-btn:active{transform:scale(.96)}
-  .org-legend{display:flex;gap:14px;flex-wrap:wrap;padding:2px 4px 10px;font-size:12px;color:var(--org-ink2)}
-  .org-legend b{display:inline-flex;align-items:center;gap:5px;font-weight:600}
-  .org-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
-  .org-dot.busy{background:var(--org-busy)} .org-dot.idle{background:var(--org-idle)}
-  .org-dot.off{background:var(--org-off)} .org-dot.live{background:var(--org-live)}
-  .org-dot.pulse{animation:orgPulse 1.8s infinite}
+  #v-org .org-btn:hover{background:rgba(255,255,255,.22)} #v-org .org-btn:active{transform:scale(.96)}
+  #v-org .org-legend{display:flex;gap:14px;flex-wrap:wrap;padding:2px 4px 10px;font-size:12px;color:var(--org-ink2)}
+  #v-org .org-legend b{display:inline-flex;align-items:center;gap:5px;font-weight:600}
+  #v-org .org-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
+  #v-org .org-dot.busy{background:var(--org-busy)} #v-org .org-dot.idle{background:var(--org-idle)}
+  #v-org .org-dot.off{background:var(--org-off)} #v-org .org-dot.live{background:var(--org-live)}
+  #v-org .org-dot.pulse{animation:orgPulse 1.8s infinite}
   @keyframes orgPulse{0%{box-shadow:0 0 0 0 rgba(0,98,204,.5)}70%{box-shadow:0 0 0 8px rgba(0,98,204,0)}100%{box-shadow:0 0 0 0 rgba(0,98,204,0)}}
-  .org-floor{position:relative;background:
+  /* ── 사무실 바닥. ★ minmax(0,..) 로 내용 열을 절대 넘지 않는다 — 가로 스크롤 금지.
+     예전 배치는 옆(≥900) 사이드바 폭에서 좌우가 잘렸다. 여기가 그 고침 자리다. ── */
+  #v-org .org-floorwrap{max-width:100%}
+  #v-org .org-floor{position:relative;max-width:100%;background:
       linear-gradient(var(--org-floor),var(--org-floor)) padding-box,
-      repeating-linear-gradient(0deg,transparent 0 39px,var(--org-line) 39px 40px),
-      repeating-linear-gradient(90deg,transparent 0 39px,var(--org-line) 39px 40px);
+      repeating-linear-gradient(0deg,transparent 0 29px,var(--org-line) 29px 30px),
+      repeating-linear-gradient(90deg,transparent 0 29px,var(--org-line) 29px 30px);
     border:2px solid var(--org-wall);border-radius:18px;padding:14px;
-    box-shadow:var(--org-sh) inset;display:grid;gap:14px}
-  .org-zone{border-radius:16px;padding:12px 12px 14px;border:1.5px dashed var(--org-line);transition:box-shadow .3s}
-  .org-zone.mgmt{background:var(--org-zmgmt)} .org-zone.field{background:var(--org-zfield)} .org-zone.ai{background:var(--org-zai)}
-  @media(hover:hover){.org-zone:hover{box-shadow:0 6px 24px rgba(16,30,70,.10)}}
-  .org-zh{display:flex;align-items:center;gap:8px;margin:0 2px 10px;font-size:13px;font-weight:850;color:var(--org-ink)}
-  .org-zh .tag{margin-left:auto;font-size:11px;font-weight:700;color:var(--org-ink2)}
-  .org-desks{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
-  .org-desk{position:relative;background:var(--org-card);border:1px solid var(--org-line);
-    border-radius:14px;padding:11px 12px 12px;box-shadow:var(--org-sh);overflow:hidden;
-    opacity:0;transform:translateY(10px);animation:orgRise .5s cubic-bezier(.2,.8,.3,1) forwards}
-  .org-desk::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--org-off)}
-  .org-desk.s-busy::before{background:var(--org-busy)} .org-desk.s-idle::before{background:var(--org-idle)}
-  .org-desk.s-live::before{background:var(--org-live)} .org-desk.s-off::before{background:var(--org-off)}
-  .org-desk:nth-child(1){animation-delay:.02s}.org-desk:nth-child(2){animation-delay:.08s}
-  .org-desk:nth-child(3){animation-delay:.14s}.org-desk:nth-child(4){animation-delay:.20s}
-  @media(hover:hover){.org-desk:hover{transform:translateY(-4px);box-shadow:0 10px 30px rgba(16,30,70,.18),0 2px 6px rgba(16,30,70,.10)}}
-  .org-desk.s-live::after{content:"";position:absolute;inset:-1px;border-radius:14px;padding:1.5px;pointer-events:none;
-    background:conic-gradient(from 0deg,transparent,var(--org-live),transparent 40%);
-    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
-    -webkit-mask-composite:xor;mask-composite:exclude;animation:orgSpin 3.2s linear infinite;opacity:.9}
-  .org-row1{display:flex;align-items:center;gap:8px}
-  .org-avatar{width:34px;height:34px;border-radius:11px;flex:none;display:grid;place-items:center;
+    box-shadow:var(--org-sh) inset;display:grid;gap:14px;grid-template-columns:1fr}
+  #v-org .org-zone{min-width:0;border-radius:16px;padding:12px 12px 14px;border:1.5px dashed var(--org-line);
+    transition:box-shadow .3s}
+  #v-org .org-zone.mgmt{background:var(--org-zmgmt)} #v-org .org-zone.field{background:var(--org-zfield)}
+  #v-org .org-zone.ai{background:var(--org-zai)}
+  @media(hover:hover){#v-org .org-zone:hover{box-shadow:0 6px 24px rgba(16,30,70,.10)}}
+  #v-org .org-zh{display:flex;align-items:center;gap:8px;margin:0 2px 12px;font-size:13px;font-weight:850;color:var(--org-ink)}
+  #v-org .org-zh .tag{margin-left:auto;font-size:11px;font-weight:700;color:var(--org-ink2)}
+  #v-org .org-desks{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:16px 12px}
+  #v-org .org-zone.ai .org-desks{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+  /* ── 워크스테이션 = 의자 + 책상 (탑다운) ─────────────────────────────────── */
+  #v-org .org-ws{position:relative;min-width:0;padding-bottom:16px}
+  #v-org .org-chair{position:absolute;left:50%;bottom:0;transform:translateX(-50%);
+    width:44px;height:28px;border-radius:9px 9px 13px 13px;background:var(--org-chair);
+    border:1.5px solid var(--org-chair-line);z-index:0}
+  #v-org .org-chair::before{content:"";position:absolute;left:50%;top:-6px;transform:translateX(-50%);
+    width:28px;height:9px;border-radius:8px 8px 3px 3px;background:var(--org-chair);
+    border:1.5px solid var(--org-chair-line);border-bottom:none}
+  #v-org .org-desk{position:relative;z-index:1;width:100%;text-align:left;cursor:pointer;font-family:inherit;
+    color:var(--org-ink);background:var(--org-card);border:1px solid var(--org-line);
+    border-radius:14px 14px 12px 12px;padding:11px 12px 12px;box-shadow:var(--org-sh);
+    overflow:hidden;display:block;transition:transform .16s,box-shadow .22s}
+  #v-org .org-desk::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--org-off)}
+  #v-org .org-desk.s-busy::before{background:var(--org-busy)} #v-org .org-desk.s-idle::before{background:var(--org-idle)}
+  #v-org .org-desk.s-live::before{background:var(--org-live)} #v-org .org-desk.s-off::before{background:var(--org-off)}
+  #v-org .org-desk .org-mon{position:absolute;right:11px;top:11px;width:26px;height:16px;border-radius:3px;
+    background:var(--org-mon);border:1px solid var(--org-line)}
+  #v-org .org-desk .org-mon::after{content:"";position:absolute;left:50%;bottom:-4px;transform:translateX(-50%);
+    width:10px;height:3px;border-radius:2px;background:var(--org-line)}
+  @media(hover:hover){#v-org .org-desk:hover{transform:translateY(-3px);
+    box-shadow:0 12px 30px rgba(16,30,70,.18),0 2px 6px rgba(16,30,70,.10)}}
+  #v-org .org-desk:focus-visible{outline:2.5px solid var(--org-live);outline-offset:2px}
+  #v-org .org-ws.s-live .org-desk{border-color:color-mix(in srgb,var(--org-live) 45%,var(--org-line))}
+  #v-org .org-row1{display:flex;align-items:center;gap:9px;padding-right:26px}
+  #v-org .org-avatar{width:36px;height:36px;border-radius:11px;flex:none;display:grid;place-items:center;
     font-weight:850;font-size:14px;color:#fff;letter-spacing:-.5px;position:relative;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.18)}
-  .org-avatar::after{content:"";position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.35),transparent 55%)}
-  .org-who{min-width:0;flex:1}
-  .org-nm{font-size:14.5px;font-weight:850;line-height:1.15;display:flex;align-items:center;gap:6px;color:var(--org-ink)}
-  .org-rl{font-size:11.5px;color:var(--org-ink2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .org-badge{font-size:10px;font-weight:800;padding:1px 6px;border-radius:999px;background:var(--org-brand);color:#fff;flex:none}
-  .org-status{margin-top:9px;display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:1.4;
-    color:var(--org-ink);background:color-mix(in srgb,var(--org-card) 60%,#fff 0%);border-radius:9px;padding:7px 8px;border:1px solid var(--org-line)}
-  .org-status .org-dot{margin-top:4px}
-  .org-status .msg{min-width:0}
-  .org-status .msg .st{font-weight:700}
-  .org-ago{display:block;font-size:10.5px;color:var(--org-ink2);margin-top:1px}
-  .org-note{padding:14px 4px 0;font-size:12px;color:var(--org-ink2);line-height:1.6}
-  @media (min-width:720px){.org-floor{grid-template-columns:1fr 1fr}.org-zone.ai{grid-column:1/-1}}
+  #v-org .org-avatar::after{content:"";position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.34),transparent 55%)}
+  #v-org .org-who{min-width:0;flex:1}
+  #v-org .org-nm{font-size:14.5px;font-weight:850;letter-spacing:-.3px;display:flex;align-items:center;gap:6px;line-height:1.2;color:var(--org-ink)}
+  #v-org .org-badge{font-size:10px;font-weight:800;padding:1px 6px;border-radius:5px;background:var(--org-brand);color:#fff;flex:none;white-space:nowrap}
+  #v-org .org-ws.mgmt-lead .org-badge{background:var(--org-live)}
+  #v-org .org-rl{font-size:11.5px;color:var(--org-ink2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #v-org .org-st{display:flex;align-items:center;gap:7px;margin-top:10px;font-size:12px;color:var(--org-ink2)}
+  #v-org .org-st .org-txt{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #v-org .org-st .org-txt .st{color:var(--org-ink);font-weight:700}
+  #v-org .org-ago2{opacity:.7}
+  #v-org .org-chev{margin-left:auto;flex:none;color:var(--org-ink2);transition:transform .2s;font-size:11px}
+  #v-org .org-desk[aria-expanded="true"] .org-chev{transform:rotate(180deg)}
+  /* 펼침 — 업무 상세(아코디언). grid-template-rows 0fr→1fr 로 부드럽게 연다. */
+  #v-org .org-duties{display:grid;grid-template-rows:0fr;transition:grid-template-rows .28s ease;margin-top:0}
+  #v-org .org-desk[aria-expanded="true"] + .org-duties{grid-template-rows:1fr;margin-top:9px}
+  #v-org .org-duties-in{overflow:hidden;min-height:0}
+  #v-org .org-duties ul{list-style:none;margin:0;padding:11px 12px;border:1px solid var(--org-line);border-radius:12px;
+    background:color-mix(in srgb,var(--org-card) 55%,transparent);display:flex;flex-direction:column;gap:7px}
+  #v-org .org-duties li{font-size:12.5px;color:var(--org-ink);padding-left:18px;position:relative;line-height:1.45}
+  #v-org .org-duties li::before{content:"";position:absolute;left:2px;top:7px;width:7px;height:7px;border-radius:2px;background:var(--org-live);opacity:.65}
+  #v-org .org-note{padding:14px 4px 0;font-size:12px;color:var(--org-ink2);line-height:1.6}
+  /* ── 반응형 — ≥760 이면 방 2열(AI 방은 폭 전체), ≤760 세로로 쌓고 책상 재배치 ── */
+  @media (min-width:760px){
+    #v-org .org-floor{grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr)}
+    #v-org .org-zone.ai{grid-column:1/-1}}
+  @media (max-width:760px){
+    #v-org .org-floor{grid-template-columns:1fr}
+    #v-org .org-zone.ai{grid-column:auto}
+    #v-org .org-desks,#v-org .org-zone.ai .org-desks{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
+  @media (max-width:420px){
+    #v-org .org-desks,#v-org .org-zone.ai .org-desks{grid-template-columns:1fr}
+    #v-org .org-rl{white-space:normal}}
   @keyframes orgDrift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(2%,-2%) scale(1.06)}100%{transform:translate(-2%,2%) scale(1.02)}}
-  @keyframes orgRise{to{opacity:1;transform:none}}
-  @keyframes orgSpin{to{transform:rotate(1turn)}}
   @media (prefers-reduced-motion:reduce){
-    .org-hero::after,.org-desk,.org-desk.s-live::after,.org-dot.pulse{animation:none!important}
-    .org-desk{opacity:1;transform:none}}
+    #v-org .org-hero::after,#v-org .org-dot.pulse{animation:none!important}
+    #v-org .org-duties,#v-org .org-chev,#v-org .org-desk{transition:none!important}}
   </style>
   <section class="view" id="v-org">
     <div class="org-hero">
@@ -6454,7 +6495,91 @@ function injectRemoteCard(){
   anchor.parentNode.insertBefore(card, anchor);
   renderRemoteCard('staffRemoteHost');
 }
+/* ══ 리모컨 화면을 목차로 접는다 — 아래에서 올라오는 시트 (2026-08-12 지시) ══════
+   사용자 지시: "리모컨 카테고리도 스크롤이 너무 길어, 아래서 올리는 구조로 한 화면에서
+   처리할 수 있는 구조로 정리해 ... 메뉴를 클릭해서 볼 수 있게"
+
+   ★ `renderRemoteCard` 의 템플릿은 **한 줄도 안 고친다.** 그린 뒤 DOM 을 나눠 접는다.
+     카드를 그리는 곳이 하나라서(관리자 remoteHost · 류지영 staffRemoteHost) 템플릿을
+     쪼개면 두 화면이 갈릴 위험을 새로 만든다. 후처리는 한 곳이고 되돌리기도 쉽다.
+   ★ 시트는 이미 있는 `layerOpen` 을 그대로 쓴다 — **요소를 통째로 올렸다가 닫으면
+     제자리로 돌아온다.** 새 시트를 만들면 사본이 둘이 되고 언젠가 갈린다. 복제가
+     아니라 원본을 옮기므로 시트 안에서 입력해도 값·이벤트가 그대로 살아 있다.
+   ★ 화면에 남는 것은 **지금 당장 봐야 하는 것**뿐이다: 합계 · 한도초과 경고 ·
+     지점 재고표. 나머지(기준 설명·입력 폼·이력 표 넷)는 목차 단추로 내려간다. */
+const REMOTE_SEC_KEEP = 'remote-warn';        // 경고는 접지 않는다 — 접으면 아무도 안 본다
+function remoteLayerClose(hostId){
+  /* 저장을 누르면 renderRemoteCard 가 innerHTML 을 통째로 다시 쓴다. 그때 시트에
+     올라가 있던 원본 요소는 돌아갈 집이 사라진다 — 그래서 다시 그리기 **전에** 닫는다.
+     (안 닫으면 저장 뒤 시트에 옛 폼이 남아 다음 입력이 허공으로 간다) */
+  try{
+    const h = document.getElementById(hostId);
+    if(h && typeof _layer !== 'undefined' && _layer && _layer.home && h.contains(_layer.home))
+      closeSheet();
+  }catch(_){}
+}
+function remoteSectionize(host){
+  if(!host) return;
+  const secs = [];                             // {title, sub, nodes[]}
+  let cur = null;
+  const start = (title, sub) => { cur = {title, sub: sub || '', nodes: []}; secs.push(cur); return cur; };
+  [...host.children].forEach(n => {
+    if(n.tagName === 'H4'){                    // 제목 = 새 목차 항목의 시작
+      const sp = n.querySelector('span');
+      const sub = sp ? sp.textContent.replace(/^[\s—-]+/, '').trim() : '';
+      start(n.textContent.replace(sp ? sp.textContent : '', '').trim(), sub);
+      cur.head = n;                            // 제목은 시트가 다시 그리므로 화면에서 뗀다
+      return;
+    }
+    if(n.classList && n.classList.contains('remote-std')){
+      start('보유·불출 기준', '한도와 규칙 · 누가 언제 무엇을 남기나').nodes.push(n);
+      cur = null; return;                      // 이 덩어리 하나로 끝 — 뒤 요소를 삼키지 않는다
+    }
+    if(n.classList && n.classList.contains('remote-grid2')){
+      start('입력 — 재고 · 불출 · 납품', '여기서 적으면 바로 저장됩니다').nodes.push(n);
+      cur = null; return;
+    }
+    if(cur) cur.nodes.push(n);                 // 제목 뒤에 붙는 표들
+  });
+  if(!secs.length) return;
+
+  const menu = document.createElement('div');
+  menu.className = 'rmenu';
+  menu.setAttribute('role', 'toolbar');
+  menu.setAttribute('aria-label', '리모컨 목차');
+  const store = document.createElement('div');
+  store.className = 'rsec-store';              // 접어 둔 원본이 사는 곳(화면에는 안 보인다)
+
+  secs.forEach((s, i) => {
+    if(!s.nodes.length){ if(s.head) s.head.remove(); return; }
+    const box = document.createElement('div');
+    box.className = 'rsec';
+    box.id = host.id + 'Sec' + i;
+    /* 몇 줄짜리인지 단추에 적는다 — 열어 보기 전에 "볼 게 있나"를 알 수 있어야 한다.
+       0줄이면 애초에 표가 안 그려지므로(템플릿이 빈 문자열) 여기 오지 않는다. */
+    let cnt = 0;
+    s.nodes.forEach(n => {
+      if(n.tagName === 'TABLE') cnt += Math.max(0, n.querySelectorAll('tr').length - 1);
+      box.appendChild(n);
+    });
+    if(s.head) s.head.remove();
+    store.appendChild(box);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'rmenu-b';
+    b.innerHTML = '<span class="t">' + esc2(s.title) + '</span>'
+                + (cnt ? '<span class="n">' + cnt + '</span>' : '');
+    b.title = s.sub || s.title;
+    b.onclick = () => {
+      layerOpen(box, {title: s.title, sub: s.sub});
+      try{ uxEvent('tap', 'remote-sec', s.title); }catch(_){}
+    };
+    menu.appendChild(b);
+  });
+  host.appendChild(menu);
+  host.appendChild(store);
+}
 async function renderRemoteCard(hostId){
+  remoteLayerClose(hostId);          // 다시 그리기 전에 시트를 닫는다(위 설명)
   const host=$(hostId); if(!host) return;
   let s=null;
   try{ s=await api('/api/remote/status'); }catch(e){ host.innerHTML='<p class="norm">리모컨 현황을 불러오지 못했습니다.</p>'; return; }
@@ -7355,26 +7480,45 @@ let FLOW = [], FLOW_EDITING = false;
    정본은 /api/orgchart(AI 구역만 진짜 실시간 — ai_claim). 못 받으면 ORG_SNAP 로
    물러선다. 화면을 보고 있을 때만 15초마다 다시 읽는다(안 보는데 서버를 두드리지 않는다).
    사람의 '지금 상태'는 지어내지 않고 역할만 싣는다 — 실시간은 AI 세션뿐이다. */
+/* ★ 서버(/api/orgchart)와 **같은 모양**이어야 한다 — duties 배열, 유현민 '센터장',
+   차동호 '팀장', AI 세 자리 모두. 못 받으면 이 스냅샷으로 물러선다(오프라인·폰). */
 const ORG_SNAP={gen:"오프라인 스냅샷",_live:false,zones:[
   {key:"mgmt",title:"관리팀 · 업무센터",tag:"쿠팡 AS·정기점검 원장",people:[
-    {name:"류지영",role:"류지영 쿠팡 AS 및 정기점검 업무센터",color:"#0062CC",state:"idle",msg:"신규 돌발AS 접수와 처리상태 확인",ago:"근무"},
-    {name:"오종현",role:"오종현 업무센터",color:"#12813F",state:"idle",msg:"PO 원본·견적서 수신 여부 확인",ago:"근무"},
-    {name:"유현민",role:"유현민 업무센터",color:"#7A3DB8",state:"idle",msg:"돌발AS·정기점검 전체 진행상태와 예외 확인",ago:"근무",badge:"대표"}]},
+    {name:"류지영",role:"류지영 쿠팡 AS 및 정기점검 업무센터",color:"#0062CC",state:"idle",msg:"신규 돌발AS 접수와 처리상태 확인",ago:"근무",
+     duties:["신규 돌발AS 접수와 처리상태 확인","정기점검 예정·실행·미실시 사유 입력","카카오톡 정기점검방·돌발점검방 원본 업로드","택배 발송·현장 조치 완료일과 근거 첨부","거래명세서·세금계산서 발행 확인","입금일·입금액·잔여 미수금 확인","ERP 금액 불일치와 청구 미등록 보완","리모컨 불출·납품 기록(증평 담당·AS 담당자당 3개)"]},
+    {name:"오종현",role:"오종현 업무센터",color:"#12813F",state:"idle",msg:"PO 원본·견적서 수신 여부 확인",ago:"근무",
+     duties:["PO 원본·견적서 수신 여부 확인","구매·입금 원천자료 누락 확인","프로젝트번호·캠프·금액 불일치 보완","리모컨 불출·납품 기록(부산 담당·AS 담당자당 3개)"]},
+    {name:"유현민",role:"유현민 업무센터",color:"#7A3DB8",state:"idle",msg:"돌발AS·정기점검 전체 진행상태와 예외 확인",ago:"근무",badge:"센터장",
+     duties:["돌발AS·정기점검 전체 진행상태와 예외 확인","담당자·일정·비용구분 정정 승인","거래서류·세금계산서·입금 근거 확인","앱 DB 저장과 Excel 자동 보관본 상태 확인","확인 필요 항목의 객관 근거와 완료 판정 검토"]}]},
   {key:"field",title:"현장 AS팀 · 정기점검",tag:"현장 조치·밴드 보고",people:[
-    {name:"차동호",role:"현장 AS · 정기점검",color:"#B25000",state:"idle",msg:"팀장 · 배정에 따라 현장 조치",ago:"",badge:"팀장"},
-    {name:"김준형",role:"현장 AS · 정기점검",color:"#0E7490",state:"idle",msg:"배정에 따라 현장 조치·밴드 보고",ago:""},
-    {name:"권오철",role:"현장 AS · 정기점검",color:"#B3261E",state:"idle",msg:"배정에 따라 현장 조치·밴드 보고",ago:""},
-    {name:"김필우",role:"현장 AS · 정기점검",color:"#177245",state:"idle",msg:"배정에 따라 현장 조치·밴드 보고",ago:""}]},
+    {name:"차동호",role:"현장 AS · 정기점검",color:"#B25000",state:"idle",msg:"팀장 · 배정에 따라 현장 조치·밴드 보고",ago:"",badge:"팀장",
+     duties:["현장 AS 팀장 · 배정·일정 관리","배정에 따라 현장 조치","밴드에 조치·완료 보고","리모컨 납품 기록"]},
+    {name:"김준형",role:"현장 AS · 정기점검",color:"#0E7490",state:"idle",msg:"배정에 따라 현장 조치·밴드 보고",ago:"",
+     duties:["배정에 따라 현장 조치","밴드에 조치·완료 보고","리모컨 납품 기록"]},
+    {name:"권오철",role:"현장 AS · 정기점검",color:"#B3261E",state:"idle",msg:"배정에 따라 현장 조치·밴드 보고",ago:"",
+     duties:["배정에 따라 현장 조치","밴드에 조치·완료 보고","리모컨 납품 기록"]},
+    {name:"김필우",role:"현장 AS · 정기점검",color:"#177245",state:"idle",msg:"배정에 따라 현장 조치·밴드 보고",ago:"",
+     duties:["배정에 따라 현장 조치","밴드에 조치·완료 보고","리모컨 납품 기록"]}]},
   {key:"ai",title:"AI 에이전트 스테이션",tag:"자동화·수집·코딩",people:[
-    {name:"Claude 세션",role:"앱 코딩·검증·인계",color:"#0062CC",state:"off",msg:"연결되면 실시간으로 바뀝니다",ago:"—"},
-    {name:"CSOS 수집",role:"밴드·ERP 자료 수집",color:"#0E7490",state:"off",msg:"연결되면 실시간으로 바뀝니다",ago:"—"},
-    {name:"Codex",role:"교대 코딩",color:"#5A6785",state:"off",msg:"대기",ago:"—"}]}
+    {name:"Claude 세션",role:"앱 코딩·검증·인계",color:"#0062CC",state:"off",msg:"연결되면 실시간으로 바뀝니다",ago:"—",
+     duties:["앱 코딩·리팩터링·합성검증","세션 인계 문서 갱신","막힘 풀린 일 재개·보류 푸시"]},
+    {name:"CSOS 수집",role:"밴드·ERP 자료 수집",color:"#0E7490",state:"off",msg:"연결되면 실시간으로 바뀝니다",ago:"—",
+     duties:["밴드 글·댓글 수집(우선순위 계획대로)","ERP 판매·수금 내려받기","원본 흡수·대조 회차 공급"]},
+    {name:"Codex",role:"교대 코딩",color:"#5A6785",state:"off",msg:"연결되면 실시간으로 바뀝니다",ago:"—",
+     duties:["Claude 크레딧 소진 시 코딩 교대","같은 시작 체크리스트를 따름"]}]}
 ]};
 let ORG_TIMER=null, ORG_LAST=null;
 function orgInitials(n){const s=String(n||'').trim();
   if(/^[A-Za-z]/.test(s))return s.slice(0,2).toUpperCase();
   return s.replace(/\s|세션|·.*$/g,'').slice(0,2)||'·';}
 function orgStateLabel(s){return {busy:'업무 중',idle:'대기·정상',live:'실시간',off:'오프라인'}[s]||'—';}
+/* 자리를 누르면 담당 업무(.org-duties)가 아래로 펼쳐진다. aria-expanded 하나만
+   토글하면 CSS(0fr→1fr)가 나머지를 한다 — 상태를 두 군데서 들고 있지 않는다. */
+function orgToggle(btn){
+  try{ const open=btn.getAttribute('aria-expanded')==='true';
+    btn.setAttribute('aria-expanded', open?'false':'true');
+    uxEvent('tap','org-duties', open?'close':'open'); }catch(_){}
+}
 function orgRender(D){
   ORG_LAST=D;
   const gen=$('orgGen'); if(gen) gen.textContent='업데이트 '+(D.gen||'—');
@@ -7384,20 +7528,30 @@ function orgRender(D){
       <div class="org-zh">${esc2(z.title)}<span class="tag">${esc2(z.tag||'')}</span></div>
       <div class="org-desks">${(z.people||[]).map(p=>{
         const st=p.state||'off';
-        return `<div class="org-desk s-${esc2(st)}">
-          <div class="org-row1">
-            <div class="org-avatar" style="background:${esc2(p.color||'#0062CC')}">${esc2(orgInitials(p.name))}</div>
-            <div class="org-who"><div class="org-nm">${esc2(p.name)}${p.badge?`<span class="org-badge">${esc2(p.badge)}</span>`:''}</div>
-              <div class="org-rl">${esc2(p.role||'')}</div></div>
-          </div>
-          <div class="org-status"><span class="org-dot ${esc2(st)} ${st==='live'?'pulse':''}"></span>
-            <span class="msg"><span class="st">${esc2(orgStateLabel(st))}</span> — ${esc2(p.msg||'상태 없음')}
-              <span class="org-ago">${esc2(p.ago||'')}</span></span></div>
+        const lead=(z.key==='mgmt'&&p.badge)?' mgmt-lead':'';
+        const duties=(p.duties||[]);
+        const dutiesHtml=duties.length
+          ? `<ul>${duties.map(d=>`<li>${esc2(d)}</li>`).join('')}</ul>`
+          : `<ul><li>이 자리의 담당 업무가 아직 등록되지 않았습니다.</li></ul>`;
+        return `<div class="org-ws s-${esc2(st)}${lead}">
+          <div class="org-chair"></div>
+          <button type="button" class="org-desk s-${esc2(st)}" aria-expanded="false" onclick="orgToggle(this)">
+            <span class="org-mon"></span>
+            <div class="org-row1">
+              <div class="org-avatar" style="background:${esc2(p.color||'#0062CC')}">${esc2(orgInitials(p.name))}</div>
+              <div class="org-who"><div class="org-nm">${esc2(p.name)}${p.badge?`<span class="org-badge">${esc2(p.badge)}</span>`:''}</div>
+                <div class="org-rl">${esc2(p.role||'')}</div></div>
+            </div>
+            <div class="org-st"><span class="org-dot ${esc2(st)} ${st==='live'?'pulse':''}"></span>
+              <span class="org-txt"><span class="st">${esc2(orgStateLabel(st))}</span> — ${esc2(p.msg||'상태 없음')}${p.ago?` <span class="org-ago2">· ${esc2(p.ago)}</span>`:''}</span>
+              <span class="org-chev">▾</span></div>
+          </button>
+          <div class="org-duties"><div class="org-duties-in">${dutiesHtml}</div></div>
         </div>`;}).join('')}</div>
     </section>`).join('');
   const note=$('orgNote'); if(note) note.textContent=D._live
-    ? '실시간 연결됨 — AI 세션 상태는 ai_claim 점유에서, 사람 자리·역할은 로스터에서 옵니다. 사람의 지금 상태는 지어내지 않고 역할만 싣습니다.'
-    : '오프라인 스냅샷입니다 — 서버에 연결되면 AI 세션 상태가 실시간으로 바뀝니다.';
+    ? '실시간 연결됨 — AI 세션 상태는 ai_claim 점유에서, 사람 자리·역할은 로스터에서 옵니다. 자리를 누르면 담당 업무가 펼쳐집니다. 사람의 지금 상태는 지어내지 않고 역할만 싣습니다.'
+    : '오프라인 스냅샷입니다 — 서버에 연결되면 AI 세션 상태가 실시간으로 바뀝니다. 자리를 누르면 담당 업무가 펼쳐집니다.';
 }
 async function orgLoad(force){
   try{
@@ -17034,6 +17188,22 @@ body.tab-drag-live{-webkit-user-select:none;user-select:none;cursor:grabbing}
 body.tab-drag-live #tabbar button[data-v]{transition:transform .12s ease}
 #tabbar button.tab-dragging{opacity:.92;transform:scale(1.05);position:relative;z-index:5;
   box-shadow:0 10px 28px rgba(0,0,0,.32);border-radius:12px}
+/* 리모컨 목차 메뉴 — 누르면 그 덩어리가 아래에서 올라온다(2026-08-12 지시).
+   접어 둔 원본은 .rsec-store 안에서 숨어 있다가, layerOpen 이 시트로 옮기는 순간
+   보이고 닫으면 다시 제자리(숨김)로 돌아간다 — 사본을 만들지 않으므로 입력 중이던
+   값도 그대로다. */
+.rmenu{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:8px;margin:14px 0 2px}
+.rmenu-b{display:flex;align-items:center;gap:8px;justify-content:space-between;text-align:left;
+  border:1px solid var(--line);background:var(--panel);border-radius:14px;padding:13px 14px;
+  font-family:inherit;font-size:13.5px;font-weight:800;color:var(--ink);cursor:pointer;
+  min-height:54px;transition:transform .1s ease,box-shadow .15s ease}
+.rmenu-b:hover{box-shadow:0 6px 18px rgba(16,30,70,.12)}
+.rmenu-b:active{transform:scale(.98)}
+.rmenu-b .t{min-width:0}
+.rmenu-b .n{flex:none;font-size:11.5px;font-weight:800;color:#fff;background:var(--brand);
+  border-radius:999px;padding:2px 8px}
+.rsec-store{display:none}
+.rsec.in-layer{display:block}
 #tabOrderUndo{position:fixed;left:50%;transform:translateX(-50%);
   bottom:calc(env(safe-area-inset-bottom,0px) + 88px);z-index:1200;border:0;cursor:pointer;
   border-radius:999px;padding:11px 18px;font-family:inherit;font-size:13px;font-weight:800;

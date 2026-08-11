@@ -5789,9 +5789,11 @@ def get_orgchart():
     PAL = ["#0062CC", "#12813F", "#B25000", "#7A3DB8",
            "#0E7490", "#B3261E", "#177245", "#8A5A00"]
 
+    # ── 관리팀 — 로스터(STAFF_CENTERS)가 정본. duties = 그 센터의 체크리스트 전부.
+    #    유현민은 '센터장' 딱지(예전 '대표'에서 바꿈, 2026-08-12 지시). ──
     mgmt = []
     for i, (slug, cfg) in enumerate(STAFF_CENTERS.items()):
-        cl = cfg.get("checklist") or []
+        cl = list(cfg.get("checklist") or [])
         mgmt.append({
             "name": cfg.get("name", slug),
             "role": cfg.get("title", ""),
@@ -5799,12 +5801,17 @@ def get_orgchart():
             "state": "idle",
             "msg": (cl[0] if cl else "업무센터 담당"),
             "ago": "근무",
-            "badge": "대표" if slug == "yoo-hyeonmin" else "",
+            "badge": "센터장" if slug == "yoo-hyeonmin" else "",
+            "duties": cl or ["업무센터 담당"],
         })
 
+    # ── 현장 AS팀 — 로스터(AS_TECH_CENTERS)가 정본. 팀장은 배정·일정 한 줄을 앞에 둔다. ──
+    FIELD_DUTIES = ["배정에 따라 현장 조치", "밴드에 조치·완료 보고", "리모컨 납품 기록"]
     field = []
     for i, (slug, cfg) in enumerate(AS_TECH_CENTERS.items()):
         title = cfg.get("직함") or ""
+        duties = (["현장 AS 팀장 · 배정·일정 관리"] + FIELD_DUTIES
+                  if title == "팀장" else list(FIELD_DUTIES))
         field.append({
             "name": cfg.get("name", slug),
             "role": "현장 AS · 정기점검",
@@ -5813,9 +5820,27 @@ def get_orgchart():
             "msg": (title + " · " if title else "") + "배정에 따라 현장 조치·밴드 보고",
             "ago": "",
             "badge": title,
+            "duties": duties,
         })
 
-    ai, live_ok = [], False
+    # ── AI 스테이션 — 기본 자리 셋은 **언제나** 보인다(쉬든 꺼졌든). 실시간 점유만
+    #    덮어쓴다. '세션 에이전트 모두 추가' 자리라 절대 비지 않는다([169]). ──
+    BASE = [
+        {"name": "Claude 세션", "role": "앱 코딩·검증·인계", "color": "#0062CC",
+         "duties": ["앱 코딩·리팩터링·합성검증", "세션 인계 문서 갱신",
+                    "막힘 풀린 일 재개·보류 푸시"]},
+        {"name": "CSOS 수집", "role": "밴드·ERP 자료 수집", "color": "#0E7490",
+         "duties": ["밴드 글·댓글 수집(우선순위 계획대로)", "ERP 판매·수금 내려받기",
+                    "원본 흡수·대조 회차 공급"]},
+        {"name": "Codex", "role": "교대 코딩", "color": "#5A6785",
+         "duties": ["Claude 크레딧 소진 시 코딩 교대", "같은 시작 체크리스트를 따름"]},
+    ]
+    ai = [dict(b, state="off", msg="연결되면 실시간으로 바뀝니다", ago="—",
+               duties=list(b["duties"])) for b in BASE]
+    by_name = {s["name"]: s for s in ai}
+    overlaid = set()
+
+    live_ok = False
     try:
         import ai_claim
         claims = ai_claim.load()
@@ -5839,27 +5864,31 @@ def get_orgchart():
             ago = "방금" if mins < 1 else (f"{mins}분 전" if mins < 60
                                           else f"{mins // 60}시간 {mins % 60}분 전")
             who = str(g["who"])
-            nm = {"claude": "Claude 세션", "codex": "Codex 세션"}.get(who, who)
-            ai.append({
-                "name": nm,
-                "role": " · ".join(dict.fromkeys(g["res"])) or "작업 중",
-                "color": "#0062CC" if who == "claude" else "#5A6785",
+            # 점유의 who 를 기본 자리에 매핑한다 — 아는 것은 이 셋뿐이다.
+            target = {"claude": "Claude 세션", "codex": "Codex"}.get(who, "CSOS 수집")
+            info = {
                 "state": "off" if g["dead"] else "live",
                 "msg": g["why"] or "작업 중",
                 "ago": ago + ("" if not g["dead"] else " · 종료됨"),
-            })
+            }
+            stn = by_name.get(target)
+            if stn is not None and target not in overlaid:
+                stn.update(info)
+                overlaid.add(target)
+            else:
+                # 같은 자리를 여러 세션이 잡았다 — 덮지 않고 카드를 하나 더 붙인다.
+                ai.append({
+                    "name": target + " (추가)",
+                    "role": " · ".join(dict.fromkeys(g["res"])) or "작업 중",
+                    "color": ("#0062CC" if who == "claude"
+                              else "#5A6785" if who == "codex" else "#0E7490"),
+                    "duties": ["세션 점유(ai_claim)에서 실시간으로 읽었습니다"],
+                    **info,
+                })
     except Exception:
         live_ok = False
-    if not ai:
-        # ★ 0건을 '없다'로 못 박지 않는다 — 점유를 못 읽었을 수도 있다([169]).
-        ai.append({
-            "name": "AI 세션 없음" if live_ok else "AI 상태 못 읽음",
-            "role": "자동화 · 수집 · 코딩",
-            "color": "#8A93A6", "state": "off",
-            "msg": ("지금 잡혀 있는 AI 작업이 없습니다"
-                    if live_ok else "ai_claim 점유를 읽지 못했습니다"),
-            "ago": "—",
-        })
+    # ai 는 절대 비지 않는다 — 기본 자리 셋이 늘 들어 있다. 점유를 못 읽었으면
+    # gen 에 그 사실을 적는다(0건을 '없다'로 못 박지 않는다, [169]).
 
     gen = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
     return {

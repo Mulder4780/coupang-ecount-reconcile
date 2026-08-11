@@ -15018,6 +15018,118 @@ def t231_loop_tick_weight_from_evidence():
     print("[231] 정오 루프 틱 무게 — 값은 ai_tier 한 곳 · 못읽음≠가벼움 · 수집은 남의 몫 OK")
 
 
+def t232_orgchart_floorplan_roster_and_states():
+    """[232] 조직도 — 사무실 배치 평면도: 로스터 정본·AI 자리 셋·상태 넷·아코디언 (2026-08-12 지시).
+
+    사용자 지시: 조직도를 '책상·의자가 있는 사무실 배치도'로 바꾸고, 좌우 잘림을 고치고,
+    AI 세션 에이전트를 모두 보이고, 자리를 누르면 담당 업무가 펼쳐지게 한다.
+
+    ★ 지키는 것 셋:
+      ① 사람 자리·역할·이름은 **로스터**(STAFF_CENTERS·AS_TECH_CENTERS)가 정본이다 —
+         서버가 이름을 지어내지 않는다. 사람의 '지금 상태'는 늘 idle 이다(안 지어낸다).
+      ② AI 구역은 **절대 비지 않는다** — 기본 자리 셋(Claude·CSOS·Codex)이 늘 있고
+         실시간 점유(ai_claim)만 그 위를 덮는다([169] '0을 없다로 못 박지 않는다'의 자리판).
+      ③ 화면은 `#v-org` 아래로 좁힌 `org-` 클래스만 쓴다 — 1.1MB 본문의 .ws·.chair·
+         .desk 와 안 부딪히고, minmax(0,..)·max-width 로 좌우가 안 잘린다.
+    """
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as A
+
+    D = A.get_orgchart()
+    assert isinstance(D, dict) and isinstance(D.get("_live"), bool), "_live 가 없다/불리언이 아니다"
+    assert isinstance(D.get("gen"), str) and D["gen"], "gen(생성 시각)이 문자열이 아니다"
+    zones = D.get("zones")
+    assert isinstance(zones, list) and len(zones) == 3, "구역이 정확히 셋이 아니다"
+    assert [z.get("key") for z in zones] == ["mgmt", "field", "ai"], \
+        "구역 순서/키가 mgmt·field·ai 가 아니다"
+
+    zmap = {z["key"]: z for z in zones}
+    STATES = {"busy", "idle", "live", "off"}
+    for z in zones:
+        ppl = z.get("people")
+        assert isinstance(ppl, list) and ppl, "구역에 사람이 없다: " + str(z.get("key"))
+        for p in ppl:
+            assert p.get("state") in STATES, "모르는 상태: %r" % p.get("state")
+            assert isinstance(p.get("duties"), list) and p["duties"], \
+                "담당 업무(duties)가 비었다: %s" % p.get("name")
+
+    # ① 사람 자리·이름은 로스터가 정본 — 코드에 박아 두지 않는다.
+    mgmt_names = [p["name"] for p in zmap["mgmt"]["people"]]
+    assert mgmt_names == [c.get("name", s) for s, c in A.STAFF_CENTERS.items()], \
+        "관리팀 이름이 로스터(STAFF_CENTERS)와 다르다 — 코드가 이름을 지어낸다"
+    field_names = [p["name"] for p in zmap["field"]["people"]]
+    assert field_names == [c.get("name", s) for s, c in A.AS_TECH_CENTERS.items()], \
+        "현장팀 이름이 로스터(AS_TECH_CENTERS)와 다르다"
+
+    # 사람 상태는 늘 idle — 서버가 사람의 busy/live 를 지어내지 않는다.
+    for z in (zmap["mgmt"], zmap["field"]):
+        for p in z["people"]:
+            assert p["state"] == "idle", "사람 상태를 지어냈다: %s → %s" % (p["name"], p["state"])
+
+    # ② 딱지: 유현민 '센터장'(예전 '대표'에서 바꿈), 차동호 '팀장'.
+    yoo = next(p for p in zmap["mgmt"]["people"] if p["name"] == "유현민")
+    assert yoo.get("badge") == "센터장", "유현민 딱지가 '센터장' 이 아니다: %r" % yoo.get("badge")
+    cha = next(p for p in zmap["field"]["people"] if p["name"] == "차동호")
+    assert cha.get("badge") == "팀장", "차동호 딱지가 '팀장' 이 아니다: %r" % cha.get("badge")
+
+    # ③ AI 구역은 절대 비지 않고 기본 자리 셋을 늘 담는다.
+    ai_names = [p["name"] for p in zmap["ai"]["people"]]
+    for base in ("Claude 세션", "CSOS 수집", "Codex"):
+        assert base in ai_names, "AI 기본 자리가 빠졌다: " + base
+
+    # ── 서버·화면 코드가 계약을 지키는지 텍스트로 확인한다 ──
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # 라우트는 절대 500 을 안 낸다 — try/except 로 감싸 200 폴백을 준다.
+    route = server.split('if p == "/api/orgchart":', 1)[1].split("if p ==", 1)[0]
+    assert "try:" in route and "except" in route and "_send(200" in route, \
+        "/api/orgchart 이 500 을 낼 수 있다 — 200 폴백이 없다"
+    assert '"_live": False' in route, "폴백에 _live=False 가 없다"
+
+    # AI 산·죽음은 ai_claim 에서 온다 — 지어내지 않는다.
+    fn = server.split("def get_orgchart", 1)[1].split("\ndef ", 1)[0]
+    assert "import ai_claim" in fn and "_is_dead" in fn, "AI 상태를 ai_claim 점유에서 안 읽는다"
+    assert "센터장" in fn and '"대표"' not in fn, \
+        "유현민 딱지가 아직 '대표' 다(로스터 정본과 어긋남)"
+
+    # 화면: 조직도 탭·뷰가 있다.
+    assert 'data-v="org"' in live and 'id="v-org"' in live, "조직도 탭/뷰가 없다"
+
+    # 클래스는 #v-org 아래로 좁힌 org- 접두만 — 본문 .ws·.chair·.desk 와 안 부딪힌다.
+    css = live.split('<style id="org-style">', 1)[1].split("</style>", 1)[0]
+    assert "#v-org .org-" in css, "org 규칙이 #v-org 아래로 좁혀져 있지 않다"
+    assert "#v-org .org-ws" in css and "#v-org .org-chair" in css, "의자·책상 규칙이 없다"
+    for bare in (".ws{", ".chair{", ".desk{"):
+        assert bare not in css, "접두 없는 전역 규칙이 들어왔다: " + bare
+
+    # 4상태 범례.
+    for cls in ("org-dot busy", "org-dot idle", "org-dot live", "org-dot off"):
+        assert cls in live, "범례에 상태가 빠졌다: " + cls
+
+    # 아코디언 — 자리를 누르면 담당 업무가 펼쳐진다(aria-expanded + orgToggle).
+    assert "aria-expanded" in live and "function orgToggle(" in live, "펼침 아코디언이 없다"
+    assert "grid-template-rows:0fr" in css and "grid-template-rows:1fr" in css, \
+        "아코디언 여닫이(0fr→1fr)가 CSS 에 없다"
+
+    # 화면 스냅샷도 서버와 같은 모양 — 유현민 '센터장'·AI 세 자리·duties.
+    snap = live.split("const ORG_SNAP=", 1)[1].split("]};", 1)[0]
+    assert "센터장" in snap and 'badge:"팀장"' in snap, "스냅샷 딱지가 계약과 다르다"
+    assert "CSOS 수집" in snap and "Codex" in snap, "스냅샷에 AI 세 자리가 없다"
+    assert "duties:" in snap, "스냅샷에 duties 가 없다"
+
+    # 좌우 잘림 방지 — 내용 열을 넘지 않게 max-width·minmax(0,..)·모바일 규칙을 쓴다.
+    assert "max-width:100%" in css, "평면도가 내용 열을 넘지 않게 막는 max-width 가 없다"
+    assert "minmax(0," in css, "그리드가 minmax(0,..) 로 안 짜여 좌우가 잘릴 수 있다"
+    assert "max-width:760px" in css, "모바일(≤760px) 반응형 규칙이 없다"
+
+    # 캡처 글꼴은 uiFont 에서 온다 — 손으로 적으면 저장 이미지만 옛 글꼴로 남는다([앱 글꼴]).
+    png = live.split("function orgToPng(", 1)[1].split("\nfunction ", 1)[0]
+    assert "uiFont" in png, "이미지 캡처가 uiFont 를 안 쓴다(글꼴을 손으로 박았다)"
+
+    print("  [232] 조직도 평면도 — 로스터 정본·AI 자리 셋·상태 넷·아코디언·#v-org 좁힘 ✅")
+
+
 def t230_ai_tier_picks_model_and_effort():
     """[230] AI 를 부를 때 **모델·노력을 스스로 고른다** (2026-08-12 지시).
 
@@ -16259,6 +16371,7 @@ if __name__ == "__main__":
     t229_band_liveness_contract()
     t230_ai_tier_picks_model_and_effort()
     t231_loop_tick_weight_from_evidence()
+    t232_orgchart_floorplan_roster_and_states()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
