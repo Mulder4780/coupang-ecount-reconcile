@@ -428,6 +428,13 @@ def main():
             rec["comments"] = conv_comments(
                 (cur.get("comments") or []) + (rec.get("comments") or []), cap_ms)
             rec["comments_full"] = bool(rec.get("comments_full") or cur.get("comments_full"))
+            # ★ 본문이 안 바뀐 글은 아래에서 merged[no]=rec 를 **안 한다**. 그러면 위에서
+            #   합친 댓글·완독표시가 rec 에만 있고 버려져, 재수집분이 옛 '미확인'을 영영
+            #   못 덮는다 — 백필이 같은 95건을 매 회차 다시 뽑으며 수렴하지 못한다
+            #   (2026-08-11 실측: 열린 원장 95건이 두 번 재수집·흡수 뒤에도 안 줄었다).
+            #   댓글은 '쌓이는' 것이라 본문 교체 여부와 무관하게 늘 cur 에 최신으로 남긴다.
+            cur["comments"] = rec["comments"]
+            cur["comments_full"] = rec["comments_full"]
             new_txt, old_txt = rec["content"] or "", cur.get("content") or ""
             # '…더보기'로 잘린 피드 수집분이 상세 전문을 덮어쓰지 않게 한다.
             truncated = len(new_txt) < len(old_txt) * 0.9 and old_txt.startswith(new_txt[:200])
