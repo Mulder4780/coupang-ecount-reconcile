@@ -262,6 +262,48 @@ def guess_date(name, mtime):
     return time.strftime("%Y-%m-%d", time.localtime(mtime))
 
 
+def _walk_stat(root):
+    """폴더를 훑으며 **(폴더, 이름, stat)** 을 준다 — `os.stat` 을 따로 부르지 않는다.
+
+    ★ 이것이 색인이 두 시간 반씩 걸리던 이유다 (2026-08-11 실측).
+      예전 코드는 `os.walk` 로 이름만 받아 온 뒤 파일마다 `os.stat(경로)` 를 다시 불렀다.
+      로컬 디스크에서는 공짜지만 **Z:(SMB)에서는 파일 하나가 왕복 한 번**이다.
+      같은 폴더에서 잰 값:
+        · `os.scandir` 항목의 stat  = **0.04 ms/개** (목록을 받을 때 크기·시각이 딸려 온다)
+        · `os.stat(경로)`           = **135~155 ms/개**  → **3,000배**
+      색인 대상이 112,662개이므로 0.145초 × 112,662 = **4.5시간**이 전부 이 한 줄이었다.
+      `os.walk` 도 속으로는 scandir 을 쓰지만 **그 결과를 버리고 이름만** 넘겨준다 —
+      그래서 겉보기에는 아무 잘못이 없다. 느린 것이 코드에 안 보이는 자리였다([168]).
+
+    ★ 캐시가 있어도 안 줄어든다. 캐시 열쇠가 `경로|크기|수정시각` 이라 **열쇠를 만들려면
+      먼저 stat 을 해야** 한다. 즉 하나도 안 바뀐 날도 4.5시간을 그대로 썼다.
+      "두 번째부터는 빠르겠지"가 성립하지 않는 구조였다.
+
+    못 들어가는 폴더는 건너뛴다 — 한 폴더 때문에 색인 전체를 세우지 않는다.
+    (심볼릭 링크는 따라가지 않는다. `os.walk` 기본값과 같다 — 고리를 만들면 안 끝난다.)
+    """
+    stack = [root]
+    while stack:
+        dirpath = stack.pop()
+        try:
+            with os.scandir(dirpath) as it:
+                entries = list(it)
+        except OSError:
+            continue
+        for e in entries:
+            try:
+                if e.is_dir(follow_symlinks=False):
+                    if e.name not in SKIP_DIRS:   # 내려가기 전에 거른다
+                        stack.append(e.path)
+                    continue
+                if not e.is_file(follow_symlinks=False):
+                    continue
+                st = e.stat()      # ★ 윈도우에서는 목록에 딸려 온 값이라 왕복이 없다
+            except OSError:
+                continue
+            yield dirpath, e.name, st
+
+
 class RootsUnreachable(RuntimeError):
     """원본 폴더에 **하나도** 닿지 못했다 — '파일이 없다'가 아니라 '못 봤다'이다."""
 
@@ -298,48 +340,41 @@ def scan(rescan=False):
         pass
 
     for root in seen_root:
-        for dirpath, _dirs, files in os.walk(root):
-            # 걸러낼 폴더는 **내려가기 전에** 지운다(os.walk 는 이 목록을 보고 내려간다).
-            _dirs[:] = [d for d in _dirs if d not in SKIP_DIRS]
-            for fn in files:
-                ext = os.path.splitext(fn)[1].lower()
-                if ext in SKIP_EXT or fn.startswith("~$"):
-                    continue
-                p = os.path.join(dirpath, fn)
-                if is_private(p, fn):     # 통화 메모 등 — 색인 자체에 남기지 않는다
-                    continue
-                try:
-                    st = os.stat(p)
-                except OSError:
-                    continue
-                key = f"{p}|{st.st_size}|{int(st.st_mtime)}"
-                hit = None if rescan else cache.get(key)
-                if hit is None:
-                    kind = folder_kind(p)
-                    # 내용 판별은 ERP 엑셀에만(그쪽만 이름이 무작위라 판별이 필요하다)
-                    if classify and ext == ".xlsx" and kind in ("ERP", ""):
-                        try:
-                            k2 = classify(p)
-                            if k2 and k2 != "unknown":
-                                kind = f"ERP:{k2}"
-                        except Exception:
-                            pass
-                    uj = (UJ.search(fn) or UJ.search(dirpath))
-                    slip = SLIP.search(fn)
-                    post = POST.search(fn) if not slip else None
-                    po = PO.search(fn)
-                    hit = {
-                        "name": fn, "path": p, "kind": kind or "기타",
-                        "uj": uj.group(0) if uj else "",
-                        "slip": slip.group(1) if slip else "",
-                        "post": post.group(1) if post else "",
-                        "po": po.group(0).upper() if po else "",
-                        "date": guess_date(fn, st.st_mtime),
-                        "ext": ext.lstrip("."), "size": st.st_size,
-                        "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
-                    }
-                    cache[key] = hit
-                out.append(hit)
+        for dirpath, fn, st in _walk_stat(root):
+            ext = os.path.splitext(fn)[1].lower()
+            if ext in SKIP_EXT or fn.startswith("~$"):
+                continue
+            p = os.path.join(dirpath, fn)
+            if is_private(p, fn):     # 통화 메모 등 — 색인 자체에 남기지 않는다
+                continue
+            key = f"{p}|{st.st_size}|{int(st.st_mtime)}"
+            hit = None if rescan else cache.get(key)
+            if hit is None:
+                kind = folder_kind(p)
+                # 내용 판별은 ERP 엑셀에만(그쪽만 이름이 무작위라 판별이 필요하다)
+                if classify and ext == ".xlsx" and kind in ("ERP", ""):
+                    try:
+                        k2 = classify(p)
+                        if k2 and k2 != "unknown":
+                            kind = f"ERP:{k2}"
+                    except Exception:
+                        pass
+                uj = (UJ.search(fn) or UJ.search(dirpath))
+                slip = SLIP.search(fn)
+                post = POST.search(fn) if not slip else None
+                po = PO.search(fn)
+                hit = {
+                    "name": fn, "path": p, "kind": kind or "기타",
+                    "uj": uj.group(0) if uj else "",
+                    "slip": slip.group(1) if slip else "",
+                    "post": post.group(1) if post else "",
+                    "po": po.group(0).upper() if po else "",
+                    "date": guess_date(fn, st.st_mtime),
+                    "ext": ext.lstrip("."), "size": st.st_size,
+                    "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
+                }
+                cache[key] = hit
+            out.append(hit)
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)
     cache[RULES_KEY] = rules_version()      # 어떤 규칙으로 판별한 캐시인지 같이 적는다
     # ★ 통째 덮어쓰기(`open(CACHE,"w")`)는 **여는 순간 원본을 0바이트로 만든다.**

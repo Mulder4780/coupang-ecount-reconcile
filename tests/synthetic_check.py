@@ -9525,6 +9525,67 @@ def t177_comment_collection_is_targeted():
     print("  [177] 댓글 수집 — 날짜가 아니라 '오늘 숫자를 바꾸는가'로 고른다 ✅")
 
 
+def t199_distrust_trusts_confirmed_zero():
+    """[199] distrust 무한루프 — comments_full(확인된 0개)은 믿는다 (2026-08-11 실사고).
+
+    90610953 은 열린 원장 1순위 95건을 두 번 재수집·흡수했는데도 1순위가 계속 95건.
+    원인: 이 밴드는 **댓글 담긴 글이 실제로 0**이라 `harvest_looks_broken` 이 늘 참을
+    돌려주고, distrust 가 `comments: []` 인 글을 죄다 '못 읽음'으로 되뽑는다. 아무리
+    긁어도 진짜 0 이라 distrust 가 안 풀린다 → 같은 글 무한루프.
+
+    가르는 근거는 수집기가 이미 다는 `comments_full`([182] '확인된 0개'): 입력창까지
+    그려진 뒤 목록이 0 이면 그건 못 읽은 게 아니라 **본 것**이다. 반대로 [162] 사고의
+    깨진 수확은 `comment_count>0` 인데 목록 0 이라 `comments_full=False` 로 남는다.
+    그래서 **distrust 여도 comments_full 은 믿고**, 되뽑는 것은 '비었고 & full 도 아닌' 글뿐이다.
+    """
+    import sys as _s
+    _s.path.insert(0, os.path.join(ROOT, "band"))
+    import comment_backfill as CB
+    import band_extract
+    import time as _t
+
+    def fake_parse(no, p, band):
+        return {"프로젝트NO": p.get("prj", "")}
+
+    NOW = int(_t.time() * 1000)
+    posts = {}
+    # distrust 를 켜려면 '들여다봤다고 기록된' 글이 floor(30) 이상이어야 한다.
+    # 전부 댓글 0 이라 harvest_looks_broken 이 참을 돌려준다(진짜 0 인 밴드).
+    for i in range(40):
+        posts[str(1000 + i)] = {"created_at": NOW, "prj": "UJ2600001",
+                                "comments": [], "comments_full": True}   # 확인된 0개
+    # 진짜 못 읽은 글: 비었는데 comments_full 이 없다 → distrust 면 되뽑아야 한다.
+    posts["2001"] = {"created_at": NOW, "prj": "UJ2600001", "comments": []}
+
+    class _F:
+        def __init__(self, s): self.s = s
+        def read(self): return self.s
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    real = band_extract.parse_post
+    real_load = CB.io.open
+    try:
+        band_extract.parse_post = fake_parse
+        CB.io.open = lambda *a, **k: _F(json.dumps({"posts": posts}))
+        assert CB.harvest_looks_broken("90610953"), \
+            "댓글 0 인 밴드인데 distrust 가 안 켜졌다 — 테스트 전제가 틀렸다"
+        got = CB.blind("90610953", 90, {"UJ2600001"})
+        nums = {n for _t, _d, n in got}
+        # 확인된 0개 40건은 distrust 여도 다시 안 뽑힌다. 미확정 1건만 남는다.
+        assert nums == {2001}, \
+            "comments_full(확인된 0개)을 distrust 가 무시해 되뽑았다: %r" % (sorted(nums),)
+    finally:
+        band_extract.parse_post = real
+        CB.io.open = real_load
+
+    src = open(os.path.join(ROOT, "band", "comment_backfill.py"),
+               encoding="utf-8").read()
+    assert 'not v.get("comments_full")' in src, \
+        "distrust 게이트가 comments_full 을 안 본다 — 진짜 0 인 밴드에서 무한루프가 돈다"
+    print("  [199] distrust — 확인된 0개(comments_full)는 믿어 무한루프를 끊는다 ✅")
+
+
 def t176_rules_bump_does_not_wipe_the_index():
     """[176] 규칙이 바뀌었다고 **색인 11만 건을 통째로 버리면 안 된다** (2026-08-09).
 
@@ -12625,6 +12686,60 @@ def t197_restart_blip_is_not_a_failure():
     print("  [197] 재시작 9초의 502 를 스스로 넘긴다 · 다시 걸면 안 될 것은 안 건다 ✅")
 
 
+def t198_source_index_no_per_file_stat():
+    """[198] 원본 색인이 파일마다 `os.stat(경로)` 를 다시 부르지 않는다.
+
+    ★ 이것이 색인 한 번을 두 시간 반으로 만든 자리다 (2026-08-11 실측).
+      같은 폴더에서 잰 값: scandir 항목의 stat **0.04 ms/개** 대 `os.stat(경로)`
+      **135~155 ms/개** — Z:(SMB)에서는 후자가 파일마다 왕복 한 번이다.
+      112,662개 × 0.145초 = **4.5시간**이 전부 그 한 줄이었다.
+      고친 뒤 실측 **24.8초**(147,223개).
+    ★ 캐시가 있어도 안 줄어드는 구조였다 — 캐시 열쇠가 `경로|크기|수정시각` 이라
+      **열쇠를 만들려면 먼저 stat** 을 해야 했다. 하나도 안 바뀐 날도 4.5시간을 썼다.
+      그래서 '느려서 못 끝냈다'가 아니라 **매일 못 끝냈다.**
+
+    되돌아가는 것을 막는다: 훑는 자리에 `os.stat(` 이 다시 들어오면 여기서 걸린다.
+    """
+    import os as _os
+    import source_index as SI
+
+    src = open(SI.__file__, encoding="utf-8").read()
+    body = src.split("def scan(", 1)[1].split("\ndef ", 1)[0]
+
+    # ① 훑는 자리에서 파일마다 stat 을 다시 부르지 않는다
+    assert "os.stat(" not in body, \
+        "scan() 이 파일마다 os.stat(경로) 를 다시 부른다 — Z: 에서 파일당 왕복 한 번이다"
+    assert "os.walk(" not in body, \
+        "os.walk 는 속으로 받은 크기·시각을 버리고 이름만 준다 — 그래서 stat 을 또 부르게 된다"
+    assert "_walk_stat(" in body, "훑는 자리가 stat 을 같이 주는 워커를 안 쓴다"
+
+    # ② 워커는 scandir 항목의 stat 을 쓰고, 걸러낼 폴더는 내려가기 **전에** 거른다
+    w = src.split("def _walk_stat(", 1)[1].split("\nclass ", 1)[0]
+    assert "os.scandir(" in w, "워커가 scandir 을 안 쓴다(크기·시각이 공짜로 딸려 오는 자리다)"
+    assert "e.stat()" in w, "워커가 목록에 딸려 온 값을 안 쓰고 따로 물어본다"
+    assert "SKIP_DIRS" in w, "걸러낼 폴더를 내려간 뒤에 거르면 훑는 값이 없다"
+    assert "follow_symlinks=False" in w, "링크를 따라가면 고리에서 안 끝난다"
+
+    # ③ 못 들어가는 폴더 하나가 색인 전체를 세우지 않는다
+    assert "except OSError" in w, "폴더 하나를 못 열면 색인이 통째로 죽는다"
+
+    # ④ 실제로 돈다 — 이 저장소 폴더를 훑어 (폴더, 이름, stat) 세 쪽을 주는지 본다
+    here = _os.path.dirname(_os.path.dirname(_os.path.abspath(SI.__file__)))
+    got = 0
+    for dirpath, fn, st in SI._walk_stat(_os.path.join(here, "ecount", "tests")):
+        assert _os.path.isdir(dirpath) and fn and st.st_size >= 0
+        got += 1
+        if got >= 5:
+            break
+    assert got, "워커가 한 건도 안 준다"
+
+    # ⑤ 걸러낼 폴더는 정말 안 내려간다(`__pycache__` 는 SKIP_DIRS 에 있다)
+    for dirpath, _fn, _st in SI._walk_stat(_os.path.join(here, "ecount", "tests")):
+        assert "__pycache__" not in dirpath, "SKIP_DIRS 폴더로 내려갔다"
+
+    print("  [198] 색인이 파일마다 Z: 를 다시 묻지 않는다(2.5시간 → 24.8초) ✅")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -12920,12 +13035,14 @@ if __name__ == "__main__":
     t191_confirmation_truth_and_fast_refresh()
     t196_stage_words_come_from_one_place()
     t197_restart_blip_is_not_a_failure()
+    t198_source_index_no_per_file_stat()
     t172_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()
     t175_step_timeout_cannot_hang_forever()
     t176_rules_bump_does_not_wipe_the_index()
     t177_comment_collection_is_targeted()
+    t199_distrust_trusts_confirmed_zero()
     t178_unverified_harvest_is_not_read()
     t161_erp_filename_fingerprint()
     t160_master_book_cache()
