@@ -814,6 +814,28 @@ def save_staff_receipt_submission(fields, files, source_ip=""):
         destination_root=__import__("source_dirs").RECEIPT_DIR,
         upload_field="receipt_file", staff_slug="oh-jonghyeon",
     )
+    # csv 는 xlsx 변환본을 같은 폴더에 함께 둔다 — receipt_fill.load_deposits 는
+    # *.xlsx 만 읽으므로, 변환 없이 두면 '저장은 되는데 영영 안 읽히는' 자료가 된다
+    # (읽지 않는 파일은 빈칸과 같다 — receipt_apply 와 같은 변환기를 그대로 쓴다).
+    # 원본 csv 는 지우지 않는다. xls 는 변환기가 없다 — 못 읽는다고 정직하게 말한다.
+    warn = ""
+    converted = []
+    for path in list(saved):
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".csv":
+            from receipt_apply import _csv_to_xlsx
+            tmp_x = _csv_to_xlsx(path)
+            dest = _unique_path(folder, os.path.splitext(os.path.basename(path))[0] + ".xlsx")
+            shutil.move(tmp_x, dest)
+            converted.append(dest)
+        elif ext == ".xls":
+            warn = " · ⚠ xls 는 자동으로 읽히지 않습니다 — xlsx 로 다시 저장해 올려 주세요"
+    if converted:
+        saved = saved + converted
+        manifest["files"] = [os.path.basename(p) for p in saved]
+        manifest["converted"] = [os.path.basename(p) for p in converted]
+        with open(os.path.join(folder, "submission.json"), "w", encoding="utf-8") as out:
+            json.dump(manifest, out, ensure_ascii=False, indent=2)
     inbox = os.path.join(ROOT, "inbox")
     os.makedirs(inbox, exist_ok=True)
     queued_files = []
@@ -824,7 +846,8 @@ def save_staff_receipt_submission(fields, files, source_ip=""):
         shutil.copy2(path, dest)
         queued_files.append(os.path.basename(dest))
     started = queued = False
-    msg = "입금 자료를 보관했습니다"
+    msg = "입금 자료를 보관했습니다" + (
+        " · csv→xlsx 변환 %d건" % len(converted) if converted else "") + warn
     if queued_files:
         started, msg = start_task("receipt")
         queued = False if started else defer_task_until_free("receipt")
