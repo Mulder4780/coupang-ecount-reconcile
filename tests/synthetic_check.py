@@ -14724,6 +14724,91 @@ def t222_flow_charts_switch_and_capture():
           "문제점 DB 정본 · 캡처 수록 ✅")
 
 
+def t223_superseded_evidence_heals_itself():
+    """추월된 '없음 확인' 근거를 **기계가 스스로** 무효로 만든다 (2026-08-11 지시).
+
+    `[217]` 은 읽는 쪽 둘(수집 계획·인계 문서)이 추월된 근거를 **거르게** 했다.
+    그런데 근거는 틀린 채로 남고, 되돌리는 길은 사람이 밴드 피드를 열어 `--latest` 를
+    적어 주는 것뿐이었다 — 그 한 줄이 이 사고의 마지막 사람 몫이었다. 여기서 재는 것:
+      ① 모순(근거 위 번호가 이미 수확됨)이면 '모름'으로 되돌리고 옛 값을 남긴다
+      ② `top+1` 을 지어내지 않는다 — 그건 `[217]` 을 손수 다시 만드는 것이다
+      ③ 캐시는 한 글자도 안 고친다(틀린 근거로 실재하는 글에 absent 를 찍으면 못 되돌린다)
+      ④ **낡기만 한 근거는 안 건드린다** — 낡음은 틀림이 아니다
+      ⑤ 정정한 뒤에는 판정하는 쪽도 더는 '추월'이라 말하지 않는다(둘이 같은 눈이어야 한다)
+      ⑥ dry 는 한 바이트도 안 쓴다
+      ⑦ 워치독이 부르고, **붙여넣기 파일 만들기보다 먼저** 온다
+    """
+    import importlib
+    import shutil
+    import tempfile
+
+    sys.path.insert(0, os.path.join(ROOT, "band"))
+    RL = importlib.import_module("real_latest")
+    rp = importlib.import_module("recheck_plan")
+
+    BAND, TODAY = "90610953", "2026-08-11"
+    TMP = tempfile.mkdtemp(prefix="bandheal_")
+    hold = (RL.SEEN, RL.CACHE)
+    try:
+        RL.SEEN = os.path.join(TMP, "밴드_확인시각.json")
+        RL.CACHE = os.path.join(TMP, "cache")
+        os.makedirs(RL.CACHE, exist_ok=True)
+        # 실측(2026-08-11): 근거는 '5438 부터 없다'인데 5447 이 이미 수확돼 있었다.
+        # 5460 은 오염이라 수확이 아니다 — 이걸 세면 정정과 판정의 눈이 갈린다.
+        posts = {"5447": {"created_at": 1786000000000, "captured_at": 1786000000000},
+                 "5460": {"created_at": 1786000000000, "contaminated": True}}
+        cache = os.path.join(RL.CACHE, BAND + ".json")
+        with open(cache, "w", encoding="utf-8") as fh:
+            json.dump({"band_name": BAND, "posts": posts}, fh, ensure_ascii=False)
+        before = open(cache, "rb").read()
+
+        def put(n, seen):
+            with open(RL.SEEN, "w", encoding="utf-8") as fh:
+                json.dump({BAND: {"이름": "쿠팡AS", "수집최대": n - 1,
+                                  "없음확인": n, "확인시각": seen}}, fh, ensure_ascii=False)
+
+        # ⑥ dry — 무엇이 틀렸는지는 말하되 한 바이트도 쓰지 않는다
+        put(5438, TODAY)
+        raw = open(RL.SEEN, "rb").read()
+        got = RL.heal(apply=False, today=TODAY)
+        assert [f["이전"] for f in got] == [5438], "모순을 못 봤다"
+        assert open(RL.SEEN, "rb").read() == raw, "dry 인데 근거를 고쳤다"
+
+        # ①②③ 실제 정정
+        got = RL.heal(apply=True, today=TODAY)
+        rec = json.load(open(RL.SEEN, encoding="utf-8"))[BAND]
+        assert got[0]["실제수확"] == 5447, "오염된 5460 을 수확으로 셌다 — 판정과 눈이 갈렸다"
+        assert int(rec.get("없음확인") or 0) == 0, \
+            "'모름'이 아니라 새 없음확인을 지어냈다 — 근거 없는 조용함이 다시 생긴다"
+        assert rec.get("이전없음확인") == 5438, "무엇을 믿고 있었는지를 지웠다"
+        assert int(rec.get("수집최대") or 0) == 5447, "실제 수확 지점을 안 적었다"
+        assert open(cache, "rb").read() == before, \
+            "정정이 캐시를 건드렸다 — 실재하는 글을 유령으로 만드는 쪽이다"
+
+        # ⑤ 판정하는 쪽도 더는 '추월'이라 안 한다
+        cut, why = rp.judge_absent(rec, posts, TODAY)
+        assert cut is None and "추월" not in why, \
+            "정정하고도 판정이 그대로다 — 고쳐도 안 고쳐지는 자리가 된다"
+
+        # ④ 낡기만 한 근거는 그대로 둔다(5447 < 5500 이라 모순이 아니다)
+        put(5500, "2026-08-09")
+        raw = open(RL.SEEN, "rb").read()
+        assert RL.heal(apply=True, today=TODAY) == [], "낡았다고 지웠다 — 낡음은 틀림이 아니다"
+        assert open(RL.SEEN, "rb").read() == raw, "안 고친다면서 파일을 다시 썼다"
+    finally:
+        RL.SEEN, RL.CACHE = hold
+        shutil.rmtree(TMP, ignore_errors=True)
+
+    # ⑦ 파일에 넣지 않은 것은 자동이 아니다 — 회차에 매여 있나, 순서는 맞나
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    body = wd.split("def main")[1]
+    assert "heal_band_evidence(" in body, "워치독이 안 부른다 — 사람이 또 손으로 고쳐야 한다"
+    assert body.index("heal_band_evidence(") < body.index("heal_stale_pastefiles("), \
+        "붙여넣기 파일을 먼저 만든다 — 틀린 근거로 만든 목록이 그대로 사람 손에 간다"
+    print("  [223] 추월된 근거 자동 정정 — 모순만 · 지어내지 않음 · 캐시 불변 · "
+          "낡음은 보존 · 워치독 선행 ✅")
+
+
 def t196_stage_words_come_from_one_place():
     """[196] 돌발AS·정기점검 단계 낱말은 **한 곳**에서 오고, 바뀌면 자국이 남는다.
 
@@ -15358,6 +15443,7 @@ if __name__ == "__main__":
     t220_flow_yes_no_cycles()
     t221_commit_hygiene_under_siblings()
     t222_flow_charts_switch_and_capture()
+    t223_superseded_evidence_heals_itself()
     t213_exact_pid_fingerprint_reaches_every_owner()
     t214_first_live_revision_cannot_be_falsely_applied()
     t215_cancel_timeline_last_explicit_state_wins()

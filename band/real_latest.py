@@ -37,6 +37,11 @@ real_latest.py — 밴드의 **진짜 최신 글 번호**를 확인해 기록한
   python band/real_latest.py --band 90610953 --latest 5437           # 무엇이 바뀌는지만
   python band/real_latest.py --band 90610953 --latest 5437 --apply   # 기록·표시
   python band/real_latest.py                                          # 지금 기록 상태
+  python band/real_latest.py --heal --apply    # 추월된 근거를 스스로 무효로(워치독 30분)
+
+★ 사람 손은 `--latest` 한 줄뿐이고, **틀린 근거를 되돌리는 일은 이제 자동이다**
+  (`heal()` · 2026-08-11). 근거가 "N 부터 없다"는데 N 이상이 이미 수확돼 있으면
+  그것은 모순이므로 기계가 '모름'으로 되돌린다 — 없는 근거를 지어내지는 않는다.
 """
 import argparse
 import json
@@ -71,21 +76,84 @@ def _save_atomic(path, doc):
     os.replace(tmp, path)
 
 
-def _collected_max(band):
-    """캐시에서 **실제로 본문을 받아 둔** 가장 큰 글 번호.
+def _rp():
+    """'믿을 수 있는 수확'의 정의는 **판정하는 자리에서 빌린다**(`recheck_plan`).
 
-    유령(`absent`)·시각 없는 항목은 세지 않는다 — 그것들은 '모은 것'이 아니다.
+    여기서 따로 세면 언젠가 갈린다 — 실제로 갈려 있었다. 이 파일은 `absent` 만 걸렀고
+    `trusted_hi` 는 `contaminated`·`deleted` 까지 거른다. 오염 항목도 작성시각을 갖는
+    일이 있어(남의 본문을 통째로 베껴 왔으므로) 이쪽 계산만 위로 떠올랐다.
+    **정정하는 쪽과 판정하는 쪽이 서로 다른 최대값을 보면 고쳐도 안 고쳐진다.**
     """
-    posts = (_load(os.path.join(CACHE, f"{band}.json"), {}) or {}).get("posts") or {}
-    got = [int(k) for k, v in posts.items()
-           if str(k).isdigit() and isinstance(v, dict)
-           and v.get("created_at") and not v.get("absent")]
-    return max(got) if got else None
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    import recheck_plan
+    return recheck_plan
+
+
+def _posts(band):
+    return (_load(os.path.join(CACHE, f"{band}.json"), {}) or {}).get("posts") or {}
+
+
+def _collected_max(band):
+    """캐시에서 **실제로 본문을 받아 둔** 가장 큰 글 번호(유령·오염·시각없음 제외)."""
+    return _rp().trusted_hi(_posts(band))
+
+
+def heal(apply=False, today=None):
+    """**추월된 근거**를 기계가 스스로 무효로 만든다 (2026-08-11 지시: "자동화 시켜").
+
+    `[217]` 은 추월된 근거를 **읽는 쪽 둘**(수집 계획·인계 문서)이 거르게 했다.
+    그런데 근거 자체는 틀린 채로 남아 매 회차 같은 거름질을 다시 시키고, 바로잡는
+    길은 사람이 밴드 피드를 열어 `--latest` 를 적어 주는 것뿐이었다.
+    **그 한 줄이 이 사고에 남은 마지막 사람 몫이었다.**
+
+    ★ **지어낼 것이 없다.** 근거가 "N 부터 없다"는데 캐시에 N 이상의 **진짜 글**
+      (작성시각이 있고 죽지 않은 수확)이 있으면 그 근거는 틀렸다 — 이건 판단이 아니라
+      **모순**이다. 그래서 기계가 지울 수 있다. 낡은 근거는 여기서 안 건드린다:
+      낡은 것은 틀린 것이 아니라 **다시 물어봐야 하는 것**이고, 그 물음은 다음 회차의
+      `PROBE_AHEAD` 다섯 건이 싸게 한다.
+    ★ **없음확인을 위로 올리지 않는다.** `top+1` 부터 없다는 근거는 아무 데도 없다.
+      '모른다'로 되돌릴 뿐이다 — 그러면 다음 회차가 다섯 건으로 물어보고 사다리는
+      저절로 오른다. 없는 근거를 지어내면 `[217]` 을 손수 다시 만드는 것이다.
+    ★ **캐시는 한 글자도 안 고친다.** 고치는 것은 근거 한 장뿐이다. 틀린 근거로 수확에
+      `absent` 를 찍으면 실재하는 글이 유령이 된다 — 되돌릴 수 없는 쪽이다.
+    ★ 옛 값을 버리지 않는다(`이전없음확인`) — "그때 무엇을 믿고 있었나"를 잃으면
+      같은 사고를 또 봐도 못 알아본다.
+
+    돌려주는 값: 정정된 밴드 목록 `[{밴드, 이전, 실제수확}]`. 고칠 것이 없으면 빈 목록.
+    """
+    seen = _load(SEEN, {})
+    if not isinstance(seen, dict):
+        return []
+    day = str(today or datetime.now().strftime("%Y-%m-%d"))[:10]
+    hi_of = _rp().trusted_hi
+    fixed = []
+    for band, rec in sorted(seen.items()):
+        if not isinstance(rec, dict):
+            continue
+        try:
+            n = int(rec.get("없음확인") or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if n <= 0:
+            continue                       # 이미 '모름' — 고칠 것이 없다
+        top = hi_of(_posts(band))
+        if top is None or top < n:
+            continue                       # 모순 없음
+        fixed.append({"밴드": band, "이전": n, "실제수확": top})
+        seen[band] = dict(rec, 없음확인=0, 수집최대=top,
+                          이전없음확인=n, 이전확인시각=rec.get("확인시각"),
+                          확인시각=day,
+                          근거="추월돼 무효 — %s 부터 없다 했으나 %s 가 실제로 수확됨"
+                               " (자동 정정 real_latest.heal)" % (n, top))
+    if fixed and apply:
+        _save_atomic(SEEN, seen)
+    return fixed
 
 
 def survey(band, latest):
     """`latest` 위쪽 캐시 항목을 갈래별로 센다."""
-    posts = (_load(os.path.join(CACHE, f"{band}.json"), {}) or {}).get("posts") or {}
+    posts = _posts(band)
     above = [int(k) for k in posts
              if str(k).isdigit() and int(k) > int(latest)]
     real, ghost, already = [], [], []
@@ -165,7 +233,18 @@ def main(argv=None):
     ap.add_argument("--band")
     ap.add_argument("--latest", type=int)
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--heal", action="store_true",
+                    help="추월된 근거를 스스로 무효로 만든다(워치독 30분 회차가 부른다)")
     a = ap.parse_args(argv)
+    if a.heal:
+        fixed = heal(apply=a.apply)
+        if not fixed:
+            print("밴드 근거 정상 — 추월된 것 없음")
+        for f in fixed:
+            print("%s: 없음확인 %s → 모름 (%s 가 실제로 수확됨)%s"
+                  % (f["밴드"], f["이전"], f["실제수확"],
+                     "" if a.apply else "  (쓰지 않음 — --apply)"))
+        return 0
     return run(a.band, a.latest, a.apply)
 
 

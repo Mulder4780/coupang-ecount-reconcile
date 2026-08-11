@@ -250,44 +250,37 @@ def bands():
                   if f.endswith(".json") and os.path.splitext(f)[0].isdigit())
 
 
-HEAD = """/* ── 밴드 %(band)s **댓글 채우기** — 이 파일 전체를 복사해 밴드 탭 콘솔(F12)에 붙여넣으세요
- *
- *  %(n)d건. 댓글을 한 번도 안 들여다본 글만 골랐습니다(최근 것부터).
- *
- *  ★ 이 탭을 **앞으로 꺼내 놓고** 두세요. 밴드는 보이는 탭에서만 본문을 그립니다 —
- *    뒤에 있으면 전부 실패로 기록됩니다. 중간에 다른 창을 봐도 됩니다(그동안 멈췄다
- *    돌아오면 이어서 갑니다).
- *
- *  끝나면 dump 파일이 자동으로 내려받아집니다. 손대지 마세요 —
- *  download_intake 가 Z: 로 옮기고 convert_dump 가 캐시에 합칩니다.
- */
-"""
-
-TAIL = """
-(function () {
-  var nos = %(nos)s;
-  function go() {
-    if (typeof window.__grabStart !== 'function') { setTimeout(go, 300); return; }
-    if (document.hidden) { setTimeout(go, 1000); return; }   // 앞으로 나올 때까지 기다린다
-    console.log(window.__grabStart(%(band)s, nos));
-    var t = setInterval(function () {
-      var s = window.__grabStatus();
-      console.log('진행', s.ok + '/' + s.total, s.paused ? '(탭이 뒤에 있어 멈춤)' : '');
-      if (!s.running) { clearInterval(t); console.log(window.__grabSave()); }
-    }, 15000);
-  }
-  go();
-})();
-"""
+# ★ 여기 있던 HEAD/TAIL(제 붙여넣기 구동부)은 2026-08-11 에 **지웠다.**
+#   make_oneclick 으로 합친 뒤에는 아무도 안 쓰는데, 남겨 두면 다음 사람이 그것을
+#   고치고 파일은 안 바뀌는 일이 생긴다 — 안 읽히는 코드는 빈칸과 같다([165]).
+#   내용(탭을 앞에 두라·덤프를 손대지 말라)은 make_oneclick 의 머리말에 이미 있다.
 
 
 def write_paste(band, nos):
-    js = io.open(os.path.join(HERE, "grab_posts.js"), encoding="utf-8").read()
-    body = (HEAD % {"band": band, "n": len(nos)}) + js + (
-        TAIL % {"nos": json.dumps(nos), "band": band})
+    """붙여넣기 파일을 만드는 자리는 **make_oneclick 하나다**.
+
+    ★ 2026-08-11. 여기엔 제 구동부(위 HEAD/TAIL)가 따로 있었다. 그래서 이 갈래만
+    **한 회차 · 250건**이었고, 실측 1,663건이면 사람이 붙여넣기를 **일곱 번** 해야
+    했다 — 회차마다 저장하고 탭 메모리를 비우는 다회차 구동부가 make_oneclick 에
+    이미 있는데도 그랬다. [162] 의 '담는 쪽이 둘이면 한쪽만 고쳐진다' 가 붙여넣기
+    파일에서 그대로 반복된 자리다.
+    · 250(`BATCH_MAX`)은 **한 회차** 한도지 한 파일 한도가 아니다. 그 위로 탭이
+      어는 것은 맞지만, make_oneclick 은 250씩 끊어 회차 사이에 `__grabSave()` +
+      `{keep:false}` 로 비운다 — 메모리는 250건어치로 유지되면서 건수만 이어 간다.
+    · 덤으로 [217] 의 죽은 번호 거르기(`screen`)가 이 갈래에도 걸린다. 예전 구동부는
+      안 걸러서 삭제·오염·유령 번호를 그대로 붙여넣었다(한 개당 21초에 수확 0).
+    """
+    # 늦게 부른다 — 모듈 두 개가 서로를 import 하며 도는 것을 막는다.
+    try:
+        import make_oneclick as mo          # `python band/comment_backfill.py`
+    except ImportError:
+        from band import make_oneclick as mo  # `from band import comment_backfill`
+    js, note = mo.build(band, len(nos), nos=nos, why="댓글 채우기")
+    if not js:
+        return "(만들 것 없음 — %s)" % note
     p = os.path.join(HERE, "댓글채우기_붙여넣기_%s.js" % band)
-    io.open(p, "w", encoding="utf-8").write(body)
-    return p
+    io.open(p, "w", encoding="utf-8").write(js)
+    return "%s — %s" % (p, note)
 
 
 # ── 앱이 읽는 수집 계획 (2026-08-09 지시: Claude Code 없이 앱이 스스로 수집) ────────
@@ -356,7 +349,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=90,
                     help="2·3순위를 며칠치로 줄일까 (1순위는 안 자른다, 0=전량)")
-    ap.add_argument("--limit", type=int, default=BATCH_MAX, help="한 배치 글 수")
+    ap.add_argument("--limit", type=int, default=BATCH_MAX,
+                    help="앱 계획(유저스크립트)이 한 번에 받아 갈 글 수. "
+                         "붙여넣기 파일은 남은 것 **전부**를 회차로 나눠 담는다")
     ap.add_argument("--tier", type=int, help="이 갈래까지만 (1=열린 원장 행만)")
     ap.add_argument("--band", help="한 밴드만")
     ap.add_argument("--write", action="store_true", help="붙여넣기 파일까지 만든다")
@@ -389,14 +384,18 @@ def main(argv=None):
         print("밴드 %s" % b)
         for t in sorted(by):
             print("   [%d] %-42s %4d건" % (t, TIER_WHY.get(t, ""), by[t]))
-        nos = [n for _t, _d, n in rows][:a.limit]
+        nos_all = [n for _t, _d, n in rows]     # 남은 것 전부 — 붙여넣기 파일 몫
+        nos = nos_all[:a.limit]                  # 배치 한도까지 — 앱 계획 몫
         head = collections.Counter(t for t, _d, _n in rows[:a.limit])
         print("   이번 배치 %d건 — %s"
               % (len(nos), " · ".join("%d순위 %d" % (t, head[t]) for t in sorted(head))))
         # 앱(유저스크립트)이 그대로 받아 쓸 계획 — 우선순위대로, 배치 한도까지.
         plan[str(b)] = {"nos": nos, "tiers": {str(t): head[t] for t in sorted(head)}}
         if a.write:
-            print("   →", write_paste(b, nos))
+            # ★ 파일에는 **전부** 담는다(회차로 나뉜다). 배치 한도는 유저스크립트가
+            #   한 번에 받아 갈 몫이지, 사람이 붙여넣을 파일의 한도가 아니다 —
+            #   한도로 자르면 사람이 같은 일을 일곱 번 하게 된다(write_paste 주석).
+            print("   →", write_paste(b, nos_all))
 
     if a.write:
         # 시각은 여기서 찍는다(모듈 함수는 시험 가능하게 밖에서 받는다).

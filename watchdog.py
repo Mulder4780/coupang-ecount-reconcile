@@ -177,6 +177,33 @@ def heal_stale_server(dry):
         return "서버 코드나이 확인 실패: %s" % str(exc)[:40]
 
 
+def heal_band_evidence(dry):
+    """'없음 확인' 근거가 **추월됐으면** 스스로 무효로 만든다 (2026-08-11 지시).
+
+    ★ `[217]` 은 읽는 쪽 둘(수집 계획·인계 문서)이 추월된 근거를 **거르게** 했다.
+      거르는 것만으로는 근거가 틀린 채로 남아, 바로잡는 길이 사람이 밴드 피드를 열어
+      `real_latest.py --latest` 를 적어 주는 것뿐이었다. 그 한 줄이 마지막 사람 몫이었다.
+    ★ **붙여넣기 파일보다 먼저** 온다. 파일에 어떤 번호를 담을지를 정하는 것이 이
+      근거이므로, 순서가 뒤집히면 그 회차는 **틀린 근거로 만든 목록**을 사람 손에 쥐여
+      준다 — 없는 번호 한 개가 21초다.
+    ★ **밴드에 접속하지 않는다.** 캐시와 근거 파일만 읽고 근거 한 장만 고친다 —
+      수집이 아니므로 코딩 세션 금지 규칙과 어긋나지 않는다(`heal_stale_pastefiles` 와 같다).
+    """
+    band_dir = os.path.join(ROOT, "band")
+    try:
+        if band_dir not in sys.path:
+            sys.path.insert(0, band_dir)
+        import real_latest as RL
+        fixed = RL.heal(apply=not dry)
+    except Exception as exc:                        # 근거 하나 때문에 회차를 세우지 않는다
+        return "밴드 근거 확인 실패: %s" % str(exc)[:60]
+    if not fixed:
+        return "밴드 근거 정상"
+    return "밴드 근거 추월 정정%s: %s" % (
+        "(dry)" if dry else "",
+        ", ".join("%s(%s→모름)" % (f["밴드"], f["이전"]) for f in fixed[:3]))
+
+
 def heal_stale_pastefiles(dry):
     """붙여넣기 파일이 **옛 수집 JS**를 담고 있으면 다시 만든다 (2026-08-08).
 
@@ -538,6 +565,9 @@ def main():
     gap = gap_note(last_log_line(), datetime.now())     # 기록은 healing 전에 읽는다
     results = [run_incremental_pipeline(dry), sync_uploads(dry), sync_worklog(dry),
                sync_cloud_queue(dry), heal_server(dry), heal_fixed_funnel(dry),
+               # ★ 근거 정정이 **붙여넣기 파일 만들기보다 먼저**다 — 목록에 담을 번호를
+               #   정하는 것이 그 근거다(2026-08-11, `[223]`).
+               heal_band_evidence(dry),
                heal_stale_pastefiles(dry),
                heal_autopilot(dry),
                heal_tunnel(dry), publish_endpoint(dry), clean_reports(dry),
