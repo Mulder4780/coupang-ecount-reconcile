@@ -460,6 +460,13 @@ def _report(st):
             L += ["", "## 설치본은 있는데 등록이 안 된 것", ""]
             for n, f in sorted(st["등록안됨"].items()):
                 L.append("- **%s** ← `%s`" % (n, f))
+    tr = traces()
+    if tr:
+        # ★ 스케줄러는 '어느 회차가 죽었나'까지만 안다. **왜**는 회차가 스스로 남겨야
+        #   한다 — pythonw 로 도는 회차는 트레이스백이 어디에도 안 남기 때문이다.
+        L += ["", "## 회차가 남긴 자국 (%d)" % len(tr), ""]
+        for t in tr:
+            L += ["- `%s` %s — %s" % (t["파일"], t["시각"], t["무엇"])]
     c = st["컴팩팅"]
     L += ["", "## 컴팩팅 배선", ""]
     if not c["확인"]:
@@ -472,6 +479,28 @@ def _report(st):
     os.makedirs(os.path.dirname(REPORT), exist_ok=True)
     with open(REPORT, "w", encoding="utf-8") as fh:
         fh.write("\n".join(L))
+
+
+def traces():
+    """회차가 죽으며 남긴 자국들 — `reports/*_오류.json` (2026-08-12).
+
+    ★ 스케줄러는 **'어느 회차가 죽었나'까지만** 안다. exit 1 은 그저 1 이다.
+      **왜**인지는 회차가 스스로 남겨야 한다 — 이 프로젝트의 회차들은 `pythonw.exe`
+      로 돌아 **창이 없고, 그래서 트레이스백이 어디에도 안 남는다.**
+      실측: `쿠팡업무_밴드재수집` 이 매일 exit 1 이었는데 그 사실조차 이 파일을 만들고
+      나서야 보였고, **왜인지는 그때도 알 길이 없었다.**
+    ★ 목록을 손으로 적지 않는다 — 자국을 남기는 회차가 늘면 저절로 여기 나온다.
+    """
+    import glob as _glob
+    out = []
+    for path in sorted(_glob.glob(os.path.join(ROOT, "reports", "*_오류.json"))):
+        try:
+            d = json.load(open(path, encoding="utf-8"))
+        except Exception:
+            continue
+        out.append({"파일": os.path.basename(path), "시각": d.get("시각", ""),
+                    "무엇": str(d.get("무엇") or "")[:120]})
+    return out
 
 
 def banner():

@@ -358,5 +358,41 @@ def main(argv=None):
     return 0
 
 
+CRASH = _shared("reports", "밴드_재수집_오류.json")
+
+
+def _leave_trace(exc):
+    """죽은 이유를 **디스크에 남긴다** (2026-08-12, `[228]` 이 드러낸 것).
+
+    ★ 이 회차는 스케줄러에서 `pythonw.exe` 로 돈다 — 창이 없으니 **트레이스백이
+      어디에도 안 남는다.** 실측: `쿠팡업무_밴드재수집` 이 매일 08:00 에 exit 1 로
+      끝나고 있었는데, 그 사실조차 `schedule_watch`(`[228]`) 를 만들고서야 보였고
+      **왜인지는 그때도 알 길이 없었다.** 자국이 없으면 다음 사람도 똑같이 못 고친다.
+    ★ 성공하면 **지운다** — 옛 자국이 남아 있으면 이미 고쳐진 고장을 계속 보고한다.
+    """
+    import traceback
+    try:
+        os.makedirs(os.path.dirname(CRASH), exist_ok=True)
+        with open(CRASH, "w", encoding="utf-8") as fh:
+            json.dump({"시각": datetime.now().isoformat(timespec="seconds"),
+                       "명령": " ".join(sys.argv[1:]) or "(인자 없음)",
+                       "무엇": "%s: %s" % (type(exc).__name__, exc),
+                       "자취": traceback.format_exc()[-4000:]}, fh, ensure_ascii=False, indent=1)
+    except Exception:
+        pass                    # 자국을 남기려다 종료를 막지 않는다
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        rc = main()
+    except SystemExit:
+        raise
+    except BaseException as exc:                   # 죽어도 이유는 남기고 죽는다
+        _leave_trace(exc)
+        raise
+    if rc == 0:
+        try:
+            os.remove(CRASH)
+        except OSError:
+            pass
+    sys.exit(rc)

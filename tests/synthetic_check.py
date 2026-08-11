@@ -14739,6 +14739,26 @@ def t228_scheduler_rounds_are_watched():
             assert got["느린단계"] and got["느린단계"][0]["단계"] == "느린단계", got.get("느린단계")
         finally:
             DR.PROGRESS = keep
+    # ── ⑧ 죽은 회차는 **왜인지도 남긴다**. 스케줄러는 exit 1 을 1 이라고만 말한다.
+    #     회차들은 pythonw 로 돌아 트레이스백이 어디에도 안 남는다.
+    rc_src = open(os.path.join(ROOT, "band", "recollect.py"), encoding="utf-8").read()
+    assert "_leave_trace" in rc_src and "traceback.format_exc" in rc_src, \
+        "밴드 재수집이 죽어도 이유를 안 남긴다 — pythonw 라 화면에도 안 뜬다"
+    assert "os.remove(CRASH)" in rc_src, \
+        "성공해도 옛 자국이 남는다 — 이미 고쳐진 고장을 계속 보고하게 된다"
+    with tempfile.TemporaryDirectory() as tmp:
+        keep = SW.ROOT
+        try:
+            SW.ROOT = tmp
+            os.makedirs(os.path.join(tmp, "reports"))
+            with open(os.path.join(tmp, "reports", "무슨회차_오류.json"), "w",
+                      encoding="utf-8") as fh:
+                json.dump({"시각": "2026-08-12T08:00:00", "무엇": "ZeroDivisionError: x"}, fh)
+            got = SW.traces()
+            assert got and got[0]["무엇"].startswith("ZeroDivisionError"), got
+        finally:
+            SW.ROOT = keep
+
     sh_hint = sh.split("def _slow_hint(", 1)
     assert len(sh_hint) == 2, "인계가 오래 걸린 단계를 말할 길이 없다"
     assert ">= 300" in sh_hint[1].split("\ndef ", 1)[0], \
