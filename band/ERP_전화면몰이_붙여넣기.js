@@ -94,7 +94,20 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: ["ledger", "tax", "sl
       await wait(500);
     }
     await wait(400);
-    return {w, 손잡이있음: !!sm, 링크수: w ? w.querySelectorAll('a').length : 0};
+    // ★ **껍데기를 못 찾아도 메뉴 글자는 문서에 떠 있다** (2026-08-11 실측).
+    //   화면을 연 상태에서 사이트맵을 열면 링크는 멀쩡히 그려지는데
+    //   `.wrapper-sitemap` 은 없다. 진단에 `계정별원장` 이 또렷이 보이는데도
+    //   9화면을 전부 '사이트맵이 안 열렸다'로 적었다 — **껍데기를 조건으로 걸면
+    //   안에 있는 것을 보고도 없다고 한다.** 그래서 찾는 자리를 껍데기 → 문서로 넓힌다.
+    const root = w || document;
+    return {w, root, 껍데기: !!w, 손잡이있음: !!sm, 링크수: root.querySelectorAll('a').length};
+  };
+
+  // 메뉴는 **글자가 정확히 같은 링크**로 찾는다(부분일치 금지 — 비슷한 메뉴가 많다).
+  const findMenu = (root, name) => {
+    const cand = [...root.querySelectorAll('a')]
+      .filter(a => (a.textContent || '').trim() === name);
+    return cand.filter(shown)[0] || cand[0] || null;
   };
 
   // ★ 실패하면 **다음 사람이 고칠 수 있는 것**을 남긴다. '안 열렸다'만 적으면
@@ -165,20 +178,22 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: ["ledger", "tax", "sl
         if (mod) { mod.click(); await wait(3500); }
       }
       // ② 사이트맵 → 메뉴. **열렸는지 확인하고**, 안 열렸으면 홈으로 한 번 더 간다.
+      // ★ 판정은 **메뉴를 찾았나** 하나다. '링크가 몇 개냐'로 재면 링크가 많아도
+      //   내 메뉴가 없을 수 있고, 껍데기가 없어도 메뉴는 있을 수 있다.
       let sm = await openSitemap();
-      if (sm.링크수 <= 50) {
+      let menu = findMenu(sm.root, step.메뉴);
+      if (!menu) {                                  // 못 찾았으면 홈으로 갔다 한 번 더
         if (sm.w) sm.w.classList.remove('visible');
         홈복귀 = await goHome();
         sm = await openSitemap();
+        menu = findMenu(sm.root, step.메뉴);
       }
       const w = sm.w, 링크수 = sm.링크수;
-      const menu = w && [...w.querySelectorAll('a')]
-        .find(a => (a.textContent||'').trim() === step.메뉴);
       if (w) w.classList.remove('visible');        // ★ 반드시 닫는다
-      if (!menu) { done({결과: '실패', 링크수, 홈복귀, 손잡이있음: sm.손잡이있음,
-                         왜: 링크수 ? '메뉴를 못 찾음 — 모듈이 다를 수 있다'
-                                    : '사이트맵이 안 열렸다 — 홈 복귀까지 시도했다',
-                         진단: 링크수 ? undefined : 진단()}); continue; }
+      if (!menu) { done({결과: '실패', 링크수, 홈복귀, 껍데기: sm.껍데기,
+                         손잡이있음: sm.손잡이있음,
+                         왜: '메뉴 링크를 못 찾음(사이트맵 열기·홈 복귀까지 시도)',
+                         진단: 진단()}); continue; }
       menu.click();
       열어본적 = true;                              // 이제부터는 돌아와야 한다
       await wait(4500);
