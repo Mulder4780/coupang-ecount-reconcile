@@ -106,7 +106,18 @@ def absent_line(band, posts=None, today=None):
         이것을 안 걸러 내면 **실재하는 글을 유령으로 표시**하게 된다.
       근거가 없다고 40개를 긁으라는 뜻은 아니다 — 그때는 `PROBE_AHEAD` 만 찔러 본다.
     """
-    rec = _rec(band)
+    return judge_absent(_rec(band), posts, today)
+
+
+def judge_absent(rec, posts=None, today=None):
+    """근거 **한 장**을 믿어도 되는지만 가린다 — 파일은 여기서 안 읽는다.
+
+    읽는 자리가 둘이라(수집 계획 `absent_line` · 인계 문서 `session_handoff`)
+    **판정은 여기 하나**에 둔다. 그런데 파일까지 여기서 읽으면 부르는 쪽이 제 손으로
+    읽어 둔 근거를 대 볼 수 없다 — 그러면 두 화면이 서로 다른 한 장을 놓고 답하게 된다.
+    그래서 근거는 **받고**, 판단만 한다.
+    """
+    rec = rec or {}
     try:
         n = int(rec.get("없음확인") or 0)
     except (TypeError, ValueError):

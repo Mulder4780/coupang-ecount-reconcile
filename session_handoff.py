@@ -474,6 +474,34 @@ def band_quiet():
         return {}
 
 
+def _absent_judge(band, rec, today):
+    """이 근거를 지금도 믿어도 되나 — 판정은 `recheck_plan.absent_line` **한 곳**이다.
+
+    ★ 2026-08-11: 여기에도 `[217]` 과 **같은 구멍**이 있었다. 이 함수가 생기기 전에는
+      근거의 **나이만** 봤다 — 신선하기만 하면 그대로 '(조용함)'을 적었다. 그런데
+      근거는 **추월될 수 있다**: 실측 90610953 은 근거가 `없음확인 5438` 인데 캐시에
+      **5447 이 진짜 글로** 들어와 있었다. 근거가 신선한 채로 추월되면 인계 문서가
+      **없는 조용함을 확언**한다 — 낡은 근거보다 나쁜 것이 틀린 근거다.
+      수집 계획(`recheck_plan`)은 이미 그것을 거르는데 인계 문서만 안 걸렀다.
+      같은 파일을 보면서 판정이 갈리면 사람이 무엇을 믿을지 모르게 된다.
+
+    근거(`rec`)는 **여기서 읽어 넘긴다**(`band_quiet()`). 판정만 빌리는 것이지 파일을
+    두 번 읽는 것이 아니다 — 두 곳이 각자 읽으면 언젠가 서로 다른 한 장을 보게 된다.
+
+    돌려주는 값: `(cut, 이유)`. `cut` 이 있으면 그 번호부터 위는 없다고 확인된 것이다.
+    **못 물어보면 `(None, "")` 로 조용히 밀림 쪽에 둔다** — 밀림은 한 번 더 보라는
+    말이라 잃는 것이 없지만, 잘못된 조용함은 아무도 다시 안 본다.
+    """
+    try:
+        band_dir = os.path.join(BASE, "band")
+        if band_dir not in sys.path:
+            sys.path.insert(0, band_dir)
+        import recheck_plan as RP
+        return RP.judge_absent(rec, RP.load(band) or {}, today)
+    except Exception:
+        return None, ""
+
+
 def data_freshness(today=None):
     """수집이 **얼마나 밀렸나**. 오늘(2026-08-06) 사고의 진짜 원인이 여기였다.
 
@@ -514,19 +542,20 @@ def data_freshness(today=None):
         #   없는 번호를 긁으면 오늘처럼 쓰레기가 캐시로 들어간다. 그래서 '수집 최대 번호
         #   바로 다음이 없음으로 확인'된 근거가 **최근 것일 때만** 밀림을 내린다.
         #   근거가 오래됐으면 그 사이에 새 글이 올라왔을 수 있으므로 그대로 밀림이다.
+        #   ★ 나이만 보면 안 된다 — 근거는 **추월될 수 있다**(2026-08-11, `[217]`).
+        #   그래서 판정은 수집 계획과 같은 자리(`recheck_plan.absent_line`)에 맡긴다.
         if row["밀림"] and name.startswith("밴드:"):
-            q = quiet.get(name.split(":", 1)[1].strip()) or {}
-            seen = str(q.get("확인시각") or "")[:10]
-            if seen:
-                try:
-                    age = (datetime.strptime(day, "%Y-%m-%d")
-                           - datetime.strptime(seen, "%Y-%m-%d")).days
-                except ValueError:
-                    age = None
-                if age is not None and age <= limit:
-                    row["밀림"] = False
-                    row["조용함"] = "%s번까지 수집 완료 · %s 에 새 글 없음 확인" % (
-                        q.get("수집최대"), q.get("확인시각"))
+            band = name.split(":", 1)[1].strip()
+            q = quiet.get(band) or {}
+            cut, why = _absent_judge(band, q, day)
+            if cut:
+                row["밀림"] = False
+                row["조용함"] = "%s번까지 수집 완료 · %s 에 새 글 없음 확인" % (
+                    q.get("수집최대"), q.get("확인시각"))
+            elif why:
+                # 왜 아직 밀림인가를 그대로 적는다. '밀림'만 있고 이유가 없으면
+                # 사람이 또 없는 번호를 긁으러 간다(그것이 [217] 의 시작이었다).
+                row["근거"] = why
         out.append(row)
     return out
 
@@ -978,6 +1007,14 @@ def to_md(st, for_sol=False):
             L += ["> **조용함**: 최신 글이 오래됐지만 그 위로 새 글이 없음을 확인한 것이다 —"
                   " 긁을 것이 없다. 없는 번호를 긁으면 쓰레기가 캐시에 들어간다."]
             L += ["> · %s — %s" % (f["이름"], f["조용함"]) for f in quiet]
+        why = [f for f in fr if f.get("밀림") and f.get("근거")]
+        if why:
+            # ★ '밀림'만 적고 이유를 안 적으면 사람이 없는 번호를 긁으러 간다([217]).
+            #   근거가 낡았다·추월됐다는 것은 "그 위에 몇 개가 있다"는 뜻이 아니다 —
+            #   존재 확인용 몇 건만 찔러 보면 된다(붙여넣기 파일이 이미 그렇게 나온다).
+            L += ["> **밴드 근거 상태** — 아래는 '없음 확인' 근거를 못 믿는 이유다."
+                  " 그 위 번호가 몇 개인지는 **모른다**; 계획은 존재 확인용 몇 건만 담는다."]
+            L += ["> · %s — %s" % (f["이름"], f["근거"]) for f in why]
         ct = st.get("밴드오염") or {}
         if sum(ct.values()):
             # 상태 한 줄 — 할 일이 아니다. 재수집하지 말 것(삭제된 글, 표본 3/3 리다이렉트).

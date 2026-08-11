@@ -9780,6 +9780,8 @@ def t217_probe_instead_of_scraping_absent_numbers():
       ⑤ 붙여넣기 파일로 나가는 **길목 하나**가 죽은 번호를 거른다(번호를 정하는 곳은 셋이다).
       ⑥ 뺀 것은 **숫자로 말한다** — 조용히 빼면 '0건'이 '다 봤다'로 읽힌다([169]).
       ⑦ 빈 캐시 한 밴드가 나머지 밴드를 죽이지 않는다.
+      ⑧ **인계 문서도 같은 자리에 물어본다** — 근거의 나이만 보면 신선하지만 추월된
+         근거에 '(조용함)'을 적는다. 잘못된 조용함은 아무도 다시 안 본다.
     """
     import importlib
     import tempfile
@@ -9888,6 +9890,30 @@ def t217_probe_instead_of_scraping_absent_numbers():
         assert "202608082047" in out and BAND in out, \
             "빈 캐시 한 밴드에서 죽어 **뒤 밴드가 통째로** 안 나온다"
         assert "위쪽 근거" in out, "위쪽을 왜 그만큼만 보는지 사람이 알 수 없다"
+
+        # ⑨ **인계 문서도 같은 자리에 물어본다.** 여기에 같은 구멍이 남아 있었다 —
+        #    `data_freshness` 는 근거의 **나이만** 보고 '(조용함)'을 적었다. 그래서
+        #    신선하지만 **추월된** 근거에는 없는 조용함을 확언한다(실측 2026-08-11:
+        #    90610953 은 '5438 부터 없다'는 근거를 가진 채 5447 을 이미 수확해 뒀다).
+        #    수집 계획은 거르는데 인계 문서만 안 거르면, 같은 파일을 보면서 한쪽은
+        #    긁으라 하고 다른 쪽은 조용하다고 해서 사람이 무엇을 믿을지 모르게 된다.
+        with open(os.path.join(rp.CACHE, BAND + ".json"), "w", encoding="utf-8") as fh:
+            json.dump({"band_name": BAND, "posts": posts}, fh, ensure_ascii=False)
+        SH = importlib.import_module("session_handoff")
+        assert sys.modules.get("recheck_plan") is rp, \
+            "인계 문서가 다른 recheck_plan 을 본다 — 근거 판정이 두 벌이 된다"
+        evidence(3539, TODAY)                       # 신선하지만 3539 는 실재한다
+        cut, why = SH._absent_judge(BAND, TODAY)
+        assert cut is None and "추월" in why, \
+            "신선하기만 하면 믿는다 — 인계 문서가 **없는 조용함**을 확언한다"
+        evidence(3600, TODAY)                       # 신선하고 추월도 안 됐다
+        cut, why = SH._absent_judge(BAND, TODAY)
+        assert cut == 3600, "멀쩡한 근거까지 버리면 매일 밀림 경보가 뜨고 아무도 안 본다"
+        fresh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+        body = fresh.split("def data_freshness")[1].split("\ndef ")[0]
+        assert "_absent_judge(" in body, "인계 문서가 근거를 제 손으로 다시 판정한다"
+        assert "확인시각" not in body.split("_absent_judge(")[0], \
+            "나이 계산이 아직 여기 남아 있다 — 두 벌이 되면 언젠가 갈린다"
     finally:
         rp.PROBE_LOG, rp.CACHE, rp.SCOPE = hold
 
@@ -9895,7 +9921,7 @@ def t217_probe_instead_of_scraping_absent_numbers():
     assert "밴드_확인시각.json" in src, "session_handoff 와 다른 근거를 본다"
     assert rp.PROBE_AHEAD <= 8, \
         "탐색 상한이 커졌다 — 없는 번호는 한 개당 21초라 금세 몇 분이 된다"
-    # ⑨ 규칙을 고쳐도 **디스크의 붙여넣기 파일**이 안 바뀌면 사람은 옛 목록을 붙여넣는다
+    # ⑩ 규칙을 고쳐도 **디스크의 붙여넣기 파일**이 안 바뀌면 사람은 옛 목록을 붙여넣는다
     #    ([162] 와 같은 모양이 한 겹 위에서 반복된 자리다). 워치독의 '낡음' 판정은
     #    수집기뿐 아니라 **번호를 고르는 쪽**도 봐야 한다.
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
