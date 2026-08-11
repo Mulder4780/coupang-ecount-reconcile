@@ -2321,6 +2321,21 @@ fieldset.remote-edit>input{margin:0 0 9px}
   #v-sources .src-list{grid-template-columns:minmax(0,1fr);gap:9px}
   #v-sources .src-row{min-height:72px;border-radius:16px}
 }
+/* ★ 폰에서는 갈래 타일을 **아이콘+라벨 칩**으로 줄인다 (2026-08-11 지시).
+   84px 타일 11개는 폰에서 세 화면을 먹어 목록이 안 보였다. 칩은 flex-wrap 으로
+   한눈에 들어온다. 데스크톱은 그대로 두고(미디어쿼리), 선택 상태(.on 테두리·배경)와
+   동작(pickSrcGroup)은 하나도 안 바뀐다 — 보여 주는 크기만 바뀐다.
+   체크(✓)는 칩에서 숨긴다: 선택은 테두리·배경이 이미 말하고 있고, 16px 원이
+   칩 높이를 잡아먹는다. */
+@media(max-width:640px){
+  #v-sources .src-segs{gap:6px;padding:2px 2px 10px}
+  #v-sources .src-seg{flex:0 1 auto;display:flex;align-items:center;gap:6px;
+    min-height:36px;padding:5px 11px 5px 6px;border-radius:999px;box-shadow:none}
+  #v-sources .src-seg-ic{width:22px;height:22px;border-radius:7px;font-size:9.5px}
+  #v-sources .src-seg-label{font-size:12.5px;font-weight:700;letter-spacing:-.2px;white-space:nowrap}
+  #v-sources .src-seg-check{display:none}
+  #v-sources .src-seg.on{background:var(--brand-tint)}
+}
 
 /* ═══ 대시보드 레고 블록 편집(2026-08-05 지시) ═══
    GridStack의 12열·save/load 모델을 현재 무빌드·오프라인 앱에 맞게 CSS Grid와
@@ -2689,6 +2704,23 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
   .lc{max-height:none!important;overflow:visible!important}
   .lc::after,.lc-btn{display:none!important}
 }
+/* ── 설명란·도움말은 기본 접힘 (2026-08-11 지시) ─────────────────────────────
+   "꼭 보여줘야 하는 기능 메뉴는 크게, 설명란·도움말·부가 정보 블록은 기본 접힘" —
+   기능 카드·단추는 그대로 두고, **읽는 글 블록**(data-help-fold 표시)만 접는다.
+   lc(긴 글 접기)와 다른 점: lc 는 '넘치면' 접고, 이것은 '설명이면' **처음부터** 접는다.
+   펼친 상태는 localStorage 에 기억한다 — 화면 환경설정은 localStorage 허용 범위다
+   (2026-08-10 정본 규칙: 업무값 아님). 인쇄는 전부 편다(lc 와 같은 이유). */
+.hf-btn{display:inline-block;margin:2px 0 6px;padding:4px 12px;border-radius:999px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink-3);
+  font:700 12.5px inherit;cursor:pointer}
+.hf-btn:hover{background:var(--brand-tint);color:var(--brand-dk)}
+.hf-btn[aria-expanded="false"]::before{content:'▸ '}
+.hf-btn[aria-expanded="true"]::before{content:'▾ '}
+[data-help-fold].hf-off{display:none!important}
+@media print{
+  [data-help-fold].hf-off{display:block!important}
+  .hf-btn{display:none!important}
+}
 /* ★ 끌 때 격자가 눈에 보여야 '딱 맞았다'를 느낀다 (2026-08-07 지시).
    12칸 경계를 옅은 선으로 깔아 카드가 어느 칸에 떨어질지 미리 보여 준다.
    끄는 동안에만 뜨고, 클릭을 먹지 않는다. */
@@ -2996,7 +3028,7 @@ body.dash-drag-live #dashGuides{display:grid}
        담당자별 현황·고정 주소·원천자료 등록(입금: 드래그앤드롭·URL)을 한 곳에서. -->
   <section class="view" id="v-center">
     <div class="hero-min ios-large"><h2>업무센터</h2>
-      <p class="sub">담당자별 고정 주소 · 밀린 업무 · 원천자료 등록. 카드 순서와 표시 여부는 <b>내 화면 구성</b>에서 바꿉니다.</p></div>
+      <p class="sub" data-help-fold="center-sub">담당자별 고정 주소 · 밀린 업무 · 원천자료 등록. 카드 순서와 표시 여부는 <b>내 화면 구성</b>에서 바꿉니다.</p></div>
 
     <!-- 카드 구성 편집(2026-08-05 지시) — 대시보드 레고 블록과 같은 방식.
          저장은 브라우저(localStorage)라 사람마다 자기 화면을 갖는다. -->
@@ -3146,7 +3178,7 @@ body.dash-drag-live #dashGuides{display:grid}
 
   <section class="view" id="v-pm">
     <div class="hero-min wt-hero"><div class="wt-hero-copy"><h2>정기점검 관리</h2>
-      <p class="sub">예정·실행·미실시를 한 화면에서 배정하고 기록합니다. 입력은 앱 DB에 즉시 저장되고 Excel은 자동 보관본으로 생성됩니다.</p></div>
+      <p class="sub" data-help-fold="pm-sub">예정·실행·미실시를 한 화면에서 배정하고 기록합니다. 입력은 앱 DB에 즉시 저장되고 Excel은 자동 보관본으로 생성됩니다.</p></div>
       <label class="wt-basis" for="pmBaseDate"><span>조회 기준일</span>
         <input id="pmBaseDate" type="date" min="2026-01-01" max="2026-12-31" onchange="wtSetBase('pm',this.value)">
         <b id="pmBaseLabel">기준일 불러오는 중</b></label></div>
@@ -3181,7 +3213,7 @@ body.dash-drag-live #dashGuides{display:grid}
   </section>
   <section class="view" id="v-as">
     <div class="hero-min wt-hero"><div class="wt-hero-copy"><h2>돌발 AS 관리</h2>
-      <p class="sub">접수→배정→방문→완료를 한 화면에서 관리합니다. 입력은 앱 DB에 즉시 저장되고 Excel은 자동 보관본으로 생성됩니다.</p></div>
+      <p class="sub" data-help-fold="as-sub">접수→배정→방문→완료를 한 화면에서 관리합니다. 입력은 앱 DB에 즉시 저장되고 Excel은 자동 보관본으로 생성됩니다.</p></div>
       <label class="wt-basis" for="asBaseDate"><span>조회 기준일</span>
         <input id="asBaseDate" type="date" min="2026-01-01" max="2026-12-31" onchange="wtSetBase('as',this.value)">
         <b id="asBaseLabel">기준일 불러오는 중</b></label></div>
@@ -3242,7 +3274,7 @@ body.dash-drag-live #dashGuides{display:grid}
     <div class="source-canvas">
       <div class="source-head">
         <div class="ios-large"><h2>원본 자료</h2>
-          <p class="sub">ERP·밴드·카톡·PO·서류 원본을 한 곳에서 찾습니다. 카드를 누르면 지금 보고 있는 기기에서 바로 열립니다.</p></div>
+          <p class="sub" data-help-fold="sources-sub">ERP·밴드·카톡·PO·서류 원본을 한 곳에서 찾습니다. 카드를 누르면 지금 보고 있는 기기에서 바로 열립니다.</p></div>
         <button class="src-refresh" type="button" onclick="loadSources()" title="색인 새로고침" aria-label="색인 새로고침">
           <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>
         </button>
@@ -3272,7 +3304,7 @@ body.dash-drag-live #dashGuides{display:grid}
        재고 등록·불출·납품 입력과 현황·이미지/엑셀 저장을 한 화면에 모았다. -->
   <section class="view" id="v-remote">
     <div class="hero-min"><h2>리모컨 관리</h2>
-      <p class="sub">지점 재고 · AS 담당자 불출 · 현장 납품을 한 화면에서 기록합니다. 입력은 즉시 DB에 저장되어 류지영 매니저 화면과 대표보고에 바로 반영됩니다.</p></div>
+      <p class="sub" data-help-fold="remote-sub">지점 재고 · AS 담당자 불출 · 현장 납품을 한 화면에서 기록합니다. 입력은 즉시 DB에 저장되어 류지영 매니저 화면과 대표보고에 바로 반영됩니다.</p></div>
     <div class="rpt-actions" role="toolbar" aria-label="리모컨 도구">
       <button class="icon-btn primary" onclick="remoteCapture()" title="이미지 저장" aria-label="이미지 저장">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
@@ -3669,7 +3701,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	              <textarea name="survey_note" placeholder="예: 오종현 통화 확인 — 유상 오입력, 실제 무상 건. 기존 값을 고치거나 지울 때는 사유를 남겨 주세요."></textarea>
 	            </label>
 	          </div>
-          <p class="ryu-save-note">저장하면 해당 업무 ID의 <b>확인된 값만 앱 DB에 즉시 기록</b>합니다. 수식·검증결과·자동 상태는 직접 변경하지 않으며 Excel은 보관본으로 자동 생성됩니다.</p>
+          <p class="ryu-save-note" data-help-fold="ryu-entry-note">저장하면 해당 업무 ID의 <b>확인된 값만 앱 DB에 즉시 기록</b>합니다. 수식·검증결과·자동 상태는 직접 변경하지 않으며 Excel은 보관본으로 자동 생성됩니다.</p>
 	          <button class="abtn primary" id="ryuEntrySaveBtn" type="submit" style="width:100%;flex-direction:row;justify-content:center">
 	            <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-check-lg"/></svg>확인 내용 저장·반영
 	          </button>
@@ -3681,7 +3713,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	    <div class="ryu-upload-panel" id="ryuUploadPanel">
 	      <form class="card source-upload-card" id="poSubmissionForm" onsubmit="submitPoSubmission(event)" style="display:none">
 	        <h3>PO 원본 등록 <span class="norm">— 오종현 전용 · 원본 보관 후 자동 PO 대조</span></h3>
-	        <div class="source-help">
+	        <div class="source-help" data-help-fold="po-help">
 	          <span>① PO 엑셀을 직접 선택하거나 아래 상자로 끌어 놓습니다.</span>
 	          <span>② 공유 URL 또는 이 PC에서 열 수 있는 파일·폴더 경로를 붙여넣어도 됩니다.</span>
 	          <span>③ 원본은 <b>0. 원본 자료\6. PO 원본</b>에 날짜별로 보존되고, Excel 원본은 PO 대조 대기열로 전달됩니다.</span>
@@ -3737,7 +3769,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	          <label class="wide">사진·문서 근거<input name="evidence_file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.xlsx,.docx,.txt"></label>
 	          <input type="hidden" name="submitter" value="류지영">
 	        </div>
-	        <p class="ryu-save-note">저장하면 앱 DB 정본과 감사기록에 즉시 기록합니다. 프로젝트 중복·날짜 오류는 우측 상단 알림으로 알려드리며 Excel은 자동 보관본으로 생성됩니다.</p>
+	        <p class="ryu-save-note" data-help-fold="new-work-note">저장하면 앱 DB 정본과 감사기록에 즉시 기록합니다. 프로젝트 중복·날짜 오류는 우측 상단 알림으로 알려드리며 Excel은 자동 보관본으로 생성됩니다.</p>
 	        <button class="abtn primary" id="newWorkBtn" type="submit" style="width:100%;flex-direction:row;justify-content:center">
 	          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>신규 업무 저장·자동 반영
 	        </button>
@@ -3746,7 +3778,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 
 	      <div class="card">
 	        <h3>카카오톡 원본 등록 안내 <span class="norm">— 두 대화방을 각각 내보내서 올립니다</span></h3>
-	        <ol class="ryu-guide">
+	        <ol class="ryu-guide" data-help-fold="kakao-guide">
 	          <li><div><b>정기점검방 대화 내보내기</b><br><span class="muted">★UNI★ 쿠팡정기점검 → 메뉴 → 대화 내용 → 대화 내보내기 → 텍스트 파일을 선택합니다.</span></div></li>
 	          <li><div><b>돌발점검방 대화 내보내기</b><br><span class="muted">★UNI★ 쿠팡돌발점검 → 메뉴 → 대화 내용 → 대화 내보내기 → 텍스트 파일을 선택합니다.</span></div></li>
 	          <li><div><b>조사 내용을 항목별로 입력</b><br><span class="muted">프로젝트·캠프·담당자·처리 결과 중 확인한 값만 입력합니다.</span></div></li>
@@ -3793,7 +3825,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 
 	      <form class="card" id="improvementForm" onsubmit="submitImprovement(event)">
 	        <h3>업무센터 개선 요청 <span class="norm">— 불편한 화면을 붙여넣으면 Claude Code·Codex 검토 대기열에 등록됩니다</span></h3>
-	        <ol class="ryu-guide">
+	        <ol class="ryu-guide" data-help-fold="improve-guide">
 	          <li><div><b>불편한 화면을 캡처</b><br><span class="muted">Windows 캡처 후 이 상자에서 Ctrl+V 하거나 파일을 끌어 놓습니다.</span></div></li>
 	          <li><div><b>원하는 동작을 글로 설명</b><br><span class="muted">현재 동작과 바뀌었으면 하는 동작을 각각 적으면 가장 빠르게 반영됩니다.</span></div></li>
 	          <li><div><b>등록 후 알림에서 상태 확인</b><br><span class="muted">Claude Code가 사용 가능하면 우선 전달하고, 사용 불가 시 Codex가 이어받습니다.</span></div></li>
@@ -3913,7 +3945,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   <section class="view" id="v-calendar">
     <div class="cal2-head">
       <div class="ios-large"><h2>쿠팡 캘린더</h2>
-        <p class="sub">정기점검·돌발AS 일정을 한 달 격자로 봅니다. 위 칩을 눌러 보고 싶은 종류만 남기세요.</p></div>
+        <p class="sub" data-help-fold="cal-sub">정기점검·돌발AS 일정을 한 달 격자로 봅니다. 위 칩을 눌러 보고 싶은 종류만 남기세요.</p></div>
       <!-- ★ 2026-08-06 사용자 지적: 여기 큰 버튼 4개와 아래 아이콘 도구줄이 **겹쳤다**.
            '캡처'와 '이미지 저장'은 같은 `calendarCapture()` 였고, '복사'라는 말이
            링크 복사와 이미지 복사 두 가지를 가리켜 어느 쪽인지 알 수 없었다.
@@ -5322,6 +5354,9 @@ async function submitRyuEntry(ev){
   markStaffInput('save');
   const form=$('ryuEntryForm'),btn=$('ryuEntrySaveBtn'),result=$('ryuEntryResult');
   if(!ryuSelected||!ryuSelected.editable) return;
+  // 저장 전 경고(2026-08-11 지시) — 확실한 근거 있는 것만. 자동 수정은 없다.
+  const warns=ryuEntryWarnings(form);
+  if(warns.length && !(await confirmSaveWarnings(warns))) return;   // 돌아가서 수정
   btn.disabled=true;btn.classList.add('busy');result.className='ryu-result';result.textContent='';
   try{
     const requestId=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
@@ -5413,6 +5448,9 @@ async function submitNewWork(ev){
   ev.preventDefault();
   markStaffInput('save');
   const form=ev.currentTarget, btn=$('newWorkBtn'), result=$('newWorkResult');
+  // 저장 전 경고(2026-08-11 지시) — 확실한 근거 있는 것만. 자동 수정은 없다.
+  const warns=newWorkWarnings(form);
+  if(warns.length && !(await confirmSaveWarnings(warns))) return;   // 돌아가서 수정
   btn.disabled=true;btn.classList.add('busy');
   result.className='ryu-result';result.textContent='';
   try{
@@ -6646,6 +6684,39 @@ function initSecFold(){
     e.preventDefault(); toggleSecFold(h);
   });
   applySecFold();
+}
+/* ══ 설명란·도움말 기본 접힘 (2026-08-11 지시) ═══════════════════════════════
+   대상은 정적 HTML 에 data-help-fold="열쇠" 로 **손으로 표시한** 글 블록뿐이다 —
+   기능 카드·단추·입력칸은 절대 안 접는다(lcSafe 와 같은 이유: 숨은 기능은 없는
+   기능이 된다). 기본이 접힘이고, 펼친 것만 localStorage 에 기억한다(화면 환경설정).
+   말투는 lc 와 같은 '펼쳐보기/접기' 다 — 같은 동작에 두 이름을 쓰지 않는다. */
+const HELP_FOLD_KEY='csos_help_open';
+function readHelpOpen(){
+  try{ return new Set(JSON.parse(localStorage.getItem(HELP_FOLD_KEY)||'[]')); }catch(_){ return new Set(); }
+}
+function helpFoldInit(){
+  const open=readHelpOpen();
+  document.querySelectorAll('[data-help-fold]').forEach(el=>{
+    if(el.dataset.hfDone) return;
+    el.dataset.hfDone='1';
+    const k=el.getAttribute('data-help-fold');
+    const btn=document.createElement('button');
+    btn.type='button'; btn.className='hf-btn';
+    const sync=on=>{
+      el.classList.toggle('hf-off',!on);
+      btn.setAttribute('aria-expanded',on?'true':'false');
+      btn.textContent=on?'설명 접기':'설명 펼쳐보기';
+    };
+    btn.onclick=()=>{
+      const set=readHelpOpen(), on=el.classList.contains('hf-off');   // 지금 접혀 있으면 펼친다
+      on?set.add(k):set.delete(k);
+      try{ localStorage.setItem(HELP_FOLD_KEY,JSON.stringify([...set])); }catch(_){}
+      sync(on);
+      try{ uxEvent('tap','help-fold',k+(on?' 펼침':' 접음')); }catch(_){}
+    };
+    el.before(btn);
+    sync(open.has(k));
+  });
 }
 function initSwipeNav(){
   const mq = window.matchMedia('(max-width:720px)');
@@ -8669,10 +8740,12 @@ function statHelpOpen(key,label){
   if(!h) return;
   try{ uxEvent('view','statHelp',String(key||label||'')); }catch(e){}
   const row=(k,v)=>v?`<div class="stat-help-row"><b>${k}</b><span>${esc2(v)}</span></div>`:'';
-  showSheet(`<h2>${esc2(h.n||label||'통계 설명')}</h2><p class="sub">${esc2(h.t||'')}</p>
-    <div class="stat-help">${row('계산',h.c)}${row('근거',h.s)}${row('기간',h.p)}${row('제외',h.x)}</div>
+  /* 공용 바텀시트로 연다(2026-08-11 지시 — 팝업 컴포넌트는 한 벌). 상세 시트(#sheet)
+     위에서 눌러도 그 시트를 갈아끼우지 않아 입력하던 값이 남는다. */
+  bottomSheet({title: h.n||label||'통계 설명', sub: h.t||'',
+    body: `<div class="stat-help">${row('계산',h.c)}${row('근거',h.s)}${row('기간',h.p)}${row('제외',h.x)}</div>
     <p class="sub" style="margin-top:12px">정의는 STAT_HELP 사전 한 곳에서 옵니다 —
-    대시보드·대표보고·캡처·업무센터가 같은 정의를 읽습니다.</p>`);
+    대시보드·대표보고·캡처·업무센터가 같은 정의를 읽습니다.</p>`});
 }
 function cleanErp2026(d){
   const rows=(d.rows||[]).filter(r=>rowIs2026(r,'erp')).map(hide2025), months={}, kinds={};
@@ -10047,6 +10120,122 @@ function askText(label, value, opt){
   });
 }
 
+/* ═══ 공용 바텀시트 — 팝업은 전부 이 문 하나로 연다 (2026-08-11 지시) ═══════════
+   "아래→위 슬라이드 바텀시트 공용 컴포넌트 하나 · statHelpOpen 상세시트와 새 경고
+   팝업 등 레이어를 이것으로 통일". 뼈대는 위 dlg 레이어 **하나**다 — 폰에서는
+   손잡이 바(.dlg-grip)가 달린 바텀시트로 올라오고 바깥(dlgDim) 탭이 닫으며,
+   PC 에서는 가운데 모달이 된다([202]가 그 모양을 지킨다).
+   ★ 새 팝업 레이어를 또 만들지 말 것 — 컴포넌트가 두 벌이 되는 순간 한쪽만
+     고쳐진다([162]). #sheet(상세 시트)는 팝업이 아니라 **화면 단위** 레이어다
+     (목록→상세 스택·layerOpen 의 폼 이동) — 그 위에 뜨는 팝업이 이 컴포넌트다.
+   opt: {title, sub, body(신뢰 가능한 HTML), buttons:[{label,value,kind}], cancel}
+   답이 필요하면 await, 보여 주기만 하면 그냥 부른다(Promise). */
+function bottomSheet(opt){
+  opt = opt || {};
+  return dlgAsk({
+    title: opt.title || '', desc: opt.sub || '',
+    // dlg-body 는 pre-wrap 이다(알림 문자열용) — HTML 조각의 들여쓰기 줄바꿈이
+    // 빈 줄로 보이지 않게 normal 로 감싼다.
+    body: opt.body ? '<div style="white-space:normal">' + opt.body + '</div>' : '',
+    buttons: (opt.buttons && opt.buttons.length) ? opt.buttons
+           : [{label:'확인', value:true, kind:'primary'}],
+    cancel: ('cancel' in opt) ? opt.cancel : true
+  });
+}
+
+/* ═══ 저장 전 입력 경고 (2026-08-11 지시) ══════════════════════════════════════
+   "저장 직전 문제 소지를 검사해 경고 팝업" — 신규 접수(newWorkForm) · 담당자
+   업무센터 입력(ryuEntryForm) · 정산·업무 입력(saveInputs) 세 길이 같은 규칙
+   하나를 쓴다. ★ 확실한 근거가 있는 것만 경고한다 — 오탐이 더 나쁘다([172]:
+   멀쩡한 값을 고치러 가게 만든다). 그래서 지금 규칙은 다섯뿐이다:
+     ① 완료일 < 접수일 역전   ② 오늘과 1년 이상 어긋난 날짜(연도 오타)
+     ③ 유상인데 금액 0 이하   ④ PO번호가 PO+숫자 모양이 아님
+     ⑤ 상태 낱말이 관리대장 목록 밖(서버 거부를 미리 알림)
+   ★ 명세서발행일이 완료일보다 1~3일 앞서는 것은 **정상 업무라 경고하지 않는다**
+     (typo_watch 실사고 [172] — 첫판 163건 오탐의 정체가 바로 이것이었다.
+      그래서 명세서발행일·완료일 선후는 아예 비교하지 않는다).
+   ★ 자동 수정은 절대 하지 않는다. 경고는 저장을 막지 않는다 — 차단은 서버 몫. */
+const PO_SHAPE = /^PO\d+$/i;
+function warnYearOff(list, label, v){
+  const d = normDate(v); if(!d) return;
+  const t = new Date(d + 'T00:00:00'); if(isNaN(+t)) return;
+  const gap = Math.round(Math.abs(Date.now() - t) / 864e5);
+  if(gap >= 365) list.push(`${label} ${d} — 오늘(${wtToday()})과 ${gap}일 차이입니다. 연도 오타가 아닌지 확인해 주세요.`);
+}
+function warnReversal(list, doneLabel, doneVal, recvLabel, recvVal){
+  const a = normDate(doneVal), b = normDate(recvVal);
+  if(a && b && a < b) list.push(`${doneLabel}(${a})이 ${recvLabel}(${b})보다 앞섭니다 — 날짜가 뒤바뀌지 않았는지 확인해 주세요.`);
+}
+function warnPoShape(list, v){
+  const s = String(v||'').trim();
+  if(s && !PO_SHAPE.test(s)) list.push(`PO번호 '${s}' 가 PO+숫자 모양이 아닙니다 — 쿠팡 PO 목록과 대조되지 않을 수 있습니다.`);
+}
+function warnPaidZero(list, label, v, cost){
+  if(String(cost||'').trim() !== '유상') return;
+  const s = String(v==null?'':v).replace(/[,\s원]/g,'');
+  if(s === '' || isNaN(+s)) return;
+  if(+s <= 0) list.push(`유상 건인데 ${label}이 ${fmt(+s)}원입니다 — 금액을 확인해 주세요.`);
+}
+/* 경고 팝업 — 공용 바텀시트로 띄운다. true=그래도 저장 · false=돌아가서 수정(기본).
+   바깥 탭·ESC 도 '돌아가서 수정'이다 — 실수로 닫혀서 저장되는 일은 없어야 한다. */
+async function confirmSaveWarnings(warns){
+  if(!warns.length) return true;
+  const v = await bottomSheet({
+    title:'저장 전에 확인해 주세요',
+    sub:'자동으로 고치지 않습니다 — 값이 맞는지 확인한 뒤 저장해 주세요.',
+    body:'<ul style="margin:0;padding-left:19px">' +
+      warns.map(w=>`<li style="margin:0 0 8px;line-height:1.55">${esc2(w)}</li>`).join('') + '</ul>',
+    buttons:[{label:'돌아가서 수정', value:false, kind:'primary'},
+             {label:'그래도 저장', value:true}],
+    cancel:false
+  });
+  return v === true;
+}
+/* 신규 접수 등록 폼(newWorkForm) 검사 — 업무일 연도 · 목록 밖 상태 낱말 */
+function newWorkWarnings(form){
+  const w=[];
+  warnYearOff(w, '업무일', (form.querySelector('[name="work_date"]')||{}).value);
+  const st=form.querySelector('[name="status"]');
+  if(st && st.selectedIndex>=0 && st.value){
+    const t=(st.options[st.selectedIndex]||{}).textContent||'';
+    if(t.indexOf('— 목록 밖')>=0)
+      w.push(`현재 단계 '${st.value}' 는 관리대장 드롭다운 목록 밖 낱말입니다 — 서버가 거부할 수 있습니다.`);
+  }
+  return w;
+}
+/* 정산·업무 입력(saveInputs) 검사 — 바뀐 값만 본다(이미 적혀 있던 값을 나무라면
+   경보가 대부분이 되고, 대부분이면 아무도 안 본다[170]). */
+function entryWarnings(kind, id, values){
+  const w=[], spec=INPUT_SPEC[kind], r=rowById(String(id))||{};
+  const vtypeOf={}; (spec?spec.fields:[]).forEach(f=>{ vtypeOf[f.col]=f.vtype; });
+  const cost=String(r['유상·무상·보험']||r.비용구분||values['유상·무상·보험']||'').trim();
+  Object.entries(values).forEach(([col,v])=>{
+    if(vtypeOf[col]==='date') warnYearOff(w, col, v);
+    if(col==='PO번호') warnPoShape(w, v);
+    if(col==='입금액') warnPaidZero(w, '입금액', v, cost);
+  });
+  if(values['작업완료일'] && r.접수일자)
+    warnReversal(w, '작업완료일', values['작업완료일'], '접수일자', r.접수일자);
+  return w;
+}
+/* 담당자 업무센터 입력(ryuEntryForm) 검사 — 스키마가 서버에서 오므로 모양으로 본다 */
+function ryuEntryWarnings(form){
+  const w=[], detail=(typeof ryuSelected!=='undefined'&&ryuSelected&&ryuSelected.detail)||{};
+  const cost=String(detail['유상·무상·보험']||detail['비용구분']||'').trim();
+  form.querySelectorAll('#ryuEntryFields input[type="date"]').forEach(el=>{
+    if(el.value) warnYearOff(w, el.name||'날짜', el.value);
+  });
+  form.querySelectorAll('#ryuEntryFields input,#ryuEntryFields textarea').forEach(el=>{
+    const n=String(el.name||'');
+    if(n.indexOf('PO번호')>=0) warnPoShape(w, el.value);
+    if(n==='입금액'||n==='공급가액') warnPaidZero(w, n, el.value, cost);
+  });
+  const done=form.querySelector('#ryuEntryFields [name="작업완료일"]');
+  if(done && done.value && detail['접수일자'])
+    warnReversal(w, '작업완료일', done.value, '접수일자', detail['접수일자']);
+  return w;
+}
+
 $('dlgDim').addEventListener('click', dlgCancel);
 document.addEventListener('keydown', e=>{
   if(!dlgIsOpen() || !_dlgResolve) return;
@@ -10316,6 +10505,9 @@ async function saveInputs(kind, id, n, recordVersion){
     else if(now) values[el.dataset.col]=now;
   }
   if(!Object.keys(values).length&&!clearFields.length){ notice('변경된 값이 없습니다'); return; }
+  // 저장 전 경고(2026-08-11 지시) — 바뀐 값만 검사한다. 자동 수정은 없다.
+  const warns=entryWarnings(kind,id,values);
+  if(warns.length && !(await confirmSaveWarnings(warns))) return;   // 돌아가서 수정
   const requestId=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
   const d=await api('/api/staff/entry',{method:'POST',headers:{'Idempotency-Key':requestId},body:JSON.stringify({
     category:kind,key:id,record_version:Number(recordVersion||0),values,
@@ -15800,6 +15992,7 @@ function bootstrapAuthenticatedData(){
   initDashboardLayout();
   initSwipeNav();            // 폰: 손가락 좌우로 밀어 카테고리 이동 (2026-08-07 지시)
   initSecFold();             // 구역 머리를 눌러 접었다 폈다 (2026-08-07 지시)
+  helpFoldInit();            // 설명란·도움말 기본 접힘 (2026-08-11 지시)
   initStaffCenter();
   if(staffSlug==='oh-jonghyeon') injectOhUpload();
   // 리모컨 관리는 류지영·오종현 업무센터에 똑같이 들어간다(2026-08-03 지시).
