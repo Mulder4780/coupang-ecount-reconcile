@@ -4597,6 +4597,30 @@ def t98_remote_control_tracking():
             raise AssertionError("재고 음수 정정이 뚫렸다")
         except ValueError:
             pass
+
+        # ★ 지점 직납(2026-08-11 류지영 실사용 피드백): 납품자 칸이 지점 이름이거나
+        #   지점 담당자 본인인데 개인 보유가 모자라면 — 지점 재고에서 바로 나간다.
+        #   실사고: 류지영(개인 보유 0)이 납품을 적자 "보유 0개" 로 막혔다.
+        assert "류지영" not in L.remote_status()["holdings"], "전제 어긋남: 류지영 개인 보유 존재"
+        L.remote_stock_adjust("증평", 2, "add", "직납 시험 입고", "류지영")     # 재고 1→3
+        rid = L.remote_deliver("류지영", "", "위더스물류(V_안성)", 1, kind="교체", version="VER.3")
+        assert rid, "지점 담당자 직납이 막혔다(실사고 그대로)"
+        st3 = L.remote_status()
+        assert st3["branch_stock"]["증평"]["stock"] == 2, st3["branch_stock"]["증평"]
+        assert "류지영" not in st3["holdings"] and "증평본사" not in st3["holdings"], \
+            "직납이 개인 보유를 만들었다(유령 음수 보유자)"
+        L.remote_deliver("증평본사", "", "샘플캠프", 1)                        # 지점 표기도 된다
+        assert L.remote_status()["branch_stock"]["증평"]["stock"] == 1
+        try:
+            L.remote_deliver("증평", "", "아무캠프", 9)
+            raise AssertionError("지점 재고(1)보다 많은 직납(9)이 뚫렸다")
+        except ValueError as exc:
+            assert "지점 재고" in str(exc), exc
+        try:                                     # 지점도 담당자도 아닌 사람은 예전 그대로 막되
+            L.remote_deliver("무명기사", "", "아무캠프", 1)
+            raise AssertionError("보유 없는 사람 납품이 뚫렸다")
+        except ValueError as exc:                # 오류가 해결책(지점 이름)을 말해야 한다
+            assert "지점 이름" in str(exc), exc
     finally:
         L.DB_PATH, L.DB_DIR = old_path, old_dir
     # 앱: 류지영·오종현 업무센터 공통 카드 + iOS 스타일 + 대표보고 캡처 포함 + 승인 UI 없음
@@ -4622,7 +4646,11 @@ def t98_remote_control_tracking():
     assert "/api/remote/approve" not in srv, "승인 API가 남아 있다"
     blk = srv[srv.index('"/api/remote/request"'):srv.index('"/api/remote/request"') + 1600]
     assert '"ryu-jiyeong", "oh-jonghyeon"' in blk, "리모컨 관리가 두 업무센터로 제한되지 않았다"
-    print("  [98] 리모컨 기록·관리·보고(승인 없음)·3개 한도·납품 추적 ✅")
+    # 지점 직납·기타 사유(2026-08-11 류지영): 폼이 지점 이름을 안내하고 기타 사유 칸이 있다
+    for need in ("DWhyT", "grant_reason_text", "부산공장·시화공장·증평본사"):
+        assert need in html, f"지점 직납/기타 사유 UI 누락: {need}"
+    assert "grant_reason_text" in srv, "서버가 기타 자유 사유를 안 받는다"
+    print("  [98] 리모컨 기록·관리·보고(승인 없음)·3개 한도·납품 추적·지점 직납 ✅")
 
 
 def t101_percent_and_no_erp_post():

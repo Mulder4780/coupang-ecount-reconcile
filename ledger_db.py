@@ -879,6 +879,10 @@ def _remote_holdings(c):
         d[ver] = d.get(ver, 0) - int(qty or 0)
     out = {}
     for tech in set(issued) | set(delivered):
+        if tech in REMOTE_BRANCH_LABELS.values():
+            # 지점 직납 행(2026-08-11) — 개인 보유가 아니라 지점 재고에서 이미
+            # 음수 델타로 차감됐다. 여기 세우면 유령 음수 보유자가 생긴다.
+            continue
         got, used = int(issued.get(tech) or 0), int(delivered.get(tech) or 0)
         out[tech] = {"issued": got, "delivered": used, "holding": got - used,
                      # 0 이나 음수는 버린다 — 버전을 안 적고 납품만 잡힌 옛 기록 탓에
@@ -1061,12 +1065,35 @@ def remote_request(branch, technician, qty, requested_by, note="",
         return cur.lastrowid
 
 
+def _remote_branch_of_name(name):
+    """납품자 칸에 적힌 이름이 지점을 가리키는가 — 키(증평)·표기(증평본사)·'증평지점' 변형.
+
+    2026-08-11 류지영 실사용 피드백: 지점 재고에서 바로 나가는 납품인데 개인 보유만
+    검사해 "보유 0개" 로 막혔다. 이름이 지점이면 지점 재고를 검사해야 한다.
+    """
+    t = str(name or "").strip()
+    if not t:
+        return None
+    if t in REMOTE_BRANCH_ISSUERS:
+        return t
+    for br, label in REMOTE_BRANCH_LABELS.items():
+        if t in (label, br + "지점"):
+            return br
+    return None
+
+
 def remote_deliver(technician, project, camp, qty, delivered_on="", note="",
                    created_by="", kind="납품", version=""):
     """리모컨 납품 기록 — 어느 프로젝트/캠프에 몇 개가 들어갔는지 추적의 원본.
 
     kind 로 처리유형을 구분한다(2026-08-04 재고표 기준): 납품·사용·교체 모두
     기사 보유를 줄인다는 점은 같지만, 사람이 나중에 "왜 줄었나"를 물을 때 답이 다르다.
+
+    ★ 지점 직납(2026-08-11 류지영 피드백): 납품자 칸이 지점 이름이면 — 또는 지점
+    담당자(오종현·안은숙·류지영) 이름인데 개인 보유가 모자라면 — 그 지점 재고에서
+    바로 나간다. 재고 음수 델타(왜 줄었나) + 납품 행(어디로 갔나) 이중 기록이며,
+    납품 행의 technician 은 지점 표기로 남겨 개인 보유가 이중 차감되지 않게 한다.
+    개인 보유가 충분한 담당자는 예전 그대로 개인 보유에서 나간다(동작 불변).
     """
     technician = str(technician or "").strip()
     qty = int(qty or 0)
@@ -1079,10 +1106,37 @@ def remote_deliver(technician, project, camp, qty, delivered_on="", note="",
     now = datetime.now().isoformat(timespec="seconds")
     day = str(delivered_on or now[:10])[:10]
     with conn() as c:
+        branch = _remote_branch_of_name(technician)
         hold = _remote_holdings(c).get(technician) or {"holding": 0}
-        if qty > hold["holding"]:
+        if branch is None and qty > hold["holding"]:
+            # 지점 담당자 본인 이름인데 보유가 모자라면 그 지점 재고로 대신 본다.
+            for br, issuer in REMOTE_BRANCH_ISSUERS.items():
+                if technician == issuer:
+                    branch = br
+                    break
+        if branch is not None:
+            stock = _remote_branch_stock(c)[branch]
+            label = REMOTE_BRANCH_LABELS[branch]
+            if not stock["tracked"] or stock["stock"] < qty:
+                have = stock["stock"] if stock["tracked"] else "미등록"
+                raise ValueError(
+                    f"{technician} 개인 보유 {hold['holding']}개 · {label} 지점 재고 {have}개 — "
+                    f"{qty}개를 납품할 수 없습니다. 지점 재고 등록(입고)을 먼저 하거나 "
+                    f"불출로 보유를 만든 뒤 다시 하세요")
+            c.execute(
+                "INSERT INTO remote_stock(branch,qty_delta,reason,created_by,created_at,"
+                "version,moved_on) VALUES(?,?,?,?,?,?,?)",
+                (branch, -qty,
+                 f"지점 직납 — {str(camp or '').strip() or str(project or '').strip()}",
+                 str(created_by or "") or technician, now, _remote_version(version), day))
+            if technician != label:
+                note = (str(note or "") + " " if note else "") + f"[지점 직납 · 입력 {technician}]"
+            technician = label
+        elif qty > hold["holding"]:
             raise ValueError(
-                f"{technician} 보유 {hold['holding']}개보다 많은 {qty}개를 납품할 수 없습니다")
+                f"{technician} 보유 {hold['holding']}개보다 많은 {qty}개를 납품할 수 없습니다 — "
+                f"먼저 불출로 보유를 만들거나, 지점 재고에서 바로 나간 것이면 납품자 칸에 "
+                f"지점 이름(부산공장·시화공장·증평본사)을 적으세요")
         cur = c.execute(
             "INSERT INTO remote_delivery(technician,project,camp,qty,delivered_on,"
             "note,created_by,created_at,kind,version) VALUES(?,?,?,?,?,?,?,?,?,?)",

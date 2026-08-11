@@ -7547,8 +7547,15 @@ self.addEventListener('fetch', e => {
                     if why not in ("샘플발송", "개인지급", "기타"):
                         return self._send(400, {"ok": False, "error":
                             "프로젝트NO·캠프명이 없으면 지급 사유(샘플발송·개인지급·기타)를 골라야 합니다"})
-                    camp = f"({why})"
-                    note = (note + " " if note else "") + f"[지급사유: {why}]"
+                    # 기타는 자유 사유를 함께 받는다(2026-08-11 류지영 요청) — 선택이지
+                    # 필수는 아니다. 적으면 납품처 표기와 note 에 그대로 남는다.
+                    why_text = str(body.get("grant_reason_text") or "").strip()
+                    if why == "기타" and why_text:
+                        camp = f"(기타: {why_text[:40]})"
+                        note = (note + " " if note else "") + f"[지급사유: 기타 — {why_text[:120]}]"
+                    else:
+                        camp = f"({why})"
+                        note = (note + " " if note else "") + f"[지급사유: {why}]"
                 rid = ledger_db.remote_deliver(
                     body.get("technician"), proj,
                     camp, body.get("qty"),

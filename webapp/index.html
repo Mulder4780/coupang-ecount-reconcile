@@ -6343,7 +6343,8 @@ function remoteCardBody(host,s,hostId){
         <button class="abtn primary" onclick="remoteRequest('${hostId}')">불출 저장</button>
       </fieldset>
       <fieldset><legend>납품 기록 · 프로젝트/캠프 추적</legend>
-        <input id="${hostId}DTech" placeholder="AS 담당자 이름" autocomplete="off">
+        <!-- 2026-08-11 류지영 피드백: 지점 재고에서 바로 나가는 납품은 지점 이름을 적는다. -->
+        <input id="${hostId}DTech" placeholder="AS 담당자 또는 지점 이름 (부산공장·시화공장·증평본사)" autocomplete="off">
         <input id="${hostId}DPrj" placeholder="프로젝트NO (UJ…)" autocomplete="off">
         <div class="remote-row2">
           <input id="${hostId}DCamp" placeholder="캠프명" autocomplete="off">
@@ -6355,7 +6356,9 @@ function remoteCardBody(host,s,hostId){
         </div>
         <input id="${hostId}DDay" type="date" value="${new Date().toISOString().slice(0,10)}" aria-label="납품일">
         <!-- 샘플발송·개인지급은 프로젝트가 없다(2026-08-11 지시) — 그때는 사유가 필수다. -->
-        <select id="${hostId}DWhy" aria-label="지급 사유"><option value="">지급 사유 — 프로젝트 납품이면 비워 둡니다</option><option>샘플발송</option><option>개인지급</option><option>기타</option></select>
+        <select id="${hostId}DWhy" aria-label="지급 사유" onchange="const t=$('${hostId}DWhyT'); if(t) t.style.display=this.value==='기타'?'':'none'"><option value="">지급 사유 — 프로젝트 납품이면 비워 둡니다</option><option>샘플발송</option><option>개인지급</option><option>기타</option></select>
+        <!-- 기타를 고르면 사유를 직접 적을 수 있다(2026-08-11 류지영 요청 — 선택 사항). -->
+        <input id="${hostId}DWhyT" placeholder="기타 사유 직접 입력 (선택)" autocomplete="off" style="display:none">
         <button class="abtn primary" onclick="remoteDeliver('${hostId}')">납품 저장</button>
       </fieldset>
     </div>
@@ -6508,7 +6511,7 @@ async function remoteDeliver(hostId){
     const r=await api('/api/remote/deliver',{method:'POST',body:JSON.stringify({
       technician:v('DTech').trim(),project:v('DPrj').trim(),camp:v('DCamp').trim(),
       qty:+v('DQty'),delivered_on:v('DDay'),kind:v('DKind'),version:v('DVer'),
-      grant_reason:v('DWhy')})});
+      grant_reason:v('DWhy'),grant_reason_text:v('DWhyT').trim()})});
     if(!r.ok) throw new Error(r.error||'실패');
     notice('납품 기록 저장 완료');
   }catch(e){ notice('납품 기록 실패: '+e.message); }
