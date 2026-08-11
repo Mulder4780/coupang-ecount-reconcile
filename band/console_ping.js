@@ -1,0 +1,1 @@
+(function(){var h=(location.hostname||'none').replace(/[^a-z0-9.]/gi,'_');var p=(location.pathname||'').replace(/[^a-z0-9]/gi,'_').slice(0,40);var a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['ok'],{type:'text/plain'}));a.download='__ping__'+h+'__'+p+'.txt';document.body.appendChild(a);a.click();a.remove();return 'ping-ok '+location.href;})()
