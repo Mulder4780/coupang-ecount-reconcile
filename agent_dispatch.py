@@ -217,11 +217,27 @@ def _ticket_prompt(record: dict[str, Any], local_returncode: int) -> str:
 """
 
 
-def _agent_command(agent: str, executable: str, prompt: str, last_message: Path) -> list[str]:
+def _agent_command(agent: str, executable: str, prompt: str, last_message: Path,
+                   chosen: dict[str, Any] | None = None) -> list[str]:
+    """CLI 명령을 짓는다. `chosen` 이 있으면 **고른 모델**을 깃발로 붙인다.
+
+    ★ 2026-08-12 전까지는 모델을 **한 번도 고르지 않았다** — `claude -p` 만 불러
+      모든 인계가 기본 모델(제일 비싼 것)로 돌았다. 자율복구 재시도 한 장이나
+      원인 모를 회차 고장이나 같은 값을 치렀다. 고르는 규칙은 `ai_tier` 한 곳이다.
+    ★ 노력은 깃발이 없으므로 **프롬프트 문장**으로 간다(`ai_tier.prompt_line`) —
+      확인 안 된 깃발을 붙이면 CLI 가 통째로 안 뜨고 인계가 조용히 안 된다.
+    """
     if agent == "codex":
         return [executable, "exec", "-C", str(ROOT), "-s", "workspace-write",
                 "--json", "-o", str(last_message), prompt]
-    return [executable, "-p", prompt, "--output-format", "text"]
+    extra: list[str] = []
+    if chosen:
+        try:
+            import ai_tier
+            extra = ai_tier.flags(agent, chosen)
+        except Exception:                       # 고르기가 실패해도 인계는 나간다
+            extra = []
+    return [executable, *extra, "-p", prompt, "--output-format", "text"]
 
 
 def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, Any]:
@@ -260,8 +276,27 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
         "local_returncode": int(local_returncode),
         "log": log_path.name,
     })
+    # ★ 모델·노력을 **여기서 고른다** (2026-08-12 지시 · `[230]`). 근거는 티켓이 이미
+    #   갖고 있는 것뿐이다 — 갈래·제목·명령·시도 횟수. 지어내지 않는다.
+    #   고른 것을 티켓에 적어 둔다: 나중에 "왜 이건 비싼 모델로 돌았나"를 물을 수
+    #   있어야 규칙이 자란다.
+    chosen: dict[str, Any] = {}
+    prompt = _ticket_prompt(record, local_returncode)
+    try:
+        import ai_tier
+        rc_i = int(local_returncode or 0)
+        chosen = ai_tier.pick(
+            kind=str(record.get("kind") or
+                     ("timeout" if rc_i == 124 else "code" if rc_i else "")),
+            title=str(record.get("title") or ""),
+            args=list(record.get("args") or []),
+            attempts=int(record.get("attempts") or (3 if rc_i else 0)))
+        record["ai_tier"] = chosen
+        prompt = prompt + "\n" + ai_tier.prompt_line(chosen)
+    except Exception as exc:                    # 고르기가 실패해도 인계는 나간다
+        record["ai_tier_error"] = str(exc)[:120]
     _atomic_json(path, record)
-    command = _agent_command(agent, executable, _ticket_prompt(record, local_returncode), last_message)
+    command = _agent_command(agent, executable, prompt, last_message, chosen)
     try:
         result = run_tree(command, cwd=ROOT, timeout=AGENT_TIMEOUT_SECONDS,
                           drain_timeout=60, output_limit=200_000)

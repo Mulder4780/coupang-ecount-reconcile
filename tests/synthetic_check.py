@@ -14971,6 +14971,71 @@ def t229_band_liveness_contract():
           "tick 이 앞 수집을 마무리(재시도 시계는 안 밀림) ✅")
 
 
+def t230_ai_tier_picks_model_and_effort():
+    """[230] AI 를 부를 때 **모델·노력을 스스로 고른다** (2026-08-12 지시).
+
+    사용자 지시: "자동으로 모델과 노력 강도 설정해서 진행하는 알고리즘 적용".
+
+    ★ 전까지는 **한 번도 고르지 않았다** — `agent_dispatch` 가 `claude -p` 만 불러
+      모든 인계가 기본 모델(제일 비싼 것)로 돌았다. 재시도 한 장이나 원인 모를
+      회차 고장이나 같은 값을 치렀다.
+    ★ **싸게 하는 것이 목적이 아니라 값에 맞게 하는 것이 목적이다.** 이 프로젝트에서
+      잘못된 판단은 못 한 판단보다 나쁘다(`[172]`) — 그래서 **원인을 모르는 일은
+      값을 안 아낀다.** 아끼는 것은 답이 이미 정해진 일뿐이다.
+    ★ **없는 깃발을 지어내지 않는다.** `--model` 은 확인됐고 '노력' 깃발은 확인된 것이
+      없다. 틀린 깃발 하나면 CLI 가 통째로 안 뜨고 인계가 **조용히** 안 된다(`[169]`).
+    """
+    import ai_tier as T
+    import agent_dispatch as A
+    from pathlib import Path as _P
+
+    # ── 갈래: 근거가 있을 때만 위아래로 움직인다
+    assert T.pick(args=["--check"])["갈래"] == "조회", "읽기만 하는 일을 못 알아본다"
+    assert T.pick("code", "왜 죽나", [], 3)["갈래"] == "원인", \
+        "원인을 모르는 반복 실패에 값을 아낀다 — 오진이 파일에 박힌다"
+    assert T.pick("resource", "다시 돌린다", [])["갈래"] == "재시도", T.pick("resource", "", [])
+    # ★ `--check` 가 섞여 있어도 세 번 죽었으면 물어야 할 것은 '조회 결과'가 아니라 '왜'다
+    assert T.pick("timeout", "회차", ["--check"], 3)["갈래"] == "원인", \
+        "반복 실패보다 조회 표식을 먼저 본다 — 순서가 뒤집혔다"
+    # ★ 쓰는 명령을 조회라고 부르지 않는다 — 싸게 판단해서 원장을 건드리면 안 된다
+    assert T.pick("", "반영", ["--print", "--apply"])["갈래"] != "조회", \
+        "쓰는 명령을 조회로 읽는다"
+
+    # ── 값: 원인·설계는 제일 좋은 것으로, 조회는 싸게
+    assert T.pick("code", "", [], 3)["모델"] == "opus", "원인 규명에 값싼 모델을 쓴다"
+    assert T.pick(args=["--status"])["모델"] == "sonnet", "조회에 비싼 모델을 쓴다"
+    assert "haiku" not in json.dumps(T.TIERS, ensure_ascii=False), \
+        "판정 층에 haiku 를 넣었다 — 값싼 오판이 아끼는 것보다 크다"
+    for tier, (model, effort, why) in T.TIERS.items():
+        assert model in ("sonnet", "opus") and effort in ("low", "medium", "high"), \
+            "%s 가 CLI 가 모르는 낱말을 쓴다: %s/%s" % (tier, model, effort)
+        assert why, "%s 를 왜 그렇게 골랐는지 안 적는다 — 나중에 아무도 못 고친다" % tier
+
+    # ── 깃발: 확인된 것만 붙는다
+    got = T.pick("code", "", [], 3)
+    assert T.flags("claude", got) == ["--model", "opus"], T.flags("claude", got)
+    assert T.flags("codex", got) == [], "확인 안 된 codex 깃발을 붙인다 — CLI 가 안 뜬다"
+    src = open(os.path.join(ROOT, "ai_tier.py"), encoding="utf-8").read()
+    for bad in ("--effort", "--reasoning", "--thinking"):
+        assert bad not in src.split("def flags(", 1)[1].split("\ndef ", 1)[0], \
+            "확인 안 된 깃발 %s 를 붙인다" % bad
+    assert "노력" in T.prompt_line(got), "노력을 아무 데도 안 넘긴다"
+
+    # ── 배선: 명령에 실제로 실린다. 못 고르면 예전 그대로 나간다(인계는 멈추지 않는다)
+    cmd = A._agent_command("claude", "claude.exe", "p", _P("x.txt"), got)
+    assert cmd[:3] == ["claude.exe", "--model", "opus"] and "-p" in cmd, cmd
+    assert A._agent_command("claude", "claude.exe", "p", _P("x.txt")) == \
+        ["claude.exe", "-p", "p", "--output-format", "text"], "안 고른 경우가 바뀌었다"
+    assert A._agent_command("codex", "codex.exe", "p", _P("x.txt"), got)[1] == "exec", \
+        "codex 명령이 바뀌었다"
+    disp = open(os.path.join(ROOT, "agent_dispatch.py"), encoding="utf-8").read()
+    assert 'record["ai_tier"] = chosen' in disp, \
+        "고른 것을 티켓에 안 적는다 — 왜 그 모델로 돌았는지 물을 수 없다"
+
+    print("  [230] AI 모델·노력 자동 선택 — 원인/설계는 opus·조회는 sonnet · haiku 배제 · "
+          "확인된 깃발만(--model) · 노력은 문장으로 · 티켓에 근거 기록 ✅")
+
+
 def t220_flow_yes_no_cycles():
     """[220] 플로우 예/아니오 순환 검증 (2026-08-11 지시).
 
@@ -16145,6 +16210,7 @@ if __name__ == "__main__":
     t225_session_auto_resumes_parked_and_pushes()
     t228_scheduler_rounds_are_watched()
     t229_band_liveness_contract()
+    t230_ai_tier_picks_model_and_effort()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
