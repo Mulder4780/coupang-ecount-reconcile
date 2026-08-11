@@ -14971,6 +14971,53 @@ def t229_band_liveness_contract():
           "tick 이 앞 수집을 마무리(재시도 시계는 안 밀림) ✅")
 
 
+def t231_loop_tick_weight_from_evidence():
+    """[231] 정오 루프 틱이 **자기 무게를 근거로 정한다** (2026-08-12 지시).
+
+    사용자 지시: "루프는 하루에 한번 매일 12시에서 13시로 설정하고 자동으로
+    모델과 노력 강도 설정해서 진행하는 알고리즘 적용".
+
+    ★ **값의 정본은 `ai_tier.TIERS` 하나다**(`[230]`). 이 파일은 '이번 틱이 어느
+      갈래인가'만 정하고 모델 이름을 제 손으로 적지 않는다. 첫 판에 표를 여기에도
+      적었다가 `haiku` 를 넣었는데, ai_tier 는 **일부러 haiku 를 뺐다**(값싼 오판이
+      아끼는 것보다 크다). 사본을 두면 그 이유가 조용히 사라진다.
+    ★ **못 읽은 것을 '없음'으로 치지 않는다**(`[169]`). 근거 파일을 못 읽으면
+      가벼움이 아니라 **보통**이다 — 못 읽었다는 이유로 노력을 낮추면 파일이 깨진
+      날 사고가 가장 싼 판단을 만난다.
+    ★ **수집 밀림은 내 무게가 아니다** — 수집 세션 몫이라(`[177]`) 그것만 있는
+      날까지 opus 를 쓰면 크레딧이 새고, 그러면 이 알고리즘이 있으나 마나가 된다.
+    """
+    import loop_policy as P
+    import ai_tier as T
+
+    src = open(os.path.join(ROOT, "loop_policy.py"), encoding="utf-8").read()
+    body = src.split('"""', 2)[-1]                    # 설명 글은 빼고 코드만 본다
+    for word in ("claude-opus", "claude-sonnet", "haiku"):
+        assert word not in body, \
+            "loop_policy 가 모델 이름을 제 손으로 적는다(%s) — ai_tier 와 갈린다" % word
+    for tier, kind in P.TIER_OF.items():
+        assert kind in T.TIERS, "%s 가 ai_tier 에 없는 갈래를 가리킨다: %s" % (tier, kind)
+        assert P.value_of(tier)[:2] == tuple(T.TIERS[kind][:2]), \
+            "%s 의 값이 ai_tier 와 다르다 — 사본이 생겼다" % tier
+
+    assert P.decide([], True, 0)["갈래"] == "가벼움", "아무것도 없는 날에 값을 쓴다"
+    assert P.decide([], False, 0)["갈래"] == "보통", \
+        "근거를 못 읽고 가볍게 간다 — 못 읽은 것을 '없음'으로 쳤다"
+    assert P.decide(["★ 밴드: 수집이 밀렸다 — 최신 2026-08-10"], True, 0)["갈래"] == "가벼움", \
+        "수집 세션 몫에 무게를 싣는다"
+    assert P.decide(["입력 큐에 470건이 반영되지 않았다"], True, 0)["갈래"] == "보통"
+    assert P.decide(["회차 [강제종료] 쿠팡업무_일일자동대조 — 끊겼다"], True, 0)["갈래"] == "무거움", \
+        "회차가 끊겼는데 싸게 판단한다 — 오진이 파일에 박힌다"
+    assert P.decide([], True, 2)["갈래"] == "무거움", "회차 경보를 무게로 안 센다"
+    assert P.decide(["듣도 보도 못한 항목"], True, 0)["갈래"] == "보통", \
+        "모르는 모양을 가볍다고 친다 — 모르면 낮추지 않는다"
+
+    # 근거 파일 이름을 지어내지 않는다 — 실제로 있는 것만 본다
+    for p in (P.HANDOFF, P.ROUNDS):
+        assert os.path.basename(p).endswith(".md"), p
+    print("[231] 정오 루프 틱 무게 — 값은 ai_tier 한 곳 · 못읽음≠가벼움 · 수집은 남의 몫 OK")
+
+
 def t230_ai_tier_picks_model_and_effort():
     """[230] AI 를 부를 때 **모델·노력을 스스로 고른다** (2026-08-12 지시).
 
@@ -16211,6 +16258,7 @@ if __name__ == "__main__":
     t228_scheduler_rounds_are_watched()
     t229_band_liveness_contract()
     t230_ai_tier_picks_model_and_effort()
+    t231_loop_tick_weight_from_evidence()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
