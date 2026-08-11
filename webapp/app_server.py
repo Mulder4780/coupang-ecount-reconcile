@@ -74,6 +74,16 @@ STAFF_CENTERS = {
             "리모컨 불출·납품 기록(부산 담당·AS 담당자당 3개)",
         ],
     },
+    "yoo-hyeonmin": {
+        "name": "유현민", "title": "유현민 업무센터",
+        "checklist": [
+            "돌발AS·정기점검 전체 진행상태와 예외 확인",
+            "담당자·일정·비용구분 정정 승인",
+            "거래서류·세금계산서·입금 근거 확인",
+            "앱 DB 저장과 Excel 자동 보관본 상태 확인",
+            "확인 필요 항목의 객관 근거와 완료 판정 검토",
+        ],
+    },
 }
 
 # 변재선 업무는 2026-07-30 류지영에게 이관했다. 공개된 기존 주소/PWA 바로가기는
@@ -951,6 +961,7 @@ RYU_ENTRY_CONFIG = {
         "date_col": "접수일자", "kind": "as",
         "fields": [
             {"name": "담당기사", "label": "담당기사", "type": "text"},
+            {"name": "진행상태", "label": "진행 상태", "type": "text"},
             {"name": "방문예정일", "label": "방문예정일", "type": "date"},
             {"name": "방문예정시간", "label": "방문예정시간", "type": "text"},
             {"name": "작업완료일", "label": "작업완료일", "type": "date"},
@@ -968,6 +979,8 @@ RYU_ENTRY_CONFIG = {
             {"name": "문제내용", "label": "문제 내용", "type": "textarea"},
             {"name": "조치내용", "label": "조치 내용", "type": "textarea"},
             {"name": "완료예정일", "label": "완료 예정일", "type": "date"},
+            {"name": "관리자검증상태", "label": "관리자 검증 상태", "type": "text"},
+            {"name": "최종확인일", "label": "최종 확인일", "type": "date"},
             {"name": "비고", "label": "비고", "type": "textarea"},
         ],
     },
@@ -975,6 +988,7 @@ RYU_ENTRY_CONFIG = {
         "label": "정기점검", "sheet": "04_정기점검", "key_col": "점검ID",
         "date_col": "점검예정일", "kind": "pm",
         "fields": [
+            {"name": "점검상태", "label": "점검 상태", "type": "text"},
             {"name": "점검예정일", "label": "점검 예정일", "type": "date"},
             {"name": "점검예정시간", "label": "점검 예정시간", "type": "text"},
             {"name": "담당기사", "label": "담당기사", "type": "text"},
@@ -1000,6 +1014,7 @@ RYU_ENTRY_CONFIG = {
              "options": ["있음", "없음"]},
             {"name": "문제내용", "label": "문제 내용", "type": "textarea"},
             {"name": "조치내용", "label": "조치 내용", "type": "textarea"},
+            {"name": "최종확인일(유현민 체크)", "label": "최종 확인일", "type": "date"},
             {"name": "비고", "label": "비고", "type": "textarea"},
         ],
     },
@@ -1063,6 +1078,32 @@ RYU_ENTRY_CONFIG = {
 }
 
 
+# 직원 화면·API·보관본이 같은 열 권한을 본다. 화면에서 입력칸을 숨기는 것은 보안이
+# 아니므로 서버가 이 표 밖의 열을 항상 거부한다. 자동 판정·수식 열은 애초에 넣지 않는다.
+_ALL_STAFF_ENTRY_FIELDS = {
+    category: {field["name"] for field in cfg["fields"]}
+    for category, cfg in RYU_ENTRY_CONFIG.items()
+}
+STAFF_ENTRY_PERMISSIONS = {
+    "ryu-jiyeong": {key: set(value) for key, value in _ALL_STAFF_ENTRY_FIELDS.items()},
+    "yoo-hyeonmin": {key: set(value) for key, value in _ALL_STAFF_ENTRY_FIELDS.items()},
+    "oh-jonghyeon": {
+        # 오종현 통화 건처럼 원천 AS/점검의 비용 사실을 바로잡을 수 있다. 06시트
+        # 비용구분은 원천업무를 참조하는 수식이므로 직접 쓰지 않는다.
+        "as": {"유상·무상·보험", "문제내용", "조치내용", "비고"},
+        "pm": {"유상·무상·보험", "문제내용", "조치내용", "비고"},
+        "settle": set(_ALL_STAFF_ENTRY_FIELDS["settle"]),
+    },
+}
+STAFF_REASON_REQUIRED_FIELDS = {
+    "유상·무상·보험", "비용구분", "거래명세서번호", "PO번호",
+    "세금계산서발행일", "입금액",
+}
+STAFF_DERIVED_FIELDS = {
+    "계산서", "발행상태", "발행상태(자동)", "청구상태", "수금상태",
+}
+
+
 def _ryu_display_value(value):
     if value in (None, ""):
         return ""
@@ -1088,7 +1129,11 @@ def _ryu_field_records():
         ]
     cached = _fresh("ryu_field")
     if cached is not None:
-        return cached
+        try:
+            from app_store import default_store
+            return default_store().overlay_rows("03_현장작업실적", cached, "작업ID")
+        except Exception:
+            return cached
     import openpyxl
     from ecount_reconcile import load_config, resolve_master
     master = resolve_master(load_config()["reconcile"]["master_xlsx"])
@@ -1132,7 +1177,12 @@ def _ryu_field_records():
         wb.close()
     out.sort(key=lambda r: (norm_date(r.get("작업일자")) == "",
                             norm_date(r.get("작업일자")), str(r.get("작업ID") or "")))
-    return _store_cache("ryu_field", out)
+    cached = _store_cache("ryu_field", out)
+    try:
+        from app_store import default_store
+        return default_store().overlay_rows("03_현장작업실적", cached, "작업ID")
+    except Exception:
+        return cached
 
 
 def _ryu_upload_history():
@@ -1200,6 +1250,9 @@ def _ryu_row(rec, key_name, date_names, status_names, summary_names,
         "summary": first(summary_names),
         "detail": detail,
         "editable": bool(editable),
+        "store_id": str(rec.get("_store_id") or rec.get("앱DB_ID") or ""),
+        "record_version": int(rec.get("_record_version") or rec.get("DB버전") or 0),
+        "source": str(rec.get("_source") or rec.get("출처") or ""),
     }
 
 
@@ -1349,6 +1402,289 @@ def get_ryu_records():
             "rows": rows, "schema": schema}
 
 
+def _staff_allowed_fields(staff_slug, category):
+    if staff_slug == "admin":
+        return set(_ALL_STAFF_ENTRY_FIELDS.get(category) or set())
+    return set((STAFF_ENTRY_PERMISSIONS.get(staff_slug) or {}).get(category) or set())
+
+
+def _staff_store_row(store, category, record_key):
+    cfg = RYU_ENTRY_CONFIG[category]
+    key = str(record_key or "").strip()
+    matches = [row for row in store.list_sheet_rows(cfg["sheet"])
+               if str(row.get(cfg["key_col"]) or row.get("_business_key") or "").strip() == key]
+    if not matches:
+        raise ValueError("선택한 업무를 앱 DB에서 찾지 못했습니다. 먼저 원본을 수집해 주세요")
+    if len(matches) != 1:
+        raise ValueError("같은 업무 ID가 여러 건이라 자동 수정하지 않았습니다")
+    return matches[0], store.get_work(matches[0]["_store_id"])
+
+
+def _staff_normalize_value(spec, value, *, clear=False):
+    if clear:
+        return ""
+    if value is None:
+        raise ValueError(f"{spec['label']} 값을 입력해 주세요")
+    raw = str(value).strip()
+    if not raw:
+        raise ValueError(f"{spec['label']} 값을 입력하거나 지우기를 명시해 주세요")
+    kind = spec.get("type") or "text"
+    if kind == "date":
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+            raise ValueError(f"{spec['label']}은 YYYY-MM-DD 형식이어야 합니다")
+        try:
+            date.fromisoformat(raw)
+        except ValueError:
+            raise ValueError(f"{spec['label']} 날짜가 올바르지 않습니다")
+        return raw
+    if kind == "number":
+        cleaned = raw.replace(",", "")
+        try:
+            number = float(cleaned)
+        except ValueError:
+            raise ValueError(f"{spec['label']}은 숫자로 입력해 주세요")
+        return int(number) if number.is_integer() else number
+    options = [str(v) for v in (spec.get("options") or [])]
+    if options and raw not in options:
+        raise ValueError(f"{spec['label']}은 허용된 선택지만 저장할 수 있습니다")
+    return raw[:5000]
+
+
+def _staff_public_record(category, row):
+    """앱 저장 응답과 재조회가 같은 별칭·파생 상태를 쓰게 한다."""
+    out = {str(k): _ryu_display_value(v) for k, v in dict(row or {}).items()}
+    if category == "settle":
+        issued = str(out.get("세금계산서발행일") or out.get("실제발행일") or "")[:10]
+        out["계산서발행일"] = issued
+        if issued:
+            out["계산서"] = "발행"
+        elif not out.get("계산서"):
+            out["계산서"] = "미발행"
+    out["record_version"] = int(out.get("_record_version") or out.get("DB버전") or 0)
+    out["store_id"] = str(out.get("_store_id") or out.get("앱DB_ID") or "")
+    return out
+
+
+def save_staff_entry(staff_slug, body, *, store=None, actor=None):
+    """직원 업무센터의 여러 필드를 앱 DB 한 트랜잭션으로 저장한다.
+
+    Excel 행·셀은 수정하지 않는다. 버전이 낡으면 자동 재시도하지 않고 충돌을 반환하며,
+    수식·자동상태 열과 역할 허용표 밖의 열은 서버가 거부한다.
+    """
+    body = dict(body or {})
+    requested = str(body.get("category") or "").strip()
+    category = requested
+    record_key = str(body.get("key") or body.get("record_key") or "").strip()
+    if requested == "issue":
+        category = str(body.get("target_category") or "").strip()
+        record_key = str(body.get("target_key") or "").strip()
+    if category not in RYU_ENTRY_CONFIG or not record_key:
+        raise ValueError("카테고리와 업무를 먼저 선택해 주세요")
+    if staff_slug not in STAFF_CENTERS and staff_slug != "admin":
+        raise PermissionError("등록되지 않은 업무센터입니다")
+    allowed = _staff_allowed_fields(staff_slug, category)
+    if requested == "issue":
+        allowed &= {"조치내용", "완료예정일", "비고"}
+    if not allowed:
+        raise PermissionError("이 업무센터에서 수정할 수 없는 카테고리입니다")
+
+    values = body.get("values")
+    if isinstance(values, str):
+        try:
+            values = json.loads(values)
+        except Exception:
+            values = None
+    if not isinstance(values, dict):
+        values = {name: body.get(name) for name in allowed if name in body}
+    clear_fields = body.get("clear_fields") or []
+    if isinstance(clear_fields, str):
+        try:
+            clear_fields = json.loads(clear_fields)
+        except Exception:
+            clear_fields = [x.strip() for x in clear_fields.split(",") if x.strip()]
+    clear_fields = {str(x) for x in clear_fields if str(x)}
+    supplied = set(values) | clear_fields
+    forbidden = sorted(supplied - allowed)
+    if forbidden:
+        raise PermissionError("수정 권한이 없는 항목: " + ", ".join(forbidden))
+    derived = set(STAFF_DERIVED_FIELDS)
+    if category == "field":
+        derived.discard("비용구분")
+    forbidden_derived = sorted(supplied & derived)
+    if forbidden_derived:
+        raise ValueError("수식·자동 상태는 직접 수정할 수 없습니다: " + ", ".join(forbidden_derived))
+    if not supplied:
+        raise ValueError("저장할 값을 입력해 주세요")
+
+    cfg = RYU_ENTRY_CONFIG[category]
+    field_specs = {item["name"]: item for item in cfg["fields"]}
+    normalized = {}
+    for name in sorted(supplied):
+        normalized[name] = _staff_normalize_value(
+            field_specs[name], values.get(name), clear=name in clear_fields,
+        )
+
+    # --demo 서버는 실제 DB를 만지지 않는다. 직접 합성검증은 명시한 임시 store를 쓴다.
+    if DEMO and store is None:
+        return {"ok": True, "committed": False, "demo": True, "action": "updated",
+                "changed": sorted(normalized), "record_version": int(body.get("record_version") or 1),
+                "record": {cfg["key_col"]: record_key, **normalized},
+                "msg": "데모 입력 확인"}
+
+    if store is None:
+        from app_store import default_store
+        store = default_store()
+    try:
+        expected_version = int(body.get("record_version"))
+    except (TypeError, ValueError):
+        raise ValueError("화면 데이터 버전이 없습니다. 목록을 새로고침해 다시 저장해 주세요")
+    if expected_version < 1:
+        raise ValueError("화면 데이터 버전이 없습니다. 목록을 새로고침해 다시 저장해 주세요")
+    reason = str(body.get("reason") or body.get("survey_note") or "").strip()
+    who = str(actor or ("staff:" + staff_slug))[:200]
+    request_id = str(body.get("idempotency_key") or body.get("request_id") or "").strip()
+    request_payload = {
+        "staff_slug": staff_slug, "actor": who, "category": category,
+        "key": record_key, "record_version": expected_version,
+        "values": normalized, "clear_fields": sorted(clear_fields), "reason": reason,
+    }
+    if not request_id:
+        request_id = _stable_request_key(
+            "staff-entry", who, [], record=request_payload,
+        )
+    # AppStore의 공개 CRUD가 가진 멱등 표를 직원 단위 트랜잭션에도 사용한다. 현재값 비교나
+    # 버전 검사보다 먼저 읽어야 같은 재전송이 `no_change`/409로 바뀌지 않는다.
+    with store.transaction() as conn:
+        replay, request_hash = store._idempotency_replay(
+            conn, "staff:entry", request_id, request_payload,
+        )
+    if replay is not None:
+        return replay
+
+    sheet_row, current = _staff_store_row(store, category, record_key)
+
+    from app_store import SHEET_SPECS
+    sheet_spec = SHEET_SPECS.get(cfg["sheet"], {})
+    core_by_column = {column: core for core, column in sheet_spec.items()
+                      if core in ("public_id", "project_no", "camp_name", "status") and column}
+    changed = {}
+    before_values = {}
+    for name, value in normalized.items():
+        core = core_by_column.get(name)
+        old = current.get(core) if core else (current.get("fields") or {}).get(name)
+        if json.dumps(old, ensure_ascii=False, sort_keys=True, default=str) == json.dumps(
+                value, ensure_ascii=False, sort_keys=True, default=str):
+            continue
+        before_values[name] = old
+        changed[name] = value
+    if not changed:
+        latest = _staff_public_record(category, sheet_row)
+        result = {"ok": True, "committed": True, "action": "no_change", "changed": [],
+                  "skipped": sorted(normalized), "record_version": latest["record_version"],
+                  "record": latest, "msg": "이미 같은 값입니다"}
+        with store.transaction() as conn:
+            store._save_idempotency(
+                conn, "staff:entry", request_id, request_hash, result,
+            )
+        return result
+
+    correction_fields = [name for name in changed
+                         if (name in clear_fields or
+                             (name in STAFF_REASON_REQUIRED_FIELDS and
+                              before_values.get(name) not in (None, "")))]
+    if correction_fields and len(reason) < 2:
+        raise ValueError("기존 값 정정 사유를 입력해 주세요: " + ", ".join(correction_fields))
+    if int(current.get("record_version") or 0) != expected_version:
+        from app_store import VersionConflict
+        raise VersionConflict(current["id"], expected_version,
+                              int(current.get("record_version") or 0))
+
+    patch = {"fields": dict(changed)}
+    for name, value in changed.items():
+        core = core_by_column.get(name)
+        if core:
+            patch[core] = value
+    evidence = (f"{STAFF_CENTERS.get(staff_slug, {'name': '관리자'})['name']} 업무센터"
+                f" · {reason[:300] if reason else '확인 입력'}")
+    response = store.update_work(
+        current["id"], expected_version=expected_version, patch=patch,
+        actor=who, source="app-staff-entry", evidence=evidence,
+        source_ref=f"staff:{staff_slug}:{category}:{record_key}",
+        idempotency_key=(request_id[:220] + ":work"),
+    )
+    _invalidate_app_data_caches()
+    saved_row, _saved_work = _staff_store_row(store, category, record_key)
+    authoritative = _staff_public_record(category, saved_row)
+    state = store.status()
+    result = {
+        "ok": True, "committed": True, "action": "updated",
+        "changed": sorted(changed), "skipped": sorted(set(normalized) - set(changed)),
+        "before": before_values, "record_version": authoritative["record_version"],
+        "record": authoritative, "event_id": response.get("event_id"),
+        "event_seq": response.get("event_seq"),
+        "app_outbox_pending": int(state.get("outbox_pending") or 0),
+        "msg": "앱 DB 저장 완료 · Excel 자동 보관본 대기",
+    }
+    with store.transaction() as conn:
+        store._save_idempotency(
+            conn, "staff:entry", request_id, request_hash, result,
+        )
+    return result
+
+
+def get_staff_records(staff_slug, *, store=None):
+    """로그인한 직원의 서버 허용표와 권위 DB 버전을 함께 반환한다."""
+    if staff_slug not in STAFF_CENTERS and staff_slug != "admin":
+        raise PermissionError("등록되지 않은 업무센터입니다")
+    if store is None:
+        payload = get_ryu_records()
+    else:
+        # 합성검증·DB 장애 복구 화면은 Excel 없이도 정본 행만 볼 수 있다.
+        rows = {}
+        from app_store import SHEET_SPECS
+        for category, cfg in RYU_ENTRY_CONFIG.items():
+            rendered = []
+            spec = SHEET_SPECS.get(cfg["sheet"], {})
+            for source in store.list_sheet_rows(cfg["sheet"]):
+                view = _staff_public_record(category, source)
+                rendered.append(_ryu_row(
+                    view, cfg["key_col"], (cfg["date_col"],),
+                    (spec.get("status") or "상태",),
+                    ("문제내용", "조치내용", "비고"), ("담당자", "담당기사"),
+                ))
+            rows[category] = rendered
+        payload = {"updated_at": datetime.now().isoformat(timespec="minutes"),
+                   "year": APP_YEAR, "rows": rows,
+                   "categories": [{"key": key, "label": cfg["label"],
+                                    "count": len(rows.get(key) or []), "attention": 0}
+                                   for key, cfg in RYU_ENTRY_CONFIG.items()],
+                   "schema": {key: {"label": cfg["label"], "fields": cfg["fields"]}
+                              for key, cfg in RYU_ENTRY_CONFIG.items()}}
+    permissions = {}
+    for category, cfg in RYU_ENTRY_CONFIG.items():
+        allowed = _staff_allowed_fields(staff_slug, category)
+        permissions[category] = sorted(allowed)
+        if category in (payload.get("schema") or {}):
+            payload["schema"][category]["fields"] = [
+                field for field in cfg["fields"] if field["name"] in allowed
+            ]
+        for row in (payload.get("rows") or {}).get(category, []):
+            row["editable"] = bool(row.get("editable", True) and allowed)
+            row["allowed_fields"] = sorted(allowed)
+    payload["staff"] = STAFF_CENTERS.get(staff_slug, {"name": "관리자"})["name"]
+    payload["staff_slug"] = staff_slug
+    payload["permissions"] = permissions
+    try:
+        db_updated = datetime.fromtimestamp(os.path.getmtime(str(
+            (store or __import__("app_store").default_store()).db_path
+        ))).isoformat(timespec="minutes")
+        if db_updated > str(payload.get("updated_at") or ""):
+            payload["updated_at"] = db_updated
+    except Exception:
+        pass
+    return payload
+
+
 def _ryu_find_master_record(category, record_key):
     cfg = RYU_ENTRY_CONFIG[category]
     import openpyxl
@@ -1380,7 +1716,7 @@ def _ryu_find_master_record(category, record_key):
     raise ValueError("선택한 업무를 최신 관리대장에서 찾지 못했습니다")
 
 
-def _save_ryu_evidence(file_info, category, record_key):
+def _save_ryu_evidence(file_info, category, record_key, submitter="류지영"):
     if not file_info or not file_info.get("data"):
         return ""
     data = file_info["data"]
@@ -1395,7 +1731,9 @@ def _save_ryu_evidence(file_info, category, record_key):
     folder = os.path.join(KAKAO_DIR, f"{now:%Y}", f"{now:%m}", f"{now:%Y-%m-%d}")
     os.makedirs(folder, exist_ok=True)
     safe_key = re.sub(r"[^0-9A-Za-z가-힣_-]", "_", str(record_key))[:50]
-    name = (f"(류지영)_업무근거_{category}_{safe_key}_{now:%Y%m%d_%H%M%S}_"
+    safe_submitter = re.sub(r"[^0-9A-Za-z가-힣_-]", "_", str(submitter or "직원"))[:30]
+    safe_category = re.sub(r"[^0-9A-Za-z가-힣_-]", "_", str(category or "업무"))[:30]
+    name = (f"({safe_submitter})_업무근거_{safe_category}_{safe_key}_{now:%Y%m%d_%H%M%S}_"
             f"{_safe_upload_name(file_info.get('filename'))}")
     with open(os.path.join(folder, name), "wb") as out:
         out.write(data)
@@ -2376,6 +2714,24 @@ def _overlay_app_store_settlements(rows):
         from app_store import default_store
         store = default_store()
         merged = store.overlay_rows("06_거래서류청구수금", rows, "정산ID")
+        source_cost = {}
+        for sheet, key_col in (("02_돌발AS접수", "접수ID"), ("04_정기점검", "점검ID")):
+            for source in store.list_sheet_rows(sheet):
+                source_id = str(source.get(key_col) or source.get("_business_key") or "").strip()
+                if source_id and "유상·무상·보험" in source:
+                    source_cost[source_id] = source.get("유상·무상·보험")
+        for row in merged:
+            source_id = str(row.get("원천업무ID") or "").strip()
+            if source_id in source_cost:
+                row["비용구분"] = source_cost[source_id]
+            if "거래명세서번호" in row:
+                row["명세서번호"] = row.get("거래명세서번호") or ""
+            if "거래명세서발행일" in row:
+                row["명세서발행일"] = str(row.get("거래명세서발행일") or "")[:10]
+            if "세금계산서발행일" in row:
+                issued = str(row.get("세금계산서발행일") or "")[:10]
+                row["계산서발행일"] = issued
+                row["계산서"] = "발행" if issued else "미발행"
         by_id = {str(r.get("정산ID") or "").strip(): r for r in merged
                  if str(r.get("정산ID") or "").strip()}
         projects = {}
@@ -2401,6 +2757,15 @@ def _overlay_app_store_settlements(rows):
                         by_id[str(target["정산ID"])] = target
                 target.update({k: v for k, v in side.items()
                                if not str(k).startswith("_")})
+                if sheet == "15_세금계산서관리" and "실제발행일" in side:
+                    issued = str(side.get("실제발행일") or "")[:10]
+                    target["계산서발행일"] = issued
+                    target["계산서"] = "발행" if issued else "미발행"
+                if sheet == "16_입금수금관리":
+                    if "입금일" in side:
+                        target["입금일"] = str(side.get("입금일") or "")[:10]
+                    if "입금액" in side:
+                        target["입금액"] = side.get("입금액") or 0
                 target["앱DB_ID"] = side.get("_store_id") or target.get("앱DB_ID")
                 target["DB버전"] = side.get("_record_version") or target.get("DB버전") or 0
                 target["출처"] = "앱 DB"
@@ -2409,6 +2774,86 @@ def _overlay_app_store_settlements(rows):
         # 정본 DB 장애는 /api/app-store/status가 별도로 드러낸다. 기존 읽기 화면까지
         # 통째로 닫지는 않아 운영자가 상태 페이지에서 복구할 수 있게 한다.
         return [dict(row) for row in rows]
+
+
+def _overlay_app_store_ledger_records(recs, store=None):
+    """정산 판정 전에 앱 DB 사실을 read_ledger 모양으로 덮는다.
+
+    예전에는 상태를 먼저 계산하고 마지막에 화면 열만 덮어, 저장된 발행일이 있어도
+    `미발행` 딱지가 남았다. 명시적 빈 값도 정정 사실이므로 키 존재 여부로 덮는다.
+    """
+    out = {str(key): dict(value or {}) for key, value in dict(recs or {}).items()}
+    try:
+        if store is None:
+            from app_store import default_store
+            store = default_store()
+        mapping = {
+            "프로젝트NO": "프로젝트NO", "캠프명": "캠프명",
+            "원천업무ID": "원천업무ID", "업무구분": "업무구분",
+            "비용구분": "비용구분", "작업완료일": "작업완료일",
+            "실제작업공급가액": "원장_공급가액", "공급가액": "원장_공급가액",
+            "부가세": "원장_부가세", "합계(VAT포함)": "원장_합계", "합계": "원장_합계",
+            "거래명세서번호": "원장_거래명세서번호",
+            "거래명세서발행일": "원장_거래명세서발행일",
+            "거래명세서합계": "원장_거래명세서합계",
+            "세금계산서발행일": "원장_세금계산서발행일",
+            "세금계산서승인번호": "원장_세금계산서승인번호",
+            "청구일": "원장_청구일", "지급예정일": "원장_지급예정일",
+            "입금일": "원장_입금일", "입금액": "원장_입금액",
+            "미수금액": "원장_미수금액", "PO필요여부": "원장_PO필요여부",
+            "PO번호": "원장_PO번호", "PO발행일": "원장_PO발행일",
+            "청구상태": "원장_청구상태",
+        }
+        for row in store.list_sheet_rows("06_거래서류청구수금"):
+            sid = str(row.get("정산ID") or row.get("_business_key") or "").strip()
+            if not sid:
+                continue
+            record = out.setdefault(sid, {})
+            record["정산ID"] = sid
+            for source, target in mapping.items():
+                if source in row:
+                    record[target] = row.get(source)
+
+        # 계산서/입금 sidecar는 정산ID가 정본 관계키다. 프로젝트NO는 같은 프로젝트에
+        # 정산이 정확히 하나일 때만 과도기 호환키로 쓴다.
+        by_project = {}
+        for sid, record in out.items():
+            pno = str(record.get("프로젝트NO") or "").strip()
+            if pno:
+                by_project.setdefault(pno, []).append(sid)
+        for side in store.list_sheet_rows("15_세금계산서관리"):
+            key = str(side.get("정산ID") or side.get("_business_key") or "").strip()
+            if key not in out:
+                pno = str(side.get("프로젝트NO") or "").strip()
+                key = (by_project.get(pno) or [""])[0] if len(by_project.get(pno) or []) == 1 else ""
+            if key and key in out and "실제발행일" in side:
+                out[key]["원장_세금계산서실제발행일"] = side.get("실제발행일")
+        for side in store.list_sheet_rows("16_입금수금관리"):
+            key = str(side.get("정산ID") or side.get("_business_key") or "").strip()
+            if key not in out:
+                pno = str(side.get("프로젝트NO") or "").strip()
+                key = (by_project.get(pno) or [""])[0] if len(by_project.get(pno) or []) == 1 else ""
+            if key and key in out:
+                if "입금일" in side:
+                    out[key]["원장_입금일"] = side.get("입금일")
+                if "입금액" in side:
+                    out[key]["원장_입금액"] = side.get("입금액")
+
+        # 06 비용구분 수식은 보관본 생성 전까지 옛 값을 보일 수 있다. 원천 AS/PM의
+        # 사람이 확정한 비용 사실을 읽기모델에 즉시 연결하되 06 필드 자체는 쓰지 않는다.
+        source_cost = {}
+        for sheet, key_col in (("02_돌발AS접수", "접수ID"), ("04_정기점검", "점검ID")):
+            for row in store.list_sheet_rows(sheet):
+                source_id = str(row.get(key_col) or row.get("_business_key") or "").strip()
+                if source_id and "유상·무상·보험" in row:
+                    source_cost[source_id] = row.get("유상·무상·보험")
+        for record in out.values():
+            source_id = str(record.get("원천업무ID") or "").strip()
+            if source_id in source_cost:
+                record["비용구분"] = source_cost[source_id]
+        return out
+    except Exception:
+        return out
 
 
 def real_settlements():
@@ -2429,6 +2874,7 @@ def real_settlements():
     except Exception:
         # 앱 DB가 정본이므로 Excel 보관본을 못 읽어도 DB 신규행은 계속 조회된다.
         recs = {}
+    recs = _overlay_app_store_ledger_records(recs)
     rows = []
     for sid, r in sorted(recs.items()):
         issued = r.get("원장_세금계산서실제발행일") or r.get("원장_세금계산서발행일")
@@ -6271,8 +6717,18 @@ self.addEventListener('fetch', e => {
             if isinstance(iss, dict) and isinstance(iss.get("rows"), list):
                 iss = {**iss, "rows": drop_side_work(iss["rows"])}
             return self._send(200, iss)
-        if p == "/api/ryu/records":
-            return self._send(200, get_ryu_records())
+        if p in ("/api/staff/records", "/api/ryu/records"):
+            actor = self._actor()
+            if actor.get("role") == "staff":
+                staff_slug = str(actor.get("staff_slug") or "")
+            elif actor.get("role") == "admin":
+                staff_slug = "admin"
+            else:
+                return self._send(403, {"ok": False, "error": "업무센터 권한이 필요합니다"})
+            try:
+                return self._send(200, get_staff_records(staff_slug))
+            except PermissionError as exc:
+                return self._send(403, {"ok": False, "error": str(exc)})
         if p == "/api/exec_report":
             m = re.search(r"[?&]date=(\d{4}-\d{2}-\d{2})", self.path)
             day = m.group(1) if m else None
@@ -6770,24 +7226,62 @@ self.addEventListener('fetch', e => {
                                         "auto_check_queued": queued, "msg": msg})
             except Exception as e:
                 return self._send(400, {"ok": False, "error": str(e)[:260]})
-        if p == "/api/ryu/entry":
-            actor_slug = self._require_staff("ryu-jiyeong")
-            if not actor_slug:
-                return
+        if p in ("/api/staff/entry", "/api/ryu/entry"):
+            actor_session = self._actor()
+            if actor_session.get("role") == "staff":
+                actor_slug = str(actor_session.get("staff_slug") or "")
+                if actor_slug not in STAFF_CENTERS:
+                    return self._send(403, {"ok": False, "error": "등록되지 않은 업무센터입니다"})
+            elif actor_session.get("role") == "admin":
+                actor_slug = "admin"
+            else:
+                return self._send(403, {"ok": False, "error": "업무센터 권한이 필요합니다"})
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 30_000_000:
                 return self._send(400, {"ok": False, "error": "입력·첨부 용량은 합계 30MB 이하여야 합니다"})
             try:
-                fields, files = multipart_parts(self.headers.get("Content-Type", ""),
-                                                self.rfile.read(ln))
-                fields["submitter"] = STAFF_CENTERS[actor_slug]["name"]
-                result = save_ryu_entry(
-                    fields, files, ip,
-                    actor=self._actor_name(),
-                    idempotency_key=self._idempotency_key(),
+                content_type = self.headers.get("Content-Type", "")
+                raw = self.rfile.read(ln)
+                evidence_name = ""
+                if "multipart/form-data" in content_type:
+                    fields, files = multipart_parts(content_type, raw)
+                    category = str(fields.get("category") or "").strip()
+                    target_category = str(fields.get("target_category") or "").strip()
+                    actual_category = target_category if category == "issue" else category
+                    if actual_category not in RYU_ENTRY_CONFIG:
+                        raise ValueError("수정할 업무 카테고리를 확인할 수 없습니다")
+                    allowed = _staff_allowed_fields(actor_slug, actual_category)
+                    values = {name: fields.get(name) for name in allowed
+                              if name in fields and str(fields.get(name) or "").strip() != ""}
+                    clear_fields = [name[len("clear__"):] for name, value in fields.items()
+                                    if name.startswith("clear__") and str(value) == "1"]
+                    body = {**fields, "key": fields.get("record_key"), "values": values,
+                            "clear_fields": clear_fields}
+                    upload = files.get("evidence_file")
+                    if upload:
+                        evidence_name = _save_ryu_evidence(
+                            upload, actual_category, body.get("key") or body.get("target_key"),
+                            submitter=STAFF_CENTERS.get(actor_slug, {"name": "관리자"})["name"],
+                        )
+                else:
+                    body = json.loads(raw or b"{}")
+                # 제출 본문의 직원명·slug는 신뢰하지 않는다. actor는 인증 쿠키에서만 온다.
+                body.pop("staff_slug", None)
+                body.pop("submitter", None)
+                body["idempotency_key"] = self._idempotency_key(body)
+                if evidence_name:
+                    note = str(body.get("reason") or body.get("survey_note") or "").strip()
+                    body["reason"] = (note + (" · " if note else "") + "근거 " + evidence_name)
+                result = save_staff_entry(
+                    actor_slug, body, actor=self._actor_name(),
                 )
-                return self._send(200 if result.get("ok") else 503, result)
+                return self._send(200, {**result, "evidence": evidence_name})
+            except PermissionError as e:
+                return self._send(403, {"ok": False, "error": str(e)[:300]})
             except Exception as e:
+                if type(e).__name__ in ("VersionConflict", "IdempotencyConflict"):
+                    return self._send(409, {"ok": False, "error": str(e)[:300],
+                                            "conflict": True})
                 return self._send(400, {"ok": False, "error": str(e)[:300]})
         if p == "/api/enqueue":
             if not self._require_admin():
@@ -6881,50 +7375,54 @@ self.addEventListener('fetch', e => {
                                                         "error": str(exc)[:240]}})
             return self._send(200, queued)
         if p == "/api/input":
-            # 앱 → 정본 DB 즉시 입력. 빈 칸 보호는 DB에서 강제하고 Excel은 보관본 전용이다.
+            # 구버전 화면·오프라인 대기열 호환 경로. 실제 저장은 공용 직원 API와 같은
+            # 역할×열 허용표·낙관잠금·감사로그를 거친다. 임의 열은 더 이상 만들 수 없다.
             ln = int(self.headers.get("Content-Length", 0))
             b = json.loads(self.rfile.read(ln) or b"{}")
-            ALLOW = {"02_돌발AS접수", "04_정기점검", "06_거래서류청구수금",
-                     "15_세금계산서관리", "16_입금수금관리"}
-            if b.get("sheet") not in ALLOW or not b.get("key") or not b.get("col") or b.get("value") in (None, ""):
+            category = {"02_돌발AS접수": "as", "04_정기점검": "pm",
+                        "06_거래서류청구수금": "settle"}.get(str(b.get("sheet") or ""))
+            if not category or not b.get("key") or not b.get("col") or b.get("value") in (None, ""):
                 return self._send(400, {"ok": False, "error": "sheet/key/col/value 필요"})
-            if b.get("vtype") not in ("text", "date", "number"):
-                b["vtype"] = "text"
-            # ★ 정밀 관리 탭(2026-07-31): 배정·상태·일정은 **수정**이 본질이다 — 빈 칸만
-            #   채워서는 오배정을 바로잡을 수 없다. 덮어쓰기는 이 열들로만 허용하고,
-            #   근거에 '앱 수정'을 남겨 나중에 who/when 을 추적할 수 있게 한다.
-            #   그 밖의 열은 예전 그대로 빈 칸만 채운다(실수로 확정값을 덮지 않게).
-            OVERWRITE_COLS = {
-                "02_돌발AS접수": {"담당기사", "진행상태", "방문예정일", "작업완료일", "긴급도"},
-                # 이상 발견은 **나중에 풀린다** — 유휴장비였다가 가동 재개되는 식이다
-                # (2026-08-04 UJ2601379 남양주1MB 02호기). 정정 못 하면 대표보고
-                # '이상 발견'에 영영 남아 사람이 매번 말로 설명해야 한다.
-                "04_정기점검": {"담당기사", "점검상태", "점검예정일", "실제점검일",
-                             "이상발견여부", "이상내용"},
-            }
-            overwrite = (b.get("overwrite") is True
-                         and b.get("col") in OVERWRITE_COLS.get(b.get("sheet"), set()))
-            if DEMO:
-                return self._send(200, {"ok": True, "queued": 1, "demo": True})
-            key_col = str(b.get("key_col") or {
-                "02_돌발AS접수": "접수ID",
-                "04_정기점검": "점검ID",
-                "06_거래서류청구수금": "정산ID",
-                "15_세금계산서관리": "프로젝트NO",
-                "16_입금수금관리": "프로젝트NO",
-            }.get(b.get("sheet"), "정산ID"))
-            queued = enqueue_for_scheduled_apply(
-                [{"sheet": b["sheet"], "key_col": key_col,
-                  "key": b["key"], "col": b["col"], "value": b["value"],
-                  "vtype": b["vtype"],
-                  "evidence": (f"앱 {'수정' if overwrite else '입력'}({ip})"
-                               f" {datetime.now():%m-%d %H:%M}"),
-                  "only_if_empty": not overwrite}],
-                source="app-input",
-                actor=self._actor_name(),
-                idempotency_key=self._idempotency_key(b),
-            )
-            return self._send(200 if queued.get("ok") else 503, queued)
+            actor_session = self._actor()
+            actor_slug = (str(actor_session.get("staff_slug") or "")
+                          if actor_session.get("role") == "staff" else
+                          "admin" if actor_session.get("role") == "admin" else "")
+            if not actor_slug:
+                return self._send(403, {"ok": False, "error": "업무센터 권한이 필요합니다"})
+            try:
+                from app_store import default_store
+                store = default_store()
+                _row, current = _staff_store_row(store, category, str(b["key"]))
+                cfg = RYU_ENTRY_CONFIG[category]
+                from app_store import SHEET_SPECS
+                sheet_spec = SHEET_SPECS.get(cfg["sheet"], {})
+                core_by_column = {v: k for k, v in sheet_spec.items()
+                                  if k in ("public_id", "project_no", "camp_name", "status")}
+                core = core_by_column.get(str(b["col"]))
+                old = current.get(core) if core else (current.get("fields") or {}).get(str(b["col"]))
+                if old not in (None, "") and b.get("overwrite") is not True:
+                    return self._send(200, {"ok": True, "committed": True,
+                                            "action": "no_change", "changed": [],
+                                            "skipped": [str(b["col"])],
+                                            "record_version": int(current["record_version"]),
+                                            "msg": "기존 값 보호 · 변경 없음"})
+                body = {
+                    "category": category, "key": str(b["key"]),
+                    "record_version": int(b.get("record_version") or current["record_version"]),
+                    "values": {str(b["col"]): b["value"]},
+                    "reason": str(b.get("reason") or "").strip(),
+                    "idempotency_key": self._idempotency_key(b),
+                }
+                result = save_staff_entry(
+                    actor_slug, body, store=store, actor=self._actor_name(),
+                )
+                return self._send(200, result)
+            except PermissionError as exc:
+                return self._send(403, {"ok": False, "error": str(exc)[:300]})
+            except Exception as exc:
+                code = 409 if type(exc).__name__ in ("VersionConflict", "IdempotencyConflict") else 400
+                return self._send(code, {"ok": False, "error": str(exc)[:300],
+                                         "conflict": code == 409})
         return self._send(404, {"error": "not found"})
 
     def _band_dump(self):

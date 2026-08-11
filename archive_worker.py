@@ -882,6 +882,7 @@ def _locate_records(
                         "sheet": sheet_name,
                         "business_key": record.get("business_key"),
                         "work_id": record.get("work_id"),
+                        "record_version": record.get("record_version"),
                         "rows": candidates[:20],
                         "reason": "ambiguous-no-anchor",
                     }
@@ -909,6 +910,7 @@ def _locate_records(
                         "sheet": sheet_name,
                         "business_key": record.get("business_key"),
                         "work_id": record.get("work_id"),
+                        "record_version": record.get("record_version"),
                         "rows": [],
                         "reason": "template-full-cannot-insert",
                         "detail": str(exc),
@@ -926,6 +928,7 @@ def _locate_records(
                     "sheet": sheet_name,
                     "business_key": record.get("business_key"),
                     "work_id": record.get("work_id"),
+                    "record_version": record.get("record_version"),
                     "rows": [row],
                     "reason": "row-claimed-by-other",
                     "claimed_by": existing_owner,
@@ -1178,6 +1181,7 @@ class ArchiveWorker:
             "formula_cells_preserved": 0,
         }
         warnings: List[str] = []
+        record_coverage: List[Dict[str, Any]] = []
         for conflict in locate_conflicts:
             reason = conflict.get("reason", "")
             if reason == "template-full-cannot-insert":
@@ -1196,6 +1200,11 @@ class ArchiveWorker:
         for item in located:
             fields, meta, field_warnings = _translated_fields(item.record, item.sheet.name)
             warnings.extend(field_warnings)
+            record_counts = {
+                "commands_applied": 0,
+                "commands_unchanged": 0,
+                "formula_cells_preserved": 0,
+            }
             # A DB-only record must carry its canonical key even if the caller did
             # not duplicate that key inside fields.
             fields.setdefault(item.key_col, item.record.get("business_key"))
@@ -1218,14 +1227,36 @@ class ArchiveWorker:
                 expectations.append(expectation)
                 if result == "applied":
                     counts["commands_applied"] += 1
+                    record_counts["commands_applied"] += 1
                 elif result == "unchanged":
                     counts["commands_unchanged"] += 1
+                    record_counts["commands_unchanged"] += 1
                 else:
                     counts["formula_cells_preserved"] += 1
+                    record_counts["formula_cells_preserved"] += 1
             if item.inserted:
                 counts["records_inserted"] += 1
             else:
                 counts["records_updated"] += 1
+            # This is the semantic acknowledgement boundary.  Merely seeing a
+            # record in the command plan is not coverage: it must have been
+            # located/allocated and every writable cell must have passed the
+            # output verifier below.  Conflicted records never enter this list.
+            record_coverage.append(
+                {
+                    "work_id": str(item.record.get("work_id") or ""),
+                    "business_key": str(item.record.get("business_key") or ""),
+                    "record_version": int(item.record.get("record_version") or 0),
+                    "sheet": item.sheet.name,
+                    "row": int(item.row),
+                    "outcome": (
+                        "applied"
+                        if record_counts["commands_applied"] or item.inserted
+                        else "unchanged"
+                    ),
+                    **record_counts,
+                }
+            )
         for state in states.values():
             state.materialize()
         _write_patched_zip(
@@ -1238,12 +1269,17 @@ class ArchiveWorker:
             raise ArchiveVerificationError("adapter mutated the template copy")
         return {
             "format": WORKER_PROOF_FORMAT,
-            "status": "success",
+            "status": "partial" if locate_conflicts else "success",
             "snapshot_sha256": str(plan["snapshot"]["sha256"]),
             "command_plan_sha256": sha256_json(plan),
             "rows_considered": len(records),
             "records_skipped_ambiguous": len(locate_conflicts),
-            "conflicts": locate_conflicts[:200],
+            "records_covered": len(record_coverage),
+            "record_coverage": record_coverage,
+            # Full identities are required so the exporter/outbox layer can
+            # prove exactly which revisions were not materialized.  Human
+            # warnings stay bounded separately.
+            "conflicts": locate_conflicts,
             "errors": [],
             "warnings": warnings[:500],
             "output_sha256": sha256_file(output_path),
@@ -1320,13 +1356,22 @@ class ArchiveWorker:
                         adapter=bound_adapter,
                         dry_run=False,
                     )
+                    export_status = str(result.get("status") or "")
                     verification = self.exporter.verify_export(
-                        result["artifact_dir"], require_verified=True
+                        result["artifact_dir"],
+                        require_verified=export_status == "verified",
                     )
                     if not verification.get("ok"):
                         raise ArchiveVerificationError(
-                            f"verified artifact failed recheck: {verification.get('errors')}"
+                            f"archive artifact failed recheck: {verification.get('errors')}"
                         )
+                    if export_status not in {"verified", "partial"}:
+                        raise ArchiveVerificationError(
+                            f"archive adapter ended in unsupported status: {export_status}"
+                        )
+                    # A partial workbook is useful forensic output, but it must
+                    # never replace the last fully covered archive.  Keeping the
+                    # previous pointer also makes the dashboard state truthful.
                     last_good = self.exporter.last_good(verify=True)
                     source_after = sha256_file(template)
                     if source_after != source_before:
@@ -1335,7 +1380,7 @@ class ArchiveWorker:
                         )
                     payload = self._write_state(
                         {
-                            "state": "verified",
+                            "state": export_status,
                             "phase": "complete",
                             "ok": True,
                             "started_at": started,
@@ -1762,6 +1807,51 @@ def self_test() -> Dict[str, Any]:
             except ArchiveWorkerBusy:
                 pass
         assert not (lock_spool / "archive-worker.lock").exists()
+
+        conflict_store = AppStore(base / "conflict.db").initialize()
+        for index, key in enumerate(("AS-CONFLICT-A", "AS-CONFLICT-B"), 1):
+            imported_conflict = conflict_store.shadow_import(
+                import_id=f"conflict-import-{index}",
+                sheet="02_돌발AS접수",
+                business_key=key,
+                business_key_col="접수ID",
+                row_number=5,
+                kind="돌발AS",
+                public_id=key,
+                project_no=f"UJ-CONFLICT-{index}",
+                camp_name=f"충돌캠프{index}",
+                status="접수",
+                fields={
+                    "접수ID": key,
+                    "프로젝트NO": f"UJ-CONFLICT-{index}",
+                    "캠프명": f"충돌캠프{index}",
+                    "진행상태": "접수",
+                    "신청내용": f"동일 원본 행 충돌 {index}",
+                    "작업완료일": "",
+                },
+                source_file=str(template),
+                source_sha256=template_hash,
+                apply_if_missing=True,
+                idempotency_key=f"conflict-shadow-{index}",
+            )
+            assert imported_conflict["status"] == "created"
+        conflict_worker = ArchiveWorker(conflict_store, base / "conflict-spool")
+        partial = conflict_worker.run(template)
+        assert partial["ok"] and partial["state"] == "partial"
+        assert partial["last_good"] is None
+        partial_proof = json.loads(
+            (
+                Path(partial["export"]["artifact_dir"]) / "adapter-result.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert partial_proof["coverage"]["planned_records"] == 2
+        assert partial_proof["coverage"]["covered_records"] == 1
+        assert partial_proof["coverage"]["conflict_records"] == 1
+        assert partial_proof["coverage"]["complete"] is False
+        assert partial_proof["conflicts"][0]["reason"] == "row-claimed-by-other"
+        assert conflict_store.export_run(partial["export"]["export_id"])[
+            "status"
+        ] == "partial"
         return {
             "ok": True,
             "existing_row_updated": True,
@@ -1776,6 +1866,7 @@ def self_test() -> Dict[str, Any]:
             "bounded_source_stage": True,
             "source_proof_manifested": True,
             "db_only_audit_fields_retained": True,
+            "partial_conflict_not_promoted": True,
         }
 
 

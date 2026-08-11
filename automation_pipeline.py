@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from app_store import AppStore, default_store
+from archive_export import ArchiveExporter
 
 
 ROOT = Path(__file__).resolve().parent
@@ -477,30 +478,145 @@ class AutomationPipeline:
     def _ack_archived_outbox(self) -> Dict[str, Any]:
         status = self.store.status()
         export = status.get("last_export") or {}
-        if export.get("status") != "verified":
-            return {"acked": 0, "reason": "검증된 보관본 없음"}
-        snapshot_seq = int(export.get("snapshot_seq") or 0)
+        export_status = str(export.get("status") or "")
+        if export_status not in {"verified", "partial"}:
+            return {"acked": 0, "complete": False, "reason": "검증된 보관본 없음"}
+        local_path = str(export.get("local_path") or "").strip()
+        if not local_path:
+            return {
+                "acked": 0,
+                "complete": False,
+                "reason": "보관본 경로 없음",
+            }
+        artifact = Path(local_path).resolve()
+        if not artifact.is_dir() or artifact.parent.name != "exports":
+            return {
+                "acked": 0,
+                "complete": False,
+                "reason": "보관본 경로 없음 또는 spool 구조 불일치",
+            }
+        try:
+            exporter = ArchiveExporter(self.store, artifact.parent.parent)
+            verification = exporter.verify_export(
+                artifact, require_verified=export_status == "verified"
+            )
+            if not verification.get("ok"):
+                raise ValueError(f"artifact verification failed: {verification.get('errors')}")
+            manifest = _read_json(artifact / "manifest.json", {})
+            if str(manifest.get("status") or "") != export_status:
+                raise ValueError("DB export status differs from manifest")
+            contract = manifest.get("coverage_contract") or {}
+            if int(contract.get("version") or 0) < 1:
+                raise ValueError("record coverage contract missing")
+            proof = _read_json(artifact / "adapter-result.json", {})
+        except Exception as exc:
+            return {
+                "acked": 0,
+                "complete": False,
+                "reason": f"보관본 coverage 검증 실패: {type(exc).__name__}: {exc}"[:1000],
+            }
+
+        snapshot_seq = int(manifest.get("snapshot", {}).get("change_seq") or 0)
+        if snapshot_seq != int(export.get("snapshot_seq") or 0):
+            return {
+                "acked": 0,
+                "complete": False,
+                "reason": "DB export snapshot_seq와 manifest 불일치",
+            }
+        covered: Dict[str, int] = {}
+        covered_outcomes: Dict[str, str] = {}
+        for entry in proof.get("record_coverage") or []:
+            if not isinstance(entry, Mapping):
+                continue
+            work_id = str(entry.get("work_id") or "")
+            outcome = str(entry.get("outcome") or "")
+            try:
+                revision = int(entry.get("record_version") or 0)
+            except (TypeError, ValueError):
+                continue
+            if work_id and revision > 0 and outcome in {"applied", "unchanged"}:
+                if revision >= covered.get(work_id, 0):
+                    covered[work_id] = revision
+                    covered_outcomes[work_id] = outcome
+
         total = 0
+        work_acked = 0
+        snapshot_acked = 0
+        deferred_newer = 0
+        deferred_uncovered = 0
         for _batch in range(20):
             token, messages = self.store.lease_outbox(limit=1000, lease_seconds=300)
             if not messages:
                 break
-            ready = [
-                int(message["id"])
-                for message in messages
-                if int((message.get("payload") or {}).get("event_seq") or 0) <= snapshot_seq
-            ]
-            wait = [int(message["id"]) for message in messages if int(message["id"]) not in ready]
+            ready: List[int] = []
+            future: List[int] = []
+            uncovered: List[int] = []
+            batch_work = 0
+            batch_snapshot = 0
+            for message in messages:
+                message_id = int(message["id"])
+                payload = message.get("payload") or {}
+                event_seq = int(payload.get("event_seq") or 0)
+                if event_seq > snapshot_seq:
+                    future.append(message_id)
+                    continue
+                aggregate_type = str(message.get("aggregate_type") or "")
+                topic = str(message.get("topic") or "")
+                if aggregate_type != "work_item" or topic != "work.changed":
+                    # Settings, completion evidence and public-id reservations
+                    # are semantically preserved by the independently verified
+                    # canonical JSON/SQLite snapshot.  They do not claim Excel
+                    # row coverage and therefore cannot mask a work conflict.
+                    ready.append(message_id)
+                    batch_snapshot += 1
+                    continue
+                record = payload.get("record") or {}
+                work_id = str(record.get("id") or payload.get("aggregate_key") or "")
+                try:
+                    revision = int(record.get("record_version") or 0)
+                except (TypeError, ValueError):
+                    revision = 0
+                if revision > 0 and covered.get(work_id, 0) >= revision:
+                    ready.append(message_id)
+                    batch_work += 1
+                else:
+                    uncovered.append(message_id)
             total += self.store.ack_outbox(token, ready)
-            if wait:
+            work_acked += batch_work
+            snapshot_acked += batch_snapshot
+            if future:
                 self.store.fail_outbox(
                     token,
-                    wait,
-                    "아직 검증된 Excel 보관본 스냅샷에 포함되지 않음",
+                    future,
+                    "아직 검증된 보관본 스냅샷보다 새로운 이벤트",
                     retry_after_seconds=30,
                 )
-                break
-        return {"acked": total, "snapshot_seq": snapshot_seq}
+                deferred_newer += len(future)
+            if uncovered:
+                self.store.fail_outbox(
+                    token,
+                    uncovered,
+                    "Excel 보관본의 applied/unchanged 레코드 coverage에 포함되지 않음",
+                    retry_after_seconds=30,
+                )
+                deferred_uncovered += len(uncovered)
+        return {
+            "acked": total,
+            "work_acked": work_acked,
+            "snapshot_acked": snapshot_acked,
+            "snapshot_seq": snapshot_seq,
+            "export_status": export_status,
+            "covered_work_records": len(covered),
+            "covered_outcomes": {
+                "applied": sum(1 for value in covered_outcomes.values() if value == "applied"),
+                "unchanged": sum(
+                    1 for value in covered_outcomes.values() if value == "unchanged"
+                ),
+            },
+            "deferred_newer": deferred_newer,
+            "deferred_uncovered": deferred_uncovered,
+            "complete": export_status == "verified" and deferred_uncovered == 0,
+        }
 
     def prime(self, *, trigger: str = "deployment") -> Dict[str, Any]:
         """Record the current source fingerprints without claiming ingestion.
@@ -613,7 +729,10 @@ class AutomationPipeline:
                             "Excel 보관본 생성·검증", [str(worker), "--run"], 1800
                         )
                         if archive.get("ok"):
-                            self.run_record["outbox"] = self._ack_archived_outbox()
+                            outbox_result = self._ack_archived_outbox()
+                            self.run_record["outbox"] = outbox_result
+                            if not outbox_result.get("complete"):
+                                failures.append("Excel 보관본 일부충돌·coverage 미완료")
                         else:
                             failures.append("Excel 보관본 생성·검증")
                     else:
@@ -817,7 +936,8 @@ def self_test() -> bool:
             lock_path=root / "reports" / ".lock",
         )
         result = pipe.run_once(trigger="self-test")
-        assert result["ok"] and "kakao" in result["changed_sources"]
+        assert not result["ok"] and "kakao" in result["changed_sources"]
+        assert not result["outbox"]["complete"]
         assert calls[:3] == ["카카오톡 원본 흡수·신규등록", "카카오톡 대조", "카톡·밴드 교차신호"]
         before = len(calls)
         again = pipe.run_once(trigger="self-test")
@@ -825,6 +945,119 @@ def self_test() -> bool:
         api = status(root=root, state_path=root / "reports" / "state.json", store=store)
         assert set(api["sources"]) == {"kakao", "band", "erp"}
         assert "app_db" in api and "excel" in api and "human_gates" in api
+
+        # Only work revisions explicitly covered as applied/unchanged may be
+        # acknowledged.  A partial artifact can still ACK its covered records
+        # and snapshot-only metadata while leaving conflicts and newer events.
+        import shutil
+
+        from archive_export import _make_minimal_xlsx, sha256_file, sha256_json
+
+        ack_store = AppStore(root / "ack.db").initialize()
+        covered_work = ack_store.create_work(
+            kind="돌발AS",
+            business_key="ACK-COVERED",
+            fields={"진행상태": "접수"},
+            actor="selftest",
+            source="selftest",
+            evidence="covered outbox self-test",
+            idempotency_key="ack-covered",
+        )["work"]
+        conflicted_work = ack_store.create_work(
+            kind="돌발AS",
+            business_key="ACK-CONFLICT",
+            fields={"진행상태": "접수"},
+            actor="selftest",
+            source="selftest",
+            evidence="conflicted outbox self-test",
+            idempotency_key="ack-conflict",
+        )["work"]
+        ack_store.set_setting(
+            "ack.selftest",
+            {"value": 1},
+            expected_version=0,
+            actor="selftest",
+            source="selftest",
+            evidence="snapshot-only event self-test",
+            idempotency_key="ack-setting",
+        )
+        ack_template = root / "ack-template.xlsx"
+        _make_minimal_xlsx(ack_template)
+        ack_exporter = ArchiveExporter(ack_store, root / "ack-spool")
+
+        def partial_adapter(
+            plan_path: Path, template_copy: Path, output_path: Path
+        ) -> Mapping[str, Any]:
+            plan = _read_json(plan_path, {})
+            shutil.copyfile(template_copy, output_path)
+            covered_record = next(
+                item for item in plan["records"] if item["work_id"] == covered_work["id"]
+            )
+            conflict_record = next(
+                item
+                for item in plan["records"]
+                if item["work_id"] == conflicted_work["id"]
+            )
+            return {
+                "status": "partial",
+                "snapshot_sha256": plan["snapshot"]["sha256"],
+                "command_plan_sha256": sha256_json(plan),
+                "rows_considered": len(plan["records"]),
+                "record_coverage": [
+                    {
+                        "work_id": covered_record["work_id"],
+                        "business_key": covered_record["business_key"],
+                        "record_version": covered_record["record_version"],
+                        "outcome": "applied",
+                    }
+                ],
+                "conflicts": [
+                    {
+                        "work_id": conflict_record["work_id"],
+                        "business_key": conflict_record["business_key"],
+                        "record_version": conflict_record["record_version"],
+                        "reason": "synthetic-conflict",
+                    }
+                ],
+                "errors": [],
+                "output_sha256": sha256_file(output_path),
+            }
+
+        partial_export = ack_exporter.run_local(
+            template_path=ack_template,
+            adapter=partial_adapter,
+            dry_run=False,
+        )
+        assert partial_export["status"] == "partial"
+        ack_store.update_work(
+            covered_work["id"],
+            expected_version=int(covered_work["record_version"]),
+            patch={"status": "작업중"},
+            actor="selftest",
+            source="selftest",
+            evidence="future event self-test",
+            idempotency_key="ack-future",
+        )
+        ack_pipe = AutomationPipeline(
+            root=root,
+            store=ack_store,
+            state_path=root / "reports" / "ack-state.json",
+            lock_path=root / "reports" / ".ack-lock",
+        )
+        ack_result = ack_pipe._ack_archived_outbox()
+        assert ack_result["acked"] == 2
+        assert ack_result["work_acked"] == 1
+        assert ack_result["snapshot_acked"] == 1
+        assert ack_result["deferred_uncovered"] == 1
+        assert ack_result["deferred_newer"] == 1
+        assert ack_result["complete"] is False
+        with ack_store.reader() as conn:
+            outbox_status = {
+                row["aggregate_key"]: row["status"]
+                for row in conn.execute("SELECT aggregate_key,status FROM outbox ORDER BY id")
+            }
+        assert outbox_status[conflicted_work["id"]] == "failed"
+        assert outbox_status["ack.selftest"] == "done"
     return True
 
 

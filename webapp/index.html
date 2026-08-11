@@ -1647,6 +1647,8 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
 .ryu-entry-fields input,.ryu-entry-fields select,.ryu-entry-fields textarea{width:100%;border:1px solid var(--line);
   border-radius:10px;padding:10px 11px;background:var(--surface);color:var(--ink);font:inherit}
 .ryu-entry-fields textarea{min-height:74px;resize:vertical}
+.ryu-entry-fields .ryu-clear{display:flex;align-items:center;gap:6px;margin-top:2px;color:var(--danger);font-size:12.5px;font-weight:750}
+.ryu-entry-fields .ryu-clear input{width:18px;height:18px;margin:0}
 .ryu-save-note{font-size:13px;line-height:1.55;color:var(--ink-3);margin:10px 0}
 .ryu-upload-panel{display:none}.ryu-upload-panel.on{display:block}
 .ryu-list-panel.hidden,.ryu-editor-card.hidden{display:none}
@@ -2821,6 +2823,8 @@ body.dash-drag-live #dashGuides{display:grid}
 	          <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-workspace"/></svg></span><span class="wc-copy">류지영<small>돌발AS · 정기점검 · 회계</small></span><span class="wc-arrow">↗</span></a>
 	        <a class="workcenter-person" href="/staff/oh-jonghyeon" target="_blank" rel="noopener">
 	          <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-badge-fill"/></svg></span><span class="wc-copy">오종현<small>PO · 구매 원천자료</small></span><span class="wc-arrow">↗</span></a>
+	        <a class="workcenter-person" href="/staff/yoo-hyeonmin" target="_blank" rel="noopener">
+	          <span class="wc-icon"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-workspace"/></svg></span><span class="wc-copy">유현민<small>전체 업무 · 검증 · 승인</small></span><span class="wc-arrow">↗</span></a>
         <!-- AS 담당기사 4명 — 2026-08-08 지시("as 담당자 업무센터 왜 안들어감").
              화면(tech.html · /t/&lt;slug&gt;)은 만들어 뒀는데 **들어갈 문이 없었다.**
              기사 주소에는 열쇠가 붙으므로 관리자로 로그인했을 때만 채운다. -->
@@ -2985,6 +2989,24 @@ body.dash-drag-live #dashGuides{display:grid}
             <button class="ui-card" onclick="show('settle')">
               <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-receipt"/></svg></span>
               <span class="ui-card-tx"><b>정산 화면</b><span>청구·발행·입금 현황</span></span></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="cc-block" data-cb="yoo">
+        <div class="card ios-person">
+          <div class="ios-person-head">
+            <span class="ios-avatar" style="background:linear-gradient(180deg,#AF52DE,#5856D6)">유</span>
+            <div class="ios-person-id"><b>유현민</b><span>전체 업무 · 검증 · 승인</span></div>
+          </div>
+          <div class="wt-meta ios-footnote">앱 DB 정본 입력과 자동 보관본을 관리합니다.</div>
+          <div class="ui-cards">
+            <a class="ui-card primary" href="/staff/yoo-hyeonmin" target="_blank" rel="noopener">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-person-workspace"/></svg></span>
+              <span class="ui-card-tx"><b>센터 열기</b><span>유현민 전용 화면(새 창)</span></span></a>
+            <button class="ui-card" onclick="openYooIssues()">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-exclamation-triangle-fill"/></svg></span>
+              <span class="ui-card-tx"><b>확인 필요</b><span>근거·예외·완료 판정</span></span></button>
           </div>
         </div>
       </div>
@@ -3560,13 +3582,14 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	      </div>
 
 	      <form class="card ryu-editor-card" id="ryuEntryForm" onsubmit="submitRyuEntry(event)">
-	        <h3>선택 업무 확인·입력 <span class="norm">— 기존 값은 덮어쓰지 않습니다</span></h3>
+	        <h3>선택 업무 확인·입력 <span class="norm">— 앱 DB 즉시 저장 · 확인된 값은 정정 가능</span></h3>
 	        <div class="ryu-editor-empty" id="ryuEditorEmpty">
 	          왼쪽 과거 목록에서 업무를 선택해 주세요.<br>선택한 건의 기존 내용과 보충 가능한 항목이 표시됩니다.
 	        </div>
 	        <div id="ryuEditorBody" style="display:none">
 	          <input type="hidden" name="category" id="ryuEntryCategory">
 	          <input type="hidden" name="record_key" id="ryuEntryKey">
+	          <input type="hidden" name="record_version" id="ryuEntryVersion">
 	          <input type="hidden" name="target_category" id="ryuTargetCategory">
 	          <input type="hidden" name="target_key" id="ryuTargetKey">
 	          <div class="ryu-selected" id="ryuSelectedSummary"></div>
@@ -3579,8 +3602,8 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	            <label class="wide">근거 파일
 	              <input name="evidence_file" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.xlsx,.docx,.txt">
 	            </label>
-	            <label class="wide">조사 메모
-	              <textarea name="survey_note" placeholder="통화 확인 결과, 담당자 답변, 추가 확인이 필요한 내용을 적습니다. 이 메모는 입력 근거로 남습니다."></textarea>
+	            <label class="wide">확인·정정 사유
+	              <textarea name="survey_note" placeholder="예: 오종현 통화 확인 — 유상 오입력, 실제 무상 건. 기존 값을 고치거나 지울 때는 사유를 남겨 주세요."></textarea>
 	            </label>
 	          </div>
           <p class="ryu-save-note">저장하면 해당 업무 ID의 <b>확인된 값만 앱 DB에 즉시 기록</b>합니다. 수식·검증결과·자동 상태는 직접 변경하지 않으며 Excel은 보관본으로 자동 생성됩니다.</p>
@@ -3984,7 +4007,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
    ★ 무엇을 큐에 넣지 않는가: 로그인·PIN 변경(나중에 보내면 의미가 없다), 조회(GET),
      엑셀 내보내기(파일을 받는 일), /api/ux(사용기록 — 잃어도 되는 것). 아래 목록에 있는
      **쓰기만** 넣는다. 목록에 없는 주소는 예전처럼 그대로 실패한다(조용히 삼키지 않는다). */
-const OUTBOX_PATHS = ['/api/ryu/entry','/api/staff/new-job','/api/staff/improvement',
+const OUTBOX_PATHS = ['/api/staff/entry','/api/ryu/entry','/api/staff/new-job','/api/staff/improvement',
   '/api/input','/api/set_dates','/api/enqueue',
   '/api/ryu/upload','/api/automation/kakao-upload','/api/staff/po-upload','/api/staff/work-log-upload','/api/staff/receipt-upload'];
 const _netFetch = window.fetch.bind(window);
@@ -4113,6 +4136,8 @@ const STAFF_CENTERS = {
     checklist:['신규 돌발AS 접수와 처리상태 확인','정기점검 예정·실행·미실시 사유 입력','카카오톡 정기점검방·돌발점검방 원본 업로드','택배 발송·현장 조치 완료일과 근거 첨부','거래명세서·세금계산서 발행 확인','입금일·입금액·잔여 미수금 확인','ERP 금액 불일치와 청구 미등록 보완','리모컨 재고(실물 기준)·불출·납품 공유분 취합 확인']},
   'oh-jonghyeon':{name:'오종현',title:'오종현 업무센터',assignee:'오종현',
     checklist:['PO 원본·견적서 수신 여부 확인','구매·입금 원천자료 누락 확인','프로젝트번호·캠프·금액 불일치 보완','리모컨 불출·납품 기록 확인(부산 실물 재고 기준)']},
+  'yoo-hyeonmin':{name:'유현민',title:'유현민 업무센터',assignee:'유현민',
+    checklist:['돌발AS·정기점검 전체 진행상태와 예외 확인','담당자·일정·비용구분 정정 승인','거래서류·세금계산서·입금 근거 확인','앱 DB 저장과 Excel 자동 보관본 상태 확인','확인 필요 항목의 객관 근거와 완료 판정 검토']},
 };
 const staffSlug=(()=>{
   const m=location.pathname.match(/^\/staff\/([a-z0-9-]+)\/?$/);
@@ -4972,13 +4997,17 @@ function initStaffCenter(){
   }).join('');
   if($('improvementStaffSlug')) $('improvementStaffSlug').value=staffSlug;
   if($('poSubmissionForm')) $('poSubmissionForm').style.display=staffSlug==='oh-jonghyeon'?'block':'none';
-  if($('ryuOnlySubmission')) $('ryuOnlySubmission').style.display=staffSlug==='ryu-jiyeong'?'block':'none';
+  if($('ryuOnlySubmission')) $('ryuOnlySubmission').style.display=['ryu-jiyeong','yoo-hyeonmin'].includes(staffSlug)?'block':'none';
   if($('workLogReportDate')) $('workLogReportDate').value=todayISO();
   document.querySelectorAll('#newWorkForm [name="submitter"]').forEach(x=>x.value=center.name);
   const brand=document.querySelector('.tabbar .brand .bt');
   if(brand) brand.dataset.staff=center.title;
   if(staffSlug==='ryu-jiyeong') loadWorkLogStatus();
   setTimeout(()=>maybeShowInstallCard(),1800);
+}
+function openYooIssues(){
+  show('check');
+  setTimeout(()=>{ const el=$('issueBoard')||$('checks'); if(el) el.scrollIntoView({block:'start'}); },80);
 }
 async function staffHeartbeat(event='view'){
   if(!staffSlug||!PIN||document.hidden) return;
@@ -4996,7 +5025,7 @@ let RYU=null, ryuCategory='as', ryuSelected=null, ryuVisible=[];
 async function loadRyuRecords(force=false){
   if(RYU&&!force){ renderRyuCenter(); return; }
   try{
-    RYU=await api('/api/ryu/records?ts='+Date.now());
+    RYU=await api('/api/staff/records?ts='+Date.now());
     renderRyuCenter();
   }catch(e){
     const list=$('ryuHistoryList');
@@ -5069,10 +5098,9 @@ function renderRyuHistory(){
   const status=(($('ryuHistoryStatus')||{}).value||'');
   const period=(($('ryuHistoryPeriod')||{}).value||'');
   const allRows=((RYU.rows||{})[ryuCategory]||[]);
-  const center=STAFF_CENTERS[staffSlug]||null;
-  const rows=(center&&staffSlug!=='ryu-jiyeong')
-    ? allRows.filter(r=>String(r.assignee||'').replace(/\s+/g,'').includes(String(center.assignee||'').replace(/\s+/g,'')))
-    : allRows;
+  // 조회·수정 범위는 서버 역할표가 결정한다. 담당자명이 비어 있는 정산 건을 브라우저가
+  // 임의로 지우면 오종현 업무센터에서 문제 ID를 검색조차 못 하는 사고가 재발한다.
+  const rows=allRows;
   ryuVisible=rows.filter(r=>{
     if(status&&r.status!==status) return false;
     if(!ryuPeriodPass(r.date,period)) return false;
@@ -5155,7 +5183,7 @@ async function ryuCopyList(){
   catch(e){notice('이미지 복사 실패: '+e);}
 }
 function ryuExportList(){
-  exportRowsXlsx(`류지영_${ryuCategoryInfo(ryuCategory).label||'업무목록'}`,ryuRowsForExport());
+  exportRowsXlsx(`${(STAFF_CENTERS[staffSlug]||{name:'업무센터'}).name}_${ryuCategoryInfo(ryuCategory).label||'업무목록'}`,ryuRowsForExport());
 }
 function selectRyuRecord(index){
   ryuSelected=ryuVisible[index]||null;
@@ -5168,25 +5196,25 @@ function selectRyuRecord(index){
   //   PC(≥900px)는 목록과 폼이 나란히 보이므로 그대로 둔다 — 가릴 이유가 없다.
   if(ryuSelected && window.innerWidth<900 && $('ryuEntryForm')){
     layerOpen('ryuEntryForm', {title:'선택 업무 확인·입력',
-      sub:'기존 값은 덮어쓰지 않습니다 — 빈 칸만 채웁니다'});
+      sub:'앱 DB에 즉시 저장합니다 — 확인된 기존 값도 사유와 함께 정정할 수 있습니다'});
   }
 }
 function ryuInputHtml(field,existing){
   const name=esc2(field.name), label=esc2(field.label||field.name);
   const has=existing!==undefined&&existing!==null&&String(existing).trim()!=='';
-  const disabled=has?' disabled':'';
-  const note=has?' · 기존 입력 완료':'';
+  const note=has?' · 현재 값(수정 가능)':' · 미입력';
+  const clear=has?`<span class="ryu-clear"><input type="checkbox" name="clear__${name}" value="1"> 값 지우기</span>`:'';
   if(field.type==='select'){
     const opts=['',...(field.options||[])];
-    return `<label>${label}${note}<select name="${name}"${disabled}>${opts.map(x=>
-      `<option value="${esc2(x)}"${has&&String(existing)===String(x)?' selected':''}>${esc2(x||'선택 안 함')}</option>`).join('')}</select></label>`;
+    return `<label>${label}${note}<select name="${name}">${opts.map(x=>
+      `<option value="${esc2(x)}"${has&&String(existing)===String(x)?' selected':''}>${esc2(x||'선택 안 함')}</option>`).join('')}</select>${clear}</label>`;
   }
   if(field.type==='textarea'){
-    return `<label class="wide">${label}${note}<textarea name="${name}"${disabled}
-      placeholder="${has?'':label+' 입력'}">${has?esc2(existing):''}</textarea></label>`;
+    return `<label class="wide">${label}${note}<textarea name="${name}"
+      placeholder="${label+' 입력'}">${has?esc2(existing):''}</textarea>${clear}</label>`;
   }
   return `<label>${label}${note}<input name="${name}" type="${field.type==='date'?'date':field.type==='number'?'number':'text'}"
-    ${field.type==='number'?'step="any" ':''}value="${has?esc2(existing):''}"${disabled} placeholder="${has?'':label+' 입력'}"></label>`;
+    ${field.type==='number'?'step="any" ':''}value="${has?esc2(existing):''}" placeholder="${label+' 입력'}">${clear}</label>`;
 }
 function renderRyuEditor(){
   const empty=$('ryuEditorEmpty'), body=$('ryuEditorBody');
@@ -5197,12 +5225,13 @@ function renderRyuEditor(){
   empty.style.display='none';body.style.display='block';
   const r=ryuSelected, info=ryuCategoryInfo(ryuCategory);
   $('ryuEntryCategory').value=ryuCategory;$('ryuEntryKey').value=r.key||'';
+  $('ryuEntryVersion').value=String(r.record_version||0);
   $('ryuTargetCategory').value=r.target_category||'';$('ryuTargetKey').value=r.target_key||'';
   $('ryuSelectedSummary').innerHTML=`<div class="key">${esc2(r.project_no||r.key||'번호 없음')}</div>
     <div class="camp">${esc2(r.camp||'캠프 미입력')} · ${esc2(r.date||'날짜 미입력')} · ${esc2(r.status||'상태 미입력')}</div>
     <div class="muted" style="margin-top:6px">${esc2(r.summary||'')}</div>`;
   const detail=r.detail||{};
-  $('ryuSelectedDetail').innerHTML=Object.entries(detail).map(([k,v])=>`
+  $('ryuSelectedDetail').innerHTML=Object.entries(detail).filter(([k])=>!String(k).startsWith('_')).map(([k,v])=>`
     <div class="ryu-detail-item"><small>${esc2(k)}</small><span title="${esc2(v)}">${esc2(v)}</span></div>`).join('')
     ||'<div class="muted">기존 입력값이 없습니다.</div>';
   const schema=((RYU.schema||{})[ryuCategory]||{}).fields||[];
@@ -5223,12 +5252,23 @@ async function submitRyuEntry(ev){
   if(!ryuSelected||!ryuSelected.editable) return;
   btn.disabled=true;btn.classList.add('busy');result.className='ryu-result';result.textContent='';
   try{
-    const r=await fetch('/api/ryu/entry',{method:'POST',cache:'no-store',headers:{'X-Pin':PIN},body:new FormData(form)});
+    const requestId=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
+    const r=await fetch('/api/staff/entry',{method:'POST',cache:'no-store',credentials:'same-origin',
+      headers:{'X-Pin':PIN,'Idempotency-Key':requestId},body:new FormData(form)});
     if(r.status===401){PIN='';localStorage.removeItem('cw_pin');$('gate').style.display='flex';throw new Error('PIN을 다시 입력해 주세요');}
     const d=await r.json();if(!r.ok||!d.ok) throw new Error(d.error||`HTTP ${r.status}`);
     result.className='ryu-result ok';
-    result.textContent=d.queued?`${d.queued}개 항목을 앱 DB에 즉시 저장했습니다. Excel은 자동 보관본으로 생성됩니다.`:'근거 파일과 조사 기록을 저장했습니다.';
-    toast('류지영 업무센터 입력을 접수했습니다');
+    const count=(d.changed||[]).length;
+    result.textContent=d.action==='no_change'?'이미 같은 값입니다. 중복 저장하지 않았습니다.':
+      `${count}개 항목을 앱 DB에 즉시 저장했습니다. Excel은 검증된 자동 보관본으로 생성됩니다.`;
+    toast(`${(STAFF_CENTERS[staffSlug]||{name:'업무센터'}).name} · ${d.action==='no_change'?'변경 없음':'저장 완료'}`);
+    const keepKey=ryuSelected.key, keepCategory=ryuCategory;
+    await loadRyuRecords(true);
+    ryuCategory=keepCategory;
+    ryuSelected=((RYU.rows||{})[keepCategory]||[]).find(x=>x.key===keepKey)||null;
+    renderRyuCenter();renderRyuEditor();
+    const note=form.querySelector('[name="survey_note"]');if(note) note.value='';
+    const file=form.querySelector('[name="evidence_file"]');if(file) file.value='';
     // 레이어로 띄워 둔 상태면 저장 뒤 닫아 준다 — 목록으로 바로 돌아간다.
     // 결과 문구는 토스트로 이미 보였으므로 폼을 붙들고 있을 이유가 없다.
     if(layerIsOpen('ryuEntryForm')) setTimeout(closeSheetAll, 600);
@@ -5648,17 +5688,17 @@ function offlineBanner(){
    입력하다 유실 사고) + 오픈소스 CMMS 벤치마킹(Limble 카드·클릭수 최소화,
    MaintainX 모바일 우선, Atlas CMMS 배정/추적). 원칙:
    · 입력은 전부 /api/input → 앱 DB 즉시 정본 — Excel은 자동 보관본으로만 만든다.
-   · 배정·상태·일정만 덮어쓰기 허용(서버 OVERWRITE_COLS) — 나머지는 빈 칸만.
+   · 수정 가능 열은 서버 역할표가 정한다. 비용·금액 등 중요 기존값 정정은 사유와 버전 충돌검사를 거친다.
    · 필터는 기기에 저장돼 다음에 열어도 그대로다(저장되는 필터). */
 const WT_CFG = {
   pm: {sheet:'04_정기점검', idCol:'점검ID', dateCol:'점검예정일', doneCol:'실제점검일',
        stCol:'점검상태', rows:()=>works.pm||[],
        sorts:[['점검예정일','점검예정일'],['실제점검일','실제점검일'],['프로젝트NO','프로젝트NO'],['캠프명','캠프명']],
-       edit:[['담당기사','tech'],['점검상태','status'],['점검예정일','date'],['실제점검일','date']]},
+       edit:[['담당기사','tech'],['점검상태','status'],['점검예정일','date'],['실제점검일','date'],['유상·무상·보험','cost']]},
   as: {sheet:'02_돌발AS접수', idCol:'접수ID', dateCol:'방문예정일', doneCol:'작업완료일',
        stCol:'진행상태', rows:()=>works.as||[],
        sorts:[['접수일자','접수일자'],['방문예정일','방문예정일'],['작업완료일','작업완료일'],['프로젝트NO','프로젝트NO'],['캠프명','캠프명']],
-       edit:[['담당기사','tech'],['진행상태','status'],['방문예정일','date'],['작업완료일','date']]},
+       edit:[['담당기사','tech'],['진행상태','status'],['방문예정일','date'],['작업완료일','date'],['유상·무상·보험','cost']]},
 };
 /* ═══ 업무 단계 정의 — 낱말을 앱이 정하지 않는다 (2026-08-10 지시) ═══
    "플로우차트 참고해서 진행할 수 있게 하고 나중에 플로우차트가 변경되면 기능도
@@ -5858,6 +5898,11 @@ function wtField(k,id,col,typ,cur){
       <option value="">${val?esc2(val):'선택'}</option>${opts.filter(o=>o.단계!==val).map(o=>
         `<option value="${esc2(o.단계)}">${esc2(o.단계)}${String(o.출처||'').indexOf('목록 밖')>=0?' — 목록 밖':''}</option>`).join('')}</select></label>`;
   }
+  if(typ==='cost'){
+    return `<label>비용구분${tag}<select onchange="wtEdit('${k}',${esc4(id)},${esc4(col)},this.value,'text')">
+      <option value="">선택</option>${['유상','무상','보험'].map(x=>
+        `<option value="${x}"${x===val?' selected':''}>${x}</option>`).join('')}</select></label>`;
+  }
   return `<label>${esc2(col)}${tag}<input list="wtTechList" value="${esc2(val)}" placeholder="미배정"
     onchange="wtEdit('${k}',${esc4(id)},${esc4(col)},this.value,'text')"></label>`;
 }
@@ -5865,13 +5910,22 @@ async function wtEdit(k,id,col,value,vtype){
   value=String(value||'').trim();
   if(!value) return;                       // 지우기는 앱에서 안 한다 — 실수 방지
   const cfg=WT_CFG[k];
+  const row=cfg.rows().find(r=>String(r[cfg.idCol]||'').trim()===id);
+  const before=String((row||{})[col]||'').trim();
+  let reason='';
+  if(col==='유상·무상·보험'&&before&&before!==value){
+    reason=await askText('기존 비용구분을 바꾸는 근거를 적어 주세요','',{
+      title:`비용구분 ${before} → ${value}`,ph:'예: 오종현 통화 확인 — 실제 무상 건',ok:'정정 저장'});
+    if(reason===null||String(reason).trim().length<2) return;
+  }
   try{
-    const d=await api('/api/input',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({sheet:cfg.sheet,key_col:cfg.idCol,key:id,col,value,vtype,overwrite:true})});
+    const requestId=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
+    const d=await api('/api/staff/entry',{method:'POST',headers:{'Idempotency-Key':requestId},
+      body:JSON.stringify({category:k,key:id,record_version:Number((row||{}).DB버전||(row||{})._record_version||0),
+        values:{[col]:value},reason:String(reason||''),idempotency_key:requestId})});
     WT_PENDING[id+'|'+col]=value;
-    const row=cfg.rows().find(r=>String(r[cfg.idCol]||'').trim()===id);
-    if(row) row[col]=value;                // 낙관적 반영 — 화면과 앱 DB는 즉시, Excel은 보관본
-    toast(d.queued!==undefined||d.ok?`앱 DB 저장됨 — ${d.message||'Excel은 자동 보관본으로 생성됩니다'}`:'저장 실패');
+    if(row){ row[col]=value; row.DB버전=d.record_version||row.DB버전; row._record_version=d.record_version||row._record_version; }
+    toast(d.ok?`앱 DB 저장됨 — ${d.msg||'Excel은 자동 보관본으로 생성됩니다'}`:'저장 실패');
     renderWorkTab(k);
   }catch(e){ toast('저장 실패 — 잠시 후 다시 시도'); }
 }
@@ -5883,6 +5937,7 @@ const CENTER_KEY='csos_center_layout_v1';
 const CENTER_BLOCKS=[
   {id:'ryu',    label:'류지영 — 돌발AS·정기점검'},
   {id:'oh',     label:'오종현 — PO·구매·입금'},
+  {id:'yoo',    label:'유현민 — 전체 업무·검증·승인'},
   {id:'tech',   label:'AS 담당기사 4명 — 현장'},
   {id:'sources',label:'원본 자료 갈래'},
   {id:'upload', label:'입금·원천자료 등록'},
@@ -9485,12 +9540,16 @@ const INPUT_SPEC = {
     {label:'담당기사', col:'담당기사', vtype:'text', cur:r=>r.담당기사, opts:'담당기사'},
     {label:'방문예정일', col:'방문예정일', vtype:'date', cur:r=>r.방문예정일, ph:'YYYY-MM-DD'},
     {label:'작업완료일', col:'작업완료일', vtype:'date', cur:r=>r.작업완료일, ph:'YYYY-MM-DD'},
+    {label:'비용구분', col:'유상·무상·보험', vtype:'text', cur:r=>r['유상·무상·보험'],
+     values:['유상','무상','보험']},
     {label:'관리자검증상태', col:'관리자검증상태', vtype:'text', cur:r=>r.관리자검증상태,
      opts:'관리자검증상태'},
     {label:'최종확인일', col:'최종확인일', vtype:'date', cur:r=>r.최종확인일, ph:'YYYY-MM-DD'},
   ]},
   pm: { sheet:'04_정기점검', key_col:'점검ID', fields:[
     {label:'실제점검일', col:'실제점검일', vtype:'date', cur:r=>r.실제점검일, ph:'YYYY-MM-DD'},
+    {label:'비용구분', col:'유상·무상·보험', vtype:'text', cur:r=>r['유상·무상·보험'],
+     values:['유상','무상','보험']},
     {label:'최종확인일(유현민 체크)', col:'최종확인일(유현민 체크)', vtype:'date',
      cur:r=>r['최종확인일(유현민 체크)'], ph:'YYYY-MM-DD'},
   ]},
@@ -9506,11 +9565,17 @@ async function loadCodes(){
    · 선택지 → <select>    : 오타·표기흔들림이 사라진다(시트 드롭다운과 같은 값만 들어간다)
    · 숫자  → inputmode="numeric" : 숫자 키패드가 뜬다
    ★ 글자 크기를 16px 미만으로 두면 iOS 사파리가 입력할 때 화면을 확대해 버린다 — 16px 유지. */
-function fieldInput(f, i){
+function fieldInput(f, i, current){
   const base = 'flex:1;min-width:0;padding:12px 11px;border:1.5px solid var(--line);' +
                'border-radius:10px;font-size:16px;background:var(--card);color:var(--ink-1);' +
                'font-family:inherit';
-  const attr = `id="inp_${i}" data-col="${f.col}" data-vtype="${f.vtype}"`;
+  const cur=String(current==null?'':current).slice(0,5000);
+  const attr = `id="inp_${i}" data-col="${f.col}" data-vtype="${f.vtype}" data-original="${esc2(cur)}"`;
+  if(Array.isArray(f.values)){
+    return `<select ${attr} style="${base}"><option value="">— 선택 —</option>`+
+      f.values.map(v=>`<option value="${esc2(v)}"${cur===String(v)?' selected':''}>${esc2(v)}</option>`).join('')+
+      `</select>`;
+  }
   if(f.opts){
     let list = CODES[f.opts] || [];
     /* 시트 순서 그대로 두면 폰에서 **관리자 이름 6개를 지나야** 실제 기사가 나온다.
@@ -9520,16 +9585,16 @@ function fieldInput(f, i){
     if(list.length){
       return `<select ${attr} style="${base}">` +
              `<option value="">— 선택 —</option>` +
-             list.map(v=>`<option value="${esc2(v)}">${esc2(v)}</option>`).join('') +
+             list.map(v=>`<option value="${esc2(v)}"${cur===String(v)?' selected':''}>${esc2(v)}</option>`).join('') +
              `</select>`;
     }
     // 코드 목록을 못 받았으면 자유 입력으로 떨어뜨린다(입력 자체를 막으면 안 된다)
   }
   if(f.vtype === 'date')
-    return `<input ${attr} type="date" style="${base}">`;
+    return `<input ${attr} type="date" value="${esc2(cur.slice(0,10))}" style="${base}">`;
   if(f.vtype === 'number')
-    return `<input ${attr} type="text" inputmode="numeric" placeholder="${f.ph||'숫자만'}" style="${base}">`;
-  return `<input ${attr} placeholder="${f.ph||''}" style="${base}">`;
+    return `<input ${attr} type="text" inputmode="numeric" value="${esc2(cur)}" placeholder="${f.ph||'숫자만'}" style="${base}">`;
+  return `<input ${attr} value="${esc2(cur)}" placeholder="${f.ph||''}" style="${base}">`;
 }
 /* 원장에 실제로 배정된 횟수 순으로 정렬(한 칸에 두 명인 건도 각각 센다) */
 function byUsage(list){
@@ -9566,32 +9631,41 @@ function esc2(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;
 function inputForm(kind, r, id){
   const spec = INPUT_SPEC[kind];
   if(!spec) return '';
-  const empty = spec.fields.filter(f=>!f.cur(r));
-  if(!empty.length) return '';
-  return `<div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">빈 항목 입력 → 앱 DB 즉시 저장 (빈 칸만·기존 값 보호·변경이력 기록)</div>
+  const fields = spec.fields;
+  const version=Number(r.DB버전||r._record_version||r.record_version||0);
+  return `<div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">확인 내용 입력·정정 → 앱 DB 즉시 저장</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">` +
-    empty.map((f,i)=>`<div style="display:flex;gap:8px;align-items:center">
+    fields.map((f,i)=>`<div style="display:flex;gap:8px;align-items:center">
       <span style="width:110px;font-size:14px;color:var(--ink-3);font-weight:600">${f.label}</span>
-      ${fieldInput(f, i)}
+      ${fieldInput(f, i, f.cur(r))}
     </div>`).join('') +
-    `</div><button onclick="saveInputs('${kind}','${id}',${empty.length})" style="margin-top:10px;width:100%;
+    `</div><label style="display:block;margin-top:9px;font-size:13px;color:var(--ink-3);font-weight:700">기존 값 정정·삭제 사유
+      <textarea id="inp_reason" placeholder="예: 오종현 통화 확인 — 유상 오입력, 실제 무상 건" style="display:block;width:100%;min-height:58px;margin-top:5px;padding:10px;border:1.5px solid var(--line);border-radius:10px;font:inherit"></textarea></label>
+    <button onclick="saveInputs('${kind}','${id}',${fields.length},${version})" style="margin-top:10px;width:100%;
       padding:12px;background:var(--brand-btn);color:#fff;border-radius:11px;font-weight:700;font-size:14px">💾 입력 저장</button>
-    <div style="font-size:13px;color:var(--ink-3);margin-top:6px">입력은 즉시 앱에 반영됩니다. Excel은 조회·입력용이 아니라 11시·15시 단방향 보관본입니다.</div>`;
+    <div style="font-size:13px;color:var(--ink-3);margin-top:6px">입력은 한 번에 앱 DB에 반영됩니다. 자동 상태·수식은 직접 바꾸지 않으며 Excel은 단방향 보관본입니다.</div>`;
 }
-async function saveInputs(kind, id, n){
+async function saveInputs(kind, id, n, recordVersion){
   const spec = INPUT_SPEC[kind];
-  let queued = 0;
+  const values={}, clearFields=[];
   for(let i=0;i<n;i++){
     const el = $('inp_'+i);
-    if(!el || !el.value.trim()) continue;
-    const r = await api('/api/input',{method:'POST',body:JSON.stringify(
-      {sheet:spec.sheet, key_col:spec.key_col, key:id,
-       col:el.dataset.col, value:el.value.trim(), vtype:el.dataset.vtype})});
-    if(r.ok) queued++;
+    if(!el) continue;
+    const now=String(el.value||'').trim(), before=String(el.dataset.original||'').trim();
+    if(now===before) continue;
+    if(!now&&before) clearFields.push(el.dataset.col);
+    else if(now) values[el.dataset.col]=now;
   }
-  if(!queued){ notice('입력된 값이 없습니다'); return; }
+  if(!Object.keys(values).length&&!clearFields.length){ notice('변경된 값이 없습니다'); return; }
+  const requestId=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
+  const d=await api('/api/staff/entry',{method:'POST',headers:{'Idempotency-Key':requestId},body:JSON.stringify({
+    category:kind,key:id,record_version:Number(recordVersion||0),values,
+    clear_fields:clearFields,reason:(($('inp_reason')||{}).value||'').trim(),idempotency_key:requestId
+  })});
   closeSheetAll();      // 저장이 끝났으면 목록으로 되돌아갈 게 아니라 통째로 닫는다
-  toast(`${queued}건 앱 DB 저장 완료 · 화면에 즉시 반영됩니다`);
+  toast(d.action==='no_change'?'이미 같은 값입니다':`${(d.changed||[]).length}건 앱 DB 저장 완료 · 화면 즉시 반영`);
+  await loadSettle(false);
+  if(staffSlug) await loadRyuRecords(true);
   loadStatus();
 }
 

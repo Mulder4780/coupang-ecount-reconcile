@@ -1307,11 +1307,12 @@ def t6_webapp():
         for marker in ("류지영 쿠팡 AS 및 정기점검 업무센터", 'class="workcenter-person"',
                        'id="ryuSummaryGrid"',
                        'id="ryuCategoryTabs"', 'id="ryuHistoryList"', 'id="ryuEntryForm"',
-                       "/api/ryu/records", "/api/ryu/entry", "submitRyuEntry",
+                       "/api/staff/records", "/api/staff/entry", "submitRyuEntry",
                        "body.ryu-mode .tabbar button[data-v=\"run\"]{display:none}",
                        "routeNav('dash')"):
             assert marker in html, "류지영 업무센터 UI 누락: " + marker
-        assert 'href="/staff/yoo-hyeonmin"' not in html, "업무센터 허브에서 유현민 버튼 제거 누락"
+        assert 'href="/staff/yoo-hyeonmin"' in html, \
+            "세 직원 업무센터 요구인데 유현민 업무센터 진입 버튼이 없다"
         assert "/api/staff/install-shortcut" in html and "window.__csosInstallPrompt" in html
         assert "workcenterIsInstalled()" in html and "csos_installed_" in html
         assert "maybeShowInstallCard()" in html and "display-mode: standalone" in html
@@ -1333,10 +1334,11 @@ def t6_webapp():
                        'if p == "/api/auth/session"'):
             assert marker in app_src, "기기 인증·일지 자동연동 API 누락: " + marker
         assert "def defer_task_until_free(" in app_src and '"auto_check_queued": queued' in app_src
-        for marker in ("RYU_ENTRY_CONFIG", "def get_ryu_records(", "def save_ryu_entry(",
-                       '"only_if_empty": True', 'if p == "/api/ryu/records"',
-                       'if p == "/api/ryu/entry"'):
-            assert marker in app_src, "류지영 업무센터 API 누락: " + marker
+        for marker in ("RYU_ENTRY_CONFIG", "def get_staff_records(",
+                       "def save_staff_entry(", '"only_if_empty": True',
+                       '"/api/staff/records", "/api/ryu/records"',
+                       '"/api/staff/entry", "/api/ryu/entry"'):
+            assert marker in app_src, "공용 직원 업무센터 API 누락: " + marker
         assert "def install_staff_shortcut(" in app_src
         assert 'if p == "/api/staff/install-shortcut"' in app_src
         assert "flex-wrap:nowrap!important" in html.replace(" ", "")
@@ -4301,9 +4303,10 @@ def t95_objective_completion_db_only():
 def t96_work_management_tabs():
     """[96] 정기점검·돌발AS 정밀 관리 탭 (사용자 지시 2026-07-31).
 
-    · 입력은 전부 /api/input → SQLite 즉시 정본 → 11·15시 Excel 보관본 큐.
+    · 입력은 전부 /api/staff/entry → SQLite 즉시 정본 → Excel 보관본 큐.
       저장 직후 앱에서 읽히며 Excel은 정본 입력 경로가 아니다.
-    · 배정·상태·일정만 덮어쓰기 허용(OVERWRITE_COLS) — 그 밖은 빈 칸만 채운다.
+    · 호환 /api/input도 공용 save_staff_entry의 역할×열 허용표를 거친다.
+      기존값 보호는 유지하되 overwrite가 임의 열 권한을 넓혀서는 안 된다.
       류지영 매니저가 엑셀에서 담당기사를 한 건씩 고치다 유실 사고가 난 그 작업을
       앱에서 안전하게 하게 하는 것이 이 탭의 존재 이유다.
     · 폰 하단바는 칸이 모자라 사이드바(≥900px)에서만 메뉴 노출 — 폰은 대시보드
@@ -4321,21 +4324,28 @@ def t96_work_management_tabs():
         "기준일 범위·정렬·초기화 필터가 완성되지 않았다"
     assert ".tabbar.worktab-nav{display:none}" in html.replace(" ", ""), \
         "폰 하단바 칸 부족 대책(사이드바 전용 노출)이 없다"
-    # 인라인 편집이 SQLite 즉시저장 경로(/api/input)로만 가는가 — Excel 직접 쓰기는 안 된다
+    # 인라인 편집이 공용 SQLite 즉시저장 경로로만 가는가 — Excel 직접 쓰기는 안 된다
     # ★ 검사 범위는 wtEdit **함수 몸통만**이다. 다음 함수 선언 직전까지로 자른다 —
     #   wtBoard 까지 넓게 잡으면 사이에 끼는 무관한 코드(업무센터 업로드의 accept=".xlsx")가
     #   오탐을 낸다(2026-07-31 실제로 그랬다).
     _ws = html.index("async function wtEdit")
     seg = html[_ws:html.index("function ", _ws + 30)]
-    assert "/api/input" in seg and "overwrite:true" in seg, "편집이 SQLite 즉시저장 경로를 안 탄다"
+    assert "/api/staff/entry" in seg and "record_version:" in seg \
+        and "idempotency_key:" in seg, "편집이 공용 SQLite 저장 계약을 안 탄다"
     assert "ledger_writer" not in seg and "xlsx" not in seg, "편집이 엑셀로 새어 나간다"
-    # 서버: 덮어쓰기는 허용열에서만, 근거에 '수정'이 남는가
+    # 서버: 구버전 /api/input도 세션 역할과 공용 직원 저장 계약을 우회하지 않는가.
     srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
-    blk = srv[srv.index('"/api/input"'):srv.index('"/api/input"') + 2500]
-    assert "OVERWRITE_COLS" in blk and '"담당기사"' in blk and '"진행상태"' in blk, \
-        "덮어쓰기 허용열이 없다 — 오배정을 앱에서 못 고친다"
-    assert '"only_if_empty": not overwrite' in blk, "덮어쓰기 플래그가 큐에 안 실린다"
-    assert "수정" in blk, "덮어쓰기 근거 표시가 없다 — 나중에 추적할 수 없다"
+    blk = srv[srv.index('"/api/input"'):srv.index('"/api/input"') + 4000]
+    compact = re.sub(r"\s+", "", blk)
+    assert "save_staff_entry(" in blk and "RYU_ENTRY_CONFIG[category]" in blk, \
+        "호환 입력이 공용 역할×열 허용 저장 계약을 거치지 않는다"
+    assert 'actor_session=self._actor()' in compact and \
+           'actor=self._actor_name()' in compact, \
+        "호환 입력의 권한·감사 actor가 서명 세션에서 오지 않는다"
+    assert '"record_version"' in blk and '"idempotency_key"' in blk, \
+        "호환 입력이 낙관잠금·멱등 계약을 잃었다"
+    assert "OVERWRITE_COLS" not in blk, \
+        "옛 전역 덮어쓰기 목록이 공용 역할×열 권한보다 먼저 적용된다"
     # 업무센터·대시보드에서 들어가는 입구
     assert html.count("show('pm')") >= 2 and html.count("show('as')") >= 2, \
         "대시보드·업무센터에서 정밀 관리 탭으로 가는 입구가 없다"
@@ -7630,7 +7640,7 @@ def t85_staff_po_work_log_and_edit_priority(tmp):
             "markStaffInput('upload')", "staffHeartbeat('view')",
         ):
             assert marker in html, "staff source UI missing: " + marker
-        assert "'yoo-hyeonmin'" not in html
+        assert "'yoo-hyeonmin'" in html, "세 직원 업무센터 정의에서 유현민이 빠졌다"
         print("  [85] staff PO/work-log intake, SSRF guard, edit priority OK")
     finally:
         app.ROOT = old["root"]
@@ -12040,15 +12050,21 @@ def t193_app_db_cutover_archive_and_frontend():
         specs = [
             ("02_돌발AS접수", ["접수ID", "프로젝트NO", "캠프명", "진행상태"],
              ["AS-CUT-193", "UJ-CUT-193", "합성AS캠프", "작업완료"]),
+            ("03_현장작업실적", ["작업ID", "프로젝트NO", "캠프명", "완료여부"],
+             ["WK-CUT-193", "UJ-CUT-193", "합성AS캠프", "완료"]),
             ("04_정기점검", ["점검ID", "프로젝트NO", "캠프명", "점검상태"],
              ["PM-CUT-193", "UJ-PM-193", "합성점검캠프", "완료"]),
             ("06_거래서류청구수금",
              ["정산ID", "원천업무ID", "프로젝트NO", "캠프명", "청구상태"],
              ["JS-CUT-193", "AS-CUT-193", "UJ-CUT-193", "합성AS캠프", "청구완료"]),
-            ("15_세금계산서관리", ["정산ID", "프로젝트NO", "캠프명", "발행상태"],
-             ["JS-CUT-193", "UJ-CUT-193", "합성AS캠프", "발행완료"]),
-            ("16_입금수금관리", ["정산ID", "프로젝트NO", "캠프명", "수금상태"],
-             ["JS-CUT-193", "UJ-CUT-193", "합성AS캠프", "수금완료"]),
+            ("13_PO발주관리", ["PO관리ID", "프로젝트NO", "캠프명", "PO상태(자동)"],
+             ["PO-CUT-193", "UJ-CUT-193", "합성AS캠프", "발주완료"]),
+            ("15_세금계산서관리",
+             ["계산서관리ID", "정산ID", "프로젝트NO", "캠프명", "실제발행일", "발행상태(자동)"],
+             ["TAX-CUT-193", "JS-CUT-193", "UJ-CUT-193", "합성AS캠프",
+              "2026-08-10", "발행완료"]),
+            ("16_입금수금관리", ["입금관리ID", "정산ID", "프로젝트NO", "캠프명"],
+             ["PAY-CUT-193", "JS-CUT-193", "UJ-CUT-193", "합성AS캠프"]),
         ]
         for pos, (name, header, row) in enumerate(specs):
             ws = book.active if pos == 0 else book.create_sheet()
@@ -12180,15 +12196,15 @@ def t193_app_db_cutover_archive_and_frontend():
             make_cutover_book(duplicate_book, duplicate_conflict=True)
 
             candidates = C.read_candidates(valid_book)
-            assert candidates["row_count"] == 5 and not candidates["blocking"], candidates
+            assert candidates["row_count"] == 7 and not candidates["blocking"], candidates
             dup = C.read_candidates(duplicate_book)
             assert any("중복키 값 충돌 AS-CUT-193" in item for item in dup["blocking"]), dup
             plan = C.cutover(valid_book, str(tmp_path / "plan-unused.db"), apply=False)
-            assert plan["status"] == "ready" and plan["candidate_rows"] == 5
+            assert plan["status"] == "ready" and plan["candidate_rows"] == 7
 
             clean_db = tmp_path / "cutover-clean.db"
             complete = C.cutover(valid_book, str(clean_db), apply=True)
-            assert complete["status"] == "complete" and complete["db_rows"] == 5, complete
+            assert complete["status"] == "complete" and complete["db_rows"] == 7, complete
             assert not complete["blocking"] and complete["source_of_truth_mode"] == "db_primary_export"
             clean_store = A.AppStore(clean_db).initialize()
             assert clean_store.get_setting("source_of_truth_mode")["value"] == "db_primary_export"
@@ -12530,6 +12546,443 @@ def t195_incremental_source_to_db_to_archive():
     assert "IgnoreNew" in installer and "--once" in installer
 
     print("  [195] 카톡·밴드·ERP 변경감지 → 앱 DB 정본 → 객관근거 → 검증 Excel 보관본 자동화 ✅")
+
+
+def t204_staff_finance_entry_is_one_save_and_source_safe():
+    """[204] 비용 정정·계산서 발행일은 한 번 저장하면 DB와 재조회가 같은 답을 낸다.
+
+    오종현 통화에서 확인된 실제 모양을 합성한다. 비용구분은 06시트의 수식 결과를
+    직접 덮지 않고 원천 PM만 고친다. 세금계산서 상태도 자동 열을 자유 입력하는 대신
+    발행일이라는 사실값에서 즉시 파생한다. 저장 재전송은 멱등이고, 낡은 화면은
+    낙관잠금으로 막혀야 한다.
+    """
+    from pathlib import Path
+    import app_store as A
+    from webapp import app_server as S
+
+    with tempfile.TemporaryDirectory(prefix="csos-staff-finance-204-") as td:
+        store = A.AppStore(Path(td) / "app.db").initialize()
+
+        pm_import = store.shadow_import(
+            import_id="t204-seed", sheet="04_정기점검",
+            business_key="PM-2601-048", business_key_col="점검ID", row_number=5,
+            kind="정기점검", public_id="PM-2601-048", project_no="UJ2600011",
+            camp_name="송파 프레시 이캠프", status="완료",
+            fields={
+                "점검ID": "PM-2601-048", "프로젝트NO": "UJ2600011",
+                "캠프명": "송파 프레시 이캠프", "점검상태": "완료",
+                "담당관리자": "오종현", "유상·무상·보험": "유상",
+            },
+            source_file="t204.xlsx", source_sha256="a" * 64,
+            apply_if_missing=True, idempotency_key="t204-seed-pm",
+        )
+        js_import = store.shadow_import(
+            import_id="t204-seed", sheet="06_거래서류청구수금",
+            business_key="JS-2601-101", business_key_col="정산ID", row_number=5,
+            kind="정산", public_id="JS-2601-101", project_no="UJ2600011",
+            camp_name="송파 프레시 이캠프", status="작업완료",
+            fields={
+                "정산ID": "JS-2601-101", "원천업무ID": "PM-2601-048",
+                "프로젝트NO": "UJ2600011", "캠프명": "송파 프레시 이캠프",
+                "담당자": "오종현", "청구상태": "작업완료",
+                # 실제 관리대장의 이 열은 원천 업무를 보는 수식이다. 캐시값이 있어도
+                # 앱 저장이 이 칸을 직접 갱신해서는 안 된다.
+                "비용구분": "유상", "세금계산서발행일": "",
+            },
+            source_file="t204.xlsx", source_sha256="a" * 64,
+            apply_if_missing=True, idempotency_key="t204-seed-js",
+        )
+        pm_before = store.get_work(work_id=pm_import["work_id"])
+        js_before = store.get_work(work_id=js_import["work_id"])
+
+        cost_body = {
+            "category": "pm", "key": "PM-2601-048",
+            "record_version": pm_before["record_version"],
+            "values": {"유상·무상·보험": "무상"},
+            "reason": "오종현 통화 확인 — 무상 출고 건",
+            "idempotency_key": "t204-cost-correction",
+        }
+        cost_saved = S.save_staff_entry(
+            "oh-jonghyeon", cost_body, store=store, actor="staff:oh-jonghyeon")
+        assert cost_saved.get("ok") and isinstance(cost_saved.get("record"), dict), cost_saved
+        assert int(cost_saved["record_version"]) == int(cost_saved["record"]["record_version"])
+        pm_after = store.get_work(work_id=pm_import["work_id"])
+        js_after_cost = store.get_work(work_id=js_import["work_id"])
+        assert pm_after["fields"]["유상·무상·보험"] == "무상", pm_after
+        assert int(pm_after["record_version"]) == int(pm_before["record_version"]) + 1
+        assert js_after_cost["fields"]["비용구분"] == "유상", \
+            "원천 PM을 고치면서 06 수식 캐시까지 직접 덮었다"
+        assert js_after_cost["record_version"] == js_before["record_version"], \
+            "비용 정정은 연결 정산행의 버전을 올리면 안 된다"
+
+        # 06 비용구분과 15 자동상태는 직접 쓰는 열이 아니다.
+        for bad_values in ({"비용구분": "무상"}, {"발행상태(자동)": "발행완료"}):
+            bad = {
+                "category": "settle", "key": "JS-2601-101",
+                "record_version": js_before["record_version"], "values": bad_values,
+                "reason": "합성 직접쓰기 금지 확인",
+                "idempotency_key": "t204-forbidden-" + next(iter(bad_values)),
+            }
+            try:
+                S.save_staff_entry(
+                    "oh-jonghyeon", bad, store=store, actor="staff:oh-jonghyeon")
+            except (A.ValidationError, ValueError, PermissionError) as exc:
+                assert next(iter(bad_values)) in str(exc) or "직접" in str(exc) \
+                    or "허용" in str(exc), str(exc)
+            else:
+                raise AssertionError("정산 수식·자동상태 열 직접쓰기가 허용됐다: " + repr(bad_values))
+        assert store.get_work(work_id=js_import["work_id"])["record_version"] == \
+            js_before["record_version"]
+
+        invoice_body = {
+            "category": "settle", "key": "JS-2601-101",
+            "record_version": js_before["record_version"],
+            "values": {"세금계산서발행일": "2026-08-11"},
+            "reason": "세금계산서 발행 사실 확인",
+            "idempotency_key": "t204-invoice-date",
+        }
+        issued = S.save_staff_entry(
+            "oh-jonghyeon", invoice_body, store=store, actor="staff:oh-jonghyeon")
+        assert issued.get("ok") and issued["record"]["세금계산서발행일"] == \
+            "2026-08-11", issued
+        assert int(issued["record_version"]) == int(js_before["record_version"]) + 1
+
+        # 저장 응답만 보지 않는다. 새 GET 읽기모델이 같은 날짜와 파생 발행상태를 내야
+        # 사용자가 한 번 입력한 뒤 폼을 다시 열어도 재입력을 요구하지 않는다.
+        reopened = A.AppStore(Path(td) / "app.db").initialize()
+        assert reopened.get_work(
+            kind="정기점검", business_key="PM-2601-048"
+        )["fields"]["유상·무상·보험"] == "무상"
+        old_legacy_reader = S.get_ryu_records
+        try:
+            def _no_real_ledger():
+                raise AssertionError("임시 store 조회가 실관리대장 읽기를 먼저 호출했다")
+            S.get_ryu_records = _no_real_ledger
+            view = S.get_staff_records("oh-jonghyeon", store=reopened)
+        finally:
+            S.get_ryu_records = old_legacy_reader
+        assert isinstance(view.get("rows"), dict) and isinstance(view["rows"].get("settle"), list), view
+        shown = next(r for r in view["rows"]["settle"] if r.get("key") == "JS-2601-101")
+        assert shown.get("detail", {}).get("세금계산서발행일") == "2026-08-11", shown
+        status_blob = " ".join(str(shown.get(k) or "") for k in ("status", "계산서", "발행상태"))
+        status_blob += " " + " ".join(str(v) for v in (shown.get("detail") or {}).values())
+        assert "발행" in status_blob and "미발행" not in status_blob, shown
+
+        def event_count(work_id):
+            with store.reader() as conn:
+                return int(conn.execute(
+                    "SELECT COUNT(*) FROM change_event WHERE work_id=?", (work_id,)
+                ).fetchone()[0])
+
+        before_replay = event_count(js_import["work_id"])
+        replay = S.save_staff_entry(
+            "oh-jonghyeon", dict(invoice_body), store=store,
+            actor="staff:oh-jonghyeon")
+        assert replay["record_version"] == issued["record_version"], replay
+        assert replay.get("action") == issued.get("action") \
+            and replay.get("event_id") == issued.get("event_id"), \
+            "같은 멱등키 재전송이 최초 저장 결과를 돌려주지 않았다"
+        assert event_count(js_import["work_id"]) == before_replay, \
+            "같은 저장 재전송이 감사 이벤트를 하나 더 만들었다"
+
+        changed_replay = dict(invoice_body)
+        changed_replay["values"] = {"세금계산서발행일": "2026-08-12"}
+        try:
+            S.save_staff_entry(
+                "oh-jonghyeon", changed_replay, store=store,
+                actor="staff:oh-jonghyeon")
+        except A.IdempotencyConflict:
+            pass
+        else:
+            raise AssertionError("같은 멱등키의 다른 발행일이 통과했다")
+
+        stale = dict(invoice_body)
+        stale["idempotency_key"] = "t204-stale-version"
+        stale["values"] = {"세금계산서발행일": "2026-08-13"}
+        try:
+            S.save_staff_entry(
+                "oh-jonghyeon", stale, store=store,
+                actor="staff:oh-jonghyeon")
+        except A.VersionConflict:
+            pass
+        else:
+            raise AssertionError("낡은 record_version 저장이 기존 발행일을 덮었다")
+
+        # 브라우저·본문의 이름이 아니라 세션 actor가 감사로그에 남는다.
+        with store.reader() as conn:
+            actors = [r[0] for r in conn.execute(
+                "SELECT actor FROM change_event WHERE work_id IN (?,?) ORDER BY id",
+                (pm_import["work_id"], js_import["work_id"]),
+            ).fetchall()]
+        assert actors[-2:] == ["staff:oh-jonghyeon", "staff:oh-jonghyeon"], actors
+
+    print("  [204] PM 비용 원천정정 · 06 수식보호 · 발행일 1회저장/파생상태 · 멱등/낙관잠금 ✅")
+
+
+def t205_three_staff_sessions_cannot_forge_actor():
+    """[205] 세 업무센터의 역할은 쿠키로 고정되고 본문 이름으로 바뀌지 않는다."""
+    import inspect
+    from pathlib import Path
+    import app_store as A
+    from webapp import app_server as S
+
+    slugs = ("ryu-jiyeong", "oh-jonghyeon", "yoo-hyeonmin")
+    assert set(slugs) <= set(S.STAFF_CENTERS), S.STAFF_CENTERS
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    for slug in slugs:
+        assert f"'{slug}'" in live and f'/staff/{slug}' in live, \
+            f"{slug} 업무센터 정의·진입 링크가 한쪽에만 있다"
+
+    for path in ('"/api/staff/records"', '"/api/staff/entry"'):
+        assert path in server, "공용 직원센터 API 누락: " + path
+    entry_at = server.index('"/api/staff/entry"')
+    entry_start = server.rfind("        if p", 0, entry_at)
+    entry_end = server.find("\n        if p", entry_at)
+    post = server[entry_start:entry_end if entry_end >= 0 else len(server)]
+    compact = re.sub(r"\s+", "", post)
+    assert "save_staff_entry(" in post and ("_require_staff(" in post or "self._actor()" in post)
+    assert 'body.get("staff_slug")' not in post and "body.get('staff_slug')" not in post
+    assert 'body.get("submitter")' not in post and "body.get('submitter')" not in post
+    assert "actor=self._actor_name()" in compact or "actor=self._actor_name(" in compact, \
+        "감사 actor를 서명 세션이 아니라 요청 본문에서 받고 있다"
+    assert "actual_category not in RYU_ENTRY_CONFIG" in post, \
+        "첨부파일을 저장하기 전에 업무 카테고리를 검증하지 않는다"
+    evidence_source = inspect.getsource(S._save_ryu_evidence)
+    assert "safe_category" in evidence_source and "_업무근거_{safe_category}" in evidence_source, \
+        "요청 카테고리가 첨부파일 경로에 그대로 들어간다"
+
+    # 서명된 쿠키 세 개를 실제로 만들고 Handler가 각각 다른 actor로 복원하는지 본다.
+    actors = {}
+    for slug in slugs:
+        token, issued = S.create_auth_session(slug)
+        parsed = S.auth_session_from_cookie("csos_session=" + token)
+        assert issued["role"] == parsed["role"] == "staff"
+        assert issued["staff_slug"] == parsed["staff_slug"] == slug
+        handler = object.__new__(S.H)
+        handler.headers = {"Cookie": "csos_session=" + token}
+        handler.client_address = ("127.0.0.1", 20400)
+        actors[slug] = handler._actor_name()
+    assert actors == {slug: "staff:" + slug for slug in slugs}, actors
+
+    with tempfile.TemporaryDirectory(prefix="csos-staff-isolation-205-") as td:
+        store = A.AppStore(Path(td) / "app.db").initialize()
+        keys = {}
+        for n, slug in enumerate(slugs, 1):
+            name = S.STAFF_CENTERS[slug]["name"]
+            key = f"PM-2608-20{n}"
+            keys[slug] = key
+            store.create_work(
+                kind="정기점검", business_key=key, public_id=key,
+                project_no=f"UJ26002{n:02d}", camp_name=f"합성 {name} 캠프", status="예정",
+                fields={
+                    "점검ID": key, "프로젝트NO": f"UJ26002{n:02d}",
+                    "캠프명": f"합성 {name} 캠프", "점검상태": "예정",
+                    "담당자": name, "담당관리자": name, "담당기사": name,
+                    "유상·무상·보험": "유상",
+                },
+                actor="t205-seed", source="synthetic", evidence="직원센터 격리 합성",
+                idempotency_key=f"t205-seed-{slug}",
+            )
+
+        # 세 센터가 같은 업무를 참고할 수 있어도 수정 가능 열은 서버가 각 세션에
+        # 맞게 내려야 한다. 화면에서 숨기는 것만으로 권한을 대신하면 안 된다.
+        old_legacy_reader = S.get_ryu_records
+        try:
+            def _no_real_ledger():
+                raise AssertionError("임시 store 조회가 실관리대장 읽기를 먼저 호출했다")
+            S.get_ryu_records = _no_real_ledger
+            views = {slug: S.get_staff_records(slug, store=store) for slug in slugs}
+        finally:
+            S.get_ryu_records = old_legacy_reader
+        for slug, view in views.items():
+            assert view.get("staff_slug") == slug and view.get("staff") == \
+                S.STAFF_CENTERS[slug]["name"], view
+            assert isinstance(view.get("permissions", {}).get("pm"), list), view
+        assert "점검상태" in views["ryu-jiyeong"]["permissions"]["pm"]
+        assert "점검상태" in views["yoo-hyeonmin"]["permissions"]["pm"]
+        assert "점검상태" not in views["oh-jonghyeon"]["permissions"]["pm"]
+
+        oh_raw = store.get_work(kind="정기점검", business_key=keys["oh-jonghyeon"])
+        forged = {
+            "category": "pm", "key": keys["oh-jonghyeon"],
+            "record_version": oh_raw["record_version"],
+            "values": {"유상·무상·보험": "무상"},
+            "reason": "본문 이름 위조 방지 합성",
+            "idempotency_key": "t205-forged-body",
+            "staff_slug": "ryu-jiyeong", "submitter": "류지영",
+        }
+        saved = S.save_staff_entry(
+            "oh-jonghyeon", forged, store=store, actor=actors["oh-jonghyeon"])
+        assert saved.get("ok") and saved["record"]["유상·무상·보험"] == "무상"
+        with store.reader() as conn:
+            audit_actor = conn.execute(
+                "SELECT actor FROM change_event WHERE work_id=? ORDER BY id DESC LIMIT 1",
+                (oh_raw["id"],),
+            ).fetchone()[0]
+        assert audit_actor == "staff:oh-jonghyeon", audit_actor
+
+        # 오종현 세션이 허용표 밖의 상태를 고치는 것은 helper 단계에서도 막는다.
+        cross = dict(forged)
+        cross.update({
+            "key": keys["oh-jonghyeon"],
+            "record_version": saved["record_version"],
+            "values": {"점검상태": "완료"},
+            "idempotency_key": "t205-cross-center",
+        })
+        try:
+            S.save_staff_entry(
+                "oh-jonghyeon", cross, store=store, actor=actors["oh-jonghyeon"])
+        except (A.ValidationError, PermissionError) as exc:
+            assert "권한" in str(exc) or "업무센터" in str(exc), str(exc)
+        else:
+            raise AssertionError("오종현 세션이 허용표 밖 점검상태를 수정했다")
+
+    print("  [205] 류지영·오종현·유현민 세션 격리 · 본문 actor 위조/교차수정 차단 ✅")
+
+
+def t206_finance_archive_keeps_real_headers_and_formulas():
+    """[206] DB 정정은 실제 머리글의 검증 Excel 보관본으로만 나간다."""
+    from pathlib import Path
+    import app_store as A
+    import archive_worker as W
+    import db_cutover as D
+
+    assert A.SHEET_SPECS["15_세금계산서관리"]["status"] == "발행상태(자동)"
+    assert D.SPECS["15_세금계산서관리"]["status"] == "발행상태(자동)", \
+        "컷오버가 구형 '발행상태' 머리글을 써 실제 자동상태 열을 잃는다"
+
+    with tempfile.TemporaryDirectory(prefix="csos-finance-archive-206-") as td:
+        base = Path(td)
+        template = base / "finance-template.xlsx"
+        wb = openpyxl.Workbook()
+        ws4 = wb.active
+        ws4.title = "04_정기점검"
+        for _ in range(3):
+            ws4.append([])
+        ws4.append(["점검ID", "프로젝트NO", "캠프명", "유상·무상·보험", "점검상태"])
+        ws4.append(["PM-2601-048", "UJ2600011", "송파 프레시 이캠프", "유상", "완료"])
+        ws6 = wb.create_sheet("06_거래서류청구수금")
+        for _ in range(3):
+            ws6.append([])
+        ws6.append(["정산ID", "원천업무ID", "프로젝트NO", "캠프명", "비용구분",
+                    "세금계산서발행일", "청구상태"])
+        ws6.append(["JS-2601-101", "PM-2601-048", "UJ2600011", "송파 프레시 이캠프",
+                    "='04_정기점검'!D5", "", "작업완료"])
+        ws15 = wb.create_sheet("15_세금계산서관리")
+        for _ in range(3):
+            ws15.append([])
+        ws15.append(["계산서관리ID", "정산ID", "프로젝트NO", "캠프명",
+                     "실제발행일", "발행상태(자동)"])
+        ws15.append(["TI-JS-2601-101", "JS-2601-101", "UJ2600011",
+                     "송파 프레시 이캠프", "",
+                     '=IF(E5="","미발행","발행완료")'])
+        wb.save(template)
+        wb.close()
+        template_hash = hashlib.sha256(template.read_bytes()).hexdigest()
+
+        store = A.AppStore(base / "app.db").initialize()
+        pm = store.shadow_import(
+            import_id="t206-import", sheet="04_정기점검", business_key="PM-2601-048",
+            business_key_col="점검ID", row_number=5, kind="정기점검",
+            public_id="PM-2601-048", project_no="UJ2600011",
+            camp_name="송파 프레시 이캠프", status="완료",
+            fields={"점검ID": "PM-2601-048", "프로젝트NO": "UJ2600011",
+                    "캠프명": "송파 프레시 이캠프",
+                    "유상·무상·보험": "유상", "점검상태": "완료"},
+            source_file=str(template), source_sha256=template_hash,
+            apply_if_missing=True, idempotency_key="t206-import-pm",
+        )
+        settle = store.shadow_import(
+            import_id="t206-import", sheet="06_거래서류청구수금", business_key="JS-2601-101",
+            business_key_col="정산ID", row_number=5, kind="정산",
+            public_id="JS-2601-101", project_no="UJ2600011",
+            camp_name="송파 프레시 이캠프", status="작업완료",
+            fields={"정산ID": "JS-2601-101", "원천업무ID": "PM-2601-048",
+                    "프로젝트NO": "UJ2600011", "캠프명": "송파 프레시 이캠프",
+                    "비용구분": "유상",
+                    "세금계산서발행일": "", "청구상태": "작업완료"},
+            source_file=str(template), source_sha256=template_hash,
+            apply_if_missing=True, idempotency_key="t206-import-settle",
+        )
+        invoice = store.shadow_import(
+            import_id="t206-import", sheet="15_세금계산서관리",
+            business_key="TI-JS-2601-101", business_key_col="계산서관리ID",
+            row_number=5, kind="세금계산서", public_id="TI-JS-2601-101",
+            project_no="UJ2600011", camp_name="송파 프레시 이캠프", status="미발행",
+            fields={"계산서관리ID": "TI-JS-2601-101", "정산ID": "JS-2601-101",
+                    "프로젝트NO": "UJ2600011",
+                    "캠프명": "송파 프레시 이캠프",
+                    "실제발행일": "", "발행상태(자동)": "미발행"},
+            source_file=str(template), source_sha256=template_hash,
+            apply_if_missing=True, idempotency_key="t206-import-invoice",
+        )
+
+        pm_row = store.get_work(work_id=pm["work_id"])
+        store.update_work(
+            pm_row["id"], expected_version=pm_row["record_version"],
+            patch={"fields": {"유상·무상·보험": "무상"}},
+            actor="staff:oh-jonghyeon", source="staff-entry",
+            evidence="합성 비용 정정", idempotency_key="t206-update-pm",
+        )
+        settle_row = store.get_work(work_id=settle["work_id"])
+        store.update_work(
+            settle_row["id"], expected_version=settle_row["record_version"],
+            patch={"fields": {"세금계산서발행일": "2026-08-11"}},
+            actor="staff:oh-jonghyeon", source="staff-entry",
+            evidence="합성 발행일", idempotency_key="t206-update-settle",
+        )
+        invoice_row = store.get_work(work_id=invoice["work_id"])
+        store.update_work(
+            invoice_row["id"], expected_version=invoice_row["record_version"],
+            patch={"status": "발행완료", "fields": {
+                "실제발행일": "2026-08-11", "발행상태(자동)": "발행완료",
+            }},
+            actor="staff:oh-jonghyeon", source="staff-entry",
+            evidence="합성 발행 사실", idempotency_key="t206-update-invoice",
+        )
+
+        worker = W.ArchiveWorker(store, base / "spool")
+        first = worker.run(template)
+        assert first.get("ok") and first.get("state") == "verified", first
+        adapter_path = Path(first["export"]["artifact_dir"]) / "adapter-result.json"
+        adapter = json.loads(adapter_path.read_text(encoding="utf-8"))
+        assert not adapter.get("errors") and not adapter.get("conflicts"), adapter
+        assert not any("unknown field" in str(x).lower() for x in adapter.get("warnings") or []), adapter
+        assert adapter.get("external_write_performed") is False
+        archive_path = Path(first["last_good"]["archive_path"])
+        out = openpyxl.load_workbook(archive_path, data_only=False, read_only=False)
+        try:
+            h4 = {c.value: c.column for c in out["04_정기점검"][4] if c.value}
+            h6 = {c.value: c.column for c in out["06_거래서류청구수금"][4] if c.value}
+            h15 = {c.value: c.column for c in out["15_세금계산서관리"][4] if c.value}
+            assert "발행상태(자동)" in h15 and "발행상태" not in h15, h15
+            assert out["04_정기점검"].cell(5, h4["유상·무상·보험"]).value == "무상"
+            cost_formula = out["06_거래서류청구수금"].cell(5, h6["비용구분"]).value
+            assert isinstance(cost_formula, str) and cost_formula.startswith("=") \
+                and "04_정기점검" in cost_formula, cost_formula
+            issued6 = out["06_거래서류청구수금"].cell(5, h6["세금계산서발행일"]).value
+            issued15 = out["15_세금계산서관리"].cell(5, h15["실제발행일"]).value
+            def excel_day(value):
+                if isinstance(value, (int, float)):
+                    return openpyxl.utils.datetime.from_excel(value).date().isoformat()
+                return str(value)[:10]
+            assert excel_day(issued6) == "2026-08-11", issued6
+            assert excel_day(issued15) == "2026-08-11", issued15
+            status_formula = out["15_세금계산서관리"].cell(5, h15["발행상태(자동)"]).value
+            assert isinstance(status_formula, str) and status_formula.startswith("=") \
+                and "발행완료" in status_formula, status_formula
+        finally:
+            out.close()
+
+        assert hashlib.sha256(template.read_bytes()).hexdigest() == template_hash, \
+            "보관본 생성기가 입력 템플릿을 수정했다"
+        first_hash = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+        second = worker.run(template)
+        assert second.get("ok") and second["export"]["export_id"] == first["export"]["export_id"]
+        assert hashlib.sha256(Path(second["last_good"]["archive_path"]).read_bytes()).hexdigest() == first_hash
+
+    print("  [206] DB→Excel 보관본 실제 발행상태(자동) 머리글·PM 원천값·06/15 수식 보존 ✅")
 
 
 def t196_stage_words_come_from_one_place():
@@ -13152,6 +13605,9 @@ if __name__ == "__main__":
     t194_legacy_queue_migration_and_round_truth()
     t193_app_db_cutover_archive_and_frontend()
     t195_incremental_source_to_db_to_archive()
+    t204_staff_finance_entry_is_one_save_and_source_safe()
+    t205_three_staff_sessions_cannot_forge_actor()
+    t206_finance_archive_keeps_real_headers_and_formulas()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

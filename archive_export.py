@@ -40,6 +40,7 @@ from app_store import (
 PLAN_FORMAT = "csos-archive-command-plan/v1"
 MANIFEST_FORMAT = "csos-archive-manifest/v1"
 VALIDATION_FORMAT = "csos-archive-validation/v1"
+COVERAGE_CONTRACT_VERSION = 1
 CHUNK_SIZE = 1024 * 1024
 _READ_ONLY_MASTER_RESOLVE_LOCK = threading.Lock()
 
@@ -324,6 +325,7 @@ class ArchiveExporter:
             },
             "adapter_contract": {
                 "name": "ledger-writer-compatible/v1",
+                "record_coverage_version": COVERAGE_CONTRACT_VERSION,
                 "execution": "explicit-local-callable-only",
                 "call_signature": "adapter(plan_path, template_copy_path, output_path) -> result",
                 "high_level_member": "records",
@@ -333,6 +335,7 @@ class ArchiveExporter:
                     "enforce per-command idempotency_key",
                     "report snapshot_sha256 and command_plan_sha256",
                     "report rows_considered and an empty errors list before verification",
+                    "report applied/unchanged work_id+record_version coverage for every record",
                     "do not publish to Z: or any network share",
                 ],
             },
@@ -376,8 +379,10 @@ class ArchiveExporter:
                 "adapter leaves template-copy byte-identical",
                 "adapter proof identifies this snapshot and command plan",
                 "adapter reports no errors",
+                "adapter partitions every planned work_id+record_version into covered or conflicted",
+                "only applied/unchanged record coverage can be acknowledged",
                 "output is a valid OOXML ZIP with workbook.xml",
-                "only then atomically advance last-good.json",
+                "only complete record coverage can atomically advance last-good.json",
             ],
         }
 
@@ -407,7 +412,14 @@ class ArchiveExporter:
         snapshot, snapshot_sha = self.store.snapshot()
         seq = int(snapshot.get("change_seq", 0))
         template_token = template_sha[:12] if template_sha else "no-template"
-        export_id = f"exp-{seq:012d}-{snapshot_sha[:16]}-{template_token}"
+        # The coverage suffix prevents a pre-coverage verified artifact with the
+        # same snapshot/template pair from being silently reused.  Old last-good
+        # pointers remain readable, but every new export must satisfy this
+        # stronger semantic contract.
+        export_id = (
+            f"exp-{seq:012d}-{snapshot_sha[:16]}-{template_token}"
+            f"-cov{COVERAGE_CONTRACT_VERSION}"
+        )
         final_dir = self._artifact_path(export_id)
         if final_dir.exists():
             verification = self.verify_export(final_dir)
@@ -486,6 +498,12 @@ class ArchiveExporter:
                     "copy_method": "binary-stream-copy; no workbook parser",
                 },
                 "command_plan_sha256": plan_sha,
+                "coverage_contract": {
+                    "version": COVERAGE_CONTRACT_VERSION,
+                    "record_identity": "work_id+record_version",
+                    "covered_outcomes": ["applied", "unchanged"],
+                    "partial_last_good_allowed": False,
+                },
                 "files": files,
                 "output": None,
                 "publish": {
@@ -530,6 +548,8 @@ class ArchiveExporter:
             "snapshot_sha256": manifest["snapshot"]["sha256"],
             "command_plan_sha256": manifest["command_plan_sha256"],
             "manifest_sha256": manifest["manifest_sha256"],
+            "coverage": dict(manifest.get("coverage") or {}),
+            "last_good_eligible": manifest.get("status") == "verified",
             "command_plan": str(artifact_dir / "command-plan.json"),
             "template_copy": (
                 str(artifact_dir / "template-copy.xlsx")
@@ -555,7 +575,8 @@ class ArchiveExporter:
             mode="local-only",
             local_path=str(artifact_dir),
         )
-        status = "verified" if manifest.get("status") == "verified" else "planned"
+        manifest_status = str(manifest.get("status") or "planned")
+        status = manifest_status if manifest_status in {"planned", "partial", "verified"} else "planned"
         if run.get("status") == "verified" and status == "planned":
             return
         self.store.finish_export(
@@ -588,11 +609,148 @@ class ArchiveExporter:
         return pointer
 
     @staticmethod
+    def _validate_record_coverage(
+        proof: Dict[str, Any], records: Sequence[Mapping[str, Any]]
+    ) -> Dict[str, Any]:
+        """Validate exact work revision coverage reported by an adapter.
+
+        A snapshot hash proves which DB state was planned, not that each work
+        revision reached Excel.  Coverage is therefore keyed by the immutable
+        ``work_id`` plus the snapshot's ``record_version``.  Conflicted rows are
+        deliberately absent from coverage and must be named in ``conflicts``.
+        """
+
+        expected: Dict[str, Dict[str, Any]] = {}
+        for record in records:
+            work_id = str(record.get("work_id") or "").strip()
+            try:
+                record_version = int(record.get("record_version") or 0)
+            except (TypeError, ValueError) as exc:
+                raise ArchiveVerificationError(
+                    f"command record has invalid revision: {work_id or '<missing>'}"
+                ) from exc
+            if not work_id or record_version < 1:
+                raise ArchiveVerificationError(
+                    "every command record requires work_id and positive record_version"
+                )
+            if work_id in expected:
+                raise ArchiveVerificationError(f"duplicate work_id in command plan: {work_id}")
+            expected[work_id] = {
+                "record_version": record_version,
+                "business_key": str(record.get("business_key") or ""),
+            }
+
+        raw_coverage = proof.get("record_coverage")
+        if not isinstance(raw_coverage, list):
+            raise ArchiveVerificationError("adapter record_coverage must be a list")
+        covered: Dict[str, Dict[str, Any]] = {}
+        normalized: List[Dict[str, Any]] = []
+        for raw in raw_coverage:
+            if not isinstance(raw, Mapping):
+                raise ArchiveVerificationError("adapter record_coverage entry must be an object")
+            entry = dict(raw)
+            work_id = str(entry.get("work_id") or "").strip()
+            outcome = str(entry.get("outcome") or "").strip()
+            try:
+                record_version = int(entry.get("record_version") or 0)
+            except (TypeError, ValueError) as exc:
+                raise ArchiveVerificationError(
+                    f"coverage has invalid revision for {work_id or '<missing>'}"
+                ) from exc
+            if outcome not in {"applied", "unchanged"}:
+                raise ArchiveVerificationError(
+                    f"coverage outcome is not ackable for {work_id or '<missing>'}: {outcome!r}"
+                )
+            if work_id not in expected:
+                raise ArchiveVerificationError(f"coverage references unknown work_id: {work_id}")
+            if work_id in covered:
+                raise ArchiveVerificationError(f"duplicate coverage for work_id: {work_id}")
+            if record_version != int(expected[work_id]["record_version"]):
+                raise ArchiveVerificationError(
+                    f"coverage revision mismatch for {work_id}: "
+                    f"expected {expected[work_id]['record_version']}, got {record_version}"
+                )
+            business_key = str(entry.get("business_key") or "")
+            if business_key and business_key != expected[work_id]["business_key"]:
+                raise ArchiveVerificationError(
+                    f"coverage business_key mismatch for {work_id}"
+                )
+            entry.update(
+                {
+                    "work_id": work_id,
+                    "record_version": record_version,
+                    "outcome": outcome,
+                }
+            )
+            covered[work_id] = entry
+            normalized.append(entry)
+
+        raw_conflicts = proof.get("conflicts") or []
+        if not isinstance(raw_conflicts, list):
+            raise ArchiveVerificationError("adapter conflicts must be a list")
+        conflict_ids: set[str] = set()
+        for raw in raw_conflicts:
+            if not isinstance(raw, Mapping):
+                raise ArchiveVerificationError("adapter conflict entry must be an object")
+            work_id = str(raw.get("work_id") or "").strip()
+            if not work_id or work_id not in expected:
+                raise ArchiveVerificationError(
+                    f"adapter conflict references unknown work_id: {work_id or '<missing>'}"
+                )
+            if work_id in conflict_ids:
+                raise ArchiveVerificationError(
+                    f"duplicate conflict for work_id: {work_id}"
+                )
+            if work_id in covered:
+                raise ArchiveVerificationError(
+                    f"work_id is both covered and conflicted: {work_id}"
+                )
+            try:
+                conflict_version = int(raw.get("record_version") or 0)
+            except (TypeError, ValueError) as exc:
+                raise ArchiveVerificationError(
+                    f"conflict has invalid revision for {work_id}"
+                ) from exc
+            if conflict_version != int(expected[work_id]["record_version"]):
+                raise ArchiveVerificationError(
+                    f"conflict revision mismatch for {work_id}"
+                )
+            conflict_ids.add(work_id)
+
+        uncovered_ids = sorted(set(expected) - set(covered))
+        if set(uncovered_ids) != conflict_ids:
+            unnamed = sorted(set(uncovered_ids) - conflict_ids)
+            extra = sorted(conflict_ids - set(uncovered_ids))
+            raise ArchiveVerificationError(
+                f"coverage/conflict partition mismatch: unnamed={unnamed[:20]}, extra={extra[:20]}"
+            )
+        complete = not uncovered_ids
+        status = str(proof.get("status") or "")
+        if complete and status != "success":
+            raise ArchiveVerificationError("complete record coverage must report status=success")
+        if not complete and status != "partial":
+            raise ArchiveVerificationError("incomplete record coverage must report status=partial")
+        normalized.sort(key=lambda row: (str(row.get("work_id") or ""), int(row.get("record_version") or 0)))
+        proof["record_coverage"] = normalized
+        proof["records_covered"] = len(normalized)
+        proof["coverage"] = {
+            "version": COVERAGE_CONTRACT_VERSION,
+            "planned_records": len(expected),
+            "covered_records": len(normalized),
+            "uncovered_records": len(uncovered_ids),
+            "conflict_records": len(conflict_ids),
+            "complete": complete,
+        }
+        return proof
+
+    @classmethod
     def _adapter_proof(
+        cls,
         result: Mapping[str, Any],
         *,
         snapshot_sha256: str,
         command_plan_sha256: str,
+        records: Sequence[Mapping[str, Any]],
     ) -> Dict[str, Any]:
         proof = dict(result)
         required = {
@@ -607,9 +765,9 @@ class ArchiveExporter:
             raise ArchiveVerificationError(
                 f"adapter proof is incomplete: {', '.join(missing)}"
             )
-        if proof["status"] != "success":
+        if proof["status"] not in {"success", "partial"}:
             raise ArchiveVerificationError(
-                f"adapter did not report success: {proof.get('status')}"
+                f"adapter did not report a supported status: {proof.get('status')}"
             )
         if proof["snapshot_sha256"] != snapshot_sha256:
             raise ArchiveVerificationError("adapter proof references another snapshot")
@@ -617,9 +775,13 @@ class ArchiveExporter:
             raise ArchiveVerificationError("adapter proof references another command plan")
         if not isinstance(proof["rows_considered"], int) or proof["rows_considered"] < 0:
             raise ArchiveVerificationError("adapter rows_considered must be a non-negative int")
+        if proof["rows_considered"] != len(records):
+            raise ArchiveVerificationError(
+                "adapter rows_considered differs from command-plan records"
+            )
         if not isinstance(proof["errors"], list) or proof["errors"]:
             raise ArchiveVerificationError("adapter reported unresolved errors")
-        return proof
+        return cls._validate_record_coverage(proof, records)
 
     def finalize_local(
         self,
@@ -647,10 +809,13 @@ class ArchiveExporter:
 
         rendered = _require_local_write_path(rendered_path, "adapter output")
         _validate_xlsx_container(rendered)
+        plan_path = artifact_dir / "command-plan.json"
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
         proof = self._adapter_proof(
             adapter_result,
             snapshot_sha256=manifest["snapshot"]["sha256"],
             command_plan_sha256=manifest["command_plan_sha256"],
+            records=list(plan.get("records") or []),
         )
         if "output_sha256" in proof and proof["output_sha256"] != sha256_file(rendered):
             raise ArchiveVerificationError("adapter output_sha256 does not match output")
@@ -665,20 +830,26 @@ class ArchiveExporter:
         archive_entry = _byte_copy_verified(rendered, archive_path)
         container = _validate_xlsx_container(archive_path)
         proof.setdefault("output_sha256", archive_entry["sha256"])
-        proof["verified_at"] = _utcnow()
+        coverage_complete = bool((proof.get("coverage") or {}).get("complete"))
+        proof["finished_at"] = _utcnow()
+        proof["verified_at"] = _utcnow() if coverage_complete else None
         proof_path = artifact_dir / "adapter-result.json"
         _atomic_write_json(proof_path, proof)
 
+        final_status = "verified" if coverage_complete else "partial"
         validation_result = {
             "format": VALIDATION_FORMAT,
             "export_id": export_id,
-            "status": "verified",
-            "verified_at": _utcnow(),
+            "status": final_status,
+            "finished_at": _utcnow(),
+            "verified_at": _utcnow() if coverage_complete else None,
             "checks": {
                 "snapshot_sha256": True,
                 "command_plan_sha256": True,
                 "template_unchanged": True,
                 "adapter_errors_empty": True,
+                "record_coverage_complete": coverage_complete,
+                "record_coverage": dict(proof.get("coverage") or {}),
                 "output_sha256": archive_entry["sha256"],
                 "ooxml_container": container,
                 "external_write_performed": False,
@@ -687,8 +858,10 @@ class ArchiveExporter:
         result_path = artifact_dir / "validation-result.json"
         _atomic_write_json(result_path, validation_result)
 
-        manifest["status"] = "verified"
-        manifest["verified_at"] = _utcnow()
+        manifest["status"] = final_status
+        manifest["verified_at"] = _utcnow() if coverage_complete else None
+        manifest["finished_at"] = _utcnow()
+        manifest["coverage"] = dict(proof.get("coverage") or {})
         manifest["files"]["archive.xlsx"] = archive_entry
         manifest["files"]["adapter-result.json"] = _file_entry(proof_path)
         manifest["files"]["validation-result.json"] = _file_entry(result_path)
@@ -700,7 +873,9 @@ class ArchiveExporter:
         manifest["manifest_sha256"] = _manifest_digest(manifest)
         _atomic_write_json(manifest_path, manifest)
 
-        verification = self.verify_export(artifact_dir, require_verified=True)
+        verification = self.verify_export(
+            artifact_dir, require_verified=coverage_complete
+        )
         if not verification["ok"]:
             self.store.finish_export(
                 export_id,
@@ -713,7 +888,8 @@ class ArchiveExporter:
                 f"final export verification failed: {verification['errors']}"
             )
 
-        self._advance_last_good(artifact_dir, manifest)
+        if coverage_complete:
+            self._advance_last_good(artifact_dir, manifest)
         self._sync_export_run(artifact_dir, manifest)
         return self._artifact_summary(artifact_dir)
 
@@ -799,13 +975,26 @@ class ArchiveExporter:
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
         if sha256_file(template_copy) != plan["template"]["sha256"]:
             raise ArchiveVerificationError("captured workbook differs from source hash")
+        records = list(plan.get("records") or [])
+        record_coverage = ledger_result.get("record_coverage")
+        conflicts = ledger_result.get("conflicts") or []
+        if not isinstance(record_coverage, list):
+            raise ArchiveVerificationError(
+                "legacy workbook capture requires explicit app-store "
+                "work_id+record_version semantic coverage"
+            )
+        if not isinstance(conflicts, list):
+            raise ArchiveVerificationError("legacy workbook conflicts must be a list")
         proof = {
-            "status": "success",
+            "status": "partial" if conflicts else "success",
             "snapshot_sha256": plan["snapshot"]["sha256"],
             "command_plan_sha256": sha256_json(plan),
-            "rows_considered": len(plan.get("records") or []),
+            "rows_considered": len(records),
             "commands_applied": int(ledger_result.get("applied_count") or 0),
             "commands_skipped": int(ledger_result.get("skipped_count") or 0),
+            "records_covered": len(record_coverage),
+            "record_coverage": record_coverage,
+            "conflicts": conflicts,
             "errors": [],
             "output_sha256": sha256_file(template_copy),
             "capture_mode": "existing-writer-verified-workbook",
@@ -845,6 +1034,9 @@ class ArchiveExporter:
             errors.append("manifest SHA256 mismatch")
         if require_verified and manifest.get("status") != "verified":
             errors.append("artifact is not verified")
+        manifest_status = str(manifest.get("status") or "")
+        if manifest_status not in {"planned", "partial", "verified", "failed"}:
+            errors.append(f"unsupported manifest status: {manifest_status!r}")
         for name, expected in (manifest.get("files") or {}).items():
             member = artifact / name
             try:
@@ -918,19 +1110,68 @@ class ArchiveExporter:
             "source_sha256"
         ):
             errors.append("template byte-copy differs from source hash")
-        if manifest.get("status") == "verified":
+        coverage: Dict[str, Any] = {}
+        coverage_contract = manifest.get("coverage_contract") or {}
+        try:
+            coverage_version = int(coverage_contract.get("version") or 0)
+        except (TypeError, ValueError):
+            coverage_version = -1
+            errors.append("coverage contract version is invalid")
+        if manifest_status in {"verified", "partial"}:
             archive = artifact / "archive.xlsx"
             try:
                 _validate_xlsx_container(archive)
                 output = manifest.get("output") or {}
                 if sha256_file(archive) != output.get("sha256"):
-                    errors.append("verified output hash mismatch")
+                    errors.append("finalized output hash mismatch")
             except Exception as exc:
-                errors.append(f"verified workbook invalid: {exc}")
+                errors.append(f"finalized workbook invalid: {exc}")
+            if coverage_version >= COVERAGE_CONTRACT_VERSION:
+                try:
+                    proof_path = artifact / "adapter-result.json"
+                    proof_raw = json.loads(proof_path.read_text(encoding="utf-8"))
+                    proof = self._adapter_proof(
+                        proof_raw,
+                        snapshot_sha256=str(
+                            manifest.get("snapshot", {}).get("sha256") or ""
+                        ),
+                        command_plan_sha256=str(
+                            manifest.get("command_plan_sha256") or ""
+                        ),
+                        records=list(plan.get("records") or []),
+                    )
+                    coverage = dict(proof.get("coverage") or {})
+                    output_sha = (manifest.get("output") or {}).get("sha256")
+                    if proof.get("output_sha256") != output_sha:
+                        errors.append("adapter output hash differs from manifest output")
+                    if coverage != dict(manifest.get("coverage") or {}):
+                        errors.append("manifest record coverage differs from adapter proof")
+                    complete = bool(coverage.get("complete"))
+                    if manifest_status == "verified" and not complete:
+                        errors.append("verified artifact has incomplete record coverage")
+                    if manifest_status == "partial" and complete:
+                        errors.append("partial artifact unexpectedly has complete coverage")
+                    result = json.loads(
+                        (artifact / "validation-result.json").read_text(encoding="utf-8")
+                    )
+                    if result.get("status") != manifest_status:
+                        errors.append("validation result status differs from manifest")
+                    checks = result.get("checks") or {}
+                    if bool(checks.get("record_coverage_complete")) != complete:
+                        errors.append("validation result coverage completion differs")
+                    if dict(checks.get("record_coverage") or {}) != coverage:
+                        errors.append("validation result record coverage differs")
+                    if checks.get("output_sha256") != output_sha:
+                        errors.append("validation result output hash differs")
+                except Exception as exc:
+                    errors.append(f"record coverage validation failed: {exc}")
+            elif manifest_status == "partial":
+                errors.append("partial artifact is missing a record coverage contract")
         return {
             "ok": not errors,
-            "status": manifest.get("status", "unknown"),
+            "status": manifest_status or "unknown",
             "export_id": manifest.get("export_id"),
+            "coverage": coverage,
             "errors": errors,
         }
 
@@ -1023,6 +1264,12 @@ def record_ledger_result(
             raise ArchiveVerificationError(
                 "ledger result must contain applied/skipped lists"
             )
+        record_coverage = result.get("record_coverage")
+        conflicts = result.get("conflicts")
+        if record_coverage is not None and not isinstance(record_coverage, list):
+            raise ArchiveVerificationError("ledger record_coverage must be a list")
+        if conflicts is not None and not isinstance(conflicts, list):
+            raise ArchiveVerificationError("ledger conflicts must be a list")
 
         def pending_ids(rows: List[Any]) -> set[int]:
             ids: set[int] = set()
@@ -1073,6 +1320,9 @@ def record_ledger_result(
             "external_write_performed": False,
             "recorded_at": recorded_at,
         }
+        if record_coverage is not None:
+            payload["record_coverage"] = json.loads(canonical_json(record_coverage))
+            payload["conflicts"] = json.loads(canonical_json(conflicts or []))
         store = default_store()
         exporter = ArchiveExporter(store)
         ledger_dir = exporter.spool_dir / "ledger-results"
@@ -1227,6 +1477,16 @@ def self_test() -> bool:
                 "command_plan_sha256": sha256_json(plan),
                 "rows_considered": len(plan["records"]),
                 "commands_applied": len(plan["legacy_writer_queue"]),
+                "record_coverage": [
+                    {
+                        "work_id": record["work_id"],
+                        "business_key": record["business_key"],
+                        "record_version": record["record_version"],
+                        "outcome": "applied",
+                    }
+                    for record in plan["records"]
+                ],
+                "conflicts": [],
                 "errors": [],
                 "output_sha256": sha256_file(output_path),
             }
@@ -1242,6 +1502,70 @@ def self_test() -> bool:
         assert pointer and pointer["export_id"] == verified["export_id"]
         assert pointer["external_write_performed"] is False
         assert store.export_run(verified["export_id"])["status"] == "verified"
+
+        # A conflicted record is useful forensic output, but is neither fully
+        # verified nor eligible to replace the previous last-good pointer.
+        second_created = store.create_work(
+            kind="돌발AS",
+            business_key="UJ-ARCHIVE-002",
+            fields={"청구상태": "작업완료"},
+            actor="selftest",
+            source="selftest",
+            evidence="partial coverage self-test",
+            idempotency_key="archive-partial-work",
+        )["work"]
+
+        def partial_adapter(
+            plan_path: Path, template_copy: Path, output_path: Path
+        ) -> Mapping[str, Any]:
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            shutil.copyfile(template_copy, output_path)
+            covered = [
+                record
+                for record in plan["records"]
+                if record["work_id"] != second_created["id"]
+            ]
+            conflicted = next(
+                record
+                for record in plan["records"]
+                if record["work_id"] == second_created["id"]
+            )
+            return {
+                "status": "partial",
+                "snapshot_sha256": plan["snapshot"]["sha256"],
+                "command_plan_sha256": sha256_json(plan),
+                "rows_considered": len(plan["records"]),
+                "record_coverage": [
+                    {
+                        "work_id": record["work_id"],
+                        "business_key": record["business_key"],
+                        "record_version": record["record_version"],
+                        "outcome": "unchanged",
+                    }
+                    for record in covered
+                ],
+                "conflicts": [
+                    {
+                        "work_id": conflicted["work_id"],
+                        "business_key": conflicted["business_key"],
+                        "record_version": conflicted["record_version"],
+                        "reason": "synthetic-conflict",
+                    }
+                ],
+                "errors": [],
+                "output_sha256": sha256_file(output_path),
+            }
+
+        partial = exporter.run_local(
+            template_path=template, adapter=partial_adapter, dry_run=False
+        )
+        assert partial["status"] == "partial"
+        assert exporter.verify_export(partial["artifact_dir"])["ok"]
+        assert not exporter.verify_export(
+            partial["artifact_dir"], require_verified=True
+        )["ok"]
+        assert exporter.last_good()["export_id"] == verified["export_id"]
+        assert store.export_run(partial["export_id"])["status"] == "partial"
 
         result_file = root / "ledger-result.json"
         ledger_result = {
@@ -1263,16 +1587,46 @@ def self_test() -> bool:
                 source_result=result_file,
                 workbook_path=template,
             )
-            assert recorded["ok"] and Path(recorded["local_evidence"]).is_file()
-            assert recorded["archive_capture"]["status"] == "verified"
+            assert not recorded["ok"] and Path(recorded["local_evidence"]).is_file()
+            assert recorded["status"] == "archive_capture_failed"
+            assert "semantic coverage" in recorded["archive_error"]
             assert default_store().get_setting("legacy_ledger.last_result")["value"][
                 "batch_id"
             ] == 77
+
+            snapshot = default_store().snapshot_payload()
+            covered_result = {
+                **ledger_result,
+                "record_coverage": [
+                    {
+                        "work_id": work["id"],
+                        "business_key": work["business_key"],
+                        "record_version": work["record_version"],
+                        "outcome": "unchanged",
+                    }
+                    for work in snapshot["work_items"]
+                ],
+                "conflicts": [],
+            }
+            _atomic_write_json(result_file, covered_result)
+            captured = record_ledger_result(
+                batch_id=78,
+                slot="self-test",
+                result=covered_result,
+                ok=True,
+                source_result=result_file,
+                workbook_path=template,
+            )
+            assert captured["ok"]
+            assert captured["archive_capture"]["status"] == "verified"
+            assert default_store().get_setting("legacy_ledger.last_result")["value"][
+                "batch_id"
+            ] == 78
             seq_before_replay = default_store().status()["change_seq"]
             recorded_again = record_ledger_result(
-                batch_id=77,
+                batch_id=78,
                 slot="self-test",
-                result=ledger_result,
+                result=covered_result,
                 ok=True,
                 source_result=result_file,
                 workbook_path=template,

@@ -29,6 +29,10 @@ SPECS: Dict[str, Dict[str, Any]] = {
         "kind": "돌발AS", "keys": ("접수ID", "프로젝트NO"), "public_id": "접수ID",
         "project": "프로젝트NO", "camp": "캠프명", "status": "진행상태",
     },
+    "03_현장작업실적": {
+        "kind": "현장작업", "keys": ("작업ID", "프로젝트NO"), "public_id": "작업ID",
+        "project": "프로젝트NO", "camp": "캠프명", "status": "완료여부",
+    },
     "04_정기점검": {
         "kind": "정기점검", "keys": ("점검ID", "프로젝트NO"), "public_id": "점검ID",
         "project": "프로젝트NO", "camp": "캠프명", "status": "점검상태",
@@ -38,14 +42,25 @@ SPECS: Dict[str, Dict[str, Any]] = {
         "public_id": "정산ID", "project": "프로젝트NO", "camp": "캠프명",
         "status": "청구상태",
     },
-    # 15·16시트는 같은 정산ID를 공유하므로 public_id 전역 유일키로 쓰지 않는다.
+    "13_PO발주관리": {
+        "kind": "PO발주", "keys": ("PO관리ID", "프로젝트NO"), "public_id": "PO관리ID",
+        "project": "프로젝트NO", "camp": "캠프명", "status": "PO상태(자동)",
+    },
+    # 15·16시트의 행 식별자는 각 관리ID다. 정산ID는 같은 정산에 복수
+    # 계산서·입금이 매달릴 수 있는 부모 관계키이므로 business_key로 합치지 않는다.
     "15_세금계산서관리": {
-        "kind": "세금계산서", "keys": ("정산ID",), "public_id": None,
-        "project": "프로젝트NO", "camp": "캠프명", "status": "발행상태",
+        "kind": "세금계산서", "keys": ("계산서관리ID",),
+        "public_id": "계산서관리ID", "business_key": "계산서관리ID",
+        "relation_id": "정산ID", "project": "프로젝트NO", "camp": "캠프명",
+        "status": "발행상태(자동)", "issued_at": "실제발행일",
     },
     "16_입금수금관리": {
-        "kind": "입금수금", "keys": ("정산ID",), "public_id": None,
-        "project": "프로젝트NO", "camp": "캠프명", "status": "수금상태",
+        "kind": "입금수금", "keys": ("입금관리ID",),
+        "public_id": "입금관리ID", "business_key": "입금관리ID",
+        "relation_id": "정산ID", "project": "프로젝트NO", "camp": "캠프명",
+        # v586에는 수금상태 열이 없다. 파생 상태는 읽는 쪽에서 계산하고
+        # 컷오버 정본에는 존재하지 않는 열을 만들지 않는다.
+        "status": "",
     },
 }
 
@@ -124,7 +139,19 @@ def read_candidates(master: os.PathLike[str] | str) -> Dict[str, Any]:
                     for name, idx in columns.items()
                     if idx < len(values) and values[idx] not in (None, "")
                 }
-                key_col = next((name for name in spec["keys"] if _text(fields.get(name))), "")
+                preferred_key = str(spec.get("business_key") or "")
+                if preferred_key:
+                    key_col = preferred_key if _text(fields.get(preferred_key)) else ""
+                    relation_col = str(spec.get("relation_id") or "")
+                    if not key_col and relation_col and _text(fields.get(relation_col)):
+                        result["blocking"].append(
+                            f"{sheet}: 행 {row_no}의 {preferred_key}가 비어 있음 "
+                            f"({relation_col}={_text(fields.get(relation_col))})"
+                        )
+                else:
+                    key_col = next(
+                        (name for name in spec["keys"] if _text(fields.get(name))), ""
+                    )
                 if not key_col:
                     continue
                 business_key = _text(fields[key_col])
@@ -144,7 +171,9 @@ def read_candidates(master: os.PathLike[str] | str) -> Dict[str, Any]:
                     "public_id": _text(fields.get(spec["public_id"])) if spec["public_id"] else None,
                     "project_no": _text(fields.get(spec["project"])),
                     "camp_name": _text(fields.get(spec["camp"])),
-                    "status": _text(fields.get(spec["status"])),
+                    "status": (
+                        _text(fields.get(spec["status"])) if spec.get("status") else ""
+                    ),
                     "fields": fields,
                     "fields_sha256": fingerprint,
                 })
@@ -303,7 +332,16 @@ def self_test() -> bool:
     assert _json_value(date(2026, 8, 10)) == "2026-08-10"
     assert _json_value(timedelta(hours=9, minutes=30)) == "9:30:00"
     assert _json_value(time_value(9, 30)) == "09:30:00"
-    assert len(SPECS) == 5 and SPECS["06_거래서류청구수금"]["kind"] == "정산"
+    assert len(SPECS) >= 7 and SPECS["06_거래서류청구수금"]["kind"] == "정산"
+    assert SPECS["03_현장작업실적"]["status"] == "완료여부"
+    assert SPECS["13_PO발주관리"]["status"] == "PO상태(자동)"
+    invoice = SPECS["15_세금계산서관리"]
+    assert invoice["public_id"] == invoice["business_key"] == "계산서관리ID"
+    assert invoice["relation_id"] == "정산ID"
+    assert invoice["status"] == "발행상태(자동)" and invoice["issued_at"] == "실제발행일"
+    receipt = SPECS["16_입금수금관리"]
+    assert receipt["public_id"] == receipt["business_key"] == "입금관리ID"
+    assert receipt["relation_id"] == "정산ID" and receipt["status"] == ""
     print("db_cutover self-test: OK")
     return True
 

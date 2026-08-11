@@ -44,7 +44,7 @@ SHEET_SPECS: Dict[str, Dict[str, str]] = {
         "public_id": "작업ID",
         "project_no": "프로젝트NO",
         "camp_name": "캠프명",
-        "status": "진행상태",
+        "status": "완료여부",
     },
     "04_정기점검": {
         "kind": "정기점검",
@@ -69,26 +69,42 @@ SHEET_SPECS: Dict[str, Dict[str, str]] = {
     },
     "15_세금계산서관리": {
         "kind": "세금계산서",
-        "public_id": "",
+        "public_id": "계산서관리ID",
+        "business_key": "계산서관리ID",
+        "relation_id": "정산ID",
         "project_no": "프로젝트NO",
         "camp_name": "캠프명",
         "status": "발행상태(자동)",
+        "issued_at": "실제발행일",
     },
     "16_입금수금관리": {
         "kind": "입금수금",
-        "public_id": "",
+        "public_id": "입금관리ID",
+        "business_key": "입금관리ID",
+        "relation_id": "정산ID",
         "project_no": "프로젝트NO",
         "camp_name": "캠프명",
-        "status": "수금상태",
+        # v586에는 상태 열이 없다. 입금일·입금액·미수금액으로 화면에서
+        # 파생할 수는 있어도 존재하지 않는 Excel 열을 정본 열로 만들지 않는다.
+        "status": "",
     },
     "13_PO발주관리": {
         "kind": "PO발주",
         "public_id": "PO관리ID",
         "project_no": "프로젝트NO",
         "camp_name": "캠프명",
-        "status": "진행상태",
+        "status": "PO상태(자동)",
     },
 }
+
+
+def _management_identity_field(kind: str) -> str:
+    """Return the v586 management-ID field used as a canonical row identity."""
+
+    for spec in SHEET_SPECS.values():
+        if str(spec.get("kind") or "") == str(kind or ""):
+            return str(spec.get("business_key") or "")
+    return ""
 
 
 class StoreError(RuntimeError):
@@ -798,6 +814,27 @@ class AppStore:
     ) -> Dict[str, Any]:
         kind = _require_text("kind", kind, 200)
         business_key = _require_text("business_key", business_key, 500)
+        identity_field = _management_identity_field(kind)
+        identity_value = (
+            fields.get(identity_field) or public_id or business_key
+            if identity_field
+            else None
+        )
+        if identity_field and identity_value not in (None, ""):
+            existing = conn.execute(
+                """
+                SELECT w.id FROM work_item w
+                JOIN work_field f ON f.work_id=w.id
+                WHERE w.kind=? AND w.deleted_at IS NULL
+                  AND f.field_key=? AND f.value_json=?
+                ORDER BY w.updated_at DESC,w.id DESC LIMIT 1
+                """,
+                (kind, identity_field, canonical_json(identity_value)),
+            ).fetchone()
+            if existing:
+                raise ValidationError(
+                    f"duplicate management identity: {kind}/{identity_field}={identity_value}"
+                )
         work_id = self._new_id("wrk")
         now = _utcnow()
         try:
@@ -949,6 +986,26 @@ class AppStore:
                     "SELECT id FROM work_item WHERE kind=? AND business_key=?",
                     (kind, business_key),
                 ).fetchone()
+                if row is None:
+                    identity_field = _management_identity_field(kind)
+                    if identity_field:
+                        deleted_clause = "" if include_deleted else " AND w.deleted_at IS NULL"
+                        rows = conn.execute(
+                            """
+                            SELECT w.id FROM work_item w
+                            JOIN work_field f ON f.work_id=w.id
+                            WHERE w.kind=? AND f.field_key=? AND f.value_json=?
+                            """
+                            + deleted_clause
+                            + " ORDER BY w.deleted_at IS NOT NULL,w.updated_at DESC,w.id DESC LIMIT 2",
+                            (kind, identity_field, canonical_json(business_key)),
+                        ).fetchall()
+                        if len(rows) > 1:
+                            raise ValidationError(
+                                f"duplicate management identity: "
+                                f"{kind}/{identity_field}={business_key}"
+                            )
+                        row = rows[0] if rows else None
                 if row is None:
                     raise NotFoundError(f"work item not found: {kind}/{business_key}")
                 work_id = row["id"]
@@ -1789,6 +1846,7 @@ class AppStore:
         self, *, sheet: str, key_col: str, key: str, kind: str
     ) -> Optional[str]:
         encoded_key = canonical_json(key)
+        spec = self._sheet_spec(sheet)
         with self.reader() as conn:
             row = conn.execute(
                 """
@@ -1808,6 +1866,51 @@ class AppStore:
             ).fetchone()
             if row:
                 return str(row["id"])
+            identity_col = str(spec.get("business_key") or "")
+            if identity_col and key_col == identity_col:
+                # During the v586 transition existing 15/16 records can still
+                # have the old 정산ID business_key while already carrying the
+                # new 관리ID in work_field.  Match that field so an app edit
+                # updates the existing record instead of creating a duplicate,
+                # but reject duplicate management IDs rather than choosing one.
+                rows = conn.execute(
+                    """
+                    SELECT w.id FROM work_item w
+                    JOIN work_field f ON f.work_id=w.id
+                    WHERE w.kind=? AND w.deleted_at IS NULL
+                      AND f.field_key=? AND f.value_json=?
+                    ORDER BY w.updated_at DESC,w.id DESC LIMIT 2
+                    """,
+                    (kind, identity_col, encoded_key),
+                ).fetchall()
+                if len(rows) > 1:
+                    raise ValidationError(
+                        f"{sheet}: 식별키 {identity_col}={key}가 여러 건입니다; "
+                        "중복 관리ID를 먼저 정리하세요"
+                    )
+                if rows:
+                    return str(rows[0]["id"])
+            relation_col = str(spec.get("relation_id") or "")
+            if relation_col and key_col == relation_col:
+                # 정산ID는 15·16시트의 부모 관계키이지 행 식별자가 아니다.
+                # 한 정산에 계산서/입금이 복수일 수 있으므로 관계키가 여러 행에
+                # 걸리면 최신 한 건을 임의 선택하지 말고 식별 관리ID를 요구한다.
+                rows = conn.execute(
+                    """
+                    SELECT w.id FROM work_item w
+                    JOIN work_field f ON f.work_id=w.id
+                    WHERE w.kind=? AND w.deleted_at IS NULL
+                      AND f.field_key=? AND f.value_json=?
+                    ORDER BY w.updated_at DESC,w.id DESC LIMIT 2
+                    """,
+                    (kind, relation_col, encoded_key),
+                ).fetchall()
+                if len(rows) > 1:
+                    raise ValidationError(
+                        f"{sheet}: 관계키 {relation_col}={key}가 여러 건입니다; "
+                        f"{spec.get('public_id') or '관리ID'}로 지정하세요"
+                    )
+                return str(rows[0]["id"]) if rows else None
             row = conn.execute(
                 "SELECT id FROM work_item WHERE kind=? AND business_key=? "
                 "ORDER BY deleted_at IS NOT NULL,updated_at DESC LIMIT 1",
@@ -1867,6 +1970,7 @@ class AppStore:
             if evidence and evidence not in evidences:
                 evidences.append(evidence)
         key_candidates = [
+            spec.get("business_key") or "",
             spec.get("public_id") or "",
             "프로젝트NO",
             "접수ID",
@@ -1894,6 +1998,12 @@ class AppStore:
             sheet=sheet, key_col=key_col, key=key, kind=kind
         )
         if work_id is None:
+            required_key_col = str(spec.get("business_key") or "")
+            if required_key_col and key_col != required_key_col:
+                raise ValidationError(
+                    f"{sheet}: 새 {kind} 건은 {required_key_col}가 필요합니다; "
+                    f"{key_col}는 관계/참조키로만 사용할 수 있습니다"
+                )
             try:
                 response = self.create_work(
                     kind=kind,
@@ -2039,6 +2149,7 @@ class AppStore:
         for (sheet, row_number), group in coordinate_groups.items():
             spec = self._sheet_spec(sheet)
             stable_columns = {
+                spec.get("business_key") or "",
                 spec.get("public_id") or "",
                 "프로젝트NO",
                 "접수ID",
@@ -2155,6 +2266,12 @@ class AppStore:
                     sheet=sheet, key_col=key_col, key=key, kind=kind
                 )
                 if work_id is None:
+                    required_key_col = str(spec.get("business_key") or "")
+                    if required_key_col and key_col != required_key_col:
+                        raise ValidationError(
+                            f"{sheet}: 새 {kind} 건은 {required_key_col}가 필요합니다; "
+                            f"{key_col}는 관계/참조키로만 사용할 수 있습니다"
+                        )
                     fields = {key_col: key, col: value}
                     public_id = key if key_col == spec.get("public_id") else None
                     project_no = key if key_col == spec.get("project_no") else None
@@ -2880,7 +2997,7 @@ class AppStore:
         local_path: str = "",
         error: str = "",
     ) -> Dict[str, Any]:
-        if status not in {"planned", "verified", "failed"}:
+        if status not in {"planned", "partial", "verified", "failed"}:
             raise ValidationError("invalid export status")
         with self.transaction() as conn:
             cur = conn.execute(
@@ -2986,6 +3103,17 @@ def reserve_public_id(
 
 def self_test() -> bool:
     """Exercise transactional, locking, import, outbox and snapshot invariants."""
+
+    assert SHEET_SPECS["03_현장작업실적"]["status"] == "완료여부"
+    assert SHEET_SPECS["13_PO발주관리"]["status"] == "PO상태(자동)"
+    invoice_spec = SHEET_SPECS["15_세금계산서관리"]
+    assert invoice_spec["public_id"] == invoice_spec["business_key"] == "계산서관리ID"
+    assert invoice_spec["relation_id"] == "정산ID"
+    assert invoice_spec["status"] == "발행상태(자동)"
+    assert invoice_spec["issued_at"] == "실제발행일"
+    receipt_spec = SHEET_SPECS["16_입금수금관리"]
+    assert receipt_spec["public_id"] == receipt_spec["business_key"] == "입금관리ID"
+    assert receipt_spec["relation_id"] == "정산ID" and receipt_spec["status"] == ""
 
     with tempfile.TemporaryDirectory(prefix="app_store_selftest_") as tmp:
         db = Path(tmp) / "store.db"
@@ -3174,6 +3302,114 @@ def self_test() -> bool:
         )
         assert grouped_noop["ok"] and grouped_noop["skipped"] == 1
         assert store.status()["change_seq"] == grouped_seq
+
+        invoice_cells = [
+            {
+                "sheet": "15_세금계산서관리", "cell": "A210", "key_col": "-",
+                "key": "A210", "col": "계산서관리ID", "value": "TX-SELF-001",
+            },
+            {
+                "sheet": "15_세금계산서관리", "cell": "B210", "key_col": "-",
+                "key": "B210", "col": "정산ID", "value": "JS-SELF-210",
+            },
+            {
+                "sheet": "15_세금계산서관리", "cell": "L210", "key_col": "-",
+                "key": "L210", "col": "실제발행일", "value": "2026-08-10",
+            },
+            {
+                "sheet": "15_세금계산서관리", "cell": "AF210", "key_col": "-",
+                "key": "AF210", "col": "발행상태(자동)", "value": "발행완료",
+            },
+        ]
+        invoice_result = store.apply_legacy_items(
+            invoice_cells, "invoice-header-self-test", idempotency_key="invoice-row"
+        )
+        assert invoice_result["ok"] and invoice_result["created"] == 1
+        invoice = store.get_work(kind="세금계산서", business_key="TX-SELF-001")
+        assert invoice["public_id"] == "TX-SELF-001"
+        assert invoice["fields"]["정산ID"] == "JS-SELF-210"
+        assert invoice["fields"]["실제발행일"] == "2026-08-10"
+        assert invoice["status"] == "발행완료"
+
+        receipt_cells = [
+            {
+                "sheet": "16_입금수금관리", "cell": "A220", "key_col": "-",
+                "key": "A220", "col": "입금관리ID", "value": "RC-SELF-001",
+            },
+            {
+                "sheet": "16_입금수금관리", "cell": "B220", "key_col": "-",
+                "key": "B220", "col": "정산ID", "value": "JS-SELF-210",
+            },
+            {
+                "sheet": "16_입금수금관리", "cell": "N220", "key_col": "-",
+                "key": "N220", "col": "입금일", "value": "2026-08-11",
+            },
+        ]
+        receipt_result = store.apply_legacy_items(
+            receipt_cells, "receipt-header-self-test", idempotency_key="receipt-row"
+        )
+        assert receipt_result["ok"] and receipt_result["created"] == 1
+        receipt = store.get_work(kind="입금수금", business_key="RC-SELF-001")
+        assert receipt["public_id"] == "RC-SELF-001"
+        assert receipt["fields"]["정산ID"] == "JS-SELF-210"
+        assert receipt["status"] == "" and "수금상태" not in receipt["fields"]
+
+        legacy_invoice = store.create_work(
+            kind="세금계산서",
+            business_key="JS-LEGACY-230",
+            fields={
+                "계산서관리ID": "TX-LEGACY-230",
+                "정산ID": "JS-LEGACY-230",
+            },
+            idempotency_key="legacy-invoice-before-v586",
+        )["work"]
+        legacy_identity_update = store.apply_legacy_items(
+            [
+                {
+                    "sheet": "15_세금계산서관리",
+                    "key_col": "계산서관리ID",
+                    "key": "TX-LEGACY-230",
+                    "col": "비고",
+                    "value": "v586 관리ID로 기존 행 갱신",
+                    "only_if_empty": False,
+                }
+            ],
+            "legacy-management-id-self-test",
+        )
+        assert legacy_identity_update["ok"] and legacy_identity_update["updated"] == 1
+        assert legacy_identity_update["created"] == 0
+        assert store.get_work(work_id=legacy_invoice["id"])["fields"]["비고"] == (
+            "v586 관리ID로 기존 행 갱신"
+        )
+        assert store.get_work(
+            kind="세금계산서", business_key="TX-LEGACY-230"
+        )["id"] == legacy_invoice["id"]
+        try:
+            store.create_work(
+                kind="세금계산서",
+                business_key="TX-LEGACY-230",
+                public_id="TX-LEGACY-230",
+                fields={"계산서관리ID": "TX-LEGACY-230"},
+                idempotency_key="legacy-management-id-duplicate",
+            )
+            raise AssertionError("legacy management identity duplicate was accepted")
+        except ValidationError:
+            pass
+
+        duplicate_relation = store.create_work(
+            kind="세금계산서", business_key="TX-SELF-002", public_id="TX-SELF-002",
+            fields={"정산ID": "JS-SELF-210"}, idempotency_key="invoice-duplicate-relation",
+        )
+        assert duplicate_relation["work"]["public_id"] == "TX-SELF-002"
+        ambiguous_relation = store.apply_legacy_items(
+            [{
+                "sheet": "15_세금계산서관리", "key_col": "정산ID",
+                "key": "JS-SELF-210", "col": "비고", "value": "관계키 모호성",
+            }],
+            "relation-ambiguity-self-test",
+        )
+        assert not ambiguous_relation["ok"]
+        assert ambiguous_relation["errors"][0]["type"] == "ValidationError"
         sheet_rows = store.list_sheet_rows("02_돌발AS접수")
         legacy_row = next(row for row in sheet_rows if row.get("접수ID") == "AS-LEGACY-1")
         assert legacy_row["담당기사"] == "김필우"
