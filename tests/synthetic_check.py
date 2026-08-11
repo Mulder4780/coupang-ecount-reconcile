@@ -14866,7 +14866,10 @@ def t219_noon_round_is_daily_windowed_and_yields():
             N.MARKER, N.REPORT_MD, N.EXCLUSIVE = old
 
     src = open(os.path.join(ROOT, "noon_run.py"), encoding="utf-8").read()
-    assert "proc_guard" in src and "subprocess.run(" not in src.split("def git_pending")[0], \
+    # 백틱 인용은 **설명**이지 코드가 아니다 — 안 걷어내면 "쓰지 말라"고 적어 둔 문장
+    # 자체를 위반으로 읽고 빨강을 낸다(검증이 제 문서에 걸리는 자리).
+    code_only = re.sub(r"`[^`]*`", "", src.split("def git_pending")[0])
+    assert "proc_guard" in src and "subprocess.run(" not in code_only, \
         "회차 단계가 subprocess.run(timeout=) 을 쓰면 윈도우에서 영원히 안 끝날 수 있다([175])"
     body = src.split("def steps(")[1].split("\ndef ", 1)[0]
     for banned in ("--queue", "--apply", "band_sync", "convert_dump", "collect_", "upload_intake",
@@ -14880,6 +14883,105 @@ def t219_noon_round_is_daily_windowed_and_yields():
 
     print("  [219] 정오 회차 — 창 12~13시·하루 한 번 · 남의 점유 불가침(force 도) · "
           "code 는 합성검증만 건너뜀 · 양보를 완주로 안 적음 ✅")
+
+
+def t220_daily_code_round_window_and_yielding():
+    """[220] 코딩 회차는 12~13시에 하루 한 번, 부딪히면 **물러난다**.
+
+    2026-08-11 지시: "하루한번 12시에서 13시 사이 다른 세션이랑 충돌 안나게 실행
+    알고리즘 코딩해(자동화 100%, 컴팩팅도 자동화, 내가 손 안대게 처리)".
+    빠져 있던 것은 '일을 하는 기능'이 아니라 **창이 닫혀도 도는 축**이었다 —
+    코딩 세션 자동 루프는 `/loop` 라 Claude 창과 함께 죽는다.
+    지키는 것:
+      ① 창 밖(12시 전·13시 후)에서는 아무것도 안 한다
+      ② 하루 한 번 — **완주했을 때만** 오늘을 적는다(물러난 날의 몫이 사라지면 안 된다)
+      ③ 남이 잡고 있으면 물러나고, **물러남은 실패가 아니다**(exit 0)
+      ④ 수집·엑셀·원장을 건드리지 않는다
+      ⑤ `run_tree` 의 ProcessResult 를 dict 처럼 읽지 않는다(그러면 전 단계가 조용히 실패)
+      ⑥ 컴팩팅 자동화가 끊기면 **말한다**(고치지는 않는다 — 사람 설정 파일이다)
+    """
+    from datetime import datetime as _dt
+    import daily_code_run as DCR
+
+    # ① 창 — 12:00~12:59 만 참
+    for h, want in ((11, False), (12, True), (12, True), (13, False), (23, False)):
+        assert DCR.in_window(_dt(2026, 8, 11, h, 30)) is want, (h, want)
+
+    # ④ 수집·엑셀·원장을 부르지 않는다 (수집 세션 몫 · 정본은 앱 DB)
+    src = open(os.path.join(ROOT, "daily_code_run.py"), encoding="utf-8").read()
+    for banned in ("convert_dump", "collect_", "upload_intake", "--apply",
+                   "openpyxl", "ledger_writer", "daily_run.py"):
+        assert banned not in src, f"코딩 회차가 {banned} 를 건드린다 — 수집·원장은 남의 몫이다"
+    # ⑤ ProcessResult 를 dict 로 읽으면 모든 단계가 조용히 실패한다
+    step = src.split("def _step", 1)[1].split("\ndef ", 1)[0]
+    assert "r.returncode" in step and "r.timed_out" in step, \
+        "run_tree 결과를 필드로 안 읽는다 — dict 취급하면 전 단계가 조용히 실패한다"
+    # 설명에는 '왜 안 쓰는지'가 적혀 있어야 하므로 **실제 사용**만 본다
+    assert "proc_guard" in src and "import subprocess" not in src, \
+        "회차가 subprocess 를 직접 쓴다 — 윈도우에서 영원히 안 끝날 수 있다([179])"
+
+    # ⑥ 컴팩팅 점검은 읽기만 한다 — settings.json 을 고치면 사람이 바꾼 값이 되돌아간다
+    comp = src.split("def compact_health", 1)[1].split("\ndef ", 1)[0]
+    assert "autoCompactEnabled" in comp and "PreCompact" in comp
+    # 쓰기 형태만 본다 — 읽기용 json.dumps(지문 만들기)는 정당하다
+    assert 'open(p, "w"' not in comp and "json.dump(" not in comp, \
+        "컴팩팅 점검이 settings.json 을 고친다 — 사람 설정은 읽기만 한다"
+    got = DCR.compact_health()
+    assert isinstance(got, dict) and "정상" in got or got.get("확인") is False
+
+    with tempfile.TemporaryDirectory(prefix="csos-220-") as td:
+        old_state, old_rd = DCR.STATE, DCR.REPORT_DIR
+        try:
+            DCR.REPORT_DIR = td
+            DCR.STATE = os.path.join(td, "state.json")
+
+            # ① 창 밖이면 아무것도 안 하고, 상태 파일도 안 만든다
+            out = DCR.run(now=_dt(2026, 8, 11, 9, 0))
+            assert out["상태"] == "창밖", out
+            assert not os.path.exists(DCR.STATE), "창 밖인데 상태를 적었다"
+
+            # ② 완주했을 때만 오늘을 적는다 — 물러남은 '오늘 돌았다'가 아니다
+            DCR._save({"마지막물러남": {"사유": "남이 잡음"}})
+            assert DCR.ran_today(_dt(2026, 8, 11, 12, 30)) is False, \
+                "물러난 날을 '오늘 완주'로 세면 그날 몫이 영영 사라진다"
+            DCR._save({"완주일": _dt(2026, 8, 11).strftime("%Y-%m-%d")})
+            assert DCR.ran_today(_dt(2026, 8, 11, 12, 30)) is True
+            assert DCR.run(now=_dt(2026, 8, 11, 12, 30))["상태"] == "오늘완주"
+            # 다음 날은 다시 돈다
+            assert DCR.ran_today(_dt(2026, 8, 12, 12, 30)) is False
+
+            # ③ 빨강일 때만 인계에 오른다 — 매일 '정상'을 적으면 아무도 안 본다
+            DCR._save({"완주일": _dt.now().strftime("%Y-%m-%d"), "실패단계": [],
+                       "컴팩팅": {"확인": True, "자동요약": True, "인계훅": True, "정상": True}})
+            assert DCR.banner() is None, "정상인데 인계 문서에 줄을 올린다"
+            DCR._save({"완주일": _dt.now().strftime("%Y-%m-%d"), "실패단계": ["합성검증"],
+                       "컴팩팅": {"확인": True, "자동요약": False, "인계훅": True, "정상": False}})
+            b = DCR.banner()
+            assert b and "합성검증" in b and "컴팩팅" in b, b
+        finally:
+            DCR.STATE, DCR.REPORT_DIR = old_state, old_rd
+
+    # ③ 물러남은 exit 0 — 스케줄러에 매일 빨간불이 뜨면 아무도 안 본다
+    main = src.split("def main(", 1)[1]
+    assert 'return 1 if got.get("실패단계") else 0' in main, \
+        "물러남·창밖을 실패로 끝낸다 — 매일 빨간불이면 그 경보는 죽는다"
+
+    # 배선: 인계 문서가 이 회차를 읽는가 · 판정은 한 곳인가
+    sh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert '"코딩회차": code_run_banner()' in sh, "인계 문서가 코딩 회차를 안 읽는다"
+    assert "daily_code_run.banner()" in sh, \
+        "인계 문서가 판정을 다시 만든다 — 같은 파일로 두 화면이 다른 말을 하게 된다"
+    assert 'st.get("코딩회차")' in sh, "'먼저 처리할 것' 에 안 올라온다"
+
+    # 스케줄러: 12:00 하루 한 번 · 중복 기동 금지
+    ps = open(os.path.join(ROOT, "install_code_run_schedule.ps1"), encoding="utf-8").read()
+    assert '-Daily -At "12:00"' in ps and "MultipleInstances IgnoreNew" in ps
+    assert "daily_code_run.py --run" in ps and "--force" not in ps, \
+        "스케줄러가 --force 로 돈다 — 창·충돌 규칙이 무력화된다"
+    assert ps.isascii(), "설치본에 비ASCII 가 섞였다(다른 코드페이지에서 깨진다)"
+
+    print("  [220] 코딩 회차 12~13시 하루 한 번 — 충돌 시 물러남(실패 아님) · "
+          "컴팩팅 배선 점검 · 빨강만 인계 ✅")
 
 
 def t196_stage_words_come_from_one_place():
@@ -15697,6 +15799,7 @@ if __name__ == "__main__":
     t210_pid_reuse_is_not_alive_and_customer_scan_is_one_pass()
     t211_progress_trace_owner_identity()
     t219_text_locks_use_the_one_owner_judge()
+    t220_daily_code_round_window_and_yielding()
     t220_flow_yes_no_cycles()
     t221_commit_hygiene_under_siblings()
     t222_flow_charts_switch_and_capture()
@@ -15705,6 +15808,7 @@ if __name__ == "__main__":
     t214_first_live_revision_cannot_be_falsely_applied()
     t215_cancel_timeline_last_explicit_state_wins()
     t218_camp_standard_erp_basis_and_pm_units()
+    t219_noon_round_is_daily_windowed_and_yields()
     t224_wrapup_commit_refusal_paths()
     t225_session_auto_resumes_parked_and_pushes()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
