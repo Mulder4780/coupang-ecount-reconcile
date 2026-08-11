@@ -122,6 +122,21 @@ def blind(band, days=None, opens=None):
     #   250건을 실패 0 으로 긁고도 댓글이 한 건도 안 들어온 적이 있다. 그때 생긴
     #   `comments: []` 를 '읽었다'로 세면 그 글은 영영 다시 안 뽑힌다. 캐시는 고치지
     #   않는다 — 읽을 때만 무시한다. 진짜 댓글이 들어오는 순간 이 조건은 저절로 풀린다.
+    #
+    # ★ 그런데 distrust 만으로는 **영원히 안 줄어드는 밴드**가 있었다 (2026-08-11 실사고).
+    #   90610953 은 열린 원장 1순위 95건을 두 번 재수집·흡수했는데도 1순위가 계속 95건.
+    #   원인: 이 밴드에는 **댓글 있는 글이 실제로 하나도 없다**(캐시 5,255글 중 댓글
+    #   담긴 글 0). 그러니 `harvest_looks_broken` 이 늘 참을 돌려주고, distrust 는
+    #   `comments: []` 인 글을 죄다 '못 읽음'으로 되뽑는다. 아무리 긁어도 진짜 0 이라
+    #   distrust 가 안 풀린다 → 같은 95건 무한루프.
+    #
+    #   가르는 근거는 수집기가 이미 달아 두는 `comments_full` 이다([182] '확인된 0개').
+    #   입력창(`_commentInputRegion`)이 그려졌는데 목록이 0 이면 수집기가
+    #   `comments_full=True` 로 닫는다 — 그건 못 읽은 게 아니라 **본 것**이다.
+    #   반대로 [162] 사고의 깨진 수확은 `comment_count>0` 인데 목록이 0 이라
+    #   `comments_full=False` 로 남는다. 그래서 **distrust 여도 comments_full 은 믿는다**:
+    #   되뽑는 것은 '비었고 & comments_full 도 아닌' 글뿐이다. 실측 90610953 —
+    #   확인된-0개 271건이 후보에서 빠지고, 진짜 못 읽은 4,352건만 남아 수렴한다.
     distrust = bool(harvest_looks_broken(band))
     out = []
     for k, v in posts.items():
@@ -131,8 +146,10 @@ def blind(band, days=None, opens=None):
             continue
         if not v.get("created_at"):          # 시각 없는 수확은 믿지 않는다 (검증 [130])
             continue
-        if "comments" in v and not (distrust and not v.get("comments")):
+        if "comments" in v and not (distrust and not v.get("comments")
+                                    and not v.get("comments_full")):
             continue                         # 열어 본 적이 있다 — 비었어도 본 것이다
+            #   (distrust 라도 comments_full = 확인된 0개는 다시 안 뽑는다)
         day = _day(v.get("created_at"))
         tier = 2
         if parse_post is not None:
@@ -190,11 +207,20 @@ def harvest_looks_broken(band, floor=30):
     got = sum(1 for v in looked if v.get("comments"))
     if got:
         return ""
-    return ("들여다봤다고 기록된 %d글 중 **댓글이 있는 글이 0건**입니다. "
-            "밴드에 댓글이 없어서가 아니라 **수집기가 못 읽은 것**일 수 있습니다"
-            "(개수 선택자가 화면과 어긋나면 0으로 읽고 기다리지 않습니다). "
-            "그 글들은 '읽음'으로 세어져 목록에서 빠지므로, 고치기 전에는 "
-            "이 밴드 댓글 수집을 **성공으로 읽지 마십시오**." % len(looked))
+    # ★ '확인된 0개'(comments_full)와 '아직 확인 안 됨'을 갈라 말한다 (2026-08-11).
+    #   전에는 뭉뚱그려 "그 글들은 목록에서 빠진다"고 겁을 줬는데, 이제 blind() 는
+    #   comments_full 만 신뢰해 빼고 나머지는 재수집 대상으로 남긴다. 그러니 문구도
+    #   그대로 말한다 — 겁주는 부분(빠진다)이 사실과 달라지면 사람이 고친 걸 안 고쳤다
+    #   여긴다([169] '0건이 나오면 묻는다: 정말 없는 건가 안 본 건가').
+    confirmed = sum(1 for v in looked if v.get("comments_full"))
+    unconfirmed = len(looked) - confirmed
+    return ("들여다봤다고 기록된 %d글 중 **댓글이 있는 글이 0건**입니다"
+            "(확인된 0개 %d건 · 아직 확인 안 됨 %d건). "
+            "확인된 0개(입력창까지 그려진 뒤 목록이 0)는 신뢰해 목록에서 빼지만, "
+            "나머지 %d건은 **수집기가 못 읽은 것**일 수 있어 재수집 대상으로 남깁니다. "
+            "이 밴드가 정말 댓글이 없는지, 수집기가 못 읽은 것인지는 그 나머지를 "
+            "새 수집기로 다시 긁어야 갈립니다 — 그전엔 **성공으로 읽지 마십시오**."
+            % (len(looked), confirmed, unconfirmed, unconfirmed))
 
 
 def bands():
