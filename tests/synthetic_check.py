@@ -14837,6 +14837,21 @@ def t219_noon_round_is_daily_windowed_and_yields():
         assert N.decide(noon, {}, live(what), [], force=True)["go"] is False, \
             f"--force 가 남의 '{what}' 점유를 빼앗았다 — 강제는 창·중복만 무시한다"
     assert N.decide(noon, {}, [], ["일일대조(09:50)"])["go"] is False, "도는 회차에 양보해야 한다"
+    # ★ 그러나 **매일 양보만 하는 회차는 없는 회차와 같다**(2026-08-12 실측: 증분 파이프라인이
+    #   새 자료를 만나면 12분을 넘겨 도는데 5분마다 불려 창 내내 락이 걸려 있었다). 창의
+    #   마지막 기회에는 Z: 를 훑는 단계만 비켜 두고 돈다 — 양보는 'SMB 를 같이 긁지 않는 것'이다.
+    last = _dt.datetime(2026, 8, 12, 12, 50)
+    v = N.decide(last, {}, [], ["증분 파이프라인"])
+    assert v["go"] is True and "마지막 기회" in v["kind"], \
+        "창이 끝나는데도 양보만 하면 자료가 들어온 날은 하루도 못 돈다(경보도 안 뜬다)"
+    assert v["skip"] == list(N.HEAVY_STEPS) and "합성검증" not in v["skip"], \
+        "마지막 기회는 무거운 단계만 비켜야 한다 — 관문(합성검증)까지 빼면 돈 뜻이 없다"
+    step_names = [s[0] for s in N.steps()]
+    for heavy in N.HEAVY_STEPS:
+        assert heavy in step_names, \
+            f"HEAVY_STEPS 이름이 단계 목록과 어긋난다({heavy}) — 안 건너뛰면서 건너뛴 줄 안다"
+    assert N.decide(last, {}, live("ledger"), ["증분 파이프라인"])["go"] is False, \
+        "마지막 기회여도 'ledger' 점유에는 전부 양보한다 — 그쪽은 vN+1 을 쓰는 중이다"
     # 죽은 세션의 점유는 잡은 것이 아니다([210]·[213]) — 그것 때문에 매일 건너뛰면 안 된다.
     dead = [{"what": "ledger", "who": "claude", "sid": "dead", "alive": False}]
     assert N.decide(noon, {}, dead, [])["go"] is True
@@ -14882,7 +14897,8 @@ def t219_noon_round_is_daily_windowed_and_yields():
         "재시도 반복이 없거나 창(13:00)을 넘는다 — 양보한 날 두 번째 기회가 사라진다"
 
     print("  [219] 정오 회차 — 창 12~13시·하루 한 번 · 남의 점유 불가침(force 도) · "
-          "code 는 합성검증만 건너뜀 · 양보를 완주로 안 적음 ✅")
+          "code 는 합성검증만 건너뜀 · 마지막 기회엔 무거운 단계만 비켜 돎 · "
+          "양보를 완주로 안 적음 ✅")
 
 
 def t196_stage_words_come_from_one_place():
