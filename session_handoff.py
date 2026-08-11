@@ -142,6 +142,22 @@ def pid_alive(pid, born_before=None):
         return None
 
 
+def _owner_is_python(pid):
+    """회차·자국·잠금의 주인은 언제나 **python 프로세스**다 — 이름이 읽히는데
+    python 이 아니면 번호만 물려받은 남이다(pid 재사용 · 2026-08-11 실사고 두 번째).
+    생성시각(born_before)이 못 가르는 경우를 마저 가른다: 재사용한 프로세스가
+    기록 시각보다 **먼저** 떠 있던 상주 서비스면 시각 판정은 통과해 버린다.
+    못 읽으면 None — 이름만으로 산 주인을 죽었다고 하지 않는다. 검증 [211]."""
+    try:
+        import pid_alive as _pa
+        name = _pa.image_name(pid)
+    except Exception:
+        return None
+    if not name:
+        return None
+    return "python" in name
+
+
 def _is_mine(info):
     """내 세션 것인가 — 안내 문구를 고르는 데 쓴다(남의 것에 --free 를 권하면 안 된다)."""
     try:
@@ -595,6 +611,9 @@ def _daily_run_inflight():
         #   "5시간째 돌고 있다 — 기다려라"(정반대 지시)가 떴다. 검증 [210].
         if not alive(d.get("pid"), born_before=started.timestamp()):
             return None
+        # 생성시각이 우연히 잠금보다 앞서는 재사용(상주 서비스)은 이름으로 가른다([211]).
+        if _owner_is_python(d.get("pid")) is False:
+            return None
         return round((datetime.now(started.tzinfo) - started).total_seconds() / 3600.0, 1)
     except Exception:
         return None
@@ -635,6 +654,30 @@ def daily_run_health():
             "밀림": age_h >= DAILY_STALE_H or aborted}
 
 
+def _progress_owner_alive(d):
+    """진행 자국을 쓴 회차 프로세스가 **아직 그 프로세스인가**.
+
+    ★ pid 생존만 보면 안 된다 (2026-08-11 실사고 두 번째 · 검증 [211]).
+      회차 pid 37128 이 11:02~11:15 사이에 죽고 그 번호를 quick_share_server.exe
+      (11:15:09 시작)가 물려받아, 인계 문서가 다섯 시간 동안 "돌고 있다 — 기다려라"
+      (정반대 지시)를 냈다. 잠금([210] acquire_run_lock)과 같은 기준을 자국에도 건다:
+      ① 자국의 '회차시작'·'시각'보다 **뒤에 태어난** 프로세스는 주인이 아니다
+      ② 이름이 읽히는데 python 이 아니면 번호만 같은 남이다
+    True=주인 살아 있음 · False=죽음(재사용 포함) · None=판정 불가(모르면 함부로
+    죽었다고 하지 않는다)."""
+    born = None
+    for k in ("회차시작", "시각"):
+        try:
+            t = datetime.fromisoformat(str(d.get(k))).timestamp()
+            born = t if born is None else min(born, t)
+        except (TypeError, ValueError):
+            continue
+    res = pid_alive(d.get("pid"), born_before=born)
+    if res is True and _owner_is_python(d.get("pid")) is False:
+        return False
+    return res
+
+
 def daily_step_now():
     """지금 회차가 **어느 단계**에 있나 — `.daily_run.progress.json` 을 읽는다.
 
@@ -642,6 +685,9 @@ def daily_step_now():
       말할 수 있었다. 종합리포트는 **맨 끝에 한 번** 써지므로 완주하지 못한 회차는
       **기록을 한 줄도 안 남긴다** — 그래서 원인을 물어도 댈 말이 없었다.
       이제 daily_run 이 단계마다 자국을 남기고, 여기서 그것을 읽어 **이름을 댄다.**
+    ★ 자국이 있다고 돌고 있는 것이 아니다 — 죽은 회차의 자국이 남는다(그게 요점이다).
+      그래서 `살아있음` 을 같이 준다([211]): '(회차 끝)' 자국은 완주한 회차라 pid 가
+      죽는 것이 정상이므로 판정하지 않는다(None).
     """
     p = os.path.join(REPORT_DIR, ".daily_run.progress.json")
     try:
@@ -654,9 +700,10 @@ def daily_step_now():
                  - datetime.fromisoformat(d["시각"])).total_seconds() / 60.0
     except (KeyError, ValueError, TypeError):
         since = None
+    alive_now = None if d.get("단계") == "(회차 끝)" else _progress_owner_alive(d)
     return {"단계": d.get("단계"), "상태": d.get("상태"), "머문분": (round(since, 1) if since is not None else None),
             "경과분": d.get("경과분"), "예산분": d.get("예산분"),
-            "끝낸수": len(d.get("끝난단계") or [])}
+            "끝낸수": len(d.get("끝난단계") or []), "살아있음": alive_now}
 
 
 def _step_hint():
@@ -664,6 +711,13 @@ def _step_hint():
     s = daily_step_now()
     if not s or not s.get("단계"):
         return ""
+    if s.get("살아있음") is False:
+        # ★ 죽은 회차의 자국이다 — '몇 분째'라고 적으면 돌고 있는 것처럼 읽혀
+        #   사람이 다섯 시간을 기다린다(2026-08-11 실사고 · [211]). 반대로 말해야 한다.
+        txt = " · 마지막 자국: **%s**(%s)" % (s["단계"], s.get("상태") or "")
+        if s.get("머문분") is not None:
+            txt += " %.0f분 전" % s["머문분"]
+        return txt + " — ★회차 프로세스가 죽었다(끝나기를 기다리지 말 것)"
     txt = " · 지금 단계: **%s**(%s)" % (s["단계"], s.get("상태") or "")
     if s.get("머문분") is not None:
         txt += " %.0f분째" % s["머문분"]

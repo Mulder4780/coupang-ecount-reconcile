@@ -29,6 +29,9 @@ STILL_ACTIVE = 259
 # 프로세스 생성시각 비교의 허용 오차(초). 잠금 파일을 쓰는 시각과 프로세스가 뜬
 # 시각 사이에는 정상적으로도 몇 초의 틈이 있다 — 그 틈을 재사용으로 오판하지 않는다.
 BORN_SLACK_S = 5.0
+# Exact creation timestamps are serialized through JSON/ASCII floats.  Keep
+# this transport tolerance far below the legacy five-second heuristic.
+FINGERPRINT_TOLERANCE_S = 0.05
 
 
 def started_at(pid):
@@ -76,6 +79,54 @@ def started_at(pid):
             return None
     try:
         return os.stat(f"/proc/{pid}").st_ctime
+    except OSError:
+        return None
+
+
+def image_name(pid):
+    """프로세스의 **실행파일 이름**(소문자, 예: 'python.exe'). 모르면 None.
+
+    ★ 왜 필요한가 (2026-08-11 실사고 두 번째 — 검증 [211]).
+      생성시각(born_before)은 '기록 시각보다 뒤에 태어난 남'만 거른다. 재사용된
+      프로세스가 우연히 그 시각보다 **먼저** 떠 있던 것이면(오래 사는 상주 서비스가
+      pid 를 물려받는 경우) 시각만으로는 못 가른다. 회차·잠금의 주인은 언제나
+      python 이므로, 이름이 **읽히는데** python 이 아니면 번호만 같은 남이다.
+      못 읽으면 None — 이름만으로 산 주인을 죽었다고 하지 않는다(alive 와 같은 원칙).
+    """
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if pid <= 0:
+        return None
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            k = ctypes.windll.kernel32
+            k.OpenProcess.restype = wintypes.HANDLE
+            k.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            k.CloseHandle.argtypes = [wintypes.HANDLE]
+            h = k.OpenProcess(0x1000, False, pid)   # QUERY_LIMITED_INFORMATION
+            if not h:
+                return None
+            try:
+                k.QueryFullProcessImageNameW.restype = wintypes.BOOL
+                k.QueryFullProcessImageNameW.argtypes = [
+                    wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+                    ctypes.POINTER(wintypes.DWORD)]
+                buf = ctypes.create_unicode_buffer(1024)
+                size = wintypes.DWORD(len(buf))
+                if not k.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+                    return None
+                return os.path.basename(buf.value).lower() or None
+            finally:
+                k.CloseHandle(h)
+        except Exception:
+            return None
+    try:
+        with open(f"/proc/{pid}/comm", encoding="utf-8", errors="replace") as fh:
+            return fh.read().strip().lower() or None
     except OSError:
         return None
 

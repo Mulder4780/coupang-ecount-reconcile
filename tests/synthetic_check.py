@@ -13762,6 +13762,83 @@ def t210_pid_reuse_is_not_alive_and_customer_scan_is_one_pass():
     print("  [210] pid 재사용은 죽음으로 판정 · 잠금 자동회수 · 거래처 색인 1회 훑기+지문 캐시 ✅")
 
 
+def t211_progress_trace_owner_identity():
+    """[211] 자국이 있다고 돌고 있는 것이 아니다 — 진행 판정도 잠금과 같은 신원을 본다.
+
+    2026-08-11 실사고 두 번째(pid 재사용): 회차 pid 37128 이 11:02~11:15 사이에 죽고
+    그 번호를 quick_share_server.exe(11:15:09 시작)가 물려받았다. 잠금은 [210]으로
+    회수됐지만 **진행 자국 판정에는 신원 검사가 없어** 인계 문서가 '5시간째 돌고
+    있다 — 기다려라'(정반대 지시)를 냈다. 지키는 것:
+      ① 자국의 '회차시작'·'시각'보다 뒤에 태어난 프로세스는 주인이 아니다([210]과 동일)
+      ② 이름이 읽히는데 python 이 아니면 번호만 같은 남이다(시각을 우연히 앞서는
+         상주 서비스 재사용까지 가른다)
+      ③ '(회차 끝)' 자국에는 죽음 경보를 내지 않는다(완주한 회차의 pid 는 원래 죽는다)
+      ④ 죽었으면 경보 문구가 '몇 분째'(도는 중처럼 읽힘)가 아니라 반대 지시를 말한다
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    import pid_alive as PA
+    import session_handoff as SH
+
+    me = os.getpid()
+    # ── 이름 계기 자체가 살아 있는가 — 조용히 None 만 내면 이름 문이 무력화된다([169])
+    nm = PA.image_name(me)
+    assert nm and "python" in nm, "제 프로세스 이름(python)을 못 읽는다 — 이름 문이 무력화된다"
+    assert SH._owner_is_python(me) is True, "python 주인을 남으로 판정"
+
+    with tempfile.TemporaryDirectory(prefix="csos-211-") as td:
+        old_rd, real_img = SH.REPORT_DIR, PA.image_name
+        try:
+            SH.REPORT_DIR = td
+            prog = os.path.join(td, ".daily_run.progress.json")
+
+            def write(step, when_iso):
+                json.dump({"pid": me, "단계": step, "상태": "시작", "시각": when_iso,
+                           "회차시작": when_iso, "끝난단계": []},
+                          open(prog, "w", encoding="utf-8"), ensure_ascii=False)
+
+            now_iso = _dt.now().astimezone().isoformat(timespec="seconds")
+            old_iso = (_dt.now().astimezone() - _td(hours=6)).isoformat(timespec="seconds")
+
+            # ① 재사용 재현: 자국은 6시간 전인데 그 pid 의 프로세스(나)는 방금 태어났다
+            write("원본색인", old_iso)
+            s = SH.daily_step_now()
+            assert s and s.get("살아있음") is False, \
+                "자국 시각보다 뒤에 태어난 프로세스(pid 재사용)를 주인으로 오판"
+            hint = SH._step_hint()
+            assert "죽었" in hint and "분째" not in hint and "기다리지 말" in hint, \
+                "죽은 회차의 자국을 '돌고 있다'처럼 말한다: %r" % hint
+
+            # 정상 회차: 자국이 방금 것이고 주인(python)이 살아 있다
+            write("원본색인", now_iso)
+            s = SH.daily_step_now()
+            assert s and s.get("살아있음") is True, "살아 있는 회차를 죽었다고 판정"
+            assert "지금 단계" in SH._step_hint()
+
+            # ② 이름 문: 시각은 통과해도 이름이 python 이 아니면 남이다
+            PA.image_name = lambda pid: "quick_share_server.exe"
+            s = SH.daily_step_now()
+            assert s and s.get("살아있음") is False, \
+                "이름이 quick_share_server 인데 주인으로 판정(이름 문 무력화)"
+            PA.image_name = real_img
+
+            # ③ 완주 자국: pid 가 죽는 것이 정상 — 죽음 경보를 내지 않는다
+            write("(회차 끝)", old_iso)
+            s = SH.daily_step_now()
+            assert s and s.get("살아있음") is None, "완주한 회차에 죽음 경보를 냈다"
+            assert "죽었" not in SH._step_hint()
+        finally:
+            SH.REPORT_DIR, PA.image_name = old_rd, real_img
+
+    # ── 배선: 잠금 나이 판정(_daily_run_inflight)에도 이름 문이 걸려 있는가
+    sh_src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    infl = sh_src.split("def _daily_run_inflight", 1)[1].split("\ndef ", 1)[0]
+    assert "_owner_is_python" in infl, "_daily_run_inflight 가 이름 신원을 안 본다"
+    step_body = sh_src.split("def daily_step_now", 1)[1].split("\ndef ", 1)[0]
+    assert "_progress_owner_alive" in step_body, "진행 자국 판정이 신원을 안 본다"
+
+    print("  [211] 진행 자국 신원 — 시각·이름(python)으로 pid 재사용 가름 · 죽은 회차를 '돌고 있다'로 안 읽음 ✅")
+
+
 def t196_stage_words_come_from_one_place():
     """[196] 돌발AS·정기점검 단계 낱말은 **한 곳**에서 오고, 바뀌면 자국이 남는다.
 
@@ -14389,6 +14466,7 @@ if __name__ == "__main__":
     t208_cancel_remote_resolution_is_exact_and_finance_safe()
     t209_pipeline_lock_owner_cannot_be_forged_or_overwritten()
     t210_pid_reuse_is_not_alive_and_customer_scan_is_one_pass()
+    t211_progress_trace_owner_identity()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
