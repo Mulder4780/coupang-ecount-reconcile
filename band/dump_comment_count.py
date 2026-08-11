@@ -22,6 +22,14 @@ import json
 import os
 import sys
 
+# ★ 윈도우 콘솔은 cp949 라 '—' 한 글자에 UnicodeEncodeError 로 죽는다. 실측
+#   2026-08-11: 표는 다 찍고 **마지막 판정 한 줄에서** 터졌다 — 세어 놓고 결론을
+#   못 말하는 계기다([169]). 판정이 제일 중요한 줄이므로 여기서 먼저 막는다.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 
 def count(path):
     with io.open(path, "r", encoding="utf-8") as f:
