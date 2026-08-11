@@ -127,7 +127,17 @@ def main():
             if len(b) < 8000:                  # 너무 작으면 문서가 아니다
                 skip += 1
                 continue
-            open(dst, "wb").write(b)
+            tmp = dst + f".part-{os.getpid()}"
+            try:
+                with open(tmp, "wb") as fh:
+                    fh.write(b)
+                os.replace(tmp, dst)
+            finally:
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except OSError:
+                    pass
             got += 1
         except Exception:
             fail += 1

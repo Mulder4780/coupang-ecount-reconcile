@@ -32,32 +32,48 @@ import argparse
 import glob
 import json
 import os
-import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime
 
+from proc_guard import run_tree
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
-REPORT = os.path.join(ROOT, "reports", "미수집_수집보고서.md")
+if os.environ.get("CSOS_SYNTHETIC") == "1":
+    # 합성검증 [151]이 write_report()를 직접 부른다. 실제 reports를 가리키면 검증이
+    # 2건짜리 합성 결과로 운영 보고서를 덮어쓴다(2026-08-11 실측).
+    REPORT = os.path.join(
+        os.environ.get("COUPANG_REPORT_DIR") or tempfile.gettempdir(),
+        f"csos_synthetic_{os.getpid()}_미수집_수집보고서.md",
+    )
+else:
+    REPORT = os.path.join(ROOT, "reports", "미수집_수집보고서.md")
 
 try:
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 except Exception:
     pass
+
+
+# 워치독의 자율복구 회차는 전체 600초 예산이다. 바깥에서 죽기 전에 보고서와 다음
+# 재개 지점을 남길 수 있도록 한 회차 몸통은 7분 안에 스스로 돌아온다.
+DEFAULT_BUDGET_SECONDS = 7 * 60
+FINISH_RESERVE_SECONDS = 45
 
 
 def _py(*args, timeout=None):
     """자식 도구를 돌린다 → (성공, 마지막줄들). 하나가 죽어도 **멈추지 않는다.**"""
     cmd = [sys.executable] + list(args)
     try:
-        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout)
+        r = run_tree(cmd, cwd=ROOT, timeout=timeout or 600,
+                     drain_timeout=20, output_limit=120_000)
         tail = [l for l in (r.stdout or "").splitlines() if l.strip()][-6:]
-        if r.returncode != 0:
+        if r.returncode != 0 or r.timed_out:
             tail += [l for l in (r.stderr or "").splitlines() if l.strip()][-4:]
-        return r.returncode == 0, tail
-    except subprocess.TimeoutExpired:
-        return False, [f"시간 초과({timeout}초) — 다음 회차가 이어서 한다"]
+        if r.timed_out:
+            tail.append(f"시간 초과({timeout}초) — 저장된 데까지 두고 다음 회차가 이어서 한다")
+        return r.returncode == 0 and not r.timed_out, tail
     except Exception as e:
         return False, [str(e)[:200]]
 
@@ -72,7 +88,21 @@ def survey(cache_dir=None, band_root=None):
     """
     import source_dirs as S
 
+    from band import archive_posts as A
+
     posts, images = 0, 0
+    have = {"pdf": 0, "txt": 0, "jpg": 0}
+    archive_root = os.path.join(band_root or getattr(S, "BAND_DIR", ""), "게시글보관")
+
+    # SMB 에서 파일마다 exists() 왕복을 하지 않는다. 현재 보관 폴더를 한 번만 훑고,
+    # 캐시가 가리키는 **현재 세트 경로**와 메모리에서 맞댄다. 예전 개정본과 문서사진
+    # 폴더를 섞어 세면 보관 수가 모수보다 커지고 누락이 0으로 숨는다.
+    present = set()
+    if archive_root and os.path.isdir(archive_root):
+        for current, _dirs, files in os.walk(archive_root):
+            for name in files:
+                present.add(os.path.normcase(os.path.abspath(os.path.join(current, name))))
+
     for f in glob.glob(os.path.join(cache_dir or os.path.join(ROOT, "band", "cache"), "*.json")):
         if not os.path.basename(f)[:-5].isdigit():
             continue                      # raw_* 는 중간 산물이다 — 세지 않는다
@@ -80,31 +110,21 @@ def survey(cache_dir=None, band_root=None):
             d = json.load(open(f, encoding="utf-8"))
         except Exception:
             continue
-        for v in (d.get("posts") or {}).values():
+        band = os.path.basename(f)[:-5]
+        name = A.safe(d.get("band_name") or band, 30)
+        root = os.path.join(archive_root, name)
+        for no, v in (d.get("posts") or {}).items():
             # ★ 시각 없는 글은 세지 않는다. 밴드가 없는 번호에도 껍데기를 주기 때문에
             #   그것까지 세면 '영영 안 끝나는 미수집'이 생긴다(2026-08-07 사고).
-            if isinstance(v, dict) and v.get("created_at"):
-                posts += 1
-                images += len(v.get("images") or [])
-
-    have = {"pdf": 0, "txt": 0, "jpg": 0}
-    band_root = band_root or getattr(S, "BAND_DIR", "")
-    if band_root and os.path.isdir(band_root):
-        for _r, _d, fs in os.walk(band_root):
-            # ★ '날짜미상'은 **모수에 없는 글**이다 (2026-08-08 실측 873개).
-            #   시각 없는 수확은 밴드가 없는 번호에 준 껍데기라 캐시 집계에서
-            #   빠진다. 그런데 보관 수에는 들어가 있어서 '남음'이 실제보다 적게
-            #   나왔다 — 다 됐다고 착각하게 만드는 종류의 오차다.
-            if "날짜미상" in _r:
+            if not isinstance(v, dict) or not v.get("created_at") or v.get("deleted"):
                 continue
-            for fn in fs:
-                e = os.path.splitext(fn)[1].lower()
-                if e == ".pdf":
-                    have["pdf"] += 1
-                elif e == ".txt":
-                    have["txt"] += 1
-                elif e in (".jpg", ".jpeg", ".png"):
-                    have["jpg"] += 1
+            paths = A.archive_paths(root, no, v)
+            posts += 1
+            images += len(paths["photos"])
+            have["pdf"] += int(os.path.normcase(os.path.abspath(paths["pdf"])) in present)
+            have["txt"] += int(os.path.normcase(os.path.abspath(paths["txt"])) in present)
+            have["jpg"] += sum(
+                os.path.normcase(os.path.abspath(p)) in present for p in paths["photos"])
 
     return {
         "밴드글_캐시": posts,
@@ -162,7 +182,7 @@ STEPS = [
 ]
 
 
-def run(limit=400, only=None):
+def run(limit=400, only=None, budget_seconds=DEFAULT_BUDGET_SECONDS):
     """단계를 차례로 돌린다 → [{단계,결과,초,끝줄}].
 
     ★ **기록이 수집을 막지 않는다.** 보관소 DB 가 잠겨 있어도(다른 세션이 주사 중일
@@ -187,24 +207,41 @@ def run(limit=400, only=None):
             pass          # 기록 실패는 수집 실패가 아니다
 
     done = []
+    budget_seconds = max(60, int(budget_seconds or DEFAULT_BUDGET_SECONDS))
+    deadline = time.monotonic() + budget_seconds
+    # archive_posts의 공개 --limit은 상한이다. 워치독 회차에서는 20여 글씩만 굳혀
+    # 크롬/PDF 작업 하나가 10분 예산 전체를 다시 먹지 않게 한다.
+    archive_limit = max(1, min(int(limit), max(5, budget_seconds // 20)))
     try:
-        note(action="collect_all.start", detail={"limit": limit})
+        note(action="collect_all.start",
+             detail={"limit": limit, "archive_limit": archive_limit,
+                     "budget_seconds": budget_seconds})
         for name, args, timeout in STEPS:
             if only and not any(o in name for o in only):
                 continue
-            argv = [a.format(limit=limit) for a in args]
+            remaining = int(deadline - time.monotonic())
+            if remaining <= FINISH_RESERVE_SECONDS:
+                done.append({"단계": name, "결과": "이월", "초": 0,
+                             "끝줄": ["회차 예산을 남겨 보고서를 쓰고 다음 회차가 이어서 한다"]})
+                continue
+            argv = [a.format(limit=archive_limit) for a in args]
             print(f"▶ {name} …")
             t0 = time.time()
-            ok, tail = _py(*argv, timeout=timeout)
+            child_timeout = min(int(timeout), max(30, remaining - FINISH_RESERVE_SECONDS))
+            ok, tail = _py(*argv, timeout=child_timeout)
             초 = round(time.time() - t0, 1)
             for line in tail:
                 print(f"    {line}")
+            timed_out = any("시간 초과(" in str(line) for line in tail)
+            result = "됨" if ok else ("이월" if timed_out else "실패")
             # ★ 실패도 반드시 남긴다. 남기지 않으면 다음 회차가 '다 됐다'고 읽는다.
             note(action="collect_all.step", ok=ok,
-                 detail={"단계": name, "초": 초, "끝줄": tail[-2:]})
-            done.append({"단계": name, "결과": "됨" if ok else "실패", "초": 초, "끝줄": tail})
+                 detail={"단계": name, "결과": result, "초": 초, "끝줄": tail[-2:]})
+            done.append({"단계": name, "결과": result, "초": 초, "끝줄": tail})
         note(action="collect_all.end",
-             ok=all(d["결과"] == "됨" for d in done), detail={"단계수": len(done)})
+             ok=not any(d["결과"] == "실패" for d in done),
+             detail={"단계수": len(done),
+                     "이월": sum(d["결과"] == "이월" for d in done)})
     finally:
         if con is not None:
             con.close()
@@ -260,7 +297,8 @@ def write_report(before, after, done, humans):
         L.append("")
         for d in done:
             if d["결과"] != "됨":
-                L.append(f"> **{d['단계']} 실패** — {' / '.join(d['끝줄'][-2:])}")
+                label = "다음 회차 이월" if d["결과"] == "이월" else "실패"
+                L.append(f"> **{d['단계']} {label}** — {' / '.join(d['끝줄'][-2:])}")
         L.append("")
 
     L.append("## 다시 돌리려면")
@@ -281,6 +319,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="미수집 자료를 한 번에 긁어 보관하고 보고서를 남긴다")
     ap.add_argument("--run", action="store_true", help="실제로 긁는다(없으면 세기만)")
     ap.add_argument("--limit", type=int, default=400, help="이번 회차 밴드 글 상한")
+    ap.add_argument("--budget-seconds", type=int, default=DEFAULT_BUDGET_SECONDS,
+                    help="보고서를 남기고 돌아올 한 회차 총 예산(기본 420초)")
     ap.add_argument("--only", nargs="*", help="특정 단계만 (예: 사진 OCR)")
     a = ap.parse_args(argv)
 
@@ -298,14 +338,15 @@ def main(argv=None):
 
     done = []
     if a.run:
-        done = run(limit=a.limit, only=a.only)
+        done = run(limit=a.limit, only=a.only, budget_seconds=a.budget_seconds)
     else:
         print("\n(세기만 했다 — 실제로 긁으려면 --run)")
 
     after = survey() if a.run else before
     path = write_report(before, after, done, humans)
     print(f"\n보고서: {path}")
-    return 0
+    # 예산 이월은 계획된 증분 처리라 성공이다. 실제 자식 오류만 바깥 자율복구에 넘긴다.
+    return 1 if any(d["결과"] == "실패" for d in done) else 0
 
 
 if __name__ == "__main__":

@@ -173,7 +173,11 @@ def _escalate(item: dict[str, Any]) -> str:
         # 큐 파일이 만들어진 순간 인계는 내구성을 얻었다. 워커 기동이 실패해도 다음
         # 점검이 같은 티켓을 소비하게 두고, 새 티켓을 계속 만들지는 않는다.
         item["ai_ticket"] = str(ticket.get("id") or "queued")
-        dispatch_async(ticket, local_returncode=1)
+        # 1을 고정으로 쓰면 실제 timeout도 "스크립트 종료 코드 1"로 인계돼 코드
+        # 오류처럼 보인다. 워치독이 관측한 종료 사유를 그대로 넘긴다.
+        local_rc = 124 if item.get("kind") == "timeout" else int(
+            item.get("last_returncode") or 1)
+        dispatch_async(ticket, local_returncode=local_rc)
         return item["ai_ticket"]
     except Exception as exc:
         item["ai_error"] = f"{type(exc).__name__}: {str(exc)[:180]}"
@@ -205,6 +209,7 @@ def heal(*, limit: int = 2, budget_seconds: int = 600, dry: bool = False) -> dic
         combined = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
         item["attempts"] = int(item.get("attempts") or 0) + 1
         item["last_attempt"] = _now().isoformat(timespec="seconds")
+        item["last_returncode"] = 124 if result.timed_out else int(result.returncode)
         if result.returncode == 0 and not result.timed_out:
             item.update({"status": "done", "resolved_at": item["last_attempt"], "last_error": ""})
             outcome = "done"

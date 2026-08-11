@@ -83,17 +83,77 @@ def base_name(no, post):
 def fetch_photo(url, path):
     if os.path.exists(path):
         return "skip"
+    tmp = path + f".part-{os.getpid()}-{threading.get_ident()}"
     try:
         req = urllib.request.Request(url, headers=UA)
         with urllib.request.urlopen(req, timeout=30) as r:
             data = r.read()
         if len(data) < 2000:            # 썸네일·에러 페이지
             return "small"
-        with open(path, "wb") as f:
+        with open(tmp, "wb") as f:
             f.write(data)
+        os.replace(tmp, path)
         return "ok"
     except Exception:
         return "fail"
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+
+
+def archive_paths(root, no, post):
+    """현재 글 내용 기준 보관 세트 경로를 한 곳에서 만든다.
+
+    수정된 글은 같은 번호라도 파일명이 달라질 수 있다. 따라서 폴더 전체 파일 수나
+    예전 개정본이 아니라 **현재 캐시가 가리키는 이 세트**가 완성됐는지를 본다.
+    """
+    base, day = base_name(no, post)
+    ym = day[:7].replace("-", os.sep) if day != "날짜미상" else "날짜미상"
+    folder = os.path.join(root, ym)
+    photos = [os.path.join(folder, f"{base}_{i:02d}.jpg")
+              for i, _url in enumerate(post.get("images") or [], 1)]
+    return {
+        "folder": folder,
+        "txt": os.path.join(folder, base + ".txt"),
+        "pdf": os.path.join(folder, base + ".pdf"),
+        "photos": photos,
+    }
+
+
+def archive_inventory(root):
+    """보관 경로를 SMB 왕복 한 번으로 읽는다."""
+    present = set()
+    if root and os.path.isdir(root):
+        for current, _dirs, files in os.walk(root):
+            for name in files:
+                present.add(os.path.normcase(os.path.abspath(os.path.join(current, name))))
+    return present
+
+
+def archive_complete(paths, present=None):
+    def has(path):
+        if present is None:
+            return os.path.exists(path)
+        return os.path.normcase(os.path.abspath(path)) in present
+
+    return has(paths["pdf"]) and has(paths["txt"]) and all(has(p) for p in paths["photos"])
+
+
+def _atomic_text(path, text):
+    tmp = path + f".part-{os.getpid()}-{threading.get_ident()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
 
 
 def render_pdf(no, post, band_name, photos, pdf_path):
@@ -112,7 +172,19 @@ def render_pdf(no, post, band_name, photos, pdf_path):
 <div class="foot">밴드 원본: https://www.band.us/band/{esc(post.get('_band'))}/post/{no}
  · 보관 생성 {time.strftime('%Y-%m-%d %H:%M')} · 이 파일은 자동 생성본이며 원본을 수정하지 않는다.</div>
 """
-    return html_to_pdf(html, pdf_path)
+    tmp = pdf_path + f".part-{os.getpid()}-{threading.get_ident()}"
+    try:
+        made = html_to_pdf(html, tmp)
+        if made and os.path.exists(tmp):
+            os.replace(tmp, pdf_path)
+            return pdf_path
+        return None
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
 
 
 def archive_band(band, posts, limit, force, stat):
@@ -125,6 +197,7 @@ def archive_band(band, posts, limit, force, stat):
     """
     name = safe(posts.get("_band_name") or band, 30)
     root = os.path.join(out_root(), name)
+    present = archive_inventory(root)
     nos = sorted((k for k in posts if str(k).isdigit()), key=lambda x: -int(x))
     todo = []
     for no in nos:
@@ -140,30 +213,33 @@ def archive_band(band, posts, limit, force, stat):
         #   '남음'이 줄지 않는다 — 영영 안 끝나는 일이 된다.
         if not post.get("created_at") or post.get("deleted"):
             continue
-        todo.append(no)
+        paths = archive_paths(root, no, post)
+        if force or not archive_complete(paths, present):
+            todo.append(no)
     lock = threading.Lock()
 
     def one(no):
         post = posts[no]
         post = dict(post)
         post["_band"] = band
-        base, day = base_name(no, post)
-        ym = day[:7].replace("-", os.sep) if day != "날짜미상" else "날짜미상"
-        d = os.path.join(root, ym)
+        paths = archive_paths(root, no, post)
+        d = paths["folder"]
         os.makedirs(d, exist_ok=True)
-        txt_p = os.path.join(d, base + ".txt")
-        pdf_p = os.path.join(d, base + ".pdf")
-        if not force and os.path.exists(pdf_p) and os.path.exists(txt_p):
+        txt_p, pdf_p = paths["txt"], paths["pdf"]
+        if not force and archive_complete(paths):
             with lock:
                 stat["skip"] += 1
             return False
         # 1) 텍스트 — 검색·대조용 정본
-        with open(txt_p, "w", encoding="utf-8") as f:
-            f.write(f"밴드: {name} ({band})\n글번호: {no}\n작성: {day}\n"
-                    f"글쓴이: {post.get('author') or ''}\n"
-                    f"사진: {post.get('photo_count') or 0} · 댓글: {post.get('comment_count') or 0}\n"
-                    f"원본: https://www.band.us/band/{band}/post/{no}\n"
-                    + "-" * 60 + "\n" + (post.get("content") or ""))
+        if force or not os.path.exists(txt_p):
+            _atomic_text(
+                txt_p,
+                f"밴드: {name} ({band})\n글번호: {no}\n작성: {base_name(no, post)[1]}\n"
+                f"글쓴이: {post.get('author') or ''}\n"
+                f"사진: {post.get('photo_count') or 0} · 댓글: {post.get('comment_count') or 0}\n"
+                f"원본: https://www.band.us/band/{band}/post/{no}\n"
+                + "-" * 60 + "\n" + (post.get("content") or ""),
+            )
         # 2) 사진 — 원본 화질로 글 옆에 둔다
         #    ★ **한 장씩 받으면 안 된다** (2026-08-08 실측). 글 하나에 사진이 열댓
         #      장이고, 네이버 CDN 왕복이 대부분 대기 시간이다. 순차로 돌리니
@@ -176,7 +252,7 @@ def archive_band(band, posts, limit, force, stat):
             with cf.ThreadPoolExecutor(max_workers=PHOTO_WORKERS) as ex:
                 futs = {}
                 for i, url in urls:
-                    p = os.path.join(d, f"{base}_{i:02d}.jpg")
+                    p = paths["photos"][i - 1]
                     futs[ex.submit(fetch_photo, url, p)] = (i, p)
                 for fu in cf.as_completed(futs):
                     i, p = futs[fu]
@@ -193,28 +269,36 @@ def archive_band(band, posts, limit, force, stat):
                         stat["photo"] += 1
         photos = [x for x in photos if x]
         # 3) PDF — 사람이 보던 모습 그대로 고정
-        ok = bool(render_pdf(no, post, name, photos, pdf_p))
+        # PDF·텍스트가 이미 있어도 빠진 사진은 다시 받는다. 새 사진이 생겼으면 PDF도
+        # 다시 굳혀야 사람이 보는 고정본과 사진 세트가 같은 상태가 된다.
+        should_render = force or not os.path.exists(pdf_p) or any(
+            result == "ok" for result, _path in got.values())
+        ok = bool(render_pdf(no, post, name, photos, pdf_p)) if should_render else True
+        complete_now = ok and archive_complete(paths)
         with lock:
-            stat["made" if ok else "pdf_fail"] += 1
+            stat.setdefault("incomplete", 0)
+            stat["made" if complete_now else ("pdf_fail" if not ok else "incomplete")] += 1
         return True
 
     # ★ 상한은 **새로 만든 글** 기준이다. 이미 있는 것은 세지 않는다 —
     #   그러면 매 회차가 앞부분만 다시 훑고 끝나 영영 뒤로 못 간다.
     with cf.ThreadPoolExecutor(max_workers=POST_WORKERS) as ex:
         futs, it = set(), iter(todo)
+        submitted = 0
         while True:
-            while len(futs) < POST_WORKERS:
+            while len(futs) < POST_WORKERS and submitted < limit:
                 try:
                     futs.add(ex.submit(one, next(it)))
+                    submitted += 1
                 except StopIteration:
                     break
             if not futs:
                 break
             done, futs = cf.wait(futs, return_when=cf.FIRST_COMPLETED)
-            if stat["made"] >= limit:
-                for f in futs:
-                    f.cancel()
-                return
+            # `limit`은 완성 성공 수가 아니라 이번 회차가 손댄 미완성 글 수다. CDN에서
+            # 영구 실패하는 사진 몇 장이 앞에 있어도 그 글들만 무한 재시도하지 않는다.
+            if submitted >= limit and not futs:
+                break
 
 
 def main():
@@ -224,7 +308,7 @@ def main():
     ap.add_argument("--force", action="store_true")
     a = ap.parse_args()
 
-    stat = {"made": 0, "skip": 0, "photo": 0, "pdf_fail": 0}
+    stat = {"made": 0, "skip": 0, "photo": 0, "pdf_fail": 0, "incomplete": 0}
     files = [os.path.join(CACHE, f"{a.band}.json")] if a.band else \
         [f for f in glob.glob(os.path.join(CACHE, "*.json"))
          if os.path.basename(f)[:-5].isdigit()]
@@ -237,7 +321,8 @@ def main():
         posts["_band_name"] = doc.get("band_name") or band
         archive_band(band, posts, a.limit, a.force, stat)
     print(f"밴드 게시글 보관: 새로 {stat['made']}건 · 건너뜀 {stat['skip']} · "
-          f"사진 {stat['photo']}장 · PDF실패 {stat['pdf_fail']} → {out_root()}")
+          f"사진 {stat['photo']}장 · 미완 {stat['incomplete']} · "
+          f"PDF실패 {stat['pdf_fail']} → {out_root()}")
     return 0
 
 

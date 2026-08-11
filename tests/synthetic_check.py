@@ -4912,9 +4912,10 @@ def t104_session_scoped_claims():
     import ai_claim
 
     with tempfile.TemporaryDirectory() as tmp:
-        saved = (ai_claim.CLAIMS, ai_claim.GUARD)
+        saved = (ai_claim.CLAIMS, ai_claim.GUARD, ai_claim.WORKCENTER_ACTIVITY)
         ai_claim.CLAIMS = os.path.join(tmp, "ai_claims.json")
         ai_claim.GUARD = os.path.join(tmp, ".guard")
+        ai_claim.WORKCENTER_ACTIVITY = os.path.join(tmp, "workcenter_activity.json")
         old_env = os.environ.get("CLAUDE_CODE_SESSION_ID")
         try:
             def as_session(sid):
@@ -4974,7 +4975,7 @@ def t104_session_scoped_claims():
             ai_claim.save(d)
             assert ai_claim._is_dead(ai_claim.load()["band"]) is False
         finally:
-            ai_claim.CLAIMS, ai_claim.GUARD = saved
+            ai_claim.CLAIMS, ai_claim.GUARD, ai_claim.WORKCENTER_ACTIVITY = saved
             if old_env is None:
                 os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
             else:
@@ -8498,22 +8499,28 @@ def t151_collect_all_idempotent_and_no_login_scrape():
          캐시를 더럽힌다. 그래서 이 도구는 '이미 캐시에 든 것을 파일로 굳히는 일'만 한다.
     """
     import collect_all as C
+    from band import archive_posts as A
 
     # ① 모수에 **시각 없는 글이 안 들어가야** 한다
     with tempfile.TemporaryDirectory() as t:
         cache, band = os.path.join(t, "cache"), os.path.join(t, "band")
         os.makedirs(cache); os.makedirs(band)
-        json.dump({"band_name": "테스트", "posts": {
+        posts = {
             "10": {"created_at": 1, "images": ["a", "b"]},      # 진짜 글
             "11": {"created_at": 2, "images": []},              # 진짜 글, 사진 없음
             "12": {"content": "앞 글 본문이 잡힌 껍데기"},        # ★ 시각 없음 — 모수 아님
             "13": {"deleted": True},                            # 묘비 — 모수 아님
-        }}, open(os.path.join(cache, "90610953.json"), "w", encoding="utf-8"))
+        }
+        json.dump({"band_name": "테스트", "posts": posts},
+                  open(os.path.join(cache, "90610953.json"), "w", encoding="utf-8"))
         # raw_* 는 중간 산물이다 — 세면 모수가 부풀어 영영 안 끝난다
         json.dump({"posts": {"99": {"created_at": 9}}},
                   open(os.path.join(cache, "raw_90610953.json"), "w", encoding="utf-8"))
-        open(os.path.join(band, "a.pdf"), "w").close()
-        open(os.path.join(band, "a.txt"), "w").close()
+        current = A.archive_paths(
+            os.path.join(band, "게시글보관", "테스트"), "10", posts["10"])
+        os.makedirs(current["folder"], exist_ok=True)
+        open(current["pdf"], "w").close()
+        open(current["txt"], "w").close()
 
         s = C.survey(cache_dir=cache, band_root=band)
         assert s["밴드글_캐시"] == 2, f"모수가 {s['밴드글_캐시']} — 없는 글까지 셌다"
@@ -13566,7 +13573,7 @@ def t209_pipeline_lock_owner_cannot_be_forged_or_overwritten():
     source = open(os.path.join(ROOT, "automation_pipeline.py"), encoding="utf-8").read()
     pid_body = source.split("def _pid_alive", 1)[1].split("\nclass LockOwnershipLost", 1)[0]
     assert "import pid_alive" in source and \
-        "return pid_alive.alive(pid, born_before=born_before) is not False" in pid_body, \
+        "return pid_alive.owner_alive(" in pid_body and "is not False" in pid_body, \
         "자동화 잠금만 Windows 구형 PID 판정을 계속 쓴다(신원 검증 [210] 포함)"
 
     with tempfile.TemporaryDirectory(prefix="csos-pipeline-owner-209-") as td:
@@ -13580,20 +13587,21 @@ def t209_pipeline_lock_owner_cannot_be_forged_or_overwritten():
         uncertain_path = reports / ".uncertain.lock"
         uncertain_path.write_text("987654 0 old-token old-run\n", encoding="ascii")
         os.utime(uncertain_path, (1, 1))
-        real_alive = P.pid_alive.alive
+        real_owner_alive = P.pid_alive.owner_alive
         try:
-            P.pid_alive.alive = lambda _pid, **_k: None
+            P.pid_alive.owner_alive = lambda _pid, **_k: None
             assert P._pid_alive(987654) is True
             assert P.PipelineLock(uncertain_path).acquire("unknown-probe") is None
             assert uncertain_path.exists(), "판정 불가인 산 주인의 잠금을 빼앗았다"
 
-            P.pid_alive.alive = lambda _pid, **_k: False
+            P.pid_alive.owner_alive = lambda _pid, **_k: False
             assert P._pid_alive(987654) is False
             dead_lock = P.PipelineLock(uncertain_path)
             dead_token = dead_lock.acquire("dead-owner-recovery")
+            P.pid_alive.owner_alive = lambda _pid, **_k: True
             assert dead_token and dead_lock.release(dead_token, "dead-owner-recovery")
         finally:
-            P.pid_alive.alive = real_alive
+            P.pid_alive.owner_alive = real_owner_alive
 
         # 실제 두 인스턴스를 동시에 진입시킨다. 첫 회차가 stage 안에서 멈춘 동안
         # 두 번째 회차는 already_running만 돌려주고 상태 바이트를 바꾸지 않는다.
@@ -13741,14 +13749,23 @@ def t210_pid_reuse_is_not_alive_and_customer_scan_is_one_pass():
 
     # ── 배선: 판정에 시각이 실제로 전달되는가 (한쪽만 고치면 경보·잠금이 갈린다)
     sh_src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
-    assert "born_before=started.timestamp()" in sh_src, "_daily_run_inflight 가 신원을 안 본다"
-    assert "pid_alive(owner_pid, born_before=born)" in sh_src, "점유 판정이 신원을 안 본다"
+    assert "born_before=started.timestamp()" in sh_src and \
+        "pid_started_at=d.get(\"pid_started_at\")" in sh_src, \
+        "_daily_run_inflight 가 정확한 프로세스 지문을 안 본다"
+    assert "pid_alive(owner_pid, born_before=born" in sh_src and \
+        "pid_started_at=owner_started_at" in sh_src, \
+        "점유 판정이 정확한 프로세스 지문을 안 본다"
     # 잠금을 쥐는 곳은 넷이다 — 한 곳만 고치면 나머지가 같은 병을 앓는다([162]의 교훈)
-    for fname, needle, what in (
-            ("archive_worker.py", "pid_alive.alive(owner_pid, born_before=lock_mtime)", "보관본 워커"),
-            ("automation_pipeline.py", "_pid_alive(pid, born_before=born)", "자동화 잠금")):
+    for fname, needles, what in (
+            ("archive_worker.py", ("pid_alive.owner_alive(",
+                                   'pid_started_at=owner.get("pid_started_at")',
+                                   "born_before=lock_mtime"), "보관본 워커"),
+            ("automation_pipeline.py", ("pid_alive.owner_alive(",
+                                         "pid_started_at=owner_started_at",
+                                         "born_before=claimed_at"), "자동화 잠금")):
         src2 = open(os.path.join(ROOT, fname), encoding="utf-8").read()
-        assert needle in src2, f"{what} 잠금이 신원(born_before)을 안 본다"
+        assert all(needle in src2 for needle in needles), \
+            f"{what} 잠금이 정확한 프로세스 지문을 안 본다"
 
     # ── 거래처 색인: 목록은 한 번에(stat 동봉) · 안 바뀌면 워크북을 다시 안 연다
     ci_src = open(os.path.join(ROOT, "customer_index.py"), encoding="utf-8").read()
