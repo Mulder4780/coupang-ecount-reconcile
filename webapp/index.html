@@ -4138,13 +4138,12 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     --org-floor:#F7F9FC;--org-wall:#D3DBE8;--org-ink:#0E1B3F;--org-ink2:#5A6785;
     --org-zmgmt:#EAF2FF;--org-zfield:#EAF9F0;--org-zai:#F1ECFF;
     --org-sh:0 1px 2px rgba(16,30,70,.06),0 6px 20px rgba(16,30,70,.08)}
-  @media (prefers-color-scheme:dark){#v-org{--org-card:#16223C;--org-line:rgba(150,175,225,.16);
-    --org-floor:#111A30;--org-wall:#1E2A45;--org-ink:#EAF0FF;--org-ink2:#9FB0D0;
-    --org-zmgmt:#152647;--org-zfield:#123322;--org-zai:#231b45;
-    --org-sh:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.35)}}
+  /* ★ OS 다크를 자동으로 따라가지 않는다(검증 [91]) — 사람이 고른 data-theme 만 본다.
+     이 앱은 화면을 그대로 캡처해 보고서로 올리므로, 사람이 안 골랐는데 검게 나오면 사고다. */
   :root[data-theme="dark"] #v-org{--org-card:#16223C;--org-line:rgba(150,175,225,.16);
     --org-floor:#111A30;--org-wall:#1E2A45;--org-ink:#EAF0FF;--org-ink2:#9FB0D0;
-    --org-zmgmt:#152647;--org-zfield:#123322;--org-zai:#231b45}
+    --org-zmgmt:#152647;--org-zfield:#123322;--org-zai:#231b45;
+    --org-sh:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.35)}
   :root[data-theme="light"] #v-org{--org-card:#FFFFFF;--org-line:rgba(30,50,90,.12);
     --org-floor:#F7F9FC;--org-wall:#D3DBE8;--org-ink:#0E1B3F;--org-ink2:#5A6785;
     --org-zmgmt:#EAF2FF;--org-zfield:#EAF9F0;--org-zai:#F1ECFF}
@@ -7414,8 +7413,8 @@ async function orgLoad(force){
 function orgToPng(){
   const D=ORG_LAST||ORG_SNAP;
   const FF=(typeof uiFont==='function'?uiFont():"'맑은 고딕',system-ui,sans-serif");
-  const root=document.documentElement.getAttribute('data-theme');
-  const dark = root==='dark' || (root!=='light' && window.matchMedia && matchMedia('(prefers-color-scheme:dark)').matches);
+  // 화면과 같게 — 사람이 고른 data-theme 만 본다(OS 자동 추종 금지, 검증 [91]).
+  const dark = document.documentElement.getAttribute('data-theme')==='dark';
   const C=dark
     ? {bg:'#0A1020',panel:'#111A30',card:'#16223C',ink:'#EAF0FF',ink2:'#9FB0D0',line:'rgba(150,175,225,.20)',wall:'#1E2A45'}
     : {bg:'#EEF1F7',panel:'#F7F9FC',card:'#FFFFFF',ink:'#0E1B3F',ink2:'#5A6785',line:'rgba(30,50,90,.14)',wall:'#D3DBE8'};
