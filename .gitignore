@@ -37,6 +37,13 @@ reports/mobile_snapshot.html
 reports/csos_qr.html
 reports/tunnel_starts.txt
 
+# 로그인 세션·회차에 맞춰 다시 만드는 콘솔 붙여넣기/SendKeys 보조물
+# 운영 PC에는 남겨 쓰되 저장소에는 올리지 않는다(다른 Chrome에 오주입 위험).
+band/*붙여넣기*.js
+band/band_auto_inject.ps1
+band/inject_one.ps1
+band/console_ping.js
+
 # 런타임 SQLite — 미반영 확정 입력·UX 기록. Git에는 넣지 않고 archive_keep이 일관 백업한다.
 db/*.db
 db/*.db-wal
