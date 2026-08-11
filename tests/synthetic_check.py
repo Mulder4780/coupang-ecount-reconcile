@@ -6097,8 +6097,8 @@ def t120_calendar_sheet_and_share():
     print("  [120] 캘린더 — 날짜 창·PC 텍스트 격자·고정 주소·크롬 설치·캡처 사유칸 ✅")
 
 
-def t121_layer_dialogs():
-    """[121] 알림·확인·입력을 전부 레이어로 (2026-08-06 지시).
+def t202_layer_dialogs():
+    """[202] 알림·확인·입력을 전부 레이어로 (2026-08-06 지시).
 
     사용자 지시: "UX UI 편리하게 밑에서 위로 올라가는 레이어창으로 하거나
     모달창으로 나오게 하는 구조를 … 전체 적용해 (담당자별 업무 센터도 마찬가지야)".
@@ -6173,7 +6173,7 @@ def t121_layer_dialogs():
     assert 'id="dlgwrap"' in phone and ".dlgwrap.on{display:flex}" in phone
     assert "align-items:flex-end" in phone and "@media(min-width:900px){\n .dlgwrap{align-items:center}" in phone, \
         "폰 사본에 '아래에서 올라옴 → 넓으면 가운데' 두 모양이 없다"
-    print("  [121] 알림·확인·입력 레이어 — 기본창 0개·await 완비·폰시트/PC모달·폼 요소째 이동 ✅")
+    print("  [202] 알림·확인·입력 레이어 — 기본창 0개·await 완비·폰시트/PC모달·폼 요소째 이동 ✅")
 
 
 def t122_dash_drag_and_remote_version():
@@ -7030,7 +7030,7 @@ def t76_source_organizer():
     print("  [76] 원본 자료 유형·연도·월·날짜·PO번호 자동정리와 최신 편집본 보존 ✅")
 
 
-def t98_upload_intake(tmp):
+def t201_upload_intake(tmp):
     """단일 투입함의 전량 보존·내용 분류·중복방지·전체 대조 선행 순서."""
     import upload_intake as U
     import source_dirs as SD
@@ -7129,7 +7129,7 @@ def t98_upload_intake(tmp):
     for rel in ("kakao_extract.py", os.path.join("kakao", "kakao_reconcile.py")):
         src = open(os.path.join(ROOT, rel), encoding="utf-8").read()
         assert "def source_paths()" in src and "kakao_dirs" in src
-    print("  [98] 단일 업로드 투입함 전량 원본분류·중복방지·30분/전체대조 연결 ✅")
+    print("  [201] 단일 업로드 투입함 전량 원본분류·중복방지·30분/전체대조 연결 ✅")
 
 
 def t79_work_log_source_sync_and_report_capture():
@@ -7411,7 +7411,7 @@ def t83_agent_dispatch_and_calendar():
     print("  [83] Claude 우선·Codex 폴백 실제 소비기 및 쿠팡 캘린더(전체·상세·입력) ✅")
 
 
-def t84_evidence_verification_sync(tmp):
+def t200_evidence_verification_sync(tmp):
     """확정 증빙만 02·03·04 원인 열에 반영하고 수식 열은 계획에 넣지 않는다."""
     import verification_sync as V
 
@@ -7518,7 +7518,7 @@ def t84_evidence_verification_sync(tmp):
         "대량 검증이 read_only 셀 무작위 접근으로 되돌아가면 실반영이 멈춘다"
     for marker in ("거래명세서반영", "ERP반영", "검증자", "검증일"):
         assert marker in index and marker in sync, f"앱 현장검증 표시 누락: {marker}"
-    print("  [84] 밴드·ERP·거래명세서 증빙→02·03·04 검증완료·유현민·확인일 자동동기화 ✅")
+    print("  [200] 밴드·ERP·거래명세서 증빙→02·03·04 검증완료·유현민·확인일 자동동기화 ✅")
 
 
 def t80_new_project_flow_db_only(tmp):
@@ -9337,8 +9337,8 @@ def t168_erp_progress_glob_is_cached():
     print("  [168] erp_progress — 비싼 glob 앞에 캐시 검사가 온다(행마다 Z: 재귀탐색 금지) ✅")
 
 
-def t172_ledger_screens_are_split():
-    """[172] 회계 원장류 **네 화면**을 한 통에 담지 않는다 (2026-08-08 실사고).
+def t203_ledger_screens_are_split():
+    """[203] 회계 원장류 **네 화면**을 한 통에 담지 않는다 (2026-08-08 실사고).
 
     예전 규칙은 "'적요' 와 차변/대변이 같은 표에 있으면 ledger" 한 줄이었다. 그런데
     이카운트 회계 원장류는 넷 다 그 모양이다. 실측: `pick("ledger")` 12개 중
@@ -9389,7 +9389,7 @@ def t172_ledger_screens_are_split():
     for k in ("ledger", "ledger_acct", "journal", "cashbook"):
         assert k in S.LABEL, f"{k} 이름표가 없다"
         assert k in C.KNOWN, f"{k} 이 수집 대상에서 빠졌다 — 자료가 조용히 끊긴다"
-    print("  [172] 회계 원장류 — 네 화면이 갈린다(분개장→적요 순서·slips 안 샘) ✅")
+    print("  [203] 회계 원장류 — 네 화면이 갈린다(분개장→적요 순서·slips 안 샘) ✅")
 
 
 def t178_unverified_harvest_is_not_read():
@@ -11871,10 +11871,16 @@ def t136_work_lanes():
 #   나중에 "검증 [174] 가 지킨다"는 문서가 **어느 것을 가리키는지 알 수 없게 된다.**
 #   그래서 기계가 잡는다. 새 검증을 만들 때는 여기가 먼저 막아 준다.
 #
-#   ※ LEGACY 는 **이 규칙을 만들기 전부터 있던** 중복이다. 지금 하나하나 비키면
-#     그 번호를 가리키는 문서·주석이 통째로 어긋나므로 남겨 두고 이름만 붙여 둔다.
-#     새로 겹치는 것만 막는다 — 있던 빚 때문에 새 빚을 허용하지는 않는다.
-LEGACY_DUP = {41, 84, 98, 121, 153, 172}
+#   ※ LEGACY 는 **이 규칙을 만들기 전부터 있던** 중복이었다. 2026-08-11 에 갚았다.
+#     여섯 중 **둘은 빚이 아니었다** — `[41]`·`[153]` 은 한 검증이 갈래마다 print 를
+#     두 줄 할 뿐인데 계기가 줄 수를 세어 겹침이라 불렀다(계기 쪽이 틀렸다).
+#     남은 넷은 참조가 **적은 쪽**을 비켰고 그 문서까지 같이 고쳤다:
+#       [84]→[200] 증빙 동기화 · [98]→[201] 업로드 투입함
+#       [121]→[202] 레이어 대화창 · [172]→[203] 회계 원장류 네 화면
+#     **번호를 옮기는 것보다 그 번호를 가리키던 문서를 놓치는 것이 위험하다** —
+#     놓치면 문서가 이제 엉뚱한 검증을 가리키는데, 그건 겹쳐 있는 것보다 나쁘다.
+#     그래서 이 명단은 **비어 있어야 정상**이다. 다시 채우지 말 것.
+LEGACY_DUP = set()
 
 
 def t190_autopilot_retries_without_failure_cascade():
@@ -12833,19 +12839,37 @@ def t192_synthetic_check_is_harmless():
 
 
 def check_numbers_unique():
-    """`[N]` 표시가 두 검증에서 같이 쓰이면 실패시킨다."""
+    """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
+
+    ★ 계기가 잘못 세고 있었다 (2026-08-11). 예전엔 `print` **줄 수**를 셌는데,
+      한 검증이 갈래마다 print 를 두 줄 하는 것은 겹침이 아니다 — 그래서
+      `[41]`(대시보드 잔해 + 날짜 명시)·`[153]`(openpyxl 없음 건너뜀 + 본 판정)이
+      영영 '중복'으로 남아 LEGACY 명단에 얹혀 있었다. **없는 빚 둘**이었다.
+      이제 **함수 이름 기준**으로 센다. 진짜 겹침 넷은 비켰다:
+      `[84]`→`[200]` · `[98]`→`[201]` · `[121]`→`[202]` · `[172]`→`[203]`.
+      옮긴 쪽은 **문서 참조가 적은 쪽**이고, 그 참조도 같이 고쳤다 —
+      하나라도 남기면 그 문서가 엉뚱한 검증을 가리킨다(겹친 것보다 나쁘다).
+    """
     import collections as _c
     src = open(__file__, encoding="utf-8").read()
-    nums = _c.Counter()
-    for m in re.finditer(r'print\(\s*"\s+\[(\d+)\]', src):
-        nums[int(m.group(1))] += 1
-    dup = sorted(n for n, c in nums.items() if c > 1 and n not in LEGACY_DUP)
+    owner = _c.defaultdict(set)
+    cur = "?"
+    for ln in src.splitlines():
+        m = re.match(r"def (\w+)\(", ln)
+        if m:
+            cur = m.group(1)
+        m = re.match(r'\s*print\(\s*"\s+\[(\d+)\]', ln)
+        if m:
+            owner[int(m.group(1))].add(cur)
+    dup = sorted(n for n, who in owner.items()
+                 if len(who) > 1 and n not in LEGACY_DUP)
     if dup:
         raise AssertionError(
             "검증 번호가 겹친다: %s — 다른 세션이 먼저 썼을 수 있다. "
             "쓰지 않은 번호로 비켜라(전체 목록은 이 파일의 print 표시를 훑으면 나온다)"
-            % ", ".join("[%d]" % n for n in dup))
-    old = sorted(n for n, c in nums.items() if c > 1 and n in LEGACY_DUP)
+            % ", ".join("[%d](%s)" % (n, "·".join(sorted(owner[n]))) for n in dup))
+    old = sorted(n for n, who in owner.items()
+                 if len(who) > 1 and n in LEGACY_DUP)
     if old:
         print("  (예전부터 겹쳐 있던 번호: %s — 문서가 가리키는 곳이 흔들리므로 "
               "정리할 때 문서까지 같이 고칠 것)"
@@ -12985,7 +13009,7 @@ if __name__ == "__main__":
     t117_dark_mode_toggle()
     t118_ocr_crosscheck()
     t119_context_guard()
-    t121_layer_dialogs()
+    t202_layer_dialogs()
     t122_dash_drag_and_remote_version()
     t123_calendar_share_tools()
     t124_no_duplicate_menus()
@@ -13036,7 +13060,7 @@ if __name__ == "__main__":
     t196_stage_words_come_from_one_place()
     t197_restart_blip_is_not_a_failure()
     t198_source_index_no_per_file_stat()
-    t172_ledger_screens_are_split()
+    t203_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()
     t175_step_timeout_cannot_hang_forever()
@@ -13072,7 +13096,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmp:
         t80_new_project_flow_db_only(tmp)
     with tempfile.TemporaryDirectory() as tmp:
-        t84_evidence_verification_sync(tmp)
+        t200_evidence_verification_sync(tmp)
     with tempfile.TemporaryDirectory() as tmp:
         t85_staff_po_work_log_and_edit_priority(tmp)
     t81_terra_sol_handoff_review()
@@ -13080,7 +13104,7 @@ if __name__ == "__main__":
     t83_agent_dispatch_and_calendar()
     t76_source_organizer()
     with tempfile.TemporaryDirectory() as tmp:
-        t98_upload_intake(tmp)
+        t201_upload_intake(tmp)
     t55_pm_brief_drilldown_and_capture()
     t58_check_hub_detail_and_capture()
     t48_excel_2026_stats_and_verified_completion()
