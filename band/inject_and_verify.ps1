@@ -36,7 +36,12 @@ if (-not (Test-Path $Probe)) { Say "ABORT: no probe $Probe"; exit 1 }
 Say "inject: $Js"
 $out = & (Join-Path $root 'band\inject_here.ps1') -Js $Js -ExpectHost $ExpectHost 2>&1
 $out | ForEach-Object { Say ("  | " + $_) }
-if ($LASTEXITCODE -ne 0) { Say "ABORT: injection failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
+# Judge by what the injector SAID, not only by its exit code. A .ps1 that ends on
+# Write-Output leaves $LASTEXITCODE untouched, so an empty code is not a failure -
+# reading it as one aborted a run whose payload had already landed (2026-08-11).
+$txt = ($out | Out-String)
+if ($txt -match 'ABORT:|FAIL:') { Say 'ABORT: injector refused'; exit 3 }
+if ($txt -notmatch 'INJECTED on') { Say 'ABORT: injector did not confirm a paste'; exit 2 }
 
 # --- 2) let it start ---------------------------------------------------------
 Say "wait ${WaitSec}s before liveness probe"
@@ -62,6 +67,12 @@ Say 'state:'
 $state -split "`n" | Select-Object -First 40 | ForEach-Object { Say ("  > " + $_) }
 
 # A missing global is the exact signature of a dead script (see header).
-if ($state -match 'NO __GRAB') { Say 'DEAD: script is gone - the page navigated. NOT a collection.'; exit 5 }
+# Each payload has its own name for it: the band collector says NO __GRAB, the
+# ERP tour says NOSTATE. Check both - a probe that cannot recognise death will
+# happily report ALIVE for a script that never started.
+if ($state -match 'NO __GRAB' -or $state -match 'NOSTATE') {
+    Say 'DEAD: the global is gone - the script never started or the page navigated. NOT a collection.'
+    exit 5
+}
 Say 'ALIVE: collector is running. Harvest still must be counted from the cache.'
 exit 0

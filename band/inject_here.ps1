@@ -80,3 +80,8 @@ if ($h1 -notlike "*$ExpectHost*") {
 
 Paste $Js
 Write-Output ("INJECTED on " + $h1 + " : " + $Js + " " + (Get-Date -Format 'HH:mm:ss'))
+# ★ Say success out loud. Without this the caller inherits whatever $LASTEXITCODE
+#   happened to hold (empty on a fresh shell), and a caller that tests it reads a
+#   successful injection as a failure - measured 2026-08-11, it aborted the
+#   liveness probe one second after the payload had actually landed.
+exit 0
