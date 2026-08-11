@@ -284,6 +284,14 @@ FLOW_DEFAULT = [
     ("수금 확인", "오종현", 30, "입금 자료", "입금 대조로 마감 (확인 전)", ""),
 ]
 
+# 기본 흐름의 순환 검증(2026-08-11 지시) — 단계 이름 → (검증 질문, 아니오면 돌아갈 단계).
+# 실제로 되풀이되는 두 순환만 심는다: 일정 연기 → 재합의, 미완 확인 → 재방문.
+# 나머지 단계의 검증은 사람이 앱 [수정]에서 단다 — 지어내지 않는다.
+FLOW_DEFAULT_CHECKS = {
+    "일정 확정": ("기사·캠프가 일정에 합의됐는가?", "배정 합의"),
+    "완료 보고": ("완료 사진·내용이 밴드에서 확인되는가?", "현장 조치"),
+}
+
 # 리모컨 불출 규칙(2026-08-03 사용자 지시) — 지점별 불출 담당과 담당자당 보유 한도.
 REMOTE_BRANCH_ISSUERS = {"부산": "오종현", "시화": "안은숙", "증평": "류지영"}
 REMOTE_BRANCH_LABELS = {"부산": "부산공장", "시화": "시화공장", "증평": "증평본사"}
@@ -318,7 +326,10 @@ def conn():
         # 샘플·택배출고)으로 관리되고 있어 세 표에 열을 더 붙인다.
         # 흐름에 갈래를 더한다(2026-08-08). 접수가 네 갈래로 들어오는 것을 일직선
         # 자료구조로는 담을 수 없어, 개발자용 플로우차트가 여기서 막혀 있었다.
-        for table, cols in (("flow_step", ("branch",)),
+        # 흐름에 예/아니오 순환 검증을 더한다(2026-08-11 지시 "순환 검증해서 다시
+        # 돌아오는 예스 오아 노 구조"). check_q=검증 질문, no_to=아니오일 때
+        # 되돌아갈 단계 **이름**(순서 번호로 적으면 단계를 옮길 때마다 어긋난다).
+        for table, cols in (("flow_step", ("branch", "check_q", "no_to")),
                             ("remote_issue", ("issued_on", "camp", "version")),
                             ("remote_delivery", ("kind", "version")),
                             ("remote_stock", ("version", "moved_on"))):
@@ -764,13 +775,17 @@ def flow_steps():
     """지금의 흐름. 비어 있으면 기본 흐름을 그대로 돌려준다(그때는 저장하지 않는다 —
        사람이 한 번도 손대지 않았다는 사실 자체가 정보다)."""
     with conn() as c:
-        rows = c.execute("SELECT ord,name,owner,days,source,note,branch FROM flow_step"
-                         " ORDER BY ord, id").fetchall()
+        rows = c.execute("SELECT ord,name,owner,days,source,note,branch,check_q,no_to"
+                         " FROM flow_step ORDER BY ord, id").fetchall()
     if rows:
         return [{"순서": r[0], "단계": r[1], "담당": r[2] or "", "소요일": r[3],
-                 "근거": r[4] or "", "메모": r[5] or "", "갈래": r[6] or ""} for r in rows]
+                 "근거": r[4] or "", "메모": r[5] or "", "갈래": r[6] or "",
+                 "검증": r[7] or "", "아니오": r[8] or ""} for r in rows]
     return [{"순서": i, "단계": d[0], "담당": d[1], "소요일": d[2], "근거": d[3],
-             "메모": d[4], "갈래": d[5]} for i, d in enumerate(FLOW_DEFAULT)]
+             "메모": d[4], "갈래": d[5],
+             "검증": FLOW_DEFAULT_CHECKS.get(d[0], ("", ""))[0],
+             "아니오": FLOW_DEFAULT_CHECKS.get(d[0], ("", ""))[1]}
+            for i, d in enumerate(FLOW_DEFAULT)]
 
 
 def flow_save(steps, who=""):
@@ -785,14 +800,25 @@ def flow_save(steps, who=""):
             days = int(s.get("소요일"))
         except (TypeError, ValueError):
             days = None
+        # 순환 검증(2026-08-11): 질문 없이 '아니오' 단계만 있으면 뜻이 없다 — 버린다.
+        check_q = str(s.get("검증") or "").strip()[:60]
+        no_to = str(s.get("아니오") or "").strip()[:40] if check_q else ""
         clean.append((i, name, str(s.get("담당") or "").strip()[:20], days,
                       str(s.get("근거") or "").strip()[:40],
                       str(s.get("메모") or "").strip()[:80],
-                      str(s.get("갈래") or "").strip()[:20]))
+                      str(s.get("갈래") or "").strip()[:20],
+                      check_q, no_to))
     if not clean:
         raise ValueError("단계가 하나도 없습니다 — 빈 흐름은 저장하지 않습니다")
     if len(clean) > 30:
         raise ValueError("단계는 30개까지입니다")
+    # '아니오'가 가리키는 단계는 이 흐름 안에 실재해야 한다. 없는 이름을 조용히
+    # 받으면 화면이 '(단계 없음)' 화살표를 영영 그린다 — 저장할 때 막는 편이 낫다.
+    names = {r[1] for r in clean}
+    for r in clean:
+        if r[8] and r[8] not in names:
+            raise ValueError("아니오 단계 '%s' 가 흐름에 없습니다 — '%s' 의 검증을 확인하세요"
+                             % (r[8], r[1]))
     now = datetime.now().isoformat(timespec="seconds")
     before = json.dumps(flow_steps(), ensure_ascii=False)
     with conn() as c:
@@ -800,7 +826,7 @@ def flow_save(steps, who=""):
                   (now, str(who or "")[:40], before))
         c.execute("DELETE FROM flow_step")
         c.executemany("INSERT INTO flow_step(ord,name,owner,days,source,note,branch,"
-                      "updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?)",
+                      "check_q,no_to,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                       [r + (now, str(who or "")[:40]) for r in clean])
     return len(clean)
 

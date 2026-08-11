@@ -2241,41 +2241,35 @@ fieldset.remote-edit>input{margin:0 0 9px}
 #v-sources .src-search input{flex:1;border:0!important;background:transparent;font-size:16px;
   min-height:42px;padding:0}
 #v-sources .src-search input:focus{outline:none}
-/* ★ 갈래 버튼은 **좌우가 꽉 차게** 눕힌다 (2026-08-06 지시 "버튼 좌우 정렬").
-   예전 `grid + auto-fit` 은 마지막 줄에 남는 칸이 그대로 비어, 갈래를 9→11개로
-   늘리자 오른쪽이 뭉텅 비어 보였다. flex 로 바꾸고 `flex-grow` 를 주면
-   **어느 줄이든 왼쪽 끝과 오른쪽 끝이 맞는다**(남는 폭을 그 줄이 나눠 갖는다). */
-#v-sources .src-segs{display:flex;flex-wrap:wrap;gap:9px;padding:2px 2px 12px}
-#v-sources .src-seg{flex:1 1 104px}
-#v-sources .src-seg{appearance:none;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) 18px;
-  grid-template-rows:34px auto;align-items:center;gap:7px 8px;min-height:84px;padding:10px 11px;cursor:pointer;text-align:left;color:var(--ink-1);
-  background:var(--surface);border:1px solid rgba(60,60,67,.12);border-radius:16px;box-shadow:0 4px 12px rgba(29,45,95,.06);
+/* ★ 갈래는 **아이콘만, 더 크게, 좌우 정렬** (2026-08-11 지시 "아이콘은 더 크게하고
+   아래 텍스트 없이 알 수 있는 구조로 좌우 정렬"). 아이콘 안의 글자(세·명·전·밴·톡…)
+   가 이름을 대신하고, 정확한 이름은 title(길게 누르면)과 선택 후 srcNote 가 말한다.
+   flex-grow + space-between 으로 어느 줄이든 왼쪽 끝과 오른쪽 끝이 맞는다. */
+#v-sources .src-segs{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;padding:2px 2px 10px}
+#v-sources .src-seg{appearance:none;flex:1 1 0;min-width:50px;max-width:86px;display:grid;place-items:center;
+  min-height:58px;padding:5px;cursor:pointer;position:relative;color:var(--ink-1);
+  background:var(--surface);border:1px solid rgba(60,60,67,.12);border-radius:15px;box-shadow:0 3px 10px rgba(29,45,95,.05);
   transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease,background .16s ease}
-#v-sources .src-seg-ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--seg-color);
-  color:var(--seg-ink,#fff);font-size:13px;font-weight:850;letter-spacing:-.35px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.24)}
-#v-sources .src-seg-label{grid-column:1/-1;min-width:0;font-size:13.5px;font-weight:750;letter-spacing:-.3px;line-height:1.25;
-  white-space:normal;overflow-wrap:anywhere}
-#v-sources .src-seg-check{grid-column:2;grid-row:1;display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--brand-btn);
-  color:#fff;font-size:11.5px;font-weight:900;opacity:0;transform:scale(.72);transition:opacity .16s ease,transform .16s ease}
-#v-sources .src-seg.on{border-color:var(--brand);background:var(--panel);box-shadow:0 0 0 2px rgba(36,82,230,.11),0 7px 17px rgba(29,45,95,.1)}
+#v-sources .src-seg-ic{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;background:var(--seg-color);
+  color:var(--seg-ink,#fff);font-size:17px;font-weight:850;letter-spacing:-.35px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.24)}
+/* 선택 표시는 아이콘 모서리의 ✓ 배지 하나다 — 라벨이 없으니 테두리만으로는 약하다. */
+#v-sources .src-seg-check{position:absolute;top:-4px;right:-4px;display:grid;place-items:center;width:18px;height:18px;border-radius:50%;
+  background:var(--brand-btn);color:#fff;font-size:11px;font-weight:900;opacity:0;transform:scale(.72);
+  transition:opacity .16s ease,transform .16s ease;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+#v-sources .src-seg.on{border-color:var(--brand);background:var(--brand-tint);box-shadow:0 0 0 2px rgba(36,82,230,.14)}
 #v-sources .src-seg.on .src-seg-check{opacity:1;transform:scale(1)}
-#v-sources .src-seg:focus-visible,#v-sources .src-mbtn:focus-visible{outline:3px solid rgba(0,122,255,.28);outline-offset:2px}
+#v-sources .src-seg:focus-visible,#v-sources .src-sel:focus-visible{outline:3px solid rgba(0,122,255,.28);outline-offset:2px}
 @media(hover:hover){#v-sources .src-seg:not(.on):hover{transform:translateY(-2px);border-color:#B7C8F4;box-shadow:0 8px 18px rgba(29,45,95,.1)}}
 #v-sources .src-seg:active{transform:scale(.98)}
-/* 연도 줄 — 월 줄과 나눈다(2026-08-06 지시). 자료가 2025·2026 두 해로 늘어나
-   월 칩만 18개를 옆으로 밀어 보게 하면 사람이 원하는 달을 못 찾는다.
-   연도는 개수가 적으니 **좌우 꽉 차게** 눕히고, 월은 그 해 것만 보여 준다. */
-#v-sources .src-year{display:flex;flex-wrap:wrap;gap:8px;padding:1px 2px 9px}
-#v-sources .src-year .src-mbtn{flex:1 1 92px;min-width:0}
-#v-sources .src-month{display:flex;flex-wrap:wrap;gap:8px;padding:1px 2px 11px}
-#v-sources .src-month .src-mbtn{flex:1 1 84px;min-width:0}
-#v-sources .src-month::-webkit-scrollbar{display:none}
-#v-sources .src-mbtn{appearance:none;flex:none;min-width:92px;cursor:pointer;min-height:42px;background:var(--surface);color:var(--ink-2);
-  border:1px solid rgba(60,60,67,.12);border-radius:13px;box-shadow:0 3px 10px rgba(29,45,95,.05);
-  font-size:13.5px;font-weight:700;padding:8px 13px;transition:border-color .16s ease,background .16s ease,transform .16s ease}
-#v-sources .src-mbtn.on{background:var(--brand-tint);border-color:#AAC2FF;color:var(--brand);box-shadow:0 0 0 1px rgba(36,82,230,.08)}
-@media(hover:hover){#v-sources .src-mbtn:not(.on):hover{border-color:#B7C8F4;background:var(--panel)}}
-#v-sources .src-mbtn:active{transform:scale(.97)}
+/* 연도·기간은 **드롭다운 둘**로 간소화 (2026-08-11 지시). 연/월 버튼 20여 개가
+   화면을 먹던 자리를 한 줄로 줄인다. 한 해뿐이면 연도 드롭다운은 숨긴다.
+   달을 고르면 연도가 따라 맞는 규칙(pickSrcMonth)은 그대로다. */
+#v-sources .src-period{display:flex;gap:8px;padding:1px 2px 10px}
+#v-sources .src-sel{flex:1;min-width:0;min-height:46px;appearance:none;-webkit-appearance:none;cursor:pointer;
+  background:var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%238E8E93' d='M4.5 6l3.5 4 3.5-4z'/%3E%3C/svg%3E") no-repeat right 12px center/16px;
+  border:1px solid rgba(60,60,67,.14);border-radius:13px;box-shadow:0 3px 10px rgba(29,45,95,.05);
+  color:var(--ink-1);font:700 14.5px inherit;padding:0 34px 0 14px}
+#v-sources .src-sel[hidden]{display:none}
 #v-sources .src-note{font-size:13px;color:var(--ink-2);margin:2px 4px 13px;font-variant-numeric:tabular-nums}
 /* 정기점검 예측 설명 — 접어 두고 궁금할 때만 편다(2026-08-06). */
 .pm-how{background:var(--surface);border:1px solid rgba(60,60,67,.12);border-radius:16px;margin:0 0 13px;
@@ -2315,26 +2309,44 @@ fieldset.remote-edit>input{margin:0 0 9px}
   #v-sources .source-canvas{width:calc(100% + 20px);margin-left:-10px;padding:18px 12px 24px;border-radius:20px}
   #v-sources .source-head{align-items:flex-start}#v-sources .source-head .sub{max-width:29rem}
   #v-sources .src-toolbar{margin-inline:-4px;padding:12px 10px 5px;border-radius:18px}
-  #v-sources .src-segs{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-  #v-sources .src-seg{min-height:78px;border-radius:14px;padding:9px}
-  #v-sources .src-mbtn{min-width:96px}
+  #v-sources .src-segs{gap:7px}
+  #v-sources .src-seg{min-width:46px;min-height:52px;border-radius:13px}
+  #v-sources .src-seg-ic{width:40px;height:40px;border-radius:12px;font-size:15.5px}
   #v-sources .src-list{grid-template-columns:minmax(0,1fr);gap:9px}
   #v-sources .src-row{min-height:72px;border-radius:16px}
 }
-/* ★ 폰에서는 갈래 타일을 **아이콘+라벨 칩**으로 줄인다 (2026-08-11 지시).
-   84px 타일 11개는 폰에서 세 화면을 먹어 목록이 안 보였다. 칩은 flex-wrap 으로
-   한눈에 들어온다. 데스크톱은 그대로 두고(미디어쿼리), 선택 상태(.on 테두리·배경)와
-   동작(pickSrcGroup)은 하나도 안 바뀐다 — 보여 주는 크기만 바뀐다.
-   체크(✓)는 칩에서 숨긴다: 선택은 테두리·배경이 이미 말하고 있고, 16px 원이
-   칩 높이를 잡아먹는다. */
-@media(max-width:640px){
-  #v-sources .src-segs{gap:6px;padding:2px 2px 10px}
-  #v-sources .src-seg{flex:0 1 auto;display:flex;align-items:center;gap:6px;
-    min-height:36px;padding:5px 11px 5px 6px;border-radius:999px;box-shadow:none}
-  #v-sources .src-seg-ic{width:22px;height:22px;border-radius:7px;font-size:9.5px}
-  #v-sources .src-seg-label{font-size:12.5px;font-weight:700;letter-spacing:-.2px;white-space:nowrap}
-  #v-sources .src-seg-check{display:none}
-  #v-sources .src-seg.on{background:var(--brand-tint)}
+/* ── 파일 목록 바텀시트 (2026-08-11 지시 "아래에서 위로 펼쳐지는 기능 적용 /
+   한눈에 보고 쉽게 선택하고 스크롤이 많이 없는 구조") ──────────────────────
+   폰: 목록이 화면 아래에 붙어 살짝 보이고(peek), 손잡이를 누르면 위로 펼쳐진다.
+   목록은 시트 **안에서만** 스크롤한다 — 페이지 전체 스크롤이 길어지지 않는다.
+   데스크톱: 화면이 넓어 시트가 오히려 목록을 좁힌다 — 제자리 목록은 그대로 두고
+   손잡이 줄은 건수 머리줄로만 쓴다. */
+.src-sheet-handle{appearance:none;width:100%;display:flex;align-items:center;gap:9px;cursor:pointer;
+  background:transparent;border:0;padding:8px 6px 10px;color:var(--ink-2);font:700 13.5px inherit;text-align:left}
+.src-sheet-grip{display:none}
+.src-sheet-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.src-sheet-arrow{margin-left:auto;flex:none;color:var(--ink-3);transition:transform .22s ease}
+.src-sheet.up .src-sheet-arrow{transform:rotate(180deg)}
+@media(min-width:720px){
+  .src-sheet-handle{cursor:default}
+  .src-sheet-arrow{display:none}
+}
+@media(max-width:719px){
+  #v-sources .src-sheet{position:fixed;left:0;right:0;z-index:18;
+    bottom:calc(60px + env(safe-area-inset-bottom,0px));      /* 탭바 바로 위 */
+    height:min(46vh,430px);display:flex;flex-direction:column;
+    background:var(--surface);border:1px solid var(--line);border-bottom:0;
+    border-radius:20px 20px 0 0;box-shadow:0 -12px 32px rgba(0,0,0,.18);
+    transition:height .28s ease}
+  #v-sources .src-sheet.up{height:calc(100vh - 118px - env(safe-area-inset-bottom,0px));
+    height:calc(100dvh - 118px - env(safe-area-inset-bottom,0px))}
+  #v-sources .src-sheet .src-sheet-handle{padding:13px 16px 9px;position:relative}
+  #v-sources .src-sheet .src-sheet-grip{display:block;position:absolute;top:5px;left:50%;
+    transform:translateX(-50%);width:40px;height:4px;border-radius:2px;background:var(--line)}
+  #v-sources .src-sheet .src-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain;padding:0 12px calc(12px + env(safe-area-inset-bottom,0px))}
+  /* 시트가 떠 있는 동안 뒤 내용(자료창고 단추 등)이 영영 가려지지 않게 자리를 비운다 */
+  #v-sources.active{padding-bottom:calc(min(46vh,430px) + 18px)}
 }
 
 /* ═══ 대시보드 레고 블록 편집(2026-08-05 지시) ═══
@@ -2642,11 +2654,11 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
 .foldsec>summary:hover{background:var(--brand-tint)}
 .foldsec>*:not(summary){padding-left:14px;padding-right:14px}
 .foldsec>*:last-child{padding-bottom:12px}
-/* 원본 자료 필터 접기 — 아이콘 11개+연/월이 화면을 다 먹지 않게 (2026-08-10 지시).
-   접힘이 기본이고, 제목줄이 지금 걸린 조건을 말한다(#srcFoldSum). */
-.srcfold{margin-top:10px}
-.srcfold>.src-toolbar{padding-top:2px}
-.srcsum{font-weight:600;font-size:12.5px;color:var(--ink-3)}
+/* 원본 자료 필터 — **항상 펼침** (2026-08-11 지시 "자료갈래 기간 고르기는 항상
+   펼치고"). 예전 접기(2026-08-10)는 필터가 화면을 다 먹어서였다 — 지금은 아이콘
+   한 줄 + 드롭다운 한 줄이라 접을 필요가 없어졌다. 조건 요약은 srcNote 가 말한다. */
+.src-panel{margin-top:10px}
+.src-panel .src-toolbar{padding-top:2px}
 /* ★ 펼쳐도 목록이 화면 밖으로 밀려나지 않게 (2026-08-10 지시: "이 화면이 맨 위로 가고
    목록화면이 아래로 위치해서 맨 위에서 필터해서 볼 수 있는 구조").
    접는 것만으로는 부족했다 — 한 번 펼치면 아이콘 11개 + 연/월이 화면을 통째로 먹어
@@ -2675,9 +2687,7 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
   #v-sources .source-head .ios-large h2{margin:0;font-size:24px}
   #v-sources .source-head{margin-bottom:8px}
 }
-.srcfold>summary{position:sticky;top:0;z-index:3;background:var(--surface)}
-.srcfold[open]>.src-toolbar{max-height:min(46vh,420px);overflow-y:auto;
-  -webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+/* (2026-08-11) 필터가 항상 펼침으로 바뀌며 접기용 sticky·내부 스크롤 규칙은 퇴역했다. */
 .flow-del{border:1px solid var(--line);border-radius:9px;background:var(--surface);
   color:var(--danger);font:800 13px inherit;padding:5px 10px;cursor:pointer}
 /* ── 긴 글은 접어 둔다 (2026-08-07 지시: "스크롤이 긴 부분(설명란) … 누르면
@@ -3279,24 +3289,37 @@ body.dash-drag-live #dashGuides{display:grid}
           <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>
         </button>
       </div>
-      <!-- 대표 지시(2026-08-10): 아이콘 11개 + 연/월 줄이 화면을 다 먹어 목록이 안 보였다.
-           보고 화면과 **같은 방식**으로 접는다(details.foldsec) — 사람이 이미 아는 동작이고
-           인쇄·캡처에서도 펴진다. 접힌 상태에서도 **지금 무엇으로 걸러져 있는지**를
-           제목줄이 말한다. 그걸 안 적으면 접는 순간 "왜 0건인지" 모르게 된다. -->
-      <details class="foldsec srcfold" id="srcFold">
-        <summary>자료 갈래·기간 고르기<span class="srcsum" id="srcFoldSum"></span></summary>
+      <!-- 대표 지시(2026-08-11): "자료갈래 기간 고르기는 항상 펼치고 / 아이콘은 더
+           크게·아래 텍스트 없이·좌우 정렬 / 연도·기간은 드롭다운으로 간소화".
+           접기(2026-08-10)로 풀었던 '필터가 화면을 다 먹는' 문제를 이번에는 반대로
+           푼다 — 필터 자체를 한 화면 안에 들어가게 줄여서 **항상 펼쳐 둔다**.
+           아이콘 글자(세·명·전·밴·톡…)가 라벨을 대신하고, 정확한 이름은 title 과
+           선택 시 srcNote 가 말한다. -->
+      <div class="src-panel" id="srcPanel">
       <div class="src-toolbar">
         <div class="src-search">
           <svg viewBox="0 0 16 16" aria-hidden="true" style="width:18px;height:18px;flex:none;fill:var(--ink-3)"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.44.58.98 1.12l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a7 7 0 0 0-1.12-.98zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/></svg>
           <input id="srcQ" placeholder="이름 · UJ프로젝트 · 전표번호 · PO" oninput="srcDebounce()" aria-label="원본 자료 검색">
         </div>
         <div class="src-segs" id="srcSegs" role="tablist" aria-label="자료 갈래"></div>
-        <div class="src-year" id="srcYears" role="tablist" aria-label="연도 선택"></div>
-        <div class="src-month" id="srcMonths" role="tablist" aria-label="월 선택"></div>
+        <div class="src-period">
+          <select id="srcYearSel" class="src-sel" aria-label="연도 선택" onchange="pickSrcYear(this.value)"></select>
+          <select id="srcMonthSel" class="src-sel" aria-label="기간 선택" onchange="pickSrcMonth(this.value)"></select>
+        </div>
       </div>
-      </details>
+      </div>
       <div class="src-note" id="srcNote" aria-live="polite"></div>
-      <div class="src-list" id="srcList"></div>
+      <!-- 파일 목록은 **아래에서 위로 펼쳐지는 시트**다(2026-08-11 지시). 폰에서는
+           화면 아래에 붙어 살짝 보이고(peek), 손잡이를 누르면 위로 펼쳐진다.
+           목록은 시트 안에서만 스크롤해 화면 전체 스크롤이 길어지지 않는다. -->
+      <div class="src-sheet" id="srcSheet">
+        <button type="button" class="src-sheet-handle" id="srcSheetHandle" onclick="srcSheetToggle()" aria-expanded="false" aria-controls="srcList">
+          <span class="src-sheet-grip" aria-hidden="true"></span>
+          <span class="src-sheet-title" id="srcSheetTitle">파일 목록</span>
+          <span class="src-sheet-arrow" aria-hidden="true">▲</span>
+        </button>
+        <div class="src-list" id="srcList"></div>
+      </div>
     </div>
   </section>
 
@@ -7175,7 +7198,7 @@ function flowRender(){
               <div class="flow-sub">${s.담당?`<span class="flow-who">${esc2(s.담당)}</span>`:''}${rest}</div>
               ${s.메모?`<div class="flow-sub">${esc2(s.메모)}</div>`:''}</div>
          <div class="flow-day">${d==null?'—':'D+'+d}</div>
-       </div>`;
+       </div>` + flowCheckHtml(s, i);
   };
   w.innerHTML = `<div class="flow-root">돌발 AS<span class="rn">${FLOW.length}단계`
     + (last0?` · D+${+last0.소요일}`:'') + `</span></div>`
@@ -7202,6 +7225,39 @@ function flowGroups(steps){
     else out.push({branch:b, items:[i]});
   });
   return out;
+}
+/* ── 예/아니오 순환 검증 (2026-08-11 지시 "순환 검증해서 다시 돌아오는
+   예스 오아 노 구조") ──────────────────────────────────────────────────────
+   단계에 검증 질문이 달리면 카드 밑에 마름모(질문)와 두 갈래가 붙는다:
+   예 = 다음 단계로 계속, 아니오 = 지정한 **앞 단계로 되돌아감**(순환).
+   되돌아갈 단계는 이름으로 기억한다 — 번호는 옮기는 순간 어긋난다.
+   내용은 전부 DB(flow_step)라 [수정]에서 언제든 바꾼다 — 계속 바뀔 예정이다. */
+function flowNoLabel(s, steps){
+  const t = String(s.아니오||'').trim();
+  if(!t) return '이 단계에서 대기';
+  const arr = steps || FLOW;
+  const i = arr.findIndex(x=>String(x.단계||'').trim()===t);
+  return i>=0 ? (i+1)+'. '+t : t+' (단계 없음)';
+}
+function flowCheckHtml(s, i){
+  const q = String(s.검증||'').trim();
+  if(!q) return '';
+  const t = String(s.아니오||'').trim();
+  const ti = t ? FLOW.findIndex(x=>String(x.단계||'').trim()===t) : -1;
+  return `<div class="flow-check">
+      <div class="flow-check-q"><span class="q-ic" aria-hidden="true">?</span>${esc2(q)}</div>
+      <div class="flow-check-br">
+        <span class="flow-yes">예 ↓ 계속</span>
+        <button type="button" class="flow-no-b" ${ti>=0?`onclick="flowGoto(${ti})"`:'disabled'}
+          title="${ti>=0?'되돌아갈 단계로 이동':'되돌아갈 단계가 없습니다'}">아니오 ↺ ${esc2(flowNoLabel(s))}</button>
+      </div></div>`;
+}
+function flowGoto(i){
+  const el = document.querySelector(`#flowWrap .flow-step[data-i="${i}"]`);
+  if(!el) return;
+  try{ el.scrollIntoView({block:'center', behavior:'smooth'}); }catch(_){ el.scrollIntoView(); }
+  el.classList.add('flow-hl');
+  setTimeout(()=>el.classList.remove('flow-hl'), 1400);
 }
 /* 머리 카드 — 숫자는 칩으로, 안내는 한 줄로. 예전엔 셋을 한 문장에 이어 붙여
    폰에서 세 줄로 흘렀다(사용자 화면 실측). 숫자와 안내는 읽는 목적이 다르다. */
@@ -12163,12 +12219,14 @@ function warehouseCsv(){
 }
 function renderSegs(){
   const host=$('srcSegs'); if(!host) return;
+  // 아이콘만 그린다(2026-08-11 지시 "아래 텍스트 없이"). 이름은 title(길게 누르면
+  // 풍선)과 aria-label 로 남긴다 — 화면에서 지웠다고 보조기기에서도 지우면 안 된다.
   host.innerHTML = SRC_GROUPS.map(g=>{
     const on = g.key===SRC_G;
     const ink=g.key==='kakao'?'#1C1C1E':'#fff';
-    return `<button class="src-seg ${on?'on':''}" role="tab" aria-selected="${on}" onclick="pickSrcGroup('${g.key}')">
+    return `<button class="src-seg ${on?'on':''}" role="tab" aria-selected="${on}" title="${esc2(g.label)}" aria-label="${esc2(g.label)}" onclick="pickSrcGroup('${g.key}')">
       <span class="src-seg-ic" aria-hidden="true" style="--seg-color:${g.color};--seg-ink:${ink}">${esc2(g.ic)}</span>
-      <span class="src-seg-label">${esc2(g.label)}</span><span class="src-seg-check" aria-hidden="true">✓</span></button>`;
+      <span class="src-seg-check" aria-hidden="true">✓</span></button>`;
   }).join('');
 }
 /* 연도와 월을 나눈다(2026-08-06 지시). 2025 자료가 들어오면서 월 칩이 스무 개를
@@ -12177,38 +12235,34 @@ function srcYearList(){
   return [...new Set((SRC.months||[]).map(m=>String(m).slice(0,4)))]
     .filter(y=>/^\d{4}$/.test(y)).sort().reverse();
 }
+/* 연도·기간은 드롭다운 둘이다 (2026-08-11 지시 "전체년도 전체 기간은 드롭다운이나
+   다른 방법으로 간소화"). 버튼 20여 개가 먹던 자리가 한 줄이 된다. */
 function renderYears(){
-  const host=$('srcYears'); if(!host) return;
+  const sel=$('srcYearSel'); if(!sel) return;
   const ys=srcYearList();
-  if(ys.length<2){ host.innerHTML=''; return; }   // 한 해뿐이면 줄 자체를 만들지 않는다
-  host.innerHTML = `<button class="src-mbtn ${SRC_Y?'':'on'}" role="tab" aria-selected="${!SRC_Y}" onclick="pickSrcYear('')">전체 연도</button>`
-    + ys.map(y=>`<button class="src-mbtn ${SRC_Y===y?'on':''}" role="tab" aria-selected="${SRC_Y===y}" onclick="pickSrcYear('${y}')">${y}년</button>`).join('');
+  if(ys.length<2){ sel.hidden=true; sel.innerHTML=''; return; }  // 한 해뿐이면 숨긴다
+  sel.hidden=false;
+  sel.innerHTML = `<option value="">전체 연도</option>`
+    + ys.map(y=>`<option value="${y}">${y}년</option>`).join('');
+  sel.value = SRC_Y || '';
 }
 function renderMonths(){
-  const host=$('srcMonths'); if(!host) return;
+  const sel=$('srcMonthSel'); if(!sel) return;
   let ms=(SRC.months||[]);
   if(SRC_Y) ms=ms.filter(m=>String(m).slice(0,4)===SRC_Y);
   ms=ms.slice(0,24);
   const allLabel = SRC_Y ? `${SRC_Y}년 전체` : '전체 기간';
-  host.innerHTML = `<button class="src-mbtn ${SRC_M?'':'on'}" role="tab" aria-selected="${SRC_M?'false':'true'}" onclick="pickSrcMonth('')">${esc2(allLabel)}</button>`+
-    ms.map(m=>{
+  sel.innerHTML = `<option value="">${esc2(allLabel)}</option>`
+    + ms.map(m=>{
       // 연도를 이미 골랐으면 '3월' 로 짧게 — 같은 숫자가 반복되면 눈이 못 고른다.
       const t = SRC_Y ? (Number(String(m).slice(5,7))+'월') : m;
-      return `<button class="src-mbtn ${SRC_M===m?'on':''}" role="tab" aria-selected="${SRC_M===m}" onclick="pickSrcMonth('${esc2(m)}')">${esc2(t)}</button>`;
+      return `<option value="${esc2(m)}">${esc2(t)}</option>`;
     }).join('');
+  sel.value = SRC_M || '';
 }
-/* 고르고 나면 스스로 접고 목록으로 내려간다 (2026-08-10 지시).
-   고른 순간 사람이 보고 싶은 것은 **결과**다. 필터를 펼친 채로 두면 그 결과가
-   화면 밖에 있고, 사람은 접기 단추를 한 번 더 눌러야 한다.
-   ⚠ 검색어 입력(srcQ)에는 걸지 않는다 — 한 글자마다 접히면 계속 칠 수가 없다. */
-function srcCollapse(){
-  const f=$('srcFold');
-  if(f && f.open){ f.open=false; }
-  const note=$('srcNote');
-  if(note && typeof note.scrollIntoView==='function')
-    try{ note.scrollIntoView({block:'nearest'}); }catch(e){}
-}
-function pickSrcGroup(k){ SRC_G=k; renderSegs(); renderSources(); srcCollapse(); }
+/* 필터는 항상 펼침(2026-08-11)이라 예전 srcCollapse(스스로 접기)는 퇴역했다.
+   결과 위치는 바텀시트가 대신한다 — 목록이 언제나 화면 아래 같은 자리에 있다. */
+function pickSrcGroup(k){ SRC_G=k; renderSegs(); renderSources(); }
 function pickSrcYear(y){
   SRC_Y=y;
   // 고른 달이 그 해가 아니면 놓는다 — 안 그러면 '2025년 + 2026-03' 같은 빈 조건이 된다.
@@ -12218,7 +12272,15 @@ function pickSrcYear(y){
 function pickSrcMonth(m){
   SRC_M=m;
   if(m) SRC_Y=String(m).slice(0,4);       // 달을 고르면 연도도 따라 맞춘다
-  renderYears(); renderMonths(); renderSources(); srcCollapse();
+  renderYears(); renderMonths(); renderSources();
+}
+/* 파일 목록 시트 펼치기/접기 (2026-08-11 지시 "아래에서 위로 펼쳐지는 기능").
+   시트 모양은 폰에서만이지만(미디어쿼리) 토글 자체는 어디서든 무해하다. */
+function srcSheetToggle(){
+  const sh=$('srcSheet'), h=$('srcSheetHandle'); if(!sh) return;
+  const up=sh.classList.toggle('up');
+  if(h) h.setAttribute('aria-expanded', up?'true':'false');
+  try{ uxEvent('tap','src-sheet-'+(up?'open':'close')); }catch(e){}
 }
 async function renderSources(){
   const q=($('srcQ')?.value||'').trim();
@@ -12235,15 +12297,15 @@ async function renderSources(){
   let rows=(d.rows||[]);
   const gl=(SRC_GROUPS.find(g=>g.key===SRC_G)||{}).label||'전체';
   $('srcNote').innerHTML = `${esc2(gl)} · 표시 <b>${fmt(rows.length)}</b>건 (전체 ${fmt(d.count||0)}건) · 색인 ${esc2((d.built||'').slice(5))}`;
-  /* ★ 접어 두면 무엇으로 걸러져 있는지 안 보인다 — 그러면 "왜 0건이지"를 못 푼다.
-     제목줄이 지금 조건을 대신 말한다(갈래·기간·검색어). 2026-08-10 지시. */
-  const _fs=$('srcFoldSum');
-  if(_fs){
-    const bits=[gl];
+  /* 시트 손잡이가 지금 조건과 건수를 말한다 — 접힌(peek) 상태에서도 "왜 0건인지"
+     를 풀 수 있어야 한다(예전 srcFoldSum 의 역할, 2026-08-11 시트로 이사). */
+  const _st=$('srcSheetTitle');
+  if(_st){
+    const bits=['파일 '+fmt(rows.length)+'건', gl];
     bits.push(SRC_M ? SRC_M : (SRC_Y ? SRC_Y+'년' : '전체 기간'));
     const _q=($('srcQ')&&$('srcQ').value||'').trim();
-    if(_q) bits.push('검색 “'+_q+'”');
-    _fs.textContent = ' — ' + bits.join(' · ');
+    if(_q) bits.push('“'+_q+'”');
+    _st.textContent = bits.join(' · ');
   }
   $('srcList').innerHTML = rows.map(r=>{
     const g=srcGroupOf(r);
