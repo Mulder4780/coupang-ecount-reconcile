@@ -589,6 +589,11 @@ body.calendar-only .cal2-only-note{display:block}
    이 단추를 눌러야 이력이 뜬다. 두 가지를 한 자리에 겹치지 않는다. */
 .cal2-evrow{display:flex;gap:6px;align-items:stretch}
 .cal2-evrow > .cal2-ev{flex:1;min-width:0}
+.cal2-editbtn{flex:none;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);
+  color:var(--ink-2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  padding:0 10px;font-size:11px;font-weight:800;font-family:inherit;cursor:pointer;transition:all .14s}
+.cal2-editbtn .bi{width:16px;height:16px;fill:currentColor}
+@media(hover:hover){.cal2-editbtn:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-tint)}}
 .pj-hist{flex:none;width:42px;border-radius:12px;border:1.5px solid var(--line);
   background:var(--surface);color:var(--ink-2);display:grid;place-items:center;cursor:pointer;
   transition:all .14s}
@@ -4101,7 +4106,9 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
       <button type="button" class="cal2-sheet-x" onclick="calCloseSheet()" aria-label="닫기">✕</button>
     </div>
     <div class="cal2-sheet-body" id="calSheetBody"></div>
-    <div class="cal2-sheet-foot">
+    <div class="cal2-sheet-foot" style="flex-wrap:wrap">
+      <button type="button" class="abtn primary" style="flex:1 1 100%" onclick="calNewJob()">
+        <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>이 날짜로 신규 등록</button>
       <button type="button" class="abtn" onclick="calSheetShift(-1)">‹ 전날</button>
       <button type="button" class="abtn" onclick="calSheetShift(1)">다음날 ›</button>
     </div>
@@ -5498,19 +5505,65 @@ function fillNewWorkStatus(k){
 /* 돌발AS·정기점검 화면에서 바로 신규 접수를 등록한다 (2026-08-10 지시).
    ★ 폼은 **하나뿐**이다 — 화면마다 따로 만들면 칸이 갈리고 한쪽만 고쳐진다([162]).
    류지영 업무센터에 있는 그 폼을 시트로 끌어올려 쓴다. */
-async function openNewWork(k){
+async function openNewWork(k, prefill){
   await loadFlowStages();
   const form=$('newWorkForm');
   if(!form){ notice('신규 등록 폼을 찾지 못했습니다'); return; }
   const cat=$('newWorkCategory'); if(cat) cat.value=k;
   fillNewWorkStatus(k);
+  const setv=(name,val)=>{ const el=form.querySelector('[name="'+name+'"]');
+    if(el && val!=null && val!=='') el.value=val; };
   const d=form.querySelector('[name="work_date"]');
-  if(d && !d.value) d.value=wtToday();
+  const p=prefill||{};
+  /* ★ 캘린더에서 날짜를 찍고 들어오면 그 날짜·현장을 미리 채운다(2026-08-12 지시).
+     폼은 하나뿐이라([162]) 여기 한 곳만 채우면 화면 어디서 열든 같다. */
+  if(p.date){ if(d) d.value=p.date; }
+  else if(d && !d.value) d.value=wtToday();
+  setv('project_no', p.project_no); setv('camp_name', p.camp_name);
+  setv('assignee', p.assignee); setv('cost_type', p.cost_type);
+  setv('description', p.description);
+  if(p.status){
+    // 단계는 관리대장 드롭다운에 있는 값만 고른다([166]) — 없으면 기본값을 둔다.
+    const sel=$('newWorkStatus');
+    if(sel && [...sel.options].some(o=>o.value===p.status)) sel.value=p.status;
+  }
   const nm=(k==='pm')?'정기점검':'돌발AS';
-  layerOpen('newWorkForm', {title:nm+' 신규 등록',
-    sub:'저장하면 앱 DB 정본과 감사기록에 즉시 남습니다. Excel은 보관본 회차가 만듭니다.'});
-  draftOffer(form);                    // 적다 만 초안이 있으면 물어보고 복원(2026-08-11)
-  uxEvent('tap','wt-new-'+k);
+  layerOpen('newWorkForm', {title:(p.title||(nm+' 신규 등록')),
+    sub:(p.sub||'저장하면 앱 DB 정본과 감사기록에 즉시 남습니다. Excel은 보관본 회차가 만듭니다.')});
+  // 프리필로 들어오면 초안 복원을 묻지 않는다 — 방금 고른 현장 값을 초안이 덮으면 헷갈린다.
+  if(!prefill) draftOffer(form);       // 적다 만 초안이 있으면 물어보고 복원(2026-08-11)
+  uxEvent('tap','wt-new-'+k+(prefill?'-cal':''));
+}
+/* ── 쿠팡 캘린더에서 바로 등록·수정 (2026-08-12 지시) ─────────────────────────
+   "날짜 찍고 입력 및 수정" — 날짜 창에서 신규 등록/기존 수정 둘 다 같은 newWorkForm 을
+   쓴다. 저장은 /api/staff/new-job 한 길이고, 프로젝트NO 로 넣으므로 이미 있는 건은
+   같은 칸을 덮어 **수정**이 되고 없으면 **신규**가 된다(only_if_empty=False, 서버 2150줄).
+   Excel 직접 mutator 를 새로 만들지 않는다 — 앱 DB 정본에만 즉시 쓰고 보관본 회차가 뒤따른다. */
+function calCatOf(e){
+  const k=calKindOf(e);
+  if(/^pm/.test(k)) return 'pm';
+  if(/^as/.test(k)) return 'as';
+  return String(e&&e.업무구분||'').indexOf('정기점검')>=0 ? 'pm' : 'as';
+}
+function calNewJob(){
+  const day=CAL_DAY||todayISO();
+  calCloseSheet();
+  openNewWork('as', {date:day, title:`${ymd(day)} 신규 등록`,
+    sub:'업무 구분(돌발AS·정기점검)을 고르고 저장하면 이 날짜로 앱 DB에 즉시 기록됩니다.'});
+}
+function calEditEvent(day, i){
+  const rows=calDayRows(day||CAL_DAY);
+  const e=rows[i]; if(!e){ notice('수정할 일정을 찾지 못했습니다'); return; }
+  const cat=calCatOf(e);
+  if(!e.프로젝트NO){
+    notice('이 일정은 프로젝트번호가 없어 바로 수정할 수 없습니다 — 신규 등록으로 번호를 넣어 주세요.');
+    calNewJob(); return;
+  }
+  calCloseSheet();
+  openNewWork(cat, {date:e.날짜||day, project_no:e.프로젝트NO, camp_name:calCampOf(e)==='(장소 미입력)'?'':calCampOf(e),
+    assignee:e.담당기사||'', status:e.진행상태||e.점검상태||'',
+    title:`${ymd(e.날짜||day)} 일정 수정 · ${esc2(e.프로젝트NO)}`,
+    sub:'같은 프로젝트번호의 칸을 덮어 수정합니다. 저장하면 앱 DB 정본에 즉시 반영됩니다.'});
 }
 async function submitNewWork(ev){
   ev.preventDefault();
@@ -11382,7 +11435,9 @@ function renderCalAgenda(){
   const rows=calDayRows(CAL_DAY);
   head.innerHTML = `${esc2(CAL_DAY?ymd(CAL_DAY):'선택한 날')} <span>· ${rows.length}건</span>`;
   if(!rows.length){
-    box.innerHTML='<div class="cal2-empty">이 날에는 표시할 일정이 없습니다</div>';
+    box.innerHTML='<div class="cal2-empty">이 날에는 표시할 일정이 없습니다</div>'
+      +'<button type="button" class="abtn primary" style="width:100%;justify-content:center;margin-top:8px" onclick="calNewJob()">'
+      +'<svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>이 날짜로 신규 등록</button>';
     detail.textContent='날짜를 고르면 그 날의 일정과 세부 사항이 여기에 나옵니다.';
     return;
   }
@@ -11394,7 +11449,8 @@ function renderCalAgenda(){
       onclick="selectCalendarEvent(${i})"><span class="bar" aria-hidden="true"></span><span class="tx">
       <span class="t1"><span class="k">${esc2(k.label)}</span>${esc2(e.캠프명||e.장소||e.제목||'제목 없음')}</span>
       <span class="t2">${esc2(e.프로젝트NO||'프로젝트 미확정')}${e.담당기사?` · ${esc2(e.담당기사)}`:''}${e.시간?` · ${esc2(e.시간)}`:''}</span>
-      </span></button>${pjHistBtn(e)}</div>`;
+      </span></button><button type="button" class="cal2-editbtn" title="이 일정 수정"
+        onclick="calEditEvent('${CAL_DAY}',${i})"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>수정</button>${pjHistBtn(e)}</div>`;
   }).join('');
   detail.innerHTML=calDetailHTML(rows[calendarSelected]);
 }
@@ -11473,6 +11529,7 @@ function renderCalSheet(){
   sub.textContent = rows.length ? `일정 ${rows.length}건` : '이 날에는 표시할 일정이 없습니다';
   if(!rows.length){
     body.innerHTML='<div class="cal2-empty">이 날에는 표시할 일정이 없습니다. 위 칩에서 꺼 둔 종류가 있는지 확인해 보세요.</div>';
+    // 빈 날에도 아래 발(foot)의 '이 날짜로 신규 등록'으로 바로 접수를 만들 수 있다(2026-08-12).
     return;
   }
   CAL_SHEET_SEL=Math.max(0, Math.min(CAL_SHEET_SEL, rows.length-1));
@@ -11483,7 +11540,8 @@ function renderCalSheet(){
       onclick="calSheetPick(${i})"><span class="bar" aria-hidden="true"></span><span class="tx">
       <span class="t1"><span class="k">${esc2(k.label)}</span>${esc2(calCampOf(e))}</span>
       <span class="t2">${esc2(e.프로젝트NO||'프로젝트 미확정')}${e.담당기사?` · ${esc2(e.담당기사)}`:''}${e.시간?` · ${esc2(e.시간)}`:''}</span>
-      </span></button>${pjHistBtn(e)}</div>`;
+      </span></button><button type="button" class="cal2-editbtn" title="이 일정 수정"
+        onclick="calEditEvent('${CAL_DAY}',${i})"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>수정</button>${pjHistBtn(e)}</div>`;
   }).join('')
   + `<div class="calendar-detail">${calDetailHTML(rows[CAL_SHEET_SEL])}</div>`;
 }
