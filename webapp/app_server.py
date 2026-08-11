@@ -5776,6 +5776,106 @@ def _daydiff(a, b):
         return None
 
 
+def get_orgchart():
+    """조직도 — 사무실 책상 배치도(2026-08-12 지시). 각 자리에 누가·역할·상태.
+
+    ★ 자리와 역할은 로스터(STAFF_CENTERS·AS_TECH_CENTERS)가 정본이다.
+      사람의 '지금 무엇을 하는가'는 앱이 진짜로는 모른다 — 그래서 지어내지 않고
+      역할만 싣는다([169] '0을 안 본 것으로 만들지 마라'의 사람판). **실시간으로
+      아는 것은 AI 세션뿐**이라, AI 구역만 ai_claim 점유로 살아 움직인다.
+      _live 는 그 점유를 실제로 읽었는지를 말한다(못 읽으면 폰이 스냅샷으로 물러선다)."""
+    import time as _t
+    now = _t.time()
+    PAL = ["#0062CC", "#12813F", "#B25000", "#7A3DB8",
+           "#0E7490", "#B3261E", "#177245", "#8A5A00"]
+
+    mgmt = []
+    for i, (slug, cfg) in enumerate(STAFF_CENTERS.items()):
+        cl = cfg.get("checklist") or []
+        mgmt.append({
+            "name": cfg.get("name", slug),
+            "role": cfg.get("title", ""),
+            "color": PAL[i % len(PAL)],
+            "state": "idle",
+            "msg": (cl[0] if cl else "업무센터 담당"),
+            "ago": "근무",
+            "badge": "대표" if slug == "yoo-hyeonmin" else "",
+        })
+
+    field = []
+    for i, (slug, cfg) in enumerate(AS_TECH_CENTERS.items()):
+        title = cfg.get("직함") or ""
+        field.append({
+            "name": cfg.get("name", slug),
+            "role": "현장 AS · 정기점검",
+            "color": PAL[(i + 3) % len(PAL)],
+            "state": "idle",
+            "msg": (title + " · " if title else "") + "배정에 따라 현장 조치·밴드 보고",
+            "ago": "",
+            "badge": title,
+        })
+
+    ai, live_ok = [], False
+    try:
+        import ai_claim
+        claims = ai_claim.load()
+        live_ok = True
+        by_sid = {}
+        for res, c in (claims or {}).items():
+            if not isinstance(c, dict):
+                continue
+            sid = c.get("sid") or c.get("who") or res
+            g = by_sid.setdefault(sid, {"who": c.get("who") or "?",
+                                        "res": [], "why": "", "at": 0.0,
+                                        "dead": True})
+            g["res"].append(ai_claim.LOCKS.get(res, (res, False))[0])
+            if c.get("why"):
+                g["why"] = c.get("why")
+            g["at"] = max(g["at"], float(c.get("at") or 0))
+            if not ai_claim._is_dead(c):
+                g["dead"] = False
+        for sid, g in by_sid.items():
+            mins = int((now - g["at"]) / 60) if g["at"] else 0
+            ago = "방금" if mins < 1 else (f"{mins}분 전" if mins < 60
+                                          else f"{mins // 60}시간 {mins % 60}분 전")
+            who = str(g["who"])
+            nm = {"claude": "Claude 세션", "codex": "Codex 세션"}.get(who, who)
+            ai.append({
+                "name": nm,
+                "role": " · ".join(dict.fromkeys(g["res"])) or "작업 중",
+                "color": "#0062CC" if who == "claude" else "#5A6785",
+                "state": "off" if g["dead"] else "live",
+                "msg": g["why"] or "작업 중",
+                "ago": ago + ("" if not g["dead"] else " · 종료됨"),
+            })
+    except Exception:
+        live_ok = False
+    if not ai:
+        # ★ 0건을 '없다'로 못 박지 않는다 — 점유를 못 읽었을 수도 있다([169]).
+        ai.append({
+            "name": "AI 세션 없음" if live_ok else "AI 상태 못 읽음",
+            "role": "자동화 · 수집 · 코딩",
+            "color": "#8A93A6", "state": "off",
+            "msg": ("지금 잡혀 있는 AI 작업이 없습니다"
+                    if live_ok else "ai_claim 점유를 읽지 못했습니다"),
+            "ago": "—",
+        })
+
+    gen = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
+    return {
+        "_live": live_ok,
+        "gen": gen + (" · 실시간" if live_ok else " · 점유 못 읽음"),
+        "zones": [
+            {"key": "mgmt", "title": "관리팀 · 업무센터",
+             "tag": "쿠팡 AS · 정기점검 원장", "people": mgmt},
+            {"key": "field", "title": "현장 AS팀 · 정기점검",
+             "tag": "현장 조치 · 밴드 보고", "people": field},
+            {"key": "ai", "title": "AI 에이전트 스테이션",
+             "tag": "자동화 · 수집 · 코딩", "people": ai},
+        ],
+    }
+
+
 def get_checks():
     """최근 카톡·밴드·ERP원장·쿠팡PO 대조 CSV를 ID별로 조인 — 4원천 검증 배지"""
     import csv as _csv
@@ -6967,6 +7067,25 @@ self.addEventListener('fetch', e => {
                 "staff_slug": renewed.get("staff_slug") or "",
                 "expires_at": renewed["expires_at"],
             }, headers={"Set-Cookie": auth_cookie(token)})
+        if p == "/api/flow":
+            # AS 접수 → 수금 업무 흐름도(2026-08-07 지시). 정본은 DB 다.
+            # ★ PIN 게이트 **앞**에 둔다(2026-08-12): 이것은 업무 절차 다이어그램이라
+            #   원장 같은 민감 데이터가 아니고, 같은 내용이 이미 오프라인 꾸러미
+            #   (cloud_publish d["flow"] → data.enc)로 공개돼 있다. 게이트 뒤에 있으면
+            #   PIN·세션이 없는 폰이 loadFlow 로 받을 때 빈값을 받아 "흐름이 비어
+            #   있습니다"가 뜬다(사용자 실측 화면 — 캡처도 그래서 실패했다).
+            #   /grab_posts.js·/api/collect_plan 처럼 공개군에 속한다.
+            # 차트는 여러 장(종전/개선, 추후 정기점검): ?chart=<key>
+            import ledger_db
+            fqs = parse_qs(urlsplit(self.path).query)   # 함수 안 import 금지(윗 주석)
+            key = (fqs.get("chart", [""])[0] or "").strip() or "as_legacy"
+            try:
+                steps = ledger_db.flow_steps(key)
+            except ValueError as e:
+                return self._send(400, {"ok": False, "error": str(e)})
+            return self._send(200, {"steps": steps, "chart": key,
+                                    "charts": ledger_db.flow_charts(),
+                                    "notes": ledger_db.flow_notes(key)})
         if not self._auth():
             return self._send(401, {"error": "PIN"})
         if p == "/api/live-state":
@@ -7273,18 +7392,15 @@ self.addEventListener('fetch', e => {
             return self._send(200, get_erpdocs())
         if p == "/api/checks":
             return self._send(200, get_checks())
-        if p == "/api/flow":
-            # AS 접수 → 수금 업무 흐름 (2026-08-07 지시). 정본은 DB 다.
-            # 차트는 여러 장(2026-08-11 — 종전/개선, 추후 정기점검): ?chart=<key>
-            import ledger_db
-            key = (qs.get("chart", [""])[0] or "").strip() or "as_legacy"
+        if p == "/api/orgchart":
+            # 조직도 실시간 상태. 인증(쿠키/PIN)이 없으면 여기 못 오고, 그때
+            # 화면은 오프라인 스냅샷으로 물러선다(index.html ORG_SNAP).
             try:
-                steps = ledger_db.flow_steps(key)
-            except ValueError as e:
-                return self._send(400, {"ok": False, "error": str(e)})
-            return self._send(200, {"steps": steps, "chart": key,
-                                    "charts": ledger_db.flow_charts(),
-                                    "notes": ledger_db.flow_notes(key)})
+                return self._send(200, get_orgchart())
+            except Exception as exc:
+                return self._send(200, {"_live": False,
+                                        "gen": "조직도 상태를 읽지 못했습니다",
+                                        "error": str(exc)[:200], "zones": []})
         if p == "/api/flow-stages":
             # 돌발AS·정기점검 **단계 정의** (2026-08-10 지시). 화면이 단계 낱말을
             # 스스로 적지 않고 여기서 받아 간다 — 두 곳에 적으면 언젠가 갈린다([162]).

@@ -4129,6 +4129,120 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 </div>
 
 
+  <!-- ══ 조직도 — 사무실 책상 배치 평면도 (2026-08-12 지시) ══════════════════
+       각 자리에 누가·역할·실시간 상태. 정본은 /api/orgchart, 없으면 ORG_SNAP.
+       클래스는 전부 `org-` 접두 — 1.1MB 본문의 .desk·.status·.badge 와 안 부딪히게. -->
+  <style id="org-style">
+  #v-org{--org-busy:#E8890C;--org-idle:#2B9560;--org-off:#8A93A6;--org-live:#0062CC;
+    --org-brand:#0062CC;--org-card:#FFFFFF;--org-line:rgba(30,50,90,.12);
+    --org-floor:#F7F9FC;--org-wall:#D3DBE8;--org-ink:#0E1B3F;--org-ink2:#5A6785;
+    --org-zmgmt:#EAF2FF;--org-zfield:#EAF9F0;--org-zai:#F1ECFF;
+    --org-sh:0 1px 2px rgba(16,30,70,.06),0 6px 20px rgba(16,30,70,.08)}
+  @media (prefers-color-scheme:dark){#v-org{--org-card:#16223C;--org-line:rgba(150,175,225,.16);
+    --org-floor:#111A30;--org-wall:#1E2A45;--org-ink:#EAF0FF;--org-ink2:#9FB0D0;
+    --org-zmgmt:#152647;--org-zfield:#123322;--org-zai:#231b45;
+    --org-sh:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.35)}}
+  :root[data-theme="dark"] #v-org{--org-card:#16223C;--org-line:rgba(150,175,225,.16);
+    --org-floor:#111A30;--org-wall:#1E2A45;--org-ink:#EAF0FF;--org-ink2:#9FB0D0;
+    --org-zmgmt:#152647;--org-zfield:#123322;--org-zai:#231b45}
+  :root[data-theme="light"] #v-org{--org-card:#FFFFFF;--org-line:rgba(30,50,90,.12);
+    --org-floor:#F7F9FC;--org-wall:#D3DBE8;--org-ink:#0E1B3F;--org-ink2:#5A6785;
+    --org-zmgmt:#EAF2FF;--org-zfield:#EAF9F0;--org-zai:#F1ECFF}
+  #v-org{color:var(--org-ink)}
+  .org-hero{position:relative;overflow:hidden;border-radius:18px;margin:2px 0 12px;
+    background:linear-gradient(135deg,#0E1B3F,#2452E6);color:#fff;padding:18px 18px 16px;
+    display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+  .org-hero::after{content:"";position:absolute;top:-60%;right:-10%;width:60%;height:220%;
+    background:radial-gradient(closest-side,rgba(255,255,255,.18),transparent);
+    animation:orgDrift 12s ease-in-out infinite alternate;pointer-events:none}
+  .org-hero-in{min-width:0}
+  .org-eyebrow{font-size:11.5px;letter-spacing:.14em;color:#AEC2F5;font-weight:700}
+  .org-h1{margin:2px 0 0;font-size:21px;font-weight:850;letter-spacing:-.4px}
+  .org-lead{margin:6px 0 0;font-size:13px;color:#C9D7FA;line-height:1.5}
+  .org-gen{margin-top:8px;font-size:11.5px;color:#9FB4E8}
+  .org-tools{display:flex;gap:8px;flex-wrap:wrap;position:relative;z-index:1}
+  .org-btn{border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:#fff;
+    border-radius:10px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;
+    font-family:inherit;transition:background .15s,transform .1s}
+  .org-btn:hover{background:rgba(255,255,255,.22)} .org-btn:active{transform:scale(.96)}
+  .org-legend{display:flex;gap:14px;flex-wrap:wrap;padding:2px 4px 10px;font-size:12px;color:var(--org-ink2)}
+  .org-legend b{display:inline-flex;align-items:center;gap:5px;font-weight:600}
+  .org-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
+  .org-dot.busy{background:var(--org-busy)} .org-dot.idle{background:var(--org-idle)}
+  .org-dot.off{background:var(--org-off)} .org-dot.live{background:var(--org-live)}
+  .org-dot.pulse{animation:orgPulse 1.8s infinite}
+  @keyframes orgPulse{0%{box-shadow:0 0 0 0 rgba(0,98,204,.5)}70%{box-shadow:0 0 0 8px rgba(0,98,204,0)}100%{box-shadow:0 0 0 0 rgba(0,98,204,0)}}
+  .org-floor{position:relative;background:
+      linear-gradient(var(--org-floor),var(--org-floor)) padding-box,
+      repeating-linear-gradient(0deg,transparent 0 39px,var(--org-line) 39px 40px),
+      repeating-linear-gradient(90deg,transparent 0 39px,var(--org-line) 39px 40px);
+    border:2px solid var(--org-wall);border-radius:18px;padding:14px;
+    box-shadow:var(--org-sh) inset;display:grid;gap:14px}
+  .org-zone{border-radius:16px;padding:12px 12px 14px;border:1.5px dashed var(--org-line);transition:box-shadow .3s}
+  .org-zone.mgmt{background:var(--org-zmgmt)} .org-zone.field{background:var(--org-zfield)} .org-zone.ai{background:var(--org-zai)}
+  @media(hover:hover){.org-zone:hover{box-shadow:0 6px 24px rgba(16,30,70,.10)}}
+  .org-zh{display:flex;align-items:center;gap:8px;margin:0 2px 10px;font-size:13px;font-weight:850;color:var(--org-ink)}
+  .org-zh .tag{margin-left:auto;font-size:11px;font-weight:700;color:var(--org-ink2)}
+  .org-desks{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .org-desk{position:relative;background:var(--org-card);border:1px solid var(--org-line);
+    border-radius:14px;padding:11px 12px 12px;box-shadow:var(--org-sh);overflow:hidden;
+    opacity:0;transform:translateY(10px);animation:orgRise .5s cubic-bezier(.2,.8,.3,1) forwards}
+  .org-desk::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--org-off)}
+  .org-desk.s-busy::before{background:var(--org-busy)} .org-desk.s-idle::before{background:var(--org-idle)}
+  .org-desk.s-live::before{background:var(--org-live)} .org-desk.s-off::before{background:var(--org-off)}
+  .org-desk:nth-child(1){animation-delay:.02s}.org-desk:nth-child(2){animation-delay:.08s}
+  .org-desk:nth-child(3){animation-delay:.14s}.org-desk:nth-child(4){animation-delay:.20s}
+  @media(hover:hover){.org-desk:hover{transform:translateY(-4px);box-shadow:0 10px 30px rgba(16,30,70,.18),0 2px 6px rgba(16,30,70,.10)}}
+  .org-desk.s-live::after{content:"";position:absolute;inset:-1px;border-radius:14px;padding:1.5px;pointer-events:none;
+    background:conic-gradient(from 0deg,transparent,var(--org-live),transparent 40%);
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+    -webkit-mask-composite:xor;mask-composite:exclude;animation:orgSpin 3.2s linear infinite;opacity:.9}
+  .org-row1{display:flex;align-items:center;gap:8px}
+  .org-avatar{width:34px;height:34px;border-radius:11px;flex:none;display:grid;place-items:center;
+    font-weight:850;font-size:14px;color:#fff;letter-spacing:-.5px;position:relative;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+  .org-avatar::after{content:"";position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.35),transparent 55%)}
+  .org-who{min-width:0;flex:1}
+  .org-nm{font-size:14.5px;font-weight:850;line-height:1.15;display:flex;align-items:center;gap:6px;color:var(--org-ink)}
+  .org-rl{font-size:11.5px;color:var(--org-ink2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .org-badge{font-size:10px;font-weight:800;padding:1px 6px;border-radius:999px;background:var(--org-brand);color:#fff;flex:none}
+  .org-status{margin-top:9px;display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:1.4;
+    color:var(--org-ink);background:color-mix(in srgb,var(--org-card) 60%,#fff 0%);border-radius:9px;padding:7px 8px;border:1px solid var(--org-line)}
+  .org-status .org-dot{margin-top:4px}
+  .org-status .msg{min-width:0}
+  .org-status .msg .st{font-weight:700}
+  .org-ago{display:block;font-size:10.5px;color:var(--org-ink2);margin-top:1px}
+  .org-note{padding:14px 4px 0;font-size:12px;color:var(--org-ink2);line-height:1.6}
+  @media (min-width:720px){.org-floor{grid-template-columns:1fr 1fr}.org-zone.ai{grid-column:1/-1}}
+  @keyframes orgDrift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(2%,-2%) scale(1.06)}100%{transform:translate(-2%,2%) scale(1.02)}}
+  @keyframes orgRise{to{opacity:1;transform:none}}
+  @keyframes orgSpin{to{transform:rotate(1turn)}}
+  @media (prefers-reduced-motion:reduce){
+    .org-hero::after,.org-desk,.org-desk.s-live::after,.org-dot.pulse{animation:none!important}
+    .org-desk{opacity:1;transform:none}}
+  </style>
+  <section class="view" id="v-org">
+    <div class="org-hero">
+      <div class="org-hero-in">
+        <div class="org-eyebrow">CSOS · UNIVERSAL LIFT &amp; HITACHI KOREA</div>
+        <h1 class="org-h1">조직도 — 사무실 배치도</h1>
+        <p class="org-lead">각 자리에 누가 있는지, 무슨 역할인지, 지금 무엇을 하고 있는지를 한 화면에서 봅니다.</p>
+        <div class="org-gen" id="orgGen">불러오는 중…</div>
+      </div>
+      <div class="org-tools">
+        <button type="button" class="org-btn" onclick="orgLoad(true)" title="지금 다시 읽기">↻ 새로고침</button>
+        <button type="button" class="org-btn" onclick="orgToPng()" title="카톡으로 보낼 이미지">🖼 이미지 저장</button>
+      </div>
+    </div>
+    <div class="org-legend">
+      <b><span class="org-dot busy"></span>업무 중</b>
+      <b><span class="org-dot idle"></span>대기 · 정상</b>
+      <b><span class="org-dot live pulse"></span>실시간 세션</b>
+      <b><span class="org-dot off"></span>오프라인</b>
+    </div>
+    <div class="org-floorwrap"><div class="org-floor" id="orgFloor"></div></div>
+    <div class="org-note" id="orgNote"></div>
+  </section>
+
 <nav class="tabbar" id="tabbar">
   <div class="brand">
     <div class="logo app-icon"><img src="/icon-192.png?v=csos-20260730" alt="CSOS"></div>
@@ -4151,6 +4265,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   <button data-v="check" onclick="routeNav('check')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-exclamation-triangle-fill"/></svg>확인 필요</button>
   <button data-v="sources" onclick="routeNav('sources')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-folder2-open"/></svg>원본 자료</button>
   <button data-v="report" onclick="routeNav('report')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-text-fill"/></svg>기록</button>
+  <button data-v="org" onclick="routeNav('org')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-badge-fill"/></svg>조직도</button>
   <div class="nav-spacer" aria-hidden="true"></div>
   <button class="calendar-nav" data-v="calendar" onclick="routeNav('calendar')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>쿠팡 캘린더</button>
 </nav>
@@ -6703,6 +6818,7 @@ function applyView(v){
   if(v==='run') loadAutomationStatus();
   // 고치는 중이거나 아직 저장 안 한 변경이 있으면 덮지 않는다 — 덮으면 말없이 사라진다
   if(v==='flow' && !FLOW_EDITING && !FLOW_DIRTY) loadFlow();
+  if(v==='org') orgLoad();
   // ★ 여기가 비어 있었다 — [보고] 를 열어도 아무것도 안 받고, **누른 다음에야**
   //   받기 시작해서 버튼이 굳었다(2026-08-07 지시로 재설계). 화면은 막지 않는다.
   if(v==='daily') warmReport();
@@ -7235,6 +7351,140 @@ let FLOW = [], FLOW_EDITING = false;
    "(종전)" = 앱 도입 전 사람 손 방식, "(개선)" = 앱 기반 — 스위치로 오가며 각각
    보고 캡처한다. 목록은 서버(ledger_db.FLOW_CHARTS)가 준다 — 추후 정기점검
    차트가 생겨도 화면은 이 목록을 그대로 그린다(여기에 이름을 적지 않는다). */
+/* ══ 조직도 — 실시간 사무실 배치도 (2026-08-12 지시) ═══════════════════════════
+   정본은 /api/orgchart(AI 구역만 진짜 실시간 — ai_claim). 못 받으면 ORG_SNAP 로
+   물러선다. 화면을 보고 있을 때만 15초마다 다시 읽는다(안 보는데 서버를 두드리지 않는다).
+   사람의 '지금 상태'는 지어내지 않고 역할만 싣는다 — 실시간은 AI 세션뿐이다. */
+const ORG_SNAP={gen:"오프라인 스냅샷",_live:false,zones:[
+  {key:"mgmt",title:"관리팀 · 업무센터",tag:"쿠팡 AS·정기점검 원장",people:[
+    {name:"류지영",role:"류지영 쿠팡 AS 및 정기점검 업무센터",color:"#0062CC",state:"idle",msg:"신규 돌발AS 접수와 처리상태 확인",ago:"근무"},
+    {name:"오종현",role:"오종현 업무센터",color:"#12813F",state:"idle",msg:"PO 원본·견적서 수신 여부 확인",ago:"근무"},
+    {name:"유현민",role:"유현민 업무센터",color:"#7A3DB8",state:"idle",msg:"돌발AS·정기점검 전체 진행상태와 예외 확인",ago:"근무",badge:"대표"}]},
+  {key:"field",title:"현장 AS팀 · 정기점검",tag:"현장 조치·밴드 보고",people:[
+    {name:"차동호",role:"현장 AS · 정기점검",color:"#B25000",state:"idle",msg:"팀장 · 배정에 따라 현장 조치",ago:"",badge:"팀장"},
+    {name:"김준형",role:"현장 AS · 정기점검",color:"#0E7490",state:"idle",msg:"배정에 따라 현장 조치·밴드 보고",ago:""},
+    {name:"권오철",role:"현장 AS · 정기점검",color:"#B3261E",state:"idle",msg:"배정에 따라 현장 조치·밴드 보고",ago:""},
+    {name:"김필우",role:"현장 AS · 정기점검",color:"#177245",state:"idle",msg:"배정에 따라 현장 조치·밴드 보고",ago:""}]},
+  {key:"ai",title:"AI 에이전트 스테이션",tag:"자동화·수집·코딩",people:[
+    {name:"Claude 세션",role:"앱 코딩·검증·인계",color:"#0062CC",state:"off",msg:"연결되면 실시간으로 바뀝니다",ago:"—"},
+    {name:"CSOS 수집",role:"밴드·ERP 자료 수집",color:"#0E7490",state:"off",msg:"연결되면 실시간으로 바뀝니다",ago:"—"},
+    {name:"Codex",role:"교대 코딩",color:"#5A6785",state:"off",msg:"대기",ago:"—"}]}
+]};
+let ORG_TIMER=null, ORG_LAST=null;
+function orgInitials(n){const s=String(n||'').trim();
+  if(/^[A-Za-z]/.test(s))return s.slice(0,2).toUpperCase();
+  return s.replace(/\s|세션|·.*$/g,'').slice(0,2)||'·';}
+function orgStateLabel(s){return {busy:'업무 중',idle:'대기·정상',live:'실시간',off:'오프라인'}[s]||'—';}
+function orgRender(D){
+  ORG_LAST=D;
+  const gen=$('orgGen'); if(gen) gen.textContent='업데이트 '+(D.gen||'—');
+  const floor=$('orgFloor'); if(!floor) return;
+  floor.innerHTML=(D.zones||[]).map(z=>`
+    <section class="org-zone ${esc2(z.key)}">
+      <div class="org-zh">${esc2(z.title)}<span class="tag">${esc2(z.tag||'')}</span></div>
+      <div class="org-desks">${(z.people||[]).map(p=>{
+        const st=p.state||'off';
+        return `<div class="org-desk s-${esc2(st)}">
+          <div class="org-row1">
+            <div class="org-avatar" style="background:${esc2(p.color||'#0062CC')}">${esc2(orgInitials(p.name))}</div>
+            <div class="org-who"><div class="org-nm">${esc2(p.name)}${p.badge?`<span class="org-badge">${esc2(p.badge)}</span>`:''}</div>
+              <div class="org-rl">${esc2(p.role||'')}</div></div>
+          </div>
+          <div class="org-status"><span class="org-dot ${esc2(st)} ${st==='live'?'pulse':''}"></span>
+            <span class="msg"><span class="st">${esc2(orgStateLabel(st))}</span> — ${esc2(p.msg||'상태 없음')}
+              <span class="org-ago">${esc2(p.ago||'')}</span></span></div>
+        </div>`;}).join('')}</div>
+    </section>`).join('');
+  const note=$('orgNote'); if(note) note.textContent=D._live
+    ? '실시간 연결됨 — AI 세션 상태는 ai_claim 점유에서, 사람 자리·역할은 로스터에서 옵니다. 사람의 지금 상태는 지어내지 않고 역할만 싣습니다.'
+    : '오프라인 스냅샷입니다 — 서버에 연결되면 AI 세션 상태가 실시간으로 바뀝니다.';
+}
+async function orgLoad(force){
+  try{
+    const d=await api('/api/orgchart'+(force?('?t='+Date.now()):''));
+    if(d&&d.zones&&d.zones.length){ if(d._live===undefined) d._live=true; orgRender(d); }
+    else orgRender(ORG_SNAP);
+  }catch(e){ orgRender(ORG_SNAP); }
+  if(ORG_TIMER) return;                       // 화면을 보고 있을 때만 도는 15초 갱신
+  ORG_TIMER=setInterval(()=>{ if(window.__view==='org') orgLoad(); }, 15000);
+}
+/* 카톡으로 보낼 이미지 — DOM 을 찍지 않고 데이터로 캔버스에 그린다(오프라인·CSP 안전).
+   글꼴은 화면과 같은 곳에서 온다(uiFont) — 여기 이름을 손으로 적으면 저장한 이미지만
+   옛 글꼴로 남는다([앱 글꼴] 규칙과 같다). */
+function orgToPng(){
+  const D=ORG_LAST||ORG_SNAP;
+  const FF=(typeof uiFont==='function'?uiFont():"'맑은 고딕',system-ui,sans-serif");
+  const root=document.documentElement.getAttribute('data-theme');
+  const dark = root==='dark' || (root!=='light' && window.matchMedia && matchMedia('(prefers-color-scheme:dark)').matches);
+  const C=dark
+    ? {bg:'#0A1020',panel:'#111A30',card:'#16223C',ink:'#EAF0FF',ink2:'#9FB0D0',line:'rgba(150,175,225,.20)',wall:'#1E2A45'}
+    : {bg:'#EEF1F7',panel:'#F7F9FC',card:'#FFFFFF',ink:'#0E1B3F',ink2:'#5A6785',line:'rgba(30,50,90,.14)',wall:'#D3DBE8'};
+  const SC={busy:'#E8890C',idle:'#2B9560',live:'#0062CC',off:'#8A93A6'};
+  const W=780, PAD=26, COLS=2, GAP=12;
+  const cardW=Math.floor((W-PAD*2-GAP*(COLS-1))/COLS), cardH=96;
+  const zones=(D.zones||[]);
+  // 높이 먼저 계산 — 히어로 + 각 구역(머리+행들)
+  let H=150;
+  zones.forEach(z=>{ const rows=Math.ceil((z.people||[]).length/COLS);
+    H += 40 + rows*(cardH+GAP) + 14; });
+  H += 40;
+  const dpr=2, cv=document.createElement('canvas');
+  cv.width=W*dpr; cv.height=H*dpr;
+  const x=cv.getContext('2d'); x.scale(dpr,dpr);
+  const rr=(a,b,w,h,r)=>{x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);
+    x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath();};
+  const clip=(s,mw,fs)=>{x.font='600 '+fs+'px '+FF; let t=String(s||'');
+    if(x.measureText(t).width<=mw)return t;
+    while(t.length>1&&x.measureText(t+'…').width>mw)t=t.slice(0,-1); return t+'…';};
+  x.fillStyle=C.bg; x.fillRect(0,0,W,H);
+  // 히어로
+  const hg=x.createLinearGradient(0,0,W,120); hg.addColorStop(0,'#0E1B3F'); hg.addColorStop(1,'#2452E6');
+  x.fillStyle=hg; rr(PAD,20,W-PAD*2,110,18); x.fill();
+  x.fillStyle='#AEC2F5'; x.font='700 12px '+FF; x.fillText('CSOS · UNIVERSAL LIFT & HITACHI KOREA', PAD+18, 48);
+  x.fillStyle='#fff'; x.font='850 24px '+FF; x.fillText('조직도 — 사무실 배치도', PAD+18, 82);
+  x.fillStyle='#C9D7FA'; x.font='500 13px '+FF; x.fillText('업데이트 '+(D.gen||'—'), PAD+18, 108);
+  let y=160;
+  zones.forEach(z=>{
+    x.fillStyle=C.ink; x.font='850 15px '+FF; x.fillText(z.title||'', PAD, y+6);
+    x.fillStyle=C.ink2; x.font='700 11px '+FF;
+    const tg=z.tag||''; x.fillText(tg, W-PAD-x.measureText(tg).width, y+6);
+    y+=26;
+    (z.people||[]).forEach((p,i)=>{
+      const cx=PAD+(i%COLS)*(cardW+GAP), cy=y+Math.floor(i/COLS)*(cardH+GAP);
+      const st=p.state||'off', col=SC[st]||SC.off;
+      x.fillStyle=C.card; rr(cx,cy,cardW,cardH,13); x.fill();
+      x.strokeStyle=C.line; x.lineWidth=1; x.stroke();
+      x.fillStyle=col; rr(cx,cy,4,cardH,2); x.fill();          // 상태 색 띠
+      // 아바타
+      x.fillStyle=p.color||'#0062CC'; rr(cx+14,cy+13,32,32,10); x.fill();
+      x.fillStyle='#fff'; x.font='850 14px '+FF; x.textAlign='center';
+      x.fillText(orgInitials(p.name), cx+30, cy+34); x.textAlign='left';
+      // 이름·역할
+      x.fillStyle=C.ink; x.font='850 15px '+FF;
+      let nm=p.name||''; x.fillText(clip(nm,cardW-96,15), cx+54, cy+28);
+      if(p.badge){ const nw=x.measureText(clip(nm,cardW-96,15)).width;
+        x.fillStyle='#0062CC'; rr(cx+60+nw,cy+16,x.measureText(p.badge).width*1+16,16,8); x.fill();
+        x.fillStyle='#fff'; x.font='800 10px '+FF; x.fillText(p.badge, cx+68+nw, cy+28); }
+      x.fillStyle=C.ink2; x.font='500 11px '+FF; x.fillText(clip(p.role||'',cardW-64,11), cx+54, cy+45);
+      // 상태 줄
+      x.fillStyle=col; x.beginPath(); x.arc(cx+20,cy+70,4,0,7); x.fill();
+      x.fillStyle=C.ink; x.font='700 11.5px '+FF; x.fillText(orgStateLabel(st), cx+30, cy+74);
+      const sw=x.measureText(orgStateLabel(st)).width;
+      x.fillStyle=C.ink2; x.font='500 11.5px '+FF;
+      x.fillText(clip(' — '+(p.msg||'상태 없음'),cardW-40-sw,11.5), cx+30+sw, cy+74);
+      if(p.ago){ x.fillStyle=C.ink2; x.font='500 10px '+FF; x.fillText(String(p.ago), cx+30, cy+88); }
+    });
+    y+=Math.ceil((z.people||[]).length/COLS)*(cardH+GAP)+14;
+  });
+  const done=(blob)=>{ if(!blob){toast&&toast('이미지를 만들지 못했습니다');return;}
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download='CSOS_조직도_'+new Date().toISOString().slice(0,10)+'.png';
+    a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    try{ uxEvent('tap','org-png'); }catch(_){}
+    try{ toast('이미지를 저장했습니다'); }catch(_){}
+  };
+  try{ cv.toBlob(done,'image/png'); }catch(e){ done(null); }
+}
 let FLOW_CHART = 'as_legacy', FLOW_CHARTS_LIST = [], FLOW_NOTES = [];
 function flowChartInfo(){
   return FLOW_CHARTS_LIST.find(c=>c.key===FLOW_CHART)
