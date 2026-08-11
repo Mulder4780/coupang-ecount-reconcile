@@ -379,11 +379,14 @@ def _worker_lock(spool_dir: Path, wait_seconds: float = 0.0) -> Iterator[None]:
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 owner = {}
             try:
-                age = max(0.0, time.time() - lock.stat().st_mtime)
+                lock_mtime = lock.stat().st_mtime
+                age = max(0.0, time.time() - lock_mtime)
             except OSError:
                 continue
             owner_pid = owner.get("pid")
-            live = pid_alive.alive(owner_pid)
+            # 잠금이 쓰인 시각보다 뒤에 태어난 프로세스는 주인이 아니다 —
+            # pid 재사용 오판 방지(검증 [210]).
+            live = pid_alive.alive(owner_pid, born_before=lock_mtime)
             # Never reclaim a fresh, half-written or otherwise unidentifiable
             # claim.  Only a definitely dead PID, or an unidentifiable claim
             # older than the stale horizon, is safe to move aside.

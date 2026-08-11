@@ -131,14 +131,16 @@ def submit_kakao_file(
     }
 
 
-def _pid_alive(pid: int) -> bool:
+def _pid_alive(pid: int, born_before: Optional[float] = None) -> bool:
     """Conservative shared PID verdict: only a certain death is reclaimable."""
 
     # Windows ``os.kill(pid, 0)`` is not the process-liveness contract used by
     # the rest of this project.  ``pid_alive`` checks the actual exit code and
     # deliberately returns None when access/API state is inconclusive.  A live
     # owner's lock is more valuable than an eager retry, so unknown means live.
-    return pid_alive.alive(pid) is not False
+    # ``born_before`` (잠금이 쓰인 시각): 그보다 뒤에 태어난 프로세스는 pid 가
+    # 재사용된 남이다 — 번호만 보고 살아 있다고 오판하지 않는다(검증 [210]).
+    return pid_alive.alive(pid, born_before=born_before) is not False
 
 
 class LockOwnershipLost(RuntimeError):
@@ -185,10 +187,11 @@ class PipelineLock:
                 try:
                     words = self.path.read_text(encoding="ascii").split()
                     pid = int(words[0]) if words else 0
+                    born = float(words[1]) if len(words) >= 2 else None
                     age = time.time() - self.path.stat().st_mtime
                 except (OSError, ValueError):
-                    pid, age = 0, 999999
-                if pid and _pid_alive(pid):
+                    pid, born, age = 0, None, 999999
+                if pid and _pid_alive(pid, born_before=born):
                     return None
                 if age < 60:
                     return None

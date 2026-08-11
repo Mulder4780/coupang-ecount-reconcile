@@ -3094,9 +3094,17 @@ def t53_session_handoff():
         # `--adopt` 다. 예전엔 무조건 `--free` 를 적어 사람이 그대로 하고 막혔다.
         # 소유 판정은 [114] 가 따로 지킨다.
         assert any("--adopt" in c for _, c in bl), "풀 명령을 알려주지 않는다: %s" % bl
-        # 살아 있는 점유는 잔재가 아니다 — 상대가 일하는 중이다
+        # 살아 있는 점유는 잔재가 아니다 — 상대가 일하는 중이다.
+        # ★ [210] 신원 판정과 아귀가 맞아야 한다: 실사용에서 주인은 언제나 점유를
+        #   적기 **전에** 떠 있다(에이전트가 살아서 적는다). '점유 시각보다 뒤에
+        #   태어난 pid'는 재사용된 남이므로, 산 점유를 흉내내려면 at 도 지금이어야 한다.
         fake["ledger"]["pid"] = os.getpid()
+        fake["ledger"]["at"] = _t.time()
         assert H.claims()[0]["stale"] is False, "살아 있는 점유를 잔재로 본다 — 상대 작업을 가로챈다"
+        # 그리고 그 반대 — 점유 시각(옛날)보다 뒤에 태어난 산 pid 는 재사용이다([210])
+        fake["ledger"]["at"] = 946684800.0          # 2000-01-01 — 이 pid 는 그 뒤에 태어났다
+        assert H.claims()[0]["stale"] is True, \
+            "점유 시각보다 뒤에 태어난 pid(재사용)를 살아 있는 주인으로 오판"
     finally:
         if orig is not None:
             H.claims.__globals__["ai_claim"] = orig
@@ -13533,8 +13541,9 @@ def t209_pipeline_lock_owner_cannot_be_forged_or_overwritten():
 
     source = open(os.path.join(ROOT, "automation_pipeline.py"), encoding="utf-8").read()
     pid_body = source.split("def _pid_alive", 1)[1].split("\nclass LockOwnershipLost", 1)[0]
-    assert "import pid_alive" in source and "return pid_alive.alive(pid) is not False" in pid_body, \
-        "자동화 잠금만 Windows 구형 PID 판정을 계속 쓴다"
+    assert "import pid_alive" in source and \
+        "return pid_alive.alive(pid, born_before=born_before) is not False" in pid_body, \
+        "자동화 잠금만 Windows 구형 PID 판정을 계속 쓴다(신원 검증 [210] 포함)"
 
     with tempfile.TemporaryDirectory(prefix="csos-pipeline-owner-209-") as td:
         root = Path(td)
@@ -13549,12 +13558,12 @@ def t209_pipeline_lock_owner_cannot_be_forged_or_overwritten():
         os.utime(uncertain_path, (1, 1))
         real_alive = P.pid_alive.alive
         try:
-            P.pid_alive.alive = lambda _pid: None
+            P.pid_alive.alive = lambda _pid, **_k: None
             assert P._pid_alive(987654) is True
             assert P.PipelineLock(uncertain_path).acquire("unknown-probe") is None
             assert uncertain_path.exists(), "판정 불가인 산 주인의 잠금을 빼앗았다"
 
-            P.pid_alive.alive = lambda _pid: False
+            P.pid_alive.alive = lambda _pid, **_k: False
             assert P._pid_alive(987654) is False
             dead_lock = P.PipelineLock(uncertain_path)
             dead_token = dead_lock.acquire("dead-owner-recovery")
@@ -13710,6 +13719,12 @@ def t210_pid_reuse_is_not_alive_and_customer_scan_is_one_pass():
     sh_src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
     assert "born_before=started.timestamp()" in sh_src, "_daily_run_inflight 가 신원을 안 본다"
     assert "pid_alive(owner_pid, born_before=born)" in sh_src, "점유 판정이 신원을 안 본다"
+    # 잠금을 쥐는 곳은 넷이다 — 한 곳만 고치면 나머지가 같은 병을 앓는다([162]의 교훈)
+    for fname, needle, what in (
+            ("archive_worker.py", "pid_alive.alive(owner_pid, born_before=lock_mtime)", "보관본 워커"),
+            ("automation_pipeline.py", "_pid_alive(pid, born_before=born)", "자동화 잠금")):
+        src2 = open(os.path.join(ROOT, fname), encoding="utf-8").read()
+        assert needle in src2, f"{what} 잠금이 신원(born_before)을 안 본다"
 
     # ── 거래처 색인: 목록은 한 번에(stat 동봉) · 안 바뀌면 워크북을 다시 안 연다
     ci_src = open(os.path.join(ROOT, "customer_index.py"), encoding="utf-8").read()
