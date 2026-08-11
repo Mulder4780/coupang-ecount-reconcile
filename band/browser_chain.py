@@ -164,15 +164,26 @@ def looks_busy():
 
 
 # ── ② 무엇을 이어 할까 ────────────────────────────────────────────────────────
-def band_remaining():
-    """댓글 백필에 남은 건수. 못 세면 None(모르면 1순위라고 우기지 않는다, [177])."""
+def band_remaining(write=False):
+    """댓글 백필에 남은 건수. 못 세면 None(모르면 1순위라고 우기지 않는다, [177]).
+
+    ★ `write=True` 면 **붙여넣기 파일을 다시 만든다.** 이게 없으면 회차가 수렴하지
+    않는다: 파일은 정적인데 캐시 흡수가 늦으면 다음 tick 이 **이미 긁은 1,663건을
+    통째로 다시** 긁는다. [199] 가 기록한 무한루프와 같은 모양이고, 화면에는
+    '수집 중'만 보여 아무도 이상하다 안 한다. 목록을 매번 새로 뽑으면 이미 확정된
+    글은 저절로 빠진다.
+    """
     try:
-        sys.path.insert(0, HERE)
+        if HERE not in sys.path:
+            sys.path.insert(0, HERE)
         import comment_backfill as cb
         opens = cb.open_projects()
         n = 0
         for b in cb.bands():
-            n += len(cb.blind(b, None, opens))
+            rows = cb.blind(b, None, opens)
+            n += len(rows)
+            if write and rows:
+                cb.write_paste(b, [no for _t, _d, no in rows])
         return n
     except Exception as e:
         print("   밴드 남은 건수를 못 셌다 — %s: %s" % (type(e).__name__, e))
@@ -269,7 +280,8 @@ def tick():
         note(d, "점검", "건너뜀", why)
         return 0
 
-    band_n = band_remaining()
+    # 셀 때 파일도 같이 다시 만든다 — 목록과 파일이 갈리면 회차가 수렴하지 않는다.
+    band_n = band_remaining(write=True)
     erp_n = erp_unfinished()
     print("남은 것 — 밴드 댓글 %s · ERP 실패 %s · %s"
           % ("모름" if band_n is None else band_n,
