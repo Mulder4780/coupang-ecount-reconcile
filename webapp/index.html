@@ -16378,5 +16378,187 @@ function bootstrapAuthenticatedData(){
 })();
 function runnerBusy(){ return !!polling; }
 </script>
+<!-- ══ 상단 내리기·하단 올리기 퀵패널 (2026-08-11 지시) ═══════════════════════
+     사용자 지시: "갤럭시 휴대폰 처럼 화면 상단을 내리거나 화면 하단을 올리면
+     추가 기능들 사용할 수 있는 구조로 사용자 편의기능 넣어서 코딩해"
+     · 상단 = 빠른 설정 — UX 기록 상위 기능(테마 102회·전체갱신·신규접수·질문)
+     · 하단 = 빠른 이동 — 탭 목록을 여기 따로 적지 않고 .tabbar 를 그대로 읽는다.
+       좌우 스와이프(navTabOrder)와 같은 원칙: 목록이 두 벌이면 탭을 더한 날 한쪽이 낡는다.
+       폰에서 숨긴 정밀관리 탭까지 전부 싣는 것이 곧 '추가 기능'이다.
+     · 손짓 판정은 좌우 스와이프의 문법 그대로: 가장자리에서 시작 + 세로 우세 + 시트
+       열려 있으면 안 받음. 탭·버튼의 일반 터치는 그대로 통과한다(끌었을 때만 잡는다). -->
+<div id="qpBg" onclick="qpClose()"></div>
+<section id="qpTop" role="dialog" aria-label="빠른 설정">
+  <div class="qp-head"><b>빠른 설정</b><span id="qpClock"></span>
+    <button type="button" class="qp-x" onclick="qpClose()" aria-label="닫기">✕</button></div>
+  <div class="qp-grid" id="qpActions"></div>
+  <div class="qp-grab" onclick="qpClose()"><i></i></div>
+</section>
+<section id="qpBot" role="dialog" aria-label="빠른 이동">
+  <div class="qp-grab" onclick="qpClose()"><i></i></div>
+  <div class="qp-head"><b>빠른 이동</b>
+    <button type="button" class="qp-x" onclick="qpClose()" aria-label="닫기">✕</button></div>
+  <div class="qp-grid" id="qpNav"></div>
+</section>
+<style>
+#qpBg{position:fixed;inset:0;background:rgba(0,0,0,.34);z-index:940;display:none;
+  opacity:0;transition:opacity .2s;touch-action:none}
+#qpTop,#qpBot{position:fixed;left:0;right:0;z-index:950;background:var(--surface);
+  box-shadow:0 6px 30px rgba(0,0,0,.18);display:none;max-height:76vh;overflow:auto;
+  overscroll-behavior:contain;font-family:var(--font-ui)}
+#qpTop{top:0;border-radius:0 0 var(--r-lg) var(--r-lg);
+  padding:calc(10px + env(safe-area-inset-top)) 14px 4px;transform:translateY(-103%)}
+#qpBot{bottom:0;border-radius:var(--r-lg) var(--r-lg) 0 0;
+  padding:4px 14px calc(14px + env(safe-area-inset-bottom));transform:translateY(103%)}
+#qpTop.anim,#qpBot.anim{transition:transform .22s cubic-bezier(.2,.8,.3,1)}
+#qpTop.open,#qpBot.open{transform:translateY(0)}
+.qp-head{display:flex;align-items:center;gap:8px;padding:4px 2px 10px}
+.qp-head b{font-size:15px;color:var(--ink)}
+#qpClock{font-size:12px;color:var(--ink-3);margin-left:auto}
+.qp-x{border:0;background:var(--panel-2);color:var(--ink-2);flex:0 0 auto;
+  width:30px;height:30px;border-radius:50%;font-size:13px;margin-left:auto}
+.qp-head #qpClock ~ .qp-x{margin-left:8px}
+.qp-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.qp-grid button{border:0;background:var(--panel);border-radius:var(--r);padding:12px 4px 10px;
+  display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--ink-2);
+  font-size:11.5px;font-family:inherit;min-height:64px}
+.qp-grid button .ic{font-size:22px;line-height:1}
+.qp-grid button svg.bi{width:20px;height:20px;fill:currentColor}
+.qp-grid button:active{background:var(--panel-2)}
+.qp-grid button.cur{background:var(--brand-tint);color:var(--brand)}
+.qp-grab{display:flex;justify-content:center;padding:8px 0 6px}
+.qp-grab i{width:38px;height:4px;border-radius:2px;background:var(--line)}
+@media (min-width:900px){.qp-grid{grid-template-columns:repeat(6,1fr)}}
+</style>
+<script>
+/* ── 퀵패널: 위에서 끌어내리면 빠른 설정, 아래에서 끌어올리면 빠른 이동 ────────
+   열림 상태는 하나뿐이다(QP) — 두 패널이 겹쳐 열리는 그림을 만들지 않는다. */
+let QP=null;                                   // 'top' | 'bot' | null
+let qpG=null;                                  // 진행 중인 끌기 {w,x0,y0,active,h}
+const QP_EDGE_TOP=26, QP_EDGE_BOT=34;          // 가장자리 판정 폭(px)
+
+function qpEl(w){ return document.getElementById(w==='top'?'qpTop':'qpBot'); }
+function qpBlocked(){
+  try{ if(sheetIsOpen()) return true; }catch(_){}
+  if(typeof CAL_ONLY!=='undefined'&&CAL_ONLY) return true;
+  if(document.body.classList.contains('dash-drag-live')) return true;
+  return false;
+}
+function qpFill(){
+  /* 상단: 자주 쓰는 기능 — UX 기록(theme 102회·갱신·접수·질문)에서 골랐다 */
+  const acts=[
+    ['🌗','화면 모드',()=>toggleTheme()],
+    ['🔄','전체 갱신',()=>{qpClose();(typeof retryAllDataSections==='function')?retryAllDataSections():location.reload();}],
+    ['🚨','돌발AS 접수',()=>{qpClose();openNewWork('as');}],
+    ['🗓️','정기점검 접수',()=>{qpClose();openNewWork('pm');}],
+    ['💬','앱에 질문',()=>{qpClose();routeNav('dash');
+      setTimeout(()=>{const q=document.querySelector('.chatcard .askq');
+        if(q){q.scrollIntoView({block:'center'});q.focus();}},250);}],
+    ['📗','Excel 보관본',()=>{qpClose();if(typeof applyExcelNow==='function')applyExcelNow();}],
+  ];
+  const g=document.getElementById('qpActions'); g.innerHTML='';
+  for(const [ic,nm,fn] of acts){
+    const b=document.createElement('button'); b.type='button';
+    b.innerHTML='<span class="ic">'+ic+'</span><span>'+nm+'</span>';
+    b.onclick=fn; g.appendChild(b);
+  }
+  /* 하단: 탭바를 그대로 읽는다 — 폰에서 숨은 탭(worktab-nav)까지 전부 */
+  const n=document.getElementById('qpNav'); n.innerHTML='';
+  let cur=''; try{ cur=curView(); }catch(_){}
+  document.querySelectorAll('.tabbar button[data-v]').forEach(t=>{
+    const v=t.dataset.v, b=document.createElement('button'); b.type='button';
+    if(v===cur) b.className='cur';
+    const svg=t.querySelector('svg');
+    if(svg) b.appendChild(svg.cloneNode(true));
+    const s=document.createElement('span'); s.textContent=(t.textContent||'').trim();
+    b.appendChild(s);
+    b.onclick=()=>{ qpClose(); routeNav(v); };
+    n.appendChild(b);
+  });
+}
+function qpOpen(w,how){
+  qpFill();
+  const el=qpEl(w), bg=document.getElementById('qpBg');
+  el.style.display='block'; bg.style.display='block';
+  requestAnimationFrame(()=>{ el.classList.add('anim');
+    requestAnimationFrame(()=>{ el.style.transform=''; el.classList.add('open'); bg.style.opacity='1'; }); });
+  QP=w;
+  const c=document.getElementById('qpClock');
+  if(c){ const d=new Date();
+    c.textContent=(d.getMonth()+1)+'/'+d.getDate()+' '+
+      String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+  try{ uxEvent('gesture','quickpanel-'+w,how||''); }catch(_){}
+}
+function qpClose(){
+  const w=QP; QP=null;
+  const bg=document.getElementById('qpBg');
+  ['top','bot'].forEach(k=>{
+    const el=qpEl(k);
+    if(el.style.display!=='block') return;
+    el.classList.add('anim'); el.classList.remove('open'); el.style.transform='';
+    setTimeout(()=>{ if(QP!==k){ el.style.display='none'; el.classList.remove('anim'); } },240);
+  });
+  bg.style.opacity='0';
+  setTimeout(()=>{ if(!QP) bg.style.display='none'; },240);
+  return w;
+}
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&QP) qpClose(); });
+
+/* 손짓: 시작점이 가장자리일 때만 무장하고, 세로 우세로 끌렸을 때만 잡는다.
+   일반 터치(탭·버튼)는 손대지 않는다 — preventDefault 는 active 뒤에만 부른다. */
+document.addEventListener('touchstart',e=>{
+  if(QP||qpBlocked()||e.touches.length!==1) return;
+  const t=e.touches[0]; let w=null;
+  if(t.clientY<=QP_EDGE_TOP) w='top';
+  else if(t.clientY>=innerHeight-QP_EDGE_BOT||
+          (e.target&&e.target.closest&&e.target.closest('.tabbar'))) w='bot';
+  if(w) qpG={w,x0:t.clientX,y0:t.clientY,active:false,h:0};
+},{passive:true});
+
+document.addEventListener('touchmove',e=>{
+  if(!qpG) return;
+  const t=e.touches[0], dx=t.clientX-qpG.x0, dy=t.clientY-qpG.y0;
+  const want=qpG.w==='top'?dy:-dy;             // 패널이 나오는 방향으로 끈 거리
+  if(!qpG.active){
+    if(Math.abs(dy)<14) return;
+    if(want<0||Math.abs(dy)<Math.abs(dx)*1.4){ qpG=null; return; }  // 반대 방향·가로 우세면 남의 손짓
+    qpG.active=true; qpFill();
+    const el=qpEl(qpG.w);
+    el.classList.remove('anim','open'); el.style.display='block';
+    qpG.h=el.offsetHeight||1;
+    const bg=document.getElementById('qpBg'); bg.style.display='block';
+  }
+  e.preventDefault();                          // 여기부터는 스크롤·당겨서 새로고침을 이긴다
+  const el=qpEl(qpG.w), p=Math.max(0,Math.min(1,qpG.h?( (qpG.w==='top'?t.clientY-qpG.y0:qpG.y0-t.clientY) /qpG.h):0));
+  el.style.transform='translateY('+(qpG.w==='top'?((p-1)*103):((1-p)*103)).toFixed(1)+'%)';
+  document.getElementById('qpBg').style.opacity=(p*.9).toFixed(2);
+},{passive:false});
+
+function qpG_end(){
+  if(!qpG) return;
+  const g=qpG; qpG=null;
+  if(!g.active) return;
+  const el=qpEl(g.w);
+  const m=/translateY\((-?[0-9.]+)%\)/.exec(el.style.transform||'');
+  const hidden=m?Math.abs(parseFloat(m[1])):103;      // 103=다 숨음, 0=다 나옴
+  if(hidden<=72){ qpOpen(g.w,'drag'); }               // 30% 이상 끌었으면 연다
+  else{
+    el.classList.add('anim'); el.style.transform='';
+    setTimeout(()=>{ if(QP!==g.w){ el.style.display='none'; el.classList.remove('anim'); } },240);
+    const bg=document.getElementById('qpBg'); bg.style.opacity='0';
+    setTimeout(()=>{ if(!QP) bg.style.display='none'; },240);
+  }
+}
+document.addEventListener('touchend',qpG_end);
+document.addEventListener('touchcancel',qpG_end);
+
+/* 처음 한 번만 알려 준다 — 몰라서 못 쓰는 기능은 없는 기능과 같다 */
+try{
+  if(matchMedia('(pointer:coarse)').matches&&!localStorage.getItem('qp_hint')){
+    localStorage.setItem('qp_hint','1');
+    setTimeout(()=>{ try{ toast('화면 맨 위를 끌어내리면 빠른 설정 · 맨 아래를 끌어올리면 빠른 이동'); }catch(_){}} ,2500);
+  }
+}catch(_){}
+</script>
 </body>
 </html>
