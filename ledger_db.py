@@ -429,7 +429,7 @@ def conn():
 def _pid_alive(pid, pid_started_at=None, born_before=None):
     """그 pid 가 **아직 그 주인인가** — 판정은 `pid_alive.py` 한 곳에서 한다(검증 [121]).
 
-    ★ 여기 있던 옛 판정은 `os.kill(pid, 0)` 한 줄이었고 **두 가지가 틀렸다**(검증 [219]):
+    ★ 여기 있던 옛 판정은 `os.kill(pid, 0)` 한 줄이었고 **두 가지가 틀렸다**(검증 [227]):
       ① **신원을 안 본다.** 윈도우가 죽은 회차의 pid 를 다른 프로그램에 물려주면
          이 잠금은 영원히 '주인이 살아 있다'가 되어 **스스로 못 풀린다** — 그러면
          보관본 회차가 매번 "이미 실행 중"으로 조용히 건너뛴다([210]·[211] 과 같은 병).
@@ -492,7 +492,7 @@ def apply_lock():
                     open(APPLY_LOCK, encoding="ascii").read().split())
             except Exception:
                 pid = 0
-            # ★ 번호만 같은 남을 '실행 중'이라 하면 보관본 회차가 **영영** 건너뛴다([219]).
+            # ★ 번호만 같은 남을 '실행 중'이라 하면 보관본 회차가 **영영** 건너뛴다([227]).
             if pid and _pid_alive(pid, pid_started_at=fp, born_before=born):
                 raise RuntimeError(f"원장 DB 일괄반영이 이미 실행 중입니다(PID {pid})")
             try:
@@ -2370,7 +2370,7 @@ def defer_apply(slot_name, spawn=True):
     state = _defer_state()
     slots = sorted(set(state.get("slots") or []) | {slot_name})
     pid = state.get("watcher_pid")
-    # ★ 감시자도 **지문**으로 본다([219]). 번호만 물려받은 남을 '살아 있다'로 읽으면
+    # ★ 감시자도 **지문**으로 본다([227]). 번호만 물려받은 남을 '살아 있다'로 읽으면
     #   새 감시자를 안 띄우고, 그 연기된 회차는 30분 워치독이 올 때까지 아무도 안 잇는다.
     fp = state.get("watcher_started_at")
     if spawn and not (pid and _pid_alive(pid, pid_started_at=fp)):
