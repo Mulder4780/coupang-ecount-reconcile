@@ -64,6 +64,23 @@ def git(*args):
     return ok, out
 
 
+def git_lines(*args):
+    """줄이 여러 개인 git 출력을 **다 받는다** — (ok, [줄...]).
+
+    ⚠ `run()` 은 **마지막 한 줄만** 준다(기록용 요약이라 그렇게 만들었다). 목록을
+      그것으로 읽으면 앞줄들이 **조용히 사라진다.** 2026-08-11 실측: 스테이징 목록을
+      `git()` 으로 읽자 비밀값이 담긴 `leak.py` 가 빠지고 마지막 줄 `theirs.py` 만
+      남아, 스캔이 그 파일을 **안 보고 통과**했다 — 막으려던 것을 새게 만드는 실수다.
+      목록은 반드시 이 함수로 읽는다.
+    """
+    try:
+        r = subprocess.run(["git"] + list(args), cwd=ROOT, capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=180)
+    except Exception:
+        return False, []
+    return r.returncode == 0, [x.strip() for x in (r.stdout or "").splitlines() if x.strip()]
+
+
 HUGE = 90 * 1024 * 1024          # GitHub 거절선은 100MB. 여유를 두고 90MB 에서 뺀다.
 
 # 비밀값처럼 생긴 것 — `api_key = "..."` 꼴. 절대규칙 1(비밀키를 커밋에 넣지 않는다).
@@ -193,9 +210,9 @@ def step_commit(who, reason, steps):
         steps.append({"단계": "③ 커밋", "성공": True, "메모": "미커밋 없음 — 만들지 않았다"})
         return
 
-    okp, before = git("-c", "core.quotepath=false", "diff", "--cached", "--name-only")
-    pre_staged = [x.strip() for x in (before or "").splitlines() if x.strip()] if okp \
-        else ["(못 읽음)"]                # 못 읽었으면 '있다'고 본다 — 남의 것을 지우는 쪽으로 기울지 않는다
+    okp, pre_staged = git_lines("-c", "core.quotepath=false", "diff", "--cached", "--name-only")
+    if not okp:
+        pre_staged = ["(못 읽음)"]        # 못 읽었으면 '있다'고 본다 — 남의 것을 지우는 쪽으로 기울지 않는다
 
     def _rollback():
         """`add -A` 로 담은 것을 되돌린다 — 담기 전 인덱스가 **비어 있었을 때만**.
@@ -221,11 +238,10 @@ def step_commit(who, reason, steps):
     #   커밋을 거부해도 이미 커밋된 줄은 사라지지 않으니 **영구히 잠긴 관문**이었고,
     #   자동 커밋이 하루 종일 한 건도 안 됐는데 화면에는 '4/5 단계 완료'만 떴다.
     #   막아야 하는 것은 '이 커밋이 새로 담는 것'이다. 새 파일은 전체가 담기므로 그대로 걸린다.
-    okl, staged = git("-c", "core.quotepath=false", "diff", "--cached",
-                      "--name-only", "--diff-filter=ACMRT")
-    paths = [x.strip() for x in (staged or "").splitlines() if x.strip()] if okl else None
+    okl, paths = git_lines("-c", "core.quotepath=false", "diff", "--cached",
+                           "--name-only", "--diff-filter=ACMRT")
     # 목록을 못 읽으면 예전처럼 인덱스 전체를 훑는다 — 빠뜨리는 쪽으로 기울지 않는다.
-    chunks = [[]] if paths is None else [paths[i:i + 120] for i in range(0, len(paths), 120)]
+    chunks = [paths[i:i + 120] for i in range(0, len(paths), 120)] if okl else [[]]
     for chunk in chunks:
         leaked, hits = git("grep", "--cached", "-nEI", SECRET_SHAPE,
                            *(["--"] + chunk if chunk else []))
