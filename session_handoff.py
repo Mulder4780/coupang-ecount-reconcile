@@ -123,10 +123,12 @@ def stranded_editor():
         return []
 
 
-def pid_alive(pid):
+def pid_alive(pid, born_before=None):
     """그 프로세스가 아직 살아 있나. **시간보다 확실한 판정이다** —
     세션이 죽으면 45분을 기다릴 것 없이 그 자리에서 잔재로 볼 수 있다.
-    판정이 안 되면 None 을 돌려 시간 기준으로 넘긴다(모르면 함부로 죽었다고 하지 않는다)."""
+    판정이 안 되면 None 을 돌려 시간 기준으로 넘긴다(모르면 함부로 죽었다고 하지 않는다).
+    `born_before`(에포크 초)를 주면 그 시각 뒤에 태어난 프로세스를 남으로 본다 —
+    pid 재사용 오판 방지(2026-08-11 실사고 · 검증 [210])."""
     if not pid:
         return None
     # ★ 판정은 pid_alive.py 한 곳에서 한다 (2026-08-06 실사고 · 검증 [121]).
@@ -135,7 +137,7 @@ def pid_alive(pid):
     #   영원히 안 풀리는 쪽으로 틀렸다.
     try:
         import pid_alive
-        return pid_alive.alive(pid)
+        return pid_alive.alive(pid, born_before=born_before)
     except Exception:
         return None
 
@@ -162,10 +164,12 @@ def claims():
             continue
         # ai_claim 은 `at` 을 **에포크 초(float)** 로 적는다. ISO 문자열이 아니다.
         mins = None
+        born = None       # 점유를 적은 시각 — 주인은 그 전에 떠 있었어야 한다([210])
         try:
             at = float(info.get("at") or 0)
             if at > 0:
                 mins = int((_t.time() - at) // 60)
+                born = at
         except (TypeError, ValueError):
             pass
         # ★ 주인은 `pid` 가 아니라 **`agent_pid`** 다 (2026-08-06 실사고).
@@ -174,7 +178,7 @@ def claims():
         #   "이 명령으로 푸세요" 라고 안내한다. 실제로 그 안내대로 하면 ai_claim 이
         #   거부하므로(남의 것) 사람은 영문도 모른 채 막힌다. 판정은 한 벌이어야 한다.
         owner_pid = info.get("agent_pid") or info.get("pid")
-        alive = pid_alive(owner_pid)
+        alive = pid_alive(owner_pid, born_before=born)
         stale = (alive is False) or (alive is not True and mins is not None and mins >= STALE_MIN)
         out.append({"lock": lock, "who": info.get("who"), "why": info.get("why", ""),
                     "mins": mins, "pid": owner_pid, "alive": alive, "stale": stale,
@@ -585,9 +589,12 @@ def _daily_run_inflight():
         return None
     try:
         d = json.load(open(os.path.join(REPORT_DIR, ".daily_run.lock"), encoding="utf-8"))
-        if not alive(d.get("pid")):
-            return None
         started = datetime.fromisoformat(str(d.get("started_at")))
+        # ★ 잠금 시각보다 뒤에 태어난 프로세스는 주인이 아니다 — pid 재사용이다.
+        #   실사고(2026-08-11): 죽은 회차의 pid 를 quick_share_server 가 물려받아
+        #   "5시간째 돌고 있다 — 기다려라"(정반대 지시)가 떴다. 검증 [210].
+        if not alive(d.get("pid"), born_before=started.timestamp()):
+            return None
         return round((datetime.now(started.tzinfo) - started).total_seconds() / 3600.0, 1)
     except Exception:
         return None

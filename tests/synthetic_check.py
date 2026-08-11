@@ -13667,6 +13667,86 @@ def t209_pipeline_lock_owner_cannot_be_forged_or_overwritten():
     print("  [209] 자동화 단일회차 — 공용 PID 판정 · token/run_id 소유 저장·해제 ✅")
 
 
+def t210_pid_reuse_is_not_alive_and_customer_scan_is_one_pass():
+    """[210] 번호가 같다고 같은 프로세스가 아니다 · 거래처 색인은 한 번에 훑는다.
+
+    2026-08-11 실사고 둘을 한 뿌리로 잡는다:
+      ① 09:50 회차가 '거래처코드 색인'에서 죽었는데 그 pid 를 quick_share_server 가
+         재사용해 `alive(pid)`=True → 인계 문서가 다섯 시간 동안 "돌고 있다 —
+         기다려라"(정반대 지시)를 냈고 잠금도 스스로 못 풀렸다.
+      ② 그 단계가 죽도록 오래 걸린 이유가 customer_index 의 glob+getmtime
+         (Z: 파일마다 왕복 — [198]과 같은 병) + 매번 워크북 80개 열기였다.
+    """
+    import time as _t
+    from datetime import datetime
+    import pid_alive as PA
+    import customer_index as CI
+
+    me = os.getpid()
+    # ── 신원 검증: 살아 있는 진짜 나 vs '그 시각 뒤에 태어난 남'
+    assert PA.alive(me) is True
+    assert PA.started_at(me) is not None, "생성시각을 못 읽으면 재사용 판정이 조용히 무력화된다"
+    assert PA.alive(me, born_before=_t.time() + 60) is True, "미래 기준에 산 프로세스를 죽였다"
+    assert PA.alive(me, born_before=1.0) is False, \
+        "기준 시각 뒤에 태어난 프로세스(pid 재사용)를 살아 있다고 오판"
+
+    # ── daily_run 잠금: 재사용된 pid 의 잠금을 실제로 회수하는가 (산 pid 로 재현)
+    import daily_run as DR
+    with tempfile.TemporaryDirectory(prefix="csos-210-") as td:
+        lock = os.path.join(td, ".lock")
+        json.dump({"pid": me, "token": "old",
+                   "started_at": datetime.fromtimestamp(_t.time() - 3600).astimezone().isoformat(timespec="seconds")},
+                  open(lock, "w", encoding="utf-8"))
+        tok = DR.acquire_run_lock(path=lock)
+        assert tok, "잠금 시각보다 뒤에 태어난 주인(=재사용)의 잠금을 회수하지 못했다"
+        DR.release_run_lock(tok, path=lock)
+        # 방금 태어난 척하는 주인(정상)의 잠금은 빼앗지 않는다
+        json.dump({"pid": me, "token": "fresh",
+                   "started_at": datetime.now().astimezone().isoformat(timespec="seconds")},
+                  open(lock, "w", encoding="utf-8"))
+        assert DR.acquire_run_lock(path=lock) is None, "산 주인의 잠금을 빼앗았다"
+
+    # ── 배선: 판정에 시각이 실제로 전달되는가 (한쪽만 고치면 경보·잠금이 갈린다)
+    sh_src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert "born_before=started.timestamp()" in sh_src, "_daily_run_inflight 가 신원을 안 본다"
+    assert "pid_alive(owner_pid, born_before=born)" in sh_src, "점유 판정이 신원을 안 본다"
+
+    # ── 거래처 색인: 목록은 한 번에(stat 동봉) · 안 바뀌면 워크북을 다시 안 연다
+    ci_src = open(os.path.join(ROOT, "customer_index.py"), encoding="utf-8").read()
+    body = ci_src.split("def load_customers", 1)[1].split("\ndef ", 1)[0]
+    assert "walk_stat" in body, "거래처 색인이 공용 워커를 버렸다([198] 병 재발)"
+    assert body.index('c.get("fp") == fp') < body.index("openpyxl.load_workbook"), \
+        "캐시 검사가 워크북 열기보다 뒤에 있다 — [168] 병 재발"
+    with tempfile.TemporaryDirectory(prefix="csos-210-erp-") as td:
+        import warnings
+        warnings.filterwarnings("ignore")
+        import openpyxl
+        import source_dirs as S
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["거래처등록"])
+        ws.append(["거래처코드", "거래처명", "주소", "담당자", "Email", "연락처", "보유장비명"])
+        ws.append(["CU177", "강서1MB(가양A)", "서울", "홍길동", "a@b.c", "010", "리프트"])
+        wb.save(os.path.join(td, "ESA001M_test.xlsx"))
+        old_dir, old_cache = S.ERP_DIR, CI.CAND_CACHE
+        real_load = openpyxl.load_workbook
+        try:
+            S.ERP_DIR = td
+            CI.CAND_CACHE = os.path.join(td, "reports", "cache.json")
+            rows, src = CI.load_customers()
+            assert len(rows) == 1 and rows[0]["code"] == "CU177" and src, "합성 거래처등록을 못 읽었다"
+            calls = []
+            openpyxl.load_workbook = lambda *a, **k: (calls.append(1), real_load(*a, **k))[1]
+            rows2, _ = CI.load_customers()
+            assert rows2 == rows and not calls, \
+                "후보가 하나도 안 바뀌었는데 워크북을 다시 열었다 — 색인이 다시 몇 시간짜리가 된다"
+        finally:
+            S.ERP_DIR, CI.CAND_CACHE = old_dir, old_cache
+            openpyxl.load_workbook = real_load
+
+    print("  [210] pid 재사용은 죽음으로 판정 · 잠금 자동회수 · 거래처 색인 1회 훑기+지문 캐시 ✅")
+
+
 def t196_stage_words_come_from_one_place():
     """[196] 돌발AS·정기점검 단계 낱말은 **한 곳**에서 오고, 바뀌면 자국이 남는다.
 
@@ -14293,6 +14373,7 @@ if __name__ == "__main__":
     t207_live_revision_is_shared_and_nonblocking()
     t208_cancel_remote_resolution_is_exact_and_finance_safe()
     t209_pipeline_lock_owner_cannot_be_forged_or_overwritten()
+    t210_pid_reuse_is_not_alive_and_customer_scan_is_one_pass()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

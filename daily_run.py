@@ -26,7 +26,7 @@ ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 RUN_LOCK = os.path.join(REPORT_DIR, ".daily_run.lock")
 
 
-def _pid_alive(pid):
+def _pid_alive(pid, born_before=None):
     """같은 PC의 프로세스가 살아 있는가. 죽은 잠금만 안전하게 회수한다.
 
     ★ 판정은 pid_alive.py 한 곳에서 한다 (2026-08-06 실사고 · 검증 [121]).
@@ -35,6 +35,12 @@ def _pid_alive(pid):
       길이 없어져 daily_run 이 밤새 한 번도 못 돌았다.
       모르면(None) '살아 있다'로 본다 — 남의 회차를 밀어내는 쪽이 더 위험하다.
       다만 pid 자체가 없거나 망가진 잠금 파일은 회수 대상이다.
+
+    ★ `born_before` 는 잠금이 쓰인 시각이다 (2026-08-11 실사고 · 검증 [210]).
+      회차가 죽은 뒤 윈도우가 그 pid 를 **다른 프로그램에 재사용**하면 번호만 보고
+      '살아 있다'가 된다 — 그날 quick_share_server 가 죽은 회차의 pid 를 물려받아
+      잠금이 다섯 시간 동안 안 풀렸다. 주인은 잠금을 쓰기 전에 떠 있었을 수밖에
+      없으므로, 잠금 시각보다 뒤에 태어난 프로세스는 주인이 아니다.
     """
     try:
         pid = int(pid)
@@ -46,7 +52,7 @@ def _pid_alive(pid):
         import pid_alive
     except Exception:
         return True                      # 판정 못 하면 건드리지 않는다
-    return pid_alive.alive(pid) is not False
+    return pid_alive.alive(pid, born_before=born_before) is not False
 
 
 def acquire_run_lock(path=RUN_LOCK):
@@ -75,7 +81,17 @@ def acquire_run_lock(path=RUN_LOCK):
                         return None
                 except OSError:
                     return None
-            if _pid_alive(owner.get("pid")):
+            # 잠금이 쓰인 시각(started_at → 없으면 파일 mtime)보다 뒤에 태어난
+            # 프로세스는 주인이 아니다 — pid 재사용 오판 방지(검증 [210]).
+            born = None
+            try:
+                born = datetime.fromisoformat(str(owner.get("started_at"))).timestamp()
+            except (TypeError, ValueError):
+                try:
+                    born = os.path.getmtime(path)
+                except OSError:
+                    pass
+            if _pid_alive(owner.get("pid"), born_before=born):
                 return None
             try:
                 os.unlink(path)

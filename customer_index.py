@@ -82,16 +82,41 @@ def bare(s):
     return core(re.sub(r"^M[_\s]+", "", clean(s)))
 
 
+CAND_CACHE = os.path.join(ROOT, "reports", ".거래처등록_캐시.json")
+
+
 def load_customers():
     import warnings
     warnings.filterwarnings("ignore")
     import openpyxl
     import source_dirs as S
-    cands = [p for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True)
-             if not os.path.basename(p).startswith(("~$", "ESD007E"))]
-    cands.sort(key=os.path.getmtime, reverse=True)
+    # ★ glob + 파일마다 getmtime 을 쓰지 않는다 (2026-08-11 실사고 · 검증 [210]).
+    #   Z:(SMB)에서는 stat 하나가 왕복 하나다 — 목록을 받을 때 딸려 온 stat 을 쓴다([198]).
+    #   이 한 줄이 '거래처코드 색인' 단계를 몇 시간짜리로 만들고 있었다.
+    try:
+        from source_index import walk_stat
+        pairs = [(st.st_mtime, st.st_size, os.path.join(dp, fn))
+                 for dp, fn, st in walk_stat(S.ERP_DIR)
+                 if fn.lower().endswith(".xlsx")
+                 and not fn.startswith(("~$", "ESD007E"))]
+    except Exception:       # 공용 워커가 없어도 죽지 않는다 — 예전 길로 간다
+        pairs = [(os.path.getmtime(p), 0, p)
+                 for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True)
+                 if not os.path.basename(p).startswith(("~$", "ESD007E"))]
+    pairs.sort(reverse=True)
+    top = pairs[:80]
+    # ★ 후보 80개가 하나도 안 바뀌었으면 워크북을 다시 열지 않는다.
+    #   read_only=False 로 SMB 워크북 80개를 매번 여는 것이 남은 시간의 대부분이다.
+    #   지문은 (경로·크기·수정시각) 전부 — 하나라도 바뀌면 다시 훑는다.
+    fp = [[p, int(sz), round(mt, 2)] for mt, sz, p in top]
+    try:
+        c = json.load(open(CAND_CACHE, encoding="utf-8"))
+        if c.get("fp") == fp and c.get("rows"):
+            return c["rows"], c.get("src")
+    except (OSError, ValueError):
+        pass
     best = None
-    for p in cands[:80]:
+    for _mt, _sz, p in top:
         try:
             wb = openpyxl.load_workbook(p, read_only=False, data_only=True)
             ws = wb.active
@@ -121,7 +146,18 @@ def load_customers():
                 best = (os.path.basename(p), ws.max_row, rows)
         except Exception:
             continue
-    return (best[2], best[0]) if best else ([], None)
+    rows, src = (best[2], best[0]) if best else ([], None)
+    try:
+        os.makedirs(os.path.dirname(CAND_CACHE), exist_ok=True)
+        from datetime import datetime
+        tmp = CAND_CACHE + f".{os.getpid()}.tmp"
+        json.dump({"fp": fp, "rows": rows, "src": src,
+                   "at": datetime.now().astimezone().isoformat(timespec="seconds")},
+                  open(tmp, "w", encoding="utf-8"), ensure_ascii=False)
+        os.replace(tmp, CAND_CACHE)
+    except OSError:
+        pass                     # 캐시는 지름길일 뿐이다 — 못 써도 결과는 그대로 돌려준다
+    return rows, src
 
 
 def camps_from_ledger():
