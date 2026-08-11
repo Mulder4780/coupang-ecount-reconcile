@@ -202,13 +202,21 @@ def heal_stale_pastefiles(dry):
         js_mt = os.path.getmtime(js)
     except OSError:
         return "붙여넣기 확인 생략(grab_posts.js 없음)"
+    # ★ **번호를 고르는 쪽 mtime 은 make_oneclick 이 만든 파일에만 댄다** (2026-08-11).
+    #   첫판은 모든 붙여넣기 파일에 댔는데, `댓글채우기_*` 는 comment_backfill 이,
+    #   `재수집_*` 은 recollect 가 만든다. 남의 파일까지 '낡음'으로 몰면 여기서 지워지고
+    #   **make_oneclick 은 그 파일을 다시 만들지 않는다** — 실측으로 두 개가 그렇게
+    #   사라졌다(다음 09:50 회차 전까지 사람 손에 아무것도 안 남는다).
+    #   낡음의 기준은 **그 파일을 만드는 쪽**이어야 한다.
+    mk_mt = js_mt
     for maker in ("make_oneclick.py", "recheck_plan.py"):
         try:
-            js_mt = max(js_mt, os.path.getmtime(os.path.join(band_dir, maker)))
+            mk_mt = max(mk_mt, os.path.getmtime(os.path.join(band_dir, maker)))
         except OSError:
             pass                       # 없는 파일은 기준이 못 된다(있는 것만으로 판단)
     old = [p for p in _g.glob(os.path.join(band_dir, "*붙여넣기_*.js"))
-           if os.path.getmtime(p) < js_mt]
+           if os.path.getmtime(p) < (mk_mt if os.path.basename(p).startswith("수집_")
+                                     else js_mt)]
     if not old:
         return "붙여넣기 파일 최신"
     names = ", ".join(os.path.basename(p) for p in old[:3])
@@ -219,10 +227,12 @@ def heal_stale_pastefiles(dry):
         base = os.path.basename(p)
         band = base.rsplit("_", 1)[-1][:-3]
         try:
-            if base.startswith("재수집"):
-                # 재수집은 08:00 회차가 대상 번호를 정한다. 여기서 대상까지 새로
-                # 고르면 회차의 판단을 가로챈다 — 그래서 **지운다.** 다음 회차가
-                # 새 JS 로 다시 만든다. 옛 JS 를 남겨 두는 것보다 없는 편이 낫다.
+            if not base.startswith("수집_"):
+                # 남의 회차가 만든 파일이다 — 재수집은 08:00, 댓글채우기·댓글은 09:50
+                # 회차가 **대상 번호를 정한다.** 여기서 대상까지 새로 고르면 그 회차의
+                # 판단을 가로챈다(make_oneclick 을 불러 봤자 제 이름의 파일만 쓴다).
+                # 그래서 **지운다.** 다음 회차가 새 JS 로 다시 만든다 —
+                # 옛 JS 를 남겨 두는 것보다 없는 편이 낫다.
                 os.unlink(p)
                 made += 1
                 continue

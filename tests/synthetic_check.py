@@ -9902,6 +9902,13 @@ def t217_probe_instead_of_scraping_absent_numbers():
     body = wd.split("def heal_stale_pastefiles")[1].split("\ndef ")[0]
     assert "make_oneclick.py" in body and "recheck_plan.py" in body, \
         "붙여넣기 파일 낡음 판정이 수집기만 본다 — 번호 고르는 규칙을 고쳐도 옛 목록이 그대로 남는다"
+    # ★ 그 기준을 **남의 회차 파일에까지 대면 안 된다.** `댓글채우기_*` 는
+    #   comment_backfill, `재수집_*` 은 recollect 가 만든다 — make_oneclick 을 고쳤다고
+    #   낡음으로 몰면 여기서 지워지는데 make_oneclick 은 그 파일을 다시 만들지 않는다
+    #   (실측 2026-08-11: 그렇게 두 개가 사라졌다).
+    assert 'startswith("수집_")' in body, \
+        "make_oneclick 이 만들지도 않는 파일까지 제 mtime 으로 판단한다 — 남의 회차 파일이 지워진다"
+    
     print("  [217] 없는 번호는 40개가 아니라 몇 개만 — 근거 먼저 ✅")
 
 
