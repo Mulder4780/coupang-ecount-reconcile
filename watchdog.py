@@ -554,6 +554,21 @@ def run_incremental_pipeline(dry):
     return "증분 자동화 완료"
 
 
+def resume_parked(dry):
+    """세워 둔 일이 풀렸으면 알리고(아무도 없으면 AI 에게 넘기고), 보류된 푸시를 민다.
+
+    ★ 2026-08-11 지시 "이 세션도 완전 자동화시켜". 그날 실측 둘 — 옆 세션이 `code` 를
+      놓았는데 **아무 화면도 "이제 된다"고 말하지 않아** 사람이 "하던 작업 진행" 을 두 번
+      쳤고, 자동 마무리가 보류한 푸시는 그 세션이 사라진 뒤에도 **미는 사람이 없었다.**
+      판단은 `worksplit_auto` 한 곳이 한다 — 여기서 다시 세면 두 벌이 된다.
+    """
+    try:
+        import worksplit_auto
+        return worksplit_auto.run(dry=dry)["한줄"]
+    except Exception as exc:
+        return "세션자동화 실패: %s: %s" % (type(exc).__name__, str(exc)[:80])
+
+
 def main():
     # 류지영 매니저 입력 중에는 로그 파일조차 갱신하지 않고 즉시 종료한다.
     if is_input_window():
@@ -570,6 +585,7 @@ def main():
                heal_band_evidence(dry),
                heal_stale_pastefiles(dry),
                heal_autopilot(dry),
+               resume_parked(dry),
                heal_tunnel(dry), publish_endpoint(dry), clean_reports(dry),
                snapshot_handoff(dry), resume_deferred_apply(dry)]
     if gap:

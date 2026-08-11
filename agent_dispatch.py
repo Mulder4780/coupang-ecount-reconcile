@@ -159,7 +159,7 @@ def route_status(*, force: bool = False) -> dict[str, Any]:
     return route
 
 
-def enqueue(task_key: str, title: str, args: list[str]) -> dict[str, Any]:
+def enqueue(task_key: str, title: str, args: list[str], *, extra: str = "") -> dict[str, Any]:
     """Persist an AI review/follow-up request and return the selected route.
 
     The caller still runs the deterministic local script itself. This keeps one
@@ -178,6 +178,7 @@ def enqueue(task_key: str, title: str, args: list[str]) -> dict[str, Any]:
         "selected": route["selected"],
         "route_note": route["note"],
         "status": "queued",
+        "extra": str(extra or ""),
         "safety": "AI 요청은 검토·실패 후속조치용이며, 실행 버튼의 업무 스크립트는 로컬에서 1회만 실행합니다.",
     }
     ticket_path = REPORT_DIR / f"{request_id}.json"
@@ -186,8 +187,20 @@ def enqueue(task_key: str, title: str, args: list[str]) -> dict[str, Any]:
     return {**record, "_path": str(ticket_path)}
 
 
+def _extra_block(record: dict[str, Any]) -> str:
+    """표를 만든 쪽이 덧붙인 설명. 없으면 한 줄도 안 붙는다.
+
+    ★ 실패한 명령이 아닌 표(예: 분담판에 세워 둔 일)에는 아래 1번 문장('로컬 업무
+      스크립트는 이미 정확히 한 번 실행됐다')이 **사실이 아니다.** 그대로 보내면 AI 가
+      없는 실행 로그를 찾아 헤맨다. 그래서 만든 쪽이 사실을 덧붙일 자리를 둔다 —
+      프롬프트를 두 벌로 나누면 나중에 한쪽만 고쳐진다.
+    """
+    extra = str(record.get("extra") or "").strip()
+    return ("\n덧붙임(이 표를 만든 쪽의 설명):\n" + extra + "\n") if extra else ""
+
+
 def _ticket_prompt(record: dict[str, Any], local_returncode: int) -> str:
-    return f"""쿠팡 통합업무 자동화 프로젝트의 후속 검토 작업입니다.
+    return _extra_block(record) + f"""쿠팡 통합업무 자동화 프로젝트의 후속 검토 작업입니다.
 
 작업명: {record.get('title', '')}
 작업 키: {record.get('task_key', '')}

@@ -611,8 +611,25 @@ def collect():
         "일일대조": daily_run_health(),
         "밴드재수집": band_recollect(),
         "업무흐름": work_flow_change(),
+        "세션자동화": session_auto(),
         "앱서버": app_server_health(),
     }
+
+
+def session_auto():
+    """세워 둔 일의 **막힘이 풀렸나** · 보류된 푸시가 남았나 (2026-08-11 지시).
+
+    ★ 이것이 없어서 사람이 "하던 작업 진행" 을 두 번 쳤다. 분담판에 `[34]` 가 대기로
+      앉아 있고 그것을 막던 옆 세션의 `code` 점유는 이미 풀렸는데, **그 사실을 말하는
+      화면이 한 곳도 없었다.** 막힌 것을 적어 두는 것만으로는 부족하다 — 풀린 것도
+      말해야 한다. 판정은 `worksplit_auto.banner()` 한 곳이 한다(여기서 점유판을 다시
+      읽으면 같은 판단이 두 벌이 된다).
+    """
+    try:
+        import worksplit_auto
+        return worksplit_auto.banner()
+    except Exception:
+        return {}
 
 
 def work_flow_change():
@@ -819,6 +836,13 @@ def blockers(st, for_sol=False):
             out.append(("워크트리가 본체 상태와 끊겨 있다 — %s (설정·큐를 못 읽어 "
                         "합성검증부터 막힌다)" % ", ".join(cut[:4]),
                         "python worktree_state.py --apply"))
+    # ★ **풀린 것도 말한다** (2026-08-11). 막힌 것만 적어 두면, 막고 있던 것이 사라진
+    #   순간 그 일은 아무도 모르게 세워진 채 남는다 — 이날 실측으로 사람이 "하던 작업
+    #   진행" 을 두 번 쳤다. 근거는 `worksplit_auto` 가 회차마다 새로 쓴다.
+    for row in ((st.get("세션자동화") or {}).get("풀린일") or [])[:3]:
+        out.append(("세워 둔 일 **[%s]** 의 막힘이 풀렸다 — %s"
+                    % (row.get("id"), (row.get("title") or "")[:60]),
+                    "python worksplit.py --take %s --who claude" % row.get("id")))
     # ★ 스케줄러가 '성공'이라 말해도 완주하지 않았을 수 있다 — 잠금을 못 잡은 회차가
     #   조용히 exit 0 으로 끝나기 때문이다. 그 사이 자료현황·대조 리포트가 통째로 멈춘다.
     dr = st.get("일일대조") or {}

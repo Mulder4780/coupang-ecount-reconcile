@@ -40,6 +40,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports")
 LOG_PATH = os.path.join(REPORT_DIR, "세션마무리_기록.json")
+# 세션 안에서 한 번 확인한 대화기록 폴더 — 스케줄러 회차는 이것으로만 옆 창을 본다.
+TRANSCRIPT_HINT = os.path.join(REPORT_DIR, ".대화기록_폴더.txt")
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -155,16 +157,56 @@ def _live_sibling_sessions(minutes=LIVE_TRANSCRIPT_MIN):
     me = (os.environ.get("CLAUDE_CODE_SESSION_ID") or "").strip()
     if not me:
         return []
+    return live_transcripts(minutes, exclude=me)
+
+
+def transcript_dir(me=""):
+    """대화기록 폴더를 찾아 주고, **찾은 경로를 파일로 남긴다**.
+
+    ★ 남기는 이유 (2026-08-11): 스케줄러가 띄우는 회차(워치독·daily_run)에는
+      `CLAUDE_CODE_SESSION_ID` 가 없어 이 폴더를 **찾을 길이 없다.** 폴더 이름 규칙을
+      코드에 적어 두는 방법도 있지만 그것은 **짐작**이다(경로 규칙이 바뀌면 조용히
+      0건이 된다). 세션 안에서 한 번 확인한 경로를 남겨 두면 그것은 근거다.
+      없으면 없다고 말한다 — 그 회차는 점유판만 보고 판단한다.
+    """
+    me = (me or os.environ.get("CLAUDE_CODE_SESSION_ID") or "").strip()
     home = os.path.join(os.path.expanduser("~"), ".claude", "projects")
-    mine = [os.path.dirname(p) for p in glob.glob(os.path.join(home, "*", me + ".jsonl"))]
-    if not mine:
+    found = ""
+    if me:
+        for p in glob.glob(os.path.join(home, "*", me + ".jsonl")):
+            found = os.path.dirname(p)
+            break
+    if found:
+        try:
+            os.makedirs(REPORT_DIR, exist_ok=True)
+            with open(TRANSCRIPT_HINT, "w", encoding="utf-8") as f:
+                f.write(found)
+        except OSError:
+            pass
+        return found
+    try:
+        with open(TRANSCRIPT_HINT, encoding="utf-8") as f:
+            hint = f.read().strip()
+    except OSError:
+        return ""
+    return hint if hint and os.path.isdir(hint) else ""
+
+
+def live_transcripts(minutes=LIVE_TRANSCRIPT_MIN, exclude=""):
+    """최근 `minutes` 분 안에 자란 대화기록(= 지금 열려 있는 창)의 sid 앞 8자리.
+
+    `exclude` 를 주면 그 세션은 뺀다. **기계 회차는 뺄 자기 자신이 없으므로** 빈
+    문자열로 부르며, 그때 잡히는 창은 전부 '다른 세션'이다.
+    """
+    d = transcript_dir(exclude)
+    if not d:
         return []
     cut, live = time.time() - minutes * 60, []
-    for name in os.listdir(mine[0]):
-        if not name.endswith(".jsonl") or name[:-6] == me:
+    for name in os.listdir(d):
+        if not name.endswith(".jsonl") or name[:-6] == exclude:
             continue
         try:
-            if os.path.getmtime(os.path.join(mine[0], name)) >= cut:
+            if os.path.getmtime(os.path.join(d, name)) >= cut:
                 live.append(name[:8])
         except OSError:
             continue
