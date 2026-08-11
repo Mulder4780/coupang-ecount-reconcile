@@ -4632,6 +4632,20 @@ def _calendar_work_events():
              "유무상": r.get("유상·무상·보험") or "",
              "진행상태": r.get("진행상태") or "",
              "신청내용": r.get("신청내용") or ""})
+    # ★ 같은 점검이 **완료와 미처리에 동시에** 나오지 않게 한다 (2026-08-11 지시 —
+    #   김미영 통화: "미처리에도 나와 있고 완료에도 나와 있다니까").
+    #   실측 8/3 남양주4MB(UJ2601329)·부산1MB(UJ2601321)가 캘린더 양쪽에 다 있었다.
+    #   원인은 04시트에 같은 프로젝트가 **여러 행**으로 있고 그중 한 행에만 실제점검일이
+    #   채워진 것이다 — 행 하나만 보는 판정으로는 영영 안 걸린다(오류도 안 난다).
+    #   ★ 근거는 좁게 잡는다: **예정일 이후에 실제로 다녀온 기록이 있을 때만** 그 예정을
+    #     치른 것으로 본다. 완료일이 예정일보다 **앞서면** 다른 회차이므로 미처리로 남긴다.
+    #     넓게 잡으면 진짜 안 간 현장이 목록에서 사라진다 — 겹쳐 보이는 것보다 나쁘다.
+    pm_done_days = {}
+    for r in works.get("pm") or []:
+        key = str(r.get("프로젝트NO") or r.get("점검ID") or "").strip()
+        d = norm_date(r.get("실제점검일"))
+        if key and d:
+            pm_done_days.setdefault(key, []).append(d)
     for r in works.get("pm") or []:
         camp = r.get("캠프명") or "캠프 미상"
         add(r.get("실제점검일"), "pm_done", f"정기점검 완료 · {camp}", r,
@@ -4639,7 +4653,9 @@ def _calendar_work_events():
              "이상발견": r.get("이상발견여부") or ""})
         # 예정일이 지났는데 실제점검일이 없다 = 미처리. 앞날 예정은 pm_plan 이 맡는다.
         plan = norm_date(r.get("점검예정일"))
-        if plan and not norm_date(r.get("실제점검일")) and plan <= today:
+        key = str(r.get("프로젝트NO") or r.get("점검ID") or "").strip()
+        served = any(d >= plan for d in pm_done_days.get(key, ())) if plan else False
+        if plan and not norm_date(r.get("실제점검일")) and plan <= today and not served:
             days = (datetime.strptime(today, "%Y-%m-%d")
                     - datetime.strptime(plan, "%Y-%m-%d")).days
             add(plan, "pm_overdue", f"정기점검 미처리 · {camp}", r,
