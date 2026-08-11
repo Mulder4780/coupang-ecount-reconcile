@@ -14,9 +14,16 @@
 #
 # ASCII-only on purpose: PowerShell 5.1 reads BOM-less UTF-8 as CP949 and mangles
 # any non-ASCII text, which once killed a watcher without a single log line.
+# -Browser picks WHICH Chromium process to drive (2026-08-12). It used to be hardcoded
+# to 'chrome', which is a guess about where the human logged in - and the guess was
+# wrong: band/ecount were open in Naver Whale (band.us is a Naver service, so this is
+# the normal case, not the odd one) while the only Chrome window was an unrelated app.
+# The injector focused that Chrome, could not open a console there, and reported a
+# cause that had nothing to do with the real one. Never name the browser in code.
 param(
   [Parameter(Mandatory=$true)][string]$Js,
-  [Parameter(Mandatory=$true)][string]$ExpectHost
+  [Parameter(Mandatory=$true)][string]$ExpectHost,
+  [string]$Browser = 'chrome'
 )
 $ErrorActionPreference = 'Stop'
 $root = "C:\Users\hueng\Documents\COUPANG_INTEGRATED_WORK_AGENT\ecount"
@@ -26,9 +33,9 @@ Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;publ
 
 $dl = Join-Path $env:USERPROFILE 'Downloads'
 
-function Focus-Chrome {
+function Focus-Browser {
     for ($i = 0; $i -lt 5; $i++) {
-        $c = Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -ne '' } | Select-Object -First 1
+        $c = Get-Process $Browser -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -ne '' } | Select-Object -First 1
         if (-not $c) { Start-Sleep -Seconds 2; continue }
         [IH]::ShowWindow($c.MainWindowHandle, 9) | Out-Null
         [IH]::SetForegroundWindow($c.MainWindowHandle) | Out-Null
@@ -36,7 +43,7 @@ function Focus-Chrome {
         $h = [IH]::GetForegroundWindow(); $fp = 0
         [IH]::GetWindowThreadProcessId($h, [ref]$fp) | Out-Null
         $p = Get-Process -Id $fp -ErrorAction SilentlyContinue
-        if ($p -and $p.ProcessName -eq 'chrome') { return $c }
+        if ($p -and $p.ProcessName -eq $Browser) { return $c }
         Start-Sleep -Seconds 2
     }
     return $null
@@ -64,8 +71,8 @@ function Ping-Host {
     return $null
 }
 
-$win = Focus-Chrome
-if (-not $win) { Write-Output 'ABORT: cannot focus Chrome'; exit 1 }
+$win = Focus-Browser
+if (-not $win) { Write-Output "ABORT: cannot focus browser '$Browser'"; exit 1 }
 if (-not (Test-Path $Js)) { Write-Output "ABORT: no such file $Js"; exit 1 }
 Write-Output ("window title: " + $win.MainWindowTitle)
 
