@@ -38,10 +38,20 @@ def count(path):
     if isinstance(posts, list):
         posts = {str(i): p for i, p in enumerate(posts)}
     withc = full = unknown = ncomments = 0
+    껍데기 = 0
     for p in posts.values():
         if not isinstance(p, dict):
             continue
-        c = p.get("comments")
+        # ★ 2026-08-11 실측. 수집기는 댓글 **입력창**도 항목으로 집는다 — 글 4921 에서
+        #   `author='UNI쿠팡지원팀' created_at=None content=''` 둘이 나왔는데 밴드
+        #   자신은 `comment_count='0'` 이라 했다. 껍데기다.
+        #   흡수기는 시각 없는 댓글을 버리므로([130]) 캐시는 옳게 0 이 된다. 그런데
+        #   이 계기가 그것을 '댓글 2개'로 세는 바람에 **"수집기가 댓글을 읽는다"는
+        #   증거로 보고됐다.** 쓸 수 없는 것을 수확으로 세면 계기가 거짓말을 한다([169]).
+        #   그래서 여기서도 **흡수기와 같은 잣대**로 센다 — 시각이 있어야 댓글이다.
+        c = [x for x in (p.get("comments") or [])
+             if isinstance(x, dict) and x.get("created_at")]
+        껍데기 += len(p.get("comments") or []) - len(c)
         if c:
             withc += 1
             ncomments += len(c)
@@ -51,6 +61,7 @@ def count(path):
             unknown += 1
     return {
         "글": len(posts), "댓글담김": withc, "댓글수": ncomments,
+        "껍데기": 껍데기,
         "확인된0개": full, "미확인": unknown,
         "없는글": len(d.get("missing") or []),
         "실패": len(d.get("failed") or []),
@@ -78,17 +89,24 @@ def main(argv):
                                         "미확인", "없는글", "실패"))))
     if len(files) > 1:
         print("합계  " + " · ".join("%s %d" % (k, tot[k]) for k in
-                                   ("글", "댓글담김", "댓글수", "확인된0개",
-                                    "미확인", "없는글", "실패")))
+                                   ("글", "댓글담김", "댓글수", "껍데기",
+                                    "확인된0개", "미확인", "없는글", "실패")))
     # ★ 판정을 사람에게 떠넘기지 않는다 — 0 이 '없다'인지 '못 읽었다'인지 말한다.
     if tot.get("댓글담김", 0) == 0 and tot.get("확인된0개", 0) == 0:
         print("\n⚠ 댓글이 한 건도 안 담겼고 '확인된 0개'도 없습니다 —"
               " 수집기가 못 읽은 쪽을 먼저 의심하십시오([162]). 남은 회차를 그냥"
               " 돌리면 시간만 씁니다.")
     elif tot.get("댓글담김", 0) == 0:
-        print("\n댓글 담긴 글은 0건이지만 '확인된 0개'가 %d건입니다 —"
+        print("\n쓸 수 있는 댓글은 0건이지만 '확인된 0개'가 %d건입니다 —"
               " 입력창까지 그려진 뒤 목록이 비었다는 뜻이라 **진짜 댓글이 없는**"
               " 글로 봅니다([199])." % tot.get("확인된0개", 0))
+    if tot.get("껍데기", 0):
+        # 껍데기가 있다는 것 자체는 사고가 아니다(버려지니까). 다만 **이 회차가
+        # 진짜 댓글을 읽을 수 있는지는 아직 증명되지 않았다**는 뜻이므로 그렇게 적는다.
+        print("껍데기 %d개(시각·본문 없는 항목)는 세지 않았습니다 — 댓글 입력창을"
+              " 항목으로 집은 것입니다. 흡수기가 버리므로 캐시는 영향받지 않지만,"
+              " **진짜 댓글을 읽을 수 있다는 증거로 쓰면 안 됩니다.**"
+              % tot["껍데기"])
     return 0
 
 
