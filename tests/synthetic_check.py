@@ -9908,7 +9908,6 @@ def t217_probe_instead_of_scraping_absent_numbers():
     #   (실측 2026-08-11: 그렇게 두 개가 사라졌다).
     assert 'startswith("수집_")' in body, \
         "make_oneclick 이 만들지도 않는 파일까지 제 mtime 으로 판단한다 — 남의 회차 파일이 지워진다"
-    
     print("  [217] 없는 번호는 40개가 아니라 몇 개만 — 근거 먼저 ✅")
 
 
@@ -11643,8 +11642,12 @@ def t162_band_comments_collected():
     assert "def heal_stale_pastefiles" in wd and "heal_stale_pastefiles(dry)," in wd, \
         "낡은 붙여넣기 파일을 아무도 다시 안 만든다 — 30분 워치독에 걸려 있어야 한다"
     heal = wd.split("def heal_stale_pastefiles")[1].split("\ndef ", 1)[0]
-    assert "os.path.getmtime(p) < js_mt" in heal, \
-        "판정 근거가 grab_posts.js mtime 이 아니다(회차 번호가 매번 달라 내용 비교는 못 쓴다)"
+    # 2026-08-11: 판정 기준이 '만드는 쪽'별로 갈렸다(수집_* 는 mk_mt, 나머지는 js_mt —
+    # heal 의 주석 참조). 지키는 정책은 그대로다: **내용 비교가 아니라 mtime 비교**이고
+    # 기준선에 grab_posts.js mtime 이 들어간다. 문자 그대로 못 박으면 기준을 세분화할
+    # 때마다 검증이 헛되이 깨진다.
+    assert "os.path.getmtime(p) <" in heal and "js_mt" in heal, \
+        "판정 근거가 만드는 쪽 mtime 이 아니다(회차 번호가 매번 달라 내용 비교는 못 쓴다)"
     assert "os.path.getmtime(p) >= js_mt" in heal and "os.unlink(p)" in heal, \
         "끝난 코드만 보고 성공으로 센다 — 훑을 것이 없는 밴드는 파일이 안 써지는데도 0 이다"
     for scrape in ("band_sync", "requests.", "webdriver", "convert_dump"):
@@ -14354,6 +14357,74 @@ def t215_cancel_timeline_last_explicit_state_wins():
     print("  [215] 취소 시간축 — 댓글별 시각 정렬 · 마지막 취소/유지 승리 · 보험·택배·부품 제외 ✅")
 
 
+def t218_camp_standard_erp_basis_and_pm_units():
+    """[218] 캠프명 표준화는 ERP **유일 매칭만** 바꾸고, 점검내용 파싱은 원문을 안 고친다.
+
+    2026-08-11 지시: "ERP 기준으로 캠프명 매칭 … 기존 캠프명을 ERP 기준으로 변경 /
+    정기점검 점검내용 호기별 분류 + ? 깨진 문자 조사".
+
+    지키는 것 넷: ① 유일 매칭만 변경 ② 후보 여럿·ERP 없음·입력오류는 불변(짐작 금지)
+    ③ 모든 변경 항목에 근거(ERP 거래처코드·이전값)가 실려 감사로그로 간다
+    ④ 파싱·조사는 원문을 한 글자도 안 고친다(관리대장 직접 저장 금지 포함).
+    """
+    import camp_standardize as CS
+    import pm_content as PM
+
+    custs = [
+        {"code": "CU001", "name": "양주2캠프(봉양동)"},
+        {"code": "CU002", "name": "서울1캠프(A동)"},
+        {"code": "CU003", "name": "서울1캠프(B동)"},
+        {"code": "CU004", "name": "제주2MB(사계리)"},
+    ]
+    rows = [
+        {"sheet": "02_돌발AS접수", "id": "AS-1", "camp": "양주2캠프"},          # 유일(핵심코드) → 변경
+        {"sheet": "02_돌발AS접수", "id": "AS-2", "camp": "양주2캠프(봉양동)"},   # 이미 표준 → 불변
+        {"sheet": "04_정기점검", "id": "PM-1", "camp": "서울1캠프"},            # 후보 여럿 → 불변
+        {"sheet": "04_정기점검", "id": "PM-2", "camp": "?"},                    # 입력오류 → 불변
+        {"sheet": "06_거래서류청구수금", "id": "ST-1", "camp": "듣도못한캠프"},  # ERP 없음 → 불변
+        {"sheet": "06_거래서류청구수금", "id": "ST-2", "camp": "제주2MB(성읍리)"},  # 괄호 갈림 → 변경+감시
+    ]
+    items, report = CS.plan_rows(rows, custs)
+    changed = {(i["sheet"], i["key"]) for i in items}
+    assert len(items) == 2 and changed == {("02_돌발AS접수", "AS-1"),
+                                           ("06_거래서류청구수금", "ST-2")}, \
+        f"유일 매칭 2건만 바뀌어야 한다: {changed}"
+    for i in items:
+        assert i["only_if_empty"] is False and i["col"] == "캠프명"
+        assert "ERP 거래처등록 CU" in i["evidence"] and "이전값" in i["evidence"], \
+            "감사로그로 갈 근거(거래처코드·이전값)가 항목에 없다"
+    assert set(report["buckets"]["multi"]) == {"서울1캠프"}, "후보 여럿은 불변 + 보고"
+    assert set(report["buckets"]["none"]) == {"듣도못한캠프"}
+    assert set(report["buckets"]["junk"]) == {"?"}, "값 대신 들어간 표시는 입력오류로 가른다"
+    assert [p["before"] for p in report["paren_watch"]] == ["제주2MB(성읍리)"], \
+        "괄호 지명이 갈리는 변경은 따로 모아 사람이 보게 한다"
+    assert {c["before"] for c in report["changes"]} == {"양주2캠프", "제주2MB(성읍리)"}, \
+        "변경 전 값이 되돌리기 자료(changes)에 남아야 한다"
+
+    # 점검내용 파싱 — 호기 해석·깨짐 판정·원문 불변
+    assert PM.parse_units("1,2호기 그리스 주입")["units"] == [1, 2]
+    assert PM.parse_units("1~3호기")["units"] == [1, 2, 3]
+    assert PM.parse_units("#4 · 5호 점검")["units"] == [4, 5]
+    p = PM.parse_units("▒▒ ?? 호기 ▒▒")
+    assert p["unknown"] and p["units"] == [], "깨진 호기는 지어내지 않고 '모름'으로 남긴다"
+    assert PM.broken_flags("▒▒ ?? 호기 ▒▒") and not PM.broken_flags("이상 없음?"), \
+        "물음표 하나짜리 정상 문장을 깨짐이라 부르면 사람이 멀쩡한 값을 고치러 간다"
+    row = {"점검ID": "PM-X", "프로젝트NO": "UJ0000001", "캠프명": "가상캠프",
+           "점검내용": "▒▒ ?? 호기 ▒▒ 점검", "비고": "&amp; 포함"}
+    before = json.dumps(row, ensure_ascii=False, sort_keys=True)
+    a = PM.analyze_row(row)
+    assert json.dumps(row, ensure_ascii=False, sort_keys=True) == before, "원문(행)을 고쳤다"
+    assert a["unknown"] and a["broken"].get("비고") == ["HTML엔티티"]
+
+    # 두 도구 다 관리대장을 직접 저장하지 않는다 — 읽기 전용 열기 + 승인 경로(enqueue)만.
+    for mod in ("camp_standardize.py", "pm_content.py"):
+        src = open(os.path.join(ROOT, mod), encoding="utf-8").read()
+        assert "read_only=True" in src and ".save(" not in src, mod + " 원장 직접 저장 금지"
+        assert "ledger_db" in src and "queue_add" in src, mod + " 는 승인 경로로만 쓴다"
+
+    print("  [218] 캠프명 ERP 표준화·호기 분류 — 유일 매칭만 변경 · 비유일 불변 · 근거 동반 · 원문 불변 ✅")
+
+
 def t196_stage_words_come_from_one_place():
     """[196] 돌발AS·정기점검 단계 낱말은 **한 곳**에서 오고, 바뀌면 자국이 남는다.
 
@@ -14987,6 +15058,7 @@ if __name__ == "__main__":
     t213_exact_pid_fingerprint_reaches_every_owner()
     t214_first_live_revision_cannot_be_falsely_applied()
     t215_cancel_timeline_last_explicit_state_wins()
+    t218_camp_standard_erp_basis_and_pm_units()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
