@@ -936,8 +936,12 @@ def _remote_branch_stock(c):
             "SELECT branch,COALESCE(NULLIF(version,''),'미확인'),SUM(qty)"
             " FROM remote_issue WHERE status='불출완료'"
             " GROUP BY branch,COALESCE(NULLIF(version,''),'미확인')"):
-        if br in by_ver and ver in by_ver[br]:
-            by_ver[br][ver] -= int(qty or 0)
+        # ★ 2026-08-11 류지영 피드백("VER4 사용했는데 재고가 안 줄어요")로 잡은 실버그:
+        #   재고 조정(remote_stock)에 그 버전 키가 없으면 불출 차감이 **조용히 버려져**
+        #   버전별 재고가 실제보다 크게 보였다. 이제 키가 없어도 음수로 만들어 드러낸다 —
+        #   틀린 큰 숫자보다 설명 가능한 음수가 낫다. 기록 원문은 건드리지 않는다.
+        d = by_ver.setdefault(br, {})
+        d[ver] = d.get(ver, 0) - int(qty or 0)
     out = {}
     for br in REMOTE_BRANCH_ISSUERS:
         got, used = added.get(br, 0), issued.get(br, 0)

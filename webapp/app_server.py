@@ -7536,10 +7536,23 @@ self.addEventListener('fetch', e => {
                 if p == "/api/remote/restore":
                     row = ledger_db.remote_restore(body.get("audit_id"), actor=who)
                     return self._send(200, {"ok": True, "row": row})
+                # 샘플발송·개인지급은 프로젝트가 없다(2026-08-11 지시) — 프로젝트NO·캠프명이
+                # 둘 다 비면 지급 사유를 필수로 받아 감사 가능하게 남긴다(받는 사람 = technician).
+                # 스키마는 그대로다: 사유는 납품처(camp) 표기와 note 꼬리표로 남는다.
+                proj = str(body.get("project") or "").strip()
+                camp = str(body.get("camp") or "").strip()
+                note = str(body.get("note") or "")
+                if not proj and not camp:
+                    why = str(body.get("grant_reason") or "").strip()
+                    if why not in ("샘플발송", "개인지급", "기타"):
+                        return self._send(400, {"ok": False, "error":
+                            "프로젝트NO·캠프명이 없으면 지급 사유(샘플발송·개인지급·기타)를 골라야 합니다"})
+                    camp = f"({why})"
+                    note = (note + " " if note else "") + f"[지급사유: {why}]"
                 rid = ledger_db.remote_deliver(
-                    body.get("technician"), body.get("project") or "",
-                    body.get("camp") or "", body.get("qty"),
-                    body.get("delivered_on") or "", body.get("note") or "", who,
+                    body.get("technician"), proj,
+                    camp, body.get("qty"),
+                    body.get("delivered_on") or "", note, who,
                     kind=body.get("kind") or "납품",
                     version=body.get("version") or "")
                 return self._send(200, {"ok": True, "id": rid})

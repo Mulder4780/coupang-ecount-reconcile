@@ -3676,7 +3676,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	        </div>
 	      </div>
 
-	      <form class="card ryu-editor-card" id="ryuEntryForm" onsubmit="submitRyuEntry(event)">
+	      <form class="card ryu-editor-card" id="ryuEntryForm" data-draft="ryuEntryForm" onsubmit="submitRyuEntry(event)">
 	        <h3>선택 업무 확인·입력 <span class="norm">— 앱 DB 즉시 저장 · 확인된 값은 정정 가능</span></h3>
 	        <div class="ryu-editor-empty" id="ryuEditorEmpty">
 	          왼쪽 과거 목록에서 업무를 선택해 주세요.<br>선택한 건의 기존 내용과 보충 가능한 항목이 표시됩니다.
@@ -3744,7 +3744,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	      </form>
 
 	      <div id="ryuOnlySubmission">
-	      <form class="card" id="newWorkForm" onsubmit="submitNewWork(event)">
+	      <form class="card" id="newWorkForm" data-draft="newWorkForm" onsubmit="submitNewWork(event)">
 	        <h3>신규 업무 입력 <span class="norm">— Excel을 열지 않아도 앱 DB에 즉시 저장됩니다</span></h3>
 	        <div class="ryu-fields">
 	          <label>업무 구분
@@ -5346,6 +5346,7 @@ function renderRyuEditor(){
   }else{
     fields.innerHTML=schema.map(f=>ryuInputHtml(f,detail[f.name])).join('');
     save.style.display='flex';
+    draftOffer($('ryuEntryForm'));     // 이 기록에 적다 만 초안이 있으면 묻는다(2026-08-11)
   }
   const result=$('ryuEntryResult');result.className='ryu-result';result.textContent='';
 }
@@ -5370,6 +5371,7 @@ async function submitRyuEntry(ev){
       `${count}개 항목을 앱 DB에 즉시 저장했습니다. Excel은 검증된 자동 보관본으로 생성됩니다.`;
     toast(`${(STAFF_CENTERS[staffSlug]||{name:'업무센터'}).name} · ${d.action==='no_change'?'변경 없음':'저장 완료'}`);
     const keepKey=ryuSelected.key, keepCategory=ryuCategory;
+    draftClear('ryuEntryForm:'+keepCategory+':'+keepKey);   // 서버 확인 뒤에만(2026-08-11)
     await loadRyuRecords(true);
     ryuCategory=keepCategory;
     ryuSelected=((RYU.rows||{})[keepCategory]||[]).find(x=>x.key===keepKey)||null;
@@ -5380,7 +5382,9 @@ async function submitRyuEntry(ev){
     // 결과 문구는 토스트로 이미 보였으므로 폼을 붙들고 있을 이유가 없다.
     if(layerIsOpen('ryuEntryForm')) setTimeout(closeSheetAll, 600);
   }catch(e){
-    result.className='ryu-result err';result.textContent='저장 실패 · '+String(e.message||e);
+    result.className='ryu-result err';
+    result.textContent='저장 실패 · '+String(e.message||e)
+      +' — 입력 초안은 이 기기에 보관했습니다. 자동 재전송은 하지 않습니다(멱등키가 있어 다시 저장해도 중복되지 않습니다).';
   }finally{btn.disabled=false;btn.classList.remove('busy');}
 }
 async function submitRyuUpload(ev){
@@ -5442,6 +5446,7 @@ async function openNewWork(k){
   const nm=(k==='pm')?'정기점검':'돌발AS';
   layerOpen('newWorkForm', {title:nm+' 신규 등록',
     sub:'저장하면 앱 DB 정본과 감사기록에 즉시 남습니다. Excel은 보관본 회차가 만듭니다.'});
+  draftOffer(form);                    // 적다 만 초안이 있으면 물어보고 복원(2026-08-11)
   uxEvent('tap','wt-new-'+k);
 }
 async function submitNewWork(ev){
@@ -5460,6 +5465,7 @@ async function submitNewWork(ev){
     result.className='ryu-result ok';
     result.innerHTML=`저장 완료 · ${esc2(d.manifest['업무ID'])} · 앱 DB ${fmt(d.queued)}개 항목 즉시 저장
       <br>Excel은 앱 DB 정본에서 자동 보관본으로 생성됩니다.`;
+    draftClear('newWorkForm');           // 서버 확인 뒤에만 초안을 지운다(2026-08-11)
     const keepDate=form.querySelector('[name="work_date"]').value;
     const keepCat=(($('newWorkCategory')||{}).value)||'as';
     form.reset();form.querySelector('[name="work_date"]').value=keepDate;
@@ -5474,7 +5480,9 @@ async function submitNewWork(ev){
       setTimeout(closeSheetAll, 700);
     }
   }catch(e){
-    result.className='ryu-result err';result.textContent='저장 실패 · '+String(e.message||e);
+    result.className='ryu-result err';
+    result.textContent='저장 실패 · '+String(e.message||e)
+      +' — 입력 초안은 이 기기에 보관했습니다. 자동 재전송은 하지 않으니 확인 후 다시 저장해 주세요.';
     loadNotifications();
   }finally{btn.disabled=false;btn.classList.remove('busy')}
 }
@@ -6313,6 +6321,10 @@ function remoteCardBody(host,s,hostId){
         <button class="abtn primary" onclick="remoteStock('${hostId}')">재고 저장</button>
       </fieldset>
       <fieldset><legend>불출 기록</legend>
+        <!-- 2026-08-11 류지영 피드백: "제 이름으로 했더니 제 앞으로 보유가 돼버림" —
+             버그가 아니라 설계다(불출 = 지점 재고 − · 받는 사람 보유 +). 설명이 없어
+             오해했으므로 뜻을 화면에 적고, 저장 전에 한 번 확인한다. -->
+        <p class="remote-rule" style="margin:4px 0 8px">불출은 지점 재고에서 빼서 <b>AS 담당자(받는 사람)</b> 보유로 옮깁니다. 본인이 보관할 물량도 본인 이름으로 불출합니다.</p>
         <div class="remote-row2">
           <select id="${hostId}Br" aria-label="불출 지점" onchange="remoteBranchIssuer('${hostId}')">${Object.keys(s.branches||{}).map(b=>`<option>${esc2(b)}</option>`).join('')}</select>
           <input id="${hostId}Qty" type="number" inputmode="numeric" min="1" max="${s.limit}" value="1" aria-label="수량">
@@ -6342,6 +6354,8 @@ function remoteCardBody(host,s,hostId){
           <select id="${hostId}DVer" aria-label="버전">${verOpts()}</select>
         </div>
         <input id="${hostId}DDay" type="date" value="${new Date().toISOString().slice(0,10)}" aria-label="납품일">
+        <!-- 샘플발송·개인지급은 프로젝트가 없다(2026-08-11 지시) — 그때는 사유가 필수다. -->
+        <select id="${hostId}DWhy" aria-label="지급 사유"><option value="">지급 사유 — 프로젝트 납품이면 비워 둡니다</option><option>샘플발송</option><option>개인지급</option><option>기타</option></select>
         <button class="abtn primary" onclick="remoteDeliver('${hostId}')">납품 저장</button>
       </fieldset>
     </div>
@@ -6360,6 +6374,8 @@ function remoteBranchIssuer(hostId){
 }
 async function remoteRequest(hostId){
   const v=id=>($(hostId+id)||{}).value||'';
+  // 불출 뜻 확인(2026-08-11) — 재고가 사람 보유로 '옮겨지는' 것임을 저장 전에 말한다.
+  if(!await askYesNo(`${v('Tech').trim()||'받는 사람'} 앞으로 ${+v('Qty')||0}개 보유가 옮겨지고, ${v('Br')||'지점'} 재고가 그만큼 줄어듭니다. 진행할까요?`,{title:'불출 확인'})) return;
   try{
     const r=await api('/api/remote/request',{method:'POST',body:JSON.stringify({
       branch:v('Br'),technician:v('Tech').trim(),qty:+v('Qty'),note:v('Note'),
@@ -6436,12 +6452,16 @@ async function remoteRowDelete(kind,id,hostId){
   if(reason===null) return;
   if(!String(reason).trim()){ notice('사유가 필요합니다'); return; }
   try{
-    let r=await api('/api/remote/delete',{method:'POST',body:JSON.stringify({kind,id,reason})});
-    if(!r.ok && /강제/.test(String(r.error||''))){
-      if(!await askYesNo(`${r.error}\n\n그래도 지울까요?`)) return;
-      r=await api('/api/remote/delete',{method:'POST',body:JSON.stringify({kind,id,reason,force:true})});
+    /* ★ api() 는 400 을 **던진다**(_apiNet) — 예전 `if(!r.ok && /강제/…)` 는 그 줄에
+       닿지 못하는 죽은 길이었다(2026-08-11 실측: 07:16 삭제 400 뒤 강제 확인이 안 떴다).
+       던져진 오류의 문구로 '강제가 필요한 거절'을 가려 다시 묻는다. */
+    try{
+      await api('/api/remote/delete',{method:'POST',body:JSON.stringify({kind,id,reason})});
+    }catch(e1){
+      if(!/강제/.test(String(e1&&e1.message||''))) throw e1;
+      if(!await askYesNo(`${e1.message}\n\n그래도 지울까요?`)) return;
+      await api('/api/remote/delete',{method:'POST',body:JSON.stringify({kind,id,reason,force:true})});
     }
-    if(!r.ok) throw new Error(r.error||'실패');
     notice('지웠습니다 — 아래 "수정·삭제 기록"에서 되돌릴 수 있습니다');
   }catch(e){ notice('삭제 실패: '+e.message); return; }
   uxEvent('tap','remote-delete-'+kind); renderRemoteCard(hostId);
@@ -6480,10 +6500,15 @@ async function remoteStock(hostId){
 }
 async function remoteDeliver(hostId){
   const v=id=>($(hostId+id)||{}).value||'';
+  // 프로젝트NO·캠프명이 둘 다 비면 지급 사유가 필수다(2026-08-11 지시) — 서버도 같은 규칙.
+  if(!v('DPrj').trim() && !v('DCamp').trim() && !v('DWhy')){
+    notice('프로젝트NO·캠프명이 없으면 지급 사유(샘플발송·개인지급·기타)를 골라 주세요. 받는 사람은 AS 담당자 칸에 적습니다.'); return;
+  }
   try{
     const r=await api('/api/remote/deliver',{method:'POST',body:JSON.stringify({
       technician:v('DTech').trim(),project:v('DPrj').trim(),camp:v('DCamp').trim(),
-      qty:+v('DQty'),delivered_on:v('DDay'),kind:v('DKind'),version:v('DVer')})});
+      qty:+v('DQty'),delivered_on:v('DDay'),kind:v('DKind'),version:v('DVer'),
+      grant_reason:v('DWhy')})});
     if(!r.ok) throw new Error(r.error||'실패');
     notice('납품 기록 저장 완료');
   }catch(e){ notice('납품 기록 실패: '+e.message); }
@@ -9913,6 +9938,8 @@ function openSheet(kind, idx, id){
       inputForm(kind, r, id);
   }
   showSheet(html);
+  const dbox=$('sheetbody').querySelector('[data-draft]');
+  if(dbox) draftOffer(dbox);           // 상세시트 입력 초안 복원 제안(2026-08-11)
 }
 
 /* ── 시트 열기·닫기 한 곳으로 ───────────────────────────────────────────────
@@ -10236,6 +10263,81 @@ function ryuEntryWarnings(form){
   return w;
 }
 
+/* ═══ 입력 초안 자동저장·복원 (2026-08-11 지시) ═══════════════════════════════
+   입력하는 동안 ~1초 debounce 로 초안을 이 기기(localStorage)에 저장한다.
+   정본 규칙(2026-08-10)이 localStorage 에 허용한 '전송 전 임시 초안' 용도다 —
+   업무 확정은 언제나 멱등키를 가진 앱 API 를 다시 거친다(역수입 금지 그대로).
+   · 대상은 data-draft 표시 폼뿐: newWorkForm · ryuEntryForm(기록 단위 열쇠) ·
+     상세시트 입력(entry:<갈래>:<ID>). 열쇠가 기록 단위라 남의 기록에 안 덮인다.
+   · **자동 복원 금지** — 초안이 있으면 공용 바텀시트로 '이어서 쓰기/버리기'를 묻는다.
+   · 저장 성공(서버 확인) 뒤에만 지운다. 실패·502 면 보존한다. 쓰기 자동 재시도는
+     하지 않는다(반쯤 성공했을 수 있다) — 사람이 다시 누르는 것은 멱등키가 지킨다. */
+const DRAFT_NS='csos_draft_';
+let _draftTimer=null, _draftDirty=false;
+function draftKeyOf(box){
+  let k=String(box.getAttribute('data-draft')||''); if(!k) return '';
+  if(k==='ryuEntryForm'){
+    const c=($('ryuEntryCategory')||{}).value||'', id=($('ryuEntryKey')||{}).value||'';
+    if(!id) return '';                       // 아직 기록을 안 골랐다 — 초안 대상 아님
+    k+=':'+c+':'+id;
+  }
+  return k;
+}
+function draftFields(box){
+  return [...box.querySelectorAll('input,select,textarea')].filter(el=>
+    el.type!=='file' && el.type!=='hidden' && el.type!=='checkbox'
+    && (el.name||el.dataset.col||el.id));
+}
+function draftIdOf(el){ return el.name||el.dataset.col||el.id; }
+function draftSave(box){
+  const k=draftKeyOf(box); if(!k) return;
+  const v={}; let any=false;
+  draftFields(box).forEach(el=>{
+    const val=String(el.value||'');
+    v[draftIdOf(el)]=val;
+    const base=(el.dataset.original!==undefined)?String(el.dataset.original):String(el.defaultValue||'');
+    if(val.trim() && val!==base) any=true;   // 기본값 그대로면 초안이 아니다
+  });
+  try{
+    if(any){ localStorage.setItem(DRAFT_NS+k, JSON.stringify({t:Date.now(), v})); _draftDirty=true; }
+    else localStorage.removeItem(DRAFT_NS+k);
+  }catch(_){}
+}
+function draftClear(keyTail){ try{ localStorage.removeItem(DRAFT_NS+keyTail); }catch(_){} _draftDirty=false; }
+function draftRead(keyTail){
+  try{ const d=JSON.parse(localStorage.getItem(DRAFT_NS+keyTail)||'null'); return (d&&d.v)?d:null; }
+  catch(_){ return null; }
+}
+/* 폼을 다시 열 때 초안이 있으면 물어보고 채운다 — 자동 덮어쓰기 금지. */
+async function draftOffer(box){
+  if(!box) return;
+  const k=draftKeyOf(box); if(!k) return;
+  const d=draftRead(k); if(!d) return;
+  const when=new Date(d.t).toLocaleString('sv-SE',{timeZone:'Asia/Seoul'}).slice(5,16);
+  const use=await bottomSheet({title:'작성하던 초안이 있습니다',
+    sub:`이 기기에 ${when} 저장된 입력 초안입니다. 서버에는 아직 저장되지 않았습니다.`,
+    buttons:[{label:'이어서 쓰기', value:true, kind:'primary'},{label:'버리기', value:false}],
+    cancel:null});                            // 바깥 탭 = 아무것도 안 바꾼다(초안 보존)
+  if(use===true){
+    draftFields(box).forEach(el=>{ const key=draftIdOf(el); if(key in d.v) el.value=d.v[key]; });
+    _draftDirty=true;
+  }else if(use===false){ draftClear(k); }
+}
+function _draftInput(e){
+  const box=e.target && e.target.closest && e.target.closest('[data-draft]');
+  if(!box) return;
+  clearTimeout(_draftTimer);
+  _draftTimer=setTimeout(()=>{ try{ draftSave(box); }catch(_){}} ,1000);
+}
+document.addEventListener('input', _draftInput, true);
+document.addEventListener('change', _draftInput, true);
+/* 적다 만 것이 있으면 브라우저 이탈을 한 번 묻는다(이 세션에서 초안이 저장된 경우만 —
+   옛 초안으로 매번 묻으면 아무도 안 읽는 경고가 된다). */
+addEventListener('beforeunload', e=>{
+  if(!_draftDirty) return;
+  e.preventDefault(); e.returnValue='';
+});
+
 $('dlgDim').addEventListener('click', dlgCancel);
 document.addEventListener('keydown', e=>{
   if(!dlgIsOpen() || !_dlgResolve) return;
@@ -10481,7 +10583,8 @@ function inputForm(kind, r, id){
   if(!spec) return '';
   const fields = spec.fields;
   const version=Number(r.DB버전||r._record_version||r.record_version||0);
-  return `<div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">확인 내용 입력·정정 → 앱 DB 즉시 저장</div>
+  // data-draft: 입력 초안 자동저장 대상 표시(2026-08-11) — 열쇠가 기록 단위라 남의 기록에 안 덮인다.
+  return `<div data-draft="entry:${kind}:${esc2(String(id))}"><div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">확인 내용 입력·정정 → 앱 DB 즉시 저장</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">` +
     fields.map((f,i)=>`<div style="display:flex;gap:8px;align-items:center">
       <span style="width:110px;font-size:14px;color:var(--ink-3);font-weight:600">${f.label}</span>
@@ -10491,7 +10594,7 @@ function inputForm(kind, r, id){
       <textarea id="inp_reason" placeholder="예: 오종현 통화 확인 — 유상 오입력, 실제 무상 건" style="display:block;width:100%;min-height:58px;margin-top:5px;padding:10px;border:1.5px solid var(--line);border-radius:10px;font:inherit"></textarea></label>
     <button onclick="saveInputs('${kind}','${id}',${fields.length},${version})" style="margin-top:10px;width:100%;
       padding:12px;background:var(--brand-btn);color:#fff;border-radius:11px;font-weight:700;font-size:14px">💾 입력 저장</button>
-    <div style="font-size:13px;color:var(--ink-3);margin-top:6px">입력은 한 번에 앱 DB에 반영됩니다. 자동 상태·수식은 직접 바꾸지 않으며 Excel은 단방향 보관본입니다.</div>`;
+    <div style="font-size:13px;color:var(--ink-3);margin-top:6px">입력은 한 번에 앱 DB에 반영됩니다. 자동 상태·수식은 직접 바꾸지 않으며 Excel은 단방향 보관본입니다.</div></div>`;
 }
 async function saveInputs(kind, id, n, recordVersion){
   const spec = INPUT_SPEC[kind];
