@@ -434,9 +434,74 @@ def inject(js, host, probe, dead_marks):
     return True, "살아 있다 · %s" % state.replace("\n", " ")[:160]
 
 
+def _epoch(때):
+    try:
+        return time.mktime(time.strptime(때, "%Y-%m-%d %H:%M:%S"))
+    except Exception:
+        return None
+
+
+def settle_band(d):
+    """시작만 하고 **끝을 안 본** 밴드 수집을 주기적으로 물어 마무리한다 (분담판 [37]).
+
+    ★ 지금까지는 붙여넣은 **직후 한 번만** 묻고 '시작됨'이라 적은 뒤 떠났다. 그런데
+      250건 수집은 20분을 넘게 돈다 — 3분째에 죽어도(#35 의 그 죽음) 이 회차는 이미
+      '시작됨'을 적어 뒀고, 다음 tick 은 `too_soon`(90분)에 걸려 건너뛴다.
+      **성공도 실패도 아닌 채로 90분이 지나간다** — 화면에는 '시작됨'만 남아 있어
+      아무도 이상하다 안 한다(`[169]` 와 같은 모양).
+    ★ 판정은 `liveness.verdict` **한 곳**이 한다 — 여기서 다시 세면 두 판정이 갈리고,
+      갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다. 이쪽 몫은 **'아직 이른가'** 뿐이다.
+    ★ **막지 않는다.** tick 은 15분마다 오는데 여기서 `liveness.watch`(30분)를 돌면
+      잠금을 쥔 채 다음 tick 을 굶긴다([175]). 한 tick 에 **한 번만** 묻고 넘어간다.
+    ★ 밴드를 다른 세션이 잡고 있으면 물러난다(사고 #27) — 판정은 `liveness` 것을 빌린다.
+    """
+    pend = [(k, v) for k, v in (d.get("마지막") or {}).items()
+            if k.startswith("밴드 댓글 ") and v.get("결과") in ("시작됨", "진행중")]
+    if not pend:
+        return
+    try:
+        if HERE not in sys.path:
+            sys.path.insert(0, HERE)
+        import liveness as L
+    except Exception as exc:                       # 눈 하나 때문에 회차를 세우지 않는다
+        print("생존확인을 못 불렀다: %s" % str(exc)[:60])
+        return
+    other = L.band_held_by_other()
+    if other:
+        print("밴드를 다른 세션이 잡고 있다 — 마무리는 다음 tick 으로: %s" % other)
+        return
+    for 무엇, v in pend:
+        t0 = _epoch(v.get("때"))
+        if t0 is None:
+            continue
+        지난분 = (time.time() - t0) / 60.0
+        try:
+            s = L.probe(host="band.us", find_tab=True)
+            h = L.harvest_since(t0)
+            code, 한마디, 왜 = L.verdict([s], h)
+        except Exception as exc:
+            print("%s 생존확인 실패: %s" % (무엇, str(exc)[:60]))
+            continue
+        if code == 3 and 지난분 < L.WATCH_MIN:
+            # 살아 있는데 아직 수확이 없다 — 수집은 원래 오래 걸린다. 이것을 실패라
+            # 부르면 멀쩡히 도는 수집을 사람이 다시 돌리러 간다(#36 의 거짓 죽음).
+            note(d, 무엇, "진행중",
+                 "살아 있고 아직 수확 전 — %.0f분째(한도 %d분)" % (지난분, L.WATCH_MIN))
+        else:
+            note(d, 무엇, 한마디, str(왜).replace("\n", " ")[:200])
+        # ★ **재시도 시계를 되돌린다.** `note` 는 '마지막' 시각을 지금으로 갱신하는데,
+        #   `too_soon` 이 그 시각을 보므로 마무리를 물을 때마다 90분이 다시 시작된다 —
+        #   묻는 행위가 재시도를 영원히 미루는 자리다. 시계의 기준은 **붙여넣은 때**다.
+        d["마지막"][무엇]["때"] = v["때"]
+        save(d)
+
+
 # ── 회차 본체 ────────────────────────────────────────────────────────────────
 def tick():
     d = load()
+    # ★ 새로 붙여넣기 **전에** 앞의 것을 마무리한다 — 순서가 뒤집히면 끝을 못 본
+    #   수집 위에 또 하나를 얹는다.
+    settle_band(d)
     busy, why = looks_busy()
     if busy:
         note(d, "점검", "건너뜀", why)

@@ -14900,6 +14900,46 @@ def t229_band_liveness_contract():
     ck("subprocess.run(timeout= 을 쓰지 않는다", "subprocess.run(" in src, False)
     ck("proc_guard.run_tree 를 쓴다", "proc_guard.run_tree" in src, True)
 
+    # ── ⑧ 시작만 하고 **끝을 안 본** 수집을 주기적으로 마무리한다 (분담판 [37])
+    #     붙여넣은 직후 한 번만 묻고 '시작됨'이라 적으면, 3분째에 죽어도 다음 tick 은
+    #     too_soon(90분)에 걸려 건너뛴다 — 성공도 실패도 아닌 채로 90분이 지나간다.
+    import browser_chain as BC
+    tick_src = rd(os.path.join(ROOT, "band", "browser_chain.py"))
+    tick_body = tick_src.split("\ndef tick(", 1)[1].split("\ndef ", 1)[0]
+    assert "settle_band(d)" in tick_body, \
+        "tick 이 앞 수집을 마무리하지 않는다 — '시작됨'인 채로 90분이 지나간다"
+    assert tick_body.index("settle_band(d)") < tick_body.index("looks_busy()"), \
+        "새로 붙여넣기 전에 앞의 것을 마무리해야 한다"
+    with tempfile.TemporaryDirectory() as td:
+        keep = (BC.STATE, L.probe, L.harvest_since, L.band_held_by_other)
+        try:
+            BC.STATE = os.path.join(td, "chain.json")
+            L.band_held_by_other = lambda: ""
+            L.harvest_since = lambda t0, dirs=None: {
+                "합계": {"댓글수": 0, "확인된0개": 0, "미확인": 0, "댓글담김": 0},
+                "덤프수": 0, "덤프": []}
+            때 = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 300))
+            d = {"단계": [], "마지막": {"밴드 댓글 90610953":
+                                     {"때": 때, "결과": "시작됨", "왜": ""}}}
+            # 살아 있는데 아직 수확 전 · 5분째 → **진행중**(멀쩡히 도는 것을 죽이지 않는다)
+            L.probe = lambda **kw: {"판정": L.ALIVE, "상태": {"ok": 3, "total": 250}}
+            BC.settle_band(d)
+            ck("이른 무수확은 진행중", d["마지막"]["밴드 댓글 90610953"]["결과"], "진행중")
+            # ★ 묻는 행위가 재시도를 미루면 안 된다 — 시계 기준은 붙여넣은 때다
+            ck("재시도 시계가 붙여넣은 때 그대로", d["마지막"]["밴드 댓글 90610953"]["때"], 때)
+            # 죽었으면 성공이라 적지 않는다(#35 의 본체)
+            L.probe = lambda **kw: {"판정": L.DEAD, "왜": "전역이 없다"}
+            BC.settle_band(d)
+            ck("죽음은 죽음이라 적는다", d["마지막"]["밴드 댓글 90610953"]["결과"], "죽음")
+            # 다른 세션이 잡고 있으면 손대지 않는다(사고 #27)
+            d["마지막"]["밴드 댓글 90610953"]["결과"] = "시작됨"
+            L.band_held_by_other = lambda: "옆 세션"
+            BC.settle_band(d)
+            ck("남이 잡고 있으면 물러난다",
+               d["마지막"]["밴드 댓글 90610953"]["결과"], "시작됨")
+        finally:
+            BC.STATE, L.probe, L.harvest_since, L.band_held_by_other = keep
+
     # ── 관문 밖에 사본이 남아 있으면 안 된다. 두 벌이 되면 한쪽만 고쳐지고,
     #    고쳐지지 않은 쪽은 **아무도 안 돌리므로 틀린 줄도 모른다**.
     assert not os.path.exists(os.path.join(ROOT, "tests",
@@ -14907,7 +14947,8 @@ def t229_band_liveness_contract():
         "관문 밖 사본이 남아 있다 — 검사가 두 벌이 되면 한쪽은 영영 안 돈다"
 
     print("  [229] 생존확인 계약 — 생존+수확 둘 다일 때만 성공 · 싱싱한 심장은 죽음 아님 · "
-          "시각 없는 댓글 제외 · sandbox 값 검사 · NO __GRAB 계약 · 유령 밴드 방지 ✅")
+          "시각 없는 댓글 제외 · sandbox 값 검사 · NO __GRAB 계약 · 유령 밴드 방지 · "
+          "tick 이 앞 수집을 마무리(재시도 시계는 안 밀림) ✅")
 
 
 def t220_flow_yes_no_cycles():
