@@ -70,11 +70,17 @@ def main():
 
     collect_src = open(os.path.join(ROOT, "collect_all.py"), encoding="utf-8").read()
     autopilot_src = open(os.path.join(ROOT, "autopilot.py"), encoding="utf-8").read()
+    daily_src = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert C.DEFAULT_BUDGET_SECONDS <= 7 * 60
+    assert C.CONTINUE_RETURN_CODE == 75
     assert "run_tree(" in collect_src and "subprocess.run(" not in collect_src
+    assert "INCREMENTAL_RETURN_CODE = 75" in autopilot_src
+    assert '"status": "waiting"' in autopilot_src and '"continuations"' in autopilot_src
+    assert "INCREMENTAL_RETURN_CODE = 75" in daily_src
+    assert 'got.get("returncode") == INCREMENTAL_RETURN_CODE' in daily_src
     assert 'local_rc = 124 if item.get("kind") == "timeout"' in autopilot_src
     assert 'item["last_returncode"]' in autopilot_src
-    print("[216] 현재 세트만 집계 · 누락 사진 재시도 · 7분 자진복귀 · timeout=124 인계 ✅")
+    print("[216/217] 현재 세트 집계 · 누락 사진 재시도 · 7분 자진복귀 · 증분 대기 ✅")
 
 
 if __name__ == "__main__":

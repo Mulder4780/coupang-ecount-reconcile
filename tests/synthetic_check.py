@@ -11981,6 +11981,25 @@ def t190_autopilot_retries_without_failure_cascade():
             healed = A.heal(limit=1, budget_seconds=60)
             assert healed["actions"][0]["result"] == "done"
             assert healed["active"] == 0, "성공한 대기열이 계속 남으면 같은 일을 반복한다"
+
+            # 한 회차 몫만 정상 저장한 증분 작업은 실패 횟수를 올리지도, 성공으로
+            # 닫지도 않는다. 30분 뒤 같은 안전 명령을 이어 가야 한다([217]).
+            three = A.defer("미수집 보관", args, 60, "이전 회차 시간초과")
+            doc = json.loads(A.QUEUE_PATH.read_text(encoding="utf-8"))
+            doc["items"][-1].update({
+                "attempts": 3, "ai_ticket": "old-ticket",
+                "next_attempt": "2000-01-01T00:00:00+09:00",
+            })
+            A.QUEUE_PATH.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+            A.run_tree = lambda *a, **k: type("R", (), {
+                "returncode": A.INCREMENTAL_RETURN_CODE,
+                "stdout": "증분 수집 계속 필요", "stderr": "", "timed_out": False,
+                "stuck_pid": 0})()
+            continued = A.heal(limit=1, budget_seconds=60)
+            current = json.loads(A.QUEUE_PATH.read_text(encoding="utf-8"))["items"][-1]
+            assert three and continued["actions"][0]["result"] == "waiting"
+            assert current["status"] == "waiting" and current["attempts"] == 0
+            assert current["continuations"] == 1 and not current["ai_ticket"], current
     finally:
         A.QUEUE_PATH, A.STATUS_PATH, A.REPORT_PATH = keep
         A.run_tree = old_runner
@@ -11991,6 +12010,9 @@ def t190_autopilot_retries_without_failure_cascade():
     server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     font = open(os.path.join(ROOT, "webapp", "font_switch.py"), encoding="utf-8").read()
     assert "_autopilot_defer" in daily and "deferred" in daily
+    assert "INCREMENTAL_RETURN_CODE = 75" in daily and \
+        'got.get("returncode") == INCREMENTAL_RETURN_CODE' in daily, \
+        "09:50 회차가 정상 증분 rc75를 실패·재시도로 센다([217])"
     assert "heal_autopilot(dry)" in watch, "워치독에 안 묶이면 대기열은 사람이 눌러야만 돈다"
     assert '"autopilot": autopilot_status' in server and '/api/autopilot' in server
     assert "run_tree(command" in agent, "AI CLI가 SMB형 timeout에서 회차를 영원히 붙든다"
@@ -12000,7 +12022,7 @@ def t190_autopilot_retries_without_failure_cascade():
                          cwd=ROOT, timeout=0.2, drain_timeout=3)
     assert timed.timed_out and timed.returncode != 0, \
         "공용 실행기가 시간초과 뒤 반환하지 않으면 AI 한 건이 워치독을 붙든다"
-    print("  [190] 자원장애 실패도미노 차단 · 영속 대기열 · 안전 재개 · AI 제한 인계 ✅")
+    print("  [190/217] 실패도미노 차단 · 영속 대기열 · 증분 계속 · AI 제한 인계 ✅")
 
 
 def t191_confirmation_truth_and_fast_refresh():

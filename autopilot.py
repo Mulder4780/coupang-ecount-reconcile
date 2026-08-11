@@ -32,6 +32,9 @@ REPORT_PATH = REPORTS / "자율자동화_상태.md"
 PY = sys.executable
 MAX_ATTEMPTS_BEFORE_AI = 3
 BASE_BACKOFF_MINUTES = 30
+# 멱등 작업이 한 회차 몫을 정상 저장한 뒤 "아직 남음"을 알리는 반환값.
+# 실패 횟수로 세지 않고 waiting으로 유지한다.
+INCREMENTAL_RETURN_CODE = 75
 
 RESOURCE_MARKERS = (
     "관리대장을 찾을 수 없음",
@@ -93,6 +96,8 @@ def retry_safe(args: Iterable[str]) -> bool:
 
 def classify_failure(output: str) -> str:
     text = " ".join(str(output or "").lower().split())
+    if "증분 수집 계속 필요" in text:
+        return "incremental"
     if any(x.lower() in text for x in AUTH_MARKERS):
         return "auth"
     if any(x.lower() in text for x in RESOURCE_MARKERS):
@@ -207,13 +212,28 @@ def heal(*, limit: int = 2, budget_seconds: int = 600, dry: bool = False) -> dic
         result = run_tree([PY, *args], cwd=ROOT, timeout=timeout, drain_timeout=30)
         spent += max(1, int((_now() - started).total_seconds()))
         combined = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
-        item["attempts"] = int(item.get("attempts") or 0) + 1
         item["last_attempt"] = _now().isoformat(timespec="seconds")
         item["last_returncode"] = 124 if result.timed_out else int(result.returncode)
         if result.returncode == 0 and not result.timed_out:
             item.update({"status": "done", "resolved_at": item["last_attempt"], "last_error": ""})
             outcome = "done"
+        elif result.returncode == INCREMENTAL_RETURN_CODE and not result.timed_out:
+            # 정상적인 증분 진척은 실패도 완료도 아니다. 이전 실패 연속 횟수와 처리된
+            # AI 티켓을 비워, 훗날의 실제 3회 연속 실패만 새로 인계되게 한다.
+            item.pop("resolved_at", None)
+            item.update({
+                "status": "waiting",
+                "attempts": 0,
+                "continuations": int(item.get("continuations") or 0) + 1,
+                "kind": "incremental",
+                "ai_ticket": "",
+                "last_error": "한 회차 몫을 저장했고 남은 안전 작업은 다음 회차가 이어서 한다",
+                "next_attempt": (_now() + timedelta(minutes=BASE_BACKOFF_MINUTES)).isoformat(
+                    timespec="seconds"),
+            })
+            outcome = "waiting"
         else:
+            item["attempts"] = int(item.get("attempts") or 0) + 1
             kind = "timeout" if result.timed_out else classify_failure(combined)
             delay = min(12 * 60, BASE_BACKOFF_MINUTES * (2 ** min(item["attempts"], 4)))
             item.update({

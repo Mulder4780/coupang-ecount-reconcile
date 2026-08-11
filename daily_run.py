@@ -25,6 +25,10 @@ REPORT_DIR = os.path.join(ROOT, "reports")
 ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 RUN_LOCK = os.path.join(REPORT_DIR, ".daily_run.lock")
 
+# collect_all과 autopilot의 "한 회차 진척·아직 남음" 계약. 0(완료)이나
+# 1(실패)로 바꾸면 큐가 일찍 닫히거나 정상 증분을 실패로 센다([217]).
+INCREMENTAL_RETURN_CODE = 75
+
 
 def _pid_alive(pid, born_before=None, pid_started_at=None):
     """같은 PC의 프로세스가 살아 있는가. 죽은 잠금만 안전하게 회수한다.
@@ -275,6 +279,16 @@ def run(name, args, timeout=600, retry=None):
     note_progress(name, "시작", {"명령": os.path.basename(str(args[0])) if args else ""})
     for attempt in range(retry + 1):
         got = _run_once(name, args, timeout)
+        if got.get("returncode") == INCREMENTAL_RETURN_CODE:
+            # 실패 재시도나 resolve로 보내지 않는다. 같은 멱등 명령을 영속 큐에 두고
+            # watchdog이 다음 30분 회차에 이어 간다.
+            deferred = _autopilot_defer(name, args, timeout, got.get("out", ""))
+            got["ok"] = None
+            got["deferred"] = bool(deferred)
+            if deferred:
+                got["out"] += "\n자율복구 증분 대기 — 다음 회차가 저장된 자리부터 이어서 합니다"
+            note_progress(name, "끝", {"결과": None, "증분계속": True})
+            return got
         # ★ **시간 초과는 재시도하지 않는다** (2026-08-09 실측).
         #   재시도는 원래 **경합**을 위한 것이다(Z: 대량 작업·엑셀 점유와 겹친 순간) —
         #   그건 금방 실패하고 한 번 쉬면 지나간다. 그런데 시간 초과는 다르다:
@@ -383,7 +397,8 @@ def _run_once(name, args, timeout):
     # 예외 이름과 원인은 traceback 끝에 있다. 앞 500자만 남기면 호출 위치만 보이고
     # 실제 TimeoutError/PermissionError가 잘려, 2026-08-01 큐 실패를 진단하지 못했다.
     out = (so or "") + (("\n[stderr] " + se[-2000:]) if p.returncode != 0 and se else "")
-    return {"name": name, "ok": p.returncode == 0, "out": _tidy(out)}
+    return {"name": name, "ok": p.returncode == 0, "returncode": p.returncode,
+            "out": _tidy(out)}
 
 
 def _run_pipeline():

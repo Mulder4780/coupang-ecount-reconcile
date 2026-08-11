@@ -60,6 +60,10 @@ except Exception:
 # 재개 지점을 남길 수 있도록 한 회차 몸통은 7분 안에 스스로 돌아온다.
 DEFAULT_BUDGET_SECONDS = 7 * 60
 FINISH_RESERVE_SECONDS = 45
+# 자율복구에 "실패는 아니지만 아직 끝나지 않았다"를 알리는 전용 반환값이다.
+# 0을 쓰면 watchdog이 성공 확인 전에 큐를 닫고, 1을 쓰면 정상적인 증분 처리를
+# 코드 실패로 세어 AI 인계를 되풀이한다.
+CONTINUE_RETURN_CODE = 75
 
 
 def _py(*args, timeout=None):
@@ -134,6 +138,7 @@ def survey(cache_dir=None, band_root=None):
         "사진_보관": have["jpg"],
         "사진_남음": max(0, images - have["jpg"]),
         "텍스트_보관": have["txt"],
+        "텍스트_남음": max(0, posts - have["txt"]),
     }
 
 
@@ -274,7 +279,8 @@ def write_report(before, after, done, humans):
     L.append("")
     L.append("| 항목 | 전 | 후 | 늘어난 것 |")
     L.append("|---|---:|---:|---:|")
-    for k in ("밴드글_보관", "텍스트_보관", "사진_보관", "밴드글_남음", "사진_남음"):
+    for k in ("밴드글_보관", "텍스트_보관", "사진_보관",
+              "밴드글_남음", "텍스트_남음", "사진_남음"):
         b, a = before.get(k, 0), after.get(k, 0)
         L.append(f"| {k.replace('_', ' ')} | {b:,} | {a:,} | {a - b:+,} |")
     L.append("")
@@ -345,8 +351,19 @@ def main(argv=None):
     after = survey() if a.run else before
     path = write_report(before, after, done, humans)
     print(f"\n보고서: {path}")
-    # 예산 이월은 계획된 증분 처리라 성공이다. 실제 자식 오류만 바깥 자율복구에 넘긴다.
-    return 1 if any(d["결과"] == "실패" for d in done) else 0
+    if any(d["결과"] == "실패" for d in done):
+        return 1
+
+    # 한 회차가 안전하게 돌아온 것과 수집이 끝난 것은 다른 사실이다. 남은 현재 세트나
+    # 예산 이월 단계가 있으면 watchdog이 큐를 닫지 말고 다음 회차에 이어야 한다.
+    # --only는 사람이 범위를 일부러 좁힌 명령이므로 다른 갈래의 잔량까지 붙들지 않는다.
+    deferred = any(d["결과"] == "이월" for d in done)
+    archive_left = (not a.only) and any(after.get(key, 0) for key in (
+        "밴드글_남음", "텍스트_남음", "사진_남음"))
+    if a.run and (deferred or archive_left):
+        print("\n증분 수집 계속 필요 — 실패가 아니며 다음 자율복구 회차가 이어서 한다")
+        return CONTINUE_RETURN_CODE
+    return 0
 
 
 if __name__ == "__main__":
