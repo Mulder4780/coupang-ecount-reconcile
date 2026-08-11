@@ -1,0 +1,143 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>CSOS 조직도 — 사무실 배치도</title>
+<style>
+/* ═══ CSOS 조직도 — 사무실 책상 배치 평면도 (2026-08-12 지시) ═══════════════
+   각 자리에 누가 있는지·역할·실시간 상태 메시지를 보여 준다. 정본 데이터는
+   /api/orgchart 이며, 없으면 아래 SNAP(실측 스냅샷)으로 그린다. index.html 에
+   탭으로 붙일 때 이 <style>·렌더 함수를 그대로 옮긴다. */
+:root{
+  --bg:#EEF1F7; --floor:#F7F9FC; --wall:#D3DBE8; --ink:#0E1B3F; --ink2:#5A6785;
+  --card:#FFFFFF; --line:rgba(30,50,90,.12); --brand:#0062CC;
+  --busy:#E8890C; --idle:#2B9560; --off:#8A93A6; --live:#0062CC;
+  --zone-mgmt:#EAF2FF; --zone-field:#EAF9F0; --zone-ai:#F1ECFF;
+  --font-ui:'Pretendard','Apple SD Gothic Neo','Segoe UI Variable','맑은 고딕',system-ui,sans-serif;
+  --sh:0 1px 2px rgba(16,30,70,.06),0 6px 20px rgba(16,30,70,.08);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0A1020; --floor:#111A30; --wall:#1E2A45; --ink:#EAF0FF; --ink2:#9FB0D0;
+  --card:#16223C; --line:rgba(150,175,225,.16);
+  --zone-mgmt:#152647; --zone-field:#123322; --zone-ai:#231b45; --sh:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.35);}}
+:root[data-theme="dark"]{--bg:#0A1020;--floor:#111A30;--wall:#1E2A45;--ink:#EAF0FF;--ink2:#9FB0D0;--card:#16223C;--line:rgba(150,175,225,.16);--zone-mgmt:#152647;--zone-field:#123322;--zone-ai:#231b45;}
+:root[data-theme="light"]{--bg:#EEF1F7;--floor:#F7F9FC;--wall:#D3DBE8;--ink:#0E1B3F;--ink2:#5A6785;--card:#FFFFFF;--line:rgba(30,50,90,.12);--zone-mgmt:#EAF2FF;--zone-field:#EAF9F0;--zone-ai:#F1ECFF;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-ui);
+  -webkit-font-smoothing:antialiased;padding:0 0 40px}
+.hero{background:linear-gradient(135deg,#0E1B3F,#2452E6);color:#fff;padding:18px 18px 16px}
+.hero .eyebrow{font-size:12px;letter-spacing:.14em;color:#AEC2F5;font-weight:700}
+.hero h1{margin:2px 0 0;font-size:22px;font-weight:850;letter-spacing:-.4px}
+.hero p{margin:6px 0 0;font-size:13px;color:#C9D7FA;line-height:1.5}
+.gen{margin-top:8px;font-size:11.5px;color:#9FB4E8}
+.legend{display:flex;gap:14px;flex-wrap:wrap;padding:12px 18px 4px;font-size:12px;color:var(--ink2)}
+.legend b{display:inline-flex;align-items:center;gap:5px;font-weight:600}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
+.dot.busy{background:var(--busy)} .dot.idle{background:var(--idle)}
+.dot.off{background:var(--off)} .dot.live{background:var(--live)}
+.dot.pulse{box-shadow:0 0 0 0 currentColor;animation:pulse 1.8s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,98,204,.5)}70%{box-shadow:0 0 0 8px rgba(0,98,204,0)}100%{box-shadow:0 0 0 0 rgba(0,98,204,0)}}
+/* ── 평면도 ── */
+.floorwrap{padding:8px 14px}
+.floor{position:relative;background:
+    linear-gradient(var(--floor),var(--floor)) padding-box,
+    repeating-linear-gradient(0deg,transparent 0 39px,var(--line) 39px 40px),
+    repeating-linear-gradient(90deg,transparent 0 39px,var(--line) 39px 40px);
+  border:2px solid var(--wall);border-radius:18px;padding:14px;box-shadow:var(--sh) inset;
+  display:grid;gap:14px}
+.zone{border-radius:16px;padding:12px 12px 14px;border:1.5px dashed var(--line)}
+.zone.mgmt{background:var(--zone-mgmt)} .zone.field{background:var(--zone-field)} .zone.ai{background:var(--zone-ai)}
+.zone-h{display:flex;align-items:center;gap:8px;margin:0 2px 10px;font-size:13px;font-weight:850;color:var(--ink)}
+.zone-h .tag{margin-left:auto;font-size:11px;font-weight:700;color:var(--ink2)}
+.desks{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+/* ── 책상 카드 ── */
+.desk{position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:11px 12px 12px;box-shadow:var(--sh);overflow:hidden;transition:transform .12s}
+.desk::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--off)}
+.desk.s-busy::before{background:var(--busy)} .desk.s-idle::before{background:var(--idle)}
+.desk.s-live::before{background:var(--live)} .desk.s-off::before{background:var(--off)}
+.desk .row1{display:flex;align-items:center;gap:8px}
+.avatar{width:34px;height:34px;border-radius:11px;flex:none;display:grid;place-items:center;
+  font-weight:850;font-size:14px;color:#fff;letter-spacing:-.5px}
+.who{min-width:0;flex:1}
+.who .nm{font-size:14.5px;font-weight:850;line-height:1.15;display:flex;align-items:center;gap:6px}
+.who .rl{font-size:11.5px;color:var(--ink2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badge{font-size:10px;font-weight:800;padding:1px 6px;border-radius:999px;background:var(--brand);color:#fff;flex:none}
+.status{margin-top:9px;display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:1.4;
+  color:var(--ink);background:color-mix(in srgb,var(--card) 60%,var(--bg));border-radius:9px;padding:7px 8px}
+.status .dot{margin-top:4px}
+.status .msg{min-width:0}
+.status .msg .st{font-weight:700}
+.status .ago{display:block;font-size:10.5px;color:var(--ink2);margin-top:1px}
+.note{padding:14px 18px 0;font-size:12px;color:var(--ink2);line-height:1.6}
+@media (min-width:720px){.floor{grid-template-columns:1fr 1fr}.zone.ai{grid-column:1/-1}}
+</style></head><body>
+<div class="hero">
+  <div class="eyebrow">CSOS · UNIVERSAL LIFT &amp; HITACHI KOREA</div>
+  <h1>조직도 — 사무실 배치도</h1>
+  <p>각 자리에 누가 있는지, 무슨 역할인지, 지금 무엇을 하고 있는지(상태 메시지)를 실시간으로 보여 줍니다.</p>
+  <div class="gen" id="gen">불러오는 중…</div>
+</div>
+<div class="legend">
+  <b><span class="dot busy"></span>업무 중</b>
+  <b><span class="dot idle"></span>대기·정상</b>
+  <b><span class="dot live pulse"></span>실시간 세션</b>
+  <b><span class="dot off"></span>오프라인</b>
+</div>
+<div class="floorwrap"><div class="floor" id="floor"></div></div>
+<div class="note" id="note"></div>
+<script>
+/* 정본은 /api/orgchart. 없으면 이 스냅샷으로 그린다(실측 2026-08-12).
+   상태 색: busy(업무 중)·idle(대기)·live(실시간 AI 세션)·off(오프라인). */
+const SNAP={
+  gen:"2026-08-12 · 스냅샷(오프라인)",
+  zones:[
+    {key:"mgmt",title:"관리팀 · 업무센터",tag:"쿠팡 AS·정기점검 원장",people:[
+      {name:"류지영",role:"AS·정기점검 매니저 · 접수/정산/청구",color:"#0062CC",state:"busy",msg:"원장 입력·청구상태 관리",ago:"오늘"},
+      {name:"오종현",role:"업무센터 · 부산 리모컨 불출",color:"#12813F",state:"idle",msg:"리모컨 불출·재고 확인",ago:"오늘"},
+      {name:"유현민",role:"대표 · 총괄 보고 수신",color:"#7A3DB8",state:"idle",msg:"대표 예외보고 검토",ago:"오늘",badge:"대표"}]},
+    {key:"field",title:"현장 AS팀 · 정기점검",tag:"현장 조치·밴드 보고",people:[
+      {name:"차동호",role:"현장 AS·정기점검",color:"#B25000",state:"busy",msg:"현장 방문·조치",ago:"오늘",badge:"팀장"},
+      {name:"김준형",role:"현장 AS·정기점검",color:"#0E7490",state:"busy",msg:"현장 방문·조치",ago:"오늘"},
+      {name:"권오철",role:"현장 AS·정기점검",color:"#B3261E",state:"idle",msg:"배정 대기",ago:"오늘"},
+      {name:"김필우",role:"현장 AS·정기점검",color:"#177245",state:"idle",msg:"배정 대기",ago:"오늘"}]},
+    {key:"ai",title:"AI 에이전트 스테이션",tag:"자동화·수집·코딩",people:[
+      {name:"Claude 코딩 세션",role:"앱 코딩·검증·인계",color:"#0062CC",state:"live",msg:"조직도·플로우·정산 화면 개선 중",ago:"방금"},
+      {name:"CSOS 리서치·수집",role:"밴드·ERP 자료 수집",color:"#0E7490",state:"live",msg:"밴드 댓글 백필·ERP 내보내기",ago:"방금"},
+      {name:"Codex",role:"교대 코딩(크레딧 소진 시)",color:"#5A6785",state:"off",msg:"대기 — 필요 시 이어받기",ago:"—"}]}
+  ]};
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function initials(n){const s=String(n||'').trim();
+  if(/^[A-Za-z]/.test(s))return s.slice(0,2).toUpperCase();
+  return s.replace(/\s|세션|·.*$/g,'').slice(0,2)||'·';}
+function stateLabel(s){return {busy:'업무 중',idle:'대기·정상',live:'실시간',off:'오프라인'}[s]||'—';}
+function render(D){
+  document.getElementById('gen').textContent='업데이트 '+(D.gen||'—');
+  const floor=document.getElementById('floor');
+  floor.innerHTML=(D.zones||[]).map(z=>`
+    <section class="zone ${esc(z.key)}">
+      <div class="zone-h">${esc(z.title)}<span class="tag">${esc(z.tag||'')}</span></div>
+      <div class="desks">${(z.people||[]).map(p=>{
+        const st=p.state||'off';
+        return `<div class="desk s-${esc(st)}">
+          <div class="row1">
+            <div class="avatar" style="background:${esc(p.color||'#0062CC')}">${esc(initials(p.name))}</div>
+            <div class="who"><div class="nm">${esc(p.name)}${p.badge?`<span class="badge">${esc(p.badge)}</span>`:''}</div>
+              <div class="rl">${esc(p.role||'')}</div></div>
+          </div>
+          <div class="status"><span class="dot ${esc(st)} ${st==='live'?'pulse':''}"></span>
+            <span class="msg"><span class="st">${esc(stateLabel(st))}</span> — ${esc(p.msg||'상태 없음')}
+              <span class="ago">${esc(p.ago||'')}</span></span></div>
+        </div>`;}).join('')}</div>
+    </section>`).join('');
+  document.getElementById('note').textContent=D._live
+    ? '실시간 연결됨 — AI 세션 상태는 ai_claim, 사람 상태는 업무 기록에서 옵니다.'
+    : '오프라인 스냅샷을 보고 있습니다. 서버(/api/orgchart)에 연결되면 상태 메시지가 실시간으로 바뀝니다.';
+}
+async function load(){
+  try{
+    const r=await fetch('/api/orgchart',{headers:{'X-Pin':localStorage.getItem('cw_pin')||''}});
+    if(r.ok){const d=await r.json();d._live=true;render(d);return;}
+  }catch(e){}
+  render(SNAP);
+}
+load(); setInterval(load,15000);   // 15초마다 실시간 갱신
+</script></body></html>
