@@ -1850,6 +1850,52 @@ def scheduled_workbook_maintenance(now=None):
 MASTER_LOCK_GLOB = "~$쿠팡_통합업무_일일보고_관리대장*.xlsx"
 LOCK_STALE_HOURS = 24     # 이보다 오래된 잠금만 크래시 잔재로 본다
 LOCK_POLL_SEC = 180       # 잠금이 풀리기를 기다리는 간격
+# 손입력 감지 기록(2026-08-11 지시 — 앱 전용 입력). realtime_monitor 와 같은 파일에
+# 쌓는다: 잠금(열림)은 여기서, 내용 변경은 감시기가 적는다. 읽는 쪽은 session_handoff.
+HAND_EDIT_LOG = os.path.join(ROOT, "reports", "엑셀_손입력_감지.json")
+
+
+def _hand_edit_blocked():
+    """합성검증 아래서는 실기록 금지. 시험은 env 를 벗기지 말고 **이 함수를**
+    잠깐 바꿔치기한다 — 보호 플래그 해제는 t192 가 막는다."""
+    return os.environ.get("CSOS_SYNTHETIC") == "1"
+
+
+def _note_hand_edit(entry):
+    """감지는 알리는 것까지다 — 자동 DB 반영은 하지 않는다(역수입 금지).
+    같은 잠금이 30분 안에 또 잡혀도 한 번만 적는다(경보 남발이면 아무도 안 본다)."""
+    if _hand_edit_blocked():
+        # 합성검증이 어떤 경로로 human_editing 을 부르든 실기록을 오염시키지 못한다.
+        # 실측 2026-08-11: 합성 잠금(v331·류지영)이 실기록에 한 번 새어 들어왔다 —
+        # folder 가드만으로는 간접 호출 경로를 다 못 막는다.
+        return
+    try:
+        prev = []
+        try:
+            prev = json.load(open(HAND_EDIT_LOG, encoding="utf-8"))
+            if not isinstance(prev, list):
+                prev = []
+        except (OSError, ValueError):
+            prev = []
+        if prev:
+            last = prev[-1]
+            if (last.get("종류") == entry.get("종류")
+                    and last.get("잠금") == entry.get("잠금")):
+                try:
+                    ago = (datetime.now()
+                           - datetime.fromisoformat(last.get("시각", ""))).total_seconds()
+                    if ago < 1800:
+                        return
+                except ValueError:
+                    pass
+        prev.append(entry)
+        os.makedirs(os.path.dirname(HAND_EDIT_LOG), exist_ok=True)
+        tmp = HAND_EDIT_LOG + f".{os.getpid()}.tmp"
+        json.dump(prev[-100:], open(tmp, "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=1)
+        os.replace(tmp, HAND_EDIT_LOG)
+    except OSError:
+        pass
 
 
 def _master_folder():
@@ -1870,6 +1916,7 @@ def human_editing(folder=None):
     다른 PC 의 편집을 볼 수 없다. 잠금이 있으면 사람이 있다고 본다.
     (잘못 기다린 손해는 반영이 늦는 것뿐이지만, 잘못 진행한 손해는 사람 입력 유실이다.
      LOCK_STALE_HOURS 를 넘긴 잠금만 크래시 잔재로 보고 지나간다.)"""
+    record = folder is None                       # 실제 원장 폴더일 때만 손입력 기록
     folder = folder or _master_folder()
     if not folder:
         return None
@@ -1898,6 +1945,18 @@ def human_editing(folder=None):
         except OSError:
             pass
         out.append({"잠금": os.path.basename(p), "소유자": who, "분": int(age_min)})
+    if out and record:
+        # 2026-08-11 부터 뜻이 하나 늘었다: 파일 충돌 연기(그대로) + **손입력 시도 기록**.
+        # 엑셀에 손으로 적어도 정본(DB)에 안 들어간다 — 말없이 버리면 그 입력이
+        # 소리 없이 사라지므로, 열림을 기록해 앱으로 다시 입력하라고 안내한다.
+        # 기록은 실제 원장 폴더(무인자 호출)일 때만 — 합성시험(folder=)이 실제
+        # 감지 기록을 오염시키면 인계 문서에 거짓 경보가 오른다.
+        for row in out:
+            _note_hand_edit({
+                "시각": datetime.now().isoformat(timespec="seconds"),
+                "종류": "열림감지", "잠금": row["잠금"], "소유자": row["소유자"],
+                "안내": "손입력은 반영되지 않습니다 — 앱으로 입력",
+            })
     return out or None
 
 

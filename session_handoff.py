@@ -34,7 +34,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
@@ -108,19 +108,58 @@ def stranded_editor():
     이건 "하루 두 번만 반영" 규칙이 줄여 주는 문제지, 없애 주는 문제가 아니다.
     사람에게 알리는 것 말고 기계가 할 수 있는 일은 없다 — 남의 엑셀을 닫지 않는다.
     """
+    return _editor_locks()[0]
+
+
+def _editor_locks():
+    """(옛버전 잠금, 최신본 잠금) — 한 번 훑어 둘 다 준다."""
     try:
         from ecount_reconcile import load_config, resolve_master
         cur = resolve_master(load_config()["reconcile"]["master_xlsx"])
         folder, latest = os.path.dirname(cur), os.path.basename(cur)
-        out = []
+        old, new = [], []
         for p in glob.glob(os.path.join(folder, "~$*.xlsx")):
             target = os.path.basename(p)[2:]          # `~$` 를 뗀 것이 열려 있는 파일
-            if target == latest:
-                continue                              # 최신본을 보고 있는 건 정상이다
-            out.append(target)
-        return sorted(out)
+            (new if target == latest else old).append(target)
+        return sorted(old), sorted(new)
     except Exception:
-        return []
+        return [], []
+
+
+def latest_viewer():
+    """**최신본을 열어 둔 사람이 있는가** (2026-08-11 지시 — 엑셀 손입력 종료).
+
+    예전에는 '최신본을 보고 있는 건 정상'이라 조용히 넘겼다. 앱 전용 입력 뒤에는
+    뜻이 하나 늘었다 — 열람은 여전히 정당하지만, **거기 적은 값은 정본에 안 들어간다.**
+    그래서 경보가 아니라 안내로 띄운다(경보로 올리면 열람마다 울려 아무도 안 본다)."""
+    return _editor_locks()[1]
+
+
+HAND_EDIT_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "reports", "엑셀_손입력_감지.json")
+
+
+def hand_edit_signal():
+    """손입력 감지 기록의 싼 요약([168] — 여기서 해시 계산 금지, 읽기만).
+
+    쓰는 쪽은 둘이다: realtime_monitor(내용 변경)·ledger_db.human_editing(열림).
+    여기는 마지막 항목과 24시간 안 건수만 읽어 인계 문서에 올린다."""
+    try:
+        rows = json.load(open(HAND_EDIT_LOG, encoding="utf-8"))
+        if not isinstance(rows, list) or not rows:
+            return None
+        cut = datetime.now() - timedelta(hours=24)
+        fresh = 0
+        for r in rows:
+            try:
+                if datetime.fromisoformat(str(r.get("시각", ""))) >= cut:
+                    fresh += 1
+            except ValueError:
+                continue
+        last = rows[-1]
+        return {"최근24h": fresh, "마지막": last} if fresh else None
+    except (OSError, ValueError):
+        return None
 
 
 def pid_alive(pid, born_before=None, pid_started_at=None):
@@ -527,6 +566,8 @@ def collect():
         "큐잔량": queue_left(),
         "임시파일": temp_files(),
         "옛버전편집": stranded_editor(),
+        "최신본열람": latest_viewer(),
+        "손입력감지": hand_edit_signal(),
         "점유": claims(),
         "미커밋": unstaged,
         "미푸시": unpushed,
@@ -809,6 +850,17 @@ def blockers(st, for_sol=False):
                     % ", ".join(st["옛버전편집"][:3]),
                     "그 창에 적는 것은 다음 회차로 넘어가지 않는다 — 지금 적은 것을 최신본에 "
                     "옮기고 옛 창을 닫도록 사람에게 알린다. 남의 엑셀은 대신 닫지 않는다"))
+    # ★ 엑셀 손입력 감지(2026-08-11 지시 — 입력 창구는 앱 하나). 역수입 금지라 그
+    #   값은 정본에 안 들어간다 — 말없이 버리면 그 사람의 입력이 소리 없이 사라진다.
+    he = st.get("손입력감지")
+    if he:
+        last = he.get("마지막") or {}
+        out.append(("엑셀 **손입력 감지** %d건(24시간) — 마지막: %s %s. "
+                    "손으로 적은 값은 정본(DB)에 반영되지 않는다"
+                    % (he.get("최근24h", 0), last.get("종류", ""),
+                       last.get("파일") or last.get("잠금") or ""),
+                    "적은 사람을 찾아 **앱으로 다시 입력**하도록 안내한다 "
+                    "(자동 반영 금지 — 역수입 금지)"))
     for c in st["점유"]:
         m = c["mins"] if c["mins"] is not None else "?"
         if c["stale"]:

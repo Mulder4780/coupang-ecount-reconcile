@@ -6998,6 +6998,101 @@ def t94_human_edit_guard():
     print("  [94] 사람 편집 존중(잠금=진실·즉시 연기·닫힘 후 자동 재개·force 불가) ✅")
 
 
+def t212_hand_edit_detection():
+    """[212] 엑셀 손입력 감지 (2026-08-11 지시 — 사람 입력 창구는 앱 하나).
+
+    역수입 금지라 손으로 적은 값은 정본(DB)에 안 들어간다 — 말없이 버리면 그
+    입력이 소리 없이 사라진다(조용한 사고의 새 모양). 그래서 감지가 규칙의 반쪽:
+      · 내용 변경: realtime_monitor 가 직전 지문(sha256)과 비교하고, 기계 회차
+        (batch 표·보관본 생성) 근거가 **없을 때만** 손입력이라 말한다([172]의 문).
+      · 열림: ledger_db.human_editing 이 잠금을 감지 기록에 남긴다(연기는 그대로).
+      · 인계: session_handoff 가 싼 신호만 읽어([168] 해시 금지) '먼저 처리할 것'에 올린다.
+    """
+    import sys as _s, tempfile
+    from datetime import datetime
+    _s.path.insert(0, ROOT)
+    import realtime_monitor as RM
+    import ledger_db as L
+    import session_handoff as SH
+
+    # (1) 판정은 순수함수 — 워크북 없이 시험한다.
+    a = {"name": "대장_v5.xlsx", "version": 5, "sha256": "aa" * 32}
+    b = {"name": "대장_v5.xlsx", "version": 5, "sha256": "bb" * 32}
+    assert RM.hand_edit_verdict(a, dict(a), "") == (False, ""), "같은 지문인데 경보"
+    hand, why = RM.hand_edit_verdict(a, b, "")
+    assert hand and "기계 회차 없이" in why, (hand, why)
+    assert RM.hand_edit_verdict(a, b, "11:00 회차")[0] is False, "기계 회차 경합인데 경보"
+    assert RM.hand_edit_verdict(a, b, "보관본 생성(archive_worker)")[0] is False, \
+        "보관본 생성 경합인데 경보 — archive 경합을 손입력이라 부르면 경보가 죽는다"
+    assert RM.hand_edit_verdict(None, b, "")[0] is False, "직전 지문 없음(첫 실행)인데 경보"
+    assert RM.hand_edit_verdict({}, b, "")[0] is False
+    c = {"name": "대장_v6.xlsx", "version": 6, "sha256": "cc" * 32}
+    hand2, why2 = RM.hand_edit_verdict(a, c, "")
+    assert hand2 and "새 버전" in why2, (hand2, why2)
+    # run_once 배선 — 지문 비교·이슈·기계 경합 두 갈래(batch + archive)가 실제로 불린다
+    src = open(os.path.join(ROOT, "realtime_monitor.py"), encoding="utf-8").read()
+    for need in ('hand_edit_verdict(previous.get("source")', '"master_hand_edit"',
+                 "or _archive_change_source(", "_note_hand_edit("):
+        assert need in src, f"realtime_monitor 배선 누락: {need}"
+
+    # (2) 열림 감지 — 실제 원장 폴더(무인자 호출)일 때만 기록한다.
+    #     합성 폴더(folder=) 호출이 기록하면 t94 가 돌 때마다 거짓 경보가 쌓인다.
+    with tempfile.TemporaryDirectory() as td:
+        lock = os.path.join(td, "~$쿠팡_통합업무_일일보고_관리대장_v9.xlsx")
+        name = "류지영".encode("cp949")
+        open(lock, "wb").write(bytes([len(name)]) + name + b"\x00" * 20)
+        log = os.path.join(td, "감지.json")
+        old_log, old_mf = L.HAND_EDIT_LOG, L._master_folder
+        L.HAND_EDIT_LOG = log
+        old_gate = L._hand_edit_blocked
+        try:
+            # 합성검증 아래서는 어떤 경로든 기록 금지가 1차 방어다(플래그는 안 벗긴다 — t192).
+            L._master_folder = lambda: td
+            assert L.human_editing() and not os.path.exists(log), \
+                "CSOS_SYNTHETIC=1 인데 감지를 기록했다 — 합성 잠금이 실기록을 오염시킨다"
+            # 기록 동작 자체는 관문 함수만 바꿔치기해 시험한다(로그 경로도 임시라 안전).
+            L._hand_edit_blocked = lambda: False
+            assert L.human_editing(folder=td), "잠금을 못 봤다"
+            assert not os.path.exists(log), "합성 폴더(folder=) 호출이 감지를 기록했다 — 오염"
+            got = L.human_editing()
+            assert got and os.path.exists(log), "무인자 호출이 감지를 안 남겼다"
+            rows = json.load(open(log, encoding="utf-8"))
+            assert rows[-1]["종류"] == "열림감지" and rows[-1]["소유자"] == "류지영", rows[-1]
+            n = len(rows)
+            L.human_editing()                      # 30분 안 같은 잠금 — 한 번만 적는다
+            assert len(json.load(open(log, encoding="utf-8"))) == n, "중복 기록(경보 남발)"
+        finally:
+            L._hand_edit_blocked = old_gate
+            L.HAND_EDIT_LOG, L._master_folder = old_log, old_mf
+
+    # (3) 인계 배선 — 요약이 '먼저 처리할 것'에 오르고, 낡은 기록(24h 밖)은 조용하다.
+    shs = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    for need in ('"손입력감지": hand_edit_signal()', '"최신본열람": latest_viewer()',
+                 'st.get("손입력감지")', "앱으로 다시 입력"):
+        assert need in shs, f"session_handoff 배선 누락: {need}"
+    with tempfile.TemporaryDirectory() as td2:
+        p = os.path.join(td2, "감지.json")
+        old_p = SH.HAND_EDIT_LOG
+        SH.HAND_EDIT_LOG = p
+        try:
+            assert SH.hand_edit_signal() is None, "기록이 없는데 신호를 냈다"
+            fresh = datetime.now().isoformat(timespec="seconds")
+            json.dump([{"시각": "2020-01-01T00:00:00", "종류": "열림감지", "잠금": "옛것"}],
+                      open(p, "w", encoding="utf-8"), ensure_ascii=False)
+            assert SH.hand_edit_signal() is None, "24시간 지난 기록으로 경보 — 아무도 안 보게 된다"
+            json.dump([{"시각": fresh, "종류": "내용변경", "파일": "대장_v9.xlsx"}],
+                      open(p, "w", encoding="utf-8"), ensure_ascii=False)
+            sig = SH.hand_edit_signal()
+            assert sig and sig["최근24h"] == 1, sig
+        finally:
+            SH.HAND_EDIT_LOG = old_p
+    bl = SH.blockers({"큐잔량": 0, "임시파일": [], "점유": [], "미커밋": [], "미푸시": [],
+                      "손입력감지": {"최근24h": 2,
+                                     "마지막": {"종류": "내용변경", "파일": "대장_v9.xlsx"}}})
+    assert any("손입력" in m for m, _a in bl), bl
+    print("  [212] 엑셀 손입력 감지(지문 비교·열림 기록·인계 배선·경보 절제) ✅")
+
+
 def t77_side_work_single_switch():
     """철거·신규납품: DB엔 남기고 앱에서만 숨긴다 — **스위치는 하나처럼 움직여야 한다**.
 
@@ -14744,6 +14839,7 @@ if __name__ == "__main__":
     t92_excel_recalc_agent()
     t93_ledger_db_and_ux()
     t94_human_edit_guard()
+    t212_hand_edit_detection()
     t95_objective_completion_db_only()
     t96_work_management_tabs()
     t97_settlement_source_completion()

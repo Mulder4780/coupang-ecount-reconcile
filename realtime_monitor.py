@@ -110,6 +110,70 @@ def fingerprint(path: Path) -> dict[str, Any]:
     }
 
 
+HAND_EDIT_LOG = ROOT / "reports" / "엑셀_손입력_감지.json"
+
+
+def hand_edit_verdict(prev: Any, cur: Any, machine_source: str) -> tuple[bool, str]:
+    """직전 지문 대 현재 지문 — **기계 회차 근거 없이 바뀐 최신본은 손입력이다.**
+
+    2026-08-11 지시(엑셀 손입력 종료)의 감지 반쪽. 역수입 금지라 그 값은 정본에
+    안 들어가는데, 말없이 버리면 그 사람의 입력이 소리 없이 사라진다 — 그래서
+    바뀐 것을 **알린다**(자동 반영은 하지 않는다).
+
+    판정 불가(직전 지문 없음·해시 없음)는 경보가 아니다 — 모르면 함부로 말하지
+    않는다([172]의 문). 순수 함수로 둔 이유는 검증 [212]가 워크북 없이 시험하기
+    위해서다.
+    """
+    if not isinstance(prev, dict) or not isinstance(cur, dict):
+        return False, ""
+    if not prev.get("sha256") or not cur.get("sha256"):
+        return False, ""
+    if prev["sha256"] == cur["sha256"]:
+        return False, ""
+    if machine_source:
+        return False, ""
+    pv, cv = prev.get("version"), cur.get("version")
+    if pv == cv and prev.get("name") == cur.get("name"):
+        return True, f"같은 파일({cur.get('name')})의 내용이 기계 회차 없이 바뀜"
+    return True, f"새 버전(v{pv}→v{cv})이 기계 회차 근거 없이 생김"
+
+
+def _archive_change_source(mtime: float, window_min: int = 40) -> str:
+    """보관본 생성기(archive_worker)가 그 시각 언저리에 내보냈는가 — batch 표와
+    별개의 기계 경로라 따로 본다(경합을 손입력으로 오판하면 경보가 죽는다)."""
+    try:
+        st = _load_json(ROOT / "tmp" / "archive_spool" / "worker-status.json", {})
+        if not isinstance(st, dict):
+            return ""
+        for stamp in (st.get("finished_at"),
+                      (st.get("export") or {}).get("finished_at") if isinstance(st.get("export"), dict) else None):
+            if not stamp:
+                continue
+            try:
+                t = datetime.fromisoformat(str(stamp)).timestamp()
+            except ValueError:
+                continue
+            if -60 <= (mtime - t) <= window_min * 60:
+                return "보관본 생성(archive_worker)"
+    except Exception:
+        return ""
+    return ""
+
+
+def _note_hand_edit(entry: dict[str, Any]) -> None:
+    """감지 기록 — session_handoff 가 해시 없이 읽는 싼 신호([168])."""
+    if os.environ.get("CSOS_SYNTHETIC") == "1":
+        return                      # 합성검증은 실기록을 오염시키지 않는다
+    try:
+        prev = _load_json(HAND_EDIT_LOG, [])
+        if not isinstance(prev, list):
+            prev = []
+        prev.append(entry)
+        _atomic_json(HAND_EDIT_LOG, prev[-100:])
+    except Exception:
+        pass
+
+
 def workbook_ready(path: Path, now: datetime, settle_seconds: int = SETTLE_SECONDS) -> tuple[bool, str]:
     owner_files = list(path.parent.glob("~$*.xlsx"))
     if owner_files:
@@ -480,6 +544,27 @@ def run_once(now: datetime | None = None, settle_seconds: int = SETTLE_SECONDS) 
             latest_version, master = versions[-1]
             source = fingerprint(master)
             source["version"] = latest_version
+            # ★ 손입력 감지(2026-08-11 지시 — 앱 전용 입력): 직전 지문(source)은
+            #   리포트에 이미 저장돼 있었는데 아무도 비교하지 않았다. 기계 회차
+            #   (batch 표·보관본 생성) 근거 없이 바뀐 최신본은 사람 손이다.
+            master_mtime = master.stat().st_mtime
+            machine = (_master_change_source(master_mtime)
+                       or _archive_change_source(master_mtime))
+            hand, hand_why = hand_edit_verdict(previous.get("source"), source, machine)
+            if hand:
+                active.append(_issue(
+                    "master_hand_edit", "P1", "관리대장 손입력 감지 — 앱 전용 입력 위반",
+                    hand_why + " · 손으로 적은 값은 정본(DB)에 들어가지 않음",
+                    "적은 사람을 찾아 앱으로 다시 입력하도록 안내 (자동 반영 금지 — 역수입 금지)",
+                ))
+                _note_hand_edit({
+                    "시각": now.isoformat(timespec="seconds"),
+                    "종류": "내용변경",
+                    "파일": source.get("name"),
+                    "이전sha": str((previous.get("source") or {}).get("sha256") or "")[:12],
+                    "현재sha": str(source.get("sha256") or "")[:12],
+                    "근거": hand_why,
+                })
             forks = [
                 p for version, p in versions[:-1]
                 if p.stat().st_mtime > master.stat().st_mtime + 60
