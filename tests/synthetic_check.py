@@ -2085,10 +2085,27 @@ def t39_realtime_monitor():
     from operation_window import is_input_window
     import realtime_monitor as R
 
-    assert not is_input_window(datetime(2026, 7, 28, 7, 59, 59))
-    assert is_input_window(datetime(2026, 7, 28, 8, 0, 0))
-    assert is_input_window(datetime(2026, 7, 28, 9, 29, 59))
-    assert not is_input_window(datetime(2026, 7, 28, 9, 30, 0))
+    # ★ 2026-08-11 지시(엑셀 손입력 종료 — 앱 전용 입력)로 보호시간은 기본 퇴역.
+    #   '류지영 아침 입력' 전제가 사라졌으므로 기본은 언제나 False 여야 한다.
+    #   되돌리는 스위치(COUPANG_INPUT_WINDOW)가 켜졌을 때만 옛 동작이 살아난다.
+    _saved_win = os.environ.pop("COUPANG_INPUT_WINDOW", None)
+    try:
+        assert not is_input_window(datetime(2026, 7, 28, 8, 0, 0)), \
+            "보호시간이 퇴역했는데 아직 아침 90분을 멈춘다"
+        assert not is_input_window(datetime(2026, 7, 28, 9, 29, 59))
+        os.environ["COUPANG_INPUT_WINDOW"] = "08:00-09:30"
+        assert not is_input_window(datetime(2026, 7, 28, 7, 59, 59))
+        assert is_input_window(datetime(2026, 7, 28, 8, 0, 0))
+        assert is_input_window(datetime(2026, 7, 28, 9, 29, 59))
+        assert not is_input_window(datetime(2026, 7, 28, 9, 30, 0))
+        os.environ["COUPANG_INPUT_WINDOW"] = "깨진값"
+        assert not is_input_window(datetime(2026, 7, 28, 8, 30, 0)), \
+            "망가진 설정이 자동화를 멈춘다 — 없음으로 동작해야 한다"
+    finally:
+        if _saved_win is None:
+            os.environ.pop("COUPANG_INPUT_WINDOW", None)
+        else:
+            os.environ["COUPANG_INPUT_WINDOW"] = _saved_win
 
     issue = R._issue("sample", "P2", "샘플", "근거", "조치")
     first, changes1 = R.reconcile_issues([issue], {}, datetime(2026, 7, 28, 10, 0))
