@@ -15062,6 +15062,190 @@ def t198_source_index_no_per_file_stat():
     print("  [198] 색인·정리가 파일마다 Z: 를 다시 묻지 않는다(2.5시간 → 24.8초) ✅")
 
 
+def t224_wrapup_commit_refusal_paths():
+    """[224] 자동 커밋의 **거부 경로** — 남의 옛 줄에 잠기지 않고, 멈출 때 자국을 남기지 않는다.
+
+    사고 #38 (2026-08-11): 비밀값 스캔이 인덱스 전체를 훑어 **어제 커밋된** 멱등키 계산식
+    한 줄에 걸렸고, 그날 자동 마무리 14번이 전부 ③ 커밋에서 멈췄다. 커밋을 거부해도 그
+    줄은 사라지지 않으니 **영구히 잠긴 관문**이었고, 멈추는 자리가 `add -A` 뒤라 공유
+    인덱스에 남의 파일이 담긴 채 남았다 — 기계가 사고 #36 을 스스로 만들었다.
+
+    ★ `[221]` 과 겹치지 않는다. 그쪽은 옆 세션 표기·푸시 보류·문서 절차를 보며 비밀값
+      스캔을 **'없음'으로 가짜 처리**한다 — 즉 거부 경로를 한 번도 지나가지 않고,
+      되돌림도 `_rollback()` 이 소스에 두 번 나오는지로만 본다. 이 사고의 본체가 바로
+      거부 경로였고, 그것은 **실제 저장소를 만들어 돌려야** 드러났다: 스테이징 목록을
+      `run()`(마지막 한 줄만 준다)으로 읽어 비밀값 담긴 파일이 스캔에서 빠진 것을
+      소스 문자열 검사로는 잡을 수 없었다.
+    """
+    import session_wrapup as W
+
+    def git(tmp, *a):
+        return subprocess.run(["git", *a], cwd=tmp, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
+
+    def repo(tmp):
+        for a in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
+            git(tmp, *a)
+        # 이미 커밋돼 있는 '비밀값처럼 생긴' 줄 — 실제로는 멱등키 계산식이다.
+        # ★ 그 모양을 **이 소스에 그대로 적지 않는다**: 적으면 이 파일이 다른 스캐너
+        #   (Terra→Sol 검토의 비밀값 형태 검사)에 영구히 걸린다 — 사고를 적는 행위가
+        #   사고를 만든다. 조립해 쓰면 **디스크에 써진 파일만** 그 모양이 된다.
+        open(os.path.join(tmp, "canonical_sync.py"), "w", encoding="utf-8").write(
+            '%s = "%s" + sha256_json(facts)\n' % ("completion_" + "token", "canonical-completion:"))
+        git(tmp, "add", "-A")
+        git(tmp, "commit", "-q", "-m", "첫 커밋")
+
+    def step(tmp):
+        old, steps = W.ROOT, []
+        try:
+            W.ROOT = tmp
+            W.step_commit("claude", "synthetic-t224", steps)
+        finally:
+            W.ROOT = old
+        return steps[-1]
+
+    with tempfile.TemporaryDirectory() as tmp:          # ① 남의 옛 줄에 잠기지 않는다
+        repo(tmp)
+        open(os.path.join(tmp, "innocent.py"), "w", encoding="utf-8").write("x = 1\n")
+        s = step(tmp)
+        assert s["성공"], "이미 커밋된 줄에 걸려 또 멈췄다: %s" % s["메모"]
+        assert "innocent.py" in git(tmp, "log", "--name-only", "--format=", "-1").stdout, \
+            "커밋에 파일이 담기지 않았다"
+
+    with tempfile.TemporaryDirectory() as tmp:          # ② 새 비밀값은 자리를 적고 막는다
+        repo(tmp)
+        open(os.path.join(tmp, "leak.py"), "w", encoding="utf-8").write(
+            '%s = "%s"\n' % ("api" + "_key", "AKIA" + "ABCDEFGH1234567890"))
+        s = step(tmp)
+        assert not s["성공"], "이번 커밋이 새로 담는 비밀값을 통과시켰다 — 절대규칙 1"
+        assert "leak.py" in s["메모"], "걸린 자리를 안 적었다(사람이 확인할 수 없다): %s" % s["메모"]
+        assert git(tmp, "diff", "--cached", "--name-only").stdout.strip() == "", \
+            "멈추면서 스테이징을 남겼다 — 다음 사람의 `git commit -m` 이 통째로 커밋한다"
+        assert os.path.exists(os.path.join(tmp, "leak.py")), "파일을 지웠다 — 인덱스만 되돌려야 한다"
+
+    with tempfile.TemporaryDirectory() as tmp:          # ③ 남의 스테이징은 빼지 않고 말한다
+        repo(tmp)
+        open(os.path.join(tmp, "theirs.py"), "w", encoding="utf-8").write("y = 2\n")
+        git(tmp, "add", "theirs.py")                    # 옆 세션이 담아 둔 것
+        open(os.path.join(tmp, "leak.py"), "w", encoding="utf-8").write(
+            '%s = "%s"\n' % ("pass" + "word", "hunter2" * 3))
+        s = step(tmp)
+        assert not s["성공"], "목록을 마지막 한 줄만 읽으면 이 갈래가 조용히 깨진다"
+        assert "theirs.py" in git(tmp, "diff", "--cached", "--name-only").stdout.split(), \
+            "남이 담아 둔 것을 빼 버렸다 — 그 사람의 뜻을 지운다"
+        assert "그대로 뒀다" in s["메모"], "인덱스를 안 건드렸다는 말을 안 했다: %s" % s["메모"]
+    print("  [224] 자동 커밋 거부 경로 — 잠김 없음 · 자리 적음 · 남의 스테이징 보존 ✅")
+
+
+def t225_session_auto_resumes_parked_and_pushes():
+    """[225] 세워 둔 일이 풀렸으면 말하고, 보류된 푸시는 조용해지면 민다.
+
+    사용자 지시(2026-08-11) **"이 세션도 완전 자동화시켜"**. 그날 사람 손이 들어간
+    자리는 둘이었고 **둘 다 기계가 근거를 이미 갖고 있었다**: 옆 세션이 `code` 점유를
+    놓았는데 어느 화면도 "이제 된다"고 말하지 않아 사람이 "하던 작업 진행" 을 두 번
+    쳤고, 자동 마무리가 보류한 푸시는 그 세션이 사라진 뒤에도 미는 사람이 없었다
+    (폰·웹은 **푸시된 것만** 본다).
+
+    지키는 것 넷:
+      ① 자원 이름이 **한글로 저장돼도** 막힘을 본다(`--lock 코드` 실측 `[34]`).
+         못 맞추면 그 항목은 '자원 없음'이 되어 **늘 "가능"** 이라 답한다(`[165]` 모양).
+      ② 주인이 **살아 있는 '진행'** 은 건드리지 않는다 — 잘못 고아로 읽으면 같은 일을
+         AI 에게 한 번 더 시켜 같은 파일을 둘이 고친다(#36).
+      ③ 옆 세션이 살아 있으면 **밀지도 넘기지도 않는다.** 범위를 못 읽거나 비밀값
+         형태가 있으면 역시 안 민다 — '못 읽음'을 '깨끗함'으로 치지 않는다(`[169]`).
+      ④ **붙어 있지 않은 것은 자동이 아니다** — 워치독 회차·인계 문서·정본 지시문.
+    """
+    import worksplit
+    import worksplit_auto as A
+
+    assert A._lock_en("코드") == "code" and A._lock_en("code") == "code", \
+        "분담판이 한글로 적어 둔 자원을 점유 열쇠로 못 맞춘다 — 막힘을 영원히 못 본다"
+
+    board = {"seq": 2, "items": [
+        {"id": 1, "title": "코드 일", "detail": "d", "lock": "코드", "state": worksplit.WAIT,
+         "who": "", "sid": "", "at_ts": time.time()},
+        {"id": 2, "title": "남이 하는 중", "detail": "", "lock": "code", "state": worksplit.DOING,
+         "who": "claude", "sid": "sib00001", "at_ts": time.time()}]}
+    real = (worksplit.load, A.ai_claim.load, A.ai_claim._is_dead, A.live_others,
+            A._git, A.STATE, A._hand_to_ai)
+    calls, handed = [], []
+
+    def fake_git(*a, **kw):
+        calls.append(a)
+        if a[:2] == ("rev-parse", "--abbrev-ref"):
+            return True, "origin/master\n"
+        if a[:2] == ("rev-parse", "--git-dir"):
+            return True, os.path.join(ROOT, ".git") + "\n"
+        if a[0] == "rev-list":
+            return True, "3\n"
+        if a[0] == "diff":
+            return True, "+++ b/x.py\n+x = 1\n"
+        return True, ""
+
+    try:
+        worksplit.load = lambda: board
+        A.ai_claim._is_dead = lambda v: False
+        A.ai_claim.load = lambda: {"code": {"who": "claude", "sid": "other001",
+                                            "why": "옆 세션 작업"}}
+        A.live_others = lambda: {"수": 1, "목록": ["sib00001"], "기준분": 10}
+        rows = {r["id"]: r for r in A.parked()}
+        assert 2 not in rows, "살아 있는 주인의 '진행' 항목을 고아로 읽었다 — AI 에게 두 번 시킨다"
+        assert rows[1]["가능"] is False and "other001" in rows[1]["사유"], \
+            "살아 있는 점유를 막힘으로 못 봤다: %s" % rows[1]["사유"]
+        A.ai_claim.load = lambda: {}
+        assert A.parked()[0]["가능"] is True, "막던 것이 사라졌는데 '가능'이라 말하지 않는다"
+
+        A._git, A.STATE = fake_git, os.path.join(tempfile.gettempdir(), "t225_state.json")
+        A._hand_to_ai = lambda row, tickets: (handed.append(row.get("id")) or "ticket-fake")
+        A.run(dry=False)                                  # 옆 세션이 살아 있다
+        assert not any(x[0] == "push" for x in calls), "옆 세션이 살아 있는데 밀었다"
+        assert not handed, "옆 세션이 살아 있는데 AI 에게 넘겼다 — 같은 파일을 둘이 고친다"
+
+        calls.clear()
+        A.live_others = lambda: {"수": 0, "목록": [], "기준분": 10}
+        A.run(dry=False)                                  # 아무도 없다
+        assert any(x[0] == "push" for x in calls), "아무도 없는데 보류를 계속한다 — 폰에서는 없는 코드다"
+        assert handed == [1], "풀린 일을 AI 에게 넘기지 않았다: %r" % handed
+
+        calls.clear()
+
+        def leaky(*a, **kw):
+            if a[0] == "diff":
+                return True, "+++ b/x.py\n+%s = \"%s\"" % ("api" + "_key",
+                                                           "AKIA" + "ABCDEFGH1234567890")
+            return fake_git(*a, **kw)
+
+        A._git = leaky
+        A.run(dry=False)
+        assert not any(x[0] == "push" for x in calls), "미푸시 범위에 비밀값 형태가 있는데 밀었다"
+
+        calls.clear()
+
+        def blind(*a, **kw):
+            if a[0] == "diff":
+                return False, ""
+            return fake_git(*a, **kw)
+
+        A._git = blind
+        A.run(dry=False)
+        assert not any(x[0] == "push" for x in calls), "범위를 '못 읽음'인데 '깨끗함'으로 쳤다"
+    finally:
+        (worksplit.load, A.ai_claim.load, A.ai_claim._is_dead, A.live_others,
+         A._git, A.STATE, A._hand_to_ai) = real
+
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    assert "def resume_parked(" in wd and "resume_parked(dry)," in wd, \
+        "워치독 회차에 붙어 있지 않다 — 붙지 않은 것은 자동이 아니다"
+    sh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert '"세션자동화": session_auto()' in sh, "인계 문서가 '풀린 일'을 읽지 않는다"
+    assert "세워 둔 일 **[%s]** 의 막힘이 풀렸다" in sh, \
+        "'먼저 처리할 것' 이 풀린 일을 말하지 않는다 — 막힌 것만 적으면 아무도 모른다"
+    doc = open(os.path.join(ROOT, "CLAUDE.md"), encoding="utf-8").read()
+    assert "worksplit_auto" in doc, \
+        "정본 지시문의 '지금 자동으로 도는 것' 에 없다 — 거기 없는 것은 자동이 아니다"
+    print("  [225] 세션 자동화 — 풀린 일 알림·AI 인계 · 조용해지면 푸시 ✅")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -15448,6 +15632,8 @@ if __name__ == "__main__":
     t214_first_live_revision_cannot_be_falsely_applied()
     t215_cancel_timeline_last_explicit_state_wins()
     t218_camp_standard_erp_basis_and_pm_units()
+    t224_wrapup_commit_refusal_paths()
+    t225_session_auto_resumes_parked_and_pushes()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

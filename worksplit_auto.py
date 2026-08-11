@@ -103,16 +103,27 @@ def parked():
         return [{"id": 0, "title": "분담판을 못 읽었다", "가능": False,
                  "사유": "%s: %s" % (type(exc).__name__, str(exc)[:80])}]
     claims = ai_claim.load() or {}
+    live_sids = set(live_others()["목록"])
+    me = (os.environ.get("CLAUDE_CODE_SESSION_ID") or "").strip()[:8]
+    if me:
+        live_sids.add(me)
     for it in d.get("items") or []:
         state = it.get("state")
         if state in (worksplit.DONE, worksplit.HOLD):
             continue                      # 완료 · 사람대기(사람만 할 수 있는 일)는 여기 몫이 아니다
-        try:
-            _who, takeable = worksplit._owner_state(it)
-        except Exception:
-            takeable = state == worksplit.WAIT
-        if not takeable:
-            continue                      # 살아 있는 주인이 지금 하고 있다
+        # ★ '진행'은 주인이 **살아 있는지**로 가른다. `worksplit._owner_state` 는 부르는
+        #   쪽이 누군지(me)를 모르면 남의 것을 8시간 뒤 고아로 보는데, **기계 회차에는
+        #   me 가 없어** 지금 일하는 사람의 항목까지 고아로 읽는다(실측: 방금 맡은 `[34]`
+        #   가 그렇게 잡혔다). 잘못 고아로 읽으면 그 일을 AI 에게 한 번 더 시킨다 —
+        #   같은 파일을 둘이 고치는 사고 #36 의 모양이다. 그래서 생존을 먼저 본다.
+        if state == worksplit.DOING:
+            if (it.get("sid") or "")[:8] in live_sids:
+                continue
+            try:
+                if not worksplit._owner_state(it)[1]:
+                    continue
+            except Exception:
+                continue
         lock = _lock_en(it.get("lock"))
         row = {"id": it.get("id"), "title": it.get("title") or "", "자원": lock,
                "detail": (it.get("detail") or "")[:400]}
