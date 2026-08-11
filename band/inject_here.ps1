@@ -43,7 +43,16 @@ $dl = Join-Path $env:USERPROFILE 'Downloads'
 
 function Focus-Browser {
     for ($i = 0; $i -lt 5; $i++) {
-        $c = Get-Process $Browser -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -ne '' } | Select-Object -First 1
+        # Pick by WINDOW HANDLE, not by title. A minimized Chrome reports an empty
+        # MainWindowTitle, so the old filter skipped the only window there was and
+        # said 'cannot focus' - measured 2026-08-12, right after an injection that had
+        # succeeded: the window went down, the tab went document.hidden, the collector
+        # parked itself (correctly), and nothing could wake it. Prefer a titled window
+        # when there is one; otherwise restore whatever handle exists.
+        $c = Get-Process $Browser -ErrorAction SilentlyContinue |
+             Where-Object { $_.MainWindowHandle -ne 0 } |
+             Sort-Object { if ($_.MainWindowTitle) { 0 } else { 1 } } |
+             Select-Object -First 1
         if (-not $c) { Start-Sleep -Seconds 2; continue }
         [IH]::Force($c.MainWindowHandle)
         Start-Sleep -Milliseconds 900
