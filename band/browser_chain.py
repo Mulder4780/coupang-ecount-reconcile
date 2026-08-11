@@ -58,6 +58,15 @@ BUSY_MIN = 20
 # 빼앗아 사람이 쓰지도 못하게 된다 — 경보가 대부분이면 아무도 안 본다([170]).
 RETRY_MIN = 90
 
+# ⚠ ERP 는 더 길게 둔다. `erp_unfinished()` 가 읽는 상태 파일은 **스스로 안 바뀐다** —
+#   몰이의 결과는 브라우저 안 `window.__ERPALL` 에만 있고, 주입 45초 뒤 탐침은 아직
+#   안 끝난 회차를 본다(전역이 막 새로 만들어져 '실패 0' 으로 보이기도 한다). 그
+#   숫자로 '다 됐다'를 판정하면 **끝나지도 않은 것을 끝났다고 적는** 자리가 된다.
+#   그래서 지금은 판정하지 않고 **간격만 넓힌다** — 하룻밤에 한두 번이면 충분하고,
+#   결과를 거두는 것(상태 파일 갱신)은 아직 사람/다음 세션 몫이다. 모르는 것을
+#   아는 것처럼 적지 않는 편이 낫다.
+ERP_RETRY_MIN = 240
+
 
 def _now():
     return time.strftime("%Y-%m-%d %H:%M:%S")
@@ -184,7 +193,8 @@ def erp_unfinished():
         return None
 
 
-def too_soon(d, 무엇):
+def too_soon(d, 무엇, 분=None):
+    분 = RETRY_MIN if 분 is None else 분
     last = (d.get("마지막") or {}).get(무엇)
     if not last:
         return False
@@ -192,7 +202,7 @@ def too_soon(d, 무엇):
         t = time.mktime(time.strptime(last["때"], "%Y-%m-%d %H:%M:%S"))
     except Exception:
         return False
-    return (time.time() - t) / 60.0 < RETRY_MIN
+    return (time.time() - t) / 60.0 < 분
 
 
 # ── ③ 주입하고 **살아 있는지 확인한다** ───────────────────────────────────────
@@ -280,7 +290,7 @@ def tick():
     # ② ERP — 실패가 남아 있으면 다시 몰아 본다.
     if erp_n:
         무엇 = "ERP 전화면 몰이"
-        if not too_soon(d, 무엇):
+        if not too_soon(d, 무엇, ERP_RETRY_MIN):
             ok, msg = inject(os.path.join(HERE, "ERP_전화면몰이_붙여넣기.js"),
                              "ecount", os.path.join(HERE, "erp_status_ping.js"),
                              ["NOSTATE"])
