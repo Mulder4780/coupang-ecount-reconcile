@@ -40,6 +40,11 @@ except Exception:
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 CACHE = os.path.join(HERE, "cache")
+# 거를 낱말·'없음 확인' 근거는 **한 곳**에서 온다 — 여기서 따로 적으면 낱말이 어긋나
+# 한쪽만 거른다(이 파일이 2026-08-11 에 바로 그렇게 다쳤다).
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import recheck_plan as RP
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports")
 OUT_JSON = os.path.join(REPORT_DIR, "밴드_댓글계획.json")
 
@@ -65,25 +70,49 @@ def load(band):
         return json.load(fh)
 
 
-def unlooked(posts):
-    """댓글을 **한 번도 안 본** 글 번호 — 최근(번호 큰) 것부터.
+def pick(posts, band=None):
+    """`(번호들, 제외사유)` — 댓글을 **한 번도 안 본** 글, 최근(번호 큰) 것부터.
 
     ★ `comments: []` 는 고르지 않는다. 보고 없었던 글까지 다시 훑으면 8,258 이
       영원히 안 줄고, 매 회차가 같은 자리를 맴돈다.
+
+    ★ **없는 글을 목록에 넣지 않는다** (2026-08-11 실사고). 예전 조건은
+      `deleted / ghost / dirty` 였는데 캐시가 실제로 다는 표시는 `contaminated`(오염)·
+      `absent`(유령)다 — **낱말이 어긋나 한 건도 안 걸렀다.** 실측으로 남아 있던 계획
+      84789192 **102건 전부** · 90610953 **522건 전부**가 그 표시가 달린 번호였다.
+      그대로 긁으면 밴드가 200 과 앱 껍데기를 주므로 한 개당 21초를 채우고 시각이 없어
+      버려진다 — 합쳐서 **약 3시간 반에 수확 0**이다. 이제 거르는 낱말은
+      `recheck_plan.DEAD_FLAGS` **한 곳**에서 온다.
+
+    ★ '없음 확인' 근거(`reports/밴드_확인시각.json`)가 **살아 있을 때만** 그 구간을 뺀다.
+      낡은 근거로 빼면 그 사이 올라온 진짜 글을 영영 안 보게 된다 — 근거 없이
+      '조용함'을 단정하지 않는다(검증 [131] 과 같은 문).
+
+    ★ 작성시각이 없는 글은 **빼지 않는다.** 그건 '안 본 글'이 맞고([179]),
+      그 수확을 다시 받는 일은 recheck_plan 몫이다 — 여기서 같이 빼면 두 회차가
+      서로 미루다 아무도 안 본다.
     """
-    nos = []
+    nos, why = [], {}
+    cut = RP.absent_line(band, posts)[0] if band else None
     for no, p in posts.items():
-        if not isinstance(p, dict):
+        if not isinstance(p, dict) or not str(no).isdigit():
             continue
-        if p.get("deleted") or p.get("ghost") or p.get("dirty"):
+        n = int(no)
+        if RP.is_dead(p):
+            why["삭제·오염·유령 표시"] = why.get("삭제·오염·유령 표시", 0) + 1
             continue                          # 삭제·유령·오염은 업무 기록이 아니다
+        if cut is not None and n >= cut:
+            why["없음 확인 구간"] = why.get("없음 확인 구간", 0) + 1
+            continue
         if "comments" in p:
             continue                          # 이미 들여다봤다
-        try:
-            nos.append(int(no))
-        except (TypeError, ValueError):
-            continue
-    return sorted(nos, reverse=True)
+        nos.append(n)
+    return sorted(nos, reverse=True), why
+
+
+def unlooked(posts, band=None):
+    """번호들만 — 고르는 판단은 `pick()` 한 곳이다(옛 호출자·검증이 쓰는 모양)."""
+    return pick(posts, band)[0]
 
 
 def plan(make=False, limit=None):
@@ -91,12 +120,15 @@ def plan(make=False, limit=None):
     for band in bands():
         d = load(band)
         posts = d.get("posts") or {}
-        nos = unlooked(posts)
+        nos, skipped = pick(posts, band)
         looked = sum(1 for p in posts.values() if isinstance(p, dict) and "comments" in p)
         got = sum(1 for p in posts.values() if isinstance(p, dict) and p.get("comments"))
         item = {"밴드": band, "이름": d.get("band_name") or band,
                 "글": len(posts), "댓글_안본": len(nos), "댓글_본": looked,
                 "댓글_있음": got,
+                # ★ 뺀 것을 **숫자로 남긴다.** 조용히 빼면 '0건'이 '다 봤다'로 읽힌다
+                #   — 그건 안 본 것이다(검증 [169]). 무엇을 왜 뺐는지가 같이 있어야 한다.
+                "제외": skipped,
                 "회차수": (len(nos) + BATCH - 1) // BATCH,
                 "다음배치_처음": nos[0] if nos else None,
                 "다음배치_끝": nos[min(len(nos), BATCH) - 1] if nos else None}
@@ -139,6 +171,10 @@ def main():
               f"({r['회차수']}회차) · 이미 본 {r['댓글_본']} · 댓글 있는 글 {r['댓글_있음']}"
               + (f" → {r['파일']}" if r.get("파일") else "")
               + (f"  ⚠ {r['오류']}" if r.get("오류") else ""))
+        if r.get("제외"):
+            # '안 본 글 0건'이 '다 봤다'로 읽히지 않게 — 무엇을 왜 뺐는지 같이 말한다.
+            print("   · 목록에서 뺀 것: "
+                  + " · ".join(f"{k} {v}건" for k, v in sorted(r["제외"].items())))
     print(f"합계 댓글 안 본 글 {tot}건 — 최근 글부터 훑습니다(도중에 멈춰도 값어치가 남게)")
     if made:
         print("긁는 것은 수집 세션 몫입니다. 로그인된 밴드 탭 콘솔에 한 번 붙여넣으면 이어집니다:")

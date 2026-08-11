@@ -16,7 +16,11 @@ import sys, os, json, argparse
 from datetime import datetime
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
+HERE = os.path.dirname(os.path.abspath(__file__))
+CACHE = os.path.join(HERE, "cache")
+# 근거 한 장의 자리 — session_handoff·convert_dump 와 **같은 파일**이다.
+# 상수로 둔 이유: 함수 안에서 매번 경로를 조립하면 시험이 진짜 파일을 건드려야 한다.
+PROBE_LOG = os.path.join(os.path.dirname(HERE), "reports", "밴드_확인시각.json")
 # ★ 수정글 감지 시대의 시작(2026-08-04, 상세 페이지 재수집 도입). 7월의 피드/API
 #   덤프도 capturedAt 을 갖고 있어 '유무'만 보면 옛 수집이 재수집으로 오판된다 —
 #   이 시각 이후의 captured_at 만 재수집 완료로 인정한다(convert_dump 는 사실만 기록).
@@ -47,61 +51,111 @@ def scope():
 
 QUIET_LIMIT_DAYS = 1          # 밴드 신선도 한도와 같다(session_handoff.FRESH_LIMIT)
 
+# ★ 근거가 없을 때 **위쪽을 몇 개까지 찔러 볼까** (2026-08-11 실사고).
+#   글 번호는 이어지므로 `hi+1` 하나만 열어 봐도 "새 글이 있나"는 답이 나온다.
+#   그런데 예전에는 근거가 하루만 낡아도 `ahead`(40) 를 통째로 목록에 넣었다 —
+#   없는 번호 한 개가 iframe 9초 + 본문 12초를 꽉 채우므로 40개면 **약 14분**을
+#   쓰고 수확은 0 이다(2026-08-11 16:10 회차가 그렇게 낭비됐다).
+#   그래서 근거가 없으면 **싸게 존재만 확인**하고, 있는 것이 확인되면
+#   그다음 회차가 이어받는다(수확이 들어오면 `hi` 가 올라가 사다리가 저절로 오른다).
+PROBE_AHEAD = 5
+
+# 캐시가 '이건 업무 기록이 아니다'라고 표시해 둔 갈래들. 이름이 세 벌인 이유는
+# 역사다(`contaminated` 는 clean_contaminated·convert_dump, `absent` 는 real_latest,
+# 나머지는 옛 도구). **읽는 자리를 한 곳으로 모아** 도구마다 다른 낱말을 보고
+# 서로 다른 것을 거르는 일을 막는다 — 한쪽만 거르면 다른 쪽은 없는 번호를 긁는다.
+DEAD_FLAGS = ("deleted", "contaminated", "absent", "tainted", "ghost", "dirty")
+
+
+def is_dead(v):
+    """이 글은 다시 훑을 대상이 아닌가(삭제·오염·유령)."""
+    return isinstance(v, dict) and any(v.get(f) for f in DEAD_FLAGS)
+
+
+def _rec(band):
+    """근거 한 줄 — `reports/밴드_확인시각.json` 의 그 밴드 항목."""
+    try:
+        return (json.load(open(PROBE_LOG, encoding="utf-8")) or {}).get(str(band)) or {}
+    except Exception:
+        return {}
+
+
+def _age_days(seen, today=None):
+    try:
+        day = str(today or datetime.now().strftime("%Y-%m-%d"))[:10]
+        return (datetime.strptime(day, "%Y-%m-%d")
+                - datetime.strptime(str(seen)[:10], "%Y-%m-%d")).days
+    except ValueError:
+        return None
+
+
+def absent_line(band, posts=None, today=None):
+    """`(cut, 이유)` — **이 번호부터 위는 없다**고 확인된 지점. 없으면 `(None, 이유)`.
+
+    근거는 `reports/밴드_확인시각.json` 한 장이다 — convert_dump 가 덤프의
+    missing·notime 지문에서 만들고 real_latest 가 사람 확인으로 적는다.
+    session_handoff 의 '조용함' 판정과 **같은 파일**을 본다(두 곳이 어긋나면 한쪽은
+    긁으라 하고 다른 쪽은 조용하다고 해서 사람이 무엇을 믿을지 모르게 된다).
+
+    ★ **근거 없이 '조용함'을 단정하지 않는다.** 셋 중 하나면 근거가 없는 것으로 본다:
+      · 아예 없다
+      · **한도보다 오래됐다** — 그 사이 새 글이 올라왔을 수 있다(다시 밀림이다)
+      · **추월됐다** — 근거가 "N 부터 없다"는데 캐시에 N 이상의 **진짜 글**(작성시각이
+        있는 수확)이 이미 들어와 있다. 그때는 근거가 틀린 것이다. 실측 2026-08-11:
+        84789192 근거 `없음확인 3539`(08-09) · 캐시에 3539 가 진짜 글로 있었다.
+        이것을 안 걸러 내면 **실재하는 글을 유령으로 표시**하게 된다.
+      근거가 없다고 40개를 긁으라는 뜻은 아니다 — 그때는 `PROBE_AHEAD` 만 찔러 본다.
+    """
+    rec = _rec(band)
+    try:
+        n = int(rec.get("없음확인") or 0)
+    except (TypeError, ValueError):
+        n = 0
+    seen = str(rec.get("확인시각") or "")[:10]
+    if n <= 0 or not seen:
+        return None, "근거 없음"
+    age = _age_days(seen, today)
+    if age is None or not (0 <= age <= QUIET_LIMIT_DAYS):
+        return None, "근거가 낡음(%s 확인 · %s일 지남)" % (seen, "?" if age is None else age)
+    if posts:
+        top = trusted_hi(posts)
+        if top is not None and top >= n:
+            return None, "근거 추월됨(%s 부터 없다는데 %s 가 실제로 수확됐다)" % (n, top)
+    return n, "%s 부터 없음 확인(%s)" % (n, seen)
+
+
+def trusted_hi(posts):
+    """**믿을 수 있는 최대 번호** — 작성시각이 있고 죽지 않은 글 중 가장 큰 번호.
+
+    작성시각이 있다는 것만이 "실제로 열려서 수확됐다"는 증거다(검증 [130]).
+    """
+    ns = [int(k) for k, v in (posts or {}).items()
+          if str(k).isdigit() and isinstance(v, dict)
+          and v.get("created_at") and not is_dead(v)]
+    return max(ns) if ns else None
+
 
 def _confirmed_quiet(band, hi, today=None):
-    """`hi` 바로 위가 '없음'으로 확인됐고, 그 확인이 아직 최근인가.
-
-    근거는 `reports/밴드_확인시각.json` — convert_dump 가 덤프의 missing·notime 지문에서
-    만든다. session_handoff 의 '조용함' 판정과 **같은 파일**을 본다(두 곳이 어긋나면
-    한쪽은 긁으라 하고 다른 쪽은 조용하다고 해서 사람이 무엇을 믿을지 모르게 된다).
-    """
-    p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                     "reports", "밴드_확인시각.json")
+    """`hi` 바로 위가 '없음'으로 확인됐고, 그 확인이 아직 최근인가."""
+    rec = _rec(band)
     try:
-        rec = (json.load(open(p, encoding="utf-8")) or {}).get(str(band)) or {}
-    except Exception:
-        return False
-    if int(rec.get("없음확인") or 0) != int(hi) + 1:
+        if int(rec.get("없음확인") or 0) != int(hi) + 1:
+            return False
+    except (TypeError, ValueError):
         return False
     seen = str(rec.get("확인시각") or "")[:10]
     if not seen:
         return False
-    try:
-        day = str(today or datetime.now().strftime("%Y-%m-%d"))[:10]
-        age = (datetime.strptime(day, "%Y-%m-%d") - datetime.strptime(seen, "%Y-%m-%d")).days
-    except ValueError:
-        return False
-    return 0 <= age <= QUIET_LIMIT_DAYS
+    age = _age_days(seen, today)
+    return age is not None and 0 <= age <= QUIET_LIMIT_DAYS
 
 
-def _absent_from(band, today=None):
-    """**이 번호부터 위는 없다**고 확인된 지점 (확인이 아직 최근일 때만).
-
-    `_confirmed_quiet` 이 "hi 바로 위"만 묻는 것을 일반화한 것이다 — 글 번호는
-    이어지므로 `없음확인` 이 N 이면 N 이상은 전부 없다. 근거 파일은 같은 한 장이다.
-    """
-    p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                     "reports", "밴드_확인시각.json")
-    try:
-        rec = (json.load(open(p, encoding="utf-8")) or {}).get(str(band)) or {}
-    except Exception:
-        return None
-    try:
-        n = int(rec.get("없음확인") or 0)
-    except (TypeError, ValueError):
-        return None
-    seen = str(rec.get("확인시각") or "")[:10]
-    if n <= 0 or not seen:
-        return None
-    try:
-        day = str(today or datetime.now().strftime("%Y-%m-%d"))[:10]
-        age = (datetime.strptime(day, "%Y-%m-%d") - datetime.strptime(seen, "%Y-%m-%d")).days
-    except ValueError:
-        return None
-    return n if 0 <= age <= QUIET_LIMIT_DAYS else None
+def _absent_from(band, today=None, posts=None):
+    """`absent_line` 의 값만 — 옛 호출자를 위해 남긴다."""
+    return absent_line(band, posts, today)[0]
 
 
-def plan(band, posts, floor=0, ahead=0):
+def plan(band, posts, floor=0, ahead=0, today=None):
     ks = sorted(int(k) for k in posts if str(k).isdigit())
     if not ks:
         return None
@@ -119,10 +173,9 @@ def plan(band, posts, floor=0, ahead=0):
     #   처음부터 없는 번호가 되고, 없는 번호를 긁는 것이 바로 오염을 만드는 행위다.
     #   **사고가 사고를 먹여 살리는 고리**라서, 끊는 자리는 여기다.
     #   작성시각이 있는 것만이 "실제로 열려서 수확됐다"는 증거다.
-    trusted = [n for n in ks
-               if _e(n).get("created_at") and not _e(n).get("deleted")
-               and not _e(n).get("contaminated") and not _e(n).get("absent")]
-    hi = max(trusted) if trusted else hi_cache
+    hi = trusted_hi(posts)
+    if hi is None:
+        hi = hi_cache
     # ★ 캐시 **위쪽**(새 글)을 먼저 본다. 예전에는 구멍만 봐서, 마지막 수집 이후 올라온
     #   글이 영원히 대상 밖이었다 — 2026-08-06 쿠팡AS 밴드가 8/4 에 멈춰 있는데도
     #   "구멍 0" 이라 아무도 몰랐고, 8/5 돌발AS 가 1건으로 보고됐다.
@@ -131,8 +184,18 @@ def plan(band, posts, floor=0, ahead=0):
     #   40번을 헛짚었고(글당 5초 → 3분), 그 헛짚음이 바로 오늘 오염 사고의 입구였다.
     #   확인이 오래되면 그 사이 새 글이 올라왔을 수 있으므로 그때는 다시 훑는다 —
     #   판정 기준은 session_handoff 의 '조용함' 과 같은 근거 파일 하나다.
-    cut = _absent_from(band)                       # 이 번호부터 위는 없다(확인됨)
-    new = [n for n in range(hi + 1, hi + 1 + int(ahead or 0))
+    # ★ 근거가 없으면 **적게 찔러 본다** (2026-08-11 실사고). 예전에는 근거가 하루만
+    #   낡아도 이 자리가 40개를 그대로 쏟았고, 그 40개는 아직 없는 번호라 한 개씩
+    #   21초를 채우고 no-time 으로 버려졌다 — 14분에 수확 0. 존재 여부는 `hi+1`
+    #   하나로 답이 나오므로 `PROBE_AHEAD` 만 넣고, 있는 것이 확인되면 `hi` 가
+    #   올라가 **다음 회차가 이어받는다.** 근거(cut)가 살아 있으면 그 아래는 실재하는
+    #   글이므로 예전대로 `ahead` 까지 간다 — 실재하는 글을 긁는 것은 낭비가 아니다.
+    cut, absent_why = absent_line(band, posts, today)   # 이 번호부터 위는 없다(확인됨)
+    span = int(ahead or 0)
+    probing = cut is None
+    if probing:
+        span = min(span, PROBE_AHEAD)
+    new = [n for n in range(hi + 1, hi + 1 + span)
            if n not in have and (cut is None or n < cut)]
     # ★ 아래쪽 구멍(2026-08-06 발견). 예전에는 **보유한 것 중 가장 작은 번호부터**만
     #   구멍으로 봤다. 그래서 캐시가 4196~5424 여도 "구멍 0"이라 나왔고, 1~4195(2023-03
@@ -199,7 +262,9 @@ def plan(band, posts, floor=0, ahead=0):
     return {"band": band, "range": (lo, hi), "cache_hi": hi_cache, "n": len(ks),
             "new": new, "gaps": gaps, "stale": stale, "deleted": dead,
             "dateless": dateless, "contaminated": contaminated,
-            "deleted_known": deleted_known, "ghost": ghost}
+            "deleted_known": deleted_known, "ghost": ghost,
+            # 왜 위쪽을 그만큼만 보는지 — 목록을 받는 쪽이 사람에게 설명할 수 있어야 한다.
+            "absent_cut": cut, "absent_why": absent_why, "probing": probing}
 
 
 def main():
@@ -227,6 +292,12 @@ def main():
             int((sc.get("floor") or {}).get(band, 0) or 0)
         ahead = a.ahead if a.ahead is not None else int(sc.get("ahead") or 40)
         p = plan(band, posts, floor, ahead)
+        if not p:
+            # ★ 한 밴드가 나머지를 죽이면 안 된다 — 유령 밴드의 **빈 캐시**가 그렇다
+            #   (make_oneclick 은 2026-08-08 에 같은 자리를 막았는데 여기는 안 막혀
+            #   있어서 `python band/recheck_plan.py` 가 통째로 죽고 있었다).
+            print(f"{band}: 계획을 세울 수 없다(빈 캐시일 수 있다)")
+            continue
         print(f"밴드 {band}: 보유 {p['n']}건 ({p['range'][0]}~{p['range'][1]}) · "
               f"새 글 후보 {len(p['new'])} · 구멍 {len(p['gaps'])}(floor {floor}) · "
               f"재수집 전 {len(p['stale'])}"
@@ -235,6 +306,10 @@ def main():
                  if p.get("deleted_known") else "")
               + (f" · 유령(없던 번호) {len(p['ghost'])}" if p.get("ghost") else "")
               + (f" · 삭제됨 {p['deleted']}" if p.get("deleted") else ""))
+        # 위쪽을 왜 그만큼만 보는지 한 줄로 말한다 — 목록만 보고는 알 수 없다.
+        print(f"  · 위쪽 근거: {p.get('absent_why')}"
+              + (f" → 존재 확인용 {len(p['new'])}건만(최대 {PROBE_AHEAD})"
+                 if p.get("probing") else " → 확인된 구간 아래만 훑는다"))
         if p.get("cache_hi", p["range"][1]) > p["range"][1] and _absent_from(band) is None:
             # 캐시가 실재보다 위에 있다는 사실 자체를 숨기지 않는다 — 이게 사고의 흔적이다.
             print(f"  ※ 캐시 최대 {p['cache_hi']} > 믿을 수 있는 최대 {p['range'][1]}"

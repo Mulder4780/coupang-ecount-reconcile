@@ -67,6 +67,24 @@ CACHE_DIR = os.path.join(HERE, "cache")
 BATCH_MAX = 250          # grab_posts.js 와 같은 값 — 그 위로는 렌더러가 언다(실측)
 
 
+def _dead(v):
+    """삭제·오염·유령 표시 — 낱말 목록은 `recheck_plan.DEAD_FLAGS` 한 곳이 정한다.
+
+    못 불러오면 **넓게 거른다**(모르면 안 긁는 쪽). 없는 번호를 긁는 것은 한 개당
+    21초를 버리는 데 그치지 않고 캐시에 가짜 기록을 남긴다(2026-08-07 사고).
+    """
+    if not isinstance(v, dict):
+        return False
+    try:
+        if HERE not in sys.path:
+            sys.path.insert(0, HERE)
+        import recheck_plan as _RP
+        return _RP.is_dead(v)
+    except Exception:
+        return any(v.get(f) for f in
+                   ("deleted", "contaminated", "absent", "tainted", "ghost", "dirty"))
+
+
 def _day(v):
     """캐시의 created_at 은 밀리초 정수·초·ISO 가 섞여 있다 — 한 곳에서 흡수한다."""
     try:
@@ -142,7 +160,11 @@ def blind(band, days=None, opens=None):
     for k, v in posts.items():
         if not str(k).isdigit() or not isinstance(v, dict):
             continue
-        if v.get("deleted") or v.get("tainted") or v.get("absent"):
+        # ★ 거를 낱말을 여기 손으로 적지 않는다 (2026-08-11). 캐시가 실제로 다는
+        #   표시는 `contaminated` 인데 여기엔 `tainted` 라고 적혀 있어서 **오염을 한
+        #   건도 안 걸렀다**(지금은 오염 글에 작성시각이 없어 아래 가드에 걸려 살았을
+        #   뿐이다 — 근거가 우연이면 언젠가 무너진다). 낱말은 한 곳에서 온다.
+        if _dead(v):
             continue
         if not v.get("created_at"):          # 시각 없는 수확은 믿지 않는다 (검증 [130])
             continue

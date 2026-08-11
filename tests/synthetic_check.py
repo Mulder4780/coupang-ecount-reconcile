@@ -9660,6 +9660,156 @@ def t199_distrust_trusts_confirmed_zero():
     print("  [199] distrust — 확인된 0개(comments_full)는 믿어 무한루프를 끊는다 ✅")
 
 
+def t217_probe_instead_of_scraping_absent_numbers():
+    """[217] 없는 번호를 40개씩 담지 않는다 — 근거 먼저, 없으면 **싸게 확인만** (2026-08-11 실사고).
+
+    무엇이 있었나
+      16:10 회차의 붙여넣기 파일이 밴드 84789192 에 `3540~3579` 마흔 개를 담았다.
+      캐시 최대는 3539 이고 그 위는 **아직 없는 번호**다. 밴드는 없는 번호에도 200 과
+      앱 껍데기를 주므로 수집기는 한 개당 iframe 9초 + 본문 12초를 꽉 채우고 시각이
+      없어 버린다(검증 [130]) — **약 14분에 수확 0**. 오류도 안 나고 실패로도 안 세인다.
+
+    왜 안 걸러졌나
+      계획은 '없음 확인' 근거를 보고 있었는데, 그 근거가 **한도(1일)보다 낡으면**
+      없는 것으로 치고 곧장 `ahead`(40) 를 통째로 쏟았다. 근거가 낡았다는 것은
+      "그 사이 새 글이 있을 수 있다"는 뜻이지 "마흔 개가 있다"는 뜻이 아니다.
+      번호는 이어지므로 **`hi+1` 하나면 존재 여부는 답이 나온다.**
+
+    지키는 것
+      ① 근거가 살아 있으면 그 구간은 **아예 안 넣는다**(조용함).
+      ② 근거가 낡았거나 없으면 **존재 확인용 몇 개만**(`PROBE_AHEAD`). 있는 것이
+         확인되면 `hi` 가 올라가 **다음 회차가 이어받는다.**
+      ③ 근거가 **추월**됐으면(그 번호가 이미 진짜 글로 수확돼 있으면) 근거로 안 쓴다.
+         그리고 실재하는 글을 유령이라 부르지 않는다.
+      ④ 근거 **아래**(실재가 확인된 구간)는 줄이지 않는다 — 있는 글을 긁는 것은 낭비가 아니다.
+      ⑤ 붙여넣기 파일로 나가는 **길목 하나**가 죽은 번호를 거른다(번호를 정하는 곳은 셋이다).
+      ⑥ 뺀 것은 **숫자로 말한다** — 조용히 빼면 '0건'이 '다 봤다'로 읽힌다([169]).
+      ⑦ 빈 캐시 한 밴드가 나머지 밴드를 죽이지 않는다.
+    """
+    import importlib
+    import tempfile
+    import contextlib
+    import io as _io
+    from datetime import datetime as _dt
+
+    sys.path.insert(0, os.path.join(ROOT, "band"))
+    MO = importlib.import_module("make_oneclick")
+    CP = importlib.import_module("comment_plan")
+    rp = MO.RP
+    # 근거·낱말을 보는 자리가 갈리면 한쪽은 긁으라 하고 다른 쪽은 조용하다고 한다.
+    assert CP.RP is rp, "붙여넣기 파일 만드는 둘이 서로 다른 recheck_plan 을 본다"
+
+    BAND, TODAY = "84789192", "2026-08-11"
+    TMP = tempfile.mkdtemp(prefix="bandprobe_")
+    hold = (rp.PROBE_LOG, rp.CACHE, rp.SCOPE)
+
+    def evidence(n, seen):
+        with open(rp.PROBE_LOG, "w", encoding="utf-8") as fh:
+            json.dump({BAND: {"이름": "매출처업무", "수집최대": n - 1,
+                              "없음확인": n, "확인시각": seen}}, fh, ensure_ascii=False)
+
+    # 작성시각이 있는 진짜 글 셋 — 캐시 최대 3539(2026-08-11 실측과 같은 모양)
+    posts = {str(n): {"created_at": 1785900000000, "content": "글 %d" % n,
+                      "captured_at": 1785900000000} for n in (3537, 3538, 3539)}
+    try:
+        rp.PROBE_LOG = os.path.join(TMP, "밴드_확인시각.json")
+        rp.CACHE = os.path.join(TMP, "cache")
+        os.makedirs(rp.CACHE, exist_ok=True)
+        rp.SCOPE = os.path.join(TMP, "collect_scope.json")
+        with open(rp.SCOPE, "w", encoding="utf-8") as fh:
+            json.dump({"floor": {BAND: 3537}, "ahead": 40}, fh, ensure_ascii=False)
+
+        # ① 살아 있는 근거 — 바로 위가 없음으로 확인됐으면 한 개도 안 넣는다
+        evidence(3540, TODAY)
+        p = rp.plan(BAND, posts, 3537, 40, today=TODAY)
+        assert p["new"] == [], "방금 없다고 확인한 번호를 또 목록에 넣는다"
+
+        # ② 근거가 낡음 → 40개가 아니라 '존재 확인용'만. 이것이 이날의 14분이다.
+        evidence(3540, "2026-08-09")                    # 2일 전 — 한도(1일) 밖
+        p = rp.plan(BAND, posts, 3537, 40, today=TODAY)
+        assert p["probing"] and "낡" in (p["absent_why"] or ""), \
+            "낡은 근거인데 확인된 것처럼 군다"
+        assert 0 < len(p["new"]) == rp.PROBE_AHEAD < 40, \
+            "근거가 낡았다고 40개를 담았다 — 없는 번호 한 개가 21초다(14분에 수확 0)"
+        assert p["new"][0] == 3540, "확인은 캐시 바로 위부터 한다 — 번호는 이어진다"
+
+        # ③ 근거가 아예 없어도 같다(없다고 40개를 긁으라는 뜻이 아니다)
+        os.remove(rp.PROBE_LOG)
+        p = rp.plan(BAND, posts, 3537, 40, today=TODAY)
+        assert len(p["new"]) == rp.PROBE_AHEAD, "근거가 없으면 40개를 쏟는다"
+
+        # ④ 추월된 근거 — 3539 는 캐시에 **진짜 글**로 들어와 있다(2026-08-11 실측)
+        evidence(3539, TODAY)
+        cut, why = rp.absent_line(BAND, posts, TODAY)
+        assert cut is None and "추월" in why, "이미 수확된 번호를 아직 '없다'고 믿는다"
+        p = rp.plan(BAND, posts, 3537, 40, today=TODAY)
+        assert 3539 not in (p.get("ghost") or []), "실재하는 글을 유령으로 표시했다"
+        assert len(p["new"]) == rp.PROBE_AHEAD, "추월된 근거를 쓰고도 40개를 담았다"
+
+        # ⑤ 근거 아래는 줄이지 않는다 — 3540~3559 는 있는 글이다
+        evidence(3560, TODAY)
+        p = rp.plan(BAND, posts, 3537, 40, today=TODAY)
+        assert p["new"] == list(range(3540, 3560)) and not p["probing"], \
+            "실재가 확인된 구간까지 탐색용으로 줄였다 — 새 글이 며칠씩 안 들어온다"
+
+        # ⑥ 파일로 나가는 길목 — 죽은 번호·없음 구간은 어느 길로 와도 걸린다.
+        #    (screen·build 는 시계를 보므로 근거를 **오늘 날짜**로 둔다)
+        evidence(3560, _dt.now().strftime("%Y-%m-%d"))
+        dead = dict(posts)
+        dead["3536"] = {"contaminated": True}           # 캐시가 실제로 다는 표시
+        kept, dropped, _why = MO.screen(BAND, [3538, 3536, 3600], dead)
+        assert kept == [3538], "죽은 번호·없음 구간이 붙여넣기 파일에 들어간다"
+        assert any("삭제" in k for k in dropped) and any("없음" in k for k in dropped), \
+            "왜 뺐는지가 안 남는다 — 다음 사람이 그대로 다시 넣는다"
+
+        with open(os.path.join(rp.CACHE, BAND + ".json"), "w", encoding="utf-8") as fh:
+            json.dump({"band_name": "매출처업무", "posts": dead}, fh, ensure_ascii=False)
+        js, note = MO.build(BAND, 100, nos=[3538, 3536, 3600], why="시험")
+        assert js and "const ROUNDS = [[3538]]" in js, "붙여넣기 파일에 없는 번호가 실렸다"
+        assert "제외" in note, "뺀 것을 말하지 않는다 — 조용히 빼면 아무도 모른다"
+
+        # ⑦ 댓글 계획도 **같은 낱말**로 거른다. 예전엔 `ghost`·`dirty` 로만 물어서
+        #    캐시가 다는 `contaminated` 를 한 건도 못 걸렀다(실측 102건·522건 전부).
+        nos, skipped = CP.pick(dead, BAND)
+        assert 3536 not in nos, "오염 표시를 못 걸렀다 — 없는 번호를 몇 시간씩 긁는다"
+        assert CP.unlooked(dead, BAND) == nos, "고르는 판단이 두 벌로 갈렸다"
+        assert skipped, "뺀 것을 숫자로 안 남긴다 — '0건'이 '다 봤다'로 읽힌다"
+        for f in ("comment_plan.py", "comment_backfill.py"):
+            s = open(os.path.join(ROOT, "band", f), encoding="utf-8").read()
+            assert 'get("ghost")' not in s and 'get("dirty")' not in s, \
+                "%s 가 캐시에 없는 낱말로 거른다 — 한 건도 안 걸린다" % f
+
+        # ⑧ 빈 캐시 한 밴드가 나머지를 죽이지 않는다(이름순으로 유령이 앞에 온다)
+        with open(os.path.join(rp.CACHE, "202608082047.json"), "w", encoding="utf-8") as fh:
+            json.dump({"band_name": "유령", "posts": {}}, fh, ensure_ascii=False)
+        hold_argv, buf = sys.argv, _io.StringIO()
+        try:
+            sys.argv = ["recheck_plan.py"]
+            with contextlib.redirect_stdout(buf):
+                rp.main()
+        finally:
+            sys.argv = hold_argv
+        out = buf.getvalue()
+        assert "202608082047" in out and BAND in out, \
+            "빈 캐시 한 밴드에서 죽어 **뒤 밴드가 통째로** 안 나온다"
+        assert "위쪽 근거" in out, "위쪽을 왜 그만큼만 보는지 사람이 알 수 없다"
+    finally:
+        rp.PROBE_LOG, rp.CACHE, rp.SCOPE = hold
+
+    src = open(os.path.join(ROOT, "band", "recheck_plan.py"), encoding="utf-8").read()
+    assert "밴드_확인시각.json" in src, "session_handoff 와 다른 근거를 본다"
+    assert rp.PROBE_AHEAD <= 8, \
+        "탐색 상한이 커졌다 — 없는 번호는 한 개당 21초라 금세 몇 분이 된다"
+    # ⑨ 규칙을 고쳐도 **디스크의 붙여넣기 파일**이 안 바뀌면 사람은 옛 목록을 붙여넣는다
+    #    ([162] 와 같은 모양이 한 겹 위에서 반복된 자리다). 워치독의 '낡음' 판정은
+    #    수집기뿐 아니라 **번호를 고르는 쪽**도 봐야 한다.
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    body = wd.split("def heal_stale_pastefiles")[1].split("\ndef ")[0]
+    assert "make_oneclick.py" in body and "recheck_plan.py" in body, \
+        "붙여넣기 파일 낡음 판정이 수집기만 본다 — 번호 고르는 규칙을 고쳐도 옛 목록이 그대로 남는다"
+    print("  [217] 없는 번호는 40개가 아니라 몇 개만 — 근거 먼저 ✅")
+
+
 def t176_rules_bump_does_not_wipe_the_index():
     """[176] 규칙이 바뀌었다고 **색인 11만 건을 통째로 버리면 안 된다** (2026-08-09).
 
@@ -14676,6 +14826,7 @@ if __name__ == "__main__":
     t176_rules_bump_does_not_wipe_the_index()
     t177_comment_collection_is_targeted()
     t199_distrust_trusts_confirmed_zero()
+    t217_probe_instead_of_scraping_absent_numbers()
     t178_unverified_harvest_is_not_read()
     t161_erp_filename_fingerprint()
     t160_master_book_cache()

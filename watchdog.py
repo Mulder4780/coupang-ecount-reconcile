@@ -185,8 +185,13 @@ def heal_stale_pastefiles(dry):
       붙였는데 band/*_붙여넣기_*.js 네 개는 전부 그 이전에 만들어진 것이었다 —
       그대로 붙여넣었으면 **댓글이 한 건도 안 들어오는데 수집은 성공으로 끝났다.**
       개수도 날짜도 멀쩡해서 아무도 몰랐을 것이다.
-    ★ 판단은 **파일 mtime 대 grab_posts.js mtime** 하나다(내용 비교가 아니다) —
+    ★ 판단은 **파일 mtime 대 만드는 쪽 mtime** 이다(내용 비교가 아니다) —
       회차 번호는 매번 달라지므로 내용은 원래 다르다.
+    ★ **'만드는 쪽'은 수집기만이 아니다** (2026-08-11). 예전에는 `grab_posts.js` 하나만
+      봤는데, 파일에 **어떤 번호를 담을지**를 정하는 것은 `recheck_plan`·`make_oneclick`
+      이다. 그래서 없는 번호 40개를 담던 규칙을 고쳐도 **디스크의 그 파일은 그대로**
+      남았다 — 사람은 여전히 옛 목록을 붙여넣고 14분을 버린다. [162] 와 똑같은 모양이
+      한 겹 위에서 반복된 것이다. 이제 셋 중 **가장 최근**을 기준으로 본다.
     ★ 이것은 **수집이 아니라 파일 만들기**다. 캐시를 읽기만 하고 밴드에 접속하지
       않는다 — 코딩 세션이 해도 되는 일이다(CLAUDE.md 의 수집 금지와 어긋나지 않는다).
     """
@@ -197,6 +202,11 @@ def heal_stale_pastefiles(dry):
         js_mt = os.path.getmtime(js)
     except OSError:
         return "붙여넣기 확인 생략(grab_posts.js 없음)"
+    for maker in ("make_oneclick.py", "recheck_plan.py"):
+        try:
+            js_mt = max(js_mt, os.path.getmtime(os.path.join(band_dir, maker)))
+        except OSError:
+            pass                       # 없는 파일은 기준이 못 된다(있는 것만으로 판단)
     old = [p for p in _g.glob(os.path.join(band_dir, "*붙여넣기_*.js"))
            if os.path.getmtime(p) < js_mt]
     if not old:
