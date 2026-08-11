@@ -14554,6 +14554,55 @@ def t219_text_locks_use_the_one_owner_judge():
           "재사용 회수/산 주인 보호 ✅")
 
 
+def t220_flow_yes_no_cycles():
+    """[220] 플로우 예/아니오 순환 검증 (2026-08-11 지시).
+
+    사용자 지시: "업무 플로우 차트가 순환 검증해서 다시 돌아오는 예스 오아 노
+    구조로 고도화 작업 진행해 나중에 계속 변경 요청할거야".
+    '계속 변경'이 오므로 내용은 코드가 아니라 **DB(flow_step)** 에 있고 앱 [수정]
+    에서 바꾼다. 지키는 것 셋:
+      ① 아니오 대상은 흐름 안에 **실재하는 단계 이름**이어야 저장된다 — 없는
+         이름을 조용히 받으면 화면이 '(단계 없음)' 화살표를 영영 그린다.
+      ② 검증 질문 없이 아니오만 있는 것은 버린다 — 질문 없는 분기는 뜻이 없다.
+      ③ 화면·캡처·개발사양 셋 다 분기를 그린다 — 화면에만 있으면 회의 그림과
+         개발자가 직선 흐름으로 읽는다.
+    """
+    import ledger_db as L
+    assert L.FLOW_DEFAULT_CHECKS, "기본 씨앗 순환이 없다 — 일정 연기·미완 재방문 두 개"
+    base = L.flow_steps()
+    # 저장 왕복: 검증+아니오가 DB 를 거쳐 그대로 돌아오나
+    mod = [dict(x) for x in base]
+    mod[2] = dict(mod[2], 검증="합성 검증 질문인가?", 아니오=mod[0]["단계"])
+    n = L.flow_save(mod, who="synthetic")
+    got = L.flow_steps()
+    assert got[2]["검증"] == "합성 검증 질문인가?" and got[2]["아니오"] == base[0]["단계"], \
+        "검증/아니오가 저장 왕복에서 사라진다"
+    # ② 질문 없는 아니오는 버려진다
+    mod2 = [dict(x) for x in got]
+    mod2[3] = dict(mod2[3], 검증="", 아니오=base[0]["단계"])
+    L.flow_save(mod2, who="synthetic")
+    assert L.flow_steps()[3]["아니오"] == "", "질문 없는 아니오가 살아남았다"
+    # ① 없는 단계를 가리키면 저장을 거부한다
+    bad = [dict(x) for x in L.flow_steps()]
+    bad[1] = dict(bad[1], 검증="어디로?", 아니오="존재하지 않는 단계 이름")
+    try:
+        L.flow_save(bad, "synthetic")
+        raise AssertionError("없는 아니오 대상이 저장됐다")
+    except ValueError:
+        pass
+    L.flow_save([dict(x) for x in base], who="synthetic")   # 제자리로
+    # ③ 세 화면이 다 그린다 — 보기(flowCheckHtml)·캡처(chk)·개발사양(아니오 간선)
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for need in ("function flowCheckHtml(", "function flowNoLabel(", "function flowNoOptions(",
+                 'data-f="검증"', 'data-f="아니오"', ".flow-check{",
+                 "(it.chk||[]).forEach", "-.->|아니오|"):
+        assert need in live, f"순환 검증 조각이 없다: {need}"
+    # 수정 폼이 걷고(flowCollect) 새 단계에도 칸이 있다
+    assert "검증:g('검증'), 아니오:g('아니오')" in live, "수정 폼이 검증/아니오를 안 걷는다"
+    print("  [220] 플로우 예/아니오 순환 — DB 정본 · 실재 단계만 · 질문 없는 분기 제거 · "
+          "화면/캡처/사양 3벌 ✅")
+
+
 def t196_stage_words_come_from_one_place():
     """[196] 돌발AS·정기점검 단계 낱말은 **한 곳**에서 오고, 바뀌면 자국이 남는다.
 
@@ -15185,6 +15234,7 @@ if __name__ == "__main__":
     t210_pid_reuse_is_not_alive_and_customer_scan_is_one_pass()
     t211_progress_trace_owner_identity()
     t219_text_locks_use_the_one_owner_judge()
+    t220_flow_yes_no_cycles()
     t213_exact_pid_fingerprint_reaches_every_owner()
     t214_first_live_revision_cannot_be_falsely_applied()
     t215_cancel_timeline_last_explicit_state_wins()

@@ -2556,6 +2556,22 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
   background:var(--flow-bg,var(--brand-tint));border-radius:999px;padding:2px 9px;margin-right:6px}
 .flow-day{font:800 14px inherit;color:var(--surface);white-space:nowrap;
   background:var(--flow-c,var(--brand));border-radius:999px;padding:5px 12px}
+/* 예/아니오 순환 검증 (2026-08-11 지시) — 카드 밑에 붙는 질문 + 두 갈래.
+   아니오 칩을 누르면 되돌아갈 단계로 화면이 이동한다(flowGoto). */
+.flow-check{margin:6px 0 4px 44px;padding:9px 12px;border:1.5px dashed #D9A514;
+  border-radius:12px;background:rgba(226,185,59,.09)}
+.flow-check-q{display:flex;align-items:center;gap:7px;font:750 13px inherit;color:var(--ink-1)}
+.flow-check-q .q-ic{flex:none;width:18px;height:18px;display:grid;place-items:center;
+  border-radius:50%;background:#7A5C00;color:#fff;font:900 11px inherit}
+.flow-check-br{display:flex;gap:8px;margin-top:7px;flex-wrap:wrap}
+/* 칩은 단색 배경 + 흰 글자다 — 반투명 배경은 다크 테마에서 명암비가 무너진다([115]). */
+.flow-yes{font:800 12.5px inherit;color:#fff;background:#12813F;
+  border-radius:999px;padding:4px 11px}
+.flow-no-b{appearance:none;border:0;cursor:pointer;font:800 12.5px inherit;color:#fff;
+  background:#B3261E;border-radius:999px;padding:4px 11px}
+.flow-no-b:disabled{cursor:default;opacity:.65}
+@media(hover:hover){.flow-no-b:not(:disabled):hover{background:#8F1E17}}
+.flow-hl{outline:3px solid rgba(217,165,20,.8);outline-offset:2px;border-radius:14px}
 /* 길게 눌러 집었을 때 — 집힌 카드는 떠 보이고, 놓을 자리는 점선으로 열린다 */
 .flow-step.held{transform:scale(1.02);box-shadow:0 10px 24px rgba(16,24,40,.22);
   border-style:dashed;z-index:3}
@@ -7268,10 +7284,12 @@ function flowHead(){
   m.textContent = FLOW.length
     ? '카드를 길게 누르면 옮기거나 고칠 수 있습니다'
     : '단계가 없습니다 — 아래 [수정]에서 추가하세요';
+  const checks = FLOW.filter(s=>String(s.검증||'').trim()).length;
   st.innerHTML = [
     ['단계', FLOW.length + '개'],
     ['접수 → 수금', last ? 'D+' + (+last.소요일) : '—'],
     ['담당', who.length + '명'],
+    ...(checks ? [['순환 검증', checks + '곳']] : []),
   ].map(([k,v])=>`<div class="st"><b>${esc2(v)}</b><span>${esc2(k)}</span></div>`).join('');
 }
 /* ── 길게 눌러 집기 (2026-08-07 지시) ──────────────────────────────────────
@@ -7366,15 +7384,34 @@ function flowEdit(){
         <input class="wide" data-f="근거" value="${esc2(s.근거||'')}" placeholder="무엇으로 확인하나">
         <input class="wide" data-f="메모" value="${esc2(s.메모||'')}" placeholder="메모(선택)">
         <input class="wide" data-f="갈래" value="${esc2(s.갈래||'')}" placeholder="갈래 이름 — 잇달아 같은 이름이면 나란한 길(비우면 줄기)">
+        <input class="wide" data-f="검증" value="${esc2(s.검증||'')}" placeholder="검증 질문 — 예/아니오로 답하게 (비우면 분기 없음)">
+        <select class="wide" data-f="아니오">${flowNoOptions(s,i)}</select>
       </div>
     </div>`).join('<div class="flow-arrow"></div>');
   flowHead();
+}
+/* '아니오' 대상은 지금 흐름의 단계 이름 중에서 고른다 — 손으로 치면 오타가
+   저장 자체를 막는다(서버가 없는 이름을 거부한다). 이름이 바뀌어 과녁을 잃은
+   값은 '(단계 없음)'으로 보여 준다 — 조용히 지우면 무엇이 있었는지 모른다. */
+function flowNoOptions(s, i){
+  const cur = String(s.아니오||'').trim();
+  let found = false;
+  let h = `<option value="">아니오 → 이 단계에서 대기</option>`;
+  FLOW.forEach((x,j)=>{
+    if(j===i) return;
+    const n = String(x.단계||'').trim(); if(!n) return;
+    const sel = n===cur; if(sel) found = true;
+    h += `<option value="${esc2(n)}" ${sel?'selected':''}>아니오 → ${j+1}. ${esc2(n)}</option>`;
+  });
+  if(cur && !found) h += `<option value="${esc2(cur)}" selected>아니오 → ${esc2(cur)} (단계 없음)</option>`;
+  return h;
 }
 function flowCollect(){
   return [...document.querySelectorAll('#flowWrap .flow-step[data-i]')].map(el=>{
     const g = f => { const i = el.querySelector(`[data-f="${f}"]`); return i ? i.value.trim() : ''; };
     const d = g('소요일');
     return {단계:g('단계'), 담당:g('담당'), 근거:g('근거'), 메모:g('메모'), 갈래:g('갈래'),
+            검증:g('검증'), 아니오:g('아니오'),
             소요일: d==='' ? null : (Number.isFinite(+d) ? +d : null)};
   });
 }
@@ -7387,7 +7424,7 @@ function flowMove(i,d){
 }
 function flowAddStep(){
   FLOW = flowCollect();
-  FLOW.push({단계:'', 담당:'', 소요일:null, 근거:'', 메모:'', 갈래:''});
+  FLOW.push({단계:'', 담당:'', 소요일:null, 근거:'', 메모:'', 갈래:'', 검증:'', 아니오:''});
   flowEdit();
 }
 async function flowSave(){
@@ -7503,8 +7540,13 @@ async function flowToPng43(){
       const sub  = (who||rest) ? _wrapCv(ctx, rest, F(12,500),
                      tw - (who ? ctx.measureText(who).width + 24 : 0), 1) : [];
       const memo = s.메모 ? _wrapCv(ctx, s.메모, F(12,500), tw, 2) : [];
-      const h = Math.max(54, 12 + name.length*19 + ((who||sub.length)?17:0) + memo.length*15 + 12);
-      return {s, name, who, sub, memo, h, dayW};
+      // 순환 검증(2026-08-11) — 캡처에도 그린다. 화면에만 있으면 회의 그림에서
+      // 분기가 사라진 채 직선 흐름으로 읽힌다.
+      const chk = String(s.검증||'').trim()
+        ? _wrapCv(ctx, `◇ ${s.검증} — 아니오 ↺ ${flowNoLabel(s, steps)}`, F(12,700), tw, 2) : [];
+      const h = Math.max(54, 12 + name.length*19 + ((who||sub.length)?17:0)
+                + memo.length*15 + chk.length*15 + 12);
+      return {s, name, who, sub, memo, chk, h, dayW};
     });
     const cellH = c => c.items.reduce((n,i,x)=>n + laid[i].h + (x?VGAP2:0), 0) + (c.branch?17:0);
     const rows = [];
@@ -7578,6 +7620,7 @@ async function flowToPng43(){
           ty += 17;
         }
         it.memo.forEach(ln=>{ txt(ln, textX, ty, F(12,500), SUB); ty += 15; });
+        (it.chk||[]).forEach(ln=>{ txt(ln, textX, ty, F(12,700), '#B25000'); ty += 15; });
         if(it.dayW){
           const px = cx + L.cw - it.dayW - 12;
           box(px, y + 10, it.dayW, 21, color, 10);
@@ -7638,11 +7681,25 @@ function flowDevSpec(){
       else prev.forEach(p=>L.push(`  ${nid(p)} --> ${nid(i)}`));
     });
   });
+  // 순환 검증(2026-08-11) — 검증이 달린 단계는 마름모를 거쳐 예/아니오로 갈린다.
+  // 아니오는 지정한 앞 단계로 **되돌아가는** 간선이다(순환). 개발자가 이 그림만
+  // 보고 만들므로, 화면에 있는 분기가 사양에 없으면 직선 앱이 나온다.
+  F.forEach((s,i)=>{
+    const q = String(s.검증||'').trim(); if(!q) return;
+    const t = String(s.아니오||'').trim();
+    const ti = t ? F.findIndex(x=>String(x.단계||'').trim()===t) : -1;
+    L.push(`  ${nid(i)} --> C${i+1}{"${esc(q)}"}`);
+    if(i+1 < F.length) L.push(`  C${i+1} -->|예| ${nid(i+1)}`);
+    L.push(ti>=0 ? `  C${i+1} -.->|아니오| ${nid(ti)}`
+                 : `  C${i+1} -.->|아니오| ${nid(i)}`);
+  });
   const rows = F.map((s,i)=>{
     const g = gs.find(x=>x.items.includes(i));
+    const chk = String(s.검증||'').trim()
+      ? `${s.검증} → 아니오: ${flowNoLabel(s, F)}` : '';
     return `| ${i+1} | ${s.단계||''} | ${s.담당||''} | `
       + (Number.isFinite(+s.소요일)?'D+'+(+s.소요일):'—') + ` | ${s.근거||''} | `
-      + (g && g.branch ? g.branch : '줄기') + ` | ${(s.메모||'').replace(/\|/g,'/')} |`;
+      + (g && g.branch ? g.branch : '줄기') + ` | ${chk.replace(/\|/g,'/')} | ${(s.메모||'').replace(/\|/g,'/')} |`;
   });
   const 확인전 = F.filter(s=>/\(확인 전\)/.test(s.메모||'')).length;
   const md = [
@@ -7656,8 +7713,8 @@ function flowDevSpec(){
     '',
     '## 2. 단계',
     '',
-    '| # | 단계 | 담당 | 기한 | 무엇으로 확인하나 | 갈래 | 메모 |',
-    '|---|---|---|---|---|---|---|',
+    '| # | 단계 | 담당 | 기한 | 무엇으로 확인하나 | 갈래 | 순환 검증(예/아니오) | 메모 |',
+    '|---|---|---|---|---|---|---|---|',
     ...rows,
     '',
     '## 3. 만들 때 유의할 것',
