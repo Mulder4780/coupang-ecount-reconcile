@@ -16233,6 +16233,19 @@ def t234_kim_miyeong_center_and_revenue():
         assert ("'%s'" % s2) in block, "화면 로스터에 %s 가 없다 — 서버와 갈렸다" % s2
         assert c2["title"] in block, "%s 의 제목이 서버와 화면에서 다르다" % s2
 
+    # ★ 업무센터 화면의 사람 카드는 **손으로 적은 사본**이다(로스터를 안 읽는다).
+    #   그래서 로스터에 사람을 더해도 그 화면에서만 조용히 빠진다 — 2026-08-12 실측으로
+    #   김미영이 그렇게 빠져 있었고, 예전에 AS 기사 4명도 같은 이유로 고아가 됐다.
+    #   사람을 늘리면 여기도 늘렸는지 이 검증이 묻는다.
+    blocks = html.split('id="centerBlocks"', 1)[1].split('<!-- AS 담당기사', 1)[0]
+    for s2, c2 in A.STAFF_CENTERS.items():
+        assert ('href="/staff/%s"' % s2) in blocks, \
+            "업무센터 화면에 %s(%s) 카드가 없다 — 로스터에만 있고 화면에는 없다" % (c2["name"], s2)
+    assert "{id:'kim'," in html, "업무센터 '내 화면 구성' 목록에 김미영 구역이 없다"
+    layout = html.split("function readCenterLayout()", 1)[1].split("\n}", 1)[0]
+    assert "order.splice" in layout, \
+        "새 구역이 저장된 순서 **맨 뒤**로 밀린다 — 사람 카드가 리모컨 밑으로 떨어진다"
+
     perm = A.STAFF_ENTRY_PERMISSIONS.get(slug) or {}
     assert set(perm) == {"settle"}, "김미영에게 청구·수금 밖의 칸이 열려 있다: %s" % sorted(perm)
     assert "세금계산서발행일" in perm["settle"] and "입금일" in perm["settle"]
