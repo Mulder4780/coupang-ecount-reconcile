@@ -16516,6 +16516,47 @@ def t237_cards_fold_with_one_tool():
           "· 사람 카드는 이름·현황 남김 · 화면 열 때마다 재적용 ✅")
 
 
+def t238_parked_says_which_lane():
+    """[238] '막힘이 풀렸다'는 **어느 창에서 하는 일인지**까지 말한다.
+
+    실측 2026-08-12: `code` 점유는 풀렸는데 인계가 [39][48][50] 을 '가져가라'로 올렸다.
+    그런데 수집 차선에 선 창에서 `--take` 하면 `lanes` 가 거부한다 — 그 창에서는
+    **풀린 것이 아니다.** 한 낱말이 두 뜻이 되면 사람은 없는 문을 밀게 된다(`[169]` 모양).
+
+    ★ 차선은 남을 막는 자물쇠가 아니다(`lanes.can()` 은 부르는 쪽의 차선만 본다).
+      그래서 '가능'을 거짓으로 바꾸지 않는다 — **어느 창인지를 덧붙일 뿐**이다.
+      거짓으로 바꾸면 차선을 안 정한 창(대부분)이 할 수 있는 일까지 세워 둔다.
+    ★ 판단을 새로 만들지 않는다 — 차선표(`lanes.LANES`)를 그대로 읽는다.
+    """
+    import lanes, worksplit_auto
+
+    assert worksplit_auto._lane_hint("code") == "build", "code 가 어느 차선인지 못 댄다"
+    assert worksplit_auto._lane_hint("band") == "collect", "band 가 어느 차선인지 못 댄다"
+    assert worksplit_auto._lane_hint("read") == "", \
+        "아무 차선에서나 되는 자원까지 차선을 적는다 — 없는 제약을 만든다"
+    assert worksplit_auto._lane_hint("없는자원") == ""
+
+    # 표가 바뀌면 글도 따라가야 한다 — 이름을 손으로 적어 두면 안 된다
+    src = open(os.path.join(ROOT, "worksplit_auto.py"), encoding="utf-8").read()
+    hint = src.split("def _lane_hint(", 1)[1].split("\ndef ", 1)[0]
+    assert "lanes.LANES" in hint, "차선표를 읽지 않고 이름을 적어 뒀다"
+    assert "'build'" not in hint and '"build"' not in hint, \
+        "차선 이름이 코드에 박혀 있다 — 표가 바뀌면 조용히 어긋난다"
+
+    rows = worksplit_auto.parked()
+    for r in rows:
+        assert "차선" in r, "세워 둔 일에 차선 칸이 없다"
+        if r.get("가능") and r.get("차선"):
+            assert "차선 창에서" in (r.get("사유") or ""), \
+                "풀렸다고만 하고 어느 창에서 하는지 안 말한다"
+
+    sh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    line = sh.split("의 막힘이 풀렸다", 1)[1][:400]
+    assert "차선" in line, "인계 문서가 차선을 안 싣는다 — 판단만 하고 안 보이면 없는 것과 같다"
+
+    print("  [238] 풀린 일에 차선을 붙인다 — 표에서 읽음 · 가능은 그대로 · 인계가 싣는다 ✅")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -16915,6 +16956,7 @@ if __name__ == "__main__":
     t235_chatbot_is_one_line_until_asked()
     t236_list_is_folded_into_groups()
     t237_cards_fold_with_one_tool()
+    t238_parked_says_which_lane()
     t235_unattended_rounds_survive_pythonw()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()

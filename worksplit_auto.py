@@ -90,6 +90,28 @@ def _claim_blocker(lock_en, claims=None):
     return v
 
 
+def _lane_hint(lock):
+    """이 자원을 잡을 수 있는 **차선** 이름 (아무 차선에서나 되면 빈 문자열).
+
+    ★ 차선은 남을 막는 자물쇠가 아니라 **제 창의 약속**이다 — `lanes.can()` 은 부르는
+      쪽의 차선만 본다. 그래서 '누가 잡고 있다'가 아니라 **'어느 창에서 하라'** 로 적는다.
+      이 구별을 놓치면 '풀렸다'가 두 뜻이 된다. 실측 2026-08-12: `code` 점유는 풀렸는데
+      수집 차선에 선 창에서 `--take` 하면 거부됐다. 인계는 '가져가라'고만 말했으므로
+      **풀리지 않은 것을 풀렸다고 말한** 셈이다(`[169]` 와 같은 모양).
+    ★ 판단을 여기서 새로 만들지 않는다 — 차선표(`lanes.LANES`)를 그대로 읽는다.
+      표가 바뀌면 이 글도 저절로 따라간다.
+    """
+    try:
+        import lanes
+        table = lanes.LANES
+    except Exception:
+        return ""
+    names = [nm for nm, spec in table.items() if lock in (spec[1] or [])]
+    if not names or len(names) == len(table):
+        return ""                     # 어느 차선에서나 되는 자원은 말할 것이 없다
+    return "·".join(sorted(names))
+
+
 def parked():
     """대기·유기된 일마다 **지금 되나 / 왜 안 되나**를 근거와 함께 돌려준다.
 
@@ -126,7 +148,7 @@ def parked():
                 continue
         lock = _lock_en(it.get("lock"))
         row = {"id": it.get("id"), "title": it.get("title") or "", "자원": lock,
-               "detail": (it.get("detail") or "")[:400]}
+               "차선": _lane_hint(lock), "detail": (it.get("detail") or "")[:400]}
         held = _claim_blocker(lock, claims)
         if held:
             row.update({"가능": False, "사유": "자원 '%s' 을 %s[%s] 가 잡고 있다 — %s"
@@ -134,7 +156,10 @@ def parked():
                                                  held.get("who") or "?", held.get("sid") or "?",
                                                  (held.get("why") or "")[:60])})
         else:
-            row.update({"가능": True, "사유": "막고 있던 것이 없다"})
+            # '가능' 은 그대로 참이다 — 차선은 남을 막는 자물쇠가 아니다. 다만 **어느 창에서
+            # 해야 하는지**를 같이 적는다. 안 적으면 다른 차선에 선 창이 가져가려다 거부된다.
+            row.update({"가능": True, "사유": "막고 있던 것이 없다"
+                        + (" · `%s` 차선 창에서 한다" % row["차선"] if row["차선"] else "")})
         out.append(row)
     return out
 
@@ -299,7 +324,8 @@ def banner():
     ready = [r for r in (doc.get("세워둔일") or []) if r.get("가능")]
     ps = doc.get("푸시") or {}
     return {"시각": doc.get("시각") or "", "풀린일": [
-        {"id": r.get("id"), "title": r.get("title"), "자원": r.get("자원")} for r in ready],
+        {"id": r.get("id"), "title": r.get("title"), "자원": r.get("자원"),
+         "차선": r.get("차선") or ""} for r in ready],
         "미푸시": int(ps.get("미푸시") or 0), "푸시사유": ps.get("사유") or "",
         "살아있는세션": (doc.get("살아있는세션") or {}).get("수") or 0}
 
