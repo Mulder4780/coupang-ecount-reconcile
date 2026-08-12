@@ -9672,7 +9672,16 @@ def t177_comment_collection_is_targeted():
         "17": {"created_at": OLD, "prj": "UJ2699999"},             # 닫힘·오래됨 → 제외
         "12": {"created_at": NOW, "kind": "공지"},                  # 업무글 아님 → 제외
         "13": {"created_at": NOW, "prj": ""},                       # 프로젝트NO 없음 → 제외
-        "14": {"created_at": NOW, "prj": "UJ2600001", "comments": []},   # 이미 봤다 → 제외
+        # ★ 2026-08-12 (분담판 [39]) — 기대가 옮겨졌다. 이 줄은 원래 '이미 봤다 → 제외'
+        #   였는데, 그건 `comments_full` 이 생기기 **전**(검증 [182], 2026-08-09)의
+        #   규칙이다. 지금은 '확인된 0개'의 근거가 `comments_full` 이고, 그것이 없는
+        #   빈 목록은 "봤고 없었다"가 아니라 **목록이 다 그려진 것을 확인 못 한 채 0 으로
+        #   적힌 것**이다. 그대로 두면 취소 댓글을 영영 못 읽는다(실측 5,829건).
+        "14": {"created_at": NOW, "prj": "UJ2600001", "comments": []},   # 미확인 → 1순위
+        # ★ 그리고 이것이 [199] 가 지키는 반대쪽이다 — **확인된 0개는 다시 안 뽑는다.**
+        #   이 줄이 없으면 위 완화가 무한루프로 번져도 아무도 모른다.
+        "18": {"created_at": NOW, "prj": "UJ2600001",
+               "comments": [], "comments_full": True},              # 확인된 0개 → 제외
         "15": {"created_at": NOW, "prj": "UJ2600001", "deleted": True},  # 삭제 → 제외
         "16": {"prj": "UJ2600001"},                                 # 시각 없음 → 제외
     }
@@ -9688,8 +9697,10 @@ def t177_comment_collection_is_targeted():
         CB.io.open = lambda *a, **k: _F(json.dumps({"posts": posts}))
         got = CB.blind("90610953", 90, {"UJ2600001"})
         nums = [n for _t, _d, n in got]
-        assert nums == [10, 11], "고른 것이 다르다: %r" % (got,)
-        assert got[0][0] == 1 and got[1][0] == 3, "갈래가 틀렸다: %r" % (got,)
+        assert nums == [14, 10, 11], "고른 것이 다르다: %r" % (got,)
+        assert 18 not in nums, \
+            "확인된 0개(comments_full)를 다시 뽑는다 — [199] 무한루프로 돌아간다"
+        assert [t for t, _d, _n in got] == [1, 1, 3], "갈래가 틀렸다: %r" % (got,)
 
         # 원장을 못 읽으면 1순위라고 우기지 않는다 — 전부 2순위(모름)
         got2 = CB.blind("90610953", 90, None)
@@ -9764,8 +9775,17 @@ def t199_distrust_trusts_confirmed_zero():
 
     src = open(os.path.join(ROOT, "band", "comment_backfill.py"),
                encoding="utf-8").read()
-    assert 'not v.get("comments_full")' in src, \
-        "distrust 게이트가 comments_full 을 안 본다 — 진짜 0 인 밴드에서 무한루프가 돈다"
+    body = src.split("def blind(", 1)[1].split("\ndef ", 1)[0]
+    assert "comments_full" in body, \
+        "후보를 고르는 자리가 comments_full 을 안 본다 — 진짜 0 인 밴드에서 무한루프가 돈다"
+    # ★ 2026-08-12 (분담판 [39]) — 예전에는 `distrust and not comments_full` 이라는
+    #   **글자 그대로**를 확인했다. 그런데 그 `distrust and` 가 바로 [39] 의 고장이었다:
+    #   댓글 담긴 글이 **하나만** 있어도 `harvest_looks_broken` 이 꺼져, 미확인
+    #   5,829건이 통째로 '본 것'으로 넘어갔다. 이제 근거는 `comments_full` 하나다.
+    #   글자가 아니라 **동작**으로 묻는다 — 위 블록이 '확인된 0개는 안 뽑힌다'를
+    #   이미 실제로 확인했다. 여기서는 옛 게이트로 되돌아가지 않는 것만 못박는다.
+    assert 'distrust and not v.get("comments")' not in body, \
+        "되뽑는 근거가 다시 distrust 에 매였다 — [39] 로 되돌아간다"
     print("  [199] distrust — 확인된 0개(comments_full)는 믿어 무한루프를 끊는다 ✅")
 
 

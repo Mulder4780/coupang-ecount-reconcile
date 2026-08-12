@@ -168,10 +168,20 @@ def blind(band, days=None, opens=None):
             continue
         if not v.get("created_at"):          # 시각 없는 수확은 믿지 않는다 (검증 [130])
             continue
-        if "comments" in v and not (distrust and not v.get("comments")
-                                    and not v.get("comments_full")):
-            continue                         # 열어 본 적이 있다 — 비었어도 본 것이다
-            #   (distrust 라도 comments_full = 확인된 0개는 다시 안 뽑는다)
+        # ★ '본 것'의 근거는 **`comments_full`** 이지 `distrust` 가 아니다 (분담판 [39]).
+        #   전에는 `distrust` 일 때만 빈 목록을 되뽑았다. 그런데 `harvest_looks_broken`
+        #   은 '댓글 담긴 글이 하나라도 있으면' 거짓이라, 실측 두 밴드가 1건·7건으로
+        #   거짓이 되어 **`comments: []` 인 5,829건이 통째로 '본 것'으로 넘어갔다.**
+        #   계기는 "미확인 0건"이라 말했고 오류도 안 났다 — 검증 [169] 그 자리다.
+        #   `comments_full` 없는 빈 목록은 "봤고 없었다"가 아니라 **목록이 다 그려진
+        #   것을 확인 못 한 채 0 으로 적힌 것**이다([182] '확인된 0개' 조건 미충족).
+        # ★ [199] 는 그대로 지켜진다 — 되뽑는 문을 넓히는 것이 아니라 **근거를
+        #   `comments_full` 하나로 좁히는** 것이다. 진짜 0 은 수집기가 `comments_full`
+        #   을 달아 닫으므로 다시 안 뽑힌다. 무한루프가 아니라 **한 번 훑으면 수렴**한다
+        #   (`comments_full` 이 생기기 전에 받은 글이라 표시가 없을 뿐이다).
+        seen = ("comments" in v) and (bool(v.get("comments")) or bool(v.get("comments_full")))
+        if seen:
+            continue                         # 댓글이 담겼거나, 확인된 0개다
         day = _day(v.get("created_at"))
         tier = 2
         if parse_post is not None:
