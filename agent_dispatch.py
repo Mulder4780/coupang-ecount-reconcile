@@ -31,11 +31,20 @@ PROBE_TIMEOUT_SECONDS = 4
 ROUTE_CACHE_SECONDS = 60
 AGENT_TIMEOUT_SECONDS = 60 * 60
 
+#: ★ `not logged in` 이 빠져 있었다 (2026-08-13 실측). 로그아웃 상태의 CLI 는
+#  "Not logged in · Please run /login" 을 주는데 그 문구가 이 목록 어디에도 안 맞아
+#  **설계된 Codex 폴백이 한 번도 안 떴다** — 티켓은 그냥 failed 로 끝났고 codex 는
+#  멀쩡히 깔린 채 standby 였다. 낱말 하나가 빠지면 폴백은 조용히 없는 것이 된다.
 _UNAVAILABLE_RE = re.compile(
     r"credit|quota|usage|rate.?limit|billing|insufficient|not.?authenticated|"
+    r"not.?logged.?in|/login|please log ?in|sign(ed)? ?in|로그인|"
     r"access is denied|permission denied|not recognized|not found|인증|크레딧|할당량|권한",
     re.I,
 )
+
+#: 로그인 여부를 **실행 없이** 묻는 길. claude 2.1.222 는 `auth status` 가 JSON 을 준다.
+#  codex 쪽은 확인된 명령이 없어 넣지 않는다 — 없는 손잡이를 지어내면 멀쩡한 폴백이 죽는다.
+AUTH_PROBE = {"claude": ("auth", "status")}
 
 #: ★ **로그인 안 된 CLI 는 exit 0 을 준다** (2026-08-13 실측 · claude 2.1.222).
 #:   `claude -p "..."` 가 `Not logged in · Please run /login` 한 줄만 찍고 **성공으로
@@ -107,6 +116,45 @@ def resolve_agent_executable(name: str) -> str:
     return ""
 
 
+def auth_state(name: str, executable: str) -> tuple[str, str]:
+    """로그인했나 — **셋으로** 답한다: `로그인` · `로그아웃` · `확인못함`.
+
+    ★ `--version` 은 로그인을 안 봐도 0 을 준다. 그래서 2026-08-13 실측에서
+      `route_status()` 가 `state: ready` 를 말하는 동안 실제 티켓은 전부
+      "Not logged in · Please run /login" 으로 죽고 있었다. **계기가 초록이면
+      아무도 안 본다** — 이 프로젝트가 반복해 당한 '실패가 성공처럼 보이는 자리'다.
+
+    ★ **못 읽은 것을 로그아웃이라고 하지 않는다.** 옛 CLI 에는 `auth status` 가
+      없을 수 있는데, 없다고 로그아웃으로 치면 멀쩡히 돌던 인계가 통째로 Codex 로
+      샌다. 거꾸로 못 읽었다고 `ready` 라 하면 지금 이 고장이 그대로 남는다.
+      그래서 모르면 **모른다고** 하고, 부르는 쪽이 그 사실을 그대로 적는다(`[169]`).
+
+    비밀값은 읽지 않는다 — 이 명령은 토큰이 아니라 `loggedIn` 참/거짓만 돌려준다.
+    """
+    sub = AUTH_PROBE.get(name)
+    if not sub:
+        return "확인못함", "로그인을 묻는 명령이 확인되지 않았다"
+    try:
+        result = run_tree([executable, *sub], cwd=ROOT,
+                          timeout=PROBE_TIMEOUT_SECONDS, drain_timeout=5,
+                          output_limit=4000)
+    except OSError as exc:
+        return "확인못함", _clean_message(str(exc))
+    if result.timed_out:
+        return "확인못함", "로그인 확인 시간 초과"
+    text = ((result.stdout or "") + " " + (result.stderr or "")).strip()
+    # 종료 코드로 판정하지 않는다 — 로그아웃일 때도 1 이고 명령이 없을 때도 1 이다.
+    try:
+        body = json.loads(text[text.index("{"):text.rindex("}") + 1])
+    except (ValueError, json.JSONDecodeError):
+        return "확인못함", _clean_message(text) or "로그인 상태를 읽지 못했다"
+    if not isinstance(body.get("loggedIn"), bool):
+        return "확인못함", "loggedIn 값이 없다"
+    if body["loggedIn"]:
+        return "로그인", str(body.get("authMethod") or "")
+    return "로그아웃", "로그인이 안 돼 있다 — 사람이 `claude auth` 로 한 번 로그인해야 한다"
+
+
 def probe_agent(name: str) -> dict[str, str]:
     """Return a small, non-secret availability record without launching any task."""
     command = {"claude": "claude", "codex": "codex"}.get(name)
@@ -127,7 +175,18 @@ def probe_agent(name: str) -> dict[str, str]:
 
     message = _clean_message((result.stdout or "") + " " + (result.stderr or ""))
     if result.returncode == 0:
-        return {"agent": name, "state": "ready", "reason": message or "사용 가능"}
+        # 버전이 뜬다고 일할 수 있는 것이 아니다 — 로그인을 한 번 더 묻는다.
+        state, why = auth_state(name, executable)
+        if state == "로그아웃":
+            return {"agent": name, "state": "unavailable", "reason": why}
+        if state == "확인못함":
+            # 모르는 것을 아는 척하지 않는다. 일은 시켜 보되 **모른다고 적어 둔다** —
+            # 그래야 실패했을 때 "로그인을 확인 못 한 채 보냈다"가 기록에 남는다.
+            return {"agent": name, "state": "ready",
+                    "reason": "%s · 로그인 확인못함(%s)" % (message or "사용 가능", why)}
+        return {"agent": name, "state": "ready",
+                "reason": "%s · 로그인 확인됨%s" % (message or "사용 가능",
+                                                  (" (%s)" % why) if why else "")}
     if _UNAVAILABLE_RE.search(message):
         reason = "크레딧·인증·권한 또는 실행 환경을 확인해야 함"
     else:

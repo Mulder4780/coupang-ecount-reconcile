@@ -16987,6 +16987,103 @@ def t134_section_fold():
 
 
 
+def t242_ready_means_logged_in():
+    """[242] '쓸 수 있다'는 말은 **로그인까지** 확인한 말이다 (2026-08-13 실사고).
+
+    실측: `route_status()` 가 `selected: claude · state: ready · "2.1.222 (Claude Code)"`
+    를 주는 동안, 실제 티켓은 전부 `Not logged in · Please run /login` · exit 1 로
+    죽고 있었다. `claude auth status` 는 `{"loggedIn": false}` 였다.
+
+    조용했던 이유 둘 — 둘 다 낱말 한 개다:
+      ① `probe_agent` 가 `--version` 만 봤다. 그 명령은 **로그인 없이도 0** 을 준다.
+      ② Codex 폴백은 `_UNAVAILABLE_RE` 가 맞을 때만 뜨는데 거기에 `not logged in`
+         이 없었다. 그래서 **설계된 폴백이 한 번도 안 떴고** codex 는 멀쩡히 깔린 채
+         standby 였다. 티켓은 그냥 failed 로 끝났다.
+    계기가 초록이면 아무도 안 본다 — `[169]` 와 같은 모양이다.
+    """
+    import agent_dispatch as A
+
+    # ── ① 폴백을 여는 낱말. 없으면 로그아웃은 영영 Codex 로 안 넘어간다.
+    for text in ("Not logged in · Please run /login",
+                 "not logged in", "Please run /login", "로그인이 필요합니다"):
+        assert A._UNAVAILABLE_RE.search(text), \
+            "'%s' 를 사용 불가로 안 읽는다 — Codex 폴백이 안 뜬다" % text
+    # 기존에 열려 있던 낱말들이 닫히지 않았나
+    for text in ("credit limit reached", "rate limit", "not authenticated", "크레딧 소진"):
+        assert A._UNAVAILABLE_RE.search(text), "예전에 잡히던 '%s' 가 안 잡힌다" % text
+    # ★ 멀쩡한 출력에 걸리면 **늘 폴백**이라 Claude 를 영영 안 쓴다(반대쪽 고장)
+    for ok in ("2.1.222 (Claude Code)", "codex-cli 0.147.0", "done"):
+        assert not A._UNAVAILABLE_RE.search(ok), \
+            "멀쩡한 출력 '%s' 을 사용 불가로 읽는다 — 언제나 폴백이 된다" % ok
+
+    # ── ② 로그인 판정은 **셋**이다. '못 읽음'을 로그아웃이라 하지 않는다(`[169]`).
+    real = A.run_tree
+    Res = type("R", (), {})
+
+    def fake(out="", rc=0, timed_out=False):
+        def _run(cmd, **kw):
+            r = Res(); r.stdout, r.stderr, r.returncode = out, "", rc
+            r.timed_out, r.stuck_pid = timed_out, None
+            return r
+        return _run
+    try:
+        # 로그아웃은 **종료 코드가 아니라 값**으로 판정한다(로그아웃도 1, 명령 없음도 1)
+        A.run_tree = fake('{"loggedIn": false, "authMethod": "none"}', rc=1)
+        assert A.auth_state("claude", "x.exe")[0] == "로그아웃", "loggedIn=false 를 못 읽는다"
+        A.run_tree = fake('{"loggedIn": true, "authMethod": "oauth"}', rc=0)
+        assert A.auth_state("claude", "x.exe")[0] == "로그인"
+        # 명령 자체가 없는 옛 CLI — **로그아웃이라 우기면** 멀쩡한 인계가 통째로 샌다
+        A.run_tree = fake("error: unknown command 'auth'", rc=1)
+        assert A.auth_state("claude", "x.exe")[0] == "확인못함", \
+            "auth 명령이 없는 CLI 를 로그아웃으로 단정한다 — 되던 인계가 다 Codex 로 샌다"
+        A.run_tree = fake("", timed_out=True)
+        assert A.auth_state("claude", "x.exe")[0] == "확인못함", "시간 초과를 로그아웃으로 친다"
+        # 확인 명령이 없는 상대(codex)는 **모른다**고 한다 — 지어내지 않는다
+        assert A.auth_state("codex", "x.exe")[0] == "확인못함"
+
+        # ── ③ probe_agent 는 버전이 0 이어도 로그아웃이면 ready 라 하지 않는다
+        seen = {}
+
+        def two_step(cmd, **kw):
+            r = Res(); r.timed_out, r.stuck_pid, r.stderr = False, None, ""
+            if "--version" in cmd:
+                seen["ver"] = True
+                r.stdout, r.returncode = "2.1.222 (Claude Code)", 0
+            else:
+                seen["auth"] = True
+                r.stdout, r.returncode = '{"loggedIn": false}', 1
+            return r
+        A.run_tree = two_step
+        got = A.probe_agent("claude")
+        assert seen.get("auth"), "버전만 보고 끝낸다 — 로그인을 안 묻는다"
+        assert got["state"] == "unavailable", \
+            "로그아웃인데 ready 라 한다 — 티켓이 전부 조용히 failed 로 끝난다: %s" % got
+        assert "로그인" in got["reason"], "왜 못 쓰는지를 사람이 읽을 수 없다: %s" % got
+
+        # 못 읽었을 때는 **일은 시키되 모른다고 적는다**(빈손으로 세우지 않는다)
+        def unknown(cmd, **kw):
+            r = Res(); r.timed_out, r.stuck_pid, r.stderr = False, None, ""
+            if "--version" in cmd:
+                r.stdout, r.returncode = "2.1.222", 0
+            else:
+                r.stdout, r.returncode = "unknown command", 1
+            return r
+        A.run_tree = unknown
+        got = A.probe_agent("claude")
+        assert got["state"] == "ready" and "확인못함" in got["reason"], \
+            "로그인을 못 읽었는데 그 사실을 안 적는다 — 실패해도 이유가 안 남는다: %s" % got
+    finally:
+        A.run_tree = real
+
+    # ── ④ 비밀값을 읽지 않는다. 묻는 것은 참/거짓 하나다.
+    src = open(os.path.join(ROOT, "agent_dispatch.py"), encoding="utf-8").read()
+    assert 'AUTH_PROBE = {"claude": ("auth", "status")}' in src, \
+        "로그인 확인 명령이 한 곳에 안 적혀 있다"
+    assert "token" not in src.split("def auth_state", 1)[1].split("\ndef ", 1)[0].lower(), \
+        "로그인 확인이 토큰을 만진다 — 참/거짓만 물어야 한다"
+    print("  [242] ready 는 로그인까지 확인한 말 — 폴백 낱말·셋으로 답함·못읽음≠로그아웃 ✅")
+
+
 def t241_boundary_survives_compact_and_clear():
     """[241] 아무 때나 compact·clear 해도 이어진다 — **세션 경계**(2026-08-13 지시).
 
@@ -17372,6 +17469,7 @@ if __name__ == "__main__":
     t239_idle_lane_reclaims_itself_with_a_record()
     t240_install_has_a_door_and_says_why_when_shut()
     t241_boundary_survives_compact_and_clear()
+    t242_ready_means_logged_in()
     t235_unattended_rounds_survive_pythonw()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
