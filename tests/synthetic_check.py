@@ -15378,8 +15378,49 @@ def t230_ai_tier_picks_model_and_effort():
     assert 'record["ai_tier"] = chosen' in disp, \
         "고른 것을 티켓에 안 적는다 — 왜 그 모델로 돌았는지 물을 수 없다"
 
-    print("  [230] AI 모델·노력 자동 선택 — 원인/설계는 opus·조회는 sonnet · haiku 배제 · "
-          "확인된 깃발만(--model) · 노력은 문장으로 · 티켓에 근거 기록 ✅")
+    # ── [231] 사람이 친 말도 등급을 매긴다 (2026-08-13 지시)
+    #     ★ **아끼는 쪽으로 기울지 않는다.** 못 가르면 모델은 그대로 두고 노력만 낮춘다 —
+    #       싸게 틀리는 것이 비싸게 맞는 것보다 훨씬 비싸다(`[172]`).
+    assert T.pick_for_prompt("지금 몇 건이야")["갈래"] == "질문"
+    assert T.pick_for_prompt("커밋해")["갈래"] == "수행"
+    assert T.pick_for_prompt("왜 회차가 죽는지 원인 분석해")["갈래"] == "설계"
+    # 순서: "왜 … 확인해줘" 는 조회가 아니라 원인 규명이다
+    assert T.pick_for_prompt("왜 안 되는지 상태 확인해줘")["갈래"] == "설계", \
+        "'왜' 가 들어간 질문을 단순 조회로 읽는다 — 값싸게 오진한다"
+    vague = T.pick_for_prompt("그거 해줘")
+    assert vague["갈래"] == "모호" and vague["모델"] == "opus" and vague["노력"] == "medium", \
+        "못 가른 요청에서 모델을 내린다 — 싸게 틀리는 것이 제일 비싸다"
+    assert T.pick_for_prompt("")["모델"] == "opus", "빈 입력에서 모델을 내린다"
+    for tier, (model, effort, why) in T.PROMPT_TIERS.items():
+        assert model in ("sonnet", "opus") and effort in ("low", "medium", "high") and why, \
+            "%s 가 CLI 가 모르는 낱말을 쓰거나 이유가 없다" % tier
+    # ★ 바뀐 순간에만 말한다 — 매 입력마다 같은 말을 하면 아무도 안 읽는다
+    keep_log = T.LOG
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            T.LOG = os.path.join(td, "t.json")
+            assert T._remember("설계") == "", "첫 판에 직전 값이 있다"
+            assert T._remember("설계") == "설계", "직전 값을 기억 못 한다"
+            assert T._remember("질문") == "설계", "직전 값이 갱신 안 된다"
+            got = json.load(open(T.LOG, encoding="utf-8"))
+            assert got["누적"]["설계"] == 2, "누적을 안 센다 — 규칙을 고칠 근거가 없다"
+    finally:
+        T.LOG = keep_log
+    # 훅은 무슨 일이 있어도 exit 0 이어야 한다 — 사람 입력을 막으면 안 된다
+    hook_src = open(os.path.join(ROOT, "ai_tier.py"), encoding="utf-8").read()
+    hb = hook_src.split("def hook(", 1)[1].split("\ndef ", 1)[0]
+    assert hb.count("except Exception") >= 2 and "return 0" in hb, \
+        "훅이 터지면 사람 입력이 막힌다"
+    # ★ '알려 준다'를 '자동으로 바꾼다'라고 적으면 거짓말이다 — 문구가 한계를 말해야 한다
+    assert "못 바꿉니다" in hook_src, \
+        "대화창 모델을 세션이 바꿀 수 있는 것처럼 말한다"
+    st = json.load(open(os.path.join(ROOT, "..", ".claude", "settings.json"),
+                        encoding="utf-8"))
+    assert "ai_tier.py" in json.dumps(st.get("hooks", {}), ensure_ascii=False), \
+        "판정 훅이 settings.json 에 안 붙어 있다 — 만들었지만 안 도는 자리다(`[228]`)"
+
+    print("  [230]·[231] AI 모델·노력 자동 선택 — 원인/설계는 opus·조회는 sonnet · haiku 배제 · "
+          "확인된 깃발만(--model) · 못 가르면 모델 유지·노력만 낮춤 · 바뀔 때만 알림 ✅")
 
 
 def t220_flow_yes_no_cycles():

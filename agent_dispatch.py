@@ -224,8 +224,10 @@ def _agent_command(agent: str, executable: str, prompt: str, last_message: Path,
     ★ 2026-08-12 전까지는 모델을 **한 번도 고르지 않았다** — `claude -p` 만 불러
       모든 인계가 기본 모델(제일 비싼 것)로 돌았다. 자율복구 재시도 한 장이나
       원인 모를 회차 고장이나 같은 값을 치렀다. 고르는 규칙은 `ai_tier` 한 곳이다.
-    ★ 노력은 깃발이 없으므로 **프롬프트 문장**으로 간다(`ai_tier.prompt_line`) —
-      확인 안 된 깃발을 붙이면 CLI 가 통째로 안 뜨고 인계가 조용히 안 된다.
+    ★ 노력도 2026-08-13 부터 **깃발**로 간다(`--effort`). 다만 `ai_tier` 가 그 실행파일
+      에게 `--help` 로 **직접 물어보고 있다고 확인된 때만** 붙인다 — 확인 안 된 깃발을
+      붙이면 CLI 가 통째로 안 뜨고 인계가 조용히 안 된다. 못 물어봤으면 예전처럼
+      프롬프트 문장이 그 몫을 한다(`ai_tier.prompt_line`).
     """
     if agent == "codex":
         return [executable, "exec", "-C", str(ROOT), "-s", "workspace-write",
@@ -234,7 +236,7 @@ def _agent_command(agent: str, executable: str, prompt: str, last_message: Path,
     if chosen:
         try:
             import ai_tier
-            extra = ai_tier.flags(agent, chosen)
+            extra = ai_tier.flags(agent, chosen, executable)
         except Exception:                       # 고르기가 실패해도 인계는 나간다
             extra = []
     return [executable, *extra, "-p", prompt, "--output-format", "text"]
