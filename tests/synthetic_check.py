@@ -16286,6 +16286,50 @@ def t234_kim_miyeong_center_and_revenue():
         "서버가 내려보내는 기준 문장에 '발행월/완료월 아님'이 없다"
 
 
+def t235_chatbot_is_one_line_until_asked():
+    """[235] 챗봇은 **평소 한 줄**이다 (2026-08-12 지시: "쓸데 없이 창이 너무 커").
+
+    ★ 실측: 폰 첫 화면에서 챗봇 카드가 **40%** 를 먹고 있었다 — 제목·칩 여섯 개(세 줄로
+      접힘)·큰 입력창·큰 파란 단추가 늘 펼쳐진 채였다. 정작 사람이 먼저 보려는 것은
+      그 아래 업무 현황 숫자다. 고친 뒤 접힘 **55px(7%)** · 펼침 177px(22%).
+    ★ **기본은 접힘**이다. 기억이 없을 때 펼치면 고친 뜻이 사라진다 — 그래서 판정을
+      `=== '1'` 로 둔다(없으면 거짓). 그리고 화면마다 따로 기억한다(대시보드·업무센터는
+      다른 자리다).
+    ★ 칩은 **한 줄로 흐른다.** `flex-wrap:wrap` 이 돌아오면 여섯 개가 다시 세 줄이 된다.
+    ★ 접어도 **대화가 사라진 것처럼 보이면 안 된다** — 답이 있으면 한 줄이 그 수를 말한다.
+    ★ 어디서 물었든 **답이 보이는 자리에서** 답한다(접힌 채로 답하면 아무도 못 본다).
+    """
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    assert ".chatcard.mini .chatpill{display:flex}" in live, "접힌 한 줄(알약)이 없다"
+    assert "chatpill" in live and 'class="chatbody" hidden' in live, \
+        "펼침 부분이 처음부터 숨겨져 있지 않다 — 그러면 예전처럼 늘 펼쳐진다"
+
+    mount = live.split("function chatMount(", 1)[1].split("\nfunction ", 1)[0]
+    assert "chatSetOpen(el, chatWasOpen(el), false)" in mount, \
+        "붙일 때 접힘/펼침을 정하지 않는다"
+    was = live.split("function chatWasOpen(", 1)[1].split("\n}", 1)[0]
+    assert "=== '1'" in was, "기억이 없을 때 펼친다 — 기본은 접힘이어야 한다"
+    key = live.split("function chatKey(", 1)[1].split("\n}", 1)[0]
+    assert "dataset.chat" in key, "화면마다 따로 기억하지 않는다 — 한 곳에서 접으면 다 접힌다"
+
+    chips = live.split(".chatchips{", 1)[1].split("}", 1)[0]
+    assert "overflow-x:auto" in chips, "칩이 가로로 흐르지 않는다"
+    assert "flex-wrap" not in chips, "칩이 다시 줄바꿈한다 — 여섯 개면 세 줄이 된다"
+
+    send = live.split(".chatsend{", 1)[1].split("}", 1)[0]
+    assert "position:absolute" in send, "보내기가 입력칸 밖에 있다 — 입력칸 폭을 빼앗는다"
+
+    ask = live.split("async function doAsk(", 1)[1].split("\n}", 1)[0]
+    assert ask.index("chatSetOpen(el, true)") < ask.index("_chatBubble(el, 'me'"), \
+        "접힌 채로 답한다 — 답이 화면 밖에 그려진다"
+
+    setopen = live.split("function chatSetOpen(", 1)[1].split("\n}\n", 1)[0]
+    assert "대화 이어가기" in setopen, "접으면 대화가 사라진 것처럼 보인다"
+
+    print("  [235] 챗봇은 평소 한 줄 · 칩 한 줄 흐름 · 보내기는 입력칸 안 · 접어도 답 수를 말한다 ✅")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -16682,6 +16726,7 @@ if __name__ == "__main__":
     t232_orgchart_floorplan_roster_and_states()
     t233_round_steps_fit_inside_budget()
     t234_kim_miyeong_center_and_revenue()
+    t235_chatbot_is_one_line_until_asked()
     t235_unattended_rounds_survive_pythonw()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
