@@ -33,6 +33,48 @@
   });
   if (!S.notime) S.notime = {};        // 옛 탭에서 이어받을 때도 자리가 있게
 
+  /* ★ 최상위 문서가 넘어가면 이 스크립트는 그 자리에서 죽는다 (사고 #35, 2026-08-11 실측)
+   *
+   *   20:49 주입(핑으로 증명) → 21:21 상태 조회에 `NO __GRAB`. 창 제목이
+   *   `게시글 : … | 밴드` 로 바뀌어 있었다 — top 이 **글 상세 페이지**로 이동한 것이다.
+   *   죽은 뒤에도 캐시는 멀쩡하고 오류도 없어서, 여러 세션이 "댓글 아직 안 긁음"으로
+   *   읽었다. 실제로는 **긁다가 죽은 것**이었다.
+   *
+   *   범인은 이 파일이 아니다. 밴드 payload 전수에 `location` 대입이 한 줄도 없고
+   *   (`grab_posts.js`·붙여넣기 파일·유저스크립트 전부) 주소창을 치는 .ps1 은 언제나
+   *   **새 탭**에 친다. top 이 도달한 곳은 **iframe 이 열던 그 글 주소**였다 —
+   *   즉 액자 안의 밴드 페이지가 스스로 액자를 깨고 나온 것이다(frame-busting).
+   *   막는 자리는 iframe 의 `sandbox` 이고(아래 grabOne), 여기서는 **죽은 사실을 남긴다.**
+   *
+   *   남기는 곳이 localStorage 인 이유: top 이 넘어가도 **출처가 그대로 band.us** 라
+   *   다음 주입이 그 기록을 읽을 수 있다. 전역(window.__GRAB)은 같이 죽으므로 못 쓴다.
+   *   그래서 '한 번도 시작 안 함'과 '시작했다가 죽음'이 처음으로 구별된다([169]).
+   */
+  const LS_BEAT = '__grabBeat', LS_DEATH = '__grabDeath';
+  const counts = () => ({
+    band: S.band, ok: S.done.length, missing: S.missing.length,
+    failed: S.failed.length, posts: Object.keys(S.posts).length,
+    total: S.total, saved: S.saves || 0,
+    last: S.done[S.done.length - 1] || null,
+  });
+  const put = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* 꽉 찼거나 막혔다 — 수집을 세우지는 않는다 */ } };
+  const get = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
+  // 심장 소리 — 살아 있는 동안 계속 갱신한다. 죽은 뒤 이 시각이 '어디까지 갔나'다.
+  window.__grabBeat = () => put(LS_BEAT, Object.assign({ at: Date.now(), running: S.running, paused: !!S.paused, href: location.href }, counts()));
+  // 앞선 회차가 어떻게 끝났는지 — 새 주입이 읽어 갈 수 있게 집어 둔다.
+  S.prevDeath = get(LS_DEATH);
+  S.prevBeat = get(LS_BEAT);
+  if (!S.deathHooked) {
+    S.deathHooked = true;
+    // ★ 여기서 수확을 저장하려 하지 말 것. beforeunload 중의 다운로드는 브라우저가
+    //   보장하지 않는다. 그래서 잃지 않는 방법은 저 아래 **중간 저장**(saveEvery)이고,
+    //   이 손잡이는 **왜 죽었는지만** 적는다 — 그것만으로 반나절짜리 오해가 끝난다.
+    const rec = (why) => put(LS_DEATH, Object.assign(
+      { at: Date.now(), why, href: location.href, title: document.title }, counts()));
+    window.addEventListener('beforeunload', () => rec('beforeunload'));
+    window.addEventListener('pagehide', () => rec('pagehide'));
+  }
+
   // 워커 타이머 — 숨은 탭에서도 제 시각에 온다.
   const W = new Worker(URL.createObjectURL(new Blob(
     ['onmessage=e=>{setTimeout(()=>postMessage(e.data.id),e.data.ms)}'],
@@ -131,6 +173,18 @@
   async function grabOne(band, no, waitMs, bodyMs) {
     const f = document.createElement('iframe');
     f.style.cssText = 'position:fixed;left:-9999px;top:0;width:1200px;height:900px';
+    // ★ 액자 안의 페이지가 **최상위 문서를 끌고 가는 것**을 막는다 (사고 #35).
+    //   sandbox 는 기본이 '전부 금지'이고, 여기서 되살리는 둘만 허용한다:
+    //     allow-same-origin → 같은 출처 유지. 이게 없으면 contentDocument 가 null 이라
+    //                         본문을 한 글자도 못 읽는다(쿠키·세션도 같이 끊긴다).
+    //     allow-scripts     → SPA 가 본문을 그린다. 없으면 영원히 "로딩 중입니다".
+    //   되살리지 않은 것 중에 **allow-top-navigation** 이 있다 — 그래서 프레임 깨기가
+    //   차단되고 크롬이 콘솔에 그 사실을 적는다. 수집기는 계속 산다.
+    //   ⚠ 이 두 개를 함께 주면 액자 안에서 제 sandbox 속성을 지울 수도 있다(같은 출처라).
+    //     밴드는 남의 코드가 아니라 그럴 이유가 없고, 그래도 넘어가면 위 death 기록이 잡는다.
+    if (S.sandbox !== false) {
+      f.setAttribute('sandbox', 'allow-same-origin allow-scripts');
+    }
     // src 를 넣기 전에 한 번, 로드된 뒤에 또 한 번 막는다. 문서가 바뀌면 window 의
     // alert 이 되살아나므로 한쪽만으로는 새는 경우가 있다.
     f.addEventListener('load', () => muteDialogs(f));
@@ -316,28 +370,70 @@
       total: nos.length, posts: opt.keep === false ? {} : S.posts,
       done: [], missing: [], failed: [],
     });
+    // ★ 중간 저장 (사고 #35). 예전에는 `__grabSave()` 를 **맨 끝에 한 번**만 불렀다 —
+    //   그래서 90분짜리 배치가 3분째에 죽으면 이미 뜯어 놓은 것까지 통째로 사라졌고,
+    //   남는 그림은 '덤프 없음' 이라 **한 번도 안 긁은 것과 구별되지 않았다.**
+    //   이제 saveEvery 건마다 떨어뜨린다 — 죽음의 값이 배치가 아니라 saveEvery 로 준다.
+    //   (덤프가 여러 개로 나뉘는 것은 문제가 아니다: convert_dump 가 재병합하며 댓글을 합친다.)
+    const saveEvery = opt.saveEvery === undefined ? 50 : Number(opt.saveEvery);
+    // sandbox 가 렌더링을 깨면 **하룻밤이 0 수확**이 된다. 그 모양을 알아보고 되돌린다.
+    //   신호: 본문도 껍데기(.postMain/.postWrap)도 없이 이유 없는 fail 만 잇따르는 것.
+    //   지운 글(missing)·되돌림(redirect)과 달리 이것은 '아무것도 안 그려졌다'는 뜻이다.
+    const BLANK_GIVEUP = 6;
+
     (async () => {
+      const retry = [];
+      const runOne = async (no) => {
+        const r = await grabOne(band, no, opt.waitMs || 9000, opt.bodyMs || 12000);
+        if (r.status === 'ok') { S.posts[no] = r.post; S.done.push(no); S.blank = 0; }
+        else if (r.status === 'missing') { S.missing.push(no); S.blank = 0; }
+        else {
+          S.failed.push(no);
+          if ((r.reason === 'no-time' || r.reason === 'redirect') && r.sig) S.notime[no] = r.sig;
+          if (!r.reason) S.blank = (S.blank || 0) + 1; else S.blank = 0;
+        }
+        // 아무것도 안 그려지는 fail 이 잇따르고 아직 한 건도 못 얻었으면 sandbox 를 의심한다.
+        if (S.sandbox !== false && !S.sandboxFellBack
+            && (S.blank || 0) >= BLANK_GIVEUP && S.done.length === 0) {
+          S.sandbox = false;
+          S.sandboxFellBack = { at: Date.now(), after: S.blank };
+          // 되돌렸다는 사실을 **숨기지 않는다** — 이 회차는 프레임 깨기에 다시 노출된다.
+          // 그래도 0 수확보다는 낫고, 죽으면 위 death 기록이 이유를 남긴다.
+          retry.push.apply(retry, S.failed.slice(-S.blank));
+          S.blank = 0;
+        }
+      };
+
       for (const no of nos) {
         if (S.stop) break;                       // __grabStop() 으로 중간에 끊을 수 있다
         // 돌던 중에 창이 뒤로 넘어가면 **실패로 기록하지 말고 기다린다.**
         // 사람이 다른 창을 보다 돌아오는 일은 밤샘 수집에서 늘 생긴다.
         while (typeof document !== 'undefined' && document.hidden && !S.stop) {
           S.paused = true;
+          window.__grabBeat();                   // 멈춰 있는 것도 살아 있는 것이다 — 그렇게 적는다
           await sleep(5000);
         }
         S.paused = false;
         if (S.stop) break;
-        const r = await grabOne(band, no, opt.waitMs || 9000, opt.bodyMs || 12000);
-        if (r.status === 'ok') { S.posts[no] = r.post; S.done.push(no); }
-        else if (r.status === 'missing') S.missing.push(no);
-        else {
-          S.failed.push(no);
-          if ((r.reason === 'no-time' || r.reason === 'redirect') && r.sig) S.notime[no] = r.sig;
-        }
+        await runOne(no);
+        window.__grabBeat();
+        if (saveEvery > 0 && S.done.length && S.done.length % saveEvery === 0) window.__grabSave();
+        await sleep(opt.gapMs || 300);
+      }
+      // sandbox 를 되돌렸다면 그 사이 버린 번호를 다시 본다(수확 못 한 번호다).
+      for (const no of retry) {
+        if (S.stop) break;
+        const i = S.failed.indexOf(no);
+        if (i >= 0) S.failed.splice(i, 1);
+        await runOne(no);
+        window.__grabBeat();
         await sleep(opt.gapMs || 300);
       }
       S.running = false;
       S.finishedAt = Date.now();
+      // 마지막 잔량은 반드시 떨어뜨린다(중간 저장 배수에 딱 맞지 않으면 남는다).
+      if (saveEvery > 0 && Object.keys(S.posts).length) window.__grabSave();
+      window.__grabBeat();
     })();
     return `시작: ${nos.length}건 (밴드 ${band})`;
   };
@@ -345,12 +441,22 @@
   // 잘못 건 배치를 탭 새로고침 없이 끊는다(새로고침하면 모은 것이 날아간다).
   window.__grabStop = () => { S.stop = true; return '다음 글에서 멈춘다 — __grabSave() 로 저장하라'; };
 
+  // ★ 생존 확인이 읽는 창구다(band/liveness.py). 여기에 없는 값은 폴링이 못 본다.
+  //   `ok` 만으로는 '살아 있는데 안 나아가는 것'을 '죽은 것'과 못 가른다 — 그래서
+  //   시도 수(tried)·멈춤(paused)·중간저장(saves)·sandbox 되돌림을 같이 내놓는다.
   window.__grabStatus = () => ({
     running: S.running, paused: !!S.paused, total: S.total,
     ok: S.done.length, missing: S.missing.length, failed: S.failed.length,
     posts: Object.keys(S.posts).length,
+    tried: S.done.length + S.missing.length + S.failed.length,
     sec: S.startedAt ? Math.round((Date.now() - S.startedAt) / 1000) : 0,
     last: S.done[S.done.length - 1] || null,
+    saves: S.saves || 0,
+    sandbox: S.sandbox !== false,
+    sandboxFellBack: S.sandboxFellBack || null,
+    // 앞선 회차의 마지막 심장 소리·죽은 자리. 이것이 '한 번도 안 함'과 '죽음'을 가른다.
+    prevDeath: S.prevDeath || null,
+    prevBeat: S.prevBeat || null,
   });
 
   // 덤프 파일 이름은 **맨 뒤 숫자 덩어리가 밴드번호**여야 한다(convert_dump 규칙).
@@ -364,8 +470,17 @@
     };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(doc)], { type: 'application/json' }));
-    a.download = `dump_${stamp}_${S.band}.json`;
+    // 중간 저장이 같은 분 안에 여러 번 나올 수 있다 — 이름이 겹치면 크롬이 `(1)` 을 붙이고
+    // 그 괄호가 이름 규칙을 흔든다. 그래서 회차 번호를 시각에 붙여 이름을 처음부터 가른다.
+    // ★ `s` 를 끼우는 자리가 중요하다: `band_from_name` 은 **6자리 이상 숫자 덩어리**만
+    //   후보로 보고 7~10자리만 밴드번호로 인정한다. `dump_<12자리>s2_90610953` 은 후보가
+    //   `202608120050`·`90610953` 둘인데 앞엣것은 길이로 떨어져 밴드가 옳게 잡힌다.
+    //   숫자를 그냥 이어 붙이면(`...0050 2_`) 13자리 덩어리가 되어 유령 밴드가 생긴다.
+    const seq = (S.saves || 0) + 1;
+    a.download = seq > 1 ? `dump_${stamp}s${seq}_${S.band}.json` : `dump_${stamp}_${S.band}.json`;
     document.body.appendChild(a); a.click(); a.remove();
+    S.saves = seq;
+    window.__grabBeat();
     return `${Object.keys(S.posts).length}건 저장 → ${a.download} (download_intake 가 흡수한다)`;
   };
 
