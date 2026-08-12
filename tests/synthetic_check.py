@@ -16373,6 +16373,89 @@ def t235_chatbot_is_one_line_until_asked():
     print("  [235] 챗봇은 평소 한 줄 · 칩 한 줄 흐름 · 보내기는 입력칸 안 · 접어도 답 수를 말한다 ✅")
 
 
+def t236_list_is_folded_into_groups():
+    """[236] 목록은 **묶음으로 접혀** 있고 묶음을 누르면 아래서 위로 열린다.
+
+    (2026-08-12 지시: "정산 카테고리도 클릭하면 아래서 위로 올라는 구조로 알고리즘 변경
+     전체 메뉴 전부다 스크롤이 너무 길어")
+
+    ★ 실측: 폰 375x812 에서 정산 본문이 **35,811px = 44.1 화면**이었다. 750건이 카드로도
+      표로도 **전부** 본문에 깔렸기 때문이다. 다 보여 주는 것과 볼 수 있는 것은 다른 말이다.
+      묶음으로 접은 뒤 **939px = 1.2 화면**.
+    ★ **시트를 새로 만들지 않는다.** 이미 있는 `openExecMetric → showSheet` 를 쓴다 —
+      상세로 들어갔다 뒤로 나오는 층 쌓기·인쇄·엑셀이 거기 이미 들어 있고, 새로 만들면
+      사본이 둘 되어 한쪽만 고쳐진다([162] 와 같은 모양).
+    ★ **접는 것이지 숨기는 것이 아니다**([169]) — 묶음마다 건수를 적고 '전체 목록' 을
+      맨 위에 둔다. 그리고 접었을 때도 **되돌릴 손잡이가 남아야** 한다. 남지 않으면
+      한 번 펼친 사람은 영영 전체 목록이다.
+    ★ **목록·표는 접혀도 계속 만든다** — 엑셀 저장·캡처·인쇄가 그대로 읽는다. 안 만들면
+      접었을 때 저장한 파일이 **빈 채로 나온다**(오류는 안 난다).
+    ★ 손잡이를 툴바에 두지 않는다 — 실측으로 폰 툴바가 **+49px**(한 줄) 늘었다.
+      스크롤을 줄이겠다며 화면을 더 밀어내면 안 된다.
+    ★ **넓은 화면의 기본값은 건드리지 않는다.** 표는 이미 제 상자 안에서 스크롤한다
+      (`.gridwrap{max-height:calc(100vh - 250px)}`) — 길어지는 것은 좁은 화면 쪽이다.
+      문제가 없는 쪽의 도구를 말없이 빼앗지 않는다.
+    ★ 묶음이 많으면 **묶음 목록 자체가 다시 길어진다**(실측 캠프별 110묶음 = 6,421px).
+      큰 것부터 잘라 두되 **몇 묶음 몇 건이 접혔는지 말하고** 한 번에 펼쳐진다.
+    """
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    assert 'id="sgroups"' in live, "묶음 자리가 없다"
+    assert 'id="sgridwrap"' in live, "표를 접을 손잡이가 없다 — 표만 남으면 그대로 길다"
+
+    # 네 카테고리(정산·돌발AS·정기점검·확인필요)가 모두 묶음 기준을 갖는다.
+    gb = live.split("const GROUP_BY = {", 1)[1].split("\n};", 1)[0]
+    for m in ("settle:", "as:", "pm:", "check:"):
+        assert m in gb, "%s 카테고리에 묶음 기준이 없다 — 그 화면만 예전처럼 길다" % m
+
+    grp = live.split("function renderGroups(", 1)[1].split("\n}\n", 1)[0]
+    assert "$('slist').style.display" in grp and "$('sgridwrap').style.display" in grp, \
+        "묶음 보기인데 목록·표가 본문에 그대로 남는다"
+    assert "'none' : ''" in grp, \
+        "되돌릴 때 display 를 빈 문자열로 두지 않는다 — 화면폭 규칙(데스크톱 표)이 죽는다"
+    assert "window._groupSets" in grp, "묶음 내용을 담아 두지 않는다 — 눌러도 열 것이 없다"
+    # 접었을 때도 손잡이가 남는가: 묶음이 꺼진 갈래에서도 head( 를 그린다.
+    off = grp.split("if(!on){", 1)[1].split("}", 1)[0]
+    assert "head(" in off, "전체 목록으로 펼치면 되돌릴 손잡이가 사라진다"
+    assert "toggleGroupMode()" in grp, "묶음/전체를 오갈 손잡이가 없다"
+
+    # 접혀도 몇 건인지 말한다([169]) · '전체 목록' 이 맨 위에 있다
+    assert "전체 목록" in grp and "건" in grp, "몇 건이 접혔는지 말하지 않는다"
+    assert "나머지 ${restN}묶음 펼치기" in grp and "restRows" in grp, \
+        "묶음이 많을 때 몇 묶음 몇 건을 접었는지 말하지 않는다 — 조용히 자르면 '없는 캠프'가 된다"
+    assert "window._grpAll = mode + '|' + groupByKey()" in live, \
+        "펼침을 화면·기준별로 기억하지 않는다 — 기준을 바꿔도 펼쳐진 채로 남는다"
+
+    # 기본값: 좁은 화면만 접는다. 넓은 화면 표는 이미 제 상자 안에서 스크롤한다.
+    gon = live.split("function groupModeOn(){", 1)[1].split("\n}", 1)[0]
+    assert "max-width:899px" in gon, \
+        "화면 폭과 무관하게 접는다 — 문제가 없는 넓은 화면에서 표를 말없이 빼앗는다"
+    assert "v === '0' || v === '1'" in gon, \
+        "사람이 고른 값이 화면 폭보다 뒤에 온다 — 한 번 고른 선택이 무시된다"
+
+    # 시트는 이미 있는 것을 쓴다 — 새 시트를 만들지 않는다
+    olg = live.split("function openListGroup(", 1)[1].split("\n}\n", 1)[0]
+    assert "openExecMetric(" in olg, "묶음이 기존 시트가 아닌 다른 길로 열린다"
+    for col in ("종류:mode", "레코드ID:recordIdOf(r)", "프로젝트NO:projectNoOf(r)"):
+        assert col in olg, \
+            "시트 카드가 원래 기록을 못 찾는다 — %s 칸이 없다(누르면 아무 데도 안 간다)" % col
+
+    # 목록·표는 접혀도 계속 만든다: renderGroups 는 renderSettle 의 **끝**에 온다.
+    rs = live.split("function renderSettle(){", 1)[1].split("\n}\n", 1)[0]
+    assert "renderGroups(rows)" in rs, "묶음을 다시 그리지 않는다"
+    assert rs.index("$('slist').innerHTML") < rs.index("renderGroups(rows)"), \
+        "목록을 만들기 전에 접는다 — 엑셀·캡처가 빈 채로 나간다"
+
+    # 손잡이는 툴바가 아니라 묶음 머리줄에 있다(폰 툴바가 한 줄 더 늘어나면 안 된다)
+    tb = live.split('<div class="toolbar">', 1)[1].split("</div>", 1)[0]
+    assert "fgroupby" not in tb and "toggleGroupMode" not in tb, \
+        "묶음 손잡이가 툴바에 있다 — 폰에서 줄이 하나 더 생겨 화면을 더 밀어낸다"
+    assert ".grouphead{" in live, "묶음 머리줄 모양이 없다"
+
+    print("  [236] 목록은 묶음으로 접히고 묶음은 기존 시트로 열린다 · 접혀도 건수를 말한다 "
+          "· 되돌릴 손잡이가 남는다 · 목록·표는 계속 만든다 ✅")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -16770,6 +16853,7 @@ if __name__ == "__main__":
     t233_round_steps_fit_inside_budget()
     t234_kim_miyeong_center_and_revenue()
     t235_chatbot_is_one_line_until_asked()
+    t236_list_is_folded_into_groups()
     t235_unattended_rounds_survive_pythonw()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()

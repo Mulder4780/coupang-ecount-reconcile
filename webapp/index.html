@@ -1419,6 +1419,14 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
   cursor:pointer;transition:all .15s}
 .topitem:hover{border-color:var(--brand);background:var(--brand-tint)}
 .topitem b{font-size:14px}
+/* 묶음 보기 손잡이 한 줄 — 툴바를 늘리지 않으려고 목록 바로 위에 둔다 */
+.grouphead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-2px 2px 2px}
+.grouphead select{flex:0 0 auto;padding:7px 10px;border:1.5px solid var(--line);border-radius:10px;
+  font-size:13.5px;background:var(--surface);color:var(--ink)}
+.grouphead select:focus{outline:none;border-color:var(--brand)}
+.grouphead .gh-note{flex:1 1 auto;min-width:0;font-size:13px;color:var(--ink-3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grouphead .dirbtn{flex:0 0 auto;font-size:13.5px;padding:7px 11px}
 .prj{display:inline-block;padding:3px 8px;border-radius:7px;background:var(--brand-tint);color:var(--brand-dk);
   font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;cursor:pointer;
   border:1px solid #D6E0FA;transition:all .13s}
@@ -3501,11 +3509,16 @@ body.dash-drag-live #dashGuides{display:grid}
     </div>
     <div id="fnote" class="fnote"></div>
     <div class="kpis" id="skpis" style="grid-template-columns:repeat(3,1fr)"></div>
+    <!-- ★ 목록을 통째로 흘리지 않는다 (2026-08-12 지시 "스크롤이 너무 길어").
+         묶음 보기가 기본이고, 묶음을 누르면 그 묶음만 **아래서 위로** 시트로 열린다.
+         묶음 기준·펼치기 손잡이는 툴바가 아니라 **여기** 있다 — 툴바에 두면 폰에서
+         줄이 하나 더 생겨, 스크롤을 줄이려다 화면을 더 밀어낸다(실측 +49px). -->
+    <div class="toplist" id="sgroups"></div>
     <div class="slist" id="slist"></div>
     <!-- ★ 넓은 표는 **제 안에서** 옆으로 흐른다 (2026-08-09 지시). 감싸는 것이 없으면
          표가 화면보다 넓어질 때 **화면 전체**가 옆으로 밀려, 확대했을 때 왼쪽 메뉴와
          머리줄이 같이 따라가 버린다("고정이 안된다"의 정체). -->
-    <div class="gridwrap"><table class="grid" id="sgrid"></table></div>
+    <div class="gridwrap" id="sgridwrap"><table class="grid" id="sgrid"></table></div>
   </section>
 
   <!-- 상세 시트 -->
@@ -10963,8 +10976,139 @@ function openListKpi(label, rule){
       rule==='action'?String(r.상태||r.검증결과||'조치 필요'):'',
     상태:statOf(r),금액:+r.공급가액||0})),
     count:rows.length,kind:'list-filter',
-    basis:`현재 ${mode==='settle'?'정산·청구':mode==='as'?'돌발AS':mode==='pm'?'정기점검':'확인필요'} 화면의 검색·상태·기간 필터 결과`}};
+    basis:`현재 ${modeLabel()} 화면의 검색·상태·기간 필터 결과`}};
   openExecMetric(label);
+}
+/* ── 묶음 보기 — 목록을 본문에 통째로 흘리지 않는다 (2026-08-12 지시
+      "정산 카테고리도 클릭하면 아래서 위로 올라오는 구조로 · 전체 메뉴 전부다 스크롤이 너무 길어")
+   전에는 정산 750건이 카드로도 표로도 **전부** 본문에 깔렸다. 화면은 멀쩡히 다 보여 주는데
+   사람은 끝까지 못 내려간다 — 다 보여 주는 것과 볼 수 있는 것은 다른 말이다.
+   이제 본문은 묶음 요약만 두고, 묶음을 누르면 **그 묶음만** 아래서 위로 올라온다.
+   ★ 시트를 새로 만들지 않는다. 이미 있는 `openExecMetric → showSheet` 를 그대로 쓴다 —
+     상세로 들어갔다 뒤로 나오는 층 쌓기(_sheetStack)·인쇄·엑셀이 거기에 이미 들어 있고,
+     새로 만들면 사본이 둘 되어 한쪽만 고쳐진다([162] 와 같은 모양).
+   ★ 접는 것이지 숨기는 것이 아니다([169]) — 묶음마다 건수를 적고 '전체 N건' 을 맨 위에 둔다.
+     몇 건이 접혔는지 말하지 않으면 '0건' 과 구별되지 않는다.
+   ★ 전체 목록도 한 번 눌러 그대로 되돌릴 수 있다(기억한다) — 표로 훑던 사람의 길을 막지 않는다. */
+const GROUP_BY = {
+  settle: [['__stat','상태'],['업무구분','업무구분'],['캠프명','캠프']],
+  as:     [['__stat','진행상태'],['담당기사','담당기사'],['캠프명','캠프']],
+  pm:     [['__stat','점검상태'],['담당기사','담당기사'],['캠프명','캠프']],
+  check:  [['__stat','문제 유형'],['담당자','담당자'],['캠프명','캠프']]
+};
+function modeLabel(m){
+  const k = m || mode;
+  return k==='settle'?'정산·청구':k==='as'?'돌발AS':k==='pm'?'정기점검':'확인필요';
+}
+const GROUP_TOP = 12;                  // 묶음 목록 자체가 길어지지 않게 큰 것부터 이만큼만
+/* 기본값은 화면이 정한다 — 사람이 한 번 고르면 그 선택이 이긴다(기억한다).
+   ★ 넓은 화면에서는 접지 않는다. 표는 이미 제 상자 안에서 스크롤한다
+     (`.gridwrap{max-height:calc(100vh - 250px)}`) — 본문이 길어지는 것은 **좁은 화면**
+     쪽이다(실측 375px 폭에서 35,811px = 44화면). 문제가 없는 쪽의 도구를 말없이
+     빼앗지 않는다. 좁은 화면에서는 접는 것이 기본이다. */
+function groupModeOn(){
+  let v = null;
+  try{ v = localStorage.getItem('csos_list_group'); }catch(e){}
+  if(v === '0' || v === '1') return v === '1';
+  try{ return window.matchMedia('(max-width:899px)').matches; }catch(e){ return true; }
+}
+/* 펼친 상태는 '어느 화면의 어느 기준' 인지까지 기억한다 — 기준을 바꾸면 저절로 접힌다
+   (캠프별로 펼쳐 둔 것이 상태별로 넘어가서도 펼쳐져 있으면 뜻이 없다). */
+function expandGroups(){ window._grpAll = mode + '|' + groupByKey(); renderSettle(); }
+function collapseGroups(){ window._grpAll = null; renderSettle(); }
+function groupByKey(){
+  const defs = GROUP_BY[mode] || GROUP_BY.settle;
+  let k = ''; try{ k = localStorage.getItem('csos_list_groupby_'+mode) || ''; }catch(e){}
+  return defs.some(d=>d[0]===k) ? k : defs[0][0];
+}
+/* 묶음 이름. 빈칸을 조용히 버리면 그 건들이 어느 묶음에도 안 들어가 사라진다 —
+   '(빈칸)' 이라는 묶음으로 남겨 사람이 볼 수 있게 한다. */
+function groupVal(r, k){
+  const v = (k==='__stat') ? statOf(r) : r[k];
+  return String(v==null?'':v).trim() || '(빈칸)';
+}
+function groupByPick(){
+  try{ localStorage.setItem('csos_list_groupby_'+mode, $('fgroupby').value); }catch(e){}
+  renderSettle();
+}
+function toggleGroupMode(){
+  try{ localStorage.setItem('csos_list_group', groupModeOn()?'0':'1'); }catch(e){}
+  renderSettle();
+}
+function renderGroups(rows){
+  const on = groupModeOn(), box = $('sgroups');
+  const defs = GROUP_BY[mode] || GROUP_BY.settle, k = groupByKey();
+  $('slist').style.display = on ? 'none' : '';      // 빈 문자열이라야 화면폭 규칙이 다시 산다
+  $('sgridwrap').style.display = on ? 'none' : '';
+  /* 손잡이는 묶음을 접었을 때도 남아야 한다 — 접은 사람이 되돌아올 길이 없으면
+     한 번 펼친 뒤로는 영영 전체 목록이다. */
+  const head = (note) => `<div class="grouphead">
+    ${on?`<select id="fgroupby" onchange="groupByPick()" title="묶음 기준" aria-label="묶음 기준">${
+      defs.map(d=>`<option value="${d[0]}"${d[0]===k?' selected':''}>${d[1]}별 묶음</option>`).join('')}</select>`:''}
+    <span class="gh-note">${esc2(note)}</span>
+    <button class="dirbtn${on?'':' desc'}" onclick="toggleGroupMode()"
+      title="${on?'지금은 묶음만 보여 줍니다 — 누르면 전체 목록을 본문에 펼칩니다'
+                :'지금은 전체 목록을 본문에 펼쳐 둡니다 — 누르면 묶음 보기로 돌아갑니다'}">${
+      on?'전체 목록 펼치기':'묶음으로 접기'}</button></div>`;
+  if(!on){
+    box.innerHTML = head(`전체 ${rows.length}건을 본문에 펼쳐 두었습니다`);
+    window._groupSets = {}; return;
+  }
+  const by = {};
+  rows.forEach(r=>{ const g = groupVal(r,k); (by[g] = by[g] || []).push(r); });
+  window._groupSets = by;
+  const money = mode==='settle';
+  const sum = list => list.reduce((a,r)=>a+(+r.공급가액||0),0);
+  const names = Object.keys(by).sort((a,b)=> by[b].length-by[a].length || a.localeCompare(b,'ko'));
+  const label = (defs.find(d=>d[0]===k)||defs[0])[1];
+  const tile = (name, list, all) => `
+    <div class="topitem" role="button" tabindex="0"
+      onclick="${all?'openListKpi('+esc4(modeLabel()+' 전체 목록')+",'all')":'openListGroup('+esc4(name)+')'}"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}">
+      <span style="min-width:0;display:flex;align-items:center;gap:8px">
+        ${all?'<b>전체 목록</b>':(k==='__stat'?chip(name):`<b>${esc2(name)}</b>`)}
+        ${money?`<span style="font-size:13.5px;color:var(--ink-3)">${fmt(sum(list))}원</span>`:''}</span>
+      <span style="flex:none;display:flex;align-items:center;gap:8px">
+        <b style="font-variant-numeric:tabular-nums">${list.length}건</b>
+        <span aria-hidden="true" style="color:var(--ink-3);font-size:16px;line-height:1">›</span></span>
+    </div>`;
+  /* ★ 묶음이 많으면 묶음 목록 자체가 다시 길어진다 — 실측 캠프별 110묶음.
+     큰 것부터 GROUP_TOP 개만 두고 나머지는 접는다. **몇 묶음 몇 건이 접혔는지
+     말하고**([169]) 한 번 누르면 그대로 펼쳐진다 — 조용히 자르면 '없는 캠프'가 된다. */
+  const allKey = mode + '|' + k;
+  const showAll = window._grpAll === allKey;
+  const shown = showAll ? names : names.slice(0, GROUP_TOP);
+  const restN = names.length - shown.length;
+  const restRows = restN ? names.slice(shown.length).reduce((a,n)=>a+by[n].length,0) : 0;
+  const more = restN
+    ? `<div class="topitem" role="button" tabindex="0" onclick="expandGroups()"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}">
+         <span><b>나머지 ${restN}묶음 펼치기</b></span>
+         <span style="flex:none"><b style="font-variant-numeric:tabular-nums">${restRows}건</b></span></div>`
+    : (showAll && names.length > GROUP_TOP
+        ? `<div class="topitem" role="button" tabindex="0" onclick="collapseGroups()"
+             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}">
+             <span><b>큰 ${GROUP_TOP}묶음만 보기</b></span><span style="flex:none">›</span></div>`
+        : '');
+  box.innerHTML = rows.length
+    ? head(`${label}별 ${names.length}묶음 · 전체 ${rows.length}건` +
+           (restN ? ` — 큰 ${shown.length}묶음만 보이는 중` : '')) +
+      tile('', rows, 1) + shown.map(n=>tile(n, by[n], 0)).join('') + more
+    : head('조건에 맞는 건이 없습니다') + '<div class="card">조건에 맞는 건이 없습니다</div>';
+}
+/* 묶음 하나를 시트로 연다. 담는 모양은 openListKpi 와 같아야 한다 —
+   시트 안의 카드가 그 칸(종류·레코드ID·프로젝트NO)으로 원래 기록을 찾아간다. */
+function openListGroup(name){
+  const rows = (window._groupSets||{})[name] || [];
+  const defs = GROUP_BY[mode] || GROUP_BY.settle;
+  const label = (defs.find(d=>d[0]===groupByKey())||defs[0])[1];
+  const title = `${modeLabel()} · ${name}`;
+  window._briefMetric = {label:title, data:{rows:rows.map(r=>({...r,종류:mode,레코드ID:recordIdOf(r),
+    프로젝트NO:projectNoOf(r),일자:dateOf(r,mode),담당자:r.담당자||r.담당기사||'',
+    문제:'',상태:statOf(r),금액:+r.공급가액||0})),
+    count:rows.length,kind:'list-filter',
+    basis:`현재 ${modeLabel()} 화면의 검색·상태·기간 필터 결과 중 ${label} = ${name}`}};
+  openExecMetric(title);
 }
 function renderSettle(){
   const q = ($('q').value||'').toLowerCase(), f = $('fstat').value;
@@ -11056,7 +11200,7 @@ function renderSettle(){
     $('sgrid').innerHTML = `<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openByPrj('${keyOf(r)}')" style="cursor:pointer">${
         cols.map(c=>`<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r[c]||'-'}</td>`).join('')}</tr>`).join('');
-  } else {
+  } else {  // 정기점검
     const done = rows.filter(r=>r.점검상태==='완료').length;
     $('skpis').innerHTML = `
       <div class="kpi accent" role="button" tabindex="0" onclick="openListKpi('정기점검 전체','all')"><div class="v">${rows.length}</div><div class="l">점검 건수</div></div>
@@ -11077,6 +11221,9 @@ function renderSettle(){
         <td>${r.담당기사||'-'}</td><td>${r.이상발견여부||'-'}</td><td>${r.돌발AS전환여부||'-'}</td><td>${r.ERP판매전표||'-'}</td><td>${r.거래명세서||'-'}</td><td>${chip(r.점검상태)}</td></tr>`).join('');
   }
   window._lastRows = rows;
+  // 목록·표는 위에서 늘 만들어 둔다(엑셀·캡처·인쇄가 그대로 읽는다). 묶음 보기는
+  // 그것을 **접어 둘 뿐**이다 — 안 만들면 접었을 때 저장한 파일이 비어 나온다.
+  renderGroups(rows);
 }
 
 /* ── 상세 시트 ── */
