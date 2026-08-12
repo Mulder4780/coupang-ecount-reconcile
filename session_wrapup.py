@@ -192,11 +192,10 @@ def transcript_dir(me=""):
     return hint if hint and os.path.isdir(hint) else ""
 
 
-def live_transcripts(minutes=LIVE_TRANSCRIPT_MIN, exclude=""):
-    """최근 `minutes` 분 안에 자란 대화기록(= 지금 열려 있는 창)의 sid 앞 8자리.
+def live_stems(minutes=LIVE_TRANSCRIPT_MIN, exclude=""):
+    """최근 `minutes` 분 안에 자란 대화기록의 **세션 UUID 전체**(파일 이름 그대로).
 
-    `exclude` 를 주면 그 세션은 뺀다. **기계 회차는 뺄 자기 자신이 없으므로** 빈
-    문자열로 부르며, 그때 잡히는 창은 전부 '다른 세션'이다.
+    훑는 자리는 여기 하나다 — 아래 두 함수가 이름만 바꿔 쓴다.
     """
     d = transcript_dir(exclude)
     if not d:
@@ -207,10 +206,39 @@ def live_transcripts(minutes=LIVE_TRANSCRIPT_MIN, exclude=""):
             continue
         try:
             if os.path.getmtime(os.path.join(d, name)) >= cut:
-                live.append(name[:8])
+                live.append(name[:-6])
         except OSError:
             continue
     return live
+
+
+def live_transcripts(minutes=LIVE_TRANSCRIPT_MIN, exclude=""):
+    """최근 `minutes` 분 안에 자란 대화기록(= 지금 열려 있는 창)의 sid 앞 8자리.
+
+    `exclude` 를 주면 그 세션은 뺀다. **기계 회차는 뺄 자기 자신이 없으므로** 빈
+    문자열로 부르며, 그때 잡히는 창은 전부 '다른 세션'이다.
+
+    ⚠ 여기서 나오는 8자리는 **UUID 앞토막**이다 — 점유판·차선이 적는 sid 와는
+      다른 이름공간이다. 개수를 셀 때만 쓰고, **대조에는 `live_sids` 를 쓴다.**
+    """
+    return [s[:8] for s in live_stems(minutes, exclude)]
+
+
+def live_sids(minutes=LIVE_TRANSCRIPT_MIN, exclude=""):
+    """살아 있는 창을 **점유판과 같은 이름공간**(`ai_claim.session_id` 규칙)으로.
+
+    ★ 이 함수가 있는 이유 (2026-08-12 실측). `live_transcripts` 는 파일 이름 앞
+      8자리(예: `4468f365`)를 준다. 그런데 `ai_claim`·`lanes` 가 적는 sid 는 그
+      UUID 의 **sha1 앞 8자리**(예: `271e7096`)다. 두 이름공간은 **영원히 안 겹친다.**
+      전자를 후자와 대 보면 **한 건도 안 걸리면서 오류도 안 난다** — 그러면
+      "살아 있는 창 없음"이 늘 참이 되어, 지키려던 문이 통째로 열린다(검증 [169] 모양).
+      그래서 **대조하는 자리는 반드시 이 함수**를 쓴다.
+    """
+    try:
+        import ai_claim
+    except Exception:
+        return []
+    return [ai_claim.sid_of(s) for s in live_stems(minutes, exclude)]
 
 
 def _other_live_sessions():

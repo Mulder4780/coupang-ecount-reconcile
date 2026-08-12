@@ -406,7 +406,16 @@ def ingest_band(con, quiet=False, since=None, why="밴드 캐시 흡수"):
                  "사진수": post.get("photo_count"), "댓글수": post.get("comment_count"),
                  "수집시각": post.get("captured_at") or ""},
                 biz_date=day, party=(post.get("author") or ""),
-                status="", why=why)
+                status="", why=why,
+                # ★ `수집시각` 을 지문에서 뺀다 (2026-08-12 실사고). 이 값은 **긁은 때**라
+                #   다시 긁을 때마다 반드시 바뀐다. `hash_on` 을 안 주면 페이로드 전체를
+                #   해싱하므로 **재수집한 글은 예외 없이 '바뀜'** 이 된다 — 실측 140건을
+                #   다시 받았더니 140건 전부가 '본문 바뀜'이었다(100%).
+                #   그러면 08:00 재수집 회차가 존재 이유를 잃는다. 그 회차는 '받은 뒤에
+                #   내용이 바뀐 글'을 찾으라고 만든 것인데, 전부가 바뀜이면 아무도 안 본다
+                #   (검증 [170] — 경보가 대부분이면 그 경보는 죽는다).
+                #   페이로드에는 그대로 남긴다 — 언제 긁었나는 여전히 알아야 한다.
+                hash_on=["밴드ID", "글번호", "글쓴이", "본문", "사진수", "댓글수"])
             row = {"밴드": bname or band_id, "밴드ID": band_id, "글번호": no,
                    "작성일": day, "글쓴이": (post.get("author") or ""),
                    "요약": " ".join((post.get("content") or "").split())[:60]}

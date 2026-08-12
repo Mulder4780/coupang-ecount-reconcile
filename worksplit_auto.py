@@ -126,7 +126,11 @@ def parked():
                  "사유": "%s: %s" % (type(exc).__name__, str(exc)[:80])}]
     claims = ai_claim.load() or {}
     live_sids = set(live_others()["목록"])
-    me = (os.environ.get("CLAUDE_CODE_SESSION_ID") or "").strip()[:8]
+    # ★ 분담판 항목의 `sid` 는 `ai_claim.session_id()`(UUID 의 sha1 앞 8자리)다.
+    #   여기에 환경변수 UUID 앞 8자리를 넣으면 **영영 안 맞는다** — 그러면 지금
+    #   일하는 내 항목까지 고아로 읽어 AI 에게 한 번 더 시킨다(사고 #36 의 모양).
+    #   같은 이름공간에서 물어야 문이 닫힌다.
+    me = ai_claim.session_id()
     if me:
         live_sids.add(me)
     for it in d.get("items") or []:
@@ -175,8 +179,12 @@ def live_others():
         #   근거가 **조용히 빈손**으로 돌아온다 — 그러면 점유를 안 잡은 옆 창을 못 본다.
         #   그래서 대화기록을 한 번 더 직접 묻는다. 세션 안에서 부를 때는 **내 sid 를
         #   빼야** 한다(안 빼면 내가 나를 옆 세션으로 세어 영원히 보류다).
+        #   ★ `live_transcripts` 가 아니라 **`live_sids`** 를 쓴다 — 전자는 파일 이름
+        #     앞토막(UUID)이고 분담판·점유판이 적는 sid 는 그 **sha1 앞토막**이라
+        #     두 이름공간이 영영 안 겹친다. 섞어 담으면 같은 창을 둘로 세고,
+        #     아래 대조에서는 **한 건도 안 걸리면서 오류도 안 난다**(실측 2026-08-12).
         me = (os.environ.get("CLAUDE_CODE_SESSION_ID") or "").strip()
-        for sid in session_wrapup.live_transcripts(exclude=me):
+        for sid in session_wrapup.live_sids(exclude=me):
             if sid not in sids:
                 sids.append(sid)
     except Exception:
@@ -277,9 +285,33 @@ def run(dry=False, ai=True):
     """회차 한 번. 워치독(30분)·daily_run 이 부른다. 요약 한 줄을 `한줄` 로 돌려준다."""
     st = _load_state()
     tickets = dict(st.get("표") or {})
+
+    # ⓪ 놀고 있는 차선 회수 — **`parked()` 보다 먼저**. 차선이 풀려야 그 아래 항목이
+    #    '가능'으로 바뀌고, 그 판정이 이번 회차의 인계 문서에 실린다. 뒤에 두면
+    #    늘 30분 전 상태를 싣는다(검증 [228] 이 스냅샷 앞에 선 것과 같은 이유).
+    #    조용히 뺏지 않는다 — `reclaim_idle` 이 기록을 남기고 못 남기면 되돌린다.
+    lane_freed = ""
+    try:
+        import io as _io
+        import contextlib as _ctx
+        import lanes as _lanes
+        cand = _lanes.idle_lanes()
+        if cand and not dry:
+            buf = _io.StringIO()
+            with _ctx.redirect_stdout(buf):
+                rc = _lanes.reclaim_idle(apply=True)
+            if rc == 0:
+                lane_freed = cand[0][0]
+        elif cand:
+            lane_freed = "(예정) " + cand[0][0]
+    except Exception as exc:
+        lane_freed = "확인 실패(%s)" % type(exc).__name__
+
     rows, others, ps = parked(), live_others(), push_state()
     ready = [r for r in rows if r.get("가능")]
     acts = []
+    if lane_freed:
+        acts.append("차선 회수 %s" % lane_freed)
 
     # ① 푸시 — 아무도 없을 때만. 보류는 옆 세션이 살아 있는 동안의 규칙이고,
     #    그 세션이 사라지면 보류를 이어 갈 이유가 없다(그때부터는 그냥 안 밀린 코드다).
@@ -308,7 +340,7 @@ def run(dry=False, ai=True):
                 break                     # 회차당 하나 — 표가 쌓이면 아무도 안 본다
     doc = {"시각": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "세워둔일": rows,
            "풀린것": [r["id"] for r in ready], "살아있는세션": others, "푸시": ps,
-           "표": tickets, "한행동": acts}
+           "표": tickets, "한행동": acts, "차선회수": lane_freed}
     doc["한줄"] = ("세션자동화: 풀린 일 %d건%s · 미푸시 %d%s"
                    % (len(ready), (" " + ",".join("[%s]" % r["id"] for r in ready[:4])) if ready else "",
                       ps.get("미푸시") or 0,
@@ -327,6 +359,7 @@ def banner():
         {"id": r.get("id"), "title": r.get("title"), "자원": r.get("자원"),
          "차선": r.get("차선") or ""} for r in ready],
         "미푸시": int(ps.get("미푸시") or 0), "푸시사유": ps.get("사유") or "",
+        "차선회수": doc.get("차선회수") or "",
         "살아있는세션": (doc.get("살아있는세션") or {}).get("수") or 0}
 
 

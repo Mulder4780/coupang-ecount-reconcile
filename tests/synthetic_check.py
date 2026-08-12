@@ -16557,6 +16557,89 @@ def t238_parked_says_which_lane():
     print("  [238] 풀린 일에 차선을 붙인다 — 표에서 읽음 · 가능은 그대로 · 인계가 싣는다 ✅")
 
 
+def t239_idle_lane_reclaims_itself_with_a_record():
+    """[239] 놀고 있는 차선은 스스로 풀린다 — **죽음이 아니라 '자국 없음'** 으로 판정.
+
+    실측 2026-08-12: sid 59fb7614 가 `build` 를 30.7시간 쥐고 있었고 pid 는 멀쩡히
+    살아 있었다. Claude Desktop 은 창마다 `claude.exe` 를 띄우고 **닫아도 남기므로**
+    (한 부모 밑에 29개) 이 환경에서 **pid 생존은 세션 생존의 증거가 아니다.**
+    `_dead` 하나로는 영원히 안 풀리고, 그동안 코드 수정 다섯 건이 통째로 멈췄다.
+
+    ★ 그런데 **잘못 뺏는 것이 못 뺏는 것보다 나쁘다** — 일하는 창의 차선을 빼앗으면
+      두 창이 같은 파일에서 만난다(사고 #36). 그래서 근거를 못 읽으면 안 뺏는다.
+    ★ 이름공간이 이 판정의 급소다. `live_transcripts` 는 파일 이름(UUID) 앞토막이고
+      차선·점유가 적는 sid 는 그 **sha1** 앞토막이라 영영 안 겹친다 — 그대로 대면
+      **늘 '자국 없음'** 이 되어 살아 있는 창까지 전부 회수된다(오류는 안 난다).
+    """
+    import time as _t
+
+    import ai_claim
+    import lanes
+    import session_wrapup
+
+    # ── 이름공간 — 여기가 어긋나면 아래 판정이 통째로 헛돈다
+    me = ai_claim.session_id()
+    stems = session_wrapup.live_stems(minutes=60)
+    sids = session_wrapup.live_sids(minutes=60)
+    assert all(ai_claim.sid_of(s) in sids for s in stems), \
+        "live_sids 가 점유판 이름공간(sha1)으로 안 옮긴다"
+    if stems:
+        assert sids != [s[:8] for s in stems], \
+            "live_sids 가 live_transcripts 와 같은 값이다 — 옮기지 않았다"
+
+    # ④ 한도 안이면 안 뺏는다
+    fresh = {"who": "claude", "sid": "deadbeef", "at": _t.time() - 3600, "agent_pid": 0}
+    ok, why = lanes._idle(fresh)
+    assert not ok and "한도" in why, "갓 잡은 차선을 뺏는다: %s" % why
+
+    # ① 자국이 있으면 안 뺏는다 — 내 대화기록은 지금 자라고 있다
+    mine = {"who": "claude", "sid": me, "at": _t.time() - 99 * 3600, "agent_pid": 0}
+    ok, why = lanes._idle(mine)
+    assert not ok, "지금 일하는 창의 차선을 뺏는다: %s" % why
+
+    # 오래됐고 자국이 없으면 회수 대상 — 대화기록 폴더를 읽을 수 있을 때만 물어본다
+    old = {"who": "claude", "sid": "deadbeef", "at": _t.time() - 99 * 3600, "agent_pid": 0}
+    if session_wrapup.transcript_dir(""):
+        ok, why = lanes._idle(old)
+        assert ok, "자국 없는 99시간짜리 차선을 안 뺏는다: %s" % why
+
+    # 끄는 스위치가 들어야 한다
+    os.environ["COUPANG_LANE_AUTORECLAIM"] = "0"
+    try:
+        ok, why = lanes._idle(old)
+        assert not ok and "꺼짐" in why, "COUPANG_LANE_AUTORECLAIM=0 이 안 듣는다"
+    finally:
+        os.environ.pop("COUPANG_LANE_AUTORECLAIM", None)
+
+    # ②③ 뺏을 때 지키는 것
+    src = open(os.path.join(ROOT, "lanes.py"), encoding="utf-8").read()
+    body = src.split("def reclaim_idle(", 1)[1].split("\ndef ", 1)[0]
+    assert "_dirty_tree()" in body, "미커밋 충돌을 안 본다 — 반쯤 고쳐 놓은 것을 덮는다"
+    assert "RECLAIM_LOG" in body, "회수 기록을 안 남긴다 — 조용한 회수가 막으려던 그것이다"
+    assert "d[lane] = rec" in body, "기록을 못 남겼을 때 되돌리지 않는다"
+    assert 'add_argument("--force"' not in src, \
+        "차선에 강제 탈취가 생겼다 — 그 자리는 사람이 판단한다"
+
+    # 회차에 배선돼 있나 — 안 걸려 있으면 알고리즘이 있어도 안 돈다
+    wa = open(os.path.join(ROOT, "worksplit_auto.py"), encoding="utf-8").read()
+    run = wa.split("def run(", 1)[1].split("\ndef ", 1)[0]
+    assert "reclaim_idle" in run, "워치독 회차가 차선 회수를 안 부른다"
+    # ⚠ 글자로 물으면 주석에 적힌 `parked()` 를 먼저 집는다 — **호출 자리**로 묻는다.
+    call = "rows, others, ps = parked()"
+    assert call in run, "parked() 호출 자리를 못 찾았다 — 이 검증이 헛돈다"
+    assert run.index("reclaim_idle") < run.index(call), \
+        "회수가 parked() 뒤에 있다 — 그러면 이번 회차는 늘 한 박자 늦은 판정을 싣는다"
+
+    # 대조하는 자리는 반드시 같은 이름공간에서 묻는다
+    assert "live_transcripts(exclude=me)" not in wa, \
+        "live_others 가 UUID 앞토막을 sid 목록에 섞는다 — 같은 창을 둘로 센다"
+    assert "ai_claim.session_id()" in wa.split("live_sids = set(", 1)[1][:400], \
+        "내 항목을 UUID 앞토막으로 찾는다 — 그 문은 한 번도 안 닫힌다"
+
+    print("  [239] 놀고 있는 차선 자동 회수 — 자국으로 판정 · 이름공간 일치 · "
+          "미커밋이면 보류 · 기록 없으면 되돌림 ✅")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -16957,6 +17040,7 @@ if __name__ == "__main__":
     t236_list_is_folded_into_groups()
     t237_cards_fold_with_one_tool()
     t238_parked_says_which_lane()
+    t239_idle_lane_reclaims_itself_with_a_record()
     t235_unattended_rounds_survive_pythonw()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()

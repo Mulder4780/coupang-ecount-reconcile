@@ -66,6 +66,24 @@ LANES = {
     "build":   ("앱·엑셀·코드", ["code", "ledger", "publish", "read", "report"]),
 }
 
+# ── 놀고 있는 차선 자동 회수 (2026-08-12 지시) ────────────────────────────
+# 사용자 지시: "니가 알아서 해 이런 문제 발생되면 에이전트가 알아서 처리하게 코딩해"
+#
+# `_dead` 는 **죽음**만 본다 — pid 가 살아 있으면 영원히 주인이다. 실측 2026-08-12:
+# sid 59fb7614 가 `build` 를 **30.7시간** 쥔 채 pid 29000 이 멀쩡히 살아 있었고,
+# 그동안 코드 수정 다섯 건([39][48][50][52][57])이 통째로 멈췄다.
+#
+# ★ Claude Desktop 은 창마다 `claude.exe` 를 하나씩 띄우고 **닫아도 남긴다**
+#   (실측 29개가 한 부모 밑에 떠 있었다). 그러므로 이 환경에서 **pid 생존은 세션
+#   생존의 증거가 아니다.** 20초를 재니 그 pid 의 CPU 는 0.41초 늘었는데, 그것은
+#   일하는 창의 자국이 아니라 열려만 있는 창의 숨소리였다(내 유휴치 0.48초와 같다).
+#   그래서 묻는 것을 바꾼다 — "살아 있나"가 아니라 **"자국을 남기고 있나"**.
+#
+# ★ `--force` 가 없는 것은 여전히 옳다. 이것은 사람이 눈으로 보고 뺏는 문을 여는
+#   것이 아니라, **아무도 안 보고 있을 때 무한정 멈추는 것**을 막는 장치다.
+LANE_IDLE_HOURS = float(os.environ.get("COUPANG_LANE_IDLE_HOURS") or 8)
+RECLAIM_LOG = os.path.join(STATE_DIR, "차선_자동회수.json")
+
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -116,6 +134,145 @@ def _dead(rec):
         return _claimlib()._is_dead(rec)
     except Exception:
         return False
+
+
+def _idle(rec, hours=None):
+    """놀고 있는 차선인가 — **넷 다** 맞을 때만 참. `(참/거짓, 이유)` 를 돌려준다.
+
+    이유를 같이 주는 것이 요점이다. "왜 뺏었나"를 못 대면 원래 주인이 돌아왔을 때
+    사고와 구별이 안 된다. 그리고 **모르면 안 뺏는다** — 근거를 못 읽은 것을
+    '조용함'으로 치면(검증 [169]) 일하는 창의 차선을 빼앗는다. 못 잡는 것보다 나쁘다.
+    """
+    if os.environ.get("COUPANG_LANE_AUTORECLAIM") == "0":
+        return False, "자동회수 꺼짐 (COUPANG_LANE_AUTORECLAIM=0)"
+    if not isinstance(rec, dict) or not rec.get("sid"):
+        return False, "주인 기록이 없다"
+    sid = rec["sid"]
+    hrs = LANE_IDLE_HOURS if hours is None else float(hours)
+
+    # ① 잡은 지 충분히 오래됐나
+    held = (time.time() - float(rec.get("at") or 0)) / 3600.0
+    if held < hrs:
+        return False, "%.1f시간째 — 한도 %g시간 안이다" % (held, hrs)
+
+    # ② 대화기록이 그 사이 자랐나 = 지금 열려 일하는 창인가  ← **핵심 근거**
+    #    ★ 반드시 `live_sids`(점유판 이름공간)로 묻는다. `live_transcripts` 는
+    #      UUID 앞토막이라 sid 와 영영 안 겹쳐 **늘 '조용함'** 이 된다.
+    try:
+        import session_wrapup as _sw
+        if not _sw.transcript_dir(""):
+            return False, "대화기록 폴더를 못 찾음 — 모르면 안 뺏는다"
+        if sid in _sw.live_sids(minutes=hrs * 60, exclude=""):
+            return False, "대화기록이 그 사이 자랐다 — 일하는 창이다"
+    except Exception as exc:
+        return False, "대화기록 확인 실패(%s) — 모르면 안 뺏는다" % type(exc).__name__
+
+    # ③ 그 세션 자국이 붙은 커밋이 그 사이 있었나
+    #    ⚠ 커밋에 sid 가 적히는 일은 드물다 — **약한 증거**이고 무게는 ②가 진다.
+    #      그래도 걸리면 확실한 반증이라 본다.
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["git", "log", "--since=%d hours ago" % max(1, int(hrs)), "--pretty=%h %s %b"],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if sid in (r.stdout or ""):
+            return False, "그 세션 자국이 붙은 커밋이 있다"
+    except Exception:
+        pass                              # 커밋 이력을 못 읽는 것은 ②를 뒤집지 않는다
+
+    # ④ ai_claim 배타 점유를 쥐고 있나 — 쥐고 있으면 일하는 중이다
+    try:
+        for v in (_claimlib().load() or {}).values():
+            if isinstance(v, dict) and v.get("sid") == sid:
+                return False, "ai_claim 점유를 쥐고 있다"
+    except Exception as exc:
+        return False, "점유판 확인 실패(%s) — 모르면 안 뺏는다" % type(exc).__name__
+
+    return True, "%.1f시간째 자국 없음 — 대화기록·커밋·점유 셋 다 조용하다" % held
+
+
+def _dirty_tree():
+    """미커밋 변경이 있나. 있으면 **회수하지 않는다** — 반쯤 고쳐 놓은 것일 수 있다."""
+    try:
+        import subprocess
+        r = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT,
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode != 0:
+            return True, "git 상태를 못 읽음"     # 모르면 안 뺏는다
+        n = len([x for x in (r.stdout or "").splitlines() if x.strip()])
+        return (n > 0), ("미커밋 %d건" % n if n else "")
+    except Exception as exc:
+        return True, "git 확인 실패(%s)" % type(exc).__name__
+
+
+def idle_lanes(hours=None, d=None):
+    """놀고 있는 차선 [(차선, 기록, 이유)] — 판정만 한다(아무것도 안 뺏는다)."""
+    d = d if d is not None else _load()
+    out = []
+    for lane in LANES:
+        rec = d.get(lane)
+        if not isinstance(rec, dict) or not rec.get("sid"):
+            continue
+        if rec.get("sid") == _me():
+            continue                      # 내 차선은 --free 로 놓는다
+        if _dead(rec):
+            continue                      # 죽은 것은 owner() 가 이미 없는 것으로 본다
+        ok, why = _idle(rec, hours)
+        if ok:
+            out.append((lane, rec, why))
+    return out
+
+
+def reclaim_idle(apply=False, hours=None):
+    """놀고 있는 차선을 회수한다. **조용히 뺏지 않는다** — 반드시 기록을 남긴다.
+
+    한 번에 **하나만** 회수한다. 뺏은 직후 큰 작업을 벌이지 말고 막혀 있던 것을
+    하나 처리한 뒤 다시 본다 — 원래 주인이 그사이 깨어날 수 있다.
+    """
+    cand = idle_lanes(hours)
+    if not cand:
+        print("놀고 있는 차선 없음 — 회수할 것이 없습니다.")
+        return 0
+    lane, rec, why = cand[0]
+    label = LANES[lane][0]
+    dirty, dwhy = _dirty_tree()
+    if dirty:
+        print("★ '%s' 차선이 놀고 있지만(%s) **회수하지 않습니다** — %s."
+              % (label, why, dwhy))
+        print("  반쯤 고쳐 놓은 것일 수 있습니다. 커밋하거나 되돌린 뒤 다시 부르세요.")
+        return 3
+    print("★ '%s' 차선 — %s[%s] · %s" % (label, rec.get("who") or "?", rec.get("sid"), why))
+    if not apply:
+        print("  회수하려면: python lanes.py --reclaim-idle --apply")
+        return 0
+    d = _load()
+    d.pop(lane, None)
+    _save(d)
+    ev = {"때": datetime.now().strftime("%Y-%m-%d %H:%M"), "차선": lane, "이름": label,
+          "빼앗긴주인": {k: rec.get(k) for k in ("who", "sid", "agent_pid", "when", "why")},
+          "근거": why, "회수한세션": _me(), "한도시간": hours or LANE_IDLE_HOURS}
+    try:
+        old = []
+        if os.path.exists(RECLAIM_LOG):
+            with open(RECLAIM_LOG, encoding="utf-8") as fh:
+                old = json.load(fh) or []
+        if not isinstance(old, list):
+            old = [old]
+        old.append(ev)
+        os.makedirs(os.path.dirname(RECLAIM_LOG), exist_ok=True)
+        tmp = RECLAIM_LOG + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(old[-50:], fh, ensure_ascii=False, indent=1)
+        os.replace(tmp, RECLAIM_LOG)
+    except Exception as exc:
+        # 기록을 못 남겼으면 **되돌린다** — 조용한 회수가 이 규칙이 막으려는 바로 그것이다.
+        d[lane] = rec
+        _save(d)
+        print("✗ 회수 기록을 못 남겨 되돌렸습니다 (%s)." % exc)
+        return 4
+    print("  회수했습니다. 기록: %s" % os.path.basename(RECLAIM_LOG))
+    print("  이제 잡을 수 있습니다: python lanes.py --take %s --who claude" % lane)
+    return 0
 
 
 def _me():
@@ -198,6 +355,12 @@ def take(lane, who, why=""):
         print(f"★ '{LANES[lane][0]}' 차선은 {cur.get('who','?')} 세션[{cur.get('sid')}] 이"
               f" 서 있습니다 ({mins}분 전 · {cur.get('why','')}).")
         print("  → 다른 차선을 잡으세요. 남의 차선을 빼앗으면 두 창이 같은 파일에서 만납니다.")
+        # 자국이 없는 채로 오래 붙들려 있으면 그 사실을 **말해 준다**. 안 말하면
+        # 사람이 유령 차선 앞에서 무한정 기다린다 — 그게 [58] 이 생긴 이유다.
+        ok, why = _idle(cur)
+        if ok:
+            print(f"  i 다만 이 차선은 놀고 있습니다 — {why}.")
+            print("    회수: python lanes.py --reclaim-idle --apply")
         return 2
     # 한 세션이 두 차선에 서지 않는다 — 그러면 분업표가 아니게 된다.
     prev = my_lane(d)
@@ -234,7 +397,13 @@ def main(argv=None):
     ap.add_argument("--why", default="")
     ap.add_argument("--free", action="store_true")
     ap.add_argument("--can", metavar="RESOURCE")
+    ap.add_argument("--reclaim-idle", action="store_true",
+                    help="놀고 있는 차선을 판정한다(--apply 없으면 말만 한다)")
+    ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--idle-hours", type=float, default=None)
     a = ap.parse_args(argv)
+    if a.reclaim_idle:
+        return reclaim_idle(apply=a.apply, hours=a.idle_hours)
     if a.can:
         ok, why = can(a.can)
         print(("O " if ok else "X ") + (why or f"'{a.can}' 을 잡을 수 있습니다."))

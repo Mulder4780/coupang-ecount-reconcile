@@ -82,15 +82,25 @@ SID_ENV = ("CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_HOST_SESSION_ID",
            "CODEX_SESSION_ID", "AI_SESSION_ID")
 
 
+def sid_of(raw):
+    """원본 문자열 → 점유판이 쓰는 짧은 세션 식별자.
+
+    ★ 규칙을 **여기 하나**에 둔다. 대화기록 파일 이름(세션 UUID)을 이 이름공간으로
+      옮겨야 하는 자리가 있는데(`session_wrapup.live_sids`), 거기서 sha1 을 다시
+      적으면 사본이 둘 되고 규칙이 바뀌는 날 한쪽만 고쳐진다.
+    """
+    return hashlib.sha1((raw or "").encode("utf-8")).hexdigest()[:8]
+
+
 def session_id():
     """이 세션의 짧고 안정적인 식별자. 한 세션 안에서는 항상 같은 값이 나온다."""
     for key in SID_ENV:
         raw = (os.environ.get(key) or "").strip()
         if raw:
-            return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+            return sid_of(raw)
     # 환경변수가 없는 곳(스케줄러·수동 실행)은 호스트+에이전트 PID 로 대신한다.
-    raw = "%s/%s" % (socket.gethostname(), os.environ.get("CLAUDE_PID") or "manual")
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+    return sid_of("%s/%s" % (socket.gethostname(),
+                             os.environ.get("CLAUDE_PID") or "manual"))
 
 
 def agent_pid():
