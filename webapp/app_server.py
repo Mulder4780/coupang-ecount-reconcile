@@ -75,6 +75,20 @@ STAFF_CENTERS = {
             "리모컨 불출·납품 기록(부산 담당·AS 담당자당 3개)",
         ],
     },
+    # 김미영 — 매출·계산서·입금 담당 (2026-08-12 지시로 신설).
+    # ★ 이 센터의 기준은 **세금계산서 발행월**이다. 다른 센터는 완료월로 일한다 —
+    #   같은 회사 숫자인데 기준이 달라서 어긋나 보이는 자리가 여기다.
+    "kim-miyeong": {
+        "name": "김미영", "title": "김미영 쿠팡 매출·정산 업무센터",
+        "checklist": [
+            "쿠팡 매출 실적(전체) 월별 확인 — 세금계산서 발행월 기준",
+            "정기점검·유료AS 실적표와 앱 집계 대조",
+            "세금계산서 미발행 건 확인과 발행 요청",
+            "입금내역 대사 — 입금일·입금액·미수금",
+            "보험사 입금 확인(자기부담금·감가로 청구액과 다를 수 있음)",
+            "차이 나는 달의 원인 확인 — 미발행분인지 자료 밀림인지",
+        ],
+    },
     "yoo-hyeonmin": {
         "name": "유현민", "title": "유현민 업무센터",
         "checklist": [
@@ -1168,6 +1182,13 @@ STAFF_ENTRY_PERMISSIONS = {
         "as": {"유상·무상·보험", "문제내용", "조치내용", "비고"},
         "pm": {"유상·무상·보험", "문제내용", "조치내용", "비고"},
         "settle": set(_ALL_STAFF_ENTRY_FIELDS["settle"]),
+    },
+    # 김미영은 **청구·수금 쪽만** 손댄다. 현장 사실(as·pm)은 다녀온 사람이 적는 것이라
+    # 여기서 열어 주면 서류를 보고 현장 기록을 고치게 된다 — 그 순간 근거가 뒤집힌다.
+    "kim-miyeong": {
+        "settle": {"거래명세서번호", "거래명세서발행일", "PO필요여부", "PO번호", "PO발행일",
+                   "세금계산서발행일", "청구일", "지급예정일", "입금일", "입금액",
+                   "문제내용", "조치내용", "비고"},
     },
 }
 STAFF_REASON_REQUIRED_FIELDS = {
@@ -5314,6 +5335,168 @@ def _build_erpdocs():
     return out
 
 
+# ── 매출 실적(전체) — 김미영 업무센터 (2026-08-12 지시) ──────────────────────
+# 사용자 지시: **"김미영 업무센터 하나 추가해서 쿠팡 매출 실적(전체) 포함 관리할 수
+#              있게 구성해서 만들어"**
+#
+# ★ **기준이 다르면 숫자는 안 맞는 것이 정상이다.** 김미영 표는 머리글에 적힌 그대로
+#   **세금계산서 발행 기준달**로 묶여 있고, 우리 화면 대부분은 **완료월**로 묶는다.
+#   그래서 이 화면만은 발행월로 센다 — 근거는 25_ERP매출서류(이카운트가 **실제로 끊은**
+#   매출계산서)다. 완료월 집계를 그대로 대 놓으면 맞는 달까지 틀려 보인다.
+# ★ **다를 때 원인을 단정하지 않는다.** 후보가 둘이고 둘 다 실재한다 —
+#   ① 아직 안 끊긴 건(ERP 진행상태가 6·7 이 아님) ② 우리 자료가 아직 안 들어옴.
+#   근거를 나란히 놓고 판단은 사람이 한다([172] — 잘못 지목하면 멀쩡한 값을 고치러 간다).
+# ★ 여기서 Z: 를 훑지 않는다([168]). 읽는 것은 이미 만들어진 캐시·리포트 파일뿐이다.
+KIM_TABLE_PATH = os.path.join(ROOT, "reports", "김미영_매출실적_2026.json")
+ERP_PRJ_INDEX = os.path.join(ROOT, "reports", "ERP판매_프로젝트색인.json")
+# 김미영 표 낱말 → 우리 유형. '유료AS' 는 **계산서가 끊긴 돌발AS** 다
+# (무상·보험은 애초에 계산서가 없다 — 발행월 집계에서는 둘이 같은 것을 가리킨다).
+KIM_KIND_MAP = {"정기점검": "정기점검", "유료AS": "돌발AS"}
+REVENUE_KIND_ORDER = ["정기점검", "돌발AS", "신규납품", "철거", "계단", "기타"]
+ISSUED_STATES = ("6.", "7.", "8.")      # 8.무상납품완료 는 청구가 없는 완료다
+LEDGER_KINDS = ("돌발AS", "정기점검")   # 관리대장 원장이 담는 업무 둘([154])
+
+
+def _erp_state_index():
+    """ERP 판매 색인을 **파일에서만** 읽는다. 없으면 없다고 말한다.
+
+    ★ 못 읽은 것을 0 으로 접으면 '미발행 0건'이 사실처럼 보인다([169])."""
+    try:
+        data = json.load(open(ERP_PRJ_INDEX, encoding="utf-8"))
+        when = datetime.fromtimestamp(os.path.getmtime(ERP_PRJ_INDEX)).strftime("%Y-%m-%d %H:%M")
+        return (data.get("index") or {}), when
+    except Exception:
+        return None, ""
+
+
+def _revenue_compare(months):
+    """김미영 표와 우리 발행월 집계를 나란히 놓는다. **고치지 않는다 — 보여 줄 뿐이다.**"""
+    try:
+        kim = json.load(open(KIM_TABLE_PATH, encoding="utf-8"))
+    except Exception:
+        return {"있음": False,
+                "안내": "김미영 실적표가 아직 앱에 들어오지 않았습니다 — 자료가 없어 대조를 "
+                        "못 한 것이지 '차이 없음'이 아닙니다"}
+    ours = {m["월"]: (m.get("유형") or {}) for m in months}
+    rows, same, diff = [], 0, 0
+    for label, our_kind in KIM_KIND_MAP.items():
+        table = kim.get(label + "_공급가액") or {}
+        for mo in sorted(table):
+            them = int(table[mo] or 0)
+            us = int((ours.get(mo) or {}).get(our_kind) or 0)
+            rows.append({"월": mo, "항목": label, "우리유형": our_kind,
+                         "우리": us, "김미영": them, "차이": us - them,
+                         "일치": us == them})
+            if us == them:
+                same += 1
+            else:
+                diff += 1
+    rows.sort(key=lambda r: (r["월"], r["항목"]))
+    총우리 = sum(r["우리"] for r in rows)
+    총그쪽 = sum(r["김미영"] for r in rows)
+    return {
+        "있음": True, "행": rows,
+        "출처": kim.get("출처") or "",
+        "부가세": kim.get("부가세") or "",
+        "환산근거": kim.get("공급가액_환산근거") or "",
+        "요약": {"일치한 달": same, "다른 달": diff,
+                 "우리 합": 총우리, "김미영 합": 총그쪽, "차이 합": 총우리 - 총그쪽},
+        "주의": kim.get("주의") or [],
+    }
+
+
+def _revenue_unissued():
+    """아직 계산서가 안 끊긴 건 — **ERP 진행상태**가 근거다(원장 빈 칸이 아니다).
+
+    ★ 원장의 계산서 칸은 사람 손 입력이라 대부분 비어 있다. 그 빈 칸을 세면
+      '미발행 190건' 같은 숫자가 나오는데 그건 미발행이 아니라 **빈 칸**이었다."""
+    idx, when = _erp_state_index()
+    if idx is None:
+        return {"있음": False,
+                "안내": "ERP 판매 색인(reports/ERP판매_프로젝트색인.json)이 없어 세지 "
+                        "못했습니다 — **'0건'이 아니라 '못 셈'입니다**"}
+    seen, out_rows, 근거없음 = {}, [], 0
+    for r in get_settlements() or []:
+        if str(r.get("출처") or "") == "ERP":
+            continue                     # 묶음 계산서 행 — 이미 끊긴 것이다
+        kind = str(r.get("업무구분") or "").strip()
+        if kind not in LEDGER_KINDS:
+            continue
+        prj = str(r.get("프로젝트NO") or "").strip()
+        rec = idx.get(prj) if prj else None
+        if not rec:
+            근거없음 += 1                # 번호가 없거나 ERP 에 아직 없다 — 단정하지 않는다
+            continue
+        state = str(rec.get("state") or "")
+        if state.startswith(ISSUED_STATES):
+            continue
+        if prj in seen:                  # 같은 프로젝트가 여러 행이면 금액은 한 번만
+            continue
+        seen[prj] = True
+        out_rows.append({
+            "프로젝트NO": prj, "업무구분": kind,
+            "완료월": str(r.get("완료일") or "")[:7].replace("/", "-"),
+            "캠프명": str(r.get("캠프명") or rec.get("cust") or ""),
+            "공급가액": int(rec.get("supply") or r.get("공급가액") or 0),
+            "ERP진행상태": state,
+        })
+    by_kind = {}
+    for row in out_rows:
+        cur = by_kind.setdefault(row["업무구분"], {"건수": 0, "공급가액": 0})
+        cur["건수"] += 1
+        cur["공급가액"] += row["공급가액"]
+    out_rows.sort(key=lambda x: -x["공급가액"])
+    CAP = 60
+    return {
+        "있음": True, "근거": "ERP 진행상태가 6.세금계산서발행·7.수금완료가 아닌 건",
+        "색인시각": when, "건수": len(out_rows),
+        "공급가액": sum(r["공급가액"] for r in out_rows),
+        "항목별": by_kind, "행": out_rows[:CAP],
+        "더있음": max(0, len(out_rows) - CAP),
+        "근거없음": 근거없음,
+        "근거없음뜻": "프로젝트NO 가 없거나 ERP 판매전표에 아직 없는 행 — 미발행이라고 "
+                      "세지 않았습니다(모르는 것을 아는 것처럼 세지 않습니다)",
+    }
+
+
+def _build_revenue():
+    docs = get_erpdocs()
+    months = []
+    for mo in sorted((docs.get("months") or {})):
+        v = docs["months"][mo] or {}
+        months.append({
+            "월": str(mo).replace("/", "-")[:7],
+            "건수": int(v.get("건수") or 0), "합계": int(v.get("합계") or 0),
+            "유형": {k: int(x) for k, x in v.items() if k not in ("합계", "건수")},
+        })
+    out = {
+        "ok": True,
+        "기준": "세금계산서 **발행월** 기준입니다 — 완료월이 아닙니다(김미영 표와 같은 기준)",
+        "출처": "관리대장 25_ERP매출서류 — 이카운트가 실제로 끊은 매출계산서",
+        "유형순서": REVENUE_KIND_ORDER,
+        "months": months,
+        "kinds": {k: int(v) for k, v in (docs.get("kinds") or {}).items()},
+        "total": int(docs.get("total") or 0),
+        "건수": len(docs.get("rows") or []),
+        "만든때": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    if docs.get("error"):
+        out["원본오류"] = str(docs["error"])
+    if not months:
+        out["안내"] = ("25_ERP매출서류에서 읽은 계산서가 한 건도 없습니다 — 매출이 "
+                       "없는 것이 아니라 **자료가 아직 안 들어온 것**일 수 있습니다")
+    out["대조"] = _revenue_compare(months)
+    out["미발행"] = _revenue_unissued()
+    return out
+
+
+def get_revenue():
+    if DEMO:
+        return {"ok": True, "months": [], "kinds": {}, "total": 0, "대조": {"있음": False},
+                "미발행": {"있음": False}, "안내": "데모 화면입니다"}
+    return cached_data("revenue", _build_revenue)
+
+
 def _ux_summary():
     """앱 사용 흔적 요약 — 다음 개선을 **추측이 아니라 기록**으로 정하기 위한 것."""
     try:
@@ -7574,6 +7757,8 @@ self.addEventListener('fetch', e => {
             return self._send(200, project_history(g("camp"), g("pj")))
         if p == "/api/erpdocs":
             return self._send(200, get_erpdocs())
+        if p == "/api/revenue":
+            return self._send(200, get_revenue())
         if p == "/api/checks":
             return self._send(200, get_checks())
         if p == "/api/orgchart":
