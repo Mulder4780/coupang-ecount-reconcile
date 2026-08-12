@@ -17101,8 +17101,43 @@ def t241_boundary_survives_compact_and_clear():
     assert "--effort" not in _at.flags("claude", chosen, r"C:\없는파일.exe"), \
         "확인 못 한 실행파일에 --effort 를 붙이면 인계가 조용히 안 된다"
 
+    # ── ⑥ **배선이 있는 것과 그것이 돈 것은 다른 말이다** — 계기가 자국을 남기나.
+    #    실측 2026-08-13: SessionEnd 배선은 멀쩡했는데 그 훅이 도는지 **볼 자리가
+    #    없었다.** `세션경계_기록.json` 은 `session_boundary` 만 쓰는데 그 파일은
+    #    SessionStart 에만 걸려 있었고, `session_wrapup` 은 `trigger` 만 물어
+    #    SessionEnd 를 `manual`(=손으로 돌린 것)로 적었다. 그래서 `/clear` 마무리가
+    #    한 번도 안 돌았어도, 매번 돌았어도 **파일이 똑같이 보였다**(`[169]`).
+    #    계기가 눈멀면 그 기능은 있는지 없는지 영영 알 수 없다.
+    rp = _sw.reason_from_payload
+    assert rp({"hook_event_name": "SessionEnd", "reason": "clear"}) == "SessionEnd/clear", \
+        "SessionEnd 계기를 안 읽는다 — /clear 마무리가 'manual' 로 적혀 손실행과 안 갈린다"
+    assert rp({"hook_event_name": "SessionEnd", "reason": ""}) == "SessionEnd/?", \
+        "갈래를 모르면 모른다고 적는다 — 'manual' 로 뭉개면 안 된다([169])"
+    assert rp({"hook_event_name": "PreCompact", "trigger": "auto"}) == "auto-compact", \
+        "PreCompact 계기 표기가 바뀌었다 — 옛 기록과 이어지지 않는다"
+    assert rp({}) == "manual" and rp(None) == "manual", "빈 입력은 손실행이다"
+    swsrc = open(_sw.__file__, encoding="utf-8").read()
+    assert "session_boundary" in swsrc.split("def main(", 1)[-1], \
+        "마무리가 경계 자국을 안 남긴다 — SessionEnd 가 도는지 볼 계기가 사라진다"
+
+    # 자국 칸: 훅마다 갈래를 담는 이름이 다르다. 하나만 물으면 나머지는 '?' 가 된다.
+    # ★ **진짜 기록 파일은 건드리지 않는다** — 실측 증거에 합성 행을 섞으면
+    #   그 파일이 더는 실측이 아니다.
+    import tempfile as _tf
+    keep_log = B.LOG
+    try:
+        B.LOG = _os.path.join(_tf.mkdtemp(prefix="t241_"), "경계.json")
+        for pay, want in ((({"hook_event_name": "SessionEnd", "reason": "clear"}), "clear"),
+                          (({"hook_event_name": "PreCompact", "trigger": "auto"}), "auto"),
+                          (({"hook_event_name": "SessionStart", "source": "resume"}), "resume")):
+            assert B.note(pay)["갈래"] == want, \
+                ("훅 갈래를 못 읽는다 — 실측이 '?' 만 쌓여 구실을 못 한다", pay)
+    finally:
+        B.LOG = keep_log
+
     print("  [241] 세션 경계 — 고아 점유 문 4개 · 칸 이름 실제 확인 · "
-          "SessionStart/End 배선 · 로그인 exit 0 을 성공으로 안 셈 OK")
+          "SessionStart/End 배선 · **계기가 자국을 남김**(SessionEnd 를 manual 로 안 적음) · "
+          "로그인 exit 0 을 성공으로 안 셈 OK")
 
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")

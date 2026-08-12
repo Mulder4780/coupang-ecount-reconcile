@@ -405,6 +405,26 @@ def wrapup(who="claude", reason="manual"):
     return record
 
 
+def reason_from_payload(payload, default="manual"):
+    """훅이 준 JSON 에서 **계기**를 읽는다 — 훅마다 칸 이름이 다르다.
+
+    ★ 이것이 따로 있는 이유: `PreCompact` 만 `trigger` 를 주고 **`SessionEnd` 는
+      `reason`**(clear·logout·exit…) 을 준다. `trigger` 만 물으면 `/clear` 로 돈
+      마무리가 `manual` 로 적혀 **손으로 돌린 것과 구별이 안 된다.** 그러면
+      "`/clear` 에도 마무리가 정말 도는가"를 **아무 계기도 답할 수 없다**(`[169]`).
+      배선이 있는 것과 그것이 도는 것은 다른 말이고, 그 차이는 이 한 줄이 정한다.
+    """
+    if not isinstance(payload, dict) or not payload:
+        return default
+    trigger = payload.get("trigger") or payload.get("matcher")
+    event = str(payload.get("hook_event_name") or "")
+    if trigger:
+        return "%s-compact" % trigger
+    if event == "SessionEnd":
+        return "SessionEnd/%s" % (str(payload.get("reason") or "?"),)
+    return event or default
+
+
 def main():
     ap = argparse.ArgumentParser(description="세션이 끊기기 전 인계를 자동으로 남긴다")
     ap.add_argument("--who", default="claude", help="claude | codex")
@@ -414,12 +434,21 @@ def main():
 
     # 훅은 stdin 으로 JSON 을 준다. 없어도 되고, 있으면 계기를 더 정확히 적는다.
     reason = a.reason
+    payload = {}
     if not sys.stdin.isatty():
         try:
-            payload = json.loads(sys.stdin.read() or "{}")
-            trigger = payload.get("trigger") or payload.get("matcher")
-            if trigger:
-                reason = "%s-compact" % trigger
+            got = json.loads(sys.stdin.read() or "{}")
+            payload = got if isinstance(got, dict) else {}
+        except Exception:
+            payload = {}
+    reason = reason_from_payload(payload, reason)
+    if payload:
+        # 훅이 **실제로 받은 것**을 자국으로 남긴다 — 기록하는 자리는 `session_boundary.note`
+        # 한 곳이다(사본을 만들면 두 파일이 서로 다른 경계 역사를 갖는다).
+        # 자국을 남기려다 마무리를 막지 않는다: 실패해도 그냥 넘어간다.
+        try:
+            import session_boundary as _sb
+            _sb.note(payload)
         except Exception:
             pass
 

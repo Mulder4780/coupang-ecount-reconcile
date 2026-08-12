@@ -90,7 +90,11 @@ def note(payload):
     row = {
         "때": datetime.now().isoformat(timespec="seconds"),
         "이벤트": str(payload.get("hook_event_name") or ""),
-        "갈래": str(payload.get("source") or payload.get("reason") or ""),
+        # 훅마다 갈래를 담는 칸 이름이 다르다 — SessionStart 는 `source`,
+        # SessionEnd 는 `reason`, PreCompact 는 `trigger` 다. 하나만 물으면
+        # 나머지 훅은 갈래가 빈 채로 `?` 가 되어 **실측이 실측 구실을 못 한다**.
+        "갈래": str(payload.get("source") or payload.get("reason")
+                  or payload.get("trigger") or ""),
         "sid": str(payload.get("session_id") or "")[:8],
         "칸": sorted(str(k) for k in payload.keys())[:12],
     }
