@@ -262,11 +262,22 @@ def _trigger_due(trg, now):
             days = max(1, int(trg.get("days") or 1))
         except (TypeError, ValueError):
             days = 1
-        base = datetime.combine(now.date(), start.time())
-        if base > now:
-            base -= timedelta(days=days)
-        if base < start:
+        # ★ 며칠마다인지를 **날짜에도** 적용한다. 예전엔 days 를 '오늘 시각이 아직
+        #   안 왔을 때 한 칸 물러서는' 데만 써서, 예정을 언제나 **오늘**로 쳤다.
+        #   그래서 3일마다 도는 회차(UX점검: 08-05 기준 08-08·08-11·08-14)가
+        #   08-12·08-13 에도 '예정이 지났는데 안 돌았다'로 나왔다 — 실제로는
+        #   08-11 에 rc=0 으로 멀쩡히 돈 회차다. **없는 예정을 지어내면 그 경보는
+        #   매일 뜨고, 매일 뜨는 경보는 아무도 안 본다**(`[170]` 의 문).
+        gap = (now.date() - start.date()).days
+        if gap < 0:
             return None                              # 아직 첫 회차가 오지 않았다
+        step = gap // days                           # 시작일부터 지난 주기 수
+        base = datetime.combine(start.date() + timedelta(days=step * days), start.time())
+        if base > now:                               # 오늘이 회차날인데 시각 전이면 직전 회차
+            if step == 0:
+                return None
+            base = datetime.combine(
+                start.date() + timedelta(days=(step - 1) * days), start.time())
     elif kind.endswith("TimeTrigger"):
         base = start
         if base > now:
