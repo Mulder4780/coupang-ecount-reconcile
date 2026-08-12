@@ -16660,6 +16660,98 @@ def t239_idle_lane_reclaims_itself_with_a_record():
           "미커밋이면 보류 · 기록 없으면 되돌림 ✅")
 
 
+def t240_install_has_a_door_and_says_why_when_shut():
+    """[240] 크롬 '앱 설치' — **문이 있고**, 안 되면 **왜 안 되는지 말한다**.
+
+    실측 2026-08-13(사용자 지시 "크롬에서 앱 설치 안되는 문제 해결"). 조각은 다 멀쩡했다 —
+    127.0.0.1 에서 매니페스트 200 · 서비스워커 activated · 아이콘 192/512 존재.
+    그런데 사람은 설치를 못 했다. 이유가 둘이었고 **둘 다 조용했다**:
+
+    ① 설치로 가는 길이 업무센터 화면(`#v-ryu`) 안에만 있었고, `showInstallCard()` 첫 줄이
+       `const center=STAFF_CENTERS[staffSlug]; if(!center) return;` 이라 관리자 화면에서는
+       눌러도 **오류도 토스트도 없이 아무 일이 안 일어났다.**
+    ② 터널 주소(trycloudflare)에서는 서버가 매니페스트·SW 를 **일부러** 뺀다. 그건 옳다
+       (임시 주소가 아이콘에 박히면 다음날 죽는다 — 2026-07-28 실사고). 빠져 있던 것은
+       **왜 막혔는지 말해 주는 일**이었다. 서버 주석은 "index.html 이 배너로 알린다"고
+       적어 뒀는데 **그 배너가 실재하지 않았다** — 코드가 약속만 하고 안 지킨 자리다.
+
+    ★ 그래서 이 검증은 '설치가 된다'를 시험하지 않는다(브라우저가 정하는 일이다).
+      **문이 있는가**와 **닫혔을 때 이유를 말하는가**를 지킨다.
+    ★ 판단은 한 곳(`installState`)이어야 한다. 두 곳에서 재면 실행 탭은 '가능',
+      카드는 '불가'라고 말하는 날이 온다(`[162]` 와 같은 모양).
+    """
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+
+    # ① 말없이 되돌아가던 그 줄이 사라졌나
+    #    ★ 주석은 벗기고 본다 — 왜 고쳤는지를 적어 둔 글이 코드로 읽히면
+    #      "고쳤는데 검증이 실패"하는, 아무도 못 믿을 관문이 된다.
+    def _code_only(s):
+        s = re.sub(r"/\*.*?\*/", "", s, flags=re.S)
+        return re.sub(r"^\s*//.*$", "", s, flags=re.M)
+
+    body = _code_only(
+        idx.split("async function showInstallCard(", 1)[1].split("\nfunction ", 1)[0])
+    assert "if(!center) return;" not in body, \
+        "관리자 화면에서 [앱 설치] 가 말없이 return 한다 — 눌러도 아무 일이 안 일어난다"
+    assert "installState()" in body, "설치 카드가 스스로 판단한다 — 판단 자리가 둘이 된다"
+
+    # ② 판단은 한 곳이고, 갈래마다 이유를 갖는다
+    st = idx.split("function installState(", 1)[1].split("\nfunction ", 1)[0]
+    for code in ("'installed'", "'tunnel'", "'insecure'", "'no-manifest'"):
+        assert code in st, "설치 불가 갈래 %s 를 안 가른다 — 뭉치면 사람이 엉뚱한 데를 고친다" % code
+    assert "trycloudflare.com" in st, "터널 주소를 못 알아본다 — 왜 막혔는지 말할 수 없다"
+    assert "isSecureContext" in st, "https 가 아니라 막힌 경우를 못 가른다"
+    # '아직 프롬프트가 안 왔다'를 '불가'로 단정하지 않는다([169])
+    assert "code:'browser'" in st.replace(" ", ""), \
+        "프롬프트가 아직 없다는 이유로 설치 불가라고 단정한다 — 모르는 것을 아는 것처럼 말한다"
+
+    # ③ 실행 탭에 문이 있고, 누르기 전에도 상태를 말한다
+    run = idx.split('id="v-run"', 1)[1].split('id="v-daily"', 1)[0]
+    assert 'id="installStatusLine"' in run, "실행 탭이 설치 상태를 안 보여 준다"
+    assert "showInstallCard()" in run, "실행 탭에 설치로 가는 문이 없다"
+    assert "function refreshInstallStatus(" in idx, "상태줄을 다시 재는 자리가 없다"
+    assert "if(v==='run') refreshInstallStatus();" in idx, \
+        "화면을 열 때 상태를 다시 재지 않는다 — 주소·설치 여부는 세션 중에도 바뀐다"
+
+    # ④ 프롬프트는 담당자 화면이 아니어도 받아 둔다(안 받으면 나중에 쓸 것이 없다)
+    bip = idx.split("window.addEventListener('beforeinstallprompt'", 1)[1][:300]
+    assert "if(!staffSlug) return;" not in bip, \
+        "관리자 화면이 설치 프롬프트를 버린다 — 나중에 [설치하기] 를 눌러도 쓸 것이 없다"
+
+    # ⑤ 주 단추는 상황마다 다른 일을 한다 — 마크업에 동작을 박아 두면 표현할 수 없다
+    assert 'id="installGo"' in idx, "설치 카드 주 단추에 id 가 없다"
+    card = idx.split('id="installCard"', 1)[1].split("</aside>", 1)[0]
+    assert 'onclick="installWorkcenter()"' not in card, \
+        "주 단추 동작이 마크업에 박혀 있다 — '고정 주소로 열기' 갈래를 표현할 수 없다"
+
+    # ⑥ 약속한 안내가 실재한다(주석만 있고 화면이 조용하던 자리)
+    assert "function noticeIfNotInstallable(" in idx, \
+        "터널로 연 사람에게 이유를 말하는 자리가 없다 — 서버 주석이 약속만 한다"
+    assert "noticeIfNotInstallable" in srv, \
+        "서버 주석이 실제 안내 자리를 안 가리킨다 — 약속만 적힌 주석으로 되돌아갔다"
+    #    ★ 그리고 그 안내는 담당자 화면 전용 초기화 **밖**에서 돌아야 한다.
+    #      `initStaffCenter()` 는 첫 줄이 `if(!staffSlug) return;` 이라 관리자·터널
+    #      화면에서는 아예 안 돈다 — 설치가 막힌 사람은 대부분 거기에 있다.
+    #      실측 2026-08-13: 그 안에 뒀더니 터널로 열어도 안내가 한 번도 안 떴다.
+    init = _code_only(
+        idx.split("function initStaffCenter(", 1)[1].split("\nfunction ", 1)[0])
+    assert "noticeIfNotInstallable" not in init, \
+        "설치 안내를 담당자 전용 초기화 안에 뒀다 — 정작 막히는 화면에서 안 돈다"
+
+    # ⑦ 터널 차단은 그대로 있어야 한다 — 편하자고 열면 2026-07-28 사고가 되살아난다
+    assert 'if "trycloudflare.com" in host:' in srv, \
+        "터널 주소에서 설치를 다시 열었다 — 임시 주소가 아이콘에 박혀 다음날 죽는다"
+
+    # ⑧ 고정 주소는 한 곳에서만 적는다(사본이 둘이면 이사한 날 한쪽만 고쳐진다)
+    assert 'const FIXED_APP_ORIGIN=' in idx, "고정 주소 상수가 없다"
+    assert idx.count("mulder.tailf14aae.ts.net") == 1, \
+        "고정 주소가 두 군데 이상 박혀 있다 — 주소가 바뀌면 한쪽만 고쳐진다"
+
+    print("  [240] 앱 설치 — 관리자 화면에도 문이 있음 · 막힌 이유를 갈라 말함 · "
+          "터널 차단 유지 · 고정 주소 한 곳 ✅")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -17061,6 +17153,7 @@ if __name__ == "__main__":
     t237_cards_fold_with_one_tool()
     t238_parked_says_which_lane()
     t239_idle_lane_reclaims_itself_with_a_record()
+    t240_install_has_a_door_and_says_why_when_shut()
     t235_unattended_rounds_survive_pythonw()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()

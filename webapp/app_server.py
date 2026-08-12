@@ -7368,7 +7368,13 @@ self.addEventListener('fetch', e => {
             #   크롬이 매니페스트를 통째로 무시해 [설치 및 바로가기 만들기]가 먹통이 된다
             #   (2026-07-27에 고정 주소를 넣었다가 실제로 설치가 안 됐다).
             #   그래서 여기는 "/" 로 두고, **오래 쓸 아이콘은 고정 주소에서 설치**한다.
-            #   터널 주소로 들어온 사람에게는 index.html이 배너로 그 사실을 알린다.
+            #   ★ 2026-08-13: 이 줄에는 원래 "터널 주소로 들어온 사람에게는 index.html이
+            #     배너로 그 사실을 알린다"고 적혀 있었는데 **그 배너가 실재하지 않았다.**
+            #     주석만 약속하고 화면은 아무 말도 안 하니, 터널로 연 사람은 설치가
+            #     일부러 막힌 줄도 모르고 "앱 설치가 안 된다"만 겪었다. 지금은 실제로
+            #     index.html 의 `installState()` · `noticeIfNotInstallable()` 이 이유와
+            #     고정 주소를 말한다. 여기 판정(트라이클라우드플레어 차단)을 고치면
+            #     그쪽 `installState()` 의 같은 조건도 함께 본다.
             icon_rev = icon_revision()
             query = parse_qs(urlsplit(self.path).query)
             staff_slug = str((query.get("staff") or [""])[0]).strip()
