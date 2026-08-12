@@ -15359,13 +15359,22 @@ def t230_ai_tier_picks_model_and_effort():
 
     # ── 깃발: 확인된 것만 붙는다
     got = T.pick("code", "", [], 3)
+    # 실행파일을 안 주면 물어볼 수 없다 → 모델만 붙고 노력은 문장으로 간다
     assert T.flags("claude", got) == ["--model", "opus"], T.flags("claude", got)
     assert T.flags("codex", got) == [], "확인 안 된 codex 깃발을 붙인다 — CLI 가 안 뜬다"
     src = open(os.path.join(ROOT, "ai_tier.py"), encoding="utf-8").read()
-    for bad in ("--effort", "--reasoning", "--thinking"):
-        assert bad not in src.split("def flags(", 1)[1].split("\ndef ", 1)[0], \
-            "확인 안 된 깃발 %s 를 붙인다" % bad
-    assert "노력" in T.prompt_line(got), "노력을 아무 데도 안 넘긴다"
+    fbody = src.split("def flags(", 1)[1].split("\ndef ", 1)[0]
+    # ★ `--effort` 는 2026-08-13 실측으로 실재가 확인됐다. 그래도 **그 실행파일에게
+    #   물어본 뒤에만** 붙인다 — 판올림으로 사라지면 CLI 가 통째로 안 뜨고 인계가
+    #   조용히 안 된다(`[169]`). 확인 절차 없이 붙이면 그때가 그 사고다.
+    assert "supports_flag(executable" in fbody, \
+        "--effort 를 물어보지도 않고 붙인다 — 없어지는 날 인계가 조용히 죽는다"
+    for bad in ("--reasoning", "--thinking"):
+        assert bad not in fbody, "확인 안 된 깃발 %s 를 붙인다" % bad
+    # 노력은 깃발이든 문장이든 **반드시 어딘가로** 간다. 둘 다면 같은 말이 두 벌이 된다.
+    assert "노력" in T.prompt_line(got, effort_via_flag=False), "노력을 아무 데도 안 넘긴다"
+    assert "[노력" not in T.prompt_line(got, effort_via_flag=True), \
+        "깃발이 받았는데 문장도 같은 말을 한다 — 두 벌이 되면 언젠가 갈린다"
 
     # ── 배선: 명령에 실제로 실린다. 못 고르면 예전 그대로 나간다(인계는 멈추지 않는다)
     cmd = A._agent_command("claude", "claude.exe", "p", _P("x.txt"), got)
