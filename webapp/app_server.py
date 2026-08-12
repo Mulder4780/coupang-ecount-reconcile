@@ -505,6 +505,57 @@ def auth_session_from_cookie(cookie_header):
     except Exception:
         return {}
 
+
+# ── 담당자 실시간 접속(조직도 온/오프라인) — 2026-08-12 지시 ──────────────────
+#   "각 담당자 온라인인지 오프라인인지 표시." 앱은 사람이 지금 접속했는지를
+#   **지어내지 않는다** — real signal 은 '인증된 브라우저가 서버에 마지막으로 말한
+#   시각' 하나뿐이다. auth 쿠키는 매 요청에 실려 오므로 _auth()·기사 경로에서 그
+#   시각을 찍고, get_orgchart 가 읽어 온/오프라인을 정한다. 기록이 아예 없으면
+#   '오프라인'이 아니라 '상태 모름'이다([169]). 클라이언트(index.html)는 안 고친다.
+_PRESENCE_PATH = os.path.join(ROOT, "reports", ".담당자_접속.json")
+_PRESENCE_LOCK = threading.Lock()
+_PRESENCE = None          # {slug: last_ts} — 프로세스 메모리(늘 최신)
+_PRESENCE_FLUSH = [0.0]   # 디스크 쓰기 throttle(폴링 thrash 방지)
+
+
+def _presence_map():
+    global _PRESENCE
+    if _PRESENCE is None:
+        try:
+            raw = json.load(open(_PRESENCE_PATH, encoding="utf-8"))
+            _PRESENCE = {str(k): float(v) for k, v in raw.items()}
+        except Exception:
+            _PRESENCE = {}
+    return _PRESENCE
+
+
+def presence_touch(slug):
+    """담당자(staff_slug/기사 slug)의 인증 요청 시각을 찍는다 — 지어내지 않는다."""
+    slug = str(slug or "").strip()
+    if not slug:
+        return
+    now = time.time()
+    with _PRESENCE_LOCK:
+        p = _presence_map()
+        p[slug] = now
+        if now - _PRESENCE_FLUSH[0] < 30:   # 메모리는 늘 최신, 디스크는 30초마다
+            return
+        _PRESENCE_FLUSH[0] = now
+        try:
+            tmp = _PRESENCE_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(p, f, ensure_ascii=False)
+            os.replace(tmp, _PRESENCE_PATH)
+        except Exception:
+            pass
+
+
+def presence_snapshot():
+    """{slug: last_ts} 사본. get_orgchart 가 읽는다."""
+    with _PRESENCE_LOCK:
+        return dict(_presence_map())
+
+
 # 앱에서 확정한 운영기준은 관리대장 수식과 섞지 않고 작은 런타임 DB로 보관한다.
 # reports/는 git 제외 대상이며, 저장 성공 직후 대표보고·확인필요 화면이 같은 값을 읽는다.
 POLICY_FILE = os.path.join(ROOT, "reports", "operating_policies.json")
@@ -5789,18 +5840,44 @@ def get_orgchart():
     PAL = ["#0062CC", "#12813F", "#B25000", "#7A3DB8",
            "#0E7490", "#B3261E", "#177245", "#8A5A00"]
 
+    def _ago(mt):
+        mins = int((now - mt) / 60) if mt else 0
+        if mins < 1:
+            return "방금"
+        if mins < 60:
+            return "%d분 전" % mins
+        return "%d시간 %d분 전" % (mins // 60, mins % 60)
+
+    # ── 담당자 온/오프라인([169]): 인증 브라우저가 마지막으로 서버에 말한 시각만
+    #    real signal 이다. 5분 내면 온라인. 기록이 아예 없으면 '오프라인'이 아니라
+    #    '상태 모름'(dot 은 off 이되 문구로 못박지 않는다). ──
+    ONLINE_SEC = 300
+    try:
+        seen = presence_snapshot()
+    except Exception:
+        seen = {}
+
+    def _human_state(slug):
+        ts = seen.get(str(slug), 0)
+        if not ts:
+            return ("off", "앱 접속 기록 없음 · 상태 모름", "")
+        if now - ts <= ONLINE_SEC:
+            return ("busy", "지금 접속 중 · 온라인", _ago(ts))
+        return ("off", "오프라인 · 마지막 접속", _ago(ts))
+
     # ── 관리팀 — 로스터(STAFF_CENTERS)가 정본. duties = 그 센터의 체크리스트 전부.
     #    유현민은 '센터장' 딱지(예전 '대표'에서 바꿈, 2026-08-12 지시). ──
     mgmt = []
     for i, (slug, cfg) in enumerate(STAFF_CENTERS.items()):
         cl = list(cfg.get("checklist") or [])
+        hst, hmsg, hago = _human_state(slug)
         mgmt.append({
             "name": cfg.get("name", slug),
             "role": cfg.get("title", ""),
             "color": PAL[i % len(PAL)],
-            "state": "idle",
-            "msg": (cl[0] if cl else "업무센터 담당"),
-            "ago": "근무",
+            "state": hst,
+            "msg": hmsg,
+            "ago": hago,
             "badge": "센터장" if slug == "yoo-hyeonmin" else "",
             "duties": cl or ["업무센터 담당"],
         })
@@ -5812,13 +5889,14 @@ def get_orgchart():
         title = cfg.get("직함") or ""
         duties = (["현장 AS 팀장 · 배정·일정 관리"] + FIELD_DUTIES
                   if title == "팀장" else list(FIELD_DUTIES))
+        hst, hmsg, hago = _human_state(slug)
         field.append({
             "name": cfg.get("name", slug),
             "role": "현장 AS · 정기점검",
             "color": PAL[(i + 3) % len(PAL)],
-            "state": "idle",
-            "msg": (title + " · " if title else "") + "배정에 따라 현장 조치·밴드 보고",
-            "ago": "",
+            "state": hst,
+            "msg": (title + " · " if title else "") + hmsg,
+            "ago": hago,
             "badge": title,
             "duties": duties,
         })
@@ -5844,14 +5922,6 @@ def get_orgchart():
     ]
     WHO_LABEL = {"claude": "Claude 세션", "codex": "Codex"}
     WHO_COLOR = {"claude": "#0062CC", "codex": "#5A6785"}
-
-    def _ago(mt):
-        mins = int((now - mt) / 60) if mt else 0
-        if mins < 1:
-            return "방금"
-        if mins < 60:
-            return "%d분 전" % mins
-        return "%d시간 %d분 전" % (mins // 60, mins % 60)
 
     # 1) 점유판(ai_claim) — 세션별로 묶는다. why·자원·나이·생사.
     claims_ok = False
@@ -6853,6 +6923,9 @@ class H(BaseHTTPRequestHandler):
         # 자동 폴링이 잠금을 유발하던 문제(자기 잠금) 방지
         session = auth_session_from_cookie(self.headers.get("Cookie", ""))
         if session:
+            # 담당자 온/오프라인(조직도): 업무센터 세션이 서버에 말한 시각을 찍는다.
+            if str(session.get("role") or "") == "staff":
+                presence_touch(session.get("staff_slug"))
             # ★ 기사(tech)는 여기를 **통과하지 못한다.** 이 관문 뒤에는 원장 전체가
             #   있고, 기사 링크는 카톡으로 돌아다닌다. 기사 화면은 /api/tech/* 만 쓴다.
             return str(session.get("role") or "") != "tech"
@@ -6965,6 +7038,7 @@ class H(BaseHTTPRequestHandler):
             tslug = str(actor.get("staff_slug") or "")
             if str(actor.get("role") or "") != "tech" or tslug not in AS_TECH_CENTERS:
                 return self._send(401, {"ok": False, "error": "기사 링크로 열어 주세요"})
+            presence_touch(tslug)   # 담당자 온/오프라인(조직도) — 기사 화면 접속
             if p == "/api/tech/board":
                 return self._send(200, tech_board(tslug))
             return self._send(404, {"error": "no route"})

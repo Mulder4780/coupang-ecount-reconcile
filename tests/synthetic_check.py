@@ -15082,7 +15082,8 @@ def t232_orgchart_floorplan_roster_and_states():
 
     ★ 지키는 것 셋:
       ① 사람 자리·역할·이름은 **로스터**(STAFF_CENTERS·AS_TECH_CENTERS)가 정본이다 —
-         서버가 이름을 지어내지 않는다. 사람의 '지금 상태'는 늘 idle 이다(안 지어낸다).
+         서버가 이름을 지어내지 않는다. 사람의 '지금 상태'는 **실제 접속(auth)**으로만
+         온/오프라인을 판정한다 — 지어내지 않는다([169]: 기록 없으면 '상태 모름').
       ② AI 구역은 **절대 비지 않는다** — 기본 자리 셋(Claude·CSOS·Codex)이 늘 있고
          실시간 점유(ai_claim)만 그 위를 덮는다([169] '0을 없다로 못 박지 않는다'의 자리판).
       ③ 화면은 `#v-org` 아래로 좁힌 `org-` 클래스만 쓴다 — 1.1MB 본문의 .ws·.chair·
@@ -15117,10 +15118,27 @@ def t232_orgchart_floorplan_roster_and_states():
     assert field_names == [c.get("name", s) for s, c in A.AS_TECH_CENTERS.items()], \
         "현장팀 이름이 로스터(AS_TECH_CENTERS)와 다르다"
 
-    # 사람 상태는 늘 idle — 서버가 사람의 busy/live 를 지어내지 않는다.
+    # 사람 상태는 실제 접속(auth)으로만 온/오프라인 — busy(온라인)·off(오프라인/모름)
+    # 뿐이고 live(실시간 AI 세션 전용)로는 절대 표시하지 않는다.
     for z in (zmap["mgmt"], zmap["field"]):
         for p in z["people"]:
-            assert p["state"] == "idle", "사람 상태를 지어냈다: %s → %s" % (p["name"], p["state"])
+            assert p["state"] in {"busy", "off"}, \
+                "사람 상태가 온/오프라인이 아니다: %s → %s" % (p["name"], p["state"])
+            assert p["state"] != "live", "사람을 실시간 AI 세션처럼 표시했다: %s" % p["name"]
+
+    # 접속(presence)이 온라인으로 뒤집는다 — 지어내지 않고 실제 신호로만.
+    # (디스크는 안 건드리고 메모리 presence 만 넣었다 뺀다 — 실서버 상태 불변)
+    slug0 = next(iter(A.STAFF_CENTERS))
+    name0 = A.STAFF_CENTERS[slug0].get("name", slug0)
+    import time as _tt
+    A._presence_map()[slug0] = _tt.time()
+    try:
+        m2 = {z["key"]: z for z in A.get_orgchart()["zones"]}["mgmt"]
+        p0 = next(p for p in m2["people"] if p["name"] == name0)
+        assert p0["state"] == "busy" and "온라인" in (p0.get("msg") or ""), \
+            "접속을 찍었는데 온라인으로 안 바뀐다: %s → %s" % (name0, p0["state"])
+    finally:
+        A._presence_map().pop(slug0, None)
 
     # ② 딱지: 유현민 '센터장'(예전 '대표'에서 바꿈), 차동호 '팀장'.
     yoo = next(p for p in zmap["mgmt"]["people"] if p["name"] == "유현민")
@@ -15128,10 +15146,18 @@ def t232_orgchart_floorplan_roster_and_states():
     cha = next(p for p in zmap["field"]["people"] if p["name"] == "차동호")
     assert cha.get("badge") == "팀장", "차동호 딱지가 '팀장' 이 아니다: %r" % cha.get("badge")
 
-    # ③ AI 구역은 절대 비지 않고 기본 자리 셋을 늘 담는다.
-    ai_names = [p["name"] for p in zmap["ai"]["people"]]
-    for base in ("Claude 세션", "CSOS 수집", "Codex"):
-        assert base in ai_names, "AI 기본 자리가 빠졌다: " + base
+    # ③ AI 구역은 절대 비지 않고 로스터 세 역할을 늘 덮는다 — 각 역할은 **살아 있는
+    #    세션 데스크**(그때는 세션 제목이 이름)로 채워지거나, 아니면 off 기본 자리로
+    #    나타난다([169]). 그래서 자리 수는 늘 셋 이상, off 기본 자리는 로스터 이름만
+    #    쓴다(지어내지 않는다). 살아 있는 세션이 없으면 셋 다 off 로 보인다.
+    ai_ppl = zmap["ai"]["people"]
+    assert len(ai_ppl) >= 3, "AI 구역이 로스터 세 역할을 못 덮는다(자리 %d개)" % len(ai_ppl)
+    BASE_NAMES = {"Claude 세션", "CSOS 수집", "Codex"}
+    for p in ai_ppl:
+        if p["state"] == "off":
+            assert p["name"] in BASE_NAMES, "모르는 기본 자리(이름 지어냄): " + p["name"]
+    if not any(p["state"] == "live" for p in ai_ppl):
+        assert BASE_NAMES <= {p["name"] for p in ai_ppl}, "AI 기본 자리 셋이 다 안 보인다"
 
     # ── 서버·화면 코드가 계약을 지키는지 텍스트로 확인한다 ──
     server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
