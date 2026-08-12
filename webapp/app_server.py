@@ -6233,7 +6233,7 @@ def get_orgchart():
              "tag": "쿠팡 AS · 정기점검 원장", "people": mgmt},
             {"key": "field", "title": "현장 AS팀 · 정기점검",
              "tag": "현장 조치 · 밴드 보고", "people": field},
-            {"key": "ai", "title": "AI 에이전트 스테이션",
+            {"key": "ai", "title": "조수 스테이션",
              "tag": "자동화 · 수집 · 코딩", "people": ai},
         ],
     }

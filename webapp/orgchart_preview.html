@@ -132,7 +132,7 @@ const SNAP={
       {name:"김준형",role:"현장 AS·정기점검",color:"#0E7490",state:"busy",msg:"현장 방문·조치",ago:"오늘"},
       {name:"권오철",role:"현장 AS·정기점검",color:"#B3261E",state:"idle",msg:"배정 대기",ago:"오늘"},
       {name:"김필우",role:"현장 AS·정기점검",color:"#177245",state:"idle",msg:"배정 대기",ago:"오늘"}]},
-    {key:"ai",title:"AI 에이전트 스테이션",tag:"자동화·수집·코딩",people:[
+    {key:"ai",title:"조수 스테이션",tag:"자동화·수집·코딩",people:[
       {name:"Claude 코딩 세션",role:"앱 코딩·검증·인계",color:"#0062CC",state:"live",msg:"조직도·플로우·정산 화면 개선 중",ago:"방금"},
       {name:"CSOS 리서치·수집",role:"밴드·ERP 자료 수집",color:"#0E7490",state:"live",msg:"밴드 댓글 백필·ERP 내보내기",ago:"방금"},
       {name:"Codex",role:"교대 코딩(크레딧 소진 시)",color:"#5A6785",state:"off",msg:"대기 — 필요 시 이어받기",ago:"—"}]}
@@ -162,7 +162,7 @@ function render(D){
         </div>`;}).join('')}</div>
     </section>`).join('');
   document.getElementById('note').textContent=D._live
-    ? '실시간 연결됨 — AI 세션 상태는 ai_claim, 사람 상태는 업무 기록에서 옵니다.'
+    ? '실시간 연결됨 — 조수 세션 상태는 ai_claim, 담당자 온·오프라인은 실제 앱 접속에서 옵니다.'
     : '오프라인 스냅샷을 보고 있습니다. 서버(/api/orgchart)에 연결되면 상태 메시지가 실시간으로 바뀝니다.';
 }
 async function load(){

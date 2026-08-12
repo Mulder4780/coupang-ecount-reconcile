@@ -4199,8 +4199,8 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   @media(hover:hover){#v-org .org-zone:hover{box-shadow:0 6px 24px rgba(16,30,70,.10)}}
   #v-org .org-zh{display:flex;align-items:center;gap:8px;margin:0 2px 12px;font-size:13px;font-weight:850;color:var(--org-ink)}
   #v-org .org-zh .tag{margin-left:auto;font-size:11px;font-weight:700;color:var(--org-ink2)}
+  /* 책상 칸 폭은 방마다 안 다르게 — 조수 자리도 관리팀과 같은 책상·의자다 */
   #v-org .org-desks{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:16px 12px}
-  #v-org .org-zone.ai .org-desks{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
   /* ── 워크스테이션 = 의자 + 책상 (탑다운) ─────────────────────────────────── */
   #v-org .org-ws{position:relative;min-width:0;padding-bottom:16px}
   #v-org .org-chair{position:absolute;left:50%;bottom:0;transform:translateX(-50%);
@@ -4224,6 +4224,15 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     box-shadow:0 12px 30px rgba(16,30,70,.18),0 2px 6px rgba(16,30,70,.10)}}
   #v-org .org-desk:focus-visible{outline:2.5px solid var(--org-live);outline-offset:2px}
   #v-org .org-ws.s-live .org-desk{border-color:color-mix(in srgb,var(--org-live) 45%,var(--org-line))}
+  /* 실시간 세션 자리만 숨을 쉰다 — 책상 그림자·포커스 테두리는 안 건드린다(뒤에 링을 따로 그린다) */
+  #v-org .org-ws.s-live::before{content:"";position:absolute;left:-3px;right:-3px;top:-3px;bottom:13px;
+    border-radius:17px;border:2px solid var(--org-live);z-index:0;pointer-events:none;opacity:.2;
+    animation:orgLiveRing 2.4s ease-in-out infinite}
+  @keyframes orgLiveRing{0%,100%{opacity:.16}50%{opacity:.52}}
+  #v-org .org-ws.s-live .org-mon{background:color-mix(in srgb,var(--org-live) 20%,var(--org-mon));
+    border-color:color-mix(in srgb,var(--org-live) 45%,var(--org-line));animation:orgLiveScreen 2.4s ease-in-out infinite}
+  @keyframes orgLiveScreen{0%,100%{box-shadow:0 0 0 0 transparent}
+    50%{box-shadow:0 0 7px 1px color-mix(in srgb,var(--org-live) 55%,transparent)}}
   #v-org .org-row1{display:flex;align-items:center;gap:9px;padding-right:26px}
   #v-org .org-avatar{width:36px;height:36px;border-radius:11px;flex:none;display:grid;place-items:center;
     font-weight:850;font-size:14px;color:#fff;letter-spacing:-.5px;position:relative;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.18)}
@@ -4255,13 +4264,14 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   @media (max-width:760px){
     #v-org .org-floor{grid-template-columns:1fr}
     #v-org .org-zone.ai{grid-column:auto}
-    #v-org .org-desks,#v-org .org-zone.ai .org-desks{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
+    #v-org .org-desks{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
   @media (max-width:420px){
-    #v-org .org-desks,#v-org .org-zone.ai .org-desks{grid-template-columns:1fr}
+    #v-org .org-desks{grid-template-columns:1fr}
     #v-org .org-rl{white-space:normal}}
   @keyframes orgDrift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(2%,-2%) scale(1.06)}100%{transform:translate(-2%,2%) scale(1.02)}}
   @media (prefers-reduced-motion:reduce){
-    #v-org .org-hero::after,#v-org .org-dot.pulse{animation:none!important}
+    #v-org .org-hero::after,#v-org .org-dot.pulse,
+    #v-org .org-ws.s-live::before,#v-org .org-ws.s-live .org-mon{animation:none!important}
     #v-org .org-duties,#v-org .org-chev,#v-org .org-desk{transition:none!important}}
   </style>
   <section class="view" id="v-org">
@@ -7865,7 +7875,7 @@ const ORG_SNAP={gen:"오프라인 스냅샷",_live:false,zones:[
      duties:["배정에 따라 현장 조치","밴드에 조치·완료 보고","리모컨 납품 기록"]},
     {name:"김필우",role:"현장 AS · 정기점검",color:"#177245",state:"idle",msg:"배정에 따라 현장 조치·밴드 보고",ago:"",
      duties:["배정에 따라 현장 조치","밴드에 조치·완료 보고","리모컨 납품 기록"]}]},
-  {key:"ai",title:"AI 에이전트 스테이션",tag:"자동화·수집·코딩",people:[
+  {key:"ai",title:"조수 스테이션",tag:"자동화·수집·코딩",people:[
     {name:"Claude 세션",role:"앱 코딩·검증·인계",color:"#0062CC",state:"off",msg:"연결되면 실시간으로 바뀝니다",ago:"—",
      duties:["앱 코딩·리팩터링·합성검증","세션 인계 문서 갱신","막힘 풀린 일 재개·보류 푸시"]},
     {name:"CSOS 수집",role:"밴드·ERP 자료 수집",color:"#0E7490",state:"off",msg:"연결되면 실시간으로 바뀝니다",ago:"—",
@@ -7916,8 +7926,8 @@ function orgRender(D){
         </div>`;}).join('')}</div>
     </section>`).join('');
   const note=$('orgNote'); if(note) note.textContent=D._live
-    ? '실시간 연결됨 — AI 세션 상태는 ai_claim 점유에서, 사람 자리·역할은 로스터에서 옵니다. 자리를 누르면 담당 업무가 펼쳐집니다. 사람의 지금 상태는 지어내지 않고 역할만 싣습니다.'
-    : '오프라인 스냅샷입니다 — 서버에 연결되면 AI 세션 상태가 실시간으로 바뀝니다. 자리를 누르면 담당 업무가 펼쳐집니다.';
+    ? '실시간 연결됨 — 조수 세션 상태는 ai_claim 점유에서, 사람 자리·역할은 로스터에서 옵니다. 자리를 누르면 담당 업무가 펼쳐집니다. 담당자 온·오프라인은 실제 앱 접속으로만 판정하며, 접속 기록이 없으면 오프라인이라 단정하지 않고 상태 모름으로 둡니다.'
+    : '오프라인 스냅샷입니다 — 서버에 연결되면 조수 세션 상태와 담당자 접속이 실시간으로 바뀝니다. 자리를 누르면 담당 업무가 펼쳐집니다.';
 }
 async function orgLoad(force){
   try{
