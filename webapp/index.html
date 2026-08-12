@@ -6228,6 +6228,9 @@ function renderWorkTab(k){
     `<button class="abtn ${st.quick==='day'?'primary':''}" onclick="wtSet('${k}','quick',${st.quick==='day'?"''":"'day'"})">기준일 ${nDue}</button>`+
     `<button class="abtn ${st.board?'primary':''}" onclick="wtSet('${k}','board',${!st.board})">${st.board?'목록으로':'기사별 보드'}</button>`+
     `<button class="abtn" onclick="wtReset('${k}')">필터 초기화</button>`+
+    // 캡처 — 담당자별로 갈라 그린 PNG (2026-08-12 지시). 카톡으로 그대로 보낸다.
+    `<button class="abtn wt-cap" onclick="wtCapture('${k}')" aria-label="담당자별 확인표 캡처">`+
+    `<svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-camera-fill"/></svg>캡처</button>`+
     `<button class="abtn" onclick="wtCsv('${k}')">CSV 내보내기</button>`);
   const rows=wtRows(k);
   const sortLabel=(cfg.sorts.find(x=>x[0]===st.sortBy)||[st.sortBy,st.sortBy])[1];
@@ -6900,6 +6903,137 @@ function wtBoard(k,rows){
   return `<div class="wt-board">${names.map(t=>`<div class="wt-col${t==='미배정'?' warn':''}">
     <h4>${esc2(t)} <span>${cols[t].length}</span></h4>
     ${cols[t].map(r=>wtCard(k,r)).join('')}</div>`).join('')}</div>`;
+}
+/* ═══ 담당자별 확인표 캡처 (2026-08-12 지시) ═══════════════════════════════
+   "돌발 AS 관리, 정기점검 관리 카테고리 상단에 캡처 기능 추가해 (캡처 화면은
+    정확하고 각 AS 담당자 오종현, 류지영이 봐야될 내용이 명확하게 구분되어)"
+
+   ★ 사람 이름을 **행마다 붙이지 않는다.** 원장 02·04시트에는 '쿠팡담당자' 칸이
+     없고(있는 것은 담당기사다), 흐름도의 담당은 진행상태 낱말과 거의 안 맞는다
+     ([196] — 갈래마다 연결이 1개뿐이었다). 짐작으로 이름을 박으면 그림이 엉뚱한
+     사람을 가리키고, 그건 안 나눈 것보다 나쁘다([172]의 문).
+     그래서 나누는 근거는 **다음 조치**다 — 배정·일정·비용구분은 접수 창구(류지영),
+     방문·완료는 현장(오종현·담당기사). 근거를 그림 맨 아래에 적어 오해를 막는다.
+   ★ 필터가 걸린 채 캡처하면 같은 화면이 다른 숫자를 낸다 — 머리말에 필터를
+     그대로 적고, 전체 건수와 그림이 다루는 건수를 **둘 다** 쓴다([169]).
+   ★ 자리에 안 들어간 건은 '+N건'으로 반드시 말한다. 조용히 자르면 그 그림은
+     없는 건을 없다고 말한다(캘린더 캡처와 같은 규칙). */
+function wtCapFilters(k){
+  const st=wtState(k), t=[];
+  if(st.q) t.push(`검색 "${st.q}"`);
+  if(st.st) t.push('상태 '+st.st);
+  if(st.tech) t.push(st.tech==='__none'?'기사 미배정만':'기사 '+st.tech);
+  if(st.dateMode) t.push({day:'기준일 당일',through:'기준일까지',after:'기준일 이후',none:'예정일 미정'}[st.dateMode]||st.dateMode);
+  return t.length?t.join(' · '):'없음(전체)';
+}
+function wtCapBuckets(k){
+  const cfg=WT_CFG[k], st=wtState(k), base=st.base, rows=wtFiltered(k);
+  const stat=r=>wtStatus(k,r), day=r=>String(r[cfg.dateCol]||'').slice(0,10);
+  const done=r=>/완료/.test(stat(r)), cancel=r=>/취소/.test(stat(r));
+  const live=r=>!done(r)&&!cancel(r);                 // 아직 손이 가야 하는 건
+  const tech=r=>String(r.담당기사||'').trim();
+  return {rows, all:cfg.rows(), base, day, stat, cfg,
+    kpi:[['이 그림 대상',rows.length,'#2452E6'],
+         ['기사 미배정',rows.filter(r=>live(r)&&!tech(r)).length,'#B54708'],
+         ['지연',rows.filter(r=>live(r)&&day(r)&&day(r)<base).length,'#C7362B'],
+         ['기준일 당일',rows.filter(r=>live(r)&&day(r)===base).length,'#0E7C66'],
+         ['완료',rows.filter(done).length,'#12805C'],
+         ['취소',rows.filter(cancel).length,'#667085']],
+    left:{who:'류지영 — 접수 · 배정 · 일정 · 청구 준비', color:'#2452E6', secs:[
+      ['기사 미배정', rows.filter(r=>live(r)&&!tech(r)), '배정해야 방문 날짜가 잡힙니다'],
+      ['예정일 미정', rows.filter(r=>live(r)&&tech(r)&&!day(r)), '기사는 정해졌는데 날짜가 없습니다'],
+      ['완료인데 비용구분 미입력', rows.filter(r=>done(r)&&!String(r['유상·무상·보험']||'').trim()),
+       '청구 전에 유상·무상·보험을 정해야 합니다']]},
+    right:{who:'오종현 · 담당기사 — 현장 방문 · 완료 확인', color:'#B54708', secs:[
+      ['지연 — 예정일이 지났는데 미완료', rows.filter(r=>live(r)&&day(r)&&day(r)<base), '기준일 '+base+' 이전'],
+      ['기준일 당일 방문', rows.filter(r=>live(r)&&day(r)===base), '오늘 나가야 하는 건'],
+      ['앞으로 예정', rows.filter(r=>live(r)&&day(r)&&day(r)>base), '기준일 이후 · 일정 확인']]}};
+}
+async function wtCapture(k){
+  const B=wtCapBuckets(k), cfg=B.cfg;
+  if(!B.all.length){ toast('아직 업무 자료를 받지 못했습니다 — 목록이 뜬 뒤에 눌러 주세요'); return; }
+  const title=(k==='pm'?'정기점검 관리':'돌발 AS 관리');
+  const S=2, W=1560, Mg=30, GAP=26, colW=(W-Mg*2-GAP)/2, PER=12, RH=19;
+  const F=(z,w)=>`${w||400} ${z}px ${uiFont()}`;
+  const secH=list=>30+(list.length?Math.min(list.length,PER)*RH+(list.length>PER?18:0):18)+16;
+  const colH=c=>c.secs.reduce((s,x)=>s+secH(x[1]),0);
+  const top=214, H=Math.max(680, top+40+Math.max(colH(B.left),colH(B.right))+104);
+  const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
+  const x=cv.getContext('2d'); x.scale(S,S);
+  x.fillStyle='#fff'; x.fillRect(0,0,W,H);
+  const clip=(t,max)=>{t=String(t||''); if(x.measureText(t).width<=max) return t;
+    while(t.length>1&&x.measureText(t+'…').width>max) t=t.slice(0,-1); return t+'…';};
+  // ① 머리말 — 무엇을·언제·어떤 필터로 본 그림인지
+  x.fillStyle='#0E1B3F'; x.fillRect(0,0,W,92);
+  x.fillStyle='#fff'; x.font=F(26,700); x.fillText(`${title} · 담당자별 확인표`, Mg, 40);
+  x.font=F(12.5); x.fillStyle='#C9D5FA';
+  x.fillText(clip(`기준일 ${B.base} · 만든 때 ${new Date().toLocaleString('ko-KR')} · 화면 필터: ${wtCapFilters(k)}`, W-Mg*2), Mg, 63);
+  x.fillText(clip(`전체 ${B.all.length}건 · 이 그림이 다루는 것 ${B.rows.length}건`
+    + (wtState(k).quick?'   ※ 화면의 빠른 필터는 그림에 적용하지 않았습니다 — 아래 구분이 그 역할을 합니다':''), W-Mg*2), Mg, 82);
+  // ② 숫자 띠 — 화면 KPI와 같은 정의
+  let kx=Mg; const kw=(W-Mg*2-5*10)/6;
+  B.kpi.forEach(([lab,n,c])=>{
+    x.fillStyle='#F7F8FA'; x.fillRect(kx,110,kw,62);
+    x.fillStyle=c; x.fillRect(kx,110,4,62);
+    x.fillStyle=c; x.font=F(24,700); x.fillText(String(n), kx+16, 143);
+    x.fillStyle='#475467'; x.font=F(11.5); x.fillText(clip(lab,kw-24), kx+16, 162);
+    kx+=kw+10;
+  });
+  // ③ 두 구역 — 왼쪽은 접수 창구가, 오른쪽은 현장이 볼 것
+  const drawCol=(c,ox)=>{
+    x.fillStyle=c.color; x.fillRect(ox,top-38,colW,32);
+    x.fillStyle='#fff'; x.font=F(14.5,700); x.fillText(clip(c.who,colW-24), ox+14, top-17);
+    let y=top;
+    c.secs.forEach(([name,list,hint])=>{
+      x.fillStyle='#101828'; x.font=F(13.5,700);
+      const nw=x.measureText(`${name}`).width;
+      x.fillText(clip(name,colW-90), ox, y+14);
+      x.fillStyle=list.length?c.color:'#98A2B3'; x.font=F(13,700);
+      x.fillText(`${list.length}건`, ox+Math.min(nw,colW-90)+10, y+14);
+      x.fillStyle='#98A2B3'; x.font=F(10.5);
+      x.fillText(clip(hint,colW-10), ox, y+28);
+      y+=30;
+      if(!list.length){ x.fillStyle='#98A2B3'; x.font=F(11.5);
+        x.fillText('해당 없음', ox+12, y+12); y+=18; }
+      list.slice(0,PER).forEach(r=>{
+        x.fillStyle='#E4E7EC'; x.fillRect(ox,y+RH-1,colW,1);
+        x.fillStyle=c.color; x.fillRect(ox+2,y+7,3,3);
+        x.font=F(11.5,700); x.fillStyle='#101828';
+        x.fillText(clip(r.프로젝트NO||r[cfg.idCol]||'-',120), ox+12, y+13);
+        x.font=F(11.5); x.fillStyle='#344054';
+        x.fillText(clip(r.캠프명||'-',colW-430), ox+138, y+13);
+        x.fillStyle='#475467';
+        x.fillText(clip(String(r.담당기사||'').trim()||'미배정',80), ox+colW-286, y+13);
+        x.fillText(clip(String(r[cfg.dateCol]||'').slice(5,10)||'날짜없음',70), ox+colW-196, y+13);
+        x.fillStyle='#667085';
+        x.fillText(clip(B.stat(r),110), ox+colW-118, y+13);
+        y+=RH;
+      });
+      if(list.length>PER){ x.fillStyle=c.color; x.font=F(11.5,700);
+        x.fillText(`+ ${list.length-PER}건 더 — 앱 목록에서 확인`, ox+12, y+12); y+=18; }
+      y+=16;
+    });
+  };
+  drawCol(B.left, Mg); drawCol(B.right, Mg+colW+GAP);
+  // ④ 꼬리말 — 어떻게 나눴는지 밝힌다(이름이 자료에서 나온 것처럼 읽히면 안 된다)
+  x.fillStyle='#F7F8FA'; x.fillRect(0,H-84,W,84);
+  x.fillStyle='#475467'; x.font=F(11.5);
+  x.fillText(clip('구분 근거 — 행마다 담당자 이름이 적힌 자료는 없습니다. 나눈 기준은 「다음에 누가 손을 대야 하나」입니다: '
+    +'배정·일정·비용구분은 접수 창구(류지영), 방문·완료 확인은 현장(오종현·담당기사).', W-Mg*2), Mg, H-58);
+  x.fillText(clip('숫자는 캡처한 순간 화면 필터가 걸린 그대로입니다. 필터를 바꾸면 이 그림의 숫자도 달라집니다.', W-Mg*2), Mg, H-40);
+  x.fillStyle='#98A2B3'; x.font=F(10.5);
+  x.fillText(`CSOS 업무센터 · 앱 DB 정본 · ${cfg.sheet}`, Mg, H-20);
+  const blob=await new Promise(r=>{ try{ cv.toBlob(r,'image/png'); }catch(e){ r(null); } });
+  if(!blob){ notice('이미지 생성 실패'); return; }
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=(k==='pm'?'정기점검':'돌발AS')+'_담당자별_'+new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'})+'.png';
+  a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  let copied=false;
+  try{ if(navigator.clipboard&&window.ClipboardItem){
+    await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]); copied=true; } }catch(e){}
+  toast('캡처 이미지를 저장했습니다'+(copied?' · 클립보드에도 복사됨(카톡에 바로 붙여넣기)':''));
+  uxEvent('tap','wt-capture-'+k);
 }
 function wtCsv(k){
   const cfg=WT_CFG[k], rows=wtRows(k);
