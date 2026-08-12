@@ -1419,6 +1419,20 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
   cursor:pointer;transition:all .15s}
 .topitem:hover{border-color:var(--brand);background:var(--brand-tint)}
 .topitem b{font-size:14px}
+/* 카드 접기 손잡이 — 설명·버튼 묶음처럼 '늘 펼쳐 둘 이유가 없는' 덩어리에 붙는다.
+   접힌 채로도 무엇이 몇 개 들어 있는지 이 줄이 말한다([169]). */
+/* ★ `hidden` 만으로는 안 접힌다 — `.ui-cards{display:grid}` 같은 클래스 규칙이
+   브라우저 기본 `[hidden]{display:none}` 보다 세서 **그냥 그대로 보인다.**
+   접힘 표시는 '▸' 로 바뀌는데 내용이 안 사라지니, 화면만 보면 고친 줄 안다. */
+[data-fold][hidden]{display:none!important}
+.foldbtn{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+  padding:9px 11px;margin:2px 0 8px;border:1px solid var(--line);border-radius:11px;
+  background:var(--panel);color:var(--ink-2);font-size:13.5px;font-weight:700;
+  transition:border-color .15s,background .15s}
+.foldbtn:hover{border-color:var(--brand);background:var(--brand-tint);color:var(--brand-dk)}
+.foldbtn .fb-ar{flex:none;color:var(--ink-3);font-size:12px;line-height:1}
+.foldbtn .fb-tx{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.foldbtn .fb-n{flex:none;color:var(--ink-3);font-weight:600;font-size:13px}
 /* 묶음 보기 손잡이 한 줄 — 툴바를 늘리지 않으려고 목록 바로 위에 둔다 */
 .grouphead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-2px 2px 2px}
 .grouphead select{flex:0 0 auto;padding:7px 10px;border:1.5px solid var(--line);border-radius:10px;
@@ -3145,7 +3159,7 @@ body.dash-drag-live #dashGuides{display:grid}
             <div class="ios-person-id"><b>류지영</b><span>돌발AS · 정기점검 · 회계</span></div>
           </div>
           <div class="wt-meta ios-footnote" id="centerRyuStat">현황 계산 중…</div>
-          <div class="ui-cards">
+          <div class="ui-cards" data-fold="cc-ryu" data-fold-label="류지영 — 할 수 있는 일" data-fold-default="phone">
             <a class="ui-card primary" href="/staff/ryu-jiyeong" target="_blank" rel="noopener">
               <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-person-workspace"/></svg></span>
               <span class="ui-card-tx"><b>센터 열기</b><span>류지영 전용 화면(새 창)</span></span></a>
@@ -3166,7 +3180,7 @@ body.dash-drag-live #dashGuides{display:grid}
             <div class="ios-person-id"><b>오종현</b><span>PO · 구매 · 입금</span></div>
           </div>
           <div class="wt-meta ios-footnote" id="centerOhStat">현황 계산 중…</div>
-          <div class="ui-cards">
+          <div class="ui-cards" data-fold="cc-oh" data-fold-label="오종현 — 할 수 있는 일" data-fold-default="phone">
             <a class="ui-card primary" href="/staff/oh-jonghyeon" target="_blank" rel="noopener">
               <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-person-workspace"/></svg></span>
               <span class="ui-card-tx"><b>센터 열기</b><span>오종현 전용 화면(새 창)</span></span></a>
@@ -3189,7 +3203,7 @@ body.dash-drag-live #dashGuides{display:grid}
             <div class="ios-person-id"><b>김미영</b><span>매출 실적 · 계산서 · 입금</span></div>
           </div>
           <div class="wt-meta ios-footnote" id="centerKimStat">현황 계산 중…</div>
-          <div class="ui-cards">
+          <div class="ui-cards" data-fold="cc-kim" data-fold-label="김미영 — 할 수 있는 일" data-fold-default="phone">
             <a class="ui-card primary" href="/staff/kim-miyeong" target="_blank" rel="noopener">
               <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-person-workspace"/></svg></span>
               <span class="ui-card-tx"><b>센터 열기</b><span>김미영 전용 화면(새 창)</span></span></a>
@@ -3207,7 +3221,7 @@ body.dash-drag-live #dashGuides{display:grid}
             <div class="ios-person-id"><b>유현민</b><span>전체 업무 · 검증 · 승인</span></div>
           </div>
           <div class="wt-meta ios-footnote">앱 DB 정본 입력과 자동 보관본을 관리합니다.</div>
-          <div class="ui-cards">
+          <div class="ui-cards" data-fold="cc-yoo" data-fold-label="유현민 — 할 수 있는 일" data-fold-default="phone">
             <a class="ui-card primary" href="/staff/yoo-hyeonmin" target="_blank" rel="noopener">
               <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-person-workspace"/></svg></span>
               <span class="ui-card-tx"><b>센터 열기</b><span>유현민 전용 화면(새 창)</span></span></a>
@@ -3233,14 +3247,15 @@ body.dash-drag-live #dashGuides{display:grid}
             <div class="ios-person-id"><b>AS 담당기사</b><span>차동호 · 김준형 · 권오철 · 김필우</span></div>
           </div>
           <div class="wt-meta ios-footnote" id="techHint">주소를 불러오는 중…</div>
-          <div class="ui-cards" id="techButtons"></div>
+          <div class="ui-cards" id="techButtons" data-fold="cc-tech"
+               data-fold-label="AS 담당기사 — 할 수 있는 일" data-fold-default="phone"></div>
         </div>
       </div>
 
       <div class="cc-block" data-cb="sources">
         <div class="ios-sec-h">원본 자료 <span>— 갈래를 누르면 그 자료만 모아 봅니다</span></div>
         <div class="card ios-inset">
-          <div class="ui-cards">
+          <div class="ui-cards" data-fold="cc-sources" data-fold-label="원본 자료 갈래" data-fold-default="phone">
             <button class="ui-card primary" onclick="openSources('')">
               <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-folder2-open"/></svg></span>
               <span class="ui-card-tx"><b>전체 원본 찾기</b><span>이름·프로젝트NO·전표번호·PO로 검색</span></span></button>
@@ -3278,7 +3293,7 @@ body.dash-drag-live #dashGuides{display:grid}
         <div class="ios-sec-h">리모컨 관리 <span>— 돌발AS 화면으로 모았습니다</span></div>
         <div class="card ios-inset">
           <div class="wt-meta ios-footnote" id="centerRemoteBrief">현황 불러오는 중…</div>
-          <div class="ui-cards">
+          <div class="ui-cards" data-fold="cc-remote" data-fold-label="리모컨 관리 — 할 수 있는 일" data-fold-default="phone">
             <button class="ui-card primary" onclick="show('remote')">
               <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-box-seam"/></svg></span>
               <span class="ui-card-tx"><b>리모컨 관리 열기</b><span>재고·불출·납품 기록</span></span></button>
@@ -3627,14 +3642,18 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
       </div>
       <div class="fnote" id="runAgentNote">AI 실행 연계 상태를 확인 중입니다.</div>
       <div class="logbox" id="logbox">대기 중 — 작업을 실행하면 로그가 여기 표시됩니다.</div></div>
-    <div id="helpcard"></div>
+    <!-- ★ 설명은 필요할 때 편다 (2026-08-12) — 실행 화면 7,370px 중 이 한 장이
+         3,843px(52%)였다. 늘 깔아 두면 정작 눌러야 할 단추가 화면 밖으로 밀린다. -->
+    <div id="helpcard" data-fold="run-help" data-fold-label="처리 방법 · 용어 설명"
+         data-fold-note="용어·처리 절차" data-fold-default="closed"></div>
     <!-- ★ 글꼴 되돌리기 스위치 (2026-08-06 지시: "나중에 내가 명령 내리면 다시
          원래대로 할 수 있는 보호 장치도 마련해"). 헤더에 단추를 더 넣지 않는다 —
          좁은 폰에서 헤더가 겹치던 것을 방금 고쳤는데 다시 밀어 넣을 이유가 없다.
          여기 스위치는 **이 기기에서만** 바꾼다(브라우저에 기억). 모두에게 되돌리는
          것은 `python webapp/font_switch.py --legacy` 한 줄이다. -->
     <div class="card"><h3>글꼴 <span class="norm">— 이 기기에서만 바뀝니다</span></h3>
-      <div class="ui-cards">
+      <div class="ui-cards" data-fold="run-font" data-fold-label="글꼴 고르기"
+           data-fold-default="phone">
         <button class="ui-card" type="button" onclick="setFontLegacy(false);toast('기본 글꼴로 바꿨습니다')">
           <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
           <span class="ui-card-tx"><b>기본 글꼴</b><span>기기가 제 화면에 쓰는 글꼴 — 작은 글씨가 또렷합니다</span></span></button>
@@ -3645,7 +3664,8 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     </div>
 
     <div class="card"><h3>파일·폴더 열기 <span class="norm">— 사무실 PC에서 접속했을 때만 동작</span></h3>
-      <div class="ui-cards">
+      <div class="ui-cards" data-fold="run-open" data-fold-label="열 수 있는 파일·폴더"
+           data-fold-default="phone">
         <button class="ui-card " onclick="openLocal('master')">
           <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-folder2-open"/></svg></span>
           <span class="ui-card-tx"><b>관리대장(최신)</b><span>가장 최근 vN 파일을 엑셀로 엽니다</span></span></button>
@@ -7264,6 +7284,9 @@ function applyView(v){
     if(!FLOW_STAGES&&PIN) loadFlowStages().then(d=>{ if(d) renderWorkTab(v); });
   }
   if(v==='center'){ renderCenter(); if(!(works.as||[]).length&&PIN&&!LIVE_SYNC.booting) loadSettle().catch(()=>{}); }
+  /* 접기 손잡이는 화면을 열 때마다 다시 맞춘다 — 내용을 나중에 채우는 카드
+     (설명·AS 기사 단추)가 있어 부팅 때 한 번만 붙이면 그 카드는 영영 안 접힌다. */
+  if(v==='center'||v==='run') foldSetup($('v-'+v));
   if(v==='remote') renderRemoteCard('remoteHost');
   // 매출 실적은 **열 때** 읽는다 — 첫 화면부터 부르면 안 볼 사람도 원장을 열게 된다.
   if(v==='revenue' && PIN) loadRevenue();
@@ -10978,6 +11001,65 @@ function openListKpi(label, rule){
     count:rows.length,kind:'list-filter',
     basis:`현재 ${modeLabel()} 화면의 검색·상태·기간 필터 결과`}};
   openExecMetric(label);
+}
+/* ── 카드 접기 — 설명·버튼 묶음은 늘 펼쳐 둘 이유가 없다 (2026-08-12 지시
+      "전체 메뉴 전부다 스크롤이 너무 길어") ─────────────────────────────
+   `[236]` 이 **반복되는 행**을 묶음으로 접었다면 여기는 **서로 다른 카드**다.
+   실측(폰 375×812): 실행 7,370px 중 '처리 방법·용어 설명' 한 장이 **3,843px(52%)**,
+   업무센터 3,332px 중 사람 카드 넷의 단추 묶음이 대부분이었다. 둘 다 **필요할 때
+   펴 보는 것**이지 늘 깔아 둘 것이 아니다.
+   ★ 도구는 **하나**다. 화면마다 접기를 따로 만들면 사본이 셋이 되고 한쪽만 고쳐진다
+     ([162] 와 같은 모양). 마크업에는 `data-fold` 한 글자만 붙이고 나머지는 여기서 한다.
+   ★ **접힌 줄이 무엇이 몇 개인지 말한다**([169]). 그냥 사라지면 '없는 기능'이 된다.
+   ★ 기본값은 `data-fold-default` 가 정하고(`closed`·`phone`·`open`),
+     **사람이 한 번 고르면 그 선택이 이긴다**(기억한다).
+   ⚠ 대시보드 블록(`[data-dash-block]`)에는 아직 안 붙였다 — 끌어서 정렬하는 손잡이와
+     같은 자리라 눌림이 엇갈릴 수 있고, 그쪽은 이미 [화면 구성] 팔레트로 켜고 끈다. */
+function foldKey(k){ return 'csos_fold_' + k; }
+function foldIsOpen(el){
+  let v = null; try{ v = localStorage.getItem(foldKey(el.dataset.fold)); }catch(e){}
+  if(v === '0' || v === '1') return v === '1';
+  const d = el.dataset.foldDefault || 'closed';
+  if(d === 'open') return true;
+  if(d === 'phone'){                       // 좁은 화면에서만 접는다
+    try{ return !window.matchMedia('(max-width:899px)').matches; }catch(e){ return false; }
+  }
+  return false;
+}
+function foldNote(el){
+  if(el.dataset.foldNote) return el.dataset.foldNote;
+  const n = el.children.length;            // 접힌 것이 몇 개인지는 지금 내용이 안다
+  return n ? n + '개' : '';
+}
+function foldApply(el){
+  const open = foldIsOpen(el), btn = el.previousElementSibling;
+  el.hidden = !open;
+  if(!btn || !btn.classList.contains('foldbtn')) return;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  btn.innerHTML = `<span class="fb-ar" aria-hidden="true">${open?'▾':'▸'}</span>` +
+    `<span class="fb-tx">${esc2(el.dataset.foldLabel||'')}</span>` +
+    `<span class="fb-n">${open?'접기':(foldNote(el)?foldNote(el)+' · 펼치기':'펼치기')}</span>`;
+}
+function foldToggle(k){
+  const el = document.querySelector('[data-fold="'+k+'"]'); if(!el) return;
+  try{ localStorage.setItem(foldKey(k), foldIsOpen(el)?'0':'1'); }catch(e){}
+  foldApply(el);
+}
+/* 여러 번 불러도 안전하다 — 손잡이가 이미 있으면 다시 만들지 않고 상태만 맞춘다.
+   (내용을 나중에 채우는 카드가 있어서 화면을 열 때마다 다시 부른다) */
+function foldSetup(root){
+  (root||document).querySelectorAll('[data-fold]').forEach(el=>{
+    const prev = el.previousElementSibling;
+    if(!prev || !prev.classList.contains('foldbtn')){
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'foldbtn';
+      b.setAttribute('onclick', "foldToggle('" + el.dataset.fold + "')");
+      // 끌어서 정렬하는 자리 옆에 놓여도 눌림이 엇갈리지 않게 한다
+      b.setAttribute('onpointerdown', 'event.stopPropagation()');
+      el.parentNode.insertBefore(b, el);
+    }
+    foldApply(el);
+  });
 }
 /* ── 묶음 보기 — 목록을 본문에 통째로 흘리지 않는다 (2026-08-12 지시
       "정산 카테고리도 클릭하면 아래서 위로 올라오는 구조로 · 전체 메뉴 전부다 스크롤이 너무 길어")

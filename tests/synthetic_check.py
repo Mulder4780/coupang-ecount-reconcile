@@ -16456,6 +16456,66 @@ def t236_list_is_folded_into_groups():
           "· 되돌릴 손잡이가 남는다 · 목록·표는 계속 만든다 ✅")
 
 
+def t237_cards_fold_with_one_tool():
+    """[237] 설명·단추 묶음은 **접어** 둔다 — 접기 도구는 한 벌이다.
+
+    (같은 2026-08-12 지시의 나머지 반쪽: "전체 메뉴 전부다 스크롤이 너무 길어".
+     `[236]` 이 **반복되는 행**을 묶었다면 여기는 **서로 다른 카드**다.)
+
+    ★ 실측(폰 375×812): 실행 7,514px 중 '처리 방법·용어 설명' 한 장이 **3,843px(52%)**
+      였다 → 접은 뒤 **2,999px**. 업무센터 3,690px → **2,028px**(사람 카드 413→189px).
+    ★ **도구는 하나**다. 화면마다 접기를 새로 만들면 사본이 셋이 되고 한쪽만 고쳐진다
+      ([162]). 마크업에는 `data-fold` 만 붙이고 판단·손잡이는 `foldSetup` 한 곳이 만든다.
+    ★ **`hidden` 만으로는 안 접힌다** — 실측으로 걸렸다. `.ui-cards{display:grid}` 같은
+      클래스 규칙이 브라우저 기본 `[hidden]{display:none}` 보다 세서 **내용이 그대로
+      보인다.** 그런데 손잡이는 '▸ 펼치기'로 바뀌므로 **화면만 보면 고친 줄 안다**
+      (업무센터 펼침 3,659px = 접힘 3,659px 이었다). 그래서 `!important` 로 못을 박는다.
+    ★ **접힌 줄이 무엇이 몇 개인지 말한다**([169]). 그냥 사라지면 '없는 기능'이 된다.
+    ★ **사람 카드는 이름·역할·현황을 남긴다** — 그것까지 접으면 '누가 있는지'를 잃는다.
+    ★ 화면을 열 때마다 다시 맞춘다 — 내용을 나중에 채우는 카드(설명·AS 기사 단추)가
+      있어 부팅 때 한 번만 붙이면 그 카드는 영영 안 접힌다.
+    """
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    assert "[data-fold][hidden]{display:none!important}" in live, \
+        "hidden 만으로 접는다 — .ui-cards 같은 클래스 규칙이 세서 내용이 그대로 보인다"
+
+    fs = live.split("function foldSetup(", 1)[1].split("\n}\n", 1)[0]
+    assert "foldbtn" in fs and "insertBefore" in fs, "손잡이를 만들지 않는다"
+    assert "classList.contains('foldbtn')" in fs, \
+        "여러 번 부르면 손잡이가 겹쳐 쌓인다 — 화면을 열 때마다 부르므로 반드시 막아야 한다"
+    assert "stopPropagation" in fs, \
+        "끌어서 정렬하는 자리 옆에서 눌림이 엇갈린다"
+
+    fa = live.split("function foldApply(", 1)[1].split("\n}\n", 1)[0]
+    assert "foldNote(el)" in fa and "펼치기" in fa, \
+        "접힌 줄이 무엇이 몇 개인지 말하지 않는다 — 그냥 사라지면 '없는 기능'이 된다"
+    fo = live.split("function foldIsOpen(", 1)[1].split("\n}\n", 1)[0]
+    assert "v === '0' || v === '1'" in fo, "사람이 고른 값이 기본값보다 뒤에 온다"
+    assert "max-width:899px" in fo, "'phone' 기본값이 화면 폭을 안 본다"
+
+    # 실제로 붙어 있나 — 실행 화면의 설명 한 장과 업무센터 사람 카드 넷
+    assert 'id="helpcard" data-fold="run-help"' in live, \
+        "실행 화면의 설명(3,843px)이 안 접힌다 — 여기가 가장 큰 한 장이다"
+    for cb in ("cc-ryu", "cc-oh", "cc-kim", "cc-yoo"):
+        assert 'data-fold="%s"' % cb in live, "업무센터 %s 카드가 안 접힌다" % cb
+    # 사람 카드는 이름·역할·현황 줄을 접지 않는다(접는 것은 `.ui-cards` 뿐)
+    ryu = live.split('data-cb="ryu"', 1)[1].split("</div>", 1)[0] + \
+        live.split('data-cb="ryu"', 1)[1][:900]
+    assert "ios-person-head" in ryu and 'data-fold="cc-ryu"' in ryu, \
+        "사람 카드에서 접는 자리가 단추 묶음이 아니다 — 이름·현황까지 접으면 누가 있는지 잃는다"
+    assert 'data-fold="cc-ryu"' not in ryu.split("ios-person-head", 1)[0], \
+        "이름 줄 앞에서 접는다"
+
+    # 화면을 열 때마다 다시 맞춘다
+    av = live.split("function applyView(v){", 1)[1].split("\n}\n", 1)[0]
+    assert "foldSetup(" in av, \
+        "화면을 열 때 손잡이를 안 맞춘다 — 나중에 채워지는 카드는 영영 안 접힌다"
+
+    print("  [237] 카드 접기 한 벌 — hidden 에 못박기 · 접힌 줄이 개수를 말함 "
+          "· 사람 카드는 이름·현황 남김 · 화면 열 때마다 재적용 ✅")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -16854,6 +16914,7 @@ if __name__ == "__main__":
     t234_kim_miyeong_center_and_revenue()
     t235_chatbot_is_one_line_until_asked()
     t236_list_is_folded_into_groups()
+    t237_cards_fold_with_one_tool()
     t235_unattended_rounds_survive_pythonw()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
