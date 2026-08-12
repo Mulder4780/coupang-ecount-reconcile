@@ -3169,6 +3169,29 @@ body.dash-drag-live #dashGuides{display:grid}
         </div>
       </div>
 
+      <!-- 김미영 — 매출·계산서·입금 (2026-08-12: "업무 센터에 김미영 왜 안들어가있어").
+           ★ 이 구역은 **손으로 적은 세 사람**뿐이었다. 로스터에 사람을 더해도
+             여기는 안 따라온다 — 조직도·업무센터 링크 목록은 STAFF_CENTERS 를 읽지만
+             이 화면만 사본이라 새 사람이 조용히 빠진다. AS 기사 4명이 예전에 같은
+             이유로 고아가 됐다(바로 아래 주석). 사람을 늘리면 **여기도 같이** 늘린다. -->
+      <div class="cc-block" data-cb="kim">
+        <div class="card ios-person">
+          <div class="ios-person-head">
+            <span class="ios-avatar" style="background:linear-gradient(180deg,#FFB45A,#E8730C)">김</span>
+            <div class="ios-person-id"><b>김미영</b><span>매출 실적 · 계산서 · 입금</span></div>
+          </div>
+          <div class="wt-meta ios-footnote" id="centerKimStat">현황 계산 중…</div>
+          <div class="ui-cards">
+            <a class="ui-card primary" href="/staff/kim-miyeong" target="_blank" rel="noopener">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-person-workspace"/></svg></span>
+              <span class="ui-card-tx"><b>센터 열기</b><span>김미영 전용 화면(새 창)</span></span></a>
+            <button class="ui-card" onclick="show('revenue')">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-graph-up-arrow"/></svg></span>
+              <span class="ui-card-tx"><b>매출 실적</b><span>세금계산서 발행월 기준·실적표 대조</span></span></button>
+          </div>
+        </div>
+      </div>
+
       <div class="cc-block" data-cb="yoo">
         <div class="card ios-person">
           <div class="ios-person-head">
@@ -6481,6 +6504,7 @@ const CENTER_KEY='csos_center_layout_v1';
 const CENTER_BLOCKS=[
   {id:'ryu',    label:'류지영 — 돌발AS·정기점검'},
   {id:'oh',     label:'오종현 — PO·구매·입금'},
+  {id:'kim',    label:'김미영 — 매출·계산서·입금'},
   {id:'yoo',    label:'유현민 — 전체 업무·검증·승인'},
   {id:'tech',   label:'AS 담당기사 4명 — 현장'},
   {id:'sources',label:'원본 자료 갈래'},
@@ -6494,7 +6518,11 @@ function readCenterLayout(){
     if(!raw||!Array.isArray(raw.order)) return def;
     const known=new Set(CENTER_BLOCKS.map(b=>b.id));
     const order=raw.order.filter(x=>known.has(x));
-    CENTER_BLOCKS.forEach(b=>{ if(!order.includes(b.id)) order.push(b.id); });
+    // ★ 새로 생긴 구역은 **제 자리에** 끼워 넣는다. 뒤에 붙이면 사람 카드가 리모컨·
+    //   원본자료 밑으로 떨어져, 넣어 놓고도 "왜 안 보이지"가 된다(2026-08-12).
+    CENTER_BLOCKS.forEach((b,i)=>{
+      if(!order.includes(b.id)) order.splice(Math.min(i, order.length), 0, b.id);
+    });
     return {order,hidden:(raw.hidden||[]).filter(x=>known.has(x))};
   }catch(e){ return def; }
 }
@@ -6565,6 +6593,19 @@ function renderCenter(){
   if(ohEl){
     const st=s=>settleRows.filter(r=>String(r.상태||'')===s).length;
     ohEl.textContent=`미청구 ${st('미청구(전표 없음)')} · 세금계산서 미발행 ${st('세금계산서 미발행')} · 입금 대기 ${st('입금 대기')} · 취소건 청구자료 ${st('취소건 청구자료 존재 — 교차입력 확인')}건`;
+  }
+  const kimEl=$('centerKimStat');
+  if(kimEl){
+    // 매출 실적은 발행월 기준이라 위 두 줄(완료월 기준)과 **기준이 다르다** — 그래서
+    // 숫자를 여기서 새로 세지 않고, 그 화면이 이미 읽어 둔 값만 옮겨 적는다.
+    // 아직 안 읽었으면 0 을 그리지 않는다 — 없는 것과 안 본 것은 다르다.
+    if(REV && REV.대조){
+      const s=REV.대조.요약||{}, un=REV.미발행||{};
+      kimEl.textContent=`발행월 기준 매출 ${fmt(REV.total)}원 · 실적표와 다른 달 ${s['다른 달']??'-'}`
+        +` · 계산서 안 끊긴 건 ${un.있음?fmt(un.건수)+'건':'못 셈'}`;
+    }else{
+      kimEl.textContent='매출 실적 화면을 열면 발행월 기준 집계와 실적표 대조가 나옵니다';
+    }
   }
   applyCenterLayout();
   renderReceiptUpload('centerReceiptHost');
