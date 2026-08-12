@@ -5823,8 +5823,15 @@ def get_orgchart():
             "duties": duties,
         })
 
-    # ── AI 스테이션 — 기본 자리 셋은 **언제나** 보인다(쉬든 꺼졌든). 실시간 점유만
-    #    덮어쓴다. '세션 에이전트 모두 추가' 자리라 절대 비지 않는다([169]). ──
+    # ── AI 스테이션 — 열려 있는 **모든** 에이전트 세션을 한 자리씩 보여 준다
+    #    (2026-08-12 지시: "N 세션 = N 데스크"). 예전엔 기본 자리 셋만 두고 ai_claim
+    #    점유로만 덮어써서, 세션이 열려 있어도 자원을 안 잡았으면 전부 '오프라인'으로
+    #    보였다. 이제 살아 있는 세션은 각자 하나의 live 데스크가 된다.
+    #    · 살아 있는 세션 판정은 **새로 만들지 않고** session_wrapup 을 그대로 빌린다
+    #      (대화기록 mtime + [225] .대화기록_폴더.txt). ai_claim 은 그 세션이 지금
+    #      무엇을 잡고 있나(why·자원)만 덧댄다. 못 읽으면 옛 ai_claim 전용으로 물러난다.
+    #    · 로스터 셋(Claude/CSOS/Codex)은 언제나 보이되, 살아 있는 세션이 채우지 못한
+    #      역할만 'off' 로 남는다 — ai 구역은 절대 비지 않는다([169]).
     BASE = [
         {"name": "Claude 세션", "role": "앱 코딩·검증·인계", "color": "#0062CC",
          "duties": ["앱 코딩·리팩터링·합성검증", "세션 인계 문서 갱신",
@@ -5835,59 +5842,133 @@ def get_orgchart():
         {"name": "Codex", "role": "교대 코딩", "color": "#5A6785",
          "duties": ["Claude 크레딧 소진 시 코딩 교대", "같은 시작 체크리스트를 따름"]},
     ]
-    ai = [dict(b, state="off", msg="연결되면 실시간으로 바뀝니다", ago="—",
-               duties=list(b["duties"])) for b in BASE]
-    by_name = {s["name"]: s for s in ai}
-    overlaid = set()
+    WHO_LABEL = {"claude": "Claude 세션", "codex": "Codex"}
+    WHO_COLOR = {"claude": "#0062CC", "codex": "#5A6785"}
 
-    live_ok = False
+    def _ago(mt):
+        mins = int((now - mt) / 60) if mt else 0
+        if mins < 1:
+            return "방금"
+        if mins < 60:
+            return "%d분 전" % mins
+        return "%d시간 %d분 전" % (mins // 60, mins % 60)
+
+    # 1) 점유판(ai_claim) — 세션별로 묶는다. why·자원·나이·생사.
+    claims_ok = False
+    by_sid = {}
     try:
         import ai_claim
-        claims = ai_claim.load()
-        live_ok = True
-        by_sid = {}
-        for res, c in (claims or {}).items():
+        for res, c in (ai_claim.load() or {}).items():
             if not isinstance(c, dict):
                 continue
             sid = c.get("sid") or c.get("who") or res
-            g = by_sid.setdefault(sid, {"who": c.get("who") or "?",
-                                        "res": [], "why": "", "at": 0.0,
-                                        "dead": True})
+            g = by_sid.setdefault(sid, {"who": c.get("who") or "?", "res": [],
+                                        "why": "", "at": 0.0, "dead": True})
             g["res"].append(ai_claim.LOCKS.get(res, (res, False))[0])
             if c.get("why"):
                 g["why"] = c.get("why")
             g["at"] = max(g["at"], float(c.get("at") or 0))
             if not ai_claim._is_dead(c):
                 g["dead"] = False
-        for sid, g in by_sid.items():
-            mins = int((now - g["at"]) / 60) if g["at"] else 0
-            ago = "방금" if mins < 1 else (f"{mins}분 전" if mins < 60
-                                          else f"{mins // 60}시간 {mins % 60}분 전")
-            who = str(g["who"])
-            # 점유의 who 를 기본 자리에 매핑한다 — 아는 것은 이 셋뿐이다.
-            target = {"claude": "Claude 세션", "codex": "Codex"}.get(who, "CSOS 수집")
-            info = {
-                "state": "off" if g["dead"] else "live",
-                "msg": g["why"] or "작업 중",
-                "ago": ago + ("" if not g["dead"] else " · 종료됨"),
-            }
-            stn = by_name.get(target)
-            if stn is not None and target not in overlaid:
-                stn.update(info)
-                overlaid.add(target)
-            else:
-                # 같은 자리를 여러 세션이 잡았다 — 덮지 않고 카드를 하나 더 붙인다.
-                ai.append({
-                    "name": target + " (추가)",
-                    "role": " · ".join(dict.fromkeys(g["res"])) or "작업 중",
-                    "color": ("#0062CC" if who == "claude"
-                              else "#5A6785" if who == "codex" else "#0E7490"),
-                    "duties": ["세션 점유(ai_claim)에서 실시간으로 읽었습니다"],
-                    **info,
-                })
+        claims_ok = True
     except Exception:
-        live_ok = False
-    # ai 는 절대 비지 않는다 — 기본 자리 셋이 늘 들어 있다. 점유를 못 읽었으면
+        claims_ok = False
+
+    # 2) 살아 있는 세션(대화기록) — session_wrapup 을 그대로 빌린다(자기 자신 포함).
+    #    live_transcripts() 가 sid 앞 8자리를 주고, transcript_dir() 로 마지막 활동
+    #    시각(mtime)을 잰다. 못 읽으면 아래에서 ai_claim 전용으로 물러난다([169]).
+    live_src_ok = False
+    live_ids = []
+    tmtime = {}
+    try:
+        import session_wrapup as _sw
+        live_ids = list(dict.fromkeys(_sw.live_transcripts()))
+        live_src_ok = True
+        tdir = _sw.transcript_dir()
+        if tdir:
+            for nm in os.listdir(tdir):
+                if nm.endswith(".jsonl") and nm[:-6][:8] in live_ids:
+                    try:
+                        tmtime[nm[:-6][:8]] = os.path.getmtime(
+                            os.path.join(tdir, nm))
+                    except OSError:
+                        pass
+    except Exception:
+        live_src_ok = False
+        live_ids = []
+
+    # 3) 세션 제목(있으면) — ~/.claude/sessions/<pid>.json 의 사용자 지정 name.
+    #    사람이 세션에 붙인 뜻있는 이름만 쓴다(자동 파생명 'derived' 는 뺀다).
+    titles = {}
+    try:
+        import json as _json
+        sdir = os.path.join(os.path.expanduser("~"), ".claude", "sessions")
+        for nm in os.listdir(sdir):
+            if not nm.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(sdir, nm), encoding="utf-8") as fh:
+                    m = _json.load(fh)
+            except Exception:
+                continue
+            sid = str(m.get("sessionId") or "")
+            nom = str(m.get("name") or "").strip()
+            if sid and nom and m.get("nameSource") != "derived":
+                titles[sid[:8]] = nom
+    except Exception:
+        titles = {}
+
+    # 살아 있는 세션 원천(대화기록)이나 점유판 중 하나라도 읽혔나 — 그게 _live 다.
+    live_ok = bool(live_src_ok or claims_ok)
+
+    # ── 살아 있는 세션을 한 자리씩(sid 앞 8자리로 중복 제거). 대화기록에 안 잡혀도
+    #    점유가 죽지 않았으면(ai_claim 전용 폴백) 함께 싣는다. ──
+    ai = []
+    roles_filled = set()
+    order = list(live_ids)
+    for sid, g in by_sid.items():
+        if not g["dead"] and sid[:8] not in order:
+            order.append(sid[:8])
+
+    seen = set()
+    for sid8 in order:
+        if sid8 in seen:
+            continue
+        seen.add(sid8)
+        g = next((gg for s, gg in by_sid.items() if s[:8] == sid8), None)
+        who = str(g["who"]) if g and g["who"] in WHO_LABEL else "claude"
+        who_label = WHO_LABEL.get(who, "CSOS 수집")
+        roles_filled.add(who_label)
+        name = titles.get(sid8) or ("%s ·%s" % (who_label, sid8[:4]))
+        if g and g["res"]:
+            role = " · ".join(dict.fromkeys(g["res"]))
+            msg = g["why"] or "작업 중"
+            duties = [g["why"] or "작업 중", "점유: " + role,
+                      "세션 점유(ai_claim)에서 실시간으로 읽었습니다"]
+        else:
+            role = "작업 세션 · 대기"
+            msg = "열려 있는 세션 · 지금 잡은 자원 없음"
+            duties = ["열려 있는 에이전트 세션(대화기록에서 실시간)",
+                      "지금 잡은 배타 자원 없음"]
+        mt = tmtime.get(sid8) or (g["at"] if g else 0)
+        ai.append({
+            "name": name,
+            "role": role,
+            "color": WHO_COLOR.get(who, "#0E7490"),
+            "state": "live",
+            "msg": msg,
+            "ago": _ago(mt),
+            "badge": "세션",
+            "duties": duties,
+        })
+
+    # 로스터 셋은 언제나 보인다 — 살아 있는 세션이 채우지 못한 역할만 'off'.
+    for b in BASE:
+        if b["name"] in roles_filled:
+            continue
+        ai.append(dict(b, state="off", msg="연결되면 실시간으로 바뀝니다",
+                       ago="—", duties=list(b["duties"])))
+    # ai 는 절대 비지 않는다 — 로스터 셋이 늘 뒤에 붙는다. 원천을 못 읽었으면
     # gen 에 그 사실을 적는다(0건을 '없다'로 못 박지 않는다, [169]).
 
     gen = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
