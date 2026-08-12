@@ -16706,6 +16706,17 @@ def t240_install_has_a_door_and_says_why_when_shut():
     assert "code:'browser'" in st.replace(" ", ""), \
         "프롬프트가 아직 없다는 이유로 설치 불가라고 단정한다 — 모르는 것을 아는 것처럼 말한다"
 
+    # ②-1 안드로이드 '설치했다는데 앱 서랍에 없다' — 바로가기와 WebAPK 를 가른다
+    #     크롬은 굽기에 실패하면 조용히 홈 화면 바로가기로 떨어지는데 안내 문구는
+    #     둘 다 "추가되었습니다"라 겉으로 구별이 안 된다(2026-08-13 실사고).
+    assert "chrome://webapks" in st, \
+        "앱 서랍에 없을 때 확인하는 법을 안 알려 준다 — 사람이 서랍만 계속 뒤진다"
+    assert "FIXED_ENTRY" in st, \
+        "앱 서랍에 확실히 들어가는 길(고정 배포본)을 안 준다"
+    assert 'id="installAlt"' in idx, "그 길로 가는 단추가 없다"
+    #     ★ 원인을 단정하지 않는다 — 이 서버 쪽 조건은 실측으로 전부 맞았다(`[172]` 의 문)
+    assert "Android" in st, "안드로이드일 때만 나오게 가르지 않는다"
+
     # ③ 실행 탭에 문이 있고, 누르기 전에도 상태를 말한다
     run = idx.split('id="v-run"', 1)[1].split('id="v-daily"', 1)[0]
     assert 'id="installStatusLine"' in run, "실행 탭이 설치 상태를 안 보여 준다"

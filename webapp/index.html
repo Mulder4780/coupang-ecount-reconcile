@@ -2904,6 +2904,12 @@ body.dash-drag-live #dashGuides{display:grid}
 <aside class="install-card" id="installCard" aria-live="polite">
   <h3 id="installTitle">업무센터를 앱으로 설치</h3>
   <p id="installGuide">PC 바탕화면이나 모바일 홈 화면에서 바로 열 수 있습니다.</p>
+  <!-- ★ 안드로이드에서 '설치했다는데 앱 서랍에 없다' 를 푸는 자리(2026-08-13 실사고).
+       크롬은 조건이 맞으면 **WebAPK** 를 구워 앱 서랍에 넣고, 굽기가 실패하면 조용히
+       **홈 화면 바로가기**로 떨어진다 — 그런데 안내 문구는 **둘 다 "추가되었습니다"** 다.
+       그래서 사람은 설치가 된 줄 알고 서랍만 뒤진다. -->
+  <button type="button" id="installAlt" class="ghost" hidden
+          style="width:100%;margin-top:8px">앱 서랍용으로 설치</button>
   <div class="actions">
     <button type="button" id="installGo">설치하기</button>
     <button class="ghost" type="button" onclick="dismissInstall()">닫기</button>
@@ -5491,14 +5497,32 @@ function installState(){
     return {ok:false,code:'no-manifest',
       msg:'이 페이지에 앱 정보(매니페스트)가 실려 있지 않습니다. 앱 서버를 다시 띄운 뒤 '
         +'새로고침해 주세요.'};
+  /* ★ 안드로이드: '설치되었다'는데 **앱 서랍에 없는** 경우(2026-08-13 실사고).
+     크롬은 조건이 맞으면 **WebAPK** 를 구워 앱 서랍에 넣고, 굽기에 실패하면 조용히
+     **홈 화면 바로가기**로 떨어진다. 안내 문구는 둘 다 "추가되었습니다"라 **겉으로
+     구별이 안 된다** — 그래서 사람은 설치된 줄 알고 서랍만 뒤진다.
+     ★ 원인을 단정하지 않는다. 실측(2026-08-13)으로 이 서버 쪽 조건은 전부 맞았다 —
+       공개 DNS 로 풀리고 아이콘도 진짜 192·512 PNG 이며 전부 200 이다. 그러니
+       "이 주소가 나쁘다"고 지목하지 않고, **확인하는 법**과 **확실히 되는 길**만 준다.
+       잘못 지목하면 사람이 멀쩡한 것을 고치러 간다. */
+  const android=/Android/i.test(navigator.userAgent);
+  const onPages=location.href.indexOf(FIXED_ENTRY)===0;
+  const drawer=(android&&!onPages)
+    ? {label:'앱 서랍용으로 설치(고정 배포본)',url:FIXED_ENTRY,
+       hint:' · 설치했는데 앱 서랍에 안 보이면 WebAPK 가 아니라 바로가기가 만들어진 것입니다'
+           +'(크롬 주소창에 chrome://webapks 를 넣으면 확인됩니다). '
+           +'그때는 아래 고정 배포본에서 설치하면 앱 서랍에 들어갑니다.'}
+    : null;
   if(prompt)
-    return {ok:true,code:'ready',
-      msg:'설치할 수 있습니다 — [설치하기] 를 누르면 바탕화면·홈 화면에 아이콘이 생깁니다.'};
+    return {ok:true,code:'ready',alt:drawer,
+      msg:'설치할 수 있습니다 — [설치하기] 를 누르면 바탕화면·홈 화면에 아이콘이 생깁니다.'
+         +(drawer?drawer.hint:'')};
   if(/iPhone|iPad|iPod/i.test(navigator.userAgent))
     return {ok:true,code:'ios',msg:'Safari 공유 버튼 → “홈 화면에 추가” 를 누르면 설치됩니다.'};
-  return {ok:true,code:'browser',
+  return {ok:true,code:'browser',alt:drawer,
     msg:'설치 조건은 갖췄습니다. 설치 창이 안 뜨면 크롬 주소창 오른쪽의 설치 아이콘, 또는 '
-      +'메뉴(⋮) → 캐스트·저장 및 공유 → 페이지를 앱으로 설치 를 눌러 주세요.'};
+      +'메뉴(⋮) → 캐스트·저장 및 공유 → 페이지를 앱으로 설치 를 눌러 주세요.'
+      +(drawer?drawer.hint:'')};
 }
 function refreshInstallStatus(){
   const line=$('installStatusLine'); if(!line) return;
@@ -5525,6 +5549,12 @@ async function showInstallCard(skipInstalledCheck=false){
                      go.onclick=()=>{ location.href=st.fix; }; }
     else { go.hidden=false; go.textContent='설치하기';
            go.onclick=()=>{ installWorkcenter(); }; }
+  }
+  const alt=$('installAlt');
+  if(alt){
+    if(st.alt){ alt.hidden=false; alt.textContent=st.alt.label;
+                alt.onclick=()=>{ window.open(st.alt.url,'_blank','noopener'); }; }
+    else { alt.hidden=true; alt.onclick=null; }
   }
   refreshInstallStatus();
   $('installCard').classList.add('on');
