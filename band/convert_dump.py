@@ -181,11 +181,30 @@ def conv_comments(raw, captured_ms):
     return out
 
 
+def plausible_band(n):
+    """밴드번호로 있을 수 있는 생김새인가 (관측된 밴드는 전부 8자리 — 7~10 만 허용).
+
+    ★ **판정은 한 곳이다.** `known_bands` 와 `band_from_name` 이 각자 재면 언젠가
+      갈리고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+    """
+    return n.isdigit() and 7 <= len(n) <= 10
+
+
 def known_bands():
-    """캐시에 이미 있는 밴드번호 — 파일명이 애매할 때의 가장 좋은 근거다."""
+    """캐시에 이미 있는 밴드번호 — 파일명이 애매할 때의 가장 좋은 근거다.
+
+    ★ **유령은 '아는 번호'가 아니다** (2026-08-12 실사고 · 분담판 [45]).
+      전에는 캐시에 있는 숫자 파일명을 그대로 다 담았다. 그런데 유령 캐시가 한 번
+      생기면 그 번호가 여기 들어와 `band_from_name` 의 규칙① 에 걸리고, ②의 길이
+      방어를 **통째로 건너뛴다** — 유령이 스스로를 영구히 되살리는 구조였다.
+      실측: `band/cache/202608082047.json`(12자리 시각 도장, 글 0개)이 살아 있어서
+      `dump_202608082047_84789192.json` 이 84789192 가 아니라 유령으로 갔고,
+      그 파일이 그날 08:08 에 또 새로 써졌다. 유령 파일을 사람이 치워야만 나았다.
+      이제 근거로 삼기 전에 **생김새부터 본다** — 캐시에 있다는 것만으로는 모자란다.
+    """
     try:
         return {f[:-5] for f in os.listdir(CACHE)
-                if f.endswith(".json") and f[:-5].isdigit()}
+                if f.endswith(".json") and plausible_band(f[:-5])}
     except OSError:
         return set()
 
@@ -220,7 +239,7 @@ def band_from_name(basename, known=None):
             return n
     # 밴드번호로 있을 수 있는 길이만 남긴다(관측된 밴드는 전부 8자리 — 7~10 만 허용).
     #   날짜 꼬리표(6자리)도 시각 도장(12·14자리)도 여기서 함께 떨어진다.
-    plausible = [n for n in nums if 7 <= len(n) <= 10]
+    plausible = [n for n in nums if plausible_band(n)]
     if not plausible:
         return None          # 모르면 **모른다고 한다** — 없는 밴드를 만드는 것보다 낫다
     longest = max(len(n) for n in plausible)

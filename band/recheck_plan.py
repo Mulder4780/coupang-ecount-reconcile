@@ -15,7 +15,8 @@ recheck_plan.py — 밴드 전량 재확인, 다음에 훑을 글 번호를 캐�
 import sys, os, json, argparse
 from datetime import datetime
 
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stdout, "reconfigure"):   # pythonw 는 sys.stdout 이 None 이다([43])
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 HERE = os.path.dirname(os.path.abspath(__file__))
 CACHE = os.path.join(HERE, "cache")
 # 근거 한 장의 자리 — session_handoff·convert_dump 와 **같은 파일**이다.

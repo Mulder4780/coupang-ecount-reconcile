@@ -4,7 +4,8 @@ import collections
 import re
 import sys
 
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stdout, "reconfigure"):   # pythonw 는 sys.stdout 이 None 이다([43])
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 # 기본 경로는 **이 파일 옆의 index.html** 이다. 예전에는 "webapp/index.html" 이라
 # 적어 두어, 정작 webapp/ 안에서 실행하면 FileNotFoundError 가 났다(2026-08-07).
 # 어디서 부르든 같은 파일을 보게 한다 — 인자를 주면 그것이 우선이다.

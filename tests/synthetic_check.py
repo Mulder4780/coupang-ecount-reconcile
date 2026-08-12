@@ -16073,6 +16073,55 @@ def t225_session_auto_resumes_parked_and_pushes():
     print("  [225] 세션 자동화 — 풀린 일 알림·AI 인계 · 조용해지면 푸시 ✅")
 
 
+def t235_unattended_rounds_survive_pythonw():
+    """[235] 무인 회차는 `pythonw.exe`(창 없음)에서도 죽지 않는다.
+
+    스케줄러는 이 프로젝트의 회차를 **pythonw 로** 부른다. 창이 없으면
+    `sys.stdout` 이 **None** 이라, 모듈 첫머리의 맨몸 `sys.stdout.reconfigure(...)`
+    가 `AttributeError` 로 터진다. 그것이 import 중이면 **부른 회차까지 통째로 죽는다.**
+
+    ★ 이 고장은 **손으로는 재현되지 않는다.** `python.exe` 로 돌리면 콘솔이 있어
+      `sys.stdout` 이 살아 있기 때문이다. 실측 2026-08-12 — `쿠팡업무_밴드재수집`
+      이 매일 08:00 에 exit 1 로 죽고 있었는데(`recollect.plan()` → `import
+      recheck_plan` → 18줄), `--plan` 을 손으로 돌리면 멀쩡해서 며칠을 못 찾았다.
+      자국(`reports/밴드_재수집_오류.json`)이 없었으면 그날도 못 찾았다.
+
+    ★ 그래서 **사람이 아니라 검증이 훑는다.** 막는 관용구는 둘 다 인정한다 —
+      `try:` 로 감싸거나 `if hasattr(sys.stdout, "reconfigure")` 로 묻거나
+      (`hasattr(None, ...)` 는 False 라 둘 다 안전하다). 새 모듈이 맨몸으로 부르면
+      여기서 걸린다. 분담판 [43].
+    """
+    import re as _re
+    bad = []
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames
+                       if d not in (".git", "__pycache__", "node_modules", ".claude")]
+        for name in filenames:
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(dirpath, name)
+            try:
+                src = open(path, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            for m in _re.finditer(r"^(?P<ind>[ \t]*)sys\.stdout\.reconfigure", src, _re.M):
+                before = [b.strip() for b in src[:m.start()].splitlines()[-6:]]
+                guarded = bool(m.group("ind")) and any(
+                    b.startswith("try:") or "hasattr(sys.stdout" in b for b in before)
+                if not guarded:
+                    bad.append("%s:%d" % (os.path.relpath(path, ROOT).replace("\\", "/"),
+                                          src[:m.start()].count("\n") + 1))
+    assert not bad, ("pythonw(창 없음)에서 sys.stdout 이 None 이라 죽는다 — "
+                     "try 로 감싸거나 hasattr 로 물을 것: " + ", ".join(bad))
+
+    # 회차가 죽으면 **이유가 디스크에 남아야** 한다. 창이 없으니 트레이스백이 갈 곳이 없다.
+    rec = open(os.path.join(ROOT, "band", "recollect.py"), encoding="utf-8").read()
+    assert "_leave_trace" in rec and "traceback.format_exc" in rec, \
+        "무인 회차가 죽어도 이유가 어디에도 안 남는다"
+    assert "os.remove(CRASH)" in rec, \
+        "성공했는데 옛 자국이 남으면 이미 고쳐진 고장을 계속 보고한다"
+
+
 def t234_kim_miyeong_center_and_revenue():
     """[234] 김미영 업무센터 · 쿠팡 매출 실적(전체)은 **발행월 기준**이다 (2026-08-12 지시).
 
@@ -16588,6 +16637,7 @@ if __name__ == "__main__":
     t232_orgchart_floorplan_roster_and_states()
     t233_round_steps_fit_inside_budget()
     t234_kim_miyeong_center_and_revenue()
+    t235_unattended_rounds_survive_pythonw()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

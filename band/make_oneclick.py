@@ -23,7 +23,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stdout, "reconfigure"):   # pythonw 는 sys.stdout 이 None 이다([43])
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import recheck_plan as RP
 

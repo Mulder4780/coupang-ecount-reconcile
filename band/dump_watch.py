@@ -25,7 +25,8 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = sys.executable
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stdout, "reconfigure"):   # pythonw 는 sys.stdout 이 None 이다([43])
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 WATCH = [os.path.join(os.path.expanduser("~"), "Downloads"),
          os.path.join(os.path.expanduser("~"), "Desktop"),
