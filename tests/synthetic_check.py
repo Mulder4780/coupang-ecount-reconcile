@@ -13588,9 +13588,19 @@ def t207_live_revision_is_shared_and_nonblocking():
         root = Path(td)
         store = A.AppStore(root / "app.db").initialize()
         state_path = root / "automation_pipeline_state.json"
+        # ★ 시각을 파일에 **박아 두면 다음 날 스스로 썩는다** (2026-08-12 실측 · 분담판 [47]).
+        #   `2026-08-11T23:01Z` 는 적을 때 제일 최신이었지만 하루 지나 과거가 됐고,
+        #   그러자 `state_updated_at` 이 안 움직여 **멀쩡한 코드가 빨강**이 됐다.
+        #   ⚠ 끝난 회차 시각(`_done_at`)은 두 번의 쓰기에서 **같아야** 한다 —
+        #     그것이 달라지면 `last_completed_at` 이 움직여 자료 revision 까지 바뀌고,
+        #     "진행 단계만 바뀌었는데 7개 API 를 깨운다"는 다른 빨강이 난다.
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+        _now = _dt.now(_tz.utc)
+        _done_at = (_now - _td(hours=20)).isoformat()      # 어제 끝난 회차
+        _running_at = (_now + _td(minutes=1)).isoformat()  # 지금 도는 회차의 '방금'
         state_path.write_text(json.dumps({
             "version": 1, "running": False,
-            "last_run": {"status": "success", "finished_at": "2026-08-11T03:00:00+00:00"},
+            "last_run": {"status": "success", "finished_at": _done_at},
         }), encoding="utf-8")
 
         first = S.get_live_state(store=store, state_path=state_path)
@@ -13619,8 +13629,8 @@ def t207_live_revision_is_shared_and_nonblocking():
             "version": 1, "running": True,
             "active_run_id": "t207-running",
             "last_run": {"run_id": "t207-running", "status": "running", "current_stage": "ERP 대조",
-                         "updated_at": "2026-08-11T23:01:00+00:00"},
-            "history": [{"status": "success", "finished_at": "2026-08-11T03:00:00+00:00"}],
+                         "updated_at": _running_at},
+            "history": [{"status": "success", "finished_at": _done_at}],
         }), encoding="utf-8")
         from automation_pipeline import PipelineLock
         pipeline_lock = PipelineLock(root / ".automation_pipeline.lock")
@@ -15693,7 +15703,10 @@ def t196_stage_words_come_from_one_place():
     assert "layerOpen('newWorkForm'" in live, "화면마다 폼을 새로 그리고 있다"
     # 류지영 업무센터로 바로 들어와도 선택지가 차 있어야 한다 — 비어 있으면 서버
     # 기본값으로 메워져 저장은 되고, 그래서 아무도 고장인 줄 모른다.
-    ryu_view = live.split("if(v==='ryu'", 1)[1][:400]
+    # ★ 표식은 **그 자리에만 있는 글자**여야 한다. 예전 표식 `if(v==='ryu'` 는 화면 어딘가
+    #   다른 곳에 같은 글자가 생기면 그쪽에서 잘려, 멀쩡한 코드를 두고 "빈 채로 뜬다"고
+    #   말한다(2026-08-12 실측 — 김미영 센터 첫 화면 코드가 앞에서 걸렸다).
+    ryu_view = live.split("if(v==='ryu' && PIN", 1)[1][:400]
     assert "fillNewWorkStatus" in ryu_view, "류지영 화면에서 단계 선택지가 빈 채로 뜬다"
 
     # ⑧ 관리자도 등록한다(예전에는 류지영 업무센터 로그인에서만 열렸다).
@@ -16058,6 +16071,125 @@ def t225_session_auto_resumes_parked_and_pushes():
     assert "worksplit_auto" in doc, \
         "정본 지시문의 '지금 자동으로 도는 것' 에 없다 — 거기 없는 것은 자동이 아니다"
     print("  [225] 세션 자동화 — 풀린 일 알림·AI 인계 · 조용해지면 푸시 ✅")
+
+
+def t234_kim_miyeong_center_and_revenue():
+    """[234] 김미영 업무센터 · 쿠팡 매출 실적(전체)은 **발행월 기준**이다 (2026-08-12 지시).
+
+    사용자 지시: "김미영 업무센터 하나 추가해서 쿠팡 매출 실적(전체) 포함 관리할 수 있게"
+
+    ★ **기준이 다르면 숫자는 다르다.** 김미영 표는 머리글 그대로 세금계산서 **발행월**이고
+      앱의 다른 화면은 완료월이다. 기준을 안 적으면 맞는 달까지 "왜 안 맞지"가 되고
+      사람이 멀쩡한 값을 고치러 간다([172]).
+    ★ **부가세 포함액을 우리 공급가액과 대지 않는다.** 표 원본은 포함액이고 대조는
+      `_공급가액` 키(÷1.1 로 확정한 값, [154])를 쓴다. 원본을 그대로 대면 모든 달이
+      10% 어긋나 보인다.
+    ★ **못 읽은 것을 0 으로 접지 않는다**([169]). 색인·표가 없으면 '차이 없음'·'미발행
+      0건'이 아니라 **'못 셈'** 이라고 말한다.
+    ★ **미발행의 근거는 ERP 진행상태**다. 원장 계산서 칸은 사람 손 입력이라 대부분
+      비어 있어, 그 빈 칸을 세면 '미발행 190건' 같은 없는 숫자가 나온다.
+    ★ 로스터는 서버가 정본이고 화면은 사본이다 — 한쪽만 고치면 제목과 권한이 갈린다.
+    ★ 서류 담당이 **현장 기록(as·pm)을 고치지 못한다.** 열어 주면 서류를 보고 현장
+      사실을 맞추게 되는데, 그 순간 근거가 뒤집힌다.
+    """
+    import json as _json
+    import shutil as _shutil
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as A
+
+    slug = "kim-miyeong"
+    assert slug in A.STAFF_CENTERS, "서버 로스터에 김미영 업무센터가 없다"
+    cfg = A.STAFF_CENTERS[slug]
+    assert cfg["name"] == "김미영"
+
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    i = html.index("const STAFF_CENTERS = {")
+    block = html[i:html.index("\n};", i)]
+    for s2, c2 in A.STAFF_CENTERS.items():
+        assert ("'%s'" % s2) in block, "화면 로스터에 %s 가 없다 — 서버와 갈렸다" % s2
+        assert c2["title"] in block, "%s 의 제목이 서버와 화면에서 다르다" % s2
+
+    perm = A.STAFF_ENTRY_PERMISSIONS.get(slug) or {}
+    assert set(perm) == {"settle"}, "김미영에게 청구·수금 밖의 칸이 열려 있다: %s" % sorted(perm)
+    assert "세금계산서발행일" in perm["settle"] and "입금일" in perm["settle"]
+    assert A._staff_allowed_fields(slug, "as") == set(), "서류 담당이 현장 기록을 고칠 수 있다"
+    assert A._staff_allowed_fields(slug, "pm") == set(), "서류 담당이 점검 기록을 고칠 수 있다"
+
+    src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert '"/api/revenue"' in src and "get_revenue()" in src, "/api/revenue 길이 없다"
+
+    # ── 대조: 표가 있을 때 · 없을 때 ────────────────────────────────────────
+    months = [{"월": "2026-06", "건수": 2, "합계": 75_025_570,
+               "유형": {"정기점검": 42_664_600, "돌발AS": 32_360_970}},
+              {"월": "2026-07", "건수": 1, "합계": 19_747_700,
+               "유형": {"돌발AS": 19_747_700}}]
+    keep_table, keep_index = A.KIM_TABLE_PATH, A.ERP_PRJ_INDEX
+    keep_settle = A.get_settlements
+    tmp = tempfile.mkdtemp(prefix="rev234_")
+    try:
+        A.KIM_TABLE_PATH = os.path.join(tmp, "없는표.json")
+        miss = A._revenue_compare(months)
+        assert miss.get("있음") is False and "안내" in miss, "표가 없는데 조용히 넘어간다"
+        assert "차이 없음이 아" in miss["안내"].replace(" ", "").replace("'", "") or \
+               "'차이 없음'이 아" in miss["안내"], "못 읽은 것을 '차이 없음'으로 읽히게 둔다"
+
+        A.KIM_TABLE_PATH = os.path.join(tmp, "표.json")
+        with open(A.KIM_TABLE_PATH, "w", encoding="utf-8") as fh:
+            _json.dump({"출처": "합성", "부가세": "포함 금액이다",
+                        # 원본(포함액)과 공급가액을 **둘 다** 둔다 — 대조가 어느 쪽을 쓰는지 본다
+                        "정기점검": {"2026-06": 46_931_060},
+                        "유료AS": {"2026-07": 21_722_470},
+                        "정기점검_공급가액": {"2026-06": 42_664_600},
+                        "유료AS_공급가액": {"2026-07": 19_747_700}}, fh, ensure_ascii=False)
+        cmp = A._revenue_compare(months)
+        assert cmp["있음"] and len(cmp["행"]) == 2
+        for row in cmp["행"]:
+            assert row["일치"] and row["차이"] == 0, \
+                "부가세 포함액을 우리 공급가액과 대고 있다: %s" % row
+        assert cmp["요약"]["다른 달"] == 0
+
+        # ── 미발행: 색인이 없을 때는 '0건'이 아니라 '못 셈' ──────────────────
+        A.ERP_PRJ_INDEX = os.path.join(tmp, "없는색인.json")
+        blind = A._revenue_unissued()
+        assert blind.get("있음") is False and "못" in blind.get("안내", ""), \
+            "색인이 없는데 '미발행 0건'이라 말한다"
+
+        A.ERP_PRJ_INDEX = os.path.join(tmp, "색인.json")
+        with open(A.ERP_PRJ_INDEX, "w", encoding="utf-8") as fh:
+            _json.dump({"index": {
+                "UJ2600001": {"state": "3.오더처리", "supply": 1_000_000, "cust": "합성캠프"},
+                "UJ2600002": {"state": "6.세금계산서발행", "supply": 2_000_000},
+                "UJ2600003": {"state": "7.수금완료", "supply": 3_000_000},
+                "UJ2600004": {"state": "8.무상납품완료", "supply": 4_000_000},
+            }}, fh, ensure_ascii=False)
+        A.get_settlements = lambda: [
+            {"업무구분": "돌발AS", "프로젝트NO": "UJ2600001", "완료일": "2026-06-03",
+             "캠프명": "합성캠프", "공급가액": 1_000_000},
+            {"업무구분": "돌발AS", "프로젝트NO": "UJ2600001", "완료일": "2026-06-04"},  # 같은 번호 두 행
+            {"업무구분": "정기점검", "프로젝트NO": "UJ2600002", "완료일": "2026-06-05"},
+            {"업무구분": "정기점검", "프로젝트NO": "UJ2600003", "완료일": "2026-06-06"},
+            {"업무구분": "정기점검", "프로젝트NO": "UJ2600004", "완료일": "2026-06-07"},
+            {"업무구분": "신규납품", "프로젝트NO": "UJ2600001", "완료일": "2026-06-08"},
+            {"업무구분": "돌발AS", "프로젝트NO": "", "완료일": "2026-06-09"},
+            {"업무구분": "돌발AS", "프로젝트NO": "UJ2600001", "출처": "ERP"},
+        ]
+        un = A._revenue_unissued()
+        assert un["있음"] and un["건수"] == 1, "발행된 건·묶음 계산서까지 미발행으로 센다: %s" % un["건수"]
+        assert un["공급가액"] == 1_000_000, "같은 프로젝트를 여러 행만큼 더한다"
+        assert un["근거없음"] == 1, "번호 없는 행을 미발행이라 단정하거나 아예 안 센다"
+        assert "ERP 진행상태" in un["근거"], "미발행 근거가 ERP 진행상태가 아니다(원장 빈 칸은 근거가 아니다)"
+    finally:
+        A.KIM_TABLE_PATH, A.ERP_PRJ_INDEX = keep_table, keep_index
+        A.get_settlements = keep_settle
+        _shutil.rmtree(tmp, ignore_errors=True)
+
+    # ── 화면이 기준을 **말한다** ────────────────────────────────────────────
+    assert 'id="v-revenue"' in html and 'data-v="revenue"' in html, "매출 실적 화면·탭이 없다"
+    assert "세금계산서 발행월" in html, "화면이 어느 기준으로 센 숫자인지 말하지 않는다"
+    assert "발행월" in A._build_revenue.__doc__ if A._build_revenue.__doc__ else True
+    basis = src[src.index("def _build_revenue"):src.index("def get_revenue")]
+    assert "발행월" in basis and "완료월이 아닙니다" in basis, \
+        "서버가 내려보내는 기준 문장에 '발행월/완료월 아님'이 없다"
 
 
 def t192_synthetic_check_is_harmless():
@@ -16455,6 +16587,7 @@ if __name__ == "__main__":
     t231_loop_tick_weight_from_evidence()
     t232_orgchart_floorplan_roster_and_states()
     t233_round_steps_fit_inside_budget()
+    t234_kim_miyeong_center_and_revenue()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

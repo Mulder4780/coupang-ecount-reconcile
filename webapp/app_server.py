@@ -8522,6 +8522,24 @@ def main():
             set_role_pin(staff_pin, slug)
         print("관리자·담당자 PIN 정책을 로컬 해시 설정으로 갱신했습니다.")
         return 0
+    # ★ 새 업무센터 하나만 열어 줄 때 쓴다. `--configure-pins` 는 **모든 담당자 PIN을
+    #   같은 값으로 덮으므로** 센터를 하나 새로 만들었다고 그것을 돌리면 안 된다.
+    #   PIN 은 반드시 **환경변수**로 받는다 — 명령줄 인자는 작업 목록에 그대로 보인다.
+    if "--set-staff-pin" in sys.argv:
+        i = sys.argv.index("--set-staff-pin") + 1
+        slug = sys.argv[i] if i < len(sys.argv) else ""
+        pin = os.environ.get("CSOS_STAFF_PIN", "").strip()
+        if slug not in STAFF_CENTERS:
+            print("등록된 업무센터가 아닙니다:", slug or "(빈 값)")
+            print("고를 수 있는 것:", ", ".join(STAFF_CENTERS))
+            return 2
+        if not pin.isdigit() or not (4 <= len(pin) <= 8):
+            print("CSOS_STAFF_PIN 환경변수에 4~8자리 숫자를 넣어 주세요(명령줄에 적지 마세요).")
+            return 2
+        set_role_pin(pin, slug)
+        print(f"{STAFF_CENTERS[slug]['name']} 업무센터 PIN을 새로 정했습니다 "
+              f"— 기존에 로그인돼 있던 기기는 다시 로그인해야 합니다.")
+        return 0
     icon_sync = sync_installed_app_icons()
     if icon_sync:
         print("  아이콘:", icon_sync)

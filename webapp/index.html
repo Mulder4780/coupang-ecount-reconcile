@@ -4491,6 +4491,11 @@ const STAFF_CENTERS = {
     checklist:['신규 돌발AS 접수와 처리상태 확인','정기점검 예정·실행·미실시 사유 입력','카카오톡 정기점검방·돌발점검방 원본 업로드','택배 발송·현장 조치 완료일과 근거 첨부','거래명세서·세금계산서 발행 확인','입금일·입금액·잔여 미수금 확인','ERP 금액 불일치와 청구 미등록 보완','리모컨 재고(실물 기준)·불출·납품 공유분 취합 확인']},
   'oh-jonghyeon':{name:'오종현',title:'오종현 업무센터',assignee:'오종현',
     checklist:['PO 원본·견적서 수신 여부 확인','구매·입금 원천자료 누락 확인','프로젝트번호·캠프·금액 불일치 보완','리모컨 불출·납품 기록 확인(부산 실물 재고 기준)']},
+  /* 김미영 — 매출·계산서·입금. ★ 이 센터만 **세금계산서 발행월** 기준으로 일한다.
+     로스터는 서버 app_server.STAFF_CENTERS 가 정본이고 여기는 그 사본이다 —
+     한쪽만 고치면 화면 제목과 서버 권한이 갈린다(검증 [234] 가 둘을 대 본다). */
+  'kim-miyeong':{name:'김미영',title:'김미영 쿠팡 매출·정산 업무센터',assignee:'김미영',
+    checklist:['쿠팡 매출 실적(전체) 월별 확인 — 세금계산서 발행월 기준','정기점검·유료AS 실적표와 앱 집계 대조','세금계산서 미발행 건 확인과 발행 요청','입금내역 대사 — 입금일·입금액·미수금','보험사 입금 확인(자기부담금·감가로 청구액과 다를 수 있음)','차이 나는 달의 원인 확인 — 미발행분인지 자료 밀림인지']},
   'yoo-hyeonmin':{name:'유현민',title:'유현민 업무센터',assignee:'유현민',
     checklist:['돌발AS·정기점검 전체 진행상태와 예외 확인','담당자·일정·비용구분 정정 승인','거래서류·세금계산서·입금 근거 확인','앱 DB 저장과 Excel 자동 보관본 상태 확인','확인 필요 항목의 객관 근거와 완료 판정 검토']},
 };
@@ -5353,6 +5358,11 @@ function initStaffCenter(){
   const brand=document.querySelector('.tabbar .brand .bt');
   if(brand) brand.dataset.staff=center.title;
   if(staffSlug==='ryu-jiyeong') loadWorkLogStatus();
+  /* 김미영 센터의 첫 화면은 **매출 실적**이다 — 그 센터가 하는 일이 그것이다.
+     이미 다른 화면으로 옮겨 갔으면 건드리지 않는다(사람이 고른 화면을 빼앗지 않는다). */
+  if(staffSlug==='kim-miyeong') setTimeout(()=>{
+    const v=curView(); if(['ryu','dash'].includes(v)) applyView('revenue');
+  },300);
   setTimeout(()=>maybeShowInstallCard(),1800);
 }
 function openYooIssues(){
@@ -7094,6 +7104,8 @@ function applyView(v){
   }
   if(v==='center'){ renderCenter(); if(!(works.as||[]).length&&PIN&&!LIVE_SYNC.booting) loadSettle().catch(()=>{}); }
   if(v==='remote') renderRemoteCard('remoteHost');
+  // 매출 실적은 **열 때** 읽는다 — 첫 화면부터 부르면 안 볼 사람도 원장을 열게 된다.
+  if(v==='revenue' && PIN) loadRevenue();
   if(v==='sources'){ loadSources(); loadWarehouse(); }
   if(v==='ryu' && PIN && !RYU && !LIVE_SYNC.booting) loadRyuRecords();
   /* 류지영 업무센터로 바로 들어와도 단계 선택지가 차 있어야 한다. 여기를 빼먹으면
@@ -7124,6 +7136,191 @@ function applyView(v){
   uxEvent('view',v);
 }
 /* 사용자가 화면을 옮긴다 — 어디서 왔는지 남겨 뒤로가기가 그리로 돌아가게 한다. */
+/* ══ 매출 실적(전체) — 김미영 업무센터 (2026-08-12 지시) ═══════════════════════
+   사용자 지시: **"김미영 업무센터 하나 추가해서 쿠팡 매출 실적(전체) 포함 관리할 수
+                있게 구성해서 만들어"**
+
+   ★ 이 화면의 기준은 **세금계산서 발행월**이다. 앱의 다른 화면은 완료월로 센다.
+     그래서 기준 문장을 화면 맨 위에 **항상** 적는다 — 안 적으면 맞는 달까지
+     "왜 안 맞지"가 되고, 사람이 멀쩡한 값을 고치러 간다.
+   ★ 차이의 원인을 화면이 단정하지 않는다. 후보 둘(아직 안 끊긴 건 · 자료 밀림)의
+     근거를 아래에 같이 놓고 사람이 고른다([172]).
+   ★ 못 읽은 것을 0 으로 그리지 않는다 — 서버가 '못 셈'이라고 하면 그대로 적는다([169]). */
+let REV=null, revBusy=false;
+async function loadRevenue(force){
+  if(revBusy) return;
+  revBusy=true;
+  const basis=$('revBasis');
+  if(basis&&!REV) basis.textContent='매출 실적을 불러오는 중…';
+  try{
+    REV=await api('/api/revenue'+(force?'?ts='+Date.now():''));
+  }catch(e){
+    if(basis) basis.innerHTML=`<b style="color:#B42318">매출 실적을 불러오지 못했습니다 — ${esc2(e.message||e)}</b>`;
+  }finally{ revBusy=false; }
+  renderRevenue();
+}
+function revMonthRows(){
+  const pick=($('revYearKind')||{}).value||'';
+  const kinds=(REV&&REV.유형순서)||[];
+  const cols=pick?[pick]:kinds;
+  return {cols, rows:((REV&&REV.months)||[])};
+}
+function renderRevenue(){
+  if(!REV) return;
+  const {cols,rows}=revMonthRows();
+  const pick=($('revYearKind')||{}).value||'';
+  const cmp=REV.대조||{}, un=REV.미발행||{};
+
+  /* 기준·출처·만든 때 — 낡은 근거로 자신 있게 말하지 않기 위해 항상 같이 적는다 */
+  const notes=[`<b>${esc2(REV.기준||'')}</b>`,
+               `근거 ${esc2(REV.출처||'')}`,
+               `만든 때 ${esc2(REV.만든때||'-')}`];
+  if(REV.원본오류) notes.push(`<b style="color:#B42318">원본을 읽다 막혔습니다 — ${esc2(REV.원본오류)}</b>`);
+  if(REV.안내) notes.push(`<b style="color:#B54708">${esc2(REV.안내)}</b>`);
+  $('revBasis').innerHTML=notes.join(' · ');
+
+  const sumPick=pick?rows.reduce((a,m)=>a+(+(m.유형||{})[pick]||0),0):+REV.total||0;
+  const diffN=(cmp.요약||{})['다른 달'];
+  $('revKpis').innerHTML=`
+    <div class="kpi accent"><div class="v">${fmt(sumPick)}</div><div class="l">${pick?esc2(pick)+' 공급가액':'매출 합계(공급가액)'}</div></div>
+    <div class="kpi"><div class="v">${fmt(REV.건수||0)}</div><div class="l">계산서 건수</div></div>
+    <div class="kpi ${diffN?'warn':''}"><div class="v">${cmp.있음?((cmp.요약||{})['일치한 달']+' / '+diffN):'-'}</div><div class="l">실적표와 일치 / 다른 달</div></div>
+    <div class="kpi ${un.있음&&un.건수?'warn':''}"><div class="v">${un.있음?fmt(un.공급가액||0):'못 셈'}</div><div class="l">아직 계산서 안 끊긴 금액</div></div>`;
+
+  /* 월별 × 유형 */
+  const head=`<tr><th>발행월</th>${cols.map(c=>`<th class="num">${esc2(c)}</th>`).join('')}<th class="num">건수</th><th class="num">합계</th></tr>`;
+  const body=rows.map(m=>{
+    const k=m.유형||{};
+    const sum=pick?(+k[pick]||0):(+m.합계||0);
+    return `<tr><td>${esc2(m.월)}</td>${cols.map(c=>`<td class="num">${(+k[c])?fmt(k[c]):'-'}</td>`).join('')}<td class="num">${fmt(m.건수)}</td><td class="num">${fmt(sum)}</td></tr>`;
+  }).join('');
+  const foot=`<tr style="font-weight:700;background:#F4F7FF"><td>합계</td>${
+    cols.map(c=>`<td class="num">${fmt(rows.reduce((a,m)=>a+(+(m.유형||{})[c]||0),0))}</td>`).join('')
+    }<td class="num">${fmt(rows.reduce((a,m)=>a+(+m.건수||0),0))}</td><td class="num">${fmt(sumPick)}</td></tr>`;
+  $('revGrid').innerHTML=rows.length?`<thead>${head}</thead><tbody>${body}${foot}</tbody>`
+    :`<thead>${head}</thead><tbody><tr><td colspan="9">계산서 자료가 없습니다 — 매출이 없는 것이 아니라 자료가 아직 안 들어온 것일 수 있습니다</td></tr></tbody>`;
+
+  /* 김미영 실적표 대조 */
+  if(!cmp.있음){
+    $('revCompare').innerHTML=`<div class="fnote"><b>실적표 대조</b> — ${esc2(cmp.안내||'대조할 자료가 없습니다')}</div>`;
+  }else{
+    const s=cmp.요약||{};
+    const cr=(cmp.행||[]).map(r=>`<tr${r.일치?'':' style="background:#FFF7ED"'}>
+      <td>${esc2(r.월)}</td><td>${esc2(r.항목)}</td>
+      <td class="num">${fmt(r.우리)}</td><td class="num">${fmt(r.김미영)}</td>
+      <td class="num" style="color:${r.일치?'#0B7A3B':'#B54708'};font-weight:${r.일치?400:700}">${r.일치?'일치':fmt(r.차이)}</td></tr>`).join('');
+    $('revCompare').innerHTML=`
+      <h3 style="margin:0 0 6px">실적표 대조 — 김미영 표 vs 앱 집계</h3>
+      <div class="fnote">${esc2(cmp.부가세||'')} ${esc2(cmp.환산근거||'')}<br>
+        일치 <b>${s['일치한 달']||0}</b>달 · 다른 달 <b>${s['다른 달']||0}</b> ·
+        우리 합 <b>${fmt(s['우리 합'])}</b> · 실적표 합 <b>${fmt(s['김미영 합'])}</b> ·
+        차이 <b style="color:#B54708">${fmt(s['차이 합'])}</b>
+        <br>차이가 음수면 <b>우리 쪽이 적다</b>는 뜻입니다 — 아직 안 끊긴 건이거나 자료가 덜 들어온 것입니다. 아래 목록에서 근거를 봅니다.
+        ${(cmp.주의||[]).map(x=>`<br>· ${esc2(x)}`).join('')}</div>
+      <div class="gridwrap"><table class="grid">
+        <thead><tr><th>발행월</th><th>항목</th><th class="num">앱 집계</th><th class="num">김미영 표</th><th class="num">차이</th></tr></thead>
+        <tbody>${cr}</tbody></table></div>`;
+  }
+
+  /* 아직 계산서가 안 끊긴 건 — 근거는 ERP 진행상태다(원장 빈 칸이 아니다) */
+  if(!un.있음){
+    $('revUnissued').innerHTML=`<div class="fnote"><b>미발행</b> — ${esc2(un.안내||'세지 못했습니다')}</div>`;
+  }else{
+    const per=Object.entries(un.항목별||{}).map(([k,v])=>`${esc2(k)} ${fmt(v.건수)}건 ${fmt(v.공급가액)}원`).join(' · ');
+    const ur=(un.행||[]).map(r=>`<tr><td>${esc2(r.프로젝트NO)}</td><td>${esc2(r.업무구분)}</td>
+      <td>${esc2(r.완료월||'-')}</td><td>${esc2(r.캠프명||'-')}</td>
+      <td class="num">${fmt(r.공급가액)}</td><td>${esc2(r.ERP진행상태)}</td></tr>`).join('');
+    $('revUnissued').innerHTML=`
+      <h3 style="margin:0 0 6px">아직 세금계산서가 안 끊긴 건</h3>
+      <div class="fnote">근거 ${esc2(un.근거||'')} · ERP 색인 ${esc2(un.색인시각||'-')} ·
+        모두 <b>${fmt(un.건수)}</b>건 <b>${fmt(un.공급가액)}</b>원 (${per||'-'})
+        ${un.더있음?`<br>· 금액 큰 ${fmt((un.행||[]).length)}건만 보입니다 — <b>${fmt(un.더있음)}건 더</b> 있습니다(엑셀로 받으면 전부 나옵니다)`:''}
+        ${un.근거없음?`<br>· ${esc2(un.근거없음뜻||'')} — <b>${fmt(un.근거없음)}건</b>`:''}</div>
+      <div class="gridwrap"><table class="grid">
+        <thead><tr><th>프로젝트NO</th><th>업무구분</th><th>완료월</th><th>캠프명</th><th class="num">공급가액</th><th>ERP 진행상태</th></tr></thead>
+        <tbody>${ur||'<tr><td colspan="6">해당 없음</td></tr>'}</tbody></table></div>`;
+  }
+}
+function revExcel(){
+  if(!REV){ toast('먼저 매출 실적을 불러와 주세요'); return; }
+  const out=[];
+  (REV.months||[]).forEach(m=>{
+    const k=m.유형||{};
+    out.push({구분:'월별 매출(발행월)', 발행월:m.월, 건수:m.건수, 합계:m.합계,
+      ...Object.fromEntries((REV.유형순서||[]).map(c=>[c,+k[c]||0]))});
+  });
+  ((REV.대조||{}).행||[]).forEach(r=>out.push({구분:'실적표 대조', 발행월:r.월, 항목:r.항목,
+    앱집계:r.우리, 실적표:r.김미영, 차이:r.차이, 판정:r.일치?'일치':'다름'}));
+  ((REV.미발행||{}).행||[]).forEach(r=>out.push({구분:'미발행', 프로젝트NO:r.프로젝트NO,
+    업무구분:r.업무구분, 완료월:r.완료월, 캠프명:r.캠프명, 공급가액:r.공급가액,
+    ERP진행상태:r.ERP진행상태}));
+  exportRowsXlsx('쿠팡매출실적_발행월기준', out);
+}
+/* 캡처 — 카톡으로 그대로 보낼 그림. 화면 글꼴을 그대로 쓰고(uiFont) 배경은 **항상 흰색**이다
+   (기기가 어둡게 켜져 있어도 그림은 같아야 한다 — 검증 [91] 과 같은 이유). */
+async function revCapture(){
+  if(!REV){ toast('먼저 매출 실적을 불러와 주세요'); return; }
+  const rows=REV.months||[], cols=(REV.유형순서||[]);
+  const cmp=REV.대조||{}, un=REV.미발행||{}, cr=(cmp.행||[]);
+  const S=2, W=1180, Mg=28, RH=27;
+  // 높이는 실측으로 맞춘 값이다 — 넉넉히 잡으면 카톡에서 **흰 여백이 절반**인 그림이 된다.
+  const H=190+ (rows.length+2)*RH + 56 + (cr.length+2)*RH + 30;
+  const cv=document.createElement('canvas');
+  cv.width=W*S; cv.height=H*S;
+  const x=cv.getContext('2d'); x.scale(S,S);
+  const F=(sz,w=400)=>`${w} ${sz}px ${uiFont()}`;
+  x.fillStyle='#fff'; x.fillRect(0,0,W,H);
+  x.fillStyle='#0E1B3F'; x.fillRect(0,0,W,84);
+  x.fillStyle='#fff'; x.font=F(23,800); x.fillText('쿠팡 매출 실적 (전체)',Mg,38);
+  x.fillStyle='#BFD0FF'; x.font=F(13);
+  x.fillText(`세금계산서 발행월 기준 · ${REV.출처||''} · 만든 때 ${REV.만든때||''}`,Mg,62);
+  x.fillStyle='#0E1B3F'; x.font=F(15,700); x.fillText('월별 매출 — 발행월 기준',Mg,116);
+  let y=140;
+  const cw=(W-Mg*2-110)/(cols.length+1);
+  const cellX=i=>Mg+110+cw*i;
+  x.font=F(13,700); x.fillStyle='#334';
+  x.fillText('발행월',Mg,y);
+  cols.forEach((c,i)=>x.fillText(c,cellX(i),y));
+  x.fillText('합계',cellX(cols.length),y);
+  y+=8; x.strokeStyle='#D6DEF5'; x.beginPath(); x.moveTo(Mg,y); x.lineTo(W-Mg,y); x.stroke(); y+=18;
+  x.font=F(13);
+  rows.forEach(m=>{
+    const k=m.유형||{};
+    x.fillStyle='#111'; x.fillText(m.월,Mg,y);
+    cols.forEach((c,i)=>{ x.fillStyle=(+k[c])?'#111':'#9AA6BF'; x.fillText((+k[c])?fmt(k[c]):'-',cellX(i),y); });
+    x.fillStyle='#111'; x.font=F(13,700); x.fillText(fmt(m.합계),cellX(cols.length),y); x.font=F(13);
+    y+=RH;
+  });
+  x.font=F(13,800); x.fillStyle='#0E1B3F'; x.fillText('합계',Mg,y);
+  cols.forEach((c,i)=>x.fillText(fmt(rows.reduce((a,m)=>a+(+(m.유형||{})[c]||0),0)),cellX(i),y));
+  x.fillText(fmt(REV.total||0),cellX(cols.length),y);
+  y+=RH+22;
+  x.font=F(15,700); x.fillStyle='#0E1B3F'; x.fillText('실적표 대조 — 김미영 표 vs 앱 집계',Mg,y); y+=24;
+  x.font=F(12); x.fillStyle='#5A6B92';
+  x.fillText(cmp.있음?`일치 ${(cmp.요약||{})['일치한 달']}달 · 다른 달 ${(cmp.요약||{})['다른 달']} · 차이 합 ${fmt((cmp.요약||{})['차이 합'])}원 (음수면 우리 쪽이 적다)`
+                     :(cmp.안내||'대조할 자료가 없습니다'),Mg,y);
+  y+=22; x.font=F(13,700); x.fillStyle='#334';
+  ['발행월','항목','앱 집계','김미영 표','차이'].forEach((t,i)=>x.fillText(t,Mg+[0,110,260,430,600][i],y));
+  y+=8; x.beginPath(); x.moveTo(Mg,y); x.lineTo(W-Mg,y); x.stroke(); y+=18; x.font=F(13);
+  cr.forEach(r=>{
+    x.fillStyle='#111'; x.fillText(r.월,Mg,y); x.fillText(r.항목,Mg+110,y);
+    x.fillText(fmt(r.우리),Mg+260,y); x.fillText(fmt(r.김미영),Mg+430,y);
+    x.fillStyle=r.일치?'#0B7A3B':'#B54708'; x.font=F(13,r.일치?400:700);
+    x.fillText(r.일치?'일치':fmt(r.차이),Mg+600,y); x.font=F(13);
+    y+=RH;
+  });
+  y+=14; x.fillStyle='#F4F7FF'; x.fillRect(Mg,y-16,W-Mg*2,54);
+  x.fillStyle='#2452E6'; x.font=F(12,700);
+  x.fillText(un.있음?`아직 계산서가 안 끊긴 건 ${fmt(un.건수)}건 ${fmt(un.공급가액)}원 — 근거는 ERP 진행상태(6·7 아님)입니다`
+                    :`미발행은 세지 못했습니다 — ${un.안내||''}`,Mg+12,y+4);
+  x.fillStyle='#5A6B92'; x.font=F(12);
+  x.fillText('기준이 다르면 숫자는 다릅니다 — 이 그림은 모두 세금계산서 발행월 기준입니다. 완료월 기준 화면(정산)과 직접 빼지 마세요.',Mg+12,y+26);
+  const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
+  if(!blob){ notice('캡처 이미지를 만들지 못했습니다'); return; }
+  downloadBlobFile(blob,`쿠팡매출실적_${todayISO()}.png`,'매출 실적 캡처를 저장했습니다');
+  try{ await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]); toast('클립보드에도 복사했습니다'); }catch(e){}
+}
+
 function show(v){
   const from = curView();
   if(v !== from) navPush({t:'tab', from:from});
