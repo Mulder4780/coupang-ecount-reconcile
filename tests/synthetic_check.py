@@ -15387,7 +15387,9 @@ def t230_ai_tier_picks_model_and_effort():
     assert 'record["ai_tier"] = chosen' in disp, \
         "고른 것을 티켓에 안 적는다 — 왜 그 모델로 돌았는지 물을 수 없다"
 
-    # ── [231] 사람이 친 말도 등급을 매긴다 (2026-08-13 지시)
+    # ── 사람이 친 말도 등급을 매긴다 (2026-08-13 지시 · 같은 `[230]` 안이다.
+    #    번호를 새로 따지 않는 이유: 같은 모듈·같은 지시 줄기이고, `[231]` 은 옆 세션이
+    #    `loop_policy` 에 이미 썼다. 번호가 겹치면 어느 쪽을 고쳐야 할지 아무도 모른다.)
     #     ★ **아끼는 쪽으로 기울지 않는다.** 못 가르면 모델은 그대로 두고 노력만 낮춘다 —
     #       싸게 틀리는 것이 비싸게 맞는 것보다 훨씬 비싸다(`[172]`).
     assert T.pick_for_prompt("지금 몇 건이야")["갈래"] == "질문"
@@ -15428,8 +15430,9 @@ def t230_ai_tier_picks_model_and_effort():
     assert "ai_tier.py" in json.dumps(st.get("hooks", {}), ensure_ascii=False), \
         "판정 훅이 settings.json 에 안 붙어 있다 — 만들었지만 안 도는 자리다(`[228]`)"
 
-    print("  [230]·[231] AI 모델·노력 자동 선택 — 원인/설계는 opus·조회는 sonnet · haiku 배제 · "
-          "확인된 깃발만(--model) · 못 가르면 모델 유지·노력만 낮춤 · 바뀔 때만 알림 ✅")
+    print("  [230] AI 모델·노력 자동 선택 — 원인/설계는 opus·조회는 sonnet · haiku 배제 · "
+          "--effort 는 물어본 뒤에만 · 사람 말도 등급(못 가르면 모델 유지·노력만 낮춤) · "
+          "바뀔 때만 알림 ✅")
 
 
 def t220_flow_yes_no_cycles():
