@@ -4155,6 +4155,10 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     --org-zmgmt:#EAF2FF;--org-zfield:#EAF9F0;--org-zai:#F1ECFF;
     --org-chair:#C9D3E4;--org-chair-line:rgba(30,50,90,.16);--org-mon:#EEF2F9}
   #v-org{color:var(--org-ink);max-width:100%}
+  /* ★ 잘림 수정(2026-08-12): 조직도 뷰는 .shell 밖(body 직속)이라 사이드바(216px)
+     오프셋을 못 받아 왼쪽이 사이드바 뒤로 깔렸다. 데스크탑에서만 .shell 과 같은
+     오프셋을 준다(모바일은 하단바라 오프셋 없음). width:auto 라 넘치지 않는다. */
+  @media(min-width:900px){#v-org.view{margin-left:216px;padding-left:30px;padding-right:30px}}
   /* 머리 — hero + legend (그대로 유지) */
   #v-org .org-hero{position:relative;overflow:hidden;border-radius:18px;margin:2px 0 12px;max-width:100%;
     background:linear-gradient(135deg,#0E1B3F,#2452E6);color:#fff;padding:18px 18px 16px;
