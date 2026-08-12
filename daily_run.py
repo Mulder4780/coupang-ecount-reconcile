@@ -280,6 +280,44 @@ def over_budget():
     return False
 
 
+STEP_FLOOR_SEC = int(os.environ.get("COUPANG_STEP_FLOOR_SEC", "120"))
+
+
+def budget_left_sec():
+    """회차 예산이 몇 초 남았나. 예산 시계가 없으면 None(그때는 줄이지 않는다)."""
+    if not _ROUND_T0[0]:
+        return None
+    return ROUND_BUDGET_MIN * 60 - (datetime.now() - _ROUND_T0[0]).total_seconds()
+
+
+def fit_timeout(timeout):
+    """단계의 시간 제한을 **남은 예산 안으로** 줄인다 (2026-08-12 · 분담판 [38]).
+
+    ★ 예산이 있는데도 회차가 292분을 돌아 **작업 스케줄러의 3시간 제한에 나무째
+      끊겼다**(0xC000013A · `일일자동대조`·`원본자료자동정리` 둘 다). 예산은 150분인데
+      어떻게 292분인가 — `over_budget()` 은 단계 **사이**에서만 보기 때문이다.
+      145분째에 시작한 단계가 제 시간 제한 60분을 그대로 들고 가면 205분이 되고,
+      그 뒤 정리 단계까지 붙으면 292분이 된다. 예산이 **경계가 아니라 권고**였다.
+    ★ 그래서 **범인 단계를 지목하지 않고** 고칠 수 있다. 어느 단계가 오래 걸리는지는
+      아직 모르고(단계별 시간 기록은 어제 붙었다), 모르는 채로 제한시간을 손대는 것은
+      짐작이다. 그러나 "어떤 단계도 남은 예산보다 오래 받을 수 없다"는 **모든 단계에
+      참인 규칙**이라 짐작이 아니다. 범인이 누구든 회차는 예산 안에서 끝난다.
+    ★ 끊기는 것과 예산 초과는 결과가 다르다. 끊기면 잠금이 남아 **다음 회차가 조용히
+      건너뛰고**(스케줄러는 '성공'이라 적는다) 리포트가 한 줄도 안 써진다. 예산으로
+      끝내면 완주로 남고 못 한 몫은 다음 회차가 이어서 한다 — 그게 `[180]` 의 뜻이다.
+    ★ **바닥을 둔다**(STEP_FLOOR_SEC). 예산이 다 됐다고 3초를 주면 그 단계는 시작하자마자
+      죽어 '실패'로 적히는데, 그건 사실이 아니다(시간을 안 준 것이다). 예산이 바닥나면
+      애초에 `over_budget()` 이 단계를 건너뛰므로 여기 오는 것은 자투리가 남은 때뿐이다.
+    """
+    left = budget_left_sec()
+    if left is None:
+        return timeout, False
+    room = max(STEP_FLOOR_SEC, int(left))
+    if timeout <= room:
+        return timeout, False
+    return room, True
+
+
 def run(name, args, timeout=600, retry=None):
     """한 단계를 돌린다. 실패하면 **한 번만** 쉬었다 다시 해 본다.
 
@@ -300,7 +338,14 @@ def run(name, args, timeout=600, retry=None):
         retry = 1 if _retryable(args) else 0
     note_progress(name, "시작", {"명령": os.path.basename(str(args[0])) if args else ""})
     for attempt in range(retry + 1):
-        got = _run_once(name, args, timeout)
+        # 시도마다 다시 잰다 — 첫 시도가 예산을 먹었으면 재시도는 더 짧게 받는다.
+        fitted, cut = fit_timeout(timeout)
+        got = _run_once(name, args, fitted)
+        if cut:
+            got["out"] = ((got.get("out") or "") +
+                          f"\n[예산 맞춤] 시간 제한을 {timeout // 60}분 → {fitted // 60}분으로 줄였습니다"
+                          f" — 회차 예산 {ROUND_BUDGET_MIN}분을 넘기면 작업 스케줄러가"
+                          f" 회차를 통째로 끊습니다. 못 끝낸 몫은 다음 회차가 이어서 합니다").strip()
         if got.get("returncode") == INCREMENTAL_RETURN_CODE:
             # 실패 재시도나 resolve로 보내지 않는다. 같은 멱등 명령을 영속 큐에 두고
             # watchdog이 다음 30분 회차에 이어 간다.

@@ -29,6 +29,7 @@ import os
 import re
 import sys
 import time
+import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
@@ -75,6 +76,21 @@ def safe(s, n=60):
     return re.sub(r"\s+", " ", s)[:n]
 
 
+# ── 시간 예산 (2026-08-12 · 분담판 [38]) ─────────────────────────────────────
+# 이 회차는 작업 스케줄러 제한(PT3H)에 걸려 **매일 나무째 끊기고 있었다**
+# (0xC000013A). 끊기면 스케줄러는 그 사실을 결과 코드로만 남기고 리포트는 한 줄도
+# 안 써진다 — 그래서 반년을 돌면서도 아무 화면에 안 떴다([228] 이 잡아낸 것이 이것이다).
+# 링크 하나하나가 Z:(SMB) 왕복이라 원본이 늘면 시간도 같이 는다. 그러니 "빠르게
+# 만든다"로는 끝이 없고, **끝나는 시각을 정하는 것**이 답이다.
+BUDGET_MIN = int(os.environ.get("COUPANG_TIDY_BUDGET_MIN", "100"))
+_T0 = time.time()
+_LEFT = [0]                      # 시간이 모자라 못 건 링크 수
+
+
+def out_of_time():
+    return (time.time() - _T0) / 60 >= BUDGET_MIN
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", action="store_true")
@@ -93,6 +109,9 @@ def main():
     if not a.report:
         # 1) 종류별 바로가기 — 무작위 이름을 사람이 읽는 이름으로 건다.
         for r in rows:
+            if out_of_time():
+                _LEFT[0] += 1
+                continue
             kind = r.get("kind", "기타")
             if kind in ("밴드", "기타") or r.get("ext") not in ("xlsx", "pdf"):
                 continue        # 밴드 원본(수천 장)·기타는 링크로 늘리지 않는다
@@ -110,6 +129,9 @@ def main():
         #    "그 달에 무슨 일이 있었나"를 한 폴더에서 본다.
         for r in rows:
             if r.get("ext") != "pdf":
+                continue
+            if out_of_time():
+                _LEFT[0] += 1
                 continue
             slip = r.get("slip")
             ym = slip[:7] if slip else (r.get("date") or "")[:7]

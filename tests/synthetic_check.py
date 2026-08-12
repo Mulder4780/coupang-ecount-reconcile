@@ -13615,11 +13615,21 @@ def t207_live_revision_is_shared_and_nonblocking():
         assert changed["phase"] == "archive_pending" and changed["outbox_pending"] == 1
         assert changed["data_updated_at"] != first["data_updated_at"], changed
 
+        # ★ 진행 시각(updated_at)은 반드시 앱 자료 변경시각(app_changed_at=지금)보다
+        #   '뒤'여야 running["state_updated_at"] 이 changed 것보다 실제로 앞선다. 날짜를
+        #   박아 두면(예 2026-08-11) 달력이 넘어간 다음 날부터 그 값이 과거가 되어
+        #   data_updated_at(오늘)에 묻히고, 이 검증이 근거 없이 무너진다. 그래서 실행 시각
+        #   대비 미래로 파생한다. 완료 회차 시각(finished_at/history)은 과거 그대로 둔다 —
+        #   last_completed_at→revision·data_updated_at 에 쓰여 changed 와 같아야 하기 때문.
+        from datetime import datetime as _dt207, timezone as _tz207, timedelta as _delta207
+        pipeline_updated_at = (
+            (_dt207.now(_tz207.utc) + _delta207(hours=1)).isoformat(timespec="seconds")
+        )
         state_path.write_text(json.dumps({
             "version": 1, "running": True,
             "active_run_id": "t207-running",
             "last_run": {"run_id": "t207-running", "status": "running", "current_stage": "ERP 대조",
-                         "updated_at": "2026-08-11T23:01:00+00:00"},
+                         "updated_at": pipeline_updated_at},
             "history": [{"status": "success", "finished_at": "2026-08-11T03:00:00+00:00"}],
         }), encoding="utf-8")
         from automation_pipeline import PipelineLock
