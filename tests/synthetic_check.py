@@ -15150,6 +15150,24 @@ def t232_orgchart_floorplan_roster_and_states():
     finally:
         A._presence_map().pop(slug0, None)
 
+    # ★ 관리자 로그인은 **센터장(유현민) 자리**다 (2026-08-12 지시: "유현민은 여기에
+    #   접속되어있으면 온라인으로 항상 표기해야지"). 전에는 role=="staff" 만 찍어서,
+    #   관리자로 앱을 열면 **아무 자리도 안 찍혔다** — 본인이 화면을 보고 있는데 제
+    #   자리만 '앱 접속 기록 없음'이었다. 슬러그가 로스터에 실재해야 한다 — 오타면
+    #   오류 없이 영영 안 찍힌다(빈칸과 구별이 안 되는 종류의 잘못, [165]).
+    adm_slug = getattr(A, "ADMIN_PRESENCE_SLUG", "")
+    assert adm_slug in A.STAFF_CENTERS, \
+        "ADMIN_PRESENCE_SLUG 가 로스터에 없는 자리다: %r" % (adm_slug,)
+    A._presence_map()[adm_slug] = _tt.time()
+    try:
+        m3 = {z["key"]: z for z in A.get_orgchart()["zones"]}["mgmt"]
+        adm_name = A.STAFF_CENTERS[adm_slug].get("name", adm_slug)
+        pa = next(p for p in m3["people"] if p["name"] == adm_name)
+        assert pa["state"] == "busy" and "온라인" in (pa.get("msg") or ""), \
+            "관리자 자리가 접속을 찍어도 온라인이 안 된다: %s → %s" % (adm_name, pa["state"])
+    finally:
+        A._presence_map().pop(adm_slug, None)
+
     # ② 딱지: 유현민 '센터장'(예전 '대표'에서 바꿈), 차동호 '팀장'.
     yoo = next(p for p in zmap["mgmt"]["people"] if p["name"] == "유현민")
     assert yoo.get("badge") == "센터장", "유현민 딱지가 '센터장' 이 아니다: %r" % yoo.get("badge")
@@ -15185,6 +15203,15 @@ def t232_orgchart_floorplan_roster_and_states():
     assert "센터장" in fn and '"대표"' not in fn, \
         "유현민 딱지가 아직 '대표' 다(로스터 정본과 어긋남)"
 
+    # 접속 찍기: 사람이 로그인한 쿠키 세션(staff·admin)만이다.
+    auth_fn = server.split("    def _auth(self):", 1)[1].split("\n    def ", 1)[0]
+    assert "presence_touch(ADMIN_PRESENCE_SLUG)" in auth_fn, \
+        "_auth 가 관리자 접속을 안 찍는다 — 관리자로 열면 센터장 자리가 영영 '기록 없음'이다"
+    # ⚠ X-Pin(로컬 스크립트) 길에서는 **찍지 않는다** — 거기서 찍으면 워치독·회차가
+    #    도는 내내 사람이 접속한 것처럼 보인다. 잰 것이 아니라 지어낸 신호다([169]).
+    assert "presence_touch" not in auth_fn.split("_locked(", 1)[-1], \
+        "X-Pin(사람 아님) 길에서 접속을 찍는다 — 스크립트가 도는 내내 온라인으로 보인다"
+
     # 화면: 조직도 탭·뷰가 있다.
     assert 'data-v="org"' in live and 'id="v-org"' in live, "조직도 탭/뷰가 없다"
 
@@ -15192,6 +15219,23 @@ def t232_orgchart_floorplan_roster_and_states():
     css = live.split('<style id="org-style">', 1)[1].split("</style>", 1)[0]
     assert "#v-org .org-" in css, "org 규칙이 #v-org 아래로 좁혀져 있지 않다"
     assert "#v-org .org-ws" in css and "#v-org .org-chair" in css, "의자·책상 규칙이 없다"
+
+    # ★ 책상은 어느 방에서든 **같은 크기**다 (2026-08-12 지시 "각 카드 크기 똑같이").
+    #   1fr 로 늘리면 사람이 적은 방의 책상만 커진다 — 실측 관리팀 228 · 현장 205 ·
+    #   조수 176 으로 셋 다 달랐다. 트랙 폭을 고정해야 셋이 같아진다.
+    assert "repeat(auto-fill,var(--org-w))" in css and "--org-w:" in css, \
+        "책상 트랙이 고정폭(--org-w)이 아니다 — 방마다 책상 크기가 달라진다"
+    assert ".org-zone.ai .org-desks" not in css, \
+        "방별 책상 폭 override 가 되살아났다 — 그 방 책상만 크기가 달라진다"
+    # 한 줄의 책상 높이가 같아야 의자도 한 줄로 맞는다 — 책상이 칸을 꽉 채운다.
+    assert "flex:1 0 auto" in css, \
+        "책상이 칸 높이를 안 채운다 — 카드 높이가 제각각이 되고 의자 줄이 어긋난다"
+    assert "margin-top:auto" in css, "상태 줄이 책상 아래에 안 붙는다"
+    # 긴 이름이 카드 하나만 세로로 늘려 그 줄 전체를 어긋나게 했다(다섯 줄로 쪼개졌다).
+    # 한 줄로 자르되 **전체는 title 로 남긴다** — 잘라 놓고 못 읽게 두지 않는다.
+    assert "#v-org .org-nm-t" in css and 'class="org-nm-t"' in live, \
+        "이름 한 줄 자르기(.org-nm-t)가 없다 — 긴 이름이 카드를 늘린다"
+    assert 'title="${esc2(p.name)}' in live, "잘린 이름을 title 로 안 남긴다"
     for bare in (".ws{", ".chair{", ".desk{"):
         assert bare not in css, "접두 없는 전역 규칙이 들어왔다: " + bare
 
@@ -15219,7 +15263,8 @@ def t232_orgchart_floorplan_roster_and_states():
     png = live.split("function orgToPng(", 1)[1].split("\nfunction ", 1)[0]
     assert "uiFont" in png, "이미지 캡처가 uiFont 를 안 쓴다(글꼴을 손으로 박았다)"
 
-    print("  [232] 조직도 평면도 — 로스터 정본·AI 자리 셋·상태 넷·아코디언·#v-org 좁힘 ✅")
+    print("  [232] 조직도 평면도 — 로스터 정본·AI 자리 셋·상태 넷·아코디언·#v-org 좁힘 · "
+          "관리자=센터장 접속(X-Pin 은 아님) · 책상 폭 고정·높이 균일·이름 한 줄 ✅")
 
 
 def t230_ai_tier_picks_model_and_effort():

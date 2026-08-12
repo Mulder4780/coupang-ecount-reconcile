@@ -4199,10 +4199,18 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   @media(hover:hover){#v-org .org-zone:hover{box-shadow:0 6px 24px rgba(16,30,70,.10)}}
   #v-org .org-zh{display:flex;align-items:center;gap:8px;margin:0 2px 12px;font-size:13px;font-weight:850;color:var(--org-ink)}
   #v-org .org-zh .tag{margin-left:auto;font-size:11px;font-weight:700;color:var(--org-ink2)}
-  /* 책상 칸 폭은 방마다 안 다르게 — 조수 자리도 관리팀과 같은 책상·의자다 */
-  #v-org .org-desks{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:16px 12px}
-  /* ── 워크스테이션 = 의자 + 책상 (탑다운) ─────────────────────────────────── */
-  #v-org .org-ws{position:relative;min-width:0;padding-bottom:16px}
+  /* ── 책상은 어느 방에서든 **같은 크기**다 (2026-08-12 지시).
+     1fr 로 늘리면 사람이 적은 방의 책상만 커진다 — 실측 관리팀 228 · 현장 205 ·
+     조수 176 으로 셋 다 달랐다. 그래서 트랙 폭을 고정한다. 남는 자리는 빈 바닥으로
+     둔다 — 책상은 방이 넓다고 커지는 물건이 아니다. ── */
+  #v-org{--org-w:180px}
+  @media (max-width:1180px){#v-org{--org-w:172px}}
+  #v-org .org-desks{display:grid;grid-template-columns:repeat(auto-fill,var(--org-w));
+    gap:16px 12px;justify-content:start;align-items:stretch}
+  /* ── 워크스테이션 = 의자 + 책상 (탑다운). 책상이 칸을 꽉 채워야 한 줄의 책상
+     높이가 같아지고, 그래야 의자도 한 줄로 맞는다(의자는 칸 맨 아래에 붙는다). ── */
+  #v-org .org-ws{position:relative;min-width:0;padding-bottom:16px;
+    display:flex;flex-direction:column}
   #v-org .org-chair{position:absolute;left:50%;bottom:0;transform:translateX(-50%);
     width:44px;height:28px;border-radius:9px 9px 13px 13px;background:var(--org-chair);
     border:1.5px solid var(--org-chair-line);z-index:0}
@@ -4212,7 +4220,8 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   #v-org .org-desk{position:relative;z-index:1;width:100%;text-align:left;cursor:pointer;font-family:inherit;
     color:var(--org-ink);background:var(--org-card);border:1px solid var(--org-line);
     border-radius:14px 14px 12px 12px;padding:11px 12px 12px;box-shadow:var(--org-sh);
-    overflow:hidden;display:block;transition:transform .16s,box-shadow .22s}
+    overflow:hidden;display:flex;flex-direction:column;flex:1 0 auto;
+    transition:transform .16s,box-shadow .22s}
   #v-org .org-desk::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--org-off)}
   #v-org .org-desk.s-busy::before{background:var(--org-busy)} #v-org .org-desk.s-idle::before{background:var(--org-idle)}
   #v-org .org-desk.s-live::before{background:var(--org-live)} #v-org .org-desk.s-off::before{background:var(--org-off)}
@@ -4238,11 +4247,18 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     font-weight:850;font-size:14px;color:#fff;letter-spacing:-.5px;position:relative;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.18)}
   #v-org .org-avatar::after{content:"";position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.34),transparent 55%)}
   #v-org .org-who{min-width:0;flex:1}
-  #v-org .org-nm{font-size:14.5px;font-weight:850;letter-spacing:-.3px;display:flex;align-items:center;gap:6px;line-height:1.2;color:var(--org-ink)}
+  #v-org .org-nm{font-size:14.5px;font-weight:850;letter-spacing:-.3px;display:flex;align-items:center;gap:6px;
+    line-height:1.2;color:var(--org-ink);min-width:0}
+  /* 긴 이름이 카드 하나만 세로로 늘려 그 줄 전체를 어긋나게 했다("CSOS 리서치 및
+     자료 수집_v1" 이 다섯 줄로 쪼개졌다 — 옆의 딱지에 밀려 글자 단위로 끊긴다).
+     이름은 한 줄로 자르고 전체는 책상 title 로 남긴다(잘라도 읽을 수 있게). */
+  #v-org .org-nm-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #v-org .org-badge{font-size:10px;font-weight:800;padding:1px 6px;border-radius:5px;background:var(--org-brand);color:#fff;flex:none;white-space:nowrap}
   #v-org .org-ws.mgmt-lead .org-badge{background:var(--org-live)}
   #v-org .org-rl{font-size:11.5px;color:var(--org-ink2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #v-org .org-st{display:flex;align-items:center;gap:7px;margin-top:10px;font-size:12px;color:var(--org-ink2)}
+  /* 상태 줄은 책상 맨 아래에 붙인다(margin-top:auto) — 이름·역할 길이가 달라도
+     한 줄의 상태 줄이 같은 높이에 오고, 그래야 카드가 같은 크기로 읽힌다. */
+  #v-org .org-st{display:flex;align-items:center;gap:7px;margin-top:auto;padding-top:10px;font-size:12px;color:var(--org-ink2)}
   #v-org .org-st .org-txt{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #v-org .org-st .org-txt .st{color:var(--org-ink);font-weight:700}
   #v-org .org-ago2{opacity:.7}
@@ -4259,12 +4275,13 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   #v-org .org-note{padding:14px 4px 0;font-size:12px;color:var(--org-ink2);line-height:1.6}
   /* ── 반응형 — ≥760 이면 방 2열(AI 방은 폭 전체), ≤760 세로로 쌓고 책상 재배치 ── */
   @media (min-width:760px){
-    #v-org .org-floor{grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr)}
+    /* 두 방을 같은 폭으로 — 책상 폭이 고정이라 방 폭이 다르면 남는 바닥만 짝짝이가 된다 */
+    #v-org .org-floor{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
     #v-org .org-zone.ai{grid-column:1/-1}}
   @media (max-width:760px){
     #v-org .org-floor{grid-template-columns:1fr}
     #v-org .org-zone.ai{grid-column:auto}
-    #v-org .org-desks{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
+    #v-org{--org-w:156px}}
   @media (max-width:420px){
     #v-org .org-desks{grid-template-columns:1fr}
     #v-org .org-rl{white-space:normal}}
@@ -7911,11 +7928,12 @@ function orgRender(D){
           : `<ul><li>이 자리의 담당 업무가 아직 등록되지 않았습니다.</li></ul>`;
         return `<div class="org-ws s-${esc2(st)}${lead}">
           <div class="org-chair"></div>
-          <button type="button" class="org-desk s-${esc2(st)}" aria-expanded="false" onclick="orgToggle(this)">
+          <button type="button" class="org-desk s-${esc2(st)}" aria-expanded="false" onclick="orgToggle(this)"
+            title="${esc2(p.name)}${p.role?' — '+esc2(p.role):''}">
             <span class="org-mon"></span>
             <div class="org-row1">
               <div class="org-avatar" style="background:${esc2(p.color||'#0062CC')}">${esc2(orgInitials(p.name))}</div>
-              <div class="org-who"><div class="org-nm">${esc2(p.name)}${p.badge?`<span class="org-badge">${esc2(p.badge)}</span>`:''}</div>
+              <div class="org-who"><div class="org-nm"><span class="org-nm-t">${esc2(p.name)}</span>${p.badge?`<span class="org-badge">${esc2(p.badge)}</span>`:''}</div>
                 <div class="org-rl">${esc2(p.role||'')}</div></div>
             </div>
             <div class="org-st"><span class="org-dot ${esc2(st)} ${st==='live'?'pulse':''}"></span>

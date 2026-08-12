@@ -531,6 +531,16 @@ _PRESENCE_LOCK = threading.Lock()
 _PRESENCE = None          # {slug: last_ts} — 프로세스 메모리(늘 최신)
 _PRESENCE_FLUSH = [0.0]   # 디스크 쓰기 throttle(폴링 thrash 방지)
 
+# ★ 관리자 로그인은 **센터장(유현민) 자리**다 (2026-08-12 지시: "유현민은 여기에
+#   접속되어있으면 온라인으로 항상 표기해야지"). 전에는 role=="staff" 만 찍어서,
+#   관리자로 앱을 열면 **아무 자리도 안 찍혔다** — 본인이 화면을 보고 있는데 제
+#   자리만 '앱 접속 기록 없음'이었다. 근거는 로스터다: '센터장' 딱지가 붙는 자리가
+#   여기 하나뿐이고, 관리자 PIN 을 쥔 사람이 그 사람이다.
+#   ⚠ **사람이 로그인한 쿠키 세션만** 찍는다. localhost 스크립트가 X-Pin 헤더로
+#   부르는 길(_auth 아래쪽)은 사람이 아니다 — 거기서 찍으면 워치독이 도는 내내
+#   유현민이 '온라인'으로 보인다. 그건 잰 것이 아니라 지어낸 신호다([169]).
+ADMIN_PRESENCE_SLUG = "yoo-hyeonmin"
+
 
 def _presence_map():
     global _PRESENCE
@@ -7106,9 +7116,13 @@ class H(BaseHTTPRequestHandler):
         # 자동 폴링이 잠금을 유발하던 문제(자기 잠금) 방지
         session = auth_session_from_cookie(self.headers.get("Cookie", ""))
         if session:
-            # 담당자 온/오프라인(조직도): 업무센터 세션이 서버에 말한 시각을 찍는다.
-            if str(session.get("role") or "") == "staff":
+            # 담당자 온/오프라인(조직도): 인증 세션이 서버에 말한 시각을 찍는다.
+            # 관리자는 센터장(유현민) 자리다 — 근거는 ADMIN_PRESENCE_SLUG 주석.
+            _role = str(session.get("role") or "")
+            if _role == "staff":
                 presence_touch(session.get("staff_slug"))
+            elif _role == "admin" and not session.get("legacy_local"):
+                presence_touch(ADMIN_PRESENCE_SLUG)
             # ★ 기사(tech)는 여기를 **통과하지 못한다.** 이 관문 뒤에는 원장 전체가
             #   있고, 기사 링크는 카톡으로 돌아다닌다. 기사 화면은 /api/tech/* 만 쓴다.
             return str(session.get("role") or "") != "tech"
