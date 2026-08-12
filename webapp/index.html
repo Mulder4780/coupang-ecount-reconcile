@@ -6578,7 +6578,91 @@ function remoteSectionize(host){
   host.appendChild(menu);
   host.appendChild(store);
 }
+/* ══ 리모컨 화면을 목차로 접는다 — 아래에서 올라오는 시트 (2026-08-12 지시) ══════
+   사용자 지시: "리모컨 카테고리도 스크롤이 너무 길어, 아래서 올리는 구조로 한 화면에서
+   처리할 수 있는 구조로 정리해 ... 메뉴를 클릭해서 볼 수 있게"
+
+   ★ `renderRemoteCard` 의 템플릿은 **한 줄도 안 고친다.** 그린 뒤 DOM 을 나눠 접는다.
+     카드를 그리는 곳이 하나라서(관리자 remoteHost · 류지영 staffRemoteHost) 템플릿을
+     쪼개면 두 화면이 갈릴 위험을 새로 만든다. 후처리는 한 곳이고 되돌리기도 쉽다.
+   ★ 시트는 이미 있는 `layerOpen` 을 그대로 쓴다 — **요소를 통째로 올렸다가 닫으면
+     제자리로 돌아온다.** 새 시트를 만들면 사본이 둘이 되고 언젠가 갈린다. 복제가
+     아니라 원본을 옮기므로 시트 안에서 입력해도 값·이벤트가 그대로 살아 있다.
+   ★ 화면에 남는 것은 **지금 당장 봐야 하는 것**뿐이다: 합계 · 한도초과 경고 ·
+     지점 재고표. 나머지(기준 설명·입력 폼·이력 표 넷)는 목차 단추로 내려간다. */
+const REMOTE_SEC_KEEP = 'remote-warn';        // 경고는 접지 않는다 — 접으면 아무도 안 본다
+function remoteLayerClose(hostId){
+  /* 저장을 누르면 renderRemoteCard 가 innerHTML 을 통째로 다시 쓴다. 그때 시트에
+     올라가 있던 원본 요소는 돌아갈 집이 사라진다 — 그래서 다시 그리기 **전에** 닫는다.
+     (안 닫으면 저장 뒤 시트에 옛 폼이 남아 다음 입력이 허공으로 간다) */
+  try{
+    const h = document.getElementById(hostId);
+    if(h && typeof _layer !== 'undefined' && _layer && _layer.home && h.contains(_layer.home))
+      closeSheet();
+  }catch(_){}
+}
+function remoteSectionize(host){
+  if(!host) return;
+  const secs = [];                             // {title, sub, nodes[]}
+  let cur = null;
+  const start = (title, sub) => { cur = {title, sub: sub || '', nodes: []}; secs.push(cur); return cur; };
+  [...host.children].forEach(n => {
+    if(n.tagName === 'H4'){                    // 제목 = 새 목차 항목의 시작
+      const sp = n.querySelector('span');
+      const sub = sp ? sp.textContent.replace(/^[\s—-]+/, '').trim() : '';
+      start(n.textContent.replace(sp ? sp.textContent : '', '').trim(), sub);
+      cur.head = n;                            // 제목은 시트가 다시 그리므로 화면에서 뗀다
+      return;
+    }
+    if(n.classList && n.classList.contains('remote-std')){
+      start('보유·불출 기준', '한도와 규칙 · 누가 언제 무엇을 남기나').nodes.push(n);
+      cur = null; return;                      // 이 덩어리 하나로 끝 — 뒤 요소를 삼키지 않는다
+    }
+    if(n.classList && n.classList.contains('remote-grid2')){
+      start('입력 — 재고 · 불출 · 납품', '여기서 적으면 바로 저장됩니다').nodes.push(n);
+      cur = null; return;
+    }
+    if(cur) cur.nodes.push(n);                 // 제목 뒤에 붙는 표들
+  });
+  if(!secs.length) return;
+
+  const menu = document.createElement('div');
+  menu.className = 'rmenu';
+  menu.setAttribute('role', 'toolbar');
+  menu.setAttribute('aria-label', '리모컨 목차');
+  const store = document.createElement('div');
+  store.className = 'rsec-store';              // 접어 둔 원본이 사는 곳(화면에는 안 보인다)
+
+  secs.forEach((s, i) => {
+    if(!s.nodes.length){ if(s.head) s.head.remove(); return; }
+    const box = document.createElement('div');
+    box.className = 'rsec';
+    box.id = host.id + 'Sec' + i;
+    /* 몇 줄짜리인지 단추에 적는다 — 열어 보기 전에 "볼 게 있나"를 알 수 있어야 한다.
+       0줄이면 애초에 표가 안 그려지므로(템플릿이 빈 문자열) 여기 오지 않는다. */
+    let cnt = 0;
+    s.nodes.forEach(n => {
+      if(n.tagName === 'TABLE') cnt += Math.max(0, n.querySelectorAll('tr').length - 1);
+      box.appendChild(n);
+    });
+    if(s.head) s.head.remove();
+    store.appendChild(box);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'rmenu-b';
+    b.innerHTML = '<span class="t">' + esc2(s.title) + '</span>'
+                + (cnt ? '<span class="n">' + cnt + '</span>' : '');
+    b.title = s.sub || s.title;
+    b.onclick = () => {
+      layerOpen(box, {title: s.title, sub: s.sub});
+      try{ uxEvent('tap', 'remote-sec', s.title); }catch(_){}
+    };
+    menu.appendChild(b);
+  });
+  host.appendChild(menu);
+  host.appendChild(store);
+}
 async function renderRemoteCard(hostId){
+  remoteLayerClose(hostId);          // 다시 그리기 전에 시트를 닫는다(위 설명)
   remoteLayerClose(hostId);          // 다시 그리기 전에 시트를 닫는다(위 설명)
   const host=$(hostId); if(!host) return;
   let s=null;
@@ -17188,6 +17272,22 @@ body.tab-drag-live{-webkit-user-select:none;user-select:none;cursor:grabbing}
 body.tab-drag-live #tabbar button[data-v]{transition:transform .12s ease}
 #tabbar button.tab-dragging{opacity:.92;transform:scale(1.05);position:relative;z-index:5;
   box-shadow:0 10px 28px rgba(0,0,0,.32);border-radius:12px}
+/* 리모컨 목차 메뉴 — 누르면 그 덩어리가 아래에서 올라온다(2026-08-12 지시).
+   접어 둔 원본은 .rsec-store 안에서 숨어 있다가, layerOpen 이 시트로 옮기는 순간
+   보이고 닫으면 다시 제자리(숨김)로 돌아간다 — 사본을 만들지 않으므로 입력 중이던
+   값도 그대로다. */
+.rmenu{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:8px;margin:14px 0 2px}
+.rmenu-b{display:flex;align-items:center;gap:8px;justify-content:space-between;text-align:left;
+  border:1px solid var(--line);background:var(--panel);border-radius:14px;padding:13px 14px;
+  font-family:inherit;font-size:13.5px;font-weight:800;color:var(--ink);cursor:pointer;
+  min-height:54px;transition:transform .1s ease,box-shadow .15s ease}
+.rmenu-b:hover{box-shadow:0 6px 18px rgba(16,30,70,.12)}
+.rmenu-b:active{transform:scale(.98)}
+.rmenu-b .t{min-width:0}
+.rmenu-b .n{flex:none;font-size:11.5px;font-weight:800;color:#fff;background:var(--brand);
+  border-radius:999px;padding:2px 8px}
+.rsec-store{display:none}
+.rsec.in-layer{display:block}
 /* 리모컨 목차 메뉴 — 누르면 그 덩어리가 아래에서 올라온다(2026-08-12 지시).
    접어 둔 원본은 .rsec-store 안에서 숨어 있다가, layerOpen 이 시트로 옮기는 순간
    보이고 닫으면 다시 제자리(숨김)로 돌아간다 — 사본을 만들지 않으므로 입력 중이던
