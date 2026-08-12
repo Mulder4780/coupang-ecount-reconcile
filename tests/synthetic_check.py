@@ -15028,6 +15028,62 @@ def t231_loop_tick_weight_from_evidence():
     print("[231] 정오 루프 틱 무게 — 값은 ai_tier 한 곳 · 못읽음≠가벼움 · 수집은 남의 몫 OK")
 
 
+def t233_round_steps_fit_inside_budget():
+    """[233] 어떤 단계도 **남은 회차 예산보다 오래 받지 못한다** (2026-08-12 · 분담판 [38]).
+
+    ★ 예산은 있었는데 **경계가 아니라 권고**였다. `over_budget()` 은 단계 **사이**에서만
+      보므로, 145분째에 시작한 단계가 제 시간 제한 60분을 그대로 들고 가면 205분이 된다.
+      실측 292.3분 — 작업 스케줄러 제한(PT3H)에 걸려 `일일자동대조`·`원본자료자동정리`가
+      **매일 나무째 끊겼다**(0xC000013A). 끊기면 리포트가 한 줄도 안 써지고 잠금이 남아
+      다음 회차가 조용히 건너뛴다 — 스케줄러는 그걸 '성공'이라 적는다.
+    ★ **범인 단계를 지목하지 않고 고친다.** 어느 단계가 오래 걸리는지는 아직 모르고,
+      모르는 채로 제한시간을 손대는 것은 짐작이다([228] 이 남긴 숙제가 그것이다).
+      그러나 "어떤 단계도 남은 예산보다 오래 받을 수 없다"는 **모든 단계에 참인 규칙**이라
+      짐작이 아니다. 범인이 누구든 회차는 예산 안에서 끝난다.
+    ★ **바닥을 둔다.** 예산이 다 됐다고 3초를 주면 그 단계는 시작하자마자 죽어 '실패'로
+      적히는데 그건 사실이 아니다(시간을 안 준 것이다).
+    ★ **예산은 스케줄러 제한보다 넉넉히 작아야** 뜻이 있다. 붙어 있으면 예산 안에 끝내고도
+      끊긴다 — 그러면 이 규칙 전체가 있으나 마나가 된다.
+    ★ 원본정리는 목록이 반쪽이면 **찌꺼기를 거두지 않는다.** 거두기는 "want 에 없으면
+      찌꺼기"라는 판정이라, 반쪽인 채로 거두면 **멀쩡한 바로가기를 지운다**([172]의 문).
+    """
+    import re
+    from datetime import timedelta
+    import daily_run as D
+    import source_tidy as ST
+
+    keep = D._ROUND_T0[0]
+    try:
+        D._ROUND_T0[0] = None
+        assert D.fit_timeout(3600) == (3600, False), "예산 시계가 없는데 시간을 줄인다"
+        D._ROUND_T0[0] = D.datetime.now()
+        assert D.fit_timeout(600) == (600, False), "예산이 넉넉한데 줄인다"
+        D._ROUND_T0[0] = D.datetime.now() - timedelta(minutes=D.ROUND_BUDGET_MIN - 5)
+        got, cut = D.fit_timeout(3600)
+        assert cut and 240 <= got <= 305, "남은 예산(5분)보다 오래 준다: %s초" % got
+        D._ROUND_T0[0] = D.datetime.now() - timedelta(minutes=D.ROUND_BUDGET_MIN + 60)
+        got2, cut2 = D.fit_timeout(3600)
+        assert (got2, cut2) == (D.STEP_FLOOR_SEC, True),             "예산이 바닥일 때 바닥값을 안 준다 — 0초를 주면 '실패'로 적히는데 사실이 아니다"
+    finally:
+        D._ROUND_T0[0] = keep
+
+    src = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "fitted, cut = fit_timeout(timeout)" in src and "_run_once(name, args, fitted)" in src,         "run() 이 예산에 맞춰 줄이지 않는다 — 함수만 있고 아무도 안 쓴다"
+
+    tidy = open(os.path.join(ROOT, "source_tidy.py"), encoding="utf-8").read()
+    assert "def out_of_time" in tidy and hasattr(ST, "BUDGET_MIN"), "원본정리에 시간 예산이 없다"
+    assert tidy.index("if _LEFT[0]:") < tidy.index("# 3) 지난 회차의 찌꺼기"),         "목록이 반쪽인 채로 찌꺼기를 거둔다 — 멀쩡한 바로가기를 지운다"
+
+    def _limit_min(fn):
+        s = open(os.path.join(ROOT, fn), encoding="utf-8").read()
+        m = re.search(r"ExecutionTimeLimit \(New-TimeSpan -(Hours|Minutes) (\d+)\)", s)
+        assert m, fn + " 에서 제한시간을 못 읽었다"
+        return int(m.group(2)) * (60 if m.group(1) == "Hours" else 1)
+
+    assert D.ROUND_BUDGET_MIN + 10 <= _limit_min("install_daily_schedule.ps1"),         "회차 예산이 스케줄러 제한과 붙어 있다 — 예산을 지켜도 끊긴다"
+    assert ST.BUDGET_MIN + 20 <= _limit_min("install_source_tidy_schedule.ps1"),         "원본정리 예산이 스케줄러 제한과 붙어 있다"
+
+
 def t232_orgchart_floorplan_roster_and_states():
     """[232] 조직도 — 사무실 배치 평면도: 로스터 정본·AI 자리 셋·상태 넷·아코디언 (2026-08-12 지시).
 
@@ -16382,6 +16438,7 @@ if __name__ == "__main__":
     t230_ai_tier_picks_model_and_effort()
     t231_loop_tick_weight_from_evidence()
     t232_orgchart_floorplan_roster_and_states()
+    t233_round_steps_fit_inside_budget()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
