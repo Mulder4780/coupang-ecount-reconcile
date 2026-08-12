@@ -37,6 +37,23 @@ _UNAVAILABLE_RE = re.compile(
     re.I,
 )
 
+#: ★ **로그인 안 된 CLI 는 exit 0 을 준다** (2026-08-13 실측 · claude 2.1.222).
+#:   `claude -p "..."` 가 `Not logged in · Please run /login` 한 줄만 찍고 **성공으로
+#:   끝난다.** 그러면 아래 `status` 가 `done` 으로 적히고, 폴백 조건도
+#:   `returncode != 0` 을 전제하므로 **Codex 로도 안 넘어간다** — 인계가 아무 일도
+#:   안 하고 완료가 된다. **실패가 성공처럼 보이는 자리**다(`[171]` 과 같은 모양).
+#: ★ 낱말이 아니라 **CLI 가 뱉는 정형 문구**로 가른다. 사람도 AI 도 본문에서 '로그인'을
+#:   말할 수 있으므로(밴드·이카운트 로그인은 이 프로젝트의 일상이다) 짧은 응답일 때만
+#:   본다 — 정상 답을 실패로 만드는 것이 못 잡는 것보다 나쁘다.
+_NOT_LOGGED_RE = re.compile(r"please run\s*/login|^\s*not logged in\b", re.I | re.M)
+_NOT_LOGGED_MAX = 400
+
+
+def _looks_not_logged_in(text: str) -> bool:
+    """정형 문구 **그리고** 짧은 응답일 때만 '로그인 안 됨'이라고 본다."""
+    t = (text or "").strip()
+    return bool(t) and len(t) < _NOT_LOGGED_MAX and bool(_NOT_LOGGED_RE.search(t))
+
 
 def _atomic_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -310,7 +327,10 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
         # credits.  Detect that only after the real task starts and immediately
         # hand the same review ticket to Codex once.  The deterministic local
         # business script is not repeated; only the AI follow-up is retried.
-        if agent == "claude" and result.returncode != 0 and _UNAVAILABLE_RE.search(combined):
+        # ★ `returncode != 0` 만 보면 **로그인 안 된 CLI(exit 0)** 를 놓친다(위 실측).
+        not_logged = _looks_not_logged_in(combined)
+        if agent == "claude" and (result.returncode != 0 or not_logged) and (
+                not_logged or _UNAVAILABLE_RE.search(combined)):
             codex_executable = resolve_agent_executable("codex")
             if codex_executable:
                 claude_output = combined
@@ -339,11 +359,15 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
                 )
         log_path.write_text(combined[-200000:], encoding="utf-8")
         record.update({
-            "status": "done" if result.returncode == 0 else "failed",
+            # ★ exit 0 이어도 **로그인 안 됨**이면 성공이 아니다 — 아무 일도 안 했다.
+            "status": "done" if (result.returncode == 0
+                                 and not _looks_not_logged_in(combined)) else "failed",
             "agent_returncode": result.returncode,
             "completed_at": datetime.now().isoformat(timespec="seconds"),
             "last_message": last_message.name if last_message.exists() else "",
-            "error": "" if result.returncode == 0 else _clean_message(combined, 500),
+            # 이유도 같은 판정을 쓴다 — 실패라 적고 이유를 비우면 아무도 못 고친다
+            "error": "" if (result.returncode == 0
+                            and not _looks_not_logged_in(combined)) else _clean_message(combined, 500),
         })
     except OSError as exc:
         record.update({

@@ -16986,6 +16986,124 @@ def t134_section_fold():
     print("  [134] 구역 머리 접기 — 5구역 공용·열쇠 고정·인쇄 보존 ✅")
 
 
+
+def t241_boundary_survives_compact_and_clear():
+    """[241] 아무 때나 compact·clear 해도 이어진다 — **세션 경계**(2026-08-13 지시).
+
+    사용자 지시: "아무때나 세션 컴팩팅이나 클리어 해도 문제 없이 돌아갈 수 있는
+    알고리즘 구현해".
+
+    빠져 있던 자리는 '요약하는 기능'이 아니라 **요약 뒤에 남는 것**이었다.
+      ① `/clear` 에는 인계가 없었다 — `PreCompact` 는 compact 에만 온다. `/clear` 는
+         **프로세스를 안 죽이므로** pid 로 보는 `_is_dead` 는 '살아 있다'고 답하고,
+         sid 는 사라져 `--free-all`(내 것만)도 안 닿는다 → **아무도 못 푸는 점유**.
+      ② 요약이 담은 **파일 사본은 낡는다.** 실측 2026-08-13: 요약에 실려 온
+         `ai_tier.py`(옛 2인자)를 근거로 **이미 고쳐진 코드**를 "어긋났다"고 진단했다.
+         `[165]` 와 같은 모양 — 낡은 사본은 빈 칸처럼 눈에 띄지 않는다.
+
+    이 검증이 지키는 것: 회수의 문 네 개 · **칸 이름이 실제와 맞는지**(`[165]`) ·
+    두 경계가 배선돼 있는지 · 로그인 안 된 CLI 의 exit 0 을 성공으로 안 세는지.
+    """
+    import importlib
+    import json as _json
+    import os as _os
+
+    B = importlib.import_module("session_boundary")
+    import ai_claim as _ac
+    import session_wrapup as _sw
+
+    # ── ① 고아 점유: 문 네 개. 잘못 회수하면 살아 있는 옆 창을 빼앗는다.
+    now = 1_800_000_000.0
+    keep = (_ac.load, _ac.session_id, _ac._is_dead, _sw.live_sids)
+    try:
+        _ac._is_dead = lambda c: False           # pid 는 살아 있다(= /clear 의 모양)
+        _ac.load = lambda: {
+            "ledger": {"who": "claude", "sid": "dead1234", "at": now - 3600},
+            "band": {"who": "claude", "sid": "dead5678", "at": now - 60},
+            "code": {"who": "claude", "sid": "live9999", "at": now - 3600},
+        }
+        _sw.live_sids = lambda *a, **k: ["me000000", "live9999"]
+        _ac.session_id = lambda: "me000000"
+        got = {r["자원"] for r in B.orphan_claims(now=now)}
+        assert got == {"ledger"}, ("고아만 골라야 한다(살아 있는 것·방금 잡은 것 제외)", got)
+
+        _ac.session_id = lambda: "notinlist"     # 목록에 내가 없다 = 목록을 못 믿는다
+        assert B.orphan_claims(now=now) == [], "목록을 못 믿을 때 회수하면 안 된다"
+
+        _ac.session_id = lambda: "me000000"
+        def _boom(*a, **k):
+            raise OSError("못 읽음")
+        _sw.live_sids = _boom                    # 못 읽음 ≠ 아무도 안 산다([169])
+        assert B.orphan_claims(now=now) == [], "못 읽었으면 회수하면 안 된다"
+
+        _sw.live_sids = lambda *a, **k: ["me000000"]
+        _ac._is_dead = lambda c: True            # pid 가 죽은 것은 기존 규칙 몫
+        assert B.orphan_claims(now=now) == [], "pid 죽은 점유는 기존 규칙이 놓는다"
+    finally:
+        (_ac.load, _ac.session_id, _ac._is_dead, _sw.live_sids) = keep
+
+    # ── ② 칸 이름이 **실제와 맞나** — 틀리면 오류 없이 빈 값이 된다(`[165]`).
+    #    실측: `owner`·`no` 로 물었더니 맡은 일이 있는데도 "없음"으로 보였다.
+    import loop_policy as _lp
+    import worksplit as _ws
+    items = (_ws.load() or {}).get("items") or []
+    if items:
+        keys = set(items[0])
+        assert {"who", "id", "state", "title"} <= keys, \
+            ("worksplit 항목 칸 이름이 바뀌었다 — session_boundary._my_work 도 고칠 것",
+             sorted(keys))
+    lpk = set(_lp.build() or {})
+    assert {"갈래", "모델", "노력"} <= lpk, \
+        ("loop_policy.build 칸 이름이 바뀌었다 — session_boundary.build 도 고칠 것", sorted(lpk))
+    src = open(B.__file__, encoding="utf-8").read()
+    assert 'get("who")' in src and 'get("id")' in src and 'get("owner")' not in src, \
+        "worksplit 을 옛 칸 이름으로 묻고 있다 — 조용히 빈 목록이 된다"
+    assert 'got.get("갈래")' in src and 'got.get("무게")' not in src, \
+        "loop_policy 를 옛 칸 이름으로 묻고 있다(내 dict 키가 아니라 **부르는 쪽**을 본다)"
+    # 값(모델·노력)의 정본은 `ai_tier.TIERS` 하나다 — 여기에 표를 복사하지 않는다.
+    assert "sonnet" not in src and "opus" not in src, \
+        "모델 이름을 여기 적지 말 것 — 값은 ai_tier.TIERS 에서 온다([230])"
+
+    # ── ③ 두 경계가 **배선돼 있나.** 코딩했다와 돈다는 다른 말이다.
+    root = _os.path.dirname(_os.path.dirname(_os.path.abspath(B.__file__)))
+    st = _json.loads(open(_os.path.join(root, ".claude", "settings.json"),
+                          encoding="utf-8").read())
+    hooks = st.get("hooks") or {}
+
+    def _args(ev):
+        return " ".join(str(x) for g in (hooks.get(ev) or [])
+                        for h in (g.get("hooks") or []) for x in (h.get("args") or []))
+
+    assert "session_boundary.py" in _args("SessionStart"), \
+        "SessionStart 배선 없음 — compact·clear 뒤에 상태를 되찾지 못한다"
+    assert "session_wrapup.py" in _args("SessionEnd"), \
+        "SessionEnd 배선 없음 — /clear 하면 점유가 고아로 남는다"
+    assert "session_wrapup.py" in _args("PreCompact"), "PreCompact 인계가 사라졌다"
+    assert "ai_tier.py" in _args("UserPromptSubmit"), \
+        "모델·노력 판정이 사람 입력에 안 걸려 있다([230])"
+
+    # ── ④ 로그인 안 된 CLI 는 **exit 0** 을 준다(실측 claude 2.1.222).
+    import agent_dispatch as _ad
+    assert _ad._looks_not_logged_in("Not logged in · Please run /login"), \
+        "정형 문구를 못 알아본다 — 인계가 아무 일도 안 하고 '완료'가 된다"
+    assert not _ad._looks_not_logged_in(
+        "작업을 마쳤습니다. 밴드 로그인은 사람이 해야 합니다. " * 20), \
+        "긴 본문의 '로그인'을 실패로 보면 정상 답을 죽인다"
+    assert not _ad._looks_not_logged_in(""), "빈 응답은 이 판정의 몫이 아니다"
+    src2 = open(_ad.__file__, encoding="utf-8").read()
+    assert "_looks_not_logged_in(combined)" in src2 and \
+        'if (result.returncode == 0' in src2, \
+        "status 판정이 exit 0 만 보고 있다 — 실패가 성공으로 적힌다"
+
+    # ── ⑤ 노력 깃발은 **확인된 실행파일에만** 붙인다(없는 깃발은 CLI 를 못 뜨게 한다).
+    import ai_tier as _at
+    chosen = _at.pick(kind="code", title="회차가 죽는다", attempts=3)
+    assert "--effort" not in _at.flags("claude", chosen, r"C:\없는파일.exe"), \
+        "확인 못 한 실행파일에 --effort 를 붙이면 인계가 조용히 안 된다"
+
+    print("  [241] 세션 경계 — 고아 점유 문 4개 · 칸 이름 실제 확인 · "
+          "SessionStart/End 배선 · 로그인 exit 0 을 성공으로 안 셈 OK")
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -17218,6 +17336,7 @@ if __name__ == "__main__":
     t238_parked_says_which_lane()
     t239_idle_lane_reclaims_itself_with_a_record()
     t240_install_has_a_door_and_says_why_when_shut()
+    t241_boundary_survives_compact_and_clear()
     t235_unattended_rounds_survive_pythonw()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()

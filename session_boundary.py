@@ -223,12 +223,15 @@ def _my_work():
                 mine.append("%s(%s)" % (res, str(c.get("why") or "")[:40]))
     except Exception:
         pass
+    # ⚠ 칸 이름은 **실제 파일에서 확인한 것**만 쓴다(`worksplit` 은 `who`·`id` 다).
+    #   `owner`·`no` 라고 물었더니 오류 없이 **빈 목록**이 나왔다 — 맡은 일이 있는데도
+    #   "맡은 일 없음"으로 보였다(`[165]` — 안 읽은 칸은 빈 칸과 구별할 수 없다).
     try:
         import worksplit
         for it in (worksplit.load() or {}).get("items", []):
-            if str(it.get("owner") or "") == "claude" and \
+            if str(it.get("who") or "") == "claude" and \
                     str(it.get("state") or "") in ("진행", "맡음"):
-                took.append("[%s] %s" % (it.get("no"), str(it.get("title") or "")[:50]))
+                took.append("[%s] %s" % (it.get("id"), str(it.get("title") or "")[:50]))
     except Exception:
         pass
     return mine, took[:3]
@@ -245,8 +248,8 @@ def build(now=None, apply_reclaim=True):
     try:                                        # 값은 `ai_tier.TIERS` 한 곳에서 온다
         import loop_policy
         got = loop_policy.build()
-        tier = {"무게": got.get("무게"), "모델": got.get("모델"),
-                "노력": got.get("노력"), "왜": got.get("왜")}
+        tier = {"무게": got.get("갈래"), "모델": got.get("모델"),
+                "노력": got.get("노력"), "왜": got.get("값근거") or got.get("근거")}
     except Exception:
         pass
     return {"고아점유": orphans, "놓음": [r["자원"] for r in freed],
@@ -267,7 +270,14 @@ def message(st):
     if st["내점유"]:
         lines.append("· 내 점유: " + " · ".join(st["내점유"]))
     if st["내가맡은일"]:
-        lines.append("· 내가 맡은 일: " + " · ".join(st["내가맡은일"]))
+        # ★ `worksplit` 은 주인을 `claude` 로만 적고 sid 는 비어 있을 수 있다. 그러니
+        #   **'내 창'이라고 단정하지 않는다** — 옆 창이 맡은 것일 수도 있다. 이 한 줄이
+        #   실측된 제일 큰 낭비를 막는다: 2026-08-13 같은 지시가 여러 창에 들어가
+        #   같은 것을 두 번 만들었다(`ai_profile.py`·`[63]`). 새로 만들기 전에 본다.
+        lines.append("· claude 가 맡은 일(내 창일 수도, 옆 창일 수도): "
+                     + " · ".join(st["내가맡은일"])
+                     + "  → 새로 만들기 전에 `python worksplit.py` 와 `ai_claim.py` 로 "
+                       "누가 하고 있는지 먼저 봅니다.")
     h = st["먼저처리할것"]
     if not h["읽음"]:
         lines.append("· 먼저 처리할 것: **못 읽었습니다**(인계 문서) — 없는 것이 아니라 못 본 것입니다")
