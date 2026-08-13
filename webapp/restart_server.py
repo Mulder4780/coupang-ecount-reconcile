@@ -136,6 +136,121 @@ def answering(timeout=1.0):
         return False
 
 
+# ── 지금 사람이 쓰고 있나 (2026-08-13 지시: "입력중인데 서버 떨어지면 골치아프다") ──
+#
+# 이날 실사고: 15:53 에 이 스크립트를 돌렸는데 그때 오종현이 입력 중이었다. 재시작은
+# 실측 5.7~9.3초이고 그동안 폰·PC 는 502 를 받는다([197]). 그런데 이 스크립트는
+# **누가 쓰고 있는지 보지도 않고** 죽였다 — 고친 사람은 성공이라 읽고, 입력하던
+# 사람만 화면이 무너지는 것을 본다.
+IN_USE_MIN = 10          # 최근 이만큼 안에 화면을 만졌으면 '쓰는 중'으로 본다
+DEFER_LOG = os.path.join(ROOT, "reports", "앱서버_재시작보류.json")
+
+
+def _ts_epoch(s):
+    """ux 표의 시각 한 칸을 epoch 로.
+
+    ★ **두 형식이 섞여 있다**(실측 2026-08-13): 브라우저가 보낸
+      `2026-08-13T07:01:56.977Z`(UTC) 39,600건 · `ux_add` 기본값인 로컬 naive
+      `2026-08-11T21:43:42` 15건.
+    ★ 그래서 **문자열로 비교하면 조용히 0건**이 된다 — UTC 07시가 로컬 16시보다
+      작아서, **1.5분 전에 사람이 만진 화면까지 '아무도 없음'으로 읽힌다.**
+      첫 판이 실제로 그랬다. 계기가 0 을 내면 아무도 의심하지 않는다([169]) —
+      그러니 반드시 파싱해서 잰다. 못 읽는 칸은 세지 않고 '못 읽음'으로 남긴다.
+    """
+    from datetime import datetime
+    t = str(s or "").strip()
+    if not t:
+        return None
+    if t.endswith("Z"):
+        t = t[:-1] + "+00:00"
+    try:
+        d = datetime.fromisoformat(t)
+    except ValueError:
+        return None
+    if d.tzinfo is None:          # 로컬 시각으로 적힌 것
+        d = d.astimezone()
+    return d.timestamp()
+
+
+def in_use(minutes=IN_USE_MIN):
+    """최근 `minutes` 분 안에 앱을 만진 흔적이 있나.
+
+    근거는 **이미 쌓이고 있는** `ledger_db` 의 `ux` 표다(실측 39,611건). 새 계기를
+    만들지 않는다 — 만들면 그것이 안 채워지는 날 또 눈이 먼다([169]).
+
+    돌려주는 것: {"읽음": bool, "건수": int, "분전": float|None, "왜": str}
+    ★ **못 읽으면 '아무도 없다'가 아니다.** `읽음=False` 면 부르는 쪽은 안전한 쪽
+      (멈춤)으로 간다 — DB 가 잠겼다는 이유로 남의 입력을 날려서는 안 된다.
+    """
+    try:
+        if ROOT not in sys.path:
+            sys.path.insert(0, ROOT)
+        import ledger_db
+        with ledger_db.conn() as c:
+            rows = c.execute(
+                "SELECT ts FROM ux WHERE kind IN ('view','tap','search','slow','error') "
+                "ORDER BY id DESC LIMIT 400").fetchall()
+        cut, newest, n = time.time() - minutes * 60, None, 0
+        for (ts,) in rows:
+            e = _ts_epoch(ts)
+            if e is None:
+                continue
+            if newest is None or e > newest:
+                newest = e
+            if e >= cut:
+                n += 1
+        return {"읽음": True, "건수": n,
+                "분전": None if newest is None else (time.time() - newest) / 60.0, "왜": ""}
+    except Exception as exc:
+        return {"읽음": False, "건수": 0, "분전": None, "왜": str(exc)[:120]}
+
+
+def _unattended():
+    """사람이 답할 수 있는 자리인가. 워치독·회차는 `pythonw` 로 돌아 stdin 이 없다."""
+    if os.environ.get("COUPANG_UNATTENDED") == "1":
+        return True
+    try:
+        return not sys.stdin.isatty()
+    except Exception:
+        return True
+
+
+def _note_defer(why, u):
+    """미룬 것을 **자국으로 남긴다.** 조용히 넘어가면 '왜 아직 옛 코드지'가 된다."""
+    import json
+    from datetime import datetime
+    try:
+        os.makedirs(os.path.dirname(DEFER_LOG), exist_ok=True)
+        try:
+            hist = json.load(open(DEFER_LOG, encoding="utf-8"))
+        except Exception:
+            hist = []
+        hist = (hist if isinstance(hist, list) else [])[-49:]
+        hist.append({"때": datetime.now().isoformat(timespec="seconds"),
+                     "왜": why, "활동읽음": u.get("읽음"), "최근건수": u.get("건수"),
+                     "분전": None if u.get("분전") is None else round(u["분전"], 1)})
+        json.dump(hist, open(DEFER_LOG, "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=1)
+    except Exception:
+        pass
+
+
+def guard(force=False):
+    """죽이기 **전에** 부른다. 내려도 되면 None, 미뤄야 하면 사람 말로 된 이유."""
+    if force:
+        return None
+    u = in_use()
+    if not u["읽음"]:
+        return ("지금 누가 쓰고 있는지 확인하지 못했습니다(%s). "
+                "확인 못 한 것을 '아무도 없다'로 치지 않습니다 — 그대로 둡니다." % (u["왜"] or "이유 모름"))
+    if u["건수"] > 0:
+        ago = "방금" if (u["분전"] or 0) < 1 else "%.0f분 전" % u["분전"]
+        return ("%s까지 누가 앱을 쓰고 있었습니다(최근 %d분 안에 %d번). "
+                "지금 내리면 그 사람 화면이 %d초쯤 끊깁니다."
+                % (ago, IN_USE_MIN, u["건수"], 10))
+    return None
+
+
 def start():
     exe = sys.executable or "python"
     # pythonw 로 띄우면 창이 안 뜬다(원래 이 서버가 그렇게 돌고 있었다).
@@ -152,6 +267,8 @@ def start():
 def main(argv=None):
     ap = argparse.ArgumentParser(description="앱 서버 재시작")
     ap.add_argument("--status", action="store_true", help="지금 상태만 본다")
+    ap.add_argument("--force", action="store_true",
+                    help="누가 쓰고 있어도 내린다(사람이 판단해서 쓴다)")
     a = ap.parse_args(argv)
 
     cur = running()
@@ -166,7 +283,36 @@ def main(argv=None):
             print("  고쳐도 화면이 안 바뀝니다:  python webapp/restart_server.py")
         elif cur:
             print("  코드는 최신입니다.")
+        u = in_use()
+        if not u["읽음"]:
+            print(f"  쓰는 사람 확인 못 함 — {u['왜']}")
+        elif u["건수"]:
+            print(f"  ★ 지금 누가 쓰고 있습니다 — 최근 {IN_USE_MIN}분 안에 {u['건수']}번"
+                  + ("" if u["분전"] is None else f" (마지막 {u['분전']:.1f}분 전)"))
+        else:
+            print(f"  최근 {IN_USE_MIN}분 안에 쓴 흔적 없음 — 내려도 됩니다.")
         return 0
+
+    # ★ 죽이기 **전에** 누가 쓰고 있는지 본다. 기본값은 **멈추는 것**이다.
+    if cur:
+        why = guard(a.force)
+        if why:
+            if _unattended():
+                # 무인 회차는 사람이 답할 수 없다 — 물어보지 말고 미룬다.
+                _note_defer("무인 호출 — " + why, in_use())
+                print("미룹니다: " + why)
+                print("  다음 회차가 다시 봅니다. 지금 꼭 내려야 하면: "
+                      "python webapp/restart_server.py --force")
+                return 3
+            print("★ " + why)
+            try:
+                ans = input("  그래도 지금 내릴까요? (y = 내림 / 그 밖 = 그대로 둠): ")
+            except (EOFError, KeyboardInterrupt):
+                ans = ""            # 답을 못 받으면 **안전한 쪽**이다
+            if ans.strip().lower() not in ("y", "yes"):
+                _note_defer("사람이 미룸 — " + why, in_use())
+                print("  그대로 두었습니다. 지금 꼭 내려야 하면 --force 를 붙이세요.")
+                return 3
 
     if cur:
         print("끄는 중:", ", ".join(f"pid {p}(뜬 시각 {w})" for p, w in cur))

@@ -7074,6 +7074,115 @@ def t251_zero_tells_which_zero_it_is():
     print("[251] 0 은 '없다'와 '못 불러왔다'를 가려 말한다 ✅")
 
 
+def t252_po_shape_matches_reality_and_restart_asks_first():
+    """[252] 실재하는 PO 모양을 거절하지 않는다 · 쓰는 사람 위에서 서버를 안 내린다.
+
+    2026-08-13 오종현 신고: "PO+숫자 로만 되어야 한다고 계속 알림이 뜹니다. 보통
+    PO숫자/PR숫자 로 기재되다 어느 순간 po만 기재가 되어있어 어떻게 기재할지…"
+
+    실측(원장 v595 750행) — PO 칸이 채워진 **701건** 중
+      `PO숫자/PR숫자` 633 · `PO숫자` 45 · `PR숫자/PO숫자` 23 · 빈칸 49.
+    즉 옛 규칙 `/^PO\\d+$/` 는 **실재하는 값의 93.6%(656건)** 를 낯설다고 물었다.
+    잘못 막는 것은 못 잡는 것보다 나쁘다([172]) — 그 사람은 일을 못 한다.
+
+    같은 날 나머지 반쪽: 15:53 에 `restart_server.py` 가 돌았는데 그때 오종현이
+    입력 중이었다. 재시작은 실측 5.7~9.3초이고 그동안 폰·PC 는 끊긴 화면을 본다
+    ([197]). 그런데 그 스크립트는 **누가 쓰는지 보지도 않고** 죽였다.
+
+    되돌아가면 안 되는 것만 지킨다:
+      ① 실재하는 세 모양을 화면이 거절하지 않는다
+      ② 그래도 진짜 오타(`P0`·숫자 없는 `PO`)는 여전히 묻는다 — 다만 막지 않고 묻는다
+      ③ 경고 문구가 **어떻게 적는지 실제 예시**를 보여 준다(옛 문구는 읽고도 몰랐다)
+      ④ 판정은 한 곳에서 온다 — 화면 규칙이 `po_reconcile.PO_PAT` 과 같은 답을 낸다
+      ⑤ `restart_server` 는 죽이기 **전에** 활동을 보고, **못 읽으면 멈춘다**([169])
+    """
+    import re as _re
+    import importlib
+    P = importlib.import_module("po_reconcile")
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # ── ①②④ 화면 규칙을 꺼내 파이썬 정본과 **같은 값으로** 대 본다 ───────────────
+    m = _re.search(r"const PO_TOKEN\s*=\s*/(.+?)/([a-z]*);", idx)
+    assert m, "PO_TOKEN 규칙이 화면에 없다 — 옛 PO_SHAPE 로 되돌아갔나"
+    js_src, js_flags = m.group(1), m.group(2)
+    assert "i" in js_flags, "대소문자를 안 가린다 — 'po327948' 도 실재한다"
+    # JS 정규식 문법이 파이썬에서도 그대로 컴파일되는 모양이어야 대 볼 수 있다([184])
+    rx = _re.compile(js_src, _re.I)
+
+    REAL = ["PO327948", "PO327948/PR461621", "PR482790/PO343170",
+            "PO326238/PR457592", "po343170", "PO-343170"]
+    TYPO = ["P0327948", "PO", "PO12", "번호없음", "PR461621"]
+    for s in REAL:
+        assert rx.search(s), f"실재하는 모양 '{s}' 를 화면이 거절한다 — 그 사람은 일을 못 한다"
+        assert P.norm_po(s), f"대조기가 '{s}' 를 못 읽는다 — 시험값이 틀렸다"
+    for s in TYPO:
+        assert not rx.search(s), f"'{s}' 까지 통과시킨다 — 진짜 오타를 안 묻는다"
+        assert not P.norm_po(s), f"대조기는 '{s}' 를 읽는다 — 두 쪽이 갈렸다"
+    # 화면과 대조기가 **같은 집합**에 같은 답을 내야 한다. 갈리면 대조는 되는 값을
+    # 화면만 거절하거나(오종현 신고) 화면만 통과시킨다.
+    for s in REAL + TYPO:
+        assert bool(rx.search(s)) == bool(P.norm_po(s)), \
+            f"'{s}' 에서 화면과 po_reconcile 이 다르게 답한다 — 판정이 두 곳이다([162])"
+
+    assert "PO_SHAPE" not in idx, "옛 규칙 PO_SHAPE 가 아직 남아 있다"
+
+    # ── ③ 문구가 '어떻게 적는지' 를 보여 준다 ──────────────────────────────────
+    w = idx[idx.index("function warnPoShape("):idx.index("function warnPaidZero(")]
+    for ex in ("PO327948", "PO327948/PR461621", "PR482790/PO343170"):
+        assert ex in w, f"경고 문구에 실제 예시 {ex} 가 없다 — 읽고도 어떻게 적을지 모른다"
+    assert "PO+숫자 모양이 아닙니다" not in w, "옛 문구가 그대로 남아 있다"
+    assert "저장은 됩니다" in w, "막는 것이 아니라는 말을 안 한다 — 사람이 저장을 포기한다"
+    # 경고는 저장을 막지 않는다 — 이미 있는 길(confirmSaveWarnings)을 쓴다([162])
+    assert "function confirmSaveWarnings(" in idx and "그래도 저장" in idx, \
+        "경고 후 진행하는 길이 없어졌다 — 경고가 곧 차단이 된다"
+
+    # ── ⑤ restart_server 가 죽이기 전에 활동을 본다 ───────────────────────────
+    rsp = os.path.join(ROOT, "webapp", "restart_server.py")
+    rs = open(rsp, encoding="utf-8").read()
+    assert "def in_use(" in rs and "def guard(" in rs, "쓰는 사람을 보는 자리가 없다"
+    assert rs.index("guard(") < rs.index('print("끄는 중:'), \
+        "죽이고 나서 물어본다 — 그 순서면 이미 늦었다"
+    assert "ux" in rs and "ledger_db" in rs, \
+        "새 계기를 만들었다 — 이미 쌓이는 ux 기록을 봐야 한다([162])"
+
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    RS = importlib.import_module("restart_server")
+
+    # 시각이 **두 형식으로 섞여 있다**(브라우저 UTC `…Z` + ux_add 로컬 naive).
+    # 문자열로 비교하면 조용히 0 건이 되어 계기가 눈먼다 — 실제로 첫 판이 그랬다([169]).
+    from datetime import datetime, timezone, timedelta
+    utc_now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    e = RS._ts_epoch(utc_now)
+    assert e is not None and abs(e - time.time()) < 120, \
+        "UTC(`Z`) 시각을 로컬로 안 옮긴다 — 방금 쓴 사람이 '아무도 없음' 으로 읽힌다"
+    loc = (datetime.now() - timedelta(minutes=1)).isoformat(timespec="seconds")
+    e2 = RS._ts_epoch(loc)
+    assert e2 is not None and abs(e2 - (time.time() - 60)) < 120, \
+        "로컬 naive 시각을 못 읽는다 — ux 표에 두 형식이 섞여 있다"
+    assert RS._ts_epoch("") is None and RS._ts_epoch("어제") is None, \
+        "못 읽는 시각을 0(=아주 옛날)으로 치면 '아무도 없음'이 된다"
+
+    # 갈래 넷 — 특히 '못 읽음'이 '아무도 없다'로 새면 안 된다([169])
+    orig = RS.in_use
+    try:
+        RS.in_use = lambda minutes=10: {"읽음": False, "건수": 0, "분전": None, "왜": "잠김"}
+        assert RS.guard() is not None, "활동을 못 읽었는데 그냥 내린다([169])"
+        assert RS.guard(force=True) is None, "--force 로도 못 내린다"
+        RS.in_use = lambda minutes=10: {"읽음": True, "건수": 3, "분전": 1.0, "왜": ""}
+        assert RS.guard() is not None, "쓰는 사람이 있는데 그냥 내린다"
+        RS.in_use = lambda minutes=10: {"읽음": True, "건수": 0, "분전": 900.0, "왜": ""}
+        assert RS.guard() is None, "아무도 안 쓰는데 못 내린다 — 그러면 고쳐도 화면이 안 바뀐다"
+    finally:
+        RS.in_use = orig
+
+    # 미룬 것을 '실패'라고 적지 않는다 — 진짜 실패와 구별이 안 된다([169])
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    assert "rc == 3" in wd and "미룸" in wd, \
+        "워치독이 '지금 쓰는 중이라 미룸'을 실패로 적는다"
+
+    print("[252] 실재하는 PO 모양을 안 막는다 · 쓰는 사람 위에서 서버를 안 내린다 ✅")
+
+
 def t249_entry_save_never_silent():
     """[249] 입력 저장은 **조용히 실패하지 않는다** (2026-08-13 실사고 · 분담판 [80]).
 
@@ -18239,6 +18348,7 @@ if __name__ == "__main__":
     t249_entry_save_never_silent()
     t250_error_book_speaks_and_counts()
     t251_zero_tells_which_zero_it_is()
+    t252_po_shape_matches_reality_and_restart_asks_first()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

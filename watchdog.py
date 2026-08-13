@@ -168,7 +168,14 @@ def heal_stale_server(dry):
             return "서버 옛코드 — 방금 편집 중이라 미룸(%s)" % ", ".join(newer[:2])
         if dry:
             return "서버 옛코드(dry — 재시작 생략): %s" % ", ".join(newer[:3])
+        # ★ 사람이 쓰고 있으면 restart_server 가 **스스로 미룬다**(exit 3, 2026-08-13).
+        #   입력 중에 서버를 내리면 그 사람 화면이 10초쯤 끊긴다 — 옛 코드로 도는 것보다
+        #   나쁘다. 미룬 것을 **'실패'라고 적지 않는다**: 실패로 적으면 사람이 없는
+        #   고장을 찾아 나서고, 진짜 실패와 구별이 안 된다([169]).
         rc = restart_server.main([])
+        if rc == 3:
+            return ("서버 옛코드 — 지금 쓰는 사람이 있어 미룸(다음 주기 재시도): %s"
+                    % ", ".join(newer[:3]))
         ok = ping()
         return ("서버 옛코드 → 재시작 %s (%s)"
                 % ("성공" if (rc == 0 and ok) else "실패(다음 주기 재시도)",

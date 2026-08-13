@@ -126,8 +126,13 @@ def scan(master=None):
 
         # ① PO번호 — 쿠팡 목록에 없는데 한 글자 차이로 실재하는 번호가 **하나** 있다
         po = str(r.get("원장_PO번호") or "").strip()
-        m = re.search(r"PO\s*-?\s*(\d{3,})", po, re.I)
-        po = "PO" + m.group(1) if m else ""
+        # ★ 규칙은 한 곳에서 온다 — po_reconcile.norm_po (= PO_PAT). 여기에 비슷한 정규식을
+        #   따로 적어 두면 언젠가 갈리고, 갈린 뒤에는 대조기와 오기입 감시가 같은 값을
+        #   두고 서로 다르게 답한다(화면도 같은 규칙을 본다 — [252]).
+        try:
+            po = P.norm_po(po)
+        except Exception:
+            po = ""   # 목록을 못 읽어 P 가 없으면 이 검사만 건너뛴다(위에서 이미 알렸다)
         if po and po_known and po not in po_known:
             cand = near(po, po_known)
             if len(cand) == 1:
