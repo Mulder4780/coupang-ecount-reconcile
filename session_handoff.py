@@ -612,6 +612,7 @@ def collect():
         "일일대조": daily_run_health(),
         "밴드재수집": band_recollect(),
         "업무흐름": work_flow_change(),
+        "사실대조": truth_gap(),
         "세션자동화": session_auto(),
         "스케줄러": schedule_health(),
         "앱서버": app_server_health(),
@@ -852,6 +853,23 @@ def _slow_hint(s):
         return ""
     return " · 오래 걸린 단계: " + ", ".join(
         "%s %.0f분" % (r.get("단계"), int(r.get("초") or 0) / 60) for r in slow[:2])
+
+
+def truth_gap():
+    """`truth_watch` 회차가 써 둔 판정을 **읽기만** 한다.
+
+    여기서 다시 세면 인계 문서를 만들 때마다 밴드 8천 건을 다시 파싱한다([168]).
+    그리고 판정이 두 곳이 되어 화면·회차·인계가 서로 다른 답을 하게 된다([162])."""
+    p = os.path.join(REPORT_DIR, "화면_사실대조.json")
+    try:
+        d = json.load(open(p, encoding="utf-8"))
+    except Exception:
+        # 파일이 없다 = 회차가 아직 안 돌았다. **'이상 없음'이 아니다** — 그러나
+        # 첫날부터 경보를 내면 아무도 안 보므로 조용히 빈 것을 돌려준다.
+        return {}
+    return {"때": d.get("때", ""),
+            "경보": [q for q in (d.get("물음") or []) if q.get("등급") == "경보"],
+            "못물음": d.get("못물음") or []}
 
 
 def blockers(st, for_sol=False):

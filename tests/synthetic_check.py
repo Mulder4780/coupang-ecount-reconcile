@@ -16987,6 +16987,77 @@ def t134_section_fold():
 
 
 
+def t245_truth_watch_asks_instead_of_asserting():
+    """[245] 화면이 조용히 틀린 값을 보여 주는 것을 **매일 기계가 먼저 묻는다**.
+
+    사용자 지시(2026-08-13): "위 같은 문제 잡아내는 기능 AI 추가해". 그날 둘 다
+    **사람이 전화로 지적하고 나서야** 알았다 — 미처리의 31%가 이미 취소된 건이었고
+    ([243]), 다녀온 현장이 원장 완료일이 비어 미처리로 서 있었다([244]).
+    오류가 안 나는 종류라 어느 화면에도 안 떴다.
+
+    지키는 것:
+      · **판정을 새로 만들지 않는다**([162]) — 화면이 쓰는 그 함수를 그대로 부른다.
+        여기서 다시 판정하면 감시자와 화면이 갈리고, **감시자가 틀리면 아무도 모른다.**
+      · **읽기 전용** — 안 고치고 큐에도 안 넣고 엑셀도 안 연다.
+      · **못 물어본 것을 '이상 없음'이라 하지 않는다**([169]).
+      · 한 갈래가 절반을 넘으면 경보가 아니라 **기준 이야기**다([170]).
+      · 인계는 **다시 세지 않고 회차가 써 둔 것을 읽는다**([168]).
+    """
+    import truth_watch as T
+
+    # ── 읽기 전용인가 — 쓰는 낱말이 소스에 없어야 한다 ──────────────────────
+    src = open(os.path.join(ROOT, "truth_watch.py"), encoding="utf-8").read()
+    code = re.sub(r"^\s*#.*$", "", src, flags=re.M)
+    code = re.sub(r'"""[\s\S]*?"""', "", code)
+    for 금지 in ("enqueue(", "--apply", "--queue", "workbook_patch", "openpyxl"):
+        assert 금지 not in code, "감시자가 무언가를 고치려 한다: %r" % 금지
+    assert "_calendar_work_events" in code, \
+        "화면이 쓰는 그 함수를 안 부르고 제 손으로 판정하면 둘이 갈린다([162])"
+
+    # ── 무인 회차에서 죽지 않는가 (pythonw 는 stdout 이 None, [235]) ───────
+    assert "hasattr(sys.stdout" in src, "맨몸 reconfigure 는 pythonw 에서 터진다([235])"
+
+    # ── 갈래를 정말 가르는가 (동작으로 본다) ────────────────────────────────
+    급 = {"물음": [{"무엇": "취소된 건이 미처리에 섞였나", "값": 3, "왜": "", "등급": "경보"}],
+          "못물음": ["밴드 색인을 못 읽었다"], "미처리": 10, "사유": {"가": 10}}
+    md = T.render(급)
+    assert "먼저 볼 것" in md and "못 물어본 것" in md, md[:200]
+    assert "이상 없음이 아니다" in md, "'못 물어봄'을 이상 없음처럼 적으면 안 된다([169])"
+
+    # 한 갈래가 절반을 넘으면 '확인'으로 올라와야 한다([170])
+    몰림 = {"물음": [{"무엇": "미처리 사유가 한 갈래에 몰렸나", "값": "가 9건 (90%)",
+                      "왜": "", "등급": "확인"}], "미처리": 10, "사유": {"가": 9, "나": 1}}
+    assert "확인해 볼 것" in T.render(몰림)
+
+    # ── 인계가 그 판정을 **다시 세지 않고 읽는가** ([168]) ─────────────────
+    import session_handoff as H
+    hsrc = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    fn = hsrc[hsrc.index("def truth_gap"):hsrc.index("def blockers")]
+    assert "화면_사실대조.json" in fn and "_calendar_work_events" not in fn, \
+        "인계가 밴드를 다시 파싱하면 인계 한 장에 몇십 초가 든다([168])"
+
+    old = H.truth_gap
+    try:
+        H.truth_gap = lambda: {"경보": [{"무엇": "합성 어긋남", "값": 7}],
+                               "못물음": ["합성 못 읽음"]}
+        import collections as _c
+        st = _c.defaultdict(list)      # 없는 칸은 빈 값 — 이 검사는 사실대조만 본다
+        st["사실대조"] = H.truth_gap()
+        bl = H.blockers(st)
+    finally:
+        H.truth_gap = old
+    글 = " / ".join(w for w, _ in bl)
+    assert "합성 어긋남" in 글, "사실대조 경보가 '먼저 처리할 것'에 안 올라온다: %r" % 글
+    assert "합성 못 읽음" in 글, "'못 물어봄'이 조용히 사라졌다([169]): %r" % 글
+
+    # ── 회차 목록에 실제로 들어 있는가 ("코딩했다"와 "돈다"는 다르다) ───────
+    dsrc = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "truth_watch.py" in dsrc, "09:50 회차에 안 들어가면 아무도 안 돌린다"
+
+    print("  [245] 화면↔원본 사실대조 — 화면 함수 재사용 · 읽기 전용 · "
+          "못 물어봄을 이상없음이라 안 함 · 인계는 읽기만 · 회차 등록 ✅")
+
+
 def t244_band_evidence_closes_and_says_why():
     """[244] 밴드·카톡이 완료라 하면 미처리가 아니다 — **문은 좁게, 이유는 반드시**.
 
@@ -17655,6 +17726,7 @@ if __name__ == "__main__":
     t242_ready_means_logged_in()
     t243_cancelled_is_not_undone()
     t244_band_evidence_closes_and_says_why()
+    t245_truth_watch_asks_instead_of_asserting()
     t235_unattended_rounds_survive_pythonw()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
