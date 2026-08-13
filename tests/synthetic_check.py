@@ -6911,6 +6911,87 @@ def t247_chrome_collect_report_round_trip():
     print("  [247] 크롬 되보고 — 게이트 앞·모양 일치·유령 거부·워치독 순서 ✅")
 
 
+def t250_error_book_speaks_and_counts():
+    """오류는 남고 · 사람 말이 되고 · 다시 나면 회귀로 센다 (2026-08-13 지시).
+
+    지키는 것은 '기능이 있다'가 아니라 **되돌아가면 안 되는 것**이다:
+      · 사전은 **모르면 None** 을 준다(지어내면 사람이 엉뚱한 데를 고치러 간다)
+      · 보관은 **덧붙이기만** 한다(지우면 재발을 영영 못 센다)
+      · 보관 실패를 **0 으로 적지 않는다**(-1). 실패가 성공처럼 보이면 안 된다
+      · 회귀는 '막음이 붙었다'가 아니라 **고친 날 뒤에도 났다**여야 한다.
+        날짜를 안 보면 첫판처럼 76갈래 중 56이 회귀가 되어 경보가 통째로 죽는다([170])
+      · 못 가른 것을 '이상 없음'으로 치지 않는다([169])
+    """
+    import importlib
+    eb = importlib.import_module("error_book")
+
+    # ① 모르는 오류에 답을 지어내지 않는다
+    assert eb.look_up("/api/무엇", "듣도보도못한오류") is None, "모르는 오류에 사전이 답했다"
+    h = eb.help_for("/api/무엇", "듣도보도못한오류")
+    assert h["앎"] is False and h["하세요"], "모르는 오류를 빈손으로 돌려보냈다"
+    assert "신고문구" in h and "[앱 오류 신고]" in h["신고문구"], "붙여넣을 신고문구가 없다"
+
+    # ② 아는 오류는 개발자 말이 아니라 사람 말로 답한다
+    k = eb.help_for("/api/staff/entry", "화면 데이터 버전이 없습니다")
+    assert k["앎"] is True and k["하세요"], "아는 오류인데 할 일을 못 말했다"
+    for ent in eb.BOOK:
+        blob = ent["쉬운말"] + " " + " ".join(ent["하세요"])
+        for jargon in ("HTTP", "JSON", "409", "토큰", "Exception", "null"):
+            assert jargon not in blob, f"{ent['이름']}: 사람 말이 아닌 낱말 '{jargon}'"
+        assert ent.get("막음") is None or ent.get("고친날"), \
+            f"{ent['이름']}: 막음에 고친 날이 없다 — 회귀를 셀 수 없다"
+
+    # ③ 지문은 번호를 지운다 — 안 지우면 건마다 다른 오류가 되어 아무것도 안 모인다
+    a = eb.signature("/api/staff/entry", "AS-2601-574 저장 실패")
+    b = eb.signature("/api/staff/entry", "AS-2601-999 저장 실패")
+    assert a == b, "지문이 건별로 갈린다 — 같은 오류를 못 센다"
+
+    # ④ 보관은 덧붙이기만 한다 · 실패를 0 으로 적지 않는다
+    src = open(os.path.join(ROOT, "error_book.py"), encoding="utf-8").read()
+    arch = src[src.index("def archive("):src.index("def _read_archive(")]
+    # ★ 좁혀서 본다 — 보관본(path)만 덧붙이기여야 한다. 실패 자국(FAIL_MARK)은
+    #   덮어써야 맞다. 첫판에 '"w" 가 있으면 실패'로 뒀다가 그 자국까지 잡았다.
+    assert 'open(path, "a"' in arch, "보관본이 덧붙이기(append)가 아니다"
+    for bad in ("os.remove(path", 'open(path, "w"', "truncate"):
+        assert bad not in arch, f"보관이 기록을 지운다 — {bad}"
+    assert "return -1" in arch, "보관 실패를 0 이 아닌 값으로 알리지 않는다"
+
+    # ⑤ 회귀는 날짜를 본다
+    roll = src[src.index("def rollup("):src.index("def _md(")]
+    assert "고친날" in roll and "회귀.append" in roll, "회귀 판정이 없다"
+    assert '["고친날"]' in roll or "'고친날'" in roll, "회귀가 고친 날을 안 본다"
+    assert "못가름" in roll, "못 가른 것을 따로 세지 않는다([169])"
+
+    # ⑥ 읽기 전용이다 — 고치지도, 큐에 넣지도, 엑셀을 열지도 않는다
+    for bad in ("enqueue(", "--apply", "openpyxl", "workbook_patch"):
+        assert bad not in src, f"error_book 이 읽기 전용이 아니다 — {bad}"
+
+    # ⑦ 실제로 한 바퀴 돈다(파일은 안 건드린다 — 실측 기록에 합성 행을 섞지 않는다)
+    res = eb.rollup(days=1)
+    for key in ("회귀", "새오류", "아는것", "못본것", "합계"):
+        assert key in res, f"집계에 '{key}' 가 없다"
+
+    # ⑧ 회차·인계에 배선돼 있다 — 코딩만 하고 안 도는 것을 막는다
+    dr = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "error_book.py" in dr, "09:50 회차에 오류 감시 단계가 없다"
+    sh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert "error_book" in sh, "인계 '먼저 처리할 것' 에 안 올라온다"
+
+    # ⑨ 앱이 사람에게 말하고 캡처를 만든다 — 실패를 조용히 삼키던 자리를 지킨다
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "async function errorHelp(" in idx, "오류 팝업이 없다"
+    assert "errorShotSend(" in idx and "toBlob" in idx, "캡처해서 보내는 길이 없다"
+    assert "dlgAsk({" in idx[idx.index("async function errorHelp("):
+                             idx.index("async function errorHelp(") + 3000], \
+        "팝업 레이어를 새로 만들었다 — 공용 문(dlgAsk) 하나를 써야 한다([202])"
+    win = idx[idx.index("window.addEventListener('error'"):]
+    assert "(사유 없음)" in win[:400], "window 오류가 아직 사유 없이 적힌다([169])"
+    api = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "/api/error_help" in api, "도움말 길이 서버에 없다"
+    assert "error_book.archive(" in api, "오류가 보관본에 안 남는다"
+    print("[250] 오류는 남고 · 사람 말이 되고 · 회귀로 센다 ✅")
+
+
 def t249_entry_save_never_silent():
     """[249] 입력 저장은 **조용히 실패하지 않는다** (2026-08-13 실사고 · 분담판 [80]).
 
@@ -18039,6 +18120,7 @@ if __name__ == "__main__":
     t247_chrome_collect_report_round_trip()
     t248_rounds_run_without_a_console_window()
     t249_entry_save_never_silent()
+    t250_error_book_speaks_and_counts()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

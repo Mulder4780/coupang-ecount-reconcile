@@ -8135,6 +8135,26 @@ self.addEventListener('fetch', e => {
             return self._send(200, report)
         if p == "/api/ux":
             return self._send(200, {"summary": _ux_summary()})
+        if p == "/api/error_help":
+            # 오류 하나를 **초등학생도 알아볼 말**로 풀어 준다. 읽기 전용이다.
+            # ★ 모르는 오류에도 답한다 — 다만 '앎: false' 로 정직하게 말하고,
+            #   지어내는 대신 '캡처해서 보내세요' 로 보낸다. 뭉쳐서 "알 수 없는
+            #   오류입니다" 라고만 하면 사람이 엉뚱한 데를 고치러 간다.
+            qs = parse_qs(urlsplit(self.path).query)
+            tgt = (qs.get("target", [""])[0] or "")[:160]
+            det = (qs.get("detail", [""])[0] or "")[:400]
+            try:
+                import error_book
+                return self._send(200, {"ok": True, **error_book.help_for(tgt, det)})
+            except Exception as exc:
+                # 도움말을 못 만든 것을 '도움말 없음'으로 적지 않는다.
+                return self._send(200, {"ok": False, "앎": False,
+                                        "이름": "도움말을 불러오지 못함",
+                                        "쉬운말": "오류 설명을 여는 것 자체가 실패했습니다.",
+                                        "왜": str(exc)[:160],
+                                        "하세요": ["이 화면을 캡처해서 관리자에게 보냅니다."],
+                                        "신고문구": f"[앱 오류 신고]\n어디: {tgt}\n무엇: {det}\n"
+                                                f"도움말 실패: {str(exc)[:160]}"})
         if p == "/api/ask":
             # ★ 앱이 스스로 답한다 — 클로드를 부르기 전에 여기서 먼저 묻는다.
             #   크레딧이 새던 자리는 계산이 아니라 **왕복**이었다: 사람이 이상한 숫자를
@@ -8370,7 +8390,17 @@ self.addEventListener('fetch', e => {
                 events = (body.get("events") or [])[:50]
                 import ledger_db
                 saved = ledger_db.ux_add(events)
-                return self._send(200, {"ok": True, "saved": saved})
+                # ux 표는 90일이 지나면 스스로 지운다(ux_add 의 DELETE). 그래서 오류만은
+                # 따로 **덧붙이기만 하는** 보관본에 남긴다 — 지난달 일을 물을 수 있어야
+                # '다시 안 나게' 를 말할 수 있다. 보관이 실패해도 UX 수집을 막지 않되,
+                # 실패를 성공처럼 적지도 않는다(-1 을 그대로 내보낸다).
+                archived = 0
+                try:
+                    import error_book
+                    archived = error_book.archive(events)
+                except Exception:
+                    archived = -1
+                return self._send(200, {"ok": True, "saved": saved, "archived": archived})
             except Exception as exc:
                 return self._send(400, {"ok": False, "error": str(exc)[:160]})
         if p == "/api/staff/activity":

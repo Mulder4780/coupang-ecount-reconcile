@@ -613,6 +613,7 @@ def collect():
         "밴드재수집": band_recollect(),
         "업무흐름": work_flow_change(),
         "사실대조": truth_gap(),
+        "오류사전": _error_book_lines(),
         "세션자동화": session_auto(),
         "스케줄러": schedule_health(),
         "크롬수집": userscript_health(),
@@ -873,6 +874,15 @@ def _slow_hint(s):
         "%s %.0f분" % (r.get("단계"), int(r.get("초") or 0) / 60) for r in slow[:2])
 
 
+def _error_book_lines():
+    """사람이 앱에서 막힌 자리. 회차가 써 둔 리포트를 읽기만 한다([168])."""
+    try:
+        import error_book
+        return error_book.handoff_lines()
+    except Exception:
+        return []
+
+
 def truth_gap():
     """`truth_watch` 회차가 써 둔 판정을 **읽기만** 한다.
 
@@ -906,6 +916,14 @@ def blockers(st, for_sol=False):
         # '못 물어봄'을 '이상 없음'으로 치지 않는다([169]) — 감시자가 눈먼 것이다.
         out.append(("사실대조가 확인하지 못한 것이 있다 — %s" % m,
                     "python truth_watch.py --print"))
+    # ★ 사람이 앱에서 막힌 자리 (2026-08-13 지시). 오류가 기록되는 것과 누가 그것을
+    #   보는 것은 다른 말이다 — `/api/originals` 권한거부 222건이 최근 3일에 쌓이는
+    #   동안 어느 화면에도 안 떴다. 회귀(막았다는데 또 남)가 새 오류보다 앞에 온다.
+    #   판정은 `error_book` 회차가 해 둔 것을 읽기만 한다([168]).
+    #   ★ 여기서 디스크를 직접 읽지 않는다 — 읽었더니 합성검증이 실기계 상태를 타서
+    #     `t111` 이 즉시 빨개졌다. 판단 재료는 언제나 st 를 거친다.
+    for line in (st.get("오류사전") or []):
+        out.append((line.split(" → ")[0], "python error_book.py --print"))
     # ★ 워크트리가 본체 상태와 끊겨 있으면 **합성검증부터 못 돈다**(config 가 없다).
     #   즉 "ALL GREEN 확인 후 실작업" 관문 자체를 통과할 수 없으니 맨 앞에 둔다.
     #   판단은 st 에 담긴 것만 쓴다 — 여기서 기계 상태를 직접 보면 합성검증이

@@ -5547,11 +5547,26 @@ document.addEventListener('click',e=>{
     uxEvent('tap',target);
   }
 });
-window.addEventListener('error',()=>uxEvent('error','window'));
-/* 사유 없는 'promise' 기록 236건(2026-08-03 실측)은 개선 근거가 못 된다 — 사유를 남긴다. */
+/* ★ 사유 없는 기록은 개선 근거가 못 된다. 'promise' 는 2026-08-03 에 사유를 붙였는데
+   바로 옆줄 'window' 는 그대로였다 — 90일 4,130건 중 맨 위 열두 갈래가 사유 없음이었다.
+   비어 있는 값은 눈에 띄지만 **사유 없는 기록은 있는 것처럼 보인다**([169]). */
+window.addEventListener('error',ev=>{
+  const m=String((ev&&(ev.message||(ev.error&&ev.error.message)))||'').slice(0,140);
+  const at=String((ev&&ev.filename)||'').split('/').pop()+':'+((ev&&ev.lineno)||0);
+  uxEvent('error','window',(m||'(사유 없음)')+' @ '+at);
+});
 window.addEventListener('unhandledrejection',ev=>{
   const r=ev&&ev.reason;
-  uxEvent('error','promise',String((r&&(r.message||r.stack||r))||'').slice(0,200));
+  const why=String((r&&(r.message||r.stack||r))||'').slice(0,200);
+  uxEvent('error','promise',why);
+  /* ★ 여기가 이 프로젝트에서 제일 조용했던 자리다. 실측 58건 — 서버는 매번 이유를
+     말했는데(`화면 데이터 버전이 없습니다`) 이 처리기가 기록만 하고 화면에는 아무
+     말도 안 해서, 담당자에게는 '눌러도 아무 일이 안 나는 단추'였다([80] 실사고).
+     이제 사람에게 말한다. 다만 **끊김은 뺀다** — 그쪽은 이미 띠(netBanner)가
+     말하고 있고, 안 빼면 잠깐 끊길 때마다 팝업이 쏟아져 아무도 안 본다([170]). */
+  if(!PIN || document.hidden) return;
+  if(/NETWORK_ERROR|Failed to fetch|AUTH_EXPIRED|502|503|504/.test(why)) return;
+  try{ errorHelp('promise', why); }catch(e){}
 });
 window.addEventListener('pagehide',()=>uxFlush(true));
 /* ★ 예전에는 두 처리기가 맨 앞에서 `if(!staffSlug) return;` 했다. 그래서 관리자 화면은
@@ -11915,6 +11930,138 @@ function askText(label, value, opt){
   });
 }
 
+/* ═══ 오류 팝업 — 초등학생도 알아볼 말 · 캡처해서 보내기 (2026-08-13 지시) ═══════
+   사용자 지시: "담당자가 업무 처리시 초등학생도 알아볼 수 있게 팝업 띄워주고
+   팝업이 뜨면 캡처해서 나한테 보내줘서 내가 너한테 보내주고 바로 잡을 수 있는 구조".
+
+   ★ 새 팝업 레이어를 만들지 않는다 — 위 dlgAsk 문 하나로 연다([202]).
+   ★ 말은 서버(error_book.py)가 정한다. 화면이 제 손으로 설명을 지어내면 판정이
+     두 곳이 되고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다([162]).
+   ★ 모르는 오류에도 답한다 — 다만 '처음 보는 오류'라고 **정직하게** 말하고
+     캡처로 보낸다. 지어낸 설명은 사람을 엉뚱한 데로 보낸다([172]).                */
+let ERR_HELP_AT = 0;                        // 같은 순간에 팝업을 겹쳐 띄우지 않는다
+async function errorHelp(target, detail, opt){
+  opt = opt || {};
+  const now = Date.now();
+  if(!opt.force && now - ERR_HELP_AT < 4000) return;       // 한 번 끊기면 여러 API 가 같이 죽는다
+  ERR_HELP_AT = now;
+  let h = null;
+  try{
+    const r = await fetch('/api/error_help?target='+encodeURIComponent(target||'')
+      +'&detail='+encodeURIComponent(detail||''), {credentials:'same-origin'});
+    h = await r.json();
+  }catch(e){ h = null; }
+  /* 도움말을 못 받아도 팝업은 뜬다 — 못 받았다는 이유로 아무 말도 안 하면
+     그것이 바로 이 기능이 없애려던 '조용한 실패'다. */
+  if(!h) h = {앎:false, 이름:'오류', 쉬운말:'저장·조회가 되지 않았습니다.',
+              왜:'설명을 불러오지 못했습니다(인터넷이 끊겼을 수 있습니다).',
+              하세요:['이 화면을 캡처해서 관리자에게 보냅니다.'],
+              신고문구:'[앱 오류 신고]\n어디: '+(target||'')+'\n무엇: '+(detail||'')};
+  const steps = (h.하세요||[]).map((s,i)=>
+    `<li style="margin:.35em 0"><b>${i+1}.</b> ${esc2(s)}</li>`).join('');
+  const body =
+    `<div style="font-size:1.08em;line-height:1.6">`
+    + `<p style="margin:.2em 0 .6em;font-weight:700">${esc2(h.쉬운말||'')}</p>`
+    + (h.왜 ? `<p class="norm" style="margin:.2em 0 .8em">${esc2(h.왜)}</p>` : '')
+    + `<p style="margin:.2em 0 .3em;font-weight:700">이렇게 하세요</p>`
+    + `<ol style="margin:.2em 0 .8em;padding-left:1.2em">${steps}</ol>`
+    + (h.앎===false
+        ? `<p class="norm" style="margin:.6em 0 0">이 오류는 앱이 아직 모르는 것입니다 — `
+          + `캡처를 보내 주시면 다음부터는 설명이 나옵니다.</p>` : '')
+    + `</div>`;
+  const pick = await dlgAsk({
+    title: opt.title || ('저장되지 않았습니다 · ' + (h.이름||'오류')),
+    desc: opt.desc || '입력하신 내용은 지워지지 않았습니다.',
+    body,
+    buttons: [{label:'닫기', value:false},
+              {label:'📷 캡처해서 보내기', value:'shot', kind:'primary'}],
+    cancel: false
+  });
+  if(pick === 'shot') await errorShotSend(h, target, detail);
+}
+/* 신고문구를 그림 한 장으로 그린다. DOM 을 그대로 래스터화하지 않는다 —
+   웹폰트 때문에 canvas 가 오염돼 toBlob 이 null 을 주는 함정이 이 파일에 이미 적혀
+   있다(17168행). 글자를 직접 그리면 그 함정이 없다. */
+function errorShotCanvas(h, target, detail){
+  const F = (typeof uiFont==='function') ? uiFont() : 'sans-serif';
+  const lines = [];
+  lines.push(['t', '앱에서 이런 일이 있었습니다']);
+  lines.push(['s', new Date().toLocaleString('ko-KR')]);
+  lines.push(['b', h.쉬운말||'']);
+  if(h.왜) lines.push(['n', h.왜]);
+  lines.push(['h', '이렇게 하세요']);
+  (h.하세요||[]).forEach((s,i)=>lines.push(['n', (i+1)+'. '+s]));
+  lines.push(['h', '아래 글자를 그대로 보내 주세요']);
+  String(h.신고문구||'').split('\n').forEach(s=>lines.push(['m', s]));
+  const W=820, pad=34;
+  const cv=document.createElement('canvas'); const cx=cv.getContext('2d');
+  const wrap=[];
+  cv.width=W; cv.height=100;
+  lines.forEach(([k,s])=>{
+    const size = k==='t'?30 : k==='h'?21 : k==='b'?23 : k==='m'?16 : 18;
+    cx.font=(k==='t'||k==='h'||k==='b'?'700 ':'')+size+'px '+(k==='m'?'ui-monospace,Consolas,monospace':F);
+    const words=String(s||'').split(' '); let cur='';
+    const out=[];
+    words.forEach(w=>{
+      const t=cur?cur+' '+w:w;
+      if(cx.measureText(t).width > W-pad*2 && cur){ out.push(cur); cur=w; } else cur=t;
+    });
+    out.push(cur);
+    out.forEach((t,i)=>wrap.push([k,t,size,i===0]));
+  });
+  let hgt=pad;
+  wrap.forEach(([k,,size])=>{ hgt += size*1.5 + (k==='h'?10:0); });
+  cv.height = Math.ceil(hgt+pad);
+  const cs=getComputedStyle(document.documentElement);
+  const bg=(cs.getPropertyValue('--bg')||'#fff').trim()||'#fff';
+  const fg=(cs.getPropertyValue('--fg')||'#111').trim()||'#111';
+  cx.fillStyle=bg; cx.fillRect(0,0,cv.width,cv.height);
+  let y=pad;
+  wrap.forEach(([k,t,size])=>{
+    if(k==='h') y+=10;
+    cx.font=(k==='t'||k==='h'||k==='b'?'700 ':'')+size+'px '+(k==='m'?'ui-monospace,Consolas,monospace':F);
+    cx.fillStyle = k==='s'||k==='n' ? (fg+'b0') : fg;
+    if(k==='m') cx.fillStyle = fg+'d0';
+    y += size*1.15;
+    cx.fillText(t, pad, y);
+    y += size*0.35;
+  });
+  return cv;
+}
+async function errorShotSend(h, target, detail){
+  const text = String(h.신고문구||'');
+  let copied=false;
+  try{ await navigator.clipboard.writeText(text); copied=true; }catch(e){}
+  let cv=null, blob=null;
+  try{
+    cv = errorShotCanvas(h, target, detail);
+    blob = await new Promise(r=>{ try{ cv.toBlob(r,'image/png'); }catch(e){ r(null); } });
+  }catch(e){ blob=null; }
+  const name = '앱오류_'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'')+'.png';
+  if(blob && navigator.canShare){
+    try{
+      const file=new File([blob], name, {type:'image/png'});
+      if(navigator.canShare({files:[file]})){
+        await navigator.share({files:[file], text});
+        return;                                     // 공유 시트가 떴다 — 여기서 끝
+      }
+    }catch(e){}
+  }
+  if(blob){
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download=name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+  }
+  /* ★ 그림을 못 만들었으면 못 만들었다고 말한다. 조용히 넘어가면 사람은 보냈다고
+     생각하고, 나는 아무것도 못 받는다 — 실패가 성공처럼 보이는 자리다. */
+  await notice(
+    (blob ? '캡처 그림을 저장했습니다.' : '캡처 그림을 만들지 못했습니다.')
+    + (copied ? '\n신고 글자는 복사해 두었습니다 — 카톡에 그대로 붙여넣으시면 됩니다.'
+              : '\n아래 글자를 길게 눌러 복사한 뒤 카톡으로 보내 주세요.\n\n'+text),
+    {title:'보낼 준비가 됐습니다'});
+}
+
 /* ═══ 공용 바텀시트 — 팝업은 전부 이 문 하나로 연다 (2026-08-11 지시) ═══════════
    "아래→위 슬라이드 바텀시트 공용 컴포넌트 하나 · statHelpOpen 상세시트와 새 경고
    팝업 등 레이어를 이것으로 통일". 뼈대는 위 dlg 레이어 **하나**다 — 폰에서는
@@ -12440,14 +12587,16 @@ async function saveInputs(kind, id, n, recordVersion){
       clear_fields:clearFields,reason:(($('inp_reason')||{}).value||'').trim(),idempotency_key:requestId
     })});
   }catch(e){
+    /* ★ 사유는 서버가 이미 말했다 — 그것을 사람 말로 풀어 주고, 그대로 캡처해
+       보낼 수 있게 한다(2026-08-13 지시). 설명 문구를 여기 적지 않는 이유는
+       error_book.py 한 곳에서만 정하기 위해서다([162]) — 여기에 또 적으면
+       사전을 고쳐도 이 화면만 옛말을 한다. */
     const st=Number((e&&e.status)||0);
-    const how = st===409 ? '다른 곳에서 이 건이 먼저 바뀌었습니다. 목록을 새로고침해 두 값을 보고 다시 저장해 주세요.'
-              : st===403 ? '이 항목을 고칠 권한이 없습니다. 관리자에게 알려 주세요.'
-              : st===401 ? 'PIN 을 다시 입력한 뒤 저장해 주세요.'
-              : '내용을 확인한 뒤 다시 저장해 주세요.';
-    await notice('저장하지 못했습니다 · '+String((e&&e.message)||e)+'\n'+how+'\n'
-      +'입력하신 내용은 이 기기에 초안으로 남아 있습니다. 자동 재전송은 하지 않습니다'
-      +'(멱등키가 있어 다시 저장해도 중복되지 않습니다).',{title:'저장하지 못했습니다'});
+    await errorHelp('/api/staff/entry',
+      (String((e&&e.code)||'')+(st?':'+st:'')+' · '+String((e&&e.message)||e)).slice(0,300),
+      {force:true, title:'저장되지 않았습니다',
+       desc:'입력하신 내용은 이 기기에 초안으로 그대로 있습니다 — 자동 재전송은 하지 않습니다'
+            +'(멱등키가 있어 다시 저장해도 중복되지 않습니다).'});
     return;                       // ★ 초안을 지우지 않는다 · 시트도 닫지 않는다
   }
   if(d && d.queued){              // 서버에 못 닿아 이 기기에 보관됨 — 저장이 아니다
