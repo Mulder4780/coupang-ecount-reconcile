@@ -51,6 +51,15 @@
   var POLL_MS = 4000;
   var MAX_WAIT_MS = 30 * 60 * 1000;
 
+  // ★ 실릴 때마다 도장을 찍는다 — **'안 깔림' 과 '깔렸는데 조용함' 을 가르기 위해서다.**
+  //   되보고는 30분 간격이라, 설치 직후에 확인하면 둘이 똑같이 조용하다([169]).
+  //   이 한 줄이 없어서 2026-08-13 설치 직후에 "깔렸나?"를 답할 수 없었다.
+  //   localStorage 는 band.us 것이라 페이지에서도 읽힌다 — 사람도 개발자도 바로 본다.
+  try {
+    localStorage.setItem('coupangAutoCollect.loaded',
+      String(Date.now()) + '|' + VER + '|' + (typeof GM_info !== 'undefined' ? 'gm' : 'raw'));
+  } catch (e) { }
+
   function bandNo() {
     var m = location.pathname.match(/^\/band\/(\d+)\b/);
     return m ? m[1] : '';
