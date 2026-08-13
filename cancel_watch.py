@@ -81,7 +81,13 @@ def scan_band(quiet=False):
             continue
         posts = d.get("posts") or {}
         blind += cancel_blind_count(posts)
-        bname = str(d.get("band_name") or os.path.splitext(base)[0])
+        stem = os.path.splitext(base)[0]
+        # 수집 경로에 따라 ``band_name`` 이 "밴드 홈"·다른 밴드 표시명으로
+        # 잠깐 바뀐 적이 있다. 같은 글의 근거 문자열과 멱등키가 매회 흔들려 이미
+        # 취소인 행을 다시 쓰게 되므로, 정본 캐시 파일명이 숫자 밴드 ID이면 그것을
+        # 우선한다. 표시명은 숫자 파일명이 없는 옛 캐시에서만 폴백으로 쓴다.
+        bname = (stem if re.fullmatch(r"\d{7,10}", stem)
+                 else str(d.get("band_name") or stem))
         for no, p in posts.items():
             if not isinstance(p, dict):
                 continue
@@ -201,6 +207,55 @@ def write_report(rows, hits, blind, total=0):
     return REPORT
 
 
+def append_sync_result(path, synced):
+    """DB 반영 결과를 사람이 원인까지 볼 수 있게 같은 리포트에 남긴다.
+
+    예전에는 ``errors`` 를 메모리에만 담고 종료코드 1만 돌려줬다. 워치독에는
+    ``0건 반영 · 충돌 N`` 만 남아 실제 DB 예외의 프로젝트·종류·메시지가 사라졌다.
+    """
+    if synced is None:
+        return path
+
+    def cell(value):
+        return re.sub(r"\s+", " ", str(value or "")).replace("|", "\\|").strip()
+
+    records = list(synced.get("records") or [])
+    conflicts = [row for row in records if row.get("action") == "conflict"]
+    errors = list(synced.get("errors") or [])
+    with open(path, "a", encoding="utf-8") as f:
+        f.write("\n## 앱 DB 동기화 결과\n\n")
+        f.write(
+            "- 반영 {updated}건 · 동일 {unchanged}건 · 안전보류 {conflicts}건 · "
+            "후보중복 {ambiguous}건 · 원장없음 {missing}건 · 오류 {errors}건\n".format(
+                updated=int(synced.get("updated") or 0),
+                unchanged=int(synced.get("unchanged") or 0),
+                conflicts=int(synced.get("conflicts") or 0),
+                ambiguous=int(synced.get("ambiguous") or 0),
+                missing=int(synced.get("missing") or 0),
+                errors=len(errors),
+            )
+        )
+        if conflicts:
+            f.write("\n### 자동으로 뒤집지 않은 충돌\n\n")
+            f.write("| 프로젝트NO | 현재 상태 | 이유 |\n|---|---|---|\n")
+            for row in conflicts:
+                f.write("| {project} | {status} | {reason} |\n".format(
+                    project=cell(row.get("project")),
+                    status=cell(row.get("current_status")) or "-",
+                    reason=cell(row.get("reason")),
+                ))
+        if errors:
+            f.write("\n### DB 반영 오류\n\n")
+            f.write("| 프로젝트NO | 오류 종류 | 원인 |\n|---|---|---|\n")
+            for row in errors:
+                f.write("| {project} | {kind} | {message} |\n".format(
+                    project=cell(row.get("project")),
+                    kind=cell(row.get("type")),
+                    message=cell(row.get("message")),
+                ))
+    return path
+
+
 def sync(hits, *, store=None, corroborations=None):
     """상태가 이미 취소여도 근거를 보강하는 앱 DB 정본 동기화."""
 
@@ -234,11 +289,22 @@ def main(argv=None):
         rows = [row for row in rows if row.get("프로젝트NO") == project]
     path = write_report(rows, hits, blind, total)
     synced = sync(hits) if (a.sync or a.queue) else None
+    append_sync_result(path, synced)
     if not a.quiet:
         print(f"  취소로 읽힌 {len(hits)}건 중 원장이 아직 안 끝낸 {len(rows)}건"
               + (f" → 앱 DB {synced.get('updated', 0)}건 반영 · "
                  f"동일 {synced.get('unchanged', 0)} · 충돌 {synced.get('conflicts', 0)}"
+                 f" · 후보중복 {synced.get('ambiguous', 0)}"
+                 f" · 원장없음 {synced.get('missing', 0)}"
+                 f" · 오류 {len(synced.get('errors') or [])}"
                  if synced is not None else " (보기만 — 반영하려면 --sync)"))
+        if synced is not None:
+            for error in synced.get("errors") or []:
+                print("  ! {project}: {kind} — {message}".format(
+                    project=error.get("project") or "프로젝트 미상",
+                    kind=error.get("type") or "오류",
+                    message=error.get("message") or "원인 기록 없음",
+                ))
         if blind:
             print(f"  ※ 댓글을 못 읽은 글 {blind}건 / 전체 {total}건"
                   " — 한 번도 안 들여다본 글까지 센다. 그 글의 취소는 아직 못 본다")

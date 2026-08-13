@@ -64,21 +64,23 @@ def pull(targets=None, upload_dir=None, state_path=None):
     for src_root, owner, excludes in (targets or pull_targets()):
         if not os.path.isdir(src_root):
             continue
-        for base, dirs, files in os.walk(src_root):
-            rel_base = os.path.relpath(base, src_root)
-            top = rel_base.split(os.sep)[0].lower() if rel_base != "." else ""
-            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS
-                       and not (rel_base == "." and d.lower() in excludes)]
-            if top in excludes:
+        # ★ 목록을 받을 때 딸려 온 stat 을 쓴다 — 파일마다 `os.stat` 을 다시 부르면
+        #   Z:(SMB)에서 파일당 왕복 한 번이다(검증 [198]). 같은 폴더 실측:
+        #   예전 `os.walk`+`os.stat` **99.7초 / 602개** → `walk_stat` **4.1초**(24배).
+        #   이 함수는 5분마다(automation_pipeline) 도는 자리라 그대로 회차 비용이 된다.
+        #   거르기는 `skip_dirs` 에 맡기지 않고 **경로 요소**로 한다 — `skip_dirs` 는
+        #   대소문자를 정확히 맞춰야 해서 `Old`·`OLD` 가 조용히 새어 들어온다.
+        for base, name, st in source_index.walk_stat(src_root, skip_dirs=()):
+            rel = os.path.relpath(os.path.join(base, name), src_root)
+            parts = [p.lower() for p in rel.split(os.sep)[:-1]]
+            if any(p in SKIP_DIRS for p in parts):
                 continue
-            for name in files:
+            if parts and parts[0] in excludes:
+                continue
+            if True:
                 if name.lower() in SKIP_NAMES or name.startswith("~$"):
                     continue
                 src = os.path.join(base, name)
-                try:
-                    st = os.stat(src)
-                except OSError:
-                    continue
                 if now - st.st_mtime < MIN_STABLE_SECONDS:
                     continue                      # 저장 중일 수 있다 — 다음 회차에
                 key = owner + "/" + os.path.relpath(src, src_root).replace("\\", "/")

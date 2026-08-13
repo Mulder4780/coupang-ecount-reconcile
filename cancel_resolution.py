@@ -244,7 +244,17 @@ def sync_hits(
             or hit.get("관측시각") or hit.get("captured_at")
         )
         corroboration = corroborations.get(project) or {}
+        fields = dict(current.get("fields") or {})
         evidence = _hit_evidence(hit, corroboration)
+        # 교차 리포트는 재생성 중 잠깐 프로젝트가 빠질 수 있다. 그 결측만으로 이미
+        # 검증해 둔 카톡 근거를 지우면 다음 회차에 다시 나타나 같은 행을 되풀이해 쓴다.
+        # 새 교차근거가 없을 때만 기존 교차 부분을 보존하고, 밴드 부분은 현재의
+        # 정규화된 숫자 밴드 ID로 다시 만든다.
+        current_evidence = str(fields.get("접수취소근거") or "").strip()
+        cross_marker = " · 카톡 교차 "
+        if not corroboration and cross_marker in current_evidence:
+            old_cross = current_evidence.split(cross_marker, 1)[1].strip()
+            evidence = (_hit_evidence(hit, {}) + cross_marker + old_cross)[:900]
         source_ref = str(hit.get("근거URL") or "").strip()
         desired_fields = {
             status_col: "취소",
@@ -255,7 +265,6 @@ def sync_hits(
         }
         if confirmed_on:
             desired_fields["접수취소확인일"] = confirmed_on
-        fields = dict(current.get("fields") or {})
         current_status = str(current.get("status") or fields.get(status_col) or "").strip()
         done_value = (fields.get("작업완료일") if kind == "돌발AS"
                       else fields.get("실제점검일"))
@@ -289,6 +298,11 @@ def sync_hits(
             "confirmed_on": confirmed_on,
             "treatment": treatment,
             "evidence": evidence,
+            # 같은 사실 A→B→A 로 입력 근거가 되돌아와도, 과거 버전에서 쓴 멱등키를
+            # 현재 버전 요청에 재사용하면 AppStore가 올바르게 IdempotencyConflict를 낸다.
+            # 낙관잠금 버전을 키에 포함하면 같은 버전의 정확한 재시도만 재생되고,
+            # 이후 버전의 새 요청은 별개의 안전한 쓰기가 된다.
+            "record_version": int(current["record_version"]),
         }
         token = hashlib.sha256(
             json.dumps(token_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
