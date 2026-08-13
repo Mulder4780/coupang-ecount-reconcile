@@ -6992,6 +6992,88 @@ def t250_error_book_speaks_and_counts():
     print("[250] 오류는 남고 · 사람 말이 되고 · 회귀로 센다 ✅")
 
 
+def t251_zero_tells_which_zero_it_is():
+    """[251] 0 화면이 **못 불러온 것과 정말 없는 것을 가른다** (2026-08-13 실사고).
+
+    류지영 실사용 막힘: "확인필요에 아무것도 안뜰때 뭘 어떻게 해야하는걸까요!!"
+    그때 서버에는 확인 필요가 **208건** 있었다(`app_server.get_issues()` 실측).
+    화면만 0 이었고 지표 일곱 개가 전부 0 · 담당자 셋이 전부 0건 · 그 위에
+    **"확인할 항목이 없습니다 🎉"** 까지 떴다. `/api/issues` 가 끊겨
+    (같은 창 15:38 실측 502 · 11일간 103건) `issuesData` 가 처음 값인 빈 배열로
+    남은 것인데, 자료 상태를 말해 주는 목록은 [실행] 화면 전용이라
+    확인 필요 화면에서는 **아무 말도 안 했다.**
+
+    되돌아가면 안 되는 것만 지킨다(글자 검사는 '있어야 할 것'이 아니라
+    '되돌아가면 안 되는 것'에 쓴다 — [39] 의 교훈):
+      · 🎉 는 **확실히 0 일 때만** 나온다 — 못 불러온 자리에는 없다
+      · 0 을 그리는 자리는 **한 곳을 지난다**(zeroNote) — 화면마다 새로 적으면 갈린다
+      · 판정을 새로 만들지 않는다 — 이미 있는 `DATA_SECTION_STATE` 를 읽는다([162])
+      · 실패한 자리는 **손으로 할 수 있는 동작**을 준다(다시 불러오기 · 왜 그런지 보기)
+      · '왜' 는 사전(error_book.BOOK) 이 말한다 — 화면이 지어내지 않는다
+    """
+    import importlib
+    eb = importlib.import_module("error_book")
+
+    # ① 사전이 이 오류에 사람 말로 답한다 — 그리고 401·403 은 제 답이 그대로 나간다
+    h = eb.help_for("/api/issues", "HTTP_ERROR:502")
+    assert h["앎"] is True, "확인 필요 목록을 못 불러온 것에 사전이 답을 못 한다"
+    assert h["이름"] == "확인 필요 목록을 못 불러옴", f"사전 이름이 다르다: {h['이름']}"
+    assert h["하세요"], "할 수 있는 동작이 없다"
+    blob = h["쉬운말"] + " " + " ".join(h["하세요"])
+    assert "0" in h["쉬운말"], "0 이 '할 일 없음'이 아니라는 말을 안 한다([169])"
+    for jargon in ("HTTP", "JSON", "API", "500", "502", "null"):
+        assert jargon not in blob, f"사람 말이 아닌 낱말 '{jargon}' 이 들어 있다"
+    # ★ 순서가 뜻을 갖는다 — 이 줄이 위로 올라가면 로그인 만료·권한 없음이 묻힌다
+    assert eb.help_for("/api/issues", "HTTP_ERROR:401")["이름"] == "로그인 만료", \
+        "확인 필요 규칙이 로그인 만료를 덮었다"
+    assert eb.help_for("/api/issues", "HTTP_ERROR:403")["이름"] == "권한 없음", \
+        "확인 필요 규칙이 권한 없음을 덮었다"
+
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # ② 0 을 그리는 자리는 한 곳을 지난다 — 그 한 곳이 갈래를 가른다
+    for fn in ("function dataZeroState(", "function zeroNote(", "function zeroStateWhy("):
+        assert fn in idx, f"{fn} 가 없다 — 0 의 뜻을 가르는 자리가 없다"
+    zs = idx[idx.index("function dataZeroState("):idx.index("function zeroStateDetail(")]
+    assert "DATA_SECTION_STATE" in zs, \
+        "0 판정이 제 손으로 다시 센다 — 이미 있는 자료 상태를 읽어야 한다([162])"
+    assert "hasGood" in zs, "'한 번도 못 받았다'를 '없다'와 안 가른다([169])"
+    for st in ("'failed'", "'loading'", "'waiting'", "'ok'"):
+        assert st in zs, f"갈래 {st} 가 없다"
+
+    # ③ 🎉 는 '확실히 0' 가지에만 있다
+    zn = idx[idx.index("function zeroNote("):idx.index("function zeroNum(")]
+    assert zn.count("🎉") == 1, "축하 표시가 한 갈래에만 있지 않다"
+    ok_at = zn.index("z.state==='ok'")
+    assert ok_at < zn.index("🎉") < zn.index("z.state==='loading'"), \
+        "🎉 가 '확실히 0' 가지 밖에 있다 — 못 불러온 0 을 축하하면 안 된다"
+    assert "retryDataSection(" in zn and "zeroStateWhy(" in zn, \
+        "실패한 자리에 손으로 할 수 있는 동작이 없다"
+    assert "0 건이라는 뜻이 아닙니다" in zn, "0 이 사실이 아니라는 말을 안 한다"
+
+    # ④ '왜' 는 사전이 말한다 · 팝업을 새로 만들지 않는다([202])
+    why = idx[idx.index("function zeroStateWhy("):idx.index("function zeroNote(")]
+    assert "errorHelp(" in why and "force:true" in why, \
+        "실패 설명이 사전(error_book)을 안 거친다 — 화면이 지어내면 판정이 둘이 된다"
+    assert "dlgAsk" not in why, "팝업 레이어를 새로 만들었다 — 공용 문 하나를 써야 한다([202])"
+
+    # ⑤ 확인 필요 화면이 🎉 를 제 손으로 적지 않는다 — 반드시 zeroNote 를 지난다
+    hub = idx[idx.index("function renderCheckHub(){"):idx.index("function esc4(")]
+    assert "🎉" not in hub, "확인 필요 화면이 아직 축하 표시를 제 손으로 적는다"
+    assert hub.count("zeroNote(") >= 3, "0 자리 일부가 아직 한 곳을 안 지난다"
+    lst = idx[idx.index("function renderCheckList("):idx.index("/* 확인필요 유형 코드 설명")]
+    assert "🎉" not in lst and "zeroNote(" in lst, "목록의 0 자리가 갈래를 안 가른다"
+
+    # ⑥ 못 셌으면 숫자 0 을 적지 않는다 — 0 일곱 개는 '오늘 할 일 없음'으로 읽힌다
+    assert "function zeroNum(" in idx, "못 센 숫자를 0 으로 적지 않는 장치가 없다"
+    assert "dataZeroState('issues')" in hub, "확인 필요 지표가 자료 상태를 안 본다"
+    assert "'? 건'" in hub, "못 셌는데 담당자 옆에 '0건' 이 그대로 적힌다"
+    assert "전체 ${all.length}건" in lst and "zl.state==='ok'" in lst, \
+        "목록 요약이 못 불러온 0 을 '전체 0건' 으로 확언한다"
+
+    print("[251] 0 은 '없다'와 '못 불러왔다'를 가려 말한다 ✅")
+
+
 def t249_entry_save_never_silent():
     """[249] 입력 저장은 **조용히 실패하지 않는다** (2026-08-13 실사고 · 분담판 [80]).
 
@@ -15752,6 +15834,41 @@ def t232_orgchart_floorplan_roster_and_states():
     assert "grid-template-rows:0fr" in css and "grid-template-rows:1fr" in css, \
         "아코디언 여닫이(0fr→1fr)가 CSS 에 없다"
 
+    # 길게 눌러 자리 옮기기(2026-08-13) — 새 드래그 사본을 만들지 않고 공용 함수를
+    # 선택 옵션으로 확장한다. 옵션 없는 대시보드 세 호출은 편집 모드 계약 그대로다.
+    assert "function dashDragEnable(hostRef, sel, onDrop, onReorder, opt)" in live, \
+        "공용 dashDragEnable 을 확장하지 않고 조직도용 사본을 만든 흔적이다"
+    drag = live.split("function dashDragEnable(", 1)[1].split("/* ═══ 눌러서 옮기기", 1)[0]
+    assert "typeof hostRef==='string'" in drag, "id 없는 조직도 구역 요소를 host 로 못 받는다"
+    assert "hasOwnProperty.call(cfg,'longPress')" in drag and ": 0" in drag, \
+        "longPress 옵션이 없는 기존 호출까지 길게 누르기로 바뀔 수 있다"
+    assert "navigator.vibrate" in drag and "dash-long-pressing" in drag, \
+        "길게 누르기 시작 피드백(확대·진동)이 없다"
+    assert "cfg.tapPick!==false" in drag and "cfg.allowInteractive" in drag, \
+        "조직도 button 탭과 대시보드 집기 동작을 분리하지 않았다"
+    dash_init = live.split("function initDashboardLayout()", 1)[1].split(
+        "applyDashboardLayout(readDashboardLayout())", 1)[0]
+    assert "longPress" not in dash_init and dash_init.count("dashDragEnable(") == 3, \
+        "기존 대시보드 세 호출이 longPress 옵션의 영향을 받는다"
+    assert "data-dash-long-press" in css and "touch-action:none" in css, \
+        "폰이 길게 누르기를 스크롤로 가져갈 수 있다"
+
+    # 구역별 name 순서를 localStorage 에 저장하고 15초 재렌더 때마다 다시 적용한다.
+    # 저장 목록에 없는 새 로스터 사람은 saved.length+원래순번으로 반드시 뒤에 남는다.
+    render = live.split("function orgRender(", 1)[1].split("\nfunction orgLoad", 1)[0]
+    load = live.split("function orgLoad(", 1)[1].split("\n/* 카톡으로", 1)[0]
+    assert "ORG_ORDER_KEY" in live and "localStorage.getItem(ORG_ORDER_KEY)" in live \
+        and "localStorage.setItem(ORG_ORDER_KEY" in live, "조직도 자리 순서가 이 기기에 저장되지 않는다"
+    assert "saved.length+a.i" in live and "saved.length+b.i" in live, \
+        "저장 뒤 새로 들어온 사람을 버리거나 앞사람과 같은 순위로 만든다"
+    assert "D=orgApplyOrder(D)" in render and "data-org-zone" in render \
+        and "data-org-name" in render, "orgRender 가 저장 순서를 다시 입히지 않는다"
+    assert "dashDragEnable(host,'.org-ws'" in render and "longPress:450" in render \
+        and "gridItems:true" in render, \
+        "세 조직도 구역에 450ms 길게 누르기 재정렬을 연결하지 않았다"
+    assert "15000" in load and "orgLoad()" in load, \
+        "15초 갱신이 저장 순서를 거쳐 재렌더되는 계약이 사라졌다"
+
     # 화면 스냅샷도 서버와 같은 모양 — 유현민 '센터장'·AI 세 자리·duties.
     snap = live.split("const ORG_SNAP=", 1)[1].split("]};", 1)[0]
     assert "센터장" in snap and 'badge:"팀장"' in snap, "스냅샷 딱지가 계약과 다르다"
@@ -15808,7 +15925,7 @@ def t232_orgchart_floorplan_roster_and_states():
 
     print("  [232] 조직도 평면도 — 로스터 정본·AI 자리 셋·상태 넷·아코디언·#v-org 좁힘 · "
           "관리자=센터장 접속(X-Pin 은 아님) · 책상 폭 고정·높이 균일·이름 한 줄 · "
-          "폰 흐름 화살표(낱말은 flow_steps 에서만) ✅")
+          "폰 흐름 화살표(낱말은 flow_steps 에서만) · 길게 눌러 구역 안 자리 저장 ✅")
 
 
 def t230_ai_tier_picks_model_and_effort():
@@ -18121,6 +18238,7 @@ if __name__ == "__main__":
     t248_rounds_run_without_a_console_window()
     t249_entry_save_never_silent()
     t250_error_book_speaks_and_counts()
+    t251_zero_tells_which_zero_it_is()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

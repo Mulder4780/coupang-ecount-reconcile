@@ -1314,6 +1314,20 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
 .check-kpi .l{font-size:13.5px;color:var(--ink-2);font-weight:700;margin-top:5px}
 .check-kpi .s{font-size:13px;color:var(--ink-3);margin-top:3px}
 .check-kpi.danger .v{color:var(--danger)} .check-kpi.warn .v{color:var(--warn)}
+/* [251] 0 이 무슨 뜻인지 말하는 자리 — 못 불러온 0 을 🎉 로 축하하지 않는다 */
+.zero-note{display:block;border:1px solid var(--line);border-radius:12px;padding:13px 14px;
+  background:var(--panel);line-height:1.55}
+.zero-note b{display:block;font-size:14.5px;font-weight:800}
+.zero-note span{display:block;font-size:13px;color:var(--ink-3);margin-top:4px}
+.zero-note.zero-wide{grid-column:1/-1}
+.zero-note.zero-ok b{color:var(--ink-2)}
+.zero-note.zero-bad{border-color:#F0B4AE;background:var(--danger-bg)}
+.zero-note.zero-bad b{color:var(--danger)}
+.zero-note.zero-wait{border-color:#CFDAF0;background:var(--brand-tint)}
+.zero-note .zero-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+.zero-note .zero-btns button{min-height:44px;padding:9px 14px;border:1px solid var(--line);
+  border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-weight:700;cursor:pointer}
+.zero-note .zero-btns button:hover{border-color:var(--brand);color:var(--brand)}
 .check-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);gap:13px}
 .check-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .check-group{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;text-align:left;
@@ -4360,7 +4374,15 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   /* ── 워크스테이션 = 의자 + 책상 (탑다운). 책상이 칸을 꽉 채워야 한 줄의 책상
      높이가 같아지고, 그래야 의자도 한 줄로 맞는다(의자는 칸 맨 아래에 붙는다). ── */
   #v-org .org-ws{position:relative;min-width:0;padding-bottom:16px;
-    display:flex;flex-direction:column}
+    display:flex;flex-direction:column;transition:transform .14s ease,opacity .14s ease}
+  /* 자리 배치는 편집 단추 없이 **길게 눌러서** 연다. touch-action 은 제스처가 시작되기
+     전에 정해져야 하므로 JS 가 붙인 구역 표식에서 미리 막는다. 같은 구역 안에서만
+     교환하는 규칙은 공용 dashDragEnable 이 그대로 지킨다. */
+  #v-org .org-desks[data-dash-long-press]>.org-ws{touch-action:none;
+    -webkit-user-select:none;user-select:none;cursor:grab}
+  #v-org .org-ws.dash-long-pressing{transform:scale(1.02)}
+  #v-org .org-ws.dash-dragging{transform:scale(1.035);opacity:.72;z-index:8;cursor:grabbing}
+  #v-org .org-ws.dash-drop-target .org-desk{outline:2px solid var(--org-live);outline-offset:2px}
   #v-org .org-chair{position:absolute;left:50%;bottom:0;transform:translateX(-50%);
     width:44px;height:28px;border-radius:9px 9px 13px 13px;background:var(--org-chair);
     border:1.5px solid var(--org-chair-line);z-index:0}
@@ -4496,7 +4518,8 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   @media (prefers-reduced-motion:reduce){
     #v-org .org-hero::after,#v-org .org-dot.pulse,
     #v-org .org-ws.s-live::before,#v-org .org-ws.s-live .org-mon{animation:none!important}
-    #v-org .org-duties,#v-org .org-chev,#v-org .org-desk{transition:none!important}}
+    #v-org .org-duties,#v-org .org-chev,#v-org .org-desk,#v-org .org-ws{transition:none!important}
+    #v-org .org-ws.dash-long-pressing,#v-org .org-ws.dash-dragging{transform:none!important}}
   </style>
   <section class="view" id="v-org">
     <div class="org-hero">
@@ -8352,7 +8375,37 @@ const ORG_SNAP={gen:"오프라인 스냅샷",_live:false,zones:[
     {name:"Codex",role:"교대 코딩",color:"#5A6785",state:"off",msg:"연결되면 실시간으로 바뀝니다",ago:"—",
      duties:["Claude 크레딧 소진 시 코딩 교대","같은 시작 체크리스트를 따름"]}]}
 ]};
+const ORG_ORDER_KEY='csos_org_order_v1';
 let ORG_TIMER=null, ORG_LAST=null;
+function orgReadOrder(){
+  try{
+    const v=JSON.parse(localStorage.getItem(ORG_ORDER_KEY)||'{}');
+    return v&&typeof v==='object'&&!Array.isArray(v)?v:{};
+  }catch(_){return {};}
+}
+/* 저장된 이름은 그 순서대로, 서버 로스터에 새로 생긴 이름은 **버리지 않고 뒤에** 둔다.
+   화면 자료는 얕게 복사해 API 응답·오프라인 스냅샷 정본을 바꾸지 않는다. */
+function orgApplyOrder(D){
+  const order=orgReadOrder();
+  return Object.assign({},D,{zones:(D.zones||[]).map(z=>{
+    const saved=Array.isArray(order[z.key])?order[z.key].map(String):[];
+    const rank=new Map(saved.map((name,i)=>[name,i]));
+    const people=(z.people||[]).map((p,i)=>({p,i})).sort((a,b)=>{
+      const an=String(a.p.name||''),bn=String(b.p.name||'');
+      const ar=rank.has(an)?rank.get(an):saved.length+a.i;
+      const br=rank.has(bn)?rank.get(bn):saved.length+b.i;
+      return ar-br;
+    }).map(x=>x.p);
+    return Object.assign({},z,{people});
+  })});
+}
+function orgSaveOrder(host){
+  const zone=host&&host.dataset.orgZone; if(!zone) return;
+  const names=[...host.children].filter(el=>el.matches('.org-ws'))
+    .map(el=>el.dataset.orgName).filter(Boolean);
+  const order=orgReadOrder(); order[zone]=names;
+  try{localStorage.setItem(ORG_ORDER_KEY,JSON.stringify(order));}catch(_){}
+}
 function orgInitials(n){const s=String(n||'').trim();
   if(/^[A-Za-z]/.test(s))return s.slice(0,2).toUpperCase();
   return s.replace(/\s|세션|·.*$/g,'').slice(0,2)||'·';}
@@ -8402,6 +8455,7 @@ function orgFlowMap(D){
     ${entHtml}${chHtml}${restHtml}</section>`;
 }
 function orgRender(D){
+  D=orgApplyOrder(D);
   ORG_LAST=D;
   const gen=$('orgGen'); if(gen) gen.textContent='업데이트 '+(D.gen||'—');
   const floor=$('orgFloor'); if(!floor) return;
@@ -8410,14 +8464,14 @@ function orgRender(D){
   floor.innerHTML=(D.zones||[]).map(z=>`
     <section class="org-zone ${esc2(z.key)}">
       <div class="org-zh">${esc2(z.title)}<span class="tag">${esc2(z.tag||'')}</span></div>
-      <div class="org-desks">${(z.people||[]).map(p=>{
+      <div class="org-desks" data-org-zone="${esc2(z.key)}">${(z.people||[]).map(p=>{
         const st=p.state||'off';
         const lead=(z.key==='mgmt'&&p.badge)?' mgmt-lead':'';
         const duties=(p.duties||[]);
         const dutiesHtml=duties.length
           ? `<ul>${duties.map(d=>`<li>${esc2(d)}</li>`).join('')}</ul>`
           : `<ul><li>이 자리의 담당 업무가 아직 등록되지 않았습니다.</li></ul>`;
-        return `<div class="org-ws s-${esc2(st)}${lead}">
+        return `<div class="org-ws s-${esc2(st)}${lead}" data-org-name="${esc2(p.name)}">
           <div class="org-chair"></div>
           <button type="button" class="org-desk s-${esc2(st)}" aria-expanded="false" onclick="orgToggle(this)"
             title="${esc2(p.name)}${p.role?' — '+esc2(p.role):''}">
@@ -8434,9 +8488,13 @@ function orgRender(D){
           <div class="org-duties"><div class="org-duties-in">${dutiesHtml}</div></div>
         </div>`;}).join('')}</div>
     </section>`).join('')+orgFlowMap(D);
+  floor.querySelectorAll('.org-desks[data-org-zone]').forEach(host=>{
+    dashDragEnable(host,'.org-ws',()=>orgSaveOrder(host),null,
+      {longPress:450,tapPick:false,allowInteractive:true,gridItems:true});
+  });
   const note=$('orgNote'); if(note) note.textContent=D._live
-    ? '실시간 연결됨 — 조수 세션 상태는 ai_claim 점유에서, 사람 자리·역할은 로스터에서 옵니다. 자리를 누르면 담당 업무가 펼쳐집니다. 담당자 온·오프라인은 실제 앱 접속으로만 판정하며, 접속 기록이 없으면 오프라인이라 단정하지 않고 상태 모름으로 둡니다.'
-    : '오프라인 스냅샷입니다 — 서버에 연결되면 조수 세션 상태와 담당자 접속이 실시간으로 바뀝니다. 자리를 누르면 담당 업무가 펼쳐집니다.';
+    ? '실시간 연결됨 — 조수 세션 상태는 ai_claim 점유에서, 사람 자리·역할은 로스터에서 옵니다. 자리를 누르면 담당 업무가 펼쳐지고, 길게 누르면 같은 구역 안에서 자리를 옮길 수 있습니다. 담당자 온·오프라인은 실제 앱 접속으로만 판정하며, 접속 기록이 없으면 오프라인이라 단정하지 않고 상태 모름으로 둡니다.'
+    : '오프라인 스냅샷입니다 — 서버에 연결되면 조수 세션 상태와 담당자 접속이 실시간으로 바뀝니다. 자리를 누르면 담당 업무가 펼쳐지고, 길게 누르면 같은 구역 안에서 자리를 옮길 수 있습니다.';
 }
 async function orgLoad(force){
   try{
@@ -9402,20 +9460,54 @@ function dashAutoScroll(y){
   else if(y > window.innerHeight - edge) window.scrollBy(0, step);
 }
 
-/* hostId 안의 sel 요소들을 눌러 끌어 순서를 바꾼다.
+/* hostRef 안의 sel 요소들을 눌러 끌어 순서를 바꾼다. hostRef 는 id 또는 요소다.
+   opt.longPress 가 있을 때만 편집 모드 없이 길게 눌러 연다(숫자 생략 시 450ms).
+   기존 호출은 opt 가 없으므로 종전처럼 dashLayoutEditing 에서만 즉시 끌린다.
    onDrop(el) 은 실제로 옮겨졌을 때만 부른다(헛클릭으로 저장하지 않는다). */
-function dashDragEnable(hostId, sel, onDrop, onReorder){
-  const host = document.getElementById(hostId);
+function dashDragEnable(hostRef, sel, onDrop, onReorder, opt){
+  const host = typeof hostRef==='string' ? document.getElementById(hostRef) : hostRef;
+  const cfg=opt||{};
+  const longPressMs=Object.prototype.hasOwnProperty.call(cfg,'longPress')
+    ? Math.max(0,Number(cfg.longPress)||450) : 0;
   if(!host || host.dataset.dashDrag) return;
   host.dataset.dashDrag = '1';                       // 두 번 붙지 않게
+  if(longPressMs) host.dataset.dashLongPress=String(longPressMs);
+
+  const startDrag=d=>{
+    if(!d || d.live) return;
+    d.live=true;
+    if(d.timer){clearTimeout(d.timer);d.timer=null;}
+    d.el.classList.remove('dash-long-pressing');
+    d.el.classList.add('dash-dragging');
+    d.el.style.pointerEvents='none';                  // 밑에 깔린 카드를 집을 수 있게
+    document.body.classList.add('dash-drag-live');
+    if(host.id==='dashGrid') dashEnsureGuides();
+    try{d.el.setPointerCapture(d.id);}catch(_){}
+    if(d.longPress){try{navigator.vibrate&&navigator.vibrate(12);}catch(_){}}
+  };
+
+  /* 길게 누른 뒤 손을 떼면 안쪽 button 의 click 이 뒤늦게 생긴다. 그 한 번만 막아
+     자리 이동 직후 담당 업무 아코디언까지 뜻밖에 열리는 일을 막는다. */
+  host.addEventListener('click',e=>{
+    const lock=host._dashSuppressClick;
+    if(!lock||Date.now()>lock.until||!lock.el.contains(e.target)) return;
+    host._dashSuppressClick=null;e.preventDefault();e.stopPropagation();
+  },true);
 
   host.addEventListener('pointerdown', e=>{
-    if(!dashLayoutEditing) return;
+    if(!dashLayoutEditing&&!longPressMs) return;
+    if(_dashDrag) return;                             // 두 손가락·두 구역 동시 점유 금지
     if(e.button != null && e.button > 0) return;     // 오른쪽·가운데 버튼은 무시
-    if(e.target.closest('input,button,select,textarea,a,label')) return;
+    if(!cfg.allowInteractive&&e.target.closest('input,button,select,textarea,a,label')) return;
     const el = e.target.closest(sel);
     if(!el || el.hidden || !host.contains(el)) return;
-    _dashDrag = {el, host, sel, x:e.clientX, y:e.clientY, id:e.pointerId, live:false, moved:false};
+    const d={el,host,sel,x:e.clientX,y:e.clientY,id:e.pointerId,live:false,moved:false,
+      longPress:!!longPressMs,timer:null};
+    _dashDrag=d;
+    if(d.longPress){
+      d.el.classList.add('dash-long-pressing');
+      d.timer=setTimeout(()=>{if(_dashDrag===d) startDrag(d);},longPressMs);
+    }
   });
 
   host.addEventListener('pointermove', e=>{
@@ -9423,14 +9515,13 @@ function dashDragEnable(hostId, sel, onDrop, onReorder){
     if(!d || d.host !== host || e.pointerId !== d.id) return;
     if(!d.live){
       if(Math.abs(e.clientX-d.x) + Math.abs(e.clientY-d.y) < DASH_DRAG_SLOP) return;
-      d.live = true;
-      d.el.classList.add('dash-dragging');
-      d.el.style.pointerEvents = 'none';             // 밑에 깔린 카드를 집을 수 있게
-      document.body.classList.add('dash-drag-live');
-      // ★ 격자를 눈에 보이게 한다 (2026-08-07 지시 "딱딱 맞아 떨어지게").
-      //   12칸 경계가 보이면 "이 칸에 들어간다"가 눈으로 확인된다.
-      if(host.id === 'dashGrid') dashEnsureGuides();
-      try{ d.el.setPointerCapture(e.pointerId); }catch(_){}
+      // 길게 누르는 동안 움직이면 스크롤 의도로 보고 취소한다. touch-action:none 은
+      // 브라우저가 제스처를 먼저 가져가는 것을 막고, 이 분기가 오동작 이동을 막는다.
+      if(d.longPress){
+        if(d.timer) clearTimeout(d.timer);
+        d.el.classList.remove('dash-long-pressing');_dashDrag=null;return;
+      }
+      startDrag(d);
     }
     if(e.cancelable) e.preventDefault();
     const under = document.elementFromPoint(e.clientX, e.clientY);
@@ -9445,7 +9536,9 @@ function dashDragEnable(hostId, sel, onDrop, onReorder){
          이제 규칙은 둘뿐이다:
            · 대상이 **한 줄을 다 쓰는 카드(12칸)** 면 위·아래로만 간다(옆자리가 없다).
            · 아니면 포인터가 그 카드의 **세로 범위 안**에 있을 때 좌·우로 간다. */
-      const full = (+target.dataset.dashSpan || 12) >= 12;
+      // 조직도처럼 고정폭 책상이 여러 열인 host 는 dashSpan 이 없으므로 opt 로 알린다.
+      // 이 구분이 없으면 모든 책상을 12칸 카드로 오해해 같은 줄에서도 x 위치를 안 본다.
+      const full = !cfg.gridItems && (+target.dataset.dashSpan || 12) >= 12;
       const sameRow = !full && e.clientY > r.top && e.clientY < r.bottom;
       const after = sameRow ? e.clientX > r.left + r.width/2 : e.clientY > r.top + r.height/2;
       clearDashDropTargets(); target.classList.add('dash-drop-target');
@@ -9464,18 +9557,28 @@ function dashDragEnable(hostId, sel, onDrop, onReorder){
     const d = _dashDrag;
     if(!d || d.host !== host || (e.pointerId != null && e.pointerId !== d.id)) return;
     _dashDrag = null;
+    if(d.timer) clearTimeout(d.timer);
     d.el.style.pointerEvents = '';
-    d.el.classList.remove('dash-dragging');
+    d.el.classList.remove('dash-dragging','dash-long-pressing');
     document.body.classList.remove('dash-drag-live');
     clearDashDropTargets();
     // 자리가 바뀌면 줄 구성이 바뀐다 → 어느 카드가 넘치는지 다시 잰다.
     try{ dashMeasureOverflow(); }catch(_){}
-    if(d.live){ if(d.moved && onDrop) onDrop(d.el); return; }
+    if(d.live){
+      if(d.longPress&&e.type==='pointerup') host._dashSuppressClick={el:d.el,until:Date.now()+500};
+      if(d.moved&&onDrop) onDrop(d.el); return;
+    }
     // 끌지 않고 그냥 눌렀다 → **집기/놓기**로 읽는다
-    if(e.type === 'pointerup') dashPickTap(d.el, host, sel, onDrop);
+    if(e.type==='pointerup'&&cfg.tapPick!==false) dashPickTap(d.el,host,sel,onDrop);
   };
   host.addEventListener('pointerup', end);
   host.addEventListener('pointercancel', end);
+  host.addEventListener('pointerleave',e=>{
+    const d=_dashDrag;if(d&&d.host===host&&d.longPress&&!d.live) end(e);
+  });
+  host.addEventListener('contextmenu',e=>{
+    const d=_dashDrag;if(d&&d.host===host&&d.longPress)e.preventDefault();
+  });
 }
 
 /* ═══ 눌러서 옮기기 (2026-08-07 지시) ═══
@@ -16304,6 +16407,65 @@ function checkMetricRow(r){
     종류:x.kind||'check', 레코드ID:x.kind?x.id:x.issueId, ID:x.id||x.project
   };
 }
+/* ═══ [251] 0 은 세 가지 뜻이다 — 화면이 그것을 가려 말한다 (2026-08-13 실사고) ═══
+   류지영 실사용 막힘: "확인필요에 아무것도 안뜰때 뭘 어떻게 해야하는걸까요!!"
+   그때 서버에는 확인 필요가 **208건** 있었다. 화면만 0 이었고 🎉 까지 띄웠다 —
+   `/api/issues` 가 끊겨(실측 HTTP 502 · 15:38) `issuesData` 가 처음 값인 빈 배열로
+   남은 것이다. 그 자리에서 자료 상태를 말해 주는 목록은 [실행] 화면 전용이라
+   확인 필요 화면에서는 **아무 말도 안 했다.**
+   **못 불러온 0 과 정말 없는 0 은 겉으로 구별되지 않는다**([169]) — 그런데 🎉 는
+   앞의 것을 뒤의 것이라고 **확언**한다. 그래서 사람은 다 끝난 줄 알고 화면을 닫는다.
+   ★ 판정을 새로 만들지 않는다 — 자료 묶음마다 이미 상태를 쥐고 있는
+     `DATA_SECTION_STATE` 한 곳을 읽는다([162]). 여기서 다시 세면 답이 둘이 된다. */
+function dataZeroState(keys){
+  const list=(Array.isArray(keys)?keys:[keys]).map(k=>DATA_SECTION_STATE[k]).filter(Boolean);
+  if(!list.length) return {state:'unknown',key:'',label:''};
+  const bad=list.find(s=>s.error);
+  if(bad) return {state:'failed',key:bad.key,label:bad.label,path:bad.path,error:bad.error};
+  const busy=list.find(s=>s.loading||s.retrying);
+  if(busy) return {state:'loading',key:busy.key,label:busy.label};
+  // hasGood 이 아직 false 면 '없다'가 아니라 **한 번도 못 받았다**이다.
+  const blank=list.find(s=>!s.hasGood);
+  if(blank) return {state:'waiting',key:blank.key,label:blank.label};
+  return {state:'ok',key:list[0].key,label:list[0].label,asOf:list.map(s=>s.asOf).find(Boolean)||''};
+}
+/* 사전(error_book.BOOK)이 알아보는 말투 그대로 만든다 — `HTTP_ERROR:502` 처럼.
+   사람 말로 바꿔 보내면 사전이 못 알아보고 매번 '처음 보는 오류'가 된다. */
+function zeroStateDetail(err){
+  if(!err) return '';
+  const code=String((err&&err.code)||''), st=Number((err&&err.status)||0);
+  if(code) return st?`${code}:${st}`:code;
+  return apiErrorText(err);
+}
+/* '왜'를 말하는 자리는 사전 하나다 — 화면이 제 손으로 설명을 적으면 판정이 두 곳이
+   되고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다([162]). 팝업도 새로 만들지 않는다([202]). */
+function zeroStateWhy(key){
+  const s=DATA_SECTION_STATE[key];
+  const path=(s&&s.path)||'/api/issues';
+  try{ errorHelp(path, zeroStateDetail(s&&s.error), {force:true,
+    title:'자료를 불러오지 못했습니다', desc:'화면에 있던 값은 그대로 둡니다.'}); }
+  catch(e){ notice('설명을 열지 못했습니다. 이 화면을 캡처해서 관리자에게 보내 주세요.'); }
+}
+/* 0 을 그릴 때는 반드시 이 한 곳을 지난다. 🎉 는 **확실히 0 일 때만** 나온다. */
+function zeroNote(keys,okText,cls){
+  const z=dataZeroState(keys), c='zero-note '+(cls||'');
+  if(z.state==='ok'){
+    const when=z.asOf?`${dataStampText(z.asOf)} 자료로 확인했습니다.`:'방금 받은 자료로 확인했습니다.';
+    return `<div class="${c} zero-ok" role="status"><b>${esc2(okText)} 🎉</b>
+      <span>${esc2(when)}</span></div>`;
+  }
+  if(z.state==='loading') return `<div class="${c} zero-wait" role="status"><b>아직 불러오는 중입니다.</b>
+    <span>다 받으면 여기에 나옵니다. 잠시만 기다려 주세요.</span></div>`;
+  if(z.state==='failed') return `<div class="${c} zero-bad" role="alert"><b>불러오지 못했습니다 — 0 건이라는 뜻이 아닙니다.</b>
+    <span>${esc2(z.label||'')} 자료를 못 받았습니다. 아래 단추를 눌러 주세요.</span>
+    <span class="zero-btns"><button type="button" onclick="retryDataSection(${esc4(z.key)})">다시 불러오기</button>
+      <button type="button" onclick="zeroStateWhy(${esc4(z.key)})">왜 그런지 보기</button></span></div>`;
+  return `<div class="${c} zero-wait" role="status"><b>아직 자료를 받지 못했습니다 — 0 건이라는 뜻이 아닙니다.</b>
+    <span>아래 단추를 누르면 지금 가져옵니다.</span>
+    <span class="zero-btns"><button type="button" onclick="retryDataSection(${esc4(z.key||'issues')})">지금 불러오기</button></span></div>`;
+}
+/* 못 셌으면 0 이라 적지 않는다 — 숫자 0 은 '없다'로 읽힌다. */
+function zeroNum(v,z){ return (z&&z.state==='ok')?String(v):'?'; }
 function checkRows(){
   return (issuesData.rows||[]).filter(r=>rowIs2026(r,'issue')&&!isSideWork(r));
 }
@@ -16495,7 +16657,13 @@ function renderCheckList(resetLimit=false){
   const remain=Math.max(0,rows.length-visible.length);
   window._checkFilteredRows=rows;
   window._checkVisible=visible;
-  $('checksummary').innerHTML=`전체 ${all.length}건 중 검색 <b>${rows.length}건</b> · 화면 ${visible.length}건 · 오래된 건부터 최근 순`;
+  /* ★ [251] 못 불러왔을 때 '전체 0건'이라 적지 않는다 — 그 줄이 0 을 사실로 확언한다. */
+  const zl=dataZeroState('issues');
+  $('checksummary').innerHTML=(zl.state==='ok')
+    ? `전체 ${all.length}건 중 검색 <b>${rows.length}건</b> · 화면 ${visible.length}건 · 오래된 건부터 최근 순`
+    : (zl.state==='loading'?'목록을 불러오는 중입니다.'
+       :zl.state==='failed'?'목록을 <b>불러오지 못했습니다</b> — 몇 건인지 아직 모릅니다.'
+       :'목록을 아직 받지 못했습니다 — 몇 건인지 아직 모릅니다.');
   $('checklist').innerHTML=visible.map((r,i)=>{
     const x=checkLink(r), id=x.id||'', prj=x.project||'프로젝트 미확정';
     const amount=Number(String(r.금액||'').replace(/[^0-9.-]/g,''))||0;
@@ -16516,7 +16684,9 @@ function renderCheckList(resetLimit=false){
   }).join('')+(remain?`<button type="button" class="auto-more" onclick="showMoreChecks(this)"
       aria-label="확인 필요 ${Math.min(CHECK_RENDER_STEP,remain)}건 더 보기">
       현재 ${visible.length}건 표시 · ${Math.min(CHECK_RENDER_STEP,remain)}건 더 보기 (남은 ${remain}건)</button>`:'')||
-    '<div class="card" role="status">조건에 맞는 확인 항목이 없습니다.</div>';
+    (zl.state==='ok'
+      ? '<div class="card" role="status">조건에 맞는 확인 항목이 없습니다.</div>'
+      : `<div class="card">${zeroNote('issues','조건에 맞는 확인 항목이 없습니다')}</div>`);
 }
 /* 확인필요 유형 코드 설명(2026-08-03 지시) — 'ERP B'·'PO A'가 무엇인지 화면에서 바로.
    키(코드)는 담당자 확정 매핑이 걸려 있어 바꾸지 않고 설명만 덧붙인다. */
@@ -16543,6 +16713,12 @@ function renderCheckHub(){
   const ras=(repData&&repData['돌발AS'])||{}, rpm=(repData&&repData['정기점검'])||{};
   const rdocs=(repData&&repData['거래명세서'])||{}, policies=(repData&&repData['업무기준확인필요'])||[];
   const statementMissing=(rdocs['미발행목록']||[]).length, pmGap=Number(rpm['계획대비']||0);
+  /* ★ [251] 자료를 못 받았으면 숫자 일곱 개를 0 으로 그리지 않는다.
+     0 이 일곱 개 깔린 화면은 '오늘 할 일이 없다'로 읽힌다 — 실측으로 그렇게 읽혔다. */
+  const zi=dataZeroState('issues'), zr=dataZeroState('representative');
+  if(zi.state!=='ok'){
+    $('checkkpis').innerHTML=zeroNote('issues','확인할 항목이 없습니다','zero-wide');
+  }else{
   $('checkkpis').innerHTML=`
     <div class="check-kpi danger" onclick="openCheckRows('확인 필요 전체',checkRows())">
       <div class="v">${rows.length}</div><div class="l">전체 확인 필요</div><div class="s">누르면 전체 목록·캡처</div></div>
@@ -16553,26 +16729,35 @@ function renderCheckHub(){
     <div class="check-kpi ${stale.length?'warn':''}" onclick="openCheckStale()">
       <div class="v">${stale.length}</div><div class="l">30일 초과</div><div class="s">오래된 확인 항목</div></div>
     <div class="check-kpi ${ras['D+2초과']?'danger':''}" onclick="openRepresentativeList('as-d2')">
-      <div class="v">${ras['D+2초과']||0}</div><div class="l">AS D+2 초과</div><div class="s">대표 지속보고 대상</div></div>
+      <div class="v">${zeroNum(ras['D+2초과']||0,zr)}</div><div class="l">AS D+2 초과</div>
+      <div class="s">${zr.state==='ok'?'대표 지속보고 대상':'아직 못 셌습니다'}</div></div>
     <div class="check-kpi ${pmGap<0?'warn':''}" onclick="openRepresentativeList('pm-gap')">
-      <div class="v">${pmGap>=0?'+':''}${pmGap}</div><div class="l">점검 계획대비</div><div class="s">목표누계 대비 실제</div></div>
+      <div class="v">${zr.state==='ok'?`${pmGap>=0?'+':''}${pmGap}`:'?'}</div><div class="l">점검 계획대비</div>
+      <div class="s">${zr.state==='ok'?'목표누계 대비 실제':'아직 못 셌습니다'}</div></div>
     <div class="check-kpi ${statementMissing?'warn':''}" onclick="openRepresentativeList('statement-unissued')">
-      <div class="v">${statementMissing}</div><div class="l">명세서 미발행</div><div class="s">유상 발행대상 기준</div></div>`;
+      <div class="v">${zeroNum(statementMissing,zr)}</div><div class="l">명세서 미발행</div>
+      <div class="s">${zr.state==='ok'?'유상 발행대상 기준':'아직 못 셌습니다'}</div></div>`;
+  }
   $('checktypes').innerHTML=checkSortGroups(byType).map(t=>{
     const list=byType[t], ownersN=new Set(list.map(checkOwnerOf)).size;
     const desc=checkTypeDesc(t);
     return `<button class="check-group" onclick="openCheckType(${esc4(t)})">
       <span><span class="name">${esc2(t)}</span>${desc?`<span class="hint" style="color:var(--ink-2)">${esc2(desc)}</span>`:''}<span class="hint">담당 ${ownersN}명 · 목록/전달 이미지</span></span>
       <span class="count">${list.length}건</span></button>`;
-  }).join('')||'<div style="color:var(--ink-3)">확인할 항목이 없습니다 🎉</div>';
+  }).join('')||zeroNote('issues','확인할 항목이 없습니다');
   const confirmedNames=new Set(CHECK_OWNER_RULES.map(p=>p.name));
   const confirmedOwnerCards=CHECK_OWNER_RULES.map(p=>{
     const list=byOwner[p.name]||[], typesN=new Set(list.map(checkTypeOf)).size;
+    /* ★ [251] 못 받았으면 사람 이름 옆에 '0건'을 적지 않는다 — 그 줄은 '이 사람은
+       할 일이 없다'는 확언이 된다. 이름은 남기고 건수만 '?' 로 말한다([169]). */
+    const cnt=(zi.state==='ok')?`${list.length}건`:'? 건';
+    const tail=(zi.state!=='ok')?'아직 못 셌습니다'
+              :(list.length?`${typesN}개 유형 · 내역·전달`:'확정 범위');
     return `<div class="topitem" onclick="${list.length?`openCheckOwner(${esc4(p.name)})`:`openConfirmedOwnerScope(${esc4(p.name)})`}">
       <span style="min-width:0"><b>${esc2(p.name)}</b>
         <div style="font-size:13px;color:var(--ink-3);margin-top:3px">${esc2(p.scope)}</div></span>
-      <span style="text-align:right;flex:none"><b>${list.length}건</b><br>
-        <span style="font-size:13px;color:var(--brand);font-weight:800">${list.length?`${typesN}개 유형 · 내역·전달`:'확정 범위'} ▸</span></span></div>`;
+      <span style="text-align:right;flex:none"><b>${cnt}</b><br>
+        <span style="font-size:13px;color:var(--brand);font-weight:800">${tail} ▸</span></span></div>`;
   }).join('');
   $('checkowners').innerHTML=confirmedOwnerCards+checkSortGroups(byOwner).filter(o=>!confirmedNames.has(o)).map(o=>{
     const list=byOwner[o], typesN=new Set(list.map(checkTypeOf)).size;
@@ -16592,13 +16777,13 @@ function renderCheckHub(){
         <div style="font-size:13.5px;color:var(--ink-3);margin-top:3px">${esc2(m.todo)}</div></span>
       <span style="text-align:right;flex:none"><b style="color:${col}">${m.n?m.n+'건':'투입 대기'}</b>
         ${m.amt?`<br><span style="font-size:13px;color:var(--ink-3)">${fmt(m.amt)}원</span>`:''}</span></div>`;
-  }).join('')||'<div style="color:var(--ink-3)">관리·청구 확인 사항이 없습니다 🎉</div>';
+  }).join('')||zeroNote(['settlements','works'],'관리·청구 확인 사항이 없습니다');
   if($('checkpolicies')) $('checkpolicies').innerHTML=policies.map((p,i)=>`
     <div class="topitem" onclick="openRepresentativeList('policy')">
       <span style="min-width:0"><b>${esc2(p.기준||'업무기준')}</b>
         <div style="font-size:13px;color:var(--ink-3);margin-top:3px">업무 처리 기준 추가 확인 필요</div></span>
       <span class="chip c-warn">${esc2(p.상태||'확인 필요')}</span></div>`).join('')||
-    '<div style="color:var(--ink-3)">확인 대기 중인 업무기준이 없습니다.</div>';
+    zeroNote('representative','확인 대기 중인 업무기준이 없습니다');
 
   const typeEl=$('checktype'), ownerEl=$('checkowner');
   const keepT=typeEl.value, keepO=ownerEl.value;
