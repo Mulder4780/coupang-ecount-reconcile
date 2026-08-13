@@ -2396,10 +2396,20 @@ def t40_claim_enforced():
 
     # 실제 협업 점유 파일을 시험이 비우면, 합성검증 도중 다른 AI가 원장 쓰기에 진입한다.
     # 독립 임시 점유 파일에서만 충돌·자동 점유를 검증하고 실제 점유는 그대로 보존한다.
+    # ★ 업무센터 활동 파일도 같이 격리한다 (2026-08-13 실사고). 안 하면 **사람이 앱에서
+    #   입력하고 있는 동안 합성검증이 통째로 빨개진다** — 아래 take() 는 시험의 '설정'인데
+    #   _workcenter_priority_gate 가 "오종현 업무센터 입력이 진행 중이라 미룹니다" 로
+    #   막아 버린다. 제품 동작은 옳고 시험이 실제 상태에 매달린 것이 잘못이다.
+    #   그림이 나쁜 자리다: 관문이 "ALL GREEN 확인 후에만 실데이터 작업" 인데, 담당자가
+    #   일을 하고 있으면 그 관문을 아무도 통과 못 한다. 정상이 실패처럼 보이는 자리.
+    #   (같은 격리를 t104 는 이미 하고 있었다 — 이 시험만 그 가드보다 먼저 쓰여 빠졌다.
+    #    게이트 자체는 한 줄도 안 건드린다. 그 동작을 검증하는 자리는 따로 있다.)
     real_claims, real_guard = ai_claim.CLAIMS, ai_claim.GUARD
+    real_activity = ai_claim.WORKCENTER_ACTIVITY
     with tempfile.TemporaryDirectory() as claim_tmp:
         ai_claim.CLAIMS = os.path.join(claim_tmp, "claims.json")
         ai_claim.GUARD = os.path.join(claim_tmp, ".guard")
+        ai_claim.WORKCENTER_ACTIVITY = os.path.join(claim_tmp, "workcenter_activity.json")
         try:
             # (2) 남이 잡고 있으면 멈춰야 한다
             assert ai_claim.take("codex", "ledger", "합성검증"), "시험용 점유를 못 잡았다"
@@ -2427,6 +2437,7 @@ def t40_claim_enforced():
                 os.environ.pop("CSOS_AI", None)
         finally:
             ai_claim.CLAIMS, ai_claim.GUARD = real_claims, real_guard
+            ai_claim.WORKCENTER_ACTIVITY = real_activity
             os.environ.pop("CSOS_AI", None)
     print("  [40] 점유 강제(원장 도구 차단·사람 실행 허용·자동 점유) ✅")
 

@@ -7797,6 +7797,32 @@ self.addEventListener('fetch', e => {
                 return self._send(404, {"error": "유저스크립트 없음"})
             return self._send(200, js.encode("utf-8"),
                               "application/javascript; charset=utf-8")
+        # ERP 수집기 — 로그인된 ERP 탭이 그대로 fetch 해서 돌린다.
+        #   const s = await (await fetch('http://127.0.0.1:<포트>/erp_grab.js?keys=hometax')).text();
+        #   (0,eval)(s);   →  진행상황은 window.__ERPALL
+        # ★ 이 자리가 있어야 수집기를 **대화 컨텍스트로 퍼 나르지 않는다**(8.8KB · 한 번에
+        #   2~3천 토큰). 크롬은 localhost 를 신뢰 출처로 봐서 https 페이지에서도 http 로
+        #   가져온다(밴드 쪽에서 실측된 것과 같은 길 — [217]).
+        # ★ PIN 게이트 **앞**이다(위 /grab_posts.js 와 같은 이유): 보내는 쪽은 ecount.com
+        #   탭이라 이 서버의 인증 쿠키를 못 싣는다. 뒤에 두면 전부 401 이 되고, 그러면
+        #   "수집기가 안 돈다"가 아니라 "수집이 0건"으로 보인다.
+        if p == "/erp_grab.js":
+            q = parse_qs(urlsplit(self.path).query)
+            keys = [k.strip() for k in (q.get("keys", [""])[0] or "").split(",") if k.strip()]
+            preset = (q.get("preset", [""])[0] or "").strip() or None
+            try:
+                import erp_grab
+                js, unknown = erp_grab.build_all(keys or None, preset)
+            except Exception as e:                     # noqa: BLE001 — 서버를 죽이지 않는다
+                return self._send(500, {"error": f"수집기를 못 만들었다: {e}"})
+            # ★ 빈 스크립트를 200 으로 주지 않는다. 붙여 넣은 쪽은 '돌았는데 0건'으로 읽고
+            #   등록 안 된 이름은 영영 안 드러난다([169] — 실패가 성공처럼 보이는 자리).
+            if not js:
+                return self._send(404, {"error": "등록부에 없는 화면이라 만들 것이 없다",
+                                        "모르는이름": unknown,
+                                        "할것": "python erp_grab.py --find <이름>"})
+            return self._send(200, js.encode("utf-8"),
+                              "application/javascript; charset=utf-8")
         if p == "/api/collect_plan":
             q = parse_qs(urlsplit(self.path).query)
             band = (q.get("band", [""])[0] or "").strip()

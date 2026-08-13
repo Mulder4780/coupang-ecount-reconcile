@@ -245,8 +245,13 @@ window.__ERPGRAB = {단계: '시작', 조회전: null, 조회후: null, 완료: 
                        return g ? g.querySelectorAll('tr').length : 0; };
 
   // ① 사이트맵 → 메뉴. 쓰고 나면 반드시 닫는다(열어 두면 모든 클릭을 가로챈다).
-  const sm = [...document.querySelectorAll('a,button,span,div')]
-    .find(e => (e.textContent||'').trim() === '사이트맵');
+  // ★ 문서 순서로 찾으면 **글자를 감싼 바깥 상자**가 먼저 걸린다 — 눌러도 아무 일이
+  //   없고 오류도 안 난다. 그러면 사이트맵이 안 열린 채 '메뉴를 못 찾음'으로 끝나
+  //   "그 모듈에 그 화면이 없다"로 잘못 읽힌다 (2026-08-13 실측).
+  //   가장 **안쪽**(자기 안에 같은 후보가 없는 것)을 고른다 — 태그 이름에 안 기댄다.
+  const smAll = [...document.querySelectorAll('a,button,span,div')]
+    .filter(e => (e.textContent||'').trim() === '사이트맵');
+  const sm = smAll.find(e => !smAll.some(o => o !== e && e.contains(o))) || smAll[0];
   if (sm) sm.click();
   await wait(1500);
   const w = document.querySelector('.wrapper-sitemap');
@@ -279,8 +284,11 @@ window.__ERPGRAB = {단계: '시작', 조회전: null, 조회후: null, 완료: 
   const before = rows();
   const s = [...document.querySelectorAll('button[data-cid="searchGroup"]')]
     .find(b => (b.textContent||'').trim().startsWith('검색'));
-  if (!s) { say({오류:'검색 버튼을 못 찾음'}); return; }
-  s.click(); await wait(3000); kill(); await wait(9000);
+  // ★ 단추가 없는 것은 **실패가 아니다.** 프리셋을 누르면 조회까지 같이 되고 조건판이
+  //   닫히는 화면이 있다(2026-08-13 실측 — 기간이 08/01~08/13 으로 바뀌고 격자가 다시
+  //   그려진 **뒤에** searchGroup 이 사라졌다). 여기서 끝내면 **다 된 수집을 실패로 버린다.**
+  //   진짜 관문은 아래의 '격자에 찍힌 날짜' 하나다.
+  if (s) { s.click(); await wait(3000); kill(); await wait(9000); }
   const after = rows();
   // ★ 조회가 정말 걸렸는가 — **행 수로 재지 마라.** 처음엔 그렇게 했다가 두 번 다 틀렸다:
   //   · 날짜만 바꾸고 조회를 안 걸었는데 42행 그대로 → 옛 결과를 새 기간으로 착각할 뻔
@@ -478,10 +486,33 @@ ALL_JS = r"""
 //       window.__ERPALL   → {지금, 끝난것:[{키,결과,행,기간}], 남은것:[…], 완료}
 // ★ 한 화면이 실패해도 **멈추지 않는다.** 멈추면 뒤의 멀쩡한 화면까지 못 받는다.
 //   대신 무엇이 왜 실패했는지 남긴다 — 조용히 건너뛰면 '전부 받았다'로 읽힌다.
+// ★ 자국은 **sessionStorage 에도** 남긴다 (2026-08-13 실사고). 메뉴 중에는 같은 앱의
+//   화면이 아니라 **다른 프로그램**인 것이 있어(홈택스자료조회 = prgId C001255, E 계열과
+//   접두사부터 다르다) 누르는 순간 페이지가 통째로 다시 뜬다. 그러면 window 의 진행상황이
+//   사라져 **끝난 것도 실패한 것도 한 줄도 안 남는다** — '아예 안 돌렸다'와 구별이 안 된다
+//   ([169] 의 모양). 자국이 남으면 적어도 "여기서 끊겼다"를 말할 수 있고, 다시 넣으면
+//   끝낸 화면을 건너뛰고 **이어서** 돈다.
 window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: false};
 (async () => {
   const A = window.__ERPALL;
   const PLAN = %(plan)s;
+  const SKEY = '__ERPALL_STATE';
+  const 지문 = JSON.stringify(A.남은것);
+  const save = () => { try { sessionStorage.setItem(SKEY,
+      JSON.stringify({지문, 끝난것: A.끝난것, 완료: A.완료})); } catch (_) {} };
+  // 같은 계획이 도중에 끊겼으면 이어받는다. 계획이 다르면 처음부터다(남의 자국을 안 쓴다).
+  let 이전 = null;
+  try { 이전 = JSON.parse(sessionStorage.getItem(SKEY) || 'null'); } catch (_) {}
+  if (이전 && 이전.지문 === 지문 && !이전.완료 && (이전.끝난것 || []).length) {
+    A.끝난것 = 이전.끝난것;
+    const 했다 = new Set(A.끝난것.map(r => r.키));
+    // ★ 끊긴 그 화면은 **아무 자국이 없다.** 그대로 남은것에 두어 아래 루프가 다시 돈다
+    //   (다시 도는 것이 맞다 — 엑셀을 받기 전에 죽었을 수 있다). 다만 어디서 끊겼는지는
+    //   적어 둔다. 조용히 넘어가면 '한 번에 다 돌았다'로 읽힌다.
+    A.끊겼던화면 = A.남은것.find(k => !했다.has(k)) || null;
+    A.남은것 = A.남은것.filter(k => !했다.has(k));
+    A.이어받음 = true;
+  }
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const kill = () => {                       // 경고 대화상자는 '취소'가 진행이다
     const d = [...document.querySelectorAll('.ui-dialog')].find(x => x.offsetParent !== null);
@@ -563,10 +594,12 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
     return {from: back(45), to};
   };
 
+  const 이미 = new Set(A.끝난것.map(r => r.키));
   for (const step of PLAN) {
-    A.지금 = step.키;
+    if (이미.has(step.키)) continue;          // 이어받은 회차 — 이미 끝낸 화면
+    A.지금 = step.키; save();
     A.남은것 = A.남은것.filter(k => k !== step.키);
-    const done = r => A.끝난것.push(Object.assign({키: step.키, 메뉴: step.메뉴}, r));
+    const done = r => { A.끝난것.push(Object.assign({키: step.키, 메뉴: step.메뉴}, r)); save(); };
     try {
       // ① 모듈이 다르면 먼저 바꾼다 — 사이트맵은 **지금 모듈 것만** 보여 준다.
       if (step.모듈) {
@@ -575,8 +608,12 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
         if (mod) { mod.click(); await wait(3500); }
       }
       // ② 사이트맵 → 메뉴
-      const sm = [...document.querySelectorAll('a,button,span,div')]
-        .find(e => (e.textContent||'').trim() === '사이트맵');
+      // ★ 문서 순서로 찾으면 **글자를 감싼 바깥 상자**가 먼저 걸린다 — 눌러도 아무 일이
+      //   없고 오류도 안 난다. 그러면 아래 '링크수 0 → 사이트맵이 안 열렸다'로 끝나는데,
+      //   진짜 원인은 열기 실패가 아니라 **누른 것이 상자였다**는 것이다 (2026-08-13 실측).
+      const smAll = [...document.querySelectorAll('a,button,span,div')]
+        .filter(e => (e.textContent||'').trim() === '사이트맵');
+      const sm = smAll.find(e => !smAll.some(o => o !== e && e.contains(o))) || smAll[0];
       if (sm) sm.click();
       // ★ 고정 대기로는 **빈 사이트맵**을 읽는다 (2026-08-08 실측 — 이것 때문에
       //   '메뉴 못 찾음'이 나왔고, 모듈이 다른 줄 알고 엉뚱한 데를 뒤졌다).
@@ -604,9 +641,12 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
                                        + step.프리셋}); continue; }
       p.click(); await wait(2500); kill(); await wait(4500);
       // ④ 조회
+      // ★ 단추가 없는 것은 **실패가 아니다.** 프리셋을 누르면 조회까지 같이 되고 조건판이
+      //   닫히는 화면이 있다(2026-08-13 실측 — 기간이 08/01~08/13 으로 바뀌고 격자가 다시
+      //   그려진 **뒤에** searchGroup 이 사라졌다). 여기서 끝내면 **다 된 수집을 실패로
+      //   버린다.** 진짜 관문은 아래 ⑤ 의 '격자에 찍힌 날짜' 하나다.
       const s = pick('searchGroup', '검색', false);
-      if (!s) { done({결과: '실패', 왜: '검색 버튼을 못 찾음'}); continue; }
-      s.click(); await wait(3000); kill(); await wait(9000);
+      if (s) { s.click(); await wait(3000); kill(); await wait(9000); }
       // ⑤ 조회가 **정말** 걸렸는지 — 행 수가 아니라 **격자에 찍힌 날짜**로 잰다.
       //   행 수로 재면 양쪽으로 다 틀린다(옛 결과를 새 기간으로 착각 / 5행→5행을 실패로 오판).
       const g = document.querySelector('[id^="grid-"]');
@@ -614,7 +654,17 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
         .map(t => ((t.textContent||'').match(/20\d\d\/\d\d\/\d\d/)||[])[0]).filter(Boolean);
       const rng = want(step.프리셋);
       const inR = seen.filter(d => d >= rng.from && d <= rng.to);
-      if (!seen.length) { done({결과: '건너뜀', 왜: '격자에 날짜가 없다 — 0건이거나 조건이 더 필요한 화면',
+      // ★ '0건'을 볼 때는 화면에게 **직접 물어본다**([169]). 격자에 날짜가 없는 이유는
+      //   둘이고 그 둘은 전혀 다른 사실이다: ① 정말 받을 것이 없다(화면이 스스로 그렇게
+      //   적어 준다) ② 조건이 더 필요해 아직 안 그려졌다. 뭉쳐서 '건너뜀'이라 적으면
+      //   ①이 매일 '밀림'으로 남아 **사람이 없는 자료를 받으러 간다**
+      //   (2026-08-13 실측 — 매입(세금)계산서현황은 기간을 08/01~08/13 으로 제대로
+      //    걸었는데 격자 글이 '등록된 데이터가 없습니다.' 였다).
+      const 격자글 = g ? (g.textContent || '') : '';
+      const 빈화면 = /(등록된|조회된)\s*(데이터|자료)가\s*없습니다|검색결과가\s*없습니다/.test(격자글);
+      if (!seen.length) { done({결과: 빈화면 ? '받을것없음' : '건너뜀',
+                                왜: 빈화면 ? '화면이 스스로 비었다고 적었다 — 안 받은 것이 아니다'
+                                           : '격자에 날짜가 없다 — 조건이 더 필요한 화면일 수 있다',
                                 기간: `${rng.from} ~ ${rng.to}`}); continue; }
       if (!inR.length)  { done({결과: '실패', 왜: '격자 날짜가 요청 기간 밖 — 조회가 안 걸렸다. Excel 안 누름',
                                 기간: `${rng.from} ~ ${rng.to}`}); continue; }
@@ -630,27 +680,43 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
       done({결과: '실패', 왜: '예외: ' + (e && e.message)});
     }
   }
-  A.지금 = null; A.완료 = true;
+  A.지금 = null; A.완료 = true; save();
 })();
 window.__ERPALL;
 """
 
 
-def emit_all(keys=None, preset=None):
-    """등록부의 화면을 **한 번에** 도는 스크립트를 찍는다."""
+def build_all(keys=None, preset=None):
+    """등록부의 화면을 한 번에 도는 스크립트를 **문자열로** 만든다.
+
+    ★ '만드는 것'과 '찍는 것'을 가른 이유: 앱 서버가 `/erp_grab.js` 로 **같은 것**을
+      내려 준다(로그인된 ERP 탭이 그대로 fetch 한다). 그때 stdout 을 가로챌 수는 없으니
+      찍기만 있는 상태로 두면 서버 쪽에 사본이 하나 더 생기고, 사본이 둘이면 규칙을
+      고쳐도 한쪽만 고쳐진다.
+
+    돌려주는 것: (스크립트, 등록부에 없는 이름들). 돌 화면이 없으면 스크립트는 빈 문자열.
+    """
     screens = load_screens()
     want = [k for k in (keys or screens) if k in screens]
-    미확인 = [k for k in (keys or []) if k not in screens]
+    unknown = [k for k in (keys or []) if k not in screens]
+    if not want:
+        return "", unknown
+    plan = [{"키": k, "메뉴": screens[k]["메뉴"], "모듈": screens[k].get("모듈"),
+             "프리셋": preset or screens[k].get("프리셋", "금월(~오늘)")} for k in want]
+    return ALL_JS % {"keys": json.dumps(want, ensure_ascii=False),
+                     "plan": json.dumps(plan, ensure_ascii=False)}, unknown
+
+
+def emit_all(keys=None, preset=None):
+    """등록부의 화면을 **한 번에** 도는 스크립트를 찍는다."""
+    js, 미확인 = build_all(keys, preset)
     if 미확인:
         print(f"i 등록부에 없는 화면: {', '.join(미확인)}")
         print("  먼저 `python erp_grab.py --find` 로 사이트맵에서 이름을 찾아 등록하라")
-    if not want:
+    if not js:
         print("✗ 돌 화면이 없다 — 등록부가 비었다")
         return 1
-    plan = [{"키": k, "메뉴": screens[k]["메뉴"], "모듈": screens[k].get("모듈"),
-             "프리셋": preset or screens[k].get("프리셋", "금월(~오늘)")} for k in want]
-    print(ALL_JS % {"keys": json.dumps(want, ensure_ascii=False),
-                    "plan": json.dumps(plan, ensure_ascii=False)})
+    print(js)
     return 0
 
 
