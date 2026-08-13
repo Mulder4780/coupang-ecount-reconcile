@@ -1892,6 +1892,15 @@ def ux_summary(days=7, limit=15):
                         " GROUP BY target ORDER BY 2 DESC LIMIT ?", since, limit),
             "오류": q("SELECT target,detail,COUNT(*) FROM ux WHERE kind='error' AND ts>=?"
                     " GROUP BY target,detail ORDER BY 3 DESC LIMIT ?", since, limit),
+            # ★ 같은 묶음에 **마지막으로 난 때**를 같이 준다. 이 값이 없어서
+            #   error_book 은 '언제 났나'를 셀 수가 없었고(스스로 `날짜모름` 이라 적었다),
+            #   그래서 **이틀 전에 끝난 고장을 매일 '★새 오류'로** 인계 맨 위에 올렸다.
+            #   읽는 사람은 방금 난 줄 알고 없는 고장을 찾으러 간다([172]).
+            #   기존 "오류" 는 3열 그대로 둔다 — `for t,d,c in` 로 푸는 곳이 셋이라
+            #   열을 늘리면 그쪽이 조용히 깨진다. 정렬·limit 이 같아 두 목록은 같은 줄이다.
+            "오류최근": q("SELECT target,detail,COUNT(*),MAX(ts) FROM ux WHERE kind='error'"
+                       " AND ts>=? GROUP BY target,detail ORDER BY 3 DESC LIMIT ?",
+                       since, limit),
             # 평균을 MAX/COUNT로 흉내 내지 않는다. ux_review가 첫 숫자를 합계로 오해해
             # '평균'을 실제보다 작게 만드는 버그가 있었다. 평균·횟수·최악을 따로 준다.
             "느린화면": q("SELECT target,CAST(AVG(ms) AS INTEGER),COUNT(*),MAX(ms)"

@@ -375,8 +375,12 @@ def rollup(days=7):
     ux_rows, ux_err = [], None
     try:
         import ledger_db
-        for t, d, c in ledger_db.ux_summary(days=days, limit=400)["오류"]:
-            ux_rows.append({"target": t, "detail": d, "n": int(c)})
+        ux = ledger_db.ux_summary(days=days, limit=400)
+        # 시각을 주는 키를 먼저 본다. 옛 ledger_db 면 예전처럼 날짜 없이 세고
+        # 그 사실을 '못 본 것'이 말한다 — 못 읽었다고 0 건으로 만들지 않는다([169]).
+        for row in (ux.get("오류최근") or ux.get("오류") or []):
+            ux_rows.append({"target": row[0], "detail": row[1], "n": int(row[2]),
+                            "ts": str(row[3])[:19] if len(row) > 3 else ""})
     except Exception as exc:                     # noqa: BLE001
         ux_err = str(exc)[:160]
 
@@ -393,7 +397,12 @@ def rollup(days=7):
         sig = signature(r["target"], r["detail"])
         counts[sig] = counts.get(sig, 0) + r["n"]
         samples.setdefault(sig, {"target": r["target"], "detail": r["detail"], "ts": ""})
-        날짜모름.add(sig)                          # ux 요약은 날짜를 안 준다
+        ts = r.get("ts") or ""
+        if ts:
+            if ts > last_ts.get(sig, ""):
+                last_ts[sig] = ts
+        else:
+            날짜모름.add(sig)                      # 그 줄만 날짜가 없다
 
     회귀, 새오류, 아는것, 못가름 = [], [], [], []
     for sig, n in sorted(counts.items(), key=lambda kv: -kv[1]):
@@ -446,6 +455,23 @@ def rollup(days=7):
             "보관본건수": len(rows), "ux건수": sum(r["n"] for r in ux_rows)}
 
 
+def _ago(ts):
+    """'언제 났나' 를 사람 말로. **모르면 모른다고 한다** — 빈 값을 '방금' 이라 적으면
+    이틀 전에 끝난 고장이 새 고장으로 읽힌다([169]).
+    ⚠ ux 표의 시각은 UTC('…Z')이고 보관본은 이 PC 시각이라 몇 시간 어긋날 수 있다.
+       그래서 '며칠 전' 까지만 말하고 분 단위로 단정하지 않는다."""
+    ts = str(ts or "")[:19]
+    if not ts:
+        return "때 모름"
+    보임 = ts[:16].replace("T", " ")
+    try:
+        t = datetime.fromisoformat(ts)
+    except Exception:                            # noqa: BLE001
+        return 보임
+    d = (datetime.now() - t).days
+    return f"{보임} · 오늘" if d <= 0 else f"{보임} · {d}일 전"
+
+
 def _md(res):
     L = ["# 오류 사전 · 재발 감시", "",
          f"- 잰 때: {res['잰때']} · {res['기간']}",
@@ -467,12 +493,12 @@ def _md(res):
               " 규칙을 `error_book.BOOK` 에 한 줄 더한다.", ""]
         for x in res["새오류"][:20]:
             L.append(f"- **{x['건수']}건** · `{x['어디']}` · {x['무엇'] or '(사유 없음)'}"
-                     f"\n  - 지문 `{x['지문']}`")
+                     f"\n  - 마지막 {_ago(x.get('마지막'))} · 지문 `{x['지문']}`")
         L.append("")
     if res["아는것"]:
         L += ["## 아는 오류 (사람에게 풀어서 말해 주고 있다)", ""]
         for x in res["아는것"][:20]:
-            L.append(f"- {x['건수']}건 · {x['사전']} — `{x['지문']}`")
+            L.append(f"- {x['건수']}건 · {x['사전']} — `{x['지문']}` (마지막 {_ago(x.get('마지막'))})")
         L.append("")
     if not (res["회귀"] or res["새오류"] or res["아는것"]):
         L += ["오류 기록이 없다. — **없는 것인지 안 본 것인지**는 위 '못 본 것'이 말한다.", ""]
@@ -499,11 +525,18 @@ def handoff_lines(days=7):
         return []
     out = []
     for x in res.get("회귀", [])[:3]:
-        out.append(f"★회귀 오류 {x['건수']}건 — {x['사전']} (막음 {x.get('막음')}) "
+        # 막은 날 **뒤에도 났다**는 것이 회귀의 근거다 — 그 날짜를 같이 적는다.
+        out.append(f"★회귀 오류 {x['건수']}건 — {x['사전']} "
+                   f"(막음 {x.get('막음')} {x.get('고친날')} · 마지막 {_ago(x.get('마지막'))}) "
                    f"→ python error_book.py --print")
-    for x in res.get("새오류", [])[:3]:
+    # ★ '먼저 처리할 것' 은 **지금 할 일**의 목록이라 최근 것부터 싣는다.
+    #   리포트는 건수 순 그대로다 — 거기서는 무엇이 잦은가가 알고 싶은 것이다.
+    #   건수 순으로만 실으면 이틀 전에 끝난 16건이 오늘 난 1건을 맨 위에서 덮는다.
+    #   때를 모르는 것은 뒤로 가되 **빠지지는 않는다**(사전에는 여전히 없다, [169]).
+    새 = sorted(res.get("새오류", []), key=lambda x: str(x.get("마지막") or ""), reverse=True)
+    for x in 새[:3]:
         out.append(f"★새 오류 {x['건수']}건 — {x['어디']} · {x['무엇'] or '사유 없음'} "
-                   f"→ python error_book.py --print")
+                   f"(마지막 {_ago(x.get('마지막'))}) → python error_book.py --print")
     for x in res.get("못본것", [])[:2]:
         out.append(f"오류 감시가 못 본 것 — {x}")
     return out

@@ -18772,6 +18772,92 @@ process.exit(fail?1:0);
 """
 
 
+def t258_error_report_says_when_and_why():
+    """[258] 오류 경보는 **언제 났는지**를 말하고, 400 은 **어느 400 인지**를 말한다.
+
+    2026-08-13 실측으로 둘 다 눈이 멀어 있었다:
+    · 인계 '먼저 처리할 것' 이 `★새 오류 16건 — /api/flow` 를 맨 위에 올렸는데
+      그 16건의 **마지막이 이틀 전**이었다. `error_book` 의 '★신규' 는 *사전에 없다*
+      는 뜻인데 인계가 *새로 났다* 로 읽히게 실었다 — 사람이 **이미 끝난 고장**을
+      찾으러 간다([172]). 원인은 `ux_summary` 가 시각을 안 줘서 rollup 이 스스로
+      `날짜모름` 이라 적고 회귀 판정까지 포기한 것이다.
+    · `/api/staff/entry` 400 이 하루 63건인데(오종현 님, 분담판 [90]) 기록에 남는
+      것은 `HTTP_ERROR:400` 뿐이었다. 서버 400 은 `except Exception` 한 덩어리라
+      **이유는 서버가 보낸 그 말 안에만** 있는데, 화면은 그것을 띄우고 **버렸다**.
+    """
+    import json as _json
+    from datetime import datetime as _dt
+    import error_book as eb
+    import ledger_db as ldb
+
+    # ① "오류" 는 3열 그대로여야 한다 — `for t,d,c in` 로 푸는 곳이 셋이다.
+    #    열을 늘리면 그쪽이 조용히 깨진다(그래서 키를 새로 더했다).
+    rd = lambda *a: open(os.path.join(ROOT, *a), encoding="utf-8").read()  # noqa: E731
+    src = rd("ledger_db.py")
+    i오류 = src.index('"오류": q(')
+    i최근 = src.index('"오류최근": q(')
+    assert "COUNT(*) FROM ux" in src[i오류:i오류 + 200] and \
+        "MAX(ts)" not in src[i오류:i오류 + 200], \
+        '"오류" 에 열을 늘렸다 — 3-튜플로 푸는 곳이 셋이라 조용히 깨진다'
+    assert "MAX(ts)" in src[i최근:i최근 + 260], '"오류최근" 이 마지막 시각을 안 준다'
+    assert "ORDER BY 3 DESC" in src[i최근:i최근 + 260], \
+        '"오류최근" 정렬이 "오류" 와 다르면 같은 줄이 아니게 된다'
+    assert set(ldb.ux_summary(days=1, limit=1)) >= {"오류", "오류최근"}, \
+        "ux_summary 가 두 키를 다 주지 않는다"
+
+    # ② rollup 이 ux 줄에도 시각을 채운다 — 통째로 '날짜모름' 이면 회귀를 영영 못 센다.
+    rsrc = rd("error_book.py")
+    j = rsrc.index("for r in ux_rows:")
+    블록 = rsrc[j:j + 600]
+    assert "last_ts[sig] = ts" in 블록, "ux 줄의 시각을 last_ts 에 안 넣는다"
+    assert "날짜모름.add(sig)" in 블록 and "else:" in 블록, \
+        "시각이 없을 때만 '날짜모름' 이어야 한다 — 늘 모름이면 판정을 포기한 것이다"
+
+    # ③ 빈 시각을 '방금' 이라 적지 않는다([169]).
+    assert eb._ago("") == "때 모름" and eb._ago(None) == "때 모름", \
+        "때를 모르는데 아는 것처럼 적는다"
+    assert "일 전" in eb._ago("2020-01-02T03:04:05"), "오래된 것을 오래됐다고 안 적는다"
+
+    # ④ 인계는 **최근 것부터** 싣고 마지막 때를 붙인다(리포트는 건수 순 그대로).
+    #    ⚠ 진짜 리포트 파일은 안 건드린다 — 실측 증거에 합성 행을 섞으면 그 파일이
+    #      더는 실측이 아니다([192] 와 같은 자리).
+    본래 = eb.REPORT_JSON
+    with tempfile.TemporaryDirectory() as td:
+        eb.REPORT_JSON = os.path.join(td, "r.json")
+        try:
+            with open(eb.REPORT_JSON, "w", encoding="utf-8") as f:
+                _json.dump({"회귀": [], "못본것": [], "새오류": [
+                    {"건수": 99, "어디": "/api/old", "무엇": "x", "마지막": "2020-01-01T00:00:00"},
+                    {"건수": 1, "어디": "/api/new", "무엇": "y",
+                     "마지막": _dt.now().isoformat(timespec="seconds")},
+                ]}, f, ensure_ascii=False)
+            줄 = eb.handoff_lines()
+        finally:
+            eb.REPORT_JSON = 본래
+    assert 줄 and "/api/new" in 줄[0], \
+        f"오늘 난 오류가 맨 위가 아니다 — 건수만 보면 끝난 고장이 오늘 것을 덮는다: {줄[:1]}"
+    assert "마지막" in 줄[0], "인계 줄이 '언제 났나' 를 말하지 않는다"
+    assert any("/api/old" in x for x in 줄), \
+        "오래된 것을 조용히 뺐다 — 사전에 없는 것은 그대로 남아야 한다([169])"
+
+    # ⑤ 400 에 이유를 붙여도 **사전은 그대로 알아본다**(부분 문자열 대조).
+    ent = eb.look_up("/api/staff/entry",
+                     "HTTP_ERROR:400 · 수정할 업무 카테고리를 확인할 수 없습니다")
+    assert ent and ent["이름"] == "필수 값이 빠짐", \
+        "이유를 붙였더니 사전이 못 알아본다 — 매일 '처음 보는 오류' 가 된다"
+
+    # ⑥ 화면이 서버가 말한 이유를 기록에 남긴다. 단 4xx 에만 —
+    #    5xx·502 본문은 터널이 준 HTML 쪽지라 지문만 더럽힌다.
+    html = rd("webapp", "index.html")
+    k = html.index("code:'HTTP_ERROR'")
+    창 = html[k - 400:k + 900]
+    assert "${err.code}:${r.status}${why}" in 창, \
+        "서버가 말한 이유를 여전히 버린다 — 400 이 하루 63번 나도 어느 칸인지 모른다"
+    assert "r.status>=400&&r.status<500" in 창, \
+        "4xx 로 안 좁혔다 — 502 HTML 쪽지가 지문에 섞인다"
+    print("[258] 오류 경보가 '언제' 와 '어느 400' 을 말한다 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -18884,6 +18970,7 @@ if __name__ == "__main__":
     t255_delete_is_reversible_and_exclusion_is_not_delete()
     t256_list_zero_goes_through_one_door()
     t257_jump_says_why_it_could_not_find()
+    t258_error_report_says_when_and_why()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

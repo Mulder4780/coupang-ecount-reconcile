@@ -5179,9 +5179,18 @@ async function _apiNet(path, opt={}){
     }
   }
   if(!r.ok){
-    const msg=(parsed&&(parsed.error||parsed.msg||parsed.message))||`서버 요청이 실패했습니다 (HTTP ${r.status}).`;
+    const said=String((parsed&&(parsed.error||parsed.msg||parsed.message))||'');
+    const msg=said||`서버 요청이 실패했습니다 (HTTP ${r.status}).`;
     const err=new ApiError(msg,{path,status:r.status,code:'HTTP_ERROR',contentType,bodyPreview:trimmed});
-    uxEvent('error',String(path).split('?')[0],`${err.code}:${r.status}`);
+    /* ★ 서버가 **왜** 거절했는지를 기록에도 남긴다. 예전에는 그 말을 화면에만 띄우고
+       기록에는 `HTTP_ERROR:400` 이라는 숫자만 남겼다 — 그래서 오종현 님이 하루에
+       63번 400 을 받는 동안 **어느 칸이 빠졌는지 아무도 못 봤다**(분담판 [90]).
+       서버 쪽 400 은 `except Exception` 한 덩어리라 이유가 그 말 안에만 있다.
+       · 4xx 에만 붙인다 — 5xx·502 의 본문은 터널이 준 HTML 쪽지라 지문만 더럽힌다.
+       · 사전은 부분 문자열로 찾으므로(`look_up`) `HTTP_ERROR:400` 은 그대로 걸린다.
+         이유가 뒤에 붙으면 갈래만 갈라져 '어느 400 인가' 가 보인다. */
+    const why=(r.status>=400&&r.status<500&&said)?' · '+said.replace(/\s+/g,' ').slice(0,80):'';
+    uxEvent('error',String(path).split('?')[0],`${err.code}:${r.status}${why}`);
     throw err;
   }
   if(!trimmed){
