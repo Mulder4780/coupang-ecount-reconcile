@@ -262,9 +262,18 @@ def main():
             time.sleep(10)
             continue
         print(f"터널 시작... (대상 http://127.0.0.1:{PORT})")
+        # ★ 창을 달지 않는다(2026-08-13 지시 · [248] 과 같은 자리).
+        #   tunnel_run 자신은 pythonw(콘솔 없음)로 뜨므로, **콘솔 앱**인 cloudflared 를
+        #   깃발 없이 띄우면 윈도우가 새 콘솔을 할당한다. 윈도우 11 기본 콘솔 호스트가
+        #   터미널이라 제목이 'webapp\cloudflared.exe' 인 검은 창이 사람 화면을 덮었다.
+        #   터널이 끊기면 아래 while 이 5초마다 다시 띄우므로 **창이 계속 쌓인다.**
+        #   ⚠ 여기서 잃는 로그는 없다 — cloudflared 출력은 아래 for 문이 PIPE 로 그대로
+        #   읽어 주소를 뽑고 URL_FILE 에 적는다. 그래서 그 창에는 애초에 아무것도
+        #   안 찍혔다(순수한 방해라 고장으로 안 보였다). 창만 없애고 읽기는 그대로다.
         p = subprocess.Popen([exe, "tunnel", "--url", f"http://127.0.0.1:{PORT}"],
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             text=True, encoding="utf-8", errors="replace")
+                             text=True, encoding="utf-8", errors="replace",
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         url = None
         for ln in p.stdout:
             # ★ cloudflared 로그에는 우리 터널 주소 말고 **api.trycloudflare.com**(내부 API)도
