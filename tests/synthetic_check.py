@@ -15874,6 +15874,32 @@ def t196_stage_words_come_from_one_place():
     for bad in ("ledger_writer", "--apply", "enqueue"):
         assert bad not in src, "단계 정의가 원장을 건드린다: " + bad
 
+    # ⑪ **밴드 등록기도 같은 자리에서 낱말을 받는다** (2026-08-13 실사고).
+    #    ⑤ 가 서버의 신규 등록만 지키고 있어서, 밴드→앱DB 등록기(`band_canonical`)는
+    #    ``접수`` 를 그대로 박아 쓰고 있었다.  그 낱말은 관리대장 드롭다운에 없다 —
+    #    그래서 엑셀에서 그 칸을 열면 사람이 다시 골라야 하는데 **화면에는 멀쩡히
+    #    '접수' 라고 보인다.**  오류가 나지 않는 종류의 잘못이라 아무도 몰랐고,
+    #    앱 DB 에 123건이 그 상태로 쌓여 있었다.
+    #    글자 검사는 '있어야 할 것'이 아니라 **'되돌아가면 안 되는 것'** 에 쓴다.
+    bc = open(os.path.join(root, "band_canonical.py"), encoding="utf-8").read()
+    st = bc.split("def _status", 1)[1].split("\ndef ", 1)[0]
+    assert '"접수"' not in st and "'접수'" not in st, \
+        "band_canonical 이 목록 밖 낱말 '접수' 를 다시 박아 쓴다"
+    assert "_stage_words(" in st, "밴드 등록기가 단계 낱말을 정의에서 안 받아 온다"
+    assert "work_flow.default_stage" in bc and "work_flow.done_stage" in bc, \
+        "밴드 등록기가 work_flow 를 안 본다 — 드롭다운이 바뀌어도 안 따라간다"
+    # 비싼 워크북 열기를 레코드마다 부르면 안 된다([168]) — 한 회차 1,600건 자리다.
+    assert "_STAGE_CACHE" in bc, "정의를 레코드마다 다시 읽는다"
+    import band_canonical as BC
+
+    BC._STAGE_CACHE.clear()
+    assert BC._status("돌발AS", {}) == W.default_stage("as"), "밴드 신규 AS 기본 단계가 정의와 다르다"
+    assert BC._status("정기점검", {}) == W.default_stage("pm"), "밴드 신규 PM 기본 단계가 정의와 다르다"
+    assert BC._status("돌발AS", {"진행상태": "작업완료"}) == W.done_stage("as"), \
+        "밴드 완료 낱말이 정의와 다르다"
+    # 정의를 못 읽어도 **등록 자체는 계속한다** — 낱말 하나 때문에 접수를 잃는 쪽이 더 나쁘다.
+    assert BC._STAGE_FALLBACK["as"][0] != "접수", "대비값이 목록 밖 낱말이다"
+
     print("  [196] 단계 낱말은 관리대장 드롭다운 한 곳에서 오고 바뀌면 인계에 오른다 ✅")
 
 
