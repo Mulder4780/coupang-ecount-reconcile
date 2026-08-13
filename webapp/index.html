@@ -6057,6 +6057,16 @@ async function submitRyuEntry(ev){
       headers:{'X-Pin':PIN,'Idempotency-Key':requestId},body:new FormData(form)});
     if(r.status===401){PIN='';localStorage.removeItem('cw_pin');$('gate').style.display='flex';throw new Error('PIN을 다시 입력해 주세요');}
     const d=await r.json();if(!r.ok||!d.ok) throw new Error(d.error||`HTTP ${r.status}`);
+    /* ★ 오프라인 보관(outbox)을 저장 완료라고 부르지 않는다 (분담판 [80]).
+       서버에 못 닿으면 감싼 fetch 가 {ok:true,queued:true} 를 200 으로 돌려준다 —
+       그대로 통과시키면 `changed` 가 없어 "0개 항목을 즉시 저장했습니다"가 되고
+       **초안까지 지워** 진짜로 잃는다. 아직 저장 전이므로 초안은 그대로 둔다. */
+    if(d.queued===true){
+      result.className='ryu-result err';
+      result.textContent='아직 저장 전입니다 · 서버에 닿지 않아 이 기기에 보관했습니다.'
+        +' 서버에 닿으면 자동으로 올라갑니다 — 입력 초안도 그대로 두었습니다.';
+      return;
+    }
     result.className='ryu-result ok';
     const count=(d.changed||[]).length;
     result.textContent=d.action==='no_change'?'이미 같은 값입니다. 중복 저장하지 않았습니다.':
@@ -6200,6 +6210,15 @@ async function submitNewWork(ev){
     const r=await fetch('/api/staff/new-job',{method:'POST',headers:{'X-Pin':PIN},body:new FormData(form)});
     const d=await r.json();
     if(!r.ok||!d.ok) throw new Error(d.error||'신규 업무 저장 실패');
+    /* ★ 이름이 겹친다 — 서버의 `queued` 는 **개수**이고 오프라인 보관의 `queued` 는
+       **true** 다(분담판 [80]). 안 가르면 아래에서 `d.manifest` 가 없어 엉뚱한
+       TypeError 로 죽고, 사람은 무엇이 잘못됐는지 못 읽는다. */
+    if(d.queued===true){
+      result.className='ryu-result err';
+      result.textContent='아직 저장 전입니다 · 서버에 닿지 않아 이 기기에 보관했습니다.'
+        +' 서버에 닿으면 자동으로 올라갑니다 — 입력 초안도 그대로 두었습니다.';
+      return;
+    }
     result.className='ryu-result ok';
     result.innerHTML=`저장 완료 · ${esc2(d.manifest['업무ID'])} · 앱 DB ${fmt(d.queued)}개 항목 즉시 저장
       <br>Excel은 앱 DB 정본에서 자동 보관본으로 생성됩니다.`;
@@ -12345,6 +12364,41 @@ function inputForm(kind, r, id){
       padding:12px;background:var(--brand-btn);color:#fff;border-radius:11px;font-weight:700;font-size:14px">💾 입력 저장</button>
     <div style="font-size:13px;color:var(--ink-3);margin-top:6px">입력은 한 번에 앱 DB에 반영됩니다. 자동 상태·수식은 직접 바꾸지 않으며 Excel은 단방향 보관본입니다.</div></div>`;
 }
+/* 상세시트 정정폼의 기록 열쇠 칸 — 버전을 다시 집을 때 쓴다.
+   INPUT_SPEC[kind].key_col 과 같은 값이며, 거기서 읽는다(사본을 만들지 않는다). */
+function entryKeyCol(kind){ return ((INPUT_SPEC[kind]||{}).key_col)||''; }
+/* 목록을 다시 받아 그 기록의 **지금 버전**을 집는다. 못 집으면 0 — 지어내지 않는다.
+   ★ 짐작으로 1 을 넣으면 안 된다. 낙관잠금이 그 순간 무의미해져서, 남이 고친 값을
+     말없이 덮어쓴다(정본 규칙 2026-08-10). 모르면 사람에게 새로고침을 청한다. */
+async function freshEntryVersion(kind, id){
+  try{
+    await loadSettle(true);
+    const col=entryKeyCol(kind); if(!col) return 0;
+    const pool = kind==='settle' ? (settleRows||[]) : ((works||{})[kind]||[]);
+    const hit = pool.find(r=>String(r[col]||'').trim()===String(id||'').trim());
+    return hit ? Number(hit.DB버전||hit._record_version||hit.record_version||0) : 0;
+  }catch(e){ return 0; }
+}
+/* ═══ 상세시트 '💾 입력 저장' (2026-08-13 실사고 · 분담판 [80]) ═══════════════
+   류지영 실사용 막힘: "입력저장을 아무리 눌러도 저장이 안돼여". 원인은 셋이고
+   **셋 다 조용했다** — 앱이 남긴 기록(ux)이 그대로 말해 준다(최근 7일 실측):
+     · `/api/staff/entry` **HTTP 400 60회**
+     · 그 사유 **"화면 데이터 버전이 없습니다" 58회**가 `promise` 로만 남았다
+       = 이 함수에 try/catch 가 없어 rejection 이 전역 훅까지 굴러갔다는 뜻이다.
+       전역 훅은 **기록만 남기고 화면에는 아무 말도 안 한다**(5552행).
+       그래서 사람 눈에는 **눌러도 아무 일이 안 일어나는** 단추였다.
+   고치는 원칙은 하나다 — **실패를 절대 조용히 삼키지 않는다.**
+     ① 서버가 준 사유를 그대로 사람에게 보여 준다(400·403·409·401 다 다른 조치다)
+     ② 오프라인 보관(queued)을 **저장 완료라고 부르지 않는다** — 예전에는
+        `(d.changed||[]).length` 가 0 이라 "0건 앱 DB 저장 완료"라고 했다
+        (실패가 성공처럼 보이는 자리)
+     ③ **성공했을 때만** 초안을 지운다. 예전에는 이 폼만 draftClear 가 없어서,
+        저장이 **됐어도** 다시 열면 "서버에는 아직 저장되지 않았습니다"가 떴다
+        — 성공이 실패처럼 보이는 자리다. 실패하면 초안은 그대로 둔다.
+     ④ 버전이 비었으면 보내기 전에 **목록에서 다시 집는다**. 화면 행이
+        `_lastRows` 어디서 왔느냐에 따라 `DB버전` 이 없을 수 있다(pm 실측 70/463).
+   자동 재전송은 하지 않는다 — 반쯤 성공했을 수 있다. 사람이 다시 누르는 것은
+   멱등키가 지킨다(같은 요청은 한 번만 반영된다).                              */
 async function saveInputs(kind, id, n, recordVersion){
   const spec = INPUT_SPEC[kind];
   const values={}, clearFields=[];
@@ -12356,15 +12410,52 @@ async function saveInputs(kind, id, n, recordVersion){
     if(!now&&before) clearFields.push(el.dataset.col);
     else if(now) values[el.dataset.col]=now;
   }
-  if(!Object.keys(values).length&&!clearFields.length){ notice('변경된 값이 없습니다'); return; }
+  const draftKey='entry:'+kind+':'+id;
+  if(!Object.keys(values).length&&!clearFields.length){
+    /* 초안을 '이어서 쓰기'로 채운 뒤 누르면 여기로 온다 — 이미 저장된 값과 같아서다.
+       그냥 '변경 없음'만 말하면 사람은 또 저장이 안 된 줄 안다. 초안을 정리해 준다. */
+    if(draftRead(draftKey)){
+      draftClear(draftKey);
+      await notice('화면 값이 앱 DB에 저장된 값과 같습니다 — 이미 반영된 내용입니다.\n'
+        +'이 기기에 남아 있던 입력 초안은 정리했습니다.');
+    } else notice('변경된 값이 없습니다');
+    return;
+  }
   // 저장 전 경고(2026-08-11 지시) — 바뀐 값만 검사한다. 자동 수정은 없다.
   const warns=entryWarnings(kind,id,values);
   if(warns.length && !(await confirmSaveWarnings(warns))) return;   // 돌아가서 수정
+  let version=Number(recordVersion||0);
+  if(!(version>=1)) version=await freshEntryVersion(kind, id);      // 보내기 전에 채운다
+  if(!(version>=1)){
+    await notice('이 건의 앱 DB 버전을 화면이 알지 못해 저장하지 못했습니다.\n'
+      +'목록을 새로고침해 같은 건을 다시 연 뒤 저장해 주세요.\n'
+      +'입력하신 내용은 이 기기에 초안으로 그대로 있습니다.',{title:'저장하지 못했습니다'});
+    return;
+  }
   const requestId=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
-  const d=await api('/api/staff/entry',{method:'POST',headers:{'Idempotency-Key':requestId},body:JSON.stringify({
-    category:kind,key:id,record_version:Number(recordVersion||0),values,
-    clear_fields:clearFields,reason:(($('inp_reason')||{}).value||'').trim(),idempotency_key:requestId
-  })});
+  let d;
+  try{
+    d=await api('/api/staff/entry',{method:'POST',headers:{'Idempotency-Key':requestId},body:JSON.stringify({
+      category:kind,key:id,record_version:version,values,
+      clear_fields:clearFields,reason:(($('inp_reason')||{}).value||'').trim(),idempotency_key:requestId
+    })});
+  }catch(e){
+    const st=Number((e&&e.status)||0);
+    const how = st===409 ? '다른 곳에서 이 건이 먼저 바뀌었습니다. 목록을 새로고침해 두 값을 보고 다시 저장해 주세요.'
+              : st===403 ? '이 항목을 고칠 권한이 없습니다. 관리자에게 알려 주세요.'
+              : st===401 ? 'PIN 을 다시 입력한 뒤 저장해 주세요.'
+              : '내용을 확인한 뒤 다시 저장해 주세요.';
+    await notice('저장하지 못했습니다 · '+String((e&&e.message)||e)+'\n'+how+'\n'
+      +'입력하신 내용은 이 기기에 초안으로 남아 있습니다. 자동 재전송은 하지 않습니다'
+      +'(멱등키가 있어 다시 저장해도 중복되지 않습니다).',{title:'저장하지 못했습니다'});
+    return;                       // ★ 초안을 지우지 않는다 · 시트도 닫지 않는다
+  }
+  if(d && d.queued){              // 서버에 못 닿아 이 기기에 보관됨 — 저장이 아니다
+    await notice('서버에 닿지 않아 이 기기에 보관했습니다. 서버에 닿으면 자동으로 올라갑니다.\n'
+      +'아직 앱 DB에 저장된 것은 아닙니다 — 화면 값도 그대로입니다.',{title:'아직 저장 전입니다'});
+    return;
+  }
+  draftClear(draftKey);           // ★ 서버가 확인한 뒤에만 초안을 지운다
   closeSheetAll();      // 저장이 끝났으면 목록으로 되돌아갈 게 아니라 통째로 닫는다
   toast(d.action==='no_change'?'이미 같은 값입니다':`${(d.changed||[]).length}건 앱 DB 저장 완료 · 화면 즉시 반영`);
   await loadSettle(false);

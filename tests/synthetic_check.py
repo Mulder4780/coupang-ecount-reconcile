@@ -6900,6 +6900,67 @@ def t247_chrome_collect_report_round_trip():
     print("  [247] 크롬 되보고 — 게이트 앞·모양 일치·유령 거부·워치독 순서 ✅")
 
 
+def t249_entry_save_never_silent():
+    """[249] 입력 저장은 **조용히 실패하지 않는다** (2026-08-13 실사고 · 분담판 [80]).
+
+    류지영 실사용 막힘 "입력저장을 아무리 눌러도 저장이 안돼여" 의 정체는
+    `saveInputs` 에 try/catch 가 없었던 것이다. `api()` 는 400·403·409·401 에
+    throw 하는데 `onclick` 이 부른 async 함수의 rejection 은 전역 훅까지 굴러가고,
+    그 훅은 **기록만 남기고 화면에는 아무 말도 안 한다.** 앱이 남긴 실측:
+    `/api/staff/entry` HTTP 400 60회 · 사유 "화면 데이터 버전이 없습니다" 58회.
+
+    되돌아가면 안 되는 것만 지킨다(글자 검사는 '있어야 할 것'이 아니라
+    '되돌아가면 안 되는 것'에 쓴다):
+      · 실패를 잡아 사람에게 말한다        · 오프라인 보관을 저장 완료라 안 한다
+      · 성공했을 때만 초안을 지운다        · 열쇠 칸 이름을 사본으로 안 적는다
+    """
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    start = html.index("async function saveInputs(")
+    body = html[start:html.index("/* ── 월별·연도별 현황 ── */", start)]
+
+    assert "try{" in body and "}catch(e){" in body, \
+        "saveInputs 에 try/catch 가 없다 — 서버가 준 실패 사유가 화면에 안 뜬다([80])"
+    fail = body[body.index("}catch(e){"):]
+    assert "notice(" in fail, "저장 실패를 사람에게 말하지 않는다 — 조용히 삼키는 자리다"
+    assert "draftClear" not in fail.split("if(d && d.queued)")[0], \
+        "실패 갈래에서 초안을 지운다 — 사람이 적은 것을 잃는다"
+
+    assert "d.queued" in body, \
+        "오프라인 보관(queued)을 안 가른다 — '0건 앱 DB 저장 완료'가 되어 실패가 성공처럼 보인다"
+    # 성공 갈래(= queued 판정 뒤)에서만 초안을 지운다. 그 앞의 draftClear 는
+    # '값이 이미 서버와 같다'를 확인하고 정리하는 것이라 정당하다 — 뭉뚱그리면 안 된다.
+    after_queued = body[body.index("d.queued"):]
+    assert "draftClear(draftKey)" in after_queued, \
+        ("성공 뒤 상세시트 초안을 안 지운다 — 저장이 됐는데도 다시 열면 "
+         "'서버에는 아직 저장되지 않았습니다'가 뜬다(성공이 실패처럼 보이는 자리)")
+    assert after_queued.index("return;") < after_queued.index("draftClear(draftKey)"), \
+        "queued 갈래가 그대로 흘러 초안을 지운다 — 아직 저장 전인데 입력이 사라진다"
+
+    # 버전 0 이면 서버가 400 을 준다 — 보내기 전에 채우되, 짐작으로 만들지는 않는다
+    assert "freshEntryVersion" in body, "버전이 비었을 때 다시 집지 않는다 — 그대로 400 이 난다"
+    fresh = html[html.index("async function freshEntryVersion("):
+                 html.index("async function saveInputs(")]
+    assert "return 0" in fresh and "record_version:1" not in fresh.replace(" ", ""), \
+        "못 집은 버전을 지어낸다 — 낙관잠금이 무의미해져 남이 고친 값을 말없이 덮는다"
+
+    # 열쇠 칸 이름은 INPUT_SPEC 에서 읽는다(사본을 만들면 시트가 바뀐 날 한쪽만 고쳐진다)
+    keycol = html[html.index("function entryKeyCol("):html.index("async function freshEntryVersion(")]
+    assert "INPUT_SPEC" in keycol and "접수ID" not in keycol and "점검ID" not in keycol, \
+        "열쇠 칸 이름을 손으로 적었다 — INPUT_SPEC 의 key_col 을 읽어야 한다([162])"
+
+    # 같은 함정이 나머지 두 저장 경로에도 있었다 — 셋 다 queued 를 가른다
+    for fn, tail in (("async function submitRyuEntry(", "async function submitRyuUpload("),
+                     ("async function submitNewWork(", "function setSourceFile(")):
+        seg = html[html.index(fn):html.index(tail)]
+        assert "d.queued===true" in seg, \
+            f"{fn.strip()} 가 오프라인 보관을 저장 완료로 읽는다 — 초안까지 지워 입력을 잃는다"
+        assert seg.index("d.queued===true") < seg.index("draftClear("), \
+            f"{fn.strip()} 가 queued 판정보다 먼저 초안을 지운다"
+
+    print("  [249] 입력 저장은 조용히 실패하지 않는다 — 사유·보관·초안 ✅")
+
+
 def t248_rounds_run_without_a_console_window():
     """[248] 회차는 **창 없이** 돈다 — 사람 화면을 가로채지 않는다 (2026-08-13 지시).
 
@@ -17960,6 +18021,7 @@ if __name__ == "__main__":
     t246_font_presets_single_table()
     t247_chrome_collect_report_round_trip()
     t248_rounds_run_without_a_console_window()
+    t249_entry_save_never_silent()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
