@@ -8371,7 +8371,9 @@ function orgRender(D){
   ORG_LAST=D;
   const gen=$('orgGen'); if(gen) gen.textContent='업데이트 '+(D.gen||'—');
   const floor=$('orgFloor'); if(!floor) return;
-  floor.innerHTML=orgFlowMap(D)+(D.zones||[]).map(z=>`
+  /* 흐름 지도는 **배치도 아래**에 온다(2026-08-13 지시 "맨 아래로 배치 변경") —
+     먼저 자리를 보고, 그 자리들이 어떻게 이어지는지를 뒤에서 읽는 순서다. */
+  floor.innerHTML=(D.zones||[]).map(z=>`
     <section class="org-zone ${esc2(z.key)}">
       <div class="org-zh">${esc2(z.title)}<span class="tag">${esc2(z.tag||'')}</span></div>
       <div class="org-desks">${(z.people||[]).map(p=>{
@@ -8397,7 +8399,7 @@ function orgRender(D){
           </button>
           <div class="org-duties"><div class="org-duties-in">${dutiesHtml}</div></div>
         </div>`;}).join('')}</div>
-    </section>`).join('');
+    </section>`).join('')+orgFlowMap(D);
   const note=$('orgNote'); if(note) note.textContent=D._live
     ? '실시간 연결됨 — 조수 세션 상태는 ai_claim 점유에서, 사람 자리·역할은 로스터에서 옵니다. 자리를 누르면 담당 업무가 펼쳐집니다. 담당자 온·오프라인은 실제 앱 접속으로만 판정하며, 접속 기록이 없으면 오프라인이라 단정하지 않고 상태 모름으로 둡니다.'
     : '오프라인 스냅샷입니다 — 서버에 연결되면 조수 세션 상태와 담당자 접속이 실시간으로 바뀝니다. 자리를 누르면 담당 업무가 펼쳐집니다.';
