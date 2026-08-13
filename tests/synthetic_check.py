@@ -16987,6 +16987,99 @@ def t134_section_fold():
 
 
 
+def t243_cancelled_is_not_undone():
+    """[243] 접수취소는 '미처리'가 아니다 — 그러나 **조용히 사라지지도 않는다**.
+
+    2026-08-13 형님 통화: "접수해서 취소된 건 다 지워버려. 있으면 계속 접수가 돼
+    있는 상태가 되잖아." 실측 그날: 캘린더 `as_open` 131건 중 **41건(31%)이 진행상태
+    '취소'** 였다. 취소된 현장이 매일 빨간 미처리로 서 있으면 ① 안 가도 되는 곳을
+    가야 할 곳처럼 보이게 하고 ② 경보의 3분의 1이 가짜라 나머지도 아무도 안 본다([170]).
+
+    지키는 것 넷:
+      · 판정은 **한 곳**(`work_flow.is_cancelled`) — 캘린더와 캠프 이력이 같은 답을 한다([162]).
+      · 낱말은 **정확히 같을 때만**(`취소`·`철회`). 넓히면 멀쩡한 현장이 목록에서
+        사라진다 — 미처리로 남는 것보다 나쁘다([172]).
+      · 뺀 것은 **회색으로 남긴다**([169]). 통째로 지우면 "그때 접수가 있었나"를 잃는다.
+      · 상태가 '완료'인데 **날짜만 빈** 것도 미처리라 부르지 않는다(실측 2건).
+    """
+    import work_flow as W
+
+    # ── 낱말은 정확히 같을 때만 — 넓히지 않는다 ────────────────────────────────
+    assert W.is_cancelled({"진행상태": "취소"}, "as")
+    assert W.is_cancelled({"진행상태": " 철회 "}, "as"), "공백만 무시한다"
+    assert W.is_cancelled({"점검상태": "취소"}, "pm")
+    for 멀쩡 in ("접수", "신규접수", "작업완료", "보류", "재방문예정", ""):
+        assert not W.is_cancelled({"진행상태": 멀쩡}, "as"), 멀쩡
+    # 취소가 **본문 일부**로 들어간 것은 취소가 아니다 — 그 오탐이 사고 #의 모양이다.
+    assert not W.is_cancelled({"진행상태": "택배발송 취소요청하심"}, "as")
+    assert not W.is_cancelled({"진행상태": "취소"}, "없는갈래")
+
+    # ── 상태가 완료라고 말하면 날짜가 없어도 '미처리'가 아니다 ─────────────────
+    assert W.says_done({"진행상태": "작업완료"}, "as")
+    assert W.says_done({"점검상태": "완료"}, "pm")
+    assert not W.says_done({"진행상태": "접수"}, "as")
+
+    # ── 캘린더가 정말 그 판단을 쓰는가 (글자가 아니라 동작으로 본다) ───────────
+    import importlib.util as _ilu
+    _sp = os.path.join(ROOT, "webapp", "app_server.py")
+    _spec = _ilu.spec_from_file_location("app_server_t243", _sp)
+    _A = sys.modules.get("app_server")
+    if _A is None:                       # 이미 실린 것이 있으면 다시 안 싣는다(비싸다)
+        sys.path.insert(0, os.path.join(ROOT, "webapp"))
+        _A = _ilu.module_from_spec(_spec)
+        sys.modules["app_server_t243"] = _A
+        _spec.loader.exec_module(_A)
+
+    행 = [
+        {"캠프명": "합성캠프A", "프로젝트NO": "UJ9990001", "접수일자": "2026-01-06",
+         "진행상태": "취소", "작업완료일": "", "방문예정일": ""},
+        {"캠프명": "합성캠프B", "프로젝트NO": "UJ9990002", "접수일자": "2026-01-07",
+         "진행상태": "작업완료", "작업완료일": "", "방문예정일": ""},
+        {"캠프명": "합성캠프C", "프로젝트NO": "UJ9990003", "접수일자": "2026-01-08",
+         "진행상태": "접수", "작업완료일": "", "방문예정일": ""},
+    ]
+    점검 = [{"캠프명": "합성캠프D", "프로젝트NO": "UJ9990004", "점검예정일": "2026-01-05",
+             "실제점검일": "", "점검상태": "취소"}]
+
+    _old = _A.get_works
+    try:
+        _A.get_works = lambda *a, **k: {"as": 행, "pm": 점검}
+        ev = _A._calendar_work_events()
+    finally:
+        _A.get_works = _old
+
+    분류 = {}
+    for e in ev:
+        분류.setdefault(e["분류"], []).append(e)
+    열림 = 분류.get("as_open") or []
+    assert len(열림) == 1, "미처리는 진짜 열린 1건뿐이어야 한다: %r" % [e["제목"] for e in 열림]
+    assert "합성캠프C" in 열림[0]["제목"], 열림[0]["제목"]
+    assert not (분류.get("pm_overdue") or []), "취소된 점검이 미처리로 서 있다"
+
+    # ★ 뺀 것이 **사라지지 않았는가** — 이 검사가 이 검증의 반이다([169]).
+    회색 = 분류.get("etc") or []
+    본문 = " / ".join(e["제목"] for e in 회색)
+    assert "합성캠프A" in 본문 and "취소" in 본문, "취소가 통째로 사라졌다: %r" % 본문
+    assert "합성캠프D" in 본문, "취소된 정기점검이 통째로 사라졌다: %r" % 본문
+    assert "합성캠프B" in 본문, "완료일 미기입이 통째로 사라졌다: %r" % 본문
+    for e in 회색:
+        assert e["날짜"], "회색으로 내리면서 날짜를 잃으면 달력에 안 뜬다: %r" % e["제목"]
+
+    # ── 캠프 이력도 **같은 답**을 해야 한다 — 두 화면이 갈리면 아무도 못 믿는다 ──
+    _old = _A.get_works
+    try:
+        _A.get_works = lambda *a, **k: {"as": 행, "pm": 점검}
+        tl = _A.project_history(camp="합성캠프A")
+    finally:
+        _A.get_works = _old
+    if isinstance(tl, dict) and tl.get("ok"):
+        assert not [x for x in (tl.get("현황") or []) if x["분류"] == "as_open"], \
+            "캘린더는 취소를 뺐는데 프로젝트 이력은 아직 미처리라고 한다"
+
+    print("  [243] 접수취소는 미처리가 아니다 — 판정 한 곳 · 낱말 정확일치 · "
+          "회색으로 남김 · 완료일 미기입 분리 ✅")
+
+
 def t242_ready_means_logged_in():
     """[242] '쓸 수 있다'는 말은 **로그인까지** 확인한 말이다 (2026-08-13 실사고).
 
@@ -17470,6 +17563,7 @@ if __name__ == "__main__":
     t240_install_has_a_door_and_says_why_when_shut()
     t241_boundary_survives_compact_and_clear()
     t242_ready_means_logged_in()
+    t243_cancelled_is_not_undone()
     t235_unattended_rounds_survive_pythonw()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()

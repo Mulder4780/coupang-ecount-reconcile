@@ -60,6 +60,36 @@ KINDS = {
 # '완료'를 뜻하는 단계를 고르는 실마리. **후보가 유일할 때만** 고른다([172] 의 문).
 DONE_HINT = "완료"
 
+# ★ '이 건은 더 이상 갈 곳이 아니다' 를 뜻하는 낱말 (2026-08-13 지시).
+#   낱말을 지어내지 않는다([166]) — 이미 코드 세 곳이 같은 짝을 쓰고 있었고
+#   (`complete_verified`·`ledger_db` 의 conflicts·`backfill_rows`) 그 짝을 여기로 모았다.
+#   **사본이 넷이면 한 곳만 고쳐진다**([162]) — 새로 판정하는 자리는 여기를 부른다.
+#   ⚠ 낱말을 넓히지 말 것. 취소로 잘못 부르면 그 현장은 아무도 안 가는데 목록에서도
+#   사라진다 — 미처리로 남는 것보다 나쁘다([172] 의 문). 근거는 **드롭다운 낱말과
+#   정확히 같을 때**뿐이다(공백만 무시).
+CANCELLED = ("취소", "철회")
+
+
+def is_cancelled(row, kind):
+    """이 행이 '접수취소'인가 — 상태 칸의 낱말이 CANCELLED 와 정확히 같을 때만 참.
+
+    kind 는 'as'·'pm'. 어느 칸을 읽을지는 KINDS 가 정한다 — 칸 이름을 부르는 쪽에
+    적으면 시트가 바뀐 날 **오류 없이 한 건도 안 걸린다**([165]).
+    """
+    col = (KINDS.get(kind) or {}).get("칸")
+    if not col:
+        return False
+    return _norm((row or {}).get(col)) in tuple(_norm(w) for w in CANCELLED)
+
+
+def says_done(row, kind):
+    """상태 칸이 '완료'라고 말하는가 — 완료 **날짜**가 비어 있어도 참.
+
+    날짜가 없다고 '미처리'라 부르면 다녀온 현장이 안 간 것으로 보인다.
+    '완료라는데 날짜만 없다'와 '아직 안 갔다'는 다른 사실이다([169])."""
+    col = (KINDS.get(kind) or {}).get("칸")
+    return bool(col) and DONE_HINT in _norm((row or {}).get(col))
+
 _MEM = {"at": 0.0, "def": None}
 
 

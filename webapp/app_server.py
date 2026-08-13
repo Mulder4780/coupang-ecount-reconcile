@@ -5579,6 +5579,10 @@ def _calendar_work_events():
     없는 날짜를 추정해 캘린더에 그리지 않는다.
     """
     out = []
+    # 취소·완료 낱말 판정은 `work_flow` 한 곳에서 온다([162]). 이 모듈은 표준 라이브러리만
+    # 쓰므로 부르는 값이 싸다 — 못 불러오면 **거르지 않고 예전대로** 간다(거짓으로
+    # 지우는 것보다 예전 그림이 낫다, [172]).
+    import work_flow
     try:
         works = get_works() or {}
     except Exception:
@@ -5606,6 +5610,20 @@ def _calendar_work_events():
     for r in works.get("as") or []:
         camp = r.get("캠프명") or "캠프 미상"
         done = norm_date(r.get("작업완료일"))
+        # ★ 접수취소는 미처리가 아니다 (2026-08-13 지시 — 형님 통화: "접수해서
+        #   취소된 건 다 지워버려. 있으면 계속 접수돼 있는 상태가 되잖아").
+        #   실측 2026-08-13: as_open 131건 중 **41건(31%)이 진행상태 '취소'** 였다.
+        #   취소된 현장이 매일 빨간 미처리로 서 있으면 "일 안 하는 줄 안다" — 그리고
+        #   경보의 3분의 1이 가짜면 나머지도 아무도 안 본다([170]).
+        #   ★ 그렇다고 **조용히 지우지는 않는다**([169]) — 회색 `etc` 로 내려 기록은
+        #     남긴다. 목록에서 통째로 없애면 "그때 정말 접수가 있었나"를 잃는다.
+        if work_flow.is_cancelled(r, "as"):
+            add(norm_date(r.get("접수일자")) or done or r.get("방문예정일"), "etc",
+                f"돌발AS 접수취소 · {camp}", r,
+                {"연결근거": "02_돌발AS접수 진행상태 = 취소",
+                 "진행상태": r.get("진행상태") or "",
+                 "신청내용": r.get("신청내용") or ""})
+            continue
         if not done:                       # 아직 안 끝난 건만 '예정'으로 세운다
             add(r.get("방문예정일"), "as_visit", f"돌발AS 예정 · {camp}", r,
                 {"연결근거": "02_돌발AS접수 방문예정일",
@@ -5617,6 +5635,17 @@ def _calendar_work_events():
             if got:
                 days = (datetime.strptime(today, "%Y-%m-%d")
                         - datetime.strptime(got, "%Y-%m-%d")).days
+                # ★ 상태가 이미 '작업완료'라고 말하는데 **날짜 칸만 빈** 것을 '미처리'라
+                #   부르지 않는다(실측 2026-08-13: 2건). 다녀온 현장이 안 간 것으로
+                #   보이면 그게 형님이 지적한 "완료된 것도 다 들어가 있다"의 정체다.
+                #   그렇다고 완료로 세지도 않는다 — 언제 갔는지를 모르기 때문이다.
+                #   모르는 것은 모른다고 회색으로 둔다([169]).
+                if work_flow.says_done(r, "as"):
+                    add(got, "etc", f"돌발AS 완료일 미기입 · {camp}", r,
+                        {"연결근거": "02_돌발AS접수 진행상태는 완료인데 작업완료일이 비어 있음",
+                         "경과일": days, "진행상태": r.get("진행상태") or "",
+                         "신청내용": r.get("신청내용") or ""})
+                    continue
                 add(got, "as_open", f"돌발AS 미처리 · {camp}", r,
                     {"연결근거": "02_돌발AS접수 — 접수 뒤 작업완료일이 비어 있음",
                      "경과일": days, "긴급도": r.get("긴급도") or "",
@@ -5645,6 +5674,16 @@ def _calendar_work_events():
             pm_done_days.setdefault(key, []).append(d)
     for r in works.get("pm") or []:
         camp = r.get("캠프명") or "캠프 미상"
+        # 취소는 AS 와 같은 자리에서 같은 판단으로 거른다 — 판정이 갈리면 한쪽 화면만
+        # 고쳐진다([162]). 실측 2026-08-13 기준 04시트 점검상태에는 취소 낱말이 아직
+        # 없다(완료·미점검·예정·예정월) — **없다고 안 거는 것이 아니라**, 생기는 날
+        # 저절로 걸리게 둔다.
+        if work_flow.is_cancelled(r, "pm"):
+            add(norm_date(r.get("점검예정일")) or r.get("실제점검일"), "etc",
+                f"정기점검 취소 · {camp}", r,
+                {"연결근거": "04_정기점검 점검상태 = 취소",
+                 "점검상태": r.get("점검상태") or ""})
+            continue
         add(r.get("실제점검일"), "pm_done", f"정기점검 완료 · {camp}", r,
             {"연결근거": "04_정기점검 실제점검일",
              "이상발견": r.get("이상발견여부") or ""})
@@ -5803,6 +5842,7 @@ def project_history(camp="", pj="", limit=400):
             return True
         return bool(pk) and _pj_key(row.get("프로젝트NO")) == pk
 
+    import work_flow          # 취소 판정은 캘린더와 같은 한 곳에서 온다([162])
     try:
         works = get_works() or {}
     except Exception as exc:
@@ -5832,6 +5872,12 @@ def project_history(camp="", pj="", limit=400):
         vis = norm_date(r.get("방문예정일"))
         common = dict(긴급도=r.get("긴급도") or "", 진행상태=r.get("진행상태") or "",
                       신청내용=r.get("신청내용") or "", 유무상=r.get("유상·무상·보험") or "")
+        # ★ 캘린더와 **같은 판단**을 쓴다(2026-08-13). 한 화면은 취소를 미처리라 하고
+        #   다른 화면은 아니라고 하면, 같은 원장을 보면서 두 답이 나온다.
+        if work_flow.is_cancelled(r, "as"):
+            이력.append(item("etc", got or done, "돌발AS 접수취소", r, "접수ID",
+                             라벨="접수취소", **common))
+            continue
         if done:
             이력.append(item("as_done", done, "돌발AS 완료", r, "접수ID",
                              접수일자=got, 소요일=_daydiff(got, done), **common))
@@ -5860,6 +5906,10 @@ def project_history(camp="", pj="", limit=400):
         plan, real = norm_date(r.get("점검예정일")), norm_date(r.get("실제점검일"))
         common = dict(점검상태=r.get("점검상태") or "", 이상발견=r.get("이상발견여부") or "",
                       돌발AS전환=r.get("돌발AS전환여부") or "")
+        if work_flow.is_cancelled(r, "pm"):
+            이력.append(item("etc", real or plan, "정기점검 취소", r, "점검ID",
+                             라벨="취소", **common))
+            continue
         if real:
             이력.append(item("pm_done", real, "정기점검 완료", r, "점검ID",
                              점검예정일=plan, **common))
