@@ -5570,6 +5570,111 @@ CAL_KINDS = [
 ]
 
 
+_BAND_EV = {"at": 0.0, "d": None}
+_BAND_EV_TTL = 300
+
+
+def _band_completion_index():
+    """밴드·카톡이 **스스로 완료라고 말한** 프로젝트 색인 (2026-08-13 지시).
+
+    형님 통화: "완료가 됐는데 네가 지금 미처리로 남아 있는 거야. 이렇게 되면
+    일 안 하는 줄 알잖아." 원장 완료일 칸은 사람 손 입력이라 비어 있을 뿐인데,
+    캘린더가 **원장만 읽어서** 다녀온 현장을 밀린 것으로 그렸다.
+
+    · **읽는 자리는 하나다** — `band_extract.load_records()`(밴드 글 + 카톡 내보내기를
+      같은 양식으로 읽는다). 여기서 다시 파싱하면 판정이 갈린다([162]).
+    · **원장 빈 칸을 근거로 삼지 않는다** — 근거는 밴드·카톡 쪽에 있다([166]).
+    · 비싼 파싱(실측 8,049건)은 **캐시 검사 뒤**에 온다([168]).
+    · `latest` 는 밴드가 **어디까지 수집됐나**다. 이것이 없으면 "완료 글이 없다"와
+      "아직 안 긁었다"를 구별 못 한다 — 0건을 근거로 쓰는 순간 `[169]` 다.
+
+    돌려주는 것: {"완료": {프로젝트NO: 기록}, "언급": set(프로젝트NO), "최신": "YYYY-MM-DD"}
+    """
+    now = time.time()
+    cur = _BAND_EV.get("d")
+    if cur is not None and now - _BAND_EV["at"] < _BAND_EV_TTL:
+        return cur
+
+    # ★ 실측 첫 계산 **23.5초**(밴드 8,049건 파싱). 웹 요청 하나가 그만큼 서면 폰은
+    #   그냥 실패로 본다([197]). 그래서 결과를 디스크에도 둔다 — 지문이 같으면
+    #   **서버를 다시 띄워도 다시 안 센다**. 지문은 밴드 캐시 파일의 (이름,크기,수정시각)
+    #   뿐이라 만드는 값이 싸다(로컬 디스크 · Z: 를 안 훑는다, [168]·[198]).
+    cpath = os.path.join(ROOT, "reports", "밴드_완료색인.json")
+    try:
+        fp = []
+        with os.scandir(os.path.join(ROOT, "band", "cache")) as it:
+            for e in it:
+                if e.name.endswith(".json") and not e.name.startswith(("raw_", "dump_")):
+                    st = e.stat()
+                    fp.append("%s|%d|%d" % (e.name, st.st_size, int(st.st_mtime)))
+        fp = hashlib.sha256("\n".join(sorted(fp)).encode()).hexdigest()[:16]
+    except Exception:
+        fp = ""
+    if fp:
+        try:
+            d = json.load(open(cpath, encoding="utf-8"))
+            if d.get("지문") == fp:
+                d["언급"] = set(d.get("언급") or ())
+                _BAND_EV["d"], _BAND_EV["at"] = d, now
+                return d
+        except Exception:
+            pass
+
+    out = {"완료": {}, "언급": set(), "최신": "", "읽음": False, "지문": fp}
+    try:
+        import band_extract
+        for r in band_extract.load_records() or []:
+            pj = str(r.get("프로젝트NO") or "").strip()
+            if not pj:
+                continue
+            out["언급"].add(pj)
+            when = norm_date(r.get("작업일")) or norm_date(r.get("게시일"))
+            if when > out["최신"]:
+                out["최신"] = when
+            if r.get("진행상태") == "작업완료":
+                # 같은 프로젝트에 완료 글이 여러 번이면 **가장 이른 것**을 쓴다 —
+                # 다시 올라온 글로 완료일이 뒤로 밀리면 안 된다.
+                old = out["완료"].get(pj)
+                if not old or (when and when < (norm_date(old.get("작업일")) or "9999")):
+                    out["완료"][pj] = r
+        out["읽음"] = True
+    except Exception:
+        # 못 읽었으면 **거르지 않고 예전대로** 간다. '못 읽음'을 '근거 없음'으로
+        # 치지 않는다([169]) — 부르는 쪽이 `읽음` 을 보고 말을 고른다.
+        pass
+    # **못 읽은 결과는 디스크에 남기지 않는다** — 남기면 다음 재시작이 그 빈 색인을
+    # 지문째 믿어 "완료 근거 0건"을 조용히 확언한다([169]).
+    if fp and out["읽음"]:
+        try:
+            os.makedirs(os.path.dirname(cpath), exist_ok=True)
+            tmp = cpath + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(dict(out, 언급=sorted(out["언급"])), fh, ensure_ascii=False)
+            os.replace(tmp, cpath)
+        except Exception:
+            pass
+    _BAND_EV["d"], _BAND_EV["at"] = out, now
+    return out
+
+
+def _why_still_open(row, idx, got):
+    """왜 아직 미처리인가 — **모르는 이유를 갈라 말한다**([169]).
+
+    '미처리 88건'만 있고 이유가 없으면 사람은 다녀온 현장을 다시 찾아간다.
+    단정할 수 없으면 단정하지 않는다."""
+    if not idx.get("읽음"):
+        return "밴드·카톡 기록을 못 읽었다 — 완료 여부를 확인 못 함"
+    pj = str(row.get("프로젝트NO") or "").split(" · ")[0].strip()
+    last = idx.get("최신") or ""
+    if pj and pj in idx.get("완료", {}):
+        return "밴드는 완료라 하는데 같은 프로젝트에 열린 건이 여럿 — 사람이 가른다"
+    if last and got and got > last:
+        return f"밴드 수집이 {last} 까지만 왔다 — 아직 못 본 것일 수 있다"
+    if pj and pj not in idx.get("언급", ()):
+        return "밴드·카톡에 이 프로젝트 글이 없다"
+    return "밴드에 접수 글은 있으나 완료 글이 없다"
+
+
 def _calendar_work_events():
     """돌발AS·정기점검 실적을 캘린더 일정으로 바꾼다.
 
@@ -5607,6 +5712,34 @@ def _calendar_work_events():
         out.append(e)
 
     today = datetime.now().strftime("%Y-%m-%d")
+    # ★ 밴드·카톡이 완료라 말하는 건을 미처리에서 내린다(2026-08-13 지시).
+    #   ⚠ **문을 좁게 건다**([172]·[208]): 그 프로젝트에 열린 원장 행이 **하나뿐일 때만**.
+    #   여럿이면 어느 건이 끝난 것인지 원본이 말해 주지 않는다 — 짐작으로 닫으면
+    #   아무도 안 가는데 목록에도 없다. 그때는 닫지 말고 **이유를 적어 남긴다**.
+    bidx = _band_completion_index()
+    열린수 = {}
+    for _r in works.get("as") or []:
+        if not norm_date(_r.get("작업완료일")) and not work_flow.is_cancelled(_r, "as"):
+            _p = str(_r.get("프로젝트NO") or "").split(" · ")[0].strip()
+            if _p:
+                열린수[("as", _p)] = 열린수.get(("as", _p), 0) + 1
+    for _r in works.get("pm") or []:
+        if not norm_date(_r.get("실제점검일")) and not work_flow.is_cancelled(_r, "pm"):
+            _p = str(_r.get("프로젝트NO") or "").split(" · ")[0].strip()
+            if _p:
+                열린수[("pm", _p)] = 열린수.get(("pm", _p), 0) + 1
+
+    def _band_done(row, kind):
+        """이 행을 완료로 볼 밴드·카톡 근거 — 없으면 None."""
+        pj = str(row.get("프로젝트NO") or "").split(" · ")[0].strip()
+        if not pj or 열린수.get((kind, pj), 0) != 1:
+            return None
+        ev = bidx.get("완료", {}).get(pj)
+        if not ev:
+            return None
+        when = norm_date(ev.get("작업일")) or norm_date(ev.get("게시일"))
+        return (when, ev) if when else None
+
     for r in works.get("as") or []:
         camp = r.get("캠프명") or "캠프 미상"
         done = norm_date(r.get("작업완료일"))
@@ -5646,9 +5779,21 @@ def _calendar_work_events():
                          "경과일": days, "진행상태": r.get("진행상태") or "",
                          "신청내용": r.get("신청내용") or ""})
                     continue
+                # ★ 밴드·카톡이 완료라 말하면 미처리가 아니다 — 다녀온 현장이다.
+                bd = _band_done(r, "as")
+                if bd:
+                    when, ev = bd
+                    add(when, "as_done", f"돌발AS 완료 · {camp}", r,
+                        {"연결근거": "밴드·카톡 완료 게시 — 원장 작업완료일은 아직 빈칸",
+                         "근거출처": ev.get("밴드") or ev.get("게시글") or "밴드·카톡",
+                         "원장미기입": True, "접수일자": got,
+                         "진행상태": r.get("진행상태") or "",
+                         "신청내용": r.get("신청내용") or ""})
+                    continue
                 add(got, "as_open", f"돌발AS 미처리 · {camp}", r,
                     {"연결근거": "02_돌발AS접수 — 접수 뒤 작업완료일이 비어 있음",
                      "경과일": days, "긴급도": r.get("긴급도") or "",
+                     "미처리사유": _why_still_open(r, bidx, got),
                      "진행상태": r.get("진행상태") or "", "신청내용": r.get("신청내용") or ""})
         # ★ 완료 건에도 **무슨 일이었는지**를 실어 보낸다(2026-08-08 지시:
         #   "리스트 중간 빈 공간에 사유 진행내용 등 표기"). 캡처 목록의 가운데 칸이
@@ -5694,9 +5839,19 @@ def _calendar_work_events():
         if plan and not norm_date(r.get("실제점검일")) and plan <= today and not served:
             days = (datetime.strptime(today, "%Y-%m-%d")
                     - datetime.strptime(plan, "%Y-%m-%d")).days
+            bd = _band_done(r, "pm")
+            if bd:
+                when, ev = bd
+                add(when, "pm_done", f"정기점검 완료 · {camp}", r,
+                    {"연결근거": "밴드·카톡 완료 게시 — 원장 실제점검일은 아직 빈칸",
+                     "근거출처": ev.get("밴드") or ev.get("게시글") or "밴드·카톡",
+                     "원장미기입": True, "점검예정일": plan,
+                     "점검상태": r.get("점검상태") or ""})
+                continue
             add(plan, "pm_overdue", f"정기점검 미처리 · {camp}", r,
                 {"연결근거": "04_정기점검 — 예정일이 지났는데 실제점검일이 비어 있음",
-                 "경과일": days, "점검상태": r.get("점검상태") or ""})
+                 "경과일": days, "점검상태": r.get("점검상태") or "",
+                 "미처리사유": _why_still_open(r, bidx, plan)})
     return out
 
 

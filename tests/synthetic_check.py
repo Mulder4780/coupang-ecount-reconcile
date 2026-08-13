@@ -16987,6 +16987,96 @@ def t134_section_fold():
 
 
 
+def t244_band_evidence_closes_and_says_why():
+    """[244] 밴드·카톡이 완료라 하면 미처리가 아니다 — **문은 좁게, 이유는 반드시**.
+
+    형님 통화(2026-08-13): "완료가 됐는데 네가 지금 미처리로 남아 있는 거야.
+    이렇게 되면 일 안 하는 줄 알잖아." 원장 완료일은 사람 손 입력이라 비어 있을
+    뿐인데 캘린더가 **원장만 읽었다**([166] — 원장 빈 칸은 근거가 아니다).
+
+    지키는 것:
+      · 닫는 문은 **그 프로젝트에 열린 원장 행이 하나뿐일 때만**([172]·[208]).
+        여럿이면 어느 건이 끝났는지 원본이 안 말해 준다 — 짐작으로 닫으면 아무도
+        안 가는데 목록에도 없다.
+      · 못 닫으면 **왜 아직 미처리인지 갈라 말한다**([169]). '미처리 N건'만 있고
+        이유가 없으면 사람이 다녀온 현장을 다시 찾아간다.
+      · **'못 읽음'을 '근거 없음'으로 치지 않는다** — 그 색인은 디스크에 안 남긴다.
+      · 비싼 파싱은 **캐시 검사 뒤**에 온다([168]). 실측 첫 계산 23.5초.
+    """
+    import importlib.util as _ilu
+    sp = os.path.join(ROOT, "webapp", "app_server.py")
+    A = sys.modules.get("app_server") or sys.modules.get("app_server_t243")
+    if A is None:
+        sys.path.insert(0, os.path.join(ROOT, "webapp"))
+        spec = _ilu.spec_from_file_location("app_server_t244", sp)
+        A = _ilu.module_from_spec(spec)
+        sys.modules["app_server_t244"] = A
+        spec.loader.exec_module(A)
+
+    # ── 이유를 갈라 말하는가 ────────────────────────────────────────────────
+    못읽음 = {"완료": {}, "언급": set(), "최신": "", "읽음": False}
+    말 = A._why_still_open({"프로젝트NO": "UJ9990001"}, 못읽음, "2026-08-01")
+    assert "못" in 말, "못 읽은 것을 '근거 없음'이라 말하면 안 된다: %r" % 말
+
+    idx = {"완료": {"UJ9990002": {"작업일": "2026-08-05"}},
+           "언급": {"UJ9990002", "UJ9990003"}, "최신": "2026-08-11", "읽음": True}
+    말 = A._why_still_open({"프로젝트NO": "UJ9990002"}, idx, "2026-08-01")
+    assert "여럿" in 말 or "가른다" in 말, 말
+    말 = A._why_still_open({"프로젝트NO": "UJ9990003"}, idx, "2026-08-01")
+    assert "완료 글이 없다" in 말, 말
+    말 = A._why_still_open({"프로젝트NO": "UJ9990004"}, idx, "2026-08-01")
+    assert "글이 없다" in 말, 말
+    말 = A._why_still_open({"프로젝트NO": "UJ9990004"}, idx, "2026-08-12")
+    assert "2026-08-11" in 말 and "못 본" in 말, \
+        "수집이 아직 안 온 날짜를 '완료 글이 없다'로 단정하면 안 된다([169]): %r" % 말
+
+    # ── 닫는 문이 정말 좁은가 (동작으로 본다) ──────────────────────────────
+    행 = [
+        # 같은 프로젝트에 열린 건이 **둘** — 밴드가 완료라 해도 닫으면 안 된다
+        {"캠프명": "합성E", "프로젝트NO": "UJ9990010", "접수일자": "2026-08-01",
+         "진행상태": "접수", "작업완료일": "", "방문예정일": "", "접수ID": "AS-1"},
+        {"캠프명": "합성E", "프로젝트NO": "UJ9990010", "접수일자": "2026-08-02",
+         "진행상태": "접수", "작업완료일": "", "방문예정일": "", "접수ID": "AS-2"},
+        # 열린 건이 **하나** — 닫는다
+        {"캠프명": "합성F", "프로젝트NO": "UJ9990011", "접수일자": "2026-08-01",
+         "진행상태": "접수", "작업완료일": "", "방문예정일": "", "접수ID": "AS-3"},
+    ]
+    가짜 = {"완료": {"UJ9990010": {"작업일": "2026-08-06", "밴드": "합성밴드"},
+                     "UJ9990011": {"작업일": "2026-08-07", "밴드": "합성밴드"}},
+            "언급": {"UJ9990010", "UJ9990011"}, "최신": "2026-08-31", "읽음": True}
+    _ow, _ob = A.get_works, A._band_completion_index
+    try:
+        A.get_works = lambda *a, **k: {"as": 행, "pm": []}
+        A._band_completion_index = lambda: 가짜
+        ev = A._calendar_work_events()
+    finally:
+        A.get_works, A._band_completion_index = _ow, _ob
+
+    닫힘 = [e for e in ev if e.get("원장미기입")]
+    열림 = [e for e in ev if e["분류"] == "as_open"]
+    assert len(닫힘) == 1, "열린 건이 여럿인 프로젝트를 닫았다: %r" % [e["제목"] for e in 닫힘]
+    assert "합성F" in 닫힘[0]["제목"], 닫힘[0]["제목"]
+    assert 닫힘[0]["날짜"] == "2026-08-07", "완료일은 밴드가 말한 날이어야 한다"
+    assert 닫힘[0]["분류"] == "as_done", 닫힘[0]["분류"]
+    assert "밴드" in 닫힘[0].get("연결근거", ""), "근거를 안 적으면 왜 완료인지 못 묻는다"
+    assert len(열림) == 2, "합성E 두 건은 그대로 미처리로 남아야 한다"
+    for e in 열림:
+        assert e.get("미처리사유"), "미처리에 이유가 없다([169]): %r" % e["제목"]
+
+    # ── 비싼 파싱이 캐시 검사 **뒤**에 오는가 ([168]) ──────────────────────
+    src = open(sp, encoding="utf-8").read()
+    fn = src[src.index("def _band_completion_index"):src.index("def _why_still_open")]
+    assert fn.index("_BAND_EV_TTL") < fn.index("import band_extract"), \
+        "밴드 파싱이 캐시 검사보다 앞에 있다 — 요청마다 8천 건을 다시 센다([168])"
+    assert fn.index("지문") < fn.index("import band_extract"), \
+        "디스크 캐시 지문 검사가 파싱보다 뒤에 있다"
+    assert 'out["읽음"]' in fn and "if fp and out" in fn, \
+        "못 읽은 색인을 디스크에 남기면 다음 재시작이 '근거 0건'을 확언한다([169])"
+
+    print("  [244] 밴드 완료 근거 — 열린 건 유일할 때만 닫음 · 미처리 이유 갈라 말함 · "
+          "캐시 뒤 파싱 · 못 읽음은 안 남김 ✅")
+
+
 def t243_cancelled_is_not_undone():
     """[243] 접수취소는 '미처리'가 아니다 — 그러나 **조용히 사라지지도 않는다**.
 
@@ -17564,6 +17654,7 @@ if __name__ == "__main__":
     t241_boundary_survives_compact_and_clear()
     t242_ready_means_logged_in()
     t243_cancelled_is_not_undone()
+    t244_band_evidence_closes_and_says_why()
     t235_unattended_rounds_survive_pythonw()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
