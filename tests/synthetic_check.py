@@ -17855,6 +17855,12 @@ def t241_boundary_survives_compact_and_clear():
 
     assert "session_boundary.py" in _args("SessionStart"), \
         "SessionStart 배선 없음 — compact·clear 뒤에 상태를 되찾지 못한다"
+    # 시작 자리에 **점유를 고치는 손이 둘**이면 안 된다(2026-08-13 실측: `--adopt` 가
+    # 같이 걸려 있었다). 같은 순간 같은 ai_claims.json 을 읽고 쓰고, 시작마다 목록이
+    # 둘 실리고, `/clear` 가 밴드 캐시 훑기까지 물게 된다 — 클리어를 싸게 만들자는
+    # 지시가 뒤집힌다. `--adopt` 는 **사람이 치는 첫 명령**으로 남는다.
+    assert "session_handoff.py" not in _args("SessionStart"), \
+        "SessionStart 에 --adopt 가 같이 걸렸다 — 점유 회수가 두 곳이 되고 /clear 가 비싸진다"
     assert "session_wrapup.py" in _args("SessionEnd"), \
         "SessionEnd 배선 없음 — /clear 하면 점유가 고아로 남는다"
     assert "session_wrapup.py" in _args("PreCompact"), "PreCompact 인계가 사라졌다"
