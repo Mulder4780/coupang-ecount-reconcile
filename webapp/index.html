@@ -2062,6 +2062,12 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .wt-edit input,.wt-edit select{height:40px;border:1px solid var(--line);border-radius:9px;
   padding:0 9px;font-family:inherit;font-size:13.5px;background:var(--panel);width:100%}
 .wt-done{border-color:#12813F;color:var(--ok);background:var(--panel);font-weight:800}
+/* 이 건을 목록에서 빼는 두 손잡이 — 나란히 두되 생김새를 다르게 한다.
+   삭제만 빨갛다: 되돌릴 수 있어도 '없애는 쪽'이라는 것이 한눈에 보여야 한다. */
+.wt-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:9px}
+.wt-acts .wt-open{margin-left:0}
+.wt-del{border-color:#C0392B;color:var(--danger,#C0392B);font-weight:800}
+.wt-acthint{margin-top:4px;color:var(--ink-3);font-size:12.5px;line-height:1.45}
 .wt-pend{margin-left:5px;color:var(--warn);font-style:normal;font-size:12.5px;border:1px solid #F2C4A0;
   border-radius:6px;padding:0 5px;background:var(--warn-bg)}
 .wt-board{display:flex;gap:10px;overflow-x:auto;align-items:flex-start;padding-bottom:6px}
@@ -6760,6 +6766,8 @@ function renderWorkTab(k){
     `<button class="abtn ${st.quick==='day'?'primary':''}" onclick="wtSet('${k}','quick',${st.quick==='day'?"''":"'day'"})">기준일 ${nDue}</button>`+
     `<button class="abtn ${st.board?'primary':''}" onclick="wtSet('${k}','board',${!st.board})">${st.board?'목록으로':'기사별 보드'}</button>`+
     `<button class="abtn" onclick="wtReset('${k}')">필터 초기화</button>`+
+    // 삭제된 건은 **볼 수 있는 자리**에 둔다 — 코드로만 되살릴 수 있으면 없는 것과 같다.
+    `<button class="abtn" onclick="wtShowDeleted('${k}')">삭제된 건 보기</button>`+
     // 캡처 — 담당자별로 갈라 그린 PNG (2026-08-12 지시). 카톡으로 그대로 보낸다.
     `<button class="abtn wt-cap" onclick="wtCapture('${k}')" aria-label="담당자별 확인표 캡처">`+
     `<svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-camera-fill"/></svg>캡처</button>`+
@@ -6841,7 +6849,7 @@ async function wtExclude(k,id,on){
     reason=await askText('이 건으로 청구하지 않는 이유를 적어 주세요','정기점검과 동시 진행 — 돌발AS로 청구 안 함',
       {title:'청구 제외 — 현장 기록은 그대로 남습니다',ph:'예: 정기점검과 동시 진행 — 돌발AS로 청구 안 함',ok:'청구 제외'});
     if(reason===null||String(reason).trim().length<2) return;
-  }else if(!await askOk('이 건을 다시 청구 대상으로 되돌릴까요?')) return;
+  }else if(!await askYesNo('이 건을 다시 청구 대상으로 되돌릴까요?')) return;
   try{
     const rid=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
     const d=await api('/api/staff/entry',{method:'POST',headers:{'Idempotency-Key':rid},
@@ -6871,15 +6879,22 @@ async function wtDelete(k,id,confirmDocs){
     if(d.needs_confirm){
       /* ⚠ 청구자료는 **지우지 않는다**([208]). 있다는 사실만 한 번 더 묻는다. */
       const n=(d.documents||[]).length;
-      if(await askOk(`이 건에는 청구자료가 ${n}건 있습니다(PO·명세서·계산서·입금).\n`+
-                     `그 자료는 지우지 않고 그대로 둡니다. 그래도 삭제할까요?`))
+      if(await askYesNo(`이 건에는 청구자료가 ${n}건 있습니다(PO·명세서·계산서·입금).\n`+
+                     `그 자료는 지우지 않고 그대로 둡니다. 그래도 삭제할까요?`,
+                     {title:'청구자료가 있는 건 삭제',yes:'삭제',no:'그만두기'}))
         return wtDelete(k,id,true);
       return;
     }
     if(!d.ok){ toast(d.error||'삭제 실패'); return; }
     delete WT_DEL_REASON[id];
     toast(d.msg||'삭제했습니다');
-    loadAll(true);
+    /* 지운 행을 화면에서도 곧바로 뺀다 — 서버가 다시 내려줄 때까지 남아 있으면
+       사람이 "안 지워졌다"고 여기고 한 번 더 누른다. */
+    const cfg=WT_CFG[k], arr=(works&&works[k])||[];
+    const at=arr.findIndex(x=>String(x[cfg.idCol]||'').trim()===id);
+    if(at>=0) arr.splice(at,1);
+    renderWorkTab(k);
+    try{ await refreshDataKeys(['works','settlements']); }catch(e){}
   }catch(e){ toast('삭제 실패 — 잠시 후 다시 시도'); }
 }
 const WT_DEL_REASON={};
@@ -6888,7 +6903,9 @@ async function wtShowDeleted(k){
     const d=await api('/api/staff/deleted-works?category='+encodeURIComponent(k));
     if(!d.ok && d.count===null){ toast('삭제된 건을 확인하지 못했습니다'); return; }
     const rows=d.rows||[];
-    showSheet(`삭제된 건 (${rows.length}건)`, rows.length
+    showSheet(`<h3>삭제된 건 (${rows.length}건)</h3>`+
+      `<p class="muted">삭제해도 기록은 남아 있습니다. [되살리기] 를 누르면 목록에 다시 보입니다.</p>`+
+      (rows.length
       ? `<div class="ui-cards">`+rows.map(r=>`<div class="ui-card">
            <b>${esc2(r.프로젝트NO||r.key)}</b> <span class="camp">${esc2(r.캠프명||'')}</span>
            <div class="meta"><span>${esc2(r.key)}</span><span>${esc2(r.상태||'')}</span>
@@ -6896,17 +6913,21 @@ async function wtShowDeleted(k){
            <div class="muted">${esc2(String(r.삭제근거||'').slice(0,120))}</div>
            <button class="wt-open" onclick="wtRestore('${esc2(r.category)}',${esc4(r.key)},${r.record_version})">되살리기</button>
          </div>`).join('')+`</div>`
-      : `<p class="muted">삭제된 건이 없습니다.</p>`);
+      : `<p class="muted">삭제된 건이 없습니다.</p>`));
   }catch(e){ toast('삭제된 건을 확인하지 못했습니다'); }
 }
 async function wtRestore(k,id,ver){
-  if(!await askOk(`${id} 을(를) 되살릴까요? 목록에 다시 보입니다.`)) return;
+  if(!await askYesNo(`${id} 을(를) 되살릴까요? 목록에 다시 보입니다.`,
+                     {title:'삭제 취소',yes:'되살리기',no:'그만두기'})) return;
   try{
     const rid=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
     const d=await api('/api/staff/work-restore',{method:'POST',headers:{'Idempotency-Key':rid},
       body:JSON.stringify({category:k,key:id,record_version:Number(ver||0),idempotency_key:rid})});
     if(!d.ok){ toast(d.error||'되살리기 실패'); return; }
-    toast(d.msg||'되살렸습니다'); closeSheet&&closeSheet(); loadAll(true);
+    toast(d.msg||'되살렸습니다');
+    try{ closeSheet(); }catch(e){}
+    try{ await refreshDataKeys(['works','settlements']); }catch(e){}
+    renderWorkTab(k);
   }catch(e){ toast('되살리기 실패 — 잠시 후 다시 시도'); }
 }
 function wtField(k,id,col,typ,cur){
@@ -11850,7 +11871,7 @@ function renderSettle(){
         <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(statOf(r))}</div>
         <div class="top"><span class="camp">${r.담당자||r.담당기사||''}</span></div>
         <div class="meta"><span class="sid">${keyOf(r)}</span><span style="flex:1">${descOf(r)}</span></div>
-      </div>`).join('') || zeroNote('issues','확인필요 항목이 없습니다');   // 🎉 는 zeroNote 가 확실할 때만 붙인다
+      </div>`).join('') || zeroNote('issues','확인필요 항목이 없습니다');   // 축하 표시는 zeroNote 가 확실할 때만 붙인다
     const cols = (issuesData.cols||[]).filter(c=>rows.some(r=>r[c])).slice(0,9);
     $('sgrid').innerHTML = `<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openByPrj('${keyOf(r)}')" style="cursor:pointer">${

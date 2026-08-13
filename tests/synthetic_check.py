@@ -7265,6 +7265,53 @@ def t252_po_shape_matches_reality_and_restart_asks_first():
     print("[252] 실재하는 PO 모양을 안 막는다 · 쓰는 사람 위에서 서버를 안 내린다 ✅")
 
 
+def t256_list_zero_goes_through_one_door():
+    """[256] 정산·돌발AS·정기점검 목록의 0 도 '못 불러옴'과 가려 말한다 (2026-08-13, 분담판 [90]).
+
+    오종현 보고: **"Db를 못불러오는지 자료가 0건으로 나오네요"** — 그 한 문장이 결함을
+    그대로 적고 있다. 본인이 둘을 구별할 수 없었다. `[251]` 이 확인필요 화면에 세운
+    `zeroNote` 는 **그 화면에만** 있었고, 정산·돌발AS·정기점검 목록은 여전히
+    `조건에 맞는 건이 없습니다` 라고 **단정**했다. 실패를 말해 주는 상세 목록은
+    실행(run) 화면 전용이라 그 화면들에는 머리 pill 하나뿐이다.
+
+    실측(2026-08-13): 정산 750행 전부 `DB버전>=1` 이라 **저장은 막혀 있지 않았고**,
+    오종현 님 엑셀의 프로젝트 50개도 전부 목록에 있었다. 즉 `[89]`(버전 없는 행)와는
+    다른 원인이고, 남은 것은 **화면이 0 을 단정한 것** 하나였다.
+
+    되돌아가면 안 되는 것만 지킨다:
+      ① 그 목록들의 0 자리가 **`zeroNote` 한 곳을 지난다** — 사본을 만들면 사전 연결과
+         🎉 규칙이 한쪽에만 남는다([162]). 처음에 사본을 하나 더 만들었다가 지웠다.
+      ② 목록 자리에 **맨 '없습니다' 카드가 남아 있지 않다**
+      ③ 화면마다 **제 묶음**을 본다 — 곁자료(erpdocs·checks) 실패가 목록을 물들이면
+         멀쩡한 0건이 실패로 불린다([172]). 그래서 `liveDataKeysForView` 를 안 쓴다.
+      ④ 🎉 를 화면이 제 손으로 적지 않는다(`zeroNote` 가 확실할 때만 붙인다).
+    """
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # ③ 화면→묶음 표가 한 곳이고, 곁자료를 안 섞는다
+    assert "function sectionOfMode(" in idx, "목록이 어느 묶음을 보는지 정하는 곳이 없다"
+    door = idx[idx.index("function sectionOfMode("):]
+    door = door.split(chr(10))[0]          # 표는 한 줄이다
+    for view, key in (("settle", "settlements"), ("check", "issues")):
+        assert key in door, f"{view} 목록이 볼 묶음({key})이 표에 없다"
+    assert "liveDataKeysForView" not in door,         "곁자료까지 담긴 표를 그대로 썼다 — erpdocs 가 실패하면 멀쩡한 0건이 실패로 불린다([172])"
+
+    # ①② 목록의 0 자리가 전부 zeroNote 를 지난다
+    body = idx[idx.index("function renderSettle("):idx.index("/* ── 월별·연도별 현황 ── */")]
+    assert "zeroNote(" in body, "정산·업무 목록이 아직 0 을 한 곳으로 안 보낸다"
+    for bad in ("'<div class=\"card\">조건에 맞는 건이 없습니다</div>'",
+                "'<div class=\"card\">확인필요 항목이 없습니다"):
+        assert bad not in body, f"아직 0 을 단정하는 맨 카드가 남아 있다: {bad[:40]}"
+    assert "🎉" not in body, "목록이 축하 표시를 제 손으로 적는다 — zeroNote 만 붙인다"
+
+    # 돌발AS·정기점검 카드 목록(wtBody)도 같은 문을 지난다
+    wt = idx[idx.index("const limit=Math.max(WT_RENDER_STEP"):]
+    wt = wt[:wt.index("function wtShowMore(")]
+    assert "zeroNote('works'" in wt, "돌발AS·정기점검 카드 목록이 아직 0 을 단정한다"
+
+    print("[256] 목록의 0 도 '없다'와 '못 불러왔다'를 가려 말한다 ✅")
+
+
 def t254_each_menu_resets_to_its_own_first_screen():
     """[254] 메뉴마다 '처음 화면으로' — 앱 전체를 다시 읽지 않는다 (2026-08-13 류지영 요청).
 
@@ -18421,6 +18468,159 @@ def t241_boundary_survives_compact_and_clear():
           "SessionStart/End 배선 · **계기가 자국을 남김**(SessionEnd 를 manual 로 안 적음) · "
           "로그인 exit 0 을 성공으로 안 셈 OK")
 
+def t255_delete_is_reversible_and_exclusion_is_not_delete():
+    """[255] 삭제는 되돌릴 수 있고, '청구 제외'는 삭제가 아니다 (2026-08-13 지시).
+
+    류지영 요청: "삭제할수있게 해주세요!! / 정기점검이랑 동시진행으로 돌발AS로는
+    청구를 안할꺼라 삭제가 필요합니당" → 형님 지시: "위건 삭제 수정 가능하게 코딩".
+
+    ★ 지키는 것은 여섯이다:
+      ① 업무 행에 **물리 DELETE 가 없다** — 지운 것을 되살릴 수 있어야 삭제가
+        안전한 손잡이가 된다.
+      ② 삭제에 **사유와 감사로그**가 있다 — 몇 달 뒤 답할 수 있는 것은 그 한 줄뿐이다.
+      ③ **되살릴 수 있다.**
+      ④ 삭제해도 **청구자료를 안 지운다**([208]).
+      ⑤ **삭제된 건을 볼 수 있다** — 코드로만 되면 없는 것과 같다.
+      ⑥ **제외와 삭제가 화면에서 구별된다** — 뭉치면 사람이 다녀온 현장을 지운다.
+    """
+    import tempfile
+    from pathlib import Path as _P
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_store as A
+    import app_server as S
+    import cancel_resolution as CR
+
+    # ── ① 업무 행에 물리 DELETE 가 없다 ─────────────────────────────────────
+    store_src = open(os.path.join(ROOT, "app_store.py"), encoding="utf-8").read()
+    assert "DELETE FROM work_item" not in store_src, \
+        "업무 행을 물리 DELETE 한다 — 되살릴 수 없는 삭제는 만들지 않는다"
+    srv_src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "DELETE FROM work_item" not in srv_src, "app_server 가 업무 행을 물리 DELETE 한다"
+    assert "def restore_work" in store_src, \
+        "soft_delete_work 의 짝인 restore_work 가 없다 — 삭제만 있고 되살리기가 없다"
+
+    with tempfile.TemporaryDirectory(prefix="del-255-") as tmp:
+        store = A.AppStore(_P(tmp) / "s.db").initialize()
+        made = store.create_work(
+            kind="돌발AS", business_key="AS-2606-093", public_id="AS-2606-093",
+            project_no="UJ2601032", camp_name="송파3Sub-FC", status="작업완료",
+            fields={"진행상태": "작업완료", "담당기사": "김필우",
+                    "작업완료일": "2026-06-12", "유상·무상·보험": "유상"},
+            actor="t255", source="t255", evidence="t255")
+        wid = made["work"]["id"]
+        ver = int(made["work"]["record_version"])
+
+        # ── ⑥ 제외는 삭제가 아니다: 기록이 그대로 남고 목록에도 보인다 ────────
+        store.update_work(wid, expected_version=ver,
+                          patch={"fields": {"청구제외": "예",
+                                            "청구제외사유": "정기점검과 동시 진행"}},
+                          actor="t255", source="t255", evidence="t255")
+        rows = store.list_sheet_rows("02_돌발AS접수")
+        assert len(rows) == 1 and rows[0].get("청구제외") == "예", \
+            "청구 제외한 건이 목록에서 사라졌다 — 제외는 삭제가 아니다"
+        assert rows[0].get("담당기사") == "김필우" and rows[0].get("작업완료일") == "2026-06-12", \
+            "청구 제외가 현장 기록(다녀온 사실)을 지웠다"
+        out = CR.source_outcomes(store=store)["AS-2606-093"]
+        assert out["billing_excluded"] is True and out["cancelled"] is False, \
+            "청구 제외를 '취소'로 읽는다 — 다녀온 사실이 뒤집힌다"
+        settle = S._apply_cancelled_source_to_settlement(
+            {"정산ID": "S1", "원천업무ID": "AS-2606-093"}, out)
+        assert settle["청구대상"] is False and settle.get("원천업무청구제외") is True, \
+            "청구 제외건이 청구 대상에 그대로 남는다"
+        assert not settle.get("원천업무취소"), "제외를 취소 딱지로 적었다"
+
+        # 화면이 둘을 가려 읽는가 — 한쪽만 읽으면 제외건이 조용히 청구에 남는다([169]).
+        idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+        assert "!r.원천업무취소 && !r.원천업무청구제외" in idx, \
+            "billableSettleRows 가 청구제외를 안 읽는다 — 제외해도 청구에 남는다"
+        for token in ("wtDelete(", "wtExclude(", "wtShowDeleted(", "wtRestore("):
+            assert token in idx, f"화면에 {token} 손잡이가 없다"
+        assert "청구 제외 = 다녀왔지만 이 건으로는 청구 안 함" in idx, \
+            "삭제와 제외의 차이를 화면이 말하지 않는다 — 뭉치면 다녀온 현장을 지운다"
+
+        # ── ② 사유 없는 삭제·제외는 막힌다 ──────────────────────────────────
+        cur = store.get_work(wid)
+        base = dict(category="as", key="AS-2606-093",
+                    record_version=int(cur["record_version"]))
+        for bad in ({**base, "reason": ""}, {**base, "reason": "x"}):
+            try:
+                S.delete_staff_work("admin", bad, store=store, actor="t255")
+                raise AssertionError("사유 없이 삭제가 지나갔다")
+            except ValueError:
+                pass
+        try:
+            S.save_staff_entry("admin", {"category": "as", "key": "AS-2606-093",
+                                         "record_version": int(cur["record_version"]),
+                                         "values": {"청구제외": "예"}},
+                               store=store, actor="t255")
+            raise AssertionError("사유 없이 청구 제외가 지나갔다")
+        except ValueError:
+            pass
+
+        # ── ④ 청구자료가 있으면 한 번 더 묻고, 그 자료를 지우지 않는다 ────────
+        store.create_work(kind="정산", business_key="S-255",
+                          public_id="S-255", status="",
+                          fields={"정산ID": "S-255", "원천업무ID": "AS-2606-093",
+                                  "세금계산서발행일": "2026-06-30", "입금액": 1000},
+                          actor="t255", source="t255", evidence="t255")
+        cur = store.get_work(wid)
+        ask = S.delete_staff_work(
+            "admin", {**base, "record_version": int(cur["record_version"]),
+                      "reason": "잘못 등록 — 두 번 접수됨"},
+            store=store, actor="t255")
+        assert ask.get("needs_confirm") and ask.get("documents"), \
+            "청구자료가 있는 건을 묻지도 않고 지웠다"
+        assert store.list_sheet_rows("02_돌발AS접수"), "되묻는 단계에서 이미 지웠다"
+
+        done = S.delete_staff_work(
+            "admin", {**base, "record_version": int(cur["record_version"]),
+                      "reason": "잘못 등록 — 두 번 접수됨", "confirm_documents": True},
+            store=store, actor="t255")
+        assert done["ok"] and done["action"] == "deleted"
+        assert not store.list_sheet_rows("02_돌발AS접수"), "삭제했는데 목록에 남아 있다"
+        # legacy Excel 행까지 감춰야 사람 눈에 지워진 것이다.
+        assert not store.overlay_rows(
+            "02_돌발AS접수", [{"접수ID": "AS-2606-093", "캠프명": "송파3Sub-FC"}], "접수ID"), \
+            "앱 DB 는 지웠는데 Excel 행이 화면에 그대로 남는다"
+        # 청구자료는 한 글자도 안 지운다([208]).
+        kept = [r for r in store.list_sheet_rows("06_거래서류청구수금")
+                if str(r.get("정산ID") or "") == "S-255"]
+        assert kept and str(kept[0].get("세금계산서발행일") or "").startswith("2026-06-30"), \
+            "삭제가 청구자료(계산서·입금)를 같이 지웠다"
+
+        # ── ⑤ 삭제된 건을 볼 수 있다 ────────────────────────────────────────
+        listing = S.deleted_staff_works("admin", "as", store=store)
+        assert listing["count"] == 1 and listing["rows"][0]["key"] == "AS-2606-093", \
+            "삭제된 건을 볼 수 있는 자리가 없다 — 코드로만 되살리면 없는 것과 같다"
+        assert "잘못 등록" in listing["rows"][0]["삭제근거"], "삭제 사유가 안 남았다"
+
+        # ── ③ 되살릴 수 있다 ────────────────────────────────────────────────
+        back = S.restore_staff_work(
+            "admin", {"category": "as", "key": "AS-2606-093",
+                      "record_version": listing["rows"][0]["record_version"]},
+            store=store, actor="t255")
+        assert back["ok"] and store.list_sheet_rows("02_돌발AS접수"), \
+            "되살렸는데 목록에 안 보인다"
+        assert S.deleted_staff_works("admin", "as", store=store)["count"] == 0
+
+        # ── ② 감사로그가 남았다 ─────────────────────────────────────────────
+        import sqlite3
+        con = sqlite3.connect(str(_P(tmp) / "s.db"))
+        acts = [r[0] for r in con.execute(
+            "SELECT action FROM change_event WHERE work_id=? ORDER BY id", (wid,))]
+        con.close()
+        assert "soft_delete" in acts and "restore" in acts, \
+            f"삭제·되살리기가 감사로그에 안 남았다: {acts}"
+
+        # 낙관잠금 — 낡은 버전으로는 못 지운다.
+        try:
+            store.soft_delete_work(wid, expected_version=1, actor="t255", reason="낡음")
+            raise AssertionError("낡은 record_version 으로 삭제가 지나갔다")
+        except A.VersionConflict:
+            pass
+    print("[255] 삭제는 되돌릴 수 있고 청구 제외는 삭제가 아니다 — OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -18530,6 +18730,8 @@ if __name__ == "__main__":
     t252_po_shape_matches_reality_and_restart_asks_first()
     t253_share_folder_pulls_whole_parent_cheaply()
     t254_each_menu_resets_to_its_own_first_screen()
+    t255_delete_is_reversible_and_exclusion_is_not_delete()
+    t256_list_zero_goes_through_one_door()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
