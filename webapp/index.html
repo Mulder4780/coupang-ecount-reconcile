@@ -8273,11 +8273,48 @@ function orgToggle(btn){
     btn.setAttribute('aria-expanded', open?'false':'true');
     uxEvent('tap','org-duties', open?'close':'open'); }catch(_){}
 }
+/* 배치도를 잇는 흐름 화살표 — "어떤 식으로 일처리되는지 한눈에"(2026-08-13 지시).
+   ★ 단계 이름·순서·담당은 **여기서 한 글자도 안 적는다** — 서버 _org_flow() 가
+     ledger_db.flow_steps() 에서 가져온 것만 그린다([196]). 사람 색·상태도 배치도와
+     **같은 자리**(zones)에서 읽는다 — 여기서 다시 정하면 두 그림이 갈린다. */
+function orgFlowMap(D){
+  const F=(D&&D.flow)||{};
+  const head=(tag)=>`<div class="org-fmh">일이 흘러가는 길<span class="tag">${esc2(tag)}</span></div>`;
+  if(F.ok===false) return `<section class="org-flowmap">${head('근거 못 읽음')}
+    <p class="org-fmnote">앱 흐름도를 <b>못 읽었습니다</b> — 흐름이 <b>없는 것이 아닙니다</b>.
+    근거는 <code>flow_steps</code> 이며, 읽히는 대로 여기에 그려집니다.</p></section>`;
+  const ent=(F.entries||[]), ch=(F.chain||[]);
+  if(!ent.length&&!ch.length) return '';
+  const who={};
+  (D.zones||[]).forEach(z=>(z.people||[]).forEach(p=>{
+    who[p.name]={c:p.color||'#0062CC', s:p.state||'off'};}));
+  const seen={};
+  const chip=n=>{ seen[n]=1; const m=who[n]||{c:'#8A93A6',s:'off'};
+    return `<span class="org-fc s-${esc2(m.s)}"><i style="background:${esc2(m.c)}">`
+      +`${esc2(orgInitials(n))}</i>${esc2(n)}</span>`; };
+  const chips=a=>(a||[]).map(chip).join('');
+  // 접수는 **나란한 갈래**다 — 한 줄로 세우면 없는 순서가 생긴다.
+  const entHtml=ent.length?`<div class="org-fmpar">${ent.map(e=>
+    `<div class="org-fmbox"><b>${esc2(e.label)}</b>${chips(e.who)}</div>`).join('')}</div>`:'';
+  const chHtml=ch.length?`<ol class="org-fmchain">${ch.map(c=>
+    `<li><span class="org-fmn">${esc2(String(c.n))}</span><div class="org-fmbody">`
+    +`<b>${esc2(c.label)}</b><div class="org-fmw">${chips(c.who)}</div></div></li>`).join('')}</ol>`:'';
+  // 흐름도에 자리가 안 적힌 사람은 **숨기지 않고 말한다**([169]).
+  const rest=[]; (D.zones||[]).forEach(z=>(z.people||[]).forEach(p=>{
+    if(!seen[p.name]) rest.push(p.name);}));
+  const restHtml=rest.length?`<p class="org-fmnote">흐름도에 자리가 안 적힌 곳:
+    <b>${esc2(rest.join(' · '))}</b> — 일을 안 한다는 뜻이 아니라 <b>앱 흐름도가
+    아직 이 단계를 안 담았다</b>는 뜻입니다.</p>`:'';
+  return `<section class="org-flowmap">
+    ${head('앱 흐름도 · 접수 '+ent.length+'갈래 → '+ch.length+'단계')}
+    ${ent.length?'<div class="org-fmcap">접수 — 어느 길로 들어와도 한 곳으로 모인다</div>':''}
+    ${entHtml}${chHtml}${restHtml}</section>`;
+}
 function orgRender(D){
   ORG_LAST=D;
   const gen=$('orgGen'); if(gen) gen.textContent='업데이트 '+(D.gen||'—');
   const floor=$('orgFloor'); if(!floor) return;
-  floor.innerHTML=(D.zones||[]).map(z=>`
+  floor.innerHTML=orgFlowMap(D)+(D.zones||[]).map(z=>`
     <section class="org-zone ${esc2(z.key)}">
       <div class="org-zh">${esc2(z.title)}<span class="tag">${esc2(z.tag||'')}</span></div>
       <div class="org-desks">${(z.people||[]).map(p=>{

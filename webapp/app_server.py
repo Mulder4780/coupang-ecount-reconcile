@@ -6225,6 +6225,54 @@ def _daydiff(a, b):
         return None
 
 
+def _org_flow():
+    """배치도를 잇는 **흐름 화살표**의 근거 — 2026-08-13 지시
+    ("실제 배치도만 플로우 화살표 연결되게 … 어떤 식으로 일처리되는지 한눈에").
+
+    ★ **단계 낱말도 순서도 담당도 여기서 지어내지 않는다** — `ledger_db.flow_steps()`
+      한 곳이 정한다(`[196]`). 화면에 손으로 적으면 흐름도가 바뀐 날 기능만 옛 그림으로
+      남고, 그게 바로 그 규칙이 막으려던 사고다.
+
+    두 가지를 **가른다** — 그러지 않으면 그림이 거짓말을 한다:
+      · **접수 경로**(`갈래 == "접수 경로"`)는 **나란한 갈래**다. 카톡·법인폰·기사폰·
+        개인폰 어느 길로도 들어온다. 이것을 한 줄에 세우면 '카톡 다음에 법인폰'이라는
+        **없는 순서**가 생긴다.
+      · 나머지는 **차례**다. 담당이 같은 연속 단계는 한 마디로 접는다 —
+        17개를 그대로 그리면 폰에서 아무도 못 읽는다(접는 것이지 빼는 것이 아니다:
+        접힌 단계 이름은 `label` 에 그대로 남는다, `[236]`).
+
+    못 읽으면 **빈 흐름이 아니라 `ok: False`** 를 준다 — 화면이 '흐름 없음'과
+    '흐름을 못 읽음'을 갈라 말해야 한다(`[169]`).
+    """
+    try:
+        import ledger_db as _ld
+        steps = list(_ld.flow_steps() or [])
+    except Exception:
+        return {"ok": False, "entries": [], "chain": []}
+
+    def _who(v):
+        s = str(v or "")
+        for sep in ("·", ",", "/"):
+            s = s.replace(sep, "\n")
+        return [w.strip() for w in s.split("\n") if w.strip()]
+
+    entries, seq = [], []
+    for s in steps:
+        row = {"label": str(s.get("단계") or ""), "who": _who(s.get("담당")),
+               "note": str(s.get("메모") or "")}
+        (entries if str(s.get("갈래") or "") == "접수 경로" else seq).append(row)
+
+    chain = []
+    for r in seq:
+        if chain and chain[-1]["who"] == r["who"]:
+            chain[-1]["label"] += " · " + r["label"]
+        else:
+            chain.append(dict(r))
+    for i, c in enumerate(chain, 1):
+        c["n"] = i
+    return {"ok": True, "entries": entries, "chain": chain}
+
+
 def get_orgchart():
     """조직도 — 사무실 책상 배치도(2026-08-12 지시). 각 자리에 누가·역할·상태.
 
@@ -6499,6 +6547,7 @@ def get_orgchart():
     return {
         "_live": live_ok,
         "gen": gen + (" · 실시간" if live_ok else " · 점유 못 읽음"),
+        "flow": _org_flow(),
         "zones": [
             {"key": "mgmt", "title": "관리팀 · 업무센터",
              "tag": "쿠팡 AS · 정기점검 원장", "people": mgmt},
