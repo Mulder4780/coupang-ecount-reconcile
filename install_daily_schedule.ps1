@@ -40,7 +40,17 @@ if (-not (Test-Path -LiteralPath $Bat)) {
     throw "daily_run.bat not found: $Bat"
 }
 
-$Action = New-ScheduledTaskAction -Execute $Bat -WorkingDirectory $Root
+# Run through run_hidden.vbs so no console window steals the user's screen
+# (2026-08-13). A .bat action always shows one; this task fires daily and the
+# watchdog fires every 30 min, which added up to ~150 popups a day. The window
+# had nothing to show anyway - the bat already redirects into reports\*.txt.
+# run_hidden.vbs returns the child's exit code, so schedule_watch keeps its eye.
+$Hide = Join-Path $Root "run_hidden.vbs"
+if (-not (Test-Path -LiteralPath $Hide)) {
+    throw "run_hidden.vbs not found: $Hide"
+}
+$Action = New-ScheduledTaskAction -Execute "wscript.exe" `
+    -Argument ('"{0}" "{1}"' -f $Hide, $Bat) -WorkingDirectory $Root
 $Triggers = @(
     (New-ScheduledTaskTrigger -Daily -At "09:50")
 )

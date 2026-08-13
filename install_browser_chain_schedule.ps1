@@ -18,7 +18,15 @@
 $ErrorActionPreference = 'Stop'
 $root = "C:\Users\hueng\Documents\COUPANG_INTEGRATED_WORK_AGENT\ecount"
 $name = 'CSOS_BrowserChain'
-$py   = (Get-Command python).Source
+# pythonw.exe, not python.exe: this tick fires every 15 minutes (~96/day) and
+# python.exe pops a console window each time, which made the machine unusable
+# for the operator (2026-08-13). browser_chain.py already guards its
+# sys.stdout.reconfigure in try/except, so a None stdout is safe here ([235]).
+# Fall back to python.exe if pythonw is missing - a window beats a dead task.
+$py = Join-Path (Split-Path -Parent (Get-Command python).Source) 'pythonw.exe'
+if (-not (Test-Path -LiteralPath $py)) {
+    $py = (Get-Command python).Source
+}
 
 $action  = New-ScheduledTaskAction -Execute $py `
              -Argument "band\browser_chain.py" -WorkingDirectory $root

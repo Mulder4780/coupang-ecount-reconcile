@@ -6900,6 +6900,86 @@ def t247_chrome_collect_report_round_trip():
     print("  [247] 크롬 되보고 — 게이트 앞·모양 일치·유령 거부·워치독 순서 ✅")
 
 
+def t248_rounds_run_without_a_console_window():
+    """[248] 회차는 **창 없이** 돈다 — 사람 화면을 가로채지 않는다 (2026-08-13 지시).
+
+    사용자 지시: **"이런 팝업이 너무 많이 떠서 내가 업무를 못보겠어, 방법 없을까?"**
+
+    실측 2026-08-13: 프로젝트 회차 12개 중 **6개**가 콘솔 창을 띄우고 있었다 —
+    `.bat`(워치독 30분·일일대조·원본정리) · `cmd.exe`(실시간감시·대표보고) ·
+    `python.exe`(BrowserChain **15분**). 합쳐 **하루 약 150번** 검은 창이 떠서
+    사람이 일을 못 했다. 그런데 그 창에는 **볼 것이 없다** — bat 들은 이미 출력을
+    `reports\\*.txt` 로 보내고 있었다. 즉 순수한 방해였다.
+
+    지키는 것
+      ① **설치본이 창 뜨는 실행기를 다시 등록하지 않는다.** 살아 있는 작업만 고치면
+         기계를 새로 만들거나 설치본을 다시 돌린 날 **창이 그대로 되살아난다**
+         (사본이 둘이면 한쪽만 고쳐진다).
+      ② **`run_hidden.vbs` 가 종료코드를 그대로 돌려준다.** `schedule_watch` 는
+         `LastTaskResult` 로 "회차가 정말 돌았나"를 본다(`[228]`). 코드를 삼키면
+         죽은 회차가 전부 성공으로 적힌다 — **창을 없애려다 눈을 없애는 셈**이다.
+      ③ **기다렸다가** 돌려준다(`True`). 안 기다리면 언제나 0 이라 ②가 무의미해진다.
+
+    ⚠ '로그온 여부와 관계없이 실행'로 숨기는 길은 **쓰지 않는다.** 세션 0 에서 돌면
+      매핑 드라이브 `Z:` 가 안 보이고 크롬 조종도 안 된다 — 창은 사라지지만 일이 죽는다.
+    ⚠ 살아 있는 작업 스케줄러는 여기서 안 묻는다 — 합성검증은 기계 상태에 기대면 안 된다.
+      그쪽은 `schedule_watch` 가 본다.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    vbs = os.path.join(root, "run_hidden.vbs")
+    assert os.path.exists(vbs), "창 없는 실행기 run_hidden.vbs 가 없다"
+    body = open(vbs, encoding="utf-16").read()
+    flat = re.sub(r"\s+", "", body)
+    assert "sh.Run(line,0,True)" in flat, (
+        "창 숨김(0)·대기(True) 인자가 아니다 — 창이 뜨거나 종료코드가 늘 0 이 된다")
+    assert "WScript.Quitsh.Run" in flat, (
+        "종료코드를 안 돌려준다 — 죽은 회차가 성공으로 적히고 schedule_watch 가 눈먼다([228])")
+
+    # ① 설치본이 창 뜨는 실행기를 다시 등록하면 안 된다.
+    #   ⚠ **못 읽은 액션을 조용히 넘기지 않는다**(`[169]`). 만들면서 그대로 걸렸다 —
+    #     첫 판이 PowerShell 의 줄바꿈(백틱) 형태를 못 읽어 9개 중 **6개를 말없이
+    #     건너뛰었다.** 그러면 창 뜨는 설치본이 새로 생겨도 이 검사는 초록이다.
+    import glob as _glob
+    bad, unknown, checked = [], [], 0
+    for path in sorted(_glob.glob(os.path.join(root, "install_*.ps1"))):
+        try:
+            src = open(path, encoding="utf-8").read()
+        except UnicodeDecodeError:
+            src = open(path, encoding="cp949", errors="replace").read()
+        for m in re.finditer(r"New-ScheduledTaskAction", src):
+            checked += 1
+            where = os.path.basename(path)
+            ex = re.search(r"-Execute\s+(\S+)", src[m.end():m.end() + 500])
+            if not ex:
+                unknown.append((where, "-Execute 를 못 찾았다"))
+                continue
+            tok = ex.group(1).strip('"\'').rstrip("`")
+            # 변수면 그 변수가 무엇으로 정해지는지 본다(`$Bat`·`$py`·`$Pythonw`).
+            if tok.startswith("$"):
+                asg = re.findall(r"^\s*%s\s*=\s*(.+)$" % re.escape(tok), src, re.M)
+                if not asg:
+                    unknown.append((where, "%s 가 무엇인지 못 찾았다" % tok))
+                    continue
+                tok = " ".join(asg)
+            low = tok.lower()
+            if "pythonw" in low or "wscript" in low:
+                continue                      # 창 없는 실행기 — 통과
+            if ".bat" in low or ".cmd" in low or "cmd.exe" in low or "python" in low:
+                bad.append((where, tok[:80]))
+            else:
+                unknown.append((where, "창이 뜨는지 판정 못 함: %s" % tok[:60]))
+    assert checked >= 9, "설치본 액션을 %d개밖에 못 봤다 — 훑기가 깨졌다" % checked
+    assert not bad, (
+        "설치본이 창 뜨는 실행기를 등록한다 — 다시 돌리면 팝업이 되살아난다: %r "
+        "(wscript.exe + run_hidden.vbs 또는 pythonw.exe 로 부를 것)" % (bad,))
+    assert not unknown, (
+        "설치본 액션을 **못 읽었다** — 못 읽은 것을 '창 없음'으로 치면 이 검사가 눈먼다: %r"
+        % (unknown,))
+
+    print("  [248] 회차는 창 없이 돈다 — 설치본까지 · 종료코드는 그대로 ✅")
+
+
 def t127_dark_mode_no_hardcoded_light_panel():
     """[127] 어둡게 켜도 글자가 보인다 — 바탕을 흰색으로 못 박지 않는다 (2026-08-07 지시).
 
@@ -15443,6 +15523,16 @@ def t232_orgchart_floorplan_roster_and_states():
     assert len(ai_ppl) >= 3, "AI 구역이 로스터 세 역할을 못 덮는다(자리 %d개)" % len(ai_ppl)
     BASE_NAMES = {"Claude 세션", "CSOS 수집", "Codex"}
     for p in ai_ppl:
+        # ★ **회차 자리는 이 규칙 밖이다** (2026-08-13). 조수 스테이션에 무인 회차가
+        #   올라온 뒤로(`schedule_watch` 갈래를 읽는 자리), 회차 하나가 죽거나 안 돌면
+        #   그 자리가 `off` 로 앉는다 — 이름은 **스케줄러가 부르는 그 이름**이지
+        #   지어낸 것이 아니다. 그런데 이 규칙이 그것까지 잡아, **회차가 죽는 날마다
+        #   조직도 검증이 빨개졌다**(실측 2026-08-13 `CSOS_BrowserChain` 강제종료).
+        #   즉 빨강의 뜻이 '이름을 지어냈다'가 아니라 '오늘 회차가 하나 죽었다'가 되어,
+        #   보는 사람이 엉뚱한 데를 고치러 간다. 이 규칙이 지키려는 것은 **AI 로스터
+        #   기본 자리**뿐이다 — 회차의 건강은 `[228]` 이 따로 본다.
+        if p.get("badge") == "회차":
+            continue
         if p["state"] == "off":
             assert p["name"] in BASE_NAMES, "모르는 기본 자리(이름 지어냄): " + p["name"]
     if not any(p["state"] == "live" for p in ai_ppl):
@@ -17869,6 +17959,7 @@ if __name__ == "__main__":
     t126_app_font_and_revert()
     t246_font_presets_single_table()
     t247_chrome_collect_report_round_trip()
+    t248_rounds_run_without_a_console_window()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

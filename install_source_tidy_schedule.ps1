@@ -39,7 +39,14 @@ if (-not (Test-Path -LiteralPath $Bat)) {
     throw "source tidy batch not found: $Bat"
 }
 
-$Action = New-ScheduledTaskAction -Execute $Bat -WorkingDirectory $Root
+# Windowless: see install_daily_schedule.ps1 for why. run_hidden.vbs keeps the
+# child's exit code so schedule_watch still knows whether the round really ran.
+$Hide = Join-Path $Root "run_hidden.vbs"
+if (-not (Test-Path -LiteralPath $Hide)) {
+    throw "run_hidden.vbs not found: $Hide"
+}
+$Action = New-ScheduledTaskAction -Execute "wscript.exe" `
+    -Argument ('"{0}" "{1}"' -f $Hide, $Bat) -WorkingDirectory $Root
 $Triggers = @(
     (New-ScheduledTaskTrigger -Daily -At "09:35")
 )
