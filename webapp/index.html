@@ -4428,12 +4428,69 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     /* 두 방을 같은 폭으로 — 책상 폭이 고정이라 방 폭이 다르면 남는 바닥만 짝짝이가 된다 */
     #v-org .org-floor{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
     #v-org .org-zone.ai{grid-column:1/-1}}
+  /* ── 폰 = 배치도 + 흐름 화살표 (2026-08-13 지시: "모바일 화면은 텍스트 간소화해서
+     실제 배치도만 플로우 화살표 연결되게 … 어떤 식으로 일처리되는지 한눈에").
+     예전 ≤420px 는 `grid-template-columns:1fr` 이라 **책상 하나가 한 줄**을 먹었다 —
+     실측 화면에서 네 사람이 화면 넷이었다. 그건 배치도가 아니라 목록이다.
+     ★ **줄이는 것이지 없애는 것이 아니다**([236]) — 역할·상태 문장은 자리를 누르면
+       그대로 펼쳐진다(담당 업무 패널은 한 줄도 안 건드렸다). 그리고 **넓은 화면은
+       하나도 안 바꿨다** — 문제가 없는 쪽의 도구를 말없이 빼앗지 않는다. ── */
+  #v-org .org-flowmap{display:none}
   @media (max-width:760px){
     #v-org .org-floor{grid-template-columns:1fr}
     #v-org .org-zone.ai{grid-column:auto}
-    #v-org{--org-w:156px}}
+    #v-org{--org-w:132px}
+    #v-org .org-desk{padding:9px 9px 10px}
+    #v-org .org-avatar{width:30px;height:30px;border-radius:9px;font-size:12px}
+    #v-org .org-row1{padding-right:20px;gap:7px}
+    #v-org .org-nm{font-size:12.5px}
+    #v-org .org-rl{display:none}
+    #v-org .org-st{padding-top:7px;font-size:11px}
+    #v-org .org-st .org-msg{display:none}   /* 점 색이 이미 말한다 — 문장은 펼치면 나온다 */
+    #v-org .org-desk .org-mon{width:20px;height:12px;right:8px;top:8px}
+    #v-org .org-chair{width:34px;height:22px}
+    /* 흐름 지도 — 폰에서만 나온다 */
+    #v-org .org-flowmap{display:block;grid-column:1/-1;min-width:0;
+      border:1.5px dashed var(--org-line);border-radius:16px;padding:12px 12px 14px;
+      background:var(--org-zai)}
+    #v-org .org-fmh{display:flex;align-items:center;gap:8px;margin:0 2px 10px;
+      font-size:13px;font-weight:850;color:var(--org-ink)}
+    #v-org .org-fmh .tag{margin-left:auto;font-size:10.5px;font-weight:700;color:var(--org-ink2)}
+    #v-org .org-fmcap{font-size:11.5px;color:var(--org-ink2);margin:0 2px 7px}
+    #v-org .org-fmpar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:7px}
+    #v-org .org-fmbox{min-width:0;background:var(--org-card);border:1px solid var(--org-line);
+      border-radius:11px;padding:7px 8px}
+    #v-org .org-fmbox b{display:block;font-size:11px;font-weight:800;color:var(--org-ink);
+      margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    /* 차례 — 왼쪽 세로줄이 이어 주고 마디마다 화살촉이 아래를 가리킨다 */
+    #v-org .org-fmchain{position:relative;list-style:none;margin:16px 0 0;padding:0;
+      display:grid;gap:13px}
+    #v-org .org-fmchain::before{content:"";position:absolute;left:12px;top:-13px;width:2px;
+      height:11px;background:var(--org-line)}
+    #v-org .org-fmchain li{position:relative;min-width:0;padding-left:34px}
+    #v-org .org-fmchain li:not(:last-child)::before{content:"";position:absolute;left:12px;
+      top:28px;bottom:-15px;width:2px;background:var(--org-line)}
+    #v-org .org-fmchain li:not(:last-child)::after{content:"";position:absolute;left:8px;
+      bottom:-16px;width:0;height:0;border-left:5px solid transparent;
+      border-right:5px solid transparent;border-top:6px solid var(--org-live);opacity:.75}
+    #v-org .org-fmn{position:absolute;left:0;top:0;width:26px;height:26px;border-radius:50%;
+      display:grid;place-items:center;font-size:11.5px;font-weight:850;color:#fff;
+      background:var(--org-live);box-shadow:0 2px 6px rgba(0,0,0,.18)}
+    #v-org .org-fmbody{min-width:0}
+    #v-org .org-fmbody>b{display:block;font-size:12.5px;font-weight:800;color:var(--org-ink);
+      line-height:1.35}
+    #v-org .org-fmw{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+    #v-org .org-fc{display:inline-flex;align-items:center;gap:4px;min-width:0;
+      background:var(--org-card);border:1px solid var(--org-line);border-radius:999px;
+      padding:2px 8px 2px 2px;font-size:11px;font-weight:700;color:var(--org-ink)}
+    #v-org .org-fc i{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;
+      font-style:normal;font-size:9px;font-weight:850;color:#fff;letter-spacing:-.4px}
+    #v-org .org-fc.s-off{opacity:.62}
+    #v-org .org-fmnote{margin:12px 2px 0;font-size:11px;line-height:1.5;color:var(--org-ink2)}
+    #v-org .org-fmnote b{color:var(--org-ink)}}
   @media (max-width:420px){
-    #v-org .org-desks{grid-template-columns:1fr}
+    #v-org{--org-w:118px}
+    #v-org .org-desks{grid-template-columns:repeat(auto-fill,var(--org-w))}
     #v-org .org-rl{white-space:normal}}
   @keyframes orgDrift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(2%,-2%) scale(1.06)}100%{transform:translate(-2%,2%) scale(1.02)}}
   @media (prefers-reduced-motion:reduce){
@@ -8335,7 +8392,7 @@ function orgRender(D){
                 <div class="org-rl">${esc2(p.role||'')}</div></div>
             </div>
             <div class="org-st"><span class="org-dot ${esc2(st)} ${st==='live'?'pulse':''}"></span>
-              <span class="org-txt"><span class="st">${esc2(orgStateLabel(st))}</span> — ${esc2(p.msg||'상태 없음')}${p.ago?` <span class="org-ago2">· ${esc2(p.ago)}</span>`:''}</span>
+              <span class="org-txt"><span class="st">${esc2(orgStateLabel(st))}</span><span class="org-msg"> — ${esc2(p.msg||'상태 없음')}${p.ago?` <span class="org-ago2">· ${esc2(p.ago)}</span>`:''}</span></span>
               <span class="org-chev">▾</span></div>
           </button>
           <div class="org-duties"><div class="org-duties-in">${dutiesHtml}</div></div>
