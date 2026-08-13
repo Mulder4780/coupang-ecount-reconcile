@@ -15403,8 +15403,48 @@ def t232_orgchart_floorplan_roster_and_states():
     png = live.split("function orgToPng(", 1)[1].split("\nfunction ", 1)[0]
     assert "uiFont" in png, "이미지 캡처가 uiFont 를 안 쓴다(글꼴을 손으로 박았다)"
 
+    # ── 폰 배치도의 **흐름 화살표**(2026-08-13 지시) — 근거는 앱 흐름도 하나다.
+    #    ★ 단계 낱말을 화면·서버에 손으로 적으면 흐름도가 바뀐 날 **그림만 옛것으로
+    #      남는다**([196]). 그래서 여기서 지키는 것은 '화살표가 예쁜가'가 아니라
+    #      **낱말이 flow_steps 에서 왔는가**다.
+    import ledger_db as _ldb
+    fl = A._org_flow()
+    assert fl.get("ok"), "흐름을 못 읽었다 — 화면이 '흐름 없음'과 '못 읽음'을 갈라야 한다"
+    steps = _ldb.flow_steps() or []
+    real = {str(s.get("단계") or "") for s in steps}
+    # ⚠ 라벨을 " · " 로 쪼개 보면 안 된다 — **단계 이름 자체에 `·` 가 들어 있다**
+    #   (`PO 취합 · 류지영 전달`). 쪼개면 멀쩡한 이름이 '지어낸 낱말'로 보인다.
+    #   그래서 실재 이름을 **긴 것부터 지워** 남는 글자가 없는지로 본다.
+    for node in list(fl["entries"]) + list(fl["chain"]):
+        rest = str(node["label"])
+        for nm in sorted(real, key=len, reverse=True):
+            if nm:
+                rest = rest.replace(nm, "")
+        assert not rest.replace("·", "").strip(), \
+            ("흐름도에 없는 단계 이름을 만들어 냈다", node["label"], rest)
+        assert node["who"], ("담당 없는 마디 — 화살표가 누구를 가리키는지 말 못 한다", node)
+    # 접수 경로는 **나란한 갈래**다 — 차례에 섞으면 없는 순서가 생긴다.
+    ent_names = {n["label"] for n in fl["entries"]}
+    assert ent_names == {str(s.get("단계") or "") for s in steps
+                         if str(s.get("갈래") or "") == "접수 경로"}, \
+        "접수 갈래를 차례와 안 갈랐다 — '카톡 다음에 법인폰'이라는 없는 순서가 생긴다"
+    assert all(n["n"] == i for i, n in enumerate(fl["chain"], 1)), "차례 번호가 어긋난다"
+    # 화면은 낱말을 안 적고 서버가 준 것만 그린다.
+    fm = live.split("function orgFlowMap(", 1)[1].split("\nfunction ", 1)[0]
+    for word in ("카톡 접수", "배정 합의", "수금 확인", "세금계산서 발행"):
+        assert word not in fm, ("단계 낱말을 화면에 박았다 — 흐름도가 바뀌어도 안 따라간다", word)
+    assert "D.flow" in fm and "z.people" in fm, \
+        "흐름과 색·상태는 각각 서버 flow 와 zones 에서 와야 한다(두 곳에서 정하면 갈린다)"
+    assert "org-fmnote" in fm and "흐름도에 자리가 안 적힌" in fm, \
+        "흐름에 없는 사람을 조용히 빼면 '없는 사람'이 된다([169])"
+    assert "#v-org .org-flowmap{display:none}" in css, \
+        "흐름 지도가 넓은 화면 기본값을 건드린다 — 폰에서만 나와야 한다"
+    assert "#v-org .org-st .org-msg{display:none}" in css and "org-msg" in live, \
+        "폰에서 줄일 상태 문장이 진짜 요소로 안 싸여 있다(텍스트 노드는 CSS 로 못 숨긴다)"
+
     print("  [232] 조직도 평면도 — 로스터 정본·AI 자리 셋·상태 넷·아코디언·#v-org 좁힘 · "
-          "관리자=센터장 접속(X-Pin 은 아님) · 책상 폭 고정·높이 균일·이름 한 줄 ✅")
+          "관리자=센터장 접속(X-Pin 은 아님) · 책상 폭 고정·높이 균일·이름 한 줄 · "
+          "폰 흐름 화살표(낱말은 flow_steps 에서만) ✅")
 
 
 def t230_ai_tier_picks_model_and_effort():
