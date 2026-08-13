@@ -102,6 +102,16 @@ window.addEventListener('beforeinstallprompt', function(e){
 }
 /* 사람이 제 기기에서만 예전 글꼴로 돌리는 스위치 (설정 화면에서 켠다) */
 :root[data-font="legacy"]{ --font-ui:var(--font-ui-legacy); }
+/* ▼ 글꼴 프리셋 — font_switch.py 가 만든다. 손으로 고치지 말 것 (FONT-PRESETS:BEGIN) */
+/*   앱 [실행] 탭 '글꼴' 카드에서 고른다. 이 기기에서만 바뀐다(브라우저가 기억).
+     모두에게 바꾸는 것은 `python webapp/font_switch.py --preset <이름>` 이다. */
+:root[data-font="basic"]{ --font-ui:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard Variable",Pretendard,"Segoe UI Variable Text","Segoe UI",Roboto,"Noto Sans KR","Source Han Sans KR","본고딕","Malgun Gothic","맑은 고딕","Helvetica Neue",Arial,sans-serif; }  /* 기본 */
+:root[data-font="galaxy"]{ --font-ui:"One UI Sans KR VF","One UI Sans KR","SamsungOne","SamsungOneKorean","Samsung Sharp Sans","삼성고딕","SamsungGothic",Roboto,"Noto Sans KR","Source Han Sans KR","본고딕","Apple SD Gothic Neo","Malgun Gothic","맑은 고딕",sans-serif; }  /* 갤럭시 글자체 */
+:root[data-font="iphone"]{ --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Apple SD Gothic Neo","AppleSDGothicNeo-Regular","애플 SD 산돌고딕 Neo","Noto Sans KR","Source Han Sans KR","본고딕","Malgun Gothic","맑은 고딕",sans-serif; }  /* 아이폰 글자체 */
+:root[data-font="windows"]{ --font-ui:"Segoe UI Variable Text","Segoe UI","맑은 고딕","Malgun Gothic","Noto Sans KR","Source Han Sans KR","본고딕","Apple SD Gothic Neo",Roboto,sans-serif; }  /* 윈도우 글자체 */
+:root[data-font="clear"]{ --font-ui:"Pretendard Variable",Pretendard,"Noto Sans KR","Source Han Sans KR","본고딕","Apple SD Gothic Neo",-apple-system,BlinkMacSystemFont,Roboto,"Segoe UI Variable Text","Segoe UI","Malgun Gothic","맑은 고딕",sans-serif; }  /* 또렷하게 */
+:root[data-font="clear"],:root[data-font="clear"] body{ -webkit-font-smoothing:auto; -moz-osx-font-smoothing:auto; }
+/* ▲ (FONT-PRESETS:END) */
 :root{color-scheme:light}
 :root[data-theme="dark"]{
   color-scheme:dark;
@@ -2234,6 +2244,11 @@ fieldset.remote-edit>input{margin:0 0 9px}
   font:inherit;color:inherit;width:100%}
 @media(hover:hover){.ui-card:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(16,24,40,.10)}}
 .ui-card:active{transform:translateY(0);border-color:var(--brand)}
+/* ★ 지금 켜져 있는 것 (글꼴 고르기 등 '고르는' 카드). 색만으로 말하지 않는다 —
+   테두리·바탕에 더해 왼쪽에 굵은 띠를 둔다(색을 못 가르는 사람도 보인다). */
+.ui-card.on{border-color:var(--brand);background:var(--brand-tint);
+  box-shadow:inset 3px 0 0 var(--brand),var(--sh)}
+.ui-card.on .ui-card-tx b::after{content:" ✓";color:var(--brand-dk,var(--brand))}
 .ui-card-ic{width:36px;height:36px;flex:none;border-radius:10px;display:grid;place-items:center;
   background:var(--brand-tint);color:var(--brand)}
 .ui-card-ic svg{width:18px;height:18px;fill:currentColor}
@@ -3678,16 +3693,37 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
       </div>
     </div>
 
+    <!-- ★ 글꼴 고르기 (2026-08-13 지시: "갤럭시 글자체, 아이폰 글자체, 스타일등을
+         적용해서 사용자가 설정에서 변경할 수 있게 다양한 스타일 적용 코딩해").
+         아래 단추 목록은 **`webapp/font_switch.py` 의 FONT_PRESETS 표**가 만든다 —
+         여기 이름을 손으로 적으면 사본이 둘이 되어, 프리셋을 하나 더한 날 CSS 만
+         늘고 단추는 안 늘면서 **아무 오류도 안 난다**. 고칠 때는 표를 고치고
+         `python webapp/font_switch.py --sync` 를 돌린다. -->
     <div class="card"><h3>글꼴 <span class="norm">— 이 기기에서만 바뀝니다</span></h3>
-      <div class="ui-cards" data-fold="run-font" data-fold-label="글꼴 고르기"
+      <div class="ui-cards" id="fontCards" data-fold="run-font" data-fold-label="글꼴 고르기"
            data-fold-default="phone">
-        <button class="ui-card" type="button" onclick="setFontLegacy(false);toast('기본 글꼴로 바꿨습니다')">
+      <!-- ▼ 글꼴 단추 — font_switch.py 가 만든다. 손으로 고치지 말 것 (FONT-CARDS:BEGIN) -->
+        <button class="ui-card" type="button" data-fontkey="basic" onclick="setFontPreset('basic')">
           <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
-          <span class="ui-card-tx"><b>기본 글꼴</b><span>기기가 제 화면에 쓰는 글꼴 — 작은 글씨가 또렷합니다</span></span></button>
-        <button class="ui-card" type="button" onclick="setFontLegacy(true);toast('예전 글꼴(나눔고딕)로 되돌렸습니다')">
+          <span class="ui-card-tx"><b>기본</b><span>기기가 제 화면에 쓰는 글꼴 — 작은 글씨가 또렷합니다</span><span class="norm">어느 기기에서나 그 기기의 기본 글꼴을 씁니다</span></span></button>
+        <button class="ui-card" type="button" data-fontkey="galaxy" onclick="setFontPreset('galaxy')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>갤럭시 글자체</b><span>삼성 갤럭시가 제 화면에 쓰는 글꼴(One UI Sans·삼성고딕)</span><span class="norm">삼성 기기에서만 그대로 보입니다 — 그 밖에서는 본고딕/Roboto</span></span></button>
+        <button class="ui-card" type="button" data-fontkey="iphone" onclick="setFontPreset('iphone')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>아이폰 글자체</b><span>애플이 제 화면에 쓰는 글꼴(SF Pro·애플 SD 산돌고딕)</span><span class="norm">아이폰·아이패드·맥에서만 그대로 보입니다 — 그 밖에서는 본고딕</span></span></button>
+        <button class="ui-card" type="button" data-fontkey="windows" onclick="setFontPreset('windows')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>윈도우 글자체</b><span>사무실 PC 화면과 같은 글꼴(Segoe UI·맑은 고딕)</span><span class="norm">윈도우에서만 그대로 보입니다 — 그 밖에서는 본고딕</span></span></button>
+        <button class="ui-card" type="button" data-fontkey="clear" onclick="setFontPreset('clear')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>또렷하게</b><span>획을 굵게 그려 눈이 편합니다 — 글씨가 흐릴 때 고르세요</span><span class="norm">글꼴 굵기는 그대로이고 **그리는 방식**이 바뀝니다(크기는 안 커집니다)</span></span></button>
+        <button class="ui-card" type="button" data-fontkey="legacy" onclick="setFontPreset('legacy')">
           <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-arrow-repeat"/></svg></span>
-          <span class="ui-card-tx"><b>예전 글꼴(나눔고딕)</b><span>2026-07-31까지 쓰던 글꼴로 되돌립니다</span></span></button>
+          <span class="ui-card-tx"><b>예전(나눔고딕)</b><span>2026-07-31까지 쓰던 글꼴로 되돌립니다</span><span class="norm">파일마다 적어 둔 --font-ui-legacy 값을 그대로 씁니다</span></span></button>
+      <!-- ▲ (FONT-CARDS:END) -->
       </div>
+      <p class="sub" id="fontNow">확인 중…</p>
     </div>
 
     <div class="card"><h3>파일·폴더 열기 <span class="norm">— 사무실 PC에서 접속했을 때만 동작</span></h3>
@@ -4662,17 +4698,61 @@ function uiFont(){
   }catch(e){}
   return '"Malgun Gothic","Apple SD Gothic Neo",sans-serif';
 }
-/* 예전 글꼴로 되돌리는 스위치 — 이 기기에서만, 즉시. 코드는 안 건드린다. */
-function setFontLegacy(on){
+/* ★ 글꼴 고르기 — 이 기기에서만, 즉시. 코드·파일은 안 건드린다.
+   고를 수 있는 이름은 여기 **적지 않는다** — `data-font` 값 하나만 넘긴다.
+   단추도 CSS 도 `webapp/font_switch.py` 의 FONT_PRESETS 표가 만들므로,
+   프리셋을 늘려도 이 함수는 한 글자도 안 고친다([162]).
+   `basic` 은 속성을 지운다 — :root 의 기본값이 곧 basic 이라 같은 뜻이고,
+   속성을 남기면 나중에 모두의 기본을 바꿔도 이 기기만 옛 값에 묶인다. */
+function setFontPreset(key){
   const r = document.documentElement;
-  if(on){ r.setAttribute('data-font','legacy'); }
-  else { r.removeAttribute('data-font'); }
-  try{ localStorage.setItem('csos_font_legacy', on ? '1' : '0'); }catch(e){}
-  uxEvent('tap', 'font-' + (on ? 'legacy' : 'modern'));
+  if(key && key !== 'basic'){ r.setAttribute('data-font', key); }
+  else { key = 'basic'; r.removeAttribute('data-font'); }
+  try{
+    localStorage.setItem('csos_font_preset', key);
+    /* 옛 열쇠도 같이 맞춘다 — 지우면 예전 판에서 고른 사람이 다음 부팅에 되돌아간다 */
+    localStorage.setItem('csos_font_legacy', key === 'legacy' ? '1' : '0');
+  }catch(e){}
+  uxEvent('tap', 'font-' + key);
+  markFontPick();
+  if(typeof toast === 'function'){
+    const b = document.querySelector('#fontCards [data-fontkey="'+key+'"] b');
+    toast((b ? b.textContent : key) + ' 로 바꿨습니다 — 이 기기에서만');
+  }
+}
+/* 예전 이름 — 다른 코드가 부를 수 있으므로 남긴다(뜻은 그대로다). */
+function setFontLegacy(on){ setFontPreset(on ? 'legacy' : 'basic'); }
+/* 지금 고른 것을 화면에 표시한다. '무엇이 켜져 있나'를 안 보여 주면
+   사람이 눌러 놓고도 바뀌었는지 몰라 계속 다시 누른다. */
+function markFontPick(){
+  let cur = 'basic';
+  try{ cur = document.documentElement.getAttribute('data-font') || 'basic'; }catch(e){}
+  const box = document.getElementById('fontCards');
+  if(box) box.querySelectorAll('[data-fontkey]').forEach(b => {
+    b.classList.toggle('on', b.getAttribute('data-fontkey') === cur);
+    b.setAttribute('aria-pressed', b.getAttribute('data-fontkey') === cur ? 'true' : 'false');
+  });
+  const line = document.getElementById('fontNow');
+  if(line){
+    const b = box && box.querySelector('[data-fontkey="'+cur+'"] b');
+    line.textContent = '지금: ' + (b ? b.textContent : cur)
+      + ' · 모두에게 바꾸려면 python webapp/font_switch.py --preset <이름>';
+  }
 }
 try{
-  if(localStorage.getItem('csos_font_legacy') === '1')
-    document.documentElement.setAttribute('data-font','legacy');
+  /* 새 열쇠가 먼저다. 없으면 옛 열쇠(csos_font_legacy)를 읽어 이어받는다 —
+     안 읽으면 예전에 나눔고딕으로 돌려 둔 사람이 말없이 기본으로 돌아간다. */
+  const saved = localStorage.getItem('csos_font_preset')
+    || (localStorage.getItem('csos_font_legacy') === '1' ? 'legacy' : '');
+  if(saved && saved !== 'basic')
+    document.documentElement.setAttribute('data-font', saved);
+}catch(e){}
+/* 켜진 표시는 **부팅 때 한 번** 맞춘다. 카드는 접혀 있어도 만들어져 있으므로
+   펼치는 순간 이미 맞아 있다(펼칠 때 다시 그리면 접힌 채 고른 사람이 못 본다). */
+try{
+  if(document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', markFontPick);
+  else markFontPick();
 }catch(e){}
 const fmt = n => {
   if(n==null || n==='') return '-';

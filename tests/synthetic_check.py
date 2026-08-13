@@ -6689,6 +6689,96 @@ def t126_app_font_and_revert():
     print("  [126] 앱 글꼴 일원화(4파일·캔버스 포함) + 되돌리기 왕복 무손실 ✅")
 
 
+def t246_font_presets_single_table():
+    """[246] 글꼴 프리셋 — 표는 하나, CSS·단추는 거기서 만들어진다 (2026-08-13 지시).
+
+    사용자 지시: **"갤럭시 글자체 , 아이폰 글자체, 스타일등을 적용해서 사용자가
+    설정에서 변경할 수 있게 다양한 스타일 적용 코딩해"**
+
+    무엇이 위험한가 — `[126]` 은 '모두의 기본 글꼴'을 지켰다. 프리셋은 그 위에
+    **사람이 제 기기에서 고르는 층**을 얹는 것이라, 갈릴 자리가 셋으로 늘었다:
+      ① `FONT_PRESETS` 표 ② 네 파일의 `:root[data-font="…"]` CSS ③ 화면 단추.
+    셋 중 하나만 늘면 **오류가 안 난다.** 프리셋을 하나 더했는데 CSS 만 늘면 단추가
+    없어 못 고르고, 단추만 늘면 눌러도 아무 일이 안 일어난다 — 둘 다 조용하다([162]).
+    그래서 여기서 셋을 **서로 대 본다.**
+
+    지키는 것
+      ① 표에 있는 프리셋은 **네 파일 전부**에 CSS 가 있다(한 곳 빠지면 그 화면만 안 바뀐다).
+      ② 표에 있는 프리셋은 화면에 **단추가 있다**, 그리고 단추 열쇠는 표 밖으로 안 나간다.
+      ③ 화면 코드가 프리셋 이름을 **손으로 적지 않는다**(적으면 그것이 넷째 사본이다).
+      ④ 내려받는 웹폰트를 안 쓴다 — 못 받으면 조용히 다른 글꼴로 그려진다.
+      ⑤ 고른 것이 **기억된다**, 그리고 옛 열쇠(csos_font_legacy)를 이어받는다.
+      ⑥ `--preset` 에 모르는 이름을 주면 **실패한다**(0건 성공 금지, `[169]`).
+    """
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import font_switch as F
+
+    keys = list(F.FONT_PRESETS)
+    assert len(keys) >= 4, "프리셋이 너무 적다 — 표가 비었나: %s" % (keys,)
+    for k, p in F.FONT_PRESETS.items():
+        for col in ("이름", "설명", "실제로", "값"):
+            assert p.get(col), "프리셋 %s 에 '%s' 가 없다" % (k, col)
+        # ④ 내려받는 글꼴 금지 — 값에 url()·@import 가 섞이면 안 된다
+        assert "url(" not in p["값"] and "@import" not in p["값"], \
+            "프리셋 %s 가 내려받는 글꼴을 쓴다 — 못 받으면 조용히 다른 글꼴이 된다" % k
+
+    # ① 네 파일 전부에 CSS 가 있는가 (legacy 는 2026-08-06 부터 있던 그 한 줄이 맡는다)
+    for rel in F.FILES:
+        text = open(os.path.join(F.ROOT, rel), encoding="utf-8", newline="").read()
+        assert F.PRESET_BEGIN in text and F.PRESET_END in text, \
+            "%s 에 프리셋 블록이 없다 — 그 화면에서만 글꼴이 안 바뀐다" % rel
+        assert F.preset_css(F._eol(text)) in text, \
+            "%s 의 프리셋 블록이 표와 다르다 — `font_switch.py --sync` 를 돌려야 한다" % rel
+        for k in keys:
+            assert ':root[data-font="%s"]' % k in text, \
+                "%s 에 프리셋 '%s' 의 CSS 가 없다" % (rel, k)
+
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    # ② 표 ↔ 단추가 정확히 같은 집합인가
+    #    ★ 문서 전체에서 찾으면 JS 의 선택자 문자열(`[data-fontkey="'+key+'"]`)까지
+    #      걸려 없는 프리셋 두 개가 잡힌다. **만들어진 블록 안에서만** 센다.
+    blk = re.search(re.escape(F.CARDS_BEGIN) + r"(.*?)" + re.escape(F.CARDS_END), idx, re.S)
+    assert blk, "index.html 에 글꼴 단추 자리(FONT-CARDS)가 없다"
+    shown = set(re.findall(r'data-fontkey="([^"]+)"', blk.group(1)))
+    assert shown == set(keys), \
+        "표와 화면 단추가 갈렸다 — 표에만: %s · 화면에만: %s" % (
+            sorted(set(keys) - shown), sorted(shown - set(keys)))
+
+    js = "".join(re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", idx, re.S))
+    assert "function setFontPreset(" in js, "프리셋을 고르는 함수가 없다"
+    # ③ 화면 JS 가 프리셋 이름을 손으로 적지 않는가.
+    #    ★ 둘만 예외다 — 이름이 아니라 **구조**라서다:
+    #      · `basic`  = :root 의 기본값 그 자체(속성을 지운다는 뜻)
+    #      · `legacy` = 2026-08-06 부터 있던 되돌리기 스위치. `setFontLegacy()` 와
+    #        옛 열쇠 이어받기가 이 낱말로 걸려 있고, 문서의 되돌리기 경로 ③ 이다.
+    #    막으려는 것은 **새로 더한 프리셋을 손으로 배선하는 것**이다 — 그러면 표를
+    #    고쳐도 화면이 안 따라오고, 그 사실이 아무 데도 안 뜬다.
+    for k in keys:
+        if k in ("basic", "legacy"):
+            continue
+        assert ("'%s'" % k) not in js and ('"%s"' % k) not in js, \
+            "화면 코드가 프리셋 이름 '%s' 를 손으로 적었다 — 표 밖에 사본이 생긴다" % k
+    # ⑤ 기억 + 옛 열쇠 이어받기
+    assert "csos_font_preset" in js, "고른 글꼴이 기억되지 않는다 — 새로고침하면 돌아간다"
+    assert "csos_font_legacy" in js, \
+        "옛 열쇠를 안 읽는다 — 예전에 나눔고딕으로 돌려 둔 사람이 말없이 기본으로 돌아간다"
+
+    # ⑥ 모르는 이름은 실패로 끝난다
+    import io as _io
+    import contextlib as _cl
+    buf = _io.StringIO()
+    old = sys.argv
+    try:
+        sys.argv = ["font_switch.py", "--preset", "없는글꼴"]
+        with _cl.redirect_stdout(buf):
+            rc = F.main()
+    finally:
+        sys.argv = old
+    assert rc == 2, "모르는 글꼴 이름인데 성공으로 끝났다 — '바꿨습니다'만 찍힌다"
+
+    print("  [246] 글꼴 프리셋 %d개 — 표·CSS(4파일)·단추가 한 곳에서 온다 ✅" % len(keys))
+
+
 def t127_dark_mode_no_hardcoded_light_panel():
     """[127] 어둡게 켜도 글자가 보인다 — 바탕을 흰색으로 못 박지 않는다 (2026-08-07 지시).
 
@@ -17616,6 +17706,7 @@ if __name__ == "__main__":
     t124_no_duplicate_menus()
     t125_worktree_shared_state()
     t126_app_font_and_revert()
+    t246_font_presets_single_table()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
