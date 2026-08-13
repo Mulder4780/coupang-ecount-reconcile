@@ -33,6 +33,16 @@ html,body{touch-action:manipulation}   /* 더블탭 확대 차단 — 2026-08-08
   --font-ui:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard Variable",Pretendard,"Segoe UI Variable Text","Segoe UI",Roboto,"Noto Sans KR","Source Han Sans KR","본고딕","Malgun Gothic","맑은 고딕","Helvetica Neue",Arial,sans-serif;
 }
 :root[data-font="legacy"]{ --font-ui:var(--font-ui-legacy); }
+/* ▼ 글꼴 프리셋 — font_switch.py 가 만든다. 손으로 고치지 말 것 (FONT-PRESETS:BEGIN) */
+/*   앱 [실행] 탭 '글꼴' 카드에서 고른다. 이 기기에서만 바뀐다(브라우저가 기억).
+     모두에게 바꾸는 것은 `python webapp/font_switch.py --preset <이름>` 이다. */
+:root[data-font="basic"]{ --font-ui:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard Variable",Pretendard,"Segoe UI Variable Text","Segoe UI",Roboto,"Noto Sans KR","Source Han Sans KR","본고딕","Malgun Gothic","맑은 고딕","Helvetica Neue",Arial,sans-serif; }  /* 기본 */
+:root[data-font="galaxy"]{ --font-ui:"One UI Sans KR VF","One UI Sans KR","SamsungOne","SamsungOneKorean","Samsung Sharp Sans","삼성고딕","SamsungGothic",Roboto,"Noto Sans KR","Source Han Sans KR","본고딕","Apple SD Gothic Neo","Malgun Gothic","맑은 고딕",sans-serif; }  /* 갤럭시 글자체 */
+:root[data-font="iphone"]{ --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Apple SD Gothic Neo","AppleSDGothicNeo-Regular","애플 SD 산돌고딕 Neo","Noto Sans KR","Source Han Sans KR","본고딕","Malgun Gothic","맑은 고딕",sans-serif; }  /* 아이폰 글자체 */
+:root[data-font="windows"]{ --font-ui:"Segoe UI Variable Text","Segoe UI","맑은 고딕","Malgun Gothic","Noto Sans KR","Source Han Sans KR","본고딕","Apple SD Gothic Neo",Roboto,sans-serif; }  /* 윈도우 글자체 */
+:root[data-font="clear"]{ --font-ui:"Pretendard Variable",Pretendard,"Noto Sans KR","Source Han Sans KR","본고딕","Apple SD Gothic Neo",-apple-system,BlinkMacSystemFont,Roboto,"Segoe UI Variable Text","Segoe UI","Malgun Gothic","맑은 고딕",sans-serif; }  /* 또렷하게 */
+:root[data-font="clear"],:root[data-font="clear"] body{ -webkit-font-smoothing:auto; -moz-osx-font-smoothing:auto; }
+/* ▲ (FONT-PRESETS:END) */
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink-1);font-size:15px;line-height:1.55;
  font-family:var(--font-ui);-webkit-text-size-adjust:100%}
