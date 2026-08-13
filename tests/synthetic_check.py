@@ -6779,6 +6779,127 @@ def t246_font_presets_single_table():
     print("  [246] 글꼴 프리셋 %d개 — 표·CSS(4파일)·단추가 한 곳에서 온다 ✅" % len(keys))
 
 
+def t247_chrome_collect_report_round_trip():
+    """[247] 크롬 전용 수집 되보고 — 받는 자리·읽는 자리가 맞물린다 (2026-08-13 지시).
+
+    사용자 지시: **"앞으로 크롬에서만 긁어오는 알고리즘 만들어서 적용해"**
+
+    무엇이 위험한가 — 이 길에는 **조용히 죽는 자리가 넷** 있고 넷 다 오류를 안 낸다.
+    유저스크립트는 계속 돌고 회차도 계속 '성공'이라 적히는데 수집만 0건이 된다.
+    실측 2026-08-13: 스크립트는 2026-08-09 에 만들어져 검증 `[182]` 까지 붙어 있었는데
+    **나흘 동안 한 번도 안 돌았고 아무 화면에도 안 떴다.**
+
+    지키는 것
+      ① **받는 자리가 PIN 게이트 앞이다.** 보내는 쪽은 `band.us` 탭이라 이 서버의 인증
+         쿠키를 못 싣는다(다른 출처다). 뒤로 옮기면 **모든 되보고가 401 로 버려지고**
+         감시자는 '한 번도 안 옴'이라 말한다 — 스크립트는 멀쩡히 도는데도(`[169]`).
+      ② **쓰는 모양 = 읽는 모양.** 담는 곳(`app_server.collect_report_save`)과 읽는 곳
+         (`userscript_watch`)이 갈리면 **오류 없이 한 건도 안 읽힌다**(`[165]` 의 모양 —
+         칸 이름을 짝지어 물으면 모든 값이 빈칸으로 보인다).
+      ③ **유령 밴드를 거부한다.** `260807`(날짜 꼬리표)·`202608082047`(시각 도장)이 한 번
+         키로 들어가면 유령 밴드가 생기고 그것이 '아는 번호'가 되어 스스로를 되살린다
+         (2026-08-12 실사고).
+      ④ **워치독이 인계보다 먼저 본다.** 뒤에 두면 인계가 언제나 30분 전 판정을 싣는다.
+      ⑤ **'못 읽음'을 '정상'이라 하지 않는다**(`[169]`) — 감시자 자신이 눈멀면 안 된다.
+      ⑥ **`--print` 가 안 죽는다.** 인계 문서가 알려 주는 명령이 바로 그것인데, 무인
+         회차는 `sys.stdout` 이 None 이고(`[235]`) 콘솔은 cp949 라 '—' 에서 통째로 죽었다.
+
+    ⚠ **진짜 기록 파일(`reports/크롬수집_보고.json`)은 한 글자도 안 건드린다.** 실측
+      증거에 합성 행을 섞으면 그 파일이 더는 실측이 아니고, 감시자가 '정상'을 확언한다.
+    """
+    import tempfile
+    from datetime import datetime
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for p in (root, os.path.join(root, "webapp")):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+
+    src = open(os.path.join(root, "webapp", "app_server.py"), encoding="utf-8").read()
+    # ① 라우트가 인증 게이트보다 **앞**이어야 한다.
+    i_route = src.find('p == "/api/collect_report"')
+    i_gate = src.find("if not self._auth():", src.find("def do_POST"))
+    assert i_route > 0, "POST /api/collect_report 받는 자리가 없다 — 유저스크립트는 404 를 받는다"
+    assert 0 < i_route < i_gate, (
+        "되보고 라우트가 PIN 게이트 뒤에 있다 — band.us 탭은 쿠키를 못 실어 전부 401 이 되고, "
+        "감시자는 '한 번도 안 옴'이라 말한다")
+
+    import app_server as A
+    from band import userscript_watch as U
+
+    real = A.COLLECT_REPORT_PATH
+    tmp = os.path.join(tempfile.gettempdir(), "t247_collect_report.json")
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    old_report = U.REPORT
+    # 정본을 정말 안 건드렸는지 재려면 '지금 상태'를 먼저 찍어 둬야 한다.
+    real_before = (os.path.exists(real), os.path.getmtime(real) if os.path.exists(real) else 0)
+    try:
+        A.COLLECT_REPORT_PATH = tmp
+        # ③ 유령 밴드는 거부한다 — 통과하면 캐시에 없는 밴드가 생긴다.
+        for bad in ("260807", "202608082047", "", "abc", "12345"):
+            try:
+                A.collect_report_save({"band": bad, "state": "start"})
+                raise AssertionError("밴드번호가 아닌 %r 을 받아들였다" % bad)
+            except ValueError:
+                pass
+        now = datetime.now().isoformat(timespec="seconds")
+        A.collect_report_save({"band": "84789192", "state": "done", "수확": 14, "at": now})
+        A.collect_report_save({"band": "90610953", "state": "hidden",
+                               "why": "창이 가려져 있다", "at": now})
+        # ⚠ 정본은 한 글자도 안 건드렸어야 한다 — 실측 증거에 합성 행이 섞이면
+        #   그 파일이 더는 실측이 아니고 감시자가 '정상'을 확언한다.
+        real_now = (os.path.exists(real), os.path.getmtime(real) if os.path.exists(real) else 0)
+        assert real_now == real_before, (
+            "검증이 실제 되보고 파일을 건드렸다 — 합성 행이 섞이면 감시자가 눈먼다: %s" % real)
+
+        # ② 담은 것을 읽는 쪽이 그대로 읽어야 한다.
+        U.REPORT = tmp
+        st = U.judge(*U.load_reports())
+        rows = st.get("밴드") or {}
+        assert set(rows) == {"84789192", "90610953"}, (
+            "담은 밴드를 읽는 쪽이 못 읽는다 — 칸 이름이 갈렸다: %r" % (sorted(rows),))
+        assert rows["84789192"]["상태"] == "done" and rows["84789192"]["수확"] == 14, (
+            "상태·수확이 안 건너갔다 — 오류 없이 빈칸으로 보인다: %r" % (rows["84789192"],))
+        assert rows["90610953"]["상태"] == "hidden", "가려짐 상태가 안 건너갔다"
+        assert st.get("갈래") not in (None, "", "확인못함"), (
+            "방금 담았는데 '확인못함'이다 — 시각 칸이 안 건너갔다: %r" % st.get("갈래"))
+    finally:
+        A.COLLECT_REPORT_PATH = real
+        U.REPORT = old_report
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+    # ④ 워치독 배선 — snapshot_handoff 보다 **먼저**.
+    wd = open(os.path.join(root, "watchdog.py"), encoding="utf-8").read()
+    assert "def watch_userscript(" in wd, "워치독에 크롬수집 감시 단계가 없다"
+    body = wd[wd.find("def main("):]
+    a, b = body.find("watch_userscript("), body.find("snapshot_handoff(")
+    assert a > 0, "watch_userscript 가 main() 회차 목록에 없다 — 만들어 놓고 안 부른다"
+    assert a < b, "watch_userscript 가 snapshot_handoff 뒤다 — 인계가 늘 30분 전 판정을 싣는다"
+
+    # ⑤ 인계는 '못 읽음'과 '정상'을 가른다.
+    sh = open(os.path.join(root, "session_handoff.py"), encoding="utf-8").read()
+    assert "userscript_health" in sh, "인계가 크롬수집을 안 싣는다"
+    i_us = sh.find('us = st.get("크롬수집"')
+    assert i_us > 0, "인계에 크롬수집 판정을 읽는 자리가 없다"
+    seg = sh[i_us:][:1200]
+    assert "us is None" in seg and "확인 못" in seg, (
+        "'못 읽음'을 '정상'과 안 가른다 — 감시자가 눈먼 채 이상 없음을 말한다([169])")
+    # ★ 그러나 '키가 아예 없다'(부분 상태)까지 실패로 읽으면 **없는 경보**가 난다.
+    #   2026-08-13 실측으로 이 함정에 그대로 빠져 `t111` 이 빨개졌다 — 셋을 가른다.
+    assert 'st.get("크롬수집", ())' in seg, (
+        "키 없음(안 물었다)과 None(물었는데 실패)을 안 가른다 — 부분 상태에 거짓 경보가 난다. "
+        "실제로 거짓 경보가 나는지는 `t111` 이 상태를 통째로 지어 확인한다(여기서 반쪽 상태를 "
+        "또 지어내면 시험이 시험을 방해한다)")
+
+    # ⑥ 사람이 붙여넣을 명령이 죽지 않는다(pythonw None · 콘솔 cp949).
+    uw = open(os.path.join(root, "band", "userscript_watch.py"), encoding="utf-8").read()
+    assert 'hasattr(sys.stdout, "reconfigure")' in uw, (
+        "stdout 보호가 없다 — 무인 회차는 None, 콘솔은 cp949 라 '—' 에서 죽는다([235])")
+
+    print("  [247] 크롬 되보고 — 게이트 앞·모양 일치·유령 거부·워치독 순서 ✅")
+
+
 def t127_dark_mode_no_hardcoded_light_panel():
     """[127] 어둡게 켜도 글자가 보인다 — 바탕을 흰색으로 못 박지 않는다 (2026-08-07 지시).
 
@@ -17747,6 +17868,7 @@ if __name__ == "__main__":
     t125_worktree_shared_state()
     t126_app_font_and_revert()
     t246_font_presets_single_table()
+    t247_chrome_collect_report_round_trip()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

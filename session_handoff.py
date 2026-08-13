@@ -615,8 +615,26 @@ def collect():
         "사실대조": truth_gap(),
         "세션자동화": session_auto(),
         "스케줄러": schedule_health(),
+        "크롬수집": userscript_health(),
         "앱서버": app_server_health(),
     }
+
+
+def userscript_health():
+    """크롬 전용 수집이 **정말 돌고 있나** (2026-08-13, `[247]`).
+
+    ★ `schedule_health` 가 스케줄러 회차에 대해 하는 일을 **브라우저**에 대해 한다.
+      실측 2026-08-13: 유저스크립트가 나흘 동안 한 번도 안 돌았는데(Tampermonkey
+      미설치) 그 사실을 말해 주는 화면이 어디에도 없었다.
+    ★ 여기서 판정을 새로 만들지 않는다(`[162]`) — `userscript_watch` 것을 빌린다.
+      읽는 것은 작은 JSON 두 개뿐이라 비싸지 않다(`[168]`).
+    ★ 못 읽으면 `None` 이다. **빈 목록(=정상)과 다르다** — 아래에서 갈라 쓴다(`[169]`).
+    """
+    try:
+        from band import userscript_watch
+        return userscript_watch.lines()
+    except Exception:
+        return None
 
 
 def schedule_health():
@@ -927,6 +945,27 @@ def blockers(st, for_sol=False):
         out.append(("회차 [%s] %s" % (a.get("갈래", ""),
                                     re.sub(r"\*\*", "", str(a.get("무엇") or ""))[:110]),
                     a.get("어떻게") or "python schedule_watch.py --print"))
+    # ★ 크롬 전용 수집도 같은 자리다 — 스케줄러가 모르는 축이다 (2026-08-13, `[247]`).
+    #   회차는 '돌았다'고 말하는데 정작 긁는 것은 브라우저 안 유저스크립트다. 그것이
+    #   꺼져 있으면 **어느 회차도 실패하지 않으면서 수집만 0건**이 된다.
+    #   ★ 세 가지를 가른다 — 뭉치면 없는 경보가 난다:
+    #     · 키가 **아예 없다** = 부르는 쪽이 안 물었다(부분 상태) → 아무 말도 안 한다
+    #     · `None`            = 물어봤는데 **실패**했다            → '확인 못 함'
+    #     · 빈 목록           = 물어봤고 **정상**이다              → 아무 말도 안 한다
+    us = st.get("크롬수집", ())
+    if us is None:
+        # ★ 못 읽은 것과 '정상(빈 목록)'은 다르다(`[169]`). 뭉치면 감시자가 눈먼 채
+        #   "이상 없음"을 말한다 — 이 기능이 막으려던 바로 그 모양이다.
+        out.append(("크롬 전용 수집 상태를 **확인 못 했다** — 이것은 '이상 없음'이 아니다",
+                    "python band/userscript_watch.py --print"))
+    elif us:
+        # ★ 조치 칸은 **붙여넣어 도는 명령**이어야 한다 — 안내 문장을 거기 넣으면
+        #   명령처럼 보여 사람이 그대로 붙여넣는다. 사람이 할 일은 설명 쪽에 적는다.
+        head = re.sub(r"\*\*", "", str(us[0]))
+        fix = str(us[1]).strip().lstrip("→ ").strip() if len(us) > 1 else ""
+        if fix:
+            head = "%s → %s" % (head, fix)
+        out.append((head[:230], "python band/userscript_watch.py --print"))
     # ★ 스케줄러가 '성공'이라 말해도 완주하지 않았을 수 있다 — 잠금을 못 잡은 회차가
     #   조용히 exit 0 으로 끝나기 때문이다. 그 사이 자료현황·대조 리포트가 통째로 멈춘다.
     dr = st.get("일일대조") or {}

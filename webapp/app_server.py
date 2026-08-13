@@ -584,6 +584,64 @@ def presence_snapshot():
 # reports/는 git 제외 대상이며, 저장 성공 직후 대표보고·확인필요 화면이 같은 값을 읽는다.
 POLICY_FILE = os.path.join(ROOT, "reports", "operating_policies.json")
 
+# ── 크롬 전용 수집 되보고 (2026-08-13 지시 '앞으로 크롬에서만 긁어오는 알고리즘') ──
+#   `band/band_auto_collect.user.js` 가 밴드 탭에서 `POST /api/collect_report` 로 보낸다.
+#   읽는 자리는 `band/userscript_watch.py` 하나다 — 칸 이름을 여기서 지어내면
+#   감시자가 오류 없이 한 건도 못 읽는다([165]).  그래서 그쪽이 읽는 모양 그대로 쌓는다:
+#       {"밴드": {"<밴드번호>": {state, at, 요청, 수확, why, …}}, "최근": [ …최대 100건… ]}
+COLLECT_REPORT_PATH = os.path.join(ROOT, "reports", "크롬수집_보고.json")
+#: 되보고는 밴드마다 따로 온다 — 읽고-고쳐-쓰기가 겹치면 한쪽 밴드가 통째로 사라진다.
+_COLLECT_REPORT_LOCK = threading.Lock()
+#: 남기는 최근 이력 건수.  갈래 판정은 '밴드'만 보므로 이것은 사람이 뒤져 볼 몫이다.
+COLLECT_REPORT_KEEP = 100
+
+
+def collect_report_save(rec):
+    """되보고 한 건을 정본 파일에 합친다.  실패하면 예외를 올린다 — 조용히 넘기지 않는다.
+
+    ⚠ 밴드번호가 밴드번호처럼 안 생겼으면 **거부**한다.  `260807`(날짜 꼬리표)·
+      `202608082047`(시각 도장) 같은 값이 한 번 키로 들어가면 유령 밴드가 생기고,
+      그것이 '아는 번호'가 되어 스스로를 되살린다(2026-08-12 실사고).
+    """
+    band = re.sub(r"\D", "", str((rec or {}).get("band") or ""))
+    if not (7 <= len(band) <= 10):
+        raise ValueError("밴드번호가 아니다: %r" % ((rec or {}).get("band"),))
+    row = {k: v for k, v in dict(rec).items() if k != "band"}
+    row.setdefault("at", datetime.now().isoformat(timespec="seconds"))
+    row["받은시각"] = datetime.now().isoformat(timespec="seconds")
+    with _COLLECT_REPORT_LOCK:
+        doc = {}
+        try:
+            with open(COLLECT_REPORT_PATH, encoding="utf-8") as fh:
+                doc = json.load(fh) or {}
+        except FileNotFoundError:
+            doc = {}
+        except Exception:
+            # 깨진 파일을 근거로 삼지 않는다.  옆에 치워 두고 새로 시작한다 —
+            # 지우면 "그때 무엇이 와 있었나"를 잃는다([186] 과 같은 자리).
+            try:
+                os.replace(COLLECT_REPORT_PATH,
+                           COLLECT_REPORT_PATH + ".broken-%s" % datetime.now().strftime("%Y%m%d%H%M%S"))
+            except OSError:
+                pass
+            doc = {}
+        bands = doc.get("밴드")
+        if not isinstance(bands, dict):
+            bands = {}
+        bands[band] = row
+        recent = doc.get("최근")
+        if not isinstance(recent, list):
+            recent = []
+        recent.append(dict(row, band=band))
+        doc["밴드"] = bands
+        doc["최근"] = recent[-COLLECT_REPORT_KEEP:]
+        os.makedirs(os.path.dirname(COLLECT_REPORT_PATH), exist_ok=True)
+        tmp = COLLECT_REPORT_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, ensure_ascii=False, indent=1)
+        os.replace(tmp, COLLECT_REPORT_PATH)
+    return {"band": band, "밴드수": len(bands), "최근": len(doc["최근"])}
+
 
 def load_policy_state():
     try:
@@ -8164,6 +8222,26 @@ self.addEventListener('fetch', e => {
                 return self._send(400, {"ok": False, "error": str(exc)})
         if p == "/api/band_dump":
             return self._band_dump()
+        if p == "/api/collect_report":
+            # 크롬 전용 수집 되보고.  **PIN 게이트 앞이다** — 보내는 쪽은 band.us 탭이라
+            # 이 서버의 인증 쿠키를 못 싣는다(다른 출처다).  뒤에 두면 401 만 쌓이고
+            # 감시자는 '한 번도 안 옴'이라 말한다 — 스크립트는 멀쩡히 도는데도([169]).
+            # 들어오는 것은 상태 한 줄뿐이고 밴드번호 모양까지 검사하므로 문을 연다.
+            ln = int(self.headers.get("Content-Length", 0) or 0)
+            if ln <= 0 or ln > 20_000:
+                return self._send(400, {"ok": False, "error": "되보고 형식 오류"})
+            try:
+                rec = json.loads(self.rfile.read(ln) or b"{}")
+            except Exception as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:160]})
+            try:
+                return self._send(200, {"ok": True, **collect_report_save(rec)})
+            except ValueError as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:160]})
+            except Exception as exc:
+                # 못 적었으면 못 적었다고 말한다.  200 을 주면 스크립트는 보고가
+                # 도착한 줄 알고, 감시자는 빈 파일을 보고 '안 옴'이라 한다.
+                return self._send(500, {"ok": False, "error": str(exc)[:160]})
         if not self._auth():
             return self._send(401, {"error": "PIN"})
         if p == "/api/automation/kakao-upload":

@@ -597,6 +597,31 @@ def watch_schedules(dry):
         len(al), ", ".join("%s %s" % (a["갈래"], a["작업"]) for a in al[:4]))
 
 
+def watch_userscript(dry):
+    """크롬 전용 수집이 **정말 돌고 있나** — 유저스크립트의 되보고를 읽는다 (2026-08-13).
+
+    ★ `watch_schedules` 가 스케줄러 회차에 대해 하는 일을 여기서는 **브라우저**에
+      대해 한다. 실측 2026-08-13: 유저스크립트는 2026-08-09 에 만들어져 검증 `[182]`
+      까지 붙어 있었는데 **나흘 동안 한 번도 안 돌았다**(Tampermonkey 미설치).
+      그런데 그 사실을 말해 주는 화면이 어디에도 없었다 — 자동 수집이 '있다'고 적힌
+      채 아무 일도 안 일어났고 아무도 몰랐다.
+    ★ **`snapshot_handoff` 보다 먼저**다(`watch_schedules` 와 같은 이유).
+    ★ 읽기 전용이라 `dry` 여도 묻는다 — 안 물으면 `--dry` 로 이 눈을 확인할 길이 없다.
+    """
+    try:
+        from band import userscript_watch
+        # `--dry` 여도 정본 md 는 쓴다 — 읽기 전용 판정이라 잃는 것이 없고,
+        # 안 쓰면 같은 회차의 인계가 읽을 것이 없다(`watch_schedules` 와 같다).
+        st = userscript_watch.check(write=True)
+    except Exception as exc:                       # 눈 하나 때문에 회차를 세우지 않는다
+        return "크롬수집 감시 실패: %s" % str(exc)[:60]
+    kind = str(st.get("갈래") or "")
+    # ★ '못 읽음'을 '정상'이라 하지 않는다([169]) — 갈래 이름을 그대로 싣는다.
+    if kind == "정상":
+        return "크롬수집 정상(%d밴드)" % len(st.get("밴드") or {})
+    return "크롬수집 %s: %s" % (kind or "?", (st.get("왜") or "")[:60])
+
+
 def main():
     # 류지영 매니저 입력 중에는 로그 파일조차 갱신하지 않고 즉시 종료한다.
     if is_input_window():
@@ -618,6 +643,8 @@ def main():
                # ★ 스케줄러 판정이 **인계 스냅샷보다 먼저**다 — 뒤에 두면 인계 문서가
                #   언제나 30분 전 판정을 싣는다(2026-08-12, `[228]`).
                watch_schedules(dry),
+               # ★ 브라우저 쪽 눈도 인계보다 먼저다 — 같은 이유(2026-08-13, `[247]`).
+               watch_userscript(dry),
                snapshot_handoff(dry), resume_deferred_apply(dry)]
     if gap:
         results.insert(0, gap)

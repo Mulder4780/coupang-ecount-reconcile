@@ -31,8 +31,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+
+# 무인 회차는 pythonw 라 `sys.stdout` 이 **None** 이고(`[235]`), 사람이 콘솔에서 부르면
+# 윈도우 기본이 **cp949** 라 본문의 '—' 가 못 나가 통째로 죽는다(2026-08-13 실측 —
+# 인계 문서가 알려 주는 `--print` 가 바로 그 명령이었다).  둘 다 여기서 막는다.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
