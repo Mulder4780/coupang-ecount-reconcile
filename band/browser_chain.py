@@ -144,7 +144,9 @@ def _pid_alive(pid):
     import subprocess
     try:
         out = subprocess.check_output(
-            ["tasklist", "/FI", "PID eq %d" % pid], text=True, errors="replace")
+            ["tasklist", "/FI", "PID eq %d" % pid], text=True, errors="replace",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
         return str(pid) in out
     except Exception:
         return False

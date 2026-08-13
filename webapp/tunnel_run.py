@@ -171,7 +171,9 @@ def publish(url):
         try:
             subprocess.run([sys.executable, os.path.join(ROOT, "publish_endpoint.py")],
                            cwd=ROOT, timeout=180, capture_output=True,
-                           env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+                           env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
         except Exception as e:
             print(f"   고정 주소 갱신 오류: {type(e).__name__} {e}")
         if published_url() == url.rstrip("/"):

@@ -413,7 +413,9 @@ def _kill_tree(p):
     if os.name == "nt":
         try:
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)],
-                           capture_output=True, timeout=30)
+                           capture_output=True, timeout=30,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
         except Exception:
             pass
     try:
@@ -449,7 +451,9 @@ def _run_once(name, args, timeout):
     회차 하나를 살리자고 회차 전체를 세우지는 않는다.
     """
     p = subprocess.Popen([PY] + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         text=True, encoding="utf-8", errors="replace", cwd=ROOT, env=ENV)
+                         text=True, encoding="utf-8", errors="replace", cwd=ROOT, env=ENV,
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
     try:
         so, se = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:

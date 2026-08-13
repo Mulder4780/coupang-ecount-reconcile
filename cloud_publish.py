@@ -280,6 +280,7 @@ def _main():
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", icon_sync],
             cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=60,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if result.returncode:
             print("  ! 앱 아이콘 자동동기화 실패:", (result.stderr or "")[-200:])

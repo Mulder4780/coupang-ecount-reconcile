@@ -226,6 +226,7 @@ def _run_audit(script: str, snapshot: Path, timeout: int = 180) -> tuple[int, st
         encoding="utf-8",
         errors="replace",
         timeout=timeout,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     return proc.returncode, ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
 

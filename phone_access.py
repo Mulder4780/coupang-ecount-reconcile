@@ -112,7 +112,9 @@ def main():
     # 현재 주소를 고정 진입점에 게시(변경 시에만 커밋)
     try:
         subprocess.run([sys.executable, os.path.join(BASE, "publish_endpoint.py")],
-                       cwd=BASE, capture_output=True, timeout=120)
+                       cwd=BASE, capture_output=True, timeout=120,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
     except Exception:
         pass
     lan = f"http://{local_ip()}:{PORT}"
