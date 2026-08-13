@@ -23,6 +23,8 @@ import time
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
+import source_index                               # noqa: E402  (sys.path 뒤라야 한다)
+
 STATE = os.path.join(ROOT, "db", "share_pull.json")
 MIN_STABLE_SECONDS = 30
 SKIP_NAMES = {"thumbs.db", "desktop.ini"}
@@ -77,27 +79,25 @@ def pull(targets=None, upload_dir=None, state_path=None):
                 continue
             if parts and parts[0] in excludes:
                 continue
-            if True:
-                if name.lower() in SKIP_NAMES or name.startswith("~$"):
-                    continue
-                src = os.path.join(base, name)
-                if now - st.st_mtime < MIN_STABLE_SECONDS:
-                    continue                      # 저장 중일 수 있다 — 다음 회차에
-                key = owner + "/" + os.path.relpath(src, src_root).replace("\\", "/")
-                sig = [st.st_size, int(st.st_mtime)]
-                if state.get(key) == sig:
-                    continue
-                rel = os.path.relpath(src, src_root)
-                dst = os.path.join(upload_dir, "공유폴더_동기화", owner, rel)
-                try:
-                    os.makedirs(os.path.dirname(dst), exist_ok=True)
-                    tmp = dst + ".part"
-                    shutil.copy2(src, tmp)
-                    os.replace(tmp, dst)
-                except OSError:
-                    continue                      # 네트워크 순단 — 상태 미기록, 재시도됨
-                state[key] = sig
-                copied.append({"파일": rel, "보낸이": owner, "목적지": dst})
+            if name.lower() in SKIP_NAMES or name.startswith("~$"):
+                continue
+            src = os.path.join(base, name)
+            if now - st.st_mtime < MIN_STABLE_SECONDS:
+                continue                          # 저장 중일 수 있다 — 다음 회차에
+            key = owner + "/" + rel.replace("\\", "/")
+            sig = [st.st_size, int(st.st_mtime)]
+            if state.get(key) == sig:
+                continue
+            dst = os.path.join(upload_dir, "공유폴더_동기화", owner, rel)
+            try:
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                tmp = dst + ".part"
+                shutil.copy2(src, tmp)
+                os.replace(tmp, dst)
+            except OSError:
+                continue                          # 네트워크 순단 — 상태 미기록, 재시도됨
+            state[key] = sig
+            copied.append({"파일": rel, "보낸이": owner, "목적지": dst})
     _state_save(state)
     return copied
 
