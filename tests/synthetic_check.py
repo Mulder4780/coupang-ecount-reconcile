@@ -18621,6 +18621,157 @@ def t255_delete_is_reversible_and_exclusion_is_not_delete():
     print("[255] 삭제는 되돌릴 수 있고 청구 제외는 삭제가 아니다 — OK")
 
 
+def t257_jump_says_why_it_could_not_find():
+    """[257] '못 찾음' 도 세 가지 뜻이다 — 화면이 원인을 지목하지 않는다 (2026-08-13 실사고).
+
+    실사용 막힘: 확인 필요 목록에서 `JS-2606-634` 를 눌렀더니
+    **"찾지 못했습니다 (다른 월 데이터이거나 아직 미등록)"**. 그런데 그 건은 서버 원장
+    750행에 멀쩡히 있었다 — 실측 `UJ2601032 · 송파3Sub-FC · 완료일 2026-06-12 · 돌발AS`.
+
+    원인은 없음이 아니라 **순서**였다. `/api/issues` 는 금방 오는데 `/api/settlements`
+    는 실측 **평균 54,656ms(812회 · 최대 27분)** 다. 그래서 목록은 이미 그려졌고
+    `settleRows` 는 아직 빈 창이 1분 가까이 열려 있다. 그 창에서 누르면 못 찾는다 —
+    **없어서가 아니라 아직 안 왔기 때문이다.** `[169]`·`[251]` 의 '0' 이야기와 같은
+    모양인데, 여기서는 화면이 **원인까지 확언**했다. 틀린 지목은 못 잡는 것보다
+    나쁘다(`[172]`) — 사람이 없는 문제(다른 월 자료·미등록)를 찾아 나선다.
+
+    되돌아가면 안 되는 것만 지킨다:
+      ① 원인을 확언하던 그 문장이 **없다**
+      ② 못 찾았을 때 자료 상태를 `dataZeroState` **한 곳**에 묻는다(`[251]`, 판정 사본 금지)
+      ③ 기다리는 시간이 **실측 54.7초보다 길다**(`[197]` — 짧으면 기다려 놓고도 같은 실패)
+      ④ 오는 중이면 다시 걸지 않는다(같은 요청 두 번은 서버를 더 느리게 한다)
+      ⑤ `openRecord` 폴백이 **프로젝트NO 를 버리지 않는다**
+    그리고 node 가 있으면 위 다섯을 **말이 아니라 실행으로** 확인한다.
+    """
+    import shutil
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # ① 원인을 확언하던 문장은 **말하는 자리에서** 사라졌다.
+    #    주석·문서에 그 문장을 인용하는 것은 사고 기록이라 남겨 둔다 — 그래서
+    #    파일 전체에서 찾지 않고 '사람에게 말하는 줄'만 본다(내 주석에 걸렸었다).
+    for ln, line in enumerate(idx.split("\n"), 1):
+        if "다른 월 데이터이거나 아직 미등록" not in line:
+            continue
+        assert not re.search(r"\b(notice|toast|alert)\s*\(", line), \
+            (f"{ln}줄에서 아직 원인을 확언한다 — 그 문장 때문에 사람이 "
+             f"없는 문제(다른 월 자료·미등록)를 찾아 나섰다([172])")
+
+    # ⑤ 폴백이 프로젝트NO 를 같이 넘긴다
+    assert "openByPrj(rid||prj, prj)" in idx, \
+        "openRecord 폴백이 프로젝트NO 를 버린다 — 프로젝트로 찾을 기회가 사라진다"
+    assert "function openByPrj(key, project, retried)" in idx, \
+        "openByPrj 가 프로젝트NO·재시도 여부를 안 받는다"
+
+    body = idx[idx.index("function openByPrj("):idx.index("function goList(")]
+    # ② 자료 상태는 한 곳에 묻는다
+    assert "dataZeroState(JUMP_DATA_KEYS)" in body, \
+        "못 찾았을 때 자료 상태를 안 본다 — '아직 안 온 것'을 '없는 것'이라고 말한다([251])"
+    assert "settlements" in body and "works" in body, "볼 묶음 표가 없다"
+    # ④ 오는 중이면 다시 걸지 않는다
+    assert "!s.loading&&!s.retrying" in body, \
+        "오는 중에도 다시 건다 — 같은 요청 두 번이면 서버가 더 느려진다"
+
+    # ③ 기다리는 시간이 실측(54.7초)보다 길다
+    m = re.search(r"JUMP_WAIT_MS\s*=\s*(\d+)", body)
+    assert m, "기다리는 한도가 없다"
+    assert int(m.group(1)) > 54656, \
+        ("기다리는 시간이 실측 /api/settlements 평균(54,656ms)보다 짧다 — "
+         "기다려 놓고도 같은 실패로 끝난다([197])", m.group(1))
+
+    # ── 말이 아니라 실행으로: node 가 있을 때만. 없으면 '못 돌렸다'고 적는다([169]).
+    node = shutil.which("node")
+    if not node:
+        print("  [257] 못 찾음을 가려 말한다 — 글자 검사만 통과(node 없어 실행 확인 못 함)")
+        return
+    fns = (idx[idx.index("function dataZeroState("):idx.index("/* 사전(error_book.BOOK)")]
+           + body)
+    harness = _T257_HARNESS.replace("/*__FNS__*/", fns)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "jump.mjs")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(harness)
+        # 회차 한 단계가 영원히 멈추지 않게([175]) — 창 없는 실행에서도 반드시 끝난다.
+        proc = subprocess.Popen([node, path], stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT)
+        try:
+            out = proc.communicate(timeout=60)[0].decode("utf-8", "replace")
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            out = proc.communicate(timeout=20)[0].decode("utf-8", "replace")
+        assert "ALL OK" in out and proc.returncode == 0, \
+            "실행 확인 실패:\n" + out[-1200:]
+    print("  [257] 못 찾음을 가려 말한다 — 아직/없다/못받았다 3갈래 · 실행 확인 8건 OK")
+
+
+# node 로 실제 돌려 보는 판 — 스텁은 최소로 두고 **진짜 함수**를 끼워 넣는다.
+_T257_HARNESS = r"""
+const APP_YEAR='2026';
+let settleRows=[], works={as:[],pm:[]};
+const DATA_SECTION_STATE={
+  settlements:{key:'settlements',label:'정산·청구',loading:false,retrying:false,hasGood:false,error:null,asOf:''},
+  works:{key:'works',label:'업무',loading:false,retrying:false,hasGood:true,error:null,asOf:'2026-08-13T16:00'}};
+function projectNoOf(r){ return String((r&&r['프로젝트NO'])||''); }
+function projectLabel(r){ return projectNoOf(r); }
+function esc2(x){ return String(x==null?'':x); }
+function esc4(x){ return JSON.stringify(String(x==null?'':x)); }
+let opened=null; function openRecord(k,id,prj){ opened={k,id,prj}; }
+let notices=[], toasts=[];
+function notice(m,o){ notices.push(String(m)); }
+function toast(m){ toasts.push(String(m)); }
+function showSheet(h){ }
+function dataStampText(x){ return String(x||'-'); }
+const _wait = ms => new Promise(r=>setTimeout(r, 5));
+const ROW={'정산ID':'JS-2606-634','프로젝트NO':'UJ2601032','캠프명':'송파3Sub-FC','완료일':'2026-06-12'};
+let arriveAfter=0, retried=0;
+async function retryDataSection(k){
+  retried++;
+  if(retried>=arriveAfter){ Object.assign(DATA_SECTION_STATE[k],
+    {hasGood:true,error:null,asOf:'2026-08-13T16:45'}); settleRows=[ROW]; }
+  return true;
+}
+/*__FNS__*/
+function reset(){ opened=null; notices=[]; toasts=[]; retried=0; _jumpWaiting=false; }
+function ok(state){ Object.assign(DATA_SECTION_STATE.settlements,
+  {loading:false,retrying:false,hasGood:state,error:null,asOf:state?'2026-08-13T16:45':''}); }
+let fail=0;
+function t(name,cond,extra){ console.log((cond?'  ok  ':'  FAIL ')+name+(cond?'':' :: '+JSON.stringify(extra)));
+  if(!cond) fail++; }
+(async ()=>{
+reset(); ok(true); settleRows=[ROW];
+openByPrj('JS-2606-634');
+t('있으면 연다', opened && opened.id==='JS-2606-634', {opened,notices});
+
+reset(); ok(true); settleRows=[ROW];
+openByPrj('JS-9999-999','UJ2601032');
+t('프로젝트NO 로 찾아낸다', opened && opened.prj==='UJ2601032', {opened,notices});
+
+reset(); ok(false); settleRows=[]; arriveAfter=1;
+openByPrj('JS-2606-634','UJ2601032');
+await new Promise(r=>setTimeout(r,400));
+t('아직이면 없다고 안 한다', notices.filter(m=>/찾지 못했|없습니다/.test(m)).length===0, notices);
+t('받고 있다고 말한다', toasts.some(m=>/받고 있습니다/.test(m)), toasts);
+t('받으면 저절로 연다', opened && opened.id==='JS-2606-634', {opened});
+
+reset(); ok(true); settleRows=[];
+openByPrj('JS-0000-000','UJ9999999');
+await new Promise(r=>setTimeout(r,60));
+t('정말 없으면 없다고 말한다',
+  notices.some(m=>/찾지 못했습니다/.test(m) && /기준으로 모두 받은/.test(m)), notices);
+t('원인을 지목하지 않는다', !notices.some(m=>/다른 월 데이터이거나/.test(m)), notices);
+
+reset(); Object.assign(DATA_SECTION_STATE.settlements,
+  {loading:true,retrying:false,hasGood:false,error:null,asOf:''});
+settleRows=[]; arriveAfter=99;
+openByPrj('JS-2606-634','UJ2601032');
+await new Promise(r=>setTimeout(r,120));
+t('오는 중이면 다시 안 건다', retried===0, {retried});
+
+console.log(fail? 'FAILED '+fail : 'ALL OK');
+process.exit(fail?1:0);
+})();
+"""
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -18732,6 +18883,7 @@ if __name__ == "__main__":
     t254_each_menu_resets_to_its_own_first_screen()
     t255_delete_is_reversible_and_exclusion_is_not_delete()
     t256_list_zero_goes_through_one_door()
+    t257_jump_says_why_it_could_not_find()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
