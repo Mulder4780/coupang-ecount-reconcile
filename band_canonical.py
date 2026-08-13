@@ -89,13 +89,51 @@ def _source_ref(record: Mapping[str, Any], project: str) -> str:
     return "band:" + ":".join(x for x in (band, posted, project) if x)
 
 
+#: 단계 낱말을 여기 적지 않는다([196]).  관리대장 10_코드관리 드롭다운이 정본이고
+#: ``work_flow`` 가 그것을 읽는다.  낱말을 이 파일에 박아 두면 드롭다운이 바뀐 날
+#: 이 파일만 옛 낱말을 계속 쓰는데, 그 값은 엑셀에서 '목록 밖'이 되면서도 화면에는
+#: 멀쩡히 보인다 — 오류가 나지 않는 종류의 잘못이다.
+#:
+#: 아래 짝은 work_flow 를 못 읽었을 때만 쓰는 대비값이며 **실측한 정본 낱말**이다.
+#: (예전에는 'as' 기본값이 ``접수`` 로 박혀 있었는데 그 낱말은 드롭다운에 없다 —
+#:  원장에 78건이 그 상태로 쌓여 있었다.  못 읽었다고 아는 낱말까지 버리지는 않는다.)
+_STAGE_FALLBACK: Dict[str, tuple] = {"as": ("신규접수", "작업완료"), "pm": ("예정", "완료")}
+_STAGE_CACHE: Dict[str, tuple] = {}
+
+
+def _stage_words(kind_key: str) -> tuple:
+    """(기본단계, 완료단계) — 낱말은 work_flow 한 곳에서 받아온다.
+
+    work_flow 는 워크북을 여는 비싼 일을 하므로 **레코드마다 부르지 않는다**([168]).
+    한 회차에 1,600건 넘게 도는 자리라 호출을 프로세스당 한 번으로 묶는다.
+    """
+    cached = _STAGE_CACHE.get(kind_key)
+    if cached is not None:
+        return cached
+    words = _STAGE_FALLBACK[kind_key]
+    try:
+        import work_flow
+
+        first = _text(work_flow.default_stage(kind_key))
+        last = _text(work_flow.done_stage(kind_key))
+        if first and last:
+            words = (first, last)
+    except Exception:
+        # 정의를 못 읽어도 등록 자체는 계속한다 — 낱말 하나 때문에 접수를 잃는 쪽이
+        # 더 나쁘다.  대비값이 정본과 같으므로 조용히 틀리지는 않는다.
+        pass
+    _STAGE_CACHE[kind_key] = words
+    return words
+
+
 def _status(kind: str, record: Mapping[str, Any]) -> str:
+    first, last = _stage_words("pm" if kind == "정기점검" else "as")
     raw = _text(record.get("_진행상태") or record.get("진행상태"))
     if "완료" in raw:
-        return "완료" if kind == "정기점검" else "작업완료"
+        return last
     if "취소" in raw:
         return "취소"
-    return "예정" if kind == "정기점검" else "접수"
+    return first
 
 
 def _is_done(value: Any) -> bool:

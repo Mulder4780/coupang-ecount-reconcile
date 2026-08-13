@@ -6246,6 +6246,19 @@ def get_orgchart():
             return "%d분 전" % mins
         return "%d시간 %d분 전" % (mins // 60, mins % 60)
 
+    def _ago_iso(v):
+        """스케줄러가 주는 ISO 문자열을 같은 말투로 바꾼다 — **모르면 '기록 없음'**.
+        빈 값을 '방금'이라 적으면 한 번도 안 돈 회차가 방금 돈 것으로 보인다([169])."""
+        s = str(v or "").strip()
+        if not s:
+            return "기록 없음"
+        for f in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M"):
+            try:
+                return _ago(datetime.strptime(s[:19], f).timestamp())
+            except Exception:
+                continue
+        return s[:16]
+
     # ── 담당자 온/오프라인([169]): 인증 브라우저가 마지막으로 서버에 말한 시각만
     #    real signal 이다. 5분 내면 온라인. 기록이 아예 없으면 '오프라인'이 아니라
     #    '상태 모름'(dot 은 off 이되 문구로 못박지 않는다). ──
