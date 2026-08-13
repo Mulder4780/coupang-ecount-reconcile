@@ -1281,6 +1281,99 @@ class AppStore:
             )
             return response
 
+    def restore_work(
+        self,
+        work_id: str,
+        *,
+        expected_version: int,
+        actor: str = "app",
+        reason: str = "",
+        source: str = "app",
+        evidence: str = "",
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """소프트 삭제한 업무를 되살린다 — `soft_delete_work` 의 짝.
+
+        ★ 되돌릴 수 없는 것은 만들지 않는다 (2026-08-13 지시). 삭제만 있고 되살리기가
+        없으면 잘못 지운 순간 사람이 할 수 있는 일이 없어지고, 그러면 '지워도 되는 것'과
+        '지우면 안 되는 것'을 사람이 매번 겁내며 갈라야 한다. 물리 DELETE 를 쓰지 않는
+        이유가 바로 여기다 — 지운 것을 되살릴 수 있어야 삭제가 안전한 손잡이가 된다.
+
+        판단을 새로 만들지 않았다: 멱등키·낙관잠금·감사로그 모두 `soft_delete_work` 와
+        같은 함수를 그대로 쓴다([162] — 사본이 둘이면 한쪽만 고쳐진다).
+        """
+        if expected_version < 1:
+            raise ValidationError("expected_version must be positive")
+        payload = {
+            "work_id": work_id,
+            "expected_version": expected_version,
+            "actor": actor,
+            "reason": reason,
+            "source": source,
+            "evidence": evidence,
+        }
+        with self.transaction() as conn:
+            replay, request_hash = self._idempotency_replay(
+                conn, "work:restore", idempotency_key, payload
+            )
+            if replay is not None:
+                return replay
+            # 삭제된 행이므로 include_deleted 로 읽는다 — 안 그러면 '없는 업무'로 죽는다.
+            before = self._work_from_conn(conn, work_id, include_deleted=True)
+            if not before.get("deleted_at"):
+                raise ValidationError("삭제되지 않은 업무는 되살릴 수 없습니다")
+            if int(before["record_version"]) != expected_version:
+                raise VersionConflict(
+                    work_id, expected_version, int(before["record_version"])
+                )
+            now = _utcnow()
+            cur = conn.execute(
+                """
+                UPDATE work_item
+                SET deleted_at=NULL,deleted_by=NULL,record_version=record_version+1,
+                    updated_at=?,updated_by=?,source=?,evidence=?
+                WHERE id=? AND record_version=? AND deleted_at IS NOT NULL
+                """,
+                (
+                    now,
+                    actor,
+                    source,
+                    evidence or reason,
+                    work_id,
+                    expected_version,
+                ),
+            )
+            if cur.rowcount != 1:
+                actual = conn.execute(
+                    "SELECT record_version FROM work_item WHERE id=?", (work_id,)
+                ).fetchone()
+                raise VersionConflict(
+                    work_id,
+                    expected_version,
+                    int(actual["record_version"]) if actual else None,
+                )
+            after = self._work_from_conn(conn, work_id)
+            event_id, seq = self._append_event(
+                conn,
+                work_id=work_id,
+                aggregate_type="work_item",
+                aggregate_key=work_id,
+                action="restore",
+                actor=actor,
+                before=before,
+                after=after,
+                idempotency_key=idempotency_key,
+                expected_version=expected_version,
+                source=source,
+                evidence=evidence or reason,
+                topic="work.changed",
+            )
+            response = {"work": after, "event_id": event_id, "event_seq": seq}
+            self._save_idempotency(
+                conn, "work:restore", idempotency_key, request_hash, response
+            )
+            return response
+
     def get_setting(self, key: str, default: Any = None) -> Dict[str, Any]:
         with self.reader() as conn:
             row = conn.execute("SELECT * FROM app_setting WHERE key=?", (key,)).fetchone()

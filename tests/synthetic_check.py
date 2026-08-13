@@ -7074,6 +7074,88 @@ def t251_zero_tells_which_zero_it_is():
     print("[251] 0 은 '없다'와 '못 불러왔다'를 가려 말한다 ✅")
 
 
+def t253_share_folder_pulls_whole_parent_cheaply():
+    """[253] 오종현 공유폴더는 **부모 전체**를 훑고, 훑는 값은 목록에 딸려 온 것을 쓴다.
+
+    2026-08-13 형님 지시: "\\\\172.30.1.250\\data\\16. Share\\유현민\\오종현 여기서
+    자료 항상 긁어오는 알고리즘 있지? 없으면 구현해"
+
+    실측으로 **알고리즘은 이미 있었다**(`share_intake`, 2026-08-03). 그 폴더 602개 중
+    **6개가 두 하위폴더 밖**(부모 직속)에 있는데 전부 정상 흡수돼 있었다 — 그날 16:07
+    에 놓인 `CSOS PO관련 …xlsx` 가 **16:17 에** `7. 입금내역/8-13/` 로 갔다.
+    `source_dirs` 가 두 하위폴더만 아는 것은 **제자리 직접 읽기**(PO_DIRS·RECEIPT_DIRS)
+    라서이고, 나머지는 이 흡수기가 투입함으로 복사해 `upload_intake` 가 분류한다.
+
+    그런데 훑는 방식이 `[198]` 의 그 병이었다 — `os.walk` 로 이름만 받고 파일마다
+    `os.stat(경로)` 를 다시 불렀다. 같은 폴더 실측 **99.7초 / 602개** → `walk_stat`
+    **4.1초**(24배). 이 함수는 워치독 30분·09:35·09:50·**증분 파이프라인 5분**이
+    전부 부르는 자리라 그 값이 그대로 회차 비용이 된다.
+
+    되돌아가면 안 되는 것만 지킨다:
+      ① 훑는 자리에 `os.stat(`/`getmtime(` 이 다시 안 들어온다([198])
+      ② 대상은 **부모 폴더**이고 제외는 정본으로 직접 읽는 **두 하위폴더뿐**이다
+         — 좁히면 부모 직속 자료가 조용히 안 들어온다
+      ③ 거르기가 그대로 산다: 최상위 제외 · `old` 는 **모든 레벨·대소문자 무시** ·
+         `Thumbs.db`·`~$` 임시파일
+      ④ 원본은 **복사**(이동 금지)하고, 같은 파일을 두 번 담지 않는다
+    """
+    import importlib
+    import shutil as _shutil
+    import tempfile
+    S = importlib.import_module("share_intake")
+    src_txt = open(os.path.join(ROOT, "share_intake.py"), encoding="utf-8").read()
+
+    # ── ① 비싼 재-stat 이 돌아왔나([198]) ────────────────────────────────────────
+    body = src_txt.split("def pull(", 1)[1]
+    for bad in ("os.stat(", "getmtime(", "getsize("):
+        assert bad not in body, (
+            f"share_intake.pull 에 {bad} 가 다시 들어왔다 — Z:(SMB)에서는 파일당 왕복 "
+            "한 번이라 602개에 99.7초다([198]). walk_stat 이 준 stat 을 그대로 써라")
+    assert "walk_stat" in body, "share_intake.pull 이 source_index.walk_stat 을 안 쓴다"
+
+    # ── ② 대상은 부모 폴더 · 제외는 정본으로 직접 읽는 둘뿐 ─────────────────────
+    tg = S.pull_targets()
+    assert tg, "pull_targets 가 비었다 — 공유폴더를 아예 안 긁는다"
+    roots = [t[0].replace("\\", "/").rstrip("/").lower() for t in tg]
+    assert any(r.endswith("16. share/유현민/오종현") for r in roots), (
+        "오종현 공유폴더의 **부모**가 대상이 아니다 — 하위폴더만 잡으면 부모 직속에 "
+        "놓인 자료가 조용히 안 들어온다(실측 6건이 거기 있었다)")
+    for _root, _owner, excl in tg:
+        for name in excl:
+            assert name == name.lower(), f"제외 목록은 소문자로 적는다: {name}"
+        assert len(excl) <= 2, (
+            f"제외가 {len(excl)}개다 — 제외는 source_dirs 가 제자리에서 직접 읽는 "
+            "두 폴더(PO 모음·입금내역)뿐이어야 한다. 늘리면 그만큼 안 들어온다")
+
+    # ── ③④ 거르기·복사·중복을 임시 트리로 잰다(진짜 Z: 는 안 건드린다) ──────────
+    d, up = tempfile.mkdtemp(), tempfile.mkdtemp()
+    try:
+        for p in ("26년도 PO 모음", "OLD", "sub", os.path.join("sub", "OLD")):
+            os.makedirs(os.path.join(d, p))
+        made = ["top.txt", "26년도 PO 모음/a.txt", "OLD/b.txt",
+                "sub/OLD/c.txt", "sub/ok.txt", "Thumbs.db", "~$x.xlsx"]
+        for p in made:
+            with open(os.path.join(d, p.replace("/", os.sep)), "w") as fh:
+                fh.write("x")
+        for base, _dirs, files in os.walk(d):        # 저장 중 판정을 피한다
+            for f in files:
+                os.utime(os.path.join(base, f), (0, 0))
+        st = os.path.join(up, "state.json")
+        target = [(d, "t", {"26년도 po 모음"})]
+        got = sorted(r["파일"].replace("\\", "/")
+                     for r in S.pull(target, upload_dir=up, state_path=st))
+        assert got == ["sub/ok.txt", "top.txt"], f"거르기가 달라졌다: {got}"
+        assert S.pull(target, upload_dir=up, state_path=st) == [], (
+            "같은 파일을 두 번 담는다 — 상태 기억(크기·수정시각)이 깨졌다")
+        for p in made:                               # ④ 원본 보존
+            assert os.path.exists(os.path.join(d, p.replace("/", os.sep))), (
+                f"원본이 사라졌다: {p} — 공유폴더는 오종현의 저장소다. 복사만 한다")
+    finally:
+        _shutil.rmtree(d, ignore_errors=True)
+        _shutil.rmtree(up, ignore_errors=True)
+    print("[253] 공유폴더 흡수 — 부모 전체 · 값싼 훑기 · 거르기·복사 그대로 ✅")
+
+
 def t252_po_shape_matches_reality_and_restart_asks_first():
     """[252] 실재하는 PO 모양을 거절하지 않는다 · 쓰는 사람 위에서 서버를 안 내린다.
 
@@ -7181,6 +7263,91 @@ def t252_po_shape_matches_reality_and_restart_asks_first():
         "워치독이 '지금 쓰는 중이라 미룸'을 실패로 적는다"
 
     print("[252] 실재하는 PO 모양을 안 막는다 · 쓰는 사람 위에서 서버를 안 내린다 ✅")
+
+
+def t254_each_menu_resets_to_its_own_first_screen():
+    """[254] 메뉴마다 '처음 화면으로' — 앱 전체를 다시 읽지 않는다 (2026-08-13 류지영 요청).
+
+    요청 원문: "검색하고 해서 작업을 하다가 다시 원래 처음 화면으로 돌아가는(새로고침)이
+    각 메뉴에 다 있었으면 좋겠습니다 / 아에 어플 처음화면이 아닌 **각 메뉴의 처음화면으로**!"
+
+    되돌아가면 안 되는 것만 지킨다:
+      ① `location.reload()` 를 쓰지 않는다 — 그러면 보고 있던 메뉴가 통째로 튕긴다
+         (요청이 명시적으로 아니라고 한 것이다)
+      ② 되돌리기 판정이 **한 곳**이다 — `resetView` + `VIEW_RESET` 표 한 벌.
+         화면마다 새로 만들면 사본이 여럿 되어 한쪽만 고쳐진다([162]).
+      ③ 이미 있던 되돌리기(`wtReset`·`resetCheckFilters`·`setMode`)를 **다시 만들지 않고
+         불러 쓴다** — 두 벌이 되면 정산 화면과 그 화면이 서로 다르게 되돌아간다
+      ④ 저장 안 된 초안이 있으면 **먼저 묻는다**(공용 `askYesNo`. 새 팝업 금지, [202])
+      ⑤ 단추가 **모든 메뉴**에서 닿는다 — 표가 화면(`id="v-*"`)을 하나도 빠뜨리지 않는다.
+         조용히 빠지면 '다 됐다'로 읽힌다([169]).
+      ⑥ 되돌린 뒤 **자료를 다시 받는다** — 안 받으면 '새로고침'이라 부를 수 없다.
+    """
+    import re as _re
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # ── ② 판정이 한 곳인가 ────────────────────────────────────────────────────
+    assert idx.count("async function resetView(") == 1, \
+        "resetView 가 없거나 둘이다 — 되돌리기 판정이 갈리면 화면마다 다르게 되돌아간다([162])"
+    assert idx.count("const VIEW_RESET = {") == 1, "VIEW_RESET 표가 없거나 둘이다"
+    i0 = idx.index("이 메뉴 처음으로 — `resetView()`")
+    i1 = idx.index("const CHECK_RENDER_STEP", i0)
+    block = idx[i0:i1]
+
+    # ── ① 앱 전체를 다시 읽지 않는다 ──────────────────────────────────────────
+    assert "location.reload" not in block, \
+        "resetView 가 앱을 통째로 다시 읽는다 — '어플 처음화면이 아닌 각 메뉴의 처음화면으로'"
+    assert "location.href" not in block and "location.replace" not in block, \
+        "주소를 갈아 끼우면 그것도 앱 전체 다시 읽기다"
+
+    # ── ③ 있던 되돌리기를 불러 쓴다 ───────────────────────────────────────────
+    for fn in ("wtReset", "resetCheckFilters", "setMode"):
+        assert fn in block, f"{fn} 을 안 쓴다 — 되돌리기를 새로 만들면 사본이 둘이 된다([162])"
+
+    # ── ④ 초안이 있으면 묻는다 ────────────────────────────────────────────────
+    body = block[block.index("async function resetView("):]
+    assert "_rvHasDraft()" in body and "askYesNo" in body, \
+        "저장 안 된 초안이 있어도 말없이 되돌린다 — 입력하던 것이 사라진다"
+    assert body.index("_rvHasDraft()") < body.index("closeSheetAll"), \
+        "묻기 전에 이미 화면을 되돌린다 — 물어보는 뜻이 없다"
+    assert "if(!ok) return false;" in body, "'그만두기'를 눌러도 그대로 진행한다"
+    guard = block[block.index("function _rvHasDraft("):block.index("const VIEW_RESET")]
+    assert "return true;" in guard.split("catch")[-1], \
+        "초안을 **못 읽었을 때** 없는 것으로 친다 — 모르면 묻는 편이 싸다([169])"
+    assert not _re.search(r"draftClear\s*\(", block) and "removeItem(DRAFT_NS" not in block, \
+        "되돌리기가 초안을 지운다 — 지우는 것은 저장 성공 뒤의 일이다"
+
+    # ── ⑤ 모든 메뉴가 표에 있다 ───────────────────────────────────────────────
+    views = set(_re.findall(r'<section class="view[^"]*" id="v-([a-z]+)"', idx))
+    assert len(views) >= 15, f"화면 목록을 못 읽었다({len(views)}개) — 세는 눈이 먼 것이다([169])"
+    tbl = block[block.index("const VIEW_RESET = {"):block.index("async function resetView(")]
+    keyed = set(_re.findall(r"^\s{2}([a-z]+)\s*:\s*\{", tbl, _re.M))
+    missing = sorted(views - keyed)
+    assert not missing, f"이 메뉴들이 표에 없다 — '각 메뉴에 다' 가 아니다: {missing}"
+    extra = sorted(keyed - views)
+    assert not extra, f"없는 화면이 표에 있다: {extra}"
+
+    # ── 단추는 모든 메뉴에서 같은 자리(항상 보이는 머리줄)에 하나 ─────────────
+    btn = _re.search(r'<button[^>]*id="viewResetBtn"[^>]*>', idx)
+    assert btn, "되돌리기 단추가 화면에 없다"
+    assert 'onclick="resetView()"' in btn.group(0), "단추가 공용 resetView 를 안 부른다"
+    assert "aria-label" in btn.group(0), "이름 없는 단추는 소리로 읽히지 않는다"
+    assert "account-pin" in btn.group(0), \
+        "머리줄 표준 단추 크기를 안 쓴다 — 폰 최소 터치 44px 이 그 클래스에 걸려 있다"
+    assert idx.index('id="viewResetBtn"') < idx.index('<main class="shell">'), \
+        "단추가 어느 한 화면 안에 들어갔다 — 그러면 그 메뉴에서만 보인다"
+
+    # ── ⑥ 되돌린 뒤 자료를 다시 받는다 ────────────────────────────────────────
+    assert "def.reload" in body and "apiFresh(refreshAll)" in body, \
+        "되돌리기만 하고 자료를 안 받는다 — 그건 '새로고침'이 아니다"
+    starts = [(m.group(1), m.start()) for m in _re.finditer(r"^\s{2}([a-z]+)\s*:\s*\{", tbl, _re.M)]
+    ends = [s for _, s in starts[1:]] + [len(tbl)]
+    entry = {k: tbl[s:e] for (k, s), e in zip(starts, ends)}
+    for k in ("settle", "check", "calendar", "revenue", "as", "pm", "sources"):
+        assert "reload" in entry[k], f"{k} 는 검색·필터가 있는 화면인데 자료를 다시 안 받는다"
+        assert "clear" in entry[k], f"{k} 는 검색·필터가 있는 화면인데 그것을 안 지운다"
+
+    print("[254] 메뉴마다 '처음 화면으로' — 앱 전체를 다시 읽지 않는다 ✅")
 
 
 def t249_entry_save_never_silent():
@@ -7467,23 +7634,35 @@ def t128_dash_tap_to_move():
                "function dashPickBar(", "function dashPickLabel("):
         assert fn in js, "%s 가 없다" % fn
 
+    # ★ 띄어쓰기에는 둔감해야 한다 (2026-08-13 실사고). 이 검사가 반나절 빨간 채였는데
+    #   코드는 멀쩡했다 — 옆 세션이 `dashPickTap(d.el, host, …)` 의 **공백만** 지웠고
+    #   `e.type === 'pointerup'` 도 붙여 썼다. 규칙(끌었으면 집지 않는다)은 그대로였다.
+    #   지시문이 적어 둔 그 자리다: *글자 검사는 고칠 코드를 얼린다.* 그러니 검사는
+    #   **약하게 하지 말고** 공백에만 둔감하게 한다 — 지키는 것은 하나도 안 줄인다.
+    ns = lambda s: re.sub(r"\s+", "", s)      # noqa: E731 — 공백만 지운 사본
+
     # ① 끌지 않은 누름만 집기로 간다
     de = js[js.index("function dashDragEnable("):]
     de = de[: de.index("\n/* ═══ 눌러서 옮기기")]
-    assert "if(d.live){" in de and "dashPickTap(d.el, host, sel, onDrop)" in de, \
+    de_ns = ns(de)
+    assert "if(d.live){" in de_ns and "dashPickTap(d.el,host,sel,onDrop)" in de_ns, \
         "끌기와 누르기가 갈리지 않는다 — 끌고 나서도 카드가 집힌다"
-    assert "e.type === 'pointerup'" in de, "취소(pointercancel)까지 집기로 읽는다"
+    # 끌기(d.live)가 **먼저 돌아가야** 한다. 순서가 뒤집히면 끌고 나서도 집힌다.
+    assert de_ns.index("if(d.live){") < de_ns.index("dashPickTap(d.el,host,sel,onDrop)"), \
+        "끌기 분기가 집기보다 뒤에 있다 — 끌고 나서도 카드가 집힌다"
+    assert "e.type==='pointerup'" in de_ns, "취소(pointercancel)까지 집기로 읽는다"
 
     tap = js[js.index("function dashPickTap("):]
     tap = tap[: tap.index("\n/* Esc")]
+    tap_ns = ns(tap)
     # ⑤ 다른 묶음으로 못 옮긴다
-    assert "el.parentNode !== _dashPick.el.parentNode" in tap, \
+    assert "el.parentNode!==_dashPick.el.parentNode" in tap_ns, \
         "화면 카드와 핵심지표가 섞인다"
     # ③ 같은 카드 다시 누르면 취소
-    assert "_dashPick.el === el" in tap and "dashPickCancel()" in tap, \
+    assert "_dashPick.el===el" in tap_ns and "dashPickCancel()" in tap_ns, \
         "집은 카드를 다시 눌러도 취소되지 않는다"
     # ⑥ 옮기면 저장한다
-    assert "if(drop) drop(moving)" in tap, "옮기고 저장하지 않는다 — 새로고침하면 되돌아간다"
+    assert "if(drop)drop(moving)" in tap_ns, "옮기고 저장하지 않는다 — 새로고침하면 되돌아간다"
 
     # ② 사람이 읽는 이름
     lab = js[js.index("function dashPickLabel("):]
@@ -18349,6 +18528,8 @@ if __name__ == "__main__":
     t250_error_book_speaks_and_counts()
     t251_zero_tells_which_zero_it_is()
     t252_po_shape_matches_reality_and_restart_asks_first()
+    t253_share_folder_pulls_whole_parent_cheaply()
+    t254_each_menu_resets_to_its_own_first_screen()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

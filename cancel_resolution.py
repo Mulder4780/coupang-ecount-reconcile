@@ -110,12 +110,22 @@ def source_outcomes(store=None) -> Dict[str, Dict[str, Any]]:
             cancelled = any(word in status for word in _CANCELLED) or (
                 str(row.get("접수취소여부") or "").strip() == "예"
             )
+            # ★ 취소와 '청구 제외'는 다른 사실이다 (2026-08-13 류지영 요청).
+            #   취소 = 현장에 아무도 안 갔다. 제외 = **다녀왔는데** 이 건으로는 청구를
+            #   안 한다(정기점검과 동시 진행 등). 실측 UJ2601032 는 작업완료·완료일
+            #   2026-06-12·담당기사 김필우·사진·완료보고서·ERP등록까지 다 있는 건이라
+            #   취소로 적으면 **다녀온 사실이 기록에서 뒤집힌다**. 그래서 낱말을 가른다.
+            #   청구에서 빠지는 결과는 같으므로 **전파 경로는 하나를 같이 쓴다**([162]) —
+            #   갈리는 것은 '왜 빠졌나'뿐이고 그것을 화면이 그대로 말한다.
+            excluded = str(row.get("청구제외") or "").strip() == "예"
             out[source_id] = {
                 "source_id": source_id,
                 "kind": kind,
                 "project_no": str(row.get("프로젝트NO") or "").strip().upper(),
                 "status": status,
                 "cancelled": cancelled,
+                "billing_excluded": excluded,
+                "excluded_reason": str(row.get("청구제외사유") or "").strip(),
                 "reason": reason,
                 "treatment": treatment,
                 "evidence": str(row.get("접수취소근거") or row.get("_evidence") or "").strip(),

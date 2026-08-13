@@ -1138,6 +1138,12 @@ RYU_ENTRY_CONFIG = {
             {"name": "완료예정일", "label": "완료 예정일", "type": "date"},
             {"name": "관리자검증상태", "label": "관리자 검증 상태", "type": "text"},
             {"name": "최종확인일", "label": "최종 확인일", "type": "date"},
+            # ★ 청구 제외 — 삭제와 다른 손잡이다 (2026-08-13 류지영 요청).
+            #   "정기점검이랑 동시진행으로 돌발AS로는 청구를 안할꺼라". 현장은 실제로
+            #   다녀왔으므로 삭제도 취소도 사실이 아니다 — 청구에서만 뺀다.
+            {"name": "청구제외", "label": "청구 제외(다녀옴·이 건으로는 청구 안 함)",
+             "type": "select", "options": ["예", "아니오"]},
+            {"name": "청구제외사유", "label": "청구 제외 사유", "type": "textarea"},
             {"name": "비고", "label": "비고", "type": "textarea"},
         ],
     },
@@ -1172,6 +1178,11 @@ RYU_ENTRY_CONFIG = {
             {"name": "문제내용", "label": "문제 내용", "type": "textarea"},
             {"name": "조치내용", "label": "조치 내용", "type": "textarea"},
             {"name": "최종확인일(유현민 체크)", "label": "최종 확인일", "type": "date"},
+            # 돌발AS 와 같은 손잡이를 정기점검에도 둔다 — 반대 방향(돌발AS 로 청구하고
+            # 정기점검은 제외)도 실재한다. 지금 안 쓰여도 생기는 날 저절로 걸린다.
+            {"name": "청구제외", "label": "청구 제외(다녀옴·이 건으로는 청구 안 함)",
+             "type": "select", "options": ["예", "아니오"]},
+            {"name": "청구제외사유", "label": "청구 제외 사유", "type": "textarea"},
             {"name": "비고", "label": "비고", "type": "textarea"},
         ],
     },
@@ -1705,6 +1716,16 @@ def save_staff_entry(staff_slug, body, *, store=None, actor=None):
     if expected_version < 1:
         raise ValueError("화면 데이터 버전이 없습니다. 목록을 새로고침해 다시 저장해 주세요")
     reason = str(body.get("reason") or body.get("survey_note") or "").strip()
+    # ★ 사유 없는 청구 제외는 받지 않는다 (2026-08-13). 몇 달 뒤 "이건 왜 청구가
+    #   안 나갔나"를 물을 사람이 반드시 있고, 그때 답할 수 있는 것은 이 한 줄뿐이다.
+    #   STAFF_REASON_REQUIRED_FIELDS 는 **기존값을 고칠 때만** 사유를 받으므로
+    #   빈 칸 → '예' 인 첫 지정이 그냥 통과한다 — 그 구멍을 여기서 막는다.
+    if str(normalized.get("청구제외") or "") == "예":
+        note = str(normalized.get("청구제외사유") or "").strip() or reason
+        if len(note) < 2:
+            raise ValueError("청구 제외는 사유를 함께 적어야 합니다 "
+                             "(예: 정기점검과 동시 진행 — 돌발AS로 청구 안 함)")
+        normalized["청구제외사유"] = note
     who = str(actor or ("staff:" + staff_slug))[:200]
     request_id = str(body.get("idempotency_key") or body.get("request_id") or "").strip()
     request_payload = {
@@ -1824,6 +1845,182 @@ def save_staff_entry(staff_slug, body, *, store=None, actor=None):
     if result.get("action") == "updated" and not result.get("idempotent_replay"):
         _invalidate_app_data_caches()
     return result
+
+
+# ═══ 삭제 · 되살리기 (2026-08-13 지시: "위건 삭제 수정 가능하게 코딩") ═══════════
+#
+# 류지영 요청: "삭제할수있게 해주세요!! / 정기점검이랑 동시진행으로 돌발AS로는
+# 청구를 안할꺼라 삭제가 필요합니당"
+#
+# ★ 손잡이는 **둘**이고 뜻이 다르다. 화면이 그 차이를 한 줄로 말한다:
+#   · 삭제 = 잘못 등록된 건. 목록·집계·청구에서 통째로 뺀다.
+#   · 제외 = 다녀왔지만 이 건으로는 청구 안 함(`청구제외` 칸). 기록은 그대로 남는다.
+#   위 요청의 실제 사정은 **제외**다 — 실측 UJ2601032 는 작업완료·완료일 2026-06-12·
+#   담당기사 김필우·사진·완료보고서·ERP등록이 다 있는 건이라 '안 갔다'가 아니다.
+#   그래도 삭제를 빼지 않는다: 잘못 등록된 건은 실재하고, 무엇이 맞는지는 사람만 안다.
+#
+# ★ 물리 DELETE 를 쓰지 않는다. `soft_delete_work` 는 `deleted_at` 만 세우고
+#   `app_store.overlay_rows` 가 그 행을 legacy Excel 행까지 통째로 감춘다(:2532).
+#   즉 사람에게는 지워진 것과 똑같이 보이면서 **되살릴 수 있다.**
+_WORK_DELETE_CATEGORIES = ("as", "pm")
+
+
+def _staff_work_target(store, category, record_key, *, include_deleted=False):
+    """삭제·되살리기가 가리키는 정본 행 하나. 여럿이면 손대지 않는다."""
+    cfg = RYU_ENTRY_CONFIG[category]
+    key = str(record_key or "").strip()
+    matches = [row for row in store.list_sheet_rows(cfg["sheet"], include_deleted=True)
+               if str(row.get(cfg["key_col"]) or row.get("_business_key") or "").strip() == key]
+    if include_deleted:
+        matches = [row for row in matches if row.get("_deleted")]
+    else:
+        matches = [row for row in matches if not row.get("_deleted")]
+    if not matches:
+        raise ValueError("선택한 업무를 앱 DB에서 찾지 못했습니다")
+    if len(matches) != 1:
+        # 짐작으로 하나를 고르면 엉뚱한 현장이 목록에서 사라진다([172] 의 문).
+        raise ValueError("같은 업무 ID가 여러 건이라 자동으로 처리하지 않았습니다")
+    return cfg, matches[0]
+
+
+def delete_staff_work(staff_slug, body, *, store=None, actor=None):
+    """업무 한 건을 삭제한다(soft). 사유 없이는 지나가지 못한다."""
+    category = str(body.get("category") or "").strip()
+    record_key = str(body.get("key") or body.get("target_key") or "").strip()
+    if category not in _WORK_DELETE_CATEGORIES or not record_key:
+        raise ValueError("삭제할 업무를 먼저 선택해 주세요")
+    if staff_slug not in STAFF_CENTERS and staff_slug != "admin":
+        raise PermissionError("등록되지 않은 업무센터입니다")
+    if not _staff_allowed_fields(staff_slug, category):
+        raise PermissionError("이 업무센터에서는 이 업무를 삭제할 수 없습니다")
+    reason = str(body.get("reason") or "").strip()
+    if len(reason) < 2:
+        # 사유 없는 삭제는 몇 달 뒤 아무도 설명하지 못한다.
+        raise ValueError("삭제 사유를 적어 주세요 (예: 잘못 등록 — 같은 건이 두 번 접수됨)")
+    if store is None:
+        from app_store import default_store
+        store = default_store()
+    cfg, row = _staff_work_target(store, category, record_key)
+    try:
+        expected_version = int(body.get("record_version"))
+    except (TypeError, ValueError):
+        raise ValueError("화면 데이터 버전이 없습니다. 목록을 새로고침해 다시 시도해 주세요")
+    who = str(actor or ("staff:" + staff_slug))[:200]
+    # ⚠ 청구자료는 지우지 않는다 — 있다는 사실만 응답에 실어 화면이 한 번 더 묻는다.
+    docs = _settlement_documents_for_source(store, record_key)
+    if docs and not body.get("confirm_documents"):
+        return {"ok": False, "needs_confirm": True, "documents": docs,
+                "error": "이 건에는 청구자료가 있습니다 — 그래도 삭제할까요?",
+                "record_version": expected_version}
+    response = store.soft_delete_work(
+        row["_store_id"], expected_version=expected_version, actor=who,
+        reason=reason, source="app-staff-delete",
+        evidence=(f"{STAFF_CENTERS.get(staff_slug, {'name': '관리자'})['name']} 업무센터"
+                  f" 삭제 · {reason[:300]}"),
+        idempotency_key=str(body.get("idempotency_key") or "").strip() or None,
+    )
+    _invalidate_app_data_caches()
+    return {"ok": True, "committed": True, "action": "deleted",
+            "key": record_key, "category": category,
+            "record_version": int(response["work"]["record_version"]),
+            "documents": docs,
+            "event_id": response.get("event_id"),
+            "msg": "삭제했습니다 — [삭제된 건 보기]에서 되살릴 수 있습니다"}
+
+
+def restore_staff_work(staff_slug, body, *, store=None, actor=None):
+    """삭제한 업무를 되살린다. 삭제와 같은 문을 거꾸로 지난다."""
+    category = str(body.get("category") or "").strip()
+    record_key = str(body.get("key") or body.get("target_key") or "").strip()
+    if category not in _WORK_DELETE_CATEGORIES or not record_key:
+        raise ValueError("되살릴 업무를 먼저 선택해 주세요")
+    if staff_slug not in STAFF_CENTERS and staff_slug != "admin":
+        raise PermissionError("등록되지 않은 업무센터입니다")
+    if not _staff_allowed_fields(staff_slug, category):
+        raise PermissionError("이 업무센터에서는 이 업무를 되살릴 수 없습니다")
+    if store is None:
+        from app_store import default_store
+        store = default_store()
+    cfg, row = _staff_work_target(store, category, record_key, include_deleted=True)
+    try:
+        expected_version = int(body.get("record_version"))
+    except (TypeError, ValueError):
+        raise ValueError("화면 데이터 버전이 없습니다. 목록을 새로고침해 다시 시도해 주세요")
+    who = str(actor or ("staff:" + staff_slug))[:200]
+    reason = str(body.get("reason") or "삭제 취소").strip()
+    response = store.restore_work(
+        row["_store_id"], expected_version=expected_version, actor=who,
+        reason=reason, source="app-staff-restore",
+        evidence=(f"{STAFF_CENTERS.get(staff_slug, {'name': '관리자'})['name']} 업무센터"
+                  f" 되살림 · {reason[:300]}"),
+        idempotency_key=str(body.get("idempotency_key") or "").strip() or None,
+    )
+    _invalidate_app_data_caches()
+    return {"ok": True, "committed": True, "action": "restored",
+            "key": record_key, "category": category,
+            "record_version": int(response["work"]["record_version"]),
+            "event_id": response.get("event_id"),
+            "msg": "되살렸습니다 — 목록에 다시 보입니다"}
+
+
+def _settlement_documents_for_source(store, source_id):
+    """이 업무에 붙은 실제 청구자료 요약. 삭제해도 **지우지 않는다**([208])."""
+    out = []
+    key = str(source_id or "").strip()
+    if not key:
+        return out
+    try:
+        for row in store.list_sheet_rows("06_거래서류청구수금"):
+            if str(row.get("원천업무ID") or "").strip() != key:
+                continue
+            if not _settlement_has_documents(row):
+                continue
+            out.append({
+                "정산ID": str(row.get("정산ID") or ""),
+                "PO번호": str(row.get("PO번호") or ""),
+                "거래명세서번호": str(row.get("거래명세서번호") or ""),
+                "세금계산서발행일": str(row.get("세금계산서발행일") or "")[:10],
+                "입금일": str(row.get("입금일") or "")[:10],
+            })
+    except Exception:
+        # 못 읽었으면 '없다'고 하지 않는다 — 못 읽었다고 말한다([169]).
+        return [{"정산ID": "", "확인못함": "청구자료를 확인하지 못했습니다"}]
+    return out
+
+
+def deleted_staff_works(staff_slug, category=None, *, store=None):
+    """삭제된 건 목록 — 사람이 볼 수 있는 자리에 둔다.
+
+    코드로만 되살릴 수 있으면 없는 것과 같다. 화면이 이 목록을 보여 주고
+    거기서 [되살리기] 를 누른다.
+    """
+    if staff_slug not in STAFF_CENTERS and staff_slug != "admin":
+        raise PermissionError("등록되지 않은 업무센터입니다")
+    if store is None:
+        from app_store import default_store
+        store = default_store()
+    cats = [category] if category in _WORK_DELETE_CATEGORIES else list(_WORK_DELETE_CATEGORIES)
+    out = []
+    for cat in cats:
+        if not _staff_allowed_fields(staff_slug, cat):
+            continue
+        cfg = RYU_ENTRY_CONFIG[cat]
+        spec_status = {"as": "진행상태", "pm": "점검상태"}[cat]
+        for row in store.list_sheet_rows(cfg["sheet"], include_deleted=True):
+            if not row.get("_deleted"):
+                continue
+            out.append({
+                "category": cat, "label": cfg["label"],
+                "key": str(row.get(cfg["key_col"]) or row.get("_business_key") or ""),
+                "프로젝트NO": str(row.get("프로젝트NO") or ""),
+                "캠프명": str(row.get("캠프명") or ""),
+                "상태": str(row.get(spec_status) or ""),
+                "담당기사": str(row.get("담당기사") or ""),
+                "삭제근거": str(row.get("_evidence") or ""),
+                "record_version": int(row.get("_record_version") or 0),
+            })
+    out.sort(key=lambda r: (r["category"], r["key"]))
+    return {"ok": True, "rows": out, "count": len(out)}
 
 
 def get_staff_records(staff_slug, *, store=None):
@@ -2953,8 +3150,20 @@ def _settlement_has_documents(row):
 
 
 def _apply_cancelled_source_to_settlement(row, outcome):
-    """취소건은 미발행 경고에서 빼되 기존 청구자료가 있으면 충돌로 보존한다."""
-    if not outcome or not outcome.get("cancelled"):
+    """취소·청구제외건은 미발행 경고에서 빼되 청구자료가 있으면 충돌로 보존한다.
+
+    ★ 빠지는 결과는 같아도 **이유는 두 가지고 뜻이 다르다** (2026-08-13 류지영 요청).
+      · 취소   = 현장에 아무도 안 갔다.
+      · 제외   = 다녀왔는데 이 건으로는 청구를 안 한다(정기점검 동시 진행 등).
+      뭉쳐서 '취소'라고 적으면 다녀온 사실이 기록에서 뒤집히고, 기사 실적이 줄고,
+      나중에 "그때 정말 안 갔었나"를 아무도 답할 수 없다([243] 과 같은 자리).
+      그래서 전파 경로는 하나로 두되(사본을 만들지 않는다, [162]) **딱지를 가른다.**
+    """
+    if not outcome:
+        return row
+    if not outcome.get("cancelled"):
+        if outcome.get("billing_excluded"):
+            return _apply_excluded_source_to_settlement(row, outcome)
         return row
     row["원천업무취소"] = True
     row["원천업무상태"] = outcome.get("status") or "취소"
@@ -2971,6 +3180,28 @@ def _apply_cancelled_source_to_settlement(row, outcome):
         row["취소건청구자료충돌"] = False
         row["상태"] = ("접수취소(유선해결)" if row["처리구분"] == "원격해결"
                        else "접수취소(청구대상 아님)")
+    return row
+
+
+def _apply_excluded_source_to_settlement(row, outcome):
+    """'다녀왔지만 이 건으로는 청구 안 함' — 청구에서만 빼고 현장 기록은 그대로 둔다.
+
+    ⚠ 청구자료(PO·명세서·계산서·입금)는 **한 글자도 지우지 않는다**([208] 그대로).
+      이미 끊긴 서류가 있는데 제외로 접으면 그 돈이 어느 화면에도 안 뜬다 —
+      못 받는 것보다 나쁜 것은 못 받는 줄도 모르는 것이다.
+    """
+    row["원천업무청구제외"] = True
+    row["원천업무상태"] = outcome.get("status") or ""
+    row["청구대상"] = False
+    row["청구제외사유"] = outcome.get("excluded_reason") or "이 건으로는 청구하지 않음"
+    row["미발행사유"] = ""
+    if _settlement_has_documents(row):
+        # 취소와 같은 칸을 쓴다 — 화면이 이미 이 칸을 보고 '교차입력 확인'을 띄운다.
+        row["취소건청구자료충돌"] = True
+        row["상태"] = "청구제외건 청구자료 존재 — 교차입력 확인"
+    else:
+        row["취소건청구자료충돌"] = False
+        row["상태"] = "청구 제외(다녀옴 · 이 건으로는 청구 안 함)"
     return row
 
 
@@ -8213,6 +8444,25 @@ self.addEventListener('fetch', e => {
                                         **work_flow.definition("refresh" in self.path)})
             except Exception as exc:
                 return self._send(200, {"ok": False, "error": str(exc)[:200], "갈래": {}})
+        if p == "/api/staff/deleted-works":
+            # 삭제된 건 목록 — 되살리기는 **사람이 볼 수 있는 자리**에 있어야 한다.
+            actor_session = self._actor()
+            if actor_session.get("role") == "staff":
+                actor_slug = str(actor_session.get("staff_slug") or "")
+            elif actor_session.get("role") == "admin":
+                actor_slug = "admin"
+            else:
+                return self._send(403, {"ok": False, "error": "업무센터 권한이 필요합니다"})
+            rq = parse_qs(urlsplit(self.path).query)
+            cat = (rq.get("category") or [""])[0].strip()
+            try:
+                return self._send(200, deleted_staff_works(actor_slug, cat or None))
+            except PermissionError as e:
+                return self._send(403, {"ok": False, "error": str(e)[:300]})
+            except Exception as e:
+                # 못 읽은 것을 '삭제된 건 없음'이라 하지 않는다([169]).
+                return self._send(200, {"ok": False, "error": str(e)[:300],
+                                        "rows": [], "count": None})
         if p == "/api/records":
             # 자료창고(datalake record) 조회 — 읽기 전용 ([24] 앱 화면 노출)
             #   qs 는 이 분기에서 직접 판다 — 위 분기들의 qs 는 그 분기 안에서만 산다
@@ -8736,6 +8986,37 @@ self.addEventListener('fetch', e => {
                     actor_slug, body, actor=self._actor_name(),
                 )
                 return self._send(200, {**result, "evidence": evidence_name})
+            except PermissionError as e:
+                return self._send(403, {"ok": False, "error": str(e)[:300]})
+            except Exception as e:
+                if type(e).__name__ in ("VersionConflict", "IdempotencyConflict"):
+                    return self._send(409, {"ok": False, "error": str(e)[:300],
+                                            "conflict": True})
+                return self._send(400, {"ok": False, "error": str(e)[:300]})
+        if p in ("/api/staff/work-delete", "/api/staff/work-restore"):
+            # 삭제·되살리기는 /api/staff/entry 와 **같은 문**을 지난다 — 권한·멱등키·
+            # 낙관잠금·409 매핑이 갈리면 한쪽만 고쳐진다([162]).
+            actor_session = self._actor()
+            if actor_session.get("role") == "staff":
+                actor_slug = str(actor_session.get("staff_slug") or "")
+                if actor_slug not in STAFF_CENTERS:
+                    return self._send(403, {"ok": False, "error": "등록되지 않은 업무센터입니다"})
+            elif actor_session.get("role") == "admin":
+                actor_slug = "admin"
+            else:
+                return self._send(403, {"ok": False, "error": "업무센터 권한이 필요합니다"})
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 1_000_000:
+                return self._send(400, {"ok": False, "error": "요청 본문을 확인해 주세요"})
+            try:
+                body = json.loads(self.rfile.read(ln) or b"{}")
+                body.pop("staff_slug", None)
+                body["idempotency_key"] = self._idempotency_key(body)
+                handler = (delete_staff_work if p.endswith("work-delete")
+                           else restore_staff_work)
+                result = handler(actor_slug, body, actor=self._actor_name())
+                # 청구자료 확인이 필요하면 200 으로 되묻는다(실패가 아니다).
+                return self._send(200, result)
             except PermissionError as e:
                 return self._send(403, {"ok": False, "error": str(e)[:300]})
             except Exception as e:

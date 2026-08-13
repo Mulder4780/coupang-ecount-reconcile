@@ -2893,6 +2893,18 @@ body.dash-drag-live #dashGuides{display:grid}
     <img class="coupang-app-brand" src="/brand/coupang.png" alt="Coupang">
   </div>
   <div class="appbar-status">
+    <!-- ★ 이 메뉴 처음으로 (2026-08-13 류지영 요청: "검색하고 작업하다가 다시 원래
+         처음 화면으로 돌아가는 것이 각 메뉴에 다 있었으면 / 어플 처음화면이 아닌
+         각 메뉴의 처음화면으로"). 앱 전체를 다시 읽지 않는다 — 보고 있는 메뉴만
+         처음 상태로 되돌리고 그 메뉴의 자료를 다시 받는다.
+         ★ 자리를 여기(항상 보이는 머리줄)로 잡은 이유: 화면마다 툴바에 단추를 하나씩
+           더하면 폰에서 줄이 늘어 스크롤이 되레 길어진다(실측 +49px, [236]).
+           여기라면 **모든 메뉴에서 같은 자리·같은 이름**이고 줄이 하나도 안 는다. -->
+    <button class="account-pin" id="viewResetBtn" type="button" onclick="resetView()"
+      title="이 메뉴 처음으로 — 검색·필터를 지우고 자료를 다시 받습니다"
+      aria-label="이 메뉴 처음으로">
+      <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-counterclockwise"/></svg>
+    </button>
     <button class="account-pin" id="themeBtn" type="button" onclick="toggleTheme()"
       title="밝게/어둡게" aria-label="밝게/어둡게" aria-pressed="false">🌙</button>
     <button class="account-pin" id="pinMenuButton" type="button" onclick="openPinDialog()"
@@ -6759,7 +6771,7 @@ function renderWorkTab(k){
     (Object.keys(WT_PENDING).length?` · 앱 DB 저장 ${Object.keys(WT_PENDING).length}개 항목 · Excel 자동 보관`: '');
   const limit=Math.max(WT_RENDER_STEP,Number(WT_RENDER_LIMIT[k]||WT_RENDER_STEP));
   const visible=rows.slice(0,limit), remain=Math.max(0,rows.length-visible.length);
-  const empty='<div class="card" role="status">현재 조건에 맞는 업무가 없습니다.</div>';
+  const empty=zeroNote('works','현재 조건에 맞는 업무가 없습니다');
   $(k+'Body').innerHTML=(visible.length?(st.board?wtBoard(k,visible):visible.map(r=>wtCard(k,r)).join('')):empty)+
     (remain?`<button type="button" class="auto-more" onclick="wtShowMore('${k}',this)" aria-label="업무 ${Math.min(WT_RENDER_STEP,remain)}건 더 보기">
       현재 ${visible.length}건 표시 · ${Math.min(WT_RENDER_STEP,remain)}건 더 보기 (남은 ${remain}건)</button>`:'');
@@ -6794,7 +6806,108 @@ function wtCard(k,r){
       <span>${esc2(String(r[cfg.dateCol]||'예정일 미정').slice(0,10))}</span>
       <span>${esc2(String(r[cfg.doneCol]||'').slice(0,10))}</span></div>
     <div class="wt-edit">${cfg.edit.map(([col,typ])=>wtField(k,id,col,typ,r[col])).join('')}</div>
+    ${wtRowActions(k,id,r)}
   </div>`;
+}
+/* ═══ 이 건을 목록에서 빼는 두 가지 길 (2026-08-13 류지영 요청) ═══════════════
+   "삭제할수있게 해주세요!! / 정기점검이랑 동시진행으로 돌발AS로는 청구를 안할꺼라"
+
+   ★ 둘은 다른 일이고, 화면이 그 차이를 **한 줄로** 말한다. 헷갈리면 사람이
+     다녀온 현장을 지워 버린다 — 되살릴 수는 있어도 그 사이 아무도 안 간다.
+     · 청구 제외 = 다녀왔지만 이 건으로는 청구 안 함 → **기록은 남는다**
+     · 삭제      = 잘못 등록된 건 → 목록·집계·청구에서 뺀다(되살리기 가능) */
+function wtRowActions(k,id,r){
+  const off = String(r.청구제외||'')==='예';
+  return `<div class="wt-acts">
+    ${off
+      ? `<span class="chip c-skip">청구 제외 — ${esc2(String(r.청구제외사유||'사유 없음').slice(0,40))}</span>
+         <button class="wt-open" onclick="wtExclude('${k}',${esc4(id)},false)">청구 제외 풀기</button>`
+      : `<button class="wt-open" onclick="wtExclude('${k}',${esc4(id)},true)"
+           title="현장은 다녀왔고 기록도 그대로 둡니다. 이 건으로만 청구를 안 합니다.">청구 제외</button>`}
+    <button class="wt-open wt-del" onclick="wtDelete('${k}',${esc4(id)})"
+      title="잘못 등록된 건을 목록에서 뺍니다. [삭제된 건 보기]에서 되살릴 수 있습니다.">삭제</button>
+  </div>
+  <div class="wt-acthint">청구 제외 = 다녀왔지만 이 건으로는 청구 안 함(기록 남음) ·
+    삭제 = 잘못 등록된 건(되살릴 수 있음)</div>`;
+}
+function wtVer(k,id){
+  const cfg=WT_CFG[k], row=cfg.rows().find(x=>String(x[cfg.idCol]||'').trim()===id);
+  return {row, ver:Number((row||{}).DB버전||(row||{})._record_version||0)};
+}
+async function wtExclude(k,id,on){
+  const {row,ver}=wtVer(k,id);
+  let reason='';
+  if(on){
+    reason=await askText('이 건으로 청구하지 않는 이유를 적어 주세요','정기점검과 동시 진행 — 돌발AS로 청구 안 함',
+      {title:'청구 제외 — 현장 기록은 그대로 남습니다',ph:'예: 정기점검과 동시 진행 — 돌발AS로 청구 안 함',ok:'청구 제외'});
+    if(reason===null||String(reason).trim().length<2) return;
+  }else if(!await askOk('이 건을 다시 청구 대상으로 되돌릴까요?')) return;
+  try{
+    const rid=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
+    const d=await api('/api/staff/entry',{method:'POST',headers:{'Idempotency-Key':rid},
+      body:JSON.stringify({category:k,key:id,record_version:ver,
+        values:on?{청구제외:'예',청구제외사유:String(reason).trim()}:{청구제외:'아니오'},
+        reason:on?String(reason).trim():'청구 제외 해제',idempotency_key:rid})});
+    if(row){ row.청구제외=on?'예':'아니오'; if(on) row.청구제외사유=String(reason).trim();
+             row.DB버전=d.record_version||row.DB버전; row._record_version=d.record_version||row._record_version; }
+    toast(d.ok?(on?'청구 제외했습니다 — 기록은 그대로 남습니다':'다시 청구 대상입니다'):'저장 실패');
+    renderWorkTab(k);
+  }catch(e){ toast('저장 실패 — 잠시 후 다시 시도'); }
+}
+async function wtDelete(k,id,confirmDocs){
+  const {row,ver}=wtVer(k,id);
+  let reason='';
+  if(!confirmDocs){
+    reason=await askText('삭제 사유를 적어 주세요','',{title:`${id} 삭제`,
+      ph:'예: 잘못 등록 — 같은 건이 두 번 접수됨',ok:'삭제'});
+    if(reason===null||String(reason).trim().length<2) return;
+    WT_DEL_REASON[id]=String(reason).trim();
+  }else{ reason=WT_DEL_REASON[id]||'삭제'; }
+  try{
+    const rid=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
+    const d=await api('/api/staff/work-delete',{method:'POST',headers:{'Idempotency-Key':rid},
+      body:JSON.stringify({category:k,key:id,record_version:ver,reason,
+        confirm_documents:!!confirmDocs,idempotency_key:rid})});
+    if(d.needs_confirm){
+      /* ⚠ 청구자료는 **지우지 않는다**([208]). 있다는 사실만 한 번 더 묻는다. */
+      const n=(d.documents||[]).length;
+      if(await askOk(`이 건에는 청구자료가 ${n}건 있습니다(PO·명세서·계산서·입금).\n`+
+                     `그 자료는 지우지 않고 그대로 둡니다. 그래도 삭제할까요?`))
+        return wtDelete(k,id,true);
+      return;
+    }
+    if(!d.ok){ toast(d.error||'삭제 실패'); return; }
+    delete WT_DEL_REASON[id];
+    toast(d.msg||'삭제했습니다');
+    loadAll(true);
+  }catch(e){ toast('삭제 실패 — 잠시 후 다시 시도'); }
+}
+const WT_DEL_REASON={};
+async function wtShowDeleted(k){
+  try{
+    const d=await api('/api/staff/deleted-works?category='+encodeURIComponent(k));
+    if(!d.ok && d.count===null){ toast('삭제된 건을 확인하지 못했습니다'); return; }
+    const rows=d.rows||[];
+    showSheet(`삭제된 건 (${rows.length}건)`, rows.length
+      ? `<div class="ui-cards">`+rows.map(r=>`<div class="ui-card">
+           <b>${esc2(r.프로젝트NO||r.key)}</b> <span class="camp">${esc2(r.캠프명||'')}</span>
+           <div class="meta"><span>${esc2(r.key)}</span><span>${esc2(r.상태||'')}</span>
+             <span>${esc2(r.담당기사||'')}</span></div>
+           <div class="muted">${esc2(String(r.삭제근거||'').slice(0,120))}</div>
+           <button class="wt-open" onclick="wtRestore('${esc2(r.category)}',${esc4(r.key)},${r.record_version})">되살리기</button>
+         </div>`).join('')+`</div>`
+      : `<p class="muted">삭제된 건이 없습니다.</p>`);
+  }catch(e){ toast('삭제된 건을 확인하지 못했습니다'); }
+}
+async function wtRestore(k,id,ver){
+  if(!await askOk(`${id} 을(를) 되살릴까요? 목록에 다시 보입니다.`)) return;
+  try{
+    const rid=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
+    const d=await api('/api/staff/work-restore',{method:'POST',headers:{'Idempotency-Key':rid},
+      body:JSON.stringify({category:k,key:id,record_version:Number(ver||0),idempotency_key:rid})});
+    if(!d.ok){ toast(d.error||'되살리기 실패'); return; }
+    toast(d.msg||'되살렸습니다'); closeSheet&&closeSheet(); loadAll(true);
+  }catch(e){ toast('되살리기 실패 — 잠시 후 다시 시도'); }
 }
 function wtField(k,id,col,typ,cur){
   const key=id+'|'+col, pend=WT_PENDING[key]!==undefined;
@@ -10848,6 +10961,23 @@ function renderDataHealth(){
       <span>${pipelineBusy?esc2([LIVE_SYNC.label,LIVE_SYNC.currentStage].filter(Boolean).join(' · ')||'자료를 갱신하고 있습니다.'):archivePending?esc2(LIVE_SYNC.label||'Excel 보관 대기'):'기존 화면은 유지하고 서버 revision을 다시 확인합니다.'}</span>${!pipelineBusy&&!archivePending?`<span class="err">${esc2(apiErrorText(LIVE_SYNC.error||'서버 연결 확인 필요'))}</span>`:''}</div>
       ${pipelineBusy?'<button type="button" disabled aria-busy="true">진행 중</button>':archivePending?'<button type="button" disabled>자동 대기</button>':'<button type="button" onclick="retryDataSync(this)">다시 확인</button>'}</div>`:''}</div>`;
 }
+/* ═══ 목록이 비었을 때 — '0건'과 '못 불러옴'은 다른 말이다 (2026-08-13, 분담판 [90]) ═══
+   오종현 보고: **"Db를 못불러오는지 자료가 0건으로 나오네요"**. 그 한 문장이 이 결함을
+   그대로 적고 있다 — 화면을 보는 사람이 **둘을 구별할 수 없었다.**
+   실측: 자료 묶음이 실패해도 `settleRows` 는 `[]` 로 남고 목록은
+   `조건에 맞는 건이 없습니다` 라고 **단정**한다. 실패를 말해 주는 상세 목록
+   (`renderDataHealth`)은 **실행(run) 화면 전용**이라 정산·돌발AS·정기점검 화면에는
+   머리 pill 하나뿐이다. 그래서 사람은 "자료가 없다"로 읽고, 넣을 건을 못 찾아
+   결국 엑셀에 적어 보낸다(실제로 그렇게 왔다).
+   ★ **판정도 문구도 새로 만들지 않는다** — `[251]` 이 확인필요 화면에 세운 `zeroNote`
+     한 곳을 그대로 쓴다. 처음에 여기 사본을 하나 더 만들었다가 지웠다: 두 벌이 되면
+     사전 연결(`zeroStateWhy`)·🎉 규칙이 한쪽에만 남고, 갈린 뒤엔 어느 쪽이 맞는지
+     아무도 모른다([162]). `[251]` 이 그 한 곳을 이미 지키고 있다.
+   ★ 여기서 정하는 것은 **어느 묶음이 이 목록을 채우나** 하나뿐이다.
+     `liveDataKeysForView()` 를 그대로 쓰지 않는 이유는 그것이 곁자료까지 담기
+     때문이다(settle→`erpdocs`, check→`checks`). 곁자료가 실패했다고 목록을
+     '못 불러옴'이라 하면 **멀쩡한 0건을 실패라 부르게 된다**([172]).             */
+function sectionOfMode(m){ return m==='settle'?'settlements':m==='check'?'issues':'works'; }
 function markDataSectionSuccess(key,data,targetRevision='',generation=0){
   const s=DATA_SECTION_STATE[key]; if(!s) return false;
   if(generation&&!dataSectionRequestCurrent(key,generation)) return false;
@@ -11294,12 +11424,18 @@ function needAction(r){
 /* 재무 집계의 유일한 기준. 취소건의 PO·계산서·입금은 교차입력 확인 목록에는
    보존하지만 공급가액·입금·미수·발행률에는 다시 섞지 않는다. */
 function billableSettleRows(rows){
-  return (rows||[]).filter(r=>!r.원천업무취소);
+  /* 청구에서 빠지는 이유는 **둘**이고 뜻이 다르다 (2026-08-13 류지영 요청):
+     · 원천업무취소     = 현장에 아무도 안 갔다
+     · 원천업무청구제외 = 다녀왔는데 이 건으로는 청구 안 함(정기점검 동시 진행 등)
+     서버가 둘 다 청구대상=False 로 내려 주는데 여기서 한쪽만 읽으면 **제외한 건이
+     그대로 청구에 남는다** — 화면은 멀쩡하고 오류도 안 난다([169]). */
+  return (rows||[]).filter(r=>!r.원천업무취소 && !r.원천업무청구제외);
 }
 function chip(st){
   const ok=['정상','작업완료','완료','없음'], warn=['입금 대기','방문예정','작업중','예정','접수'];
   if(String(st||'').startsWith('완료(')) return `<span class="chip c-ok">${esc2(st)}</span>`;
-  const skip=['무상','보험','무상/보험','ERP 계산서(묶음)','접수취소(유선해결)','접수취소(청구대상 아님)'];
+  const skip=['무상','보험','무상/보험','ERP 계산서(묶음)','접수취소(유선해결)','접수취소(청구대상 아님)',
+              '청구 제외(다녀옴 · 이 건으로는 청구 안 함)'];
   const cls = ok.includes(st)?'c-ok': skip.includes(st)?'c-skip': warn.includes(st)?'c-warn':'c-danger';
   return `<span class="chip ${cls}">${st||'-'}</span>`;
 }
@@ -11613,7 +11749,7 @@ function renderGroups(rows){
     ? head(`${label}별 ${names.length}묶음 · 전체 ${rows.length}건` +
            (restN ? ` — 큰 ${shown.length}묶음만 보이는 중` : '')) +
       tile('', rows, 1) + shown.map(n=>tile(n, by[n], 0)).join('') + more
-    : head('조건에 맞는 건이 없습니다') + '<div class="card">조건에 맞는 건이 없습니다</div>';
+    : zeroNote(sectionOfMode(mode),'조건에 맞는 건이 없습니다');   // 머리줄은 안 붙인다 — 셀 것이 없으면 요약도 없다
 }
 /* 묶음 하나를 시트로 연다. 담는 모양은 openListKpi 와 같아야 한다 —
    시트 안의 카드가 그 칸(종류·레코드ID·프로젝트NO)으로 원래 기록을 찾아간다. */
@@ -11667,7 +11803,7 @@ function renderSettle(){
           ${r.원천업무취소?`<span class="chip ${r.취소건청구자료충돌?'c-danger':'c-skip'}" style="font-size:13.5px">${esc2(r.처리구분||'접수취소')} · ${esc2(r.취소사유||'청구대상 아님')}</span>`:''}
           ${r.입금일?`<span>입금 ${r.입금일}</span>`:''} ${vbadge(r.정산ID)}
           ${r.적요?`<span style="flex:1 1 100%;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.적요}</span>`:''}</div>
-      </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
+      </div>`).join('') || zeroNote('settlements','조건에 맞는 건이 없습니다');
     $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('정산ID','정산ID')}${thx('구분','업무구분')}${thx('캠프','캠프명')}${thx('거래처코드','거래처코드')}
       ${thx('공급가액(부가세 별도)','공급가액',1)}${thx('명세서번호','명세서번호')}${thx('계산서','계산서발행일')}${thx('PO','PO번호')}${thx('입금일','입금일')}${thx('미수금','미수금',1)}${thx('완료일','완료일')}${thx('상태','상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('settle',${i},'${r.정산ID}')" style="cursor:pointer">
@@ -11693,7 +11829,7 @@ function renderSettle(){
           ${r.검증자?`<span>검증 ${r.검증자}${r.검증일?' · '+r.검증일:''}</span>`:''}
           ${r.긴급도==='긴급'?'<span style="color:var(--danger);font-weight:700">긴급</span>':''}
           <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</span></div>
-      </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
+      </div>`).join('') || zeroNote('works','조건에 맞는 건이 없습니다');
     $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('접수ID','접수ID')}${thx('캠프','캠프명')}${thx('접수일','접수일자')}${thx('기사','담당기사')}${thx('유·무상','유상·무상·보험')}<th>내용</th>${thx('완료일','작업완료일')}<th>완료보고서</th><th>명세서반영</th><th>ERP반영</th><th>검증자·일</th>${thx('상태','진행상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('as',${i},'${r.접수ID}')" style="cursor:pointer">
         <td><b class="prjno">${esc2(projectLabel(r))}</b></td><td>${r.접수ID||'-'}</td><td>${r.캠프명}</td><td>${r.접수일자||'-'}</td><td>${r.담당기사||'-'}</td>
@@ -11714,7 +11850,7 @@ function renderSettle(){
         <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(statOf(r))}</div>
         <div class="top"><span class="camp">${r.담당자||r.담당기사||''}</span></div>
         <div class="meta"><span class="sid">${keyOf(r)}</span><span style="flex:1">${descOf(r)}</span></div>
-      </div>`).join('') || '<div class="card">확인필요 항목이 없습니다 🎉</div>';
+      </div>`).join('') || zeroNote('issues','확인필요 항목이 없습니다');   // 🎉 는 zeroNote 가 확실할 때만 붙인다
     const cols = (issuesData.cols||[]).filter(c=>rows.some(r=>r[c])).slice(0,9);
     $('sgrid').innerHTML = `<tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openByPrj('${keyOf(r)}')" style="cursor:pointer">${
@@ -11733,7 +11869,7 @@ function renderSettle(){
           ${r.ERP판매전표?`<span>판매전표 ${r.ERP판매전표}</span>`:''}${r.거래명세서?`<span>거래명세서 ${r.거래명세서}</span>`:''}
           ${r.검증자?`<span>검증 ${r.검증자}${r.검증일?' · '+r.검증일:''}</span>`:''}
           ${r.이상발견여부==='있음'?'<span style="color:var(--danger);font-weight:700">이상발견</span>':''}</div>
-      </div>`).join('') || '<div class="card">조건에 맞는 건이 없습니다</div>';
+      </div>`).join('') || zeroNote('works','조건에 맞는 건이 없습니다');
     $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('점검ID','점검ID')}${thx('캠프','캠프명')}${thx('예정일','점검예정일')}${thx('실제점검일','실제점검일')}${thx('기사','담당기사')}${thx('이상','이상발견여부')}${thx('AS전환','돌발AS전환여부')}<th>판매전표</th><th>거래명세서</th>${thx('상태','점검상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('pm',${i},'${r.점검ID}')" style="cursor:pointer">
         <td><b class="prjno">${esc2(projectLabel(r))}</b></td><td>${r.점검ID||'-'}</td><td>${r.캠프명}</td><td>${r.점검예정일||'-'}</td><td>${r.실제점검일||'-'}</td>
@@ -16648,6 +16784,99 @@ function resetCheckFilters(){
   if($('checkowner')) $('checkowner').value='';
   renderCheckList(true);
 }
+
+/* ══ 이 메뉴 처음으로 — `resetView()` (2026-08-13 류지영 요청) ═══════════════
+   요청 원문: "검색하고 해서 작업을 하다가 다시 원래 처음 화면으로 돌아가는(새로고침)이
+   각 메뉴에 다 있었으면 좋겠습니다 / 아에 어플 처음화면이 아닌 각 메뉴의 처음화면으로!"
+
+   ★ **앱을 통째로 다시 읽지 않는다**(문서 새로고침 금지). 그러면 보고 있던 메뉴가
+     대시보드로 튕기고 열어 둔 것이 전부 사라진다 — 요청이 명시적으로 아니라고 한 것이다.
+   ★ **판정은 여기 한 곳이다.** 화면마다 되돌리기를 새로 만들면 사본이 여럿 되어
+     한쪽만 고쳐진다([162]). 이미 있던 되돌리기(`resetCheckFilters`·`wtReset`·`setMode`)는
+     **다시 만들지 않고 그대로 불러 쓴다**.
+   ★ **되돌린 뒤 자료도 다시 받는다** — 그게 '새로고침'의 뜻이다. 새 fetch 경로를
+     만들지 않고 그 화면이 이미 쓰는 로더를 부른다.
+   ★ **입력하던 것을 말없이 날리지 않는다** — 저장 안 된 초안이 있으면 먼저 묻는다
+     (공용 `askYesNo`. 새 팝업 레이어를 만들지 않는다, [202]).
+     초안 자체는 지우지 않는다 — 지우는 것은 저장 성공 뒤 `draftClear` 몫이다. */
+function _rvCall(fn, ...a){
+  try{ if(typeof window[fn]==='function') return window[fn](...a); }catch(e){ console.error('resetView:'+fn, e); }
+}
+function _rvSet(id, val){ const el=$(id); if(el) el.value=val; }
+/* 저장 안 된 초안이 있나. 값이 없는 것과 못 읽은 것을 가른다 — 못 읽으면 '있다'로
+   본다([169]). 모르면서 조용히 날리는 것보다 한 번 묻는 편이 싸다. */
+function _rvHasDraft(){
+  if(_draftDirty) return true;
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k && k.indexOf(DRAFT_NS)===0) return true;
+    }
+    return false;
+  }catch(_){ return true; }
+}
+/* 메뉴마다 무엇을 되돌리고 무엇으로 다시 받는지 — 표 한 벌. 새 메뉴가 생기면 여기 한 줄.
+   `clear` 가 없는 메뉴는 되돌릴 상태(검색·필터)가 없는 메뉴다. 그래도 시트를 닫고
+   맨 위로 올리고 자료를 다시 받는다 — '아무것도 안 하는 단추'를 두지 않는다. */
+const VIEW_RESET = {
+  dash:    {name:'대시보드'},
+  center:  {name:'업무센터',   reload:()=>_rvCall('renderCenter')},
+  pm:      {name:'정기점검',   clear:()=>_rvCall('wtReset','pm'), reload:()=>_rvCall('loadSettle',true)},
+  as:      {name:'돌발 AS',    clear:()=>_rvCall('wtReset','as'), reload:()=>_rvCall('loadSettle',true)},
+  sources: {name:'원본 자료',
+            clear:()=>{ _rvSet('srcQ',''); _rvSet('dlwQ',''); _rvSet('dlwSince',''); _rvSet('dlwUntil','');
+                        try{ SRC_G=''; SRC_M=''; SRC_Y=''; }catch(_){} },
+            reload:()=>_rvCall('loadSources')},
+  remote:  {name:'리모컨',     reload:()=>_rvCall('renderRemoteCard','remoteHost')},
+  flow:    {name:'워크플로우', reload:()=>_rvCall('loadFlow')},
+  settle:  {name:'정산',
+            /* 검색·상태·기간·정렬·묶음 펼침까지. `setMode('settle')` 이 세그먼트와
+               정렬(resetSort)·상태 목록·다시 그리기를 이미 다 한다. */
+            clear:()=>{ _rvSet('q',''); _rvSet('fstat',''); _rvSet('fperiod','');
+                        _rvSet('fd1',''); _rvSet('fd2','');
+                        const fd=$('fdates'); if(fd) fd.classList.remove('on');
+                        window._grpAll=null;
+                        _rvCall('setMode','settle'); },
+            reload:()=>_rvCall('loadSettle',true)},
+  run:     {name:'실행',       reload:()=>{ _rvCall('pollLog'); _rvCall('loadAutomationStatus',true); }},
+  daily:   {name:'보고',       reload:()=>_rvCall('renderDaily')},
+  check:   {name:'확인 필요',  clear:()=>_rvCall('resetCheckFilters'), reload:()=>_rvCall('loadSettle',true)},
+  report:  {name:'기록',       clear:()=>{ try{ curReport=0; }catch(_){} }, reload:()=>_rvCall('loadReports')},
+  ryu:     {name:'업무센터',   reload:()=>_rvCall('loadRyuRecords',true)},
+  worklog: {name:'대표보고 일지', reload:()=>_rvCall('loadWorkLogStatus')},
+  calendar:{name:'쿠팡 캘린더',
+            clear:()=>{ try{ CAL_OFF.clear(); }catch(_){}
+                        try{ CAL_DAY=''; CAL_MONTH=calDefaultMonth(); }catch(_){} },
+            reload:()=>_rvCall('loadCalendar',true)},
+  org:     {name:'조직도',     reload:()=>_rvCall('orgLoad',true)},
+  revenue: {name:'매출 실적',  clear:()=>_rvSet('revYearKind',''), reload:()=>_rvCall('loadRevenue',true)}
+};
+async function resetView(v){
+  const key = v || curView();
+  const def = VIEW_RESET[key] || {};
+  if(_rvHasDraft()){
+    const ok = await askYesNo(
+      '입력하던 내용이 있습니다. 그래도 이 메뉴를 처음 화면으로 되돌릴까요?\n'+
+      '(입력하던 내용은 지워지지 않고 그대로 보관됩니다)',
+      {title:'이 메뉴 처음으로', yes:'되돌리기', no:'그만두기'});
+    if(!ok) return false;
+  }
+  const btn=$('viewResetBtn'); if(btn) btn.disabled=true;
+  try{
+    try{ closeSheetAll(); }catch(_){}
+    try{ if(def.clear) def.clear(); }catch(e){ console.error('resetView.clear',e); }
+    try{ window.scrollTo(0,0); }catch(_){}
+    const sec=$('v-'+key); if(sec){ try{ sec.scrollTop=0; }catch(_){} }
+    try{ uxEvent('tap','view-reset',key); }catch(_){}
+    /* 되돌리기와 자료 다시 받기는 다른 일이다. 로더가 없는 메뉴는 공용 갱신으로 받는다 —
+       안 받으면 '새로고침'이라 부를 수 없다. */
+    try{ if(def.reload) await def.reload(); else await apiFresh(refreshAll); }
+    catch(e){ console.error('resetView.reload',e); }
+    try{ toast((def.name||'이 메뉴')+' 화면을 처음 상태로 되돌렸습니다'); }catch(_){}
+  } finally { if(btn) btn.disabled=false; }
+  return true;
+}
+
 const CHECK_RENDER_STEP=100;
 let checkRenderLimit=CHECK_RENDER_STEP;
 function showMoreChecks(button){
