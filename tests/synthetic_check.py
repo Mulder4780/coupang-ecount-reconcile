@@ -19252,6 +19252,28 @@ def t264_fixed_funnel_is_a_separate_guarded_failure_domain():
     print("[264] 고정 Tailscale Funnel 3회 판정 · 비동기 재등록 · origin 감시 분리 OK")
 
 
+def t265_staff_server_manager_has_three_independent_recovery_lines():
+    """[265] 두 담당자 업무센터와 관리 에이전트 자체를 따로 지킨다."""
+    guard_path = os.path.join(ROOT, "webapp", "server_guard.py")
+    guard = open(guard_path, encoding="utf-8").read()
+    compile(guard, guard_path, "exec")
+    for token in ('"/staff/ryu-jiyeong"', '"/staff/oh-jonghyeon"',
+                  "def staff_centers_alive(", "STAFF_CHECK_SECONDS = 30",
+                  "STAFF_FAIL_LIMIT = 3", "STAFF_RESTART_COOLDOWN = 900",
+                  'b"Coupang Service Operations System"',
+                  "류지영·오종현 업무센터"):
+        assert token in guard, "담당자 업무센터 감시 누락: " + token
+    watchdog = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    assert "def heal_server_guard(" in watchdog and "heal_server_guard(dry), heal_server(dry)" in watchdog, \
+        "guard↔tunnel 둘이 같이 죽었을 때 독립 워치독 복구선이 없다"
+    installer = open(os.path.join(ROOT, "install_server_guard_schedule.ps1"), encoding="utf-8").read()
+    for token in ("schtasks.exe", "/SC MINUTE /MO 5", "-AllowStartIfOnBatteries",
+                  "-DontStopIfGoingOnBatteries", "-ExecutionTimeLimit ([TimeSpan]::Zero)",
+                  "New-ItemProperty -Path $RunKey"):
+        assert token in installer, "서버 관리 에이전트 설치 안전망 누락: " + token
+    print("[265] 류지영·오종현 경로 감시 · 3중 자가복구 · 5분 예약/로그인 시작 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19371,6 +19393,7 @@ if __name__ == "__main__":
     t262_ceo_directive_is_visible_in_saved_capture()
     t263_server_guard_and_lossless_offline_outbox()
     t264_fixed_funnel_is_a_separate_guarded_failure_domain()
+    t265_staff_server_manager_has_three_independent_recovery_lines()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

@@ -63,14 +63,40 @@ try {
     Start-ScheduledTask -TaskName $TaskName
     Write-Host "Registered and started scheduled task: $TaskName"
 } catch {
-    # Some managed PCs deny creating a new scheduled task even for the current user.
-    # HKCU Run needs no administrator permission.  tunnel_run.py checks the guard
-    # heartbeat every 90 seconds, so it also replaces the guard if it later disappears.
+    $RegisterError = $_.Exception.Message
     $Guard = Join-Path $Root "webapp\server_guard.py"
     $RunCommand = '"{0}" "{1}"' -f $Pythonw, $Guard
-    New-Item -Path $RunKey -Force | Out-Null
-    New-ItemProperty -Path $RunKey -Name $RunName -Value $RunCommand `
-        -PropertyType String -Force | Out-Null
-    Start-Process -FilePath $Pythonw -ArgumentList @($Guard) -WorkingDirectory $Root -WindowStyle Hidden
-    Write-Warning "Task Scheduler denied registration. Installed per-user logon startup instead: $RunName"
+    try {
+        # Register-ScheduledTask is denied on some managed PCs even though the
+        # current user may create an interactive task through schtasks.exe.
+        # Keep the five-minute task and HKCU logon start together: the singleton
+        # socket makes duplicate launches harmless, while either path can revive
+        # the manager if the other one is unavailable.
+        & schtasks.exe /Create /TN $TaskName /TR $RunCommand /SC MINUTE /MO 5 /F /IT /RL LIMITED | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "schtasks.exe exit $LASTEXITCODE"
+        }
+        $FallbackSettings = New-ScheduledTaskSettingsSet `
+            -StartWhenAvailable `
+            -MultipleInstances IgnoreNew `
+            -AllowStartIfOnBatteries `
+            -DontStopIfGoingOnBatteries `
+            -ExecutionTimeLimit ([TimeSpan]::Zero) `
+            -RestartCount 3 `
+            -RestartInterval (New-TimeSpan -Minutes 1)
+        Set-ScheduledTask -TaskName $TaskName -Settings $FallbackSettings | Out-Null
+        New-Item -Path $RunKey -Force | Out-Null
+        New-ItemProperty -Path $RunKey -Name $RunName -Value $RunCommand `
+            -PropertyType String -Force | Out-Null
+        Start-ScheduledTask -TaskName $TaskName
+        Write-Warning "Primary registration denied ($RegisterError). Installed five-minute task + logon startup: $TaskName"
+    } catch {
+        # Last fallback needs no Task Scheduler permission. tunnel_run.py and the
+        # 30-minute watchdog independently check the guard heartbeat as well.
+        New-Item -Path $RunKey -Force | Out-Null
+        New-ItemProperty -Path $RunKey -Name $RunName -Value $RunCommand `
+            -PropertyType String -Force | Out-Null
+        Start-Process -FilePath $Pythonw -ArgumentList @($Guard) -WorkingDirectory $Root -WindowStyle Hidden
+        Write-Warning "Task registration failed. Installed per-user logon startup instead: $RunName"
+    }
 }

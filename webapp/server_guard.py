@@ -45,6 +45,10 @@ HEARTBEAT_SECONDS = 30
 FIXED_FUNNEL_CHECK_SECONDS = 60
 FUNNEL_FAIL_LIMIT = 3
 FUNNEL_REPAIR_COOLDOWN = 300
+STAFF_PATHS = ("/staff/ryu-jiyeong", "/staff/oh-jonghyeon")
+STAFF_CHECK_SECONDS = 30
+STAFF_FAIL_LIMIT = 3
+STAFF_RESTART_COOLDOWN = 900
 _FUNNEL_REPAIR_LOCK = threading.Lock()
 
 
@@ -108,6 +112,31 @@ def ping(timeout: float = PING_TIMEOUT) -> bool:
             return response.status == 200 and b"coupang-work" in response.read(2048)
     except Exception:
         return False
+
+
+def staff_centers_alive(timeout: float = PING_TIMEOUT) -> dict[str, bool]:
+    """Probe both staff entry pages, not only the generic process ping.
+
+    A process can answer /api/ping while a route or the HTML response is broken.
+    Reading only the first 16 KiB keeps this cheap while proving that the real
+    work-center shell reached 류지영 and 오종현's paths.
+    """
+    result = {}
+    for path in STAFF_PATHS:
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{PORT}{path}?guard={time.time_ns()}",
+                headers={"Cache-Control": "no-cache", "User-Agent": "CSOS-Server-Manager"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                body = response.read(16384)
+                result[path] = (
+                    response.status == 200
+                    and b"Coupang Service Operations System" in body
+                )
+        except Exception:
+            result[path] = False
+    return result
 
 
 def _cmdline_pids(needle: str, *, production_server: bool = False):
@@ -292,6 +321,9 @@ def main() -> int:
     next_fixed_funnel_check = 0.0
     funnel_failures = 0
     last_funnel_repair = 0.0
+    next_staff_check = 0.0
+    staff_failures = 0
+    last_staff_restart = 0.0
     last_state = ""
     while True:
         try:
@@ -309,6 +341,37 @@ def main() -> int:
                     _log("앱 서버 정상", state="healthy", consecutive_failures=0)
                 failures = 0
                 last_state = "healthy"
+
+                if now >= next_staff_check:
+                    next_staff_check = now + STAFF_CHECK_SECONDS
+                    staff_health = staff_centers_alive()
+                    failed_staff = [path for path, ok in staff_health.items() if not ok]
+                    if not failed_staff:
+                        if staff_failures:
+                            _log(
+                                "류지영·오종현 업무센터 정상 복귀",
+                                state="healthy", staff_centers=staff_health,
+                                consecutive_staff_failures=0,
+                            )
+                        staff_failures = 0
+                    else:
+                        staff_failures += 1
+                        if staff_failures == 1:
+                            _log(
+                                "담당자 업무센터 응답 지연 감지 — 오탐 방지 재확인",
+                                state="staff-degraded", staff_centers=staff_health,
+                                failed_staff_paths=failed_staff,
+                                consecutive_staff_failures=staff_failures,
+                            )
+                        if (staff_failures >= STAFF_FAIL_LIMIT
+                                and now - last_staff_restart >= STAFF_RESTART_COOLDOWN):
+                            last_staff_restart = now
+                            last_restart = now
+                            ok = restart_server(
+                                "류지영·오종현 업무센터 %d회 연속 실패" % staff_failures
+                            )
+                            staff_failures = 0 if ok else STAFF_FAIL_LIMIT
+                            last_state = "healthy" if ok else "restart-failed"
 
                 # The fixed URL is a different failure domain from the local origin.
                 # A healthy 127.0.0.1 must never be accepted as proof that a phone can enter.

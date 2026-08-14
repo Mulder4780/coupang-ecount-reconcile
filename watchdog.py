@@ -137,6 +137,30 @@ def heal_server(dry):
     return "서버 재시작 → " + ("성공" if ping() else "실패(다음 주기 재시도)")
 
 
+def heal_server_guard(dry):
+    """Third recovery line for the lightweight server manager.
+
+    The guard and tunnel supervisor normally revive each other.  The scheduled
+    30-minute watchdog is deliberately independent, so it can restore the guard
+    even when both long-lived processes disappeared together.
+    """
+    status = os.path.join(ROOT, "reports", "server_guard_status.json")
+    try:
+        age = time.time() - os.path.getmtime(status)
+        if age <= 120:
+            return "서버 관리 에이전트 정상"
+    except OSError:
+        age = None
+    if dry:
+        return "서버 관리 에이전트 heartbeat 없음(dry)"
+    try:
+        from webapp.tunnel_run import ensure_server_guard
+        ok = ensure_server_guard(max_age=120)
+        return "서버 관리 에이전트 자동 시작" if ok else "서버 관리 에이전트 시작 실패"
+    except Exception as exc:
+        return "서버 관리 에이전트 확인 오류: %s" % str(exc)[:60]
+
+
 def heal_stale_server(dry):
     """살아 있지만 **옛 코드로 도는** 서버를 스스로 새 코드로 올린다 (2026-08-08).
 
@@ -664,7 +688,8 @@ def main():
     # 워치독이 낮은 버전 포크를 OLD로 옮겨 증거를 숨기는 일을 막는다.
     gap = gap_note(last_log_line(), datetime.now())     # 기록은 healing 전에 읽는다
     results = [run_incremental_pipeline(dry), sync_uploads(dry), sync_worklog(dry),
-               sync_cloud_queue(dry), heal_server(dry), heal_fixed_funnel(dry),
+               sync_cloud_queue(dry), heal_server_guard(dry), heal_server(dry),
+               heal_fixed_funnel(dry),
                # ★ 근거 정정이 **붙여넣기 파일 만들기보다 먼저**다 — 목록에 담을 번호를
                #   정하는 것이 그 근거다(2026-08-11, `[223]`).
                heal_band_evidence(dry),
