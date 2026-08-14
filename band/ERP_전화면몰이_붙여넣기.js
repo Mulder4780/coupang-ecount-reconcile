@@ -265,4 +265,3 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: ["ledger", "tax", "sl
   A.요약 = `받음 ${A.받음} · 실패 ${A.실패} · 건너뜀 ${A.건너뜀} / 전체 ${PLAN.length}`;
 })();
 window.__ERPALL;
-
