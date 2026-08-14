@@ -168,9 +168,12 @@ def gui():
         def work():
             local_returncode = 1
             try:
+                from proc_guard import background_popen_kwargs
                 p = subprocess.Popen([PY] + args, cwd=ROOT, env=ENV,
+                                     stdin=subprocess.DEVNULL,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     text=True, encoding="utf-8", errors="replace")
+                                     text=True, encoding="utf-8", errors="replace",
+                                     **background_popen_kwargs())
                 for ln in p.stdout:
                     if "UserWarning" not in ln and "warn(msg)" not in ln:
                         log(ln.rstrip())

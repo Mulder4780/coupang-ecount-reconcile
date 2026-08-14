@@ -2380,6 +2380,28 @@ db로 저장되고 나중에 엑셀을 한번에 업데이트할 수 있게 류�
   추론해 실행하지 않는다.
 - 검증 `[269]`.
 
+## ★ Claude Code·Codex 자동 작업은 창 없는 백그라운드 CLI로만 (2026-08-14 지시)
+
+사용자 지시: **"작업할 때 클로드코드나 코덱스 모드 팝업 좀 안 뜨게 백그라운드에서
+띄워 작업하게 코딩해"**
+
+- 프로젝트 자동 인계는 데스크톱 Claude/Codex 앱을 실행하지 않는다. **Claude Code CLI의
+  print 모드(`claude -p`)** 또는 **Codex 비대화식 모드(`codex exec`)**만 쓴다. 같은 이름의
+  WindowsApps·`Programs\Claude`·`Programs\Codex` GUI 실행파일은 사용 가능 에이전트로
+  인정하지 않고, CLI가 없으면 대기열에 `사용 불가`로 남긴다.
+- 모든 자식 실행은 `proc_guard.background_popen_kwargs()` 한 곳을 거친다. Windows에서는
+  `CREATE_NO_WINDOW`와 `STARTUPINFO(SW_HIDE)`를 둘 다 적용하고 stdin은 `DEVNULL`로 닫는다.
+  하나만 쓰면 포장 실행파일이 다른 쪽을 무시해 콘솔·로그인 질문 창이 다시 나타날 수 있다.
+- 백그라운드 에이전트 환경은 `CI=1`·`TERM=dumb`·`NO_COLOR=1`을 명시한다. 인증키를 새로
+  환경변수에 넣지 않으며 저장된 CLI 인증만 쓴다. 로그인·권한 질문이 필요하면 창을 띄워
+  기다리지 않고 실패/대기로 기록한다.
+- 앱 업무 실행기와 `agent_dispatch.dispatch_async`도 같은 관문을 쓴다. stdout/stderr는
+  티켓의 `reports/agent_dispatch/*.log`와 상태 JSON으로 남기고, 사람 화면으로 터미널을
+  올리거나 포커스를 가져오지 않는다.
+- **사람이 직접 연 Claude/Codex 데스크톱 창은 건드리지 않는다.** 프로젝트가 새 GUI 창을
+  자동으로 열지 않는 것이 이 규칙의 범위다.
+- 검증 `[270]`.
+
 ## 핵심 금지사항 (상세는 ecount/AGENTS.md)
 - 관리대장을 openpyxl로 열어 save() 금지 (차트·도형 파괴) — 수정은 zip 패치 도구만
 - 비밀키(config/*.json)를 커밋·채팅·엑셀에 넣기 금지

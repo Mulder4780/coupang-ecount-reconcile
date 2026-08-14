@@ -19389,6 +19389,55 @@ def t269_devtools_only_on_three_foreground_chrome_pages_at_noon():
     print("[269] 전면 Chrome·정확한 3페이지 관문 · 포커스/탭 이동 금지 · 매일 12시 1회·명령 수동실행 OK")
 
 
+def t270_ai_workers_never_raise_a_console_or_desktop_app():
+    """[270] Claude Code·Codex 자동 인계는 CLI 비대화식·숨김 자식으로만 돈다."""
+    from pathlib import Path as _Path
+    from unittest.mock import patch as _patch
+    import agent_dispatch as A
+    import proc_guard as PG
+
+    kwargs = PG.background_popen_kwargs()
+    if os.name == "nt":
+        assert kwargs.get("creationflags", 0) & getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        si = kwargs.get("startupinfo")
+        assert si is not None and si.dwFlags & getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+        assert si.wShowWindow == getattr(subprocess, "SW_HIDE", 0)
+
+    # 공용 실행기는 숨김 플래그뿐 아니라 stdin도 닫는다. 로그인/권한 질문이 생겨도
+    # 콘솔을 요구하거나 사람 화면을 기다리지 않고 EOF로 끝나야 한다.
+    result = PG.run_tree([
+        sys.executable, "-c",
+        "import json,sys;print(json.dumps({'stdin':sys.stdin.read(1),'tty':sys.stdout.isatty()}))",
+    ], cwd=ROOT, timeout=10, drain_timeout=3)
+    proof = json.loads((result.stdout or "{}").strip())
+    assert proof == {"stdin": "", "tty": False}, proof
+
+    # 같은 이름의 Windows 데스크톱 앱은 자동 인계 실행파일로 인정하지 않는다.
+    gui = r"C:\Users\x\AppData\Local\Programs\Claude\Claude.exe"
+    winapp = r"C:\Program Files\WindowsApps\Claude_1.0\app\Claude.exe"
+    cli = r"C:\Users\x\AppData\Roaming\Claude\claude-code\2.1.229\claude.exe"
+    with _patch.object(A.shutil, "which", return_value=winapp), \
+         _patch.object(A.glob, "glob", return_value=[gui]), \
+         _patch.object(A.os.path, "isfile", return_value=True):
+        assert A.resolve_agent_executable("claude") == "", \
+            "Claude 데스크톱 GUI를 CLI로 골라 앱 창을 띄운다"
+    with _patch.object(A.shutil, "which", return_value=""), \
+         _patch.object(A.glob, "glob", return_value=[cli]), \
+         _patch.object(A.os.path, "isfile", return_value=True):
+        assert A.resolve_agent_executable("claude").lower().endswith("claude.exe")
+
+    src = open(os.path.join(ROOT, "agent_dispatch.py"), encoding="utf-8").read()
+    async_body = src.split("def dispatch_async(", 1)[1].split("\ndef ", 1)[0]
+    run_body = src.split("def run_ticket(", 1)[1].split("\ndef ", 1)[0]
+    assert 'if agent == "codex"' in src and 'return [executable, "exec"' in src
+    assert "background_popen_kwargs()" in async_body and "stdin=subprocess.DEVNULL" in async_body
+    assert run_body.count("env=_background_agent_env()") >= 2
+    assert "CI" in src and "TERM" in src and "CSOS_BACKGROUND_AGENT" in src
+    bench = open(os.path.join(ROOT, "coupang_workbench.py"), encoding="utf-8").read()
+    assert "background_popen_kwargs" in bench and "stdin=subprocess.DEVNULL" in bench
+    print("[270] Claude/Codex 자동 인계는 GUI 앱 배제 · 비대화식 CLI · 콘솔/입력창 없는 백그라운드 실행 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19513,6 +19562,7 @@ if __name__ == "__main__":
     t267_yoo_subi_capture_and_official_erp_api()
     t268_background_refresh_never_blocks_work()
     t269_devtools_only_on_three_foreground_chrome_pages_at_noon()
+    t270_ai_workers_never_raise_a_console_or_desktop_app()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

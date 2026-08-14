@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from proc_guard import run_tree
+from proc_guard import background_popen_kwargs, run_tree
 
 
 ROOT = Path(__file__).resolve().parent
@@ -91,14 +91,15 @@ def resolve_agent_executable(name: str) -> str:
         candidates.append(direct)
     local = os.environ.get("LOCALAPPDATA", "")
     roaming = os.environ.get("APPDATA", "")
+    # Only known CLI install layouts belong here.  Desktop GUI executables can share
+    # the same basename (Claude.exe/Codex.exe); starting one would raise the app and
+    # interrupt the operator instead of consuming a background ticket.
     patterns = {
         "codex": [
             os.path.join(local, "OpenAI", "Codex", "bin", "*", "codex.exe"),
-            os.path.join(local, "Programs", "Codex", "**", "codex.exe"),
         ],
         "claude": [
             os.path.join(roaming, "Claude", "claude-code", "*", "claude.exe"),
-            os.path.join(local, "Programs", "Claude", "**", "claude.exe"),
         ],
     }[name]
     for pattern in patterns:
@@ -110,7 +111,13 @@ def resolve_agent_executable(name: str) -> str:
             continue
         seen.add(candidate.lower())
         # Microsoft Store 별칭은 존재해도 Access denied가 날 수 있으므로 실제 파일 우선.
-        if "windowsapps" in candidate.lower():
+        low = candidate.lower().replace("/", "\\")
+        if "windowsapps" in low:
+            continue
+        if name == "claude" and "\\programs\\claude\\" in low and \
+                "\\claude-code\\" not in low:
+            continue
+        if name == "codex" and "\\programs\\codex\\" in low and "\\bin\\" not in low:
             continue
         return candidate
     return ""
@@ -318,6 +325,22 @@ def _agent_command(agent: str, executable: str, prompt: str, last_message: Path,
     return [executable, *extra, "-p", prompt, "--output-format", "text"]
 
 
+def _background_agent_env() -> dict[str, str]:
+    """Environment contract for unattended Claude Code/Codex CLI work.
+
+    No credentials are added here.  The markers only suppress colour/TUI behaviour
+    and make it explicit to descendants that there is no interactive terminal.
+    """
+    env = os.environ.copy()
+    env.update({
+        "CI": "1",
+        "NO_COLOR": "1",
+        "TERM": "dumb",
+        "CSOS_BACKGROUND_AGENT": "1",
+    })
+    return env
+
+
 def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, Any]:
     """한 티켓을 실제 AI CLI로 소비하고 상태를 원자적으로 남긴다."""
     path = Path(ticket_path)
@@ -376,7 +399,8 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
     _atomic_json(path, record)
     command = _agent_command(agent, executable, prompt, last_message, chosen)
     try:
-        result = run_tree(command, cwd=ROOT, timeout=AGENT_TIMEOUT_SECONDS,
+        result = run_tree(command, cwd=ROOT, env=_background_agent_env(),
+                          timeout=AGENT_TIMEOUT_SECONDS,
                           drain_timeout=60, output_limit=200_000)
         combined = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
         if result.timed_out:
@@ -405,7 +429,8 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
                     "codex", codex_executable,
                     _ticket_prompt(record, local_returncode), last_message,
                 )
-                result = run_tree(command, cwd=ROOT, timeout=AGENT_TIMEOUT_SECONDS,
+                result = run_tree(command, cwd=ROOT, env=_background_agent_env(),
+                                  timeout=AGENT_TIMEOUT_SECONDS,
                                   drain_timeout=60, output_limit=200_000)
                 codex_output = (result.stdout or "") + (
                     "\n" + result.stderr if result.stderr else ""
@@ -444,12 +469,13 @@ def dispatch_async(ticket: dict[str, Any], local_returncode: int = 0) -> bool:
     ticket_path = ticket.get("_path")
     if not ticket_path:
         return False
-    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    env = _background_agent_env()
     subprocess.Popen(
         [sys.executable, str(Path(__file__).resolve()), "--run-ticket", str(ticket_path),
          "--local-returncode", str(int(local_returncode))],
-        cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        creationflags=creationflags,
+        cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        **background_popen_kwargs(),
     )
     return True
 

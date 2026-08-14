@@ -22,15 +22,36 @@ class ProcessResult:
     stuck_pid: int = 0
 
 
+def background_popen_kwargs() -> dict:
+    """Windows child-process settings that can never create or activate a console.
+
+    ``CREATE_NO_WINDOW`` is the primary boundary for console programs.  ``SW_HIDE``
+    is intentionally applied as a second boundary because launchers and packaged
+    executables do not all honour console creation flags in the same way.  Keeping
+    this in one function prevents Claude/Codex and ordinary scheduled workers from
+    slowly growing different popup behaviour.
+    """
+    if os.name != "nt":
+        return {}
+    startup = subprocess.STARTUPINFO()
+    startup.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    startup.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+    return {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        "startupinfo": startup,
+    }
+
+
 def _kill_tree(process: subprocess.Popen) -> None:
     if os.name == "nt":
         try:
             # taskkill 자체도 무한정 기다리지 않는다. 이 호출은 로컬 프로세스 표만 본다.
             killer = subprocess.Popen(
                 ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                **background_popen_kwargs(),
             )
             try:
                 killer.wait(timeout=20)
@@ -54,17 +75,17 @@ def run_tree(
     output_limit: int = 200_000,
 ) -> ProcessResult:
     """명령을 실행하고 시간 초과 시 자식 나무를 끊은 뒤 반드시 반환한다."""
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     process = subprocess.Popen(
         list(command),
         cwd=cwd,
         env=dict(env) if env is not None else None,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
-        creationflags=flags,
+        **background_popen_kwargs(),
     )
     try:
         stdout, stderr = process.communicate(timeout=timeout)
