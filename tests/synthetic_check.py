@@ -19438,6 +19438,57 @@ def t270_ai_workers_never_raise_a_console_or_desktop_app():
     print("[270] Claude/Codex 자동 인계는 GUI 앱 배제 · 비대화식 CLI · 콘솔/입력창 없는 백그라운드 실행 OK")
 
 
+def t271_pc_off_cloud_snapshot_and_lossless_return():
+    """[271] PC OFF는 외부 암호문 조회·D1 예약, PC 복귀는 lease/ack 합류다."""
+    from unittest.mock import patch as _patch
+    import cloud_publish as CP
+
+    app = open(os.path.join(ROOT, "docs", "app.html"), encoding="utf-8").read()
+    publisher = open(os.path.join(ROOT, "cloud_publish.py"), encoding="utf-8").read()
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    sw = open(os.path.join(ROOT, "docs", "sw.js"), encoding="utf-8").read()
+
+    assert "CLOUD_SNAPSHOT_API" in app and "/api/snapshot" in app
+    assert "candidates.push({enc:out.payload, source:'cloud'" in app
+    assert "candidates.push({enc:await r.json(), source:'pages'" in app
+    assert "클라우드 연속운영 정상" in app and "중복 없이 자동 반영" in app
+    assert "data.enc" in sw and "continuity-v2" in sw
+    assert 'write_pages_copy = "--cloud" not in sys.argv' in publisher, \
+        "10분 클라우드 회차가 추적 중인 data.enc를 매번 더럽힌다"
+    assert '"/api/snapshot"' in publisher and '"Authorization": "Bearer " + token' in publisher
+    assert "CLOUD_PUBLISH_EVERY = 10 * 60" in server
+    assert "PAGES_PUBLISH_EVERY = 3 * 3600" in server
+    loop = server.split("def publish_loop():", 1)[1].split("\n\nclass _Server", 1)[0]
+    assert "cloud_queue_sync.py" in loop and loop.index("cloud_queue_sync.py") < loop.index("cloud_publish.py"), \
+        "PC 복귀 예약 합류보다 새 사본 게시가 먼저 돈다"
+
+    # 같은 업무 내용이면 D1 대형 암호문을 다시 쓰지 않되, 실제 클라우드에 사본이
+    # 존재한다는 ping 근거가 없으면 반드시 POST로 복구한다.
+    sealed = {"v": 1, "kdf": "PBKDF2-SHA256", "cipher": "AES-256-CBC",
+              "salt": "s", "iv": "i", "ct": "c", "tag": "t"}
+    prior = {"ok": True, "content_sha256": "same", "generated_at": "2026-08-14 20:00"}
+    calls = []
+    with _patch.object(CP, "_cloud_config", return_value=("https://cloud.example", "x" * 40)), \
+         _patch.object(CP, "_load_cloud_report", return_value=prior), \
+         _patch.object(CP, "_save_cloud_report"), \
+         _patch.object(CP, "_cloud_request", side_effect=lambda u, t, p, body=None, timeout=35:
+                       calls.append((p, body)) or ({"ok": True, "snapshot": {"available": True}}
+                       if p == "/api/ping" else {"ok": True, "changed": True, "sha256": "z"})):
+        out = CP.upload_cloud_snapshot(sealed, "2026-08-14 20:10", "same")
+    assert out["ok"] and out["unchanged"] and calls == [("/api/ping", None)]
+
+    calls = []
+    with _patch.object(CP, "_cloud_config", return_value=("https://cloud.example", "x" * 40)), \
+         _patch.object(CP, "_load_cloud_report", return_value=prior), \
+         _patch.object(CP, "_save_cloud_report"), \
+         _patch.object(CP, "_cloud_request", side_effect=lambda u, t, p, body=None, timeout=35:
+                       calls.append((p, body)) or ({"ok": True, "snapshot": {"available": False}}
+                       if p == "/api/ping" else {"ok": True, "changed": True, "sha256": "z"})):
+        out = CP.upload_cloud_snapshot(sealed, "2026-08-14 20:10", "same")
+    assert out["uploaded"] and [x[0] for x in calls] == ["/api/ping", "/api/snapshot"]
+    print("[271] PC OFF 클라우드 암호문 우선·Pages/기기 폴백·D1 예약·PC 복귀 무손실 자동합류 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19563,6 +19614,7 @@ if __name__ == "__main__":
     t268_background_refresh_never_blocks_work()
     t269_devtools_only_on_three_foreground_chrome_pages_at_noon()
     t270_ai_workers_never_raise_a_console_or_desktop_app()
+    t271_pc_off_cloud_snapshot_and_lossless_return()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
