@@ -483,6 +483,12 @@ def auth_cookie(token):
             "HttpOnly; SameSite=Strict")
 
 
+def clear_auth_cookie():
+    """현재 브라우저의 서명 세션만 끝낸다. 다른 관리자·담당자 기기는 유지한다."""
+    return ("csos_session=; Path=/; Max-Age=0; "
+            "Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Strict")
+
+
 def auth_session_from_cookie(cookie_header):
     token = ""
     for part in str(cookie_header or "").split(";"):
@@ -8693,6 +8699,14 @@ self.addEventListener('fetch', e => {
                 }, headers={"Set-Cookie": cookie})
             except ValueError as exc:
                 return self._send(400, {"ok": False, "error": str(exc)})
+        if p == "/api/auth/logout":
+            # 로그아웃은 권한을 새로 주는 요청이 아니라 **호출한 브라우저의 쿠키만**
+            # 만료시키는 요청이다. 이미 만료된 기기에서도 다시 누를 수 있게 인증 관문
+            # 앞에 둔다. 역할 버전은 건드리지 않아 다른 기기를 로그아웃시키지 않는다.
+            return self._send(200, {
+                "ok": True,
+                "message": "이 브라우저의 로그인 모드를 종료했습니다.",
+            }, headers={"Set-Cookie": clear_auth_cookie()})
         if p == "/api/band_dump":
             return self._band_dump()
         if p == "/api/collect_report":

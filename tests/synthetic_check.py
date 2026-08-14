@@ -19741,6 +19741,40 @@ def t278_calendar_current_month_detail_previous_summary_only():
     print("[278] 캘린더 현재 월만 전 건 상세 · 전월 현장 목록 제외 · 완료/예정/미처리 요약만 OK")
 
 
+def t279_admin_settings_uses_server_role_and_local_logout():
+    """[279] 설정 메뉴는 관리자 서버 세션만 관리하고 담당자 모드와 섞이지 않는다."""
+    from webapp import app_server as S
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    org = live.index('data-v="org"')
+    spacer = live.index('class="nav-spacer"', org)
+    settings = live.index('data-v="settings"', spacer)
+    calendar = live.index('data-v="calendar"', settings)
+    assert org < spacer < settings < calendar, (
+        "설정 메뉴가 조직도 아래·쿠팡 캘린더 위의 고정 관리 위치가 아니다")
+    for token in (
+        'id="v-settings"', 'id="adminModeState"', "function loadAdminSettings(",
+        "fetch('/api/auth/session'", "session.role==='admin'", "function adminModeLogout(",
+        "fetch('/api/auth/logout'", "localStorage.removeItem('cw_dev_auth')",
+        "body.staff-mode .tabbar button.settings-nav{display:none!important}",
+        "if(v==='settings' && staffSlug) v='ryu'", "관리자 PIN 변경",
+    ):
+        assert token in live, "관리자 설정 안전장치가 빠졌다: " + token
+    assert "localStorage.setItem('isAdmin'" not in live and 'localStorage.setItem("isAdmin"' not in live, (
+        "브라우저 플래그만으로 관리자 권한을 만들고 있다")
+
+    endpoint = server.index('if p == "/api/auth/logout"')
+    gate = server.index("if not self._auth():", endpoint)
+    assert endpoint < gate and "clear_auth_cookie()" in server[endpoint:gate], (
+        "로그아웃이 만료된 세션에서도 호출자의 쿠키를 지우지 못한다")
+    cleared = S.clear_auth_cookie()
+    assert ("csos_session=;" in cleared and "Max-Age=0" in cleared and
+            "HttpOnly" in cleared and "SameSite=Strict" in cleared), (
+        "로그아웃 쿠키가 현재 브라우저의 서명 세션을 안전하게 만료시키지 않는다")
+    print("[279] 설정 고정 위치 · 관리자 서버 역할 확인 · PIN 관리 · 현재 기기만 로그아웃 · 담당자 차단 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19873,6 +19907,7 @@ if __name__ == "__main__":
     t276_mouse_workflow_canvas()
     t277_busy_org_light_blinks()
     t278_calendar_current_month_detail_previous_summary_only()
+    t279_admin_settings_uses_server_role_and_local_logout()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
