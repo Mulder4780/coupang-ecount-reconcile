@@ -534,6 +534,7 @@ function renderBrief(){
   const wl = b['\uC77C\uC9C0\uB300\uC870'] || {}, wa = wl['\uB3CC\uBC1CAS'] || {};
   const activity = brief2026Rows(b['당일처리목록']);
   const ceo = brief2026Rows(b['대표전달목록']);
+  const directives = (b['대표지시목록'] || []).filter(x => x && typeof x === 'object');
   const stale = brief2026Rows(b['완료일미기입목록']);
   const p = b['정기점검'] || {};
   let h = '';
@@ -551,6 +552,14 @@ function renderBrief(){
       <div class="bm">처리 완료 아님 · 눌러서 요청 내용 확인·이미지 저장/전달</div>
     </button>`;
   }
+  directives.forEach(d => {
+    h += `<div class="brief-card warn" aria-label="유수비 대표 지시 이행현황">
+      <div class="bt">유수비 대표 지시 이행현황 · 보고기한 ${esc(d['보고기한'] || '원문 확인 필요')}</div>
+      <div class="bm"><b>${esc(d['상태'] || '경과보고 확인 필요')}</b><br>${(d['항목'] || []).map((x,i) =>
+        `${i+1}. ${esc(x['제목'] || '지시항목')} — ${esc(x['제출내용'] || '-')} · ${esc(x['상태'] || '결과 미확인')}`
+      ).join('<br>')}</div>
+    </div>`;
+  });
   h += `<div class="brief-card pm">
     <div class="bt">${esc(b['기준일'] || '')} 정기점검</div>
     <div class="pmgrid">
