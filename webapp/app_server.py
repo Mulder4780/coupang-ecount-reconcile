@@ -2815,6 +2815,14 @@ def start_task(key):
                     _cache.pop(cache_key + "_ts", None)
             runner["busy"], runner["done_at"] = False, datetime.now().isoformat()
             _note_last_run(key, title, local_returncode)
+            # 업로드해 둔 것의 결과를 **여기서 바로** 확인한다. 화면을 열 때만
+            # 확인하면 아무도 안 보는 동안 끝난 회차는 알림이 안 나간다.
+            # 판정은 notify 가 회차 자국을 읽어서 한다 — 여기서 다시 세지 않는다.
+            try:
+                import notify
+                notify.sweep_uploads()
+            except Exception:
+                pass
     threading.Thread(target=work, daemon=True).start()
     return True, "started"
 
@@ -7535,9 +7543,120 @@ def install_staff_shortcut(slug):
     return {"installed": True, "title": center["title"], "url": url}
 
 
-def get_notifications():
+# ── 업로드 알림 (2026-08-14 지시: "업로드 알림 만들어") ──────────────────────
+#   ★ 알림을 **만드는 자리는 notify.push 하나다**([162]). 여기서는 누구에게 보낼지만
+#     정하고 문구·채널·합치기·기록은 전부 그쪽이 한다.
+#   ★ 알림 실패가 업로드를 죽이지 않는다 — notify.push 는 예외를 밖으로 내지 않지만,
+#     import 자체가 실패할 수도 있으므로 여기서도 한 겹 감싼다.
+
+def _upload_audience(actor):
+    """형님(관리자) + **올린 사람**. 올린 사람이 모르면 또 올려 중복 원본이 된다."""
+    try:
+        import notify
+    except Exception:
+        return []
+    who = [notify.ADMIN]
+    mine = notify.actor_token(actor.get("role"), actor.get("staff_slug"))
+    if mine and mine not in who:
+        who.append(mine)
+    return who
+
+
+def _uploader_label(actor):
+    """누가 올렸나 — 화면에 쓰는 이름. 코드에 사람 이름을 박지 않는다."""
+    slug = str(actor.get("staff_slug") or "")
+    if slug in STAFF_CENTERS:
+        return STAFF_CENTERS[slug]["name"]
+    return "관리자" if actor.get("role") == "admin" else "알 수 없는 사용자"
+
+
+def _first_filename(files):
+    """올린 파일 이름 한 개(여럿이면 '외 N건'). 없으면 빈 문자열 — 지어내지 않는다."""
+    names = []
+    for value in (files or {}).values():
+        if isinstance(value, dict) and value.get("filename"):
+            names.append(os.path.basename(str(value["filename"])))
+        elif isinstance(value, list):
+            for one in value:
+                if isinstance(one, dict) and one.get("filename"):
+                    names.append(os.path.basename(str(one["filename"])))
+    if not names:
+        return ""
+    return names[0] if len(names) == 1 else f"{names[0]} 외 {len(names) - 1}건"
+
+
+def _notify_upload_received(kind, filename, actor, started=False, queued=False,
+                            duplicate=False, task_key="", extra=""):
+    try:
+        import notify
+        who = _upload_audience(actor)
+        if not who:
+            return
+        name = os.path.basename(str(filename or "")) or "(파일명 없음)"
+        if duplicate:
+            상태 = "이미 들어온 내용"
+        elif started:
+            상태 = "정리 시작"
+        elif queued:
+            상태 = "앞 작업이 끝나면 정리 시작"
+        else:
+            상태 = "다음 자동 회차가 정리"
+        notify.push(
+            f"{kind} 업로드",
+            f"{_uploader_label(actor)} 님이 {kind}을 올렸습니다 — {name}",
+            (extra or "") or f"{상태}.",
+            evidence="/api/automation/kakao-upload" if task_key == "automation" else "",
+            audience=who, severity="info", 상태=상태)
+        # ★ '올렸다'만 알리면 반쪽이다 — 처리가 죽어도 된 줄 안다([169]).
+        #   결과는 회차가 남긴 자국을 읽어 뒤따라 알린다.
+        if task_key == "automation" and not duplicate:
+            notify.expect_upload(kind, name, who, source="automation")
+    except Exception:
+        pass                                     # 알리려다 접수를 막지 않는다
+
+
+def _notify_upload_rejected(kind, filename, actor, why):
+    try:
+        import notify
+        who = _upload_audience(actor)
+        if not who:
+            return
+        name = os.path.basename(str(filename or "")) or "(파일명 없음)"
+        notify.push(
+            f"{kind} 업로드 거절",
+            f"{_uploader_label(actor)} 님의 {kind} 등록이 거절됐습니다 — {name}",
+            str(why or "")[:300], evidence="", audience=who,
+            severity="warning", 상태="거절")
+    except Exception:
+        pass
+
+
+def get_notifications(actor=None):
     """사람이 조치해야 하는 실패·미반영·감시 이슈만 한곳에 모은다."""
     items = []
+    # 업로드 알림 — 접수해 둔 것의 결과를 먼저 확인한다. 비싼 탐색이 아니라
+    # 회차가 이미 써 둔 로컬 파일만 읽는다([168]). 바뀐 것이 없으면 파일도 안 쓴다.
+    try:
+        import notify
+        notify.sweep_uploads()
+        role = str((actor or {}).get("role") or "admin")
+        slug = str((actor or {}).get("staff_slug") or "")
+        for row in notify.feed(role, slug):
+            n = int(row.get("건수") or 1)
+            detail = str(row.get("본문") or "")
+            if n > 1:                            # 합쳤으면 몇 건인지 말한다([169])
+                detail = (detail + " · " if detail else "") + f"최근 5분 {n}건"
+            items.append({
+                "id": f"notify:{row.get('id')}",
+                "severity": row.get("심각도") or "info",
+                "title": row.get("제목") or "새 알림",
+                "detail": detail[:220],
+            })
+    except Exception as exc:
+        items.append({
+            "id": "notify_read_error", "severity": "error",
+            "title": "업로드 알림 확인 실패", "detail": str(exc)[:180],
+        })
     try:
         from ledger_writer import load_queue
         pending = len(load_queue())
@@ -8142,7 +8261,8 @@ self.addEventListener('fetch', e => {
             except Exception as exc:
                 return self._send(200, {"active": 0, "error": str(exc)[:180]})
         if p == "/api/notifications":
-            return self._send(200, get_notifications())
+            # 받는이에 따라 다른 목록이다 — 올린 사람은 제 업로드 결과를 본다.
+            return self._send(200, get_notifications(self._actor()))
         if p == "/api/staff/centers":
             return self._send(200, {"centers": staff_centers_payload()})
         if p == "/api/staff/completions":
@@ -8553,21 +8673,34 @@ self.addEventListener('fetch', e => {
                 })
             ln = int(self.headers.get("Content-Length", 0) or 0)
             if ln <= 0 or ln > 31_000_000:
+                # ★ 거절도 알린다 — 화면에만 뜨고 사라지면 형님은 그 파일이 올라온
+                #   줄 알고, 올린 사람은 실패한 줄 모른 채 넘어간다(SPEC ③).
+                _notify_upload_rejected("카톡 원본", "", self._actor(),
+                                        "카카오톡 파일은 30MB 이하여야 합니다")
                 return self._send(413, {"ok": False, "error": "카카오톡 파일은 30MB 이하여야 합니다"})
+            filename = ""
             try:
                 _fields, files = multipart_parts(
                     self.headers.get("Content-Type", ""), self.rfile.read(ln)
                 )
                 upload = files.get("kakao_file") or files.get("file")
                 if not upload:
+                    _notify_upload_rejected("카톡 원본", "", self._actor(),
+                                            "카카오톡 .txt 파일이 선택되지 않았습니다")
                     return self._send(400, {"ok": False, "error": "카카오톡 .txt 파일을 선택해 주세요"})
+                filename = str(upload.get("filename") or "KakaoTalk_upload.txt")
                 import automation_pipeline
                 saved = automation_pipeline.submit_kakao_file(
-                    upload.get("filename") or "KakaoTalk_upload.txt",
+                    filename,
                     upload.get("data") or b"",
                 )
                 started, message = start_task("automation")
                 queued = False if started else defer_task_until_free("automation")
+                _notify_upload_received(
+                    "카톡 원본", filename, self._actor(),
+                    started=started, queued=queued,
+                    duplicate=bool(saved.get("duplicate")),
+                    task_key="automation")
                 return self._send(200, {
                     "ok": True,
                     "saved": saved,
@@ -8576,9 +8709,36 @@ self.addEventListener('fetch', e => {
                     "msg": message,
                 })
             except ValueError as exc:
+                _notify_upload_rejected("카톡 원본", filename, self._actor(), str(exc)[:200])
                 return self._send(400, {"ok": False, "error": str(exc)[:260]})
             except Exception as exc:
+                _notify_upload_rejected("카톡 원본", filename, self._actor(), str(exc)[:200])
                 return self._send(500, {"ok": False, "error": str(exc)[:300]})
+        if p == "/api/notifications/ack":
+            # 확인한 알림을 내린다. **내가 받는 알림만** 내려간다 — 남의 경보를
+            # 대신 지우면 그 사람은 영영 그 사실을 모른다.
+            ln = int(self.headers.get("Content-Length", 0) or 0)
+            if ln > 20_000:
+                return self._send(413, {"ok": False, "error": "알림 확인 요청이 너무 큽니다"})
+            try:
+                body = json.loads(self.rfile.read(ln) or b"{}") if ln else {}
+                if not isinstance(body, dict):
+                    raise ValueError("JSON 객체가 필요합니다")
+                ids = body.get("ids")
+                if ids is not None and not isinstance(ids, list):
+                    raise ValueError("ids 는 목록이어야 합니다")
+                import notify
+                actor = self._actor()
+                # 화면은 `/api/notifications` 가 준 `notify:<id>` 를 그대로 돌려준다.
+                # 접두사를 안 떼면 한 건도 안 걸리면서 오류도 안 난다([165]).
+                want = [str(i)[:64].split("notify:", 1)[-1] for i in (ids or [])][:200]
+                n = notify.ack(want, actor.get("role"), actor.get("staff_slug"))
+                return self._send(200, {"ok": True, "acked": n})
+            except ValueError as exc:
+                return self._send(400, {"ok": False, "error": str(exc)[:160]})
+            except Exception as exc:
+                # 못 내렸으면 못 내렸다고 말한다 — 200 을 주면 화면은 사라진 줄 안다.
+                return self._send(500, {"ok": False, "error": str(exc)[:160]})
         if p == "/api/archive/export":
             if not self._require_admin():
                 return
@@ -8695,8 +8855,12 @@ self.addEventListener('fetch', e => {
                                                 self.rfile.read(ln))
                 fields["staff_slug"] = actor_slug
                 ticket = save_workcenter_improvement(fields, files, ip)
+                _notify_upload_received(
+                    "개선요청", _first_filename(files) or str(fields.get("title") or ""),
+                    self._actor(), extra="담당자가 불편한 점을 올렸습니다.")
                 return self._send(200, {"ok": True, "ticket": ticket})
             except Exception as exc:
+                _notify_upload_rejected("개선요청", "", self._actor(), str(exc)[:200])
                 return self._send(400, {"ok": False, "error": str(exc)[:260]})
         if p == "/api/staff/po-upload":
             actor_slug = self._require_staff("oh-jonghyeon")
@@ -8704,14 +8868,19 @@ self.addEventListener('fetch', e => {
                 return
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 60_000_000:
+                _notify_upload_rejected("PO 첨부", "", self._actor(),
+                                        "PO 첨부는 합계 60MB 이하여야 합니다")
                 return self._send(400, {"ok": False, "error": "PO 첨부는 합계 60MB 이하여야 합니다"})
             try:
                 fields, files = multipart_parts(self.headers.get("Content-Type", ""),
                                                 self.rfile.read(ln))
                 fields["staff_slug"] = actor_slug
                 result = save_staff_po_submission(fields, files, ip)
+                _notify_upload_received("PO 첨부", _first_filename(files), self._actor(),
+                                        extra="담당자가 PO 자료를 올렸습니다.")
                 return self._send(200, {"ok": True, **result})
             except Exception as exc:
+                _notify_upload_rejected("PO 첨부", "", self._actor(), str(exc)[:200])
                 return self._send(400, {"ok": False, "error": str(exc)[:320]})
         if p in ("/api/remote/request", "/api/remote/deliver", "/api/remote/stock",
                  "/api/remote/edit", "/api/remote/delete", "/api/remote/restore"):
@@ -8809,13 +8978,18 @@ self.addEventListener('fetch', e => {
                                         "error": "입금 자료는 관리자 또는 오종현 업무센터에서만 등록합니다"})
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 60_000_000:
+                _notify_upload_rejected("입금내역", "", self._actor(),
+                                        "입금 자료는 합계 60MB 이하여야 합니다")
                 return self._send(400, {"ok": False, "error": "입금 자료는 합계 60MB 이하여야 합니다"})
             try:
                 fields, files = multipart_parts(self.headers.get("Content-Type", ""),
                                                 self.rfile.read(ln))
                 result = save_staff_receipt_submission(fields, files, ip)
+                _notify_upload_received("입금내역", _first_filename(files), self._actor(),
+                                        extra="입금 자료가 들어왔습니다 — 대조는 입금 대조 회차가 합니다.")
                 return self._send(200, {"ok": True, **result})
             except Exception as exc:
+                _notify_upload_rejected("입금내역", "", self._actor(), str(exc)[:200])
                 return self._send(400, {"ok": False, "error": str(exc)[:320]})
         if p == "/api/staff/work-log-upload":
             actor_slug = self._require_staff("ryu-jiyeong")
@@ -8823,14 +8997,18 @@ self.addEventListener('fetch', e => {
                 return
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 60_000_000:
+                _notify_upload_rejected("대표보고 일지", "", self._actor(),
+                                        "대표보고 일지는 60MB 이하여야 합니다")
                 return self._send(400, {"ok": False, "error": "대표보고 일지는 60MB 이하여야 합니다"})
             try:
                 fields, files = multipart_parts(self.headers.get("Content-Type", ""),
                                                 self.rfile.read(ln))
                 fields["staff_slug"] = actor_slug
                 result = save_staff_work_log_submission(fields, files, ip)
+                _notify_upload_received("대표보고 일지", _first_filename(files), self._actor())
                 return self._send(200, {"ok": True, **result})
             except Exception as exc:
+                _notify_upload_rejected("대표보고 일지", "", self._actor(), str(exc)[:200])
                 return self._send(400, {"ok": False, "error": str(exc)[:320]})
         if p == "/api/staff/new-job":
             # ★ 관리자도 등록한다 (2026-08-10 지시 — 돌발AS·정기점검 화면에서 바로).
@@ -8923,6 +9101,8 @@ self.addEventListener('fetch', e => {
                 return
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 45_000_000:
+                _notify_upload_rejected("업무센터 첨부", "", self._actor(),
+                                        "첨부 용량은 합계 45MB 이하여야 합니다")
                 return self._send(400, {"ok": False, "error": "첨부 용량은 합계 45MB 이하여야 합니다"})
             try:
                 fields, files = multipart_parts(self.headers.get("Content-Type", ""),
@@ -8931,10 +9111,13 @@ self.addEventListener('fetch', e => {
                 result = save_ryu_upload(fields, files)
                 started, msg = start_task("kakao")
                 queued = False if started else defer_task_until_free("kakao")
+                _notify_upload_received("업무센터 첨부", _first_filename(files), self._actor(),
+                                        started=started, queued=queued)
                 return self._send(200, {"ok": True, "saved": result,
                                         "auto_check_started": started,
                                         "auto_check_queued": queued, "msg": msg})
             except Exception as e:
+                _notify_upload_rejected("업무센터 첨부", "", self._actor(), str(e)[:200])
                 return self._send(400, {"ok": False, "error": str(e)[:260]})
         if p in ("/api/staff/entry", "/api/ryu/entry"):
             actor_session = self._actor()

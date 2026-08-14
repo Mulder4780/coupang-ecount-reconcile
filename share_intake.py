@@ -99,6 +99,22 @@ def pull(targets=None, upload_dir=None, state_path=None):
             state[key] = sig
             copied.append({"파일": rel, "보낸이": owner, "목적지": dst})
     _state_save(state)
+    # ★ 공유폴더는 **올려도 조용한** 자리였다 — 파일이 투입함으로 들어가고 끝이라
+    #   형님은 무엇이 새로 왔는지 물어봐야 알았다(2026-08-14 지시).
+    #   알리는 자리는 부르는 쪽이 아니라 여기 하나다 — 이 함수는 워치독·09:35·09:50·
+    #   5분 파이프라인이 다 부른다. 부르는 쪽마다 붙이면 사본이 넷이 된다([162]).
+    #   같은 갈래가 5분 안에 여러 번이면 notify 가 한 줄로 합친다([170]).
+    if copied:
+        try:
+            import notify
+            보낸이 = sorted({row["보낸이"] for row in copied})
+            notify.push(
+                "공유폴더 자료",
+                f"공유폴더에서 새 자료 {len(copied)}건을 받았습니다 — {', '.join(보낸이)}",
+                "투입함에 넣었습니다 · 분류는 원본 정리 회차가 합니다.",
+                evidence="share_intake.pull", 상태=f"{len(copied)}건")
+        except Exception:
+            pass                                  # 알리려다 흡수를 막지 않는다
     return copied
 
 

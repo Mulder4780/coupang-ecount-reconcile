@@ -40,6 +40,22 @@ except Exception:
 TRACE = os.path.join(ROOT, "reports", "입금_반영회차.json")
 
 
+def tell(title, body, ok=True, 상태=""):
+    """형님께 한 줄 알린다(2026-08-14 지시). 알리는 자리는 `notify.push` 하나다.
+
+    ★ 실패도 알린다 — 성공만 알리면 '올렸는데 안 들어간' 것이 조용히 남는다([169]).
+    ★ 알림이 실패해도 이 회차는 그대로 간다.
+    """
+    try:
+        import notify
+        notify.push("입금내역 반영", title, body,
+                    evidence="reports/입금_반영회차.json",
+                    severity="info" if ok else "error",
+                    상태=상태 or ("끝" if ok else "실패"))
+    except Exception:
+        pass
+
+
 def note(step, state, extra=None):
     try:
         os.makedirs(os.path.dirname(TRACE), exist_ok=True)
@@ -102,6 +118,8 @@ def main(argv):
         print("! 파일이 없다 — 멈춘다(0건 성공 금지):")
         for m in missing:
             print("  ·", m)
+        tell("입금내역 반영을 시작하지 못했습니다",
+             f"주신 경로 {len(missing)}건이 실제로 없습니다.", ok=False, 상태="파일 없음")
         return 2
 
     from inbox_scan import classify
@@ -121,10 +139,16 @@ def main(argv):
             note("확인", "실패", {"파일": os.path.basename(f), "왜": "xls 미지원"})
             print(f"! {os.path.basename(f)}: 구형 .xls 는 읽는 쪽(receipt_fill)이 "
                   f"못 읽는다 — 엑셀에서 .xlsx 로 저장해 다시 달라")
+            tell("입금내역이 반영되지 않았습니다",
+                 f"{os.path.basename(f)} — 구형 .xls 는 읽는 쪽이 못 읽습니다. "
+                 f".xlsx 로 저장해 다시 주세요.", ok=False, 상태="형식")
             return 2
         elif ext != ".xlsx":
             note("확인", "실패", {"파일": os.path.basename(f), "왜": "지원 밖 확장자"})
             print(f"! {os.path.basename(f)}: 입금내역은 .xlsx/.csv 만 받는다")
+            tell("입금내역이 반영되지 않았습니다",
+                 f"{os.path.basename(f)} — 입금내역은 .xlsx/.csv 만 받습니다.",
+                 ok=False, 상태="형식")
             return 2
 
         kind = None
@@ -136,6 +160,9 @@ def main(argv):
             note("판별", "실패", {"파일": os.path.basename(f), "판별": kind})
             print(f"! {os.path.basename(f)}: 입금내역 모양이 아니다(판별={kind}) — "
                   f"멈춘다. 은행 양식이 바뀌었으면 inbox_scan 판별 규칙에 더해야 한다")
+            tell("입금내역이 반영되지 않았습니다",
+                 f"{os.path.basename(f)} — 입금내역 모양이 아닙니다(판별={kind}).",
+                 ok=False, 상태="판별 실패")
             return 2
 
         # ② 정본 복사 — 해시가 같으면 이미 들어온 것이다.
@@ -177,6 +204,9 @@ def main(argv):
     note("대조", "끝" if r.returncode == 0 else "실패", {"code": r.returncode})
     if r.returncode != 0:
         print("! 대조가 실패했다 — 보관본 단계로 넘어가지 않는다")
+        tell("입금 대조가 실패했습니다",
+             f"정본 복사는 {len(copied)}건 끝났고 대조 단계에서 멈췄습니다"
+             f"(code={r.returncode}).", ok=False, 상태="대조 실패")
         return 1
 
     # ④ 사람 명령일 때만 즉시 보관본.
@@ -191,6 +221,10 @@ def main(argv):
     else:
         print("  보관본은 11:00·15:00 회차가 만든다 (--now 로 즉시)")
     note("회차", "끝", {"신규": len(copied)})
+    tell("입금내역 반영이 끝났습니다",
+         f"새로 들어온 파일 {len(copied)}건 · 대조 완료"
+         + (" · 즉시 보관본까지" if now_flag else " · 보관본은 11:00·15:00 회차"),
+         ok=True, 상태=f"신규 {len(copied)}건")
     return 0
 
 

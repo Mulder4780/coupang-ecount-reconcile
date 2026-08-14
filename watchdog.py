@@ -629,6 +629,31 @@ def watch_userscript(dry):
     return "크롬수집 %s: %s" % (kind or "?", (st.get("왜") or "")[:60])
 
 
+def close_upload_notices(dry):
+    """올린 것의 **결과**를 뒤따라 알린다 (2026-08-14 지시).
+
+    ★ 접수 알림은 앱이 그 자리에서 보내고, 앱이 시작한 회차의 결과도 그 자리에서
+      확인한다. 그런데 5분 스케줄러(`CSOS_AutomationPipeline`)가 먼저 집어가면
+      **앱은 그 회차가 끝난 것을 모른다** — 그러면 '올렸다'만 가고 결과는 영영
+      안 온다([169] 의 모양). 그 자리를 이 단계가 막는다.
+    ★ 판정을 새로 만들지 않는다([162]) — `notify.sweep_uploads` 가 회차 자국을
+      읽어서 하고, 여기는 부르기만 한다.
+    ★ `dry` 면 알림을 만들지 않는다 — 알림은 사람에게 나가는 것이라 예행에서 보내면
+      되돌릴 수 없다.
+    """
+    if dry:
+        return "업로드 결과 알림 예행(보내지 않음)"
+    try:
+        import notify
+        r = notify.sweep_uploads()
+    except Exception as exc:                       # 눈 하나 때문에 회차를 세우지 않는다
+        return "업로드 결과 알림 실패: %s" % str(exc)[:60]
+    if not (r.get("끝") or r.get("실패") or r.get("확인못함")):
+        return "업로드 결과 알림 없음(대기 %d건)" % int(r.get("남음") or 0)
+    return "업로드 결과 알림 끝%d 실패%d 확인못함%d" % (
+        int(r.get("끝") or 0), int(r.get("실패") or 0), int(r.get("확인못함") or 0))
+
+
 def main():
     # 류지영 매니저 입력 중에는 로그 파일조차 갱신하지 않고 즉시 종료한다.
     if is_input_window():
