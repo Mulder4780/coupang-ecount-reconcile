@@ -9446,7 +9446,8 @@ def lan_ip():
         return "127.0.0.1"
 
 
-PUBLISH_EVERY = 3 * 3600      # 폰이 보는 사본을 몇 초마다 새로 올릴지
+CLOUD_PUBLISH_EVERY = 10 * 60   # PC가 꺼지기 전 클라우드 최신 사본의 최대 지연
+PAGES_PUBLISH_EVERY = 3 * 3600  # 클라우드 장애 때 쓸 GitHub Pages 비상 사본
 
 
 SYSTEM_AUDIT_EVERY = 15 * 60
@@ -9489,26 +9490,41 @@ def system_audit_loop():
 def publish_loop():
     """PC가 켜져 있는 동안 **주기적으로** 폰용 사본을 올린다.
 
-    ★ PC가 꺼져도 폰이 쓰이려면 사본이 최신이어야 한다. 예전에는 daily_run 이 돌 때만
-      올려서, 아침에 한 번 돌리고 저녁에 PC를 끄면 폰은 **아침 숫자**를 보게 됐다.
-      그러면 '꺼져도 된다'는 말이 사실이 아니게 된다. 그래서 3시간마다 올린다.
-      (사본은 잠겨 있고 60~80KB라 부담이 없다)
+    ★ PC가 꺼져도 폰이 쓰이려면 사본이 최신이어야 한다. Git 게시만 3시간마다 하면
+      갑자기 전원을 껐을 때 최대 3시간 전 숫자가 남는다. 암호문은 외부 D1에 10분마다
+      직접 확인하고, GitHub Pages는 3시간 비상 사본으로만 남긴다. 같은 업무 내용이면
+      cloud_publish가 쓰기를 생략한다.
     """
     if DEMO:
         return
     time.sleep(120)                        # 기동 직후 혼잡할 때는 피한다
+    next_pages = 0.0
     while True:
         from operation_window import is_input_window
         if is_input_window():
             time.sleep(60)
             continue
         try:
+            from proc_guard import run_tree
+            # PC가 다시 켜진 뒤 사람이 앱을 열 때까지 기다리지 않는다. 외부 D1이 보관한
+            # 예약을 먼저 lease→DB 저장→ack 하고, 실패 건만 release해 다음 회차가 잇는다.
+            queue_result = run_tree(
+                [PY, os.path.join(ROOT, "cloud_queue_sync.py")],
+                cwd=ROOT, env={**ENV, "COUPANG_UNATTENDED": "1"}, timeout=180,
+                drain_timeout=15, output_limit=20_000)
+            if queue_result.returncode and not queue_result.timed_out:
+                runner["log"].append(
+                    f"[클라우드 예약 자동합류] 코드 {queue_result.returncode} · 다음 주기 재시도")
             # 자동 게시도 사람·다른 AI의 수동 게시를 밟지 않게 publish 점유를 강제한다.
             publish_env = {**ENV, "CSOS_AI": "server"}
-            from proc_guard import run_tree
-            r = run_tree([PY, os.path.join(ROOT, "cloud_publish.py"), "--push"],
-                         cwd=ROOT, env=publish_env, timeout=900,
-                         drain_timeout=30, output_limit=80_000)
+            now = time.monotonic()
+            pages_due = now >= next_pages
+            mode = "--push" if pages_due else "--cloud"
+            r = run_tree([PY, os.path.join(ROOT, "cloud_publish.py"), mode],
+                          cwd=ROOT, env=publish_env, timeout=900,
+                          drain_timeout=30, output_limit=80_000)
+            if pages_due and not r.timed_out and r.returncode == 0:
+                next_pages = time.monotonic() + PAGES_PUBLISH_EVERY
             if r.timed_out:
                 runner["log"].append(
                     "[사본 자동 게시] 시간초과 · 자식나무 정리"
@@ -9520,7 +9536,7 @@ def publish_loop():
                     f"[사본 자동 게시] 코드 {r.returncode} · {tail[0][:120]}")
         except Exception as e:
             runner["log"].append(f"[사본 자동 게시] 실패 {type(e).__name__}")
-        time.sleep(PUBLISH_EVERY)
+        time.sleep(CLOUD_PUBLISH_EVERY)
 
 
 class _Server(ThreadingHTTPServer):

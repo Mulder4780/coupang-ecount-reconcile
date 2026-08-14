@@ -81,7 +81,7 @@ if (Test-Path -LiteralPath $serviceWorkerPath) {
     $serviceWorker = [regex]::Replace(
         $serviceWorker,
         "const CACHE = '[^']+';",
-        "const CACHE = 'csos-icon-$($sourceHash.Substring(0, 12))-2026-only';"
+        "const CACHE = 'csos-icon-$($sourceHash.Substring(0, 12))-2026-only-continuity-v2';"
     )
     [System.IO.File]::WriteAllText(
         $serviceWorkerPath,

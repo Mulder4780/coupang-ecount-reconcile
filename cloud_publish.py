@@ -8,15 +8,16 @@ PC를 못 켜 두면 폰에는 크롬 기본 오류만 떴다. 그래서 데이�
   항상              : 고정 주소 → **PC 독립 앱**(조회·프로젝트코드 자동채움·입력 예약)
   PC 켜져 있을 때   : 독립 앱 안의 선택 버튼으로 실시간 앱 연결(입력·대조·엑셀 반영)
   PC 꺼져 있을 때   : 잠긴 최신 사본으로 계속 사용
-                    예약은 PC가 켜진 뒤 같은 폰 앱을 열면 입력 큐로 전송된다.
+                    예약은 외부 영구 큐가 즉시 보관하고 PC가 켜지면 자동 합류한다.
 
 고정 주소 저장소는 공개다. 그래서 데이터는 **잠가서** 올린다(csos_crypto).
 폰에서 PIN을 넣으면 브라우저가 그 자리에서 푼다 — 서버도 계정도 필요 없다.
 
   python cloud_publish.py            # 사본 생성(로컬 확인)
+  python cloud_publish.py --cloud    # 암호문을 외부 최신 사본으로 직접 갱신
   python cloud_publish.py --push     # 생성 + git commit·push (고정 주소에 실제 반영)
 """
-import sys, os, re, json, zlib, subprocess
+import sys, os, re, json, zlib, subprocess, hashlib, urllib.error, urllib.request
 from datetime import datetime
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +33,7 @@ DOCS = os.path.join(ROOT, "docs")
 OUT = os.path.join(DOCS, "data.enc")
 WEBCFG = os.path.join(ROOT, "config", "webapp.json")
 QUEUECFG = os.path.join(ROOT, "config", "cloud_queue.local.json")
+CLOUD_REPORT = os.path.join(ROOT, "reports", "cloud_continuity.json")
 PUBLISH_FILES = (
     # 공유 캘린더(2026-08-06). 단톡방에 뿌린 링크가 늘 최신을 보게 매 회차 같이 올린다 —
     # 안 올리면 사람들은 며칠 전 일정을 보면서 그것이 오늘 것인 줄 안다.
@@ -244,6 +246,99 @@ def unbilled():
     return sorted(out, key=lambda x: x["발행일"])
 
 
+def _cloud_config():
+    with open(QUEUECFG, encoding="utf-8") as f:
+        cfg = json.load(f)
+    url = str(cfg.get("api_base_url") or "").rstrip("/")
+    token = str(cfg.get("worker_token") or "")
+    if not url.startswith("https://") or len(token) < 32:
+        raise ValueError("클라우드 연속운영 주소 또는 작업 토큰 설정이 올바르지 않습니다")
+    return url, token
+
+
+def _cloud_request(url, token, path, body=None, timeout=35):
+    data = None if body is None else json.dumps(
+        body, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        url + path,
+        data=data,
+        method="GET" if body is None else "POST",
+        headers={
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json",
+            "User-Agent": "CSOS-Continuity-Publisher/2",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _load_cloud_report():
+    try:
+        with open(CLOUD_REPORT, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_cloud_report(result):
+    os.makedirs(os.path.dirname(CLOUD_REPORT), exist_ok=True)
+    previous = _load_cloud_report()
+    data = {**previous, **result, "checked_at": datetime.now().isoformat()}
+    if result.get("ok"):
+        data["last_success_at"] = datetime.now().isoformat()
+        data.pop("error", None)
+    tmp = CLOUD_REPORT + f".{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, CLOUD_REPORT)
+
+
+def upload_cloud_snapshot(sealed, generated_at, content_sha256):
+    """암호문만 외부 D1에 보관한다. 같은 업무 내용이면 쓰기를 생략한다."""
+    url, token = _cloud_config()
+    previous = _load_cloud_report()
+    if previous.get("ok") and previous.get("content_sha256") == content_sha256:
+        try:
+            ping = _cloud_request(url, token, "/api/ping", timeout=15)
+            if ping.get("ok") and (ping.get("snapshot") or {}).get("available"):
+                result = {
+                    "ok": True,
+                    "uploaded": False,
+                    "unchanged": True,
+                    "generated_at": previous.get("generated_at") or generated_at,
+                    "content_sha256": content_sha256,
+                    "api_base_url": url,
+                }
+                _save_cloud_report(result)
+                return result
+        except Exception:
+            # 상태 확인이 실패하면 생략하지 않고 실제 업로드를 시도한다.
+            pass
+    out = _cloud_request(
+        url,
+        token,
+        "/api/snapshot",
+        {"payload": sealed, "generatedAt": generated_at},
+    )
+    if not out.get("ok"):
+        raise RuntimeError(str(out.get("error") or "클라우드 사본 거부"))
+    result = {
+        "ok": True,
+        "uploaded": True,
+        "unchanged": not bool(out.get("changed", True)),
+        "generated_at": generated_at,
+        "content_sha256": content_sha256,
+        "snapshot_sha256": out.get("sha256") or "",
+        "api_base_url": url,
+    }
+    _save_cloud_report(result)
+    return result
+
+
 def git_publish(message, runner=subprocess.run):
     """게시 파일을 커밋·푸시한다. 어느 단계든 실패하면 성공으로 보지 않는다."""
     commands = (
@@ -295,6 +390,11 @@ def _main():
     print("사본 만드는 중…")
     d = payload()
     raw = json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    stable = dict(d)
+    stable.pop("gen", None)
+    content_sha256 = hashlib.sha256(
+        json.dumps(stable, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
     # LTE로 받는 파일이라 크기가 곧 대기시간이다. 잠그기 **전에** 줄인다
     # (암호문은 무작위에 가까워서 나중에 줄이면 하나도 안 줄어든다).
     # 폰에서는 브라우저 내장 DecompressionStream('deflate')이 그대로 푼다.
@@ -306,21 +406,48 @@ def _main():
         sealed["pin_auth"] = pin_auth
     sealed["zip"] = "deflate"
 
-    os.makedirs(DOCS, exist_ok=True)
-    tmp_out = OUT + ".tmp"
-    with open(tmp_out, "w", encoding="utf-8") as f:
-        json.dump(sealed, f, separators=(",", ":"))
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp_out, OUT)
-    kb, rkb = os.path.getsize(OUT) / 1024, len(raw) / 1024
+    sealed_bytes = json.dumps(sealed, separators=(",", ":")).encode("utf-8")
+    # 10분 클라우드 회차는 git 추적 파일을 건드리지 않는다. GitHub Pages 백업을
+    # 갱신하는 기본/--push 회차만 data.enc를 교체해 작업트리가 늘 깨끗하게 남는다.
+    write_pages_copy = "--cloud" not in sys.argv or "--push" in sys.argv
+    if write_pages_copy:
+        os.makedirs(DOCS, exist_ok=True)
+        tmp_out = OUT + ".tmp"
+        with open(tmp_out, "wb") as f:
+            f.write(sealed_bytes)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_out, OUT)
+    kb, rkb = len(sealed_bytes) / 1024, len(raw) / 1024
 
     print(f"  프로젝트코드 {len(d['codes'])} · 확인필요 {len(d['issues'])} · "
           f"AS {len(d['as'])} · 점검 {len(d['pm'])} · 정산 {len(d['settle'])} · 계산서 {len(d['erp'])}")
     print(f"  {rkb:.0f}KB → 줄여서 {len(packed)/1024:.0f}KB → 잠근 뒤 {kb:.0f}KB  ({OUT})")
     print(f"  미청구 {len(d.get('unbilled', []))}건 — 잠긴 사본 안에(앱 상단에 뜹니다)")
 
+    cloud_error = ""
+    if "--cloud" in sys.argv or "--push" in sys.argv:
+        try:
+            cloud = upload_cloud_snapshot(sealed, d["gen"], content_sha256)
+            action = "업로드" if cloud.get("uploaded") else "변경 없음"
+            print(f"  클라우드 연속운영 사본 {action} · 기준 {cloud.get('generated_at', d['gen'])}")
+        except Exception as exc:
+            cloud_error = f"{type(exc).__name__}: {str(exc)[:240]}"
+            _save_cloud_report({
+                "ok": False,
+                "uploaded": False,
+                "generated_at": d["gen"],
+                "content_sha256": content_sha256,
+                "error": cloud_error,
+            })
+            print("  ! 클라우드 연속운영 사본 실패:", cloud_error)
+
     if "--push" not in sys.argv:
+        if "--cloud" in sys.argv and cloud_error:
+            raise SystemExit(1)
+        if "--cloud" in sys.argv:
+            print("\n클라우드 사본을 확인했습니다 — PC가 꺼져도 고정 앱에서 읽습니다.")
+            return
         print("\n로컬 생성만 했습니다 — 고정 주소 반영: python cloud_publish.py --push")
         return
 
@@ -330,6 +457,9 @@ def _main():
     if not ok:
         print(f"  git {stage} 실패:", detail)
         sys.exit(1)
+    if cloud_error:
+        print("  GitHub Pages 백업은 반영됐지만 클라우드 최신 사본은 실패했습니다.")
+        sys.exit(1)
     print("\n고정 주소에 반영했습니다 — PC를 꺼도 폰에서 열립니다.")
     print("  https://mulder4780.github.io/coupang-ecount-reconcile/")
 
@@ -337,7 +467,8 @@ def _main():
 def main():
     """게시 작업은 수동·앱서버·다른 AI 중 하나만 실행한다."""
     acquired_here = False
-    if "--push" in sys.argv and (os.environ.get("CSOS_AI") or "").strip():
+    if (("--push" in sys.argv or "--cloud" in sys.argv)
+            and (os.environ.get("CSOS_AI") or "").strip()):
         import ai_claim
         from claim_guard import require
         me = (os.environ.get("CSOS_AI") or "").strip().lower()
