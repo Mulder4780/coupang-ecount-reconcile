@@ -15,8 +15,14 @@ import hashlib
 import json
 import os
 import re
+import sys
 from collections import Counter, defaultdict
 from datetime import datetime
+
+# 콘솔 cp949 는 '—' 를 못 쓰고, 무인 회차(pythonw)는 sys.stdout 이 None 이다.
+# 맨몸 reconfigure 는 그 자리에서 AttributeError 로 회차를 통째로 죽인다(`[235]`).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import kakao_extract as KE
 
@@ -25,6 +31,11 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports")
 REPORT_JSON = os.path.join(REPORT_DIR, "대표대화_추출.json")
 REPORT_MD = os.path.join(REPORT_DIR, "대표대화_추출.md")
+# 사람이 "처리했다"고 확인한 지시. 리포트가 아니라 이 파일이 정본이다 — 리포트는 09:50
+# 회차가 카톡 원문에서 매번 새로 만들므로, 리포트에서 지우면 다음 회차에 그대로 되살아난다.
+ACK_JSON = os.path.join(REPORT_DIR, "대표지시_확인.json")
+# daily_brief 가 화면·캡처에서 내리는 낱말이다. 여기서 새 낱말을 지어내면 확인해도 안 내려간다.
+ACK_STATE = "완료"
 
 # 사람이 바뀌거나 카카오 표시명이 흔들리면 이 표만 늘린다. 판정 코드에 이름을 흩뿌리지 않는다.
 CEO_SENDERS = {
@@ -185,6 +196,74 @@ def classify(room, msg):
     return "쿠팡 건", _event(room, msg, fields), "쿠팡 접수 근거 확인"
 
 
+def load_ack(path=None):
+    """사람이 확인한 지시 표. 못 읽으면 빈 표다 — 못 읽은 것을 '확인함'으로 치지 않는다."""
+    try:
+        raw = json.load(open(path or ACK_JSON, encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    rows = raw.get("확인") if isinstance(raw, dict) else None
+    if not isinstance(rows, dict):
+        return {}
+    return {str(k): v for k, v in rows.items() if isinstance(v, dict)}
+
+
+def apply_ack(directives, acks=None):
+    """확인된 지시를 완료로 내린다. **지우지 않는다** — 누가 언제 확인했는지를 붙여 남긴다.
+
+    지우면 "그때 정말 그런 지시가 있었나"를 잃고, 확인 근거도 같이 사라진다.
+    화면·캡처에서 내리는 일은 ``상태`` 낱말 하나로 충분하다(daily_brief 가 이미 거른다).
+    """
+    acks = load_ack() if acks is None else acks
+    out = []
+    for row in directives:
+        got = acks.get(str(row.get("레코드ID") or "")) if isinstance(row, dict) else None
+        if not isinstance(got, dict):
+            out.append(row)
+            continue
+        row = dict(row)
+        row["상태"] = ACK_STATE
+        row["확인자"] = str(got.get("who") or "관리자")
+        row["확인시각"] = str(got.get("when") or "")
+        row["확인근거"] = str(got.get("why") or "사람 확인")
+        row["항목"] = [dict(item, 상태=ACK_STATE) for item in row.get("항목") or []]
+        out.append(row)
+    return out
+
+
+def save_ack(record_id, who="관리자", why="", path=None, remove=False):
+    """지시 하나를 확인 처리하거나 되돌린다. **없는 번호는 조용히 넘기지 않는다.**
+
+    0건을 성공으로 적으면 사람은 내려간 줄 알고 화면을 다시 안 본다(`[169]`).
+    """
+    path = path or ACK_JSON
+    record_id = str(record_id or "").strip()
+    if not record_id:
+        raise ValueError("레코드ID 가 비어 있습니다")
+    known = {str(r.get("레코드ID")) for r in (load_cached().get("directives") or [])
+             if isinstance(r, dict)}
+    if known and record_id not in known and not remove:
+        raise ValueError("리포트에 없는 레코드ID 입니다: %s\n  → python ceo_events.py --list"
+                         % record_id)
+    try:
+        raw = json.load(open(path, encoding="utf-8"))
+        rows = raw.get("확인") if isinstance(raw, dict) else None
+        rows = dict(rows) if isinstance(rows, dict) else {}
+    except (OSError, ValueError, TypeError):
+        rows = {}
+    if remove:
+        if record_id not in rows:
+            raise ValueError("확인 기록에 없는 레코드ID 입니다: " + record_id)
+        rows.pop(record_id)
+    else:
+        rows[record_id] = {"who": str(who or "관리자"),
+                           "when": datetime.now().isoformat(timespec="seconds"),
+                           "why": str(why or "사람 확인")}
+    _atomic_write(path, json.dumps({"version": 1, "확인": rows},
+                                   ensure_ascii=False, indent=2))
+    return rows
+
+
 def extract(paths=None):
     """카카오톡 원본을 읽어 판정과 접수 이벤트를 만든다. 같은 내보내기 이력은 한 번만 센다."""
     paths = KE.source_paths() if paths is None else list(paths)
@@ -229,6 +308,7 @@ def extract(paths=None):
 
     events.sort(key=lambda row: (row.get("날짜", ""), row.get("카톡일시", ""),
                                  row.get("레코드ID", "")))
+    directives = apply_ack(directives)
     directives.sort(key=lambda row: (row.get("보고기한", "9999"), row.get("카톡일시", ""),
                                      row.get("레코드ID", "")))
     return {
@@ -269,8 +349,13 @@ def render(report):
     if not report.get("events"):
         lines.append("| - | - | - | - | 반영 대상 없음 |")
     lines.extend(["", "## 대표 지시 이행현황", ""])
-    if report.get("directives"):
-        for row in report["directives"]:
+    # 확인된 지시는 화면·캡처에서 내리되 여기서는 아래 칸에 남긴다. 통째로 지우면
+    # "그때 정말 그런 지시가 있었나"와 확인 근거를 같이 잃는다.
+    done = [r for r in (report.get("directives") or [])
+            if isinstance(r, dict) and str(r.get("상태") or "") in ("완료", "확인완료")]
+    pending = [r for r in (report.get("directives") or []) if r not in done]
+    if pending:
+        for row in pending:
             lines.extend([
                 f"### {row.get('제목') or '쿠팡 업무지시'}",
                 "",
@@ -283,8 +368,19 @@ def render(report):
                 lines.append("- **%s** — %s · 제출: %s · 상태: **%s**" % (
                     item.get("제목") or "항목", item.get("요구내용") or "-",
                     item.get("제출내용") or "-", item.get("상태") or "결과 미확인"))
+    elif done:
+        lines.append("- 미처리 지시 없음 (아래 %d건은 확인 완료)" % len(done))
     else:
         lines.append("- 확인된 쿠팡 대표 지시 없음")
+    if done:
+        lines.extend(["", "### 확인 완료 — 화면·캡처에서 내림", ""])
+        for row in done:
+            lines.append("- **%s** — 게시 %s · 확인 %s %s · 근거 %s · `%s`" % (
+                row.get("제목") or "쿠팡 업무지시", row.get("카톡일시") or "-",
+                row.get("확인시각") or "-", row.get("확인자") or "-",
+                row.get("확인근거") or "-", row.get("레코드ID") or "-"))
+        lines.append("")
+        lines.append("> 되돌리려면 `python ceo_events.py --unack <레코드ID> --sync`")
     lines.extend(["", "## 날짜별 판정", "", "| 날짜 | 쿠팡 건 | 쿠팡 무관 | 모름 |",
                   "|---|---:|---:|---:|"])
     for day, values in (report.get("날짜별") or {}).items():
@@ -320,7 +416,30 @@ def load_cached(path=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--sync", action="store_true", help="판정 리포트를 reports/에 갱신")
+    parser.add_argument("--list", action="store_true", help="지시 목록과 레코드ID 만 본다")
+    parser.add_argument("--ack", metavar="레코드ID", help="처리 완료로 확인 — 화면·캡처에서 내린다")
+    parser.add_argument("--unack", metavar="레코드ID", help="확인을 되돌려 다시 올린다")
+    parser.add_argument("--who", default="관리자", help="확인한 사람(리포트에 남는다)")
+    parser.add_argument("--why", default="사람 확인", help="확인 근거 한 줄")
     args = parser.parse_args()
+
+    if args.list:
+        rows = load_cached().get("directives") or []
+        for row in rows:
+            print("%s  %s  상태=%s  기한=%s" % (
+                row.get("레코드ID"), row.get("제목"), row.get("상태"),
+                row.get("보고기한") or "-"))
+        if not rows:
+            print("지시 없음 — 리포트가 없거나 아직 안 돌았습니다 (python ceo_events.py --sync)")
+        return
+    if args.ack or args.unack:
+        save_ack(args.ack or args.unack, who=args.who, why=args.why,
+                 remove=bool(args.unack))
+        print(("확인 처리: %s — 화면·캡처에서 내려갑니다" if args.ack
+               else "확인 취소: %s — 다시 올라옵니다") % (args.ack or args.unack))
+        if not args.sync:
+            print("→ 리포트에 반영하려면 --sync 를 같이 주세요")
+
     report = sync() if args.sync else extract()
     c = report["판정"]
     print("대표 대화 판정 — 쿠팡 건 %d · 쿠팡 무관 %d · 모름 %d" %
