@@ -12939,8 +12939,9 @@ def t142_flow_editable():
         "흐름 저장이 인증 없이 열려 있다"
     # ③ 화면: 좌측 카테고리 · 뷰 · 수정/저장/되돌리기가 실제로 이어져 있나
     assert 'data-v="flow"' in live and 'id="v-flow"' in live
-    assert "if(v==='flow' && !FLOW_EDITING && !FLOW_DIRTY) loadFlow();" in live, \
-        "고치는 중이거나 저장 전 변경이 있는데 다시 불러 덮어쓴다 — 말없이 사라진다"
+    assert ("if(v==='flow' && !FLOW_EDITING && !FLOW_DIRTY && !FLOW_VIS_DIRTY) loadFlow();"
+            in live), \
+        "단계나 도면을 고치는 중인데 다시 불러 덮어쓴다 — 말없이 사라진다"
     for fn in ("loadFlow", "flowRender", "flowEdit", "flowSave", "flowUndo",
                "flowAddStep", "flowDel", "flowMove", "flowCollect"):
         assert f"function {fn}(" in live, f"{fn} 이 없다"
@@ -19645,6 +19646,59 @@ def t275_work_cards_require_edit_then_batch_save_with_notifications():
     print("[275] 정기점검·돌발AS 수정/저장 버튼 · 변경 전 초안 · 다중필드 1회 저장 · 알림 팝업 OK")
 
 
+def t276_mouse_workflow_canvas():
+    """[276] 워크플로우 도면 — 클릭 배치·화살표·손그림·공유 저장 (2026-08-14 지시).
+
+    업무 단계(flow_step)와 도면(flow_visual)을 갈라 두고, revision 낙관 잠금으로
+    다른 PC의 최신 도면을 늦은 저장이 덮지 않는지까지 확인한다.
+    """
+    import ledger_db as L
+    old_path = L.DB_PATH
+    with tempfile.TemporaryDirectory() as td:
+        L.DB_PATH = os.path.join(td, "flow_visual_test.db")
+        try:
+            empty = L.flow_visual("as_legacy")
+            assert empty["revision"] == 0 and empty["nodes"] == [], "새 도면이 빈 상태가 아니다"
+            probe = {
+                "nodes": [
+                    {"id": "a", "label": "접수", "owner": "류지영", "x": 20, "y": 30},
+                    {"id": "b", "label": "완료", "owner": "오종현", "x": 400, "y": 80},
+                ],
+                "edges": [
+                    {"id": "ab", "from": "a", "to": "b"},
+                    {"id": "ghost", "from": "a", "to": "없는노드"},
+                ],
+                "strokes": [{"id": "pen", "points": [[1, 2], [3, 4], [5, 8]]}],
+            }
+            saved = L.flow_visual_save(probe, "synthetic", "as_legacy", 0)
+            assert saved["revision"] == 1 and len(saved["nodes"]) == 2
+            assert len(saved["edges"]) == 1 and saved["edges"][0]["id"] == "ab", +                "없는 노드를 향한 화살표를 저장했다"
+            assert len(saved["strokes"]) == 1, "손그림이 저장되지 않았다"
+            try:
+                L.flow_visual_save(probe, "synthetic", "as_legacy", 0)
+                raise AssertionError("낡은 revision 이 최신 도면을 덮었다")
+            except ValueError as exc:
+                assert "다른 기기" in str(exc)
+            restored = L.flow_visual_restore("synthetic", "as_legacy")
+            assert restored["nodes"] == [] and restored["edges"] == [], +                "도면 저장본 되돌리기가 이전 모습을 복원하지 못했다"
+        finally:
+            L.DB_PATH = old_path
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    db = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    for need in ('id="flowVisualStage"', 'data-flow-mode="add"', 'data-flow-mode="arrow"',
+                 'data-flow-mode="draw"', "function flowVisualStageDown(",
+                 "function flowVisualNodeDown(", "function flowVisualNodeArrow(",
+                 "function flowVisualSave(", "function flowVisualUndoLocal(",
+                 'marker-end:url(#flowArrowHead)', "setPointerCapture"):
+        assert need in live, "마우스 도면 기능 조각이 없다: " + need
+    assert "CREATE TABLE IF NOT EXISTS flow_visual(" in db and +           "CREATE TABLE IF NOT EXISTS flow_visual_audit" in db
+    assert "ledger_db.flow_visual_save" in server and "visual_revision" in server and +           '"visual": visual' in server, "서버가 도면을 별도 정본·revision 으로 저장하지 않는다"
+    assert "!FLOW_VIS_DIRTY" in live.split("if(v==='flow'")[1][:140], +        "저장 전 도면을 화면 재진입이 말없이 덮는다"
+    print("[276] 마우스 단계 배치 · 화살표 · 손그림 · 이동/삭제/취소 · DB 공유 저장/충돌방지 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19774,6 +19828,7 @@ if __name__ == "__main__":
     t273_calendar_capture_is_three_pages_and_never_drops_reasons()
     t274_mobile_orgchart_centers_every_wrapped_row()
     t275_work_cards_require_edit_then_batch_save_with_notifications()
+    t276_mouse_workflow_canvas()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

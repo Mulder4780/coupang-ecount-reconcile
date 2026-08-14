@@ -2734,6 +2734,59 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
   background:var(--surface);color:var(--ink);font:inherit;font-size:13.5px}
 .flow-edit .wide{grid-column:1/-1}
 .flow-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+/* ── 자유형 워크플로우 도면 (2026-08-14 지시) ───────────────────────────────
+   업무 단계 목록은 정본으로 그대로 두고, 위 도면에서 마우스로 놓고 잇고 그린다.
+   고정 1400×820 작업면을 스크롤 안에 둔다 — 브라우저 폭에 맞춰 억지로 줄이면 폰에서
+   노드가 겹치고, 저장 좌표가 기기마다 달라진다. */
+.flow-visual-card{padding:14px;overflow:hidden}
+.flow-visual-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+  flex-wrap:wrap;margin-bottom:10px}
+.flow-visual-head h4{margin:0;font-size:17px;color:var(--ink)}
+.flow-visual-head p{margin:3px 0 0;font-size:12.5px;color:var(--ink-3)}
+.flow-vtools{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.flow-vtool{appearance:none;border:1px solid var(--line);border-radius:10px;background:var(--surface);
+  color:var(--ink-2);padding:7px 10px;font:750 12.5px inherit;cursor:pointer}
+.flow-vtool:hover{background:var(--brand-tint);color:var(--brand-dk)}
+.flow-vtool.on{background:var(--brand-btn);border-color:var(--brand-btn);color:#fff}
+.flow-vtool.save{background:#12813F;border-color:#12813F;color:#fff}
+.flow-vtool.danger{color:var(--danger)}
+.flow-vhint{min-height:20px;margin:0 0 7px;color:var(--brand-dk);font:750 12.5px inherit}
+.flow-vscroll{position:relative;max-width:100%;overflow:auto;border:1px solid var(--line);
+  border-radius:14px;background:var(--panel);overscroll-behavior:contain}
+.flow-vstage{position:relative;width:1400px;height:820px;isolation:isolate;touch-action:none;
+  background-color:var(--surface);background-image:
+    linear-gradient(var(--line) 1px,transparent 1px),
+    linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:24px 24px;cursor:default;user-select:none}
+.flow-vstage.mode-add{cursor:crosshair}.flow-vstage.mode-draw{cursor:crosshair}
+.flow-vsvg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;z-index:1}
+.flow-vedge{fill:none;stroke:#5A6785;stroke-width:3;marker-end:url(#flowArrowHead)}
+.flow-vedge.selected{stroke:#B3261E;stroke-width:4}
+.flow-vedge-hit,.flow-vstroke-hit{fill:none;stroke:transparent;stroke-width:18;cursor:pointer;pointer-events:stroke}
+.flow-vstroke{fill:none;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.flow-vstroke.selected{filter:drop-shadow(0 0 3px #B3261E)}
+.flow-vnode{position:absolute;z-index:2;display:flex;align-items:center;gap:10px;
+  min-width:150px;min-height:60px;padding:10px 12px;border:1px solid var(--line);
+  border-left:6px solid var(--node-c,#0062CC);border-radius:14px;background:var(--surface);
+  color:var(--ink);box-shadow:0 4px 12px rgba(16,24,40,.14);cursor:grab;text-align:left}
+.flow-vnode:active{cursor:grabbing}.flow-vnode.selected{outline:3px solid rgba(36,82,230,.42);outline-offset:2px}
+.flow-vnode.arrow-source{outline:3px solid #E8890C;outline-offset:2px}
+.flow-vnode .vn{display:grid;place-items:center;flex:0 0 auto;width:27px;height:27px;
+  border-radius:50%;background:var(--node-c,#0062CC);color:#fff;font:800 12px inherit}
+.flow-vnode .vl{min-width:0}.flow-vnode .vl b{display:block;max-width:230px;overflow:hidden;
+  white-space:nowrap;text-overflow:ellipsis;font-size:14px}.flow-vnode .vl span{display:block;
+  margin-top:3px;color:var(--ink-3);font-size:11.5px}
+.flow-vinspect{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px;
+  padding:9px 10px;border:1px solid var(--line);border-radius:11px;background:var(--panel)}
+.flow-vinspect label{font:750 12px inherit;color:var(--ink-3)}
+.flow-vinspect input{min-width:180px;flex:1;padding:7px 9px;border:1px solid var(--line);
+  border-radius:9px;background:var(--surface);color:var(--ink);font:inherit}
+.flow-vstatus{margin-left:auto;font-size:11.5px;color:var(--ink-3)}
+@media(max-width:640px){
+  .flow-visual-card{padding:10px}.flow-vtools{display:grid;grid-template-columns:repeat(3,1fr);width:100%}
+  .flow-vtool{min-width:0;padding:8px 5px}.flow-vinspect input{min-width:120px}
+  .flow-vstatus{width:100%;margin-left:0}
+}
 /* ── 원본 바로 열기 (2026-08-07 지시) ── 상세 맨 위, 눌러서 바로 여는 자리 */
 .orig{margin:10px 0 4px}
 .orig-t{font:800 12px inherit;color:var(--ink-3);letter-spacing:.04em;margin-bottom:6px}
@@ -3595,6 +3648,35 @@ body.dash-drag-live #dashGuides{display:grid}
     <div class="card flow-notes-card" data-lc-skip id="flowNotesCard" hidden>
       <div class="flow-notes-h" id="flowNotesH"></div>
       <div id="flowNotesList"></div>
+    </div>
+    <div class="card flow-visual-card" data-lc-skip>
+      <div class="flow-visual-head">
+        <div><h4>마우스 워크플로우 도면</h4>
+          <p>단계를 놓고 두 단계를 화살표로 이은 뒤, 필요한 표시를 손으로 그릴 수 있습니다.</p></div>
+        <div class="flow-vtools" id="flowVisualTools">
+          <button type="button" class="flow-vtool on" data-flow-mode="select" onclick="flowVisualMode('select')">선택·이동</button>
+          <button type="button" class="flow-vtool" data-flow-mode="add" onclick="flowVisualMode('add')">+ 단계 넣기</button>
+          <button type="button" class="flow-vtool" data-flow-mode="arrow" onclick="flowVisualMode('arrow')">→ 화살표</button>
+          <button type="button" class="flow-vtool" data-flow-mode="draw" onclick="flowVisualMode('draw')">✎ 그리기</button>
+          <button type="button" class="flow-vtool danger" onclick="flowVisualDelete()">선택 삭제</button>
+          <button type="button" class="flow-vtool" onclick="flowVisualUndoLocal()">↶ 방금 취소</button>
+          <button type="button" class="flow-vtool" onclick="flowVisualAutoLayout()">자동 배치</button>
+          <button type="button" class="flow-vtool" onclick="flowVisualRestore()">저장본 되돌리기</button>
+          <button type="button" class="flow-vtool save" id="flowVisualSaveBtn" onclick="flowVisualSave()">도면 저장</button>
+        </div>
+      </div>
+      <div class="flow-vhint" id="flowVisualHint">단계를 끌어 원하는 위치로 옮기세요.</div>
+      <div class="flow-vscroll" id="flowVisualScroll">
+        <div class="flow-vstage mode-select" id="flowVisualStage" tabindex="0"
+          onpointerdown="flowVisualStageDown(event)" onkeydown="flowVisualKey(event)"></div>
+      </div>
+      <div class="flow-vinspect" id="flowVisualInspect" hidden>
+        <label for="flowVisualLabel">단계 이름</label>
+        <input id="flowVisualLabel" maxlength="80" onchange="flowVisualNodeField('label',this.value)">
+        <label for="flowVisualOwner">담당</label>
+        <input id="flowVisualOwner" maxlength="30" onchange="flowVisualNodeField('owner',this.value)">
+        <span class="flow-vstatus" id="flowVisualStatus"></span>
+      </div>
     </div>
     <div class="card" data-lc-skip>
       <div class="flow-wrap" id="flowWrap"></div>
@@ -8118,7 +8200,7 @@ function applyView(v){
   if(v==='check') renderCheckHub();
   if(v==='run') loadAutomationStatus();
   // 고치는 중이거나 아직 저장 안 한 변경이 있으면 덮지 않는다 — 덮으면 말없이 사라진다
-  if(v==='flow' && !FLOW_EDITING && !FLOW_DIRTY) loadFlow();
+  if(v==='flow' && !FLOW_EDITING && !FLOW_DIRTY && !FLOW_VIS_DIRTY) loadFlow();
   if(v==='org') orgLoad();
   // ★ 여기가 비어 있었다 — [보고] 를 열어도 아무것도 안 받고, **누른 다음에야**
   //   받기 시작해서 버튼이 굳었다(2026-08-07 지시로 재설계). 화면은 막지 않는다.
@@ -8834,6 +8916,9 @@ function dashMeasureOverflow(){
    사람이 머릿속으로 더해야 하는데, 실제로 묻는 것은 "언제까지냐" 하나다.
    정본은 DB(flow_step)이라 어느 PC 에서 고쳐도 같은 것을 본다. */
 let FLOW = [], FLOW_EDITING = false;
+let FLOW_VISUAL={width:1400,height:820,nodes:[],edges:[],strokes:[],revision:0};
+let FLOW_VIS_MODE='select', FLOW_VIS_SELECTED=null, FLOW_VIS_ARROW_FROM='',
+    FLOW_VIS_HISTORY=[], FLOW_VIS_DIRTY=false, FLOW_VIS_DRAWING='';
 /* ── 차트는 여러 장이다 (2026-08-11 지시) ─────────────────────────────────────
    "(종전)" = 앱 도입 전 사람 손 방식, "(개선)" = 앱 기반 — 스위치로 오가며 각각
    보고 캡처한다. 목록은 서버(ledger_db.FLOW_CHARTS)가 준다 — 추후 정기점검
@@ -9087,7 +9172,7 @@ function flowChartLabel(){
 }
 async function flowPick(key){
   if(key === FLOW_CHART) return;
-  if(FLOW_EDITING || FLOW_DIRTY)
+  if(FLOW_EDITING || FLOW_DIRTY || FLOW_VIS_DIRTY)
     return notice('수정 중입니다 — 저장하거나 취소한 뒤 차트를 바꾸세요');
   FLOW_CHART = key;
   uxEvent('tap','flow-chart', key);
@@ -9099,8 +9184,11 @@ async function loadFlow(){
     FLOW = d.steps || [];
     FLOW_CHARTS_LIST = d.charts || FLOW_CHARTS_LIST;
     FLOW_NOTES = d.notes || [];
-  }catch(e){ FLOW = []; FLOW_NOTES = []; }
+    FLOW_VISUAL = d.visual || {width:1400,height:820,nodes:[],edges:[],strokes:[],revision:0};
+  }catch(e){ FLOW = []; FLOW_NOTES = [];
+    FLOW_VISUAL={width:1400,height:820,nodes:[],edges:[],strokes:[],revision:0}; }
   FLOW_DIRTY = false;            // 방금 서버에서 받았다 — 저장할 것이 없다
+  FLOW_VIS_DIRTY = false; FLOW_VIS_HISTORY=[]; FLOW_VIS_SELECTED=null; FLOW_VIS_ARROW_FROM='';
   flowRender();
 }
 /* 담당마다 고정된 색. 이름이 같으면 언제나 같은 색이라 눈이 구간을 기억한다.
@@ -9133,6 +9221,270 @@ function flowColor(who, pal){
   const k = String(who||'').trim();
   return (k && pal && pal[k]) || {c:'var(--ink-3)', bg:'var(--panel)'};
 }
+/* ── 마우스로 놓고 잇고 그리는 자유형 워크플로우 도면 (2026-08-14 지시) ─────
+   FLOW 는 업무 단계 정본, FLOW_VISUAL 은 배치·화살표·손그림 정본이다. 분리해야
+   도면의 선 하나를 지우다가 업무 단계가 사라지지 않는다. 좌표는 1400×820 논리
+   작업면으로 고정해 PC·모바일·다른 PC에서도 같은 자리에 보인다. */
+function flowVisualId(prefix){
+  try{return prefix+crypto.randomUUID().replace(/-/g,'').slice(0,12);}
+  catch(_){return prefix+Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+}
+function flowVisualClone(v){ return JSON.parse(JSON.stringify(v)); }
+function flowVisualPayload(){
+  return {width:1400,height:820,nodes:FLOW_VISUAL.nodes||[],
+          edges:FLOW_VISUAL.edges||[],strokes:FLOW_VISUAL.strokes||[]};
+}
+function flowVisualHistoryPush(){
+  FLOW_VIS_HISTORY.push(flowVisualClone(FLOW_VISUAL));
+  if(FLOW_VIS_HISTORY.length>30) FLOW_VIS_HISTORY.shift();
+}
+function flowVisualMarkDirty(){
+  FLOW_VIS_DIRTY=true;
+  const b=$('flowVisualSaveBtn'); if(b) b.textContent='도면 저장(변경됨)';
+}
+function flowVisualBuild(initial){
+  if(!initial) flowVisualHistoryPush();
+  const pal=flowPalette(FLOW), cols=5, nodes=[];
+  FLOW.forEach((s,i)=>{
+    const row=Math.floor(i/cols), raw=i%cols, col=row%2 ? cols-1-raw : raw;
+    const c=flowColor(s.담당,pal).c;
+    nodes.push({id:'step-'+(i+1),label:String(s.단계||('단계 '+(i+1))),
+      owner:String(s.담당||''),x:42+col*266,y:38+row*120,w:220,h:78,
+      color:/^#[0-9a-f]{6}$/i.test(c)?c:FLOW_COLORS[i%FLOW_COLORS.length]});
+  });
+  const edges=nodes.slice(1).map((n,i)=>({id:'auto-'+(i+1),from:nodes[i].id,to:n.id,label:''}));
+  const rev=Number(FLOW_VISUAL.revision||0);
+  FLOW_VISUAL={width:1400,height:820,nodes,edges,strokes:[],revision:rev,
+    updated_at:FLOW_VISUAL.updated_at||'',updated_by:FLOW_VISUAL.updated_by||''};
+  FLOW_VIS_SELECTED=null; FLOW_VIS_ARROW_FROM='';
+  if(!initial) flowVisualMarkDirty();
+}
+function flowVisualEnsure(){
+  FLOW_VISUAL=FLOW_VISUAL&&typeof FLOW_VISUAL==='object'?FLOW_VISUAL:{};
+  ['nodes','edges','strokes'].forEach(k=>{if(!Array.isArray(FLOW_VISUAL[k]))FLOW_VISUAL[k]=[];});
+  FLOW_VISUAL.width=1400; FLOW_VISUAL.height=820;
+  // 아직 한 번도 저장하지 않은 차트만 현재 단계로 씨앗을 만든다. 저장된 빈 도면은 존중한다.
+  if(!FLOW_VISUAL.nodes.length && Number(FLOW_VISUAL.revision||0)===0 && FLOW.length)
+    flowVisualBuild(true);
+}
+function flowVisualNode(id){return (FLOW_VISUAL.nodes||[]).find(n=>n.id===id);}
+function flowVisualEdgePath(e){
+  const a=flowVisualNode(e.from),b=flowVisualNode(e.to); if(!a||!b)return '';
+  const ax=+a.x+(+a.w||220)/2, ay=+a.y+(+a.h||78)/2;
+  const bx=+b.x+(+b.w||220)/2, by=+b.y+(+b.h||78)/2;
+  const mx=(ax+bx)/2;
+  return `M ${ax} ${ay} C ${mx} ${ay}, ${mx} ${by}, ${bx} ${by}`;
+}
+function flowVisualStrokePath(s){
+  return (s.points||[]).map((p,i)=>(i?'L ':'M ')+(+p[0])+' '+(+p[1])).join(' ');
+}
+function flowVisualRender(){
+  const st=$('flowVisualStage'); if(!st)return;
+  flowVisualEnsure();
+  st.style.width=(FLOW_VISUAL.width||1400)+'px'; st.style.height=(FLOW_VISUAL.height||820)+'px';
+  const sel=FLOW_VIS_SELECTED||{};
+  const edgeHtml=(FLOW_VISUAL.edges||[]).map(e=>{
+    const d=flowVisualEdgePath(e); if(!d)return '';
+    return `<path class="flow-vedge${sel.type==='edge'&&sel.id===e.id?' selected':''}"
+      data-flow-edge="${esc2(e.id)}" d="${d}"></path>
+      <path class="flow-vedge-hit" d="${d}" onpointerdown="flowVisualEdgeDown(event,'${esc2(e.id)}')"></path>`;
+  }).join('');
+  const strokeHtml=(FLOW_VISUAL.strokes||[]).map(s=>{
+    const d=flowVisualStrokePath(s), on=sel.type==='stroke'&&sel.id===s.id;
+    return `<path class="flow-vstroke${on?' selected':''}" data-flow-stroke="${esc2(s.id)}"
+      d="${d}" style="stroke:${esc2(s.color||'#2452E6')};stroke-width:${+s.width||3}"></path>
+      <path class="flow-vstroke-hit" d="${d}" onpointerdown="flowVisualStrokeDown(event,'${esc2(s.id)}')"></path>`;
+  }).join('');
+  const nodes=(FLOW_VISUAL.nodes||[]).map((n,i)=>`<button type="button"
+      class="flow-vnode${sel.type==='node'&&sel.id===n.id?' selected':''}${FLOW_VIS_ARROW_FROM===n.id?' arrow-source':''}"
+      data-flow-node="${esc2(n.id)}" style="left:${+n.x||0}px;top:${+n.y||0}px;width:${+n.w||220}px;
+      height:${+n.h||78}px;--node-c:${esc2(n.color||'#0062CC')}"
+      onpointerdown="flowVisualNodeDown(event,'${esc2(n.id)}')">
+      <span class="vn">${i+1}</span><span class="vl"><b>${esc2(n.label||'새 단계')}</b>
+      <span>${esc2(n.owner||'담당 미정')}</span></span></button>`).join('');
+  st.innerHTML=`<svg class="flow-vsvg" viewBox="0 0 1400 820" aria-hidden="true">
+    <defs><marker id="flowArrowHead" markerWidth="10" markerHeight="10" refX="8" refY="3"
+      orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#5A6785"/></marker></defs>
+    ${edgeHtml}${strokeHtml}</svg>${nodes}`;
+  flowVisualUi();
+}
+function flowVisualUi(){
+  const st=$('flowVisualStage'); if(!st)return;
+  st.className='flow-vstage mode-'+FLOW_VIS_MODE;
+  document.querySelectorAll('[data-flow-mode]').forEach(b=>
+    b.classList.toggle('on',b.dataset.flowMode===FLOW_VIS_MODE));
+  const hints={select:'단계를 끌어 옮기세요. 단계·선·손그림을 누르면 선택됩니다.',
+    add:'빈 곳을 클릭하면 새 단계가 들어갑니다.',
+    arrow:FLOW_VIS_ARROW_FROM?'주황색 단계에서 출발합니다 — 도착 단계를 클릭하세요.':'출발 단계를 클릭한 뒤 도착 단계를 클릭하세요.',
+    draw:'빈 곳을 누른 채 마우스를 움직여 선을 그리세요.'};
+  const h=$('flowVisualHint'); if(h)h.textContent=hints[FLOW_VIS_MODE]||'';
+  flowVisualSelectionUpdate();
+  const b=$('flowVisualSaveBtn'); if(b)b.textContent=FLOW_VIS_DIRTY?'도면 저장(변경됨)':'도면 저장';
+}
+function flowVisualSelectionUpdate(){
+  const sel=FLOW_VIS_SELECTED||{}, st=$('flowVisualStage');
+  if(st){
+    st.querySelectorAll('[data-flow-node]').forEach(el=>{
+      el.classList.toggle('selected',sel.type==='node'&&el.dataset.flowNode===sel.id);
+      el.classList.toggle('arrow-source',el.dataset.flowNode===FLOW_VIS_ARROW_FROM);});
+    st.querySelectorAll('[data-flow-edge]').forEach(el=>
+      el.classList.toggle('selected',sel.type==='edge'&&el.dataset.flowEdge===sel.id));
+    st.querySelectorAll('[data-flow-stroke]').forEach(el=>
+      el.classList.toggle('selected',sel.type==='stroke'&&el.dataset.flowStroke===sel.id));
+  }
+  const box=$('flowVisualInspect'), n=sel.type==='node'?flowVisualNode(sel.id):null;
+  if(box)box.hidden=!n;
+  if(n){const a=$('flowVisualLabel'),o=$('flowVisualOwner');
+    if(a&&document.activeElement!==a)a.value=n.label||'';
+    if(o&&document.activeElement!==o)o.value=n.owner||'';}
+  const s=$('flowVisualStatus'); if(s)s.textContent='저장판 '+Number(FLOW_VISUAL.revision||0)
+    +(FLOW_VISUAL.updated_by?' · '+FLOW_VISUAL.updated_by:'');
+}
+function flowVisualMode(mode){
+  FLOW_VIS_MODE=mode; if(mode!=='arrow')FLOW_VIS_ARROW_FROM='';
+  flowVisualUi(); try{$('flowVisualStage').focus({preventScroll:true});}catch(_){}
+}
+function flowVisualPoint(e){
+  const r=$('flowVisualStage').getBoundingClientRect();
+  return {x:Math.max(0,Math.min(1400,e.clientX-r.left)),
+          y:Math.max(0,Math.min(820,e.clientY-r.top))};
+}
+function flowVisualStageDown(e){
+  if(e.button!==undefined&&e.button!==0)return;
+  if(e.target.closest&&e.target.closest('.flow-vnode,.flow-vedge-hit,.flow-vstroke-hit'))return;
+  const p=flowVisualPoint(e);
+  if(FLOW_VIS_MODE==='add'){
+    e.preventDefault(); flowVisualHistoryPush();
+    const n={id:flowVisualId('n'),label:'새 단계 '+((FLOW_VISUAL.nodes||[]).length+1),owner:'',
+      x:Math.max(0,Math.min(1180,p.x-110)),y:Math.max(0,Math.min(742,p.y-39)),
+      w:220,h:78,color:FLOW_COLORS[(FLOW_VISUAL.nodes||[]).length%FLOW_COLORS.length]};
+    FLOW_VISUAL.nodes.push(n); FLOW_VIS_SELECTED={type:'node',id:n.id};
+    flowVisualMarkDirty(); flowVisualRender();
+    setTimeout(()=>{const i=$('flowVisualLabel');if(i){i.focus();i.select();}},0);
+    return;
+  }
+  if(FLOW_VIS_MODE==='draw'){
+    e.preventDefault(); flowVisualHistoryPush();
+    const id=flowVisualId('s'), s={id,color:'#2452E6',width:3,points:[[p.x,p.y]]};
+    FLOW_VISUAL.strokes.push(s); FLOW_VIS_DRAWING=id; FLOW_VIS_SELECTED={type:'stroke',id};
+    const stage=$('flowVisualStage'); try{stage.setPointerCapture(e.pointerId);}catch(_){}
+    flowVisualRender();
+    const move=ev=>{
+      if(FLOW_VIS_DRAWING!==id)return; const q=flowVisualPoint(ev);
+      const last=s.points[s.points.length-1];
+      if(Math.hypot(q.x-last[0],q.y-last[1])<3)return;
+      s.points.push([Math.round(q.x),Math.round(q.y)]);
+      const path=stage.querySelector('[data-flow-stroke="'+id+'"]');
+      if(path)path.setAttribute('d',flowVisualStrokePath(s));
+    };
+    const up=()=>{
+      stage.removeEventListener('pointermove',move); stage.removeEventListener('pointerup',up);
+      stage.removeEventListener('pointercancel',up); FLOW_VIS_DRAWING='';
+      if(s.points.length<2){FLOW_VISUAL.strokes=FLOW_VISUAL.strokes.filter(x=>x.id!==id);FLOW_VIS_HISTORY.pop();}
+      else flowVisualMarkDirty();
+      flowVisualRender();
+    };
+    stage.addEventListener('pointermove',move); stage.addEventListener('pointerup',up);
+    stage.addEventListener('pointercancel',up); return;
+  }
+  FLOW_VIS_SELECTED=null; flowVisualSelectionUpdate();
+}
+function flowVisualNodeDown(e,id){
+  e.preventDefault(); e.stopPropagation();
+  if(FLOW_VIS_MODE==='arrow'){flowVisualNodeArrow(id);return;}
+  FLOW_VIS_SELECTED={type:'node',id}; flowVisualSelectionUpdate();
+  if(FLOW_VIS_MODE!=='select')return;
+  const n=flowVisualNode(id); if(!n)return;
+  const sx=e.clientX,sy=e.clientY,ox=+n.x||0,oy=+n.y||0; let moved=false;
+  const move=ev=>{
+    const dx=ev.clientX-sx,dy=ev.clientY-sy;
+    if(!moved&&Math.hypot(dx,dy)>2){moved=true;flowVisualHistoryPush();}
+    if(!moved)return;
+    n.x=Math.max(0,Math.min(1400-(+n.w||220),Math.round(ox+dx)));
+    n.y=Math.max(0,Math.min(820-(+n.h||78),Math.round(oy+dy)));
+    const el=$('flowVisualStage').querySelector('[data-flow-node="'+id+'"]');
+    if(el){el.style.left=n.x+'px';el.style.top=n.y+'px';}
+  };
+  const up=()=>{
+    window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);
+    window.removeEventListener('pointercancel',up);
+    if(moved){flowVisualMarkDirty();flowVisualRender();}
+  };
+  window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);
+  window.addEventListener('pointercancel',up);
+}
+function flowVisualNodeArrow(id){
+  if(!FLOW_VIS_ARROW_FROM){FLOW_VIS_ARROW_FROM=id;FLOW_VIS_SELECTED={type:'node',id};flowVisualRender();return;}
+  if(FLOW_VIS_ARROW_FROM===id){FLOW_VIS_ARROW_FROM='';flowVisualRender();return;}
+  const exists=(FLOW_VISUAL.edges||[]).some(e=>e.from===FLOW_VIS_ARROW_FROM&&e.to===id);
+  if(!exists){
+    flowVisualHistoryPush();
+    const edge={id:flowVisualId('e'),from:FLOW_VIS_ARROW_FROM,to:id,label:''};
+    FLOW_VISUAL.edges.push(edge); FLOW_VIS_SELECTED={type:'edge',id:edge.id}; flowVisualMarkDirty();
+  }
+  FLOW_VIS_ARROW_FROM=''; flowVisualRender();
+}
+function flowVisualEdgeDown(e,id){e.preventDefault();e.stopPropagation();
+  FLOW_VIS_SELECTED={type:'edge',id};flowVisualSelectionUpdate();}
+function flowVisualStrokeDown(e,id){e.preventDefault();e.stopPropagation();
+  FLOW_VIS_SELECTED={type:'stroke',id};flowVisualSelectionUpdate();}
+function flowVisualNodeField(field,value){
+  const s=FLOW_VIS_SELECTED||{}; if(s.type!=='node')return;
+  const n=flowVisualNode(s.id);if(!n)return;
+  const v=String(value||'').trim().slice(0,field==='label'?80:30);
+  if(n[field]===v||(!v&&field==='label'))return;
+  flowVisualHistoryPush();n[field]=v;flowVisualMarkDirty();flowVisualRender();
+}
+function flowVisualDelete(){
+  const s=FLOW_VIS_SELECTED;if(!s){toast('지울 단계나 선을 먼저 선택하세요');return;}
+  flowVisualHistoryPush();
+  if(s.type==='node'){
+    FLOW_VISUAL.nodes=FLOW_VISUAL.nodes.filter(n=>n.id!==s.id);
+    FLOW_VISUAL.edges=FLOW_VISUAL.edges.filter(e=>e.from!==s.id&&e.to!==s.id);
+  }else if(s.type==='edge')FLOW_VISUAL.edges=FLOW_VISUAL.edges.filter(e=>e.id!==s.id);
+  else if(s.type==='stroke')FLOW_VISUAL.strokes=FLOW_VISUAL.strokes.filter(x=>x.id!==s.id);
+  FLOW_VIS_SELECTED=null;flowVisualMarkDirty();flowVisualRender();
+}
+function flowVisualUndoLocal(){
+  if(!FLOW_VIS_HISTORY.length){toast('취소할 도면 작업이 없습니다');return;}
+  FLOW_VISUAL=FLOW_VIS_HISTORY.pop();FLOW_VIS_SELECTED=null;FLOW_VIS_ARROW_FROM='';
+  flowVisualMarkDirty();flowVisualRender();toast('방금 도면 작업을 취소했습니다');
+}
+function flowVisualAutoLayout(){
+  if(!FLOW.length){toast('자동 배치할 업무 단계가 없습니다');return;}
+  flowVisualBuild(false);flowVisualRender();toast('현재 업무 단계로 자동 배치했습니다');
+}
+function flowVisualKey(e){
+  if((e.key==='Delete'||e.key==='Backspace')&&FLOW_VIS_SELECTED){
+    e.preventDefault();flowVisualDelete();
+  }else if(e.key==='Escape'){FLOW_VIS_ARROW_FROM='';FLOW_VIS_SELECTED=null;flowVisualMode('select');}
+}
+async function flowVisualSave(){
+  if(!FLOW_VIS_DIRTY){toast('도면은 이미 저장된 상태입니다');return;}
+  const body={chart:FLOW_CHART,visual:flowVisualPayload(),
+    visual_revision:Number(FLOW_VISUAL.revision||0),
+    저장자:((STAFF_CENTERS[staffSlug]||{}).name||'앱 사용자')};
+  try{
+    const r=await api('/api/flow',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)});
+    if(!r.ok)throw new Error(r.error||'도면 저장 실패');
+    FLOW_VISUAL=r.visual||FLOW_VISUAL;FLOW_VIS_DIRTY=false;FLOW_VIS_HISTORY=[];
+    flowVisualRender();toast('워크플로우 도면을 저장했습니다');
+    uxEvent('tap','flow-visual-save',String(FLOW_VISUAL.revision||0));
+  }catch(e){notice('도면 저장 실패: '+e.message);}
+}
+async function flowVisualRestore(){
+  if(!await askYesNo('바로 전 도면 저장본으로 되돌릴까요?',
+    {desc:'업무 단계 목록은 바뀌지 않고, 도면 배치·화살표·손그림만 돌아갑니다.'}))return;
+  try{
+    const r=await api('/api/flow',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({도면되돌리기:true,chart:FLOW_CHART,
+        저장자:((STAFF_CENTERS[staffSlug]||{}).name||'앱 사용자')})});
+    if(!r.ok)throw new Error(r.error||'도면 되돌리기 실패');
+    FLOW_VISUAL=r.visual||FLOW_VISUAL;FLOW_VIS_DIRTY=false;FLOW_VIS_HISTORY=[];
+    FLOW_VIS_SELECTED=null;flowVisualRender();toast('도면 저장본을 되돌렸습니다');
+  }catch(e){notice('도면 되돌리기 실패: '+e.message);}
+}
 let FLOW_HELD = -1;                            // 길게 눌러 집은 카드(없으면 -1)
 function flowRender(){
   FLOW_EDITING = false; FLOW_HELD = -1;
@@ -9140,6 +9492,7 @@ function flowRender(){
   ['flowSaveBtn','flowCancelBtn','flowAddBtn'].forEach(i=>{const b=$(i); if(b) b.hidden=true;});
   ['flowEditBtn','flowUndoBtn'].forEach(i=>{const b=$(i); if(b) b.hidden=false;});
   flowHead();
+  flowVisualEnsure(); flowVisualRender();
   if(!FLOW.length){ w.innerHTML='<div class="flow-sub">흐름이 비어 있습니다 — [수정]에서 단계를 추가하세요.</div>'; return; }
   const pal = flowPalette(FLOW);
   const lane = flowLanes(FLOW);

@@ -40,7 +40,7 @@ Excel은 단방향 보관본이며 11:00·15:00은 DB 변경을 새 버전으로
   python ledger_db.py --apply --force   # 시각을 무시하고 즉시(긴급용, 이유가 기록된다)
   python ledger_db.py --self-test
 """
-import sys, os, json, sqlite3, subprocess, glob, tempfile, time, re, hashlib
+import sys, os, json, sqlite3, subprocess, glob, tempfile, time, re, hashlib, math
 from datetime import datetime, timedelta, time as dtime
 from contextlib import contextmanager
 
@@ -242,6 +242,21 @@ CREATE TABLE IF NOT EXISTS flow_note(        -- 차트별 문제점·개선점 (
   text TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS flow_visual(      -- 마우스로 배치한 자유형 워크플로우 도면
+  flow_key TEXT PRIMARY KEY,                 -- 단계 정본(flow_step)과 분리한다. 도면을 그리다
+  payload_json TEXT NOT NULL,                --   업무 단계 자체가 망가지면 안 되기 때문이다.
+  revision INTEGER NOT NULL DEFAULT 1,       -- 다른 기기의 늦은 저장이 최신 도면을 덮지 않게
+  updated_at TEXT NOT NULL,
+  updated_by TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS flow_visual_audit(-- 도면도 바로 전 저장본으로 되돌릴 근거를 남긴다
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  flow_key TEXT NOT NULL,
+  at TEXT NOT NULL, who TEXT DEFAULT '',
+  payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_flow_visual_audit_key
+  ON flow_visual_audit(flow_key,id);
 """
 
 # 처음 열었을 때 보여 줄 기본 흐름. 사용자가 고치면 DB 가 정본이 되고 이 값은 다시 안 쓴다.
@@ -977,6 +992,170 @@ def flow_restore(who="", key="as_legacy"):
     with conn() as c:
         c.execute("DELETE FROM flow_audit WHERE id=?", (row[0],))
     return n
+
+
+# ── 마우스로 그리는 자유형 워크플로우 도면 (2026-08-14 지시) ────────────────
+# flow_step 은 업무 단계의 정본이고, 아래 payload 는 **보이는 배치**의 정본이다.
+# 둘을 한 표에 섞으면 화살표 하나를 지우다가 업무 단계가 지워질 수 있으므로 분리한다.
+FLOW_VISUAL_W, FLOW_VISUAL_H = 1400, 820
+
+
+def _flow_visual_number(value, lo, hi, default):
+    """좌표에 NaN·무한대·화면 밖 숫자가 들어오지 않게 한 자리에서 막는다."""
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        n = float(default)
+    if not math.isfinite(n):
+        n = float(default)
+    return round(min(hi, max(lo, n)), 1)
+
+
+def _flow_visual_clean(payload):
+    """브라우저 도면을 작고 안전한 공통 모양으로 정규화한다.
+
+    노드·화살표·손그림만 받는다. 임의 HTML·CSS는 저장하지 않는다 — 여러 PC가 함께
+    보는 화면이라 한 기기의 문자열이 다른 기기 DOM으로 실행되면 안 된다.
+    """
+    p = payload if isinstance(payload, dict) else {}
+    nodes, ids = [], set()
+    for i, raw in enumerate(p.get("nodes") or []):
+        if len(nodes) >= 60 or not isinstance(raw, dict):
+            break
+        nid = re.sub(r"[^A-Za-z0-9_-]", "", str(raw.get("id") or ""))[:40]
+        if not nid or nid in ids:
+            nid = "n%d" % (i + 1)
+            while nid in ids:
+                nid += "x"
+        ids.add(nid)
+        nodes.append({
+            "id": nid,
+            "label": str(raw.get("label") or "새 단계").strip()[:80] or "새 단계",
+            "owner": str(raw.get("owner") or "").strip()[:30],
+            "x": _flow_visual_number(raw.get("x"), 0, FLOW_VISUAL_W - 120, 40),
+            "y": _flow_visual_number(raw.get("y"), 0, FLOW_VISUAL_H - 54, 40),
+            "w": _flow_visual_number(raw.get("w"), 150, 320, 230),
+            "h": _flow_visual_number(raw.get("h"), 60, 150, 82),
+            "color": (str(raw.get("color") or "#0062CC")
+                      if re.fullmatch(r"#[0-9A-Fa-f]{6}", str(raw.get("color") or ""))
+                      else "#0062CC"),
+        })
+
+    edges, edge_ids = [], set()
+    for i, raw in enumerate(p.get("edges") or []):
+        if len(edges) >= 120 or not isinstance(raw, dict):
+            break
+        a, b = str(raw.get("from") or ""), str(raw.get("to") or "")
+        if a not in ids or b not in ids or a == b:
+            continue
+        eid = re.sub(r"[^A-Za-z0-9_-]", "", str(raw.get("id") or ""))[:40]
+        if not eid or eid in edge_ids:
+            eid = "e%d" % (i + 1)
+            while eid in edge_ids:
+                eid += "x"
+        edge_ids.add(eid)
+        edges.append({"id": eid, "from": a, "to": b,
+                      "label": str(raw.get("label") or "").strip()[:40]})
+
+    strokes, stroke_ids = [], set()
+    total_points = 0
+    for i, raw in enumerate(p.get("strokes") or []):
+        if len(strokes) >= 80 or total_points >= 12_000 or not isinstance(raw, dict):
+            break
+        points = []
+        for q in (raw.get("points") or [])[:600]:
+            if not isinstance(q, (list, tuple)) or len(q) < 2:
+                continue
+            points.append([
+                _flow_visual_number(q[0], 0, FLOW_VISUAL_W, 0),
+                _flow_visual_number(q[1], 0, FLOW_VISUAL_H, 0),
+            ])
+        if len(points) < 2:
+            continue
+        sid = re.sub(r"[^A-Za-z0-9_-]", "", str(raw.get("id") or ""))[:40]
+        if not sid or sid in stroke_ids:
+            sid = "s%d" % (i + 1)
+            while sid in stroke_ids:
+                sid += "x"
+        stroke_ids.add(sid)
+        color = str(raw.get("color") or "#2452E6")
+        if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+            color = "#2452E6"
+        strokes.append({"id": sid, "color": color,
+                        "width": _flow_visual_number(raw.get("width"), 1, 12, 3),
+                        "points": points})
+        total_points += len(points)
+    return {"width": FLOW_VISUAL_W, "height": FLOW_VISUAL_H,
+            "nodes": nodes, "edges": edges, "strokes": strokes}
+
+
+def flow_visual(key="as_legacy"):
+    """현재 자유형 도면. 아직 저장한 적 없으면 빈 도면+revision 0을 돌려준다."""
+    key = _flow_key(key)
+    with conn() as c:
+        row = c.execute("SELECT payload_json,revision,updated_at,updated_by"
+                        " FROM flow_visual WHERE flow_key=?", (key,)).fetchone()
+    if not row:
+        return {**_flow_visual_clean({}), "revision": 0, "updated_at": "", "updated_by": ""}
+    try:
+        out = _flow_visual_clean(json.loads(row[0] or "{}"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        out = _flow_visual_clean({})
+    return {**out, "revision": int(row[1] or 0),
+            "updated_at": row[2] or "", "updated_by": row[3] or ""}
+
+
+def flow_visual_save(payload, who="", key="as_legacy", expected_revision=None):
+    """자유형 도면 저장. revision 이 다르면 다른 기기의 최신 저장을 덮지 않는다."""
+    key = _flow_key(key)
+    clean = _flow_visual_clean(payload)
+    now = datetime.now().isoformat(timespec="seconds")
+    who = str(who or "")[:40]
+    with conn() as c:
+        row = c.execute("SELECT payload_json,revision FROM flow_visual WHERE flow_key=?",
+                        (key,)).fetchone()
+        current = int(row[1] or 0) if row else 0
+        if expected_revision is not None:
+            try:
+                expected = int(expected_revision)
+            except (TypeError, ValueError):
+                expected = -1
+            if expected != current:
+                raise ValueError("다른 기기에서 도면이 먼저 저장됐습니다 — 새로고침 후 다시 수정하세요")
+        before = row[0] if row else json.dumps(_flow_visual_clean({}), ensure_ascii=False)
+        c.execute("INSERT INTO flow_visual_audit(flow_key,at,who,payload_json) VALUES(?,?,?,?)",
+                  (key, now, who, before))
+        revision = current + 1
+        packed = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
+        c.execute("INSERT INTO flow_visual(flow_key,payload_json,revision,updated_at,updated_by)"
+                  " VALUES(?,?,?,?,?) ON CONFLICT(flow_key) DO UPDATE SET"
+                  " payload_json=excluded.payload_json,revision=excluded.revision,"
+                  " updated_at=excluded.updated_at,updated_by=excluded.updated_by",
+                  (key, packed, revision, now, who))
+    return flow_visual(key)
+
+
+def flow_visual_restore(who="", key="as_legacy"):
+    """도면만 바로 전 저장본으로 되돌린다. 업무 단계(flow_step)는 건드리지 않는다."""
+    key = _flow_key(key)
+    now = datetime.now().isoformat(timespec="seconds")
+    who = str(who or "")[:40]
+    with conn() as c:
+        old = c.execute("SELECT id,payload_json FROM flow_visual_audit"
+                        " WHERE flow_key=? ORDER BY id DESC LIMIT 1", (key,)).fetchone()
+        if not old:
+            raise ValueError("되돌릴 도면 저장본이 없습니다")
+        cur = c.execute("SELECT revision FROM flow_visual WHERE flow_key=?", (key,)).fetchone()
+        revision = int(cur[0] or 0) + 1 if cur else 1
+        clean = _flow_visual_clean(json.loads(old[1] or "{}"))
+        packed = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
+        c.execute("INSERT INTO flow_visual(flow_key,payload_json,revision,updated_at,updated_by)"
+                  " VALUES(?,?,?,?,?) ON CONFLICT(flow_key) DO UPDATE SET"
+                  " payload_json=excluded.payload_json,revision=excluded.revision,"
+                  " updated_at=excluded.updated_at,updated_by=excluded.updated_by",
+                  (key, packed, revision, now, who))
+        c.execute("DELETE FROM flow_visual_audit WHERE id=?", (old[0],))
+    return flow_visual(key)
 
 
 def call_note_save(file, body, whom="", on="", todos=None):

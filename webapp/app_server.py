@@ -8258,7 +8258,8 @@ self.addEventListener('fetch', e => {
                 return self._send(400, {"ok": False, "error": str(e)})
             return self._send(200, {"steps": steps, "chart": key,
                                     "charts": ledger_db.flow_charts(),
-                                    "notes": ledger_db.flow_notes(key)})
+                                    "notes": ledger_db.flow_notes(key),
+                                    "visual": ledger_db.flow_visual(key)})
         if not self._auth():
             return self._send(401, {"error": "PIN"})
         if p == "/api/live-state":
@@ -9110,8 +9111,8 @@ self.addEventListener('fetch', e => {
             except Exception as e:
                 return self._send(500, {"ok": False, "error": f"엑셀 생성 실패: {str(e)[:160]}"})
         if p == "/api/flow":
-            # 흐름 저장·되돌리기 (2026-08-07 지시). 통째로 받는다 — 순서 바꾸기·지우기가
-            # 섞이면 부분 갱신은 어긋나고, 단계는 많아야 서른 개라 통째가 안전하다.
+            # 업무 단계와 마우스 도면을 한 주소로 받되 **각 정본은 따로** 저장한다.
+            # 화살표 하나를 지웠다고 업무 단계까지 지워지면 안 된다.
             if not self._require_admin():
                 return
             ln = int(self.headers.get("Content-Length", 0))
@@ -9122,8 +9123,21 @@ self.addEventListener('fetch', e => {
             who = str(b.get("저장자") or "앱 사용자")[:40]
             key = str(b.get("chart") or "").strip() or "as_legacy"
             try:
-                n = (ledger_db.flow_restore(who, key) if b.get("되돌리기")
-                     else ledger_db.flow_save(b.get("steps") or [], who, key))
+                # 목록 저장·목록 되돌리기. visual 만 온 요청은 목록을 다시 쓰지 않는다.
+                if b.get("되돌리기"):
+                    n = ledger_db.flow_restore(who, key)
+                elif "steps" in b:
+                    n = ledger_db.flow_save(b.get("steps") or [], who, key)
+                else:
+                    n = len(ledger_db.flow_steps(key))
+                # 자유형 도면 저장·되돌리기. revision 은 다른 PC의 최신 저장 덮어쓰기를 막는다.
+                if b.get("도면되돌리기"):
+                    visual = ledger_db.flow_visual_restore(who, key)
+                elif "visual" in b:
+                    visual = ledger_db.flow_visual_save(
+                        b.get("visual") or {}, who, key, b.get("visual_revision"))
+                else:
+                    visual = ledger_db.flow_visual(key)
                 # 문제점·개선점(2026-08-11)도 같은 저장으로 온다 — 키가 있을 때만 바꾼다
                 # (없는 요청이 빈 목록으로 지우면 화면 하나가 남의 메모를 지운다).
                 if "notes" in b and not b.get("되돌리기"):
@@ -9132,7 +9146,8 @@ self.addEventListener('fetch', e => {
                 return self._send(400, {"ok": False, "error": str(e)})
             return self._send(200, {"ok": True, "단계수": n, "chart": key,
                                     "steps": ledger_db.flow_steps(key),
-                                    "notes": ledger_db.flow_notes(key)})
+                                    "notes": ledger_db.flow_notes(key),
+                                    "visual": visual})
         if p == "/api/policy":
             if not self._require_admin():
                 return
