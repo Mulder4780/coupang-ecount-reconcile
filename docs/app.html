@@ -533,6 +533,7 @@ function renderBrief(){
   const box = $('briefbox'), b = D.brief || {};
   const wl = b['\uC77C\uC9C0\uB300\uC870'] || {}, wa = wl['\uB3CC\uBC1CAS'] || {};
   const activity = brief2026Rows(b['당일처리목록']);
+  const ceo = brief2026Rows(b['대표전달목록']);
   const stale = brief2026Rows(b['완료일미기입목록']);
   const p = b['정기점검'] || {};
   let h = '';
@@ -542,6 +543,13 @@ function renderBrief(){
       <div class="bm">현장 AS 완료와 별도 · ${activity.map(x =>
         esc((x['캠프명'] || '캠프 미기입') + ' — ' + (x['무엇'] || '처리내용 미기입'))).join('<br>')}</div>
     </div>`;
+  }
+  if(ceo.length){
+    h += `<button class="brief-card activity" type="button" onclick="openCeoCloud()"
+      aria-label="유수비 대표 쿠팡 접수 전달 ${ceo.length}건">
+      <div class="bt">${esc(b['기준일'] || '')} 유수비 대표 쿠팡 접수 전달 ${ceo.length}건</div>
+      <div class="bm">처리 완료 아님 · 눌러서 요청 내용 확인·이미지 저장/전달</div>
+    </button>`;
   }
   h += `<div class="brief-card pm">
     <div class="bt">${esc(b['기준일'] || '')} 정기점검</div>
@@ -592,6 +600,11 @@ function openStaleCloud(){
   openCloudBriefSheet('완료일이 안 적힌 오래된 건 ' + rows.length + '건',
     '프로젝트 번호를 누르면 해당 프로젝트를 조회합니다. · 기준일 ' +
       ((D.brief || {})['기준일'] || ''), rows);
+}
+function openCeoCloud(){
+  const b=D.brief||{}, rows=brief2026Rows(b['대표전달목록']);
+  openCloudBriefSheet('유수비 대표 쿠팡 접수 전달 ' + rows.length + '건',
+    '처리 완료가 아닌 대표 전달 접수 · 기준일 ' + (b['기준일'] || ''), rows);
 }
 function openWorkLogCloud(scope){
   const wa=(((D.brief||{})['\uC77C\uC9C0\uB300\uC870']||{})['\uB3CC\uBC1CAS'])||{};
