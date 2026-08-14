@@ -4271,6 +4271,34 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 
   </section>
 
+  <!-- ══ 매출 실적(전체) — 김미영 업무센터 (2026-08-12 지시) ═══════════════════
+       ★ 이 화면만 **세금계산서 발행월** 기준이다. 다른 화면은 완료월로 센다.
+         기준을 화면 맨 위에 적어 두는 것이 이 화면의 절반이다 — 기준을 안 적으면
+         맞는 달까지 "왜 안 맞지"가 된다.
+       ★ 차이의 원인을 화면이 단정하지 않는다. 미발행 근거를 아래에 같이 놓고
+         사람이 판단한다([172]). -->
+  <section class="view" id="v-revenue">
+    <div class="toolbar" id="revToolbar" aria-label="매출 실적 도구">
+      <b style="font-size:15px">쿠팡 매출 실적 (전체)</b>
+      <select id="revYearKind" onchange="renderRevenue()" title="표에 보일 항목">
+        <option value="">유형 전체</option>
+        <option value="정기점검">정기점검</option>
+        <option value="돌발AS">돌발AS</option>
+      </select>
+      <button class="abtn" onclick="loadRevenue(true)" aria-label="다시 읽기">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-repeat"/></svg>다시 읽기</button>
+      <button class="abtn" onclick="revExcel()" aria-label="엑셀로 내보내기">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg>엑셀</button>
+      <button class="abtn" onclick="revCapture()" aria-label="매출 실적 캡처">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-camera-fill"/></svg>캡처</button>
+    </div>
+    <div id="revBasis" class="fnote"></div>
+    <div class="kpis" id="revKpis" style="grid-template-columns:repeat(4,1fr)"></div>
+    <div class="gridwrap"><table class="grid" id="revGrid"></table></div>
+    <div id="revCompare" style="margin-top:18px"></div>
+    <div id="revUnissued" style="margin-top:18px"></div>
+  </section>
+
 </main>
 
 <!-- 캘린더 날짜 창 — **화면 전체 기준**으로 떠야 해서 <main> 밖에 둔다.
@@ -4560,34 +4588,6 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     </div>
     <div class="org-floorwrap"><div class="org-floor" id="orgFloor"></div></div>
     <div class="org-note" id="orgNote"></div>
-  </section>
-
-  <!-- ══ 매출 실적(전체) — 김미영 업무센터 (2026-08-12 지시) ═══════════════════
-       ★ 이 화면만 **세금계산서 발행월** 기준이다. 다른 화면은 완료월로 센다.
-         기준을 화면 맨 위에 적어 두는 것이 이 화면의 절반이다 — 기준을 안 적으면
-         맞는 달까지 "왜 안 맞지"가 된다.
-       ★ 차이의 원인을 화면이 단정하지 않는다. 미발행 근거를 아래에 같이 놓고
-         사람이 판단한다([172]). -->
-  <section class="view" id="v-revenue">
-    <div class="toolbar" id="revToolbar" aria-label="매출 실적 도구">
-      <b style="font-size:15px">쿠팡 매출 실적 (전체)</b>
-      <select id="revYearKind" onchange="renderRevenue()" title="표에 보일 항목">
-        <option value="">유형 전체</option>
-        <option value="정기점검">정기점검</option>
-        <option value="돌발AS">돌발AS</option>
-      </select>
-      <button class="abtn" onclick="loadRevenue(true)" aria-label="다시 읽기">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-repeat"/></svg>다시 읽기</button>
-      <button class="abtn" onclick="revExcel()" aria-label="엑셀로 내보내기">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg>엑셀</button>
-      <button class="abtn" onclick="revCapture()" aria-label="매출 실적 캡처">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-camera-fill"/></svg>캡처</button>
-    </div>
-    <div id="revBasis" class="fnote"></div>
-    <div class="kpis" id="revKpis" style="grid-template-columns:repeat(4,1fr)"></div>
-    <div class="gridwrap"><table class="grid" id="revGrid"></table></div>
-    <div id="revCompare" style="margin-top:18px"></div>
-    <div id="revUnissued" style="margin-top:18px"></div>
   </section>
 
 <nav class="tabbar" id="tabbar">

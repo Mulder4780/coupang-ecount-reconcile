@@ -17367,6 +17367,9 @@ def t234_kim_miyeong_center_and_revenue():
 
     # ── 화면이 기준을 **말한다** ────────────────────────────────────────────
     assert 'id="v-revenue"' in html and 'data-v="revenue"' in html, "매출 실적 화면·탭이 없다"
+    shell = html.split('<main class="shell">', 1)[1].split("</main>", 1)[0]
+    assert 'id="v-revenue"' in shell, \
+        "매출 실적 화면이 .shell 밖에 있어 데스크톱 사이드바 216px 뒤로 잘린다"
     assert "세금계산서 발행월" in html, "화면이 어느 기준으로 센 숫자인지 말하지 않는다"
     assert "발행월" in A._build_revenue.__doc__ if A._build_revenue.__doc__ else True
     basis = src[src.index("def _build_revenue"):src.index("def get_revenue")]
