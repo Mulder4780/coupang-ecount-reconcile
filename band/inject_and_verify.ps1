@@ -1,4 +1,4 @@
-# inject_and_verify.ps1 -Js <payload> -ExpectHost <substr> [-Probe <probe js>] [-WaitSec N]
+# inject_and_verify.ps1 -Js <payload> -SiteKey <approved page> [-Probe <probe js>] [-WaitSec N]
 #
 # Inject a collector AND PROVE IT IS STILL ALIVE afterwards.
 #
@@ -18,7 +18,7 @@
 # mangles non-ASCII, which once killed a watcher without a single log line.
 param(
   [Parameter(Mandatory=$true)][string]$Js,
-  [Parameter(Mandatory=$true)][string]$ExpectHost,
+  [Parameter(Mandatory=$true)][string]$SiteKey,
   [string]$Probe = '',
   [int]$WaitSec = 45
 )
@@ -34,7 +34,7 @@ if (-not (Test-Path $Probe)) { Say "ABORT: no probe $Probe"; exit 1 }
 
 # --- 1) inject (inject_here.ps1 refuses to paste on the wrong origin) ---------
 Say "inject: $Js"
-$out = & (Join-Path $root 'band\inject_here.ps1') -Js $Js -ExpectHost $ExpectHost 2>&1
+$out = & (Join-Path $root 'band\inject_here.ps1') -Js $Js -SiteKey $SiteKey 2>&1
 $out | ForEach-Object { Say ("  | " + $_) }
 # Judge by what the injector SAID, not only by its exit code. A .ps1 that ends on
 # Write-Output leaves $LASTEXITCODE untouched, so an empty code is not a failure -
@@ -51,7 +51,7 @@ Start-Sleep -Seconds $WaitSec
 Get-ChildItem $dl -Filter '__grabstate__*.json' -EA SilentlyContinue |
     Remove-Item -Force -EA SilentlyContinue
 Say "probe: $Probe"
-$out2 = & (Join-Path $root 'band\inject_here.ps1') -Js $Probe -ExpectHost $ExpectHost 2>&1
+$out2 = & (Join-Path $root 'band\inject_here.ps1') -Js $Probe -SiteKey $SiteKey 2>&1
 $out2 | ForEach-Object { Say ("  | " + $_) }
 if ($LASTEXITCODE -ne 0) { Say "UNKNOWN: probe could not be pasted (exit $LASTEXITCODE)"; exit 4 }
 

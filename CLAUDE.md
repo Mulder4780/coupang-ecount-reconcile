@@ -2355,6 +2355,31 @@ db로 저장되고 나중에 엑셀을 한번에 업데이트할 수 있게 류�
 - 무관한 작업으로 넘어갈 때는 `/clear`를 권한다(`/compact`는 그 자체로 큰 요청이라 더 비싸다).
 - 이 절약 규칙 때문에 검증을 생략하지는 않는다 — 합성검증·비밀스캔은 그대로 수행한다.
 
+## ★ DevTools 자동 수집은 전면 Chrome의 지정 3페이지에서만 (2026-08-14 지시)
+
+사용자 지시: **"세 군데서만 DevTools 자동 수집 크롬에서만 동작하게 변경하고,
+15분마다 실행을 매일 12시 한 번으로 변경하고 내가 명령 내릴 때는 실행"**
+
+- 허용 대상은 딱 셋이다: `https://www.band.us/band/90610953/post` ·
+  `https://www.band.us/band/84789192/post` · `https://loginab.ecount.com/ec5/view/erp`.
+  이카운트 `ec_req_sid`는 로그인마다 달라지므로 **scheme+host+path를 정확히** 비교하고
+  query만 무시한다. 밴드 글 상세(`/post/번호`)·다른 밴드·하위 도메인도 허용하지 않는다.
+- `band/browser_guard.ps1`이 **현재 전면 창의 프로세스가 `chrome.exe`인지**, Chrome의 진짜
+  omnibox(`OmniboxViewViews`) 주소가 위 셋 중 하나인지 읽기 전용으로 확인한다. 웹페이지의
+  URL 모양 입력칸은 주소창으로 인정하지 않는다. 주소를 못 읽어도 실행하지 않는다.
+- **웨일·Edge·다른 프로그램·다른 사이트는 한 글자도 입력하지 않는다.** 창 활성화,
+  최소화 해제, 탭 순회, URL 자동 이동을 전부 금지한다. 사람이 다른 창이나 탭으로 옮기면
+  다음 키 입력 직전에 관문을 다시 검사해 즉시 중단한다. `--manual`도 이 관문을 우회하지 못한다.
+- 예약 작업 `CSOS_BrowserChain`은 **매일 12:00 한 번만** 부른다. 반복 트리거와
+  `StartWhenAvailable`은 쓰지 않는다 — 정오를 놓친 작업이 업무 중 갑자기 살아나면 안 된다.
+  지정 페이지가 전면이 아니면 안전하게 아무 입력 없이 끝내고 이유만 기록한다.
+- 추가 실행은 형님의 명시적 명령이 있을 때만 다음 중 하나를 쓴다:
+  `python band/browser_chain.py --manual band-90610953` ·
+  `python band/browser_chain.py --manual band-84789192` ·
+  `python band/browser_chain.py --manual erp`. Claude Code·Codex·앱은 스스로 수동 명령을
+  추론해 실행하지 않는다.
+- 검증 `[269]`.
+
 ## 핵심 금지사항 (상세는 ecount/AGENTS.md)
 - 관리대장을 openpyxl로 열어 save() 금지 (차트·도형 파괴) — 수정은 zip 패치 도구만
 - 비밀키(config/*.json)를 커밋·채팅·엑셀에 넣기 금지

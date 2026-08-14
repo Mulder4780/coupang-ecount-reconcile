@@ -19346,6 +19346,49 @@ def t268_background_refresh_never_blocks_work():
     print("[268] 자동 갱신 무팝업 · 직접 저장 오류만 설명/초안보호 모달 OK")
 
 
+def t269_devtools_only_on_three_foreground_chrome_pages_at_noon():
+    """[269] 키보드 자동화는 전면 Chrome의 허용 3페이지와 정오 1회만 통과한다."""
+    guard = open(os.path.join(ROOT, "band", "browser_guard.ps1"), encoding="utf-8").read()
+    inject = open(os.path.join(ROOT, "band", "inject_here.ps1"), encoding="utf-8").read()
+    find_tab = open(os.path.join(ROOT, "band", "inject_find_tab.ps1"), encoding="utf-8").read()
+    collect = open(os.path.join(ROOT, "band", "collect_step.ps1"), encoding="utf-8").read()
+    focus = open(os.path.join(ROOT, "band", "focus_collect_tab.ps1"), encoding="utf-8").read()
+    chain = open(os.path.join(ROOT, "band", "browser_chain.py"), encoding="utf-8").read()
+    installer = open(os.path.join(ROOT, "install_browser_chain_schedule.ps1"), encoding="utf-8").read()
+
+    for url in (
+        "https://www.band.us/band/90610953/post",
+        "https://www.band.us/band/84789192/post",
+        "https://loginab.ecount.com/ec5/view/erp",
+    ):
+        assert url in guard, "허용 3페이지에서 빠짐: " + url
+    assert "GetForegroundWindow" in guard and "ProcessName -ne 'chrome'" in guard
+    assert "OmniboxViewViews" in guard and "ValuePattern" in guard, \
+        "웹페이지 입력칸을 주소창으로 오인할 수 있다"
+    assert "Host.ToLowerInvariant() -eq $site.Host" in guard
+    assert "$path -eq $expectPath" in guard and "$Uri.Scheme -eq 'https'" in guard
+
+    for src, name in ((inject, "inject_here"), (find_tab, "inject_find_tab"),
+                      (collect, "collect_step"), (focus, "focus_collect_tab")):
+        for dangerous in ("SetForegroundWindow", "BringWindowToTop", "AttachThreadInput",
+                          "ShowWindow(", "Ctrl+Tab"):
+            assert dangerous not in src, "%s가 포커스/탭을 빼앗는다: %s" % (name, dangerous)
+    assert "SendWait" not in find_tab and "SendWait" not in focus
+    assert "Require-SafeChromePage" in inject and inject.count("Require-SafeChromePage") >= 6
+    assert "automatic navigation is disabled" in inject and "allow pasting" in inject
+    assert "-SiteKey" in find_tab and "-Browser chrome" in find_tab
+
+    assert 'choices=("band-90610953", "band-84789192", "erp")' in chain
+    assert '"erp": (' in chain and 'inject(js, target, probe, dead)' in chain
+    assert "New-ScheduledTaskTrigger -Daily -At '12:00'" in installer
+    assert "RepetitionInterval" not in installer
+    active_lines = "\n".join(line for line in installer.splitlines()
+                             if not line.lstrip().startswith("#"))
+    assert "StartWhenAvailable" not in active_lines
+    assert "pythonw.exe" in installer and "--manual <target>" in installer
+    print("[269] 전면 Chrome·정확한 3페이지 관문 · 포커스/탭 이동 금지 · 매일 12시 1회·명령 수동실행 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19469,6 +19512,7 @@ if __name__ == "__main__":
     t266_one_audit_engine_and_unattended_repairs()
     t267_yoo_subi_capture_and_official_erp_api()
     t268_background_refresh_never_blocks_work()
+    t269_devtools_only_on_three_foreground_chrome_pages_at_noon()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

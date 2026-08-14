@@ -10,10 +10,11 @@ ERP 몰이를 이어서 할 사람이 없으면 아침까지 아무 일도 안 �
 
 ## 이 회차가 지키는 것
 
-- **한 번에 한 가지만 시작하고 끝난다.** 지켜보지 않는다. 다음 tick 이 다시 본다.
+- **한 번에 한 가지만 시작하고 끝난다.** 지켜보지 않는다. 다음 정오 회차나 형님의
+  명시적 수동 명령이 다시 본다.
   한 tick 이 몇 시간을 물고 있으면 그것이 바로 [175]·[180] 이 기록한 사고다.
 - **먼저 '지금 뭔가 돌고 있나'를 값싸게 묻는다.** 덤프 파일 나이로 본다 — 주입
-  탐침은 DevTools 를 토글하고 20초를 쓰므로 15분마다 하기엔 비싸고 시끄럽다.
+  탐침은 DevTools 를 토글하고 시간을 쓰므로 불필요하게 반복하면 비싸고 시끄럽다.
   파일이 애매할 때만 탐침한다(비싼 확인은 값싼 확인 **뒤**에 온다, [168]).
 - **성공을 거짓으로 적지 않는다.** 주입은 '붙여넣었다'까지만 증명한다. 살아 있는지
   물어 답을 받은 것만 '시작됨'이고, 수확은 언제나 캐시가 센다([162]·#35).
@@ -26,9 +27,13 @@ ERP 몰이를 이어서 할 사람이 없으면 아침까지 아무 일도 안 �
   ① 밴드 댓글 백필 — 남은 것이 있으면. 취소 댓글이 오늘 숫자를 바꾼다([177]).
   ② ERP 전화면 몰이 — 실패가 남아 있고 · **하루 한 번** · **12~13시 창 안**이고 ·
      다른 세션이 크롬(band/publish)을 잡고 있지 않을 때만 (2026-08-12 지시).
-     창 안에서 어긋나면 남은 tick 이 다시 본다 — 한 번 실패로 그날을 접지 않는다.
+     지정 ERP 페이지가 전면이 아니면 그날 예약 회차는 조용히 끝낸다. 추가 실행은
+     형님이 명령한 `--manual erp`만 허용한다.
 
-쓰는 법:  python band/browser_chain.py            (한 tick)
+쓰는 법:  python band/browser_chain.py            (12:00 예약 한 회차)
+          python band/browser_chain.py --manual band-90610953
+          python band/browser_chain.py --manual band-84789192
+          python band/browser_chain.py --manual erp
           python band/browser_chain.py --status   (지금 상태만)
 """
 import argparse
@@ -56,8 +61,8 @@ DOWNLOADS = os.path.join(os.path.expanduser("~"), "Downloads")
 # 한 회차가 도는 중이라고 볼 시간. 밴드 한 회차는 250건×3.1초 ≈ 13분이고 회차
 # 사이에 저장이 끼므로 20분을 넘겨 조용하면 그 수집은 끝났거나 죽은 것이다.
 BUSY_MIN = 20
-# 같은 일을 다시 시작하기 전에 두는 간격. 실패가 반복되면 15분마다 크롬 포커스를
-# 빼앗아 사람이 쓰지도 못하게 된다 — 경보가 대부분이면 아무도 안 본다([170]).
+# 같은 일을 다시 시작하기 전에 두는 간격. 수동 명령을 연달아 잘못 전달하거나 옛
+# 호출기가 남더라도 반복 입력으로 번지지 않게 한다.
 RETRY_MIN = 90
 
 # ── ERP 몰이는 **하루 한 번, 12~13시 창 안에서만** (2026-08-12 지시) ──────────
@@ -80,10 +85,8 @@ RETRY_MIN = 90
 #   한다). 그 숫자로 '다 됐다'를 판정하면 **끝나지도 않은 것을 끝났다고 적는**
 #   자리가 된다. 하루 한 번이라는 문은 시각이 지키고, 수확은 캐시가 센다.
 ERP_WINDOW = os.environ.get("COUPANG_ERP_WINDOW", "12:00-13:00")
-# 창 안에서 실패하면 다음 tick(15분)이 다시 해 본다. 창이 60분이니 최대 네 번이다.
-# **'하루 한 번'은 성공한 시작을 세는 말이지 '시도 한 번'이 아니다** — 첫 시도가
-# 크롬 사정으로 어긋났다고 그날을 접으면 사람이 손을 대야 하고, 그건 "손 안 대게"가
-# 아니다. 반대로 간격이 없으면 실패가 반복될 때 15분마다 포커스를 빼앗는다.
+# 예약 회차는 12:00 딱 한 번이다. 이 값은 같은 프로세스 안에서 중복 시도를 막는
+# 방어선이며, 추가 실행은 형님의 명시적 `--manual` 명령만 허용한다.
 ERP_WINDOW_RETRY_MIN = 12
 # 몰이가 크롬을 독점하므로 **다른 세션이 잡고 있으면 안 한다.** 판단은 새로 만들지
 # 않고 `ai_claim` 것을 그대로 빌린다([225] 와 같은 이유 — 같은 판단을 두 곳에서
@@ -371,7 +374,7 @@ def erp_step(d, 무엇="ERP 전화면 몰이"):
 
     rec["시도"] = rec.get("시도", 0) + 1
     ok, msg = inject(os.path.join(HERE, "ERP_전화면몰이_붙여넣기.js"),
-                     "ecount", os.path.join(HERE, "erp_status_ping.js"),
+                     "erp", os.path.join(HERE, "erp_status_ping.js"),
                      ["NOSTATE"])
     rec["시작됨"] = bool(ok)
     rec["마지막왜"] = msg
@@ -381,7 +384,7 @@ def erp_step(d, 무엇="ERP 전화면 몰이"):
 
 
 # ── ③ 주입하고 **살아 있는지 확인한다** ───────────────────────────────────────
-def inject(js, host, probe, dead_marks):
+def inject(js, site_key, probe, dead_marks):
     """붙여넣고 → 잠시 뒤 상태를 물어본다. 확인 못 한 주입은 수집이 아니다(#35).
 
     반환: (성공?, 설명)
@@ -391,12 +394,12 @@ def inject(js, host, probe, dead_marks):
     if not os.path.exists(js):
         return False, "붙여넣기 파일이 없다: %s" % os.path.basename(js)
     cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-           "-File", ps, "-Js", js, "-ExpectHost", host]
+           "-File", ps, "-Js", js, "-SiteKey", site_key]
     r = proc_guard.run_tree(cmd, timeout=420, cwd=ROOT)
     out = (getattr(r, "stdout", "") or "") + (getattr(r, "stderr", "") or "")
     if "INJECTED on" not in out:
-        tail = out.strip().splitlines()[-1:] or [""]
-        return False, "붙여넣지 못했다 — %s" % tail[0][:120]
+        tail = out.strip().splitlines()[-3:] or [""]
+        return False, "붙여넣지 못했다 — %s" % " | ".join(tail)[:240]
 
     # 시작할 틈을 준다. 여기서 곧장 물으면 아직 전역이 없어 '죽었다'로 읽는다.
     time.sleep(45)
@@ -408,7 +411,7 @@ def inject(js, host, probe, dead_marks):
             pass
     cmd2 = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
             "-File", os.path.join(HERE, "inject_here.ps1"),
-            "-Js", probe, "-ExpectHost", host]
+            "-Js", probe, "-SiteKey", site_key]
     proc_guard.run_tree(cmd2, timeout=240, cwd=ROOT)
 
     state = None
@@ -478,7 +481,9 @@ def settle_band(d):
             continue
         지난분 = (time.time() - t0) / 60.0
         try:
-            s = L.probe(host="band.us", find_tab=True)
+            band_id = 무엇.rsplit(" ", 1)[-1]
+            site_key = "band-%s" % band_id
+            s = L.probe(host="band.us", find_tab=True, site_key=site_key)
             h = L.harvest_since(t0)
             code, 한마디, 왜 = L.verdict([s], h)
         except Exception as exc:
@@ -522,11 +527,17 @@ def tick():
             무엇 = "밴드 댓글 " + os.path.basename(js).split("_")[-1][:-3]
             if too_soon(d, 무엇):
                 continue
-            ok, msg = inject(js, "band.us",
+            site_key = "band-" + os.path.basename(js).split("_")[-1][:-3]
+            ok, msg = inject(js, site_key,
                              os.path.join(HERE, "band_dump_state.js"),
                              ["NO __GRAB"])
             note(d, 무엇, "시작됨" if ok else "실패", msg)
-            return 0 if ok else 1
+            if ok:
+                return 0
+            # 틀린 허용 페이지가 전면이면 입력은 0회로 안전 거절된다. 하루 한 번
+            # 회차에서는 나머지 두 허용 페이지도 읽기 전용으로 확인해 현재 페이지와
+            # 맞는 한 곳을 찾는다. 탭 전환·포커스 이동은 절대 하지 않는다.
+            continue
 
     # ② ERP — 하루 한 번, 정해진 창 안에서, 다른 세션과 겹치지 않을 때만.
     if erp_n:
@@ -539,10 +550,38 @@ def tick():
     return 0
 
 
+def manual_step(target):
+    """형님 명령으로만 추가 실행. 시각은 우회해도 3페이지/Chrome 관문은 못 우회한다."""
+    targets = {
+        "band-90610953": (
+            os.path.join(HERE, "댓글채우기_붙여넣기_90610953.js"),
+            os.path.join(HERE, "band_dump_state.js"), ["NO __GRAB"]),
+        "band-84789192": (
+            os.path.join(HERE, "댓글채우기_붙여넣기_84789192.js"),
+            os.path.join(HERE, "band_dump_state.js"), ["NO __GRAB"]),
+        "erp": (
+            os.path.join(HERE, "ERP_전화면몰이_붙여넣기.js"),
+            os.path.join(HERE, "erp_status_ping.js"), ["NOSTATE"]),
+    }
+    js, probe, dead = targets[target]
+    locks = ("band",) if target.startswith("band-") else ERP_CONFLICT_LOCKS
+    blocked, why = other_session_holds(locks)
+    if blocked:
+        print("다른 세션이 사용 중이라 양보한다 — %s" % why)
+        return 4
+    ok, msg = inject(js, target, probe, dead)
+    print("수동 실행 %s — %s" % ("시작됨" if ok else "실행 안 함", msg))
+    return 0 if ok else 1
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--status", action="store_true", help="지금 상태만 본다")
+    ap.add_argument("--manual", choices=("band-90610953", "band-84789192", "erp"),
+                    help="사용자 명령으로 추가 실행(Chrome·정확한 페이지 관문은 유지)")
     a = ap.parse_args()
+    if a.manual:
+        return manual_step(a.manual)
     if a.status:
         d = load()
         print("갱신", d.get("갱신"))

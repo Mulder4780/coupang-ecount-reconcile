@@ -251,7 +251,7 @@ def classify(raw):
     return s
 
 
-def probe(host="band.us", timeout=240, find_tab=False):
+def probe(host="band.us", timeout=240, find_tab=False, site_key="band-90610953"):
     """탐침을 붙여 상태를 받아 온다. 판정까지 붙여 돌려준다."""
     import proc_guard
     if not os.path.exists(PROBE_JS):
@@ -259,7 +259,7 @@ def probe(host="band.us", timeout=240, find_tab=False):
     ps = FIND_TAB_PS if (find_tab and os.path.exists(FIND_TAB_PS)) else INJECT_PS
     _clear_probe_files()
     cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-           "-File", ps, "-Js", PROBE_JS, "-ExpectHost", host]
+           "-File", ps, "-Js", PROBE_JS, "-SiteKey", site_key]
     r = proc_guard.run_tree(cmd, timeout=timeout, cwd=ROOT)
     out = (getattr(r, "stdout", "") or "") + (getattr(r, "stderr", "") or "")
     # ★ 종료코드만 믿지 않는다 — Write-Output 으로 끝나는 .ps1 은 $LASTEXITCODE 를
@@ -360,7 +360,7 @@ def verdict(samples, harvest):
 
 # ── 회차 본체 ────────────────────────────────────────────────────────────────
 def watch(minutes=WATCH_MIN, interval=POLL_SEC, host="band.us", t0=None,
-          find_tab=False, label="watch"):
+          find_tab=False, label="watch", site_key="band-90610953"):
     """살아 있는지 **주기적으로** 물어본다. 폴마다 자국을 남긴다."""
     t0 = time.time() if t0 is None else t0
     deadline = time.time() + minutes * 60
@@ -373,7 +373,7 @@ def watch(minutes=WATCH_MIN, interval=POLL_SEC, host="band.us", t0=None,
     stall = 0
     prev_tried = None
     while True:
-        s = probe(host=host, find_tab=find_tab)
+        s = probe(host=host, find_tab=find_tab, site_key=site_key)
         stat = s.get("상태") or {}
         tried = stat.get("tried")
         if tried is None and isinstance(stat, dict):
@@ -431,7 +431,8 @@ def watch(minutes=WATCH_MIN, interval=POLL_SEC, host="band.us", t0=None,
     return rc
 
 
-def run_step(js, host="band.us", minutes=WATCH_MIN, interval=POLL_SEC, wait=45):
+def run_step(js, host="band.us", minutes=WATCH_MIN, interval=POLL_SEC, wait=45,
+             site_key="band-90610953"):
     """주입 → 생존확인 → 수확 판정. 한 걸음이 여기서 끝난다."""
     import proc_guard
     if not os.path.exists(js):
@@ -446,7 +447,7 @@ def run_step(js, host="band.us", minutes=WATCH_MIN, interval=POLL_SEC, wait=45):
     ps = FIND_TAB_PS if os.path.exists(FIND_TAB_PS) else INJECT_PS
     print("주입: %s (%s)" % (os.path.basename(js), os.path.basename(ps)))
     cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-           "-File", ps, "-Js", js, "-ExpectHost", host]
+           "-File", ps, "-Js", js, "-SiteKey", site_key]
     r = proc_guard.run_tree(cmd, timeout=420, cwd=ROOT)
     out = (getattr(r, "stdout", "") or "") + (getattr(r, "stderr", "") or "")
     for line in out.strip().splitlines()[-6:]:
@@ -458,7 +459,7 @@ def run_step(js, host="band.us", minutes=WATCH_MIN, interval=POLL_SEC, wait=45):
     # 곧장 물으면 아직 전역이 없어 '죽었다'로 읽는다 — 시작할 틈을 준다.
     time.sleep(wait)
     return watch(minutes=minutes, interval=interval, host=host, t0=t0,
-                 find_tab=True, label=os.path.basename(js))
+                 find_tab=True, label=os.path.basename(js), site_key=site_key)
 
 
 def show_status():
@@ -562,6 +563,9 @@ def main():
     ap.add_argument("--run", action="store_true", help="주입 + 생존확인 + 수확 판정")
     ap.add_argument("--js", help="--run 이 붙여넣을 파일")
     ap.add_argument("--host", default="band.us")
+    ap.add_argument("--site", choices=("band-90610953", "band-84789192"),
+                    default="band-90610953",
+                    help="현재 Chrome 전면 탭과 정확히 일치해야 하는 허용 페이지")
     ap.add_argument("--minutes", type=int, default=WATCH_MIN)
     ap.add_argument("--interval", type=int, default=POLL_SEC)
     ap.add_argument("--status", action="store_true", help="마지막 기록만")
@@ -576,9 +580,11 @@ def main():
         if not a.js:
             print("--run 에는 --js <붙여넣기 파일> 이 필요하다")
             return 2
-        return run_step(a.js, host=a.host, minutes=a.minutes, interval=a.interval)
+        return run_step(a.js, host=a.host, minutes=a.minutes, interval=a.interval,
+                        site_key=a.site)
     if a.watch:
-        return watch(minutes=a.minutes, interval=a.interval, host=a.host)
+        return watch(minutes=a.minutes, interval=a.interval, host=a.host,
+                     site_key=a.site)
     return show_status()
 
 

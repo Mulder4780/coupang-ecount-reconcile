@@ -5,7 +5,7 @@
 # grab_posts.js is fixed now, but a batch already running cannot be fixed - so we click from outside.
 #
 # Safety - it does not click just anything:
-#   * only inside a Chrome window whose title contains the target word
+#   * only inside the foreground Chrome window on one exact approved Band page
 #   * only Buttons whose Name is exactly the OK word (no blind Enter keystrokes)
 #   * stops by itself after the given minutes
 #
@@ -14,37 +14,37 @@
 #
 #   powershell -ExecutionPolicy Bypass -File band\autoclick_dialog.ps1 -Minutes 45
 
-param([int]$Minutes = 30)
+param([int]$Minutes = 30, [string]$SiteKey = 'band-90610953')
 
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+$guardRoot = "C:\Users\hueng\Documents\COUPANG_INTEGRATED_WORK_AGENT\ecount"
+. (Join-Path $guardRoot 'band\browser_guard.ps1')
 
 $OK = [string][char]0xD655 + [char]0xC778          # 확인
-$BAND = [string][char]0xBC34 + [char]0xB4DC        # 밴드
 $end = (Get-Date).AddMinutes($Minutes)
 $clicked = 0
-$root = [System.Windows.Automation.AutomationElement]::RootElement
-$scopeChildren = [System.Windows.Automation.TreeScope]::Children
 $scopeDesc = [System.Windows.Automation.TreeScope]::Descendants
 $typeProp = [System.Windows.Automation.AutomationElement]::ControlTypeProperty
 $btnType = [System.Windows.Automation.ControlType]::Button
-$winType = [System.Windows.Automation.ControlType]::Window
 $invokePat = [System.Windows.Automation.InvokePattern]::Pattern
-$winCond = New-Object System.Windows.Automation.PropertyCondition($typeProp, $winType)
 $btnCond = New-Object System.Windows.Automation.PropertyCondition($typeProp, $btnType)
 
-Write-Output "watching for $Minutes minutes - will click the OK button of band dialogs"
+if ($SiteKey -notin @('band-90610953', 'band-84789192')) {
+    Write-Output 'ABORT: only the two approved Band pages are allowed'; exit 4
+}
+Write-Output "watching for $Minutes minutes - foreground approved Chrome page only"
 
 while ((Get-Date) -lt $end) {
     try {
-        foreach ($w in $root.FindAll($scopeChildren, $winCond)) {
-            $t = $w.Current.Name
-            if (-not $t) { continue }
-            if ($t.IndexOf($BAND) -lt 0) { continue }
-            if ($w.Current.ClassName -notmatch "Chrome") { continue }
+        $context = Get-ForegroundChromeContext -SiteKey $SiteKey
+        if ($context) {
+            $w = [System.Windows.Automation.AutomationElement]::FromHandle($context.Window)
             foreach ($b in $w.FindAll($scopeDesc, $btnCond)) {
                 $n = $b.Current.Name
                 if ($n -ne $OK -and $n -ne "OK") { continue }
                 try {
+                    # Re-check after finding the button: focus/url may have changed.
+                    if (-not (Get-ForegroundChromeContext -SiteKey $SiteKey)) { continue }
                     $b.GetCurrentPattern($invokePat).Invoke()
                     $clicked++
                     Write-Output ("[{0}] clicked OK (total {1})" -f (Get-Date -Format HH:mm:ss), $clicked)
