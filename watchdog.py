@@ -32,7 +32,10 @@ PORT = 8899
 def log(msg):
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
     line = f"[{datetime.now():%m-%d %H:%M}] {msg}"
-    print(line)
+    # pythonw.exe에는 stdout이 없다. 무창 스케줄러에서 print가 먼저 죽으면 아래
+    # 파일 자국까지 못 남는다 — 사람이 손으로 돌릴 때만 콘솔에도 보인다.
+    if sys.stdout is not None:
+        print(line)
     try:
         open(LOG, "a", encoding="utf-8").write(line + "\n")
     except Exception:
@@ -711,12 +714,16 @@ def close_upload_notices(dry):
 def main():
     # 류지영 매니저 입력 중에는 로그 파일조차 갱신하지 않고 즉시 종료한다.
     if is_input_window():
-        print(f"입력 보호시간({input_window_label()}) — 워치독 무동작 종료")
+        if sys.stdout is not None:
+            print(f"입력 보호시간({input_window_label()}) — 워치독 무동작 종료")
         return
     dry = "--dry" in sys.argv
     # 원장 버전 정리는 daily_run의 ledger_versions.py 한 곳에서만 수행한다.
     # 워치독이 낮은 버전 포크를 OLD로 옮겨 증거를 숨기는 일을 막는다.
     gap = gap_note(last_log_line(), datetime.now())     # 기록은 healing 전에 읽는다
+    # 긴 증분 회차가 도는 동안에도 감시자가 멈춘 것으로 오판하지 않게 시작 심박을 남긴다.
+    # pythonw 무인 실행에서도 파일에만 기록하므로 콘솔 창은 생기지 않는다.
+    log("워치독 회차 시작" + ("(dry)" if dry else ""))
     results = [run_incremental_pipeline(dry), sync_uploads(dry), sync_worklog(dry),
                sync_cloud_queue(dry), heal_server_guard(dry), heal_server(dry),
                heal_fixed_funnel(dry),

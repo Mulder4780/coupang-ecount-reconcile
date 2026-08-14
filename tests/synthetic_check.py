@@ -12328,6 +12328,7 @@ def t156_refresh_fast():
     finally:
         RS.running = saved_running
     handoff = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    audit = open(os.path.join(ROOT, "system_audit.py"), encoding="utf-8").read()
     assert "def app_server_health(" in handoff and '"앱서버"' in handoff, \
         "세션 인계가 앱 서버 상태를 안 본다"
     assert 'ap.get("옛코드")' in handoff and "restart_server.py" in handoff, \
@@ -12656,7 +12657,7 @@ def t163_last_run_shown():
     assert 'id="lastRuns"' in html and "function renderLastRuns" in html, \
         "화면에 마지막 실행 줄이 없다"
     assert "renderLastRuns(d.last)" in html, "받아 놓고 안 그린다"
-    assert "if(v==='run'){ pollLog(); }" in html, \
+    assert "if(v==='run'){ pollLog();" in html, \
         "실행 화면을 열 때 갱신하지 않는다 — 열어 둔 채 시간이 지나면 '3시간 전'이 거짓이 된다"
     assert "String(v.끝난시각).replace('T',' ').slice(0,16)" in html, \
         "절대시각(날짜+시간)을 안 적는다 — 지시가 '날짜 시간'이었다"
@@ -19287,6 +19288,7 @@ def t266_one_audit_engine_and_unattended_repairs():
     server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     handoff = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    audit = open(os.path.join(ROOT, "system_audit.py"), encoding="utf-8").read()
     assert 'if p == "/api/system-audit"' in server and "def system_audit_loop(" in server
     assert "SYSTEM_AUDIT_PATH='/api/system-audit'" in live and "loadSystemAudit(true" in live
     assert '"시스템진단": _system_audit_lines()' in handoff
@@ -19296,6 +19298,8 @@ def t266_one_audit_engine_and_unattended_repairs():
     assert 'os.environ["COUPANG_UNATTENDED"] = "1"' in heal
     assert "Name -eq 'cloudflared.exe' -or" not in tunnel
     assert "127.0.0.1:8899" in tunnel and "tunnel_run.py" in tunnel
+    assert 'log("워치독 회차 시작"' in watchdog
+    assert "last_watchdog_line" in audit
     print("[266] 공용 진단 정본 · 앱 15분 회차 · 무인 무팝업 · 프로젝트 터널만 복구 OK")
 
 

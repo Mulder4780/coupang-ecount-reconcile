@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import re
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -160,7 +161,9 @@ def build() -> dict[str, Any]:
             "30분 회차가 남겨야 할 watchdog_log.txt를 찾지 못했습니다.",
             "작업 스케줄러의 쿠팡업무_워치독을 확인합니다.", "reports/watchdog_log.txt")
     elif watchdog_age > 75:
-        waiting = "지금 내릴까요" in watchdog_tail or "(y = 내림" in watchdog_tail
+        last_watchdog_line = next(
+            (line for line in reversed(watchdog_tail.splitlines()) if line.strip()), "")
+        waiting = "지금 내릴까요" in last_watchdog_line or "(y = 내림" in last_watchdog_line
         add("watchdog-stale", "P0",
             "워치독이 입력 대기에서 멈춤" if waiting else "워치독 30분 회차가 멈춤",
             f"마지막 로그가 {int(watchdog_age)}분 전"
@@ -396,6 +399,11 @@ def handoff_lines(limit: int = 5) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
     parser = argparse.ArgumentParser(description="앱·Claude Code·Codex 공용 시스템·업무 진단")
     parser.add_argument("--print", action="store_true", help="보고서를 갱신하고 사람이 읽는 요약 출력")
     parser.add_argument("--json", action="store_true", help="보고서를 갱신하고 JSON 출력")
