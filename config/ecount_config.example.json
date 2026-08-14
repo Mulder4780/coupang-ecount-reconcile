@@ -3,6 +3,8 @@
 
   "auth": {
     "API_CERT_KEY": "여기에_이카운트_API_인증키",
+    "API_CERT_KEY_TEST": "",
+    "_API_CERT_KEY_TEST_설명": "★ 테스트존(sboapi) 전용 인증키. IS_TEST=true 일 때만 쓰며 실서비스 키와 서로 통하지 않는다. 비워 두고 IS_TEST 를 켜면 로그인이 실패하는데 그 실패가 '키가 틀렸다'로 읽힌다 — 그래서 ecount_client 가 미리 막는다.",
     "발급인": "",
     "발급일": "",
     "유효기간_시작": "",
@@ -29,6 +31,7 @@
 
   "endpoints": {
     "_설명": "조회 method 이름은 계정/버전에 따라 다름. 이카운트 [API매뉴얼]에서 확인해 맞출 것. 인증(Zone/OAPILogin)은 확정값.",
+    "_경고": "★ 아래 sale/tax_invoice/receipt 의 method 이름은 **추측이며 실재가 확인되지 않았다.** AGENTS.md 는 판매·세금계산서·수금 조회 API 가 존재하지 않는다고 삼중 확인했다(절대규칙 3). 되는지 보려고 이것저것 부르지 말 것 — 그것이 무차별 탐침이고, 트래픽 제한을 건드리면 ERP 계정 전체가 막힌다. 확인은 이카운트 [API매뉴얼]과 인증키 신청 회신으로만 한다.",
     "zone":   { "path": "/OAPI/V2/Zone" },
     "login":  { "path": "/OAPI/V2/OAPILogin" },
     "sale":         { "domain": "Sale",       "method": "GetListSale",        "확정여부": "확인필요" },
