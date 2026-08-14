@@ -93,23 +93,34 @@ def public_ingress_ips(host: str, timeout: int = 8) -> list[str]:
     On the Tailscale PC the hostname resolves to its private 100.x address.
     That can answer normally even while the public Funnel relays are failing,
     which is exactly the state in which a phone without Tailscale cannot open
-    the app.  Google's DNS-over-HTTPS answer exposes the public ingress IPs.
+    the app.  Public DNS-over-HTTPS answers expose the public ingress IPs.
+    Google is tried first and Cloudflare is the fallback; a brief resolver
+    outage must not be mistaken for three minutes of Funnel failure.
     """
     if not host:
         return []
-    url = "https://dns.google/resolve?name=%s&type=A" % host
-    try:
-        request = urllib.request.Request(url, headers={"Accept": "application/dns-json"})
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except Exception:
-        return []
-    found = []
-    for answer in payload.get("Answer") or []:
-        value = str(answer.get("data") or "").strip()
-        if answer.get("type") == 1 and value and value not in found:
-            found.append(value)
-    return found
+    urls = (
+        "https://dns.google/resolve?name=%s&type=A" % host,
+        "https://cloudflare-dns.com/dns-query?name=%s&type=A" % host,
+    )
+    for url in urls:
+        try:
+            request = urllib.request.Request(
+                url,
+                headers={"Accept": "application/dns-json", "User-Agent": "CSOS-Funnel-Check"},
+            )
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            continue
+        found = []
+        for answer in payload.get("Answer") or []:
+            value = str(answer.get("data") or "").strip()
+            if answer.get("type") == 1 and value and value not in found:
+                found.append(value)
+        if found:
+            return found
+    return []
 
 
 def _public_ping_ip(host: str, ip: str, timeout: int = 8) -> bool:

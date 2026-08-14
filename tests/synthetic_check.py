@@ -19240,6 +19240,9 @@ def t264_fixed_funnel_is_a_separate_guarded_failure_domain():
                   "from tailscale_serve import ensure_public_funnel",
                   "threading.Thread", "funnel-degraded", "funnel-repairing"):
         assert token in guard, "고정 Funnel 독립 감시 안전장치 누락: " + token
+    funnel = open(os.path.join(ROOT, "tailscale_serve.py"), encoding="utf-8").read()
+    assert "dns.google/resolve" in funnel and "cloudflare-dns.com/dns-query" in funnel, \
+        "공개 DNS 한 곳의 일시 오류를 Funnel 장애로 오판한다"
     assert guard.index("local_ok = ping()") < guard.index("if fixed_funnel_alive():"), \
         "로컬 앱이 죽은 동안 Funnel을 갈아 주소 장애를 더 크게 만든다"
     assert "ensure_public_funnel(repair=True)" in guard, \

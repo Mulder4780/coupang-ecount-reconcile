@@ -2128,6 +2128,8 @@ db로 저장되고 나중에 엑셀을 한번에 업데이트할 수 있게 류�
 - `server_guard.py`가 60초마다 `tailscale_serve.public_funnel_alive()`로 **공개 DNS ingress에
   직접 TLS/SNI ping**한다. 이 PC의 사설 100.x 경로가 아니라 담당자 폰이 쓰는 길을 본다.
   한 번 실패로 Funnel을 갈지 않고 3회 연속 실패 때만 같은 고정 주소를 재등록한다.
+  공개 DNS 자체의 일시 장애를 Funnel 장애로 세지 않도록 Google 실패 시 Cloudflare DoH로
+  한 번 더 확인한다.
 - 재등록은 `tailscale_serve.ensure_public_funnel(repair=True)` 정본을 빌린다. 이름을 새로
   만들거나 임시 Cloudflare 주소로 바꾸지 않는다. 최대 1분 넘게 걸릴 수 있어 별도 worker에서
   실행하고, 그동안 10초 origin 감시는 계속 돈다. 5분 냉각과 단일 잠금으로 재등록 폭주를 막는다.
