@@ -128,6 +128,39 @@ def ensure_local_app():
     return False
 
 
+def ensure_server_guard(max_age=120):
+    """Restart the lightweight app guard when its heartbeat disappeared.
+
+    The guard also restarts this tunnel supervisor.  This reciprocal check means either
+    long-lived process can recover the other without waiting for the heavy 30-minute
+    watchdog and without requiring Task Scheduler administrator permission.
+    """
+    status = os.path.join(ROOT, "reports", "server_guard_status.json")
+    try:
+        if time.time() - os.path.getmtime(status) <= max_age:
+            return True
+    except OSError:
+        pass
+    guard = os.path.join(ROOT, "webapp", "server_guard.py")
+    py = sys.executable
+    if os.name == "nt" and py.lower().endswith("python.exe"):
+        quiet = py[:-10] + "pythonw.exe"
+        if os.path.exists(quiet):
+            py = quiet
+    try:
+        subprocess.Popen(
+            [py, "-u", guard], cwd=ROOT,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                           | getattr(subprocess, "DETACHED_PROCESS", 0)),
+        )
+        print("앱 서버 감시자 heartbeat가 없어 자동 시작했습니다.")
+        return True
+    except OSError as exc:
+        print(f"앱 서버 감시자 시작 실패: {exc}")
+        return False
+
+
 def find_cloudflared():
     # 1순위: 포터블(webapp/cloudflared.exe — 관리자 권한 불필요)
     local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cloudflared.exe")
@@ -264,6 +297,7 @@ def watch(proc, url):
         fail = 0
         while proc.poll() is None:
             time.sleep(90)
+            ensure_server_guard()
             if is_input_window():
                 fail = 0
                 continue
@@ -307,6 +341,7 @@ def main():
     except OSError:
         print("이미 실행 중 — 종료")
         return
+    ensure_server_guard()
     exe = find_cloudflared()
     if not exe:
         sys.exit("cloudflared 미설치. 먼저:  winget install Cloudflare.cloudflared")

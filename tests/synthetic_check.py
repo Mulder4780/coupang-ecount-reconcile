@@ -19174,6 +19174,48 @@ def t262_ceo_directive_is_visible_in_saved_capture():
     print("[262] 유수비 대표 지시 3항목을 저장 캡처 상단·높이·모바일에 반영 OK")
 
 
+def t263_server_guard_and_lossless_offline_outbox():
+    """[263] 서버 감시는 업무 회차와 분리되고 오프라인 입력은 충돌에도 안 버린다."""
+    guard_path = os.path.join(ROOT, "webapp", "server_guard.py")
+    guard = open(guard_path, encoding="utf-8").read()
+    compile(guard, guard_path, "exec")
+    for token in ("CHECK_SECONDS = 10", "FAIL_LIMIT = 3", "READY_TIMEOUT = 75",
+                  "RESTART_COOLDOWN = 60", "HEARTBEAT_SECONDS = 30", "/api/ping?t=", "acquire_singleton",
+                  "production_server=True", "--demo\\\\b", "server_guard_status.json"):
+        assert token in guard, "상시 서버 감시 안전장치 누락: " + token
+    assert "import watchdog" not in guard.lower(), "상시 감시가 다시 무거운 워치독 회차를 부른다"
+
+    installer = open(os.path.join(ROOT, "install_server_guard_schedule.ps1"),
+                     encoding="utf-8").read()
+    for token in ("CSOS_AppServerGuard", "pythonw.exe", "-AtLogOn",
+                  "-Minutes 5", "-MultipleInstances IgnoreNew",
+                  "-AllowStartIfOnBatteries", "-DontStopIfGoingOnBatteries",
+                  "-RestartCount 3", "Start-ScheduledTask"):
+        assert token in installer, "서버 감시 작업 스케줄러 안전장치 누락: " + token
+    for token in ("HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                  "New-ItemProperty", "Start-Process", "-WindowStyle Hidden"):
+        assert token in installer, "작업 스케줄러 권한 거부 시 로그인 자동실행 누락: " + token
+    launcher = open(os.path.join(ROOT, "앱서버실행.bat"), encoding="utf-8").read()
+    assert "webapp\\server_guard.py" in launcher and "pythonw.exe" in launcher, \
+        "수동 서버 실행 경로가 상시 감시자를 같이 띄우지 않는다"
+
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    outbox = html[html.index("const OUTBOX_PATHS"):html.index("/* PIN은 브라우저", html.index("const OUTBOX_PATHS"))]
+    for token in ("obSafeHeaders", "Idempotency-Key", "obRequestId", "credentials",
+                  "obPut(it)", "it.blocked=true", "last_status", "r.clone().text()",
+                  "/api/staff/work-delete", "/api/staff/work-restore"):
+        assert token in outbox, "오프라인 무손실 재전송 누락: " + token
+    assert "else if (r.status >= 400 && r.status < 500) await obDel" not in outbox, \
+        "서버가 거부한 오프라인 원문을 아직도 조용히 지운다"
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "caches.match('/'))" in server and "if (url.pathname.startsWith('/api/')) return" in server, \
+        "서버 중단 때 마지막 화면을 여는 Service Worker 안전망이 없다"
+    tunnel = open(os.path.join(ROOT, "webapp", "tunnel_run.py"), encoding="utf-8").read()
+    assert "def ensure_server_guard(" in tunnel and "server_guard_status.json" in tunnel and \
+           "ensure_server_guard()" in tunnel, "터널과 서버 감시자가 서로를 복구하지 않는다"
+    print("[263] 10초 독립 서버 감시 · 무창 자동복구 · 멱등/충돌 보존 오프라인 큐 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19291,6 +19333,7 @@ if __name__ == "__main__":
     t260_ceo_coupang_events_feed_capture()
     t261_pc_report_uses_available_width_mobile_stays_same()
     t262_ceo_directive_is_visible_in_saved_capture()
+    t263_server_guard_and_lossless_offline_outbox()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
