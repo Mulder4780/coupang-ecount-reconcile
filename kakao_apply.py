@@ -155,7 +155,7 @@ def run(args, minutes=20):
         return p.returncode, (out or b"").decode("utf-8", "replace")
     except subprocess.TimeoutExpired:
         subprocess.call(["taskkill", "/F", "/T", "/PID", str(p.pid)],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         try:
             out, _ = p.communicate(timeout=30)
         except Exception:

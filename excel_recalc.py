@@ -255,7 +255,7 @@ def _ps(script, env=None, timeout=120):
         r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
                            capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=timeout,
-                           env={**os.environ, **(env or {})})
+                           env={**os.environ, **(env or {})}, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         lines = [l for l in (r.stdout or "").strip().splitlines() if l.strip()]
         return lines[-1] if lines else (("ERR " + (r.stderr or "").strip()[:120]) if r.stderr else "")
     except subprocess.TimeoutExpired:

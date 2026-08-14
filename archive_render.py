@@ -55,7 +55,7 @@ def html_to_pdf(html, out_pdf, timeout=90):
                "--no-pdf-header-footer", f"--user-data-dir={os.path.join(td, 'prof')}",
                f"--print-to-pdf={out_pdf}", "file:///" + src.replace("\\", "/")]
         try:
-            subprocess.run(cmd, capture_output=True, timeout=timeout)
+            subprocess.run(cmd, capture_output=True, timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except Exception:
             return None
     return out_pdf if os.path.exists(out_pdf) else None

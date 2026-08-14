@@ -174,7 +174,7 @@ def _idle(rec, hours=None):
         import subprocess
         r = subprocess.run(
             ["git", "log", "--since=%d hours ago" % max(1, int(hrs)), "--pretty=%h %s %b"],
-            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if sid in (r.stdout or ""):
             return False, "그 세션 자국이 붙은 커밋이 있다"
     except Exception:
@@ -196,7 +196,7 @@ def _dirty_tree():
     try:
         import subprocess
         r = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT,
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if r.returncode != 0:
             return True, "git 상태를 못 읽음"     # 모르면 안 뺏는다
         n = len([x for x in (r.stdout or "").splitlines() if x.strip()])

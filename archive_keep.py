@@ -125,7 +125,7 @@ def git_bundle(dst, dry=False):
     """저장소 전체를 한 파일로. 같은 날 HEAD가 바뀌면 원자적으로 최신 bundle로 교체한다."""
     try:
         head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
-                              text=True, timeout=60).stdout.strip()
+                              text=True, timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
     except Exception:
         return None, "git 없음"
     if not head:
@@ -161,7 +161,7 @@ def git_bundle(dst, dry=False):
         if os.path.exists(temp):
             os.unlink(temp)
         r = subprocess.run(["git", "bundle", "create", temp, "--all"], cwd=ROOT,
-                           capture_output=True, text=True, timeout=900)
+                           capture_output=True, text=True, timeout=900, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if r.returncode != 0 or not os.path.exists(temp):
             return None, f"bundle 실패: {(r.stderr or '')[:80]}"
         # 기존 bundle은 새 파일 생성이 완전히 끝난 뒤 한 번에 교체한다.
@@ -188,7 +188,7 @@ def git_bundle(dst, dry=False):
 def uncommitted():
     try:
         r = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT, capture_output=True,
-                           text=True, timeout=120)
+                           text=True, timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return len([l for l in (r.stdout or "").splitlines()
                     if l.strip() and "outputs/" not in l and "/tmp/" not in l])
     except Exception:
@@ -198,7 +198,7 @@ def uncommitted():
 def commit_count():
     try:
         r = subprocess.run(["git", "rev-list", "--count", "HEAD"], cwd=ROOT,
-                           capture_output=True, text=True, timeout=120)
+                           capture_output=True, text=True, timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return (r.stdout or "0").strip()
     except Exception:
         return "?"

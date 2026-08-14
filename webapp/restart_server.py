@@ -94,7 +94,7 @@ def running():
           "ForEach-Object { \"$($_.ProcessId)`t$($_.CreationDate)\" }")
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                             capture_output=True, text=True, timeout=60).stdout
+                             capture_output=True, text=True, timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
     except Exception:
         return []
     found = []
@@ -109,7 +109,7 @@ def stop(pids):
     for pid in pids:
         try:
             subprocess.run(["taskkill", "/PID", str(pid), "/F"],
-                           capture_output=True, timeout=30)
+                           capture_output=True, timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except Exception:
             pass
     # 포트가 풀릴 때까지 잠깐 — 안 기다리면 새 서버가 포트를 못 잡고 죽는다.

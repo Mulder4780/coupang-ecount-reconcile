@@ -74,7 +74,7 @@ def _worktree_state():
 def git(*args):
     try:
         r = subprocess.run(["git"] + list(args), cwd=BASE, capture_output=True,
-                           text=True, encoding="utf-8", errors="replace", timeout=60)
+                           text=True, encoding="utf-8", errors="replace", timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return (r.stdout or "").strip()
     except Exception:
         return ""

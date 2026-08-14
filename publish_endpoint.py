@@ -30,7 +30,7 @@ EP_FILE = os.path.join(ROOT, "docs", "endpoint.json")
 
 def git(*args, timeout=90):
     return subprocess.run(["git"] + list(args), cwd=ROOT, capture_output=True,
-                          text=True, encoding="utf-8", errors="replace", timeout=timeout)
+                          text=True, encoding="utf-8", errors="replace", timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
 def tailscale_url():

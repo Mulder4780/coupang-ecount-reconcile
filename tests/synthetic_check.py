@@ -9805,19 +9805,19 @@ def t158_wrapup_drops_huge_files():
 
     with tempfile.TemporaryDirectory() as tmp:
         for a in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
-            subprocess.run(["git"] + a, cwd=tmp, capture_output=True)
+            subprocess.run(["git"] + a, cwd=tmp, capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         big, small = os.path.join(tmp, "big.json"), os.path.join(tmp, "small.txt")
         with open(big, "wb") as f:              # 성긴 파일 — 디스크를 실제로 쓰지 않는다
             f.seek(W.HUGE + 4096 - 1)
             f.write(bytes(1))
         io.open(small, "w", encoding="utf-8").write("ok")
-        subprocess.run(["git", "add", "-A"], cwd=tmp, capture_output=True)
+        subprocess.run(["git", "add", "-A"], cwd=tmp, capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         old = W.ROOT
         try:
             W.ROOT = tmp
             dropped = W._unstage_huge()
             staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=tmp,
-                                    capture_output=True, text=True).stdout.split()
+                                    capture_output=True, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.split()
         finally:
             W.ROOT = old
     assert dropped == ["big.json"], "거대 파일을 빼지 못했다: %r" % (dropped,)
@@ -16933,6 +16933,82 @@ def t197_restart_blip_is_not_a_failure():
     print("  [197] 재시작 9초의 502 를 스스로 넘긴다 · 다시 걸면 안 될 것은 안 건다 ✅")
 
 
+def t272_no_console_windows_from_children():
+    """[272] 회차가 띄우는 **자식**이 검은 창을 달지 않는다 (2026-08-14 지시).
+
+    형님 지시: "팝업창좀 안뜨게 해 백그라운드에서 작업해, 노트북을 못쓰겠어".
+
+    ★ `[248]` 은 **스케줄러가 부르는 것**을 다 고쳤고 `[270]` 은 **AI CLI** 를 고쳤다.
+      그런데 창이 또 떴다. 남은 것은 **회차가 띄운 자식**이다 —
+      **콘솔 없는 부모가 콘솔 exe 를 깃발 없이 띄우면 윈도우가 새 콘솔을 할당한다.**
+      즉 부모를 `pythonw` 로 바꾼 것이 오히려 자식의 창을 새로 만든 셈이다
+      (2026-08-13 cloudflared 와 같은 모양). 실측 2026-08-14: 예약 작업 13개와
+      로그인 항목은 **전부 이미 창이 없었는데** 자식 자리가 **25곳** 남아 있었다 —
+      `git`(11) · `powershell`(4) · `cmd`(3) · `taskkill`(2) · `node`(1) 등.
+      30분 워치독이 `session_handoff`·`lanes` 로 git 을 부르는 자리가 거기 있었다.
+
+    ★ 한 곳씩 잡지 않는다. 두더지잡기를 하면 다음 주에 다른 자리가 뜬다 —
+      그래서 자리를 **세어** 두고 이 검증이 그 수를 0 으로 지킨다.
+    ★ 잃는 로그가 없다는 것을 먼저 확인했다: 25곳 **전부** 출력을 파이프로 붙잡고
+      있어(`capture_output`/`stdout`) 창을 없애도 사라지는 글이 없다.
+      출력을 콘솔로 흘리는 호출이었으면 창을 없애는 순간 **아무 데도 안 남는다**([169]).
+    """
+    import importlib
+    import subprocess as _sp
+
+    A = importlib.import_module("tools.window_audit")
+
+    # ① 지금 남은 자리가 없다
+    bad = A.scan()
+    assert not bad, (
+        "콘솔 exe 를 깃발 없이 띄우는 자리가 %d곳 남았다 — %s"
+        % (len(bad), " · ".join("%s:%d(%s)" % (r, l, e) for r, l, _w, e in bad[:6])))
+
+    # ② 계기가 눈이 멀지 않았나 — 일부러 나쁜 코드를 만들어 **잡히는지** 본다.
+    #    0 을 내는 계기는 아무도 의심하지 않는다([169]). 0 이 '없다'인지 '안 봤다'인지
+    #    가르려면 계기 자신을 시험해야 한다.
+    import ast as _ast
+    probe = _ast.parse(
+        'import subprocess\n'
+        'subprocess.run(["powershell", "-Command", "x"], capture_output=True)\n')
+    found = []
+    for node in _ast.walk(probe):
+        if isinstance(node, _ast.Call) and getattr(node.func, "attr", "") in A.SPAWNERS:
+            if not A._has_no_window(node):
+                found.append(A._looks_console(node))
+    assert found == ["powershell"], "감사기가 뻔한 자리도 못 잡는다: %r" % (found,)
+
+    # ③ 깃발을 단 것은 잡지 않는다(거짓 경보가 대부분이면 아무도 안 본다, [170])
+    good = _ast.parse(
+        'import subprocess\n'
+        'subprocess.run(["git", "status"], capture_output=True,\n'
+        '               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))\n')
+    for node in _ast.walk(good):
+        if isinstance(node, _ast.Call) and getattr(node.func, "attr", "") in A.SPAWNERS:
+            assert A._has_no_window(node), "깃발을 달았는데도 경보를 낸다"
+
+    # ④ ★ `DETACHED_PROCESS` 를 '창 안 뜨는 깃발'로 치지 않는다. 그것은 부모 콘솔을
+    #    안 물려받는다는 뜻일 뿐이라, 자식이 콘솔 exe 면 **새 콘솔을 할당해 창이 뜬다.**
+    det = _ast.parse(
+        'import subprocess\n'
+        'subprocess.Popen(["cmd", "/c", "x"],\n'
+        '                 creationflags=subprocess.DETACHED_PROCESS)\n')
+    for node in _ast.walk(det):
+        if isinstance(node, _ast.Call) and getattr(node.func, "attr", "") in A.SPAWNERS:
+            assert not A._has_no_window(node), \
+                "DETACHED_PROCESS 를 창 없는 깃발로 읽는다 — 그것으로는 창이 뜬다"
+
+    # ⑤ 공용 헬퍼는 둘 다 건다 — 깃발 하나만으로는 포장 실행파일이 무시할 수 있다
+    P = importlib.import_module("proc_guard")
+    kw = P.background_popen_kwargs()
+    if os.name == "nt":
+        assert kw.get("creationflags", 0) & getattr(_sp, "CREATE_NO_WINDOW", 0), \
+            "공용 헬퍼에 CREATE_NO_WINDOW 가 없다"
+        assert kw.get("startupinfo") is not None, "공용 헬퍼에 SW_HIDE 가 없다"
+
+    print("  [272] 회차가 띄운 자식도 창을 안 단다 — 콘솔 exe 25곳 → 0곳 ✅")
+
+
 def t198_source_index_no_per_file_stat():
     """[198] 원본 색인이 파일마다 `os.stat(경로)` 를 다시 부르지 않는다.
 
@@ -17045,7 +17121,7 @@ def t224_wrapup_commit_refusal_paths():
 
     def git(tmp, *a):
         return subprocess.run(["git", *a], cwd=tmp, capture_output=True, text=True,
-                              encoding="utf-8", errors="replace")
+                              encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
     def repo(tmp):
         for a in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
@@ -18722,7 +18798,7 @@ def t257_jump_says_why_it_could_not_find():
             fh.write(harness)
         # 회차 한 단계가 영원히 멈추지 않게([175]) — 창 없는 실행에서도 반드시 끝난다.
         proc = subprocess.Popen([node, path], stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT)
+                                stderr=subprocess.STDOUT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         try:
             out = proc.communicate(timeout=60)[0].decode("utf-8", "replace")
         except subprocess.TimeoutExpired:
@@ -19660,6 +19736,7 @@ if __name__ == "__main__":
     t196_stage_words_come_from_one_place()
     t197_restart_blip_is_not_a_failure()
     t198_source_index_no_per_file_stat()
+    t272_no_console_windows_from_children()
     t203_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()

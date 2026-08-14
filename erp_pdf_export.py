@@ -114,7 +114,7 @@ def _convert(pairs):
     ]
     script = "\n".join(lines)
     res = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-                         capture_output=True, text=True, timeout=1800)
+                         capture_output=True, text=True, timeout=1800, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return [ln.strip() for ln in (res.stdout or "").splitlines() if ln.strip().endswith(".pdf")]
 
 

@@ -78,7 +78,7 @@ def git_lines(*args):
     """
     try:
         r = subprocess.run(["git"] + list(args), cwd=ROOT, capture_output=True,
-                           text=True, encoding="utf-8", errors="replace", timeout=180)
+                           text=True, encoding="utf-8", errors="replace", timeout=180, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except Exception:
         return False, []
     return r.returncode == 0, [x.strip() for x in (r.stdout or "").splitlines() if x.strip()]
@@ -108,7 +108,7 @@ def _unstage_huge():
     try:
         r = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=ROOT,
                            capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=120)
+                           errors="replace", timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except Exception:
         return []
     dropped = []

@@ -85,7 +85,7 @@ _MAIN_ROOT = None
 def _git(*args):
     try:
         r = subprocess.run(["git", *args], cwd=BASE, capture_output=True,
-                           text=True, encoding="utf-8", errors="replace", timeout=30)
+                           text=True, encoding="utf-8", errors="replace", timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return (r.stdout or "").strip() if r.returncode == 0 else ""
     except Exception:
         return ""
@@ -170,7 +170,7 @@ def _make_junction(link, target):
     except Exception:
         r = subprocess.run(["cmd", "/c", "mklink", "/J", link, target],
                            capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=30)
+                           errors="replace", timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return r.returncode == 0
 
 

@@ -135,7 +135,7 @@ def _ocr_run(path, lang="ko", timeout=120):
     try:
         r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
                             "-File", PS1, "-Path", path, "-Lang", lang],
-                           capture_output=True, timeout=timeout)
+                           capture_output=True, timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if r.returncode != 0:
             return ""
         return r.stdout.decode("utf-8", "replace")

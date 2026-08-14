@@ -50,7 +50,7 @@ def _decode(raw):
 def _run(cmd, timeout=20):
     """실패해도 죽지 않는다 — 없는 명령·꺼진 서비스가 정상 상태일 수 있다."""
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=timeout)
+        r = subprocess.run(cmd, capture_output=True, timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return r.returncode, _decode(r.stdout or b"").strip(), _decode(r.stderr or b"").strip()
     except (OSError, subprocess.SubprocessError):
         return -1, "", "실행 불가"
