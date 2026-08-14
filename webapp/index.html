@@ -4574,6 +4574,11 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     #v-org .org-floor{grid-template-columns:1fr}
     #v-org .org-zone.ai{grid-column:auto}
     #v-org{--org-w:132px}
+    /* 폰에서는 고정 열 grid 대신 줄마다 가운데 맞추는 flex 를 쓴다.
+       grid auto-fill은 마지막 줄에 한 자리만 남으면 빈 열까지 유지해 그 사람을 왼쪽에
+       세운다. flex의 justify-content:center는 **각 줄마다** 남은 자리를 똑같이 나눈다. */
+    #v-org .org-desks{display:flex;flex-wrap:wrap;justify-content:center;align-items:stretch}
+    #v-org .org-ws{flex:0 0 var(--org-w);width:var(--org-w)}
     #v-org .org-desk{padding:9px 9px 10px}
     #v-org .org-avatar{width:30px;height:30px;border-radius:9px;font-size:12px}
     #v-org .org-row1{padding-right:20px;gap:7px}
@@ -4624,7 +4629,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     #v-org .org-fmnote b{color:var(--org-ink)}}
   @media (max-width:420px){
     #v-org{--org-w:118px}
-    #v-org .org-desks{grid-template-columns:repeat(auto-fill,var(--org-w))}
+    #v-org .org-ws{flex-basis:var(--org-w);width:var(--org-w)}
     #v-org .org-rl{white-space:normal}}
   @keyframes orgDrift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(2%,-2%) scale(1.06)}100%{transform:translate(-2%,2%) scale(1.02)}}
   @media (prefers-reduced-motion:reduce){

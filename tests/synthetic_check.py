@@ -19582,6 +19582,20 @@ def t273_calendar_capture_is_three_pages_and_never_drops_reasons():
     print("[273] 대표 캡처 3쪽 분리 · 정기점검/돌발AS 전 건 · 사유 전체 줄바꿈 · 누락 시 저장 중단 OK")
 
 
+def t274_mobile_orgchart_centers_every_wrapped_row():
+    """[274] 모바일 조직도는 마지막 한 자리까지 줄마다 가운데 정렬한다."""
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    css = live.split('<style id="org-style">', 1)[1].split("</style>", 1)[0]
+    phone = css.split("@media (max-width:760px){", 1)[1].split("@media (max-width:420px)", 1)[0]
+    assert "#v-org .org-desks{display:flex;flex-wrap:wrap;justify-content:center" in phone, \
+        "모바일 조직도 카드 줄이 가운데 정렬되지 않는다"
+    assert "#v-org .org-ws{flex:0 0 var(--org-w);width:var(--org-w)}" in phone, \
+        "가운데 정렬 중 책상 폭이 늘어나 방마다 카드 크기가 달라질 수 있다"
+    narrow = css.split("@media (max-width:420px){", 1)[1].split("@keyframes orgDrift", 1)[0]
+    assert "flex-basis:var(--org-w);width:var(--org-w)" in narrow
+    print("[274] 모바일 조직도 각 줄 중앙 정렬 · 마지막 1명/2명 균형 · 책상 고정폭 유지 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19709,6 +19723,7 @@ if __name__ == "__main__":
     t270_ai_workers_never_raise_a_console_or_desktop_app()
     t271_pc_off_cloud_snapshot_and_lossless_return()
     t273_calendar_capture_is_three_pages_and_never_drops_reasons()
+    t274_mobile_orgchart_centers_every_wrapped_row()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
