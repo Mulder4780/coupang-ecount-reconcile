@@ -19705,6 +19705,22 @@ def t276_mouse_workflow_canvas():
     print("[276] 마우스 단계 배치 · 화살표 · 손그림 · 이동/삭제/취소 · DB 공유 저장/충돌방지 OK")
 
 
+def t277_busy_org_light_blinks():
+    """[277] 조직도에서 업무 중인 자리의 주황 표시등만 깜빡인다."""
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "#v-org .org-dot.busy.pulse{animation:orgBusyBlink" in live, (
+        "업무 중 표시등 전용 깜빡임이 없다")
+    assert "@keyframes orgBusyBlink" in live and "50%{opacity:.28" in live, (
+        "불이 실제로 밝아졌다 어두워지는 키프레임이 없다")
+    assert 'class="org-dot busy pulse"' in live, "업무 중 범례 표시등이 깜빡이지 않는다"
+    assert "(st==='live'||st==='busy')?'pulse':''" in live, (
+        "실제 업무 중 자리의 표시등에 pulse 클래스가 붙지 않는다")
+    reduced = live.rsplit("@media (prefers-reduced-motion:reduce)", 1)[1][:260]
+    assert "#v-org .org-hero::after,#v-org .org-dot.pulse" in reduced, (
+        "움직임 최소화 설정에서도 표시등이 계속 깜빡인다")
+    print("[277] 조직도 업무 중 주황 표시등 점멸 · 나머지 상태 고정 · 움직임 최소화 존중 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19835,6 +19851,7 @@ if __name__ == "__main__":
     t274_mobile_orgchart_centers_every_wrapped_row()
     t275_work_cards_require_edit_then_batch_save_with_notifications()
     t276_mouse_workflow_canvas()
+    t277_busy_org_light_blinks()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

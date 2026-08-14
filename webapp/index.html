@@ -4554,7 +4554,11 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   #v-org .org-dot.busy{background:var(--org-busy)} #v-org .org-dot.idle{background:var(--org-idle)}
   #v-org .org-dot.off{background:var(--org-off)} #v-org .org-dot.live{background:var(--org-live)}
   #v-org .org-dot.pulse{animation:orgPulse 1.8s infinite}
+  #v-org .org-dot.busy.pulse{animation:orgBusyBlink 1.05s ease-in-out infinite}
   @keyframes orgPulse{0%{box-shadow:0 0 0 0 rgba(0,98,204,.5)}70%{box-shadow:0 0 0 8px rgba(0,98,204,0)}100%{box-shadow:0 0 0 0 rgba(0,98,204,0)}}
+  @keyframes orgBusyBlink{
+    0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(232,137,12,.62)}
+    50%{opacity:.28;box-shadow:0 0 0 6px rgba(232,137,12,0)}}
   /* ── 사무실 바닥. ★ minmax(0,..) 로 내용 열을 절대 넘지 않는다 — 가로 스크롤 금지.
      예전 배치는 옆(≥900) 사이드바 폭에서 좌우가 잘렸다. 여기가 그 고침 자리다. ── */
   #v-org .org-floorwrap{max-width:100%}
@@ -4748,7 +4752,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
       </div>
     </div>
     <div class="org-legend">
-      <b><span class="org-dot busy"></span>업무 중</b>
+      <b><span class="org-dot busy pulse"></span>업무 중</b>
       <b><span class="org-dot idle"></span>대기 · 정상</b>
       <b><span class="org-dot live pulse"></span>실시간 세션</b>
       <b><span class="org-dot off"></span>오프라인</b>
@@ -9061,7 +9065,7 @@ function orgRender(D){
               <div class="org-who"><div class="org-nm"><span class="org-nm-t">${esc2(p.name)}</span>${p.badge?`<span class="org-badge">${esc2(p.badge)}</span>`:''}</div>
                 <div class="org-rl">${esc2(p.role||'')}</div></div>
             </div>
-            <div class="org-st"><span class="org-dot ${esc2(st)} ${st==='live'?'pulse':''}"></span>
+            <div class="org-st"><span class="org-dot ${esc2(st)} ${(st==='live'||st==='busy')?'pulse':''}"></span>
               <span class="org-txt"><span class="st">${esc2(orgStateLabel(st))}</span><span class="org-msg"> — ${esc2(p.msg||'상태 없음')}${p.ago?` <span class="org-ago2">· ${esc2(p.ago)}</span>`:''}</span></span>
               <span class="org-chev">▾</span></div>
           </button>
