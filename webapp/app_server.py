@@ -3941,10 +3941,14 @@ def _brief_source_key(day):
     except Exception:
         event_mt = 0
     try:
+        ceo_event_mt = os.path.getmtime(os.path.join(ROOT, "reports", "대표대화_추출.json"))
+    except Exception:
+        ceo_event_mt = 0
+    try:
         schedule_mt = os.path.getmtime(os.path.join(ROOT, "reports", "pm_schedule_sync.json"))
     except Exception:
         schedule_mt = 0
-    return day, _master_mtime(), work_log_mt, event_mt, schedule_mt
+    return day, _master_mtime(), work_log_mt, event_mt, ceo_event_mt, schedule_mt
 
 
 def get_daily_brief(day=None):
@@ -4838,6 +4842,7 @@ def _augment_exec_daily(report):
     put(grp("돌발"), "작업 완료", f"{int(as_day.get('완료') or 0)}건")
     put(grp("돌발"), "현장 작업", f"{int(as_day.get('현장작업') or 0)}건")
     put(grp("돌발"), "유상 발생", f"{int(as_day.get('유상발생') or 0)}건")
+    put(grp("돌발"), "대표 전달 접수", f"{int(as_day.get('대표전달') or 0)}건")
     put(grp("돌발"), "재방문 예정", f"{int(as_day.get('재방문예정') or 0)}건")
 
     # 건바이건(장비 한 대=1건) — 그룹으로 묶지 않는다(2026-08-12 지시).

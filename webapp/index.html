@@ -1522,6 +1522,9 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
 /* ═══ 보고서(캡처 최적화) ═══ */
 .rpt{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh-lg);
   padding:26px 26px 20px;max-width:720px;margin:0 auto}
+/* PC에서 모바일 보고서 폭(720px)을 그대로 쓰면 화면 양옆이 통째로 빈다. 데스크탑은
+   사이드바를 뺀 .shell 폭을 모두 쓰고, 태블릿·모바일의 기존 폭/카드 변환은 유지한다. */
+@media(min-width:900px){#v-report .rpt{width:100%;max-width:none}}
 .rpt .rhead{display:flex;align-items:center;gap:12px;border-bottom:2.5px solid var(--navy-900);padding-bottom:14px}
 .rpt .rhead .logo{width:38px;height:38px;border-radius:11px}
 .rpt .rhead h2{font-size:19px;letter-spacing:-.4px;line-height:1.2}
@@ -1531,6 +1534,17 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
 .rpt h4{font-size:14px;color:var(--brand-dk);font-weight:800;letter-spacing:.5px;margin:18px 0 8px;
   display:flex;align-items:center;gap:6px}
 .rpt h4::after{content:"";flex:1;height:1px;background:var(--line)}
+.ceo-dir{margin-top:10px;border:1px solid #F1C2C2;border-left:5px solid #C0212E;border-radius:12px;
+  padding:12px 14px;background:#FFF8F8}
+.ceo-dir-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.ceo-dir-title{font-size:14.5px;font-weight:900;color:#8F1D1D}
+.ceo-dir-meta{font-size:12.5px;font-weight:700;color:#667085;margin-top:3px}
+.ceo-dir-state{padding:5px 9px;border-radius:999px;background:#FEE4E2;color:#B42318;font-size:12px;font-weight:900}
+.ceo-dir-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
+.ceo-dir-item{border:1px solid #F1DADA;border-radius:10px;padding:10px;background:#FFF;min-width:0}
+.ceo-dir-item b{display:block;font-size:13px;color:#101828;margin-bottom:5px}
+.ceo-dir-item p{margin:0;font-size:12.5px;line-height:1.5;color:#475467;word-break:keep-all}
+.ceo-dir-item small{display:block;margin-top:6px;color:#B42318;font-size:12px;font-weight:800}
 .rgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .rcell{background:var(--panel);border:1px solid #EEF2F7;border-radius:10px;padding:10px 12px;text-align:center}
 .rcell.clk{cursor:pointer;transition:border .15s,box-shadow .15s,transform .1s}
@@ -1566,6 +1580,7 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
   .rpt .rhead h2{min-width:0;flex:1 0 calc(100% - 47px);font-size:15px;word-break:keep-all}
   .rpt .rdate{margin-left:0;width:100%;text-align:left;
     border-top:1px solid var(--line);padding-top:8px}
+  .ceo-dir-grid{grid-template-columns:1fr}
   /* tbody까지 block으로 풀어야 카드가 전체 폭을 쓴다(안 그러면 내용 폭에 맞춰 쪼그라듦) */
   .rpt table.stack,.rpt table.stack tbody,.rpt table.stack tr,.rpt table.stack td{
     display:block;width:100%;max-width:100%}
@@ -4688,9 +4703,13 @@ async function obDel(id){ return obTx('readwrite', s => s.delete(id)); }
 /* 보낼 때가 되면 **넣은 순서대로** 보낸다. 하나가 아직 안 되면 거기서 멈춘다 —
    순서가 뒤집히면 '수정'이 '등록'보다 먼저 도착할 수 있다. */
 let obFlushing = false;
+/* 돌려주는 값 {sent, left} 는 **복구 알림이 정직하게 말하기 위한 것**이다.
+   left === -1 은 0 이 아니라 **모름**이다 — 못 센 것을 '다 보냈다'로 적으면
+   보관분이 남았는데도 사람이 끝난 줄 안다([169]). 기존 호출자는 반환값을 안 쓴다. */
 async function obFlush(){
-  if (obFlushing || !navigator.onLine) return;
+  if (obFlushing || !navigator.onLine) return {sent:0, left:-1};
   obFlushing = true;
+  let sent = 0;
   try{
     const items = (await obAll()) || [];
     items.sort((a,b) => a.id - b.id);
@@ -4701,7 +4720,7 @@ async function obFlush(){
         if (it.ct && it.packed.kind === 'text') opt.headers = {'Content-Type': it.ct};
         r = await _netFetch(it.path, opt);
       }catch(e){ break; }                    // 아직 PC 가 안 켜졌다 — 다음 기회에
-      if (r.ok) await obDel(it.id);
+      if (r.ok) { await obDel(it.id); sent++; }
       /* 401·403 은 '내용이 나빠서'가 아니라 '아직 인증이 안 돼서'다. 지우면 오프라인에서
          써 둔 입력이 통째로 유실된다 — 보관한 채 멈추고, 로그인 후 다시 보낸다. */
       else if (r.status === 401 || r.status === 403) break;
@@ -4709,6 +4728,9 @@ async function obFlush(){
       else break;                            // 5xx 는 서버 사정 — 순서 지키려 여기서 멈춘다
     }
   } finally { obFlushing = false; obBadge(); }
+  let left = -1;                             // 못 세면 0 이 아니라 모름이다
+  try{ left = ((await obAll()) || []).length; }catch(e){}
+  return {sent, left};
 }
 
 async function obBadge(){
@@ -6613,6 +6635,12 @@ async function restoreRoleSession(){
   }
 }
 
+/* ★ 이 둘은 offlineBanner 보다 **앞에** 선언한다 — let 은 호이스팅돼도 초기화 전에는
+   못 쓴다(TDZ). 뒤에 두면 부팅 도중 배너가 먼저 뜨는 날 ReferenceError 로 죽는데,
+   하필 그 순간이 '서버가 안 닿는' 순간이라 아무도 원인을 못 찾는다. */
+let NET_DOWN_SEEN = false;        // 이 화면이 한 번이라도 끊겼나
+let NET_RECOVER_AT = 0;           // 같은 복구를 두 번 알리지 않는다
+
 /* PC 꺼짐 안내 + 복귀 감시. ★ 스스로 새로고침하지 않는다(입력 중 화면 보호, 2026-07-31 지시)
    — PC 가 돌아오면 보관분을 전송하고 데이터만 다시 읽는다. */
 function offlineBanner(){
@@ -6630,12 +6658,60 @@ function offlineBanner(){
     ? '이 기기가 네트워크에 연결돼 있지 않습니다 — 조회는 옛 자료입니다. 입력은 이 기기에 보관됐다가 연결되면 자동 반영됩니다'
     : '서버에 닿지 않습니다 (PC 꺼짐·재시작·외부접속 끊김 중 하나) — 조회는 옛 자료입니다. 입력은 이 기기에 보관됐다가 닿으면 자동 반영됩니다';
   document.body.appendChild(el);
+  NET_DOWN_SEEN = true;                      // 끊긴 적이 있다 — 복구 알림의 전제
   const t=setInterval(async()=>{
     try{
       const r=await _netFetch('/api/ping?t='+Date.now(),{cache:'no-store'});
-      if(r.ok){ clearInterval(t); el.remove(); obFlush(); refreshAll(); }
+      if(r.ok){ clearInterval(t); el.remove();
+                const res = await obFlush(); refreshAll(); netRecovered(res); }
     }catch(e){}
   },30000);
+}
+
+/* ═══ 다시 닿았을 때 — 조용히 사라지지 않는다 (2026-08-14 지시) ═══════════════
+   사용자 지시: **"이런거 해결되면 팝업으로 담당자들한테 띄워주는 알고리즘 구현"**
+
+   ★ 복구 감지·보관분 전송·자료 갱신은 **예전부터 있었다**(위 30초 폴링). 빠져 있던
+     것은 **말하는 것** 하나다. 배너만 조용히 사라지고 오류 팝업은 그대로 남아,
+     담당자는 아직 안 되는 줄 알고 그 창을 캡처해 관리자에게 보낸다.
+     2026-08-14 실측으로 그대로 일어났다 — 13:30 앱서버 재시작 뒤 화면이 실패했고,
+     로컬·터널·고정주소가 전부 200 으로 돌아온 뒤에도 화면은 계속 '닿지 않습니다'
+     라고 적혀 있었다. 이 프로젝트가 세션 쪽에서 고친 것([225] "막힘이 풀렸다는
+     사실을 아는 쪽")과 같은 구멍이 **담당자 화면 쪽**에 남아 있었다.
+   ★ 끊긴 적이 없으면 안 띄운다 — 열 때마다 '연결됨'이 뜨면 아무도 안 읽는다([170]).
+   ★ 보관분 결과를 정직하게 말한다. 못 셌으면 못 셌다고 적는다([169]).
+   ★ 서버가 미는 구조로 만들지 않는다 — 알려야 할 그 순간에 서버가 죽어 있다.
+     각 담당자 화면이 스스로 복구를 보고 스스로 말한다.
+   (NET_DOWN_SEEN·NET_RECOVER_AT 선언은 offlineBanner 앞에 있다 — TDZ)          */
+async function netRecovered(res){
+  if(!NET_DOWN_SEEN) return;
+  const now = Date.now();
+  if(now - NET_RECOVER_AT < 60000) return;
+  NET_RECOVER_AT = now; NET_DOWN_SEEN = false;
+  /* 열려 있던 오류 팝업을 닫는다. 안 닫으면 **되는데 안 된다고 적힌 창**이 남고,
+     담당자는 그 창을 캡처해서 보낸다 — 그것이 이 지시가 나온 경위 그대로다. */
+  try{ if(typeof _dlgResolve !== 'undefined' && _dlgResolve) dlgCancel(); }catch(e){}
+  try{ retryAllDataSections(); }catch(e){}
+  const sent = (res && res.sent) || 0;
+  const left = (res && typeof res.left === 'number') ? res.left : -1;
+  let line;
+  if(sent > 0 && left === 0)      line = `보관해 둔 입력 ${sent}건을 모두 보냈습니다.`;
+  else if(sent > 0)               line = `보관해 둔 입력 ${sent}건을 보냈습니다.`;
+  else if(left === 0)             line = '보관된 입력은 없었습니다.';
+  else                            line = '보관된 입력은 확인하지 못했습니다.';
+  if(left > 0) line += ` 아직 ${left}건이 남아 다음에 다시 보냅니다.`;
+  try{
+    await dlgAsk({
+      title:'다시 연결됐습니다',
+      desc:'화면을 최신 자료로 다시 불러왔습니다.',
+      body:`<div style="font-size:1.06em;line-height:1.6">`
+        + `<p style="margin:.2em 0 .6em;font-weight:700">${esc2(line)}</p>`
+        + `<p class="norm" style="margin:.2em 0 0">아까 뜬 오류 창은 닫았습니다 — `
+        + `그때 못 보신 자료는 지금 화면에 있습니다.</p></div>`,
+      buttons:[{label:'확인', value:true, kind:'primary'}],
+      cancel:true
+    });
+  }catch(e){ try{ toast('다시 연결됐습니다 — ' + line); }catch(_){ } }
 }
 
 /* ═══ 정밀 관리 탭 — 정기점검(pm)·돌발AS(as) (2026-07-31 지시) ═══
@@ -15237,6 +15313,13 @@ function bCard(x, kind){
       + bRow('요청', x.왜, '신청내용 미기입')
       + bRow('처리', x.무엇, '처리내용 미기입')
       + (x.게시자 ? bRow('게시', x.게시자, '') : '') + `</div>`;
+  if(kind==='ceo') return `<div class="bcard"><div class="bc1">`
+      + `<span class="bd">${_e(_md(x.일자))}</span>`
+      + `<span class="bp">${_e(projectNoOf(x)||'프로젝트 미확정')}</span>`
+      + `<b>${_e(x.캠프명||'캠프 미기입')}</b>`
+      + `<span class="bm">${_e(x.게시자||'유수비 대표')}</span></div>`
+      + bRow('요청', x.왜, '신청내용 미기입')
+      + bRow('상태', x.상태||'대표 전달 접수', '상태 미기입') + `</div>`;
   if(kind==='pm-plan') return `<div class="bcard">${bTag(x)}`
       + bRow('상태', x.상태, '상태 미기입')
       + bRow('점검', x.왜, '점검내용 미기입')
@@ -15254,6 +15337,7 @@ function briefBlock(){
   const wl = BRIEF['일지대조']||{}, wla = wl['돌발AS']||{};
   const newL = BRIEF['신규목록']||[], doneL = (BRIEF['완료내역']||[]).filter(x=>x.구분==='돌발AS');
   const activityL = BRIEF['당일처리목록']||[];
+  const ceoL = BRIEF['대표전달목록']||[], ceoJudge = BRIEF['대표대화판정']||{};
   const pmPlanL = BRIEF['점검예정목록']||[], pmDoneL = BRIEF['점검실행목록']||[];
   const blank = BRIEF['내용미기입']||[], stale = BRIEF['완료일미기입목록']||[];
   const d = BRIEF['기준일']||'';
@@ -15264,6 +15348,7 @@ function briefBlock(){
     <span class="bpill new">신규 ${a.신규접수||0}</span>
     <span class="bpill done">완료 ${a.완료||0}</span>
     ${activityL.length?`<span class="bpill done">업무 처리 ${activityL.length}</span>`:''}
+    ${ceoL.length?`<span class="bpill new">대표 전달 ${ceoL.length}</span>`:''}
     <span class="bpill warn">미처리 ${a.미처리||0}<em>최근 30일</em></span></div>`;
   if(Object.keys(wla).length){
     const reasons=wla.미처리사유||[];
@@ -15307,7 +15392,11 @@ function briefBlock(){
                      + doneL.slice(0,8).map(x=>bCard(x,'done')).join('');
   if(activityL.length) h += `<div class="bglab done">당일 업무 처리 ${activityL.length}건 · 현장 AS 완료와 별도</div>`
                          + activityL.map(x=>bCard(x,'activity')).join('');
-  if(!newL.length && !doneL.length && !activityL.length)
+  if(ceoL.length) h += `<div class="bglab new">유수비 대표 쿠팡 접수 전달 ${ceoL.length}건 · 처리 완료 아님</div>`
+                    + ceoL.map(x=>bCard(x,'ceo')).join('');
+  if((ceoJudge['쿠팡 건']||0)||(ceoJudge['쿠팡 무관']||0)||(ceoJudge['모름']||0))
+    h += `<div class="bnd">대표 대화 판정 · 쿠팡 건 ${ceoJudge['쿠팡 건']||0} · 쿠팡 무관 ${ceoJudge['쿠팡 무관']||0} · 모름 ${ceoJudge['모름']||0}</div>`;
+  if(!newL.length && !doneL.length && !activityL.length && !ceoL.length)
     h += `<div class="bnone">그날 새로 접수되거나 완료·처리된 건이 없습니다</div>`;
   h += `</div>`;
 
@@ -15945,6 +16034,16 @@ function renderDaily(){
   const _asOf = (BRIEF&&BRIEF['데이터업데이트일시']) ||
     ((repData&&repData.meta&&repData.meta['데이터최종갱신일'])||'').slice(0,16).replace('T',' ') ||
     '확인 불가';
+  const ceoDirectives = ((BRIEF&&BRIEF['대표지시목록'])||[]).filter(x=>x&&typeof x==='object');
+  const ceoDirectiveHtml = ceoDirectives.map(d=>`<div class="ceo-dir">
+    <div class="ceo-dir-head"><div><div class="ceo-dir-title">유수비 대표 지시 이행현황 · ${esc2(d['제목']||'쿠팡 AS 업무 운영 정비')}</div>
+      <div class="ceo-dir-meta">게시 ${esc2(d['카톡일시']||d['날짜']||'-')} · 보고기한 <b>${esc2(d['보고기한']||'원문 확인 필요')}</b></div></div>
+      <span class="ceo-dir-state">${esc2(d['상태']||'경과보고 확인 필요')}</span></div>
+    <div class="ceo-dir-grid">${(d['항목']||[]).map((item,i)=>`<div class="ceo-dir-item">
+      <b>${i+1}. ${esc2(item['제목']||'지시항목')}</b><p>${esc2(item['요구내용']||'-')}</p>
+      <small>제출: ${esc2(item['제출내용']||'-')} · ${esc2(item['상태']||'결과 미확인')}</small></div>`).join('')}</div>
+    <div class="ceo-dir-meta" style="margin-top:8px">근거 ${esc2(d['근거']||'-')} · 완료 결과를 확인할 근거가 없어 임의로 완료 처리하지 않았습니다.</div>
+  </div>`).join('');
   const cell = (v,l,k)=>{
     const on = k && KS[k] && KS[k].rows.length;
     // 뜻은 STAT_HELP 한 곳(2026-08-11) — 부제 한 줄은 항상 보이고 ⓘ 는 상세를 연다.
@@ -15974,6 +16073,7 @@ function renderDaily(){
     ${_rep.summary?`<div style="font-size:13px;color:var(--ink-3);margin-top:6px">${esc2(_rep.summary)}</div>`:''}
     ${_rep.docTypes.length?`<div style="font-size:13.5px;color:var(--ink-3);margin-top:4px">${_rep.docTypes.map(esc2).join('<br>')}</div>`:''}`
     :`<h4>대표 예외보고</h4><div style="font-size:13px;color:#B54708">예외보고 API 미수신 — 새로고침 후 다시 캡처하세요.</div>`}
+    ${ceoDirectiveHtml}
     <h4>${+m}월 실적 <span class="norm">— 선택 기준일 ${selectedDay}</span></h4>
     <div class="rgrid">
       ${cell(Sm.length+'건','정산','m_set')}
@@ -16081,7 +16181,8 @@ function renderDaily(){
   const captureWorkLog = ((BRIEF&&BRIEF['일지대조'])||{});
   const captureBriefAs = ((BRIEF&&BRIEF['돌발AS'])||{});
   const captureBriefPm = ((BRIEF&&BRIEF['정기점검'])||{});
-  const captureDailyTasks = ((BRIEF&&BRIEF['당일처리목록'])||[]).map(x=>({
+  const captureHandledTasks = ((BRIEF&&BRIEF['당일처리목록'])||[]).map(x=>({
+    kind: 'activity',
     project: x['프로젝트NO'] || '프로젝트 미확정',
     camp: x['캠프명'] || '-',
     date: x['일자'] || '',
@@ -16091,6 +16192,29 @@ function renderDaily(){
     request: x['왜'] || '',
     action: x['무엇'] || x['상태'] || ''
   }));
+  const captureCeoTasks = ((BRIEF&&BRIEF['대표전달목록'])||[]).map(x=>({
+    kind: 'ceo',
+    project: x['프로젝트NO'] || '프로젝트 미확정',
+    camp: x['캠프명'] || '-',
+    date: x['일자'] || '',
+    requestDate: x['접수일'] || '',
+    poster: x['게시자'] || '유수비 대표',
+    handler: '',
+    request: x['왜'] || '',
+    action: x['상태'] || '대표 전달 접수'
+  }));
+  const captureNewTasks = ((BRIEF&&BRIEF['신규목록'])||[]).slice(0,6).map(x=>({
+    kind: 'new', project: x['프로젝트NO']||'프로젝트 미확정', camp: x['캠프명']||'-',
+    date: x['일자']||'', requestDate:x['접수일']||x['일자']||'', poster:'',
+    handler:x['담당기사']||'', request:x['왜']||'', action:'신규 접수'
+  }));
+  const captureDoneTasks = ((BRIEF&&BRIEF['완료내역'])||[]).filter(x=>x['구분']==='돌발AS').slice(0,8).map(x=>({
+    kind: 'done', project: x['프로젝트NO']||'프로젝트 미확정', camp: x['캠프명']||'-',
+    date: x['일자']||'', requestDate:x['접수일']||'', poster:'', handler:x['담당기사']||'',
+    request:x['왜']||'', action:x['무엇']||'★ 작업내용 미기입', cost:x['비용']||'비용 미기입'
+  }));
+  const captureCeoDirectives = ceoDirectives;
+  const captureDailyTasks = [...captureNewTasks, ...captureDoneTasks, ...captureHandledTasks, ...captureCeoTasks];
   const captureMeta={...(execRep.meta||{})};
   captureMeta['보고일']=normDate(captureMeta['보고일'])||REPORT_PREVIEW_DATE||todayISO();
   captureMeta['집계기준일']=normDate(captureMeta['집계기준일'])||REPORT_PREVIEW_DATE||
@@ -16127,6 +16251,7 @@ function renderDaily(){
     ],
     workLog: captureWorkLog,
     updatedAt: _asOf,
+    ceoDirectives: captureCeoDirectives,
     // 유수비 대표가 올리고 류지영 매니저가 처리한 택배·부품발송처럼
     // 현장 AS 완료와 별개인 당일 업무도 저장 이미지에서 빠지지 않게 싣는다.
     dailyBrief: BRIEF ? {
@@ -16134,8 +16259,10 @@ function renderDaily(){
       metrics: [
         [`${captureBriefAs['신규접수']||0}건`, '돌발AS 신규 접수'],
         [`${captureBriefAs['완료']||0}건`, '돌발AS 당일 완료', '#12813F'],
-        [`${captureBriefAs['업무처리']||captureDailyTasks.length}건`, '당일 별도 업무 처리',
-          captureDailyTasks.length?'#1B41BC':'#12813F'],
+        [`${captureBriefAs['업무처리']||captureHandledTasks.length}건`, '당일 별도 업무 처리',
+          captureHandledTasks.length?'#1B41BC':'#12813F'],
+        [`${captureBriefAs['대표전달']||captureCeoTasks.length}건`, '유수비 대표 쿠팡 접수 전달',
+          captureCeoTasks.length?'#2452E6':'#12813F'],
         // 정기점검 하루치 — 대표 지시(2026-08-07): 돌발AS 카드 아랫줄에 점검도 나란히
         [`${captureBriefPm['예정']||0}건`,
           `정기점검 당일 예정${captureBriefPm['예정장비']?`(장비 ${captureBriefPm['예정장비']}대)`:''}`],
@@ -17892,6 +18019,7 @@ async function reportToPng(){
   const wlUnknownRows = wlAs.처리완료일확인목록 || [];
   const dailyBrief = D.dailyBrief || null;
   const dailyActivities = (dailyBrief&&dailyBrief.activities) || [];
+  const ceoDirectives = D.ceoDirectives || [];
   const pmProgressH = pmProgress.length ? 34 + tiles(pmProgress.length) + 20 : 0;
   const workDetailH = rows => rows.length ? 26 + rows.length*50 + 6 : 0;
   // 핫이슈·사유구분 블록만큼 높이를 더 잡는다 — 안 그러면 아래가 잘린다(2026-08-04).
@@ -17921,7 +18049,9 @@ async function reportToPng(){
     ? 44 + (D.rep.summary?22:0) + tiles((D.rep.metrics||[]).length)
         + ((D.rep.docTypes||[]).length ? D.rep.docTypes.length*20+6 : 0)
     : 44 + 22;
-  let H = 108 + repH + 34 + tiles((D.month||[]).length) + (D.monthNote?18:0) + quarterH
+  const ceoDirectiveH = ceoDirectives.reduce((h,d)=>
+    h + 38 + 54 + ((d['항목']||[]).length*76) + 8, 0);
+  let H = 108 + repH + ceoDirectiveH + 34 + tiles((D.month||[]).length) + (D.monthNote?18:0) + quarterH
           + 34 + tiles((D.kpi||[]).length) + (D.kpiNote ? 18 : 0)
           + execSecH
           + dailyBriefH + pmProgressH + workLogH
@@ -18042,6 +18172,26 @@ async function reportToPng(){
 
   // ── 통계는 현재 월 → 이번 분기 → 해당 연도 순서로 고정한다.
   const lines = arr => { arr.forEach(t=>{ txt(clip(t, W-70), 34, y+8, F(12), '#475467'); y += 20; }); y += 6; };
+  const drawCeoDirectives=()=>{
+    ceoDirectives.forEach(d=>{
+      section(`유수비 대표 지시 이행현황 · 보고기한 ${d['보고기한']||'원문 확인 필요'}`,null,'#C0212E');
+      box(30,y,W-60,46,'#FFF1F1','#F1C2C2',10);
+      txt(clip(d['제목']||'쿠팡 AS 업무 운영 정비',520),44,y+15,F(13,900),'#8F1D1D');
+      txt(d['상태']||'경과보고 확인 필요',W-44,y+15,F(11.5,900),'#B42318','right');
+      txt(clip(`게시 ${d['카톡일시']||d['날짜']||'-'} · 근거 ${d['근거']||'-'}`,W-88),44,y+34,F(10.5,700),'#667085');
+      y+=54;
+      (d['항목']||[]).forEach((item,i)=>{
+        box(30,y,W-60,68,'#FFFBFB','#F1DADA',10);
+        box(30,y,6,68,'#C0212E',null,4);
+        txt(`${i+1}. ${item['제목']||'지시항목'}`,46,y+17,F(12.5,900),'#101828');
+        txt(item['상태']||'결과 미확인',W-44,y+17,F(11.5,900),'#B42318','right');
+        txt(clip(`요구 · ${item['요구내용']||'-'}`,W-92),46,y+38,F(10.8),'#475467');
+        txt(clip(`제출 · ${item['제출내용']||'-'}`,W-92),46,y+56,F(10.8,800),'#8F1D1D');
+        y+=76;
+      });
+      y+=8;
+    });
+  };
   // ── 대표 예외보고를 맨 앞에 — "정상은 합계만, 예외는 상세" (유수비 대표 틀)
   if(D.rep){
     section('대표 예외보고 — '+D.rep.signal+' 신호', null, '#C0212E');
@@ -18053,6 +18203,7 @@ async function reportToPng(){
     txt('예외보고 API 미수신 — 이 캡처에는 예외 집계가 없습니다. 새로고침 후 다시 캡처하세요.',
         34, y+8, F(11,700), '#B54708'); y+=22;
   }
+  drawCeoDirectives();
   section(D.monthTitle||'현재 월 통계',null,'#4960DF'); grid(D.month||[]);
   if(D.monthNote){ txt(D.monthNote,30,y+8,F(10),'#98A2B3'); y+=18; }
   if((D.quarter||[]).length){ section(D.quarterTitle||'이번 분기 통계',null,'#2B9560'); grid(D.quarter); }
@@ -18167,11 +18318,17 @@ async function reportToPng(){
         box(30,y,6,82,'#4960DF',null,4);
         txt(clip(`${a.project} · ${a.camp}`,560),46,y+17,F(12.5,800),'#101828');
         txt(a.date||'-',W-44,y+17,F(11.5,700),'#475467','right');
-        txt(clip(`${a.poster||'게시자 미기입'} → ${a.handler||'처리자 미기입'}`,720),
+        const head=a.kind==='ceo' ? `${a.poster||'유수비 대표'} · 대표 전달 접수`
+          : a.kind==='new' ? `신규 접수 · ${a.handler||'기사 미배정'}`
+          : a.kind==='done' ? `현장 처리 완료 · ${a.handler||'기사 미기입'} · ${a.cost||'비용 미기입'}`
+          : `${a.poster||'게시자 미기입'} → ${a.handler||'처리자 미기입'}`;
+        txt(clip(head,720),
             46,y+37,F(11.5,700),'#1B41BC');
         const when=a.requestDate?`접수 ${a.requestDate}`:'접수일 미기입';
         txt(clip(`요청 · ${a.request||'신청내용 미기입'} (${when})`,370),46,y+61,F(10.8),'#475467');
-        txt(clip(`처리 · ${a.action||'처리내용 미기입'}`,350),430,y+61,F(10.8,700),'#12813F');
+        const actionLabel=(a.kind==='ceo'||a.kind==='new')?'상태':'처리';
+        txt(clip(`${actionLabel} · ${a.action||'처리내용 미기입'}`,350),430,y+61,F(10.8,700),
+            a.kind==='new'?'#B54708':'#12813F');
         y+=90;
       });
     }
@@ -18736,6 +18893,9 @@ function tick(){ $('clock').textContent = new Date().toLocaleTimeString('ko-KR',
      나가지 않는다(SWR_FRESH_MS) — 그래서 되돌이가 생기지 않는다. */
 SWR_RERUN['/api/status'] = () => loadStatus().catch(()=>{});
 SWR_RERUN['/api/notifications'] = () => loadNotifications().catch(()=>{});
+// 대표 브리핑도 옛 로컬 캐시를 먼저 보여 준다. 새 응답을 저장만 하고 BRIEF를 다시
+// 읽지 않으면 오늘 들어온 대표 지시가 새로고침 전까지 영원히 화면·캡처에서 빠진다.
+SWR_RERUN['/api/brief'] = () => loadBrief(REPORT_PREVIEW_DATE).catch(()=>{});
 const rerunSettle = () => loadSettle().catch(()=>{});
 ['/api/settlements','/api/works','/api/issues','/api/checks','/api/exec_report',
  '/api/erpdocs','/api/v1/reports/daily/exceptions'].forEach(p => {

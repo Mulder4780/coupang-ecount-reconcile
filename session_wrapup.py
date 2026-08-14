@@ -28,6 +28,7 @@ session_wrapup.py — 세션이 끊기기 직전에 남길 것을 자동으로 �
   python ecount/session_wrapup.py --reason auto-compact --quiet
 """
 import os
+import re
 import sys
 import json
 import time
@@ -169,7 +170,16 @@ def transcript_dir(me=""):
       0건이 된다). 세션 안에서 한 번 확인한 경로를 남겨 두면 그것은 근거다.
       없으면 없다고 말한다 — 그 회차는 점유판만 보고 판단한다.
     """
-    me = (me or os.environ.get("CLAUDE_CODE_SESSION_ID") or "").strip()
+    me = (me or os.environ.get("CLAUDE_CODE_SESSION_ID") or
+          os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_SESSION_ID") or "").strip()
+    # Codex Desktop 대화기록은 날짜 폴더 아래 rollout-...-<thread UUID>.jsonl 이다.
+    # Claude의 <session UUID>.jsonl 과 파일명이 다르므로 여기서 실제 파일을 찾아
+    # 같은 '현재 세션 대화기록 폴더' 의미로 바꾼다. Claude용 힌트는 덮지 않는다.
+    if me and (os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_SESSION_ID")):
+        codex_home = os.path.join(os.path.expanduser("~"), ".codex", "sessions")
+        matches = glob.glob(os.path.join(codex_home, "**", "*" + me + ".jsonl"), recursive=True)
+        if matches:
+            return os.path.dirname(matches[0])
     home = os.path.join(os.path.expanduser("~"), ".claude", "projects")
     found = ""
     if me:
@@ -201,12 +211,19 @@ def live_stems(minutes=LIVE_TRANSCRIPT_MIN, exclude=""):
     if not d:
         return []
     cut, live = time.time() - minutes * 60, []
+    uuid_tail = re.compile(
+        r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$", re.I)
     for name in os.listdir(d):
-        if not name.endswith(".jsonl") or name[:-6] == exclude:
+        if not name.endswith(".jsonl"):
+            continue
+        raw_stem = name[:-6]
+        match = uuid_tail.search(raw_stem)
+        stem = match.group(1) if match else raw_stem
+        if stem == exclude:
             continue
         try:
             if os.path.getmtime(os.path.join(d, name)) >= cut:
-                live.append(name[:-6])
+                live.append(stem)
         except OSError:
             continue
     return live

@@ -21,7 +21,7 @@ daily_brief.py — 대표 보고용 **내용 중심** 일일 브리핑을 원장
   python daily_brief.py --date 2026-07-27
   python daily_brief.py --md           # reports/일일브리핑_YYYYMMDD.md
 """
-import sys, os, re, json
+import sys, os, re, json, hashlib
 from datetime import datetime, date, timedelta
 from collections import Counter, defaultdict
 
@@ -39,6 +39,7 @@ REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports
 FREE = ("무상", "보험")
 APP_YEAR = "2026"
 MANUAL_EVENTS = os.path.join(REPORT_DIR, "manual_daily_events.json")
+CEO_EVENTS_REPORT = os.path.join(REPORT_DIR, "대표대화_추출.json")
 PM_SCHEDULE_REPORT = os.path.join(REPORT_DIR, "pm_schedule_sync.json")
 
 
@@ -65,6 +66,45 @@ def load_manual_events():
         return [r for r in rows if isinstance(r, dict)]
     except (OSError, ValueError, TypeError):
         return []
+
+
+def load_ceo_events():
+    """유수비 대표 메시지 중 판정기가 확정한 쿠팡 접수·지시와 판정 요약."""
+    try:
+        raw = json.load(open(CEO_EVENTS_REPORT, encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise TypeError("대표대화 리포트가 객체가 아님")
+        rows = [r for r in raw.get("events", []) if isinstance(r, dict)]
+        return rows, raw
+    except (OSError, ValueError, TypeError):
+        return [], {"상태": "확인못함", "날짜별": {}, "events": [], "directives": []}
+
+
+def _event_key(row):
+    """프로젝트번호 전 접수 중복키. 손 기록과 자동 추출이 같은 건인지 가른다."""
+    compact = lambda v: re.sub(r"[^0-9A-Za-z가-힣]", "", _s(v)).lower()
+    day = _d(row.get("날짜"))
+    camp = compact(row.get("캠프명"))
+    request = compact(row.get("신청내용"))
+    if day and camp and request:
+        return day, camp, request
+    return "id", _s(row.get("레코드ID")) or hashlib.sha256(
+        json.dumps(row, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def merge_events(manual, automatic):
+    """손 기록을 먼저 보존하고 같은 자동 접수는 대표보고에서 한 번만 센다."""
+    out, seen = [], set()
+    for row in list(manual or []) + list(automatic or []):
+        if not isinstance(row, dict):
+            continue
+        key = _event_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
 
 
 def load_pm_schedule_report():
@@ -100,8 +140,11 @@ def load(master=None):
                 out.append(g)
         return out
 
+    ceo_events, ceo_summary = load_ceo_events()
     d = {"as": rows("02_돌발AS접수"), "pm": rows("04_정기점검"),
-         "fw": rows("03_현장작업실적"), "events": load_manual_events(),
+         "fw": rows("03_현장작업실적"),
+         "events": merge_events(load_manual_events(), ceo_events),
+         "_ceo_summary": ceo_summary,
          "pm_schedule": load_pm_schedule_report(),
          # 대표 브리핑이 일지 원본과 대조할 때 같은 관리대장만 읽게 한다.
          # 합성 데이터로 직접 brief()를 부르는 검증은 이 키가 없어 원본 접근을 하지 않는다.
@@ -344,7 +387,16 @@ def brief(day=None, data=None):
 
     # 내용이 비어 있으면 숨기지 않고 '미기입'으로 남긴다 — 채워야 할 칸이다
     blank = [x for x in done if not x["무엇"]]
-    handled = [event_line(r) for r in E]
+    handled = [event_line(r) for r in E if _s(r.get("레코드종류")) != "ceo"]
+    ceo_forwarded = [event_line(r) for r in E if _s(r.get("레코드종류")) == "ceo"]
+    ceo_summary = data.get("_ceo_summary") if isinstance(data, dict) else {}
+    ceo_summary = ceo_summary if isinstance(ceo_summary, dict) else {}
+    ceo_day = (ceo_summary.get("날짜별") or {}).get(day, {})
+    # 대표 지시는 게시일의 '당일 실적'이 아니다. 완료 근거가 들어오기 전까지는 보고기한이
+    # 지난 뒤에도 캡처 상단에 남아야 오늘 할 일을 과거 대화 속에 묻지 않는다.
+    ceo_directives = [r for r in (ceo_summary.get("directives") or [])
+                      if isinstance(r, dict) and _s(r.get("상태")) not in ("완료", "확인완료")]
+    ceo_directives.sort(key=lambda r: (_s(r.get("보고기한")) or "9999", _s(r.get("카톡일시"))))
 
     return {
         "기준일": day,
@@ -353,7 +405,7 @@ def brief(day=None, data=None):
                     "완료": len(as_done), "현장작업": len(fw_day),
                     "유상발생": len(paid_as), "재방문예정": len(revisit),
                     "미처리": len(as_open), "완료일미기입": len(as_stale),
-                    "업무처리": len(handled)},
+                    "업무처리": len(handled), "대표전달": len(ceo_forwarded)},
         # 그날치는 원본 우선, 원본이 아직 그날을 안 담았으면 원장(04시트)으로 센다.
         "정기점검": {"예정": len(source_today) if (source_schedule and not use_ledger_today) else len(pm_plan),
                      "예정장비": sum(units(r) for r in source_today) if (source_schedule and not use_ledger_today) else len(pm_plan),
@@ -392,6 +444,15 @@ def brief(day=None, data=None):
         "분기점검목록": pm_quarter_rows,
         "내용미기입": blank,
         "당일처리목록": handled,
+        "대표전달목록": ceo_forwarded,
+        "대표지시목록": ceo_directives,
+        "대표대화판정": {
+            "상태": ceo_summary.get("상태", "확인못함"),
+            "생성시각": ceo_summary.get("생성시각", ""),
+            "쿠팡 건": int(ceo_day.get("쿠팡 건", 0) or 0),
+            "쿠팡 무관": int(ceo_day.get("쿠팡 무관", 0) or 0),
+            "모름": int(ceo_day.get("모름", 0) or 0),
+        },
         "현장작업목록": [line(r, "작업일자", "돌발AS") for r in fw_day],
         "신규처리완료목록": [line(r, "작업완료일", "돌발AS") for r in new_processed],
         "재방문예정목록": [line(r, "방문예정일", "돌발AS") for r in revisit],
@@ -470,6 +531,26 @@ def text(b):
                      + (f" · 게시 {x['게시자']}" if x.get("게시자") else ""))
             L.append(f"         요청 : {x['왜'][:52] or '신청내용 미기입'}")
             L.append(f"         처리 : {x['무엇'][:52] or '처리내용 미기입'}")
+    if b.get("대표전달목록"):
+        L.append(f"  ▸ {d} 유수비 대표 쿠팡 접수 전달 {len(b['대표전달목록'])}건 — 처리 완료 아님")
+        for x in b["대표전달목록"]:
+            L.append(f"      {tag(x, d)} · 게시 {x.get('게시자') or '유수비 대표'}")
+            L.append(f"         요청 : {x['왜'][:52] or '신청내용 미기입'}")
+            L.append(f"         상태 : {x.get('상태') or '대표 전달 접수'}")
+    if b.get("대표지시목록"):
+        L.append("\n■ 유수비 대표 지시 이행현황 — 완료 근거가 확인될 때까지 계속 표시")
+        for directive in b["대표지시목록"]:
+            L.append(f"  ▸ {directive.get('제목') or '쿠팡 AS 업무 지시'} · "
+                     f"보고기한 {directive.get('보고기한') or '원문 확인 필요'} · "
+                     f"{directive.get('상태') or '경과보고 확인 필요'}")
+            for item in directive.get("항목") or []:
+                L.append(f"      {item.get('제목') or '지시항목'} — {item.get('요구내용') or '-'}")
+                L.append(f"         제출 : {item.get('제출내용') or '-'} · "
+                         f"상태 : {item.get('상태') or '결과 미확인'}")
+    judge = b.get("대표대화판정") or {}
+    if any(judge.get(k) for k in ("쿠팡 건", "쿠팡 무관", "모름")):
+        L.append("  ▸ 대표 대화 판정 · 쿠팡 건 %d · 쿠팡 무관 %d · 모름 %d" % (
+            judge.get("쿠팡 건", 0), judge.get("쿠팡 무관", 0), judge.get("모름", 0)))
 
     # 건바이건(장비 한 대=1건) — 그룹으로 묶지 않는다(2026-08-12 지시)
     L.append(f"\n■ 정기점검 — {md(d, d)} 완료 {p['완료장비']}건 "

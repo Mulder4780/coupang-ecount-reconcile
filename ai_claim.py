@@ -79,7 +79,9 @@ except Exception:
 #  둘 떠 있어도 서로 못 빼앗게 하려는 것이다. 식별자는 환경에서 저절로 온다 —
 #  사람이 외우거나 명령줄로 넘길 것이 없다(외우게 하면 언젠가 안 넘긴다).
 SID_ENV = ("CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_HOST_SESSION_ID",
-           "CODEX_SESSION_ID", "AI_SESSION_ID")
+           # Codex Desktop은 CODEX_SESSION_ID가 아니라 THREAD_ID를 준다. 이 값을
+           # 놓치면 모든 Codex 창이 host/manual 한 사람으로 보여 서로 차선을 빼앗는다.
+           "CODEX_THREAD_ID", "CODEX_SESSION_ID", "AI_SESSION_ID")
 
 
 def sid_of(raw):

@@ -7535,6 +7535,19 @@ def t248_rounds_run_without_a_console_window():
         "설치본 액션을 **못 읽었다** — 못 읽은 것을 '창 없음'으로 치면 이 검사가 눈먼다: %r"
         % (unknown,))
 
+    # 장기 실행 터널은 작업 스케줄러 밖(바로가기·앱서버실행·phone_access)에서도 시작된다.
+    # 호출자만 숨기면 새 입구가 생긴 날 부모 Python 콘솔이 다시 화면을 덮는다.
+    tunnel = open(os.path.join(root, "webapp", "tunnel_run.py"), encoding="utf-8").read()
+    assert "def _background_entry(" in tunnel and '"pythonw.exe"' in tunnel, \
+        "tunnel_run 본체가 python.exe 로 시작됐을 때 창 없는 실행기로 갈아타지 않는다"
+    assert "CSOS_TUNNEL_BACKGROUND" in tunnel and "tunnel_run.log" in tunnel, \
+        "터널 창만 숨기고 실패 로그까지 버린다"
+    for launcher in ("앱서버실행.bat", "원격접속실행.bat"):
+        launch = open(os.path.join(root, launcher), encoding="utf-8").read().lower()
+        assert "pythonw.exe" in launch and "python.exe" not in launch, \
+            f"{launcher}가 터널 부모 콘솔을 다시 띄운다"
+        assert "pause" not in launch, f"{launcher}가 빈 콘솔을 붙잡아 둔다"
+
     print("  [248] 회차는 창 없이 돈다 — 설치본까지 · 종료코드는 그대로 ✅")
 
 
@@ -17629,6 +17642,11 @@ def t239_idle_lane_reclaims_itself_with_a_record():
     me = ai_claim.session_id()
     stems = session_wrapup.live_stems(minutes=60)
     sids = session_wrapup.live_sids(minutes=60)
+    assert "CODEX_THREAD_ID" in ai_claim.SID_ENV, \
+        "Codex Desktop이 주는 실제 세션 이름을 안 읽는다 — 모든 Codex 창이 host/manual 한 사람이 된다"
+    if os.environ.get("CODEX_THREAD_ID"):
+        assert os.environ["CODEX_THREAD_ID"] in stems and me in sids, \
+            "rollout 파일명에서 Codex thread UUID를 못 꺼낸다 — 살아 있는 창을 회수한다"
     assert all(ai_claim.sid_of(s) in sids for s in stems), \
         "live_sids 가 점유판 이름공간(sha1)으로 안 옮긴다"
     if stems:
@@ -18247,6 +18265,7 @@ def t242_ready_means_logged_in():
 
     # ── ② 로그인 판정은 **셋**이다. '못 읽음'을 로그아웃이라 하지 않는다(`[169]`).
     real = A.run_tree
+    real_resolve = A.resolve_agent_executable
     Res = type("R", (), {})
 
     def fake(out="", rc=0, timed_out=False):
@@ -18256,6 +18275,9 @@ def t242_ready_means_logged_in():
             return r
         return _run
     try:
+        # 합성검증은 이 PC에 Claude 실행파일이 지금 살아 있는지에 좌우되면 안 된다.
+        # 실제 실행파일 탐지는 별도 경로의 몫이고, 여기서는 두 단계 호출 계약만 잰다.
+        A.resolve_agent_executable = lambda _name: "x.exe"
         # 로그아웃은 **종료 코드가 아니라 값**으로 판정한다(로그아웃도 1, 명령 없음도 1)
         A.run_tree = fake('{"loggedIn": false, "authMethod": "none"}', rc=1)
         assert A.auth_state("claude", "x.exe")[0] == "로그아웃", "loggedIn=false 를 못 읽는다"
@@ -18303,6 +18325,7 @@ def t242_ready_means_logged_in():
             "로그인을 못 읽었는데 그 사실을 안 적는다 — 실패해도 이유가 안 남는다: %s" % got
     finally:
         A.run_tree = real
+        A.resolve_agent_executable = real_resolve
 
     # ── ④ 비밀값을 읽지 않는다. 묻는 것은 참/거짓 하나다.
     src = open(os.path.join(ROOT, "agent_dispatch.py"), encoding="utf-8").read()
@@ -19038,6 +19061,119 @@ def t259_upload_tells_and_finish_tells_too():
     print("[259] 업로드는 접수·끝·실패를 다 알리고 채널 실패를 숨기지 않는다 OK")
 
 
+def t260_ceo_coupang_events_feed_capture():
+    """[260] 유수비 대표 쿠팡 접수와 업무지시는 갈라 싣고 완료로 둔갑하지 않는다."""
+    import ceo_events as C
+    import daily_brief as D
+
+    with tempfile.TemporaryDirectory() as td:
+        coupang = os.path.join(td, "KakaoTalk_20260815_coupang.txt")
+        internal = os.path.join(td, "KakaoTalk_20260815_internal.txt")
+        with open(coupang, "w", encoding="utf-8") as fh:
+            fh.write("쿠팡 서비스 운영방 님과 카카오톡 대화\n")
+            fh.write("--------------- 2026년 8월 14일 금요일 ---------------\n")
+            fh.write("[유수비 대표] [오전 7:45] 제목\n")
+            fh.write("● 캠프이름 : GWJ1\n● 캠프이름 : GWJ1 M_순천1\n")
+            fh.write("● 신청일자 : 2026.08.13\n● 신청내용 : 리프트 리모콘 작동 안함\n")
+            fh.write("[유수비 대표] [오전 8:00] 사진 3장\n")
+            fh.write("[유수비 대표] [오전 8:10] (장식) 대표이사 업무지시서\n")
+            fh.write("쿠팡 AS 업무는 고객 대응 속도가 매우 중요한 만큼 담당자 교육 및 업무 프로세스를 정비하십시오.\n")
+            fh.write("쿠팡 AS 부품 운영 원칙 교육 필요 부품은 사전 신청하고 당일 긴급 구매는 예외로 합니다.\n")
+            fh.write("긴급 자재 구매 절차 구매부 사전 승인 후 구매하고 임의 구매를 금지합니다.\n")
+            fh.write("쿠팡 AS 재고 운영체계 구축 상시 사용 품목 목록과 적정 재고 기준을 마련하십시오.\n")
+            fh.write("보고기한 2026년 8월 14일(금) 오전 10:00까지 교육 실시 결과, 긴급 구매 절차 개선 내용, AS 재고 유지 품목 리스트 및 운영방안을 제출하십시오.\n")
+            fh.write("[유수비 대표] [오전 8:20] 확인 부탁합니다\n")
+        with open(internal, "w", encoding="utf-8") as fh:
+            fh.write("회사 내부방 님과 카카오톡 대화\n")
+            fh.write("--------------- 2026년 8월 14일 금요일 ---------------\n")
+            fh.write("[유수비] [오전 9:00] ● 캠프이름 : GWJ1 M_순천1\n")
+            fh.write("● 신청내용 : 비쿠팡 방의 유사 양식\n")
+
+        report = C.extract([coupang, internal])
+
+    assert report["판정"] == {"쿠팡 건": 2, "쿠팡 무관": 2, "모름": 1}, report["판정"]
+    assert len(report["events"]) == 1
+    assert len(report["directives"]) == 1
+    directive = report["directives"][0]
+    assert directive["보고기한"] == "2026-08-14 10:00" and len(directive["항목"]) == 3
+    assert directive["상태"] == "경과보고 확인 필요"
+    assert all(x["상태"] == "결과 미확인" for x in directive["항목"]), \
+        "완료 증빙 없이 대표 지시를 완료로 만들었다"
+    event = report["events"][0]
+    assert event["날짜"] == "2026-08-14", "파일명 날짜를 메시지 날짜로 잘못 썼다"
+    assert event["캠프명"] == "GWJ1 M_순천1" and event["프로젝트NO"] == ""
+    assert "업무지시서" not in event["원문"] and event["레코드종류"] == "ceo"
+
+    manual = dict(event, 상태="택배 발송 완료", 처리내용="리모컨 택배 발송 완료",
+                  처리자="류지영 매니저", 레코드종류="")
+    merged = D.merge_events([manual], [event])
+    assert len(merged) == 1 and merged[0]["상태"] == "택배 발송 완료", \
+        "같은 건의 손 완료 기록보다 자동 접수가 이겼다"
+
+    data = {"as": [], "pm": [], "fw": [], "events": [event],
+            "pm_schedule": {}, "_ceo_summary": report}
+    brief = D.brief("2026-08-14", data)
+    assert brief["당일처리목록"] == [], "대표 전달을 처리 완료로 세었다"
+    assert len(brief["대표전달목록"]) == 1 and brief["돌발AS"]["대표전달"] == 1
+    assert brief["대표지시목록"] == report["directives"], "게시일이 지났다고 미완료 대표 지시를 숨겼다"
+    assert brief["대표대화판정"] == {"상태": "확인", "생성시각": report["생성시각"],
+                                      "쿠팡 건": 2, "쿠팡 무관": 2, "모름": 1}
+    assert "처리 완료 아님" in D.text(brief) and "AS 재고 유지 품목 리스트 및 운영방안" in D.text(brief)
+
+    rd = lambda *a: open(os.path.join(ROOT, *a), encoding="utf-8").read()  # noqa: E731
+    run = rd("daily_run.py")
+    server = rd("webapp", "app_server.py")
+    ui = rd("webapp", "index.html")
+    cloud = rd("cloud_publish.py")
+    phone = rd("docs", "app.html")
+    rules = rd("CLAUDE.md")
+    assert '"ceo_events.py"), "--sync"' in run, "09:50 자동 회차에 대표 대화 추출이 없다"
+    assert "대표대화_추출.json" in server, "대표 대화 갱신 뒤 브리핑 캐시가 안 풀린다"
+    for token in ("BRIEF['대표전달목록']", "BRIEF['대표지시목록']", "captureCeoTasks", "kind==='ceo'",
+                  "유수비 대표 쿠팡 접수 전달", "유수비 대표 지시 이행현황"):
+        assert token in ui, "화면·캡처 연결 누락: " + token
+    assert '"대표전달목록": _b.get("대표전달목록", [])' in cloud
+    assert '"대표지시목록": _b.get("대표지시목록", [])' in cloud
+    assert "openCeoCloud" in phone and "b['대표전달목록']" in phone and "b['대표지시목록']" in phone
+    assert "ceo_events.py --sync" in rules and "쿠팡 건/쿠팡 무관/모름" in rules
+    print("[260] 유수비 대표의 쿠팡 접수·업무지시를 별도 보고하고 허위 완료 금지 OK")
+
+
+def t261_pc_report_uses_available_width_mobile_stays_same():
+    """[261] 보고 화면은 PC에서 넓게, 모바일에서는 기존 카드 폭을 유지한다."""
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    compact = re.sub(r"\s+", "", html)
+    assert "@media(min-width:900px){#v-report.rpt{width:100%;max-width:none}}" in compact, \
+        "PC 보고서가 720px 모바일 폭에 고정돼 양옆이 빈다"
+    assert "@media(max-width:640px)" in html and \
+           ".rpt{padding:16px 14px 14px;max-width:100%;overflow-x:hidden}" in html, \
+        "PC 폭을 고치며 정상인 모바일 카드 레이아웃을 없앴다"
+    assert ".shell{margin-left:216px;padding:24px 30px 48px;max-width:none}" in html, \
+        "PC 본문 자체가 고정폭이면 보고서만 100%여도 넓어지지 않는다"
+    print("[261] PC 보고서는 가용 폭 전체 · 모바일 카드 레이아웃 유지 OK")
+
+
+def t262_ceo_directive_is_visible_in_saved_capture():
+    """[262] 오전 대표 지시 3항목이 저장 캡처 상단에 보이고 높이에도 반영된다."""
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    source = open(os.path.join(ROOT, "ceo_events.py"), encoding="utf-8").read()
+    for token in ("ceoDirectiveHtml", "ceoDirectives: captureCeoDirectives", "drawCeoDirectives",
+                  "ceoDirectiveH", "경과보고 확인 필요", "결과 미확인",
+                  "captureNewTasks", "captureDoneTasks"):
+        assert token in html, "대표 지시 캡처 연결 누락: " + token
+    for token in ("AS 부품 사전신청 원칙 교육", "긴급 구매 사전승인 절차",
+                  "상시 재고 운영체계 구축", "AS 재고 유지 품목 리스트 및 운영방안"):
+        assert token in source, "오전 원문 요구사항 누락: " + token
+    draw = html.index("drawCeoDirectives();")
+    month = html.index("section(D.monthTitle||'현재 월 통계'", draw)
+    assert draw < month, "대표 지시가 월·분기 통계 뒤로 밀려 긴 캡처 상단에서 안 보인다"
+    assert "ceoDirectiveH + 34 + tiles" in html, "그리기만 늘고 캔버스 높이는 안 늘어 아래가 잘린다"
+    assert ".ceo-dir-grid{grid-template-columns:1fr}" in html, "모바일에서 지시 3칸이 찌그러진다"
+    assert "SWR_RERUN['/api/brief'] = () => loadBrief(REPORT_PREVIEW_DATE)" in html, \
+        "새 대표 지시를 받아도 옛 브리핑 캐시만 계속 그린다"
+    print("[262] 유수비 대표 지시 3항목을 저장 캡처 상단·높이·모바일에 반영 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19152,6 +19288,9 @@ if __name__ == "__main__":
     t257_jump_says_why_it_could_not_find()
     t258_error_report_says_when_and_why()
     t259_upload_tells_and_finish_tells_too()
+    t260_ceo_coupang_events_feed_capture()
+    t261_pc_report_uses_available_width_mobile_stays_same()
+    t262_ceo_directive_is_visible_in_saved_capture()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

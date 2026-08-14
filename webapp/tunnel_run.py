@@ -7,7 +7,8 @@ tunnel_run.py — 외부 접속 터널 (Cloudflare Quick Tunnel)
 reports/tunnel_url.txt 에 저장되어 앱 대시보드에 표시된다.
 
 사전 1회: winget install Cloudflare.cloudflared
-실행:     python webapp/tunnel_run.py   (터널이 죽으면 자동 재시작)
+실행:     python webapp/tunnel_run.py   (자동으로 창 없는 pythonw 로 전환)
+디버깅:   python webapp/tunnel_run.py --console
 
 ★ 보안: 공개 주소 + PIN 4자리 구조다. 로그인 5회 실패 시 10분 잠금이 있지만,
   장기적으로는 Tailscale(사설망) 방식이 더 안전하다 — README 참고.
@@ -24,10 +25,66 @@ except Exception:
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 URL_FILE = os.path.join(ROOT, "reports", "tunnel_url.txt")
 ENDPOINT = os.path.join(ROOT, "docs", "endpoint.json")
+LOG_FILE = os.path.join(ROOT, "reports", "tunnel_run.log")
 PORT = 8899
 # ★ 대상은 반드시 **127.0.0.1**. 'localhost'로 주면 윈도우에서 IPv6(::1)로 먼저 풀리는데
 #   앱은 IPv4(0.0.0.0)로만 듣기 때문에 연결이 거부돼 폰에는 **HTTP 530**만 돌아온다.
 #   터널은 살아 있는데 아무것도 안 열리는 그 증상의 정체다(2026-07-27 원인 확정).
+
+
+def _background_entry():
+    """자동 실행은 어느 입구로 들어와도 콘솔을 남기지 않는다.
+
+    예전 실행 파일 두 개가 `python.exe` 로 이 장기 실행 서비스를 불렀다. cloudflared
+    자식만 CREATE_NO_WINDOW 로 숨겨도 **부모 Python 콘솔**에는 주소 게시 재시도 문구가
+    계속 쌓여 화면을 가렸다(2026-08-14 실사고). 호출자마다 고치면 새 바로가기에서
+    다시 생기므로, 서비스 입구가 스스로 pythonw 로 갈아탄다. 사람이 로그를 볼 때만
+    `--console` 을 명시한다.
+    """
+    if os.name != "nt" or "--console" in sys.argv:
+        return False
+    if os.path.basename(sys.executable).lower() == "pythonw.exe":
+        return False
+    pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    if not os.path.exists(pythonw):
+        return False
+    env = dict(os.environ)
+    env["CSOS_TUNNEL_BACKGROUND"] = "1"
+    subprocess.Popen(
+        [pythonw, "-u", os.path.abspath(__file__), *sys.argv[1:]],
+        cwd=ROOT,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                       | getattr(subprocess, "DETACHED_PROCESS", 0)),
+        env=env,
+    )
+    return True
+
+
+def _background_log():
+    """창을 없애도 실패 이유는 잃지 않도록 1MB 단위 파일 로그를 연결한다."""
+    background = (os.environ.get("CSOS_TUNNEL_BACKGROUND") == "1"
+                  or os.path.basename(sys.executable).lower() == "pythonw.exe"
+                  or sys.stdout is None)
+    if not background:
+        return
+    os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+    try:
+        if os.path.getsize(LOG_FILE) >= 1024 * 1024:
+            old = LOG_FILE + ".1"
+            if os.path.exists(old):
+                os.remove(old)
+            os.replace(LOG_FILE, old)
+    except OSError:
+        pass
+    try:
+        stream = open(LOG_FILE, "a", encoding="utf-8", buffering=1)
+        sys.stdout = stream
+        sys.stderr = stream
+    except OSError:
+        pass
 
 
 def _local_app_alive(timeout=5):
@@ -296,4 +353,7 @@ def main():
 
 
 if __name__ == "__main__":
+    if _background_entry():
+        raise SystemExit(0)
+    _background_log()
     main()
