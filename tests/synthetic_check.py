@@ -19227,6 +19227,28 @@ def t263_server_guard_and_lossless_offline_outbox():
     print("[263] 10초 독립 서버 감시 · 무창 자동복구 · 멱등/충돌 보존 오프라인 큐 OK")
 
 
+def t264_fixed_funnel_is_a_separate_guarded_failure_domain():
+    """[264] 로컬 origin 정상과 휴대폰 고정 주소 정상을 같은 뜻으로 읽지 않는다."""
+    guard_path = os.path.join(ROOT, "webapp", "server_guard.py")
+    guard = open(guard_path, encoding="utf-8").read()
+    compile(guard, guard_path, "exec")
+    for token in ("FIXED_FUNNEL_CHECK_SECONDS = 60", "FUNNEL_FAIL_LIMIT = 3",
+                  "FUNNEL_REPAIR_COOLDOWN = 300", "def fixed_funnel_alive(",
+                  "def repair_fixed_funnel_async(",
+                  "sys.path.insert(0, ROOT)",
+                  "from tailscale_serve import FIXED_HOST, public_funnel_alive",
+                  "from tailscale_serve import ensure_public_funnel",
+                  "threading.Thread", "funnel-degraded", "funnel-repairing"):
+        assert token in guard, "고정 Funnel 독립 감시 안전장치 누락: " + token
+    assert guard.index("local_ok = ping()") < guard.index("if fixed_funnel_alive():"), \
+        "로컬 앱이 죽은 동안 Funnel을 갈아 주소 장애를 더 크게 만든다"
+    assert "ensure_public_funnel(repair=True)" in guard, \
+        "검증된 공개 DNS/SNI 재등록 정본을 쓰지 않고 Funnel 복구를 새로 지어냈다"
+    assert "_FUNNEL_REPAIR_LOCK.acquire(blocking=False)" in guard, \
+        "느린 Funnel 재등록이 겹치거나 앱 서버 10초 감시를 막는다"
+    print("[264] 고정 Tailscale Funnel 3회 판정 · 비동기 재등록 · origin 감시 분리 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19345,6 +19367,7 @@ if __name__ == "__main__":
     t261_pc_report_uses_available_width_mobile_stays_same()
     t262_ceo_directive_is_visible_in_saved_capture()
     t263_server_guard_and_lossless_offline_outbox()
+    t264_fixed_funnel_is_a_separate_guarded_failure_domain()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

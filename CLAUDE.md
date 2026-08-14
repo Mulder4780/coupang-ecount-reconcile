@@ -2120,6 +2120,22 @@ db로 저장되고 나중에 엑셀을 한번에 업데이트할 수 있게 류�
   성공으로 세거나, 거부됐다는 이유로 입력을 버리면 오프라인 보관이 아니다.
 - 검증 `[263]`.
 
+### 고정 주소는 origin과 다른 생존 대상이다 (2026-08-14 실사고)
+
+- 형님이 `https://mulder.tailf14aae.ts.net/staff/ryu-jiyeong`가 죽었다고 확인했다. 그 순간
+  로컬 `/api/ping` 감시자는 정상이어도 **Tailscale Funnel 앞단**은 따로 끊길 수 있었다.
+  origin 하나만 지키고 "서버 정상"이라 적은 것이 사각지대였다.
+- `server_guard.py`가 60초마다 `tailscale_serve.public_funnel_alive()`로 **공개 DNS ingress에
+  직접 TLS/SNI ping**한다. 이 PC의 사설 100.x 경로가 아니라 담당자 폰이 쓰는 길을 본다.
+  한 번 실패로 Funnel을 갈지 않고 3회 연속 실패 때만 같은 고정 주소를 재등록한다.
+- 재등록은 `tailscale_serve.ensure_public_funnel(repair=True)` 정본을 빌린다. 이름을 새로
+  만들거나 임시 Cloudflare 주소로 바꾸지 않는다. 최대 1분 넘게 걸릴 수 있어 별도 worker에서
+  실행하고, 그동안 10초 origin 감시는 계속 돈다. 5분 냉각과 단일 잠금으로 재등록 폭주를 막는다.
+- 감시자는 `pythonw webapp/server_guard.py`로 직접 뜬다. 이 실행에서는 프로젝트 루트가
+  import 경로에 자동으로 안 들어오므로 시작 즉시 루트를 넣는다. 테스트 import에서만 되는
+  코드는 무인 복구가 아니다.
+- 검증 `[264]`.
+
 ## Claude Code ↔ Codex 교대 규칙
 - 진실의 원천은 **파일**이다: AGENTS.md(요약) + 19시트(원장) + git 이력. 특정 AI의 대화 기록·메모리에 의존하는 정보를 남기지 말 것.
 - 교대 시 추가 인수인계 절차는 없다 — 위 시작 체크리스트가 곧 인수인계다.
