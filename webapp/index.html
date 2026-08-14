@@ -2097,14 +2097,26 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .wt-toolbar .abtn{flex:0 1 auto}
 .wt-meta{color:var(--ink-3);font-size:13px;margin:5px 1px 9px}
 .wt-card{border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:9px;background:var(--surface)}
+.wt-card.is-editing{border-color:color-mix(in srgb,var(--brand) 58%,var(--line));
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--brand) 14%,transparent)}
+.wt-card.is-dirty{border-color:var(--warn)}
 .wt-card .top{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .wt-card .meta{display:flex;flex-wrap:wrap;gap:10px;color:var(--ink-3);font-size:13.5px;margin-top:3px}
 .wt-open{margin-left:auto;border:1px solid var(--line);background:none;border-radius:8px;
   padding:5px 10px;font-family:inherit;font-size:13.5px;cursor:pointer;color:var(--ink-2)}
+.wt-card-actions{margin-left:auto;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px}
+.wt-card-actions .wt-open{margin-left:0}
+.wt-modify{border-color:var(--brand);color:var(--brand);font-weight:800}
+.wt-save{border-color:#12813F;color:var(--ok);background:var(--panel);font-weight:800}
+.wt-save:disabled{opacity:.42;cursor:not-allowed;border-color:var(--line);color:var(--ink-3)}
 .wt-edit{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
 .wt-edit label{flex:1 1 150px;min-width:0;display:grid;gap:3px;font-size:13px;font-weight:800;color:var(--ink-3)}
 .wt-edit input,.wt-edit select{height:40px;border:1px solid var(--line);border-radius:9px;
   padding:0 9px;font-family:inherit;font-size:13.5px;background:var(--panel);width:100%}
+.wt-edit input:disabled,.wt-edit select:disabled{opacity:.78;cursor:default;background:var(--surface)}
+.wt-edit input.wt-changed,.wt-edit select.wt-changed{border-color:var(--warn);
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--warn) 16%,transparent)}
+.wt-dirty-tag{margin-left:5px;color:var(--warn);font-style:normal;font-size:12px}
 .wt-done{border-color:#12813F;color:var(--ok);background:var(--panel);font-weight:800}
 /* 이 건을 목록에서 빼는 두 손잡이 — 나란히 두되 생김새를 다르게 한다.
    삭제만 빨갛다: 되돌릴 수 있어도 '없애는 쪽'이라는 것이 한눈에 보여야 한다. */
@@ -2125,6 +2137,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
   .wt-basis input{width:100%;min-width:0}
   .wt-toolbar input,.wt-toolbar select,.wt-toolbar .wt-search,.wt-toolbar .wt-date-filter,
   .wt-toolbar .wt-sort-field,.wt-toolbar .wt-sort-order{flex:1 1 100%}
+  .wt-card-actions{width:100%;margin-left:0}
 }
 /* 폰 하단바에는 칸이 없다 — 사이드바(≥900px)에서만 메뉴로 노출.
    폰은 대시보드 상단 타일(정기점검 대기·돌발AS)로 같은 화면에 들어간다. */
@@ -6942,6 +6955,14 @@ function wtState(k){
   return WT[k];
 }
 const WT_PENDING = {};       // {id|col: value} — 이 화면에서 앱 DB에 저장한 낙관 반영 배지
+/* 카드 편집은 **수정 → 변경 확인 → 저장** 순서다 (2026-08-14 지시).
+   예전 입력칸은 값을 고르는 즉시 서버에 써서, 사용자는 무엇이 저장됐는지 알 수 없었다.
+   초안은 브라우저 메모리에만 두고 저장 버튼 한 번이 여러 필드를 한 트랜잭션으로 보낸다. */
+const WT_EDITING = new Set();             // "pm|점검ID" / "as|접수ID"
+const WT_DRAFTS = {};                     // 같은 키 → {열: 바꾼 값}
+const wtDraftKey=(k,id)=>k+'|'+id;
+function wtDraftOf(k,id){ return WT_DRAFTS[wtDraftKey(k,id)]||{}; }
+function wtIsEditing(k,id){ return WT_EDITING.has(wtDraftKey(k,id)); }
 function wtStatus(k,r){ return String(r[WT_CFG[k].stCol]||'').trim() || '미기입'; }
 function wtTechs(k){
   const s=new Set();
@@ -7077,11 +7098,16 @@ function wtCard(k,r){
   const cfg=WT_CFG[k], id=String(r[cfg.idCol]||'').trim();
   const stv=wtStatus(k,r);
   const stChip = chip(stv);
-  return `<div class="wt-card">
+  const editing=wtIsEditing(k,id),dirty=Object.keys(wtDraftOf(k,id)).length>0;
+  return `<div class="wt-card${editing?' is-editing':''}${dirty?' is-dirty':''}" data-wt-key="${esc2(wtDraftKey(k,id))}">
     <div class="top"><b class="prjno">${esc2(r.프로젝트NO||id||'-')}</b>
       <span class="camp">${esc2(r.캠프명||'캠프 미상')}</span>${stChip}
-      ${/완료|취소/.test(stv)?'':`<button class="wt-open wt-done" onclick="wtComplete('${k}',${esc4(id)})">✓ 완료 처리</button>`}
-      <button class="wt-open" onclick="openRecord('${k}',${esc4(id)},${esc4(String(r.프로젝트NO||''))})">상세</button></div>
+      <div class="wt-card-actions">
+        <button class="wt-open wt-modify" onclick="wtBeginEdit('${k}',${esc4(id)})">${editing?'수정 중':'수정'}</button>
+        <button class="wt-open wt-save" onclick="wtSaveCard('${k}',${esc4(id)})" ${editing?'':'disabled'}>${dirty?'저장 · 변경됨':'저장'}</button>
+        ${/완료|취소/.test(stv)?'':`<button class="wt-open wt-done" onclick="wtComplete('${k}',${esc4(id)})">✓ 완료 처리</button>`}
+        <button class="wt-open" onclick="openRecord('${k}',${esc4(id)},${esc4(String(r.프로젝트NO||''))})">상세</button>
+      </div></div>
     <div class="meta"><span class="sid">${esc2(id)}</span>
       <span>${esc2(String(r[cfg.dateCol]||'예정일 미정').slice(0,10))}</span>
       <span>${esc2(String(r[cfg.doneCol]||'').slice(0,10))}</span></div>
