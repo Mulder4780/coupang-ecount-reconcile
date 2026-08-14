@@ -19672,7 +19672,8 @@ def t276_mouse_workflow_canvas():
             }
             saved = L.flow_visual_save(probe, "synthetic", "as_legacy", 0)
             assert saved["revision"] == 1 and len(saved["nodes"]) == 2
-            assert len(saved["edges"]) == 1 and saved["edges"][0]["id"] == "ab", +                "없는 노드를 향한 화살표를 저장했다"
+            assert (len(saved["edges"]) == 1 and saved["edges"][0]["id"] == "ab"), (
+                "없는 노드를 향한 화살표를 저장했다")
             assert len(saved["strokes"]) == 1, "손그림이 저장되지 않았다"
             try:
                 L.flow_visual_save(probe, "synthetic", "as_legacy", 0)
@@ -19680,7 +19681,8 @@ def t276_mouse_workflow_canvas():
             except ValueError as exc:
                 assert "다른 기기" in str(exc)
             restored = L.flow_visual_restore("synthetic", "as_legacy")
-            assert restored["nodes"] == [] and restored["edges"] == [], +                "도면 저장본 되돌리기가 이전 모습을 복원하지 못했다"
+            assert (restored["nodes"] == [] and restored["edges"] == []), (
+                "도면 저장본 되돌리기가 이전 모습을 복원하지 못했다")
         finally:
             L.DB_PATH = old_path
 
@@ -19693,9 +19695,13 @@ def t276_mouse_workflow_canvas():
                  "function flowVisualSave(", "function flowVisualUndoLocal(",
                  'marker-end:url(#flowArrowHead)', "setPointerCapture"):
         assert need in live, "마우스 도면 기능 조각이 없다: " + need
-    assert "CREATE TABLE IF NOT EXISTS flow_visual(" in db and +           "CREATE TABLE IF NOT EXISTS flow_visual_audit" in db
-    assert "ledger_db.flow_visual_save" in server and "visual_revision" in server and +           '"visual": visual' in server, "서버가 도면을 별도 정본·revision 으로 저장하지 않는다"
-    assert "!FLOW_VIS_DIRTY" in live.split("if(v==='flow'")[1][:140], +        "저장 전 도면을 화면 재진입이 말없이 덮는다"
+    assert ("CREATE TABLE IF NOT EXISTS flow_visual(" in db and
+            "CREATE TABLE IF NOT EXISTS flow_visual_audit" in db)
+    assert ("ledger_db.flow_visual_save" in server and "visual_revision" in server
+            and '"visual": visual' in server), (
+                "서버가 도면을 별도 정본·revision 으로 저장하지 않는다")
+    assert "!FLOW_VIS_DIRTY" in live.split("if(v==='flow'")[1][:140], (
+        "저장 전 도면을 화면 재진입이 말없이 덮는다")
     print("[276] 마우스 단계 배치 · 화살표 · 손그림 · 이동/삭제/취소 · DB 공유 저장/충돌방지 OK")
 
 

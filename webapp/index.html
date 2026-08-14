@@ -2760,8 +2760,9 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
   background-size:24px 24px;cursor:default;user-select:none}
 .flow-vstage.mode-add{cursor:crosshair}.flow-vstage.mode-draw{cursor:crosshair}
 .flow-vsvg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;z-index:1}
-.flow-vedge{fill:none;stroke:#5A6785;stroke-width:3;marker-end:url(#flowArrowHead)}
-.flow-vedge.selected{stroke:#B3261E;stroke-width:4}
+.flow-vedge{fill:none;stroke:var(--ink-2);stroke-width:3;marker-end:url(#flowArrowHead)}
+.flow-vedge.selected{stroke:var(--danger);stroke-width:4}
+.flow-varrow{fill:var(--ink-2)}
 .flow-vedge-hit,.flow-vstroke-hit{fill:none;stroke:transparent;stroke-width:18;cursor:pointer;pointer-events:stroke}
 .flow-vstroke{fill:none;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .flow-vstroke.selected{filter:drop-shadow(0 0 3px #B3261E)}
@@ -9304,7 +9305,7 @@ function flowVisualRender(){
       <span>${esc2(n.owner||'담당 미정')}</span></span></button>`).join('');
   st.innerHTML=`<svg class="flow-vsvg" viewBox="0 0 1400 820" aria-hidden="true">
     <defs><marker id="flowArrowHead" markerWidth="10" markerHeight="10" refX="8" refY="3"
-      orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#5A6785"/></marker></defs>
+      orient="auto" markerUnits="strokeWidth"><path class="flow-varrow" d="M0,0 L0,6 L9,3 z"/></marker></defs>
     ${edgeHtml}${strokeHtml}</svg>${nodes}`;
   flowVisualUi();
 }
