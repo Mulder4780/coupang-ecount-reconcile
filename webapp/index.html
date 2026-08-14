@@ -4277,7 +4277,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     <div class="media-tools" id="calTools" role="toolbar" aria-label="캘린더 저장·전달 도구" style="margin:0 0 10px">
       <button class="icon-btn" type="button" onclick="refreshCalendarPage()" title="새로고침" aria-label="새로고침"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg></button>
       <button class="icon-btn" type="button" onclick="shareCalendarLink()" title="링크 복사 — 지금 보고 있는 달·필터 그대로 여는 주소" aria-label="링크 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-link-45deg"/></svg></button>
-      <button class="icon-btn primary" type="button" onclick="calendarCapture()" title="대표 보고 이미지 저장 (A4 두 장)" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
+      <button class="icon-btn primary" type="button" onclick="calendarCapture()" title="대표 보고 이미지 저장 (A4 세 장 · 사유 전체)" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
       <button class="icon-btn" type="button" onclick="calCopyList()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
       <button class="icon-btn excel" type="button" onclick="calExportList()" title="엑셀(xlsx)로 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
       <button class="icon-btn" type="button" id="calInstallBtn" onclick="calInstallApp()" title="홈 화면에 앱으로 설치" aria-label="앱 설치" hidden><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-save-fill"/></svg></button>
@@ -14175,14 +14175,15 @@ async function shareCalendarLink(){
   }
   uxEvent('tap','calShareLink');
 }
-/* ── 캘린더 대표 보고 A4 두 장 캡처 (2026-08-14 유수비 통화 반영) ───────────
+/* ── 캘린더 대표 보고 A4 세 장 캡처 (2026-08-14 유수비 통화 반영) ───────────
    "캡처하면 선택 일정이 표시되는 캘린더 화면 · 날짜 밑에 캠프명 · 아래에 날짜순 리스트
-    · A4 두 장 크기."
+    · A4 세 장 크기."
    왜 리스트를 같이 그리나: 격자 칸은 좁아 하루 일정이 서넛만 돼도 다 못 보여 준다.
    격자는 '언제'를 한눈에, 리스트는 '무엇을'을 빠짐없이 — 둘이 한 장에 있어야 쓸 수 있다.
-   1쪽은 월간 달력+대표 판단, 2쪽은 PM/AS 근거 전량이다. 한 장에 억지로 눌러 담으면
-   미처리 이유가 잘려 지시의 핵심이 사라진다. A4(96dpi) = 794×1123 두 면을 세로로 잇는다. */
-const A4W = 794, A4H = 1123, A4PAGES = 2;
+   1쪽은 월간 달력+대표 판단, 2쪽은 정기점검 전량, 3쪽은 돌발AS·기타 전량이다.
+   사유는 말줄임표로 자르지 않고 실제 높이를 재서 줄바꿈한다. A4(96dpi) = 794×1123
+   세 면을 세로로 잇는다. */
+const A4W = 794, A4H = 1123, A4PAGES = 3;
 function calCampOf(e){ return String(e.캠프명 || e.장소 || e.제목 || '').trim() || '(장소 미입력)'; }
 /* 그 건이 **무슨 일이었나** — 캡처 목록 가운데 칸과 화면 목록이 같은 것을 쓴다.
    ★ 없는 말을 지어내지 않는다. 원장에 있는 값만 이어 붙이고, 없으면 빈 문자열이다
@@ -14237,6 +14238,24 @@ async function calendarCapture(opt){
     if(x.measureText(t).width <= max) return t;
     while(t.length > 1 && x.measureText(t + '…').width > max) t = t.slice(0, -1);
     return t + '…';
+  };
+  /* 상세 사유는 clip을 쓰지 않는다. 한 글자씩 폭을 재므로 공백 없는 프로젝트번호·
+     긴 한글 문장도 빠짐없이 다음 줄로 넘어간다. */
+  const wrapAll = (t, max, font) => {
+    x.font = font;
+    const out=[]; let line='';
+    for(const ch of Array.from(String(t || ''))){
+      if(ch==='\n'){
+        if(line.trim()) out.push(line.trim());
+        line=''; continue;
+      }
+      const next=line+ch;
+      if(line && x.measureText(next).width > max){
+        out.push(line.trimEnd()); line=ch.trimStart();
+      }else line=next;
+    }
+    if(line.trim()) out.push(line.trim());
+    return out.length ? out : [''];
   };
 
   // ① 머리말
@@ -14412,118 +14431,123 @@ async function calendarCapture(opt){
       ['즉시조치',`${asUrgent}건 · 3일 초과, 합의 근거 없음`],
       ['사유 미입력',`${asReasonMissing}건 · 담당자 설명 필요`],
       ['판정 순서','완료 → 정상기한 → 협의대기 → 즉시조치'],
-      ['상세 근거','2쪽에서 미처리 전 건의 이유·경과일 확인']
+      ['상세 근거','3쪽에서 미처리 전 건의 이유·경과일 확인']
     ],asAlerts.length?asAlerts:['★ 오늘 즉시 재촉할 돌발AS가 없습니다.']);
   x.font=F(8.5);x.fillStyle='#98A2B3';
-  x.fillText(`1/2 · 월간 캘린더와 대표 판단 · 정기점검 예측 ${capDropped}건은 대표 지시로 제외`,Mg,A4H-14);
+  x.fillText(`1/3 · 월간 캘린더와 대표 판단 · 정기점검 예측 ${capDropped}건은 대표 지시로 제외`,Mg,A4H-14);
 
-  // ⑤ 2쪽 — **왼쪽 두 단은 정기점검, 오른쪽 두 단은 돌발AS** 상세 근거다.
-  const page2=A4H;
-  x.fillStyle='#0E1B3F';x.fillRect(0,page2,W,58);
-  x.fillStyle='#fff';x.font=F(20,750);x.fillText('대표 조치 상세 · 전 건 근거',Mg,page2+30);
-  x.fillStyle='#C9D5FA';x.font=F(10.5);
-  x.fillText(`${Y}년 ${Math.floor((M-1)/3)+1}분기 정기점검 / ${Y}년 ${M}월 돌발AS · 완료와 미처리를 섞지 않음`,Mg,page2+47);
-  /* ★ 통화 그대로 **왼쪽 두 단은 정기점검, 오른쪽 두 단은 돌발AS**다.
-     단순히 한 줄 목록을 4등분하면 건수에 따라 PM이 오른쪽으로 넘어가 다시 섞인다.
-     그래서 양쪽의 줄과 넘김을 독립적으로 계산한다. 각 갈래는 완료→확정/예정→잔여. */
-  const makeLines = (keys,source) => {
-    const out=[];
-    keys.forEach((key,gi)=>{
-      const list=(source.get(key)||[]).slice().sort((a,b)=>
-        (key==='as_open'?(Number(b.경보)-Number(a.경보)):0) ||
-        String(a.날짜).localeCompare(String(b.날짜)) || String(a.시간||'').localeCompare(String(b.시간||'')));
-      if(!list.length) return;
-      if(out.length) out.push({t:'gap'});
-      out.push({t:'head',key,n:list.length});
-      list.forEach(e=>out.push({t:'item',e,key}));
-    });
-    return out;
-  };
+  // ⑤ 2쪽 정기점검 · 3쪽 돌발AS. 사유를 한 줄로 자르지 않고 블록의 실제 높이를
+  // 재서 다음 단으로 넘긴다. 모두 못 넣으면 불완전한 그림을 저장하지 않는다.
+  const sortDetail=(key,list)=>(list||[]).slice().sort((a,b)=>
+    (key==='as_open'?(Number(b.경보)-Number(a.경보)):0) ||
+    String(a.날짜).localeCompare(String(b.날짜)) || String(a.시간||'').localeCompare(String(b.시간||'')));
+  const makeGroups=(keys,source)=>keys.map(key=>({key,list:sortDetail(key,source.get(key)||[])}))
+    .filter(g=>g.list.length);
   const known=new Set(['pm_done','pm_plan','pm_overdue','as_done','as_open','as_visit']);
   const extras=[];byKind.forEach((_v,k)=>{if(!known.has(k)) extras.push(k);});
-  const qByKind=new Map([
-    ['pm_done',qDoneRows],['pm_plan',qPlanRows],['pm_overdue',qOverdueRows]
-  ]);
-  const sides=[makeLines(['pm_done','pm_plan','pm_overdue'],qByKind),
-               makeLines(['as_done','as_open','as_visit',...extras],byKind)];
-  const listStart=page2+104,bottom=H-30,availH=bottom-listStart;
-  const subCols=2,totalCols=4,gap=10,centerGap=18;
-  const usable=W-Mg*2-centerGap-gap*2;
-  const colW=usable/4;
-  x.font=F(10.5,850);x.fillStyle='#2452E6';x.fillText('정기점검 · 분기 전체 · 완료 → 확정 일정 → 잔여',Mg,listStart-14);
-  x.fillStyle='#D92D20';x.fillText(`돌발AS · ${M}월 · 완료 → 미처리 → 지연 사유`,Mg+2*colW+gap+centerGap,listStart-14);
-  let drawn=0;
-  sides.forEach((lines,side)=>{
-    const perNeed=Math.max(1,Math.ceil(lines.length/subCols));
-    const lh=Math.min(side===0?15:21,Math.max(9.2,availH/perNeed));
-    const perCol=Math.max(1,Math.floor(availH/lh)),fz=Math.min(8.4,lh-3.1);
-    const twoLine=side===1&&lh>=16;
-    lines.slice(0,perCol*subCols).forEach((ln,idx)=>{
-    const sub=Math.floor(idx/perCol),ly=listStart+(idx%perCol)*lh;
-    const ox=Mg+side*(2*colW+gap+centerGap)+sub*(colW+gap);
-    if(ln.t==='gap') return;
-    const k = calKindMeta(ln.key);
-    if(ln.t === 'head'){
-      x.fillStyle = k.color || '#475467';
-      x.fillRect(ox, ly - fz + 1, colW, 0.9);
-      x.font = F(fz + 0.6, 800); x.fillStyle = k.color || '#101828';
-      x.fillText(clip(`${k.label} ${ln.n}건`, colW), ox, ly);
-      return;
-    }
-    drawn++;
-    const e = ln.e, dd = new Date(e.날짜 + 'T00:00:00');
-    x.fillStyle = k.color || '#98A2B3'; x.fillRect(ox, ly - fz + 1.5, 2.5, fz - 1);
-    x.font = F(fz, 700); x.fillStyle = '#101828';
-    x.fillText(`${String(e.날짜).slice(5)}(${DOW[dd.getDay()] || '-'})`, ox + 6, ly);
-    const dateW = 52 * (fz / 9);
-    x.font = F(fz); x.fillStyle = '#101828';
-    const tail = [e.담당기사 || '', e.프로젝트NO || ''].filter(Boolean).join(' · ');
-    const tailW = 0;
-    /* 가운데 빈 자리에 **사유·진행내용**을 적는다 (2026-08-08 지시).
-       캠프명 뒤가 통째로 비어 있어 "무슨 건인지"를 알려면 앱을 다시 열어야 했다.
-       캠프명을 자르지 않는다 — 실제로 그린 폭을 재서 **남는 만큼만** 사유가 쓴다. */
-    const midW = colW - dateW - tailW - 10;
-    const campTxt = clip(calCampOf(e), midW);
-    x.fillText(campTxt, ox + 6 + dateW, ly);
-    const why = calWhyOf(e), usedW = x.measureText(campTxt).width;
-    if(!twoLine&&why && midW-usedW>26){
-      x.font = F(fz - 0.4); x.fillStyle = '#667085';
-      x.fillText(clip(why, midW - usedW - 8), ox + 6 + dateW + usedW + 6, ly);
-      x.font = F(fz); x.fillStyle = '#101828';
-    }
-    if(tailW){
-      x.fillStyle = '#667085';
-      x.fillText(clip(tail, tailW), ox + colW - tailW, ly);
-    }
-    if(twoLine){
-      const reason=[why,tail].filter(Boolean).join(' · ')||'사유·담당자 근거 없음';
-      x.font=F(Math.max(6.8,fz-1),e.경보?800:550);x.fillStyle=e.경보?'#B42318':'#667085';
-      x.fillText(clip(reason,colW-7),ox+6,ly+Math.min(9,lh/2));
-    }
-    x.strokeStyle = '#F4F6F9'; x.beginPath();
-    x.moveTo(ox + 6, ly + 3); x.lineTo(ox + colW, ly + 3); x.stroke();
+  const qByKind=new Map([['pm_done',qDoneRows],['pm_plan',qPlanRows],['pm_overdue',qOverdueRows]]);
+  const pmGroups=makeGroups(['pm_done','pm_plan','pm_overdue'],qByKind);
+  const asGroups=makeGroups(['as_done','as_open','as_visit',...extras],byKind);
+
+  const detailHeader=(top,title,sub)=>{
+    x.fillStyle='#0E1B3F';x.fillRect(0,top,W,58);
+    x.fillStyle='#fff';x.font=F(20,750);x.fillText(title,Mg,top+30);
+    x.fillStyle='#C9D5FA';x.font=F(10.5);x.fillText(clip(sub,W-Mg*2),Mg,top+47);
+  };
+  const detailLayout=(groups,top,bottom,cols,fz)=>{
+    const gap=10,colW=(W-Mg*2-gap*(cols-1))/cols;
+    const titleFont=F(fz,750),reasonSize=Math.max(5.4,fz-.7);
+    const reasonFont=e=>F(reasonSize,e&&e.경보?800:550);
+    const lh=Math.max(7.6,fz+2.4),headH=fz+12;
+    const blocks=[];
+    groups.forEach((g,gi)=>{
+      if(gi) blocks.push({t:'gap',h:6,key:g.key});
+      blocks.push({t:'head',h:headH,key:g.key,n:g.list.length});
+      g.list.forEach(e=>{
+        const dd=new Date(e.날짜+'T00:00:00');
+        const title=`${String(e.날짜).slice(5)}(${DOW[dd.getDay()]||'-'})  ${calCampOf(e)}`;
+        const tail=[e.담당기사||'',e.프로젝트NO||''].filter(Boolean).join(' · ');
+        const reason=[calWhyOf(e),tail].filter(Boolean).join(' · ')||'사유·담당자 근거 없음';
+        const titleLines=wrapAll(title,colW-12,titleFont);
+        const reasonLines=wrapAll(reason,colW-12,reasonFont(e));
+        blocks.push({t:'item',key:g.key,e,titleLines,reasonLines,titleFont,
+          reasonFont:reasonFont(e),lh,h:(titleLines.length+reasonLines.length)*lh+5});
+      });
     });
-  });
-  for(const lx of [Mg+colW+gap/2,Mg+2*colW+gap+centerGap/2,
-                    Mg+3*colW+gap*2+centerGap+gap/2]){
-    x.strokeStyle=lx===Mg+2*colW+gap+centerGap/2?'#98A2B3':'#E4E7EC';x.beginPath();
-    x.moveTo(lx,listStart-15);x.lineTo(lx,bottom);x.stroke();
+    const pos=[];let col=0,y=top,current='';
+    for(const b of blocks){
+      if(b.t==='gap'&&y===top) continue;
+      if(y+b.h>bottom){
+        col++;y=top;
+        if(col>=cols) return {ok:false,cols,colW,gap,pos};
+        if(b.t==='item'&&current===b.key){
+          const cont={t:'cont',key:b.key,h:headH};pos.push({...cont,col,y});y+=headH;
+        }
+        if(b.t==='gap') continue;
+      }
+      if(y+b.h>bottom) return {ok:false,cols,colW,gap,pos};
+      pos.push({...b,col,y});y+=b.h;
+      if(b.t==='head') current=b.key;
+    }
+    return {ok:true,cols,colW,gap,pos,fz,lh};
+  };
+  const fitDetail=(groups,top,bottom,cols)=>{
+    for(const fz of [8.2,7.8,7.4,7,6.6,6.2,5.8]){
+      const plan=detailLayout(groups,top,bottom,cols,fz);if(plan.ok)return plan;
+    }
+    return detailLayout(groups,top,bottom,cols,5.4);
+  };
+  const drawDetail=(plan)=>{
+    plan.pos.forEach(b=>{
+      const ox=Mg+b.col*(plan.colW+plan.gap),k=calKindMeta(b.key);
+      if(b.t==='gap') return;
+      if(b.t==='head'||b.t==='cont'){
+        x.fillStyle=k.color||'#475467';x.fillRect(ox,b.y+1,plan.colW,1);
+        x.font=F(plan.fz+.6,800);x.fillStyle=k.color||'#101828';
+        const label=b.t==='cont'?`${k.label} · 이어짐`:`${k.label} ${b.n}건`;
+        x.fillText(label,ox,b.y+plan.fz+7);return;
+      }
+      let yy=b.y+plan.lh;
+      x.fillStyle=k.color||'#98A2B3';x.fillRect(ox,b.y+3,2.5,Math.max(5,b.h-8));
+      x.font=b.titleFont;x.fillStyle='#101828';
+      b.titleLines.forEach(line=>{x.fillText(line,ox+6,yy);yy+=plan.lh;});
+      x.font=b.reasonFont;x.fillStyle=b.e.경보?'#B42318':'#667085';
+      b.reasonLines.forEach(line=>{x.fillText(line,ox+6,yy);yy+=plan.lh;});
+      x.strokeStyle='#EEF1F5';x.beginPath();x.moveTo(ox+6,b.y+b.h-2);
+      x.lineTo(ox+plan.colW,b.y+b.h-2);x.stroke();
+    });
+    for(let c=1;c<plan.cols;c++){
+      const lx=Mg+c*plan.colW+(c-.5)*plan.gap;x.strokeStyle='#E4E7EC';x.beginPath();
+      x.moveTo(lx,plan.pos.length?Math.min(...plan.pos.map(p=>p.y))-4:0);
+      x.lineTo(lx,plan.pos.length?Math.max(...plan.pos.map(p=>p.y+p.h))+2:0);x.stroke();
+    }
+  };
+
+  const page2=A4H,page3=A4H*2,detailTopOffset=92,detailBottomOffset=A4H-34;
+  detailHeader(page2,'정기점검 전 건 근거 · 사유 전체',
+    `${Y}년 ${Math.floor((M-1)/3)+1}분기 · 완료 → 확정 일정 → 잔여 · 캠프·상태·담당·프로젝트번호를 생략하지 않음`);
+  const pmPlan=fitDetail(pmGroups,page2+detailTopOffset,page2+detailBottomOffset,4);
+  detailHeader(page3,'돌발AS·기타 일정 전 건 근거 · 사유 전체',
+    `${Y}년 ${M}월 · 완료 → 미처리 → 지연 사유 · 긴 문장은 말줄임표 없이 다음 줄로 표시`);
+  const asPlan=fitDetail(asGroups,page3+detailTopOffset,page3+detailBottomOffset,3);
+  if(!pmPlan.ok||!asPlan.ok){
+    if(!opt.toBlob) notice('A4 세 장에 전 건 사유를 생략 없이 배치하지 못했습니다. 종류 필터를 좁혀 다시 캡처해 주세요.');
+    return null;
   }
-  const detailTotal=sides.reduce((n,a)=>n+a.filter(v=>v.t==='item').length,0);
-  const missed = detailTotal - drawn;
-  x.font = F(9); x.fillStyle = missed ? '#B42318' : '#98A2B3';
-  // 뺀 것은 **숫자로 말한다** — 조용히 빼면 '0건'이 '원래 없었다'로 읽힌다(`[169]`).
-  const dropNote = capDropped
+  drawDetail(pmPlan);drawDetail(asPlan);
+  const pmTotal=pmGroups.reduce((n,g)=>n+g.list.length,0);
+  const asTotal=asGroups.reduce((n,g)=>n+g.list.length,0);
+  const dropNote=capDropped
     ? ` · 정기점검 예측 ${capDropped}건은 대표 지시로 뺐습니다(앱 화면에는 그대로)` : '';
-  x.fillText(missed
-    ? `※ 자리가 모자라 ${missed}건이 빠졌습니다(${drawn}/${detailTotal}). 종류 필터를 좁혀 다시 캡처하세요.${dropNote}`
-    : `2/2 · 상세 ${detailTotal}건을 모두 실었습니다 · A4 두 장 · 유니버셜리프트앤히타치코리아${dropNote}`, Mg, H - 14);
+  x.font=F(9);x.fillStyle='#98A2B3';
+  x.fillText(`2/3 · 정기점검 상세 ${pmTotal}건 · 사유와 근거를 생략 없이 표시${dropNote}`,Mg,page2+A4H-14);
+  x.fillText(`3/3 · 돌발AS·기타 상세 ${asTotal}건 · 사유와 근거를 생략 없이 표시 · A4 세 장 · 유니버셜리프트앤히타치코리아`,Mg,H-14);
 
   const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
   if(!blob){ if(!opt.toBlob) notice('이미지 생성 실패'); return null; }
   if(opt.toBlob) return blob;                    // 복사가 같은 그림을 그대로 쓴다
   saveOrOpen(blob, `쿠팡캘린더_대표보고_${CAL_MONTH}.png`);
-  toast(`${Y}년 ${M}월 대표 보고를 A4 두 장으로 저장했습니다`);
+  toast(`${Y}년 ${M}월 대표 보고를 A4 세 장으로 저장했습니다`);
   uxEvent('tap', 'calCapture');
   return blob;
 }

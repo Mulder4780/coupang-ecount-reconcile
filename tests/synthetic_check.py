@@ -19395,10 +19395,10 @@ def t267_yoo_subi_capture_and_official_erp_api():
     assert not fresh["경보"] and fresh["지연구분"] == "정상기한"
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     cap = live.split("async function calendarCapture(", 1)[1].split("\nasync function ", 1)[0]
-    for token in ("k.key !== 'pm_pred'", "정기점검 진도", "돌발AS 조치", "A4 두 장",
+    for token in ("k.key !== 'pm_pred'", "정기점검 진도", "돌발AS 조치", "A4 세 장",
                   "오늘 기대 ${expectedNowPct}%", "하루 ${paceQuarter}건 필요",
                   "미확정 잔여", "사유 미입력", "대표 확인 우선순위",
-                  "왼쪽 두 단은 정기점검", "오른쪽 두 단은 돌발AS",
+                  "정기점검 전 건 근거 · 사유 전체", "돌발AS·기타 일정 전 건 근거 · 사유 전체",
                   "['pm_done','pm_plan','pm_overdue']", "['as_done','as_open','as_visit'"):
         assert token in cap, "오전 통화 대표 캡처 규칙 누락: " + token
     assert ".cal2-ev.urgent" in live and "prefers-reduced-motion:reduce" in live
@@ -19565,6 +19565,23 @@ def t271_pc_off_cloud_snapshot_and_lossless_return():
     print("[271] PC OFF 클라우드 암호문 우선·Pages/기기 폴백·D1 예약·PC 복귀 무손실 자동합류 OK")
 
 
+def t273_calendar_capture_is_three_pages_and_never_drops_reasons():
+    """[273] 대표 캡처는 세 쪽이며 상세 사유를 말줄임·행수 제한으로 버리지 않는다."""
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    cap = live.split("async function calendarCapture(", 1)[1].split("\nasync function ", 1)[0]
+    for token in (
+        "A4PAGES = 3", "1/3", "2/3", "3/3", "wrapAll", "detailLayout",
+        "정기점검 전 건 근거 · 사유 전체", "돌발AS·기타 일정 전 건 근거 · 사유 전체",
+        "if(!pmPlan.ok||!asPlan.ok)", "사유와 근거를 생략 없이 표시",
+    ):
+        assert token in live if token == "A4PAGES = 3" else token in cap, \
+            "대표 캡처 3쪽/사유 전체 규칙 누락: " + token
+    for forbidden in ("lines.slice(0,perCol*subCols)", "clip(reason", "A4 두 장"):
+        assert forbidden not in cap, "대표 캡처가 다시 사유를 자르거나 행을 버림: " + forbidden
+    assert 'title="대표 보고 이미지 저장 (A4 세 장 · 사유 전체)"' in live
+    print("[273] 대표 캡처 3쪽 분리 · 정기점검/돌발AS 전 건 · 사유 전체 줄바꿈 · 누락 시 저장 중단 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19691,6 +19708,7 @@ if __name__ == "__main__":
     t269_devtools_only_on_three_foreground_chrome_pages_at_noon()
     t270_ai_workers_never_raise_a_console_or_desktop_app()
     t271_pc_off_cloud_snapshot_and_lossless_return()
+    t273_calendar_capture_is_three_pages_and_never_drops_reasons()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
