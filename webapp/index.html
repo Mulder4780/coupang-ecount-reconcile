@@ -471,6 +471,7 @@ body.calendar-only .cal2-only-note{display:block}
   .cal2-tx.hit{cursor:pointer}
   .cal2-tx.hit:hover{background:color-mix(in srgb,var(--c) 26%,transparent);
     box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c) 45%,transparent)}
+  .cal2-tx.urgent{font-weight:900;border-left-width:5px;animation:asUrgent 1.2s ease-in-out infinite}
   .cal2-txmore{font-size:12.5px;font-weight:800;color:var(--ink-3);padding:0 6px;text-align:left}
   .cal2-day.out .cal2-tx{opacity:.5}
 }
@@ -487,6 +488,9 @@ body.calendar-only .cal2-only-note{display:block}
 .cal2-ev .k{display:inline-block;font-size:12.5px;font-weight:800;color:var(--c);
   background:color-mix(in srgb,var(--c) 13%,transparent);border-radius:6px;padding:1px 6px;margin-right:5px}
 .cal2-ev.on{border-color:var(--c);box-shadow:0 4px 12px rgba(16,24,40,.09)}
+.cal2-ev.urgent{border-color:var(--danger);animation:asUrgent 1.2s ease-in-out infinite}
+@keyframes asUrgent{0%,100%{background:color-mix(in srgb,var(--danger) 7%,var(--surface))}50%{background:color-mix(in srgb,var(--danger) 24%,var(--surface))}}
+@media(prefers-reduced-motion:reduce){.cal2-tx.urgent,.cal2-ev.urgent{animation:none}}
 @media(hover:hover){.cal2-ev:hover{border-color:var(--c)}}
 .cal2-empty{color:var(--ink-3);font-size:14px;padding:14px 2px}
 .cal2-gcal{border-radius:var(--r-lg)}
@@ -1150,6 +1154,18 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
 .automation-upload-result{min-height:20px;margin:-6px 18px 14px;color:var(--ink-3);font-size:13px;
   line-height:1.45;overflow-wrap:anywhere}
 .automation-upload-result.ok{color:var(--ok);font-weight:750}.automation-upload-result.err{color:var(--danger);font-weight:750}
+.system-audit{padding:0;overflow:hidden}.system-audit .automation-head{background:var(--surface)}
+.audit-counts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:13px 18px 4px}
+.audit-count{padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.audit-count b{display:block;color:var(--ink);font-size:19px;font-variant-numeric:tabular-nums}
+.audit-count span{color:var(--ink-3);font-size:12px}.audit-list{display:grid;gap:8px;padding:10px 18px 4px}
+.audit-item{display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;padding:11px 12px;border:1px solid var(--line);
+  border-radius:12px;background:var(--panel);min-width:0}.audit-priority{align-self:start;padding:3px 7px;border-radius:7px;
+  background:var(--neu-bg);color:var(--neu);font-size:11px;font-weight:900}
+.audit-priority.p0{background:var(--danger-bg);color:var(--danger)}.audit-priority.p1{background:var(--warn-bg);color:var(--warn)}
+.audit-priority.p2{background:var(--brand-tint);color:var(--brand)}.audit-body{min-width:0}.audit-body b{display:block;color:var(--ink);font-size:14px}
+.audit-body p{margin:3px 0 0;color:var(--ink-2);font-size:12.5px;line-height:1.45;overflow-wrap:anywhere}
+.audit-body .next{color:var(--ink-3)}.audit-empty{padding:18px;color:var(--ok);font-weight:750;text-align:center}
 .auto-more{width:100%;min-height:48px;margin-top:10px;border:1px solid #BFCDF3;border-radius:12px;
   background:var(--surface);color:var(--brand);font:inherit;font-size:14px;font-weight:850;cursor:pointer}
 .auto-more:focus-visible{outline:3px solid rgba(36,82,230,.24);outline-offset:2px}
@@ -1159,6 +1175,7 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
   .automation-overall small{text-align:left;max-width:none}.automation-grid{grid-template-columns:1fr;padding:11px 14px 3px}
   .auto-node{min-height:86px}.automation-actions{grid-template-columns:1fr;padding:11px 14px 15px}
   .automation-error{margin-left:14px;margin-right:14px}.automation-upload-result{margin-left:14px;margin-right:14px}
+  .audit-counts{grid-template-columns:repeat(2,minmax(0,1fr));padding:11px 14px 3px}.audit-list{padding:9px 14px 3px}
 }
 
 /* ═══ 리포트 ═══ */
@@ -3678,6 +3695,28 @@ body.dash-drag-live #dashGuides{display:grid}
         aria-label="자동 대조할 카카오톡 TXT 파일 선택" onchange="uploadAutomationKakao(this)">
       <div class="automation-upload-result" id="automationUploadResult" role="status" aria-live="polite">카톡 내보내기 TXT 한 개씩 올리면 원본 보존 후 전체 자동화가 이어집니다.</div>
       <div class="sr-only" id="automationLive" role="status" aria-live="polite"></div>
+    </section>
+    <section class="card system-audit" id="systemAuditCard" aria-labelledby="systemAuditTitle" aria-busy="true">
+      <div class="automation-head">
+        <div>
+          <h3 id="systemAuditTitle">시스템·업무 진단</h3>
+          <p>앱이 15분마다 직접 점검합니다. Claude Code와 Codex도 이 화면과 같은 진단 엔진을 사용합니다.</p>
+        </div>
+        <div class="automation-overall">
+          <span class="auto-state busy" id="systemAuditOverall">진단 읽는 중</span>
+          <small id="systemAuditUpdatedAt">기준 시각을 읽는 중입니다.</small>
+        </div>
+      </div>
+      <div class="audit-counts" id="systemAuditCounts"></div>
+      <div class="audit-list" id="systemAuditList">
+        <div class="automation-loading">서버·자동 회차·자료 사각지대·오류 회귀를 확인하는 중입니다.</div>
+      </div>
+      <div class="automation-actions" style="grid-template-columns:1fr">
+        <button class="abtn" id="systemAuditRetryBtn" type="button" onclick="loadSystemAudit(true,true)">
+          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>
+          <span>최신 진단 다시 읽기</span>
+        </button>
+      </div>
     </section>
     <div class="card"><h3>작업 실행 <span class="norm">— 누르면 바로 돌고 아래에 로그가 쌓입니다</span></h3>
       <!-- ★ 마지막 실행 시각 (2026-08-08 지시: "이 화면 상단에 최근 마지막 실행
@@ -8191,7 +8230,7 @@ function routeNav(v){
   if(v==='daily'){ renderDaily(); lcScanSoon($('v-daily')); }
   // 실행 화면을 열 때마다 마지막 실행 시각을 다시 읽는다 — 열어 둔 채 시간이 지나면
   // "3시간 전"이 거짓이 되고, 그 사이 09:50 회차가 돌았을 수도 있다.
-  if(v==='run'){ pollLog(); }
+  if(v==='run'){ pollLog(); if(!staffSlug) loadSystemAudit(); }
 }
 
 /* ══ 폰: 손가락을 좌우로 밀어 카테고리 이동 (2026-08-07 지시) ═══════════════
@@ -10387,6 +10426,44 @@ async function uploadAutomationKakao(input){
   }finally{
     if(button){button.disabled=false;button.setAttribute('aria-busy','false');}
   }
+}
+
+/* 앱·Claude Code·Codex가 **같은** system_audit.py 결과를 읽는다. 이 화면은 캐시만
+   읽으므로 원장·엑셀을 다시 열지 않고 담당자 업무를 붙잡지 않는다. */
+const SYSTEM_AUDIT_PATH='/api/system-audit';
+const SYSTEM_AUDIT={data:null,loading:false,flight:null};
+function renderSystemAudit(){
+  const card=$('systemAuditCard'), overall=$('systemAuditOverall');
+  const when=$('systemAuditUpdatedAt'), counts=$('systemAuditCounts'), list=$('systemAuditList');
+  if(!card||!overall||!when||!counts||!list) return;
+  const d=SYSTEM_AUDIT.data||{}, s=d.summary||{}, rows=Array.isArray(d.findings)?d.findings:[];
+  card.setAttribute('aria-busy',SYSTEM_AUDIT.loading?'true':'false');
+  const state=d.state||'unknown';
+  const label={healthy:'정상',attention:'확인 필요',warning:'조치 필요',critical:'즉시 조치',unknown:'확인 못 함'}[state]||state;
+  overall.className='auto-state '+(state==='healthy'?'ok':state==='critical'?'err':'busy');
+  overall.textContent=SYSTEM_AUDIT.loading&&!d.generated_at?'진단 읽는 중':label;
+  when.textContent=d.generated_at?`기준 ${fmtDateTime(d.generated_at)}`:(d.error||'아직 진단 결과가 없습니다.');
+  counts.innerHTML=['P0','P1','P2'].map(p=>`<span class="audit-count ${p.toLowerCase()}"><b>${p}</b> ${Number(s[p]||0)}건</span>`).join('');
+  if(d.error&&!rows.length){ list.innerHTML=`<div class="audit-item p0"><b>진단을 읽지 못했습니다</b><p>${esc2(d.error)}</p></div>`;return; }
+  if(!rows.length){ list.innerHTML='<div class="audit-empty">현재 진단에서 발견한 문제가 없습니다.</div>';return; }
+  list.innerHTML=rows.map(r=>`<article class="audit-item ${String(r.priority||'P2').toLowerCase()}">
+    <div class="audit-title"><span>${esc2(r.priority||'')}</span><b>${esc2(r.title||'')}</b></div>
+    <p>${esc2(r.evidence||'')}</p><small>조치: ${esc2(r.action||'')}</small></article>`).join('');
+}
+async function loadSystemAudit(force,showToast){
+  if(SYSTEM_AUDIT.flight&&!force) return SYSTEM_AUDIT.flight;
+  SYSTEM_AUDIT.loading=true;renderSystemAudit();
+  SYSTEM_AUDIT.flight=(async()=>{
+    try{
+      SYSTEM_AUDIT.data=await api(SYSTEM_AUDIT_PATH,{cache:force?'reload':undefined});
+      if(showToast) toast('최신 시스템·업무 진단을 읽었습니다');
+      return SYSTEM_AUDIT.data;
+    }catch(error){
+      SYSTEM_AUDIT.data={state:'unknown',summary:{},findings:[],error:apiErrorText(error)};
+      return null;
+    }finally{ SYSTEM_AUDIT.loading=false;SYSTEM_AUDIT.flight=null;renderSystemAudit(); }
+  })();
+  return SYSTEM_AUDIT.flight;
 }
 
 async function loadStatus(){
@@ -13664,7 +13741,7 @@ function renderCalGrid(){
       const k=calKindMeta(calKindOf(e));
       const tm=e.시간?`<span class="tm">${esc2(String(e.시간).slice(0,5))}</span>`:'';
       const hit = pjHas(e);
-      return `<span class="cal2-tx${hit?' hit':''}" style="--c:${k.color}"
+      return `<span class="cal2-tx${hit?' hit':''}${e.경보?' urgent':''}" style="--c:${k.color}"
           ${hit?`onclick="${pjCall(e, true)}"`:''}
           title="${esc2(k.label+' · '+calCampOf(e)+(hit?' — 눌러서 과거 이력 보기':''))}">`
         + `${tm}${esc2(calCampOf(e))}</span>`;
@@ -13692,7 +13769,7 @@ function renderCalAgenda(){
   box.innerHTML=rows.map((e,i)=>{
     const k=calKindMeta(calKindOf(e));
     return `<div class="cal2-evrow">
-      <button type="button" class="cal2-ev ${i===calendarSelected?'on':''}" style="--c:${k.color}"
+      <button type="button" class="cal2-ev ${i===calendarSelected?'on':''}${e.경보?' urgent':''}" style="--c:${k.color}"
       onclick="selectCalendarEvent(${i})"><span class="bar" aria-hidden="true"></span><span class="tx">
       <span class="t1"><span class="k">${esc2(k.label)}</span>${esc2(e.캠프명||e.장소||e.제목||'제목 없음')}</span>
       <span class="t2">${esc2(e.프로젝트NO||'프로젝트 미확정')}${e.담당기사?` · ${esc2(e.담당기사)}`:''}${e.시간?` · ${esc2(e.시간)}`:''}</span>
@@ -13783,7 +13860,7 @@ function renderCalSheet(){
   body.innerHTML = rows.map((e,i)=>{
     const k=calKindMeta(calKindOf(e));
     return `<div class="cal2-evrow">
-      <button type="button" class="cal2-ev ${i===CAL_SHEET_SEL?'on':''}" style="--c:${k.color}"
+      <button type="button" class="cal2-ev ${i===CAL_SHEET_SEL?'on':''}${e.경보?' urgent':''}" style="--c:${k.color}"
       onclick="calSheetPick(${i})"><span class="bar" aria-hidden="true"></span><span class="tx">
       <span class="t1"><span class="k">${esc2(k.label)}</span>${esc2(calCampOf(e))}</span>
       <span class="t2">${esc2(e.프로젝트NO||'프로젝트 미확정')}${e.담당기사?` · ${esc2(e.담당기사)}`:''}${e.시간?` · ${esc2(e.시간)}`:''}</span>
@@ -14119,6 +14196,7 @@ function calWhyOf(e){
      거야. 이렇게 되면 일 안 하는 줄 알잖아." 서버가 갈래를 정하고([169]) 여기는
      그대로 싣는다 — 화면이 제 손으로 이유를 지어내면 판정이 두 곳이 된다. */
   if(e.미처리사유) v.push(e.미처리사유);
+  if(e.지연근거) v.push(`${e.지연구분 || '지연'}: ${e.지연근거}`);
   if(e.원장미기입) v.push('밴드·카톡 완료 근거 — 원장 완료일 빈칸');
   if(e.예측) v.push(`예측 ${e.예측신뢰도 || ''}`.trim());
   return v.join(' · ');
@@ -14128,7 +14206,17 @@ function calWhyOf(e){
 async function calendarCapture(opt){
   opt = opt || {};
   if(!CAL_MONTH) CAL_MONTH = calDefaultMonth();
-  const rows = calendarRows().filter(e => calMonthOf(e.날짜) === CAL_MONTH);
+  /* ★ 대표 지시(2026-08-14 통화) — **캡처에서 '정기점검 예측'을 뺀다.**
+       "예측이라는 게 아무 의미가 없잖아" · "이거 그냥 빼 버려".
+       예측은 3개월 전 점검일에 +90일을 찍어 둔 값이라 '예정'과 나란히 서면 대표가
+       읽을 때 **일정이 두 벌 잡힌 것처럼 보인다**(실제로 그 자리에서 8/6 예측을 두고
+       "이게 뭐가 틀린 거야"가 반복됐다).
+       ⚠ **앱 화면에서는 빼지 않는다** — 형님이 보려고 두는 값이다("제가 보려고").
+          빼는 것은 대표에게 나가는 이 한 장뿐이다.
+       ⚠ **조용히 빼지 않는다**([169]) — 몇 건을 왜 뺐는지 맨 아래에 적는다. */
+  const capAll = calendarRows().filter(e => calMonthOf(e.날짜) === CAL_MONTH);
+  const rows = capAll.filter(e => calKindOf(e) !== 'pm_pred');
+  const capDropped = capAll.length - rows.length;
   if(!rows.length){ if(!opt.toBlob) toast('이 달에 표시할 일정이 없습니다'); return null; }
   const [Y, M] = CAL_MONTH.split('-').map(Number);
   const S = 2, W = A4W, H = A4H, Mg = 26;
@@ -14151,7 +14239,9 @@ async function calendarCapture(opt){
   x.fillText(`쿠팡 캘린더 · ${Y}년 ${M}월`, Mg, 30);
   x.font = F(11); x.fillStyle = '#C9D5FA';
   x.fillText(`기준 ${new Date().toLocaleString('ko-KR')}`, Mg, 47);
-  const kinds = calShownKinds().filter(k => !CAL_OFF.has(k.key));
+  // 예측을 뺐으니 '표시 종류'에서도 뺀다 — 안 뺀 채로 두면 머리말이 싣지도 않은
+  // 갈래를 실었다고 말한다(빈 값보다 **틀린 값**이 안 띈다, `[165]`).
+  const kinds = calShownKinds().filter(k => !CAL_OFF.has(k.key) && k.key !== 'pm_pred');
   x.font = F(11); x.fillStyle = '#101828';
   x.fillText(clip(`표시 종류: ${kinds.map(k => k.label).join(' · ') || '전체'}`
     + `   ·   이 달 ${rows.length}건`, W - Mg * 2), Mg, 74);
@@ -14200,16 +14290,13 @@ async function calendarCapture(opt){
     }
   }
 
-  // ③ 아래 목록 — **종류별로 묶고 그 안에서 날짜순** (2026-08-06 지시)
-  //   격자만으로는 하루 서넛만 돼도 다 못 본다. 그렇다고 죽 늘어놓으면 '이게 예정인지
-  //   완료인지'를 색 막대 하나로 짐작해야 한다. 종류를 소제목으로 세워 글자로 밝힌다.
-  //   ★ 한 건도 빼지 않는 것이 목표다 — 건수에 맞춰 단 수와 줄 높이를 **자동으로**
-  //     줄여 A4 한 장에 밀어 넣는다. 그래도 안 되면 몇 건이 빠졌는지 반드시 적는다.
+  // ③ 대표 보고 핵심 + 아래 목록. 오전 통화의 결론은 달력 장식이 아니라
+  //   "진도가 늦나 / 오늘 무엇을 재촉하나"를 대표가 계산 없이 읽게 하는 것이다.
   const listTop = gridTop + 6 * rh + 26;
   x.strokeStyle = '#D0D5DD'; x.beginPath();
   x.moveTo(Mg, listTop - 14); x.lineTo(W - Mg, listTop - 14); x.stroke();
   x.font = F(12, 700); x.fillStyle = '#101828';
-  x.fillText(`종류별 일정 (${rows.length}건)`, Mg, listTop);
+  x.fillText(`대표 보고 핵심 · ${Y}년 ${Math.floor((M - 1) / 3) + 1}분기`, Mg, listTop);
 
   const byKind = new Map();
   rows.forEach(e => {
@@ -14217,37 +14304,77 @@ async function calendarCapture(opt){
     if(!byKind.has(key)) byKind.set(key, []);
     byKind.get(key).push(e);
   });
-  // 화면 칩과 같은 순서로 — 화면과 종이의 순서가 다르면 사람이 다시 찾아 헤맨다.
-  const order = calKinds().map(k => k.key).filter(k => byKind.has(k));
-  byKind.forEach((_v, k) => { if(!order.includes(k)) order.push(k); });
+  const q0 = Math.floor((M - 1) / 3) * 3;
+  const qStart = new Date(Y, q0, 1), qEnd = new Date(Y, q0 + 3, 0);
+  const qIso0 = `${Y}-${String(q0 + 1).padStart(2,'0')}-01`;
+  const qIso1 = `${Y}-${String(q0 + 3).padStart(2,'0')}-${String(qEnd.getDate()).padStart(2,'0')}`;
+  const allCap = calEvents().filter(e => calKindOf(e) !== 'pm_pred');
+  const qPm = allCap.filter(e => ['pm_done','pm_plan','pm_overdue'].includes(calKindOf(e))
+    && String(e.날짜) >= qIso0 && String(e.날짜) <= qIso1);
+  const unit = e => String(e.원천업무ID || e.프로젝트NO || `${e.날짜}|${calCampOf(e)}`);
+  const pmTarget = new Set(qPm.map(unit)), pmDone = new Set(qPm.filter(e=>calKindOf(e)==='pm_done').map(unit));
+  const pmPlanned = new Set(qPm.filter(e=>calKindOf(e)==='pm_plan'&&!pmDone.has(unit(e))).map(unit));
+  const targetN=pmTarget.size, doneN=pmDone.size, remainN=Math.max(0,targetN-doneN);
+  const actualPct=targetN?Math.round(doneN/targetN*100):0;
+  // 통화의 "8월이면 70%쯤"은 **선택 월 말까지**의 분기 경과율로 표시한다.
+  const monthEnd=new Date(Y,M,0), expectAt=new Date(Math.min(monthEnd,qEnd));
+  const qDays=Math.max(1,Math.round((qEnd-qStart)/86400000)+1);
+  const expectedPct=Math.max(0,Math.min(100,Math.round((expectAt-qStart)/86400000+1)*100/qDays));
+  const now=new Date(), paceFrom=(now>=qStart&&now<=qEnd)?now:new Date(Y,M-1,1);
+  const daysLeft=Math.max(1,Math.ceil((qEnd-paceFrom)/86400000));
+  const pace=(remainN/daysLeft).toFixed(1);
+  const asOpen=(byKind.get('as_open')||[]), asUrgent=asOpen.filter(e=>e.경보).length;
+  const asAgreed=asOpen.filter(e=>e.지연구분==='협의대기').length;
+  const asDone=(byKind.get('as_done')||[]).length;
 
-  const lines = [];                       // 소제목과 일정을 한 줄기로 늘어놓는다
-  order.forEach((key, gi) => {
-    const list = byKind.get(key).slice().sort((a, b) =>
-      String(a.날짜).localeCompare(String(b.날짜)) ||
-      String(a.시간 || '').localeCompare(String(b.시간 || '')));
-    if(gi) lines.push({t: 'gap'});
-    lines.push({t: 'head', key, n: list.length});
-    list.forEach(e => lines.push({t: 'item', e, key}));
-  });
+  const sumY=listTop+12, boxGap=8, boxW=(W-Mg*2-boxGap)/2, boxH=54;
+  const summaryBox=(ox,color,title,big,sub)=>{
+    x.fillStyle=color+'12';x.fillRect(ox,sumY,boxW,boxH);x.strokeStyle=color;x.strokeRect(ox,sumY,boxW,boxH);
+    x.fillStyle=color;x.font=F(10,800);x.fillText(title,ox+10,sumY+15);
+    x.fillStyle='#101828';x.font=F(15,850);x.fillText(clip(big,boxW-20),ox+10,sumY+33);
+    x.fillStyle='#475467';x.font=F(8.5,650);x.fillText(clip(sub,boxW-20),ox+10,sumY+47);
+  };
+  summaryBox(Mg,'#2452E6','정기점검 진도',`${doneN}/${targetN} 완료 · ${actualPct}%`,
+    `${M}월 말 기대 ${Math.round(expectedPct)}% · 잔여 ${remainN}건 · 분기말까지 하루 ${pace}건 필요`);
+  summaryBox(Mg+boxW+boxGap,'#D92D20','돌발AS 조치',`완료 ${asDone} · 미처리 ${asOpen.length}`,
+    `★ 즉시조치 ${asUrgent}건 · 합의 대기 ${asAgreed}건 · 이유 없는 장기 미방문 우선`);
 
-  const listStart = listTop + 18, bottom = H - 30, availH = bottom - listStart;
-  let cols = 2, lh = 14;
-  outer:
-  for(const c of [2, 3]){
-    for(const h of [14, 13, 12, 11, 10, 9, 8.2]){
-      if(Math.ceil(lines.length / c) * h <= availH){ cols = c; lh = h; break outer; }
-      cols = c; lh = h;               // 다 안 되면 가장 빽빽한 조합을 쓴다
-    }
+  /* ★ 통화 그대로 **왼쪽 두 단은 정기점검, 오른쪽 두 단은 돌발AS**다.
+     단순히 한 줄 목록을 4등분하면 건수에 따라 PM이 오른쪽으로 넘어가 다시 섞인다.
+     그래서 양쪽의 줄과 넘김을 독립적으로 계산한다. 각 갈래는 완료→확정/예정→잔여. */
+  const makeLines = keys => {
+    const out=[];
+    keys.forEach((key,gi)=>{
+      const list=(byKind.get(key)||[]).slice().sort((a,b)=>
+        (key==='as_open'?(Number(b.경보)-Number(a.경보)):0) ||
+        String(a.날짜).localeCompare(String(b.날짜)) || String(a.시간||'').localeCompare(String(b.시간||'')));
+      if(!list.length) return;
+      if(out.length) out.push({t:'gap'});
+      out.push({t:'head',key,n:list.length});
+      list.forEach(e=>out.push({t:'item',e,key}));
+    });
+    return out;
+  };
+  const known=new Set(['pm_done','pm_plan','pm_overdue','as_done','as_open','as_visit']);
+  const extras=[];byKind.forEach((_v,k)=>{if(!known.has(k)) extras.push(k);});
+  const sides=[makeLines(['pm_done','pm_plan','pm_overdue']),makeLines(['as_done','as_open','as_visit',...extras])];
+  const listStart=sumY+boxH+24,bottom=H-30,availH=bottom-listStart;
+  const subCols=2,totalCols=4,gap=10,centerGap=18;
+  const usable=W-Mg*2-centerGap-gap*2;
+  const colW=usable/4;
+  let lh=12;
+  for(const h of [12,11,10,9,8.2]){
+    if(sides.every(a=>Math.ceil(a.length/subCols)*h<=availH)){lh=h;break;}
+    lh=h;
   }
-  const gap = 16, colW = (W - Mg * 2 - gap * (cols - 1)) / cols;
-  const perCol = Math.max(1, Math.floor(availH / lh));
-  const fz = Math.min(9, lh - 3.4);
-  let drawn = 0;
-  lines.slice(0, perCol * cols).forEach((ln, idx) => {
-    const col = Math.floor(idx / perCol), ly = listStart + (idx % perCol) * lh;
-    const ox = Mg + col * (colW + gap);
-    if(ln.t === 'gap') return;
+  const perCol=Math.max(1,Math.floor(availH/lh)),fz=Math.min(8.6,lh-3.1);
+  x.font=F(10.5,850);x.fillStyle='#2452E6';x.fillText('정기점검 · 완료 → 확정 일정 → 잔여',Mg,listStart-8);
+  x.fillStyle='#D92D20';x.fillText('돌발AS · 완료 → 미처리 → 지연 사유',Mg+2*colW+gap+centerGap,listStart-8);
+  let drawn=0;
+  sides.forEach((lines,side)=>lines.slice(0,perCol*subCols).forEach((ln,idx)=>{
+    const sub=Math.floor(idx/perCol),ly=listStart+(idx%perCol)*lh;
+    const ox=Mg+side*(2*colW+gap+centerGap)+sub*(colW+gap);
+    if(ln.t==='gap') return;
     const k = calKindMeta(ln.key);
     if(ln.t === 'head'){
       x.fillStyle = k.color || '#475467';
@@ -14264,7 +14391,7 @@ async function calendarCapture(opt){
     const dateW = 52 * (fz / 9);
     x.font = F(fz); x.fillStyle = '#101828';
     const tail = [e.담당기사 || '', e.프로젝트NO || ''].filter(Boolean).join(' · ');
-    const tailW = cols >= 3 ? 0 : 84 * (fz / 9);
+    const tailW = 0;
     /* 가운데 빈 자리에 **사유·진행내용**을 적는다 (2026-08-08 지시).
        캠프명 뒤가 통째로 비어 있어 "무슨 건인지"를 알려면 앱을 다시 열어야 했다.
        캠프명을 자르지 않는다 — 실제로 그린 폭을 재서 **남는 만큼만** 사유가 쓴다. */
@@ -14283,17 +14410,20 @@ async function calendarCapture(opt){
     }
     x.strokeStyle = '#F4F6F9'; x.beginPath();
     x.moveTo(ox + 6, ly + 3); x.lineTo(ox + colW, ly + 3); x.stroke();
-  });
-  for(let c = 1; c < cols; c++){          // 단 사이 세로선 — 두 단이 한 줄로 읽히는 것을 막는다
-    x.strokeStyle = '#E4E7EC'; x.beginPath();
-    const lx = Mg + c * (colW + gap) - gap / 2;
-    x.moveTo(lx, listStart - 10); x.lineTo(lx, bottom); x.stroke();
+  }));
+  for(const lx of [Mg+colW+gap/2,Mg+2*colW+gap+centerGap/2,
+                    Mg+3*colW+gap*2+centerGap+gap/2]){
+    x.strokeStyle=lx===Mg+2*colW+gap+centerGap/2?'#98A2B3':'#E4E7EC';x.beginPath();
+    x.moveTo(lx,listStart-15);x.lineTo(lx,bottom);x.stroke();
   }
   const missed = rows.length - drawn;
   x.font = F(9); x.fillStyle = missed ? '#B42318' : '#98A2B3';
+  // 뺀 것은 **숫자로 말한다** — 조용히 빼면 '0건'이 '원래 없었다'로 읽힌다(`[169]`).
+  const dropNote = capDropped
+    ? ` · 정기점검 예측 ${capDropped}건은 대표 지시로 뺐습니다(앱 화면에는 그대로)` : '';
   x.fillText(missed
-    ? `※ 자리가 모자라 ${missed}건이 빠졌습니다(${drawn}/${rows.length}). 종류 필터를 좁혀 다시 캡처하세요.`
-    : `전체 ${rows.length}건을 모두 실었습니다 · A4 한 장 · 유니버셜리프트앤히타치코리아`, Mg, H - 14);
+    ? `※ 자리가 모자라 ${missed}건이 빠졌습니다(${drawn}/${rows.length}). 종류 필터를 좁혀 다시 캡처하세요.${dropNote}`
+    : `전체 ${rows.length}건을 모두 실었습니다 · A4 한 장 · 유니버셜리프트앤히타치코리아${dropNote}`, Mg, H - 14);
 
   const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
   if(!blob){ if(!opt.toBlob) notice('이미지 생성 실패'); return null; }
@@ -17194,7 +17324,7 @@ const VIEW_RESET = {
                         window._grpAll=null;
                         _rvCall('setMode','settle'); },
             reload:()=>_rvCall('loadSettle',true)},
-  run:     {name:'실행',       reload:()=>{ _rvCall('pollLog'); _rvCall('loadAutomationStatus',true); }},
+  run:     {name:'실행',       reload:()=>{ _rvCall('pollLog'); _rvCall('loadAutomationStatus',true); _rvCall('loadSystemAudit',true); }},
   daily:   {name:'보고',       reload:()=>_rvCall('renderDaily')},
   check:   {name:'확인 필요',  clear:()=>_rvCall('resetCheckFilters'), reload:()=>_rvCall('loadSettle',true)},
   report:  {name:'기록',       clear:()=>{ try{ curReport=0; }catch(_){} }, reload:()=>_rvCall('loadReports')},
@@ -19019,6 +19149,7 @@ SWR_RERUN['/api/notifications'] = () => loadNotifications().catch(()=>{});
 // 대표 브리핑도 옛 로컬 캐시를 먼저 보여 준다. 새 응답을 저장만 하고 BRIEF를 다시
 // 읽지 않으면 오늘 들어온 대표 지시가 새로고침 전까지 영원히 화면·캡처에서 빠진다.
 SWR_RERUN['/api/brief'] = () => loadBrief(REPORT_PREVIEW_DATE).catch(()=>{});
+SWR_RERUN['/api/system-audit'] = () => loadSystemAudit().catch(()=>{});
 const rerunSettle = () => loadSettle().catch(()=>{});
 ['/api/settlements','/api/works','/api/issues','/api/checks','/api/exec_report',
  '/api/erpdocs','/api/v1/reports/daily/exceptions'].forEach(p => {
@@ -19033,6 +19164,7 @@ const rerunSettle = () => loadSettle().catch(()=>{});
 async function refreshAll(includeData=true){
   const run = f => { try{ return Promise.resolve(f()).catch(()=>{}); }catch(e){ return Promise.resolve(); } };
   const jobs = [run(loadStatus), run(loadNotifications), run(loadRemoteStat),run(loadAutomationStatus)];
+  if(!staffSlug) jobs.push(run(loadSystemAudit));
   if(includeData) jobs.unshift(run(staffSlug||curView()==='ryu'?()=>loadRyuRecords(true):loadSettle));
   if(staffSlug) jobs.push(run(()=>staffHeartbeat('view')));
   await Promise.all(jobs);

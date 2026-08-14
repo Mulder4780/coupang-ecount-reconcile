@@ -196,7 +196,19 @@ def heal_stale_server(dry):
         #   입력 중에 서버를 내리면 그 사람 화면이 10초쯤 끊긴다 — 옛 코드로 도는 것보다
         #   나쁘다. 미룬 것을 **'실패'라고 적지 않는다**: 실패로 적으면 사람이 없는
         #   고장을 찾아 나서고, 진짜 실패와 구별이 안 된다([169]).
-        rc = restart_server.main([])
+        # ★ 스케줄러가 보이는 콘솔에서 python.exe 로 이 파일을 부르면 stdin 이 TTY다.
+        # restart_server 는 그 환경을 사람 실행으로 오해해 ``지금 내릴까요? (y)`` 를
+        # 물었고, 30분 워치독이 답을 기다린 채 영원히 멈췄다(2026-08-14 실사고).
+        # 워치독이 부른 재시작은 언제나 무인 회차임을 **호출 경계에서** 명시한다.
+        old_unattended = os.environ.get("COUPANG_UNATTENDED")
+        os.environ["COUPANG_UNATTENDED"] = "1"
+        try:
+            rc = restart_server.main([])
+        finally:
+            if old_unattended is None:
+                os.environ.pop("COUPANG_UNATTENDED", None)
+            else:
+                os.environ["COUPANG_UNATTENDED"] = old_unattended
         if rc == 3:
             return ("서버 옛코드 — 지금 쓰는 사람이 있어 미룸(다음 주기 재시도): %s"
                     % ", ".join(newer[:3]))
@@ -375,10 +387,28 @@ def heal_tunnel(dry):
 
 
 def kill_stale_tunnel():
-    """죽은 터널을 붙들고 있는 cloudflared·tunnel_run을 정리한다."""
-    ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'cloudflared.exe' -or "
-          "$_.CommandLine -like '*tunnel_run*' } | ForEach-Object { "
-          "Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }")
+    """이 프로젝트의 죽은 터널만 정리한다.
+
+    프로세스 이름이 ``cloudflared.exe`` 라는 이유만으로 전부 죽이면 같은 PC에서 도는
+    다른 서비스 터널까지 같이 끊긴다. 정확한 ``webapp/tunnel_run.py`` 명령행과 그
+    자식, 또는 이 앱 포트(8899)를 가리키는 quick-tunnel만 대상으로 삼는다.
+    """
+    script = os.path.normcase(os.path.abspath(os.path.join(ROOT, "webapp", "tunnel_run.py")))
+    script_ps = script.replace("'", "''")
+    ps = (
+        "$all = @(Get-CimInstance Win32_Process); "
+        f"$owners = @($all | Where-Object {{ $_.CommandLine -and "
+        f"[IO.Path]::GetFullPath(('{script_ps}')) -and "
+        f"$_.CommandLine.ToLower().Contains(('{script_ps}').ToLower()) }}); "
+        "$ownerIds = @($owners | ForEach-Object { [int]$_.ProcessId }); "
+        "$targets = @($owners); "
+        "$targets += @($all | Where-Object { $_.Name -eq 'cloudflared.exe' -and ("
+        "$ownerIds -contains [int]$_.ParentProcessId -or "
+        "($_.CommandLine -and ($_.CommandLine -like '*127.0.0.1:8899*' -or "
+        "$_.CommandLine -like '*localhost:8899*'))) }); "
+        "$targets | Sort-Object ProcessId -Unique | ForEach-Object { "
+        "Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }"
+    )
     try:
         r = run_tree(["powershell", "-NoProfile", "-Command", ps],
                      timeout=60, drain_timeout=10)

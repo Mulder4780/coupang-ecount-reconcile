@@ -624,6 +624,12 @@ def _run_pipeline():
     #      자동 등록은 하지 않는다(회사 ERP 보안 설정) — 바뀐 사실과 넣을 값을 알린다.
     steps.append(run("ERP 접속 IP 확인", [os.path.join(ROOT, "erp_ip_guard.py")]))
 
+    # 이카운트가 **조회 API로 공식 제공하는 것만** 가져온다. 품목·발주서는 API,
+    # 판매/매입전표·계산서·수금은 기존 XLSX 도착 확인 경로다. 6시간 성공 캐시가 있어
+    # 일일 회차가 같은 7천여 품목을 매번 다시 요청하지 않는다.
+    steps.append(run("ERP 공식 API 자료 수집",
+                     [os.path.join(ROOT, "erp_api_collect.py")], timeout=300))
+
     # 3. 밴드 수집·대조 — 공식 API 토큰이 있으면 수집+대조, 브라우저 수집 캐시만 있으면 대조만
     band_dumps = _source_files("band_dump_dirs", (".json",))
     if band_dumps:

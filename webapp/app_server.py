@@ -12,7 +12,7 @@ PC에서 실행하면 같은 와이파이의 휴대폰·다른 PC가 브라우�
 
 보안: 4자리 PIN(첫 요청 시 입력, 기기에 저장). 사내 LAN 전용 설계 — 외부 인터넷 개방 금지.
 """
-import sys, os, re, json, glob, time, threading, random, hashlib, io, shutil, secrets, copy
+import sys, os, re, json, glob, time, threading, random, hashlib, io, shutil, secrets, copy, subprocess
 import base64, hmac
 import ipaddress
 import socket
@@ -5977,6 +5977,37 @@ def _why_still_open(row, idx, got):
     return "밴드에 접수 글은 있으나 완료 글이 없다"
 
 
+def _as_delay_class(row, got, today=None):
+    """돌발AS 미처리를 `정상기한/협의대기/즉시조치`로 가른다.
+
+    오래됐다는 이유만으로 전부 경보를 울리면 부품 입고나 캠프 요청으로 날짜를 합의한
+    정상 대기까지 담당자 태만으로 보인다. 반대로 막연한 ``예정`` 한 단어만으로 경보를
+    내리면 진짜 미방문이 숨는다. 미래 방문일, 날짜가 붙은 협의, 명시적인 부품 수급
+    대기처럼 **다시 읽어도 같은 근거**가 있을 때만 협의대기로 내린다.
+    """
+    today = today or datetime.now().strftime("%Y-%m-%d")
+    try:
+        days = max(0, _daydiff(got, today))
+    except Exception:
+        days = 0
+    visit = norm_date(row.get("방문예정일"))
+    text = " ".join(str(row.get(k) or "") for k in (
+        "진행상태", "신청내용", "비고", "조치내용", "완료예정일"))
+    dated = bool(re.search(r"(?:20\d{2}[-./년 ]*)?\d{1,2}[-./월 ]+\d{1,2}일?", text))
+    explicit_parts = bool(re.search(r"(?:부품|자재).{0,16}(?:입고|수급|발주|배송).{0,12}(?:대기|예정|지연)", text))
+    explicit_camp = bool(re.search(r"(?:캠프|현장|고객).{0,18}(?:요청|협의).{0,18}(?:대기|예정|확정)", text))
+    agreed = bool((visit and visit > today) or explicit_parts or (dated and explicit_camp))
+    if days <= 2:
+        return {"지연구분": "정상기한", "경보": False,
+                "지연근거": "접수 후 2일 이내"}
+    if agreed:
+        reason = (f"방문예정 {visit}" if visit and visit > today else
+                  "부품 수급 또는 캠프 일정의 명시적 협의 대기")
+        return {"지연구분": "협의대기", "경보": False, "지연근거": reason}
+    return {"지연구분": "즉시조치", "경보": True,
+            "지연근거": "접수 3일 초과 · 합의된 대기 근거 없음"}
+
+
 def _calendar_work_events():
     """돌발AS·정기점검 실적을 캘린더 일정으로 바꾼다.
 
@@ -6092,11 +6123,14 @@ def _calendar_work_events():
                          "진행상태": r.get("진행상태") or "",
                          "신청내용": r.get("신청내용") or ""})
                     continue
-                add(got, "as_open", f"돌발AS 미처리 · {camp}", r,
+                delay = _as_delay_class(r, got, today)
+                add(got, "as_open", ("★ 즉시조치 · " if delay["경보"] else
+                                      "돌발AS 미처리 · ") + camp, r,
                     {"연결근거": "02_돌발AS접수 — 접수 뒤 작업완료일이 비어 있음",
                      "경과일": days, "긴급도": r.get("긴급도") or "",
                      "미처리사유": _why_still_open(r, bidx, got),
-                     "진행상태": r.get("진행상태") or "", "신청내용": r.get("신청내용") or ""})
+                     "진행상태": r.get("진행상태") or "", "신청내용": r.get("신청내용") or "",
+                     "방문예정일": norm_date(r.get("방문예정일")), **delay})
         # ★ 완료 건에도 **무슨 일이었는지**를 실어 보낸다(2026-08-08 지시:
         #   "리스트 중간 빈 공간에 사유 진행내용 등 표기"). 캡처 목록의 가운데 칸이
         #   이 값을 쓴다 — 없으면 캠프명만 늘어서서 "무슨 건인지"를 다시 찾아야 한다.
@@ -6343,8 +6377,11 @@ def project_history(camp="", pj="", limit=400):
             # 앞날이면 '예정'에도 함께 세운다 — 같은 건이 두 칸에 보이는 것이 맞다
             # (지금 밀려 있고, 언제 갈 예정인지는 다른 사실이다).
             if got:
-                현황.append(item("as_open", got, "돌발AS 미처리", r, "접수ID",
-                                 경과일=_daydiff(got, today), 방문예정일=vis, **common))
+                delay = _as_delay_class(r, got, today)
+                현황.append(item("as_open", got,
+                                 "★ 즉시조치" if delay["경보"] else "돌발AS 미처리",
+                                 r, "접수ID", 경과일=_daydiff(got, today),
+                                 방문예정일=vis, **delay, **common))
             elif not vis:
                 # ★ 날짜를 모르는 행에 '완료'·'미처리' 색과 말을 붙이지 않는다 —
                 #   모르는 것은 모른다고 회색(etc)으로 둔다.
@@ -8226,6 +8263,20 @@ self.addEventListener('fetch', e => {
             return self._send(401, {"error": "PIN"})
         if p == "/api/live-state":
             return self._send(200, get_live_state())
+        if p == "/api/system-audit":
+            # 관리자 실행 화면의 공용 진단. 요청이 원장·엑셀을 다시 읽으면 화면을 여는
+            # 사람마다 무거운 진단이 겹친다. 앱 서버의 15분 고리가 만든 캐시만 즉시 준다.
+            if not self._require_admin():
+                return
+            try:
+                import system_audit
+                return self._send(200, system_audit.read_cached())
+            except Exception as exc:
+                return self._send(200, {
+                    "state": "unknown", "healthy": False,
+                    "summary": {"P0": 0, "P1": 0, "P2": 0, "total": 0},
+                    "findings": [], "error": "진단 보고서를 읽지 못했습니다: %s" % str(exc)[:180],
+                })
         if p == "/api/status":
             return self._send(200, get_status())
         if p == "/api/app-store/status":
@@ -9398,6 +9449,43 @@ def lan_ip():
 PUBLISH_EVERY = 3 * 3600      # 폰이 보는 사본을 몇 초마다 새로 올릴지
 
 
+SYSTEM_AUDIT_EVERY = 15 * 60
+
+
+def system_audit_loop():
+    """앱 자체가 공용 진단기를 주기적으로 실행한다 — AI 세션과 크레딧이 필요 없다.
+
+    진단기는 작은 상태 파일만 읽고 별도 프로세스에서 돈다. 따라서 진단 한 갈래가
+    고장 나거나 멈춰도 HTTP 요청·담당자 저장 경로는 계속 응답한다.
+    """
+    if DEMO:
+        return
+    time.sleep(8)
+    while True:
+        started = time.monotonic()
+        try:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            result = subprocess.run(
+                [PY, os.path.join(ROOT, "system_audit.py")],
+                cwd=ROOT,
+                env={**ENV, "COUPANG_UNATTENDED": "1"},
+                capture_output=True,
+                text=True,
+                timeout=120,
+                creationflags=flags,
+            )
+            if result.returncode != 0:
+                runner["log"].append(
+                    "[시스템 진단] 실패 코드 %s · %s" %
+                    (result.returncode, ((result.stderr or result.stdout or "")[-160:])))
+        except subprocess.TimeoutExpired:
+            runner["log"].append("[시스템 진단] 120초 시간초과 · 앱 업무는 계속합니다")
+        except Exception as exc:
+            runner["log"].append("[시스템 진단] 실패 %s" % type(exc).__name__)
+        elapsed = time.monotonic() - started
+        time.sleep(max(60, SYSTEM_AUDIT_EVERY - elapsed))
+
+
 def publish_loop():
     """PC가 켜져 있는 동안 **주기적으로** 폰용 사본을 올린다.
 
@@ -9487,6 +9575,7 @@ def main():
         return 1
     threading.Thread(target=publish_loop, daemon=True).start()
     threading.Thread(target=warm_caches, daemon=True).start()
+    threading.Thread(target=system_audit_loop, daemon=True).start()
     mode = "데모(합성데이터)" if DEMO else "실서비스"
     print(f"Coupang Service Operations System 앱 서버 [{mode}] 시작")
     print(f"  PC:      http://localhost:{PORT}")

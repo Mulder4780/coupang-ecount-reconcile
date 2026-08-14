@@ -614,11 +614,23 @@ def collect():
         "업무흐름": work_flow_change(),
         "사실대조": truth_gap(),
         "오류사전": _error_book_lines(),
+        "시스템진단": _system_audit_lines(),
         "세션자동화": session_auto(),
         "스케줄러": schedule_health(),
         "크롬수집": userscript_health(),
         "앱서버": app_server_health(),
     }
+
+
+def _system_audit_lines():
+    """앱·Claude Code·Codex 공용 진단의 **캐시**만 인계에 싣는다."""
+    try:
+        import system_audit
+        report = system_audit.read_cached()
+        return [row for row in (report.get("findings") or [])
+                if row.get("priority") in ("P0", "P1")]
+    except Exception:
+        return []
 
 
 def userscript_health():
@@ -903,6 +915,10 @@ def truth_gap():
 def blockers(st, for_sol=False):
     """다음 세션이 **먼저 처리해야** 하는 것 — 안 하면 조용히 어긋난다."""
     out = []
+    for row in (st.get("시스템진단") or []):
+        out.append(("[%s] %s — %s" % (row.get("priority", ""), row.get("title", ""),
+                                      str(row.get("evidence") or "")[:150]),
+                    row.get("action") or "python system_audit.py --print"))
     # ★ 화면이 조용히 틀린 값을 보여 주는 것 (2026-08-13 지시: "위 같은 문제 잡아내는
     #   기능 AI 추가해"). 그날 둘 다 **사람이 전화로 지적하고 나서야** 알았다 —
     #   캘린더 미처리의 31%가 이미 취소된 건이었고([243]), 다녀온 현장이 원장 완료일이

@@ -331,7 +331,8 @@ window.__ERPGRAB = {단계: '시작', 조회전: null, 조회후: null, 완료: 
   const x = document.querySelector('[data-cid="outputExcel"]');
   if (!x) { say({오류:'엑셀 버튼을 못 찾음'}); return; }
   x.click(); await wait(4000);
-  say({단계:'엑셀 받음', 완료:true});
+  say({단계:'엑셀 다운로드 요청', 요청완료:true, 디스크확인:false,
+       다음:'download_intake.py가 새 XLSX 도착을 확인해야 최종 완료'});
 })();
 // 여기서 즉시 반환된다 — 진행은 window.__ERPGRAB 을 다시 읽어서 본다.
 window.__ERPGRAB;
@@ -675,7 +676,13 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
              || pick(null, 'Excel', true) || pick(null, '엑셀', true);
       if (!x) { done({결과: '실패', 왜: '엑셀 버튼이 없다 — 인쇄 미리보기 안에만 있는 화면일 수 있다'}); continue; }
       x.click(); await wait(5000);
-      done({결과: '받음', 행: seen.length, 기간안: inR.length, 기간: `${rng.from} ~ ${rng.to}`});
+      // 브라우저는 다운로드 단추를 눌렀다는 사실까지만 안다. 디스크 파일은 브라우저
+      // 샌드박스 밖이라 여기서 존재를 확인할 수 없다. 예전의 '받음'은 실제 XLSX가
+      // 하나도 없는 경우에도 성공처럼 끝났다(2026-08-14 실사고). 최종 성공은
+      // download_intake.py가 새 파일의 크기·형식·흡수를 확인한 뒤에만 기록한다.
+      done({결과: '다운로드요청', 디스크확인: false, 행: seen.length,
+            기간안: inR.length, 기간: `${rng.from} ~ ${rng.to}`,
+            다음: 'download_intake.py의 새 XLSX 도착 확인 필요'});
     } catch (e) {
       done({결과: '실패', 왜: '예외: ' + (e && e.message)});
     }

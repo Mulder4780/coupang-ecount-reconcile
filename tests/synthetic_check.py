@@ -10167,6 +10167,9 @@ def t146_erp_bulk_grab_registry():
         "offsetParent 로 보임을 재면 fixed 안의 버튼을 잃는다"
     # ⑨ 엑셀은 **한 번만** 누른다 — 후보를 전부 누르면 같은 파일이 두 벌 떨어진다.
     assert "x.click()" in all_js and "forEach(x => x.click())" not in all_js
+    assert "결과: '다운로드요청'" in all_js and "디스크확인: false" in all_js
+    assert "결과: '받음'" not in all_js, \
+        "브라우저가 파일 도착을 못 보면서 '받음' 성공을 가장한다"
     # ⑩ ★ 사이트맵은 **채워질 때까지 기다린다** (2026-08-08 실측).
     #    824개가 만들어지기 전에 읽으면 0개가 나오고, 그러면 '메뉴 못 찾음'이 되어
     #    모듈이 다른 줄 알고 엉뚱한 데를 뒤진다(반나절 낭비). 그래서 둘을 가려 적는다.
@@ -19274,6 +19277,56 @@ def t265_staff_server_manager_has_three_independent_recovery_lines():
     print("[265] 류지영·오종현 경로 감시 · 3중 자가복구 · 5분 예약/로그인 시작 OK")
 
 
+def t266_one_audit_engine_and_unattended_repairs():
+    """[266] 앱·Claude·Codex 진단은 하나이며 무인 회차가 질문·남의 터널을 건드리지 않는다."""
+    import system_audit as A
+    report = A.build()
+    assert report["engine"] == "system_audit.py" and report["scope"] == "cached-state-only"
+    assert len({row["id"] for row in report["findings"]}) == len(report["findings"])
+    assert all(row["priority"] in ("P0", "P1", "P2") for row in report["findings"])
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    handoff = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert 'if p == "/api/system-audit"' in server and "def system_audit_loop(" in server
+    assert "SYSTEM_AUDIT_PATH='/api/system-audit'" in live and "loadSystemAudit(true" in live
+    assert '"시스템진단": _system_audit_lines()' in handoff
+    watchdog = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    heal = watchdog.split("def heal_stale_server(", 1)[1].split("def ", 1)[0]
+    tunnel = watchdog.split("def kill_stale_tunnel(", 1)[1].split("def ", 1)[0]
+    assert 'os.environ["COUPANG_UNATTENDED"] = "1"' in heal
+    assert "Name -eq 'cloudflared.exe' -or" not in tunnel
+    assert "127.0.0.1:8899" in tunnel and "tunnel_run.py" in tunnel
+    print("[266] 공용 진단 정본 · 앱 15분 회차 · 무인 무팝업 · 프로젝트 터널만 복구 OK")
+
+
+def t267_yoo_subi_capture_and_official_erp_api():
+    """[267] 오전 통화의 대표 보고 구조와 확인된 ERP 조회 경계가 코드에 고정된다."""
+    from webapp import app_server as S
+    urgent = S._as_delay_class({"신청내용": "기사 방문 여부 확인 필요"},
+                               "2026-08-01", "2026-08-14")
+    agreed = S._as_delay_class({"방문예정일": "2026-08-20"},
+                               "2026-08-01", "2026-08-14")
+    fresh = S._as_delay_class({}, "2026-08-13", "2026-08-14")
+    assert urgent["경보"] and urgent["지연구분"] == "즉시조치"
+    assert not agreed["경보"] and agreed["지연구분"] == "협의대기"
+    assert not fresh["경보"] and fresh["지연구분"] == "정상기한"
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    cap = live.split("async function calendarCapture(", 1)[1].split("\nasync function ", 1)[0]
+    for token in ("k.key !== 'pm_pred'", "정기점검 진도", "돌발AS 조치",
+                  "하루 ${pace}건 필요", "왼쪽 두 단은 정기점검", "오른쪽 두 단은 돌발AS",
+                  "['pm_done','pm_plan','pm_overdue']", "['as_done','as_open','as_visit'"):
+        assert token in cap, "오전 통화 대표 캡처 규칙 누락: " + token
+    assert ".cal2-ev.urgent" in live and "prefers-reduced-motion:reduce" in live
+    import erp_api_collect as E
+    assert set(E.CONFIRMED) == {"items", "po_list"}
+    source = open(os.path.join(ROOT, "erp_api_collect.py"), encoding="utf-8").read()
+    assert 'client.inquiry(endpoint, body)' in source and '"ERP:api_items"' in source
+    assert "not_available_as_read_api" in source and "판매/매입전표" in source
+    daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert '"ERP 공식 API 자료 수집"' in daily and "erp_api_collect.py" in daily
+    print("[267] 유수비 대표보고 순서·진도/속도·AS 지연경보 · ERP 확인 API만 수집 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19394,6 +19447,8 @@ if __name__ == "__main__":
     t263_server_guard_and_lossless_offline_outbox()
     t264_fixed_funnel_is_a_separate_guarded_failure_domain()
     t265_staff_server_manager_has_three_independent_recovery_lines()
+    t266_one_audit_engine_and_unattended_repairs()
+    t267_yoo_subi_capture_and_official_erp_api()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
