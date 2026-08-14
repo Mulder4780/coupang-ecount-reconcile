@@ -19143,8 +19143,19 @@ def t261_pc_report_uses_available_width_mobile_stays_same():
     """[261] 보고 화면은 PC에서 넓게, 모바일에서는 기존 카드 폭을 유지한다."""
     html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     compact = re.sub(r"\s+", "", html)
-    assert "@media(min-width:900px){#v-report.rpt{width:100%;max-width:none}}" in compact, \
+    assert "@media(min-width:900px){.rpt{width:100%;max-width:none}}" in compact, \
         "PC 보고서가 720px 모바일 폭에 고정돼 양옆이 빈다"
+    # ★ 2026-08-14 실측: 이 규칙이 `#v-report .rpt` 로 적혀 있어 **한 번도 안 맞았다.**
+    # 보고서 한 장(.rpt)은 화면에 하나뿐이고 `#v-daily` 안에 있다. 규칙이 파일에 멀쩡히
+    # 있으니 아무도 빠진 줄 몰랐다 — 안 맞는 규칙은 없는 규칙과 구별되지 않는다(`[165]`).
+    # 되돌아가면 안 되는 것만 글자로 막는다: 그 조상 id 를 다시 붙이는 것.
+    assert "#v-report.rpt{width:100%" not in compact, \
+        "보고서(.rpt)는 #v-report 가 아니라 #v-daily 안에 있다 — 그 규칙은 안 맞는다"
+    body = html.split("<body", 1)[-1]
+    rpt_at = body.find('class="rpt"')
+    assert rpt_at > 0, "보고서 .rpt 마크업을 못 찾았다"
+    assert body.rfind('id="v-daily"', 0, rpt_at) > body.rfind('id="v-report"', 0, rpt_at), \
+        "보고서 .rpt 가 담긴 뷰가 바뀌었다 — 폭 규칙의 조상 조건을 다시 재고 고칠 것"
     assert "@media(max-width:640px)" in html and \
            ".rpt{padding:16px 14px 14px;max-width:100%;overflow-x:hidden}" in html, \
         "PC 폭을 고치며 정상인 모바일 카드 레이아웃을 없앴다"
