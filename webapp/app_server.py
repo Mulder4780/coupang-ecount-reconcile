@@ -6197,6 +6197,42 @@ def _calendar_work_events():
     return out
 
 
+def _drop_served_pm_plans(events):
+    """완료와 같은 회차인 정기점검 예정은 목록에서 내린다.
+
+    예정은 류지영 스케줄 원본, 완료는 관리대장 원장에서 와서 원천업무ID가 서로 다를 수
+    있다. 프로젝트NO를 우선 같은 장비로 보고, 프로젝트NO가 양쪽 모두 없을 때만 정규화한
+    캠프명을 쓴다. 완료일이 예정일보다 앞선 것은 지난 회차이므로 다음 예정은 남긴다.
+    """
+    rows = list(events or [])
+
+    def identity(event):
+        project = str(event.get("프로젝트NO") or "").split("·")[0].strip().upper()
+        if project:
+            return "project:" + project
+        camp = re.sub(r"[^0-9A-Za-z가-힣]", "", str(
+            event.get("캠프명") or event.get("장소") or "")).lower()
+        return ("camp:" + camp) if camp else ""
+
+    done_days = {}
+    for event in rows:
+        if event.get("분류") != "pm_done":
+            continue
+        key, day = identity(event), norm_date(event.get("날짜"))
+        if key and day:
+            done_days.setdefault(key, []).append(day)
+
+    kept, removed = [], 0
+    for event in rows:
+        if event.get("분류") == "pm_plan":
+            key, plan = identity(event), norm_date(event.get("날짜"))
+            if key and plan and any(day >= plan for day in done_days.get(key, ())):
+                removed += 1
+                continue
+        kept.append(event)
+    return kept, removed
+
+
 def get_calendar():
     """구글 캘린더(COUPANG 설치+납품+AS) 대조 캐시.
 
@@ -6299,6 +6335,10 @@ def get_calendar():
         pass
     except Exception as exc:
         print(f"  ! 수기 일정 건너뜀: {exc}")
+
+    # 예정 원본과 완료 원장이 다른 ID를 써도 같은 점검을 두 상태로 동시에 보여 주지 않는다.
+    # 완료일이 예정일 이후인 회차만 내리므로, 이미 끝난 지난 회차 뒤의 다음 예정은 보존한다.
+    d["일정"], d["점검완료예정제외"] = _drop_served_pm_plans(d.get("일정") or [])
 
     # 분류가 없는 옛 일정(Google 원천 등)도 필터에 걸리도록 자리를 준다.
     for e in d.get("일정") or []:

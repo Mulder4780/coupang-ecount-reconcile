@@ -6172,8 +6172,8 @@ def t120_calendar_sheet_and_share():
     assert "신청내용" in why and "진행상태" in why, "사유·진행내용이 빠져 있다"
     cap = live.split("async function calendarCapture(")[1].split("\nasync function ")[0]
     assert "calWhyOf(e)" in cap, "캡처가 사유 칸을 그리지 않는다"
-    assert "measureText(campTxt)" in cap, \
-        "캠프명을 고정폭으로 잘라 사유 자리를 만든다 — 현장 이름이 잘리면 안 된다"
+    assert "const titleLines=wrapAll(title" in cap, \
+        "캠프명이 긴 현장을 자르지 않고 다음 줄로 넘기는 상세 배치가 없다"
     srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     done = srv.split('"as_done", f"돌발AS 완료')[1][:400]
     assert "신청내용" in done, "완료 건에는 무슨 일이었는지가 실리지 않는다"
@@ -19726,7 +19726,7 @@ def t278_calendar_current_month_detail_previous_summary_only():
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     cap = live.split("async function calendarCapture(", 1)[1].split("\nasync function ", 1)[0]
     for token in (
-        "const prevRows=calendarRows().filter(e=>calMonthOf(e.날짜)===prevMonth",
+        "const prevRows=calReportRowsExclusive(calendarRows().filter(e=>calMonthOf(e.날짜)===prevMonth",
         "const curPmByKind=new Map", "pmGroups=makeGroups(['pm_done','pm_plan','pm_overdue'],curPmByKind)",
         "const drawPreviousSummary=", "전월 ${prevY}년 ${prevM}월 요약",
         "현재 월만 상세 표시", "전월은 요약만", "현재 월만 표시",
@@ -19773,6 +19773,62 @@ def t279_admin_settings_uses_server_role_and_local_logout():
             "HttpOnly" in cleared and "SameSite=Strict" in cleared), (
         "로그아웃 쿠키가 현재 브라우저의 서명 세션을 안전하게 만료시키지 않는다")
     print("[279] 설정 고정 위치 · 관리자 서버 역할 확인 · PIN 관리 · 현재 기기만 로그아웃 · 담당자 차단 OK")
+
+
+def t280_workflow_ctrl_z_keeps_native_text_undo():
+    """[280] Ctrl+Z는 도면 작업만 취소하고 입력칸의 글자 실행취소는 가로채지 않는다."""
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    fn = live.split("function flowVisualKey(e){", 1)[1].split("\n}", 1)[0]
+    for token in ("e.ctrlKey||e.metaKey", "toLowerCase()==='z'", "t.isContentEditable",
+                  "INPUT|TEXTAREA|SELECT", "if(typing)return", "flowVisualUndoLocal()"):
+        assert token in fn, "Ctrl+Z 도면 실행취소 안전장치가 빠졌다: " + token
+    flow_area = live.split("function flowVisualKey(e){", 1)[1]
+    listener = flow_area.split("document.addEventListener('keydown',e=>{", 1)[1][:520]
+    assert "curView()!=='flow'" in listener and "dlgIsOpen()" in listener, (
+        "워크플로우 밖이나 대화창 위에서도 Ctrl+Z가 도면을 건드린다")
+    assert "방금 취소 · Ctrl+Z" in live, "화면에서 Ctrl+Z 단축키를 알 수 없다"
+    print("[280] 워크플로우 Ctrl+Z · 입력 글자 기본 실행취소 보존 · 다른 화면/대화창 차단 OK")
+
+
+def t281_calendar_done_plan_exclusive_and_full_a4_width():
+    """[281] 완료 회차는 예정에서 빠지고 A4 좌우 1cm를 제외한 폭을 모두 쓴다."""
+    from webapp import app_server as S
+
+    rows = [
+        {"분류": "pm_plan", "날짜": "2026-08-03", "프로젝트NO": "UJ2601001", "캠프명": "가캠프"},
+        {"분류": "pm_done", "날짜": "2026-08-04", "프로젝트NO": "UJ2601001", "캠프명": "가캠프"},
+        # 완료보다 뒤에 잡힌 다음 회차는 지우면 안 된다.
+        {"분류": "pm_plan", "날짜": "2026-09-03", "프로젝트NO": "UJ2601001", "캠프명": "가캠프"},
+        # 프로젝트가 양쪽 모두 없을 때만 캠프명 정규화로 맞춘다.
+        {"분류": "pm_plan", "날짜": "2026-08-05", "프로젝트NO": "", "캠프명": "나 캠프"},
+        {"분류": "pm_done", "날짜": "2026-08-06", "프로젝트NO": "", "캠프명": "나-캠프"},
+        {"분류": "pm_plan", "날짜": "2026-08-07", "프로젝트NO": "UJ2601002", "캠프명": "다캠프"},
+    ]
+    kept, removed = S._drop_served_pm_plans(rows)
+    plans = {(r["날짜"], r.get("프로젝트NO"), r.get("캠프명"))
+             for r in kept if r["분류"] == "pm_plan"}
+    assert removed == 2, "완료와 겹친 예정만 정확히 두 건 내려야 한다: %r" % plans
+    assert ("2026-09-03", "UJ2601001", "가캠프") in plans, "다음 회차 예정까지 지웠다"
+    assert ("2026-08-07", "UJ2601002", "다캠프") in plans, "다른 프로젝트 예정을 지웠다"
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    cap = live.split("async function calendarCapture(", 1)[1].split("\nasync function ", 1)[0]
+    for token in ("calReportRowsExclusive", "done=>done>=plan", "capCompletedPlans",
+                  "Mg = Math.round(W / 21)", "for(let cols=1;cols<=maxCols;cols++)"):
+        assert token in cap, "캘린더 캡처 완료중복·1cm·폭 채움 규칙이 빠졌다: " + token
+    assert "detailLayout(groups,top,bottom,cols,fz)" in cap, (
+        "상세 목록이 실제 선택한 단 수로 남은 폭을 나누지 않는다")
+    print("[281] 완료된 예정 제외 · 다음 회차 보존 · A4 좌우 1cm · 가변 단으로 19cm 폭 채움 OK")
+
+
+def t282_settings_nav_uses_gear_icon():
+    """[282] 설정 메뉴는 권한 키가 아니라 톱니바퀴 아이콘으로 표시한다."""
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert 'symbol id="i-settings-gear"' in live, "톱니바퀴 SVG 심볼이 없다"
+    nav = live.split('<button class="settings-nav"', 1)[1].split("</button>", 1)[0]
+    assert 'href="#i-settings-gear"' in nav, "설정 메뉴가 톱니바퀴를 쓰지 않는다"
+    assert 'href="#i-bootstrap-key-fill"' not in nav, "설정 메뉴에 열쇠 아이콘이 남아 있다"
+    print("[282] 설정 메뉴 톱니바퀴 아이콘 · 열쇠 아이콘 제거 OK")
 
 
 if __name__ == "__main__":
@@ -20047,6 +20103,9 @@ if __name__ == "__main__":
     t244_band_evidence_closes_and_says_why()
     t245_truth_watch_asks_instead_of_asserting()
     t235_unattended_rounds_survive_pythonw()
+    t280_workflow_ctrl_z_keeps_native_text_undo()
+    t281_calendar_done_plan_exclusive_and_full_a4_width()
+    t282_settings_nav_uses_gear_icon()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

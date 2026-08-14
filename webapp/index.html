@@ -2986,6 +2986,8 @@ body.dash-drag-live #dashGuides{display:grid}
   <path d="M14 14V4.5L9.5 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2M9.5 3A1.5 1.5 0 0 0 11 4.5h2V14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h5.5z"/></symbol><symbol id="i-printer" viewBox="0 0 16 16" fill="currentColor"><path d="M2.5 8a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1"/>
   <path d="M5 1a2 2 0 0 0-2 2v2H2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1h1a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V3a2 2 0 0 0-2-2zM4 3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H4zm1 5a2 2 0 0 0-2 2v1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v-1a2 2 0 0 0-2-2zm7 2v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1"/></symbol><symbol id="i-refresh-cw" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
   <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/></symbol><symbol id="i-bootstrap-graph-up-arrow" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M0 0h1v15h15v1H0zm10 3.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0V4.9l-3.613 4.417a.5.5 0 0 1-.74.037L7.06 6.767l-3.656 5.027a.5.5 0 0 1-.808-.588l4-5.5a.5.5 0 0 1 .758-.06l2.609 2.61L13.445 4H10.5a.5.5 0 0 1-.5-.5"/></symbol></svg>
+<!-- 설정은 권한 키가 아니라 화면·운영 환경을 다루는 메뉴이므로 톱니바퀴로 구별한다. -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><symbol id="i-settings-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.73v.52a2 2 0 0 1-1 1.73l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.73v-.52a2 2 0 0 1 1-1.73l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol></svg>
 
 
 <div class="gate" id="gate">
@@ -3660,7 +3662,7 @@ body.dash-drag-live #dashGuides{display:grid}
           <button type="button" class="flow-vtool" data-flow-mode="arrow" onclick="flowVisualMode('arrow')">→ 화살표</button>
           <button type="button" class="flow-vtool" data-flow-mode="draw" onclick="flowVisualMode('draw')">✎ 그리기</button>
           <button type="button" class="flow-vtool danger" onclick="flowVisualDelete()">선택 삭제</button>
-          <button type="button" class="flow-vtool" onclick="flowVisualUndoLocal()">↶ 방금 취소</button>
+          <button type="button" class="flow-vtool" onclick="flowVisualUndoLocal()" title="Ctrl+Z">↶ 방금 취소 · Ctrl+Z</button>
           <button type="button" class="flow-vtool" onclick="flowVisualAutoLayout()">자동 배치</button>
           <button type="button" class="flow-vtool" onclick="flowVisualRestore()">저장본 되돌리기</button>
           <button type="button" class="flow-vtool save" id="flowVisualSaveBtn" onclick="flowVisualSave()">도면 저장</button>
@@ -4873,7 +4875,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   <button data-v="report" onclick="routeNav('report')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-text-fill"/></svg>기록</button>
   <button data-v="org" onclick="routeNav('org')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-badge-fill"/></svg>조직도</button>
   <div class="nav-spacer" aria-hidden="true"></div>
-  <button class="settings-nav" data-v="settings" onclick="routeNav('settings')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-key-fill"/></svg>설정</button>
+  <button class="settings-nav" data-v="settings" onclick="routeNav('settings')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-settings-gear"/></svg>설정</button>
   <button class="calendar-nav" data-v="calendar" onclick="routeNav('calendar')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>쿠팡 캘린더</button>
 </nav>
 
@@ -9599,10 +9601,23 @@ function flowVisualAutoLayout(){
   flowVisualBuild(false);flowVisualRender();toast('현재 업무 단계로 자동 배치했습니다');
 }
 function flowVisualKey(e){
+  const undo=(e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&String(e.key||'').toLowerCase()==='z';
+  const t=e.target,typing=!!(t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/i.test(t.tagName||'')));
+  // 단계명·담당 입력 중에는 브라우저의 글자 실행취소가 먼저다. 도면 위에서만
+  // Ctrl+Z를 '방금 취소'와 같은 한 경로로 보낸다.
+  if(undo){
+    if(typing)return;
+    e.preventDefault();e.stopPropagation();flowVisualUndoLocal();return;
+  }
   if((e.key==='Delete'||e.key==='Backspace')&&FLOW_VIS_SELECTED){
     e.preventDefault();flowVisualDelete();
   }else if(e.key==='Escape'){FLOW_VIS_ARROW_FROM='';FLOW_VIS_SELECTED=null;flowVisualMode('select');}
 }
+document.addEventListener('keydown',e=>{
+  if(e.defaultPrevented||curView()!=='flow'||(typeof dlgIsOpen==='function'&&dlgIsOpen()))return;
+  if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&String(e.key||'').toLowerCase()==='z')
+    flowVisualKey(e);
+});
 async function flowVisualSave(){
   if(!FLOW_VIS_DIRTY){toast('도면은 이미 저장된 상태입니다');return;}
   const body={chart:FLOW_CHART,visual:flowVisualPayload(),
@@ -14811,12 +14826,36 @@ async function calendarCapture(opt){
        ⚠ **앱 화면에서는 빼지 않는다** — 형님이 보려고 두는 값이다("제가 보려고").
           빼는 것은 대표에게 나가는 이 한 장뿐이다.
        ⚠ **조용히 빼지 않는다**([169]) — 몇 건을 왜 뺐는지 맨 아래에 적는다. */
+  /* 원본 둘의 ID가 달라도 같은 프로젝트의 완료일이 예정일 이후라면 이미 치른 회차다.
+     서버가 먼저 예정을 내리지만, 재시작 전 옛 응답·오프라인 캐시도 대표 보고에 중복으로
+     들어가지 않도록 캡처 길목에서 한 번 더 상호배타 처리한다. */
+  const pmReportUnit=e=>{
+    const pj=String(e&&e.프로젝트NO||'').split('·')[0].trim().toUpperCase();
+    if(pj)return 'project:'+pj;
+    const camp=String(calCampOf(e)||'').replace(/[^0-9A-Za-z가-힣]/g,'').toLowerCase();
+    return camp?'camp:'+camp:'';
+  };
+  const calReportRowsExclusive=source=>{
+    const sourceRows=(source||[]).slice(),doneDays=new Map();
+    sourceRows.filter(e=>calKindOf(e)==='pm_done').forEach(e=>{
+      const key=pmReportUnit(e),day=String(e.날짜||'').slice(0,10);if(!key||!day)return;
+      if(!doneDays.has(key))doneDays.set(key,[]);doneDays.get(key).push(day);
+    });
+    return sourceRows.filter(e=>{
+      if(calKindOf(e)!=='pm_plan')return true;
+      const key=pmReportUnit(e),plan=String(e.날짜||'').slice(0,10);
+      return !key||!plan||!(doneDays.get(key)||[]).some(done=>done>=plan);
+    });
+  };
   const capAll = calendarRows().filter(e => calMonthOf(e.날짜) === CAL_MONTH);
-  const rows = capAll.filter(e => calKindOf(e) !== 'pm_pred');
-  const capDropped = capAll.length - rows.length;
+  const capWithoutPrediction = capAll.filter(e => calKindOf(e) !== 'pm_pred');
+  const rows = calReportRowsExclusive(capWithoutPrediction);
+  const capDropped = capAll.length - capWithoutPrediction.length;
+  const capCompletedPlans = capWithoutPrediction.length - rows.length;
   if(!rows.length){ if(!opt.toBlob) toast('이 달에 표시할 일정이 없습니다'); return null; }
   const [Y, M] = CAL_MONTH.split('-').map(Number);
-  const S = 2, W = A4W, H = A4H * A4PAGES, Mg = 26;
+  // A4 세로 폭 21cm 중 좌우 각각 정확히 1cm만 비우고 나머지 19cm를 모두 쓴다.
+  const S = 2, W = A4W, H = A4H * A4PAGES, Mg = Math.round(W / 21);
   const F = (z, w) => `${w || 400} ${z}px ${uiFont()}`;
   const cv = document.createElement('canvas'); cv.width = W * S; cv.height = H * S;
   const x = cv.getContext('2d'); x.scale(S, S);
@@ -14923,7 +14962,7 @@ async function calendarCapture(opt){
   const qStart = new Date(Y, q0, 1), qEnd = new Date(Y, q0 + 3, 0);
   const qIso0 = `${Y}-${String(q0 + 1).padStart(2,'0')}-01`;
   const qIso1 = `${Y}-${String(q0 + 3).padStart(2,'0')}-${String(qEnd.getDate()).padStart(2,'0')}`;
-  const allCap = calEvents().filter(e => calKindOf(e) !== 'pm_pred');
+  const allCap = calReportRowsExclusive(calEvents().filter(e => calKindOf(e) !== 'pm_pred'));
   const qPm = allCap.filter(e => ['pm_done','pm_plan','pm_overdue'].includes(calKindOf(e))
     && String(e.날짜) >= qIso0 && String(e.날짜) <= qIso1);
   const unit = e => String(e.원천업무ID || e.프로젝트NO || `${e.날짜}|${calCampOf(e)}`);
@@ -14936,8 +14975,8 @@ async function calendarCapture(opt){
      그대로 두되, 2·3쪽의 상세 근거에는 현재 월 밖 행이 들어가지 않는다. */
   const prevDate=new Date(Y,M-2,1), prevY=prevDate.getFullYear(),prevM=prevDate.getMonth()+1;
   const prevMonth=`${prevY}-${String(prevM).padStart(2,'0')}`;
-  const prevRows=calendarRows().filter(e=>calMonthOf(e.날짜)===prevMonth
-    &&calKindOf(e)!=='pm_pred');
+  const prevRows=calReportRowsExclusive(calendarRows().filter(e=>calMonthOf(e.날짜)===prevMonth
+    &&calKindOf(e)!=='pm_pred'));
   const priorityRows=(source,doneKey,openKeys)=>{
     const done=uniqRows(source.filter(e=>calKindOf(e)===doneKey));
     const seen=new Set(done.map(unit)),rest={};
@@ -15128,11 +15167,15 @@ async function calendarCapture(opt){
     }
     return {ok:true,cols,colW,gap,pos,fz,lh};
   };
-  const fitDetail=(groups,top,bottom,cols)=>{
+  const fitDetail=(groups,top,bottom,maxCols)=>{
+    // 같은 글자 크기라면 가장 적은 단 수를 먼저 고른다. 자료가 적은 달에 4단 중
+    // 왼쪽 1~2단만 차고 오른쪽이 비는 대신, 남은 19cm 폭 전체로 단을 넓힌다.
     for(const fz of [8.2,7.8,7.4,7,6.6,6.2,5.8]){
-      const plan=detailLayout(groups,top,bottom,cols,fz);if(plan.ok)return plan;
+      for(let cols=1;cols<=maxCols;cols++){
+        const plan=detailLayout(groups,top,bottom,cols,fz);if(plan.ok)return plan;
+      }
     }
-    return detailLayout(groups,top,bottom,cols,5.4);
+    return detailLayout(groups,top,bottom,maxCols,5.4);
   };
   const drawDetail=(plan)=>{
     plan.pos.forEach(b=>{
@@ -15175,8 +15218,9 @@ async function calendarCapture(opt){
   drawDetail(pmPlan);drawDetail(asPlan);
   const pmTotal=pmGroups.reduce((n,g)=>n+g.list.length,0);
   const asTotal=asGroups.reduce((n,g)=>n+g.list.length,0);
-  const dropNote=capDropped
-    ? ` · 정기점검 예측 ${capDropped}건은 대표 지시로 뺐습니다(앱 화면에는 그대로)` : '';
+  const dropNote=(capDropped
+    ? ` · 정기점검 예측 ${capDropped}건은 대표 지시로 뺐습니다(앱 화면에는 그대로)` : '')
+    +(capCompletedPlans?` · 완료와 겹친 예정 ${capCompletedPlans}건 제외`: '');
   x.font=F(9);x.fillStyle='#98A2B3';
   x.fillText(`2/3 · ${M}월 정기점검 상세 ${pmTotal}건 · 전월은 요약만 · 사유와 근거를 생략 없이 표시${dropNote}`,Mg,page2+A4H-14);
   x.fillText(`3/3 · ${M}월 돌발AS·기타 상세 ${asTotal}건 · 현재 월만 표시 · 사유와 근거를 생략 없이 표시 · A4 세 장`,Mg,H-14);
