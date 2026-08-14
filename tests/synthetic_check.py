@@ -19572,9 +19572,9 @@ def t273_calendar_capture_is_three_pages_and_never_drops_reasons():
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     cap = live.split("async function calendarCapture(", 1)[1].split("\nasync function ", 1)[0]
     for token in (
-        "A4PAGES = 3", "1/3", "2/3", "3/3", "wrapAll", "detailLayout",
+        "A4PAGES = 3", "const page2=A4H,page3=A4H*2", "wrapAll", "detailLayout",
         "정기점검 전 건 근거 · 사유 전체", "돌발AS·기타 일정 전 건 근거 · 사유 전체",
-        "if(!pmPlan.ok||!asPlan.ok)", "사유와 근거를 생략 없이 표시",
+        "if(!pmPlan.ok||!asPlan.ok)",
     ):
         assert token in live if token == "A4PAGES = 3" else token in cap, \
             "대표 캡처 3쪽/사유 전체 규칙 누락: " + token
@@ -19729,7 +19729,7 @@ def t278_calendar_current_month_detail_previous_summary_only():
         "const prevRows=calReportRowsExclusive(calendarRows().filter(e=>calMonthOf(e.날짜)===prevMonth",
         "const curPmByKind=new Map", "pmGroups=makeGroups(['pm_done','pm_plan','pm_overdue'],curPmByKind)",
         "const drawPreviousSummary=", "전월 ${prevY}년 ${prevM}월 요약",
-        "현재 월만 상세 표시", "전월은 요약만", "현재 월만 표시",
+        "현재 월만 상세 표시", "drawPreviousSummary(page2)",
     ):
         assert token in cap, "현재 월 상세·전월 요약 규칙이 빠졌다: " + token
     assert "const qByKind=" not in cap, (
@@ -19813,7 +19813,8 @@ def t281_calendar_done_plan_exclusive_and_full_a4_width():
 
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     cap = live.split("async function calendarCapture(", 1)[1].split("\nasync function ", 1)[0]
-    for token in ("calReportRowsExclusive", "done=>done>=plan", "capCompletedPlans",
+    for token in ("calReportRowsExclusive", "done=>done>=plan",
+                  "const rows = calReportRowsExclusive(capWithoutPrediction)",
                   "Mg = Math.round(W / 21)", "for(let cols=1;cols<=maxCols;cols++)"):
         assert token in cap, "캘린더 캡처 완료중복·1cm·폭 채움 규칙이 빠졌다: " + token
     assert "detailLayout(groups,top,bottom,cols,fz)" in cap, (
@@ -19829,6 +19830,20 @@ def t282_settings_nav_uses_gear_icon():
     assert 'href="#i-settings-gear"' in nav, "설정 메뉴가 톱니바퀴를 쓰지 않는다"
     assert 'href="#i-bootstrap-key-fill"' not in nav, "설정 메뉴에 열쇠 아이콘이 남아 있다"
     print("[282] 설정 메뉴 톱니바퀴 아이콘 · 열쇠 아이콘 제거 OK")
+
+
+def t283_calendar_capture_has_no_page_footer_captions():
+    """[283] 대표 캘린더 세 쪽 하단에는 페이지 설명 문구를 넣지 않는다."""
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    cap = live.split("async function calendarCapture(", 1)[1].split("\nasync function ", 1)[0]
+    for forbidden in (
+        "x.fillText(`1/3 ·", "x.fillText(`2/3 ·", "x.fillText(`3/3 ·",
+        "capDropped", "capCompletedPlans", "pmTotal", "asTotal", "dropNote",
+    ):
+        assert forbidden not in cap, "페이지 하단 설명 문구/전용 계산이 다시 들어왔다: " + forbidden
+    for token in ("const page2=A4H,page3=A4H*2", "detailHeader(page2", "detailHeader(page3"):
+        assert token in cap, "하단 문구 제거 중 세 페이지 본문 구분까지 사라졌다: " + token
+    print("[283] 캘린더 1·2·3쪽 하단 설명 문구 제거 · 세 페이지 본문 유지 OK")
 
 
 if __name__ == "__main__":
@@ -20106,6 +20121,7 @@ if __name__ == "__main__":
     t280_workflow_ctrl_z_keeps_native_text_undo()
     t281_calendar_done_plan_exclusive_and_full_a4_width()
     t282_settings_nav_uses_gear_icon()
+    t283_calendar_capture_has_no_page_footer_captions()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

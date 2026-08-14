@@ -14850,8 +14850,6 @@ async function calendarCapture(opt){
   const capAll = calendarRows().filter(e => calMonthOf(e.날짜) === CAL_MONTH);
   const capWithoutPrediction = capAll.filter(e => calKindOf(e) !== 'pm_pred');
   const rows = calReportRowsExclusive(capWithoutPrediction);
-  const capDropped = capAll.length - capWithoutPrediction.length;
-  const capCompletedPlans = capWithoutPrediction.length - rows.length;
   if(!rows.length){ if(!opt.toBlob) toast('이 달에 표시할 일정이 없습니다'); return null; }
   const [Y, M] = CAL_MONTH.split('-').map(Number);
   // A4 세로 폭 21cm 중 좌우 각각 정확히 1cm만 비우고 나머지 19cm를 모두 쓴다.
@@ -15086,9 +15084,6 @@ async function calendarCapture(opt){
       ['판정 순서','완료 → 정상기한 → 협의대기 → 즉시조치'],
       ['상세 근거','3쪽에서 미처리 전 건의 이유·경과일 확인']
     ],asAlerts.length?asAlerts:['★ 오늘 즉시 재촉할 돌발AS가 없습니다.']);
-  x.font=F(8.5);x.fillStyle='#98A2B3';
-  x.fillText(`1/3 · 월간 캘린더와 대표 판단 · 정기점검 예측 ${capDropped}건은 대표 지시로 제외`,Mg,A4H-14);
-
   // ⑤ 2쪽 정기점검 · 3쪽 돌발AS. 사유를 한 줄로 자르지 않고 블록의 실제 높이를
   // 재서 다음 단으로 넘긴다. 모두 못 넣으면 불완전한 그림을 저장하지 않는다.
   const sortDetail=(key,list)=>(list||[]).slice().sort((a,b)=>
@@ -15216,14 +15211,6 @@ async function calendarCapture(opt){
     return null;
   }
   drawDetail(pmPlan);drawDetail(asPlan);
-  const pmTotal=pmGroups.reduce((n,g)=>n+g.list.length,0);
-  const asTotal=asGroups.reduce((n,g)=>n+g.list.length,0);
-  const dropNote=(capDropped
-    ? ` · 정기점검 예측 ${capDropped}건은 대표 지시로 뺐습니다(앱 화면에는 그대로)` : '')
-    +(capCompletedPlans?` · 완료와 겹친 예정 ${capCompletedPlans}건 제외`: '');
-  x.font=F(9);x.fillStyle='#98A2B3';
-  x.fillText(`2/3 · ${M}월 정기점검 상세 ${pmTotal}건 · 전월은 요약만 · 사유와 근거를 생략 없이 표시${dropNote}`,Mg,page2+A4H-14);
-  x.fillText(`3/3 · ${M}월 돌발AS·기타 상세 ${asTotal}건 · 현재 월만 표시 · 사유와 근거를 생략 없이 표시 · A4 세 장`,Mg,H-14);
 
   const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
   if(!blob){ if(!opt.toBlob) notice('이미지 생성 실패'); return null; }
