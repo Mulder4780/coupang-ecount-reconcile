@@ -19721,6 +19721,26 @@ def t277_busy_org_light_blinks():
     print("[277] 조직도 업무 중 주황 표시등 점멸 · 나머지 상태 고정 · 움직임 최소화 존중 OK")
 
 
+def t278_calendar_current_month_detail_previous_summary_only():
+    """[278] 캘린더 캡처는 현재 월만 상세, 전월은 숫자 요약만 싣는다."""
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    cap = live.split("async function calendarCapture(", 1)[1].split("\nasync function ", 1)[0]
+    for token in (
+        "const prevRows=calendarRows().filter(e=>calMonthOf(e.날짜)===prevMonth",
+        "const curPmByKind=new Map", "pmGroups=makeGroups(['pm_done','pm_plan','pm_overdue'],curPmByKind)",
+        "const drawPreviousSummary=", "전월 ${prevY}년 ${prevM}월 요약",
+        "현재 월만 상세 표시", "전월은 요약만", "현재 월만 표시",
+    ):
+        assert token in cap, "현재 월 상세·전월 요약 규칙이 빠졌다: " + token
+    assert "const qByKind=" not in cap, (
+        "분기 전체 목록이 다시 정기점검 상세 페이지에 들어간다")
+    assert "const asGroups=makeGroups(['as_done','as_open','as_visit',...extras],byKind)" in cap, (
+        "돌발AS 상세가 현재 월 필터 결과(byKind)를 쓰지 않는다")
+    assert "prevPm.rest.pm_overdue.length" in cap and "prevAs.rest.as_open.length" in cap, (
+        "전월 요약에 정기점검·돌발AS 미처리 숫자가 없다")
+    print("[278] 캘린더 현재 월만 전 건 상세 · 전월 현장 목록 제외 · 완료/예정/미처리 요약만 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19852,6 +19872,7 @@ if __name__ == "__main__":
     t275_work_cards_require_edit_then_batch_save_with_notifications()
     t276_mouse_workflow_canvas()
     t277_busy_org_light_blinks()
+    t278_calendar_current_month_detail_previous_summary_only()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

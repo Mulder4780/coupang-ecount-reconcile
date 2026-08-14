@@ -14792,12 +14792,36 @@ async function calendarCapture(opt){
     const out=new Map();(list||[]).forEach(e=>{const k=unit(e);if(!out.has(k))out.set(k,e);});
     return [...out.values()];
   };
+  /* 상세 페이지에는 **현재 월만** 싣는다(2026-08-14 지시). 전월은 현장별 긴 목록을
+     다시 펼치지 않고 요약 숫자만 한 줄로 남긴다. 분기 진도 계산은 대표 판단용 요약이라
+     그대로 두되, 2·3쪽의 상세 근거에는 현재 월 밖 행이 들어가지 않는다. */
+  const prevDate=new Date(Y,M-2,1), prevY=prevDate.getFullYear(),prevM=prevDate.getMonth()+1;
+  const prevMonth=`${prevY}-${String(prevM).padStart(2,'0')}`;
+  const prevRows=calendarRows().filter(e=>calMonthOf(e.날짜)===prevMonth
+    &&calKindOf(e)!=='pm_pred');
+  const priorityRows=(source,doneKey,openKeys)=>{
+    const done=uniqRows(source.filter(e=>calKindOf(e)===doneKey));
+    const seen=new Set(done.map(unit)),rest={};
+    (openKeys||[]).forEach(key=>{
+      rest[key]=uniqRows(source.filter(e=>calKindOf(e)===key&&!seen.has(unit(e))));
+      rest[key].forEach(e=>seen.add(unit(e)));
+    });
+    return {done,rest,seen};
+  };
+  const prevPm=priorityRows(prevRows,'pm_done',['pm_plan','pm_overdue']);
+  const prevAs=priorityRows(prevRows,'as_done',['as_open','as_visit']);
+  const prevEtc=uniqRows(prevRows.filter(e=>!['pm_done','pm_plan','pm_overdue',
+    'as_done','as_open','as_visit'].includes(calKindOf(e))));
+  const prevTotal=prevPm.done.length+prevPm.rest.pm_plan.length+prevPm.rest.pm_overdue.length
+    +prevAs.done.length+prevAs.rest.as_open.length+prevAs.rest.as_visit.length+prevEtc.length;
   const qDoneRows=uniqRows(qPm.filter(e=>calKindOf(e)==='pm_done'));
   const pmDone = new Set(qDoneRows.map(unit));
   const qPlanRows=uniqRows(qPm.filter(e=>calKindOf(e)==='pm_plan'&&!pmDone.has(unit(e))));
   const pmPlanned = new Set(qPlanRows.map(unit));
   const qOverdueRows=uniqRows(qPm.filter(e=>calKindOf(e)==='pm_overdue'
     &&!pmDone.has(unit(e))&&!pmPlanned.has(unit(e))));
+  const curPm=priorityRows(rows.filter(e=>['pm_done','pm_plan','pm_overdue'].includes(calKindOf(e))),
+    'pm_done',['pm_plan','pm_overdue']);
   const pmTarget = new Set(qPm.map(unit));
   const targetN=pmTarget.size, doneN=pmDone.size, remainN=Math.max(0,targetN-doneN);
   const actualPct=targetN?Math.round(doneN/targetN*100):0;
@@ -14896,14 +14920,37 @@ async function calendarCapture(opt){
     .filter(g=>g.list.length);
   const known=new Set(['pm_done','pm_plan','pm_overdue','as_done','as_open','as_visit']);
   const extras=[];byKind.forEach((_v,k)=>{if(!known.has(k)) extras.push(k);});
-  const qByKind=new Map([['pm_done',qDoneRows],['pm_plan',qPlanRows],['pm_overdue',qOverdueRows]]);
-  const pmGroups=makeGroups(['pm_done','pm_plan','pm_overdue'],qByKind);
+  const curPmByKind=new Map([['pm_done',curPm.done],['pm_plan',curPm.rest.pm_plan],
+    ['pm_overdue',curPm.rest.pm_overdue]]);
+  const pmGroups=makeGroups(['pm_done','pm_plan','pm_overdue'],curPmByKind);
   const asGroups=makeGroups(['as_done','as_open','as_visit',...extras],byKind);
 
   const detailHeader=(top,title,sub)=>{
     x.fillStyle='#0E1B3F';x.fillRect(0,top,W,58);
     x.fillStyle='#fff';x.font=F(20,750);x.fillText(title,Mg,top+30);
     x.fillStyle='#C9D5FA';x.font=F(10.5);x.fillText(clip(sub,W-Mg*2),Mg,top+47);
+  };
+  const drawPreviousSummary=(top)=>{
+    const yy=top+67,metrics=[
+      ['전체',prevTotal],
+      ['정기 완료',prevPm.done.length],
+      ['정기 예정',prevPm.rest.pm_plan.length],
+      ['정기 미처리',prevPm.rest.pm_overdue.length],
+      ['AS 완료',prevAs.done.length],
+      ['AS 미처리',prevAs.rest.as_open.length],
+      ['기타',prevAs.rest.as_visit.length+prevEtc.length]
+    ];
+    x.fillStyle='#F6F8FC';x.fillRect(Mg,yy,W-Mg*2,45);
+    x.strokeStyle='#D0D5DD';x.strokeRect(Mg,yy,W-Mg*2,45);
+    x.fillStyle='#344054';x.font=F(9.2,850);
+    x.fillText(`전월 ${prevY}년 ${prevM}월 요약`,Mg+9,yy+15);
+    const start=Mg+130,cellW=(W-Mg-start)/metrics.length;
+    metrics.forEach(([label,n],i)=>{
+      const ox=start+i*cellW;
+      if(i){x.strokeStyle='#E4E7EC';x.beginPath();x.moveTo(ox,yy+7);x.lineTo(ox,yy+38);x.stroke();}
+      x.fillStyle='#667085';x.font=F(7.4,650);x.fillText(label,ox+7,yy+15);
+      x.fillStyle='#101828';x.font=F(11.5,850);x.fillText(`${n}건`,ox+7,yy+33);
+    });
   };
   const detailLayout=(groups,top,bottom,cols,fz)=>{
     const gap=10,colW=(W-Mg*2-gap*(cols-1))/cols;
@@ -14974,13 +15021,14 @@ async function calendarCapture(opt){
     }
   };
 
-  const page2=A4H,page3=A4H*2,detailTopOffset=92,detailBottomOffset=A4H-34;
-  detailHeader(page2,'정기점검 전 건 근거 · 사유 전체',
-    `${Y}년 ${Math.floor((M-1)/3)+1}분기 · 완료 → 확정 일정 → 잔여 · 캠프·상태·담당·프로젝트번호를 생략하지 않음`);
+  const page2=A4H,page3=A4H*2,detailTopOffset=126,detailBottomOffset=A4H-34;
+  detailHeader(page2,`${Y}년 ${M}월 정기점검 전 건 근거 · 사유 전체`,
+    `현재 월만 상세 표시 · 전월 ${prevY}년 ${prevM}월은 아래 요약 수치만 표시`);
+  drawPreviousSummary(page2);
   const pmPlan=fitDetail(pmGroups,page2+detailTopOffset,page2+detailBottomOffset,4);
-  detailHeader(page3,'돌발AS·기타 일정 전 건 근거 · 사유 전체',
-    `${Y}년 ${M}월 · 완료 → 미처리 → 지연 사유 · 긴 문장은 말줄임표 없이 다음 줄로 표시`);
-  const asPlan=fitDetail(asGroups,page3+detailTopOffset,page3+detailBottomOffset,3);
+  detailHeader(page3,`${Y}년 ${M}월 돌발AS·기타 일정 전 건 근거 · 사유 전체`,
+    '현재 월만 상세 표시 · 완료 → 미처리 → 지연 사유 · 긴 문장은 다음 줄로 표시');
+  const asPlan=fitDetail(asGroups,page3+92,page3+detailBottomOffset,3);
   if(!pmPlan.ok||!asPlan.ok){
     if(!opt.toBlob) notice('A4 세 장에 전 건 사유를 생략 없이 배치하지 못했습니다. 종류 필터를 좁혀 다시 캡처해 주세요.');
     return null;
@@ -14991,8 +15039,8 @@ async function calendarCapture(opt){
   const dropNote=capDropped
     ? ` · 정기점검 예측 ${capDropped}건은 대표 지시로 뺐습니다(앱 화면에는 그대로)` : '';
   x.font=F(9);x.fillStyle='#98A2B3';
-  x.fillText(`2/3 · 정기점검 상세 ${pmTotal}건 · 사유와 근거를 생략 없이 표시${dropNote}`,Mg,page2+A4H-14);
-  x.fillText(`3/3 · 돌발AS·기타 상세 ${asTotal}건 · 사유와 근거를 생략 없이 표시 · A4 세 장 · 유니버셜리프트앤히타치코리아`,Mg,H-14);
+  x.fillText(`2/3 · ${M}월 정기점검 상세 ${pmTotal}건 · 전월은 요약만 · 사유와 근거를 생략 없이 표시${dropNote}`,Mg,page2+A4H-14);
+  x.fillText(`3/3 · ${M}월 돌발AS·기타 상세 ${asTotal}건 · 현재 월만 표시 · 사유와 근거를 생략 없이 표시 · A4 세 장`,Mg,H-14);
 
   const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
   if(!blob){ if(!opt.toBlob) notice('이미지 생성 실패'); return null; }
