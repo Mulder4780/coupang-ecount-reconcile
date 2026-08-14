@@ -4277,7 +4277,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     <div class="media-tools" id="calTools" role="toolbar" aria-label="캘린더 저장·전달 도구" style="margin:0 0 10px">
       <button class="icon-btn" type="button" onclick="refreshCalendarPage()" title="새로고침" aria-label="새로고침"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg></button>
       <button class="icon-btn" type="button" onclick="shareCalendarLink()" title="링크 복사 — 지금 보고 있는 달·필터 그대로 여는 주소" aria-label="링크 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-link-45deg"/></svg></button>
-      <button class="icon-btn primary" type="button" onclick="calendarCapture()" title="이미지 저장 (A4 한 장)" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
+      <button class="icon-btn primary" type="button" onclick="calendarCapture()" title="대표 보고 이미지 저장 (A4 두 장)" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
       <button class="icon-btn" type="button" onclick="calCopyList()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
       <button class="icon-btn excel" type="button" onclick="calExportList()" title="엑셀(xlsx)로 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
       <button class="icon-btn" type="button" id="calInstallBtn" onclick="calInstallApp()" title="홈 화면에 앱으로 설치" aria-label="앱 설치" hidden><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-save-fill"/></svg></button>
@@ -5739,14 +5739,19 @@ window.addEventListener('unhandledrejection',ev=>{
   const r=ev&&ev.reason;
   const why=String((r&&(r.message||r.stack||r))||'').slice(0,200);
   uxEvent('error','promise',why);
-  /* ★ 여기가 이 프로젝트에서 제일 조용했던 자리다. 실측 58건 — 서버는 매번 이유를
-     말했는데(`화면 데이터 버전이 없습니다`) 이 처리기가 기록만 하고 화면에는 아무
-     말도 안 해서, 담당자에게는 '눌러도 아무 일이 안 나는 단추'였다([80] 실사고).
-     이제 사람에게 말한다. 다만 **끊김은 뺀다** — 그쪽은 이미 띠(netBanner)가
-     말하고 있고, 안 빼면 잠깐 끊길 때마다 팝업이 쏟아져 아무도 안 본다([170]). */
+  /* ★ 전역 Promise에는 자동 새로고침·상태 폴링도 함께 들어온다. 그 실패를 저장 오류로
+     팝업 띄우면 사람은 아무것도 입력하지 않았는데도 "저장되지 않았습니다" 창을 하루
+     종일 닫아야 한다(2026-08-14 실사고). 전역 처리기는 **기록만** 맡는다. 사용자가
+     직접 누른 저장은 saveEntry 등의 catch가 errorHelp를 명시적으로 부르므로 설명과
+     초안 보호가 그대로 남는다. 자동 갱신 실패는 해당 실행 카드·상태 띠가 말한다. */
   if(!PIN || document.hidden) return;
-  if(/NETWORK_ERROR|Failed to fetch|AUTH_EXPIRED|502|503|504/.test(why)) return;
-  try{ errorHelp('promise', why); }catch(e){}
+  if(!/NETWORK_ERROR|Failed to fetch|AUTH_EXPIRED|502|503|504/.test(why)){
+    const now=Date.now();
+    if(!window.__bgErrorToastAt || now-window.__bgErrorToastAt>60000){
+      window.__bgErrorToastAt=now;
+      toast('자동 갱신 오류를 기록했습니다 · 화면은 계속 사용할 수 있습니다');
+    }
+  }
 });
 window.addEventListener('pagehide',()=>uxFlush(true));
 /* ★ 예전에는 두 처리기가 맨 앞에서 `if(!staffSlug) return;` 했다. 그래서 관리자 화면은
@@ -14170,13 +14175,14 @@ async function shareCalendarLink(){
   }
   uxEvent('tap','calShareLink');
 }
-/* ── 캘린더 A4 한 장 캡처 (2026-08-06 지시) ─────────────────────────────────
+/* ── 캘린더 대표 보고 A4 두 장 캡처 (2026-08-14 유수비 통화 반영) ───────────
    "캡처하면 선택 일정이 표시되는 캘린더 화면 · 날짜 밑에 캠프명 · 아래에 날짜순 리스트
-    · A4 한 장 크기."
+    · A4 두 장 크기."
    왜 리스트를 같이 그리나: 격자 칸은 좁아 하루 일정이 서넛만 돼도 다 못 보여 준다.
    격자는 '언제'를 한눈에, 리스트는 '무엇을'을 빠짐없이 — 둘이 한 장에 있어야 쓸 수 있다.
-   A4(96dpi) = 794×1123. 인쇄해도 잘리지 않게 이 크기에 **맞춰 넣는다**(넘치면 줄인다). */
-const A4W = 794, A4H = 1123;
+   1쪽은 월간 달력+대표 판단, 2쪽은 PM/AS 근거 전량이다. 한 장에 억지로 눌러 담으면
+   미처리 이유가 잘려 지시의 핵심이 사라진다. A4(96dpi) = 794×1123 두 면을 세로로 잇는다. */
+const A4W = 794, A4H = 1123, A4PAGES = 2;
 function calCampOf(e){ return String(e.캠프명 || e.장소 || e.제목 || '').trim() || '(장소 미입력)'; }
 /* 그 건이 **무슨 일이었나** — 캡처 목록 가운데 칸과 화면 목록이 같은 것을 쓴다.
    ★ 없는 말을 지어내지 않는다. 원장에 있는 값만 이어 붙이고, 없으면 빈 문자열이다
@@ -14219,7 +14225,7 @@ async function calendarCapture(opt){
   const capDropped = capAll.length - rows.length;
   if(!rows.length){ if(!opt.toBlob) toast('이 달에 표시할 일정이 없습니다'); return null; }
   const [Y, M] = CAL_MONTH.split('-').map(Number);
-  const S = 2, W = A4W, H = A4H, Mg = 26;
+  const S = 2, W = A4W, H = A4H * A4PAGES, Mg = 26;
   const F = (z, w) => `${w || 400} ${z}px ${uiFont()}`;
   const cv = document.createElement('canvas'); cv.width = W * S; cv.height = H * S;
   const x = cv.getContext('2d'); x.scale(S, S);
@@ -14312,8 +14318,17 @@ async function calendarCapture(opt){
   const qPm = allCap.filter(e => ['pm_done','pm_plan','pm_overdue'].includes(calKindOf(e))
     && String(e.날짜) >= qIso0 && String(e.날짜) <= qIso1);
   const unit = e => String(e.원천업무ID || e.프로젝트NO || `${e.날짜}|${calCampOf(e)}`);
-  const pmTarget = new Set(qPm.map(unit)), pmDone = new Set(qPm.filter(e=>calKindOf(e)==='pm_done').map(unit));
-  const pmPlanned = new Set(qPm.filter(e=>calKindOf(e)==='pm_plan'&&!pmDone.has(unit(e))).map(unit));
+  const uniqRows=list=>{
+    const out=new Map();(list||[]).forEach(e=>{const k=unit(e);if(!out.has(k))out.set(k,e);});
+    return [...out.values()];
+  };
+  const qDoneRows=uniqRows(qPm.filter(e=>calKindOf(e)==='pm_done'));
+  const pmDone = new Set(qDoneRows.map(unit));
+  const qPlanRows=uniqRows(qPm.filter(e=>calKindOf(e)==='pm_plan'&&!pmDone.has(unit(e))));
+  const pmPlanned = new Set(qPlanRows.map(unit));
+  const qOverdueRows=uniqRows(qPm.filter(e=>calKindOf(e)==='pm_overdue'
+    &&!pmDone.has(unit(e))&&!pmPlanned.has(unit(e))));
+  const pmTarget = new Set(qPm.map(unit));
   const targetN=pmTarget.size, doneN=pmDone.size, remainN=Math.max(0,targetN-doneN);
   const actualPct=targetN?Math.round(doneN/targetN*100):0;
   // 통화의 "8월이면 70%쯤"은 **선택 월 말까지**의 분기 경과율로 표시한다.
@@ -14322,9 +14337,22 @@ async function calendarCapture(opt){
   const expectedPct=Math.max(0,Math.min(100,Math.round((expectAt-qStart)/86400000+1)*100/qDays));
   const now=new Date(), paceFrom=(now>=qStart&&now<=qEnd)?now:new Date(Y,M-1,1);
   const daysLeft=Math.max(1,Math.ceil((qEnd-paceFrom)/86400000));
-  const pace=(remainN/daysLeft).toFixed(1);
+  const paceQuarter=(remainN/daysLeft).toFixed(1);
+  const reportAt=now<qStart?qStart:(now>qEnd?qEnd:now);
+  const expectedNowPct=Math.max(0,Math.min(100,
+    Math.round(((reportAt-qStart)/86400000+1)*100/qDays)));
+  const gapPct=actualPct-expectedNowPct, pmLate=gapPct < -2;
+  const targetAtMonth=Math.min(targetN,Math.round(targetN*expectedPct/100));
+  const needByMonth=Math.max(0,targetAtMonth-doneN);
+  const monthPaceFrom=now<first?first:(now>monthEnd?monthEnd:now);
+  const daysToMonth=Math.max(1,Math.ceil((monthEnd-monthPaceFrom)/86400000));
+  const paceMonth=(needByMonth/daysToMonth).toFixed(1);
+  const unscheduledN=Math.max(0,remainN-pmPlanned.size);
   const asOpen=(byKind.get('as_open')||[]), asUrgent=asOpen.filter(e=>e.경보).length;
   const asAgreed=asOpen.filter(e=>e.지연구분==='협의대기').length;
+  const asNormal=asOpen.filter(e=>e.지연구분==='정상기한').length;
+  const asReasonMissing=asOpen.filter(e=>!String(e.미처리사유||'').trim()
+    &&!String(e.지연근거||'').trim()).length;
   const asDone=(byKind.get('as_done')||[]).length;
 
   const sumY=listTop+12, boxGap=8, boxW=(W-Mg*2-boxGap)/2, boxH=54;
@@ -14335,17 +14363,73 @@ async function calendarCapture(opt){
     x.fillStyle='#475467';x.font=F(8.5,650);x.fillText(clip(sub,boxW-20),ox+10,sumY+47);
   };
   summaryBox(Mg,'#2452E6','정기점검 진도',`${doneN}/${targetN} 완료 · ${actualPct}%`,
-    `${M}월 말 기대 ${Math.round(expectedPct)}% · 잔여 ${remainN}건 · 분기말까지 하루 ${pace}건 필요`);
+    `오늘 기대 ${expectedNowPct}% · ${gapPct>=0?'+':''}${gapPct}%p · ${M}월 말 목표 ${Math.round(expectedPct)}% · 하루 ${paceQuarter}건 필요`);
   summaryBox(Mg+boxW+boxGap,'#D92D20','돌발AS 조치',`완료 ${asDone} · 미처리 ${asOpen.length}`,
-    `★ 즉시조치 ${asUrgent}건 · 합의 대기 ${asAgreed}건 · 이유 없는 장기 미방문 우선`);
+    `★ 즉시조치 ${asUrgent}건 · 협의대기 ${asAgreed}건 · 정상기한 ${asNormal}건 · 사유없음 ${asReasonMissing}건`);
 
+  // ④ 1쪽의 결론 — 대표가 계산하지 않도록 진도차·필요 속도·즉시조치를 문장으로 확정한다.
+  const panelTop=sumY+boxH+18,panelBottom=A4H-34,panelH=panelBottom-panelTop;
+  const panelGap=12,panelW=(W-Mg*2-panelGap)/2;
+  const actionPanel=(ox,color,title,status,lead,lines,alerts)=>{
+    x.fillStyle=color+'0A';x.fillRect(ox,panelTop,panelW,panelH);
+    x.strokeStyle=color+'55';x.strokeRect(ox,panelTop,panelW,panelH);
+    x.fillStyle=color;x.font=F(11,850);x.fillText(title,ox+12,panelTop+20);
+    x.fillStyle=status.startsWith('정상')?'#12813F':'#B42318';x.font=F(18,900);
+    x.fillText(clip(status,panelW-24),ox+12,panelTop+45);
+    x.fillStyle='#344054';x.font=F(9,700);x.fillText(clip(lead,panelW-24),ox+12,panelTop+62);
+    let yy=panelTop+86;
+    lines.forEach(([k,v,c])=>{
+      x.fillStyle=c||'#475467';x.font=F(8.6,750);x.fillText(clip(k,112),ox+12,yy);
+      x.fillStyle='#101828';x.font=F(8.6,650);x.fillText(clip(v,panelW-142),ox+130,yy);
+      yy+=18;
+    });
+    x.strokeStyle=color+'45';x.beginPath();x.moveTo(ox+12,yy-5);x.lineTo(ox+panelW-12,yy-5);x.stroke();
+    x.fillStyle=color;x.font=F(9.2,850);x.fillText('대표 확인 우선순위',ox+12,yy+10);yy+=27;
+    (alerts||[]).slice(0,11).forEach((t,i)=>{
+      x.fillStyle=i<3&&color==='#D92D20'?'#B42318':'#344054';x.font=F(8.2,i<3?800:600);
+      x.fillText(clip(t,panelW-25),ox+12,yy);yy+=16;
+    });
+  };
+  const pmAlerts=qOverdueRows.slice().sort((a,b)=>Number(b.경과일||0)-Number(a.경과일||0))
+    .map(e=>`● ${String(e.날짜).slice(5)} ${calCampOf(e)} · ${e.경과일||0}일 지연 · ${e.미처리사유||'완료 근거 없음'}`);
+  const asUrgentRows=asOpen.filter(e=>e.경보).slice().sort((a,b)=>Number(b.경과일||0)-Number(a.경과일||0));
+  const asAlerts=asUrgentRows.map(e=>`★ ${String(e.날짜).slice(5)} ${calCampOf(e)} · ${e.경과일||0}일 · ${e.미처리사유||e.지연근거||'사유 확인 필요'}`);
+  actionPanel(Mg,'#2452E6','정기점검 · 분기 진도 판정',
+    pmLate?`지연 ${Math.abs(gapPct)}%p · 속도 상향 필요`:`정상 ${gapPct>=0?'+':''}${gapPct}%p`,
+    `실제 ${actualPct}% / 오늘 기준 기대 ${expectedNowPct}% / ${M}월 말 목표 ${Math.round(expectedPct)}%`,[
+      ['분기 목표',`${targetN}건 · 완료 ${doneN}건 · 잔여 ${remainN}건`],
+      ['확정 일정',`${pmPlanned.size}건 · 캠프와 방문일 협의 완료`],
+      ['미확정 잔여',`${unscheduledN}건 · 일정 확정 필요`],
+      ['기한 경과',`${qOverdueRows.length}건 · 완료/재일정 근거 확인`],
+      [`${M}월 말까지`,`${needByMonth}건 추가 · 하루 ${paceMonth}건 필요`],
+      ['분기 말까지',`${remainN}건 추가 · 하루 ${paceQuarter}건 필요`]
+    ],pmAlerts.length?pmAlerts:['● 기한이 지난 미처리 정기점검이 없습니다.']);
+  actionPanel(Mg+panelW+panelGap,'#D92D20',`돌발AS · ${M}월 미처리 판정`,
+    asUrgent?`즉시조치 ${asUrgent}건 · 오늘 확인`:'즉시조치 0건 · 장기 미방문 없음',
+    `완료 ${asDone}건 / 미처리 ${asOpen.length}건 · 접수 후 2일을 넘기면 근거가 필요`,[
+      ['정상기한',`${asNormal}건 · 접수 후 2일 이내`],
+      ['협의대기',`${asAgreed}건 · 부품/캠프 일정 근거 있음`],
+      ['즉시조치',`${asUrgent}건 · 3일 초과, 합의 근거 없음`],
+      ['사유 미입력',`${asReasonMissing}건 · 담당자 설명 필요`],
+      ['판정 순서','완료 → 정상기한 → 협의대기 → 즉시조치'],
+      ['상세 근거','2쪽에서 미처리 전 건의 이유·경과일 확인']
+    ],asAlerts.length?asAlerts:['★ 오늘 즉시 재촉할 돌발AS가 없습니다.']);
+  x.font=F(8.5);x.fillStyle='#98A2B3';
+  x.fillText(`1/2 · 월간 캘린더와 대표 판단 · 정기점검 예측 ${capDropped}건은 대표 지시로 제외`,Mg,A4H-14);
+
+  // ⑤ 2쪽 — **왼쪽 두 단은 정기점검, 오른쪽 두 단은 돌발AS** 상세 근거다.
+  const page2=A4H;
+  x.fillStyle='#0E1B3F';x.fillRect(0,page2,W,58);
+  x.fillStyle='#fff';x.font=F(20,750);x.fillText('대표 조치 상세 · 전 건 근거',Mg,page2+30);
+  x.fillStyle='#C9D5FA';x.font=F(10.5);
+  x.fillText(`${Y}년 ${Math.floor((M-1)/3)+1}분기 정기점검 / ${Y}년 ${M}월 돌발AS · 완료와 미처리를 섞지 않음`,Mg,page2+47);
   /* ★ 통화 그대로 **왼쪽 두 단은 정기점검, 오른쪽 두 단은 돌발AS**다.
      단순히 한 줄 목록을 4등분하면 건수에 따라 PM이 오른쪽으로 넘어가 다시 섞인다.
      그래서 양쪽의 줄과 넘김을 독립적으로 계산한다. 각 갈래는 완료→확정/예정→잔여. */
-  const makeLines = keys => {
+  const makeLines = (keys,source) => {
     const out=[];
     keys.forEach((key,gi)=>{
-      const list=(byKind.get(key)||[]).slice().sort((a,b)=>
+      const list=(source.get(key)||[]).slice().sort((a,b)=>
         (key==='as_open'?(Number(b.경보)-Number(a.경보)):0) ||
         String(a.날짜).localeCompare(String(b.날짜)) || String(a.시간||'').localeCompare(String(b.시간||'')));
       if(!list.length) return;
@@ -14357,21 +14441,24 @@ async function calendarCapture(opt){
   };
   const known=new Set(['pm_done','pm_plan','pm_overdue','as_done','as_open','as_visit']);
   const extras=[];byKind.forEach((_v,k)=>{if(!known.has(k)) extras.push(k);});
-  const sides=[makeLines(['pm_done','pm_plan','pm_overdue']),makeLines(['as_done','as_open','as_visit',...extras])];
-  const listStart=sumY+boxH+24,bottom=H-30,availH=bottom-listStart;
+  const qByKind=new Map([
+    ['pm_done',qDoneRows],['pm_plan',qPlanRows],['pm_overdue',qOverdueRows]
+  ]);
+  const sides=[makeLines(['pm_done','pm_plan','pm_overdue'],qByKind),
+               makeLines(['as_done','as_open','as_visit',...extras],byKind)];
+  const listStart=page2+104,bottom=H-30,availH=bottom-listStart;
   const subCols=2,totalCols=4,gap=10,centerGap=18;
   const usable=W-Mg*2-centerGap-gap*2;
   const colW=usable/4;
-  let lh=12;
-  for(const h of [12,11,10,9,8.2]){
-    if(sides.every(a=>Math.ceil(a.length/subCols)*h<=availH)){lh=h;break;}
-    lh=h;
-  }
-  const perCol=Math.max(1,Math.floor(availH/lh)),fz=Math.min(8.6,lh-3.1);
-  x.font=F(10.5,850);x.fillStyle='#2452E6';x.fillText('정기점검 · 완료 → 확정 일정 → 잔여',Mg,listStart-8);
-  x.fillStyle='#D92D20';x.fillText('돌발AS · 완료 → 미처리 → 지연 사유',Mg+2*colW+gap+centerGap,listStart-8);
+  x.font=F(10.5,850);x.fillStyle='#2452E6';x.fillText('정기점검 · 분기 전체 · 완료 → 확정 일정 → 잔여',Mg,listStart-14);
+  x.fillStyle='#D92D20';x.fillText(`돌발AS · ${M}월 · 완료 → 미처리 → 지연 사유`,Mg+2*colW+gap+centerGap,listStart-14);
   let drawn=0;
-  sides.forEach((lines,side)=>lines.slice(0,perCol*subCols).forEach((ln,idx)=>{
+  sides.forEach((lines,side)=>{
+    const perNeed=Math.max(1,Math.ceil(lines.length/subCols));
+    const lh=Math.min(side===0?15:21,Math.max(9.2,availH/perNeed));
+    const perCol=Math.max(1,Math.floor(availH/lh)),fz=Math.min(8.4,lh-3.1);
+    const twoLine=side===1&&lh>=16;
+    lines.slice(0,perCol*subCols).forEach((ln,idx)=>{
     const sub=Math.floor(idx/perCol),ly=listStart+(idx%perCol)*lh;
     const ox=Mg+side*(2*colW+gap+centerGap)+sub*(colW+gap);
     if(ln.t==='gap') return;
@@ -14399,7 +14486,7 @@ async function calendarCapture(opt){
     const campTxt = clip(calCampOf(e), midW);
     x.fillText(campTxt, ox + 6 + dateW, ly);
     const why = calWhyOf(e), usedW = x.measureText(campTxt).width;
-    if(why && midW - usedW > 26){
+    if(!twoLine&&why && midW-usedW>26){
       x.font = F(fz - 0.4); x.fillStyle = '#667085';
       x.fillText(clip(why, midW - usedW - 8), ox + 6 + dateW + usedW + 6, ly);
       x.font = F(fz); x.fillStyle = '#101828';
@@ -14408,28 +14495,35 @@ async function calendarCapture(opt){
       x.fillStyle = '#667085';
       x.fillText(clip(tail, tailW), ox + colW - tailW, ly);
     }
+    if(twoLine){
+      const reason=[why,tail].filter(Boolean).join(' · ')||'사유·담당자 근거 없음';
+      x.font=F(Math.max(6.8,fz-1),e.경보?800:550);x.fillStyle=e.경보?'#B42318':'#667085';
+      x.fillText(clip(reason,colW-7),ox+6,ly+Math.min(9,lh/2));
+    }
     x.strokeStyle = '#F4F6F9'; x.beginPath();
     x.moveTo(ox + 6, ly + 3); x.lineTo(ox + colW, ly + 3); x.stroke();
-  }));
+    });
+  });
   for(const lx of [Mg+colW+gap/2,Mg+2*colW+gap+centerGap/2,
                     Mg+3*colW+gap*2+centerGap+gap/2]){
     x.strokeStyle=lx===Mg+2*colW+gap+centerGap/2?'#98A2B3':'#E4E7EC';x.beginPath();
     x.moveTo(lx,listStart-15);x.lineTo(lx,bottom);x.stroke();
   }
-  const missed = rows.length - drawn;
+  const detailTotal=sides.reduce((n,a)=>n+a.filter(v=>v.t==='item').length,0);
+  const missed = detailTotal - drawn;
   x.font = F(9); x.fillStyle = missed ? '#B42318' : '#98A2B3';
   // 뺀 것은 **숫자로 말한다** — 조용히 빼면 '0건'이 '원래 없었다'로 읽힌다(`[169]`).
   const dropNote = capDropped
     ? ` · 정기점검 예측 ${capDropped}건은 대표 지시로 뺐습니다(앱 화면에는 그대로)` : '';
   x.fillText(missed
-    ? `※ 자리가 모자라 ${missed}건이 빠졌습니다(${drawn}/${rows.length}). 종류 필터를 좁혀 다시 캡처하세요.${dropNote}`
-    : `전체 ${rows.length}건을 모두 실었습니다 · A4 한 장 · 유니버셜리프트앤히타치코리아${dropNote}`, Mg, H - 14);
+    ? `※ 자리가 모자라 ${missed}건이 빠졌습니다(${drawn}/${detailTotal}). 종류 필터를 좁혀 다시 캡처하세요.${dropNote}`
+    : `2/2 · 상세 ${detailTotal}건을 모두 실었습니다 · A4 두 장 · 유니버셜리프트앤히타치코리아${dropNote}`, Mg, H - 14);
 
   const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
   if(!blob){ if(!opt.toBlob) notice('이미지 생성 실패'); return null; }
   if(opt.toBlob) return blob;                    // 복사가 같은 그림을 그대로 쓴다
-  saveOrOpen(blob, `쿠팡캘린더_${CAL_MONTH}.png`);
-  toast(`${Y}년 ${M}월 캘린더를 A4 한 장으로 저장했습니다`);
+  saveOrOpen(blob, `쿠팡캘린더_대표보고_${CAL_MONTH}.png`);
+  toast(`${Y}년 ${M}월 대표 보고를 A4 두 장으로 저장했습니다`);
   uxEvent('tap', 'calCapture');
   return blob;
 }

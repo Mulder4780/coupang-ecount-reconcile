@@ -19295,11 +19295,14 @@ def t266_one_audit_engine_and_unattended_repairs():
     watchdog = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
     heal = watchdog.split("def heal_stale_server(", 1)[1].split("def ", 1)[0]
     tunnel = watchdog.split("def kill_stale_tunnel(", 1)[1].split("def ", 1)[0]
+    startup = open(os.path.join(ROOT, "install_startup_shortcuts.ps1"), encoding="utf-8").read()
     assert 'os.environ["COUPANG_UNATTENDED"] = "1"' in heal
     assert "Name -eq 'cloudflared.exe' -or" not in tunnel
     assert "127.0.0.1:8899" in tunnel and "tunnel_run.py" in tunnel
     assert 'log("워치독 회차 시작"' in watchdog
     assert "last_watchdog_line" in audit
+    assert "pythonw.exe" in startup and "webapp\\server_guard.py" in startup
+    assert "wscript.exe" in startup and "run_hidden.vbs" in startup
     print("[266] 공용 진단 정본 · 앱 15분 회차 · 무인 무팝업 · 프로젝트 터널만 복구 OK")
 
 
@@ -19316,8 +19319,10 @@ def t267_yoo_subi_capture_and_official_erp_api():
     assert not fresh["경보"] and fresh["지연구분"] == "정상기한"
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     cap = live.split("async function calendarCapture(", 1)[1].split("\nasync function ", 1)[0]
-    for token in ("k.key !== 'pm_pred'", "정기점검 진도", "돌발AS 조치",
-                  "하루 ${pace}건 필요", "왼쪽 두 단은 정기점검", "오른쪽 두 단은 돌발AS",
+    for token in ("k.key !== 'pm_pred'", "정기점검 진도", "돌발AS 조치", "A4 두 장",
+                  "오늘 기대 ${expectedNowPct}%", "하루 ${paceQuarter}건 필요",
+                  "미확정 잔여", "사유 미입력", "대표 확인 우선순위",
+                  "왼쪽 두 단은 정기점검", "오른쪽 두 단은 돌발AS",
                   "['pm_done','pm_plan','pm_overdue']", "['as_done','as_open','as_visit'"):
         assert token in cap, "오전 통화 대표 캡처 규칙 누락: " + token
     assert ".cal2-ev.urgent" in live and "prefers-reduced-motion:reduce" in live
@@ -19329,6 +19334,16 @@ def t267_yoo_subi_capture_and_official_erp_api():
     daily = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     assert '"ERP 공식 API 자료 수집"' in daily and "erp_api_collect.py" in daily
     print("[267] 유수비 대표보고 순서·진도/속도·AS 지연경보 · ERP 확인 API만 수집 OK")
+
+
+def t268_background_refresh_never_blocks_work():
+    """[268] 자동 갱신 오류는 저장 실패 모달로 사람 화면을 가로막지 않는다."""
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    block = live.split("window.addEventListener('unhandledrejection'", 1)[1].split("});", 1)[0]
+    assert "errorHelp('promise'" not in block
+    assert "자동 갱신 오류를 기록했습니다" in block
+    assert "saveEntry" in live and "await errorHelp('/api/staff/entry'" in live
+    print("[268] 자동 갱신 무팝업 · 직접 저장 오류만 설명/초안보호 모달 OK")
 
 
 if __name__ == "__main__":
@@ -19453,6 +19468,7 @@ if __name__ == "__main__":
     t265_staff_server_manager_has_three_independent_recovery_lines()
     t266_one_audit_engine_and_unattended_repairs()
     t267_yoo_subi_capture_and_official_erp_api()
+    t268_background_refresh_never_blocks_work()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
