@@ -6659,14 +6659,83 @@ function offlineBanner(){
     : '서버에 닿지 않습니다 (PC 꺼짐·재시작·외부접속 끊김 중 하나) — 조회는 옛 자료입니다. 입력은 이 기기에 보관됐다가 닿으면 자동 반영됩니다';
   document.body.appendChild(el);
   NET_DOWN_SEEN = true;                      // 끊긴 적이 있다 — 복구 알림의 전제
-  const t=setInterval(async()=>{
-    try{
-      const r=await _netFetch('/api/ping?t='+Date.now(),{cache:'no-store'});
-      if(r.ok){ clearInterval(t); el.remove();
-                const res = await obFlush(); refreshAll(); netRecovered(res); }
-    }catch(e){}
-  },30000);
+  netDownNotice();                           // 배너만으로는 놓친다 — 말로도 한 번
+  netWatch(0);
 }
+
+/* ═══ 끊김·복구를 **실시간으로** 알린다 (2026-08-14 지시) ═══════════════════
+   사용자 지시: "앱 사용 가능하면 실시간으로 팝업으로 알려주고 만약 사용이
+   안된다(이런 일은 있으면 안돼) 그럴 경우도 팝업으로 띄워주는 기능 코딩해"
+
+   ★ 예전에는 30초 고정 간격이었다. 그런데 앱서버 재시작은 실측 9.3초다 —
+     9초짜리 끊김에 사람이 30초를 기다리고, 그동안 '안 된다'고 적힌 화면을 보고
+     관리자에게 캡처를 보낸다(2026-08-14 실측으로 그대로 일어났다).
+     그래서 끊긴 직후에는 **빠르게** 묻고, 오래 끊기면 천천히 묻는다.
+   ★ 브라우저가 아는 순간(online·탭 복귀)에는 기다리지 않고 **즉시** 확인한다.
+   ★ 끊김을 0 으로 만들 수는 없다(코드를 고치면 언젠가는 내려야 한다).
+     그러니 이 기능의 목적은 끊김을 숨기는 것이 아니라 **모르는 시간을 없애는 것**이다. */
+const NET_BACKOFF = [2000, 3000, 5000, 8000, 12000, 20000, 30000];
+let NET_POLL_T = null;            // 지금 도는 복구 감시
+let NET_DOWN_DLG = false;         // 끊김 팝업이 떠 있나
+
+async function netProbe(){
+  try{
+    const r = await _netFetch('/api/ping?t='+Date.now(), {cache:'no-store'});
+    return !!(r && r.ok);
+  }catch(e){ return false; }
+}
+
+function netWatch(step){
+  step = step || 0;
+  clearTimeout(NET_POLL_T);
+  const wait = NET_BACKOFF[Math.min(step, NET_BACKOFF.length - 1)];
+  NET_POLL_T = setTimeout(async () => {
+    if(await netProbe()) netBackUp();
+    else netWatch(step + 1);
+  }, wait);
+}
+
+/* 다시 닿았다 — 배너·끊김팝업을 걷고, 보관분을 보내고, 자료를 다시 읽고, 말한다. */
+async function netBackUp(){
+  clearTimeout(NET_POLL_T); NET_POLL_T = null;
+  const b = document.getElementById('offBanner'); if(b) b.remove();
+  if(NET_DOWN_DLG){                      // 내가 띄운 끊김 창이면 내가 걷는다
+    try{ if(typeof _dlgResolve !== 'undefined' && _dlgResolve) dlgCancel(); }catch(e){}
+    NET_DOWN_DLG = false;
+  }
+  let res = null;
+  try{ res = await obFlush(); }catch(e){}
+  try{ refreshAll(); }catch(e){}
+  netRecovered(res);
+}
+
+/* 안 될 때도 말한다. ★ 이미 다른 창이 떠 있으면 띄우지 않는다 — 그 창이 이미
+   실패를 말하고 있고, 겹쳐 띄우면 사람이 두 번 닫아야 한다([170]). */
+async function netDownNotice(){
+  if(NET_DOWN_DLG) return;
+  if(typeof _dlgResolve !== 'undefined' && _dlgResolve) return;
+  NET_DOWN_DLG = true;
+  try{
+    await dlgAsk({
+      title:'지금은 서버에 닿지 않습니다',
+      desc:'화면에 있던 값은 그대로 둡니다.',
+      body:'<div style="font-size:1.06em;line-height:1.6">'
+        + '<p style="margin:.2em 0 .6em;font-weight:700">입력하신 것은 이 기기에 '
+        + '보관됩니다 — 다시 닿으면 자동으로 반영됩니다.</p>'
+        + '<p class="norm" style="margin:.2em 0 0">지금 보이는 조회 값은 옛 자료입니다. '
+        + '다시 연결되면 이 창은 저절로 닫히고 알려 드립니다 — 기다리시면 됩니다.</p></div>',
+      buttons:[{label:'알겠습니다', value:true, kind:'primary'}],
+      cancel:true
+    });
+  }catch(e){}
+  NET_DOWN_DLG = false;
+}
+
+/* 브라우저가 먼저 아는 순간에는 기다리지 않는다. */
+addEventListener('online', () => { if(NET_DOWN_SEEN) netWatch(0); });
+addEventListener('visibilitychange', () => {
+  if(!document.hidden && NET_DOWN_SEEN && NET_POLL_T) netWatch(0);
+});
 
 /* ═══ 다시 닿았을 때 — 조용히 사라지지 않는다 (2026-08-14 지시) ═══════════════
    사용자 지시: **"이런거 해결되면 팝업으로 담당자들한테 띄워주는 알고리즘 구현"**
