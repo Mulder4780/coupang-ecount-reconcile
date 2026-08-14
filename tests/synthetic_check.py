@@ -18858,6 +18858,183 @@ def t258_error_report_says_when_and_why():
     print("[258] 오류 경보가 '언제' 와 '어느 400' 을 말한다 OK")
 
 
+def t259_upload_tells_and_finish_tells_too():
+    """[259] 올리면 알리고, **끝났는지·죽었는지도** 알린다 (2026-08-14 지시).
+
+    지시: "류지영이 카톡 텍스트 파일 앱에 업로드 하면 바로 정리 시작하고 나에게
+    올렸다고 알려주는 구조 코딩해 / 업로드 알림 만들어"
+
+    실측(2026-08-14) — 절반은 이미 있었다: `/api/automation/kakao-upload` 가 파일을
+    받으면 그 자리에서 `start_task("automation")` 을 부른다. **'올리면 바로 정리
+    시작'은 이미 됐다.** 빠져 있던 것은 알리는 쪽이고, 코드 전체에 사람에게 알리는
+    길이 **0건**이었다 — 류지영이 올려도 형님은 몰랐고, 더 나쁜 쪽으로 **처리가
+    실패해도 아무도 몰랐다.**
+
+    되돌아가면 안 되는 것만 지킨다:
+      ① 접수 때 알리고, **끝났을 때도** 알린다 — '올렸다'만 가면 처리가 죽어도
+         된 줄 알고 넘어간다([169]). 실패 경로에서도 알린다.
+      ② 성공 판정은 `status == "success"` 다 — `"ok"` 로 물으면 **오류 없이
+         한 건도 안 걸린다**([165] 의 함정. 실측으로 이 칸 이름을 확인했다).
+      ③ 채널 실패를 성공으로 안 적는다([169]) — 못 보냈으면 실패에 남는다.
+      ④ 외부 채널에는 **건수·상태만** — 프로젝트NO·금액·캠프명을 안 내보낸다.
+      ⑤ **알림 실패가 업로드를 죽이지 않는다** — push 가 어떤 예외도 밖으로 안 낸다.
+      ⑥ 아직 안 끝난 회차를 '끝'으로 적지 않고, 오래 지나도록 자국이 없으면
+         조용히 넘기지 않고 '확인 못 함'이라 말한다([169]).
+    """
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    import notify as N
+
+    rd = lambda *a: open(os.path.join(ROOT, *a), encoding="utf-8").read()  # noqa: E731
+    srv = rd("webapp", "app_server.py")
+
+    # ── ① 업로드 창구가 접수·거절·결과를 다 부른다 ──────────────────────────
+    k = srv.index('if p == "/api/automation/kakao-upload":')
+    창 = srv[k:k + 3400]
+    assert "_notify_upload_received(" in 창, \
+        "카톡 업로드가 접수를 안 알린다 — 류지영이 올려도 형님은 모른다"
+    assert 창.count("_notify_upload_rejected(") >= 3, \
+        "거절(용량·형식·예외)을 안 알린다 — 거절은 화면에만 뜨고 사라진다"
+    assert "notify.expect_upload(" in srv, \
+        "접수만 알리고 결과를 안 뒤따른다 — 처리가 죽어도 된 줄 안다([169])"
+    # 결과 확인은 회차가 끝나는 자리와 무인 회차 **둘 다**에서 불려야 한다.
+    #   앱이 시작한 회차는 러너가, 5분 스케줄러가 집어간 회차는 워치독이 닫는다.
+    fin = srv.index("_note_last_run(key, title, local_returncode)")
+    assert "notify.sweep_uploads()" in srv[fin:fin + 700], \
+        "회차가 끝나도 결과를 안 알린다 — 아무도 화면을 안 열면 알림이 영영 안 간다"
+    wd = rd("watchdog.py")
+    assert "close_upload_notices" in wd and "close_upload_notices(dry)," in wd, \
+        "워치독 단계에 없다 — 5분 스케줄러가 집어간 회차는 결과가 영영 안 온다"
+
+    # ── ② 성공 칸 이름을 짝짓지 않는다([165]) ────────────────────────────────
+    assert 'status == "success"' in rd("notify.py"), \
+        "성공 판정이 'success' 가 아니다 — 오류 없이 한 건도 안 걸린다([165])"
+    assert '"ok"' not in N._run_verdict.__doc__ or True   # 문서는 자유
+    assert N._run_verdict({"status": "success", "changed_sources": ["kakao"],
+                           "summary": "s"})[0] == "끝"
+    assert N._run_verdict({"status": "partial", "failures": ["보관본"],
+                           "stages": [{"name": "카톡 추출", "ok": False,
+                                       "summary": "exit 2"}]})[0] == "실패"
+    assert N._run_verdict({"status": "running"})[0] == "", \
+        "아직 도는 회차를 끝났다고 적는다 — 안 끝난 것을 끝났다 하면 안 된다"
+
+    # ── ③④⑤⑥ 은 진짜 기록 파일을 안 건드리고 임시 경로로 잰다 ───────────────
+    #    ⚠ 실측 증거에 합성 행을 섞으면 그 파일이 더는 실측이 아니다([247] 의 함정).
+    본래 = {k2: getattr(N, k2) for k2 in
+            ("STORE", "LOG", "PENDING", "CONF", "PIPELINE_STATE")}
+    with tempfile.TemporaryDirectory() as td:
+        for k2 in 본래:
+            setattr(N, k2, os.path.join(td, k2 + ".json"))
+        try:
+            def utc(sec=0):
+                return (_dt.now(_tz.utc) + _td(seconds=sec)).isoformat(timespec="seconds")
+
+            # ④ 외부 채널 본문에 업무값이 안 실린다.
+            leak = "UJ2601321 송파3캠프 1,234,500원 PO372139"
+            line = N.external_text({"갈래": "카톡 원본 업로드", "상태": "정리 시작",
+                                    "건수": 3, "제목": leak, "본문": leak})
+            for bad in ("UJ2601321", "송파3캠프", "1,234,500", "PO372139"):
+                assert bad not in line, f"외부 채널에 업무값이 실렸다: {bad} / {line}"
+            assert N.leaks_business_value("UJ2601321") and \
+                N.leaks_business_value("1,234,500") and \
+                N.leaks_business_value("송파3캠프") and \
+                not N.leaks_business_value("정리 시작 · 3건"), \
+                "업무값 판정이 정상 문구까지 막거나 업무값을 놓친다"
+
+            # ③ 채널 실패를 성공으로 안 적는다 — 닿을 수 없는 주소를 켠다.
+            N._save(N.CONF, {"channels": [{"name": "시험채널", "kind": "webhook",
+                                           "enabled": True, "timeout": 1,
+                                           "url": "https://127.0.0.1:1/none"}]})
+            r = N.push("시험", "제목", "본문", audience=[N.ADMIN])
+            assert "app" in r["보냄"], "앱 안 알림은 언제나 켜져 있어야 한다"
+            assert "시험채널" not in r["보냄"], "못 보낸 채널을 보냈다고 적는다([169])"
+            assert any(x.get("채널") == "시험채널" for x in r["실패"]), \
+                "실패를 기록에 안 남긴다 — 못 보냈는지 아무도 모른다"
+            log = N._load(N.LOG, [])
+            assert log and log[-1]["실패"], "알림 기록에 실패가 안 남는다"
+            N._save(N.CONF, {})
+
+            # ⑤ 알림이 터져도 예외가 밖으로 새지 않는다(업로드가 500 이 되면 안 된다).
+            원래저장 = N._save
+            try:
+                N._save = lambda *a, **k3: (_ for _ in ()).throw(OSError("디스크 없음"))
+                bad = N.push("시험", "터져도 조용히", audience=[N.ADMIN])
+            finally:
+                N._save = 원래저장
+            assert isinstance(bad, dict) and bad["실패"], \
+                "알림이 실패했는데 실패라고 안 적는다"
+            assert any(x.get("채널") == "app" for x in bad["실패"]), \
+                "앱 알림 실패가 기록되지 않는다"
+
+            # ① 끝 · 실패를 실제로 만들어 본다 — **올린 사람에게도** 간다.
+            N._save(N.STORE, [])
+            who = [N.ADMIN, N.staff("ryu-jiyeong")]
+            N.expect_upload("카톡 원본", "a.txt", who)
+            N._save(N.PIPELINE_STATE, {"last_run": {
+                "status": "success", "finished_at": utc(60),
+                "summary": "변경원천 kakao · 실패 0건",
+                "changed_sources": ["kakao"], "stages": [],
+                "current_stage": "완료"}, "history": []})
+            assert N.sweep_uploads()["끝"] == 1, "끝난 것을 안 알린다"
+            assert N.feed("staff", "ryu-jiyeong"), \
+                "올린 사람에게 안 간다 — 됐는지 모르면 또 올려 중복 원본이 된다"
+            assert not N.feed("staff", "oh-jonghyeon"), \
+                "받는이가 아닌 사람에게 남의 업로드 알림이 간다"
+
+            N._save(N.STORE, [])
+            N.expect_upload("카톡 원본", "b.txt", [N.ADMIN])
+            N._save(N.PIPELINE_STATE, {"last_run": {
+                "status": "partial", "finished_at": utc(60), "summary": "x",
+                "failures": ["Excel 보관본 생성·검증"], "current_stage": "실패 확인",
+                "stages": [{"name": "카톡 추출", "ok": False, "summary": "exit 2"}]},
+                "history": []})
+            assert N.sweep_uploads()["실패"] == 1, \
+                "실패 경로에서 안 알린다 — 조용한 사고가 그대로 남는다"
+            assert N.feed("admin")[0]["심각도"] == "error", "실패가 경보가 아니다"
+
+            # ⑥ 안 끝난 회차는 기다리고, 오래되면 '확인 못 함'이라 말한다.
+            N._save(N.STORE, [])
+            N.expect_upload("카톡 원본", "c.txt", [N.ADMIN])
+            N._save(N.PIPELINE_STATE, {"last_run": {"status": "running",
+                                                    "finished_at": None},
+                                       "history": []})
+            assert N.sweep_uploads() == {"끝": 0, "실패": 0, "확인못함": 0, "남음": 1}, \
+                "도는 중인 회차를 결과로 읽었다"
+            N._save(N.STORE, [])
+            os.remove(N.PIPELINE_STATE)
+            늙음 = (_dt.now().astimezone() - _td(hours=N.UNRESOLVED_WARN_H + 3))
+            N._save(N.PENDING, [{"id": "x", "갈래": "카톡 원본", "이름": "c.txt",
+                                 "받는이": [N.ADMIN], "원천": "automation",
+                                 "올린때": 늙음.isoformat(timespec="seconds")}])
+            assert N.sweep_uploads()["확인못함"] == 1, \
+                "회차 자국을 못 읽었는데 조용히 넘긴다 — 못 본 것을 이상 없음이라 한다([169])"
+
+            # ⑦ 같은 갈래가 5분 안에 여러 번이면 한 줄로 합치되 **건수를 말한다**([170]).
+            N._save(N.STORE, [])
+            for _ in range(3):
+                N.push("카톡 원본 업로드", "올렸습니다", audience=[N.ADMIN])
+            items = N._load(N.STORE, [])
+            assert len(items) == 1 and items[0]["건수"] == 3, \
+                f"합치기가 안 된다 — 알림이 대부분이면 아무도 안 본다([170]): {items}"
+
+            # ⑧ 확인은 **내가 받는 알림만** 내려간다.
+            assert N.ack([items[0]["id"]], "staff", "oh-jonghyeon") == 0, \
+                "남의 알림을 대신 내린다 — 그 사람은 영영 그 사실을 모른다"
+            assert N.ack([items[0]["id"]], "admin") == 1 and not N.feed("admin"), \
+                "확인해도 안 내려간다"
+        finally:
+            for k2, v in 본래.items():
+                setattr(N, k2, v)
+
+    # ── 앱 화면이 확인 단추를 업로드 알림에만 붙인다 ──────────────────────────
+    html = rd("webapp", "index.html")
+    assert "ackNotice(" in html and "startsWith('notify:')" in html, \
+        "업로드 알림에만 확인 단추가 붙어야 한다 — 감시 항목을 지우면 고장이 화면에서만 사라진다"
+    assert '"/api/notifications/ack"' in srv, "확인 경로가 서버에 없다"
+    assert "get_notifications(self._actor())" in srv, \
+        "받는이를 안 넘긴다 — 올린 사람이 제 결과를 못 본다"
+    print("[259] 업로드는 접수·끝·실패를 다 알리고 채널 실패를 숨기지 않는다 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -18971,6 +19148,7 @@ if __name__ == "__main__":
     t256_list_zero_goes_through_one_door()
     t257_jump_says_why_it_could_not_find()
     t258_error_report_says_when_and_why()
+    t259_upload_tells_and_finish_tells_too()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()

@@ -5576,9 +5576,24 @@ async function loadNotifications(){
     const panel=$('noticePanel');
     if(panel) panel.innerHTML=notificationItems.length
       ? notificationItems.map(x=>`<div class="notice-item ${escNotice(x.severity)}">
-          <b>${escNotice(x.title)}</b><span>${escNotice(x.detail)}</span></div>`).join('')
+          <b>${escNotice(x.title)}</b><span>${escNotice(x.detail)}</span>${
+          String(x.id||'').startsWith('notify:')
+            ? `<button type="button" class="mini" onclick="ackNotice(event,'${escNotice(x.id)}')">확인</button>`
+            : ''}</div>`).join('')
       : '<div class="notice-item info"><b>새 알림이 없습니다.</b><span>입력과 자동 반영 상태가 정상입니다.</span></div>';
   }catch(e){}
+}
+/* 업로드 알림만 내릴 수 있다(2026-08-14). 감시·큐 항목은 원인이 사라져야 없어지는
+   것이라 여기서 지우면 **고장이 화면에서만 사라진다**([169]).
+   ★ 못 내렸으면 못 내렸다고 말한다 — 조용히 사라지면 확인된 줄 안다. */
+async function ackNotice(e,id){
+  if(e){e.stopPropagation();e.preventDefault();}
+  try{
+    const r=await api('/api/notifications/ack',{method:'POST',
+      body:JSON.stringify({ids:[id]}),headers:{'Content-Type':'application/json'}});
+    if(!r||r.ok===false) throw new Error((r&&r.error)||'확인 실패');
+    await loadNotifications();
+  }catch(err){ toast('알림을 내리지 못했습니다 — '+String(err&&err.message||err).slice(0,80)); }
 }
 function toggleNotifications(e){
   if(e) e.stopPropagation();

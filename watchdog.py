@@ -677,6 +677,9 @@ def main():
                watch_schedules(dry),
                # ★ 브라우저 쪽 눈도 인계보다 먼저다 — 같은 이유(2026-08-13, `[247]`).
                watch_userscript(dry),
+               # ★ 올린 것의 결과를 뒤따라 알린다 — 5분 스케줄러가 집어간 회차는
+               #   앱이 끝난 줄 모른다(2026-08-14).
+               close_upload_notices(dry),
                snapshot_handoff(dry), resume_deferred_apply(dry)]
     if gap:
         results.insert(0, gap)
