@@ -6960,6 +6960,7 @@ const WT_PENDING = {};       // {id|col: value} — 이 화면에서 앱 DB에 �
    초안은 브라우저 메모리에만 두고 저장 버튼 한 번이 여러 필드를 한 트랜잭션으로 보낸다. */
 const WT_EDITING = new Set();             // "pm|점검ID" / "as|접수ID"
 const WT_DRAFTS = {};                     // 같은 키 → {열: 바꾼 값}
+const WT_EDIT_VERSIONS = {};              // 수정 시작 때 본 버전 — 갱신돼도 몰래 덮지 않는다
 const wtDraftKey=(k,id)=>k+'|'+id;
 function wtDraftOf(k,id){ return WT_DRAFTS[wtDraftKey(k,id)]||{}; }
 function wtIsEditing(k,id){ return WT_EDITING.has(wtDraftKey(k,id)); }
@@ -7230,11 +7231,15 @@ async function wtRestore(k,id,ver){
 }
 function wtField(k,id,col,typ,cur){
   const key=id+'|'+col, pend=WT_PENDING[key]!==undefined;
-  const val=pend?WT_PENDING[key]:String(cur||'');
-  const tag=pend?'<i class="wt-pend">대기</i>':'';
+  const draft=wtDraftOf(k,id), changed=Object.prototype.hasOwnProperty.call(draft,col);
+  const editing=wtIsEditing(k,id), val=changed?draft[col]:(pend?WT_PENDING[key]:String(cur||''));
+  const tag=(changed?'<i class="wt-dirty-tag">변경됨 · 저장 전</i>':'')+
+    (pend&&!changed?'<i class="wt-pend">저장됨</i>':'');
+  const disabled=editing?'':' disabled';
+  const changedClass=changed?' class="wt-changed"':'';
   if(typ==='date')
-    return `<label>${esc2(col)}${tag}<input type="date" value="${esc2(String(val).slice(0,10))}"
-      onchange="wtEdit('${k}',${esc4(id)},${esc4(col)},this.value,'date')"></label>`;
+    return `<label>${esc2(col)}${tag}<input type="date" value="${esc2(String(val).slice(0,10))}"${changedClass}${disabled}
+      onchange="wtDraftChange('${k}',${esc4(id)},${esc4(col)},this.value,this)"></label>`;
   if(typ==='status'){
     /* ★ 단계 낱말을 화면이 만들지 않는다 (2026-08-10 지시). 예전에는 **지금 목록에
        쓰여 있는 값**만 모아 골랐다 — 그래서 관리대장 드롭다운에 있는 기사배정·일정확정·
@@ -7242,40 +7247,89 @@ function wtField(k,id,col,typ,cur){
        후보에 안 올라온다). 모든 건이 접수 → 작업완료로만 움직인 이유가 이것이다.
        정의는 /api/flow-stages 하나이고 그 근거는 관리대장 드롭다운이다. */
     const opts=stageList(k);
-    return `<label>${esc2(col)}${tag}<select onchange="wtEdit('${k}',${esc4(id)},${esc4(col)},this.value,'text')">
+    return `<label>${esc2(col)}${tag}<select${changedClass}${disabled} onchange="wtDraftChange('${k}',${esc4(id)},${esc4(col)},this.value,this)">
       <option value="">${val?esc2(val):'선택'}</option>${opts.filter(o=>o.단계!==val).map(o=>
         `<option value="${esc2(o.단계)}">${esc2(o.단계)}${String(o.출처||'').indexOf('목록 밖')>=0?' — 목록 밖':''}</option>`).join('')}</select></label>`;
   }
   if(typ==='cost'){
-    return `<label>비용구분${tag}<select onchange="wtEdit('${k}',${esc4(id)},${esc4(col)},this.value,'text')">
+    return `<label>비용구분${tag}<select${changedClass}${disabled} onchange="wtDraftChange('${k}',${esc4(id)},${esc4(col)},this.value,this)">
       <option value="">선택</option>${['유상','무상','보험'].map(x=>
-        `<option value="${x}"${x===val?' selected':''}>${x}</option>`).join('')}</select></label>`;
+      `<option value="${x}"${x===val?' selected':''}>${x}</option>`).join('')}</select></label>`;
   }
-  return `<label>${esc2(col)}${tag}<input list="wtTechList" value="${esc2(val)}" placeholder="미배정"
-    onchange="wtEdit('${k}',${esc4(id)},${esc4(col)},this.value,'text')"></label>`;
+  return `<label>${esc2(col)}${tag}<input list="wtTechList" value="${esc2(val)}" placeholder="미배정"${changedClass}${disabled}
+    onchange="wtDraftChange('${k}',${esc4(id)},${esc4(col)},this.value,this)"></label>`;
 }
-async function wtEdit(k,id,col,value,vtype){
+function wtBeginEdit(k,id){
+  const key=wtDraftKey(k,id);
+  if(WT_EDITING.has(key)){ toast('이미 수정 중입니다 — 값을 바꾼 뒤 저장을 눌러 주세요'); return; }
+  const {ver}=wtVer(k,id);
+  WT_EDITING.add(key);WT_EDIT_VERSIONS[key]=ver;if(!WT_DRAFTS[key])WT_DRAFTS[key]={};
+  renderWorkTab(k);
+  setTimeout(()=>{
+    const card=[...document.querySelectorAll('.wt-card')].find(e=>e.dataset.wtKey===key);
+    const field=card&&card.querySelector('.wt-edit input:not(:disabled),.wt-edit select:not(:disabled)');
+    if(field)field.focus({preventScroll:true});
+  },0);
+  toast('수정 모드입니다 — 변경 후 저장 버튼을 눌러 주세요');
+}
+function wtDraftChange(k,id,col,value,el){
   value=String(value||'').trim();
-  if(!value) return;                       // 지우기는 앱에서 안 한다 — 실수 방지
   const cfg=WT_CFG[k];
   const row=cfg.rows().find(r=>String(r[cfg.idCol]||'').trim()===id);
   const before=String((row||{})[col]||'').trim();
+  if(!wtIsEditing(k,id)){ if(el)el.value=before; toast('먼저 수정 버튼을 눌러 주세요'); return; }
+  if(!value){ if(el)el.value=before; toast('빈 값은 저장하지 않습니다 — 기존 값으로 되돌렸습니다'); return; }
+  const key=wtDraftKey(k,id),draft=WT_DRAFTS[key]||(WT_DRAFTS[key]={});
+  if(value===before) delete draft[col]; else draft[col]=value;
+  const dirty=Object.keys(draft).length>0,card=el&&el.closest('.wt-card');
+  if(el)el.classList.toggle('wt-changed',value!==before);
+  if(card){card.classList.toggle('is-dirty',dirty);const save=card.querySelector('.wt-save');
+    if(save)save.textContent=dirty?'저장 · 변경됨':'저장';}
+  toast(value===before?`${col}을 기존 값으로 되돌렸습니다`:`${col} 변경됨 — 아직 저장 전입니다`);
+}
+async function wtPersistValues(k,id,values,reason,expectedVersion){
+  const cfg=WT_CFG[k],row=cfg.rows().find(r=>String(r[cfg.idCol]||'').trim()===id);
+  if(!row) throw new Error('선택한 업무를 현재 목록에서 찾지 못했습니다');
+  const requestId=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
+  const d=await api('/api/staff/entry',{method:'POST',headers:{'Idempotency-Key':requestId},
+    body:JSON.stringify({category:k,key:id,record_version:Number(expectedVersion==null?
+      (row.DB버전||row._record_version||0):expectedVersion),
+      values,reason:String(reason||''),idempotency_key:requestId})});
+  if(!d||!d.ok) throw new Error((d&&d.error)||'저장 실패');
+  Object.entries(values).forEach(([col,value])=>{
+    const saved=d.record&&d.record[col]!==undefined?d.record[col]:value;
+    WT_PENDING[id+'|'+col]=saved;row[col]=saved;
+  });
+  row.DB버전=d.record_version||row.DB버전;row._record_version=d.record_version||row._record_version;
+  return d;
+}
+async function wtSaveCard(k,id){
+  const key=wtDraftKey(k,id),draft=Object.assign({},WT_DRAFTS[key]||{});
+  if(!WT_EDITING.has(key)){ toast('먼저 수정 버튼을 눌러 주세요'); return; }
+  if(!Object.keys(draft).length){ toast('변경된 내용이 없습니다'); return; }
+  const cfg=WT_CFG[k],row=cfg.rows().find(r=>String(r[cfg.idCol]||'').trim()===id);
   let reason='';
-  if(col==='유상·무상·보험'&&before&&before!==value){
+  if(Object.prototype.hasOwnProperty.call(draft,'유상·무상·보험')){
+    const before=String((row||{})['유상·무상·보험']||'').trim(),value=draft['유상·무상·보험'];
+    if(before&&before!==value){
     reason=await askText('기존 비용구분을 바꾸는 근거를 적어 주세요','',{
       title:`비용구분 ${before} → ${value}`,ph:'예: 오종현 통화 확인 — 실제 무상 건',ok:'정정 저장'});
     if(reason===null||String(reason).trim().length<2) return;
+    }
   }
+  const card=[...document.querySelectorAll('.wt-card')].find(e=>e.dataset.wtKey===key);
+  const button=card&&card.querySelector('.wt-save');
+  if(button){button.disabled=true;button.textContent='저장 중…';}
   try{
-    const requestId=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));
-    const d=await api('/api/staff/entry',{method:'POST',headers:{'Idempotency-Key':requestId},
-      body:JSON.stringify({category:k,key:id,record_version:Number((row||{}).DB버전||(row||{})._record_version||0),
-        values:{[col]:value},reason:String(reason||''),idempotency_key:requestId})});
-    WT_PENDING[id+'|'+col]=value;
-    if(row){ row[col]=value; row.DB버전=d.record_version||row.DB버전; row._record_version=d.record_version||row._record_version; }
-    toast(d.ok?`앱 DB 저장됨 — ${d.msg||'Excel은 자동 보관본으로 생성됩니다'}`:'저장 실패');
+    const d=await wtPersistValues(k,id,draft,reason,WT_EDIT_VERSIONS[key]);
+    delete WT_DRAFTS[key];delete WT_EDIT_VERSIONS[key];WT_EDITING.delete(key);
+    toast(`저장 완료 — ${Object.keys(draft).join(' · ')} 변경사항이 반영됐습니다`);
     renderWorkTab(k);
-  }catch(e){ toast('저장 실패 — 잠시 후 다시 시도'); }
+    uxEvent('tap','wt-save-'+k,Object.keys(draft).join('|'));
+  }catch(e){
+    if(button){button.disabled=false;button.textContent='저장 · 다시 시도';}
+    toast('저장 실패 — '+apiErrorText(e));
+  }
 }
 /* ═══ 업무센터 탭 (2026-07-31) ═══ */
 /* ── 업무센터 카드 구성(2026-08-05 지시) ──
@@ -7855,14 +7909,22 @@ async function remoteDeliver(hostId){
 async function wtComplete(k,id){
   const cfg=WT_CFG[k];
   const stCol=cfg.stCol, doneCol=cfg.doneCol;
+  if(Object.keys(wtDraftOf(k,id)).length){
+    toast('저장하지 않은 변경사항이 있습니다 — 먼저 저장해 주세요');return;
+  }
   /* 완료를 뜻하는 낱말도 정의에서 받는다 — 여기 적어 두면 관리대장 목록이 바뀐 날
      이 단추만 옛 낱말을 찍는다(오류는 안 난다. 그게 이 사고의 모양이다). */
   const doneVal = stageDone(k) || (k==='pm' ? '완료' : '작업완료');
   if(!await askYesNo(`${id} — ${stCol} '${doneVal}' + ${doneCol} 오늘 날짜로 저장할까요?`)) return;
   const today=new Date().toISOString().slice(0,10);
-  await wtEdit(k,id,stCol,doneVal,'text');
-  await wtEdit(k,id,doneCol,today,'date');
-  uxEvent('tap','wt-complete-'+k);
+  try{
+    const key=wtDraftKey(k,id);
+    await wtPersistValues(k,id,{[stCol]:doneVal,[doneCol]:today},'완료 처리',
+      WT_EDITING.has(key)?WT_EDIT_VERSIONS[key]:undefined);
+    delete WT_DRAFTS[key];delete WT_EDIT_VERSIONS[key];WT_EDITING.delete(key);
+    toast(`저장 완료 — ${id}을(를) ${doneVal} 처리했습니다`);
+    renderWorkTab(k);uxEvent('tap','wt-complete-'+k);
+  }catch(e){toast('완료 처리 저장 실패 — '+apiErrorText(e));}
 }
 function wtBoard(k,rows){
   const cols={}; rows.forEach(r=>{

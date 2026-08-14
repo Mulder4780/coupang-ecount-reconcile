@@ -4348,7 +4348,8 @@ def t96_work_management_tabs():
     · 폰 하단바는 칸이 모자라 사이드바(≥900px)에서만 메뉴 노출 — 폰은 대시보드
       바로가기로 들어간다(숨겨도 화면은 동작해야 한다)."""
     html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
-    for need in ('id="v-pm"', 'id="v-as"', "renderWorkTab", "WT_CFG", "wtEdit",
+    for need in ('id="v-pm"', 'id="v-as"', "renderWorkTab", "WT_CFG", "wtBeginEdit",
+                 "wtDraftChange", "wtSaveCard", "wtPersistValues",
                  'data-v="pm"', 'data-v="as"', "worktab-nav", "wtBoard", "wtCsv",
                  'id="pmBaseDate"', 'id="asBaseDate"', "wtSetBase", "wtRows", "wtReset",
                  'aria-label="기준일 범위"', 'aria-label="정렬 기준"',
@@ -4360,11 +4361,11 @@ def t96_work_management_tabs():
         "기준일 범위·정렬·초기화 필터가 완성되지 않았다"
     assert ".tabbar.worktab-nav{display:none}" in html.replace(" ", ""), \
         "폰 하단바 칸 부족 대책(사이드바 전용 노출)이 없다"
-    # 인라인 편집이 공용 SQLite 즉시저장 경로로만 가는가 — Excel 직접 쓰기는 안 된다
-    # ★ 검사 범위는 wtEdit **함수 몸통만**이다. 다음 함수 선언 직전까지로 자른다 —
+    # 카드 저장이 공용 SQLite 즉시저장 경로로만 가는가 — Excel 직접 쓰기는 안 된다
+    # ★ 검사 범위는 wtPersistValues **함수 몸통만**이다. 다음 함수 선언 직전까지로 자른다 —
     #   wtBoard 까지 넓게 잡으면 사이에 끼는 무관한 코드(업무센터 업로드의 accept=".xlsx")가
     #   오탐을 낸다(2026-07-31 실제로 그랬다).
-    _ws = html.index("async function wtEdit")
+    _ws = html.index("async function wtPersistValues")
     seg = html[_ws:html.index("function ", _ws + 30)]
     assert "/api/staff/entry" in seg and "record_version:" in seg \
         and "idempotency_key:" in seg, "편집이 공용 SQLite 저장 계약을 안 탄다"
@@ -19596,6 +19597,54 @@ def t274_mobile_orgchart_centers_every_wrapped_row():
     print("[274] 모바일 조직도 각 줄 중앙 정렬 · 마지막 1명/2명 균형 · 책상 고정폭 유지 OK")
 
 
+def t275_work_cards_require_edit_then_batch_save_with_notifications():
+    """[275] PM·돌발AS 카드는 수정→초안→한 번 저장이며 변경/완료 알림을 낸다."""
+    from pathlib import Path
+    import app_store as A
+    from webapp import app_server as S
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    card = live.split("function wtCard(", 1)[1].split("\n/* ═══ 이 건을", 1)[0]
+    for token in ("wtBeginEdit", "wtSaveCard", "'수정 중':'수정'", "'저장 · 변경됨':'저장'", "disabled"):
+        assert token in card, "업무 카드 수정·저장 손잡이 누락: " + token
+    field = live.split("function wtField(", 1)[1].split("\nfunction wtBeginEdit", 1)[0]
+    assert "wtDraftChange" in field and "disabled" in field
+    assert "wtPersistValues" not in field and "/api/staff/entry" not in field, \
+        "입력값 변경이 저장 버튼 전에 서버로 나간다"
+    change = live.split("function wtDraftChange(", 1)[1].split("\nasync function wtPersistValues", 1)[0]
+    assert "변경됨 — 아직 저장 전입니다" in change and "WT_DRAFTS" in change
+    save = live.split("async function wtSaveCard(", 1)[1].split("\n/* ═══ 업무센터", 1)[0]
+    assert "저장 완료" in save and "wtPersistValues(k,id,draft" in save
+    assert "WT_EDIT_VERSIONS" in live and "WT_EDIT_VERSIONS[key]" in save, \
+        "수정 시작 버전을 기억하지 않아 배경 갱신 뒤 다른 사람 변경을 덮을 수 있다"
+    complete = live.split("async function wtComplete(", 1)[1].split("\nfunction wtBoard", 1)[0]
+    assert complete.count("wtPersistValues(") == 1 and "wtEdit(" not in complete, \
+        "완료 처리가 상태·완료일을 두 번 따로 저장한다"
+
+    # 서버의 기존 다중필드 계약도 실제 한 트랜잭션·버전 +1인지 확인한다.
+    with tempfile.TemporaryDirectory(prefix="csos-work-card-275-") as td:
+        store = A.AppStore(Path(td) / "app.db").initialize()
+        made = store.create_work(
+            kind="돌발AS", business_key="AS-275-001", public_id="AS-275-001",
+            project_no="UJ2750001", camp_name="수정저장 검증캠프", status="접수",
+            fields={"접수ID": "AS-275-001", "진행상태": "접수", "담당기사": ""},
+            actor="t275-seed", source="synthetic", evidence="수정 저장 버튼 합성",
+            idempotency_key="t275-seed",
+        )
+        before = store.get_work(work_id=made["work"]["id"])
+        saved = S.save_staff_entry("admin", {
+            "category": "as", "key": "AS-275-001",
+            "record_version": before["record_version"],
+            "values": {"담당기사": "김필우", "방문예정일": "2026-08-20"},
+            "reason": "카드 한 번 저장 검증", "idempotency_key": "t275-save",
+        }, store=store, actor="admin")
+        after = store.get_work(work_id=made["work"]["id"])
+        assert saved["ok"] and after["record_version"] == before["record_version"] + 1
+        assert after["fields"]["담당기사"] == "김필우" \
+            and after["fields"]["방문예정일"] == "2026-08-20"
+    print("[275] 정기점검·돌발AS 수정/저장 버튼 · 변경 전 초안 · 다중필드 1회 저장 · 알림 팝업 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -19724,6 +19773,7 @@ if __name__ == "__main__":
     t271_pc_off_cloud_snapshot_and_lossless_return()
     t273_calendar_capture_is_three_pages_and_never_drops_reasons()
     t274_mobile_orgchart_centers_every_wrapped_row()
+    t275_work_cards_require_edit_then_batch_save_with_notifications()
     t127_dark_mode_no_hardcoded_light_panel()
     t128_dash_tap_to_move()
     t129_call_notes_db_only_and_device_open()
