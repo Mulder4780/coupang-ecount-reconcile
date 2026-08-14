@@ -1535,16 +1535,23 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
   display:flex;align-items:center;gap:6px}
 .rpt h4::after{content:"";flex:1;height:1px;background:var(--line)}
 .ceo-dir{margin-top:10px;border:1px solid #F1C2C2;border-left:5px solid #C0212E;border-radius:12px;
-  padding:12px 14px;background:#FFF8F8}
+  padding:12px 14px;background:var(--danger-bg)}
 .ceo-dir-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
-.ceo-dir-title{font-size:14.5px;font-weight:900;color:#8F1D1D}
-.ceo-dir-meta{font-size:12.5px;font-weight:700;color:#667085;margin-top:3px}
+/* ★ 색을 손으로 적지 않는다 — 이 앱은 라이트·다크가 같은 규칙을 쓴다.
+   #8F1D1D(어두운 빨강)·#667085 는 흰 배경 기준 값이라 다크 배경(#0B1020)에서
+   1.9:1·3.41:1 로 **안 읽혔다**. 그 빨강 하나가 합성검증 [115] 를 세웠고,
+   빨간 검증이 09:50 일일대조 회차를 SystemExit 로 통째로 죽이고 있었다
+   (2026-08-14 실측: 끝낸 단계 ['합성검증'] 하나 · 8.4분). 변수를 쓰면 테마가
+   바뀌어도 따라온다 — --danger 다크 7.89 · 라이트 5.26. */
+.ceo-dir-title{font-size:14.5px;font-weight:900;color:var(--danger)}
+.ceo-dir-meta{font-size:12.5px;font-weight:700;color:var(--ink-3);margin-top:3px}
 .ceo-dir-state{padding:5px 9px;border-radius:999px;background:#FEE4E2;color:#B42318;font-size:12px;font-weight:900}
 .ceo-dir-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
-.ceo-dir-item{border:1px solid #F1DADA;border-radius:10px;padding:10px;background:#FFF;min-width:0}
-.ceo-dir-item b{display:block;font-size:13px;color:#101828;margin-bottom:5px}
-.ceo-dir-item p{margin:0;font-size:12.5px;line-height:1.5;color:#475467;word-break:keep-all}
-.ceo-dir-item small{display:block;margin-top:6px;color:#B42318;font-size:12px;font-weight:800}
+/* 흰 배경을 손으로 적으면 다크에서 '흰 카드 위 흰 글자'가 된다(2026-07-30 사고). */
+.ceo-dir-item{border:1px solid #F1DADA;border-radius:10px;padding:10px;background:var(--surface);min-width:0}
+.ceo-dir-item b{display:block;font-size:13px;color:var(--ink);margin-bottom:5px}
+.ceo-dir-item p{margin:0;font-size:12.5px;line-height:1.5;color:var(--ink-2);word-break:keep-all}
+.ceo-dir-item small{display:block;margin-top:6px;color:var(--danger);font-size:12px;font-weight:800}
 .rgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .rcell{background:var(--panel);border:1px solid #EEF2F7;border-radius:10px;padding:10px 12px;text-align:center}
 .rcell.clk{cursor:pointer;transition:border .15s,box-shadow .15s,transform .1s}
