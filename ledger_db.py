@@ -2565,7 +2565,11 @@ def defer_apply(slot_name, spawn=True):
         try:
             proc = subprocess.Popen(
                 [sys.executable, os.path.abspath(__file__), "--resume-watch"],
-                cwd=ROOT, creationflags=0x00000008 if os.name == "nt" else 0,
+                cwd=ROOT,
+                # 0x8=DETACHED_PROCESS 만으로는 창이 뜬다 — 창을 없애는 것은
+                # CREATE_NO_WINDOW 다 (2026-08-14, 검증 [272]).
+                creationflags=((getattr(subprocess, "CREATE_NO_WINDOW", 0) | 0x00000008)
+                               if os.name == "nt" else 0),
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 stdin=subprocess.DEVNULL)
             pid = proc.pid

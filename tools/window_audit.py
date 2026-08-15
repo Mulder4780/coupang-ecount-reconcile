@@ -42,6 +42,24 @@ CONSOLE_EXE = ("powershell", "cmd", "taskkill", "tasklist", "schtasks", "git",
                "robocopy", "xcopy", "sc.exe", "wscript", "cscript")
 
 
+def _flag_var_ok(call: ast.Call, tree) -> bool:
+    """`creationflags=flags` 처럼 **변수로 넘기는** 자리를 따라간다 (2026-08-14).
+
+    이걸 안 하면 멀쩡히 깃발을 단 자리가 '못 읽음'으로 남아, 진짜 못 읽은 자리와
+    섞여 아무도 안 본다([170]). 같은 파일 안에서 그 이름에 `CREATE_NO_WINDOW` 를
+    넣는 대입이 있으면 통과시킨다 — 없으면 여전히 '모름'이다.
+    """
+    for kw in call.keywords:
+        if kw.arg == "creationflags" and isinstance(kw.value, ast.Name):
+            want = kw.value.id
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Assign) and any(
+                        isinstance(t, ast.Name) and t.id == want for t in node.targets):
+                    if "CREATE_NO_WINDOW" in ast.unparse(node.value):
+                        return True
+    return False
+
+
 def _has_no_window(call: ast.Call) -> bool:
     """이 호출이 `CREATE_NO_WINDOW` 를 확실히 달고 있나.
 
@@ -101,7 +119,7 @@ def scan():
                     continue
                 if not (isinstance(f.value, ast.Name) and f.value.id == "subprocess"):
                     continue
-                if _has_no_window(node):
+                if _has_no_window(node) or _flag_var_ok(node, tree):
                     continue
                 # ★ **모르는 것을 조용히 넘기지 않는다** (2026-08-14 실사고).
                 #   전에는 무엇을 띄우는지 모르면 `continue` 로 건너뛰고 "0곳"이라

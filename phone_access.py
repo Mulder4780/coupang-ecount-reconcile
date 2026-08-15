@@ -64,8 +64,12 @@ def ensure_tunnel():
         return url, False
     py = sys.executable.replace("python.exe", "pythonw.exe")
     py = py if os.path.exists(py) else sys.executable
+    # 0x8=DETACHED_PROCESS 만으로는 창이 뜬다(pythonw 를 못 찾아 python.exe 로
+    # 떨어지면 새 콘솔이 할당된다) — 2026-08-14, 검증 [272].
     subprocess.Popen([py, os.path.join(BASE, "webapp", "tunnel_run.py")],
-                     cwd=BASE, creationflags=0x00000008)
+                     cwd=BASE,
+                     creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                                    | 0x00000008))
     for _ in range(20):
         time.sleep(2)
         u = read_url()
