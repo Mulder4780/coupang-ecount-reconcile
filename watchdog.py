@@ -125,8 +125,13 @@ def kill_by_cmdline(needle):
 
 
 def start_hidden(script):
+    # ★ `DETACHED_PROCESS`(0x8) 는 **창 없는 깃발이 아니다** — 부모 콘솔을 안 물려받는다는
+    #   뜻일 뿐이라, `PYW` 가 없어 `PY`(python.exe)로 떨어지면 **새 콘솔이 뜬다.**
+    #   창을 없애는 깃발은 `CREATE_NO_WINDOW` 다 (2026-08-14, 검증 [272]).
     subprocess.Popen([PYW if os.path.exists(PYW) else PY, os.path.join(ROOT, script)],
-                     cwd=ROOT, creationflags=0x00000008)  # DETACHED_PROCESS
+                     cwd=ROOT,
+                     creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                                    | 0x00000008))  # + DETACHED_PROCESS
 
 
 def heal_server(dry):

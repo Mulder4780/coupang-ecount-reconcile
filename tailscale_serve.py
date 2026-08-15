@@ -62,7 +62,7 @@ def run(*args, timeout=90):
         return 1, "", "tailscale.exe 를 찾지 못했습니다"
     try:
         r = subprocess.run([e] + list(args), capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout)
+                           encoding="utf-8", errors="replace", timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except subprocess.TimeoutExpired as ex:
         out = ex.stdout or ""
         err = ex.stderr or ""

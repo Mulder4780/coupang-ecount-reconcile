@@ -57,7 +57,7 @@ def _run(args, timeout, tag="run"):
     try:
         with open(log, "w", encoding="utf-8", errors="replace") as fh:
             p = subprocess.run([PY] + args, cwd=ROOT, timeout=timeout,
-                               stdout=fh, stderr=subprocess.STDOUT)
+                               stdout=fh, stderr=subprocess.STDOUT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             rc = p.returncode
     except subprocess.TimeoutExpired:
         rc = 124

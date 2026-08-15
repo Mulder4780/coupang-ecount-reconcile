@@ -258,7 +258,10 @@ def start():
     if not os.path.isfile(quiet):
         quiet = exe
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | \
+    # ★ DETACHED_PROCESS 만으로는 창이 뜬다 — `quiet` 가 pythonw 를 못 찾아
+    #   python.exe 로 떨어지면 새 콘솔이 할당된다 (2026-08-14, 검증 [272]).
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | \
+        getattr(subprocess, "DETACHED_PROCESS", 0) | \
         getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     subprocess.Popen([quiet, "-u", SERVER], cwd=ROOT, env=env,
                      creationflags=flags, close_fds=True)

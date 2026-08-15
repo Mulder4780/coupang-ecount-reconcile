@@ -103,12 +103,25 @@ def scan():
                     continue
                 if _has_no_window(node):
                     continue
-                exe = _looks_console(node)
-                if exe == "?":
-                    continue          # 무엇을 띄우는지 모르면 지목하지 않는다([172])
-                bad.append((rel, node.lineno, f.attr, exe))
+                # ★ **모르는 것을 조용히 넘기지 않는다** (2026-08-14 실사고).
+                #   전에는 무엇을 띄우는지 모르면 `continue` 로 건너뛰고 "0곳"이라
+                #   말했다. 그런데 건너뛴 자리가 **30곳**이었고 그 안에
+                #   `tailscale_serve.run()` 이 있었다 — `server_guard` 가 **60초마다**
+                #   부르는 자리다. 즉 화면에는 1분마다 검은 창이 떴는데 계기는
+                #   "0곳"을 확언했다. 0 이 '없다'인지 '안 봤다'인지 안 가르면
+                #   계기 자신이 눈이 먼다([169]).
+                #   그래서 이제 **모름도 돌려준다**. 지목이 아니라 '못 봤다'는 보고다.
+                bad.append((rel, node.lineno, f.attr, _looks_console(node)))
     bad.sort()
     return bad
+
+
+def split(rows=None):
+    """(확실히 콘솔, 모름) 으로 가른다 — 세는 쪽이 둘을 구별해 말할 수 있게."""
+    rows = scan() if rows is None else rows
+    sure = [r for r in rows if r[3] != "?"]
+    unknown = [r for r in rows if r[3] == "?"]
+    return sure, unknown
 
 
 def main(argv=None):

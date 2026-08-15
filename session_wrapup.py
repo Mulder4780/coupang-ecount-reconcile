@@ -54,7 +54,7 @@ def run(args, timeout=900):
     """자식 프로세스 한 번. 무슨 일이 있어도 예외를 밖으로 내보내지 않는다."""
     try:
         r = subprocess.run(args, cwd=ROOT, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout)
+                           encoding="utf-8", errors="replace", timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         tail = [x.strip() for x in ((r.stdout or "") + "\n" + (r.stderr or "")).splitlines()
                 if x.strip()]
         return r.returncode == 0, (tail[-1] if tail else "")[:200]

@@ -78,7 +78,7 @@ def _run_tesseract(paths, timeout):
     for p in paths:
         try:
             r = subprocess.run([exe, p, "stdout", "-l", "kor+eng", "--psm", "6"],
-                               capture_output=True, timeout=timeout)
+                               capture_output=True, timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             out[p] = r.stdout.decode("utf-8", "replace") if r.returncode == 0 else ""
         except Exception:
             out[p] = ""

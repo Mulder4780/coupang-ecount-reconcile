@@ -149,7 +149,7 @@ def run(args, minutes=20):
     편의 함수 쪽 timeout 은 윈도우에서 영원히 매달릴 수 있다([175])."""
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
     p = subprocess.Popen([sys.executable] + args, cwd=ROOT, env=env,
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     try:
         out, _ = p.communicate(timeout=minutes * 60)
         return p.returncode, (out or b"").decode("utf-8", "replace")

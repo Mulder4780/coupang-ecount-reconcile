@@ -103,7 +103,7 @@ def _paddle_batch(paths, timeout):
             r = subprocess.run(
                 [PADDLE_PY, PADDLE_WORKER, "--input", src, "--output", dst],
                 cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8",
-                errors="replace", timeout=max(timeout, len(paths) * 45))
+                errors="replace", timeout=max(timeout, len(paths) * 45), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             if r.returncode or not os.path.isfile(dst):
                 return {}
             raw = json.load(open(dst, encoding="utf-8"))

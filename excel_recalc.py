@@ -279,7 +279,7 @@ def refresh_pending():
     """대기 건수를 다시 센다(결과 확인용)."""
     try:
         subprocess.run([sys.executable, os.path.join(ROOT, "recalc_pending.py")], cwd=ROOT,
-                       capture_output=True, timeout=600)
+                       capture_output=True, timeout=600, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except Exception:
         pass
     return pending_doc()

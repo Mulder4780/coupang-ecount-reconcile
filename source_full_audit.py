@@ -41,7 +41,7 @@ def enumerate_files(root: str) -> list[dict]:
         # the later file open fail even though enumeration itself succeeded.
         command, capture_output=True, text=True, encoding="mbcs",
         errors="replace", timeout=600,
-        check=False,
+        check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     # Robocopy 0..7 are non-fatal result bitmasks.  /L never copies a file.
     if result.returncode > 7:

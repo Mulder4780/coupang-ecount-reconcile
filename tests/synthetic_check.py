@@ -124,7 +124,7 @@ def t1_erp_check(tmp):
                         "--file", erp, "--master", ledger],
                        capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=ROOT,
                        env={**os.environ, "COUPANG_REPORT_DIR": tmp,
-                            "COUPANG_UPDATES_DIR": tmp})
+                            "COUPANG_UPDATES_DIR": tmp}, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     out = r.stdout
     m = re.search(r"A\(ERP에만\) (\d+) / B\(원장에만\) (\d+) / C\(계산서미발행\) (\d+) / D\(금액불일치\) (\d+) / (?:전표키 )?정상 (\d+)", out)
     assert m, f"결과 라인 파싱 실패:\n{out}\n{r.stderr}"
@@ -177,7 +177,7 @@ def t4_kakao(tmp):
         f.write("2026년 7월 3일 오후 4:01, 유현민 : 일반 공지 메시지\n")  # 모바일 형식 검증
     r = subprocess.run([PY, os.path.join(ROOT, "kakao", "kakao_reconcile.py"),
                         "--file", txt, "--master", ledger],
-                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp})
+                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp}, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     m = re.search(r"확인 (\d+) / 미확인 (\d+)", r.stdout)
     assert m, f"카톡 결과 파싱 실패:\n{r.stdout}\n{r.stderr}"
     ok, miss = map(int, m.groups())
@@ -256,7 +256,7 @@ def t5_writer(tmp):
                        capture_output=True, text=True, encoding="utf-8", errors="replace",
                        cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp,
                                      "COUPANG_UPDATES_DIR": tmp,
-                                     "COUPANG_LEDGER_GATE": "1"})
+                                     "COUPANG_LEDGER_GATE": "1"}, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     assert "반영 완료" in r.stdout and "입력 4건 / 건너뜀 1건" in r.stdout, f"{r.stdout}\n{r.stderr}"
     dst = src.replace("_v1.xlsx", "_v2.xlsx")
     w2 = openpyxl.load_workbook(dst)
@@ -342,7 +342,7 @@ def t7_po(tmp):
     wb.save(pof)
     r = subprocess.run([PY, os.path.join(ROOT, "po_reconcile.py"),
                         "--file", pof, "--master", ledger, "--no-queue"],
-                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp})
+                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env={**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp}, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     # 판정 이름이 '원장미등록' → '미청구'로 바뀌었다(ERP 계산서 대조 후 진짜 미청구만 남김)
     m = re.search(r"A\((?:원장미등록|미청구)\) (\d+) / B\(쿠팡목록에없음\) (\d+) / C\(금액불일치\) (\d+) / D\(연결제안\) (\d+) / 정상 (\d+)", r.stdout)
     assert m, f"PO 결과 파싱 실패:\n{r.stdout}\n{r.stderr}"
@@ -358,7 +358,7 @@ def t8_findings_sheet(tmp):
     make_ledger(ledger)
     env = {**os.environ, "COUPANG_REPORT_DIR": tmp, "COUPANG_UPDATES_DIR": tmp}
     r = subprocess.run([PY, os.path.join(ROOT, "findings_sheet.py"), "--master", ledger],
-                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env=env)
+                       capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env=env, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     assert "시트 신규 추가" in r.stdout, f"{r.stdout}\n{r.stderr}"
     v2 = ledger.replace("_v1.xlsx", "_v2.xlsx")
     w = openpyxl.load_workbook(v2)
@@ -369,7 +369,7 @@ def t8_findings_sheet(tmp):
     w.close()
     # 멱등: 같은 내용으로 재실행 → v3 생성 안 됨
     r2 = subprocess.run([PY, os.path.join(ROOT, "findings_sheet.py"), "--master", v2],
-                        capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env=env)
+                        capture_output=True, text=True, encoding="utf-8", cwd=ROOT, env=env, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     assert "변경 없음" in r2.stdout and not os.path.exists(ledger.replace("_v1", "_v3")), r2.stdout
     # ★ 자기잠식 금지 (2026-08-07 실사고). 23시트는 4행에 '프로젝트NO' 열을 가진다.
     #   원장을 훑는 쪽이 이 시트를 원장으로 세면 "이미 등록된 프로젝트"가 부풀어
@@ -1162,7 +1162,7 @@ def t6_webapp():
     import time, json, urllib.request, http.cookiejar
     port = 18899
     p = subprocess.Popen([PY, os.path.join(ROOT, "webapp", "app_server.py"), "--demo", "--port", str(port)],
-                         cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     try:
         base = f"http://127.0.0.1:{port}"
         # ★ 기동 대기를 9초(30×0.3)에서 45초로 늘리고, **안 떴으면 안 떴다고 말한다**
@@ -5464,7 +5464,7 @@ def t112_band_plan_order_and_scope():
     # 시트를 채운 뒤에는 옮겨야 한다
     subprocess.run([PY, os.path.join(ROOT, "findings_sheet.py"), "--master", _m],
                    capture_output=True, text=True, encoding="utf-8", cwd=ROOT,
-                   env={**os.environ, "COUPANG_REPORT_DIR": _tmpd, "COUPANG_UPDATES_DIR": _tmpd})
+                   env={**os.environ, "COUPANG_REPORT_DIR": _tmpd, "COUPANG_UPDATES_DIR": _tmpd}, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     _m2f = _m.replace("_v1.xlsx", "_v2.xlsx")     # 같은 폴더라 별도 엑셀은 그대로 옆에 있다
     assert _SR.check(_m2f, "23_확인필요현황")[0], "채워진 시트를 '보류'로 봤다"
     _SR.run(apply=True, master=_m2f)
@@ -6522,7 +6522,7 @@ def t121_pid_alive():
     assert P.alive(0) is None and P.alive("x") is None, "말이 안 되는 pid 는 None"
 
     # 방금 끝난 프로세스는 **확실히 죽었다**고 나와야 한다. 옛 판정이 틀렸던 바로 그 자리다.
-    pr = subprocess.Popen([sys.executable, "-c", "pass"])
+    pr = subprocess.Popen([sys.executable, "-c", "pass"], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     pr.wait()
     assert P.alive(pr.pid) is False,         "끝난 프로세스를 살아 있다고 한다 — 잠금·점유가 영원히 안 풀린다"
     assert P.dead(pr.pid) is True and P.dead(os.getpid()) is False

@@ -30,7 +30,7 @@ PY = sys.executable
 def run(args, label):
     r = subprocess.run([PY] + args, cwd=ROOT, capture_output=True, text=True,
                        encoding="utf-8", errors="replace",
-                       env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+                       env={**os.environ, "PYTHONIOENCODING": "utf-8"}, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     out = "\n".join(l for l in (r.stdout or "").splitlines()
                     if "Warning" not in l and "warn(" not in l)
     print(f"— {label}: {(out.strip().splitlines() or ['(출력 없음)'])[-1]}")

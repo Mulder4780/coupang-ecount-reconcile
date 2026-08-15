@@ -45,7 +45,7 @@ def seen_dumps():
 def run(name, args, timeout=1800):
     try:
         r = subprocess.run([PY] + args, cwd=ROOT, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout)
+                           encoding="utf-8", errors="replace", timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         lines = [x for x in (r.stdout or "").splitlines()
                  if x.strip() and "UserWarning" not in x and "관리대장 최신본" not in x]
         tail = lines[-1] if lines else ""

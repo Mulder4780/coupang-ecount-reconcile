@@ -197,7 +197,7 @@ def main(argv):
     note("대조", "시작", {"신규": len(copied)})
     r = subprocess.run([sys.executable, os.path.join(ROOT, "receipt_fill.py"), "--queue"],
                        capture_output=True, text=True, encoding="utf-8",
-                       errors="replace", cwd=ROOT)
+                       errors="replace", cwd=ROOT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     tail = (r.stdout or "").strip().splitlines()[-3:]
     for ln in tail:
         print(" ", ln)
@@ -215,7 +215,7 @@ def main(argv):
         r2 = subprocess.run([sys.executable, os.path.join(ROOT, "ledger_db.py"),
                              "--intake", "--apply", "--force", "--now"],
                             capture_output=True, text=True, encoding="utf-8",
-                            errors="replace", cwd=ROOT)
+                            errors="replace", cwd=ROOT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         note("보관본", "끝" if r2.returncode == 0 else "실패", {"code": r2.returncode})
         print("  즉시 보관본:", "완료" if r2.returncode == 0 else f"실패({r2.returncode})")
     else:
