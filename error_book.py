@@ -588,7 +588,10 @@ def fix_evidence(item):
     막음 = str(item.get("막음") or "")
     when, why = None, ""
     for n in re.findall(r"\[(\d{2,4})\]", 막음):
-        t = _git_when("def t%s(" % n, _PROOF_FILE)
+        # ⚠ 검증 함수 이름은 `def t249(` 가 아니라 `def t249_entry_save_never_silent():`
+        #   처럼 **뒤에 설명이 붙는다.** 괄호까지 붙여 찾으면 한 건도 안 걸리면서
+        #   오류도 안 난다 — 그러면 그 갈래는 영영 '근거 없음'으로 남는다([165] 모양).
+        t = _git_when("def t%s" % n, _PROOF_FILE)
         if t and (when is None or t > when):
             when, why = t, "검증 [%s] 이 들어온 커밋" % n
     if when:

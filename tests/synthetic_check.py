@@ -16038,6 +16038,70 @@ def t233_round_steps_fit_inside_budget():
     assert ST.BUDGET_MIN + 20 <= _limit_min("install_source_tidy_schedule.ps1"),         "원본정리 예산이 스케줄러 제한과 붙어 있다"
 
 
+def t288_error_book_drops_alarms_fixed_before_last_seen():
+    """[288] 오류 경보는 **고친 시각**을 본다 — 고침보다 앞선 기록을 매일 P1 으로 올리지 않는다.
+
+    2026-08-16 실측(분담판 [108]): 인계 '먼저 처리할 것' 17건 중 **넷**이 이 모양이었다 —
+    회귀 58건(저장 버전 없음) · 새 오류 26건(fmtDateTime) · 6건·4건(flowVisual*).
+    넷 다 마지막 발생이 고침 커밋보다 **앞**인데 error_book 이 고친 시각을 안 봤다.
+    경보가 대부분 가짜면 나머지도 아무도 안 본다([170]).
+
+    ★ 여기서 제일 위험한 것은 반대 방향이다 — 시각대를 안 맞추면 고침 직후 9시간이
+      눈먼 창이 되어 **고친 뒤에 난 오류를 '고쳐졌다'고 말한다**. 그래서 `to_local`
+      부터 잰다(ux 42,322/42,339행이 UTC).
+    """
+    import error_book as EB
+    from datetime import datetime
+
+    # ① 시각대 — 'Z' 는 이 PC 시각으로 옮겨져야 한다(그대로 자르면 9시간이 어긋난다).
+    z = "2026-08-15T11:41:10.929Z"
+    got = EB.to_local(z)
+    want = datetime.fromisoformat(z.replace("Z", "+00:00")).astimezone().replace(
+        tzinfo=None).isoformat(timespec="seconds")
+    assert got == want, f"UTC 를 이 PC 시각으로 안 옮겼다: {got}"
+    assert EB.to_local("2026-08-15T11:41:10") == "2026-08-15T11:41:10", \
+        "시각대가 없는 보관본 시각을 건드렸다"
+    assert EB.to_local("") == "" and EB.to_local(None) == "", "빈 시각을 지어냈다"
+    back = EB._to_utc(want)
+    assert back and back.endswith("Z") and back[:13] == z[:13], \
+        "ux 표에 물어볼 UTC 꼴로 되돌리지 못한다"
+
+    # ② 근거가 없으면 **고쳤다고 하지 않는다**(안전한 쪽으로 남는다).
+    assert "고친때" not in EB.fix_evidence({"무엇": "그냥 실패했습니다"}), \
+        "근거 없이 고쳐진 것으로 넘겼다"
+    assert "고친때" not in EB.fix_evidence(
+        {"무엇": "Uncaught ReferenceError: 없는이름ZZZ is not defined"}), \
+        "아직 정의도 없는 이름을 고쳐진 것으로 넘겼다"
+
+    # ③ 근거 두 갈래가 실제로 걸린다 — 검증번호와 '아직 없는 이름'.
+    ev = EB.fix_evidence({"막음": "[249]", "무엇": ""})
+    assert ev.get("고친때"), "검증번호 [249] 로 고침 커밋을 못 찾는다"
+    # ⚠ 되돌아가면 안 되는 것: 검증 함수 이름은 `def t249(` 가 아니라
+    #   `def t249_entry_save_never_silent():` 다. 괄호까지 붙여 찾으면 한 건도
+    #   안 걸리면서 오류도 안 난다 — 그 갈래가 영영 '근거 없음' 으로 남는다([165]).
+    src = open(os.path.join(ROOT, "error_book.py"), encoding="utf-8").read()
+    assert '"def t%s" % n' in src, "검증번호를 괄호까지 붙여 찾으면 한 건도 안 걸린다"
+    assert EB._UNDEF.search("fmtDateTime is not defined"), "'아직 없는 이름' 을 못 읽는다"
+    assert not EB._UNDEF.search("데이터 버전이 없습니다"), "엉뚱한 문구를 심볼로 읽는다"
+
+    # ④ 고침 **뒤에도** 난 것은 그대로 남는다 — 이 부등호가 뒤집히면 경보가 통째로 죽는다.
+    assert "if not when or seen >= when:" in src, \
+        "고침 뒤에 난 오류까지 '고쳐짐' 으로 내린다"
+
+    # ⑤ '안 났다' 와 '아무도 안 열었다' 를 가른다([169]) — 방문 0 이면 못 본 것에 남는다.
+    assert "x.get(\"확인됨\")" in src and "재발 없음을 확언 못 한다" in src, \
+        "고친 뒤 화면을 연 기록이 없는데도 조용히 내려 버린다"
+    n, why = EB.views_since("2999-01-01T00:00:00")
+    assert (n == 0 or n is None) and (why or n == 0), "앞으로 올 시각에 방문이 잡힌다"
+
+    # ⑥ 읽기 전용은 그대로다 — 무엇도 고치지 않고 큐에도 안 넣는다.
+    for 금지 in ("enqueue(", "openpyxl", "--apply"):
+        assert 금지 not in src, f"오류 사전이 쓰는 길을 열었다: {금지}"
+
+    print("  [288] 오류 경보는 고친 시각을 본다 — 시각대 정규화·근거(검증번호/정의)·"
+          "방문 0 은 못 본 것으로 ✅")
+
+
 def t287_source_tidy_resumes_inside_watchdog_budget():
     """[287] 원본정리는 10분 워치독 안에서 진척을 저장하고 같은 앞부분을 되풀이하지 않는다."""
     import source_tidy as ST
@@ -20279,6 +20343,7 @@ if __name__ == "__main__":
     t284_orgchart_has_no_empty_shell_gap()
     t285_update_prompt_is_compact_top_right_card()
     t286_sales_source_survives_recent_export_cap()
+    t288_error_book_drops_alarms_fixed_before_last_seen()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
