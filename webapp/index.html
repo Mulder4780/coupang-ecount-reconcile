@@ -4613,6 +4613,10 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     --org-floor:#F7F9FC;--org-wall:#D3DBE8;--org-ink:#0E1B3F;--org-ink2:#5A6785;
     --org-zmgmt:#EAF2FF;--org-zfield:#EAF9F0;--org-zai:#F1ECFF;
     --org-chair:#C9D3E4;--org-chair-line:rgba(30,50,90,.16);--org-mon:#EEF2F9}
+  /* 조직도는 .shell 밖(body 직속)에 있다. 화면 전환 때 안쪽 view만 숨기면 빈 .shell의
+     모바일 padding(위 16px + 아래 92px)이 조직도 앞에 그대로 남아 큰 공백이 된다.
+     조직도 화면에서만 내용 없는 shell 자체를 접고, 다른 메뉴의 여백은 건드리지 않는다. */
+  body.org-view .shell{display:none}
   #v-org{color:var(--org-ink);max-width:100%}
   /* ★ 잘림 수정(2026-08-12): 조직도 뷰는 .shell 밖(body 직속)이라 사이드바(216px)
      오프셋을 못 받아 왼쪽이 사이드바 뒤로 깔렸다. 데스크탑에서만 .shell 과 같은
@@ -8309,6 +8313,9 @@ function wtCsv(k){
 function applyView(v){
   if(CAL_ONLY) v='calendar';        // 전용 모드에서는 어떤 경로로 불려도 캘린더뿐이다
   if(v==='settings' && staffSlug) v='ryu'; // 담당자 주소에서 관리자 설정을 URL로 우회하지 못한다
+  // 조직도는 .shell 밖의 body 직속 화면이다. 조직도를 열었는데 빈 .shell을 남기면
+  // 모바일에서 108px짜리 가짜 상단 공간이 생긴다. 화면 전환과 함께 정확히 접고 복구한다.
+  document.body.classList.toggle('org-view',v==='org');
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   $('v-'+v).classList.add('active');
   const navView=v==='ryu'?'dash':v;

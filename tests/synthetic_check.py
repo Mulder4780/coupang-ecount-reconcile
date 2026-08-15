@@ -19846,6 +19846,21 @@ def t283_calendar_capture_has_no_page_footer_captions():
     print("[283] 캘린더 1·2·3쪽 하단 설명 문구 제거 · 세 페이지 본문 유지 OK")
 
 
+def t284_orgchart_has_no_empty_shell_gap():
+    """[284] 조직도 앞의 빈 main padding을 화면 전환과 함께 접는다."""
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "body.org-view .shell{display:none}" in live, (
+        "조직도 밖의 빈 shell이 모바일 상단 공백을 계속 차지한다")
+    apply_view = live.split("function applyView(v){", 1)[1].split(
+        "\n/* 사용자가 화면을 옮긴다", 1)[0]
+    assert "document.body.classList.toggle('org-view',v==='org')" in apply_view, (
+        "조직도 진입·이탈 때 빈 shell 접힘 상태가 함께 바뀌지 않는다")
+    assert apply_view.index("classList.toggle('org-view'") < apply_view.index(
+        "document.querySelectorAll('.view')"), (
+        "기존 view를 바꾸기 전에 조직도 전용 본문 공간을 정리하지 않는다")
+    print("[284] 조직도 진입 시 빈 shell 제거 · 다른 메뉴 복귀 시 원래 여백 복구 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -20122,6 +20137,7 @@ if __name__ == "__main__":
     t281_calendar_done_plan_exclusive_and_full_a4_width()
     t282_settings_nav_uses_gear_icon()
     t283_calendar_capture_has_no_page_footer_captions()
+    t284_orgchart_has_no_empty_shell_gap()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
