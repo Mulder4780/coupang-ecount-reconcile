@@ -4498,6 +4498,8 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   #v-settings .settings-facts dd{color:var(--ink);font-weight:750;overflow-wrap:anywhere}
   #v-settings .settings-actions{display:flex;flex-wrap:wrap;gap:8px}
   #v-settings .settings-actions .abtn{min-height:42px}
+  #v-settings .admin-hub{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:8px;margin-bottom:4px}
+  #v-settings .admin-hub .abtn{min-height:46px;justify-content:flex-start;text-align:left;font-weight:750}
   #v-settings .settings-danger{color:var(--danger)!important;border-color:color-mix(in srgb,var(--danger) 45%,var(--line))!important}
   #v-settings .settings-safety{margin-top:14px;padding:12px 14px;border-radius:12px;
     background:var(--panel);border:1px solid var(--line);font-size:13px;line-height:1.6;color:var(--muted)}
@@ -4537,13 +4539,28 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
           <button type="button" class="abtn primary" onclick="openPinDialog()">관리자 PIN 변경</button>
         </div>
       </article>
-      <article class="settings-card">
-        <div class="settings-card-head"><div><h3>운영 관리</h3><p>관리자 확인이 자주 필요한 화면으로 바로 이동합니다.</p></div></div>
-        <div class="settings-actions">
+      <article class="settings-card wide">
+        <div class="settings-card-head"><div><h3>관리자 기능 통합 관제</h3><p>관리자 권한으로 여는 모든 화면을 한곳에서 바로 엽니다. 각 기능은 서버 관리자 관문을 그대로 통과합니다.</p></div>
+          <span class="settings-state" id="adminHubState">확인 중</span></div>
+        <div class="admin-hub" id="adminHub">
+          <button type="button" class="abtn" onclick="routeNav('run')">실행·자동화</button>
           <button type="button" class="abtn" onclick="routeNav('run')">시스템 진단</button>
+          <button type="button" class="abtn" onclick="routeNav('flow')">업무 워크플로우</button>
+          <button type="button" class="abtn" onclick="routeNav('daily')">일일 대조</button>
+          <button type="button" class="abtn" onclick="routeNav('check')">확인 필요</button>
+          <button type="button" class="abtn" onclick="routeNav('settle')">정산</button>
+          <button type="button" class="abtn" onclick="routeNav('revenue')">매출 실적</button>
+          <button type="button" class="abtn" onclick="routeNav('as')">돌발 AS</button>
+          <button type="button" class="abtn" onclick="routeNav('pm')">정기점검</button>
+          <button type="button" class="abtn" onclick="routeNav('remote')">원격 제어</button>
+          <button type="button" class="abtn" onclick="routeNav('worklog')">업무일지</button>
+          <button type="button" class="abtn" onclick="routeNav('sources')">원본 자료</button>
+          <button type="button" class="abtn" onclick="routeNav('report')">대표 보고</button>
           <button type="button" class="abtn" onclick="routeNav('org')">조직도·접속 현황</button>
+          <button type="button" class="abtn" onclick="routeNav('calendar')">쿠팡 캘린더</button>
           <button type="button" class="abtn" onclick="toggleTheme()">화면 밝기 전환</button>
         </div>
+        <div class="settings-safety">여기 표시된 화면은 접근 바로가기입니다. 실행·정책·전체 원장 같은 실제 기능은 요청할 때마다 서버가 관리자 세션을 다시 검사합니다.</div>
       </article>
     </div>
   </section>
@@ -6881,6 +6898,8 @@ function renderAdminSettings(session,error=''){
   }
   $('adminExpiryValue').textContent=expiry;
   const out=$('adminLogoutBtn'); if(out) out.disabled=!isAdmin;
+  const hub=$('adminHubState'); if(hub){ hub.classList.toggle('ok',!!isAdmin);
+    hub.textContent=isAdmin?'전체 사용 가능':'관리자 인증 필요'; }
 }
 async function loadAdminSettings(force=false){
   if(staffSlug){ renderAdminSettings(null,'담당자 모드'); return null; }
