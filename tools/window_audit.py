@@ -128,16 +128,23 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="창이 달릴 수 있는 자식 실행 자리")
     ap.add_argument("--count", action="store_true", help="건수만")
     a = ap.parse_args(argv)
-    bad = scan()
+    sure, unknown = split()
     if a.count:
-        print(len(bad))
+        print(len(sure) + len(unknown))
         return 0
-    if not bad:
-        print("창이 달릴 수 있는 자리: 0곳")
+    if not sure and not unknown:
+        print("창이 달릴 수 있는 자리: 0곳 (전부 깃발이 있다)")
         return 0
-    print("창이 달릴 수 있는 자리 %d곳 — 콘솔 exe 를 깃발 없이 띄운다" % len(bad))
-    for rel, line, what, exe in bad:
-        print("  %-46s L%-6d subprocess.%-14s %s" % (rel, line, what, exe))
+    if sure:
+        print("★ 콘솔 exe 를 깃발 없이 띄우는 자리 %d곳" % len(sure))
+        for rel, line, what, exe in sure:
+            print("  %-44s L%-6d subprocess.%-12s %s" % (rel, line, what, exe))
+    if unknown:
+        # 지목이 아니라 보고다 — 무엇을 띄우는지 코드만 봐서는 모르는 자리.
+        print("무엇을 띄우는지 못 읽은 자리 %d곳 — **0곳이라 말하면 안 되는 자리**"
+              % len(unknown))
+        for rel, line, what, _ in unknown:
+            print("  %-44s L%-6d subprocess.%s" % (rel, line, what))
     return 0
 
 

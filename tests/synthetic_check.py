@@ -16998,7 +16998,13 @@ def t272_no_console_windows_from_children():
 
     A = importlib.import_module("tools.window_audit")
 
-    # ① 지금 남은 자리가 없다
+    # ① 지금 남은 자리가 없다 — ★ '모름'도 0 이어야 한다 (2026-08-14 실사고:
+    #    감사기가 모르는 자리를 조용히 넘기고 "0곳"이라 말했는데, 건너뛴 30곳 안에
+    #    server_guard 가 60초마다 부르는 tailscale_serve.run() 이 있었다).
+    sure, unknown = A.split()
+    assert not unknown, (
+        "무엇을 띄우는지 못 읽은 자리가 %d곳 — 0곳이라 말하면 안 된다: %s"
+        % (len(unknown), " · ".join("%s:%d" % (r, l) for r, l, _w, _e in unknown[:5])))
     bad = A.scan()
     assert not bad, (
         "콘솔 exe 를 깃발 없이 띄우는 자리가 %d곳 남았다 — %s"
