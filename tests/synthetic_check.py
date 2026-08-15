@@ -19882,6 +19882,25 @@ def t285_update_prompt_is_compact_top_right_card():
     print("[285] 새 버전 갱신 알림 우측 상단 · appbar 아래 자동 배치 · 모바일 폭 대응 OK")
 
 
+def t286_sales_source_survives_recent_export_cap():
+    """[286] 최신 ERP 파일이 쌓여도 입증된 판매조회 원본을 후보에서 잃지 않는다."""
+    import erp_sales_index as sales_index
+
+    candidates = [os.path.join("Z:\\erp", f"export_{i:03}.xlsx") for i in range(90)]
+    older_sales = candidates[73]
+    picked = sales_index.prioritize_sales_candidates(
+        candidates, [candidates[5], older_sales], limit=40)
+    assert candidates[:40] == picked[:40], "새로 들어온 미분류 ERP 파일 검사가 빠졌다"
+    assert older_sales in picked, "40개 밖의 입증된 판매조회가 다시 잘렸다"
+    assert picked.count(candidates[5]) == 1, "최근 파일과 판매 캐시가 겹쳐 두 번 읽힌다"
+
+    stmt = open(os.path.join(ROOT, "stmt_link.py"), encoding="utf-8").read()
+    assert "from erp_sales_index import sales_candidate_paths" in stmt, (
+        "명세서 색인이 ERP 판매 색인과 다른 후보 선택 규칙을 쓴다")
+    assert "cands[:40]" not in stmt, "명세서 색인에 최신 40개 절단이 되살아났다"
+    print("  [286] ERP 최신파일 상한 밖 판매조회 보존 · 두 색인 후보 선택 단일화 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -20160,6 +20179,7 @@ if __name__ == "__main__":
     t283_calendar_capture_has_no_page_footer_captions()
     t284_orgchart_has_no_empty_shell_gap()
     t285_update_prompt_is_compact_top_right_card()
+    t286_sales_source_survives_recent_export_cap()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

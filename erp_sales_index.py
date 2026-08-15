@@ -44,6 +44,50 @@ def rank(state):
     return 0
 
 
+def _path_key(path):
+    return os.path.normcase(os.path.abspath(path or ""))
+
+
+def prioritize_sales_candidates(cands, cached_sales=(), limit=60):
+    """Keep recent unknown exports *and* every file already proven to be sales.
+
+    The ERP folder contains many unrelated exports.  A plain ``cands[:limit]``
+    silently loses an older valid sales export as soon as enough newer ledger or
+    tax files arrive.  The classification cache is only a prioritization hint;
+    callers still verify workbook headers before accepting a file.
+    """
+    ordered = list(cands)
+    known = {_path_key(p) for p in cached_sales}
+    selected = list(ordered[:max(0, int(limit))])
+    selected.extend(p for p in ordered if _path_key(p) in known)
+    out, seen = [], set()
+    for path in selected:
+        key = _path_key(path)
+        if key not in seen:
+            seen.add(key)
+            out.append(path)
+    return out
+
+
+def sales_candidate_paths(limit=60):
+    """Return recent exports plus cached sales exports, newest first."""
+    import source_dirs as S
+    cands = [p for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True)
+             if not os.path.basename(p).startswith(("~$", "ESD007E"))]
+    cands.sort(key=os.path.getmtime, reverse=True)
+    cached_sales = []
+    try:
+        cache_path = os.path.join(ROOT, "reports", "inbox_classify.json")
+        with open(cache_path, encoding="utf-8") as f:
+            cache = json.load(f)
+        cached_sales = [path for path, value in cache.items()
+                        if isinstance(value, list) and len(value) >= 4
+                        and value[3] == "sales"]
+    except Exception:
+        pass
+    return prioritize_sales_candidates(cands, cached_sales, limit)
+
+
 def sales_exports(limit=60):
     """판매조회 엑셀을 **전부** 찾는다(새 것부터). 파일명이 무작위라 머리글로 판정한다.
 
@@ -55,12 +99,9 @@ def sales_exports(limit=60):
     import warnings
     warnings.filterwarnings("ignore")
     import openpyxl
-    import source_dirs as S
-    cands = [p for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True)
-             if not os.path.basename(p).startswith(("~$", "ESD007E"))]
-    cands.sort(key=os.path.getmtime, reverse=True)
+    cands = sales_candidate_paths(limit)
     found = []
-    for p in cands[:limit]:
+    for p in cands:
         try:
             wb = openpyxl.load_workbook(p, read_only=False, data_only=True)
             ws = wb.active

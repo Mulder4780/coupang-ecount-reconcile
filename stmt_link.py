@@ -11,7 +11,6 @@ stmt_link.py — 거래명세서(인쇄본) ↔ 판매조회(프로젝트코드)
 
 산출: reports/명세서_프로젝트_매칭.json / .md   (엑셀에 쓰지 않는다)
 """
-import glob
 import json
 import os
 import re
@@ -45,19 +44,13 @@ def load_sales():
     import warnings
     warnings.filterwarnings("ignore")
     import openpyxl
-    import source_dirs as S
-    from inbox_scan import classify
-    cands = []
-    for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True):
-        b = os.path.basename(p)
-        if b.startswith("~$") or b.startswith("ESD007E"):
-            continue
-        cands.append(p)
-    # 파일이 수백 개라 classify 를 전부 돌리면 밤새 걸린다 — 행 수가 큰 최신 파일부터
-    # 머리글로 판매조회인지 직접 본다.
-    cands.sort(key=os.path.getmtime, reverse=True)
+    from erp_sales_index import sales_candidate_paths
+    # 최근 파일만 자르면 다른 ERP 내보내기가 쌓인 날 유효 판매조회가 순위 밖으로 밀린다.
+    # ERP 판매 색인과 같은 후보 선택기를 써서, 최신 파일과 이미 sales 로 입증된 파일을
+    # 모두 머리글로 다시 확인한다(캐시는 채택 근거가 아니라 후보 우선순위일 뿐이다).
+    cands = sales_candidate_paths()
     rows, srcs = [], []
-    for p in cands[:40]:
+    for p in cands:
         try:
             wb = openpyxl.load_workbook(p, read_only=False, data_only=True)
             ws = wb.active
