@@ -45,6 +45,10 @@ BUILTIN = {
     # 자주 쓰는 메서드 이름이 호출처럼 보이는 것들 (`.` 없이 잡히면 곤란하므로 함께 뺀다)
     "require", "define", "import",
 }
+# 예약어는 호출처럼 보인다 — `onclick="if(x){…}"` 의 `if(` 가 그렇다.
+BUILTIN |= {"if", "for", "while", "switch", "catch", "return", "typeof", "delete",
+            "void", "new", "do", "else", "function", "async", "await", "yield",
+            "of", "in", "instanceof", "super", "this", "throw", "try", "with"}
 
 DECL = [
     re.compile(r"\bfunction\s+([A-Za-z_$][\w$]*)"),
@@ -98,15 +102,20 @@ def scan():
             continue
         text = open(p, encoding="utf-8", errors="replace").read()
         have = declared(text) | BUILTIN
-        seen = {}
-        for body in scripts(text):
-            for m in CALL.finditer(body):
-                seen.setdefault(m.group(1), "script")
-        for nm in handlers(text):
-            seen.setdefault(nm, "인라인 손잡이")
-        for nm, where in sorted(seen.items()):
+        # ★ **인라인 손잡이만** 본다. script 본문까지 훑어 봤더니 39건이 나왔는데
+        #   `if`·`for`·`return`·`catch` 같은 예약어와 `rgba`·`translateX`·`minmax`
+        #   같은 **CSS 문자열 안의 함수**가 대부분이었다 — 정규식은 그 둘을 못 가른다.
+        #   경보가 대부분 오탐이면 그 경보는 아무도 안 본다([170]) 그리고 사람이
+        #   멀쩡한 코드를 고치러 간다([172]). 그래서 **근거가 확실한 자리만** 남겼다:
+        #   `onclick="foo(...)"` 는 문자열이 아니라 **호출**이고, 전역에 그 이름이
+        #   없으면 누르는 순간 반드시 터진다 — 짐작할 것이 없다.
+        #   실제로 이 모양으로 났던 것이 `flowVisualMode`·`flowVisualStageDown`
+        #   (2026-08-14 · 단추 마크업만 먼저 실리고 함수는 다음 배포에 실렸다).
+        #   ⚠ 그래서 이 도구는 `fmtDateTime` 같은 **script 안**의 것은 못 잡는다.
+        #     못 잡는다는 것을 여기 적어 둔다 — 0건을 '다 봤다'로 읽으면 안 된다([169]).
+        for nm in sorted(set(handlers(text))):
             if nm not in have:
-                bad.append((rel, nm, where))
+                bad.append((rel, nm, "인라인 손잡이"))
     return bad
 
 
