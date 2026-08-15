@@ -19285,9 +19285,17 @@ def t263_server_guard_and_lossless_offline_outbox():
                   "-AllowStartIfOnBatteries", "-DontStopIfGoingOnBatteries",
                   "-RestartCount 3", "Start-ScheduledTask"):
         assert token in installer, "서버 감시 작업 스케줄러 안전장치 누락: " + token
+    primary_registration = installer.split("try {", 1)[1].split("} catch {", 1)[0]
+    assert "New-ItemProperty -Path $RunKey -Name $RunName" in primary_registration, (
+        "정상 작업 등록 경로도 작업 비활성화에 대비한 HKCU 로그인 복구선을 유지해야 한다")
+    assert "Remove-ItemProperty" not in primary_registration, (
+        "정상 작업 등록이 독립 로그인 복구선을 지우면 작업 비활성화 뒤 재부팅해도 복구되지 않는다")
     for token in ("HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
                   "New-ItemProperty", "Start-Process", "-WindowStyle Hidden"):
         assert token in installer, "작업 스케줄러 권한 거부 시 로그인 자동실행 누락: " + token
+    audit = open(os.path.join(ROOT, "system_audit.py"), encoding="utf-8").read()
+    assert "CSOS_AppServerGuard" in audit, "진단 안내가 실제 서버 가드 작업 이름을 가리켜야 한다"
+    assert "CSOS_ServerGuard" not in audit, "존재하지 않는 옛 작업 이름을 안내하면 복구할 수 없다"
     launcher = open(os.path.join(ROOT, "앱서버실행.bat"), encoding="utf-8").read()
     assert "webapp\\server_guard.py" in launcher and "pythonw.exe" in launcher, \
         "수동 서버 실행 경로가 상시 감시자를 같이 띄우지 않는다"

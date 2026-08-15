@@ -138,7 +138,7 @@ def build() -> dict[str, Any]:
     elif guard_age is None or guard_age > 5:
         add("server-guard-stale", "P0", "앱 서버 보호자 심박이 끊김",
             f"마지막 보호 기록이 {int(guard_age or 0)}분 전입니다(정상 한도 5분).",
-            "작업 스케줄러의 CSOS_ServerGuard와 server_guard.log를 확인합니다.",
+            "작업 스케줄러의 CSOS_AppServerGuard와 server_guard.log를 확인합니다.",
             "reports/server_guard_status.json")
     elif str(guard.get("state") or "").lower() != "healthy":
         add("server-guard-failed", "P0", "앱 서버 보호자가 장애를 보고함",

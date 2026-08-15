@@ -20,6 +20,8 @@ $Pythonw = Join-Path (Split-Path -Parent $Python) "pythonw.exe"
 if (-not (Test-Path -LiteralPath $Pythonw)) {
     throw "pythonw.exe not found: $Pythonw"
 }
+$Guard = Join-Path $Root "webapp\server_guard.py"
+$RunCommand = '"{0}" "{1}"' -f $Pythonw, $Guard
 
 $Action = New-ScheduledTaskAction `
     -Execute $Pythonw `
@@ -59,13 +61,16 @@ try {
         -Principal $Principal `
         -Description "Always-on lightweight guard for the CSOS app origin and tunnel supervisor. Restarts after three failed health checks and restarts itself if the guard exits." `
         -Force | Out-Null
-    Remove-ItemProperty -Path $RunKey -Name $RunName -ErrorAction SilentlyContinue
+    # Keep a second, independent logon path even when Task Scheduler registration
+    # succeeds. The guard singleton makes duplicate launches harmless, while this
+    # path revives protection after a task was disabled or damaged before reboot.
+    New-Item -Path $RunKey -Force | Out-Null
+    New-ItemProperty -Path $RunKey -Name $RunName -Value $RunCommand `
+        -PropertyType String -Force | Out-Null
     Start-ScheduledTask -TaskName $TaskName
-    Write-Host "Registered and started scheduled task: $TaskName"
+    Write-Host "Registered scheduled task + independent logon startup: $TaskName"
 } catch {
     $RegisterError = $_.Exception.Message
-    $Guard = Join-Path $Root "webapp\server_guard.py"
-    $RunCommand = '"{0}" "{1}"' -f $Pythonw, $Guard
     try {
         # Register-ScheduledTask is denied on some managed PCs even though the
         # current user may create an interactive task through schtasks.exe.
