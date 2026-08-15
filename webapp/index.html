@@ -3889,16 +3889,14 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
       </div>
     </div>
 
-    <!-- ★ 글꼴 고르기 (2026-08-13 지시: "갤럭시 글자체, 아이폰 글자체, 스타일등을
-         적용해서 사용자가 설정에서 변경할 수 있게 다양한 스타일 적용 코딩해").
-         아래 단추 목록은 **`webapp/font_switch.py` 의 FONT_PRESETS 표**가 만든다 —
-         여기 이름을 손으로 적으면 사본이 둘이 되어, 프리셋을 하나 더한 날 CSS 만
-         늘고 단추는 안 늘면서 **아무 오류도 안 난다**. 고칠 때는 표를 고치고
-         `python webapp/font_switch.py --sync` 를 돌린다. -->
     <!-- ★ 글꼴 카드는 2026-08-15 에 [설정] 화면으로 **옮겼다**(복제가 아니라 이동이다).
-         여기 사본을 다시 만들지 말 것 — 두 곳에 두면 한쪽만 고쳐지고, 그것이 설정
-         화면에 업무 바로가기 16개가 쌓인 경위다. 표식(FONT-CARDS:BEGIN/END)도 같이
-         갔으므로 `python webapp/font_switch.py --sync` 는 그대로 동작한다. -->
+         2026-08-13 지시로 여기에 만들었지만, 2026-08-15 지시("설정 기능을 고도화해서
+         앱의 설정 전체 컨트롤")로 설정 한곳에 모았다. 여기 사본을 다시 만들지 말 것 —
+         두 곳에 두면 한쪽만 고쳐지고, 그것이 설정 화면에 업무 바로가기 16개가 쌓인
+         경위다. font_switch.py 가 찾는 표식도 같이 옮겨 갔으므로
+         `python webapp/font_switch.py --sync` 는 그대로 동작한다.
+         ⚠ 이 주석에 그 표식 글자를 그대로 적지 말 것 — 도구가 **여기를 먼저 찾아**
+            엉뚱한 자리에 단추를 쏟는다(만들면서 그대로 밟았다). -->
 
     <div class="card"><h3>파일·폴더 열기 <span class="norm">— 사무실 PC에서 접속했을 때만 동작</span></h3>
       <div class="ui-cards" data-fold="run-open" data-fold-label="열 수 있는 파일·폴더"
@@ -4520,25 +4518,25 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
         <div class="set-sub">글꼴</div>
         <div class="ui-cards" id="fontCards">
         <!-- ▼ 글꼴 단추 — font_switch.py 가 만든다. 손으로 고치지 말 것 (FONT-CARDS:BEGIN) -->
-          <button class="ui-card" type="button" data-fontkey="basic" onclick="setFontPreset('basic')">
-            <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
-            <span class="ui-card-tx"><b>기본</b><span>기기가 제 화면에 쓰는 글꼴 — 작은 글씨가 또렷합니다</span><span class="norm">어느 기기에서나 그 기기의 기본 글꼴을 씁니다</span></span></button>
-          <button class="ui-card" type="button" data-fontkey="galaxy" onclick="setFontPreset('galaxy')">
-            <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
-            <span class="ui-card-tx"><b>갤럭시 글자체</b><span>삼성 갤럭시가 제 화면에 쓰는 글꼴(One UI Sans·삼성고딕)</span><span class="norm">삼성 기기에서만 그대로 보입니다 — 그 밖에서는 본고딕/Roboto</span></span></button>
-          <button class="ui-card" type="button" data-fontkey="iphone" onclick="setFontPreset('iphone')">
-            <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
-            <span class="ui-card-tx"><b>아이폰 글자체</b><span>애플이 제 화면에 쓰는 글꼴(SF Pro·애플 SD 산돌고딕)</span><span class="norm">아이폰·아이패드·맥에서만 그대로 보입니다 — 그 밖에서는 본고딕</span></span></button>
-          <button class="ui-card" type="button" data-fontkey="windows" onclick="setFontPreset('windows')">
-            <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
-            <span class="ui-card-tx"><b>윈도우 글자체</b><span>사무실 PC 화면과 같은 글꼴(Segoe UI·맑은 고딕)</span><span class="norm">윈도우에서만 그대로 보입니다 — 그 밖에서는 본고딕</span></span></button>
-          <button class="ui-card" type="button" data-fontkey="clear" onclick="setFontPreset('clear')">
-            <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
-            <span class="ui-card-tx"><b>또렷하게</b><span>획을 굵게 그려 눈이 편합니다 — 글씨가 흐릴 때 고르세요</span><span class="norm">글꼴 굵기는 그대로이고 **그리는 방식**이 바뀝니다(크기는 안 커집니다)</span></span></button>
-          <button class="ui-card" type="button" data-fontkey="legacy" onclick="setFontPreset('legacy')">
-            <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-arrow-repeat"/></svg></span>
-            <span class="ui-card-tx"><b>예전(나눔고딕)</b><span>2026-07-31까지 쓰던 글꼴로 되돌립니다</span><span class="norm">파일마다 적어 둔 --font-ui-legacy 값을 그대로 씁니다</span></span></button>
-        <!-- ▲ (FONT-CARDS:END) -->
+        <button class="ui-card" type="button" data-fontkey="basic" onclick="setFontPreset('basic')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>기본</b><span>기기가 제 화면에 쓰는 글꼴 — 작은 글씨가 또렷합니다</span><span class="norm">어느 기기에서나 그 기기의 기본 글꼴을 씁니다</span></span></button>
+        <button class="ui-card" type="button" data-fontkey="galaxy" onclick="setFontPreset('galaxy')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>갤럭시 글자체</b><span>삼성 갤럭시가 제 화면에 쓰는 글꼴(One UI Sans·삼성고딕)</span><span class="norm">삼성 기기에서만 그대로 보입니다 — 그 밖에서는 본고딕/Roboto</span></span></button>
+        <button class="ui-card" type="button" data-fontkey="iphone" onclick="setFontPreset('iphone')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>아이폰 글자체</b><span>애플이 제 화면에 쓰는 글꼴(SF Pro·애플 SD 산돌고딕)</span><span class="norm">아이폰·아이패드·맥에서만 그대로 보입니다 — 그 밖에서는 본고딕</span></span></button>
+        <button class="ui-card" type="button" data-fontkey="windows" onclick="setFontPreset('windows')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>윈도우 글자체</b><span>사무실 PC 화면과 같은 글꼴(Segoe UI·맑은 고딕)</span><span class="norm">윈도우에서만 그대로 보입니다 — 그 밖에서는 본고딕</span></span></button>
+        <button class="ui-card" type="button" data-fontkey="clear" onclick="setFontPreset('clear')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>또렷하게</b><span>획을 굵게 그려 눈이 편합니다 — 글씨가 흐릴 때 고르세요</span><span class="norm">글꼴 굵기는 그대로이고 **그리는 방식**이 바뀝니다(크기는 안 커집니다)</span></span></button>
+        <button class="ui-card" type="button" data-fontkey="legacy" onclick="setFontPreset('legacy')">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-arrow-repeat"/></svg></span>
+          <span class="ui-card-tx"><b>예전(나눔고딕)</b><span>2026-07-31까지 쓰던 글꼴로 되돌립니다</span><span class="norm">파일마다 적어 둔 --font-ui-legacy 값을 그대로 씁니다</span></span></button>
+      <!-- ▲ (FONT-CARDS:END) -->
         </div>
         <p class="sub" id="fontNow">확인 중…</p>
 
@@ -5858,20 +5856,15 @@ function loadSettingsPanel(){
       + (location.origin === FIXED_APP_ORIGIN ? ' (고정 주소)' : '');
     if($('setOriginFixed')) $('setOriginFixed').textContent = FIXED_APP_ORIGIN;
   }catch(_){}
-  /* ★ 알림은 정직하게 적는다([259]) — config/notify.json 이 없으면 밀어 주는 채널이
-     하나도 없어서 **앱을 열어야만** 본다. "알림이 갑니다" 라고 적으면 안 된다. */
+  /* ★ 알림은 정직하게 적는다([259]). 밀어 주는 채널은 **서버의 config/notify.json**
+     이 정하는데 그것을 알려 주는 API 가 아직 없다 — 그러니 "알림이 갑니다" 도
+     "안 갑니다" 도 여기서 단정하면 안 된다([169]). 확인하는 법만 준다.
+     ⚠ 없는 엔드포인트를 부르지 않는다: 부르면 매번 404 로 떨어져 화면이 영영
+       '확인 못 함' 만 말한다 — 그것은 정직이 아니라 고장이다. */
   try{
     const el = $('setNotifyState');
-    if(el){
-      el.textContent = '확인 중…';
-      api('/api/notify_state').then(d => {
-        const ch = (d && Array.isArray(d.channels)) ? d.channels.filter(Boolean) : [];
-        el.textContent = ch.length ? `밀어 주는 채널 ${ch.length}개 — ${ch.join(' · ')}`
-          : '앱 안 알림만 갑니다 — 밀어 주는 채널이 하나도 없어 앱을 열어야 보입니다.';
-      }).catch(() => {
-        el.textContent = '확인 못 했습니다 — 알림이 안 간다는 뜻은 아닙니다. 앱 안 알림은 그대로 쌓입니다.';
-      });
-    }
+    if(el) el.textContent = '이 화면에서는 확인할 수 없습니다 — 서버 config/notify.json 이 정합니다. '
+      + '그 파일이 없으면 밀어 주는 채널이 하나도 없어 앱을 열어야 보입니다.';
   }catch(_){}
   try{ if(!SYSTEM_AUDIT.data) loadSystemAudit().then(renderSettingsHub); else renderSettingsHub(); }catch(_){}
 }
