@@ -19861,6 +19861,27 @@ def t284_orgchart_has_no_empty_shell_gap():
     print("[284] 조직도 진입 시 빈 shell 제거 · 다른 메뉴 복귀 시 원래 여백 복구 OK")
 
 
+def t285_update_prompt_is_compact_top_right_card():
+    """[285] 새 버전 갱신 알림은 화면을 가로막지 않는 우측 상단 카드다."""
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    offer = live.split("function offerUpdate(){", 1)[1].split(
+        "\n/* 캐시를 확실히", 1)[0]
+    assert "right:12px;top:12px;width:420px;max-width:calc(100vw - 24px)" in offer, (
+        "갱신 알림이 우측 상단의 작은 반응형 카드가 아니다")
+    assert "left:12px;right:12px;bottom:" not in offer, (
+        "화면 전체를 가로지르는 아래쪽 갱신 띠가 다시 남았다")
+    assert "head.getBoundingClientRect().bottom + 12" in offer, (
+        "PC·모바일 appbar 높이를 재지 않아 갱신 카드가 헤더를 가릴 수 있다")
+    assert "window.addEventListener('resize', place" in offer \
+        and "window.removeEventListener('resize', place)" in offer, (
+        "회전·창 크기 변경 때 위치를 맞추지 않거나 닫은 뒤 감시가 남는다")
+    assert "new ResizeObserver(place)" in offer and "headWatch.disconnect()" in offer, (
+        "메뉴 전환으로 appbar 높이가 바뀔 때 카드 위치를 다시 맞추지 않는다")
+    for label in ("'나중에'", "'지금 갱신'", "hardReload"):
+        assert label in offer, "갱신 알림 동작이 빠졌다: " + label
+    print("[285] 새 버전 갱신 알림 우측 상단 · appbar 아래 자동 배치 · 모바일 폭 대응 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -20138,6 +20159,7 @@ if __name__ == "__main__":
     t282_settings_nav_uses_gear_icon()
     t283_calendar_capture_has_no_page_footer_captions()
     t284_orgchart_has_no_empty_shell_gap()
+    t285_update_prompt_is_compact_top_right_card()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
