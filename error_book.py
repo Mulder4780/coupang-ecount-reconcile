@@ -23,8 +23,9 @@
      ★ **모르는 오류는 지어내지 않는다**(`look_up` 이 None 을 준다).
   ③ **신고문구** — 팝업의 [캡처해서 보내기] 가 만드는 글. 형님이 그대로 붙여넣으면
      AI 가 처음부터 뒤질 일이 없다([181] 과 같은 자리 — 왕복 한 번을 줄인다).
-  ④ **재발 방지** — 회차가 매일 세어 세 갈래로 가른다:
-     **회귀**(막았다는데 또 났다 · 맨 위) · **사전에 없음**(★새 오류) · 아는 오류.
+  ④ **재발 방지** — 회차가 매일 세어 네 갈래로 가른다:
+     **회귀**(막았다는데 또 났다 · 맨 위) · **사전에 없음**(★새 오류) · 아는 오류 ·
+     **고친 뒤 재발 없음**(마지막 발생이 고침보다 앞선 것 — 경보에서 내린다, `[288]`).
 
 읽기 전용이다 — 아무것도 안 고치고 큐에도 안 넣고 엑셀은 열지도 않는다
 (`typo_watch`·`truth_watch` 와 같은 자리). 무엇이 맞는지는 사람만 안다.
@@ -35,7 +36,7 @@ import re
 import json
 import glob
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 if hasattr(sys.stdout, "reconfigure"):        # 무인 회차는 pythonw = stdout 이 None [235]
     sys.stdout.reconfigure(encoding="utf-8")
@@ -379,8 +380,10 @@ def rollup(days=7):
         # 시각을 주는 키를 먼저 본다. 옛 ledger_db 면 예전처럼 날짜 없이 세고
         # 그 사실을 '못 본 것'이 말한다 — 못 읽었다고 0 건으로 만들지 않는다([169]).
         for row in (ux.get("오류최근") or ux.get("오류") or []):
+            # ★ 여기서 **한 시계로 모은다**([288]). 예전에는 `[:19]` 로 잘라 UTC 를
+            #   그대로 담았고, 보관본(이 PC 시각)과 문자열로 비교돼 9시간이 어긋났다.
             ux_rows.append({"target": row[0], "detail": row[1], "n": int(row[2]),
-                            "ts": str(row[3])[:19] if len(row) > 3 else ""})
+                            "ts": to_local(row[3]) if len(row) > 3 else ""})
     except Exception as exc:                     # noqa: BLE001
         ux_err = str(exc)[:160]
 
@@ -390,7 +393,7 @@ def rollup(days=7):
         sig = r.get("sig") or signature(r.get("target"), r.get("detail"))
         counts[sig] = counts.get(sig, 0) + 1
         samples.setdefault(sig, r)
-        ts = str(r.get("ts") or "")[:19]
+        ts = to_local(r.get("ts"))               # 보관본도 같은 시계로([288])
         if ts and ts > last_ts.get(sig, ""):
             last_ts[sig] = ts
     for r in ux_rows:
@@ -430,7 +433,40 @@ def rollup(days=7):
         else:
             아는것.append(item)
 
+    # ── 고친 뒤에도 났나 — **경보를 내리는 유일한 근거**([288]) ────────────────
+    # ★ `[108]` 실측: 회귀·새 오류 넷이 매일 P1 으로 올라왔는데 넷 다 **고침보다
+    #   앞선 기록**이었다. 경보가 대부분 가짜면 나머지도 아무도 안 본다([170]).
+    # ★ 그러나 '안 났다'와 '아무도 그 화면을 안 열었다'는 다른 말이다([169]) —
+    #   그래서 고침 뒤 화면을 연 횟수를 같이 세고, 0 이면 **경보에서 내리되
+    #   '못 본 것'에 올려** 사라지지 않게 한다.
+    고쳐짐 = []
+    for 통 in (회귀, 새오류):
+        for x in list(통):
+            seen = x.get("마지막") or ""
+            if not seen:                          # 때를 모르면 판정 자체를 안 한다
+                continue
+            ev = fix_evidence(x)
+            when = ev.get("고친때")
+            if not when or seen >= when:          # 근거가 없거나 고친 뒤에도 났다 → 그대로
+                x["고침판정"] = ev.get("왜못함") or ("고친 뒤에도 났다 (고침 %s)" % when)
+                continue
+            n, 왜 = views_since(when)
+            x["고친때"], x["고침근거"], x["방문"] = when, ev.get("근거", ""), n
+            x["확인됨"] = bool(n)
+            x["못센이유"] = 왜
+            고쳐짐.append(x)
+            통.remove(x)
+    고쳐짐.sort(key=lambda x: -x["건수"])
+
     못본것 = []
+    for x in 고쳐짐:
+        if x.get("확인됨"):
+            continue
+        # 재발이 없는 것인지 아무도 안 본 것인지 **가릴 근거가 없다** — 남긴다.
+        이름 = x.get("사전") or (x.get("무엇") or x.get("지문"))
+        못본것.append(f"'{이름}' {x['건수']}건은 {x['고친때'][:16].replace('T',' ')} 고침 뒤"
+                     f" 기록이 없는데 그 뒤 화면을 연 기록도 "
+                     f"{x.get('못센이유') or '0회'} — 재발 없음을 확언 못 한다")
     for x in 못가름:
         못본것.append(f"'{x['사전']}' {x['건수']}건이 날짜 없는 기록이라 "
                      f"{x['고친날']}({x['막음']}) 뒤인지 못 가렸다")
@@ -452,14 +488,15 @@ def rollup(days=7):
     return {"기간": f"최근 {days}일", "잰때": datetime.now().isoformat(timespec="seconds"),
             "합계": sum(counts.values()), "갈래": len(counts),
             "회귀": 회귀, "새오류": 새오류, "아는것": 아는것, "못본것": 못본것,
+            "고쳐짐": 고쳐짐,
             "보관본건수": len(rows), "ux건수": sum(r["n"] for r in ux_rows)}
 
 
 def _ago(ts):
     """'언제 났나' 를 사람 말로. **모르면 모른다고 한다** — 빈 값을 '방금' 이라 적으면
     이틀 전에 끝난 고장이 새 고장으로 읽힌다([169]).
-    ⚠ ux 표의 시각은 UTC('…Z')이고 보관본은 이 PC 시각이라 몇 시간 어긋날 수 있다.
-       그래서 '며칠 전' 까지만 말하고 분 단위로 단정하지 않는다."""
+    ※ 시각은 `to_local()` 이 이미 한 시계로 모아 둔다([288]) — 예전처럼 UTC 와
+      이 PC 시각이 섞이지 않으므로 분 단위로 말해도 된다."""
     ts = str(ts or "")[:19]
     if not ts:
         return "때 모름"
@@ -470,6 +507,132 @@ def _ago(ts):
         return 보임
     d = (datetime.now() - t).days
     return f"{보임} · 오늘" if d <= 0 else f"{보임} · {d}일 전"
+
+
+# ── 시각은 한 시계로 모은다 ─────────────────────────────────────────────────
+def to_local(ts):
+    """어느 시계로 적힌 시각이든 **이 PC 시각**으로 옮긴다. 못 읽으면 원본 그대로.
+
+    ★ 실측 2026-08-16: ux 표 42,339행 중 **42,322행이 `…Z`(UTC)** 다(99.96%).
+      `ux_add` 가 화면이 보낸 `ts` 를 그대로 넣기 때문이고, 보관본(`archive`)은
+      `datetime.now()` 라 **이 PC 시각**이다. 지금까지 둘을 **문자열로 그냥
+      비교**해 왔는데, `_ago` 가 '며칠 전' 까지만 말했으므로 9시간이 어긋난 채로도
+      아무 티가 안 났다.
+    ★ 그런데 '**고친 뒤에도 났나**'를 물으려면 분 단위가 맞아야 한다. 안 맞추면
+      고침 직후 **9시간이 통째로 눈먼 창**이 되어, 고친 뒤에 난 오류를 '고쳐졌다'고
+      말한다 — `[169]` 중에서도 제일 나쁜 쪽(안심시키는 거짓)이다.
+      실측이 그 크기를 보여 준다: `fmtDateTime` 마지막 발생 `11:41:10Z` 는
+      이 PC 시각으로 **20:41** 이고 고침 커밋은 **20:51** — 실제 간격은 9시간이
+      아니라 **10분**이었다. 안 맞추면 그 10분이 9시간으로 보인다.
+    """
+    s = str(ts or "").strip()
+    if not s:
+        return ""
+    try:
+        t = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:                            # noqa: BLE001
+        return s[:19]
+    if t.tzinfo is not None:                     # UTC·오프셋이 붙어 왔다 → 이 PC 시각으로
+        t = t.astimezone().replace(tzinfo=None)
+    return t.isoformat(timespec="seconds")
+
+
+def _to_utc(local_iso):
+    """이 PC 시각 → ux 표가 쓰는 `…Z` 꼴. 못 읽으면 None."""
+    try:
+        t = datetime.fromisoformat(str(local_iso)[:19]).astimezone()
+    except Exception:                            # noqa: BLE001
+        return None
+    return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+# ── '언제 고쳤나' 는 지어내지 않는다 — 저장소가 말하게 한다 ──────────────────
+#: 오류 문구에서 '아직 없는 이름' 을 뽑는 말투. 정규식을 넓히면 엉뚱한 낱말을
+#: 심볼로 읽어 **없는 고침을 찾아낸다** — 좁게 둔다([172]).
+_UNDEF = re.compile(r"\b([A-Za-z_$][\w$]*) is not defined")
+#: 그 이름이 지금 **정의돼 있나** 를 볼 파일. 살아 있는 앱 화면 하나다.
+_DEF_FILES = ("webapp/index.html",)
+#: 검증번호가 사는 곳 — 이 프로젝트는 고침에 번호를 붙인다(`[NNN]`).
+_PROOF_FILE = "tests/synthetic_check.py"
+
+
+def _git_when(text, path):
+    """그 글자가 그 파일에서 **마지막으로 달라진** 커밋 시각(이 PC 시각). 못 찾으면 None.
+
+    `git log -S` 는 그 글자의 **개수가 바뀐** 커밋만 고른다 — 지금 그 글자가 있다면
+    그 커밋이 곧 '들어온 때' 다. 짐작이 아니라 저장소가 답한다.
+    """
+    try:
+        import proc_guard                        # 창 없이 · 나무째 죽인다([179][272])
+        res = proc_guard.run_tree(
+            ["git", "log", "-1", "--format=%cI", "-S", text, "--", path],
+            cwd=ROOT, timeout=25)
+    except Exception:                            # noqa: BLE001
+        return None
+    if getattr(res, "timed_out", False) or res.returncode != 0:
+        return None
+    out = (res.stdout or "").strip().splitlines()
+    return to_local(out[0]) if out else None
+
+
+def fix_evidence(item):
+    """이 오류를 **언제 고쳤나** → `{"고친때", "근거"}` · 모르면 `{"왜못함"}`.
+
+    근거는 두 갈래뿐이고 **둘 다 저장소에 실재하는 글자**다:
+      ① 사전에 `막음 [NNN]` 이 붙어 있다 → 검증 `def tNNN(` 이 들어온 커밋
+      ② 문구가 `X is not defined` 다 → 그 이름이 **지금 정의돼 있고** 그 정의가
+         들어온 커밋. 아직 정의가 없으면 **근거 없음**이다(고쳐지지 않았다).
+    ★ 못 찾으면 `None` 이다 — '아마 고쳤겠지' 로 넘어가지 않는다. 근거가 없으면
+      경보는 그 자리에 그대로 남는다(안전한 쪽).
+    """
+    막음 = str(item.get("막음") or "")
+    when, why = None, ""
+    for n in re.findall(r"\[(\d{2,4})\]", 막음):
+        t = _git_when("def t%s(" % n, _PROOF_FILE)
+        if t and (when is None or t > when):
+            when, why = t, "검증 [%s] 이 들어온 커밋" % n
+    if when:
+        return {"고친때": when, "근거": why}
+
+    m = _UNDEF.search(str(item.get("무엇") or ""))
+    if m:
+        name = m.group(1)
+        for rel in _DEF_FILES:
+            path = os.path.join(ROOT, *rel.split("/"))
+            try:
+                src = open(path, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            for kind in ("function", "const", "let", "var"):
+                decl = "%s %s" % (kind, name)
+                if re.search(r"\b%s\s+%s\b" % (kind, re.escape(name)), src):
+                    t = _git_when(decl, rel)
+                    if t:
+                        return {"고친때": t, "근거": "`%s` 정의가 %s 에 들어온 커밋"
+                                                   % (name, rel)}
+                    return {"왜못함": "`%s` 는 %s 에 정의돼 있는데 그 커밋을 못 찾았다"
+                                     % (name, rel)}
+        return {"왜못함": "`%s` 가 아직 어디에도 정의돼 있지 않다" % name}
+    return {"왜못함": "무엇을 고쳤다는 근거(검증번호·정의)가 문구에 없다"}
+
+
+def views_since(local_iso):
+    """고친 **뒤에** 사람이 화면을 몇 번 열었나 → `(건수, 못센이유)`.
+
+    ★ 0 이면 '안 났다'가 아니라 **'아무도 안 봤다'** 다([169]). 그 둘을 뭉치면
+      아무도 안 쓴 화면이 '고쳐진 화면' 으로 둔갑한다.
+    """
+    utc = _to_utc(local_iso)
+    if not utc:
+        return None, "고친 때를 시각으로 못 읽었다"
+    try:
+        import ledger_db
+        with ledger_db.conn() as c:              # 읽기만 한다
+            n = c.execute("SELECT COUNT(*) FROM ux WHERE kind='view' AND ts>=?",
+                          (utc,)).fetchone()[0]
+        return int(n), ""
+    except Exception as exc:                     # noqa: BLE001
+        return None, "ux 표를 못 읽었다 — %s" % str(exc)[:100]
 
 
 def _md(res):
@@ -499,6 +662,19 @@ def _md(res):
         L += ["## 아는 오류 (사람에게 풀어서 말해 주고 있다)", ""]
         for x in res["아는것"][:20]:
             L.append(f"- {x['건수']}건 · {x['사전']} — `{x['지문']}` (마지막 {_ago(x.get('마지막'))})")
+        L.append("")
+    if res.get("고쳐짐"):
+        L += ["## 고친 뒤 재발 없음 — 경보에서 내렸다", "",
+              "마지막 발생이 **고침보다 앞선** 것들이다. 근거는 저장소가 말한 커밋 시각이고,"
+              " 고친 뒤 화면을 연 횟수를 같이 적는다 — 0 이면 위 '못 본 것'에도 올라간다.", ""]
+        for x in res["고쳐짐"][:20]:
+            방문 = x.get("방문")
+            말 = (f"그 뒤 화면 {방문}회 열림" if 방문
+                 else f"그 뒤 화면을 연 기록 없음 — {x.get('못센이유') or '0회'}")
+            L.append(f"- {x['건수']}건 · {x.get('사전') or x.get('무엇') or x['지문']}"
+                     f"\n  - 마지막 {_ago(x.get('마지막'))} · 고침 "
+                     f"{str(x.get('고친때'))[:16].replace('T', ' ')}"
+                     f" ({x.get('고침근거')}) · {말}")
         L.append("")
     if not (res["회귀"] or res["새오류"] or res["아는것"]):
         L += ["오류 기록이 없다. — **없는 것인지 안 본 것인지**는 위 '못 본 것'이 말한다.", ""]
@@ -564,7 +740,8 @@ def main():
     else:
         print(f"오류 {res['합계']}건 · {res['갈래']}갈래 — "
               f"회귀 {len(res['회귀'])} · ★새 오류 {len(res['새오류'])} · "
-              f"아는 것 {len(res['아는것'])} · 못 본 것 {len(res['못본것'])}"
+              f"아는 것 {len(res['아는것'])} · 고친 뒤 재발없음 {len(res.get('고쳐짐', []))} · "
+              f"못 본 것 {len(res['못본것'])}"
               f"  → {os.path.relpath(REPORT_MD, ROOT)}")
     return 0
 
