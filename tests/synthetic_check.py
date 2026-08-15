@@ -7456,7 +7456,21 @@ def t249_entry_save_never_silent():
         assert seg.index("d.queued===true") < seg.index("draftClear("), \
             f"{fn.strip()} 가 queued 판정보다 먼저 초안을 지운다"
 
-    print("  [249] 입력 저장은 조용히 실패하지 않는다 — 사유·보관·초안 ✅")
+    # ★ [90] 계층 A 회귀 가드 — 앱 DB에 있는 행은 표시에 record_version 이 실려야
+    #   한다(실측 정산750·AS585·PM463 중 계층 A 0건). 이 못이 빠지면 표시가 버전을
+    #   못 실어 저장이 400 으로 막힌다. 못 자체는 _mark_app_store_row 한 곳이다.
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert 'row["DB버전"] = row.get("_record_version")' in srv, \
+        "_mark_app_store_row 이 앱 DB 버전을 표시 행에 안 싣는다 — 계층 A 재발([90])"
+    # 버전 0 저장은 조치가 정반대인 둘을 가려 말한다([169]) — 앱 DB에 없는 행(계층 B)이면
+    #   '먼저 수집' 을, 있는 행이면 '새로고침' 을. _staff_store_row 를 거쳐야 갈린다.
+    #   읽기만 하므로 낙관잠금·멱등은 그대로다.
+    gi = srv.index("if expected_version < 1:")
+    guard = srv[gi:gi + 800]
+    assert "_staff_store_row(store, category, record_key)" in guard, \
+        "버전 0 을 뭉쳐 '새로고침' 만 말한다 — 앱 DB에 없는 행은 새로고침해도 안 된다([169])"
+
+    print("  [249] 입력 저장은 조용히 실패하지 않는다 — 사유·보관·초안·버전 못([90]) ✅")
 
 
 def t248_rounds_run_without_a_console_window():

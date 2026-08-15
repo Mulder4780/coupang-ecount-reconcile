@@ -1718,8 +1718,15 @@ def save_staff_entry(staff_slug, body, *, store=None, actor=None):
     try:
         expected_version = int(body.get("record_version"))
     except (TypeError, ValueError):
-        raise ValueError("화면 데이터 버전이 없습니다. 목록을 새로고침해 다시 저장해 주세요")
+        expected_version = 0
     if expected_version < 1:
+        # 버전이 없다는 것은 조치가 정반대인 두 경우다([169]) — 뭉쳐서 "새로고침"만
+        # 말하면 앱 DB에 없는 행을 든 사람은 새로고침을 백 번 해도 안 되는데 그것만
+        # 되풀이한다(실측 정기점검 70건이 그 자리다). _staff_store_row 는 **읽기만**
+        # 한다 — 낙관잠금·멱등은 그대로다([90] 계층 A는 손대지 않는다).
+        #   · 앱 DB에 있는 행 → 표시가 버전을 못 실은 것이니 새로고침이 답이다.
+        #   · 앱 DB에 없는 행 → _staff_store_row 가 '먼저 원본을 수집' 을 그대로 올린다.
+        _staff_store_row(store, category, record_key)
         raise ValueError("화면 데이터 버전이 없습니다. 목록을 새로고침해 다시 저장해 주세요")
     reason = str(body.get("reason") or body.get("survey_note") or "").strip()
     # ★ 사유 없는 청구 제외는 받지 않는다 (2026-08-13). 몇 달 뒤 "이건 왜 청구가
