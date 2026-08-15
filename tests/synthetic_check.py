@@ -19516,7 +19516,20 @@ def t269_devtools_only_on_three_foreground_chrome_pages_at_noon():
                              if not line.lstrip().startswith("#"))
     assert "StartWhenAvailable" not in active_lines
     assert "pythonw.exe" in installer and "--manual <target>" in installer
-    print("[269] 전면 Chrome·정확한 3페이지 관문 · 포커스/탭 이동 금지 · 매일 12시 1회·명령 수동실행 OK")
+
+    # ★ 관문 안전거절은 실패가 아니라 건너뜀이다([269]/[170]). 정오 회차에 ERP 화면이
+    #   전면에 없는 것은 정상인데, 그걸 exit 1 로 내면 스케줄러가 매일 P0 경보를
+    #   울린다(경보가 매일이면 아무도 안 본다). 진짜 오류(no payload 등)만 exit 1.
+    assert "_guard_refused" in chain, "관문 안전거절을 실패와 못 가른다"
+    import importlib
+    _bc = importlib.import_module("browser_chain")
+    assert _bc._guard_refused("붙여넣지 못했다 — ABORT: safe Chrome context required - x")
+    assert _bc._guard_refused("붙여넣지 못했다 — FAIL: verified Chrome tab refused or lost focus")
+    assert not _bc._guard_refused("붙여넣지 못했다 — ABORT: no payload C:/x.js"), \
+        "진짜 오류(payload 없음)를 건너뜀으로 삼키면 스케줄러가 못 잡는다"
+    assert 'note(d, 무엇, "건너뜀"' in chain and "if _guard_refused(msg):" in chain, \
+        "erp_step 이 안전거절을 건너뜀(exit 0)으로 돌려주지 않는다"
+    print("[269] 전면 Chrome·정확한 3페이지 관문 · 포커스/탭 이동 금지 · 매일 12시 1회·명령 수동실행 · 안전거절=건너뜀 OK")
 
 
 def t270_ai_workers_never_raise_a_console_or_desktop_app():

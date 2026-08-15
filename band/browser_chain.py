@@ -336,6 +336,18 @@ def other_session_holds(locks=ERP_CONFLICT_LOCKS):
     return False, "겹치는 점유 없음"
 
 
+def _guard_refused(msg):
+    """전면이 허용 Chrome 페이지가 아니어서 관문이 **안전 거절**한 것인가([269]).
+
+    이것은 실패가 아니라 건너뜀이다 — 정오에 ERP 화면이 전면에 없는 것은 정상이다.
+    진짜 오류(`ABORT: no payload`·시간초과·powershell 죽음)와는 가른다: 그것은
+    exit 1 로 남아야 스케줄러가 잡는다. 표식은 inject_find_tab.ps1 이 낸다.
+    """
+    m = msg or ""
+    return ("safe Chrome context required" in m) or \
+           ("verified Chrome tab refused" in m)
+
+
 def erp_step(d, 무엇="ERP 전화면 몰이"):
     """ERP 몰이 한 번. 문을 값싼 것부터 연다([168]).
 
@@ -378,9 +390,18 @@ def erp_step(d, 무엇="ERP 전화면 몰이"):
                      ["NOSTATE"])
     rec["시작됨"] = bool(ok)
     rec["마지막왜"] = msg
-    note(d, 무엇, "시작됨" if ok else "실패",
-         "%s · %d번째 시도 · %s" % (창설명, rec["시도"], msg))
-    return 0 if ok else 1
+    if ok:
+        note(d, 무엇, "시작됨", "%s · %d번째 시도 · %s" % (창설명, rec["시도"], msg))
+        return 0
+    # ★ 전면이 허용 페이지가 아니면 관문이 안전 거절한다 — 실패가 아니라 건너뜀이다
+    #   ([269]). 정오에 ERP 화면이 전면에 없는 것은 정상이고, 이걸 exit 1 로 내면
+    #   스케줄러가 매일 P0 경보를 울린다(경보가 매일이면 아무도 안 본다, [170]).
+    #   남은 tick 이 창 안에서 다시 본다. 진짜 오류만 exit 1 로 남긴다.
+    if _guard_refused(msg):
+        note(d, 무엇, "건너뜀", "%s · %d번째 시도 · %s" % (창설명, rec["시도"], msg))
+        return 0
+    note(d, 무엇, "실패", "%s · %d번째 시도 · %s" % (창설명, rec["시도"], msg))
+    return 1
 
 
 # ── ③ 주입하고 **살아 있는지 확인한다** ───────────────────────────────────────

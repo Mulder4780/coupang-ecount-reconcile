@@ -4544,7 +4544,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
           <span class="settings-state" id="adminHubState">확인 중</span></div>
         <div class="admin-hub" id="adminHub">
           <button type="button" class="abtn" onclick="routeNav('run')">실행·자동화</button>
-          <button type="button" class="abtn" onclick="routeNav('run')">시스템 진단</button>
+          <button type="button" class="abtn" onclick="openSystemAudit()">시스템 진단</button>
           <button type="button" class="abtn" onclick="routeNav('flow')">업무 워크플로우</button>
           <button type="button" class="abtn" onclick="routeNav('daily')">일일 대조</button>
           <button type="button" class="abtn" onclick="routeNav('check')">확인 필요</button>
@@ -8594,6 +8594,13 @@ function routeNav(v){
   // 실행 화면을 열 때마다 마지막 실행 시각을 다시 읽는다 — 열어 둔 채 시간이 지나면
   // "3시간 전"이 거짓이 되고, 그 사이 09:50 회차가 돌았을 수도 있다.
   if(v==='run'){ pollLog(); if(!staffSlug) loadSystemAudit(); }
+}
+
+// 통합 관제 허브의 '시스템 진단' 타일 — 실행 탭의 진단 카드로 곧장 데려간다.
+// routeNav('run') 과 같은 동작이면 한 화면에 같은 버튼 둘이 되어 중복 경보가 뜬다([124]).
+function openSystemAudit(){
+  routeNav('run');
+  setTimeout(()=>{ const el=$('systemAuditCard'); if(el){ try{ el.scrollIntoView({block:'start',behavior:'smooth'}); }catch(_){ el.scrollIntoView(); } } },100);
 }
 
 /* ══ 폰: 손가락을 좌우로 밀어 카테고리 이동 (2026-08-07 지시) ═══════════════
