@@ -16002,7 +16002,7 @@ def t233_round_steps_fit_inside_budget():
 
     tidy = open(os.path.join(ROOT, "source_tidy.py"), encoding="utf-8").read()
     assert "def out_of_time" in tidy and hasattr(ST, "BUDGET_MIN"), "원본정리에 시간 예산이 없다"
-    assert tidy.index("if _LEFT[0]:") < tidy.index("# 3) 지난 회차의 찌꺼기"),         "목록이 반쪽인 채로 찌꺼기를 거둔다 — 멀쩡한 바로가기를 지운다"
+    assert tidy.index("return INCREMENTAL_RETURN_CODE") < tidy.index("# 3) 지난 회차의 찌꺼기"),         "목록을 다 반영하기 전에 찌꺼기를 거둔다 — 멀쩡한 바로가기를 지운다"
 
     def _limit_min(fn):
         s = open(os.path.join(ROOT, fn), encoding="utf-8").read()
@@ -16012,6 +16012,44 @@ def t233_round_steps_fit_inside_budget():
 
     assert D.ROUND_BUDGET_MIN + 10 <= _limit_min("install_daily_schedule.ps1"),         "회차 예산이 스케줄러 제한과 붙어 있다 — 예산을 지켜도 끊긴다"
     assert ST.BUDGET_MIN + 20 <= _limit_min("install_source_tidy_schedule.ps1"),         "원본정리 예산이 스케줄러 제한과 붙어 있다"
+
+
+def t287_source_tidy_resumes_inside_watchdog_budget():
+    """[287] 원본정리는 10분 워치독 안에서 진척을 저장하고 같은 앞부분을 되풀이하지 않는다."""
+    import source_tidy as ST
+    import schedule_watch as SW
+
+    assert ST.BUDGET_MIN * 60 + 120 <= 600, \
+        "원본정리 자체 예산이 10분 워치독과 붙어 있어 rc124로 잘린다"
+    assert ST.INCREMENTAL_RETURN_CODE == 75
+    assert SW.RESULT[75][0] == "이어감" and "이어감" not in SW.DEAD, \
+        "정상 증분 75를 스케줄러 실패 경보로 올린다"
+
+    rows = [
+        {"kind": "ERP:sales", "ext": "xlsx", "date": "2026-08-15",
+         "name": "A.xlsx", "path": "Z:/A.xlsx", "uj": "UJ2600001"},
+        {"kind": "밴드 게시글(보관)", "ext": "pdf", "date": "2026-08-15",
+         "name": "1.pdf", "path": "Z:/1.pdf", "post": "1"},
+    ]
+    plan, want = ST.link_plan(rows, "Z:/_바로가기")
+    assert len(plan) == len(want) == 3, \
+        "종류별 2개+밴드 월별 1개 계획을 먼저 완성하지 않는다"
+
+    # 기존 링크 집합을 받았으면 파일마다 Z:에 exists를 다시 묻지 않는다.
+    dst = plan[0][1]
+    old_exists = ST.os.path.exists
+    try:
+        ST.os.path.exists = lambda _p: (_ for _ in ()).throw(
+            AssertionError("기존 링크마다 exists를 다시 물었다"))
+        assert ST.link("unused", dst, {ST.os.path.normcase(dst)}, set()) == "skip"
+    finally:
+        ST.os.path.exists = old_exists
+
+    src = open(os.path.join(ROOT, "source_tidy.py"), encoding="utf-8").read()
+    assert "link_snapshot(short)" in src and "existing, known_dirs" in src, \
+        "기존 링크를 한 번 훑어 집합으로 재사용하지 않는다"
+    assert "flush=True" in src, "시간초과 전에 어느 단계였는지 로그를 남기지 않는다"
+    print("  [287] 원본 바로가기 — 7분 증분·rc75·기존링크 한 번 순회·진행로그 ✅")
 
 
 def t232_orgchart_floorplan_roster_and_states():
@@ -20168,6 +20206,7 @@ if __name__ == "__main__":
     t231_loop_tick_weight_from_evidence()
     t232_orgchart_floorplan_roster_and_states()
     t233_round_steps_fit_inside_budget()
+    t287_source_tidy_resumes_inside_watchdog_budget()
     t234_kim_miyeong_center_and_revenue()
     t235_chatbot_is_one_line_until_asked()
     t236_list_is_folded_into_groups()

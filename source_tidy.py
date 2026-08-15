@@ -29,7 +29,6 @@ import os
 import re
 import sys
 import time
-import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
@@ -50,6 +49,7 @@ KIND_LABEL = {
 }
 JUNK = (re.compile(r"^~\$"), re.compile(r"\.tmp\.xlsx$", re.I),
         re.compile(r" \(\d+\)\.(xlsx|pdf|txt)$", re.I))
+INCREMENTAL_RETURN_CODE = 75
 
 
 def load_index():
@@ -58,15 +58,34 @@ def load_index():
         return json.load(f).get("rows") or []
 
 
-def link(src, dst):
+def link(src, dst, existing=None, known_dirs=None):
     """하드링크(같은 드라이브)로 걸고, 안 되면 건너뛴다. 복사는 하지 않는다 —
-    원본이 몇 GB라 두 벌이 되면 안 된다."""
-    if os.path.exists(dst):
+    원본이 몇 GB라 두 벌이 되면 안 된다.
+
+    ``existing`` 과 ``known_dirs`` 는 `_바로가기`를 한 번 훑어 만든 집합이다. Z:(SMB)에
+    파일마다 ``exists``·``makedirs``를 다시 물으면 2만여 링크를 매 회차 처음부터
+    왕복하느라 제한시간 안에 새 링크까지 도달하지 못한다.
+    """
+    key = os.path.normcase(dst)
+    if existing is not None and key in existing:
         return "skip"
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    if existing is None and os.path.exists(dst):
+        return "skip"
+    parent = os.path.dirname(dst)
+    parent_key = os.path.normcase(parent)
     try:
+        if known_dirs is None or parent_key not in known_dirs:
+            os.makedirs(parent, exist_ok=True)
+            if known_dirs is not None:
+                known_dirs.add(parent_key)
         os.link(src, dst)
+        if existing is not None:
+            existing.add(key)
         return "ok"
+    except FileExistsError:       # 다른 회차가 먼저 만들었어도 같은 완료다
+        if existing is not None:
+            existing.add(key)
+        return "skip"
     except Exception:
         return "fail"
 
@@ -82,13 +101,61 @@ def safe(s, n=60):
 # 안 써진다 — 그래서 반년을 돌면서도 아무 화면에 안 떴다([228] 이 잡아낸 것이 이것이다).
 # 링크 하나하나가 Z:(SMB) 왕복이라 원본이 늘면 시간도 같이 는다. 그러니 "빠르게
 # 만든다"로는 끝이 없고, **끝나는 시각을 정하는 것**이 답이다.
-BUDGET_MIN = int(os.environ.get("COUPANG_TIDY_BUDGET_MIN", "100"))
+# ★ 워치독 한 회차의 전체 예산은 10분이다. 예전 기본 100분은 daily_run 30분 제한과
+#   워치독 10분 제한보다 길어, 자체 이월 분기에 닿기 전에 매번 rc124로 잘렸다([287]).
+#   7분 뒤 75로 돌아오면 워치독이 실패로 세지 않고 다음 회차에 이어 간다.
+BUDGET_MIN = int(os.environ.get("COUPANG_TIDY_BUDGET_MIN", "7"))
 _T0 = time.time()
-_LEFT = [0]                      # 시간이 모자라 못 건 링크 수
 
 
 def out_of_time():
     return (time.time() - _T0) / 60 >= BUDGET_MIN
+
+
+def link_plan(rows, short):
+    """이번 색인에서 있어야 할 링크 전체를 **로컬 메모리에서 먼저** 계산한다.
+
+    계획이 완성돼야만 찌꺼기를 안전하게 가릴 수 있다. 링크를 만들면서 계획도 만들면
+    시간예산에 걸린 순간 ``want``가 반쪽이라 멀쩡한 링크를 지울 수 있다.
+    """
+    plan, want = [], set()
+
+    def add(src, dst):
+        key = os.path.normcase(dst)
+        want.add(key)
+        plan.append((src, dst))
+
+    # 1) 종류별 바로가기 — 무작위 이름을 사람이 읽는 이름으로 건다.
+    for r in rows:
+        kind = r.get("kind", "기타")
+        if kind in ("밴드", "기타") or r.get("ext") not in ("xlsx", "pdf"):
+            continue        # 밴드 원본(수천 장)·기타는 링크로 늘리지 않는다
+        label = KIND_LABEL.get(kind, kind)
+        base = r.get("slip") or r.get("uj") or os.path.splitext(r["name"])[0]
+        nm = safe(f"{r.get('date','')}_{label}_{base}") + "." + r["ext"]
+        add(r["path"], os.path.join(short, safe(label, 30), nm))
+
+    # 2) 월별 바로가기 — 업무가 **일어난 달**로 묶는다.
+    for r in rows:
+        if r.get("ext") != "pdf":
+            continue
+        slip = r.get("slip")
+        ym = slip[:7] if slip else (r.get("date") or "")[:7]
+        if not (r.get("post") or slip) or len(ym) != 7:
+            continue
+        add(r["path"], os.path.join(short, "월별", ym, r["name"]))
+    return plan, want
+
+
+def link_snapshot(short):
+    """기존 바로가기·폴더·크기를 SMB 한 번 순회로 함께 받는다."""
+    from source_index import walk_stat
+    existing, known_dirs, entries = set(), set(), []
+    for dirpath, fn, st in walk_stat(short, skip_dirs=()):
+        existing.add(os.path.normcase(os.path.join(dirpath, fn)))
+        known_dirs.add(os.path.normcase(dirpath))
+        entries.append((dirpath, fn, st))
+    return existing, known_dirs, entries
 
 
 def main():
@@ -105,54 +172,32 @@ def main():
     junk = [r for r in rows if any(p.search(r["name"]) for p in JUNK)]
 
     made = fail = 0
-    want = set()            # 이번에 있어야 할 바로가기 전체 경로
     if not a.report:
-        # 1) 종류별 바로가기 — 무작위 이름을 사람이 읽는 이름으로 건다.
-        for r in rows:
-            if out_of_time():
-                _LEFT[0] += 1
-                continue
-            kind = r.get("kind", "기타")
-            if kind in ("밴드", "기타") or r.get("ext") not in ("xlsx", "pdf"):
-                continue        # 밴드 원본(수천 장)·기타는 링크로 늘리지 않는다
-            label = KIND_LABEL.get(kind, kind)
-            base = r.get("slip") or r.get("uj") or os.path.splitext(r["name"])[0]
-            nm = safe(f"{r.get('date','')}_{label}_{base}") + "." + r["ext"]
-            dst = os.path.join(short, safe(label, 30), nm)
-            want.add(os.path.normcase(dst))
-            if link(r["path"], dst) == "ok":
-                made += 1
-            else:
-                fail += 0
-        # 2) 월별 바로가기 — 업무가 **일어난 달**로 묶는다.
-        #    건별 PDF(전표번호)와 밴드 게시글 PDF(글번호+날짜)를 함께 넣어,
-        #    "그 달에 무슨 일이 있었나"를 한 폴더에서 본다.
-        for r in rows:
-            if r.get("ext") != "pdf":
-                continue
-            if out_of_time():
-                _LEFT[0] += 1
-                continue
-            slip = r.get("slip")
-            ym = slip[:7] if slip else (r.get("date") or "")[:7]
-            if not (r.get("post") or slip) or len(ym) != 7:
-                continue
-            dst = os.path.join(short, "월별", ym, r["name"])
-            want.add(os.path.normcase(dst))
-            if link(r["path"], dst) == "ok":
-                made += 1
+        plan, want = link_plan(rows, short)
+        print(f"[원본정리] 색인 {len(rows)}건 → 바로가기 계획 {len(want)}개 · "
+              f"시간예산 {BUDGET_MIN}분", flush=True)
+        existing, known_dirs, old_entries = link_snapshot(short)
+        print(f"[원본정리] 기존 바로가기 {len(existing)}개 확인 · 새 링크 단계 시작",
+              flush=True)
 
-        # ★ 시간이 모자라 목록이 반쪽이면 **거두기는 하지 않고 여기서 끝낸다**
-        #   (2026-08-12). 거두기는 "이번에 있어야 할 것(want)에 없으면 찌꺼기"라는
-        #   판정이라, want 가 반쪽이면 **멀쩡한 바로가기를 지운다** — 못 만든 것보다
-        #   나쁘다. 그리고 끝내는 것 자체가 이 회차의 목적이다: 끊기면 리포트도 없고
-        #   잠금도 남지만, 스스로 끝내면 다음 회차가 이어서 한다([180]).
-        if _LEFT[0]:
-            print(f"[원본정리] 시간 예산 {BUDGET_MIN}분에 걸려 바로가기 {made}개까지만 만들고 멈춥니다"
-                  f" — 남은 {_LEFT[0]}건은 다음 회차가 이어서 합니다."
-                  f"\n           찌꺼기 거두기는 이번에 건너뜁니다(목록이 반쪽인 채로 거두면"
-                  f" 멀쩡한 바로가기를 지웁니다). 예산은 COUPANG_TIDY_BUDGET_MIN 으로 조절합니다")
-            return 0
+        # 기존 링크는 메모리 집합으로 건너뛴다. 새로 필요한 링크만 Z:에 쓴다.
+        for pos, (src, dst) in enumerate(plan):
+            if out_of_time():
+                left = sum(1 for _src, p in plan[pos:]
+                           if os.path.normcase(p) not in existing)
+                print(f"[원본정리] 시간 예산 {BUDGET_MIN}분에 걸려 새 링크 {made}개까지 "
+                      f"만들고 멈춥니다 — 남은 {left}개는 다음 회차가 이어서 합니다.\n"
+                      "           찌꺼기 거두기는 계획을 다 반영한 뒤에만 합니다.",
+                      flush=True)
+                return INCREMENTAL_RETURN_CODE
+            result = link(src, dst, existing, known_dirs)
+            if result == "ok":
+                made += 1
+                if made % 250 == 0:
+                    print(f"[원본정리] 새 링크 {made}개 생성 · 계획 {pos + 1}/{len(plan)}",
+                          flush=True)
+            elif result == "fail":
+                fail += 1
 
         # 3) 지난 회차의 찌꺼기를 **거둔다**. 색인이 한 번 오염되면(파생물까지 세면)
         #    그때 만든 링크가 영원히 남아 폴더가 계속 지저분해진다 —
@@ -194,8 +239,13 @@ def main():
         #   그 단계다([175]는 죽이는 방법을 고쳤고, 여기는 애초에 왜 오래 걸렸나다).
         #   거를 폴더는 **없다**(빈 set) — 여기는 `_바로가기` 안을 훑는 자리라
         #   색인의 SKIP_DIRS 를 물려받으면 정리할 것을 통째로 안 보게 된다.
-        from source_index import walk_stat
-        for dirpath, fn, st in walk_stat(short, skip_dirs=()):
+        print(f"[원본정리] 새 링크 단계 완료({made}개 생성) · 찌꺼기 확인 시작",
+              flush=True)
+        for pos, (dirpath, fn, st) in enumerate(old_entries):
+            if out_of_time():
+                print(f"[원본정리] 찌꺼기 {pos}/{len(old_entries)}개 확인 뒤 시간 예산 종료"
+                      " — 다음 회차가 이어서 합니다.", flush=True)
+                return INCREMENTAL_RETURN_CODE
             p = os.path.join(dirpath, fn)
             if os.path.normcase(p) in want:
                 continue
@@ -207,6 +257,10 @@ def main():
                     kept.append(p)
             except OSError:
                 kept.append(p)
+        if out_of_time():
+            print("[원본정리] 링크 정리는 끝났고 빈 폴더 접기는 다음 회차가 이어서 합니다.",
+                  flush=True)
+            return INCREMENTAL_RETURN_CODE
         for dirpath, _d, files in os.walk(short, topdown=False):   # 빈 폴더 접기
             if not files and not os.listdir(dirpath) and dirpath != short:
                 try:
@@ -251,7 +305,8 @@ def main():
         print(f"원본 정리: 색인 {len(rows)}건 · 정리후보 {len(junk)}건  (보고 전용)")
         return 0
     msg = (f"원본 정리: 색인 {len(rows)}건 · 바로가기 {made}개 생성 · "
-           f"묵은 링크 {removed}개 거둠 · 정리후보 {len(junk)}건 → {short}")
+           f"묵은 링크 {removed}개 거둠 · 링크실패 {fail}개 · "
+           f"정리후보 {len(junk)}건 → {short}")
     if kept:
         msg += (f"\n  ※ 원본을 색인에서 못 찾아 **지우지 않은** 링크 {len(kept)}개 — "
                 f"유일본일 수 있으니 사람이 확인")
