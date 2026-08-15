@@ -13806,8 +13806,22 @@ function esc2(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;
 function inputForm(kind, r, id){
   const spec = INPUT_SPEC[kind];
   if(!spec) return '';
-  const fields = spec.fields;
   const version=Number(r.DB버전||r._record_version||r.record_version||0);
+  // ★ 앱 DB에 아직 없는 행([89]) — 류지영 정기점검 '예정월' 계획처럼 아직 안 한
+  //   미래 건이다(프로젝트NO도 없다). 저장 폼을 띄우면 눌러도 안 되는 단추가 되어
+  //   사람이 "왜 저장이 안 되지"로 헤맨다(실측 PM 70건). 저장 대신 갈 길을 준다([169]):
+  //   실제로 진행하면 [신규 접수(점검) 등록]으로 기록한다. 저장은 앱 DB에 있는 행만.
+  if(!r._store_id && version<1){
+    const nm=(kind==='pm')?'정기점검':(kind==='as'?'돌발AS':'접수');
+    return `<div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">확인 내용 입력</div>
+      <div style="margin-top:8px;padding:12px 14px;border-radius:11px;background:rgba(127,127,127,.08);border:1px solid var(--line);font-size:13.5px;line-height:1.6;color:var(--ink-2)">
+        이 건은 아직 <b>앱 DB에 등록되지 않은 예정·계획</b>입니다(상태 ${esc2(statOf(r)||'예정')}). 여기서는 바로 저장할 수 없어요 —
+        실제 ${esc2(nm)}을(를) 진행하면 아래로 정식 등록해 주세요. 그 뒤부터는 이 화면에서 바로 수정·저장됩니다.
+        <button type="button" class="abtn" data-camp="${esc2(r.캠프명||'')}" style="margin-top:10px;width:100%"
+          onclick="openNewWork('${kind==='as'?'as':'pm'}',{camp_name:this.dataset.camp})">+ 신규 ${esc2(nm)} 등록</button>
+      </div>`;
+  }
+  const fields = spec.fields;
   // data-draft: 입력 초안 자동저장 대상 표시(2026-08-11) — 열쇠가 기록 단위라 남의 기록에 안 덮인다.
   return `<div data-draft="entry:${kind}:${esc2(String(id))}"><div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">확인 내용 입력·정정 → 앱 DB 즉시 저장</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">` +

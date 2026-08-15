@@ -7470,7 +7470,17 @@ def t249_entry_save_never_silent():
     assert "_staff_store_row(store, category, record_key)" in guard, \
         "버전 0 을 뭉쳐 '새로고침' 만 말한다 — 앱 DB에 없는 행은 새로고침해도 안 된다([169])"
 
-    print("  [249] 입력 저장은 조용히 실패하지 않는다 — 사유·보관·초안·버전 못([90]) ✅")
+    # ★ [89] 앱 DB에 없는 행(정기점검 '예정월' 계획 등)에는 저장 폼을 띄우지 않는다 —
+    #   눌러도 안 되는 단추가 UX 함정이다(실측 PM 70건). 대신 신규 등록으로 안내한다.
+    inpf = html[html.index("function inputForm("):html.index("function entryKeyCol(")]
+    assert "if(!r._store_id && version<1)" in inpf, \
+        "앱 DB에 없는 행에도 저장 폼을 띄운다 — 눌러도 안 되는 단추([89])"
+    assert "openNewWork(" in inpf, \
+        "저장 못 하는 예정 행에 갈 길(신규 등록)을 안 준다([169])"
+    assert inpf.index("if(!r._store_id && version<1)") < inpf.index("spec.fields"), \
+        "게이트가 저장 폼보다 뒤에 있다 — 예정 행에도 폼이 먼저 그려진다"
+
+    print("  [249] 입력 저장은 조용히 실패하지 않는다 — 사유·보관·초안·버전 못([90])·예정행 안내([89]) ✅")
 
 
 def t248_rounds_run_without_a_console_window():
