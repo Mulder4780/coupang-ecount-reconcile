@@ -169,6 +169,23 @@ def collect():
                         "값": 0,
                         "왜": "안 읽은 열은 빈칸과 구별할 수 없다 — 열 이름이 바뀌었을 수 있다([165])",
                         "등급": "경보"})
+        # ── ⑥ 앱 DB에 없는데 화면엔 뜨는 행 — [89] 사각지대 ───────────────
+        #   정기점검 '예정월' 계획처럼 아직 work_item 이 없는 행이다. 저장을 누르면
+        #   거절되므로 화면이 '신규 등록' 으로 안내한다(inputForm 게이트, [89]).
+        #   평소 값(실측 pm 70)이면 정상이지만, 갑자기 늘면 흡수가 밀렸다는 뜻일 수
+        #   있어 매일 세어 눈에 둔다([169]). works 는 위에서 이미 불렀다 — 다시 안 부른다.
+        for kind in ("as", "pm"):
+            rows = works.get(kind) or []
+            if not rows:
+                continue
+            missing = sum(1 for r in rows if not r.get("_store_id"))
+            if missing:
+                out["물음"].append({
+                    "무엇": "%s 화면에 앱 DB 미등록 행 %d건 (총 %d)" % (kind, missing, len(rows)),
+                    "값": missing,
+                    "왜": ("예정·계획 등 아직 work_item 이 없는 행 — 저장 대신 신규 "
+                           "등록으로 안내한다([89]). 갑자기 늘면 흡수 밀림을 의심한다"),
+                    "등급": "이상없음"})
     except Exception as exc:
         out["못물음"].append("원장 열을 못 셌다: %s" % exc)
 
