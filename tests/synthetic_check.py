@@ -17913,10 +17913,19 @@ def t240_install_has_a_door_and_says_why_when_shut():
     #     ★ 원인을 단정하지 않는다 — 이 서버 쪽 조건은 실측으로 전부 맞았다(`[172]` 의 문)
     assert "Android" in st, "안드로이드일 때만 나오게 가르지 않는다"
 
-    # ③ 실행 탭에 문이 있고, 누르기 전에도 상태를 말한다
-    run = idx.split('id="v-run"', 1)[1].split('id="v-daily"', 1)[0]
-    assert 'id="installStatusLine"' in run, "실행 탭이 설치 상태를 안 보여 준다"
-    assert "showInstallCard()" in run, "실행 탭에 설치로 가는 문이 없다"
+    # ③ 문이 있고, 누르기 전에도 상태를 말한다
+    #    ★ 2026-08-16: '실행 탭에' 에서 '어딘가에' 로 바꿈 — 느슨해진 것이 아니라
+    #      **자리 대신 본질을** 지키게 한 것이다. 2026-08-15 에 카드가 [설정]→'앱'
+    #      으로 옮겨서 v-run 에는 주석만 남았다. [240] 이 지키려는 것은 '어느 탭이냐'
+    #      가 아니라 **문이 있고 닫혔을 때 이유를 말하는가** 다.
+    #    ★ 동시에 **더 엄격**해졌다: 예전 검사는 v-run 주석 안의 `showInstallCard()`
+    #      글자를 코드로 읽어, 카드가 **통째로 사라진 뒤에도 우연히 통과**했다.
+    #      이젠 HTML 주석을 벗기고 본다 — 주석이 약속만 하는 자리를 잡는다([240] ②).
+    idx_markup = re.sub(r"<!--.*?-->", "", idx, flags=re.S)
+    assert 'id="installStatusLine"' in idx_markup, \
+        "누르기 전에 설치 상태를 말하는 자리가 없다 — 담당자는 설정이 숨겨져 대체 자리가 없다"
+    assert 'onclick="showInstallCard(' in idx_markup, \
+        "설치로 가는 문이 마크업에 없다 — 주석만 남았다"
     assert "function refreshInstallStatus(" in idx, "상태줄을 다시 재는 자리가 없다"
     assert "if(v==='run') refreshInstallStatus();" in idx, \
         "화면을 열 때 상태를 다시 재지 않는다 — 주소·설치 여부는 세션 중에도 바뀐다"

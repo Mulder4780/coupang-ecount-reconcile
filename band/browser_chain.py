@@ -552,7 +552,14 @@ def tick():
             ok, msg = inject(js, site_key,
                              os.path.join(HERE, "band_dump_state.js"),
                              ["NO __GRAB"])
-            note(d, 무엇, "시작됨" if ok else "실패", msg)
+            # ★ 안전거절은 실패가 아니라 건너뜀이다([269]) — 판정은 erp_step 과
+            #   같은 _guard_refused 하나를 쓴다(두 곳에서 가르면 언젠가 갈린다).
+            #   '실패'로 적으면 이 자국을 읽는 화면·리포트가 "밴드 수집이 실패하고
+            #   있다"고 말한다. 전면이 허용 Chrome 페이지가 아닌 것은 정상이고,
+            #   매일 뜨는 가짜 경보는 진짜 경보까지 같이 죽인다([170]).
+            note(d, 무엇,
+                 "시작됨" if ok else ("건너뜀" if _guard_refused(msg) else "실패"),
+                 msg)
             if ok:
                 return 0
             # 틀린 허용 페이지가 전면이면 입력은 0회로 안전 거절된다. 하루 한 번
@@ -592,7 +599,16 @@ def manual_step(target):
         return 4
     ok, msg = inject(js, target, probe, dead)
     print("수동 실행 %s — %s" % ("시작됨" if ok else "실행 안 함", msg))
-    return 0 if ok else 1
+    if ok:
+        return 0
+    # ★ 안전거절은 실패가 아니다([269]) — 형님이 손으로 부른 자리에서 이것은
+    #   고장이 아니라 "그 페이지를 앞으로 꺼내 달라"는 뜻이다. 1 로 내면 사람이
+    #   멀쩡한 것을 고치러 간다([172]). 무엇을 하면 되는지까지 말한다.
+    if _guard_refused(msg):
+        print("  → 실패가 아니라 건너뜀이다. 허용된 Chrome 페이지를 **전면**에 두고"
+              " 다시 부른다(밴드 /post 목록 또는 이카운트 ERP 화면).")
+        return 0
+    return 1
 
 
 def main():

@@ -4023,6 +4023,15 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	        <button class="abtn" type="button" onclick="show('pm')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>정기점검 관리</button>
 	        <button class="abtn" type="button" onclick="show('as')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-wrench-adjustable"/></svg>돌발AS 관리</button>
 	      </div>
+	      <!-- ★ 누르기 전에도 왜 안 되는지 말한다([240]). 2026-08-15 에 이 줄을 [설정]→'앱'
+	           으로만 옮겼다가 2026-08-16 에 되살렸다 — 설정 메뉴는
+	           `body.staff-mode .tabbar button.settings-nav{display:none!important}` 로
+	           **담당자 화면에서 통째로 숨는다.** 그런데 앱을 설치해야 하는 사람이
+	           바로 담당자(류지영·오종현)라, 옮기고 나니 그들에게는 **대체 자리가 없었다** —
+	           단추는 있는데 누르기 전까지 왜 막혔는지 알 길이 없다([240] 이 막으려던 그 사고).
+	           판단은 여기서 새로 만들지 않는다: refreshInstallStatus() 가 installState()
+	           한 곳에서 읽어 이 줄과 설정 화면을 **같이** 갱신한다([162]). -->
+	      <p class="sub" id="installStatusLine">확인 중…</p>
 	    </div>
 
 	    <div class="ryu-summary-grid" id="ryuSummaryGrid">
