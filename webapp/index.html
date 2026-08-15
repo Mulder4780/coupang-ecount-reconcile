@@ -3895,32 +3895,10 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
          여기 이름을 손으로 적으면 사본이 둘이 되어, 프리셋을 하나 더한 날 CSS 만
          늘고 단추는 안 늘면서 **아무 오류도 안 난다**. 고칠 때는 표를 고치고
          `python webapp/font_switch.py --sync` 를 돌린다. -->
-    <div class="card"><h3>글꼴 <span class="norm">— 이 기기에서만 바뀝니다</span></h3>
-      <div class="ui-cards" id="fontCards" data-fold="run-font" data-fold-label="글꼴 고르기"
-           data-fold-default="phone">
-      <!-- ▼ 글꼴 단추 — font_switch.py 가 만든다. 손으로 고치지 말 것 (FONT-CARDS:BEGIN) -->
-        <button class="ui-card" type="button" data-fontkey="basic" onclick="setFontPreset('basic')">
-          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
-          <span class="ui-card-tx"><b>기본</b><span>기기가 제 화면에 쓰는 글꼴 — 작은 글씨가 또렷합니다</span><span class="norm">어느 기기에서나 그 기기의 기본 글꼴을 씁니다</span></span></button>
-        <button class="ui-card" type="button" data-fontkey="galaxy" onclick="setFontPreset('galaxy')">
-          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
-          <span class="ui-card-tx"><b>갤럭시 글자체</b><span>삼성 갤럭시가 제 화면에 쓰는 글꼴(One UI Sans·삼성고딕)</span><span class="norm">삼성 기기에서만 그대로 보입니다 — 그 밖에서는 본고딕/Roboto</span></span></button>
-        <button class="ui-card" type="button" data-fontkey="iphone" onclick="setFontPreset('iphone')">
-          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
-          <span class="ui-card-tx"><b>아이폰 글자체</b><span>애플이 제 화면에 쓰는 글꼴(SF Pro·애플 SD 산돌고딕)</span><span class="norm">아이폰·아이패드·맥에서만 그대로 보입니다 — 그 밖에서는 본고딕</span></span></button>
-        <button class="ui-card" type="button" data-fontkey="windows" onclick="setFontPreset('windows')">
-          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
-          <span class="ui-card-tx"><b>윈도우 글자체</b><span>사무실 PC 화면과 같은 글꼴(Segoe UI·맑은 고딕)</span><span class="norm">윈도우에서만 그대로 보입니다 — 그 밖에서는 본고딕</span></span></button>
-        <button class="ui-card" type="button" data-fontkey="clear" onclick="setFontPreset('clear')">
-          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
-          <span class="ui-card-tx"><b>또렷하게</b><span>획을 굵게 그려 눈이 편합니다 — 글씨가 흐릴 때 고르세요</span><span class="norm">글꼴 굵기는 그대로이고 **그리는 방식**이 바뀝니다(크기는 안 커집니다)</span></span></button>
-        <button class="ui-card" type="button" data-fontkey="legacy" onclick="setFontPreset('legacy')">
-          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-arrow-repeat"/></svg></span>
-          <span class="ui-card-tx"><b>예전(나눔고딕)</b><span>2026-07-31까지 쓰던 글꼴로 되돌립니다</span><span class="norm">파일마다 적어 둔 --font-ui-legacy 값을 그대로 씁니다</span></span></button>
-      <!-- ▲ (FONT-CARDS:END) -->
-      </div>
-      <p class="sub" id="fontNow">확인 중…</p>
-    </div>
+    <!-- ★ 글꼴 카드는 2026-08-15 에 [설정] 화면으로 **옮겼다**(복제가 아니라 이동이다).
+         여기 사본을 다시 만들지 말 것 — 두 곳에 두면 한쪽만 고쳐지고, 그것이 설정
+         화면에 업무 바로가기 16개가 쌓인 경위다. 표식(FONT-CARDS:BEGIN/END)도 같이
+         갔으므로 `python webapp/font_switch.py --sync` 는 그대로 동작한다. -->
 
     <div class="card"><h3>파일·폴더 열기 <span class="norm">— 사무실 PC에서 접속했을 때만 동작</span></h3>
       <div class="ui-cards" data-fold="run-open" data-fold-label="열 수 있는 파일·폴더"
@@ -4498,8 +4476,22 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   #v-settings .settings-facts dd{color:var(--ink);font-weight:750;overflow-wrap:anywhere}
   #v-settings .settings-actions{display:flex;flex-wrap:wrap;gap:8px}
   #v-settings .settings-actions .abtn{min-height:42px}
-  #v-settings .admin-hub{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:8px;margin-bottom:4px}
+  #v-settings .admin-hub{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;margin-bottom:4px}
   #v-settings .admin-hub .abtn{min-height:46px;justify-content:flex-start;text-align:left;font-weight:750}
+  /* 상태판 타일 — 진단이 준 우선순위 그대로 색을 입힌다(새 판정을 만들지 않는다) */
+  #v-settings .admin-hub .abtn.p0{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,var(--line))}
+  #v-settings .admin-hub .abtn.p1{color:#B54708;border-color:rgba(181,71,8,.38)}
+  #v-settings .admin-hub .abtn b{display:block;font-size:13.5px;line-height:1.35}
+  #v-settings .admin-hub .abtn span{display:block;font-size:12px;font-weight:650;color:var(--muted);
+    margin-top:3px;line-height:1.45;white-space:normal;overflow-wrap:anywhere}
+  #v-settings .set-sub{font-size:13px;font-weight:800;color:var(--muted);margin:16px 0 8px;
+    padding-top:13px;border-top:1px solid var(--line)}
+  #v-settings .settings-card-head + .set-sub{margin-top:0;padding-top:0;border-top:0}
+  #v-settings .set-choice{display:flex;flex-wrap:wrap;gap:8px}
+  #v-settings .set-choice .abtn{min-height:42px;font-weight:750}
+  #v-settings .set-choice .abtn.on{border-color:var(--brand);color:var(--brand);
+    box-shadow:inset 0 0 0 1px var(--brand)}
+  #v-settings .ui-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px}
   #v-settings .settings-danger{color:var(--danger)!important;border-color:color-mix(in srgb,var(--danger) 45%,var(--line))!important}
   #v-settings .settings-safety{margin-top:14px;padding:12px 14px;border-radius:12px;
     background:var(--panel);border:1px solid var(--line);font-size:13px;line-height:1.6;color:var(--muted)}
@@ -4517,6 +4509,58 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
       <p>관리자 권한, 보안 PIN과 운영 도구를 한곳에서 관리합니다.</p>
     </div>
     <div class="settings-grid">
+      <!-- ══ A. 이 기기 ══════════════════════════════════════════════════════
+           서버에 안 간다. 전부 이 브라우저의 localStorage 다 —
+           **업무 자료는 한 글자도 안 바뀐다.** 그것이 '설정'과 '업무 화면'을
+           가르는 기준이다(2026-08-15 지시: "설정이랑 관계 없는건 넣지 마라").
+           글꼴 카드는 [실행] 탭에서 **옮겨 온** 것이다(사본이 아니다). -->
+      <article class="settings-card wide">
+        <div class="settings-card-head"><div><h3>이 기기</h3><p>글꼴·화면 밝기·카드 배치 — 이 브라우저에서만 바뀌고 업무 자료는 하나도 바뀌지 않습니다.</p></div></div>
+
+        <div class="set-sub">글꼴</div>
+        <div class="ui-cards" id="fontCards">
+        <!-- ▼ 글꼴 단추 — font_switch.py 가 만든다. 손으로 고치지 말 것 (FONT-CARDS:BEGIN) -->
+          <button class="ui-card" type="button" data-fontkey="basic" onclick="setFontPreset('basic')">
+            <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+            <span class="ui-card-tx"><b>기본</b><span>기기가 제 화면에 쓰는 글꼴 — 작은 글씨가 또렷합니다</span><span class="norm">어느 기기에서나 그 기기의 기본 글꼴을 씁니다</span></span></button>
+          <button class="ui-card" type="button" data-fontkey="galaxy" onclick="setFontPreset('galaxy')">
+            <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+            <span class="ui-card-tx"><b>갤럭시 글자체</b><span>삼성 갤럭시가 제 화면에 쓰는 글꼴(One UI Sans·삼성고딕)</span><span class="norm">삼성 기기에서만 그대로 보입니다 — 그 밖에서는 본고딕/Roboto</span></span></button>
+          <button class="ui-card" type="button" data-fontkey="iphone" onclick="setFontPreset('iphone')">
+            <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+            <span class="ui-card-tx"><b>아이폰 글자체</b><span>애플이 제 화면에 쓰는 글꼴(SF Pro·애플 SD 산돌고딕)</span><span class="norm">아이폰·아이패드·맥에서만 그대로 보입니다 — 그 밖에서는 본고딕</span></span></button>
+          <button class="ui-card" type="button" data-fontkey="windows" onclick="setFontPreset('windows')">
+            <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+            <span class="ui-card-tx"><b>윈도우 글자체</b><span>사무실 PC 화면과 같은 글꼴(Segoe UI·맑은 고딕)</span><span class="norm">윈도우에서만 그대로 보입니다 — 그 밖에서는 본고딕</span></span></button>
+          <button class="ui-card" type="button" data-fontkey="clear" onclick="setFontPreset('clear')">
+            <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+            <span class="ui-card-tx"><b>또렷하게</b><span>획을 굵게 그려 눈이 편합니다 — 글씨가 흐릴 때 고르세요</span><span class="norm">글꼴 굵기는 그대로이고 **그리는 방식**이 바뀝니다(크기는 안 커집니다)</span></span></button>
+          <button class="ui-card" type="button" data-fontkey="legacy" onclick="setFontPreset('legacy')">
+            <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-arrow-repeat"/></svg></span>
+            <span class="ui-card-tx"><b>예전(나눔고딕)</b><span>2026-07-31까지 쓰던 글꼴로 되돌립니다</span><span class="norm">파일마다 적어 둔 --font-ui-legacy 값을 그대로 씁니다</span></span></button>
+        <!-- ▲ (FONT-CARDS:END) -->
+        </div>
+        <p class="sub" id="fontNow">확인 중…</p>
+
+        <!-- 화면 밝기 — toggleTheme() 은 세 상태를 **도는** 단추라 원하는 값을 못
+             고른다. 그래서 setThemeMode(m) 를 따로 두되, 속은 applyTheme 를 그대로
+             부른다([162] — 판정을 새로 만들지 않는다). -->
+        <div class="set-sub">화면 밝기</div>
+        <div class="set-choice" id="themeChoice">
+          <button type="button" class="abtn" data-thememode="light"  onclick="setThemeMode('light')">기본(밝게)</button>
+          <button type="button" class="abtn" data-thememode="dark"   onclick="setThemeMode('dark')">다크모드</button>
+          <button type="button" class="abtn" data-thememode="system" onclick="setThemeMode('system')">시스템 동일</button>
+        </div>
+        <p class="sub" id="themeNow">확인 중…</p>
+
+        <div class="set-sub">카드 배치</div>
+        <div class="settings-actions">
+          <button type="button" class="abtn" onclick="resetDashboardLayout();toast('업무센터 카드 배치를 기본으로 되돌렸습니다')">업무센터 카드 배치 초기화</button>
+          <button type="button" class="abtn" onclick="resetDeviceSettings()">이 기기 설정 전체 초기화</button>
+        </div>
+        <div class="settings-safety">배치를 <b>고치는 것</b>은 그 화면에서 합니다(업무센터 [화면 구성] · 조직도 길게 누르기) — 카드를 보면서 옮기는 것이 자연스럽기 때문입니다. 여기에는 <b>되돌리기</b>만 둡니다.<br>초기화는 글꼴·밝기·카드 배치·접기 상태만 지웁니다. <b>로그인(PIN·기기 인증)은 건드리지 않습니다</b> — 그건 설정이 아니라 인증이라, 같이 지우면 "글꼴 초기화"가 로그아웃이 됩니다.</div>
+      </article>
+
       <article class="settings-card wide">
         <div class="settings-card-head">
           <div><h3>관리자 모드</h3><p>현재 브라우저의 서버 인증 역할을 확인합니다.</p></div>
@@ -4539,28 +4583,41 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
           <button type="button" class="abtn primary" onclick="openPinDialog()">관리자 PIN 변경</button>
         </div>
       </article>
+      <!-- ══ D. 앱 ═══════════════════════════════════════════════════════════
+           판정을 새로 만들지 않는다([162]) — 설치 여부는 installState() 한 곳이
+           정하고 여기서는 그 문장을 그대로 싣는다. -->
       <article class="settings-card wide">
-        <div class="settings-card-head"><div><h3>관리자 기능 통합 관제</h3><p>관리자 권한으로 여는 모든 화면을 한곳에서 바로 엽니다. 각 기능은 서버 관리자 관문을 그대로 통과합니다.</p></div>
-          <span class="settings-state" id="adminHubState">확인 중</span></div>
-        <div class="admin-hub" id="adminHub">
-          <button type="button" class="abtn" onclick="routeNav('run')">실행·자동화</button>
-          <button type="button" class="abtn" onclick="openSystemAudit()">시스템 진단</button>
-          <button type="button" class="abtn" onclick="routeNav('flow')">업무 워크플로우</button>
-          <button type="button" class="abtn" onclick="routeNav('daily')">일일 대조</button>
-          <button type="button" class="abtn" onclick="routeNav('check')">확인 필요</button>
-          <button type="button" class="abtn" onclick="routeNav('settle')">정산</button>
-          <button type="button" class="abtn" onclick="routeNav('revenue')">매출 실적</button>
-          <button type="button" class="abtn" onclick="routeNav('as')">돌발 AS</button>
-          <button type="button" class="abtn" onclick="routeNav('pm')">정기점검</button>
-          <button type="button" class="abtn" onclick="routeNav('remote')">원격 제어</button>
-          <button type="button" class="abtn" onclick="routeNav('worklog')">업무일지</button>
-          <button type="button" class="abtn" onclick="routeNav('sources')">원본 자료</button>
-          <button type="button" class="abtn" onclick="routeNav('report')">대표 보고</button>
-          <button type="button" class="abtn" onclick="routeNav('org')">조직도·접속 현황</button>
-          <button type="button" class="abtn" onclick="routeNav('calendar')">쿠팡 캘린더</button>
-          <button type="button" class="abtn" onclick="toggleTheme()">화면 밝기 전환</button>
+        <div class="settings-card-head"><div><h3>앱</h3><p>이 기기에 앱으로 설치했는지, 지금 어느 주소로 접속했는지 봅니다.</p></div>
+          <span class="settings-state" id="setInstallState">확인 중</span></div>
+        <dl class="settings-facts">
+          <dt>설치 상태</dt><dd id="setInstallMsg">확인 중…</dd>
+          <dt>지금 주소</dt><dd id="setOriginNow">확인 중…</dd>
+          <dt>고정 주소</dt><dd id="setOriginFixed">확인 중…</dd>
+          <dt>알림 채널</dt><dd id="setNotifyState">확인 중…</dd>
+        </dl>
+        <div class="settings-actions">
+          <button type="button" class="abtn" id="setInstallGo" onclick="showInstallCard(true)">앱 설치 안내 열기</button>
         </div>
-        <div class="settings-safety">여기 표시된 화면은 접근 바로가기입니다. 실행·정책·전체 원장 같은 실제 기능은 요청할 때마다 서버가 관리자 세션을 다시 검사합니다.</div>
+      </article>
+
+      <!-- ══ E. 상태판 — 예전의 '통합 관제' 타일 16개를 갈음한다 ════════════════
+           2026-08-15 지시: **"설정이랑 관계 없는건 넣지 말고 정리해"**
+           예전에는 여기가 업무 화면 바로가기 16개였다(그중 15개가 사이드바 복제).
+           그 복제는 **조용히 낡는다** — 새 화면을 만들어도 단추가 안 늘고, 화면을
+           지워도 단추는 남는데 아무 오류도 안 난다.
+           분담판 [103] 은 이 타일에 상태를 붙이자는 것이었으므로, 타일을 **없애는
+           대신 뜻을 바꿨다**: 바로가기가 아니라 '무엇이 빨간지' 를 말하는 상태판이다.
+           그래서 형님 지시와 [103] 이 둘 다 산다. 근거는 /api/system-audit 하나이고
+           여기서 다시 판정하지 않는다([162]). -->
+      <article class="settings-card wide">
+        <div class="settings-card-head"><div><h3>지금 확인할 것</h3><p>시스템·업무 진단이 찾은 것만 올라옵니다. 업무 화면으로 가는 길은 왼쪽 메뉴가 합니다.</p></div>
+          <span class="settings-state" id="adminHubState">확인 중</span></div>
+        <div class="admin-hub" id="adminHub"><button type="button" class="abtn" disabled>확인 중…</button></div>
+        <div class="settings-actions" style="margin-top:10px">
+          <button type="button" class="abtn" onclick="loadSystemAudit(true,true).then(renderSettingsHub)">↻ 다시 진단 읽기</button>
+          <button type="button" class="abtn" onclick="openSystemAudit()">진단 전체 보기</button>
+        </div>
+        <div class="settings-safety">여기 나오는 것은 <b>진단이 찾은 문제</b>뿐입니다. 아무것도 없으면 "확인할 것이 없습니다" 라고 적고, 진단을 못 읽으면 "이상 없음" 이 아니라 <b>"상태를 못 읽었습니다"</b> 라고 적습니다.</div>
       </article>
     </div>
   </section>
@@ -5696,8 +5753,128 @@ function toggleTheme(){
     ? `시스템 동일 — 지금 기기 설정은 ${systemPrefersDark() ? '어둡게' : '밝게'}입니다`
     : THEME_LABEL[now]); }catch(e){}
 }
+/* ★ [설정] 화면은 **값을 고른다** — 그래서 toggleTheme() 을 쓸 수 없다(그건 순환이라
+   원하는 값에 닿으려면 여러 번 눌러야 한다). 대신 이 함수도 **판정을 새로 만들지
+   않는다**([162]): 저장 열쇠도 `cw_theme` 그대로이고 그리기는 applyTheme 가 한다. */
+function setThemeMode(m){
+  const mode = THEME_MODES.includes(m) ? m : 'light';
+  try{ localStorage.setItem('cw_theme', mode); }catch(e){}
+  applyTheme(mode); forceRestyle(); markThemePick();
+  try{ uxEvent('tap', 'theme', mode); }catch(e){}
+  try{ toast(mode === 'system'
+    ? `시스템 동일 — 지금 기기 설정은 ${systemPrefersDark() ? '어둡게' : '밝게'}입니다`
+    : THEME_LABEL[mode]); }catch(e){}
+}
+/* 무엇이 켜져 있는지 안 보이면 사람이 눌러 놓고도 바뀌었는지 몰라 계속 다시 누른다
+   (글꼴 카드의 markFontPick 과 같은 이유). */
+function markThemePick(){
+  const cur = themeMode(), box = document.getElementById('themeChoice');
+  if(box) box.querySelectorAll('[data-thememode]').forEach(b => {
+    const on = b.getAttribute('data-thememode') === cur;
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  const line = document.getElementById('themeNow');
+  if(line) line.textContent = '지금: ' + THEME_LABEL[cur]
+    + (cur === 'system' ? ` (이 기기 설정은 지금 ${systemPrefersDark() ? '어둡게' : '밝게'})` : '')
+    + ' · 이 기기에서만';
+}
 try{ applyTheme(localStorage.getItem('cw_theme') || 'light'); }catch(e){ applyTheme('light'); }
 watchSystemTheme(true);
+
+/* ══ [설정] 이 기기 설정 전체 초기화 ═══════════════════════════════════════════
+   ★ 지우는 것은 **화면 취향뿐**이다. `cw_pin`·`cw_dev_auth` 는 절대 안 지운다 —
+     그건 설정이 아니라 **로그인**이라, 같이 지우면 "글꼴 초기화" 가 로그아웃이 된다.
+     업무 자료(SQLite 정본)는 애초에 이 길로 닿지 않는다. */
+const DEVICE_PREF_KEYS = ['csos_font_preset','csos_font_legacy','cw_theme',
+  'csos_dashboard_layout_v2','csos_org_order_v1','csos_help_open','csos_sec_folded'];
+async function resetDeviceSettings(){
+  const ok = await askYesNo(
+    '이 기기의 화면 설정(글꼴·밝기·카드 배치·접기 상태)을 처음 상태로 되돌릴까요?\n\n'
+    + '· 업무 자료는 한 글자도 바뀌지 않습니다.\n'
+    + '· 로그인(PIN·기기 인증)은 그대로 남습니다.\n'
+    + '· 다른 기기·다른 사람 화면에는 영향이 없습니다.',
+    {title:'이 기기 설정 초기화', yes:'되돌리기', no:'취소'});
+  if(!ok) return;
+  let n = 0;
+  for(const k of DEVICE_PREF_KEYS){
+    try{ if(localStorage.getItem(k) !== null){ localStorage.removeItem(k); n++; } }catch(_){}
+  }
+  try{ uxEvent('tap','settings-reset-device',String(n)); }catch(_){}
+  toast(n ? `${n}개 항목을 되돌렸습니다 — 화면을 새로 그립니다` : '되돌릴 것이 없었습니다');
+  setTimeout(()=>location.reload(), 700);   // 접기·배치는 그릴 때 읽으므로 새로 그린다
+}
+
+/* ══ [설정] 상태판 — 예전 '통합 관제' 타일 16개 자리 ═══════════════════════════
+   ★ 여기서 다시 판정하지 않는다([162]) — /api/system-audit 가 이미 낸 findings 를
+     그대로 싣는다. 그리고 **못 읽은 것을 '이상 없음' 이라 하지 않는다**([169]):
+     읽기 실패는 '상태를 못 읽었습니다' 로, 진짜 0건은 '확인할 것이 없습니다' 로
+     갈라 적는다. 둘을 뭉치면 진단이 죽어 있어도 화면은 초록으로 보인다. */
+function renderSettingsHub(){
+  const box = document.getElementById('adminHub'); if(!box) return;
+  const chip = document.getElementById('adminHubState');
+  const d = (typeof SYSTEM_AUDIT === 'object' && SYSTEM_AUDIT && SYSTEM_AUDIT.data) || null;
+  const rows = d && Array.isArray(d.findings) ? d.findings : [];
+  const setChip = (txt, ok) => { if(chip){ chip.classList.toggle('ok', !!ok); chip.textContent = txt; } };
+  if(!d){
+    setChip('확인 중', false);
+    box.innerHTML = '<button type="button" class="abtn" disabled>확인 중…</button>';
+    return;
+  }
+  if(d.error && !rows.length){
+    setChip('상태 못 읽음', false);
+    box.innerHTML = `<button type="button" class="abtn p0" onclick="loadSystemAudit(true,true).then(renderSettingsHub)">`
+      + `<b>상태를 못 읽었습니다</b><span>${esc2(d.error)} — 이상이 없다는 뜻이 아닙니다. 눌러서 다시 읽습니다.</span></button>`;
+    return;
+  }
+  if(!rows.length){
+    setChip('확인할 것 없음', true);
+    box.innerHTML = `<button type="button" class="abtn" onclick="openSystemAudit()">`
+      + `<b>확인할 것이 없습니다</b><span>${d.generated_at ? '기준 ' + esc2(fmtDateTime(d.generated_at)) : '기준 시각 없음'} · 눌러서 진단 전체 보기</span></button>`;
+    return;
+  }
+  setChip(`확인 ${rows.length}건`, false);
+  box.innerHTML = rows.map(r => {
+    const p = String(r.priority || 'P2').toLowerCase();
+    return `<button type="button" class="abtn ${p}" onclick="openSystemAudit()">`
+      + `<b>${esc2(r.priority || '')} ${esc2(r.title || '')}</b>`
+      + `<span>${esc2(r.evidence || '')}</span></button>`;
+  }).join('');
+}
+/* 설정 화면을 **열 때마다** 다시 읽는다. 예전에는 routeNav 에 settings 갈래가 아예
+   없어서, 한 번 채운 값이 그대로 낡은 채 남았다(오류는 안 난다). */
+function loadSettingsPanel(){
+  try{ markFontPick(); }catch(_){}
+  try{ markThemePick(); }catch(_){}
+  try{
+    const st = installState(), chip = $('setInstallState');
+    if(chip){ chip.classList.toggle('ok', st.code === 'installed' || st.ok);
+              chip.textContent = st.code === 'installed' ? '앱으로 실행 중' : (st.ok ? '설치 가능' : '설치 막힘'); }
+    if($('setInstallMsg')) $('setInstallMsg').textContent = st.msg;
+    const go = $('setInstallGo');
+    if(go){ go.hidden = (st.code === 'installed'); }
+  }catch(_){}
+  try{
+    if($('setOriginNow')) $('setOriginNow').textContent = location.origin
+      + (location.origin === FIXED_APP_ORIGIN ? ' (고정 주소)' : '');
+    if($('setOriginFixed')) $('setOriginFixed').textContent = FIXED_APP_ORIGIN;
+  }catch(_){}
+  /* ★ 알림은 정직하게 적는다([259]) — config/notify.json 이 없으면 밀어 주는 채널이
+     하나도 없어서 **앱을 열어야만** 본다. "알림이 갑니다" 라고 적으면 안 된다. */
+  try{
+    const el = $('setNotifyState');
+    if(el){
+      el.textContent = '확인 중…';
+      api('/api/notify_state').then(d => {
+        const ch = (d && Array.isArray(d.channels)) ? d.channels.filter(Boolean) : [];
+        el.textContent = ch.length ? `밀어 주는 채널 ${ch.length}개 — ${ch.join(' · ')}`
+          : '앱 안 알림만 갑니다 — 밀어 주는 채널이 하나도 없어 앱을 열어야 보입니다.';
+      }).catch(() => {
+        el.textContent = '확인 못 했습니다 — 알림이 안 간다는 뜻은 아닙니다. 앱 안 알림은 그대로 쌓입니다.';
+      });
+    }
+  }catch(_){}
+  try{ if(!SYSTEM_AUDIT.data) loadSystemAudit().then(renderSettingsHub); else renderSettingsHub(); }catch(_){}
+}
 
 let API_FRESH = 0;                     // >0 이면 이번 호출들은 캐시를 건너뛴다
 // ★ 앱에게 먼저 물어보기 (2026-08-09 지시) — 클로드를 부르기 전 단계.
@@ -6909,8 +7086,10 @@ function renderAdminSettings(session,error=''){
   }
   $('adminExpiryValue').textContent=expiry;
   const out=$('adminLogoutBtn'); if(out) out.disabled=!isAdmin;
-  const hub=$('adminHubState'); if(hub){ hub.classList.toggle('ok',!!isAdmin);
-    hub.textContent=isAdmin?'전체 사용 가능':'관리자 인증 필요'; }
+  /* ★ `adminHubState` 는 여기서 안 쓴다(2026-08-15). 그 칸의 주인은 이제
+     renderSettingsHub 하나다 — 예전에는 이 함수가 '전체 사용 가능' 을 적었는데,
+     타일이 바로가기에서 **상태판**으로 바뀌면서 같은 칸에 쓰는 손이 둘이 됐다.
+     둘이 번갈아 쓰면 어느 쪽이 맞는지 아무도 모른다([162]). */
 }
 async function loadAdminSettings(force=false){
   if(staffSlug){ renderAdminSettings(null,'담당자 모드'); return null; }
@@ -8594,6 +8773,9 @@ function routeNav(v){
   // 실행 화면을 열 때마다 마지막 실행 시각을 다시 읽는다 — 열어 둔 채 시간이 지나면
   // "3시간 전"이 거짓이 되고, 그 사이 09:50 회차가 돌았을 수도 있다.
   if(v==='run'){ pollLog(); if(!staffSlug) loadSystemAudit(); }
+  /* 설정도 **열 때마다** 다시 읽는다. 여기 갈래가 없어서 예전에는 한 번 채운 값이
+     그대로 낡은 채 남았다 — 오류가 안 나므로 아무도 몰랐다([165] 와 같은 모양). */
+  if(v==='settings'){ if(!staffSlug) loadAdminSettings(); loadSettingsPanel(); }
 }
 
 // 통합 관제 허브의 '시스템 진단' 타일 — 실행 탭의 진단 카드로 곧장 데려간다.
