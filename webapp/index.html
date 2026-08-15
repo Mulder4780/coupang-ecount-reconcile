@@ -4697,9 +4697,20 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     display:flex;flex-direction:column;transition:transform .14s ease,opacity .14s ease}
   /* 자리 배치는 편집 단추 없이 **길게 눌러서** 연다. touch-action 은 제스처가 시작되기
      전에 정해져야 하므로 JS 가 붙인 구역 표식에서 미리 막는다. 같은 구역 안에서만
-     교환하는 규칙은 공용 dashDragEnable 이 그대로 지킨다. */
-  #v-org .org-desks[data-dash-long-press]>.org-ws{touch-action:none;
+     교환하는 규칙은 공용 dashDragEnable 이 그대로 지킨다.
+     ★ 그런데 `none` 은 **세로 스크롤까지** 막는다 (2026-08-15 형님 지시:
+       "화면 아무데나 손가락으로 터치해서 스크롤 올리고 내려도 스크롤 기능 작동하게 해").
+       조직도는 자리 카드가 화면을 거의 다 덮으므로, 카드 위에 손가락을 얹은 채
+       쓸어 올리면 **아무 일도 안 일어났다** — 폰에서는 그 화면이 통째로 안 내려갔다.
+       `pan-y` 면 세로 스크롤은 브라우저가 가져가고 **길게 누르기는 그대로 산다**:
+       끌기는 길게 누른 뒤에야 시작하고, 그전에 움직이면 JS 가 스크롤 의도로 보고
+       취소한다(10570행 주석의 그 규칙이다). 즉 잃는 기능이 없다.
+       ⚠ `none` 으로 되돌리지 말 것 — 되돌리는 순간 폰에서 조직도가 안 움직인다. */
+  #v-org .org-desks[data-dash-long-press]>.org-ws{touch-action:pan-y;
     -webkit-user-select:none;user-select:none;cursor:grab}
+  /* 실제로 끌기 시작한 뒤에만 브라우저에게서 손가락을 뺏는다 */
+  #v-org .org-ws.dash-long-pressing,
+  #v-org .org-ws.dash-dragging{touch-action:none}
   #v-org .org-ws.dash-long-pressing{transform:scale(1.02)}
   #v-org .org-ws.dash-dragging{transform:scale(1.035);opacity:.72;z-index:8;cursor:grabbing}
   #v-org .org-ws.dash-drop-target .org-desk{outline:2px solid var(--org-live);outline-offset:2px}
