@@ -76,6 +76,10 @@ RESULT = {
 #: 한 번이라도 보이면 경보. **죽은 것은 다음 회차가 대신 해 주지 않는다.**
 #: `확인못함` 이 여기 있는 이유 — 못 본 것을 정상이라 하지 않는다(`[169]`).
 DEAD = ("강제종료", "비정상종료", "중단됨", "실패", "확인못함")
+#: ★ 죽었는데 **그 코드가 마지막 실행 뒤에 바뀐** 갈래. 경보가 아니라 알림이다(`[288]`).
+#:   실패한 코드는 이미 안 돈다 — 그렇다고 '고쳐졌다'고 말하지도 않는다.
+#:   **다음 회차가 답한다.** DEAD 에 절대 넣지 말 것(넣으면 P0 로 되살아난다).
+FIXWAIT = "고침대기"
 #: 반복될 때만 경보. 한 번의 밀림은 정상 운영이다.
 REPEAT_ONLY = ("밀림",)
 #: 연속 몇 번부터 밀림을 경보로 올리나 — 5분 회차가 세 번 연속 거부면 앞이 안 끝난 것이다.
@@ -100,6 +104,13 @@ $out = @()
 foreach ($t in (Get-ScheduledTask -TaskPath '\' -ErrorAction SilentlyContinue)) {
   try {
     $i = $t | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
+    $act = @()
+    foreach ($a in $t.Actions) {
+      $act += [pscustomobject]@{
+        exe  = [string]$a.Execute
+        args = [string]$a.Arguments
+      }
+    }
     $trg = @()
     foreach ($g in $t.Triggers) {
       $trg += [pscustomobject]@{
@@ -123,12 +134,13 @@ foreach ($t in (Get-ScheduledTask -TaskPath '\' -ErrorAction SilentlyContinue)) 
       missed = [long]$(if ($i) { $i.NumberOfMissedRuns } else { 0 })
       err    = ''
       trig   = $trg
+      act    = $act
     }
   } catch {
     $out += [pscustomobject]@{
       name = [string]$t.TaskName; state = [string]$t.State; reg = ''; limit = '';
       multi = ''; last = ''; next = ''; result = -1; missed = 0;
-      err = [string]$_.Exception.Message; trig = @()
+      err = [string]$_.Exception.Message; trig = @(); act = @()
     }
   }
 }
@@ -309,6 +321,87 @@ def _due(task, now):
     return best, grace
 
 
+# ────────────────────── 그 회차가 부르는 코드가 그 뒤에 바뀌었나 (`[288]`)
+#: 실행기에서 **코드**로 볼 확장자. `.exe` 는 파이썬·wscript 같은 실행기라 안 본다.
+_CODE_EXT = (".py", ".bat", ".ps1", ".vbs", ".cmd")
+#: `.bat` 은 껍데기다 — 그 안이 부르는 `.py` 가 진짜 코드다. **한 겹만** 따라간다.
+#:   더 깊이 가면 짐작이 되고, 한 겹은 bat 이 스스로 적어 둔 글자라 근거다.
+_FOLLOW_DEPTH = 1
+_TOKEN = re.compile(r"""["']([^"']+)["']|(\S+)""")
+
+
+def _under_root(path):
+    """이 프로젝트 안의 실제 파일이면 절대경로, 아니면 None."""
+    p = path.strip().strip('"').strip("'")
+    if not p:
+        return None
+    full = p if os.path.isabs(p) else os.path.join(ROOT, p)
+    full = os.path.normpath(full)
+    try:
+        if os.path.commonpath([full, ROOT]) != ROOT or not os.path.isfile(full):
+            return None
+    except ValueError:                               # 드라이브가 다르면 남의 파일이다
+        return None
+    return full
+
+
+def task_scripts(task, depth=_FOLLOW_DEPTH):
+    """그 작업이 **실제로 돌리는** 이 프로젝트 파일들(절대경로). 없으면 빈 목록.
+
+    ★ 실행기(`pythonw.exe`·`wscript.exe`)가 아니라 **인자에 적힌 코드**를 본다.
+      `wscript run_hidden.vbs "…\\daily_run.bat"` 처럼 껍데기를 거치는 회차가 있어
+      한 겹만 따라간다 — bat 이 부르는 `.py` 는 bat 이 제 손으로 적어 둔 글자다.
+    """
+    out, seen = [], set()
+
+    def add(p):
+        f = _under_root(p)
+        if f and f.lower() not in seen:
+            seen.add(f.lower())
+            out.append(f)
+
+    for a in (task.get("act") or []):
+        add(str(a.get("exe") or ""))
+        for m in _TOKEN.finditer(str(a.get("args") or "")):
+            tok = m.group(1) or m.group(2) or ""
+            if tok.lower().endswith(_CODE_EXT):
+                add(tok)
+    if depth > 0:
+        for f in list(out):
+            if not f.lower().endswith((".bat", ".cmd", ".vbs")):
+                continue
+            try:
+                src = open(f, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            for m in re.finditer(r"[\w./\\-]+\.py\b", src):
+                add(m.group(0))
+    return [f for f in out if f.lower().endswith(_CODE_EXT)]
+
+
+def code_changed_after(task, when):
+    """마지막 실행 **뒤에** 바뀐 코드 파일 → `(상대경로, 바뀐때)` · 없으면 `(None, None)`.
+
+    ★ 커밋 시각이 아니라 **파일 mtime** 을 본다. 도는 것은 커밋이 아니라 디스크 위의
+      그 파일이고, `git pull` 로 받아만 놓고 안 돈 경우까지 잡아야 하기 때문이다
+      (`[156]` 이 앱 서버에서 쓴 것과 같은 근거).
+    ★ 그래서 이 판정이 말할 수 있는 것은 **'그 뒤 코드가 바뀌었다'** 까지다 —
+      '고쳐졌다'가 아니다. 무관한 이유로 파일을 건드렸을 수도 있다. 그 구별은
+      **다음 회차**가 해 준다(`[169]`).
+    """
+    if when is None:
+        return None, None
+    newest, at = None, None
+    for f in task_scripts(task):
+        try:
+            t = datetime.fromtimestamp(os.path.getmtime(f))
+        except OSError:
+            continue
+        if t > when and (at is None or t > at):
+            newest, at = os.path.relpath(f, ROOT), t
+    return newest, at
+
+
 # ─────────────────────────────────────────────────────────────────── 판정
 def judge(task, now, before=None):
     """작업 하나를 갈래로 나눈다. `before` 는 지난 회차의 같은 작업 기록(연속 세기용)."""
@@ -342,6 +435,24 @@ def judge(task, now, before=None):
                % (late.strftime("%m-%d %H:%M"),
                   last.strftime("%m-%d %H:%M") if last else "없음"))
 
+    # ★ 죽었는데 **그 코드가 마지막 실행 뒤에 바뀌었다** — 실패한 코드는 이미 안 돈다.
+    #   실측 2026-08-16: `CSOS_BrowserChain` 마지막 실행 08-15 12:00 exit 1 인데 그
+    #   exit 1 을 없앤 고침은 08-16 02:04 커밋이었다(14시간 뒤). 그런데 감시자가
+    #   고친 시각을 안 봐서 **매일 P0** 로 올라왔다 — 경보가 대부분 가짜면 나머지도
+    #   아무도 안 본다(`[170]`). `error_book` 에서 고친 것과 같은 모양이다(`[288]`).
+    #   ★ '고쳐졌다'고는 말하지 않는다. 사실은 **'고친 뒤 아직 안 돌았다'** 이고
+    #     답은 다음 회차가 한다(`[169]`). '안돎'에는 걸지 않는다 — 그것은 코드가
+    #     바뀌었든 말든 **돌아야 할 때 안 돈 것**이라 사실이 그대로 남는다.
+    바뀐것, 바뀐때 = (None, None)
+    if kind in DEAD and late is None:
+        바뀐것, 바뀐때 = code_changed_after(task, last)
+        if 바뀐것:
+            say = ("%s — 그런데 그 뒤 코드가 바뀌었다(%s %s). 실패한 코드는 이미 안 돈다"
+                   " · 다음 예정 %s 가 답한다"
+                   % (say, 바뀐것, 바뀐때.strftime("%m-%d %H:%M"),
+                      (task.get("next") or "?")[:16].replace("T", " ")))
+            kind = FIXWAIT
+
     # ★ 연속은 **회차**를 센다 — 관찰이 아니다. 워치독이 30분마다 보므로 관찰을 세면
     #   하루 한 번 실패하는 회차가 "48회 연속"이 되고, 밀림 판정(3회)은 첫날 아침에
     #   터진다. 같은 회차를 다시 본 것인지는 **마지막 실행 시각**이 말해 준다.
@@ -360,6 +471,7 @@ def judge(task, now, before=None):
         "제한시간": task.get("limit") or "", "놓친횟수": int(task.get("missed") or 0),
         "예정": late.strftime("%Y-%m-%dT%H:%M:%S") if late else "",
         "연속": run, "처음본때": prev.get("처음본때") if run > 1 else now.strftime("%Y-%m-%dT%H:%M:%S"),
+        "바뀐코드": 바뀐것 or "", "코드바뀐때": 바뀐때.isoformat(timespec="seconds") if 바뀐때 else "",
     }
 
 
@@ -384,6 +496,70 @@ def alarms(rows, missing):
         if why:
             out.append({"갈래": r["갈래"], "작업": r["작업"], "무엇": why,
                         "어떻게": "python schedule_watch.py --print"})
+    return out
+
+
+#: '일부러 꺼 뒀다' 고 사람이 적어 두는 곳 — 한 줄에 작업 이름 하나(`#` 는 주석).
+OFF_OK = os.path.join(ROOT, "reports", "스케줄러_꺼둔회차.txt")
+
+
+def _off_on_purpose():
+    """사람이 '일부러 껐다'고 적어 둔 작업 이름들 → `(집합, 그 파일을 읽었나)`."""
+    try:
+        with open(OFF_OK, encoding="utf-8") as fh:
+            names = set()
+            for line in fh:
+                line = line.split("#", 1)[0].strip()
+                if line:
+                    names.add(line)
+        return names, True
+    except FileNotFoundError:
+        return set(), True                           # 없는 것은 정상이다(아무도 안 껐다)
+    except OSError:
+        return set(), False                          # 못 읽었다 ≠ 비었다(`[169]`)
+
+
+def notices(rows, now=None):
+    """경보는 아니지만 **알아 둬야 하는 것**(`[288]`).
+
+    ★ 여기 있는 것을 `alarms()` 에 넣으면 안 된다 — `system_audit` 은 경보가 하나라도
+      있으면 **무조건 P0** 를 만든다. 그러면 '고친 뒤 아직 안 돎'이 매일 P0 가 되어
+      이 고침이 아무 뜻도 없어진다.
+    ★ 그렇다고 조용히 빼지도 않는다(`[169]`) — 인계·리포트에 한 줄로 남는다.
+    """
+    now = now or datetime.now()
+    out = []
+    for r in rows:
+        if r["갈래"] != FIXWAIT:
+            continue
+        out.append({"갈래": FIXWAIT, "작업": r["작업"], "무엇": "**%s** — %s"
+                    % (r["작업"], r["말"]),
+                    "어떻게": "python schedule_watch.py --print"})
+
+    # ★ **꺼진 회차는 실패하지 않는다** — 그래서 여태 아무 화면에도 안 떴다
+    #   (2026-08-16 실측: 회차 5개가 08-15 부터 꺼져 있었고 그중 하나가 **09:50
+    #   일일자동대조** 였다. 접수취소·객관완료·청구상태·대조·오기입·사실대조가
+    #   하루 넘게 통째로 안 돌았는데 스케줄러는 아무 오류도 안 냈다).
+    # ★ 그래도 **경보로 올리지 않는다** — 사람이 일부러 껐을 수 있고, 그것을 고장이라
+    #   부르면 멀쩡한 결정을 고치러 간다(`[172]`). 되살리지도 않는다(읽기 전용).
+    #   말하는 것까지가 이 파일 몫이다.
+    꺼둠, 읽음 = _off_on_purpose()
+    for r in rows:
+        if r["갈래"] != "꺼짐" or r["작업"] in 꺼둠:
+            continue
+        last = _dt(r.get("마지막실행"))
+        얼마 = ("마지막 실행 %s · %d일 전" % (r["마지막실행"][:16].replace("T", " "),
+                                        (now - last).days)) if last else "실행 기록 없음"
+        out.append({"갈래": "꺼짐", "작업": r["작업"],
+                    "무엇": "**%s** — 꺼져 있다(%s). 사람이 껐다면 정상이다 — "
+                            "일부러라면 `reports/스케줄러_꺼둔회차.txt` 에 이름을 적어 "
+                            "이 줄을 내린다" % (r["작업"], 얼마),
+                    "어떻게": "powershell Enable-ScheduledTask -TaskName '%s'" % r["작업"]})
+    if not 읽음:
+        out.append({"갈래": "확인못함", "작업": "스케줄러_꺼둔회차.txt",
+                    "무엇": "'일부러 꺼 둔 회차' 목록을 **못 읽었다** — 꺼진 회차를 "
+                            "일부러인지 아닌지 가리지 못한다",
+                    "어떻게": "type reports\\스케줄러_꺼둔회차.txt"})
     return out
 
 
@@ -453,6 +629,9 @@ def build(now=None):
         "설치본못읽음": unreadable,
         "컴팩팅": comp,
         "경보": al,
+        # 경보와 **같은 통에 담지 않는다** — system_audit 은 경보가 하나라도 있으면
+        # 무조건 P0 를 만든다(`[288]`). 그러나 조용히 빼지도 않는다(`[169]`).
+        "알림": notices(rows) if not err else [],
     }
     _write(st)
     _report(st)
@@ -490,6 +669,13 @@ def _report(st):
             L.append("걸린 것 없음 — 회차 %d개가 모두 정상이거나 도는 중이다." % len(st["작업"]))
         for a in al:
             L += ["- **[%s]** %s" % (a["갈래"], a["무엇"]), "  - `%s`" % a["어떻게"]]
+        노 = st.get("알림") or []
+        if 노:
+            L += ["", "## 알림 — 경보는 아니지만 알아 둘 것 (%d)" % len(노), "",
+                  "실패한 뒤 **그 코드가 바뀐** 회차다. 실패한 코드는 이미 안 돌지만",
+                  "'고쳐졌다'고 단정하지 않는다 — **다음 회차가 답한다**(`[288]`).", ""]
+            for a in 노:
+                L += ["- **[%s]** %s" % (a["갈래"], a["무엇"]), "  - `%s`" % a["어떻게"]]
         L += ["", "## 회차 %d개" % len(st["작업"]), "",
               "| 작업 | 갈래 | 마지막 실행 | 제한시간 | 무슨 일인가 |",
               "|---|---|---|---|---|"]
@@ -561,6 +747,8 @@ def banner():
         "시각": st.get("시각", ""), "나이분": round(age, 1) if age is not None else None,
         "조회실패": st.get("조회실패", ""),
         "경보": st.get("경보") or [],
+        # 경보와 갈라 싣는다 — 인계는 이것을 '먼저 처리할 것' 이 아니라 알림으로 적는다.
+        "알림": st.get("알림") or [],
         "회차수": len(st.get("작업") or []),
     }
 

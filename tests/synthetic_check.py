@@ -16098,8 +16098,45 @@ def t288_error_book_drops_alarms_fixed_before_last_seen():
     for 금지 in ("enqueue(", "openpyxl", "--apply"):
         assert 금지 not in src, f"오류 사전이 쓰는 길을 열었다: {금지}"
 
-    print("  [288] 오류 경보는 고친 시각을 본다 — 시각대 정규화·근거(검증번호/정의)·"
-          "방문 0 은 못 본 것으로 ✅")
+    # ⑦ 같은 판정을 회차 감시자도 한다 — 그런데 **경보 통에는 안 넣는다**([288]).
+    #   `system_audit` 은 경보가 하나라도 있으면 무조건 P0 를 만들기 때문이다.
+    import schedule_watch as SW
+    assert SW.FIXWAIT not in SW.DEAD, "'고침대기'를 DEAD 에 넣으면 P0 로 되살아난다"
+    sw_src = open(os.path.join(ROOT, "schedule_watch.py"), encoding="utf-8").read()
+    assert '"알림": notices(rows)' in sw_src, "알림을 상태에 안 싣는다"
+    assert '"경보": al,' in sw_src and "notices(rows) if not err" in sw_src, \
+        "알림을 경보와 같은 통에 담았다 — 그러면 매일 P0 가 된다"
+    sa = open(os.path.join(ROOT, "system_audit.py"), encoding="utf-8").read()
+    assert 'schedule.get("경보")' in sa, \
+        "system_audit 이 경보 대신 다른 키를 보면 알림이 P0 로 샌다"
+
+    # ⑧ 회차가 부르는 코드를 실제로 집어낸다 — 못 집으면 판정 자체가 영영 안 걸린다.
+    got = SW.task_scripts({"act": [{"exe": "pythonw.exe", "args": r"band\browser_chain.py"}]})
+    assert got and got[0].endswith("browser_chain.py"), f"인자에 적힌 코드를 못 집는다: {got}"
+    assert not SW.task_scripts({"act": [{"exe": "wscript.exe", "args": '"C:\\남의폴더\\x.bat"'}]}), \
+        "이 프로젝트 밖 파일을 코드로 셌다"
+    # 고침 뒤 안 돈 것만 내린다 — 마지막 실행이 **코드 변경보다 뒤**면 그대로 실패다.
+    최근 = datetime.now()
+    assert SW.code_changed_after({"act": [{"exe": "pythonw.exe", "args": "schedule_watch.py"}]},
+                                 최근)[0] is None, "마지막 실행 뒤에 안 바뀐 코드를 바뀌었다고 한다"
+    assert SW.code_changed_after({"act": []}, None)[0] is None, "실행 기록이 없는데 판정했다"
+
+    # ⑨ 꺼진 회차는 **실패하지 않는다** — 그래서 말해 주지 않으면 아무도 모른다([169]).
+    off = SW.notices([{"갈래": "꺼짐", "작업": "쿠팡업무_일일자동대조",
+                       "마지막실행": "2026-08-15T09:50:01", "말": "", "연속": 1}])
+    assert any(x["갈래"] == "꺼짐" for x in off), "꺼진 회차를 아무 데도 안 적는다"
+    assert all("Enable-ScheduledTask" in x["어떻게"] for x in off if x["갈래"] == "꺼짐"), \
+        "되살리는 길을 안 알려 준다"
+    # 읽기 전용이 깨지면 감시자가 스스로 회차를 켜 버린다 — 사람의 결정을 뒤집는 자리다.
+    # ⚠ 소스 전체를 훑으면 안 된다: `declared()` 는 설치본에서 'Register-ScheduledTask'
+    #   라는 **글자를 찾을 뿐**이고, 꺼짐 알림은 사람에게 'Enable-…' 을 **안내만** 한다.
+    #   실제로 도는 것은 이 파일이 PowerShell 에 넘기는 그 한 덩어리뿐이다.
+    for 금지 in ("Register-ScheduledTask", "Disable-ScheduledTask",
+                "Enable-ScheduledTask", "Set-ScheduledTask", "Start-ScheduledTask"):
+        assert 금지 not in SW._PS, f"감시자가 실제로 회차를 건드린다: {금지}"
+
+    print("  [288] 오류·회차 경보는 고친 시각을 본다 — 시각대 정규화·근거(검증번호/정의)·"
+          "방문 0 은 못 본 것 · 꺼진 회차는 알림으로 ✅")
 
 
 def t287_source_tidy_resumes_inside_watchdog_budget():
