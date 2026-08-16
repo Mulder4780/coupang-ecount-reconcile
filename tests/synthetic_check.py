@@ -16122,6 +16122,47 @@ def t289_erp_api_failure_says_why_without_leaking_secrets():
           "남긴다 · 맨몸 'ip' 오탐 금지 · 한 갈래 실패가 다른 갈래 성공을 안 지운다 ✅")
 
 
+def t290_permission_and_error_meter_say_which_kind():
+    """[290] '권한 없음'과 '인증 안 됨'을 가른다 · 오류 계기가 리소스 실패를 본다.
+
+    2026-08-13 실측 오류 둘이 같은 모양이었다 —
+    ① `runTask · evidence_sync:관리자 전용 기능입니다` : 관리자 본인이 세션이 없어서
+       막혀도 같은 문구가 나온다. 그러면 **앱이 고장 났다고 읽고** 고칠 길(다시 인증)이
+       화면 어디에도 안 보인다.
+    ② `window · (사유 없음)` : 무엇이 잘못됐는지 못 적은 기록이다. 게다가 리소스
+       로드 실패(img·script·link)는 **버블하지 않아** capture 없이는 아예 안 잡혔다 —
+       아이콘이 404 여도 어느 화면에도 안 뜬다(계기가 눈먼 자리, `[169]`).
+    """
+    def 글자(*parts):
+        with open(os.path.join(ROOT, *parts), encoding="utf-8") as fh:
+            return fh.read()
+
+    srv = 글자("webapp", "app_server.py")
+    i = srv.find("def _require_admin")
+    assert i > 0, "_require_admin 이 없다"
+    블록 = srv[i:i + 1400]
+    assert "ADMIN_ONLY" in 블록 and "ADMIN_AUTH_NEEDED" in 블록, \
+        "'권한 없음'과 '인증 안 됨'을 한 문구로 뭉쳤다"
+    # ★ 되돌아가면 안 되는 것: 401 은 이 앱에서 PIN 게이트의 코드다. 권한 거절에 쓰면
+    #   화면이 PIN 을 지우고 잠금 화면을 띄운다 — 문구를 고치려다 업무를 막는다.
+    assert "_send(401" not in 블록, "권한 거절에 401 을 쓴다 — 담당자가 잠금 화면으로 튕긴다"
+
+    ui = 글자("webapp", "index.html")
+    j = ui.find("window.addEventListener('error'")
+    assert j > 0, "전역 오류 계기가 없다"
+    핸들러 = ui[j:j + 1600]
+    assert "'resource'" in 핸들러, "리소스 로드 실패를 스크립트 오류와 안 가른다"
+    assert 핸들러.count("},true)") or "}, true)" in 핸들러, \
+        "capture 로 안 듣는다 — 리소스 오류는 버블하지 않아 영영 안 잡힌다"
+    # ⚠ 옛 모양은 `(m||'(사유 없음)')` 이었다. 낱말만 찾으면 **설명 주석에도 걸린다** —
+    #   실제로 그렇게 만들었다가 빨개졌다. 되돌아가면 안 되는 것은 그 **식**이다.
+    assert "m||'(사유 없음)'" not in 핸들러, \
+        "사유를 못 읽었을 때 '(사유 없음)' 만 남긴다 — 다음 사람에게 아무것도 못 알려 준다"
+
+    print("  [290] 권한 거절이 '없음/미인증'을 가른다(401 금지) · 오류 계기가 capture 로 "
+          "리소스 실패까지 본다 ✅")
+
+
 def t288_error_book_drops_alarms_fixed_before_last_seen():
     """[288] 오류 경보는 **고친 시각**을 본다 — 고침보다 앞선 기록을 매일 P1 으로 올리지 않는다.
 
@@ -20487,6 +20528,7 @@ if __name__ == "__main__":
     t286_sales_source_survives_recent_export_cap()
     t288_error_book_drops_alarms_fixed_before_last_seen()
     t289_erp_api_failure_says_why_without_leaking_secrets()
+    t290_permission_and_error_meter_say_which_kind()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

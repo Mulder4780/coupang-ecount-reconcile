@@ -7967,10 +7967,26 @@ class H(BaseHTTPRequestHandler):
         return key[:240]
 
     def _require_admin(self):
-        if self._actor().get("role") != "admin":
-            self._send(403, {"ok": False, "error": "관리자 전용 기능입니다"})
-            return False
-        return True
+        role = str(self._actor().get("role") or "unknown")
+        if role == "admin":
+            return True
+        # ★ '권한이 없다' 와 '아직 인증이 안 됐다' 는 **다른 사실**이다(2026-08-13 실측:
+        #   `runTask · evidence_sync:관리자 전용 기능입니다`). 뭉쳐 놓으면 관리자 본인이
+        #   세션 만료로 막혔을 때 그 문구를 보고 **앱이 고장 났다고 읽는다** — 고칠 길
+        #   (다시 인증)이 화면 어디에도 안 보인다. 가를 수 있는 것을 '또는'으로 묶지 않는다.
+        if role == "staff":
+            self._send(403, {"ok": False, "code": "ADMIN_ONLY",
+                             "error": "관리자 전용 기능입니다 — 담당자 화면에서는 실행할 수 없습니다"})
+        else:
+            # ⚠ **상태 코드는 403 그대로 둔다.** 401 은 이 앱에서 이미 다른 뜻이다 —
+            #   PIN 게이트가 쓰는 코드이고, 화면은 401 을 보면 PIN 을 지우고 잠금 화면을
+            #   띄운다(index.html 의 401 처리). 여기서 401 을 쓰면 '관리자 권한이 없다'가
+            #   '로그인이 풀렸다'로 읽혀 담당자가 잠금 화면으로 튕긴다 —
+            #   문구를 고치려다 업무를 막는 자리다([172]). 갈라 말하는 것은
+            #   **문구와 code** 로 충분하다.
+            self._send(403, {"ok": False, "code": "ADMIN_AUTH_NEEDED",
+                             "error": "관리자 인증이 필요합니다 — [설정] 에서 관리자 PIN 으로 다시 인증하세요"})
+        return False
 
     def _require_staff(self, *allowed_slugs):
         actor = self._actor()

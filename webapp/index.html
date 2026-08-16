@@ -6144,10 +6144,23 @@ document.addEventListener('click',e=>{
    바로 옆줄 'window' 는 그대로였다 — 90일 4,130건 중 맨 위 열두 갈래가 사유 없음이었다.
    비어 있는 값은 눈에 띄지만 **사유 없는 기록은 있는 것처럼 보인다**([169]). */
 window.addEventListener('error',ev=>{
+  /* ★ 이 한 이벤트에 **두 가지**가 온다 — 스크립트 오류와 **리소스 로드 실패**
+     (img·script·link). 뒤엣것은 Event 라 message·filename 이 아예 없어서 예전 코드가
+     닿았다면 전부 '(사유 없음)' 으로 쌓였다 — 무엇이 안 불러와졌는지가 사라진다([169]).
+     게다가 리소스 오류는 **버블하지 않아** capture 로 안 들으면 아예 안 잡혔다:
+     아이콘·스크립트가 404 여도 어느 화면에도 안 뜬다(계기가 눈먼 자리). */
+  const el=ev&&ev.target;
+  if(el&&el!==window&&el.tagName){
+    const src=String(el.currentSrc||el.src||el.href||'').split('?')[0].split('/').slice(-2).join('/');
+    uxEvent('error','resource',el.tagName.toLowerCase()+' 로드 실패 · '+(src||'(주소 없음)'));
+    return;
+  }
   const m=String((ev&&(ev.message||(ev.error&&ev.error.message)))||'').slice(0,140);
   const at=String((ev&&ev.filename)||'').split('/').pop()+':'+((ev&&ev.lineno)||0);
-  uxEvent('error','window',(m||'(사유 없음)')+' @ '+at);
-});
+  /* 그래도 사유가 없으면 **무엇을 못 읽었는지**라도 남긴다 — '(사유 없음)' 은
+     다음 사람에게 아무것도 못 알려 준다(대개 다른 출처 스크립트의 가려진 오류다). */
+  uxEvent('error','window',(m||('사유 없음('+String((ev&&ev.type)||'error')+') — 다른 출처 스크립트일 수 있다'))+' @ '+at);
+},true);
 window.addEventListener('unhandledrejection',ev=>{
   const r=ev&&ev.reason;
   const why=String((r&&(r.message||r.stack||r))||'').slice(0,200);
