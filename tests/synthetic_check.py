@@ -17261,7 +17261,28 @@ def t272_no_console_windows_from_children():
             "공용 헬퍼에 CREATE_NO_WINDOW 가 없다"
         assert kw.get("startupinfo") is not None, "공용 헬퍼에 SW_HIDE 가 없다"
 
-    print("  [272] 회차가 띄운 자식도 창을 안 단다 — 콘솔 exe 25곳 → 0곳 ✅")
+    # ⑥ ★ **살아 있는 예약 작업의 실행기**도 본다 (2026-08-16, 분담판 [107]).
+    #    `[248]` 은 설치본을, ①~⑤ 는 소스를 본다 — 그런데 설치본을 고쳐도 **이미
+    #    등록된 작업은 그대로**고, 살아 있는 작업만 고치면 기계를 새로 만들 때
+    #    되살아난다. 판정은 기계 상태에 기대면 안 되므로 **낱말만** 잰다.
+    assert A.exe_verdict(r"C:\Python\pythonw.exe") == "조용"
+    assert A.exe_verdict("wscript.exe", "run_hidden.vbs x.bat") == "조용"
+    for 창 in (r"C:\Python\python.exe", "cmd.exe", "powershell.exe",
+               r"C:\x\워치독실행.bat", "cscript.exe"):
+        assert A.exe_verdict(창) == "창뜸", "창 뜨는 실행기를 조용하다고 읽는다: " + 창
+    # 모르는 것을 '조용'으로 세면 계기 자신이 눈이 먼다([169]).
+    assert A.exe_verdict("") == "모름" and A.exe_verdict("낯선것.exe") == "모름"
+    # 못 읽었을 때 **빈 목록이 아니라 이유**를 돌려준다.
+    rows, 왜 = A.live(os.path.join(tempfile.gettempdir(), "없는파일_%d.json" % os.getpid()))
+    assert rows == [] and 왜, "못 읽은 것을 '0곳'이라 말한다"
+    sw = open(os.path.join(ROOT, "schedule_watch.py"), encoding="utf-8").read()
+    assert '"실행기"' in sw and "exe_verdict" in sw, \
+        "회차가 실행기를 안 남기거나 알림으로 안 잇는다"
+    assert "모두 정상이거나 도는 중" not in sw, \
+        "경보 0 을 '모두 정상' 이라 적는다 — 꺼진 회차는 경보가 아니라 알림이다"
+
+    print("  [272] 회차가 띄운 자식도 창을 안 단다 — 콘솔 exe 25곳 → 0곳 · "
+          "살아 있는 예약 작업 실행기도 본다 ✅")
 
 
 def t198_source_index_no_per_file_stat():

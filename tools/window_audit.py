@@ -95,6 +95,62 @@ def _looks_console(call: ast.Call) -> str:
     return "?"
 
 
+# ──────────────────────────────── 살아 있는 예약 작업의 실행기 (2026-08-16, 분담판 [107])
+#: 창이 **뜨는** 실행기. `pythonw`·`wscript` 는 창이 없다(`cscript` 는 콘솔이라 뜬다).
+WINDOWED_EXE = ("python.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "cscript.exe")
+QUIET_EXE = ("pythonw.exe", "wscript.exe")
+
+
+def exe_verdict(exe, args=""):
+    """예약 작업 실행기 한 줄이 창을 다나 → `창뜸` · `조용` · `모름`.
+
+    ★ `[248]` 은 **설치본**이 창 뜨는 실행기를 다시 등록하는지 본다. 그런데 설치본을
+      고쳐도 **이미 등록돼 있는 작업은 그대로다** — 반대로 살아 있는 작업만 고치면
+      기계를 새로 만들 때 되살아난다. 그래서 둘 다 봐야 한다.
+    ★ 모르면 `모름` 이다. 못 읽은 것을 '조용'으로 세면 계기 자신이 눈이 먼다(`[169]`)."""
+    name = os.path.basename(str(exe or "").strip().strip('"')).lower()
+    if not name:
+        return "모름"
+    if name in QUIET_EXE:
+        return "조용"
+    if name in WINDOWED_EXE or name.endswith((".bat", ".cmd")):
+        return "창뜸"
+    return "모름"
+
+
+def live(state_path=None):
+    """살아 있는 예약 작업 중 창 뜨는 실행기로 등록된 것 → `(목록, 왜못함)`.
+
+    회차(`schedule_watch`)가 이미 물어서 써 둔 것을 읽는다 — 여기서 스케줄러를
+    다시 묻지 않는다(`[168]`). 못 읽으면 **빈 목록이 아니라 이유**를 돌려준다."""
+    import json
+    if state_path is None:
+        try:
+            if ROOT not in sys.path:        # tools/ 에서 직접 부르면 루트가 안 잡힌다
+                sys.path.insert(0, ROOT)
+            import schedule_watch
+            state_path = schedule_watch.STATE
+        except Exception as exc:
+            return [], "회차 감시를 못 불렀다(%s)" % type(exc).__name__
+    try:
+        with open(state_path, encoding="utf-8") as fh:
+            rows = (json.load(fh) or {}).get("작업") or []
+    except (OSError, ValueError):
+        return [], "회차 감시 기록을 못 읽었다 — python schedule_watch.py 를 먼저 돌린다"
+    if not rows:
+        return [], "회차 기록이 비어 있다"
+    if not any(r.get("실행기") for r in rows):
+        # 0곳이 '없다'인지 '안 봤다'인지 가른다(`[169]`).
+        return [], "실행기를 한 줄도 못 읽었다(옛 기록이거나 조회가 막혔다)"
+    out = []
+    for r in rows:
+        for a in (r.get("실행기") or []):
+            판정 = exe_verdict(a.get("exe"), a.get("args"))
+            if 판정 != "조용":
+                out.append((r.get("작업", ""), str(a.get("exe") or ""), 판정))
+    return out, ""
+
+
 def scan():
     """(파일, 줄, 무엇, 콘솔낱말) 목록 — 창이 달릴 수 있는 자리."""
     bad = []
@@ -145,7 +201,21 @@ def split(rows=None):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="창이 달릴 수 있는 자식 실행 자리")
     ap.add_argument("--count", action="store_true", help="건수만")
+    ap.add_argument("--live", action="store_true",
+                    help="살아 있는 예약 작업의 실행기(회차가 써 둔 것을 읽는다)")
     a = ap.parse_args(argv)
+    if a.live:
+        rows, 왜못함 = live()
+        if 왜못함:
+            print("예약 작업 실행기를 **확인 못 했다** — %s" % 왜못함)
+            return 0
+        if not rows:
+            print("창 뜨는 실행기로 등록된 예약 작업: 0곳 (전부 pythonw·wscript)")
+            return 0
+        print("★ 창 뜨는 실행기로 등록된 예약 작업 %d곳" % len(rows))
+        for 작업, exe, 판정 in rows:
+            print("  %-34s %-14s %s" % (작업, 판정, exe))
+        return 0
     sure, unknown = split()
     if a.count:
         print(len(sure) + len(unknown))

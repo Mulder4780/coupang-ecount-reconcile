@@ -472,6 +472,9 @@ def judge(task, now, before=None):
         "예정": late.strftime("%Y-%m-%dT%H:%M:%S") if late else "",
         "연속": run, "처음본때": prev.get("처음본때") if run > 1 else now.strftime("%Y-%m-%dT%H:%M:%S"),
         "바뀐코드": 바뀐것 or "", "코드바뀐때": 바뀐때.isoformat(timespec="seconds") if 바뀐때 else "",
+        # 실행기까지 남긴다 — 창이 뜨는 실행기로 등록돼 있는지는 여기서만 알 수 있다([107]).
+        "실행기": [{"exe": str(a.get("exe") or ""), "args": str(a.get("args") or "")[:200]}
+                 for a in (task.get("act") or []) if isinstance(a, dict)],
     }
 
 
@@ -555,6 +558,35 @@ def notices(rows, now=None):
                             "일부러라면 `reports/스케줄러_꺼둔회차.txt` 에 이름을 적어 "
                             "이 줄을 내린다" % (r["작업"], 얼마),
                     "어떻게": "powershell Enable-ScheduledTask -TaskName '%s'" % r["작업"]})
+    # ★ 살아 있는 작업이 **창 뜨는 실행기**로 등록돼 있나 (2026-08-16, 분담판 [107]).
+    #   `[248]`·`[272]` 는 **설치본과 소스**를 본다 — 그런데 설치본을 고쳐도 이미 등록된
+    #   작업은 그대로고, 살아 있는 작업만 고치면 기계를 새로 만들 때 되살아난다.
+    #   여기는 **지금 등록돼 있는 것**을 본다. 고치지는 않는다(읽기 전용).
+    try:
+        from tools.window_audit import exe_verdict
+    except Exception as exc:
+        out.append({"갈래": "확인못함", "작업": "window_audit",
+                    "무엇": "예약 작업이 창 뜨는 실행기로 등록됐는지 **못 봤다**(%s)"
+                            % type(exc).__name__,
+                    "어떻게": "python tools\\window_audit.py --live"})
+    else:
+        아는것 = [r for r in rows if r.get("실행기")]
+        if rows and not 아는것:
+            out.append({"갈래": "확인못함", "작업": "예약 작업 실행기",
+                        "무엇": "실행기를 한 줄도 못 읽었다 — 창이 뜨는지 **0곳이라 "
+                                "말하면 안 되는 자리**다(`[169]`)",
+                        "어떻게": "python schedule_watch.py --print"})
+        for r in 아는것:
+            for a in r["실행기"]:
+                판정 = exe_verdict(a.get("exe"), a.get("args"))
+                if 판정 == "조용":
+                    continue
+                out.append({"갈래": "창뜸" if 판정 == "창뜸" else "확인못함", "작업": r["작업"],
+                            "무엇": "**%s** — 실행기가 `%s` 다(%s). 이 회차가 돌 때마다 "
+                                    "검은 창이 뜬다 — `pythonw.exe` 또는 "
+                                    "`wscript.exe run_hidden.vbs` 로 등록한다"
+                                    % (r["작업"], os.path.basename(a.get("exe") or "?"), 판정),
+                            "어떻게": "python tools\\window_audit.py --live"})
     if not 읽음:
         out.append({"갈래": "확인못함", "작업": "스케줄러_꺼둔회차.txt",
                     "무엇": "'일부러 꺼 둔 회차' 목록을 **못 읽었다** — 꺼진 회차를 "
@@ -666,7 +698,13 @@ def _report(st):
         al = st["경보"]
         L += ["## 경보 (%d)" % len(al), ""]
         if not al:
-            L.append("걸린 것 없음 — 회차 %d개가 모두 정상이거나 도는 중이다." % len(st["작업"]))
+            # ⚠ "모두 정상"이라고 적지 않는다 — 꺼진 회차는 **경보가 아니라 알림**이라
+            #   여기 안 들어온다. 경보 0 을 '이상 없음'으로 읽히게 두면 5개가 꺼져
+            #   있어도 화면은 안심시킨다(2026-08-16 실측 · `[169]`).
+            L.append("경보로 올릴 것 없음 — 회차 %d개%s." % (
+                len(st["작업"]),
+                "" if not st.get("알림") else
+                " (다만 **알림 %d건**은 아래에 있다)" % len(st["알림"])))
         for a in al:
             L += ["- **[%s]** %s" % (a["갈래"], a["무엇"]), "  - `%s`" % a["어떻게"]]
         노 = st.get("알림") or []
@@ -770,7 +808,10 @@ def main(argv=None):
     for a in al:
         print("  [%s] %s" % (a["갈래"], re.sub(r"\*\*", "", a["무엇"])))
     if not al:
-        print("  걸린 것 없음")
+        print("  경보로 올릴 것 없음")
+    # 알림도 콘솔에 보인다 — 파일에만 있으면 명령을 친 사람은 '이상 없음'으로 읽는다.
+    for a in (st.get("알림") or [])[:6]:
+        print("  (알림) [%s] %s" % (a["갈래"], re.sub(r"\*\*", "", a["무엇"])[:110]))
     print("상세: reports/스케줄러_회차감시.md")
     return 0
 
