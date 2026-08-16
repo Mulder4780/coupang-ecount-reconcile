@@ -587,6 +587,29 @@ def notices(rows, now=None):
                                     "`wscript.exe run_hidden.vbs` 로 등록한다"
                                     % (r["작업"], os.path.basename(a.get("exe") or "?"), 판정),
                             "어떻게": "python tools\\window_audit.py --live"})
+    # ★ **같은 회차를 두 작업이 부르면 한쪽은 늘 잠금에 막혀 실패한다.** 그런데 그 실패는
+    #   '회차가 고장 났다'로 읽혀서 원인을 엉뚱한 데서 찾게 된다 — 2026-08-07 에
+    #   `쿠팡업무_원장일괄반영_15시` 를 지운 것이 바로 이 모양이었고(매일 `결과: 1`),
+    #   그때는 **사람이 손으로 찾아냈다.** 실측 2026-08-16: `쿠팡업무_일일자동대조` 와
+    #   `CSOS_유수비_대표보고_자동준비` 가 같은 `daily_run.bat` 을 부른다.
+    #   지우지는 않는다 — 어느 쪽을 남길지는 사람의 판단이다(읽기 전용).
+    같은것 = {}
+    for r in rows:
+        for a in (r.get("실행기") or []):
+            열쇠 = (str(a.get("exe") or "").strip().lower(),
+                   str(a.get("args") or "").strip().lower())
+            if not any(열쇠):
+                continue
+            같은것.setdefault(열쇠, set()).add(r["작업"])
+    for (exe, _args), 이름들 in sorted(같은것.items(), key=lambda kv: sorted(kv[1])):
+        if len(이름들) < 2:
+            continue
+        out.append({"갈래": "겹침", "작업": " · ".join(sorted(이름들)),
+                    "무엇": "**%s** — 같은 것을 부른다(`%s`). 한쪽은 잠금에 막혀 늘 "
+                            "실패하고, 그 실패가 '회차 고장'으로 읽힌다"
+                            % (" · ".join(sorted(이름들)), os.path.basename(exe)),
+                    "어떻게": "powershell Get-ScheduledTask -TaskName '%s' | "
+                            "Select-Object -ExpandProperty Actions" % sorted(이름들)[0]})
     if not 읽음:
         out.append({"갈래": "확인못함", "작업": "스케줄러_꺼둔회차.txt",
                     "무엇": "'일부러 꺼 둔 회차' 목록을 **못 읽었다** — 꺼진 회차를 "

@@ -17320,7 +17320,24 @@ def t272_no_console_windows_from_children():
     assert '"실행기"' in sw and "exe_verdict" in sw, \
         "회차가 실행기를 안 남기거나 알림으로 안 잇는다"
     assert "모두 정상이거나 도는 중" not in sw, \
-        "경보 0 을 '모두 정상' 이라 적는다 — 꺼진 회차는 경보가 아니라 알림이다"
+        "경보 0 을 '경보 0' 이 아니라 '모두 정상' 이라 적는다 — 꺼진 회차는 알림이다"
+
+    # ⑦ ★ **같은 회차를 두 작업이 부르면** 한쪽은 늘 잠금에 막혀 실패하고, 그 실패가
+    #    '회차 고장'으로 읽힌다(2026-08-07 `원장일괄반영_15시` · 2026-08-16 실측
+    #    `일일자동대조` = `대표보고_자동준비` = 같은 daily_run.bat). 그때는 사람이
+    #    손으로 찾았다 — 이제 감시자가 잡는다.
+    SW = importlib.import_module("schedule_watch")
+    같은 = [{"작업": "A", "갈래": "성공", "마지막실행": "",
+            "실행기": [{"exe": "wscript.exe", "args": 'run_hidden.vbs "daily_run.bat"'}]},
+           {"작업": "B", "갈래": "성공", "마지막실행": "",
+            "실행기": [{"exe": "wscript.exe", "args": 'run_hidden.vbs "daily_run.bat"'}]},
+           {"작업": "C", "갈래": "성공", "마지막실행": "",
+            "실행기": [{"exe": "wscript.exe", "args": 'run_hidden.vbs "other.bat"'}]}]
+    겹침 = [n for n in SW.notices(같은) if n.get("갈래") == "겹침"]
+    assert len(겹침) == 1 and "A" in 겹침[0]["작업"] and "B" in 겹침[0]["작업"], \
+        "같은 것을 부르는 두 작업을 못 잡는다: %r" % 겹침
+    assert not [n for n in SW.notices([같은[0], 같은[2]]) if n.get("갈래") == "겹침"], \
+        "서로 다른 것을 부르는데 겹쳤다고 한다 — 멀쩡한 회차를 지우러 간다([172])"
 
     print("  [272] 회차가 띄운 자식도 창을 안 단다 — 콘솔 exe 25곳 → 0곳 · "
           "살아 있는 예약 작업 실행기도 본다 ✅")
