@@ -617,6 +617,7 @@ def collect():
         "시스템진단": _system_audit_lines(),
         "세션자동화": session_auto(),
         "스케줄러": schedule_health(),
+        "이어받기": takeover_health(),
         "크롬수집": userscript_health(),
         "앱서버": app_server_health(),
     }
@@ -664,6 +665,20 @@ def schedule_health():
         return schedule_watch.banner()
     except Exception:
         return None
+
+
+def takeover_health():
+    """다른 계정이 **지금 이어받을 수 있나** (2026-08-17 지시, `[291]`).
+
+    크레딧이 떨어진 창은 훅이 없어 스스로 인계를 못 남긴다 — pid 는 살아 있고
+    대화기록만 멈추므로 어떤 계기도 "멈췄다"고 말하지 않는다. 그 침묵을 읽는다.
+    ★ 여기서 새 판단을 만들지 않는다 — `takeover` 가 이미 정한 것을 가져온다.
+    """
+    try:
+        import takeover
+        return takeover.notices()
+    except Exception:
+        return None                # 못 읽음 ≠ 없음. 부르는 쪽이 빈 목록으로 안 센다.
 
 
 def session_auto():
@@ -981,6 +996,14 @@ def blockers(st, for_sol=False):
         out.append(("회차 [%s] %s" % (a.get("갈래", ""),
                                     re.sub(r"\*\*", "", str(a.get("무엇") or ""))[:130]),
                     a.get("어떻게") or "python schedule_watch.py --print"))
+    # ★ 크레딧이 떨어진 창은 **스스로 인계를 못 남긴다**(훅이 없다). 그 침묵을
+    #   여기 올려야 다른 계정이 "이어받아도 된다"는 것을 안다(2026-08-17, `[291]`).
+    # ⚠ 여기서 **다시 재지 않는다** — `st` 가 준 것만 읽는다(`sw` 와 같은 규칙).
+    #   살아 있는 기계를 직접 물으면 합성 상태로 부르는 자리가 늘 막힌다(t111 실측).
+    for a in (st.get("이어받기") or [])[:4]:
+        out.append(("이어받기 [%s] %s" % (a.get("갈래", ""),
+                                      re.sub(r"\*\*", "", str(a.get("무엇") or ""))[:130]),
+                    a.get("어떻게") or "python takeover.py"))
     for a in (sw.get("경보") or [])[:5]:
         # 바깥에서 한 번 더 굵게 감싸므로 여기서는 `**` 를 쓰지 않는다(겹치면 안 굵어진다).
         out.append(("회차 [%s] %s" % (a.get("갈래", ""),

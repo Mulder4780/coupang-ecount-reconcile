@@ -661,9 +661,35 @@ def watch_schedules(dry):
         return "스케줄러 확인 못 함: %s" % st["조회실패"][:60]
     al = st.get("경보") or []
     if not al:
-        return "스케줄러 정상(%d회차)" % len(st.get("작업") or [])
+        # ★ '경보 0' 을 '정상'이라 적지 않는다 — 꺼진 회차는 알림이라 여기 안 들어온다.
+        no = len(st.get("알림") or [])
+        return "스케줄러 경보 없음(%d회차%s)" % (
+            len(st.get("작업") or []), " · 알림 %d건" % no if no else "")
     return "스케줄러 경보 %d건: %s" % (
         len(al), ", ".join("%s %s" % (a["갈래"], a["작업"]) for a in al[:4]))
+
+
+def watch_takeover(dry):
+    """다른 계정이 **언제든 이어받을 수 있는 상태인가** (2026-08-17 지시).
+
+    ★ 크레딧 소진에는 훅이 없다. compact·`/clear`·종료는 셋 다 훅이 받아 인계를
+      남기지만, 크레딧이 떨어진 창은 그대로 뜬 채 **대화기록만 멈춘다** —
+      pid 가 살아 있으니 어떤 계기도 "이 창은 멈췄다"고 말하지 않는다.
+    ★ **`snapshot_handoff` 보다 먼저**다(`watch_schedules` 와 같은 이유).
+    ★ 읽기 전용이다 — 점유를 뺏지 않는다. 회수는 기존 규칙 몫이다.
+    """
+    try:
+        import takeover
+        rows, why = takeover.sessions()
+        repo = takeover.repo_state()
+        takeover.write(takeover.card(rows, why, repo))
+    except Exception as exc:
+        return "이어받기 카드 실패: %s" % str(exc)[:60]
+    if rows is None:
+        return "이어받기 확인 못 함: %s" % why[:60]
+    n = len(takeover.notices(rows, why, repo))
+    끊김 = sum(1 for r in rows if r["갈래"] == "끊긴듯")
+    return "이어받기 준비됨(끊긴 창 %d · 알릴 것 %d)" % (끊김, n)
 
 
 def watch_userscript(dry):
@@ -744,6 +770,9 @@ def main():
                watch_schedules(dry),
                # ★ 브라우저 쪽 눈도 인계보다 먼저다 — 같은 이유(2026-08-13, `[247]`).
                watch_userscript(dry),
+               # ★ 이어받기 준비도 인계보다 먼저다 — 크레딧이 떨어진 창은 훅이 없어
+               #   스스로 인계를 못 남긴다(2026-08-17, `[291]`).
+               watch_takeover(dry),
                # ★ 올린 것의 결과를 뒤따라 알린다 — 5분 스케줄러가 집어간 회차는
                #   앱이 끝난 줄 모른다(2026-08-14).
                close_upload_notices(dry),

@@ -202,17 +202,19 @@ def transcript_dir(me=""):
     return hint if hint and os.path.isdir(hint) else ""
 
 
-def live_stems(minutes=LIVE_TRANSCRIPT_MIN, exclude=""):
-    """최근 `minutes` 분 안에 자란 대화기록의 **세션 UUID 전체**(파일 이름 그대로).
+def stem_ages(exclude=""):
+    """대화기록 세션 UUID → **마지막으로 자란 시각**(epoch).
 
-    훑는 자리는 여기 하나다 — 아래 두 함수가 이름만 바꿔 쓴다.
+    훑는 자리는 여기 하나다 — 아래 세 함수가 이 결과를 잘라 쓴다. 시각까지 돌려주는
+    이유는 '살아 있나'만이 아니라 **'언제부터 조용한가'** 를 묻는 곳이 생겼기
+    때문이다(`takeover.py` — 크레딧이 떨어진 창은 pid 는 살아 있고 기록만 멈춘다).
     """
     d = transcript_dir(exclude)
     if not d:
-        return []
-    cut, live = time.time() - minutes * 60, []
+        return {}
     uuid_tail = re.compile(
         r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$", re.I)
+    out = {}
     for name in os.listdir(d):
         if not name.endswith(".jsonl"):
             continue
@@ -222,11 +224,18 @@ def live_stems(minutes=LIVE_TRANSCRIPT_MIN, exclude=""):
         if stem == exclude:
             continue
         try:
-            if os.path.getmtime(os.path.join(d, name)) >= cut:
-                live.append(stem)
+            t = os.path.getmtime(os.path.join(d, name))
         except OSError:
             continue
-    return live
+        if t > out.get(stem, 0):
+            out[stem] = t
+    return out
+
+
+def live_stems(minutes=LIVE_TRANSCRIPT_MIN, exclude=""):
+    """최근 `minutes` 분 안에 자란 대화기록의 **세션 UUID 전체**(파일 이름 그대로)."""
+    cut = time.time() - minutes * 60
+    return [s for s, t in stem_ages(exclude).items() if t >= cut]
 
 
 def live_transcripts(minutes=LIVE_TRANSCRIPT_MIN, exclude=""):

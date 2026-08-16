@@ -16163,6 +16163,74 @@ def t290_permission_and_error_meter_say_which_kind():
           "리소스 실패까지 본다 ✅")
 
 
+def t291_takeover_is_narrow_and_never_seizes():
+    """[291] 크레딧이 떨어져도 다른 계정이 이어받는다 — **남긴 것이 있을 때만** 부른다.
+
+    ★ 크레딧 소진에는 훅이 없다. compact·`/clear`·종료는 셋 다 훅이 받는데, 크레딧이
+      떨어진 창은 그대로 뜬 채 **대화기록만 멈춘다** — pid 가 살아 있어
+      `ai_claim._is_dead` 는 '살아 있다'고 답하고 아무 화면도 멈췄다고 말하지 않는다.
+    ★ 그런데 '조용함'만으로 부르면 **경보가 전부가 된다**: 첫 판이 25건을 쏟았고
+      대부분 몇 주 전에 깨끗이 닫힌 창이었다(대화기록 파일은 영원히 남는다).
+      이어받을 것이 있다는 근거는 하나 — **자원을 쥐었거나 맡은 일이 진행 중**이다.
+      실측 **25 → 2건**(그 둘이 [89]·[90] — 이틀 넘게 주인 없이 서 있던 항목이다).
+    """
+    import importlib as _il
+    import takeover as T
+    now = time.time()
+    아득 = now - 9 * 3600
+
+    본래_wrapup = sys.modules.get("session_wrapup")
+    W = _il.import_module("session_wrapup")
+    C = _il.import_module("ai_claim")
+    옛stem, 옛load, 옛dead = W.stem_ages, C._load_unlocked, C._is_dead
+    try:
+        stems = {"aaaaaaaa-0000-0000-0000-000000000001": 아득,   # 남긴 것 없음 → 닫힘
+                 "bbbbbbbb-0000-0000-0000-000000000002": 아득,   # 자원 쥠 → 끊긴듯
+                 "cccccccc-0000-0000-0000-000000000003": now}    # 방금 → 일하는중
+        가진sid = C.sid_of("bbbbbbbb-0000-0000-0000-000000000002")
+        W.stem_ages = lambda exclude="": dict(stems)
+        C._load_unlocked = lambda: {"code": {"who": "claude", "sid": 가진sid,
+                                             "agent_pid": os.getpid()}}
+        C._is_dead = lambda claim: False          # pid 는 살아 있다(크레딧 소진의 모양)
+        rows, why = T.sessions(now=now)
+        assert rows is not None and not why, "창 상태를 못 읽었다: %s" % why
+        갈래 = {r["sid"]: r["갈래"] for r in rows}
+        assert 갈래[가진sid] == "끊긴듯", "남긴 것이 있는 조용한 창을 못 잡는다"
+        assert 갈래[C.sid_of("aaaaaaaa-0000-0000-0000-000000000001")] == "닫힘", \
+            "아무것도 안 남긴 옛 창까지 '이어받아라'고 한다 — 경보가 전부가 된다([170])"
+        assert 갈래[C.sid_of("cccccccc-0000-0000-0000-000000000003")] == "일하는중", \
+            "지금 일하는 창을 끊겼다고 한다 — 남의 일을 가로챈다([172])"
+        알림 = T.notices(rows, "", {"미커밋": 0, "미푸시": 0, "왜못함": ""})
+        assert len([a for a in 알림 if a["갈래"] == "끊긴듯"]) == 1, \
+            "알릴 것이 하나여야 한다: %r" % 알림
+        # ★ 못 읽었을 때 '창 없음'으로 넘어가면 안 된다([169]).
+        W.stem_ages = lambda exclude="": {}
+        rows2, why2 = T.sessions(now=now)
+        assert rows2 is None and why2, "대화기록을 못 읽은 것을 '창 0개'로 센다"
+        assert [a for a in T.notices(rows2, why2, {"미커밋": 0, "미푸시": 0, "왜못함": ""})
+                if a["갈래"] == "확인못함"], "못 읽었는데 아무 말도 안 한다"
+    finally:
+        W.stem_ages, C._load_unlocked, C._is_dead = 옛stem, 옛load, 옛dead
+        if 본래_wrapup is not None:
+            sys.modules["session_wrapup"] = 본래_wrapup
+
+    # ★ 되돌아가면 안 되는 것: 여기는 **읽기 전용**이다. 살아 있는 옆 창의 점유를
+    #   빼앗으면 두 창이 같은 파일에서 만난다(사고 #36) — 못 뺏는 것보다 나쁘다.
+    src = open(os.path.join(ROOT, "takeover.py"), encoding="utf-8").read()
+    for 금지 in ("--free", "--force", "enqueue(", "openpyxl", "--apply"):
+        assert 금지 not in src, "이어받기 계기가 뭔가를 건드린다: " + 금지
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    # ⚠ `index` 는 **정의 줄**을 먼저 집는다 — 단계 목록은 파일 끝이라 `rindex` 다.
+    assert wd.rindex("watch_takeover(dry)") < wd.rindex("snapshot_handoff(dry)"), \
+        "인계 스냅샷보다 뒤에 있으면 인계는 늘 30분 전 판정을 싣는다"
+    assert "import takeover" in open(os.path.join(ROOT, "session_handoff.py"),
+                                     encoding="utf-8").read(), \
+        "인계 '먼저 처리할 것' 에 안 올라간다 — 아무도 못 본다"
+
+    print("  [291] 크레딧이 떨어져도 이어받는다 — 남긴 것이 있을 때만 부르고(25→2건), "
+          "점유는 뺏지 않는다 ✅")
+
+
 def t288_error_book_drops_alarms_fixed_before_last_seen():
     """[288] 오류 경보는 **고친 시각**을 본다 — 고침보다 앞선 기록을 매일 P1 으로 올리지 않는다.
 
@@ -20546,6 +20614,7 @@ if __name__ == "__main__":
     t288_error_book_drops_alarms_fixed_before_last_seen()
     t289_erp_api_failure_says_why_without_leaking_secrets()
     t290_permission_and_error_meter_say_which_kind()
+    t291_takeover_is_narrow_and_never_seizes()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
