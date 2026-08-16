@@ -15,12 +15,46 @@ ecount_client.py — 이카운트(ECOUNT) OAPI 클라이언트
     cli.login()                       # Zone 자동조회 + 로그인
     rows = cli.inquiry("sale", {"BASE_DATE_FROM": "20260701", "BASE_DATE_TO": "20260731"})
 """
-import json, os, ssl, sys, time, urllib.request, urllib.error
+import json, os, re, ssl, sys, time, urllib.request, urllib.error
 from datetime import datetime, date
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config", "ecount_config.json")
 SESSION_CACHE = os.path.join(BASE_DIR, ".session_cache.json")
+
+# 이름이 이것들이면 값은 밖으로 안 나간다(짝을 이룬 `KEY=값`·`"KEY": "값"` 을 지운다).
+SECRET_FIELDS = ("SESSION_ID", "API_CERT_KEY", "API_CERT_KEY_TEST", "CERT_KEY",
+                 "API_CERT_KEY_ENC", "PASSWORD")
+_PAIR = re.compile(r"(?i)\b(" + "|".join(SECRET_FIELDS) + r")(\s*[=:]\s*\"?)[^\"&\s,}]+")
+_LONG = re.compile(r"\b[A-Za-z0-9]{20,}\b")
+
+
+def _hide_long(m):
+    """긴 토큰 중 **숫자가 섞인 것만** 지운다.
+
+    ★ 처음엔 길기만 하면 지웠더니 `GetPurchasesOrderList`(21자) 가 통째로 가려졌다 —
+      정작 어느 method 가 죽었는지가 사라진 것이다. 가리려던 것은 이름이 아니라 값이다."""
+    tok = m.group(0)
+    return "***" if any(c.isdigit() for c in tok) else tok
+
+
+def mask_secrets(text, *values):
+    """오류 문구를 **밖(리포트·화면·로그)으로 내보내기 전에** 한 곳에서 지운다.
+
+    ⚠ 이 함수를 거르면 조용히 새는 자리가 실재한다 — 조회 URL 에는 `?SESSION_ID=…`
+      가 붙어 있어서, HTTP 오류 한 번이면 세션ID 가 `reports/erp_api_latest.json`
+      에 그대로 박히고 `system_audit` 이 그것을 앱 화면에 P1 상세로 띄운다.
+      "키·세션ID·회사코드는 보고서·채팅·git 에 출력하지 않는다"(2026-08-14 지시).
+    ★ 지우기만 하고 통째로 감추지는 않는다 — 무엇이 잘못됐는지는 남아야 사람이
+      고칠 수 있다. 그래서 **경로·method·오류문구는 그대로 둔다**(`/` 를 긴 토큰
+      규칙에서 뺀 이유다. 안 그러면 `OAPI/V2/…/Get…` 이 통째로 가려진다)."""
+    s = str(text or "")
+    for v in values:                        # 아는 값은 정확히 지운다(제일 확실하다)
+        v = str(v or "").strip()
+        if len(v) >= 4:
+            s = s.replace(v, "***")
+    s = _PAIR.sub(r"\1\2***", s)            # 이름이 붙어 있으면 값을 지운다
+    return _LONG.sub(_hide_long, s)         # 그래도 남은 긴 토큰(세션ID 모양)
 
 
 def load_config(path=CONFIG_PATH):
@@ -55,6 +89,12 @@ class EcountClient:
         sub = "sboapi" if self.auth.get("IS_TEST") else "oapi"
         return f"https://{sub}{self.zone if with_zone else ''}.ecount.com"
 
+    def safe(self, text):
+        """이 클라이언트가 아는 비밀값까지 지운 글. 오류를 올릴 때는 **반드시** 거친다."""
+        a = self.auth
+        return mask_secrets(text, self.session_id, a.get("API_CERT_KEY"),
+                            a.get("API_CERT_KEY_TEST"), a.get("COM_CODE"), a.get("USER_ID"))
+
     # ---------- 저수준 POST ----------
     def _post(self, url, body):
         data = json.dumps(body).encode("utf-8")
@@ -72,12 +112,13 @@ class EcountClient:
                 return json.loads(raw) if raw.strip() else {}
             except urllib.error.HTTPError as e:
                 detail = e.read().decode("utf-8", "replace")[:500]
-                raise EcountError(f"HTTP {e.code} {url}\n{detail}")
+                # ★ url 에 `?SESSION_ID=…` 가 붙어 있다 — safe() 없이 올리면 그대로 리포트에 박힌다.
+                raise EcountError(self.safe(f"HTTP {e.code} {url}\n{detail}"))
             except (urllib.error.URLError, TimeoutError) as e:
                 last = e
                 time.sleep(1.0 * (attempt + 1))
-        raise EcountError(f"네트워크 실패({url}): {last}\n"
-                          f"→ 이카운트에서 이 PC의 공인 IP를 [IP등록]했는지 확인하세요.")
+        raise EcountError(self.safe(f"네트워크 실패({url}): {last}\n"
+                                    f"→ 이카운트에서 이 PC의 공인 IP를 [IP등록]했는지 확인하세요."))
 
     @staticmethod
     def _dig(obj, *keys):
@@ -115,7 +156,7 @@ class EcountClient:
         resp = self._post(url, {"COM_CODE": com})
         zone = self._find_first(resp, "ZONE")
         if not zone:
-            raise EcountError(f"Zone 조회 실패. 응답={json.dumps(resp, ensure_ascii=False)[:400]}")
+            raise EcountError(self.safe(f"Zone 조회 실패. 응답={json.dumps(resp, ensure_ascii=False)[:400]}"))
         self.zone = str(zone).strip()
         return self.zone
 
@@ -162,7 +203,7 @@ class EcountClient:
         resp = self._post(url, body)
         sid = self._find_first(resp, "SESSION_ID")
         if not sid:
-            raise EcountError(f"로그인 실패(세션ID 없음). 응답={json.dumps(resp, ensure_ascii=False)[:400]}")
+            raise EcountError(self.safe(f"로그인 실패(세션ID 없음). 응답={json.dumps(resp, ensure_ascii=False)[:400]}"))
         self.session_id = str(sid)
         self._save_cached_session()
         return self.session_id

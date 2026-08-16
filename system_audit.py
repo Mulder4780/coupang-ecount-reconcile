@@ -316,9 +316,13 @@ def build() -> dict[str, Any]:
             "로그인된 이카운트의 API인증키발급 > IP등록에 보고서의 현재 IP를 저장합니다.",
             "reports/ERP_IP_등록필요.md")
     elif erp_api and not erp_api.get("ok"):
+        # ★ 조치는 갈래마다 다르다 — 'IP 미등록' 에 `--force` 를 권하면 사람이
+        #   같은 실패를 한 번 더 부르고 원인은 그대로 남는다. 수집기가 골라 둔 조치가
+        #   있으면 그것을 쓰고, 없을 때만(모름) 예전 문구로 돌아간다.
         add("erp-api-failed", "P1", "ERP 공식 API 수집 실패",
             str(erp_api.get("error") or "원인 설명 없음")[:220],
-            "python erp_api_collect.py --force", "reports/erp_api_latest.json")
+            str(erp_api.get("조치") or "python erp_api_collect.py --force")[:200],
+            "reports/erp_api_latest.json")
 
     order = {"P0": 0, "P1": 1, "P2": 2}
     findings.sort(key=lambda row: (order.get(row["priority"], 9), row["id"]))

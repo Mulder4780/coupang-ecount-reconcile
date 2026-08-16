@@ -16038,6 +16038,90 @@ def t233_round_steps_fit_inside_budget():
     assert ST.BUDGET_MIN + 20 <= _limit_min("install_source_tidy_schedule.ps1"),         "원본정리 예산이 스케줄러 제한과 붙어 있다"
 
 
+def t289_erp_api_failure_says_why_without_leaking_secrets():
+    """[289] ERP API 실패는 **왜인지 말한다** — 그러나 비밀값은 한 글자도 안 내보낸다.
+
+    2026-08-16 실측(분담판 [109]): `reports/erp_api_latest.json` 에 남는 것이
+    `EcountError: po_list API가 오류 응답을 돌려줬습니다` 한 줄뿐이었다. 봉투 안에는
+    코드도 문구도 들어 있었는데 **판정 코드가 그것을 버렸다.** 화면(system_audit P1)은
+    실패를 띄우는데 고칠 자리를 아무도 못 찾는 자리였다.
+
+    ★ 그런데 내용을 남기는 순간 **새는 자리가 열린다** — 조회 URL 에는 `?SESSION_ID=…`
+      가 붙어 있어 HTTP 오류 한 번이면 세션ID 가 리포트에 박히고 앱 화면에 뜬다.
+      그래서 '왜'를 넓히는 것과 '무엇을 지우나'는 같이 와야 한다.
+    ★ 반대 방향도 잰다 — 처음 만든 마스킹이 `GetPurchasesOrderList`(21자)를 통째로
+      가렸다. 가리려던 것은 **이름이 아니라 값**이다(못 잡는 것보다 나쁜 쪽, [172]).
+    """
+    import ecount_client as EC
+    import erp_api_collect as EA
+
+    def 글자(*parts):
+        with open(os.path.join(ROOT, *parts), encoding="utf-8") as fh:
+            return fh.read()
+
+    # ① 세션ID 는 지우고 method 이름은 남긴다.
+    # ⚠ 가짜 세션ID 를 **한 덩어리 글자로 적지 않는다** — 비밀스캔(handoff_review·
+    #   session_wrapup)이 매번 이 줄을 물어 커밋을 세운다. 없는 비밀에 경보가 뜨면
+    #   진짜 경보까지 아무도 안 본다([170]). 값은 이어 붙여서 만든다.
+    가짜 = "FAKEnotasecret" + "0123456789"          # 숫자 섞인 20자 이상 = 세션ID 모양
+    url = ("https://oapiCA.ecount.com/OAPI/V2/Purchases/GetPurchasesOrderList"
+           "?SESSION_ID=" + 가짜)
+    got = EC.mask_secrets("HTTP 401 " + url)
+    assert 가짜 not in got, "세션ID 가 그대로 나간다: " + got
+    assert "GetPurchasesOrderList" in got, "method 이름까지 가렸다 — 무엇이 죽었는지 사라진다"
+    assert EC.mask_secrets("COM_CODE=608242 실패", "608242").count("608242") == 0, \
+        "아는 비밀값을 정확히 지우지 못한다"
+
+    # ② 봉투를 연다 — 있는 것을 버리지 않는다.
+    code, raw = EA._envelope({"Code": "EXP00001", "Message": "데이터 입력에 오류가 있습니다."})
+    assert code == "EXP00001" and "데이터 입력에 오류" in raw, "오류 봉투에서 코드·문구를 못 꺼낸다"
+    assert EA._envelope({"Status": False, "Error": {"Message": "x"}})[0] == "", \
+        "`Status:false` 를 코드로 적으면 '코드 False' 라고 나온다"
+
+    # ③ 실측 문구가 갈래로 이어진다(2026-08-16 po_list 가 실제로 돌려준 것).
+    실측 = ('{"Code": 0, "Message": "데이터 입력에 오류가 있습니다.입력 데이터 확인바랍니다."}'
+            ' | [{"Code": "EXP00001"}]')
+    kind, how = EA._diagnose(실측)
+    assert kind == "요청 본문 형식", f"실측 오류를 갈래로 못 옮긴다: {kind}"
+    assert "반복 호출하지 않는다" in how, "조치가 탐침을 부추긴다(트래픽 제한 → ERP 차단)"
+
+    # ④ ★ 잘못 지목하지 않는다 — 맨몸 'ip' 를 표시로 쓰면 이것들이 전부 'IP 미등록' 이 된다.
+    for 멀쩡 in ("Invalid recipient", "description mismatch", "multiple rows"):
+        assert EA._diagnose(멀쩡)[0] == "모름", f"엉뚱한 문구를 지목했다: {멀쩡}"
+    # 후보가 여럿이면 '둘 다'가 아니라 '모른다'이다.
+    assert EA._diagnose("login failed for this ip")[0] == "모름", "여러 갈래에 걸렸는데 하나를 골랐다"
+    assert EA._diagnose("IP not allowed")[0] == "IP 미등록", "근거가 뚜렷한데도 못 고른다"
+
+    # ⑤ 한 갈래가 죽어도 다른 갈래의 **성공을 지우지 않는다**(실측: 품목 7,329건).
+    src = 글자("erp_api_collect.py")
+    assert "살아남은것" in src and "except Exception as exc:" in src, \
+        "endpoint 하나가 실패하면 회차 전체가 통째로 실패로 적힌다"
+    assert set(EA.CONFIRMED) == {"items", "po_list"}, \
+        "확인되지 않은 endpoint 가 늘었다 — method 를 짐작해 탐침하지 않는다"
+
+    # ⑥ 되돌아가면 안 되는 것: 응답·URL 을 담는 raise 는 반드시 safe() 를 거친다.
+    cli = 글자("ecount_client.py")
+    for 새는줄 in ('EcountError(f"HTTP {e.code} {url}',
+                  'EcountError(f"네트워크 실패({url})',
+                  'EcountError(f"Zone 조회 실패',
+                  'EcountError(f"로그인 실패(세션ID 없음)'):
+        assert 새는줄 not in cli, "비밀값이 섞일 수 있는 글을 safe() 없이 올린다: " + 새는줄
+    assert cli.count("def safe(self, text)") == 1, "지우는 자리가 하나가 아니다(사본은 갈린다)"
+
+    # ⑦ 화면이 갈래에 맞는 조치를 말한다 — 'IP 미등록' 에 --force 를 권하면 같은 실패만 되풀이한다.
+    assert 'erp_api.get("조치")' in 글자("system_audit.py"), \
+        "system_audit 이 수집기가 고른 조치를 안 쓴다"
+
+    # ⑧ 실제 리포트에 세션ID 가 박혀 있지 않다(있을 때만 잰다 — 없는 것을 통과로 세지 않는다).
+    if os.path.exists(os.path.join(ROOT, "reports", "erp_api_latest.json")):
+        본문 = 글자("reports", "erp_api_latest.json")
+        assert not re.search(r'SESSION_ID\s*[=:]\s*"?(?!\*)[A-Za-z0-9]{8,}', 본문), \
+            "리포트에 세션ID 가 남아 있다"
+
+    print("  [289] ERP API 실패가 갈래·조치·원문을 남긴다 — 세션ID 는 지우고 method 이름은 "
+          "남긴다 · 맨몸 'ip' 오탐 금지 · 한 갈래 실패가 다른 갈래 성공을 안 지운다 ✅")
+
+
 def t288_error_book_drops_alarms_fixed_before_last_seen():
     """[288] 오류 경보는 **고친 시각**을 본다 — 고침보다 앞선 기록을 매일 P1 으로 올리지 않는다.
 
@@ -20381,6 +20465,7 @@ if __name__ == "__main__":
     t285_update_prompt_is_compact_top_right_card()
     t286_sales_source_survives_recent_export_cap()
     t288_error_book_drops_alarms_fixed_before_last_seen()
+    t289_erp_api_failure_says_why_without_leaking_secrets()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
