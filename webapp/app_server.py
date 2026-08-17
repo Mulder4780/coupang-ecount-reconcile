@@ -7897,6 +7897,32 @@ def datalake_records(qs):
             except Exception: pass
 
 
+def error_reason(exc, limit=300):
+    """예외 → 화면에 실을 **비지 않는** 한 줄. 500 을 만드는 자리는 여기 하나다.
+
+    ★ **문구 없는 500 을 보내지 않는다** ([109] 와 같은 자리). 전역 가드가 예전에
+      `str(e)` 만 실었는데 그 값은 **비어 있을 수 있다** — `Exception()` 처럼 인자
+      없이 오른 예외가 그렇다. 그러면 `{"error": ""}` 가 나가고 화면 기록에는
+      `HTTP_ERROR:500` **다섯 글자만** 남는다. 실측 2026-08-11 `/api/flow` 500 이
+      15건인데 사유가 한 글자도 없어 **왜인지 영영 알 수 없었다.**
+    ★ 갈래 이름(`type(e).__name__`)과 터진 자리는 **절대 비지 않는다.** 그래서 그
+      둘을 먼저 세우고 사람이 쓴 문구는 있으면 덧붙인다.
+    """
+    kind = type(exc).__name__ or "Exception"
+    why = str(exc).strip()
+    where = ""
+    try:
+        import traceback
+        tb = traceback.extract_tb(exc.__traceback__)
+        if tb:                                   # 마지막 프레임 = 실제로 터진 자리
+            f = tb[-1]
+            where = " @ %s:%d" % (os.path.basename(f.filename), f.lineno)
+    except Exception:                            # noqa: BLE001 — 자리를 못 찾아도 갈래는 남는다
+        where = ""
+    말 = ("%s: %s" % (kind, why)) if why else ("%s (사유 문구 없는 예외)" % kind)
+    return (말 + where)[:limit]
+
+
 # ───────────────────────── HTTP ─────────────────────────
 class H(BaseHTTPRequestHandler):
     def handle_one_request(self):
@@ -7907,7 +7933,7 @@ class H(BaseHTTPRequestHandler):
             pass
         except Exception as e:
             try:
-                self._send(500, {"error": str(e)[:300]})
+                self._send(500, {"ok": False, "error": error_reason(e)})
             except Exception:
                 pass
 

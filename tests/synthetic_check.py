@@ -16163,6 +16163,73 @@ def t290_permission_and_error_meter_say_which_kind():
           "리소스 실패까지 본다 ✅")
 
 
+def t292_500_never_arrives_wordless():
+    """[292] 문구 없는 500 을 안 보낸다 · ★신규는 사전을 써야 고침증거가 선다.
+
+    2026-08-17 실측: `/api/flow · HTTP_ERROR:500` **15건인데 사유가 한 글자도 없었다.**
+    전역 가드가 `{"error": str(e)}` 만 실었는데 `str(Exception())` 은 `""` 다. 그러면
+    화면에 `HTTP_ERROR:500` 다섯 글자만 남아 **왜인지 영영 알 수 없다** — [109] 와
+    같은 모양이다.
+
+    ★ 그리고 여기가 `[288]` 의 빈 자리다: 고침증거 근거 ①은 사전의 `막음 [NNN]` 을
+      찾는데 **★신규는 정의상 사전에 없다.** 그래서 이미 고친 오류도 사전에 낱말을
+      달기 전까지는 영영 P1 로 남는다(실측 [290] 이 고친 둘이 그랬다). 즉 이 프로젝트에서
+      **사전을 쓰는 일이 곧 고침증거를 세우는 일**이다.
+    """
+    import importlib as _il
+    srv = _il.import_module("webapp.app_server") if "webapp.app_server" in sys.modules else None
+    if srv is None:
+        sys.path.insert(0, os.path.join(ROOT, "webapp"))
+        srv = _il.import_module("app_server")
+
+    # ① 사유가 없는 예외라도 **빈 문구가 안 나간다** — 되돌아가면 안 되는 핵심.
+    말 = srv.error_reason(Exception())
+    assert 말.strip(), "사유 없는 예외에 빈 문구를 실었다 — 500 만 남고 원인이 사라진다"
+    assert "Exception" in 말, "갈래 이름조차 안 실었다 — 무엇이 터졌는지 못 찾는다"
+    # ② 사람이 쓴 문구가 있으면 그대로 살린다(갈래만 남기고 버리면 더 나빠진다).
+    assert "밴드 캐시" in srv.error_reason(ValueError("밴드 캐시를 못 읽었다")), \
+        "예외 문구를 버렸다"
+    # ③ 터진 자리를 싣는다 — 파일·줄이 곧 고칠 자리다.
+    try:
+        raise RuntimeError()
+    except RuntimeError as e:
+        자리 = srv.error_reason(e)
+    assert "@" in 자리 and ".py:" in 자리, "터진 자리를 안 싣는다 — 15건이 그래서 미궁이었다"
+    # ④ 가드가 그 한 곳을 부르는가(판정이 두 곳이면 언젠가 갈린다, [162]).
+    with open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    i = src.find("def handle_one_request")
+    블록 = src[i:i + 700]
+    assert "error_reason(e)" in 블록, "전역 가드가 문구 만드는 곳을 안 쓴다"
+    assert 'str(e)[:300]' not in 블록, "옛 모양(빈 문구가 나갈 수 있다)으로 되돌아갔다"
+
+    # ⑤ 사전 — 낱말이 붙었나, 그리고 **잘못 삼키지 않나**([172]).
+    import error_book as EB
+    _il.reload(EB)
+    def 찾기(t, d):
+        return EB.look_up(t, d) or {}
+    오백 = 찾기("/api/flow", "HTTP_ERROR:500")
+    assert 오백.get("막음") == "[292]", "500 갈래에 낱말이 없다 — 매일 ★신규로 올라온다"
+    # ★ 넓힌 규칙이 옆 갈래를 삼키면 안 된다. 502·503 은 '잠깐 끊김'이고 고칠 자리가
+    #   전혀 다르다 — 삼키면 서버 재시작마다 '서버가 멈췄다'가 뜬다.
+    assert 찾기("x", "HTTP_ERROR:502").get("이름") == "서버가 잠깐 끊김", \
+        "500 규칙이 502 까지 삼켰다"
+    # ★ 더 좁은 규칙이 먼저 온다 — 관리자 인증 만료가 '권한 없음'으로 읽히면
+    #   고칠 길(다시 인증)이 화면 어디에도 없다.
+    관리 = 찾기("runTask", "evidence_sync:관리자 전용 기능입니다")
+    assert 관리.get("막음") == "[290]", "[290] 이 고친 갈래에 낱말이 없다"
+    assert 찾기("x", "HTTP_ERROR:403 · 관리자 전용 기능입니다").get("이름") == 관리.get("이름"), \
+        "'권한 없음'이 먼저 잡는다 — 좁은 규칙을 앞에 둬야 한다"
+    # ★ [197] 의 재시도 소진 문구는 '잠깐 끊김'과 같은 갈래이고 **막음을 붙이면 안 된다** —
+    #   서버를 다시 띄울 때마다 나므로 붙이는 순간 매일 '회귀'가 되어 아무도 안 본다([170]).
+    끊김 = 찾기("promise", "캘린더 최신 자료를 불러오지 못했습니다. 기존 화면은 유지합니다.")
+    assert 끊김.get("이름") == "서버가 잠깐 끊김", "[197] 소진 문구가 아직 ★신규다"
+    assert not 끊김.get("막음"), "끊김에 막음을 붙였다 — 재시작마다 회귀 경보가 된다"
+
+    print("  [292] 문구 없는 500 을 안 보낸다(갈래·자리 포함) · 사전이 500·관리자·"
+          "재시도소진을 갈라 잡는다 ✅")
+
+
 def t291_takeover_is_narrow_and_never_seizes():
     """[291] 크레딧이 떨어져도 다른 계정이 이어받는다 — **남긴 것이 있을 때만** 부른다.
 
@@ -20615,6 +20682,7 @@ if __name__ == "__main__":
     t289_erp_api_failure_says_why_without_leaking_secrets()
     t290_permission_and_error_meter_say_which_kind()
     t291_takeover_is_narrow_and_never_seizes()
+    t292_500_never_arrives_wordless()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
