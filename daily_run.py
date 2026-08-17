@@ -758,6 +758,11 @@ def _run_pipeline():
     # 거래처코드·캠프 마스터 — 앱이 CU코드를 표시하고, 캠프 공백(ERP에만/원장에만)을 드러낸다.
     steps.append(run("거래처코드 색인", [os.path.join(ROOT, "customer_index.py")], timeout=900))
     steps.append(run("캠프 마스터", [os.path.join(ROOT, "camp_master.py")], timeout=1200))
+    # 캠프 **담당자**(현장책임·안전관리 이름·전화) — 유수비 대표 지시(2026-08-18).
+    #   ERP 에는 캠프 전화가 거의 없다(CU 356개 중 18개). 원천은 밴드 접수 글이다.
+    #   ★ 캠프 마스터 **뒤**에 온다 — 거래처코드를 그 결과에서 빌린다.
+    steps.append(run("캠프 담당자", [os.path.join(ROOT, "camp_contacts.py"), "--write"],
+                     timeout=900))
     # ★ 사용자 지시(2026-08-05) "각 건의 PDF·이미지를 번호로 알아보게 저장":
     #   밴드는 글 단위(PDF+텍스트+사진), ERP 명세서는 전표번호 단위 PDF 로 굳힌다.
     #   회차마다 상한을 둬 daily_run 이 길어지지 않게 한다 — 남은 건 다음 회차가 잇는다.

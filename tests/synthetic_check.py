@@ -20496,6 +20496,82 @@ def t286_sales_source_survives_recent_export_cap():
 
 
 
+def t295_camp_contacts_never_guess_a_phone_number():
+    """[295] 캠프 담당자 — **틀린 번호는 빈 칸보다 나쁘다** (2026-08-18 유수비 지시)
+
+    대표 보고에 실리는 번호다. 잘못 붙이면 아무도 못 고치고, 그 번호로 전화한
+    사람이 엉뚱한 캠프에 닿는다. 그래서 지키는 것은 '많이 뽑는 것'이 아니라
+    **잘못 붙이지 않는 것**이다([172]).
+    """
+    import band_extract as BE
+    import camp_contacts as CC
+
+    # ① 한 글에 `담당번호` 가 **두 번** 나온다. 순서로 고르면 언젠가 어긋난다 —
+    #    이름 줄 **바로 다음 줄**의 번호만 그 사람 것이어야 한다.
+    body = ("● 캠프이름 : 울산2캠프\n● 캠프주소 : 울산광역시 남구\n"
+            "● 현장책임 : 제석화\n● 담당번호 : 010-1111-2222\n"
+            "● 안전관리 : 이상협\n● 담당번호 : 010-3333-4444 / a@coupang.com\n")
+    site = BE._person(BE.RE_SITE_MGR.search(body))
+    safe = BE._person(BE.RE_SAFE_MGR.search(body))
+    assert site and site["이름"] == "제석화" and site["전화"] == "010-1111-2222", site
+    assert safe and safe["이름"] == "이상협" and safe["전화"] == "010-3333-4444", safe
+    # 메일이 붙어 와도 전화 칸에 섞이면 안 된다.
+    assert safe["메일"] == "a@coupang.com" and "@" not in safe["전화"], safe
+
+    # ② 우리 기사(`A/S 담당`)를 캠프 담당자로 읽으면 안 된다 — 대표 보고에 우리
+    #    사람 번호가 캠프 번호로 실린다.
+    only_tech = "● A/S 담당 : 김필우\n● 담당번호 : 010-9999-8888\n"
+    assert BE._person(BE.RE_SITE_MGR.search(only_tech)) is None
+    assert BE._person(BE.RE_SAFE_MGR.search(only_tech)) is None
+
+    # ③ 이름도 번호도 없으면 **None** — 빈 사람을 만들어 '있는 것처럼' 보이면 안 된다.
+    assert BE._person(BE.RE_SITE_MGR.search("● 현장책임 : \n● 담당번호 : \n")) is None
+
+    # ④ 표기만 다른 것은 합치되 **숫자는 절대 안 뭉갠다**. `송파1MB(감일동)` 과
+    #    `송파5MB(감일동)` 은 실재하는 다른 캠프다([172] 의 실측 오탐).
+    assert CC._norm("울산1Sub-hub") == CC._norm("울산1sub-hub")
+    assert CC._norm("전주1 Sub Hub") == CC._norm("전주1SUB-HUB")
+    assert CC._norm("송파1MB(감일동)") != CC._norm("송파5MB(감일동)")
+
+    # ⑤ `parse_post` 의 **기존 칸을 지운 적이 없어야** 한다 — 이 반환값을 읽는 곳이
+    #    여럿이다(cancel_watch · cross_signal · app_server 완료색인).
+    got = BE.parse_post(1, {"content": body + "● 프로젝트NO : UJ2600001\n"}, "84789192")
+    for k in ("프로젝트NO", "업무유형", "비용구분", "작업일", "담당기사", "캠프명",
+              "진행상태", "문서상태", "사진", "게시일", "밴드", "게시글"):
+        assert k in got, f"기존 칸 {k} 가 사라졌다"
+    assert got["현장책임"]["전화"] == "010-1111-2222"
+
+    # ⑥ 화면·이미지·엑셀이 **'모름'을 '없음'이라 말하지 않아야** 한다([169]).
+    idx = os.path.join(ROOT, "webapp", "index.html")
+    with open(idx, encoding="utf-8") as f:
+        html = f.read()
+    assert "담당자가 없는 것이 아니라" in html, "'모름'의 뜻을 화면이 설명하지 않는다"
+    # 자리가 모자랄 때 조용히 자르면 안 된다([273]).
+    assert "나머지 ${rows.length-LIM}개는 엑셀 저장으로 받으십시오" in html, \
+        "이미지가 몇 개를 못 실었는지 말하지 않는다"
+    # 엑셀은 앱 공통 함수를 쓴다 — 사본을 만들면 한쪽만 고쳐진다([162]).
+    assert "exportRowsXlsx('전국쿠팡캠프_담당자'" in html
+
+    # ⑦ 앱은 **다시 계산하지 않는다** — 회차가 써 둔 파일만 읽는다([168]).
+    with open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8") as f:
+        srv = f.read()
+    i = srv.find('if p == "/api/camps":')
+    assert i > 0, "/api/camps 가 없다"
+    seg = srv[i:i + 1200]
+    assert "캠프_담당자.json" in seg
+    assert "camp_contacts" not in seg.replace("camp_contacts.py --write", ""), \
+        "웹 요청 뒤에서 밴드를 다시 파싱하면 폰이 실패로 본다"
+    # 파일이 없을 때 '없다'가 아니라 '아직 안 만들었다'라고 해야 한다([169]).
+    assert "아직 만들어지지 않았습니다" in seg
+
+    # ⑧ 회차에 등록돼 있어야 한다 — 안 넣으면 자동이 아니다.
+    with open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8") as f:
+        dr = f.read()
+    assert "camp_contacts.py" in dr and dr.index("camp_master.py") < dr.index("camp_contacts.py"), \
+        "캠프 담당자 단계가 없거나 캠프 마스터보다 앞에 있다(거래처코드를 못 빌린다)"
+    print("  [295] 캠프 담당자 — 번호를 짐작하지 않고 '모름'을 '없음'이라 하지 않음 ✅")
+
+
 def t294_unreadable_source_never_passes_as_read():
     """[294] 대표 대화 원본을 **한 건도 못 읽었으면** 그렇게 말한다.
 
@@ -20888,6 +20964,7 @@ if __name__ == "__main__":
     t292_500_never_arrives_wordless()
     t293_yield_is_a_claim_that_gets_audited()
     t294_unreadable_source_never_passes_as_read()
+    t295_camp_contacts_never_guess_a_phone_number()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

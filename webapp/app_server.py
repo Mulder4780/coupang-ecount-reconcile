@@ -8707,6 +8707,23 @@ self.addEventListener('fetch', e => {
                 return self._send(200, {"_live": False,
                                         "gen": "조직도 상태를 읽지 못했습니다",
                                         "error": str(exc)[:200], "zones": []})
+        if p == "/api/camps":
+            # 전국 쿠팡캠프 · 담당자 목록 (2026-08-18 유수비 대표 지시).
+            # ★ 여기서 **다시 계산하지 않는다** — 회차(`camp_contacts.py --write`)가
+            #   써 둔 파일을 읽기만 한다. 밴드 캐시 전체 파싱은 수십 초짜리라
+            #   웹 요청 뒤에 두면 폰이 그냥 실패로 본다([168]).
+            _cp = os.path.join(ROOT, "reports", "캠프_담당자.json")
+            try:
+                with open(_cp, encoding="utf-8") as f:
+                    return self._send(200, {"ok": True, **json.load(f)})
+            except FileNotFoundError:
+                # ★ '없다'가 아니라 **'아직 안 만들었다'** 라고 말한다([169]).
+                return self._send(200, {"ok": False, "rows": [],
+                                        "error": "아직 만들어지지 않았습니다 — "
+                                                 "python camp_contacts.py --write"})
+            except Exception as exc:
+                return self._send(200, {"ok": False, "rows": [],
+                                        "error": str(exc)[:200]})
         if p == "/api/flow-stages":
             # 돌발AS·정기점검 **단계 정의** (2026-08-10 지시). 화면이 단계 낱말을
             # 스스로 적지 않고 여기서 받아 간다 — 두 곳에 적으면 언젠가 갈린다([162]).

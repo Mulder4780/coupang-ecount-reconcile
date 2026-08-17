@@ -3612,6 +3612,32 @@ body.dash-drag-live #dashGuides{display:grid}
 
   <!-- 리모컨 관리 — 돌발 AS 바로 아래 독립 화면(2026-08-04 지시).
        재고 등록·불출·납품 입력과 현황·이미지/엑셀 저장을 한 화면에 모았다. -->
+  <!-- ── 전국 쿠팡캠프 · 담당자 목록 (2026-08-18 유수비 대표 지시) ──────────────
+       "쿠팡 전국정기점검 캠프와 담당자리스트 오늘중으로 주세요"
+       근거는 **밴드 접수 글 본문**이다 — ERP 거래처등록에는 캠프 전화번호가
+       거의 없다(CU 356개 중 18개). 회차 `camp_contacts.py --write` 가 만들어 둔
+       파일을 `/api/camps` 가 읽어 내려줄 뿐, 화면이 다시 계산하지 않는다. -->
+  <section class="view" id="v-camps">
+    <div class="hero-min"><h2>전국 쿠팡캠프</h2>
+      <p class="sub" data-help-fold="camps-sub">정기점검 캠프와 캠프 담당자(현장책임·안전관리)의 이름·전화번호입니다. 밴드 접수 글에 적힌 값을 캠프마다 가장 최근 것으로 모았습니다.</p></div>
+    <div class="rpt-actions" role="toolbar" aria-label="캠프 목록 도구">
+      <button class="icon-btn primary" onclick="campsCapture()" title="이미지 저장" aria-label="이미지 저장">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
+      <button class="icon-btn excel" onclick="campsXlsx()" title="엑셀 저장" aria-label="엑셀 저장">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
+      <button class="icon-btn" onclick="renderCamps(true)" title="새로고침" aria-label="새로고침">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg></button>
+    </div>
+    <div class="card">
+      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+        <input id="campQ" type="search" placeholder="캠프명·담당자·번호 검색" oninput="renderCampList()" style="flex:1;min-width:180px">
+        <label class="chk"><input id="campPmOnly" type="checkbox" checked onchange="renderCampList()"> 정기점검 캠프만</label>
+      </div>
+      <div id="campSum" class="note" style="margin-top:8px"></div>
+      <div id="campHost"></div>
+    </div>
+  </section>
+
   <section class="view" id="v-remote">
     <div class="hero-min"><h2>리모컨 관리</h2>
       <p class="sub" data-help-fold="remote-sub">지점 재고 · AS 담당자 불출 · 현장 납품을 한 화면에서 기록합니다. 입력은 즉시 DB에 저장되어 류지영 매니저 화면과 대표보고에 바로 반영됩니다.</p></div>
@@ -4987,6 +5013,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   <button class="worktab-nav" data-v="center" onclick="routeNav('center')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-workspace"/></svg>업무센터</button>
   <button class="worktab-nav" data-v="pm" onclick="routeNav('pm')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>정기점검</button>
   <button class="worktab-nav" data-v="as" onclick="routeNav('as')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-wrench-adjustable"/></svg>돌발 AS</button>
+  <button class="worktab-nav" data-v="camps" onclick="routeNav('camps')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-house-door-fill"/></svg>전국쿠팡캠프</button>
   <!-- 리모컨은 AS 기사가 현장에 들고 나가는 물건이라 돌발 AS 바로 아래 둔다(2026-08-04 지시). -->
   <button class="worktab-nav" data-v="remote" onclick="routeNav('remote')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-box-seam"/></svg>리모컨</button>
   <button class="staff-worklog-nav" data-v="worklog" onclick="routeNav('worklog')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>대표보고 일지</button>
@@ -8936,6 +8963,7 @@ function routeNav(v){
   // 실행 화면을 열 때마다 마지막 실행 시각을 다시 읽는다 — 열어 둔 채 시간이 지나면
   // "3시간 전"이 거짓이 되고, 그 사이 09:50 회차가 돌았을 수도 있다.
   if(v==='run'){ pollLog(); if(!staffSlug) loadSystemAudit(); }
+  if(v==='camps') renderCamps();
   /* 설정도 **열 때마다** 다시 읽는다. 여기 갈래가 없어서 예전에는 한 번 채운 값이
      그대로 낡은 채 남았다 — 오류가 안 나므로 아무도 몰랐다([165] 와 같은 모양). */
   if(v==='settings'){ if(!staffSlug) loadAdminSettings(); loadSettingsPanel(); }
@@ -16467,6 +16495,120 @@ function remoteCsv(){
   toast('리모컨 현황을 엑셀(CSV)로 저장했습니다'); uxEvent('tap','remote-csv');
 }
 /* 리모컨 현황 이미지 — 캔버스로 직접 그린다(외부 라이브러리 없이 폰에서도 동일). */
+/* ══ 전국 쿠팡캠프 · 담당자 목록 (2026-08-18 유수비 대표 지시) ═══════════════
+   "쿠팡 전국정기점검 캠프와 담당자리스트 오늘중으로 주세요"
+
+   ★ **화면이 판정하지 않는다.** 회차(`camp_contacts.py`)가 밴드 접수 글에서 뽑아
+     둔 것을 `/api/camps` 가 그대로 내려 준다. 여기서 다시 뽑으면 같은 질문에
+     두 답이 생기고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다([162]).
+   ★ **'전화 모름'을 '담당자 없음'이라 적지 않는다**([169]). 밴드에 접수 글이 없는
+     캠프는 **아직 못 본 것**이지 담당자가 없는 것이 아니다.                       */
+let CAMPS = null;
+async function renderCamps(force){
+  const host = $('campHost'); if(!host) return;
+  if(CAMPS && !force){ renderCampList(); return; }
+  host.innerHTML = '<div class="empty">불러오는 중…</div>';
+  try{
+    const d = await api('/api/camps');
+    CAMPS = d;
+    if(!d.ok){
+      host.innerHTML = '<div class="empty">'+esc(d.error||'목록을 만들지 못했습니다')+'</div>';
+      $('campSum').textContent = '';
+      return;
+    }
+    renderCampList();
+  }catch(e){
+    /* 못 받은 것을 '없다'로 적지 않는다 — 서버가 잠깐 끊긴 것일 수 있다([197]). */
+    host.innerHTML = '<div class="empty">목록을 불러오지 못했습니다 — 잠시 뒤 새로고침해 주세요.</div>';
+  }
+}
+function campRows(){
+  const d = CAMPS || {}; const rows = d.rows || [];
+  const q = ($('campQ') && $('campQ').value || '').trim().toLowerCase();
+  const pmOnly = $('campPmOnly') ? $('campPmOnly').checked : true;
+  return rows.filter(r=>{
+    if(pmOnly && !r.정기점검) return false;
+    if(!q) return true;
+    const s = [r.캠프명, r.캠프주소, r.거래처코드,
+               (r.현장책임||{}).이름, (r.현장책임||{}).전화,
+               (r.안전관리||{}).이름, (r.안전관리||{}).전화].join(' ').toLowerCase();
+    return s.indexOf(q) >= 0;
+  });
+}
+function renderCampList(){
+  const host = $('campHost'); if(!host || !CAMPS) return;
+  const rows = campRows(), d = CAMPS;
+  const noTel = rows.filter(r=>!((r.현장책임||{}).전화 || (r.안전관리||{}).전화)).length;
+  /* 요약이 **무엇을 못 봤는지**까지 말한다 — 숫자만 있으면 '전부 다 있다'로 읽힌다. */
+  $('campSum').innerHTML = esc(`${rows.length}개 표시 · 전화 있음 ${rows.length-noTel} · `
+    + `아직 모름 ${noTel}`) + (d.갱신 ? ' <span class="norm">· 기준 '+esc(String(d.갱신).replace('T',' '))+'</span>' : '')
+    + (noTel ? ' <span class="norm">— \'모름\'은 담당자가 없는 것이 아니라 밴드 접수 글에서 아직 못 찾은 것입니다.</span>' : '');
+  if(!rows.length){ host.innerHTML = '<div class="empty">조건에 맞는 캠프가 없습니다.</div>'; return; }
+  const cell = p => { p = p || {};
+    if(!p.이름 && !p.전화) return '<td class="norm">모름</td><td class="norm">모름</td>';
+    return '<td>'+esc(p.이름||'—')+'</td><td>'
+      + (p.전화 ? '<a href="tel:'+esc(p.전화)+'">'+esc(p.전화)+'</a>' : '<span class="norm">모름</span>')+'</td>'; };
+  host.innerHTML = '<div class="gridwrap"><table class="grid"><thead><tr>'
+    + '<th>캠프명</th><th>현장책임</th><th>전화</th><th>안전관리</th><th>전화</th>'
+    + '<th>정기점검</th><th>최근작업일</th><th>거래처코드</th></tr></thead><tbody>'
+    + rows.map(r=>'<tr>'
+        + '<td>'+esc(r.캠프명)+(r.이름확인필요?' <span class="badge warn">이름 확인 필요</span>':'')+'</td>'
+        + cell(r.현장책임) + cell(r.안전관리)
+        + '<td>'+(r.정기점검건수||0)+'</td><td>'+esc(r.최근작업일||'')+'</td>'
+        + '<td>'+esc(r.거래처코드||'')+'</td></tr>').join('')
+    + '</tbody></table></div>';
+}
+/* 엑셀은 **앱 전체가 쓰는 그 함수**를 그대로 쓴다 — 새로 만들면 사본이 둘 된다([162]). */
+function campsXlsx(){
+  const rows = campRows();
+  if(!rows.length){ notice('내보낼 캠프가 없습니다.'); return; }
+  exportRowsXlsx('전국쿠팡캠프_담당자', rows.map(r=>({
+    '캠프명': r.캠프명, '정기점검': r.정기점검 ? 'O' : '',
+    '현장책임': (r.현장책임||{}).이름||'', '현장책임 전화': (r.현장책임||{}).전화||'',
+    '안전관리': (r.안전관리||{}).이름||'', '안전관리 전화': (r.안전관리||{}).전화||'',
+    '캠프주소': r.캠프주소||'', '거래처코드': r.거래처코드||'',
+    '정기점검건수': r.정기점검건수||0, '최근작업일': r.최근작업일||'',
+    '비고': r.이름확인필요 ? '캠프명 확인 필요' : '',
+  })));
+  uxEvent('tap','campsXlsx');
+}
+/* 대표 보고용 이미지. ★ **자리가 모자라면 조용히 자르지 않는다**([273]) —
+   몇 건을 못 실었는지 이미지에 적고, 엑셀로 받으라고 말한다.                     */
+async function campsCapture(){
+  const rows = campRows();
+  if(!rows.length){ notice('캡처할 캠프가 없습니다.'); return; }
+  const S=2, W=900, LIM=40, show=rows.slice(0,LIM), F=(z,w)=>`${w||400} ${z}px ${uiFont()}`;
+  const H = 108 + show.length*26 + 46;
+  const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
+  const x=cv.getContext('2d'); x.scale(S,S);
+  x.fillStyle='#fff'; x.fillRect(0,0,W,H);
+  x.fillStyle='#0E1B3F'; x.fillRect(0,0,W,64);
+  x.fillStyle='#fff'; x.font=F(20,700);
+  x.fillText($('campPmOnly').checked ? '전국 정기점검 캠프 · 담당자' : '전국 쿠팡캠프 · 담당자',24,34);
+  x.font=F(12); x.fillStyle='#C9D5FA';
+  x.fillText(`총 ${rows.length}개 · 기준 ${new Date().toLocaleString('ko-KR')}`,24,52);
+  const cols=[24,250,360,470,590,700], head=['캠프명','현장책임','전화','안전관리','전화','최근작업'];
+  let y=88; x.fillStyle='#374151'; x.font=F(12,700);
+  head.forEach((h,i)=>x.fillText(h,cols[i],y));
+  y+=6; x.strokeStyle='#D1D5DB'; x.beginPath(); x.moveTo(24,y); x.lineTo(W-24,y); x.stroke();
+  x.font=F(12); y+=18;
+  show.forEach(r=>{
+    const a=r.현장책임||{}, b=r.안전관리||{};
+    const v=[r.캠프명, a.이름||'모름', a.전화||'모름', b.이름||'모름', b.전화||'모름', r.최근작업일||''];
+    v.forEach((t,i)=>{ x.fillStyle=(t==='모름')?'#9CA3AF':'#111827';
+      x.fillText(String(t).slice(0,i===0?18:12),cols[i],y); });
+    y+=26;
+  });
+  y+=18; x.fillStyle='#6B7280'; x.font=F(11);
+  x.fillText("'모름'은 담당자가 없는 것이 아니라 밴드 접수 글에서 아직 찾지 못한 것입니다.",24,y);
+  if(rows.length>LIM){ y+=16; x.fillStyle='#B45309';
+    x.fillText(`※ 이미지에는 ${LIM}개만 실었습니다 — 나머지 ${rows.length-LIM}개는 엑셀 저장으로 받으십시오.`,24,y); }
+  const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
+  if(!blob){ notice('이미지 생성 실패'); return; }
+  saveOrOpen(blob,`전국쿠팡캠프_담당자_${todayISO()}.png`);
+  toast('캠프 담당자 목록 이미지를 저장했습니다'); uxEvent('tap','campsCapture');
+}
+
 async function remoteCapture(){
   await loadRemoteStat(); const s=REMOTE_STAT||{};
   const S=2,W=760,F=(z,w)=>`${w||400} ${z}px ${uiFont()}`;
@@ -18542,6 +18684,10 @@ const VIEW_RESET = {
   center:  {name:'업무센터',   reload:()=>_rvCall('renderCenter')},
   pm:      {name:'정기점검',   clear:()=>_rvCall('wtReset','pm'), reload:()=>_rvCall('loadSettle',true)},
   as:      {name:'돌발 AS',    clear:()=>_rvCall('wtReset','as'), reload:()=>_rvCall('loadSettle',true)},
+  camps:   {name:'전국쿠팡캠프',
+            clear:()=>{ _rvSet('campQ',''); const b=$('campPmOnly'); if(b) b.checked=true;
+                        _rvCall('renderCampList'); },
+            reload:()=>_rvCall('renderCamps',true)},
   sources: {name:'원본 자료',
             clear:()=>{ _rvSet('srcQ',''); _rvSet('dlwQ',''); _rvSet('dlwSince',''); _rvSet('dlwUntil','');
                         try{ SRC_G=''; SRC_M=''; SRC_Y=''; }catch(_){} },

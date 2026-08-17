@@ -399,10 +399,16 @@ def parse_post(no, p, band):
 
     docs = [d for d, kw in (("판매전표", "판매전표"), ("거래명세서", "거래명세서"),
                             ("견적서", "견적서"), ("메일발송", "메일발송")) if kw in c]
+    # ★ 캠프 담당자는 **기존 칸을 하나도 안 건드리고** 옆에 더한다 — 이 반환값을 읽는
+    #   곳이 여럿이다(cancel_watch · cross_signal · app_server 완료색인).
+    addr = RE_CAMP_ADDR.search(c)
     return {"프로젝트NO": prj_no, "업무유형": kind, "비용구분": cost,
             "작업일": work_date, "담당기사": tech, "캠프명": camp, "진행상태": status,
             "문서상태": "+".join(docs), "사진": p.get("photo_count", 0),
-            "게시일": posted, "밴드": band, "게시글": no}
+            "게시일": posted, "밴드": band, "게시글": no,
+            "캠프주소": (addr.group(1).strip() if addr else ""),
+            "현장책임": _person(RE_SITE_MGR.search(c)),
+            "안전관리": _person(RE_SAFE_MGR.search(c))}
 
 
 def load_records():
