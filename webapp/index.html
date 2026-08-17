@@ -4565,6 +4565,40 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
         <div class="settings-safety">배치를 <b>고치는 것</b>은 그 화면에서 합니다(업무센터 [화면 구성] · 조직도 길게 누르기) — 카드를 보면서 옮기는 것이 자연스럽기 때문입니다. 여기에는 <b>되돌리기</b>만 둡니다.<br>초기화는 글꼴·밝기·카드 배치·접기 상태만 지웁니다. <b>로그인(PIN·기기 인증)은 건드리지 않습니다</b> — 그건 설정이 아니라 인증이라, 같이 지우면 "글꼴 초기화"가 로그아웃이 됩니다.</div>
       </article>
 
+      <!-- ══ B. 화면 표시 ═════════════════════════════════════════════════════
+           2026-08-17 지시: **"다른데 흩어져 있는 설정 기능들 모두 설정으로 이동"**
+           실측으로 사람이 고르는 값(localStorage)은 열여섯인데 그중 셋이 **업무 화면
+           안에만** 있었다 — 목록 묶음(정산 툴바 `.grouphead`) · 캘린더 종류(달력 칩) ·
+           안내 끄기. 그 화면까지 가야만 바꿀 수 있으면 "설정에서 다 된다"가 거짓이 된다.
+           ★ 판정을 새로 만들지 않는다([162]) — 지금 값이 무엇인지는 groupModeOn()·
+             CAL_OFF 가 그대로 답하고, 여기서는 저장과 다시 그리기만 한다.
+           ★ 그 화면의 손잡이는 **그대로 둔다.** 목록을 보면서 접는 것이 자연스럽고,
+             빼앗으면 정산 화면에서 접으려고 설정까지 갔다 와야 한다([236] 과 같은 이유). -->
+      <article class="settings-card wide">
+        <div class="settings-card-head"><div><h3>화면 표시</h3><p>긴 목록·캘린더·안내 문구를 어떻게 보여 줄지 정합니다. 이 브라우저에서만 바뀌고 업무 자료는 하나도 바뀌지 않습니다.</p></div></div>
+
+        <div class="set-sub">긴 목록 보기</div>
+        <div class="set-choice" id="listGroupChoice">
+          <button type="button" class="abtn" data-listgroup=""  onclick="setListGroupPref('')">화면 폭에 맞춤</button>
+          <button type="button" class="abtn" data-listgroup="1" onclick="setListGroupPref('1')">묶음으로 접기</button>
+          <button type="button" class="abtn" data-listgroup="0" onclick="setListGroupPref('0')">전체 목록</button>
+        </div>
+        <p class="sub" id="listGroupNow">확인 중…</p>
+
+        <div class="set-sub">캘린더 일정 종류</div>
+        <p class="sub" id="calKindNow">확인 중…</p>
+        <div class="settings-actions">
+          <button type="button" class="abtn" onclick="settingsCalShowAll()">일정 종류 모두 켜기</button>
+        </div>
+
+        <div class="set-sub">안내 문구</div>
+        <p class="sub" id="hintNow">확인 중…</p>
+        <div class="settings-actions">
+          <button type="button" class="abtn" onclick="settingsShowHints()">숨긴 안내 다시 보기</button>
+        </div>
+        <div class="settings-safety">고르는 것은 <b>보여 주는 방식</b>뿐입니다 — 건수·금액·일정은 하나도 안 바뀝니다.<br>캘린더에서 종류를 <b>하나씩</b> 켜고 끄는 것은 달력을 보면서 하는 것이 빨라 그 화면에 그대로 두었고, 여기에는 <b>모두 켜기</b>를 둡니다. 안내를 한 번 끄면 그 뒤로 다시 켤 길이 어느 화면에도 없었습니다 — <b>되돌릴 수 없는 설정은 설정이 아니라 사고입니다.</b></div>
+      </article>
+
       <article class="settings-card wide">
         <div class="settings-card-head">
           <div><h3>관리자 모드</h3><p>현재 브라우저의 서버 인증 역할을 확인합니다.</p></div>
@@ -5796,10 +5830,17 @@ watchSystemTheme(true);
    단추는 "전체"라고 적혀 있는데 몇 개가 남으면, 사람은 되돌렸다고 믿는데 화면은
    그대로다 — **오류가 안 나는 종류의 잘못**이다([169]).
    ⚠ 새 취향 열쇠를 만들면 여기에 같이 적는다. 안 적으면 조용히 안 지워진다. */
+/* ★ 2026-08-17 실측으로 **또 빠져 있었다** — `csos.cal.off`(캘린더에서 꺼 둔 일정
+   종류) · `csos.cal.month`(마지막으로 본 달). 위 경고를 적어 둔 그 자리에서 그대로
+   당한 것이다: 종류를 꺼 둔 사람이 '전체 초기화' 를 눌러도 달력은 계속 그만큼
+   비어 보이는데, 화면에는 "되돌렸습니다" 라고 뜬다([169]).
+   점(.)이 든 열쇠라 `csos_` 접두어 검색에도 안 걸렸다 — 이름 모양이 다르면
+   눈으로도 안 보인다. */
 const DEVICE_PREF_KEYS = ['csos_font_preset','csos_font_legacy','cw_theme',
   'csos_dashboard_layout_v2','csos_dashboard_layout_v1','csos_center_layout_v1',
   'csos_org_order_v1','csos_help_open','csos_sec_folded',
-  'csos_list_group','csos_install_hint_off','qp_hint'];
+  'csos_list_group','csos_install_hint_off','qp_hint',
+  'csos.cal.off','csos.cal.month'];
 /* 열쇠 이름에 담당자·화면 이름이 붙어 **미리 셀 수 없는** 것들 — 접두어로 지운다.
    ⚠ `cw_` 로 시작하는 것은 절대 넣지 않는다: cw_pin·cw_dev_auth 는 로그인이다. */
 const DEVICE_PREF_PREFIXES = ['csos_list_groupby_','csos_install_dismissed_'];
@@ -5856,11 +5897,105 @@ function renderSettingsHub(){
       + `<span>${esc2(r.evidence || '')}</span></button>`;
   }).join('');
 }
+/* ══ [설정] 화면 표시 — 업무 화면에만 있던 취향을 여기서도 고른다 ═══════════════
+   2026-08-17 지시: **"다른데 흩어져 있는 설정 기능들 모두 설정으로 이동"**.
+   ★ **판정은 옮기지 않는다**([162]) — 지금 값이 무엇인지는 `groupModeOn()`·`CAL_OFF`
+     가 그대로 답한다. 여기서 다시 계산하면 설정 화면과 정산·캘린더 화면이 서로 다른
+     답을 하게 되고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+   ★ **그리기는 있을 때만 부른다.** 정산·캘린더가 아직 안 그려진 채로 `renderSettle()`
+     을 부르면 거기서 터지는데 저장은 이미 끝난 뒤라, 예외를 안 잡으면 **값은 바뀌었는데
+     화면만 조용히 그대로**가 된다 — 이 프로젝트가 반복해 당한 모양이다([169]). */
+function setListGroupPref(v){
+  try{
+    if(v === '') localStorage.removeItem('csos_list_group');   // 화면 폭에 맡긴다
+    else localStorage.setItem('csos_list_group', v);
+  }catch(_){}
+  try{ if(document.getElementById('sgroups') && typeof renderSettle === 'function') renderSettle(); }catch(_){}
+  try{ uxEvent('tap','settings-listgroup', v || 'auto'); }catch(_){}
+  renderSettingsDisplay();
+}
+function settingsCalShowAll(){
+  try{ calShowAll(); }
+  catch(_){
+    /* 캘린더를 아직 한 번도 안 열었으면 그리기에서 터진다 — 저장만이라도 끝낸다.
+       여기서 조용히 넘어가면 "모두 켜기"를 눌렀는데 아무 일도 안 일어난다. */
+    try{ CAL_OFF = new Set(); localStorage.setItem('csos.cal.off','[]'); }catch(__){}
+    try{ toast('일정 종류를 모두 켰습니다 — 캘린더를 열면 보입니다'); }catch(__){}
+  }
+  renderSettingsDisplay();
+}
+/* 안내를 끈 사람은 그 뒤로 **다시 켤 길이 없었다** — 끄는 단추만 있고 켜는 단추가
+   어느 화면에도 없었다(실측: `csos_install_hint_off`·`qp_hint`·`csos_install_dismissed_*`).
+   되돌릴 수 없는 설정은 설정이 아니다. */
+function settingsShowHints(){
+  let n = 0;
+  try{
+    for(const k of ['csos_install_hint_off','qp_hint']){
+      if(localStorage.getItem(k) !== null){ localStorage.removeItem(k); n++; }
+    }
+    /* 열쇠에 화면 이름이 붙어 미리 셀 수 없다 — 접두어로 지운다(뒤에서부터 지워야
+       인덱스가 밀리지 않는다). ⚠ `cw_` 로 시작하는 것은 절대 안 건드린다: 로그인이다. */
+    for(let i = localStorage.length - 1; i >= 0; i--){
+      const k = localStorage.key(i);
+      if(k && k.indexOf('csos_install_dismissed_') === 0){ localStorage.removeItem(k); n++; }
+    }
+  }catch(_){}
+  try{ toast(n ? `숨겨 둔 안내 ${n}개를 다시 켰습니다` : '숨겨 둔 안내가 없습니다'); }catch(_){}
+  renderSettingsDisplay();
+}
+function renderSettingsDisplay(){
+  /* 긴 목록 보기 — 값은 셋이다: '1'(묶음) · '0'(전체) · 없음(화면 폭에 맡김).
+     '없음' 을 '전체' 로 뭉치면 좁은 화면 사람이 왜 접히는지 영영 모른다. */
+  try{
+    let v = null; try{ v = localStorage.getItem('csos_list_group'); }catch(_){}
+    const cur = (v === '0' || v === '1') ? v : '';
+    const box = document.getElementById('listGroupChoice');
+    if(box) box.querySelectorAll('[data-listgroup]').forEach(b => {
+      const on = b.getAttribute('data-listgroup') === cur;
+      b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    const line = document.getElementById('listGroupNow');
+    if(line) line.textContent = '지금: '
+      + (cur === '1' ? '묶음으로 접기' : cur === '0' ? '전체 목록'
+         : `화면 폭에 맞춤 (이 화면은 지금 ${groupModeOn() ? '묶음' : '전체 목록'})`)
+      + ' · 정산·돌발AS·정기점검 목록에 적용 · 이 기기에서만';
+  }catch(_){}
+  /* 캘린더 종류 — **못 읽은 것을 '없음' 이라 하지 않는다**([169]).
+     캘린더를 한 번도 안 열었으면 CAL_OFF 가 아직 없을 수 있다. */
+  try{
+    const line = document.getElementById('calKindNow');
+    if(line){
+      let all = null, off = null;
+      try{ all = calKinds().length; off = CAL_OFF ? CAL_OFF.size : null; }catch(_){}
+      line.textContent = (all == null || off == null)
+        ? '캘린더를 아직 한 번도 열지 않아 확인하지 못했습니다 — 캘린더를 열면 여기에 나옵니다.'
+        : (off ? `전체 ${all}종류 중 ${off}종류를 꺼 두었습니다 — 달력에 그만큼 안 보입니다.`
+               : `전체 ${all}종류를 모두 보고 있습니다.`);
+    }
+  }catch(_){}
+  /* 안내 문구 */
+  try{
+    const line = document.getElementById('hintNow');
+    if(line){
+      let n = 0;
+      try{
+        for(const k of ['csos_install_hint_off','qp_hint']) if(localStorage.getItem(k) !== null) n++;
+        for(let i = 0; i < localStorage.length; i++){
+          const k = localStorage.key(i);
+          if(k && k.indexOf('csos_install_dismissed_') === 0) n++;
+        }
+      }catch(_){}
+      line.textContent = n ? `숨겨 둔 안내 ${n}개가 있습니다.` : '숨긴 안내가 없습니다.';
+    }
+  }catch(_){}
+}
+
 /* 설정 화면을 **열 때마다** 다시 읽는다. 예전에는 routeNav 에 settings 갈래가 아예
    없어서, 한 번 채운 값이 그대로 낡은 채 남았다(오류는 안 난다). */
 function loadSettingsPanel(){
   try{ markFontPick(); }catch(_){}
   try{ markThemePick(); }catch(_){}
+  try{ renderSettingsDisplay(); }catch(_){}
   try{
     const st = installState(), chip = $('setInstallState');
     if(chip){ chip.classList.toggle('ok', st.code === 'installed' || st.ok);
