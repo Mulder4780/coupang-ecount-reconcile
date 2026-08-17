@@ -618,6 +618,7 @@ def collect():
         "세션자동화": session_auto(),
         "스케줄러": schedule_health(),
         "이어받기": takeover_health(),
+        "조율": coordination_health(),
         "크롬수집": userscript_health(),
         "앱서버": app_server_health(),
     }
@@ -664,6 +665,20 @@ def schedule_health():
         import schedule_watch
         return schedule_watch.banner()
     except Exception:
+        return None
+
+
+def coordination_health():
+    """겹친 일이 **정말 누군가에 의해 되었나** (2026-08-17 지시, `[293]`).
+
+    양보는 "저쪽이 그 일을 한다"는 주장이다. 주인마저 못 끝내면 그 일은 아무도 안 한
+    것인데, 양보는 실패가 아니라서 오늘은 아무 경보도 없다.
+    ★ 여기서 새 판단을 만들지 않는다 — `coordinate` 가 제 표에 적어 둔 것만 읽는다.
+    """
+    try:
+        import coordinate
+        return coordinate.notices()
+    except Exception:                     # noqa: BLE001
         return None
 
 
@@ -1004,6 +1019,12 @@ def blockers(st, for_sol=False):
         out.append(("이어받기 [%s] %s" % (a.get("갈래", ""),
                                       re.sub(r"\*\*", "", str(a.get("무엇") or ""))[:130]),
                     a.get("어떻게") or "python takeover.py"))
+    # ★ 겹침도 같은 자리다 (2026-08-17, `[293]`). 양보는 실패가 아니라서 스케줄러도
+    #   회차 감시도 아무 말을 안 한다 — 그런데 주인마저 안 끝냈으면 그 일은 아무도 안 했다.
+    for a in (st.get("조율") or [])[:3]:
+        out.append(("조율 [%s] %s" % (a.get("갈래", ""),
+                                    re.sub(r"\*\*", "", str(a.get("무엇") or ""))[:130]),
+                    a.get("어떻게") or "python coordinate.py --print"))
     for a in (sw.get("경보") or [])[:5]:
         # 바깥에서 한 번 더 굵게 감싸므로 여기서는 `**` 를 쓰지 않는다(겹치면 안 굵어진다).
         out.append(("회차 [%s] %s" % (a.get("갈래", ""),

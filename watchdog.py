@@ -669,6 +669,29 @@ def watch_schedules(dry):
         len(al), ", ".join("%s %s" % (a["갈래"], a["작업"]) for a in al[:4]))
 
 
+def watch_coordination(dry):
+    """겹친 일이 **정말 되었나** (2026-08-17 지시, `[293]`).
+
+    양보는 "저쪽이 그 일을 한다"는 주장이다. 주인마저 못 끝내면 그 일은 아무도 안 한
+    것인데 — 양보는 실패가 아니라서 스케줄러도 회차 감시도 아무 말을 안 한다.
+    ★ 읽기 전용이다. 회차를 다시 띄우지 않는다 — 지금 도는 중일 수 있고, 그때 띄우면
+      같은 자료를 두 번 긁는다. 여기는 보고 말하는 자리다(`typo_watch` 와 같은 자리).
+    """
+    try:
+        import coordinate
+        d, why = coordinate._load()
+        if not dry:
+            coordinate.write_report()
+        ns = coordinate.notices(d, why)
+    except Exception as exc:
+        return "조율 확인 실패: %s" % str(exc)[:60]
+    if why:
+        return "조율 확인 못 함: %s" % why[:60]
+    if not ns:
+        return "겹침 경보 없음(작업 %d개)" % len(d)
+    return "겹침 알릴 것 %d건: %s" % (len(ns), ", ".join(sorted({n["갈래"] for n in ns})))
+
+
 def watch_takeover(dry):
     """다른 계정이 **언제든 이어받을 수 있는 상태인가** (2026-08-17 지시).
 
@@ -773,6 +796,8 @@ def main():
                # ★ 이어받기 준비도 인계보다 먼저다 — 크레딧이 떨어진 창은 훅이 없어
                #   스스로 인계를 못 남긴다(2026-08-17, `[291]`).
                watch_takeover(dry),
+               # ★ 겹쳐서 양보한 일이 정말 되었나 — 인계보다 먼저다(2026-08-17, `[293]`).
+               watch_coordination(dry),
                # ★ 올린 것의 결과를 뒤따라 알린다 — 5분 스케줄러가 집어간 회차는
                #   앱이 끝난 줄 모른다(2026-08-14).
                close_upload_notices(dry),

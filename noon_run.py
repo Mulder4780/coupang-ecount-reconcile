@@ -154,22 +154,18 @@ def live_claims():
 
 
 def running_rounds():
-    """지금 도는 회차 이름들 — 잠금 주인이 실제로 살아 있을 때만 센다."""
-    names = []
+    """지금 도는 회차 이름들 — 잠금 주인이 실제로 살아 있을 때만 센다.
+
+    ★ **이름은 `coordinate.LOCKS` 한 곳에서 온다** (2026-08-17). 예전에는 여기에
+      `일일대조(09:50)` 라고 적어 뒀는데 `daily_run` 은 조율 표에 `일일대조` 로 적는다 —
+      두 이름이 어긋나면 "양보했는데 주인이 끝냈나"를 **영영 못 잇는다**(오류는 안 나고
+      경보만 매일 뜬다). 락 파일이 곧 그 일의 정체다.
+    """
     try:
-        import pid_alive as P
-    except Exception:
-        return names
-    for path, label in ((os.path.join(REPORT_DIR, ".daily_run.lock"), "일일대조(09:50)"),
-                        (os.path.join(REPORT_DIR, ".automation_pipeline.lock"), "증분 파이프라인"),
-                        (os.path.join(REPORT_DIR, ".ledger_db_apply.lock"), "보관본 생성(11·15시)")):
-        try:
-            d = json.load(open(path, encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if P.owner_alive(d.get("pid"), d.get("pid_started_at")) is not False:
-            names.append(label)
-    return names
+        import coordinate
+        return coordinate.running(REPORT_DIR)
+    except Exception:                     # noqa: BLE001 — 못 물어보면 이름을 못 댄다
+        return []
 
 
 def compact_settings():
@@ -287,6 +283,17 @@ def main():
 
     if not verdict["go"]:
         print(f"[{verdict['kind']}] {verdict['why']}")
+        # ★ 이 회차가 배운 것을 **모든 작업이 보는 표에도** 남긴다(2026-08-17 지시).
+        #   '양보'만 넘긴다 — 창밖·완주는 겹침이 아니라 제 일정이라, 조율 표에 섞으면
+        #   창 밖의 부름 다섯 번이 매일 '연속 양보'로 세어져 굶주림 경보가 거짓이 된다.
+        #   주인은 `decide()` 가 이미 알아낸 것을 그대로 쓴다(판정은 한 곳이다).
+        if verdict["kind"] == "양보":
+            try:
+                import coordinate
+                coordinate.record_yield("정오회차", ", ".join(rounds) if rounds else "",
+                                        verdict["why"])
+            except Exception:             # noqa: BLE001 — 조율을 적으려다 회차를 막지 않는다
+                pass
         # ★ 양보·창밖은 마커에 **완주로 적지 않는다**(적으면 그날 회차가 영영 안 돈다).
         marker.setdefault("skips", [])
         marker["skips"] = (marker["skips"] + [{"at": now.isoformat(timespec="seconds"),

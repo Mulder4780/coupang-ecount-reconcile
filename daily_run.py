@@ -24,6 +24,10 @@ PY = sys.executable
 REPORT_DIR = os.path.join(ROOT, "reports")
 ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 RUN_LOCK = os.path.join(REPORT_DIR, ".daily_run.lock")
+# 조율 표에서 이 회차를 부르는 이름. **양보한 쪽과 완주한 쪽이 같은 이름을 써야**
+# `coordinate.audit()` 이 "양보했는데 주인이 끝냈나"를 이을 수 있다(둘이 갈리면
+# 모든 양보가 영영 '헛양보'로 보인다 — 낱말이 어긋나면 한 건도 안 걸린다).
+COORD_JOB = "일일대조"
 
 # collect_all과 autopilot의 "한 회차 진척·아직 남음" 계약. 0(완료)이나
 # 1(실패)로 바꾸면 큐가 일찍 닫히거나 정상 증분을 실패로 센다([217]).
@@ -916,7 +920,18 @@ def main():
         return
     token = acquire_run_lock()
     if not token:
+        # ★ 겹쳐서 물러난 것을 **자국으로 남긴다** (2026-08-17 지시). 예전에는 한 줄만
+        #   찍고 exit 0 이라, 밖에서 보면 **겹쳐서 안 돈 것과 다 한 것이 구별되지
+        #   않았다**(`[169]`). 스케줄러는 '성공'이라 적는다.
+        #   양보는 "저쪽이 그 일을 한다"는 **주장**이므로 주인 이름을 같이 남긴다 —
+        #   `coordinate.audit()` 이 그 주인이 정말 끝냈는지 되묻는다.
         print("다른 daily_run 프로세스가 이미 실행 중 — 중복 실행을 시작하지 않습니다.")
+        try:
+            import coordinate
+            coordinate.record_yield(COORD_JOB, COORD_JOB,
+                                    "다른 daily_run 이 락을 쥐고 있다")
+        except Exception:                 # noqa: BLE001 — 조율을 적으려다 회차를 막지 않는다
+            pass
         return
     _ROUND_T0[0] = datetime.now()
     _OVER_BUDGET[0] = False
@@ -965,6 +980,13 @@ def main():
         #   중간에 죽었을 때 진행 기록이 '시작' 인 채로 굳어, 다음 회차가
         #   "아직 돌고 있나"와 "죽었나"를 구별하지 못한다.
         note_progress("(회차 끝)", final_state, final_extra)
+        # 양보한 쪽이 "저쪽이 한다"고 적었다 — 그 주장이 지켜졌다는 증거를 여기서 남긴다.
+        try:
+            import coordinate
+            coordinate.record_run(COORD_JOB, final_state,
+                                  str(final_extra.get("오류") or ""))
+        except Exception:                 # noqa: BLE001
+            pass
         release_run_lock(token)
 
 

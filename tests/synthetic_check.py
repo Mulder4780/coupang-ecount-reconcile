@@ -16163,6 +16163,96 @@ def t290_permission_and_error_meter_say_which_kind():
           "리소스 실패까지 본다 ✅")
 
 
+def t293_yield_is_a_claim_that_gets_audited():
+    """[293] 겹치면 조율한다 — **양보는 주장이고, 주장은 나중에 검사한다.**
+
+    2026-08-17 실측: `CSOS_유수비_대표보고_자동준비` 와 `쿠팡업무_일일자동대조` 가
+    **같은 초(09:50:02)에 같은 명령**으로 뜬다. 그런데 겹쳤을 때 남는 자국이 회차마다
+    달랐다 — `daily_run` 은 exit 0 · 자국 없음(스케줄러는 '성공'), `noon_run` 만 제대로
+    '양보'로 적었다(그 회차 **안에서만**). 그래서 밖에서는 **겹쳐서 안 돈 것과 다 한
+    것이 구별되지 않았다**(`[169]`).
+
+    ★ 여기서 새 정책을 만들지 않는다(`[162]`) — 무엇과 부딪히면 어떻게 할지는 회차가
+      안다. 이 층이 맡는 것은 **이름과 기록**뿐이다.
+    ★ 가장 위험한 방향은 **없는 주인에게 양보하는 것**이다(`[172]`) — 그러면 일은 영영
+      안 되고 기록만 '정상'으로 남는다.
+    """
+    import importlib as _il
+    from datetime import datetime as _dt, timedelta as _td
+    sys.path.insert(0, ROOT)
+    C = _il.import_module("coordinate")
+    _il.reload(C)
+    now = _dt.now()
+    def 전(h):
+        return (now - _td(hours=h)).isoformat(timespec="seconds")
+    # ★ 살아 있는 락을 읽지 않게 `도는중` 을 넘긴다 — 안 그러면 검사 결과가 그때그때
+    #   기계 상태에 따라 달라진다.
+    갈래들 = lambda d, 돎=(): [n["갈래"] for n in C.notices(d, "", now=now, 도는중=돎)]
+
+    # ① 헛양보 — 양보 뒤에 주인이 끝낸 자국이 없다(그 일은 아무도 안 했다).
+    d = {"정오회차": [{"때": 전(10), "갈래": "양보", "왜": "회차가 도는 중", "주인": "일일대조"}],
+         "일일대조": [{"때": 전(20), "갈래": "완주", "왜": "", "주인": ""}]}  # 양보보다 **앞**이다
+    assert "헛양보" in 갈래들(d), "양보했는데 주인도 안 끝낸 것을 못 잡는다"
+    # ② 지켜진 양보는 **조용하다** — 정상까지 경보하면 아무도 안 본다(`[170]`).
+    d2 = {"정오회차": [{"때": 전(12), "갈래": "양보", "왜": "x", "주인": "일일대조"}],
+          "일일대조": [{"때": 전(9), "갈래": "완주", "왜": "", "주인": ""}]}
+    assert not 갈래들(d2), "정상적으로 지켜진 양보에까지 경보를 냈다"
+    # ③ ★ **'아직 하는 중'을 '끝내지 못했다'로 읽지 않는다.** 첫 실행이 곧바로 이 거짓
+    #    경보를 냈다 — 주인은 실패한 것이 아니라 그때도 돌고 있었다(`[172]`).
+    assert not 갈래들(d, ("일일대조",)), \
+        "주인이 지금도 도는 중인데 '끝내지 못했다'고 한다 — 양보할 때마다 경보가 뜬다"
+    # ③-2 그리고 **물을 때가 되기 전에는 안 묻는다**(회차 실측 292분).
+    d단 = {"정오회차": [{"때": 전(1), "갈래": "양보", "왜": "x", "주인": "일일대조"}]}
+    assert not 갈래들(d단), "양보한 지 얼마 안 됐는데 벌써 실패라고 한다"
+    # ④ 굶주림 — 매일 양보만 하는 회차는 없는 회차와 같다(noon_run 이 배운 것을 넓혔다).
+    d3 = {"대표보고": [{"때": 전(i), "갈래": "양보", "왜": "락", "주인": "일일대조"}
+                    for i in (4, 3, 2)],
+          "일일대조": [{"때": 전(1), "갈래": "완주", "왜": "", "주인": ""}]}
+    assert "굶주림" in 갈래들(d3), "한 번도 안 돌고 양보만 하는 작업을 못 잡는다"
+    # ⑤ 주인을 모르는 양보는 **정상이 아니라 '확인 못 함'** 이다(`[169]`).
+    assert "확인못함" in 갈래들({"X": [{"때": 전(10), "갈래": "양보", "왜": "누가 쥐었다",
+                                    "주인": ""}]}), "검사할 수 없는 양보를 정상으로 셌다"
+    # ⑥ 자국을 못 읽으면 **아무 판정도 하지 않는다** — 못 읽은 것을 '겹침 없음'이라 하면
+    #    계기 자신이 눈먼 채 '이상 없음'을 말한다.
+    assert [n["갈래"] for n in C.notices({}, "파일이 깨졌다", now=now, 도는중=())] == ["확인못함"], \
+        "못 읽었는데 판정을 내놓는다"
+    # ⑥-2 판정 창은 실측 회차 길이(292분)보다 넉넉해야 한다 — 짧으면 도는 중인 회차를
+    #     매번 실패라고 부른다.
+    assert C.AUDIT_GRACE_HOURS >= 6, "판정 창이 실측 회차 길이보다 짧다"
+    # ⑦ 낱말을 지어내지 않는다.
+    assert C.KINDS == ("완주", "실패", "양보", "막힘"), "자국 갈래를 늘렸다 — 읽는 쪽이 갈린다"
+
+    # ⑦ ★ **이름이 이어지는가.** 양보한 쪽과 완주한 쪽이 다른 이름을 쓰면 audit 이 둘을
+    #    못 잇고 **모든 양보가 영영 '헛양보'** 로 보인다(오류는 안 난다). 실제로 그랬다:
+    #    noon_run 이 `일일대조(09:50)`, daily_run 이 `일일대조` 로 적고 있었다.
+    이름들 = [n for _, n in C.LOCKS]
+    dr = _il.import_module("daily_run")
+    assert dr.COORD_JOB in 이름들, \
+        "daily_run 이 조율 표에 쓰는 이름이 LOCKS 에 없다 — 양보를 완주와 못 잇는다"
+    nr_src = open(os.path.join(ROOT, "noon_run.py"), encoding="utf-8").read()
+    i = nr_src.find("def running_rounds")
+    assert "coordinate.running" in nr_src[i:i + 900], \
+        "noon_run 이 회차 이름을 스스로 적는다 — 사본이 둘이면 한쪽만 고쳐진다"
+
+    # ⑧ 읽기 전용 — 회차를 다시 띄우거나 원장을 열지 않는다.
+    src = open(os.path.join(ROOT, "coordinate.py"), encoding="utf-8").read()
+    for 금지 in ("enqueue(", "--apply", "openpyxl", "Popen(", "run_tree("):
+        assert 금지 not in src, "조율 층이 %s 를 쓴다 — 보고 말하는 자리다" % 금지
+
+    # ⑨ 자국이 배선돼 있는가(양보만 적고 완주를 안 적으면 전부 헛양보가 된다).
+    ds = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "record_yield(COORD_JOB" in ds and "record_run(COORD_JOB" in ds, \
+        "daily_run 이 양보·완주 중 한쪽만 적는다"
+    # ⑩ noon_run 은 **양보만** 넘긴다 — 창밖·완주를 섞으면 창 밖의 부름이 매일
+    #    '연속 양보'로 세어져 굶주림 경보가 거짓이 된다.
+    j = nr_src.find("coordinate.record_yield")
+    assert 'verdict["kind"] == "양보"' in nr_src[max(0, j - 400):j], \
+        "noon_run 이 창밖·완주까지 양보로 넘긴다 — 굶주림 경보가 거짓이 된다"
+
+    print("  [293] 겹치면 조율한다 — 양보는 주장이고 audit 이 되묻는다(헛양보·굶주림) · "
+          "이름은 LOCKS 한 곳 · 읽기 전용 ✅")
+
+
 def t292_500_never_arrives_wordless():
     """[292] 문구 없는 500 을 안 보낸다 · ★신규는 사전을 써야 고침증거가 선다.
 
@@ -20689,6 +20779,7 @@ if __name__ == "__main__":
     t290_permission_and_error_meter_say_which_kind()
     t291_takeover_is_narrow_and_never_seizes()
     t292_500_never_arrives_wordless()
+    t293_yield_is_a_claim_that_gets_audited()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
