@@ -264,6 +264,29 @@ def save_ack(record_id, who="관리자", why="", path=None, remove=False):
     return rows
 
 
+# 통화 녹취(STT)는 카톡 내보내기가 **아니다**. 첫 줄이 `발화자 1 (00:00)` 이고
+# 이름도 날짜도 없어 `parse_export` 가 **0건**을 돌려준다 — 오류는 한 줄도 안 난다.
+# 2026-08-14 실사고: 그날 대표 지시가 반영된 유일한 이유는 사람이 그 녹취를 눈으로
+# 읽고 손으로 코드에 옮겼기 때문이고, 기계 경로로는 0건이었다(`[169]`).
+TRANSCRIPT_HEAD = re.compile(r"^\s*발화자\s*\d+\s*\(\s*\d{1,2}:\d{2}", re.M)
+
+
+def unreadable_kind(path):
+    """카톡 폴더에 들어왔는데 파서가 한 건도 못 읽은 파일의 정체.
+
+    ★ 지어내지 않는다 — 알아본 것만 이름을 주고 나머지는 '모름'이다(`[169]`).
+    ★ 본문을 자동으로 '대표 지시'로 만들지 않는다(`[172]`): 녹취에는 **누가 대표인지
+      적혀 있지 않고** STT 오인식이 잦다(실측 `돌발`→`뻥뚱` · `정기점검`→`전기 점검`).
+      잘못 뽑으면 **없는 대표 지시가 캡처에 뜬다** — 못 잡는 것보다 나쁘다.
+      그러므로 '사람이 읽어야 한다'까지만 말하고 멈춘다."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            head = fh.read(4000)
+    except OSError:
+        return "못 엶"
+    return "통화 녹취" if TRANSCRIPT_HEAD.search(head) else "모름"
+
+
 def extract(paths=None):
     """카카오톡 원본을 읽어 판정과 접수 이벤트를 만든다. 같은 내보내기 이력은 한 번만 센다."""
     paths = KE.source_paths() if paths is None else list(paths)
@@ -271,10 +294,16 @@ def extract(paths=None):
     counts = Counter({key: 0 for key in COUNT_KEYS})
     daily = defaultdict(lambda: Counter({key: 0 for key in COUNT_KEYS}))
     reasons, events, directives, seen, directive_seen = Counter(), [], [], set(), set()
+    unreadable = []
 
     for path in paths:
         room = KE.room_of(path)
+        # ★ 세는 것은 **대표 메시지**가 아니라 **파싱된 전체 메시지**다. 대표 메시지로
+        #   세면 대표가 말한 적 없는 멀쩡한 방까지 '못 읽음'이 되어 경보가 전부가 된다
+        #   (`[170]`). 실측 경보 비율: 원본 51개 중 0건인 파일 **1개**.
+        read_here = 0
         for msg in parser.parse_export(path):
+            read_here += 1
             if not sender_role(msg.get("sender")):
                 continue
             text = str(msg.get("text") or "")
@@ -305,6 +334,9 @@ def extract(paths=None):
                 directives.append(event)
             elif event:
                 events.append(event)
+        if not read_here:
+            unreadable.append({"파일": os.path.basename(path),
+                               "갈래": unreadable_kind(path)})
 
     events.sort(key=lambda row: (row.get("날짜", ""), row.get("카톡일시", ""),
                                  row.get("레코드ID", "")))
@@ -321,6 +353,9 @@ def extract(paths=None):
         "날짜별": {day: {key: values[key] for key in COUNT_KEYS}
                  for day, values in sorted(daily.items())},
         "제외이유": dict(sorted(reasons.items())),
+        # 키가 **없는 것**(옛 리포트 — 이 회차가 아직 안 돌았다)과 **빈 목록**(정상,
+        # 다 읽었다)은 다른 말이다. 읽는 쪽이 둘을 뭉치면 한쪽이 조용히 사라진다(`[247]`).
+        "못읽은원본": unreadable,
         "events": events,
         "directives": directives,
     }
@@ -336,6 +371,21 @@ def render(report):
         f"- 쿠팡 건 **{c.get('쿠팡 건', 0)}** · 쿠팡 무관 **{c.get('쿠팡 무관', 0)}** · 모름 **{c.get('모름', 0)}**",
         "- 읽기 전용: 원장·입력 큐·카카오톡 원문은 수정하지 않음",
         "",
+    ]
+    # ★ 못 읽은 원본은 **맨 위**다 — 이 목록에 무엇이 있다는 것은 "그 파일에 담긴
+    #   대표 지시가 아래 표에 하나도 안 실렸다"는 뜻이므로, 아래 숫자를 믿기 전에
+    #   먼저 봐야 한다. 키가 없으면(옛 리포트) 아무 말도 안 한다(`[247]`).
+    bad = report.get("못읽은원본")
+    if bad:
+        lines += ["## ★ 사람이 읽어야 하는 원본 %d개" % len(bad), "",
+                  "카톡 폴더에 있지만 파서가 **한 건도 못 읽었다.** 오류는 나지 않으므로",
+                  "여기에 적히지 않으면 아무 화면에도 안 뜬다. 통화 녹취에는 이름·날짜가",
+                  "없어 기계가 대표를 가려낼 수 없다 — **지시 내용은 사람이 읽어 옮긴다.**", "",
+                  "| 파일 | 갈래 |", "|---|---|"]
+        for row in bad:
+            lines.append("| %s | %s |" % (row.get("파일", ""), row.get("갈래", "")))
+        lines.append("")
+    lines += [
         "## 반영 대상",
         "",
         "| 카톡 일시 | 방 | 캠프 | 프로젝트NO | 신청내용 |",

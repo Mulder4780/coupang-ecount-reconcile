@@ -20494,6 +20494,113 @@ def t286_sales_source_survives_recent_export_cap():
     print("  [286] ERP 최신파일 상한 밖 판매조회 보존 · 두 색인 후보 선택 단일화 OK")
 
 
+
+
+def t294_unreadable_source_never_passes_as_read():
+    """[294] 대표 대화 원본을 **한 건도 못 읽었으면** 그렇게 말한다.
+
+    2026-08-14 실사고: 대표 통화 녹취(STT)가 카톡 폴더에 멀쩡히 들어와 있었는데
+    `parse_export` 가 **0건**을 돌려줬다. 첫 줄이 `발화자 1 (00:00)` 이고 이름도
+    날짜도 없기 때문이다. **오류는 한 줄도 안 났고** 파일도 있고 회차도 성공이었다.
+    그날 대표 지시가 반영된 유일한 이유는 **사람이 그 파일을 눈으로 읽었기** 때문이고
+    기계 경로로는 0건이었다 — 정말 없는 것과 안 본 것이 구별되지 않았다(`[169]`).
+
+    ★ 잡는 것보다 **잘못 지목하지 않는 것**이 어렵다(`[172]`). 녹취 본문에는 누가
+      대표인지 적혀 있지 않고 STT 오인식이 잦다(실측 '돌발'->'뻥뚱'). 자동으로 뽑으면
+      **없는 대표 지시가 캡처에 뜬다** — 못 잡는 것보다 나쁘다.
+    """
+    import importlib as _il
+    from datetime import date as _date
+    sys.path.insert(0, ROOT)
+    CE = _il.import_module("ceo_events")
+    _il.reload(CE)
+
+    d = tempfile.mkdtemp(prefix="t294_")
+    녹취 = os.path.join(d, "KakaoTalk_Longtxt_녹취.txt")
+    보통 = os.path.join(d, "KakaoTalk_보통.txt")
+    open(녹취, "w", encoding="utf-8").write(
+        """발화자 1 (00:00)
+어
+
+발화자 2 (00:01)
+예 대표님 쿠팡 거 일단 먼저 보고 드릴게.
+""")
+    open(보통, "w", encoding="utf-8").write(
+        "2026년 8월 14일 오전 11:16, 아무개 : 확인했습니다" + chr(10))
+
+    # (1) 갈래를 **지어내지 않는다** — 알아본 것만 이름을 준다(`[169]`).
+    assert CE.unreadable_kind(녹취) == "통화 녹취", "통화 녹취 모양을 못 알아본다"
+    assert CE.unreadable_kind(보통) == "모름", (
+        "녹취가 아닌 파일에 '통화 녹취' 딱지를 붙였다 — 틀린 지목은 못 잡는 것보다 나쁘다")
+    assert CE.unreadable_kind(os.path.join(d, "없는파일.txt")) == "못 엶", (
+        "못 연 것을 '모름'으로 뭉갠다 — 왜 못 읽었는지가 사라진다")
+
+    # (2) 실행으로 잰다. 파서를 가짜로 바꿔 **기계 상태에 기대지 않는다**(t111 교훈).
+    class _가짜:
+        def parse_export(self, path):
+            if path == 녹취:
+                return []                      # STT — 파서가 한 건도 못 읽는다
+            return [{"date": _date(2026, 8, 14), "time": "11:16",
+                     "sender": "아무개", "text": "확인했습니다"}]
+
+    본래_parser, 본래_room = CE.KE._load_reconcile, CE.KE.room_of
+    try:
+        CE.KE._load_reconcile = lambda: _가짜()
+        CE.KE.room_of = lambda p: "쿠팡 돌발AS"
+        r = CE.extract([녹취, 보통])
+    finally:
+        CE.KE._load_reconcile, CE.KE.room_of = 본래_parser, 본래_room
+
+    files = [x.get("파일") for x in r.get("못읽은원본") or []]
+    assert os.path.basename(녹취) in files, "0건으로 읽힌 원본이 목록에 안 올라간다"
+    # ★ 거짓 경보를 안 내는지도 같이 잰다 — 계기가 아무 데나 걸리는 것도 고장이다.
+    #   세는 것은 **대표 메시지**가 아니라 **파싱된 전체 메시지**다. 대표 메시지로 세면
+    #   대표가 말한 적 없는 멀쩡한 방이 전부 경보가 되어 아무도 안 본다(`[170]`).
+    assert os.path.basename(보통) not in files, (
+        "대표 메시지가 없다는 이유로 멀쩡히 읽힌 원본을 '못 읽음'이라 한다")
+
+    # (3) ★ 녹취 본문을 대표 지시·접수로 **자동으로 만들지 않는다**(`[172]`).
+    assert not r.get("events") and not r.get("directives"), (
+        "녹취에서 대표 지시를 지어냈다 — 없는 지시가 캡처에 뜬다")
+
+    # (4) 리포트가 **맨 위**에서 말한다. 아래 숫자를 믿기 전에 봐야 하는 것이다.
+    md = CE.render(r)
+    assert "사람이 읽어야 하는 원본" in md and "통화 녹취" in md, "리포트가 못 읽은 원본을 안 적는다"
+    assert md.index("사람이 읽어야 하는 원본") < md.index("## 반영 대상"), (
+        "못 읽은 원본이 반영 대상 표보다 아래에 있다 — 그 표를 먼저 믿게 된다")
+
+    # (5) 키가 **없는 것**(옛 리포트)과 **빈 목록**(다 읽었다)은 다른 말이다(`[247]`).
+    SH = _il.import_module("session_handoff")
+    _il.reload(SH)
+    본래 = SH.REPORT_DIR
+    try:
+        SH.REPORT_DIR = d
+        open(os.path.join(d, "대표대화_추출.json"), "w", encoding="utf-8").write(
+            json.dumps({"판정": {}}, ensure_ascii=False))
+        assert SH.ceo_unreadable() == [], "옛 리포트(키 없음)에 경보를 낸다"
+        open(os.path.join(d, "대표대화_추출.json"), "w", encoding="utf-8").write(
+            json.dumps({"못읽은원본": [{"파일": "a.txt", "갈래": "통화 녹취"}]}, ensure_ascii=False))
+        assert len(SH.ceo_unreadable()) == 1, "회차가 적어 둔 것을 인계가 못 읽는다"
+    finally:
+        SH.REPORT_DIR = 본래
+
+    # (6) ★ 인계 '먼저 처리할 것'까지 이어져야 뜻이 있다 — 리포트에만 적으면 아무도
+    #     안 본다(`ceo_events` 를 읽는 코드가 프로젝트에 **한 줄도 없었다**).
+    class _빈(dict):
+        # blockers 는 상태 한 장을 통째로 받는다. 여기서 진짜 상태를 만들면 검사가
+        # 기계 상태를 타므로(t111 교훈) 나머지 칸은 전부 빈 것으로 준다.
+        def __missing__(self, key):
+            return []          # 비었고, 돌 수도 있고, 거짓이다
+
+    bl = SH.blockers(_빈({"대표대화못읽음": [{"파일": "a.txt", "갈래": "통화 녹취"}]}))
+    hit = [t for t in bl if "대표 대화 원본" in str(t[0])]
+    assert hit, "못 읽은 원본이 '먼저 처리할 것'에 안 올라간다"
+    assert "사람이 직접" in str(hit[0][1]), (
+        "조치가 자동 추출을 시킨다 — 이 갈래의 조치는 사람이 읽는 것이다")
+    import shutil as _sh
+    _sh.rmtree(d, ignore_errors=True)
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -20780,6 +20887,7 @@ if __name__ == "__main__":
     t291_takeover_is_narrow_and_never_seizes()
     t292_500_never_arrives_wordless()
     t293_yield_is_a_claim_that_gets_audited()
+    t294_unreadable_source_never_passes_as_read()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
