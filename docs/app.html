@@ -843,6 +843,10 @@ async function syncQueue(){
    화면마다 숫자가 달라진다. */
 let CAL_M = '';                       // 'YYYY-MM'
 let CAL_D = '';                       // 'YYYY-MM-DD'
+/* 실시간 PC 앱 주소 — **판정은 updateMode() 한 곳**이 한다(`[162]`).
+   여기서 다시 /api/ping 을 걸면 같은 질문에 두 답이 생기고, 캘린더를 열 때마다
+   터널을 한 번 더 두드린다. 그 함수가 살아 있다고 확인한 주소만 여기 담긴다. */
+let LIVE_URL = '';
 let CAL_OFFK = new Set();             // 꺼 둔 종류
 function calData(){ return D.calendar || {일정: [], 분류목록: []}; }
 function calKind(k){
@@ -852,6 +856,19 @@ function calRows(){
   return (calData().일정 || []).filter(e => !CAL_OFFK.has(String(e.분류 || 'etc')));
 }
 function calCamp(e){ return String(e.캠프명 || e.장소 || e.제목 || '').trim() || '(장소 미입력)'; }
+/* 대표 보고 A4 3장 캡처는 **이 사본에서 만들 수 없다** — 그리는 코드를 안 옮긴 것이
+   아니라 **자료가 여기 없다**. cloud_publish 가 담는 일정 칸은 날짜·시간·분류·캠프명·
+   장소·제목·프로젝트NO·담당기사·예측뿐이고, 캡처가 쓰는 **지연 사유**(왜 아직
+   미처리인가)와 **분기 진도**는 한 칸도 안 실린다.
+   ★ 그리는 코드만 옮기면 사유 칸이 빈 채로 **멀쩡해 보이는** 3장이 나온다 — 그것을
+     대표께 보내면 아무도 빈 것을 눈치채지 못한다(`[169]`·`[273]` 이 막으려던 그것).
+     그래서 못 만든다고 **말하고** 만드는 자리로 보낸다. */
+function ceoCaptureNote(){
+  const why = '대표 보고 A4 3장 캡처는 실시간 PC 앱에서 만듭니다 — 이 사본에는 지연 사유·분기 진도가 실리지 않습니다.';
+  return '<div class="note" id="ceocap">' + esc(why)
+    + (LIVE_URL ? ' <button class="btn ghost" id="ceocapGo" style="margin-top:6px;width:100%">실시간 PC 앱에서 만들기</button>'
+                : ' 지금은 사무실 PC 에 연결되지 않아 바로 열 수 없습니다.') + '</div>';
+}
 function renderCal(){
   const all = calData().일정 || [];
   if(!all.length){ $('list').innerHTML = '<div class="empty">캘린더 자료가 아직 사본에 없습니다.</div>'; return; }
@@ -901,6 +918,7 @@ function renderCal(){
     + '<div class="cdow"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>'
     + '<div class="cgrid">' + grid + '</div>'
     + '<div class="note">' + (day ? esc(CAL_D) + ' · ' + day.length + '건 (날짜를 다시 누르면 전체)' : '이 달 전체 ' + rows.length + '건') + '</div>'
+    + ceoCaptureNote()
     + (list || '<div class="empty">표시할 일정이 없습니다.</div>');
 
   const shift = n => {
@@ -911,6 +929,9 @@ function renderCal(){
   $('cprev').onclick = () => shift(-1);
   $('cnext').onclick = () => shift(1);
   $('ctoday').onclick = () => { CAL_M = new Date().toISOString().slice(0, 7); CAL_D = ''; renderCal(); };
+  /* ★ 이 창을 실시간 주소로 **옮기지 않는다**(2026-07-28 실사고 · `[240]`) — 크롬이
+     종료 시점 주소를 복원해서 다음 부팅에 죽은 이름이 뜬다. 새 창으로 띄운다. */
+  if($('ceocapGo')) $('ceocapGo').onclick = () => window.open(LIVE_URL, '_blank', 'noopener');
   $('list').querySelectorAll('.cday').forEach(b => b.onclick = () => {
     CAL_D = (CAL_D === b.dataset.d) ? '' : b.dataset.d; renderCal();
   });
@@ -1085,6 +1106,10 @@ async function updateMode(){
        ERR_NAME_NOT_RESOLVED 가 뜬다 — 며칠간 "앱이 안 열린다"의 정체가 이것이었다.
        새 창으로 띄우면 고정 주소 창은 늘 고정 주소에 남는다. */
     $('liveOpen').onclick = () => window.open(ep.url, '_blank', 'noopener');
+    /* 캘린더의 '대표 보고 캡처' 안내도 같은 판정을 쓴다 — 여기서 확인된 뒤에야
+       주소가 생기므로, 이미 그려 둔 캘린더는 다시 그려야 단추가 나온다. */
+    LIVE_URL = ep.url;
+    if(TAB === 'cal') renderCal();
   }catch(e){
     if(!card.innerHTML.includes('클라우드 연속운영 정상')){
       card.innerHTML =
