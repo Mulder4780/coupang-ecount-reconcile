@@ -12670,7 +12670,13 @@ def t162_band_comments_collected():
     # 때마다 검증이 헛되이 깨진다.
     assert "os.path.getmtime(p) <" in heal and "js_mt" in heal, \
         "판정 근거가 만드는 쪽 mtime 이 아니다(회차 번호가 매번 달라 내용 비교는 못 쓴다)"
-    assert "os.path.getmtime(p) >= js_mt" in heal and "os.unlink(p)" in heal, \
+    # * 2026-08-18: 여기도 **바로 위 주석이 경고한 그대로** 걸렸다 — 성공 판정을
+    #   ">= js_mt" 라고 글자로 못 박아 뒀는데, `[305]` 가 고친 것이 정확히 그
+    #   js_mt 였다(낡음은 mk_mt 로 고르고 성공만 js_mt 로 봐서 같은 파일이 낡았으면서
+    #   동시에 새로웠다). 즉 **이 검사가 고장을 지키고 있었다.**
+    #   지키는 정책은 그대로다: 성공을 **mtime 으로** 확인하고 안 써졌으면 지운다.
+    #   '낡음과 성공이 같은 기준을 쓰는가' 는 `[305]` 가 따로 지킨다.
+    assert "os.path.getmtime(p) >=" in heal and "os.unlink(p)" in heal, \
         "끝난 코드만 보고 성공으로 센다 — 훑을 것이 없는 밴드는 파일이 안 써지는데도 0 이다"
     for scrape in ("band_sync", "requests.", "webdriver", "convert_dump"):
         assert scrape not in heal, f"자동복구가 수집을 한다: {scrape}"
@@ -22266,8 +22272,8 @@ def t305_self_heal_never_reports_a_file_it_did_not_touch():
 
 
 
-def t306_guard_recheck_is_not_an_outage():
-    """[306] 보호자가 **'아직 실패가 아니다'** 라 적은 것을 감사기가 장애라 부르지 않는다.
+def t307_guard_recheck_is_not_an_outage():
+    """[307] 보호자가 **'아직 실패가 아니다'** 라 적은 것을 감사기가 장애라 부르지 않는다.
 
     2026-08-18 실사고. `server_guard` 는 한 번 늦은 것을 죽음으로 단정하지 않는다
     (`FAIL_LIMIT=3` — 세 번 연속일 때만 조치). 그런데 `system_audit` 이 **첫 blip
@@ -22339,7 +22345,7 @@ def t306_guard_recheck_is_not_an_outage():
     finally:
         SA.GUARD_RECHECK.update(표)
 
-    print("[306] 보호자의 '오탐 방지 재확인'을 장애라 부르지 않는다"
+    print("[307] 보호자의 '오탐 방지 재확인'을 장애라 부르지 않는다"
           "(한도는 보호자에게서 · 진짜 장애 6종은 그대로 P0) OK")
 
 
@@ -22642,7 +22648,7 @@ if __name__ == "__main__":
     t304_dead_round_says_why_and_stops_crying_wolf()
     t305_self_heal_never_reports_a_file_it_did_not_touch()
     t306_dead_server_revival_never_kills_someone_elses_server()
-    t306_guard_recheck_is_not_an_outage()
+    t307_guard_recheck_is_not_an_outage()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

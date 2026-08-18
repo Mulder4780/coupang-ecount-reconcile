@@ -106,7 +106,7 @@ def _atomic_text(path: Path, text: str) -> None:
 
 #: 보호자가 **'아직 실패가 아니다 — 오탐 방지 재확인'** 이라 적는 상태
 #: → (그 상태의 연속 실패 칸, 보호자가 쓰는 한도 이름).
-#: ★ 낱말이 어긋나면 한 건도 안 걸리면서 오류도 안 난다(`[165]`) — 검증 `[306]` 이
+#: ★ 낱말이 어긋나면 한 건도 안 걸리면서 오류도 안 난다(`[165]`) — 검증 `[307]` 이
 #:   이 낱말들이 server_guard.py 에 실재하는지 매번 대 본다.
 GUARD_RECHECK = {
     "degraded": ("consecutive_failures", "FAIL_LIMIT"),
