@@ -21088,7 +21088,11 @@ const ctx = {
     return { width: w }; },
   fillText(t, x, y){ drawn.push({t:String(t), x, y, w:this.measureText(t).width}); },
 };
-const canvas = { width:0, height:0, getContext:()=>ctx, toBlob:cb=>cb({size:1}) };
+// 장마다 크기를 따로 잰다 — 마지막 장만 보면 앞 장이 한도를 넘어도 안 걸린다.
+const sizes = [];
+const canvas = { _w:0, _h:0, getContext:()=>ctx, toBlob:cb=>cb({size:1}),
+  set width(v){ this._w = v; }, get width(){ return this._w; },
+  set height(v){ this._h = v; sizes.push({w:this._w, h:v}); }, get height(){ return this._h; } };
 const rows = [
   { 캠프명:'송파1캠프(동남권물류단지 E동)', 정기점검:true, 정기점검건수:12,
     최근작업일:'2026-07-24', 거래처코드:'CU001',
@@ -21100,11 +21104,12 @@ const rows = [
     담당자:{이름:'서영호', 전화:'010-4580-6030', 메일:'loveroses1@coupangls.com'} },
 ];
 const el = { campPmOnly:{checked:true}, campQ:{value:''}, campSum:{}, campHost:{} };
-let xlsxRows = null;
+let xlsxRows = null, saved = [];
 const g = { CAMPS:{ok:true, rows, 갱신:'2026-08-18T09:30:00'}, $:id=>el[id],
   esc:s=>String(s==null?'':s), uiFont:()=>'F', todayISO:()=>'2026-08-18',
   notice:m=>{ throw new Error('notice: '+m); }, toast:()=>{}, uxEvent:()=>{},
-  saveOrOpen:()=>{}, exportRowsXlsx:(n,r)=>{ xlsxRows = r; },
+  saveOrOpen:()=>{}, saveOrOpenPages:(bs,ns)=>{ saved = ns.slice(); },
+  exportRowsXlsx:(n,r)=>{ xlsxRows = r; },
   document:{ createElement:()=>canvas } };
 const api = new Function(...Object.keys(g),
   __blk + ';return {campRoles, renderCampList, campsXlsx, campsCapture};')(...Object.values(g));
@@ -21124,7 +21129,8 @@ ok(t.includes('verylongaddress.person@coupangls.com'), '표에 이메일이 없�
 ok(!t.includes('mailto:'), '이메일이 자동 전송 링크가 됐다([34])');
 ok(t.includes('이메일 모름'), "빈 이메일을 '모름'이라 안 적는다");
 ['현장책임','안전관리','담당자(직책 미상)'].forEach(r=>ok(t.includes(r), '표에 '+r+' 없음'));
-drawn.length = 0; api.campsCapture();
+(async () => {
+drawn.length = 0; sizes.length = 0; await api.campsCapture();
 ['010-6445-1001','010-4538-4409','010-4580-6030'].forEach(tel=>
   ok(drawn.some(d=>d.t===tel), '이미지에서 전화가 통째로 안 그려졌다: '+tel));
 ok(drawn.some(d=>d.t==='loveroses1@coupangls.com'), '이미지에서 이메일이 잘렸다');
@@ -21135,13 +21141,51 @@ const byY = {}; drawn.forEach(d=>{ (byY[d.y] = byY[d.y] || []).push(d); });
 Object.values(byY).forEach(line=>{ const s = line.slice().sort((a,b)=>a.x-b.x);
   for(let i=0;i+1<s.length;i++)
     ok(!(s[i].x + s[i].w > s[i+1].x + 0.5), '이미지 열이 겹친다: '+s[i].t+' / '+s[i+1].t); });
-ok(canvas.width*canvas.height <= 16777216, '캔버스가 iOS 한도를 넘어 저장이 실패한다');
-ok(canvas.width > canvas.height, '가로형이 아니다');
+ok(sizes.length === 1, '두 줄짜리 목록인데 장이 하나가 아니다: ' + sizes.length);
+ok(sizes.every(s=>s.w*s.h <= 16777216), '캔버스가 iOS 한도를 넘어 저장이 실패한다');
+ok(sizes[0].w > sizes[0].h, '가로형이 아니다');
+ok(saved.length === 1 && !/of/.test(saved[0]), '한 장인데 장 번호가 붙었다: ' + saved);
+
+// ★ **한 장에 안 들어가면 자른 것이 아니라 장을 늘려야 한다** (2026-08-18 지시:
+//   "장수가 여러장 되도 좋으니 전국 캠프 다 표시해서 나오게 해"). 실측 402개 중
+//   89개만 나가던 자리다 — 그림에 적어 두긴 했으니 조용한 사고는 아니었지만,
+//   대표 보고에 쓰는 그림이 자료의 5분의 1이었다.
+for(let i=0;i<250;i++) rows.push({ 캠프명:'C'+i, 정기점검:true, 정기점검건수:1,
+  최근작업일:'2026-08-01', 거래처코드:'CU'+i,
+  현장책임:{이름:'가나다', 전화:'010-0000-'+String(1000+i), 메일:''},
+  안전관리:{이름:'', 전화:'', 메일:''}, 담당자:{이름:'', 전화:'', 메일:''} });
+drawn.length = 0; sizes.length = 0; saved = []; await api.campsCapture();
+ok(sizes.length >= 2, '250개를 한 장에 우겨 넣었다(장이 ' + sizes.length + '개)');
+ok(sizes.every(s=>s.w*s.h <= 16777216), '장이 iOS 캔버스 한도를 넘는다');
+ok(saved.length === sizes.length, '만든 장 수와 내보낸 파일 수가 다르다: '
+   + sizes.length + ' vs ' + saved.length);
+ok(saved.every((n,i)=>n.indexOf((i+1)+'of'+saved.length) > 0),
+   '파일 이름에 몇 장 중 몇 장째인지가 없다: ' + saved.join(', '));
+const seen = new Set(drawn.filter(d=>/^C\d+$/.test(d.t)).map(d=>d.t));
+ok(seen.size === 250, '캠프를 다 안 실었다 — 그린 것 ' + seen.size + '개 / 250개');
+// 다 실었으면 '못 실었다' 각주가 있으면 안 된다(있으면 거짓말이 된다, [169]).
+ok(!drawn.some(d=>/개는 엑셀 저장으로 받으십시오/.test(d.t)),
+   '전부 실었는데 못 실었다고 적었다');
+// 장마다 머리글이 다시 그려져야 한다 — 2장째만 받은 사람도 어느 칸이 누구 전화인지 안다.
+ok(drawn.filter(d=>d.t==='현장책임').length === sizes.length, '장마다 머리글이 없다');
+
 api.campsXlsx();
 ['현장책임','안전관리','담당자(직책 미상)'].forEach(r=>['이름','전화','이메일'].forEach(c=>
   ok(Object.keys(xlsxRows[0]).includes(r+' '+c), '엑셀 열 없음: '+r+' '+c)));
+// ★ **엑셀에 빈 칸을 남기지 않는다** (2026-08-18 지시: "엑셀 파일도 전부 기입해서").
+//   빈 칸은 '적을 것이 없다'인지 '아직 못 찾았다'인지 구별이 안 된다([169]) —
+//   화면이 쓰는 그 낱말 '모름' 을 그대로 적어야 뜻이 이어진다.
+const empties = [];
+xlsxRows.forEach((o,i)=>Object.entries(o).forEach(([k,v])=>{
+  if(v === '' || v == null) empties.push(i+':'+k); }));
+ok(!empties.length, '엑셀에 빈 칸이 남았다: ' + empties.slice(0,4).join(', '));
+ok(xlsxRows.some(o=>o['안전관리 전화'] === '모름'), "빈 값을 '모름'이라 안 적는다");
+ok(xlsxRows.length === rows.length, '엑셀이 목록을 잘랐다: '
+   + xlsxRows.length + ' / ' + rows.length);
+
 console.log(bad.length ? '실패:\n' + bad.join('\n') : 'ALL OK');
 process.exit(bad.length ? 1 : 0);
+})();
 """
 
 
