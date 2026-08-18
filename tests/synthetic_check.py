@@ -21013,6 +21013,181 @@ def t301_camp_edits_survive_the_round():
           "낙관잠금·감사로그·새 캠프 추가 · 5분 회차 자동 갱신 ✅")
 
 
+_T302_FLOW_HARNESS = r"""
+const __html = require('fs').readFileSync(__IDX__, 'utf8');
+const __i0 = __html.indexOf("function flowVisualNode(");
+const __i1 = __html.indexOf("function flowVisualRender(");
+if (__i0 < 0 || __i1 < 0 || __i1 <= __i0) { console.log('도면 블록을 못 찾음'); process.exit(1); }
+let __blk = __html.slice(__i0, __i1);
+if (__BREAK__) {                       // 계기 자신을 시험한다([272])
+  __blk = __blk.replace(
+    'return interactive\n      ? `<button type="button"',
+    'return true\n      ? `<button type="button"');
+}
+
+function esc2(v){ return String(v == null ? '' : v)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+let FLOW_VISUAL = {}, FLOW_VIS_SELECTED = null, FLOW_VIS_ARROW_FROM = '';
+const api = eval(__blk + "\n;({flowVisualStageHtml})");
+
+let n = 0;
+function must(cond, msg){ if(!cond){ console.log('FAIL: ' + msg); process.exit(1); } n++; }
+
+FLOW_VISUAL = {revision: 4, width: 1400, height: 820,
+  nodes: [{id:'n1', label:'접수', owner:'류지영', x:40, y:60, w:220, h:78, color:'#0062CC'},
+          {id:'n2', label:'완료', owner:'오종현', x:520, y:300, w:220, h:78, color:'#12813F'}],
+  edges: [{id:'e1', from:'n1', to:'n2'}],
+  strokes: [{id:'s1', color:'#2452E6', width:3, points:[[10,10],[80,90],[140,40]]}]};
+
+const edit = api.flowVisualStageHtml(true);
+const prev = api.flowVisualStageHtml(false);
+
+// ① 미리보기에는 손잡이가 **하나도** 없다 — pointer-events 만 믿지 않는다
+must(!/onpointerdown/.test(prev), '미리보기에 pointerdown 손잡이가 남았다 — 스크롤하다 배치가 틀어진다');
+must(!/<button/.test(prev), '미리보기 단계가 <button> 이다 — 눌리진 않아도 탭 키로 잡힌다');
+must(!/flow-vedge-hit|flow-vstroke-hit/.test(prev), '미리보기에 굵은 히트 선이 남았다');
+
+// ② 편집기에는 그대로 있다 — 없애 버린 것이 아니다
+must(/onpointerdown="flowVisualNodeDown/.test(edit), '편집기에서 단계를 못 끈다');
+must(/onpointerdown="flowVisualEdgeDown/.test(edit), '편집기에서 화살표를 못 고른다');
+must(/onpointerdown="flowVisualStrokeDown/.test(edit), '편집기에서 손그림을 못 고른다');
+must(/<button type="button" class="flow-vnode/.test(edit), '편집기 단계가 단추가 아니다');
+
+// ③ 화살촉 marker id 가 갈려 있다 — 편집기가 display:none 이어도 미리보기 촉이 산다
+must(prev.indexOf('id="flowArrowHeadPv"') >= 0 && prev.indexOf('marker-end:url(#flowArrowHeadPv)') >= 0,
+     '미리보기가 편집기 안의 marker 를 참조한다 — 화살촉만 조용히 사라진다');
+must(edit.indexOf('id="flowArrowHead"') >= 0 && edit.indexOf('flowArrowHeadPv') < 0,
+     '편집기 marker id 가 바뀌었다 — CSS marker-end:url(#flowArrowHead) 와 어긋난다');
+
+// ④ 두 벌이 **같은 도면**을 그린다(만드는 자리가 하나다 · [162])
+const nodesOf = h => (h.match(/data-flow-node="[^"]+"/g) || []).sort();
+const posOf   = h => (h.match(/left:\d+px;top:\d+px/g) || []).sort();
+const pathOf  = h => (h.match(/ d="M [^"]+"/g) || []).sort();
+must(JSON.stringify(nodesOf(edit)) === JSON.stringify(nodesOf(prev)), '미리보기가 다른 단계를 그린다');
+must(JSON.stringify(posOf(edit)) === JSON.stringify(posOf(prev)), '미리보기 좌표가 편집기와 다르다');
+must(nodesOf(prev).length === 2 && posOf(prev).length === 2, '미리보기가 단계를 빠뜨렸다');
+must(pathOf(prev).length >= 2, '미리보기가 화살표·손그림을 빠뜨렸다');
+
+// ⑤ 미리보기는 선택 상태를 안 물려받는다 — 닫아 둔 그림에 빨간 선이 남으면 고장으로 보인다
+FLOW_VIS_SELECTED = {type:'node', id:'n1'}; FLOW_VIS_ARROW_FROM = 'n2';
+must(!/selected|arrow-source/.test(api.flowVisualStageHtml(false)), '미리보기가 편집 중 선택 표시를 물려받는다');
+must(/selected/.test(api.flowVisualStageHtml(true)), '편집기에서 선택 표시가 사라졌다');
+FLOW_VIS_SELECTED = null; FLOW_VIS_ARROW_FROM = '';
+
+// ⑥ 도면이 비어도 터지지 않는다(빈 도면은 미리보기가 안내문을 대신 그린다)
+FLOW_VISUAL = {revision:0, nodes:[], edges:[], strokes:[]};
+must(typeof api.flowVisualStageHtml(false) === 'string', '빈 도면에서 미리보기가 터진다');
+
+console.log('ALL OK ' + n);
+"""
+
+
+def t302_flow_canvas_only_edits_in_its_own_window():
+    """[302] 워크플로우 도면은 **별도 창에서만** 고쳐진다
+    (2026-08-18 지시 [113]: "스크롤하다 건드리면 틀어진다").
+
+    작업면은 `touch-action:none` 이라 폰에서 그 위를 지나 쓸어내리면
+    **페이지가 안 내려가고**, 손가락이 단계에 닿으면 그대로 끌려
+    배치가 틀어졌다. 저장을 안 해도 화면은 달라 보이므로 사람은
+    도면이 망가진 줄 안다 — 오류도 안 나는 종류다.
+
+    ★ 글자 검사로는 '미리보기가 정말 못 움직이는가'를 못 재다([295]).
+      그래서 만드는 함수를 node 로 **실행해** 결과로 재고,
+      일부러 고장을 주입해 그 계기가 잡는지까지 본다([272]).
+    """
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # ① 닫혀 있을 때 편집기는 **화면에 없다**. hidden 속성이 아니라
+    #    레이어 밖이면 안 보이는 규칙이다 — layerRestore 가 닫을 때 저절로 되돌린다.
+    assert "#flowVisualEditor:not(.in-layer){display:none}" in live, (
+        "도면 편집기가 흐름 화면에 그대로 깔려 있다 — 스크롤하다 배치가 틀어진다")
+    assert 'id="flowVisualEditor"' in live and 'id="flowVisualOpenBtn"' in live, (
+        "도면을 여는 문이 없다")
+
+    # ② 시트를 새로 만들지 않고 이미 있는 layerOpen 을 쓴다([236]).
+    #    그것은 요소를 **복사하지 않고 옆겼다가 제자리로 돌려놓는다.**
+    opener = live[live.index("function flowVisualOpen("):]
+    opener = opener[:opener.index("\nwindow.addEventListener('resize'")]
+    assert "layerOpen('flowVisualEditor'" in opener, (
+        "도면 창을 layerOpen 이 아닌 길로 열었다 — 사본이 둘이 된다([236])")
+    assert "layerIsOpen('flowVisualEditor')" in opener, "열린 창을 또 열면 겹친다"
+
+    # ③ touch-action 은 **편집용 작업면에만** 붙는다. 미리보기는 pan-y 라
+    #    본문이 그대로 내려간다([232] 가 조직도에서 지키는 것과 같은 규칙).
+    def _rule(sel):
+        # ★ 선택자를 문자열로 찾을 때는 **줄 머리부터** 찾는다. `.flow-vpreview-stage{`
+        #   를 그냥 찾으면 공용 규칙 `.flow-vstage,.flow-vpreview-stage{` 안에 먼저
+        #   걸려 **엉뜻한 덩어리를 재고도 재었다고 말한다**(이 검사가 실제로 그랬다).
+        i = live.index("\n" + sel + "{")
+        return live[i:live.index("}", i)]
+
+    assert ".flow-vstage{touch-action:none" in live, "편집 작업면이 포인터를 붙잡지 않는다"
+    for sel in (".flow-vpreview", ".flow-vpreview-stage"):
+        assert "touch-action:pan-y" in _rule(sel), (
+            "미리보기(%s)가 본문 스크롤을 집어삼킨다" % sel)
+    assert "pointer-events:none" in _rule(".flow-vpreview-stage"), (
+        "미리보기 두 겹 중 한 겹(pointer-events)이 빠졌다")
+    # ★ 진짜 규칙은 이것이다: 손가락을 붙잡는 선언은 **편집 작업면 하나뿐**이다.
+    #   도면 CSS 구역 어디에든 touch-action:none 이 하나 더 생기면 그 순간
+    #   폰에서 본문이 다시 안 내려간다 — 그러면 [113] 이 되돌아간 것이다.
+    zone = live[live.index("\n.flow-vhint{"):live.index("\n.flow-vnode{")]
+    # 설명 주석이 그 낱말을 쓰면 검사가 제 주석에 걸린다([301]⑨ 에서 똑같이 당했다)
+    bare = re.sub(r"/\*.*?\*/", "", zone, flags=re.S)
+    holders = [ln.strip() for ln in bare.splitlines() if "touch-action:none" in ln]
+    assert holders == [".flow-vstage{touch-action:none;cursor:default}"], (
+        "손가락을 붙잡는 규칙이 편집 작업면 밖으로 번졌다: %r" % (holders,))
+
+    # ④ 미리보기 그리는 자리 마크업에는 포인터 손잡이가 없다.
+    box = live[live.index('id="flowVisualPreview"'):]
+    box = box[:box.index(">")]
+    assert "onpointerdown" not in box and "onpointerup" not in box, (
+        "미리보기 상자에 포인터 손잡이가 달렸다")
+
+    # ⑤ 도면 전체를 줄여 보여 준다 — 잘라 내고 입 닫지 않는다([273]).
+    assert "function flowVisualPreviewFit(" in live and "Math.min(0.45,w/1400)" in live, (
+        "미리보기가 폭에 맞춰 줄여 그리지 않는다")
+    assert "여기서는 눌러도 배치가 바뀌지 않습니다" in live, (
+        "미리보기가 '여기서는 안 바뀐다'는 사실을 안 말한다([169])")
+    assert "저장 안 한 변경이 있습니다" in live, (
+        "닫은 뒤 남은 미저장 변경을 화면이 안 말한다")
+
+    # ⑥ 그리는 자리는 하나다([162]) — 둘로 나눈 흔적이 없는지.
+    assert live.count("function flowVisualStageHtml(") == 1, "도면을 그리는 함수가 둘이다"
+
+    # ⑦ 진짜로 못 움직이는지는 **실행해서** 재다([295]).
+    import shutil as _sh302
+    node = _sh302.which("node")
+    if not node:
+        print("  [302] 도면 별도 창 — 글자 검사만 통과(node 없어 실행 확인 못 함)")
+        return
+    idx = json.dumps(os.path.join(ROOT, "webapp", "index.html"))
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, brk, want in (("ok.js", "false", True), ("bad.js", "true", False)):
+            jp = os.path.join(tmp, name)
+            with open(jp, "w", encoding="utf-8") as fh:
+                fh.write(_T302_FLOW_HARNESS.replace("__IDX__", idx).replace("__BREAK__", brk))
+            proc = subprocess.Popen([node, jp], stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            try:                               # 한 단계가 영원히 안 끝나면 안 된다([175])
+                out = proc.communicate(timeout=60)[0].decode("utf-8", "replace")
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                out = proc.communicate(timeout=20)[0].decode("utf-8", "replace")
+            ok = ("ALL OK" in out and proc.returncode == 0)
+            if want:
+                assert ok, "도면 미리보기 실행 확인 실패:\n" + out[-1500:]
+            else:
+                # 계기 자신을 시험한다([272]) — 0 을 내는 계기는 아무도 의심하지 않는다.
+                assert not ok, (
+                    "미리보기에 손잡이를 일부러 달았는데도 검사가 통과했다 — "
+                    "이 검사는 아무것도 안 재고 있다:\n" + out[-800:])
+
+    print("  [302] 도면 — 편집은 별도 창(layerOpen)에서만 · "
+          "닫혀 있을 때는 누르지도 끌리지도 않는 미리보기 · "
+          "본문 스크롤 살아 있음 · 그리는 자리는 하나 ✅")
+
+
 def t299_kakao_evidence_reaches_the_capture():
     """[299] 카톡에 적힌 근거가 대표 캡처까지 간다 — 그리고 없는 근거는 안 만든다.
 
@@ -21918,6 +22093,7 @@ if __name__ == "__main__":
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()
     t301_camp_edits_survive_the_round()
+    t302_flow_canvas_only_edits_in_its_own_window()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

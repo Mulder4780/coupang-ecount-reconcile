@@ -2773,13 +2773,35 @@ body.dash-even #dashGrid>.dash-block.dash-expanded.dash-overflow .dash-more{disp
 .flow-vtool.save{background:#12813F;border-color:#12813F;color:#fff}
 .flow-vtool.danger{color:var(--danger)}
 .flow-vhint{min-height:20px;margin:0 0 7px;color:var(--brand-dk);font:750 12.5px inherit}
+/* ★ 도면은 **별도 창(시트)** 에서만 편집한다 (2026-08-18 지시 [113]).
+   전에는 이 작업면이 흐름 화면에 그대로 깔려 있었다. 작업면은 touch-action:none 이라
+   **폰에서 그 위를 지나 스크롤하면 페이지가 안 내려가고, 손가락이 단계에 닿으면
+   그대로 끌려 배치가 틀어졌다.** 저장을 안 해도 화면은 달라 보이므로 사람은
+   도면이 망가진 줄 안다 — 오류도 안 나는 종류다.
+   닫혀 있을 때 보이는 것은 **눌리지 않는 미리보기**다. 막는 것을 두 겹으로 둔다:
+   ① 미리보기에는 pointerdown 핸들러를 아예 안 단다 ② pointer-events 로 한 번 더 막는다.
+   한 겹만 두면 언젠가 다른 쪽 손질에 새어 나간다. */
+#flowVisualEditor:not(.in-layer){display:none}
+.flow-vopen{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.flow-vpreview{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:14px;
+  background:var(--panel);cursor:pointer;touch-action:pan-y}
+.flow-vpreview:hover{border-color:var(--brand-btn)}
+.flow-vpreview-empty{padding:26px 14px;text-align:center;color:var(--ink-3);font-size:12.5px}
+.flow-vpreview-cap{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:7px;
+  font-size:12px;color:var(--ink-3)}
+.flow-vpreview-cap b{color:var(--brand-dk);font-weight:800}
+.flow-vpreview-cap .dirty{color:var(--danger);font-weight:800}
 .flow-vscroll{position:relative;max-width:100%;overflow:auto;border:1px solid var(--line);
   border-radius:14px;background:var(--panel);overscroll-behavior:contain}
-.flow-vstage{position:relative;width:1400px;height:820px;isolation:isolate;touch-action:none;
+/* 작업면의 생김새는 한 벌이고, **손가락을 붙잡는 규칙만** 편집용에 붙는다 */
+.flow-vstage,.flow-vpreview-stage{position:relative;width:1400px;height:820px;isolation:isolate;
   background-color:var(--surface);background-image:
     linear-gradient(var(--line) 1px,transparent 1px),
     linear-gradient(90deg,var(--line) 1px,transparent 1px);
-  background-size:24px 24px;cursor:default;user-select:none}
+  background-size:24px 24px;user-select:none}
+.flow-vstage{touch-action:none;cursor:default}
+.flow-vpreview-stage{position:absolute;left:0;top:0;transform-origin:0 0;
+  pointer-events:none;touch-action:pan-y;border-radius:0}
 .flow-vstage.mode-add{cursor:crosshair}.flow-vstage.mode-draw{cursor:crosshair}
 .flow-vsvg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;z-index:1}
 .flow-vedge{fill:none;stroke:var(--ink-2);stroke-width:3;marker-end:url(#flowArrowHead)}
@@ -3709,6 +3731,17 @@ body.dash-drag-live #dashGuides{display:grid}
       <div class="flow-visual-head">
         <div><h4>마우스 워크플로우 도면</h4>
           <p>단계를 놓고 두 단계를 화살표로 이은 뒤, 필요한 표시를 손으로 그릴 수 있습니다.</p></div>
+        <div class="flow-vopen">
+          <button type="button" class="abtn primary" id="flowVisualOpenBtn"
+            onclick="flowVisualOpen()">도면 열기</button>
+        </div>
+      </div>
+      <!-- 닫혀 있을 때 = 눌리지 않는 미리보기. 이 위를 지나 스크롤해도 배치가 안 틀어진다 -->
+      <div class="flow-vpreview" id="flowVisualPreview" role="button" tabindex="0"
+        onclick="flowVisualOpen()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();flowVisualOpen();}"
+        title="눌러서 도면을 별도 창으로 엽니다"></div>
+      <div class="flow-vpreview-cap" id="flowVisualPreviewCap"></div>
+      <div id="flowVisualEditor">
         <div class="flow-vtools" id="flowVisualTools">
           <button type="button" class="flow-vtool on" data-flow-mode="select" onclick="flowVisualMode('select')">선택·이동</button>
           <button type="button" class="flow-vtool" data-flow-mode="add" onclick="flowVisualMode('add')">+ 단계 넣기</button>
@@ -3720,18 +3753,18 @@ body.dash-drag-live #dashGuides{display:grid}
           <button type="button" class="flow-vtool" onclick="flowVisualRestore()">저장본 되돌리기</button>
           <button type="button" class="flow-vtool save" id="flowVisualSaveBtn" onclick="flowVisualSave()">도면 저장</button>
         </div>
-      </div>
-      <div class="flow-vhint" id="flowVisualHint">단계를 끌어 원하는 위치로 옮기세요.</div>
-      <div class="flow-vscroll" id="flowVisualScroll">
-        <div class="flow-vstage mode-select" id="flowVisualStage" tabindex="0"
-          onpointerdown="flowVisualStageDown(event)" onkeydown="flowVisualKey(event)"></div>
-      </div>
-      <div class="flow-vinspect" id="flowVisualInspect" hidden>
-        <label for="flowVisualLabel">단계 이름</label>
-        <input id="flowVisualLabel" maxlength="80" onchange="flowVisualNodeField('label',this.value)">
-        <label for="flowVisualOwner">담당</label>
-        <input id="flowVisualOwner" maxlength="30" onchange="flowVisualNodeField('owner',this.value)">
-        <span class="flow-vstatus" id="flowVisualStatus"></span>
+        <div class="flow-vhint" id="flowVisualHint">단계를 끌어 원하는 위치로 옮기세요.</div>
+        <div class="flow-vscroll" id="flowVisualScroll">
+          <div class="flow-vstage mode-select" id="flowVisualStage" tabindex="0"
+            onpointerdown="flowVisualStageDown(event)" onkeydown="flowVisualKey(event)"></div>
+        </div>
+        <div class="flow-vinspect" id="flowVisualInspect" hidden>
+          <label for="flowVisualLabel">단계 이름</label>
+          <input id="flowVisualLabel" maxlength="80" onchange="flowVisualNodeField('label',this.value)">
+          <label for="flowVisualOwner">담당</label>
+          <input id="flowVisualOwner" maxlength="30" onchange="flowVisualNodeField('owner',this.value)">
+          <span class="flow-vstatus" id="flowVisualStatus"></span>
+        </div>
       </div>
     </div>
     <div class="card" data-lc-skip>
@@ -9963,36 +9996,105 @@ function flowVisualEdgePath(e){
 function flowVisualStrokePath(s){
   return (s.points||[]).map((p,i)=>(i?'L ':'M ')+(+p[0])+' '+(+p[1])).join(' ');
 }
-function flowVisualRender(){
-  const st=$('flowVisualStage'); if(!st)return;
-  flowVisualEnsure();
-  st.style.width=(FLOW_VISUAL.width||1400)+'px'; st.style.height=(FLOW_VISUAL.height||820)+'px';
-  const sel=FLOW_VIS_SELECTED||{};
+/* 작업면에 그릴 것을 만드는 자리는 **하나**다([162]) — 편집기와 미리보기가 같은 도면을
+   서로 다르게 그리면 사람은 어느 쪽이 진짜인지 알 수 없다.
+   interactive=false 는 미리보기용이다:
+   · 손잡이(onpointerdown)와 굵은 히트 선을 **아예 안 단다** — pointer-events 만 믿지 않는다
+   · 단계를 <button> 이 아니라 <div> 로 낸다. 버튼은 눌리진 않아도 **탭 키로 잡힌다**
+   · 화살촉 marker 는 제 id 를 쓴다 — 편집기가 display:none 일 때 그 안의 marker 를
+     참조하면 화살표에서 촉만 조용히 사라진다(선은 그대로라 아무도 못 알아채다) */
+function flowVisualStageHtml(interactive){
+  const sel=interactive?(FLOW_VIS_SELECTED||{}):{};
+  const mk=interactive?'flowArrowHead':'flowArrowHeadPv';
+  const from=interactive?FLOW_VIS_ARROW_FROM:'';
   const edgeHtml=(FLOW_VISUAL.edges||[]).map(e=>{
     const d=flowVisualEdgePath(e); if(!d)return '';
     return `<path class="flow-vedge${sel.type==='edge'&&sel.id===e.id?' selected':''}"
-      data-flow-edge="${esc2(e.id)}" d="${d}"></path>
-      <path class="flow-vedge-hit" d="${d}" onpointerdown="flowVisualEdgeDown(event,'${esc2(e.id)}')"></path>`;
+      data-flow-edge="${esc2(e.id)}" d="${d}"${interactive?'':` style="marker-end:url(#${mk})"`}></path>`
+      +(interactive?`
+      <path class="flow-vedge-hit" d="${d}" onpointerdown="flowVisualEdgeDown(event,'${esc2(e.id)}')"></path>`:'');
   }).join('');
   const strokeHtml=(FLOW_VISUAL.strokes||[]).map(s=>{
     const d=flowVisualStrokePath(s), on=sel.type==='stroke'&&sel.id===s.id;
     return `<path class="flow-vstroke${on?' selected':''}" data-flow-stroke="${esc2(s.id)}"
-      d="${d}" style="stroke:${esc2(s.color||'#2452E6')};stroke-width:${+s.width||3}"></path>
-      <path class="flow-vstroke-hit" d="${d}" onpointerdown="flowVisualStrokeDown(event,'${esc2(s.id)}')"></path>`;
+      d="${d}" style="stroke:${esc2(s.color||'#2452E6')};stroke-width:${+s.width||3}"></path>`
+      +(interactive?`
+      <path class="flow-vstroke-hit" d="${d}" onpointerdown="flowVisualStrokeDown(event,'${esc2(s.id)}')"></path>`:'');
   }).join('');
-  const nodes=(FLOW_VISUAL.nodes||[]).map((n,i)=>`<button type="button"
-      class="flow-vnode${sel.type==='node'&&sel.id===n.id?' selected':''}${FLOW_VIS_ARROW_FROM===n.id?' arrow-source':''}"
-      data-flow-node="${esc2(n.id)}" style="left:${+n.x||0}px;top:${+n.y||0}px;width:${+n.w||220}px;
-      height:${+n.h||78}px;--node-c:${esc2(n.color||'#0062CC')}"
-      onpointerdown="flowVisualNodeDown(event,'${esc2(n.id)}')">
-      <span class="vn">${i+1}</span><span class="vl"><b>${esc2(n.label||'새 단계')}</b>
-      <span>${esc2(n.owner||'담당 미정')}</span></span></button>`).join('');
-  st.innerHTML=`<svg class="flow-vsvg" viewBox="0 0 1400 820" aria-hidden="true">
-    <defs><marker id="flowArrowHead" markerWidth="10" markerHeight="10" refX="8" refY="3"
+  const nodes=(FLOW_VISUAL.nodes||[]).map((n,i)=>{
+    const cls=`flow-vnode${sel.type==='node'&&sel.id===n.id?' selected':''}${from===n.id?' arrow-source':''}`;
+    const box=`class="${cls}" data-flow-node="${esc2(n.id)}" style="left:${+n.x||0}px;top:${+n.y||0}px;`
+      +`width:${+n.w||220}px;height:${+n.h||78}px;--node-c:${esc2(n.color||'#0062CC')}"`;
+    const body=`<span class="vn">${i+1}</span><span class="vl"><b>${esc2(n.label||'새 단계')}</b>`
+      +`<span>${esc2(n.owner||'담당 미정')}</span></span>`;
+    return interactive
+      ? `<button type="button" ${box} onpointerdown="flowVisualNodeDown(event,'${esc2(n.id)}')">${body}</button>`
+      : `<div ${box}>${body}</div>`;
+  }).join('');
+  return `<svg class="flow-vsvg" viewBox="0 0 1400 820" aria-hidden="true">
+    <defs><marker id="${mk}" markerWidth="10" markerHeight="10" refX="8" refY="3"
       orient="auto" markerUnits="strokeWidth"><path class="flow-varrow" d="M0,0 L0,6 L9,3 z"/></marker></defs>
     ${edgeHtml}${strokeHtml}</svg>${nodes}`;
+}
+function flowVisualRender(){
+  flowVisualEnsure();
+  const st=$('flowVisualStage');
+  if(st){
+    st.style.width=(FLOW_VISUAL.width||1400)+'px'; st.style.height=(FLOW_VISUAL.height||820)+'px';
+    st.innerHTML=flowVisualStageHtml(true);
+  }
+  flowVisualPreviewRender();
   flowVisualUi();
 }
+/* 미리보기는 도면 전체를 폭에 맞춰 줄여 보여 준다 — 잘라 내지 않는다([273]).
+   화면이 아직 안 그려졌으면 폭이 0 이라 한 번만 다시 재다(그때 잘못 재면 납작해진다). */
+function flowVisualPreviewFit(retry){
+  const box=$('flowVisualPreview'); if(!box)return;
+  const st=box.querySelector('.flow-vpreview-stage');
+  if(!st){box.style.height='';return;}
+  const w=box.clientWidth||Math.round(box.getBoundingClientRect().width)||0;
+  if(!w){ if(!retry) setTimeout(()=>flowVisualPreviewFit(true),80); return; }
+  const sc=Math.min(0.45,w/1400);
+  st.style.transform='scale('+sc+')';
+  st.style.left=Math.max(0,Math.round((w-1400*sc)/2))+'px';
+  box.style.height=Math.round(820*sc)+'px';
+}
+function flowVisualPreviewRender(){
+  const box=$('flowVisualPreview');
+  if(box){
+    const empty=!(FLOW_VISUAL.nodes||[]).length&&!(FLOW_VISUAL.strokes||[]).length;
+    if(empty){
+      box.innerHTML='<div class="flow-vpreview-empty">도면이 비어 있습니다 — [도면 열기]에서 단계를 놓으세요.</div>';
+      box.style.height='';
+    }else{
+      box.innerHTML='<div class="flow-vpreview-stage">'+flowVisualStageHtml(false)+'</div>';
+      flowVisualPreviewFit();
+    }
+  }
+  const cap=$('flowVisualPreviewCap');
+  if(cap)cap.innerHTML='<b>단계 '+((FLOW_VISUAL.nodes||[]).length)+'</b> · 화살표 '
+    +((FLOW_VISUAL.edges||[]).length)+' · 손그림 '+((FLOW_VISUAL.strokes||[]).length)
+    +' · 저장판 '+Number(FLOW_VISUAL.revision||0)
+    +(FLOW_VIS_DIRTY?' <span class="dirty">· 저장 안 한 변경이 있습니다</span>':'')
+    +' <span>— 여기서는 눌러도 배치가 바뀌지 않습니다. 고치려면 [도면 열기]</span>';
+}
+/* 편집은 **별도 창**에서만 한다([113]). 시트를 새로 만들지 않고 이미 있는 layerOpen 을
+   쓴다([236]) — 그것은 요소를 **복사하지 않고 옆겼다가 닫을 때 제자리로 돌려놓는다**.
+   그래서 id 가 그대로라 flowVisualRender 가 손댐 것이 없다. */
+function flowVisualOpen(){
+  if(typeof layerIsOpen==='function'&&layerIsOpen('flowVisualEditor'))return;
+  if(typeof layerOpen!=='function'||!layerOpen('flowVisualEditor',
+      {title:'마우스 워크플로우 도면',
+       sub:'닫아도 저장 전 변경은 남습니다 — [도면 저장]을 눌러야 다른 기기에 갑니다.'})){
+    notice('도면 창을 열지 못했습니다 — 화면을 새로고침한 뒤 다시 시도해 주세요.'); return;
+  }
+  flowVisualRender();
+  try{$('flowVisualStage').focus({preventScroll:true});}catch(_){}
+  uxEvent('tap','flow-visual-open',String(FLOW_CHART||''));
+}
+window.addEventListener('resize',()=>{
+  if(typeof curView==='function'&&curView()==='flow')flowVisualPreviewFit();
+});
 function flowVisualUi(){
   const st=$('flowVisualStage'); if(!st)return;
   st.className='flow-vstage mode-'+FLOW_VIS_MODE;
