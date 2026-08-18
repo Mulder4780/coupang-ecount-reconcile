@@ -400,12 +400,19 @@ def kill_stale_tunnel():
     프로세스 이름이 ``cloudflared.exe`` 라는 이유만으로 전부 죽이면 같은 PC에서 도는
     다른 서비스 터널까지 같이 끊긴다. 정확한 ``webapp/tunnel_run.py`` 명령행과 그
     자식, 또는 이 앱 포트(8899)를 가리키는 quick-tunnel만 대상으로 삼는다.
+
+    ★ **경로가 명령줄에 있다는 것만으로는 근거가 안 된다** (2026-08-13 실사고 · 분담판
+      [85]). 그 파일을 편집기로 열어 두거나, 그 경로를 인자로 넘긴 grep·검사 명령도
+      명령줄에 같은 글자를 담는다. 실측으로 이 고침을 확인하던 PowerShell 이 통째로
+      죽었다(exit 255 · 출력 0). **이름으로 죽일 때는 그 이름이 남의 명령줄에도
+      있다고 생각한다** — 그래서 **python 이 실행 중인 것**만 주인으로 친다.
     """
     script = os.path.normcase(os.path.abspath(os.path.join(ROOT, "webapp", "tunnel_run.py")))
     script_ps = script.replace("'", "''")
     ps = (
         "$all = @(Get-CimInstance Win32_Process); "
         f"$owners = @($all | Where-Object {{ $_.CommandLine -and "
+        f"$_.Name -and (@('python.exe','pythonw.exe') -contains $_.Name.ToLower()) -and "
         f"[IO.Path]::GetFullPath(('{script_ps}')) -and "
         f"$_.CommandLine.ToLower().Contains(('{script_ps}').ToLower()) }}); "
         "$ownerIds = @($owners | ForEach-Object { [int]$_.ProcessId }); "
@@ -692,6 +699,27 @@ def watch_coordination(dry):
     return "겹침 알릴 것 %d건: %s" % (len(ns), ", ".join(sorted({n["갈래"] for n in ns})))
 
 
+def watch_orgchart(dry):
+    """조직도가 바뀌었고 **그것이 따라갔나** (2026-08-13 지시, `[297]`).
+
+    ★ 반영하는 손은 이미 있다 — 조직도 **코드**가 바뀌면 이 회차의 `heal_stale_server`
+      가 서버를 갈아 준다(`[156]`·`[265]`). 여기서 또 갈면 폰이 502 를 두 번 받는다.
+    ★ 아무도 안 보던 것은 **코드가 아닌 변경**이다: 흐름 정의는 DB 표(`flow_step`)라
+      사람이 앱에서 고치면 **파일 mtime 이 안 움직인다** — `heal_stale_server` 는
+      "서버 정상"이라 말하고 스케줄러도 조용하다.
+    ★ `heal_stale_server` **뒤**, `snapshot_handoff` **앞**이다(`watch_schedules` 와
+      같은 이유 — 뒤에 두면 인계가 언제나 30분 전 판정을 싣는다).
+    ★ **`dry` 여도 본다.** 읽기 전용이라 고치는 것이 없고, 안 보면 `--dry` 로 이 눈이
+      도는지 확인할 길이 없다. 다만 자국은 안 남긴다.
+    """
+    try:
+        import org_watch
+        d = org_watch.build(save=not dry)
+        return org_watch._line(d)
+    except Exception as exc:
+        return "조직도 확인 실패: %s: %s" % (type(exc).__name__, str(exc)[:60])
+
+
 def watch_takeover(dry):
     """다른 계정이 **언제든 이어받을 수 있는 상태인가** (2026-08-17 지시).
 
@@ -798,6 +826,9 @@ def main():
                watch_takeover(dry),
                # ★ 겹쳐서 양보한 일이 정말 되었나 — 인계보다 먼저다(2026-08-17, `[293]`).
                watch_coordination(dry),
+               # ★ 조직도 변경이 따라갔나 — `heal_stale_server` 뒤(그가 서버를 갈고
+               #   나서 봐야 한다) · 인계 앞이다(2026-08-13 지시, `[297]`).
+               watch_orgchart(dry),
                # ★ 올린 것의 결과를 뒤따라 알린다 — 5분 스케줄러가 집어간 회차는
                #   앱이 끝난 줄 모른다(2026-08-14).
                close_upload_notices(dry),
