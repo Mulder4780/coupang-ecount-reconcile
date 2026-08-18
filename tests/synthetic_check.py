@@ -22520,6 +22520,75 @@ def t309_camp_code_guess_never_names_a_wrong_customer():
           "· 읽기 전용 ✅")
 
 
+
+def t310_button_classes_always_have_a_look():
+    """[310] 마크업이 쓰는 단추 클래스에는 **반드시 CSS 가 있다** (2026-08-18 형님 지시).
+
+    지시: "캠프 추가, 수정, 저장 등 아이콘이 크게 보이게 해 (담당자가 찾아야되잖아
+    잘 안보여)". **원인은 크기가 아니라 CSS 가 아예 없던 것이었다** — 실측으로
+    `.btn`·`.btn.xs`·`.chk` 의 CSS 등장 횟수가 **0** 이었다. 하루 전 캠프 편집 기능을
+    만들면서 마크업만 넣고 모양을 안 만들어, 다섯 자리가 전부 **브라우저 기본 단추**로
+    그려졌다. 오류도 안 나고 코드에는 `class="btn"` 이 적혀 있어 **읽는 사람은 모양이
+    있는 줄 안다**(`[169]`) — 화면을 열어 본 사람만 안다.
+
+    ★ 그래서 이 검사는 캠프 화면만 보지 않는다. **단추처럼 생긴 클래스 전부**를 훑어
+      규칙이 없는 것을 잡는다 — 다음에 어느 화면에서 같은 일이 나도 여기서 걸린다.
+    ★ 크기는 **실측으로** 정했다(브라우저에서 잰 값): `.btn` 44px · `.btn.xs` 36px ·
+      아이콘 19/16px. 글자 검사로는 크기를 못 재므로(`[295]`) 여기서는 **되돌아가면
+      안 되는 값**만 얼린다(`[39]`).
+    """
+    import io, re
+    p = os.path.join(ROOT, "webapp", "index.html")
+    s = io.open(p, encoding="utf-8", newline="").read()
+    css = "".join(re.findall(r"<style[^>]*>([\s\S]*?)</style>", s))
+
+    def 규칙없는것(markup, sheet):
+        """마크업이 쓰는 단추류 클래스 중 CSS 규칙이 없는 것 — 계기 자신도 이것으로 시험한다."""
+        toks = set()
+        for m in re.finditer(r"class=[\"\']([^\"\'<>]{1,120})[\"\']", markup):
+            for t in m.group(1).split():
+                if t.endswith("btn") or t == "chk":
+                    toks.add(t)
+        return sorted(t for t in toks
+                      if not re.search(r"(?<![\w.-])\." + re.escape(t) + r"(?![\w-])", sheet))
+
+    # ① 진짜 파일 — 하나도 없어야 한다
+    없는것 = 규칙없는것(s, css)
+    assert not 없는것, "모양 없는 단추 클래스: %s — 화면에는 브라우저 기본 단추로 뜬다" % 없는것
+
+    # ② 계기 자신을 시험한다(`[272]`) — 0 을 내는 계기는 아무도 의심하지 않는다
+    assert 규칙없는것('<button class="ghost-btn">x</button>', ".btn{color:red}") == ["ghost-btn"], \
+        "규칙 없는 클래스를 못 잡는다 — 이 검사는 아무것도 안 재고 있다"
+    assert 규칙없는것('<button class="ghost-btn">x</button>', ".ghost-btn{color:red}") == [], \
+        "규칙이 있는데 없다고 한다 — 멀쩡한 코드에 거짓 경보를 낸다"
+
+    # ③ 손가락이 닿는 크기 — 실측(브라우저) 캠프 추가 44px · 표 안 수정 36px
+    def 값(sel, prop):
+        m = re.search(re.escape(sel) + r"\{([^}]*)\}", css)
+        assert m, "%s 규칙이 없다" % sel
+        v = re.search(prop + r"\s*:\s*(\d+)px", m.group(1))
+        assert v, "%s 에 %s 가 없다" % (sel, prop)
+        return int(v.group(1))
+    assert 값(".btn", "min-height") >= 44, "동작 단추가 손가락 크기(44px)보다 작다"
+    assert 값(".btn.xs", "min-height") >= 32, "표 안 단추가 너무 작다 — 담당자가 못 찾는다"
+    assert 값(".chk", "min-height") == 값(".btn", "min-height"), \
+        "켬/끔과 단추의 키가 다르면 한 줄로 안 읽힌다"
+
+    # ④ 캠프 화면 세 단추는 **아이콘을 단다** — 형님이 말한 그 자리다
+    # ★ **글자로 찾을 때는 그 글자가 설명에도 있다고 생각한다.** 첫 판이 `캠프 추가`
+    #   를 찾다가 형님 지시를 그대로 옮겨 적은 **CSS 주석**에 먼저 걸렸다(`[301]`⑨ 와
+    #   같은 자리). 그래서 설명에 안 나오는 **`onclick` 값**을 자리표로 쓴다.
+    for 자리, 표시 in (("onclick=\"campEditOpen('')\"", "plus-lg"),
+                     ("onclick=\"campEditOpen(this.dataset.camp)\"", "pencil-square"),
+                     ("onclick=\"campEditSave()\"", "save-fill")):
+        i = s.find(자리)
+        assert i > 0, "캠프 화면에서 %r 를 못 찾는다" % 자리
+        assert 표시 in s[i:i + 300], "%r 단추에 아이콘(%s)이 없다" % (자리, 표시)
+
+    print("[310] 단추 클래스는 반드시 모양이 있다 — 실측 .btn 44px · .xs 36px · "
+          "캠프 추가·수정·저장 아이콘 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -22822,6 +22891,7 @@ if __name__ == "__main__":
     t307_guard_recheck_is_not_an_outage()
     t308_diagram_window_opens_full_screen()
     t309_camp_code_guess_never_names_a_wrong_customer()
+    t310_button_classes_always_have_a_look()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

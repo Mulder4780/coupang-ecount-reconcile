@@ -3046,6 +3046,44 @@ body.dash-drag-live #dashGuides{display:grid}
   width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line,#d5d9e0);
   border-radius:6px;font:inherit;background:var(--card,#fff);color:inherit}
 .formgrid .fld>input[type=checkbox]{width:18px;height:18px;align-self:flex-start}
+/* ── 동작 단추 `.btn` — 캠프 화면의 추가·수정·저장 (2026-08-18 형님 지시) ──────
+   지시: "캠프 추가, 수정, 저장 등 아이콘이 크게 보이게 해 (담당자가 찾아야되잖아
+   잘 안보여)".
+   ★ **원인은 크기가 아니라 CSS 가 아예 없던 것이다.** 실측: `.btn`·`.btn.xs`·`.chk`
+     의 CSS 등장 횟수가 **0** 이었다. 하루 전 캠프 편집 기능을 만들면서 마크업만
+     넣고 모양을 안 만들어, 다섯 자리(추가·수정·자동값으로·닫기·저장)가 전부
+     **브라우저 기본 단추**로 그려졌다 — 어두운 화면에서는 작은 회색 글자다.
+     오류도 안 나고 코드에는 `class="btn"` 이 적혀 있어 **읽는 사람은 모양이 있는 줄
+     안다**(`[169]` 와 같은 모양). 크기를 키우기 전에 "그 클래스에 규칙이 있나"를 본다.
+   ★ 쓰는 자리가 **캠프 화면 다섯 곳뿐**이라(실측) 여기서 정해도 다른 화면은 안 바뀐다
+     (`[172]` — 문제 없는 쪽의 모양을 말없이 바꾸지 않는다).
+   ★ 손가락이 닿는 크기(44px)를 지킨다 — 담당자는 폰으로도 연다. 표 안의 `수정`만
+     36px 로 낮추되 **테두리와 색으로 단추임을 말한다**(줄마다 44px 면 표가 부푼다). */
+.btn{appearance:none;-webkit-appearance:none;cursor:pointer;display:inline-flex;
+  align-items:center;justify-content:center;gap:7px;min-height:44px;padding:0 16px;
+  border:1.5px solid var(--line);border-radius:12px;background:var(--surface);
+  color:inherit;font-family:var(--font-ui);font-size:15px;font-weight:700;line-height:1;
+  box-shadow:var(--sh);transition:border-color .15s var(--ease),background .15s var(--ease)}
+.btn svg.bi{width:19px;height:19px}
+@media(hover:hover){.btn:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-tint)}}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
+.btn.primary{background:var(--brand-btn);border-color:var(--brand);color:#fff}
+/* ★ 눌림 표시로 **배경색을 바꾸지 않는다** — `--brand-dk` 는 어두운 테마에서
+   밝은 파랑(#A8C8FF)이라 흰 글자가 명암비 1.7 이 된다(검증이 잡았다). 밝기만
+   올리면 글자·바탕 짝이 그대로라 어느 테마에서도 안 무너진다. */
+@media(hover:hover){.btn.primary:hover{filter:brightness(1.10)}}
+.btn.xs{min-height:36px;padding:0 12px;font-size:14px;border-radius:10px;box-shadow:none;
+  border-color:var(--brand);color:var(--brand);background:var(--brand-tint)}
+.btn.xs svg.bi{width:16px;height:16px}
+/* 저장·닫기는 좁은 화면에서 한 줄을 나눠 갖는다 — 담당자 폰에서 손가락이 닿아야 한다 */
+.sheetfoot .btn{min-width:112px}
+@media(max-width:640px){.sheetfoot .btn{flex:1 1 0;min-width:0}}
+/* 옆의 켬/끔은 단추와 키가 맞아야 한 줄로 읽힌다 — 안 맞으면 단추만 떠 보인다 */
+.chk{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;
+  border:1.5px solid var(--line);border-radius:12px;background:var(--surface);
+  font-weight:700;cursor:pointer}
+.chk input{width:20px;height:20px;accent-color:var(--brand);cursor:pointer}
 .sheetfoot{display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;
   padding:12px 0 4px;margin-top:8px;background:var(--card,#fff);border-top:1px solid var(--line,#e5e8ee)}
 </style>
@@ -3711,7 +3749,7 @@ body.dash-drag-live #dashGuides{display:grid}
       <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
         <input id="campQ" type="search" placeholder="캠프명·담당자·번호·이메일 검색" oninput="renderCampList()" style="flex:1;min-width:180px">
         <label class="chk"><input id="campPmOnly" type="checkbox" checked onchange="renderCampList()"> 정기점검 캠프만</label>
-        <button class="btn" onclick="campEditOpen('')">+ 캠프 추가</button>
+        <button class="btn primary" onclick="campEditOpen('')" title="새 캠프를 추가합니다"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>캠프 추가</button>
       </div>
       <div id="campSum" class="note" style="margin-top:8px"></div>
       <div id="campHost"></div>
@@ -16859,7 +16897,8 @@ function renderCampList(){
            들어 있는 이 목록에서는 단추가 **오류도 없이 안 눌린다**(실측: 류지영
            "수정하기가 안눌려요"). 값은 `data-` 로 넘기고 esc2 로 감싼다. */
         + '<td><button class="btn xs" data-camp="'+esc2(r.캠프명||'')+'"'
-          + ' onclick="campEditOpen(this.dataset.camp)">수정</button></td>'
+          + ' onclick="campEditOpen(this.dataset.camp)" title="이 캠프의 담당자·연락처를 고칩니다">'
+          + '<svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>수정</button></td>'
         + '</tr>').join('')
     + '</tbody></table></div>';
 }
@@ -16927,7 +16966,7 @@ function campEditOpen(name){
      다른 자리 전부를 같이 봐야 한다(지금 급한 것은 담당자가 저장을 못 하는 것이다). */
   const foot = '<div class="sheetfoot">'
     + '<button class="btn" onclick="closeSheet()">닫기</button>'
-    + '<button class="btn primary" onclick="campEditSave()">저장</button></div>';
+    + '<button class="btn primary" onclick="campEditSave()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-save-fill"/></svg>저장</button></div>';
   showSheet('<h2>' + esc2(r ? ('캠프 수정 — ' + String(row.캠프명||'')) : '캠프 추가') + '</h2>'
             + body + foot);
 }
