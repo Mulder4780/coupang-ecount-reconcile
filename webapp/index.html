@@ -3017,6 +3017,20 @@ body.dash-drag-live #dashGuides{display:grid}
 }
 @media print{.dash-customizer,.dash-block-tools,.dash-kpi-tools,.dash-more,#dashGuides{display:none!important}
   #dashGrid{display:block}#dashGrid>.dash-block{margin-bottom:14px;max-height:none!important;overflow:visible!important}}
+
+/* 캠프 수정 폼 — 2026-08-18. 이 클래스들이 **정의돼 있지 않아** 라벨과 입력칸이
+   한 줄로 흘러 읽을 수 없었다(류지영 매니저 캡처). 오류가 아니라 '없는 규칙'이라
+   아무 화면에도 안 떴다. */
+.formgrid{display:grid;grid-template-columns:1fr;gap:10px;margin:10px 0}
+@media(min-width:640px){.formgrid{grid-template-columns:1fr 1fr}}
+.formgrid .fld{display:flex;flex-direction:column;gap:4px;min-width:0}
+.formgrid .fld>span{font-size:12px;color:var(--muted,#667);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.formgrid .fld>input[type=text],.formgrid .fld>input:not([type=checkbox]){
+  width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line,#d5d9e0);
+  border-radius:6px;font:inherit;background:var(--card,#fff);color:inherit}
+.formgrid .fld>input[type=checkbox]{width:18px;height:18px;align-self:flex-start}
+.sheetfoot{display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;
+  padding:12px 0 4px;margin-top:8px;background:var(--card,#fff);border-top:1px solid var(--line,#e5e8ee)}
 </style>
 </head>
 <body>
@@ -16880,9 +16894,17 @@ function campEditOpen(name){
     + '<label class="fld"><span>정기점검 대상</span><input type="checkbox" id="cf_pm" data-cf="정기점검"'
     + (row.정기점검?' checked':'') + ' onchange="campFieldChanged(this)"></label>'
     + '</div>';
-  showSheet('<h2>' + esc2(r ? ('캠프 수정 — ' + String(row.캠프명||'')) : '캠프 추가') + '</h2>' + body,
-            '<button class="btn" onclick="closeSheet()">닫기</button>'
-            + '<button class="btn primary" onclick="campEditSave()">저장</button>');
+  /* ★ **`showSheet` 는 인자를 하나만 받는다**(2026-08-18 실사고 · 류지영 매니저 보고
+     "저장란이따로없지만 … 반영이 바로안돼서요!"). 두 번째 인자로 넘긴 푸터는 **통째로
+     버려졌고** 저장 단추가 화면에 아예 안 나왔다 — JS 는 여분 인자를 조용히 무시하므로
+     오류도 안 나고, 코드에는 단추가 적혀 있어 **읽는 사람은 있는 줄 안다**(`[169]`).
+     그래서 단추를 **본문 안에** 넣는다 — `showSheet` 를 2인자로 고치면 그 함수를 부르는
+     다른 자리 전부를 같이 봐야 한다(지금 급한 것은 담당자가 저장을 못 하는 것이다). */
+  const foot = '<div class="sheetfoot">'
+    + '<button class="btn" onclick="closeSheet()">닫기</button>'
+    + '<button class="btn primary" onclick="campEditSave()">저장</button></div>';
+  showSheet('<h2>' + esc2(r ? ('캠프 수정 — ' + String(row.캠프명||'')) : '캠프 추가') + '</h2>'
+            + body + foot);
 }
 function campFieldChanged(el){
   if(!CAMP_EDIT) return;
