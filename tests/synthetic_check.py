@@ -22349,6 +22349,62 @@ def t307_guard_recheck_is_not_an_outage():
           "(한도는 보호자에게서 · 진짜 장애 6종은 그대로 P0) OK")
 
 
+
+def t308_diagram_window_opens_full_screen():
+    """[308] 도면 창은 **전체 화면**으로 열리고, 다른 시트는 그대로다.
+
+    2026-08-18 지시 "도면 열기를 누르면 전체 화면으로 나오게 코딩해". 공용 시트는
+    넓은 화면에서 `width:min(620px,92vw)` 라 1400x820 작업면이 그 안에 갇혀 좌우가
+    잘렸다(형님 캡처). 실측(전이를 끄고 잰 값 — 숨은 탭은 transition 이 안 끝난다):
+    도면 창 x0 y0 **1265x800**(화면 전체) · 보통 시트 x323 y64 **620x672**(그대로).
+
+    ★ 시트를 새로 만들지 않았다(`[162]`) — `layerOpen` 이 갈래를 하나 받고
+      `setSheetContent` **한 곳**이 매 내용 교체마다 지운다. 화면마다 전체 화면
+      코드를 따로 두면 사본이 여럿 된다.
+    ★ 순서가 뜻을 갖는다: `.sheet.full.open{transform:none}` 은 `@media(min-width:900px)`
+      **뒤**에 와야 한다 — 앞에 두면 데스크톱 규칙이 이겨 창이 화면 밖에 선다.
+    ★ 넓히는 것은 도면 하나뿐이다 — 모든 시트를 전체 화면으로 만들면 목록·확인창까지
+      화면을 덮는다(`[172]`).
+    """
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # (1) 전체 화면 규칙이 실제로 전체 화면인가
+    i = idx.find(".sheet.full{")
+    assert i > 0, "전체 화면 갈래가 없다"
+    rule = idx[i:idx.index("}", i)]
+    for need in ("left:0", "right:0", "top:0", "bottom:0", "max-width:none", "100dvh"):
+        assert need in rule, "전체 화면 규칙에 %s 가 없다: %s" % (need, rule[:120])
+
+    # (2) 순서 — 데스크톱 규칙보다 뒤에 와야 이긴다
+    j = idx.find(".sheet.full.open{")
+    assert j > 0, "열린 상태의 전체 화면 규칙이 없다"
+    assert "transform:none" in idx[j:idx.index("}", j)],         "열려도 transform 이 안 풀린다 — 창이 화면 밖에 선다"
+    media = idx.find("@media(min-width:900px)")
+    assert media > 0 and j > media,         "전체 화면 규칙이 데스크톱 @media 보다 앞에 있다 — 620px 창이 이긴다"
+
+    # (3) 붙이고 지우는 자리는 한 곳이다(`[162]`)
+    lo = idx[idx.index("function layerOpen("):idx.index("function layerIsOpen(")]
+    assert "opt.full" in lo and "classList.add('full')" in lo,         "layerOpen 이 전체 화면 갈래를 안 받는다"
+    ssc = idx[idx.index("function setSheetContent("):idx.index("function clearSheetActions(")]
+    assert "classList.remove('full')" in ssc,         "내용이 바뀌어도 전체 화면이 안 풀린다 — 다음 시트까지 화면을 덮는다"
+
+    # (4) 도면 창이 그 갈래를 쓴다
+    fo = idx[idx.index("function flowVisualOpen("):]
+    fo = fo[:fo.index(chr(10) + "function ")]
+    assert "full:true" in fo, "도면 창이 전체 화면으로 안 열린다"
+
+    # (5) 상세로 들어갔다 뒤로 와도 그 크기 — 스냅샷이 기억한다
+    snap = idx[idx.index("function sheetSnapshot("):idx.index("/* ── 페이지 안의")]
+    assert "full:" in snap, "되돌아갈 때 전체 화면이었는지를 안 기억한다"
+
+    # (6) 넓히는 것은 도면 하나뿐이다(`[172]`)
+    n = idx.count("full:true")
+    assert n == 1, "전체 화면으로 여는 자리가 %d 곳이다 — 목록·확인창까지 화면을 덮는다" % n
+
+    print("  [308] 도면 창은 전체 화면으로 열린다(실측 1265x800) · "
+          "보통 시트는 620px 그대로 · 붙이고 지우는 자리는 한 곳 OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -22649,6 +22705,7 @@ if __name__ == "__main__":
     t305_self_heal_never_reports_a_file_it_did_not_touch()
     t306_dead_server_revival_never_kills_someone_elses_server()
     t307_guard_recheck_is_not_an_outage()
+    t308_diagram_window_opens_full_screen()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
