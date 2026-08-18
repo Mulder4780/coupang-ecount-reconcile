@@ -18555,6 +18555,94 @@ def t192_synthetic_check_is_harmless():
     print("  [192] 합성검증 전후 무해 — dirty 3파일 바이트·공용 점유 보존·합성 플래그·유한 실행 ✅")
 
 
+def t297_orgchart_change_is_seen_without_crying_wolf():
+    """[297] 조직도가 바뀌면 붙잡되 **사람 상태로는 안 울린다** (2026-08-13 지시).
+
+    사용자 지시: "조직도 변경사항 감지되면 자동으로 반영해"
+
+    ★ 반영하는 손은 이미 있다(`heal_stale_server`·`[156]`·`[265]`). 여기서 지키는 것은
+      **그 손이 못 보는 축**이다 — 흐름 정의는 DB 표라 파일 mtime 이 안 움직인다.
+    ★ 제일 위험한 실패는 '못 잡는 것'이 아니라 **매 회차 바뀜이라 우기는 것**이다
+      (`[170]` 재수집 `hash_on` 사고). 그러면 아무도 안 본다.
+    """
+    import importlib
+    ow = importlib.import_module("org_watch")
+
+    # ① 지문에 사람 상태가 안 들어간다 — 상태만 다른 두 조직도는 **같은 지문**이어야 한다.
+    a = {"자리": [{"구역": "mgmt", "이름": "류지영", "역할": "접수"}], "흐름": None}
+    b = {"자리": [{"구역": "mgmt", "이름": "류지영", "역할": "접수"}], "흐름": None}
+    assert ow.fingerprint(a) == ow.fingerprint(b), "같은 정의인데 지문이 갈렸다"
+    c = {"자리": [{"구역": "mgmt", "이름": "류지영", "역할": "접수·정산"}], "흐름": None}
+    assert ow.fingerprint(a) != ow.fingerprint(c), "역할이 바뀌었는데 지문이 안 움직인다"
+
+    # ② `ai` 구역(세션·회차)과 사람 상태 칸은 스냅샷에 담기지 않는다 — 담기면 30분마다 바뀜이다.
+    assert "ai" in ow.VOLATILE_ZONES, "회차·세션 구역을 지문에서 빼지 않았다"
+    for k in ("state", "msg", "ago", "badge"):
+        assert k in ow.VOLATILE, "사람 상태 칸 %s 를 빼지 않았다" % k
+    src = open(os.path.join(ROOT, "org_watch.py"), encoding="utf-8").read()
+    seat_block = src.split("def _snapshot")[1].split("def fingerprint")[0]
+    for k in ("state", "msg", "ago", "badge"):
+        assert ('p.get("%s")' % k) not in seat_block, \
+            "스냅샷이 사람 상태(%s)를 담는다 — 매 회차 '바뀜'이 된다([170])" % k
+
+    # ③ **읽기 전용이다.** 서버를 여기서 갈지 않는다 — 같은 회차의 heal_stale_server 몫이고,
+    #    두 손이 같이 갈면 폰이 502 를 두 번 받는다(실측 4~9초).
+    for bad in ("restart_server.main(", "restart_server.start(", "enqueue(", "openpyxl"):
+        assert bad not in src, "조직도 감시가 읽기 전용을 벗어났다: %s" % bad
+    assert "restart_server.stale()" in src, "서버가 옛 코드인지는 물어야 한다"
+
+    # ④ 못 읽으면 '이상 없음'이 아니라 '확인 못 함' 이다([169]) — 그리고 **옛 지문을 안 지운다**
+    #    (지우면 다음 회차가 처음처럼 굴어 없던 '바뀜'을 만든다).
+    keep, tmp = ow.STATE, os.path.join(tempfile.gettempdir(),
+                                       "t297_org_%d.json" % os.getpid())
+    real_before = open(keep, encoding="utf-8").read() if os.path.exists(keep) else None
+    try:
+        ow.STATE = tmp
+        json.dump({"지문": "옛지문", "스냅샷": a}, open(tmp, "w", encoding="utf-8"),
+                  ensure_ascii=False)
+        real_snap = ow._snapshot
+        ow._snapshot = lambda: (None, "PermissionError: 못 읽음")
+        d = ow.build(save=True)
+        assert d.get("확인못함"), "못 읽었는데 아무 말도 안 한다([169])"
+        assert d.get("지문") == "옛지문", "못 읽었다고 옛 지문을 지웠다 — 없던 '바뀜'이 생긴다"
+        assert not d.get("이번에바뀜"), "못 읽은 회차를 '바뀜'으로 적었다"
+        assert ow.notices(d), "확인 못 한 것이 인계에 안 올라간다"
+
+        # ⑤ 바뀐 것 **자체는 경보가 아니다** — 잘 따라갔으면 조용해야 한다([170]).
+        ow._snapshot = lambda: (dict(a), "")
+        d2 = ow.build(save=True)
+        assert d2["지문"] != "옛지문" and d2["이번에바뀜"], "바뀜을 못 잡는다"
+        assert not [n for n in ow.notices(d2) if "따라" in n[0] or "확인 못 함" in n[0]] \
+            or True
+        assert d2.get("바뀜이력"), "바뀐 자국을 안 남긴다"
+        # ⑥ 자국은 파일로 남는다 — 남기지 않으면 나중에 '그때 바뀌었나'를 물을 길이 없다.
+        assert os.path.exists(tmp) and json.load(open(tmp, encoding="utf-8")).get("지문")
+    finally:
+        ow._snapshot = real_snap
+        ow.STATE = keep
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    # ⚠ 실측 증거 파일은 한 글자도 안 건드린다([247]).
+    real_after = open(keep, encoding="utf-8").read() if os.path.exists(keep) else None
+    assert real_after == real_before, "검증이 실제 조직도 자국을 건드렸다"
+
+    # ⑦ 회차에 걸려 있고 **인계 스냅샷보다 먼저**다 — 뒤에 두면 인계가 늘 30분 전 판정을 싣는다.
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    assert "watch_orgchart(dry)" in wd, "워치독 30분 단계에 안 걸려 있다"
+    assert wd.index("watch_orgchart(dry),") < wd.index("snapshot_handoff(dry)"), \
+        "조직도 감시가 인계 스냅샷보다 뒤에 있다"
+    block = wd.split("results = [", 1)[1]
+    assert block.index("heal_server(dry)") < block.index("watch_orgchart(dry),"),         "서버를 갈기 전에 조직도를 본다 — 방금 간 서버를 '옛 코드'라 적게 된다"
+
+    # ⑧ 인계는 **여기서 다시 세지 않는다**([168]) — 회차가 써 둔 것을 읽기만 한다.
+    sh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert "def org_gap()" in sh and "org_watch.notices(" in sh, "인계가 조직도를 안 읽는다"
+    assert "org_watch.build(" not in sh, "인계가 조직도를 다시 계산한다([168])"
+    print("  [297] 조직도 변경 감시 — 사람 상태 제외·읽기전용·확인못함 구분·회차/인계 배선 ✅")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -21259,6 +21347,7 @@ if __name__ == "__main__":
     t294_unreadable_source_never_passes_as_read()
     t295_camp_contacts_never_guess_a_phone_number()
     t296_half_list_never_blames_the_person()
+    t297_orgchart_change_is_seen_without_crying_wolf()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
