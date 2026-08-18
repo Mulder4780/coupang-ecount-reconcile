@@ -17309,6 +17309,15 @@ def t219_noon_round_is_daily_windowed_and_yields():
     assert N.decide(noon, {"done_date": "2026-08-12"}, [], [])["kind"] == "완주"
     assert N.decide(noon, {"done_date": "2026-08-11"}, [], [])["go"] is True, \
         "어제 완주는 오늘을 막지 않는다"
+    # ★ **창밖·완주가 양보보다 먼저 답해야 한다** (2026-08-18 실측 · [293]).
+    #   판정 순서가 반대라 회차가 도는 날은 **창 밖의 부름까지 전부 양보**로 적혔고,
+    #   그날 자국 27건이 전부 오늘 것(13:14·13:20·13:36·14:08·14:13 — 창 밖)이었다.
+    #   그래서 조율 리포트가 "27회 연속 양보 · 한 번도 돈 적이 없다" 는 굶주림 경보를
+    #   냈고, 그 조치는 "겹치는 쪽을 옮겨라" 라 사람이 **없는 겹침**을 고치러 간다([172]).
+    밖 = _dt.datetime(2026, 8, 12, 14, 13)
+    assert N.decide(밖, {}, [], ["일일대조(09:50)"])["kind"] == "창밖", "창 밖인데 양보로 적는다 — 조율 표가 거짓 굶주림 경보를 낸다"
+    assert N.decide(밖, {}, live("ledger"), [])["kind"] == "창밖", "창 밖인데 양보로 적는다(점유 갈래)"
+    assert N.decide(noon, {"done_date": "2026-08-12"}, [], ["일일대조(09:50)"])["kind"] == "완주", "오늘 이미 끝났는데 양보로 적는다 — 겹침이 아니라 제 일정이다"
     for what in ("ledger", "publish"):
         v = N.decide(noon, {}, live(what), [])
         assert v["go"] is False and v["kind"] == "양보", what

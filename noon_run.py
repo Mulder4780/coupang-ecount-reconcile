@@ -98,6 +98,23 @@ def decide(now, marker, claims, rounds, force=False):
     start, end = window()
     minute = now.hour * 60 + now.minute
     live = {c.get("what") for c in claims if c.get("alive")}
+    # ★ **창밖·완주가 먼저다** (2026-08-18 실측). `[293]` 이 "창밖·완주는 겹침이 아니라
+    #   제 일정이라 조율 표에 섞지 않는다"고 적어 뒀는데, 판정 순서가 그 반대였다 —
+    #   아래 양보 검사들이 **창을 안 보고** 먼저 답해서, 회차가 도는 날은 창 밖의 부름
+    #   까지 전부 '양보'로 적혔다. 그날 자국 27건이 **전부 오늘 것**이었고 시각이
+    #   13:14·13:20·13:36·14:08·14:13 — 창(12:00~13:00) 밖이다. 그래서 조율 리포트가
+    #   **'27회 연속 양보 · 한 번도 돈 적이 없다'** 는 굶주림 경보를 냈다.
+    #   그 경보의 조치는 "겹치는 쪽을 옮기거나 이 작업이 필요한지 다시 본다" 이므로
+    #   사람이 **없는 겹침**을 고치러 간다([172] — 잘못 지목하는 것이 못 잡는 것보다 나쁘다).
+    #   창 밖이면 겹치든 말든 어차피 안 도는 것이니, 그것이 답이다.
+    # ⚠ 이 블록은 반드시 `not force` 안에 둔다 — `--force` 는 창·완주를 넘지만
+    #   **남의 점유는 force 로도 안 뺏는다**(아래 ledger·publish 가 그 규칙이다).
+    if not force:
+        if not (start <= minute < end):
+            return {"go": False, "kind": "창밖", "skip": [],
+                    "why": f"창({start//60:02d}:{start%60:02d}~{end//60:02d}:{end%60:02d}) 밖이다"}
+        if str(marker.get("done_date") or "") == now.date().isoformat():
+            return {"go": False, "kind": "완주", "skip": [], "why": "오늘 회차는 이미 끝났다"}
     # ★ 남의 점유는 force 로도 안 뺏는다 — 그것이 이 회차의 첫째 규칙이다.
     for what in ("ledger", "publish"):
         if what in live:
@@ -119,12 +136,6 @@ def decide(now, marker, claims, rounds, force=False):
                            "건너뛰고 돈다" % (", ".join(rounds), ", ".join(HEAVY_STEPS))}
         return {"go": False, "kind": "양보", "skip": [],
                 "why": f"회차가 도는 중: {', '.join(rounds)}"}
-    if not force:
-        if not (start <= minute < end):
-            return {"go": False, "kind": "창밖", "skip": [],
-                    "why": f"창({start//60:02d}:{start%60:02d}~{end//60:02d}:{end%60:02d}) 밖이다"}
-        if str(marker.get("done_date") or "") == now.date().isoformat():
-            return {"go": False, "kind": "완주", "skip": [], "why": "오늘 회차는 이미 끝났다"}
     skip = ["합성검증"] if "code" in live else []
     why = "창 안 · 오늘 미완주 · 충돌 없음"
     if skip:
