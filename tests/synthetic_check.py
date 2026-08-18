@@ -20833,6 +20833,160 @@ def t300_camp_screen_never_calls_a_missing_helper():
           "말하지 않음 · 엑셀/이미지 살아 있음을 알림 ✅")
 
 
+def t301_camp_edits_survive_the_round():
+    """[301] 캠프 담당자를 **앱에서 고치고, 회차가 다시 뽑아도 그 값이 남는다**
+    (2026-08-18 지시: "추가 입력, 수정, 변경, 저장 …" · "추가 및 변경시 자동으로
+    이 카테고리에 반영해서 업데이트").
+
+    ★ 이 검증의 요점은 저장이 되느냐가 아니라 **살아남느냐**다. 화면이 읽는
+      `reports/캠프_담당자.json` 은 회차 산출물이라 09:50 마다 밴드에서 다시 뽑혀
+      통째로 덮인다 — 거기 쓰면 어제 고친 번호가 **오류 없이, 값이 비지도 않은 채**
+      옛 번호로 돌아간다([169]). 그래서 정본은 앱 뒤 SQLite 다.
+
+    ★ 글자 검사로는 못 잰다([295]) — 실제로 저장하고 다시 뽑아 **결과로** 잰다.
+      앱 DB 는 합성 DB 를 쓰므로 진짜 업무 DB 에는 한 글자도 안 쓴다([247]).
+    """
+    import copy
+    import camp_contacts as CC
+    import camp_edit as CE
+
+    def auto_data():
+        rows = [
+            {"캠프명": "울산2캠프", "이름확인필요": False, "다른표기": [],
+             "캠프주소": "울산", "거래처코드": "CU001", "정기점검": True,
+             "정기점검건수": 3, "돌발AS건수": 1, "총건수": 4, "최근작업일": "2026-08-01",
+             "현장책임": {"이름": "제석화", "전화": "010-7532-8543", "메일": ""},
+             "안전관리": {"이름": "이상협", "전화": "010-2511-4947", "메일": "a@b.com"},
+             "담당자": {}, "근거": {}},
+            {"캠프명": "부산1MB", "이름확인필요": False, "다른표기": [], "캠프주소": "",
+             "거래처코드": "", "정기점검": True, "정기점검건수": 2, "돌발AS건수": 0,
+             "총건수": 2, "최근작업일": "2026-07-20",
+             "현장책임": {}, "안전관리": {}, "담당자": {}, "근거": {}},
+        ]
+        d = {"갱신": "2026-08-18T09:50:00", "rows": rows}
+        d.update(CC.summarize(rows))
+        return d
+
+    base = auto_data()
+    sig = CC.contact_sig(base["rows"][0])
+    CE.save("울산2캠프", {"현장책임.전화": "010-1111-2222"},
+            actor="검증", expected_version=0, auto_sig=sig)
+
+    # ① 사람 값이 이기고, 안 고친 칸은 자동 그대로다.
+    row = [r for r in CE.overlay(auto_data())["rows"] if r["캠프명"] == "울산2캠프"][0]
+    assert row["현장책임"]["전화"] == "010-1111-2222", "사람이 고친 값이 안 이겼다"
+    assert row["현장책임"]["이름"] == "제석화", "안 고친 칸까지 덮였다"
+    assert row["사람고침"].get("현장책임.전화") == "사람", "출처를 화면에 안 알려 준다"
+    assert int(row.get("사람고친판") or 0) >= 1, (
+        "판(record_version)을 화면에 안 실어 준다 — 화면이 0 을 보내면 남의 값을 덮는다([296])")
+
+    # ② **회차가 다시 뽑아도 남는다** — 이것이 [114] 의 본체다.
+    assert [r for r in CE.overlay(auto_data())["rows"]
+            if r["캠프명"] == "울산2캠프"][0]["현장책임"]["전화"] == "010-1111-2222", (
+        "회차가 다시 뽑으면 사람이 고친 값이 사라진다")
+
+    # ③ 겹치기가 **원본을 안 고친다**. 고치면 두 번째 겹치기가 자동값 대신
+    #    사람 값을 재서 '밴드가 바뀌었다'는 없는 경보를 낸다(실측으로 걸렸던 자리).
+    src = auto_data()
+    keep = copy.deepcopy(src)
+    CE.overlay(src)
+    assert src == keep, "overlay 가 넘겨받은 자료를 고쳤다 — 부르는 쪽이 자동값을 잃는다"
+    assert not [r for r in CE.overlay(auto_data())["rows"]
+                if r["캠프명"] == "울산2캠프"][0].get("자동이바뀜"), (
+        "안 바뀌었는데 '밴드에 더 새 값'이라고 말한다([170] — 거짓 경보)")
+
+    # ④ 사람이 고친 뒤 밴드가 또 바뀌면 **말한다 · 그래도 안 덮는다**([172]).
+    moved = auto_data()
+    moved["rows"][0]["안전관리"]["전화"] = "010-9999-0000"
+    row = [r for r in CE.overlay(moved)["rows"] if r["캠프명"] == "울산2캠프"][0]
+    assert row.get("자동이바뀜"), "밴드가 바뀐 것을 화면에 안 알려 준다"
+    assert row["현장책임"]["전화"] == "010-1111-2222", "밴드 값이 사람 값을 덮었다"
+
+    # ⑤ '안 고침' 과 '비우기로 정함' 을 가른다([169]).
+    _e, ver = CE.get_edit(CE.norm("울산2캠프"))
+    CE.save("울산2캠프", {"안전관리.메일": ""}, actor="검증", expected_version=ver)
+    assert [r for r in CE.overlay(auto_data())["rows"]
+            if r["캠프명"] == "울산2캠프"][0]["안전관리"]["메일"] == "", (
+        "사람이 일부러 비운 칸이 자동값으로 되살아난다")
+    _e, ver = CE.get_edit(CE.norm("울산2캠프"))
+    CE.save("울산2캠프", {}, actor="검증", expected_version=ver, clear=["안전관리.메일"])
+    assert [r for r in CE.overlay(auto_data())["rows"]
+            if r["캠프명"] == "울산2캠프"][0]["안전관리"]["메일"] == "a@b.com", (
+        "되돌리기가 자동값을 다시 안 쓴다")
+
+    # ⑥ 새 캠프 추가 — 목록에 나타나고 머리글 숫자도 다시 센다.
+    CE.save("세종9캠프", {"캠프명": "세종9캠프", "현장책임.전화": "010-3333-4444",
+                         "정기점검": True}, actor="검증", expected_version=0)
+    d = CE.overlay(auto_data())
+    made = [r for r in d["rows"] if r["캠프명"] == "세종9캠프"]
+    assert made and made[0].get("사람이만듦"), "앱에서 추가한 캠프가 목록에 없다"
+    assert d["캠프수"] == 3 and d["전화있음"] == 2, (
+        "머리글 숫자를 다시 안 셌다 — 표와 요약이 서로 다른 말을 한다: %r"
+        % ((d["캠프수"], d["전화있음"]),))
+
+    # ⑦ 늦은 저장이 먼저 저장을 안 덮는다(낙관잠금) · 모르는 칸은 조용히 안 버린다.
+    try:
+        CE.save("울산2캠프", {"비고": "x"}, actor="검증", expected_version=0)
+        raise AssertionError("판이 어긋난 저장이 그대로 통과했다 — 남의 값을 덮는다")
+    except AssertionError:
+        raise
+    except Exception as exc:
+        assert type(exc).__name__ == "VersionConflict", type(exc).__name__
+    try:
+        CE.save("울산2캠프", {"없는칸": "x"}, actor="검증", expected_version=99)
+        raise AssertionError("모르는 항목이 조용히 버려졌다")
+    except AssertionError:
+        raise
+    except CE.입력오류:
+        pass
+
+    # ⑧ 감사로그가 같이 남는다(2026-08-10 정본 규칙 — 감사로그 없는 변경은 성공이 아니다).
+    with CE._store().reader() as conn:
+        n = conn.execute(
+            "SELECT COUNT(*) c FROM change_event WHERE aggregate_type='app_setting' "
+            "AND aggregate_key LIKE 'camp_contact:%'").fetchone()["c"]
+    assert n >= 4, "감사로그가 안 남았다 (%r건)" % n
+
+    # ⑨ 회차는 **앱 DB 를 안 건드린다** — 산출물만 덮는다. 이 분리가 ②의 근거다.
+    cc_src = open(os.path.join(ROOT, "camp_contacts.py"), encoding="utf-8").read()
+    assert "camp_edit" not in cc_src and "app_setting" not in cc_src, (
+        "회차가 사람이 고친 값을 건드린다 — 덮어쓰기에 지워질 수 있다")
+
+    # ⑩ 바뀐 캠프만 자국에 남는다 · 안 바뀌면 조용하다([170]).
+    assert CC.diff_changes(base["rows"], base["rows"], "x") == [], (
+        "안 바뀌었는데 '바뀜'으로 적는다 — 매일 전부 바뀜이면 아무도 안 본다")
+    ch = CC.diff_changes(base["rows"], moved["rows"], "2026-08-18T10:00:00")
+    assert len(ch) == 1 and ch[0]["캠프명"] == "울산2캠프", ch
+
+    # ⑪ 읽는 길·쓰는 길이 실제로 이어져 있나(배선) — 코드가 있어도 안 불리면 없는 것과 같다.
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "camp_edit" in srv and "/api/camps/save" in srv, (
+        "서버가 사람이 고친 값을 안 겹치거나 저장 길이 없다")
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "campEditOpen(" in html and "/api/camps/save" in html, "화면에 수정·저장 길이 없다"
+    assert "return (row && typeof row.사람고친판 === 'number') ? row.사람고친판 : -1;" in html, (
+        "판을 모를 때 화면이 0(=새로 만들기)을 보내면 남의 값을 덮는다([296])")
+    pipe = open(os.path.join(ROOT, "automation_pipeline.py"), encoding="utf-8").read()
+    assert pipe.count('"캠프 담당자"') >= 2, (
+        "새 자료가 들어와도 캠프 담당자가 5분 회차에서 안 갱신된다 — 하루를 기다린다")
+
+    # ⑫ **계기 자신을 시험한다**([272]) — 0 을 내는 계기는 아무도 의심하지 않는다.
+    real = CE.apply_edit
+    try:
+        CE.apply_edit = lambda row, edit: row          # 사람 값을 통째로 무시하는 고장
+        broken = [r for r in CE.overlay(auto_data())["rows"]
+                  if r["캠프명"] == "울산2캠프"][0]
+        assert broken["현장책임"]["전화"] == "010-7532-8543"
+    finally:
+        CE.apply_edit = real
+    assert [r for r in CE.overlay(auto_data())["rows"]
+            if r["캠프명"] == "울산2캠프"][0]["현장책임"]["전화"] == "010-1111-2222", (
+        "고장을 되돌린 뒤에도 사람 값이 안 온다 — 이 검사가 진짜를 재는지 의심하라")
+
+    print("  [301] 캠프 담당자 앱 수정 — 사람 값이 회차를 넘어 살아남음 · 출처 표시 · "
+          "낙관잠금·감사로그·새 캠프 추가 · 5분 회차 자동 갱신 ✅")
+
+
 def t299_kakao_evidence_reaches_the_capture():
     """[299] 카톡에 적힌 근거가 대표 캡처까지 간다 — 그리고 없는 근거는 안 만든다.
 
@@ -21169,10 +21323,15 @@ def t295_camp_contacts_never_guess_a_phone_number():
         srv = f.read()
     i = srv.find('if p == "/api/camps":')
     assert i > 0, "/api/camps 가 없다"
-    seg = srv[i:i + 1200]
+    seg = srv[i:i + 1800]
     assert "캠프_담당자.json" in seg
-    assert "camp_contacts" not in seg.replace("camp_contacts.py --write", ""), \
-        "웹 요청 뒤에서 밴드를 다시 파싱하면 폰이 실패로 본다"
+    # ★ 막는 것은 **모듈 이름이 아니라 비싼 일**이다. 첫 판은 `camp_contacts` 라는
+    #   글자를 통째로 금지해서, 같은 모듈의 **값싼 접근자**(`load_changes` — 작은
+    #   JSON 한 장)를 쓰는 것까지 빨갛게 만들었다. 그러면 경로 문자열을 app_server 가
+    #   따로 적게 되어 사본이 둘 된다([162]). 재는 것은 밴드를 다시 파싱하는가다.
+    for expensive in ("build(", "load_records(", "parse_post("):
+        assert expensive not in seg, \
+            "웹 요청 뒤에서 밴드를 다시 파싱하면 폰이 실패로 본다: " + expensive
     # 파일이 없을 때 '없다'가 아니라 '아직 안 만들었다'라고 해야 한다([169]).
     assert "아직 만들어지지 않았습니다" in seg
 
@@ -21732,6 +21891,7 @@ if __name__ == "__main__":
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()
+    t301_camp_edits_survive_the_round()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

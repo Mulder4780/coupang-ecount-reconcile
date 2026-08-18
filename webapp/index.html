@@ -1698,10 +1698,12 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
   .appbar-identity{gap:14px}
   .appbar h1{font-size:18px;line-height:1.18}
   .appbar h1 .brandfull,.appbar h1 small{white-space:nowrap}
-  /* 295px 는 '브랜드가 이만큼은 보였으면' 하는 **바람**이지 지켜야 할 최소가 아니다.
-     `min-width` 로 두면 좁은 창에서 페이지를 밀어내므로 `flex-basis` 로 옮긴다 —
-     넓으면 그대로 295px, 좁으면 줄어든다. */
-  .appbar-brand-stack{min-width:0;flex:0 1 295px}
+  /* ⚠ 295px 를 `flex-basis` 로 옮기지 말 것 — 한 번 그렇게 고쳤다가 검증이 잡았다.
+     이 칸에는 `.uni-app-brand{width:196px}` 로고가 **고정 폭**으로 두 개 쌓여 있어,
+     상자가 줄면 로고가 제 상자를 넘어 옆 칸을 덮는다(실측 900px: 안쪽 183px 대
+     상자 169px). 페이지 넘침을 없애려다 **로고를 깨는** 셈이다.
+     넘치던 양은 실측 26px 뿐이었고 그것은 아래 `.appbar-status` 하나로 흡수된다. */
+  .appbar-brand-stack{min-width:295px}
   /* `flex:none` 은 '줄어들지 마라'는 뜻이라 좁은 창에서 그대로 페이지를 넘긴다.
      `margin-left:auto` 가 있으면 한 줄일 때도 줄바꿈된 뒤에도 오른쪽에 붙는다. */
   .appbar-status{flex:0 1 auto;margin-left:auto}
