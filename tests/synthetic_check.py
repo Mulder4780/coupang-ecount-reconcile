@@ -20736,7 +20736,10 @@ def t295_camp_contacts_never_guess_a_phone_number():
     bad = [ln.strip() for ln in blk.splitlines()
            if "fillText" in ln and ".slice(" in ln]
     assert not bad, "캡처가 그리면서 값을 자른다(전화·이메일이 잘린다): %s" % bad[:2]
-    assert "fit(t," in blk, "캡처가 칸 폭에 맞추는 fit() 을 안 쓴다"
+    #     ⚠ **구현을 못 박지 않는다.** 첫 판이 `fit(t,` 가 있어야 한다고 적었다가, 같은
+    #       일을 다른 함수로 하는 옆 세션 코드를 빨갛게 만들었다 — 결과는 다 맞았는데도.
+    #       글자 검사는 '있어야 할 것'이 아니라 **'되돌아가면 안 되는 것'** 에 쓴다.
+    #       칸 폭에 맞추는 일은 아래 ⑨ 실행 확인이 **결과로** 지킨다.
     assert "clipped" in blk and "줄인 값" in blk, \
         "칸에 안 들어가 줄인 값이 있는데 이미지가 그 사실을 말하지 않는다([169])"
 
