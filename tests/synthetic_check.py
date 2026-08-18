@@ -22589,6 +22589,66 @@ def t310_button_classes_always_have_a_look():
           "캠프 추가·수정·저장 아이콘 ✅")
 
 
+
+def t311_camp_units_come_from_one_parser():
+    """[311] 캠프마다 **호기**를 보여 준다 — 판정은 한 곳, '모름'은 모름이라 적는다.
+
+    2026-08-19 형님 지시: "각 캠프별로 호기가 있을 텐데 호기도 보이는 구조로 정리해".
+
+    ★ **호기를 새로 읽지 않는다**(`[162]`). `pm_content.parse_units` 가 이미
+      '1,2호기'·'1~3호기'·'#4'·'3호' 를 받고 1~99 만 인정한다. 캠프 화면이 제
+      정규식을 따로 쓰면 **같은 글을 놓고 정기점검 화면과 다른 호기를 말한다.**
+    ★ 원천은 밴드·카톡 **본문**이다(실측 정기점검 캠프 400개 중 399개에 붙었다).
+      정기점검 점검내용만 보면 55개뿐이라 대부분이 '모름'이 된다.
+    ★ **'관측된 호기'이지 '보유 대수'가 아니다**(`[169]`). 접수·점검 글이 없던 호기는
+      안 보이므로 `1,2,5` 처럼 사이가 빌 수 있고, 화면이 그 사실을 적어야 한다 —
+      안 적으면 '3·4호기는 없다'로 읽힌다.
+    """
+    import io as _io, re, subprocess, shutil, json as _json
+    import proc_guard
+    cc = _io.open(os.path.join(ROOT, "camp_contacts.py"), encoding="utf-8", newline="").read()
+
+    # ① 판정을 빌린다 — 제 손으로 호기 정규식을 쓰지 않는다
+    assert "pm_content.parse_units" in cc, "호기 판정을 pm_content 에서 안 빌린다"
+    본문 = cc[cc.index("def _units"):cc.index("def build()")]
+    # ★ **설명을 걷어내고 본다** — 독스트링에 '호기' 가 있다고 정규식을 쓰는 것은
+    #   아니다. 첫 판이 그대로 걸렸다(`[302]`·`[301]`⑨ 와 같은 자리).
+    코드 = 본문.split(chr(34) * 3)[-1]
+    assert "re." not in 코드 and "호" not in 코드, \
+        "camp_contacts 가 제 정규식으로 호기를 읽는다 — 정기점검 화면과 갈린다"
+    assert '"호기": sorted(' in cc, "행에 호기가 안 실린다"
+
+    # ② 화면에서 호기 글자를 만드는 자리는 하나다
+    html = _io.open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8", newline="").read()
+    assert html.count("function campUnits(") == 1, "호기 글자를 만드는 자리가 하나가 아니다"
+    for 쓰는곳 in ("+campUnits(r)+", "campUnits(r, true)"):
+        assert 쓰는곳 in html, "표·엑셀 중 한쪽이 campUnits 를 안 쓴다: %s" % 쓰는곳
+
+    # ③ 실제로 실행해 잰다(`[295]`) — 글자 검사로는 '사이 빔'을 못 잰다
+    node = shutil.which("node")
+    if not node:
+        print("[311] 캠프 호기 — node 가 없어 실행 검사는 건너뜀(구조 검사만) ✅")
+        return
+    fn = html[html.index("function campUnits("):html.index("function renderCampList()")]
+    js = ("function esc2(s){return String(s);}\n" + fn + "\n"
+          "const 답=[campUnits({호기:[1,2]},true),campUnits({호기:[1,2,5]},true),"
+          "campUnits({호기:[]},true),campUnits({},true),campUnits({호기:[1,2,5]})];"
+          "console.log(JSON.stringify(답));")
+    pr = subprocess.Popen([node, "-e", js], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          **proc_guard.background_popen_kwargs())
+    out = pr.communicate(timeout=60)[0].decode("utf-8", "replace").strip()
+    got = _json.loads(out.splitlines()[-1])
+    assert got[0] == "1,2호기", "이어진 호기를 그대로 안 적는다: %r" % got[0]
+    assert got[1].startswith("1,2,5호기") and "사이 빔" in got[1], \
+        "사이가 빈 것을 말하지 않는다 — '3·4호기는 없다'로 읽힌다: %r" % got[1]
+    assert got[2] == "모름" and got[3] == "모름", \
+        "호기를 못 읽은 캠프를 빈 칸으로 둔다 — 엑셀에서 빈 칸은 뜻을 잃는다: %r" % got[2:4]
+    assert "title=" in got[4], "화면에서 '사이 빔'의 뜻을 설명하지 않는다"
+
+    print("[311] 캠프 호기 — 판정은 pm_content 한 곳 · 글자는 campUnits 한 곳 · "
+          "사이 빔과 모름을 말한다 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -22892,6 +22952,7 @@ if __name__ == "__main__":
     t308_diagram_window_opens_full_screen()
     t309_camp_code_guess_never_names_a_wrong_customer()
     t310_button_classes_always_have_a_look()
+    t311_camp_units_come_from_one_parser()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
