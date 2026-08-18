@@ -8903,7 +8903,7 @@ function renderRevenue(){
     const sum=pick?(+k[pick]||0):(+m.합계||0);
     return `<tr><td>${esc2(m.월)}</td>${cols.map(c=>`<td class="num">${(+k[c])?fmt(k[c]):'-'}</td>`).join('')}<td class="num">${fmt(m.건수)}</td><td class="num">${fmt(sum)}</td></tr>`;
   }).join('');
-  const foot=`<tr style="font-weight:700;background:#F4F7FF"><td>합계</td>${
+  const foot=`<tr style="font-weight:700;background:#F4F7FF;color:#1B2559"><td>합계</td>${
     cols.map(c=>`<td class="num">${fmt(rows.reduce((a,m)=>a+(+(m.유형||{})[c]||0),0))}</td>`).join('')
     }<td class="num">${fmt(rows.reduce((a,m)=>a+(+m.건수||0),0))}</td><td class="num">${fmt(sumPick)}</td></tr>`;
   $('revGrid').innerHTML=rows.length?`<thead>${head}</thead><tbody>${body}${foot}</tbody>`
@@ -8914,7 +8914,7 @@ function renderRevenue(){
     $('revCompare').innerHTML=`<div class="fnote"><b>실적표 대조</b> — ${esc2(cmp.안내||'대조할 자료가 없습니다')}</div>`;
   }else{
     const s=cmp.요약||{};
-    const cr=(cmp.행||[]).map(r=>`<tr${r.일치?'':' style="background:#FFF7ED"'}>
+    const cr=(cmp.행||[]).map(r=>`<tr${r.일치?'':' style="background:#FFF7ED;color:#7A2E0E"'}>
       <td>${esc2(r.월)}</td><td>${esc2(r.항목)}</td>
       <td class="num">${fmt(r.우리)}</td><td class="num">${fmt(r.김미영)}</td>
       <td class="num" style="color:${r.일치?'#0B7A3B':'#B54708'};font-weight:${r.일치?400:700}">${r.일치?'일치':fmt(r.차이)}</td></tr>`).join('');
