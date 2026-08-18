@@ -20761,7 +20761,101 @@ def t295_camp_contacts_never_guess_a_phone_number():
         dr = f.read()
     assert "camp_contacts.py" in dr and dr.index("camp_master.py") < dr.index("camp_contacts.py"), \
         "캠프 담당자 단계가 없거나 캠프 마스터보다 앞에 있다(거래처코드를 못 빌린다)"
-    print("  [295] 캠프 담당자 — 번호를 짐작하지 않고 '모름'을 '없음'이라 하지 않음 ✅")
+
+    # ⑨ ★ **말이 아니라 실행으로.** 글자 검사는 '열이 겹치는지'를 못 잡는다 — 칸 폭
+    #    상수를 하나 바꾸면 이미지에서 이름 위에 전화가 겹쳐 그려지는데, 소스에는
+    #    아무 표시도 안 난다. 전화가 통째로 그려지는지도 실제로 그려 봐야 안다.
+    import shutil
+    node = shutil.which("node")
+    if not node:
+        print("  [295] 캠프 담당자 — 글자 검사만 통과(node 없어 실행 확인 못 함)")
+        return
+    # ⚠ 블록을 껍데기 소스에 **박아 넣지 않는다** — 화면 JS 에 템플릿 리터럴(백틱)이
+    #   많아 그대로 넣으면 껍데기가 통째로 문법 오류가 난다. 파일에서 읽게 한다.
+    harness = _T295_HARNESS.replace("__IDX__", json.dumps(idx))
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "camps.js")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(harness)
+        proc = subprocess.Popen([node, path], stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        try:                                   # 한 단계가 영원히 안 끝나면 안 된다([175])
+            out = proc.communicate(timeout=60)[0].decode("utf-8", "replace")
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            out = proc.communicate(timeout=20)[0].decode("utf-8", "replace")
+        assert "ALL OK" in out and proc.returncode == 0, "실행 확인 실패:\n" + out[-1500:]
+    print("  [295] 캠프 담당자 — 역할 셋·이름/전화/이메일·안 자름·안 겹침 (실행 확인) ✅")
+
+
+# 화면 로직을 그대로 실행하는 껍데기. 캔버스는 목이지만 **폭 계산은 실측 근사**를 쓴다
+# (한글 ≈ 폰트크기, 영숫자 ≈ 0.58배) — 그래야 겹침 판정에 뜻이 있다.
+_T295_HARNESS = r"""
+const __html = require('fs').readFileSync(__IDX__, 'utf8');
+const __blk = __html.slice(__html.indexOf('function campRows()'),
+                           __html.indexOf('async function remoteCapture'));
+const drawn = []; let curFont = '400 12px F';
+const ctx = {
+  set font(v){ curFont = v; }, get font(){ return curFont; },
+  fillStyle:'', strokeStyle:'', textAlign:'left',
+  fillRect(){}, beginPath(){}, moveTo(){}, lineTo(){}, stroke(){}, scale(){},
+  measureText(t){ const px = parseInt(/(\d+)px/.exec(curFont)[1], 10); let w = 0;
+    for (const ch of String(t)) w += /[ㄱ-힝]/.test(ch) ? px : px * 0.58;
+    return { width: w }; },
+  fillText(t, x, y){ drawn.push({t:String(t), x, y, w:this.measureText(t).width}); },
+};
+const canvas = { width:0, height:0, getContext:()=>ctx, toBlob:cb=>cb({size:1}) };
+const rows = [
+  { 캠프명:'송파1캠프(동남권물류단지 E동)', 정기점검:true, 정기점검건수:12,
+    최근작업일:'2026-07-24', 거래처코드:'CU001',
+    현장책임:{이름:'김동형', 전화:'010-6445-1001', 메일:''},
+    안전관리:{이름:'하창우', 전화:'010-4538-4409', 메일:'verylongaddress.person@coupangls.com'},
+    담당자:{이름:'', 전화:'', 메일:''} },
+  { 캠프명:'M_평택1', 정기점검:true, 정기점검건수:3, 최근작업일:'2026-07-29', 거래처코드:'CU9',
+    현장책임:{이름:'', 전화:'', 메일:''}, 안전관리:{이름:'', 전화:'', 메일:''},
+    담당자:{이름:'서영호', 전화:'010-4580-6030', 메일:'loveroses1@coupangls.com'} },
+];
+const el = { campPmOnly:{checked:true}, campQ:{value:''}, campSum:{}, campHost:{} };
+let xlsxRows = null;
+const g = { CAMPS:{ok:true, rows, 갱신:'2026-08-18T09:30:00'}, $:id=>el[id],
+  esc:s=>String(s==null?'':s), uiFont:()=>'F', todayISO:()=>'2026-08-18',
+  notice:m=>{ throw new Error('notice: '+m); }, toast:()=>{}, uxEvent:()=>{},
+  saveOrOpen:()=>{}, exportRowsXlsx:(n,r)=>{ xlsxRows = r; },
+  document:{ createElement:()=>canvas } };
+const api = new Function(...Object.keys(g),
+  __blk + ';return {campRoles, renderCampList, campsXlsx, campsCapture};')(...Object.values(g));
+
+let bad = [];
+const ok = (c, m) => { if(!c) bad.push(m); };
+const rl = api.campRoles(rows[0]);
+ok(rl.length === 3, '역할이 셋이 아니다: ' + rl.length);
+ok(rl[2].라벨 === '담당자(직책 미상)', '옛 양식 사람의 직책을 지어냈다: ' + rl[2].라벨);
+api.renderCampList();
+const t = el.campHost.innerHTML || '';
+ok(t.includes('010-6445-1001'), '표에서 전화가 잘렸다');
+ok(t.includes('mailto:verylongaddress.person@coupangls.com'), '표에 이메일이 없다');
+ok(t.includes('이메일 모름'), "빈 이메일을 '모름'이라 안 적는다");
+['현장책임','안전관리','담당자(직책 미상)'].forEach(r=>ok(t.includes(r), '표에 '+r+' 없음'));
+drawn.length = 0; api.campsCapture();
+['010-6445-1001','010-4538-4409','010-4580-6030'].forEach(tel=>
+  ok(drawn.some(d=>d.t===tel), '이미지에서 전화가 통째로 안 그려졌다: '+tel));
+ok(drawn.some(d=>d.t==='loveroses1@coupangls.com'), '이미지에서 이메일이 잘렸다');
+ok(!drawn.some(d=>/^010-\d{4}-\d{1,3}$/.test(d.t)), '잘린 전화번호가 그려졌다');
+['현장책임','안전관리','담당자(직책 미상)'].forEach(r=>
+  ok(drawn.some(d=>d.t===r), '이미지 머리글에 '+r+' 없음'));
+const byY = {}; drawn.forEach(d=>{ (byY[d.y] = byY[d.y] || []).push(d); });
+Object.values(byY).forEach(line=>{ const s = line.slice().sort((a,b)=>a.x-b.x);
+  for(let i=0;i+1<s.length;i++)
+    ok(!(s[i].x + s[i].w > s[i+1].x + 0.5), '이미지 열이 겹친다: '+s[i].t+' / '+s[i+1].t); });
+ok(canvas.width*canvas.height <= 16777216, '캔버스가 iOS 한도를 넘어 저장이 실패한다');
+ok(canvas.width > canvas.height, '가로형이 아니다');
+api.campsXlsx();
+['현장책임','안전관리','담당자(직책 미상)'].forEach(r=>['이름','전화','이메일'].forEach(c=>
+  ok(Object.keys(xlsxRows[0]).includes(r+' '+c), '엑셀 열 없음: '+r+' '+c)));
+console.log(bad.length ? '실패:\n' + bad.join('\n') : 'ALL OK');
+process.exit(bad.length ? 1 : 0);
+"""
 
 
 def t294_unreadable_source_never_passes_as_read():
