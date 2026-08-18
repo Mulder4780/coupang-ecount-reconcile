@@ -50,9 +50,10 @@ KINDS = [
     ("G", "이름이 다른 것으로 보임 ★요청 2번",
      "ERP 거래처 원본에서 **후보가 정확히 하나** 나왔다 — `US직구 허브넷` ↔ `인천7캠프(허브넷)` "
      "가 그 모양이다. **지목일 뿐 확정이 아니다**(아무것도 안 고친다) — 근거를 보고 사람이 정한다"),
-    ("H", "후보 여럿 — 사람이 고른다",
-     "후보가 둘 이상이라 자동으로 못 고른다. 하나를 짐작해 고르면 틀린 코드가 유니웍스에 "
-     "박힌다 — **빈 칸보다 나쁘다.** 후보를 나란히 보여 준다"),
+    ("H", "후보는 있으나 확정 못 함 — 사람이 고른다",
+     "후보가 둘 이상이거나, 하나인데 **지역 표기가 어긋난다**(`부산5MB(중동)` ↔ "
+     "`해운대 중동MB` 처럼 캠프명이 바뀐 것일 수도, 남의 자리일 수도 있다). 짐작해 고르면 "
+     "틀린 코드가 유니웍스에 박힌다 — **빈 칸보다 나쁘다.** 근거와 함께 나란히 보여 준다"),
 ]
 
 #: ★ **이 표로는 못 재는 것**(`[169]` — 못 잰 것을 '0건'이라 적지 않는다).
@@ -186,15 +187,27 @@ def _reject(camp, erp_name):
     da, db = _desig(camp), _desig(erp_name)
     if da and db and da != db:
         return "번호가 다르다 (%s ↔ %s)" % (da, db)
-    # ★ 지역 판정은 **양쪽에 번호가 있을 때만** 건다. 번호 없는 이름(`US직구 허브넷`)은
-    #   지역 추출 자체가 헛돈다 — 종류말 `허브` 를 뗀 `직구넷` 이 '지역'으로 잡혀
-    #   **요청 2번의 본보기가 통째로 거절됐다**(만들면서 검증이 잡았다).
-    #   남의 회사는 이미 후보 풀(캠프처럼 생긴 거래처)에서 걸러진다.
-    ra, rb = _region(camp), _region(erp_name)
-    if da and db and ra and rb and ra != rb and not (ra in rb or rb in ra):
-        return "지역이 다르다 (%s ↔ %s)" % (ra, rb)
     if _paren_clash(camp, erp_name):
         return "괄호 지명이 다르다"
+    return None
+
+
+def _weak(camp, erp_name):
+    """**거절은 아니지만 혼자서는 못 믿을 근거** — 사유가 있으면 지목(G)에서 내린다.
+
+    ★ 지역이 어긋나는 것을 거절로 두면 **요청 2번의 본보기가 통째로 사라진다**:
+      `US직구 허브넷` 은 번호가 없어 지역 추출이 헛돌고(종류말 `허브` 를 뗀 `직구넷` 이
+      '지역'으로 잡힌다) `인천7캠프(허브넷)` 과 지역이 다르다고 나온다. 만들면서 검증이
+      이것을 잡았다. 반대로 거절을 아예 풀면 `MC제천(봉양)` → `양주2캠프(봉양동)`
+      (제천 ↔ 양주)이 **지목**으로 올라온다 — 그건 틀린 코드를 유니웍스에 박는 길이다.
+    ★ 그래서 가르는 자리를 옮겼다: **지목(G)은 좁게, 보여 주기(H)는 넓게.**
+      캠프명이 실제로 바뀐 것들(`부산5MB(중동)` → `해운대 중동MB`)도 여기로 와서
+      근거와 함께 사람 앞에 선다 — 조용히 사라지지 않는다(`[169]`).
+    """
+    ra, rb = _region(camp), _region(erp_name)
+    if ra and rb and ra != rb and not (ra in rb or rb in ra):
+        return ("지역 표기가 다르다 (%s ↔ %s) — 캠프명이 바뀐 것일 수도, "
+                "남의 자리일 수도 있다" % (ra, rb))
     return None
 
 
@@ -242,6 +255,7 @@ def guess_codes(camps, custs):
                 continue
             keep.append({"code": code, "name": str(c.get("name") or ""),
                          "addr": str(c.get("addr") or "")[:44],
+                         "약함": _weak(cam, str(c.get("name") or "")) or "",
                          "근거": " · ".join(sorted(why[code]))})
         keep.sort(key=lambda x: (-len(x["근거"].split(" · ")), x["code"]))
         if keep:
@@ -358,7 +372,7 @@ def build():
     guess = guess_codes(Es, custs) if custs else {}
     for r in Es:
         cs = guess.get(_norm(r["캠프명"])) or []
-        if len(cs) == 1:
+        if len(cs) == 1 and not cs[0].get("약함"):
             c = cs[0]
             r["갈래"], r["추정코드"] = "G", c["code"]
             r["추정근거"] = "%s — %s" % (c["name"], c["근거"])
@@ -367,7 +381,10 @@ def build():
         elif cs:
             r["갈래"] = "H"
             r["추정근거"] = " / ".join("%s(%s)" % (c["code"], c["name"][:20]) for c in cs[:6])
-            r["확인할 것"] = "후보 %d개 — %s" % (len(cs), r["추정근거"])
+            약 = [c["약함"] for c in cs if c.get("약함")]
+            r["확인할 것"] = "후보 %d개 — %s%s" % (
+                len(cs), r["추정근거"],
+                (" · " + 약[0]) if 약 and len(cs) == 1 else "")
         elif custs:
             r["확인할 것"] = "ERP 거래처 원본에도 댈 후보가 없다"
     # ★ **못 읽은 것을 '후보 없음'으로 세지 않는다**(`[169]`).
