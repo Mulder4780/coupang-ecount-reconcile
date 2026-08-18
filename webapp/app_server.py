@@ -2518,6 +2518,15 @@ def save_new_workcenter_job(fields, files, source_ip="", actor="app",
     status = str(fields.get("status") or "").strip()
     if not status:
         status = work_flow.default_stage(category)
+    if not status:
+        # 정의를 못 읽었다(2026-08-18 실측: Z: 끊김).  낱말 하나 때문에 접수를
+        # 잃지 않는다 — 밴드 등록이 쓰는 것과 **같은** 대비값을 쓴다([162]).
+        # 여기서 새 낱말을 지어내면 사본이 셋이 된다([166]).
+        try:
+            import band_canonical
+            status = (band_canonical._STAGE_FALLBACK.get(category) or ("",))[0]
+        except Exception:
+            status = ""
     allowed_stages = work_flow.stage_words(category)
     if allowed_stages and status and status not in allowed_stages:
         raise ValueError("현재 상태는 관리대장 목록에 있는 값이어야 합니다: "
