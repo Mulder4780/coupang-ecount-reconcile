@@ -2603,6 +2603,57 @@ def save_new_workcenter_job(fields, files, source_ip="", actor="app",
     return {**queued, "manifest": manifest}
 
 
+def _plain_xlsx(title, rows, cols, guide_lines=None):
+    """부르는 쪽이 준 열 그대로 XLSX 를 만든다(관리대장은 절대 열지 않는다).
+
+    회신 서식과 **같은 안전장치**를 쓴다 — 수식으로 읽힐 값 앞에 `'` 를 붙이고
+    (엑셀 수식 주입), 5,000행·60열에서 끊는다."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = str(title)[:31] or "목록"
+
+    def safe(v):
+        if v is None:
+            return ""
+        s = str(v)
+        return "'" + s if s.startswith(("=", "+", "-", "@")) else s
+
+    ws.append([label for label, _k in cols])
+    for r in rows:
+        ws.append([safe(r.get(key, "")) for _label, key in cols])
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="203A75")
+        c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.freeze_panes = "A2"
+    last = openpyxl.utils.get_column_letter(len(cols))
+    ws.auto_filter.ref = f"A1:{last}{max(1, ws.max_row)}"
+    for i, (label, key) in enumerate(cols, 1):
+        w = max(10, min(40, len(label) * 2 + 6))
+        for r in rows[:200]:
+            w = max(w, min(40, len(str(r.get(key, ""))) + 4))
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
+    # ★ 낱말 뜻은 파일 안에 같이 간다 — 엑셀만 받아 본 사람도 `모름` 이 '담당자가
+    #   없다'가 아니라 '아직 못 찾았다'라는 것을 알아야 한다([169]).
+    if isinstance(guide_lines, list) and guide_lines:
+        g = wb.create_sheet("읽는 법")
+        for ln in guide_lines[:40]:
+            if isinstance(ln, list):
+                g.append([str(x)[:300] for x in ln[:4]])
+            else:
+                g.append([str(ln)[:300]])
+        g.column_dimensions["A"].width = 22
+        g.column_dimensions["B"].width = 76
+        for c in g[1]:
+            c.font = Font(bold=True)
+    out = io.BytesIO()
+    wb.save(out)
+    wb.close()
+    return out.getvalue(), title
+
+
 def rows_xlsx(payload):
     """담당자 회신용 독립 XLSX를 메모리에서 만든다(관리대장은 절대 열어 저장하지 않는다)."""
     import openpyxl
@@ -2610,6 +2661,19 @@ def rows_xlsx(payload):
     title = str(payload.get("title") or "확인목록")[:80]
     rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
     rows = [r for r in rows[:5000] if isinstance(r, dict)]
+    # ★ **이 함수는 겉보기와 달리 범용이 아니었다** (2026-08-18 실사고).
+    #   이름도 인자도 `rows_xlsx(payload)` 라 아무 표나 되는 것처럼 보이는데, 실제로는
+    #   아래 13칸 **담당자 회신 서식**에 억지로 밀어 넣고 **모르는 칸은 말없이 버린다.**
+    #   그래서 캠프 담당자 402개를 내보냈더니 `캠프명` 한 칸만 차고 전화·이메일이
+    #   통째로 사라진 파일이 대표 보고용으로 나갔다 — **빈 칸이 아니라 없는 열**이라
+    #   파일을 열어 보기 전에는 아무도 모른다([165]).
+    #   이제 부르는 쪽이 `columns` 를 주면 **그 표 그대로** 만든다. 안 주면 예전
+    #   회신 서식 그대로다 — 기존 부르는 곳의 동작은 한 글자도 안 바뀐다.
+    want = payload.get("columns")
+    if isinstance(want, list) and want:
+        cols = [(str(c)[:40], str(c)[:40]) for c in want[:60] if str(c).strip()]
+        if cols:
+            return _plain_xlsx(title, rows, cols, payload.get("guide"))
     columns = [
         ("프로젝트NO", "프로젝트NO"), ("업무ID", "업무ID"), ("캠프명", "캠프명"),
         ("구분", "구분"), ("확인사항", "확인사항"), ("현재상태", "현재상태"),

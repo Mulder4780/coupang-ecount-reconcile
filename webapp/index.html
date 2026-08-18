@@ -16710,7 +16710,18 @@ function campsXlsx(){
                  campHasPerson(r.담당자) ? '담당자 직책은 원문에 없음(옛 접수 양식)' : '',
                 ].filter(Boolean).join(' · ') || '특이사항 없음';
     return o;
-  }));
+  }), {
+    /* ★ **열을 직접 준다.** 안 주면 회신 서식(13칸)에 밀려 들어가 캠프명만 남는다. */
+    columns: ['캠프명','정기점검']
+      .concat(...CAMP_ROLES.map(([,label])=>[label+' 이름', label+' 전화', label+' 이메일']))
+      .concat(['캠프주소','거래처코드','정기점검건수','최근작업일','비고']),
+    /* 낱말 뜻은 파일 안에 같이 간다 — 엑셀만 받아 본 사람도 알아야 한다([169]). */
+    guide: [['항목','뜻']]
+      .concat(CAMP_ROLES.map(([,label,hint])=>[label, hint]))
+      .concat([["'모름'", '담당자가 없다는 뜻이 아니라, 밴드 접수 글에서 아직 못 찾았다는 뜻입니다.'],
+               ['현장책임 이메일', '접수 양식이 그 칸을 거의 안 적습니다 — 비어 있는 것이 정상입니다.'],
+               ['기준', String((CAMPS&&CAMPS.갱신)||'').replace('T',' ')]])
+  });
   uxEvent('tap','campsXlsx');
 }
 /* 대표 보고용 이미지 — **가로 한 줄에 한 캠프**가 다 들어간다(2026-08-18 지시).
@@ -20583,16 +20594,26 @@ function excelRows(rows){
     담당자:r.담당자||r.담당기사||''
   }));
 }
-async function exportRowsXlsx(title,rows){
+/* ★ 이 함수는 **두 가지**다 — 셋째 인자가 그것을 가른다 (2026-08-18 실사고).
+   · `exportRowsXlsx(제목, 행)`            → 담당자 **회신 서식**(13칸 고정). 그대로다.
+   · `exportRowsXlsx(제목, 행, {columns})` → **준 열 그대로**.
+   전에는 앞의 하나뿐이라, 캠프 담당자처럼 제 열을 가진 표를 넘기면 `excelRows` 가
+   모르는 칸을 **말없이 버렸다** — 402개 중 캠프명만 찬 파일이 대표 보고로 나갔다.
+   빈 값이면 눈에 띄지만 **없는 열은 파일을 열기 전에는 안 보인다**([165]). */
+async function exportRowsXlsx(title,rows,opt){
   try{
+    const cols=(opt&&opt.columns)||null;
+    const body=cols ? {title, rows, columns:cols, guide:(opt&&opt.guide)||null}
+                    : {title, rows:excelRows(rows)};
     const r=await fetch('/api/export_xlsx',{method:'POST',cache:'no-store',
       headers:{'X-Pin':PIN,'Content-Type':'application/json'},
-      body:JSON.stringify({title,rows:excelRows(rows)})});
+      body:JSON.stringify(body)});
     if(r.status===401){PIN='';localStorage.removeItem('cw_pin');$('gate').style.display='flex';throw new Error('PIN');}
     if(!r.ok){let d={};try{d=await r.json();}catch(_){}
       throw new Error(d.error||`HTTP ${r.status}`);}
     const b=await r.blob(), safe=String(title||'확인목록').replace(/[\\/:*?"<>|\s]+/g,'_');
-    downloadBlobFile(b,`CSOS_${safe}_${todayISO()}.xlsx`,'담당자 회신용 엑셀을 저장했습니다');
+    downloadBlobFile(b,`CSOS_${safe}_${todayISO()}.xlsx`,
+      cols ? '엑셀을 저장했습니다' : '담당자 회신용 엑셀을 저장했습니다');
   }catch(e){notice('엑셀 저장 실패: '+e);}
 }
 function reportExcelRows(){
