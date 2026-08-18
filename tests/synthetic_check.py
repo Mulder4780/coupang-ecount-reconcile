@@ -18555,6 +18555,88 @@ def t192_synthetic_check_is_harmless():
     print("  [192] 합성검증 전후 무해 — dirty 3파일 바이트·공용 점유 보존·합성 플래그·유한 실행 ✅")
 
 
+
+def t298_as_period_filter_never_shifts_a_day():
+    """[298] 돌발AS 기간 필터 — 구간이 하루도 안 밀리고, 평균은 근거를 밝힌다.
+
+    2026-08-18 지시: "기간을 선택해서 1일, 1주일, 1달, 특정 날짜 등 평균 돌발 AS
+    건 수를 확인할 수 있는 필터".
+
+    ★ 만들면서 그대로 걸린 자리를 여기서 지킨다 — `toISOString()` 은 UTC 로 옮겨
+      한국(UTC+9)에서 자정이 전날로 넘어간다.  '최근 1일' 이 어제를 가리켰는데
+      **오류는 안 나고 날짜만 틀렸다**([165] 와 같은 종류).  글자로도 막고
+      node 가 있으면 결과로도 잰다.
+    """
+    import io as _io
+    idx = os.path.join(ROOT, "webapp", "index.html")
+    html = _io.open(idx, encoding="utf-8").read()
+    blk = html[html.index("const WT_SPANS="):html.index("function wtLateFn")]
+
+    # ★ 주석은 뺀다 — 안 그러면 "쓰지 않는다"고 적어 둔 설명이 제 검사에 걸려
+    #   다음 사람이 **멀쩡한 설명을 지우러 간다**([172]).  같은 함정을
+    #   `[295]` 에서 이미 한 번 밟았다.
+    code = chr(10).join(ln for ln in blk.splitlines()
+                        if not ln.strip().startswith("//"))
+    assert "toISOString" not in code,         "기간 계산이 toISOString 을 쓴다 — UTC 로 옮겨 구간이 하루 밀린다"
+    # 평균은 무엇을 무엇으로 나눴는지 같이 적어야 한다([169])
+    meta = html[html.index("const sp=wtSpanRange(k);"):html.index("$(k+'Meta').textContent")]
+    for want in ("하루 평균", "÷", "날짜 없어 기간에서 뺀 건"):
+        assert want in meta, "기간 평균이 근거를 안 밝힌다: %s" % want
+    # 캡처에도 기간이 적혀야 한다(받아 본 사람이 어느 구간인지 알아야 한다)
+    cap = html[html.index("function wtCapFilters"):html.index("function wtCapBuckets")]
+    assert "wtSpanRange" in cap, "캡처가 기간을 안 적는다"
+
+    import shutil as _sh
+    node = _sh.which("node")
+    if not node:
+        print("  [298] 돌발AS 기간 필터 — 글자 검사만 통과(node 없어 실행 확인 못 함)")
+        return
+
+    harness = r"""
+const html=require('fs').readFileSync(__IDX__,'utf8');
+const blk=html.slice(html.indexOf('const WT_SPANS='), html.indexOf('function wtLateFn'));
+let ROWS=[{d:'2026-08-18'},{d:'2026-08-18'},{d:'2026-08-12'},{d:'2026-07-25'},{d:''},{d:'2026-08-19'}];
+const WT={as:{}}, WT_CFG={as:{dateCol:'d',idCol:'i',stCol:'s',rows:()=>ROWS,sorts:[['d','d']]}};
+const g={WT,WT_CFG,wtToday:()=>'2026-08-18',Date,String,Number,Math,Object,isNaN,console};
+const api=new Function(...Object.keys(g),`
+  function wtState(k){const cfg=WT_CFG[k],cur=WT[k]||{};const base=/^2026-\d{2}-\d{2}$/.test(String(cur.base||''))?cur.base:wtToday();
+    WT[k]=Object.assign({q:'',st:'',tech:'',board:false,quick:'',dateMode:'',span:'',from:'',to:'',base,sortBy:cfg.dateCol,sortOrder:'desc'},cur,{base});return WT[k];}
+  function wtStatus(k,r){return String(r[WT_CFG[k].stCol]||'').trim()||'미기입';}
+  ${blk}
+  return {wtSpanRange,wtFiltered};`)(...Object.values(g));
+let bad=0; const ok=(c,m)=>{ if(!c){bad++; console.log('  X '+m);} };
+const set=o=>{WT.as=Object.assign({base:'2026-08-18'},o);};
+set({span:'1'});   let r=api.wtSpanRange('as');
+ok(r.from==='2026-08-18'&&r.to==='2026-08-18'&&r.days===1,'1일이 기준일 하루가 아니다: '+JSON.stringify(r));
+ok(api.wtFiltered('as').length===2,'1일 구간 건수가 다르다');
+set({span:'7'});   r=api.wtSpanRange('as');
+ok(r.from==='2026-08-12'&&r.days===7,'1주일 구간이 밀렸다: '+JSON.stringify(r));
+set({span:'30'});  r=api.wtSpanRange('as');
+ok(r.from==='2026-07-20'&&r.days===30,'1달 구간이 밀렸다: '+JSON.stringify(r));
+set({span:'custom',from:'2026-08-18',to:'2026-08-12'}); r=api.wtSpanRange('as');
+ok(r&&r.from==='2026-08-12'&&r.to==='2026-08-18','거꾸로 고른 기간을 안 바로잡는다');
+set({span:'custom',from:'2026-08-12',to:''});
+ok(api.wtSpanRange('as')===null,'반쯤 고른 기간으로 평균을 낸다 — 짐작 금지');
+set({span:''});
+ok(api.wtSpanRange('as')===null,'기간 전체인데 구간을 만든다');
+ok(api.wtFiltered('as').length===6,'기간 전체인데 행을 거른다');
+process.exit(bad?1:0);
+"""
+    src = os.path.join(tempfile.gettempdir(), "t298_%d.js" % os.getpid())
+    with _io.open(src, "w", encoding="utf-8") as f:
+        f.write(harness.replace("__IDX__", json.dumps(idx)))
+    try:
+        pr = subprocess.run([node, src], capture_output=True, text=True, encoding="utf-8")
+        assert pr.returncode == 0, ("기간 필터 실행 확인 실패:" + chr(10)
+                                    + (pr.stdout or "") + (pr.stderr or ""))
+    finally:
+        try:
+            os.remove(src)
+        except OSError:
+            pass
+    print("  [298] 돌발AS 기간 필터 — 1일·1주일·1달·직접선택 · 구간 안 밀림 · 평균 근거 (실행 확인) OK")
+
+
 def t297_orgchart_change_is_seen_without_crying_wolf():
     """[297] 조직도가 바뀌면 붙잡되 **사람 상태로는 안 울린다** (2026-08-13 지시).
 
@@ -21351,6 +21433,7 @@ if __name__ == "__main__":
     t295_camp_contacts_never_guess_a_phone_number()
     t296_half_list_never_blames_the_person()
     t297_orgchart_change_is_seen_without_crying_wolf()
+    t298_as_period_filter_never_shifts_a_day()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
