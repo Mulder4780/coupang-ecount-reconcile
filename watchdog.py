@@ -292,15 +292,26 @@ def heal_stale_pastefiles(dry):
             mk_mt = max(mk_mt, os.path.getmtime(os.path.join(band_dir, maker)))
         except OSError:
             pass                       # 없는 파일은 기준이 못 된다(있는 것만으로 판단)
+    # ★ **기준은 한 곳에서 정한다** (2026-08-18 실사고 — 분담판 [56]).
+    #   전에는 낡음을 `mk_mt`(만드는 쪽 최신)로 고르고 **새로워졌는지는 `js_mt`**
+    #   (grab_posts.js) 로만 봤다. 그래서 `recheck_plan.py`(08-18 10:28) 가
+    #   `grab_posts.js`(08-12 00:53) 보다 새로우면 **같은 파일이 낡았으면서 동시에
+    #   새로웠다** — 30분마다 골라서, 아무것도 안 바뀌었는데, "새로 1개"라고 적었다.
+    #   실측: `수집_붙여넣기_84789192.js` 가 08-16 00:14 그대로인 채 13:58·14:34·
+    #   14:58 세 회차 연속 성공으로 보고됐다. 워치독은 result=0 으로 끝난다.
+    #   ★ 2026-08-11 에 **낡음 기준만** 셋으로 넓히고 성공 기준을 안 따라가게 둔 것이
+    #     원인이다 — 같은 판단을 두 곳에서 하면 언젠가 갈린다(`[162]`).
+    def _기준(path):
+        return mk_mt if os.path.basename(path).startswith("수집_") else js_mt
+
     old = [p for p in _g.glob(os.path.join(band_dir, "*붙여넣기_*.js"))
-           if os.path.getmtime(p) < (mk_mt if os.path.basename(p).startswith("수집_")
-                                     else js_mt)]
+           if os.path.getmtime(p) < _기준(p)]
     if not old:
         return "붙여넣기 파일 최신"
     names = ", ".join(os.path.basename(p) for p in old[:3])
     if dry:
         return "붙여넣기 옛 JS(dry — 생성 생략): %s" % names
-    made, failed = 0, 0
+    made, gone, failed = 0, 0, 0
     for p in old:
         base = os.path.basename(p)
         band = base.rsplit("_", 1)[-1][:-3]
@@ -312,7 +323,7 @@ def heal_stale_pastefiles(dry):
                 # 그래서 **지운다.** 다음 회차가 새 JS 로 다시 만든다 —
                 # 옛 JS 를 남겨 두는 것보다 없는 편이 낫다.
                 os.unlink(p)
-                made += 1
+                gone += 1
                 continue
             run_tree([sys.executable, os.path.join(band_dir, "make_oneclick.py"),
                       "--band", band], cwd=ROOT, timeout=180, drain_timeout=10)
@@ -320,20 +331,29 @@ def heal_stale_pastefiles(dry):
             #   생성기가 아무 파일도 안 쓰고 정상 종료한다(0). 그걸 성공으로 세면
             #   낡은 파일이 그대로 남은 채 "새로 만들었다"고 적힌다 — 거짓 보고다.
             #   실제로 파일이 새로워졌는지 mtime 으로 본다.
-            if os.path.exists(p) and os.path.getmtime(p) >= js_mt:
+            if os.path.exists(p) and os.path.getmtime(p) >= _기준(p):
                 made += 1
             else:
                 # 만들 것이 없다 = 이 파일은 있을 이유가 없다. 남겨 두면 사람이
                 # 옛 JS 를 붙여넣는다. 지우면 필요할 때 다시 만들어진다.
                 try:
                     os.unlink(p)
-                    made += 1
+                    gone += 1
                 except OSError:
                     failed += 1
         except Exception:
             failed += 1
-    return "붙여넣기 옛 JS %d개 → 새로 %d개%s (%s)" % (
-        len(old), made, (" · 실패 %d" % failed) if failed else "", names)
+    # ★ **지운 것을 '새로 만든 것'과 같은 숫자에 담지 않는다**(`[169]`).
+    #   섞으면 "새로 2개"로 읽히는데 실제로는 "2개 지웠다"일 수 있다 — 사람은
+    #   붙여넣을 파일이 준비된 줄 안다. 지운 것은 다음 회차가 새 규칙으로 만든다.
+    부분 = ["새로 %d개" % made] if made else []
+    if gone:
+        부분.append("지움 %d개(만들 것이 없어 — 다음 회차가 새로 만든다)" % gone)
+    if failed:
+        부분.append("실패 %d개" % failed)
+    if not 부분:
+        부분.append("아무것도 못 함")
+    return "붙여넣기 옛 JS %d개 → %s (%s)" % (len(old), " · ".join(부분), names)
 
 
 def heal_fixed_funnel(dry):

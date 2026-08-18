@@ -22111,6 +22111,62 @@ def t304_dead_round_says_why_and_stops_crying_wolf():
           "(자국 `*_오류.json` · 갈래는 autopilot 에서 빌림 · 근거 없으면 실패 그대로) ✅")
 
 
+
+def t305_self_heal_never_reports_a_file_it_did_not_touch():
+    """[305] 자가치유는 **안 건드린 파일을 '새로 만들었다'고 적지 않는다**.
+
+    2026-08-18 실사고(분담판 [56]). `watchdog.heal_stale_pastefiles` 가 낡음을
+    `mk_mt`(만드는 쪽 셋 중 최신)로 고르면서 **새로워졌는지는 `js_mt`**
+    (`grab_posts.js`) 로만 봤다. 그래서 `recheck_plan.py`(08-18 10:28) 가
+    `grab_posts.js`(08-12 00:53) 보다 새로우면 **같은 파일이 낡았으면서 동시에
+    새로웠다** — 30분마다 골라서, 아무것도 안 바뀌었는데, "새로 1개"라고 적었다.
+    실측: `수집_붙여넣기_84789192.js` 가 **08-16 00:14 그대로**인 채 13:58·14:34·
+    14:58 세 회차 연속 성공으로 보고됐고 워치독은 `result=0` 으로 끝났다.
+    ★ 2026-08-11 에 **낡음 기준만** 셋으로 넓히고 성공 기준을 안 따라가게 둔 것이
+      원인이다 — 같은 판단을 두 곳에서 하면 언젠가 갈린다(`[162]`).
+    ★ 그대로 두면 사람이 **옛 규칙으로 만든 목록**을 붙여넣어 없는 번호를 긁는다
+      (`[217]`·`[223]` — 14분에 수확 0).
+
+    ★ 글자로 재는 이유: 이 계약은 '되돌아가면 안 되는 것'이다(`[39]`) — 성공 판정이
+      낡음 판정과 **다른 기준**으로 되돌아가는 것과, 지운 것을 만든 것에 다시 섞는 것.
+    """
+    import watchdog as W
+    wsrc = open(W.__file__, encoding="utf-8").read()
+    i = wsrc.index("def heal_stale_pastefiles")
+    body = wsrc[i:wsrc.index("def heal_fixed_funnel")]
+
+    # ① 기준이 한 곳에서 온다 — 낡음도 성공도
+    assert "def _기준(" in body, "낡음/성공 기준이 한 곳에서 안 온다"
+    assert body.count("_기준(p)") >= 2, \
+        "기준 함수를 낡음·성공 **둘 다** 에 안 쓴다(하나만 쓰면 다시 갈린다)"
+    # ② 성공 판정이 js_mt 로 되돌아가지 않는다
+    성공줄 = [ln for ln in body.splitlines()
+              if "os.path.getmtime(p) >=" in ln]
+    assert 성공줄, "성공 판정 줄을 못 찾았다"
+    for ln in 성공줄:
+        assert "js_mt" not in ln, \
+            "성공 판정이 다시 js_mt 로 돌아갔다 — 낡음과 기준이 갈린다: %s" % ln.strip()
+    # ③ 지운 것을 새로 만든 것과 같은 숫자에 담지 않는다(`[169]`)
+    assert "gone" in body, "지운 것을 따로 안 센다"
+    지움뒤 = [ln.strip() for ln in body.splitlines() if "os.unlink(p)" in ln]
+    assert 지움뒤, "지우는 자리를 못 찾았다"
+    for m in ("made += 1\n                continue",):
+        pass
+    # 지운 직후 made 를 올리면 '새로 만듦'으로 보고된다
+    for idx, ln in enumerate(body.splitlines()):
+        if "os.unlink(p)" in ln:
+            다음 = body.splitlines()[idx + 1].strip()
+            assert 다음.startswith("gone"), \
+                "지운 뒤 made 를 올린다 — '지움'이 '새로 만듦'으로 보고된다: %r" % 다음
+    # ④ 보고 문구가 둘을 갈라 말한다
+    assert "지움 %d개" in body, "보고가 지운 건수를 말하지 않는다"
+    assert "아무것도 못 함" in body, \
+        "하나도 못 했을 때 그렇게 말하지 않는다 — 빈 성공처럼 읽힌다(`[169]`)"
+
+    print("[305] 자가치유는 안 건드린 파일을 '새로 만들었다'고 적지 않는다"
+          "(기준 한 곳 · 지움/만듦 분리) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -22408,6 +22464,7 @@ if __name__ == "__main__":
     t301_camp_edits_survive_the_round()
     t302_flow_canvas_only_edits_in_its_own_window()
     t304_dead_round_says_why_and_stops_crying_wolf()
+    t305_self_heal_never_reports_a_file_it_did_not_touch()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
