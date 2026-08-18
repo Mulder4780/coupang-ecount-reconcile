@@ -3270,7 +3270,12 @@ def _store_fallback_hint(minutes=30):
     """
     with _STORE_FALLBACK_LOCK:
         ts = float(_STORE_FALLBACK.get("half_ts") or 0)
-        if not ts or (time.time() - ts) > minutes * 60:
+        # ★ `>` 가 아니라 `>=` 다. **길이가 0 인 창은 아무것도 담지 않는다** —
+        #   `>` 로 두면 방금(같은 시계 눈금에) 찍힌 자국이 `minutes=0` 에도 걸려
+        #   "지금 폴백 중"이라고 말한다. 실측으로 검증이 그 자리에서 흔들렸다
+        #   (Windows `time.time()` 눈금 안에 스탬프와 조회가 같이 들어갔다).
+        #   30분 창에서는 한 눈금 차이가 아무 뜻도 없으므로 잃는 것이 없다.
+        if not ts or (time.time() - ts) >= minutes * 60:
             return ""
         return (f"{_STORE_FALLBACK['half_at']} 앱 DB 읽기 실패 "
                 f"{_STORE_FALLBACK['half_count']}회 · {_STORE_FALLBACK['half_where']} · "
