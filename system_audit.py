@@ -104,6 +104,81 @@ def _atomic_text(path: Path, text: str) -> None:
             pass
 
 
+#: 보호자가 **'아직 실패가 아니다 — 오탐 방지 재확인'** 이라 적는 상태
+#: → (그 상태의 연속 실패 칸, 보호자가 쓰는 한도 이름).
+#: ★ 낱말이 어긋나면 한 건도 안 걸리면서 오류도 안 난다(`[165]`) — 검증 `[306]` 이
+#:   이 낱말들이 server_guard.py 에 실재하는지 매번 대 본다.
+GUARD_RECHECK = {
+    "degraded": ("consecutive_failures", "FAIL_LIMIT"),
+    "staff-degraded": ("consecutive_staff_failures", "STAFF_FAIL_LIMIT"),
+    "funnel-degraded": ("consecutive_funnel_failures", "FUNNEL_FAIL_LIMIT"),
+}
+
+
+def guard_limits() -> dict[str, int] | None:
+    """판정 한도를 **보호자에게서 읽어 온다**(`[162]`).
+
+    여기 3 이라 적어 두면 보호자가 한도를 바꾼 날 두 화면이 서로 다른 답을 한다.
+    못 읽으면 **지어내지 않고** None 을 돌려준다 — 부르는 쪽이 '못 갈랐다'고 적는다.
+    """
+    try:
+        webapp = str(ROOT / "webapp")
+        if webapp not in sys.path:
+            sys.path.insert(0, webapp)
+        import server_guard
+        return {name: int(getattr(server_guard, name))
+                for _, name in GUARD_RECHECK.values()}
+    except Exception:
+        return None
+
+
+def guard_verdict(guard: dict, limits: dict | None) -> dict[str, Any]:
+    """보호자 상태 한 장을 감사 갈래로 옮긴다.
+
+    ★ **판정을 새로 만들지 않는다**(`[162]`) — 보호자는 한 번 늦은 것을 죽음으로
+      단정하지 않는다(`FAIL_LIMIT=3`). 그 한도를 그대로 빌려 쓴다.
+    ★ 2026-08-18 실측: 그날 보호자 로그의 '지연 감지'가 **37회**인데 실제 재시작·
+      실패는 **1회**였다(로그 누적 153회). 그런데 감사기가 **첫 blip 부터** P0 를
+      올려, 앱 서버를 다시 띄우기만 해도(15:45:11 funnel-degraded → 15:46:13 정상
+      복귀) 인계 맨 위가 빨개졌다. **경보가 대부분 가짜면 진짜 경보가 묻힌다**(`[170]`).
+    ★ 내리는 것은 `*-degraded` **셋이 한도 아래일 때뿐**이다. `cooldown`(서버가
+      죽은 채 재시작 과열 방지 대기) · `funnel-repairing`(이미 세 번 실패해 재등록
+      중) 같은 상태는 **진짜 장애**라 그대로 P0 다 — 잘못 내리면 못 잡는 것보다
+      나쁘다(`[172]`).
+
+    아무 파일도 안 읽고 안 쓴다 — 검증이 합성 자료로 그대로 부른다(`[247]`).
+    """
+    state = str(guard.get("state") or "").strip().lower()
+    msg = str(guard.get("message") or state or "상태 설명 없음")
+    out: dict[str, Any] = {"상태": state, "재확인": None, "priority": None,
+                           "id": "", "title": "", "evidence": msg}
+    if state == "healthy":
+        return out
+
+    def 실패(why: str) -> dict[str, Any]:
+        out.update(priority="P0", id="server-guard-failed",
+                   title="앱 서버 보호자가 장애를 보고함", evidence=why)
+        return out
+
+    if state not in GUARD_RECHECK:
+        return 실패(msg)
+
+    count_key, limit_name = GUARD_RECHECK[state]
+    count = guard.get(count_key)
+    limit = (limits or {}).get(limit_name)
+    out["재확인"] = {"칸": count_key, "횟수": count, "한도": limit}
+    셀수있나 = isinstance(count, int) and not isinstance(count, bool)
+    if not 셀수있나 or not isinstance(limit, int):
+        # ★ 못 읽었으면 조용히 넘기지 않는다 — 오늘 하던 대로 올리되
+        #   **왜 못 갈랐는지**를 적는다(`[169]`).
+        return 실패("%s — 재확인 중인지 실패인지 **가르지 못했습니다**"
+                    " (연속 횟수 %r · 보호자 한도 %r)." % (msg, count, limit))
+    if count < limit:
+        # 보호자가 **아직 실패로 안 봤다** — 여기서 먼저 실패라 부르지 않는다.
+        return out
+    return 실패("%s (연속 %d회 · 보호자 한도 %d회 도달)" % (msg, count, limit))
+
+
 def _finding(identifier: str, priority: str, title: str, evidence: str,
              action: str, source: str) -> dict[str, str]:
     return {
@@ -140,10 +215,15 @@ def build() -> dict[str, Any]:
             f"마지막 보호 기록이 {int(guard_age or 0)}분 전입니다(정상 한도 5분).",
             "작업 스케줄러의 CSOS_AppServerGuard와 server_guard.log를 확인합니다.",
             "reports/server_guard_status.json")
-    elif str(guard.get("state") or "").lower() != "healthy":
-        add("server-guard-failed", "P0", "앱 서버 보호자가 장애를 보고함",
-            str(guard.get("message") or guard.get("state") or "상태 설명 없음"),
-            "python webapp/server_guard.py --once", "reports/server_guard_status.json")
+    else:
+        verdict = guard_verdict(guard, guard_limits())
+        sources["server_guard"]["state"] = verdict["상태"]
+        sources["server_guard"]["recheck"] = verdict["재확인"]
+        if verdict["priority"]:
+            add(verdict["id"], verdict["priority"], verdict["title"],
+                verdict["evidence"],
+                "python webapp/server_guard.py --once",
+                "reports/server_guard_status.json")
 
     # 2) 30분 워치독 — 입력 질문에 걸려도 로그가 오래 멈춘 것으로 잡는다.
     watchdog_path = REPORTS / "watchdog_log.txt"

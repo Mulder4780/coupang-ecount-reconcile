@@ -18755,6 +18755,104 @@ def t240_install_has_a_door_and_says_why_when_shut():
           "터널 차단 유지 · 고정 주소 한 곳 ✅")
 
 
+def t306_dead_server_revival_never_kills_someone_elses_server():
+    """[306] 죽은 서버를 살리면서 **남의 서버를 죽이지 않는다**.
+
+    2026-08-18(분담판 [115]). `watchdog.heal_server` 는 ping 이 실패하면
+    `kill_by_cmdline("app_server.py")` 로 **그 글자를 명령줄에 담은 모든 파이썬**을
+    죽였다 — 합성검증의 데모 서버(`--demo --port 18899`)·8898·8897 시험 서버·사람이
+    띄운 개발 서버까지. 관문 `[6]` 이 아무 이유 없이 빨개질 수 있는 자리였고,
+    죽은 쪽에는 아무 자국도 안 남는다. `kill_stale_tunnel` 이 `[85]` 에서 배운 것과
+    같다 — **그 이름은 남의 명령줄에도 있다.**
+    ★ 판정은 한 곳이다(`[162]`) — `server_guard` 가 이미 운영 서버만 고른다
+      (`--demo` 제외 · `--port` 가 있으면 8899 일 때만). 베껴 쓰면 포트를 옮기는 날
+      한쪽만 고쳐진다.
+    ★ **못 읽은 것을 '없다'로 치지 않는다**(`[169]`) — 프로세스 목록을 못 읽으면
+      '재시작 실패'가 아니라 **'잘못 죽이지 않으려고 안 한 것'** 이다. 뭉쳐 적으면
+      사람이 없는 서버 고장을 찾아 나선다(`[172]`).
+    ★ 실측(2026-08-18): 데모 서버 pid 24032 를 띄운 채 `server_pids()` 는 `[30340]`
+      (운영 서버)만 돌려줬다.
+
+    ★ 글자 검사로는 '정말 안 죽이는가'를 못 잰다(`[295]`) — 갈래를 **실행해서** 잰다.
+      진짜 프로세스는 하나도 안 건드린다(전부 대역).
+    """
+    import watchdog as W
+    from webapp import server_guard as G
+
+    wsrc = open(W.__file__, encoding="utf-8").read()
+    # ① 이름으로 죽이는 헬퍼가 되살아나면 실패다.  주석에 이름이 남는 것은 허용한다
+    #    (왜 없앴는지가 코드 옆에 남아야 한다) — 정의와 호출만 막는다.
+    assert "def kill_by_cmdline" not in wsrc, (
+        "[306] 이름으로 죽이는 헬퍼가 되살아났다 — server_guard.server_pids() 를 쓸 것")
+    body = wsrc.split("def heal_server(dry):", 1)[1].split(chr(10) + "def ", 1)[0]
+    # ★ **규칙을 세기 전에 주석을 걷어낸다** — 안 걷으면 이 고침의 **설명 주석**
+    #   (왜 이름으로 안 죽이는지)에 걸려 멀쩡한 코드가 빨개진다. `[301]`-⑨ 에서
+    #   그대로 당한 자리다.
+    code = chr(10).join(x for x in body.split(chr(10))
+                        if not x.strip().startswith("#"))
+    assert "kill_by_cmdline(" not in code, "[306] heal_server 가 이름으로 죽인다"
+    assert "server_guard" in code, "[306] heal_server 가 판정을 빌리지 않는다([162])"
+    for banned, why in (("start_hidden(", "제 손으로 띄우면 포트가 빌 때까지 안 기다린다"),
+                        ("time.sleep(", "4초는 실측 9.3초보다 짧다([197])")):
+        assert banned not in code, "[306] heal_server 가 %s — %s" % (banned, why)
+
+    # ② 갈래를 **실행으로** 잰다 (못읽음→보류 · 성공 · 실패 · dry).
+    def _branches(heal):
+        tried = []
+        old = (W.ping, G.server_pids, G.restart_server)
+        try:
+            W.ping = lambda *a, **k: False
+            G.restart_server = lambda r: (tried.append(r), True)[1]
+            G.server_pids = lambda: None
+            msg = heal(False)
+            assert not tried, "[306] 목록을 못 읽었는데 재시작을 시도했다"
+            assert "보류" in msg and "실패" not in msg, (
+                "[306] '못 읽음' 을 '재시작 실패' 로 뭉쳤다([169]): %s" % msg)
+            G.server_pids = lambda: [1234]
+            assert "성공" in heal(False), "[306] 성공 갈래"
+            assert tried == ["watchdog"], "[306] 부른 이유를 안 남긴다"
+            G.restart_server = lambda r: False
+            assert "실패" in heal(False), "[306] 실패 갈래"
+            G.restart_server = lambda r: (_ for _ in ()).throw(
+                AssertionError("[306] dry 인데 재시작했다"))
+            assert "dry" in heal(True), "[306] dry 갈래"
+        finally:
+            W.ping, G.server_pids, G.restart_server = old
+
+    _branches(W.heal_server)
+
+    # ③ 계기 자신을 시험한다([272]) — '못 읽음' 문을 없앤 사본은 반드시 잡혀야 한다.
+    hurt = body.replace("if server_guard.server_pids() is None:", "if False:")
+    assert hurt != body, "[306] 자기시험용 문을 못 찾았다(구현이 바뀌면 여기도 고칠 것)"
+    ns = {"ping": lambda *a, **k: False, "heal_stale_server": lambda dry: "stale"}
+    exec("def heal_server(dry):" + hurt, ns)
+    try:
+        _branches(ns["heal_server"])
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("[306] 계기가 눈멀었다 — '못 읽음' 문을 없애도 통과했다")
+
+    # ④ 운영 서버 고르는 규칙이 정말 데모를 빼는지 — 그 코드가 **만든** 조건을 가로챈다.
+    seen = {}
+
+    class _R(object):
+        returncode = 0
+        stdout = ""
+
+    import subprocess as _sp
+    _old_run = _sp.run
+    try:
+        _sp.run = lambda cmd, **kw: (seen.__setitem__("ps", cmd[-1]), _R())[1]
+        G._cmdline_pids("app_server.py", production_server=True)
+    finally:
+        _sp.run = _old_run
+    ps = seen.get("ps", "")
+    assert "--demo" in ps, "[306] 운영 서버 판정이 데모를 안 뺀다"
+    assert str(G.PORT) in ps, "[306] 운영 서버 판정이 포트를 안 고정한다"
+    print("  [306] 죽은 서버 복구 — 데모·시험 서버를 안 죽인다 OK")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -22167,6 +22265,84 @@ def t305_self_heal_never_reports_a_file_it_did_not_touch():
           "(기준 한 곳 · 지움/만듦 분리) ✅")
 
 
+
+def t306_guard_recheck_is_not_an_outage():
+    """[306] 보호자가 **'아직 실패가 아니다'** 라 적은 것을 감사기가 장애라 부르지 않는다.
+
+    2026-08-18 실사고. `server_guard` 는 한 번 늦은 것을 죽음으로 단정하지 않는다
+    (`FAIL_LIMIT=3` — 세 번 연속일 때만 조치). 그런데 `system_audit` 이 **첫 blip
+    부터** `state != healthy` 하나로 **P0** 를 올렸다. 그래서 앱 서버를 다시 띄우기만
+    해도(실측 15:45:11 `funnel-degraded` → 15:46:13 정상 복귀) 인계 맨 위가 빨개졌다.
+    실측 그날 보호자 로그의 '지연 감지' **37회** 대 실제 재시작·실패 **1회**
+    (로그 누적 153회). **경보가 대부분 가짜면 진짜 경보가 묻힌다**(`[170]`).
+
+    ★ 내리는 것은 `*-degraded` **셋이 보호자 제 한도 아래일 때뿐**이다.
+      `cooldown`(서버가 죽은 채 과열 방지 대기) · `funnel-repairing`(이미 세 번
+      실패해 재등록 중)은 **진짜 장애**라 그대로 P0 — 잘못 내리면 못 잡는 것보다
+      나쁘다(`[172]`).
+    ★ 한도는 **보호자에게서 읽어 온다**(`[162]`). 여기 3 이라 적어 두면 보호자가
+      한도를 바꾼 날 두 화면이 서로 다른 답을 한다.
+
+    실행으로 잰다 — 글자 검사로는 '무엇이 경보가 되는가'를 못 잰다(`[295]`).
+    실측 증거 파일은 한 글자도 안 건드린다(`[247]`) — 합성 딕셔너리만 쓴다.
+    """
+    import system_audit as SA
+    import server_guard as SG
+
+    # (1) 낱말이 보호자에 실재하는가 — 어긋나면 한 건도 안 걸리면서 오류도 안 난다(`[165]`)
+    guard_src = open(SG.__file__, encoding="utf-8").read()
+    assert SA.GUARD_RECHECK, "재확인 상태 표가 비었다 — 모든 blip 이 다시 P0 가 된다"
+    for state, (count_key, limit_name) in SA.GUARD_RECHECK.items():
+        assert '"%s"' % state in guard_src,             "보호자가 안 쓰는 상태 이름이다: %s (이름이 바뀌면 조용히 안 걸린다)" % state
+        assert count_key in guard_src, "보호자가 안 쓰는 연속 실패 칸: %s" % count_key
+        assert hasattr(SG, limit_name), "보호자에 없는 한도 이름: %s" % limit_name
+
+    # (2) 한도를 빌려 온다 — 베껴 적지 않았다(`[162]`)
+    limits = SA.guard_limits()
+    assert limits, "보호자 한도를 못 읽었다"
+    원래 = SG.FUNNEL_FAIL_LIMIT
+    try:
+        SG.FUNNEL_FAIL_LIMIT = 99
+        assert SA.guard_limits().get("FUNNEL_FAIL_LIMIT") == 99,             "한도를 감사기가 제 손으로 적어 뒀다 — 보호자가 바꿔도 안 따라간다"
+    finally:
+        SG.FUNNEL_FAIL_LIMIT = 원래
+
+    def 갈래(g, lim=limits):
+        return SA.guard_verdict(g, lim)["priority"]
+
+    # (3) 한도 아래의 재확인은 경보가 아니다 — 이 사고의 본체
+    assert 갈래({"state": "funnel-degraded", "consecutive_funnel_failures": 1}) is None
+    assert 갈래({"state": "degraded", "consecutive_failures": 2}) is None
+    assert 갈래({"state": "staff-degraded", "consecutive_staff_failures": 1}) is None
+
+    # (4) 보호자가 실패로 판정한 순간부터는 P0
+    assert 갈래({"state": "funnel-degraded", "consecutive_funnel_failures": 3}) == "P0"
+    assert 갈래({"state": "degraded", "consecutive_failures": 3}) == "P0"
+
+    # (5) 진짜 장애 상태는 그대로 P0 — 넓혀서 내리지 않는다(`[172]`)
+    for state in ("cooldown", "funnel-repairing", "restart-failed",
+                  "funnel-repair-failed", "inspect-failed", "guard-error"):
+        assert 갈래({"state": state}) == "P0",             "%s 는 진짜 장애인데 경보에서 내려갔다" % state
+
+    # (6) 못 읽으면 조용히 넘기지 않는다(`[169]`)
+    v = SA.guard_verdict({"state": "degraded", "consecutive_failures": 1}, None)
+    assert v["priority"] == "P0" and "가르지 못했" in v["evidence"],         "한도를 못 읽었는데 조용히 넘어갔다"
+    v = SA.guard_verdict({"state": "degraded"}, limits)
+    assert v["priority"] == "P0" and "가르지 못했" in v["evidence"],         "연속 횟수를 못 읽었는데 조용히 넘어갔다"
+    assert 갈래({"state": "healthy"}) is None
+
+    # (7) ★ 계기 자신을 시험한다(`[272]`) — 표가 비면 blip 이 다시 P0 가 되는가
+    표 = dict(SA.GUARD_RECHECK)
+    try:
+        SA.GUARD_RECHECK.clear()
+        assert 갈래({"state": "funnel-degraded", "consecutive_funnel_failures": 1}) == "P0",             "표가 비었는데도 내려갔다 — 무엇이 내리는지 모르는 채로 도는 것이다"
+    finally:
+        SA.GUARD_RECHECK.update(표)
+
+    print("[306] 보호자의 '오탐 방지 재확인'을 장애라 부르지 않는다"
+          "(한도는 보호자에게서 · 진짜 장애 6종은 그대로 P0) OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -22465,6 +22641,8 @@ if __name__ == "__main__":
     t302_flow_canvas_only_edits_in_its_own_window()
     t304_dead_round_says_why_and_stops_crying_wolf()
     t305_self_heal_never_reports_a_file_it_did_not_touch()
+    t306_dead_server_revival_never_kills_someone_elses_server()
+    t306_guard_recheck_is_not_an_outage()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

@@ -112,18 +112,6 @@ def proc_running(image):
         return False
 
 
-def kill_by_cmdline(needle):
-    """CommandLine에 needle 포함된 python 프로세스 종료 (PowerShell CIM — wmic 대체)"""
-    ps = ("Get-CimInstance Win32_Process -Filter \"Name='python.exe' or Name='pythonw.exe'\" | "
-          f"Where-Object {{ $_.CommandLine -like '*{needle}*' }} | "
-          "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }")
-    try:
-        run_tree(["powershell", "-NoProfile", "-Command", ps],
-                 timeout=30, drain_timeout=5)
-    except Exception:
-        pass
-
-
 def start_hidden(script):
     # ★ `DETACHED_PROCESS`(0x8) 는 **창 없는 깃발이 아니다** — 부모 콘솔을 안 물려받는다는
     #   뜻일 뿐이라, `PYW` 가 없어 `PY`(python.exe)로 떨어지면 **새 콘솔이 뜬다.**
@@ -139,10 +127,30 @@ def heal_server(dry):
         return heal_stale_server(dry)
     if dry:
         return "서버 죽음(dry — 복구 생략)"
-    kill_by_cmdline("app_server.py")
-    start_hidden(os.path.join("webapp", "app_server.py"))
-    time.sleep(4)
-    return "서버 재시작 → " + ("성공" if ping() else "실패(다음 주기 재시도)")
+    # ★ **이름으로 죽이지 않는다** (2026-08-18 · 분담판 [115]).
+    #   예전 `kill_by_cmdline("app_server.py")` 는 그 글자를 명령줄에 담은 **모든**
+    #   파이썬을 죽였다 — 합성검증의 데모 서버(`--demo --port 18899`)·8898·8897 시험
+    #   서버·사람이 띄운 개발 서버까지. 관문(`[6]`)이 아무 이유 없이 빨개질 수 있는
+    #   자리였고, 죽인 쪽에는 아무 자국도 안 남는다. `kill_stale_tunnel` 이 `[85]`
+    #   에서 배운 것과 같은 교훈이다 — **그 이름은 남의 명령줄에도 있다.**
+    # ★ **판정은 한 곳이다**([162]). `server_guard` 가 이미 운영 서버만 고른다
+    #   (`--demo` 제외 · `--port` 가 있으면 8899 일 때만). 여기서 그 규칙을 베껴
+    #   쓰면 포트를 옮기는 날 한쪽만 고쳐진다.
+    # ★ **4초는 짧다** — 실측 재시작은 9.3초다(`[197]`). 옛 코드는 성공한 재시작을
+    #   매번 '실패(다음 주기 재시도)'로 적었다. `restart_server` 는 프로세스가 뜬 것이
+    #   아니라 **진짜 ping 이 올 때까지** 본다.
+    try:
+        from webapp import server_guard
+    except Exception as exc:
+        return "서버 죽음 — 복구기를 못 불렀다: %s" % str(exc)[:60]
+    # ★ **못 읽은 것을 '없다'로 치지 않는다**([169]). 프로세스 목록을 못 읽으면
+    #   그것은 '재시작 실패'가 아니라 **'잘못 죽이지 않으려고 안 한 것'** 이다.
+    #   뭉쳐 적으면 사람이 없는 서버 고장을 찾아 나선다([172]).
+    if server_guard.server_pids() is None:
+        return "서버 죽음 — 프로세스 목록을 못 읽어 재시작 보류(다음 주기 재시도)"
+    if server_guard.restart_server("watchdog"):
+        return "서버 재시작 → 성공"
+    return "서버 재시작 → 실패(다음 주기 재시도)"
 
 
 def heal_server_guard(dry):
