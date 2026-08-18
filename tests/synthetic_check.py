@@ -16249,8 +16249,55 @@ def t293_yield_is_a_claim_that_gets_audited():
     assert 'verdict["kind"] == "양보"' in nr_src[max(0, j - 400):j], \
         "noon_run 이 창밖·완주까지 양보로 넘긴다 — 굶주림 경보가 거짓이 된다"
 
+    # ⑪ **완주도 넘긴다** — ⑩ 하나만 있으면 '양보만 적고 완주는 안 적는' 자리가
+    #    통째로 비어도 통과한다. 실측 2026-08-18: 정오회차가 12:20 에 4단계를 정상
+    #    완주하고도 조율 표는 `마지막 돎: 없음` · `27회 연속 양보` ·
+    #    **`한 번도 돈 적이 없다`** 라고 확언했다 — 굶주림 경보 자체가 거짓이었다.
+    #    글자 검사로는 '그날 한 번만'·'오늘 안 돌았으면 안 적는다'를 못 잰다([295]) —
+    #    가짜 coordinate 로 갈아 끼워 **실행해서** 잰다(실측 증거 파일은 안 건드린다, [247]).
+    assert 'mark_coord_run' in nr_src, "noon_run 이 완주를 조율 표에 안 남긴다"
+    import importlib, datetime as _dt
+    _nr = importlib.import_module("noon_run")
+    assert hasattr(_nr, "mark_coord_run"), "noon_run.mark_coord_run 이 없다"
+
+    class _FakeCoord:
+        def __init__(self, ok=True):
+            self.ok, self.rows = ok, []
+        def record_run(self, 작업, 상태, 왜=""):
+            self.rows.append((작업, 상태, 왜))
+            return self.ok
+
+    _now = _dt.datetime(2026, 8, 18, 12, 20, 1)
+    _오늘 = _now.date().isoformat()
+    _real = sys.modules.get("coordinate")
+    try:
+        # (a) 오늘 완주했다 → 자국이 남고 표식이 찍힌다
+        fc = _FakeCoord(); sys.modules["coordinate"] = fc
+        m = {"done_date": _오늘, "results": [{"step": "합성검증", "state": "정상"}]}
+        assert _nr.mark_coord_run(_now, m) is True and len(fc.rows) == 1,             "완주했는데 조율 표에 자국이 안 남는다 — 연속양보가 영원히 안 풀린다"
+        assert fc.rows[0][0] == "정오회차" and fc.rows[0][1].startswith("완주"),             "완주 자국의 이름·갈래가 어긋난다(LOCKS 이름과 record_run 갈래)"
+        assert m.get("coord_run_date") == _오늘, "완주 표식을 마커에 안 남긴다"
+        # (b) 같은 날 두 번째 부름 → 자국은 하나뿐이다
+        assert _nr.mark_coord_run(_now, m) is False and len(fc.rows) == 1,             "창 안에서 불릴 때마다 완주 자국이 쌓인다"
+        # (c) 오늘 돈 적이 없다 → 아무것도 안 적는다(지어내지 않는다)
+        fc2 = _FakeCoord(); sys.modules["coordinate"] = fc2
+        assert _nr.mark_coord_run(_now, {"done_date": "2026-08-17"}) is False             and not fc2.rows, "안 돈 날에도 '돌았다'고 적는다 — 없는 사실을 만든다"
+        # (d) 기록에 실패하면 표식을 안 남긴다 → 다음 부름이 이어받는다([169])
+        fc3 = _FakeCoord(ok=False); sys.modules["coordinate"] = fc3
+        m3 = {"done_date": _오늘}
+        assert _nr.mark_coord_run(_now, m3) is False and "coord_run_date" not in m3,             "조율 기록에 실패했는데 남긴 것처럼 표식을 찍는다"
+        # (e) 단계 실패가 섞여도 갈래는 완주다(회차는 실제로 돌았다)
+        fc4 = _FakeCoord(); sys.modules["coordinate"] = fc4
+        assert _nr.mark_coord_run(_now, {"done_date": _오늘}, ["정기점검 내용 조사"]) is True
+        assert fc4.rows[0][1].startswith("완주") and "정기점검" in fc4.rows[0][2],             "단계 실패를 회차 실패로 접어 '안 돌았다'로 만든다"
+    finally:
+        if _real is not None:
+            sys.modules["coordinate"] = _real
+        else:
+            sys.modules.pop("coordinate", None)
+
     print("  [293] 겹치면 조율한다 — 양보는 주장이고 audit 이 되묻는다(헛양보·굶주림) · "
-          "이름은 LOCKS 한 곳 · 읽기 전용 ✅")
+          "완주도 그날 한 번 남긴다 · 이름은 LOCKS 한 곳 · 읽기 전용 ✅")
 
 
 def t292_500_never_arrives_wordless():

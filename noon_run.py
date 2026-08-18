@@ -279,6 +279,40 @@ def write_report(verdict, results, compact, pending, now):
     open(REPORT_MD, "w", encoding="utf-8").write("\n".join(L) + "\n")
 
 
+def mark_coord_run(now, marker, bad=None):
+    """**돈 것도 조율 표에 남긴다** — 그날 한 번만 (2026-08-18 실측).
+
+    `[293]` 은 "'양보'만 조율 표에 넘긴다"고 정했다 — 창밖·완주(이미 끝나 건너뜀)를
+    양보로 세면 굶주림 경보가 거짓이 되기 때문이다. 그 규칙은 옳은데 **완주를 넘기는
+    자리를 아무도 안 만들었다.** 그래서 이 회차가 2026-08-18 12:20 에 4단계를 정상
+    완주하고도 조율 표에는 `마지막 돎: 없음` · `27회 연속 양보` ·
+    **`한 번도 돈 적이 없다`** 로 남아 그 굶주림 경보 자체가 거짓이었다.
+    양보는 남기고 완주는 안 남기면 **연속양보가 영원히 안 풀린다.**
+
+    ★ **근거는 마커뿐이다** — 오늘 완주 기록이 없으면 아무것도 안 적는다(지어내지 않는다).
+    ★ **그날 한 번만** — 창 안에서 열 번 불려도 자국은 하나다(`coord_run_date`).
+    ★ **못 적으면 표식을 안 남긴다** — 다음 부름이 그대로 이어받는다(`[169]`).
+    """
+    오늘 = now.date().isoformat()
+    if str(marker.get("done_date") or "") != 오늘:
+        return False                      # 오늘 돈 적이 없다
+    if str(marker.get("coord_run_date") or "") == 오늘:
+        return False                      # 이미 남겼다
+    if bad is None:
+        bad = [str(r.get("step") or "") for r in (marker.get("results") or [])
+               if isinstance(r, dict) and str(r.get("state") or "").startswith("실패")]
+    bad = [x for x in bad if x]
+    상태 = "완주" if not bad else "완주(단계 실패 %d)" % len(bad)
+    try:
+        import coordinate
+        if coordinate.record_run("정오회차", 상태, ", ".join(bad)):
+            marker["coord_run_date"] = 오늘
+            return True
+    except Exception:                     # noqa: BLE001 — 조율을 적으려다 회차를 막지 않는다
+        pass
+    return False
+
+
 def main():
     now = datetime.now()
     marker = load_marker()
@@ -294,6 +328,9 @@ def main():
 
     if not verdict["go"]:
         print(f"[{verdict['kind']}] {verdict['why']}")
+        # ★ 오늘 이미 돌았는데 자국이 아직 없으면 여기서 잇는다(기록 실패·이 고침 이전
+        #   회차). 갈래를 안 가린다 — 창밖이든 완주든 '오늘 돌았다'는 같은 사실이다.
+        mark_coord_run(now, marker)
         # ★ 이 회차가 배운 것을 **모든 작업이 보는 표에도** 남긴다(2026-08-17 지시).
         #   '양보'만 넘긴다 — 창밖·완주는 겹침이 아니라 제 일정이라, 조율 표에 섞으면
         #   창 밖의 부름 다섯 번이 매일 '연속 양보'로 세어져 굶주림 경보가 거짓이 된다.
@@ -322,6 +359,9 @@ def main():
     marker.update({"done_date": now.date().isoformat(),
                    "done_at": now.isoformat(timespec="seconds"),
                    "results": results, "compact_ok": compact["ok"]})
+    # 양보한 쪽이 "저쪽이 한다"고 적었다 — 그 주장이 지켜졌다는 증거를 여기서 남긴다.
+    mark_coord_run(now, marker,
+                   [r["step"] for r in results if r["state"].startswith("실패")])
     try:
         json.dump(marker, open(MARKER, "w", encoding="utf-8"), ensure_ascii=False)
     except OSError:
