@@ -767,6 +767,11 @@ def _run_pipeline():
     #   ★ 캠프 마스터 **뒤**에 온다 — 거래처코드를 그 결과에서 빌린다.
     steps.append(run("캠프 담당자", [os.path.join(ROOT, "camp_contacts.py"), "--write"],
                      timeout=900))
+    # 캠프명 <-> ERP 거래처코드 대조(유니웍스 기초등록 · 2026-08-18 노승용 매니저 요청).
+    # **캠프 담당자 뒤**에 온다 — 그 결과를 원천 하나로 읽는다. 읽기 전용이라
+    # 어디에도 안 쓴다(찾아 주기만 한다, `typo_watch` 와 같은 자리).
+    steps.append(run("캠프 거래처코드 대조", [os.path.join(ROOT, "camp_code_match.py")],
+                     timeout=300))
     # ★ 사용자 지시(2026-08-05) "각 건의 PDF·이미지를 번호로 알아보게 저장":
     #   밴드는 글 단위(PDF+텍스트+사진), ERP 명세서는 전표번호 단위 PDF 로 굳힌다.
     #   회차마다 상한을 둬 daily_run 이 길어지지 않게 한다 — 남은 건 다음 회차가 잇는다.
