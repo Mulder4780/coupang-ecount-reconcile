@@ -22461,6 +22461,7 @@ def t309_camp_code_guess_never_names_a_wrong_customer():
         {"캠프명": "남양주1MB(창동)", "주소": ""},
         {"캠프명": "MC12(삼척)", "주소": ""},
         {"캠프명": "양주2캠프", "주소": ""},
+        {"캠프명": "양주2캠프(봉양동)", "주소": ""},
     ], pool)
     got = g.get(M._norm("인천7캠프(허브넷)")) or []
     assert [c["code"] for c in got] == ["CU355"], \
@@ -22476,7 +22477,12 @@ def t309_camp_code_guess_never_names_a_wrong_customer():
         "`창동` 이 `원창동` 안에 박힌 것을 짝이라 한다 — 앞 경계를 안 본다"
     assert not g.get(M._norm("MC12(삼척)")), \
         "괄호 안이 도시 이름일 때 남의 회사(지게차)가 후보로 든다"
-    많음 = g.get(M._norm("양주2캠프")) or []
+    # ★ 후보가 **하나이고 약하지 않을 때만** 지목(G)이다. `양주2캠프` 는 `양주2MB`
+    #   안에 안 들어가므로 후보가 하나다 — 그것이 정상이고, 그 자리가 곧 G 다.
+    하나 = g.get(M._norm("양주2캠프")) or []
+    assert len(하나) == 1 and not 하나[0]["약함"], (
+        "후보 하나·약하지 않음이 지목(G) 자리인데 %r 이다" % 하나)
+    많음 = g.get(M._norm("양주2캠프(봉양동)")) or []
     assert len(많음) == 2, \
         "후보가 둘인데 %d개다 — 유일할 때만 지목한다는 문이 무너졌다" % len(많음)
 
@@ -22502,7 +22508,12 @@ def t309_camp_code_guess_never_names_a_wrong_customer():
     # ⑧ 비싼 Z: 탐색은 캐시 검사 뒤에 온다(`[168]`)
     e = xsrc.index("def _erp_customers")
     body = xsrc[e:xsrc.index("def _head")]
-    assert body.index("ERP_CACHE") < body.index("load_customers"), \
+    # ★ **설명을 먼저 걷어낸다.** 독스트링이 `load_customers` 를 먼저 말한다고
+    #   해서 코드가 먼저 부르는 것은 아니다 — 첫 판이 그대로 걸려 **멀쩡한 코드에
+    #   거짓 경보**를 냈다(`[302]`·`[301]`⑨ 와 같은 자리).
+    code = " ".join(l.split("#")[0]
+                    for l in body.split(chr(34) * 3)[-1].splitlines())
+    assert code.index("ERP_CACHE") < code.index("load_customers"), \
         "캐시 검사보다 Z: 재귀 탐색이 먼저다 — 회차마다 몇 분을 쓴다"
 
     print("[309] 캠프 이름 불일치 지목 — 번호·지역·박힌 지명 오탐 거절 · 유일할 때만 지목 "
