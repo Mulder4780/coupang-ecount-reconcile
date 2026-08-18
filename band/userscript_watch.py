@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -57,6 +58,9 @@ SILENT_HOURS = 6.0
 #: 계획이 이보다 오래되면 굳은 것으로 본다.  회차는 하루 한 번(09:50) 돌므로
 #: 하루 반이면 한 번을 통째로 걸렀다는 뜻이다.
 PLAN_STALE_HOURS = 36.0
+#: 사람이 크롬에서 여는 자리.  안내 문구가 여기저기 URL 을 손으로 적으면
+#: 포트가 바뀐 날 한쪽만 고쳐진다.
+USER_JS_URL = "http://127.0.0.1:8899/band_auto_collect.user.js"
 
 
 def _now() -> datetime:
@@ -187,14 +191,216 @@ def judge(doc: Optional[Dict[str, Any]], why: str,
 #: 갈래마다 **무엇을 하면 되는지**를 같이 준다.  '안 돈다'만 말하고 조치를 못 대면
 #: 사람이 어디를 고쳐야 하는지 몰라 결국 아무도 안 본다.
 FIX = {
-    "안옴": "크롬에 Tampermonkey 를 설치하고 http://127.0.0.1:8899/band_auto_collect.user.js "
-            "를 연 뒤, 로그인된 밴드 탭을 보이는 창에 열어 둔다",
+    # ★ 이 문구는 **확장이 정말 없을 때**만 쓴다.  깔려 있는데도 이 말을 하면 사람이
+    #   이미 한 일을 또 하러 간다(2026-08-18 형님 지적) — 갈래는 `fix_for()` 가 고른다.
+    "안옴": "크롬에 Tampermonkey 를 설치하고 " + USER_JS_URL +
+            " 를 연 뒤, 로그인된 밴드 탭을 보이는 창에 열어 둔다",
     "끊김": "밴드 탭이 닫혔거나 유저스크립트가 꺼졌다 — 탭을 다시 열고 Tampermonkey 에서 켜져 있는지 본다",
     "가려짐": "크롬 창을 앞으로 꺼낸다(탭만 열려 있으면 부족하다 — 창이 가려지면 모든 탭이 숨은 것으로 잡힌다)",
     "계획굳음": "09:50 회차의 `band/comment_backfill.py --write` 가 도는지 본다(계획을 만드는 자리다)",
     "확인못함": "보고 파일을 사람이 본다 — 못 읽는 것을 '이상 없음'으로 치지 않는다",
     "정상": "",
 }
+
+
+#: Tampermonkey 로 알려진 확장 ID.  **이것으로 '없음'을 단정하지 않는다** — 아래
+#: `chrome_side()` 는 먼저 **유저스크립트 지문**을 찾고, 그것이 안 보일 때만 이 목록을
+#: 쓴다(다른 관리자를 쓰면 ID 가 다르다).
+TM_IDS = (
+    "dhdgffkkebhmkfjojejmpbldmpobfkfo",   # Tampermonkey (크롬 웹스토어)
+    "gcalenpjmijncebpfijmoaglllgpjagf",   # Tampermonkey Beta
+)
+
+#: 확장 저장소에서 훑을 크기 상한.  워치독이 30분마다 부르므로 무한정 읽지 않는다.
+SCAN_BYTES = 24 * 1024 * 1024
+
+
+def _script_mark() -> Optional[str]:
+    """유저스크립트를 알아볼 지문(`@namespace`)을 **그 파일에서 읽는다**.
+
+    ★ 여기에 문자열을 손으로 적으면 사본이 둘이 된다 — `.user.js` 의 이름이 바뀐 날
+      지문만 옛것으로 남아 **오류 없이 한 건도 안 걸리고**, 안내는 다시 "설치하세요"
+      로 돌아간다(`[165]` 의 모양이자 이 항목이 고치려는 바로 그 고장이다).
+    """
+    try:
+        with open(os.path.join(ROOT, "band", "band_auto_collect.user.js"),
+                  encoding="utf-8") as fh:
+            for ln in fh:
+                if "@namespace" in ln:
+                    v = ln.split("@namespace", 1)[1].strip()
+                    return v or None
+                if "==/UserScript==" in ln:
+                    break
+    except Exception:
+        return None
+    return None
+
+
+def _profiles(user_data: str) -> List[str]:
+    out = []
+    try:
+        for name in sorted(os.listdir(user_data)):
+            p = os.path.join(user_data, name)
+            if not os.path.isdir(p):
+                continue
+            if os.path.isdir(os.path.join(p, "Extensions")) or \
+               os.path.isdir(os.path.join(p, "Local Extension Settings")):
+                out.append(p)
+    except Exception:
+        return []
+    return out
+
+
+def _find_mark(store: str, mark: bytes) -> Optional[str]:
+    """확장 저장소에서 지문을 찾고 **그 옆의 `enabled` 상태**를 돌려준다.
+
+    돌려주는 값: `"켜짐"` · `"꺼짐"` · `"모름"`(지문은 있는데 상태를 못 읽음) · `None`(없음).
+
+    ⚠ 가까운 `"enabled"` 를 쓴다 — 유저스크립트가 여럿이면 옆 스크립트의 값을 볼 수 있다.
+      그래서 이 값은 **안내 문구를 고르는 데만** 쓰고 아무것도 안 고친다.  틀려도
+      사람이 대시보드에서 바로 확인한다(쓰는 길이 아니라 읽는 길이다 · `[170]`).
+    """
+    budget = SCAN_BYTES
+    seen = False
+    try:
+        names = sorted(os.listdir(store))
+    except Exception:
+        return None
+    for name in names:
+        if not (name.endswith(".log") or name.endswith(".ldb")):
+            continue
+        path = os.path.join(store, name)
+        try:
+            size = os.path.getsize(path)
+            if size > budget:
+                continue
+            budget -= size
+            with open(path, "rb") as fh:
+                blob = fh.read()
+        except Exception:
+            continue          # 크롬이 물고 있을 수 있다 — 못 읽은 것은 없는 것이 아니다
+        i = blob.find(mark)
+        if i < 0:
+            continue
+        seen = True
+        best, state = None, None
+        for m in re.finditer(rb'"enabled"\s*:\s*(true|false)', blob):
+            d = abs(m.start() - i)
+            if d <= 4000 and (best is None or d < best):
+                best, state = d, ("켜짐" if m.group(1) == b"true" else "꺼짐")
+        return state or "모름"
+    return "모름" if seen else None
+
+
+def chrome_side(user_data: Optional[str] = None) -> Dict[str, Any]:
+    """크롬 쪽 사실을 **로컬 증거로만** 잰다 (읽기 전용 · 크롬을 조종하지 않는다).
+
+    2026-08-18 형님 지적: 안내가 *"크롬에 Tampermonkey 를 설치하고…"* 로 시작하는데
+    **이미 깔려 있었다.**  실측하니 유저스크립트까지 8/13 에 들어가 켜져 있었다 —
+    즉 안내가 **이미 한 일 둘을 또 시키면서** 정작 남은 하나를 안 말했다.
+
+    갈래는 넷이고 뜻이 다 다르다(`[169]` — 못 읽은 것을 '없음'이라 하지 않는다):
+      · `확장`   : 있음 · 없음 · 모름
+      · `스크립트`: 켜짐 · 꺼짐 · 없음 · 모름
+
+    ★ 여기서 재는 것은 **깔림**과 **켜짐**뿐이다.  그 스크립트가 실제로 **돌았는지**는
+      되보고만이 안다(`load_reports`) — *깔림 · 켜짐 · 살아 있음 · 연결됨은 넷 다
+      다른 말이다*(2026-08-12).
+    """
+    base = user_data or os.path.join(
+        os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "User Data")
+    out: Dict[str, Any] = {"확장": "모름", "스크립트": "모름", "판": None,
+                           "프로필": None, "왜": "", "지문": None}
+    mark = _script_mark()
+    out["지문"] = mark
+    if not base or not os.path.isdir(base):
+        out["왜"] = "크롬 사용자 폴더를 못 찾았다(%s)" % (base or "경로 없음")
+        return out
+    profs = _profiles(base)
+    if not profs:
+        out["왜"] = "크롬 프로필을 못 읽었다"
+        return out
+
+    ext_dir = None
+    if mark:
+        needle = mark.encode("utf-8")
+        for prof in profs:
+            store_root = os.path.join(prof, "Local Extension Settings")
+            if not os.path.isdir(store_root):
+                continue
+            try:
+                ids = sorted(os.listdir(store_root))
+            except Exception:
+                continue
+            for eid in ids:
+                state = _find_mark(os.path.join(store_root, eid), needle)
+                if state:
+                    out["스크립트"] = state
+                    out["확장"] = "있음"
+                    out["프로필"] = os.path.basename(prof)
+                    ext_dir = os.path.join(prof, "Extensions", eid)
+                    break
+            if ext_dir:
+                break
+    else:
+        out["왜"] = "유저스크립트 파일에서 @namespace 를 못 읽었다"
+
+    if not ext_dir:
+        # 지문이 안 보였다 — 확장 자체는 있나?  이것이 '없음'과 '스크립트만 없음'을 가른다.
+        for prof in profs:
+            for tid in TM_IDS:
+                p = os.path.join(prof, "Extensions", tid)
+                if os.path.isdir(p):
+                    out["확장"] = "있음"
+                    out["프로필"] = os.path.basename(prof)
+                    ext_dir = p
+                    break
+            if ext_dir:
+                break
+        if mark:
+            out["스크립트"] = "없음" if ext_dir else "모름"
+        if not ext_dir:
+            out["확장"] = "없음"
+
+    if ext_dir and os.path.isdir(ext_dir):
+        try:
+            vers = sorted(os.listdir(ext_dir))
+            if vers:
+                out["판"] = vers[-1].split("_")[0]
+        except Exception:
+            pass
+    return out
+
+
+def fix_for(kind: str, side: Optional[Dict[str, Any]] = None) -> str:
+    """갈래마다 **무엇을 하면 되는지**.
+
+    `안옴` 만은 고정 문구가 될 수 없다 — 무엇이 남았는지가 크롬 쪽 상태에 달렸다.
+    이미 한 일을 또 시키면 사람은 그 안내를 다시 안 읽는다(`[170]` 과 같은 결말이다).
+    """
+    if kind != "안옴":
+        return FIX.get(kind or "", "")
+    s = side if side is not None else chrome_side()
+    ext, scr, ver = s.get("확장"), s.get("스크립트"), s.get("판")
+    tag = "Tampermonkey" + (" v%s" % ver if ver else "")
+    if ext == "없음":
+        return FIX["안옴"]
+    if ext == "모름" or scr == "모름":
+        return ("크롬 쪽을 **확인 못 했다**(%s) — 설치돼 있을 수도 있다. "
+                "%s 를 크롬에서 열어 [설치]인지 [이미 설치됨]인지 보고, "
+                "로그인된 밴드 탭을 보이는 창에 열어 둔다" % (s.get("왜") or "근거 없음", USER_JS_URL))
+    if scr == "없음":
+        return ("%s 는 이미 깔려 있다 — **유저스크립트만 아직 안 들어갔다**. "
+                "크롬에서 %s 를 열고 [설치] 를 누른다" % (tag, USER_JS_URL))
+    if scr == "꺼짐":
+        return ("%s 도 유저스크립트도 들어 있는데 **꺼져 있다** — "
+                "Tampermonkey 대시보드에서 켠다" % tag)
+    # 켜짐 — 여기가 형님이 짚은 자리다.  둘 다 됐으니 남은 것은 하나뿐이다.
+    return ("%s 도 유저스크립트도 **이미 깔려 있고 켜져 있다** — 다시 설치할 것 없다. "
+            "이 스크립트는 숨은 탭에서도 한 번은 되보고하므로, 되보고가 0건이라는 것은 "
+            "**밴드 글 화면이 크롬에 한 번도 안 열렸다**는 뜻이다. "
+            "주소가 `www.band.us/band/<번호>` 라야 걸린다(피드·다른 주소는 안 걸린다) — "
+            "로그인된 밴드 탭을 그 주소로 하나 열어 둔다" % tag)
 
 
 def lines(state: Optional[Dict[str, Any]] = None) -> List[str]:
@@ -204,7 +410,7 @@ def lines(state: Optional[Dict[str, Any]] = None) -> List[str]:
     if kind == "정상":
         return []
     out = ["크롬 전용 수집 — %s · %s" % (kind, st.get("왜") or "")]
-    fix = FIX.get(kind or "", "")
+    fix = fix_for(kind or "", st.get("크롬쪽"))
     if fix:
         out.append("  → " + fix)
     return out
@@ -215,7 +421,7 @@ def render(st: Dict[str, Any]) -> str:
     plan = st.get("계획") or {}
     buf = ["# 크롬 전용 수집 상태 (%s)" % now, ""]
     buf.append("- 판정: **%s** — %s" % (st.get("갈래"), st.get("왜") or ""))
-    fix = FIX.get(st.get("갈래") or "", "")
+    fix = fix_for(st.get("갈래") or "", st.get("크롬쪽"))
     if fix:
         buf.append("- 할 일: %s" % fix)
     buf.append("")
@@ -232,6 +438,23 @@ def render(st: Dict[str, Any]) -> str:
         buf.append("")
         buf.append("- **못 읽음** — %s" % plan.get("왜"))
     buf.append("")
+    side = st.get("크롬쪽") or {}
+    if side:
+        buf.append("## 크롬 쪽 — 깔렸나 · 켜졌나")
+        buf.append("")
+        buf.append("| 확장 | 유저스크립트 | 판 | 프로필 |")
+        buf.append("|---|---|---|---|")
+        buf.append("| %s | %s | %s | %s |" % (
+            side.get("확장"), side.get("스크립트"),
+            side.get("판") or "-", side.get("프로필") or "-"))
+        if side.get("왜"):
+            buf.append("")
+            buf.append("- 못 잰 이유: %s" % side.get("왜"))
+        buf.append("")
+        buf.append("_여기서 재는 것은 **깔림**과 **켜짐**뿐이다 — 그 스크립트가 실제로")
+        buf.append("**돌았는지**는 아래 되보고만이 안다(2026-08-12: 깔림·켜짐·살아 있음·")
+        buf.append("연결됨은 넷 다 다른 말이다)._")
+        buf.append("")
     rows = st.get("밴드") or {}
     buf.append("## 밴드별 마지막 보고")
     buf.append("")
@@ -259,6 +482,12 @@ def render(st: Dict[str, Any]) -> str:
 
 def check(write: bool = True) -> Dict[str, Any]:
     st = judge(*load_reports())
+    # 크롬 쪽은 **한 번만** 잰다 — 안내와 리포트가 서로 다른 측정을 보면 두 답이 생긴다.
+    try:
+        st["크롬쪽"] = chrome_side()
+    except Exception as e:                       # 못 재도 회차를 세우지 않는다
+        st["크롬쪽"] = {"확장": "모름", "스크립트": "모름", "판": None,
+                        "프로필": None, "왜": "측정 실패: %s" % e, "지문": None}
     if write:
         os.makedirs(os.path.dirname(OUT), exist_ok=True)
         tmp = OUT + ".tmp"
