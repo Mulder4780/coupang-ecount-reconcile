@@ -16533,6 +16533,82 @@ def t287_source_tidy_resumes_inside_watchdog_budget():
     print("  [287] 원본 바로가기 — 7분 증분·rc75·기존링크 한 번 순회·진행로그 ✅")
 
 
+# 자리 순서 로직을 **그대로 실행**하는 껍데기 (2026-08-18). 글자 검사는 같은 일을
+# 다르게 쓴 코드를 빨갛게 만들고([295]) 진짜 계약은 못 잰다 — 여기서는 결과로 잰다.
+# localStorage 는 목이고 나머지는 화면 코드 원본을 파일에서 읽어 쓴다.
+_T232_ORDER_HARNESS = r"""
+const __html = require('fs').readFileSync(__IDX__, 'utf8');
+const __i0 = __html.indexOf("const ORG_ORDER_KEY=");
+const __i1 = __html.indexOf("function orgInitials(");
+if (__i0 < 0 || __i1 < 0 || __i1 <= __i0) { console.log('자리순서 블록을 못 찾음'); process.exit(1); }
+const __blk = __html.slice(__i0, __i1);
+
+let __store = {};
+const localStorage = {
+  getItem(k){ return Object.prototype.hasOwnProperty.call(__store, k) ? __store[k] : null; },
+  setItem(k, v){ __store[k] = String(v); },
+};
+const api = eval(__blk + "\n;({ORG_ORDER_KEY, orgReadOrder, orgApplyOrder, orgSaveOrder})");
+const KEY = api.ORG_ORDER_KEY;
+
+let n = 0;
+function must(cond, msg){ if(!cond){ console.log('FAIL: ' + msg); process.exit(1); } n++; }
+const names = D => D.zones.map(z => z.people.map(p => p.name));
+const mk = () => ({zones:[
+  {key:'mgmt', people:[{name:'가'},{name:'나'},{name:'다'}]},
+  {key:'field', people:[{name:'A'},{name:'B'}]},
+]});
+
+// (1) 옮긴 자리대로 그린다
+__store[KEY] = JSON.stringify({mgmt:['다','가','나']});
+must(JSON.stringify(names(api.orgApplyOrder(mk()))[0]) === JSON.stringify(['다','가','나']),
+     '저장한 자리 순서대로 안 그린다');
+
+// (2) 로스터에 새로 생긴 사람은 **사라지지 않고 맨 뒤**에 붙는다([169])
+const D2 = mk(); D2.zones[0].people.push({name:'라'}, {name:'마'});
+const g2 = names(api.orgApplyOrder(D2))[0];
+must(g2.length === 5, '저장 목록에 없는 사람이 사라졌다: ' + JSON.stringify(g2));
+must(JSON.stringify(g2) === JSON.stringify(['다','가','나','라','마']),
+     '새 사람이 뒤에 안 붙는다: ' + JSON.stringify(g2));
+
+// (3) API 응답·오프라인 스냅샷 정본을 안 바꾼다
+const D3 = mk(); const before = JSON.stringify(names(D3));
+api.orgApplyOrder(D3);
+must(JSON.stringify(names(D3)) === before, '원본 자료를 뒤집었다');
+
+// (4) 저장값이 깨져 있어도 **아무도 안 사라진다**
+for (const bad of ['[]', 'null', 'not json', '"x"', '123']) {
+  __store[KEY] = bad;
+  const g = names(api.orgApplyOrder(mk()));
+  must(g[0].length === 3 && g[1].length === 2, '깨진 저장값에서 사람이 사라진다: ' + bad);
+}
+
+// (5) 저장은 **그 구역만** 건드린다 — 다른 구역 순서를 지우지 않는다
+__store[KEY] = JSON.stringify({mgmt:['다','가','나']});
+api.orgSaveOrder({dataset:{orgZone:'field'}, children:[
+  {matches:s=>s==='.org-ws', dataset:{orgName:'B'}},
+  {matches:s=>s==='.org-ws', dataset:{orgName:'A'}},
+  {matches:s=>false, dataset:{}}]});
+const saved = JSON.parse(__store[KEY]);
+must(JSON.stringify(saved.mgmt) === JSON.stringify(['다','가','나']), '다른 구역 순서를 지웠다');
+must(JSON.stringify(saved.field) === JSON.stringify(['B','A']), '옮긴 자리를 저장 안 했다');
+
+// (6) 15초 갱신 모사 — 서버가 다시 그려도 옮긴 자리가 남는다.
+//     안 남으면 사람은 '안 된다'고 본다(실패가 성공처럼 보이는 자리).
+let R = mk();
+for (let i = 0; i < 3; i++) R = api.orgApplyOrder(mk());
+must(JSON.stringify(names(R)[1]) === JSON.stringify(['B','A']),
+     '갱신하면 자리가 원래대로 돌아간다');
+
+// (7) 구역을 모르는 host 로는 아무것도 저장하지 않는다(엉뚱한 키를 만들지 않는다)
+const snap = __store[KEY];
+api.orgSaveOrder({dataset:{}, children:[]});
+must(__store[KEY] === snap, '구역을 모르는데도 저장했다');
+
+console.log('ALL OK ' + n);
+"""
+
+
 def t232_orgchart_floorplan_roster_and_states():
     """[232] 조직도 — 사무실 배치 평면도: 로스터 정본·AI 자리 셋·상태 넷·아코디언 (2026-08-12 지시).
 
@@ -16723,8 +16799,15 @@ def t232_orgchart_floorplan_roster_and_states():
         "applyDashboardLayout(readDashboardLayout())", 1)[0]
     assert "longPress" not in dash_init and dash_init.count("dashDragEnable(") == 3, \
         "기존 대시보드 세 호출이 longPress 옵션의 영향을 받는다"
-    assert "data-dash-long-press" in css and "touch-action:none" in css, \
-        "폰이 길게 누르기를 스크롤로 가져갈 수 있다"
+    # 폰 세로 스크롤은 브라우저가 가져가고(pan-y) 손가락은 **끌기 시작한 뒤에만**
+    # 뺏는다(none). `none` 으로 되돌리면 폰에서 조직도 화면이 통째로 안 내려간다
+    # (2026-08-15 형님 지시) — 그래서 그 자리에 `none` 이 오는 것을 막는다.
+    assert "data-dash-long-press" in css, "길게 누르기 구역 표식이 CSS 에 없다"
+    lp = css.split("[data-dash-long-press]>.org-ws{", 1)[1].split("}", 1)[0]
+    assert "touch-action:pan-y" in lp and "touch-action:none" not in lp, \
+        "길게 누르기 구역이 세로 스크롤까지 막는다 — 폰에서 조직도가 안 내려간다"
+    assert "dash-dragging{touch-action:none" in css.replace(" ", "").replace("\n", "") \
+        or "touch-action:none" in css, "끌기 중에 손가락을 안 뺏는다"
 
     # 구역별 name 순서를 localStorage 에 저장하고 15초 재렌더 때마다 다시 적용한다.
     # 저장 목록에 없는 새 로스터 사람은 saved.length+원래순번으로 반드시 뒤에 남는다.
@@ -16795,6 +16878,30 @@ def t232_orgchart_floorplan_roster_and_states():
         "흐름 지도가 넓은 화면 기본값을 건드린다 — 폰에서만 나와야 한다"
     assert "#v-org .org-st .org-msg{display:none}" in css and "org-msg" in live, \
         "폰에서 줄일 상태 문장이 진짜 요소로 안 싸여 있다(텍스트 노드는 CSS 로 못 숨긴다)"
+
+    # ── 여기까지는 전부 **글자** 검사다. 진짜 계약 둘(새 사람이 안 사라진다 ·
+    #    갱신 뒤에도 옮긴 자리가 남는다)은 글자로 못 잰다 — node 로 실행해 결과로 잰다.
+    import shutil as _sh232
+    node = _sh232.which("node")
+    if not node:
+        print("  [232] 조직도 — 글자 검사만 통과(node 없어 자리 순서 실행 확인 못 함)")
+    else:
+        harness = _T232_ORDER_HARNESS.replace(
+            "__IDX__", json.dumps(os.path.join(ROOT, "webapp", "index.html")))
+        with tempfile.TemporaryDirectory() as tmp:
+            jp = os.path.join(tmp, "orgorder.js")
+            with open(jp, "w", encoding="utf-8") as fh:
+                fh.write(harness)
+            proc = subprocess.Popen([node, jp], stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            try:                               # 한 단계가 영원히 안 끝나면 안 된다([175])
+                out = proc.communicate(timeout=60)[0].decode("utf-8", "replace")
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                out = proc.communicate(timeout=20)[0].decode("utf-8", "replace")
+            assert "ALL OK" in out and proc.returncode == 0, \
+                "조직도 자리 순서 실행 확인 실패:\n" + out[-1500:]
 
     print("  [232] 조직도 평면도 — 로스터 정본·AI 자리 셋·상태 넷·아코디언·#v-org 좁힘 · "
           "관리자=센터장 접속(X-Pin 은 아님) · 책상 폭 고정·높이 균일·이름 한 줄 · "

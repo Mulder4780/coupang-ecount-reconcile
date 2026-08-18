@@ -16673,20 +16673,24 @@ function campsXlsx(){
   const rows = campRows();
   if(!rows.length){ notice('내보낼 캠프가 없습니다.'); return; }
   /* 역할마다 **이름·전화·이메일 석 칸**을 다 낸다(2026-08-18 지시). 열 이름에 역할을
-     그대로 박아 두어 엑셀만 받아 본 사람도 그게 누구인지 안다. */
+     그대로 박아 두어 엑셀만 받아 본 사람도 그게 누구인지 안다.
+     ★ **빈 칸을 남기지 않는다**(2026-08-18 지시 "엑셀 파일도 전부 기입해서"). 엑셀에서
+       빈 칸은 '적을 것이 없다'인지 '아직 못 찾았다'인지 구별이 안 된다 — 화면이 이미
+       쓰는 그 낱말 `모름` 을 그대로 적는다([169] · 화면 설명과 같은 뜻이라야 한다). */
+  const V = v => { const s = String(v==null?'':v).trim(); return s || '모름'; };
   exportRowsXlsx('전국쿠팡캠프_담당자', rows.map(r=>{
-    const o = { '캠프명': r.캠프명, '정기점검': r.정기점검 ? 'O' : '' };
+    const o = { '캠프명': V(r.캠프명), '정기점검': r.정기점검 ? 'O' : '아니오' };
     campRoles(r).forEach(x=>{
-      o[x.라벨+' 이름']   = x.p.이름 || '';
-      o[x.라벨+' 전화']   = x.p.전화 || '';
-      o[x.라벨+' 이메일'] = x.p.메일 || '';
+      o[x.라벨+' 이름']   = V(x.p.이름);
+      o[x.라벨+' 전화']   = V(x.p.전화);
+      o[x.라벨+' 이메일'] = V(x.p.메일);
     });
-    o['캠프주소'] = r.캠프주소||''; o['거래처코드'] = r.거래처코드||'';
-    o['정기점검건수'] = r.정기점검건수||0; o['최근작업일'] = r.최근작업일||'';
+    o['캠프주소'] = V(r.캠프주소); o['거래처코드'] = V(r.거래처코드);
+    o['정기점검건수'] = r.정기점검건수||0; o['최근작업일'] = V(r.최근작업일);
     /* '직책 미상'은 옛 양식이라 원문에 직책이 없는 것이다 — 비고에도 한 번 더 적는다. */
     o['비고'] = [r.이름확인필요 ? '캠프명 확인 필요' : '',
                  campHasPerson(r.담당자) ? '담당자 직책은 원문에 없음(옛 접수 양식)' : '',
-                ].filter(Boolean).join(' · ');
+                ].filter(Boolean).join(' · ') || '특이사항 없음';
     return o;
   }));
   uxEvent('tap','campsXlsx');
@@ -16748,54 +16752,84 @@ async function campsCapture(){
     "현장책임 이메일이 대부분 비어 있는 것은 자료가 빠진 것이 아니라 접수 양식이 그 칸을 적지 않기 때문입니다 — 이메일은 안전관리 쪽에 적혀 옵니다.",
     "담당자(직책 미상)는 옛 접수 양식(2023~2024) 글의 한 사람으로, 원문에 현장책임인지 안전관리인지 적혀 있지 않습니다."
   ];
-  /* 한도는 캔버스 안전 면적에서 나온다 — iOS 는 약 1,678만 픽셀에서 저장이 실패한다.
-     각주가 최대 두 줄 더 붙을 수 있으므로 그만큼을 미리 빼 둔다. */
+  /* 한 장에 들어가는 줄 수는 캔버스 안전 면적에서 나온다 — iOS 는 약 1,678만 픽셀에서
+     저장이 실패한다. 각주가 최대 두 줄 더 붙을 수 있으므로 그만큼을 미리 빼 둔다.
+     ★ **넘치면 자르지 않고 장을 늘린다** (2026-08-18 지시: "장수가 여러장 되도 좋으니
+       전국 캠프 다 표시해서 나오게 해"). 전에는 한 장에 못 담는 만큼을 잘라내고
+       '나머지는 엑셀로 받으십시오'라고 적었다 — 실측 402개 중 **89개만** 나갔다.
+       적어 두긴 했으니 조용한 사고는 아니었지만, 대표 보고에 쓰는 그림이 자료의
+       5분의 1이었다. 이제 한도는 **한 장의 높이**일 뿐 목록의 길이가 아니다. */
   const foot = k => NGAP + (k-1)*NLH + DESC + M;
-  const LIM = Math.max(20, Math.floor((16777216/(W*S*S) - row0 - foot(notes.length+2))/RH));
-  const show = rows.slice(0, LIM);
+  const PER = Math.max(20, Math.floor((16777216/(W*S*S) - row0 - foot(notes.length+2))/RH));
+  /* 폭주 방지 상한. 넘는 일은 지금 없지만(실측 402개 = 5장), 자료가 몇 배로 늘어도
+     브라우저가 수백 장을 만들다 멎으면 안 된다. ★ 이 상한에 걸리면 **조용히 자르지
+     않고 몇 개를 못 실었는지 그림에 적는다**([273]). */
+  const MAXPAGES = 40;
+  const pages = Math.min(MAXPAGES, Math.max(1, Math.ceil(rows.length / PER)));
+  const shown = Math.min(rows.length, pages * PER);
+  const rest  = rows.length - shown;
 
   let clipped = 0;
-  show.forEach(r=>valuesOf(r).forEach((t,i)=>{ if(shrink(mc,t,cols[i][1],i===0?600:400).cut) clipped++; }));
-  if(rows.length>show.length) notes.push(`※ 이미지에는 ${show.length}개만 실었습니다 — 나머지 ${rows.length-show.length}개는 엑셀 저장으로 받으십시오.`);
+  rows.slice(0, shown).forEach(r=>valuesOf(r).forEach((t,i)=>{
+    if(shrink(mc,t,cols[i][1],i===0?600:400).cut) clipped++; }));
+  if(rest) notes.push(`※ 이미지 ${MAXPAGES}장 한도를 넘어 ${rest}개를 못 실었습니다 — 나머지 ${rest}개는 엑셀 저장으로 받으십시오.`);
   if(clipped) notes.push(`※ 칸에 넣지 못해 줄인 값 ${clipped}개가 있습니다 — 전체 값은 엑셀 저장으로 확인하십시오.`);
 
-  const H = row0 + show.length*RH + foot(notes.length);
-  const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
-  const x=cv.getContext('2d'); x.scale(S,S); x.textAlign='left';
-  const put=(t,px,py,w,weight)=>{ const r=shrink(x,t,w,weight); x.font=F(r.z,weight); x.fillText(r.s,px,py); };
+  const title = $('campPmOnly').checked ? '전국 정기점검 캠프 · 담당자' : '전국 쿠팡캠프 · 담당자';
+  const stamp = new Date().toLocaleString('ko-KR');
+  const blobs = [], names = [];
+  for(let p = 0; p < pages; p++){
+    const show = rows.slice(p*PER, Math.min(shown, (p+1)*PER));
+    const H = row0 + show.length*RH + foot(notes.length);
+    const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
+    const x=cv.getContext('2d'); x.scale(S,S); x.textAlign='left';
+    const put=(t,px,py,w,weight)=>{ const r=shrink(x,t,w,weight); x.font=F(r.z,weight); x.fillText(r.s,px,py); };
 
-  x.fillStyle='#fff'; x.fillRect(0,0,W,H);
-  x.fillStyle='#0E1B3F'; x.fillRect(0,0,W,BAR);
-  x.fillStyle='#fff'; x.font=F(20,700);
-  x.fillText($('campPmOnly').checked ? '전국 정기점검 캠프 · 담당자' : '전국 쿠팡캠프 · 담당자',M,34);
-  x.font=F(12); x.fillStyle='#C9D5FA';
-  x.fillText(`총 ${rows.length}개 · 이 이미지에 ${show.length}개 · 기준 ${new Date().toLocaleString('ko-KR')}`,M,54);
+    x.fillStyle='#fff'; x.fillRect(0,0,W,H);
+    x.fillStyle='#0E1B3F'; x.fillRect(0,0,W,BAR);
+    x.fillStyle='#fff'; x.font=F(20,700);
+    x.fillText(title,M,34);
+    /* 몇 장 중 몇 장째인지를 **머리에** 적는다 — 여러 장을 받아 본 사람이 순서와
+       빠진 장을 알 수 있어야 한다. (아래에 적지 않는 것은 [283] 지시 그대로다.) */
+    x.font=F(12); x.fillStyle='#C9D5FA';
+    x.fillText(`총 ${rows.length}개`
+      + (pages>1 ? ` · 이 장 ${show.length}개 (${p+1}/${pages}장)` : ` · 이 장 ${show.length}개`)
+      + ` · 기준 ${stamp}`, M, 54);
 
-  /* 머리글 두 줄: 위는 역할, 아래는 그 역할의 세 칸. 받는 사람이 ①②를 해석할 일이 없다. */
-  x.fillStyle='#0E1B3F';
-  CAMP_ROLES.forEach((rl,i)=>{ const a=cols[1+i*3][0], b=cols[3+i*3][0]+cols[3+i*3][1];
-    x.font=F(12,700); x.fillText(rl[1], a, roleY);
-    x.strokeStyle='#C7D2FE'; x.beginPath(); x.moveTo(a,roleY+5); x.lineTo(b,roleY+5); x.stroke(); });
-  x.fillStyle='#374151'; x.font=F(11,700);
-  ['캠프명','이름','전화','이메일','이름','전화','이메일','이름','전화','이메일','최근작업']
-    .forEach((h,i)=>x.fillText(h,cols[i][0],colY));
-  x.strokeStyle='#9CA3AF'; x.beginPath(); x.moveTo(M,ruleY); x.lineTo(W-M,ruleY); x.stroke();
+    /* 머리글 두 줄: 위는 역할, 아래는 그 역할의 세 칸. 받는 사람이 ①②를 해석할 일이 없다.
+       ★ 장마다 다시 그린다 — 2장째부터 머리글이 없으면 그 그림만 받은 사람은
+         어느 칸이 누구 전화인지 모른다. */
+    x.fillStyle='#0E1B3F';
+    CAMP_ROLES.forEach((rl,i)=>{ const a=cols[1+i*3][0], b=cols[3+i*3][0]+cols[3+i*3][1];
+      x.font=F(12,700); x.fillText(rl[1], a, roleY);
+      x.strokeStyle='#C7D2FE'; x.beginPath(); x.moveTo(a,roleY+5); x.lineTo(b,roleY+5); x.stroke(); });
+    x.fillStyle='#374151'; x.font=F(11,700);
+    ['캠프명','이름','전화','이메일','이름','전화','이메일','이름','전화','이메일','최근작업']
+      .forEach((h,i)=>x.fillText(h,cols[i][0],colY));
+    x.strokeStyle='#9CA3AF'; x.beginPath(); x.moveTo(M,ruleY); x.lineTo(W-M,ruleY); x.stroke();
 
-  let y=row0;
-  show.forEach((r,ri)=>{
-    if(ri%2){ x.fillStyle='#F8FAFC'; x.fillRect(M,y-14,W-M*2,RH); }
-    valuesOf(r).forEach((t,i)=>{ x.fillStyle=(t==='모름')?'#9CA3AF':'#111827';
-      put(t, cols[i][0], y, cols[i][1], i===0?600:400); });
-    y+=RH;
-  });
-  y+=NGAP; x.font=F(11);
-  notes.forEach((n,i)=>{ x.fillStyle = n.startsWith('※') ? '#B45309' : '#6B7280';
-    x.fillText(n, M, y+i*NLH); });
+    let y=row0;
+    show.forEach((r,ri)=>{
+      if(ri%2){ x.fillStyle='#F8FAFC'; x.fillRect(M,y-14,W-M*2,RH); }
+      valuesOf(r).forEach((t,i)=>{ x.fillStyle=(t==='모름')?'#9CA3AF':'#111827';
+        put(t, cols[i][0], y, cols[i][1], i===0?600:400); });
+      y+=RH;
+    });
+    /* 각주는 **장마다** 붙인다 — 한 장만 카톡으로 받은 사람에게도 '모름'의 뜻이 닿아야 한다([169]). */
+    y+=NGAP; x.font=F(11);
+    notes.forEach((n,i)=>{ x.fillStyle = n.startsWith('※') ? '#B45309' : '#6B7280';
+      x.fillText(n, M, y+i*NLH); });
 
-  const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
-  if(!blob){ notice('이미지 생성 실패'); return; }
-  saveOrOpen(blob,`전국쿠팡캠프_담당자_${todayISO()}.png`);
-  toast('캠프 담당자 목록 이미지를 저장했습니다'); uxEvent('tap','campsCapture');
+    const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
+    /* 한 장이라도 못 만들면 **아무것도 안 내보낸다** — 반쪽을 말없이 보내면 받는
+       사람은 그것이 전부인 줄 안다([273]). */
+    if(!blob){ notice(`이미지 생성 실패 — ${p+1}장째`); return; }
+    blobs.push(blob);
+    names.push(pages>1 ? `전국쿠팡캠프_담당자_${todayISO()}_${p+1}of${pages}.png`
+                       : `전국쿠팡캠프_담당자_${todayISO()}.png`);
+  }
+  saveOrOpenPages(blobs, names, '캠프 담당자 목록');
+  uxEvent('tap','campsCapture');
 }
 
 async function remoteCapture(){
@@ -20468,6 +20502,31 @@ function saveOrOpen(blob, filename){
       w.document.close();
     } else notice('팝업이 차단됐습니다. 팝업을 허용해 주세요.');
   }
+}
+/* 여러 장을 한 번에 내보낸다 (2026-08-18 지시: "장수가 여러장 되도 좋으니").
+   ★ 한 장이면 **기존 길 그대로** 간다 — 사본을 만들지 않는다([162]).
+   ★ 크롬은 '이 사이트가 파일 여러 개를 다운로드하려 합니다'를 **한 번 묻는다.**
+     사람이 그것을 차단하면 첫 장만 남고 나머지는 **오류 없이 사라진다** — 그러면
+     받은 사람은 그 한 장이 전부인 줄 안다([169]). 그래서 몇 장을 보내는지 먼저 말한다.
+   ★ iOS 는 창을 여러 개 못 연다(둘째부터 팝업 차단) — **한 창에 전부** 담는다. */
+function saveOrOpenPages(blobs, names, title){
+  if(!blobs || !blobs.length) return;
+  if(blobs.length === 1){ saveOrOpen(blobs[0], names[0]); return; }
+  if(('download' in document.createElement('a')) && !isIOS()){
+    toast(`${title} ${blobs.length}장을 내려받습니다 — 크롬이 '파일 여러 개 다운로드'를 물으면 [허용] 을 눌러 주세요`);
+    blobs.forEach((b,i)=>setTimeout(()=>downloadBlobFile(b, names[i],
+      `${title} ${i+1}/${blobs.length}장 저장`), i*400));
+    return;
+  }
+  const w = window.open();
+  if(!w){ notice('팝업이 차단됐습니다. 팝업을 허용해 주세요.'); return; }
+  w.document.write(`<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>${title}</title><style>body{margin:0;background:#111;font-family:sans-serif}
+    p{color:#fff;text-align:center;padding:10px;font-size:14px;margin:0}img{width:100%;display:block}</style></head>
+    <body><p>이미지를 하나씩 길게 눌러 <b>사진에 저장</b>하세요 (총 ${blobs.length}장)</p>`
+    + blobs.map((b,i)=>`<p>${i+1} / ${blobs.length}</p><img src="${URL.createObjectURL(b)}">`).join('')
+    + `</body></html>`);
+  w.document.close();
 }
 function downloadBlobFile(blob, filename, message){
   const url=URL.createObjectURL(blob), a=document.createElement('a');
