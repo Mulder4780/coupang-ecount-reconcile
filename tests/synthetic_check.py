@@ -17287,6 +17287,44 @@ def t223_superseded_evidence_heals_itself():
           "낡음은 보존 · 워치독 선행 ✅")
 
 
+def t302_exec_report_never_asserts_an_unfilled_column():
+    """[78] 대표보고가 **아무도 안 채운 열**을 근거로 금액을 확언하면 안 된다.
+
+    2026-08-13 형님 지적에서 시작했다 — "잔여 미청구액 22000원 이거 오류인것 같은데".
+    실측 06시트 750행: `미청구액` 은 680행이 채워졌는데 0보다 큰 행은 **1개**뿐이고,
+    `미수금액` 은 **채워진 행이 하나도 없다.** 그런데 화면은 `잔여 미수금액 0` 을
+    확언했다 — 그 0 은 "못 받을 돈이 없다"가 아니라 **"못 셈"** 이다([169]).
+
+    지키는 것 넷:
+      ① 판정을 새로 만들지 않는다([162]) — `exec_report_guard.column_health` 를 빌린다
+      ② 열 목록도 그쪽 `MONEY_COLUMNS` 가 정한다(부르는 쪽에 적으면 사본이 둘, [165])
+      ③ **채움률 0% 는 "0원"이 아니라 "못 셈"** 이라고 말한다
+      ④ **못 쟀으면 못 쟀다고 말한다** — 조용히 넘어가면 예전처럼 확언한다([169])
+    """
+    import importlib
+    G = importlib.import_module("exec_report_guard")
+    assert callable(getattr(G, "column_health", None)), "빌릴 판정 함수가 없다"
+    assert isinstance(getattr(G, "MONEY_COLUMNS", None), dict) and G.MONEY_COLUMNS, "열 표가 없다"
+    빈 = G.column_health([{"미수금액": ""}, {"미수금액": None}], "미수금액")
+    assert 빈["총행"] == 2 and 빈["채워짐"] == 0, "안 채운 열을 채운 것으로 센다"
+    거의0 = G.column_health([{"미청구액": 0} for _ in range(99)] + [{"미청구액": 22000}], "미청구액")
+    assert 거의0["채워짐"] == 100 and 거의0["값있음"] == 1, "값 있는 행을 잘못 센다"
+    assert (거의0["값있음"] / 거의0["채워짐"]) < G.MOSTLY_ZERO_RATIO, "거의 0 을 못 가른다"
+    # 서버가 그 판정을 실제로 실어 보내는가 — 집계는 Z: 를 훑어 비싸므로 글자로 잰다([168]).
+    src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    블록 = src[src.find("잔여 미수금액"):src.find("잔여 미수금액") + 3000]
+    assert "column_health(" in 블록, "근거 열의 채움을 안 잰다 — 화면이 0 을 확언한다"
+    assert "MONEY_COLUMNS" in 블록, "열 이름을 부르는 쪽에 적었다(사본이 둘 된다)"
+    assert "근거경고" in 블록, "근거가 약하다는 사실을 화면에 안 내려보낸다"
+    assert "못 셈" in 블록, "채움률 0% 를 0원과 가르지 않는다"
+    assert "except Exception" in 블록, "근거를 못 재도 조용히 넘어간다([169])"
+    assert "못 쟀다" in 블록, "못 쟀다는 사실을 화면에 안 말한다([169])"
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "d.근거경고" in html, "화면이 근거 경고를 안 그린다"
+    assert "esc2(d.근거경고)" in html, "정본 이스케이프(esc2)를 안 쓴다([300])"
+    print("  [302] 대표보고 — 안 채운 열로 금액을 확언하지 않는다(판정은 guard 한 곳) ✅")
+
+
 def t219_noon_round_is_daily_windowed_and_yields():
     """[219] 정오 회차는 창 안에서 하루 한 번만 돌고, 남의 것을 절대 빼앗지 않는다.
 
@@ -22059,6 +22097,7 @@ if __name__ == "__main__":
     t215_cancel_timeline_last_explicit_state_wins()
     t218_camp_standard_erp_basis_and_pm_units()
     t219_noon_round_is_daily_windowed_and_yields()
+    t302_exec_report_never_asserts_an_unfilled_column()
     t224_wrapup_commit_refusal_paths()
     t225_session_auto_resumes_parked_and_pushes()
     t228_scheduler_rounds_are_watched()

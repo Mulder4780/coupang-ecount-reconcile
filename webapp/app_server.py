@@ -4894,6 +4894,42 @@ def read_exec_details(master, base_date=""):
                 status=r.get("청구상태"), source="미수")
          for r in s06 if is_2026_settlement(r) and _metric_number(r.get("미수금액")) > 0],
         "06_거래서류청구수금 · 2026년 정산ID 보유 · 미수금액>0", "amount")
+
+    # ★ **근거 열이 비어 있으면 숫자를 확언하지 않는다** (2026-08-13 형님 지적
+    #   "잔여 미청구액 22000원 이거 오류인것 같은데" · 분담판 [78] · [169]).
+    #   실측 06시트 750행: `미청구액` 은 680행이 채워졌는데 0보다 큰 행은 **1개**뿐이고,
+    #   `미수금액` 은 **채워진 행이 하나도 없다.** 그런데 화면은 '잔여 미수금액 0' 을
+    #   확언했다 — 그 0 은 '못 받을 돈이 없다'가 아니라 **'못 셈'** 이다.
+    #   ★ 판정을 새로 만들지 않는다([162]) — `exec_report_guard.column_health` 를 빌린다.
+    #     열 목록도 그쪽 `MONEY_COLUMNS` 가 정한다(여기 적으면 사본이 둘 된다, [165]).
+    try:
+        import exec_report_guard as _G
+        for _label, _col in _G.MONEY_COLUMNS.items():
+            _d = details.get(_label)
+            if not _d:
+                continue
+            _h = _G.column_health(s06, _col)
+            _d["근거"] = _h
+            _tot, _fill, _val = _h.get("총행", 0), _h.get("채워짐", 0), _h.get("값있음", 0)
+            if _tot and not _fill:
+                _d["근거경고"] = (f"근거 열 「{_col}」은 {_tot}행 중 한 행도 안 채워져 있다 — "
+                                "이 숫자는 '0원'이 아니라 '못 셈'이다")
+            elif _fill and (_val / _fill) < _G.MOSTLY_ZERO_RATIO:
+                _d["근거경고"] = (f"근거 열 「{_col}」은 채워진 {_fill}행 중 값이 있는 행이 "
+                                f"{_val}개뿐이다 — 이 합계는 '잔액'이 아니라 "
+                                "'누가 한 칸 적었다'는 뜻일 수 있다")
+            if _d.get("근거경고"):
+                _d["basis"] = _d["basis"] + " · ⚠ " + _d["근거경고"]
+    except Exception as _e:
+        # ★ 못 쟀으면 **못 쟀다고 말한다**([169]) — 조용히 넘어가면 근거가 비어 있는
+        #   날에도 화면이 예전처럼 숫자를 확언한다.
+        for _label in ("잔여 미청구액", "잔여 미수금액"):
+            _d = details.get(_label)
+            if _d is not None:
+                _d["근거"] = None
+                _d["근거경고"] = ("근거 열을 못 쟀다(%s) — 이 숫자를 확언하지 말 것"
+                                % type(_e).__name__)
+                _d["basis"] = _d["basis"] + " · ⚠ " + _d["근거경고"]
     add("작업금액 불일치 (현재)",
         [detail(r, amount=r.get("작업대비거래명세서차액"), issue=r.get("문제내용"),
                 status=r.get("검증결과"), source="금액 불일치")
