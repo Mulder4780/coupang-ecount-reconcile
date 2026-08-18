@@ -7581,6 +7581,7 @@ function wtState(k){
   const cfg=WT_CFG[k], cur=WT[k]||{};
   const base=/^2026-\d{2}-\d{2}$/.test(String(cur.base||'')) ? cur.base : wtToday();
   WT[k]=Object.assign({q:'',st:'',tech:'',board:false,quick:'',dateMode:'',
+    span:'',from:'',to:'',
     base,sortBy:cfg.dateCol,sortOrder:'desc'},cur,{base});
   if(WT[k].quick==='today') WT[k].quick='day';
   if(!cfg.sorts.some(x=>x[0]===WT[k].sortBy)) WT[k].sortBy=cfg.dateCol;
@@ -7603,9 +7604,52 @@ function wtTechs(k){
   WT_CFG[k].rows().forEach(r=>String(r.담당기사||'').split(',').forEach(t=>{t=t.trim(); if(t)s.add(t);}));
   return [...s].sort();
 }
+/* ★ 기간 필터 — 1일·1주일·1달·직접 선택 (2026-08-18 지시).
+   기존 dateMode 는 **기준일 한 점**(당일/까지/이후)만 봐서 "요즘 돌발AS가 하루
+   몇 건이나 오나"를 물을 수 없었다.  여기는 **구간**을 만든다.
+   · 기간은 조회 기준일에서 **거슬러 올라간다**(끝이 기준일).  '1일'은 기준일
+     하루이므로 일수 1 이다 — 0 으로 나누는 자리를 만들지 않는다.
+   · 직접 선택은 from/to 를 그대로 쓰되 뒤집혀 들어오면 바로잡는다(사람이
+     거꾸로 고르는 일이 잦고, 그때 조용히 0건이 되면 자료가 없는 줄 안다).
+   · 못 정하면 null 이다 — 짐작한 구간으로 평균을 내지 않는다([172]). */
+const WT_SPANS=[['1','최근 1일',1],['7','최근 1주일',7],['30','최근 1달',30]];
+function wtShiftDay(iso,delta){
+  const d=new Date(String(iso)+'T00:00:00');
+  if(isNaN(d)) return '';
+  d.setDate(d.getDate()+delta);
+  // ★ toISOString() 을 쓰지 않는다 — UTC 로 옮기므로 한국(UTC+9)에서는 자정이
+  // 전날로 넘어가 **하루씩 밀린 구간**이 나온다(오류는 안 나고 날짜만 틀린다).
+  // 실측 2026-08-18: '최근 1일' 이 8/17 을 가리켰다.
+  const p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+}
+function wtSpanRange(k){
+  const st=wtState(k);
+  if(!st.span) return null;
+  if(st.span==='custom'){
+    let a=String(st.from||'').slice(0,10), b=String(st.to||'').slice(0,10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(a)||!/^\d{4}-\d{2}-\d{2}$/.test(b)) return null;
+    if(a>b){ const t=a; a=b; b=t; }
+    const days=Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000)+1;
+    return {from:a,to:b,days,label:`${a} ~ ${b}`};
+  }
+  const n=(WT_SPANS.find(x=>x[0]===st.span)||[])[2];
+  if(!n) return null;
+  const to=st.base, from=wtShiftDay(to,-(n-1));
+  if(!from) return null;
+  return {from,to,days:n,label:(WT_SPANS.find(x=>x[0]===st.span)||['','',0])[1]};
+}
 function wtFiltered(k){
-  const cfg=WT_CFG[k], st=wtState(k), q=st.q.toLowerCase();
+  const cfg=WT_CFG[k], st=wtState(k), q=st.q.toLowerCase(), sp=wtSpanRange(k);
   return cfg.rows().filter(r=>{
+    if(sp){
+      const sd=String(r[cfg.dateCol]||'').slice(0,10);
+      // 날짜가 없는 건은 구간에 못 넣는다 — 넣으면 평균이 부풀고, 빼면
+      // '없는 것'처럼 보인다.  그래서 **뺀 개수를 화면이 말한다**([169]).
+      if(!sd || sd<sp.from || sd>sp.to) return false;
+    }
+    return true;
+  }).filter(r=>{
     if(st.st && wtStatus(k,r)!==st.st) return false;
     if(st.tech==='__none' ? String(r.담당기사||'').trim() :
        (st.tech && !String(r.담당기사||'').includes(st.tech))) return false;
@@ -7678,6 +7722,16 @@ function renderWorkTab(k){
       <option value="through" ${st.dateMode==='through'?'selected':''}>기준일까지</option>
       <option value="after" ${st.dateMode==='after'?'selected':''}>기준일 이후</option>
       <option value="none" ${st.dateMode==='none'?'selected':''}>예정일 미정</option></select>`+
+    // 기간 — 기준일에서 거슬러 올라간 구간. 평균은 아래 요약줄이 말한다.
+    `<select class="wt-date-filter" aria-label="기간 필터" onchange="wtSet('${k}','span',this.value)">
+      <option value="" ${!st.span?'selected':''}>기간 전체</option>${WT_SPANS.map(([v,l])=>
+      `<option value="${v}" ${st.span===v?'selected':''}>${l}</option>`).join('')}
+      <option value="custom" ${st.span==='custom'?'selected':''}>기간 직접 선택</option></select>`+
+    (st.span==='custom'
+      ? `<input type="date" class="wt-date-filter" aria-label="기간 시작일" value="${esc2(st.from)}"
+           onchange="wtSet('${k}','from',this.value)">`+
+        `<input type="date" class="wt-date-filter" aria-label="기간 종료일" value="${esc2(st.to)}"
+           onchange="wtSet('${k}','to',this.value)">` : '')+
     `<select class="wt-sort-field" aria-label="정렬 기준" onchange="wtSet('${k}','sortBy',this.value)">${cfg.sorts.map(([v,l])=>
       `<option value="${esc2(v)}" ${st.sortBy===v?'selected':''}>${esc2(l)} 순</option>`).join('')}</select>`+
     `<select class="wt-sort-order" aria-label="정렬 방향" onchange="wtSet('${k}','sortOrder',this.value)">
@@ -7701,7 +7755,23 @@ function renderWorkTab(k){
     `<button class="abtn" onclick="wtCsv('${k}')">CSV 내보내기</button>`);
   const rows=wtRows(k);
   const sortLabel=(cfg.sorts.find(x=>x[0]===st.sortBy)||[st.sortBy,st.sortBy])[1];
+  /* 기간 평균 — 무엇을 무엇으로 나눴는지 **같이** 적는다.  숫자만 있으면
+     "하루 3건"이 접수량인지 완료량인지 아무도 모른다.  그리고 날짜가 없어
+     구간에 못 든 건수를 밝힌다 — 조용히 빼면 평균이 실제보다 작아 보인다([169]). */
+  const sp=wtSpanRange(k);
+  let spanNote='';
+  if(sp){
+    const avg=rows.length/sp.days;
+    const noDate=all.filter(r=>!String(r[cfg.dateCol]||'').slice(0,10)).length;
+    spanNote=` · 기간 ${sp.label}(${sp.from}~${sp.to} · ${sp.days}일)`+
+      ` · 하루 평균 ${avg.toFixed(avg<10?1:0)}건`+
+      ` (${cfg.dateCol} 기준 ${rows.length}건 ÷ ${sp.days}일)`+
+      (noDate?` · 날짜 없어 기간에서 뺀 건 ${noDate}건`:'');
+  } else if(st.span==='custom'){
+    spanNote=' · 기간을 직접 선택하려면 시작일과 종료일을 모두 고르세요';
+  }
   $(k+'Meta').textContent=`${rows.length}건 검색됨 (전체 ${all.length}건)`+
+    spanNote+
     ` · 기준 ${st.base} · ${sortLabel} ${st.sortOrder==='asc'?'오름차순':'내림차순'}`+
     (Object.keys(WT_PENDING).length?` · 앱 DB 저장 ${Object.keys(WT_PENDING).length}개 항목 · Excel 자동 보관`: '');
   const limit=Math.max(WT_RENDER_STEP,Number(WT_RENDER_LIMIT[k]||WT_RENDER_STEP));
@@ -7724,7 +7794,8 @@ function wtSetBase(k,value){
 }
 function wtReset(k){
   const cur=wtState(k), cfg=WT_CFG[k];
-  WT[k]={q:'',st:'',tech:'',board:cur.board,quick:'',dateMode:'',base:cur.base,
+  WT[k]={q:'',st:'',tech:'',board:cur.board,quick:'',dateMode:'',
+    span:'',from:'',to:'',base:cur.base,
     sortBy:cfg.dateCol,sortOrder:'desc'};
   WT_RENDER_LIMIT[k]=WT_RENDER_STEP; wtSave(); renderWorkTab(k);
 }
@@ -8589,6 +8660,10 @@ function wtCapFilters(k){
   if(st.st) t.push('상태 '+st.st);
   if(st.tech) t.push(st.tech==='__none'?'기사 미배정만':'기사 '+st.tech);
   if(st.dateMode) t.push({day:'기준일 당일',through:'기준일까지',after:'기준일 이후',none:'예정일 미정'}[st.dateMode]||st.dateMode);
+  // 기간은 **캡처에도** 적는다 — 카톡으로 받은 사람이 어느 구간의 숫자인지
+  // 모르면 그 이미지는 근거가 못 된다.
+  const sp=wtSpanRange(k);
+  if(sp) t.push(`기간 ${sp.label} (${sp.from}~${sp.to} · ${sp.days}일)`);
   return t.length?t.join(' · '):'없음(전체)';
 }
 function wtCapBuckets(k){
