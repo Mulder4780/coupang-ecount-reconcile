@@ -17307,7 +17307,9 @@ def t302_exec_report_never_asserts_an_unfilled_column():
     assert isinstance(getattr(G, "MONEY_COLUMNS", None), dict) and G.MONEY_COLUMNS, "열 표가 없다"
     빈 = G.column_health([{"미수금액": ""}, {"미수금액": None}], "미수금액")
     assert 빈["총행"] == 2 and 빈["채워짐"] == 0, "안 채운 열을 채운 것으로 센다"
-    거의0 = G.column_health([{"미청구액": 0} for _ in range(99)] + [{"미청구액": 22000}], "미청구액")
+    # ⚠ 실제 원장 셀은 **문자열 "0"** 이다. 정수 0 을 넣으면 `str(raw or "")` 가 "" 이 되어
+    #   '안 채워짐'으로 세인다 — 합성 자료를 진짜 모양과 다르게 만들면 검사가 헛것을 잰다.
+    거의0 = G.column_health([{"미청구액": "0"} for _ in range(99)] + [{"미청구액": "22000"}], "미청구액")
     assert 거의0["채워짐"] == 100 and 거의0["값있음"] == 1, "값 있는 행을 잘못 센다"
     assert (거의0["값있음"] / 거의0["채워짐"]) < G.MOSTLY_ZERO_RATIO, "거의 0 을 못 가른다"
     # 서버가 그 판정을 실제로 실어 보내는가 — 집계는 Z: 를 훑어 비싸므로 글자로 잰다([168]).
