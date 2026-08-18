@@ -18631,10 +18631,13 @@ def t297_orgchart_change_is_seen_without_crying_wolf():
     # ⑦ 회차에 걸려 있고 **인계 스냅샷보다 먼저**다 — 뒤에 두면 인계가 늘 30분 전 판정을 싣는다.
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
     assert "watch_orgchart(dry)" in wd, "워치독 30분 단계에 안 걸려 있다"
-    assert wd.index("watch_orgchart(dry),") < wd.index("snapshot_handoff(dry)"), \
-        "조직도 감시가 인계 스냅샷보다 뒤에 있다"
+    # ★ 순서는 **부르는 목록 안에서** 잰다 — 파일 전체로 재면 함수 정의 자리가 잡혀
+    #   늘 통과하거나 늘 실패한다(글자 검사가 눈머는 자리다).
     block = wd.split("results = [", 1)[1]
-    assert block.index("heal_server(dry)") < block.index("watch_orgchart(dry),"),         "서버를 갈기 전에 조직도를 본다 — 방금 간 서버를 '옛 코드'라 적게 된다"
+    assert block.index("watch_orgchart(dry),") < block.index("snapshot_handoff(dry)"), \
+        "조직도 감시가 인계 스냅샷보다 뒤에 있다 — 인계가 늘 30분 전 판정을 싣는다"
+    assert block.index("heal_server(dry)") < block.index("watch_orgchart(dry),"), \
+        "서버를 갈기 전에 조직도를 본다 — 방금 간 서버를 '옛 코드'라 적게 된다"
 
     # ⑧ 인계는 **여기서 다시 세지 않는다**([168]) — 회차가 써 둔 것을 읽기만 한다.
     sh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
