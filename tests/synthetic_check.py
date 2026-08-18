@@ -20647,6 +20647,31 @@ def t295_camp_contacts_never_guess_a_phone_number():
     # 메일이 붙어 와도 전화 칸에 섞이면 안 된다.
     assert safe["메일"] == "a@coupang.com" and "@" not in safe["전화"], safe
 
+    # ①-2 **메일이 오는 자리는 둘이다** (2026-08-18 실측 — 한쪽만 읽어 현장책임 407명
+    #     중 메일이 1명뿐이었다). ② `E- MAIL` 은 번호 줄 **다음 별도 줄**로 온다.
+    two = ("● 현장책임 : 노민철\n● 담당번호 : 010-3024-6076\n"
+           "● E- MAIL : nominchul@coupangls.com\n")
+    got2 = BE._person(BE.RE_SITE_MGR.search(two))
+    assert got2 and got2["메일"] == "nominchul@coupangls.com", got2
+    assert got2["전화"] == "010-3024-6076", got2
+    # 라벨 표기가 제각각이다(`E - MAIL`·`E-mail`·`이메일`·`이- 메일`).
+    for label in ("E - MAIL", "E-MAIL", "E-mail", "이메일", "이- 메일", "메일주소"):
+        b = "● 담당자명 : 서영호\n● 담당번호 : 010-4580-6030\n● %s : s@coupangls.com\n" % label
+        p = BE._person(BE.RE_OLD_MGR.search(b))
+        assert p and p["메일"] == "s@coupangls.com", (label, p)
+
+    # ①-3 ★ **아래 사람의 메일을 끌어오면 안 된다.** 현장책임에게 메일 줄이 없는데
+    #     안전관리의 메일을 당겨 오면 대표 보고에 **엉뚱한 주소**가 박힌다 — 못 채우는
+    #     것보다 나쁘다([172]). 실측으로 이 모양이 흔하다(양식이 현장책임 메일을
+    #     대부분 안 적는다: 두 사람 다 적힌 글 1,926건 중 4건).
+    gap = ("● 현장책임 : 김하나\n● 담당번호 : 010-1111-2222\n"
+           "● 안전관리 : 박두리\n● 담당번호 : 010-3333-4444\n"
+           "● E - MAIL : park@coupang.com\n")
+    s2 = BE._person(BE.RE_SITE_MGR.search(gap))
+    a2 = BE._person(BE.RE_SAFE_MGR.search(gap))
+    assert s2 and s2["메일"] == "", "현장책임이 안전관리의 메일을 끌어왔다: %r" % (s2,)
+    assert a2 and a2["메일"] == "park@coupang.com", a2
+
     # ② 우리 기사(`A/S 담당`)를 캠프 담당자로 읽으면 안 된다 — 대표 보고에 우리
     #    사람 번호가 캠프 번호로 실린다.
     only_tech = "● A/S 담당 : 김필우\n● 담당번호 : 010-9999-8888\n"
