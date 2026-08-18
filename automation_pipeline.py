@@ -585,6 +585,9 @@ class AutomationPipeline:
                 ("카카오톡 원본 흡수·신규등록", [str(root / "kakao_apply.py"), *files], 1500),
                 ("카카오톡 대조", [str(root / "kakao" / "kakao_reconcile.py")], 900),
                 ("카톡·밴드 교차신호", [str(root / "cross_signal.py")], 900),
+                # 카톡 접수 글도 `band_extract.load_records()` 가 같은 양식으로 읽는다 —
+                # 캠프 담당자가 카톡으로만 바뀌는 날이 있어 여기서도 다시 뽑는다.
+                ("캠프 담당자", [str(root / "camp_contacts.py"), "--write"], 900),
             ]
         if source == "band":
             commands: List[Tuple[str, Sequence[str], int]] = []
@@ -596,6 +599,11 @@ class AutomationPipeline:
                     ("밴드 앱 DB 신규·변경등록", [str(root / "band_canonical.py")], 900),
                     ("밴드 대조", [str(root / "band" / "band_reconcile.py")], 1200),
                     ("카톡·밴드 교차신호", [str(root / "cross_signal.py")], 900),
+                    # 캠프 담당자는 **밴드 접수 글 본문**에서 나온다([295]). 09:50 에만
+                    # 뽑으면 새 접수로 번호가 바뀌어도 하루를 기다린다 — 새 자료가 들어온
+                    # 이 회차에서 같이 다시 뽑는다(2026-08-18 "추가·변경시 자동으로 반영").
+                    # 사람이 앱에서 고친 값은 앱 DB 에 따로 있어 이 덮어쓰기에 안 지워진다.
+                    ("캠프 담당자", [str(root / "camp_contacts.py"), "--write"], 900),
                 ]
             )
             return commands

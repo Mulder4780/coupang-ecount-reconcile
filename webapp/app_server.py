@@ -9603,6 +9603,41 @@ self.addEventListener('fetch', e => {
             except Exception as e:
                 _notify_upload_rejected("업무센터 첨부", "", self._actor(), str(e)[:200])
                 return self._send(400, {"ok": False, "error": str(e)[:260]})
+        if p == "/api/camps/save":
+            # 전국 쿠팡캠프 담당자 **추가·수정·저장** (2026-08-18 지시).
+            # 문은 `/api/staff/entry` 와 **같은 것**을 쓴다([162]) — 권한·멱등키·
+            # 낙관잠금·409 매핑이 갈리면 한쪽만 고쳐진다.
+            actor_session = self._actor()
+            if actor_session.get("role") == "staff":
+                if str(actor_session.get("staff_slug") or "") not in STAFF_CENTERS:
+                    return self._send(403, {"ok": False, "error": "등록되지 않은 업무센터입니다"})
+            elif actor_session.get("role") != "admin":
+                return self._send(403, {"ok": False, "error": "업무센터 권한이 필요합니다"})
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 200_000:
+                return self._send(400, {"ok": False, "error": "입력 용량을 확인해 주세요"})
+            try:
+                import camp_edit
+                body = json.loads(self.rfile.read(ln) or b"{}")
+                body.pop("staff_slug", None)
+                body.pop("submitter", None)
+                result = camp_edit.save(
+                    body.get("캠프명") or body.get("camp") or "",
+                    body.get("values") or {},
+                    actor=self._actor_name(),
+                    expected_version=body.get("판", body.get("version", 0)),
+                    idempotency_key=self._idempotency_key(body),
+                    auto_sig=body.get("자동지문") or "",
+                    clear=body.get("clear") or (),
+                )
+                return self._send(200, result)
+            except Exception as e:
+                if type(e).__name__ in ("VersionConflict", "IdempotencyConflict"):
+                    # ★ 늦은 저장이 먼저 저장을 덮지 않는다 — 사람이 두 값을 본다.
+                    return self._send(409, {"ok": False, "conflict": True,
+                                            "error": "다른 기기에서 먼저 저장했습니다 — "
+                                                     "목록을 새로고침한 뒤 다시 저장해 주세요"})
+                return self._send(400, {"ok": False, "error": error_reason(e)[:300]})
         if p in ("/api/staff/entry", "/api/ryu/entry"):
             actor_session = self._actor()
             if actor_session.get("role") == "staff":

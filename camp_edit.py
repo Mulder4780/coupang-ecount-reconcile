@@ -150,6 +150,10 @@ def apply_edit(row, edit):
     row["사람고침"] = origin
     row["사람고친때"] = edit.get("_고친때") or ""
     row["사람고친이"] = edit.get("_고친이") or ""
+    # ★ 화면이 다음 저장 때 그대로 돌려보낼 **판**이다. 안 실어 보내면 화면은
+    #   판을 모른 채 저장하게 되고, 그때 0(=새로 만들기)을 보내면 남의 값을
+    #   덮는다([296] 이 그 모양이다). 모르면 화면이 0 대신 -1 을 보내 충돌로 끝난다.
+    row["사람고친판"] = int(edit.get("_version") or 0)
     return row
 
 
@@ -161,20 +165,29 @@ def overlay(data, edits=None):
     """
     if edits is None:
         edits = load_edits()
-    rows = list(data.get("rows") or [])
+    rows = []
     seen = set()
-    for row in rows:
-        key = norm(row.get("캠프명"))
+    for src in (data.get("rows") or []):
+        key = norm(src.get("캠프명"))
         seen.add(key)
         edit = edits.get(key)
         if not edit:
+            # 자동지문은 **모든 행**에 싣는다 — 처음 고치는 사람도 "내가 볼 때
+            # 자동값이 무엇이었나"를 같이 저장해야 나중에 '밴드가 또 바뀜'을 묻는다.
+            src = dict(src, 자동지문=CC.contact_sig(src))
+            rows.append(src)
             continue
-        # ★ 사람이 고칠 때 본 자동값과 지금 자동값이 다르면 **말한다**(안 덮는다).
+        # ★ **원본 행을 고치지 않는다.** 실측으로 여기서 걸렸다: 예전엔 제자리에서
+        #   덮어써서, 같은 자료로 한 번 더 겹치면 `contact_sig` 가 **자동값이 아니라
+        #   이미 사람 값이 덮인 행**을 재고 "밴드가 바뀌었다"는 없는 경보를 냈다.
+        #   부르는 쪽이 그 자료를 또 쓰면 자동값 자체를 잃는다([172]).
         was = str(edit.get("자동지문") or "")
-        now = CC.contact_sig(row)
-        apply_edit(row, edit)
+        now = CC.contact_sig(src)          # 겹치기 **전**이라야 자동값이다
+        row = apply_edit(dict(src), edit)  # 역할 딕셔너리는 apply_edit 가 따로 복사한다
+        row["자동지문"] = now
         if was and was != now:
             row["자동이바뀜"] = now
+        rows.append(row)
     for key, edit in edits.items():
         if key in seen:
             continue
