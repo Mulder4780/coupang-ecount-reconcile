@@ -20786,6 +20786,53 @@ def t286_sales_source_survives_recent_export_cap():
 
 
 
+def t300_camp_screen_never_calls_a_missing_helper():
+    """[300] 전국 쿠팡캠프 화면이 **없는 함수**를 부르지 않는다 · 못 그린 것을
+    '못 받았다'로 말하지 않는다 (2026-08-18 실사고).
+
+    실사고: 캠프 화면 코드가 `esc(` 를 12곳에서 불렀는데 그 이름의 **전역 함수가
+    없다**(정본은 `esc2` · 516곳). fetch 는 성공했는데 `renderCampList` 가 첫 셀에서
+    `esc is not defined` 로 죽었고, 받는 것과 그리는 것이 한 try 에 묶여 있어 화면은
+    **"목록을 불러오지 못했습니다"** 라고 원인을 확언했다. 그래서 형님은 서버·수집을
+    의심하며 새로고침만 반복했다 — 틀린 지목은 못 잡는 것보다 나쁘다([172]·[257]).
+
+    ★ 이것은 '있어야 할 것'이 아니라 **'되돌아가면 안 되는 것'** 을 재는 글자 검사다.
+      `esc(` 라는 이름 자체가 금지가 아니다 — 지역 `const esc` 를 가진 함수 안에서는
+      정당하다(mermaid·마크다운 두 곳). 그러므로 **전역에 esc 가 없다는 사실**과
+      **캠프 블록 안에 bare esc( 가 없다는 사실** 둘을 따로 잰다."""
+    p = os.path.join(ROOT, "webapp", "index.html")
+    src = open(p, encoding="utf-8").read()
+
+    # ① 전역 `function esc(` 는 여전히 없다(있으면 이 검사의 전제가 바뀐 것이다).
+    assert not re.search(r"^function esc\s*\(", src, re.M), (
+        "전역 esc() 가 새로 생겼다 — 그렇다면 이 검사의 전제를 다시 세울 것")
+
+    # ② 캠프 화면 블록 안에는 bare esc( 가 없다.
+    lo = src.index("async function renderCamps(")
+    hi = src.index("function renderCampList(")
+    hi = src.index("\nfunction ", src.index("host.innerHTML", hi))  # 표 그리기 끝까지
+    seg = src[lo:src.index("/* 엑셀은", lo)]
+    bad = [m.group(0) for m in re.finditer(r"[^A-Za-z0-9_2]esc\(", seg)]
+    assert not bad, (
+        "캠프 화면이 없는 함수 esc( 를 다시 부른다 — 정본은 esc2( 다(%d곳)" % len(bad))
+
+    # ③ 받는 것과 그리는 것이 갈려 있다 — 그리다 터진 것을 '못 받았다'로 말하지 않는다.
+    assert "목록을 받았지만 화면에 그리지 못했습니다" in seg, (
+        "그리기 실패를 '불러오지 못했습니다'로 뭉쳐 말하는 자리로 되돌아갔다([257])")
+    got_at = seg.index("목록을 불러오지 못했습니다")
+    draw_at = seg.index("renderCampList();", seg.index("CAMPS = d;"))
+    assert got_at < draw_at, (
+        "'불러오지 못했습니다' 가 그리기 뒤에도 걸린다 — 두 실패가 다시 한 통에 있다")
+
+    # ④ 못 그려도 엑셀·이미지가 산다는 사실을 화면이 말한다([169]).
+    assert "[엑셀 저장]" in seg and "이미지 저장" in seg, (
+        "그리기 실패 안내가 '엑셀·이미지는 그대로 된다'를 안 말한다 — "
+        "형님이 보고를 포기하게 된다")
+
+    print("  [300] 캠프 화면 — 없는 함수 안 부름 · 못 그린 것을 '못 받았다'로 "
+          "말하지 않음 · 엑셀/이미지 살아 있음을 알림 ✅")
+
+
 def t299_kakao_evidence_reaches_the_capture():
     """[299] 카톡에 적힌 근거가 대표 캡처까지 간다 — 그리고 없는 근거는 안 만든다.
 
@@ -21168,6 +21215,13 @@ _T295_HARNESS = r"""
 const __html = require('fs').readFileSync(__IDX__, 'utf8');
 const __blk = __html.slice(__html.indexOf('function campRows()'),
                            __html.indexOf('async function remoteCapture'));
+// ★ 화면이 쓰는 **진짜** esc2 를 파일에서 읽어 온다 — 여기서 스텁을 만들어 주면
+//   화면에 그 전역이 없어도 하네스에서는 늘 있으므로 **검증이 고장을 가린다.**
+//   2026-08-18 실사고가 정확히 그것이었다: 하네스가 `esc` 를 정의해 줘서, 캠프
+//   화면이 없는 `esc(` 를 12곳에서 부르는데도 이 검증은 초록이었다([300]).
+const __e2i = __html.indexOf('function esc2(');
+if (__e2i < 0) { console.log('FAIL: index.html 에 esc2 정의가 없다'); process.exit(1); }
+const __esc2 = __html.slice(__e2i, __html.indexOf('\n', __e2i));
 const drawn = []; let curFont = '400 12px F';
 const ctx = {
   set font(v){ curFont = v; }, get font(){ return curFont; },
@@ -21196,13 +21250,14 @@ const rows = [
 const el = { campPmOnly:{checked:true}, campQ:{value:''}, campSum:{}, campHost:{} };
 let xlsxRows = null, saved = [];
 const g = { CAMPS:{ok:true, rows, 갱신:'2026-08-18T09:30:00'}, $:id=>el[id],
-  esc:s=>String(s==null?'':s), uiFont:()=>'F', todayISO:()=>'2026-08-18',
+  uiFont:()=>'F', todayISO:()=>'2026-08-18',
   notice:m=>{ throw new Error('notice: '+m); }, toast:()=>{}, uxEvent:()=>{},
   saveOrOpen:()=>{}, saveOrOpenPages:(bs,ns)=>{ saved = ns.slice(); },
   exportRowsXlsx:(n,r)=>{ xlsxRows = r; },
   document:{ createElement:()=>canvas } };
 const api = new Function(...Object.keys(g),
-  __blk + ';return {campRoles, renderCampList, campsXlsx, campsCapture};')(...Object.values(g));
+  __esc2 + ';' + __blk
+  + ';return {campRoles, renderCampList, campsXlsx, campsCapture};')(...Object.values(g));
 
 let bad = [];
 const ok = (c, m) => { if(!c) bad.push(m); };
@@ -21676,6 +21731,7 @@ if __name__ == "__main__":
     t297_orgchart_change_is_seen_without_crying_wolf()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
+    t300_camp_screen_never_calls_a_missing_helper()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
