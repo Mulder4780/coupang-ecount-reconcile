@@ -6813,6 +6813,10 @@ def t247_chrome_collect_report_round_trip():
          (2026-08-12 실사고).
       ④ **워치독이 인계보다 먼저 본다.** 뒤에 두면 인계가 언제나 30분 전 판정을 싣는다.
       ⑤ **'못 읽음'을 '정상'이라 하지 않는다**(`[169]`) — 감시자 자신이 눈멀면 안 된다.
+      ⑦ **안내가 이미 한 일을 또 시키지 않는다.**  2026-08-18 형님 지적 — Tampermonkey
+         가 깔려 있고 유저스크립트까지 켜져 있는데 안내는 "설치하고" 로 시작했다.
+         `chrome_side()` 가 **로컬 증거로** 재고 `fix_for()` 가 갈래마다 다른 말을 한다.
+         못 재면 '없음'이 아니라 **'모름'** 이다(`[169]`).
       ⑥ **`--print` 가 안 죽는다.** 인계 문서가 알려 주는 명령이 바로 그것인데, 무인
          회차는 `sys.stdout` 이 None 이고(`[235]`) 콘솔은 cp949 라 '—' 에서 통째로 죽었다.
 
@@ -6909,7 +6913,54 @@ def t247_chrome_collect_report_round_trip():
     assert 'hasattr(sys.stdout, "reconfigure")' in uw, (
         "stdout 보호가 없다 — 무인 회차는 None, 콘솔은 cp949 라 '—' 에서 죽는다([235])")
 
-    print("  [247] 크롬 되보고 — 게이트 앞·모양 일치·유령 거부·워치독 순서 ✅")
+    # ⑦ 안내가 **이미 한 일을 또 시키지 않는다** (2026-08-18 형님 지적).
+    #    실측: Tampermonkey 5.5.0 이 깔려 있고 유저스크립트도 8/13 에 들어가 켜져
+    #    있었는데 안내는 "크롬에 Tampermonkey 를 설치하고" 로 시작했다.  이미 한 일을
+    #    또 시키는 안내는 두 번째부터 아무도 안 읽는다([170] 과 같은 결말).
+    #    ★ 갈래마다 다른 말을 하는지 **실행해서** 잰다 — 글자 검사로는 못 잡는다([295]).
+    import shutil
+    tmdir = tempfile.mkdtemp(prefix="t247_side_")
+    try:
+        # (가) 크롬 폴더 자체가 없다 → '없음'이 아니라 **모름**이어야 한다([169]).
+        s_unknown = U.chrome_side(os.path.join(tmdir, "없는폴더"))
+        assert s_unknown.get("확장") == "모름", "못 읽은 것을 '없음'이라 단정한다([169]) — 안내가 다시 '설치하세요'로 돌아간다"
+        assert "확인 못" in U.fix_for("안옴", s_unknown), "모를 때 설치를 확언한다 — 이미 깔린 사람이 또 설치하러 간다"
+
+        # (나) 프로필은 있는데 확장이 없다 → **없음** · 설치 안내가 나와야 한다.
+        prof = os.path.join(tmdir, "UD", "Default", "Extensions")
+        os.makedirs(prof, exist_ok=True)
+        s_none = U.chrome_side(os.path.join(tmdir, "UD"))
+        assert s_none.get("확장") == "없음", "확장이 정말 없는데 '모름'이라 한다 — 그러면 설치 안내를 못 준다"
+        assert "설치" in U.fix_for("안옴", s_none), "확장이 없는데 설치 안내가 없다"
+
+        # (다) 확장은 있는데 유저스크립트가 없다 → 안내는 **유저스크립트** 쪽이어야 한다.
+        os.makedirs(os.path.join(prof, U.TM_IDS[0], "5.5.0_0"), exist_ok=True)
+        s_noscript = U.chrome_side(os.path.join(tmdir, "UD"))
+        assert s_noscript.get("확장") == "있음", "깔린 확장을 못 알아본다"
+        assert s_noscript.get("스크립트") == "없음", "확장 있음과 스크립트 없음을 안 가른다 — 조치가 서로 다르다"
+        assert "이미 깔려" in U.fix_for("안옴", s_noscript), "이미 깔린 확장을 또 설치하라고 한다(2026-08-18 형님 지적)"
+
+        # (라) 저장소에 지문이 있고 켜져 있다 → **설치하라는 말이 한 글자도 없어야** 한다.
+        mark = U._script_mark()
+        assert mark, "유저스크립트에서 @namespace 를 못 읽는다 — 지문을 코드에 손으로 적으면 이름이 바뀐 날 조용히 0건이 된다([165])"
+        store = os.path.join(tmdir, "UD", "Default", "Local Extension Settings", U.TM_IDS[0])
+        os.makedirs(store, exist_ok=True)
+        blob = b'{"name":"x","namespace":"' + mark.encode("utf-8") + b'","enabled":true}'
+        open(os.path.join(store, "000003.log"), "wb").write(blob)
+        s_on = U.chrome_side(os.path.join(tmdir, "UD"))
+        assert s_on.get("스크립트") == "켜짐", "켜진 스크립트를 못 알아본다"
+        say = U.fix_for("안옴", s_on)
+        assert "설치하고" not in say, "이미 깔려 있는데 설치하라고 한다 — 이 항목이 고치려는 바로 그 고장이다"
+        assert "밴드 탭" in say, "남은 하나(로그인된 밴드 탭)를 안 말한다 — 못 시키면 안내가 없는 것과 같다"
+
+        # (마) 꺼진 스크립트를 '켜짐'이라 하지 않는다 — 조치가 정반대다.
+        open(os.path.join(store, "000003.log"), "wb").write(blob.replace(b'"enabled":true', b'"enabled":false'))
+        s_off = U.chrome_side(os.path.join(tmdir, "UD"))
+        assert s_off.get("스크립트") == "꺼짐", "꺼진 스크립트를 켜졌다고 한다"
+    finally:
+        shutil.rmtree(tmdir, ignore_errors=True)
+
+    print("  [247] 크롬 되보고 — 게이트 앞·모양 일치·유령 거부·순서·안내 갈래 ✅")
 
 
 def t250_error_book_speaks_and_counts():
