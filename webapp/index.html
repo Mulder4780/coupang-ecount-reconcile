@@ -3619,7 +3619,11 @@ body.dash-drag-live #dashGuides{display:grid}
        파일을 `/api/camps` 가 읽어 내려줄 뿐, 화면이 다시 계산하지 않는다. -->
   <section class="view" id="v-camps">
     <div class="hero-min"><h2>전국 쿠팡캠프</h2>
-      <p class="sub" data-help-fold="camps-sub">정기점검 캠프와 캠프 담당자의 이름·전화번호입니다. 밴드 접수 글에 적힌 값을 캠프마다 가장 최근 것으로 모았습니다. 직책(현장책임·안전관리)은 새 접수 양식에만 적혀 있어, 옛 글에서 찾은 사람은 '미상'으로 둡니다.</p></div>
+      <p class="sub" data-help-fold="camps-sub">정기점검 캠프와 <b>캠프 담당자</b>(쿠팡 쪽 사람)의 이름·전화번호·이메일입니다. 우리 기사(A/S 담당)와는 다른 사람입니다. 밴드 접수 글에 적힌 값을 캠프마다 가장 최근 것으로 모았습니다.<br>
+        · <b>현장책임</b> — 접수 글 <code>● 현장책임</code> 칸. 캠프 현장을 책임지는 사람입니다.<br>
+        · <b>안전관리</b> — 접수 글 <code>● 안전관리</code> 칸. 캠프 안전관리 담당자입니다.<br>
+        · <b>담당자(직책 미상)</b> — 2023~2024년 옛 접수 양식은 <code>● 담당자명</code> 한 사람만 적고 <b>직책을 말하지 않습니다.</b> 현장책임인지 안전관리인지 원문이 밝히지 않으므로 직책을 붙이지 않습니다.<br>
+        · 이메일이 <b>현장책임</b> 쪽에 거의 없는 것은 자료가 빠진 것이 아니라 <b>접수 양식이 그 칸을 적지 않기 때문</b>입니다(실측: 두 사람이 다 적힌 글 1,926건 중 현장책임 이메일이 있는 글 4건).</p></div>
     <div class="rpt-actions" role="toolbar" aria-label="캠프 목록 도구">
       <button class="icon-btn primary" onclick="campsCapture()" title="이미지 저장" aria-label="이미지 저장">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
@@ -3630,7 +3634,7 @@ body.dash-drag-live #dashGuides{display:grid}
     </div>
     <div class="card">
       <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
-        <input id="campQ" type="search" placeholder="캠프명·담당자·번호 검색" oninput="renderCampList()" style="flex:1;min-width:180px">
+        <input id="campQ" type="search" placeholder="캠프명·담당자·번호·이메일 검색" oninput="renderCampList()" style="flex:1;min-width:180px">
         <label class="chk"><input id="campPmOnly" type="checkbox" checked onchange="renderCampList()"> 정기점검 캠프만</label>
       </div>
       <div id="campSum" class="note" style="margin-top:8px"></div>
@@ -16529,99 +16533,159 @@ function campRows(){
   return rows.filter(r=>{
     if(pmOnly && !r.정기점검) return false;
     if(!q) return true;
-    const p = campPeople(r);
-    const s = [r.캠프명, r.캠프주소, r.거래처코드,
-               p.a.이름, p.a.전화, p.b.이름, p.b.전화].join(' ').toLowerCase();
+    const s = [r.캠프명, r.캠프주소, r.거래처코드]
+      .concat(campRoles(r).flatMap(x=>[x.p.이름, x.p.전화, x.p.메일]))
+      .join(' ').toLowerCase();
     return s.indexOf(q) >= 0;
   });
 }
-/* ★ **직책을 지어내지 않는다**([172]). 옛 양식(2023~2024) 접수 글과 ERP 거래처등록은
+/* ★ **세 역할을 뭉치지 않는다** (2026-08-18 지시: "담당자1, 담당자2 가 무엇을 의미하는지
+   모르겠어"). 전에는 `담당자 ①·②` 로 순서만 보여 줘서 **그게 누구인지 화면이 말해
+   주지 않았다** — 원본은 이미 역할을 갈라 적어 두는데 화면에서 그 뜻이 사라졌다.
+   ★ **직책을 지어내지도 않는다**([172]). 옛 양식(2023~2024) 접수 글과 ERP 거래처등록은
    `담당자` 한 사람만 적고 **현장책임인지 안전관리인지 말하지 않는다** — 실측 밴드
    2,714글이 그 모양이고, 이것을 안 읽어서 캠프 289개가 '전화 모름'으로 보였다([165]).
-   그렇다고 현장책임 칸에 넣으면 대표 보고에 **없는 직책**이 박힌다. 그래서 자리는
-   내주되 직책은 `미상`이라 적는다. 표·엑셀·캡처가 **이 함수 하나**를 본다([162]). */
-function campPeople(r){
-  const s = r.현장책임||{}, a = r.안전관리||{}, o = r.담당자||{};
-  const has = p => !!(p.이름 || p.전화);
-  if(!has(s) && has(o)) return { a:o, a직책:'미상', b:a, b직책:has(a)?'안전관리':'' };
-  return { a:s, a직책:has(s)?'현장책임':'', b:a, b직책:has(a)?'안전관리':'' };
+   그렇다고 현장책임 칸에 넣으면 대표 보고에 **없는 직책**이 박힌다. 제 칸으로 두고
+   `직책 미상`이라 밝힌다. 표·엑셀·캡처가 **이 함수 하나**를 본다([162]). */
+const CAMP_ROLES = [
+  ['현장책임', '현장책임', '캠프 현장 책임자'],
+  ['안전관리', '안전관리', '캠프 안전관리 담당자'],
+  ['담당자',   '담당자(직책 미상)', '옛 접수 양식 — 원문에 직책이 없습니다'],
+];
+function campRoles(r){
+  r = r || {};
+  return CAMP_ROLES.map(([k, label, hint]) => ({ 키:k, 라벨:label, 설명:hint, p:(r[k]||{}) }));
 }
+function campHasPerson(p){ return !!(p && (p.이름 || p.전화 || p.메일)); }
 function renderCampList(){
   const host = $('campHost'); if(!host || !CAMPS) return;
   const rows = campRows(), d = CAMPS;
-  const noTel = rows.filter(r=>{ const p=campPeople(r); return !(p.a.전화 || p.b.전화); }).length;
-  /* 요약이 **무엇을 못 봤는지**까지 말한다 — 숫자만 있으면 '전부 다 있다'로 읽힌다. */
+  const noTel = rows.filter(r=>!campRoles(r).some(x=>x.p.전화)).length;
+  const noMail = rows.filter(r=>!campRoles(r).some(x=>x.p.메일)).length;
+  /* 요약이 **무엇을 못 봤는지**까지 말한다 — 숫자만 있으면 '전부 다 있다'로 읽힌다([169]). */
   $('campSum').innerHTML = esc(`${rows.length}개 표시 · 전화 있음 ${rows.length-noTel} · `
-    + `아직 모름 ${noTel}`) + (d.갱신 ? ' <span class="norm">· 기준 '+esc(String(d.갱신).replace('T',' '))+'</span>' : '')
+    + `이메일 있음 ${rows.length-noMail} · 아직 모름 ${noTel}`)
+    + (d.갱신 ? ' <span class="norm">· 기준 '+esc(String(d.갱신).replace('T',' '))+'</span>' : '')
     + (noTel ? ' <span class="norm">— \'모름\'은 담당자가 없는 것이 아니라 밴드 접수 글에서 아직 못 찾은 것입니다.</span>' : '');
   if(!rows.length){ host.innerHTML = '<div class="empty">조건에 맞는 캠프가 없습니다.</div>'; return; }
-  const cell = (p, role) => { p = p || {};
-    if(!p.이름 && !p.전화) return '<td class="norm">모름</td><td class="norm">모름</td>';
-    return '<td>'+esc(p.이름||'—')
-      + (role ? ' <span class="norm">'+esc(role)+'</span>' : '')+'</td><td>'
-      + (p.전화 ? '<a href="tel:'+esc(p.전화)+'">'+esc(p.전화)+'</a>' : '<span class="norm">모름</span>')+'</td>'; };
+  /* 한 사람 = 한 칸(이름·전화·이메일 석 줄). 사람마다 열을 셋씩 두면 아홉 열이 되어
+     좁은 화면에서 표가 무너진다. **없는 칸은 '모름'이라 적는다** — 빈칸으로 두면
+     '적을 것이 없다'인지 '아직 못 찾았다'인지 구별되지 않는다([169]). */
+  const cell = (p) => { p = p || {};
+    if(!campHasPerson(p)) return '<td class="norm">모름</td>';
+    return '<td><div>'+esc(p.이름||'이름 모름')+'</div>'
+      + '<div>'+(p.전화 ? '<a href="tel:'+esc(p.전화)+'">'+esc(p.전화)+'</a>'
+                       : '<span class="norm">전화 모름</span>')+'</div>'
+      + '<div>'+(p.메일 ? '<a href="mailto:'+esc(p.메일)+'">'+esc(p.메일)+'</a>'
+                       : '<span class="norm">이메일 모름</span>')+'</div></td>'; };
   host.innerHTML = '<div class="gridwrap"><table class="grid"><thead><tr>'
-    + '<th>캠프명</th><th>담당자 ①</th><th>전화</th><th>담당자 ②</th><th>전화</th>'
+    + '<th>캠프명</th>'
+    + CAMP_ROLES.map(([,label,hint])=>'<th title="'+esc(hint)+'">'+esc(label)
+        +'<br><span class="norm" style="font-weight:400">이름 · 전화 · 이메일</span></th>').join('')
     + '<th>정기점검</th><th>최근작업일</th><th>거래처코드</th></tr></thead><tbody>'
-    + rows.map(r=>{ const p = campPeople(r); return '<tr>'
+    + rows.map(r=>'<tr>'
         + '<td>'+esc(r.캠프명)+(r.이름확인필요?' <span class="badge warn">이름 확인 필요</span>':'')+'</td>'
-        + cell(p.a, p.a직책) + cell(p.b, p.b직책)
+        + campRoles(r).map(x=>cell(x.p)).join('')
         + '<td>'+(r.정기점검건수||0)+'</td><td>'+esc(r.최근작업일||'')+'</td>'
-        + '<td>'+esc(r.거래처코드||'')+'</td></tr>'; }).join('')
+        + '<td>'+esc(r.거래처코드||'')+'</td></tr>').join('')
     + '</tbody></table></div>';
 }
 /* 엑셀은 **앱 전체가 쓰는 그 함수**를 그대로 쓴다 — 새로 만들면 사본이 둘 된다([162]). */
 function campsXlsx(){
   const rows = campRows();
   if(!rows.length){ notice('내보낼 캠프가 없습니다.'); return; }
-  exportRowsXlsx('전국쿠팡캠프_담당자', rows.map(r=>{ const p = campPeople(r); return {
-    '캠프명': r.캠프명, '정기점검': r.정기점검 ? 'O' : '',
-    '담당자': p.a.이름||'', '직책': p.a직책||'', '전화': p.a.전화||'',
-    '담당자2': p.b.이름||'', '직책2': p.b직책||'', '전화2': p.b.전화||'',
-    '캠프주소': r.캠프주소||'', '거래처코드': r.거래처코드||'',
-    '정기점검건수': r.정기점검건수||0, '최근작업일': r.최근작업일||'',
-    /* 직책 '미상'은 옛 양식이라 원문에 직책이 없는 것이다 — 비고에도 한 번 더 적는다. */
-    '비고': [r.이름확인필요 ? '캠프명 확인 필요' : '',
-             p.a직책==='미상' ? '직책은 원문에 없음(옛 접수 양식)' : ''].filter(Boolean).join(' · '),
-  }; }));
+  /* 역할마다 **이름·전화·이메일 석 칸**을 다 낸다(2026-08-18 지시). 열 이름에 역할을
+     그대로 박아 두어 엑셀만 받아 본 사람도 그게 누구인지 안다. */
+  exportRowsXlsx('전국쿠팡캠프_담당자', rows.map(r=>{
+    const o = { '캠프명': r.캠프명, '정기점검': r.정기점검 ? 'O' : '' };
+    campRoles(r).forEach(x=>{
+      o[x.라벨+' 이름']   = x.p.이름 || '';
+      o[x.라벨+' 전화']   = x.p.전화 || '';
+      o[x.라벨+' 이메일'] = x.p.메일 || '';
+    });
+    o['캠프주소'] = r.캠프주소||''; o['거래처코드'] = r.거래처코드||'';
+    o['정기점검건수'] = r.정기점검건수||0; o['최근작업일'] = r.최근작업일||'';
+    /* '직책 미상'은 옛 양식이라 원문에 직책이 없는 것이다 — 비고에도 한 번 더 적는다. */
+    o['비고'] = [r.이름확인필요 ? '캠프명 확인 필요' : '',
+                 campHasPerson(r.담당자) ? '담당자 직책은 원문에 없음(옛 접수 양식)' : '',
+                ].filter(Boolean).join(' · ');
+    return o;
+  }));
   uxEvent('tap','campsXlsx');
 }
-/* 대표 보고용 이미지. ★ **자리가 모자라면 조용히 자르지 않는다**([273]) —
-   몇 건을 못 실었는지 이미지에 적고, 엑셀로 받으라고 말한다.                     */
+/* 대표 보고용 이미지 — **가로 한 줄에 한 캠프**가 다 들어간다(2026-08-18 지시).
+   ★ **전화·이메일은 절대 자르지 않는다.** 전에는 `slice(0,12)` 로 잘라
+     `010-6445-1001` 이 **`010-6445-100`** 으로 나갔다 — 번호가 있어 보이는데 걸리지
+     않는, 이 프로젝트가 반복해 당하는 조용한 사고다. 이제 칸에 안 들어가면 **그 칸만
+     글자를 줄여** 넣고, 8px 로도 안 되는 것만 자르되 **몇 개를 잘랐는지 이미지에 적는다**.
+   ★ **자리가 모자라면 조용히 자르지 않는다**([273]) — 몇 건을 못 실었는지 적고
+     엑셀로 받으라고 말한다.
+   ★ **역할을 이미지가 스스로 밝힌다.** 전에는 `담당자 ①·②` 라 적어 받는 사람이
+     그게 누구인지 알 수 없었다.                                                   */
 async function campsCapture(){
   const rows = campRows();
   if(!rows.length){ notice('캡처할 캠프가 없습니다.'); return; }
-  const S=2, W=900, LIM=40, show=rows.slice(0,LIM), F=(z,w)=>`${w||400} ${z}px ${uiFont()}`;
-  /* 아래 안내가 두 줄이므로 자리를 그만큼 준다 — 모자라면 마지막 줄이 잘린다([273]). */
-  const H = 108 + show.length*26 + 62;
+  const S=2, W=1740, F=(z,w)=>`${w||400} ${z}px ${uiFont()}`;
+  /* 한도는 캔버스 안전 면적에서 나온다 — iOS 는 약 1,678만 픽셀에서 저장이 실패한다.
+     폭 W*S 를 빼면 세로가 정해지고, 머리글·각주 자리를 뺀 나머지가 실을 수 있는 줄이다. */
+  const RH=24, HEAD=112, FOOT=92;
+  const LIM = Math.max(20, Math.floor((16777216/(W*S)/S - HEAD - FOOT)/RH));
+  const show = rows.slice(0, LIM);
+  const H = HEAD + show.length*RH + FOOT;
   const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
   const x=cv.getContext('2d'); x.scale(S,S);
+  let clipped = 0;
+  /* 칸에 안 들어가면 **그 칸만** 글자를 줄인다. 그래도 안 되면 그때만 자르고 센다. */
+  const fit=(t,px,py,w,weight)=>{
+    t = String(t==null?'':t);
+    for(const z of [12,11,10,9,8]){
+      x.font=F(z,weight);
+      if(x.measureText(t).width <= w){ x.fillText(t,px,py); x.font=F(12,weight); return; }
+    }
+    x.font=F(8,weight);
+    let s=t; while(s.length>1 && x.measureText(s+'…').width>w) s=s.slice(0,-1);
+    if(s!==t) clipped++;
+    x.fillText(s===t?s:s+'…',px,py); x.font=F(12,weight);
+  };
   x.fillStyle='#fff'; x.fillRect(0,0,W,H);
-  x.fillStyle='#0E1B3F'; x.fillRect(0,0,W,64);
+  x.fillStyle='#0E1B3F'; x.fillRect(0,0,W,66);
   x.fillStyle='#fff'; x.font=F(20,700);
   x.fillText($('campPmOnly').checked ? '전국 정기점검 캠프 · 담당자' : '전국 쿠팡캠프 · 담당자',24,34);
   x.font=F(12); x.fillStyle='#C9D5FA';
-  x.fillText(`총 ${rows.length}개 · 기준 ${new Date().toLocaleString('ko-KR')}`,24,52);
-  const cols=[24,250,360,470,590,700], head=['캠프명','담당자 ①','전화','담당자 ②','전화','최근작업'];
-  let y=88; x.fillStyle='#374151'; x.font=F(12,700);
-  head.forEach((h,i)=>x.fillText(h,cols[i],y));
-  y+=6; x.strokeStyle='#D1D5DB'; x.beginPath(); x.moveTo(24,y); x.lineTo(W-24,y); x.stroke();
-  x.font=F(12); y+=18;
-  show.forEach(r=>{
-    /* 이름만 싣는다 — 폭이 좁아 직책까지 넣으면 잘린다. 직책 근거는 엑셀·화면에
-       있고, 아래 안내가 '①이 현장책임이라는 뜻은 아니다'를 밝힌다([172]). */
-    const p=campPeople(r), a=p.a, b=p.b;
-    const v=[r.캠프명, a.이름||'모름', a.전화||'모름', b.이름||'모름', b.전화||'모름', r.최근작업일||''];
+  x.fillText(`총 ${rows.length}개 · 이 이미지에 ${show.length}개 · 기준 ${new Date().toLocaleString('ko-KR')}`,24,54);
+  /* 열 자리 — [시작x, 폭]. 사람마다 이름·전화·이메일 셋이고 역할이 셋이라 아홉 칸이다. */
+  const NAME=110, TEL=112, MAIL=206, GAP=4;
+  const cols=[[24,250]]; let cx=282;
+  for(let i=0;i<3;i++){ cols.push([cx,NAME]); cols.push([cx+NAME+GAP,TEL]);
+    cols.push([cx+NAME+GAP+TEL+GAP,MAIL]); cx += NAME+TEL+MAIL+GAP*3+16; }
+  cols.push([cx,100]);
+  /* 머리글 두 줄: 위는 역할, 아래는 그 역할의 세 칸. 받는 사람이 ①②를 해석할 일이 없다. */
+  let y=84; x.fillStyle='#0E1B3F'; x.textAlign='left';
+  CAMP_ROLES.forEach((rl,i)=>{ const a=cols[1+i*3][0], b=cols[3+i*3][0]+cols[3+i*3][1];
+    x.font=F(12,700); x.fillText(rl[1], a, y);
+    x.strokeStyle='#C7D2FE'; x.beginPath(); x.moveTo(a,y+5); x.lineTo(b,y+5); x.stroke(); });
+  y+=22; x.fillStyle='#374151'; x.font=F(11,700);
+  ['캠프명','이름','전화','이메일','이름','전화','이메일','이름','전화','이메일','최근작업']
+    .forEach((h,i)=>x.fillText(h,cols[i][0],y));
+  y+=6; x.strokeStyle='#9CA3AF'; x.beginPath(); x.moveTo(24,y); x.lineTo(W-24,y); x.stroke();
+  y+=18;
+  show.forEach((r,ri)=>{
+    if(ri%2){ x.fillStyle='#F8FAFC'; x.fillRect(24,y-14,W-48,RH); }
+    const v=[r.캠프명];
+    campRoles(r).forEach(rl=>v.push(rl.p.이름||'모름', rl.p.전화||'모름', rl.p.메일||'모름'));
+    v.push(r.최근작업일||'');
     v.forEach((t,i)=>{ x.fillStyle=(t==='모름')?'#9CA3AF':'#111827';
-      x.fillText(String(t).slice(0,i===0?18:12),cols[i],y); });
-    y+=26;
+      fit(t, cols[i][0], y, cols[i][1], i===0?600:400); });
+    y+=RH;
   });
-  y+=18; x.fillStyle='#6B7280'; x.font=F(11);
-  x.fillText("'모름'은 담당자가 없는 것이 아니라 밴드 접수 글에서 아직 찾지 못한 것입니다.",24,y);
-  y+=15;
-  x.fillText("담당자 ①·②는 접수 글에 적힌 순서입니다 — 옛 양식 글은 직책(현장책임·안전관리)이 적혀 있지 않습니다.",24,y);
-  if(rows.length>LIM){ y+=16; x.fillStyle='#B45309';
-    x.fillText(`※ 이미지에는 ${LIM}개만 실었습니다 — 나머지 ${rows.length-LIM}개는 엑셀 저장으로 받으십시오.`,24,y); }
+  y+=20; x.fillStyle='#6B7280'; x.font=F(11);
+  x.fillText("'모름'은 담당자가 없는 것이 아니라 밴드 접수 글에서 아직 찾지 못한 것입니다.",24,y); y+=15;
+  x.fillText("현장책임 이메일이 대부분 비어 있는 것은 자료가 빠진 것이 아니라 접수 양식이 그 칸을 적지 않기 때문입니다 — 이메일은 안전관리 쪽에 적혀 옵니다.",24,y); y+=15;
+  x.fillText("담당자(직책 미상)는 옛 접수 양식(2023~2024) 글의 한 사람으로, 원문에 현장책임인지 안전관리인지 적혀 있지 않습니다.",24,y);
+  if(rows.length>show.length){ y+=16; x.fillStyle='#B45309';
+    x.fillText(`※ 이미지에는 ${show.length}개만 실었습니다 — 나머지 ${rows.length-show.length}개는 엑셀 저장으로 받으십시오.`,24,y); }
+  if(clipped){ y+=16; x.fillStyle='#B45309';
+    x.fillText(`※ 칸에 넣지 못해 줄인 값 ${clipped}개가 있습니다 — 전체 값은 엑셀 저장으로 확인하십시오.`,24,y); }
   const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
   if(!blob){ notice('이미지 생성 실패'); return; }
   saveOrOpen(blob,`전국쿠팡캠프_담당자_${todayISO()}.png`);
