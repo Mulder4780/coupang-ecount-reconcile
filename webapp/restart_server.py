@@ -25,7 +25,18 @@ except Exception:
     pass
 
 
-# 서버가 물고 있는 코드 — 이 파일들 중 하나라도 서버보다 새것이면 옛 코드로 도는 것이다.
+# ⚠ 이 목록은 "서버가 물고 있는 코드" 가 **아니다 — 그 일부다.**
+#    2026-08-18 실측: `app_server.py` 가 import 하는 프로젝트 모듈은 **36개**인데
+#    여기 적힌 `.py` 는 **3개**다(app_server·ecount_reconcile·ledger_db). 나머지
+#    33개(work_flow·system_audit·camp_contacts·local_ai·notify·error_book …)는
+#    바뀌어도 **아무 화면에도 안 뜨고** 서버는 옛 코드로 계속 200 을 준다 —
+#    `[156]` 이 반나절을 먹었던 바로 그 모양이 그 33개에 대해서는 아직 열려 있다.
+#    (분담판 [112] 의 '앱 서버가 옛 코드로 돌고 있었다' 가 실제로 이 구멍이다)
+#
+#    ★ 그렇다고 36개를 다 넣으면 안 된다 — 이 목록은 워치독의 **자동 재시작**도
+#      몰기 때문에 커밋마다 서버가 갈리고, 그때마다 화면이 반쪽으로 내려간다
+#      (2026-08-18 실측 · 분담판 [117]). **판정을 넓히는 것과 재시작을 넓히는 것은
+#      다른 결정이다** — 짐작으로 함께 넓히지 않는다. 분담판 [118].
 WATCHED = ("webapp/app_server.py", "webapp/index.html", "webapp/tech.html",
            "ecount_reconcile.py", "ledger_db.py")
 
