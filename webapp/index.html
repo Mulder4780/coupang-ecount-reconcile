@@ -16713,7 +16713,12 @@ function renderCampList(){
         + campRoles(r).map(x=>cell(x.p)).join('')
         + '<td>'+(r.정기점검건수||0)+'</td><td>'+esc2(r.최근작업일||'')+'</td>'
         + '<td>'+esc2(r.거래처코드||'')+'</td>'
-        + '<td><button class="btn xs" onclick="campEditOpen('+JSON.stringify(String(r.캠프명||''))+')">수정</button></td>'
+        /* ★ 값을 **인자로 박지 않는다** — `JSON.stringify` 는 큰따옴표를 만들고
+           그것이 `onclick="…"` 속성을 그 자리에서 끊는다. 캠프명에 괄호·따옴표가
+           들어 있는 이 목록에서는 단추가 **오류도 없이 안 눌린다**(실측: 류지영
+           "수정하기가 안눌려요"). 값은 `data-` 로 넘기고 esc2 로 감싼다. */
+        + '<td><button class="btn xs" data-camp="'+esc2(r.캠프명||'')+'"'
+          + ' onclick="campEditOpen(this.dataset.camp)">수정</button></td>'
         + '</tr>').join('')
     + '</tbody></table></div>';
 }
