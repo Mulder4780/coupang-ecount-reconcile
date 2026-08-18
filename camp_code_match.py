@@ -44,10 +44,15 @@ KINDS = [
     ("B", "이름 다름", "코드는 붙었는데 ERP 거래처명이 캠프명과 다르다 — 어느 쪽이 맞는지 사람이 정한다"),
     ("C", "코드 형식 다름", "쿠팡 거래처코드(CU+숫자) 형식이 아니다 — 유니웍스·ERP 둘 다 고쳐야 한다"),
     ("D", "후보 여럿", "거래처코드 후보가 둘 이상이다 — 자동으로 못 고른다"),
-    ("E", "이름으로 못 찾음", "밴드에서만 보이는 캠프다 — **ERP 마스터에 같은 이름이 없다**. "
-     "없는 캠프인지, `US직구 허브넷` ↔ `인천7캠프(허브넷)` 처럼 **이름이 다른 것**인지는 "
-     "사람이 확인한다(요청 2번 대상)"),
+    ("E", "이름으로 못 찾음", "밴드에서만 보이는 캠프다 — ERP 마스터에도, ERP 거래처 원본"
+     "(ESA001M) 에도 **댈 후보가 없다**. 없는 캠프인지 아직 못 본 것인지는 사람이 확인한다"),
     ("F", "코드만 비었음", "ERP·원장에도 있는 캠프인데 거래처코드 칸이 비었다 — 코드를 채우면 된다"),
+    ("G", "이름이 다른 것으로 보임 ★요청 2번",
+     "ERP 거래처 원본에서 **후보가 정확히 하나** 나왔다 — `US직구 허브넷` ↔ `인천7캠프(허브넷)` "
+     "가 그 모양이다. **지목일 뿐 확정이 아니다**(아무것도 안 고친다) — 근거를 보고 사람이 정한다"),
+    ("H", "후보 여럿 — 사람이 고른다",
+     "후보가 둘 이상이라 자동으로 못 고른다. 하나를 짐작해 고르면 틀린 코드가 유니웍스에 "
+     "박힌다 — **빈 칸보다 나쁘다.** 후보를 나란히 보여 준다"),
 ]
 
 #: ★ **이 표로는 못 재는 것**(`[169]` — 못 잰 것을 '0건'이라 적지 않는다).
@@ -57,10 +62,29 @@ KINDS = [
 #:   0 이고, 그 캠프들은 **E 로 떨어진다.** 제대로 재려면 ERP 거래처 원본
 #:   (`ESA001M.xlsx` 전체 2,981건)을 주소·부분이름으로 대야 한다 — 분담판에 남겼다.
 CANNOT_MEASURE = (
-    "이름 불일치(요청 2번)를 이 표는 **직접 못 잽니다.** 근거인 캠프마스터가 "
-    "`캠프명 == ERP거래처명` 인 것만 담아, 이름이 다른 캠프는 B 가 아니라 **E 로 떨어집니다.** "
-    "E 목록이 곧 그 후보이며, 확정하려면 ERP 거래처 원본 전체와 주소로 대야 합니다."
+    "이름 불일치(요청 2번)는 **B 로 안 걸립니다.** 근거인 캠프마스터가 "
+    "`캠프명 == ERP거래처명` 인 것만 담아, 이름이 다른 캠프는 애초에 그 표에 안 들어옵니다. "
+    "그래서 ERP 거래처 원본(ESA001M) 전체를 따로 읽어 **G·H** 로 답합니다 — "
+    "B 가 0 인 것은 '이름 다른 캠프가 없다'는 뜻이 아닙니다."
 )
+
+#: 지목의 근거 — 어느 것도 '확정'이 아니다. 사람이 보고 정한다.
+#: ★ **잡는 것보다 잘못 지목하지 않는 것이 어렵다**(`[172]`). 실측으로 걸러 낸 오탐:
+#:   · `용인1MB(구갈동)` → `용인2MB(구갈동)` — 괄호 지명이 같고 **앞 숫자만 다르다**.
+#:     그 둘은 실재하는 **다른 캠프**다(`송파1MB`·`송파5MB` 와 같은 자리).
+#:   · `MC12(삼척)` → `삼척파랑지게차` · `M_SNC1 (순천)` → `팔마중기(순천시지게차)` —
+#:     괄호 안이 **도시 이름**이면 그 도시의 남의 회사가 전부 걸린다.
+#:   · `남양주1MB(창동)` → `SR-ICH(**원**창동)` — 지명이 **남의 이름 안에 박힌 것**.
+#: 그래서 문이 넷이다: 후보 풀을 캠프처럼 생긴 거래처로 좁히고 · 번호가 다르면 거절 ·
+#: 지역이 다르면 거절 · 괄호 지명이 서로 어긋나면 거절. 그러고도 **유일할 때만** 지목한다.
+CAMPISH = re.compile(r"캠프|모바일|미니|MB|Sub|허브|HUB|FC|OFC|직구", re.I)
+TYPEWORD = re.compile(r"(SUBHUB|SUBFC|SUB|HUB|OFC|CAMP|MB|FC|캠프|모바일|미니|서브|허브|센터|물류|지점)", re.I)
+MEMO = re.compile(r"[\[\uff3b\u3010][^\]\uff3d\u3011]*[\]\uff3d\u3011]")
+PAREN = re.compile(r"[(\uff08]([^)\uff09]+)[)\uff09]")
+ROAD = re.compile(r"([가-힣A-Za-z0-9]+(?:로|길))\s*([0-9]+(?:-[0-9]+)?)")
+#: 괄호 안이 이것뿐이면 자리를 가리키는 말이 아니다 — 근거로 쓰지 않는다.
+PAREN_GENERIC = {"주", "구", "동", "시", "군", "읍", "면", "리", "본사", "신규", "미정", "임시"}
+ERP_CACHE = os.path.join(REPORT, ".거래처등록_캐시.json")
 
 
 def _norm(name):
@@ -92,6 +116,137 @@ def _looks_like_camp(name):
     """
     s = str(name or "").strip()
     return len(s) >= 3 and _norm(s) != ""
+
+
+def _erp_customers():
+    """ERP 거래처 원본(ESA001M) — **캐시 검사가 먼저다**(`[168]`).
+
+    `customer_index.load_customers()` 는 Z:(SMB) 를 재귀로 훑는다. 그 색인 단계가
+    같은 회차에서 이미 돌아 캐시를 갱신하므로, 여기서는 **캐시를 그냥 읽는다**.
+    캐시가 아예 없을 때만 원본을 읽고, **그 사실과 나이를 리포트가 적는다**(`[169]`) —
+    낡은 근거로 '없다'고 말하는 것이 이 프로젝트에서 제일 위험하다.
+    """
+    try:
+        c = json.load(open(ERP_CACHE, encoding="utf-8"))
+        rows = c.get("rows") or []
+        if rows:
+            return rows, {"출처": c.get("src") or "ESA001M", "받은때": c.get("at") or "",
+                          "길": "캐시", "건수": len(rows)}
+    except (OSError, ValueError):
+        pass
+    try:
+        from customer_index import load_customers
+        rows, src = load_customers()
+        return rows, {"출처": src or "ESA001M", "받은때": "", "길": "원본 다시 읽음",
+                      "건수": len(rows)}
+    except Exception as e:                       # noqa: BLE001
+        return [], {"출처": "", "받은때": "", "길": "못 읽음: %s" % e, "건수": 0}
+
+
+def _head(name):
+    """괄호·대괄호 메모를 떼고 남은 앞부분 — `송파3Sub-FC [= …]` 의 그 메모다."""
+    t = MEMO.sub(" ", str(name or ""))
+    return re.sub(r"[\s\-_\u00b7,]", "", t.split("(")[0].split("\uff08")[0]).strip()
+
+
+def _desig(name):
+    """캠프 번호 지문 — 종류말(캠프·MB·모바일…)을 뗀 나머지의 숫자·낱글자."""
+    return "".join(re.findall(r"[0-9]+|(?<![A-Z가-힣])[A-Z](?![A-Z])",
+                              TYPEWORD.sub("", _head(name).upper())))
+
+
+def _region(name):
+    return "".join(re.findall(r"[가-힣]+", TYPEWORD.sub("", _head(name).upper())))
+
+
+def _parens(name):
+    out = []
+    for m in PAREN.finditer(str(name or "")):
+        t = re.sub(r"[\s\-_]", "", m.group(1).strip())
+        if len(t) >= 2 and not t.isdigit() and t not in PAREN_GENERIC:
+            out.append(t)
+    return out
+
+
+def _road_key(addr):
+    m = ROAD.search(str(addr or ""))
+    return (m.group(1) + m.group(2)) if m else ""
+
+
+def _paren_clash(a, b):
+    """괄호 지명이 양쪽 다 있는데 두 글자도 안 겹치면 **다른 자리**다."""
+    pa, pb = _parens(a), _parens(b)
+    if not pa or not pb:
+        return False
+    return not any(x[:2] == y[:2] or x in y or y in x for x in pa for y in pb)
+
+
+def _reject(camp, erp_name):
+    """거절 사유 — 없으면 None. 판정을 한 곳에 모아 둔다(`[162]`)."""
+    da, db = _desig(camp), _desig(erp_name)
+    if da and db and da != db:
+        return "번호가 다르다 (%s ↔ %s)" % (da, db)
+    # ★ 지역 판정은 **양쪽에 번호가 있을 때만** 건다. 번호 없는 이름(`US직구 허브넷`)은
+    #   지역 추출 자체가 헛돈다 — 종류말 `허브` 를 뗀 `직구넷` 이 '지역'으로 잡혀
+    #   **요청 2번의 본보기가 통째로 거절됐다**(만들면서 검증이 잡았다).
+    #   남의 회사는 이미 후보 풀(캠프처럼 생긴 거래처)에서 걸러진다.
+    ra, rb = _region(camp), _region(erp_name)
+    if da and db and ra and rb and ra != rb and not (ra in rb or rb in ra):
+        return "지역이 다르다 (%s ↔ %s)" % (ra, rb)
+    if _paren_clash(camp, erp_name):
+        return "괄호 지명이 다르다"
+    return None
+
+
+def guess_codes(camps, custs):
+    """이름이 다른 캠프의 거래처코드 후보를 찾는다 — **아무것도 안 고친다**.
+
+    근거 셋: 괄호 안 지명 · 도로명 주소 · 부분 이름. 셋 다 '있으면 후보'일 뿐이고
+    `_reject` 를 통과한 것만 남는다. 돌려주는 것은 `{정규화이름: [후보…]}` 이다.
+    """
+    pool = [c for c in custs
+            if str(c.get("code") or "").upper().startswith("CU")
+            or CAMPISH.search(str(c.get("name") or ""))]
+    by_road = {}
+    for c in pool:
+        k = _road_key(c.get("addr"))
+        if k:
+            by_road.setdefault(k, []).append(c)
+    out = {}
+    for row in camps:
+        cam, cands, why = row["캠프명"], {}, {}
+
+        def add(c, w):
+            cands[str(c.get("code") or "")] = c
+            why.setdefault(str(c.get("code") or ""), set()).add(w)
+
+        for pz in _parens(cam):
+            # ★ 앞 경계를 본다 — `창동` 이 `원창동` 안에 박힌 것을 짝이라 하지 않는다.
+            pat = re.compile(r"(?<![가-힣A-Za-z])" + re.escape(pz))
+            for c in pool:
+                if pat.search(str(c.get("name") or "")):
+                    add(c, "괄호 지명 `%s`" % pz)
+        k = _road_key(row.get("주소"))
+        if k:
+            for c in by_road.get(k, []):
+                add(c, "주소 `%s`" % k)
+        h = _head(cam)
+        if len(h) >= 4:
+            for c in pool:
+                n = re.sub(r"[\s\-_]", "", str(c.get("name") or ""))
+                if h in n or (len(n) >= 4 and n in h):
+                    add(c, "이름 일부 `%s`" % h)
+        keep = []
+        for code, c in cands.items():
+            if not code or _reject(cam, str(c.get("name") or "")):
+                continue
+            keep.append({"code": code, "name": str(c.get("name") or ""),
+                         "addr": str(c.get("addr") or "")[:44],
+                         "근거": " · ".join(sorted(why[code]))})
+        keep.sort(key=lambda x: (-len(x["근거"].split(" · ")), x["code"]))
+        if keep:
+            out[_norm(cam)] = keep
+    return out
 
 
 def build():
@@ -193,13 +348,41 @@ def build():
             "건수": row["건수"], "출처": "+".join(sorted(row["출처"])),
             "다른표기": " / ".join(sorted(row["다른표기"]))[:120],
             "주소": row["주소"][:60], "확인할 것": why,
+            "추정코드": "", "추정근거": "",
         })
+    # ── E 를 ERP 거래처 원본과 대 본다 (노승용 요청 2번) ────────────────
+    #   ★ 여기서 처음으로 '이름이 다른 캠프'를 잰다. 위 갈래 나누기는 캠프마스터를
+    #     근거로 하는데 그 표는 `캠프명 == ERP거래처명` 인 것만 담아 구조상 못 잰다.
+    custs, erp원본 = _erp_customers()
+    Es = [r for r in rows if r["갈래"] == "E"]
+    guess = guess_codes(Es, custs) if custs else {}
+    for r in Es:
+        cs = guess.get(_norm(r["캠프명"])) or []
+        if len(cs) == 1:
+            c = cs[0]
+            r["갈래"], r["추정코드"] = "G", c["code"]
+            r["추정근거"] = "%s — %s" % (c["name"], c["근거"])
+            r["확인할 것"] = ("ERP `%s` (%s) 로 **보인다** — 근거 %s. 지목일 뿐 확정이 "
+                            "아니다(아무것도 안 고쳤다)" % (c["name"], c["code"], c["근거"]))
+        elif cs:
+            r["갈래"] = "H"
+            r["추정근거"] = " / ".join("%s(%s)" % (c["code"], c["name"][:20]) for c in cs[:6])
+            r["확인할 것"] = "후보 %d개 — %s" % (len(cs), r["추정근거"])
+        elif custs:
+            r["확인할 것"] = "ERP 거래처 원본에도 댈 후보가 없다"
+    # ★ **못 읽은 것을 '후보 없음'으로 세지 않는다**(`[169]`).
+    if not custs:
+        못읽음.append(("ERP 거래처 원본(ESA001M)", erp원본["길"] or "읽지 못했다 — "
+                    "G·H 는 **못 잰 것**이지 0건이 아니다"))
+
     rows.sort(key=lambda r: (r["갈래"], -r["건수"], r["캠프명"]))
     return {"만든때": datetime.now().isoformat(timespec="seconds"),
             "rows": rows, "못읽음": 못읽음, "버린쓰레기": 버린쓰레기,
+            "ERP원본": erp원본,
             "원천": {"ERP 거래처 마스터": len((master or {}).get("rows") or []),
                      "밴드 접수 글": len((contacts or {}).get("rows") or []),
-                     "원장 색인(linked)": len((idx.get("linked") or {}))}}
+                     "원장 색인(linked)": len((idx.get("linked") or {})),
+                     "ERP 거래처 원본(ESA001M)": erp원본["건수"]}}
 
 
 def to_md(d):
@@ -219,6 +402,12 @@ def to_md(d):
     cnt = {}
     for r in d["rows"]:
         cnt[r["갈래"]] = cnt.get(r["갈래"], 0) + 1
+    e = d.get("ERP원본") or {}
+    if e:
+        L += ["> **G·H 의 근거**: ERP 거래처 원본 `%s` %d건 (%s%s). "
+              "낡았으면 그 사이 등록된 캠프는 안 보입니다 — 근거의 나이를 같이 적습니다."
+              % (e.get("출처") or "?", e.get("건수") or 0, e.get("길") or "?",
+                 (" · 받은 때 " + e["받은때"]) if e.get("받은때") else ""), ""]
     L += ["## ★ 이 표가 못 재는 것", "", CANNOT_MEASURE, "",
           "## 갈래", "", "| 갈래 | 무엇 | 건수 | 뜻 |", "|---|---|---:|---|"]
     for k, title, desc in KINDS:
@@ -231,13 +420,25 @@ def to_md(d):
         sel = [r for r in d["rows"] if r["갈래"] == k]
         if not sel:
             continue
-        L += ["## %s. %s (%d건)" % (k, title, len(sel)), "", desc, "",
-              "| 캠프명 | 거래처코드 | ERP 거래처명 | 정기점검 | 건수 | 출처 | 확인할 것 |",
-              "|---|---|---|:-:|---:|---|---|"]
+        L += ["## %s. %s (%d건)" % (k, title, len(sel)), "", desc, ""]
+        if k in ("G", "H"):
+            L += ["| 캠프명 | 캠프 주소 | 정기점검 | ERP 후보(추정) | 근거 |",
+                  "|---|---|:-:|---|---|"]
+        else:
+            L += ["| 캠프명 | 거래처코드 | ERP 거래처명 | 정기점검 | 건수 | 출처 | 확인할 것 |",
+                  "|---|---|---|:-:|---:|---|---|"]
         for r in sel[:80 if k != "A" else 40]:
-            L.append("| %s | %s | %s | %s | %d | %s | %s |" % (
-                r["캠프명"], r["거래처코드"] or "—", r["ERP거래처명"] or "—",
-                r["정기점검"], r["건수"], r["출처"], r["확인할 것"]))
+            if k == "G":
+                L.append("| %s | %s | %s | **%s** %s | %s |" % (
+                    r["캠프명"], r["주소"][:30], r["정기점검"], r["추정코드"],
+                    r["추정근거"].split(" — ")[0], r["추정근거"].split(" — ")[-1]))
+            elif k == "H":
+                L.append("| %s | %s | %s | %s | 자동으로 못 고른다 |" % (
+                    r["캠프명"], r["주소"][:30], r["정기점검"], r["추정근거"]))
+            else:
+                L.append("| %s | %s | %s | %s | %d | %s | %s |" % (
+                    r["캠프명"], r["거래처코드"] or "—", r["ERP거래처명"] or "—",
+                    r["정기점검"], r["건수"], r["출처"], r["확인할 것"]))
         if len(sel) > (80 if k != "A" else 40):
             L.append("| … | | | | | | **나머지 %d건은 엑셀에 있습니다** |"
                      % (len(sel) - (80 if k != "A" else 40)))
@@ -254,12 +455,12 @@ def to_xlsx(d, path):
     wb = Workbook()
     ws = wb.active
     ws.title = "캠프_거래처코드"
-    cols = ["갈래", "캠프명", "거래처코드", "ERP거래처명", "정기점검", "건수",
-            "출처", "다른표기", "주소", "확인할 것", "담당자", "처리결과"]
+    cols = ["갈래", "캠프명", "거래처코드", "추정코드", "추정근거", "ERP거래처명",
+            "정기점검", "건수", "출처", "다른표기", "주소", "확인할 것", "담당자", "처리결과"]
     ws.append(cols)
     for r in d["rows"]:
         ws.append([r.get(c, "") for c in cols])
-    for i, w in enumerate((6, 26, 12, 26, 8, 8, 14, 34, 40, 46, 12, 14), 1):
+    for i, w in enumerate((6, 26, 12, 12, 40, 26, 8, 8, 14, 30, 40, 46, 12, 14), 1):
         ws.column_dimensions[ws.cell(1, i).column_letter].width = w
     ws.freeze_panes = "A2"
     wb.save(path)

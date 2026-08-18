@@ -22405,6 +22405,100 @@ def t308_diagram_window_opens_full_screen():
           "보통 시트는 620px 그대로 · 붙이고 지우는 자리는 한 곳 OK")
 
 
+
+def t309_camp_code_guess_never_names_a_wrong_customer():
+    """[309] 캠프 이름 불일치 지목 — **잘못 지목하지 않는 것**이 잡는 것보다 어렵다.
+
+    노승용 매니저 요청 2번(2026-08-18). `camp_code_match` 의 B(이름 다름)는 구조상
+    0 이라 — 근거인 캠프마스터가 `캠프명 == ERP거래처명` 인 것만 담는다 — ERP 거래처
+    원본(ESA001M)을 따로 읽어 **G(후보 유일)** · **H(후보 여럿)** 로 답한다.
+
+    ★ 이 지목은 **유니웍스에 코드를 적는 사람이 읽는다.** 틀린 코드가 박히면 빈 칸보다
+      나쁘다(`[172]`). 그래서 프로토타입에서 실제로 걸린 오탐 셋을 여기서 얼린다:
+      · `용인1MB(구갈동)` → `용인2MB(구갈동)` — 괄호 지명이 같고 **앞 숫자만 다르다**.
+        둘 다 실재하는 **다른 캠프**다(`송파1MB`·`송파5MB` 와 같은 자리).
+      · `MC12(삼척)` → `삼척파랑지게차` — 괄호 안이 **도시 이름**이면 그 도시의 남의
+        회사가 전부 걸린다.
+      · `남양주1MB(창동)` → `SR-ICH(원창동)` — 지명이 **남의 이름 안에 박힌 것**.
+
+    ★ 글자 검사로는 '정말 안 걸리는가'를 못 잰다(`[295]`) — 합성 거래처를 먹여
+      **실행해서** 잰다. 계기 자신도 시험한다(`[272]`).
+    """
+    import camp_code_match as M
+
+    # ① 갈래표·엑셀 열·판정이 같은 것을 말한다 — 하나만 늘면 그 칸이 조용히 빈다
+    kinds = [k for k, _t, _d in M.KINDS]
+    assert "G" in kinds and "H" in kinds, "요청 2번 갈래가 표에 없다"
+    xsrc = open(M.__file__, encoding="utf-8").read()
+    assert '"추정코드", "추정근거"' in xsrc, "엑셀 열에 추정 칸이 없다"
+    assert '"추정코드": "", "추정근거": ""' in xsrc, \
+        "모든 행이 추정 칸을 갖지 않는다 — 엑셀 열이 갈래마다 어긋난다"
+
+    # ② 번호가 다르면 다른 캠프다
+    assert M._reject("용인1MB(구갈동)", "용인2MB(구갈동)"), "번호 다른 캠프를 짝이라 한다"
+    assert M._reject("대전2MB(읍내동)", "대전3MB(읍내동)"), "번호 다른 캠프를 짝이라 한다"
+    assert not M._reject("시흥2모바일(일직동)", "시흥2MB(일직동)"), \
+        "같은 캠프를 거절한다 — 종류말(모바일/MB)만 다르다"
+    assert not M._reject("장한평 OFC(장안동)", "장한평 OFC"), \
+        "한쪽에 번호가 없는 것을 거절한다"
+
+    # ③ 지역·괄호 지명이 어긋나면 거절
+    assert M._reject("남양주3MB(풍산)", "송파2캠프(풍산동)"), "지역이 다른데 짝이라 한다"
+    assert M._reject("제주2MB(성읍리)", "제주2MB(사계리)"), "괄호 지명이 다른데 짝이라 한다"
+    assert not M._reject("제주2캠프(서홍동)", "제주2캠프(서홍로)"), \
+        "같은 자리를 거절한다 — 서홍동/서홍로는 두 글자가 겹친다"
+
+    # ④ 실행으로 잰다 — 남의 회사·박힌 지명은 후보에 못 든다
+    pool = [
+        {"code": "CU355", "name": "US직구 허브넷", "addr": "인천 중구 공항동로 296번길 97-45"},
+        {"code": "CU220", "name": "SR-ICH(원창동)", "addr": "인천 서구 원창동 1"},
+        {"code": "9999", "name": "삼척파랑지게차(조동중기)", "addr": "강원 삼척시 어딘가로 1"},
+        {"code": "CU008", "name": "양주2캠프(봉양동)", "addr": "경기 양주시 봉양로 10"},
+        {"code": "CU009", "name": "양주2MB(봉양동)", "addr": "경기 양주시 봉양로 12"},
+    ]
+    g = M.guess_codes([
+        {"캠프명": "인천7캠프(허브넷)", "주소": ""},
+        {"캠프명": "남양주1MB(창동)", "주소": ""},
+        {"캠프명": "MC12(삼척)", "주소": ""},
+        {"캠프명": "양주2캠프", "주소": ""},
+    ], pool)
+    got = g.get(M._norm("인천7캠프(허브넷)")) or []
+    assert [c["code"] for c in got] == ["CU355"], \
+        "요청 2번의 본보기(허브넷)를 못 찾는다: %r" % got
+    assert not g.get(M._norm("남양주1MB(창동)")), \
+        "`창동` 이 `원창동` 안에 박힌 것을 짝이라 한다 — 앞 경계를 안 본다"
+    assert not g.get(M._norm("MC12(삼척)")), \
+        "괄호 안이 도시 이름일 때 남의 회사(지게차)가 후보로 든다"
+    많음 = g.get(M._norm("양주2캠프")) or []
+    assert len(많음) == 2, \
+        "후보가 둘인데 %d개다 — 유일할 때만 지목한다는 문이 무너졌다" % len(많음)
+
+    # ⑤ 계기 자신을 시험한다(`[272]`) — 문을 열면 오탐이 되살아나야 한다
+    real = M._reject
+    try:
+        M._reject = lambda a, b: None
+        열린뒤 = M.guess_codes([{"캠프명": "남양주1MB(창동)", "주소": ""}], pool)
+        assert 열린뒤.get(M._norm("남양주1MB(창동)")), \
+            "문을 열었는데도 후보가 0이다 — 이 검사는 아무것도 안 재고 있다"
+    finally:
+        M._reject = real
+
+    # ⑥ 읽기 전용이다 — 지목만 하고 아무것도 안 고친다
+    for 금지 in ("enqueue(", "--queue", "--apply", "ledger_db"):
+        assert 금지 not in xsrc, "쓰는 길이 들어왔다: %s" % 금지
+    # ⑦ 못 읽은 것을 '후보 없음'으로 세지 않는다(`[169]`)
+    assert "if not custs:" in xsrc and "못읽음.append" in xsrc, \
+        "ERP 원본을 못 읽었을 때 그 사실을 안 적는다 — G·H 0건이 '없다'로 읽힌다"
+    # ⑧ 비싼 Z: 탐색은 캐시 검사 뒤에 온다(`[168]`)
+    e = xsrc.index("def _erp_customers")
+    body = xsrc[e:xsrc.index("def _head")]
+    assert body.index("ERP_CACHE") < body.index("load_customers"), \
+        "캐시 검사보다 Z: 재귀 탐색이 먼저다 — 회차마다 몇 분을 쓴다"
+
+    print("[309] 캠프 이름 불일치 지목 — 번호·지역·박힌 지명 오탐 거절 · 유일할 때만 지목 "
+          "· 읽기 전용 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -22706,6 +22800,7 @@ if __name__ == "__main__":
     t306_dead_server_revival_never_kills_someone_elses_server()
     t307_guard_recheck_is_not_an_outage()
     t308_diagram_window_opens_full_screen()
+    t309_camp_code_guess_never_names_a_wrong_customer()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
