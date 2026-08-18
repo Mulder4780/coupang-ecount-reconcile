@@ -1,0 +1,7 @@
+캠프 737개 · 정기점검 402개 · 전화 있음 666 · 모름 71 → C:\Users\hueng\Documents\COUPANG_INTEGRATED_WORK_AGENT\ecount\reports\캠프_담당자.json
+  부산5Sub-hub         정기 82 김동형      010-6445-1001
+  울산1Sub-hub         정기 79 임건송      010-9540-1528
+  송파3Sub-hub         정기 64 이효상      010-7138-9448
+  전주1Sub-hub         정기 39 이성재(Veron) 010-5063-1063
+  제주1 Sub-hub        정기 38 김중표      010-3915-2011
+exit=0

@@ -959,6 +959,21 @@ def ceo_unreadable():
     return list(d.get("못읽은원본") or [])
 
 
+def org_gap():
+    """`org_watch` 회차가 써 둔 판정을 **읽기만** 한다 (2026-08-13 지시, [297]).
+
+    여기서 `build()` 를 부르면 인계 한 장마다 `app_server` 를 import 하고 조직도를
+    다시 조립한다([168]). 그리고 판정이 두 곳이 되어 회차와 인계가 서로 다른 답을
+    한다([162]) — 회차가 적어 둔 것을 그대로 싣는다.
+    ★ 파일이 없으면 = 회차가 아직 안 돌았다. '이상 없음'이 아니지만, 첫날부터
+      경보를 내면 아무도 안 보므로 조용히 빈 것을 돌려준다([247] 과 같은 규칙)."""
+    try:
+        import org_watch
+        return list(org_watch.notices(org_watch._load()))
+    except Exception:
+        return []
+
+
 def blockers(st, for_sol=False):
     """다음 세션이 **먼저 처리해야** 하는 것 — 안 하면 조용히 어긋난다."""
     out = []

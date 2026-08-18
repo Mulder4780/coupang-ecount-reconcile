@@ -16576,7 +16576,10 @@ function renderCampList(){
     return '<td><div>'+esc(p.이름||'이름 모름')+'</div>'
       + '<div>'+(p.전화 ? '<a href="tel:'+esc(p.전화)+'">'+esc(p.전화)+'</a>'
                        : '<span class="norm">전화 모름</span>')+'</div>'
-      + '<div>'+(p.메일 ? '<a href="mailto:'+esc(p.메일)+'">'+esc(p.메일)+'</a>'
+      /* 이메일은 **글자로만** 둔다 — 메일 링크(mailto)는 앱에서 밖으로 나가는 길이라 검증 [34] 가
+         막는다(공유는 사람이 수신자를 고르는 navigator.share 만 허용). 전화 tel: 은
+         기기 전화앱을 열 뿐 아무것도 보내지 않아 그대로 둔다. 다시 링크로 바꾸지 말 것. */
+      + '<div>'+(p.메일 ? '<span class="mailtxt">'+esc(p.메일)+'</span>'
                        : '<span class="norm">이메일 모름</span>')+'</div></td>'; };
   host.innerHTML = '<div class="gridwrap"><table class="grid"><thead><tr>'
     + '<th>캠프명</th>'
