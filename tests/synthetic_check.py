@@ -16347,6 +16347,37 @@ def t293_yield_is_a_claim_that_gets_audited():
         else:
             sys.modules.pop("coordinate", None)
 
+    # ⑫ **아는 주인을 '모른다'고 적지 않는다** (2026-08-18 실측).
+    #    조율 표가 매 회차 "주인을 모르는 양보 N건" 을 올리고 있었는데, 실제로는
+    #    `noon_run` 이 **점유에 양보**한 것이라 주인을 알고 있었다(`server[8afc88c9]`).
+    #    부르는 쪽이 '도는 회차 이름'만 넘겨서 점유 양보의 주인이 빈칸으로 남은 것이다.
+    #    아는 것을 모른다고 적으면 사람이 **없는 문제**를 찾아 나선다(`[172]`), 그리고
+    #    매일 뜨는 확인못함은 진짜 경보를 덮는다(`[170]`).
+    import noon_run as _nr2
+    import coordinate as _CO
+    _오늘2 = _dt.datetime(2026, 8, 18, 12, 30)
+    _clm = [{"what": "publish", "who": "server", "sid": "8afc88c9aa", "alive": True}]
+    _v = _nr2.decide(_오늘2, {}, _clm, [])
+    assert _v["kind"] == "양보", "점유에 양보하지 않는다 — 남의 점유를 뺏으면 안 된다"
+    assert str(_v.get("주인") or "").startswith(_CO.CLAIM_OWNER), "점유 양보에 주인을 안 적는다 — 조율 표가 '주인을 모른다'고 말하게 된다"
+    assert "publish" in _v["주인"], "어느 자원에 양보했는지가 주인에 안 남는다"
+    _v2 = _nr2.decide(_오늘2, {}, [], ["일일대조"])
+    assert _v2.get("주인") == "일일대조", "회차 양보의 주인이 비어 있다 — audit 이 '끝냈나'를 물을 수 없다"
+
+    #    갈래가 갈리는지 **실행해서** 잰다 — 셋은 뜻도 조치도 다르다.
+    _t0 = (_dt.datetime.now() - _dt.timedelta(hours=_CO.AUDIT_GRACE_HOURS + 2)).isoformat(timespec="seconds")
+    _d = {"정오회차": [{"때": _t0, "갈래": "양보", "왜": "점유", "주인": _CO.CLAIM_OWNER + "publish(server[x])"},
+                       {"때": _t0, "갈래": "양보", "왜": "모름", "주인": ""}]}
+    _헛, _못, _점 = _CO.audit(_d)
+    assert len(_점) == 1, "점유 양보를 따로 안 센다 — 매일 뜨는 확인못함이 된다([170])"
+    assert len(_못) == 1, "주인이 정말 없는 양보를 못 가른다 — 그것이 진짜 위험한 자리다([172])"
+    _ns = _CO.notices(_d)
+    _확 = [n for n in _ns if n.get("갈래") == "확인못함"]
+    assert len(_확) == 1, "점유 양보까지 경보로 올린다 — 경보가 대부분이면 아무도 안 본다([170])"
+    assert "1건" in _확[0]["무엇"], "확인못함 건수에 점유 양보가 섞였다"
+    #    ★ 그러나 **조용히 없애지도 않는다**([169]) — 리포트가 숫자로 말해야 한다.
+    assert "점유에 양보한 것" in _CO._md(_d, ""), "점유 양보를 리포트에서 통째로 감춘다 — 안 보이면 '겹친 적 없다'로 읽힌다"
+
     print("  [293] 겹치면 조율한다 — 양보는 주장이고 audit 이 되묻는다(헛양보·굶주림) · "
           "완주도 그날 한 번 남긴다 · 이름은 LOCKS 한 곳 · 읽기 전용 ✅")
 
