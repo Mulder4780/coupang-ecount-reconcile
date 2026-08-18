@@ -1237,6 +1237,23 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
   .sheet-actions{margin:0 -22px -22px;padding:12px 22px 14px;border-radius:0 0 20px 20px}
 }
 @media(prefers-reduced-motion:reduce){.sheet{transition:none}}
+/* ★ 넓은 작업면은 **전체 화면**으로 연다 (2026-08-18 지시 '도면 열기를 누르면
+   전체 화면으로 나오게'). 기본 시트는 넓은 화면에서 width:min(620px,92vw) 라
+   1400x820 도면이 손톱만 하게 들어가고 좌우가 잘린다(실측 캡처).
+   ★ `.sheet.full`(0,2,0)은 `.sheet`(0,1,0)보다 특이도가 높아 위 @media 도 이긴다 —
+     미디어쿼리 안에 사본을 또 만들지 않는다([162]). 다만 열림 애니메이션의
+     transform 은 `.sheet.open`(0,2,0)과 같은 값이라 순서가 정하므로, 이 규칙을
+     그 뒤에 두고 `.full.open`(0,3,0)으로 못 박는다. */
+.sheet.full{left:0;right:0;top:0;bottom:0;width:auto;max-width:none;
+  max-height:100vh;max-height:100dvh;border-radius:0;
+  padding:14px 16px calc(14px + env(safe-area-inset-bottom));
+  transform:translateY(100%);opacity:1}
+.sheet.full.open{transform:none;opacity:1}
+.sheet.full .grip{display:none}
+/* 전체 화면에서는 작업면이 남은 높이를 다 쓴다 — 시트 본문이 아니라 도면이 스크롤한다.
+   뺄 값은 제목·안내·손잡이 줄의 실측 높이다. */
+.sheet.full #flowVisualEditor .flow-vscroll{max-height:calc(100dvh - 250px)}
+
 
 /* 레이어로 올라온 카드 — 시트가 이미 테두리·그림자·여백을 갖고 있으니 겹치지 않게 벗긴다.
    (2026-08-06 지시: 페이지 안의 입력 폼을 그대로 레이어로 띄운다) */
@@ -10099,7 +10116,8 @@ function flowVisualOpen(){
   if(typeof layerIsOpen==='function'&&layerIsOpen('flowVisualEditor'))return;
   if(typeof layerOpen!=='function'||!layerOpen('flowVisualEditor',
       {title:'마우스 워크플로우 도면',
-       sub:'닫아도 저장 전 변경은 남습니다 — [도면 저장]을 눌러야 다른 기기에 갑니다.'})){
+       sub:'닫아도 저장 전 변경은 남습니다 — [도면 저장]을 눌러야 다른 기기에 갑니다.',
+       full:true})){
     notice('도면 창을 열지 못했습니다 — 화면을 새로고침한 뒤 다시 시도해 주세요.'); return;
   }
   flowVisualRender();
@@ -14171,7 +14189,8 @@ function sheetSnapshot(){
   return {
     body: $('sheetbody').innerHTML,
     actions: $('sheetactions').innerHTML,
-    scrollTop: $('sheetbody').scrollTop
+    scrollTop: $('sheetbody').scrollTop,
+    full: $('sheet').classList.contains('full')
   };
 }
 /* ── 페이지 안의 **진짜 요소**를 레이어로 띄운다 (2026-08-06 지시) ─────────────
@@ -14208,6 +14227,9 @@ function layerOpen(elId, opt){
   const home = mark.parentNode;
   $('layerSlot').appendChild(el);
   el.classList.add('in-layer');
+  // 넓은 작업면(도면)만 전체 화면으로. setSheetContent 가 매 내용 교체마다
+  // 지우므로 다른 시트로 넘어가면 저절로 보통 크기로 돌아온다.
+  if(opt.full) $('sheet').classList.add('full');
   _layer = {el: el, mark: mark, home: home};
   return true;
 }
@@ -14216,6 +14238,7 @@ function layerIsOpen(elId){ return !!(_layer && (!elId || _layer.el.id === elId)
 function setSheetContent(html, actionsHtml){
   const body = $('sheetbody'), foot = $('sheetactions');
   layerRestore();                       // 옮겨 온 요소부터 제자리로 — 지우기 전에
+  $('sheet').classList.remove('full');  // 전체 화면은 그 내용에만 붙는다
   body.innerHTML = html || '';
   foot.innerHTML = actionsHtml || '';
   if(!actionsHtml){
@@ -14250,11 +14273,13 @@ function closeSheet(fromPop){
   if(_sheetStack.length){                                     // 목록 → 상세였다면 목록으로
     const prev = _sheetStack.pop();
     setSheetContent(prev.body, prev.actions);
+    if(prev.full) $('sheet').classList.add('full');   // 상세에서 뒤로 와도 그 크기로
     $('sheetbody').scrollTop = prev.scrollTop || 0;
     try{ $('sheetbody').focus({preventScroll:true}); }catch(_){}
     return;
   }
   layerRestore();                      // 마지막 한 겹이면 옮겨 온 요소를 돌려놓는다
+  $('sheet').classList.remove('full');
   $('sheet').classList.remove('open');
   clearSheetActions();
   setTimeout(()=>{ $('sheetbg').style.display = 'none'; unlockBackground(); }, 220);
