@@ -3619,7 +3619,7 @@ body.dash-drag-live #dashGuides{display:grid}
        파일을 `/api/camps` 가 읽어 내려줄 뿐, 화면이 다시 계산하지 않는다. -->
   <section class="view" id="v-camps">
     <div class="hero-min"><h2>전국 쿠팡캠프</h2>
-      <p class="sub" data-help-fold="camps-sub">정기점검 캠프와 캠프 담당자(현장책임·안전관리)의 이름·전화번호입니다. 밴드 접수 글에 적힌 값을 캠프마다 가장 최근 것으로 모았습니다.</p></div>
+      <p class="sub" data-help-fold="camps-sub">정기점검 캠프와 캠프 담당자의 이름·전화번호입니다. 밴드 접수 글에 적힌 값을 캠프마다 가장 최근 것으로 모았습니다. 직책(현장책임·안전관리)은 새 접수 양식에만 적혀 있어, 옛 글에서 찾은 사람은 '미상'으로 둡니다.</p></div>
     <div class="rpt-actions" role="toolbar" aria-label="캠프 목록 도구">
       <button class="icon-btn primary" onclick="campsCapture()" title="이미지 저장" aria-label="이미지 저장">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
@@ -16592,7 +16592,8 @@ async function campsCapture(){
   const rows = campRows();
   if(!rows.length){ notice('캡처할 캠프가 없습니다.'); return; }
   const S=2, W=900, LIM=40, show=rows.slice(0,LIM), F=(z,w)=>`${w||400} ${z}px ${uiFont()}`;
-  const H = 108 + show.length*26 + 46;
+  /* 아래 안내가 두 줄이므로 자리를 그만큼 준다 — 모자라면 마지막 줄이 잘린다([273]). */
+  const H = 108 + show.length*26 + 62;
   const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
   const x=cv.getContext('2d'); x.scale(S,S);
   x.fillStyle='#fff'; x.fillRect(0,0,W,H);
@@ -16607,16 +16608,18 @@ async function campsCapture(){
   y+=6; x.strokeStyle='#D1D5DB'; x.beginPath(); x.moveTo(24,y); x.lineTo(W-24,y); x.stroke();
   x.font=F(12); y+=18;
   show.forEach(r=>{
+    /* 이름만 싣는다 — 폭이 좁아 직책까지 넣으면 잘린다. 직책 근거는 엑셀·화면에
+       있고, 아래 안내가 '①이 현장책임이라는 뜻은 아니다'를 밝힌다([172]). */
     const p=campPeople(r), a=p.a, b=p.b;
-    /* 직책은 이름 뒤에 괄호로 — 없는 직책을 붙이지 않는다([172]). */
-    const nm=(q,role)=> q.이름 ? (role && role!=='미상' ? q.이름 : q.이름) : '모름';
-    const v=[r.캠프명, nm(a,p.a직책), a.전화||'모름', nm(b,p.b직책), b.전화||'모름', r.최근작업일||''];
+    const v=[r.캠프명, a.이름||'모름', a.전화||'모름', b.이름||'모름', b.전화||'모름', r.최근작업일||''];
     v.forEach((t,i)=>{ x.fillStyle=(t==='모름')?'#9CA3AF':'#111827';
       x.fillText(String(t).slice(0,i===0?18:12),cols[i],y); });
     y+=26;
   });
   y+=18; x.fillStyle='#6B7280'; x.font=F(11);
   x.fillText("'모름'은 담당자가 없는 것이 아니라 밴드 접수 글에서 아직 찾지 못한 것입니다.",24,y);
+  y+=15;
+  x.fillText("담당자 ①·②는 접수 글에 적힌 순서입니다 — 옛 양식 글은 직책(현장책임·안전관리)이 적혀 있지 않습니다.",24,y);
   if(rows.length>LIM){ y+=16; x.fillStyle='#B45309';
     x.fillText(`※ 이미지에는 ${LIM}개만 실었습니다 — 나머지 ${rows.length-LIM}개는 엑셀 저장으로 받으십시오.`,24,y); }
   const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
