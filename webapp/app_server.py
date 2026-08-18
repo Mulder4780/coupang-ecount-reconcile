@@ -1064,7 +1064,10 @@ def save_ryu_upload(fields, files):
 
     now = datetime.now()
     day_dir = os.path.join(KAKAO_DIR, f"{now:%Y}", f"{now:%m}", f"{now:%Y-%m-%d}")
-    inbox = os.path.join(ROOT, "kakao", "inbox")
+    # 카톡 원본 자리는 `band_extract` 한 곳이 정한다([162]) — **쓰는 쪽과 읽는 쪽이
+    # 서로 다른 폴더를 가리키면 올린 파일이 영영 안 읽힌다**(오류는 안 난다).
+    import band_extract as _bx
+    inbox = _bx.KAKAO_INBOX
     os.makedirs(day_dir, exist_ok=True)
     os.makedirs(inbox, exist_ok=True)
     stamp = now.strftime("%Y%m%d_%H%M%S")
@@ -5991,6 +5994,55 @@ CAL_KINDS = [
 
 _BAND_EV = {"at": 0.0, "d": None}
 _BAND_EV_TTL = 300
+# 색인 모양을 바꾸면 **이 숫자를 손으로 올린다.** 지문은 원본이 바뀌었나만 보므로,
+# 규칙이 바뀌어도 원본이 그대로면 옛 캐시가 영원히 이긴다(같은 사고 네 번째 —
+# `inbox_scan.RULES_VERSION` 과 같은 자리다).
+_BAND_EV_VER = 2
+
+
+_KAKAO_FORM_LABELS = ("프로젝트NO", "캠프이름", "캠프명", "캠프주소", "현장책임",
+                      "안전관리", "담당번호", "E-MAIL", "E- MAIL", "이메일",
+                      "A/S 담당", "AS담당", "업무구분", "비용구분")
+# ★ 이 숫자는 취향이 아니라 **캡처의 제약**이다. 대표 캘린더는 A4 **세 장 고정**이고,
+#   다 못 실으면 [273] 이 불완전한 이미지를 저장하지 않고 멈춘다. 즉 사유를 길게
+#   실을수록 **캡처가 아예 안 나오는 쪽**으로 간다 — 근거를 보여 주려다 보고서를
+#   못 만들면 못 보여 준 것보다 나쁘다([172]). 그래서 한 줄 분량으로 묶고,
+#   자른 만큼은 원문 글자수로 말한다([273] — 조용히 자르지 않는다).
+_KAKAO_GIST_MAX = 60
+
+
+def _kakao_gist(body):
+    """카톡 원문에서 **사람이 쓴 말**만 남긴다 (2026-08-18 지시).
+
+    형님 지시: "카톡에 메시지에 근거가 있으면 그것도 표시해 캡처화면에".
+
+    · 카톡 접수 글은 **대부분이 양식**이다(프로젝트NO·캠프이름·담당번호·메일 …).
+      그 칸들은 캡처가 이미 제 자리에 그리므로 여기 또 실으면 **정작 근거인 한 줄이
+      묻힌다** — 사유 칸이 길어지기만 하고 아무도 안 읽는다([170] 과 같은 결과).
+    · 그러나 **비면 지어내지 않는다.** 양식만 있는 글은 빈 문자열을 돌려주고,
+      부르는 쪽이 '카톡에 글은 있으나 적힌 말이 없다'고 말한다([169]).
+    · **자르면 잘렸다고 말한다**([273]) — 말줄임표 하나로 끝내면 뒤에 뭐가 더
+      있었는지 받아 본 사람은 영영 모른다.
+    """
+    t = re.sub(r"\s+", " ", str(body or "")).strip()
+    if not t:
+        return ""
+    keep = []
+    for seg in re.split(r"[♣●]", t):
+        seg = seg.strip(" :-").strip()
+        if not seg:
+            continue
+        head = seg.split(":", 1)[0].strip()
+        if any(head.replace(" ", "").startswith(lb.replace(" ", ""))
+               for lb in _KAKAO_FORM_LABELS):
+            continue
+        keep.append(seg)
+    gist = " · ".join(keep).strip(" ·")
+    if not gist:
+        return ""
+    if len(gist) > _KAKAO_GIST_MAX:
+        gist = gist[:_KAKAO_GIST_MAX] + f"…(원문 {len(gist)}자)"
+    return gist
 
 
 def _band_completion_index():
@@ -6026,20 +6078,35 @@ def _band_completion_index():
                 if e.name.endswith(".json") and not e.name.startswith(("raw_", "dump_")):
                     st = e.stat()
                     fp.append("%s|%d|%d" % (e.name, st.st_size, int(st.st_mtime)))
+        # ★ **카톡 원본도 지문에 넣는다** (2026-08-18). 이 색인은 예전부터
+        #   `load_records()`(밴드 + 카톡)를 읽어 왔는데 지문은 **밴드 캐시만** 셌다.
+        #   그래서 카톡이 새로 들어와도 밴드가 안 바뀌면 지문이 그대로라
+        #   **새 카톡 근거가 영영 안 실린다** — 오류도 안 나고 화면은 멀쩡하다([169]).
+        #   근거를 화면에 띄우기로 한 지금은 그 구멍이 곧 '없는 근거'가 된다.
+        import band_extract as _bx_fp
+        if os.path.isdir(_bx_fp.KAKAO_INBOX):
+            with os.scandir(_bx_fp.KAKAO_INBOX) as it:
+                for e in it:
+                    if e.name.lower().endswith(".txt"):
+                        st = e.stat()
+                        fp.append("k:%s|%d|%d" % (e.name, st.st_size, int(st.st_mtime)))
         fp = hashlib.sha256("\n".join(sorted(fp)).encode()).hexdigest()[:16]
     except Exception:
         fp = ""
     if fp:
         try:
             d = json.load(open(cpath, encoding="utf-8"))
-            if d.get("지문") == fp:
+            # ★ `판` 이 다르면 지문이 같아도 안 믿는다 — 옛 캐시에는 `카톡` 칸이
+            #   아예 없어서, 그대로 쓰면 **근거가 있는데 0건**으로 보인다([169]).
+            if d.get("지문") == fp and d.get("판") == _BAND_EV_VER:
                 d["언급"] = set(d.get("언급") or ())
                 _BAND_EV["d"], _BAND_EV["at"] = d, now
                 return d
         except Exception:
             pass
 
-    out = {"완료": {}, "언급": set(), "최신": "", "읽음": False, "지문": fp}
+    out = {"완료": {}, "언급": set(), "카톡": {}, "최신": "", "읽음": False,
+           "지문": fp, "판": _BAND_EV_VER}
     try:
         import band_extract
         for r in band_extract.load_records() or []:
@@ -6050,6 +6117,25 @@ def _band_completion_index():
             when = norm_date(r.get("작업일")) or norm_date(r.get("게시일"))
             if when > out["최신"]:
                 out["최신"] = when
+            # ★ **카톡에만 적힌 근거를 따로 담는다** (2026-08-18 지시).
+            #   `load_records()` 는 밴드와 카톡을 **같은 양식**으로 돌려주므로 지금까지
+            #   둘이 한 통에 섞였고, 화면은 '밴드·카톡에 글이 없다'처럼 **뭉쳐서만**
+            #   말할 수 있었다. 그런데 대표 보고에서 값진 것은 정확히 그 반대다 —
+            #   밴드에 완료 글이 없는데 **카톡에는 뭐라고 적혀 있나**.
+            #   가르는 근거는 `밴드` 칸이 `카톡 …` 으로 시작하는 것 하나다
+            #   (`band_extract.load_kakao_records` 가 그렇게 적는다 · [162]).
+            if str(r.get("밴드") or "").startswith("카톡"):
+                # 같은 프로젝트에 카톡이 여러 번이면 **가장 나중 것**을 쓴다 —
+                # 완료 판정과 방향이 반대인 이유는, 여기서 답하려는 물음이
+                # "언제 끝났나"가 아니라 **"마지막으로 뭐라고 했나"** 이기 때문이다.
+                old = out["카톡"].get(pj)
+                if not old or when >= (old.get("일자") or ""):
+                    out["카톡"][pj] = {
+                        "일자": when,
+                        "방": str(r.get("밴드") or "").replace("카톡 ", "", 1).strip(),
+                        "상태": str(r.get("진행상태") or "").strip(),
+                        "본문": _kakao_gist(r.get("본문") or ""),
+                    }
             if r.get("진행상태") == "작업완료":
                 # 같은 프로젝트에 완료 글이 여러 번이면 **가장 이른 것**을 쓴다 —
                 # 다시 올라온 글로 완료일이 뒤로 밀리면 안 된다.
@@ -6085,13 +6171,36 @@ def _why_still_open(row, idx, got):
         return "밴드·카톡 기록을 못 읽었다 — 완료 여부를 확인 못 함"
     pj = str(row.get("프로젝트NO") or "").split(" · ")[0].strip()
     last = idx.get("최신") or ""
+
+    # ★ **카톡에 적힌 근거는 갈래와 상관없이 같이 말한다** (2026-08-18 지시).
+    #   갈래마다 따로 붙이면 한 갈래에서 빠뜨려도 아무도 모른다 — 근거가 있는데
+    #   화면에만 안 뜨는 것이 정확히 이 지시가 없애려는 자리다([169]).
+    k = (idx.get("카톡") or {}).get(pj) or {}
+    if k:
+        말 = k.get("본문") or ""
+        note = ("카톡 근거 %s%s: %s" % (
+            k.get("일자") or "날짜 미상",
+            "(%s)" % k["방"] if k.get("방") else "",
+            말 if 말 else
+            ("적힌 말 없이 양식만 — 상태 '%s'" % k["상태"] if k.get("상태")
+             else "적힌 말 없이 양식만")))
+    else:
+        note = ""
+
+    def _with(base):
+        return base + " · " + note if note else base
+
     if pj and pj in idx.get("완료", {}):
-        return "밴드는 완료라 하는데 같은 프로젝트에 열린 건이 여럿 — 사람이 가른다"
+        return _with("밴드는 완료라 하는데 같은 프로젝트에 열린 건이 여럿 — 사람이 가른다")
     if last and got and got > last:
-        return f"밴드 수집이 {last} 까지만 왔다 — 아직 못 본 것일 수 있다"
+        return _with(f"밴드 수집이 {last} 까지만 왔다 — 아직 못 본 것일 수 있다")
     if pj and pj not in idx.get("언급", ()):
+        # 여기는 근거가 애초에 없는 갈래다 — `note` 도 반드시 비어 있다.
         return "밴드·카톡에 이 프로젝트 글이 없다"
-    return "밴드에 접수 글은 있으나 완료 글이 없다"
+    # ★ 뭉쳐 말하지 않는다: 카톡에 뭔가 적혀 있으면 '밴드에만 없다'고 정확히 말한다.
+    #   예전 문구는 카톡에 완료 보고가 와 있어도 그냥 '완료 글이 없다'였다.
+    return _with("밴드에 접수 글은 있으나 완료 글이 없다" if not k
+                 else "밴드에는 완료 글이 없다(카톡에는 글이 있다)")
 
 
 def _as_delay_class(row, got, today=None):
@@ -9538,7 +9647,7 @@ self.addEventListener('fetch', e => {
                 master = ""
             targets = {"master": master, "master_dir": os.path.dirname(master),
                        "inbox": os.path.join(ROOT, "inbox"),
-                       "kakao": os.path.join(ROOT, "kakao", "inbox"),
+                       "kakao": __import__("band_extract").KAKAO_INBOX,
                        "band_docs": os.path.join(ROOT, "band", "docs_inbox"),
                        "band_cache": os.path.join(ROOT, "band", "cache"),
                        "reports": os.path.join(ROOT, "reports")}

@@ -18733,9 +18733,19 @@ process.exit(bad?1:0);
     with _io.open(src, "w", encoding="utf-8") as f:
         f.write(harness.replace("__IDX__", json.dumps(idx)))
     try:
-        pr = subprocess.run([node, src], capture_output=True, text=True, encoding="utf-8")
-        assert pr.returncode == 0, ("기간 필터 실행 확인 실패:" + chr(10)
-                                    + (pr.stdout or "") + (pr.stderr or ""))
+        # ★ 창 없는 깃발([272])과 시간제한([175]) 둘 다 붙인다 — 여기가 빠져 있어서
+        #   검증 자신이 콘솔 창을 띄웠고(`t272` 가 잡았다), `subprocess.run` 은
+        #   시간제한도 없어 node 가 멈추면 **검증 전체가 영원히 안 끝난다**.
+        proc = subprocess.Popen([node, src], stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        try:
+            out = proc.communicate(timeout=60)[0].decode("utf-8", "replace")
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            raise AssertionError("기간 필터 실행 확인이 60초 안에 안 끝났다")
+        assert proc.returncode == 0, "기간 필터 실행 확인 실패:" + chr(10) + out
     finally:
         try:
             os.remove(src)
@@ -20776,6 +20786,86 @@ def t286_sales_source_survives_recent_export_cap():
 
 
 
+def t299_kakao_evidence_reaches_the_capture():
+    """[299] 카톡에 적힌 근거가 대표 캡처까지 간다 — 그리고 없는 근거는 안 만든다.
+
+    2026-08-18 지시: **"카톡에 메시지에 근거가 있으면 그것도 표시해 캡처화면에"**.
+
+    · 캡처는 `_why_still_open` 이 만든 사유를 **그대로** 싣는다(index.html 의
+      `[r['요청내용'],r['실제조치'],r['미처리사유']]`).  그러므로 판정은 한 곳이고
+      여기서 지키는 것은 **그 한 곳이 근거를 버리지 않는 것**이다([162]).
+    · 제일 위험한 되돌아감은 **'글이 아예 없다' 갈래에 근거를 붙이는 것**이다 —
+      없는 카톡을 있다고 말하면 사람이 없는 원본을 찾아 나선다([172]).
+    """
+    import io as _io
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as A
+    import band_extract as BX
+
+    # ① 양식만 있는 글은 **빈 말**을 돌려준다 — 지어내지 않는다([169]).
+    form = "♣ ● 프로젝트NO : UJ2600001 ● 캠프이름 : 인천2MB ● 담당번호 : 010-0000-0000"
+    assert A._kakao_gist(form) == "", "양식뿐인 글에서 없는 말을 지어냈다: %r" % A._kakao_gist(form)
+    assert A._kakao_gist("") == "" and A._kakao_gist(None) == "", "빈 본문에서 말이 나왔다"
+
+    # ② 사람이 쓴 말은 남고 양식 칸은 빠진다.
+    real = form + " ● 유선 협의로 다음 주 방문 확정"
+    g = A._kakao_gist(real)
+    assert "유선 협의로 다음 주 방문 확정" in g, "사람이 쓴 말이 사라졌다: %r" % g
+    assert "010-0000-0000" not in g and "UJ2600001" not in g, "양식 칸이 사유를 덮었다: %r" % g
+
+    # ③ **자르면 잘렸다고 말한다**([273]) — 말줄임표만 남기면 뒤를 영영 모른다.
+    long_g = A._kakao_gist("♣ ● " + ("가나다라마바사" * 60))
+    assert "원문" in long_g and "자" in long_g, "조용히 잘랐다([273]): %r" % long_g[-40:]
+
+    # ④ 갈래마다 붙는지 · **안 붙어야 할 갈래에 안 붙는지**.
+    idx = {"읽음": True, "최신": "2026-08-10",
+           "완료": {}, "언급": {"UJ2600002"},
+           "카톡": {"UJ2600002": {"일자": "2026-08-09", "방": "쿠팡정기점검",
+                                 "상태": "접수·예정", "본문": "부품 입고 뒤 방문"}}}
+    w = A._why_still_open({"프로젝트NO": "UJ2600002"}, idx, "2026-08-01")
+    assert "카톡 근거" in w and "부품 입고 뒤 방문" in w, "카톡 근거가 사유에 안 실렸다: %r" % w
+    assert "2026-08-09" in w and "쿠팡정기점검" in w, "언제·어느 방인지가 빠졌다: %r" % w
+    assert "카톡에는 글이 있다" in w, "밴드에만 없다는 사실을 뭉쳐 말했다: %r" % w
+
+    none = A._why_still_open({"프로젝트NO": "ZZ9999999"}, idx, "2026-08-01")
+    assert "카톡 근거" not in none, "글이 없다면서 근거를 붙였다 — 없는 원본을 찾게 만든다: %r" % none
+    only_band = A._why_still_open({"프로젝트NO": "UJ2600002"},
+                                  dict(idx, 카톡={}), "2026-08-01")
+    assert "카톡" not in only_band.replace("밴드·카톡", ""), \
+        "카톡 근거가 없는데 있는 것처럼 적었다: %r" % only_band
+
+    # ⑤ 말이 없으면 **없다고 말한다** — 빈 근거를 조용히 지우면 '카톡을 안 봤다'로 읽힌다.
+    silent = A._why_still_open(
+        {"프로젝트NO": "UJ2600002"},
+        dict(idx, 카톡={"UJ2600002": {"일자": "2026-08-09", "방": "쿠팡정기점검",
+                                     "상태": "접수·예정", "본문": ""}}), "2026-08-01")
+    assert "적힌 말 없이 양식만" in silent, "양식뿐인 카톡을 아예 없던 일로 만들었다: %r" % silent
+
+    # ⑥ 못 읽었으면 근거를 말하지 않는다([169]).
+    unread = A._why_still_open({"프로젝트NO": "UJ2600002"}, dict(idx, 읽음=False), "2026-08-01")
+    assert "확인 못 함" in unread and "카톡 근거" not in unread, \
+        "못 읽고도 근거가 있는 것처럼 말했다: %r" % unread
+
+    # ⑦ **원천이 본문을 돌려준다** — 안 돌려주면 위 전부가 조용히 빈 말이 된다.
+    rec = BX.parse_post("1", {"content": "♣ ● 프로젝트NO : UJ2600003 ● 유선 확인함",
+                              "author": "x", "created_at": None,
+                              "photo_count": 0, "comment_count": 0}, "카톡 시험방")
+    assert rec and "본문" in rec and "유선 확인함" in rec["본문"], "parse_post 가 본문을 안 준다"
+    assert "본문잘림" in rec, "잘렸는지 여부를 안 알려 준다([273])"
+
+    src = _io.open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    # ⑧ **카톡 원본이 지문에 들어간다.** 안 들어가면 카톡이 새로 와도 밴드가 그대로일 때
+    #    옛 색인이 이겨 **새 근거가 영영 안 실린다** — 오류도 안 나고 화면은 멀쩡하다([169]).
+    assert "KAKAO_INBOX" in src, "카톡 원본이 색인 지문에서 빠졌다 — 새 근거가 안 실린다([169])"
+    # ⑨ 규칙이 바뀌어도 원본이 그대로면 옛 캐시가 이긴다 — `판` 이 그것을 막는다.
+    assert '_BAND_EV_VER' in src and '"판"' in src, "색인 판 표시가 없다 — 옛 캐시가 영원히 이긴다"
+    # ⑩ 카톡 원본 자리는 **한 곳**이다([162]) — 읽는 쪽이 경로를 다시 조립하면 사본이 둘 된다.
+    assert '"kakao", "inbox"' not in src, "app_server 가 카톡 경로를 따로 조립한다([162])"
+    assert hasattr(BX, "KAKAO_INBOX"), "band_extract.KAKAO_INBOX 가 사라졌다"
+    print("  [299] 카톡 근거가 사유에 실린다 — 없는 근거는 안 만들고·자르면 말하고·"
+          "원본 자리는 한 곳 ✅")
+
+
 def t296_half_list_never_blames_the_person():
     """[296] **반쪽 목록**은 조용히 나가지 않고, 400 이 사람을 탓하지 않는다 (분담판 [95]).
 
@@ -21585,6 +21675,7 @@ if __name__ == "__main__":
     t296_half_list_never_blames_the_person()
     t297_orgchart_change_is_seen_without_crying_wolf()
     t298_as_period_filter_never_shifts_a_day()
+    t299_kakao_evidence_reaches_the_capture()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

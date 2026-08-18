@@ -33,6 +33,11 @@ except Exception:
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CACHE_DIR = os.path.join(BASE_DIR, "band", "cache")
+# ★ 카톡 원본이 있는 자리도 **여기 한 곳**이 정한다 (2026-08-18).
+#   읽는 쪽이 제 손으로 경로를 조립하면 사본이 둘 되고, 원본이 이사한 날
+#   한쪽만 고쳐진다([162]). 지금 읽는 쪽: load_kakao_records ·
+#   app_server._band_completion_index(카톡 근거 지문).
+KAKAO_INBOX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kakao", "inbox")
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(BASE_DIR, "reports")
 
 RE_PRJ = re.compile(r"프로젝트\s*NO\s*[:：]?\s*(UJ\d{6,})", re.I)
@@ -460,6 +465,16 @@ def parse_post(no, p, band):
             "작업일": work_date, "담당기사": tech, "캠프명": camp, "진행상태": status,
             "문서상태": "+".join(docs), "사진": p.get("photo_count", 0),
             "게시일": posted, "밴드": band, "게시글": no,
+            # ★ **본문을 옆에 더한다** (2026-08-18 지시 "카톡에 메시지에 근거가 있으면
+            #   그것도 표시해 캡처화면에"). 지금까지는 파싱한 칸만 돌려줘서, 카톡에
+            #   근거가 적혀 있어도 **원문을 보여 줄 길이 없었다** — 화면은 '완료 글이
+            #   없다'만 말하고 그 옆 카톡 한 줄은 아무 데도 안 떴다.
+            #   길이를 묶는 이유: 이 반환값은 8천 건을 한꺼번에 만든다. 통째로 담으면
+            #   색인 한 번에 메모리가 몇십 MB 늘고 디스크 캐시도 같이 부푼다.
+            #   자르는 것은 **원문이 아니라 사본**이며, 잘렸다는 것은 읽는 쪽이
+            #   `본문잘림` 으로 안다(조용히 자르지 않는다, [273]).
+            "본문": c[:800],
+            "본문잘림": len(c) > 800,
             "캠프주소": (addr.group(1).strip() if addr else ""),
             "현장책임": _person(RE_SITE_MGR.search(c)),
             "안전관리": _person(RE_SAFE_MGR.search(c)),
@@ -490,7 +505,7 @@ def load_kakao_records():
     밴드에 안 올라오고 카톡에만 보고된 건이 있어(2026-07-27 기준 39건) 함께 읽는다.
     한 메시지에 여러 건이 담기므로 ♣ 로 덩어리를 나눠 게시글처럼 취급한다.
     """
-    inbox = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kakao", "inbox")
+    inbox = KAKAO_INBOX
     if not os.path.isdir(inbox):
         return []
     DAY = re.compile(r"-{3,}\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일")
