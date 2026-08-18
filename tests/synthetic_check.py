@@ -17287,7 +17287,7 @@ def t223_superseded_evidence_heals_itself():
           "낡음은 보존 · 워치독 선행 ✅")
 
 
-def t302_exec_report_never_asserts_an_unfilled_column():
+def t303_exec_report_never_asserts_an_unfilled_column():
     """[78] 대표보고가 **아무도 안 채운 열**을 근거로 금액을 확언하면 안 된다.
 
     2026-08-13 형님 지적에서 시작했다 — "잔여 미청구액 22000원 이거 오류인것 같은데".
@@ -17324,7 +17324,7 @@ def t302_exec_report_never_asserts_an_unfilled_column():
     html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     assert "d.근거경고" in html, "화면이 근거 경고를 안 그린다"
     assert "esc2(d.근거경고)" in html, "정본 이스케이프(esc2)를 안 쓴다([300])"
-    print("  [302] 대표보고 — 안 채운 열로 금액을 확언하지 않는다(판정은 guard 한 곳) ✅")
+    print("  [303] 대표보고 — 안 채운 열로 금액을 확언하지 않는다(판정은 guard 한 곳) ✅")
 
 
 def t219_noon_round_is_daily_windowed_and_yields():
@@ -22099,7 +22099,7 @@ if __name__ == "__main__":
     t215_cancel_timeline_last_explicit_state_wins()
     t218_camp_standard_erp_basis_and_pm_units()
     t219_noon_round_is_daily_windowed_and_yields()
-    t302_exec_report_never_asserts_an_unfilled_column()
+    t303_exec_report_never_asserts_an_unfilled_column()
     t224_wrapup_commit_refusal_paths()
     t225_session_auto_resumes_parked_and_pushes()
     t228_scheduler_rounds_are_watched()
