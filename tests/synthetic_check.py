@@ -20948,9 +20948,13 @@ def t301_camp_edits_survive_the_round():
     assert n >= 4, "감사로그가 안 남았다 (%r건)" % n
 
     # ⑨ 회차는 **앱 DB 를 안 건드린다** — 산출물만 덮는다. 이 분리가 ②의 근거다.
+    #    ★ 재는 것은 **모듈 이름이 아니라 실제로 쓰는가**다(t295 에서 배운 그대로).
+    #      주석에 `camp_edit` 을 언급하는 것까지 막으면 설명을 못 적게 된다.
     cc_src = open(os.path.join(ROOT, "camp_contacts.py"), encoding="utf-8").read()
-    assert "camp_edit" not in cc_src and "app_setting" not in cc_src, (
-        "회차가 사람이 고친 값을 건드린다 — 덮어쓰기에 지워질 수 있다")
+    cc_src = "\n".join(line.split("#")[0] for line in cc_src.splitlines())  # 설명은 재지 않는다
+    for banned in ("import camp_edit", "camp_edit.", "app_setting", "set_setting("):
+        assert banned not in cc_src, (
+            "회차가 사람이 고친 값을 건드린다 — 덮어쓰기에 지워질 수 있다: " + banned)
 
     # ⑩ 바뀐 캠프만 자국에 남는다 · 안 바뀌면 조용하다([170]).
     assert CC.diff_changes(base["rows"], base["rows"], "x") == [], (
@@ -20966,6 +20970,21 @@ def t301_camp_edits_survive_the_round():
     assert "campEditOpen(" in html and "/api/camps/save" in html, "화면에 수정·저장 길이 없다"
     assert "return (row && typeof row.사람고친판 === 'number') ? row.사람고친판 : -1;" in html, (
         "판을 모를 때 화면이 0(=새로 만들기)을 보내면 남의 값을 덮는다([296])")
+
+    # ⑬ ★ **`JSON.stringify` 를 큰따옴표 HTML 속성 안에 넣지 않는다** (2026-08-18 실사고).
+    #    실측: `onclick="campEditOpen("+JSON.stringify(캠프명)+")"` 가
+    #    `onclick="campEditOpen("대전3MB(읍내동)")"` 로 나가 **큰따옴표가 속성을
+    #    거기서 끊었다.** 단추는 멀쩡히 그려지는데 눌러도 아무 일이 안 일어나고
+    #    콘솔 오류도 안 난다 — 류지영이 "수정하기가 안눌려요" 라고 알려 주기
+    #    전까지 아무도 몰랐다([169] · [300] 과 같은 종류가 한 화면 뒤에서 또 났다).
+    #    값은 `data-` 로 넘기고 `esc2` 로 감싼다.
+    import re as _re
+    bad = _re.findall(r'on[a-z]+="[^"]*\+\s*JSON\.stringify\(', html)
+    assert not bad, (
+        "인라인 핸들러 인자에 JSON.stringify 를 박았다 — 큰따옴표가 속성을 끊어 "
+        "단추가 오류 없이 안 눌린다. data- 속성 + esc2 로 넘길 것: %r" % (bad[:3],))
+    assert "onclick=\"campEditOpen(this.dataset.camp)\"" in html, (
+        "수정 단추가 값을 data- 로 안 받는다")
     pipe = open(os.path.join(ROOT, "automation_pipeline.py"), encoding="utf-8").read()
     assert pipe.count('"캠프 담당자"') >= 2, (
         "새 자료가 들어와도 캠프 담당자가 5분 회차에서 안 갱신된다 — 하루를 기다린다")

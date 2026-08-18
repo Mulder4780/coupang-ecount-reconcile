@@ -16769,7 +16769,9 @@ function campEditOpen(name){
         return '<label class="fld"><span>'+esc2(label)
           + (mine ? ' <span class="badge">사람이 고침</span>'
                   : ' <span class="norm">자동</span>')
-          + (mine ? ' <button type="button" class="btn xs" onclick="campRevert('+JSON.stringify(f)+')">자동값으로</button>' : '')
+          /* 여기도 같은 이유로 인자를 안 박는다 — 칸 이름에 `.` 과 한글이 섞여 있다. */
+          + (mine ? ' <button type="button" class="btn xs" data-cf="'+esc2(f)+'"'
+                    + ' onclick="campRevert(this.dataset.cf)">자동값으로</button>' : '')
           + '</span><input type="'+type+'" id="cf_'+f.replace('.','_')+'" data-cf="'+esc2(f)+'" '
           + 'value="'+esc2(campValueOf(row,f))+'" onchange="campFieldChanged(this)"></label>';
       }).join('')
