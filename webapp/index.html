@@ -983,7 +983,7 @@ body.calendar-only .cal2-only-note{display:block}
 .gd .prj{font-size:13px;padding:2px 7px}
 .gd .dc{font-size:13px;color:var(--ink-3);align-self:center;margin-right:4px}
 .gd .more{font-size:13px;color:var(--ink-3);font-weight:700;align-self:center}
-.gd .dw{display:block;margin-top:3px;font-size:13px;color:var(--warn,#B54708);font-weight:700}
+.gd .dw{display:block;margin-top:3px;font-size:13px;color:var(--warn,#E8890C);font-weight:700}
 .gi span{color:var(--ink-2);word-break:keep-all}
 .gi b{font-variant-numeric:tabular-nums;font-size:15px;white-space:nowrap}
 /* 숫자 칸: 폰 2열 → 넓은 화면 3열 */
@@ -1009,13 +1009,13 @@ body.calendar-only .cal2-only-note{display:block}
 .codes li{margin:4px 0}
 .codes b{color:var(--brand-dk)}
 .ct{font-size:13.5px;color:var(--ink-3);margin-top:1px;line-height:1.55}
-.ct.warn{color:var(--warn,#B54708);background:var(--warn-bg);border-radius:8px;padding:7px 10px;margin-top:5px;font-weight:600}
+.ct.warn{color:var(--warn,#E8890C);background:var(--warn-bg);border-radius:8px;padding:7px 10px;margin-top:5px;font-weight:600}
 .gone{color:var(--ink-3);text-decoration:line-through}
 .dirbtn{flex:0 0 auto;padding:10px 13px;border:1.5px solid var(--brand);border-radius:11px;
   font-size:14px;font-weight:700;color:var(--brand);background:var(--surface);white-space:nowrap;
   transition:background .15s,color .15s}
 .dirbtn::before{content:"↓ ";font-weight:800}
-.dirbtn.desc{border-color:var(--warn,#B54708);color:var(--warn,#B54708)}
+.dirbtn.desc{border-color:var(--warn,#E8890C);color:var(--warn,#E8890C)}
 .dirbtn.desc::before{content:"↑ "}
 .dirbtn:hover{background:var(--brand-btn);color:#fff}
 .dirbtn.desc:hover{background:var(--warn-btn);color:#fff}
@@ -4639,7 +4639,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   #v-settings .admin-hub .abtn{min-height:46px;justify-content:flex-start;text-align:left;font-weight:750}
   /* 상태판 타일 — 진단이 준 우선순위 그대로 색을 입힌다(새 판정을 만들지 않는다) */
   #v-settings .admin-hub .abtn.p0{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,var(--line))}
-  #v-settings .admin-hub .abtn.p1{color:#B54708;border-color:rgba(181,71,8,.38)}
+  #v-settings .admin-hub .abtn.p1{color:#E8890C;border-color:rgba(181,71,8,.38)}
   #v-settings .admin-hub .abtn b{display:block;font-size:13.5px;line-height:1.35}
   #v-settings .admin-hub .abtn span{display:block;font-size:12px;font-weight:650;color:var(--muted);
     margin-top:3px;line-height:1.45;white-space:normal;overflow-wrap:anywhere}
@@ -5301,12 +5301,12 @@ async function obBadge(){
     el = document.createElement('div');
     el.id = 'obBadge';
     el.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 62px);'
-      + 'z-index:30;background:#B54708;color:#fff;border-radius:12px;padding:10px 13px;'
+      + 'z-index:30;background:#E8890C;color:#fff;border-radius:12px;padding:10px 13px;'
       + 'font-size:13.5px;font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,.24);text-align:center';
     el.onclick = obFlush;
     document.body.appendChild(el);
   }
-  el.style.background = blocked ? '#B42318' : '#B54708';
+  el.style.background = blocked ? '#B42318' : '#E8890C';
   el.textContent = blocked
     ? `이 기기에 보관 중 ${n}건 · 서버 값과 비교 필요한 입력 ${blocked}건 — 원문은 지우지 않았습니다`
     : `이 기기에 보관 중 ${n}건 — 서버에 닿으면 자동 전송됩니다 (눌러서 지금 시도)`;
@@ -6887,7 +6887,7 @@ async function ryuListToPng(){
     txt(r.date||'-',W-26,top+29,F(10.5),'#667085','right');
   });
   y+=list.length*rowH+24;
-  if(all.length>cap) txt(`※ 최근 ${cap}건 표시 · 전체 ${all.length}건은 엑셀 저장에서 확인`,26,y,F(10.5,800),'#B54708');
+  if(all.length>cap) txt(`※ 최근 ${cap}건 표시 · 전체 ${all.length}건은 엑셀 저장에서 확인`,26,y,F(10.5,800),'#E8890C');
   txt('데이터 업데이트 '+String((RYU&&RYU.updated_at)||'').replace('T',' '),W-26,y+20,F(10),'#98A2B3','right');
   return new Promise(res=>cv.toBlob(res,'image/png'));
 }
@@ -8799,7 +8799,7 @@ function wtCapBuckets(k){
   const tech=r=>String(r.담당기사||'').trim();
   return {rows, all:cfg.rows(), base, day, stat, cfg,
     kpi:[['이 그림 대상',rows.length,'#2452E6'],
-         ['기사 미배정',rows.filter(r=>live(r)&&!tech(r)).length,'#B54708'],
+         ['기사 미배정',rows.filter(r=>live(r)&&!tech(r)).length,'#E8890C'],
          ['지연',rows.filter(r=>live(r)&&day(r)&&day(r)<base).length,'#C7362B'],
          ['기준일 당일',rows.filter(r=>live(r)&&day(r)===base).length,'#0E7C66'],
          ['완료',rows.filter(done).length,'#12805C'],
@@ -8809,7 +8809,7 @@ function wtCapBuckets(k){
       ['예정일 미정', rows.filter(r=>live(r)&&tech(r)&&!day(r)), '기사는 정해졌는데 날짜가 없습니다'],
       ['완료인데 비용구분 미입력', rows.filter(r=>done(r)&&!String(r['유상·무상·보험']||'').trim()),
        '청구 전에 유상·무상·보험을 정해야 합니다']]},
-    right:{who:'오종현 · 담당기사 — 현장 방문 · 완료 확인', color:'#B54708', secs:[
+    right:{who:'오종현 · 담당기사 — 현장 방문 · 완료 확인', color:'#E8890C', secs:[
       ['지연 — 예정일이 지났는데 미완료', rows.filter(r=>live(r)&&day(r)&&day(r)<base), '기준일 '+base+' 이전'],
       ['기준일 당일 방문', rows.filter(r=>live(r)&&day(r)===base), '오늘 나가야 하는 건'],
       ['앞으로 예정', rows.filter(r=>live(r)&&day(r)&&day(r)>base), '기준일 이후 · 일정 확인']]}};
@@ -9010,7 +9010,7 @@ function renderRevenue(){
                `근거 ${esc2(REV.출처||'')}`,
                `만든 때 ${esc2(REV.만든때||'-')}`];
   if(REV.원본오류) notes.push(`<b style="color:#B42318">원본을 읽다 막혔습니다 — ${esc2(REV.원본오류)}</b>`);
-  if(REV.안내) notes.push(`<b style="color:#B54708">${esc2(REV.안내)}</b>`);
+  if(REV.안내) notes.push(`<b style="color:#E8890C">${esc2(REV.안내)}</b>`);
   $('revBasis').innerHTML=notes.join(' · ');
 
   const sumPick=pick?rows.reduce((a,m)=>a+(+(m.유형||{})[pick]||0),0):+REV.total||0;
@@ -9028,7 +9028,12 @@ function renderRevenue(){
     const sum=pick?(+k[pick]||0):(+m.합계||0);
     return `<tr><td>${esc2(m.월)}</td>${cols.map(c=>`<td class="num">${(+k[c])?fmt(k[c]):'-'}</td>`).join('')}<td class="num">${fmt(m.건수)}</td><td class="num">${fmt(sum)}</td></tr>`;
   }).join('');
-  const foot=`<tr style="font-weight:700;background:#F4F7FF;color:#1B2559"><td>합계</td>${
+  /* 합계 줄 (2026-08-18 형님 지시: 「너무 눈이 부신데 다른 색으로」)
+     ★ 전에는 background:#F4F7FF — **거의 흰색**이라 어두운 화면에서 띠 하나가
+       화면을 때렸다. 밝기를 고정하면 어느 한쪽 화면에서는 반드시 튄다.
+       그래서 **반투명**으로 둔다 — 뒤 배경을 따라가므로 밝게 써도 어둡게 써도
+       «살짝 도드라진 줄»로만 보인다. 강조는 색이 아니라 굵기와 윗선이 맡는다. */
+  const foot=`<tr style="font-weight:700;background:rgba(99,140,255,.13);border-top:1px solid rgba(99,140,255,.38)"><td>합계</td>${
     cols.map(c=>`<td class="num">${fmt(rows.reduce((a,m)=>a+(+(m.유형||{})[c]||0),0))}</td>`).join('')
     }<td class="num">${fmt(rows.reduce((a,m)=>a+(+m.건수||0),0))}</td><td class="num">${fmt(sumPick)}</td></tr>`;
   $('revGrid').innerHTML=rows.length?`<thead>${head}</thead><tbody>${body}${foot}</tbody>`
@@ -9039,16 +9044,16 @@ function renderRevenue(){
     $('revCompare').innerHTML=`<div class="fnote"><b>실적표 대조</b> — ${esc2(cmp.안내||'대조할 자료가 없습니다')}</div>`;
   }else{
     const s=cmp.요약||{};
-    const cr=(cmp.행||[]).map(r=>`<tr${r.일치?'':' style="background:#FFF7ED;color:#7A2E0E"'}>
+    const cr=(cmp.행||[]).map(r=>`<tr${r.일치?'':' style="background:rgba(245,158,11,.13)"'}>
       <td>${esc2(r.월)}</td><td>${esc2(r.항목)}</td>
       <td class="num">${fmt(r.우리)}</td><td class="num">${fmt(r.김미영)}</td>
-      <td class="num" style="color:${r.일치?'#0B7A3B':'#B54708'};font-weight:${r.일치?400:700}">${r.일치?'일치':fmt(r.차이)}</td></tr>`).join('');
+      <td class="num" style="color:${r.일치?'#12A150':'#E8890C'};font-weight:${r.일치?400:700}">${r.일치?'일치':fmt(r.차이)}</td></tr>`).join('');
     $('revCompare').innerHTML=`
       <h3 style="margin:0 0 6px">실적표 대조 — 김미영 표 vs 앱 집계</h3>
       <div class="fnote">${esc2(cmp.부가세||'')} ${esc2(cmp.환산근거||'')}<br>
         일치 <b>${s['일치한 달']||0}</b>달 · 다른 달 <b>${s['다른 달']||0}</b> ·
         우리 합 <b>${fmt(s['우리 합'])}</b> · 실적표 합 <b>${fmt(s['김미영 합'])}</b> ·
-        차이 <b style="color:#B54708">${fmt(s['차이 합'])}</b>
+        차이 <b style="color:#E8890C">${fmt(s['차이 합'])}</b>
         <br>차이가 음수면 <b>우리 쪽이 적다</b>는 뜻입니다 — 아직 안 끊긴 건이거나 자료가 덜 들어온 것입니다. 아래 목록에서 근거를 봅니다.
         ${(cmp.주의||[]).map(x=>`<br>· ${esc2(x)}`).join('')}</div>
       <div class="gridwrap"><table class="grid">
@@ -9139,11 +9144,11 @@ async function revCapture(){
   cr.forEach(r=>{
     x.fillStyle='#111'; x.fillText(r.월,Mg,y); x.fillText(r.항목,Mg+110,y);
     x.fillText(fmt(r.우리),Mg+260,y); x.fillText(fmt(r.김미영),Mg+430,y);
-    x.fillStyle=r.일치?'#0B7A3B':'#B54708'; x.font=F(13,r.일치?400:700);
+    x.fillStyle=r.일치?'#12A150':'#E8890C'; x.font=F(13,r.일치?400:700);
     x.fillText(r.일치?'일치':fmt(r.차이),Mg+600,y); x.font=F(13);
     y+=RH;
   });
-  y+=14; x.fillStyle='#F4F7FF'; x.fillRect(Mg,y-16,W-Mg*2,54);
+  y+=14; x.fillStyle='rgba(99,140,255,.13)'; x.fillRect(Mg,y-16,W-Mg*2,54);
   x.fillStyle='#2452E6'; x.font=F(12,700);
   x.fillText(un.있음?`아직 계산서가 안 끊긴 건 ${fmt(un.건수)}건 ${fmt(un.공급가액)}원 — 근거는 ERP 진행상태(6·7 아님)입니다`
                     :`미발행은 세지 못했습니다 — ${un.안내||''}`,Mg+12,y+4);
@@ -11859,7 +11864,7 @@ async function loadStatus(){
   if(_dmPm) _dmPm.textContent = ` 대기 ${pmWait} · 전체 ${(works.pm||[]).length}건`;
   if(_dmAs) _dmAs.textContent = ` 미실시 ${asOpen} · 전체 ${(works.as||[]).length}건`;
   // 상태 분포 바 (2px 간격 마크)
-  const SCOLOR = {'정상':'#12813F','입금 대기':'#B54708','세금계산서 미발행':'#C0212E',
+  const SCOLOR = {'정상':'#12813F','입금 대기':'#E8890C','세금계산서 미발행':'#C0212E',
     '미청구(전표 없음)':'#8B1E68','금액 미입력':'#5B6B82',
     /* 재계산이 풀리면 저절로 채워지는 건이라 경고색을 쓰지 않는다 — 조치 대상이 아니다 */
     '금액 재계산 대기':'#9AAECB',
@@ -18228,10 +18233,10 @@ function renderDaily(){
     metrics:[
       [(_ra['전산상미완료']||0)+'건','AS 전산상 미완료(완료 미확인)', _ra['전산상미완료']?'#C0212E':'#12813F'],
       [(_ra['D+2초과']||0)+'건','AS D+2 초과 · 지속보고 대상', _ra['D+2초과']?'#C0212E':'#12813F'],
-      [(_ra['현장완료서류미정리']||0)+'건','현장완료·서류 미정리', _ra['현장완료서류미정리']?'#B54708':'#12813F'],
+      [(_ra['현장완료서류미정리']||0)+'건','현장완료·서류 미정리', _ra['현장완료서류미정리']?'#E8890C':'#12813F'],
       [(_rgap>=0?'+':'')+_rgap+'건',`정기점검 계획대비(목표 ${_rp2['목표누계']||0}·실제 ${_rp2['실제완료']||0})`, _rgap<0?'#C0212E':'#12813F'],
-      [_run+'건','거래명세서 미발행(유상 대상)', _run?'#B54708':'#12813F'],
-      [_rpol.length+'건','업무기준 확인 필요', _rpol.length?'#B54708':'#12813F'],
+      [_run+'건','거래명세서 미발행(유상 대상)', _run?'#E8890C':'#12813F'],
+      [_rpol.length+'건','업무기준 확인 필요', _rpol.length?'#E8890C':'#12813F'],
     ],
     docTypes:((_rd2['업무유형별'])||[]).slice(0,4).map(d=>
       `${d.업무유형||''}: 발행대상 ${d.발행대상||0} · 발행 ${d.발행완료||0} · 미발행 ${d.미발행||0}`)
@@ -18283,7 +18288,7 @@ function renderDaily(){
     <div class="rgrid">${_rep.metrics.map(t=>cell(t[0],t[1])).join('')}</div>
     ${_rep.summary?`<div style="font-size:13px;color:var(--ink-3);margin-top:6px">${esc2(_rep.summary)}</div>`:''}
     ${_rep.docTypes.length?`<div style="font-size:13.5px;color:var(--ink-3);margin-top:4px">${_rep.docTypes.map(esc2).join('<br>')}</div>`:''}`
-    :`<h4>대표 예외보고</h4><div style="font-size:13px;color:#B54708">예외보고 API 미수신 — 새로고침 후 다시 캡처하세요.</div>`}
+    :`<h4>대표 예외보고</h4><div style="font-size:13px;color:#E8890C">예외보고 API 미수신 — 새로고침 후 다시 캡처하세요.</div>`}
     ${ceoDirectiveHtml}
     <h4>${+m}월 실적 <span class="norm">— 선택 기준일 ${selectedDay}</span></h4>
     <div class="rgrid">
@@ -18331,7 +18336,7 @@ function renderDaily(){
       ${[...FUN.mrows,...FUN.qrows].map((r,i)=>`<tr style="${r[0].indexOf('분기')>0?'background:var(--brand-tint);font-weight:800':(i%2?'background:var(--panel)':'')}">
         ${r.map((v,j)=>`<td style="padding:5px 8px;text-align:${j?'right':'left'}">${v}</td>`).join('')}</tr>`).join('')}
     </table></div>
-    <div style="font-size:13px;font-weight:700;margin-top:6px;color:${FUN.med==null?'#B54708':'var(--brand)'}">${FUN.pred}</div>
+    <div style="font-size:13px;font-weight:700;margin-top:6px;color:${FUN.med==null?'#E8890C':'var(--brand)'}">${FUN.pred}</div>
     ${(erpGap||erpOtherYTD)?`<div style="font-size:13px;color:var(--ink-3);margin-top:6px">
       ※ ERP 비교는 <b>${ERP_LEDGER_KINDS.join('·')}</b>만 셉니다 — 관리대장이 원장에 담는
       업무가 이 둘이기 때문입니다. 같은 종류끼리 대면 ERP ${fmt(erpYTD)}원 대 원장
@@ -18457,8 +18462,8 @@ function renderDaily(){
     pmProgress: [
       [`${capturePm.예정}건`, `${capturePm.라벨} 예정`],
       [`${capturePm.실행}건`, `${capturePm.라벨} 실행`, '#12813F'],
-      [`${capturePm.미실행}건`, `${capturePm.라벨} 미실행`, capturePm.미실행?'#B54708':'#12813F'],
-      [`${capturePm.진행률}%`, `${capturePm.라벨} 진행률`, capturePm.진행률>=60?'#12813F':'#B54708'],
+      [`${capturePm.미실행}건`, `${capturePm.라벨} 미실행`, capturePm.미실행?'#E8890C':'#12813F'],
+      [`${capturePm.진행률}%`, `${capturePm.라벨} 진행률`, capturePm.진행률>=60?'#12813F':'#E8890C'],
     ],
     workLog: captureWorkLog,
     updatedAt: _asOf,
@@ -18480,7 +18485,7 @@ function renderDaily(){
         [`${captureBriefPm['완료']||0}건`,
           `정기점검 당일 완료${captureBriefPm['완료장비']?`(장비 ${captureBriefPm['완료장비']}대)`:''}`, '#12813F'],
         [`${Math.max(0,(captureBriefPm['예정']||0)-(captureBriefPm['완료']||0))}건`, '정기점검 당일 미실행',
-          ((captureBriefPm['예정']||0)-(captureBriefPm['완료']||0))>0?'#B54708':'#12813F']
+          ((captureBriefPm['예정']||0)-(captureBriefPm['완료']||0))>0?'#E8890C':'#12813F']
       ],
       activities: captureDailyTasks
     } : null,
@@ -18490,7 +18495,7 @@ function renderDaily(){
     kpi: [[S.length+'건','정산 총계','#2452E6'], [fmt(ledgerYTD),'원장 정산 공급가액(부가세 별도·원)'],
           [fmt(erpAS),'돌발AS 계산서 발행(원)','#1B41BC'],
           [fmt(erpPM),'정기점검 계산서 발행(원)','#1B41BC'],
-          [fmt(미수),'미수금(원)', 미수?'#B54708':'#12813F'],
+          [fmt(미수),'미수금(원)', 미수?'#E8890C':'#12813F'],
           [issues.length+'건','조치 필요', issues.length?'#C0212E':'#12813F'],
           [asOpen.length+'건','돌발AS 진행중'], [pmWait.length+'건','정기점검 대기']],
     funnel: FUN,
@@ -20418,7 +20423,7 @@ async function reportToPng(){
   }else{
     section('대표 예외보고', null, '#C0212E');
     txt('예외보고 API 미수신 — 이 캡처에는 예외 집계가 없습니다. 새로고침 후 다시 캡처하세요.',
-        34, y+8, F(11,700), '#B54708'); y+=22;
+        34, y+8, F(11,700), '#E8890C'); y+=22;
   }
   drawCeoDirectives();
   section(D.monthTitle||'현재 월 통계',null,'#4960DF'); grid(D.month||[]);
@@ -20456,7 +20461,7 @@ async function reportToPng(){
                            j?'#344054':'#101828',j?'right':'left'));
       y+=24;
     });
-    txt(fun.pred,30,y+12,F(10.5,700), fun.med==null?'#B54708':'#175CD3');
+    txt(fun.pred,30,y+12,F(10.5,700), fun.med==null?'#E8890C':'#175CD3');
     y+=24;
   }
 
@@ -20545,7 +20550,7 @@ async function reportToPng(){
         txt(clip(`요청 · ${a.request||'신청내용 미기입'} (${when})`,370),46,y+61,F(10.8),'#475467');
         const actionLabel=(a.kind==='ceo'||a.kind==='new')?'상태':'처리';
         txt(clip(`${actionLabel} · ${a.action||'처리내용 미기입'}`,350),430,y+61,F(10.8,700),
-            a.kind==='new'?'#B54708':'#12813F');
+            a.kind==='new'?'#E8890C':'#12813F');
         y+=90;
       });
     }
@@ -20600,7 +20605,7 @@ async function reportToPng(){
     grid([
       [String(wlAs.발생||0)+'건', '발생'],
       [String(wlAs.처리완료||0)+'건', '처리완료', '#12813F'],
-      [String(wlAs.미처리||0)+'건', '미처리', (wlAs.미처리||0)?'#B54708':'#12813F'],
+      [String(wlAs.미처리||0)+'건', '미처리', (wlAs.미처리||0)?'#E8890C':'#12813F'],
       [String(wlAs.취소||0)+'건', '취소·정상작동'],
     ]);
     // 대표 지시(2026-08-04): 캡처에도 화면과 **같은** 구분이 나가야 한다.
@@ -20636,7 +20641,7 @@ async function reportToPng(){
       });
       y += 6;
     };
-    detailRows('미실시 상세', wlOpenRows, '#B54708');
+    detailRows('미실시 상세', wlOpenRows, '#E8890C');
     detailRows('취소·정상작동 상세', wlCancelRows, '#8B5E16');
     detailRows('처리완료일 확인 상세', wlUnknownRows, '#1B41BC');
     if(wlAs.처리완료일확인){
@@ -20719,7 +20724,7 @@ async function dashToPng(){
   rows.forEach(r=>{ const d=r.완료일||''; if(d.startsWith(y)){ const i=+d.slice(5,7)-1; if(i>=0&&i<12) byM[i]+=(+r.공급가액||0); } });
   const dist = {}; rows.forEach(r=>{ dist[r.상태]=(dist[r.상태]||0)+1; });
   const distE = Object.entries(dist).sort((a,b)=>b[1]-a[1]);
-  const SCOLOR = {'정상':'#12813F','입금 대기':'#B54708','세금계산서 미발행':'#C0212E',
+  const SCOLOR = {'정상':'#12813F','입금 대기':'#E8890C','세금계산서 미발행':'#C0212E',
     '미청구(전표 없음)':'#8B1E68','금액 미입력':'#5B6B82',
     /* 재계산이 풀리면 저절로 채워지는 건이라 경고색을 쓰지 않는다 — 조치 대상이 아니다 */
     '금액 재계산 대기':'#9AAECB',
@@ -20764,7 +20769,7 @@ async function dashToPng(){
   //   월 실적과 같아도 열쇠로 정확한 정의(supply-amount)를 집는다.
   const kpi=[[rows.length+'건','정산 건수','#2452E6','settle-count'],
     [fmt(rows.reduce((a,r)=>a+(+r.공급가액||0),0)),'공급가액(부가세 별도·원)',null,'supply-amount'],
-    [fmt(미수),'미수금(원)',미수?'#B54708':'#12813F','receivable'],
+    [fmt(미수),'미수금(원)',미수?'#E8890C':'#12813F','receivable'],
     [pctText(발행,유상.length,'0.0%'),'계산서 발행율',null,'tax-rate'],
     [issues.length+'건','조치 필요',issues.length?'#C0212E':'#12813F','issues-count'],
     [asOpen+' · '+pmWait,'AS진행 · 점검대기',null,'as-pm']];
