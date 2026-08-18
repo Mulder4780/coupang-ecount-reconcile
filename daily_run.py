@@ -10,7 +10,7 @@ reports/종합리포트_*.md 한 장으로 요약한다. Windows 작업 스케�
   - ERP 쓰기(--post)는 절대 자동 실행하지 않음 — 전송 대기 건수만 보고
   - 각 단계는 데이터가 없으면 조용히 건너뜀(스킵 사유 기록) — 있는 데이터만큼 검증
 """
-import sys, os, glob, json, subprocess, time, uuid
+import sys, os, glob, json, re, subprocess, time, uuid
 from datetime import datetime
 from operation_window import input_window_label, is_input_window
 
@@ -483,8 +483,12 @@ def _run_pipeline():
     s = run("합성검증", [os.path.join(ROOT, "tests", "synthetic_check.py")])
     steps.append(s)
     if not s["ok"] or "ALL GREEN" not in s["out"]:
+        # ★ **왜 막혔는지를 남긴다** — 이 단계는 자율복구 대기열에 안 들어가므로
+        #   자국이 없으면 exit 1 만 남고 아무도 이유를 못 찾는다(2026-08-18 실사고).
+        _leave_gate_trace(s)
         finish(steps, aborted=True)
         sys.exit("합성검증 실패 — 전체 중단")
+    _clear_gate_trace()
 
     # 합성검증 뒤, 모든 대조보다 먼저 단일 투입함을 정본 폴더로 분류한다.
     # 예전에는 다운로드 흡수가 파이프라인 끝이라 새 자료가 다음 날까지 반영되지 않았다.
@@ -993,6 +997,88 @@ def main():
         except Exception:                 # noqa: BLE001
             pass
         release_run_lock(token)
+
+
+GATE_CRASH = os.path.join(REPORT_DIR, "일일대조_오류.json")
+
+
+def _gate_headline(out):
+    """검증 출력에서 **사람이 읽을 한 줄**을 뽑는다 — 못 뽑으면 지어내지 않는다."""
+    lines = [x.strip() for x in str(out or "").splitlines() if x.strip()]
+    for ln in reversed(lines):                       # 마지막 예외 줄이 제일 정확하다
+        if re.match(r"^[A-Za-z_.]*(Error|Exception)\b.*:", ln):
+            return ln[:300]
+    return (lines[-1][:300] if lines else "")
+
+
+def _gate_which_test(out):
+    """어느 검증에서 죽었나 — 트레이스백의 `tNNN...()` 호출. 없으면 빈 값이다."""
+    hits = re.findall(r"\b(t\d+[A-Za-z0-9_]*)\(\)", str(out or ""))
+    return hits[-1] if hits else ""
+
+
+# 갈래마다 **조치가 다르다** — 'resource' 에 "코드를 고치세요"라고 적으면
+# 사람이 멀쩡한 코드를 뒤진다(`[289]` 가 ERP API 에서 배운 자리).
+_GATE_FIX = {
+    "resource": ("Z:(SMB)·관리대장을 그 순간 못 읽었다 — **고칠 코드가 없을 수 있다**. "
+                 "연결을 확인하고 `python tests/synthetic_check.py` 를 다시 돌린다."),
+    "auth":     ("로그인(밴드·이카운트)이 필요하다 — 사람 인증 뒤 다시 돌린다."),
+    "timeout":  ("시간을 넘겼다 — 기계가 바쁘면 `[6]`·`[192]` 처럼 그때만 빨갛다. 다시 돌려 본다."),
+    "code":     ("자원·인증 표시가 없었다 — **검증이 실제로 빨갈 가능성이 높다**. "
+                 "`python tests/synthetic_check.py > out.txt 2>&1` 로 돌려 ALL GREEN 글자를 눈으로 본다."),
+}
+
+
+def _leave_gate_trace(step):
+    """0단계 관문이 막았을 때 **왜인지를 디스크에 남긴다** (2026-08-18 실사고).
+
+    ★ 실측: 09:50 회차가 **7일 중 6일**(8/10·12·14·15·16·18) 이 한 줄에서 죽었는데
+      그 이유가 **어느 화면에도 안 떴다.** 스케줄러는 `exit 1`, `schedule_watch` 는
+      "0 이 아닌 값으로 끝났다", 인계 문서도 같은 말이다. 진짜 이유
+      (`FileNotFoundError: 관리대장을 찾을 수 없음: Z:/…`)는 **종합리포트 파일을
+      열어야** 나왔다. 그래서 여섯 번 반복되는 동안 아무도 못 고쳤다 — `[228]` 이
+      '어느 회차가 죽었나'를 보이게 만든 다음 질문('왜')에 답할 자국이 여기 없었다.
+    ★ 이 단계는 **자율복구 대기열에 일부러 안 들어간다**(`autopilot.defer` 첫 줄) —
+      안전문을 '나중에'로 돌리고 업무를 계속하면 안 되기 때문이다. 그 판단은 옳다.
+      그러므로 남는 길은 **자국뿐**이다.
+    ★ **갈래는 새로 만들지 않는다**(`[162]`) — `autopilot.classify_failure` 가 이미
+      가른다(실측: 그 함수의 자기 시험이 바로 이 문자열을 `resource` 로 판정한다).
+    ★ 성공하면 **지운다** — 옛 자국이 남으면 이미 지나간 고장을 계속 보고한다(`[228]`).
+    """
+    out = str(step.get("out") or "")
+    try:
+        import autopilot
+        kind = autopilot.classify_failure(out)
+    except Exception:                              # noqa: BLE001
+        kind = ""                                  # 모르면 '모름' — 지어내지 않는다(`[169]`)
+    head = _gate_headline(out)
+    which = _gate_which_test(out)
+    무엇 = "합성검증이 막았다"
+    if which:
+        무엇 += " · %s" % which
+    if head:
+        무엇 += " · %s" % head
+    try:
+        os.makedirs(REPORT_DIR, exist_ok=True)
+        with open(GATE_CRASH, "w", encoding="utf-8") as fh:
+            json.dump({"시각": datetime.now().isoformat(timespec="seconds"),
+                       "명령": "daily_run.py (0단계 합성검증)",
+                       "갈래": kind or "모름",
+                       "검증": which,
+                       "무엇": 무엇,
+                       "조치": _GATE_FIX.get(kind, "갈래를 못 가렸다 — 아래 자취를 그대로 읽는다."),
+                       "자취": out[-4000:]}, fh, ensure_ascii=False, indent=1)
+    except Exception:
+        pass                    # 자국을 남기려다 종료를 막지 않는다
+
+
+def _clear_gate_trace():
+    """관문을 통과했으면 옛 자국을 지운다 — 안 지우면 고쳐진 고장을 계속 보고한다."""
+    try:
+        if os.path.exists(GATE_CRASH):
+            os.remove(GATE_CRASH)
+    except Exception:
+        pass
 
 
 def finish(steps, aborted=False):

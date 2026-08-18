@@ -119,7 +119,14 @@ def decide(now, marker, claims, rounds, force=False):
     for what in ("ledger", "publish"):
         if what in live:
             c = next(x for x in claims if x.get("what") == what and x.get("alive"))
+            # ★ 주인을 **여기서 적어 준다**(2026-08-18). 예전에는 부르는 쪽이 도는 회차
+            #   이름만 넘겨서, 점유에 양보하면 주인이 빈칸으로 남았다 — 그러면 조율 표가
+            #   "주인을 모르는 양보"라고 적는다.  **아는 것을 모른다고 적으면 사람이
+            #   없는 문제를 찾아 나선다**([172]).  점유는 회차가 아니므로 `점유:` 를
+            #   붙여 둔다 — 그 세션에는 `record_run` 이 없어 '끝냈나'를 물을 수 없다.
             return {"go": False, "kind": "양보", "skip": [],
+                    "주인": f"점유:{what}({c.get('who','?')}"
+                            f"[{str(c.get('sid') or '')[:8]}])",
                     "why": f"다른 세션이 '{what}' 를 잡고 있다({c.get('who','?')}"
                            f"[{str(c.get('sid') or '')[:8]}])"}
     if rounds:
@@ -135,6 +142,7 @@ def decide(now, marker, claims, rounds, force=False):
                     "why": "회차가 도는 중(%s) — 창이 끝나므로 Z: 를 훑는 단계(%s)만 "
                            "건너뛰고 돈다" % (", ".join(rounds), ", ".join(HEAVY_STEPS))}
         return {"go": False, "kind": "양보", "skip": [],
+                "주인": ", ".join(rounds),
                 "why": f"회차가 도는 중: {', '.join(rounds)}"}
     skip = ["합성검증"] if "code" in live else []
     why = "창 안 · 오늘 미완주 · 충돌 없음"
@@ -338,7 +346,8 @@ def main():
         if verdict["kind"] == "양보":
             try:
                 import coordinate
-                coordinate.record_yield("정오회차", ", ".join(rounds) if rounds else "",
+                coordinate.record_yield("정오회차",
+                                        verdict.get("주인") or (", ".join(rounds) if rounds else ""),
                                         verdict["why"])
             except Exception:             # noqa: BLE001 — 조율을 적으려다 회차를 막지 않는다
                 pass

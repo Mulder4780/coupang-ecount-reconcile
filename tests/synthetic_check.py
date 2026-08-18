@@ -21946,6 +21946,140 @@ def t294_unreadable_source_never_passes_as_read():
     _sh.rmtree(d, ignore_errors=True)
 
 
+
+def t304_dead_round_says_why_and_stops_crying_wolf():
+    """[304] 회차가 죽으면 **왜인지 남기고**, 그 일이 뒤에 됐으면 경보를 내린다.
+
+    2026-08-18 실사고. 09:50 `쿠팡업무_일일자동대조` 가 **7일 중 6일**(8/10·12·14·
+    15·16·18) 같은 자리에서 죽었는데 **그 이유가 어느 화면에도 안 떴다.**
+    스케줄러는 `exit 1`, `schedule_watch` 는 "0 이 아닌 값으로 끝났다", 인계 문서도
+    같은 말이다. 진짜 이유(`FileNotFoundError: 관리대장을 찾을 수 없음: Z:/…` —
+    즉 **그 순간 Z: 를 못 읽은 것이지 코드가 깨진 게 아니다**)는 종합리포트 파일을
+    열어야 나왔다. 그래서 여섯 번 반복되는 동안 아무도 못 고쳤다.
+
+    같은 날 반대편도 드러났다: 그 회차는 **14:54 에 80단계를 완주했는데**(다른 길로
+    불렸다) 경보는 **[P0] 로 그대로** 남아 인계 맨 위에 올라왔다. 경보가 대부분
+    가짜면 나머지도 아무도 안 본다(`[170]`).
+
+    ★ 이 검사는 **글자만 보지 않는다** — 실제로 실행해서 결과로 잰다(`[295]`).
+      실측: `ast.parse` 는 통과하는데 정규식에 백스페이스가 들어가 **한 건도 안
+      걸리는** 상태였다(`[165]` 모양). 문법 검사로는 못 잡는다.
+    ★ 실측 증거 파일은 **한 글자도 안 건드린다**(`[247]`) — 임시 경로로만 잰다.
+    """
+    import importlib, json as _json, tempfile, datetime as _dt, os as _os
+    import daily_run as DR
+    import autopilot as AP
+    import schedule_watch as SW
+
+    자원 = ("[stderr] Traceback (most recent call last):\n"
+            '  File "tests/synthetic_check.py", line 21099, in <module>\n'
+            "    t28_resolve()\n"
+            "FileNotFoundError: 관리대장을 찾을 수 없음: Z:/x (폴더에 v*.xlsx 없음)\n"
+            "[재시도 후에도 실패]")
+
+    # ① 한 줄 요약·검증 이름을 **실제로 뽑는다**(백스페이스 회귀 방지)
+    head = DR._gate_headline(자원)
+    assert head.startswith("FileNotFoundError"), "실패 한 줄을 못 뽑는다: %r" % head
+    assert "관리대장" in head, "예외 문구를 잃었다: %r" % head
+    assert DR._gate_which_test(자원) == "t28_resolve", \
+        "어느 검증에서 죽었는지 못 뽑는다: %r" % DR._gate_which_test(자원)
+    # 낱말 경계가 살아 있나 — 'output()' 같은 것을 검증 이름으로 읽으면 안 된다
+    assert DR._gate_which_test("print(); output(); assert1()") == "", \
+        "검증 이름이 아닌 것을 검증으로 읽는다"
+
+    # ② 갈래는 **빌린다** — 사본을 만들면 언젠가 갈린다(`[162]`)
+    assert AP.classify_failure(자원) == "resource", "판정기가 자원 실패를 못 가른다"
+    assert "autopilot" in _os.path.basename(AP.__file__), "판정기 출처가 바뀌었다"
+
+    # ③ 자국을 남긴다 — **임시 경로로만** 잰다(`[247]`)
+    real, tmpdir = DR.GATE_CRASH, tempfile.mkdtemp()
+    try:
+        DR.GATE_CRASH = _os.path.join(tmpdir, "일일대조_오류.json")
+        DR._leave_gate_trace({"name": "합성검증", "ok": False, "out": 자원})
+        assert _os.path.exists(DR.GATE_CRASH), "관문이 막았는데 자국을 안 남긴다"
+        d = _json.load(open(DR.GATE_CRASH, encoding="utf-8"))
+        assert d.get("갈래") == "resource", "자국이 갈래를 잘못 적는다: %r" % d.get("갈래")
+        assert "t28_resolve" in str(d.get("무엇")), "자국이 어느 검증인지 안 적는다"
+        assert "관리대장" in str(d.get("무엇")), "자국이 진짜 이유를 안 적는다"
+        # 조치는 갈래마다 달라야 한다 — 'resource' 에 "코드를 고치세요"는 오진이다(`[289]`)
+        조치 = str(d.get("조치") or "")
+        assert 조치 and "코드가 없을 수 있다" in 조치, "자원 실패에 맞는 조치가 아니다: %r" % 조치
+        assert 조치 != DR._GATE_FIX["code"], "갈래가 달라도 조치가 같다"
+        assert str(d.get("자취") or ""), "자취를 안 남긴다"
+
+        # ④ 통과하면 지운다 — 안 지우면 지나간 고장을 계속 보고한다(`[228]`)
+        DR._clear_gate_trace()
+        assert not _os.path.exists(DR.GATE_CRASH), "관문을 통과했는데 옛 자국이 남는다"
+    finally:
+        DR.GATE_CRASH = real
+        try:
+            _os.rmdir(tmpdir)
+        except OSError:
+            pass
+
+    # ⑤ 0단계가 실제로 그 둘을 부르는지 — 안 부르면 위 셋이 아무 뜻도 없다
+    dsrc = open(DR.__file__, encoding="utf-8").read()
+    gate = dsrc[dsrc.index("# 0. 합성검증"):dsrc.index("# 0. 합성검증") + 900]
+    assert "_leave_gate_trace(" in gate, "0단계가 실패 자국을 안 남긴다"
+    assert "_clear_gate_trace(" in gate, "0단계가 통과 뒤 옛 자국을 안 지운다"
+    # 자국 이름이 `*_오류.json` 이어야 schedule_watch.traces() 글로브에 걸린다
+    assert DR.GATE_CRASH.endswith("_오류.json"), \
+        "자국 이름이 `*_오류.json` 이 아니라 회차 감시가 못 모은다: %s" % DR.GATE_CRASH
+
+    # ⑥ bat 의 배치 변수를 벗긴다 — 안 벗기면 그 회차 판정이 통째로 눈이 먼다
+    with tempfile.TemporaryDirectory(dir=SW.ROOT) as d2:
+        bat = _os.path.join(d2, "시험회차.bat")
+        with open(bat, "w", encoding="utf-8") as fh:
+            fh.write('"%LOCALAPPDATA%\\py.exe" "%~dp0daily_run.py" >> log\n')
+        task = {"name": "시험", "act": [{"exe": "wscript.exe", "args": '"%s"' % bat}]}
+        찾음 = {_os.path.basename(f).lower() for f in SW.task_scripts(task)}
+        assert "daily_run.py" in 찾음, \
+            "bat 이 `%%~dp0` 로 적은 스크립트를 못 찾는다 — 판정이 눈이 먼다: %r" % 찾음
+
+    # ⑦ '뒤에 됨' 은 **근거가 있을 때만** — 없으면 실패가 실패로 남는다(`[169]`)
+    now = _dt.datetime.now()
+    last = now - _dt.timedelta(hours=6)
+    task = {"name": "시험", "act": [{"exe": "python.exe", "args": "daily_run.py"}]}
+    실제 = SW.RAN_TRACE
+    with tempfile.TemporaryDirectory() as d3:
+        trace = _os.path.join(d3, "agent_status.json")
+        try:
+            SW.RAN_TRACE = {"daily_run.py": trace}
+            assert SW.ran_after(task, last) == (None, None), "자국이 없는데 '뒤에 됨'이라 한다"
+            _json.dump({"time": now.isoformat(), "aborted": True, "steps": [1, 2]},
+                       open(trace, "w", encoding="utf-8"))
+            assert SW.ran_after(task, last) == (None, None), \
+                "중단으로 끝난 자국을 완주 근거로 쓴다"
+            _json.dump({"time": (last - _dt.timedelta(hours=1)).isoformat(),
+                        "aborted": False, "steps": [1]}, open(trace, "w", encoding="utf-8"))
+            assert SW.ran_after(task, last) == (None, None), \
+                "실패보다 **앞선** 완주를 근거로 쓴다"
+            _json.dump({"time": now.isoformat(), "aborted": False, "steps": [1, 2, 3]},
+                       open(trace, "w", encoding="utf-8"))
+            got = SW.ran_after(task, last)
+            assert got[0] and got[1] == 3, "진짜 완주 자국을 못 읽는다: %r" % (got,)
+            # 그 자국이 없는 회차에까지 이 근거를 대면 안 된다(일반화 금지)
+            다른 = {"name": "남", "act": [{"exe": "python.exe", "args": "watchdog.py"}]}
+            assert SW.ran_after(다른, last) == (None, None), \
+                "daily_run 자국을 다른 회차의 근거로 쓴다"
+        finally:
+            SW.RAN_TRACE = 실제
+
+    # ⑧ `뒤에됨` 을 DEAD 에 넣으면 안 된다 — 넣는 순간 P0 로 되살아난다(`[110]`)
+    assert SW.RANLATER not in SW.DEAD, "'뒤에됨'이 DEAD 에 들어가 경보로 되살아난다"
+    assert SW.FIXWAIT not in SW.DEAD, "'고침대기'가 DEAD 에 들어갔다"
+    # 그렇다고 조용히 빼지도 않는다 — 알림에는 남아야 한다(`[169]`)
+    행 = [{"작업": "시험", "갈래": SW.RANLATER, "말": "…뒤에 완주했다", "연속": 1,
+           "마지막실행": now.isoformat()}]
+    알림 = SW.notices(행, now=now)
+    assert any(x["갈래"] == SW.RANLATER for x in 알림), \
+        "'뒤에됨'이 알림에도 안 실려 조용히 사라진다"
+    assert not SW.alarms(행, {}), "'뒤에됨'이 경보로 올라간다 — 그러면 매일 P0 가 된다"
+
+    print("[304] 죽은 회차는 왜인지 남기고 · 뒤에 된 일은 경보를 내린다"
+          "(자국 `*_오류.json` · 갈래는 autopilot 에서 빌림 · 근거 없으면 실패 그대로) ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -22242,6 +22376,7 @@ if __name__ == "__main__":
     t300_camp_screen_never_calls_a_missing_helper()
     t301_camp_edits_survive_the_round()
     t302_flow_canvas_only_edits_in_its_own_window()
+    t304_dead_round_says_why_and_stops_crying_wolf()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

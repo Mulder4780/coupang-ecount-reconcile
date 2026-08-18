@@ -80,6 +80,8 @@ DEAD = ("강제종료", "비정상종료", "중단됨", "실패", "확인못함"
 #:   실패한 코드는 이미 안 돈다 — 그렇다고 '고쳐졌다'고 말하지도 않는다.
 #:   **다음 회차가 답한다.** DEAD 에 절대 넣지 말 것(넣으면 P0 로 되살아난다).
 FIXWAIT = "고침대기"
+#: 실패했는데 **그 일이 그 뒤에 실제로 끝났다** — 추측이 아니라 회차가 남긴 자국이다.
+RANLATER = "뒤에됨"
 #: 반복될 때만 경보. 한 번의 밀림은 정상 운영이다.
 REPEAT_ONLY = ("밀림",)
 #: 연속 몇 번부터 밀림을 경보로 올리나 — 5분 회차가 세 번 연속 거부면 앞이 안 끝난 것이다.
@@ -371,12 +373,60 @@ def task_scripts(task, depth=_FOLLOW_DEPTH):
             if not f.lower().endswith((".bat", ".cmd", ".vbs")):
                 continue
             try:
-                src = open(f, encoding="utf-8", errors="replace").read()
+                text = open(f, encoding="utf-8", errors="replace").read()
             except OSError:
                 continue
-            for m in re.finditer(r"[\w./\\-]+\.py\b", src):
+            # ★ **배치 변수를 먼저 벗긴다** (2026-08-18 실측). `.bat` 은 제 폴더를
+            #   `%~dp0` 로 적는데(`"%~dp0daily_run.py"`), 그대로 훑으면 정규식이
+            #   `dp0daily_run.py` 를 잡아 **디스크에 없는 이름**이 되고 조용히 버려진다.
+            #   그래서 `쿠팡업무_일일자동대조` 의 스크립트 목록이 bat 까지만이었고,
+            #   `code_changed_after`(`[110]` 고침대기)가 이 회차에 대해 **눈이 멀어
+            #   있었다** — 오류도 안 나고 목록도 그럴듯해서 아무도 몰랐다(`[165]`).
+            text = re.sub(r"%~[a-zA-Z]*\d?", " ", text)      # %~dp0 · %~d0
+            text = re.sub(r"%[^%\s]{1,40}%", " ", text)      # %LOCALAPPDATA%
+            for m in re.finditer(r"[\w./\\-]+\.py\b", text):
                 add(m.group(0))
     return [f for f in out if f.lower().endswith(_CODE_EXT)]
+
+
+#: 회차가 **스스로 남기는 완주 자국**. daily_run 계열만 이 파일을 쓴다 —
+#: 목록을 넓힐 때는 "그 회차가 정말 이 파일에 완주를 적는가"를 먼저 확인할 것.
+RAN_TRACE = {"daily_run.py": os.path.join(ROOT, "reports", "agent_status.json")}
+
+
+def ran_after(task, when):
+    """실패한 뒤 **그 일이 실제로 끝났다는 자국**이 있나 -> `(시각, 단계수)`.
+
+    ★ 스케줄러는 **작업**의 마지막 결과만 안다. 그런데 이 프로젝트에서 같은 *일*은
+      여러 길로 불린다(예약 작업 · `automation_pipeline` · 워치독 · 사람). 실측
+      2026-08-18: `쿠팡업무_일일자동대조` 가 09:50 에 exit 1 이었는데 **같은 회차가
+      14:54 에 80단계를 완주**했다(`agent_status.json` `aborted:false`). 그런데도
+      경보는 **[P0] 로 그대로 남아** 인계 맨 위에 올라왔다 — 경보가 대부분 가짜면
+      나머지도 아무도 안 본다(`[170]`).
+    ★ `[110]` 의 `고침대기` 보다 **센 근거**다: 저쪽은 '코드가 바뀌었으니 아마
+      고쳐졌을 것'이라는 추측이고, 여기는 **그 일이 끝났다는 사실**이다. 그래서
+      판정 순서가 이쪽이 먼저다(`[203]` — 좁고 센 근거가 앞에 온다).
+    ★ **일반화하지 않는다.** 이 자국은 daily_run 계열에만 있다. 다른 회차에 이
+      근거를 대면 '자국이 없다'가 곧 '안 됐다'로 읽혀 거짓이 된다.
+    ★ **못 읽으면 그대로 실패로 둔다**(`[169]`) — '이상 없음'으로 바꾸지 않는다.
+    """
+    if when is None:
+        return None, None
+    names = {os.path.basename(f).lower() for f in task_scripts(task)}
+    for key, path in RAN_TRACE.items():
+        if key.lower() not in names:
+            continue
+        try:
+            with open(path, encoding="utf-8") as fh:
+                d = json.load(fh)
+        except Exception:                            # noqa: BLE001
+            continue                                 # 못 읽음 != 안 돌았다
+        if d.get("aborted"):
+            continue                                 # 중단으로 끝난 자국은 근거가 아니다
+        t = _dt(d.get("time"))
+        if t and t > when:
+            return t, len(d.get("steps") or [])
+    return None, None
 
 
 def code_changed_after(task, when):
@@ -443,6 +493,15 @@ def judge(task, now, before=None):
     #   ★ '고쳐졌다'고는 말하지 않는다. 사실은 **'고친 뒤 아직 안 돌았다'** 이고
     #     답은 다음 회차가 한다(`[169]`). '안돎'에는 걸지 않는다 — 그것은 코드가
     #     바뀌었든 말든 **돌아야 할 때 안 돈 것**이라 사실이 그대로 남는다.
+    # ★ 죽었는데 **그 일이 그 뒤에 실제로 끝났다** — 자국이 그렇게 말한다.
+    #   추측(고침대기)보다 센 근거라 **먼저** 묻는다.
+    돈때, 단계수 = ran_after(task, last) if (kind in DEAD and late is None) else (None, None)
+    if 돈때:
+        say = ("%s — 그런데 **같은 일이 그 뒤 %s 에 완주했다**(%d단계). "
+               "예약 회차는 실패했지만 그 일 자체는 됐다"
+               % (say, 돈때.strftime("%m-%d %H:%M"), 단계수))
+        kind = RANLATER
+
     바뀐것, 바뀐때 = (None, None)
     if kind in DEAD and late is None:
         바뀐것, 바뀐때 = code_changed_after(task, last)
@@ -533,9 +592,9 @@ def notices(rows, now=None):
     now = now or datetime.now()
     out = []
     for r in rows:
-        if r["갈래"] != FIXWAIT:
+        if r["갈래"] not in (FIXWAIT, RANLATER):
             continue
-        out.append({"갈래": FIXWAIT, "작업": r["작업"], "무엇": "**%s** — %s"
+        out.append({"갈래": r["갈래"], "작업": r["작업"], "무엇": "**%s** — %s"
                     % (r["작업"], r["말"]),
                     "어떻게": "python schedule_watch.py --print"})
 

@@ -140,6 +140,13 @@ def _save(d, path=MARK):
     return False                          # 못 적었으면 못 적었다고 말한다(아래 note 가 삼키지 않는다)
 
 
+#: 주인이 **회차가 아니라 점유 세션**일 때 붙는 표시.  회차에는 `record_run` 이 있어
+#: '끝냈나'를 물을 수 있지만 점유 세션에는 그런 자국이 없다 — 그러므로 이것은
+#: **검사할 수 없는 양보**이되 **주인을 모르는 양보는 아니다.**  둘을 뭉치면 화면이
+#: "주인을 모른다"고 말하는데 실은 알고 있어서, 사람이 없는 문제를 찾아 나선다(`[172]`).
+CLAIM_OWNER = "점유:"
+
+
 def note(작업, 갈래, 왜="", 주인="", **extra):
     """자국 한 줄. **회차를 죽이지 않는다** — 조율을 적으려다 일을 막지 않는다.
 
@@ -226,7 +233,7 @@ def audit(d=None, now=None, 도는중=None):
     if 도는중 is None:
         도는중 = running()
     도는중 = set(도는중 or ())
-    헛, 못검사 = [], []
+    헛, 못검사, 점유 = [], [], []
     for 작업, 칸 in sorted(d.items()):
         for 행 in (칸 or []):
             if not isinstance(행, dict) or 행.get("갈래") != "양보":
@@ -239,6 +246,12 @@ def audit(d=None, now=None, 도는중=None):
             if str(행.get("주인") or "").strip() in 도는중:
                 continue                  # 주인이 지금도 하는 중이다 — 실패가 아니다
             주인 = str(행.get("주인") or "").strip()
+            if 주인.startswith(CLAIM_OWNER):
+                # 주인은 안다 — 다만 점유 세션이라 '끝냈나'를 물을 자국이 없다.
+                # 이것을 경보로 올리면 매일 뜨고, 매일 뜨는 경보는 아무도 안 본다(`[170]`).
+                # 정말 위험한 것(매일 양보만 하는 회차)은 `굶주림` 이 따로 잡는다.
+                점유.append({"작업": 작업, "주인": 주인, "때": 행.get("때"), "왜": 행.get("왜")})
+                continue
             if not 주인:
                 # ★ 주인을 모르는 양보는 **검사할 수 없다.** 정상으로 세지 않는다(`[169]`).
                 못검사.append({"작업": 작업, "때": 행.get("때"), "왜": 행.get("왜")})
@@ -254,7 +267,7 @@ def audit(d=None, now=None, 도는중=None):
             if not 끝냈나:
                 헛.append({"작업": 작업, "주인": 주인, "때": 행.get("때"),
                           "왜": 행.get("왜")})
-    return 헛, 못검사
+    return 헛, 못검사, 점유
 
 
 def notices(d=None, why="", now=None, 도는중=None):
@@ -268,7 +281,7 @@ def notices(d=None, why="", now=None, 도는중=None):
                     "어떻게": "python coordinate.py --print"})
         return out                        # 근거를 못 읽었으면 아무 판정도 하지 않는다
 
-    헛, 못검사 = audit(d, now=now, 도는중=도는중)
+    헛, 못검사, 점유 = audit(d, now=now, 도는중=도는중)
     for x in 헛:
         out.append({"갈래": "헛양보", "작업": x["작업"],
                     "무엇": "**%s** 이 '%s' 에게 양보했는데 그 주인도 끝내지 못했다 — "
