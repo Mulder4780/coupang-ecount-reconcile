@@ -1720,13 +1720,32 @@ def save_staff_entry(staff_slug, body, *, store=None, actor=None):
     except (TypeError, ValueError):
         expected_version = 0
     if expected_version < 1:
-        # 버전이 없다는 것은 조치가 정반대인 두 경우다([169]) — 뭉쳐서 "새로고침"만
+        # 버전이 없다는 것은 조치가 정반대인 **네** 경우다([169]) — 뭉쳐서 "새로고침"만
         # 말하면 앱 DB에 없는 행을 든 사람은 새로고침을 백 번 해도 안 되는데 그것만
         # 되풀이한다(실측 정기점검 70건이 그 자리다). _staff_store_row 는 **읽기만**
         # 한다 — 낙관잠금·멱등은 그대로다([90] 계층 A는 손대지 않는다).
-        #   · 앱 DB에 있는 행 → 표시가 버전을 못 실은 것이니 새로고침이 답이다.
-        #   · 앱 DB에 없는 행 → _staff_store_row 가 '먼저 원본을 수집' 을 그대로 올린다.
-        _staff_store_row(store, category, record_key)
+        #   · 앱 DB를 지금 못 읽는다   → 새로고침이 아니라 DB 복구가 답이다
+        #   · 앱 DB에 없는 행          → _staff_store_row 가 '먼저 원본을 수집' 을 올린다
+        #   · 앱 DB에 **버전이 있다**  → 목록이 반쪽으로 온 것이다([95]) — 아래
+        #   · 그 밖                    → 표시가 버전을 못 실은 것이니 새로고침이 답이다
+        try:
+            db_row, _db_work = _staff_store_row(store, category, record_key)
+        except ValueError:
+            raise                     # 위 두 문구는 그대로 올린다(옆 갈래를 안 삼킨다)
+        except Exception as exc:      # 앱 DB 를 지금도 못 읽는다 — 이것도 반쪽의 원인이다
+            _note_store_fallback("업무 조회(저장 검사)", exc)
+            raise ValueError("앱 DB를 지금 읽지 못해 저장을 멈췄습니다 — 새로고침해도 "
+                             f"같습니다. 앱 DB 상태를 먼저 확인해 주세요 ({error_reason(exc, 120)})")
+        if int(db_row.get("_record_version") or 0) >= 1:
+            # ★ 앱 DB 에는 버전이 있는데 화면이 그것을 못 싣고 왔다 = **목록이 반쪽**이다.
+            #   근거는 시간 창이 아니라 이 대조 하나다 — 폴백 자국은 '왜' 를 덧붙일 뿐이라
+            #   자국이 없어도 이 갈래는 정확히 걸린다([169]).
+            why = _store_fallback_hint()
+            raise ValueError(
+                "앱 DB에는 이 업무의 버전이 있는데 화면 목록이 그것을 싣지 못했습니다 "
+                "— 목록이 반쪽으로 왔습니다. 새로고침해도 같은 목록이 올 수 있으니 "
+                "앱 DB 상태를 먼저 확인해 주세요"
+                + (f" (근거: {why})" if why else ""))
         raise ValueError("화면 데이터 버전이 없습니다. 목록을 새로고침해 다시 저장해 주세요")
     reason = str(body.get("reason") or body.get("survey_note") or "").strip()
     # ★ 사유 없는 청구 제외는 받지 않는다 (2026-08-13). 몇 달 뒤 "이건 왜 청구가
@@ -3120,6 +3139,73 @@ def _mark_app_store_row(row):
     return row
 
 
+# ★ **반쪽 목록이 내려간 사실**을 남긴다 (2026-08-18 · 분담판 [95]).
+#   아래 두 overlay 는 앱 DB 를 못 읽으면 Excel 행을 그대로 돌려준다 — 화면을 통째로
+#   닫지 않으려는 것이라 **그 폴백은 옳다.** 잘못은 그것이 **조용하다**는 것이다:
+#   그 행에는 `_store_id`·`DB버전` 이 없어 그 목록으로 저장을 누르면 400
+#   `화면 데이터 버전이 없습니다` 가 나고, 안내는 '목록을 새로고침해 다시 저장' 이다.
+#   **새로고침해도 같은 반쪽이 온다** — 실측 2026-08-13 02시 한 시간에 저장 61번·
+#   실패 58번이 그 모양이었다. 게다가 자국이 없어 그날 폴백이 돌았는지 **나중에
+#   확인할 길조차 없었다**([169]).
+_STORE_FALLBACK_FILE = os.path.join(ROOT, "reports", "앱DB_폴백.json")
+_STORE_FALLBACK = {"count": 0, "at": "", "at_ts": 0.0, "where": "", "why": "",
+                   "half_count": 0, "half_at": "", "half_ts": 0.0, "half_where": "",
+                   "half_why": "", "wrote_ts": 0.0}
+_STORE_FALLBACK_LOCK = threading.Lock()
+
+
+def _note_store_fallback(where, exc, *, half=True):
+    """앱 DB 읽기 폴백 한 번을 적는다. 판정도 문구도 이 자국 하나만 본다([162]).
+
+    `half` 는 **결과로 판정한 것**을 받는다 — 덮기 자체가 죽어 목록이 반쪽이 된 것과,
+    덮기는 됐는데 그 뒤 계산에서 죽은 것은 조치가 다르다. 뭉치면 사람이 멀쩡한
+    앱 DB 를 고치러 간다([172]).
+    """
+    now = time.time()
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    why = error_reason(exc, 200)
+    with _STORE_FALLBACK_LOCK:
+        _STORE_FALLBACK["count"] += 1
+        _STORE_FALLBACK.update(at=stamp, at_ts=now, where=str(where), why=why)
+        if half:
+            _STORE_FALLBACK["half_count"] += 1
+            _STORE_FALLBACK.update(half_at=stamp, half_ts=now,
+                                   half_where=str(where), half_why=why)
+        snap = {k: v for k, v in _STORE_FALLBACK.items() if k != "wrote_ts"}
+        fresh = now - float(_STORE_FALLBACK.get("wrote_ts") or 0) >= 60
+        if fresh:
+            _STORE_FALLBACK["wrote_ts"] = now
+    if fresh:
+        try:  # 자국을 못 남겨도 화면은 계속 열린다 — 폴백의 뜻이 그것이다.
+            os.makedirs(os.path.join(ROOT, "reports"), exist_ok=True)
+            tmp = _STORE_FALLBACK_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as out:
+                json.dump(snap, out, ensure_ascii=False, indent=2)
+            os.replace(tmp, _STORE_FALLBACK_FILE)
+        except Exception:
+            pass
+    return snap
+
+
+def _store_fallback_hint(minutes=30):
+    """최근 **반쪽 목록** 폴백이 있었으면 한 줄, 없으면 빈 문자열.
+
+    없는 것을 지어내지 않는다 — 근거가 없으면 예전 안내가 그대로 간다([169]).
+    """
+    with _STORE_FALLBACK_LOCK:
+        ts = float(_STORE_FALLBACK.get("half_ts") or 0)
+        if not ts or (time.time() - ts) > minutes * 60:
+            return ""
+        return (f"{_STORE_FALLBACK['half_at']} 앱 DB 읽기 실패 "
+                f"{_STORE_FALLBACK['half_count']}회 · {_STORE_FALLBACK['half_where']} · "
+                f"{_STORE_FALLBACK['half_why']}")
+
+
+def _store_fallback_state():
+    with _STORE_FALLBACK_LOCK:
+        return {k: v for k, v in _STORE_FALLBACK.items() if k != "wrote_ts"}
+
+
 def _sidecar_day(value):
     """Normalize a sidecar date without inventing a day from non-date text."""
     raw = str(_ryu_display_value(value) or "").strip()[:10]
@@ -3366,9 +3452,12 @@ def _overlay_app_store_settlements(rows, store=None):
             source_id = str(row.get("원천업무ID") or "").strip()
             _apply_cancelled_source_to_settlement(row, source_outcome.get(source_id))
         return [_mark_app_store_row(dict(row)) for row in merged]
-    except Exception:
+    except Exception as exc:
         # 정본 DB 장애는 /api/app-store/status가 별도로 드러낸다. 기존 읽기 화면까지
         # 통째로 닫지는 않아 운영자가 상태 페이지에서 복구할 수 있게 한다.
+        # ★ 다만 **조용히** 넘어가지 않는다([95]) — 여기서 돌아간 행에는 DB버전이
+        #   없어 저장이 400 으로 막히고, 사람에게는 헛된 '새로고침' 안내만 간다.
+        _note_store_fallback("정산 목록(06_거래서류청구수금)", exc)
         return [dict(row) for row in rows]
 
 
@@ -3638,8 +3727,14 @@ def _overlay_app_store_works(out):
                 _mark_app_store_row(row)
                 derive_status(row, kind)
                 derive_effective_verification(row, kind)
-    except Exception:
-        pass
+    except Exception as exc:
+        # ★ 겉모습이 같아도 둘이다([172]) — 덮기 자체가 죽어 **목록이 반쪽**이 된 것과,
+        #   덮기는 됐는데 그 뒤 파생 계산에서 죽은 것. 조치가 다르므로 짐작하지 않고
+        #   **결과**로 가른다: `_store_id` 가 하나라도 붙었으면 덮기는 된 것이다.
+        overlaid = any(row.get("_store_id")
+                       for kind in ("as", "pm") for row in (out.get(kind) or []))
+        _note_store_fallback("업무 목록(02_돌발AS접수·04_정기점검)"
+                             + (" 파생계산" if overlaid else ""), exc, half=not overlaid)
     return out
 
 
@@ -8385,6 +8480,9 @@ self.addEventListener('fetch', e => {
                     "canonical": True,
                     "db_file": os.path.basename(db_path),
                     "pending_meaning": "Excel 보관본 생성 outbox",
+                    # 지금 DB 가 멀쩡해도 **아까 반쪽 목록이 나갔을 수 있다**([95]).
+                    # 그 사실은 여기 말고는 어디에도 안 뜬다.
+                    "fallback": _store_fallback_state(),
                 })
             except Exception as exc:
                 return self._send(503, {"ok": False, "canonical": True,

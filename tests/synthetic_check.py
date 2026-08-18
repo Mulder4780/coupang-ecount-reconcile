@@ -20496,6 +20496,135 @@ def t286_sales_source_survives_recent_export_cap():
 
 
 
+def t296_half_list_never_blames_the_person():
+    """[296] **반쪽 목록**은 조용히 나가지 않고, 400 이 사람을 탓하지 않는다 (분담판 [95]).
+
+    앱 DB 를 못 읽으면 두 overlay 가 Excel 행을 그대로 돌려준다 — 화면을 통째로
+    닫지 않으려는 것이라 **그 폴백은 옳다.** 잘못은 그것이 **조용하다**는 것이었다:
+    돌아간 행에는 `_store_id`·`DB버전` 이 없어 저장이 400 으로 막히는데 안내는
+    '목록을 새로고침해 다시 저장해 주세요' 였다. **새로고침해도 같은 반쪽이 온다** —
+    실측 2026-08-13T02 한 시간에 저장 61번·실패 58번이 그 모양이었고, 자국이 없어
+    그날 폴백이 돌았는지 **나중에 확인할 길조차 없었다**([169]).
+
+    되돌아가면 안 되는 것만 잰다 — 글자가 아니라 **동작**으로.
+    """
+    import tempfile, types
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as A
+
+    # 실측 증거 파일에는 한 글자도 안 쓴다 — 시험 행을 섞으면 그 파일이 더는 실측이
+    # 아니다([247] 에서 그대로 당했다). 임시 경로로만 잰다.
+    참자국, A._STORE_FALLBACK_FILE = A._STORE_FALLBACK_FILE, os.path.join(
+        tempfile.mkdtemp(), "앱DB_폴백.json")
+    참상태 = dict(A._STORE_FALLBACK)
+    실제앱스토어 = sys.modules.get("app_store")
+    실제파생 = A.derive_status
+    try:
+        class Dead:
+            def overlay_rows(self, *a, **k): raise RuntimeError("database is locked")
+            def list_sheet_rows(self, *a, **k): raise RuntimeError("database is locked")
+
+        def 초기화():
+            A._STORE_FALLBACK.update(count=0, at="", at_ts=0.0, where="", why="",
+                                     half_count=0, half_at="", half_ts=0.0,
+                                     half_where="", half_why="", wrote_ts=0.0)
+
+        # ① 정산 overlay 가 죽으면 반쪽이 나가되 **자국이 남는다**
+        초기화()
+        나간행 = A._overlay_app_store_settlements(
+            [{"정산ID": "JS-2606-634", "프로젝트NO": "UJ2601032"}], store=Dead())
+        assert 나간행 and not 나간행[0].get("_store_id"), "폴백이 화면을 닫아 버렸다"
+        상태 = A._store_fallback_state()
+        assert 상태["half_count"] == 1 and 상태["half_why"], \
+            "앱 DB 를 못 읽어 반쪽 목록이 나갔는데 자국이 없다 — 나중에 확인할 길이 없다"
+        assert A._store_fallback_hint(), "최근 폴백을 근거로 못 댄다"
+
+        # ② 조용해지면 없는 것을 지어내지 않는다([169]) — 오래된 자국은 근거가 아니다
+        assert not A._store_fallback_hint(minutes=0), \
+            "지난 폴백을 지금 것처럼 말한다 — 멀쩡한 저장까지 DB 탓으로 돌린다"
+        초기화()
+        assert A._store_fallback_hint() == "", "폴백이 없었는데 있었다고 말한다"
+
+        # ③ **덮기 실패(반쪽)** 와 **파생 실패(반쪽 아님)** 를 결과로 가른다([172]).
+        #    뭉치면 멀쩡한 앱 DB 를 고치러 간다.
+        가짜 = types.ModuleType("app_store")
+        가짜.default_store = lambda: Dead()
+        sys.modules["app_store"] = 가짜
+        A._overlay_app_store_works({"as": [{"접수ID": "AS-1"}], "pm": []})
+        assert A._store_fallback_state()["half_count"] == 1, "덮기 실패를 반쪽이라 안 센다"
+
+        class Half:
+            def overlay_rows(self, sheet, rows, key):
+                return [dict(r, _store_id="S1", _record_version=3) for r in rows]
+        초기화()
+        가짜.default_store = lambda: Half()
+        A.derive_status = lambda row, kind: (_ for _ in ()).throw(RuntimeError("파생 오류"))
+        A._overlay_app_store_works({"as": [{"접수ID": "AS-1"}], "pm": []})
+        늦은실패 = A._store_fallback_state()
+        assert 늦은실패["count"] == 1 and 늦은실패["half_count"] == 0, \
+            "덮기는 됐는데 파생에서 죽은 것을 '목록이 반쪽'이라 부른다 — 지목이 틀렸다"
+        A.derive_status = 실제파생
+
+        # ④ 400 이 갈래를 말한다 — 앱 DB 에 버전이 있으면 '새로고침' 이라 안 한다.
+        #    근거는 시간 창이 아니라 이 대조 하나라, 자국이 없어도 정확히 걸린다.
+        초기화()
+
+        class 버전있음:
+            def list_sheet_rows(self, sheet):
+                return [{"점검ID": "PM-1", "_store_id": "S1", "_record_version": 4}]
+            def get_work(self, sid): return {}
+
+        class 버전없음(버전있음):
+            def list_sheet_rows(self, sheet):
+                return [{"점검ID": "PM-1", "_store_id": "S1", "_record_version": 0}]
+
+        class 없는행:
+            def list_sheet_rows(self, sheet): return []
+
+        def 저장(store):
+            try:
+                A.save_staff_entry("ryu-jiyeong",
+                                   {"category": "pm", "record_key": "PM-1",
+                                    "values": {"점검상태": "작업완료"}},
+                                   store=store, actor="검증")
+            except ValueError as exc:
+                return str(exc)
+            return ""
+
+        반쪽 = 저장(버전있음())
+        assert "반쪽" in 반쪽 and "새로고침해 다시 저장" not in 반쪽, \
+            f"앱 DB 에 버전이 있는데도 '새로고침' 만 말한다 — 백 번 눌러도 같다: {반쪽}"
+        죽음 = 저장(Dead())
+        assert "앱 DB를 지금 읽지 못해" in 죽음, f"DB 가 죽은 것을 사람 탓으로 돌린다: {죽음}"
+        # 옆 갈래를 삼키지 않는다([256]·[172]) — 없는 행·버전 0 은 원래 문구 그대로다.
+        없음 = 저장(없는행())
+        assert "먼저 원본을 수집" in 없음, f"[256] 의 갈래가 새 문구에 먹혔다: {없음}"
+        낡음 = 저장(버전없음())
+        assert "새로고침해 다시 저장" in 낡음, f"진짜 새로고침 갈래가 사라졌다: {낡음}"
+
+        # ⑤ 자국을 못 남겨도 화면은 열린다 — 폴백의 뜻이 그것이다.
+        A._STORE_FALLBACK_FILE = os.path.join(os.path.dirname(A._STORE_FALLBACK_FILE),
+                                              "없는폴더", "x", "앱DB_폴백.json")
+        초기화()
+        A._note_store_fallback("검증", RuntimeError("쓰기 불가"))
+        assert A._store_fallback_state()["half_count"] == 1, \
+            "파일을 못 써서 자국 자체를 잃는다"
+    finally:
+        A._STORE_FALLBACK_FILE = 참자국
+        A._STORE_FALLBACK.clear(); A._STORE_FALLBACK.update(참상태)
+        A.derive_status = 실제파생
+        if 실제앱스토어 is not None:
+            sys.modules["app_store"] = 실제앱스토어
+        else:
+            sys.modules.pop("app_store", None)
+
+    # ⑥ 상태 화면이 그 사실을 내려 준다 — 지금 DB 가 멀쩡해도 아까 반쪽이 나갔을 수 있다.
+    src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert '"fallback": _store_fallback_state()' in src, \
+        "/api/app-store/status 가 폴백 자국을 안 싣는다 — 파일 말고는 볼 곳이 없다"
+    print("[296] 반쪽 목록은 자국을 남기고 400 이 갈래를 말한다 ✅")
+
+
 def t295_camp_contacts_never_guess_a_phone_number():
     """[295] 캠프 담당자 — **틀린 번호는 빈 칸보다 나쁘다** (2026-08-18 유수비 지시)
 
@@ -20965,6 +21094,7 @@ if __name__ == "__main__":
     t293_yield_is_a_claim_that_gets_audited()
     t294_unreadable_source_never_passes_as_read()
     t295_camp_contacts_never_guess_a_phone_number()
+    t296_half_list_never_blames_the_person()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
