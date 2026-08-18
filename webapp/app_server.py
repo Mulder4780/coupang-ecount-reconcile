@@ -8995,7 +8995,20 @@ self.addEventListener('fetch', e => {
             _cp = os.path.join(ROOT, "reports", "캠프_담당자.json")
             try:
                 with open(_cp, encoding="utf-8") as f:
-                    return self._send(200, {"ok": True, **json.load(f)})
+                    _cd = json.load(f)
+                # ★ 사람이 앱에서 고친 값을 **여기서 한 번** 겹친다([162]).
+                #   회차 산출물 파일에는 한 글자도 안 쓴다 — 그 파일은 09:50 마다
+                #   밴드에서 다시 뽑혀 통째로 덮이므로, 거기 쓰면 다음 날 사라진다.
+                import camp_contacts as _cc
+                import camp_edit as _ce
+                try:
+                    _cd = _ce.overlay(_cd)
+                except Exception as _exc:
+                    # ★ 못 겹쳤으면 **못 겹쳤다고 말한다**([169]). 조용히 자동값만
+                    #   보여 주면 어제 고친 번호가 사라진 채 화면은 멀쩡해 보인다.
+                    _cd["고친값못읽음"] = str(_exc)[:200]
+                _cd["최근변경"] = _cc.load_changes()
+                return self._send(200, {"ok": True, **_cd})
             except FileNotFoundError:
                 # ★ '없다'가 아니라 **'아직 안 만들었다'** 라고 말한다([169]).
                 return self._send(200, {"ok": False, "rows": [],

@@ -181,37 +181,144 @@ def build():
                      if (m.get("담당자") or m.get("연락처")) else {}),
         })
 
-    # 이름이 수상한 것은 **지우지 않고 맨 뒤로** 보낸다([169]).
-    rows.sort(key=lambda r: (r["이름확인필요"], not r["정기점검"],
-                             -r["정기점검건수"], r["캠프명"]))
-    tel = sum(1 for r in rows
-              if (r["현장책임"].get("전화") or r["안전관리"].get("전화")
-                  or r["담당자"].get("전화")))
+    sort_rows(rows)
     return {
         "갱신": BE.datetime.now().isoformat(timespec="seconds")
         if hasattr(BE, "datetime") else "",
-        "캠프수": len(rows),
-        "정기점검캠프수": sum(1 for r in rows if r["정기점검"]),
-        "전화있음": tel,
-        "전화모름": len(rows) - tel,
-        "이름확인필요": sum(1 for r in rows if r["이름확인필요"]),
         "출처": "밴드 접수 글 본문(band_extract) + reports/캠프마스터.json",
         "rows": rows,
+        **summarize(rows),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 정렬·요약은 **한 곳**이다([162]).
+#
+# 사람이 앱에서 고친 값을 덮어 쓴 뒤(`camp_edit.overlay`)에도 머리글 숫자를 다시
+# 세어야 하는데, 거기서 따로 세면 언젠가 갈린다 — 그러면 표에는 전화가 있는데
+# 머리글은 '모름'이라 말하는 화면이 된다(오류는 안 난다 · [165] 모양).
+# ─────────────────────────────────────────────────────────────────────────────
+def has_tel(row):
+    """이 캠프에 **누구든** 전화가 있나. 역할 이름은 여기 한 곳에만 적는다."""
+    for slot in ("현장책임", "안전관리", "담당자"):
+        if (row.get(slot) or {}).get("전화"):
+            return True
+    return False
+
+
+def sort_rows(rows):
+    """이름이 수상한 것은 **지우지 않고 맨 뒤로** 보낸다([169])."""
+    rows.sort(key=lambda r: (bool(r.get("이름확인필요")), not r.get("정기점검"),
+                             -int(r.get("정기점검건수") or 0), str(r.get("캠프명") or "")))
+    return rows
+
+
+def summarize(rows):
+    tel = sum(1 for r in rows if has_tel(r))
+    return {
+        "캠프수": len(rows),
+        "정기점검캠프수": sum(1 for r in rows if r.get("정기점검")),
+        "전화있음": tel,
+        "전화모름": len(rows) - tel,
+        "이름확인필요": sum(1 for r in rows if r.get("이름확인필요")),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 담당자가 **바뀐 것**을 자국으로 남긴다 (2026-08-18 지시: "추가 및 변경시 자동으로
+# 이 카테고리에 반영해서 업데이트").
+#
+#   · 이 회차는 매번 밴드에서 **다시 뽑아** OUT 을 통째로 덮는다. 그래서 어제 번호와
+#     오늘 번호가 달라도 **어느 화면에도 티가 안 난다** — 값이 비는 것이 아니라
+#     조용히 바뀌는 것이다([165] 와 같은 종류).
+#   · 그러므로 덮기 **전에** 옛 파일과 대 보고 달라진 캠프만 적어 둔다.
+#   · ★ **바뀐 것 자체는 경보가 아니다**([297]). 잘 따라간 변경은 정상이다 —
+#     화면이 '최근 바뀜'으로 보여 줄 뿐 인계 '먼저 처리할 것'에는 안 올린다.
+# ─────────────────────────────────────────────────────────────────────────────
+CHANGES = os.path.join(REPORT_DIR, "캠프_변경.json")
+CHANGE_KEEP = 400          # 이 이상은 오래된 것부터 버린다(파일이 무한히 자라지 않게)
+
+
+def contact_sig(row):
+    """한 캠프의 **연락처 지문**. 건수·최근작업일은 매일 움직이므로 넣지 않는다 —
+    넣으면 매일 전부 '바뀜'이 되어 아무도 안 본다([170] 의 재수집 사고와 같은 모양)."""
+    out = []
+    for slot in ("현장책임", "안전관리", "담당자"):
+        p = row.get(slot) or {}
+        out.append("%s=%s/%s/%s" % (slot, p.get("이름") or "", p.get("전화") or "",
+                                    p.get("메일") or ""))
+    return " · ".join(out)
+
+
+def diff_changes(old_rows, new_rows, when):
+    """옛 목록 → 새 목록에서 **연락처가 달라진 캠프**만 돌려준다."""
+    prev = {_norm(r.get("캠프명")): r for r in (old_rows or [])}
+    out = []
+    for r in new_rows:
+        key = _norm(r.get("캠프명"))
+        before = prev.get(key)
+        sig = contact_sig(r)
+        if before is None:
+            # 새로 나타난 캠프 — 연락처가 있을 때만 적는다(빈 캠프는 소식이 아니다).
+            if sig.replace("현장책임=//", "").replace("안전관리=//", "") \
+                   .replace("담당자=//", "").replace(" · ", "").strip():
+                out.append({"때": when, "캠프명": r.get("캠프명"), "갈래": "새 캠프",
+                            "이전": "", "지금": sig})
+            continue
+        old_sig = contact_sig(before)
+        if old_sig != sig:
+            out.append({"때": when, "캠프명": r.get("캠프명"), "갈래": "연락처 바뀜",
+                        "이전": old_sig, "지금": sig})
+    return out
+
+
+def record_changes(new_rows, when):
+    """덮기 **전에** 부른다. 못 읽으면 조용히 넘어간다 — 첫 실행에는 옛 파일이 없다."""
+    try:
+        with open(OUT, encoding="utf-8") as f:
+            old_rows = (json.load(f).get("rows") or [])
+    except Exception:
+        return []                      # 옛 파일이 없으면 '전부 새것'이 아니라 **모름**이다
+    fresh = diff_changes(old_rows, new_rows, when)
+    if not fresh:
+        return []
+    try:
+        with open(CHANGES, encoding="utf-8") as f:
+            log = json.load(f).get("rows") or []
+    except Exception:
+        log = []
+    log = (fresh + log)[:CHANGE_KEEP]
+    tmp = CHANGES + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"갱신": when, "rows": log}, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, CHANGES)
+    return fresh
+
+
+def load_changes(limit=30):
+    try:
+        with open(CHANGES, encoding="utf-8") as f:
+            return (json.load(f).get("rows") or [])[:limit]
+    except Exception:
+        return []
 
 
 def main():
     import datetime as _dt
     d = build()
     d["갱신"] = _dt.datetime.now().isoformat(timespec="seconds")
+    changed = []
     if "--write" in sys.argv:
         os.makedirs(REPORT_DIR, exist_ok=True)
+        # ★ 덮기 **전에** 무엇이 달라졌는지 적는다 — 덮은 뒤에는 물어볼 곳이 없다.
+        changed = record_changes(d["rows"], d["갱신"])
         tmp = OUT + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False, indent=1)
         os.replace(tmp, OUT)
     print(f"캠프 {d['캠프수']}개 · 정기점검 {d['정기점검캠프수']}개 · "
           f"전화 있음 {d['전화있음']} · 모름 {d['전화모름']}"
+          + (f" · 이번에 바뀐 캠프 {len(changed)}개" if changed else "")
           + (f" → {OUT}" if "--write" in sys.argv else ""))
     for r in d["rows"][:5]:
         # 화면과 같은 차례로 고른다 — 현장책임이 없으면 직책 미상 담당자가 ①이다.

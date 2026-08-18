@@ -1680,11 +1680,27 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
   .tabbar button.calendar-nav.on{background:rgba(91,140,255,.22);border-color:rgba(143,163,255,.42)}
   .shell{margin-left:216px;padding:24px 30px 48px;max-width:none}
   .appbar{margin-left:216px;background:var(--surface);color:var(--ink);
-    box-shadow:0 1px 0 var(--line);padding:12px 30px;min-height:96px;gap:24px}
+    box-shadow:0 1px 0 var(--line);padding:12px 30px;min-height:96px;gap:24px;
+    /* ★ 사이드바는 `position:fixed` 다 — 그래서 **페이지가 가로로 조금이라도
+       스크롤되면 본문만 왼쪽으로 밀려 사이드바 밑으로 들어간다.** 화면은 '왼쪽이
+       잘린' 것처럼 보이는데 오류는 한 줄도 안 나고, 창이 넓은 사람에게는 재현조차
+       안 된다(2026-08-13 형님 지시 '이 화면 왼쪽 잘리는 문제 전체적으로 수정해서
+       변경해'). 실측 900px: `document.scrollWidth 911 > clientWidth 885` —
+       넘긴 것은 `.appbar-status`(아래 `flex:none` 이라 안 줄어들었다)와
+       `min-width:295px` 로 바닥이 박혀 있던 브랜드 칸이었다.
+       ★ **넘치는 것을 감추지 않는다**([273]) — `overflow` 로 덮으면 시계·단추가
+       소리 없이 사라지고 아무도 모른다. 대신 **줄을 바꿔 아래로 내린다.** */
+    flex-wrap:wrap;row-gap:8px}
   .appbar-identity{gap:14px}
   .appbar h1{font-size:18px;line-height:1.18}
   .appbar h1 .brandfull,.appbar h1 small{white-space:nowrap}
-  .appbar-brand-stack{min-width:295px}
+  /* 295px 는 '브랜드가 이만큼은 보였으면' 하는 **바람**이지 지켜야 할 최소가 아니다.
+     `min-width` 로 두면 좁은 창에서 페이지를 밀어내므로 `flex-basis` 로 옮긴다 —
+     넓으면 그대로 295px, 좁으면 줄어든다. */
+  .appbar-brand-stack{min-width:0;flex:0 1 295px}
+  /* `flex:none` 은 '줄어들지 마라'는 뜻이라 좁은 창에서 그대로 페이지를 넘긴다.
+     `margin-left:auto` 가 있으면 한 줄일 때도 줄바꿈된 뒤에도 오른쪽에 붙는다. */
+  .appbar-status{flex:0 1 auto;margin-left:auto}
   .appbar h1 small{color:var(--ink-3)}
   .appbar .sub{color:var(--ink-3)}
   .kpis{grid-template-columns:repeat(6,1fr)}
