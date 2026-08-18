@@ -20837,7 +20837,11 @@ ok(rl[2].라벨 === '담당자(직책 미상)', '옛 양식 사람의 직책을 
 api.renderCampList();
 const t = el.campHost.innerHTML || '';
 ok(t.includes('010-6445-1001'), '표에서 전화가 잘렸다');
-ok(t.includes('mailto:verylongaddress.person@coupangls.com'), '표에 이메일이 없다');
+ok(t.includes('verylongaddress.person@coupangls.com'), '표에 이메일이 없다');
+// ★ 이메일을 **누르면 메일이 열리는 링크**로 만들지 않는다([34] 자동 전송 경로 금지).
+//   만들면서 그대로 걸렸다 — `mailto:` 를 넣었다가 전체 검증이 빨개졌다. 편의 하나
+//   때문에 그 문을 열면, 나중에 진짜 전송 경로가 들어와도 안 걸린다.
+ok(!t.includes('mailto:'), '이메일이 자동 전송 링크가 됐다([34])');
 ok(t.includes('이메일 모름'), "빈 이메일을 '모름'이라 안 적는다");
 ['현장책임','안전관리','담당자(직책 미상)'].forEach(r=>ok(t.includes(r), '표에 '+r+' 없음'));
 drawn.length = 0; api.campsCapture();
