@@ -338,6 +338,20 @@ def _md(d, why, now=None):
             (str(돎.get("때") or "")[:16].replace("T", " ") + " " + str(돎.get("갈래") or "")).strip() or "없음",
             (str(양.get("때") or "")[:16].replace("T", " ") + " " + str(양.get("주인") or "")).strip() or "없음"))
     L.append("")
+    # ★ **뺀 것은 숫자로 말한다**([169]).  점유에 양보한 것은 경보로 안 올리지만
+    #   조용히 없애지도 않는다 — 안 보이면 '겹친 적 없다'로 읽힌다.
+    try:
+        _헛, _못, _점 = audit(d, now=now)
+        if _점:
+            L += ["", "## 점유에 양보한 것 (경보 아님)", "",
+                  "- %d건 — 주인은 **안다**(점유 세션). 다만 그 세션에는 `record_run` 이"
+                  " 없어 '끝냈나'를 물을 자국이 없다." % len(_점), ""]
+            for x in _점[-5:]:
+                L.append("  - %s · %s -> %s" % (str(x.get("때"))[:16].replace("T", " "),
+                                                x.get("작업"), x.get("주인")))
+            L.append("")
+    except Exception:                      # 표를 못 그려도 리포트를 세우지 않는다
+        pass
     return "\n".join(L)
 
 
