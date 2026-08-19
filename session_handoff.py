@@ -974,10 +974,25 @@ def org_gap():
         return []
 
 
+# ★ 진단이 **다른 감시자에게서 빌려 온** 소식은 여기서 두 번 싣지 않는다 (2026-08-19).
+#   `system_audit` 이 회차 경보를 담는 것은 옳다 — 앱 실행 화면에서는 그것만 읽는다.
+#   그러나 인계 문서는 그 **원본**(`schedule_watch`)도 같이 읽으므로, 그대로 두면 회차
+#   경보가 **언제나 두 줄**이 된다(실측 2026-08-19 '쿠팡업무_원본자료자동정리' 가
+#   `[P0] 자동 회차 실패 경보…` 한 줄 + `회차 [중단됨] …` 한 줄). 한 사건이 두 목소리로
+#   울면 목록이 길어지고, 목록이 길면 **진짜 경보가 묻힌다**(`[170]`).
+#   남기는 것은 **원본 줄**이다 — 갈래(`[중단됨]`)까지 말해 조치가 갈린다(`[289]`).
+_AUDIT_DUP_IDS = ("scheduled-round-alert",)
+
+
 def blockers(st, for_sol=False):
     """다음 세션이 **먼저 처리해야** 하는 것 — 안 하면 조용히 어긋난다."""
     out = []
+    # ★ **원본이 실제로 실렸을 때만** 건너뛴다(`[169]`). 스케줄러 감시를 못 읽은 날
+    #   빼 버리면 그 경보가 통째로 사라진다 — '다른 데 있겠지'는 근거가 아니다.
+    borrowed_ok = bool((st.get("스케줄러") or {}).get("경보"))
     for row in (st.get("시스템진단") or []):
+        if borrowed_ok and row.get("id") in _AUDIT_DUP_IDS:
+            continue
         out.append(("[%s] %s — %s" % (row.get("priority", ""), row.get("title", ""),
                                       str(row.get("evidence") or "")[:150]),
                     row.get("action") or "python system_audit.py --print"))
@@ -1106,7 +1121,13 @@ def blockers(st, for_sol=False):
                if run_h is not None
                else "python daily_run.py    # 먼저 tasklist 로 앞 회차가 도는지 확인")
         why += _step_hint()
-        out.append(("일일자동대조 — %s. 스케줄러는 '성공'으로 보고한다"
+        # ★ 여기서 오늘의 스케줄러 결과를 **확언하지 않는다** (2026-08-19).
+        #   예전 문구는 "스케줄러는 '성공'으로 보고한다"였는데, 실측으로 그날
+        #   스케줄러는 `코드 1`(실패)이라 적고 있었다 — 바로 두 줄 위 `회차 [고침대기]`
+        #   가 그렇게 말한다. 한 문서 안에서 두 줄이 서로 어긋나면 사람은 **없는 것을
+        #   찾아 나선다**(`[172]`). 이 괄호는 '이 검사가 왜 있나'라는 일반론이지
+        #   오늘에 대한 주장이 아니므로, 주장이 아닌 말로 적는다.
+        out.append(("일일자동대조 — %s. 스케줄러가 '성공'이라 적어도 완주하지 않았을 수 있다"
                     "(앞 회차가 도는 동안 다음 회차가 조용히 건너뛴다)%s"
                     % (why, (" · 실패단계: " + ", ".join(bad[:4])) if bad else ""), act))
     elif run_h is not None and run_h >= DAILY_SLOW_H:

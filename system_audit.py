@@ -191,6 +191,31 @@ def _finding(identifier: str, priority: str, title: str, evidence: str,
     }
 
 
+def _alert_text(item, cap=150):
+    """회차 경보 한 줄 — **사전이면 그 안의 말**을 꺼낸다 (2026-08-19).
+
+    실측: `schedule_watch` 의 `경보` 는 `{갈래·작업·무엇·어떻게}` **사전**인데 여기가
+    `str(x)` 로 찍어 인계 문서에 **파이썬 사전이 그대로** 나왔다 —
+    `{'갈래': '중단됨', '작업': '쿠팡업무_원본자료자동정리', '무엇': …}`.
+
+    ★ 보기 나쁜 것보다 나쁜 것이 있다: `[:150]` 이 **사전 껍데기(약 40자)까지** 세므로
+      말이 길면 **정작 사유가 잘린다.** 겉은 경보인데 왜인지는 못 읽는 자리다(`[169]`).
+    ★ 만드는 쪽이 모양을 바꿔도 여기는 **오류가 안 난다**(`[165]`) — 그래서 문자열도
+      그대로 받는다. 모양을 하나로 못 박으면 다음에 바뀔 때 또 조용해진다.
+    """
+    if isinstance(item, dict):
+        text = str(item.get("무엇") or item.get("말") or "").strip()
+        if not text:
+            text = str(item.get("작업") or "").strip() or str(item)
+        text = text.replace("**", "").strip()
+        kind = str(item.get("갈래") or "").strip()
+        if kind and not text.startswith("[%s]" % kind):
+            text = "[%s] %s" % (kind, text)
+    else:
+        text = str(item)
+    return text[:cap]
+
+
 def _schedule_verdict(task_name):
     """스케줄러 감시자가 **이미 내린** 판정을 빌린다 — 여기서 다시 묻지 않는다.
 
@@ -325,7 +350,7 @@ def build() -> dict[str, Any]:
     if schedule:
         alerts = schedule.get("경보") or []
         if alerts:
-            sample = " · ".join(str(x)[:150] for x in alerts[:3])
+            sample = " · ".join(_alert_text(x) for x in alerts[:3])
             add("scheduled-round-alert", "P0", "자동 회차 실패 경보가 남아 있음",
                 sample, "python schedule_watch.py --print", "reports/스케줄러_회차감시.json")
 

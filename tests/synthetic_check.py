@@ -8247,7 +8247,21 @@ def t201_upload_intake(tmp):
     assert daily.index("upload_intake.py") < daily.index("ecount_reconcile.py"), \
         "업로드 분류가 전체 대조보다 늦다"
     assert "sync_uploads(dry)" in watchdog and "전체 대조 시작" in watchdog
-    assert "upload_intake.py --apply" in batch
+    # ★ 회차가 **어디서** 도는지는 바뀔 수 있다 — `.bat` 이 러너를 부르면 한 겹
+    #   따라간다(`[304]` 의 `task_scripts` 와 같은 규칙). 2026-08-19 실사고: 네 단계를
+    #   `source_tidy_run.py` 로 옮기자(단계마다 제한을 걸려고) 이 글자 검사가 빨개졌는데
+    #   `--apply` 는 그 러너 안에 그대로 있었다. **글자가 있어야 할 자리를 못 박으면
+    #   고칠 수 없다**(`[39]` — 글자 검사는 '되돌아가면 안 되는 것'에 쓴다).
+    # ★ 지키는 것은 자리가 아니라 사실이다: **업로드함 흡수가 `--apply` 로 돈다.**
+    #   빠지면 흡수가 조용히 dry-run 이 되어 원본이 한 건도 안 들어온다(`[169]`).
+    chain = batch
+    for word in batch.replace('"', " ").split():
+        if word.endswith(".py"):
+            runner = os.path.join(ROOT, os.path.basename(word))
+            if os.path.isfile(runner):
+                chain += open(runner, encoding="utf-8").read()
+    assert "upload_intake.py" in chain and "--apply" in chain, (
+        "원본정리 회차가 업로드함을 --apply 로 흡수하지 않는다 — 흡수가 조용히 dry-run 이 된다")
     assert 'files = pick("po")' in open(os.path.join(ROOT, "po_reconcile.py"), encoding="utf-8").read()
     for rel in ("kakao_extract.py", os.path.join("kakao", "kakao_reconcile.py")):
         src = open(os.path.join(ROOT, rel), encoding="utf-8").read()
@@ -23983,8 +23997,8 @@ def t323_amount_ladder_is_one_value_in_five_places():
 
 
 
-def t324_one_alert_is_one_line_and_the_reason_survives():
-    """[324] **회차 경보가 사전으로 찍히고 같은 사건이 두 줄로 실리던 것** (2026-08-19).
+def t325_one_alert_is_one_line_and_the_reason_survives():
+    """[325] **회차 경보가 사전으로 찍히고 같은 사건이 두 줄로 실리던 것** (2026-08-19).
 
     실측 인계 '먼저 처리할 것' 15줄 중 셋이 이 모양이었다:
       · `[P0] 자동 회차 실패 경보가 남아 있음 — {'갈래': '중단됨', '작업': …}` —
@@ -24060,7 +24074,7 @@ def t324_one_alert_is_one_line_and_the_reason_survives():
         "오늘의 스케줄러 결과를 확언한다 — 실측 그날 스케줄러는 `코드 1`(실패)이라 "
         "적었고 같은 문서 두 줄 위가 그렇게 말한다([172]): %r" % line)
 
-    print("[324] 인계 - 회차 경보 한 사건 한 줄 · 사전이 아니라 그 안의 말 · "
+    print("[325] 인계 - 회차 경보 한 사건 한 줄 · 사전이 아니라 그 안의 말 · "
           "못 읽으면 안 뺌 · 오늘의 스케줄러 결과 확언 안 함 (실행으로 잼) OK")
 
 
@@ -24474,7 +24488,7 @@ if __name__ == "__main__":
     t322_one_incident_does_not_cry_with_two_different_voices()
     t323_amount_ladder_is_one_value_in_five_places()
     t324_source_tidy_names_the_culprit_step()
-    t324_one_alert_is_one_line_and_the_reason_survives()
+    t325_one_alert_is_one_line_and_the_reason_survives()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
