@@ -2637,11 +2637,18 @@ def save_new_workcenter_job(fields, files, source_ip="", actor="app",
     return {**queued, "manifest": manifest}
 
 
-def _plain_xlsx(title, rows, cols, guide_lines=None):
+def _plain_xlsx(title, rows, cols, guide_lines=None, meta=None):
     """부르는 쪽이 준 열 그대로 XLSX 를 만든다(관리대장은 절대 열지 않는다).
 
     회신 서식과 **같은 안전장치**를 쓴다 — 수식으로 읽힐 값 앞에 `'` 를 붙이고
-    (엑셀 수식 주입), 5,000행·60열에서 끊는다."""
+    (엑셀 수식 주입), 5,000행·60열에서 끊는다.
+
+    ★ `meta` 를 주면 **맨 위에 '이게 무슨 자료인지'** 를 적는다(2026-08-19 지시).
+      전에는 1행이 곧 열 머리글이라 제목·건수·기준시각이 **파일 이름에만** 있었다 —
+      그 이름은 카톡으로 넘어가며 잘리거나 바뀌므로, 받아 본 사람은 이게 무슨 표인지
+      알 길이 없었다. **캡처에는 이미 있는 것이 엑셀에만 없었다.**
+      meta 를 **안 주면 예전과 한 글자도 안 달라진다** — 다른 화면의 내보내기를
+      말없이 바꾸지 않는다([172])."""
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
     wb = openpyxl.Workbook()
@@ -2654,16 +2661,40 @@ def _plain_xlsx(title, rows, cols, guide_lines=None):
         s = str(v)
         return "'" + s if s.startswith(("=", "+", "-", "@")) else s
 
+    def _head_txt(v, cap):
+        return re.sub(r"[\x00-\x1f]", " ", str(v or "")).strip()[:cap]
+
+    head = 1                       # 머리글이 몇 행인가 — 아래 넷이 다 이것을 본다
+    m_title = m_sub = ""
+    if isinstance(meta, dict):
+        m_title = _head_txt(meta.get("title"), 120)
+        m_sub = _head_txt(meta.get("sub"), 200)
+    if m_title or m_sub:
+        head = 4                   # 1 제목 · 2 부제(건수·기준시각) · 3 빈 줄 · 4 머리글
+        ws.append([m_title or str(title)])
+        ws.append([m_sub])
+        ws.append([])
+        wide = max(1, len(cols))
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=wide)
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=wide)
+        t = ws.cell(row=1, column=1)
+        t.font = Font(bold=True, size=15, color="0E1B3F")
+        t.alignment = Alignment(vertical="center")
+        ws.cell(row=2, column=1).font = Font(size=10, color="5B6B8C")
+        ws.row_dimensions[1].height = 26
+        ws.row_dimensions[3].height = 6
     ws.append([label for label, _k in cols])
     for r in rows:
         ws.append([safe(r.get(key, "")) for _label, key in cols])
-    for c in ws[1]:
+    for c in ws[head]:
         c.font = Font(bold=True, color="FFFFFF")
         c.fill = PatternFill("solid", fgColor="203A75")
         c.alignment = Alignment(horizontal="center", vertical="center")
-    ws.freeze_panes = "A2"
+    # ★ 얼리기·필터 **시작 줄도 같이** 내린다. 안 내리면 필터가 제목 줄을 열 이름으로
+    #   읽어 **오류 없이** 엉뚱하게 걸린다 — 파일을 열어 눌러 보기 전에는 안 보인다([165]).
+    ws.freeze_panes = "A%d" % (head + 1)
     last = openpyxl.utils.get_column_letter(len(cols))
-    ws.auto_filter.ref = f"A1:{last}{max(1, ws.max_row)}"
+    ws.auto_filter.ref = f"A{head}:{last}{max(head, ws.max_row)}"
     for i, (label, key) in enumerate(cols, 1):
         w = max(10, min(40, len(label) * 2 + 6))
         for r in rows[:200]:
@@ -2707,7 +2738,8 @@ def rows_xlsx(payload):
     if isinstance(want, list) and want:
         cols = [(str(c)[:40], str(c)[:40]) for c in want[:60] if str(c).strip()]
         if cols:
-            return _plain_xlsx(title, rows, cols, payload.get("guide"))
+            return _plain_xlsx(title, rows, cols, payload.get("guide"),
+                               payload.get("meta"))
     columns = [
         ("프로젝트NO", "프로젝트NO"), ("업무ID", "업무ID"), ("캠프명", "캠프명"),
         ("구분", "구분"), ("확인사항", "확인사항"), ("현재상태", "현재상태"),

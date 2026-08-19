@@ -17437,10 +17437,21 @@ function campRowVersion(row){
      0 은 '새로 만든다'는 뜻이라, 이미 있는 값을 덮을 수 있다([169]·[296]). */
   return (row && typeof row.사람고친판 === 'number') ? row.사람고친판 : -1;
 }
+/* ★ **제목은 여기 한 곳에서 나온다**([162]) — 캡처와 엑셀이 각자 지으면 같은 자료가
+   두 이름을 갖고, 받아 본 사람은 두 파일이 같은 표인지 알 수 없다.
+   `sub` 는 '무엇이 몇 개이고 언제 기준인가'다 — 캡처는 여기에 장 번호만 끼워 넣으므로
+   아랫줄을 제 자리에서 짓되 **같은 조각**(count·stamp)을 쓴다. */
+function campReportHead(rows){
+  const el = $('campPmOnly'), pm = !!(el && el.checked), n = (rows||[]).length;
+  const stamp = new Date().toLocaleString('ko-KR');
+  return { title: pm ? '전국 정기점검 캠프 · 담당자' : '전국 쿠팡캠프 · 담당자',
+           count: n, stamp, sub: `총 ${n}개 · 기준 ${stamp}` };
+}
 /* 엑셀은 **앱 전체가 쓰는 그 함수**를 그대로 쓴다 — 새로 만들면 사본이 둘 된다([162]). */
 function campsXlsx(){
   const rows = campRows();
   if(!rows.length){ notice('내보낼 캠프가 없습니다.'); return; }
+  const head = campReportHead(rows);
   /* 역할마다 **이름·전화·이메일 석 칸**을 다 낸다(2026-08-18 지시). 열 이름에 역할을
      그대로 박아 두어 엑셀만 받아 본 사람도 그게 누구인지 안다.
      ★ **빈 칸을 남기지 않는다**(2026-08-18 지시 "엑셀 파일도 전부 기입해서"). 엑셀에서
@@ -17465,6 +17476,10 @@ function campsXlsx(){
                 ].filter(Boolean).join(' · ') || '특이사항 없음';
     return o;
   }), {
+    /* ★ 파일 **맨 위에 '이게 무슨 자료인지'** 를 적는다(2026-08-19 지시). 전에는 그것이
+       파일 이름에만 있었는데, 그 이름은 카톡으로 넘어가며 잘리거나 바뀐다 —
+       받아 본 사람은 1행부터 `캠프명 | 호기 …` 만 보고 무슨 표인지 알 수 없었다. */
+    meta: { title: head.title, sub: head.sub },
     /* ★ **열을 직접 준다.** 안 주면 회신 서식(13칸)에 밀려 들어가 캠프명만 남는다. */
     columns: ['캠프명','호기','주소묶음','정기점검']
       .concat(...CAMP_ROLES.map(([,label])=>[label+' 이름', label+' 전화', label+' 이메일']))
@@ -17567,8 +17582,10 @@ async function campsCapture(){
   if(rest) notes.push(`※ 이미지 ${MAXPAGES}장 한도를 넘어 ${rest}개를 못 실었습니다 — 나머지 ${rest}개는 엑셀 저장으로 받으십시오.`);
   if(clipped) notes.push(`※ 칸에 넣지 못해 줄인 값 ${clipped}개가 있습니다 — 전체 값은 엑셀 저장으로 확인하십시오.`);
 
-  const title = $('campPmOnly').checked ? '전국 정기점검 캠프 · 담당자' : '전국 쿠팡캠프 · 담당자';
-  const stamp = new Date().toLocaleString('ko-KR');
+  /* 제목·기준시각은 **엑셀과 같은 자리**에서 온다([162]). 여기만 장 번호를 가운데
+     끼워 넣으므로 아랫줄은 그 조각으로 여기서 짓는다. */
+  const head = campReportHead(rows);
+  const title = head.title, stamp = head.stamp;
   const blobs = [], names = [];
   for(let p = 0; p < pages; p++){
     const show = rows.slice(p*PER, Math.min(shown, (p+1)*PER));
@@ -21367,7 +21384,10 @@ function excelRows(rows){
 async function exportRowsXlsx(title,rows,opt){
   try{
     const cols=(opt&&opt.columns)||null;
-    const body=cols ? {title, rows, columns:cols, guide:(opt&&opt.guide)||null}
+    /* `meta` 는 파일 **맨 위**에 '이게 무슨 자료인지'를 적는다 — 파일 이름은 카톡으로
+       넘어가며 잘리거나 바뀐다. 안 주면 예전 그대로다([172]). */
+    const body=cols ? {title, rows, columns:cols, guide:(opt&&opt.guide)||null,
+                       meta:(opt&&opt.meta)||null}
                     : {title, rows:excelRows(rows)};
     const r=await fetch('/api/export_xlsx',{method:'POST',cache:'no-store',
       headers:{'X-Pin':PIN,'Content-Type':'application/json'},
