@@ -23543,7 +23543,7 @@ def t328_camp_source_staleness_is_seen():
     bl = bl[:bl.index("\ndef ", 5)]
     bl = _bare(bl)
     assert 'st.get("캠프원본")' in bl, "blockers 가 캠프원본을 안 읽는다"
-    assert "camp_contacts" not in bl, "blockers 가 모듈을 직접 부르고 있다"
+    assert "import camp_contacts" not in bl, "blockers 가 모듈을 직접 부르고 있다"
 
     # (6) ★ 이번에 드러난 배선 구멍 — `org_gap()` 은 [297] 때 만들어졌는데 **한 번도
     #     안 불렸다**(2026-08-19 실측). 지시문에는 '인계에 올라간다'고 적혀 있었다.
@@ -23556,7 +23556,7 @@ def t328_camp_source_staleness_is_seen():
     # (7) 워치독 단계가 **인계보다 먼저** 온다 — 뒤에 두면 늘 30분 전 판정을 싣는다.
     wd = _io.open(_os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
     assert "watch_camp_source(dry)" in wd, "워치독 단계에 안 걸렸다"
-    assert wd.index("watch_camp_source(dry),") < wd.index("snapshot_handoff(dry)"), \
+    assert wd.index("watch_camp_source(dry),") < wd.index("snapshot_handoff(dry), resume_deferred_apply"), \
         "인계보다 뒤에 있으면 늘 한 박자 늦은 판정을 싣는다"
     fnbody = wd[wd.index("def watch_camp_source("):]
     fnbody = fnbody[:fnbody.index("\ndef ", 5)]
@@ -23571,6 +23571,38 @@ def t328_camp_source_staleness_is_seen():
     camps = _bare(camps)
     assert "stale_read()" in camps, "/api/camps 가 밀림 판정을 안 싣는다"
     assert "sched_stale(" not in camps, "/api/camps 가 웹 요청에서 Z: 를 재고 있다([168])"
+
+    # (10) ★ **파일 하나만 고르면 정본이 통째로 사라진다** (2026-08-19 실사고).
+    #      그날 폴더에 둘이 있었다 — 류지영 정본(16:43 · 분기 시트 4장 · 193캠프)과
+    #      `정기점검 리스트(안전관리자)`(16:44 · 3분기 한 장 · 152캠프). mtime 최신
+    #      하나만 골라 **1분 차이로 정본이 밀렸고**, 4분기가 안 읽혀 236칸이 3분기
+    #      값으로 되돌아갔다(M광주2 안전관리 김장혁(Dino) -> 정지수).
+    #      어느 쪽이 이길지가 업무 의미가 아니라 **누가 나중에 저장했나**로 정해졌다.
+    src = _io.open(_os.path.join(ROOT, "camp_contacts.py"), encoding="utf-8").read()
+    body = src[src.index("def pm_schedule_camps("):]
+    body = body[:body.index(chr(10) + "def ", 5)]
+    body = _bare(body)
+    assert "_sched_files()" in body, "스케줄 원본을 아직 하나만 고른다 — 정본이 밀린다"
+    assert "_sched_file()" not in body, "하나만 고르는 옛 길이 남아 있다"
+    assert "_quarter_of(" in body, "순위를 분기가 아니라 파일 시각으로 정하고 있다"
+
+    # 분기 우선 순위가 **실제로** 그렇게 갈리나 — 실행으로 잰다([295]).
+    assert cc._quarter_of("2026년 4분기 정기점검") == (2026, 4)
+    assert cc._quarter_of("2026년 2분기정기점검") == (2026, 2)   # 띄어쓰기가 없다
+    assert cc._quarter_of("Sheet1") == (0, 0), "못 읽은 시트는 뒤로 가야 한다"
+    키 = lambda t, mt: (-cc._quarter_of(t)[0], -cc._quarter_of(t)[1], -mt)
+    나중 = 1000.0        # 리스트 파일이 1분 늦게 저장됐다
+    먼저 = 999.0         # 정본
+    순 = sorted([("2026년 3분기 정기점검", 나중), ("2026년 4분기 정기점검", 먼저),
+                ("2026년 1분기정기점검", 먼저)], key=lambda x: 키(*x))
+    assert 순[0][0].startswith("2026년 4분기"),         "1분 늦게 저장된 3분기가 4분기를 이겼다 — 그날 사고 그대로다"
+    # 같은 분기가 두 파일에 다 있으면 그때만 mtime 최신이 이긴다.
+    순2 = sorted([("2026년 3분기 정기점검", 먼저), ("2026년 3분기 정기점검", 나중)],
+                key=lambda x: 키(*x))
+    assert 순2[0][1] == 나중, "같은 분기인데 새로 저장한 쪽이 안 이긴다"
+
+    # 지문에 **파일 전부**가 담기나 — 하나만 담으면 옆 파일이 바뀌어도 옛 답이 이긴다.
+    assert 'for p_, m_, z_ in files' in body, "지문이 파일 하나만 담는다"
 
     # (9) 화면이 그 판정을 **맨 먼저** 말하나 — node 로 실행해서 잰다([295]).
     html = _io.open(_os.path.join(ROOT, "webapp", "index.html"),
