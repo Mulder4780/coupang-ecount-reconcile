@@ -18641,6 +18641,116 @@ def t237_cards_fold_with_one_tool():
     assert "foldSetup(" in av, \
         "화면을 열 때 손잡이를 안 맞춘다 — 나중에 채워지는 카드는 영영 안 접힌다"
 
+    # ── [54] 대시보드 카드 본문 접기 (2026-08-20) ────────────────────────────────
+    #   ★ **여기만 모양이 다른 이유가 있다.** foldSetup 은 손잡이 줄을 접을 것 **앞에**
+    #     끼우는데, 대시보드에서 그러면 그 줄이 그리드 자식이 되어 12칸 배치와 끌어서
+    #     정렬(dashDragEnable 이 `:scope > [data-dash-block]` 를 센다)이 통째로 깨진다.
+    #     그래서 카드가 **이미 가진 머리**(h3·.rep-head)에 붙인다.
+    #   ★ `.dash-block-tools` 안에 넣으면 **평소에는 못 누른다** — 그 줄은 편집 모드에서만
+    #     보인다. 접기는 읽는 동작이지 편집이 아니다.
+    #   ★ 실측(1280px · 데모): 손잡이 12개(h3 10 · .rep-head 1 · 만든 머리 1) ·
+    #     dashGrid 2,428px → 모두 접으면 **670px** · 문서 3,105 → **1,332px** ·
+    #     새로고침해도 12장 그대로 접힘 · 접기 단추로는 끌기가 안 시작되고(false)
+    #     카드 본문을 누르면 그대로 시작된다(true) · 명암비 미달 0.
+    assert ".dash-edit .dash-block-tools{display:flex}" in live, \
+        "배치 도구 줄이 편집 전용이 아니게 됐다 — 그렇다면 접기 손잡이를 어디 두는지 다시 정해야 한다"
+    fold_css = ("#dashGrid>.dash-block.dash-folded>*:not(.dash-block-tools)"
+                ":not(.dash-foldhead):not(h3):not(.rep-head){")
+    assert fold_css in live, "접힘 규칙이 없다 — 제목까지 접히거나 아무것도 안 접힌다"
+    assert "display:none!important" in live.split(fold_css, 1)[1][:80], \
+        "`!important` 로 못을 안 박았다 — .kpis{display:grid} 같은 클래스 규칙이 더 세다([237])"
+
+    fh = live.split("function dashFoldHead(", 1)[1].split("\n}\n", 1)[0]
+    assert "dash-foldhead" in fh and "createElement" in fh, \
+        "머리가 없는 카드(핵심지표 묶음)에 머리를 안 만든다 — 그 카드만 영영 못 접는다"
+    assert ":scope > h3" in fh, "카드가 이미 가진 머리를 안 쓴다 — 열두 곳 마크업을 손대게 된다"
+
+    ds = live.split("function dashFoldSetup(", 1)[1].split("\n}\n", 1)[0]
+    assert "createElement('button')" in ds, \
+        "손잡이가 button 이 아니다 — dashDragEnable 이 input,button,... 만 걸러 내므로 끌기와 부딪힌다"
+    assert "head.insertBefore(b, head.firstChild)" in ds, \
+        "손잡이를 머리 **안**에 안 넣는다 — 그리드 자식이 하나 더 생기면 배치·끌기가 깨진다"
+    assert "if(!head.querySelector(':scope > .dash-fold'))" in ds, \
+        "여러 번 부르면 손잡이가 겹쳐 쌓인다(카드 내용은 loadStatus 가 다시 그린다)"
+    assert "stopPropagation" in ds, "끌어서 정렬하는 자리 안이다 — 눌림이 엇갈린다"
+
+    fa2 = live.split("function dashFoldApply(", 1)[1].split("\n}\n", 1)[0]
+    assert "aria-expanded" in fa2 and "본문" in fa2, \
+        "접힌 카드가 무엇인지·왜 비었는지 말하지 않는다([169])"
+
+    # 숨기기(팔레트 체크)와 접기는 **다른 뜻**이다 — 숨기면 사라지고 접으면 제목이 남는다
+    sv = live.split("function setDashboardBlockVisible(", 1)[1].split("\n}\n", 1)[0]
+    assert "hidden" in sv and "dash-folded" not in sv, \
+        "숨기기가 접기를 건드린다 — 두 길이 섞이면 '어느 쪽으로 사라졌나'를 아무도 모른다"
+
+    # 배치 저장에 함께 남는다 — 새로고침마다 다시 접게 하면 그건 기억이 아니다
+    assert "even:true,expanded:[],folded:[]," in live, "기본 배치에 folded 가 없다"
+    assert "x.el.classList.toggle('dash-folded',(layout.folded||[]).includes(x.id));" in live, \
+        "저장된 접힘을 화면에 다시 안 씌운다"
+    assert "':scope > .dash-block.dash-folded'" in live, "지금 화면의 접힘을 안 읽는다 — 저장이 늘 빈 목록이 된다"
+    ap = live.split("function applyDashboardLayout(", 1)[1].split("\n}\n", 1)[0]
+    assert "dashFoldSetup();" in ap, \
+        "배치를 다시 씌울 때 손잡이를 안 맞춘다 — 나중에 채워지는 카드는 영영 손잡이가 없다"
+
+    # ── 글자 검사로는 '정말 기억하나'를 못 잰다 — node 로 돌려 결과로 잰다([295])
+    import shutil as _sh54, subprocess as _sp54, tempfile as _tf54, io as _io54, os as _os54
+    node54 = _sh54.which("node")
+    if not node54:
+        print("  [54] 대시보드 카드 접기 — node 가 없어 왕복 검사는 건너뜀(구조만) OK")
+    else:
+        head54 = live.split("const DASH_LAYOUT_KEY=", 1)[1]
+        slice54 = "const DASH_LAYOUT_KEY=" + head54.split("function dashboardLayoutState(", 1)[0]
+        mock54 = ("var APP_YEAR='2026';var store={};"
+                  "var localStorage={getItem:function(k){return Object.prototype."
+                  "hasOwnProperty.call(store,k)?store[k]:null;},"
+                  "setItem:function(k,v){store[k]=String(v);},"
+                  "removeItem:function(k){delete store[k];}};"
+                  "var document={getElementById:function(){return null;},"
+                  "querySelector:function(){return null;}};\n")
+        tail54 = ("\nvar o={};o.def=defaultDashboardLayout().folded;\n"
+                  "store['csos_dashboard_layout_v2']=JSON.stringify("
+                  "{version:2,order:['issues'],folded:['issues','없는카드']});\n"
+                  "o.kept=readDashboardLayout().folded;\n"
+                  "store['csos_dashboard_layout_v2']=JSON.stringify({version:2,order:['issues']});\n"
+                  "o.old=readDashboardLayout().folded;\n"
+                  "console.log(JSON.stringify(o));\n")
+
+        def _run54(body, tag):
+            p = _os54.path.join(_tf54.gettempdir(), "csos_t54_%s.js" % tag)
+            _io54.open(p, "w", encoding="utf-8", newline="\n").write(body)
+            pr = _sp54.Popen([node54, p], stdout=_sp54.PIPE, stderr=_sp54.STDOUT,
+                             text=True, encoding="utf-8", cwd=ROOT,
+                             creationflags=getattr(_sp54, "CREATE_NO_WINDOW", 0))
+            try:
+                out = pr.communicate(timeout=60)[0]
+            except Exception:
+                pr.kill(); raise
+            return out
+
+        out54 = _run54(mock54 + slice54 + tail54, "ok")
+        got54 = _json_t54 = None
+        for ln in (out54 or "").splitlines():
+            if ln.startswith("{"):
+                got54 = json.loads(ln)
+        assert got54, "[54] node 왕복 검사가 답을 못 냈다: %s" % (out54 or "")[-300:]
+        assert got54["def"] == [], "기본 배치의 folded 가 빈 목록이 아니다"
+        assert got54["kept"] == ["issues"], \
+            "저장된 접힘을 못 읽거나 없는 카드까지 읽는다: %r" % (got54["kept"],)
+        assert got54["old"] == [], \
+            "folded 가 없던 **옛 저장본**에서 undefined 가 된다 — 그 순간 접기가 통째로 죽는다([169])"
+
+        # 계기 자신을 시험한다([272]) — folded 를 빼면 이 검사가 잡아야 한다
+        broken54 = slice54.replace(",expanded,folded,kpiOrder", ",expanded,kpiOrder")
+        assert broken54 != slice54, "[54] 자기시험을 심을 자리를 못 찾았다"
+        bad54 = _run54(mock54 + broken54 + tail54, "bad")
+        gotb54 = None
+        for ln in (bad54 or "").splitlines():
+            if ln.startswith("{"):
+                gotb54 = json.loads(ln)
+        assert gotb54 is not None and gotb54.get("kept") is None, \
+            "[54] 자기시험 — folded 를 빼도 왕복 검사가 통과했다. 이 검사는 아무것도 안 재고 있다"
+        print("  [54] 대시보드 카드 접기 — 머리에 붙임(그리드 자식 안 늘림) · "
+              "!important 못박기 · 숨기기와 다른 길 · 접힘 기억 왕복 · 옛 저장본 안전 ✅")
     print("  [237] 카드 접기 한 벌 — hidden 에 못박기 · 접힌 줄이 개수를 말함 "
           "· 사람 카드는 이름·현황 남김 · 화면 열 때마다 재적용 ✅")
 

@@ -2635,6 +2635,26 @@ fieldset.remote-edit>input{margin:0 0 9px}
   align-items:start;gap:14px}
 #dashGrid>.dash-block{grid-column:span var(--dash-span,12);position:relative;min-width:0;margin-bottom:0}
 #dashGrid>.dash-block[hidden]{display:none!important}
+/* ═══ 카드 본문 접기 ([54] · 2026-08-20 · [237] 의 접기를 대시보드에도) ═════════
+   ★ **모양이 다른 이유가 있다.** `foldSetup` 은 손잡이 줄을 접을 것 **앞에** 끼우는데,
+     여기서 그러면 그 줄이 그리드 자식이 되어 12칸 배치와 끌어서 정렬이 통째로 깨진다
+     (`dashDragEnable` 이 `:scope > [data-dash-block]` 를 센다). 그래서 카드가 **이미
+     가진 머리**(h3·.rep-head)에 붙이고, 머리가 없는 카드에만 만든다([162] — 판단은
+     `dashFoldSetup` 한 곳이고 마크업 열두 곳을 손대지 않는다).
+   ★ `.dash-block-tools` 안에 넣지 않는다 — 그 줄은 편집 모드에서만 보이는데
+     (`.dash-edit .dash-block-tools{display:flex}`) **접기는 읽는 동작이지 편집이 아니다.**
+   ★ `display:none!important` 로 못을 박는다([237] 과 같은 이유 — `.kpis{display:grid}`
+     같은 클래스 규칙이 브라우저 기본 `[hidden]{display:none}` 보다 세다).
+   ★ 접어도 **제목은 남는다**([169]). 통째로 사라지면 '숨긴 카드'와 구별이 안 되는데,
+     숨기는 길은 [화면 구성] 팔레트로 이미 따로 있다 — 둘은 다른 뜻이다. */
+#dashGrid>.dash-block.dash-folded>*:not(.dash-block-tools):not(.dash-foldhead):not(h3):not(.rep-head){
+  display:none!important}
+#dashGrid>.dash-block.dash-folded{max-height:none!important;overflow:visible}
+.dash-fold{flex:none;min-width:26px;height:26px;margin-right:7px;padding:0;border:1px solid var(--line);
+  border-radius:8px;background:var(--panel);color:var(--brand-dk);font:800 12px inherit;
+  line-height:1;cursor:pointer;vertical-align:middle}
+.dash-fold:hover{border-color:var(--brand);background:var(--brand-tint)}
+.dash-foldhead{display:flex;align-items:center;margin:0 0 8px;font-weight:800;color:var(--ink)}
 .dash-edit #dashGrid>.dash-block{outline:2px dashed rgba(36,82,230,.35);outline-offset:2px}
 .dash-edit #dashGrid>.dash-block.dash-dragging{opacity:.48;outline-color:var(--brand)}
 .dash-edit #dashGrid>.dash-block.dash-drop-target{outline-style:solid;outline-color:var(--brand)}
@@ -9762,7 +9782,7 @@ function defaultDashboardLayout(){
   // even:true 가 기본이다 — 사용자 지시가 "정확히 균등하게 맞아떨어지게"였다.
   return {version:DASH_LAYOUT_VERSION,order:DASH_BLOCKS.map(x=>x.id),hidden:[],
     spans:Object.fromEntries(DASH_BLOCKS.map(x=>[x.id,x.span])),
-    even:true,expanded:[],
+    even:true,expanded:[],folded:[],
     kpiOrder:DASH_KPI_CARDS.map(x=>x.id),hiddenKpis:[]};
 }
 function readDashboardLayout(){
@@ -9785,7 +9805,8 @@ function readDashboardLayout(){
     // 예전 저장본에는 even·expanded 가 없다 → 기본값(균등 켬)으로 읽는다.
     const even=raw.even!==false;
     const expanded=(Array.isArray(raw.expanded)?raw.expanded:[]).filter(x=>known.has(x));
-    return {version:DASH_LAYOUT_VERSION,order,hidden,spans,even,expanded,kpiOrder,hiddenKpis};
+    const folded=(Array.isArray(raw.folded)?raw.folded:[]).filter(x=>known.has(x));
+    return {version:DASH_LAYOUT_VERSION,order,hidden,spans,even,expanded,folded,kpiOrder,hiddenKpis};
   }catch(_){ return fallback; }
 }
 function dashboardLayoutState(){
@@ -9815,7 +9836,9 @@ function dashboardLayoutState(){
   const even=base.even!==false;
   const expanded=[...grid.querySelectorAll(':scope > .dash-block.dash-expanded')]
     .map(el=>el.dataset.dashBlock).filter(Boolean);
-  return {version:DASH_LAYOUT_VERSION,order,hidden,spans,even,expanded,
+  const folded=[...grid.querySelectorAll(':scope > .dash-block.dash-folded')]
+    .map(el=>el.dataset.dashBlock).filter(Boolean);
+  return {version:DASH_LAYOUT_VERSION,order,hidden,spans,even,expanded,folded,
     kpiOrder,hiddenKpis:[...hiddenKpis],
     updatedAt:new Date().toISOString()};
 }
@@ -9845,7 +9868,9 @@ function applyDashboardLayout(layout=readDashboardLayout(),announce=false){
     const toggle=x.el.querySelector(':scope > .dash-block-tools .dash-visible-toggle input');
     if(toggle)toggle.checked=!x.el.hidden;
     x.el.classList.toggle('dash-expanded',(layout.expanded||[]).includes(x.id));
+    x.el.classList.toggle('dash-folded',(layout.folded||[]).includes(x.id));
   });
+  dashFoldSetup();          // 손잡이를 만들고 접힘 표시를 맞춘다(여러 번 안전)
   document.body.classList.toggle('dash-even',layout.even!==false);
   const evenBtn=document.getElementById('dashEvenBtn');
   if(evenBtn){
@@ -9858,6 +9883,65 @@ function applyDashboardLayout(layout=readDashboardLayout(),announce=false){
   applyDashboardKpiLayout(layout);
   renderDashboardPalette();
   if(announce) dashLayoutMessage('다른 탭에서 바뀐 대시보드 구성을 반영했습니다.');
+}
+/* ── 대시보드 카드 본문 접기 ([54] · 2026-08-20) ────────────────────────────────
+   [237] 이 만든 접기를 대시보드 카드에도 붙인다. 실측(1280px): dashGrid 2,378px.
+   ★ 손잡이는 **카드가 이미 가진 머리**에 붙인다 — 새 줄을 앞에 끼우면 그리드 자식이
+     하나 더 생겨 12칸 배치와 끌어서 정렬이 깨진다(위 CSS 주석). 머리가 없는 카드
+     (핵심지표 묶음)에만 `.dash-foldhead` 를 만들어 준다.
+   ★ 손잡이는 `<button>` 이다 — `dashDragEnable` 이 `input,button,select,textarea,a,label`
+     을 이미 걸러 내므로 끌기와 안 부딪힌다. 그래도 [237] 의 foldbtn 과 같은 문
+     (`pointerdown` 에서 stopPropagation)을 한 번 더 단다.
+   ★ 숨기기(팔레트 체크)와 **다른 뜻**이다: 숨기면 카드가 사라지고, 접으면 제목이 남는다.
+     그래서 접힘은 `hidden` 이 아니라 `dash-folded` 클래스이고 저장도 따로 한다. */
+function dashFoldHead(el){
+  let h = el.querySelector(':scope > h3, :scope > .rep-head, :scope > .dash-foldhead');
+  if(h) return h;
+  h = document.createElement('div');
+  h.className = 'dash-foldhead';
+  h.appendChild(document.createTextNode(el.dataset.dashLabel || '카드'));
+  const tools = el.querySelector(':scope > .dash-block-tools');
+  el.insertBefore(h, tools ? tools.nextSibling : el.firstChild);
+  return h;
+}
+function dashFoldApply(el){
+  const b = el.querySelector(':scope > * > .dash-fold'); if(!b) return;
+  const on = el.classList.contains('dash-folded');
+  const label = el.dataset.dashLabel || '카드';
+  b.textContent = on ? '▸' : '▾';
+  b.setAttribute('aria-expanded', on ? 'false' : 'true');
+  // 무엇이 접혔는지 말한다([169]) — 제목은 남지만 '왜 비었나'는 손잡이가 답해야 한다
+  b.title = on ? (label + ' — 본문이 접혀 있습니다. 눌러서 펴기')
+                : (label + ' 본문 접기 — 제목만 남습니다');
+  b.setAttribute('aria-label', b.title);
+}
+/* 여러 번 불러도 안전하다 — 손잡이가 이미 있으면 다시 만들지 않고 상태만 맞춘다
+   ([237] foldSetup 과 같은 문. 카드 내용은 loadStatus 가 다시 그리므로 자주 불린다) */
+function dashFoldSetup(){
+  const grid = document.getElementById('dashGrid'); if(!grid) return;
+  grid.querySelectorAll(':scope > [data-dash-block]').forEach(el=>{
+    const head = dashFoldHead(el);
+    if(!head.querySelector(':scope > .dash-fold')){
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'dash-fold';
+      b.setAttribute('onclick', "dashFoldToggle('" + el.dataset.dashBlock + "')");
+      b.setAttribute('onpointerdown', 'event.stopPropagation()');
+      head.insertBefore(b, head.firstChild);
+    }
+    dashFoldApply(el);
+  });
+}
+function dashFoldToggle(id){
+  const item = dashCatalog().find(x=>x.id===id); if(!item) return;
+  const on = !item.el.classList.contains('dash-folded');
+  item.el.classList.toggle('dash-folded', on);
+  dashFoldApply(item.el);
+  saveDashboardLayout(item.label + ' 카드 본문을 ' + (on ? '접었습니다' : '폈습니다') + '.');
+}
+function foldAllDashCards(on){
+  dashCatalog().forEach(x=>{ x.el.classList.toggle('dash-folded', !!on); dashFoldApply(x.el); });
+  saveDashboardLayout(on ? '모든 카드를 제목만 남기고 접었습니다.' : '모든 카드 본문을 폈습니다.');
 }
 function dashboardChoice(kind,id,label,visible,meta){
   return `<div class="dash-choice" draggable="true" data-kind="${kind}" data-id="${id}">
@@ -11709,7 +11793,7 @@ function initDashboardLayout(){
   const root=document.getElementById('v-dash'), hero=root?.querySelector(':scope > .hero');
   if(!root||!hero||document.getElementById('dashGrid')) return;
   const custom=document.createElement('div');custom.id='dashCustomizer';custom.className='dash-customizer';
-  custom.innerHTML=`<div class="dash-customizer-head"><div class="dash-customizer-copy"><b>내 대시보드 카드</b><span>카드를 <b>한 번 누르면 집히고, 옮길 자리를 누르면</b> 그 자리로 갑니다(끌어서 옮겨도 됩니다). 체크로 표시·숨김, 오른쪽 단추로 크기를 바꿉니다. 이 기기에 자동 저장됩니다.</span></div><button type="button" class="dash-customizer-toggle" id="dashCustomizerToggle" aria-controls="dashCustomizerPanel" aria-expanded="false" aria-pressed="false" onclick="toggleDashboardEditor()">카드 편집</button></div><div class="dash-customizer-panel" id="dashCustomizerPanel" hidden><div id="dashPalette"></div><div class="dash-customizer-actions"><button type="button" onclick="snapDashboardLayout()" title="줄 끝에 남는 빈칸이 없게 카드 폭을 맞춥니다">칸 맞추기</button><button type="button" id="dashEvenBtn" onclick="toggleDashboardEven()">높이 균등</button><button type="button" onclick="expandAllDashCards(true)">모두 펼치기</button><button type="button" onclick="expandAllDashCards(false)">모두 접기</button><button type="button" onclick="showAllDashboardBlocks()">전체 카드 표시</button><button type="button" onclick="resetDashboardLayout()">기본 배치 복원</button><button type="button" class="primary" onclick="toggleDashboardEditor(false)">편집 완료</button></div><div class="dash-layout-status" id="dashLayoutStatus" role="status" aria-live="polite"></div></div>`;
+  custom.innerHTML=`<div class="dash-customizer-head"><div class="dash-customizer-copy"><b>내 대시보드 카드</b><span>카드를 <b>한 번 누르면 집히고, 옮길 자리를 누르면</b> 그 자리로 갑니다(끌어서 옮겨도 됩니다). 체크로 표시·숨김, 오른쪽 단추로 크기를 바꿉니다. 이 기기에 자동 저장됩니다.</span></div><button type="button" class="dash-customizer-toggle" id="dashCustomizerToggle" aria-controls="dashCustomizerPanel" aria-expanded="false" aria-pressed="false" onclick="toggleDashboardEditor()">카드 편집</button></div><div class="dash-customizer-panel" id="dashCustomizerPanel" hidden><div id="dashPalette"></div><div class="dash-customizer-actions"><button type="button" onclick="snapDashboardLayout()" title="줄 끝에 남는 빈칸이 없게 카드 폭을 맞춥니다">칸 맞추기</button><button type="button" id="dashEvenBtn" onclick="toggleDashboardEven()">높이 균등</button><button type="button" onclick="expandAllDashCards(true)">모두 펼치기</button><button type="button" onclick="expandAllDashCards(false)">모두 접기</button><button type="button" onclick="foldAllDashCards(true)" title="카드 본문을 접고 제목만 남깁니다(숨기는 것이 아닙니다)">제목만 보기</button><button type="button" onclick="foldAllDashCards(false)" title="접어 둔 카드 본문을 다시 폅니다">본문 펴기</button><button type="button" onclick="showAllDashboardBlocks()">전체 카드 표시</button><button type="button" onclick="resetDashboardLayout()">기본 배치 복원</button><button type="button" class="primary" onclick="toggleDashboardEditor(false)">편집 완료</button></div><div class="dash-layout-status" id="dashLayoutStatus" role="status" aria-live="polite"></div></div>`;
   hero.insertAdjacentElement('afterend',custom);
   const grid=document.createElement('div');grid.id='dashGrid';grid.setAttribute('aria-label','사용자 대시보드 블록');
   const first=document.getElementById('repCard');root.insertBefore(grid,first||null);
