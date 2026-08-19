@@ -20335,6 +20335,66 @@ def t341_index_silence_is_not_a_collection_delay():
     print("[341] 색인의 침묵을 수집 밀림이라 부르지 않는다 — 갈래 3 + 밴드 제외 ✅")
 
 
+def t342_a_round_that_skipped_steps_says_so():
+    """[342] 회차가 예산 초과로 **건너뛴 단계**를 인계가 말한다 (분담판 [82]).
+
+    ★ `[180]` 은 예산을 넘으면 남은 단계를 건너뛰고 **완주시키게** 했다 — 그것은
+      옳다(완주해야 리포트가 써지고 잠금이 풀린다). 그리고 "이유를 적어 남긴다"고
+      했는데 그 자리가 **종합리포트 깊숙한 한 줄**이었다. **인계는 리포트를 안 읽는다.**
+      그래서 회차가 뒤쪽 17단계를 건너뛰고 '완주'로 끝나도 아무 화면에도 안 떴다
+      (실측 2026-08-10 두 번·08-11 한 번). **'완주'와 '다 했다'는 다른 말이다**([169]).
+    ⚠ 실측 진행 파일에는 한 글자도 안 쓴다 — 임시 폴더로만 잰다([247]).
+    """
+    import importlib, json as _j, tempfile, shutil as _sh
+    H = importlib.import_module("session_handoff")
+    D = importlib.import_module("daily_run")
+
+    # ① 건너뛴 이름을 모으는 자리가 있고, 진행 파일에 실린다
+    src = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert "_SKIPPED.append(name)" in src and '"건너뜀": list(_SKIPPED)' in src, (
+        "[342] 건너뛴 단계를 세거나 진행 파일에 싣지 않는다 — 리포트에만 적으면 "
+        "아무도 안 본다")
+    assert "_SKIPPED" in src.split("def over_budget")[0] or "_SKIPPED = []" in src, (
+        "[342] _SKIPPED 를 선언한 자리가 없다")
+
+    tmp = tempfile.mkdtemp(prefix="t342_")
+    real = H.REPORT_DIR
+    try:
+        H.REPORT_DIR = tmp
+
+        def _put(skipped):
+            with open(os.path.join(tmp, ".daily_run.progress.json"),
+                      "w", encoding="utf-8") as fh:
+                _j.dump({"단계": "(회차 끝)", "상태": "완주",
+                         "시각": "2026-08-20T09:50:00+09:00",
+                         "건너뜀": skipped}, fh, ensure_ascii=False)
+
+        st = {"점유": [], "수집신선도": [], "미푸시": [], "임시파일": [], "큐잔량": 0}
+
+        # ② 건너뛴 것이 있으면 **말한다** — 그리고 이름을 댄다
+        _put(["오기입 확인", "화면 사실대조", "대표보고 검증"])
+        hit = [w for w, _f in H.blockers(st) if "건너뛰" in w]
+        assert hit, "[342] 건너뛴 회차가 인계에 한 줄도 안 뜬다"
+        assert "3단계" in hit[0] and "오기입 확인" in hit[0], (
+            "[342] 몇 개를 어느 단계에서 건너뛰었는지 안 적는다: " + hit[0])
+        assert "완주" in hit[0], (
+            "[342] '완주로 끝났는데도' 라는 사실을 안 적는다 — 그것이 이 경보의 요점이다")
+
+        # ③ 건너뛴 것이 없으면 **조용하다** — 정상까지 경보하면 아무도 안 본다([170])
+        _put([])
+        assert not [w for w, _f in H.blockers(st) if "건너뛰" in w], (
+            "[342] 건너뛴 것이 없는 날에도 경보한다")
+
+        # ④ 계기 자기시험([272]) — 읽는 자리를 지우면 ②가 잡히나
+        sh_src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+        assert 'skipped = (daily_step_now() or {}).get("건너뜀")' in sh_src, (
+            "[342] 인계가 진행 파일의 '건너뜀' 을 안 읽는다 — 그러면 아무 데도 안 뜬다")
+    finally:
+        H.REPORT_DIR = real
+        _sh.rmtree(tmp, ignore_errors=True)
+    print("[342] 건너뛴 단계를 인계가 말한다 — '완주'와 '다 했다'는 다른 말이다 ✅")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -26295,6 +26355,7 @@ if __name__ == "__main__":
     t339_the_exec_guard_measures_every_money_metric()
     t340_the_stale_server_check_follows_imports()
     t341_index_silence_is_not_a_collection_delay()
+    t342_a_round_that_skipped_steps_says_so()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()

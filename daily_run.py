@@ -196,6 +196,11 @@ _ROUND_T0 = [None]          # 회차 시작 시각 — main() 이 채운다
 _OVER_BUDGET = [False]
 
 
+#: 이 회차가 예산 초과로 **건너뛴 단계 이름들**.  진행 파일에 같이 실려
+#: 인계가 읽는다 — 리포트 깊숙한 한 줄은 아무도 안 본다(분담판 [82]).
+_SKIPPED = []
+
+
 def note_progress(step, state, extra=None):
     """**단계마다** 어디까지 왔는지 디스크에 남긴다 (2026-08-09 지시).
 
@@ -245,6 +250,9 @@ def note_progress(step, state, extra=None):
             "끝난단계": done,
             # 문자열 목록(`끝난단계`)은 읽는 쪽이 있으므로 모양을 안 바꾼다 — 시간은 옆에 따로 쌓는다.
             "단계기록": list(previous.get("단계기록") or [])[-60:],
+            # ★ 예산 초과로 **건너뛴 단계**(분담판 [82]) — 회차는 '완주'로 끝나지만
+            #   그 단계들은 오늘 안 돌았다. 인계가 이것을 읽어 말한다.
+            "건너뜀": list(_SKIPPED)[-40:],
         }
         if _ROUND_T0[0]:
             cur["회차시작"] = _ROUND_T0[0].astimezone().isoformat(timespec="seconds")
@@ -334,6 +342,11 @@ def run(name, args, timeout=600, retry=None):
     if over_budget():
         # 예산을 넘었으면 **남은 단계를 건너뛰고** 회차를 끝낸다. 이유를 적어 남긴다 —
         # 조용히 건너뛰면 "돌았는데 왜 결과가 없나"가 된다(그게 지금까지의 증상이었다).
+        # ★ **건너뛴 것을 세어 남긴다**(분담판 [82]). [180] 은 리포트에 이유를
+        #   적게 했는데 **인계는 리포트를 안 읽는다** — 그래서 회차가 뒤쪽
+        #   17단계를 건너뛰고 '완주'로 끝나도 아무 화면에도 안 떴다(실측
+        #   2026-08-10·08-11 세 회차). 리포트에만 적으면 아무도 안 본다([169]).
+        _SKIPPED.append(name)
         note_progress(name, "건너뜀(예산초과)")
         return {"name": name, "ok": None,
                 "out": f"건너뜀 — 회차 예산 {ROUND_BUDGET_MIN}분 초과. "
