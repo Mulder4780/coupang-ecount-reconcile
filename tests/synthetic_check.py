@@ -23285,7 +23285,10 @@ def t315_camp_rows_group_by_address_only():
     # ⚠ 직접 eval 안의 let/const 는 **그 eval 안에만** 산다 — 조각을 따로 eval 하면
     #   서로를 못 보고, 밖에서 CAMPS 를 넣어도 안 닿는다. 한 번에 이어 붙이고 var 로 편다.
     블록 = (html[html.index("let CAMPS = null;"):html.index("function campFieldRows(")]
-            + html[html.index("function campsXlsx()"):html.index("/* 대표 보고용 이미지")])
+            # ★ **campReportHead 부터** 떼어 온다 — campsXlsx 가 그것을 부른다.
+            #   `campsXlsx` 부터 자르면 node 가 ReferenceError 로 죽고 이 검사는
+            #   JSON 을 못 읽어 통째로 빨개진다(2026-08-19 실측 — 실행 검사라 잡혔다).
+            + html[html.index("function campReportHead("):html.index("/* 대표 보고용 이미지")])
     준비 = """
 const 상자={};
 function $(id){ if(id==='campQ') return {value:''};
@@ -23313,6 +23316,7 @@ campsXlsx();
 console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTML,
   엑셀칸:Object.keys(XL.rows[0]).slice(0,3),
   엑셀묶음:XL.rows.map(o=>o['주소묶음']),
+  엑셀머리:XL.opt.meta,
   머리:[...표HTML.matchAll(/<th(?: [^>]*)?>([^<]*)/g)].map(m=>m[1]).slice(0,2),
   줄표시:(표HTML.match(/class="campgrp g[01]"/g)||[]).length}));
 """
@@ -23416,10 +23420,119 @@ console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTM
     assert "정기점검 접수" in g["표HTML"] and "밴드·카톡 누적 글 수" in g["표HTML"],         "정기점검 숫자가 무엇인지 열 이름이 말하지 않는다"
     assert "'정기점검 접수 글수'" in html and "'정기점검건수'" not in html,         "엑셀 열 이름이 화면과 다르다"
 
+    # ⑧ **엑셀에도 '이게 무슨 자료인지'가 실려 간다**(2026-08-19 지시 · `[148]`).
+    #    캡처에는 이미 있는데 엑셀만 없어서, 받아 본 사람은 1행부터 `캠프명 | 호기 …`
+    #    만 보고 무슨 표인지 알 수 없었다 — 제목은 **파일 이름에만** 있었고 그 이름은
+    #    카톡으로 넘어가며 잘리거나 바뀐다.
+    머리 = g.get("엑셀머리") or {}
+    assert 머리.get("title") == "전국 정기점검 캠프 · 담당자", \
+        "엑셀에 제목이 안 실렸다(캡처와 같은 자리에서 와야 한다) — %r" % 머리.get("title")
+    assert re.match(r"^총 \d+개 · 기준 .+", 머리.get("sub") or ""), \
+        "엑셀 부제에 건수·기준시각이 없다 — %r" % 머리.get("sub")
+
     print("[315] 캠프 주소 묶음 — 같은 주소는 붙고 · 모름끼리는 안 묶이고 · "
           "호기는 캠프명 옆(표·엑셀) ✅")
 
 
+
+
+def t327_xlsx_says_what_data_it_is():
+    """[148] 엑셀 맨 위에 **이게 무슨 자료인지** 적는다 (2026-08-19 형님 지시).
+
+    지시: "엑셀 다운로드 해서 보면 해드 제목(이게 무슨 자료인지?) 부분이 빠져있는데
+    이 내용 들어가게 코딩해, 캡처 화면도 마찬가지야".
+
+    전에는 1행이 곧 열 머리글이라 제목·건수·기준시각이 **파일 이름에만** 있었다.
+    그 이름은 카톡으로 넘어가며 잘리거나 바뀌므로 받아 본 사람은 무슨 표인지 알 수
+    없었다 — **캡처에는 이미 있는 것이 엑셀에만 없었다.**
+
+    지키는 것 넷:
+    ★ `meta` 를 **안 주면 예전과 한 글자도 안 달라진다**(`[172]`) — 대시보드·내 확인·
+      일일보고 같은 다른 화면의 내보내기를 말없이 바꾸지 않는다.
+    ★ 얼리기·필터 **시작 줄도 같이** 내려간다(`[165]`) — 안 내리면 필터가 제목 줄을
+      열 이름으로 읽어 **오류 없이** 엉뚱하게 걸린다. 파일을 눌러 보기 전에는 안 보인다.
+    ★ 제목도 **자료 칸과 같은 안전장치**를 거친다 — 수식으로 읽힐 값이면 따옴표를 붙인다.
+    ★ 제목 글자는 **코드에 한 자리**(`[162]`) — 캡처와 엑셀이 각자 지으면 같은 자료가
+      두 이름을 갖는다.
+
+    글자 검사로는 '필터가 어디에 걸렸나'를 못 잰다(`[295]`) — **만들어서 열어 본다**.
+    """
+    import io as _io
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as _srv
+    import openpyxl
+
+    COLS = [("캠프명", "캠프명"), ("호기", "호기"), ("전화", "전화")]
+    ROWS = [{"캠프명": "하남1MB", "호기": "1~5호기", "전화": "010-6445-1001"}]
+    META = {"title": "전국 정기점검 캠프 · 담당자", "sub": "총 402개 · 기준 2026. 8. 19."}
+
+    def 열기(**kw):
+        data, _ = _srv._plain_xlsx("전국쿠팡캠프_담당자", ROWS, COLS, None, **kw)
+        return openpyxl.load_workbook(_io.BytesIO(data)).active
+
+    # ① meta 를 주면 제목이 맨 위에 오고 머리글이 4행으로 내려간다
+    w = 열기(meta=META)
+    assert w["A1"].value == META["title"], "1행에 제목이 없다 — %r" % w["A1"].value
+    assert w["A2"].value == META["sub"], "2행에 건수·기준시각이 없다 — %r" % w["A2"].value
+    assert w["A4"].value == "캠프명", "머리글이 4행이 아니다 — %r" % w["A4"].value
+    assert w["A5"].value == "하남1MB", "자료가 5행부터가 아니다"
+    assert "A1:C1" in [str(r) for r in w.merged_cells.ranges], "제목이 안 합쳐졌다"
+
+    # ② 얼리기·필터가 **같이** 내려간다([165])
+    assert w.freeze_panes == "A5", "얼리기가 안 내려왔다 — %r" % w.freeze_panes
+    assert w.auto_filter.ref == "A4:C5", \
+        "필터가 머리글 줄에 안 걸렸다 — 제목 줄을 열 이름으로 읽는다([165]) — %r" % w.auto_filter.ref
+
+    # ③ meta 를 안 주면 예전 그대로다([172]) — 다른 화면 내보내기가 안 바뀐다
+    for 인자 in ({}, {"meta": None}, {"meta": {}}, {"meta": {"title": "", "sub": ""}}):
+        o = 열기(**인자)
+        assert o["A1"].value == "캠프명" and o.freeze_panes == "A2" \
+            and o.auto_filter.ref == "A1:C2", \
+            "meta 가 없는데 줄이 밀렸다(%r) — 다른 화면 엑셀이 같이 바뀐다" % 인자
+
+    # ④ 제목도 수식 주입을 막는다
+    x = 열기(meta={"title": "=1+1"})
+    assert str(x["A1"].value).startswith("'"), \
+        "제목이 수식으로 읽힌다 — 자료 칸과 같은 안전장치를 거쳐야 한다"
+
+    # ⑤ 빈 표에서도 필터가 머리글에 걸린다
+    d, _ = _srv._plain_xlsx("빈표", [], COLS, None, META)
+    e = openpyxl.load_workbook(_io.BytesIO(d)).active
+    assert e["A4"].value == "캠프명" and e.auto_filter.ref == "A4:C4", \
+        "빈 표에서 필터가 어긋난다 — %r" % e.auto_filter.ref
+
+    # ⑥ rows_xlsx 가 meta 를 **버리지 않는다**
+    d2, _ = _srv.rows_xlsx({"title": "T", "rows": ROWS,
+                            "columns": ["캠프명", "호기"], "meta": META})
+    assert openpyxl.load_workbook(_io.BytesIO(d2)).active["A1"].value == META["title"], \
+        "rows_xlsx 가 meta 를 넘기지 않는다"
+
+    # ⑦ 제목 글자는 코드에 **한 자리**([162])
+    #    ⚠ 주석에도 같은 글자가 있다(구역 머리글) — 따옴표까지 붙여 코드만 센다([301]⑨).
+    html = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                    encoding="utf-8", newline="").read()
+    for lit in ("전국 정기점검 캠프 · 담당자", "전국 쿠팡캠프 · 담당자"):
+        n = html.count("'" + lit + "'")
+        assert n == 1, "제목 '%s' 가 코드 %d 곳에 있다 — 캡처와 엑셀이 각자 짓는다([162])" % (lit, n)
+    assert html.count("function campReportHead(") == 1, "제목 짓는 자리가 하나가 아니다"
+    assert "meta:(opt&&opt.meta)||null" in html, \
+        "exportRowsXlsx 가 meta 를 안 넘긴다 — 화면이 지어도 파일에 안 실린다"
+
+    # ⑧ 계기 자신을 시험한다([272]) — 고침을 되돌리면 정말 빨개지나?
+    #    얼리기·필터를 옛날처럼 못 박아 두면 ②가 잡아야 한다.
+    import inspect, textwrap
+    소스 = textwrap.dedent(inspect.getsource(_srv._plain_xlsx))
+    깨진 = 소스.replace('ws.freeze_panes = "A%d" % (head + 1)',
+                        'ws.freeze_panes = "A2"', 1)
+    assert 깨진 != 소스, "고장 주입 자리를 못 찾았다"
+    ns = dict(_srv.__dict__)
+    exec(compile(깨진, "<broken>", "exec"), ns)
+    d3, _ = ns["_plain_xlsx"]("T", ROWS, COLS, None, META)
+    if openpyxl.load_workbook(_io.BytesIO(d3)).active.freeze_panes == "A5":
+        raise AssertionError("얼리기를 못 박아 뒀는데도 A5 다 — 이 검사는 아무것도 안 재고 있다")
+
+    print("[148] 엑셀 맨 위에 제목·건수·기준시각 — meta 없으면 예전 그대로 · "
+          "얼리기·필터도 같이 내려감 · 제목은 한 자리 ✅")
 
 def t318_past_pm_plan_is_not_a_plan():
     """[318] **지난 정기점검 예정은 '예정'이 아니다** (2026-08-19 형님 지시).
@@ -24665,6 +24778,7 @@ if __name__ == "__main__":
     t324_source_tidy_names_the_culprit_step()
     t325_one_alert_is_one_line_and_the_reason_survives()
     t326_the_master_roster_wins_but_never_erases()
+    t327_xlsx_says_what_data_it_is()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

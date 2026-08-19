@@ -2671,8 +2671,10 @@ def _plain_xlsx(title, rows, cols, guide_lines=None, meta=None):
         m_sub = _head_txt(meta.get("sub"), 200)
     if m_title or m_sub:
         head = 4                   # 1 제목 · 2 부제(건수·기준시각) · 3 빈 줄 · 4 머리글
-        ws.append([m_title or str(title)])
-        ws.append([m_sub])
+        # 제목도 **자료 칸과 같은 안전장치**를 거친다 — 수식으로 읽힐 값이면
+        # 앞에 따옴표를 붙인다(엑셀 수식 주입). 여기만 빼면 문이 열린다.
+        ws.append([safe(m_title or str(title))])
+        ws.append([safe(m_sub)])
         ws.append([])
         wide = max(1, len(cols))
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=wide)
