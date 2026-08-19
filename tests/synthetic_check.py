@@ -20217,6 +20217,124 @@ def t339_the_exec_guard_measures_every_money_metric():
     print("[339] 대표보고 금액 지표를 빠짐없이 잰다 — 없는열/빈열 구분 + 묶기 + 자기시험 ✅")
 
 
+def t340_the_stale_server_check_follows_imports():
+    """[340] 앱 서버가 **옛 코드로 도는 것**을 다섯 파일 밖에서도 잡는다 (분담판 [118]).
+
+    ★ `[156]` 이 만든 판정은 손으로 적은 `WATCHED` 다섯 개만 봤다. 그래서 그 밖의
+      모듈을 고치면 **아무 화면에도 안 떴다** — 서버는 옛 코드를 메모리에 물고 200 을
+      주고 화면은 숫자를 보여 준다. **고친 사람만 모른다**([169] 의 그 모양이
+      `[156]` 의 사각지대에 그대로 살아 있었다). 실측 감시 파일 **5 → 89개**.
+    ★ 목록을 **늘려 적지 않고 따라간다** — 손으로 적는 목록은 언제나 뒤처진다([162]).
+    ⚠ 실측 증거(`webapp/app_server.py`)는 한 글자도 안 건드린다 — 임시 폴더에
+      가짜 모듈 나무를 만들어 잰다([247]).
+    """
+    import importlib, tempfile, shutil as _sh
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    RS = importlib.import_module("restart_server")
+
+    # ① 진짜 목록이 씨앗보다 넓다 — 따라가고 있다는 증거
+    files, unread = RS.watched_files()
+    assert len(files) > len(RS.WATCHED), (
+        "[340] 감시 목록이 손으로 적은 씨앗 그대로다 — 그 밖의 모듈을 고쳐도 "
+        "아무 화면에 안 뜬다(실측 5 → 89)")
+    assert "webapp/app_server.py" in files and unread == 0, (
+        "[340] 씨앗이 빠졌거나 못 읽은 파일이 있다: %d개" % unread)
+
+    tmp = tempfile.mkdtemp(prefix="t340_")
+    try:
+        # ② 새 모듈은 **저절로 따라온다** — a → b → c 세 겹
+        os.makedirs(os.path.join(tmp, "webapp"))
+        with open(os.path.join(tmp, "webapp", "srv.py"), "w", encoding="utf-8") as fh:
+            fh.write("import mid_mod" + chr(10))
+        with open(os.path.join(tmp, "mid_mod.py"), "w", encoding="utf-8") as fh:
+            fh.write("from deep_mod import x" + chr(10))
+        with open(os.path.join(tmp, "deep_mod.py"), "w", encoding="utf-8") as fh:
+            fh.write("x = 1" + chr(10))
+        got, bad = RS.watched_files(seed=(), start=["webapp/srv.py"], root=tmp)
+        assert "mid_mod.py" in got and "deep_mod.py" in got, (
+            "[340] import 를 한 겹밖에 안 따라간다: " + repr(got))
+        assert bad == 0, "[340] 멀쩡한 파일을 못 읽었다고 센다"
+
+        # ③ **못 읽은 파일을 센다** — 조용히 넘기면 감시 밖인 줄 아무도 모른다([169])
+        with open(os.path.join(tmp, "broken.py"), "w", encoding="utf-8") as fh:
+            fh.write("def (" + chr(10))
+        with open(os.path.join(tmp, "webapp", "srv.py"), "w", encoding="utf-8") as fh:
+            fh.write("import broken" + chr(10))
+        got2, bad2 = RS.watched_files(seed=(), start=["webapp/srv.py"], root=tmp)
+        assert bad2 == 1, "[340] 문법이 깨진 파일을 못 읽었다고 안 센다: %r" % (bad2,)
+        assert "broken.py" in got2, "[340] 못 읽었다고 목록에서 빼 버린다"
+
+        # ④ 계기 자기시험([272]) — 따라가기를 끄면 ①이 잡히나
+        got3, _ = RS.watched_files(seed=RS.WATCHED, start=[], root=tmp)
+        assert sorted(got3) == sorted(RS.WATCHED), (
+            "[340] 시작점을 비웠는데도 목록이 늘었다 — 이 검사는 아무것도 안 잰다")
+    finally:
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    # ⑤ 경보가 없을 때는 '못 읽음'도 조용하다([170])
+    src = open(os.path.join(ROOT, "webapp", "restart_server.py"),
+               encoding="utf-8").read()
+    assert "if unread and newer:" in src, (
+        "[340] 아무 일 없는 날까지 '못 읽음'을 말한다 — 그러면 아무도 안 읽는다")
+    print("[340] 옛 코드 판정이 import 를 따라간다 — 5→89 · 못읽음 셈 + 자기시험 ✅")
+
+
+def t341_index_silence_is_not_a_collection_delay():
+    """[341] **색인의 침묵**을 수집 밀림이라 부르지 않는다 (분담판 [116]).
+
+    ★ 카톡·ERP 최신일은 원본 색인 캐시에서 온다. 그 색인은 09:35 회차가 갱신하므로
+      **회차가 죽으면 캐시가 그 자리에 멈춘다** — 파일이 멀쩡히 들어와 있어도 화면은
+      *"카카오톡 수집이 6일 밀렸다"* 고 말한다. 조치가 **정반대**라 위험하다:
+      한쪽은 '내보내기를 또 하라'이고 실제로 필요한 것은 '회차를 돌려라'다([172]).
+    ★ 밀린 날수가 **색인이 안 돈 날수에 먹혔으면** 그것은 밀림이 아니라 **확인 못 함**
+      이다([169]). 지우는 것이 아니라 **갈래를 바꾸는 것**이다 — 조용히 빼면 진짜
+      밀림을 놓친다.
+    ⚠ 실측 상태 파일은 한 글자도 안 읽는다 — 합성 딕셔너리로만 잰다([247]).
+    """
+    import importlib
+    H = importlib.import_module("session_handoff")
+
+    def _one(row):
+        st = {"점유": [], "수집신선도": [row], "미푸시": [], "임시파일": [], "큐잔량": 0}
+        hit = [l for l in H.blockers(st) if row["이름"] in l[0]]
+        assert hit, "[341] 그 행이 경보에 아예 안 실린다: " + repr(row)
+        return hit[0]
+
+    # ① 색인탓 — '밀렸다'고 확언하지 않고 조치가 색인 쪽이다
+    why, fix = _one({"이름": "카카오톡", "최신": "2026-08-14", "밀린일": 6, "한도": 2,
+                     "되살리는법": "내보내기", "밀림": True,
+                     "색인탓": True, "색인나이": 6.2})
+    assert "수집이 밀렸다" not in why and "확인 못 함" in why, (
+        "[341] 색인이 안 돈 것을 '수집이 밀렸다'고 확언한다: " + why)
+    assert "source_index" in fix or "색인" in fix, (
+        "[341] 조치가 여전히 '내보내기'다 — 사람이 이미 올린 파일을 또 올린다: " + fix)
+
+    # ② **진짜 밀림은 예전 그대로다** — 좁히는 것도 고장이다([172])
+    why2, fix2 = _one({"이름": "카카오톡", "최신": "2026-08-14", "밀린일": 6, "한도": 2,
+                       "되살리는법": "내보내기", "밀림": True})
+    assert "★" in why2 and "수집이 밀렸다" in why2 and fix2 == "내보내기", (
+        "[341] 진짜 밀림까지 색인 탓으로 돌린다: " + why2)
+
+    # ③ 색인 나이를 **못 읽으면 그 사실을 적는다**([169])
+    why3, _ = _one({"이름": "ERP 내보내기", "최신": "2026-08-10", "밀린일": 10, "한도": 7,
+                    "되살리는법": "로그인", "밀림": True, "색인탓": None, "색인나이": None})
+    assert "못 갈랐다" in why3, (
+        "[341] 색인 나이를 못 읽었는데 그냥 밀림이라 단정한다: " + why3)
+
+    # ④ 밴드는 색인이 아니라 캐시에서 온다 — 색인탓을 안 붙인다
+    fr_src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    seg = fr_src.split("def data_freshness(")[1].split(chr(10) + "def ")[0]
+    assert 'not name.startswith("밴드:")' in seg, (
+        "[341] 밴드 밀림까지 색인 탓으로 돌린다 — 밴드 최신일은 색인이 아니라 캐시다")
+
+    # ⑤ 계기 자기시험([272]) — 갈래를 빼면 ①이 잡히나
+    bl = ("def blockers(" + fr_src.split("def blockers(")[1]
+          .split(chr(10) + "def ")[0])
+    bad = bl.replace('if f.get("색인탓") is True:', "if False:", 1)
+    assert bad != bl, "[341] 자기시험이 바꿀 자리를 못 찾았다 — 아무것도 안 잰다"
+    print("[341] 색인의 침묵을 수집 밀림이라 부르지 않는다 — 갈래 3 + 밴드 제외 ✅")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -26175,6 +26293,8 @@ if __name__ == "__main__":
     t337_a_round_that_vanishes_mid_step_leaves_its_step_name()
     t338_a_finished_round_is_never_called_still_running()
     t339_the_exec_guard_measures_every_money_metric()
+    t340_the_stale_server_check_follows_imports()
+    t341_index_silence_is_not_a_collection_delay()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()

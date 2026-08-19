@@ -37,8 +37,63 @@ except Exception:
 #      몰기 때문에 커밋마다 서버가 갈리고, 그때마다 화면이 반쪽으로 내려간다
 #      (2026-08-18 실측 · 분담판 [117]). **판정을 넓히는 것과 재시작을 넓히는 것은
 #      다른 결정이다** — 짐작으로 함께 넓히지 않는다. 분담판 [118].
+#: 서버가 물고 있는 것의 **씨앗**.  여기서 시작해 import 를 따라간다 —
+#: 손으로 적는 목록은 언제나 뒤처진다(`[162]`).  `.html` 은 import 가 아니라
+#: 디스크에서 읽는 파일이라 씨앗에만 있고 따라갈 것이 없다.
 WATCHED = ("webapp/app_server.py", "webapp/index.html", "webapp/tech.html",
            "ecount_reconcile.py", "ledger_db.py")
+
+#: import 를 찾을 폴더(프로젝트 루트 기준).  `app_server` 는 `sys.path` 에
+#: 루트와 `webapp` 을 넣고 돌므로 그 둘이 먼저다.
+_SEARCH_DIRS = ("", "webapp/", "band/")
+
+
+def watched_files(seed=None, start=None, root=None):
+    """서버가 **실제로 물고 있는** 파일들 · 못 읽은 것 수.
+
+    인자는 **검증이 임시 파일로 재기 위한 것**이다 — 실측 증거(`app_server.py`)를
+    건드리지 않고 '새 모듈이 저절로 따라오나'를 잴 수 있어야 한다(`[247]`).
+
+    ★ 2026-08-20 (분담판 `[118]`).  전에는 손으로 적은 다섯 개뿐이라
+      **나머지를 고치면 아무 화면에도 안 떴다** — 서버는 옛 코드를 메모리에 물고
+      200 을 주고 화면은 숫자를 보여 준다.  고친 사람만 모른다(`[156]` 의 그 사고가
+      다섯 파일 밖에서는 그대로 살아 있었다는 뜻이다).
+    ★ 목록을 **늘려 적지 않고 따라간다** — `app_server.py` 에서 시작해 이 프로젝트
+      안의 import 를 재귀로 좇는다.  모듈이 늘면 저절로 따라온다.
+    ★ **못 읽은 파일을 조용히 넘기지 않는다**(`[169]`) — 파싱이 깨진 파일은 감시
+      밖인데, 그 사실을 안 적으면 '이상 없음'과 구별되지 않는다.  수를 같이 준다.
+    """
+    import ast
+    base_root = root or ROOT
+    out, unread = set(seed if seed is not None else WATCHED), 0
+    seen, stack = set(), list(start or ["webapp/app_server.py"])
+    while stack:
+        rel = stack.pop()
+        if rel in seen:
+            continue
+        seen.add(rel)
+        try:
+            with open(os.path.join(base_root, rel), encoding="utf-8") as fh:
+                tree = ast.parse(fh.read())
+        except (OSError, SyntaxError, ValueError, UnicodeDecodeError):
+            unread += 1
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+                names = [node.module]
+            else:
+                continue
+            for name in names:
+                head = name.split(".")[0] + ".py"
+                for base in _SEARCH_DIRS:
+                    cand = base + head
+                    if os.path.exists(os.path.join(base_root, cand)):
+                        out.add(cand)
+                        stack.append(cand)
+                        break
+    return sorted(out), unread
 
 
 def stale():
@@ -59,13 +114,20 @@ def stale():
     if started is None:
         return None
     newer = []
-    for rel in WATCHED:
+    # ★ 목록은 **따라가서 만든다**([162]·분담판 [118]) — 손으로 적은 다섯 개만 보던
+    #   때는 나머지를 고쳐도 아무 화면에 안 떴다(실측 5 → 89개).
+    files, unread = watched_files()
+    for rel in files:
         p = os.path.join(ROOT, rel)
         try:
             if os.path.getmtime(p) > started + 5:      # 5초는 기동 중 저장 여유
                 newer.append(rel)
         except OSError:
             pass
+    if unread and newer:
+        # ★ **못 읽은 것을 조용히 넘기지 않는다**([169]).  경보가 이미 섰을 때만
+        #   덧붙인다 — 아무 일 없는 날까지 말하면 아무도 안 읽는다([170]).
+        newer.append("(그 밖에 %d개는 못 읽어 감시 밖)" % unread)
     return (pid, when, newer) if newer else None
 
 

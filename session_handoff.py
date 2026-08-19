@@ -374,6 +374,21 @@ def _index_newest_day(marker):
             pass
     return datetime.fromtimestamp(best).strftime("%Y-%m-%d") if best else ""
 
+def _index_age_days():
+    """원본 색인 캐시가 **며칠째 안 돌았나**.  못 읽으면 None(모름).
+
+    ★ 이것이 없으면 `_index_newest_day` 의 침묵이 **수집 밀림으로 읽힌다**
+      (분담판 `[116]`).  색인은 09:35 원본정리 회차가 갱신하는데 그 회차가 죽으면
+      캐시가 그 자리에 멈춘다 — 그러면 파일이 멀쩡히 들어와 있어도 화면은
+      *"카카오톡 수집이 6일 밀렸다"* 고 말한다.  **틀린 지목은 못 잡는 것보다
+      나쁘다**(`[172]`) — 사람은 이미 올린 파일을 또 내보내러 간다.
+    """
+    try:
+        return (datetime.now() - datetime.fromtimestamp(
+            os.path.getmtime(INDEX_CACHE))).total_seconds() / 86400.0
+    except OSError:
+        return None
+
 
 def band_latest_days():
     """밴드**마다** 담고 있는 가장 최근 글의 작성일. 파일 시각이 아니라 글 날짜다.
@@ -538,6 +553,18 @@ def data_freshness(today=None):
         row = {"이름": name, "최신": latest or "없음", "밀린일": late,
                "한도": limit, "되살리는법": how,
                "밀림": late is not None and late > limit}
+        # ★ **색인의 침묵을 수집 밀림이라 부르지 않는다**(분담판 [116] · [169]).
+        #   카톡·ERP 최신일은 원본 색인에서 온다. 그 색인은 09:35 회차가 갱신하므로
+        #   회차가 죽으면 캐시가 그 자리에 멈추고, 파일이 멀쩡히 들어와 있어도
+        #   '밀렸다'가 뜬다. 밀린 날수가 **색인이 안 돈 날수에 먹혔으면** 그것은
+        #   밀림이 아니라 **확인 못 함**이다 — 조치가 다르다(내보내기 vs 색인 돌리기).
+        if row["밀림"] and not name.startswith("밴드:"):
+            age = _index_age_days()
+            row["색인나이"] = age
+            if age is None:
+                row["색인탓"] = None          # 못 읽었다 — 모른다고 적는다
+            elif late is not None and late <= age + 1:
+                row["색인탓"] = True
         # ★ '밀렸다'와 '밴드가 조용하다'는 다른 일이다 (2026-08-07 지시).
         #   날짜 있는 최신 글만 보면 새 글이 없는 날도 밀림으로 나온다. 그 경보를 믿고
         #   없는 번호를 긁으면 오늘처럼 쓰레기가 캐시로 들어간다. 그래서 '수집 최대 번호
@@ -1257,11 +1284,26 @@ def blockers(st, for_sol=False):
     # 수집이 밀린 것은 **조용한 사고**다. 화면은 멀쩡히 숫자를 보여 주는데 그 숫자가
     # 원본을 못 따라간 값이다(2026-08-06 8/5 돌발AS 1건 사건). 막힌 것 맨 앞에 둔다.
     for f in st.get("수집신선도") or []:
-        if f.get("밀림"):
-            out.append(("★ %s 수집이 밀렸다 — 최신 %s (%d일 전, 한도 %d일). "
-                        "지금 화면·보고 숫자는 그만큼 **적게** 나온다"
-                        % (f["이름"], f["최신"], f["밀린일"], f["한도"]),
-                        f["되살리는법"]))
+        if not f.get("밀림"):
+            continue
+        # ★ 색인이 그만큼 안 돌았으면 **밀렸다고 확언하지 않는다**(분담판 [116]).
+        #   조치가 정반대다 — 한쪽은 '내보내기를 또 하라'이고 실제로 필요한 것은
+        #   '회차를 돌려라'다. 틀린 지목은 못 잡는 것보다 나쁘다([172]).
+        if f.get("색인탓") is True:
+            out.append(("%s 이 %d일 밀린 것으로 **보이는데** 원본 색인이 %.1f일째 "
+                        "안 돌았다 — 그 침묵이 밀림으로 읽혔을 수 있다(확인 못 함). "
+                        "파일이 이미 들어와 있어도 이렇게 나온다"
+                        % (f["이름"], f["밀린일"], f.get("색인나이") or 0),
+                        "python source_index.py    # 또는 09:35 원본정리 회차"))
+            continue
+        tail = ""
+        if f.get("색인탓") is None and "색인나이" in f:
+            # ★ 못 읽은 것을 '이상 없음'으로도 '밀림 확정'으로도 치지 않는다([169]).
+            tail = " (원본 색인 나이를 못 읽어 색인 탓인지 못 갈랐다)"
+        out.append(("★ %s 수집이 밀렸다 — 최신 %s (%d일 전, 한도 %d일). "
+                    "지금 화면·보고 숫자는 그만큼 **적게** 나온다%s"
+                    % (f["이름"], f["최신"], f["밀린일"], f["한도"], tail),
+                    f["되살리는법"]))
     if st["미푸시"]:
         out.append(("푸시되지 않은 커밋 %d개" % len(st["미푸시"]),
                     "git pull --rebase && git push  (비밀 스캔 후)"))
