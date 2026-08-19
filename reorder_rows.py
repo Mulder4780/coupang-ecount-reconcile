@@ -24,7 +24,7 @@ reorder_rows.py — 관리대장 행을 **날짜 오름차순(과거→최근)**
   python reorder_rows.py --sheet 02_돌발AS접수  # 특정 시트만
   python reorder_rows.py --self-test           # 합성 워크북 검증
 """
-import sys, os, re, zipfile, tempfile, shutil
+import sys, os, re, zipfile, tempfile, shutil, html as _html
 from datetime import datetime
 
 try:
@@ -152,7 +152,7 @@ def shared_strings(z):
     x = z.read("xl/sharedStrings.xml").decode("utf-8")
     out = []
     for s, e, tag, inner in iter_tags(x, "si"):
-        out.append("".join(re.findall(r"<t[^>]*>(.*?)</t>", inner or "", re.S)).strip())
+        out.append(_unxml("".join(re.findall(r"<t[^>]*>(.*?)</t>", inner or "", re.S))).strip())
     return out
 
 
@@ -170,7 +170,9 @@ def col_index(xml, header_row=4, sst=None):
         name = ""
         t = re.search(r"<t[^>]*>(.*?)</t>", cin, re.S)
         if t:
-            name = re.sub(r"<[^>]+>", "", t.group(1)).strip()
+            # ★ 머리글이야말로 문자참조를 꼭 풀어야 한다 — 이름이 안 맞으면
+            #   plan() 이 **한 줄도 안 옮기고 조용히 끝난다**(_unxml 설명 참조).
+            name = _unxml(re.sub(r"<[^>]+>", "", t.group(1))).strip()
         elif 't="s"' in ctag and sst:                 # 공유문자열 인덱스
             v = re.search(r"<v[^>]*>(\d+)</v>", cin)
             if v and int(v.group(1)) < len(sst):
@@ -180,6 +182,22 @@ def col_index(xml, header_row=4, sst=None):
     return out
 
 
+def _unxml(s):
+    """XML 문자참조를 되돌린다 — 안 되돌리면 **오류 없이 한 건도 안 걸린다**([165]).
+
+    2026-08-20 실사고: `lxml 6.1.2` 가 이 기계에 깔리면서(02:06) openpyxl 이 제
+    직렬화기 대신 lxml 을 쓴다(`openpyxl.LXML == True`). 그러면 인라인 문자열이
+    `&#51217;&#49688;ID`(=접수ID) 같은 **숫자 문자참조**로 적히는데, 그것을 안 풀면
+    머리글 이름 대조가 통째로 빗나가 `plan()` 이 **한 줄도 안 옮기고 조용히 끝난다**
+    (검증 t21 이 그렇게 빨개졌다 — 정렬이 안 됐는데 예외도 안 났다).
+    ★ 되돌리는 것 자체가 원래 맞다 — 엑셀이 만든 정본에도 `&amp;`·`&lt;` 가 들어온다.
+      캠프명에 `&` 가 있으면 예전 코드는 그 행만 **조용히** 못 찾았다.
+    ★ 같은 뿌리에서 `findings_sheet` 도 같이 깨졌다(`<sheet>` 마다 `xmlns:r` 선언).
+      **라이브러리 하나가 깔린 것으로 서로 먼 두 곳이 동시에 조용해질 수 있다.**
+    """
+    return _html.unescape(s)
+
+
 def cell_text(row_xml, col):
     m = re.search(r'<c r="%s\d+"[^>]*>(.*?)</c>' % col, row_xml, re.S)
     if not m:
@@ -187,9 +205,9 @@ def cell_text(row_xml, col):
     inner = m.group(1)
     t = re.search(r"<t[^>]*>(.*?)</t>", inner, re.S)
     if t:
-        return re.sub(r"<[^>]+>", "", t.group(1)).strip()
+        return _unxml(re.sub(r"<[^>]+>", "", t.group(1))).strip()
     v = re.search(r"<v[^>]*>(.*?)</v>", inner, re.S)
-    return (v.group(1).strip() if v else "")
+    return (_unxml(v.group(1)).strip() if v else "")
 
 
 def serial_to_iso(v):
