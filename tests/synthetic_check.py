@@ -22995,12 +22995,17 @@ def t310_button_classes_always_have_a_look():
     # ★ **글자로 찾을 때는 그 글자가 설명에도 있다고 생각한다.** 첫 판이 `캠프 추가`
     #   를 찾다가 형님 지시를 그대로 옮겨 적은 **CSS 주석**에 먼저 걸렸다(`[301]`⑨ 와
     #   같은 자리). 그래서 설명에 안 나오는 **`onclick` 값**을 자리표로 쓴다.
-    for 자리, 표시 in (("onclick=\"campEditOpen('')\"", "plus-lg"),
-                     ("onclick=\"campEditOpen(this.dataset.camp)\"", "pencil-square"),
-                     ("onclick=\"campEditSave()\"", "save-fill")):
-        i = s.find(자리)
-        assert i > 0, "캠프 화면에서 %r 를 못 찾는다" % 자리
-        assert 표시 in s[i:i + 300], "%r 단추에 아이콘(%s)이 없다" % (자리, 표시)
+    # ★ **글자를 통째로 못 박지 않는다**([39]·[295]) — 자리표는 landmark 일 뿐이다.
+    #    2026-08-19 실측: 줄 클릭이 생기며 핸들러가
+    #    `event.stopPropagation();campEditOpen(this.dataset.camp)` 로 바뀌자
+    #    아이콘은 그대로인데 이 검사만 죽어 **관문이 빨개졌다** — 관문은 09:50
+    #    회차의 0단계라 그 하루가 통째로 안 돈다. 재는 것은 아이콘이지 낱말이 아니다.
+    for 자리, 표시 in ((r'onclick="[^"]*campEditOpen\(\'\'\)', "plus-lg"),
+                     (r'onclick="[^"]*campEditOpen\(this\.dataset\.camp\)', "pencil-square"),
+                     (r'onclick="[^"]*campEditSave\(\)', "save-fill")):
+        m = re.search(자리, s)
+        assert m, "캠프 화면에서 %r 를 못 찾는다" % 자리
+        assert 표시 in s[m.start():m.start() + 300], "%r 단추에 아이콘(%s)이 없다" % (자리, 표시)
 
     print("[310] 단추 클래스는 반드시 모양이 있다 — 실측 .btn 44px · .xs 36px · "
           "캠프 추가·수정·저장 아이콘 ✅")
