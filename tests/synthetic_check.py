@@ -23523,12 +23523,25 @@ def t328_camp_source_staleness_is_seen():
                   encoding="utf-8").read()
     seg = sh[sh.index("def camp_source_gap("):]
     seg = seg[:seg.index("\ndef ", 5)]
+    def _bare(x):
+        """설명을 걷어낸다 — 독스트링·주석이 이유를 적으며 그 이름을 말하므로,
+        안 걷으면 멀쩡한 코드에 거짓 경보가 난다([309]·[302] 와 같은 자리)."""
+        q = chr(34) * 3
+        while x.count(q) >= 2:
+            a = x.index(q)
+            b = x.index(q, a + 3)
+            x = x[:a] + x[b + 3:]
+        return chr(10).join(l for l in x.split(chr(10))
+                            if not l.strip().startswith("#"))
+
+    seg = _bare(seg)
     assert "stale_read" in seg, "인계가 회차 자국을 안 읽는다"
     assert "sched_stale" not in seg, "인계가 Z: 를 다시 재고 있다([168])"
 
     # (5) `blockers` 는 st 만 본다 — 디스크를 직접 읽으면 합성검증이 실기계를 탄다.
     bl = sh[sh.index("def blockers("):]
     bl = bl[:bl.index("\ndef ", 5)]
+    bl = _bare(bl)
     assert 'st.get("캠프원본")' in bl, "blockers 가 캠프원본을 안 읽는다"
     assert "camp_contacts" not in bl, "blockers 가 모듈을 직접 부르고 있다"
 
@@ -23547,6 +23560,7 @@ def t328_camp_source_staleness_is_seen():
         "인계보다 뒤에 있으면 늘 한 박자 늦은 판정을 싣는다"
     fnbody = wd[wd.index("def watch_camp_source("):]
     fnbody = fnbody[:fnbody.index("\ndef ", 5)]
+    fnbody = _bare(fnbody)
     assert "build()" not in fnbody, "회차가 여기서 다시 만들고 있다 — 밴드 전체 파싱이다([168])"
 
     # (8) 앱은 회차 자국을 **읽기만** 한다 — 웹 요청에서 Z: 를 훑으면 안 된다.
@@ -23554,6 +23568,7 @@ def t328_camp_source_staleness_is_seen():
                   encoding="utf-8").read()
     camps = ap[ap.index('if p == "/api/camps":'):]
     camps = camps[:camps.index('if p == "/api/camps/save"')]
+    camps = _bare(camps)
     assert "stale_read()" in camps, "/api/camps 가 밀림 판정을 안 싣는다"
     assert "sched_stale(" not in camps, "/api/camps 가 웹 요청에서 Z: 를 재고 있다([168])"
 
