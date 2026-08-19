@@ -19350,11 +19350,11 @@ def check_numbers_unique():
       하나라도 남기면 그 문서가 엉뚱한 검증을 가리킨다(겹친 것보다 나쁘다).
 
     ★ 그런데 그 계기가 **최신 검증 46개를 못 보고 있었다** (2026-08-19 실측).
-      정규식이 따옴표 뒤에 공백을 **반드시** 요구했는데(`\s+`) 요즘 검증은
+      정규식이 따옴표 뒤에 공백을 **반드시** 요구했는데(`\\s+`) 요즘 검증은
       `print("[309] ...` 처럼 공백 없이 찍는다. 파일의 번호표 293개 중
       **247개만** 보였고 `[309]` 이후는 통째로 사각지대였다 — 하필 **제일
       겹치기 쉬운 최신 구간**이다(겹침은 두 창이 같은 시각에 번호를 고를 때
-      난다). `[307]` 때 사람이 손으로 찾아낸 이유가 이것이다. `\s*` 로 넓혔고
+      난다). `[307]` 때 사람이 손으로 찾아낸 이유가 이것이다. `\\s*` 로 넓혔고
       넓힌 뒤 새로 걸린 겹침은 **0건**이었다(빨간 문이 생기지 않는다).
 
     ★ 그리고 **번호표를 안 다는 검증**은 여전히 안 보인다. 그래서 함수 이름
@@ -22862,6 +22862,8 @@ def t311_camp_units_come_from_one_parser():
     fn = html[html.index("function campUnits("):html.index("function renderCampList()")]
     js = ("function esc2(s){return String(s);}\n" + fn + "\n"
           "const 답=[campUnits({호기:[1,2]},true),campUnits({호기:[1,2,5]},true),"
+          "campUnits({호기:[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]},true),"
+          "campUnits({호기:[1,2,3,5]},true),"
           "campUnits({호기:[]},true),campUnits({},true),campUnits({호기:[1,2,5]})];"
           "console.log(JSON.stringify(답));")
     pr = subprocess.Popen([node, "-e", js], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -22871,9 +22873,14 @@ def t311_camp_units_come_from_one_parser():
     assert got[0] == "1,2호기", "이어진 호기를 그대로 안 적는다: %r" % got[0]
     assert got[1].startswith("1,2,5호기") and "사이 빔" in got[1], \
         "사이가 빈 것을 말하지 않는다 — '3·4호기는 없다'로 읽힌다: %r" % got[1]
-    assert got[2] == "모름" and got[3] == "모름", \
-        "호기를 못 읽은 캠프를 빈 칸으로 둔다 — 엑셀에서 빈 칸은 뜻을 잃는다: %r" % got[2:4]
-    assert "title=" in got[4], "화면에서 '사이 빔'의 뜻을 설명하지 않는다"
+    assert got[4] == "모름" and got[5] == "모름", \
+        "호기를 못 읽은 캠프를 빈 칸으로 둔다 — 엑셀에서 빈 칸은 뜻을 잃는다: %r" % got[4:6]
+    # ★ **이어진 번호는 범위로 줄인다**(2026-08-19 지시 "확대해도 다 보이게").
+    #   실측 가장 긴 칸 40자 → 15자 · 73개 캠프가 줄었다. 줄이는 것이지 감추는
+    #   것이 아니다 — 사이가 비면 `1~3,5호기` 처럼 **그 자리에** 드러난다(`[169]`).
+    assert got[2] == "1~16호기", "이어진 호기를 범위로 안 줄인다 — 열이 화면 밖으로 나간다: %r" % got[2]
+    assert got[3].startswith("1~3,5호기"), "범위 사이의 구멍이 안 보인다: %r" % got[3]
+    assert "title=" in got[-1], "화면에서 '사이 빔'의 뜻을 설명하지 않는다"
 
     print("[311] 캠프 호기 — 판정은 pm_content 한 곳 · 글자는 campUnits 한 곳 · "
           "사이 빔과 모름을 말한다 ✅")
@@ -23090,7 +23097,7 @@ const 표=줄.map(r=>({이름:r.캠프명,묶음:campGroupText(r),g:campGroupOf(
 renderCampList();
 const 표HTML=상자.campHost.innerHTML;
 campsXlsx();
-console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),
+console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTML,
   엑셀칸:Object.keys(XL.rows[0]).slice(0,3),
   엑셀묶음:XL.rows.map(o=>o['주소묶음']),
   머리:[...표HTML.matchAll(/<th(?: [^>]*)?>([^<]*)/g)].map(m=>m[1]).slice(0,2),
@@ -23140,6 +23147,14 @@ console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),
     묶음2 = {r["이름"]: r["묶음"] for r in g2["표"]}
     assert 묶음2["송파1MB(감일동)"] != "단독", \
         "문을 열었는데도 결과가 같다 — 이 검사는 아무것도 안 재고 있다"
+
+    # ⑥ **축소하지 않아도 다 보이게** 한 것들(2026-08-19 지시) — 되돌아가면 안 된다(`[39]`)
+    css = html[html.index("#campHost .gridwrap"):html.index("#campHost .gridwrap")+400]
+    assert "white-space:normal" in css,         "캠프 표가 다시 nowrap 이다 — 열이 아홉이라 화면 밖으로 나간다"
+    assert "td a{white-space:nowrap}" in css,         "전화번호가 줄바꿈된다 — 한 번호가 두 줄이면 잘린 것처럼 읽힌다"
+    # ⑦ **숫자가 무엇인지 열 이름이 말한다**(형님 물음 "82,79 가 무엇인지")
+    assert "정기점검 접수" in g["표HTML"] and "밴드·카톡 누적 글 수" in g["표HTML"],         "정기점검 숫자가 무엇인지 열 이름이 말하지 않는다"
+    assert "'정기점검 접수 글수'" in html and "'정기점검건수'" not in html,         "엑셀 열 이름이 화면과 다르다"
 
     print("[315] 캠프 주소 묶음 — 같은 주소는 붙고 · 모름끼리는 안 묶이고 · "
           "호기는 캠프명 옆(표·엑셀) ✅")
