@@ -116,9 +116,33 @@ def _seat_names(snap):
     return {s["이름"] for s in (snap.get("자리") or []) if s.get("이름")}
 
 
+def _no_seat_ok():
+    """조직도 **자리가 없어도 되는 사람** → {이름: 왜}.
+
+    정본은 `app_server.NO_SEAT_BY_DESIGN` **한 곳**이다(`[162]`) — 로스터 옆에 두지
+    않고 여기 적으면 사람을 넣고 빼는 손이 둘이 되어 언젠가 갈린다.
+
+    ★ **못 읽으면 빈 표다** — 그러면 예전처럼 전부 경보한다. 조용히 통과시키는 쪽으로
+      기울면 표가 깨진 날 **없는 안심**을 주게 된다(`[169]`).
+    """
+    try:
+        wp = os.path.join(ROOT, "webapp")
+        if wp not in sys.path:
+            sys.path.insert(0, wp)
+        import app_server
+        d = getattr(app_server, "NO_SEAT_BY_DESIGN", None)
+        return {str(k): str(v) for k, v in d.items()} if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
 def follow(snap):
-    """**무엇이 못 따라갔나**로 갈라 말한다. 돌려주는 것: (못따라감, 확인못함)."""
-    gaps, unknown = [], []
+    """**무엇이 못 따라갔나**로 갈라 말한다.
+
+    돌려주는 것: (못따라감, 확인못함, **자리없음정상**). 마지막이 2026-08-19 에 늘었다 —
+    자리를 만들 대상이 아닌 사람을 경보에서 내리되 **조용히 빼지는 않는다**(`[169]`).
+    """
+    gaps, unknown, exempt = [], [], []
 
     # ① 흐름도가 부르는 사람인데 조직도에 자리가 없다.
     #    ★ 자동으로 자리를 만들지 않는다 — 누가 어느 구역에 앉는지는 사람만 안다(`[172]`).
@@ -127,11 +151,18 @@ def follow(snap):
                        % (" — " + snap["흐름왜"] if snap.get("흐름왜") else ""))
     else:
         seats = _seat_names(snap)
+        면제 = _no_seat_ok()
         miss = []
         for key in ("접수", "차례"):
             for r in snap["흐름"].get(key) or []:
                 for w in r.get("담당") or []:
-                    if w and w not in seats and w not in miss:
+                    if not w or w in seats:
+                        continue
+                    # ★ 자리가 없어도 되는 사람은 경보가 아니다 — 그러나 **센다**.
+                    if w in 면제:
+                        if w not in [x["이름"] for x in exempt]:
+                            exempt.append({"이름": w, "왜": 면제[w]})
+                    elif w not in miss:
                         miss.append(w)
         if miss:
             gaps.append({"갈래": "자리없는담당",
@@ -161,7 +192,7 @@ def follow(snap):
                              "조치": "python webapp/restart_server.py"})
     except Exception as exc:
         unknown.append("서버 코드나이 확인 못 함: %s" % str(exc)[:80])
-    return gaps, unknown
+    return gaps, unknown, exempt
 
 
 def _load():
@@ -196,6 +227,7 @@ def build(save=True):
         out["이번에바뀜"] = False
         out["못따라감"] = []
         out["확인못함"] = ["조직도를 못 읽었다 — %s" % why]
+        out["자리없음정상"] = list(prev.get("자리없음정상") or [])
         if save:
             _save(out)
         return out
@@ -208,10 +240,10 @@ def build(save=True):
                      "무엇": _diff(prev.get("스냅샷"), snap)})
         hist = hist[-KEEP:]
 
-    gaps, unknown = follow(snap)
+    gaps, unknown, exempt = follow(snap)
     out = {"때": now, "지문": fp, "처음": not prev.get("지문"),
            "이번에바뀜": changed, "스냅샷": snap, "바뀜이력": hist,
-           "못따라감": gaps, "확인못함": unknown}
+           "못따라감": gaps, "확인못함": unknown, "자리없음정상": exempt}
     if save:
         _save(out)
     return out
@@ -245,6 +277,12 @@ def _line(d):
         bits.append("바뀜: " + (", ".join(h.get("무엇") or []) or "지문만 다름")[:70])
     else:
         bits.append("그대로")
+    if d.get("자리없음정상"):
+        # ★ 경보는 아니지만 **말은 한다** — 조용히 빼면 그 사람이 흐름도에 있다는
+        #   사실 자체가 아무 화면에도 안 남는다(`[169]`).
+        bits.append("자리 없음이 정상 %d명(%s)"
+                    % (len(d["자리없음정상"]),
+                       ", ".join(x.get("이름", "") for x in d["자리없음정상"])))
     if d.get("못따라감"):
         bits.append("못 따라간 것 %d건" % len(d["못따라감"]))
     if d.get("확인못함"):

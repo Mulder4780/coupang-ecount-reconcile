@@ -19089,8 +19089,60 @@ def t313_collect_gate_never_scrapes_over_someone():
         coordinate.running = real_running
         lanes.my_lane = real_lane
 
+    # ⑩ ★ **차선 밖은 '가능'이 아니다** (2026-08-19 지시: "리서치 자료 수집 및
+    #    긁어오기는 'CSOS 리서치 및 자료 수집_v2' 이 세션에서 진행할거에 너는
+    #    이쪽으로 다 양보해"). 세션 **이름**은 기계가 못 본다 — `ai_claim` 은 sid 만
+    #    안다. 그러므로 그 약속을 적을 수 있는 자리는 **차선표 하나**뿐이고,
+    #    차선을 안 정한 창은 수집 창인지 알 수 없으므로 물러난다(사고 #27).
+    real_lane = lanes.my_lane
+    real_load, real_sid = ai_claim.load, ai_claim.session_id
+    real_running = coordinate.running
+    try:
+        ai_claim.load = lambda: {}
+        ai_claim.session_id = lambda: "mine0000"
+        coordinate.running = lambda report_dir=None: []
+
+        lanes.my_lane = lambda d=None: None
+        v = G.check()
+        assert v["갈래"] == "모름", "[313] 차선 밖인데 수집을 허락했다: %r" % v
+        # ★ 막기만 하고 **푸는 길을 안 알려 주면** 사람이 없는 문을 민다(`[169]`).
+        assert "--take collect" in v["왜"], ("[313] 물러나면서 어떻게 푸는지를 안 말한다: %r" % v)
+        # ★ 주인을 못 대므로 '양보'가 아니라 '모름'이다(`[313]`-⑧ 의 뒤집힌 쪽).
+        assert not v["주인"], "[313] 주인을 모르는데 이름을 지어냈다: %r" % v
+
+        lanes.my_lane = lambda d=None: "build"
+        v = G.check()
+        assert v["갈래"] == "양보", "[313] 앱·엑셀 차선인데 수집을 허락했다: %r" % v
+
+        lanes.my_lane = lambda d=None: "collect"
+        assert G.check()["갈래"] == "가능", "[313] 수집 차선인데 수집을 막았다 — 저 창이 일을 못 한다"
+    finally:
+        lanes.my_lane = real_lane
+        ai_claim.load, ai_claim.session_id = real_load, real_sid
+        coordinate.running = real_running
+
+    # ⑪ ★ **계기 자신을 시험한다**(`[272]`) — 차선 문을 빼면 ⑩ 이 통과해 버려야 한다.
+    ns2 = {"__name__": "collect_gate_lane_broken",
+           "__file__": os.path.join(ROOT, "collect_gate.py")}
+    broken2 = src.replace("    if lane is None:", "    if False:")
+    assert broken2 != src, "[313] 차선 갈래 주입 지점을 못 찾았다 — ⑩은 아무것도 안 재고 있다"
+    exec(compile(broken2, "collect_gate_lane_broken", "exec"), ns2)
+    real_lane = lanes.my_lane
+    real_load, real_sid = ai_claim.load, ai_claim.session_id
+    real_running = coordinate.running
+    try:
+        lanes.my_lane = lambda d=None: None
+        ai_claim.load = lambda: {}
+        ai_claim.session_id = lambda: "mine0000"
+        coordinate.running = lambda report_dir=None: []
+        assert ns2["check"]()["갈래"] == "가능", ("[313] 차선 문을 뺐는데도 막혔다 — ⑩은 다른 것을 재고 있다")
+    finally:
+        lanes.my_lane = real_lane
+        ai_claim.load, ai_claim.session_id = real_load, real_sid
+        coordinate.running = real_running
+
     print("[313] 수집 문 — 이름이 아니라 자원으로 판정 · 못 읽으면 '모름' · "
-          "양보는 주인 이름과 함께 자국으로 남는다 · --force 없음")
+          "양보는 주인 이름과 함께 자국으로 남는다 · --force 없음 · 차선 밖은 모름")
 
 
 
@@ -19729,6 +19781,80 @@ def t297_orgchart_change_is_seen_without_crying_wolf():
     assert "def org_gap()" in sh and "org_watch.notices(" in sh, "인계가 조직도를 안 읽는다"
     assert "org_watch.build(" not in sh, "인계가 조직도를 다시 계산한다([168])"
     print("  [297] 조직도 변경 감시 — 사람 상태 제외·읽기전용·확인못함 구분·회차/인계 배선 ✅")
+
+
+def t335_ceo_needs_no_seat_but_is_never_silently_dropped():
+    """[335] 조직도 자리가 **없어도 되는 사람**은 경보에서 내리되 조용히 빼지 않는다.
+
+    사용자 지시(2026-08-19): "김경원, 유수비는 둘다 대표이사라고 보면 돼
+    조적도에 안넣어도 돼"
+
+    ★ 왜 필요한가 — 흐름도는 이 둘을 **접수 경로**로 부른다(실측: 접수 항목
+      `유수비·김경원 폰`). 업무센터 자리가 필요해서가 아니라 접수 창구로 이름이
+      오른 것이다. 그런데 `org_watch` 는 흐름도가 부르는 이름이 조직도 자리에
+      없으면 '못 따라간 것'으로 **매일** 경보했다 — 자리를 만들 대상이 아니므로
+      그 경보는 **영영 안 풀린다.** 경보가 대부분 가짜면 진짜 경보가 묻힌다(`[170]`).
+    ★ 그렇다고 조용히 빼면 그 사람이 흐름도에 있다는 사실 자체가 아무 화면에도
+      안 남는다(`[169]`). 그래서 **갈라 적는다** — 경보에서는 내리고 숫자로는 말한다.
+    """
+    import importlib
+    ow = importlib.import_module("org_watch")
+    wp = os.path.join(ROOT, "webapp")
+    if wp not in sys.path:
+        sys.path.insert(0, wp)
+    app_server = importlib.import_module("app_server")
+
+    # ① 표는 **app_server 한 곳**이다(`[162]`) — 감시자가 이름을 제 손으로 적으면
+    #    사람을 넣고 빼는 손이 둘이 되어 언젠가 갈린다.
+    table = getattr(app_server, "NO_SEAT_BY_DESIGN", None)
+    assert isinstance(table, dict) and table, "[335] 자리 면제 표가 app_server 에 없다"
+    src_ow = open(os.path.join(ROOT, "org_watch.py"), encoding="utf-8").read()
+    for name in table:
+        assert name not in src_ow, ("[335] 감시자가 '%s' 를 제 손으로 적는다 — 표가 둘이 된다" % name)
+
+    snap = {"자리": [{"구역": "mgmt", "이름": "류지영", "역할": "접수"}],
+            "흐름": {"접수": [{"단계": "대표 폰", "담당": ["유수비", "김경원"]},
+                              {"단계": "카톡 접수", "담당": ["류지영"]}],
+                     "차례": []},
+            "흐름왜": ""}
+    real = ow._no_seat_ok
+    try:
+        ow._no_seat_ok = lambda: {"유수비": "대표이사", "김경원": "대표이사"}
+        gaps, _unknown, exempt = ow.follow(snap)
+        # ② 경보에서 내려간다.
+        seat_alerts = [g for g in gaps if g.get("갈래") == "자리없는담당"]
+        assert not seat_alerts, "[335] 자리가 없어도 되는 사람인데 경보했다: %r" % seat_alerts
+        # ③ ★ **조용히 빠지지 않는다** — 세어서 말한다(`[169]`).
+        assert sorted(x["이름"] for x in exempt) == ["김경원", "유수비"], ("[335] 면제된 사람을 세지 않는다: %r" % exempt)
+        assert all(x.get("왜") for x in exempt), "[335] 왜 자리가 없어도 되는지를 안 적는다"
+        line = ow._line({"스냅샷": snap, "자리없음정상": exempt, "못따라감": [], "지문": "x"})
+        assert "유수비" in line and "김경원" in line, ("[335] 한 줄 요약이 면제된 사람을 말하지 않는다 — 조용히 사라진다([169])")
+
+        # ④ ★ 표에 **없는** 사람은 여전히 경보한다 — 그것이 이 검사의 값어치다.
+        snap2 = json.loads(json.dumps(snap, ensure_ascii=False))
+        snap2["흐름"]["접수"].append({"단계": "새 창구", "담당": ["새사람"]})
+        gaps2, _u2, _e2 = ow.follow(snap2)
+        hit = [g for g in gaps2 if g.get("갈래") == "자리없는담당"]
+        assert hit and "새사람" in hit[0]["말"], "[335] 표에 없는 새 이름을 안 잡는다"
+        assert "유수비" not in hit[0]["말"], "[335] 면제된 사람이 경보 문구에 다시 섞였다"
+
+        # ⑤ ★ 표를 **못 읽으면 빈 표** — 전부 경보한다(안전한 쪽, `[169]`).
+        #    조용히 통과시키는 쪽으로 기울면 표가 깨진 날 **없는 안심**을 준다.
+        ow._no_seat_ok = lambda: {}
+        gaps3, _u3, ex3 = ow.follow(snap)
+        assert [g for g in gaps3 if g.get("갈래") == "자리없는담당"] and not ex3, "[335] 표를 못 읽었는데 조용히 통과시킨다"
+    finally:
+        ow._no_seat_ok = real
+
+    # ⑥ ★ **계기 자신을 시험한다**(`[272]`) — 면제 문을 빼면 ②가 잡아야 한다.
+    broken = src_ow.replace("                    if w in 면제:", "                    if False:")
+    assert broken != src_ow, "[335] 면제 문 주입 지점을 못 찾았다 — 이 검사는 아무것도 안 재고 있다"
+    ns = {"__name__": "org_watch_broken", "__file__": os.path.join(ROOT, "org_watch.py")}
+    exec(compile(broken, "org_watch_broken", "exec"), ns)
+    ns["_no_seat_ok"] = lambda: {"유수비": "대표이사", "김경원": "대표이사"}
+    g4, _u4, _e4 = ns["follow"](snap)
+    assert [g for g in g4 if g.get("갈래") == "자리없는담당"], "[335] 면제 문을 뺐는데도 경보가 안 났다 — ②는 다른 것을 재고 있다"
+    print("[335] 대표이사는 조직도 자리가 없어도 된다 — 경보에서 내리되 세어서 말한다 · 표는 한 곳 · 새 이름은 여전히 잡는다")
 
 
 def check_numbers_unique():
@@ -25684,6 +25810,7 @@ if __name__ == "__main__":
     t295_camp_contacts_never_guess_a_phone_number()
     t296_half_list_never_blames_the_person()
     t297_orgchart_change_is_seen_without_crying_wolf()
+    t335_ceo_needs_no_seat_but_is_never_silently_dropped()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()
