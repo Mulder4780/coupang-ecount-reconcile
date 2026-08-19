@@ -6522,14 +6522,33 @@ def _calendar_work_events():
     return out
 
 
-def _drop_served_pm_plans(events):
-    """완료와 같은 회차인 정기점검 예정은 목록에서 내린다.
+def _drop_served_pm_plans(events, today=None):
+    """정기점검 **'예정'에 남으면 안 되는 것**을 내린다 — 두 가지다.
 
-    예정은 류지영 스케줄 원본, 완료는 관리대장 원장에서 와서 원천업무ID가 서로 다를 수
-    있다. 프로젝트NO를 우선 같은 장비로 보고, 프로젝트NO가 양쪽 모두 없을 때만 정규화한
-    캠프명을 쓴다. 완료일이 예정일보다 앞선 것은 지난 회차이므로 다음 예정은 남긴다.
+    (1) **이미 치른 회차** — 완료일이 예정일 **이후**면 그 예정은 끝난 것이다.
+        예정은 류지영 스케줄 원본, 완료는 관리대장 원장에서 와서 원천업무ID가 서로 다를
+        수 있다. 프로젝트NO를 우선 같은 장비로 보고, 양쪽 모두 없을 때만 정규화한
+        캠프 이름을 쓴다. 완료일이 예정일보다 **앞서면** 지난 회차이므로 다음 예정은 남긴다.
+    (2) **지난 예정**(2026-08-19 지시 "오늘 날짜가 8월 19일인데 정기점검 예정이 8월
+        11일이야 이런 건들은 정기점검 미처리로 보내"). 오늘보다 이른 날짜는 **예정이
+        아니다.** 실측 그날 대표 캡처: `pm_plan` 2건이 **전부 지난 날짜**였고 **둘 다
+        미처리와 겹쳤다**(UJ2601431 부산4MB 은 '예정 1건' 목록과 '미처리 11건' 목록에
+        **같이** 떠 있었다). 겹쳐 보이면 대표는 그 현장이 두 건인 줄 안다.
+
+    ★ **조용히 지우지 않는다**([169]). 갈래가 둘이다:
+      - 미처리에 **같은 현장이 이미 있으면** 예정만 내린다 — 그쪽이 경과일과 미처리사유까지
+        말하므로 더 낫다.
+      - 미처리에 **짝이 없으면 pm_overdue 로 옮긴다.** 스케줄 원본에만 있는 예정을 그냥
+        지우면 그 현장은 아무도 안 가는데 목록에도 없다 — 겹쳐 보이는 것보다 나쁘다.
+    ★ 옮긴 것은 **근거를 그대로 적는다**([172]) — 원장이 아니라 **스케줄 원본**이 근거라고
+      말해야, 사람이 원장에서 없는 행을 찾아 나서지 않는다.
+    ★ **예측(pm_pred)은 안 건드린다.** 예측이 빗나간 것은 미처리가 아니다 — 그것을 미처리라
+      부르면 없는 현장이 대표 보고에 뜬다. 대표 캡처는 예측을 이미 뺀다([281]).
+    ★ `today` 를 받는 이유: 검증이 **날짜를 못 박아** 재게 하려고. 실제 오늘로만 재면 검사의
+      뜻이 날마다 달라진다(그날이 지나면 통과하던 줄이 실패한다).
     """
     rows = list(events or [])
+    today = today or datetime.now().strftime("%Y-%m-%d")
 
     def identity(event):
         project = str(event.get("프로젝트NO") or "").split("·")[0].strip().upper()
@@ -6540,22 +6559,44 @@ def _drop_served_pm_plans(events):
         return ("camp:" + camp) if camp else ""
 
     done_days = {}
+    overdue_units = set()
     for event in rows:
-        if event.get("분류") != "pm_done":
-            continue
-        key, day = identity(event), norm_date(event.get("날짜"))
-        if key and day:
-            done_days.setdefault(key, []).append(day)
+        kind = event.get("분류")
+        if kind == "pm_done":
+            key, day = identity(event), norm_date(event.get("날짜"))
+            if key and day:
+                done_days.setdefault(key, []).append(day)
+        elif kind == "pm_overdue":
+            key = identity(event)
+            if key:
+                overdue_units.add(key)
 
-    kept, removed = [], 0
+    kept, removed, moved = [], 0, 0
     for event in rows:
         if event.get("분류") == "pm_plan":
             key, plan = identity(event), norm_date(event.get("날짜"))
             if key and plan and any(day >= plan for day in done_days.get(key, ())):
                 removed += 1
                 continue
+            if plan and plan < today:
+                if key and key in overdue_units:
+                    removed += 1          # 미처리가 이미 같은 말을 한다 (게다가 더 자세히)
+                    continue
+                event = dict(event)
+                camp = str(event.get("캠프명") or event.get("장소") or "캠프 미상")
+                event["분류"] = "pm_overdue"
+                event["업무구분"] = "정기점검 미처리"
+                event["제목"] = "정기점검 미처리 · " + camp
+                event["점검예정일"] = plan
+                event["경과일"] = (datetime.strptime(today, "%Y-%m-%d")
+                                        - datetime.strptime(plan, "%Y-%m-%d")).days
+                event["연결근거"] = ("예정일이 지났는데 완료 기록이 없다 - 근거는 "
+                                    + (str(event.get("연결근거") or "").strip() or "류지영 정기점검 스케줄 원본"))
+                event.setdefault("미처리사유", "원장(04_정기점검)에 이 예정의 짝이 없다 - 스케줄 원본에만 있는 일정이다")
+                event["지난예정이동"] = True
+                moved += 1
         kept.append(event)
-    return kept, removed
+    return kept, removed, moved
 
 
 def get_calendar():
@@ -6663,7 +6704,8 @@ def get_calendar():
 
     # 예정 원본과 완료 원장이 다른 ID를 써도 같은 점검을 두 상태로 동시에 보여 주지 않는다.
     # 완료일이 예정일 이후인 회차만 내리므로, 이미 끝난 지난 회차 뒤의 다음 예정은 보존한다.
-    d["일정"], d["점검완료예정제외"] = _drop_served_pm_plans(d.get("일정") or [])
+    d["일정"], d["점검완료예정제외"], d["지난예정미처리이동"] = \
+        _drop_served_pm_plans(d.get("일정") or [])
 
     # 분류가 없는 옛 일정(Google 원천 등)도 필터에 걸리도록 자리를 준다.
     for e in d.get("일정") or []:

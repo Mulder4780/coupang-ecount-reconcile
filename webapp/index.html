@@ -15674,17 +15674,37 @@ async function calendarCapture(opt){
     const camp=String(calCampOf(e)||'').replace(/[^0-9A-Za-z가-힣]/g,'').toLowerCase();
     return camp?'camp:'+camp:'';
   };
+  /* ★ **지난 예정은 '예정'이 아니다**(2026-08-19 지시). 서버가 먼저 옮기지만 여기서도
+     같은 판단을 한다 - 낡은 응답·오프라인 사본이 대표 보고로 들어오는 길이기 때문이다.
+     · 미처리에 **같은 현장이 이미 있으면** 예정만 내린다(그쪽이 더 자세히 말한다)
+     · **짝이 없으면 미처리로 옮긴다** - 조용히 지우면 그 현장은 아무도 안 간다([169]) */
   const calReportRowsExclusive=source=>{
-    const sourceRows=(source||[]).slice(),doneDays=new Map();
-    sourceRows.filter(e=>calKindOf(e)==='pm_done').forEach(e=>{
-      const key=pmReportUnit(e),day=String(e.날짜||'').slice(0,10);if(!key||!day)return;
-      if(!doneDays.has(key))doneDays.set(key,[]);doneDays.get(key).push(day);
+    const sourceRows=(source||[]).slice(),doneDays=new Map(),overdueUnits=new Set();
+    sourceRows.forEach(e=>{
+      const kind=calKindOf(e),key=pmReportUnit(e);if(!key)return;
+      if(kind==='pm_done'){ const day=String(e.날짜||'').slice(0,10);if(!day)return;
+        if(!doneDays.has(key))doneDays.set(key,[]);doneDays.get(key).push(day); }
+      else if(kind==='pm_overdue') overdueUnits.add(key);
     });
-    return sourceRows.filter(e=>{
-      if(calKindOf(e)!=='pm_plan')return true;
+    const nowDay=todayISO(),out=[];
+    sourceRows.forEach(e=>{
+      if(calKindOf(e)!=='pm_plan'){ out.push(e); return; }
       const key=pmReportUnit(e),plan=String(e.날짜||'').slice(0,10);
-      return !key||!plan||!(doneDays.get(key)||[]).some(done=>done>=plan);
+      if(key&&plan&&(doneDays.get(key)||[]).some(done=>done>=plan))return;  /* 이미 치른 회차 */
+      if(plan&&plan<nowDay){
+        if(key&&overdueUnits.has(key))return;               /* 미처리가 이미 같은 말을 한다 */
+        const m=Object.assign({},e);
+        m.분류='pm_overdue'; m.업무구분='정기점검 미처리';
+        m.제목='정기점검 미처리 · '+(m.캠프명||m.장소||'캠프 미상');
+        m.점검예정일=plan; m.지난예정이동=true;
+        m.경과일=Math.round((new Date(nowDay)-new Date(plan))/86400000);
+        m.연결근거='예정일이 지났는데 완료 기록이 없다 - 근거는 '+(String(m.연결근거||'').trim()||'류지영 정기점검 스케줄 원본');
+        if(!m.미처리사유) m.미처리사유='원장(04_정기점검)에 이 예정의 짝이 없다 - 스케줄 원본에만 있는 일정이다';
+        out.push(m); return;
+      }
+      out.push(e);
     });
+    return out;
   };
   const capAll = calendarRows().filter(e => calMonthOf(e.날짜) === CAL_MONTH);
   const capWithoutPrediction = capAll.filter(e => calKindOf(e) !== 'pm_pred');

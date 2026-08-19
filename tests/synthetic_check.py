@@ -21281,7 +21281,10 @@ def t281_calendar_done_plan_exclusive_and_full_a4_width():
         {"분류": "pm_done", "날짜": "2026-08-06", "프로젝트NO": "", "캠프명": "나-캠프"},
         {"분류": "pm_plan", "날짜": "2026-08-07", "프로젝트NO": "UJ2601002", "캠프명": "다캠프"},
     ]
-    kept, removed = S._drop_served_pm_plans(rows)
+    # ★ `today` 를 못 박는다 - 실제 오늘로 재면 여기 적힌 8월 날짜가 지나는 순간
+    #   '지난 예정' 규칙([318])이 끼어들어 **검사의 뜻이 날마다 달라진다.**
+    kept, removed, moved = S._drop_served_pm_plans(rows, today="2026-08-01")
+    assert moved == 0, "앞날 예정을 미처리로 옮겼다: %r" % moved
     plans = {(r["날짜"], r.get("프로젝트NO"), r.get("캠프명"))
              for r in kept if r["분류"] == "pm_plan"}
     assert removed == 2, "완료와 겹친 예정만 정확히 두 건 내려야 한다: %r" % plans
@@ -23243,6 +23246,98 @@ console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTM
           "호기는 캠프명 옆(표·엑셀) ✅")
 
 
+
+def t318_past_pm_plan_is_not_a_plan():
+    """[318] **지난 정기점검 예정은 '예정'이 아니다** (2026-08-19 형님 지시).
+
+    지시: "대표 보고 캡처 화면에서 정기점검 예정에도 떴는데 정기점검 미처리에도 뜨는 현장
+    알고리즘 구성해서 방지해, 오늘 날짜가 8월 19일인데 정기점검 예정이 8월 11일이야 이런
+    건들은 정기점검 미처리로 보내".
+
+    실측 그날: `pm_plan` 2건이 **전부 지난 날짜**였고 **둘 다 미처리와 겹쳤다**
+    (UJ2601431 부산4MB 이 '예정 1건'과 '미처리 11건' 목록에 **같이** 떠 있었다).
+    겹쳐 보이면 대표는 그 현장이 두 건인 줄 안다.
+
+    ★ **조용히 지우지 않는다**([169]) - 미처리에 짝이 있으면 예정만 내리고, 짝이 없으면
+      **미처리로 옮긴다.** 그냥 지우면 그 현장은 아무도 안 가는데 목록에도 없다.
+    ★ **예측(pm_pred)은 안 건드린다**([172]) - 예측이 빗나간 것은 미처리가 아니다.
+    ★ **관문이 둘이다**(서버·화면). 화면 쪽은 낡은 응답·오프라인 사본이 대표 보고로 들어오는
+      길이라 같은 판단을 한 번 더 한다([281] 이 세운 구조 그대로). **둘 다** 잰다.
+    """
+    import json as _json, shutil, subprocess
+    import proc_guard
+    from webapp import app_server as S
+
+    오늘 = "2026-08-19"
+    rows = [
+        # (1) 지난 예정 + 미처리 짝 있음 -> 예정만 내린다(미처리가 더 자세히 말한다)
+        {"분류": "pm_plan", "날짜": "2026-08-11", "프로젝트NO": "UJ2601431", "캠프명": "부산4MB"},
+        {"분류": "pm_overdue", "날짜": "2026-08-11", "프로젝트NO": "UJ2601431", "캠프명": "부산4MB"},
+        # (2) 지난 예정 + 짝 없음 -> **미처리로 옮긴다**(사라지면 안 된다)
+        {"분류": "pm_plan", "날짜": "2026-08-05", "프로젝트NO": "UJ2601999", "캠프명": "외톨이캠프"},
+        # (3) 앞날 예정 -> 그대로 예정
+        {"분류": "pm_plan", "날짜": "2026-08-25", "프로젝트NO": "UJ2601500", "캠프명": "앞날캠프"},
+        # (4) 지난 예측 -> 예측은 안 건드린다
+        {"분류": "pm_pred", "날짜": "2026-08-02", "프로젝트NO": "UJ2601777", "캠프명": "예측캠프"},
+    ]
+    kept, removed, moved = S._drop_served_pm_plans(rows, today=오늘)
+    갈래 = {}
+    for r in kept:
+        갈래.setdefault(r["분류"], []).append(r)
+    남은예정 = {r["프로젝트NO"] for r in 갈래.get("pm_plan", [])}
+    assert 남은예정 == {"UJ2601500"}, "지난 예정이 아직 예정에 남아 있다: %r" % 남은예정
+    assert removed == 1 and moved == 1, "내린 것/옮긴 것을 갈라 세지 않는다: %r" % (removed, moved)
+
+    옮김 = [r for r in 갈래.get("pm_overdue", []) if r["프로젝트NO"] == "UJ2601999"]
+    assert len(옮김) == 1, "짝 없는 지난 예정이 사라졌다 - 그 현장은 아무도 안 간다"
+    옮 = 옮김[0]
+    assert 옮.get("경과일") == 14, "경과일을 안 적는다: %r" % 옮.get("경과일")
+    assert "스케줄 원본" in str(옮.get("연결근거")), (
+        "근거를 원장이라고 말하면 사람이 원장에서 없는 행을 찾는다: %r" % 옮.get("연결근거"))
+    assert "04_" in str(옮.get("미처리사유")), "왜 미처리인지 안 적는다"
+    assert len([r for r in 갈래.get("pm_overdue", []) if r["프로젝트NO"] == "UJ2601431"]) == 1, (
+        "같은 현장이 미처리에 두 번 있다")
+    assert [r["프로젝트NO"] for r in 갈래.get("pm_pred", [])] == ["UJ2601777"], (
+        "예측을 미처리로 바꿨다 - 빗나간 예측은 미처리가 아니다")
+
+    # ★ 계기 자신을 시험한다([272]) - 지난 예정 문을 닫으면 겹침이 되살아나야 한다
+    import inspect
+    src = inspect.getsource(S._drop_served_pm_plans)
+    assert "if plan and plan < today:" in src, "지난 예정 문이 사라졌다"
+
+    # ── 화면 쪽 관문도 **실행해서** 잰다([295]) ──────────────────────
+    node = shutil.which("node")
+    if not node:
+        print("[318] 지난 예정 - node 가 없어 화면 검사는 건너뜀(서버만) OK")
+        return
+    live = io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read()
+    블록 = live[live.index("  const pmReportUnit=e=>{"):
+                live.index("  const capAll = calendarRows()")]
+    assert "overdueUnits" in 블록, "화면 관문에 지난 예정 규칙이 없다"
+    준비 = ("function calKindOf(e){ return String((e&&e.분류)||'etc'); }\n"
+            "function calCampOf(e){ return (e&&e.캠프명)||''; }\n"
+            "function todayISO(){ return '%s'; }\n" % 오늘)
+    본 = ("const src=" + _json.dumps(rows, ensure_ascii=False) + ";\n"
+          "const out=calReportRowsExclusive(src);\n"
+          "console.log(JSON.stringify(out.map(r=>[r.분류,r.프로젝트NO,r.경과일||0])));")
+    js = 준비 + 블록.replace("const ", "var ") +본
+    pr = subprocess.Popen([node, "-e", js], stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, **proc_guard.background_popen_kwargs())
+    out = pr.communicate(timeout=90)[0].decode("utf-8", "replace").strip()
+    assert out, "node 가 아무 답도 안 줬다"
+    got = _json.loads(out.splitlines()[-1])
+    화면예정 = {p for k, p, _e in got if k == "pm_plan"}
+    assert 화면예정 == {"UJ2601500"}, "화면 관문이 지난 예정을 예정에 남겼다: %r" % 화면예정
+    화면옮김 = [(p, e) for k, p, e in got if k == "pm_overdue" and p == "UJ2601999"]
+    assert 화면옮김 == [("UJ2601999", 14)], "화면 관문이 짝 없는 지난 예정을 잃었다: %r" % got
+    assert sum(1 for k, p, _e in got if k == "pm_overdue" and p == "UJ2601431") == 1, (
+        "화면 관문에서 같은 현장이 미처리에 두 번 있다")
+
+    print("[318] 지난 정기점검 예정 - 예정에 안 남고 · 겹치면 하나만 · "
+          "짝 없으면 미처리로 옮기고 · 예측은 그대로 (서버·화면 둘 다) OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -23519,6 +23614,7 @@ if __name__ == "__main__":
     t235_unattended_rounds_survive_pythonw()
     t280_workflow_ctrl_z_keeps_native_text_undo()
     t281_calendar_done_plan_exclusive_and_full_a4_width()
+    t318_past_pm_plan_is_not_a_plan()
     t282_settings_nav_uses_gear_icon()
     t283_calendar_capture_has_no_page_footer_captions()
     t284_orgchart_has_no_empty_shell_gap()
