@@ -23531,7 +23531,9 @@ def t327_xlsx_says_what_data_it_is():
     if openpyxl.load_workbook(_io.BytesIO(d3)).active.freeze_panes == "A5":
         raise AssertionError("얼리기를 못 박아 뒀는데도 A5 다 — 이 검사는 아무것도 안 재고 있다")
 
-    print("[148] 엑셀 맨 위에 제목·건수·기준시각 — meta 없으면 예전 그대로 · "
+    # ⚠ 찍는 번호는 **검증 번호**다 — 분담판 번호(148)를 찍으면 기존 t148 과 겹쳐
+    #   유일성 검사가 막는다(2026-08-19 실측으로 그렇게 걸렸다).
+    print("[327] 엑셀 맨 위에 제목·건수·기준시각 — meta 없으면 예전 그대로 · "
           "얼리기·필터도 같이 내려감 · 제목은 한 자리 ✅")
 
 def t318_past_pm_plan_is_not_a_plan():
