@@ -163,10 +163,41 @@ def run(args, minutes=20):
         return 124, (out or b"").decode("utf-8", "replace") + "\n(시간 초과로 끊음)"
 
 
+KNOWN_FLAGS = ("--now", "--apply", "--find", "--help", "-h")
+
+
+def unknown_flags(argv):
+    """모르는 깃발만 골라 돌려준다 (2026-08-19).
+
+    ★ **조용히 무시하면 오타가 성공처럼 끝난다.** `main` 은 `--` 로 시작하는 것을
+      통째로 버려 `given` 을 만들었다 — 그래서 `--nwo` 라고 잘못 치면 엑셀 반영을
+      시켰는데 **큐까지만 하고 "완료"** 로 끝난다. 오류도 안 나고 숫자도 나와서
+      아무도 안 본다([169] 와 같은 모양). 실측으로 `--help` 가 그렇게 **회차를
+      통째로 돌렸다.**
+
+    ⚠ `-` 하나로 시작하는 것도 깃발로 본다 — `-now` 를 파일 이름으로 읽으면
+      "파일을 다시 내려받으십시오" 라는 **엉뚱한 안내**가 나간다([172]).
+      경로가 정말 `-` 로 시작하면 `./` 를 붙인다.
+    """
+    return [a for a in argv if a.startswith("-") and a not in KNOWN_FLAGS]
+
+
 def main(argv):
     now_flag = "--now" in argv
     apply_flag = "--apply" in argv or now_flag
-    given = [a for a in argv if not a.startswith("--")]
+    given = [a for a in argv if not a.startswith("-")]
+
+    # ★ 모르는 깃발이면 **아무것도 하기 전에** 멈춘다(위 `unknown_flags` 설명).
+    bad = unknown_flags(argv)
+    if bad:
+        print("멈춤: 모르는 깃발입니다 — %s" % " ".join(bad))
+        print("   쓸 수 있는 것: %s" % " · ".join(KNOWN_FLAGS))
+        print("   (파일 경로가 `-` 로 시작하면 `./` 를 붙여 주십시오)")
+        return 2
+
+    if "--help" in argv or "-h" in argv:
+        print((__doc__ or "").strip())
+        return 0
 
     if "--find" in argv:
         hits = find_recent()

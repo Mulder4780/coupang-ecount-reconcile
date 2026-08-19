@@ -11689,8 +11689,31 @@ def t186_kakao_round_and_stale_tmp():
         assert "kakao_apply.py" not in a or "--now" not in a, \
             "%s 가 카톡 회차를 즉시반영으로 부른다 — 하루 두 번 규칙이 조용히 깨진다" % auto
 
+    # ⑤ 모르는 깃발을 **조용히 무시하지 않는다** (2026-08-19)
+    #   실측: `--help` 를 주었더니 도움말 대신 **회차를 통째로 돌았다**. `given` 이
+    #   `--` 로 시작하는 것을 버려서 `--nwo` 같은 오타도 그냥 지나가고, 엑셀 반영을
+    #   시킨 사람에게 "완료"라고 답한다 — 오류도 안 나고 숫자도 나온다([169]).
+    #   ★ 글자 검사로는 '정말 멈추는가'를 못 잰다([295]) — **불러서** 잰다.
+    #     `main` 은 이 관문에서 곧바로 돌아오므로 파일도 Z: 도 안 건드린다.
+    import kakao_apply as KA
+    assert KA.unknown_flags(["--nwo"]) == ["--nwo"], "모르는 깃발을 못 알아본다"
+    assert KA.unknown_flags(["-now"]) == ["-now"],         "`-` 하나짜리 오타를 파일 이름으로 읽는다 — 엉뚱한 안내가 나간다([172])"
+    for ok in KA.KNOWN_FLAGS:
+        assert KA.unknown_flags([ok]) == [], "멀쩡한 깃발 %s 를 막는다([172])" % ok
+    assert KA.unknown_flags(["카톡.txt", "--now"]) == [],         "파일 경로를 깃발로 읽는다 — 줄 파일이 통째로 거절된다"
+    assert KA.main(["--nwo"]) == 2,         "모르는 깃발인데 main 이 계속 간다 — 오타가 '성공'으로 끝난다"
+    assert KA.main(["--now", "--nwo"]) == 2,         "멀쩡한 깃발이 섞이면 오타가 묻힌다"
+    # ★ 계기 자신을 시험한다([272]) — 표를 넓히면 통과해야 한다.
+    #   통과 안 하면 이 검사는 표가 아니라 어딘가에 박힌 낱말을 보고 있는 것이다.
+    _keep = KA.KNOWN_FLAGS
+    try:
+        KA.KNOWN_FLAGS = tuple(_keep) + ("--nwo",)
+        assert KA.unknown_flags(["--nwo"]) == [], "KNOWN_FLAGS 를 안 보고 판정한다"
+    finally:
+        KA.KNOWN_FLAGS = _keep
+
     print("  [186] 카톡 한 줄 반영(없는 파일에 멈춤·추출 실패 시 안 씀) · "
-          "죽은 회차 tmp 는 치우고 쓰는 중인 tmp 는 안 건드림 ✅")
+          "죽은 회차 tmp 는 치우고 · 모르는 깃발에 멈춤 ✅")
 
 
 def t187_free_vs_insurance_are_not_one_label():
