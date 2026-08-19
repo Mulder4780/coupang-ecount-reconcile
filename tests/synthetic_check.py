@@ -18696,7 +18696,8 @@ def t237_cards_fold_with_one_tool():
     import shutil as _sh54, subprocess as _sp54, tempfile as _tf54, io as _io54, os as _os54
     node54 = _sh54.which("node")
     if not node54:
-        print("  [54] 대시보드 카드 접기 — node 가 없어 왕복 검사는 건너뜀(구조만) OK")
+        print("  [237] 대시보드 카드 접기(분담판 54) — node 가 없어 "
+              "왕복 검사는 건너뜀(구조만) OK")
     else:
         head54 = live.split("const DASH_LAYOUT_KEY=", 1)[1]
         slice54 = "const DASH_LAYOUT_KEY=" + head54.split("function dashboardLayoutState(", 1)[0]
@@ -18749,7 +18750,7 @@ def t237_cards_fold_with_one_tool():
                 gotb54 = json.loads(ln)
         assert gotb54 is not None and gotb54.get("kept") is None, \
             "[54] 자기시험 — folded 를 빼도 왕복 검사가 통과했다. 이 검사는 아무것도 안 재고 있다"
-        print("  [54] 대시보드 카드 접기 — 머리에 붙임(그리드 자식 안 늘림) · "
+        print("  [237] 대시보드 카드 접기(분담판 54) — 머리에 붙임(그리드 자식 안 늘림) · "
               "!important 못박기 · 숨기기와 다른 길 · 접힘 기억 왕복 · 옛 저장본 안전 ✅")
     print("  [237] 카드 접기 한 벌 — hidden 에 못박기 · 접힌 줄이 개수를 말함 "
           "· 사람 카드는 이름·현황 남김 · 화면 열 때마다 재적용 ✅")
@@ -20544,6 +20545,119 @@ def t342_a_round_that_skipped_steps_says_so():
         _sh.rmtree(tmp, ignore_errors=True)
     print("[342] 건너뛴 단계를 인계가 말한다 — '완주'와 '다 했다'는 다른 말이다 ✅")
 
+
+def t344_cancel_sync_converges_and_keeps_the_reason():
+    """[344] 접수취소 sync — **수렴한다** · 실패하면 **이유가 리포트까지 간다**
+    (분담판 [67]·[69]).
+
+    ★ 둘 다 '이미 고쳐졌는데 그것을 지키는 검사가 없던' 자리다([76] — 만든 것과
+      지켜지는 것은 다르다). 2026-08-20 실측: 실측 앱 DB **사본**에서 그 47행을
+      열린 상태로 되돌린 뒤 세 번 돌리니 **반영 46 → 0 → 0**(동일 46 · 충돌 4 ·
+      원장없음 2 · 오류 0)로 수렴했다 — [69] 가 적어 둔 `45/0/10` 은 재현되지
+      않는다. [67] 도 `append_sync_result` 가 프로젝트·예외종류·원인을 이미
+      리포트에 적는다(일부러 터뜨려 46건 전부 이유가 살아 남는 것을 확인).
+      그러므로 여기서 할 일은 **고치는 것이 아니라 얼리는 것**이다([172]).
+
+    ★ '반영 0' 만 보고 수렴이라 하면 안 된다([169]) — 이미 취소인 행을 읽으면
+      쓰는 길을 한 번도 안 밟는다. 그래서 이 검사는 **열린 행을 만들어** 쓰는
+      길을 실제로 태운다.
+
+    ⚠ 실측 앱 DB·실측 리포트에는 한 글자도 안 쓴다 — 합성 store·임시 경로로만([247]).
+    """
+    import importlib, tempfile, shutil as _sh344, os as _os344, re as _re344
+    S = importlib.import_module("app_store")
+    CR = importlib.import_module("cancel_resolution")
+    CW = importlib.import_module("cancel_watch")
+
+    tmp = tempfile.mkdtemp(prefix="t344_")
+    try:
+        store = S.AppStore(_os344.path.join(tmp, "app.db"))
+        kind, _sheet, _idc, status_col = CR.SOURCE_SPECS[0]
+        store.create_work(
+            kind=kind, business_key="T344-0001", project_no="UJ2699001",
+            camp_name="시험캠프", status="접수",
+            fields={status_col: "접수"}, actor="t344", source="t344")
+        hit = {"프로젝트NO": "UJ2699001", "밴드": "84789192", "게시글": "1",
+               "자리": "댓글", "근거": "접수 취소 요청", "원문": "접수 취소 요청",
+               "게시일": "2026-08-01", "업무종류": kind, "처리구분": "접수취소",
+               "근거URL": "https://band.us/band/84789192/post/1"}
+        hits = {"UJ2699001": hit}
+
+        # ① 쓰는 길이 **수렴한다** — 1회차만 쓰고 그 뒤로는 조용하다
+        counts = []
+        for _ in range(3):
+            r = CR.sync_hits(hits, store=store, corroborations={})
+            counts.append((r["updated"], r["unchanged"], len(r["errors"])))
+        assert counts[0] == (1, 0, 0), (
+            "[344] 열린 행에 접수취소를 반영하지 못했다 — 쓰는 길이 안 돈다: "
+            + repr(counts))
+        assert counts[1] == (0, 1, 0) and counts[2] == (0, 1, 0), (
+            "[344] 같은 근거로 다시 돌렸는데 또 쓴다 — 돌릴 때마다 값이 달라진다"
+            "(분담판 [69] 의 45/0/10): " + repr(counts))
+
+        # ② 실패하면 **이유를 버리지 않는다** — 프로젝트·예외종류·원인 셋 다
+        class _Broken:
+            def __init__(self, base):
+                self._b = base
+
+            def list_work(self, *a, **k):
+                return self._b.list_work(*a, **k)
+
+            def update_work(self, work_id, **k):
+                raise RuntimeError("database is locked (t344 주입)")
+
+        row = store.list_work(kind=kind, limit=10)[0]
+        store.update_work(
+            row["id"],
+            expected_version=int(row["record_version"]),
+            patch={"status": "접수", "fields": {status_col: "접수", "접수취소여부": "",
+                                              "접수취소사유": "", "처리구분": "",
+                                              "접수취소근거": "", "접수취소확인일": ""}},
+            actor="t344", source="t344")
+        bad = CR.sync_hits(hits, store=_Broken(store), corroborations={})
+        assert bad["updated"] == 0 and len(bad["errors"]) == 1, (
+            "[344] 쓰기가 터졌는데 오류로 안 센다: " + repr(bad["updated"]))
+        err = bad["errors"][0]
+        assert err.get("project") == "UJ2699001", "[344] 오류에 프로젝트번호가 없다"
+        assert err.get("type") == "RuntimeError", "[344] 오류에 예외 종류가 없다"
+        assert "database is locked" in str(err.get("message") or ""), (
+            "[344] 오류에 원인 문구가 없다 — '0건 반영' 만 남으면 고칠 자리를 못 찾는다")
+
+        # ③ 그 이유가 **리포트까지** 간다 (분담판 [67])
+        rep = _os344.path.join(tmp, "접수취소_확인.md")
+        with open(rep, "w", encoding="utf-8") as fh:
+            fh.write("# t344\n")
+        CW.append_sync_result(rep, bad)
+        text = open(rep, encoding="utf-8").read()
+        assert "### DB 반영 오류" in text, "[344] 리포트에 오류 표가 없다"
+        for token in ("UJ2699001", "RuntimeError", "database is locked"):
+            assert token in text, "[344] 리포트에서 사라진 근거: " + token
+        assert "오류 1건" in text, "[344] 리포트 요약이 오류 건수를 안 센다"
+
+        # ④ 계기 자기시험([272]) — 이유를 안 쓰는 옛 동작이면 ③이 잡히나
+        src = open(_os344.path.join(ROOT, "cancel_watch.py"), encoding="utf-8").read()
+        head = src.index("def append_sync_result(")
+        tail = src.index("def sync(", head)
+        fn_src = src[head:tail].replace("if errors:", "if False:", 1)
+        ns = {"re": _re344}
+        exec(compile(fn_src, "<t344-broken>", "exec"), ns)
+        rep2 = _os344.path.join(tmp, "고장.md")
+        with open(rep2, "w", encoding="utf-8") as fh:
+            fh.write("# t344\n")
+        ns["append_sync_result"](rep2, bad)
+        text2 = open(rep2, encoding="utf-8").read()
+        assert "### DB 반영 오류" not in text2 and "database is locked" not in text2, (
+            "[344] 오류 표를 지웠는데도 리포트에 그대로다 — ③은 아무것도 안 재고 있다")
+
+        # ⑤ 되돌아가면 안 되는 것([39]) — 밴드 이름을 **숫자 파일명**으로 정규화한다.
+        #    표시명('밴드 홈')이 섞이면 근거 문자열과 멱등키가 매회 흔들려 이미
+        #    취소인 행을 다시 쓴다 — 그것이 [69] 가 본 비결정성의 원인이었다.
+        cw = open(_os344.path.join(ROOT, "cancel_watch.py"), encoding="utf-8").read()
+        assert 'd{7,10}", stem)' in cw and 'fullmatch(' in cw, (
+            "[344] scan_band 가 밴드 이름을 숫자 파일명으로 정규화하지 않는다")
+    finally:
+        _sh344.rmtree(tmp, ignore_errors=True)
+    print("[344] 접수취소 sync 는 수렴하고, 실패하면 이유가 리포트까지 간다 ✅")
 
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
@@ -26507,6 +26621,7 @@ if __name__ == "__main__":
     t341_index_silence_is_not_a_collection_delay()
     t342_a_round_that_skipped_steps_says_so()
     t343_band_quiet_evidence_is_looked_up_by_number()
+    t344_cancel_sync_converges_and_keeps_the_reason()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()
