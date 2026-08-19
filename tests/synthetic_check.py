@@ -18959,6 +18959,109 @@ def t313_collect_gate_never_scrapes_over_someone():
           "양보는 주인 이름과 함께 자국으로 남는다 · --force 없음")
 
 
+
+def t314_camp_unknown_is_filled_only_with_proof():
+    """[314] 캠프 '모름'은 **근거가 유일할 때만** 채운다 (2026-08-19 지시).
+
+    지시: "모름 표시되어있는 부분 밴드 및 erp, 원본 데이터등 전수 조사해서 반영"
+
+    ★ 어려운 것은 채우는 게 아니라 **잘못 채우지 않는 것**이다([172]). 메일을 틀리게
+      채우면 사람이 **엉뚱한 사람에게 캠프 업무를 보낸다** — 모름으로 두는 것보다
+      나쁘다. 그래서 이 검사는 '얼마나 채웠나'가 아니라 **'안 채워야 할 것을 안
+      채웠나'** 를 잰다. 합성 자료로만 재고 실측 파일은 한 글자도 안 건드린다([247]).
+    """
+    import importlib, io
+    CC = importlib.import_module("camp_contacts")
+
+    # ① 한 글자·직함은 사람 이름 열쇠가 될 수 없다 — `김` 하나로 사람을 특정하면
+    #    엉뚱한 사람의 메일이 캠프에 박힌다(실측으로 3칸이 그럴 참이었다).
+    assert CC._first_name("김") == "", "[314] 한 글자를 이름으로 쓴다"
+    assert CC._first_name("M") == "", "[314] 한 글자 영문을 이름으로 쓴다"
+    assert CC._first_name("SM 로건") == "로건", "[314] 직함을 이름으로 집는다"
+    assert CC._first_name("권순환 Cain") == "권순환", "[314] 영문 별명을 이름으로 집는다"
+
+    # ② 사람이 바뀌면 옛 값을 새 사람 옆에 붙이지 않는다(프랑켄슈타인 연락처 금지).
+    옛 = {"이름": "가나다", "전화": "010-1111-1111", "메일": "old@x.com"}
+    새같음 = {"이름": "가나다", "전화": "010-1111-1111", "메일": ""}
+    새다름 = {"이름": "라마바", "전화": "010-2222-2222", "메일": ""}
+    assert CC._merge_person(옛, 새같음).get("메일") == "old@x.com",         "[314] 같은 사람인데 옛 메일을 잃는다 — 최신 글이 통째로 덮는 그 사고다"
+    assert not CC._merge_person(옛, 새다름).get("메일"),         "[314] 사람이 바뀌었는데 옛 메일을 새 사람에게 붙였다"
+
+    # ③ 후보가 여럿이면 **안 채운다.** 여럿을 하나로 고르면 그것이 오지목이다.
+    recs = [
+        {"캠프명": "가상1MB(시험동)", "현장책임": {"이름": "홍길동",
+            "전화": "010-3333-3333", "메일": "hong@x.com"}},
+        {"캠프명": "가상2MB(시험동)", "현장책임": {"이름": "홍길동",
+            "전화": "010-3333-3333", "메일": "hong2@y.com"}},
+        {"캠프명": "가상3MB(시험동)", "안전관리": {"이름": "김유일",
+            "전화": "010-4444-4444", "메일": "only@z.com"}},
+    ]
+    D = CC.person_directory(recs)
+    rows = [{"캠프명": "가상9MB(시험동)", "거래처코드": "",
+             "현장책임": {"이름": "홍길동", "전화": "010-3333-3333", "메일": ""},
+             "안전관리": {"이름": "김유일", "전화": "010-4444-4444", "메일": ""},
+             "담당자": {}}]
+    out = CC.fill_gaps(rows, D, {})
+    assert not (rows[0]["현장책임"].get("메일") or ""),         "[314] 메일 후보가 둘인데 하나를 골라 채웠다"
+    assert rows[0]["안전관리"].get("메일") == "only@z.com",         "[314] 후보가 유일한데 안 채웠다"
+    assert out["보완보류"] >= 1, "[314] 보류한 칸을 숫자로 말하지 않는다([169])"
+
+    # ④ **덮지 않는다** — 원문에 적힌 값이 언제나 이긴다.
+    rows2 = [{"캠프명": "가상8MB(시험동)", "거래처코드": "",
+              "안전관리": {"이름": "김유일", "전화": "010-4444-4444",
+                           "메일": "written@in.post"}, "담당자": {}}]
+    CC.fill_gaps(rows2, D, {})
+    assert rows2[0]["안전관리"]["메일"] == "written@in.post",         "[314] 원문에 적힌 메일을 명부 값으로 덮었다"
+
+    # ⑤ ERP 거래처등록 담당자는 **직책 미상**이라 `담당자` 칸에만 담는다.
+    #    현장책임/안전관리에 넣으면 화면이 없는 직책을 확언한다([172]).
+    erp = {"CU999": {"code": "CU999", "name": "가상7MB(시험동)",
+                     "manager": "박담당", "email": "park@erp.com", "tel": ""}}
+    rows3 = [{"캠프명": "가상7MB(시험동)", "거래처코드": "CU999",
+              "현장책임": {"이름": "", "전화": "", "메일": ""},
+              "안전관리": {}, "담당자": {}}]
+    CC.fill_gaps(rows3, CC.person_directory([], list(erp.values())), erp)
+    assert rows3[0]["담당자"].get("이름") == "박담당", "[314] ERP 담당자를 안 담았다"
+    assert not (rows3[0]["현장책임"].get("이름") or ""),         "[314] ERP 거래처 담당자를 현장책임이라고 확언했다 — 없는 직책을 지어냈다"
+    assert rows3[0].get("보완", {}).get("담당자 이름") == "ERP 거래처등록",         "[314] 채운 값의 출처를 안 적는다 — 원문과 구별할 수 없다([169])"
+
+    # ⑥ **방금 채운 값을 다시 열쇠로 쓰지 않는다**(연쇄 금지). 한 칸이 틀리면
+    #    나머지도 같이 틀리면서 똑같이 확신에 차 보인다.
+    recs4 = [{"캠프명": "가상6MB(시험동)", "담당자": {"이름": "최연쇄",
+              "전화": "010-5555-5555", "메일": ""}},
+             {"캠프명": "가상5MB(시험동)", "담당자": {"이름": "딴사람",
+              "전화": "010-5555-5555", "메일": "chain@x.com"}}]
+    D4 = CC.person_directory(recs4)
+    erp4 = {"CU888": {"code": "CU888", "name": "가상4MB(시험동)",
+                      "manager": "최연쇄", "email": "", "tel": ""}}
+    rows4 = [{"캠프명": "가상4MB(시험동)", "거래처코드": "CU888",
+              "현장책임": {}, "안전관리": {}, "담당자": {}}]
+    CC.fill_gaps(rows4, D4, erp4)
+    # 이름은 ERP 가 준다. 전화는 그 이름으로 찾을 수 있다. 그러나 메일은
+    # **그 전화로** 찾아서는 안 된다 — 원문 담당자 칸은 통째로 비어 있었다.
+    assert not (rows4[0]["담당자"].get("메일") or ""),         "[314] 방금 채운 전화를 열쇠로 써서 남의 메일을 끌어왔다(연쇄)"
+
+    # ⑦ ★ **계기 자신을 시험한다**([272]) — 유일 후보 문을 빼면 ③이 통과해 버려야 한다.
+    src = io.open(os.path.join(ROOT, "camp_contacts.py"),
+                  encoding="utf-8", newline="").read()
+    _NL = chr(10)
+    _old = "        if len(cand) == 1:" + _NL + "            return next(iter(cand)), 라벨"
+    _new = "        if cand:" + _NL + "            return sorted(cand)[0], 라벨"
+    broken = src.replace(_old, _new)
+    assert broken != src, "[314] 고장 주입 지점을 못 찾았다 — 이 검사는 아무것도 안 재고 있다"
+    ns = {"__name__": "camp_contacts_broken",
+          "__file__": os.path.join(ROOT, "camp_contacts.py")}
+    exec(compile(broken, "camp_contacts_broken", "exec"), ns)
+    rows5 = [{"캠프명": "가상9MB(시험동)", "거래처코드": "",
+              "현장책임": {"이름": "홍길동", "전화": "010-3333-3333", "메일": ""},
+              "안전관리": {}, "담당자": {}}]
+    ns["fill_gaps"](rows5, ns["person_directory"](recs), {})
+    assert (rows5[0]["현장책임"].get("메일") or ""),         "[314] 유일 후보 문을 뺐는데도 안 채워졌다 — ③은 다른 것을 재고 있다"
+
+    print("[314] 캠프 모름 보완 — 유일 후보만 · 안 덮음 · 연쇄 금지 · "
+          "ERP 담당자는 직책 미상 칸 · 출처를 적는다")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -22710,7 +22813,11 @@ def t311_camp_units_come_from_one_parser():
 
     # ① 판정을 빌린다 — 제 손으로 호기 정규식을 쓰지 않는다
     assert "pm_content.parse_units" in cc, "호기 판정을 pm_content 에서 안 빌린다"
-    본문 = cc[cc.index("def _units"):cc.index("def build()")]
+    # ⚠ **`def build()` 까지 자르지 말 것** — 그 사이에 다른 함수가 들어오면(옆 세션이
+    #   실제로 넣었다) 남의 코드를 내 함수인 줄 알고 재고 **거짓 경보**를 낸다([192] 모양).
+    #   `_units` **한 함수**만 자른다.
+    _u = cc.index("def _units")
+    본문 = cc[_u:cc.index(chr(10) + "def ", _u + 1)]
     # ★ **설명을 걷어내고 본다** — 독스트링에 '호기' 가 있다고 정규식을 쓰는 것은
     #   아니다. 첫 판이 그대로 걸렸다(`[302]`·`[301]`⑨ 와 같은 자리).
     코드 = 본문.split(chr(34) * 3)[-1]
@@ -22895,6 +23002,124 @@ async function press(k,run){AUTOMATION_MON.data=Object.assign({},상태,{running
 
     print("[312] 자동화 카드 클릭 실행 — 여섯 카드 · 엑셀은 applyExcelNow 재사용 · "
           "도는 중 재실행 막음 · 막힘을 확인창이 말함 ✅")
+
+
+
+def t314_camp_rows_group_by_address_only():
+    """[314] 캠프명 옆에 호기 · **같은 주소끼리 붙여** 보여 준다 (2026-08-19 형님 지시).
+
+    지시: "캠프명 옆에 호기를 추가하고 같은 캠프 같은 주소는 모아서 순차적으로
+    보여줄 수 있는 구조로 변경해".
+
+    ★ **묶는 근거는 주소 하나다**(`[172]`). 캠프명이 닮았다고 묶으면 `송파1MB(감일동)`
+      과 `송파5MB(감일동)` 처럼 **실재하는 다른 캠프**가 한 덩어리가 되고, 그 목록은
+      사람을 엉뚱한 현장으로 보낸다 — 못 묶는 것보다 나쁘다.
+    ★ **주소를 모르는 것끼리는 안 묶는다**(`[169]`). '모름'은 같은 곳이라는 뜻이 아니다.
+      실측 2026-08-19: 정기점검 400개 중 주소 모름 1개 · 같은 주소 묶음 97개 245행 ·
+      끊긴 묶음 0.
+    ★ **순서를 정하는 자리는 하나다**(`[162]`) — `campRows`. 표·엑셀·이미지가 다른
+      순서를 보면 화면에서 옆줄이던 것이 엑셀에서는 멀리 떨어진다.
+
+    '몇 곳 중 몇 번째'가 맞는지는 글자 검사로 못 잰다(`[295]`) — node 로 화면 코드를
+    **실제로 실행**하고, 계기 자신도 시험한다(`[272]`).
+    """
+    import io as _io, json as _json, shutil, subprocess
+    import proc_guard
+    html = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                    encoding="utf-8", newline="").read()
+
+    # ① 정하는 자리는 하나다
+    assert html.count("function campGroupSort(") == 1, "줄 세우는 자리가 하나가 아니다"
+    assert html.count("function campGroupText(") == 1, "묶음 글자를 만드는 자리가 하나가 아니다"
+    assert "return campGroupSort(rows.filter(" in html, \
+        "campRows 가 묶어서 돌려주지 않는다 — 표·엑셀·이미지 순서가 갈린다"
+
+    node = shutil.which("node")
+    if not node:
+        print("[314] 캠프 주소 묶음 — node 가 없어 실행 검사는 건너뜀(구조 검사만) ✅")
+        return
+
+    # ⚠ 직접 eval 안의 let/const 는 **그 eval 안에만** 산다 — 조각을 따로 eval 하면
+    #   서로를 못 보고, 밖에서 CAMPS 를 넣어도 안 닿는다. 한 번에 이어 붙이고 var 로 편다.
+    블록 = (html[html.index("let CAMPS = null;"):html.index("function campFieldRows(")]
+            + html[html.index("function campsXlsx()"):html.index("/* 대표 보고용 이미지")])
+    준비 = """
+const 상자={};
+function $(id){ if(id==='campQ') return {value:''};
+  if(id==='campPmOnly') return {checked:true};
+  return 상자[id]||(상자[id]={innerHTML:'',textContent:'',checked:false,value:''}); }
+function esc2(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function notice(){} function uxEvent(){} function api(){} function apiFresh(){}
+function todayISO(){return '2026-08-19';}
+function exportRowsXlsx(name,rows,opt){ globalThis.XL={name:name,rows:rows,opt:opt}; }
+"""
+    본 = """
+CAMPS={갱신:'2026-08-19T09:00',rows:[
+ {캠프명:'하남1캠프',캠프주소:'경기 하남시 미사대로 1',정기점검:true,호기:[1,2]},
+ {캠프명:'가평1캠프',캠프주소:'경기 가평군 가평로 9',정기점검:true,호기:[1,2,5]},
+ {캠프명:'하남2MB(미사)',캠프주소:'경기 하남시 미사대로 1',정기점검:true,호기:[1]},
+ {캠프명:'하남3MB(미사)',캠프주소:'경기 하남시  미사대로1 ',정기점검:true,호기:[]},
+ {캠프명:'송파1MB(감일동)',캠프주소:'',정기점검:true,호기:[1]},
+ {캠프명:'송파5MB(감일동)',캠프주소:'',정기점검:true,호기:[2]}]};
+const 줄=campRows();
+const 표=줄.map(r=>({이름:r.캠프명,묶음:campGroupText(r),g:campGroupOf(r)?campGroupOf(r).묶음:0,
+                    호기:campUnits(r,true)}));
+renderCampList();
+const 표HTML=상자.campHost.innerHTML;
+campsXlsx();
+console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),
+  엑셀칸:Object.keys(XL.rows[0]).slice(0,3),
+  엑셀묶음:XL.rows.map(o=>o['주소묶음']),
+  머리:[...표HTML.matchAll(/<th(?: [^>]*)?>([^<]*)/g)].map(m=>m[1]).slice(0,2),
+  줄표시:(표HTML.match(/class="campgrp g[01]"/g)||[]).length}));
+"""
+
+    def 재기(소스):
+        js = 준비 + "eval((" + _json.dumps(소스) + ").replace(/^(let|const) /gm,'var '));" + 본
+        pr = subprocess.Popen([node, "-e", js], stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, **proc_guard.background_popen_kwargs())
+        out = pr.communicate(timeout=90)[0].decode("utf-8", "replace").strip()
+        assert out, "node 가 아무 답도 안 줬다"
+        return _json.loads(out.splitlines()[-1])
+
+    g = 재기(블록)
+    이름 = [r["이름"] for r in g["표"]]
+    묶음 = {r["이름"]: r["묶음"] for r in g["표"]}
+
+    # ② 같은 주소는 **붙어 있다** — 표기(공백)가 달라도 같은 주소다
+    하남 = [i for i, n in enumerate(이름) if n.startswith("하남")]
+    assert 하남 == list(range(하남[0], 하남[0] + 3)), \
+        "같은 주소인데 줄이 떨어져 있다: %r" % 이름
+    assert 묶음["하남1캠프"] == "같은 주소 3곳 중 1", 묶음["하남1캠프"]
+    assert 묶음["하남3MB(미사)"] == "같은 주소 3곳 중 3", 묶음["하남3MB(미사)"]
+    # 묶음 대표 캠프명(하남1캠프)으로 자리를 잡으므로 가평이 먼저다 — 목록이 가나다 순으로 읽힌다
+    assert 이름[0] == "가평1캠프", "묶음이 목록 순서를 흔든다: %r" % 이름
+
+    # ③ **주소 모름끼리는 안 묶는다**(`[169]`) · 닮은 이름도 안 묶는다(`[172]`)
+    assert 묶음["송파1MB(감일동)"] == "단독" and 묶음["송파5MB(감일동)"] == "단독", \
+        "주소를 모르는 캠프끼리 묶였다 — '모름'은 같은 곳이라는 뜻이 아니다: %r" % 묶음
+
+    # ④ 호기는 캠프명 **바로 옆**이다(표·엑셀 둘 다)
+    assert g["머리"][:2] == ["캠프명", "호기"], "표에서 호기가 캠프명 옆이 아니다: %r" % g["머리"]
+    assert g["열"][:3] == ["캠프명", "호기", "주소묶음"], "엑셀 열 순서가 다르다: %r" % g["열"]
+    assert g["엑셀칸"][:3] == ["캠프명", "호기", "주소묶음"]
+    assert set(g["엑셀묶음"]) >= {"단독"} and any("곳 중" in v for v in g["엑셀묶음"]), \
+        "엑셀이 묶음을 안 적는다: %r" % g["엑셀묶음"]
+    assert g["줄표시"] == 3, "묶인 줄에 표시가 없다(%r개)" % g["줄표시"]
+    assert [r["호기"] for r in g["표"] if r["이름"] == "하남3MB(미사)"] == ["모름"], \
+        "호기를 못 읽은 캠프를 빈 칸으로 둔다"
+
+    # ⑤ 계기 자신을 시험한다(`[272]`) — '주소 모름은 안 묶는다' 문을 열면 잡아야 한다
+    깨진 = 블록.replace("return (k && cnt.get(k)>1) ? k : '';",
+                        "return (cnt.get(k)>1) ? k : (k||'모름');", 1)
+    assert 깨진 != 블록, "고장 주입 자리를 못 찾았다"
+    g2 = 재기(깨진)
+    묶음2 = {r["이름"]: r["묶음"] for r in g2["표"]}
+    assert 묶음2["송파1MB(감일동)"] != "단독", \
+        "문을 열었는데도 결과가 같다 — 이 검사는 아무것도 안 재고 있다"
+
+    print("[314] 캠프 주소 묶음 — 같은 주소는 붙고 · 모름끼리는 안 묶이고 · "
+          "호기는 캠프명 옆(표·엑셀) ✅")
 
 
 if __name__ == "__main__":
@@ -23202,8 +23427,10 @@ if __name__ == "__main__":
     t310_button_classes_always_have_a_look()
     t311_camp_units_come_from_one_parser()
     t312_automation_cards_run_what_they_say()
+    t314_camp_rows_group_by_address_only()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t313_collect_gate_never_scrapes_over_someone()
+    t314_camp_unknown_is_filled_only_with_proof()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

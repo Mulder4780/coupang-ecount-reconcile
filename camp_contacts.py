@@ -130,6 +130,189 @@ def _units(text):
         return ()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 모름을 채운다 — **원천 셋을 전수로 보되, 후보가 유일할 때만** (2026-08-19 지시)
+#
+# 사용자 지시: "모름 표시되어있는 부분 밴드 및 erp, 원본 데이터등 전수 조사해서
+# 반영될 수 있도록 코딩해"
+#
+# 먼저 어디에 답이 있는지 쟀다(짐작으로 채우지 않는다). 실측 2026-08-19:
+#   · 밴드·카톡 본문 — 이미 쓰지만 **최신 글이 사람 칸을 통째로 덮어** 25칸을 잃고 있었다
+#   · 밴드·카톡 **사람 명부** — 안 쓰고 있었다. 같은 사람이 여러 캠프에 나오므로
+#     한 곳에서 알아낸 메일을 다른 캠프에서 쓸 수 있다(실측 143칸)
+#   · **ERP 거래처 마스터** — 안 쓰고 있었다. 캠프 249개에 담당자명 217 · 메일 198
+#     이 있고 밴드와 같은 사람이다(권순환 → sukwon52@coupangls.com, 실측 일치)
+#   · 관리대장 — **캠프 연락처 칸이 없다**(read_ledger 열 목록에 하나도 없다)
+#
+# ★ 어려운 것은 채우는 게 아니라 **잘못 채우지 않는 것**이다([172]). 메일을 틀리게
+#   채우면 사람이 **엉뚱한 사람에게 캠프 업무를 보낸다** — 모름으로 두는 것보다 나쁘다.
+#   그래서 문을 다섯 건다:
+#     ① **후보가 유일할 때만** 채운다. 여럿이면 그대로 모름이고 숫자로 보고한다([169]).
+#     ② **덮지 않는다.** 빈 칸만 채운다 — 원문에 적힌 값이 언제나 이긴다.
+#     ③ **역할을 지어내지 않는다.** ERP 거래처 담당자는 현장책임인지 안전관리인지
+#        말하지 않으므로 `담당자`(직책 미상) 칸에만 담는다.
+#     ④ **번호가 이름보다 세다.** 이름은 양식에 박혀 돌아다니지만 번호는 그 사람이다
+#        (`people_alias.py` 가 쓰는 것과 같은 근거). 전화로 먼저 묻고 없을 때만 이름.
+#     ⑤ **채운 것을 원문처럼 보이게 하지 않는다.** 근거에 출처를 적어 사람이
+#        "이건 어디서 온 값인가"를 물을 수 있게 한다.
+# ─────────────────────────────────────────────────────────────────────────────
+PERSON_FIELDS = ("이름", "전화", "메일")
+
+
+def _same_person(a, b):
+    """두 사람 칸이 같은 사람인가. **번호가 먼저**다([172] — 사람이 바뀌면 옛 메일을
+    새 사람 이름 옆에 붙이면 안 된다. 그건 아무도 아닌 연락처가 된다)."""
+    ta, tb = (a.get("전화") or "").strip(), (b.get("전화") or "").strip()
+    if ta and tb:
+        return ta == tb
+    na, nb = (a.get("이름") or "").strip(), (b.get("이름") or "").strip()
+    if na and nb:
+        return na == nb
+    # 한쪽이 통째로 비면 판단할 근거가 없다 — 이어 붙이지 않는다.
+    return False
+
+
+def _merge_person(prev, new):
+    """새 글이 이기되 **같은 사람이면 빈 칸에 옛 값을 남긴다.**"""
+    new = dict(new or {})
+    if not prev:
+        return new
+    if not _same_person(prev, new):
+        return new                      # 사람이 바뀌었다 — 섞지 않는다
+    for f in PERSON_FIELDS:
+        if not (new.get(f) or "").strip() and (prev.get(f) or "").strip():
+            new[f] = prev[f]
+    return new
+
+
+def _first_name(text):
+    """사람 이름 토막 하나를 고른다. 못 고르면 **빈 문자열**(=명부에 안 넣는다).
+
+    ★ **한 글자는 이름이 아니다** (2026-08-19 실측). 첫 판이 앞 토막만 잘랐더니
+      명부 열쇠에 `김`·`이`·`M`·`씬` 같은 한 글자와 직함 `SM` 이 들어왔고, 그것으로
+      3칸이 채워질 참이었다. `김` 하나로 사람을 특정하면 **엉뚱한 사람의 메일**이
+      캠프에 박힌다 — 모름으로 두는 것보다 나쁘다([172]).
+    ★ 그래서 **한글이 든 토막을 먼저** 고른다: `SM 로건`→`로건` · `권순환 Cain`→`권순환`
+      · `김대범 / Move CL`→`김대범`. 한글이 하나도 없으면 첫 토막을 쓰되 2글자 이상만.
+    """
+    t = str(text or "").strip()
+    if not t:
+        return ""
+    toks = [x for x in t.replace("/", " ").split() if x]
+    for x in toks:
+        if any("가" <= ch <= "힣" for ch in x) and len(x) >= 2:
+            return x
+    for x in toks:
+        if len(x) >= 2:
+            return x
+    return ""
+
+
+def person_directory(recs, erp_rows=()):
+    """사람 명부 — 전화·이름으로 이름/전화/메일을 되찾는다.
+
+    ★ **세는 것은 사람이지 글이 아니다.** 같은 글이 여러 번 실려도 후보가 늘지
+      않아야 '후보 여럿'(=안 채움) 판정이 흔들리지 않는다.
+    """
+    tel, name = {}, {}
+    def put(box, key, field, val):
+        if not key or not val:
+            return
+        box.setdefault(key, {}).setdefault(field, set()).add(val)
+    for r in recs:
+        for slot in ("현장책임", "안전관리", "담당자"):
+            p = r.get(slot) or {}
+            t = (p.get("전화") or "").strip()
+            n = _first_name(p.get("이름"))
+            m = (p.get("메일") or "").strip()
+            if t:
+                put(tel, t, "이름", n)
+                put(tel, t, "메일", m)
+            if n:
+                put(name, n, "전화", t)
+                put(name, n, "메일", m)
+    # ERP 거래처등록의 담당자·메일도 같은 명부에 넣는다 — 같은 사람이다(실측).
+    for r in erp_rows or ():
+        n = _first_name(r.get("manager"))
+        m = str(r.get("email") or "").strip()
+        t = str(r.get("tel") or "").strip()
+        if n:
+            put(name, n, "메일", m)
+            put(name, n, "전화", t)
+        if t:
+            put(tel, t, "이름", n)
+            put(tel, t, "메일", m)
+    return {"전화": tel, "이름": name}
+
+
+def _lookup(directory, person, field):
+    """이 칸을 채울 값 → (값, 근거) 또는 (None, 사유). 번호가 이름보다 세다."""
+    t = (person.get("전화") or "").strip()
+    n = _first_name(person.get("이름"))
+    for 열쇠, 값, 라벨 in (("전화", t, "같은 번호"), ("이름", n, "같은 이름")):
+        if not 값:
+            continue
+        cand = (directory.get(열쇠, {}).get(값) or {}).get(field)
+        if not cand:
+            continue
+        if len(cand) == 1:
+            return next(iter(cand)), 라벨
+        return None, "후보 여럿"          # 여럿이면 이름으로도 다시 묻지 않는다
+    return None, ""
+
+
+def fill_gaps(rows, directory, erp_by_key=None):
+    """빈 칸을 명부로 채운다. **덮지 않고 · 유일할 때만 · 출처를 적는다.**
+
+    돌려주는 숫자가 곧 리포트가 말할 것이다 — 채운 칸, 후보가 여럿이라 **안 채운**
+    칸, 그리고 끝내 모름인 칸. 조용히 채우면 사람이 원문에 적힌 값과 구별하지 못한다.
+    """
+    채움 = {}
+    여럿 = {}
+    erp_by_key = erp_by_key or {}
+    for r in rows:
+        # ① ERP 거래처등록의 담당자 — **직책 미상**이므로 `담당자` 칸에만 담는다.
+        er = (erp_by_key.get((r.get("거래처코드") or "").strip())
+              or erp_by_key.get(_norm(r.get("캠프명"))))
+        if er:
+            p = dict(r.get("담당자") or {})
+            for 칸, 열 in (("이름", "manager"), ("메일", "email"), ("전화", "tel")):
+                v = str(er.get(열) or "").strip()
+                if 칸 == "이름":
+                    v = _first_name(v)
+                if v and not (p.get(칸) or "").strip():
+                    p[칸] = v
+                    채움["담당자 " + 칸] = 채움.get("담당자 " + 칸, 0) + 1
+                    r.setdefault("보완", {})["담당자 " + 칸] = "ERP 거래처등록"
+            if p:
+                r["담당자"] = p
+        # ② 사람 명부 — 같은 번호(우선) · 같은 이름
+        for slot in ("현장책임", "안전관리", "담당자"):
+            p = dict(r.get(slot) or {})
+            if not p:
+                continue
+            # ★ **방금 채운 값을 다시 열쇠로 쓰지 않는다** (2026-08-19 실측).
+            #   첫 판은 이름→전화→메일 순서로 채우면서 `p` 를 그대로 열쇠로 썼다.
+            #   그러면 ERP 가 준 이름으로 전화를 찾고, **그 전화로** 메일을 찾는
+            #   연쇄가 생긴다 — 한 칸이 틀리면 나머지도 같이 틀리면서 **똑같이
+            #   확신에 차 보인다.** 조회는 언제나 **원문 그대로의 사람 칸**에 한다.
+            원문 = dict(p)
+            for f in PERSON_FIELDS:
+                if (p.get(f) or "").strip():
+                    continue
+                v, 왜 = _lookup(directory, 원문, f)
+                열쇠 = slot + " " + f
+                if v:
+                    p[f] = v
+                    채움[열쇠] = 채움.get(열쇠, 0) + 1
+                    r.setdefault("보완", {})[열쇠] = "사람 명부(%s)" % 왜
+                elif 왜 == "후보 여럿":
+                    여럿[열쇠] = 여럿.get(열쇠, 0) + 1
+            r[slot] = p
+    return {"보완채움": 채움, "보완후보여럿": 여럿,
+            "보완합계": sum(채움.values()), "보완보류": sum(여럿.values())}
+
+
 def build():
     recs = BE.load_records()
     camps = {}
@@ -175,7 +358,10 @@ def build():
                 continue
             prev = c["근거"].get(slot, {})
             if posted >= str(prev.get("게시일") or ""):
-                c[slot] = p
+                # ★ 바로 위 주석과 **같은 함정이 한 층 아래에** 있었다 (2026-08-19).
+                #   역할별로는 갈랐는데 그 안의 이름·전화·메일은 **통째로 덮었다** —
+                #   최신 글에 메일 칸이 없으면 옛 글의 메일이 사라진다. 실측 25칸.
+                c[slot] = _merge_person(c.get(slot), p)
                 c["근거"][slot] = {"게시일": posted, "밴드": r.get("밴드"),
                                    "글번호": r.get("게시글")}
         if r.get("캠프주소") and posted >= str(c["근거"].get("주소", {}).get("게시일") or ""):
@@ -246,12 +432,35 @@ def build():
                      if (m.get("담당자") or m.get("연락처")) else {}),
         })
 
+    # ── 모름 채우기 (2026-08-19 지시) ────────────────────────────────────
+    # ★ 비싼 탐색은 **캐시 검사 뒤**에 온다([168]) — `camp_code_match._erp_customers`
+    #   한 곳을 빌린다. 여기서 `load_customers()` 를 직접 부르면 Z: 를 또 훑는다.
+    erp_rows, erp_왜 = [], {"길": "안 읽음"}
+    try:
+        from camp_code_match import _erp_customers
+        erp_rows, erp_왜 = _erp_customers()
+    except Exception as e:                       # noqa: BLE001
+        # ★ **못 읽은 것을 '없다'로 치지 않는다**([169]). 리포트가 그대로 적는다.
+        erp_왜 = {"길": "못 읽음: %s" % str(e)[:60], "건수": 0}
+    erp_by_key = {}
+    for er in erp_rows:
+        코드 = str(er.get("code") or "").strip()
+        if 코드:
+            erp_by_key[코드] = er
+        이름 = _norm(er.get("name") or "")
+        if 이름:
+            erp_by_key.setdefault(이름, er)
+    보완 = fill_gaps(rows, person_directory(recs, erp_rows), erp_by_key)
+
     sort_rows(rows)
     return {
         "갱신": BE.datetime.now().isoformat(timespec="seconds")
         if hasattr(BE, "datetime") else "",
-        "출처": "밴드 접수 글 본문(band_extract) + reports/캠프마스터.json",
+        "출처": "밴드 접수 글 본문(band_extract) + reports/캠프마스터.json"
+                " + ERP 거래처등록(모름 보완)",
+        "보완출처": erp_왜,
         "rows": rows,
+        **보완,
         # ★ 뺀 것은 숫자로 말한다(`[169]`) — 조용히 빼면 '원래 없던 것'이 된다.
         "캠프아님": len(버린메모),
         "캠프아님예": sorted(set(버린메모))[:8],
