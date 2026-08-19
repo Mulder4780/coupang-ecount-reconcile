@@ -18859,6 +18859,106 @@ def t306_dead_server_revival_never_kills_someone_elses_server():
     print("  [306] 죽은 서버 복구 — 데모·시험 서버를 안 죽인다 OK")
 
 
+
+def t313_collect_gate_never_scrapes_over_someone():
+    """[313] 수집 문은 **이름이 아니라 자원**으로 판정한다 (2026-08-19 지시).
+
+    지시: "CSOS 리서치 및 자료 수집 세션에서 하던 일을 지금 현재 이 세션에서도
+    작업할 수 있게 알고리즘 반영해"
+
+    ★ 왜 검사가 필요한가 — 전 규칙은 **세션 이름**으로 써 있어 기계가 못 지켰다.
+      실측 2026-08-19: 차선 둘 다 비어 있고 `band` 점유도 비어 있었다. 즉
+      **코드로 막는 것이 한 줄도 없었고**, 지킨 것은 사람의 약속뿐이었다.
+      이제 판정은 세 가지 사실(차선·점유·도는 회차)이 하고, 그 셋이 어긋나면
+      캐시가 서로 덮인다(사고 #27) — 그러므로 검사가 **실행으로** 잰다(`[295]`).
+    """
+    import importlib, io
+    G = importlib.import_module("collect_gate")
+    ai_claim = importlib.import_module("ai_claim")
+    coordinate = importlib.import_module("coordinate")
+
+    src = io.open(os.path.join(ROOT, "collect_gate.py"),
+                  encoding="utf-8", newline="").read()
+    # ★ **규칙을 세기 전에 설명을 걷어낸다.** 안 그러면 검사가 제 주석·독스트링에
+    #   걸려 **멀쩡한 코드에 거짓 경보**를 낸다 — `[301]`-⑨ · `[302]` 에서 두 번
+    #   당했고 이 검사를 만들면서 세 번째로 당했다(독스트링의 "--force 는 없다").
+    import ast as _ast
+    _tree = _ast.parse(src)
+    if (_tree.body and isinstance(_tree.body[0], _ast.Expr)
+            and isinstance(getattr(_tree.body[0], "value", None), _ast.Constant)):
+        _tree.body = _tree.body[1:]          # 모듈 독스트링을 뗀다
+    code = _ast.unparse(_tree)               # 주석은 여기서 전부 사라진다
+
+    # ① 남의 자원을 뺏는 문을 만들지 않는다.
+    assert "--force" not in code, "[313] 수집 문에 --force 가 생겼다 — 남의 점유를 뺏는 문이다"
+    # ② `[175]` — 자식이 SMB 에 걸리면 회차가 영원히 안 끝난다.
+    assert "subprocess.run(" not in code, "[313] subprocess.run(timeout=) 금지 — run_tree 를 쓴다"
+    assert "run_tree" in code, "[313] proc_guard.run_tree 를 안 쓴다"
+    # ③ 실패는 왜인지 말한다(`[289]`) — stderr 를 버리면 '종료코드 N' 다섯 글자만 남는다.
+    assert "stderr" in code, "[313] 자식 stderr 를 안 보여 준다 — 실패 이유가 사라진다"
+
+    real_load, real_sid, real_dead = ai_claim.load, ai_claim.session_id, ai_claim._is_dead
+    real_running = coordinate.running
+    try:
+        # ④ 남이 `band` 를 쥐고 있으면 **양보**하고 주인 이름을 댄다.
+        ai_claim.load = lambda: {"band": {"who": "claude", "sid": "deadbeef",
+                                          "why": "밴드 수집", "ts": 9e9, "agent_pid": 1}}
+        ai_claim.session_id = lambda: "mine0000"
+        ai_claim._is_dead = lambda rec: False
+        coordinate.running = lambda report_dir=None: []
+        v = G.check()
+        assert v["갈래"] == "양보", "[313] 남이 band 를 쥐었는데 막지 않았다: %r" % v
+        assert "deadbeef" in v["주인"], "[313] 양보하면서 주인을 못 댄다: %r" % v
+
+        # ⑤ 내 것이면 막지 않는다(내가 잡아 둔 채로 이어 하는 경우).
+        ai_claim.session_id = lambda: "deadbeef"
+        assert G.check()["갈래"] == "가능", "[313] 내 점유인데 나를 막았다"
+
+        # ⑥ Z: 를 훑는 회차가 돌면 양보한다(사고 #29 — SMB 독점).
+        ai_claim.load = lambda: {}
+        coordinate.running = lambda report_dir=None: ["일일대조"]
+        v = G.check()
+        assert v["갈래"] == "양보" and v["주인"] == "일일대조",             "[313] 회차가 도는데 같이 Z: 를 긁으려 한다: %r" % v
+
+        # ⑦ ★ **못 읽은 것을 '가능' 으로 치지 않는다**(`[169]`).
+        def boom(report_dir=None):
+            raise RuntimeError("락을 못 읽음")
+        coordinate.running = boom
+        v = G.check()
+        assert v["갈래"] == "모름", "[313] 못 읽었는데 가능이라 말한다: %r" % v
+
+        # ⑧ 주인을 댈 수 있으면 '모름' 으로 뭉개지 않는다 — 사람이 할 일이 달라진다.
+        ai_claim.load = lambda: {"band": {"who": "claude", "sid": "cafe1234",
+                                          "ts": 9e9, "agent_pid": 1}}
+        ai_claim.session_id = lambda: "mine0000"
+        assert G.check()["갈래"] == "양보", "[313] 주인을 알면서 모름으로 뭉갰다"
+    finally:
+        ai_claim.load, ai_claim.session_id, ai_claim._is_dead = real_load, real_sid, real_dead
+        coordinate.running = real_running
+
+    # ⑨ ★ **계기 자신을 시험한다**(`[272]`) — 막는 문을 빼면 ④가 통과해 버려야 한다.
+    #    0 을 내는 계기는 아무도 의심하지 않는다.
+    ns = {"__name__": "collect_gate_broken", "__file__": os.path.join(ROOT, "collect_gate.py")}
+    broken = src.replace('    rec = (board or {}).get(RESOURCE)',
+                         '    rec = None  # 고장 주입')
+    assert broken != src, "[313] 고장 주입 지점을 못 찾았다 — 이 검사는 아무것도 안 재고 있다"
+    exec(compile(broken, "collect_gate_broken", "exec"), ns)
+    real_load, real_sid = ai_claim.load, ai_claim.session_id
+    real_running = coordinate.running
+    try:
+        ai_claim.load = lambda: {"band": {"who": "claude", "sid": "deadbeef",
+                                          "ts": 9e9, "agent_pid": 1}}
+        ai_claim.session_id = lambda: "mine0000"
+        coordinate.running = lambda report_dir=None: []
+        assert ns["check"]()["갈래"] != "양보",             "[313] 고장을 주입했는데도 막혔다 — ④는 다른 것을 재고 있다"
+    finally:
+        ai_claim.load, ai_claim.session_id = real_load, real_sid
+        coordinate.running = real_running
+
+    print("[313] 수집 문 — 이름이 아니라 자원으로 판정 · 못 읽으면 '모름' · "
+          "양보는 주인 이름과 함께 자국으로 남는다 · --force 없음")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -22649,6 +22749,154 @@ def t311_camp_units_come_from_one_parser():
           "사이 빔과 모름을 말한다 ✅")
 
 
+
+def t312_automation_cards_run_what_they_say():
+    """[312] 자동화 상태 카드를 누르면 **그 자리에서** 실행된다 (2026-08-19 형님 지시).
+
+    지시: "여기서 해당 카드 누르면 바로 실행되게 기능 추가, 엑셀 자동 보관본 카드도
+    누르면 엑셀 보관 바로 되게 업그레이드".
+
+    ★ **무엇이 도는지 정하는 자리는 하나다**(`[162]`) — `automationAction`. 카드 그리기와
+      클릭이 서로 다른 표를 보면 화면에 적힌 말과 실제로 도는 명령이 갈리고, 그때는
+      눌러 놓고도 무엇이 돌았는지 아무도 모른다.
+    ★ **누를 수 있는 카드만 `<button>` 이다**(`[169]`). 못 하는 자리를 눌리게 두면 눌러도
+      아무 일이 없는데 화면은 멀쩡해 보인다.
+    ★ **엑셀 카드는 제 확인창을 만들지 않는다** — 이미 있는 `applyExcelNow` 를 그대로
+      부른다(`[162]`). 여기서 또 물으면 **두 번 묻는다.**
+    ★ **도는 중이면 다시 걸지 않는다**(`[257]`) — 같은 회차를 두 번 띄우면 잠금에 막혀
+      조용히 건너뛰거나 같은 자료를 두 번 긁는다.
+    ★ **막힌 것은 확인창이 먼저 말한다**(`[169]`) — 이 회차로는 안 풀리는데 숨기면
+      "돌았는데 왜 그대로지"가 된다.
+
+    글자 검사로는 '눌렀을 때 무엇이 도는가'를 못 잰다(`[295]`). node 로 화면 코드를
+    **실제로 실행**하고, 계기 자신도 시험한다(`[272]`).
+    """
+    import io as _io, json as _json, shutil, subprocess
+    import proc_guard
+    html = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                    encoding="utf-8", newline="").read()
+
+    # ① 판정 자리는 하나다
+    assert html.count("function automationAction(") == 1, \
+        "카드 동작을 정하는 자리가 하나가 아니다 — 화면과 클릭이 갈린다"
+    assert html.count("function automationCardRun(") == 1
+    assert html.count("function applyExcelNow(") == 1, \
+        "엑셀 보관본 확인창이 두 곳이 됐다 — 한쪽만 고쳐진다"
+
+    node = shutil.which("node")
+    if not node:
+        print("[312] 자동화 카드 실행 — node 가 없어 실행 검사는 건너뜀(구조 검사만) ✅")
+        return
+
+    블록 = html[html.index("const AUTOMATION_STATUS_PATH="):
+                html.index("async function loadAutomationStatus(")]
+    # ⚠ **JS 식별자를 키워드에 붙여 쓰지 말 것** — `await눌러` 는 한글도 식별자라
+    #    **한 낱말**(`await눌러`)로 읽힌다. 문법 오류가 아니라 ReferenceError 라
+    #    실행해야만 드러난다. 그래서 하네스 함수 이름은 ASCII 로 둔다.
+    준비 = """
+const 부름=[]; const 창=[];
+function esc2(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function apiErrorText(e){return String((e&&e.message)||e||'');}
+function toast(m){부름.push(['toast',m]);}
+function uxEvent(){}
+function askYesNo(msg,opt){창.push({msg:msg,desc:(opt||{}).desc||''});return Promise.resolve(true);}
+function runAutomation(){부름.push(['runAutomation']);return true;}
+function openAutomationKakaoUpload(){부름.push(['upload']);return true;}
+function applyExcelNow(){부름.push(['applyExcelNow']);return true;}
+const 상자={};
+function $(id){return 상자[id]||(상자[id]={innerHTML:'',className:'',textContent:'',
+  hidden:false,disabled:false,setAttribute(){}});}
+"""
+    본 = """
+const 상태={ok:true,generated_at:'2026-08-19T08:50:00+09:00',running:false,
+  last_run:{status:'ok',finished_at:'2026-08-19T08:50:00+09:00',summary:'완료'},
+  sources:{kakao:{status:'ok',latest_record_at:'2026-08-18T09:36:00+09:00',detail:'최신 자료 1.0일 전'},
+           band:{status:'ok',latest_record_at:'2026-08-19T08:36:00+09:00',detail:'최신 자료 0.0일 전'},
+           erp:{status:'stale',login_required:true,detail:'최신 자료 8.0일 전'}},
+  app_db:{status:'ok',detail:'업무 2,614건'},
+  excel:{status:'stale',last_good_at:'2026-08-19T06:21:00+09:00',snapshot_seq:10917,path:'archive.xlsx'},
+  human_gates:[{source:'erp',kind:'login',message:'ERP 로그인 세션을 확인해 주세요.'}]};
+function 그리기(run){AUTOMATION_MON.data=Object.assign({},상태,{running:!!run});
+  AUTOMATION_MON.error=null;renderAutomationStatus();return 상자.automationGrid.innerHTML;}
+const 평소=그리기(false), 도는중=그리기(true);
+const 키=['last','kakao','band','erp','app_db','excel'];
+const 표=키.map(k=>{const a=automationAction(k);
+  return {키:k,있음:!!a,물음:!!(a&&a.ask),
+          누구:!a?'':(a.run===runAutomation?'회차':a.run===applyExcelNow?'엑셀':
+                      a.run===openAutomationKakaoUpload?'업로드':'모름')};});
+async function press(k,run){AUTOMATION_MON.data=Object.assign({},상태,{running:!!run});
+  부름.length=0;창.length=0;await automationCardRun(k);
+  return {부름:부름.slice(),창:창.slice()};}
+(async()=>{
+  const 결과={평소:평소,도는중:도는중,표:표};
+  결과.엑셀=await press('excel',false);
+  결과.밴드=await press('band',false);
+  결과.ERP=await press('erp',false);
+  결과.돌때=await press('last',true);
+  console.log(JSON.stringify(결과));
+})();
+"""
+
+    def 재기(소스):
+        pr = subprocess.Popen([node, "-e", 준비 + 소스 + 본],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              **proc_guard.background_popen_kwargs())
+        out = pr.communicate(timeout=90)[0].decode("utf-8", "replace").strip()
+        assert out, "node 가 아무 답도 안 줬다"
+        return _json.loads(out.splitlines()[-1])
+
+    g = 재기(블록)
+
+    # ② 여섯 카드 전부 누를 수 있고, 무엇을 부르는지가 맞다
+    누구 = {r["키"]: r["누구"] for r in g["표"]}
+    assert 누구 == {"last": "회차", "kakao": "업로드", "band": "회차", "erp": "회차",
+                    "app_db": "회차", "excel": "엑셀"}, \
+        "카드가 부르는 것이 어긋난다: %r" % 누구
+    물음 = {r["키"]: r["물음"] for r in g["표"]}
+    assert 물음["excel"] is False, \
+        "엑셀 카드가 제 확인창까지 갖는다 — applyExcelNow 가 이미 묻는다(두 번 묻힌다)"
+    assert 물음["kakao"] is False, "파일 고르기에 확인창을 붙였다 — 부작용이 없는 자리다"
+    for k in ("last", "band", "erp", "app_db"):
+        assert 물음[k] is True, "%s 는 증분 회차를 돌린다 — 확인 없이 실행하면 안 된다" % k
+
+    # ③ 화면이 실제로 <button> 을 그리고, 무엇을 할지 적는다
+    for k in 누구:
+        assert ("automationCardRun('%s')" % k) in g["평소"], "%s 카드가 눌리지 않는다" % k
+    assert g["평소"].count('<button class="auto-node"') == 6, "누를 수 있는 카드 수가 6이 아니다"
+    assert '<article class="auto-node">' not in g["평소"]
+    assert "누르면 Excel 보관본 지금 생성" in g["평소"], \
+        "카드가 무엇을 할지 안 적는다 — 눌러 보기 전에는 모른다"
+
+    # ④ 도는 중에는 못 누르고, 눌러도 안 돈다(`[257]`)
+    assert " disabled" in g["도는중"] and "지금 처리 중입니다" in g["도는중"], \
+        "도는 중인데 카드가 그대로 눌린다"
+    assert not any(c[0] == "runAutomation" for c in g["돌때"]["부름"]), \
+        "도는 중에 눌렀는데 회차를 또 띄운다: %r" % (g["돌때"]["부름"],)
+    assert g["돌때"]["부름"] and g["돌때"]["부름"][0][0] == "toast", "왜 안 되는지 말하지 않는다"
+
+    # ⑤ 엑셀은 제가 안 묻고 applyExcelNow 로 넘긴다 · 밴드는 경계를 말한다
+    assert g["엑셀"]["창"] == [] and g["엑셀"]["부름"] == [["applyExcelNow"]], \
+        "엑셀 카드가 확인을 두 번 받거나 다른 것을 부른다: %r" % (g["엑셀"],)
+    assert len(g["밴드"]["창"]) == 1 and "앱이 못 합니다" in g["밴드"]["창"][0]["msg"], \
+        "밴드 카드가 '앱은 못 긁는다'를 안 말한다 — 돌렸는데 왜 그대로냐가 된다"
+    assert g["밴드"]["부름"] == [["runAutomation"]]
+
+    # ⑥ 막힌 것이 있으면 확인창이 먼저 말한다(`[169]`)
+    assert g["ERP"]["창"] and "ERP 로그인 세션" in g["ERP"]["창"][0]["desc"], \
+        "막힌 것을 확인창이 말하지 않는다: %r" % (g["ERP"]["창"],)
+
+    # ⑦ 계기 자신을 시험한다(`[272]`) — 엑셀 갈래를 없애면 잡아야 한다
+    깨진 = 블록.replace("case 'excel':", "case '__없음__':", 1)
+    assert 깨진 != 블록, "고장 주입 자리를 못 찾았다"
+    g3 = 재기(깨진)
+    assert not any(r["키"] == "excel" and r["있음"] for r in g3["표"]) \
+        and "automationCardRun('excel')" not in g3["평소"], \
+        "엑셀 갈래를 없앴는데도 통과한다 — 이 검사는 아무것도 안 재고 있다"
+
+    print("[312] 자동화 카드 클릭 실행 — 여섯 카드 · 엑셀은 applyExcelNow 재사용 · "
+          "도는 중 재실행 막음 · 막힘을 확인창이 말함 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -22953,7 +23201,9 @@ if __name__ == "__main__":
     t309_camp_code_guess_never_names_a_wrong_customer()
     t310_button_classes_always_have_a_look()
     t311_camp_units_come_from_one_parser()
+    t312_automation_cards_run_what_they_say()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
+    t313_collect_gate_never_scrapes_over_someone()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

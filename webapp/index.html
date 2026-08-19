@@ -1142,6 +1142,19 @@ table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px soli
 .auto-node .auto-detail{margin-top:auto;font-size:12.5px;color:var(--ink-3);line-height:1.4;
   overflow-wrap:anywhere;word-break:break-word}
 .auto-node .auto-detail.error{color:var(--danger);font-weight:750}
+/* ★ **누를 수 있는 카드만 <button> 으로 그린다** (2026-08-19 지시). 못 하는 자리를
+   눌리게 두면 눌러도 아무 일이 없는데 화면은 멀쩡해 보인다 — 이 프로젝트가 반복해
+   당한 '실패가 성공처럼 보이는' 모양이다([169]). 판정은 `automationAction` 한 곳. */
+button.auto-node{appearance:none;-webkit-appearance:none;font:inherit;color:inherit;text-align:left;
+  cursor:pointer;transition:border-color .15s var(--ease),background .15s var(--ease)}
+@media(hover:hover){button.auto-node:hover{border-color:var(--brand);background:var(--brand-tint)}}
+button.auto-node:active{transform:scale(.99)}
+button.auto-node:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
+button.auto-node[disabled]{cursor:progress;opacity:.72}
+.auto-node .auto-do{display:flex;align-items:center;gap:5px;margin-top:2px;font-size:12px;
+  font-weight:750;color:var(--brand);overflow-wrap:anywhere}
+.auto-node .auto-do svg.bi{width:13px;height:13px;flex:0 0 auto}
+.auto-node .auto-do.wait{color:var(--ink-3)}
 .automation-loading{grid-column:1/-1;min-height:94px;display:grid;place-items:center;color:var(--ink-3);
   border:1px dashed var(--line);border-radius:13px;background:var(--panel);font-size:13.5px}
 .automation-error{margin:10px 18px 0;padding:10px 12px;border:1px solid #F5C2C7;border-radius:11px;
@@ -11620,6 +11633,51 @@ function autoFailureText(data){
 function automationRunning(data){
   return AUTOMATION_MON.optimisticRunning||autoBool(autoFirst(data||{},['running','busy','in_progress','실행중'],false));
 }
+/* ─ 카드를 누르면 그 자리에서 실행된다 (2026-08-19 형님 지시) ────────────────
+   ★ **무엇이 도는지 정하는 자리는 하나다**([162]). 카드 그리기·클릭·검증이 전부 이
+     함수를 읽는다. 화면에 적는 말과 실제로 도는 명령이 갈리면 눌러 놓고도 무엇이
+     돌았는지 아무도 모른다.
+   ★ **앱이 못 하는 일을 할 수 있는 것처럼 적지 않는다**([172]). 밴드를 새로 긁는 것도
+     ERP 에 로그인하는 것도 앱은 못 한다 — 그 카드의 단추는 '이미 받아 둔 자료를 앱 DB
+     까지 잇는' 증분 회차이고, 확인창이 그 경계를 그대로 말한다. 못 하는 것을 숨기고
+     돌리면 "돌았는데 왜 그대로지"가 된다.
+   ★ `ask` 가 있으면 여기서 한 번 묻는다. **엑셀 카드는 `ask` 가 없다** — 부르는
+     `applyExcelNow` 가 이미 제 확인창을 갖고 있어, 여기서 또 물으면 두 번 묻는다. */
+function automationAction(key){
+  switch(key){
+    case 'last':   return {do:'전체 자동화 지금 실행', run:runAutomation,
+      ask:'원본 흡수 → 대조 → 앱 DB 저장 → Excel 보관본까지 증분 회차를 돌립니다. 바뀐 자료만 처리합니다.'};
+    case 'kakao':  return {do:'카톡 TXT 올리기', run:openAutomationKakaoUpload};
+    case 'band':   return {do:'받아 둔 밴드 자료 잇기', run:runAutomation,
+      ask:'밴드에서 새로 긁는 것은 앱이 못 합니다 — 로그인된 밴드 탭과 자동수집 유저스크립트(수집 세션) 몫입니다. 이 단추는 이미 받아 둔 밴드 자료를 앱 DB 까지 잇는 증분 회차를 돌립니다.'};
+    case 'erp':    return {do:'받아 둔 ERP 자료 잇기', run:runAutomation,
+      ask:'ERP 로그인과 내보내기는 사람 몫입니다. 이 단추는 이미 내려받아 둔 ERP 자료를 앱 DB 까지 잇는 증분 회차를 돌립니다.'};
+    case 'app_db': return {do:'앱 DB 동기화 회차 실행', run:runAutomation,
+      ask:'원본 흡수부터 앱 DB 저장까지 증분 회차를 돌립니다. 앱 DB 가 정본이므로 Excel 을 되읽지 않습니다.'};
+    case 'excel':  return {do:'Excel 보관본 지금 생성', run:applyExcelNow};
+  }
+  return null;
+}
+/* 카드 클릭 한 자리. 도는 중이면 **다시 걸지 않는다**([257]) — 같은 회차를 두 번
+   띄우면 잠금에 막혀 조용히 건너뛰거나 같은 자료를 두 번 긁는다. */
+async function automationCardRun(key){
+  const act=automationAction(key); if(!act) return false;
+  if(act.run===runAutomation&&automationRunning(AUTOMATION_MON.data)){
+    toast('이미 자동 처리 중입니다 · 끝나면 상태가 갱신됩니다'); return false;
+  }
+  if(act.ask){
+    /* ★ 막힌 것이 있으면 **확인창이 먼저 말한다.** 돌려도 안 풀리는 것을 숨기면
+       "돌았는데 왜 그대로지"가 된다([169]). */
+    const def=AUTOMATION_SOURCE_DEFS.find(d=>d.key===key);
+    const gate=def?autoGateFor(AUTOMATION_MON.data,def):null;
+    const gateText=gate&&(typeof gate==='string'?gate:autoFirst(gate,['message','detail','reason','메시지'],''));
+    const ok=await askYesNo(act.ask,
+      {title:act.do, desc:(gateText?'지금 막힌 것 — '+gateText+' (이 회차로는 안 풀립니다). ':'')+'실행할까요?'});
+    if(!ok) return false;
+  }
+  uxEvent('tap','automationCard',key);
+  return act.run();
+}
 function renderAutomationStatus(){
   const monitor=$('automationMonitor'), grid=$('automationGrid'), overall=$('automationOverall');
   if(!monitor||!grid||!overall) return;
@@ -11629,6 +11687,7 @@ function renderAutomationStatus(){
     grid.innerHTML=`<div class="automation-loading">${error?'자동화 상태를 받지 못했습니다. 아래의 상태 다시 확인을 눌러 주세요.':'카톡·Band·ERP·앱 DB·Excel 상태를 확인하는 중입니다.'}</div>`;
     overall.className='auto-state '+(error?'danger':'busy'); overall.textContent=error?'상태 확인 실패':'상태 확인 중';
   }else{
+    const running=automationRunning(data);
     const cards=AUTOMATION_SOURCE_DEFS.map(def=>{
       let record=autoRecord(data,def);
       const gate=autoGateFor(data,def), gateText=gate&&(typeof gate==='string'?gate:autoFirst(gate,['message','detail','reason','메시지'],''));
@@ -11641,14 +11700,18 @@ function renderAutomationStatus(){
         });
       }
       const state=autoStateOf(record), when=autoTimeOf(record,def), detail=autoDetailOf(record,def);
-      return {def,state,when,detail,html:`<article class="auto-node">
-        <div class="auto-node-head"><b>${esc2(def.label)}</b><span class="auto-state ${esc2(state.key)}">${esc2(state.label)}</span></div>
+      const act=automationAction(def.key), waiting=!!act&&act.run===runAutomation&&running;
+      const inner=`<div class="auto-node-head"><b>${esc2(def.label)}</b><span class="auto-state ${esc2(state.key)}">${esc2(state.label)}</span></div>
         <div class="auto-time">${esc2(when?`마지막 ${autoDateText(when)}`:'마지막 기록 없음')}</div>
-        <div class="auto-detail${detail.error?' error':''}">${esc2(detail.text)}</div>
-      </article>`};
+        <div class="auto-detail${detail.error?' error':''}">${esc2(detail.text)}</div>`
+        +(act?`<div class="auto-do${waiting?' wait':''}"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-play-fill"/></svg>${esc2(waiting?'지금 처리 중입니다':'누르면 '+act.do)}</div>`:'');
+      /* ★ 누를 수 있을 때만 <button> 이다 — 못 하는 자리를 눌리게 두지 않는다([169]). */
+      return {def,state,when,detail,html:act
+        ? `<button class="auto-node" type="button"${waiting?' disabled':''} onclick="automationCardRun('${esc2(def.key)}')" title="${esc2(act.ask||act.do)}">${inner}</button>`
+        : `<article class="auto-node">${inner}</article>`};
     });
     grid.innerHTML=cards.map(card=>card.html).join('');
-    const states=cards.map(card=>card.state.key), running=automationRunning(data);
+    const states=cards.map(card=>card.state.key);
     const gates=autoFirst(data,['human_gates','gates','로그인필요'],[]);
     const pipelineError=autoFailureText(data);
     if(running){overall.className='auto-state busy';overall.textContent='자동 처리 중';}
