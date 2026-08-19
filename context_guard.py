@@ -97,14 +97,22 @@ def _project_dir():
 
 
 def _transcript(session_id="", given=""):
-    """이 세션의 대화 기록 파일. 훅이 준 경로를 최우선으로 믿는다."""
+    """이 세션의 대화 기록 파일. 훅이 준 경로를 최우선으로 믿는다.
+
+    ★ 환경변수도 본다 (2026-08-19 실측 · [152]). 훅이 `session_id` 를 늘 주지는
+      않는데(PostToolUse 에서 비어 온다), 그때 마지막 폴백이 **mtime 최신 아무 파일**
+      이라 **옆 세션 기록을 집었다** — 상태 파일에 남의 세션 id 가 박혀 있었다.
+      옆 창이 더 활발하면 내 크기 대신 남의 크기로 경보가 뜬다(오류는 안 난다).
+    """
     if given and os.path.exists(given):
         return given
     d = _project_dir()
     if not d:
         return ""
-    if session_id:
-        p = os.path.join(d, session_id + ".jsonl")
+    for sid in (session_id, os.environ.get("CLAUDE_CODE_SESSION_ID") or ""):
+        if not sid:
+            continue
+        p = os.path.join(d, sid + ".jsonl")
         if os.path.exists(p):
             return p
     files = glob.glob(os.path.join(d, "*.jsonl"))
@@ -113,10 +121,24 @@ def _transcript(session_id="", given=""):
     return max(files, key=os.path.getmtime)
 
 
-def _used_tokens(path):
-    """마지막 assistant 응답의 usage 합 = 지금 프롬프트가 실제로 차지한 크기."""
+def _scan(path):
+    """대화 기록 꼬리를 한 번 훑어 **(지금 크기, 관측 최대)** 를 돌려준다.
+
+    ★ compact 경계 뒤만 센다 (2026-08-19 실측 · [152]).
+      기록에는 `{"type":"system","subtype":"compact_boundary"}` 가 **실제로 찍힌다**
+      — 짐작할 것이 없다. 그 앞 값은 *요약되기 전* 크기라 그대로 쓰면 compact 직후에
+      **옛 값을 새 값인 척** 말한다(실측 경계 앞 768,215 · 경계 뒤 447,569 —
+      그래서 훅이 170.7% 를 확언했다). 낡은 값에 새 시각을 찍는 것이 [320] 의 사고다.
+
+    ★ '지금 크기' 는 모를 수 있다 — 경계 뒤에 assistant 응답이 아직 없을 때다.
+      그때는 **0 이 아니라 None** 이다. 0 을 주면 '여유' 로 읽혀 **반대 방향의 거짓**이
+      된다([169] — 못 본 것을 '없음' 으로 세지 않는다).
+
+    ★ '관측 최대' 는 경계와 상관없이 꼬리 전체에서 본 최대다 — "적어도 여기까지는
+      실제로 담겼다" 는 증거이고, 한도를 배우는 근거가 된다(measure 참조).
+    """
     if not path or not os.path.exists(path):
-        return 0
+        return None, 0
     try:
         size = os.path.getsize(path)
         with open(path, "rb") as fh:
@@ -125,9 +147,17 @@ def _used_tokens(path):
                 fh.readline()          # 잘린 첫 줄은 버린다
             raw = fh.read()
     except Exception:
-        return 0
-    used = 0
+        return None, 0
+    used, peak = None, 0
     for line in raw.decode("utf-8", "ignore").splitlines():
+        if '"compact_boundary"' in line:
+            try:
+                o = json.loads(line)
+            except Exception:
+                o = {}
+            if o.get("subtype") == "compact_boundary":
+                used = None            # 경계 앞은 요약돼 사라졌다 — 다시 센다
+                continue
         if '"usage"' not in line:
             continue
         try:
@@ -139,7 +169,13 @@ def _used_tokens(path):
              + int(u.get("cache_creation_input_tokens") or 0))
         if n:
             used = n                    # 꼬리로 갈수록 최신 — 마지막 값이 지금 크기다
-    return used
+            peak = max(peak, n)
+    return used, peak
+
+
+def _used_tokens(path):
+    """지금 크기만 (int) 또는 **모름** (None). 자세한 것은 `_scan`."""
+    return _scan(path)[0]
 
 
 def _stage(ratio):
@@ -185,14 +221,44 @@ def _run_wrapup(who, reason):
 def measure(session_id="", transcript="", limit=0, who="claude", act=True):
     """지금 사용량을 재고, 단계가 올라갔으면 필요한 조치를 한다."""
     lim, auto_on = _read_limit()
-    lim = int(limit or lim)
+    set_lim = int(limit or lim)
     path = _transcript(session_id, transcript)
-    used = _used_tokens(path)
-    ratio = (used / lim) if lim else 0.0
-    cut, name, advice = _stage(ratio)
+    used, peak = _scan(path)
 
     sid = session_id or os.environ.get("CLAUDE_CODE_SESSION_ID") or ""
     st = _load_state()
+
+    # ★ 한도는 설정이 아니라 **관측**이 이긴다 (2026-08-19 실측 · [152]).
+    #   이 프로젝트는 지시문만으로 바닥이 44.5만이라, 450,000 한도에서는 compact
+    #   **직후에도 99%** 다 — '즉시' 가 상시로 켜져 뜻을 잃는다([170] — 경보가
+    #   대부분이면 아무도 안 본다). 실제로 768,215 까지 담긴 것이 관측됐으므로
+    #   450,000 은 이 세션의 한도가 아니다.
+    #   **짐작으로 올리지 않는다** — "실제로 담겼다" 는 증거만큼만 올린다. 그 위는
+    #   여전히 모르며, 관측은 자동 요약이 걸리는 지점에서 저절로 멈춘다.
+    seen = max(int(st.get("관측최대") or 0), int(peak or 0))
+    lim, lim_src = set_lim, "설정"
+    if seen > set_lim:
+        lim, lim_src = seen, "관측"
+
+    if used is None:
+        # compact 경계 뒤에 assistant 응답이 아직 없다 — **모른다고 말한다**([169]).
+        # 옛 값을 새 값인 척 말하지도, 0 으로 '여유' 라 하지도 않는다.
+        res = {
+            "session": sid, "transcript": os.path.basename(path or ""),
+            "used": None, "limit": lim, "설정한도": set_lim, "한도근거": lim_src,
+            "관측최대": seen, "ratio": 0.0, "percent": None,
+            "stage": "모름", "stage_cut": 0.0, "advice": "",
+            "fresh": False, "wrapped": False, "wrapup_ran_now": False,
+            "auto_compact": auto_on,
+            "왜": "compact 직후라 아직 못 쟀다 — 다음 응답이 나오면 잰다",
+            "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        if act:
+            _save_state(res)
+        return res
+
+    ratio = (used / lim) if lim else 0.0
+    cut, name, advice = _stage(ratio)
     same = bool(sid) and st.get("session") == sid
     # ★ 훅이 `session_id` 를 늘 주지는 않는다(PostToolUse 에서 비어 오는 것을 2026-08-07
     #   실측). 그러면 sid 가 "" 이라 저장된 상태와 **절대 안 맞고**, 매번 "단계가 방금
@@ -212,7 +278,8 @@ def measure(session_id="", transcript="", limit=0, who="claude", act=True):
 
     res = {
         "session": sid, "transcript": os.path.basename(path or ""),
-        "used": used, "limit": lim, "ratio": round(ratio, 4),
+        "used": used, "limit": lim, "설정한도": set_lim, "한도근거": lim_src,
+        "관측최대": seen, "ratio": round(ratio, 4),
         "percent": round(ratio * 100, 1), "stage": name, "stage_cut": cut,
         "advice": advice, "fresh": fresh, "wrapped": wrapped,
         "wrapup_ran_now": did_wrap, "auto_compact": auto_on,
@@ -233,6 +300,12 @@ def _message(r):
             p=r["percent"], u=r["used"], l=r["limit"], s=r["stage"]),
         r["advice"],
     ]
+    if r.get("한도근거") == "관측":
+        lines.append(
+            "※ 한도는 설정값이 아니라 **이 세션에서 실제로 담겼던 최대치**다 "
+            "(설정 {s:,} → 관측 {l:,}). 설정값 그대로면 이 프로젝트는 지시문만으로 "
+            "바닥이 44만이라 요약 직후에도 99% 라, 경보가 상시가 되어 뜻을 잃는다.".format(
+                s=r.get("설정한도") or 0, l=r["limit"]))
     if r["wrapup_ran_now"]:
         lines.append("인계 자동 정리를 방금 돌렸다 — 큐→DB·점유해제·커밋·인계기록 완료.")
     if not r["auto_compact"]:

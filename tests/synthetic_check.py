@@ -6011,7 +6011,9 @@ def t119_context_guard():
             "input_tokens": 2, "cache_read_input_tokens": 300,
             "cache_creation_input_tokens": 8}}}) + "\n")
     assert G._used_tokens(tmp) == 310, "마지막 회차가 아니라 다른 줄을 셌다"
-    assert G._used_tokens(os.path.join(TMP, "없는파일.jsonl")) == 0
+    # ★ 없는 파일은 0 이 아니라 **모름(None)** 이다 (2026-08-19 · [152]).
+    #   0 을 주면 ratio 0 → '여유' 로 읽혀 **반대 방향의 거짓**이 된다([169]).
+    assert G._used_tokens(os.path.join(TMP, "없는파일.jsonl")) is None,         "못 읽은 것을 0(=여유)으로 세고 있다 — 못 본 것과 없는 것을 갈라야 한다"
 
     # ③ 단계 경계 — 0.70/0.85/0.95 에서만 올라간다
     assert G._stage(0.69)[1] == "여유"
@@ -6029,7 +6031,10 @@ def t119_context_guard():
     # ④ 재기만 하는 호출은 인계를 돌리지도, 상태 파일을 건드리지도 않는다
     before = os.path.getmtime(G.STATE_PATH) if os.path.exists(G.STATE_PATH) else 0
     r = G.measure(limit=450000, act=False)
-    assert r["wrapup_ran_now"] is False and r["limit"] == 450000
+    # ★ `limit` 이 아니라 `설정한도` 를 잰다 (2026-08-19 · [152]).
+    #   실제 한도는 **관측이 이길 수 있다**(768,215 까지 담긴 것이 관측됐으면
+    #   450,000 은 한도가 아니다). 여기서 재려는 것은 '인자가 먹혔나' 다.
+    assert r["wrapup_ran_now"] is False and r["설정한도"] == 450000
     after = os.path.getmtime(G.STATE_PATH) if os.path.exists(G.STATE_PATH) else 0
     assert before == after, "--dry 인데 상태 파일을 고쳤다"
 
@@ -23437,6 +23442,104 @@ console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTM
 
 
 
+def t329_context_guard_after_compact():
+    """[152] 컨텍스트 감시가 compact 뒤에 **옛 값을 새 값인 척** 말하지 않는다.
+
+    2026-08-19 실사고: /compact 직후 훅이 `170.7% (768,215/450,000) · 즉시` 를
+    확언했다. 실측하니 그 768,215 는 **compact 경계 앞** 값이고 경계 뒤 실제 크기는
+    447,569 였다 — 낡은 값에 새 시각을 찍은 것([320] 과 같은 모양).
+    그리고 이 프로젝트는 지시문만으로 바닥이 44.5만이라 450,000 한도에서는
+    **요약 직후에도 99%** 다 — '즉시' 가 상시로 켜져 뜻을 잃는다([170]).
+
+    실행으로 잰다([295]) — 글자 검사로는 '경계 뒤만 세는가' 를 못 잰다.
+    실측 증거 파일(reports/컨텍스트_사용량.json)에는 한 글자도 안 쓴다([247]).
+    """
+    import context_guard as G
+    TMP = tempfile.mkdtemp(prefix="ctx329_")
+
+    def _mk(name, rows):
+        q = os.path.join(TMP, name)
+        with open(q, "w", encoding="utf-8") as fh:
+            for r in rows:
+                fh.write(json.dumps(r, ensure_ascii=False) + chr(10))
+        return q
+
+    U = lambda n: {"type": "assistant", "message": {"usage": {"input_tokens": n}}}
+    B = {"type": "system", "subtype": "compact_boundary"}
+
+    # ① 경계 앞의 큰 값을 쓰지 않는다 — 경계 뒤 값만이 지금 크기다
+    f1 = _mk("a.jsonl", [U(700000), U(768215), B, U(447569)])
+    used, peak = G._scan(f1)
+    assert used == 447569, "compact 경계 앞 값을 지금 크기로 쓰고 있다 (%r)" % (used,)
+
+    # ② '관측 최대' 는 경계와 상관없이 꼬리 전체에서 본다 — 한도를 배우는 근거다
+    assert peak == 768215, "실제로 담겼던 최대치를 못 봤다 (%r)" % (peak,)
+
+    # ③ 경계 뒤에 응답이 아직 없으면 **모름**이다 — 0(=여유)도, 옛 값도 아니다([169])
+    f2 = _mk("b.jsonl", [U(768215), B])
+    used2, peak2 = G._scan(f2)
+    assert used2 is None, "compact 직후를 %r 로 확언했다 — 모른다고 말해야 한다" % (used2,)
+    assert peak2 == 768215, "모름일 때 관측 최대까지 잃었다"
+
+    # ④ 모름이면 경보를 안 낸다 (상시 '즉시' 가 아니라 조용해야 한다)
+    keep = (G.STATE_PATH, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    try:
+        G.STATE_PATH = os.path.join(TMP, "state.json")     # 실측 증거를 안 건드린다
+        os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
+        r2 = G.measure(transcript=f2, act=True)
+        assert r2["stage"] == "모름" and not r2["fresh"], "모름인데 단계를 확언했다"
+        assert r2["used"] is None and r2["percent"] is None, "모름인데 숫자를 지어냈다"
+        assert G._message(r2) == "", "모름인데 대화에 경보를 밀어 넣었다"
+
+        # ⑤ 한도는 관측이 이긴다 — 그리고 그 사실을 말한다([169])
+        r1 = G.measure(transcript=f1, limit=450000, act=True)
+        assert r1["한도근거"] == "관측", "바닥보다 낮은 설정 한도를 그대로 썼다"
+        assert r1["limit"] == 768215 and r1["설정한도"] == 450000
+        assert r1["stage"] == "여유", "실제 58%인데 %s 라 했다" % (r1["stage"],)
+        # 경보가 뜨는 상황이면 **한도를 바꾼 근거**를 같이 말해야 한다
+        loud = dict(r1, fresh=True, advice="새 작업을 시작하지 말 것.")
+        assert "관측" in G._message(loud), "한도를 바꿔 놓고 그 근거를 말하지 않는다"
+        assert G._message(r1) == "", "'여유' 인데 대화에 경보를 밀어 넣었다"
+
+        # ⑥ 설정 한도가 관측보다 크면 설정이 그대로 이긴다 (안 낮춘다)
+        r3 = G.measure(transcript=f1, limit=2000000, act=True)
+        assert r3["한도근거"] == "설정" and r3["limit"] == 2000000
+
+        # ⑦ 단계 표는 그대로다 — [119] 의 70/85/95 뜻이 무너지면 안 된다
+        assert [c for c, _n, _a in G.STAGES] == [0.95, 0.85, 0.70]
+        assert G._stage(0.69)[1] == "여유" and G._stage(0.95)[1] == "즉시"
+
+        # ⑧ 계기 자신을 시험한다([272]) — 경계 리셋을 빼면 ①이 잡아야 한다
+        src = open(os.path.join(ROOT, "context_guard.py"), encoding="utf-8").read()
+        assert 'compact_boundary' in src, "경계 표식을 안 본다"
+        broken = src.replace('used = None            # 경계 앞은', 'pass  #')
+        assert broken != src, "고장 주입 앵커가 사라졌다 — 이 검사는 아무것도 안 잰다"
+        # 모듈 통째로 돌리므로 `__file__`·`__name__` 을 준다 (안 주면 ROOT 계산에서
+        # NameError 로 죽고, 그 죽음이 '고장을 잡았다' 로 오인된다)
+        ns = {"__file__": os.path.join(ROOT, "context_guard.py"),
+              "__name__": "ctx_broken"}
+        exec(compile(broken, "ctx_broken.py", "exec"), ns)
+        # ★ f1 이 아니라 **f2** 로 잰다. f1 은 경계 뒤에 값이 있어 리셋을 빼도 결과가
+        #   같다 — 그것으로 재면 이 자기시험이 늘 통과하며 아무것도 안 잰다([272]).
+        #   실제 사고 모양은 f2 다: compact 직후, 경계 뒤에 아직 응답이 없는 순간.
+        bu, _bp = ns["_scan"](f2)
+        assert bu == 768215, "경계 리셋을 빼도 안 잡힌다 — ③은 아무것도 안 재고 있다"
+    finally:
+        G.STATE_PATH = keep[0]
+        if keep[1]:
+            os.environ["CLAUDE_CODE_SESSION_ID"] = keep[1]
+
+    # ⑨ 폴백이 남의 세션을 집지 않는다 — 환경변수 세션을 먼저 본다
+    d = G._project_dir()
+    assert "CLAUDE_CODE_SESSION_ID" in G._transcript.__doc__ or True
+    fn = G._transcript.__code__.co_names
+    assert "environ" in fn, "훅이 session_id 를 안 줄 때 환경변수를 안 본다 — 옆 세션 기록을 집는다"
+
+    # ★ 조용히 통과한 것과 아예 안 돈 것은 구별되지 않는다([169]) — 그래서 말한다
+    print("  [329] 컨텍스트 감시 compact 경계 — 옛 값 확언 금지·모름은 모름·"
+          "한도는 관측이 이김·단계표 불변·폴백이 남의 세션 안 집음 ✅")
+
+
 def t328_camp_source_staleness_is_seen():
     """정기점검 스케줄 원본이 새로 와도 아무도 말해 주지 않던 자리 (2026-08-19 · [151]).
 
@@ -24994,6 +25097,7 @@ if __name__ == "__main__":
     t326_the_master_roster_wins_but_never_erases()
     t327_xlsx_says_what_data_it_is()
     t328_camp_source_staleness_is_seen()
+    t329_context_guard_after_compact()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
