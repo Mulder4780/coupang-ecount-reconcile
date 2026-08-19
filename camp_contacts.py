@@ -38,6 +38,7 @@ camp_contacts.py — **전국 쿠팡캠프 담당자 한 장**: 캠프명 · 담
 """
 import json
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -338,8 +339,50 @@ def fill_gaps(rows, directory, erp_by_key=None):
 #   네 번 겪은 모양이다).
 # ★ **못 읽으면 '없다'가 아니다**([169]) — 리포트가 그 사실을 그대로 적는다.
 # -----------------------------------------------------------------------------
+def _sched_files():
+    """폴더의 스케줄 워크북 **전부**를 새로 손댄 것부터. 없으면 빈 목록.
+
+    ★ **하나만 고르면 정본이 통째로 사라진다** (2026-08-19 실사고).
+      그날 폴더에 둘이 있었다 — `(류지영) ★01. 쿠팡 정기점검 스케줄표_원본.xlsx`
+      (16:43 · 분기 시트 **4개** · 193캠프)와 `정기점검 리스트(안전관리자).xlsx`
+      (16:44 · 3분기 **한 장** · 152캠프). 예전 규칙은 mtime 최신 하나였으므로
+      **1분 차이로 정본이 통째로 밀렸고**, 4분기가 안 읽혀 236칸이 3분기 값으로
+      되돌아갔다(M광주2 안전관리 김장혁(Dino) -> 정지수). 어느 쪽이 이길지가
+      업무 의미가 아니라 **누가 나중에 저장했나**로 정해지고 있었다.
+    ★ 그래서 순위는 파일이 아니라 **분기**가 정한다([326] 의 '최신 시트가 이긴다').
+      같은 분기가 두 파일에 다 있으면 그때만 mtime 최신이 이긴다.
+    """
+    try:
+        import source_dirs as SD
+        folder = SD.PM_SCHEDULE_DIR
+    except Exception:
+        return []
+    out = []
+    try:
+        for n in os.listdir(folder):
+            if n.startswith("~$") or not n.lower().endswith((".xlsx", ".xlsm")):
+                continue
+            p = os.path.join(folder, n)
+            try:
+                st = os.stat(p)
+            except Exception:
+                continue
+            out.append((p, st.st_mtime, st.st_size))
+    except Exception:
+        return []
+    out.sort(key=lambda x: -x[1])
+    return out
+
+
+def _quarter_of(sheet):
+    """'2026년 4분기 정기점검' -> (2026, 4). 못 읽으면 (0, 0) 이라 뒤로 간다."""
+    m = re.search(r"(\d{4})\s*년", sheet or "")
+    q = re.search(r"(\d)\s*분기", sheet or "")
+    return (int(m.group(1)) if m else 0, int(q.group(1)) if q else 0)
+
+
 PM_SCHED_CACHE = os.path.join(REPORT_DIR, "캠프_정기점검원본.json")
-PM_SCHED_VER = 2          # <- 파싱 규칙을 고치면 이 숫자를 올린다
+PM_SCHED_VER = 3          # <- 파싱 규칙을 고치면 이 숫자를 올린다
 
 
 def _sched_file():
@@ -411,11 +454,12 @@ def _sched_camp_ok(name):
 
 def pm_schedule_camps(force=False):
     """정기점검 스케줄 원본 -> ({정규화이름: {…}}, 왜). 실패도 말로 돌려준다."""
-    f = _sched_file()
-    if not f:
+    files = _sched_files()
+    if not files:
         return {}, {"길": "못 읽음: 정기점검 스케줄 원본 폴더에 워크북이 없다"}
-    path, mtime, size = f
-    sig = "%s|%s|%s|v%d" % (os.path.basename(path), int(mtime), size, PM_SCHED_VER)
+    # ★ 지문에 **파일 전부**를 담는다 — 하나만 담으면 옆 파일이 바뀌어도 옛 답이 이긴다.
+    sig = "|".join("%s:%s:%s" % (os.path.basename(p_), int(m_), z_)
+                   for p_, m_, z_ in files) + ("|v%d" % PM_SCHED_VER)
     if not force:
         try:
             with open(PM_SCHED_CACHE, encoding="utf-8") as fh:
@@ -426,9 +470,28 @@ def pm_schedule_camps(force=False):
             pass
     try:
         import openpyxl
-        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     except Exception as e:                                   # noqa: BLE001
-        return {}, {"길": "못 읽음: %s" % str(e)[:80], "파일": os.path.basename(path)}
+        return {}, {"길": "못 읽음: %s" % str(e)[:80]}
+    # ★ 파일이 여럿이면 **분기가 순위를 정한다**([326] '최신 시트가 이긴다').
+    #   같은 분기가 두 파일에 다 있을 때만 mtime 최신이 이긴다 — 그때는 어느 쪽이
+    #   새 값인지 파일 시각 말고는 근거가 없다.
+    books, 시트목록, 못읽음 = [], [], []
+    for path_, mtime_, _sz in files:
+        try:
+            wb_ = openpyxl.load_workbook(path_, read_only=True, data_only=True)
+        except Exception as e:                               # noqa: BLE001
+            # ★ 한 파일이 깨져도 나머지는 읽는다 — 다만 **못 읽었다고 말한다**([169]).
+            못읽음.append("%s: %s" % (os.path.basename(path_), str(e)[:60]))
+            continue
+        books.append(wb_)
+        for i_, t_ in enumerate(wb_.sheetnames):
+            if "분기" in t_ and "정기점검" in t_:
+                y_, q_ = _quarter_of(t_)
+                시트목록.append((-y_, -q_, -mtime_, i_, wb_, t_,
+                              os.path.basename(path_)))
+    시트목록.sort(key=lambda x: x[:4])
+    if not 시트목록 and 못읽음:
+        return {}, {"길": "못 읽음: " + " / ".join(못읽음)[:120]}
 
     want = {"변경캠프명": "새이름", "기존캠프명": "옛이름", "캠프주소": "주소",
             "호기": "호기", "종류": "종류", "모델": "모델",
@@ -436,8 +499,10 @@ def pm_schedule_camps(force=False):
             "안전관리자": "safe", "안전관리자HP": "safehp",
             "E-mail": "mail", "안전관리자e-mail": "mail", "설치일자": "설치일"}
     camps, 시트수, 행수 = {}, 0, 0
-    names = [t for t in wb.sheetnames if "분기" in t and "정기점검" in t]
-    for order, t in enumerate(names):            # 앞 시트가 최신이다(4->3->2->1분기)
+    쓴파일 = []
+    for order, (_y, _q, _m, _i, wb, t, _fn) in enumerate(시트목록):
+        if _fn not in 쓴파일:
+            쓴파일.append(_fn)
         ws = wb[t]
         hdr, hr = None, 0
         for r, row in enumerate(ws.iter_rows(min_row=1, max_row=12, values_only=True), 1):
@@ -487,13 +552,18 @@ def pm_schedule_camps(force=False):
                         merged[fld] = p[fld]
                 if any(merged.get(x) for x in ("이름", "전화", "메일")):
                     c[slot] = merged
-    try:
-        wb.close()
-    except Exception:
-        pass
+    for wb_ in books:
+        try:
+            wb_.close()
+        except Exception:
+            pass
     for c in camps.values():
         c["호기"] = sorted(c["호기"])
-    왜 = {"길": "읽음", "파일": os.path.basename(path), "시트": 시트수,
+    왜 = {"길": "읽음" if not 못읽음 else "읽음(일부 못 읽음)",
+          "파일": " + ".join(쓴파일) if 쓴파일 else "",
+          "파일수": len(files), "못읽은파일": 못읽음,
+          "시트차례": [x[5] for x in 시트목록],
+          "시트": 시트수,
           "행": 행수, "캠프": len(camps),
           "받은때": BE.datetime.now().isoformat(timespec="seconds")
           if hasattr(BE, "datetime") else ""}
