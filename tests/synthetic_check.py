@@ -23326,6 +23326,15 @@ console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTM
         return _json.loads(out.splitlines()[-1])
 
     g = 재기(블록)
+    # 2026-08-19 형님 지시 "축소 안 해도 오른쪽 맨 끝까지 다 보이게" · "두 번 눌러
+    # 아래서 위로 뜨는 창에서 고치게". 고치는 손잡이가 표 오른쪽 끝이면 열이 아홉이라
+    # 화면 밖으로 나가 사람이 브라우저를 축소해야 눌렀다 — **안 보이는 단추는 없는
+    # 단추와 같다**([169]). 새 창을 만들지 않았다([162]) — campEditOpen 이 이미
+    # showSheet 로 아래서 위로 뜬다.
+    표H = g["표HTML"]
+    assert "campfix" in 표H, "고치는 단추가 캠프명 칸에 없다 — 오른쪽 끝으로 돌아가면 화면 밖이다"
+    assert 'ondblclick="campEditOpen' in 표H, "줄을 두 번 눌러도 고치기가 안 열린다"
+    assert 표H.index("campfix") < 표H.index("호기"),         "고치는 단추가 캠프명보다 뒤에 있다 — 가로 스크롤 없이는 안 보인다"
     이름 = [r["이름"] for r in g["표"]]
     묶음 = {r["이름"]: r["묶음"] for r in g["표"]}
 
