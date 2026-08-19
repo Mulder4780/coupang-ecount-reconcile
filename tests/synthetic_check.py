@@ -19001,6 +19001,7 @@ def t313_collect_gate_never_scrapes_over_someone():
     G = importlib.import_module("collect_gate")
     ai_claim = importlib.import_module("ai_claim")
     coordinate = importlib.import_module("coordinate")
+    lanes = importlib.import_module("lanes")
 
     src = io.open(os.path.join(ROOT, "collect_gate.py"),
                   encoding="utf-8", newline="").read()
@@ -19023,8 +19024,13 @@ def t313_collect_gate_never_scrapes_over_someone():
     assert "stderr" in code, "[313] 자식 stderr 를 안 보여 준다 — 실패 이유가 사라진다"
 
     real_load, real_sid, real_dead = ai_claim.load, ai_claim.session_id, ai_claim._is_dead
-    real_running = coordinate.running
+    real_running, real_lane = coordinate.running, lanes.my_lane
     try:
+        # ★ 차선은 **목으로 고정한다** — 안 하면 이 검사가 창마다 다른 답을 낸다.
+        #   실측 2026-08-19: 이 세션이 차선을 잡는 순간 ⑤~⑧ 이 통째로 빨개졌다.
+        #   `lanes._path()` 독스트링이 이미 경고한 자리다 — "차선을 켠 값으로 검증을
+        #   못 돌리는 것은 기능이 아니라 사고다"(관문 자체를 통과할 수 없게 된다).
+        lanes.my_lane = lambda d=None: "collect"
         # ④ 남이 `band` 를 쥐고 있으면 **양보**하고 주인 이름을 댄다.
         ai_claim.load = lambda: {"band": {"who": "claude", "sid": "deadbeef",
                                           "why": "밴드 수집", "ts": 9e9, "agent_pid": 1}}
@@ -19060,6 +19066,7 @@ def t313_collect_gate_never_scrapes_over_someone():
     finally:
         ai_claim.load, ai_claim.session_id, ai_claim._is_dead = real_load, real_sid, real_dead
         coordinate.running = real_running
+        lanes.my_lane = real_lane
 
     # ⑨ ★ **계기 자신을 시험한다**(`[272]`) — 막는 문을 빼면 ④가 통과해 버려야 한다.
     #    0 을 내는 계기는 아무도 의심하지 않는다.
@@ -19069,8 +19076,9 @@ def t313_collect_gate_never_scrapes_over_someone():
     assert broken != src, "[313] 고장 주입 지점을 못 찾았다 — 이 검사는 아무것도 안 재고 있다"
     exec(compile(broken, "collect_gate_broken", "exec"), ns)
     real_load, real_sid = ai_claim.load, ai_claim.session_id
-    real_running = coordinate.running
+    real_running, real_lane = coordinate.running, lanes.my_lane
     try:
+        lanes.my_lane = lambda d=None: "collect"
         ai_claim.load = lambda: {"band": {"who": "claude", "sid": "deadbeef",
                                           "ts": 9e9, "agent_pid": 1}}
         ai_claim.session_id = lambda: "mine0000"
@@ -19079,6 +19087,7 @@ def t313_collect_gate_never_scrapes_over_someone():
     finally:
         ai_claim.load, ai_claim.session_id = real_load, real_sid
         coordinate.running = real_running
+        lanes.my_lane = real_lane
 
     print("[313] 수집 문 — 이름이 아니라 자원으로 판정 · 못 읽으면 '모름' · "
           "양보는 주인 이름과 함께 자국으로 남는다 · --force 없음")
@@ -19321,10 +19330,47 @@ def t330_userscript_watch_sees_the_dev_mode_gate():
     assert uw._dev_mode([tempfile.mkdtemp()])[0] == "모름"
 
     ok = {"확장": "있음", "스크립트": "켜짐", "판": "5.5.0"}
-    off = uw.fix_for("안옴", dict(ok, **{"개발자모드": "꺼짐"}))
-    assert "개발자 모드" in off and "chrome://extensions" in off, off
-    # 가르는 법을 같이 준다 — 확정이라 적지 않는다([172]).
-    assert "coupangAutoCollect" in off, off
+
+    # ★ 반증 파일은 **임시 경로로만** 잰다 — 진짜 증거에 시험 값을 섞지 않는다([247]).
+    real_ruled = uw.RULED_OUT
+    empty_dir = tempfile.mkdtemp()
+    try:
+        # ① 아직 반증 안 됨 → 예전대로 개발자 모드를 후보로 올린다.
+        uw.RULED_OUT = _os.path.join(empty_dir, "없는파일.json")
+        off = uw.fix_for("안옴", dict(ok, **{"개발자모드": "꺼짐"}))
+        assert "개발자 모드" in off and "chrome://extensions" in off, off
+        # 가르는 법을 같이 준다 — 확정이라 적지 않는다([172]).
+        assert "coupangAutoCollect" in off, off
+
+        # ② 2026-08-19 실측으로 반증됨(켠 뒤에도 loaded 가 없었다) → **다시 켜라고 하지 않는다**.
+        #    안 고치면 감시자가 사람에게 **이미 한 일을 또 시킨다**([172]).
+        ruled = _os.path.join(empty_dir, "제외.json")
+        with open(ruled, "w", encoding="utf-8", newline="") as fh:
+            _json.dump({"개발자모드": {"근거": "합성"}}, fh)
+        uw.RULED_OUT = ruled
+        after = uw.fix_for("안옴", dict(ok, **{"개발자모드": "꺼짐"}))
+        assert "chrome://extensions" not in after, after
+        assert "Tampermonkey 아이콘" in after, after
+
+        # ★ 못 읽으면 False 다([169]) — '반증됐다'를 지어내지 않는다.
+        uw.RULED_OUT = _os.path.join(empty_dir, "깨진.json")
+        with open(uw.RULED_OUT, "w", encoding="utf-8", newline="") as fh:
+            fh.write("{ 깨진 json")
+        broken = uw.fix_for("안옴", dict(ok, **{"개발자모드": "꺼짐"}))
+        assert "chrome://extensions" in broken, broken
+
+        # ★ 계기 자신을 시험한다([272]) — 반증 판정을 늘 True 로 만들면 ①이 잡혀야 한다.
+        real_fn = uw._dev_mode_ruled_out
+        try:
+            uw._dev_mode_ruled_out = lambda path=None: True
+            uw.RULED_OUT = _os.path.join(empty_dir, "없는파일.json")
+            blind = uw.fix_for("안옴", dict(ok, **{"개발자모드": "꺼짐"}))
+        finally:
+            uw._dev_mode_ruled_out = real_fn
+        assert "chrome://extensions" not in blind, (
+            "반증 판정을 True 로 고정했는데도 개발자 모드를 지목했다 — 이 검사는 아무것도 안 재고 있다")
+    finally:
+        uw.RULED_OUT = real_ruled
 
     on = uw.fix_for("안옴", dict(ok, **{"개발자모드": "켜짐"}))
     assert "개발자 모드" not in on, on

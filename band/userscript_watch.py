@@ -406,6 +406,34 @@ def chrome_side(user_data: Optional[str] = None) -> Dict[str, Any]:
     return out
 
 
+RULED_OUT = os.path.join(ROOT, "reports", "크롬수집_후보제외.json")
+
+
+def _dev_mode_ruled_out(path: Optional[str] = None) -> bool:
+    """'개발자 모드' 후보가 **이미 반증됐나** (2026-08-19 실측).
+
+    이 갈래는 원래 `Preferences` 의 `extensions.ui.developer_mode` 만 봤다.
+    그런데 그 파일은 **실시간이 아니다** — 크롬은 설정을 메모리에 두고 뒤늦게
+    디스크에 쓴다.  그래서 사람이 화면에서 방금 켜도 여기서는 한동안 `꺼짐` 으로
+    읽히고, 감시자는 **이미 한 일을 또 시킨다**(`[172]`).
+
+    그리고 2026-08-19 실측으로 그 지목 자체가 반증됐다 — 켜고 새로고침한 뒤에도
+    밴드 탭 `localStorage` 에 `coupangAutoCollect.loaded` 가 **없었다**.
+    유저스크립트는 숨은 탭에서도 로드되면 그 열쇠를 먼저 쓰므로(스크립트 59행),
+    그 열쇠가 없다는 것은 **본문이 한 줄도 안 돌았다**는 뜻이고 탭이 가려진
+    탓이 아니다.
+
+    ★ **못 읽으면 False 다**(`[169]`) — '반증됐다'를 지어내지 않는다.
+      파일이 없으면 예전대로 개발자 모드를 후보로 올린다.
+    """
+    try:
+        with open(path or RULED_OUT, encoding="utf-8") as fh:
+            d = json.load(fh)
+        return bool(isinstance(d, dict) and d.get("개발자모드"))
+    except Exception:
+        return False
+
+
 def fix_for(kind: str, side: Optional[Dict[str, Any]] = None) -> str:
     """갈래마다 **무엇을 하면 되는지**.
 
@@ -437,13 +465,13 @@ def fix_for(kind: str, side: Optional[Dict[str, Any]] = None) -> str:
     #   안 돈 것이다.  그러니 "한 번도 안 열렸다"는 **틀린 지목**이었고, 그 안내를
     #   따르면 사람은 **이미 한 일을 또 한다**(`[172]`·`[257]` 과 같은 자리).
     dev = s.get("개발자모드")
-    if dev == "꺼짐":
+    if dev == "꺼짐" and not _dev_mode_ruled_out():
         # 2026-08-19 실측 — [149] 는 여기서 갈렸다.  설치·켜짐·@match 가 다 맞는데도
         # 밴드 탭 localStorage 에 `coupangAutoCollect.*` 가 0개였다.  Chrome 151 은
         # MV3 라 이 토글이 꺼져 있으면 Tampermonkey 가 스크립트를 **못 넣는다**.
         # ★ 확정이라 적지 않는다(`[172]`) — 가르는 법을 같이 준다.
         return ("%s 도 유저스크립트도 **이미 깔려 있고 켜져 있다**(v%s) — 다시 설치할 것 없다. "
-                "가장 유력한 남은 하나는 **크롬 개발자 모드가 꺼져 있는 것**이다"
+                "남은 후보 하나는 **크롬 개발자 모드가 꺼져 있는 것**이다"
                 "(이 프로필의 `extensions.ui.developer_mode` 가 꺼짐 · Chrome 은 MV3 라 "
                 "이 토글이 없으면 Tampermonkey 가 스크립트를 아예 못 넣는다). "
                 "조치 — `chrome://extensions` 를 열고 오른쪽 위 **개발자 모드**를 켠 뒤 "
@@ -458,7 +486,11 @@ def fix_for(kind: str, side: Optional[Dict[str, Any]] = None) -> str:
             "(피드·다른 주소는 안 걸린다) · ② 열렸는데 그 탭에 스크립트가 안 들어갔다. "
             "가르는 법 — 그 탭 콘솔(F12)에 "
             "`Object.keys(localStorage).filter(k=>k.indexOf('coupangAutoCollect')===0)` "
-            "를 쳐 본다. 비어 있으면 ②다(2026-08-19 실측은 ②였다)" % tag)
+            "를 쳐 본다. 비어 있으면 ②다(2026-08-19 실측은 ②였다). "
+            "★ ②라면 **다음은 Tampermonkey 아이콘**이다 — 그 밴드 탭에서 아이콘을 눌러 "
+            "*이 페이지에서 실행 중인 스크립트* 목록에 이 스크립트가 뜨는지 본다. "
+            "안 뜨면 그 확장이 이 사이트에 주입을 못 하는 것이고, 뜨는데도 열쇠가 "
+            "없으면 스크립트 본문이 죽은 것이다(콘솔 오류를 본다)" % tag)
 
 
 def lines(state: Optional[Dict[str, Any]] = None) -> List[str]:
