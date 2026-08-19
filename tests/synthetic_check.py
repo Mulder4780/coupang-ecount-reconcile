@@ -19062,6 +19062,89 @@ def t314_camp_unknown_is_filled_only_with_proof():
           "ERP 담당자는 직책 미상 칸 · 출처를 적는다")
 
 
+def t317_sale_pool_never_takes_what_it_cannot_name():
+    """[317] 모르는 것을 '판매'라 부르지 않는다 · 짝이 안 지어지면 열쇠를 의심한다.
+
+    형님 지시(2026-08-19): "692건 파고들고 sale 분류 진행해".
+
+    ★ 두 고장이 **서로를 가리고 있었다.** 실측 750건 중 `이카운트미등록` 692건(92%)
+      인데, 그 원인은 미등록이 아니라 **물어볼 수가 없었던** 것이다 — 1순위
+      프로젝트NO 는 ERP 판매전표에 없고 2순위 금액은 원장 공급가액이 대부분 비었다
+      (금액허용오차 0). 그리고 판매 후보 127개 중 62개(49%)가 판매 자료가 아니었다
+      (계정별원장 10 · 분개장 2 · 현금출납장 1 · unknown 36 · 세금계산서진행단계 9 ·
+      견적 4). 금액 열쇠가 안 도는 덕분에 거짓 '일치'가 안 났을 뿐이다.
+      **금액 사다리를 먼저 고쳤으면 그 순간 남의 회사 금액에 붙었다**(`[172]`).
+      그래서 순서가 이것이다: 후보를 먼저 걷고, 그다음 금액을 본다.
+    """
+    import importlib, io as _io, tempfile, os as _os
+    E = importlib.import_module("ecount_reconcile")
+
+    # ① 회계 원장류 넷은 `[203]` 이 가른 그대로 — 예전엔 `ledger` 하나만 걸렀다.
+    for k in ("ledger_acct", "journal", "cashbook", "unknown"):
+        assert k in E.SALE_NEVER, "%s 가 아직 판매 후보로 샌다" % k
+    assert "sales" not in E.SALE_NEVER and "stmt" not in E.SALE_NEVER,         "진짜 판매 자료까지 막았다"
+
+    # ② 실제로 돌려서 잰다 — 글자 검사로는 '몇 개가 빠졌는지'를 못 잡는다(`[295]`).
+    try:
+        import openpyxl
+    except Exception:
+        print("[317] 판매 후보 — openpyxl 이 없어 실행 검사는 건너뜀(구조만) ✅")
+        return
+
+    def _mk(path, amount):
+        wb = openpyxl.Workbook(); ws = wb.active
+        ws.append(["일자", "거래처", "공급가액", "합계금액"])
+        ws.append(["2026-08-01", "쿠팡로지스틱스", amount, int(amount * 1.1)])
+        wb.save(path); wb.close()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        good = _os.path.join(tmp, "판매조회_시험.xlsx")
+        bad = _os.path.join(tmp, "정체불명_시험.xlsx")
+        _mk(good, 1000); _mk(bad, 2000)
+        kinds = {_os.path.normcase(good): "sales", _os.path.normcase(bad): "unknown"}
+        import source_dirs, inbox_scan, billing_fill
+        keep = (source_dirs.excel_dirs, inbox_scan.classify)
+        try:
+            source_dirs.excel_dirs = lambda: [tmp]
+            inbox_scan.classify = lambda f: kinds.get(_os.path.normcase(f), "unknown")
+            out = E.load_inbox({})
+        finally:
+            source_dirs.excel_dirs, inbox_scan.classify = keep
+
+    assert out is not None, "시험 자료를 하나도 못 읽었다"
+    금액 = sorted(r["SUPPLY_AMT"] for r in out["sale"])
+    assert 금액 == [1000], "모르는 갈래가 판매 후보에 들어왔다: %r" % (금액,)
+    # 뺀 것은 **숫자로 말한다** — 조용히 빼면 '깨끗한 판매 자료'로 읽힌다(`[169]`).
+    assert out.get("_skipped", {}).get("unknown") == 1,         "뺀 것을 세지 않았다: %r" % (out.get("_skipped"),)
+    assert any("뺀 것" in x for x in out["_files"]), "뺀 것을 리포트에 안 적는다"
+
+    # ③ 짝이 거의 안 지어지면 스스로 '열쇠가 안 맞는다'고 말한다 — 판정은 빌린다.
+    src = _io.open(_os.path.join(ROOT, "ecount_reconcile.py"),
+                   encoding="utf-8", newline="").read()
+    assert "from erp_ledger_check import key_looks_wrong" in src,         "판정을 여기서 새로 만들면 `erp_ledger_check` 와 언젠가 갈린다(`[162]`)"
+    나쁨 = ([{"①판매/명세서_판정": "이카운트미등록", "원장_공급가액": 0}] * 692
+           + [{"①판매/명세서_판정": "일치", "원장_공급가액": 100}] * 23)
+    말 = E.key_warning(나쁨, {"sale_rows": 5157})
+    assert 말 and any("열쇠가 안 맞는다" in x for x in 말), "열쇠 경고가 안 떴다"
+    assert any("미청구·미발행 근거로 쓰지 말 것" in x for x in 말),         "이 숫자를 대표 보고에 쓰지 말라는 말이 빠졌다"
+    # ★ 멀쩡할 때 조용한가 — 정상까지 경보하면 아무도 안 본다(`[170]`).
+    좋음 = [{"①판매/명세서_판정": "일치", "원장_공급가액": 100}] * 700
+    assert E.key_warning(좋음, {}) == [], "짝이 다 지어졌는데도 경고가 떴다"
+
+    # ④ 계기 자신을 시험한다 (`[272]`) — 문을 빼면 이 검사가 잡아야 한다.
+    잠깐 = E.SALE_NEVER
+    try:
+        E.SALE_NEVER = ()
+        새 = [k for k in ("ledger_acct", "journal", "cashbook", "unknown")
+             if k in E.SALE_NEVER]
+        assert not 새, "문을 비웠는데도 갈래가 남아 있다 — 표를 안 보고 있다"
+    finally:
+        E.SALE_NEVER = 잠깐
+
+    print("[317] 판매 후보 — 모르는 갈래는 안 담고 숫자로 말한다 · "
+          "짝이 안 지어지면 열쇠를 의심한다 · 멀쩡하면 조용하다 ✅")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -23469,6 +23552,7 @@ if __name__ == "__main__":
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t313_collect_gate_never_scrapes_over_someone()
     t314_camp_unknown_is_filled_only_with_proof()
+    t317_sale_pool_never_takes_what_it_cannot_name()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

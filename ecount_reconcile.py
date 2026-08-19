@@ -677,6 +677,11 @@ def match_project(ledger_rec, ecount_rows, tol_amt, filter_cust):
 # ───────────────────────── inbox(수동 내보내기) 로더 ─────────────────────────
 INBOX_DIR = os.path.join(BASE_DIR, "inbox")
 
+# 판매 후보로 **절대 넣지 않는** 갈래. 회계 원장류 넷은 `[203]` 이 가른 그대로다 —
+# 예전엔 `ledger` 하나만 걸러 나머지 셋이 판매로 샜다.
+SALE_NEVER = ("ledger_acct", "journal", "cashbook",
+              "unknown", "taxstep", "quote", "receipt")
+
 def load_inbox(cfg):
     """이카운트 화면에서 내려받은 판매현황/세금계산서 엑셀을 inbox/에서 읽어
     API 조회 결과와 동일한 형태(CAND 키)로 정규화한다.
@@ -707,6 +712,7 @@ def load_inbox(cfg):
         return None
     out = {"sale": [], "tax_invoice": []}
     used = []
+    skipped = {}
     for f in files:
         name = os.path.basename(f)
         # 파일명이 무작위인 이카운트 내보내기가 섞여 있다. **내용**으로 종류를 먼저 본다.
@@ -720,8 +726,21 @@ def load_inbox(cfg):
             continue
         if ck in ("tax", "taxinv", "hometax"):
             kind = "tax_invoice"
-        elif ck in ("sales", "stmt", "slips"):
+        elif ck in ("sales", "stmt", "slips", "po"):
+            # `po` 는 옛 이유로 남긴다(아래 주석) — 머리글 조건이 한 번 더 거른다.
             kind = "sale"
+        elif ck in SALE_NEVER:
+            # ★ 모르는 것을 '판매'라 부르지 않는다 (2026-08-19 실측).
+            #   예전 마지막 줄은 `else: ... else "sale"` — **갈래를 못 알아본 파일이
+            #   전부 판매 후보**가 됐다. 실측 127개 중 62개(49%)가 판매가 아니었다:
+            #   계정별원장 10 · 분개장 2 · 현금출납장 1 (`[203]` 이 가른 회계 원장류
+            #   넷 중 `ledger` 하나만 걸러 셋이 샜다) · unknown 36 · 세금계산서
+            #   진행단계 9 · 견적 4. 거래처 마스터(`ESA001M`)·채권잔액까지 들어왔다.
+            #   ⚠ 지금은 금액 열쇠가 거의 안 돌아(원장 공급가액이 대부분 빔) 거짓
+            #     '일치'가 안 났을 뿐이다. **금액 사다리를 먼저 고치면 그 순간
+            #     남의 회사 금액에 붙는다** — 미등록으로 남는 것보다 나쁘다(`[172]`).
+            skipped[ck] = skipped.get(ck, 0) + 1
+            continue
         else:
             kind = "tax_invoice" if ("세금계산서" in name or "계산서" in name) else "sale"
         wb = openpyxl.load_workbook(f, read_only=True, data_only=True)
@@ -770,7 +789,58 @@ def load_inbox(cfg):
         used.append(f"{name}→{kind}")
     if not (out["sale"] or out["tax_invoice"]):
         return None
+    if skipped:
+        # 맨 앞에 둔다 — 뒤에 붙이면 파일 목록 백 줄에 묻혀 아무도 못 본다.
+        used.insert(0, "판매 후보에서 뺀 것 %d개(%s) — 판매 자료가 아니다"
+                    % (sum(skipped.values()),
+                       " · ".join("%s %d" % (k, v)
+                                  for k, v in sorted(skipped.items()))))
     out["_files"] = used
+    out["_skipped"] = skipped
+    return out
+
+
+def key_warning(results, meta):
+    """짝이 거의 안 지어지면 'ERP 미등록이 많다'가 아니라 **열쇠가 안 맞는다**.
+
+    ★ 2026-08-19 실측: 750건 중 `이카운트미등록` 692건(92%)이었다. 경보가 대부분이면
+      그 경보는 아무도 안 본다(`[170]`). 근거를 세어 보면 미등록이 아니라 **물어볼
+      수가 없었던** 것이다 — 1순위 프로젝트NO 는 ERP 판매전표 본문에 그 번호가 없고,
+      2순위 금액은 원장 06시트 공급가액이 사람 손 입력이라 대부분 비어 있다
+      (금액허용오차 0 이라 빈 값으로는 한 건도 못 맞춘다).
+
+    ★ **여기서 금액을 짐작해 채우지 않는다.** 그것은 `[170]` 의 `supply_of()` 사다리가
+      할 일이고, 그 전에 판매 후보 오염(위 `SALE_NEVER`)을 먼저 걷어야 한다 —
+      순서가 뒤집히면 남의 회사 금액에 붙어 **거짓 '일치'** 가 난다.
+
+    판정은 `erp_ledger_check.key_looks_wrong` 을 그대로 빌린다(`[162]`).
+    """
+    try:
+        from erp_ledger_check import key_looks_wrong
+    except Exception:
+        return []
+    total = len(results)
+    if not total:
+        return []
+    맞음 = sum(1 for r in results
+              if "일치" in r["①판매/명세서_판정"]
+              or "불일치" in r["①판매/명세서_판정"]
+              or "금액없음" in r["①판매/명세서_판정"])
+    if not key_looks_wrong(맞음, total):
+        return []
+    빈금액 = sum(1 for r in results if not r.get("원장_공급가액"))
+    후보 = meta.get("sale_rows")
+    out = ["",
+           "> ★ **이 집계는 'ERP 미등록'을 뜻하지 않는다 — 열쇠가 안 맞는다.**",
+           "> 정산 %d건 중 이카운트 전표가 붙은 것이 %d건뿐이다. 열쇠가 맞으면 "
+           "몇 건은 반드시 걸린다." % (total, 맞음),
+           "> · 1순위 **프로젝트NO** — ERP 판매전표 본문에 그 번호가 안 적혀 있다.",
+           "> · 2순위 **금액** — 원장 공급가액이 빈 행이 **%d건(%d%%)**. "
+           "금액허용오차가 0 이라 빈 값으로는 한 건도 못 맞춘다."
+           % (빈금액, round(빈금액 * 100.0 / total)),
+           "> 그러므로 아래 '이카운트미등록'을 **미청구·미발행 근거로 쓰지 말 것.**"]
+    if 후보:
+        out.insert(3, "> · 판매 후보 전표 %d행을 놓고 잰 값이다." % 후보)
     return out
 
 
@@ -879,6 +949,8 @@ def write_reports(results, cfg, meta):
         f.write("\n## ① 판매/거래명세서 대조 집계\n\n")
         for k, v in c1.most_common():
             f.write(f"- {k}: {v}건\n")
+        for ln in key_warning(results, meta):
+            f.write(ln + "\n")
         f.write("\n## ② 세금계산서 대조 집계\n\n")
         for k, v in c2.most_common():
             f.write(f"- {k}: {v}건\n")
@@ -973,7 +1045,9 @@ def main():
         print("i", note)
 
     results = reconcile(recs, ecount, cfg)
-    base = write_reports(results, cfg, {"online": ecount["_online"], "expiry_days": expiry, "note": note})
+    base = write_reports(results, cfg, {"online": ecount["_online"], "expiry_days": expiry, "note": note,
+                                        # 열쇠 경고가 "무엇을 놓고 잰 값인가"를 말하려면 후보 수가 필요하다.
+                                        "sale_rows": len(ecount.get("sale") or [])})
     print("리포트 생성:")
     for ext in (".md", ".csv", ".xlsx"):
         if os.path.exists(base + ext):
