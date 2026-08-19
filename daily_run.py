@@ -1051,6 +1051,18 @@ _GATE_FIX = {
 }
 
 
+def _gate_fix(kind, which):
+    """갈래별 조치 — **검증 이름을 아는데 안 적으면** 사람이 그것을 다시 찾는다.
+
+    `code` 는 "검증이 실제로 빨갛다" 는 뜻인데, 어느 검증인지는 `_gate_which_test`
+    가 이미 뽑아 뒀다. 그것을 조치 맨 앞에 붙여 준다(`[169]` — 아는 것을 안 적지 않는다).
+    """
+    fix = _GATE_FIX.get(kind, "갈래를 못 가렸다 — 아래 자취를 그대로 읽는다.")
+    if which and kind in ("code", ""):
+        fix = "**%s** 가 막았다 — 그 검증부터 본다. " % which + fix
+    return fix
+
+
 def _leave_gate_trace(step):
     """0단계 관문이 막았을 때 **왜인지를 디스크에 남긴다** (2026-08-18 실사고).
 
@@ -1068,11 +1080,27 @@ def _leave_gate_trace(step):
     ★ 성공하면 **지운다** — 옛 자국이 남으면 이미 지나간 고장을 계속 보고한다(`[228]`).
     """
     out = str(step.get("out") or "")
-    try:
-        import autopilot
-        kind = autopilot.classify_failure(out)
-    except Exception:                              # noqa: BLE001
-        kind = ""                                  # 모르면 '모름' — 지어내지 않는다(`[169]`)
+    # ★ **시간초과인지는 `run()` 이 이미 말해 준다** — 자취 글자로 다시 묻지 않는다
+    #   (`[324]` 가 반대 방향에서 배운 그 자리다). `classify_failure` 는 출력에
+    #   `timeout` 이라는 **낱말**만 있어도 timeout 이라 하는데, 합성검증 출력에는 그
+    #   낱말이 **늘 들어간다**(이 프로젝트 검증이 `communicate(timeout=)`·
+    #   `GATE_TIMEOUT_S` 를 재고 그 이름을 찍는다). 그래서 검증이 assert 로 죽어도
+    #   갈래가 `timeout` 이 되고 조치는 *"다시 돌려 본다"* 로 나간다 — 조치는 갈래마다
+    #   다르므로(`[289]`) 그 한 줄이 사람을 엉뚱한 데로 보낸다(`[172]`).
+    #   실측 2026-08-19 17:17: 진짜 원인은 `t326` 이 목을 잃고 진짜 Z: 를 읽은 것인데
+    #   자국은 `갈래=timeout`·조치 "다시 돌려 본다" 라고 적어 두고 있었다.
+    if out.startswith("시간초과("):
+        kind = "timeout"                           # `run()` 이 준 결정적 증거
+    else:
+        try:
+            import autopilot
+            kind = autopilot.classify_failure(out)
+        except Exception:                          # noqa: BLE001
+            kind = ""                              # 모르면 '모름' — 지어내지 않는다(`[169]`)
+        if kind == "timeout":
+            # 시간초과가 아닌 것이 확실하다(위에서 갈렸다) — 낱말에 걸린 것이다.
+            # 자원·인증 표시가 없었다는 뜻이므로 그것이 곧 `code` 갈래의 뜻이다.
+            kind = "code"
     head = _gate_headline(out)
     which = _gate_which_test(out)
     무엇 = "합성검증이 막았다"
@@ -1088,7 +1116,7 @@ def _leave_gate_trace(step):
                        "갈래": kind or "모름",
                        "검증": which,
                        "무엇": 무엇,
-                       "조치": _GATE_FIX.get(kind, "갈래를 못 가렸다 — 아래 자취를 그대로 읽는다."),
+                       "조치": _gate_fix(kind, which),
                        "자취": out[-4000:]}, fh, ensure_ascii=False, indent=1)
     except Exception:
         pass                    # 자국을 남기려다 종료를 막지 않는다

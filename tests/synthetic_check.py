@@ -16456,7 +16456,7 @@ def t293_yield_is_a_claim_that_gets_audited():
     _t0 = (_dt.datetime.now() - _dt.timedelta(hours=_CO.AUDIT_GRACE_HOURS + 2)).isoformat(timespec="seconds")
     _d = {"정오회차": [{"때": _t0, "갈래": "양보", "왜": "점유", "주인": _CO.CLAIM_OWNER + "publish(server[x])"},
                        {"때": _t0, "갈래": "양보", "왜": "모름", "주인": ""}]}
-    _헛, _못, _점 = _CO.audit(_d)
+    _헛, _못, _점, _뒤에 = _CO.audit(_d)
     assert len(_점) == 1, "점유 양보를 따로 안 센다 — 매일 뜨는 확인못함이 된다([170])"
     assert len(_못) == 1, "주인이 정말 없는 양보를 못 가른다 — 그것이 진짜 위험한 자리다([172])"
     _ns = _CO.notices(_d)
@@ -16466,7 +16466,44 @@ def t293_yield_is_a_claim_that_gets_audited():
     #    ★ 그러나 **조용히 없애지도 않는다**([169]) — 리포트가 숫자로 말해야 한다.
     assert "점유에 양보한 것" in _CO._md(_d, ""), "점유 양보를 리포트에서 통째로 감춘다 — 안 보이면 '겹친 적 없다'로 읽힌다"
 
-    print("  [293] 겹치면 조율한다 — 양보는 주장이고 audit 이 되묻는다(헛양보·굶주림) · "
+    #    ⑫ **주인만 보면 안 된다** — 양보한 쪽이 나중에 스스로 완주하면 그 일은 됐다.
+    #    2026-08-19 실측: 수집이 14:05 에 claude[b0b8fd43] 에게 양보했고 그 주인은
+    #    끝냄 자국을 안 남겼는데, 수집 자신이 20:15~21:44 에 여덟 번 완주했다(그중
+    #    둘이 band/convert_dump.py — 바로 그 양보가 미룬 밴드 흡수다). 그런데도 표는
+    #    "그 일은 아무도 안 했다"고 확언했다. 거짓 경보는 진짜 경보를 덮고([170])
+    #    사람을 없는 일로 보낸다([172]). schedule_watch 의 뒤에됨([304])과 같은 자리다.
+    _뒤때 = (_dt.datetime.now() - _dt.timedelta(hours=1)).isoformat(timespec="seconds")
+    _앞때 = (_dt.datetime.now() - _dt.timedelta(hours=_CO.AUDIT_GRACE_HOURS + 3)).isoformat(timespec="seconds")
+
+    def _표(끝갈래=None, 끝때=None):
+        rows = [{"때": _t0, "갈래": "양보", "왜": "겹침", "주인": "남[x1]"}]
+        if 끝갈래:
+            rows.append({"때": 끝때, "갈래": 끝갈래, "왜": "그 일"})
+        return {"수집": rows}
+
+    _h, _m, _p, _l = _CO.audit(_표())
+    assert len(_h) == 1 and not _l, "양보 뒤 아무것도 없는데 헛양보가 아니라고 한다 — 진짜 헛양보를 놓친다"
+    _h, _m, _p, _l = _CO.audit(_표("완주", _뒤때))
+    assert not _h and len(_l) == 1, "양보한 쪽이 나중에 스스로 완주했는데도 아무도 안 했다고 말한다([304])"
+    _h, _m, _p, _l = _CO.audit(_표("실패", _뒤때))
+    assert len(_h) == 1 and not _l, "나중에 실패한 것을 됐다로 센다 — 실패한 회차는 그 일을 못 했다"
+    _h, _m, _p, _l = _CO.audit(_표("완주", _앞때))
+    assert len(_h) == 1 and not _l, "양보보다 앞선 완주를 근거로 쓴다 — 그 완주는 이 양보와 상관이 없다"
+    assert not [n for n in _CO.notices(_표("완주", _뒤때)) if n.get("갈래") == "헛양보"], (
+        "뒤에 된 것을 경보로 올린다 — 거짓 경보는 진짜 경보를 덮는다([170])")
+    #    ★ 그러나 조용히 없애지도 않는다([169]) — 리포트가 숫자로 말해야 한다.
+    assert "뒤에 스스로 된 것" in _CO._md(_표("완주", _뒤때), ""), (
+        "뒤에 된 것을 리포트에서 통째로 감춘다 — 안 보이면 겹친 적 없다로 읽힌다")
+    #    ★ 계기 자신을 시험한다([272]) — 그 문을 없애면 거짓 경보가 되살아나야 한다.
+    _real_dl = _CO.done_later
+    try:
+        _CO.done_later = lambda d, 작업, t: None
+        _h2, _m2, _p2, _l2 = _CO.audit(_표("완주", _뒤때))
+        assert len(_h2) == 1 and not _l2, "done_later 를 죽였는데도 헛양보가 안 뜬다 — 이 검사는 아무것도 안 재고 있다"
+    finally:
+        _CO.done_later = _real_dl
+
+    print("  [293] 겹치면 조율한다 — 양보는 주장이고 audit 이 되묻는다(헛양보·뒤에됨·굶주림) · "
           "완주도 그날 한 번 남긴다 · 이름은 LOCKS 한 곳 · 읽기 전용 ✅")
 
 
@@ -22683,6 +22720,7 @@ def t304_dead_round_says_why_and_stops_crying_wolf():
     assert "autopilot" in _os.path.basename(AP.__file__), "판정기 출처가 바뀌었다"
 
     # ③ 자국을 남긴다 — **임시 경로로만** 잰다(`[247]`)
+    NL_ = chr(10)
     real, tmpdir = DR.GATE_CRASH, tempfile.mkdtemp()
     try:
         DR.GATE_CRASH = _os.path.join(tmpdir, "일일대조_오류.json")
@@ -22697,6 +22735,38 @@ def t304_dead_round_says_why_and_stops_crying_wolf():
         assert 조치 and "코드가 없을 수 있다" in 조치, "자원 실패에 맞는 조치가 아니다: %r" % 조치
         assert 조치 != DR._GATE_FIX["code"], "갈래가 달라도 조치가 같다"
         assert str(d.get("자취") or ""), "자취를 안 남긴다"
+
+        # ⑤ ★ **시간초과인지는 `run()` 이 이미 말해 준다** — 자취 글자로 다시 묻지
+        #    않는다. `classify_failure` 는 출력에 `timeout` 이라는 **낱말**만 있어도
+        #    timeout 이라 하는데, 합성검증 출력에는 그 낱말이 **늘 들어간다**. 그래서
+        #    검증이 assert 로 죽어도 갈래가 timeout 이 되고 조치는 "다시 돌려 본다" 로
+        #    나갔다 — 실측 2026-08-19 17:17 의 자국이 그랬다(진짜 원인은 t326 이 목을
+        #    잃고 진짜 Z: 를 읽은 것). 조치는 갈래마다 다르다([289]) — 틀린 지목은
+        #    못 잡는 것보다 나쁘다([172]).
+        _tb = NL_.join(["  [318] communicate(timeout=) OK",
+                        "Traceback (most recent call last):",
+                        "    t326_the_master_roster_wins_but_never_erases()",
+                        "AssertionError: 원본을 못 읽었는데 조용히 넘어간다"])
+        DR._leave_gate_trace({"name": "합성검증", "ok": False, "out": _tb})
+        d2 = _json.load(open(DR.GATE_CRASH, encoding="utf-8"))
+        assert d2.get("갈래") == "code", (
+            "자취에 timeout 이라는 낱말이 있다고 시간초과라 부른다 — 조치가 "
+            "'다시 돌려 본다' 로 나가 원인은 영영 안 고쳐진다: %r" % d2.get("갈래"))
+        assert "t326_the_master_roster_wins_but_never_erases" in str(d2.get("조치")), (
+            "어느 검증이 막았는지 아는데 조치에 안 적는다 — 사람이 그것을 다시 찾는다([169])")
+        #    그리고 **진짜 시간초과는 그대로 timeout** 이어야 한다(문을 너무 좁히면 그것도 고장).
+        DR._leave_gate_trace({"name": "합성검증", "ok": False, "out": "시간초과(1500s)"})
+        d3 = _json.load(open(DR.GATE_CRASH, encoding="utf-8"))
+        assert d3.get("갈래") == "timeout", (
+            "run() 이 시간초과라 했는데 다른 갈래로 적는다: %r" % d3.get("갈래"))
+        #    ★ 계기 자신을 시험한다([272]) — 낱말 함정 문을 없애면 잡혀야 한다.
+        _real_cf = DR._gate_fix
+        try:
+            import autopilot as _AP
+            assert _AP.classify_failure(_tb) == "timeout", (
+                "낱말 함정이 사라졌다 — 이 검사가 재려는 자리가 없어졌으니 다시 본다")
+        finally:
+            DR._gate_fix = _real_cf
 
         # ④ 통과하면 지운다 — 안 지우면 지나간 고장을 계속 보고한다(`[228]`)
         DR._clear_gate_trace()
