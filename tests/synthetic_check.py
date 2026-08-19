@@ -23300,11 +23300,28 @@ console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTM
   줄표시:(표HTML.match(/class="campgrp g[01]"/g)||[]).length}));
 """
 
+    import tempfile
+
     def 재기(소스):
         js = 준비 + "eval((" + _json.dumps(소스) + ").replace(/^(let|const) /gm,'var '));" + 본
-        pr = subprocess.Popen([node, "-e", js], stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT, **proc_guard.background_popen_kwargs())
-        out = pr.communicate(timeout=90)[0].decode("utf-8", "replace").strip()
+        # ★ **`node -e` 로 넘기지 않는다** — 윈도우 명령줄 한도(약 32KB)에 걸린다.
+        #   2026-08-19 실측: 화면에 함수 하나(약 1.2KB)를 더했더니 곧바로
+        #   `FileNotFoundError [WinError 206] 파일 이름이나 확장명이 너무 깁니다` 로
+        #   죽었다. 이 검사가 재는 것은 **화면 로직**이지 명령줄 길이가 아니다 —
+        #   화면이 자랄 때마다 멀쩡한 검사가 빨개지면 아무도 안 믿는다([170]).
+        fd, jspath = tempfile.mkstemp(suffix=".js")
+        try:
+            os.write(fd, js.encode("utf-8"))
+            os.close(fd)
+            pr = subprocess.Popen([node, jspath], stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT,
+                                  **proc_guard.background_popen_kwargs())
+            out = pr.communicate(timeout=90)[0].decode("utf-8", "replace").strip()
+        finally:
+            try:
+                os.remove(jspath)
+            except OSError:
+                pass
         assert out, "node 가 아무 답도 안 줬다"
         return _json.loads(out.splitlines()[-1])
 
