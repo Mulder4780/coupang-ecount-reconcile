@@ -861,8 +861,112 @@ def load_changes(limit=30):
         return []
 
 
+# -----------------------------------------------------------------------------
+# * 원본이 새로 와도 아무도 말해 주지 않는다 (2026-08-19 실사고 . 분담판 [151])
+#
+# 그날 형님이 캡처를 들고 "이게 맞다는데 검증해봐" 라고 물어서야 드러났다:
+# 정기점검 스케줄 원본은 16:44 에 갱신됐는데 `reports/캠프_담당자.json` 은 16:16
+# 것이라, 정본 152캠프 754칸 중 **236칸이 옛 담당자**였다. 그런데 그 236칸은
+# **빈칸이 아니라 '틀린 사람'** 이라 화면은 멀쩡히 이름.전화를 보여 준다([165]).
+# 형님이 안 물었으면 다음 09:50 회차까지 옛 담당자가 대표 보고에 그대로 실렸다.
+#
+# * **여기서 다시 만들지 않는다**([168]) - `build()` 는 밴드 전체를 파싱한다.
+#   재는 것은 mtime 둘뿐이고, 고치는 것은 사람이 명령한다(`--write`).
+# * **못 읽으면 '정상'이 아니라 '모름'이다**([169]) - Z: 가 끊긴 것과 원본이
+#   그대로인 것은 다른 사실이다. 뭉치면 끊긴 날 화면이 "최신"이라고 확언한다.
+# * **웹 요청에서 부르지 않는다**([168]) - `_sched_file()` 실측 2.78초(SMB).
+#   회차가 재서 `STALE_MARK` 에 적고 인계.화면은 그것을 읽기만 한다.
+# -----------------------------------------------------------------------------
+STALE_MARK = os.path.join(REPORT_DIR, "캠프원본_밀림.json")
+STALE_SLACK_S = 60        # 회차가 원본을 읽고 쓰는 사이에 나는 잔여 초
+
+
+def sched_stale():
+    """정기점검 스케줄 원본이 앱 자료보다 새로운가. 갈래는 정상.밀림.모름 셋."""
+    import datetime as _dt
+
+    def _t(ts):
+        try:
+            return _dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return ""
+
+    out = {"갈래": "모름", "말": "", "원본": "", "원본시각": "", "자료시각": "",
+           "늦은분": 0, "조치": "python camp_contacts.py --write",
+           "잰때": _dt.datetime.now().isoformat(timespec="seconds")}
+    try:
+        f = _sched_file()
+    except Exception as e:
+        out["말"] = "정기점검 스케줄 원본 폴더를 못 읽었다(%s) - 최신인지 확인 못 함" % e
+        return out
+    if not f:
+        # 폴더는 열렸는데 워크북이 없다. '없다'와 '못 읽었다'를 가른다([169]).
+        out["말"] = "정기점검 스케줄 원본 폴더에 워크북이 없다 - 최신인지 확인 못 함"
+        return out
+    path, mt, _sz = f
+    out["원본"] = os.path.basename(path)
+    out["원본시각"] = _t(mt)
+    try:
+        rt = os.path.getmtime(OUT)
+    except Exception:
+        out["갈래"] = "없음"
+        out["말"] = ("캠프 담당자 자료를 아직 한 번도 안 만들었다 - "
+                     "원본 %s 는 %s 것이다" % (out["원본"], out["원본시각"]))
+        return out
+    out["자료시각"] = _t(rt)
+    if mt <= rt + STALE_SLACK_S:
+        out["갈래"] = "정상"
+        out["말"] = "앱 담당자 자료가 정기점검 스케줄 원본보다 새롭다"
+        return out
+    out["갈래"] = "밀림"
+    out["늦은분"] = int((mt - rt) // 60)
+    # * 조용한 사고라는 것을 문장이 직접 말한다 - 빈칸이 아니라 '틀린 사람'이다.
+    out["말"] = ("정기점검 스케줄 원본이 앱 담당자 자료보다 %d분 새롭다 "
+                 "(원본 %s = %s . 앱 자료 %s) - 그 사이 바뀐 담당자는 "
+                 "빈칸이 아니라 **옛 사람 이름.전화**로 화면에 그대로 보인다"
+                 % (out["늦은분"], out["원본"], out["원본시각"], out["자료시각"]))
+    return out
+
+
+def stale_mark(rec=None):
+    """회차가 판정을 적어 둔다. 인계.화면은 이 파일만 읽는다([168])."""
+    rec = rec or sched_stale()
+    try:
+        os.makedirs(REPORT_DIR, exist_ok=True)
+        tmp = STALE_MARK + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(rec, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, STALE_MARK)
+    except Exception as e:
+        # * 못 적었으면 못 적었다고 말한다([247]) - 200 을 주고 넘어가면
+        #   감시자는 빈 파일을 보고 '이상 없음'이라 한다.
+        rec = dict(rec, 적기실패=str(e))
+    return rec
+
+
+def stale_read():
+    """회차가 써 둔 판정을 읽기만 한다. 없으면 None(= 아직 안 쟀다)."""
+    try:
+        with open(STALE_MARK, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
 def main():
     import datetime as _dt
+    if "--stale" in sys.argv:
+        # * 여기서는 build() 를 부르지 않는다([168]) - mtime 둘만 재고 끝낸다.
+        rec = stale_mark() if "--write" in sys.argv else sched_stale()
+        if hasattr(sys.stdout, "reconfigure"):
+            try:
+                sys.stdout.reconfigure(encoding="utf-8")   # [235] pythonw 대비
+            except Exception:
+                pass
+        print("[%s] %s" % (rec["갈래"], rec["말"]))
+        if rec["갈래"] == "밀림":
+            print("  조치: " + rec["조치"])
+        return
     d = build()
     d["갱신"] = _dt.datetime.now().isoformat(timespec="seconds")
     changed = []

@@ -748,6 +748,34 @@ def watch_orgchart(dry):
         return "조직도 확인 실패: %s: %s" % (type(exc).__name__, str(exc)[:60])
 
 
+def watch_camp_source(dry):
+    """정기점검 스케줄 원본이 새로 왔는데 **앱 담당자 자료가 안 따라갔나**
+    (2026-08-19 실사고, 분담판 `[151]` · `[328]`).
+
+    ★ 이 사고는 **빈칸이 아니라 '틀린 사람'** 으로 나타난다([165]) — 원본이 갱신된
+      뒤 09:50 회차 전까지 화면은 **옛 담당자 이름.전화**를 멀쩡히 보여 준다.
+      실측 2026-08-19: 원본 16:44 대 자료 16:16 = 152캠프 754칸 중 **236칸**이
+      옛 값이었고, 형님이 캡처를 들고 묻고서야 드러났다.
+    ★ **여기서 다시 만들지 않는다**([168]) — `camp_contacts.build()` 는 밴드 전체를
+      파싱한다(수십 초). 재는 것은 mtime 둘뿐이고 고치는 것은 사람이 명령한다.
+    ★ **`snapshot_handoff` 앞**이다(`watch_schedules` 와 같은 이유 — 뒤에 두면
+      인계가 언제나 30분 전 판정을 싣는다).
+    ★ **`dry` 여도 본다** — 읽기 전용이라 고치는 것이 없다. 다만 자국은 안 남긴다.
+    """
+    try:
+        import camp_contacts
+        rec = camp_contacts.sched_stale() if dry else camp_contacts.stale_mark()
+        갈래 = rec.get("갈래") or "모름"
+        if 갈래 == "정상":
+            return "캠프 원본 최신"
+        if 갈래 == "밀림":
+            return "캠프 원본 밀림 %d분" % (rec.get("늦은분") or 0)
+        return "캠프 원본 %s" % 갈래
+    except Exception as exc:
+        # ★ 못 본 것을 '정상'이라 하지 않는다([169]).
+        return "캠프 원본 확인 실패: %s: %s" % (type(exc).__name__, str(exc)[:60])
+
+
 def watch_takeover(dry):
     """다른 계정이 **언제든 이어받을 수 있는 상태인가** (2026-08-17 지시).
 
@@ -857,6 +885,9 @@ def main():
                # ★ 조직도 변경이 따라갔나 — `heal_stale_server` 뒤(그가 서버를 갈고
                #   나서 봐야 한다) · 인계 앞이다(2026-08-13 지시, `[297]`).
                watch_orgchart(dry),
+               # ★ 정기점검 스케줄 원본이 새로 왔는데 앱 담당자가 안 따라갔나 —
+               #   인계 앞이다(2026-08-19, `[328]`).
+               watch_camp_source(dry),
                # ★ 올린 것의 결과를 뒤따라 알린다 — 5분 스케줄러가 집어간 회차는
                #   앱이 끝난 줄 모른다(2026-08-14).
                close_upload_notices(dry),
