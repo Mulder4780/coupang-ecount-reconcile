@@ -191,6 +191,21 @@ def _finding(identifier: str, priority: str, title: str, evidence: str,
     }
 
 
+def _schedule_verdict(task_name):
+    """스케줄러 감시자가 **이미 내린** 판정을 빌린다 — 여기서 다시 묻지 않는다.
+
+    ★ **못 읽으면 None 이고, 그때는 예전대로 P0 다**([169]) — '확인 못 함'을
+      '괜찮음'으로 치면 감사기 자신이 눈먼 채 조용해진다.
+    """
+    data = _read_json(REPORTS / "스케줄러_회차감시.json")
+    if not isinstance(data, dict):
+        return None
+    for row in data.get("작업") or []:
+        if isinstance(row, dict) and str(row.get("작업") or "") == task_name:
+            return row
+    return None
+
+
 def build() -> dict[str, Any]:
     findings: list[dict[str, str]] = []
     sources: dict[str, Any] = {}
@@ -252,6 +267,14 @@ def build() -> dict[str, Any]:
             "reports/watchdog_log.txt")
 
     # 3) 일일 대조 — 실패를 '오늘 실행됨'으로 세지 않는다.
+    #
+    # ★ 그런데 **실패한 코드가 이미 안 도는 경우**를 가른다 (2026-08-19).
+    #   실측: 한 사건(09:50 회차 실패)이 인계 '먼저 처리할 것'에 **세 줄**로 떴는데
+    #   그중 `schedule_watch` 만 "그 뒤 코드가 바뀌었다(daily_run.py 10:17)"를 알고
+    #   있었고, 여기는 그것을 모른 채 **P0** 를 올렸다. 같은 파일을 보는 두 화면이
+    #   서로 다르게 말하면 사람은 이미 고쳐진 것을 고치러 간다([172]).
+    #   `[110]` 이 `schedule_watch` 에 세운 `고침대기` 를 여기서도 **빌린다**([162]) —
+    #   여기서 스케줄러를 다시 묻지 않는다([168]). 회차가 써 둔 판정을 읽기만 한다.
     daily_path = REPORTS / ".daily_run.progress.json"
     daily = _read_json(daily_path)
     daily_age = _age_minutes(daily_path)
@@ -263,11 +286,24 @@ def build() -> dict[str, Any]:
     else:
         state = str(daily.get("상태") or "")
         if state == "실패":
-            add("daily-run-failed", "P0", "오늘 일일 대조가 중단됨",
-                "%s · 실패 원인: %s" % (daily.get("시각") or "시각 없음",
-                                        daily.get("오류") or daily.get("오류유형") or "원인 없음"),
-                "실패한 합성검증을 고친 뒤 일일 대조를 다시 실행합니다.",
-                "reports/.daily_run.progress.json")
+            why = "%s · 실패 원인: %s" % (
+                daily.get("시각") or "시각 없음",
+                daily.get("오류") or daily.get("오류유형") or "원인 없음")
+            verdict = _schedule_verdict("쿠팡업무_일일자동대조") or {}
+            kind = str(verdict.get("갈래") or "")
+            if kind in ("고침대기", "뒤에됨"):
+                # ★ '고쳐졌다'고 말하지 않는다([110]) — 말할 수 있는 것은 '그 뒤
+                #   코드가 바뀌었다' 까지다. 무관한 이유로 건드렸을 수도 있다.
+                #   **다음 회차가 답한다.** 그러니 P0 가 아니라 지켜볼 것이다.
+                add("daily-run-fix-pending", "P2",
+                    "일일 대조가 실패했지만 그 뒤 코드가 바뀌었다",
+                    "%s · %s" % (why, verdict.get("말") or "스케줄러 감시자가 그렇게 봤습니다"),
+                    "python schedule_watch.py --print   # 다음 예정 회차가 답한다",
+                    "reports/스케줄러_회차감시.json")
+            else:
+                add("daily-run-failed", "P0", "오늘 일일 대조가 중단됨", why,
+                    "실패한 합성검증을 고친 뒤 일일 대조를 다시 실행합니다.",
+                    "reports/.daily_run.progress.json")
         elif daily_age is not None and daily_age > 20 * 60:
             add("daily-run-stale", "P1", "일일 대조 완주 기록이 하루 가까이 갱신되지 않음",
                 f"마지막 진행 기록이 {daily_age / 60:.1f}시간 전입니다.",

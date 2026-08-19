@@ -23848,6 +23848,132 @@ def mach_in(html):
     return "밴드에 접수 글은 있으나 완료 글이 없다" in html
 
 
+
+def t322_one_incident_does_not_cry_with_two_different_voices():
+    """[322] **이미 안 도는 코드의 실패를 P0 로 올리지 않는다** (2026-08-19).
+
+    실측: 09:50 회차가 한 번 실패한 것이 인계 '먼저 처리할 것'에 **세 줄**로 떴다.
+    그런데 그중 `schedule_watch` 만 *"그 뒤 코드가 바뀌었다(daily_run.py 10:17)"* 를
+    알고 있었고 `system_audit` 은 그것을 모른 채 **P0** 를 올렸다. 같은 파일을 보는
+    두 화면이 서로 다르게 말하면 사람은 **이미 고쳐진 것을 고치러 간다**([172]).
+    경보가 대부분 가짜면 진짜 경보가 묻힌다([170]).
+
+    ★ 판정을 새로 만들지 않았다([162]) — `[110]` 의 `고침대기` 를 **빌린다**.
+    ★ '고쳐졌다'고 말하지 않는다 — 말할 수 있는 것은 '그 뒤 코드가 바뀌었다'
+      까지이고 **다음 회차가 답한다**([110]).
+    ★ **못 읽으면 예전대로 P0 다**([169]) — '확인 못 함'을 '괜찮음'으로 치면
+      감사기 자신이 눈먼 채 조용해진다.
+    ★ 실측 증거 파일은 한 글자도 안 건드린다([247]) — 임시 폴더로만 잰다.
+    """
+    import json as _json, tempfile
+    from pathlib import Path as _Path
+    import system_audit as SA
+
+    FAIL = {"상태": "실패", "시각": "2026-08-19T10:00:03",
+            "오류": "합성검증 실패 — 전체 중단"}
+
+    def run(watch):
+        tmp = _Path(tempfile.mkdtemp(prefix="csos_t322_"))
+        (tmp / ".daily_run.progress.json").write_text(
+            _json.dumps(FAIL, ensure_ascii=False), encoding="utf-8")
+        if watch is not None:
+            (tmp / "스케줄러_회차감시.json").write_text(
+                _json.dumps(watch, ensure_ascii=False), encoding="utf-8")
+        keep = SA.REPORTS
+        try:
+            SA.REPORTS = tmp
+            rows = SA.build().get("findings") or []
+        finally:
+            SA.REPORTS = keep
+        return {str(r.get("id")): r for r in rows}
+
+    fixed = {"작업": [{"작업": "쿠팡업무_일일자동대조", "갈래": "고침대기",
+                       "말": "그 뒤 코드가 바뀌었다(daily_run.py 08-19 10:17)"}]}
+    got = run(fixed)
+    assert "daily-run-failed" not in got, (
+        "실패한 코드가 이미 안 도는데 P0 를 올린다 — 사람이 고쳐진 것을 고치러 간다([172])")
+    row = got.get("daily-run-fix-pending")
+    assert row and row.get("priority") == "P2", (
+        "고침대기를 P2 로 안 내렸다: %r" % (row and row.get("priority")))
+    # 조용히 빼지 않는다([169]) — 실패했다는 사실과 그 원인이 그대로 실려야 한다
+    body = " ".join(str(v) for v in row.values())
+    assert "합성검증 실패" in body and "코드가 바뀌었다" in body, (
+        "실패 사실이나 그 근거가 사라졌다 — 조용히 빼면 없던 일이 된다: %r" % body)
+    assert "고쳐졌" not in body, (
+        "'고쳐졌다'고 확언한다 — 말할 수 있는 것은 '그 뒤 코드가 바뀌었다' 까지다([110])")
+
+    # ★ 계기 자기시험([272]) — 근거가 없거나 못 읽으면 **예전대로 P0** 여야 한다.
+    for name, watch in (("근거 없음", None),
+                        ("다른 갈래", {"작업": [{"작업": "쿠팡업무_일일자동대조",
+                                                 "갈래": "죽음", "말": "그냥 죽었다"}]}),
+                        ("다른 회차", {"작업": [{"작업": "쿠팡업무_밴드재수집",
+                                                 "갈래": "고침대기", "말": "남의 회차다"}]}),
+                        ("모양이 깨짐", {"작업": "표가 아니다"})):
+        bad = run(watch)
+        assert "daily-run-failed" in bad and bad["daily-run-failed"]["priority"] == "P0", (
+            "%s 인데도 P0 가 안 뜬다 — 이 완화가 너무 넓다(확인 못 한 것을 "
+            "괜찮음으로 친다, [169])" % name)
+
+    print("[322] 감사기 - 이미 안 도는 코드의 실패는 P2 · 근거 없으면 그대로 P0 · "
+          "'고쳐졌다'고 확언 안 함 (실행으로 잼) OK")
+
+
+def t323_amount_ladder_is_one_value_in_five_places():
+    """[124] 금액 사다리 — **다섯 자리가 같은 하나**를 본다.
+
+    ★ 한쪽만 고치면 짝은 늘어나는데 판정이 *"금액불일치(원장 None / EC …)"* 로 나와
+      **전보다 나쁜 경보**가 된다([170] — 같은 값을 두 곳에서 계산하면 언젠가 갈린다).
+    ★ 다섯째(`key_warning` 의 빈금액)가 제일 나쁘다 — 그대로 두면 사다리가 채운 뒤에도
+      *"빈 행이 N건이라 한 건도 못 맞춘다"* 를 **근거를 대며** 확언한다([169]).
+    ★ 글자 검사로는 '정말 그 값을 보는가'를 못 잰다([295]) — **불러서** 잰다.
+      Z: 는 안 건드린다(사다리는 목으로 갈아 끼운다).
+    """
+    import ecount_reconcile as E
+    import po_reconcile as PO
+
+    # ① 값을 구하는 곳 하나 — 원값 우선 · 0 은 '금액 없음' · 못 읽으면 '못읽음'
+    assert E.supply_effective({"원장_공급가액": 770000}) == (770000, "원장")
+    keep = PO.supply_of
+    try:
+        PO.supply_of = lambda r: 0
+        assert E.supply_effective({"원장_공급가액": 0}) == (None, ""),             "0 을 금액으로 다룬다 — 금액 0 짜리 전표에 아무거나 붙는다"
+        PO.supply_of = lambda r: 1234500
+        v, src0 = E.supply_effective({"원장_공급가액": None})
+        assert (v, src0.startswith("보정")) == (1234500, True), "사다리가 안 붙었다"
+        def _boom(r):
+            raise RuntimeError("Z: 못 읽음")
+        PO.supply_of = _boom
+        assert E.supply_effective({})[1] == "못읽음", "못 읽은 것을 '없음'이라 한다([169])"
+    finally:
+        PO.supply_of = keep
+
+    # ② 매칭 열쇠 — 0·None 은 열쇠가 아니고, 사다리 값은 열쇠가 된다
+    rows0 = [{"금액": 0, "적요": "", "번호": "X", "거래처": ""}]
+    assert E.match_project({"프로젝트NO": "", "원장_공급가액": 0}, rows0, 0, "") == (None, None),         "0 이 열쇠가 됐다 — 금액 0 짜리 전표에 아무거나 붙는다"
+    rows1 = [{"금액": 770000, "적요": "", "번호": "Y", "거래처": ""}]
+    assert E.match_project({"프로젝트NO": ""}, rows1, 0, "", 770000)[1] == "금액",         "사다리 값을 2순위 열쇠로 안 쓴다"
+    assert E.match_project({"프로젝트NO": "", "원장_공급가액": None}, rows1, 0, "") == (None, None),         "안 주면 예전대로 원장 값을 봐야 한다 — 세금계산서 층이 이 길로 간다"
+
+    # ③ 다섯째 — `key_warning` 이 **유효 금액**을 센다(실행해서 잰다)
+    fill = [{"①판매/명세서_판정": "이카운트미등록", "②세금계산서_판정": "양측미발행",
+             "원장_공급가액": None, "공급가액(보정)": 500000} for _ in range(100)]
+    ln = " ".join(E.key_warning(fill, {"sale_rows": 10}))
+    assert ln, "열쇠 경고가 아예 안 뜬다 — 이 검사가 아무것도 못 잰다"
+    assert "0건(0%)" in ln,         "사다리로 채운 행을 아직 '빈 금액'이라 센다 — 리포트가 근거를 대며 거짓말한다([169])"
+    empty = [dict(r, **{"공급가액(보정)": None}) for r in fill]
+    # ★ 계기 자신을 시험한다([272]) — 정말 빈 것은 세어야 한다.
+    assert "100건(100%)" in " ".join(E.key_warning(empty, {"sale_rows": 10})),         "빈 것을 안 센다 — 이 검사는 무엇도 못 가른다"
+
+    # ④ 되돌아가면 안 되는 것만 얼린다([39])
+    _er = io.open(os.path.join(ROOT, "ecount_reconcile.py"), encoding="utf-8", newline="").read()
+    assert "m, how = match_project(r, sale, tol, fc, sup)" in _er, "판매 층이 사다리를 안 받는다"
+    assert "m2, _ = match_project(r, tax, tol, fc)" in _er,         "세금계산서 층에 사다리가 붙었다 — 거기엔 근거 세기 딱지가 없어 약한 금액 매치가 그냥 '일치'로 적힌다([172])"
+    assert '"공급가액(보정)": sup' in _er and '"금액출처": sup_src' in _er, "리포트가 보정값·출처를 안 낸다"
+    assert 'r.get("원장_공급가액") is not None' not in _er, "판정이 아직 옛 값을 본다"
+    assert "일치(프로젝트NO · 금액 확인 못 함)" in _er,         "금액을 모르는데 '금액불일치'라 말한다 — 없는 오류를 지목한다([172])"
+    print("  [323] 금액 사다리 — 값은 한 곳 · 0=금액없음 · 못읽음≠없음 · 경고가 유효금액을 셈 · 세금층 제외 ✅")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -24162,6 +24288,8 @@ if __name__ == "__main__":
     t319_remote_move_to_branch_without_widening_the_person_limit()
     t320_chatbot_never_stamps_a_fresh_time_on_old_text()
     t321_human_delay_reason_never_erases_the_machine_estimate()
+    t322_one_incident_does_not_cry_with_two_different_voices()
+    t323_amount_ladder_is_one_value_in_five_places()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

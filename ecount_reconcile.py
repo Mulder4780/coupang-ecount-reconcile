@@ -655,10 +655,42 @@ def norm_ecount(rows):
     return out
 
 
-def match_project(ledger_rec, ecount_rows, tol_amt, filter_cust):
-    """프로젝트NO(적요/번호 내 포함) 1순위, 금액 2순위로 이카운트 전표 1건 매칭."""
+def supply_effective(rec):
+    """행의 **유효 공급가액**과 그 출처 — 원장 빈 칸을 ERP·명세서 사다리로 채운다([124]).
+
+    ★ **한 곳에서 구한다**([170] — 같은 값을 두 곳에서 계산하면 언젠가 갈린다).
+      매칭 열쇠·판정·불일치 문구·리포트 열·`key_warning` 의 빈금액이 다 이것을 본다.
+      다섯 중 하나라도 옛 값을 보면 짝은 늘어나는데 판정이
+      *"금액불일치(원장 None / EC …)"* 로 나와 **전보다 나쁜 경보**가 된다.
+    ★ `supply_of` 는 못 찾으면 **0** 을 준다 — 0 을 열쇠로 쓰면 금액 0 짜리 전표에
+      아무거나 붙는다. 그래서 **0 은 '금액 없음'(None)** 으로 돌려준다.
+    ★ **원장 원값은 안 덮는다** — 리포트가 원값과 보정값을 나란히 낸다([169]).
+      덮으면 "원장에 정말 뭐라고 적혀 있었나"를 잃는다.
+    ⚠ **순환 import** — `po_reconcile` 이 이 모듈에서 가져다 쓰므로 반대 방향은
+      **함수 안에서 늦게** 부른다. `erp_supply_index()` 는 그쪽 모듈 전역에 캐시돼
+      Z: 를 한 번만 훑는다([168]).
+    ⚠ 못 읽으면 '없음'이 아니라 **'못읽음'** 이다([169]) — 리포트가 그대로 적는다.
+    """
+    raw = rec.get("원장_공급가액")
+    if raw:
+        return raw, "원장"
+    try:
+        from po_reconcile import supply_of
+        v = supply_of(rec)
+    except Exception:
+        return None, "못읽음"
+    return (v, "보정(ERP·명세서)") if v else (None, "")
+
+
+def match_project(ledger_rec, ecount_rows, tol_amt, filter_cust, exp_amt=None):
+    """프로젝트NO(적요/번호 내 포함) 1순위, 금액 2순위로 이카운트 전표 1건 매칭.
+
+    `exp_amt` 를 주면 그것을 2순위 열쇠로 쓴다([124] 사다리). 안 주면 예전처럼
+    원장 값을 본다 — **세금계산서 층은 안 준다**(아래 부르는 자리 주석).
+    """
     prj = (ledger_rec.get("프로젝트NO") or "").strip()
-    exp_amt = ledger_rec.get("원장_공급가액")
+    if exp_amt is None:
+        exp_amt = ledger_rec.get("원장_공급가액")
     cust_ok = lambda e: (not filter_cust) or (filter_cust in (e.get("거래처") or "") or not e.get("거래처"))
     # 1순위: 프로젝트NO 문자열 포함
     if prj:
@@ -666,8 +698,9 @@ def match_project(ledger_rec, ecount_rows, tol_amt, filter_cust):
             blob = f"{e.get('적요','')} {e.get('번호','')} {json.dumps(e.get('_raw',{}), ensure_ascii=False)}"
             if prj in blob and cust_ok(e):
                 return e, "프로젝트NO"
-    # 2순위: 금액 근접
-    if exp_amt is not None:
+    # 2순위: 금액 근접 — **0 은 '금액 없음'으로 다뢬다**([124]).
+    #   0 을 열쇠로 쓰면 금액 0 짜리 전표에 아무거나 붙는다.
+    if exp_amt:
         for e in ecount_rows:
             if e.get("금액") is not None and abs(e["금액"] - exp_amt) <= tol_amt and cust_ok(e):
                 return e, "금액"
@@ -828,14 +861,17 @@ def key_warning(results, meta):
               or "금액없음" in r["①판매/명세서_판정"])
     if not key_looks_wrong(맞음, total):
         return []
-    빈금액 = sum(1 for r in results if not r.get("원장_공급가액"))
+    # ★ **유효 금액**으로 센다([124]). 원값으로 세면 사다리가 채운 뒤에도
+    #   "빈 행이 N건이라 한 건도 못 맞춘다"를 **근거를 대며** 확언한다([169]).
+    빈금액 = sum(1 for r in results if not r.get("공급가액(보정)"))
     후보 = meta.get("sale_rows")
     out = ["",
            "> ★ **이 집계는 'ERP 미등록'을 뜻하지 않는다 — 열쇠가 안 맞는다.**",
            "> 정산 %d건 중 이카운트 전표가 붙은 것이 %d건뿐이다. 열쇠가 맞으면 "
            "몇 건은 반드시 걸린다." % (total, 맞음),
            "> · 1순위 **프로젝트NO** — ERP 판매전표 본문에 그 번호가 안 적혀 있다.",
-           "> · 2순위 **금액** — 원장 공급가액이 빈 행이 **%d건(%d%%)**. "
+           "> · 2순위 **금액** — 원장 빈칸을 ERP·명세서 사다리로 채운 뒤에도 "
+           "금액을 못 구한 행이 **%d건(%d%%)**. "
            "금액허용오차가 0 이라 빈 값으로는 한 건도 못 맞춘다."
            % (빈금액, round(빈금액 * 100.0 / total)),
            "> 그러므로 아래 '이카운트미등록'을 **미청구·미발행 근거로 쓰지 말 것.**"]
@@ -859,25 +895,33 @@ def reconcile(recs, ecount, cfg):
         유상 = (r.get("비용구분") == "유상")
 
         # ① 판매/거래명세서 층
+        #   ★ 금액은 **한 곳에서** 구한다([124]·[170]) — 매칭 열쇠·판정·불일치 문구·
+        #     리포트 열·`key_warning` 의 빈금액이 전부 이 `sup` 하나를 본다.
+        sup, sup_src = supply_effective(r)
         if online:
-            m, how = match_project(r, sale, tol, fc)
+            m, how = match_project(r, sale, tol, fc, sup)
             if m:
-                if r.get("원장_공급가액") is not None and m.get("금액") is not None and abs(m["금액"] - r["원장_공급가액"]) <= tol:
+                if not sup:
+                    # ★ 금액을 모르면 **불일치라고 말하지 않는다**([169]). 여기 오는
+                    #   것은 프로젝트NO 로 붙은 것뿐이다(금액으로 붙었다면 sup 이 있다)
+                    #   — 근거는 오히려 센데 금액을 못 대는 것뿐이다.
+                    s1 = "일치(프로젝트NO · 금액 확인 못 함)"
+                elif m.get("금액") is None:
+                    s1 = "이카운트금액없음"
+                elif abs(m["금액"] - sup) <= tol:
                     # ★ **어떻게 붙었는지가 곧 근거의 세기다** (2026-08-19 실측).
                     #   `how` 는 여태 계산해 놓고 버려졌다. 금액으로만 붙은 것은
                     #   '금액이 우연히 같은 남의 전표'일 수 있어 근거가 약하다
                     #   (`[170]` 유형D 와 같은 자리). 실제로 그랬다 — 판매 후보
                     #   오염을 걷어내자 일치 23건 중 3건이 사라졌고, 그 셋은
                     #   원장 금액이 한 원도 안 바뀐 채 사라졌다(=금액 매치였다).
-                    #   ⚠ `[124]` 의 금액 사다리(`supply_of`)를 붙이면 빈 금액
-                    #     682건이 채워져 이 갈래가 크게 는다. 그때 그것들이
-                    #     'ERP 에 등록된 것'처럼 보이면 안 된다 — 그래서 사다리보다
-                    #     **이 표시가 먼저** 들어간다. 뭉쳐 적으면 못 가른다.
+                    #   ⚠ 사다리가 빈 금액을 채우면 이 갈래가 는다 — 그것들이
+                    #     'ERP 에 등록된 것'처럼 보이면 안 되므로 딱지를 그대로 둔다.
                     s1 = "일치" if how == "프로젝트NO" else "일치(금액만 · 근거 약함)"
-                elif m.get("금액") is None:
-                    s1 = "이카운트금액없음"
                 else:
-                    s1 = f"금액불일치(원장 {_money(r.get('원장_공급가액'))} / EC {_money(m.get('금액'))})"
+                    # ★ **어느 금액과 비교했는지를 밝힌다** — '원장'이라고만 적으면
+                    #   사다리로 채운 값까지 원장에 적힌 것처럼 읽힌다([169]).
+                    s1 = f"금액불일치({sup_src} {_money(sup)} / EC {_money(m.get('금액'))})"
                 ec_sale_no = m.get("번호")
             else:
                 s1 = "이카운트미등록" if 유상 else "해당없음(무상)"
@@ -888,6 +932,10 @@ def reconcile(recs, ecount, cfg):
 
         # ② 세금계산서 층
         if online:
+            # ⚠ **여기에는 사다리를 안 붙인다**([124]·[172]). 판매 층은
+            #   `일치(금액만 · 근거 약함)` 딱지가 먼저 들어가 근거의 세기를
+            #   말할 수 있는데, 이 층에는 그 딱지가 없어 약한 금액 매치가
+            #   **그냥 '일치'** 로 적힌다. 딱지를 먼저 만든 뒤에 넓힌다.
             m2, _ = match_project(r, tax, tol, fc)
             if m2:
                 ec_tax_no = m2.get("번호")
@@ -915,6 +963,8 @@ def reconcile(recs, ecount, cfg):
             "비용구분": r.get("비용구분"),
             "작업완료일": r.get("작업완료일"),
             "원장_공급가액": r.get("원장_공급가액"),
+            "공급가액(보정)": sup,
+            "금액출처": sup_src,
             "원장_거래명세서번호": r.get("원장_거래명세서번호"),
             "EC_판매번호": ec_sale_no,
             "①판매/명세서_판정": s1,
@@ -965,14 +1015,14 @@ def write_reports(results, cfg, meta):
         for k, v in c2.most_common():
             f.write(f"- {k}: {v}건\n")
         f.write("\n## 상세(불일치·미등록 우선)\n\n")
-        f.write("| 정산ID | 프로젝트NO | 캠프 | 공급가액 | ①판매 | ②세금계산서 |\n")
+        f.write("| 정산ID | 프로젝트NO | 캠프 | 공급가액(*=보정) | ①판매 | ②세금계산서 |\n")
         f.write("|---|---|---|--:|---|---|\n")
         def rank(r):
             bad = ("불일치", "미등록", "미확인", "미발행")
             return 0 if any(b in r["①판매/명세서_판정"] or b in r["②세금계산서_판정"] for b in bad) else 1
         for r in sorted(results, key=rank):
             f.write(f"| {r['정산ID']} | {r['프로젝트NO']} | {r['캠프명']} | "
-                    f"{_money(r['원장_공급가액'])} | {r['①판매/명세서_판정']} | {r['②세금계산서_판정']} |\n")
+                    f"{_money(r['공급가액(보정)'])}{'*' if str(r.get('금액출처','')).startswith('보정') else ''} | {r['①판매/명세서_판정']} | {r['②세금계산서_판정']} |\n")
 
     # 독립 xlsx(마스터와 무관한 별도 파일)
     try:
