@@ -964,6 +964,9 @@ def main():
         except Exception:                 # noqa: BLE001 — 조율을 적으려다 회차를 막지 않는다
             pass
         return
+    # ★ 진행 파일을 **덮기 전에** 앞 회차의 마지막 자리를 읽는다(분담판 [140]).
+    #   순서가 뒤집히면 그 증거는 영영 사라진다 — 덮는 것은 바로 다음 줄이다.
+    _note_prev_crash()
     _ROUND_T0[0] = datetime.now()
     _OVER_BUDGET[0] = False
     note_progress("(회차 시작)", "시작", {"끝난단계": []})
@@ -1022,6 +1025,7 @@ def main():
 
 
 GATE_CRASH = os.path.join(REPORT_DIR, "일일대조_오류.json")
+STEP_CRASH = os.path.join(REPORT_DIR, "일일대조_단계중단_오류.json")
 
 
 def _gate_headline(out):
@@ -1061,6 +1065,76 @@ def _gate_fix(kind, which):
     if which and kind in ("code", ""):
         fix = "**%s** 가 막았다 — 그 검증부터 본다. " % which + fix
     return fix
+
+
+def _note_prev_crash():
+    """앞 회차가 **단계 도중에** 사라졌으면 그 단계 이름을 자국으로 남긴다 (분담판 [140]).
+
+    ★ `[304]` 가 만든 자국은 **0단계 관문 전용**이다. 그래서 나머지 79단계는 죽어도
+      왜인지가 아무 데도 안 남았다 — 실측 2026-08-19: 09:50 회차가 13:33 에 떠서
+      13단계를 끝내고 14:03 '보험 입금 확인'(pid 26800)에서 **사라졌는데**
+      `reports/` 에 `*_오류.json` 이 하나도 없었다. 그 단계를 직접 부르면 300초 안에
+      exit 0 으로 멀쩡히 끝난다 — 즉 그 단계가 터진 것이 아니라 **밖에서 죽었다.**
+      경과 29.6분이라 회차 예산(150분)도 작업 제한(PT3H)도 아니었다.
+
+    ★ **근거는 지어낼 것이 없다** — `note_progress` 는 `finally` 에서 반드시
+      `(회차 끝)` 을 찍는다. 그 표식이 **없으면** 그 회차는 끝을 못 본 것이다.
+      있으면 아무 말도 안 한다(정상 완주든 단계 실패든 제 이름으로 이미 적힌다).
+
+    ★ **왜인지는 지목하지 않는다**(`[172]`). 지금 댈 수 있는 것은 '어느 단계였나'
+      까지다. 후보(워치독이 죽였나 · 이름으로 죽이는 자리가 남의 나무를 같이
+      끊었나)를 나란히 적고 사람이 고른다 — 확언하면 멀쩡한 코드를 뒤지게 된다.
+
+    ★ **여기는 락을 잡은 뒤**다 — 다른 daily_run 이 도는 중이면 위에서 이미 물러났다.
+      그러므로 남아 있는 진행 파일은 **끝난 회차**의 것이다.
+
+    ★ 못 읽으면 **아무 말도 안 한다** — 없는 사고를 지어내면 매 회차 거짓 자국이
+      하나씩 쌓여 아무도 안 본다(`[170]`).
+
+    ⚠ 지우는 자리는 **회차 시작**이지 끝이 아니다. 끝에서 지우면 이 회차가 만든
+      자국을 이 회차가 도로 지워 **아무도 못 본다.** 자국이 사라지는 근거는
+      '다음 회차가 `(회차 끝)` 까지 갔다' 하나다(`[228]` 의 '성공하면 지운다').
+    """
+    try:
+        if os.path.exists(STEP_CRASH):
+            os.remove(STEP_CRASH)
+    except Exception:                     # noqa: BLE001
+        pass
+    prev = {}
+    try:
+        with open(PROGRESS, encoding="utf-8") as fh:
+            prev = json.load(fh)
+    except (OSError, ValueError):
+        return                            # 첫 회차이거나 못 읽음 — 지어내지 않는다
+    if not isinstance(prev, dict):
+        return
+    step = str(prev.get("단계") or "")
+    if not step or step == "(회차 끝)":
+        return                            # 끝을 봤다 — 여기서 할 말이 없다
+    done = list(prev.get("끝난단계") or [])
+    무엇 = ("앞 회차가 '%s' 단계에서 사라졌다 — `(회차 끝)` 표식을 못 찍었다"
+            " (끝낸 단계 %d개 · 그 단계에서 %d분 · 회차 %s분째 · pid %s)"
+            % (step, len(done), int((prev.get("단계경과초") or 0) // 60),
+               prev.get("경과분"), prev.get("pid") or prev.get("주인pid") or "?"))
+    조치 = ("그 단계를 직접 돌려 본다 — 멀쩡히 끝나면 단계가 터진 것이 아니라"
+            " **밖에서 죽은 것**이다. 그때 볼 후보 둘: 워치독 30분 회차가 무엇을"
+            " 죽였나 · 이름으로 죽이는 자리가 남의 나무를 같이 끊었나."
+            " 확언하지 말 것 — 지금 아는 것은 '어느 단계였나'까지다.")
+    try:
+        os.makedirs(REPORT_DIR, exist_ok=True)
+        with open(STEP_CRASH, "w", encoding="utf-8") as fh:
+            json.dump({"시각": datetime.now().isoformat(timespec="seconds"),
+                       "명령": "daily_run.py (%s 단계)" % step,
+                       "갈래": "모름",
+                       "단계": step,
+                       "무엇": 무엇,
+                       "조치": 조치,
+                       "앞회차": {"시각": prev.get("시각"), "상태": prev.get("상태"),
+                                "끝난단계": done[-8:],
+                                "느린단계": prev.get("느린단계") or []}},
+                      fh, ensure_ascii=False, indent=1)
+    except Exception:                     # noqa: BLE001
+        pass                              # 자국을 남기려다 회차를 막지 않는다
 
 
 def _leave_gate_trace(step):

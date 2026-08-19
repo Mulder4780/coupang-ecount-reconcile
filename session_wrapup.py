@@ -154,11 +154,16 @@ def _live_sibling_sessions(minutes=LIVE_TRANSCRIPT_MIN):
     내가 누군지 모르면(환경변수 없음) 빈 목록이다 — 나를 옆 세션으로 세는 것보다
     점유판에 맡기는 편이 낫다. 그리고 **내 대화기록이 있는 폴더만** 본다(다른
     프로젝트의 창까지 세면 역시 늘 걸린다).
+
+    ★ 돌려주는 것은 **점유판과 같은 이름공간**(`live_sids`)이다 (2026-08-20 정정).
+      전에는 `live_transcripts`(파일 이름 앞 8자)를 줬는데, 부르는 쪽이 그것을
+      점유판 sid 와 **한 목록에 섞어** 담아 **같은 창이 두 줄**로 실렸다 —
+      두 이름공간은 영영 안 겹치므로 대조로는 못 걸러진다([239]).
     """
     me = (os.environ.get("CLAUDE_CODE_SESSION_ID") or "").strip()
     if not me:
         return []
-    return live_transcripts(minutes, exclude=me)
+    return live_sids(minutes, exclude=me)
 
 
 def transcript_dir(me=""):
@@ -273,16 +278,40 @@ def _other_live_sessions():
     근거가 둘이고 층이 다르다 — **점유판**(무엇을 하겠다고 적었나) + **대화기록**
     (지금 무엇이 벌어지나). 하나라도 걸리면 살아 있다고 본다. 이 판정이 하는 일은
     푸시 보류뿐이라 헛짚어도 잃는 것이 없고, 못 보면 남의 반쯤 고친 코드가 원격으로 간다.
+
+    ★ **한 창을 둘로 세지 않는다** (2026-08-20 실측 · 분담판 [141] 정정).
+      전에는 점유판 sid(UUID 의 sha1 앞 8자)와 대화기록 파일 이름 앞 8자를 **그대로
+      섞어** 담았다. 두 이름공간은 영영 안 겹치므로 **같은 창이 두 줄**로 실린다.
+      실측 커밋 `c08e60a6` 의 근거 `b0b8fd43, 61b50970` 은 한 창이었고
+      (`sid_of("61b50970…") == "b0b8fd43"`), 2026-08-20 의 `17054605, fa0793bf` 도
+      같은 창이었다. 창이 둘인 것처럼 보이면 사람이 없는 창을 찾아 나선다([172]).
+
+    ⚠ 분담판 [141] 은 이것을 **'자기 자신을 옆 세션으로 센다'** 로 적었는데 그것은
+      **틀린 지목이었다.** 실측 2026-08-20: 내 창(UUID 0709cb78 · sid 68f22697)은
+      두 근거 **어디에도 없다** — 점유판은 `_is_mine` 이, 대화기록은 `exclude=me` 가
+      각자 제대로 뺀다. 그 지목을 그대로 뒀으면 다음 사람이 **멀쩡한 자기제외
+      코드**를 고치러 갔다. 그리고 '자동 마무리는 한 번도 안 민다' 도 따라서 틀렸다 —
+      옆 창이 정말 살아 있어 보류한 것이고, 그것이 [104] 가 시킨 동작이다.
     """
-    out = []
+    out, seen = [], set()
     try:
         import ai_claim
-        out = [v for v in (ai_claim.load() or {}).values()
-               if not ai_claim._is_mine(v, v.get("who")) and not ai_claim._is_dead(v)]
+        for v in (ai_claim.load() or {}).values():
+            if ai_claim._is_mine(v, v.get("who")) or ai_claim._is_dead(v):
+                continue
+            sid = str(v.get("sid") or "")
+            if sid:
+                if sid in seen:
+                    continue
+                seen.add(sid)
+            out.append(v)
     except Exception:
-        out = []
-    out += [{"작업": "다른 창", "who": "claude", "sid": sid}
-            for sid in _live_sibling_sessions()]
+        out, seen = [], set()
+    for sid in _live_sibling_sessions():
+        if sid in seen:
+            continue
+        seen.add(sid)
+        out.append({"작업": "다른 창", "who": "claude", "sid": sid})
     return out
 
 

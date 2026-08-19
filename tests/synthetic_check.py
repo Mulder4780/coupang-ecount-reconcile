@@ -19857,6 +19857,221 @@ def t335_ceo_needs_no_seat_but_is_never_silently_dropped():
     print("[335] 대표이사는 조직도 자리가 없어도 된다 — 경보에서 내리되 세어서 말한다 · 표는 한 곳 · 새 이름은 여전히 잡는다")
 
 
+def t336_one_window_is_never_two_and_the_server_has_its_own_id():
+    """[336] 살아 있는 창을 **둘로 세지 않는다** · 앱 서버는 **제 신분**으로 점유한다.
+
+    두 고장의 뿌리가 같다 — **누가 누구인지를 잘못 적는 것.**
+
+    ★ ① 한 창이 두 줄로 실렸다 (분담판 [141] · 2026-08-20 실측).
+      `_other_live_sessions` 는 점유판 sid(UUID 의 sha1 앞 8자)와 대화기록 파일 이름
+      앞 8자를 **그대로 섞어** 담았다. 두 이름공간은 영영 안 겹치므로 같은 창이
+      두 번 실린다. 실측 커밋 `c08e60a6` 의 근거 `b0b8fd43, 61b50970` 은 한 창이었고
+      (`sid_of("61b50970…") == "b0b8fd43"`), 그날 `17054605, fa0793bf` 도 한 창이었다.
+      `worksplit_auto.live_others()` 도 그래서 `수: 2` 라 말했다(실제 1).
+      ⚠ [141] 은 이것을 '자기 자신을 센다'로 적었는데 **틀린 지목**이었다 — 내 창은
+        `_is_mine`·`exclude=me` 로 두 근거에서 각자 빠진다. ②가 그것을 못 박는다.
+
+    ★ ② 앱 서버가 **대화창의 신분으로** 점유를 잡았다 (분담판 [156]).
+      사람이 대화 창에서 `restart_server.py` 를 부르면 자식이
+      `CLAUDE_CODE_SESSION_ID` 를 물려받아 `who=server · sid=<그 창>` 으로 `publish`
+      를 잡는다. 그러면 그 창의 자동 마무리(`--free-all`)가 `_is_mine` 을 참으로 읽어
+      **게시 중인 서버의 잠금을 푼다.** [104] 의 사촌이고, 그때는 옆 **창**만 봤다.
+
+    ★ 문을 **너무 좁히는 것도 고장**이다 — 진짜로 창이 둘이면 둘로 세야 한다(④).
+    """
+    import importlib, time as _t
+    W = importlib.import_module("session_wrapup")
+    import ai_claim
+
+    ME   = "0709cb78-0180-45ad-a5a2-5105ef118cad"
+    SIB  = "fa0793bf-1111-2222-3333-444455556666"
+    SIB2 = "11112222-3333-4444-5555-666677778888"
+    me_sid, sib_sid, sib2_sid = (ai_claim.sid_of(x) for x in (ME, SIB, SIB2))
+    assert len({me_sid, sib_sid, sib2_sid}) == 3, "[336] 합성 sid 가 겹친다 — 시험이 성립 안 한다"
+
+    now = _t.time()
+    real = (W.stem_ages, ai_claim.load, ai_claim._is_dead)
+    keep_env = {k: os.environ.get(k)
+                for k in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_PID")}
+    try:
+        os.environ["CLAUDE_CODE_SESSION_ID"] = ME
+        # 진짜와 **같은 모양**으로 흉내 낸다 — exclude 를 그대로 지킨다.
+        pool = [ME, SIB]
+        W.stem_ages = lambda exclude="": {u: now for u in pool if u != exclude}
+        ai_claim._is_dead = lambda c: bool(c.get("__dead"))
+        board = {"band":   {"who": "claude", "sid": sib_sid, "작업": "밴드 수집"},
+                 "code":   {"who": "claude", "sid": me_sid,  "작업": "내 것"},
+                 "ledger": {"who": "claude", "sid": "0badbad0", "__dead": True}}
+        ai_claim.load = lambda: board
+
+        got = W._other_live_sessions()
+        sids = [str(o.get("sid") or "") for o in got]
+
+        # ① 한 창은 한 줄이다
+        assert sids.count(sib_sid) == 1,             "[336] 옆 창 하나가 %d 줄로 실렸다 — %r" % (sids.count(sib_sid), sids)
+        assert len(got) == 1, "[336] 살아 있는 옆 창은 하나인데 %d 줄이다 — %r" % (len(got), sids)
+
+        # ② 내 창은 **어느 근거로도** 안 세인다 ([141] 의 지목이 틀렸다는 근거)
+        assert me_sid not in sids and ME[:8] not in sids,             "[336] 내 창이 옆 세션으로 세였다 — %r" % sids
+
+        # ③ 파일 이름 앞토막(다른 이름공간)이 섞여 들어오지 않는다
+        assert SIB[:8] not in sids,             "[336] 대화기록 근거가 옛 이름공간으로 실렸다 — 대조가 한 건도 안 걸린다([239])"
+        assert W._live_sibling_sessions() == [sib_sid],             "[336] _live_sibling_sessions 가 점유판 이름공간을 안 준다 — %r" % (W._live_sibling_sessions(),)
+
+        # ④ 진짜로 둘이면 둘로 센다 — 좁히는 것도 고장이다
+        pool.append(SIB2)
+        got2 = [str(o.get("sid") or "") for o in W._other_live_sessions()]
+        assert sorted(got2) == sorted([sib_sid, sib2_sid]),             "[336] 서로 다른 창 둘을 못 세거나 더 셌다 — %r" % got2
+
+        # ⑤ ★ 계기 자기시험([272]) — **옛 방식**을 되살리면 ①이 잡아야 한다.
+        #    글자를 못 박지 않고 알고리즘을 다시 지어 재현한다([39]).
+        pool[:] = [ME, SIB]
+        old_way = [str(v.get("sid") or "") for v in board.values()
+                   if not ai_claim._is_mine(v, v.get("who")) and not ai_claim._is_dead(v)]
+        old_way += W.live_transcripts(exclude=ME)     # 옛 이름공간 그대로
+        assert len(old_way) == 2 and old_way.count(sib_sid) == 1 and SIB[:8] in old_way,             "[336] 옛 방식이 재현이 안 된다 — 이 자기시험은 아무것도 안 재고 있다"
+        assert len(old_way) > len(W._other_live_sessions()),             "[336] 고친 뒤에도 옛 방식과 같은 수다 — ①은 다른 것을 재고 있다"
+    finally:
+        W.stem_ages, ai_claim.load, ai_claim._is_dead = real
+        for k, v in keep_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    # ── ⑥ 앱 서버 자식은 **대화창 신분을 안 물려받는다** ([156]) ─────────────
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    RS = importlib.import_module("restart_server")
+    rsrc = open(os.path.join(ROOT, "webapp", "restart_server.py"), encoding="utf-8").read()
+
+    def _run_start(mod):
+        seen = {}
+        real_popen = mod.subprocess.Popen
+
+        def fake(cmd, **kw):
+            seen["env"] = dict(kw.get("env") or {})
+            return type("P", (), {"pid": 1})()
+        mod.subprocess.Popen = fake
+        try:
+            mod.start()
+        finally:
+            mod.subprocess.Popen = real_popen
+        return seen.get("env")
+
+    keep_env = {k: os.environ.get(k)
+                for k in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_PID")}
+    try:
+        os.environ["CLAUDE_CODE_SESSION_ID"] = ME
+        os.environ["CLAUDE_PID"] = "424242"
+        env = _run_start(RS)
+        assert env is not None, "[336] 서버를 띄우는 자리를 못 잡았다"
+        # 시험 자체가 성립하는지 먼저 본다 — 부모에 그 키가 있어야 지운 값어치가 있다
+        assert os.environ.get("CLAUDE_CODE_SESSION_ID") == ME, "[336] 시험 환경이 어긋났다"
+        left = [k for k in list(ai_claim.SID_ENV) + ["CLAUDE_PID"] if k in env]
+        assert not left,             "[336] 앱 서버 자식이 대화창 신분을 물려받는다 — %r · 그 창의 --free-all 이 게시 중인 잠금을 푼다([156])" % left
+
+        # ⑦ 그 목록은 `ai_claim.SID_ENV` **한 곳**에서 온다([162])
+        real_sidenv = ai_claim.SID_ENV
+        try:
+            ai_claim.SID_ENV = tuple(real_sidenv) + ("T336_FAKE_SESSION_ID",)
+            assert "T336_FAKE_SESSION_ID" in RS._identity_env_keys(),                 "[336] 신분 키를 손으로 적어 뒀다 — 키가 늘어난 날 그 갈래만 조용히 새어 나간다"
+        finally:
+            ai_claim.SID_ENV = real_sidenv
+
+        # ⑧ ★ 계기 자기시험([272]) — 지우는 문을 빼면 ⑥이 잡아야 한다
+        broken = rsrc.replace("    for _k in _identity_env_keys():", "    for _k in []:")
+        assert broken != rsrc, "[336] 지우는 문의 주입 지점을 못 찾았다 — 이 검사는 아무것도 안 재고 있다"
+        ns = {"__name__": "restart_server_broken",
+              "__file__": os.path.join(ROOT, "webapp", "restart_server.py")}
+        exec(compile(broken, "restart_server_broken", "exec"), ns)
+        env_b = _run_start(type("M", (), ns))
+        assert "CLAUDE_CODE_SESSION_ID" in (env_b or {}),             "[336] 지우는 문을 뺐는데도 신분이 안 넘어갔다 — ⑥은 다른 것을 재고 있다"
+    finally:
+        for k, v in keep_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    print("[336] 살아 있는 창은 한 줄 · 내 창은 안 세임 · 둘이면 둘 · 앱 서버는 제 신분으로 점유한다")
+
+
+def t337_a_round_that_vanishes_mid_step_leaves_its_step_name():
+    """[337] 회차가 **관문 아닌 단계**에서 사라져도 자국이 남는다 (분담판 [140]).
+
+    ★ `[304]` 의 자국은 **0단계 관문 전용**이라 나머지 79단계는 죽어도 왜인지가
+      아무 데도 안 남았다. 실측 2026-08-19: 09:50 회차가 13단계를 끝내고
+      '보험 입금 확인'(pid 26800)에서 사라졌는데 `reports/*_오류.json` 이 0개였다.
+      그 단계를 직접 부르면 exit 0 으로 멀쩡히 끝난다 — **밖에서 죽은 것**이다.
+
+    ★ 근거는 지어낼 것이 없다 — `note_progress` 가 `finally` 에서 반드시 찍는
+      `(회차 끝)` 표식이 **없으면** 끝을 못 본 것이다.
+    ★ **왜인지는 지목하지 않는다**(`[172]`) — 갈래는 `모름` 이고 후보만 나란히 적는다.
+    ⚠ 지우는 자리는 **회차 시작**이다. 끝에서 지우면 이 회차가 만든 자국을 이 회차가
+      도로 지워 아무도 못 본다.
+    ⚠ 실측 증거 파일에는 한 글자도 안 쓴다 — 임시 경로로만 잰다(`[247]`).
+    """
+    import importlib, json as _j, tempfile
+    D = importlib.import_module("daily_run")
+
+    src = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    # ① 자국은 `*_오류.json` 이어야 `schedule_watch.traces()` 가 글로브로 모은다
+    assert "_오류.json" in src.split("STEP_CRASH = ")[1].split(NL)[0],         "[337] 자국 이름이 `*_오류.json` 이 아니다 — 회차 감시가 영영 못 본다([228])"
+    # ② 진행 파일을 **덮기 전에** 읽어야 한다 — 순서가 뒤집히면 증거가 사라진다
+    body = src.split("def main(")[-1]
+    assert body.index("_note_prev_crash()") < body.index('note_progress("(회차 시작)"'),         "[337] 진행 파일을 덮은 뒤에 읽는다 — 앞 회차의 마지막 자리가 영영 사라진다"
+
+    real = (D.PROGRESS, D.STEP_CRASH)
+    tmp = tempfile.mkdtemp(prefix="t337_")
+    try:
+        D.PROGRESS = os.path.join(tmp, "prog.json")
+        D.STEP_CRASH = os.path.join(tmp, "일일대조_단계중단_오류.json")
+
+        def _prog(**kw):
+            with open(D.PROGRESS, "w", encoding="utf-8") as fh:
+                _j.dump(kw, fh, ensure_ascii=False)
+
+        # ③ 단계 도중 사라짐 → 그 **단계 이름**이 자국에 남는다
+        _prog(단계="보험 입금 확인", 상태="시작", 시각="2026-08-19T14:03:00",
+              단계경과초=125, 경과분=29.6, pid=26800,
+              끝난단계=["합성검증", "원본 흡수"])
+        D._note_prev_crash()
+        got = _j.load(open(D.STEP_CRASH, encoding="utf-8"))
+        assert got.get("단계") == "보험 입금 확인" and "보험 입금 확인" in got.get("무엇", ""),             "[337] 사라진 단계 이름을 안 적는다 — %r" % got
+        # ④ 갈래를 지어내지 않는다([172]) — 아는 것은 '어디'까지다
+        assert got.get("갈래") == "모름",             "[337] 원인을 지목했다(%r) — 조치가 갈래마다 다르므로 사람을 엉뚱한 데로 보낸다([289])" % got.get("갈래")
+
+        # ⑤ `(회차 끝)` 을 찍었으면 **아무 말도 안 한다**(정상 완주·단계 실패는 제 이름으로 적힌다)
+        _prog(단계="(회차 끝)", 상태="완주")
+        D._note_prev_crash()
+        assert not os.path.exists(D.STEP_CRASH),             "[337] 끝을 본 회차에 자국을 남긴다 — 매일 거짓 경보가 쌓인다([170])"
+
+        # ⑥ 진행 파일이 없으면(첫 회차·못 읽음) 지어내지 않는다
+        _prog(단계="어떤 단계", 상태="시작")
+        D._note_prev_crash()
+        assert os.path.exists(D.STEP_CRASH), "[337] ⑥ 준비가 어긋났다"
+        os.remove(D.PROGRESS)
+        D._note_prev_crash()
+        assert not os.path.exists(D.STEP_CRASH),             "[337] 진행 파일이 없는데 자국을 만들었다 — 없는 사고를 지어냈다([169])"
+
+        # ⑦ ★ 계기 자기시험([272]) — '(회차 끝)' 문을 빼면 ⑤가 잡아야 한다
+        broken = src.replace('    if not step or step == "(회차 끝)":',
+                             "    if not step or False:")
+        assert broken != src, "[337] 문 주입 지점을 못 찾았다 — 이 검사는 아무것도 안 재고 있다"
+        ns = {"__name__": "daily_run_broken",
+              "__file__": os.path.join(ROOT, "daily_run.py")}
+        exec(compile(broken, "daily_run_broken", "exec"), ns)
+        ns["PROGRESS"], ns["STEP_CRASH"] = D.PROGRESS, D.STEP_CRASH
+        _prog(단계="(회차 끝)", 상태="완주")
+        ns["_note_prev_crash"]()
+        assert os.path.exists(D.STEP_CRASH),             "[337] 문을 뺐는데도 자국이 안 났다 — ⑤는 다른 것을 재고 있다"
+    finally:
+        D.PROGRESS, D.STEP_CRASH = real
+    assert not os.path.exists(D.STEP_CRASH), "[337] 실측 증거 파일을 건드렸다([247])"
+
+    print("[337] 단계 도중 사라진 회차는 그 단계 이름을 남긴다 · 원인은 지목하지 않는다 · 끝을 봤으면 조용하다")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -25811,6 +26026,8 @@ if __name__ == "__main__":
     t296_half_list_never_blames_the_person()
     t297_orgchart_change_is_seen_without_crying_wolf()
     t335_ceo_needs_no_seat_but_is_never_silently_dropped()
+    t336_one_window_is_never_two_and_the_server_has_its_own_id()
+    t337_a_round_that_vanishes_mid_step_leaves_its_step_name()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()

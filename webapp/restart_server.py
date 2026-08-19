@@ -262,6 +262,25 @@ def guard(force=False):
     return None
 
 
+def _identity_env_keys():
+    """앱 서버 자식에게 **물려주면 안 되는** 세션 신분 환경변수.
+
+    목록은 `ai_claim.SID_ENV` 한 곳에서 온다([162]) — 여기 손으로 적어 두면
+    Codex 쪽 키가 늘어난 날 그 갈래만 조용히 새어 나간다. 못 읽으면 아는 것만이라도
+    지운다(빈손으로 물려주는 것보다 낫다) — 그리고 못 읽었다는 사실은 숨기지 않는다.
+    """
+    keys = ["CLAUDE_PID"]
+    try:
+        if ROOT not in sys.path:
+            sys.path.insert(0, ROOT)
+        import ai_claim
+        keys.extend(ai_claim.SID_ENV)
+    except Exception:
+        keys.extend(["CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_HOST_SESSION_ID",
+                     "CODEX_THREAD_ID", "CODEX_SESSION_ID", "AI_SESSION_ID"])
+    return keys
+
+
 def start():
     exe = sys.executable or "python"
     # pythonw 로 띄우면 창이 안 뜬다(원래 이 서버가 그렇게 돌고 있었다).
@@ -269,6 +288,24 @@ def start():
     if not os.path.isfile(quiet):
         quiet = exe
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    # ★ 서버에게 **제 신분**을 준다 — 대화창의 sid 를 물려주지 않는다
+    #   (2026-08-19 실측 · 분담판 [156]).
+    #   사람이 대화 창에서 이 스크립트를 부르면 자식(앱 서버)이
+    #   `CLAUDE_CODE_SESSION_ID` 를 물려받는다. 그러면 서버가 `publish` 를 잡을 때
+    #   `who=server · sid=<그 대화창>` 으로 적히고, 그 창의 자동 마무리
+    #   (`session_wrapup --free-all` — PreCompact·SessionEnd)가 `_is_mine` 을 참으로
+    #   읽어 **게시 중인 서버의 잠금을 푼다.** 그 순간 워치독 3시간 `--push` 와
+    #   앱 서버 10분 `--cloud` 가 같은 `docs/data.enc`·git 을 동시에 만질 수 있다.
+    #   [104] 가 '남의 것은 못 놓는다'로 막은 사고의 사촌인데, 그때는 옆 **창**만
+    #   보고 **sid 를 물려받은 자식 프로세스**는 안 봤다.
+    #   ⚠ `CLAUDE_PID` 도 같이 지운다 — 남기면 `ai_claim._is_dead` 가 서버가 아니라
+    #     **대화창의 pid** 로 생사를 판정해, 그 창을 닫는 순간 게시 중인 서버의 점유가
+    #     '죽음'으로 읽힌다. 지우면 `agent_pid` 가 0 이라 점유에 적힌 **그 서버의
+    #     pid** 가 증거가 된다(같은 함수의 폴백).
+    #   지운 뒤 서버 sid 는 `sid_of("<호스트>/manual")` 이라 스케줄러가 띄운 서버와
+    #   같아진다 — 같아야 맞다. '이 호스트의 앱 서버'는 어느 길로 떴든 한 배우다.
+    for _k in _identity_env_keys():
+        env.pop(_k, None)
     # ★ DETACHED_PROCESS 만으로는 창이 뜬다 — `quiet` 가 pythonw 를 못 찾아
     #   python.exe 로 떨어지면 새 콘솔이 할당된다 (2026-08-14, 검증 [272]).
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | \
