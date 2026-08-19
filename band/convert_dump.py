@@ -181,6 +181,21 @@ def conv_comments(raw, captured_ms):
     return out
 
 
+def looks_like_cache(d):
+    """이 JSON 이 **덤프가 아니라 캐시 사본**인가 (2026-08-19 · 분담판 [154]).
+
+    Z: 수집본 폴더에 캐시 통사본이 날짜별로 쌓여 있어 흡수기가 **제 출력을 입력으로
+    다시 먹고 있었다**(실측 272개 중 132개). 그 안의 옛 값이 새 수확을 덮어, 그날 정상
+    수확한 글의 `created_at` 이 흡수 뒤 다시 사라졌다.
+
+    가르는 근거는 **스키마 하나**다 — 캐시는 `band_name` 을 갖고 `band` 가 없다.
+    실측 오탐 0 · 미탐 0(진짜 덤프 133 · 캐시 사본 132 · API 수집본 6은 둘 다 가짐).
+    파일명으로 가르면 `raw_api_90610953.json` 같은 진짜 수집본까지 걸린다 —
+    **못 읽는 것보다 잘못 거르는 것이 나쁘다**(`[172]`).
+    """
+    return isinstance(d, dict) and "band_name" in d and not d.get("band")
+
+
 def plausible_band(n):
     """밴드번호로 있을 수 있는 생김새인가 (관측된 밴드는 전부 8자리 — 7~10 만 허용).
 
@@ -457,12 +472,32 @@ def main():
     #   여기 담아 두면 이 한 번의 실행이 곧 '여러 회차를 본 것'이 된다.
     #   {밴드: {번호: {회차 캡처시각, ...}}}
     redirect_rounds = {}
+    skipped_cache = skipped_noband = 0
     for f in dump_files():
         d = json.load(open(f, encoding="utf-8"))
         if not isinstance(d, dict) or not isinstance(d.get("posts"), (dict, list)):
             continue
-        band = str(d.get("band") or band_from_name(os.path.basename(f)) or
-                   hashlib.sha256(os.path.basename(f).encode("utf-8")).hexdigest()[:10])
+        # ★ **캐시 사본은 덤프가 아니다** (2026-08-19 실사고 · 분담판 [154]).
+        #   Z: 수집본 폴더에 캐시 통사본이 날짜별로 쌓여 있어(8/14~8/19 매일 두 개)
+        #   흡수기가 **제 출력을 입력으로 다시 먹고 있었다.** 실측 덤프 목록 272개 중
+        #   **132개가 캐시 사본**(약 1.6GB)이었고, 그 안의 옛 값이 새 수확을 덮어
+        #   그날 정상 수확한 90610953/5442 의 `created_at` 이 흡수 뒤 다시 None 이 됐다.
+        #   가르는 근거는 **스키마**다 — 캐시는 `band_name` 을 갖고 `band` 가 없다.
+        #   실측 오탐 0 · 미탐 0(진짜 덤프 133 · 캐시 사본 132 · API 수집본 6은 둘 다 가짐).
+        #   파일명(밴드번호와 같음)으로 가르면 `raw_api_90610953.json` 같은 진짜
+        #   수집본까지 걸린다 — **문은 좁은 쪽으로 잡는다**(`[172]`).
+        if looks_like_cache(d):
+            skipped_cache += 1
+            continue
+        # ★ 밴드를 못 읽으면 **해시 이름 캐시를 만들지 않는다** (같은 사고의 곁가지).
+        #   예전에는 sha256 앞 10자리로 캐시를 만들었는데, 그 파일이 다음 실행에서
+        #   또 덤프로 읽혀 `band_from_name('8518730cc9') -> 8518730`(7자리) 으로
+        #   **유령 밴드를 낳았다**(자기 증식). 2026-08-12 의 `202608082047` 사고와
+        #   같은 종류인데 7자리라 길이 검사를 통과한다. 못 읽으면 **안 만들고 센다**(`[169]`).
+        band = str(d.get("band") or band_from_name(os.path.basename(f)) or "")
+        if not band:
+            skipped_noband += 1
+            continue
         cap = d.get("capturedAt")
         posts = {}
         source_posts = d.get("posts") or {}
@@ -543,6 +578,14 @@ def main():
             # '…더보기'로 잘린 피드 수집분이 상세 전문을 덮어쓰지 않게 한다.
             truncated = len(new_txt) < len(old_txt) * 0.9 and old_txt.startswith(new_txt[:200])
             newer = rec["captured_at"] >= int(cur.get("captured_at") or 0)
+            # ★ **아는 시각을 모르는 것으로 되돌리지 않는다** (2026-08-19 · [154]).
+            #   아래 갈래들은 본문이 길거나 새로우면 `rec` 로 통째로 갈아 끼운다.
+            #   그때 `rec` 에 `created_at` 이 없으면 이미 알던 시각을 **잃는다** —
+            #   시각 없는 글은 `datalake.band_day()` 가 빈 값을 줘 어떤 기간 질문에도
+            #   안 걸린다(`[152]` 와 같은 조용한 사고). 본문·댓글은 새것이 이기되
+            #   시각만은 보존한다.
+            if not rec.get("created_at") and cur.get("created_at"):
+                rec["created_at"] = cur["created_at"]
             if rec.get("created_at") and not cur.get("created_at"):
                 merged[no] = rec
             elif len(new_txt) > len(old_txt) and not newer:
@@ -669,6 +712,11 @@ def main():
         swap_in(tmp, dst)
         print(f"  · 리다이렉트로 확인된 삭제 글 {n}건 기록({band}) "
               f"— 서로 다른 회차 {REDIRECT_ROUNDS_FOR_DELETED}번 이상. 다시 훑지 않는다")
+
+    # ★ **뺀 것은 조용히 빼지 않는다**(`[169]`) — 0건이 '다 봤다'로 읽히면 안 된다.
+    if skipped_cache or skipped_noband:
+        print(f"  · 덤프가 아닌 파일 건너뜀 — 캐시 사본 {skipped_cache}개"
+              f" · 밴드를 못 읽은 파일 {skipped_noband}개 (분담판 [154])")
 
 
 if __name__ == "__main__":

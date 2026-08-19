@@ -19307,6 +19307,72 @@ def t330_userscript_watch_sees_the_dev_mode_gate():
     print("[330] 크롬 개발자 모드 관문 판정 OK")
 
 
+def t334_cache_copies_are_not_dumps():
+    """[154] 흡수기가 **제 출력을 입력으로 다시 먹지 않는다** (2026-08-19 실사고).
+
+    Z: 수집본 폴더에 캐시 통사본이 날짜별로 쌓여 있어, 실측 덤프 목록 272개 중
+    **132개가 캐시 사본**이었다(약 1.6GB). 그 안의 시각 없는 옛 값이 새 수확을 덮어
+    그날 정상 수확한 90610953/5442 의 `created_at` 이 흡수 뒤 다시 None 이 됐다.
+    시각 없는 글은 `datalake.band_day()` 가 빈 값을 줘 어떤 기간 질문에도 안 걸린다.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "cd334", os.path.join(ROOT, "band", "convert_dump.py"))
+    C = importlib.util.module_from_spec(spec)
+    sys.modules["cd334"] = C
+    spec.loader.exec_module(C)
+
+    # ① 판정은 **실행으로** 잰다 (글자 검사로는 오탐·미탐을 못 잰다 · [295])
+    assert C.looks_like_cache({"band_name": "84789192", "posts": {}}) is True, (
+        "캐시 사본(band_name 있고 band 없음)을 못 알아본다 — 그러면 흡수기가 제 출력을 다시 먹는다")
+    assert C.looks_like_cache({"band": "84789192", "posts": {}}) is False, (
+        "진짜 덤프를 캐시로 잘못 걸렀다 — 못 읽는 것보다 잘못 거르는 것이 나쁘다([172])")
+    assert C.looks_like_cache({"band": "84789192", "band_name": "84789192", "posts": {}}) is False, (
+        "API 수집본(band·band_name 둘 다)을 걸렀다 — 실측 raw_api* 6개가 이 모양이고 글이 1,009건까지 있다")
+    assert C.looks_like_cache([]) is False, "dict 아닌 것에 터지면 안 된다"
+
+    with open(os.path.join(ROOT, "band", "convert_dump.py"),
+              encoding="utf-8", newline="") as _fh:
+        src = _fh.read()
+    body = src.split("def main(", 1)[1]
+
+    # ② main 이 그 판정을 실제로 쓴다 — 함수만 있고 안 부르면 아무 일도 안 일어난다([328])
+    assert "looks_like_cache(d)" in body, (
+        "main 이 looks_like_cache 를 안 부른다 — 판정이 있어도 도는 곳이 없으면 없는 것과 같다")
+
+    # ③ 밴드를 못 읽으면 **해시 이름 캐시를 만들지 않는다**.
+    #    예전 sha256 폴백이 만든 파일이 다음 실행에 또 덤프로 읽혀
+    #    band_from_name('8518730cc9') -> 8518730(7자리) 유령 밴드를 낳았다(자기 증식).
+    assert "hashlib.sha256(os.path.basename(f)" not in body, (
+        "밴드 못 읽은 덤프에 해시 이름 캐시를 다시 만들고 있다 — 그 파일이 유령 밴드를 낳는다")
+
+    # ④ **아는 시각을 모르는 것으로 되돌리지 않는다** — 되돌아가면 안 되는 계약이다([39])
+    assert 'if not rec.get("created_at") and cur.get("created_at"):' in body, (
+        "병합에서 시각 보존이 사라졌다 — 본문이 새로우면 rec 로 갈아 끼우므로 알던 시각을 잃는다")
+    keep = body.index('if not rec.get("created_at") and cur.get("created_at"):')
+    swap = body.index('elif newer and not truncated')
+    assert keep < swap, "시각 보존이 갈아끼우는 갈래보다 뒤에 있으면 이미 늦다"
+
+    # ⑤ **뺀 것은 숫자로 말한다**([169]) — 조용히 빼면 0건이 '다 봤다'로 읽힌다
+    assert "skipped_cache" in body and "건너뜀" in body, (
+        "덤프가 아니라 건너뛴 개수를 아무 데도 안 적는다")
+
+    # ⑥ 계기 자신을 시험한다([272]) — 판정을 무력화하면 이 검사가 잡아야 한다
+    orig = C.looks_like_cache
+    try:
+        C.looks_like_cache = lambda d: False          # 문을 통째로 연다
+        caught = False
+        try:
+            assert C.looks_like_cache({"band_name": "x", "posts": {}}) is True
+        except AssertionError:
+            caught = True
+        assert caught, "판정을 무력화했는데도 이 검사가 통과했다 — 아무것도 안 재고 있다"
+    finally:
+        C.looks_like_cache = orig
+    sys.modules.pop("cd334", None)
+    print("[334] 캐시 사본은 덤프가 아니다 · 유령 자기증식 차단 · 아는 시각 보존 (실행으로 잼) OK")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -25536,6 +25602,7 @@ if __name__ == "__main__":
     t331_desktop_body_never_slides_under_the_fixed_sidebar()
     t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback()
     t333_ryu_center_shows_what_to_do_now()
+    t334_cache_copies_are_not_dumps()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
