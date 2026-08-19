@@ -1169,6 +1169,46 @@ button.auto-node[disabled]{cursor:progress;opacity:.72}
 #campHost .gridwrap table.grid td a{white-space:nowrap}
 #campHost .gridwrap table.grid td .mailtxt{overflow-wrap:anywhere}
 #campHost .gridwrap table.grid td:first-child{min-width:150px}
+/* ★ **폰에서는 표를 카드로 세운다 — 열은 하나도 감추지 않는다**
+   (2026-08-19 형님 지시 "모바일도 마찬가지야"). 열이 아홉이라 폰에서는 [수정] 을
+   앞으로 옮겨도 가로 스크롤이 남았다. **열을 빼는 것은 답이 아니다** — 안 보이는
+   열은 빈칸과 구별되지 않는다([165]). 그래서 줄을 카드로 세우고 칸마다 이름표
+   (`data-label`)를 붙인다. 보이는 값은 넓은 화면과 **똑같다**.
+   ⚠ 이름표를 만드는 자리는 `renderCampList` 하나다([162]) — CSS 가 제 손으로
+     열 이름을 적으면 열을 늘린 날 **머리글만 어긋나면서 오류는 안 난다**([165]). */
+@media (max-width:899px){
+  #campHost .gridwrap{overflow-x:visible;max-height:none;border:0;background:none}
+  /* ★ `!important` 다 — 특이도로는 못 이긴다. 이 앱은 폰에서 `table.grid` 를
+     `display:none!important` 로 **통째로 감춘다**(정산 화면이 표 대신 카드 목록
+     `.ui-cards` 를 쓰기 때문이다). 그런데 캠프 화면에는 그 카드 목록이 없어서,
+     폰에서 이 화면은 **가로로 밀린 것이 아니라 목록이 아예 비어 있었다**(2026-08-19
+     실측 — 표 높이 0px). 값이 비면 사람이 알아채지만 **화면이 통째로 비면
+     '자료가 없나 보다'로 읽힌다**([169]). 카드로 세우는 것이 곧 그 복구다. */
+  #campHost .gridwrap table.grid,
+  #campHost .gridwrap table.grid tbody,
+  #campHost .gridwrap table.grid tr,
+  #campHost .gridwrap table.grid td{display:block!important;width:auto}
+  /* 바탕 규칙 `table.grid{width:100%}` + 카드 안쪽 여백이 겹쳐 15px 넘쳤다(실측).
+     **'거의 다 보인다'는 다 보이는 것이 아니다.** */
+  #campHost .gridwrap table.grid{max-width:100%;min-width:0;border:0;background:none}
+  #campHost .gridwrap table.grid thead{display:none}   /* 이름표가 대신한다 */
+  #campHost .gridwrap table.grid tr{background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;margin:0 0 10px;padding:9px 12px 6px}
+  #campHost .gridwrap table.grid td{border:0;padding:5px 0;min-width:0}
+  #campHost .gridwrap table.grid td:not(:last-child){border-bottom:1px dashed var(--line)}
+  #campHost .gridwrap table.grid td[data-label]:not(:empty)::before{content:attr(data-label);
+    display:block;font-size:11.5px;font-weight:700;color:var(--ink-3);letter-spacing:-.2px}
+  /* 캠프명은 카드의 머리다 — 이름표 없이 크게, [수정] 단추를 옆에 둔다. */
+  #campHost .gridwrap table.grid td.campname{font-size:15.5px;font-weight:750;
+    padding-top:0;border-bottom:1px solid var(--line);padding-bottom:7px}
+  /* 묶음 표시는 첫 칸이 아니라 **카드 테두리**로 옮긴다 — 카드에서는 칸이 세로로
+     서므로 첫 칸 왼쪽 선이 이름 옆 짧은 막대가 되어 뜻이 안 보인다. */
+  /* 카드 테두리 규칙(`… table.grid tr`)이 더 특이해서 묶음 선을 1px 로 눌렀다 —
+     **선은 있는데 두께가 같아 묶음인지 구별이 안 됐다**(실측). 같은 자리에서 이긴다. */
+  #campHost .gridwrap table.grid tr.campgrp>td:first-child{border-left:0}
+  #campHost .gridwrap table.grid tr.campgrp{border-left:3px solid var(--brand)}
+  #campHost .gridwrap table.grid tr.campgrp.g1{border-left-color:var(--warn)}
+}
 .camptag{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
 .camptag:empty{display:none}
 .automation-loading{grid-column:1/-1;min-height:94px;display:grid;place-items:center;color:var(--ink-3);
@@ -17219,9 +17259,12 @@ function renderCampList(){
   /* 한 사람 = 한 칸(이름·전화·이메일 석 줄). 사람마다 열을 셋씩 두면 아홉 열이 되어
      좁은 화면에서 표가 무너진다. **없는 칸은 '모름'이라 적는다** — 빈칸으로 두면
      '적을 것이 없다'인지 '아직 못 찾았다'인지 구별되지 않는다([169]). */
-  const cell = (p) => { p = p || {};
-    if(!campHasPerson(p)) return '<td class="norm">모름</td>';
-    return '<td><div>'+esc2(p.이름||'이름 모름')+'</div>'
+  const cell = (p, label) => { p = p || {};
+    /* ★ 이름표(`data-label`)는 **폰에서 카드로 설 때** 머리글을 대신한다.
+       넓은 화면에서는 CSS 가 안 그리므로 표 모양은 한 톨도 안 바뀐다. */
+    const L = ' data-label="'+esc2(label||'')+'"';
+    if(!campHasPerson(p)) return '<td class="norm"'+L+'>모름</td>';
+    return '<td'+L+'><div>'+esc2(p.이름||'이름 모름')+'</div>'
       + '<div>'+(p.전화 ? '<a href="tel:'+esc2(p.전화)+'">'+esc2(p.전화)+'</a>'
                        : '<span class="norm">전화 모름</span>')+'</div>'
       /* 이메일은 **글자로만** 둔다 — 메일 링크(mailto)는 앱에서 밖으로 나가는 길이라 검증 [34] 가
@@ -17257,7 +17300,7 @@ function renderCampList(){
            그것이 `onclick="…"` 속성을 그 자리에서 끊는다. 캠프명에 괄호·따옴표가
            들어 있는 이 목록에서는 단추가 **오류도 없이 안 눌린다**(실측: 류지영
            "수정하기가 안눌려요"). 값은 `data-` 로 넘기고 esc2 로 감싼다. */
-        + '<td><div><button class="btn xs campfix" data-camp="'+esc2(r.캠프명||'')+'"'
+        + '<td class="campname"><div><button class="btn xs campfix" data-camp="'+esc2(r.캠프명||'')+'"'
           + ' onclick="event.stopPropagation();campEditOpen(this.dataset.camp)"'
           + ' title="이 캠프의 담당자·연락처를 고칩니다 (줄을 두 번 눌러도 열립니다)">'
           + '<svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>수정</button> '
@@ -17271,10 +17314,11 @@ function renderCampList(){
              사람이 '이게 전부인가'를 묻지 않는다([169]). */
           + (g ? '<span class="badge" title="'+esc2(campGroupText(r)+' — 같은 주소: '+(r.캠프주소||''))+'">'+esc2(campGroupText(r,true))+'</span>' : '')
           + '</div></td>'
-        + '<td>'+campUnits(r)+'</td>'
-        + campRoles(r).map(x=>cell(x.p)).join('')
-        + '<td>'+(r.정기점검건수||0)+'</td><td>'+esc2(r.최근작업일||'')+'</td>'
-        + '<td>'+esc2(r.거래처코드||'')+'</td>'
+        + '<td data-label="호기">'+campUnits(r)+'</td>'
+        + campRoles(r).map(x=>cell(x.p, x.라벨)).join('')
+        + '<td data-label="정기점검 접수 (밴드·카톡 누적 글 수)">'+(r.정기점검건수||0)+'</td>'
+        + '<td data-label="최근작업일">'+esc2(r.최근작업일||'')+'</td>'
+        + '<td data-label="거래처코드">'+esc2(r.거래처코드||'')+'</td>'
         + '</tr>'; }).join('')
     + '</tbody></table></div>';
 }

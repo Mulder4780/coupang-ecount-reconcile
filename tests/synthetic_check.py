@@ -23355,6 +23355,24 @@ console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTM
     본문 = 표H[표H.index("<tbody>"):]
     첫줄 = 본문[:본문.index("</tr>")] if "</tr>" in 본문 else 본문
     assert "campfix" in 첫줄, "고치는 단추가 첫 칸(캠프명)에 없다 — 가로 스크롤 없이는 안 보인다"
+
+    # ①-2 **폰에서 카드로 서도 열이 하나도 안 사라진다**(2026-08-19 형님 지시
+    #      "모바일도 마찬가지야"). 카드로 세우면 머리글 줄이 없어지므로 칸마다
+    #      이름표(`data-label`)가 있어야 무엇의 값인지 알 수 있다 — 없으면 그건
+    #      열을 감춘 것과 같다([165]·[169]). **열을 빼서 푸는 것을 막는 자리다.**
+    칸들 = re.findall(r"<td\b[^>]*>", 첫줄)
+    머리글 = re.findall(r"<th\b[^>]*>", 표H[:표H.index("</thead>")])
+    assert len(칸들) == len(머리글), \
+        "칸 수가 머리글 수와 다르다 — 열을 감췄나: 칸 %d / 머리글 %d" % (len(칸들), len(머리글))
+    머리 = [c for c in 칸들 if 'class="campname"' in c]
+    assert len(머리) == 1, "카드의 머리(캠프명 칸) 표시가 없다"
+    이름표없음 = [c for c in 칸들 if "data-label=" not in c and 'class="campname"' not in c]
+    assert not 이름표없음, "이름표 없는 칸이 있다 — 폰 카드에서 무엇의 값인지 못 읽는다: %r" % 이름표없음
+    # 이름표를 CSS 가 제 손으로 적으면 열을 늘린 날 머리글만 어긋난다([162]) —
+    # 만드는 자리가 화면 코드 하나인지 본다.
+    assert 'content:attr(data-label)' in html, "카드 이름표를 CSS 가 직접 적고 있다"
+    assert "@media (max-width:899px)" in html and "#campHost .gridwrap table.grid thead" in html, \
+        "좁은 화면에서 카드로 서는 규칙이 없다 — 폰은 그대로 가로 스크롤이다"
     이름 = [r["이름"] for r in g["표"]]
     묶음 = {r["이름"]: r["묶음"] for r in g["표"]}
 
