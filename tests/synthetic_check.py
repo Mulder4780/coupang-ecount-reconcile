@@ -18333,8 +18333,8 @@ def t234_kim_miyeong_center_and_revenue():
         "서버가 내려보내는 기준 문장에 '발행월/완료월 아님'이 없다"
 
 
-def t235_chatbot_is_one_line_until_asked():
-    """[235] 챗봇은 **평소 한 줄**이다 (2026-08-12 지시: "쓸데 없이 창이 너무 커").
+def t316_chatbot_is_one_line_until_asked():
+    """[316] 챗봇은 **평소 한 줄**이다 (2026-08-12 지시: "쓸데 없이 창이 너무 커").
 
     ★ 실측: 폰 첫 화면에서 챗봇 카드가 **40%** 를 먹고 있었다 — 제목·칩 여섯 개(세 줄로
       접힘)·큰 입력창·큰 파란 단추가 늘 펼쳐진 채였다. 정작 사람이 먼저 보려는 것은
@@ -18374,7 +18374,7 @@ def t235_chatbot_is_one_line_until_asked():
     setopen = live.split("function chatSetOpen(", 1)[1].split("\n}\n", 1)[0]
     assert "대화 이어가기" in setopen, "접으면 대화가 사라진 것처럼 보인다"
 
-    print("  [235] 챗봇은 평소 한 줄 · 칩 한 줄 흐름 · 보내기는 입력칸 안 · 접어도 답 수를 말한다 ✅")
+    print("  [316] 챗봇은 평소 한 줄 · 칩 한 줄 흐름 · 보내기는 입력칸 안 · 접어도 답 수를 말한다 ✅")
 
 
 def t236_list_is_folded_into_groups():
@@ -19348,6 +19348,19 @@ def check_numbers_unique():
       `[84]`→`[200]` · `[98]`→`[201]` · `[121]`→`[202]` · `[172]`→`[203]`.
       옮긴 쪽은 **문서 참조가 적은 쪽**이고, 그 참조도 같이 고쳤다 —
       하나라도 남기면 그 문서가 엉뚱한 검증을 가리킨다(겹친 것보다 나쁘다).
+
+    ★ 그런데 그 계기가 **최신 검증 46개를 못 보고 있었다** (2026-08-19 실측).
+      정규식이 따옴표 뒤에 공백을 **반드시** 요구했는데(`\s+`) 요즘 검증은
+      `print("[309] ...` 처럼 공백 없이 찍는다. 파일의 번호표 293개 중
+      **247개만** 보였고 `[309]` 이후는 통째로 사각지대였다 — 하필 **제일
+      겹치기 쉬운 최신 구간**이다(겹침은 두 창이 같은 시각에 번호를 고를 때
+      난다). `[307]` 때 사람이 손으로 찾아낸 이유가 이것이다. `\s*` 로 넓혔고
+      넓힌 뒤 새로 걸린 겹침은 **0건**이었다(빨간 문이 생기지 않는다).
+
+    ★ 그리고 **번호표를 안 다는 검증**은 여전히 안 보인다. 그래서 함수 이름
+      (`def tNNN_...`)도 같이 센다 — 이름은 반드시 있다. 그 자리에서 실제
+      겹침 하나가 나왔다: `t235_chatbot_is_one_line_until_asked` →
+      `[316]` 으로 비켰다(문서 참조 0곳 · pythonw 쪽이 3곳).
     """
     import collections as _c
     src = open(__file__, encoding="utf-8").read()
@@ -19357,9 +19370,15 @@ def check_numbers_unique():
         m = re.match(r"def (\w+)\(", ln)
         if m:
             cur = m.group(1)
-        m = re.match(r'\s*print\(\s*"\s+\[(\d+)\]', ln)
+        m = re.match(r'\s*print\(\s*"\s*\[(\d+)\]', ln)
         if m:
             owner[int(m.group(1))].add(cur)
+    # ★ 번호표(`print`)를 안 다는 검증도 있다 — 그러면 겹쳐도 안 걸린다.
+    #   실측 2026-08-19: `t235_unattended_rounds_survive_pythonw` 가 번호표를
+    #   안 달아서, 같은 235 를 쓰는 챗봇 검증과 겹쳤는데도 조용했다.
+    #   **함수 이름은 반드시 있다** — 그것도 같이 센다.
+    for m in re.finditer(r"^def (t(\d+)\w*)\(", src, re.M):
+        owner[int(m.group(2))].add(m.group(1))
     dup = sorted(n for n, who in owner.items()
                  if len(who) > 1 and n not in LEGACY_DUP)
     if dup:
@@ -23388,7 +23407,7 @@ if __name__ == "__main__":
     t233_round_steps_fit_inside_budget()
     t287_source_tidy_resumes_inside_watchdog_budget()
     t234_kim_miyeong_center_and_revenue()
-    t235_chatbot_is_one_line_until_asked()
+    t316_chatbot_is_one_line_until_asked()
     t236_list_is_folded_into_groups()
     t237_cards_fold_with_one_tool()
     t238_parked_says_which_lane()
