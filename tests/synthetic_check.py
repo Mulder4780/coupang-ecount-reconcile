@@ -23519,7 +23519,7 @@ def t328_camp_source_staleness_is_seen():
 
     # (4) 인계가 **회차가 써 둔 것만** 읽나 — 여기서 Z: 를 다시 훑으면 인계 한 장이
     #     2.78초씩 비싸지고 판정이 두 곳이 된다([162]·[168]).
-    sh = _io.open(_os.path.join(_HERE, "..", "session_handoff.py"),
+    sh = _io.open(_os.path.join(ROOT, "session_handoff.py"),
                   encoding="utf-8").read()
     seg = sh[sh.index("def camp_source_gap("):]
     seg = seg[:seg.index("\ndef ", 5)]
@@ -23541,7 +23541,7 @@ def t328_camp_source_staleness_is_seen():
     assert 'st.get("조직도")' in bl, "blockers 가 조직도 소식을 안 올린다"
 
     # (7) 워치독 단계가 **인계보다 먼저** 온다 — 뒤에 두면 늘 30분 전 판정을 싣는다.
-    wd = _io.open(_os.path.join(_HERE, "..", "watchdog.py"), encoding="utf-8").read()
+    wd = _io.open(_os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
     assert "watch_camp_source(dry)" in wd, "워치독 단계에 안 걸렸다"
     assert wd.index("watch_camp_source(dry),") < wd.index("snapshot_handoff(dry)"), \
         "인계보다 뒤에 있으면 늘 한 박자 늦은 판정을 싣는다"
@@ -23550,7 +23550,7 @@ def t328_camp_source_staleness_is_seen():
     assert "build()" not in fnbody, "회차가 여기서 다시 만들고 있다 — 밴드 전체 파싱이다([168])"
 
     # (8) 앱은 회차 자국을 **읽기만** 한다 — 웹 요청에서 Z: 를 훑으면 안 된다.
-    ap = _io.open(_os.path.join(_HERE, "..", "webapp", "app_server.py"),
+    ap = _io.open(_os.path.join(ROOT, "webapp", "app_server.py"),
                   encoding="utf-8").read()
     camps = ap[ap.index('if p == "/api/camps":'):]
     camps = camps[:camps.index('if p == "/api/camps/save"')]
@@ -23558,14 +23558,16 @@ def t328_camp_source_staleness_is_seen():
     assert "sched_stale(" not in camps, "/api/camps 가 웹 요청에서 Z: 를 재고 있다([168])"
 
     # (9) 화면이 그 판정을 **맨 먼저** 말하나 — node 로 실행해서 잰다([295]).
-    html = _io.open(_os.path.join(_HERE, "..", "webapp", "index.html"),
+    html = _io.open(_os.path.join(ROOT, "webapp", "index.html"),
                     encoding="utf-8").read()
-    m = _re.search(r"function campSourceNote\(d\)\{.*?\n\}\n", html, _re.S)
+    m = _re.search("function campSourceNote\\(d\\)\\{.*?" + chr(10) + "\\}" + chr(10), html, _re.S)
     assert m, "campSourceNote 를 못 찾았다"
-    node = _which_node()
+    import shutil as _sh328
+    node = _sh328.which("node")
     if not node:
+        print("  [328] 캠프 원본 밀림 — 글자 검사만 통과(node 없어 실행 확인 못 함)")
         return
-    js = "function esc2(s){return String(s);}\n" + m.group(0) + """
+    js = "function esc2(s){return String(s);}" + chr(10) + m.group(0) + """
 var out = {};
 out.stale = campSourceNote({원본밀림:{갈래:'밀림',말:'원본이 28분 새롭다 - 빈칸이 아니라 옛 사람으로 보인다',조치:'python camp_contacts.py --write'},정기점검원본:{길:'ok',캠프:9},정본반영:{고친칸:3,채운칸:1}});
 out.unknown = campSourceNote({원본밀림:{갈래:'모름',말:'폴더를 못 읽었다'},정기점검원본:{길:'ok',캠프:9}});
@@ -23573,18 +23575,20 @@ out.ok = campSourceNote({원본밀림:{갈래:'정상',말:'앱이 더 새롭다
 out.none = campSourceNote({정기점검원본:{길:'ok',캠프:9},정본반영:{고친칸:3,채운칸:1}});
 console.log(JSON.stringify(out));
 """
-    td2 = tempfile.mkdtemp(prefix="t328js_")
-    jp = _os.path.join(td2, "a.js")
-    _io.open(jp, "w", encoding="utf-8").write(js)
-    pr = subprocess.Popen([node, jp], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          **_bg_kwargs())
-    try:
-        o, e = pr.communicate(timeout=90)
-    except Exception:
-        pr.kill()
-        raise
-    assert pr.returncode == 0, (e or b"").decode("utf-8", "replace")[:300]
-    got = _json.loads(o.decode("utf-8"))
+    with tempfile.TemporaryDirectory() as tmp2:
+        jp = _os.path.join(tmp2, "a.js")
+        with open(jp, "w", encoding="utf-8") as fh:
+            fh.write(js)
+        proc = subprocess.Popen([node, jp], stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        try:                               # 한 단계가 영원히 안 끝나면 안 된다([175])
+            out = proc.communicate(timeout=60)[0].decode("utf-8", "replace")
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            out = proc.communicate(timeout=20)[0].decode("utf-8", "replace")
+    assert proc.returncode == 0, out[-500:]
+    got = _json.loads(out.strip().splitlines()[-1])
     assert "bad" in got["stale"], "밀림인데 화면이 빨갛게 말하지 않는다"
     assert "camp_contacts.py --write" in got["stale"], "고치는 길을 안 준다"
     assert "**" not in got["stale"], "마크다운 별표가 화면에 그대로 나간다"
