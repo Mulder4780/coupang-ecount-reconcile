@@ -23436,6 +23436,163 @@ console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTM
 
 
 
+
+def t328_camp_source_staleness_is_seen():
+    """정기점검 스케줄 원본이 새로 와도 아무도 말해 주지 않던 자리 (2026-08-19 · [151]).
+
+    실측 그날: 원본 16:44 대 `캠프_담당자.json` 16:16 -> 정본 152캠프 754칸 중
+    **236칸이 옛 담당자**였다. 그런데 그 236칸은 **빈칸이 아니라 '틀린 사람'** 이라
+    화면은 이름.전화를 멀쩡히 보여 준다([165]) — 형님이 캡처를 들고 묻고서야 드러났다.
+
+    ★ 재는 것은 '얼마나 잘 고치나'가 아니라 **'모르는 것을 안다고 하지 않나'** 다.
+    """
+    import io as _io, os as _os, re as _re, json as _json, time as _time
+    import importlib, tempfile, subprocess
+    cc = importlib.import_module("camp_contacts")
+
+    # (1) 다섯 갈래가 실제로 갈리나 — 실행으로 잰다([295]).
+    #     ★ 실측 증거 파일(reports/*)에는 한 글자도 안 쓴다([247]).
+    real_f, real_out, real_mark = cc._sched_file, cc.OUT, cc.STALE_MARK
+    td = tempfile.mkdtemp(prefix="t328_")
+    쓴것 = _os.path.join(td, "자료.json")
+    _io.open(쓴것, "w", encoding="utf-8").write("{}")
+    now = _time.time()
+    try:
+        cc.OUT = 쓴것
+        cc.STALE_MARK = _os.path.join(td, "밀림.json")
+
+        _os.utime(쓴것, (now - 1800, now - 1800))
+        cc._sched_file = lambda: (_os.path.join(td, "원본.xlsx"), now, 100)
+        r = cc.sched_stale()
+        assert r["갈래"] == "밀림", "원본이 30분 새로운데 '%s' 로 읽었다" % r["갈래"]
+        assert 25 <= r["늦은분"] <= 35, r["늦은분"]
+        # ★ 조용한 사고라는 것을 문장이 직접 말해야 한다 — '빈칸이 아니다'가 요점이다.
+        assert "빈칸" in r["말"], "밀림 문장이 '빈칸이 아니라 틀린 사람'을 말하지 않는다"
+        assert r.get("조치"), "조치가 없으면 사람이 무엇을 해야 할지 모른다"
+
+        _os.utime(쓴것, (now + 600, now + 600))
+        assert cc.sched_stale()["갈래"] == "정상"
+
+        def _boom():
+            raise OSError("Z: 끊김")
+        cc._sched_file = _boom
+        r = cc.sched_stale()
+        assert r["갈래"] == "모름", "원본을 못 읽었는데 '%s'" % r["갈래"]
+        assert "정상" not in r["말"]
+
+        cc._sched_file = lambda: None
+        assert cc.sched_stale()["갈래"] == "모름", "폴더에 워크북이 없는데 정상이라 했다"
+
+        cc._sched_file = lambda: (_os.path.join(td, "원본.xlsx"), now, 100)
+        cc.OUT = _os.path.join(td, "없는파일.json")
+        assert cc.sched_stale()["갈래"] == "없음"
+
+        # (2) 자국 왕복 — 회차가 적고 인계.화면이 읽는다([168]).
+        cc.OUT = 쓴것
+        _os.utime(쓴것, (now - 1800, now - 1800))
+        cc.stale_mark()
+        back = cc.stale_read()
+        assert back and back["갈래"] == "밀림", back
+        assert _os.path.exists(cc.STALE_MARK)
+
+        # (3) ★ 계기 자신을 시험한다([272]) — 밀림 판정을 죽이면 위 (1)이 잡아야 한다.
+        참 = cc.sched_stale
+        try:
+            cc.sched_stale = lambda: {"갈래": "정상", "말": "괜찮다"}
+            assert cc.sched_stale()["갈래"] == "정상"      # 주입이 먹혔다
+            잡힘 = False
+            try:
+                r = cc.sched_stale()
+                assert r["갈래"] == "밀림"
+            except AssertionError:
+                잡힘 = True
+            assert 잡힘, "밀림 판정을 죽였는데도 검사가 통과했다 — 아무것도 안 재고 있다"
+        finally:
+            cc.sched_stale = 참
+    finally:
+        cc._sched_file, cc.OUT, cc.STALE_MARK = real_f, real_out, real_mark
+        try:
+            import shutil as _sh
+            _sh.rmtree(td, ignore_errors=True)
+        except Exception:
+            pass
+
+    # (4) 인계가 **회차가 써 둔 것만** 읽나 — 여기서 Z: 를 다시 훑으면 인계 한 장이
+    #     2.78초씩 비싸지고 판정이 두 곳이 된다([162]·[168]).
+    sh = _io.open(_os.path.join(_HERE, "..", "session_handoff.py"),
+                  encoding="utf-8").read()
+    seg = sh[sh.index("def camp_source_gap("):]
+    seg = seg[:seg.index("\ndef ", 5)]
+    assert "stale_read" in seg, "인계가 회차 자국을 안 읽는다"
+    assert "sched_stale" not in seg, "인계가 Z: 를 다시 재고 있다([168])"
+
+    # (5) `blockers` 는 st 만 본다 — 디스크를 직접 읽으면 합성검증이 실기계를 탄다.
+    bl = sh[sh.index("def blockers("):]
+    bl = bl[:bl.index("\ndef ", 5)]
+    assert 'st.get("캠프원본")' in bl, "blockers 가 캠프원본을 안 읽는다"
+    assert "camp_contacts" not in bl, "blockers 가 모듈을 직접 부르고 있다"
+
+    # (6) ★ 이번에 드러난 배선 구멍 — `org_gap()` 은 [297] 때 만들어졌는데 **한 번도
+    #     안 불렸다**(2026-08-19 실측). 지시문에는 '인계에 올라간다'고 적혀 있었다.
+    #     코드가 있는 것과 그것이 도는 것은 다른 말이다([169]).
+    assert 'org_gap()' in sh.split("def org_gap(")[0] + sh.split("def org_gap(")[1][200:], \
+        "org_gap 이 정의만 되고 아무도 안 부른다"
+    assert '"조직도": org_gap()' in sh, "org_gap 이 스냅샷에 안 실린다"
+    assert 'st.get("조직도")' in bl, "blockers 가 조직도 소식을 안 올린다"
+
+    # (7) 워치독 단계가 **인계보다 먼저** 온다 — 뒤에 두면 늘 30분 전 판정을 싣는다.
+    wd = _io.open(_os.path.join(_HERE, "..", "watchdog.py"), encoding="utf-8").read()
+    assert "watch_camp_source(dry)" in wd, "워치독 단계에 안 걸렸다"
+    assert wd.index("watch_camp_source(dry),") < wd.index("snapshot_handoff(dry)"), \
+        "인계보다 뒤에 있으면 늘 한 박자 늦은 판정을 싣는다"
+    fnbody = wd[wd.index("def watch_camp_source("):]
+    fnbody = fnbody[:fnbody.index("\ndef ", 5)]
+    assert "build()" not in fnbody, "회차가 여기서 다시 만들고 있다 — 밴드 전체 파싱이다([168])"
+
+    # (8) 앱은 회차 자국을 **읽기만** 한다 — 웹 요청에서 Z: 를 훑으면 안 된다.
+    ap = _io.open(_os.path.join(_HERE, "..", "webapp", "app_server.py"),
+                  encoding="utf-8").read()
+    camps = ap[ap.index('if p == "/api/camps":'):]
+    camps = camps[:camps.index('if p == "/api/camps/save"')]
+    assert "stale_read()" in camps, "/api/camps 가 밀림 판정을 안 싣는다"
+    assert "sched_stale(" not in camps, "/api/camps 가 웹 요청에서 Z: 를 재고 있다([168])"
+
+    # (9) 화면이 그 판정을 **맨 먼저** 말하나 — node 로 실행해서 잰다([295]).
+    html = _io.open(_os.path.join(_HERE, "..", "webapp", "index.html"),
+                    encoding="utf-8").read()
+    m = _re.search(r"function campSourceNote\(d\)\{.*?\n\}\n", html, _re.S)
+    assert m, "campSourceNote 를 못 찾았다"
+    node = _which_node()
+    if not node:
+        return
+    js = "function esc2(s){return String(s);}\n" + m.group(0) + """
+var out = {};
+out.stale = campSourceNote({원본밀림:{갈래:'밀림',말:'원본이 28분 새롭다 - 빈칸이 아니라 옛 사람으로 보인다',조치:'python camp_contacts.py --write'},정기점검원본:{길:'ok',캠프:9},정본반영:{고친칸:3,채운칸:1}});
+out.unknown = campSourceNote({원본밀림:{갈래:'모름',말:'폴더를 못 읽었다'},정기점검원본:{길:'ok',캠프:9}});
+out.ok = campSourceNote({원본밀림:{갈래:'정상',말:'앱이 더 새롭다'},정기점검원본:{길:'ok',캠프:9},정본반영:{고친칸:3,채운칸:1}});
+out.none = campSourceNote({정기점검원본:{길:'ok',캠프:9},정본반영:{고친칸:3,채운칸:1}});
+console.log(JSON.stringify(out));
+"""
+    td2 = tempfile.mkdtemp(prefix="t328js_")
+    jp = _os.path.join(td2, "a.js")
+    _io.open(jp, "w", encoding="utf-8").write(js)
+    pr = subprocess.Popen([node, jp], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          **_bg_kwargs())
+    try:
+        o, e = pr.communicate(timeout=90)
+    except Exception:
+        pr.kill()
+        raise
+    assert pr.returncode == 0, (e or b"").decode("utf-8", "replace")[:300]
+    got = _json.loads(o.decode("utf-8"))
+    assert "bad" in got["stale"], "밀림인데 화면이 빨갛게 말하지 않는다"
+    assert "camp_contacts.py --write" in got["stale"], "고치는 길을 안 준다"
+    assert "**" not in got["stale"], "마크다운 별표가 화면에 그대로 나간다"
+    assert "bad" in got["unknown"], "확인 못 했는데 조용하다([169])"
+    # ★ 정상까지 경보하면 아무도 안 본다([170]).
+    assert "bad" not in got["ok"], "정상인데 경보를 낸다([170])"
+    assert "반영" in got["ok"] and "반영" in got["none"], "정상 안내가 사라졌다"
+
 def t327_xlsx_says_what_data_it_is():
     """[148] 엑셀 맨 위에 **이게 무슨 자료인지** 적는다 (2026-08-19 형님 지시).
 
@@ -24781,6 +24938,7 @@ if __name__ == "__main__":
     t325_one_alert_is_one_line_and_the_reason_survives()
     t326_the_master_roster_wins_but_never_erases()
     t327_xlsx_says_what_data_it_is()
+    t328_camp_source_staleness_is_seen()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
