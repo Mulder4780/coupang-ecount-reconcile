@@ -20859,7 +20859,15 @@ def t261_pc_report_uses_available_width_mobile_stays_same():
     assert "@media(max-width:640px)" in html and \
            ".rpt{padding:16px 14px 14px;max-width:100%;overflow-x:hidden}" in html, \
         "PC 폭을 고치며 정상인 모바일 카드 레이아웃을 없앴다"
-    assert ".shell{margin-left:216px;padding:24px 30px 48px;max-width:none}" in html, \
+    # ⚠ 규칙 한 줄을 통째로 못 박지 않는다([39]) — 사이드바 폭을 `--nav-w` 한 곳으로
+    #   모은 날(2026-08-19 [142]) 이 검사가 빨개졌다. 여기가 지킬 것은 여백값이 아니라
+    #   **본문이 고정폭이 아니라는 것** 하나다(여백이 한 곳에서 오는지는 [331] 이 따로 본다).
+    # ⚠ `body.calendar-only .shell{margin-left:0}` 가 더 앞에 있다 — 그것을 잡으면
+    #   달력 전용 규칙(max-width:1120px)을 재고 거짓 경보를 낸다. 데스크톱 규칙은
+    #   미디어쿼리 안이라 줄 머리에 들여쓰기가 있다.
+    i = html.find(chr(10) + "  .shell{margin-left:")
+    assert i > 0, "PC 본문(.shell) 데스크톱 규칙을 못 찾았다"
+    assert "max-width:none" in html[i:html.find("}", i)], \
         "PC 본문 자체가 고정폭이면 보고서만 100%여도 넓어지지 않는다"
     print("[261] PC 보고서는 가용 폭 전체 · 모바일 카드 레이아웃 유지 OK")
 
@@ -24840,6 +24848,31 @@ def t326_the_master_roster_wins_but_never_erases():
           "빈 값으로 안 덮음 · 못 읽으면 그렇게 말함 (실행으로 잼) OK")
 
 
+def _style_split(text):
+    """<style> 덩어리와 그 밖을 가른다 — **닫는 태그마다 가장 가까운 여는 태그**를 짝짓는다.
+
+    ⚠ 여는 태그부터 세면 안 된다: 이 파일은 <style> 바위가 10개인데다 **주석 안에도
+      `<style>` 이라는 글자가 있다**(index.html 의 "검증 [127] 은 <style> 안의 CSS 만
+      훑는다"). 그 가짜를 여는 태그로 세면 9,585줄부터 21,356줄까지가 통째로 CSS 가 되어,
+      화면이 실행 중에 넣는 값(--node-c·--seg-ink)이 "정의된 테마 토큰"으로 둔갑한다
+      — 그러면 정당한 기본값에 거짓 경보가 난다([172] · 2026-08-19 실측으로 그렇게 났다).
+    """
+    css, rest, last = [], [], 0
+    for m in re.finditer(r"</style>", text):
+        end = m.start()
+        prev = text.rfind("<style", 0, end)
+        if prev < last:
+            continue
+        gt = text.find(">", prev)
+        if gt < 0 or gt >= end:
+            continue
+        rest.append(text[last:prev])
+        css.append(text[gt + 1:end])
+        last = m.end()
+    rest.append(text[last:])
+    return chr(10).join(css), chr(10).join(rest)
+
+
 def t331_desktop_body_never_slides_under_the_fixed_sidebar():
     """[331] **본문이 고정 사이드바 밑으로 미끄러지지 않는다** (분담판 [81]).
 
@@ -24854,47 +24887,78 @@ def t331_desktop_body_never_slides_under_the_fixed_sidebar():
     ★ 그런데 **그 상태를 지키는 검사가 한 줄도 없었다** — 만든 것과 지켜지는 것은
       다르다([76]·[232]). 여기서 얼리는 것은 *넘침을 만들지 않는 구조* 넷이다.
 
-    ⚠ 글자를 못 박는 것이 아니라 **숫자를 대 본다**([39]) — 사이드바 폭을 바꾸면
-      본문 여백 둘도 같이 바뀌어야 한다. 한쪽만 고치면 그날부터 본문이 잘린다.
+    2026-08-19 이어서([142]): 사이드바 폭을 **`--nav-w` 한 곳**으로 모았다.
+      전에는 216px 이 넷 곳(.tabbar · .shell · .appbar · #v-org)에 손으로 박혀 있어
+      한 곳만 고치면 그날부터 본문이 잘렸다. 브라우저에서 `--nav-w` 를 260px 로
+      바꾸자 넷이 **함께** 움직였다(216→260→216, [295] — 글자가 아니라 실행으로 재음).
+    ⚠ [142] 가 적어 둔 '삾져나가는 자리 셋'은 **재 보니 장식이지 잘림이 아니었다**([172]).
+      2026-08-19 실측: `.flow-hero` scrollWidth 1045>989 · `.org-hero` 1104>1004 — 둘 다
+      차이는 `::after` 장식 원(right:-56px · right:-10%)이고 **진짜 자식은 오른쪽으로
+      18px 안쪽에서 끝난다**(overflow:hidden 이 장식만 자른다). `.source-canvas` 는
+      left 234 · 사이드바 오른쪽 216 으로 **18px 떨어져** 있다(shell 안쪽 여백 30px 안의
+      의도된 full-bleed). 그러므로 그 셋을 '고치면' 멀줦한 디자인을 깨는 것이다.
     """
     html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
 
     def _check(text):
-        side = re.search(r"\.tabbar\{top:0;bottom:auto;left:0;right:auto;width:(\d+)px", text)
-        assert side, "데스크톱 사이드바 규칙(.tabbar 고정 폭)을 못 찾았다"
-        shell = re.search(r"\.shell\{margin-left:(\d+)px", text)
-        appbar = re.search(r"\.appbar\{margin-left:(\d+)px", text)
-        assert shell and appbar, "본문(.shell)·앱바(.appbar)의 사이드바 여백 규칙을 못 찾았다"
-        w = int(side.group(1))
-        assert int(shell.group(1)) == w, (
-            f"사이드바는 {w}px 인데 본문 여백은 {shell.group(1)}px — 본문이 그 밑으로 들어간다")
-        assert int(appbar.group(1)) == w, (
-            f"사이드바는 {w}px 인데 앱바 여백은 {appbar.group(1)}px — 앱바 왼쪽이 잘린다")
+        # ⚠ `</style>` 로 한 번만 자르면 **첫 덩어리만** 본다 — 이 파일은 <style>
+        #   바위가 10개고 `#v-org` 규칙은 5번째(`<style id="org-style">`)에 있다.
+        #   그러면 검사가 그 규칙을 **못 본 채 통과**한다([169]).
+        css = re.sub(r"/\*.*?\*/", " ", _style_split(text)[0], flags=re.S)
+
+        # ★ 사이드바 폭을 정하는 자리는 **한 곳**이다([162] · 2026-08-19 [142]).
+        #   예전에는 216px 이 네 곳에 손으로 박혀 있어 한 곳만 고치면 그날부터
+        #   본문이 사이드바 밑으로 미끄러진다 — 오류는 한 줄도 안 난다.
+        defs = re.findall(r"--nav-w\s*:\s*(\d+)px", css)
+        assert len(defs) == 1, \
+            f"--nav-w 정의가 {len(defs)}곳 — 사본이 둘이면 한쪽만 고쳐진다([162])"
+
+        for pat, name in (
+            (r"\.tabbar\{top:0;bottom:auto;left:0;right:auto;width:var\(--nav-w\)", "사이드바 폭"),
+            (r"\.shell\{margin-left:var\(--nav-w\)", "본문 여백"),
+            (r"\.appbar\{margin-left:var\(--nav-w\)", "앱바 여백"),
+            (r"#v-org\.view\{margin-left:var\(--nav-w\)", "조직도 뷰 여백"),
+        ):
+            assert re.search(pat, css), \
+                f"{name} 이 --nav-w 를 안 읽는다 — 사이드바 폭을 바꾸면 여기만 안 따라온다"
+
+        # 숫자가 돌아오면 그날부터 한쪽만 고쳐진다(2026-08-19 실측: 브라우저에서
+        # --nav-w 를 260px 로 바꾸자 넷이 함께 움직였다 216→260→216, [295]).
+        for banned in ("width:216px", "margin-left:216px"):
+            assert banned not in css, \
+                f"{banned} 가 돌아왔다 — 216px 이 네 곳에 박혀 있던 그 자리다([142])"
 
         # ★ 넘치는 것을 감추지 않고 **줄어들게** 한다([273]) — flex:none 이면 안 줄어
         #   좁은 창에서 그대로 페이지를 넘긴다(실측 900px 에서 26px 넘쳤다).
-        assert re.search(r"\.appbar-status\{flex:0 1 auto", text), \
+        assert re.search(r"\.appbar-status\{flex:0 1 auto", css), \
             "앱바 오른쪽 칸이 안 줄어든다 — 좁은 창에서 페이지가 가로로 넘친다"
-        assert ".appbar-status{flex:none" not in text, \
+        assert ".appbar-status{flex:none" not in css, \
             "앱바 오른쪽 칸에 flex:none 이 돌아왔다 — [81] 이 고친 그 자리다"
 
         # ⚠ wrap 을 켜면 줄어들 수 있는 칸도 안 줄고 아래로 내려간다(실측 1280px
         #   에서 앱바가 96px → 132px 2줄). 안 잘리게 하려다 화면을 더 밀어낸다.
-        rule = text.split(".appbar{margin-left:", 1)[1].split("}", 1)[0]
+        rule = css.split(".appbar{margin-left:", 1)[1].split("}", 1)[0]
         assert "flex-wrap:wrap" not in rule, \
             "데스크톱 앱바에 flex-wrap:wrap — 줄바꿈이 먼저라 넘침은 그대로고 앱바만 두 줄이 된다"
 
         # 로고가 제 상자를 넘어 옆 칸을 덮는 것을 막는 바닥(폭 고정 로고 두 개).
-        assert re.search(r"\.appbar-brand-stack\{min-width:\d+px\}", text), \
+        assert re.search(r"\.appbar-brand-stack\{min-width:\d+px\}", css), \
             "브랜드 칸 바닥이 min-width 가 아니다 — flex-basis 로 옮기면 로고가 깨진다"
 
     _check(html)
 
     # ★ 계기 자기시험([272]) — 0 을 내는 계기는 아무도 의심하지 않는다([169]).
     for broken, why in (
-        (html.replace(".shell{margin-left:216px", ".shell{margin-left:200px", 1), "본문 여백만 줄임"),
-        (html.replace(".appbar{margin-left:216px", ".appbar{margin-left:180px", 1), "앱바 여백만 줄임"),
-        (html.replace(".appbar-status{flex:0 1 auto", ".appbar-status{flex:none", 1), "안 줄어들게 되돌림"),
+        (html.replace(".shell{margin-left:var(--nav-w)", ".shell{margin-left:200px", 1),
+         "본문 여백만 숫자로 되돌림"),
+        (html.replace(".appbar{margin-left:var(--nav-w)", ".appbar{margin-left:180px", 1),
+         "앱바 여백만 숫자로 되돌림"),
+        (html.replace("#v-org.view{margin-left:var(--nav-w)", "#v-org.view{margin-left:216px", 1),
+         "조직도 뷰만 숫자로 되돌림"),
+        (html.replace("  --nav-w:216px;", "  --nav-w:216px;\n  --nav-w:240px;", 1),
+         "--nav-w 정의를 둘로 늘림"),
+        (html.replace(".appbar-status{flex:0 1 auto", ".appbar-status{flex:none", 1),
+         "안 줄어들게 되돌림"),
     ):
         try:
             _check(broken)
@@ -24927,8 +24991,14 @@ def t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback():
     html = open(path, encoding="utf-8").read()
 
     def _check(text):
-        css = text.split("</style>", 1)[0]
-        rest = text.split("</style>", 1)[1] if "</style>" in text else ""
+        # ⚠ <style> 바위가 10개다 — 첫 덩어리만 보면 나머지 9개의 고아 토큰은
+        #   영영 안 걸린다(2026-08-19 [142] 에서 같은 자리를 t331 이 밟았다).
+        css, rest = _style_split(text)
+        # ★ 짝짓기가 어긋나면 JS 가 CSS 로 섮이고, 그러면 화면이 실행 중에 넣는 값
+        #   (--node-c · --seg-ink)이 "정의된 테마 토큰"으로 둔갑해 **정당한 기본값에
+        #   거짓 경보**가 난다([172] · 2026-08-19 실측으로 그렇게 났다).
+        assert "${" not in css, (
+            "<style> 짝짓기가 어긋나 JS 템플릿이 CSS 로 섮였다 — _style_split 을 볼 것")
         # ⚠ 규칙을 세기 전에 **설명 주석을 걷어낸다** — 이 프로젝트가 네 번 밟은 자리다
         #    ([301]⑨·[302]·[309]). 안 걷으면 사고를 적어 둔 주석 자신이 걸린다.
         css = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
@@ -24972,6 +25042,10 @@ def t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback():
         (html.replace("  --card:var(--surface);", "  ", 1), "토큰 정의를 지움"),
         (html.replace("color:var(--ink)}\n.formgrid .fld>input::placeholder",
                       "color:inherit}\n.formgrid .fld>input::placeholder", 1), "글자색을 inherit 로"),
+        # ★ **마지막** <style> 바위에 심은 것도 잡혀야 한다 — 첫 덩어리만 보던
+        #   예전 검사는 여기서 통과했다(2026-08-19 이 바꿈으로 실제 고장 둘을 찾았다).
+        (html[:html.rfind("</style>")] + ".t332-probe{color:var(--ink,#fff)}"
+         + html[html.rfind("</style>"):], "마지막 <style> 바위에 굳은 폴백"),
     ):
         if broken == html:
             raise AssertionError(f"자기시험이 아무것도 안 바꿨다 — 앵커가 어긋났다({why})")
