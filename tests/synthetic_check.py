@@ -23264,7 +23264,7 @@ def t318_past_pm_plan_is_not_a_plan():
     ★ **관문이 둘이다**(서버·화면). 화면 쪽은 낡은 응답·오프라인 사본이 대표 보고로 들어오는
       길이라 같은 판단을 한 번 더 한다([281] 이 세운 구조 그대로). **둘 다** 잰다.
     """
-    import json as _json, shutil, subprocess
+    import io as _io, json as _json, shutil, subprocess
     import proc_guard
     from webapp import app_server as S
 
@@ -23310,8 +23310,8 @@ def t318_past_pm_plan_is_not_a_plan():
     if not node:
         print("[318] 지난 예정 - node 가 없어 화면 검사는 건너뜀(서버만) OK")
         return
-    live = io.open(os.path.join(ROOT, "webapp", "index.html"),
-                   encoding="utf-8", newline="").read()
+    live = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                    encoding="utf-8", newline="").read()
     블록 = live[live.index("  const pmReportUnit=e=>{"):
                 live.index("  const capAll = calendarRows()")]
     assert "overdueUnits" in 블록, "화면 관문에 지난 예정 규칙이 없다"
