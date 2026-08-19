@@ -57,6 +57,15 @@ window.addEventListener('beforeinstallprompt', function(e){
   --brand-btn:#0062CC;                                            /* 흰 글자를 얹는 버튼 바탕 */
   --ink:#000000; --ink-2:rgba(60,60,67,.86); --ink-3:rgba(60,60,67,.74);  /* 7.2/6.6 · 5.0/4.7 */
   --line:rgba(60,60,67,.24);                                    /* separator (헤어라인) */
+  /* ★ **정의 안 된 토큰은 흰 칸으로 나타난다** (2026-08-19 형님 캡처 '하얀색 때문에
+     텍스트가 안보여'). `--card` 는 이 파일 어디에도 정의된 적이 없는데 CSS 7곳이
+     쓰고 있었다. 그중 캠프 수정 창의 입력칸·저장줄이 `var(--card,#fff)` 라
+     **어두운 화면에서도 흰 바탕**이 되고 글자는 `color:inherit` 로 거의 흰색이라
+     명암비 1.1 — 값이 있는데 안 보인다([169] 와 같은 모양: 오류도 안 난다).
+     나머지 5곳은 폴백이 없어 배경이 **조용히 사라졌다**(속성 자체가 무효가 된다).
+     그래서 뜻하던 토큰의 **별명**으로 한 번만 정의한다 — `var()` 는 쓰이는 자리에서
+     풀리므로 이 한 줄이 밝은 화면·어두운 화면 양쪽에서 맞는 값을 준다. */
+  --card:var(--surface); --ink-1:var(--ink); --muted:var(--ink-3); --shadow:var(--sh);
   --ok:#1B6E2E; --ok-bg:#E7F8EC;                                /* 6.3/5.7 · 연녹 바탕 5.7 */
   --warn:#B25000; --warn-bg:#FFF4E5; --warn-btn:#B25000;   /* 글자 5.2 · 버튼 흰글자 5.2 */
   --danger:#C7362B; --danger-bg:#FFEDEB; --danger-btn:#B3261E;  /* 글자 5.3 · 버튼 흰글자 6.5 */
@@ -983,7 +992,7 @@ body.calendar-only .cal2-only-note{display:block}
 .gd .prj{font-size:13px;padding:2px 7px}
 .gd .dc{font-size:13px;color:var(--ink-3);align-self:center;margin-right:4px}
 .gd .more{font-size:13px;color:var(--ink-3);font-weight:700;align-self:center}
-.gd .dw{display:block;margin-top:3px;font-size:13px;color:var(--warn,#E8890C);font-weight:700}
+.gd .dw{display:block;margin-top:3px;font-size:13px;color:var(--warn);font-weight:700}
 .gi span{color:var(--ink-2);word-break:keep-all}
 .gi b{font-variant-numeric:tabular-nums;font-size:15px;white-space:nowrap}
 /* 숫자 칸: 폰 2열 → 넓은 화면 3열 */
@@ -1009,13 +1018,13 @@ body.calendar-only .cal2-only-note{display:block}
 .codes li{margin:4px 0}
 .codes b{color:var(--brand-dk)}
 .ct{font-size:13.5px;color:var(--ink-3);margin-top:1px;line-height:1.55}
-.ct.warn{color:var(--warn,#E8890C);background:var(--warn-bg);border-radius:8px;padding:7px 10px;margin-top:5px;font-weight:600}
+.ct.warn{color:var(--warn);background:var(--warn-bg);border-radius:8px;padding:7px 10px;margin-top:5px;font-weight:600}
 .gone{color:var(--ink-3);text-decoration:line-through}
 .dirbtn{flex:0 0 auto;padding:10px 13px;border:1.5px solid var(--brand);border-radius:11px;
   font-size:14px;font-weight:700;color:var(--brand);background:var(--surface);white-space:nowrap;
   transition:background .15s,color .15s}
 .dirbtn::before{content:"↓ ";font-weight:800}
-.dirbtn.desc{border-color:var(--warn,#E8890C);color:var(--warn,#E8890C)}
+.dirbtn.desc{border-color:var(--warn);color:var(--warn)}
 .dirbtn.desc::before{content:"↑ "}
 .dirbtn:hover{background:var(--brand-btn);color:#fff}
 .dirbtn.desc:hover{background:var(--warn-btn);color:#fff}
@@ -2230,7 +2239,7 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
    삭제만 빨갛다: 되돌릴 수 있어도 '없애는 쪽'이라는 것이 한눈에 보여야 한다. */
 .wt-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:9px}
 .wt-acts .wt-open{margin-left:0}
-.wt-del{border-color:#C0392B;color:var(--danger,#C0392B);font-weight:800}
+.wt-del{border-color:#C0392B;color:var(--danger);font-weight:800}
 .wt-acthint{margin-top:4px;color:var(--ink-3);font-size:12.5px;line-height:1.45}
 .wt-pend{margin-left:5px;color:var(--warn);font-style:normal;font-size:12.5px;border:1px solid #F2C4A0;
   border-radius:6px;padding:0 5px;background:var(--warn-bg)}
@@ -3111,9 +3120,13 @@ body.dash-drag-live #dashGuides{display:grid}
 @media(min-width:640px){.formgrid{grid-template-columns:1fr 1fr}}
 .formgrid .fld{display:flex;flex-direction:column;gap:4px;min-width:0}
 .formgrid .fld>span{font-size:12px;color:var(--ink-3);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+/* ⚠ 테마 토큰에 `#fff` 같은 **굳은 폴백**을 달지 말 것 — 토큰이 빠진 날 어두운
+   화면이 흰 칸이 되고, 글자는 `inherit`(거의 흰색)이라 **아무 오류 없이 안 보인다**.
+   바탕과 글자는 **같은 테마의 짝**으로 적는다(`--surface` ↔ `--ink`). */
 .formgrid .fld>input[type=text],.formgrid .fld>input:not([type=checkbox]){
-  width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line,#d5d9e0);
-  border-radius:6px;font:inherit;background:var(--card,#fff);color:inherit}
+  width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);
+  border-radius:6px;font:inherit;background:var(--surface);color:var(--ink)}
+.formgrid .fld>input::placeholder{color:var(--ink-3);opacity:1}
 .formgrid .fld>input[type=checkbox]{width:18px;height:18px;align-self:flex-start}
 /* ── 동작 단추 `.btn` — 캠프 화면의 추가·수정·저장 (2026-08-18 형님 지시) ──────
    지시: "캠프 추가, 수정, 저장 등 아이콘이 크게 보이게 해 (담당자가 찾아야되잖아
@@ -3154,7 +3167,8 @@ body.dash-drag-live #dashGuides{display:grid}
   font-weight:700;cursor:pointer}
 .chk input{width:20px;height:20px;accent-color:var(--brand);cursor:pointer}
 .sheetfoot{display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;
-  padding:12px 0 4px;margin-top:8px;background:var(--card,#fff);border-top:1px solid var(--line,#e5e8ee)}
+  padding:12px 0 4px;margin-top:8px;background:var(--surface);color:var(--ink);
+  border-top:1px solid var(--line)}
 </style>
 </head>
 <body>

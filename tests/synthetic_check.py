@@ -24907,6 +24907,85 @@ def t331_desktop_body_never_slides_under_the_fixed_sidebar():
           "(2026-08-19 실측 1280/1024/900/375 넘침 0) OK")
 
 
+def t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback():
+    """[332] **정의 안 된 토큰은 흰 칸으로 나타난다** (2026-08-19 형님 캡처).
+
+    형님 보고: 캠프 수정 창이 **"하얀색 때문에 텍스트가 안보여"**.
+    범인은 `--card` 였다 — 이 파일 어디에도 정의된 적이 없는데 CSS 7곳이 쓰고 있었다.
+    · 폴백이 있던 2곳(`var(--card,#fff)`)은 **어두운 화면에서도 흰 바탕**이 되고
+      글자는 `color:inherit`(거의 흰색)이라 실측 **명암비 1.09** — 값이 있는데 안 보인다.
+    · 폴백이 없던 5곳은 속성 자체가 무효가 되어 **배경이 조용히 사라졌다**.
+    어느 쪽도 오류를 안 낸다([169]) — 화면을 연 사람만 안다.
+    고친 뒤 실측: 어두움 **15.5** · 밝음 **21** · `contrast_audit` 미달 0.
+
+    여기서 얼리는 것 둘([39] — 되돌아가면 안 되는 것):
+      ① `var(--x)` 로 쓰는 이름은 **정의돼 있거나 · 실행 중 설정되거나 · 폴백이 있어야** 한다.
+      ② **정의된 테마 토큰에 굳은 색 폴백을 붙이지 않는다** — 그 폴백은 토큰이 빠진
+         날에만 쓰이는데, 하필 그때 테마를 깨는 값이다(이 사고가 그것이다).
+    """
+    path = os.path.join(ROOT, "webapp", "index.html")
+    html = open(path, encoding="utf-8").read()
+
+    def _check(text):
+        css = text.split("</style>", 1)[0]
+        rest = text.split("</style>", 1)[1] if "</style>" in text else ""
+        # ⚠ 규칙을 세기 전에 **설명 주석을 걷어낸다** — 이 프로젝트가 네 번 밟은 자리다
+        #    ([301]⑨·[302]·[309]). 안 걷으면 사고를 적어 둔 주석 자신이 걸린다.
+        css = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
+        defined = set(re.findall(r"(--[A-Za-z0-9_-]+)\s*:", css))
+        # 화면이 요소마다 넣어 주는 값(`style="--c:…"`)은 CSS 에 없는 것이 정상이다.
+        runtime = set(re.findall(r"(--[A-Za-z0-9_-]+)\s*:", rest))
+
+        # ① 폴백 없이 쓰는데 아무 데서도 안 정해지는 이름
+        bare = set(re.findall(r"var\(\s*(--[A-Za-z0-9_-]+)\s*\)", css))
+        orphan = sorted(bare - defined - runtime)
+        assert not orphan, (
+            "CSS 가 어디에도 없는 토큰을 폴백 없이 쓴다 — 그 속성은 조용히 무효가 된다: "
+            + ", ".join(orphan))
+
+        # ② 정의된 테마 토큰에 굳은 색 폴백(#hex · rgb(...) · 색 이름)을 붙이는 것
+        bad = []
+        for name, fb in re.findall(r"var\(\s*(--[A-Za-z0-9_-]+)\s*,\s*([^),]+)\)", css):
+            if name not in defined:
+                continue                      # 실행 중에 넣는 값의 기본치는 정당하다
+            if re.match(r"\s*(#[0-9A-Fa-f]{3,8}|rgb|hsl|white|black)", fb):
+                bad.append(f"var({name},{fb.strip()})")
+        assert not bad, (
+            "테마 토큰에 굳은 색 폴백이 붙었다 — 토큰이 빠지는 날 어두운 화면이 "
+            "흰 칸이 되고 아무 오류도 안 난다: " + ", ".join(sorted(set(bad))))
+
+        # ③ 캠프 수정 창의 입력칸은 바탕·글자를 **같은 테마의 짝**으로 적는다.
+        rule = re.search(r"\.formgrid \.fld>input\[type=text\][^{]*\{([^}]*)\}", css)
+        assert rule, "캠프 수정 창 입력칸 규칙을 못 찾았다"
+        body = rule.group(1)
+        assert "background:var(--" in body, "입력칸 바탕이 테마 토큰이 아니다"
+        assert re.search(r"color:var\(--", body), (
+            "입력칸 글자색이 `inherit` 이면 바탕만 바뀌어도 글자가 사라진다 — "
+            "바탕과 짝인 토큰으로 적을 것")
+
+    _check(html)
+
+    # ★ 계기 자기시험([272]) — 셋 다 되돌리면 잡혀야 한다.
+    for broken, why in (
+        (html.replace("background:var(--surface);color:var(--ink)}",
+                      "background:var(--card,#fff);color:inherit}", 1), "흰 폴백을 되돌림"),
+        (html.replace("  --card:var(--surface);", "  ", 1), "토큰 정의를 지움"),
+        (html.replace("color:var(--ink)}\n.formgrid .fld>input::placeholder",
+                      "color:inherit}\n.formgrid .fld>input::placeholder", 1), "글자색을 inherit 로"),
+    ):
+        if broken == html:
+            raise AssertionError(f"자기시험이 아무것도 안 바꿨다 — 앵커가 어긋났다({why})")
+        try:
+            _check(broken)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError(f"이 검사가 아무것도 안 재고 있다 — {why} 인데도 통과했다")
+
+    print("[332] CSS 토큰은 정의돼 있고 테마 토큰에 굳은 색 폴백이 없다 "
+          "(캠프 수정 창 실측 명암비 1.09 → 어두움 15.5 · 밝음 21) OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -25231,6 +25310,7 @@ if __name__ == "__main__":
     t329_context_guard_after_compact()
     t330_userscript_watch_sees_the_dev_mode_gate()
     t331_desktop_body_never_slides_under_the_fixed_sidebar()
+    t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
