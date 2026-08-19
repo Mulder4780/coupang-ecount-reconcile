@@ -150,6 +150,29 @@ KIND_LABEL = {
 }
 DEFAULT_LIMIT_DAYS = 2
 
+
+def _borrow_ledger_labels():
+    """회계 원장류 이름(ERP:cashbook 등)을 **inbox_scan 에서 빌려** 채운다.
+
+    ★ 여기 손으로 적지 않는다([162]) — 그 낱말의 주인은 흡수기(inbox_scan.LABEL)다.
+      사본을 두면 [203] 이 갈라 놓은 네 화면의 이름이 두 곳에서 어긋나고, 어긋난
+      쪽을 읽은 사람은 **다른 화면을 몰러 간다**([172]).
+    ★ 못 빌리면 **아무 이름도 지어내지 않는다** — 그때는 ERP:journal 같은 날코드가
+      그대로 찍히고, 그것이 '이름을 못 읽었다'는 정직한 표시다([169]).
+    """
+    try:
+        import inbox_scan as _S
+        lab = getattr(_S, "LABEL", None) or {}
+    except Exception:
+        return
+    for code in ("ledger_acct", "journal", "cashbook"):
+        nm = str(lab.get(code) or "").strip()
+        if nm:
+            KIND_LABEL.setdefault("ERP:" + code, nm)
+
+
+_borrow_ledger_labels()
+
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -213,10 +236,38 @@ def run(limit_days=DEFAULT_LIMIT_DAYS):
     if not late:
         print("\n밀린 종류 없음.")
         return 0
+    # ★ '밀렸다'까지만 말하면 사람이 **어느 화면을 몰지 스스로 짐작**해야 한다.
+    #   등록부(SCREENS + config)가 화면마다 kind 를 이미 갖고 있으므로 그것을 뒤집어
+    #   대 준다 — 여기서 새로 짝짓지 않는다([162]).
+    #   ★ 짝이 없는 종류는 **몰이 목록에 아예 없다**. 그 사실을 안 적으면 사람이 매일
+    #     같은 화면을 몰고도 그 종류만 영영 안 들어온다(오류도 안 난다 · [169]).
+    try:
+        by_kind = {}
+        for key, rec in (load_screens() or {}).items():
+            k = str((rec or {}).get("kind") or "").strip()
+            if k:
+                by_kind.setdefault(k, []).append(key)
+    except Exception:
+        by_kind = None                      # 못 읽었다 — '없다'고 말하지 않는다
+
     print(f"\n★ 밀린 것 {len(late)}종 — 한 덩어리로 세면 안 보인다:")
+    missing = []
     for kind, m, age in late:
-        print(f"  · {KIND_LABEL.get(kind, kind)}: 최신 {m[:10]} · {age}일 밀림")
+        if by_kind is None:
+            how = "· 화면 등록부를 못 읽었다(짝을 확인 못 함)"
+        elif by_kind.get(kind):
+            how = "→ 몰 화면: " + " · ".join(by_kind[kind])
+        else:
+            how = "→ ★ 화면 등록 없음 — 자동 몰이에서 통째로 빠진다"
+            missing.append(kind)
+        print(f"  · {KIND_LABEL.get(kind, kind)}: 최신 {m[:10]} · {age}일 밀림  {how}")
+
     print("\n받는 법: 로그인된 ERP 탭에서 화면을 몰아 Excel 을 받는다(이 파일 위쪽 요령).")
+    if missing:
+        print(f"  ⚠ 그중 {len(missing)}종은 **몰아도 안 온다** — 등록부에 화면이 없다:")
+        print("    " + " · ".join(KIND_LABEL.get(k, k) for k in missing))
+        print("    등록하는 법: python erp_grab.py --find " + "'<메뉴에서 찾을 말>'")
+        print("               (사이트맵을 읽기만 한다 — 누르지 않는다)")
     return 0
 
 
