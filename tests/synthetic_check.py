@@ -4550,16 +4550,20 @@ def t98_remote_control_tracking():
         L.DB_DIR, L.DB_PATH = tmp, os.path.join(tmp, "t.db")
         assert L.REMOTE_BRANCH_ISSUERS == {"부산": "오종현", "시화": "안은숙", "증평": "류지영"}
         assert L.REMOTE_HOLD_LIMIT == 3
-        L.remote_request("부산", "김기사", 2, "오종현")     # 즉시 불출 기록
-        for bad in (lambda: L.remote_request("부산", "김기사", 2, "오종현"),   # 2+2>3
-                    lambda: L.remote_request("서울", "박기사", 1, "아무개"),   # 지점 제한
+        # ★ 사유는 이제 필수다(2026-08-19 리모컨 변경 · `remote_purpose`).
+        #   ⚠ 아래 **음성 검사**에도 반드시 넣는다 — 사유를 빼면 한도·지점·재고를
+        #   재기 전에 "사유를 골라 주세요"로 죽어, 검사가 **엉뚱한 오류로 통과**한다
+        #   (초록인데 아무것도 안 재는 자리다 · `[169]`).
+        L.remote_request("부산", "김기사", 2, "오종현", reason="신규설치")  # 즉시 불출 기록
+        for bad in (lambda: L.remote_request("부산", "김기사", 2, "오종현", reason="신규설치"),  # 2+2>3
+                    lambda: L.remote_request("서울", "박기사", 1, "아무개", reason="신규설치"),  # 지점 제한
                     lambda: L.remote_deliver("김기사", "UJ2600001", "", 3)):   # 보유 초과 납품
             try:
                 bad(); raise AssertionError("리모컨 규칙이 뚫렸다")
             except ValueError:
                 pass
         # 공지(2026-08-04): 불출 일자·투입 예정 캠프명이 불출 기록에 남는다
-        L.remote_request("시화", "김기사", 1, "안은숙",
+        L.remote_request("시화", "김기사", 1, "안은숙", reason="신규설치",
                          issued_on="2026-08-02", camp="시화3캠프")  # 2+1=3 — 허용
         top = L.remote_status()["issues"][0]
         assert (top["issued_on"], top["camp"]) == ("2026-08-02", "시화3캠프"), top
@@ -4581,7 +4585,7 @@ def t98_remote_control_tracking():
         assert st["over_limit"].get("정기사") == 9, st["over_limit"]
         assert st["branch_stock"]["부산"]["stock"] == before, "기초보유가 지점 재고를 깎았다"
         try:                                   # 새 불출은 여전히 한도가 막는다
-            L.remote_request("부산", "정기사", 1, "오종현")
+            L.remote_request("부산", "정기사", 1, "오종현", reason="신규설치")
             raise AssertionError("한도 초과자에게 추가 불출이 뚫렸다")
         except ValueError:
             pass
@@ -4598,7 +4602,7 @@ def t98_remote_control_tracking():
         st2 = L.remote_status()["branch_stock"]
         assert not st2["증평"]["tracked"] and st2["증평"]["stock"] == 0, st2["증평"]  # 미등록 지점
         assert L.remote_stock_adjust("증평", 5, "add", "", "류지영") == 5             # 입고 5
-        L.remote_request("증평", "박기사", 2, "류지영")                               # 재고 5→3
+        L.remote_request("증평", "박기사", 2, "류지영", reason="신규설치")   # 재고 5→3
         st2 = L.remote_status()["branch_stock"]["증평"]
         assert (st2["tracked"], st2["in"], st2["issued"], st2["stock"]) == (True, 5, 2, 3), st2
         try:
@@ -4607,7 +4611,7 @@ def t98_remote_control_tracking():
             raise AssertionError("실사 맞춤이 막혔다")
         assert L.remote_status()["branch_stock"]["증평"]["stock"] == 1
         try:
-            L.remote_request("증평", "최기사", 2, "류지영")
+            L.remote_request("증평", "최기사", 2, "류지영", reason="신규설치")
             raise AssertionError("재고(1)보다 많은 불출(2)이 뚫렸다")
         except ValueError:
             pass
@@ -5228,7 +5232,7 @@ def t109_remote_edit_delete_versions():
 
         L.remote_stock_adjust("시화", 5, "add", "입고", "안은숙", version="VER.3")
         rid = L.remote_request("시화", "김기사", 2, "안은숙", camp="시화1캠프",
-                               version="ver3", issuer="대리불출자")
+                               reason="신규설치", version="ver3", issuer="대리불출자")
         top = L.remote_status()["issues"][0]
         assert (top["version"], top["issuer"]) == ("VER.3", "대리불출자"), top
         # 버전이 붙어야 지점 버전별 잔량이 맞는다(5 - 2 = 3)
