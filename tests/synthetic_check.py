@@ -20072,6 +20072,151 @@ def t337_a_round_that_vanishes_mid_step_leaves_its_step_name():
     print("[337] 단계 도중 사라진 회차는 그 단계 이름을 남긴다 · 원인은 지목하지 않는다 · 끝을 봤으면 조용하다")
 
 
+def t338_a_finished_round_is_never_called_still_running():
+    """[338] 인계가 **끝난 회차**를 「지금 단계 … N분째」라고 말하지 않는다 (2026-08-20).
+
+    ★ 실측 인계 문구: `일일자동대조 — 마지막 회차가 **중단**으로 끝났다 · 지금 단계:
+      **(회차 끝)**(실패) 464분째` — **한 문장이 「끝났다」와 「464분째」를 같이 말한다.**
+      조치도 *「먼저 tasklist 로 앞 회차가 도는지 확인」* 이라, 사람은 이미 7.7시간 전에
+      끝난 회차를 기다리거나 없는 것을 찾아 나선다([172]·[325]).
+    ★ 원인은 갈래 하나가 샌 것이다 — `daily_step_now` 는 `(회차 끝)` 자국에
+      `살아있음=None` 을 준다(완주한 회차는 pid 가 죽는 것이 정상이라 판정하지 않는다,
+      [211]). 그런데 `_step_hint` 가 `is False` 만 걸러 **None 이 「도는 중」 쪽으로
+      떨어졌다** — 바로 그 자리의 주석이 막으려던 모양 그대로다.
+      **자국이 남는 것과 그 회차가 도는 것은 다른 말이다.**
+    ⚠ 실측 증거 `reports/.daily_run.progress.json` 에는 한 글자도 안 쓴다([247]).
+    """
+    # ⚠ `shutil`·`io` 는 이 파일 **모듈 수준에 없다**([324]) — 안 들여오면 진짜
+    #   실패가 `NameError` 에 가려진다. 격리 실행에서는 네임스페이스를 채워 주므로
+    #   **통과하고 관문에서만 죽는다**(실측 2026-08-20).
+    import importlib, json as _j, tempfile, shutil as _sh
+    from datetime import datetime as _dt, timedelta as _td
+    H = importlib.import_module("session_handoff")
+
+    tmp = tempfile.mkdtemp(prefix="t338_")
+    real_dir, real_alive = H.REPORT_DIR, H._progress_owner_alive
+    old_iso = (_dt.now().astimezone() - _td(minutes=464)).isoformat()
+
+    def _put(step, alive):
+        H._progress_owner_alive = lambda d: alive
+        with open(os.path.join(tmp, ".daily_run.progress.json"),
+                  "w", encoding="utf-8") as fh:
+            _j.dump({"단계": step, "상태": "실패", "시각": old_iso,
+                     "끝난단계": ["합성검증"], "경과분": 4.2, "예산분": 150,
+                     "pid": 999999}, fh, ensure_ascii=False)
+
+    try:
+        H.REPORT_DIR = tmp
+        # ① 끝난 회차 — 「지금 단계」도 「분째」도 나오면 안 된다
+        _put("(회차 끝)", None)
+        done = H._step_hint()
+        assert ("지금 단계" not in done and "분째" not in done), (
+            "[338] 끝난 회차를 「지금 단계 … N분째」라고 말한다: " + done)
+        # ② 그리고 끝났다는 사실을 **말한다** — 조용히 빼지 않는다([169])
+        assert ("끝났다" in done and "도는 중이 아니다" in done), (
+            "[338] 끝난 회차인 것을 말하지 않는다: " + done)
+        assert "분 전" in done, "[338] 언제 끝났는지를 안 적는다: " + done
+        # ③ **죽은 회차 갈래는 그대로다** — 좁히는 것도 고장이다([172])
+        _put("보험 입금 확인", False)
+        dead = H._step_hint()
+        assert ("마지막 자국" in dead and "죽었다" in dead), (
+            "[338] 죽은 회차 갈래가 깨졌다: " + dead)
+        # ④ 도는 중이면 예전 그대로 「지금 단계 … N분째」
+        _put("보험 입금 확인", True)
+        live = H._step_hint()
+        assert ("지금 단계" in live and "분째" in live), (
+            "[338] 도는 회차까지 「끝났다」로 말한다: " + live)
+        # ⑤ 계기 자기시험([272]) — 갈래를 빼면 ①이 잡히나
+        src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+        fn = ("def _step_hint():"
+              + src.split("def _step_hint():")[1].split(chr(10) + "def ")[0])
+        bad = fn.replace('if s.get("단계") == "(회차 끝)":', "if False:", 1)
+        assert bad != fn, "[338] 자기시험이 바꿀 자리를 못 찾았다 — 아무것도 안 잰다"
+        ns = {"daily_step_now": H.daily_step_now, "_slow_hint": H._slow_hint}
+        exec(compile(bad, "<t338-bad>", "exec"), ns)
+        _put("(회차 끝)", None)
+        broken = ns["_step_hint"]()
+        assert "분째" in broken, (
+            "[338] 옛 동작을 되살렸는데도 ①이 통과한다 — 이 검사는 아무것도 안 잰다")
+    finally:
+        H.REPORT_DIR, H._progress_owner_alive = real_dir, real_alive
+        _sh.rmtree(tmp, ignore_errors=True)
+    print("[338] 끝난 회차를 「도는 중」이라 말하지 않는다 — 갈래 4 + 자기시험 ✅")
+
+
+def t339_the_exec_guard_measures_every_money_metric():
+    """[339] 대표보고 감시자가 **금액 지표를 빠뜨리지 않는다** (2026-08-20 실사고).
+
+    ★ 실측: 서버는 금액 지표를 **다섯** 만드는데 감시자 표(`MONEY_COLUMNS`)에는
+      `잔여` 둘만 있었다. 그래서 `입금액 (당일)`·`세금계산서 발행액 (당일)` 은
+      근거 열이 **통째로 죽었는데도**(`입금일` 0/750 · `세금계산서합계` 0/750)
+      아무 화면에도 안 떴다 — 그 둘은 **구조적으로 언제나 0** 이고, 대표는 그 0 을
+      '오늘 입금이 없었다'로 읽는다(`[169]` 의 가장 비싼 판).
+    ★ 그리고 계기 자신이 거짓말할 수 있었다 — `column_health` 가 **없는 열**과
+      **빈 열**을 똑같이 '채워짐 0' 이라 했다(`[165]`). 표에 오타 하나면 감시자가
+      "그 열이 비었다"고 말하고 사람은 **없는 열을 채우러 간다**(`[172]`).
+      만들면서 그대로 밟았다 — `청구금액` 은 06시트에 없는 이름인데 '750행 중 0행'.
+    ★ 넷을 **한 줄로 묶는다**(`[170]`) — 원인이 하나인데 네 줄로 울리면 진짜 P1 이
+      묻힌다. 대신 어느 열이 얼마나 비었는지 **숫자로 전부 적는다**(`[169]`).
+    ⚠ 실측 증거(`reports/대표보고_검증.json`)에는 한 글자도 안 쓴다 — `build()` 를
+      부르지 않고 순수 함수와 소스만 잰다(`[247]`).
+    """
+    import importlib
+    G = importlib.import_module("exec_report_guard")
+
+    # ① 없는 열과 빈 열을 **가른다**
+    rows = [{"미수금액": "", "입금일": ""} for _ in range(10)]
+    empty = G.column_health(rows, "미수금액")
+    gone = G.column_health(rows, "없는열이름")
+    assert not empty.get("없는열") and empty["채워짐"] == 0, (
+        "[339] 빈 열을 '없는 열'이라 한다: " + repr(empty))
+    assert gone.get("없는열") and gone.get("확인못함"), (
+        "[339] 06시트에 없는 열을 '비었다'고 말한다 — 사람이 없는 열을 채우러 간다: "
+        + repr(gone))
+
+    # ② 표가 당일 지표까지 덮는다 — 그리고 그 **이름이 서버에 실재**한다([165])
+    app = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    for _label in G.MONEY_COLUMNS:
+        assert ('add("' + _label + '"') in app, (
+            "[339] `" + _label + "` 는 서버가 만드는 지표가 아니다 — 표의 오타는 "
+            "조용히 0건이 된다([165])")
+    for _need in ("입금액 (당일)", "세금계산서 발행액 (당일)"):
+        assert _need in G.MONEY_COLUMNS, (
+            "[339] 당일 금액 지표가 감시 밖이다 — 근거 열이 죽어도 아무도 모른다: "
+            + _need)
+
+    # ③ 죽은 열이 여럿이어도 '먼저볼것'은 **한 줄**이고 열 이름을 전부 적는다
+    src = open(os.path.join(ROOT, "exec_report_guard.py"), encoding="utf-8").read()
+    body = src.split("def build(")[1]
+    assert "dead.append(" in body and 'chr(0)' not in body, (
+        "[339] 죽은 열을 모으는 자리가 없다 — 지표마다 한 줄씩 울면 진짜 P1 이 묻힌다")
+    assert body.count('out["먼저볼것"].append(') <= 3, (
+        "[339] '먼저볼것' 을 내는 자리가 너무 많다 — 묶기가 무너졌다([170])")
+
+    # ④ 폴백 갈래에 지표 이름을 **손으로 적지 않는다**([162] 사본 금지)
+    # ⚠ **규칙을 세기 전에 주석을 걷어낸다** — 이 프로젝트가 다섯 번째 밟는 자리다
+    #   (`[301]`⑨·`[302]`·`[309]`·`[332]`). 바로 위 고침이 남긴 *"예전에는 …"* 주석에
+    #   그 옛 코드가 그대로 적혀 있어, 안 걷으면 **고친 코드가 제 설명에 걸려 빨개진다.**
+    _code = chr(10).join(l for l in app.split(chr(10))
+                         if not l.lstrip().startswith("#"))
+    tail = _code.split("근거 열을 못 쟀다")[0][-1600:]
+    assert 'for _label in ("잔여 미청구액", "잔여 미수금액")' not in tail, (
+        "[339] 폴백이 지표 이름을 손으로 적고 있다 — 표를 넓혀도 그 갈래만 안 따라온다")
+
+    # ⑤ 계기 자기시험([272]) — '없는 열' 갈래를 빼면 ①이 잡히나
+    fn = ("def column_health(rows, col):"
+          + src.split("def column_health(rows: Optional[List[Dict[str, Any]]], col: str)"
+                      " -> Dict[str, Any]:")[1].split(chr(10) + "def ")[0])
+    bad = fn.replace("if total and col not in (rows[0] or {}):", "if False:", 1)
+    assert bad != fn, "[339] 자기시험이 바꿀 자리를 못 찾았다 — 아무것도 안 잰다"
+    ns = {"Optional": object, "List": object, "Dict": object, "Any": object}
+    exec(compile(bad, "<t339-bad>", "exec"), ns)
+    broke = ns["column_health"](rows, "없는열이름")
+    assert not broke.get("없는열"), (
+        "[339] 옛 동작을 되살렸는데도 ①이 통과한다 — 이 검사는 아무것도 안 잰다")
+    print("[339] 대표보고 금액 지표를 빠짐없이 잰다 — 없는열/빈열 구분 + 묶기 + 자기시험 ✅")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -26028,6 +26173,8 @@ if __name__ == "__main__":
     t335_ceo_needs_no_seat_but_is_never_silently_dropped()
     t336_one_window_is_never_two_and_the_server_has_its_own_id()
     t337_a_round_that_vanishes_mid_step_leaves_its_step_name()
+    t338_a_finished_round_is_never_called_still_running()
+    t339_the_exec_guard_measures_every_money_metric()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()

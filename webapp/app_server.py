@@ -5010,13 +5010,18 @@ def read_exec_details(master, base_date=""):
     except Exception as _e:
         # ★ 못 쟀으면 **못 쟀다고 말한다**([169]) — 조용히 넘어가면 근거가 비어 있는
         #   날에도 화면이 예전처럼 숫자를 확언한다.
-        for _label in ("잔여 미청구액", "잔여 미수금액"):
-            _d = details.get(_label)
-            if _d is not None:
-                _d["근거"] = None
-                _d["근거경고"] = ("근거 열을 못 쟀다(%s) — 이 숫자를 확언하지 말 것"
-                                % type(_e).__name__)
-                _d["basis"] = _d["basis"] + " · ⚠ " + _d["근거경고"]
+        # ★ 지표 이름을 **여기 손으로 적지 않는다**(2026-08-20). 예전에는
+        #   `("잔여 미청구액", "잔여 미수금액")` 두 개가 박혀 있어, 감시자 표가
+        #   넷으로 넓어져도 이 갈래만 둘로 남았다 — **사본이 둘이면 한쪽만 고쳐진다**
+        #   ([162]). 게다가 표를 못 읽은 자리이므로 **어느 지표가 위험한지도 모른다**:
+        #   그러면 지금까지 만든 **금액 지표 전부**에 말해 주는 것이 정직하다([169]).
+        for _label, _d in list(details.items()):
+            if not isinstance(_d, dict) or _d.get("kind") != "amount":
+                continue
+            _d["근거"] = None
+            _d["근거경고"] = ("근거 열을 못 쟀다(%s) — 이 숫자를 확언하지 말 것"
+                            % type(_e).__name__)
+            _d["basis"] = _d["basis"] + " · ⚠ " + _d["근거경고"]
     add("작업금액 불일치 (현재)",
         [detail(r, amount=r.get("작업대비거래명세서차액"), issue=r.get("문제내용"),
                 status=r.get("검증결과"), source="금액 불일치")
