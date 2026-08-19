@@ -1922,6 +1922,13 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
 .ryu-upload-panel{display:none}.ryu-upload-panel.on{display:block}
 .ryu-list-panel.hidden,.ryu-editor-card.hidden{display:none}
 .ryu-loading{padding:34px;text-align:center;color:var(--ink-3)}
+/* 지금 처리할 것(2026-08-19 형님 지시 + 류지영 요청) — 대표 캡처가 읽는 그 자료를
+   같이 읽는다([162]). 색은 전부 테마 토큰이다([332] — 굳은 색을 쓰면 어두운 화면에서 사라진다). */
+.ryu-todo-row{border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-top:9px;background:var(--surface)}
+.ryu-todo-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ryu-todo-title{margin-top:4px;font-size:13px;color:var(--ink-2)}
+.ryu-todo-why{margin:7px 0 0}
+.ryu-todo-btns{display:flex;gap:8px;margin-top:9px;flex-wrap:wrap}
 /* 스켈레톤 — '로딩...' 글자 대신 **들어올 모양**을 미리 보여 준다(2026-07-31).
    유사 앱 조사(Limble·MaintainX·UpKeep)에서 공통된 것이고, 기다리는 시간이 같아도
    빈 화면·글자보다 짧게 느껴진다. 움직임을 싫어하는 설정은 존중한다. */
@@ -8438,6 +8445,77 @@ function injectOhUpload(){
   card.innerHTML='<h3>입금·원천자료 등록 <span class="norm">— 끌어다 놓거나 파일 선택 · URL</span></h3><div id="ohReceiptHost"></div>';
   anchor.parentNode.insertBefore(card, anchor);
   renderReceiptUpload('ohReceiptHost');
+}
+
+/* ── 류지영 업무센터 '지금 처리할 것' (2026-08-19 형님 지시 · 류지영 요청) ──
+   류지영: "확인필요 목록에 저렇게 떴음 좋겠어요 하나씩 검색해서 하기엔 뭐가 있는지를
+   모르니까요". ★ 판정을 새로 만들지 않는다([162]) — 대표 캡처가 읽는 그 자료
+   (calEvents)를 그대로 읽고, 사유 줄도 calWhyRowsHTML 을 그대로 쓴다. 여기서 다시
+   자르거나 다시 판정하면 대표 화면과 담당자 화면이 언젠가 갈린다([132] 가 세는 그 자리다). */
+function ryuTodoRows(){
+  return calEvents()
+    .filter(e => { const k = calKindOf(e); return k === 'as_open' || k === 'pm_overdue'; })
+    .sort((a, b) => Number(b.경과일 || 0) - Number(a.경과일 || 0));
+}
+function ryuTodoOpen(cat, key){
+  /* ★ 못 찾으면 조용히 아무 일도 안 하면 안 된다 — 사람은 단추가 고장 난 줄 안다([169]). */
+  if(!RYU){ notice('업무 목록을 아직 못 받았습니다 — 잠시 뒤 다시 눌러 주세요(없다는 뜻이 아닙니다).'); return; }
+  const target = cat === 'pm' ? 'pm' : 'as';
+  selectRyuCategory(target);
+  const i = (ryuVisible || []).findIndex(x => String((x && x.key) || '') === String(key));
+  if(i < 0){
+    notice('이 건이 과거 목록에 안 보입니다 — 목록 위의 상태·검색 조건을 지우고 다시 눌러 주세요.'
+      + ' (' + String(key) + ')');
+    return;
+  }
+  selectRyuRecord(i);
+}
+function renderRyuTodo(){
+  const host = $('ryuTodoHost'); if(!host) return;
+  /* ★ 비어 있는 것과 아직 안 받은 것을 가른다([169]) — 류지영 화면은 캘린더를 안 거치므로
+     CAL 이 없을 수 있다. 그때 '없습니다'라고 하면 그날 할 일이 통째로 사라진다. */
+  if(!CAL){ host.innerHTML = '<p class="sub">일정을 아직 못 받았습니다 — 처리할 것이 없다는 뜻이 아닙니다.</p>'; return; }
+  const rows = ryuTodoRows();
+  const when = String((CAL && (CAL.기준 || CAL.생성)) || '').slice(0, 16);
+  if(!rows.length){
+    host.innerHTML = '<p class="sub">지금 처리할 것이 없습니다' + (when ? ' (기준 ' + esc2(when) + ')' : '') + '.</p>';
+    return;
+  }
+  host.innerHTML = '<p class="sub">' + rows.length + '건 — 오래 지난 것부터입니다'
+    + (when ? ' · 기준 ' + esc2(when) : '') + '. 대표 보고가 읽는 그 자료와 같습니다.</p>'
+    + rows.map(e => {
+        const cat = calCatOf(e), id = String(e.원천업무ID || ''), why = calWhyRowsHTML(e);
+        return '<div class="ryu-todo-row"><div class="ryu-todo-head">'
+          + '<b>' + esc2(calCampOf(e) || '캠프 미상') + '</b>'
+          + '<span class="norm">' + esc2(calendarWhen(e)) + '</span>'
+          + (e.경과일 != null ? '<span class="chip">' + esc2(e.경과일) + '일 지남</span>' : '')
+          + '<span class="chip">' + esc2(calKindMeta(calKindOf(e)).label) + '</span></div>'
+          + '<div class="ryu-todo-title">' + esc2(e.제목 || e.요청내용 || '제목 없음') + '</div>'
+          + (why ? '<dl class="ryu-todo-why">' + why + '</dl>' : '')
+          + '<div class="ryu-todo-btns">'
+          + (id ? '<button type="button" class="abtn primary" onclick="calWhyOpen(' + esc4(cat) + ',' + esc4(id) + ')">사유 적기</button>'
+                + '<button type="button" class="abtn" onclick="ryuTodoOpen(' + esc4(cat) + ',' + esc4(id) + ')">열기</button>'
+                : '<span class="norm">원장 연결이 없어 열거나 적을 수 없습니다 — 원장에 이 건이 연결돼야 합니다</span>')
+          + '</div></div>';
+      }).join('');
+}
+async function injectRyuTodo(){
+  const anchor = $('ryuSummaryGrid'); if(!anchor || $('ryuTodoHost')) return;
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = '<h3>지금 처리할 것 <span class="norm">— 돌발AS 미처리 · 지난 정기점검 예정</span></h3>'
+    + '<div id="ryuTodoHost"><p class="sub">불러오는 중입니다…</p></div>';
+  anchor.parentNode.insertBefore(card, anchor.nextSibling);
+  try{
+    if(!CAL || !((CAL.일정 || []).length)) await loadCalendar();
+  }catch(err){
+    /* 못 받은 것을 '없다'로 적지 않는다([169]·[300]). */
+    const host = $('ryuTodoHost');
+    if(host) host.innerHTML = '<p class="sub">목록을 못 받았습니다 — 처리할 것이 없다는 뜻이 아닙니다 · '
+      + esc2(String((err && err.message) || err)) + '</p>';
+    return;
+  }
+  renderRyuTodo();
 }
 
 /* ── 리모컨 관리(2026-08-03 지시) ──
@@ -21701,6 +21779,7 @@ function bootstrapAuthenticatedData(){
   if(staffSlug==='oh-jonghyeon') injectOhUpload();
   // 리모컨 관리는 류지영·오종현 업무센터에 똑같이 들어간다(2026-08-03 지시).
   if(staffSlug==='ryu-jiyeong'||staffSlug==='oh-jonghyeon') injectRemoteCard();
+  if(staffSlug==='ryu-jiyeong') injectRyuTodo();   // 지금 처리할 것(2026-08-19)
   const surveyDate=document.querySelector('#ryuUploadForm [name="survey_date"]');
   if(surveyDate&&!surveyDate.value) surveyDate.value=todayISO();
   const newWorkDate=document.querySelector('#newWorkForm [name="work_date"]');

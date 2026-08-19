@@ -24971,6 +24971,156 @@ def t331_desktop_body_never_slides_under_the_fixed_sidebar():
           "(2026-08-19 실측 1280/1024/900/375 넘침 0) OK")
 
 
+_T333_TODO_HARNESS = """
+const fs = require('fs');
+const html = fs.readFileSync(__IDX__, 'utf8');
+const S = html.indexOf('function ryuTodoRows(');
+let E = html.indexOf('리모컨 관리(2026-08-03 지시)');
+if (E > 0) E = html.lastIndexOf('/*', E);   // 주석 안을 자르면 eval 이 깨진다
+if (S < 0 || E < 0 || E <= S) { console.log('ANCHOR MISS'); process.exit(1); }
+let src = html.slice(S, E);
+const MA = __MUT_A__, MB = __MUT_B__;
+if (MA) { if (src.indexOf(MA) < 0) { console.log('MUT ANCHOR MISS'); process.exit(1); } src = src.split(MA).join(MB); }
+
+let CAL = null, RYU = null, ryuVisible = [], selected = null;
+const notices = [];
+const HOST = { ryuTodoHost: { innerHTML: '' } };
+function notice(m){ notices.push(String(m)); }
+function esc2(v){ return String(v == null ? '' : v); }
+function esc4(v){ return JSON.stringify(String(v == null ? '' : v)); }
+function $(id){ return HOST[id] || null; }
+function calEvents(){ return ((CAL && CAL.일정) || []); }
+function calKindOf(e){ return String((e && e.분류) || 'etc'); }
+function calCatOf(e){ const k = calKindOf(e); return /^pm/.test(k) ? 'pm' : (/^as/.test(k) ? 'as' : 'etc'); }
+function calCampOf(e){ return String(e.캠프명 || ''); }
+function calendarWhen(e){ return String(e.날짜 || ''); }
+function calKindMeta(k){ return { label: k }; }
+function calWhyRowsHTML(e){
+  let h = '';
+  if (e.사람사유) h += '<dt>HUMAN</dt><dd>' + e.사람사유 + '</dd>';
+  if (e.기계추정) h += '<dt>MACHINE</dt><dd>' + e.기계추정 + '</dd>';
+  return h;
+}
+function selectRyuCategory(k){ }
+function selectRyuRecord(i){ selected = i; }
+eval(src);
+
+const fail = [];
+const mk = (o) => Object.assign({ 날짜: '2026-08-01', 제목: 't', 캠프명: 'c', 원천업무ID: 'ID', DB버전: 1 }, o);
+CAL = { 기준: '2026-08-19 21:00', 일정: [
+  mk({ 분류: 'as_open',    경과일: 3,  캠프명: 'AAA', 원천업무ID: 'AS-A', 기계추정: 'm1' }),
+  mk({ 분류: 'as_open',    경과일: 11, 캠프명: 'BBB', 원천업무ID: 'AS-B', 사람사유: 'h1', 기계추정: 'm2' }),
+  mk({ 분류: 'pm_overdue', 경과일: 7,  캠프명: 'CCC', 원천업무ID: 'PM-A' }),
+  mk({ 분류: 'pm_plan',    경과일: 1,  캠프명: 'DDD', 원천업무ID: 'PM-Z' }),
+  mk({ 분류: 'as_done',    경과일: 99, 캠프명: 'EEE', 원천업무ID: 'AS-Z' }),
+  mk({ 분류: 'as_open',    경과일: 5,  캠프명: 'FFF', 원천업무ID: '' })] };
+renderRyuTodo();
+const h = HOST.ryuTodoHost.innerHTML;
+const at = (t) => h.indexOf(t);
+const rows = (h.match(/ryu-todo-row/g) || []).length;
+if (rows !== 4) fail.push('as_open/pm_overdue 만 실어야 하는데 ' + rows + '건');
+if (!(at('BBB') < at('CCC') && at('CCC') < at('FFF') && at('FFF') < at('AAA')))
+  fail.push('경과일 내림차순이 아니다');
+if (!(at('HUMAN') >= 0 && at('MACHINE') >= 0 && at('HUMAN') < at('MACHINE')))
+  fail.push('사람사유가 기계추정보다 먼저가 아니다');
+const opens = (h.match(/ryuTodoOpen/g) || []).length;
+if (opens !== 3) fail.push('원천업무ID 없는 건에 단추가 붙었다(열기 ' + opens + '개)');
+if (at('FFF') < 0) fail.push('원천업무ID 없는 건이 목록에서 사라졌다');
+
+CAL = null; renderRyuTodo();
+const hn = HOST.ryuTodoHost.innerHTML;
+if (hn.indexOf('못 받았습니다') < 0) fail.push('CAL 이 없을 때 못 받았다고 안 한다');
+if (hn.indexOf('없습니다') >= 0) fail.push('CAL 이 없는데 없다고 한다');
+
+CAL = { 기준: 'x', 일정: [mk({ 분류: 'as_done' })] }; renderRyuTodo();
+if (HOST.ryuTodoHost.innerHTML.indexOf('없습니다') < 0) fail.push('정말 0건일 때 그렇게 말하지 않는다');
+
+RYU = null; notices.length = 0; ryuTodoOpen('as', 'AS-B');
+if (!notices.length) fail.push('RYU 가 없는데 조용히 아무 일도 안 한다');
+RYU = { rows: {} }; ryuVisible = [{ key: 'OTHER' }]; notices.length = 0; selected = null;
+ryuTodoOpen('as', 'AS-B');
+if (!(notices.length && notices[0].indexOf('AS-B') >= 0)) fail.push('못 찾았을 때 무엇을 못 찾았는지 안 말한다');
+ryuVisible = [{ key: 'X' }, { key: 'AS-B' }]; notices.length = 0; selected = null;
+ryuTodoOpen('as', 'AS-B');
+if (selected !== 1) fail.push('찾았는데 그 줄을 안 연다(selected=' + selected + ')');
+
+if (fail.length) { console.log('FAIL: ' + fail.join(' | ')); process.exit(1); }
+console.log('ALL OK');
+"""
+
+
+def t333_ryu_center_shows_what_to_do_now():
+    """[333] **류지영 업무센터 '지금 처리할 것'** (2026-08-19 형님 지시 + 류지영 요청).
+
+    류지영: *"확인필요 목록에 저렇게 떴음 좋겠어요 하나씩 검색해서 하기엔 뭐가 있는지를
+    모르니까요"*. 대표 캡처에는 그 목록이 있는데 **담당자 화면에는 없었다** — 그래서
+    건마다 검색해 찾아야 했다.
+
+    ★ 판정을 새로 만들지 않는다([162]) — 대표 캡처가 읽는 그 자료(`calEvents`)를 그대로
+      읽고 사유 줄도 `calWhyRowsHTML` 을 그대로 쓴다. 여기서 다시 자르거나 다시 판정하면
+      같은 사실이 화면마다 갈린다([132] 가 세는 그 자리다).
+
+    얼리는 계약(글자로는 못 잰다 — node 로 **실행해서** 잰다, [295]):
+      ① `as_open`·`pm_overdue` 만 싣는다(`pm_plan`·`as_done` 은 아니다)
+      ② 경과일 내림차순  ③ 사람사유가 기계추정보다 **먼저**([169])
+      ④ 원천업무ID 없는 건은 **목록에는 남고 단추만 없다**(조용히 사라지면 안 된다)
+      ⑤ CAL 이 없으면 '못 받았습니다' — **'없습니다'라고 하지 않는다**([169])
+      ⑥ 열기가 못 찾으면 **무엇을 못 찾았는지 말한다**(조용하면 단추가 고장 난 줄 안다)
+    """
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # 사유 줄을 **다시 짓지 않는다** — 그것이 [162] 의 요점이라 글자로 얼린다([39]).
+    parts = html.split("function renderRyuTodo(", 1)
+    assert len(parts) == 2, "renderRyuTodo 를 못 찾았다"
+    body = parts[1].split("async function injectRyuTodo", 1)[0]
+    assert "calWhyRowsHTML(e)" in body, \
+        "사유 줄을 여기서 다시 짓고 있다 — 대표 캡처와 담당자 화면이 갈린다([162])"
+    # 넓히지 않는다([172]) — 이 판은 류지영 업무센터에만 붙는다.
+    assert "if(staffSlug==='ryu-jiyeong') injectRyuTodo();" in html, \
+        "지금 처리할 것 판을 붙이는 배선이 없다(또는 다른 화면까지 넓혔다)"
+
+    import shutil as _sh333
+    node = _sh333.which("node")
+    if not node:
+        print("  [333] 지금 처리할 것 — 글자 검사만 통과(node 없어 실행 확인 못 함)")
+        return
+
+    def _run(mut_a="", mut_b=""):
+        js = (_T333_TODO_HARNESS
+              .replace("__IDX__", json.dumps(os.path.join(ROOT, "webapp", "index.html")))
+              .replace("__MUT_A__", json.dumps(mut_a))
+              .replace("__MUT_B__", json.dumps(mut_b)))
+        with tempfile.TemporaryDirectory() as tmp:
+            jp = os.path.join(tmp, "ryutodo.js")
+            with open(jp, "w", encoding="utf-8") as fh:
+                fh.write(js)
+            proc = subprocess.Popen([node, jp], stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            try:                               # 한 단계가 영원히 안 끝나면 안 된다([175])
+                out = proc.communicate(timeout=60)[0].decode("utf-8", "replace")
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                out = proc.communicate(timeout=20)[0].decode("utf-8", "replace")
+        return out, proc.returncode
+
+    out, rc = _run()
+    assert "ALL OK" in out and rc == 0, "지금 처리할 것 실행 확인 실패:" + chr(10) + out[-1500:]
+
+    # ★ 계기 자기시험([272]) — 0 을 내는 계기는 아무도 의심하지 않는다.
+    for a, b, why in (
+        ("k === 'pm_overdue'", "k === 'pm_plan'", "고른 갈래를 바꿈"),
+        ("일정을 아직 못 받았습니다", "지금 처리할 것이 없습니다", "못 받은 것을 없다고 적음"),
+        ("selectRyuRecord(i)", "void i", "찾고도 그 줄을 안 엶"),
+    ):
+        out2, rc2 = _run(a, b)
+        assert "ALL OK" not in out2 or rc2 != 0, \
+            "이 검사가 아무것도 안 재고 있다 — " + why + " 인데도 통과했다"
+
+    print("[333] 류지영 '지금 처리할 것' — 갈래 둘만 · 경과일 순 · 사람사유 먼저 · "
+          "연결 없으면 단추만 없음 · 못 받음≠없음 · 못 찾으면 말함 (node 실행 확인) OK")
+
+
 def t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback():
     """[332] **정의 안 된 토큰은 흰 칸으로 나타난다** (2026-08-19 형님 캡처).
 
@@ -25385,6 +25535,7 @@ if __name__ == "__main__":
     t330_userscript_watch_sees_the_dev_mode_gate()
     t331_desktop_body_never_slides_under_the_fixed_sidebar()
     t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback()
+    t333_ryu_center_shows_what_to_do_now()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
