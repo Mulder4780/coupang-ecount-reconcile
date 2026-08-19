@@ -23545,6 +23545,122 @@ console.log(JSON.stringify(o));""")
           "받는 지점 재고 파생 · 지우면 따라감 (서버·화면 둘 다) OK")
 
 
+
+def t320_chatbot_never_stamps_a_fresh_time_on_old_text():
+    """[320] **챗봇 — 낡은 글에 새 시각을 찍지 않는다** (2026-08-19 형님 지시:
+    "챗봇 헛소리 자꾸 하는데 고도화 작업 진행해").
+
+    실측 재현: `python local_ai.py "미처리건은 어디서 확인해?"` 가
+    `확신: 높` 으로 **관리대장 v420 · 반영 대기 0건** 을 내놓고 그 밑에
+    `근거: 세션인계.json(0.0시간 전)` 을 찍었다. 실제 원장은 **v603** 이다.
+    · 사슬: `ecount/AGENTS.md` '대기 항목'이 v420 시절 그대로 → `session_handoff`
+      가 30분마다 그 발췌를 `세션인계.json` 의 `다음할일` 로 다시 퍼 담는다
+      (그래서 **파일은 늘 새것**) → 챗봇이 그 blob 을 읊고 **파일 mtime** 을
+      내용 나이로 찍었다. **지어낸 것이 아니라 낡은 글을 새것이라 말한 것**이라
+      더 나쁘다(`[169]` 중 안심시키는 거짓).
+    · 제 답 안에서 숫자까지 어긋났다 — 머리글은 실시간(반영 대기 484건),
+      본문은 blob(반영 대기 0건).
+
+    ★ 여기서 재는 것은 '답이 나오나'가 아니라 **낡은 blob 이 본문으로 돌아오나**다.
+      글자 검사로는 못 잰다(`[295]`) — 합성 스냅샷을 먹여 **실행해서** 잰다.
+    ★ 실측 증거 파일(`reports/세션인계.json`)은 한 글자도 안 건드린다(`[247]`).
+    """
+    import sys
+    import local_ai as A
+    import session_handoff as H
+
+    STALE = "관리대장 v420 · 반영 대기 0건 · 미커밋 0 · 합성검증 ALL GREEN."
+    LIVE = "살아있는경보TESTONLY"
+
+    class _Empty(list):
+        """비었고 · 훑을 수 있고 · `.get()` 도 되는 것."""
+
+        def get(self, *a):
+            return a[1] if len(a) > 1 else None
+
+    class _Snap(dict):
+        """빠진 칸은 **빈 것**.
+
+        `blockers` 는 `st["임시파일"]` 처럼 **대괄호로** 읽고 `for c in st["점유"]`
+        처럼 훑기도 한다. 합성 스냅샷에 그 칸이 없으면 KeyError·TypeError 로 죽어
+        이 검사가 **아무것도 못 재면서 '못 셈' 갈래만** 밟는다 — 초록인데 빈
+        검사다(`[169]`). 실측 증거 파일은 여전히 한 글자도 안 읽는다(`[247]`).
+        ※ 이 모양은 곧 이 고침의 안전망이기도 하다 — 인계 스냅샷에 칸이 빠지면
+          챗봇은 거짓말 대신 '못 셌습니다'로 내려간다(아래 blind 검사)."""
+
+        def __missing__(self, k):
+            return _Empty()
+
+    # ⚠ `점유` 는 안 넣는다 — `blockers` 가 `c["mins"]` 처럼 **대괄호로** 읽어서
+    #   모양이 반쯤인 합성 행을 주면 거기서 죽는다. 그러면 이 검사가 아무것도 못
+    #   재면서 '못 셈' 갈래만 밟는다(초록인데 빈 검사, `[169]`).
+    snap = _Snap({
+        "큐잔량": 484,
+        "다음할일": [STALE, "- 대기 항목: 옛날 것"],
+        "시스템진단": [{"priority": "P0", "title": LIVE,
+                        "evidence": "근거TESTONLY", "action": "python x.py --print"}],
+    })
+
+    def check(ans, tag):
+        """되돌아가면 안 되는 것 넷. 어긋나면 이유를 돌려준다."""
+        body = str((ans or {}).get("다음") or "")
+        head = str((ans or {}).get("답") or "")
+        whole = head + "\n" + body
+        if STALE in whole:
+            return "%s: 낡은 발췌를 본문으로 읊는다 — 그 위에 파일 나이가 찍히면 " \
+                   "넉 달 된 글이 '0.0시간 전'이 된다" % tag
+        if LIVE not in whole:
+            return "%s: 살아 있는 '먼저 처리할 것'이 본문에 없다" % tag
+        if "0건" in whole and "484" in whole:
+            return "%s: 제 답 안에서 숫자가 어긋난다(머리글은 실시간, 본문은 blob)" % tag
+        if "AGENTS.md" not in whole:
+            return "%s: 발췌를 조용히 뺐다 — 없는 것으로 읽힌다(`[169]`)" % tag
+        return ""
+
+    keep_src = A.src
+    A.src = lambda name: ({"이름": name, "파일": "세션인계.json", "있음": True,
+                           "나이시간": 0.1, "신선": True, "데이터": snap}
+                          if name == "인계" else keep_src(name))
+    try:
+        ans = A.a_todo("미처리건은 어디서 확인해?")
+        assert ans, "지금할일 규칙이 아무 답도 안 했다"
+        bad = check(ans, "지금")
+        assert not bad, bad
+        # 판정을 새로 만들지 않았다([162]) — 인계 문서와 **같은** blockers 를 쓴다
+        assert str(len(H.blockers(snap))) in str(ans["답"]), (
+            "머리글이 인계 문서와 다른 수를 말한다 — 같은 물음에 두 답이 생긴다")
+
+        # ★ 계기 자기시험([272]): 옛 동작(발췌 읊기)으로 되돌리면 잡히나
+        old = {"답": "걸린 것: 반영 대기 484건 · 점유 1건",
+               "다음": "  " + STALE, "근거": "근거: 세션인계.json(0.0시간 전)"}
+        assert check(old, "옛"), "이 검사는 옛 고장을 못 잡는다 — 아무것도 안 재고 있다"
+
+        # ★ 못 세는 것을 '0건'이라 하지 않는다([169])
+        keep_bl = H.blockers
+        H.blockers = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("일부러"))
+        try:
+            blind = A.a_todo("지금 뭐부터 하면 돼")
+        finally:
+            H.blockers = keep_bl
+        txt = str(blind.get("답")) + str(blind.get("다음"))
+        assert "못 셌" in txt or "못 셈" in txt, (
+            "먼저 처리할 것을 못 셌는데 '0건'으로 말한다 — 걸린 것이 없는 것처럼 보인다")
+        assert blind.get("확신") != "높", "못 셌는데 확신이 높다"
+    finally:
+        A.src = keep_src
+
+    # ★ 갈래는 안 건드렸다([172]) — '미처리' 질문이 지금할일로 가는 것은 설계다
+    probes = dict((q, w) for q, w in A.PROBES)
+    for q in ("미처리건은 어디서 확인해?", "지금 미처리된건 정리"):
+        assert probes.get(q) == "지금할일", (
+            "PROBES 에서 %r 갈래가 사라졌다 — 갈래가 바뀌면 이 고침이 통째로 "
+            "안 걸린다([181])" % q)
+    assert not A.selftest(), "local_ai 자가점검이 빨갛다"
+
+    print("[320] 챗봇 - 낡은 발췌 안 읊음 · 살아있는 먼저처리 실림 · 숫자 안 어긋남 · "
+          "못 셈≠0건 · 갈래 그대로 (실행으로 잼) OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -23857,6 +23973,7 @@ if __name__ == "__main__":
     t314_camp_unknown_is_filled_only_with_proof()
     t317_sale_pool_never_takes_what_it_cannot_name()
     t319_remote_move_to_branch_without_widening_the_person_limit()
+    t320_chatbot_never_stamps_a_fresh_time_on_old_text()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
