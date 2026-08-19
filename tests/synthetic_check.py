@@ -17795,6 +17795,12 @@ def t197_restart_blip_is_not_a_failure():
     assert last_try_sec >= 9.3, (
         "마지막 시도가 %.1f초라 재시작 실측 9.3초를 못 넘긴다 — "
         "다시 걸어 놓고도 실패로 끝난다" % last_try_sec)
+    # ★ 2026-08-19 실측(reports/server_guard.log 108구간): 고정 Funnel 공개경로가
+    #   끊기는 시간은 **중앙값 64초**이고 90%가 60초를 넘는다(분담판 [90]).
+    #   재시작 9.3초만 넘기면 그 장애의 90%에서는 여전히 '다시 걸고도 실패'다.
+    assert last_try_sec >= 64.0, (
+        "마지막 시도가 %.1f초라 고정 Funnel 끊김 실측(중앙값 64초)을 못 넘긴다 — "
+        "폰 화면이 '자료 0건'으로 끝난다" % last_try_sec)
 
     # ② 다시 걸면 안 되는 것을 가른다.
     fn = live.split("function isTransientError", 1)[1].split("\n}", 1)[0]
