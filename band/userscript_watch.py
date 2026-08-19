@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import re
@@ -292,6 +293,36 @@ def _find_mark(store: str, mark: bytes) -> Optional[str]:
     return "모름" if seen else None
 
 
+def _dev_mode(profiles):
+    """Chrome 의 **개발자 모드(= 사용자 스크립트 허용)** 가 켜져 있나.
+
+    2026-08-19 실측으로 [149] 가 여기서 갈렸다.  Tampermonkey 는 설치돼 있고
+    (`Local Extension Settings` 에 지문 실재) 스크립트도 `enabled:true` v2.0 이고
+    `@match` 도 그 주소와 맞는데, 로그인된 밴드 탭의 `localStorage` 에
+    `coupangAutoCollect.*` 가 **하나도 없었다**.  Chrome 151 은 MV3 라
+    이 토글이 꺼져 있으면 Tampermonkey 가 스크립트를 **아예 못 넣는다** —
+    '설치돼 있고 켜져 있는데 안 도는' 증상의 모양이 정확히 이것이다.
+
+    ★ **못 읽으면 '모름'이다**(`[169]`).  꺼짐으로 단정하면 사람이 이미 켜 둔
+      토글을 또 찾으러 간다(`[172]`).
+    """
+    for prof in profiles:
+        pref = os.path.join(prof, "Preferences")
+        if not os.path.isfile(pref):
+            continue
+        try:
+            with io.open(pref, encoding="utf-8", newline="") as fh:
+                d = json.load(fh)
+        except Exception:
+            continue
+        ui = ((d.get("extensions") or {}).get("ui") or {})
+        if "developer_mode" in ui:
+            return ("켜짐" if ui.get("developer_mode") else "꺼짐"), os.path.basename(prof)
+        # 키 자체가 없다 = 한 번도 켠 적이 없다(크롬 기본값 false).
+        return "꺼짐", os.path.basename(prof)
+    return "모름", None
+
+
 def chrome_side(user_data: Optional[str] = None) -> Dict[str, Any]:
     """크롬 쪽 사실을 **로컬 증거로만** 잰다 (읽기 전용 · 크롬을 조종하지 않는다).
 
@@ -310,13 +341,16 @@ def chrome_side(user_data: Optional[str] = None) -> Dict[str, Any]:
     base = user_data or os.path.join(
         os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "User Data")
     out: Dict[str, Any] = {"확장": "모름", "스크립트": "모름", "판": None,
-                           "프로필": None, "왜": "", "지문": None}
+                           "프로필": None, "왜": "", "지문": None,
+                           "개발자모드": "모름"}
     mark = _script_mark()
     out["지문"] = mark
     if not base or not os.path.isdir(base):
         out["왜"] = "크롬 사용자 폴더를 못 찾았다(%s)" % (base or "경로 없음")
         return out
     profs = _profiles(base)
+    if profs:
+        out["개발자모드"] = _dev_mode(profs)[0]
     if not profs:
         out["왜"] = "크롬 프로필을 못 읽었다"
         return out
@@ -402,6 +436,22 @@ def fix_for(kind: str, side: Optional[Dict[str, Any]] = None) -> str:
     #   `coupangAutoCollect.beat.<밴드>` 열쇠가 **하나도 없었다** — 본문이 한 줄도
     #   안 돈 것이다.  그러니 "한 번도 안 열렸다"는 **틀린 지목**이었고, 그 안내를
     #   따르면 사람은 **이미 한 일을 또 한다**(`[172]`·`[257]` 과 같은 자리).
+    dev = s.get("개발자모드")
+    if dev == "꺼짐":
+        # 2026-08-19 실측 — [149] 는 여기서 갈렸다.  설치·켜짐·@match 가 다 맞는데도
+        # 밴드 탭 localStorage 에 `coupangAutoCollect.*` 가 0개였다.  Chrome 151 은
+        # MV3 라 이 토글이 꺼져 있으면 Tampermonkey 가 스크립트를 **못 넣는다**.
+        # ★ 확정이라 적지 않는다(`[172]`) — 가르는 법을 같이 준다.
+        return ("%s 도 유저스크립트도 **이미 깔려 있고 켜져 있다**(v%s) — 다시 설치할 것 없다. "
+                "가장 유력한 남은 하나는 **크롬 개발자 모드가 꺼져 있는 것**이다"
+                "(이 프로필의 `extensions.ui.developer_mode` 가 꺼짐 · Chrome 은 MV3 라 "
+                "이 토글이 없으면 Tampermonkey 가 스크립트를 아예 못 넣는다). "
+                "조치 — `chrome://extensions` 를 열고 오른쪽 위 **개발자 모드**를 켠 뒤 "
+                "로그인된 밴드 탭을 새로고침한다. "
+                "확인 — 그 탭 콘솔(F12)에 "
+                "`Object.keys(localStorage).filter(k=>k.indexOf('coupangAutoCollect')===0)` "
+                "를 쳐서 **비어 있지 않으면** 그것이 원인이었다"
+                % (tag, ver or "?"))
     return ("%s 도 유저스크립트도 **이미 깔려 있고 켜져 있다** — 다시 설치할 것 없다. "
             "그런데도 되보고가 0건이면 남은 후보는 **둘**이고 조치가 서로 다르다 — "
             "① 로그인된 밴드 탭이 아직 `www.band.us/band/<번호>` 주소로 안 열렸다"

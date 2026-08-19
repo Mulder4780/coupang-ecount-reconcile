@@ -19243,6 +19243,64 @@ def t317_sale_pool_never_takes_what_it_cannot_name():
           "금액만 붙은 것은 약하다고 적는다 ✅")
 
 
+
+def t330_userscript_watch_sees_the_dev_mode_gate():
+    """[330] '설치돼 있고 켜져 있는데 안 도는' 자리를 계기가 스스로 짚는가.
+
+    2026-08-19 실측(분담판 [149]): Tampermonkey 는 `Local Extension Settings` 에
+    지문이 실재하고 `enabled:true` v2.0 이고 `@match` 도 맞는데, 로그인된 밴드
+    탭의 `localStorage` 에 `coupangAutoCollect.*` 가 **0개**였다.  Chrome 151 은
+    MV3 라 **개발자 모드(사용자 스크립트 허용)** 가 꺼져 있으면 Tampermonkey 가
+    스크립트를 아예 못 넣는다.  그런데 안내는 그 후보를 한 글자도 말하지 않아
+    사람이 이미 한 일(설치·켜기)만 되풀이했다.
+
+    ★ 글자 검사로는 못 잰다([295]) — 임시 프로필을 만들어 **실행해서** 잰다.
+      실측 증거(진짜 크롬 프로필·되보고 파일)는 한 글자도 안 건드린다([247]).
+    """
+    import importlib, tempfile, json as _json, os as _os
+    sys.path.insert(0, os.path.join(ROOT, "band"))
+    uw = importlib.import_module("userscript_watch")
+
+    def prof(val):
+        d = tempfile.mkdtemp()
+        pd = _os.path.join(d, "Default")
+        _os.makedirs(pd)
+        body = {} if val is None else {"extensions": {"ui": {"developer_mode": val}}}
+        with open(_os.path.join(pd, "Preferences"), "w", encoding="utf-8", newline="") as fh:
+            _json.dump(body, fh)
+        return [pd]
+
+    assert uw._dev_mode(prof(True))[0] == "켜짐"
+    assert uw._dev_mode(prof(False))[0] == "꺼짐"
+    # 키가 아예 없다 = 한 번도 켠 적이 없다(크롬 기본값 false).
+    assert uw._dev_mode(prof(None))[0] == "꺼짐"
+    # ★ 못 읽으면 '모름'이다([169]) — 꺼짐으로 단정하면 사람이 이미 켠 토글을 또 찾는다.
+    assert uw._dev_mode([tempfile.mkdtemp()])[0] == "모름"
+
+    ok = {"확장": "있음", "스크립트": "켜짐", "판": "5.5.0"}
+    off = uw.fix_for("안옴", dict(ok, **{"개발자모드": "꺼짐"}))
+    assert "개발자 모드" in off and "chrome://extensions" in off, off
+    # 가르는 법을 같이 준다 — 확정이라 적지 않는다([172]).
+    assert "coupangAutoCollect" in off, off
+
+    on = uw.fix_for("안옴", dict(ok, **{"개발자모드": "켜짐"}))
+    assert "개발자 모드" not in on, on
+    unknown = uw.fix_for("안옴", dict(ok, **{"개발자모드": "모름"}))
+    assert "개발자 모드" not in unknown, unknown
+
+    # ★ 계기 자신을 시험한다([272]) — 판정을 죽이면 이 검사가 잡아야 한다.
+    real = uw._dev_mode
+    try:
+        uw._dev_mode = lambda profiles: ("켜짐", None)
+        side = uw.chrome_side()
+        blind = (side.get("개발자모드") == "꺼짐")
+    finally:
+        uw._dev_mode = real
+    assert not blind, "판정을 켜짐으로 고정했는데도 '꺼짐'이 나왔다 — 이 검사는 아무것도 안 재고 있다"
+
+    print("[330] 크롬 개발자 모드 관문 판정 OK")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -25098,6 +25156,7 @@ if __name__ == "__main__":
     t327_xlsx_says_what_data_it_is()
     t328_camp_source_staleness_is_seen()
     t329_context_guard_after_compact()
+    t330_userscript_watch_sees_the_dev_mode_gate()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
