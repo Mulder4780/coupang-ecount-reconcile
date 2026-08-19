@@ -1155,6 +1155,11 @@ button.auto-node[disabled]{cursor:progress;opacity:.72}
   font-weight:750;color:var(--brand);overflow-wrap:anywhere}
 .auto-node .auto-do svg.bi{width:13px;height:13px;flex:0 0 auto}
 .auto-node .auto-do.wait{color:var(--ink-3)}
+/* 같은 주소로 묶인 줄 — **줄 색을 바꾸지 않고 왼쪽 선만** 준다(2026-08-19 지시).
+   줄 배경을 칠하면 이미 있는 얼룩무늬(짝수 줄)와 겹쳐 어느 것이 묶음인지 흐려진다.
+   묶음이 이어지면 색을 번갈아 써 **어디서 다음 묶음이 시작되는지** 보이게 한다. */
+.grid tr.campgrp>td:first-child{border-left:3px solid var(--brand)}
+.grid tr.campgrp.g1>td:first-child{border-left-color:var(--warn)}
 .automation-loading{grid-column:1/-1;min-height:94px;display:grid;place-items:center;color:var(--ink-3);
   border:1px dashed var(--line);border-radius:13px;background:var(--panel);font-size:13.5px}
 .automation-error{margin:10px 18px 0;padding:10px 12px;border:1px solid #F5C2C7;border-radius:11px;
@@ -16893,14 +16898,16 @@ function campRows(){
   const d = CAMPS || {}; const rows = d.rows || [];
   const q = ($('campQ') && $('campQ').value || '').trim().toLowerCase();
   const pmOnly = $('campPmOnly') ? $('campPmOnly').checked : true;
-  return rows.filter(r=>{
+  /* ★ 거르고 나서 묶는다 — 화면에 안 나오는 줄까지 세면 '3곳 중 1' 만 보이고
+     나머지 둘은 어디에도 없다(그러면 그 숫자가 거짓말이 된다, [169]). */
+  return campGroupSort(rows.filter(r=>{
     if(pmOnly && !r.정기점검) return false;
     if(!q) return true;
     const s = [r.캠프명, r.캠프주소, r.거래처코드]
       .concat(campRoles(r).flatMap(x=>[x.p.이름, x.p.전화, x.p.메일]))
       .join(' ').toLowerCase();
     return s.indexOf(q) >= 0;
-  });
+  }));
 }
 /* ★ **세 역할을 뭉치지 않는다** (2026-08-18 지시: "담당자1, 담당자2 가 무엇을 의미하는지
    모르겠어"). 전에는 `담당자 ①·②` 로 순서만 보여 줘서 **그게 누구인지 화면이 말해
@@ -16932,6 +16939,44 @@ function campUnits(r, plain){
   if(plain) return s + (빔 ? ' (사이 빔)' : '');
   return esc2(s) + (빔 ? ' <span class="norm" title="가운데 번호가 빠졌습니다 — 그 호기에 접수·점검 글이 없었을 뿐이고, 없는 호기라는 뜻이 아닙니다">(사이 빔)</span>' : '');
 }
+/* ── 같은 주소는 모아서 순차적으로 (2026-08-19 형님 지시) ────────────────────
+   ★ **묶는 근거는 주소 하나다**([172]). 캠프명이 비슷하다고 묶으면 `송파1MB(감일동)`
+     과 `송파5MB(감일동)` 처럼 **실재하는 다른 캠프**가 한 덩어리가 된다 — 그렇게 묶인
+     목록은 사람을 엉뚱한 현장으로 보낸다.
+   ★ **주소를 모르는 것끼리는 안 묶는다**([169]). '모름'은 같은 곳이라는 뜻이 아니다.
+     실측 2026-08-19 정기점검 400개 중 주소 모름은 1개 · 같은 주소 묶음 97개 245행.
+   ★ 순서는 **묶음 대표 캠프명**으로 잡는다 — 목록 전체는 지금처럼 가나다 순으로
+     읽히면서 같은 주소끼리만 붙는다. 묶음 기준으로 정렬하면 관계없는 캠프 사이로
+     묶음이 튀어 사람이 목록에서 캠프를 못 찾는다.
+   ★ 여기 한 곳이 표·엑셀·이미지의 **순서를 같이 정한다**([162]) — 셋이 다른 순서를
+     보면 화면에서 옆줄이던 것이 엑셀에서는 멀리 떨어진다. */
+let CAMP_GRP = new Map();                       // 행 → {묶음, 차례, 개수}
+function campAddrKey(a){ return String(a==null?'':a).replace(/[\s,()\-·.]+/g,'').toLowerCase(); }
+function campGroupOf(r){ return CAMP_GRP.get(r) || null; }
+function campGroupSort(rows){
+  const cnt = new Map();
+  rows.forEach(r=>{ const k=campAddrKey(r.캠프주소); if(k) cnt.set(k,(cnt.get(k)||0)+1); });
+  const 묶임 = r => { const k=campAddrKey(r.캠프주소); return (k && cnt.get(k)>1) ? k : ''; };
+  const rep = new Map();
+  rows.forEach(r=>{ const k=묶임(r); if(!k) return; const n=String(r.캠프명||'');
+    if(!rep.has(k) || n.localeCompare(rep.get(k),'ko')<0) rep.set(k,n); });
+  const 머리 = r => rep.get(묶임(r)) || String(r.캠프명||'');
+  const out = rows.slice().sort((a,b)=>
+    머리(a).localeCompare(머리(b),'ko')
+    || String(a.캠프명||'').localeCompare(String(b.캠프명||''),'ko'));
+  CAMP_GRP = new Map();
+  const 번호 = new Map(), 차례 = new Map();
+  out.forEach(r=>{ const k=묶임(r); if(!k) return;
+    if(!번호.has(k)) 번호.set(k, 번호.size+1);
+    const i=(차례.get(k)||0)+1; 차례.set(k,i);
+    CAMP_GRP.set(r, {묶음:번호.get(k), 차례:i, 개수:cnt.get(k)}); });
+  return out;
+}
+/* 묶음을 글자로 만드는 자리도 하나다 — 표·엑셀이 다르게 적으면 같은 줄이 두 뜻이 된다. */
+function campGroupText(r){
+  const g = campGroupOf(r);
+  return g ? `같은 주소 ${g.개수}곳 중 ${g.차례}` : '단독';
+}
 function renderCampList(){
   const host = $('campHost'); if(!host || !CAMPS) return;
   const rows = campRows(), d = CAMPS;
@@ -16958,20 +17003,23 @@ function renderCampList(){
                        : '<span class="norm">이메일 모름</span>')+'</div></td>'; };
   host.innerHTML = '<div class="gridwrap"><table class="grid"><thead><tr>'
     + '<th>캠프명</th>'
+    + '<th title="접수·점검 글에 나온 호기입니다. 보유 대수가 아니라 글에서 본 것이라 사이가 빌 수 있습니다(1,2,5).">호기</th>'
     + CAMP_ROLES.map(([,label,hint])=>'<th title="'+esc2(hint)+'">'+esc2(label)
         +'<br><span class="norm" style="font-weight:400">이름 · 전화 · 이메일</span></th>').join('')
-    + '<th title="접수·점검 글에 나온 호기입니다. 보유 대수가 아니라 **글에서 본 것**이라 사이가 빌 수 있습니다(1,2,5).">호기</th>'
     + '<th>정기점검</th><th>최근작업일</th><th>거래처코드</th><th></th></tr></thead><tbody>'
-    + rows.map(r=>'<tr>'
+    + rows.map(r=>{ const g = campGroupOf(r); return '<tr'+(g?' class="campgrp g'+(g.묶음%2)+'"':'')+'>'
         + '<td>'+esc2(r.캠프명)+(r.이름확인필요?' <span class="badge warn">이름 확인 필요</span>':'')
           /* 사람이 고친 캠프는 **왜 밴드와 다른지** 화면이 말해 준다 — 안 적으면
              아무도 설명하지 못한다. '밴드에 더 새 값' 은 경보가 아니라 알림이다([297]). */
           + (r.사람고침 ? ' <span class="badge">사람이 고침</span>' : '')
           + (r.사람이만듦 ? ' <span class="badge">앱에서 추가</span>' : '')
           + (r.자동이바뀜 ? ' <span class="badge warn" title="사람이 고친 뒤 밴드 접수 글의 값이 또 바뀌었습니다 — 자동으로 덮지 않았습니다">밴드에 더 새 값</span>' : '')
+          /* 같은 주소로 묶인 줄은 **바로 앞뒤에 있다**. 몇 곳 중 몇 번째인지 적어야
+             사람이 '이게 전부인가'를 묻지 않는다([169]). */
+          + (g ? ' <span class="badge" title="'+esc2('같은 주소: '+(r.캠프주소||''))+'">'+esc2(campGroupText(r))+'</span>' : '')
           + '</td>'
-        + campRoles(r).map(x=>cell(x.p)).join('')
         + '<td>'+campUnits(r)+'</td>'
+        + campRoles(r).map(x=>cell(x.p)).join('')
         + '<td>'+(r.정기점검건수||0)+'</td><td>'+esc2(r.최근작업일||'')+'</td>'
         + '<td>'+esc2(r.거래처코드||'')+'</td>'
         /* ★ 값을 **인자로 박지 않는다** — `JSON.stringify` 는 큰따옴표를 만들고
@@ -16981,7 +17029,7 @@ function renderCampList(){
         + '<td><button class="btn xs" data-camp="'+esc2(r.캠프명||'')+'"'
           + ' onclick="campEditOpen(this.dataset.camp)" title="이 캠프의 담당자·연락처를 고칩니다">'
           + '<svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>수정</button></td>'
-        + '</tr>').join('')
+        + '</tr>'; }).join('')
     + '</tbody></table></div>';
 }
 
@@ -17110,13 +17158,15 @@ function campsXlsx(){
        쓰는 그 낱말 `모름` 을 그대로 적는다([169] · 화면 설명과 같은 뜻이라야 한다). */
   const V = v => { const s = String(v==null?'':v).trim(); return s || '모름'; };
   exportRowsXlsx('전국쿠팡캠프_담당자', rows.map(r=>{
-    const o = { '캠프명': V(r.캠프명), '정기점검': r.정기점검 ? 'O' : '아니오' };
+    /* 호기는 **캠프명 바로 옆**이다(2026-08-19 지시). 주소묶음도 앞에 둔다 —
+       같은 주소끼리 줄이 붙어 있는 것을 A열만 봐도 알 수 있어야 한다. */
+    const o = { '캠프명': V(r.캠프명), '호기': campUnits(r, true),
+                '주소묶음': campGroupText(r), '정기점검': r.정기점검 ? 'O' : '아니오' };
     campRoles(r).forEach(x=>{
       o[x.라벨+' 이름']   = V(x.p.이름);
       o[x.라벨+' 전화']   = V(x.p.전화);
       o[x.라벨+' 이메일'] = V(x.p.메일);
     });
-    o['호기'] = campUnits(r, true);          /* 화면과 같은 낱말 — '모름'도 그대로 */
     o['캠프주소'] = V(r.캠프주소); o['거래처코드'] = V(r.거래처코드);
     o['정기점검건수'] = r.정기점검건수||0; o['최근작업일'] = V(r.최근작업일);
     /* '직책 미상'은 옛 양식이라 원문에 직책이 없는 것이다 — 비고에도 한 번 더 적는다. */
@@ -17126,13 +17176,15 @@ function campsXlsx(){
     return o;
   }), {
     /* ★ **열을 직접 준다.** 안 주면 회신 서식(13칸)에 밀려 들어가 캠프명만 남는다. */
-    columns: ['캠프명','정기점검']
+    columns: ['캠프명','호기','주소묶음','정기점검']
       .concat(...CAMP_ROLES.map(([,label])=>[label+' 이름', label+' 전화', label+' 이메일']))
       .concat(['캠프주소','거래처코드','정기점검건수','최근작업일','비고']),
     /* 낱말 뜻은 파일 안에 같이 간다 — 엑셀만 받아 본 사람도 알아야 한다([169]). */
     guide: [['항목','뜻']]
       .concat(CAMP_ROLES.map(([,label,hint])=>[label, hint]))
-      .concat([["'모름'", '담당자가 없다는 뜻이 아니라, 밴드 접수 글에서 아직 못 찾았다는 뜻입니다.'],
+      .concat([['호기', '접수·점검 글에 나온 호기입니다. 보유 대수가 아니라 글에서 본 것이라 사이가 빌 수 있습니다(1,2,5).'],
+               ['주소묶음', '같은 주소인 캠프끼리 줄을 붙여 놓았습니다. 주소를 모르는 캠프는 묶지 않고 단독으로 둡니다.'],
+               ["'모름'", '담당자가 없다는 뜻이 아니라, 밴드 접수 글에서 아직 못 찾았다는 뜻입니다.'],
                ['현장책임 이메일', '접수 양식이 그 칸을 거의 안 적습니다 — 비어 있는 것이 정상입니다.'],
                ['기준', String((CAMPS&&CAMPS.갱신)||'').replace('T',' ')]])
   });
@@ -17162,10 +17214,16 @@ async function campsCapture(){
 
   /* 열 자리 — [시작x, 폭]. 사람마다 이름·전화·이메일 셋이고 역할이 셋이라 아홉 칸이다.
      이메일만 남는 폭을 나눠 갖고, 마지막 열은 남은 것을 그대로 받는다. */
-  const GAP=6, BLOCK=20, CAMP=252, NAME=116, TEL=124, LAST=104;
-  const MAIL = Math.floor((W - M*2 - (CAMP + BLOCK*4 + 3*(NAME+GAP+TEL+GAP) + LAST))/3);
+  /* ★ **열을 늘렸으니 계산을 다시 했다**(2026-08-19 지시 "캠프명 옆에 호기").
+     호기 96px 을 넣고 최근작업(104→76)에서 28px 을 되찾아, 이메일은 164→139px 만
+     줄었다. 넘치는 값은 `shrink` 가 줄이고 **줄인 개수를 각주에 적는다** — 조용히
+     잘리는 자리는 만들지 않는다. */
+  const GAP=6, BLOCK=20, CAMP=252, UNIT=96, NAME=116, TEL=124, LAST=76;
+  const MAIL = Math.floor((W - M*2 - (CAMP + GAP + UNIT + BLOCK*4 + 3*(NAME+GAP+TEL+GAP) + LAST))/3);
+  const ROLE0 = 2;                       // 역할 첫 열의 자리 — 열을 늘리면 여기만 고친다
   const cols=[]; let cx=M;
-  cols.push([cx,CAMP]); cx += CAMP + BLOCK;
+  cols.push([cx,CAMP]); cx += CAMP + GAP;
+  cols.push([cx,UNIT]); cx += UNIT + BLOCK;
   for(let i=0;i<3;i++){
     cols.push([cx,NAME]); cx += NAME+GAP;
     cols.push([cx,TEL ]); cx += TEL +GAP;
@@ -17184,7 +17242,7 @@ async function campsCapture(){
     let s=t; while(s.length>1 && g.measureText(s+'…').width>w) s=s.slice(0,-1);
     return {s:(s===t?s:s+'…'), z:8, cut:s!==t};
   };
-  const valuesOf=r=>{ const v=[r.캠프명];
+  const valuesOf=r=>{ const v=[r.캠프명, campUnits(r, true)];
     campRoles(r).forEach(rl=>v.push(rl.p.이름||'모름', rl.p.전화||'모름', rl.p.메일||'모름'));
     v.push(r.최근작업일||''); return v; };
 
@@ -17243,11 +17301,11 @@ async function campsCapture(){
        ★ 장마다 다시 그린다 — 2장째부터 머리글이 없으면 그 그림만 받은 사람은
          어느 칸이 누구 전화인지 모른다. */
     x.fillStyle='#0E1B3F';
-    CAMP_ROLES.forEach((rl,i)=>{ const a=cols[1+i*3][0], b=cols[3+i*3][0]+cols[3+i*3][1];
+    CAMP_ROLES.forEach((rl,i)=>{ const a=cols[ROLE0+i*3][0], b=cols[ROLE0+2+i*3][0]+cols[ROLE0+2+i*3][1];
       x.font=F(12,700); x.fillText(rl[1], a, roleY);
       x.strokeStyle='#C7D2FE'; x.beginPath(); x.moveTo(a,roleY+5); x.lineTo(b,roleY+5); x.stroke(); });
     x.fillStyle='#374151'; x.font=F(11,700);
-    ['캠프명','이름','전화','이메일','이름','전화','이메일','이름','전화','이메일','최근작업']
+    ['캠프명','호기','이름','전화','이메일','이름','전화','이메일','이름','전화','이메일','최근작업']
       .forEach((h,i)=>x.fillText(h,cols[i][0],colY));
     x.strokeStyle='#9CA3AF'; x.beginPath(); x.moveTo(M,ruleY); x.lineTo(W-M,ruleY); x.stroke();
 

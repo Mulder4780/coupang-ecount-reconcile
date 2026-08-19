@@ -22816,8 +22816,12 @@ def t311_camp_units_come_from_one_parser():
     # ⚠ **`def build()` 까지 자르지 말 것** — 그 사이에 다른 함수가 들어오면(옆 세션이
     #   실제로 넣었다) 남의 코드를 내 함수인 줄 알고 재고 **거짓 경보**를 낸다([192] 모양).
     #   `_units` **한 함수**만 자른다.
-    _u = cc.index("def _units")
-    본문 = cc[_u:cc.index(chr(10) + "def ", _u + 1)]
+    _lines = cc[cc.index("def _units"):].splitlines()
+    본문 = _lines[0] + chr(10)
+    for _l in _lines[1:]:
+        if _l.strip() and not _l[:1].isspace():
+            break                            # 열 0 에서 다시 시작하면 함수가 끝난 것이다
+        본문 += _l + chr(10)
     # ★ **설명을 걷어내고 본다** — 독스트링에 '호기' 가 있다고 정규식을 쓰는 것은
     #   아니다. 첫 판이 그대로 걸렸다(`[302]`·`[301]`⑨ 와 같은 자리).
     코드 = 본문.split(chr(34) * 3)[-1]
