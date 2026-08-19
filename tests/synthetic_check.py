@@ -20016,7 +20016,7 @@ def t337_a_round_that_vanishes_mid_step_leaves_its_step_name():
 
     src = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
     # ① 자국은 `*_오류.json` 이어야 `schedule_watch.traces()` 가 글로브로 모은다
-    assert "_오류.json" in src.split("STEP_CRASH = ")[1].split(NL)[0],         "[337] 자국 이름이 `*_오류.json` 이 아니다 — 회차 감시가 영영 못 본다([228])"
+    assert "_오류.json" in src.split("STEP_CRASH = ")[1].split(chr(10))[0],         "[337] 자국 이름이 `*_오류.json` 이 아니다 — 회차 감시가 영영 못 본다([228])"
     # ② 진행 파일을 **덮기 전에** 읽어야 한다 — 순서가 뒤집히면 증거가 사라진다
     body = src.split("def main(")[-1]
     assert body.index("_note_prev_crash()") < body.index('note_progress("(회차 시작)"'),         "[337] 진행 파일을 덮은 뒤에 읽는다 — 앞 회차의 마지막 자리가 영영 사라진다"
