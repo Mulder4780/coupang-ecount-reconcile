@@ -23965,7 +23965,7 @@ def t323_amount_ladder_is_one_value_in_five_places():
     assert "100건(100%)" in " ".join(E.key_warning(empty, {"sale_rows": 10})),         "빈 것을 안 센다 — 이 검사는 무엇도 못 가른다"
 
     # ④ 되돌아가면 안 되는 것만 얼린다([39])
-    _er = io.open(os.path.join(ROOT, "ecount_reconcile.py"), encoding="utf-8", newline="").read()
+    _er = open(os.path.join(ROOT, "ecount_reconcile.py"), encoding="utf-8").read()
     assert "m, how = match_project(r, sale, tol, fc, sup)" in _er, "판매 층이 사다리를 안 받는다"
     assert "m2, _ = match_project(r, tax, tol, fc)" in _er,         "세금계산서 층에 사다리가 붙었다 — 거기엔 근거 세기 딱지가 없어 약한 금액 매치가 그냥 '일치'로 적힌다([172])"
     assert '"공급가액(보정)": sup' in _er and '"금액출처": sup_src' in _er, "리포트가 보정값·출처를 안 낸다"
