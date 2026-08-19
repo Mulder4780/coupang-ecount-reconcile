@@ -23009,8 +23009,8 @@ async function press(k,run){AUTOMATION_MON.data=Object.assign({},상태,{running
 
 
 
-def t314_camp_rows_group_by_address_only():
-    """[314] 캠프명 옆에 호기 · **같은 주소끼리 붙여** 보여 준다 (2026-08-19 형님 지시).
+def t315_camp_rows_group_by_address_only():
+    """[315] 캠프명 옆에 호기 · **같은 주소끼리 붙여** 보여 준다 (2026-08-19 형님 지시).
 
     지시: "캠프명 옆에 호기를 추가하고 같은 캠프 같은 주소는 모아서 순차적으로
     보여줄 수 있는 구조로 변경해".
@@ -23040,7 +23040,7 @@ def t314_camp_rows_group_by_address_only():
 
     node = shutil.which("node")
     if not node:
-        print("[314] 캠프 주소 묶음 — node 가 없어 실행 검사는 건너뜀(구조 검사만) ✅")
+        print("[315] 캠프 주소 묶음 — node 가 없어 실행 검사는 건너뜀(구조 검사만) ✅")
         return
 
     # ⚠ 직접 eval 안의 let/const 는 **그 eval 안에만** 산다 — 조각을 따로 eval 하면
@@ -23122,7 +23122,7 @@ console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),
     assert 묶음2["송파1MB(감일동)"] != "단독", \
         "문을 열었는데도 결과가 같다 — 이 검사는 아무것도 안 재고 있다"
 
-    print("[314] 캠프 주소 묶음 — 같은 주소는 붙고 · 모름끼리는 안 묶이고 · "
+    print("[315] 캠프 주소 묶음 — 같은 주소는 붙고 · 모름끼리는 안 묶이고 · "
           "호기는 캠프명 옆(표·엑셀) ✅")
 
 
@@ -23431,7 +23431,7 @@ if __name__ == "__main__":
     t310_button_classes_always_have_a_look()
     t311_camp_units_come_from_one_parser()
     t312_automation_cards_run_what_they_say()
-    t314_camp_rows_group_by_address_only()
+    t315_camp_rows_group_by_address_only()
     # 전체 검증이 끝난 뒤 시작 시점의 공유·추적 산출물 바이트와 대조한다.
     t313_collect_gate_never_scrapes_over_someone()
     t314_camp_unknown_is_filled_only_with_proof()
