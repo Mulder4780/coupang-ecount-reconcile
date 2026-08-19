@@ -24648,14 +24648,18 @@ def t326_the_master_roster_wins_but_never_erases():
             "'%s' 를 캠프로 받는다 — 목록에 없는 캠프가 생기고 담당자가 붙는다" % 나쁜)
 
     # ★ 못 읽으면 '없다'가 아니라 그 사실을 말한다([169]).
-    keepf = CC._sched_file
+    # ★ 목은 **지금 쓰는 이름**으로 건다 — 2026-08-19 에 `_sched_file()`(하나만 고름)
+    #   이 `_sched_files()`(폴더 전부)로 바뀌자 이 목이 무력해져 진짜 Z: 를 읽었다.
+    #   이름을 바꾸면 그것을 목으로 쓰는 검사가 **아무것도 안 재게 된다**([165] 모양).
+    keepf, keepfs = CC._sched_file, CC._sched_files
     try:
         CC._sched_file = lambda: None
+        CC._sched_files = lambda: []
         camps, 왜 = CC.pm_schedule_camps(force=True)
         assert camps == {} and "못 읽음" in str(왜.get("길")), (
             "원본을 못 읽었는데 조용히 넘어간다 — 화면이 낡은 값을 '최신'으로 보여 준다: %r" % 왜)
     finally:
-        CC._sched_file = keepf
+        CC._sched_file, CC._sched_files = keepf, keepfs
 
     # ★ 계기 자기시험([272]) — 버리지 않는 문을 빼면 이 검사가 잡아야 한다.
     rows3 = rows_of()
