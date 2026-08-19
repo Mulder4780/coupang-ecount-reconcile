@@ -20335,6 +20335,46 @@ def t341_index_silence_is_not_a_collection_delay():
     print("[341] 색인의 침묵을 수집 밀림이라 부르지 않는다 — 갈래 3 + 밴드 제외 ✅")
 
 
+def t343_band_quiet_evidence_is_looked_up_by_number():
+    """조용한 밴드를 '밀렸다'고 부르지 않는다 — 근거는 **번호**로 찾는다.
+
+    2026-08-20 실사고: `data_freshness` 가 근거 파일을 **이름**으로 물었다.
+    그 파일과 `recheck_plan.load()` 는 **번호**를 키로 쓰므로 늘 빈 사전이 왔고,
+    판정은 `근거 없음` 으로 떨어져 **조용한 밴드가 매일 밀림으로 떴다**.
+    한 건도 안 걸리면서 오류도 안 나는 자리다(`[165]`). 그 경보를 믿으면 사람이
+    없는 번호를 긁는다 — `[217]` 이 막으려던 사고이고, 그 고침의 인계 쪽 절반이
+    이 키 하나 때문에 한 번도 안 돌았다.
+
+    ★ 실측 증거 파일은 한 글자도 안 건드린다(`[247]`) — 함수를 목으로 갈아 잰다.
+    """
+    import session_handoff as SH
+    day = "2026-08-20"
+    orig = (SH.band_latest_days, SH.band_quiet, SH.band_numbers)
+    try:
+        SH.band_latest_days = lambda: {"테스트밴드": "2026-08-14"}
+        SH.band_quiet = lambda: {"99999999": {"없음확인": 3543, "확인시각": day,
+                                              "수집최대": 3542}}
+        SH.band_numbers = lambda: {"테스트밴드": "99999999"}
+
+        rows = [r for r in SH.data_freshness(today=day)
+                if r["이름"] == "밴드: 테스트밴드"]
+        assert rows, "합성 밴드 행이 안 만들어졌다 — 이 검사는 아무것도 안 재고 있다"
+        r = rows[0]
+        assert r["밀림"] is False, (
+            "근거가 오늘 것인데도 '밀림'이라 한다 — 근거를 번호로 못 찾는 것이다: %r" % r)
+        assert "3542" in str(r.get("조용함") or ""), (
+            "조용함이라면서 어디까지 받았는지를 안 적는다: %r" % r.get("조용함"))
+
+        # ★ 계기 자기시험([272]) — 이름으로 물으면 다시 밀림이어야 한다.
+        SH.band_numbers = lambda: {}          # 번호를 못 찾는 상태
+        r2 = [x for x in SH.data_freshness(today=day)
+              if x["이름"] == "밴드: 테스트밴드"][0]
+        assert r2["밀림"] is True, (
+            "번호를 못 찾는데도 조용함이라 한다 — 이 검사는 아무것도 안 재고 있다")
+    finally:
+        SH.band_latest_days, SH.band_quiet, SH.band_numbers = orig
+    print("[343] 조용한 밴드 판정 — 근거를 번호로 찾는다 · 못 찾으면 밀림에 머문다 ✅")
+
 def t342_a_round_that_skipped_steps_says_so():
     """[342] 회차가 예산 초과로 **건너뛴 단계**를 인계가 말한다 (분담판 [82]).
 
@@ -26356,6 +26396,7 @@ if __name__ == "__main__":
     t340_the_stale_server_check_follows_imports()
     t341_index_silence_is_not_a_collection_delay()
     t342_a_round_that_skipped_steps_says_so()
+    t343_band_quiet_evidence_is_looked_up_by_number()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()

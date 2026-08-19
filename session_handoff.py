@@ -517,6 +517,35 @@ def _absent_judge(band, rec, today):
     except Exception:
         return None, ""
 
+def band_numbers():
+    """밴드 이름 -> 밴드번호. 캐시 파일의 `band_name` 에서 만든다.
+
+    ★ 2026-08-20 실사고 — 이 함수가 없어서 조용한 밴드가 **매일** '밀렸다'로 떴다.
+      `band_latest_days()` 는 키가 **이름**인데(`(주)유니버셜리프트 매출처업무`)
+      근거 파일 `reports/밴드_확인시각.json` 과 `recheck_plan.load()` 는 **번호**를
+      쓴다(`84789192`). 그래서 `quiet.get(이름)` 이 늘 빈 사전이었고 판정은
+      `근거 없음` 으로 떨어졌다 — **한 건도 안 걸리면서 오류도 안 난다**(`[165]`).
+      실측: 매출처 밴드는 8/14 이후 새 글이 없는 **조용한** 상태인데 6일 밀림으로
+      떴다. 그 경보를 믿으면 사람이 **없는 번호를 긁으러 간다** — `[217]` 이 막으려던
+      바로 그 사고이고, 그 고침의 인계 쪽 절반이 이 키 때문에 한 번도 안 돌았다.
+
+    ★ 못 읽으면 **빈 사전**이다. 부르는 쪽은 그때 예전처럼 이름을 그대로 넘기므로
+      판정이 '밀림'에 머문다 — 잘못된 조용함보다 낫다(`[169]`).
+    """
+    out = {}
+    for p in glob.glob(os.path.join(BASE, "band", "cache", "*.json")):
+        no = os.path.basename(p)[:-5]
+        if not no.isdigit():
+            continue
+        try:
+            doc = json.load(open(p, encoding="utf-8")) or {}
+        except Exception:
+            continue
+        nm = str(doc.get("band_name") or "").strip()
+        if nm:
+            out[nm] = no
+    return out
+
 
 def data_freshness(today=None):
     """수집이 **얼마나 밀렸나**. 오늘(2026-08-06) 사고의 진짜 원인이 여기였다.
@@ -540,6 +569,7 @@ def data_freshness(today=None):
          "크롬 'Claude' 탭 그룹에서 이카운트 로그인 → 화면별 Excel 내보내기"),
     ]
     quiet = band_quiet()
+    numbers = band_numbers()   # 이름 -> 번호 (근거 파일 키가 번호다)
     out = []
     for name, latest, how in rows:
         limit = FRESH_LIMIT.get(name.split(":")[0].strip(), 3)
@@ -574,8 +604,9 @@ def data_freshness(today=None):
         #   그래서 판정은 수집 계획과 같은 자리(`recheck_plan.absent_line`)에 맡긴다.
         if row["밀림"] and name.startswith("밴드:"):
             band = name.split(":", 1)[1].strip()
-            q = quiet.get(band) or {}
-            cut, why = _absent_judge(band, q, day)
+            no = numbers.get(band) or band   # 못 찾으면 예전대로(밀림에 머문다)
+            q = quiet.get(no) or quiet.get(band) or {}
+            cut, why = _absent_judge(no, q, day)
             if cut:
                 row["밀림"] = False
                 row["조용함"] = "%s번까지 수집 완료 · %s 에 새 글 없음 확인" % (
