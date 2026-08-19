@@ -22462,7 +22462,11 @@ def t304_dead_round_says_why_and_stops_crying_wolf():
 
     # ⑤ 0단계가 실제로 그 둘을 부르는지 — 안 부르면 위 셋이 아무 뜻도 없다
     dsrc = open(DR.__file__, encoding="utf-8").read()
-    gate = dsrc[dsrc.index("# 0. 합성검증"):dsrc.index("# 0. 합성검증") + 900]
+    # ⚠ **고정 글자 수로 자르지 않는다.** 900자로 잡아 뒀더니 2026-08-19 에 관문
+    #   시간제한을 설명하는 주석이 붙자 호출이 창 밖으로 밀려 **멀쩡한 코드가**
+    #   빨개졌다. 창은 그 단계가 **실제로 끝나는 자리**까지로 잡는다.
+    _g0 = dsrc.index("# 0. 합성검증")
+    gate = dsrc[_g0:dsrc.index("steps.append(run(", _g0)]
     assert "_leave_gate_trace(" in gate, "0단계가 실패 자국을 안 남긴다"
     assert "_clear_gate_trace(" in gate, "0단계가 통과 뒤 옛 자국을 안 지운다"
     # 자국 이름이 `*_오류.json` 이어야 schedule_watch.traces() 글로브에 걸린다
