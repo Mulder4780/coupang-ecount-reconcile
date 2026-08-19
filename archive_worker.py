@@ -1236,8 +1236,18 @@ def _install_sidecar(
     rel_id = f"rId{max(rel_numbers or [0]) + 1}"
     sheet_ids = [int(value) for value in re.findall(r'\bsheetId="(\d+)"', workbook)]
     sheet_id = max(sheet_ids or [0]) + 1
+    # ★ `r:id` 를 쓰는 요소에는 그 접두사 **선언이 같이 있어야** 한다.
+    #   2026-08-20 실사고: 오늘 깔린 lxml 6.1.2 로 openpyxl 이 제 직렬화기 대신
+    #   lxml 을 쓰게 되면서 `xmlns:r` 을 **루트가 아니라 <sheet> 요소마다** 적는다.
+    #   그래서 여기서 덧붙인 <sheet> 에만 선언이 없어 **워크북이 통째로** 안 읽혔다
+    #   (`XMLSyntaxError: Namespace prefix r for id on sheet is not defined`).
+    #   같은 뿌리로 findings_sheet · reorder_rows 도 함께 깨졌다 — 코드는 한 줄도
+    #   안 바뀌었는데 관문이 세 곳에서 죽었다. **같은 URI 재선언은 XML 상 유효**하므로
+    #   엑셀이 만든 정본(루트에 선언이 있는 파일)에서도 안전하다.
+    _R_NS = ("http://schemas.openxmlformats.org/officeDocument"
+             "/2006/relationships")
     sheet_tag = (
-        f'<sheet name="{html.escape(SIDECAR_SHEET, quote=True)}" '
+        f'<sheet xmlns:r="{_R_NS}" name="{html.escape(SIDECAR_SHEET, quote=True)}" '
         f'sheetId="{sheet_id}" r:id="{rel_id}"/>'
     )
     if "</sheets>" not in workbook:
