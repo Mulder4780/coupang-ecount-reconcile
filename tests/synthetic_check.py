@@ -19084,6 +19084,21 @@ def t317_sale_pool_never_takes_what_it_cannot_name():
         assert k in E.SALE_NEVER, "%s 가 아직 판매 후보로 샌다" % k
     assert "sales" not in E.SALE_NEVER and "stmt" not in E.SALE_NEVER,         "진짜 판매 자료까지 막았다"
 
+    # ①-b 금액으로만 붙은 것을 '일치'라 뭉치지 않는다 (2026-08-19 실측 — 후보
+    #   오염을 걷자 사라진 3건이 전부 금액 매치였다). `[124]` 의 금액 사다리를
+    #   붙이면 이 갈래가 크게 느는데, 그때 'ERP 등록됨'처럼 보이면 안 된다.
+    #   붙은 근거를 정말 돌려주는가 — 글자가 아니라 **실행으로** 잰다(`[295]`).
+    _led = {"프로젝트NO": "UJ2600001", "원장_공급가액": 1000.0}
+    _byprj = [{"적요": "UJ2600001 공사", "번호": "x", "금액": 1000.0, "_raw": {}}]
+    _byamt = [{"적요": "남의 회사 거래", "번호": "y", "금액": 1000.0, "_raw": {}}]
+    assert E.match_project(_led, _byprj, 0, "")[1] == "프로젝트NO"
+    assert E.match_project(_led, _byamt, 0, "")[1] == "금액", "금액 2순위가 죽었다"
+    import io as _io
+    _rsrc = _io.open(E.__file__, encoding="utf-8", newline="").read()
+    _seg = _rsrc[_rsrc.index("① 판매/거래명세서 층"):][:2600]
+    assert 'how == "프로젝트NO"' in _seg,         "붙은 근거를 판정에 안 쓴다 — 금액으로만 붙은 것이 '일치'로 뭉친다"
+    assert "근거 약함" in _seg, "약한 근거를 약하다고 안 적는다"
+
     # ② 실제로 돌려서 잰다 — 글자 검사로는 '몇 개가 빠졌는지'를 못 잡는다(`[295]`).
     try:
         import openpyxl
@@ -19142,7 +19157,8 @@ def t317_sale_pool_never_takes_what_it_cannot_name():
         E.SALE_NEVER = 잠깐
 
     print("[317] 판매 후보 — 모르는 갈래는 안 담고 숫자로 말한다 · "
-          "짝이 안 지어지면 열쇠를 의심한다 · 멀쩡하면 조용하다 ✅")
+          "짝이 안 지어지면 열쇠를 의심한다 · 멀쩡하면 조용하다 · "
+          "금액만 붙은 것은 약하다고 적는다 ✅")
 
 
 def t192_synthetic_check_is_harmless():
