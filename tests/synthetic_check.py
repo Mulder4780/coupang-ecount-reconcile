@@ -23047,13 +23047,15 @@ def t311_camp_units_come_from_one_parser():
           "const 답=[campUnits({호기:[1,2]},true),campUnits({호기:[1,2,5]},true),"
           "campUnits({호기:[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]},true),"
           "campUnits({호기:[1,2,3,5]},true),"
-          "campUnits({호기:[]},true),campUnits({},true),campUnits({호기:[1,2,5]})];"
+          "campUnits({호기:[]},true),campUnits({},true),campUnits({호기:[1,2,5]}),"
+          "campUnits({호기:[1,2],호기출처:'정기점검 스케줄 원본'},true),"
+          "campUnits({호기:[1,2,5],호기출처:'정기점검 스케줄 원본'})];"
           "console.log(JSON.stringify(답));")
     pr = subprocess.Popen([node, "-e", js], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           **proc_guard.background_popen_kwargs())
     out = pr.communicate(timeout=60)[0].decode("utf-8", "replace").strip()
     got = _json.loads(out.splitlines()[-1])
-    assert got[0] == "1,2호기", "이어진 호기를 그대로 안 적는다: %r" % got[0]
+    assert got[0].startswith("1,2호기"), "이어진 호기를 그대로 안 적는다: %r" % got[0]
     assert got[1].startswith("1,2,5호기") and "사이 빔" in got[1], \
         "사이가 빈 것을 말하지 않는다 — '3·4호기는 없다'로 읽힌다: %r" % got[1]
     assert got[4] == "모름" and got[5] == "모름", \
@@ -23061,9 +23063,20 @@ def t311_camp_units_come_from_one_parser():
     # ★ **이어진 번호는 범위로 줄인다**(2026-08-19 지시 "확대해도 다 보이게").
     #   실측 가장 긴 칸 40자 → 15자 · 73개 캠프가 줄었다. 줄이는 것이지 감추는
     #   것이 아니다 — 사이가 비면 `1~3,5호기` 처럼 **그 자리에** 드러난다(`[169]`).
-    assert got[2] == "1~16호기", "이어진 호기를 범위로 안 줄인다 — 열이 화면 밖으로 나간다: %r" % got[2]
+    assert got[2].startswith("1~16호기"), \
+        "이어진 호기를 범위로 안 줄인다 — 열이 화면 밖으로 나간다: %r" % got[2]
     assert got[3].startswith("1~3,5호기"), "범위 사이의 구멍이 안 보인다: %r" % got[3]
-    assert "title=" in got[-1], "화면에서 '사이 빔'의 뜻을 설명하지 않는다"
+    assert "title=" in got[6], "화면에서 '사이 빔'의 뜻을 설명하지 않는다"
+    # ★ **출처마다 뜻이 다르다**(2026-08-19). 정기점검 스케줄 원본에서 온 호기는
+    #   **실제 설치 대수**이고 밴드에서 온 것은 '글에서 본 것'이다. 같은 `1,2,5` 라도
+    #   앞은 '3·4호기가 없다', 뒤는 '그 호기 글을 못 봤다' — 한 말로 뭉치면 둘 중
+    #   하나에는 반드시 틀린 설명이 붙는다([172]).
+    assert "글에서 본 것" in got[0], \
+        "밴드에서 본 호기를 설치 대수처럼 적는다 — 엑셀에는 설명이 없어 뜻이 사라진다"
+    assert "글에서 본 것" not in got[7] and "*" not in got[8], \
+        "정본에서 온 호기에까지 '글에서 본 것'을 붙인다 — 맞는 값에 틀린 설명이 붙는다"
+    assert "정기점검 스케줄 원본" in got[8], \
+        "정본에서 온 '사이 빔'의 뜻을 밴드 것과 같은 말로 설명한다: %r" % got[8]
 
     print("[311] 캠프 호기 — 판정은 pm_content 한 곳 · 글자는 campUnits 한 곳 · "
           "사이 빔과 모름을 말한다 ✅")
@@ -24179,6 +24192,96 @@ def t324_source_tidy_names_the_culprit_step():
     print("  [324] 원본 정리 회차 — 단계마다 제한 · 범인을 이름으로 댐 · "
           "죽어도 다음 단계 · 시간초과를 글자로 짐작 안 함 (실행으로 잼) OK")
 
+
+def t326_the_master_roster_wins_but_never_erases():
+    """[326] **정기점검 스케줄 원본이 캠프 담당자의 정답지다** (2026-08-19 지시).
+
+    형님 캡처의 그 표(`(류지영) ★01. 쿠팡 정기점검 스케줄표_원본.xlsx`)에는
+    현장책임자·안전관리자·전화·메일·주소·호기가 다 있다. 밴드 접수 글은 그때 그
+    사람이 적어 넣은 것이고 이 표는 **목적 자체가 담당자 명부**다 — 그래서 이긴다.
+    실측: 겹치는 183캠프에서 값이 서로 다른 칸 236개(안전관리 이름 49 · 메일 30 ·
+    주소 46 · 호기 34). 즉 화면이 **낡은 값을 그럴듯하게** 보여 주고 있었다([165]).
+
+    ★ **덮되 버리지 않는다**([169]) — 밀린 값은 `이전값` 에 남고 몇 칸인지 말한다.
+    ★ **빈 값으로 덮지 않는다** — 엑셀 칸이 비면 밴드 값이 그대로 남는다.
+    ★ **정본이 `fill_gaps` 보다 먼저** 얹힌다 — 뒤집으면 약한 근거가 자리를 잡는다.
+    ★ **캠프 아닌 것을 캠프로 만들지 않는다**([172]) — 그 표의 캠프명 칸에는 주소와
+      숫자가 섞여 온다(실측). `looks_like_camp` 한 곳이 거른다([162]).
+    ★ 실측 증거 파일은 한 글자도 안 건드린다([247]) — 합성 행으로만 잰다.
+    """
+    import camp_contacts as CC
+
+    src = open("camp_contacts.py", encoding="utf-8").read()
+    i_apply = src.index("정본 = apply_pm_schedule")
+    i_fill = src.index("보완 = fill_gaps(")
+    assert i_apply < i_fill, (
+        "정본을 fill_gaps 뒤에 얹는다 — 약한 근거(밴드 명부·ERP)가 먼저 자리를 잡아 "
+        "정본이 '고침'으로 세인다")
+
+    def rows_of():
+        return [{"캠프명": "가양1MB(가양동)", "캠프주소": "서울시 옛주소",
+                 "호기": [1, 2, 5], "정기점검": True, "다른표기": [],
+                 "현장책임": {"이름": "이성환", "전화": "010-5123-1582"},
+                 "안전관리": {"이름": "옛사람", "전화": "", "메일": "old@x.com"},
+                 "담당자": {}, "근거": {}}]
+
+    sched = {CC._norm("가양1MB(가양동)"): {
+        "캠프명": "가양1MB(가양동)", "시트": "2026년 4분기 정기점검", "순": 0,
+        "호기": [1, 2, 3], "옛이름": ["인천7MB(가양)"], "주소": "서울특별시 강서구 가양동 449-1",
+        "현장책임": {"이름": "장원용(Bentley)", "전화": "010-6227-9180", "메일": ""},
+        "안전관리": {"이름": "김윤철(Rino)", "전화": "010-7146-8031", "메일": ""}}}
+
+    rows = rows_of()
+    st = CC.apply_pm_schedule(rows, sched)
+    r = rows[0]
+    assert r["현장책임"]["이름"] == "장원용(Bentley)", (
+        "정본이 안 이긴다 — 화면이 낡은 담당자를 계속 보여 준다: %r" % r["현장책임"])
+    assert r["캠프주소"].startswith("서울특별시 강서구"), "주소가 안 바뀐다: %r" % r["캠프주소"]
+    assert r["호기"] == [1, 2, 3] and r.get("호기출처"), (
+        "호기를 정본으로 안 바꾸거나 출처를 안 남긴다 — '관측'과 '설치 대수'가 뭉친다")
+    # ★ 빈 값으로 덮지 않는다 — 정본에 메일이 없으면 밴드 메일이 살아 있어야 한다.
+    assert (r["안전관리"] or {}).get("메일") == "old@x.com", (
+        "정본의 빈 칸이 있는 값을 지운다 — 애써 모은 메일이 사라진다([169])")
+    # ★ 버리지 않는다 — 밀린 값이 남고 숫자로 말한다.
+    keep = r.get("이전값") or {}
+    assert keep.get("현장책임.이름", {}).get("밴드") == "이성환", (
+        "덮은 값을 안 남긴다 — '그때 밴드에는 뭐라고 적혀 있었나'를 잃는다: %r" % keep)
+    assert st["고친칸"] >= 4 and st["칸별"].get("안전관리.이름") == 1, (
+        "몇 칸을 고쳤는지 안 센다 — 조용히 덮으면 아무도 안 본다([169]): %r" % st)
+    assert "인천7MB(가양)" in (r.get("다른표기") or []), "옛 캠프명을 안 남긴다"
+
+    # ★ 없던 캠프는 목록에 **더한다** — 빼면 '없는 캠프'가 된다([169]).
+    rows2 = []
+    st2 = CC.apply_pm_schedule(rows2, sched)
+    assert st2["새캠프"] == 1 and len(rows2) == 1, "정본에만 있는 캠프를 버린다: %r" % st2
+
+    # ★ 캠프 아닌 것을 캠프로 만들지 않는다([172]) — 그 표에는 주소·숫자가 섞여 온다.
+    for 나쁜 in ("경상남도 통영시 광도면 덕포로 202", "88"):
+        assert not CC._sched_camp_ok(나쁜), (
+            "'%s' 를 캠프로 받는다 — 목록에 없는 캠프가 생기고 담당자가 붙는다" % 나쁜)
+
+    # ★ 못 읽으면 '없다'가 아니라 그 사실을 말한다([169]).
+    keepf = CC._sched_file
+    try:
+        CC._sched_file = lambda: None
+        camps, 왜 = CC.pm_schedule_camps(force=True)
+        assert camps == {} and "못 읽음" in str(왜.get("길")), (
+            "원본을 못 읽었는데 조용히 넘어간다 — 화면이 낡은 값을 '최신'으로 보여 준다: %r" % 왜)
+    finally:
+        CC._sched_file = keepf
+
+    # ★ 계기 자기시험([272]) — 버리지 않는 문을 빼면 이 검사가 잡아야 한다.
+    rows3 = rows_of()
+    r3 = rows3[0]
+    r3["현장책임"] = dict(sched[CC._norm("가양1MB(가양동)")]["현장책임"])
+    st3 = CC.apply_pm_schedule(rows3, sched)
+    assert st3["칸별"].get("현장책임.이름") is None, (
+        "값이 같은데도 '고침'으로 센다 — 경보가 대부분이 되어 아무도 안 본다([170])")
+
+    print("[326] 캠프 담당자 - 정기점검 스케줄 원본이 이기되 버리지 않는다 · "
+          "빈 값으로 안 덮음 · 못 읽으면 그렇게 말함 (실행으로 잼) OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -24497,6 +24600,7 @@ if __name__ == "__main__":
     t323_amount_ladder_is_one_value_in_five_places()
     t324_source_tidy_names_the_culprit_step()
     t325_one_alert_is_one_line_and_the_reason_survives()
+    t326_the_master_roster_wins_but_never_erases()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

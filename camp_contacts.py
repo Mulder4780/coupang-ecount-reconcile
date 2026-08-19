@@ -313,6 +313,280 @@ def fill_gaps(rows, directory, erp_by_key=None):
             "보완합계": sum(채움.values()), "보완보류": sum(여럿.values())}
 
 
+# -----------------------------------------------------------------------------
+# ★ 원천 하나가 더 있었다 — **정기점검 스케줄 원본**이 정답지다 (2026-08-19 지시)
+#
+# 형님 캡처: `(류지영) ★01. 쿠팡 정기점검 스케줄표_원본.xlsx` 의 `2026년 N분기
+# 정기점검` 시트. 열이 이렇다 — 기존 캠프명 · 변경 캠프명 · 캠프주소 · 호기 ·
+# 종류 · 모델 · **현장책임자(CL)** · HP · **안전관리자** · HP · **E-mail**.
+#
+# ★ **왜 이 표가 이기나** — 밴드 접수 글은 그때 그 사람이 적어 넣은 것이고
+#   이 표는 **목적 자체가 캠프 담당자 명부**다(쿠팡이 주고 류지영이 관리한다).
+#   실측 2026-08-19: 이름이 겹치는 183캠프에서 **값이 서로 다른 칸 236개**
+#   (안전관리 이름 49 · 메일 30 · 주소 46 · 호기 34) · 빈 칸을 채울 것 93개.
+#   즉 화면이 지금까지 **낡은 값을 그럴듯하게** 보여 주고 있었다([165] 모양).
+#
+# ★ **덮지만 버리지 않는다**([169]) — 밀린 값은 `이전값` 에 남기고 **몇 칸을
+#   고쳤는지 숫자로 말한다**. 조용히 덮으면 "그때 밴드에는 뭐라고 적혀 있었나"를
+#   잃고, 잘못 덮었을 때 되돌릴 근거도 없어진다.
+# ★ **빈 값으로 덮지 않는다** — 엑셀 칸이 비었으면 밴드 값이 그대로 남는다.
+# ★ **호기는 뜻이 달라진다** — 밴드 것은 '관측된 호기'인데 이 표는 **설치 대수**다.
+#   그래서 `호기출처` 를 같이 실어 화면이 갈라 말하게 한다([169]).
+# ★ **비싼 읽기는 캐시 검사 뒤에**([168]) — Z: 의 4MB 워크북이다. 지문은
+#   (파일명·크기·수정시각·규칙판)이고, 규칙을 고치면 `PM_SCHED_VER` 를 손으로
+#   올린다 — 원본이 안 바뀌면 지문이 안 움직여 옛 답이 영원히 이긴다(이 프로젝트가
+#   네 번 겪은 모양이다).
+# ★ **못 읽으면 '없다'가 아니다**([169]) — 리포트가 그 사실을 그대로 적는다.
+# -----------------------------------------------------------------------------
+PM_SCHED_CACHE = os.path.join(REPORT_DIR, "캠프_정기점검원본.json")
+PM_SCHED_VER = 2          # <- 파싱 규칙을 고치면 이 숫자를 올린다
+
+
+def _sched_file():
+    """가장 최근에 손댄 스케줄 워크북 하나. 없으면 None."""
+    try:
+        import source_dirs as SD
+        folder = SD.PM_SCHEDULE_DIR
+    except Exception:
+        return None
+    best = None
+    try:
+        for n in os.listdir(folder):
+            if n.startswith("~$") or not n.lower().endswith((".xlsx", ".xlsm")):
+                continue
+            p = os.path.join(folder, n)
+            st = os.stat(p)
+            if best is None or st.st_mtime > best[1]:
+                best = (p, st.st_mtime, st.st_size)
+    except Exception:
+        return None
+    return best
+
+
+def _cell(row, i):
+    if i is None or i < 0 or i >= len(row):
+        return ""
+    v = row[i]
+    if v is None:
+        return ""
+    return str(v).replace(chr(10), " ").strip()
+
+
+def _tel(text):
+    """전화 모양만 남긴다 — 엑셀 칸에 공백·메모가 붙어 온다."""
+    t = "".join(ch for ch in str(text or "") if ch.isdigit() or ch == "-").strip("-")
+    return t if sum(ch.isdigit() for ch in t) >= 9 else ""
+
+
+def _mail(text):
+    t = str(text or "").strip()
+    return t if ("@" in t and " " not in t and "." in t.split("@")[-1]) else ""
+
+
+# 그 워크북은 셀이 병합돼 있어 **캠프명 칸에 주소가 그대로 들어오는 행**이 있다
+# (실측: `경상남도 통영시 광도면 덕포로 202` · `88`). `looks_like_camp` 는 밴드
+# 본문용이라 이런 것을 통과시키는데, **여기서 그 함수를 넓히면 안 된다** — 밴드
+# 쪽 판정까지 같이 바뀐다([172]). 그러니 문은 **이 표 전용**으로 단다.
+_ADDR_HEAD = ("서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+              "경기", "강원", "충청", "충북", "충남", "전라", "전북", "전남",
+              "경상", "경북", "경남", "제주")
+
+
+def _looks_like_address(name):
+    """행정 지명으로 시작하고 띄어쓴 덩어리가 셋 이상이면 주소다."""
+    t = str(name or "").strip()
+    if not t.startswith(_ADDR_HEAD):
+        return False
+    return len(t.split()) >= 3 or any(t.endswith(x) for x in ("로", "길")) \
+        or any(w in t for w in ("읍 ", "면 ", "동 ", "리 ", "번길"))
+
+
+def _sched_camp_ok(name):
+    """이 표의 캠프명 칸이 정말 캠프인가 — 주소·숫자·메모는 아니다([169])."""
+    t = str(name or "").strip()
+    if not t or not looks_like_camp(t):
+        return False
+    return not _looks_like_address(t)
+
+
+def pm_schedule_camps(force=False):
+    """정기점검 스케줄 원본 -> ({정규화이름: {…}}, 왜). 실패도 말로 돌려준다."""
+    f = _sched_file()
+    if not f:
+        return {}, {"길": "못 읽음: 정기점검 스케줄 원본 폴더에 워크북이 없다"}
+    path, mtime, size = f
+    sig = "%s|%s|%s|v%d" % (os.path.basename(path), int(mtime), size, PM_SCHED_VER)
+    if not force:
+        try:
+            with open(PM_SCHED_CACHE, encoding="utf-8") as fh:
+                old = json.load(fh)
+            if old.get("지문") == sig:
+                return old.get("camps") or {}, old.get("왜") or {}
+        except Exception:
+            pass
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except Exception as e:                                   # noqa: BLE001
+        return {}, {"길": "못 읽음: %s" % str(e)[:80], "파일": os.path.basename(path)}
+
+    want = {"변경캠프명": "새이름", "기존캠프명": "옛이름", "캠프주소": "주소",
+            "호기": "호기", "종류": "종류", "모델": "모델",
+            "현장책임자(CL)": "cl", "현장책임자(CL)HP": "clhp",
+            "안전관리자": "safe", "안전관리자HP": "safehp",
+            "E-mail": "mail", "안전관리자e-mail": "mail", "설치일자": "설치일"}
+    camps, 시트수, 행수 = {}, 0, 0
+    names = [t for t in wb.sheetnames if "분기" in t and "정기점검" in t]
+    for order, t in enumerate(names):            # 앞 시트가 최신이다(4->3->2->1분기)
+        ws = wb[t]
+        hdr, hr = None, 0
+        for r, row in enumerate(ws.iter_rows(min_row=1, max_row=12, values_only=True), 1):
+            vals = [_cell(row, i) for i in range(len(row))]
+            if "변경 캠프명" in vals or "No." in vals:
+                hdr = {}
+                for i, v in enumerate(vals):
+                    k = v.replace(" ", "")
+                    if k in want and want[k] not in hdr:
+                        hdr[want[k]] = i
+                hr = r
+                break
+        if not hdr or "새이름" not in hdr:
+            continue
+        시트수 += 1
+        for row in ws.iter_rows(min_row=hr + 1, values_only=True):
+            name = _cell(row, hdr.get("새이름")) or _cell(row, hdr.get("옛이름"))
+            if not _sched_camp_ok(name):
+                continue          # 숫자·주소·메모가 캠프명 칸에 섞여 온다([172])
+            행수 += 1
+            key = _norm(name)
+            c = camps.setdefault(key, {"캠프명": name, "시트": t, "순": order,
+                                       "호기": [], "옛이름": []})
+            if order < c["순"]:                       # 더 최신 시트가 이긴다
+                c["캠프명"], c["시트"], c["순"] = name, t, order
+            for x in _units(_cell(row, hdr.get("호기"))):
+                if x not in c["호기"]:
+                    c["호기"].append(x)
+            옛 = _cell(row, hdr.get("옛이름"))
+            if (옛 and _norm(옛) != key and _sched_camp_ok(옛)
+                    and len(옛) <= NAME_MAX and 옛 not in c["옛이름"]):
+                c["옛이름"].append(옛)
+            for k2 in ("주소", "종류", "모델", "설치일"):
+                v = _cell(row, hdr.get(k2))
+                if v and not c.get(k2):
+                    c[k2] = v[:60]
+            cl = {"이름": _cell(row, hdr.get("cl"))[:40],
+                  "전화": _tel(_cell(row, hdr.get("clhp"))), "메일": ""}
+            sf = {"이름": _cell(row, hdr.get("safe"))[:40],
+                  "전화": _tel(_cell(row, hdr.get("safehp"))),
+                  "메일": _mail(_cell(row, hdr.get("mail")))}
+            for slot, p in (("현장책임", cl), ("안전관리", sf)):
+                # 사람 칸도 **각각 따로** 최신을 고른다 — 통째로 덮으면 메일이 사라진다.
+                merged = dict(c.get(slot) or {})
+                for fld in ("이름", "전화", "메일"):
+                    if p.get(fld) and (not merged.get(fld) or order <= c["순"]):
+                        merged[fld] = p[fld]
+                if any(merged.get(x) for x in ("이름", "전화", "메일")):
+                    c[slot] = merged
+    try:
+        wb.close()
+    except Exception:
+        pass
+    for c in camps.values():
+        c["호기"] = sorted(c["호기"])
+    왜 = {"길": "읽음", "파일": os.path.basename(path), "시트": 시트수,
+          "행": 행수, "캠프": len(camps),
+          "받은때": BE.datetime.now().isoformat(timespec="seconds")
+          if hasattr(BE, "datetime") else ""}
+    try:
+        with open(PM_SCHED_CACHE, "w", encoding="utf-8") as fh:
+            json.dump({"지문": sig, "왜": 왜, "camps": camps}, fh, ensure_ascii=False)
+    except Exception:
+        pass                       # 캐시를 못 써도 답은 답이다
+    return camps, 왜
+
+
+def _same(a, b):
+    def flat(x):
+        return str(x or "").replace(" ", "").replace("-", "")
+    return flat(a) == flat(b)
+
+
+def apply_pm_schedule(rows, camps):
+    """정본을 얹는다 — **덮되 버리지 않고, 몇 칸인지 말한다**([169])."""
+    stat = {"채운칸": 0, "고친칸": 0, "고친캠프": 0, "새캠프": 0, "칸별": {}, "예": []}
+    by = {}
+    for r in rows:
+        by.setdefault(_norm(r.get("캠프명")), r)
+    for key, c in camps.items():
+        r = by.get(key)
+        if r is None:
+            # ★ 밴드에도 마스터에도 없는 캠프 — **빼면 '없는 캠프'가 된다**([169]).
+            r = {"캠프명": c["캠프명"], "캠프주소": "", "거래처코드": "",
+                 "이름확인필요": len(c["캠프명"]) > NAME_MAX, "다른표기": [],
+                 "호기": [], "정기점검": True, "정기점검건수": 0, "돌발AS건수": 0,
+                 "총건수": 0, "최근작업일": "", "현장책임": {}, "안전관리": {},
+                 "담당자": {}, "근거": {}}
+            rows.append(r)
+            by[key] = r
+            stat["새캠프"] += 1
+        before = (stat["채운칸"], stat["고친칸"])
+        keep = r.setdefault("이전값", {})
+
+        def put(새, 자리, 이전):
+            if not 새:
+                return ""                   # 빈 값으로 덮지 않는다
+            if 이전 and not _same(이전, 새):
+                keep.setdefault(자리, {})["밴드"] = 이전
+                stat["고친칸"] += 1
+                stat["칸별"][자리] = stat["칸별"].get(자리, 0) + 1
+                if len(stat["예"]) < 8:
+                    stat["예"].append("%s %s: %s -> %s" % (r["캠프명"], 자리,
+                                                           str(이전)[:22], str(새)[:22]))
+            elif not 이전:
+                stat["채운칸"] += 1
+            return 새
+
+        for slot in ("현장책임", "안전관리"):
+            src = c.get(slot) or {}
+            cur = dict(r.get(slot) or {})
+            for fld in ("이름", "전화", "메일"):
+                v = put(src.get(fld), "%s.%s" % (slot, fld), cur.get(fld))
+                if v:
+                    cur[fld] = v
+            if any(cur.get(x) for x in ("이름", "전화", "메일")):
+                r[slot] = cur
+                r.setdefault("근거", {})[slot] = {"출처": "정기점검 스케줄 원본",
+                                                  "시트": c.get("시트") or ""}
+        v = put(c.get("주소"), "캠프주소", r.get("캠프주소"))
+        if v:
+            r["캠프주소"] = v
+        if c.get("호기"):
+            옛 = list(r.get("호기") or [])
+            if 옛 and sorted(옛) != sorted(c["호기"]):
+                keep.setdefault("호기", {})["밴드"] = 옛
+                stat["고친칸"] += 1
+                stat["칸별"]["호기"] = stat["칸별"].get("호기", 0) + 1
+            elif not 옛:
+                stat["채운칸"] += 1
+            r["호기"] = list(c["호기"])
+            # ★ 뜻이 다르다 — 밴드는 '관측', 이 표는 '설치 대수'다. 화면이 갈라 말한다.
+            r["호기출처"] = "정기점검 스케줄 원본"
+        for 옛이름 in c.get("옛이름") or []:
+            alt = r.setdefault("다른표기", [])
+            if 옛이름 != r.get("캠프명") and 옛이름 not in alt:
+                alt.append(옛이름)
+        for f2 in ("종류", "모델", "설치일"):
+            if c.get(f2) and not r.get(f2):
+                r[f2] = c[f2]
+        # 이 표에 있다는 것 자체가 정기점검 대상이라는 뜻이다.
+        r["정기점검"] = True
+        if (stat["채운칸"], stat["고친칸"]) != before:
+            stat["고친캠프"] += 1
+        if not keep:
+            r.pop("이전값", None)
+    return stat
+
+
 def build():
     recs = BE.load_records()
     camps = {}
@@ -450,15 +724,22 @@ def build():
         이름 = _norm(er.get("name") or "")
         if 이름:
             erp_by_key.setdefault(이름, er)
+    # ★ **정본이 먼저 얹힌다** — 그다음에 남은 빈 칸만 명부·ERP 로 채운다.
+    #   순서를 뒤집으면 약한 근거가 먼저 자리를 잡아 정본이 '고침'으로 세인다.
+    sched, sched_왜 = pm_schedule_camps()
+    정본 = apply_pm_schedule(rows, sched) if sched else {}
     보완 = fill_gaps(rows, person_directory(recs, erp_rows), erp_by_key)
 
     sort_rows(rows)
     return {
         "갱신": BE.datetime.now().isoformat(timespec="seconds")
         if hasattr(BE, "datetime") else "",
-        "출처": "밴드 접수 글 본문(band_extract) + reports/캠프마스터.json"
-                " + ERP 거래처등록(모름 보완)",
+        "출처": "정기점검 스케줄 원본(류지영 정본·우선) + 밴드 접수 글 본문"
+                "(band_extract) + reports/캠프마스터.json + ERP 거래처등록(모름 보완)",
         "보완출처": erp_왜,
+        # ★ 조용히 덮지 않는다([169]) — 몇 칸을 고쳤는지·무엇을 못 읽었는지 말한다.
+        "정기점검원본": sched_왜,
+        "정본반영": 정본,
         "rows": rows,
         **보완,
         # ★ 뺀 것은 숫자로 말한다(`[169]`) — 조용히 빼면 '원래 없던 것'이 된다.
