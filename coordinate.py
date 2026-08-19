@@ -111,8 +111,18 @@ def running(report_dir=None):
 
 
 # ── 자국 ────────────────────────────────────────────────────────────────────
-def _load(path=MARK):
-    """→ (표, 못읽은이유). **못 읽은 것을 빈 표로 치지 않는다**(`[169]`)."""
+def _load(path=None):
+    """→ (표, 못읽은이유). **못 읽은 것을 빈 표로 치지 않는다**(`[169]`).
+
+    ★ 경로는 **부를 때** 읽는다 — `path=MARK` 는 기본인자라 **def 시각에 묶인다.**
+      그래서 `coordinate.MARK` 를 임시 경로로 돌려도 **진짜 파일에 그대로 썼다.**
+      2026-08-19 실측: 합성검증이 `daily_run.main()` 을 부르면서 `PROGRESS` 만
+      돌리고 조율은 못 돌려, 일일대조 자국 **40줄 중 38줄이 검증이 쓴 가짜**였다.
+      그림이 나쁜 자리는 여기다 — `audit()` 은 "양보했는데 주인이 끝냈나"를
+      주인의 **완주 줄**로 묻는다. 가짜 완주가 **진짜 헛양보를 지운다**(`[293]` 이
+      잡으려던 바로 그것). 오류도 안 나고 표도 그럴듯하다(`[169]`).
+    """
+    path = path or MARK
     if not os.path.exists(path):
         return {}, ""                     # 아직 한 번도 안 적었다 — 이것은 정상이다
     try:
@@ -123,8 +133,12 @@ def _load(path=MARK):
         return {}, "%s 를 못 읽었다: %s" % (os.path.basename(path), exc)
 
 
-def _save(d, path=MARK):
-    """작게 쓰고 원자적으로 갈아끼운다. 읽는 쪽이 물고 있으면 물러서며 다시 건다."""
+def _save(d, path=None):
+    """작게 쓰고 원자적으로 갈아끼운다. 읽는 쪽이 물고 있으면 물러서며 다시 건다.
+
+    경로는 `_load` 와 같은 이유로 **부를 때** 읽는다(위 설명).
+    """
+    path = path or MARK
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with io.open(tmp, "w", encoding="utf-8") as f:

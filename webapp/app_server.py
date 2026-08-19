@@ -9464,12 +9464,24 @@ self.addEventListener('fetch', e => {
                 if p == "/api/remote/request":
                     # 공지(2026-08-04): 불출 일자·투입 예정 캠프명까지 기록한다.
                     # 2026-08-06: 버전·지사 불출자 이름도 함께 남긴다.
+                    # 2026-08-19 지시("엑셀 안받고 정리할 수 있게 해"): 왜(reason·
+                    # fault_detail)·어디에(equip_kind·equip_spec·unit_no)·받는 곳
+                    # (to_kind)까지 앱에서 바로 적는다. ★ 여기서는 **넘기기만** 한다 —
+                    # 무엇이 필수인지는 ledger_db.remote_purpose 한 곳이 정한다([162]).
+                    # 검사를 여기에도 적으면 화면·API·검증이 갈리고, 갈린 뒤에는
+                    # 어느 쪽이 맞는지 아무도 모른다.
                     rid = ledger_db.remote_request(
                         body.get("branch"), body.get("technician"), body.get("qty"),
                         who, body.get("note") or "",
                         body.get("issued_on") or "", body.get("camp") or "",
                         version=body.get("version") or "",
-                        issuer=body.get("issuer") or "")
+                        issuer=body.get("issuer") or "",
+                        to_kind=body.get("to_kind") or "",
+                        reason=body.get("reason") or "",
+                        fault_detail=body.get("fault_detail") or "",
+                        equip_kind=body.get("equip_kind") or "",
+                        equip_spec=body.get("equip_spec") or "",
+                        unit_no=body.get("unit_no") or "")
                     return self._send(200, {"ok": True, "id": rid, "status": "불출완료"})
                 # 고치기·지우기·되돌리기(2026-08-06 지시). 수량이 서로 물려 있어
                 # ledger_db 가 전후 상태를 비교하고, 지운 내용은 원장에 남아 복구된다.

@@ -13784,8 +13784,19 @@ def t194_legacy_queue_migration_and_round_truth():
         "round_t0": D._ROUND_T0[0],
         "over_budget": D._OVER_BUDGET[0],
     }
+    # ★ **실측 증거에 시험 행을 섞지 않는다** (2026-08-19 실사고 · `[247]`·`[293]`).
+    #   아래 `D.main()` 은 진짜 회차라 `coordinate.record_run` 까지 부른다. 그런데
+    #   여기서 `PROGRESS` 만 돌리고 조율 표를 안 돌려서, 실측 `reports/작업_조율.json`
+    #   의 일일대조 자국 **40줄 중 38줄이 검증이 쓴 가짜**였다(검증 한 번에 4줄).
+    #   그러면 `audit()` 이 "양보했는데 주인이 끝냈나"를 **가짜 완주**로 답해
+    #   진짜 헛양보를 지운다 — `[293]` 이 잡으려던 바로 그 사고를 검증이 만든 셈이다.
+    import coordinate as _COORD
+    keep["MARK"], keep["REPORT_MD"] = _COORD.MARK, _COORD.REPORT_MD
     with tempfile.TemporaryDirectory() as td:
         D.PROGRESS = os.path.join(td, "progress.json")
+        _COORD.MARK = os.path.join(td, "작업_조율.json")
+        _COORD.REPORT_MD = os.path.join(td, "작업_조율.md")
+        _real_mark_before = os.path.getmtime(keep["MARK"]) if os.path.exists(keep["MARK"]) else None
         D._ROUND_T0[0] = _dt.now()
         try:
             D.note_progress("옛단계", "끝", {
@@ -13847,6 +13858,23 @@ def t194_legacy_queue_migration_and_round_truth():
             D._run_pipeline = keep["_run_pipeline"]
             D._ROUND_T0[0] = keep["round_t0"]
             D._OVER_BUDGET[0] = keep["over_budget"]
+            # 되돌리기 **전에** 잰다 — 진짜 파일이 안 바뀌었나(`[272]` 계기 자기시험).
+            _after = os.path.getmtime(keep["MARK"]) if os.path.exists(keep["MARK"]) else None
+            assert _after == _real_mark_before,                 "검증이 실측 조율 표를 건드렸다 — 가짜 완주가 진짜 헛양보를 지운다"
+            assert os.path.exists(_COORD.MARK),                 "조율 자국이 임시 경로에도 안 남았다 — 되돌림이 아니라 기록이 죽은 것이다"
+            _COORD.MARK, _COORD.REPORT_MD = keep["MARK"], keep["REPORT_MD"]
+
+    # ★ 경로가 **부를 때** 읽히는가 — 기본인자(`path=MARK`)로 되돌아가면 위 되돌림이
+    #   통째로 헛것이 된다(그때는 이 검사만 초록이고 실측 파일이 다시 더러워진다).
+    with tempfile.TemporaryDirectory() as td2:
+        _keep2 = _COORD.MARK
+        try:
+            _COORD.MARK = os.path.join(td2, "c.json")
+            assert _COORD.note("검증전용", "완주", "실행으로 잰다") is True
+            assert os.path.exists(_COORD.MARK), "MARK 를 돌렸는데 그 경로에 안 썼다"
+            assert "검증전용" in _COORD._load()[0], "_load 가 옛 경로를 본다"
+        finally:
+            _COORD.MARK = _keep2
 
     print("  [194] 구형 큐 열→인덱스 순서 · 단계 상태 새 문서 · 실패/중단/완주 진실 ✅")
 
@@ -23358,6 +23386,161 @@ def t318_past_pm_plan_is_not_a_plan():
           "짝 없으면 미처리로 옮기고 · 예측은 그대로 (서버·화면 둘 다) OK")
 
 
+
+def t319_remote_move_to_branch_without_widening_the_person_limit():
+    """[319] **리모컨 — 갈래를 더한 것이지 한도를 푼 것이 아니다** (2026-08-19 지시).
+
+    지시 둘이 같은 표·같은 API·같은 화면이라 한 번에 붙였다:
+      · "리모컨 카테고리 이것도 추가 해서 관리할 수 있도록 반영" — 김미영 대리 요청을
+        류지영 매니저가 전달("사유랑(고장이면 고장 왜 교체하는지) 이동식이면 이동식
+        4RT 몇호기에 들어갔는지도 다 정리해야한데요")
+      · "이것도 기능 추가해" — 화면 오류 `불출 기록 실패: 수량은 1~3개여야 합니다`,
+        류지영 카톡 "리모컨 VER.4 부산공장으로 30개 이동할껀데 불출은 AS기사님들만
+        있는거같아요"
+      · "엑셀 안받고 정리할 수 있게 해" — 엑셀을 기다리지 않고 앱에서 바로 적는다
+
+    ★ **여기서 제일 중요한 것은 되는 것이 아니라 안 풀리는 것이다**([172]) —
+      AS 담당자 3개 한도는 부사장 승인 규칙이다. 공장 갈래를 만들다 그 한도를 넓히면
+      규칙이 조용히 사라지고 아무 화면에도 안 뜬다.
+    ★ 짝이 되는 재고 행을 만들지 않고 **파생**으로 센다([162]) — 만들면 원본을 지울 때
+      그 행이 안 따라와 어긋난다.
+    ★ 화면은 **실행해서** 잰다([295]) — 글자 검사로는 '한도가 정말 안 걸리는지'를 못 잰다.
+    """
+    import io as _io, json as _json, os as _os, shutil, subprocess, tempfile
+    import proc_guard
+    import ledger_db as L
+
+    # ── 서버: 임시 DB 로만 잰다(실측 DB 는 한 글자도 안 건드린다, [247]) ──
+    keep = (L.DB_DIR, L.DB_PATH)
+    tmpd = tempfile.mkdtemp(prefix="csos_remote_")
+    try:
+        L.DB_DIR, L.DB_PATH = tmpd, _os.path.join(tmpd, "t.db")
+        L.remote_stock_adjust("증평", 100, "add", "입고", "검증", version="VER.4")
+
+        # ① 사람 한도는 그대로 — 이것이 이 검사의 본체다
+        try:
+            L.remote_request("증평", "홍기사", L.REMOTE_HOLD_LIMIT + 1, "검증",
+                             reason="신규설치")
+            raise AssertionError("AS 담당자 3개 한도가 풀렸다 — 부사장 승인 규칙이 사라졌다")
+        except ValueError:
+            pass
+        L.remote_request("증평", "홍기사", 2, "검증", reason="신규설치", version="VER.4")
+        try:
+            L.remote_request("증평", "홍기사", 2, "검증", reason="회수")
+            raise AssertionError("보유 한도(누적)를 안 본다")
+        except ValueError:
+            pass
+
+        # ② 왜·어디에를 안 적으면 안 들어간다
+        for kw, why in (({}, "사유 없이 통과"),
+                        ({"reason": "고장교체"}, "고장교체인데 왜인지 없이 통과"),
+                        ({"reason": "신규설치", "equip_kind": "이동식"},
+                         "이동식인데 호기 없이 통과")):
+            try:
+                L.remote_request("증평", "김기사", 1, "검증", **kw)
+                raise AssertionError(why)
+            except ValueError:
+                pass
+        L.remote_request("증평", "김기사", 1, "검증", reason="신규설치",
+                         equip_kind="이동식", equip_spec="4RT", unit_no="3호기")
+
+        # ③ 공장·지사 이동 — 30개가 되고, 모르는 곳·제자리는 거절한다
+        for dest, why in (("부산창고", "모르는 곳으로 보냈다 — 그 재고를 따라갈 수 없다"),
+                          ("증평본사", "보내는 곳과 받는 곳이 같은데 통과")):
+            try:
+                L.remote_request("증평", dest, 30, "검증", to_kind="공장·지사",
+                                 reason="공장·지사 이동")
+                raise AssertionError(why)
+            except ValueError:
+                pass
+        L.remote_request("증평", "부산공장", 30, "검증", to_kind="공장·지사",
+                         reason="공장·지사 이동", version="VER.4")
+
+        st = L.remote_status()
+        assert st["branch_stock"]["부산"]["stock"] == 30, (
+            "받는 지점 재고가 안 늘었다 — 보내는 쪽만 줄면 그 재고가 영영 모자라 보인다: %r"
+            % st["branch_stock"]["부산"])
+        assert st["branch_stock"]["부산"]["versions"].get("VER.4") == 30, (
+            "버전별로 안 따라간다: %r" % st["branch_stock"]["부산"]["versions"])
+        assert st["branch_stock"]["증평"]["stock"] == 100 - 2 - 1 - 30, (
+            "보내는 지점에서 안 빠졌다: %r" % st["branch_stock"]["증평"])
+        # ★ 공장 이동분이 사람 보유로 세이면 유령 보유자와 거짓 한도초과가 생긴다([165])
+        assert "부산공장" not in st["holdings"], (
+            "공장이 '보유자'로 세어졌다: %r" % list(st["holdings"]))
+        assert not st["over_limit"], "없는 한도초과가 생겼다: %r" % st["over_limit"]
+
+        # ④ 원본을 지우면 파생 재고도 저절로 따라간다(짝 행을 안 만든 이유)
+        mv = [r for r in st["issues"] if r.get("to_kind") == "공장·지사"]
+        assert len(mv) == 1 and mv[0]["technician"] == "부산공장", "이동 행이 없다: %r" % mv
+        L.remote_delete("issue", mv[0]["id"], deleted_by="검증", force=True, reason="검증")
+        assert L.remote_status()["branch_stock"]["부산"]["stock"] == 0, (
+            "원본을 지웠는데 받는 지점 재고가 남았다 — 짝 행을 만들면 이렇게 어긋난다")
+    finally:
+        L.DB_DIR, L.DB_PATH = keep
+        shutil.rmtree(tmpd, ignore_errors=True)
+
+    # ── 낱말은 한 곳에서만 온다([162][166]) ──────────────────────────
+    src = _io.open(_os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+    assert "REMOTE_REASONS" in src and "REMOTE_TO_KINDS" in src, "낱말 표가 없다"
+    # to_kind 를 고치기 길에 열면 보유·재고가 말없이 다른 곳으로 옮겨 간다
+    tbl = src[src.index('REMOTE_TABLES = {'):src.index('def _remote_table(')]
+    assert '"to_kind"' not in tbl, (
+        "to_kind 를 고칠 수 있게 열었다 — 그 값이 바뀌면 재고가 통째로 옮겨 가는데 "
+        "고치기 폼은 그 뜻을 못 물어본다. 잘못 적었으면 지우고 다시 적는다")
+
+    live = _io.open(_os.path.join(ROOT, "webapp", "index.html"),
+                    encoding="utf-8", newline="").read()
+    card = live[live.index("function remoteToKind(hostId){"):
+                live.index("async function remoteRequest(hostId){")]
+    for word in ("신규설치", "고장교체", "고정식"):
+        assert word not in card, (
+            "화면이 낱말 %r 을 스스로 적는다 — ledger_db 목록을 늘린 날 한쪽만 늘어난다"
+            % word)
+
+    # ── 화면: 실행해서 잰다([295]) ───────────────────────────────────
+    node = shutil.which("node")
+    if not node:
+        print("[319] 리모컨 - node 가 없어 화면 검사는 건너뜀(서버만) OK")
+        return
+    harness = ("var els={};function mk(i,v){els[i]={value:v||'',placeholder:'',"
+               "style:{display:''},max:'3',removeAttribute:function(k){this[k]=null;}};}"
+               "function $(i){return els[i];}window={};\n" + card + """
+['To','Tech','Qty','EqBox','Why','WhyT','Eq','Unit'].forEach(function(k){mk('x'+k);});
+els.xTo.value='AS담당자';
+window.__REMOTE={limit:3,to_default:'AS담당자',
+  branch_labels:{부산:'부산공장',시화:'시화공장',증평:'증평본사'},
+  reasons:['신규설치','고장교체','분실','회수','공장·지사 이동','기타'],
+  reason_detail:['고장교체','기타'],equip_kinds:['고정식','이동식']};
+var o={};
+remoteToKind('x'); o.as_max=els.xQty.max; o.as_eq=els.xEqBox.style.display;
+els.xTo.value='공장·지사'; remoteToKind('x');
+o.br_max=els.xQty.max; o.br_eq=els.xEqBox.style.display; o.br_why=els.xWhy.value;
+els.xTo.value='AS담당자'; remoteToKind('x'); o.back_max=els.xQty.max;
+els.xWhy.value='고장교체'; remoteWhy('x'); o.fault=els.xWhyT.style.display;
+els.xWhy.value='신규설치'; remoteWhy('x'); o.plain=els.xWhyT.style.display;
+els.xWhyT.value='적어 둔 글'; remoteWhy('x'); o.typed=els.xWhyT.style.display;
+els.xEq.value='이동식'; remoteWhy('x'); o.unit=els.xUnit.placeholder;
+console.log(JSON.stringify(o));""")
+    tmp = _os.path.join(tempfile.gettempdir(), "csos_t319.js")
+    _io.open(tmp, "w", encoding="utf-8", newline="\n").write(harness)
+    pr = subprocess.Popen([node, tmp], stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, **proc_guard.background_popen_kwargs())
+    out = pr.communicate(timeout=90)[0].decode("utf-8", "replace").strip()
+    assert out, "node 가 아무 답도 안 줬다"
+    got = _json.loads(out.splitlines()[-1])
+    assert got["as_max"] == 3, "AS 담당자 칸에서 수량 한도가 사라졌다: %r" % got["as_max"]
+    assert got["br_max"] is None, "공장 이동인데 3개 한도가 그대로다 — 30개를 못 넣는다"
+    assert got["back_max"] == 3, "공장에서 사람으로 되돌아왔는데 한도가 안 돌아왔다"
+    assert got["br_eq"] == "none" and got["as_eq"] == "", "설비 칸이 갈래를 안 따라간다"
+    assert got["br_why"] == "공장·지사 이동", "공장 이동인데 사유가 안 잡힌다: %r" % got["br_why"]
+    assert got["fault"] == "" and got["plain"] == "none", "고장 상세가 갈래를 안 따라간다"
+    assert got["typed"] == "", "적어 둔 글이 있는데 접었다 — 쓴 것이 사라진 것처럼 보인다"
+    assert "필수" in got["unit"], "이동식인데 호기가 필수라고 말하지 않는다"
+
+    print("[319] 리모컨 - 3개 한도 그대로 · 공장 이동 30개 · 왜/호기 필수 · "
+          "받는 지점 재고 파생 · 지우면 따라감 (서버·화면 둘 다) OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -23669,6 +23852,7 @@ if __name__ == "__main__":
     t313_collect_gate_never_scrapes_over_someone()
     t314_camp_unknown_is_filled_only_with_proof()
     t317_sale_pool_never_takes_what_it_cannot_name()
+    t319_remote_move_to_branch_without_widening_the_person_limit()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

@@ -380,6 +380,27 @@ REMOTE_HOLD_LIMIT = 3
 # 리모컨 버전(2026-08-06 지시: "버전 관리가 VER.3인지 VER.4인지 입력 및 확인 수정 가능하게").
 # 재고표가 실제로 쓰는 이름 그대로다 — 화면 선택지도 서버도 이 목록 하나만 본다.
 REMOTE_VERSIONS = ("미확인", "기존형", "VER.3", "VER.4")
+# 리모컨 불출에 **왜**와 **어디에**를 적는다 (2026-08-19 지시 "엑셀 안받고 정리할 수
+# 있게 해"). 근거는 류지영 매니저가 전한 김미영 대리 요청 — "사유랑(고장이면 고장 왜
+# 교체하는지) 이동식이면 이동식 4RT 몇호기에 들어갔는지도 다 정리해야한데요".
+# ★ 낱말은 **여기 한 곳**에서 온다([162][166]) — 화면 선택지·API 검사·합성검증이
+#   전부 이 표를 읽는다. 화면이 제 손으로 적으면 목록을 늘린 날 한쪽만 늘어난다.
+# ★ 목록 **밖** 값은 지우지 않는다([196] 과 같은 규칙) — 이미 적힌 것을 없애면
+#   "그때 정말 뭐라고 적었나"를 잃는다. 새로 만드는 것만 막는다.
+# ⚠ 낱말을 지어내지 않았다 — 이 여섯은 [127] 에 적어 둔 후보 그대로다.
+#   실제 업무 말과 다르면 **이 줄만** 고친다(화면·검증은 따라온다).
+REMOTE_REASONS = ("신규설치", "고장교체", "분실", "회수", "공장·지사 이동", "기타")
+# 이 사유는 "왜"가 낱말 하나로 안 끝난다 — 김미영 대리가 물은 것이 바로 이것이다.
+REMOTE_REASON_NEEDS_DETAIL = ("고장교체", "기타")
+# 설비구분. **이동식일 때만** 호기를 필수로 묻는다 — 고정식에 호기를 강요하면
+# 사람이 아무 값이나 넣는다([172]). 안 고르면 빈칸으로 둔다(모르는 것은 모른다, [169]).
+REMOTE_EQUIP_KINDS = ("고정식", "이동식")
+# 받는 곳(2026-08-19 류지영 카톡 "리모컨 VER.4 부산공장으로 30개 이동할껀데 불출은
+# AS기사님들만 있는거같아요"). 빈칸인 옛 기록은 전부 AS담당자다.
+# ★ AS 담당자 3개 한도는 **넓히지 않는다**([172]) — 그것은 부사장 승인 규칙이다.
+#   갈래를 하나 더하는 것이지 한도를 푸는 것이 아니다.
+REMOTE_TO_KINDS = ("AS담당자", "공장·지사")
+REMOTE_TO_DEFAULT = "AS담당자"
 
 
 @contextmanager
@@ -412,7 +433,12 @@ def conn():
         # 되돌아갈 단계 **이름**(순서 번호로 적으면 단계를 옮길 때마다 어긋난다).
         for table, cols in (("flow_step", ("branch", "check_q", "no_to", "flow_key")),
                             ("flow_audit", ("flow_key",)),
-                            ("remote_issue", ("issued_on", "camp", "version")),
+                            # 2026-08-19: 왜(reason·fault_detail)·어디에(equip_kind·
+                            # equip_spec·unit_no)·받는 곳(to_kind). 기존 행은 빈칸이고
+                            # 빈칸을 '신규'로 채우지 않는다([169]).
+                            ("remote_issue", ("issued_on", "camp", "version",
+                                             "to_kind", "reason", "fault_detail",
+                                             "equip_kind", "equip_spec", "unit_no")),
                             ("remote_delivery", ("kind", "version")),
                             ("remote_stock", ("version", "moved_on"))):
             have = {row[1] for row in c.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -1231,15 +1257,21 @@ def _remote_holdings(c):
     버전을 안 적은 옛 기록은 '미확인'으로 모은다(빈칸으로 흩어 두지 않는다).
     """
     UNK = "COALESCE(NULLIF(version,''),'미확인')"
+    # ★ **공장·지사 이동분은 사람 보유가 아니다**(2026-08-19, [126]). 안 거르면
+    #   "부산공장 30개 보유" 같은 유령 보유자가 생기고 한도 초과 경보까지 뜬다([165]).
+    #   아래 out 루프의 이름 검사(2026-08-11 지점 직납)는 **그대로 둔다** — 그것은
+    #   to_kind 가 없던 옛 기록을 받는다. 새 기록은 여기서 갈린다.
+    MINE = " AND COALESCE(to_kind,'') <> '공장·지사'"
     issued = {row[0]: row[1] for row in c.execute(
         "SELECT technician,SUM(qty) FROM remote_issue"
-        " WHERE status IN ('불출완료','기초보유') GROUP BY technician")}
+        " WHERE status IN ('불출완료','기초보유')" + MINE + " GROUP BY technician")}
     delivered = {row[0]: row[1] for row in c.execute(
         "SELECT technician,SUM(qty) FROM remote_delivery GROUP BY technician")}
     by_ver = {}
     for tech, ver, qty in c.execute(
-            "SELECT technician,%s,SUM(qty) FROM remote_issue"
-            " WHERE status IN ('불출완료','기초보유') GROUP BY technician,%s" % (UNK, UNK)):
+            ("SELECT technician,%s,SUM(qty) FROM remote_issue"
+            " WHERE status IN ('불출완료','기초보유')" + MINE +
+            " GROUP BY technician,%s") % (UNK, UNK)):
         d = by_ver.setdefault(tech, {})
         d[ver] = d.get(ver, 0) + int(qty or 0)
     for tech, ver, qty in c.execute(
@@ -1301,6 +1333,22 @@ def _remote_branch_stock(c):
     issued = {row[0]: int(row[1] or 0) for row in c.execute(
         "SELECT branch,SUM(qty) FROM remote_issue"
         " WHERE status='불출완료' GROUP BY branch")}
+    # ★ **공장·지사 이동은 받는 쪽도 움직인다**(2026-08-19, [126]). 보내는 지점은
+    #   위 issued 로 이미 줄어드는데 받는 지점이 안 늘면 그 재고가 영영 모자라 보인다.
+    # ★ 짝이 되는 remote_stock 행을 **만들지 않는다.** 만들면 원본 한 줄을 지우거나
+    #   고칠 때 그 행이 안 따라와 조용히 어긋난다 — 되돌릴 수 없는 쪽이다. 여기서
+    #   **파생**으로 세면 원본이 곧 진실이고 수정·삭제가 저절로 반영된다([162]).
+    moved_in, moved_in_ver = {}, {}
+    for dest, ver, qty in c.execute(
+            "SELECT technician,COALESCE(NULLIF(version,''),'미확인'),SUM(qty)"
+            " FROM remote_issue WHERE status='불출완료' AND COALESCE(to_kind,'')='공장·지사'"
+            " GROUP BY technician,COALESCE(NULLIF(version,''),'미확인')"):
+        br = _remote_branch_of_name(dest)
+        if br is None:
+            continue          # 아는 지점이 아니면 어느 재고에도 안 넣는다(지어내지 않는다)
+        moved_in[br] = moved_in.get(br, 0) + int(qty or 0)
+        d = moved_in_ver.setdefault(br, {})
+        d[ver] = d.get(ver, 0) + int(qty or 0)
     by_ver = {}
     for br, ver, delta in c.execute(
             "SELECT branch,COALESCE(NULLIF(version,''),'미확인'),SUM(qty_delta)"
@@ -1316,13 +1364,20 @@ def _remote_branch_stock(c):
         #   틀린 큰 숫자보다 설명 가능한 음수가 낫다. 기록 원문은 건드리지 않는다.
         d = by_ver.setdefault(br, {})
         d[ver] = d.get(ver, 0) - int(qty or 0)
+    for br, vers in moved_in_ver.items():
+        d = by_ver.setdefault(br, {})
+        for ver, qty in vers.items():
+            d[ver] = d.get(ver, 0) + qty
     out = {}
     for br in REMOTE_BRANCH_ISSUERS:
         got, used = added.get(br, 0), issued.get(br, 0)
+        came = moved_in.get(br, 0)
         out[br] = {"label": REMOTE_BRANCH_LABELS.get(br, br), "in": got,
-                   "issued": used, "stock": got - used,
+                   "issued": used, "moved_in": came, "stock": got + came - used,
                    "versions": {k: v for k, v in sorted((by_ver.get(br) or {}).items())},
-                   "tracked": br in added}          # 조정 기록이 있어야 재고 관리 대상
+                   # 받은 이동분도 '관리 대상'의 근거다 — 아니면 받자마자 미등록으로
+                   # 보여 그 재고에서 아무것도 못 내보낸다
+                   "tracked": br in added or came > 0}
     return out
 
 
@@ -1389,8 +1444,44 @@ def remote_open_balance(technician, qty, on="", note="", created_by="",
         return cur.lastrowid
 
 
+def remote_purpose(reason="", fault_detail="", equip_kind="", equip_spec="",
+                   unit_no="", to_kind=""):
+    """리모컨 불출의 '왜·어디에·받는 곳'을 **한 곳에서** 다듬고 검사한다.
+
+    2026-08-19 지시("엑셀 안받고 정리할 수 있게 해") — 김미영 대리 엑셀을 기다리지
+    않고 앱에서 바로 적는다. 사람 입력 창구는 앱 하나다(2026-08-11 규칙).
+
+    ★ 화면·API·검증이 **이 함수 하나**를 본다([162]). 같은 검사를 화면에도 적으면
+      언젠가 갈리고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+    ★ 목록 밖 낱말은 **막지 않고 그대로 둔다**([196]) — 새로 만드는 것만 화면이 막는다.
+      여기서 거절하면 옛 기록을 고칠 수조차 없게 된다.
+    ★ 필수는 **근거가 설 때만** 건다([172]): 고장교체·기타는 왜인지가 곧 그 사유이고,
+      호기는 이동식일 때만 뜻이 있다. 고정식에 호기를 강요하면 아무 값이나 들어온다.
+    """
+    kind = str(to_kind or "").strip() or REMOTE_TO_DEFAULT
+    if kind not in REMOTE_TO_KINDS:
+        raise ValueError("받는 곳은 " + " · ".join(REMOTE_TO_KINDS) + " 중 하나여야 합니다")
+    why = str(reason or "").strip()
+    detail = str(fault_detail or "").strip()
+    equip = str(equip_kind or "").strip()
+    spec = str(equip_spec or "").strip()
+    unit = str(unit_no or "").strip()
+    if not why:
+        raise ValueError("사유를 골라 주세요 — " + " · ".join(REMOTE_REASONS))
+    if why in REMOTE_REASON_NEEDS_DETAIL and not detail:
+        raise ValueError(why + " 는 왜인지를 적어야 합니다 (예: 버튼 눌림 · 침수 · 배터리 불량)")
+    if equip and equip not in REMOTE_EQUIP_KINDS:
+        raise ValueError("설비구분은 " + " · ".join(REMOTE_EQUIP_KINDS) + " 중 하나여야 합니다")
+    if equip == "이동식" and not unit:
+        raise ValueError("이동식이면 몇 호기에 들어갔는지 적어야 합니다")
+    return {"to_kind": kind, "reason": why, "fault_detail": detail,
+            "equip_kind": equip, "equip_spec": spec, "unit_no": unit}
+
+
 def remote_request(branch, technician, qty, requested_by, note="",
-                   issued_on="", camp="", version="", issuer=""):
+                   issued_on="", camp="", version="", issuer="",
+                   to_kind="", reason="", fault_detail="", equip_kind="",
+                   equip_spec="", unit_no=""):
     """리모컨 불출을 즉시 기록한다(2026-08-03 지시 — 승인 단계 없음).
 
     한도: 보유 + 이번 수량이 담당자당 3개를 넘으면 거절한다.
@@ -1408,30 +1499,55 @@ def remote_request(branch, technician, qty, requested_by, note="",
     if branch not in REMOTE_BRANCH_ISSUERS:
         raise ValueError("불출 지점은 부산·시화·증평 중 하나여야 합니다")
     if not technician:
-        raise ValueError("AS 담당자 이름이 필요합니다")
-    if not 1 <= qty <= REMOTE_HOLD_LIMIT:
+        raise ValueError("받는 사람(또는 받는 공장·지사) 이름이 필요합니다")
+    why = remote_purpose(reason, fault_detail, equip_kind, equip_spec, unit_no, to_kind)
+    to_branch = None
+    if why["to_kind"] == "공장·지사":
+        # ★ **공장은 사람이 아니다** — 3개 한도가 뜻이 없다(2026-08-19 류지영:
+        #   "리모컨 VER.4 부산공장으로 30개 이동할껀데 … 수량은 1~3개여야 합니다").
+        #   한도를 **넓히는 것이 아니라 갈래를 더한다**([172]) — 아래 AS담당자 길의
+        #   두 검사는 한 글자도 안 바뀌었다.
+        to_branch = _remote_branch_of_name(technician)
+        if to_branch is None:
+            raise ValueError(
+                "받는 공장·지사 이름을 못 알아봤습니다 — "
+                + " · ".join(REMOTE_BRANCH_LABELS.values())
+                + " 중 하나로 적어 주세요 (모르는 곳으로 보내면 그 재고를 따라갈 수 없습니다)")
+        if to_branch == branch:
+            raise ValueError("보내는 지점과 받는 곳이 같습니다 — 옮길 것이 없습니다")
+        if qty < 1:
+            raise ValueError("수량은 1개 이상이어야 합니다")
+    elif not 1 <= qty <= REMOTE_HOLD_LIMIT:
         raise ValueError(f"수량은 1~{REMOTE_HOLD_LIMIT}개여야 합니다")
     now = datetime.now().isoformat(timespec="seconds")
     with conn() as c:
-        hold = _remote_holdings(c).get(technician) or {"holding": 0}
-        if hold["holding"] + qty > REMOTE_HOLD_LIMIT:
-            raise ValueError(
-                f"{technician} 보유 {hold['holding']}개에 {qty}개를 더하면 "
-                f"한도 {REMOTE_HOLD_LIMIT}개를 넘습니다")
+        if to_branch is None:
+            hold = _remote_holdings(c).get(technician) or {"holding": 0}
+            if hold["holding"] + qty > REMOTE_HOLD_LIMIT:
+                raise ValueError(
+                    f"{technician} 보유 {hold['holding']}개에 {qty}개를 더하면 "
+                    f"한도 {REMOTE_HOLD_LIMIT}개를 넘습니다")
         stock = _remote_branch_stock(c)[branch]
         if stock["tracked"] and stock["stock"] < qty:
             raise ValueError(
                 f"{stock['label']} 재고 {stock['stock']}개 — {qty}개를 불출할 수 없습니다. "
                 f"재고 등록(입고)을 먼저 하세요")
         day = str(issued_on or now[:10])[:10]
+        if to_branch is not None:
+            # 이름을 정본 표기로 맞춰 적는다 — "부산"·"부산지점"으로 적히면
+            # _remote_branch_of_name 은 알아보지만 화면 목록에서 같은 곳이 둘로 보인다.
+            technician = REMOTE_BRANCH_LABELS[to_branch]
         cur = c.execute(
             "INSERT INTO remote_issue(branch,issuer,technician,qty,status,"
-            "requested_by,requested_at,note,issued_on,camp,version)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            "requested_by,requested_at,note,issued_on,camp,version,"
+            "to_kind,reason,fault_detail,equip_kind,equip_spec,unit_no)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (branch, str(issuer or "").strip() or REMOTE_BRANCH_ISSUERS[branch],
              technician, qty, "불출완료",
              str(requested_by or ""), now, str(note or ""), day,
-             str(camp or "").strip(), _remote_version(version)))
+             str(camp or "").strip(), _remote_version(version),
+             why["to_kind"], why["reason"], why["fault_detail"],
+             why["equip_kind"], why["equip_spec"], why["unit_no"]))
         return cur.lastrowid
 
 
@@ -1525,9 +1641,13 @@ def remote_deliver(technician, project, camp, qty, delivered_on="", note="",
 # 는 세 단계를 거친다. ③이 필요한 이유는 현실이 먼저이기 때문이다 — 실제로 기사들이
 # 한도 3개를 넘겨 들고 있었고, 시스템이 거부하면 장부가 현실과 어긋난 채로 남는다.
 REMOTE_TABLES = {
+    # ⚠ **to_kind 는 일부러 안 넣었다**(2026-08-19). 그 값이 바뀌면 보유·재고가 통째로
+    #   다른 곳으로 옮겨 가는데, 고치기 길은 그 뜻을 사람에게 못 물어본다. 받는 곳을
+    #   잘못 적었으면 **지우고 다시 적는다**(지운 것은 원장에서 되돌릴 수 있다).
     "issue": ("remote_issue",
               ("branch", "issuer", "technician", "qty", "status",
-               "issued_on", "camp", "version", "note")),
+               "issued_on", "camp", "version", "note",
+               "reason", "fault_detail", "equip_kind", "equip_spec", "unit_no")),
     "delivery": ("remote_delivery",
                  ("technician", "project", "camp", "qty", "delivered_on",
                   "kind", "version", "note")),
@@ -1693,10 +1813,13 @@ def remote_status(limit=60):
         holdings = _remote_holdings(c)
         branch_stock = _remote_branch_stock(c)
         issues = [dict(zip(("id", "branch", "issuer", "technician", "qty", "status",
-                            "requested_at", "issued_on", "camp", "version"), row))
+                            "requested_at", "issued_on", "camp", "version",
+                            "to_kind", "reason", "fault_detail", "equip_kind",
+                            "equip_spec", "unit_no"), row))
                   for row in c.execute(
                       "SELECT id,branch,issuer,technician,qty,status,requested_at,"
-                      "issued_on,camp,version"
+                      "issued_on,camp,version,to_kind,reason,fault_detail,"
+                      "equip_kind,equip_spec,unit_no"
                       " FROM remote_issue ORDER BY id DESC LIMIT ?", (int(limit),))]
         deliveries = [dict(zip(("id", "technician", "project", "camp", "qty",
                                 "delivered_on", "note", "kind", "version"), row))
@@ -1729,6 +1852,11 @@ def remote_status(limit=60):
     for k, v in ver_totals.items():
         v["all"] = v["holding"] + v["stock"]
     return {"limit": REMOTE_HOLD_LIMIT, "branches": REMOTE_BRANCH_ISSUERS,
+            # 화면이 낱말을 스스로 적지 않게 한다([162]) — 목록을 늘리면 선택지도 는다.
+            "reasons": list(REMOTE_REASONS),
+            "reason_detail": list(REMOTE_REASON_NEEDS_DETAIL),
+            "equip_kinds": list(REMOTE_EQUIP_KINDS),
+            "to_kinds": list(REMOTE_TO_KINDS), "to_default": REMOTE_TO_DEFAULT,
             "branch_labels": REMOTE_BRANCH_LABELS, "branch_stock": branch_stock,
             "holdings": holdings, "issues": issues, "deliveries": deliveries,
             "moves": moves, "over_limit": over,
