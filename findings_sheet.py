@@ -162,8 +162,21 @@ def upsert(master, new_xml, sheet_name=SHEET_NAME, headers=None):
         new_sid = max(int(m) for m in re.findall(r'sheetId="(\d+)"', wbx)) + 1
         target = f"xl/worksheets/sheet{new_n}.xml"
         edits[target] = new_xml.encode("utf-8")
+        # ★ `r:id` 를 쓰는 요소에는 그 접두사 **선언이 같이 있어야** 한다.
+        #   2026-08-20 실사고: openpyxl 3.1.5 는 xmlns:r 을 **루트가 아니라
+        #   <sheet> 요소마다** 선언한다(실측). 그래서 우리가 덧붙이는 새 <sheet>
+        #   에만 선언이 없어 파일이 **통째로** 안 읽혔다 —
+        #   `XMLSyntaxError: Namespace prefix r for id on sheet is not defined`.
+        #   합성검증 t8 이 openpyxl 워크북을 쓰므로 관문이 여기서 죽었고,
+        #   관문은 daily_run 의 0단계라 09:50 회차가 통째로 못 돌았다.
+        #   같은 URI 재선언은 XML 상 유효하므로 엑셀이 만든 정본에서도 안전하다.
+        _R_NS = ("http://schemas.openxmlformats.org/officeDocument"
+                 "/2006/relationships")
         edits["xl/workbook.xml"] = wbx.replace(
-            "</sheets>", f'<sheet name="{sheet_name}" sheetId="{new_sid}" r:id="rId{new_rid}"/></sheets>', 1).encode("utf-8")
+            "</sheets>",
+            f'<sheet xmlns:r="{_R_NS}" name="{sheet_name}"'
+            f' sheetId="{new_sid}" r:id="rId{new_rid}"/></sheets>',
+            1).encode("utf-8")
         edits["xl/_rels/workbook.xml.rels"] = rels.replace(
             "</Relationships>",
             f'<Relationship Id="rId{new_rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{new_n}.xml"/></Relationships>', 1).encode("utf-8")
