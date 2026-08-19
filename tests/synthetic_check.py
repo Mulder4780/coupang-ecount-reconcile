@@ -6956,6 +6956,14 @@ def t247_chrome_collect_report_round_trip():
         say = U.fix_for("안옴", s_on)
         assert "설치하고" not in say, "이미 깔려 있는데 설치하라고 한다 — 이 항목이 고치려는 바로 그 고장이다"
         assert "밴드 탭" in say, "남은 하나(로그인된 밴드 탭)를 안 말한다 — 못 시키면 안내가 없는 것과 같다"
+        # ★ 원인을 하나로 **확언하지 않는다** (2026-08-19 실측).  그날 밴드 탭을
+        #   실제로 열었는데도 되보고는 0건이었고, 그 탭에 스크립트 자국
+        #   (`coupangAutoCollect.*`)이 하나도 없었다 — "한 번도 안 열렸다"는 틀린
+        #   지목이다.  틀린 지목은 못 잡는 것보다 나쁘다(`[172]`).
+        assert "①" in say and "②" in say, (
+            "원인을 하나로 확언한다 — 2026-08-19 실측으로 열었는데도 0건이었다(`[172]`)")
+        assert "coupangAutoCollect" in say, (
+            "두 후보를 가를 방법을 안 준다 — 사람이 이미 한 일을 또 한다(`[169]`)")
 
         # (마) 꺼진 스크립트를 '켜짐'이라 하지 않는다 — 조치가 정반대다.
         open(os.path.join(store, "000003.log"), "wb").write(blob.replace(b'"enabled":true', b'"enabled":false'))
