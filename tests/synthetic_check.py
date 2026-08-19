@@ -23982,6 +23982,181 @@ def t323_amount_ladder_is_one_value_in_five_places():
     print("  [323] 금액 사다리 — 값은 한 곳 · 0=금액없음 · 못읽음≠없음 · 경고가 유효금액을 셈 · 세금층 제외 ✅")
 
 
+
+def t324_one_alert_is_one_line_and_the_reason_survives():
+    """[324] **회차 경보가 사전으로 찍히고 같은 사건이 두 줄로 실리던 것** (2026-08-19).
+
+    실측 인계 '먼저 처리할 것' 15줄 중 셋이 이 모양이었다:
+      · `[P0] 자동 회차 실패 경보가 남아 있음 — {'갈래': '중단됨', '작업': …}` —
+        `schedule_watch` 의 `경보` 는 **사전**인데 `system_audit` 이 `str(x)[:150]` 로
+        찍었다. 보기 나쁜 것보다 나쁜 것은 **`[:150]` 이 사전 껍데기까지 센다**는
+        것이다 — 말이 길면 정작 사유가 잘려 **겉은 경보인데 왜인지는 못 읽는다**([169]).
+        만드는 쪽이 모양을 바꿔도 여기는 **오류가 안 난다**([165]).
+      · 그 P0 옆에 `회차 [중단됨] 쿠팡업무_원본자료자동정리` 가 **또** 있었다 — 진단이
+        원본에게서 빌려 온 소식을 인계가 원본과 같이 읽어 **언제나 두 줄**이 된다.
+        한 사건이 두 목소리로 울면 목록이 길어지고 진짜 경보가 묻힌다([170]).
+      · `일일자동대조 — … 스케줄러는 '성공'으로 보고한다` 는 그날 **틀린 말**이었다.
+        두 줄 위에서 스케줄러는 `코드 1`(실패)이라 적고 있었다 — 한 문서가 어긋나게
+        말하면 사람은 **없는 것을 찾아 나선다**([172]).
+
+    ★ 계기 자기시험([272]) — 원본을 **못 읽은** st 에서는 그 경보가 그대로 실려야 한다.
+      '다른 데 있겠지'로 빼면 그 순간 경보가 통째로 사라진다([169]).
+    """
+    import system_audit as SA
+    import session_handoff as SH
+
+    # ① 사전이면 그 안의 말을 꺼낸다 — 파이썬 사전이 그대로 나오면 안 된다
+    got = SA._alert_text({"갈래": "중단됨", "작업": "쿠팡업무_원본자료자동정리",
+                          "무엇": "**쿠팡업무_원본자료자동정리** — 끝내기 요청을 받고 멈췄다",
+                          "어떻게": "python schedule_watch.py --print"})
+    assert "{'" not in got and "'갈래'" not in got, "파이썬 사전이 그대로 찍힌다: %r" % got
+    assert "끝내기 요청을 받고 멈췄다" in got, "사유가 사라졌다: %r" % got
+    assert "[중단됨]" in got, "갈래가 사라졌다 — 조치는 갈래마다 다르다([289]): %r" % got
+    assert "**" not in got, "굵게 표시가 남았다(바깥에서 다시 감싼다): %r" % got
+
+    # ② 자르는 길이는 **말**을 센다 — 껍데기까지 세면 사유가 먼저 잘린다
+    cut = SA._alert_text({"갈래": "죽음", "작업": "x", "무엇": "가" * 300}, cap=150)
+    assert cut.count("가") >= 140, (
+        "사전 껍데기가 자릿수를 먹어 사유가 잘린다(%d자만 남음) — 겉은 경보인데 "
+        "왜인지는 못 읽는다([169])" % cut.count("가"))
+
+    # ③ 모양을 하나로 못 박지 않는다 — 문자열도, 다른 칸 이름도, 빈 사전도
+    assert SA._alert_text("그냥 문자열") == "그냥 문자열"
+    assert "세 회차 연속" in SA._alert_text({"갈래": "밀림", "말": "세 회차 연속 거부"})
+    assert SA._alert_text({}).strip(), "빈 사전에 빈 줄을 내면 경보가 조용히 사라진다([169])"
+
+    def st_of(sched, audit=True):
+        # blockers() 가 대괄호로 읽는 칸은 반드시 있어야 한다([320] 에서 겪은 자리)
+        st = {"terra_sol_review": {}, "미푸시": [], "옛버전편집": [], "임시파일": [],
+              "점유": [], "지시문사본": [], "큐잔량": 0, "스케줄러": sched,
+              "시스템진단": []}
+        if audit:
+            st["시스템진단"] = [{"id": "scheduled-round-alert", "priority": "P0",
+                                 "title": "자동 회차 실패 경보가 남아 있음",
+                                 "evidence": "[중단됨] 원본정리",
+                                 "action": "python schedule_watch.py --print"}]
+        return st
+
+    # ④ 원본이 실렸으면 빌려 온 줄은 빼고 **원본 줄을 남긴다**(갈래를 말하는 쪽)
+    both = [t for t, _ in SH.blockers(st_of(
+        {"경보": [{"갈래": "중단됨", "무엇": "쿠팡업무_원본자료자동정리 — 멈췄다"}]}))]
+    assert sum(1 for t in both if "자동 회차 실패 경보" in t) == 0, (
+        "같은 회차 경보가 두 줄로 실린다 — 원본 줄이 이미 있다([170]): %r" % both)
+    assert sum(1 for t in both if "회차 [중단됨]" in t) == 1, (
+        "원본 줄까지 사라졌다 — 남길 것은 갈래를 말하는 쪽이다: %r" % both)
+
+    # ⑤ ★ 계기 자기시험 — 원본을 **못 읽었으면** 그대로 실어야 한다
+    alone = [t for t, _ in SH.blockers(st_of({}))]
+    assert sum(1 for t in alone if "자동 회차 실패 경보" in t) == 1, (
+        "스케줄러 감시를 못 읽었는데도 진단 줄을 뺐다 — 그 순간 경보가 통째로 "
+        "사라진다([169]). '다른 데 있겠지'는 근거가 아니다: %r" % alone)
+
+    # ⑥ 오늘의 스케줄러 결과를 **확언하지 않는다**
+    st = st_of({}, audit=False)
+    st["일일대조"] = {"밀림": True, "중단": True, "경과시간": 3.0}
+    line = " ".join(t for t, _ in SH.blockers(st) if "일일자동대조" in t)
+    assert line, "일일대조 경보가 아예 안 나온다 — 조용히 빼면 안 된다([169])"
+    assert "스케줄러는 '성공'으로 보고한다" not in line, (
+        "오늘의 스케줄러 결과를 확언한다 — 실측 그날 스케줄러는 `코드 1`(실패)이라 "
+        "적었고 같은 문서 두 줄 위가 그렇게 말한다([172]): %r" % line)
+
+    print("[324] 인계 - 회차 경보 한 사건 한 줄 · 사전이 아니라 그 안의 말 · "
+          "못 읽으면 안 뺌 · 오늘의 스케줄러 결과 확언 안 함 (실행으로 잼) OK")
+
+
+def t324_source_tidy_names_the_culprit_step():
+    """원본 정리 회차 — 단계마다 제한 · 죽은 단계를 이름으로 대고 · 다음 단계로 간다.
+
+    ★ 2026-08-19 실사고: `쿠팡업무_원본자료자동정리` 가 09:35 에 떠서 12:35 에
+      제한시간(PT3H)으로 끊겼는데, 로그에 **시각도 단계 표시도 없어** 네 단계 중
+      어느 것이 58분을 서 있었는지 알 길이 없었다(`[228]` — exit 코드는 왜인지를
+      말해 주지 않는다). **짐작으로 제한시간부터 늘리지 않는다**(분담판 `[38]`) —
+      먼저 범인을 대게 만드는 것이 순서다.
+    ★ **글자 검사로는 못 잰다**(`[295]`) — 실제로 돌려 결과로 잰다. 다만 진짜 Z: 는
+      안 건드린다: `proc_guard.run_tree` 만 가짜로 갈아 끼운다.
+    ★ **실측 증거 파일에는 한 글자도 안 쓴다**(`[247]`) — 임시 폴더로만 잰다.
+    """
+    import json as _json, shutil, tempfile
+    import proc_guard
+    import source_tidy_run as S
+
+    tmp = tempfile.mkdtemp(prefix="t324_")
+    원 = (S.REPORT_DIR, S.LOG, S.CRASH, S.PROGRESS, proc_guard.run_tree)
+    S.REPORT_DIR, S.LOG = tmp, os.path.join(tmp, "log.txt")
+    S.CRASH = os.path.join(tmp, "원본정리_오류.json")
+    S.PROGRESS = os.path.join(tmp, "진행.json")
+    호출 = []
+
+    def 가짜(결과):
+        def run_tree(cmd, cwd=None, timeout=600, **kw):
+            호출.append((os.path.basename(cmd[1]), timeout))
+            return 결과.get(os.path.basename(cmd[1]),
+                            proc_guard.ProcessResult(returncode=0, stdout="ok"))
+        return run_tree
+
+    try:
+        # ④ 총 제한이 작업 제한시간(PT3H) 안이어야 한다 — 안 그러면 마지막 단계가
+        #    잘리면서 자국도 안 써진다(지금 고치려는 그 모양으로 되돌아간다).
+        총 = len(S.STEPS) * S.STEP_TIMEOUT_S
+        assert 총 < 3 * 3600, "단계 제한 합이 PT3H 를 넘는다(%d분)" % (총 // 60)
+
+        # ① 다 되면 옛 자국을 지운다([228])
+        open(S.CRASH, "w", encoding="utf-8").write("{}")
+        proc_guard.run_tree = 가짜({})
+        assert S.main() == 0
+        assert not os.path.exists(S.CRASH), "다 됐는데 옛 자국을 안 지웠다([228])"
+        진행 = _json.load(open(S.PROGRESS, encoding="utf-8"))
+        assert 진행["상태"] == "완주" and len(진행["끝낸단계"]) == len(S.STEPS)
+        assert 호출, "단계를 한 번도 안 불렀다"
+        assert all(t == S.STEP_TIMEOUT_S for _, t in 호출), (
+            "단계마다 제한이 안 걸렸다 — 한 단계가 회차 전체를 먹는다")
+
+        # ② 한 단계가 끊기면 **이름을 대고**, 나머지 단계는 계속 돈다([175])
+        호출.clear()
+        proc_guard.run_tree = 가짜({"collect_sources.py": proc_guard.ProcessResult(
+            returncode=1, stdout="", stderr="Z: 를 읽을 수 없습니다", timed_out=True)})
+        assert S.main() == 1
+        자국 = _json.load(open(S.CRASH, encoding="utf-8"))
+        assert "원본 모으기" in 자국["무엇"], 자국["무엇"]
+        assert len(호출) == len(S.STEPS), (
+            "죽은 뒤 다음 단계로 안 갔다([175]) — %d/%d" % (len(호출), len(S.STEPS)))
+        진행 = _json.load(open(S.PROGRESS, encoding="utf-8"))
+        assert 진행["지금단계"] == "(회차 끝)" and 진행["상태"] == "실패"
+        # ★ 시간초과를 **글자로 짐작하지 않는다** — 조치가 갈래마다 다르다([289]).
+        #   실측으로 `code`("코드가 깨졌다")가 나와 사람을 멀쩡한 코드로 보낼 뻔했다.
+        assert 자국["갈래"] == "timeout", 자국["갈래"]
+        assert "제한시간" in 자국["조치"], 자국["조치"]
+
+        # ③ 계기 자신을 시험한다([272]) — 자국 남기기를 빼면 잡히나
+        os.remove(S.CRASH)
+        빌린 = S._leave_trace
+        S._leave_trace = lambda *a, **k: None
+        try:
+            proc_guard.run_tree = 가짜({"collect_sources.py": proc_guard.ProcessResult(
+                returncode=1, stdout="", stderr="x", timed_out=True)})
+            S.main()
+            assert not os.path.exists(S.CRASH), (
+                "자국을 안 남겨도 통과했다 — 이 검사는 아무것도 안 재고 있다")
+        finally:
+            S._leave_trace = 빌린
+    finally:
+        S.REPORT_DIR, S.LOG, S.CRASH, S.PROGRESS, proc_guard.run_tree = 원
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    # ⑤ 회차를 부르는 자리가 실행기를 거치는가 — bat 이 네 단계를 그대로 이어 달리면
+    #    제한이 다시 없어진다(살아 있는 작업과 사본이 갈리는 자리, `[248]`).
+    bat = open(os.path.join(ROOT, "원본자료자동정리.bat"),
+                  encoding="utf-8", newline="").read()
+    본문 = chr(10).join(l for l in bat.splitlines()
+                      if not l.strip().lower().startswith("rem"))
+    assert "source_tidy_run.py" in 본문, "bat 이 실행기를 안 부른다"
+    for 옛 in ("upload_intake.py", "collect_sources.py", "source_organizer.py"):
+        assert 옛 not in 본문, "bat 이 아직 %s 를 직접 부른다 — 단계 제한이 없어진다" % 옛
+    assert "exit /b" in 본문, "종료코드를 안 돌려준다 — 죽은 회차가 성공으로 적힌다([248])"
+
+    print("  [324] 원본 정리 회차 — 단계마다 제한 · 범인을 이름으로 댐 · "
+          "죽어도 다음 단계 · 시간초과를 글자로 짐작 안 함 (실행으로 잼) OK")
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -24298,6 +24473,8 @@ if __name__ == "__main__":
     t321_human_delay_reason_never_erases_the_machine_estimate()
     t322_one_incident_does_not_cry_with_two_different_voices()
     t323_amount_ladder_is_one_value_in_five_places()
+    t324_source_tidy_names_the_culprit_step()
+    t324_one_alert_is_one_line_and_the_reason_survives()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
