@@ -24834,6 +24834,73 @@ def t326_the_master_roster_wins_but_never_erases():
           "빈 값으로 안 덮음 · 못 읽으면 그렇게 말함 (실행으로 잼) OK")
 
 
+def t331_desktop_body_never_slides_under_the_fixed_sidebar():
+    """[331] **본문이 고정 사이드바 밑으로 미끄러지지 않는다** (분담판 [81]).
+
+    2026-08-13 형님 지시: "이 화면 왼쪽 잘리는 문제 전체적으로 수정해서 변경해".
+    사이드바는 `position:fixed` 라 **페이지가 가로로 조금이라도 스크롤되면 본문만
+    왼쪽으로 밀려 그 밑으로 들어간다.** 화면은 '왼쪽이 잘린' 것처럼 보이는데
+    오류는 한 줄도 안 나고, 창이 넓은 사람에게는 재현조차 안 된다.
+
+    2026-08-19 실측(데모 서버 + 화면 렌더 함수에 자료 주입): 폭 1280·1024·900·375
+    에서 화면 18개 전부 `scrollWidth == clientWidth`(넘침 0), 매출 실적 31행 ·
+    정산 122행을 실제로 그린 뒤에도 본문 왼쪽 248px > 사이드바 오른쪽 216px.
+    ★ 그런데 **그 상태를 지키는 검사가 한 줄도 없었다** — 만든 것과 지켜지는 것은
+      다르다([76]·[232]). 여기서 얼리는 것은 *넘침을 만들지 않는 구조* 넷이다.
+
+    ⚠ 글자를 못 박는 것이 아니라 **숫자를 대 본다**([39]) — 사이드바 폭을 바꾸면
+      본문 여백 둘도 같이 바뀌어야 한다. 한쪽만 고치면 그날부터 본문이 잘린다.
+    """
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    def _check(text):
+        side = re.search(r"\.tabbar\{top:0;bottom:auto;left:0;right:auto;width:(\d+)px", text)
+        assert side, "데스크톱 사이드바 규칙(.tabbar 고정 폭)을 못 찾았다"
+        shell = re.search(r"\.shell\{margin-left:(\d+)px", text)
+        appbar = re.search(r"\.appbar\{margin-left:(\d+)px", text)
+        assert shell and appbar, "본문(.shell)·앱바(.appbar)의 사이드바 여백 규칙을 못 찾았다"
+        w = int(side.group(1))
+        assert int(shell.group(1)) == w, (
+            f"사이드바는 {w}px 인데 본문 여백은 {shell.group(1)}px — 본문이 그 밑으로 들어간다")
+        assert int(appbar.group(1)) == w, (
+            f"사이드바는 {w}px 인데 앱바 여백은 {appbar.group(1)}px — 앱바 왼쪽이 잘린다")
+
+        # ★ 넘치는 것을 감추지 않고 **줄어들게** 한다([273]) — flex:none 이면 안 줄어
+        #   좁은 창에서 그대로 페이지를 넘긴다(실측 900px 에서 26px 넘쳤다).
+        assert re.search(r"\.appbar-status\{flex:0 1 auto", text), \
+            "앱바 오른쪽 칸이 안 줄어든다 — 좁은 창에서 페이지가 가로로 넘친다"
+        assert ".appbar-status{flex:none" not in text, \
+            "앱바 오른쪽 칸에 flex:none 이 돌아왔다 — [81] 이 고친 그 자리다"
+
+        # ⚠ wrap 을 켜면 줄어들 수 있는 칸도 안 줄고 아래로 내려간다(실측 1280px
+        #   에서 앱바가 96px → 132px 2줄). 안 잘리게 하려다 화면을 더 밀어낸다.
+        rule = text.split(".appbar{margin-left:", 1)[1].split("}", 1)[0]
+        assert "flex-wrap:wrap" not in rule, \
+            "데스크톱 앱바에 flex-wrap:wrap — 줄바꿈이 먼저라 넘침은 그대로고 앱바만 두 줄이 된다"
+
+        # 로고가 제 상자를 넘어 옆 칸을 덮는 것을 막는 바닥(폭 고정 로고 두 개).
+        assert re.search(r"\.appbar-brand-stack\{min-width:\d+px\}", text), \
+            "브랜드 칸 바닥이 min-width 가 아니다 — flex-basis 로 옮기면 로고가 깨진다"
+
+    _check(html)
+
+    # ★ 계기 자기시험([272]) — 0 을 내는 계기는 아무도 의심하지 않는다([169]).
+    for broken, why in (
+        (html.replace(".shell{margin-left:216px", ".shell{margin-left:200px", 1), "본문 여백만 줄임"),
+        (html.replace(".appbar{margin-left:216px", ".appbar{margin-left:180px", 1), "앱바 여백만 줄임"),
+        (html.replace(".appbar-status{flex:0 1 auto", ".appbar-status{flex:none", 1), "안 줄어들게 되돌림"),
+    ):
+        try:
+            _check(broken)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError(f"이 검사가 아무것도 안 재고 있다 — {why} 인데도 통과했다")
+
+    print("[331] 사이드바 폭 = 본문·앱바 여백 · 앱바는 줄어들고 줄바꿈 안 함 "
+          "(2026-08-19 실측 1280/1024/900/375 넘침 0) OK")
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -25157,6 +25224,7 @@ if __name__ == "__main__":
     t328_camp_source_staleness_is_seen()
     t329_context_guard_after_compact()
     t330_userscript_watch_sees_the_dev_mode_gate()
+    t331_desktop_body_never_slides_under_the_fixed_sidebar()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
