@@ -15320,12 +15320,95 @@ function calDetailHTML(e){
     ${e.긴급도?`<dt>긴급도</dt><dd>${esc2(e.긴급도)}</dd>`:''}
     ${e.유무상?`<dt>유·무상</dt><dd>${esc2(e.유무상)}</dd>`:''}
     ${e.이상발견?`<dt>이상 발견</dt><dd>${esc2(e.이상발견)}</dd>`:''}
+    ${calWhyRowsHTML(e)}
     <dt>원장 연결</dt><dd>${esc2(e.원천업무ID||'미연결 — 확인 필요')}</dd>
     <dt>${e.예측?'예측 근거':'연결 근거'}</dt><dd>${esc2(e.연결근거||'없음')}${e.장비수?` · ${esc2(e.장비수)}대`:''}</dd>
     ${e.예측?`<dt>주의</dt><dd>과거 점검일로 계산한 예상일입니다. 공식 일정 확정 전이며 Google Calendar에는 자동 저장하지 않습니다.</dd>`:''}</dl>
+    ${calWhyBtnHTML(e)}
     ${pjHas(e)?`<div style="margin-top:11px"><button type="button" class="abtn primary" style="width:100%;justify-content:center"
       onclick="${pjCall(e)}"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-counterclockwise"/></svg>
       이 현장 과거 이력 · 현황 보기</button></div>`:''}`;
+}
+
+/* ── 미처리 사유 — **담당자가 그 자리에서 적는다** (2026-08-19 형님 지시) ──────
+   "대표 캡처화면에서 정기점검 미처리 건 클릭해서 바로바로 사유 입력할 수 있게 해줘,
+    류지영이 업무하기 편하게"
+
+   ★ **두 사실을 겹쳐 두지 않는다**([172]). 지금까지 그 줄에 있던 문장은 서버가 지은
+     **기계 추정**(`_machine_why`)이고, 그것은 '왜 아직 미처리인가'가 아니라
+     **'왜 우리가 모르는가'**다(밴드에 완료 글이 없다 · 수집이 어디까지 왔다…).
+     진짜 사유는 담당자만 안다. 그래서 **사람 사유를 먼저**, 기계 추정은 뒤에 작게.
+   ★ **합친 한 줄을 화면이 되쪼개지 않는다**([162]) — 서버가 `사람사유`·`기계추정` 을
+     갈라서 내려 준다. 화면에서 다시 자르면 판정이 둘이 되고 언젠가 갈린다. */
+function calWhyEditable(e){
+  const k = calKindOf(e);
+  return !!(e && (k === 'as_open' || k === 'pm_overdue') && e.원천업무ID);
+}
+function calWhyRowsHTML(e){
+  const human = String((e && e.사람사유) || '').trim();
+  const machine = String((e && (e.기계추정 || e.미처리사유)) || '').trim();
+  if(!human && !machine) return '';
+  let html = '';
+  if(human) html += `<dt>미처리 사유</dt><dd><b>${esc2(human)}</b> <small>· 담당자가 적음</small></dd>`;
+  /* ★ **빈 것을 '사유 없음'이라 확정하지 않는다**([169]) — 아직 안 적은 것과
+     "없다고 적었다"는 다른 사실이다. 적을 수 있는 건에만 그렇게 말한다. */
+  else if(calWhyEditable(e)) html += `<dt>미처리 사유</dt><dd><small>아직 안 적었습니다 — 아래에서 적을 수 있습니다</small></dd>`;
+  if(machine) html += `<dt>${human?'기계 추정':'왜 미처리인가'}</dt><dd><small>${esc2(machine)}</small>`
+    + (human ? '' : ` <small>· 기계가 지은 값입니다(우리가 왜 모르는가). 실제 사유는 아래에서 적어 주세요</small>`) + '</dd>';
+  return html;
+}
+function calWhyBtnHTML(e){
+  if(!calWhyEditable(e)) return '';
+  const has = !!String(e.사람사유 || '').trim();
+  return `<div style="margin-top:11px"><button type="button" class="abtn primary" style="width:100%;justify-content:center"
+    onclick="calWhyOpen(${esc4(calCatOf(e))},${esc4(e.원천업무ID)})"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>
+    ${has?'미처리 사유 고치기':'미처리 사유 적기'}</button></div>`;
+}
+async function calWhyOpen(cat, id){
+  const e = calEvents().find(x => String(x.원천업무ID || '') === String(id) && calCatOf(x) === cat);
+  if(!e){ notice('이 일정을 지금 목록에서 찾지 못했습니다 — 새로 받은 뒤 다시 눌러 주세요.'); return; }
+  /* ★ 버전이 없으면 저장이 400 으로 막힌다 — 그런데 안내가 '새로고침'이면 사람은
+     같은 반쪽을 다시 받는다([296]). 그러니 **누르기 전에** 갈라 말한다. */
+  if(e.DB버전 == null){
+    notice('이 건은 앱 DB 버전을 못 받아 지금은 저장할 수 없습니다. 목록이 반쪽으로 내려온 상태일 수 있어'
+      + ' 새로고침해도 같을 수 있습니다 — 앱 DB 상태(실행 화면)를 먼저 확인해 주세요.');
+    return;
+  }
+  const before = String(e.사람사유 || '');
+  const text = await askText('왜 아직 미처리인가요? (담당자가 아는 실제 사유)', before, {
+    title: `${calCampOf(e)} · ${e.프로젝트NO || '프로젝트 미확정'}`,
+    desc: `${e.경과일 != null ? e.경과일 + '일 지남 · ' : ''}기계 추정: ${String(e.기계추정 || e.미처리사유 || '없음')}`,
+    ph: '예: 부품 입고 8/25 예정 · 캠프 요청으로 9월 첫 주 재방문 협의',
+    ok: '저장'});
+  if(text === null) return;                       // 취소 — 아무것도 안 한다
+  const v = String(text || '').trim();
+  /* 빈 값으로는 저장하지 않는다(집 안의 다른 입력과 같은 규칙). 지우려면 화면이 아니라
+     원장 화면에서 지운다 — 여기서 빈 값을 받으면 "없다고 적었다"가 되어 버린다. */
+  if(v.length < 2){ toast('사유를 두 글자 이상 적어 주세요 — 빈 값은 저장하지 않습니다'); return; }
+  if(v === before.trim()){ toast('바뀐 내용이 없습니다'); return; }
+  try{
+    const rid = (crypto.randomUUID ? crypto.randomUUID()
+      : Date.now() + '-' + Math.random().toString(16).slice(2));
+    const d = await api('/api/staff/entry', {method:'POST', headers:{'Idempotency-Key': rid},
+      body: JSON.stringify({category: cat, key: String(id), record_version: Number(e.DB버전 || 0),
+        values: {'미처리사유(담당자)': v}, reason: '대표 캡처 · 미처리 사유 입력',
+        idempotency_key: rid})});
+    if(!d || !d.ok) throw new Error((d && d.error) || '저장 실패');
+    e.사람사유 = v;                                  // 원문 그대로. 합친 한 줄은 서버가 만든다
+    if(d.record_version) e.DB버전 = d.record_version;
+    toast('미처리 사유를 저장했습니다 — 목록을 새로 받는 중입니다');
+    try{
+      await loadCalendar(true);
+      renderCalendarPage();
+      if(calSheetOpen()) renderCalSheet();
+      toast('대표 보고에도 이 사유가 실립니다');
+    }catch(err){
+      /* 저장은 됐다 — 그 사실을 실패로 보이게 하지 않는다([169]). */
+      notice('저장은 됐지만 목록을 다시 받지 못했습니다. 새로 고치면 보입니다 · ' + String(err.message || err));
+    }
+  }catch(err){
+    notice('미처리 사유 저장 실패 · ' + String(err.message || err));
+  }
 }
 
 /* ── 날짜 창(폰=아래에서 올라오는 레이어 · PC=가운데 모달) ──────────────────
@@ -15957,8 +16040,11 @@ async function calendarCapture(opt){
   const asOpen=(byKind.get('as_open')||[]), asUrgent=asOpen.filter(e=>e.경보).length;
   const asAgreed=asOpen.filter(e=>e.지연구분==='협의대기').length;
   const asNormal=asOpen.filter(e=>e.지연구분==='정상기한').length;
-  const asReasonMissing=asOpen.filter(e=>!String(e.미처리사유||'').trim()
-    &&!String(e.지연근거||'').trim()).length;
+  /* ★ 이 계기는 **영영 0 이었다**(2026-08-19 발견). `미처리사유` 는 서버가 기계
+     추정으로 늘 채우므로 이 조건은 한 번도 참이 될 수 없었다 — 대표 보고는 매번
+     '사유 미입력 0건'을 확언했고, 그 0 은 "다 적혀 있다"로 읽혔다([169]).
+     이제 **담당자가 적었나**를 센다. 그것이 이 칸이 원래 물으려던 것이다. */
+  const asReasonMissing=asOpen.filter(e=>!String(e.사람사유||'').trim()).length;
   const asDone=(byKind.get('as_done')||[]).length;
 
   const sumY=listTop+12, boxGap=8, boxW=(W-Mg*2-boxGap)/2, boxH=54;

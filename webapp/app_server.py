@@ -1153,6 +1153,23 @@ RYU_ENTRY_CONFIG = {
             {"name": "청구제외", "label": "청구 제외(다녀옴·이 건으로는 청구 안 함)",
              "type": "select", "options": ["예", "아니오"]},
             {"name": "청구제외사유", "label": "청구 제외 사유", "type": "textarea"},
+            # ★ 미처리 사유 — **사람이 적는 자리** (2026-08-19 형님 지시: "대표
+            #   캡처화면에서 정기점검 미처리 건 클릭해서 바로바로 사유 입력할 수 있게").
+            #   · 지금 캡처에 뜨는 사유는 `_why_still_open` 이 지은 **기계 추정**이고
+            #     그것은 '왜 아직 미처리인가'가 아니라 **'왜 우리가 모르는가'**다.
+            #     진짜 사유(부품 대기·캠프 협의·기사 일정)는 류지영만 안다.
+            #   · 이름을 `문제내용` 으로 쓰지 않는다 — 그것은 실재하는 원장 열이고
+            #     `pm_content` 가 읽는다. 남의 뜻이 있는 칸에 다른 사실을 밀어 넣으면
+            #     관리대장 의미가 깨진다([172]).
+            #   · 이름이 `미처리사유` 도 아니다 — 그 낱말은 이미 **둘**이 쓴다
+            #     (`work_log_sync` 대조 기록 · 캘린더 이벤트의 기계 추정). 한 낱말이
+            #     두 뜻이면 언젠가 갈리고, 갈린 뒤엔 어느 쪽이 맞는지 아무도 모른다.
+            #   ⚠ **이 이름은 `archive_worker.DB_ONLY_ARCHIVE_FIELDS` 에도 있어야 한다.**
+            #     02/04 시트에 대응 열이 없으므로 안 올리면 보관본 회차가
+            #     `cannot archive unknown field` 로 통째로 죽는다 — 저장은 성공하니
+            #     적은 사람은 모르고 11:00·15:00 회차만 죽는다.
+            {"name": "미처리사유(담당자)", "label": "미처리 사유(담당자가 적음)",
+             "type": "textarea"},
             {"name": "비고", "label": "비고", "type": "textarea"},
         ],
     },
@@ -1192,6 +1209,23 @@ RYU_ENTRY_CONFIG = {
             {"name": "청구제외", "label": "청구 제외(다녀옴·이 건으로는 청구 안 함)",
              "type": "select", "options": ["예", "아니오"]},
             {"name": "청구제외사유", "label": "청구 제외 사유", "type": "textarea"},
+            # ★ 미처리 사유 — **사람이 적는 자리** (2026-08-19 형님 지시: "대표
+            #   캡처화면에서 정기점검 미처리 건 클릭해서 바로바로 사유 입력할 수 있게").
+            #   · 지금 캡처에 뜨는 사유는 `_why_still_open` 이 지은 **기계 추정**이고
+            #     그것은 '왜 아직 미처리인가'가 아니라 **'왜 우리가 모르는가'**다.
+            #     진짜 사유(부품 대기·캠프 협의·기사 일정)는 류지영만 안다.
+            #   · 이름을 `문제내용` 으로 쓰지 않는다 — 그것은 실재하는 원장 열이고
+            #     `pm_content` 가 읽는다. 남의 뜻이 있는 칸에 다른 사실을 밀어 넣으면
+            #     관리대장 의미가 깨진다([172]).
+            #   · 이름이 `미처리사유` 도 아니다 — 그 낱말은 이미 **둘**이 쓴다
+            #     (`work_log_sync` 대조 기록 · 캘린더 이벤트의 기계 추정). 한 낱말이
+            #     두 뜻이면 언젠가 갈리고, 갈린 뒤엔 어느 쪽이 맞는지 아무도 모른다.
+            #   ⚠ **이 이름은 `archive_worker.DB_ONLY_ARCHIVE_FIELDS` 에도 있어야 한다.**
+            #     02/04 시트에 대응 열이 없으므로 안 올리면 보관본 회차가
+            #     `cannot archive unknown field` 로 통째로 죽는다 — 저장은 성공하니
+            #     적은 사람은 모르고 11:00·15:00 회차만 죽는다.
+            {"name": "미처리사유(담당자)", "label": "미처리 사유(담당자가 적음)",
+             "type": "textarea"},
             {"name": "비고", "label": "비고", "type": "textarea"},
         ],
     },
@@ -6267,7 +6301,46 @@ def _band_completion_index():
     return out
 
 
+# 사람이 적은 사유의 상한. 대표 캡처는 A4 **세 장 고정**이고 다 못 실으면 저장을
+# 거부한다([273]) — 길이를 안 묶으면 사유를 적을수록 보고서가 안 나오는 쪽으로 간다.
+# 자른 만큼은 반드시 말한다. 원문은 앱 DB 와 세부 창에 그대로 남는다.
+_HUMAN_REASON_MAX = 80
+HUMAN_REASON_FIELD = "미처리사유(담당자)"
+
+
+def _human_delay_reason(row, cap=None):
+    """담당자가 적어 둔 미처리 사유 — 없으면 빈 문자열.
+
+    ★ **빈 것을 '없음'으로 확정하지 않는다**([169]). 여기서 "사유 없음" 같은 낱말을
+      만들어 돌려주면 화면은 담당자가 '없다고 적었다'로 읽는다 — 아직 안 적은 것과
+      다른 사실이다. 비면 빈 채로 돌려주고, 그 뜻은 부르는 쪽이 정한다.
+    """
+    text = " ".join(str(row.get(HUMAN_REASON_FIELD) or "").split())
+    if not text:
+        return ""
+    cap = _HUMAN_REASON_MAX if cap is None else cap
+    if cap and len(text) > cap:
+        return "%s…(원문 %d자)" % (text[:cap], len(text))
+    return text
+
+
 def _why_still_open(row, idx, got):
+    """화면·캡처에 실리는 한 줄 — **사람 사유가 먼저, 기계 추정은 뒤에**.
+
+    ★ 2026-08-19 형님 지시로 앞에 사람 사유가 붙었다. **덮지 않는다**([172]):
+      둘은 서로 다른 사실이라, 사람 사유로 기계 추정을 지우면 *수집이 밀렸다*는
+      신호(밴드 수집이 어디까지 왔나)가 같이 사라진다. 그래서 잇는다.
+    ★ 읽는 자리를 새로 만들지 않았다([162]) — 캡처·목록·`truth_watch` 가 이미
+      `미처리사유` 한 칸을 읽는다. 그 칸의 **내용**만 넓혔다.
+    """
+    machine = _machine_why(row, idx, got)
+    human = _human_delay_reason(row)
+    if not human:
+        return machine
+    return "담당자: %s · (기계 추정) %s" % (human, machine)
+
+
+def _machine_why(row, idx, got):
     """왜 아직 미처리인가 — **모르는 이유를 갈라 말한다**([169]).
 
     '미처리 88건'만 있고 이유가 없으면 사람은 다녀온 현장을 다시 찾아간다.
@@ -6460,6 +6533,9 @@ def _calendar_work_events():
                     {"연결근거": "02_돌발AS접수 — 접수 뒤 작업완료일이 비어 있음",
                      "경과일": days, "긴급도": r.get("긴급도") or "",
                      "미처리사유": _why_still_open(r, bidx, got),
+                     "사람사유": _human_delay_reason(r, cap=0),
+                     "기계추정": _machine_why(r, bidx, got),
+                     "DB버전": r.get("DB버전"),
                      "진행상태": r.get("진행상태") or "", "신청내용": r.get("신청내용") or "",
                      "방문예정일": norm_date(r.get("방문예정일")), **delay})
         # ★ 완료 건에도 **무슨 일이었는지**를 실어 보낸다(2026-08-08 지시:
@@ -6518,7 +6594,10 @@ def _calendar_work_events():
             add(plan, "pm_overdue", f"정기점검 미처리 · {camp}", r,
                 {"연결근거": "04_정기점검 — 예정일이 지났는데 실제점검일이 비어 있음",
                  "경과일": days, "점검상태": r.get("점검상태") or "",
-                 "미처리사유": _why_still_open(r, bidx, plan)})
+                 "미처리사유": _why_still_open(r, bidx, plan),
+                 "사람사유": _human_delay_reason(r, cap=0),
+                 "기계추정": _machine_why(r, bidx, plan),
+                 "DB버전": r.get("DB버전")})
     return out
 
 

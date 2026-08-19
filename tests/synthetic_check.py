@@ -23684,6 +23684,170 @@ def t320_chatbot_never_stamps_a_fresh_time_on_old_text():
           "못 셈≠0건 · 갈래 그대로 (실행으로 잼) OK")
 
 
+
+def t321_human_delay_reason_never_erases_the_machine_estimate():
+    """[321] **미처리 사유를 담당자가 그 자리에서 적는다** (2026-08-19 형님 지시:
+    "대표 캡처화면에서 정기점검 미처리 건 클릭해서 바로바로 사유 입력할 수 있게 해줘,
+    류지영이 업무하기 편하게").
+
+    지금까지 그 줄에 있던 문장은 서버가 지은 **기계 추정**(`_machine_why`)이고,
+    그것은 '왜 아직 미처리인가'가 아니라 **'왜 우리가 모르는가'**다. 진짜 사유는
+    담당자만 안다 — 그런데 적을 자리가 없었다.
+
+    ★ 여기서 재는 것은 '적을 수 있나'가 아니라 **잘못 덮지 않나**다:
+      · 사람 사유가 기계 추정을 **지우지 않는다**([172]) — 지우면 '수집이 밀렸다'는
+        신호가 같이 사라진다
+      · **빈 사유를 '없음'으로 확정하지 않는다**([169]) — 아직 안 적은 것과
+        "없다고 적었다"는 다른 사실이다
+      · 새 필드가 **보관본 회차를 죽이지 않는다** — 02/04 시트에 대응 열이 없어
+        `DB_ONLY_ARCHIVE_FIELDS` 에 없으면 `cannot archive unknown field` 로
+        11:00·15:00 회차가 통째로 죽는다(저장은 성공하니 적은 사람은 모른다)
+      · 대표 캡처의 **'사유 미입력' 계기가 눈멀지 않았나** — 고치기 전 그 값은
+        `미처리사유`(서버가 늘 채운다)를 봐서 **영영 0** 이었다([169])
+    ★ 화면은 **실행해서** 잰다([295]) — 글자 검사로는 '무엇이 보이나'를 못 잰다.
+    ★ 실측 증거 파일은 한 글자도 안 건드린다([247]) — 합성 값으로만 부른다.
+    """
+    import io as _io, json as _json, os as _os, re as _re, shutil, subprocess, tempfile
+    import proc_guard
+    import archive_worker as AW
+    import webapp.app_server as S
+
+    FIELD = "미처리사유(담당자)"
+
+    # ── ① 입력칸이 두 갈래에 다 있고, 남의 뜻이 있는 칸을 쓰지 않는다 ──────
+    for cat in ("as", "pm"):
+        names = [f["name"] for f in S.RYU_ENTRY_CONFIG[cat]["fields"]]
+        assert FIELD in names, "%s 갈래에 담당자 사유 칸이 없다" % cat
+        assert FIELD in S.STAFF_ENTRY_PERMISSIONS["ryu-jiyeong"][cat], (
+            "류지영이 %s 사유를 못 적는다 — 이 지시의 본체다" % cat)
+    # `문제내용` 은 실재하는 원장 열이고 `pm_content` 가 읽는다. 재사용하면 관리대장
+    # 의미가 깨진다([172]) — 그러니 **다른 이름**이어야 한다.
+    assert FIELD != "문제내용" and FIELD != "미처리사유", (
+        "이미 다른 뜻으로 쓰이는 낱말을 골랐다 — 한 낱말이 두 뜻이면 언젠가 갈린다")
+
+    # ── ② 보관본 회차가 안 죽는다 (archive_worker.py:1486 의 그 문 그대로) ──
+    heads = {"접수ID", "프로젝트NO", "진행상태"}          # 02시트에 그 열은 없다
+    def _passes(allow):
+        return FIELD in heads or str(FIELD).startswith("__") or FIELD in allow
+    assert _passes(AW.DB_ONLY_ARCHIVE_FIELDS), (
+        "%r 가 DB_ONLY_ARCHIVE_FIELDS 에 없다 — 보관본 회차가 "
+        "'cannot archive unknown field' 로 통째로 죽는데 저장은 성공하므로 "
+        "적은 사람은 모르고 11:00·15:00 회차만 조용히 실패한다" % FIELD)
+    # ★ 계기 자기시험([272]) — 표에서 빼면 정말 막히나. 안 막히면 위 검사는 헛것이다.
+    assert not _passes(AW.DB_ONLY_ARCHIVE_FIELDS - {FIELD}), (
+        "표에서 빼도 통과한다 — 이 검사는 아무것도 안 재고 있다")
+    aw_src = _io.open(_os.path.join(ROOT, "archive_worker.py"), encoding="utf-8").read()
+    assert "cannot archive unknown field" in aw_src and "DB_ONLY_ARCHIVE_FIELDS" in aw_src, (
+        "보관본의 모르는-필드 문이 사라졌다 — 오타가 조용히 사라지는 쪽으로 되돌아갔다")
+
+    # ── ③ 사람 사유가 기계 추정을 **지우지 않는다** ────────────────────────
+    idx = {"읽음": True, "최신": "2026-08-18", "완료": {}, "언급": set(), "카톡": {}}
+    bare = {"프로젝트NO": "UJ2600001"}
+    machine = S._machine_why(bare, idx, "2026-08-01")
+    assert machine, "기계 추정이 비었다 — 미처리에 이유가 없으면 다녀온 현장을 또 간다([169])"
+    assert S._why_still_open(bare, idx, "2026-08-01") == machine, (
+        "사람 사유가 없는데 문장이 달라졌다 — 예전 화면이 그대로 나와야 한다")
+    assert S._human_delay_reason(bare) == "", "안 적은 것을 빈 문자열로 안 돌려준다"
+
+    said = dict(bare); said[FIELD] = "부품 입고 8/25 예정"
+    line = S._why_still_open(said, idx, "2026-08-01")
+    assert "부품 입고 8/25 예정" in line, "사람이 적은 사유가 안 실린다"
+    assert machine in line, (
+        "사람 사유가 기계 추정을 **지웠다** — 수집이 밀렸다는 신호가 같이 사라진다([172]): %r"
+        % line)
+    assert line.index("부품 입고") < line.index(machine), (
+        "기계 추정이 사람 사유보다 앞에 온다 — 사람 사유가 먼저다: %r" % line)
+
+    # ── ④ 길이: 캡처는 A4 세 장 고정이라 자르되 **자른 만큼을 말한다**([273]) ──
+    long = dict(bare); long[FIELD] = "가" * (S._HUMAN_REASON_MAX + 40)
+    cut = S._why_still_open(long, idx, "2026-08-01")
+    assert "…(원문 %d자)" % (S._HUMAN_REASON_MAX + 40) in cut, (
+        "길게 적은 것을 **조용히** 잘랐다 — 자른 만큼을 말해야 한다([273]): %r" % cut[:160])
+    # ★ 그런데 **고치기용 원문은 안 자른다** — 자른 값을 폼에 넣으면 저장하는 순간
+    #   원문이 잘린다(아무 오류도 안 나는 손실이다).
+    assert S._human_delay_reason(long, cap=0) == long[FIELD], (
+        "원문이 잘린 채로 나간다 — 그 값을 고쳐 저장하면 원문을 잃는다")
+
+    # ── ⑤ 화면: 실행해서 잰다([295]) ───────────────────────────────────────
+    live = _io.open(_os.path.join(ROOT, "webapp", "index.html"),
+                    encoding="utf-8", newline="").read()
+
+    def grab(name):
+        i = live.index("function %s(" % name)
+        nl = live.index("\n", i)
+        one = live[i:nl]
+        if one.count("{") and one.count("{") == one.count("}"):
+            return one
+        return live[i:live.index("\n}", i) + 2]
+
+    meter = _re.search(r"const asReasonMissing=[^;]+;", live)
+    assert meter, "대표 캡처의 '사유 미입력' 계기를 못 찾았다"
+    node = shutil.which("node")
+    if not node:
+        assert "사람사유" in meter.group(0), (
+            "계기가 아직 `미처리사유` 를 본다 — 서버가 늘 채우므로 **영영 0** 이다([169])")
+        print("[321] 미처리사유 - node 가 없어 화면 검사는 건너뜀(서버만) OK")
+        return
+
+    harness = ("function esc2(s){return String(s==null?'':s);}"
+               "function esc4(s){return \"'\"+String(s==null?'':s)+\"'\";}\n"
+               + grab("calKindOf") + "\n" + grab("calCatOf") + "\n" + grab("calCampOf") + "\n"
+               + grab("calWhyEditable") + "\n" + grab("calWhyRowsHTML") + "\n"
+               + grab("calWhyBtnHTML") + "\n" + """
+var mach='밴드에 접수 글은 있으나 완료 글이 없다';
+var none={분류:'pm_overdue',원천업무ID:'PM-1',캠프명:'부산1MB',기계추정:mach,미처리사유:mach,사람사유:''};
+var said=Object.assign({},none,{사람사유:'부품 입고 8/25 예정',
+  미처리사유:'담당자: 부품 입고 8/25 예정 · (기계 추정) '+mach});
+var doneEv={분류:'pm_done',원천업무ID:'PM-2',캠프명:'김해2',기계추정:'',미처리사유:''};
+var noid={분류:'as_open',원천업무ID:'',캠프명:'구리3',기계추정:mach,미처리사유:mach,사람사유:''};
+var o={};
+o.none_rows=calWhyRowsHTML(none); o.said_rows=calWhyRowsHTML(said);
+o.none_btn=calWhyBtnHTML(none); o.said_btn=calWhyBtnHTML(said);
+o.done_btn=calWhyBtnHTML(doneEv); o.noid_btn=calWhyBtnHTML(noid);
+o.done_rows=calWhyRowsHTML(doneEv);
+""" + meter.group(0).replace("const ", "var ").replace(
+    "asOpen", "[said,none,none]") + """
+o.missing=asReasonMissing;
+var old=[said,none,none].filter(function(e){return !String(e.미처리사유||'').trim()
+  &&!String(e.지연근거||'').trim();}).length;
+o.old_missing=old;
+console.log(JSON.stringify(o));""")
+    tmp = _os.path.join(tempfile.gettempdir(), "csos_t321.js")
+    _io.open(tmp, "w", encoding="utf-8", newline="\n").write(harness)
+    pr = subprocess.Popen([node, tmp], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          **proc_guard.background_popen_kwargs())
+    out = pr.communicate(timeout=90)[0].decode("utf-8", "replace").strip()
+    assert out, "node 가 아무 답도 안 줬다"
+    got = _json.loads(out.splitlines()[-1])
+
+    assert "부품 입고 8/25 예정" in got["said_rows"], "적은 사유가 화면에 안 보인다"
+    assert mach_in(got["said_rows"]), "사람이 적었더니 기계 추정이 화면에서 사라졌다([172])"
+    assert got["said_rows"].index("부품 입고") < got["said_rows"].index("밴드에 접수"), (
+        "기계 추정이 사람 사유보다 위에 온다")
+    assert "없음" not in got["none_rows"] and "없습니다" not in got["none_rows"], (
+        "안 적은 것을 '사유 없음'으로 확정한다 — \"없다고 적었다\"와 다른 사실이다([169]): %r"
+        % got["none_rows"])
+    assert "아직 안 적었" in got["none_rows"], "안 적었다는 사실을 말하지 않는다"
+    assert "적기" in got["none_btn"] and "고치기" in got["said_btn"], (
+        "단추가 상태를 말하지 않는다: %r / %r" % (got["none_btn"], got["said_btn"]))
+    assert not got["done_btn"], "완료 건에까지 사유 적기 단추가 붙는다"
+    assert not got["noid_btn"], (
+        "원장 연결이 없는 건에 단추가 붙는다 — 눌러도 저장할 열쇠가 없다")
+    assert not got["done_rows"], "완료 건에 미처리 사유 칸이 생긴다"
+
+    # ★ 계기 자기시험([272]) — 옛 조건이면 정말 영영 0 인가
+    assert got["missing"] == 2, "담당자가 안 적은 건을 안 센다: %r" % got["missing"]
+    assert got["old_missing"] == 0, (
+        "옛 조건이 0 이 아니다 — 이 검사가 재는 고장이 애초에 없었다는 뜻이다")
+
+    print("[321] 미처리사유 - 사람 사유 먼저·기계 추정 남음 · 빈 것을 '없음'이라 안 함 · "
+          "보관본 안 죽음 · '사유 미입력' 계기가 눈뜸(0→2) (서버·화면 둘 다) OK")
+
+
+def mach_in(html):
+    return "밴드에 접수 글은 있으나 완료 글이 없다" in html
+
+
 if __name__ == "__main__":
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
@@ -23997,6 +24161,7 @@ if __name__ == "__main__":
     t317_sale_pool_never_takes_what_it_cannot_name()
     t319_remote_move_to_branch_without_widening_the_person_limit()
     t320_chatbot_never_stamps_a_fresh_time_on_old_text()
+    t321_human_delay_reason_never_erases_the_machine_estimate()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
