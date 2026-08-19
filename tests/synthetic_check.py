@@ -21673,8 +21673,20 @@ def t301_camp_edits_survive_the_round():
     assert not bad, (
         "인라인 핸들러 인자에 JSON.stringify 를 박았다 — 큰따옴표가 속성을 끊어 "
         "단추가 오류 없이 안 눌린다. data- 속성 + esc2 로 넘길 것: %r" % (bad[:3],))
-    assert "onclick=\"campEditOpen(this.dataset.camp)\"" in html, (
+    # ★ **글자를 통째로 못 박지 않는다**([39]·[295]) — 같은 계약을 다르게 쓴
+    #    코드까지 빨갛게 만든다. 실측 2026-08-19: 줄 클릭이 생기면서 핸들러가
+    #    `event.stopPropagation();campEditOpen(this.dataset.camp)` 로 바뀌자 계약은
+    #    그대로인데 이 검사만 죽어 **09:50 회차가 0단계에서 통째로 멈추었다**
+    #    (관문은 daily_run 의 맨 앞이다). 지켜야 할 것은 낱말이 아니라
+    #    **값이 `data-` 로 온다**는 사실이다. 되돌아가면 안 되는 것만 얼린다.
+    assert _re.search(r'on[a-z]+="[^"]*campEditOpen\(this\.dataset\.camp\)', html), (
         "수정 단추가 값을 data- 로 안 받는다")
+    dc = _re.findall(r'data-camp="[^"]{0,30}', html)
+    assert dc, "data-camp 자리가 아예 없다 — 값을 무엇으로 넘기고 있나"
+    bare = [d for d in dc if "esc2" not in d]
+    assert not bare, (
+        "data-camp 를 esc2 로 안 감싼 자리가 있다 — 따옴표가 든 캠프명이 "
+        "속성을 끊어 단추가 오류 없이 안 눌린다: %r" % (bare[:3],))
     pipe = open(os.path.join(ROOT, "automation_pipeline.py"), encoding="utf-8").read()
     assert pipe.count('"캠프 담당자"') >= 2, (
         "새 자료가 들어와도 캠프 담당자가 5분 회차에서 안 갱신된다 — 하루를 기다린다")
@@ -23334,7 +23346,10 @@ console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTM
     표H = g["표HTML"]
     assert "campfix" in 표H, "고치는 단추가 캠프명 칸에 없다 — 오른쪽 끝으로 돌아가면 화면 밖이다"
     assert 'ondblclick="campEditOpen' in 표H, "줄을 두 번 눌러도 고치기가 안 열린다"
-    assert 표H.index("campfix") < 표H.index("호기"),         "고치는 단추가 캠프명보다 뒤에 있다 — 가로 스크롤 없이는 안 보인다"
+    # 머리글에도 '호기' 가 있으므로 **본문부터** 잰다 — 안 그러면 멀쩡한 코드가 빨개진다.
+    본문 = 표H[표H.index("<tbody>"):]
+    첫줄 = 본문[:본문.index("</tr>")] if "</tr>" in 본문 else 본문
+    assert "campfix" in 첫줄, "고치는 단추가 첫 칸(캠프명)에 없다 — 가로 스크롤 없이는 안 보인다"
     이름 = [r["이름"] for r in g["표"]]
     묶음 = {r["이름"]: r["묶음"] for r in g["표"]}
 
