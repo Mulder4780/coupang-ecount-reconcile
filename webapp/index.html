@@ -8461,9 +8461,31 @@ function renderReceiptUpload(hostId){
   zone.addEventListener('drop',e=>{[...(e.dataTransfer.files||[])].forEach(f=>receiptSubmit(hostId,f,''));});
   $(hostId+'File').addEventListener('change',e=>{[...e.target.files].forEach(f=>receiptSubmit(hostId,f,''));e.target.value='';});
 }
+/* * **거절도 갈래를 가른다**([257]·[172]) — 뭉뚱그리면 사람이 엉뚱한 데를 고치러 간다.
+   2026-08-20 실측: 카톡 내보내기 파일의 **이 PC 경로**를 이 칸에 붙여넣었는데 화면은
+   "파일을 놓거나 URL 을 넣어주세요" 한 줄만 줬다. 그래서 원인을 사내 보안 프로그램으로
+   짐작하게 됐다 — 실제로 막은 것은 **이 앱 자신의 입력 검사**였다.
+   ! `.txt` 를 이 상자 accept 에 넣지 않는다 — 서버 `RECEIPT_SOURCE_EXTS` 에 없어서
+     고를 수는 있는데 올리면 실패한다([169]). 카톡 TXT 는 자동화 카드가 정본이다([162]). */
+function receiptKakaoRedirect(){
+  toast('카톡 내보내기(TXT)는 이 상자가 아닙니다 — [카톡 TXT 바로 올리기] 를 엽니다');
+  try{ openAutomationKakaoUpload(); }catch(e){}
+}
+function receiptRejectHint(url){
+  const u=String(url||'').trim().replace(/^["'']+|["'']+$/g,'');
+  const BS=String.fromCharCode(92);
+  const isPath = /^[A-Za-z]:/.test(u) || u.slice(0,2)===BS+BS || /^file:/i.test(u);
+  if(!u){ toast('파일을 여기로 끌어다 놓거나 [파일 선택] 을 눌러 주세요'); return; }
+  if(isPath && /[.]txt$/i.test(u)){ receiptKakaoRedirect(); return; }
+  if(isPath){ toast('그건 인터넷 주소가 아니라 이 PC 안의 파일 경로입니다 — 파일을 끌어다 놓거나 [파일 선택] 을 눌러 주세요'); return; }
+  toast('URL 은 https:// 로 시작해야 합니다 — 이 PC 의 파일은 끌어다 놓거나 [파일 선택] 으로 올립니다');
+}
 async function receiptSubmit(hostId,file,url){
   url=String(url||'').trim();
-  if(!file && !/^https?:\/\//i.test(url)){ toast('파일을 놓거나 URL(https://…)을 넣어주세요'); return; }
+  if(!file && !/^https?:\/\//i.test(url)){ receiptRejectHint(url); return; }
+  /* 서버가 받는 확장자(RECEIPT_SOURCE_EXTS)에 .txt 가 없다 — 끌어다 놓아도 실패한다.
+     실패시키고 이유를 나중에 말하느니 **누른 그 자리에서** 옳은 상자를 연다. */
+  if(file && /[.]txt$/i.test(file.name||'')){ receiptKakaoRedirect(); return; }
   const log=$(hostId+'Log'), name=file?file.name:url.slice(0,60);
   if(log) log.textContent=`올리는 중 — ${name}`;
   const fd=new FormData();
