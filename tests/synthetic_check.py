@@ -20834,6 +20834,202 @@ def t346_upload_failure_shows_code_and_capture():
     print("[346] 업로드 실패 — 오류 코드 + 설명 팝업 + 캡처해서 보내기 OK")
 
 
+def t347_settle_amounts_are_editable_where_the_ledger_lets_them_be():
+    """정산 상세에서 **고칠 수 있는 칸만** 고치고, 파생값은 갈 곳을 가리킨다.
+
+    2026-08-20 류지영 요청(형님 전달 · 카톡): "이부분 수정하고싶습니다" — 정산 상세의
+    `작업`·`쿠팡 PO` 칸 전체에 노란 동그라미.
+
+    ★ **실측이 설계를 정했다**(관리대장 v608 · 06시트 750행):
+        실제작업공급가액 = 값                        <- 사람이 적는 칸은 이것 하나다
+        실제작업부가세   = 수식 ROUND(N(I5)*0.1)
+        실제작업합계     = 수식 N(I5)+N(J5)
+        작업완료일·비용구분 = 수식 INDEX(02_돌발AS접수…)/INDEX(04_정기점검…)
+        PO필요여부       = 수식(PO번호 유무) · 실제 값 필요 687 · 불필요 63 · 예/아니오 0
+      그래서 ① 공급가액만 입력칸을 만들고 ② 부가세·합계는 **서버가 같이 계산**하고
+      ③ 작업완료일·비용구분은 **원천업무 기록으로 보낸다**([162] — 한 사실은 한 곳).
+
+    얼리는 것은 '있어야 할 글자'가 아니라 **되돌아가면 안 되는 계약**이다([39]):
+      ① 반올림이 엑셀 ROUND(half-up) 와 같다 — 은행가 반올림이면 서류와 1원 어긋난다
+      ② 공급가액을 저장하면 부가세·합계가 **같이** 간다
+      ③ 사람이 그 둘을 직접 보내는 길은 막혀 있다
+      ④ PO필요여부 선택지가 원장 값이다 — 목록 밖 낱말은 저장돼도 집계를 못 바꾼다([196])
+      ⑤ 금액 정정에는 사유를 받는다
+      ⑥ 화면 입력칸이 전부 서버 허용 목록 안이다 — 어긋나면 눌러도 저장이 안 된다
+      ⑦ 읽는 쪽이 그 이름을 안다 — 안 알면 **저장은 되는데 화면이 안 바뀐다**([165])
+      ⑧ 그 이름이 06시트 실재 열이다 — 아니면 보관본 회차가 통째로 죽는다([321])
+      ⑨ 계기 자신도 시험한다([272])
+
+    ★ 실측 증거 파일은 한 글자도 안 건드린다([247]) — 임시 DB 로만 잰다.
+    """
+    from pathlib import Path
+    import io as _io, re as _re
+    import app_store as _AS
+    import archive_worker as _AW
+    from webapp import app_server as S
+
+    Q = chr(34)
+
+    # ① 반올림 — 575,205 x 0.1 = 57,520.5 (엑셀 ROUND=57,521 · 파이썬 round=57,520)
+    assert S._settle_amount_derive(780000) == {
+        "실제작업부가세": 78000, "실제작업합계": 858000}, S._settle_amount_derive(780000)
+    assert S._settle_amount_derive(575205)["실제작업부가세"] == 57521, (
+        "엑셀 ROUND 는 half-up 이다 — 은행가 반올림을 쓰면 원장·계산서와 1원이 "
+        "어긋나고, 화면 숫자가 서류와 다르면 그 순간 앱을 못 믿게 된다")
+    assert S._settle_amount_derive("") == {"실제작업부가세": "", "실제작업합계": ""}, (
+        "공급가액을 지우면 부가세·합계도 같이 비어야 한다 — 공급가액이 없는데 "
+        "부가세만 남은 행은 어느 화면에서도 설명되지 않는다")
+
+    def _seed(store, tag):
+        got = store.shadow_import(
+            import_id=tag, sheet="06_거래서류청구수금",
+            business_key="JS-2607-005", business_key_col="정산ID", row_number=5,
+            kind="정산", public_id="JS-2607-005", project_no="UJ2601132",
+            camp_name="창원1MB(팔용동)", status="작업완료",
+            fields={"정산ID": "JS-2607-005", "원천업무ID": "AS-2607-005",
+                    "프로젝트NO": "UJ2601132", "캠프명": "창원1MB(팔용동)",
+                    "실제작업공급가액": 780000, "실제작업부가세": 78000,
+                    "실제작업합계": 858000, "PO번호": "PO370037"},
+            source_file="t347.xlsx", source_sha256="b" * 64,
+            apply_if_missing=True, idempotency_key=tag + "-seed")
+        return got["work_id"]
+
+    with tempfile.TemporaryDirectory(prefix="csos-settle-amt-347-") as td:
+        store = _AS.AppStore(Path(td) / "app.db").initialize()
+        wid = _seed(store, "t347")
+        ver = store.get_work(work_id=wid)["record_version"]
+
+        # ⑤ 금액 정정에는 사유를 받는다 — 몇 달 뒤 "왜 이 금액이지"에 답할 한 줄이다
+        try:
+            S.save_staff_entry("ryu-jiyeong", {
+                "category": "settle", "key": "JS-2607-005", "record_version": ver,
+                "values": {"실제작업공급가액": "800000"},
+                "idempotency_key": "t347-noreason"}, store=store)
+            raise AssertionError("금액을 사유 없이 고쳐 버렸다")
+        except ValueError as exc:
+            assert "사유" in str(exc), exc
+
+        # ② 공급가액을 고치면 부가세·합계가 같이 간다
+        saved = S.save_staff_entry("ryu-jiyeong", {
+            "category": "settle", "key": "JS-2607-005", "record_version": ver,
+            "values": {"실제작업공급가액": "800000"},
+            "reason": "류지영 확인 — 거래명세서 금액으로 정정",
+            "idempotency_key": "t347-fix"}, store=store)
+        after = store.get_work(work_id=wid)["fields"]
+        assert after["실제작업공급가액"] == 800000, after
+        assert after["실제작업부가세"] == 80000 and after["실제작업합계"] == 880000, (
+            "공급가액만 바뀌고 부가세·합계가 옛 값으로 남으면 화면이 "
+            "'공급가+부가세 != 합계' 라고 빨갛게 말한다 — 고친 사람은 제가 무엇을 "
+            "잘못했는지 모른 채 그 경고를 본다: " + repr(after))
+        assert "실제작업부가세" in (saved.get("changed") or []), saved
+
+        # ③ 사람이 파생값을 직접 보내는 길은 막혀 있다
+        for bad in ("실제작업부가세", "실제작업합계"):
+            try:
+                S.save_staff_entry("ryu-jiyeong", {
+                    "category": "settle", "key": "JS-2607-005", "record_version": 99,
+                    "values": {bad: "1"},
+                    "idempotency_key": "t347-hand-" + bad}, store=store)
+                raise AssertionError(bad + " 을 손으로 넣을 수 있다 — 공급가액과 "
+                                           "어긋난 값이 원장에 박힌다")
+            except PermissionError as exc:
+                assert bad in str(exc), exc
+
+        # ④ PO필요여부 선택지는 원장이 실제로 쓰는 값이다([196])
+        try:
+            S.save_staff_entry("ryu-jiyeong", {
+                "category": "settle", "key": "JS-2607-005", "record_version": 99,
+                "values": {"PO필요여부": "예"},
+                "idempotency_key": "t347-po-old"}, store=store)
+            raise AssertionError("예 가 저장된다 — 원장에 한 건도 없는 낱말이다")
+        except ValueError as exc:
+            assert "선택지" in str(exc), exc
+        ver2 = store.get_work(work_id=wid)["record_version"]
+        S.save_staff_entry("ryu-jiyeong", {
+            "category": "settle", "key": "JS-2607-005", "record_version": ver2,
+            "values": {"PO필요여부": "불필요"}, "reason": "PO 없이 진행",
+            "idempotency_key": "t347-po-new"}, store=store)
+        assert store.get_work(work_id=wid)["fields"]["PO필요여부"] == "불필요", (
+            "원장이 실제로 쓰는 값이 저장되지 않는다 — 문을 너무 좁힌 것도 고장이다")
+
+    # ⑥ 화면 입력칸이 전부 서버 허용 목록 안인가 — 어긋나면 눌러도 저장이 안 된다
+    html = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                    encoding="utf-8", newline="").read()
+    i0 = html.index("const INPUT_SPEC = {")
+    blk = html[i0:html.index(chr(10) + "};", i0)]
+    marks = sorted((blk.index(chr(10) + "  " + k + ": {"), k)
+                   for k in ("settle", "as", "pm"))
+    # 낱말 경계를 안 두면 key_col:'정산ID' 의 col:'…' 이 입력칸으로 세어져 이 검사가
+    # 엉뚱한 것을 잰다(만들면서 그대로 걸렸다).
+    pat = _re.compile("(?<![A-Za-z_])col:'([^']+)'")
+    seen = {}
+    for n, (pos, kind) in enumerate(marks):
+        end = marks[n + 1][0] if n + 1 < len(marks) else len(blk)
+        seen[kind] = set(pat.findall(blk[pos:end]))
+        assert len(seen[kind]) >= 2, (
+            kind + " 입력칸을 거의 못 읽었다 — 이 검사가 눈이 멀었다: "
+            + repr(sorted(seen[kind])))
+        outside = sorted(seen[kind] - S._ALL_STAFF_ENTRY_FIELDS[kind])
+        assert not outside, (
+            kind + " 화면 입력칸이 서버 허용 목록 밖이다 — 눌러도 저장이 안 되고 "
+            "화면은 아무 말도 안 한다: " + ", ".join(outside))
+    assert {"실제작업공급가액", "PO필요여부"} <= seen["settle"], sorted(seen["settle"])
+
+    # ⑦ 읽는 쪽이 그 이름을 아는가 — 안 알면 저장은 되는데 화면이 안 바뀐다([165])
+    srv = _io.open(os.path.join(ROOT, "webapp", "app_server.py"),
+                   encoding="utf-8").read()
+    ov = srv[srv.index("def _overlay_app_store_ledger_records"):]
+    ov = ov[:ov.index("for row in store.list_sheet_rows")]
+    for name in ("실제작업부가세", "실제작업합계"):
+        assert (Q + name + Q + ": ") in ov, (
+            "읽는 쪽이 " + name + " 를 모른다 — 저장은 되는데 화면이 안 바뀐다([165])")
+
+    # ⑧ 그 이름이 06시트 실재 열인가 — 아니면 11:00·15:00 보관본이 통째로 죽는다
+    lg = _io.open(os.path.join(ROOT, "ecount_reconcile.py"), encoding="utf-8").read()
+    head = lg[lg.index("ws = wb[" + Q + "06_거래서류청구수금" + Q + "]"):]
+    head = head[:head.index(Q + "청구상태" + Q + "])")]
+    for name in ("실제작업공급가액", "실제작업부가세", "실제작업합계", "PO필요여부"):
+        assert (Q + name + Q) in head, name + " 가 06시트 열 목록에 없다"
+        assert name not in _AW.DB_ONLY_ARCHIVE_FIELDS, (
+            name + " 는 06시트 실재 열이다 — DB전용 목록에 넣으면 보관본에 안 실린다")
+
+    # 작업완료일·비용구분은 **원천업무로 보낸다** — 여기서 고치면 두 곳이 갈린다([162])
+    assert "function srcWorkKind(" in html and "function srcWorkLine(" in html, (
+        "원천업무로 가는 길이 없다 — 그 둘은 06시트에서 수식이라 여기서 못 고친다")
+    _sw = html[html.index("function srcWorkLine("):]
+    _sw = _sw[:_sw.index(chr(10) + "}")]
+    assert "openRecord(" in _sw, "원천업무 단추가 갈 곳을 안 부른다"
+    assert "if(!kind) return esc2(id);" in _sw, (
+        "갈 곳을 못 정했는데 단추를 그린다 — 눌러도 아무 일이 없는 단추는 "
+        "고장으로 읽힌다")
+    for gone in ("실제작업부가세", "실제작업합계"):
+        assert ("col:'" + gone + "'") not in html, (
+            gone + " 에 화면 입력칸이 생겼다 — 수식이라 공급가액과 어긋난 값을 "
+            "손으로 넣게 된다")
+
+    # ⑨ ★ 계기 자신을 시험한다([272]) — 파생 계산을 꺼도 ②가 통과하면 그 검사는
+    #   아무것도 안 재고 있는 것이다.
+    _real = S._settle_amount_derive
+    try:
+        S._settle_amount_derive = lambda supply: {}
+        with tempfile.TemporaryDirectory(prefix="csos-settle-amt-347b-") as td2:
+            st2 = _AS.AppStore(Path(td2) / "app.db").initialize()
+            wid2 = _seed(st2, "t347b")
+            S.save_staff_entry("ryu-jiyeong", {
+                "category": "settle", "key": "JS-2607-005",
+                "record_version": st2.get_work(work_id=wid2)["record_version"],
+                "values": {"실제작업공급가액": "800000"}, "reason": "계기 시험",
+                "idempotency_key": "t347b-fix"}, store=st2)
+            broke = st2.get_work(work_id=wid2)["fields"]
+            assert broke["실제작업공급가액"] == 800000, broke
+            assert broke["실제작업부가세"] == 78000, (
+                "계기 시험이 성립하지 않는다 — 파생 계산을 껐는데도 부가세가 "
+                "따라왔다. 그렇다면 ② 는 아무것도 재고 있지 않다: " + repr(broke))
+    finally:
+        S._settle_amount_derive = _real
+    print("[347] 정산 금액·PO 는 원장이 허락하는 자리에서만 고쳐진다 OK")
+
+
 def t345_camp_screen_folds_by_canon_and_hides_nothing():
     """[163] 전국쿠팡캠프 화면 — 정본으로 묶되 **못 합친 것을 숨기지 않는다**.
 
@@ -26975,6 +27171,7 @@ if __name__ == "__main__":
     t344_cancel_sync_converges_and_keeps_the_reason()
     t345_camp_screen_folds_by_canon_and_hides_nothing()
     t346_upload_failure_shows_code_and_capture()
+    t347_settle_amounts_are_editable_where_the_ledger_lets_them_be()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()

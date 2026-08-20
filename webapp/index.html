@@ -1329,6 +1329,9 @@ tr.campsub>td:first-child{padding-left:20px}
 .dl{display:grid;grid-template-columns:118px 1fr;gap:8px 12px;font-size:14.5px}
 .dl dt{color:var(--ink-3);font-weight:600}
 .dl dd{font-weight:600;word-break:break-all;font-variant-numeric:tabular-nums}
+/* 상세 시트에서 '이 값은 따라오는 값' 이라고 말하는 꼬리표. vatLine 이 예전부터
+   이 클래스를 내보내는데 규칙이 없어 아무 표시도 안 됐다([310] 과 같은 자리). */
+.dl .norm{font-weight:500;font-size:13px;color:var(--ink-3);font-variant-numeric:normal}
 .dl .sec{grid-column:1/-1;font-size:13px;font-weight:800;color:var(--brand-dk);letter-spacing:.5px;
   border-top:1px solid var(--line);padding-top:11px;margin-top:5px;text-transform:uppercase}
 /* PC(≥900px)에서는 가운데 모달로 띄운다 (2026-08-06 지시).
@@ -14080,12 +14083,12 @@ function openSheet(kind, idx, id){
     <div class="dl">
       <div class="sec">작업</div>
       <dt>프로젝트NO</dt><dd>${esc2(displayProject)}</dd>
-      <dt>원천업무</dt><dd>${r.원천업무ID||'-'}</dd>
-      <dt>작업완료일</dt><dd>${r.완료일||'-'}</dd>
-      <dt>비용구분</dt><dd>${r.비용구분||'-'}</dd>
-      <dt>공급가액(부가세 별도)</dt><dd>${fmt(r.공급가액)}원</dd>
+      <dt>원천업무</dt><dd>${srcWorkLine(r)}</dd>
+      <dt>작업완료일</dt><dd>${r.완료일||'-'} <span class="norm">· 원천업무에서 따라옵니다</span></dd>
+      <dt>비용구분</dt><dd>${r.비용구분||'-'} <span class="norm">· 원천업무에서 따라옵니다</span></dd>
+      <dt>공급가액(부가세 별도)</dt><dd>${fmt(r.공급가액)}원 <span class="norm">· 아래에서 고칩니다</span></dd>
       <dt>부가세</dt><dd>${vatLine(r)}</dd>
-      <dt>합계(VAT포함)</dt><dd>${fmt(r.합계)}원</dd>
+      <dt>합계(VAT포함)</dt><dd>${fmt(r.합계)}원 <span class="norm">· 공급가액에서 따라옵니다</span></dd>
       <div class="sec">쿠팡 PO</div>
       <dt>PO 필요여부</dt><dd>${r.PO필요||'-'}</dd>
       <dt>PO 번호</dt><dd>${r.PO번호||'없음'}</dd>
@@ -14595,6 +14598,17 @@ function entryWarnings(kind, id, values){
   });
   if(values['작업완료일'] && r.접수일자)
     warnReversal(w, '작업완료일', values['작업완료일'], '접수일자', r.접수일자);
+  /* 원장 수식은 =IF($S5<>"","필요","불필요") 다 — PO번호가 있으면 '필요'.
+     어긋난 조합도 저장은 되지만 그 행만 규칙 밖 값이 된다. 막지 않고 물어본다. */
+  if(values['PO필요여부']){
+    const poNo = String(values['PO번호']!=null ? values['PO번호'] : (r.PO번호||'')).trim();
+    if(values['PO필요여부']==='불필요' && poNo)
+      w.push(`PO번호 '${poNo}' 가 있는데 PO 필요여부를 '불필요' 로 고르셨습니다 — 원장은 PO번호가 있으면 '필요' 로 봅니다.`);
+    if(values['PO필요여부']==='필요' && !poNo)
+      w.push('PO 필요여부를 ' + "'필요'" + ' 로 고르셨는데 PO번호가 비어 있습니다.');
+  }
+  if(values['실제작업공급가액']!=null)
+    warnPaidZero(w, '공급가액', values['실제작업공급가액'], cost);
   return w;
 }
 /* 담당자 업무센터 입력(ryuEntryForm) 검사 — 스키마가 서버에서 오므로 모양으로 본다 */
@@ -14835,6 +14849,16 @@ $('sheetbody').addEventListener('keydown', e=>{
 /* ── 앱 → DB 즉시 정본 → Excel 단방향 자동 보관본 ── */
 const INPUT_SPEC = {
   settle: { sheet:'06_거래서류청구수금', key_col:'정산ID', fields:[
+    /* ★ 06시트에서 **사람이 적는 금액 칸은 이것 하나다**(2026-08-20 실측 · 류지영
+       요청). 부가세·합계는 수식이라 입력칸을 두지 않는다 — 저장할 때 서버가 같은
+       규칙으로 같이 쓴다(app_server._settle_amount_derive). 화면에도 그 계산을
+       적으면 규칙이 두 곳이 되고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다([162]). */
+    {label:'공급가액', col:'실제작업공급가액', vtype:'number', cur:r=>r.공급가액,
+     ph:'숫자만 · 부가세·합계는 저장할 때 같이 맞춰집니다'},
+    /* 선택지는 원장이 실제로 쓰는 값이다 — 실측 750행에 필요 687 · 불필요 63 이고
+       '예/아니오' 는 한 건도 없다([196]). 서버 표도 같은 값으로 고쳤다. */
+    {label:'PO 필요여부', col:'PO필요여부', vtype:'text', cur:r=>r.PO필요,
+     values:['필요','불필요']},
     {label:'PO번호', col:'PO번호', vtype:'text', cur:r=>r.PO번호, ph:'예: PO367787'},
     {label:'PO발행일', col:'PO발행일', vtype:'date', cur:r=>r.PO발행일, ph:'YYYY-MM-DD'},
     {label:'명세서번호', col:'거래명세서번호', vtype:'text',  cur:r=>r.명세서번호, ph:'예: 2026/07/24-1'},
@@ -14936,6 +14960,38 @@ function vatLine(r){
 }
 
 function esc2(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ── 원천업무로 가는 길 (2026-08-20 류지영 요청 "이부분 수정하고싶습니다") ──────
+   06시트의 `작업완료일`·`비용구분` 은 **수식**이고 그 수식이 가리키는 곳은
+   02_돌발AS접수 · 04_정기점검 이다(2026-08-20 실측:
+     =IF($C5="","",IFERROR(IF(LEFT($C5,3)="AS-",INDEX('02_돌발AS접수'!$U…) … )).
+   그러니 이 화면에서 그 둘을 고치게 하면 **원천과 어긋난 값이 두 곳에 생긴다** —
+   정산 카드는 무상이라 하고 AS 카드는 유상이라 하는 날이 오고, 그때 어느 쪽이
+   맞는지 아무도 모른다([162]). 대신 **한 번에 그 자리로 보낸다** — 고치는 곳이
+   옳은 곳이면 06시트는 따라온다.
+   ★ 갈 곳을 못 정하면 단추를 아예 안 그린다. 눌러도 아무 일이 없는 단추는
+     고장으로 읽힌다(pjHistWide 와 같은 규칙). */
+function srcWorkKind(r){
+  const id = String((r&&r.원천업무ID)||'').trim().toUpperCase();
+  if(id.indexOf('AS-')===0) return 'as';
+  if(id.indexOf('PM-')===0) return 'pm';
+  const g = String((r&&r.업무구분)||'');
+  if(g.indexOf('정기')>=0) return 'pm';
+  if(g.indexOf('돌발')>=0 || g.indexOf('AS')>=0) return 'as';
+  return '';
+}
+function srcWorkLine(r){
+  const id = String((r&&r.원천업무ID)||'').trim();
+  if(!id) return '-';
+  const kind = srcWorkKind(r);
+  if(!kind) return esc2(id);
+  const nm = kind==='as' ? '돌발AS' : '정기점검';
+  return `${esc2(id)} <button type="button" class="btn xs" style="margin-left:6px"
+    onclick="openRecord(${esc4(kind)},${esc4(id)},${esc4(String((r&&r.프로젝트NO)||''))})"
+    title="${esc2(nm)} 기록에서 작업완료일·비용구분을 고칩니다">${esc2(nm)} 기록에서 고치기</button>
+    <div class="norm" style="margin-top:3px">작업완료일·비용구분은 이 기록에서 고칩니다 —
+    06시트 수식이라 <b>엑셀이 한 번 다시 계산해야</b> 위 칸에 따라옵니다.</div>`;
+}
 
 function inputForm(kind, r, id){
   const spec = INPUT_SPEC[kind];

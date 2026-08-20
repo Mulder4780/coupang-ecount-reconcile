@@ -1287,10 +1287,25 @@ RYU_ENTRY_CONFIG = {
         "label": "거래서류·청구", "sheet": "06_거래서류청구수금", "key_col": "정산ID",
         "date_col": "작업완료일", "kind": "settle",
         "fields": [
+            # 06시트에서 **사람이 적는 금액 칸은 이것 하나다** (2026-08-20 실측 ·
+            # 류지영 요청 "이부분 수정하고싶습니다"). 나머지 둘은 수식이다:
+            #   실제작업부가세 =ROUND(N($I5)*0.1) · 실제작업합계 =N($I5)+N($J5)
+            # 그래서 부가세·합계는 입력칸을 만들지 않고 **서버가 같이 계산해 쓴다**
+            # (_settle_amount_derive). 입력칸을 만들면 공급가액과 어긋난 값을 손으로
+            # 넣을 수 있고, 엑셀은 제 수식대로 다시 계산해 화면과 보관본이 갈린다.
+            # 이름은 06시트 **실제 열 이름**이어야 한다 — 일반명 '공급가액' 은
+            # archive_worker.DB_ONLY_ARCHIVE_FIELDS 에 이미 다른 뜻으로 있다.
+            {"name": "실제작업공급가액", "label": "실제작업 공급가액(부가세 별도)",
+             "type": "number"},
             {"name": "거래명세서번호", "label": "거래명세서 번호", "type": "text"},
             {"name": "거래명세서발행일", "label": "거래명세서 발행일", "type": "date"},
+            # 선택지는 **원장이 실제로 쓰는 값**이다 (2026-08-20 실측 750행:
+            # 필요 687 · 불필요 63 · '예'/'아니오' 는 **한 건도 없다**). 예전
+            # '예/아니오' 는 화면에 이 칸이 없어 아무도 안 밟았을 뿐이다 — [196] 과
+            # 같은 자리다: 목록 밖 낱말은 저장은 되는데 어느 집계도 안 바뀌고
+            # 오류도 안 난다.
             {"name": "PO필요여부", "label": "PO 필요 여부", "type": "select",
-             "options": ["예", "아니오"]},
+             "options": ["필요", "불필요"]},
             {"name": "PO번호", "label": "PO 번호", "type": "text"},
             {"name": "PO발행일", "label": "PO 발행일", "type": "date"},
             {"name": "세금계산서발행일", "label": "세금계산서 발행일", "type": "date"},
@@ -1334,7 +1349,9 @@ STAFF_ENTRY_PERMISSIONS = {
 }
 STAFF_REASON_REQUIRED_FIELDS = {
     "유상·무상·보험", "비용구분", "거래명세서번호", "PO번호",
-    "세금계산서발행일", "입금액",
+    # 금액을 고치는 것은 청구를 고치는 것이다 — 몇 달 뒤 "이건 왜 이 금액이지"를
+    # 물을 사람이 반드시 있고, 그때 답할 수 있는 것은 이 한 줄뿐이다.
+    "세금계산서발행일", "입금액", "실제작업공급가액",
 }
 STAFF_DERIVED_FIELDS = {
     "계산서", "발행상태", "발행상태(자동)", "청구상태", "수금상태",
@@ -1687,6 +1704,44 @@ def _staff_normalize_value(spec, value, *, clear=False):
     return raw[:5000]
 
 
+# 06시트 금액 세 칸은 **한 사람 칸과 두 수식**이다 (2026-08-20 실측).
+#     실제작업공급가액 = 값                  <- 사람이 적는다
+#     실제작업부가세   = ROUND(N($I5)*0.1)   <- 따라온다
+#     실제작업합계     = N($I5)+N($J5)       <- 따라온다
+#   공급가액만 고치고 두 파생을 그대로 두면 화면이 옛 부가세·합계를 들고 있어
+#   `vatLine` 이 "공급가+부가세 != 합계" 라고 빨갛게 말한다 — 고친 사람은 제가
+#   무엇을 잘못했는지 모른 채 그 경고를 본다. 그래서 서버가 **같은 규칙으로**
+#   둘을 같이 쓴다.
+#   * 규칙은 여기 한 곳이다([162]). 화면에도 적으면 언젠가 갈리고, 갈린 뒤에는
+#     어느 쪽이 맞는지 아무도 모른다.
+#   * 사람이 부가세·합계를 직접 보내는 길은 열지 않는다 — allowlist 밖이라 서버가
+#     거부한다. 열면 공급가액과 어긋난 값을 손으로 넣을 수 있다.
+#   * 반올림은 **엑셀 ROUND 와 같아야 한다**(half-up). 파이썬 기본 round() 는
+#     은행가 반올림이라 575,205원 같은 값에서 1원이 어긋나고, 화면 숫자가 서류와
+#     다르면 그 순간 앱을 못 믿게 된다.
+SETTLE_SUPPLY_COL = "실제작업공급가액"
+SETTLE_DERIVED_AMOUNT_COLS = ("실제작업부가세", "실제작업합계")
+
+
+def _settle_amount_derive(supply):
+    """공급가액에서 부가세·합계를 06시트 수식과 같은 규칙으로 만든다.
+
+    지우기(빈 값)면 둘 다 빈 값이다 — 공급가액이 없는데 부가세만 남은 행은
+    어느 화면에서도 설명되지 않는다.
+    """
+    if supply in (None, ""):
+        return {"실제작업부가세": "", "실제작업합계": ""}
+    from decimal import Decimal, ROUND_HALF_UP
+    try:
+        amount = Decimal(str(supply))
+    except Exception:
+        return {}          # 숫자가 아니면 지어내지 않는다 — 정규화가 이미 막는다
+    vat = int((amount * Decimal("0.1")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    total = amount + vat
+    return {"실제작업부가세": vat,
+            "실제작업합계": int(total) if total == total.to_integral_value() else float(total)}
+
+
 def _staff_public_record(category, row):
     """앱 저장 응답과 재조회가 같은 별칭·파생 상태를 쓰게 한다."""
     out = {str(k): _ryu_display_value(v) for k, v in dict(row or {}).items()}
@@ -1760,6 +1815,11 @@ def save_staff_entry(staff_slug, body, *, store=None, actor=None):
         normalized[name] = _staff_normalize_value(
             field_specs[name], values.get(name), clear=name in clear_fields,
         )
+    # 공급가액을 고치면 부가세·합계가 **같이** 간다(_settle_amount_derive).
+    # allowlist·파생금지 검사 **뒤**에 넣는다 — 사람이 그 둘을 직접 보내는 길은
+    # 그대로 막혀 있고, 여기서만 서버가 제 손으로 쓴다.
+    if category == "settle" and SETTLE_SUPPLY_COL in normalized:
+        normalized.update(_settle_amount_derive(normalized[SETTLE_SUPPLY_COL]))
 
     # --demo 서버는 실제 DB를 만지지 않는다. 직접 합성검증은 명시한 임시 store를 쓴다.
     if DEMO and store is None:
@@ -3645,7 +3705,11 @@ def _overlay_app_store_ledger_records(recs, store=None):
             "원천업무ID": "원천업무ID", "업무구분": "업무구분",
             "비용구분": "비용구분", "작업완료일": "작업완료일",
             "실제작업공급가액": "원장_공급가액", "공급가액": "원장_공급가액",
-            "부가세": "원장_부가세", "합계(VAT포함)": "원장_합계", "합계": "원장_합계",
+            # 이름이 어긋나면 **저장은 되는데 화면이 안 바뀐다**([165]). 06시트의
+            # 진짜 열 이름은 '실제작업부가세'·'실제작업합계' 이고 저장도 그 이름으로
+            # 하므로, 읽는 쪽도 그 이름을 알아야 한다.
+            "실제작업부가세": "원장_부가세", "부가세": "원장_부가세",
+            "실제작업합계": "원장_합계", "합계(VAT포함)": "원장_합계", "합계": "원장_합계",
             "거래명세서번호": "원장_거래명세서번호",
             "거래명세서발행일": "원장_거래명세서발행일",
             "거래명세서합계": "원장_거래명세서합계",
