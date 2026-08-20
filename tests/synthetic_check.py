@@ -24656,6 +24656,38 @@ def t315_camp_rows_group_by_address_only():
     assert "return campGroupSort(" in _crb, \
         "campRows 가 묶어서 돌려주지 않는다 — 표·엑셀·이미지 순서가 갈린다"
 
+    # (9) **표가 상자 안에 들어간다**(2026-08-20 지시 "확대하고 줄여도 내용 다 보이게").
+    #    실측 1280px: 표 1,604px 대 상자 936px — 669px 이 상자 밖이라 옆으로 밀어야만
+    #    보였다. 1600px 로 넓혀도 표가 같이 넓어져 349px 이 남았다(그래서 "줄여도" 안 됐다).
+    #    아래 두 줄이면 0 이 된다 — 재서 확인했다(375·900·1280·1600 전부 넘침 0 ·
+    #    잘린 칸 0 · 전화 안 끊김 0).
+    #    * 레이아웃은 글자로 못 잰다([295]) — 여기서 얼리는 것은 "되돌아가면 안 되는
+    #      것" 두 줄뿐이다([39]). 실제 폭은 브라우저로만 잴 수 있다.
+    assert "#campHost .gridwrap>table.grid{min-width:0;width:100%}" in html, (
+        "캠프 표가 상자에 안 맞춰진다 — 공용 min-width:max-content 가 표를 화면 밖으로 민다")
+    assert "#campHost .gridwrap table.grid th{white-space:normal}" in html, (
+        "머리글이 nowrap 이면 최소 폭이 붙들려 80px 이 그대로 남는다(실측 1015 대 935)")
+    # (10) **카드 경계는 999px 다** — 900px 화면은 사이드바를 빼면 상자가 556px 인데
+    #    전화번호를 안 끊는 한 이 표는 656px 아래로 못 준다(102px 남음). 그 구간은
+    #    표가 아니라 카드가 맞다(카드는 넘침이 구조적으로 0 이다).
+    _k = html.index("#campHost .gridwrap{overflow-x:visible")
+    _m = html.rindex("@media (max-width:", 0, _k)
+    _px = html[_m + len("@media (max-width:"):html.index("px)", _m)]
+    assert int(_px) >= 999, (
+        "캠프 카드 경계가 %s px 다 — 900~999px 에서 표가 상자 밖으로 나간다" % _px)
+    # (11) **화면 accept 와 서버가 받는 확장자는 같아야 한다**([169] · 2026-08-20).
+    #    카톡 TXT 를 이 상자 accept 에 넣으면 고를 수는 있는데 서버가 안 받아 실패한다.
+    #    반대로 서버가 받게 되면 화면도 같이 넓혀야 한다 — 그래서 양쪽을 대 본다.
+    _srv = open(os.path.join(ROOT, "webapp", "app_server.py"),
+                encoding="utf-8", newline="").read()
+    _ln = [x for x in _srv.splitlines() if x.startswith("RECEIPT_SOURCE_EXTS")]
+    assert len(_ln) == 1, "서버 확장자 표(RECEIPT_SOURCE_EXTS)를 못 찾았다"
+    _i = html.index("${hostId}File")
+    _acc = html[_i:_i + 260]
+    assert (".txt" in _ln[0]) == (".txt" in _acc), (
+        "화면 accept 와 서버 RECEIPT_SOURCE_EXTS 가 어긋난다 — 고를 수는 있는데 "
+        "올리면 실패하거나([169]) 그 반대다")
+
     node = shutil.which("node")
     if not node:
         print("[315] 캠프 주소 묶음 — node 가 없어 실행 검사는 건너뜀(구조 검사만) ✅")
@@ -24754,8 +24786,15 @@ console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTM
     # 이름표를 CSS 가 제 손으로 적으면 열을 늘린 날 머리글만 어긋난다([162]) —
     # 만드는 자리가 화면 코드 하나인지 본다.
     assert 'content:attr(data-label)' in html, "카드 이름표를 CSS 가 직접 적고 있다"
-    assert "@media (max-width:899px)" in html and "#campHost .gridwrap table.grid thead" in html, \
-        "좁은 화면에서 카드로 서는 규칙이 없다 — 폰은 그대로 가로 스크롤이다"
+    # * **경계 숫자를 글자로 못 박지 않는다**([39]·[295] · 2026-08-20 실측).
+    #   첫 판은 `@media (max-width:899px)` 를 그대로 얼려 뒀는데, 900~999px 에서
+    #   표가 상자 밖으로 나가는 것을 고치려고 경계를 999 로 옮기자 **계약은 그대로인데
+    #   이 검사만 죽었다.** 지켜야 할 것은 숫자가 아니라 **좁은 화면에서 카드로 선다**는
+    #   사실이다. 경계값 자체는 아래 (10) 이 "999 아래로 내려가면 안 된다"로 지킨다.
+    _kk = html.index("#campHost .gridwrap{overflow-x:visible")
+    _mm = html.rindex("@media (max-width:", 0, _kk)
+    assert "#campHost .gridwrap table.grid thead" in html[_mm:_mm + 3000], (
+        "좁은 화면에서 카드로 서는 규칙이 없다 — 폰은 그대로 가로 스크롤이다")
     이름 = [r["이름"] for r in g["표"]]
     묶음 = {r["이름"]: r["묶음"] for r in g["표"]}
 
@@ -24808,6 +24847,40 @@ console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTM
         "엑셀에 제목이 안 실렸다(캡처와 같은 자리에서 와야 한다) — %r" % 머리.get("title")
     assert re.match(r"^총 \d+개 · 기준 .+", 머리.get("sub") or ""), \
         "엑셀 부제에 건수·기준시각이 없다 — %r" % 머리.get("sub")
+
+    # (12) **업로드 거절이 갈래를 가른다**([257]·[172] · 2026-08-20 지시).
+    #    카톡 내보내기 파일의 이 PC 경로를 URL 칸에 붙여넣었더니 화면이 "파일을 놓거나
+    #    URL 을 넣어주세요" 한 줄만 줬다 — 그래서 원인을 사내 보안 프로그램으로 짐작하게
+    #    됐다. 실제로 막은 것은 이 앱 자신의 입력 검사였다. 틀린 지목은 못 잡는 것보다 나쁘다.
+    #    글자로는 "정말 그 상자를 여는가"를 못 잰다 — 불러서 잰다([295]).
+    _rj = html[html.index("function receiptKakaoRedirect(){"):
+               html.index("async function receiptSubmit(hostId,file,url){")]
+    _q = chr(39)
+    # * 경로를 **파이썬 리터럴로 적지 않는다** — 그러면 JS 따옴표가 파이썬 파싱에서
+    #   사라져 node 가 문법 오류로 죽고, 이 검사는 "답이 없다"로만 실패한다(실측).
+    _bs = chr(92) * 2
+    _p1 = _q + "C:" + _bs + "Users" + _bs + "x.txt" + _q
+    _p2 = _q + "C:" + _bs + "a" + _bs + "b.xlsx" + _q
+    _js = ("let LOG=[];function toast(m){LOG.push([" + _q + "toast" + _q + ",m]);}"
+           + "function openAutomationKakaoUpload(){LOG.push([" + _q + "open" + _q
+           + "," + _q + "kakao" + _q + "]);}" + _rj
+           + "const T=[[" + _q + _q + "," + _q + "빈값" + _q + "],"
+           + "[" + _p1 + "," + _q + "경로txt" + _q + "],"
+           + "[" + _p2 + "," + _q + "경로xlsx" + _q + "],"
+           + "[" + _q + "ftp://x/y" + _q + "," + _q + "딴스킴" + _q + "]];"
+           + "const R={};for(const [v,n] of T){LOG=[];receiptRejectHint(v);R[n]=LOG;}"
+           + "console.log(JSON.stringify(R));")
+    _pr = subprocess.Popen([node, "-e", _js], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, **proc_guard.background_popen_kwargs())
+    _out = _pr.communicate(timeout=60)[0].decode("utf-8", "replace").strip()
+    assert _out.startswith("{"), "node 가 답 대신 이것을 줬다: %r" % _out[:300]
+    _r = _json.loads(_out.splitlines()[-1])
+    assert _r["경로txt"][-1][0] == "open", "카톡 TXT 경로인데 전용 상자를 안 연다"
+    assert "이 PC 안의 파일 경로" in _r["경로xlsx"][0][1], (
+        "로컬 경로를 로컬 경로라고 말하지 않는다 — 사람이 엉뚱한 데를 고치러 간다")
+    assert "https://" in _r["딴스킴"][0][1] and _r["딴스킴"][-1][0] != "open", (
+        "URL 오류인데 카톡 상자를 연다 — 옆 갈래를 삼켰다([172])")
+    assert "끌어다" in _r["빈값"][0][1], "빈 값인데 URL 이야기를 한다"
 
     print("[315] 캠프 주소 묶음 — 같은 주소는 붙고 · 모름끼리는 안 묶이고 · "
           "호기는 캠프명 옆(표·엑셀) ✅")
