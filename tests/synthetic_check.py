@@ -23549,7 +23549,14 @@ def t295_camp_contacts_never_guess_a_phone_number():
         srv = f.read()
     i = srv.find('if p == "/api/camps":')
     assert i > 0, "/api/camps 가 없다"
-    seg = srv[i:i + 1800]
+    # ★ 창을 **글자 수로 자르지 않는다**(2026-08-20 실측). 핸들러에 한 줄만 더해도
+    #   찾는 글자가 창 밖으로 밀려 **멀쩡한 코드가 빨개진다** — 실제로 메시지가
+    #   1,833자 자리로 밀려 이 검사가 죽었다. 그렇다고 그냥 넓히면 **옆 핸들러의
+    #   글자**를 이 핸들러 것으로 읽어 검사가 아무것도 안 재게 된다([328] 과 같은
+    #   자리). 창은 **다음 핸들러 앞**까지다 — 자리가 아니라 경계로 자른다.
+    _ends = [x for x in (srv.find('if p == "', i + 10),
+                         srv.find("if p.startswith(", i + 10)) if x > 0]
+    seg = srv[i:min(_ends)] if _ends else srv[i:i + 4000]
     assert "캠프_담당자.json" in seg
     # ★ 막는 것은 **모듈 이름이 아니라 비싼 일**이다. 첫 판은 `camp_contacts` 라는
     #   글자를 통째로 금지해서, 같은 모듈의 **값싼 접근자**(`load_changes` — 작은
@@ -24637,7 +24644,16 @@ def t315_camp_rows_group_by_address_only():
     # ① 정하는 자리는 하나다
     assert html.count("function campGroupSort(") == 1, "줄 세우는 자리가 하나가 아니다"
     assert html.count("function campGroupText(") == 1, "묶음 글자를 만드는 자리가 하나가 아니다"
-    assert "return campGroupSort(rows.filter(" in html, \
+    # ★ **글자를 통째로 못 박지 않는다**([39]·[295]). 첫 판은
+    #   `return campGroupSort(rows.filter(` 를 그대로 얼려 뒀는데, 정본 묶기가 그
+    #   사이에 들어오자(2026-08-20 [163] — 묶고 나서 정렬한다) **계약은 그대로인데
+    #   이 검사만 죽어** 09:50 회차가 0단계에서 멈출 뻔했다. 지켜야 할 것은 낱말이
+    #   아니라 **campRows 가 campGroupSort 를 거쳐 돌려준다**는 사실이다.
+    #   ⚠ 창은 글자 수가 아니라 **함수 끝**으로 자른다 — 자리 수로 자르면 한 줄만
+    #   더해도 검사가 창 밖을 본다(같은 날 [295] 가 그렇게 죽었다).
+    _cr = html.index("function campRows(")
+    _crb = html[_cr:html.index(chr(10) + "}", _cr)]
+    assert "return campGroupSort(" in _crb, \
         "campRows 가 묶어서 돌려주지 않는다 — 표·엑셀·이미지 순서가 갈린다"
 
     node = shutil.which("node")

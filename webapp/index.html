@@ -17483,7 +17483,23 @@ const chr34b = ' <span class="badge warn" title="WHY">확인 필요</span>';
 const chr34m = ' <button class="badge campmore" data-canon="CANON" onclick="event.stopPropagation();campFoldToggle(this.dataset.canon)" title="LIST">ARROW 합친 표기 NUM개</button>';
 const chr34d = ' <span class="badge warn" title="합친 줄끼리 담당자 값이 다릅니다 — 여기 보이는 것은 정본 이름 줄(또는 가장 최근 작업 줄)의 값입니다. 나머지는 [합친 표기]를 펴서 보십시오.">담당자 다름</span>';
 const chr34q = ' <span class="badge warn" title="TIP">Q 표에 없음</span>';
-const chr34row = '<tr class="campsub" data-camp="CAMPATTR" ondblclick="campEditOpen(this.dataset.camp)" title="줄을 두 번 누르면 고치기가 열립니다"><td class="campname"><div><button class="btn xs campfix" data-camp="CAMPATTR2" onclick="event.stopPropagation();campEditOpen(this.dataset.camp)" title="이 옛 표기 줄의 담당자·연락처를 고칩니다"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>수정</button> ↳ CAMPTEXT</div><div class="camptag"><span class="badge">합쳐진 옛 표기</span></div></td><td data-label="호기">UNIT</td>PEOPLE<td data-label="정기점검 접수 (밴드·카톡 누적 글 수)">CNT</td><td data-label="최근작업일">DAY</td><td data-label="거래처코드">CODE</td></tr>';
+/* ★ **자리표로 끼우지 않는다.** 자리표는 (1) 값 안에 그 낱말이 있으면 엉뚱한 곳을
+   바꾸고(사람 칸을 먼저 채우므로 캠프명에 'CNT' 가 들어 있으면 그리로 간다)
+   (2) 속성값이 글자로 안 드러나 [301] 이 esc2 를 못 확인한다. 이어 붙이면 둘 다
+   사라진다 — 큰따옴표가 든 캠프명이 속성을 끊는 것을 막는 그 계약이다.
+   ⚠ 그러므로 여기서는 **미리 담아 둔 변수로 넘기지 않는다** — 같은 값이라도
+   글자에 esc2 가 안 보이면 그 검사가 아무것도 못 잰다. */
+function campSubRow(c){
+  return '<tr class="campsub" data-camp="' + esc2(String(c.캠프명||"")) + '" ondblclick="campEditOpen(this.dataset.camp)" title="줄을 두 번 누르면 고치기가 열립니다">'
+    + '<td class="campname"><div><button class="btn xs campfix" data-camp="' + esc2(String(c.캠프명||"")) + '" onclick="event.stopPropagation();campEditOpen(this.dataset.camp)" title="이 옛 표기 줄의 담당자·연락처를 고칩니다">'
+    + '<svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>수정</button> ↳ ' + esc2(String(c.캠프명||"")) + '</div>'
+    + '<div class="camptag"><span class="badge">합쳐진 옛 표기</span></div></td>'
+    + '<td data-label="호기">' + campUnits(c) + '</td>'
+    + campRoles(c).map(x=>campCell(x.p, x.라벨)).join("")
+    + '<td data-label="정기점검 접수 (밴드·카톡 누적 글 수)">' + String(c.정기점검건수||0) + '</td>'
+    + '<td data-label="최근작업일">' + esc2(c.최근작업일||"") + '</td>'
+    + '<td data-label="거래처코드">' + esc2(c.거래처코드||"") + '</td></tr>';
+}
 /* ── 정본으로 묶기 (2026-08-20 형님 지시 "여기에 보기좋게 정리하고 업데이트해") ──
    화면이 `420개 표시` 라 적고 있었는데 그 420 은 **캠프 수가 아니라 표기 수**였다 —
    같은 주소의 옛 이름이 각각 한 줄로 서 있었다. 세는 것이 바뀌면 대표 보고의 수가
@@ -17570,15 +17586,7 @@ function campFoldBadges(r){
 function campFoldChildren(r){
   const g = campFoldInfo(r);
   if(!g || !g.정본 || !g.접힘.length || !CAMP_OPEN.has(g.정본)) return "";
-  return g.접힘.map(c => chr34row
-      .replace("CAMPATTR", esc2(String(c.캠프명||"")))
-      .replace("CAMPATTR2", esc2(String(c.캠프명||"")))
-      .replace("CAMPTEXT", esc2(String(c.캠프명||"")))
-      .replace("UNIT", campUnits(c))
-      .replace("PEOPLE", campRoles(c).map(x=>campCell(x.p, x.라벨)).join(""))
-      .replace("CNT", String(c.정기점검건수||0))
-      .replace("DAY", esc2(c.최근작업일||""))
-      .replace("CODE", esc2(c.거래처코드||""))).join("");
+  return g.접힘.map(campSubRow).join("");
 }
 function renderCampList(){
   const host = $('campHost'); if(!host || !CAMPS) return;
