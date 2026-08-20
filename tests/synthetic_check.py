@@ -27525,6 +27525,7 @@ def t354_record_sheet_can_delete_and_tells_which_box_is_missing():
     from webapp import app_server as S
 
     Q = chr(39)
+    NLC = chr(10)
     html = _io.open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
 
     # ② 삭제 판정을 상세 창이 새로 만들지 않는다 — 부르는 것은 wtDelete 하나다
@@ -27648,6 +27649,58 @@ def t354_record_sheet_can_delete_and_tells_which_box_is_missing():
             "reason": "오종현 통화 확인 — 실제 청구액 80만",
             "idempotency_key": "t354-withreason"}, store=store)
         assert ok.get("ok"), ok
+    # ⑨ **저장 전 버전 관문은 한 곳이다** (2026-08-20 형님 지시 "재발 방지").
+    #    실측: /api/staff/entry 400 "앱 DB에는 버전이 있는데 화면 목록이 그것을
+    #    싣지 못했습니다" 가 그날 세 번 났다(14:32~14:33). 서버 문구는 옳고,
+    #    고장은 **누른 뒤에야 안다**는 것이었다 — saveInputs 만 보내기 전에 다시
+    #    집고 wtExclude·wtPersistValues·calWhyOpen 은 안 그랬다([162]).
+    assert "async function entryVersion(" in html, "저장 전 버전 관문이 없다"
+    assert html.count("await entryVersion(") >= 4, (
+        "저장하는 자리 넷이 전부 관문을 거쳐야 한다 — 하나라도 빠지면 그 길로만 "
+        "0 이 나가 서버 400 을 받고 사람은 왜인지 모른다: %d"
+        % html.count("await entryVersion("))
+    assert html.count("await freshEntryVersion(") == 1, (
+        "freshEntryVersion 을 관문 밖에서 부르면 판단이 다시 갈린다: %d"
+        % html.count("await freshEntryVersion("))
+    # ⑩ `== null` 로 막으면 **0 이 그대로 통과**한다([169] — 없는 것과 0 은 다르다)
+    cw0 = html.index("async function calWhyOpen(")
+    cw = html[cw0:html.index(NLC + "}" + NLC, cw0)]
+    assert "e.DB버전 == null" not in cw, (
+        "DB버전 0 이 통과해 서버까지 갔다가 400 을 받는다 — 관문에 맡길 것")
+    assert "await entryVersion(" in cw, "미처리사유 저장이 관문을 안 거친다"
+
+    # 관문을 **실행해서** 잰다([295]) — 글자로는 갈래를 못 잰다
+    if node:
+        gi = html.index("async function entryVersion(")
+        gate = html[gi:html.index(NLC + "/* ═══ 상세시트", gi)]
+        h2 = ("var FRESH=0, TOLD=[];" + NLC
+              + "async function freshEntryVersion(k,id){ return FRESH; }" + NLC
+              + "async function notice(m,o){ TOLD.push(String(m)); }" + NLC
+              + "function uxEvent(){}" + NLC + gate + NLC
+              + "(async()=>{const a=await entryVersion(1,2,3);"
+              + "FRESH=0;const b=await entryVersion(1,2,0);"
+              + "FRESH=7;const c=await entryVersion(1,2,0);"
+              + "FRESH=0;const d=await entryVersion(1,2,null);"
+              + "await entryVersionBlocked(1,2);"
+              + "console.log(JSON.stringify({a:a,b:b,c:c,d:d,n:TOLD.length}));})();")
+        with tempfile.TemporaryDirectory(prefix="csos-t354-gate-") as gd:
+            gp = os.path.join(gd, "g.js")
+            _io.open(gp, "w", encoding="utf-8", newline="").write(h2)
+            pr = subprocess.Popen(
+                [node, gp], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            try:
+                out2, err2 = pr.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                pr.kill()
+                out2, err2 = b"", b"timeout"
+        g = json.loads((out2 or b"{}").decode("utf-8", "replace").strip() or "{}")
+        assert g.get("a") == 3, "화면이 든 버전을 그대로 써야 한다: %r" % g
+        assert g.get("c") == 7, "못 들었으면 목록에서 다시 집어야 한다: %r" % g
+        assert g.get("b") == 0 and g.get("d") == 0, (
+            "둘 다 없으면 **0(모른다)** 이어야 한다 — 짐작으로 1 을 넣으면 낙관잠금이 "
+            "무의미해져 남이 고친 값을 말없이 덮는다(2026-08-10 정본 규칙): %r" % g)
+        assert g.get("n") == 1, "못 집었으면 **누르기 전에** 사람에게 말해야 한다: %r" % g
     print("  [354] 상세 창 삭제 손잡이 · 막힌 칸을 짚어 준다(사유) ✅")
 
 def t355_camp_hide_is_reversible_and_stale_server_alarm_actually_runs():
