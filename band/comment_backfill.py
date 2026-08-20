@@ -351,8 +351,42 @@ def load_plan(band=None):
     if band is None:
         return doc
     b = (doc.get("bands") or {}).get(str(band)) or {}
-    return {"band": str(band), "nos": b.get("nos") or [],
-            "tiers": b.get("tiers") or {}, "generated": doc.get("generated")}
+    out = {"band": str(band), "nos": list(b.get("nos") or []),
+           "tiers": dict(b.get("tiers") or {}), "generated": doc.get("generated")}
+    # ★ 브라우저가 읽는 계획은 **한 곳**이어야 한다 (2026-08-20 지시).
+    #   실측: 이 파일에는 90610953 의 2건만 있었는데 실제 남은 브라우저 일은 494건이었다
+    #   (미수집·UI오염·재수집은 각자 제 파일로만 나갔다). 그래서 사람이 탭을 앞에 둬도
+    #   2건만 긁고 끝났다 — 오류도 안 나고 화면도 멀쩡하다([169]).
+    #   합치는 자리를 **읽는 쪽 하나**로 둔 이유: 쓰는 쪽을 합치면 09:50 회차의
+    #   `--write` 와 대기열 회차가 같은 파일을 서로 덮는다([162]).
+    try:
+        import collect_queue as _CQ
+        q = _CQ.load()
+    except Exception:
+        q = None
+    if not q:
+        # 못 읽은 것을 **조용히 넘기지 않는다**([169]) — 받는 쪽이 "이게 전부"로 읽으면 안 된다.
+        out["대기열"] = {"상태": "못읽음",
+                        "왜": "reports/밴드_수집대기열.json 을 못 읽었다 — 아래 목록은 댓글 갈래뿐이다"}
+        return out
+    qb = (q.get("bands") or {}).get(str(band)) or {}
+    merged, seen = [], set()
+    for n in list(qb.get("nos") or []) + out["nos"]:
+        n = int(n)
+        if n not in seen:
+            seen.add(n)
+            merged.append(n)
+    # ★ 한 배치는 수집기가 정한 한도까지다 — 넘겨 보내면 수집기가 통째로 거절한다.
+    #   나머지는 사라지는 것이 아니라 **다음 번 폴링**이 받아 간다(남은 수를 같이 적는다).
+    out["nos"] = merged[:BATCH_MAX]
+    out["tiers"] = dict(qb.get("tiers") or {}, **out["tiers"])
+    out["대기열"] = {"상태": "정상", "전체": len(merged),
+                    "남은": max(0, len(merged) - BATCH_MAX),
+                    "만든때": q.get("generated"),
+                    "건수": qb.get("건수") or {},
+                    "갈래설명": q.get("갈래설명") or {},
+                    "못읽음": qb.get("못읽음") or []}
+    return out
 
 
 def main(argv=None):
