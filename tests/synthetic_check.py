@@ -19840,7 +19840,6 @@ def t353_collect_queue_is_one_list_and_never_silently_drops():
 
 
 
-
 def t357_userscript_watch_names_the_dead_band():
     """밴드 하나가 죽어도 옆 밴드가 살아 있으면 한 줄로 덮였다([186]).
 
@@ -27850,6 +27849,91 @@ def t354_record_sheet_can_delete_and_tells_which_box_is_missing():
         assert g.get("n") == 1, "못 집었으면 **누르기 전에** 사람에게 말해야 한다: %r" % g
     print("  [354] 상세 창 삭제 손잡이 · 막힌 칸을 짚어 준다(사유) ✅")
 
+def t356_scope_judges_by_code_not_by_prose():
+    """[356] session_scope — **설명 글은 근거가 아니다** (2026-08-20 지시).
+
+    실측으로 갈린 자리: 다른 앱(ARTIS) 지시가 '이 세션 것'으로 나왔다. 근거가
+    전부 이 저장소의 **한국어 산문**이었기 때문이다 — 지시문 사본(AGENTS.md)과
+    회차 산출물(reports/), 그리고 코드 주석·독스트링. 이 저장소는 지시문 하나만
+    300KB 라 **어떤 한국어 지시든** 거기서 걸린다.
+    """
+    import session_scope as S
+    NLC = chr(10)          # 이 이름은 이 파일 **모듈 수준에 없다**([324])
+    with tempfile.TemporaryDirectory(prefix="csos-t356-") as td:
+        mine = os.path.join(td, "mine")
+
+        def put(rel, body):
+            p = os.path.join(mine, rel)
+            if not os.path.isdir(os.path.dirname(p)):
+                os.makedirs(os.path.dirname(p))
+            open(p, "w", encoding="utf-8", newline="").write(body)
+
+        W = "현장점검표"
+        put("real.py", "CAMP = " + repr(W) + NLC)
+        put("comment.py", "# " + W + " 를 만들라는 지시가 있었다" + NLC + "x = 1" + NLC)
+        put("doc.py", chr(34) * 3 + NLC + W + NLC + chr(34) * 3 + NLC + "y = 2" + NLC)
+        put("AGENTS.md", W + NLC)
+        put(os.path.join("reports", "b.md"), W + NLC)
+        put("note.md", W + NLC)
+
+        # ① 근거는 **코드에 쓰인 파일** 하나뿐이다
+        echo = {}
+        got = S.hits_in(mine, [W], echo_out=echo)
+        names = sorted(os.path.basename(p) for p in got.get(W, []))
+        assert names == ["real.py"], (
+            "주석·독스트링·마크다운·지시문 사본은 지시를 **옮겨 적은** 것일 뿐 "
+            "근거가 아니다: %r" % names)
+        # ② 뺀 것은 **숫자로 말한다**([169]) — 조용히 빼면 '못 찾았다'로 읽힌다
+        assert echo.get(W) == 5, "산문에서만 걸린 것을 세어야 한다: %r" % echo
+
+        # ③ 이 프로젝트의 사본은 '남의 앱'이 아니다 — 두 자리를 다 본다([172])
+        for layout in ("", "ecount"):
+            cp = os.path.join(td, "cp" + (layout or "root"))
+            d = os.path.join(cp, layout) if layout else cp
+            os.makedirs(d)
+            for f in S.SELF_MARK:
+                open(os.path.join(d, f), "w", encoding="utf-8").write("x")
+            assert S._is_our_copy(cp), (
+                "사본은 뿌리에, 본체는 ecount/ 밑에 있다 — 한 자리만 보면 "
+                "우리 워크트리가 '다른 앱'으로 나간다: %r" % layout)
+        assert not S._is_our_copy(mine), "아무 폴더나 우리 사본이라 하면 이웃을 못 본다"
+
+        # ④ 갈래와 종료코드 — **실행해서** 잰다([295])
+        nb = os.path.join(td, "nb", "other")
+        os.makedirs(nb)
+        open(os.path.join(nb, "a.ts"), "w", encoding="utf-8").write("const x = '" + W + "';")
+        bare = os.path.join(td, "bare")
+        os.makedirs(bare)
+        open(os.path.join(bare, "AGENTS.md"), "w", encoding="utf-8").write(W + NLC)
+        keep = (S.ROOT, S.NEIGHBOR_ROOT)
+        try:
+            S.NEIGHBOR_ROOT = os.path.join(td, "nb")
+            S.ROOT = bare        # 우리 코드에는 없고 이웃에는 있다 = ARTIS 모양
+            v = S.judge(W + " 만들어")
+            assert v["갈래"] == "다른앱" and S.report(v) == 3, (
+                "지시문 사본에만 있는 말을 '내것'이라 하면 남의 세션 일을 "
+                "여기서 시작한다(사고 #36): %r" % v.get("갈래"))
+            S.ROOT = mine        # 코드에 실재한다
+            v2 = S.judge(W + " 만들어")
+            assert v2["갈래"] == "내것" and S.report(v2) == 0, (
+                "잘못 걸러 내면 형님이 시킨 일을 안 하고도 한 줄 보고로 "
+                "넘어간다 — 못 하는 것보다 나쁘다([172]): %r" % v2.get("갈래"))
+
+            # ⑤ 계기 자기시험([272]) — 산문 걷어내기를 끄면 ①이 잡히나
+            real_co = S.code_only
+            try:
+                S.code_only = lambda text, ext: text
+                bad = S.hits_in(mine, [W])
+                assert len(bad.get(W, [])) > 1, (
+                    "산문 걷어내기를 꺼도 결과가 같다면 이 검사는 아무것도 "
+                    "안 재고 있다([272])")
+            finally:
+                S.code_only = real_co
+        finally:
+            S.ROOT, S.NEIGHBOR_ROOT = keep
+    print("  [356] 지시 범위 — 산문 아닌 **코드**로 판정 · 우리 사본은 이웃 아님 ✅")
+
+
 def t355_camp_hide_is_reversible_and_stale_server_alarm_actually_runs():
     """캠프는 **숨긴다**(안 지운다) · '옛 서버' 경보가 **진짜로 돈다**.
 
@@ -28612,6 +28696,7 @@ if __name__ == "__main__":
     t353_collect_queue_is_one_list_and_never_silently_drops()
     t354_record_sheet_can_delete_and_tells_which_box_is_missing()
     t355_camp_hide_is_reversible_and_stale_server_alarm_actually_runs()
+    t356_scope_judges_by_code_not_by_prose()
     t357_userscript_watch_names_the_dead_band()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

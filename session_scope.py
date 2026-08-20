@@ -26,7 +26,7 @@
     python session_scope.py "현장점검표 캡처 엑셀 저장"
     python session_scope.py --file 캡처설명.txt
 
-종료코드: 0 이 세션 것 · 3 다른 앱(경로를 찍는다) · 4 모름
+종료코드: 0 이 세션 것 · 3 다른 앱(경로를 찍는다) · 4 모름·섞임
 """
 import os
 import re
@@ -52,6 +52,19 @@ MAX_FILES = 40_000          # 이웃 훑기 상한 — 여기서 몇 분을 쓰�
 #   이 저장소에서 이만큼 넘게 나오면 그것은 우리 어휘이지 그 화면의 이름이
 #   아니다 — 근거에서 뺀다(빼되 **숫자로 말한다** · [169]).
 GENERIC_MAX = 8
+# ★ **설명 글은 근거가 아니다** (2026-08-20 실측으로 갈렸다). 이 저장소는
+#   지시문·주석이 통째로 한국어 산문이라(정본 지시문 하나만 300KB) **어떤
+#   한국어 지시든** 거기서 걸린다 — 그래서 ARTIS 지시가 '내것'으로 나왔다.
+#   걷어낸 뒤 실측: `캡처하면` 2→0 · `멋진` 1→0 · `보고서로` 3→0 이고,
+#   우리 것은 그대로 남는다(`리모컨` 57 · `캠프` 562).
+ECHO_NAMES = {"claude.md", "agents.md", "incidents.md"}   # 지시를 **옮겨 적는** 파일
+ECHO_DIRS = ("/reports/",)   # 회차가 만든 산출물
+# 이 프로젝트의 워크트리·사본은 '남의 앱'이 아니다.
+# ⚠ 사본은 파일이 **뿌리에** 있고 본체는 `ecount/` 밑에 있다(실측 2026-08-20) —
+#   한 자리만 보면 우리 워크트리가 '다른 앱'으로 나간다([172]). 그리고 이름
+#   하나는 우연히 겹칠 수 있어 **둘**을 본다.
+SELF_MARK = ("session_handoff.py", "ai_claim.py")
+SELF_DIRS = ("", "ecount")
 
 # 낱말 후보에서 걸러 낼 것 — 어디에나 있는 말은 근거가 못 된다
 STOP = {
@@ -92,14 +105,53 @@ def _walk(base, budget):
             yield os.path.join(cur, name)
 
 
-def hits_in(base, terms, budget=MAX_FILES, limit=6, cap=12):
-    """그 낱말들이 실제로 **쓰인 파일**. 없으면 빈 목록이다(짐작 아님).
+def _is_echo(path):
+    """지시를 **옮겨 적는** 파일인가 — 그러면 근거가 아니다."""
+    low = path.replace(chr(92), "/").lower()
+    if os.path.basename(low) in ECHO_NAMES:
+        return True
+    return any(d in low for d in ECHO_DIRS)
+
+
+def code_only(text, ext):
+    """설명 글(주석·삼중따옴표·마크다운)을 걷어낸 나머지.
+
+    ★ 이 프로젝트가 다섯 번 밟은 자리다([301]⑨·[302]·[309]·[332]·[339] —
+      *규칙을 세기 전에 주석을 걷어낸다*). 여기서는 그 사고가 한 겹 더 크다:
+      **계기가 제 프로젝트의 지시문 사본을 읽고 '이 세션 것'이라 답했다.**
+    """
+    if ext == ".md":
+        return ""                       # 마크다운은 통째로 설명 글이다
+    out, inq = [], None
+    for line in text.split(chr(10)):
+        st = line.lstrip()
+        if inq:
+            if inq in line:
+                inq = None
+            continue
+        if st.startswith("#") or st.startswith("//"):
+            continue
+        hit = None
+        for q in ('"""', "'''"):
+            if st.startswith(q) and line.count(q) == 1:
+                hit = q
+                break
+        if hit:
+            inq = hit                # 여는 줄부터 닫는 줄까지 통째로 설명 글
+        else:
+            out.append(line)
+    return chr(10).join(out)
+
+
+def hits_in(base, terms, budget=MAX_FILES, limit=6, cap=12, echo_out=None):
+    """그 낱말들이 실제로 **코드에 쓰인 파일**. 없으면 빈 목록이다(짐작 아님).
 
     ★ **자기 자신은 근거가 아니다.** 첫 판이 그래서 틀렸다 — 이 파일 설명에
-      `현장점검표` 라고 적어 둔 것을 제가 찾아내고 "이 세션 것"이라 답했다
-      (계기가 제 그림자를 보고 판정한 자리 · [301]⑨·[302] 와 같은 함정).
-    ★ 낱말마다 **몇 파일에 있는지** 센다 — 흔한 말인지 그 화면 이름인지는
-      그 숫자가 말해 준다."""
+      적어 둔 낱말을 제가 찾아내고 "이 세션 것"이라 답했다.
+    ★ **설명 글도 근거가 아니다** — `code_only` 로 걷어낸 뒤에 센다.
+      산문에서만 걸린 낱말은 `echo_out` 에 담아 **숫자로 말한다**([169]);
+      조용히 빼면 "아무것도 못 찾았다" 로 읽힌다.
+    """
     found = {}
     me = os.path.abspath(__file__)
     for path in _walk(base, budget):
@@ -109,16 +161,25 @@ def hits_in(base, terms, budget=MAX_FILES, limit=6, cap=12):
             with open(path, "rb") as fh:
                 blob = fh.read(400_000)
         except Exception:
-            continue                     # 못 읽은 파일은 '없다'가 아니라 그냥 못 본 것
+            continue                 # 못 읽은 파일은 '없다'가 아니라 그냥 못 본 것
         try:
             text = blob.decode("utf-8", "ignore")
         except Exception:
             continue
+        code = None
         for t in terms:
-            if t in text:
-                got = found.setdefault(t, [])
-                if len(got) <= cap:
-                    got.append(path)
+            if t not in text:
+                continue
+            if not _is_echo(path):
+                if code is None:
+                    code = code_only(text, os.path.splitext(path)[1].lower())
+                if t in code:
+                    got = found.setdefault(t, [])
+                    if len(got) <= cap:
+                        got.append(path)
+                    continue
+            if echo_out is not None:   # 설명 글에서만 걸렸다 — 세어서 말한다
+                echo_out[t] = echo_out.get(t, 0) + 1
         # 낱말마다 cap 까지만 세면 흔한 말인지 아닌지는 이미 갈린다
         if found and all(len(v) > cap for v in found.values()) and len(found) >= limit:
             break
@@ -133,12 +194,15 @@ def live_session_in(repo):
     """
     if not os.path.isdir(os.path.join(repo, ".git")):
         return None
+    # ★ 창 없는 깃발은 **부르는 자리에** 적는다 — `**kw` 안에 숨기면 감사기가
+    #   못 보고 [272] 가 '깃발 없이 띄운다'로 잡는다(실측 2026-08-20 관문).
     kw = dict(capture_output=True, text=True, encoding="utf-8", errors="replace",
-              cwd=repo, timeout=20,
-              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+              cwd=repo, timeout=20)
     try:
-        last = subprocess.run(["git", "log", "-1", "--format=%ct %h %s"], **kw)
-        dirty = subprocess.run(["git", "status", "--porcelain"], **kw)
+        last = subprocess.run(["git", "log", "-1", "--format=%ct %h %s"],
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), **kw)
+        dirty = subprocess.run(["git", "status", "--porcelain"],
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), **kw)
     except Exception:
         return None
     if last.returncode != 0:
@@ -155,81 +219,151 @@ def live_session_in(repo):
             "살아있음": mins < 60 or n_dirty > 0}
 
 
+def _is_our_copy(base):
+    """이 프로젝트의 사본인가 — 뿌리·`ecount/` 두 자리를 다 본다."""
+    for d in SELF_DIRS:
+        here = os.path.join(base, d) if d else base
+        if all(os.path.exists(os.path.join(here, f)) for f in SELF_MARK):
+            return True
+    return False
+
+
+def _neighbors(terms):
+    """이웃 앱에서 찾는다 — **우리 사본은 이웃이 아니다.**
+
+    실측 2026-08-20: `Documents` 밑에 이 프로젝트의 워크트리 사본이 있다.
+    그것을 이웃으로 세면 **우리 일이 '다른 앱 것'** 으로 나간다([172]).
+    """
+    out = []
+    try:
+        names = sorted(os.listdir(NEIGHBOR_ROOT))
+    except Exception:
+        return out               # 못 읽었으면 '없다'가 아니라 그냥 못 본 것
+    here = os.path.abspath(os.path.dirname(ROOT))
+    for name in names:
+        base = os.path.join(NEIGHBOR_ROOT, name)
+        if not os.path.isdir(base) or os.path.abspath(base) == here:
+            continue
+        if _is_our_copy(base):
+            continue             # 이 프로젝트의 워크트리·사본이다
+        got = hits_in(base, terms, budget=12_000, limit=3)
+        if got:
+            files = [os.path.relpath(p, base)
+                     for v in got.values() for p in v][:3]
+            out.append({"앱": name, "낱말": sorted(got),
+                        "파일": files, "세션": live_session_in(base)})
+        if len(out) >= 3:
+            break
+    return out
+
+
 def judge(text):
-    """이 지시가 어디 것인가. 갈래 셋 — 내것 · 다른앱 · 모름."""
+    """이 지시가 어디 것인가. 갈래 넷 — 내것 · 다른앱 · 섞임 · 모름.
+
+    ★ `GENERIC_MAX` 는 **빼는 문이 아니라 더 보라는 신호**다 (2026-08-20 실측).
+      전에는 흔한 말을 근거에서 통째로 뺐는데, 산문을 걷어낸 뒤에는 그것이
+      **가장 센 근거를 버리는 짓**이었다 — 실측으로 멀쩡한 지시
+      (`돌발AS 미처리 사유 입력 캘린더 대표 캡처`)가 '못 찾음'으로 떨어졌다.
+      잘못 걸러 내면 형님이 시킨 일을 안 하고도 한 줄 보고로 넘어간다([172]).
+    """
     terms = words(text)
     if not terms:
         return {"갈래": "모름", "왜": "찾아볼 낱말을 못 뽑았다", "낱말": []}
 
-    mine = hits_in(ROOT, terms)
-    # ★ 판정은 **흔하지 않은 낱말**로만 한다. 흔한 말은 버리지 않고 따로 적는다
-    #   — 조용히 빼면 "아무것도 못 찾았다"로 읽힌다([169]).
+    echo = {}
+    mine = hits_in(ROOT, terms, echo_out=echo)
+    prose_only = sorted(k for k in echo if k not in mine)
+    base = {"낱말": terms, "산문만": prose_only,
+            "셈": {k: len(v) for k, v in mine.items()}}
     strong = {k: v for k, v in mine.items() if len(v) <= GENERIC_MAX}
-    generic = sorted(k for k, v in mine.items() if len(v) > GENERIC_MAX)
+
+    def _out(**kw):
+        d = dict(base)
+        d.update(kw)
+        return d
+
     if strong:
-        return {"갈래": "내것", "낱말": terms, "흔한말": generic,
-                "근거": {k: v[:2] for k, v in strong.items()}}
+        # 드문 낱말이 코드에 있다 — 여기서 이웃까지 훑지 않는다([168])
+        return _out(**{"갈래": "내것", "확신": "높",
+                      "근거": {k: v[:2] for k, v in strong.items()}})
 
-    # 여기서만 이웃을 훑는다 — 이 저장소에 있으면 볼 필요가 없다([168])
-    others = []
-    try:
-        names = sorted(os.listdir(NEIGHBOR_ROOT))
-    except Exception:
-        names = []
-    for name in names:
-        base = os.path.join(NEIGHBOR_ROOT, name)
-        if not os.path.isdir(base) or os.path.abspath(base) == os.path.abspath(
-                os.path.dirname(ROOT)):
-            continue
-        got = hits_in(base, terms, budget=12_000, limit=3)
-        got = {k: v for k, v in got.items() if len(v) <= GENERIC_MAX}
-        if got:
-            files = [p for v in got.values() for p in v][:3]
-            others.append({"앱": name, "파일": files, "세션": live_session_in(base)})
-        if len(others) >= 3:
-            break
-
+    others = _neighbors(terms)   # 흔한 말로만 걸렸거나 아예 없다 — 그때만 훑는다
+    # ★ **있고 없고가 아니라 어느 쪽이 더 센가로 가른다** (2026-08-20 실측).
+    #   `사유`·`입력`·`대표` 같은 말은 한국어 저장소면 어디에나 있어서, '있으면
+    #   섞임'으로 두면 멀쩡한 쿠팡 지시가 매번 '사람이 고르라'로 떨어진다
+    #   — 경보가 대부분 가짜면 진짜 경보가 묻힌다([170]).
+    rival = max([len(o.get("낱말") or []) for o in others] or [0])
+    if mine and rival >= len(mine):
+        return _out(**{"갈래": "섞임", "어디": others,
+                      "근거": {k: v[:2] for k, v in mine.items()},
+                      "왜": "양쪽이 다 그 말을 쓴다 — 기계가 고르면 안 된다"})
+    if mine:
+        return _out(**{"갈래": "내것", "확신": "낮",
+                      "근거": {k: v[:2] for k, v in mine.items()},
+                      "어디": others,
+                      "왜": ("흔한 말로만 걸렸다 — 그래도 이웃보다 이쪽에 더 많아 이쪽으로 본다"
+                             " (이웃에도 조금 있으면 아래에 같이 적는다)")})
     if others:
-        return {"갈래": "다른앱", "낱말": terms, "흔한말": generic, "어디": others}
-    return {"갈래": "모름", "낱말": terms, "흔한말": generic,
-            "왜": "이 저장소에도 이웃 앱에도 그 낱말이 없다 — 새로 만들 일이거나 "
-                  "내가 못 찾은 것이다. 어느 쪽인지는 사람이 안다"}
+        return _out(**{"갈래": "다른앱", "어디": others})
+    return _out(**{"갈래": "모름",
+                  "왜": "이 저장소 코드에도 이웃 앱에도 그 낱말이 없다 — 새로 만들 일이거나 "
+                        "내가 못 찾은 것이다. 어느 쪽인지는 사람이 안다"})
+
+
+def _where(v):
+    """이웃 앱을 찍는다 — 살아 있는 세션이면 같이 고치지 말라고 말한다."""
+    for o in v.get("어디") or []:
+        print("  · %s   (%s)" % (o["앱"], ", ".join(o.get("낱말") or [])))
+        for p in o["파일"]:
+            print("      %s" % p)
+        st = o.get("세션")
+        if st is None:
+            print("      세션: 확인 못 함 — 같이 고치기 전에 사람이 확인할 것")
+        elif st.get("살아있음"):
+            print("      ⚠ 살아 있는 세션 — 마지막 커밋 %s분 전 · 미커밋 %d개"
+                  % (st["마지막커밋_분전"], st["미커밋"]))
+            print("        같이 고치면 한쪽이 통째로 묻힌다(사고 #36) — 그 창에 넘긴다")
+        else:
+            print("      조용함 — 마지막 커밋 %s분 전 · 미커밋 %d개"
+                  % (st["마지막커밋_분전"], st["미커밋"]))
 
 
 def report(v):
     g = v.get("갈래")
-    gen = v.get("흔한말") or []
-    if g == "내것":
-        print("이 세션 것입니다 — 근거:")
+    prose = v.get("산문만") or []
+    cnt = v.get("셈") or {}
+
+    def _ev():
         for k, paths in (v.get("근거") or {}).items():
             for p in paths:
-                print("  %-14s %s" % (k, os.path.relpath(p, ROOT)))
+                print("  %-14s %s  (코드 %d파일)"
+                      % (k, os.path.relpath(p, ROOT), cnt.get(k, 0)))
+        # 뺀 것은 **숫자로 말한다**([169]) — 조용히 빼면 '못 찾았다'로 읽힌다
+        if prose:
+            print("  · 설명 글(지시문·주석)에서만 걸린 말이라 근거에서 뺌: %s"
+                  % ", ".join(prose))
+
+    if g == "내것":
+        print("이 세션 것입니다 (확신 %s) — 근거:" % v.get("확신", "?"))
+        _ev()
+        if v.get("왜"):
+            print("  · %s" % v["왜"])
+        _where(v)      # 이웃에도 조금 있으면 숨기지 않는다([169])
         return 0
     if g == "다른앱":
-        print("★ 이 세션 것이 아닙니다 — 이 저장소에 그 낱말이 한 건도 없습니다.")
+        print("★ 이 세션 것이 아닙니다 — 이 저장소 **코드**에 그 낱말이 한 건도 없습니다.")
         print("  찾아본 낱말: " + ", ".join(v.get("낱말") or []))
-        if gen:
-            print("  (흔한 말이라 근거에서 뺌: %s)" % ", ".join(gen))
-        for o in v.get("어디") or []:
-            print("  · %s" % o["앱"])
-            for p in o["파일"]:
-                print("      %s" % p)
-            s = o.get("세션")
-            if s is None:
-                print("      세션: 확인 못 함 — 같이 고치기 전에 사람이 확인할 것")
-            elif s.get("살아있음"):
-                print("      ⚠ 살아 있는 세션 — 마지막 커밋 %s분 전 · 미커밋 %d개"
-                      % (s["마지막커밋_분전"], s["미커밋"]))
-                print("        같이 고치면 한쪽이 통째로 묻힌다(사고 #36) — 그 창에 넘긴다")
-            else:
-                print("      조용함 — 마지막 커밋 %s분 전 · 미커밋 %d개"
-                      % (s["마지막커밋_분전"], s["미커밋"]))
+        _ev()
+        _where(v)
         return 3
+    if g == "섞임":
+        print("양쪽에 다 있습니다 — 기계가 못 고릅니다(사람이 고른다).")
+        _ev()
+        _where(v)
+        return 4
     print("모름 — %s" % v.get("왜", ""))
     print("  찾아본 낱말: " + ", ".join(v.get("낱말") or []))
-    if gen:
-        print("  (흔한 말이라 근거에서 뺌: %s — 이 저장소 %d파일 넘게 나온다)"
-              % (", ".join(gen), GENERIC_MAX))
+    _ev()
     return 4
 
 
