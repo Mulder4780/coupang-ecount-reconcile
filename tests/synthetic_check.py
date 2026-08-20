@@ -6130,8 +6130,29 @@ def t120_calendar_sheet_and_share():
     assert ".ctxs{display:none}" in cal and 'class="ctxs"' in cal, \
         "공유 캘린더: PC 텍스트 격자가 없다"
     # ③ 날짜 글씨 — 예전 값(14px/12.5px)으로 되돌아가지 않게 못을 박는다
-    assert ".cal2-day .d{font-size:17px" in live, "앱: 날짜 글씨가 다시 작아졌다"
-    assert ".cday b{font-size:17px" in cal, "공유 캘린더: 날짜 글씨가 다시 작아졌다"
+    #   ★ **글자가 아니라 크기를 얼린다**([39]). 예전엔 `font-size:17px` 라는
+    #     글자를 그대로 찾았는데, [72] 가 px 를 rem 으로 옮기자 **보이는 크기는
+    #     한 픽셀도 안 바뀌었는데**(17/16 = 1.0625rem · 뿌리가 16px) 이 검사만
+    #     죽었다. 얼릴 것은 "작아지면 안 된다"는 계약이지 단위가 아니다.
+    def _css_px(css, sel, base=16.0):
+        """`sel{...font-size:N}` 의 실효 px. rem 이면 뿌리(16px)를 곱한다.
+        ★ rem 인데 뿌리 규칙이 없으면 **크기를 모르는 것**이라 None 이다 —
+          모르는 것을 17 이상이라고 우기지 않는다([169])."""
+        m = re.search(re.escape(sel) + r"\{[^}]*?font-size:\s*([0-9.]+)(px|rem)", css)
+        if not m:
+            return None
+        if m.group(2) == "rem" and "font-size:calc(16px * var(--ui-scale" not in css:
+            return None
+        return float(m.group(1)) * (1.0 if m.group(2) == "px" else base)
+
+    assert (_css_px(live, ".cal2-day .d") or 0) >= 17, "앱: 날짜 글씨가 다시 작아졌다"
+    assert (_css_px(cal, ".cday b") or 0) >= 17, "공유 캘린더: 날짜 글씨가 다시 작아졌다"
+    # 계기 자신을 시험한다([272]) — 작아지면 정말 잡히나
+    assert _css_px(".x{font-size:14px}", ".x") == 14.0
+    assert _css_px(".x{font-size:1.0625rem}html{font-size:calc(16px * var(--ui-scale, 1))}",
+                   ".x") == 17.0, "rem 을 px 로 못 읽으면 이 검사는 아무것도 안 잰다"
+    assert _css_px(".x{font-size:1.0625rem}", ".x") is None, (
+        "뿌리 규칙이 없는데 크기를 안다고 하면 안 된다")
 
     # ④ 공유 주소 고정 — 달·필터를 주소에 담지 않는다
     link = live[live.index("function calendarLink()"):]
@@ -27467,6 +27488,291 @@ def t333_ryu_center_shows_what_to_do_now():
           "연결 없으면 단추만 없음 · 못 받음≠없음 · 못 찾으면 말함 (node 실행 확인) OK")
 
 
+def t354_record_sheet_can_delete_and_tells_which_box_is_missing():
+    """업무 기록 상세 창에서 **지울 수 있고**, 저장이 막히면 **어느 칸인지** 말한다.
+
+    2026-08-20 류지영 요청(형님 전달 · 카톡): "삭제할건데 삭제버튼 만들어달라고 하려" —
+    형님 지시: "이 화면도 삭제, 저장 기능 추가해서 담당자가 업무할 수 있게 정리해".
+
+    ★ **없던 것은 기능이 아니라 손잡이였다.** 서버 길(/api/staff/work-delete)도
+      확인 흐름(wtDelete — 사유 받기·청구자료 되묻기)도 이미 다 있었는데 단추가
+      **업무 카드 목록에만** 있었다. 확인필요·캘린더·정산 원천에서 상세 창으로
+      파고든 사람은 고칠 손잡이가 없어 목록으로 되돌아가야 했다([300] — 한
+      화면에서 배운 것이 다른 화면에 안 와 있다).
+
+    ★ **저장이 막힌 진짜 이유는 기록이 말해 줬다**([67] — 고치기 전에 재현한다).
+      ux 실측 2026-08-20 14:23·14:27(UTC 05:23·05:27):
+        `기존 값 정정 사유를 입력해 주세요: 실제작업공급가액` **두 번**
+      서버는 칸 이름을 이미 말하고 있었는데 화면은 그것을 **팝업 한 장**으로만
+      띄웠다 — 사람은 고칠 자리(사유 상자)를 못 찾는다.
+
+    얼리는 것은 되돌아가면 안 되는 계약이다([39]):
+      ① as·pm 상세에 삭제 단추가 있다 · **정산·미등록 계획에는 없다**
+         (서버 _WORK_DELETE_CATEGORIES 가 그 둘뿐 — 그리면 눌러도 안 되는 단추다)
+      ② 판정·확인·API 는 wtDelete 하나다 — 상세 창이 제 삭제 요청을 안 만든다([162])
+      ③ wtDelete 가 목록 밖 기록의 버전을 넘겨받고 **성패를 돌려준다**
+      ④ 서버가 사유 필수를 **칸 이름으로** 준다(need_reason) — 문구가 아니다([165])
+      ⑤ 화면이 그 칸을 짚는다 · 초안을 안 지운다 · 팝업으로 신고시키지 않는다([346])
+      ⑥ ApiError 가 4xx 본문을 들고 온다 — 없으면 ④⑤가 통째로 죽는다
+      ⑦ 계기 자신도 시험한다([272])
+
+    ★ 실측 증거 파일은 한 글자도 안 건드린다([247]) — 임시 DB 로만 잰다.
+    """
+    from pathlib import Path
+    import io as _io
+    import shutil as _sh354
+    import app_store as _AS
+    from webapp import app_server as S
+
+    Q = chr(39)
+    html = _io.open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # ② 삭제 판정을 상세 창이 새로 만들지 않는다 — 부르는 것은 wtDelete 하나다
+    assert html.count("api(" + Q + "/api/staff/work-delete" + Q) == 1, (
+        "삭제 요청을 만드는 자리가 둘 이상이다 — 사유·청구자료 되묻기가 갈린다([162])")
+    assert "function recDelete(" in html and "wtDelete(kind,id,false,ver)" in html, (
+        "상세 창 삭제가 wtDelete 를 안 거친다")
+
+    # ③ 버전을 넘겨받고 성패를 돌려준다
+    d0 = html.index("async function wtDelete(")
+    wd = html[d0:html.index(chr(10) + "}" + chr(10), d0)]
+    assert "verHint" in wd and "_v0||Number(verHint||0)" in wd, (
+        "목록 밖에서 연 기록은 버전이 0 으로 나가 서버가 막는다 — 사람은 왜인지 모른다([296])")
+    assert "return true;" in wd and wd.count("return false") >= 3, (
+        "성패를 안 돌려주면 부르는 쪽이 창을 닫을지 정할 수 없다")
+
+    # ⑥ ApiError 가 4xx 본문을 들고 온다
+    assert "this.data=(info.data&&typeof info.data===" + Q + "object" + Q + ")" in html, (
+        "실패 본문이 화면까지 안 오면 아래 ④⑤가 통째로 죽는다")
+    assert "data:(r.status>=400&&r.status<500)?parsed:null" in html, (
+        "4xx 본문을 안 실으면 need_reason 이 영영 안 온다")
+
+    # ⑤ 화면이 문구가 아니라 구조를 본다 · 초안을 안 지운다
+    s0 = html.index("async function saveInputs(")
+    sv = html[s0:html.index(chr(10) + "}" + chr(10), s0)]
+    assert "e.data.need_reason" in sv, "저장 실패 갈래가 서버 문구를 뜯고 있다([165])"
+    ni = sv.index("need_reason")
+    assert sv.index("errorHelp(") > ni, (
+        "빠뜨린 입력을 오류 팝업으로 먼저 띄우면 사람은 고칠 칸을 못 찾는다([346])")
+    assert "inp_reason_need" in sv and "inp_reason_need" in html, "사유 경고줄이 없다"
+    # ⚠ draftClear 는 위쪽 정상 갈래("변경 없음")에도 있다 — 파일 전체에서 세면
+    #   엉뚱한 것을 재고도 쟀다고 말한다. **그 갈래 안**만 본다.
+    br = sv[sv.index("if(need&&need.length){"):sv.index("await errorHelp(")]
+    assert "draftClear" not in br, (
+        "사유가 없어 막힌 것인데 초안을 지우면 적어 둔 값이 사라진다")
+    assert "return;" in br, "그 갈래가 안 멈추면 오류 팝업까지 굴러간다"
+
+    # ① 상세 창 삭제 단추 — 실행해서 잰다([295]). 글자로는 갈래를 못 잰다.
+    node = _sh354.which(chr(110) + chr(111) + chr(100) + chr(101))
+    if node:
+        def _blk(head, end):
+            i = html.index(head)
+            return html[i:html.index(end, i) + len(end)]
+
+        def _fn(name):
+            return _blk("function " + name + "(", chr(10) + "}" + chr(10))
+
+        js = chr(10).join([
+            _blk("const INPUT_SPEC = {", chr(10) + "};" + chr(10)).replace(
+                "const INPUT_SPEC", "var INPUT_SPEC", 1),
+            _fn("esc2"), _fn("fieldInput"), _fn("recordIdOf"), _fn("statOf"),
+            _fn("inputForm")])
+        harness = (
+            "var mode='as',CODES={},TECHS=[],VERIFY_STATES=[];" + chr(10)
+            + "function byUsage(l){return l||[];}function optList(){return [];}" + chr(10)
+            + js + chr(10)
+            + "function H(h,t){return h.indexOf(t)>=0;}" + chr(10)
+            + "var A=inputForm('as',{_store_id:'w1','DB버전':3,'접수ID':'AS-1'},'AS-1');" + chr(10)
+            + "mode='pm';var P=inputForm('pm',{_store_id:'w2','DB버전':2,'점검ID':'PM-1'},'PM-1');" + chr(10)
+            + "mode='settle';var T=inputForm('settle',{_store_id:'w3','DB버전':5,'정산ID':'JS-1'},'JS-1');" + chr(10)
+            + "mode='pm';var L=inputForm('pm',{'점검ID':'SCH-1','점검상태':'예정'},'SCH-1');" + chr(10)
+            + "console.log(JSON.stringify({as:H(A,'recDelete'),pm:H(P,'recDelete'),"
+            + "st:H(T,'recDelete'),plan:H(L,'recDelete'),ver:H(A,',3)'),"
+            + "hint:H(A,'inp_reason_need'),save:H(A,'saveInputs')}));")
+        with tempfile.TemporaryDirectory(prefix="csos-t354-js-") as jd:
+            jp = os.path.join(jd, "h.js")
+            _io.open(jp, "w", encoding="utf-8", newline="").write(harness)
+            # 창 없는 깃발과 시간제한을 둘 다 단다([272]·[175]) — 검증 자신이
+            # 콘솔 창을 띄우거나 영원히 안 끝나면 그것이 곧 다음 사고다.
+            pr = subprocess.Popen(
+                [node, jp], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            try:
+                out, err = pr.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                pr.kill()
+                out, err = b"", b"timeout"
+        got = json.loads((out or b"{}").decode("utf-8", "replace").strip() or "{}")
+        assert got.get("as") and got.get("pm"), (
+            "돌발AS·정기점검 상세에 삭제 단추가 없다: %r · %s"
+            % (got, (err or b"").decode("utf-8", "replace")[:300]))
+        assert not got.get("st"), (
+            "정산 상세에 삭제 단추를 그렸다 — 서버가 안 받으므로 눌러도 아무 일이 없다([172])")
+        assert not got.get("plan"), (
+            "아직 앱 DB 에 없는 계획(SCH-)에 삭제 단추를 그렸다 — 지울 것이 없다")
+        assert got.get("ver") and got.get("hint") and got.get("save"), got
+
+    # ④ 서버가 칸 이름을 구조로 준다 — 임시 DB 로만 잰다([247])
+    with tempfile.TemporaryDirectory(prefix="csos-t354-") as td:
+        store = _AS.AppStore(Path(td) / "app.db").initialize()
+        got = store.shadow_import(
+            import_id="t354", sheet="06_거래서류청구수금",
+            business_key="JS-2607-354", business_key_col="정산ID", row_number=5,
+            kind="정산", public_id="JS-2607-354", project_no="UJ2601132",
+            camp_name="창원1MB(팔용동)", status="작업완료",
+            fields={"정산ID": "JS-2607-354", "원천업무ID": "AS-2607-354",
+                    "프로젝트NO": "UJ2601132", "캠프명": "창원1MB(팔용동)",
+                    "실제작업공급가액": 780000, "실제작업부가세": 78000,
+                    "실제작업합계": 858000},
+            source_file="t354.xlsx", source_sha256="d" * 64,
+            apply_if_missing=True, idempotency_key="t354-seed")
+        ver = store.get_work(work_id=got["work_id"])["record_version"]
+        try:
+            S.save_staff_entry("ryu-jiyeong", {
+                "category": "settle", "key": "JS-2607-354", "record_version": ver,
+                "values": {"실제작업공급가액": "800000"},
+                "idempotency_key": "t354-noreason"}, store=store)
+            raise AssertionError("사유 없이 금액을 고쳐 버렸다")
+        except AssertionError:
+            raise
+        except Exception as e:
+            assert getattr(e, "fields", None) == ["실제작업공급가액"], (
+                "거절이 **칸 이름**을 안 실어 보낸다 — 화면은 문장을 뜯어야 하고, "
+                "서버가 말투를 바꾸는 날 그 화면만 조용히 안 알아본다([165]): %r"
+                % (getattr(e, "fields", None),))
+
+        # ⑦ 계기 자신을 시험한다([272]) — 사유를 적으면 지나가야 한다
+        ok = S.save_staff_entry("ryu-jiyeong", {
+            "category": "settle", "key": "JS-2607-354", "record_version": ver,
+            "values": {"실제작업공급가액": "800000"},
+            "reason": "오종현 통화 확인 — 실제 청구액 80만",
+            "idempotency_key": "t354-withreason"}, store=store)
+        assert ok.get("ok"), ok
+    print("  [354] 상세 창 삭제 손잡이 · 막힌 칸을 짚어 준다(사유) ✅")
+
+def t355_camp_hide_is_reversible_and_stale_server_alarm_actually_runs():
+    """캠프는 **숨긴다**(안 지운다) · '옛 서버' 경보가 **진짜로 돈다**.
+
+    2026-08-20 형님 지시: "빨간색 부분에 캠프 삭제 버튼 추가 (동일한 캠프가 많아
+    솎아내기 작업 필요함)" · "항상 류지영 업무가 우선이야 알고리즘에 반영해".
+
+    ★ **지우면 다음 날 되살아난다.** 캠프 목록의 원천은 밴드 접수 글과 정기점검
+      스케줄 원본이라 09:50 회차가 통째로 다시 만든다 — 지우는 시늉만 하고 다음
+      날 되살아나면 사람은 앱을 못 믿는다. 그래서 사람 값 옆에 `숨김` 을 적어 두고
+      읽는 쪽(overlay)이 갈라 놓는다(업무 기록 soft delete 와 같은 생각이다).
+
+    ★ **그러다 더 나쁜 것을 찾았다** — `session_handoff.app_server_health()` 가
+      **12일 동안 통째로 눈이 멀어 있었다.** 없는 이름 `ROOT` 를 쓰는데
+      `except Exception: return {}` 가 그 NameError 를 삼켜서, [156] 이
+      "이제 기계가 먼저 본다"고 적어 둔 **'앱 서버가 옛 코드' 경보가 한 번도 안 떴다**
+      (2026-08-08 14:43 커밋 ~ 2026-08-20 실측 · 오류도 안 나고 목록도 그럴듯했다).
+
+    얼리는 것은 되돌아가면 안 되는 계약이다([39]):
+      ① 사유 없이는 못 숨긴다 — 몇 달 뒤 "이 캠프 왜 없지"에 답할 한 줄이다
+      ② 숨기면 목록에서 빠지고 **머리글 숫자도 같이 줄어든다**([169])
+      ③ 숨긴 것은 **개수와 목록으로** 돌려준다 — 조용히 빼면 없는 캠프가 된다
+      ④ 되살리면 그대로 돌아온다
+      ⑤ 화면에 숨기기 단추·숨긴 개수 알림이 있고 `.btn.danger` **모양이 있다**([310])
+      ⑥ `session_handoff` 가 **없는 이름을 안 쓴다** · 못 보면 '확인 못 함'이라 말한다
+      ⑦ 미룬 횟수를 센다 — 담당자가 쓰는 중이라 못 내린 것을 사람이 알아야 한다
+      ⑧ 계기 자신도 시험한다([272])
+
+    ★ 실측 증거 파일(앱 DB·리포트)은 한 글자도 안 건드린다([247]) — 임시 DB 로만 잰다.
+    """
+    from pathlib import Path
+    import io as _io
+    import app_store as _AS
+    import camp_edit as _CE
+
+    NLC = chr(10)
+    row_a = {"캠프명": "강서1MB(가양A)", "캠프주소": "가양동 449-1", "정기점검": True,
+             "현장책임": {}, "안전관리": {}, "담당자": {}, "근거": {}, "다른표기": [],
+             "정기점검건수": 1, "돌발AS건수": 0, "총건수": 1, "최근작업일": ""}
+    row_b = {"캠프명": "강서1모바일(가양)", "캠프주소": "가양동 449-1", "정기점검": True,
+             "현장책임": {}, "안전관리": {}, "담당자": {}, "근거": {}, "다른표기": [],
+             "정기점검건수": 0, "돌발AS건수": 1, "총건수": 1, "최근작업일": ""}
+    data = {"rows": [dict(row_a), dict(row_b)], "갱신": "2026-08-20T10:00"}
+
+    real_store = _CE._store
+    with tempfile.TemporaryDirectory(prefix="csos-t355-") as td:
+        st = _AS.AppStore(Path(td) / "app.db").initialize()
+        _CE._store = lambda: st
+        try:
+            base = _CE.overlay(data)
+            assert len(base["rows"]) == 2 and base["숨긴캠프"] == 0, base["숨긴캠프"]
+
+            # ① 사유 없이는 못 숨긴다
+            try:
+                _CE.save("강서1모바일(가양)", {}, actor="ryu", expected_version=0,
+                         hidden=True)
+                raise AssertionError("사유 없이 숨겨 버렸다 — 몇 달 뒤 아무도 설명 못 한다")
+            except AssertionError:
+                raise
+            except _CE.입력오류:
+                pass
+
+            res = _CE.save("강서1모바일(가양)", {}, actor="ryu", expected_version=0,
+                           hidden=True, hide_reason="같은 캠프가 두 번 들어옴 — 정본은 가양A")
+            assert res.get("숨김") is True, res
+
+            # ②③ 목록·머리글이 같이 줄고, 숨긴 것은 개수와 목록으로 온다
+            after = _CE.overlay(data)
+            assert [r["캠프명"] for r in after["rows"]] == ["강서1MB(가양A)"], after["rows"]
+            assert after["숨긴캠프"] == 1 and len(after["숨긴행"]) == 1, after["숨긴캠프"]
+            assert after["숨긴행"][0].get("숨김", {}).get("왜"), (
+                "왜 숨겼는지가 안 실려 오면 되살릴지 판단할 근거가 없다")
+            assert after.get("캠프수") == 1, (
+                "머리글을 다시 안 세면 화면에는 1개인데 머리글은 2개라 말한다([169]): %r"
+                % after.get("캠프수"))
+
+            # ④ 되살리면 그대로 돌아온다
+            _CE.save("강서1모바일(가양)", {}, actor="ryu",
+                     expected_version=res["판"], hidden=False)
+            back = _CE.overlay(data)
+            assert len(back["rows"]) == 2 and back["숨긴캠프"] == 0, back["숨긴캠프"]
+        finally:
+            _CE._store = real_store
+
+    # ⑤ 화면 — 손잡이와 **모양**이 둘 다 있어야 한다([310])
+    html = _io.open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    css = html.split("</style>")[0]
+    for blk in html.split("</style>")[1:]:
+        i = blk.rfind("<style")
+        if i >= 0:
+            css += blk[i:]
+    assert ".btn.danger{" in html, (
+        "위험 단추에 CSS 가 없으면 브라우저 기본 회색 글씨가 된다 — 코드에는 "
+        "class 가 적혀 있어 읽는 사람은 모양이 있는 줄 안다([310])")
+    assert "function campHide(" in html and "campHiddenSheet()" in html, "캠프 숨기기 손잡이가 없다"
+    assert "campRestore(this.dataset.camp)" in html, "되살리기 단추가 없다"
+    assert "숨긴 캠프 ' + Number(d.숨긴캠프) + '개 보기" in html, (
+        "숨긴 개수를 화면이 안 말하면 왜 목록이 줄었는지 아무도 설명하지 못한다([169])")
+    ce0 = html.index("function campEditOpen(")
+    ce = html[ce0:html.index(NLC + "}" + NLC, ce0)]
+    assert "campHide(this.dataset.camp)" in ce and "(r ?" in ce, (
+        "새 캠프를 추가하는 중에도 숨기기가 뜨면 지울 것이 없는 단추가 된다")
+
+    # ⑥⑦ 인계 — 없는 이름을 안 쓰고, 못 보면 그렇게 말하고, 미룬 횟수를 센다
+    import session_handoff as _H
+    sh = _io.open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert 'os.path.join(ROOT, "webapp")' not in sh, (
+        "`ROOT` 는 이 파일에 없는 이름이다 — except 가 그 NameError 를 삼켜 "
+        "'앱 서버가 옛 코드' 경보가 12일 동안 한 번도 안 떴다(2026-08-20 실측)")
+    hp = _H.app_server_health()
+    assert isinstance(hp, dict) and ("옛코드" in hp or "확인못함" in hp), (
+        "옛 서버 판정이 아무 말도 못 한다: %r" % hp)
+    assert _H.restart_defers(None) is None, (
+        "못 센 것을 0 이라 하면 '한 번도 안 미뤘다'는 거짓이 나간다([169])")
+    n = _H.restart_defers(0)
+    assert n is None or isinstance(n, int), n
+
+    # ⑧ 계기 자신을 시험한다([272]) — 사유 문을 없애면 정말 잡히나
+    src = _io.open(os.path.join(ROOT, "camp_edit.py"), encoding="utf-8").read()
+    assert "숨기는 이유를 적어 주세요" in src, "사유 문이 사라졌다"
+    assert 'hidden_rows = [r for r in rows if r.get("숨김")]' in src, (
+        "overlay 가 숨긴 행을 안 가르면 숨겨도 목록에 그대로 남는다")
+    print("  [355] 캠프는 숨긴다(되살릴 수 있다) · 옛 서버 경보가 진짜로 돈다 ✅")
+
 def t352_phone_copy_can_pick_a_font_in_its_own_design():
     """[74] 폰 사본에서도 글꼴을 고른다 — 그러나 **그 화면의 디자인으로**.
 
@@ -28104,6 +28410,8 @@ if __name__ == "__main__":
     t334_cache_copies_are_not_dumps()
     t352_phone_copy_can_pick_a_font_in_its_own_design()
     t353_collect_queue_is_one_list_and_never_silently_drops()
+    t354_record_sheet_can_delete_and_tells_which_box_is_missing()
+    t355_camp_hide_is_reversible_and_stale_server_alarm_actually_runs()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

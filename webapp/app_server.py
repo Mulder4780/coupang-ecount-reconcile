@@ -1358,6 +1358,20 @@ STAFF_DERIVED_FIELDS = {
 }
 
 
+class ReasonRequired(ValueError):
+    """기존 값을 고치는데 사유가 없다 — **어느 칸인지**를 구조로 실어 보낸다.
+
+    ★ 문구로만 말하면 화면은 그 문장을 뜯어야 한다([165] 모양) — 서버가 말투를
+      바꾸는 날 그 화면만 조용히 안 알아본다. 칸 이름은 **칸으로** 준다.
+    실측 2026-08-20 14:23·14:27 류지영: `실제작업공급가액` 에서 두 번 막혔다.
+    """
+
+    def __init__(self, fields):
+        self.fields = [str(x) for x in fields]
+        super().__init__(
+            "기존 값 정정 사유를 입력해 주세요: " + ", ".join(self.fields))
+
+
 def _ryu_display_value(value):
     if value in (None, ""):
         return ""
@@ -1929,9 +1943,7 @@ def save_staff_entry(staff_slug, body, *, store=None, actor=None):
                          before_values.get(name) not in (None, "")))
                 ]
                 if correction_fields and len(reason) < 2:
-                    raise ValueError(
-                        "기존 값 정정 사유를 입력해 주세요: " + ", ".join(correction_fields)
-                    )
+                    raise ReasonRequired(correction_fields)
                 if int(current.get("record_version") or 0) != expected_version:
                     raise VersionConflict(
                         current["id"], expected_version,
@@ -10000,6 +10012,12 @@ self.addEventListener('fetch', e => {
                     expected_version=body.get("판", body.get("version", 0)),
                     idempotency_key=self._idempotency_key(body),
                     auto_sig=body.get("자동지문") or "",
+                    # 솎아내기(2026-08-20 형님 지시) — **지우지 않고 숨긴다.**
+                    # 캠프 원천은 밴드·정기점검 스케줄 원본이라 여기서 지워도
+                    # 다음 09:50 회차가 도로 만든다. 되살릴 수 있어야 한다.
+                    hidden=(None if body.get("숨김") is None
+                            else bool(body.get("숨김"))),
+                    hide_reason=str(body.get("숨김사유") or "")[:200],
                     clear=body.get("clear") or (),
                 )
                 return self._send(200, result)
@@ -10066,7 +10084,13 @@ self.addEventListener('fetch', e => {
                 if type(e).__name__ in ("VersionConflict", "IdempotencyConflict"):
                     return self._send(409, {"ok": False, "error": str(e)[:300],
                                             "conflict": True})
-                return self._send(400, {"ok": False, "error": str(e)[:300]})
+                out = {"ok": False, "error": str(e)[:300]}
+                # ★ 빠뜨린 입력은 **고장이 아니다** — 화면이 그 칸을 짚어 줄 수
+                #   있어야 한다. 문구를 뜯게 하지 않고 칸 이름을 그대로 준다.
+                need = [str(x) for x in (getattr(e, "fields", None) or [])]
+                if need:
+                    out["need_reason"] = need[:20]
+                return self._send(400, out)
         if p in ("/api/staff/work-delete", "/api/staff/work-restore"):
             # 삭제·되살리기는 /api/staff/entry 와 **같은 문**을 지난다 — 권한·멱등키·
             # 낙관잠금·409 매핑이 갈리면 한쪽만 고쳐진다([162]).

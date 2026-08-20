@@ -154,8 +154,10 @@ def apply_edit(row, edit):
     #   판을 모른 채 저장하게 되고, 그때 0(=새로 만들기)을 보내면 남의 값을
     #   덮는다([296] 이 그 모양이다). 모르면 화면이 0 대신 -1 을 보내 충돌로 끝난다.
     row["사람고친판"] = int(edit.get("_version") or 0)
+    # 숨김 표시는 **행에 실어** 보낸다 — 읽는 쪽(overlay·화면)이 갈라 놓는다.
+    if edit.get("숨김"):
+        row["숨김"] = dict(edit["숨김"])
     return row
-
 
 def overlay(data, edits=None):
     """`camp_contacts` 산출물 위에 사람 값을 겹친다. **화면·엑셀·캡처가 이것 하나를 본다.**
@@ -193,11 +195,19 @@ def overlay(data, edits=None):
             continue
         name = ((edit.get("사람값") or {}).get("캠프명") or edit.get("캠프명") or key)
         rows.append(apply_edit(_blank_row(str(name)), edit))
+    # ★ 숨긴 캠프를 **갈라 놓는다**([169] — 조용히 빼면 그 캠프는 없는 캠프가
+    #   된다). 머리글 숫자는 **보이는 행만** 센다 — 안 그러면 화면에는 310개인데
+    #   머리글이 420개라 말한다. 숨긴 것은 개수와 목록으로 같이 돌려준다.
+    hidden_rows = [r for r in rows if r.get("숨김")]
+    rows = [r for r in rows if not r.get("숨김")]
     CC.sort_rows(rows)
+    CC.sort_rows(hidden_rows)
     out = dict(data)
     out["rows"] = rows
     out.update(CC.summarize(rows))
     out["사람이고친캠프"] = sum(1 for r in rows if r.get("사람고침"))
+    out["숨긴행"] = hidden_rows
+    out["숨긴캠프"] = len(hidden_rows)
     return out
 
 
@@ -209,7 +219,7 @@ class 입력오류(ValueError):
 
 
 def save(camp, values, *, actor, expected_version, idempotency_key=None,
-         auto_sig="", clear=()):
+         auto_sig="", clear=(), hidden=None, hide_reason=""):
     """한 캠프의 사람 값을 저장한다.
 
     · `values`  : {칸이름: 값} — `FIELDS` 밖 이름은 **거부**한다(조용히 버리지 않는다).
@@ -219,6 +229,16 @@ def save(camp, values, *, actor, expected_version, idempotency_key=None,
                   **덮지 않는다.**
     · `auto_sig`: 지금 화면이 보고 있던 **자동값 지문**. 나중에 밴드가 또 바뀌면
                   화면이 그 사실을 말할 수 있게 같이 저장한다.
+    · `hidden`  : True 면 목록에서 **숨긴다**, False 면 되살린다, None 이면 그대로.
+
+    ★ **지우지 않고 숨긴다** (2026-08-20 형님 지시: "동일한 캠프가 많아
+      솎아내기 작업 필요함"). 캠프 목록의 원천은 밴드 접수 글과 정기점검
+      스케줄 원본이라 **여기서 지워도 다음 09:50 회차가 도로 만든다** —
+      지우는 시늉만 하고 다음 날 되살아나면 사람은 앱을 못 믿는다.
+      그래서 사람 값 옆에 `숨김` 을 적어 두고 읽는 쪽이 갈라 놓는다
+      (업무 기록의 `soft_delete_work` 와 같은 생각이다).
+    ★ **사유 없이는 못 숨긴다.** 몇 달 뒤 "이 캠프 왜 없지"를 물을 사람이
+      반드시 있고, 그때 답할 수 있는 것은 그 한 줄뿐이다.
     """
     key = norm(camp)
     if not key:
@@ -245,6 +265,17 @@ def save(camp, values, *, actor, expected_version, idempotency_key=None,
     for field in clear:
         merged.pop(field, None)          # 키를 **없애야** 자동값으로 돌아간다
 
+    hide = dict(before.get("숨김") or {})
+    if hidden is True:
+        why = _clean(hide_reason)
+        if len(why) < 2:
+            raise 입력오류("숨기는 이유를 적어 주세요 (예: 같은 캠프가 두 번 들어옴)")
+        from datetime import datetime as _dt
+        hide = {"때": _dt.now().isoformat(timespec="seconds"),
+                "누가": _clean(actor or "app"), "왜": why}
+    elif hidden is False:
+        hide = {}
+
     payload = {
         "사람값": merged,
         # 지문은 **고친 그 순간의 자동값**이다. 안 주면 옛 것을 그대로 둔다 —
@@ -252,6 +283,8 @@ def save(camp, values, *, actor, expected_version, idempotency_key=None,
         "자동지문": _clean(auto_sig) if auto_sig else (before.get("자동지문") or ""),
         "캠프명": _clean(values.get("캠프명") or before.get("캠프명") or camp),
     }
+    if hide:
+        payload["숨김"] = hide
     res = _store().set_setting(
         KEY_PREFIX + key, payload,
         expected_version=(None if ver == 0 else ver),
@@ -261,7 +294,10 @@ def save(camp, values, *, actor, expected_version, idempotency_key=None,
     )
     setting = res.get("setting") or {}
     return {"ok": True, "열쇠": key, "판": int(setting.get("record_version") or 1),
-            "고친때": setting.get("updated_at"), "칸수": len(merged)}
+            "고친때": setting.get("updated_at"), "칸수": len(merged),
+            "숨김": bool(hide),
+            "msg": ("숨겼습니다 — [숨긴 캠프 보기]에서 되살릴 수 있습니다"
+                    if hide else "저장했습니다")}
 
 
 def main():

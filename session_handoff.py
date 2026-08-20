@@ -794,6 +794,41 @@ def work_flow_change():
         return None
 
 
+def restart_defers(since_epoch):
+    """이 서버가 뜬 뒤로 **몇 번 재시작을 미뤘나** (2026-08-20 지시).
+
+    사용자 지시: **"항상 류지영 업무가 우선이야 알고리즘에 반영해"**.
+
+    ★ **미루는 것은 옳다.** 담당자가 쓰는 중에 내리면 그 화면이 10초쯤
+      끊긴다([265]). 그래서 워치독은 `--force` 로 올라가지 않는다.
+    ★ 그런데 그 결과 **업무 시간 내내 옛 코드가 산다**(분담판 [175] ·
+      실측 하루 21회 미룸). 그러면 사람은 인계가 시킨 `restart_server.py` 를
+      눌러도 또 미뤄지고, **왜 안 되는지 어느 화면에도 안 뜬다**([169]).
+      조치가 고장을 안 고치면 그것은 없는 조치다([172]).
+    ★ 그러므로 **자동으로 뺏지 않고 숫자로 말한다** — 언제 내릴지는 사람이
+      정한다. 그것이 이 프로젝트에서 "류지영 우선"이 뜻하는 바다.
+    ★ 못 읽으면 0 이 아니라 **None** 이다([169]) — 안 미룬 것과 못 센 것은
+      다른 사실이고, 뭉치면 "한 번도 안 미뤘다"는 거짓이 나간다.
+    """
+    try:
+        sys.path.insert(0, os.path.join(BASE, "webapp"))
+        import restart_server
+        hist = json.load(open(restart_server.DEFER_LOG, encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(hist, list) or since_epoch is None:
+        return None
+    n = 0
+    for rec in hist:
+        try:
+            when = datetime.fromisoformat(str(rec.get("때") or "")).timestamp()
+        except Exception:
+            continue
+        if when >= float(since_epoch):
+            n += 1
+    return n
+
+
 def app_server_health():
     """앱 서버가 **옛 코드로 돌고 있나** (2026-08-08 실사고).
 
@@ -803,15 +838,23 @@ def app_server_health():
     이 사고의 모양이다. 그래서 세션 인계가 매번 이것을 본다.
     """
     try:
-        sys.path.insert(0, os.path.join(ROOT, "webapp"))
+        sys.path.insert(0, os.path.join(BASE, "webapp"))
         import restart_server
         s = restart_server.stale()
         if not s:
             return {"떠있음": bool(restart_server.running()), "옛코드": False}
-        return {"떠있음": True, "옛코드": True, "pid": s[0], "뜬시각": s[1],
+        info = {"떠있음": True, "옛코드": True, "pid": s[0], "뜬시각": s[1],
                 "더새로운파일": s[2]}
-    except Exception:
-        return {}
+        # 몇 번 미뤘나 — 담당자가 쓰는 중이라 못 내린 것인지 사람이 알아야 한다.
+        info["보류"] = restart_defers(restart_server._started_epoch(s[1]))
+        return info
+    except Exception as e:
+        # ★ **못 본 것을 이상 없음이라 하지 않는다**([169]). 예전에는 그냥
+        #   `{}` 였고, 그래서 없는 이름(`ROOT`) 하나가 이 검사를 **12일 동안**
+        #   통째로 껐는데 어느 화면에도 안 떴다(2026-08-08 14:43 커밋 ~
+        #   2026-08-20 실측). 오류도 안 나고 목록도 그럴듯했다 — [156] 이
+        #   "이제 기계가 먼저 본다"고 적어 둔 그 기계가 눈이 멀어 있었다.
+        return {"확인못함": str(e)[:150]}
 
 
 def band_recollect():
@@ -1295,12 +1338,27 @@ def blockers(st, for_sol=False):
     # ★ 앱 서버가 옛 코드로 돌면 **고쳐도 화면이 안 바뀐다.** 서버는 200 을 주고
     #   화면은 숫자를 보여 주므로 아무도 옛 서버인 줄 모른다(2026-08-08 반나절).
     ap = st.get("앱서버") or {}
+    if ap.get("확인못함"):
+        out.append(("앱 서버가 **옛 코드인지 확인하지 못했다** — %s"
+                    % str(ap.get("확인못함"))[:110],
+                    "python webapp/restart_server.py --status"))
     if ap.get("옛코드"):
+        # ★ 담당자가 쓰는 중이면 그냥 부르는 것은 **또 미뤄진다** — 조치가 고장을
+        #   안 고치면 없는 조치다([172]). 몇 번 미뤘는지 세어 말하고, 그때는
+        #   "조용한 때에" 라는 조건을 붙여 `--force` 를 알려 준다.
+        #   **자동으로 뺏지 않는다** — 언제 내릴지는 사람이 정한다(2026-08-20 지시:
+        #   "항상 류지영 업무가 우선이야").
+        held = ap.get("보류")
+        many = isinstance(held, int) and held >= 2
         out.append(("앱 서버가 **옛 코드**로 돌고 있다 (pid %s · 뜬 시각 %s) — "
-                    "%s 가 서버보다 새것이다. 고쳐도 화면이 안 바뀐다"
+                    "%s 가 서버보다 새것이다. 고쳐도 화면이 안 바뀐다%s"
                     % (ap.get("pid"), ap.get("뜬시각"),
-                       ", ".join((ap.get("더새로운파일") or [])[:4])),
-                    "python webapp/restart_server.py"))
+                       ", ".join((ap.get("더새로운파일") or [])[:4]),
+                       (" · 담당자가 쓰는 중이라 **%d번 미뤘다**(류지영 업무가"
+                        " 우선이라 안 내렸다) — 아무도 안 쓰는 때에 내린다" % held)
+                       if many else ""),
+                    "python webapp/restart_server.py --force" if many
+                    else "python webapp/restart_server.py"))
     if st["큐잔량"]:
         out.append(("입력 큐에 %d건이 반영되지 않았다" % st["큐잔량"],
                     "python ledger_db.py --intake  # Excel은 다음 11:00·15:00 회차"))

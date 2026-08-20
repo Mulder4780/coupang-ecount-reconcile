@@ -3225,6 +3225,12 @@ body.dash-drag-live #dashGuides{display:grid}
 .btn.xs{min-height:36px;padding:0 12px;font-size:0.875rem;border-radius:10px;box-shadow:none;
   border-color:var(--brand);color:var(--brand);background:var(--brand-tint)}
 .btn.xs svg.bi{width:16px;height:16px}
+/* 되돌리기 어려운 손잡이는 **색으로도** 말한다. 배경은 안 채운다 —
+   `--danger` 위의 흰 글자는 테마에 따라 명암비가 무너진다([310]).
+   테두리·글자만 바꾸면 밝은 화면·어두운 화면 어디서도 안 깨진다. */
+.btn.danger{border-color:var(--danger);color:var(--danger);background:transparent}
+@media(hover:hover){.btn.danger:hover{border-color:var(--danger);
+  color:var(--danger);background:rgba(192,57,43,.10)}}
 /* 저장·닫기는 좁은 화면에서 한 줄을 나눠 갖는다 — 담당자 폰에서 손가락이 닿아야 한다 */
 .sheetfoot .btn{min-width:112px}
 @media(max-width:640px){.sheetfoot .btn{flex:1 1 0;min-width:0}}
@@ -5855,6 +5861,11 @@ class ApiError extends Error{
     this.code=String(info.code||'API_ERROR');
     this.contentType=String(info.contentType||'');
     this.bodyPreview=String(info.bodyPreview||'').slice(0,180);
+    /* ★ 서버가 준 **본문 그대로**. 예전에는 앞 180자(bodyPreview)만 있어서,
+       화면이 거절 사유를 알려면 **문장을 뜯어야** 했다 — 서버가 말투를 바꾸는
+       날 그 화면만 조용히 안 알아본다([165]). 4xx 에만 싣는다(5xx·502 본문은
+       터널이 준 HTML 쪽지라 담아 봐야 지문만 더럽힌다). */
+    this.data=(info.data&&typeof info.data==='object')?info.data:null;
     this.cause=info.cause;
   }
   toJSON(){
@@ -5923,7 +5934,8 @@ async function _apiNet(path, opt={}){
   if(!r.ok){
     const said=String((parsed&&(parsed.error||parsed.msg||parsed.message))||'');
     const msg=said||`서버 요청이 실패했습니다 (HTTP ${r.status}).`;
-    const err=new ApiError(msg,{path,status:r.status,code:'HTTP_ERROR',contentType,bodyPreview:trimmed});
+    const err=new ApiError(msg,{path,status:r.status,code:'HTTP_ERROR',contentType,bodyPreview:trimmed,
+      data:(r.status>=400&&r.status<500)?parsed:null});
     /* ★ 서버가 **왜** 거절했는지를 기록에도 남긴다. 예전에는 그 말을 화면에만 띄우고
        기록에는 `HTTP_ERROR:400` 이라는 숫자만 남겼다 — 그래서 오종현 님이 하루에
        63번 400 을 받는 동안 **어느 칸이 빠졌는지 아무도 못 봤다**(분담판 [90]).
@@ -8155,13 +8167,21 @@ async function wtExclude(k,id,on){
     renderWorkTab(k);
   }catch(e){ toast('저장 실패 — 잠시 후 다시 시도'); }
 }
-async function wtDelete(k,id,confirmDocs){
-  const {row,ver}=wtVer(k,id);
+async function wtDelete(k,id,confirmDocs,verHint){
+  /* ★ 상세 창은 업무 카드 목록 말고 다른 목록(확인필요·캘린더·정산 원천)에서도
+     열린다. 거기서 온 기록은 works[k] 에 없을 수 있고, 그때 ver 0 을 그대로
+     보내면 서버가 '화면 데이터 버전이 없습니다' 로 막는데 **사람은 왜인지
+     모른다**([296]). 상세 창이 이미 들고 있는 버전을 마지막 근거로 쓴다 —
+     지어내지 않는다(둘 다 없으면 0 그대로 보내고 서버가 막는다).
+     ★ 성패를 **돌려준다** — 부르는 쪽이 창을 닫을지 정해야 하기 때문이다.
+       지워진 기록을 계속 띄워 두면 사람은 '안 지워졌다'고 여기고 또 누른다. */
+  const {row,ver:_v0}=wtVer(k,id);
+  const ver=_v0||Number(verHint||0);
   let reason='';
   if(!confirmDocs){
     reason=await askText('삭제 사유를 적어 주세요','',{title:`${id} 삭제`,
       ph:'예: 잘못 등록 — 같은 건이 두 번 접수됨',ok:'삭제'});
-    if(reason===null||String(reason).trim().length<2) return;
+    if(reason===null||String(reason).trim().length<2) return false;
     WT_DEL_REASON[id]=String(reason).trim();
   }else{ reason=WT_DEL_REASON[id]||'삭제'; }
   try{
@@ -8175,10 +8195,10 @@ async function wtDelete(k,id,confirmDocs){
       if(await askYesNo(`이 건에는 청구자료가 ${n}건 있습니다(PO·명세서·계산서·입금).\n`+
                      `그 자료는 지우지 않고 그대로 둡니다. 그래도 삭제할까요?`,
                      {title:'청구자료가 있는 건 삭제',yes:'삭제',no:'그만두기'}))
-        return wtDelete(k,id,true);
-      return;
+        return wtDelete(k,id,true,verHint);
+      return false;
     }
-    if(!d.ok){ toast(d.error||'삭제 실패'); return; }
+    if(!d.ok){ toast(d.error||'삭제 실패'); return false; }
     delete WT_DEL_REASON[id];
     toast(d.msg||'삭제했습니다');
     /* 지운 행을 화면에서도 곧바로 뺀다 — 서버가 다시 내려줄 때까지 남아 있으면
@@ -8186,9 +8206,17 @@ async function wtDelete(k,id,confirmDocs){
     const cfg=WT_CFG[k], arr=(works&&works[k])||[];
     const at=arr.findIndex(x=>String(x[cfg.idCol]||'').trim()===id);
     if(at>=0) arr.splice(at,1);
-    renderWorkTab(k);
+    renderWorkTab(k);   // 그 탭이 안 그려져 있으면 스스로 물러난다(첫 줄 가드)
     try{ await refreshDataKeys(['works','settlements']); }catch(e){}
-  }catch(e){ toast('삭제 실패 — 잠시 후 다시 시도'); }
+    return true;
+  }catch(e){ toast('삭제 실패 — 잠시 후 다시 시도'); return false; }
+}
+/* 상세 창에서 삭제 — 판정·확인·API 는 위 `wtDelete` 하나가 한다([162]).
+   여기서 더하는 것은 둘뿐이다: ① 목록에 없는 기록의 버전을 넘겨준다
+   ② 지워졌으면 **창을 닫는다**(지워진 기록을 계속 보여 주면 고장으로 읽힌다). */
+async function recDelete(kind,id,ver){
+  const ok=await wtDelete(kind,id,false,ver);
+  if(ok){ try{ closeSheetAll(); }catch(e){} }
 }
 const WT_DEL_REASON={};
 async function wtShowDeleted(k){
@@ -15061,10 +15089,24 @@ function inputForm(kind, r, id){
       ${fieldInput(f, i, f.cur(r))}
     </div>`).join('') +
     `</div><label style="display:block;margin-top:9px;font-size:13px;color:var(--ink-3);font-weight:700">기존 값 정정·삭제 사유
+      <div id="inp_reason_need" style="display:none;margin-top:5px;padding:9px 11px;border-radius:9px;background:rgba(192,57,43,.10);border:1px solid var(--danger);color:var(--danger);font-weight:700;font-size:13px"></div>
       <textarea id="inp_reason" placeholder="예: 오종현 통화 확인 — 유상 오입력, 실제 무상 건" style="display:block;width:100%;min-height:58px;margin-top:5px;padding:10px;border:1.5px solid var(--line);border-radius:10px;font:inherit"></textarea></label>
     <button onclick="saveInputs('${kind}','${id}',${fields.length},${version})" style="margin-top:10px;width:100%;
       padding:12px;background:var(--brand-btn);color:#fff;border-radius:11px;font-weight:700;font-size:14px">💾 입력 저장</button>
-    <div style="font-size:13px;color:var(--ink-3);margin-top:6px">입력은 한 번에 앱 DB에 반영됩니다. 자동 상태·수식은 직접 바꾸지 않으며 Excel은 단방향 보관본입니다.</div></div>`;
+    <div style="font-size:13px;color:var(--ink-3);margin-top:6px">입력은 한 번에 앱 DB에 반영됩니다. 자동 상태·수식은 직접 바꾸지 않으며 Excel은 단방향 보관본입니다.</div>` +
+    /* ★ 삭제는 **여기에도** 있어야 한다 (2026-08-20 류지영 요청 · 분담판 [182]).
+       서버 길(`/api/staff/work-delete`)도 확인 흐름(`wtDelete`)도 이미 있었는데
+       단추가 **업무 카드 목록에만** 있었다 — 상세 창으로 파고든 사람은 고칠
+       손잡이가 없어 목록으로 되돌아가야 했다([300] — 한 화면에서 배운 것이
+       다른 화면에 안 와 있다). 판정·확인·API 는 `wtDelete` 하나가 한다([162]).
+       ★ as·pm 에만 그린다 — 서버 `_WORK_DELETE_CATEGORIES` 가 그 둘뿐이고,
+         정산(settle)에 그리면 **눌러도 아무 일이 없는 단추**가 된다. */
+    ((kind==='as'||kind==='pm') ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+      <button type="button" onclick="recDelete('${kind}','${id}',${version})" style="width:100%;padding:11px;
+        background:transparent;color:var(--danger);border:1.5px solid var(--danger);border-radius:11px;font-weight:700;font-size:14px">🗑 이 기록 삭제</button>
+      <div style="font-size:12.5px;color:var(--ink-3);margin-top:6px;line-height:1.55">삭제해도 기록은 남습니다 —
+        [삭제된 건 보기]에서 되살릴 수 있어요. 청구자료(PO·명세서·계산서·입금)는 <b>지우지 않습니다</b>.</div>
+    </div>` : '') + `</div>`;
 }
 /* 상세시트 정정폼의 기록 열쇠 칸 — 버전을 다시 집을 때 쓴다.
    INPUT_SPEC[kind].key_col 과 같은 값이며, 거기서 읽는다(사본을 만들지 않는다). */
@@ -15147,6 +15189,26 @@ async function saveInputs(kind, id, n, recordVersion){
        error_book.py 한 곳에서만 정하기 위해서다([162]) — 여기에 또 적으면
        사전을 고쳐도 이 화면만 옛말을 한다. */
     const st=Number((e&&e.status)||0);
+    /* ★ **빠뜨린 입력은 고장이 아니다.** 팝업으로 신고하게 하면 사람은 정작
+       고칠 자리를 못 찾는다([346] — 길잡이는 팝업으로 안 띄운다). 서버가 어느
+       칸인지 **구조로**(`need_reason`) 줬으면 그 칸을 짚고 사유 상자로 데려간다.
+       문구를 뜯지 않는다 — 서버가 말투를 바꿔도 안 조용해진다([165]).
+       실측 2026-08-20 14:23·14:27 류지영: `실제작업공급가액` 에서 두 번 막혔고,
+       그때 화면이 한 말은 '저장되지 않았습니다' 뿐이었다. */
+    const need=(e&&e.data&&Array.isArray(e.data.need_reason))?e.data.need_reason:null;
+    if(need&&need.length){
+      const hint=$('inp_reason_need');
+      if(hint){ hint.textContent='⚠ '+need.join(', ')+' 은(는) 이미 값이 있던 칸입니다 — 아래에 왜 고치는지 한 줄 적고 다시 저장해 주세요.';
+                hint.style.display='block'; }
+      const box=$('inp_reason');
+      if(box){ box.style.borderColor='var(--danger)';
+               box.setAttribute('placeholder','예: '+need[0]+' — 오종현 통화 확인 후 정정');
+               try{ box.scrollIntoView({block:'center',behavior:'smooth'}); }catch(_e){}
+               box.focus(); }
+      toast(need.join(', ')+' — 정정 사유를 적어 주세요');
+      uxEvent('error','/api/staff/entry','NEED_REASON:'+need.join(','));
+      return;                     // 초안 그대로 · 시트 그대로 — 사람은 그 자리에서 이어 쓴다
+    }
     await errorHelp('/api/staff/entry',
       (String((e&&e.code)||'')+(st?':'+st:'')+' · '+String((e&&e.message)||e)).slice(0,300),
       {force:true, title:'저장되지 않았습니다',
@@ -17795,6 +17857,12 @@ function renderCampList(){
     + (d.갱신 ? ' <span class="norm">· 기준 '+esc2(String(d.갱신).replace('T',' '))+'</span>' : '')
     + campSourceNote(d)
     + (noTel ? ' <span class="norm">— \'모름\'은 담당자가 없는 것이 아니라 정기점검 스케줄 원본에도 밴드 접수 글에도 아직 없는 것입니다.</span>' : '');
+  /* ★ 숨긴 캠프는 **숫자로 말한다**([169]) — 조용히 빼면 그 캠프는 없는 캠프가
+     되고, 왜 목록이 줄었는지 아무도 설명하지 못한다. */
+  if(Number((d && d.숨긴캠프) || 0) > 0){
+    $('campSum').innerHTML += ' <button type="button" class="btn xs"'
+      + ' onclick="campHiddenSheet()">숨긴 캠프 ' + Number(d.숨긴캠프) + '개 보기</button>';
+  }
   if(!rows.length){ host.innerHTML = '<div class="empty">조건에 맞는 캠프가 없습니다.</div>'; return; }
   const cell = campCell;
   host.innerHTML = '<div class="gridwrap"><table class="grid"><thead><tr>'
@@ -17910,7 +17978,15 @@ function campEditOpen(name){
      오류도 안 나고, 코드에는 단추가 적혀 있어 **읽는 사람은 있는 줄 안다**(`[169]`).
      그래서 단추를 **본문 안에** 넣는다 — `showSheet` 를 2인자로 고치면 그 함수를 부르는
      다른 자리 전부를 같이 봐야 한다(지금 급한 것은 담당자가 저장을 못 하는 것이다). */
+  /* ★ **지우지 않고 숨긴다** (2026-08-20 형님 지시: '동일한 캠프가 많아 솎아내기
+     작업 필요함'). 캠프 목록의 원천은 밴드 접수 글과 정기점검 스케줄 원본이라
+     여기서 지워도 **다음 09:50 회차가 도로 만든다** — 지우는 시늉만 하고 다음
+     날 되살아나면 사람은 앱을 못 믿는다. 그래서 숨기고, 되살릴 수 있게 둔다.
+     ★ 새 캠프를 **추가하는 중**에는 안 그린다 — 아직 지울 것이 없다. */
   const foot = '<div class="sheetfoot">'
+    + (r ? '<button type="button" class="btn danger" style="margin-right:auto"'
+           + ' data-camp="'+esc2(String(row.캠프명||''))+'"'
+           + ' onclick="campHide(this.dataset.camp)">🗑 이 캠프 숨기기</button>' : '')
     + '<button class="btn" onclick="closeSheet()">닫기</button>'
     + '<button class="btn primary" onclick="campEditSave()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-save-fill"/></svg>저장</button></div>';
   showSheet('<h2>' + esc2(r ? ('캠프 수정 — ' + String(row.캠프명||'')) : '캠프 추가') + '</h2>'
@@ -17957,6 +18033,73 @@ async function campEditSave(){
     notice('저장하지 못했습니다 — ' + ((e && e.message) || e));
   }
   uxEvent('tap','campEditSave');
+}
+/* ═══ 캠프 솎아내기 (2026-08-20 형님 지시 · 분담판 [177]) ═══════════════
+   ★ **원본은 한 글자도 안 지운다.** 밴드 캐시·정기점검 스케줄 원본·
+     `캠프_담당자.json` 은 그대로 두고, 사람 값 옆에 `숨김` 을 적어 둔다.
+     읽는 쪽(`camp_edit.overlay`)이 갈라 놓는다 — 업무 기록의 soft delete 와
+     같은 생각이다. 그래서 되살릴 수 있고, 회차가 덮어써도 안 사라진다.
+   ★ 저장과 **같은 길**(`/api/camps/save`)을 쓴다([162]) — 권한·멱등키·
+     낙관잠금이 갈리면 한쪽만 고쳐진다. */
+function campFind(name){
+  const a = (CAMPS && CAMPS.rows) || [], b = (CAMPS && CAMPS.숨긴행) || [];
+  const t = String(name||'');
+  return a.find(x=>String(x.캠프명||'')===t) || b.find(x=>String(x.캠프명||'')===t) || null;
+}
+async function campHide(name){
+  const row = campFind(name);
+  if(!row){ notice('그 캠프를 목록에서 찾지 못했습니다 — 새로고침해 주세요.'); return; }
+  /* 사유 없이는 못 숨긴다 — 몇 달 뒤 '이 캠프 왜 없지'를 물을 사람이 반드시 있다. */
+  const why = await askText('이 캠프를 목록에서 숨기는 이유를 적어 주세요','', 
+    {title:String(name)+' 숨기기', ok:'숨기기',
+     ph:'예: 같은 캠프가 두 번 들어옴 — 정본은 강서1MB(가양A)'});
+  if(why===null || String(why).trim().length<2) return;
+  await campHideCall(row, true, String(why).trim());
+}
+async function campRestore(name){
+  const row = campFind(name);
+  if(!row){ notice('그 캠프를 찾지 못했습니다 — 새로고침해 주세요.'); return; }
+  if(!await askYesNo(String(name)+' 을(를) 목록에 다시 보이게 할까요?',
+                     {title:'숨김 해제', yes:'되살리기', no:'그만두기'})) return;
+  await campHideCall(row, false, '');
+}
+async function campHideCall(row, on, why){
+  const name = String((row&&row.캠프명)||'');
+  try{
+    const r = await fetch('/api/camps/save', {method:'POST', cache:'no-store',
+      headers:{'X-Pin':PIN,'Content-Type':'application/json'},
+      body: JSON.stringify({캠프명:name, values:{}, clear:[],
+        판: (row.사람고침 || row.사람이만듦) ? campRowVersion(row) : 0,
+        자동지문: row.자동지문 || '', 숨김: !!on, 숨김사유: why||''})});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok || !d.ok){
+      /* 실패를 조용히 삼키지 않는다 — 시트를 그대로 두고 이유만 알린다([275]). */
+      notice(d.error || ('처리하지 못했습니다 (HTTP ' + r.status + ')'));
+      return;
+    }
+    toast(d.msg || (on ? '숨겼습니다' : '되살렸습니다'));
+    CAMP_EDIT = null; closeSheetAll();
+    await renderCamps(true);           // 서버가 갈라 준 결과를 다시 받는다
+  }catch(e){ notice('처리하지 못했습니다 — ' + ((e && e.message) || e)); }
+  uxEvent('tap', on ? 'campHide' : 'campRestore');
+}
+/* 숨긴 캠프는 **볼 수 있는 자리**에 둔다 — 코드로만 되살릴 수 있으면 없는 것과 같다. */
+function campHiddenSheet(){
+  const rows = (CAMPS && CAMPS.숨긴행) || [];
+  showSheet('<h2>숨긴 캠프 (' + rows.length + '개)</h2>'
+    + '<p class="norm">숨겨도 기록은 남습니다 — 밴드 접수 글·정기점검 스케줄 원본은'
+    + ' 한 글자도 안 지웠습니다. [되살리기]를 누르면 목록에 다시 보입니다.</p>'
+    + (rows.length
+      ? '<div class="ui-cards">' + rows.map(function(x){
+          const h = x.숨김 || {};
+          return '<div class="ui-card"><b>' + esc2(x.캠프명||'') + '</b>'
+            + '<div class="norm">' + esc2(String(h.왜||'').slice(0,140)) + '</div>'
+            + '<div class="norm">' + esc2(String(h.때||'').replace('T',' ')) + ' · '
+            + esc2(String(h.누가||'')) + '</div>'
+            + '<button type="button" class="btn xs" data-camp="' + esc2(x.캠프명||'') + '"'
+            + ' onclick="campRestore(this.dataset.camp)">되살리기</button></div>';
+        }).join('') + '</div>'
+      : '<p class="norm">숨긴 캠프가 없습니다.</p>'));
 }
 function campRowVersion(row){
   /* 판(record_version)은 서버가 행에 실어 준다. 못 실려 왔으면 0 을 보내지 않는다 —
