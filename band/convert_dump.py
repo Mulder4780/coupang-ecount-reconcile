@@ -261,6 +261,23 @@ def band_from_name(basename, known=None):
     return [n for n in plausible if len(n) == longest][-1]
 
 
+def _ui_junk(txt):
+    """밴드 화면 UI 가 통째로 본문으로 딸려 온 수확인가.
+
+    2026-08-20 실측 21건(90610953 14 · 84789192 7). 앞머리가 '글 옵션' 이나
+    'N명이 읽었습니다' 이고 끝이 '채팅' 으로 닫힌다 — 밴드 글 본문에는 없는 말이다.
+    ★ 이것이 위험한 이유는 길이다. UI 글자가 더해져 **정상 본문보다 길어지므로**
+      아래 병합의 '길면 이긴다' 갈래를 그냥 통과해 멀쩡한 본문을 덮는다.
+      그래서 다시 긁어도 안 고쳐진다 — 오염이 이기는 구조였다([169]).
+    문은 좁게 둔다([172]) — 잘못 지목하면 멀쩡한 본문이 안 들어온다.
+    실측 8,605글 중 21건(0.24%)만 걸린다.
+    """
+    if not txt:
+        return False
+    head = txt[:200]
+    return ('글 옵션' in head) or ('명이 읽었습니다' in head) or txt.rstrip().endswith('채팅')
+
+
 def dump_files():
     """로컬 처리함과 0. 원본 자료의 밴드 JSON 정본을 함께 읽는다."""
     paths = list(glob.glob(os.path.join(CACHE, "dump_*.json")))
@@ -600,7 +617,19 @@ def main():
             #   **"이번 수확이 못 읽었다"** 는 뜻이고, 그것으로 덮으면 누가 올린 글인지를 잃는다.
             if not (rec.get("author") or "").strip() and (cur.get("author") or "").strip():
                 rec["author"] = cur["author"]
-            if rec.get("created_at") and not cur.get("created_at"):
+            # ★ 화면 UI 가 딸려 온 수확은 깨끗한 본문을 못 덮는다(2026-08-20 · _ui_junk).
+            #   그 반대(오염을 깨끗한 것으로 고치는 것)는 **길이와 무관하게** 받는다 —
+            #   오염본이 더 길기 때문에 길이 규칙만 두면 영영 안 고쳐진다.
+            junk_new, junk_old = _ui_junk(new_txt), _ui_junk(old_txt)
+            if junk_new and not junk_old and old_txt.strip():
+                pass                                  # cur 을 그대로 둔다
+            elif junk_old and not junk_new and new_txt.strip():
+                rec["updated_at"] = cap_ms
+                rec["prev_len"] = len(old_txt)
+                rec["ui_junk_fixed"] = True
+                merged[no] = rec
+                changed.append(no)
+            elif rec.get("created_at") and not cur.get("created_at"):
                 merged[no] = rec
             elif len(new_txt) > len(old_txt) and not newer:
                 merged[no] = rec                      # 예전 규칙(같은 회차 품질 차이)
