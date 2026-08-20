@@ -7071,6 +7071,45 @@ def t250_error_book_speaks_and_counts():
     api = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     assert "/api/error_help" in api, "도움말 길이 서버에 없다"
     assert "error_book.archive(" in api, "오류가 보관본에 안 남는다"
+    # ⑥ 도움말이 **PIN 게이트 앞**이다 (2026-08-20 · 분담판 `[87]`).
+    #    세션이 만료돼 401 이 난 순간이 **바로 사람이 오류 팝업을 보는 순간**인데,
+    #    게이트 뒤에 두면 그때 설명만 못 받는다 — 팝업은 대체 문구로 뜨지만 사전이
+    #    안 닿아 "설명을 불러오지 못했습니다"가 된다(`[169]` — 아는 것을 못 말하는 자리다).
+    #    ★ 여기서는 **자리가 곧 뜻이다** — 라우팅은 위에서 아래로 훑으므로 게이트보다
+    #      뒤에 적힌 길은 인증 없이는 영영 안 닿는다. 그래서 순서를 잰다(`[39]`).
+    #    ⚠ 게이트는 **둘**이다(GET·POST) — 앞의 /api/flow 끝줄을 닻으로 GET 쪽만 집는다.
+    #    ★ 문이 넓어지는 것도 같이 막는다: 읽기 전용 · 길이 제한 · 업무값 없음.
+    _app = os.path.join(ROOT, "webapp", "app_server.py")
+    with open(_app, encoding="utf-8", newline="") as fh:      # `[324]` io 없음
+        _src = fh.read().replace(chr(13) + chr(10), chr(10))
+    _route = '        if p == "/api/error_help":'
+    _flowend = '                                    "visual": ledger_db.flow_visual(key)})'
+    _gate = ('        if not self._auth():' + chr(10)
+             + '            return self._send(401, {"error": "PIN"})')
+    assert _src.count(_route) == 1, "도움말 길이 하나가 아니다"
+    assert _src.count(_gate) == 2, (
+        "PIN 게이트가 둘(GET·POST)이 아니다 — 그러면 아래 '첫 번째가 GET' 이라는 "
+        "근거가 무너진다: %d개" % _src.count(_gate))
+    _get_gate = _src.index(_gate)                     # 첫 번째가 GET 쪽이다
+    assert _src.index(_flowend) < _get_gate, "GET 게이트를 잘못 집었다(/api/flow 뒤가 아니다)"
+    assert _src.index(_route) < _get_gate, (
+        "오류 도움말이 PIN 게이트 **뒤**에 있다 — 세션이 만료된 순간(=사람이 오류를 "
+        "보는 바로 그 순간)에 설명만 못 받는다(분담판 `[87]`)")
+    _blk = _src[_src.index(_route):_src.index(_route) + 1800]
+    for _cap in ("[:160]", "[:400]"):
+        assert _cap in _blk, "도움말 문이 넓어졌다 — 길이 제한 %s 가 없다" % _cap
+    for _bad in ("enqueue(", "openpyxl", "--apply", "os.remove", "json.dump"):
+        assert _bad not in _blk, (
+            "게이트 앞 길이 쓰는 일을 한다(%s) — 인증 없이 닿는 자리는 읽기 전용이어야 "
+            "한다" % _bad)
+    # 돌려주는 것에 업무값이 없다 — 사전 문구와 부르는 쪽이 보낸 제 글뿐이다.
+    _h = eb.help_for("/api/staff/entry", "화면 데이터 버전이 없습니다")
+    assert set(_h) <= {"앎", "이름", "쉬운말", "왜", "하세요", "이미막음", "지문", "신고문구"}, (
+        "도움말이 새 칸을 내보낸다 — 게이트 앞이라 업무값이 섞이면 인증 없이 새어 "
+        "나간다: " + repr(sorted(_h)))
+    # 계기 자신을 시험한다(`[272]`): 게이트 뒤였던 옛 자리를 흉내 내면 걸려야 한다.
+    assert not (_get_gate < _src.index(_route)), "순서 검사가 뒤집혀 있다"
+
     print("[250] 오류는 남고 · 사람 말이 되고 · 회귀로 센다 ✅")
 
 

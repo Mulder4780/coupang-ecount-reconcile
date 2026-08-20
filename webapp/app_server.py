@@ -8974,6 +8974,35 @@ self.addEventListener('fetch', e => {
                                     "charts": ledger_db.flow_charts(),
                                     "notes": ledger_db.flow_notes(key),
                                     "visual": ledger_db.flow_visual(key)})
+        # ★ PIN 게이트 **앞**이다 (2026-08-20 · 분담판 `[87]`). 세션이 만료돼 401 이
+        #   난 순간이 **바로 사람이 오류 팝업을 보는 순간**인데, 게이트 뒤에 두면 그때
+        #   설명만 못 받는다 — 팝업은 대체 문구로 뜨지만 사전이 안 닿아 "설명을
+        #   불러오지 못했습니다"가 된다(`[169]` — 아는 것을 못 말하는 자리다).
+        #   `/api/collect_report`·`/api/flow` 와 같은 공개군이다.
+        # ★ 대신 **문을 좁힌다**: 읽기 전용(무엇도 안 쓴다) · 길이 제한(어디 160자 ·
+        #   무엇 400자) · **업무값이 한 글자도 안 나간다** — `error_book.help_for` 는
+        #   메모리 사전과 정규식뿐이라 파일도 DB 도 안 읽고, 돌려주는 것은 사전 문구와
+        #   부르는 쪽이 보낸 제 글이다. 검증 `[250]`-⑥ 이 이 셋을 지킨다.
+        if p == "/api/error_help":
+            # 오류 하나를 **초등학생도 알아볼 말**로 풀어 준다. 읽기 전용이다.
+            # ★ 모르는 오류에도 답한다 — 다만 '앎: false' 로 정직하게 말하고,
+            #   지어내는 대신 '캡처해서 보내세요' 로 보낸다. 뭉쳐서 "알 수 없는
+            #   오류입니다" 라고만 하면 사람이 엉뚱한 데를 고치러 간다.
+            qs = parse_qs(urlsplit(self.path).query)
+            tgt = (qs.get("target", [""])[0] or "")[:160]
+            det = (qs.get("detail", [""])[0] or "")[:400]
+            try:
+                import error_book
+                return self._send(200, {"ok": True, **error_book.help_for(tgt, det)})
+            except Exception as exc:
+                # 도움말을 못 만든 것을 '도움말 없음'으로 적지 않는다.
+                return self._send(200, {"ok": False, "앎": False,
+                                        "이름": "도움말을 불러오지 못함",
+                                        "쉬운말": "오류 설명을 여는 것 자체가 실패했습니다.",
+                                        "왜": str(exc)[:160],
+                                        "하세요": ["이 화면을 캡처해서 관리자에게 보냅니다."],
+                                        "신고문구": f"[앱 오류 신고]\n어디: {tgt}\n무엇: {det}\n"
+                                                f"도움말 실패: {str(exc)[:160]}"})
         if not self._auth():
             return self._send(401, {"error": "PIN"})
         if p == "/api/live-state":
@@ -9260,26 +9289,6 @@ self.addEventListener('fetch', e => {
             return self._send(200, report)
         if p == "/api/ux":
             return self._send(200, {"summary": _ux_summary()})
-        if p == "/api/error_help":
-            # 오류 하나를 **초등학생도 알아볼 말**로 풀어 준다. 읽기 전용이다.
-            # ★ 모르는 오류에도 답한다 — 다만 '앎: false' 로 정직하게 말하고,
-            #   지어내는 대신 '캡처해서 보내세요' 로 보낸다. 뭉쳐서 "알 수 없는
-            #   오류입니다" 라고만 하면 사람이 엉뚱한 데를 고치러 간다.
-            qs = parse_qs(urlsplit(self.path).query)
-            tgt = (qs.get("target", [""])[0] or "")[:160]
-            det = (qs.get("detail", [""])[0] or "")[:400]
-            try:
-                import error_book
-                return self._send(200, {"ok": True, **error_book.help_for(tgt, det)})
-            except Exception as exc:
-                # 도움말을 못 만든 것을 '도움말 없음'으로 적지 않는다.
-                return self._send(200, {"ok": False, "앎": False,
-                                        "이름": "도움말을 불러오지 못함",
-                                        "쉬운말": "오류 설명을 여는 것 자체가 실패했습니다.",
-                                        "왜": str(exc)[:160],
-                                        "하세요": ["이 화면을 캡처해서 관리자에게 보냅니다."],
-                                        "신고문구": f"[앱 오류 신고]\n어디: {tgt}\n무엇: {det}\n"
-                                                f"도움말 실패: {str(exc)[:160]}"})
         if p == "/api/ask":
             # ★ 앱이 스스로 답한다 — 클로드를 부르기 전에 여기서 먼저 묻는다.
             #   크레딧이 새던 자리는 계산이 아니라 **왕복**이었다: 사람이 이상한 숫자를
