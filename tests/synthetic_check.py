@@ -19974,6 +19974,107 @@ def t357_userscript_watch_names_the_dead_band():
     print("[357] 죽은 밴드를 이름으로 댄다 · 멀쩡하면 조용하다 OK")
 
 
+
+def t358_cache_copies_never_land_in_the_dump_folder():
+    """흡수기가 **제 출력을 입력으로 다시 먹지 않는다** — 쓰는 쪽([334]).
+
+    [334] 는 읽는 쪽을 막았다(캐시 통사본을 덤프로 안 읽는다).  그런데 **넣는 쪽**이
+    그대로였다: `collect_sources` 가 `band/cache/*.json` 을 `수집본` 으로 복사하고
+    라벨을 "밴드 API 원문" 이라 적었다.  그 폴더는 `source_dirs.band_dump_dirs()` 가
+    "브라우저/API 밴드 JSON 원본의 정본 탐색 경로" 라고 정의한 자리다.
+
+    실측 2026-08-20: 그 폴더 json 159개 335.5MB 중 **42개 306.7MB(91%)** 가 이 사본.
+
+    글자로 못 잰다([295]) — `plan()` 을 **불러서** 목적지를 본다.
+    """
+    import importlib
+    CS = importlib.import_module("collect_sources")
+    SD = importlib.import_module("source_dirs")
+
+    with tempfile.TemporaryDirectory(prefix="csos-t358-") as td:
+        base = os.path.join(td, "repo")
+        band = os.path.join(td, "band원본")
+        os.makedirs(os.path.join(base, "band", "cache"))
+        # 캐시(band_name 만) · 격리 둘 · **진짜 API 수집본**(band 를 가짐).
+        #   마지막이 요점이다 — 이 폴더에는 캐시만 사는 것이 아니다.
+        for name, doc in (
+                ("84789192.json", {"band_name": "x", "posts": {}}),
+                ("_유령_119e1a5a2a.ghost-2026-08-19.json", {"band_name": "x"}),
+                ("5442.가짜묘비_격리_20260819.json", {"band_name": "x"}),
+                ("raw_api2_90610953.json", {"band": "90610953", "posts": {}})):
+            with open(os.path.join(base, "band", "cache", name), "w",
+                      encoding="utf-8") as fh:
+                json.dump(doc, fh)
+        old = (CS.BASE, CS.BAND_DIR, SD.BAND_DIR)
+        try:
+            CS.BASE, CS.BAND_DIR, SD.BAND_DIR = base, band, band
+            jobs = CS.plan()
+        finally:
+            CS.BASE, CS.BAND_DIR, SD.BAND_DIR = old
+
+    mine = [(s, d, why) for s, d, why in jobs
+            if os.path.join("band", "cache") in s]
+    assert mine, "캐시 사본 일감이 아예 사라졌다 — 없애는 것이 아니라 옮기는 것이다([172])"
+
+    # ① **캐시**는 덤프 폴더로 가지 않는다(진짜 수집본은 ③에서 따로 본다)
+    dumps = os.path.join(band, "수집본")
+    bad = [d for s, d, _ in mine
+           if os.path.basename(s) == "84789192.json" and d.startswith(dumps)]
+    assert not bad, (
+        "캐시 사본이 덤프 폴더로 간다 — 흡수기가 제 출력을 다시 먹는다([334]): %s" % bad[:2])
+
+    # ② 일부러 격리해 둔 것은 아예 안 담는다.  원본 폴더로 옮기면 이름 규칙을
+    #    모르는 다음 도구가 유령을 되살린다(2026-08-12).
+    planted = [s for s, _, _ in mine
+               if ("유령" in os.path.basename(s) or ".ghost-" in os.path.basename(s)
+                   or "격리" in os.path.basename(s))]
+    assert not planted, "격리해 둔 파일을 원본 폴더에 다시 심는다: %s" % planted[:2]
+    assert len(mine) == 2, "격리 둘을 뺀 둘(캐시·진짜 수집본)이 남아야 한다 — 지금 %d개" % len(mine)
+
+    # ③ **진짜 API 수집본은 덤프 폴더에 그대로 남는다** — 이름이 아니라 스키마로
+    #    가른다([334]).  잘못 옮기면 흡수가 통째로 빠진다([172]).
+    raw = [(s, d, w) for s, d, w in mine if "raw_api2" in s]
+    assert len(raw) == 1 and raw[0][1].startswith(dumps), (
+        "진짜 API 수집본을 캐시로 오인해 덤프 폴더 밖으로 보냈다: %s" % (raw and raw[0][1]))
+    assert "원문" in raw[0][2] and "아님" not in raw[0][2]
+
+    # ④ 거짓 라벨을 달지 않는다 — '원문' 이라 적으면 다음 사람이 덤프로 읽는다([169])
+    cache = [(s, d, w) for s, d, w in mine if os.path.basename(s) == "84789192.json"]
+    assert len(cache) == 1, "캐시 사본 일감이 없다"
+    why = cache[0][2]
+    assert "원문 아님" in why or "캐시" in why, "가공본을 '원문' 이라 부른다: %s" % why
+
+    # ⑤ 진짜 덤프 경로는 그대로다 — 좁히는 것도 고장이다([172])
+    assert dumps in SD.band_dump_dirs() or not os.path.isdir(dumps), (
+        "덤프 탐색 경로에서 수집본이 사라졌다")
+
+    # ⑥ 계기 자신을 시험한다([272]) — 목적지를 되돌리면 ①이 잡히나
+    code = open(os.path.join(ROOT, "collect_sources.py"), encoding="utf-8").read()
+    broken = code.replace('os.path.join(BAND_DIR, "캐시사본")',
+                          'os.path.join(BAND_DIR, "수집본")')
+    assert broken != code, "고장 주입 앵커가 안 맞는다 — 이 자기시험은 아무것도 안 잰다"
+    ns = {"__name__": "cs_broken", "__file__": os.path.join(ROOT, "collect_sources.py")}
+    exec(compile(broken, "cs_broken", "exec"), ns)
+    with tempfile.TemporaryDirectory(prefix="csos-t358b-") as td:
+        base = os.path.join(td, "repo"); band = os.path.join(td, "b")
+        os.makedirs(os.path.join(base, "band", "cache"))
+        with open(os.path.join(base, "band", "cache", "84789192.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump({"band_name": "x", "posts": {}}, fh)
+        old = (ns["BASE"], ns["BAND_DIR"], SD.BAND_DIR)
+        try:
+            ns["BASE"], ns["BAND_DIR"], SD.BAND_DIR = base, band, band
+            j2 = ns["plan"]()
+        finally:
+            ns["BASE"], ns["BAND_DIR"] = old[0], old[1]
+            SD.BAND_DIR = old[2]
+    back = [d for s, d, _ in j2
+            if os.path.basename(s) == "84789192.json"
+            and os.path.join(band, "수집본") in d]
+    assert back, "목적지를 덤프 폴더로 되돌렸는데도 ①이 안 잡힌다([272])"
+    print("[358] 캐시 사본은 덤프 폴더에 안 들어간다 · 격리본을 다시 안 심는다 OK")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -28698,6 +28799,7 @@ if __name__ == "__main__":
     t355_camp_hide_is_reversible_and_stale_server_alarm_actually_runs()
     t356_scope_judges_by_code_not_by_prose()
     t357_userscript_watch_names_the_dead_band()
+    t358_cache_copies_never_land_in_the_dump_folder()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

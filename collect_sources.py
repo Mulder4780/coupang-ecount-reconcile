@@ -27,6 +27,7 @@ PC가 꺼지거나 사람이 바뀌면 **무엇이 원본인지 아무도 모른
 import os
 import sys
 import glob
+import json
 import shutil
 from datetime import datetime
 
@@ -112,9 +113,50 @@ def plan():
     for src in sorted(glob.glob(os.path.join(BASE, "kakao", "inbox", "*.txt"))):
         jobs.append((src, dated_dir(KAKAO_DIR, src), "카톡 대화 내보내기"))
 
-    # 밴드 원문 — 우리가 API로 받아 온 원본 그대로. 가공본(캐시)도 같이 둔다.
+    # 밴드 캐시 사본 — **덤프 폴더에 두지 않는다**([334] 의 쓰는 쪽).
+    #
+    # 전에는 `수집본` 으로 넣고 "밴드 API 원문" 이라 적었다.  그런데 그것은
+    # 원문이 아니라 **가공본**이고(바로 위 주석이 스스로 그렇게 적어 뒀다),
+    # `source_dirs.band_dump_dirs()` 는 그 폴더를 "브라우저/API 밴드 JSON 원본의
+    # 정본 탐색 경로" 로 정의한다.  그래서 흡수기가 제 출력을 입력으로 다시
+    # 먹었다 — 옛 값이 나중에 처리되며 새 수확을 덮었다(2026-08-19 실사고).
+    # 읽는 쪽은 [334] 가 막았지만 **쌓이는 것은 여기서 멈춘다**:
+    # 실측 2026-08-20 그 폴더 json 159개 335.5MB 중 **42개 306.7MB(91%)** 가
+    # 이 사본이었고 매일 26MB 씩 늘고 있었다.
+    #
+    # 사본 자체는 그대로 남긴다([172]) — 없애는 것이 아니라 **자리를 옮긴다**.
+    # 이미 `수집본` 에 쌓인 것은 건드리지 않는다(지우는 것은 사람이 정한다).
     for src in sorted(glob.glob(os.path.join(BASE, "band", "cache", "*.json"))):
-        jobs.append((src, dated_dir(os.path.join(BAND_DIR, "수집본"), src), "밴드 API 원문"))
+        # 일부러 격리해 둔 것을 다시 심지 않는다.  유령 캐시·가짜 묘비는 읽지
+        # 말라고 이름을 바꿔 둔 파일인데, 그것을 원본 폴더로 복사하면 이름 규칙을
+        # 모르는 다음 도구가 그대로 되살린다(2026-08-12 유령 밴드가 스스로를
+        # 되살린 그 모양이다).
+        name = os.path.basename(src)
+        if "유령" in name or ".ghost-" in name or "격리" in name:
+            continue
+        # ★ **이 폴더에는 캐시만 있는 것이 아니다.**  `raw_api2_90610953.json`
+        #   처럼 진짜 API 수집본도 같이 산다 — 그것을 캐시로 부르면 덤프 폴더
+        #   밖으로 나가 흡수가 통째로 빠진다([172] 잘못 거르는 쪽이 더 나쁘다).
+        #   정본 캐시의 이름은 쓰는 쪽(`convert_dump.swap_in`)이 정한 대로
+        #   **정확히 `<밴드번호>.json`** 이다.  이름으로 후보를 좁힌 뒤
+        #   **스키마로 확인한다**([334] 의 `looks_like_cache` 를 빌린다 — 여기서
+        #   새로 판정하면 읽는 쪽과 갈린다).  못 읽으면 캐시라 우기지 않고
+        #   예전 자리(덤프)로 둔다 — 모르는 쪽으로 옮기지 않는다([169]).
+        is_cache = False
+        stem = os.path.splitext(name)[0]
+        try:
+            from band import convert_dump as _cd
+            if _cd.plausible_band(stem):
+                with open(src, encoding="utf-8") as fh:
+                    is_cache = _cd.looks_like_cache(json.load(fh))
+        except Exception:
+            is_cache = False
+        if is_cache:
+            jobs.append((src, dated_dir(os.path.join(BAND_DIR, "캐시사본"), src),
+                         "밴드 캐시 사본(원문 아님)"))
+        else:
+            jobs.append((src, dated_dir(os.path.join(BAND_DIR, "수집본"), src),
+                         "밴드 API 원문"))
 
     # 오종현 공유 폴더도 매번 취합한다. 공유 폴더의 파일은 지우지 않고 정본 보관소에 복사한다.
     # PO는 한 오더가 여러 프로젝트를 묶을 수 있어 프로젝트번호보다 PO번호가 안정적인 분류키다.
