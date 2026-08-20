@@ -6741,6 +6741,14 @@ def t126_app_font_and_revert():
                 for r in F.FILES}
 
     origin = {r: open(os.path.join(F.ROOT, r), "rb").read() for r in F.FILES}
+    # ★ 이 시험은 **진짜 네 파일**을 두 번 쓴다(그것이 요점이다) — 그러니 바이트뿐
+    #   아니라 **수정시각도** 되돌려야 한다. 안 되돌리면 관문이 돌 때마다
+    #   restart_server 가 "앱 서버 옛 코드"라 말하고 30분 워치독이 **멀쩡한 서버를
+    #   내린다** — 담당자에게 8초씩 502 다(류지영 우선). 매일 뜨는 가짜 경보는
+    #   진짜 경보를 덮는다([170]). 2026-08-21 실측: 바이트 dc92f218 그대로인데
+    #   시각만 02:11:19 → 02:18:42 로 밀렸다.
+    stamps = {r: (lambda s: (s.st_atime, s.st_mtime))(
+        os.stat(os.path.join(F.ROOT, r))) for r in F.FILES}
     before = digest()
     try:
         F.apply("legacy")
@@ -6754,6 +6762,18 @@ def t126_app_font_and_revert():
             p = os.path.join(F.ROOT, r)
             if open(p, "rb").read() != raw:
                 open(p, "wb").write(raw)
+            # ★ 바이트가 **정말 같을 때만** 시각을 되돌린다 — 아니면 오염을
+            #   시각으로 덮는 셈이 된다([169]).
+            if open(p, "rb").read() == raw:
+                os.utime(p, stamps[r])
+    # ⑤ 되돌리기가 정말 됐나 — 바이트와 **시각** 둘 다. 계기 자신을 시험하는 자리다([272]):
+    #   위 os.utime 을 빼면 여기서 잡힌다.
+    for r in F.FILES:
+        p = os.path.join(F.ROOT, r)
+        assert open(p, "rb").read() == origin[r], "%s 바이트가 안 되돌아왔다" % r
+        assert os.path.getmtime(p) == stamps[r][1], (
+            "%s 의 수정시각이 안 되돌아왔다 — 관문 뒤마다 '앱 서버 옛 코드' 가짜 경보가 "
+            "서고 워치독이 멀쩡한 서버를 내린다(담당자에게 8초 502)" % r)
     print("  [126] 앱 글꼴 일원화(4파일·캔버스 포함) + 되돌리기 왕복 무손실 ✅")
 
 
