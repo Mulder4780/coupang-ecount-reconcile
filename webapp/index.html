@@ -8502,8 +8502,20 @@ async function receiptSubmit(hostId,file,url){
       uxEvent('tap','receipt-upload');
     } else {
       if(log) log.textContent=`✗ ${name} — ${d.error||('HTTP '+r.status)}`;
+      /* * 작은 글씨 한 줄만 남기면 형님은 **무엇이 잘못됐는지 보낼 수가 없다**([169]).
+         팝업으로 세우고 코드를 붙인다 — [캡처해서 보내기] 는 errorHelp 가 이미 갖고 있다. */
+      await errorHelp("입금·증빙 자료 올리기", d.error||("HTTP "+r.status),
+        {code:errCode("UPLOAD", r.status), force:true,
+         title:"자료가 올라가지 않았습니다",
+         desc:"고르신 파일은 그대로 있습니다 — 고친 뒤 다시 올리시면 됩니다."});
     }
-  }catch(e){ if(log) log.textContent=`✗ ${name} — 연결 실패(오프라인이면 자동 보관됨)`; }
+  }catch(e){
+    if(log) log.textContent=`✗ ${name} — 연결 실패(오프라인이면 자동 보관됨)`;
+    await errorHelp("입금·증빙 자료 올리기", String((e&&e.message)||"연결 실패"),
+      {code:errCode("UPLOAD", 0), force:true,
+       title:"자료가 올라가지 않았습니다",
+       desc:"고르신 파일은 그대로 있습니다 — 연결이 돌아오면 다시 올려 주세요."});
+  }
 }
 /* 오종현 담당자 페이지(/staff/oh-jonghyeon)에도 같은 업로드 존을 붙인다 */
 function injectOhUpload(){
@@ -12187,6 +12199,11 @@ async function uploadAutomationKakao(input){
   }catch(error){
     result.className='automation-upload-result err';
     result.textContent='업로드 실패 · '+apiErrorText(error)+' · 파일은 선택된 채로 두었습니다. 다시 시도해 주세요.';
+    /* 카드 안 빨간 글씨는 스크롤 밖으로 밀리면 안 보인다 — 팝업으로 한 번 더 세운다. */
+    await errorHelp("카톡 원본(TXT) 올리기", apiErrorText(error),
+      {code:errCode("KAKAO", (error&&error.status)||0), force:true,
+       title:"카톡 원본이 올라가지 않았습니다",
+       desc:"고르신 파일은 그대로 있습니다 — 다시 시도하시면 됩니다."});
     return false;
   }finally{
     if(button){button.disabled=false;button.setAttribute('aria-busy','false');}
@@ -14326,6 +14343,18 @@ function askText(label, value, opt){
    ★ 모르는 오류에도 답한다 — 다만 '처음 보는 오류'라고 **정직하게** 말하고
      캡처로 보낸다. 지어낸 설명은 사람을 엉뚱한 데로 보낸다([172]).                */
 let ERR_HELP_AT = 0;                        // 같은 순간에 팝업을 겹쳐 띄우지 않는다
+/* * **오류 코드는 한 곳에서 만든다**([162] · 2026-08-20 지시 "오류 코드와 설명 팝업
+   되어서 나한테 캡처해서 보낼 수 있게"). 형님이 캡처를 보내면 **그 코드 하나로**
+   어느 화면 · 어느 길 · 어떤 응답이었는지가 바로 잡혀야 한다. 그래서 모양을 고정한다:
+     CSOS-<자리>-<HTTP 또는 NET>   예: CSOS-UPLOAD-400 · CSOS-KAKAO-NET
+   ! 부르는 쪽에서 문자열을 손으로 지어내면 사본이 늘고, 같은 실패가 날마다 다른
+     코드로 찍혀 **코드가 있으나 마나**가 된다. */
+function errCode(area, status){
+  const a=String(area||"APP").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,8)||"APP";
+  const s=(status===0||status===null||status===undefined||isNaN(Number(status)))
+    ? "NET" : String(Number(status));
+  return "CSOS-"+a+"-"+s;
+}
 async function errorHelp(target, detail, opt){
   opt = opt || {};
   const now = Date.now();
@@ -14345,8 +14374,15 @@ async function errorHelp(target, detail, opt){
               신고문구:'[앱 오류 신고]\n어디: '+(target||'')+'\n무엇: '+(detail||'')};
   const steps = (h.하세요||[]).map((s,i)=>
     `<li style="margin:.35em 0"><b>${i+1}.</b> ${esc2(s)}</li>`).join('');
+  /* 코드는 **화면에도 그림에도** 실린다 — 화면에만 있으면 캡처 밖으로 잘리고,
+     그림에만 있으면 형님이 지금 무엇을 보내는지 모른다. */
+  const _code = String((opt && opt.code) || "");
+  if(_code) h.신고문구 = "오류 코드: " + _code + String.fromCharCode(10) + String(h.신고문구||"");
   const body =
     `<div style="font-size:1.08em;line-height:1.6">`
+    + (_code ? `<p style="margin:.1em 0 .7em"><b>오류 코드</b> 
+        <code style="background:var(--panel);border:1px solid var(--line);border-radius:6px;
+        padding:2px 7px;font-size:.95em;user-select:all">${esc2(_code)}</code></p>` : "")
     + `<p style="margin:.2em 0 .6em;font-weight:700">${esc2(h.쉬운말||'')}</p>`
     + (h.왜 ? `<p class="norm" style="margin:.2em 0 .8em">${esc2(h.왜)}</p>` : '')
     + `<p style="margin:.2em 0 .3em;font-weight:700">이렇게 하세요</p>`
