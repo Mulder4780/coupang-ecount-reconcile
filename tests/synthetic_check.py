@@ -27331,6 +27331,196 @@ def t333_ryu_center_shows_what_to_do_now():
           "연결 없으면 단추만 없음 · 못 받음≠없음 · 못 찾으면 말함 (node 실행 확인) OK")
 
 
+def t352_phone_copy_can_pick_a_font_in_its_own_design():
+    """[74] 폰 사본에서도 글꼴을 고른다 — 그러나 **그 화면의 디자인으로**.
+
+    2026-08-06 부터 프리셋 CSS 는 네 파일에 다 들어갔는데 **고르는 단추는
+    `webapp/index.html` 하나뿐**이었다([246]). 그런데 재 보니 폰 사본은 단추만
+    없는 것이 아니었다 — `data-font` 를 **세우는 코드가 0곳**이라 그 CSS 는
+    통째로 **죽은 CSS** 였다(실측). 2026-08-06 부터 있던 되돌리기 열쇠
+    (`csos_font_legacy`)도 이 화면에서는 **한 번도 안 읽혔다**. 폰 정문은
+    GitHub Pages 사본이므로, 폰만 쓰는 사람에게는 그 기능이 아예 없었다.
+
+    ★ 그렇다고 PC 앱 마크업을 옮겨 오면 안 된다 — 폰 사본에는 `ui-card` 규칙도
+      SVG 스프라이트도 **한 줄도 없다**(실측 `<svg` 0개). 옮겼으면 아이콘이 깨진
+      참조가 되고 단추가 브라우저 기본 회색 글씨로 그려진다([310] 그대로).
+      **표는 하나고 그리는 법만 갈린다**([162]).
+
+    잠그는 것([39] — 되돌아가면 안 되는 계약):
+      ① 표 = PC 앱 단추 = 폰 단추 (키 집합이 **정확히** 같다)
+      ② 폰 카드에 `ui-card`·`<use href`·`<svg` 가 **하나도 없다**([310])
+      ③ 폰 사본이 프리셋을 **켤 수 있다** — 새 열쇠가 먼저고 옛 열쇠를 이어받는다
+      ④ 두 화면은 **다른 출처**라 고른 것이 서로 안 간다 — 화면이 그 말을 한다([169])
+      ⑤ 폰 JS 는 `toast(`·`uxEvent(` 를 **안 부른다**(그 화면에 없다 — 부르면 죽는다)
+      ⑥ **실행**: 고르면 속성이 서고 저장되고 켠 표시가 그 하나에만 붙는다
+      ⑦ 계기 자신도 시험한다([272])
+
+    ★ 글자 검사로는 ⑥ 을 못 잰다([295]) — node 로 **실행해서** 잰다.
+    """
+    # ⚠ `proc_guard`·`shutil` 은 이 파일 **모듈 수준에 없다**([324]) — 안 들여오면
+    #    진짜 실패가 NameError 에 가려진다.
+    import io as _io, shutil as _sh, proc_guard
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import font_switch as F
+
+    idx = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read()
+    php = _io.open(os.path.join(ROOT, "docs", "app.html"),
+                   encoding="utf-8", newline="").read()
+
+    def block(text, rel):
+        i = text.find(F.CARDS_BEGIN)
+        assert i >= 0, rel + " 에 글꼴 단추 자리(FONT-CARDS)가 없다"
+        return text[i:text.index(F.CARDS_END, i) + len(F.CARDS_END)]
+
+    a_blk, p_blk = block(idx, "webapp/index.html"), block(php, "docs/app.html")
+
+    # ── ① 표 = 두 화면 ──────────────────────────────────────────────────
+    want = list(F.FONT_PRESETS)
+    for blk, rel in ((a_blk, "webapp/index.html"), (p_blk, "docs/app.html")):
+        got = re.findall(r'data-fontkey="([^"]+)"', blk)
+        assert got == want, (
+            rel + " 의 글꼴 단추가 표와 다르다 — 표에 하나 더한 날 CSS 는 늘고 "
+            "단추는 안 늘면서 아무 오류도 안 난다([162]): %r vs %r" % (got, want))
+
+    # ── ② 폰 카드는 그 화면의 디자인이다([310]) ─────────────────────────
+    for bad in ("ui-card", "<use href", "<svg"):
+        assert bad not in p_blk, (
+            "폰 카드에 PC 앱 마크업(%s)이 섞였다 — 그 화면에는 그 규칙도 "
+            "스프라이트도 없어 아이콘이 깨진 참조가 되고 단추가 브라우저 기본 "
+            "회색 글씨로 그려진다([310])" % bad)
+    assert 'class="fontpick"' in p_blk, "폰 카드가 이 화면의 클래스를 안 쓴다"
+    assert ".fontpick{" in php, (
+        "`.fontpick` 마크업만 넣고 **모양을 안 만들었다** — 그러면 단추가 브라우저 "
+        "기본으로 그려지는데 코드에는 class 가 적혀 있어 읽는 사람은 모른다([310])")
+
+    # ── ③④⑤ 폰 사본이 프리셋을 켤 수 있나 ──────────────────────────────
+    for need, why in (
+        ("csos_font_preset", "새 열쇠를 안 읽으면 고른 것이 다음 부팅에 사라진다"),
+        ("csos_font_legacy", "옛 열쇠를 안 이어받으면 예전에 되돌려 둔 사람이 "
+                             "말없이 기본으로 돌아간다"),
+        ("setAttribute('data-font'", "속성을 안 세우면 프리셋 CSS 가 **죽은 CSS** 다"),
+    ):
+        assert need in php, "폰 사본에 %s 가 없다 — %s" % (need, why)
+    assert "주소가 서로 달라" in php, (
+        "두 화면은 다른 출처라 고른 것이 서로 안 가는데 화면이 그 말을 안 한다 — "
+        "한쪽에서 고르고 다른 쪽에서 '안 바뀐다'고 여기게 된다([169])")
+
+    _head = php.split("</style>", 1)[1].split("</head>", 1)[0]
+    assert "<script>" in _head, (
+        "글꼴 JS 가 <head> 에 없다 — 본문 뒤에 두면 기본 글꼴이 한 번 번쩍인다")
+    fjs = _head.split("<script>", 1)[1].split("</script>", 1)[0]
+    assert "function setFontPreset" in fjs, (
+        "<head> 의 그 <script> 에 글꼴 함수가 없다")
+    for gone in ("toast(", "uxEvent("):
+        assert gone not in fjs, (
+            "폰 사본에는 %s 가 **없다** — 부르면 그 자리에서 죽고 고른 것이 "
+            "저장도 안 된다" % gone)
+
+    # ── ⑥ 실행해서 잰다([295]) ──────────────────────────────────────────
+    node = _sh.which("node")
+    if not node:
+        print("[352] 폰 글꼴 고르기 — node 가 없어 실행 검사는 건너뜀(구조만) OK")
+        return
+    names = dict(re.findall(r'data-fontkey="([^"]+)"[^>]*>\s*<b>([^<]+)</b>', p_blk))
+    assert len(names) == len(want), "폰 카드에서 이름을 못 읽었다: %r" % (names,)
+
+    def run(js, tag):
+        with tempfile.NamedTemporaryFile("w", suffix="-" + tag + ".mjs", delete=False,
+                                         encoding="utf-8", newline="") as fh:
+            fh.write(js)
+            path = fh.name
+        try:
+            pr = subprocess.Popen([node, path], stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT,
+                                  **proc_guard.background_popen_kwargs())
+            out = pr.communicate(timeout=90)[0].decode("utf-8", "replace").strip()
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        assert out.startswith("{"), "node 가 답 대신 이것을 줬다: " + repr(out[:400])
+        return json.loads(out)
+
+    harness = chr(10).join([
+        "const JS = " + json.dumps(fjs) + ";",
+        "const NAMES = " + json.dumps(names, ensure_ascii=False) + ";",
+        "function run(seed){",
+        "  const store = Object.assign({}, seed), attrs = {};",
+        "  const localStorage = {",
+        "    getItem: k => Object.prototype.hasOwnProperty.call(store,k) ? store[k] : null,",
+        "    setItem: (k,v) => { store[k] = String(v); } };",
+        "  const btns = Object.keys(NAMES).map(k => { const cls = new Set(); return {",
+        "    key:k, cls,",
+        "    getAttribute: a => (a === 'data-fontkey' ? k : null),",
+        "    setAttribute: () => {},",
+        "    classList: { toggle: (c,on) => { if(on) cls.add(c); else cls.delete(c); } } };});",
+        "  const box = { querySelectorAll: () => btns,",
+        "    querySelector: sel => { const m = /data-fontkey=\"([^\"]+)\"/.exec(sel);",
+        "      return (m && NAMES[m[1]]) ? { textContent: NAMES[m[1]] } : null; } };",
+        "  const line = { textContent: '' };",
+        "  const document = {",
+        "    documentElement: {",
+        "      setAttribute: (k,v) => { attrs[k] = v; },",
+        "      removeAttribute: k => { delete attrs[k]; },",
+        "      getAttribute: k => (k in attrs ? attrs[k] : null) },",
+        "    getElementById: id => (id === 'fontCards' ? box : (id === 'fontNow' ? line : null)),",
+        "    readyState: 'complete', addEventListener: () => {} };",
+        "  const api = new Function('localStorage','document',",
+        "    JS + '\\nreturn {setFontPreset, markFontPick};')(localStorage, document);",
+        "  return { store, attrs, btns, line, api,",
+        "           on: () => btns.filter(b => b.cls.has('on')).map(b => b.key) };",
+        "}",
+        "const out = {};",
+        "let s = run({});",
+        "out.fresh = { attr: s.attrs['data-font'] || null, on: s.on(), line: s.line.textContent };",
+        "s.api.setFontPreset('galaxy');",
+        "out.pick = { attr: s.attrs['data-font'] || null, saved: s.store.csos_font_preset,",
+        "             legacy: s.store.csos_font_legacy, on: s.on(), line: s.line.textContent };",
+        "s.api.setFontPreset('basic');",
+        "out.back = { attr: s.attrs['data-font'] || null, saved: s.store.csos_font_preset, on: s.on() };",
+        "out.old = { attr: run({csos_font_legacy:'1'}).attrs['data-font'] || null };",
+        "out.saved = { attr: run({csos_font_preset:'iphone'}).attrs['data-font'] || null };",
+        "console.log(JSON.stringify(out));",
+    ])
+    g = run(harness, "t352")
+
+    assert g["fresh"]["attr"] is None and g["fresh"]["on"] == ["basic"], (
+        "처음 연 기기에서 켠 표시가 '기본' 하나가 아니다: %r" % (g["fresh"],))
+    assert g["pick"]["attr"] == "galaxy" and g["pick"]["saved"] == "galaxy", (
+        "고른 것이 화면에도 저장에도 안 갔다: %r" % (g["pick"],))
+    assert g["pick"]["on"] == ["galaxy"], (
+        "켠 표시가 고른 것 하나에만 안 붙는다 — 무엇이 켜져 있는지 안 보이면 "
+        "사람이 눌러 놓고도 계속 다시 누른다: %r" % (g["pick"]["on"],))
+    assert "따로" in g["pick"]["line"] or "이 기기에서만" in g["pick"]["line"], (
+        "'지금: …' 줄이 이 기기에서만이라는 말을 안 한다: %r" % (g["pick"]["line"],))
+    assert g["back"]["attr"] is None and g["back"]["saved"] == "basic", (
+        "'기본' 으로 되돌리면 속성을 **지워야** 한다(그것이 :root 기본값이다): %r"
+        % (g["back"],))
+    assert g["old"]["attr"] == "legacy", (
+        "옛 열쇠(csos_font_legacy)만 있는 기기를 안 이어받는다 — 예전에 나눔고딕으로 "
+        "돌려 둔 사람이 말없이 기본으로 돌아간다: %r" % (g["old"],))
+    assert g["saved"]["attr"] == "iphone", (
+        "저장해 둔 프리셋을 부팅 때 안 되살린다: %r" % (g["saved"],))
+
+    # ── ⑦ 계기 자신을 시험한다([272]) ───────────────────────────────────
+    #   폰 렌더러를 PC 앱 것으로 되돌리면 ② 가 잡아야 한다. 안 잡히면 위 검사는
+    #   아무것도 안 재고 있는 것이다.
+    broke = F.preset_cards(chr(10), "app")
+    for bad in ("ui-card", "<use href"):
+        if bad in broke:
+            break
+    else:
+        raise AssertionError("자기시험이 성립하지 않는다 — PC 앱 렌더러에 "
+                             "ui-card 도 <use href 도 없다")
+    assert "fontpick" not in broke, (
+        "PC 앱 렌더러와 폰 렌더러가 같은 것을 낸다 — 그러면 ② 는 아무것도 안 잰다")
+
+    print("[352] 폰 사본이 제 디자인으로 글꼴을 고른다 "
+          "(단추 %d개 · 옛 열쇠 이어받음 · ui-card 오염 0) OK" % len(want))
+
+
 def t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback():
     """[332] **정의 안 된 토큰은 흰 칸으로 나타난다** (2026-08-19 형님 캡처).
 
@@ -27350,7 +27540,7 @@ def t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback():
     path = os.path.join(ROOT, "webapp", "index.html")
     html = open(path, encoding="utf-8").read()
 
-    def _check(text):
+    def _check(text, formgrid=True):
         # ⚠ <style> 바위가 10개다 — 첫 덩어리만 보면 나머지 9개의 고아 토큰은
         #   영영 안 걸린다(2026-08-19 [142] 에서 같은 자리를 t331 이 밟았다).
         css, rest = _style_split(text)
@@ -27385,6 +27575,9 @@ def t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback():
             "흰 칸이 되고 아무 오류도 안 난다: " + ", ".join(sorted(set(bad))))
 
         # ③ 캠프 수정 창의 입력칸은 바탕·글자를 **같은 테마의 짝**으로 적는다.
+        #    ★ 이 규칙은 PC 앱에만 있다 — 폰 사본에는 그 화면이 없다.
+        if not formgrid:
+            return
         rule = re.search(r"\.formgrid \.fld>input\[type=text\][^{]*\{([^}]*)\}", css)
         assert rule, "캠프 수정 창 입력칸 규칙을 못 찾았다"
         body = rule.group(1)
@@ -27394,6 +27587,15 @@ def t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback():
             "바탕과 짝인 토큰으로 적을 것")
 
     _check(html)
+
+    # ★ **폰 사본도 본다** (2026-08-20). 이 검사는 오래도록 `webapp/index.html`
+    #   하나만 봤다 — 그래서 같은 고장이 폰 사본에 그대로 살아 있었다(실측:
+    #   고아 `--ink` 3곳 · 굳은 색 폴백 2곳). `.cchip.on` 은 **켠 칩을 밝게
+    #   하려던 선언이 통째로 죽어** 끈 것과 글자색이 같아지고 있었다.
+    #   한 곳에서 배운 것을 다른 곳이 모르면 그 사고는 거기서 계속 산다([300]).
+    for rel in (os.path.join(ROOT, 'docs', 'app.html'),
+                os.path.join(ROOT, 'docs', 'cal.html')):
+        _check(open(rel, encoding='utf-8').read(), formgrid=False)
 
     # ★ 계기 자기시험([272]) — 셋 다 되돌리면 잡혀야 한다.
     for broken, why in (
@@ -27417,7 +27619,7 @@ def t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback():
             raise AssertionError(f"이 검사가 아무것도 안 재고 있다 — {why} 인데도 통과했다")
 
     print("[332] CSS 토큰은 정의돼 있고 테마 토큰에 굳은 색 폴백이 없다 "
-          "(캠프 수정 창 실측 명암비 1.09 → 어두움 15.5 · 밝음 21) OK")
+          "— PC 앱 · 폰 사본 · 공유 달력 셋 다 OK")
 
 
 if __name__ == "__main__":
@@ -27764,6 +27966,7 @@ if __name__ == "__main__":
     t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback()
     t333_ryu_center_shows_what_to_do_now()
     t334_cache_copies_are_not_dumps()
+    t352_phone_copy_can_pick_a_font_in_its_own_design()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

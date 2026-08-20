@@ -126,7 +126,7 @@ FONT_PRESETS = {
     "clear": {
         "이름": "또렷하게",
         "설명": "획을 굵게 그려 눈이 편합니다 — 글씨가 흐릴 때 고르세요",
-        "실제로": "글꼴 굵기는 그대로이고 **그리는 방식**이 바뀝니다(크기는 안 커집니다)",
+        "실제로": "글꼴 굵기는 그대로이고 그리는 방식이 바뀝니다(크기는 안 커집니다)",
         # ★ Pretendard·본고딕을 맨 앞에 둔다(획이 고르다) + 안티에일리어싱을 끈다.
         #   `-webkit-font-smoothing:antialiased` 는 글자를 **얇게** 그린다 —
         #   그것이 "글씨가 잘 안 보인다"의 절반이다. `auto` 면 서브픽셀로 굵어진다.
@@ -166,7 +166,14 @@ ANCHOR = re.compile(r'^:root\[data-font="legacy"\]\{[^\n]*\}$', re.M)
 CARDS_BEGIN = "<!-- ▼ 글꼴 단추 — font_switch.py 가 만든다. 손으로 고치지 말 것 (FONT-CARDS:BEGIN) -->"
 CARDS_END = "<!-- ▲ (FONT-CARDS:END) -->"
 CARDS = re.compile(re.escape(CARDS_BEGIN) + r".*?" + re.escape(CARDS_END), re.S)
-CARDS_FILE = os.path.join("webapp", "index.html")   # 고르는 화면은 여기 하나뿐이다
+# ★ 고르는 화면은 **둘**이다 — PC 앱과 폰 사본(2026-08-20 · 분담판 [74]).
+#   그런데 둘은 **디자인이 다르다**: 폰 사본에는 `ui-card` 규칙도 SVG
+#   스프라이트도 한 줄도 없다(실측 `<svg` 0개). 같은 마크업을 옮기면 아이콘은
+#   깨진 참조가 되고 단추는 브라우저 기본 회색 글씨로 그려진다 — 마크업만 넣고
+#   모양을 안 만든 그 사고다([310]). 그래서 **표는 하나고 그리는 법만 갈린다**([162]).
+CARDS_FILES = ((os.path.join("webapp", "index.html"), "app"),
+               (os.path.join("docs", "app.html"), "phone"))
+CARDS_FILE = CARDS_FILES[0][0]      # 옛 이름 — 부르는 곳이 있으면 그대로 산다
 
 
 def _read(path):
@@ -248,9 +255,27 @@ def _esc(s):
              .replace('"', "&quot;"))
 
 
-def preset_cards(eol="\n"):
-    """앱 [실행] 탭 '글꼴' 카드의 단추들. **표 하나에서 만들어진다**."""
+def preset_cards(eol="\n", style="app"):
+    """글꼴 단추들. **표 하나에서 만들어진다** — 화면마다 모양만 다르다.
+
+    style='app'   : PC 앱(webapp/index.html) — ui-card + SVG 스프라이트
+    style='phone' : 폰 사본(docs/app.html)  — 그 화면에는 둘 다 **없다**([310])
+    """
     L = [CARDS_BEGIN]
+    if style == "phone":
+        for k, p in FONT_PRESETS.items():
+            L.append('        <button class="fontpick" type="button"'
+                     ' data-fontkey="%s" onclick="setFontPreset(&#39;%s&#39;)">'
+                     % (k, k))
+            # ★ '실제로' 를 **낱말로 이름 붙여** 적는다 — 폰에서는 두 줄이
+            #   나란히 붙어 있어 어느 쪽이 '약속'이고 어느 쪽이 '실제'인지
+            #   구별이 안 된다. 그 말을 안 적으면 아이폰에서 갤럭시 글자체를
+            #   고른 사람이 "안 바뀐다"고 여긴다([169]).
+            L.append('          <b>%s</b><span>%s</span>'
+                     '<span class="norm">실제로 — %s</span></button>'
+                     % (_esc(p["이름"]), _esc(p["설명"]), _esc(p["실제로"])))
+        L.append("      " + CARDS_END)
+        return eol.join(L)
     for k, p in FONT_PRESETS.items():
         ic = "i-bootstrap-arrow-repeat" if k == "legacy" else "i-bootstrap-check-lg"
         L.append('        <button class="ui-card" type="button" data-fontkey="%s"'
@@ -267,19 +292,25 @@ def preset_cards(eol="\n"):
 
 
 def sync_cards():
-    """화면 단추를 표와 맞춘다. 바뀌었으면 파일 이름을 담은 목록을 돌려준다."""
-    text = _read(CARDS_FILE)
-    eol = _eol(text)
-    want = preset_cards(eol)
-    if not CARDS.search(text):
-        # ★ 자리를 못 찾으면 조용히 넘어가지 않는다 — 그러면 표만 늘고 화면은
-        #   그대로인데 아무 오류도 안 난다.
-        raise RuntimeError("%s 에 글꼴 단추 자리(FONT-CARDS)가 없다" % CARDS_FILE)
-    new = CARDS.sub(lambda m: want, text, count=1)
-    if new == text:
-        return []
-    _write(CARDS_FILE, new)
-    return [CARDS_FILE]
+    """화면 단추를 표와 맞춘다. 바뀌었으면 파일 이름을 담은 목록을 돌려준다.
+
+    ★ 파일마다 **그 화면의 디자인으로** 그린다([310]) — 같은 마크업을 옮기면
+      폰 사본에서 아이콘이 깨진 참조가 되고 단추가 기본 회색으로 그려진다.
+    """
+    out = []
+    for rel, style in CARDS_FILES:
+        text = _read(rel)
+        eol = _eol(text)
+        want = preset_cards(eol, style)
+        if not CARDS.search(text):
+            # ★ 자리를 못 찾으면 조용히 넘어가지 않는다 — 그러면 표만 늘고 화면은
+            #   그대로인데 아무 오류도 안 난다.
+            raise RuntimeError("%s 에 글꼴 단추 자리(FONT-CARDS)가 없다" % rel)
+        new = CARDS.sub(lambda m: want, text, count=1)
+        if new != text:
+            _write(rel, new)
+            out.append(rel)
+    return out
 
 
 def sync_presets():
