@@ -19768,7 +19768,28 @@ def t353_collect_queue_is_one_list_and_never_silently_drops():
         out2 = CB.load_plan(BAND)
         assert out2["대기열"]["상태"] == "못읽음", "대기열을 못 읽었는데 정상인 척한다([169])"
 
-        # ⑦ 계기 자기시험([272]) — 거르는 문을 빼면 ①이 잡히는가
+        # ⑦ 나이를 못 재면 '정상' 이 아니라 '모름' 이다([169])
+        #   실측 2026-08-20: 살아 있는 서버가 `나이시간: None · 상태 정상` 을
+        #   내보내고 있었다 — 받는 쪽은 그 한 줄을 보고 "최신이다"로 읽는다.
+        CQ.QUEUE_PATH = os.path.join(tmp, "q.json")
+        with open(CQ.QUEUE_PATH, "w", encoding="utf-8") as fh:
+            json.dump({"generated": "t", "bands": {BAND: {"nos": [11], "tiers": {}}}}, fh)
+        st = CB.load_plan(BAND)["대기열"]
+        assert st["상태"] == "정상" and not st["왜"], "갓 만든 대기열을 정상이라 안 한다"
+        os.utime(CQ.QUEUE_PATH, (time.time() - 30 * 3600, time.time() - 30 * 3600))
+        st = CB.load_plan(BAND)["대기열"]
+        assert st["상태"] == "낡음" and st["왜"], "하루가 넘게 안 만들었는데 낡았다고 안 한다"
+        _real_mt = os.path.getmtime
+        try:
+            os.path.getmtime = lambda p: (_ for _ in ()).throw(OSError("no mtime"))
+            st = CB.load_plan(BAND)["대기열"]
+        finally:
+            os.path.getmtime = _real_mt
+        assert st["나이시간"] is None, "못 재는 판인데 나이가 나왔다 — 이 검사는 아무것도 안 잰다"
+        assert st["상태"] == "모름", "나이를 못 쟀는데 '" + str(st["상태"]) + "' 이라 부른다 — [169]"
+        assert "OSError" in (st["왜"] or ""), "왜 못 쟀는지를 버렸다 — [289]"
+
+        # ⑧ 계기 자기시험([272]) — 거르는 문을 빼면 ①이 잡히는가
         import make_oneclick as MO
         real_screen = MO.screen
         try:
