@@ -39,7 +39,7 @@ except Exception:
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
 from source_dirs import (  # noqa: E402
-    ORIGIN_ROOT, ERP_DIR, COUPANG_DIR, KAKAO_DIR, BAND_DIR,
+    ORIGIN_ROOT, ERP_DIR, COUPANG_DIR, KAKAO_DIR, BAND_DIR, MISC_DIR,
     PO_DIR, PO_DIRS, RECEIPT_DIR, RECEIPT_DIRS,
 )
 from source_organizer import dated_dir, po_dir_for  # noqa: E402
@@ -66,7 +66,24 @@ DOWNLOAD_DAYS = 14      # 오래된 건 이미 반영됐거나 무관하다
 #     단 순간 계정별원장·분개장·현금출납장이 **'모르는 종류'가 되어 안 가져온다** —
 #     분류를 고친 대가로 자료가 조용히 끊긴다.
 KNOWN = ("ledger", "ledger_acct", "journal", "cashbook",
-         "po", "sales", "tax", "stmt", "slips", "taxinv", "hometax", "receipt")
+         "po", "sales", "tax", "stmt", "slips", "taxinv", "hometax", "receipt",
+         "billing_status")
+
+
+def _dest_base(k):
+    """갈래 → 어느 통으로 갈지. **한 곳에서만 정한다**([162] — 예전엔 같은 식이 두 줄이었다).
+
+    ★ billing_status(PO·청구 대조 현황표)는 `9. 미분류` 로 간다 — 원본은 남기되
+      **소비하는 통에는 안 넣는다**(분담판 [91]). 입금 통에 두면 receipt_fill 이 읽고,
+      PO 통에 두면 PO 대조가 읽는데 그쪽은 06시트에 **쓰는** 길이라 더 나쁘다([170]).
+    """
+    if k == "po":
+        return COUPANG_DIR
+    if k == "receipt":
+        return RECEIPT_DIR
+    if k == "billing_status":
+        return MISC_DIR
+    return ERP_DIR
 
 
 def plan():
@@ -89,7 +106,7 @@ def plan():
         if os.path.basename(src).startswith("~$"):
             continue
         k = kind_of(src)
-        base = COUPANG_DIR if k == "po" else (RECEIPT_DIR if k == "receipt" else ERP_DIR)
+        base = _dest_base(k)
         jobs.append((src, dated_dir(base, src), LABEL.get(k, "엑셀")))
 
     # Downloads 에 떨어진 이카운트 내보내기 — 아는 종류만, 최근 것만
@@ -105,7 +122,7 @@ def plan():
         k = kind_of(src)
         if k not in KNOWN:
             continue
-        base = COUPANG_DIR if k == "po" else (RECEIPT_DIR if k == "receipt" else ERP_DIR)
+        base = _dest_base(k)
         jobs.append((src, dated_dir(base, src),
                      LABEL.get(k, "엑셀") + " (Downloads)"))
 

@@ -115,8 +115,12 @@ def plan_moves():
                     continue
             except Exception:
                 pass                      # 판별에 실패해도 아래 규칙으로 이어 간다
-            if kind in ("taxinv", "taxstep", "ledger", "ledger_acct", "journal", "cashbook",
-                        "sales", "tax", "stmt", "slips", "hometax", "quote", "po", "receipt"):
+            if kind == "billing_status":
+                # PO·청구 대조 현황표 — 원본은 남기되 **소비하는 통에는 안 넣는다**
+                # (분담판 [91]). 입금 통에 넣으면 receipt_fill 이 입금으로 읽는다.
+                moves.append((p, _dated(S.MISC_DIR), "내용판별(billing_status)"))
+            elif kind in ("taxinv", "taxstep", "ledger", "ledger_acct", "journal", "cashbook",
+                          "sales", "tax", "stmt", "slips", "hometax", "quote", "po", "receipt"):
                 base = S.COUPANG_DIR if kind == "po" else (S.RECEIPT_DIR if kind == "receipt" else S.ERP_DIR)
                 moves.append((p, _dated(base), f"내용판별({kind})"))
             elif _erp_filename(os.path.basename(p)):

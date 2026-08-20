@@ -192,6 +192,11 @@ def classify_target(path: str, root: str) -> tuple[str, str, str]:
             kind = "unknown"
         if kind == "po":
             return dated_dir(p["coupang"], path), "coupang_po", "엑셀 내용: 쿠팡 PO 목록"
+        if kind == "billing_status":
+            # PO·청구 대조 현황표 — 입금 원본이 아니다(분담판 [91]). 원본은 남기되
+            # 소비하는 통(입금·PO)에는 안 넣는다. 여기서 안 잡으면 아래 PO_RE 가
+            # 본문의 PO 번호를 보고 `6. PO 원본` 으로 보낸다.
+            return dated_dir(p["misc"], path), "billing_status", "엑셀 내용: PO·청구 대조 현황표(입금 원본 아님)"
         if kind == "receipt":
             return dated_dir(p["receipt"], path), "receipt", "엑셀 내용: 입금·수금 내역"
         if kind in {"ledger", "sales", "tax", "stmt", "slips", "taxinv", "taxstep", "hometax", "quote"}:

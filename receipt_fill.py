@@ -256,6 +256,38 @@ def dedupe_deposits(rows):
     return out, dropped
 
 
+# ★ 입금 통에 앉아 있어도 **입금 원본이 아닌** 갈래 (분담판 [91]).
+#   폴더는 종류의 증거가 아니다 — 실측 2026-08-20 이 폴더의 xlsx 11개 중 **9개**가
+#   'CSOS PO관련 누락 및 취소 건 현황'(오종현 대조표)이었다.
+NOT_DEPOSIT_KINDS = ("billing_status",)
+
+
+def _drop_non_deposits(candidates):
+    """입금 원본이 아닌 것만 뺀다 → (남길 것, 뺀 것)
+
+    ★ 거르는 문은 **'아닌 것만'** 이다 — '맞는 것만 통과' 로 만들면 안 된다.
+      실측으로 **주 입금 원본 `26년도 쿠팡 입금내역.xlsx` 의 판정이 `unknown`** 이다
+      (머리글이 '날짜·거래처·입금액' 이라 inbox_scan 의 receipt 규칙에 안 걸린다).
+      통과 목록으로 걸렀으면 입금 101건이 통째로 사라졌다 — 못 읽는 파일은 빈칸과
+      구별되지 않는다([165]).
+    ★ 못 읽으면 빼지 않는다([169]) — '모름' 은 '아님' 이 아니다.
+    ★ 비싼 열기는 캐시 검사 뒤에 온다([168]) — classify_cached 가 (크기·수정시각·규칙판)
+      으로 먼저 거른다.
+    """
+    try:
+        from inbox_scan import classify_cached
+    except Exception:
+        return list(candidates), []      # 판정기를 못 부르면 예전대로 다 읽는다
+    keep, dropped = [], []
+    for f in candidates:
+        try:
+            kind = classify_cached(f)
+        except Exception:
+            kind = "unknown"
+        (dropped if kind in NOT_DEPOSIT_KINDS else keep).append(f)
+    return keep, dropped
+
+
 def load_deposits():
     """입금내역 폴더의 엑셀을 전부 읽는다(사용자 지시 — 여기가 정본).
 
@@ -269,6 +301,12 @@ def load_deposits():
             if os.path.basename(f).startswith("~$"):
                 continue                      # 엑셀이 열려 있을 때 생기는 잠금 파일
             candidates.append(f)
+    # ★ 뺀 것은 **숫자로 말한다**([169]) — 조용히 빼면 '입금이 원래 이만큼' 으로 읽힌다.
+    candidates, non_deposit = _drop_non_deposits(candidates)
+    if non_deposit:
+        print("  ※ 입금 통에 있지만 입금 원본이 아닌 파일 %d개를 뺐습니다"
+              " (PO·청구 대조 현황표 — 예: %s)"
+              % (len(non_deposit), os.path.basename(non_deposit[0])))
     files = _unique_deposit_files(candidates)
     for f in files:
         out += parse_deposit_list(f)
