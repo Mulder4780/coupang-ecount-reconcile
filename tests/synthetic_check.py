@@ -11413,15 +11413,23 @@ def _isolated_collect_outputs(comment_backfill):
     """
     old_plan = comment_backfill.PLAN_PATH
     old_docs = comment_backfill.DOCS_COLLECT
+    # ★ `load_plan` 은 2026-08-20 부터 **수집대기열도 같이 읽는다**(collect_queue).
+    #   그것까지 목으로 갈지 않으면 실제 reports/밴드_수집대기열.json 이 검사 안으로
+    #   섞여 들어온다 — 실측으로 t182 가 2건을 기대한 자리에서 207건을 받았다.
+    #   **한 입력만 목으로 갈면 나머지 입력은 조용히 실물이다**([247] 의 뒤집힌 쪽).
+    import collect_queue as _cq
+    old_queue = _cq.QUEUE_PATH
     with tempfile.TemporaryDirectory(prefix="csos-collect-synthetic-") as tmp:
         comment_backfill.PLAN_PATH = os.path.join(tmp, "reports", "plan.json")
         comment_backfill.DOCS_COLLECT = os.path.join(tmp, "docs", "collect")
+        _cq.QUEUE_PATH = os.path.join(tmp, "reports", "없는대기열.json")
         os.makedirs(os.path.dirname(comment_backfill.PLAN_PATH), exist_ok=True)
         try:
             yield
         finally:
             comment_backfill.PLAN_PATH = old_plan
             comment_backfill.DOCS_COLLECT = old_docs
+            _cq.QUEUE_PATH = old_queue
 
 
 def t182_app_collects_without_claude():
@@ -11451,6 +11459,10 @@ def t182_app_collects_without_claude():
                       when="2026-08-09 00:00")
         got = cb.load_plan("90610953")
         assert got["nos"] == [5435, 5425] and got["tiers"] == {"1": 2}, got
+        # ★ 대기열이 목으로 갈렸다는 것을 **결과로** 확인한다. 이 줄이 없으면
+        #   누가 위 목을 빼도 실물 대기열이 조용히 섞여 들어온다(오늘 실제로 그랬다).
+        assert (got.get("대기열") or {}).get("상태") == "못읽음", (
+            "대기열이 격리되지 않았다 — 실물 reports/밴드_수집대기열.json 이 검사에 섞인다")
         assert cb.load_plan("999")["nos"] == [], "모르는 밴드는 빈 목록이어야 한다"
 
     # ② 앱이 정본 수집기·계획·유저스크립트를 실제로 서빙하나 (라우트 존재).

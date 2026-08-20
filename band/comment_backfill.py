@@ -51,6 +51,7 @@ import argparse
 import collections
 import json
 import io
+import time
 import os
 import sys
 from datetime import date, timedelta
@@ -380,7 +381,16 @@ def load_plan(band=None):
     #   나머지는 사라지는 것이 아니라 **다음 번 폴링**이 받아 간다(남은 수를 같이 적는다).
     out["nos"] = merged[:BATCH_MAX]
     out["tiers"] = dict(qb.get("tiers") or {}, **out["tiers"])
-    out["대기열"] = {"상태": "정상", "전체": len(merged),
+    # ★ 낡은 것을 정상이라 부르지 않는다([169]·[184]). 대기열은 자료가 바뀔 때마다
+    #   5분 회차가 다시 만든다 — 하루가 넘도록 안 바뀌었으면 그 회차가 안 도는 것이다.
+    #   나이를 **항상** 같이 준다: 받는 쪽이 "언제 것인지" 모르면 판단할 수가 없다.
+    나이 = None
+    try:
+        나이 = round((time.time() - os.path.getmtime(_CQ.QUEUE_PATH)) / 3600.0, 1)
+    except OSError:
+        pass
+    out["대기열"] = {"상태": ("낡음" if (나이 is not None and 나이 > 24) else "정상"),
+                    "나이시간": 나이, "전체": len(merged),
                     "남은": max(0, len(merged) - BATCH_MAX),
                     "만든때": q.get("generated"),
                     "건수": qb.get("건수") or {},
