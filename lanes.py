@@ -128,12 +128,58 @@ def _save(d):
     os.replace(tmp, p)                   # 원자적 교체(사고 24)
 
 
-def _dead(rec):
-    """주인 세션이 죽었나 — ai_claim 과 **같은 판정**을 쓴다(45분 기다리지 않는다)."""
+# ── pid 가 바뀌어도 그 창은 살아 있다 (2026-08-21 · 분담판 [192]) ──────────
+# 실측: 이 세션(sid dd25a7d8)이 02:33 에 `build` 를 잡으며 agent_pid 51928 을 적었는데,
+# 07:08:36 에 `claude.exe` 가 **61688 로 갈렸다**(같은 sid · 새 프로세스 · 새 생성시각).
+# 그러자 `_dead` 가 '주인 세션 종료 — 비었음'이라 말했다 — **살아서 일하는 창인데도.**
+#
+# ★ `[239]` 는 반대 방향을 배웠다: *pid 생존은 세션 생존의 증거가 아니다.*
+#   여기는 그 뒷면이다: **pid 사망도 세션 사망의 증거가 아니다.**
+# ★ 위험한 쪽은 조용하다 — 살아 있는 창의 차선이 스스로 풀리면 옆 창이 같은 차선에
+#   서고, 두 창이 같은 파일에서 만난다(사고 #36). 차선이 막으려던 바로 그 사고다.
+# ⚠ 왜 갈렸는지는 **아직 모른다**([169] — 모르는 것을 아는 것처럼 적지 않는다).
+#   아는 것은 이것뿐이다: sid 는 그대로였고 pid 만 새로 났다. 그러므로 **정체는 sid** 다.
+LANE_ALIVE_MIN = float(os.environ.get("COUPANG_LANE_ALIVE_MIN") or 90)
+
+
+def _sid_alive(rec, minutes=None):
+    """그 sid 의 **대화기록이 최근에 자랐나** — pid 가 갈려도 창은 살아 있을 수 있다.
+
+    ★ 새 판정을 만들지 않는다([162]) — `_idle` 이 쓰는 그 `live_sids` 를 그대로 빌린다.
+      반드시 `live_sids`(점유판 이름공간)여야 한다. `live_transcripts` 는 UUID
+      앞토막이라 sid 와 **영영 안 겹쳐** 늘 '죽음'이 된다([169] 모양).
+    ★ **못 읽으면 False** 다 — 여기서 '살아 있다'를 지어내면 진짜 죽은 세션의 차선이
+      영영 안 풀려 `[239]` 의 30.7시간 정체가 돌아온다.
+      · 뺏는 쪽(`_idle`)은 모르면 **안 뺏고**, 풀리는 쪽(여기)은 모르면 **예전대로 둔다** —
+        방향이 반대로 보이지만 둘 다 **제 쪽의 되돌릴 수 없는 손해**를 피한 것이다.
+    """
+    sid = (rec or {}).get("sid")
+    if not sid:
+        return False
     try:
-        return _claimlib()._is_dead(rec)
+        import session_wrapup as _sw
+        if not _sw.transcript_dir(""):
+            return False
+        mins = LANE_ALIVE_MIN if minutes is None else float(minutes)
+        return sid in _sw.live_sids(minutes=mins, exclude="")
     except Exception:
         return False
+
+
+def _dead(rec):
+    """주인 세션이 죽었나 — pid 판정은 ai_claim 것을 그대로 쓴다(45분 기다리지 않는다).
+
+    ★ pid 가 죽었어도 **같은 sid 의 대화기록이 방금까지 자랐으면 안 죽은 것**이다
+      (분담판 [192]). 이 한 줄이 없으면 살아 있는 창의 차선이 스스로 풀린다.
+    ★ 놀고 있는 차선을 회수하는 길은 그대로다 — `_idle` 이 8시간·대화기록으로 따로
+      판단한다. 즉 문을 넓히면서도 `[239]` 의 안전밸브는 한 톨도 안 줄었다.
+    """
+    try:
+        if not _claimlib()._is_dead(rec):
+            return False
+    except Exception:
+        return False
+    return not _sid_alive(rec)
 
 
 def _idle(rec, hours=None):

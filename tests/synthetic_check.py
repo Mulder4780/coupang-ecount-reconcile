@@ -16798,6 +16798,126 @@ def t367_restart_survives_only_with_an_exact_fingerprint():
     print("  [367] 재시작 견디는 디스크 캐시 — 지문 정확일치·build앞 도장·_stale 자리·나이상한·계기 자기시험 ✅")
 
 
+def t370_a_window_whose_pid_was_replaced_still_owns_its_lane():
+    """[192] pid 가 갈려도 sid 가 살아 있으면 그 창이 차선 주인이다 — 조용히 풀리지 않는다.
+
+    ★ 왜 이것을 재나 (2026-08-21 실측).  이 세션이 02:33 에 `build` 를 잡으며
+      agent_pid 51928 을 적었는데 07:08:36 에 `claude.exe` 가 **61688 로 갈렸다**
+      (같은 sid · 새 프로세스 · 새 생성시각).  그러자 `lanes` 가 '주인 세션 종료 —
+      비었음'이라 말했다.  같은 시각 옆 수집 창(720d73f1)도 같은 상태였다.
+      살아 있는 창의 차선이 스스로 풀리면 옆 창이 같은 차선에 서고, 두 창이 같은
+      파일에서 만난다(사고 #36) — 차선이 막으려던 바로 그 사고다.
+    ★ `[239]` 는 반대 방향을 배웠다(*pid 생존은 세션 생존의 증거가 아니다*).
+      여기는 뒷면이다 — **pid 사망도 세션 사망의 증거가 아니다.**
+    ★ **넓히기만 하면 그것도 고장이다** — 진짜 죽은 세션의 차선이 영영 안 풀리면
+      `[239]` 의 30.7시간 정체가 돌아온다.  그래서 ②③⑤ 를 같이 잰다.
+    """
+    src = open(os.path.join(ROOT, "lanes.py"), encoding="utf-8").read()
+
+    # ⑥ 이름공간 함정([239]) — `live_transcripts` 로 물으면 sid 와 영영 안 겹친다.
+    #    ★ **규칙을 세기 전에 설명을 걷어낸다** — 이 프로젝트가 여섯 번 밟은 자리다.
+    #      이 사고를 적어 둔 주석 자신이 걸려 멀쩡한 코드가 빨개진다([332]·[339]).
+    i = src.index("def _sid_alive(")
+    body = _t370_code_only(src[i:src.index("\ndef ", i + 1)])
+    assert "live_sids(" in body, "[370] _sid_alive 가 live_sids 를 안 쓴다([239] 이름공간)"
+    assert "live_transcripts" not in body, \
+        "[370] live_transcripts 는 UUID 앞토막이라 sid 와 영영 안 겹친다 — 늘 '죽음'이 된다"
+    j = src.index("def _dead(rec):")
+    dead_body = src[j:src.index("\ndef ", j + 1)]
+    assert "_sid_alive(" in dead_body, "[370] _dead 가 sid 생존을 안 본다 — 옛 고장"
+    assert "_is_dead(rec)" in dead_body, \
+        "[370] pid 판정을 제 손으로 다시 만들었다 — ai_claim 것을 빌린다([162])"
+
+    ln = _t370_load()
+    host = ln._claimlib().socket.gethostname()
+    now = time.time()
+
+    def rec(sid, pid, hours=1.0):
+        return {"who": "claude", "sid": sid, "agent_pid": pid, "host": host,
+                "at": now - hours * 3600, "when": "", "why": ""}
+
+    def with_live(sids, folder=True):
+        """`session_wrapup` 을 **잠깐만** 목으로 바꾼다 — 끝나면 되돌린다([247])."""
+        import types
+        fake = types.ModuleType("session_wrapup")
+        fake.transcript_dir = lambda *a, **k: ("X" if folder else "")
+        fake.live_sids = lambda minutes=0, exclude="": list(sids)
+        return fake
+
+    keep = sys.modules.get("session_wrapup")
+    try:
+        DEADPID = 999999          # 이 기계에 없는 pid
+
+        sys.modules["session_wrapup"] = with_live(["aaaaaaaa"])
+        assert ln._dead(rec("aaaaaaaa", DEADPID)) is False, \
+            "[370] pid 가 갈렸다고 살아 있는 창을 '주인 세션 종료'라 부른다"
+        # ② 넓히지 않았다 — 조용한 sid 는 그대로 죽음이다([239] 정체 방지)
+        assert ln._dead(rec("bbbbbbbb", DEADPID)) is True, \
+            "[370] 조용한 세션까지 살아 있다고 한다 — 차선이 영영 안 풀린다"
+        # ③ sid 가 없으면 댈 근거가 없다
+        assert ln._dead(rec("", DEADPID)) is True, "[370] sid 없는 기록을 살아 있다고 한다"
+        # ④ 판정을 **더 죽게 만들지 않는다** — ai_claim 이 살아 있다면 여기도 살아 있다([162]).
+        #    ⚠ 이 방향으로만 잰다. `os.getpid()` 를 그냥 넣으면 ai_claim 이 '점유 시각보다
+        #      나중에 태어난 pid' 로 읽어 정당하게 '죽음'이라 답한다 — 코드가 아니라 기대가 틀린다.
+        for _sid in ("aaaaaaaa", "bbbbbbbb"):
+            for _pid in (DEADPID, os.getpid()):
+                _r = rec(_sid, _pid)
+                if ln._claimlib()._is_dead(_r) is False:
+                    assert ln._dead(_r) is False, \
+                        "[370] ai_claim 이 살아 있다는데 차선만 죽었다고 한다"
+        # ⑤ **못 읽으면 지어내지 않는다** — 폴더를 못 찾으면 예전 판정(죽음)을 그대로 둔다
+        sys.modules["session_wrapup"] = with_live(["aaaaaaaa"], folder=False)
+        assert ln._dead(rec("aaaaaaaa", DEADPID)) is True, \
+            "[370] 대화기록을 못 읽었는데 '살아 있다'를 지어냈다([169])"
+
+        # ⑦ 회수 안전밸브가 한 톨도 안 줄었나 — 조용한 창은 여전히 뺏긴다
+        sys.modules["session_wrapup"] = with_live([])
+        ok, why = ln._idle(rec("bbbbbbbb", DEADPID, hours=99))
+        assert ok is True, "[370] 8시간 넘게 조용한 차선을 못 뺏는다 — [239] 정체가 돌아온다"
+
+        # ⑧ 계기 자기시험([272]) — sid 생존 판정을 끄면 옛 고장이 되살아나나
+        sys.modules["session_wrapup"] = with_live(["aaaaaaaa"])
+        saved = ln._sid_alive
+        ln._sid_alive = lambda r, minutes=None: False
+        back = ln._dead(rec("aaaaaaaa", DEADPID))
+        ln._sid_alive = saved
+        assert back is True, \
+            "[370] sid 생존 판정을 껐는데도 통과했다 — 이 검사는 아무것도 안 재고 있다"
+    finally:
+        if keep is None:
+            sys.modules.pop("session_wrapup", None)
+        else:
+            sys.modules["session_wrapup"] = keep
+
+    print("✅ [370] pid 가 갈려도 차선 주인은 sid — 조용한 창은 그대로 회수")
+
+
+def _t370_code_only(text):
+    """설명 글(독스트링·주석)을 걷어낸다 — 규칙을 세기 전에 하는 일이다.
+
+    ⚠ 문자열 안의 # 까지 자르는 거친 방법이다 — 짧은 함수 본문에만 쓴다.
+    """
+    while True:
+        a = text.find('''"""''')
+        if a < 0:
+            break
+        b = text.find('''"""''', a + 3)
+        if b < 0:
+            break
+        text = text[:a] + text[b + 3:]
+    return "\n".join(ln.split("#", 1)[0] for ln in text.splitlines())
+
+
+def _t370_load():
+    """`lanes` 를 **격리해서** 올린다 — 진짜 모듈 상태를 안 건드린다([247])."""
+    import importlib.util
+    p = os.path.join(ROOT, "lanes.py")
+    spec = importlib.util.spec_from_file_location("lanes_t370", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def t369_a_file_read_every_request_is_never_called_old_code():
     """[191] 요청마다 읽는 화면 파일을 '옛 코드'라 부르지 않는다 — 그러나 조용히 빼지도 않는다.
 
@@ -29884,6 +30004,7 @@ if __name__ == "__main__":
     t367_restart_survives_only_with_an_exact_fingerprint()
     t368_screens_fit_without_shrinking_and_tables_line_up()
     t369_a_file_read_every_request_is_never_called_old_code()
+    t370_a_window_whose_pid_was_replaced_still_owns_its_lane()
     t294_unreadable_source_never_passes_as_read()
     t295_camp_contacts_never_guess_a_phone_number()
     t296_half_list_never_blames_the_person()
