@@ -16411,6 +16411,102 @@ def t290_permission_and_error_meter_say_which_kind():
           "리소스 실패까지 본다 ✅")
 
 
+def t364_erp_chain_never_stops_without_a_trace():
+    """[364] ERP 전화면 몰이가 **자국 없이 멈추지 않는다** (분담판 [84]).
+
+    2026-08-13 실측: `홈택스자료조회` 에서 80초가 지나도 `끝난것` 에 한 줄도 안 남고
+    `지금` 이 'hometax' 인 채로 굳었다. **실패 기록조차 없으면 다음 사람은 무엇이 왜
+    멈췄는지 물을 수조차 없다.**
+
+    ★ **`try/catch` 는 멈춘 것을 못 잡는다** — 끝나지 않는 `await` 는 catch 로 가지
+      않는다. 그래서 원인을 짐작해 고치는 대신(`[169]` — 원인은 아직 모른다)
+      **어느 원인이든 자국이 남게** 만들었다: 단계마다 제한시간 + 어디까지 갔나.
+    ★ 페이지가 새로 뜨면 in-page 제한시간도 못 뛴다(홈택스는 prgId 가 달라 메뉴를
+      누르면 페이지가 바뀐다). 그때 남는 것은 `sessionStorage` 자국 하나뿐이고,
+      **다음 주입이 그것을 실패로 적는다.**
+    """
+    import shutil as _sh294
+    import tempfile as _tf294
+    js = os.path.join(ROOT, "band", "ERP_전화면몰이_붙여넣기.js")
+    src = open(js, encoding="utf-8").read()
+    for 조각, 왜 in (("const STEP_MS", "단계 제한시간이 없다 — 멈추면 자국이 안 남는다"),
+                    ("Promise.race", "제한시간을 경주로 안 건다"),
+                    ("sessionStorage.setItem('__ERPALL자국'", "탭 이동을 견디는 자국이 없다"),
+                    ("이전실행", "지난 실행이 페이지와 함께 죽은 것을 안 적는다"),
+                    ("찍음", "제한시간 뒤 본문이 깨어나 같은 화면을 두 번 적을 수 있다")):
+        assert 조각 in src, "[84] 회귀: " + 왜
+
+    node = _sh294.which("node")
+    if not node:
+        print("  [364] ERP 몰이 자국 — node 가 없어 구조만 확인 OK")
+        return
+
+    하네스 = r"""
+const fs = require('fs');
+let src = fs.readFileSync(process.argv[2], 'utf8').replace(/^﻿/, '');
+src = src.replace('const STEP_MS = 150000;', 'const STEP_MS = ' + (process.env.MS || '400') + ';');
+src = src.replace('wait(STEP_MS).then', 'realWait(STEP_MS).then');
+src = src.replace('const wait = ms => new Promise(r => setTimeout(r, ms));',
+  'const realWait = ms => new Promise(r => setTimeout(r, ms));' +
+  'const wait = ms => new Promise(r => setTimeout(r, ms));');
+if (process.env.BREAK) {            // 계기 자기시험: 제한시간을 없애면 잡히는가
+  src = src.replace(/const 결 = await Promise.race\(\[[\s\S]*?\]\);/,
+                    'const 결 = await body().then(() => "ok");');
+}
+const store = new Map();
+global.sessionStorage = {getItem: k => (store.has(k) ? store.get(k) : null),
+  setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k)};
+const 빈 = {textContent: '', click() {}, offsetParent: null,
+            classList: {remove() {}, add() {}}, querySelectorAll: () => []};
+global.document = {querySelectorAll: () => [], querySelector: () => null, body: 빈, documentElement: 빈};
+global.window = global;
+if (process.env.SEED) store.set('__ERPALL자국',
+  JSON.stringify({키: 'hometax', 어디: '메뉴클릭', 때: '2026-08-20T12:00:00.000Z'}));
+eval(src);
+setTimeout(() => {
+  const A = window.__ERPALL;
+  const 초과 = A.끝난것.filter(r => (r.왜 || '').indexOf('제한시간') >= 0);
+  const 이전 = A.끝난것.filter(r => r.이전실행);
+  if (!초과.length) { console.log('FAIL 멈춘 단계가 자국을 안 남겼다'); process.exit(3); }
+  if (초과[0].왜.indexOf('마지막으로 지난 자리') < 0) {
+    console.log('FAIL 어디까지 갔는지 안 적는다'); process.exit(4); }
+  if (process.env.SEED && !(이전.length && 이전[0].키 === 'hometax')) {
+    console.log('FAIL 지난 실행이 페이지와 함께 죽은 것을 안 적는다'); process.exit(5); }
+  console.log('OK 초과 ' + 초과.length + ' · 이전실행 ' + 이전.length);
+  process.exit(0);
+}, 4000);
+"""
+    hp = os.path.join(_tf294.gettempdir(), "t294_%d.js" % os.getpid())
+    open(hp, "w", encoding="utf-8").write(하네스)
+
+    def 돌리기(env추가):
+        env = {**os.environ, "SEED": "1"}
+        env.update(env추가)
+        pr = subprocess.Popen([node, hp, js], stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, env=env,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        try:
+            out = pr.communicate(timeout=90)[0].decode("utf-8", "replace")
+        except subprocess.TimeoutExpired:
+            pr.kill(); pr.communicate()
+            raise AssertionError("[364] 실행 확인이 90초 안에 안 끝났다")
+        return pr.returncode, out
+
+    try:
+        rc, out = 돌리기({})
+        assert rc == 0, "[364] 실행 확인 실패:" + chr(10) + out
+        # ★ 계기 자신을 시험한다([272]) — 제한시간을 없애면 **아무 자국도 안 남아야** 한다.
+        rc2, out2 = 돌리기({"BREAK": "1"})
+        assert rc2 != 0, ("[364] 제한시간을 없앴는데도 통과했다 — 이 검사는 아무것도 "
+                          "안 재고 있다:" + chr(10) + out2)
+    finally:
+        try:
+            os.remove(hp)
+        except OSError:
+            pass
+    print("  [364] ERP 몰이 — 멈춰도 자국이 남는다(제한시간·어디까지) · 페이지가 죽어도 "
+          "다음 주입이 적는다(실행 확인) OK")
+
 def t293_yield_is_a_claim_that_gets_audited():
     """[293] 겹치면 조율한다 — **양보는 주장이고, 주장은 나중에 검사한다.**
 
@@ -29170,6 +29266,7 @@ if __name__ == "__main__":
     t291_takeover_is_narrow_and_never_seizes()
     t292_500_never_arrives_wordless()
     t293_yield_is_a_claim_that_gets_audited()
+    t364_erp_chain_never_stops_without_a_trace()
     t294_unreadable_source_never_passes_as_read()
     t295_camp_contacts_never_guess_a_phone_number()
     t296_half_list_never_blames_the_person()

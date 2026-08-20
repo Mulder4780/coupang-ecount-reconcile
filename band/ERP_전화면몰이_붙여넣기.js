@@ -182,77 +182,127 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: ["ledger", "tax", "sl
     return {from: back(45), to};
   };
 
+  // * **멈춘 것은 try/catch 로 안 잡힌다** (2026-08-20, 분담판 [84]). 끝나지 않는
+  //   await 는 catch 로 가지 않는다 — 그래서 홈택스자료조회에서 80초가 지나도
+  //   `끝난것` 에 한 줄도 안 남고 `지금` 이 'hometax' 인 채로 굳었다. **실패 기록조차
+  //   없으면 다음 사람은 무엇이 왜 멈췄는지 물을 수조차 없다.**
+  //   원인은 아직 모른다 — 그래서 원인을 짐작해 고치지 않고 **어느 원인이든 자국이
+  //   남게** 만든다: 단계마다 제한시간 + 어디까지 갔나(자국).
+  const STEP_MS = 150000;                    // 한 화면 실측 25초 — 넉넉히 잡는다
+  const 자국 = 어디 => {
+    A.자국 = 어디;
+    // * sessionStorage 는 **같은 탭의 페이지 이동을 견딘다.** 홈택스자료조회는
+    //   prgId 가 C001255 라 E 계열과 다른 프로그램이고, 메뉴를 누르면 페이지가
+    //   새로 뜬다 — 그러면 이 스크립트가 통째로 죽어 in-page 제한시간도 못 뛴다.
+    //   그때 남는 것은 이 자국 하나뿐이다.
+    try { sessionStorage.setItem('__ERPALL자국',
+            JSON.stringify({키: A.지금, 어디: 어디, 때: new Date().toISOString()})); }
+    catch (e) {}
+  };
+  // 지난 실행이 페이지와 함께 죽었으면 그 사실을 **실패로 적고** 자국을 지운다.
+  try {
+    const 지난 = JSON.parse(sessionStorage.getItem('__ERPALL자국') || 'null');
+    if (지난 && 지난.키) A.끝난것.push({키: 지난.키, 결과: '실패', 이전실행: true, 때: 지난.때,
+      왜: '지난 실행이 여기서 끊겼다(페이지가 새로 떴을 수 있다) — ' + 지난.어디});
+    sessionStorage.removeItem('__ERPALL자국');
+  } catch (e) {}
+
   for (const step of PLAN) {
     A.지금 = step.키;
     A.남은것 = A.남은것.filter(k => k !== step.키);
-    const done = r => A.끝난것.push(Object.assign({키: step.키, 메뉴: step.메뉴}, r));
+    // * 제한시간이 지난 뒤 본문이 뒤늦게 깨어나 한 줄 더 적으면 같은 화면이 두 번
+    //   세어진다 — 한 단계에 자국은 하나다.
+    let 찍음 = false;
+    const done = r => { if (찍음) return; 찍음 = true;
+                        A.끝난것.push(Object.assign({키: step.키, 메뉴: step.메뉴}, r)); };
+    자국('시작');
+    const body = async () => {
+        // ⓪ 앞 화면이 셸을 차지하고 있으면 사이트맵이 없다 → 먼저 홈으로 돌아간다.
+        //   첫 화면은 이미 홈이라 건드리지 않는다(괜한 클릭을 만들지 않는다).
+        let 홈복귀 = null;
+        자국('홈복귀');
+        if (열어본적) 홈복귀 = await goHome();
+        // ① 모듈이 다르면 바꾼다 — 사이트맵은 **지금 모듈 것만** 보여 준다.
+        자국('모듈전환');
+        if (step.모듈) {
+          const mod = [...document.querySelectorAll('a')]
+            .find(a => (a.textContent||'').trim() === step.모듈);
+          if (mod) { mod.click(); await wait(3500); }
+        }
+        // ② 사이트맵 → 메뉴. **열렸는지 확인하고**, 안 열렸으면 홈으로 한 번 더 간다.
+        // ★ 판정은 **메뉴를 찾았나** 하나다. '링크가 몇 개냐'로 재면 링크가 많아도
+        //   내 메뉴가 없을 수 있고, 껍데기가 없어도 메뉴는 있을 수 있다.
+        자국('사이트맵');
+        let sm = await openSitemap();
+        let menu = findMenu(sm.root, step.메뉴);
+        if (!menu) {                                  // 못 찾았으면 홈으로 갔다 한 번 더
+          if (sm.w) sm.w.classList.remove('visible');
+        자국('홈복귀');
+          홈복귀 = await goHome();
+          sm = await openSitemap();
+          menu = findMenu(sm.root, step.메뉴);
+        }
+        const w = sm.w, 링크수 = sm.링크수;
+        if (w) w.classList.remove('visible');        // ★ 반드시 닫는다
+        if (!menu) { done({결과: '실패', 링크수, 홈복귀, 껍데기: sm.껍데기,
+                           손잡이있음: sm.손잡이있음,
+                           왜: '메뉴 링크를 못 찾음(사이트맵 열기·홈 복귀까지 시도)',
+                           // 이름이 다른 것인지 아예 없는 것인지를 여기서 가른다 —
+                           // 그 둘은 사람이 할 일이 완전히 다르다.
+                           비슷한: 비슷한말(sm.root, step.메뉴),
+                           진단: 진단()}); return; }
+        자국('메뉴클릭');
+        menu.click();
+        열어본적 = true;                              // 이제부터는 돌아와야 한다
+        await wait(4500);
+        // ③ 기간 프리셋 — 없으면 **조회조건이 접힌 것**이니 한 번 펴고 다시 본다
+        자국('기간프리셋');
+        let p = pick('simpleSearch', step.프리셋, true);
+        if (!p && await expandSearch()) p = pick('simpleSearch', step.프리셋, true);
+        if (!p) { done({결과: '실패', 왜: '기간 프리셋을 못 찾음(조회조건도 펴 봤다): '
+                                         + step.프리셋}); return; }
+        p.click(); await wait(2500); kill(); await wait(4500);
+        // ④ 조회
+        자국('조회');
+        const s = pick('searchGroup', '검색', false);
+        if (!s) { done({결과: '실패', 왜: '검색 버튼을 못 찾음'}); return; }
+        s.click(); await wait(3000); kill(); await wait(9000);
+        // ⑤ 조회가 **정말** 걸렸는지 — 행 수가 아니라 **격자에 찍힌 날짜**로 잰다.
+        //   행 수로 재면 양쪽으로 다 틀린다(옛 결과를 새 기간으로 착각 / 5행→5행을 실패로 오판).
+        자국('격자확인');
+        const g = document.querySelector('[id^="grid-"]');
+        const seen = [...(g ? g.querySelectorAll('tr') : [])]
+          .map(t => ((t.textContent||'').match(/20\d\d\/\d\d\/\d\d/)||[])[0]).filter(Boolean);
+        const rng = want(step.프리셋);
+        const inR = seen.filter(d => d >= rng.from && d <= rng.to);
+        if (!seen.length) { done({결과: '건너뜀', 왜: '격자에 날짜가 없다 — 0건이거나 조건이 더 필요한 화면',
+                                  기간: `${rng.from} ~ ${rng.to}`}); return; }
+        if (!inR.length)  { done({결과: '실패', 왜: '격자 날짜가 요청 기간 밖 — 조회가 안 걸렸다. Excel 안 누름',
+                                  기간: `${rng.from} ~ ${rng.to}`}); return; }
+        // ⑥ 엑셀
+        // ★ 여기서만 **한 번** 누른다. 진행단계 화면처럼 Excel 단추가 둘인 곳에서
+        //   후보를 모두 누르면 같은 파일이 두 벌 떨어진다(2026-08-08 실측 289KB ×2).
+        자국('엑셀');
+        const x = document.querySelector('[data-cid="outputExcel"]')
+               || pick(null, 'Excel', true) || pick(null, '엑셀', true);
+        if (!x) { done({결과: '실패', 왜: '엑셀 버튼이 없다 — 인쇄 미리보기 안에만 있는 화면일 수 있다'}); return; }
+        x.click(); await wait(5000);
+        done({결과: '받음', 행: seen.length, 기간안: inR.length, 기간: `${rng.from} ~ ${rng.to}`});
+    };
     try {
-      // ⓪ 앞 화면이 셸을 차지하고 있으면 사이트맵이 없다 → 먼저 홈으로 돌아간다.
-      //   첫 화면은 이미 홈이라 건드리지 않는다(괜한 클릭을 만들지 않는다).
-      let 홈복귀 = null;
-      if (열어본적) 홈복귀 = await goHome();
-      // ① 모듈이 다르면 바꾼다 — 사이트맵은 **지금 모듈 것만** 보여 준다.
-      if (step.모듈) {
-        const mod = [...document.querySelectorAll('a')]
-          .find(a => (a.textContent||'').trim() === step.모듈);
-        if (mod) { mod.click(); await wait(3500); }
-      }
-      // ② 사이트맵 → 메뉴. **열렸는지 확인하고**, 안 열렸으면 홈으로 한 번 더 간다.
-      // ★ 판정은 **메뉴를 찾았나** 하나다. '링크가 몇 개냐'로 재면 링크가 많아도
-      //   내 메뉴가 없을 수 있고, 껍데기가 없어도 메뉴는 있을 수 있다.
-      let sm = await openSitemap();
-      let menu = findMenu(sm.root, step.메뉴);
-      if (!menu) {                                  // 못 찾았으면 홈으로 갔다 한 번 더
-        if (sm.w) sm.w.classList.remove('visible');
-        홈복귀 = await goHome();
-        sm = await openSitemap();
-        menu = findMenu(sm.root, step.메뉴);
-      }
-      const w = sm.w, 링크수 = sm.링크수;
-      if (w) w.classList.remove('visible');        // ★ 반드시 닫는다
-      if (!menu) { done({결과: '실패', 링크수, 홈복귀, 껍데기: sm.껍데기,
-                         손잡이있음: sm.손잡이있음,
-                         왜: '메뉴 링크를 못 찾음(사이트맵 열기·홈 복귀까지 시도)',
-                         // 이름이 다른 것인지 아예 없는 것인지를 여기서 가른다 —
-                         // 그 둘은 사람이 할 일이 완전히 다르다.
-                         비슷한: 비슷한말(sm.root, step.메뉴),
-                         진단: 진단()}); continue; }
-      menu.click();
-      열어본적 = true;                              // 이제부터는 돌아와야 한다
-      await wait(4500);
-      // ③ 기간 프리셋 — 없으면 **조회조건이 접힌 것**이니 한 번 펴고 다시 본다
-      let p = pick('simpleSearch', step.프리셋, true);
-      if (!p && await expandSearch()) p = pick('simpleSearch', step.프리셋, true);
-      if (!p) { done({결과: '실패', 왜: '기간 프리셋을 못 찾음(조회조건도 펴 봤다): '
-                                       + step.프리셋}); continue; }
-      p.click(); await wait(2500); kill(); await wait(4500);
-      // ④ 조회
-      const s = pick('searchGroup', '검색', false);
-      if (!s) { done({결과: '실패', 왜: '검색 버튼을 못 찾음'}); continue; }
-      s.click(); await wait(3000); kill(); await wait(9000);
-      // ⑤ 조회가 **정말** 걸렸는지 — 행 수가 아니라 **격자에 찍힌 날짜**로 잰다.
-      //   행 수로 재면 양쪽으로 다 틀린다(옛 결과를 새 기간으로 착각 / 5행→5행을 실패로 오판).
-      const g = document.querySelector('[id^="grid-"]');
-      const seen = [...(g ? g.querySelectorAll('tr') : [])]
-        .map(t => ((t.textContent||'').match(/20\d\d\/\d\d\/\d\d/)||[])[0]).filter(Boolean);
-      const rng = want(step.프리셋);
-      const inR = seen.filter(d => d >= rng.from && d <= rng.to);
-      if (!seen.length) { done({결과: '건너뜀', 왜: '격자에 날짜가 없다 — 0건이거나 조건이 더 필요한 화면',
-                                기간: `${rng.from} ~ ${rng.to}`}); continue; }
-      if (!inR.length)  { done({결과: '실패', 왜: '격자 날짜가 요청 기간 밖 — 조회가 안 걸렸다. Excel 안 누름',
-                                기간: `${rng.from} ~ ${rng.to}`}); continue; }
-      // ⑥ 엑셀
-      // ★ 여기서만 **한 번** 누른다. 진행단계 화면처럼 Excel 단추가 둘인 곳에서
-      //   후보를 모두 누르면 같은 파일이 두 벌 떨어진다(2026-08-08 실측 289KB ×2).
-      const x = document.querySelector('[data-cid="outputExcel"]')
-             || pick(null, 'Excel', true) || pick(null, '엑셀', true);
-      if (!x) { done({결과: '실패', 왜: '엑셀 버튼이 없다 — 인쇄 미리보기 안에만 있는 화면일 수 있다'}); continue; }
-      x.click(); await wait(5000);
-      done({결과: '받음', 행: seen.length, 기간안: inR.length, 기간: `${rng.from} ~ ${rng.to}`});
+      // * JS 는 멈춘 것을 죽이지 못한다 — 제한시간은 **기록하고 다음으로 가기** 위한
+      //   것이지 본문을 끊는 것이 아니다. 뒤늦게 깨어난 본문이 다음 화면에서 단추를
+      //   누를 수 있다는 뜻이라, 그 값은 자국이 말해 준다(정직하게 적어 둔다).
+      const 결 = await Promise.race([body().then(() => 'ok'),
+                                    wait(STEP_MS).then(() => '시간초과')]);
+      if (결 === '시간초과')
+        done({결과: '실패', 왜: '제한시간 ' + (STEP_MS / 1000) + '초 안에 안 끝났다 — '
+                              + '마지막으로 지난 자리: ' + (A.자국 || '(시작 직후)')});
     } catch (e) {
       done({결과: '실패', 왜: '예외: ' + (e && e.message)});
     }
   }
+  try { sessionStorage.removeItem('__ERPALL자국'); } catch (e) {}
   // ★ **시도를 수확으로 세지 않는다** (2026-08-11 실사고). 예전에는 무조건
   //   `완료: true` 였고 `끝난것` 이 9 라 '아홉 개를 받았다'로 읽혔다 — 실제로는
   //   '아홉 개를 시도했다'였고 받은 것은 하나였다. 겉으로 완주라 아무도 안 봤다.
