@@ -2629,6 +2629,18 @@ def t44_zscan():
     _s.path.insert(0, ROOT)
     import zscan
 
+    # [360] 일일 회차는 UTF-8 환경을 물려주지만 자율복구 워치독은 별도 Windows
+    # 프로세스다. 그 파이프가 CP949면 첫 진행 문구의 긴 대시(U+2014)에서 스캔을
+    # 다 마친 뒤에도 rc=1로 죽었다. 실제 CP949 TextIO를 UTF-8로 재구성해 재현한다.
+    import io
+    raw = io.BytesIO()
+    cp949 = io.TextIOWrapper(raw, encoding="cp949", errors="strict")
+    zscan.configure_stdout(cp949)
+    cp949.write("파일 1개 — 관련 1")
+    cp949.flush()
+    assert raw.getvalue().decode("utf-8") == "파일 1개 — 관련 1", \
+        "[360] 워치독 CP949 파이프에서 zscan 진행 문구가 다시 죽는다"
+
     # 안전·교육 폴더는 업무상 필요해도 관리대장에 들어갈 자리가 없다
     assert zscan.classify("♣ 6. 설치공사 안전보건대장", "허가서.pdf").startswith("무관")
     assert zscan.classify("♣ 7. 쿠팡 지게차 서류", "UJ2600136 지게차.pdf").startswith("무관")
@@ -2661,6 +2673,7 @@ def t44_zscan():
     far = [dict(docs[0], 일자="2026-05-01")]
     assert zscan.match_docs(far, rows)[0] == []
     print("  [44] 쿠팡 폴더 조사(무관 폴더 제외·캠프키·1:1 확정만 인정) ✅")
+    print("  [360] zscan 워치독 CP949 파이프를 UTF-8로 고정 ✅")
 
 
 def t45_cloud_queue_and_erp_documents(tmp):

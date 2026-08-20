@@ -32,6 +32,16 @@ import re
 import sys
 from collections import Counter, defaultdict
 
+
+def configure_stdout(stream):
+    """워치독의 CP949 파이프에서도 유니코드 진행 문구가 실패하지 않게 한다."""
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    return stream
+
+
+configure_stdout(sys.stdout)
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(BASE_DIR, "reports")
 sys.path.insert(0, BASE_DIR)

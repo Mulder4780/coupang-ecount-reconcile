@@ -957,9 +957,15 @@ STALE_SLACK_S = 60        # 회차가 원본을 읽고 쓰는 사이에 나는 �
 #   그 파일은 08-18 14:04 에 멈춰 있었고, 손으로 돌리자 확정 50 → 53건이 됐다.
 #   형님은 "자료를 안올렸나?" 를 물으셨다 — **자료는 올라와 있었다.**
 #   ⚠ 조치가 서로 다르므로 갈래를 합치지 않는다(`[289]`): 담당자는
-#     `camp_contacts.py --write`, 달력은 `pm_schedule_sync.py --apply` 다.
+#     `camp_contacts.py --write`, 달력은 `pm_schedule_sync.py` 다.
+#   ★ **조치는 고치는 데 필요한 만큼만 시킨다**(`[172]`). 처음엔 `--apply` 라 적었는데
+#     그것은 관리대장 **vN+1 을 만든다**(27시트). 달력이 읽는 것은 그 시트가 아니라
+#     `pm_schedule_sync.json` 이고(실측 `app_server` 4곳), 깃발 없이 돌려도 그 파일은
+#     새로 써진다 — 실측 2026-08-20 17:21 에 그렇게 정상으로 돌아왔다. 그대로 붙여넣게
+#     두면 사람이 **회차 밖에서 원장 판을 하나 더 만든다**(v311→v327 사고와 같은 자리).
+#     27시트 갱신은 `ledger_db` 의 시트 회차 몫이다(거기 `--apply` 가 이미 적혀 있다).
 CAL_OUT = os.path.join(REPORT_DIR, "pm_schedule_sync.json")
-CAL_FIX = "python pm_schedule_sync.py --apply"
+CAL_FIX = "python pm_schedule_sync.py"
 
 
 def _cal_stale(mt, name, when, _t):
