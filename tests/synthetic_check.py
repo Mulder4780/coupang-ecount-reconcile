@@ -16426,7 +16426,7 @@ def t364_erp_chain_never_stops_without_a_trace():
       **다음 주입이 그것을 실패로 적는다.**
     """
     import shutil as _sh294
-    import tempfile as _tf294
+    import tempfile as _tf364
     js = os.path.join(ROOT, "band", "ERP_전화면몰이_붙여넣기.js")
     src = open(js, encoding="utf-8").read()
     for 조각, 왜 in (("const STEP_MS", "단계 제한시간이 없다 — 멈추면 자국이 안 남는다"),
@@ -16476,7 +16476,7 @@ setTimeout(() => {
   process.exit(0);
 }, 4000);
 """
-    hp = os.path.join(_tf294.gettempdir(), "t294_%d.js" % os.getpid())
+    hp = os.path.join(_tf364.gettempdir(), "t364_%d.js" % os.getpid())
     open(hp, "w", encoding="utf-8").write(하네스)
 
     def 돌리기(env추가):
