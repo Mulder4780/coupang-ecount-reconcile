@@ -19710,14 +19710,18 @@ def t353_collect_queue_is_one_list_and_never_silently_drops():
     posts["300"]["captured_at"] = now_ms    # 방금 받았다 — 재수집에서 빠져야 한다
 
     keep = dict(_cache_bands=CQ._cache_bands, dirty=CQ._dirty_nos,
-                load=RP.load, absent=RP.absent_line, targets=RC.targets,
+                load=RP.load, absent=RP.absent_line, targets=RC.targets, plan=RP.plan,
                 plan_path=CB.PLAN_PATH, qpath=CQ.QUEUE_PATH)
     tmp = tempfile.mkdtemp(prefix="cq_")
     try:
         CQ._cache_bands = lambda: [BAND]
         RP.load = lambda b: posts
         RP.absent_line = lambda b, p=None, today=None: (None, "")
-        CQ._dirty_nos = lambda b: [200, 201]
+        # ★ 미수집 갈래는 **없는 번호**를 준다(gaps·new) — 그래서 죽은 표시가 붙은
+        #   105 는 애초에 그 갈래로 안 들어온다. 거르는 문을 재려면 **있는 번호**를
+        #   담는 갈래(오염)에 넣어야 한다. 첫 판이 이걸 몰라 ①이 거저 통과했다.
+        RP.plan = lambda b, p, *a, **k: {"new": [110], "gaps": [111]}
+        CQ._dirty_nos = lambda b: [105, 200, 201]
         RC.targets = lambda b, p, *a, **k: ([300, 301], "2026-07-21")
         CB.PLAN_PATH = os.path.join(tmp, "cb.json")
         with open(CB.PLAN_PATH, "w", encoding="utf-8") as fh:
@@ -19732,6 +19736,7 @@ def t353_collect_queue_is_one_list_and_never_silently_drops():
 
         # ② 한 번호가 두 갈래에 들어가지 않는다
         assert len(b["nos"]) == len(set(b["nos"])), "같은 번호가 두 번 들어갔다"
+        assert 110 in b["nos"] and 200 in b["nos"], "갈래 하나가 통째로 안 실렸다"
 
         # ③ **이미 받은 것 거르기가 살아 있다** — 오늘 실제로 낸 고장이다(try/except 가
         #    TypeError 를 삼켜 거르는 문이 조용히 없어졌다). 300 은 방금 받았으므로 빠진다.
@@ -19775,7 +19780,7 @@ def t353_collect_queue_is_one_list_and_never_silently_drops():
             MO.screen = real_screen
     finally:
         CQ._cache_bands = keep["_cache_bands"]; CQ._dirty_nos = keep["dirty"]
-        RP.load = keep["load"]; RP.absent_line = keep["absent"]; RC.targets = keep["targets"]
+        RP.load = keep["load"]; RP.absent_line = keep["absent"]; RC.targets = keep["targets"]; RP.plan = keep["plan"]
         CB.PLAN_PATH = keep["plan_path"]; CQ.QUEUE_PATH = keep["qpath"]
         shutil.rmtree(tmp, ignore_errors=True)
     print("[353] 수집대기열 — 한 목록 · 거르는 문 · 못읽음을 말함 OK")
