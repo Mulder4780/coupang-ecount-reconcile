@@ -14,7 +14,7 @@
 <style>
 html,body{touch-action:manipulation}   /* 더블탭 확대 차단 — 2026-08-08 지시 */
 
-:root{--ink-1:#111826;--ink-2:#414b60;--ink-3:#5f6a7d;--line:#dfe4ec;--bg:#f5f7fa;--card:#fff;
+:root{--ink:var(--ink-1);--ink-1:#111826;--ink-2:#414b60;--ink-3:#5f6a7d;--line:#dfe4ec;--bg:#f5f7fa;--card:#fff;
  --navy:#0e1b3f;--brand:#1c4fd8;--brand-btn:#1c4fd8;--ok:#0f7a3d;--warn:#a85a06;--bad:#b3202c;
  --okbg:#e6f4ec;--warnbg:#fdf0e0;--badbg:#fbe9eb;--sel:#EAF1FF}
 @media (prefers-color-scheme:dark){:root{--ink-1:#e9edf5;--ink-2:#b3bccd;--ink-3:#8391a8;--line:#28324a;
@@ -54,6 +54,18 @@ h1{font-size:15.5px;margin:0;letter-spacing:-.3px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:12px}
 h3{margin:0 0 9px;font-size:13.5px;letter-spacing:-.2px}
 .norm{font-weight:400;color:var(--ink-3);font-size:12.5px}
+/* [74] 글꼴 고르기 (2026-08-20) — 폰 사본에는 `ui-card` 규칙도 SVG
+   스프라이트도 한 줄도 없다(실측 `<svg` 0개). 그래서 PC 앱 마크업을
+   옮겨 오지 않고 **이 화면의 것으로** 새로 만든다 — 옮겼으면 아이콘이
+   깨진 참조가 되고 단추가 브라우저 기본 회색 글씨로 그려진다([310]). */
+.fontpick{display:block;width:100%;text-align:left;background:transparent;
+ border:1.5px solid var(--line);border-radius:11px;padding:11px 12px;margin-top:6px;
+ color:var(--ink-1);font:inherit;cursor:pointer}
+.fontpick>b{display:block;font-weight:800;font-size:14px}
+.fontpick>span{display:block;font-weight:400;font-size:12.5px;color:var(--ink-3);margin-top:2px}
+.fontpick.on{border-color:var(--brand);border-width:2px}
+.fontpick.on>b::after{content:' ✓';color:var(--brand)}
+#fontcard>summary{cursor:pointer;font-weight:800;font-size:15px}
 input,button,select{font-family:inherit;font-size:15px}
 .in{width:100%;padding:13px 14px;border:1.5px solid var(--line);border-radius:11px;
  background:var(--card);color:var(--ink-1);font-weight:700;letter-spacing:.4px}
@@ -162,16 +174,71 @@ input,button,select{font-family:inherit;font-size:15px}
 .chatlog:empty{display:none}
 .cmsg{max-width:90%;padding:9px 12px;border-radius:14px;font-size:14.5px;line-height:1.6;
       white-space:pre-wrap;word-break:break-word}
-.cmsg.me{align-self:flex-end;background:var(--brand-btn,#1c4fd8);color:#fff;border-bottom-right-radius:5px}
+.cmsg.me{align-self:flex-end;background:var(--brand-btn);color:#fff;border-bottom-right-radius:5px}
 .cmsg.bot{align-self:flex-start;background:rgba(127,127,127,.14);border-bottom-left-radius:5px}
 .cmsg.think{opacity:.6;font-style:italic}
 .cmsg .cnext{margin-top:6px;font-size:13.5px}
 .cmsg .csrc{margin-top:5px;font-size:12.5px;opacity:.72}
-.cmsg .cage{margin-top:6px;font-size:12.5px;color:var(--warn,#e0a800)}
+.cmsg .cage{margin-top:6px;font-size:12.5px;color:var(--warn)}
 .chatchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
 .chatchips button{font-size:12.5px;padding:5px 10px;border-radius:999px;
                   border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit}
-</style></head>
+</style>
+<script>
+/* [74] 글꼴 고르기 — 폰 사본(2026-08-20).
+   ★ 여기 오기 전까지 이 사본은 프리셋 CSS 를 갖고도 **켤 길이 없었다** —
+     `data-font` 를 세우는 코드가 **0곳**이라 죽은 CSS 였다(실측). 2026-08-06
+     부터 있던 되돌리기 열쇠(csos_font_legacy)도 이 화면에서는 한 번도 안 읽혔다.
+   ★ 이 사본은 **다른 출처**라 localStorage 가 PC 앱과 따로 논다 — 그 사실을
+     화면이 말한다([169]). 여기서 고른 것은 여기서만 산다.
+   ★ `toast`·`uxEvent` 는 이 화면에 **없다**. 부르면 그 자리에서 죽으므로
+     안 부른다 — 대신 '지금: …' 줄이 무엇이 켜졌는지 말한다.
+   ★ 판정은 PC 앱과 **같은 열쇠·같은 낱말**이다(csos_font_preset · data-font) —
+     달라지면 같은 사람이 두 화면에서 서로 다른 글꼴 이름을 보게 된다([162]). */
+function setFontPreset(key){
+  const r = document.documentElement;
+  if(key && key !== 'basic'){ r.setAttribute('data-font', key); }
+  else { key = 'basic'; r.removeAttribute('data-font'); }
+  try{
+    localStorage.setItem('csos_font_preset', key);
+    /* 옛 열쇠도 같이 맞춘다 — 지우면 예전 판에서 고른 사람이 다음 부팅에 되돌아간다 */
+    localStorage.setItem('csos_font_legacy', key === 'legacy' ? '1' : '0');
+  }catch(e){}
+  markFontPick();
+}
+/* 지금 고른 것을 화면에 표시한다. '무엇이 켜져 있나'를 안 보여 주면
+   사람이 눌러 놓고도 바뀌었는지 몰라 계속 다시 누른다. */
+function markFontPick(){
+  let cur = 'basic';
+  try{ cur = document.documentElement.getAttribute('data-font') || 'basic'; }catch(e){}
+  const box = document.getElementById('fontCards');
+  if(box) box.querySelectorAll('[data-fontkey]').forEach(b => {
+    const on = b.getAttribute('data-fontkey') === cur;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  const line = document.getElementById('fontNow');
+  if(line){
+    const b = box && box.querySelector('[data-fontkey="'+cur+'"] b');
+    line.textContent = '지금: ' + (b ? b.textContent : cur)
+      + ' · 이 기기에서만 — 실시간 PC 앱에는 따로 골라야 합니다';
+  }
+}
+try{
+  /* 새 열쇠가 먼저다. 없으면 옛 열쇠(csos_font_legacy)를 읽어 이어받는다 —
+     안 읽으면 예전에 나눔고딕으로 돌려 둔 사람이 말없이 기본으로 돌아간다. */
+  const saved = localStorage.getItem('csos_font_preset')
+    || (localStorage.getItem('csos_font_legacy') === '1' ? 'legacy' : '');
+  if(saved && saved !== 'basic')
+    document.documentElement.setAttribute('data-font', saved);
+}catch(e){}
+try{
+  if(document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', markFontPick);
+  else markFontPick();
+}catch(e){}
+</script>
+</head>
 <body>
 <header><div class="wrap">
   <div style="flex:1"><h1>Coupang Service Operations System</h1>
@@ -210,6 +277,34 @@ input,button,select{font-family:inherit;font-size:15px}
         이 화면은 사무실 PC와 관계없이 열립니다. 실시간 PC 기능은 연결 가능할 때만 아래에 표시됩니다.
       </div>
     </div>
+    <!-- [74] 글꼴 고르기 — 폰 사본에도 둔다(2026-08-20 · 분담판 [74]).
+         ★ **접어** 둔다: 자주 쓰는 것이 아니라 펼쳐 두면 업무 카드가 그만큼
+           밀린다([236]). 이 화면에는 접기 도구가 없어 브라우저가 이미 가진
+           <details> 를 쓴다 — CSS 도 JS 도 새로 만들 것이 없다. -->
+    <details class="card" id="fontcard">
+      <summary>글꼴 <span class="norm">— 이 기기에서만 바뀝니다</span></summary>
+      <div class="note" id="fontNow" style="margin-top:6px"></div>
+      <div class="note" style="margin-top:4px">
+        ★ 이 화면(폰 사본)과 <b>실시간 PC 앱</b>은 <b>주소가 서로 달라</b>
+        고른 글꼴이 따로 기억됩니다 — 한쪽에서 고른 것이 다른 쪽에 가지 않습니다.
+      </div>
+      <div id="fontCards">
+        <!-- ▼ 글꼴 단추 — font_switch.py 가 만든다. 손으로 고치지 말 것 (FONT-CARDS:BEGIN) -->
+        <button class="fontpick" type="button" data-fontkey="basic" onclick="setFontPreset(&#39;basic&#39;)">
+          <b>기본</b><span>기기가 제 화면에 쓰는 글꼴 — 작은 글씨가 또렷합니다</span><span class="norm">실제로 — 어느 기기에서나 그 기기의 기본 글꼴을 씁니다</span></button>
+        <button class="fontpick" type="button" data-fontkey="galaxy" onclick="setFontPreset(&#39;galaxy&#39;)">
+          <b>갤럭시 글자체</b><span>삼성 갤럭시가 제 화면에 쓰는 글꼴(One UI Sans·삼성고딕)</span><span class="norm">실제로 — 삼성 기기에서만 그대로 보입니다 — 그 밖에서는 본고딕/Roboto</span></button>
+        <button class="fontpick" type="button" data-fontkey="iphone" onclick="setFontPreset(&#39;iphone&#39;)">
+          <b>아이폰 글자체</b><span>애플이 제 화면에 쓰는 글꼴(SF Pro·애플 SD 산돌고딕)</span><span class="norm">실제로 — 아이폰·아이패드·맥에서만 그대로 보입니다 — 그 밖에서는 본고딕</span></button>
+        <button class="fontpick" type="button" data-fontkey="windows" onclick="setFontPreset(&#39;windows&#39;)">
+          <b>윈도우 글자체</b><span>사무실 PC 화면과 같은 글꼴(Segoe UI·맑은 고딕)</span><span class="norm">실제로 — 윈도우에서만 그대로 보입니다 — 그 밖에서는 본고딕</span></button>
+        <button class="fontpick" type="button" data-fontkey="clear" onclick="setFontPreset(&#39;clear&#39;)">
+          <b>또렷하게</b><span>획을 굵게 그려 눈이 편합니다 — 글씨가 흐릴 때 고르세요</span><span class="norm">실제로 — 글꼴 굵기는 그대로이고 그리는 방식이 바뀝니다(크기는 안 커집니다)</span></button>
+        <button class="fontpick" type="button" data-fontkey="legacy" onclick="setFontPreset(&#39;legacy&#39;)">
+          <b>예전(나눔고딕)</b><span>2026-07-31까지 쓰던 글꼴로 되돌립니다</span><span class="norm">실제로 — 파일마다 적어 둔 --font-ui-legacy 값을 그대로 씁니다</span></button>
+      <!-- ▲ (FONT-CARDS:END) -->
+      </div>
+    </details>
     <div id="briefbox"></div>
     <div id="alertbox"></div>
     <div class="card">
