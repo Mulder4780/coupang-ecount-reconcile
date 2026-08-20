@@ -1183,6 +1183,19 @@ button.auto-node[disabled]{cursor:progress;opacity:.72}
 #campHost .gridwrap table.grid td a{white-space:nowrap}
 #campHost .gridwrap table.grid td .mailtxt{overflow-wrap:anywhere}
 #campHost .gridwrap table.grid td:first-child{min-width:150px}
+/* * **넓은 화면에서도 표를 상자 안에 넣는다**(2026-08-20 지시 "확대하고 줄여도
+   내용 다 보이게"). 공용 규칙 `.gridwrap>table.grid{min-width:max-content}` 은 표를
+   내용 폭 그대로 두므로 이 표는 1,604px 가 되고, 상자는 936px 라 **669px 이 상자
+   밖으로 나간다**(1280px 실측). `.gridwrap{overflow:auto}` 덕에 스크롤은 되지만
+   **사람은 옆으로 밀어야만 볼 수 있다** — 그게 형님이 말한 그 증상이다.
+   * **줄여도(축소해도) 안 되던 이유**: 폭을 넓혀도 표가 같이 넓어져 넘침이 안 준다
+     (1600px 실측 349px 남음). 그래서 상자에 **맞추고** 칸을 줄바꿈시킨다.
+   ! 머리글도 같이 풀어야 한다 — `th{white-space:nowrap}` 하나가 최소 폭을 붙들어
+     이것만 빠지면 80px 이 그대로 남는다(실측 1015 대 935).
+   ! 값이 잘리지 않는다는 것은 **재서** 확인했다 — 잘린 칸 0 · 전화 안 끊김 0.
+     열을 빼서 줄이지 않는다([165] — 안 보이는 열은 빈칸과 구별되지 않는다). */
+#campHost .gridwrap>table.grid{min-width:0;width:100%}
+#campHost .gridwrap table.grid th{white-space:normal}
 /* ★ **폰에서는 표를 카드로 세운다 — 열은 하나도 감추지 않는다**
    (2026-08-19 형님 지시 "모바일도 마찬가지야"). 열이 아홉이라 폰에서는 [수정] 을
    앞으로 옮겨도 가로 스크롤이 남았다. **열을 빼는 것은 답이 아니다** — 안 보이는
@@ -1190,7 +1203,12 @@ button.auto-node[disabled]{cursor:progress;opacity:.72}
    (`data-label`)를 붙인다. 보이는 값은 넓은 화면과 **똑같다**.
    ⚠ 이름표를 만드는 자리는 `renderCampList` 하나다([162]) — CSS 가 제 손으로
      열 이름을 적으면 열을 늘린 날 **머리글만 어긋나면서 오류는 안 난다**([165]). */
-@media (max-width:899px){
+/* * 경계가 **999px** 인 이유(2026-08-20 실측): 사이드바 216px 를 빼면 900px
+   화면의 표 상자는 556px 인데, 전화번호를 안 끊는 한 이 표는 656px 아래로 못 준다
+   — 102px 이 남는다. 그 구간은 표가 아니라 **카드가 맞다**(카드는 넘침이 구조적으로
+   0 이다). 1000px 부터는 위 규칙으로 표가 상자에 딱 맞는다.
+   ! 이 블록은 통째로 `#campHost` 전용이라 경계를 옮겨도 **다른 화면은 안 바뀐다**([172]). */
+@media (max-width:999px){
   #campHost .gridwrap{overflow-x:visible;max-height:none;border:0;background:none}
   /* ★ `!important` 다 — 특이도로는 못 이긴다. 이 앱은 폰에서 `table.grid` 를
      `display:none!important` 로 **통째로 감춘다**(정산 화면이 표 대신 카드 목록
