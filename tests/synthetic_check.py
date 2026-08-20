@@ -19671,6 +19671,104 @@ def t334_cache_copies_are_not_dumps():
     print("[334] 캐시 사본은 덤프가 아니다 · 유령 자기증식 차단 · 아는 시각 보존 (실행으로 잼) OK")
 
 
+def t353_collect_queue_is_one_list_and_never_silently_drops():
+    """브라우저가 읽는 수집 계획은 **한 곳**에서 오고 뺀 것은 숫자로 말한다 (2026-08-20 지시).
+
+    왜 이 검사가 있나: 계획을 만드는 곳이 넷인데(recheck_plan·UI오염 목록·recollect·
+    comment_backfill) 앱이 내려 주던 것은 그중 하나뿐이었다. 실측으로 남은 브라우저
+    일이 494건인데 계획에는 2건만 있었고 **오류도 안 나고 화면도 멀쩡했다**([169]).
+    여기서 얼리는 것은 '있어야 할 글자'가 아니라 **되돌아가면 안 되는 계약**이다([39]).
+    실측 증거 파일에는 한 글자도 안 쓴다([247]) — 전부 임시 경로다.
+    """
+    import importlib, tempfile, shutil
+    bp = os.path.join(ROOT, "band")
+    if bp not in sys.path:
+        sys.path.insert(0, bp)
+    CQ = importlib.import_module("collect_queue")
+    RP = importlib.import_module("recheck_plan")
+    RC = importlib.import_module("recollect")
+    CB = importlib.import_module("comment_backfill")
+
+    BAND = "99999999"
+    now_ms = int(time.time() * 1000)
+    posts = {}
+    for n in list(range(100, 110)) + [200, 201, 300, 301, 400]:
+        posts[str(n)] = {"created_at": now_ms, "captured_at": 0}
+    posts["105"]["deleted"] = True          # 죽은 표시 — 거르는 문이 잡아야 한다
+    posts["300"]["captured_at"] = now_ms    # 방금 받았다 — 재수집에서 빠져야 한다
+
+    keep = dict(_cache_bands=CQ._cache_bands, dirty=CQ._dirty_nos,
+                load=RP.load, absent=RP.absent_line, targets=RC.targets,
+                plan_path=CB.PLAN_PATH, qpath=CQ.QUEUE_PATH)
+    tmp = tempfile.mkdtemp(prefix="cq_")
+    try:
+        CQ._cache_bands = lambda: [BAND]
+        RP.load = lambda b: posts
+        RP.absent_line = lambda b, p=None, today=None: (None, "")
+        CQ._dirty_nos = lambda b: [200, 201]
+        RC.targets = lambda b, p, *a, **k: ([300, 301], "2026-07-21")
+        CB.PLAN_PATH = os.path.join(tmp, "cb.json")
+        with open(CB.PLAN_PATH, "w", encoding="utf-8") as fh:
+            json.dump({"generated": "t", "bands": {BAND: {"nos": [400], "tiers": {}}}}, fh)
+
+        doc = CQ.build()
+        b = doc["bands"][BAND]
+
+        # ① 죽은 표시가 붙은 번호는 목록에 없다 — 없는 번호를 손에 들려 보내지 않는다([223])
+        assert 105 not in b["nos"], "죽은 표시 105 가 대기열에 들어갔다 — 거르는 문이 죽었다"
+        assert "삭제·오염·유령 표시" in (b["거른것"] or {}), "뺀 것을 숫자로 말하지 않는다([169])"
+
+        # ② 한 번호가 두 갈래에 들어가지 않는다
+        assert len(b["nos"]) == len(set(b["nos"])), "같은 번호가 두 번 들어갔다"
+
+        # ③ **이미 받은 것 거르기가 살아 있다** — 오늘 실제로 낸 고장이다(try/except 가
+        #    TypeError 를 삼켜 거르는 문이 조용히 없어졌다). 300 은 방금 받았으므로 빠진다.
+        assert 300 not in b["tiers"].get("재수집", []),             "재수집이 '이미 받은 것'을 안 거른다 — 붙여넣기가 매일 같은 것을 훑는다"
+        assert 301 in b["nos"], "안 받은 재수집 대상이 빠졌다"
+
+        # ④ producer 가 죽으면 **조용히 빼지 않는다**([169])
+        def boom(*a, **k):
+            raise RuntimeError("일부러")
+        RC.targets = boom
+        doc2 = CQ.build()
+        b2 = doc2["bands"][BAND]
+        assert any(m.get("갈래") == "재수집" for m in (b2["못읽음"] or [])),             "갈래 하나가 죽었는데 아무 말도 안 한다 — '이게 전부'로 읽힌다"
+        assert b2["nos"], "한 갈래가 죽었다고 나머지까지 안 낸다"
+        RC.targets = keep["targets"]
+
+        # ⑤ 내려 줄 때 한 배치 한도까지만 · 남은 수를 적는다
+        CQ.QUEUE_PATH = os.path.join(tmp, "q.json")
+        big = {"generated": "t", "bands": {BAND: {"nos": list(range(1, 400)),
+                                                  "tiers": {}, "건수": {}, "못읽음": []}}}
+        with open(CQ.QUEUE_PATH, "w", encoding="utf-8") as fh:
+            json.dump(big, fh)
+        out = CB.load_plan(BAND)
+        assert len(out["nos"]) == CB.BATCH_MAX, "한도를 넘겨 내려보낸다 — 수집기가 통째로 거절한다"
+        assert out["대기열"]["남은"] > 0, "남은 수를 안 적는다 — 받는 쪽이 '이게 전부'로 읽는다"
+
+        # ⑥ 대기열을 못 읽으면 **못읽음이라 말한다** — 조용히 댓글 갈래만 주지 않는다
+        CQ.QUEUE_PATH = os.path.join(tmp, "없는파일.json")
+        out2 = CB.load_plan(BAND)
+        assert out2["대기열"]["상태"] == "못읽음", "대기열을 못 읽었는데 정상인 척한다([169])"
+
+        # ⑦ 계기 자기시험([272]) — 거르는 문을 빼면 ①이 잡히는가
+        import make_oneclick as MO
+        real_screen = MO.screen
+        try:
+            MO.screen = lambda band, nos, p=None: (list(nos), {}, "")
+            CQ.QUEUE_PATH = keep["qpath"]
+            bad = CQ.build()["bands"][BAND]
+            assert 105 in bad["nos"], "거르는 문을 껐는데도 105 가 안 들어온다 — 이 검사는 아무것도 안 재고 있다"
+        finally:
+            MO.screen = real_screen
+    finally:
+        CQ._cache_bands = keep["_cache_bands"]; CQ._dirty_nos = keep["dirty"]
+        RP.load = keep["load"]; RP.absent_line = keep["absent"]; RC.targets = keep["targets"]
+        CB.PLAN_PATH = keep["plan_path"]; CQ.QUEUE_PATH = keep["qpath"]
+        shutil.rmtree(tmp, ignore_errors=True)
+    print("[353] 수집대기열 — 한 목록 · 거르는 문 · 못읽음을 말함 OK")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -27967,6 +28065,7 @@ if __name__ == "__main__":
     t333_ryu_center_shows_what_to_do_now()
     t334_cache_copies_are_not_dumps()
     t352_phone_copy_can_pick_a_font_in_its_own_design()
+    t353_collect_queue_is_one_list_and_never_silently_drops()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
