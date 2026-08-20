@@ -790,7 +790,7 @@ body.calendar-only .cal2-only-note{display:block}
 .blegend .k1{background:var(--brand-btn)} .blegend .k2{background:var(--brand-tint)}
 .mbar.on b{color:var(--brand);font-weight:800}
 .pkpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
-.pk{background:var(--panel);border:1px solid #EEF2F7;border-radius:10px;padding:10px 12px}
+.pk{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 .pk .v{font-size:1.0625rem;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.4px}
 .pk .l{font-size:0.8125rem;color:var(--ink-3);font-weight:600;margin-top:1px}
 @media(min-width:900px){.pkpis{grid-template-columns:repeat(6,1fr)}}
@@ -804,7 +804,7 @@ body.calendar-only .cal2-only-note{display:block}
 
 /* ═══ 스텝 리스트 ═══ */
 .steps{display:flex;flex-direction:column}
-.step{display:flex;align-items:center;gap:10px;font-size:0.90625rem;padding:7px 2px;border-bottom:1px solid #F0F3F7}
+.step{display:flex;align-items:center;gap:10px;font-size:0.90625rem;padding:7px 2px;border-bottom:1px solid var(--line)}
 .step:last-child{border-bottom:none}
 .step .ic{width:20px;text-align:center;flex:none}
 
@@ -992,8 +992,8 @@ body.calendar-only .cal2-only-note{display:block}
   .issue-detail-meta{text-align:left}
 }
 .gi{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
-  font-size:0.875rem;padding:6px 0;border-bottom:1px dashed #EEF2F7}
-.gitem{border-bottom:1px solid #EEF2F7;padding:1px 5px;border-radius:7px}
+  font-size:0.875rem;padding:6px 0;border-bottom:1px dashed var(--line)}
+.gitem{border-bottom:1px solid var(--line);padding:1px 5px;border-radius:7px}
 .gitem:last-child{border-bottom:0}
 .gi:last-child{border-bottom:0}
 .gitem .gi{border-bottom:0}
@@ -1077,7 +1077,7 @@ table.grid{width:100%;border-collapse:collapse;background:var(--surface);border:
   border-radius:var(--r);overflow:hidden;box-shadow:var(--sh);display:none}
 table.grid th{position:sticky;top:0;background:var(--panel);font-size:0.8125rem;color:var(--ink-3);font-weight:800;
   letter-spacing:.4px;text-align:left;padding:11px 13px;border-bottom:1px solid var(--line);white-space:nowrap}
-table.grid td{padding:10.5px 13px;border-bottom:1px solid #F0F3F7;font-size:0.875rem;font-variant-numeric:tabular-nums}
+table.grid td{padding:10.5px 13px;border-bottom:1px solid var(--line);font-size:0.875rem;font-variant-numeric:tabular-nums}
 /* ★ 넓은 표를 담는 상자 (2026-08-09 지시: "확대하면 바깥으로 나가고 고정이 안된다").
    전에는 표가 벌거벗은 채 놓여 있어, 열이 화면보다 넓어지면 **문서 전체**가 옆으로
    늘어났다. 그러면 확대했을 때 왼쪽 메뉴·머리줄까지 같이 밀린다 — 화면이 통째로
@@ -1098,7 +1098,23 @@ table.grid tr:active td{background:var(--brand-tint)}
 table.grid th[data-sk]{cursor:pointer;user-select:none;transition:color .12s}
 table.grid th[data-sk]:hover{color:var(--brand)}
 table.grid tr.tot td{font-weight:800;background:var(--panel);border-top:2px solid var(--line);font-size:0.875rem}
-.num{text-align:right}
+/* ── 표 정렬은 **한 곳**에서 정한다 (2026-08-21 형님 지시) ─────────────────
+   "표들 정렬 좀 균일하고 깔끔하게 · 구분이 확실하게 가게".
+   ★ 앱에 표 계열이 둘이다(`table.grid` 5곳 · `table.remote-mini` 7곳). 정렬을
+     표마다 적으면 화면마다 다르게 보인다 — 그래서 여기 한 곳에 둔다([162]).
+   ★ 숫자는 **오른쪽 + 자릿수 고정**이다. 왼쪽 정렬이면 `-1` 과 `+5` 의 자리가
+     어긋나 눈으로 세로로 못 읽는다(형님 캡처의 '증감' 열이 그랬다).
+   ★ 머리글도 같이 옮긴다 — 머리글만 왼쪽이면 열이 어긋나 보인다. */
+/* ⚠ 선택자가 긴 이유는 **우선순위** 다 — 짧게 줄이면 조용히 안 먹는다.
+   `table.remote-mini td` 는 (0,1,2) 인데 `td.num` 은 (0,1,1) 이라 표 규칙이 이긴다.
+   실측으로 그대로 당했다: 클래스는 붙었는데 정렬이 그대로 왼쪽이었다(오류도 안 난다).
+   `!important` 대신 표 이름을 같이 적는다 — 어느 표가 이 규칙을 쓰는지 눈에 남는다. */
+.num,th.num,td.num,
+table.grid th.num,table.grid td.num,
+table.remote-mini th.num,table.remote-mini td.num{text-align:right;font-variant-numeric:tabular-nums}
+th.ops,td.ops,
+table.grid th.ops,table.grid td.ops,
+table.remote-mini th.ops,table.remote-mini td.ops{text-align:right;white-space:nowrap}
 .srow:active{transform:scale(.985)}
 
 /* ═══ 실행 버튼 ═══ */
@@ -1591,7 +1607,7 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
 /* ═══ TOP 리스트 ═══ */
 .toplist{display:flex;flex-direction:column;gap:8px}
 .topitem{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 13px;
-  background:var(--panel);border:1px solid #EEF2F7;border-radius:11px;font-size:0.875rem;
+  background:var(--panel);border:1px solid var(--line);border-radius:11px;font-size:0.875rem;
   cursor:pointer;transition:all .15s}
 .topitem:hover{border-color:var(--brand);background:var(--brand-tint)}
 .topitem b{font-size:0.875rem}
@@ -1710,7 +1726,7 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
 .ceo-dir-item p{margin:0;font-size:0.78125rem;line-height:1.5;color:var(--ink-2);word-break:keep-all}
 .ceo-dir-item small{display:block;margin-top:6px;color:var(--danger);font-size:0.75rem;font-weight:800}
 .rgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.rcell{background:var(--panel);border:1px solid #EEF2F7;border-radius:10px;padding:10px 12px;text-align:center}
+.rcell{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;text-align:center}
 .rcell.clk{cursor:pointer;transition:border .15s,box-shadow .15s,transform .1s}
 .rcell.clk:hover{border-color:var(--brand);box-shadow:0 3px 10px rgba(36,82,230,.16)}
 .rcell.clk:active{transform:scale(.97)}
@@ -2290,8 +2306,21 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
 .wt-acthint{margin-top:4px;color:var(--ink-3);font-size:0.78125rem;line-height:1.45}
 .wt-pend{margin-left:5px;color:var(--warn);font-style:normal;font-size:0.78125rem;border:1px solid #F2C4A0;
   border-radius:6px;padding:0 5px;background:var(--warn-bg)}
-.wt-board{display:flex;gap:10px;overflow-x:auto;align-items:flex-start;padding-bottom:6px}
-.wt-col{flex:0 0 290px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:9px}
+/* ── 기사별 묶음판은 **줄바꿈**한다 (2026-08-21 형님 지시) ───────────────────
+   "화면을 줄이지 않아도 반응형으로 다 보일 수 있는 구조로".
+   ★ 예전에는 `flex:0 0 290px` 고정폭 + `overflow-x:auto` 라 기사가 늘면 옆으로
+     밀렸다. 실측(1280px · 기사 7묶음): 판의 실제 폭 2,090px 대 보이는 폭 981px —
+     **1,101px 이 잘리고 7묶음 중 4묶음이 화면 밖**이었다. 화면을 아무리 넓혀도
+     기사가 더 늘면 같은 일이 난다.
+   ★ `auto-fill` + `minmax` 로 두면 들어가는 만큼 한 줄에 놓고 나머지는 다음 줄로
+     내려간다 — **가로 스크롤이 사라지고 전부 보인다**. `auto-fit` 을 쓰지 않는 이유:
+     묶음이 하나뿐인 날 그 하나가 화면 전체로 늘어나 카드가 우스워진다.
+   ★ 칼럼 사이에 끌어놓기가 없다(실측) — 그래서 줄바꿈해도 뜻이 안 깨진다.
+   ★ `min-width:0` 이 없으면 긴 캠프명이 격자 칸을 밀어내 다시 넘친다.
+     (격자 자식의 기본 `min-width:auto` 가 내용 폭을 최소폭으로 삼는다) */
+.wt-board{display:grid;grid-template-columns:repeat(auto-fill,minmax(272px,1fr));
+  gap:10px;align-items:start;padding-bottom:6px}
+.wt-col{min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:9px}
 .wt-col.warn{background:var(--warn-bg);border-color:#F2C4A0}
 .wt-col h4{margin:2px 4px 8px;font-size:0.875rem}
 .wt-col h4 span{color:var(--ink-3);font-weight:700}
@@ -2344,9 +2373,20 @@ body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
   font-size:0.96875rem;font-weight:800;margin-top:2px}
 table.remote-mini{border-collapse:collapse;width:100%;margin:8px 0;background:var(--surface);border-radius:13px;overflow:hidden}
 table.remote-mini th{background:var(--panel);color:var(--brand);font-size:0.8125rem;font-weight:800;padding:9px 12px;text-align:left}
-table.remote-mini td{border-top:1px solid #EEF2F7;padding:10px 12px;text-align:left;font-size:0.875rem;color:var(--ink)}
+/* ★ 구분선을 **토큰**으로. `var(--line)` 은 밝은 화면에서만 맞는 굳은 색이라
+   어두운 화면에서는 뜻이 달라진다([332] 와 같은 자리).
+   ★ `height` 는 표에서 **최소 높이**로 동작한다 — 단추가 있는 줄만 높아
+   눈이 걸리던 것을 고르게 만든다(형님 캡처의 '되돌리기' 줄).
+   ★ `tabular-nums` 는 `table.grid td` 에 이미 있는데 여기만 없었다. */
+table.remote-mini td{border-top:1px solid var(--line);padding:10px 12px;text-align:left;
+  font-size:0.875rem;color:var(--ink);font-variant-numeric:tabular-nums}
+table.remote-mini th{border-bottom:1px solid var(--line)}
+/* 줄을 번갈아 옅게 — 열이 예닐곱이면 눈이 가로줄을 놓친다("구분이 확실하게").
+   머리글이 첫 자식이라 2n 이 자료 첫 줄부터 잡힌다. */
+table.remote-mini tr:nth-child(2n) td{background:rgba(127,127,127,.045)}
+table.remote-mini tr:hover td{background:var(--panel)}
 ul.remote-plain{list-style:none;padding:0;margin:8px 0}
-ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:0.875rem}
+ul.remote-plain li{padding:9px 2px;border-bottom:1px solid var(--line);font-size:0.875rem}
 .remote-rule{font-size:0.84375rem;color:var(--ink-2);margin:2px 0 6px}
 /* 버전·한도초과 표시(2026-08-04 재고표 반영) — 숫자만 보면 어느 물건인지 모른다 */
 .remote-ver{font-size:0.78125rem;color:var(--ink-3)}
@@ -2354,7 +2394,13 @@ ul.remote-plain li{padding:9px 2px;border-bottom:1px solid #EEF2F7;font-size:0.8
 .remote-warn{font-size:0.84375rem;color:var(--danger);background:var(--danger-bg);
   border-radius:10px;padding:8px 11px;margin:2px 0 8px}
 /* 줄마다 붙는 고치기·지우기(2026-08-06 지시) — 표를 밀어내지 않게 작게 둔다 */
-td.remote-ops{white-space:nowrap;text-align:right}
+/* ★ 단추가 **줄 높이를 바꾸지 않게** 한다 (2026-08-21 형님 지시).
+   실측: 글자만 있는 줄 42px · 단추가 있는 줄 52px — 형님 캡처의 '되돌리기' 줄이
+   유독 높아 보이던 것이 이것이다. 위아래 여백을 단추 높이만큼 줄여 맞춘다.
+   ★ 내용이 두 줄인 칸까지 억지로 맞추지는 않는다 — 그건 내용이지 장식이 아니다
+   (강제로 맞추면 글자를 잘라야 하고, 그건 안 보이는 열과 같다 [165]).
+   ★ 머리글도 같이 오른쪽으로 간다(`th.ops`) — 머리글만 왼쪽이면 열이 어긋나 보인다. */
+table.remote-mini td.remote-ops,td.remote-ops{white-space:nowrap;text-align:right;padding-top:5px;padding-bottom:5px}
 td.remote-ops .abtn.tiny{display:inline-flex;min-height:0;padding:5px 9px;font-size:0.8125rem;
   font-weight:700;border-radius:8px;margin-left:5px}
 .abtn.tiny.warn{color:var(--danger);border-color:var(--danger)}
@@ -8766,8 +8812,8 @@ function remoteCardBody(host,s,hostId){
   const verLine=v=>Object.entries(v||{}).filter(([,n])=>n).map(([k,n])=>`${esc2(k)} ${n}`).join(' · ');
   const holdRows=holds.length?holds.map(([t,h])=>{const ov=h.holding>(s.limit||3);
     const vl=verLine(h.versions);
-    return `<tr><td>${esc2(t)}${vl?`<br><span class="remote-ver">${vl}</span>`:''}</td><td>${h.issued}</td><td>${h.delivered}</td><td><b${ov?' class="remote-over"':''}>${h.holding}${ov?' ⚠':''}</b></td></tr>`;}).join(''):'<tr><td colspan="4">불출 이력이 아직 없습니다</td></tr>';
-  const dels=(s.deliveries||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.delivered_on)}</td><td>${esc2(r.technician)}</td><td>${esc2(r.project||'')} ${esc2(r.camp||'')}</td><td>${esc2(r.kind||'납품')}</td><td>${esc2(r.version||'미확인')}</td><td>${r.qty}</td><td class="remote-ops"><button class="abtn tiny" type="button" onclick="remoteEditOpen('delivery',${r.id},'${hostId}')">고치기</button><button class="abtn tiny warn" type="button" onclick="remoteRowDelete('delivery',${r.id},'${hostId}')">지우기</button></td></tr>`).join('');
+    return `<tr><td>${esc2(t)}${vl?`<br><span class="remote-ver">${vl}</span>`:''}</td><td class="num">${h.issued}</td><td class="num">${h.delivered}</td><td class="num"><b${ov?' class="remote-over"':''}>${h.holding}${ov?' ⚠':''}</b></td></tr>`;}).join(''):'<tr><td colspan="4">불출 이력이 아직 없습니다</td></tr>';
+  const dels=(s.deliveries||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.delivered_on)}</td><td>${esc2(r.technician)}</td><td>${esc2(r.project||'')} ${esc2(r.camp||'')}</td><td>${esc2(r.kind||'납품')}</td><td>${esc2(r.version||'미확인')}</td><td class="num">${r.qty}</td><td class="remote-ops"><button class="abtn tiny" type="button" onclick="remoteEditOpen('delivery',${r.id},'${hostId}')">고치기</button><button class="abtn tiny warn" type="button" onclick="remoteRowDelete('delivery',${r.id},'${hostId}')">지우기</button></td></tr>`).join('');
   // ★ bs 는 아래 표들이 모두 쓰므로 **먼저** 선언한다. 뒤에 두면 mvs 가 선언 전 bs 를
   //   건드려 ReferenceError 가 나고, catch 도 없어 카드가 통째로 비어 보였다(2026-08-04).
   const bs=s.branch_stock||{};
@@ -8776,14 +8822,14 @@ function remoteCardBody(host,s,hostId){
      현황 전체를 window.__REMOTE 에 놓아 둔다. */
   window.__REMOTE=s;
   const rowBtns=(kind,id)=>`<td class="remote-ops"><button class="abtn tiny" type="button" onclick="remoteEditOpen('${kind}',${id},'${hostId}')">고치기</button><button class="abtn tiny warn" type="button" onclick="remoteRowDelete('${kind}',${id},'${hostId}')">지우기</button></td>`;
-  const mvs=(s.moves||[]).slice(0,8).map(r=>`<tr><td>${esc2(r.moved_on||'')}</td><td>${esc2((bs[r.branch]||{}).label||r.branch)}</td><td>${esc2(r.version||'미확인')}</td><td>${r.qty_delta>0?'+':''}${r.qty_delta}</td><td>${esc2((r.reason||'').replace(/\s*\[재고표[^\]]*\]/,''))}</td>${rowBtns('stock',r.id)}</tr>`).join('');
+  const mvs=(s.moves||[]).slice(0,8).map(r=>`<tr><td>${esc2(r.moved_on||'')}</td><td>${esc2((bs[r.branch]||{}).label||r.branch)}</td><td>${esc2(r.version||'미확인')}</td><td class="num">${r.qty_delta>0?'+':''}${r.qty_delta}</td><td>${esc2((r.reason||'').replace(/\s*\[재고표[^\]]*\]/,''))}</td>${rowBtns('stock',r.id)}</tr>`).join('');
   /* 왜·어디에(2026-08-19). 빈칸은 '-' 로만 적는다 — 모르는 것을 '신규'로 채우지 않는다([169]). */
   const rcWhy=r=>[esc2(r.reason||'-'),r.fault_detail?`<span class="norm">${esc2(r.fault_detail)}</span>`:''].filter(Boolean).join('<br>');
   const rcEq=r=>[r.equip_kind,r.equip_spec,r.unit_no].filter(Boolean).map(esc2).join(' ')||'-';
-  const iss=(s.issues||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.issued_on||String(r.requested_at||'').slice(0,10))}</td><td>${esc2(r.branch)}</td><td>${esc2(r.issuer||'-')}</td><td>${esc2(r.technician)}${r.to_kind==='공장·지사'?' <span class="norm">(공장·지사)</span>':''}</td><td>${esc2(r.camp||'-')}</td><td>${rcWhy(r)}</td><td>${rcEq(r)}</td><td>${esc2(r.version||'미확인')}</td><td>${r.qty}</td>${rowBtns('issue',r.id)}</tr>`).join('');
+  const iss=(s.issues||[]).slice(0,10).map(r=>`<tr><td>${esc2(r.issued_on||String(r.requested_at||'').slice(0,10))}</td><td>${esc2(r.branch)}</td><td>${esc2(r.issuer||'-')}</td><td>${esc2(r.technician)}${r.to_kind==='공장·지사'?' <span class="norm">(공장·지사)</span>':''}</td><td>${esc2(r.camp||'-')}</td><td>${rcWhy(r)}</td><td>${rcEq(r)}</td><td>${esc2(r.version||'미확인')}</td><td class="num">${r.qty}</td>${rowBtns('issue',r.id)}</tr>`).join('');
   const verTxt=v=>Object.entries(v.versions||{}).filter(([,n])=>n).map(([k,n])=>`${esc2(k)} ${n}`).join(' · ');
   const stockRows=Object.keys(s.branches||{}).map(b=>{const v=bs[b]||{};const vt=verTxt(v);
-    return `<tr><td>${esc2(v.label||b)}${vt?`<br><span class="remote-ver">${vt}</span>`:''}</td><td>${esc2((s.branches||{})[b]||'')}</td><td>${v.tracked?v.in:'-'}</td><td>${v.tracked?v.issued:'-'}</td><td><b>${v.tracked?v.stock+'개':'미등록'}</b></td></tr>`;}).join('');
+    return `<tr><td>${esc2(v.label||b)}${vt?`<br><span class="remote-ver">${vt}</span>`:''}</td><td>${esc2((s.branches||{})[b]||'')}</td><td class="num">${v.tracked?v.in:'-'}</td><td class="num">${v.tracked?v.issued:'-'}</td><td class="num"><b>${v.tracked?v.stock+'개':'미등록'}</b></td></tr>`;}).join('');
   const t=s.totals||{};
   const over=Object.entries(s.over_limit||{});
   /* 버전 선택지는 **서버가 준 목록만** 쓴다(2026-08-06 지시). 화면이 따로 적어 두면
@@ -8795,7 +8841,7 @@ function remoteCardBody(host,s,hostId){
   const defIssuer=(s.branches||{})[Object.keys(s.branches||{})[0]]||'';
   const aud=(s.audit||[]).slice(0,8).map(r=>{
     const nm={remote_issue:'불출',remote_delivery:'납품',remote_stock:'재고'}[r.table_name]||r.table_name;
-    return `<tr><td>${esc2(String(r.created_at||'').replace('T',' ').slice(5,16))}</td><td>${esc2(nm)} #${r.row_id}</td><td>${esc2(r.action)}${r.forced?' <b class="remote-over">강제</b>':''}</td><td>${esc2(r.reason||'')}</td><td>${esc2(r.actor||'')}</td><td>${r.action==='삭제'?`<button class="abtn tiny" type="button" onclick="remoteRestore(${r.id},'${hostId}')">되돌리기</button>`:''}</td></tr>`;
+    return `<tr><td>${esc2(String(r.created_at||'').replace('T',' ').slice(5,16))}</td><td>${esc2(nm)} #${r.row_id}</td><td>${esc2(r.action)}${r.forced?' <b class="remote-over">강제</b>':''}</td><td>${esc2(r.reason||'')}</td><td>${esc2(r.actor||'')}</td><td class="remote-ops">${r.action==='삭제'?`<button class="abtn tiny" type="button" onclick="remoteRestore(${r.id},'${hostId}')">되돌리기</button>`:''}</td></tr>`;
   }).join('');
   /* ── 버전 한눈에 + 미확인 채우기 (2026-08-06 지시) ─────────────────────────
      "전체적으로 버전 관리가 VER.3인지 VER.4인지 입력 및 확인 수정 가능하게".
@@ -8810,8 +8856,8 @@ function remoteCardBody(host,s,hostId){
   const gaps=s.version_gaps||[];
   const gapKind={issue:'불출',delivery:'납품',stock:'재고'};
   const gapBlock=gaps.length?`<h4>버전 확인 필요 <span class="norm">— ${gaps.length}건 · 고르면 바로 저장됩니다</span></h4>
-    <table class="remote-mini"><tr><th>구분</th><th>일자</th><th>사람·지점</th><th>수량</th><th>버전 지정</th></tr>
-    ${gaps.map(g=>`<tr><td>${esc2(gapKind[g.kind]||g.kind)} #${g.id}</td><td>${esc2(g.on||'-')}</td><td>${esc2(g.who||'-')}</td><td>${g.qty}</td>
+    <table class="remote-mini"><tr><th>구분</th><th>일자</th><th>사람·지점</th><th class="num">수량</th><th>버전 지정</th></tr>
+    ${gaps.map(g=>`<tr><td>${esc2(gapKind[g.kind]||g.kind)} #${g.id}</td><td>${esc2(g.on||'-')}</td><td>${esc2(g.who||'-')}</td><td class="num">${g.qty}</td>
       <td><select class="remote-vfix" onchange="remoteSetVersion('${g.kind}',${g.id},this.value,'${hostId}')" aria-label="${esc2(gapKind[g.kind]||g.kind)} ${g.id} 버전">
         <option value="">고르세요</option>${(s.versions||[]).filter(v=>v!=='미확인').map(v=>`<option>${esc2(v)}</option>`).join('')}</select></td></tr>`).join('')}
     </table>`:'';
@@ -8831,8 +8877,8 @@ function remoteCardBody(host,s,hostId){
     <p class="remote-rule">현재 합계 — 개인 보유 <b>${t.holding||0}</b> · 지점 재고 <b>${t.stock||0}</b> · 전체 <b>${t.all||0}</b>개 <span class="norm">(기준: 2026-07-29 재고표 + 이후 입력)</span></p>
     ${over.length?`<p class="remote-warn">한도 초과 보유 — ${over.map(([n,q])=>`${esc2(n)} <b>${q}개</b>`).join(' · ')} (한도 ${s.limit}개). 공지 4항에 따라 추가 불출 전에 <b>기존 리모컨의 납품·사용 내역을 먼저 확인</b>해야 합니다.</p>`:''}
     ${verTotalBlock}
-    <table class="remote-mini"><tr><th>지점</th><th>담당</th><th>입고</th><th>불출</th><th>현재 재고</th></tr>${stockRows}</table>
-    <table class="remote-mini"><tr><th>AS 담당자<span class="norm"> · 버전별</span></th><th>불출</th><th>납품</th><th>보유</th></tr>${holdRows}</table>
+    <table class="remote-mini"><tr><th>지점</th><th>담당</th><th class="num">입고</th><th class="num">불출</th><th class="num">현재 재고</th></tr>${stockRows}</table>
+    <table class="remote-mini"><tr><th>AS 담당자<span class="norm"> · 버전별</span></th><th class="num">불출</th><th class="num">납품</th><th class="num">보유</th></tr>${holdRows}</table>
     ${gapBlock}
     <div class="remote-grid2">
       <fieldset><legend>지점 재고 등록 · 입고/실사</legend>
@@ -8905,10 +8951,10 @@ function remoteCardBody(host,s,hostId){
       </fieldset>
     </div>
     <div id="${hostId}EditBox"></div>
-    ${iss?`<h4>최근 불출 <span class="norm">— 줄마다 고치기·지우기</span></h4><table class="remote-mini"><tr><th>불출일</th><th>지점</th><th>불출자</th><th>받는 곳</th><th>투입 캠프</th><th>사유</th><th>설비·호기</th><th>버전</th><th>수량</th><th>조작</th></tr>${iss}</table>`:''}
-    ${dels?`<h4>최근 납품·사용</h4><table class="remote-mini"><tr><th>일자</th><th>담당자</th><th>납품처</th><th>유형</th><th>버전</th><th>수량</th><th>조작</th></tr>${dels}</table>`:''}
-    ${mvs?`<h4>최근 지점 재고 이동 <span class="norm">— 입고·택배출고·샘플·실사</span></h4><table class="remote-mini"><tr><th>일자</th><th>지점</th><th>버전</th><th>증감</th><th>사유</th><th>조작</th></tr>${mvs}</table>`:''}
-    ${aud?`<h4>수정·삭제 기록 <span class="norm">— 지운 것은 되돌릴 수 있습니다</span></h4><table class="remote-mini"><tr><th>시각</th><th>대상</th><th>한 일</th><th>사유</th><th>사람</th><th>조작</th></tr>${aud}</table>`:''}`;
+    ${iss?`<h4>최근 불출 <span class="norm">— 줄마다 고치기·지우기</span></h4><table class="remote-mini"><tr><th>불출일</th><th>지점</th><th>불출자</th><th>받는 곳</th><th>투입 캠프</th><th>사유</th><th>설비·호기</th><th>버전</th><th class="num">수량</th><th class="ops">조작</th></tr>${iss}</table>`:''}
+    ${dels?`<h4>최근 납품·사용</h4><table class="remote-mini"><tr><th>일자</th><th>담당자</th><th>납품처</th><th>유형</th><th>버전</th><th class="num">수량</th><th class="ops">조작</th></tr>${dels}</table>`:''}
+    ${mvs?`<h4>최근 지점 재고 이동 <span class="norm">— 입고·택배출고·샘플·실사</span></h4><table class="remote-mini"><tr><th>일자</th><th>지점</th><th>버전</th><th class="num">증감</th><th>사유</th><th class="ops">조작</th></tr>${mvs}</table>`:''}
+    ${aud?`<h4>수정·삭제 기록 <span class="norm">— 지운 것은 되돌릴 수 있습니다</span></h4><table class="remote-mini"><tr><th>시각</th><th>대상</th><th>한 일</th><th>사유</th><th>사람</th><th class="ops">조작</th></tr>${aud}</table>`:''}`;
 }
 /* 지점을 바꾸면 불출자 기본값도 따라간다 — 부산인데 류지영이 남아 있으면 틀린 기록이 된다. */
 function remoteBranchIssuer(hostId){
@@ -17395,7 +17441,7 @@ async function renderStats(){
     const dist={};
     (settleRows||[]).forEach(r=>{const s=String(r.상태||'').trim()||'(상태없음)'; dist[s]=(dist[s]||0)+1;});
     const settleTab=Object.entries(dist).sort((a,b)=>b[1]-a[1]).map(([s,n])=>
-      `<tr><td>${esc2(s)}</td><td>${fmt(n)}</td></tr>`).join('');
+      `<tr><td>${esc2(s)}</td><td class="num">${fmt(n)}</td></tr>`).join('');
     const asRows=(works.as||[]), pmRows=(works.pm||[]);
     const doneOf=(rows,st)=>rows.filter(r=>/완료/.test(String(st(r)||''))).length;
     const asDone=doneOf(asRows,r=>r.진행상태), pmDone=doneOf(pmRows,r=>r.점검상태);
@@ -17408,10 +17454,10 @@ async function renderStats(){
     const taxTab=tax?Object.entries(tax.buckets||{}).filter(([,n])=>n>0).map(([b,n])=>
       `<tr><td>${esc2(b)}</td><td>${fmt(n)}</td></tr>`).join(''):'';
     const remoteTab=remote?Object.entries(remote.holdings||{}).map(([t,h])=>
-      `<tr><td>${esc2(t)}</td><td>${h.issued}</td><td>${h.delivered}</td><td>${h.holding}</td></tr>`).join(''):'';
+      `<tr><td>${esc2(t)}</td><td class="num">${h.issued}</td><td class="num">${h.delivered}</td><td class="num">${h.holding}</td></tr>`).join(''):'';
     host.innerHTML=`<div class="remote-grid2">
       <div><h4>정산 상태 (${fmt((settleRows||[]).length)}건)</h4>
-        <table class="remote-mini"><tr><th>상태</th><th>건수</th></tr>${settleTab||'<tr><td colspan=2>-</td></tr>'}</table></div>
+        <table class="remote-mini"><tr><th>상태</th><th class="num">건수</th></tr>${settleTab||'<tr><td colspan=2>-</td></tr>'}</table></div>
       <div><h4>현장 업무</h4>
         <table class="remote-mini"><tr><th>구분</th><th>총</th><th>완료</th><th>잔여</th></tr>
           <tr><td>돌발AS</td><td>${fmt(asRows.length)}</td><td>${fmt(asDone)}</td><td>${fmt(asRows.length-asDone)}</td></tr>
@@ -17421,7 +17467,7 @@ async function renderStats(){
       <div><h4>세금계산서 미발행 경과${tax?` (${fmt(tax.total)}건)`:''}</h4>
         <table class="remote-mini"><tr><th>경과</th><th>건수</th></tr>${taxTab||'<tr><td colspan=2>-</td></tr>'}</table></div>
       <div><h4>리모컨 보유 현황${remote?` (한도 ${remote.limit}개)`:''}</h4>
-        <table class="remote-mini"><tr><th>담당자</th><th>불출</th><th>납품</th><th>보유</th></tr>${remoteTab||'<tr><td colspan=4>불출 이력 없음</td></tr>'}</table></div>
+        <table class="remote-mini"><tr><th>담당자</th><th class="num">불출</th><th class="num">납품</th><th class="num">보유</th></tr>${remoteTab||'<tr><td colspan=4>불출 이력 없음</td></tr>'}</table></div>
     </div>`;
   }catch(e){ host.innerHTML='<p class="norm">통계를 불러오지 못했습니다.</p>'; }
 }

@@ -16798,6 +16798,110 @@ def t367_restart_survives_only_with_an_exact_fingerprint():
     print("  [367] 재시작 견디는 디스크 캐시 — 지문 정확일치·build앞 도장·_stale 자리·나이상한·계기 자기시험 ✅")
 
 
+def t368_screens_fit_without_shrinking_and_tables_line_up():
+    """[368] 화면은 줄이지 않아도 다 보이고, 표 정렬은 한 곳에서 온다 (2026-08-21 형님 지시).
+
+    "앱 전체적으로 100% 화면 비율 잡고 화면을 줄이지 않아도 반응형으로 다 보일 수
+    있는 구조로" · "표들 정렬 좀 균일하고 깔끔하게 · 구분이 확실하게 가게".
+
+    ★ 레이아웃은 **글자로 못 잰다**([295]) — 실제 폭은 브라우저로 쟀고 그 숫자는
+      CLAUDE.md 에 적었다(기사 7묶음 · 1280px: 잘린 폭 1,101px → 0 · 보이는 칼럼 3 → 7).
+      여기서 얼리는 것은 **되돌아가면 안 되는 것** 뿐이다([39]).
+    """
+    import io as _io368, re as _re368
+    p = os.path.join(ROOT, "webapp", "index.html")
+    src = _io368.open(p, encoding="utf-8").read()
+
+    # <style> 덩어리만 · 주석은 걷어낸다 — 이 프로젝트가 다섯 번 밟은 자리
+    # ([301]⑨·[302]·[309]·[332]·[339]): 규칙을 세기 전에 설명을 걷어내지 않으면
+    # 이 사고를 적어 둔 주석 자신이 걸린다.
+    css = []
+    for m in _re368.finditer(r"</style>", src):
+        j = src.rfind("<style", 0, m.start())
+        if j >= 0:
+            css.append(src[src.index(">", j) + 1:m.start()])
+    css = _re368.sub(r"/\*.*?\*/", "", "\n".join(css), flags=_re368.S)
+    assert "${" not in css, "[368] <style> 조각내기가 어긋났다 — 실행 중 만드는 CSS 가 섞였다"
+
+    def rule(sel):
+        m = _re368.search(_re368.escape(sel) + r"\s*\{([^}]*)\}", css)
+        assert m, "[368] CSS 규칙 %s 가 없다" % sel
+        return m.group(1)
+
+    # ── ① 기사별 묶음판은 고정폭 가로스크롤로 **되돌아가지 않는다** ──────────
+    #    실측: `flex:0 0 290px` + `overflow-x:auto` 이던 시절, 기사 7묶음이면
+    #    판이 2,090px 이라 1,265px 화면에서 4묶음이 화면 밖이었다.
+    board = rule(".wt-board")
+    assert "grid" in board and "auto-fill" in board, (
+        "[368] 기사별 묶음판이 자동 줄바꿈 격자가 아니다 — 기사가 늘면 다시 잘린다")
+    assert "auto-fit" not in board, (
+        "[368] auto-fit 은 묶음이 하나인 날 그 하나를 화면 전체로 늘린다 — auto-fill 이어야 한다")
+    assert not _re368.search(r"overflow-x\s*:\s*(auto|scroll)", board), (
+        "[368] 묶음판에 가로 스크롤이 되살아났다 — 그러면 옆으로 밀려 안 보인다")
+
+    col = rule(".wt-col")
+    assert not _re368.search(r"flex\s*:\s*0\s+0\s+\d+px", col), (
+        "[368] 묶음 칼럼이 다시 고정폭이다 — 줄바꿈이 안 먹는다")
+    assert _re368.search(r"min-width\s*:\s*0", col), (
+        "[368] 칼럼에 min-width:0 이 없다 — 긴 캠프명이 격자 칸을 밀어내 다시 넘친다"
+        "(격자 자식의 기본 min-width:auto 가 내용 폭을 최소폭으로 삼는다)")
+
+    # ── ② 표 정렬 규칙은 **표 이름을 같이** 적는다(우선순위) ────────────────
+    #    `table.remote-mini td` 는 (0,1,2) 인데 `td.num` 은 (0,1,1) 이라 표 규칙이
+    #    이긴다. 실측으로 그대로 당했다 — 클래스는 붙었는데 정렬이 왼쪽 그대로였고
+    #    오류도 안 났다. 선택자를 짧게 '정리'하면 조용히 되돌아간다.
+    m = _re368.search(r"([^{}]*\btd\.num\b[^{}]*)\{([^}]*text-align\s*:\s*right[^}]*)\}", css)
+    assert m, "[368] 숫자 열 오른쪽 정렬 규칙이 없다"
+    sel_num = m.group(1)
+    assert "table.remote-mini td.num" in sel_num, (
+        "[368] 숫자 정렬 규칙이 table.remote-mini 를 안 적었다 — 우선순위에 밀려 "
+        "그 표에서만 조용히 왼쪽으로 돌아간다")
+    assert "tabular-nums" in m.group(2), (
+        "[368] 자릿수 고정이 빠졌다 — -1 과 +5 의 자리가 어긋나 세로로 못 읽는다")
+
+    m2 = _re368.search(r"([^{}]*\btd\.ops\b[^{}]*)\{([^}]*)\}", css)
+    assert m2 and "table.remote-mini td.ops" in m2.group(1), (
+        "[368] 조작 열 정렬 규칙이 표 이름을 안 적었다 — 우선순위에 밀린다")
+
+    ops = rule("table.remote-mini td.remote-ops,td.remote-ops")
+    assert "padding-top" in ops and "padding-bottom" in ops, (
+        "[368] 단추 줄 여백 조정이 사라졌다 — 실측 글자줄 42px 대 단추줄 52px 로 "
+        "줄 높이가 다시 갈린다(형님 캡처의 '되돌리기' 줄)")
+
+    # ── ③ 머리글만 옮기고 칸을 안 옮기면 더 어긋난다([165]) ──────────────────
+    th_num = src.count('<th class="num">')
+    td_num = src.count('<td class="num">')
+    assert th_num >= 8, "[368] 숫자 머리글 태그가 %d개뿐이다" % th_num
+    assert td_num >= 8, "[368] 숫자 칸 태그가 %d개뿐이다" % td_num
+    assert src.count('<th class="ops">') == 4, (
+        "[368] 조작 머리글 태그가 4개가 아니다(%d) — 표를 늘렸으면 같이 태그한다"
+        % src.count('<th class="ops">'))
+
+    # ── ④ 구분선은 토큰이다 — 굳은 색은 한쪽 테마에서만 맞는다([332]) ────────
+    for dead in ("#EEF2F7", "#F0F3F7"):
+        assert dead not in css, (
+            "[368] 표 구분선에 굳은 색 %s 가 되살아났다 — 어두운 화면에서 뜻이 달라진다" % dead)
+
+    # ── ⑤ 계기 자신을 시험한다([272]) ────────────────────────────────────────
+    for bad, why in (
+        (css.replace("table.remote-mini td.num", "td.num2"), "우선순위 선택자 제거"),
+        (_re368.sub(r"(\.wt-board\s*\{)[^}]*\}", r"\1display:flex;overflow-x:auto}", css), "칸반 되돌리기"),
+    ):
+        hit = False
+        try:
+            if why == "우선순위 선택자 제거":
+                mm = _re368.search(r"([^{}]*\btd\.num\b[^{}]*)\{([^}]*text-align\s*:\s*right[^}]*)\}", bad)
+                hit = not (mm and "table.remote-mini td.num" in mm.group(1))
+            else:
+                mm = _re368.search(r"\.wt-board\s*\{([^}]*)\}", bad)
+                hit = not (mm and "grid" in mm.group(1) and "auto-fill" in mm.group(1))
+        except Exception:
+            hit = True
+        assert hit, "[368] 계기 자기시험 실패 — '%s' 를 넣었는데 안 잡힌다" % why
+
+    print("  [368] 화면 줄이지 않아도 다 보임(칸반 줄바꿈) · 표 정렬 한 곳(우선순위 포함) · 계기 자기시험 ✅")
+
+
 def t364_erp_chain_never_stops_without_a_trace():
     """[364] ERP 전화면 몰이가 **자국 없이 멈추지 않는다** (분담판 [84]).
 
@@ -29663,6 +29767,7 @@ if __name__ == "__main__":
     t365_pipeline_failure_says_why()
     t366_permission_never_draws_a_dead_input()
     t367_restart_survives_only_with_an_exact_fingerprint()
+    t368_screens_fit_without_shrinking_and_tables_line_up()
     t294_unreadable_source_never_passes_as_read()
     t295_camp_contacts_never_guess_a_phone_number()
     t296_half_list_never_blames_the_person()
