@@ -138,6 +138,89 @@ def sessions(now=None):
     return rows, ""
 
 
+def lane_side(rows=None):
+    """차선(`lanes`)은 **계정을 바꿀 때 실제로 부딪히는 자리**다 (2026-08-20).
+
+    `ai_claim` 점유는 pid 가 죽으면 `--adopt` 가 회수한다. 그런데 **차선은 다르다** —
+    크레딧이 떨어진 창은 pid 가 살아 있고 대화기록만 멈추므로 죽은 것으로 안 세이고,
+    `lanes` 의 자동회수는 **8시간**(`LANE_IDLE_HOURS`)을 기다린다. 그 사이 새 계정 창이
+    `--take` 를 하면 '남의 차선입니다' 로 거부된다.
+
+    ★ **없는 문제를 만들지 않는다**(`[172]`). 차선 밖이라고 코딩이 막히지는 않는다 —
+      `lanes.can()` 은 차선을 안 정한 창에는 **언제나 허용**이다. 실제로 막히는 것은
+      `collect_gate`(차선 밖 = '모름')와 **사람의 판단**이다: 새 창은 '남의 차선'이라는
+      말을 보고 8시간을 기다린다.
+    ★ **판정을 새로 만들지 않는다**(`[162]`) — 놀고 있나는 `lanes._idle`, 이름은
+      `lanes.LANES`, 창이 끊겼나는 이 파일의 `sessions()` 갈래를 그대로 빌린다.
+    ★ **뺏지 않는다.** 읽고 명령만 알려 준다 — 살아 있는 옆 창의 차선을 빼앗으면
+      두 창이 같은 파일에서 만난다(사고 #36).
+    ★ 알려 주는 명령은 `lanes.py --reclaim-idle` **미리보기 형태**다 — 무엇을
+      회수할지 보여 주고 적용 명령까지 스스로 적어 준다. 이 파일은 **읽기 전용**
+      이라 검증 `[291]` 이 실행 깃발 글자를 통째로 막는다(문자열까지 훑기 때문에
+      이빨이 있다 — 약화시키지 말고 여기 문구를 미리보기로 둔다).
+    """
+    try:
+        import lanes as L
+        d = L._load()
+        me = L._me()
+    except Exception as e:
+        return {"차선": None, "왜못함": "%s: %s" % (type(e).__name__, e)}
+    갈래 = {}
+    if rows:
+        갈래 = {r["sid"]: r["갈래"] for r in rows}
+    out = []
+    for lane, (label, _res) in L.LANES.items():
+        cur = d.get(lane)
+        if not cur:
+            continue
+        sid = cur.get("sid") or "?"
+        try:
+            놀고, 왜 = L._idle(cur)
+        except Exception:
+            놀고, 왜 = False, "놀고 있는지 못 쟀다"
+        out.append({"차선": lane, "이름": label, "who": cur.get("who", "?"), "sid": sid,
+                    "분": int((__import__("time").time() - float(cur.get("at") or 0)) / 60),
+                    "왜": cur.get("why", ""), "내것": sid == me,
+                    "놀고있나": bool(놀고), "놀이유": 왜,
+                    "주인갈래": 갈래.get(sid, "모름")})
+    return {"차선": out, "왜못함": ""}
+
+
+def _lane_lines(rows=None, l=None):
+    """차선 칸 — 이어받는 쪽이 **무엇에 부딪힐지**를 미리 말해 준다."""
+    l = l if l is not None else lane_side(rows)
+    L = ["## 작업 차선 — 계정을 바꿀 때 부딪히는 자리", ""]
+    if l["차선"] is None:
+        L += ["> **못 읽었다** — %s" % l["왜못함"], "",
+              "> 0개가 아니라 **확인 못 함**이다(`[169]`). 이 상태로 남의 차선을"
+              " 건드리지 않는다.", ""]
+        return L
+    if not l["차선"]:
+        L += ["아무 창도 차선에 안 서 있다 — 새 계정은 바로 `python lanes.py --take"
+              " build --who claude` 로 시작하면 된다.", ""]
+        return L
+    L += ["| 차선 | 선 창 | 얼마나 | 갈래 | 지금 이어받으려면 |",
+          "|---|---|---:|---|---|"]
+    for r in l["차선"]:
+        if r["내것"]:
+            길 = "이 창이 서 있다 — 접기 전에 `python session_wrapup.py --who claude --leaving`"
+        elif r["주인갈래"] == "끊긴듯":
+            길 = ("그 창이 끊긴 듯하다 — 그 창에서 `--leaving` 을 못 돌렸으면 "
+                  "`python lanes.py --reclaim-idle`"
+                  if r["놀고있나"] else
+                  "그 창이 끊긴 듯한데 **아직 자동회수 한도(8시간) 전이다** — "
+                  "기다리거나 그 창에서 `--leaving`")
+        elif r["놀고있나"]:
+            길 = "놀고 있다(%s) — `python lanes.py --reclaim-idle`" % r["놀이유"]
+        else:
+            길 = "**살아 있는 창이다 — 빼앗지 않는다**(사고 #36). 다른 차선을 잡는다"
+        L.append("| `%s` %s | %s[%s] | %d분 | %s | %s |"
+                 % (r["차선"], r["이름"], r["who"], r["sid"], r["분"], r["주인갈래"], 길))
+    L += ["", "> 차선 밖이어도 **코딩은 막히지 않는다**(`lanes.can()` 은 차선을 안 정한"
+          " 창에 다 허용한다). 막히는 것은 수집 문(`collect_gate`)과 사람의 판단이다.", ""]
+    return L
+
+
 def notices(rows=None, 왜못함="", repo=None):
     """인계 '먼저 처리할 것' 에 올릴 것 — **경보가 아니라 알림**이다.
 
@@ -177,6 +260,25 @@ def notices(rows=None, 왜못함="", repo=None):
     if repo.get("왜못함"):
         out.append({"갈래": "확인못함", "무엇": "이어받기 준비 상태를 못 읽었다 — %s"
                     % repo["왜못함"], "어떻게": "git status -sb"})
+    # ★ 끊긴 창이 **차선을 쥔 채**면 새 계정이 그 자리에서 멈춘다 — 그것만 올린다.
+    #   살아 있는 창의 차선은 정상이다([170] — 정상까지 알리면 아무도 안 본다).
+    l = lane_side(rows)
+    if l["차선"] is None:
+        out.append({"갈래": "확인못함", "무엇": "작업 차선을 **못 읽었다** — %s. "
+                    "'아무도 안 서 있다'가 아니다" % l["왜못함"],
+                    "어떻게": "python lanes.py"})
+    else:
+        for r in l["차선"]:
+            if r["주인갈래"] != "끊긴듯":
+                continue
+            out.append({"갈래": "차선막힘", "무엇":
+                        "끊긴 듯한 창 `%s` 이 **'%s' 차선을 쥐고 있다**(%d분). 새 계정이 "
+                        "`--take` 하면 '남의 차선'으로 거부된다 — 코딩은 막히지 않지만 "
+                        "수집 문과 사람의 판단이 멈춘다%s"
+                        % (r["sid"], r["이름"], r["분"],
+                           "" if r["놀고있나"] else " (자동회수 한도 8시간 전이다)"),
+                        "어떻게": ("python lanes.py --reclaim-idle"
+                                 if r["놀고있나"] else "python lanes.py")})
     return out
 
 
@@ -270,6 +372,7 @@ def card(rows=None, 왜못함="", repo=None):
           "- 커밋 안 한 파일: **%s**" % ("못 읽음" if repo["미커밋"] is None else "%d개" % repo["미커밋"]),
           "", "> 폰·웹·다른 PC 는 **밀린 것만** 본다. 미푸시가 남아 있으면 이어받는 쪽은"
           " 그 작업을 아예 못 본다 — '나중에 밀면 되는 것'이 아니다.", ""]
+    L += _lane_lines(rows)
     L += _browser_lines()
     return "\n".join(L)
 

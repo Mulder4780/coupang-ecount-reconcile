@@ -20400,6 +20400,114 @@ def t362_takeover_says_the_browser_does_not_follow_the_account():
     print("[362] 이어받기 — 브라우저는 계정을 안 따라간다 · 확장 없이 되는 길 OK")
 
 
+
+def t363_account_switch_hands_over_the_lane_and_says_so():
+    """계정을 바꿔 이어받을 때 **실제로 부딪히는 자리는 차선이다** (2026-08-20 지시).
+
+    `ai_claim` 점유는 pid 가 죽으면 `--adopt` 가 회수한다. 그런데 크레딧이 떨어진 창은
+    **pid 가 살아 있고 대화기록만 멈춘다** — 죽은 것으로 안 세이고, `lanes` 자동회수는
+    **8시간**을 기다린다. 그 사이 새 계정 창은 `--take` 에서 '남의 차선입니다' 를 본다.
+
+    ★ **없는 문제를 만들지 않는다**(`[172]`) — 차선 밖이어도 코딩은 안 막힌다
+      (`lanes.can()` 은 차선을 안 정한 창에 다 허용). 막히는 것은 수집 문과 사람의
+      판단이다. 그래서 고친 것은 **막는 것**이 아니라 ① 떠나는 쪽이 스스로 놓는 한 줄
+      ② 도착하는 쪽 카드가 그 자리를 **이름과 명령으로** 말하는 것 둘이다.
+    ★ 평소 마무리(`PreCompact`·`SessionEnd`)에서는 차선을 **놓지 않는다** — 그 훅들은
+      창이 계속 사는 자리라, 거기서 놓으면 같은 창이 제 약속을 매번 잃는다.
+    """
+    import importlib
+    W = importlib.import_module("session_wrapup")
+    T = importlib.import_module("takeover")
+
+    # ── ① 평소 마무리는 차선을 안 놓고, 창을 접을 때만 놓는다 ────────────────
+    seen = []
+    keep = {n: getattr(W, n) for n in ("step_intake", "step_free_claims", "step_commit",
+                                       "step_handoff", "step_leave_lane", "step_takeover_card")}
+    old_log = W.LOG_PATH
+    with tempfile.TemporaryDirectory(prefix="csos-t363-") as td:
+        try:
+            W.LOG_PATH = os.path.join(td, "기록.json")      # 실측 증거는 안 건드린다([247])
+            W.step_intake = lambda s: seen.append("intake")
+            W.step_free_claims = lambda who, s: seen.append("claims")
+            W.step_commit = lambda who, r, s: seen.append("commit")
+            W.step_handoff = lambda who, r, s: seen.append("handoff")
+            W.step_leave_lane = lambda s: seen.append("lane")
+            W.step_takeover_card = lambda s: seen.append("card")
+            seen[:] = []
+            W.wrapup("claude", "auto-compact")
+            평소 = list(seen)
+            seen[:] = []
+            W.wrapup("claude", "manual", leaving=True)
+            접을때 = list(seen)
+        finally:
+            for n, f in keep.items():
+                setattr(W, n, f)
+            W.LOG_PATH = old_log
+    assert "lane" not in 평소, (
+        "평소 마무리가 차선을 놓는다 — PreCompact·SessionEnd 는 창이 계속 사는 자리라 "
+        "같은 창이 제 약속을 매번 잃는다: %r" % (평소,))
+    assert "lane" in 접을때 and "card" in 접을때, (
+        "창을 접는데 차선을 안 놓거나 이어받기 카드를 안 고친다: %r" % (접을때,))
+
+    # ── ② 무인 경로는 창을 접었다고 말할 수 없다 ────────────────────────────
+    src = open(os.path.join(ROOT, "session_wrapup.py"), encoding="utf-8").read()
+    i = src.find("a.leaving")
+    assert i > 0 and "COUPANG_UNATTENDED" in src[i:i + 400], (
+        "무인 회차가 --leaving 을 그대로 받는다 — 사람이 쓰는 창의 차선이 회차마다 "
+        "풀린다([93] 과 같은 문)")
+
+    # ── ③ 도착 카드: 못 읽으면 '아무도 안 서 있다' 가 아니다([169]) ─────────
+    import lanes as L
+    keep2 = (L._load, L._me, L._idle)
+    try:
+        def boom():
+            raise IOError("차선판이 깨졌다")
+        L._load = boom
+        got = T.lane_side([])
+        assert got["차선"] is None and got["왜못함"], (
+            "차선판을 못 읽었는데 '아무도 안 서 있다'로 답한다 — 0 과 '못 봄'은 다르다")
+        lines = T._lane_lines([], got)
+        assert any("못 읽었다" in x for x in lines), "카드가 못 읽은 것을 안 말한다"
+
+        # ── ④ 살아 있는 창의 차선에는 **조용하다**([170]) ───────────────────
+        L._load = lambda: {"build": {"who": "claude", "sid": "aaaa1111", "at": 0,
+                                     "why": "코딩"}}
+        L._me = lambda: "bbbb2222"
+        L._idle = lambda rec, hours=None: (False, "")
+        살아있음 = [{"sid": "aaaa1111", "갈래": "일하는중", "조용한분": 1.0,
+                   "자원": [], "맡은일": []}]
+        n = T.notices(rows=살아있음, repo={"미푸시": 0, "미커밋": 0, "왜못함": ""})
+        assert not [x for x in n if x["갈래"] == "차선막힘"], (
+            "살아 있는 창의 차선을 경보로 올린다 — 경보가 대부분이면 진짜가 묻힌다([170])")
+        line = " ".join(T._lane_lines(살아있음))
+        assert "빼앗지 않는다" in line, "살아 있는 차선을 빼앗지 말라고 안 적는다(사고 #36)"
+
+        # ── ⑤ 끊긴 창이 쥐고 있으면 **이름과 명령으로** 말한다 ──────────────
+        끊김 = [{"sid": "aaaa1111", "갈래": "끊긴듯", "조용한분": 300.0,
+                "자원": [], "맡은일": []}]
+        n = T.notices(rows=끊김, repo={"미푸시": 0, "미커밋": 0, "왜못함": ""})
+        블록 = [x for x in n if x["갈래"] == "차선막힘"]
+        assert len(블록) == 1, "끊긴 창이 차선을 쥐었는데 안 알린다: %r" % (n,)
+        assert "aaaa1111" in 블록[0]["무엇"] and "차선" in 블록[0]["무엇"]
+        assert "lanes.py" in 블록[0]["어떻게"], "무엇을 하라는지 명령이 없다"
+
+        # 놀고 있으면 회수 명령을, 아직이면 그 사실을 말한다
+        L._idle = lambda rec, hours=None: (True, "8시간 자국 없음")
+        n2 = T.notices(rows=끊김, repo={"미푸시": 0, "미커밋": 0, "왜못함": ""})
+        블록2 = [x for x in n2 if x["갈래"] == "차선막힘"][0]
+        assert "--reclaim-idle" in 블록2["어떻게"], "회수할 수 있는데 명령을 안 준다"
+
+        # ── ⑥ 계기 자기시험([272]) — 끊긴 창 조건을 없애면 거짓 경보가 나는가
+        L._idle = lambda rec, hours=None: (False, "")
+        naive = [r for r in T.lane_side(살아있음)["차선"] if not r["내것"]]
+        assert naive and naive[0]["주인갈래"] == "일하는중", (
+            "차선 주인의 갈래를 안 싣는다 — 그러면 살아 있는 창과 끊긴 창을 못 가른다")
+    finally:
+        L._load, L._me, L._idle = keep2
+
+    print("[363] 계정을 바꿔도 차선이 사람을 8시간 세우지 않는다 (OK)")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -29127,6 +29235,7 @@ if __name__ == "__main__":
     t358_cache_copies_never_land_in_the_dump_folder()
     t359_ambiguous_is_not_a_failure_but_never_silent()
     t361_deposit_folder_is_not_evidence_of_a_deposit()
+    t363_account_switch_hands_over_the_lane_and_says_so()
     t362_takeover_says_the_browser_does_not_follow_the_account()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

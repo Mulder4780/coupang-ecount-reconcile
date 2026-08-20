@@ -433,14 +433,53 @@ def step_handoff(who, reason, steps):
     steps.append({"단계": "④ 세션인계 스냅샷", "성공": ok2, "메모": note2})
 
 
-def wrapup(who="claude", reason="manual"):
+def step_leave_lane(steps):
+    """★ **창을 접을 때만** 차선에서 빠진다 (2026-08-20 지시: 계정을 바꿔 이어받는다).
+
+    왜 평소 마무리에서는 안 놓나: 이 함수를 부르는 훅은 `PreCompact` 와 `SessionEnd`
+    인데 **둘 다 창이 계속 사는 자리**다(`/clear` 는 대화만 비운다). 거기서 차선을
+    놓으면 같은 창이 제 약속을 매번 잃고, 옆 창은 그 틈에 같은 차선에 선다.
+
+    왜 따로 필요한가: 크레딧이 떨어진 창은 **pid 가 살아 있고 대화기록만 멈춘다**.
+    그래서 `ai_claim._is_dead` 는 '살아 있다'고 답하고 `--adopt` 도 못 건드리며,
+    `lanes` 의 자동회수는 **8시간**을 기다린다. 그 사이 새 계정 창은 `--take` 에서
+    '남의 차선입니다' 를 본다 — 사람이 8시간을 기다리게 된다.
+
+    ★ **내 차선만 놓는다**(`lanes.free`) — 남의 차선은 한 글자도 안 건드린다(`[104]`).
+    """
+    ok, note = run([sys.executable, os.path.join(ROOT, "lanes.py"), "--free"], timeout=120)
+    steps.append({"단계": "⑤ 차선 해제(창을 접는다)", "성공": ok, "메모": note})
+
+
+def step_takeover_card(steps):
+    """다른 계정이 첫 화면에서 볼 한 장을 **지금 상태로** 다시 쓴다.
+
+    ★ 안 쓰면 새 계정이 **방금 놓은 차선을 아직 잡혀 있다고** 읽는다 — 워치독(30분)이
+      돌기 전까지. 접는 순간이 그 카드가 가장 필요한 때다.
+    """
+    try:
+        import takeover
+        takeover.write()
+        steps.append({"단계": "⑥ 이어받기 카드 갱신", "성공": True,
+                      "메모": "reports/이어받기.md"})
+    except Exception as e:
+        # 카드를 못 써도 마무리를 막지 않는다 — 그러나 조용히 넘기지도 않는다([169]).
+        steps.append({"단계": "⑥ 이어받기 카드 갱신", "성공": False,
+                      "메모": "%s: %s" % (type(e).__name__, e)})
+
+
+def wrapup(who="claude", reason="manual", leaving=False):
     steps = []
     step_intake(steps)
     step_free_claims(who, steps)
     step_commit(who, reason, steps)
     step_handoff(who, reason, steps)
+    if leaving:
+        step_leave_lane(steps)
+        step_takeover_card(steps)
     record = {"시각": datetime.now().isoformat(timespec="seconds"),
-              "누가": who, "계기": reason, "단계": steps}
+              "누가": who, "계기": reason, "단계": steps,
+              "창접음": bool(leaving)}
     try:
         os.makedirs(REPORT_DIR, exist_ok=True)
         history = []
@@ -485,6 +524,9 @@ def main():
     ap.add_argument("--who", default="claude", help="claude | codex")
     ap.add_argument("--reason", default="manual", help="auto-compact · manual-compact · manual")
     ap.add_argument("--quiet", action="store_true", help="한 줄 요약만 (훅에서 쓴다)")
+    ap.add_argument("--leaving", action="store_true",
+                    help="이 창을 접는다 — 차선까지 놓고 이어받기 카드를 다시 쓴다"
+                         " (사람이 계정·창을 바꿀 때만. 훅은 절대 안 준다)")
     a = ap.parse_args()
 
     # 훅은 stdin 으로 JSON 을 준다. 없어도 되고, 있으면 계기를 더 정확히 적는다.
@@ -507,7 +549,13 @@ def main():
         except Exception:
             pass
 
-    record = wrapup(a.who, reason)
+    leaving = bool(a.leaving)
+    if leaving and os.environ.get("COUPANG_UNATTENDED") == "1":
+        # ★ 무인 회차가 창을 접었다고 말하면 안 된다 — 사람이 쓰고 있는 창의 차선이
+        #   회차마다 풀린다. 사람이 스스로 내린 명령일 때만이다([93] 과 같은 문).
+        print("i 무인 경로에서는 --leaving 을 받지 않습니다 — 차선은 그대로 둡니다.")
+        leaving = False
+    record = wrapup(a.who, reason, leaving)
     good = sum(1 for s in record["단계"] if s["성공"])
     line = "세션 자동 마무리: %d/%d 단계 완료 (%s)" % (good, len(record["단계"]), reason)
     if a.quiet:
