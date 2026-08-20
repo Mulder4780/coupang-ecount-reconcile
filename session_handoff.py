@@ -668,6 +668,8 @@ def collect():
         "밴드오염": band_contaminated(),
         "워크트리": _worktree_state(),
         "일일대조": daily_run_health(),
+        # 예산 초과로 건너뛴 단계([342]) — blockers 는 이 값만 읽는다(위 주석).
+        "건너뜀": (daily_step_now() or {}).get("건너뜀") or [],
         "밴드재수집": band_recollect(),
         "업무흐름": work_flow_change(),
         "사실대조": truth_gap(),
@@ -1339,7 +1341,13 @@ def blockers(st, for_sol=False):
                     "지금 화면·보고 숫자는 그만큼 **적게** 나온다%s"
                     % (f["이름"], f["최신"], f["밀린일"], f["한도"], tail),
                     f["되살리는법"]))
-    skipped = (daily_step_now() or {}).get("건너뜀") or []
+    # ★ **살아 있는 파일이 아니라 스냅샷에서 읽는다**(2026-08-20). 여기만 홀로
+    #   `daily_step_now()` 로 디스크를 직접 봤는데, 그러면 `blockers(st)` 가
+    #   **그날 그 기계가 무엇을 했느냐**에 따라 달라져 합성 st 로 부르는 검증
+    #   셋(t111·t125·t138)이 회차가 단계를 건너뛴 날 한꺼번에 죽었다. 나머지
+    #   경보는 전부 st 에서 읽는다 — 여기도 같게 맞춘다([162]). 담는 것은
+    #   snapshot() 이고, 이 함수는 판단만 한다.
+    skipped = st.get("건너뜀") or []
     if skipped:
         # ★ '완주'와 '다 했다'는 다른 말이다(분담판 [82]). 예산을 넘으면 남은 단계를
         #   건너뛰고 완주시키는데([180] — 그것이 옳다), 그 사실이 리포트 깊숙한 한 줄로만

@@ -13394,9 +13394,18 @@ function openRecord(kind, id, project){
      예전엔 `openByPrj(rid||prj)` 라 ID 만 넘어갔고, openByPrj 는 그 ID 를 프로젝트NO
      자리에도 대 보므로 **프로젝트로 찾을 기회가 아예 사라졌다.** */
   if(idx<0){ openByPrj(rid||prj, prj); return; }
+  const r = list[idx], key = r.정산ID||r.접수ID||r.점검ID||prj;
+  /* ★ **뒤 화면을 통째로 옮기지 않는다** (2026-08-20 류지영 보고: "목록에서 하나
+     클릭하면 정산으로 넘어감"). 상세는 **덮개**다 — 확인 필요 목록에서 한 건을
+     보려고 눌렀을 뿐인데 배경이 정산 탭으로 바뀌면, 시트를 닫았을 때 있던 자리를
+     잃는다. 확인 필요는 208건짜리 목록이라 매번 처음부터 다시 찾아 들어가야 했다.
+     시트가 이미 떠 있으면(= 목록에서 파고든 것) 탭도 목록도 그대로 둔다.
+     ★ 그때는 `_lastRows` 도 안 건드린다 — 그 값은 **정산 목록의 엑셀·캡처**가
+       읽는다(renderSettle 이 채운다). 남의 목록으로 바꿔 두면 저장한 파일이
+       엉뚱한 내용으로 나가고, 오류는 안 난다. 대신 행을 직접 넘긴다. */
+  if(sheetIsOpen()){ openSheet(kind, idx, key, r); return; }
   show('settle'); setMode(kind); window._lastRows = list;
-  const r = list[idx];
-  openSheet(kind, idx, r.정산ID||r.접수ID||r.점검ID||prj);
+  openSheet(kind, idx, key);
 }
 
 /* 프로젝트NO(또는 ID)로 상세 열기.
@@ -14049,8 +14058,10 @@ function renderSettle(){
 }
 
 /* ── 상세 시트 ── */
-function openSheet(kind, idx, id){
-  const r = (window._lastRows||[])[idx];
+function openSheet(kind, idx, id, row){
+  /* row 를 주면 그것을 쓴다 — 목록에서 파고들 때 `_lastRows` 를 남의 목록으로
+     바꾸지 않으려는 것이다(openRecord 주석 참고). 안 주면 예전 그대로다. */
+  const r = row || (window._lastRows||[])[idx];
   if(!r) return;
   const displayProject=projectLabel(r), internalId=recordIdOf(r)||String(id||'');
   let html = '';
@@ -15003,6 +15014,29 @@ function inputForm(kind, r, id){
   //   실제로 진행하면 [신규 접수(점검) 등록]으로 기록한다. 저장은 앱 DB에 있는 행만.
   if(!r._store_id && version<1){
     const nm=(kind==='pm')?'정기점검':(kind==='as'?'돌발AS':'접수');
+    /* ★ **갈래를 가른다 — 조치가 정반대다** (2026-08-20 류지영 실사고).
+       류지영 화면에 **완료된 2026-04 점검**(PM-2604-219 · 객관완료근거까지 있는 건)이
+       "아직 앱 DB에 등록되지 않은 **예정·계획**입니다(상태 **완료**)" 로 떴다.
+       그 문장은 그 자체로 앞뒤가 안 맞고, 그 아래 [+ 신규 정기점검 등록] 을 누르면
+       **이미 다녀온 현장이 한 번 더 등록된다** — 되돌릴 수 없는 쪽이다.
+       가르는 근거는 **기록 ID 모양**이다(실측 v608: 버전 없는 정기점검 70건이
+       **전부 `SCH-`** 스케줄 원본 예정이고, 등록형 ID(PM-/AS-/JS-/FW-)에 버전이
+       없는 행은 **0건** · 등록형+프로젝트NO 384행은 전부 버전이 있다).
+       그러므로 등록형 ID 인데 버전이 없다면 그것은 계획이 아니라 **목록이 버전을
+       못 싣고 온 것**이다([296] 네 갈래 중 하나) — 새로 등록할 일이 아니다.
+       ★ 모르면 안전한 쪽으로 간다: 둘 중 하나라도 '등록된 기록' 이라 말하면
+         되돌릴 수 없는 단추를 안 보여 준다. */
+    const rid=String(recordIdOf(r)||'').trim();
+    const registered = /^(PM|AS|JS|FW)-/i.test(rid) || !!String(r.프로젝트NO||'').trim();
+    if(registered) return `<div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">확인 내용 입력</div>
+      <div style="margin-top:8px;padding:12px 14px;border-radius:11px;background:rgba(127,127,127,.08);border:1px solid var(--line);font-size:13.5px;line-height:1.6;color:var(--ink-2)">
+        이 건은 <b>이미 등록된 기록</b>입니다(내부기록 ${esc2(rid||'-')}). 그런데 이 목록이
+        <b>앱 DB 버전을 싣지 못하고 왔습니다</b> — 그래서 여기서는 저장할 수 없어요.
+        <div style="margin-top:6px;color:var(--danger);font-weight:700">⚠ 이 건을 새로 등록하지 마세요 — 같은 기록이 두 개가 됩니다.</div>
+        <button type="button" class="abtn" style="margin-top:10px;width:100%"
+          onclick="loadSettle(true).then(()=>toast('목록을 다시 받았습니다 — 이 건을 다시 열어 주세요'))">목록 다시 받기</button>
+        <div style="margin-top:6px;font-size:13px;color:var(--ink-3)">다시 받아도 같으면 [실행] 화면에서 앱 DB 상태를 확인해 주세요(새로고침으로는 안 풀립니다).</div>
+      </div>`;
     return `<div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">확인 내용 입력</div>
       <div style="margin-top:8px;padding:12px 14px;border-radius:11px;background:rgba(127,127,127,.08);border:1px solid var(--line);font-size:13.5px;line-height:1.6;color:var(--ink-2)">
         이 건은 아직 <b>앱 DB에 등록되지 않은 예정·계획</b>입니다(상태 ${esc2(statOf(r)||'예정')}). 여기서는 바로 저장할 수 없어요 —

@@ -5369,7 +5369,14 @@ def t111_account_handoff_freshness():
     bl = H.blockers(st)
     assert any("수집이 밀렸다" in why for why, _ in bl), bl
     st["수집신선도"][0]["밀림"] = False
-    assert not H.blockers(st), "밀리지 않았는데 막았다"
+    # ★ 이 검사가 재려는 것은 **수집 밀림 경보 하나**다. 그런데 `blockers()` 는
+    #   스냅샷 사실과 **살아 있는 회차 사실**을 함께 싣는다(예: [342] 가 잡는
+    #   건너뛴 단계 — 그 길은 t342 가 REPORT_DIR 을 갈아 끼워 따로 잰다).
+    #   그러니 "목록 전체가 비었나" 로 물으면 **그날 그 기계가 무엇을 했느냐**에
+    #   따라 빨개진다 — 2026-08-20 실측으로 09:50 회차가 17단계를 건너뛴 날 이 줄이
+    #   죽었다. 내 변경과 무관한 빨강은 다음 사람을 엉뚱한 데로 보낸다([172]).
+    assert not [w for w, _f in H.blockers(st) if "수집이 밀렸다" in w], (
+        "밀리지 않았는데 막았다")
     # 문서에도 표가 나와야 사람이 본다
     st["원장"] = {"버전": "1", "수정": ""}
     st["시각"] = "2026-08-06 12:00"
@@ -6609,8 +6616,14 @@ def t125_worktree_shared_state():
     assert any("워크트리" in why for why, _ in H.blockers(cut)), H.blockers(cut)
     ok = dict(base, **{"워크트리": {"여기": "X", "본체": "Y", "항목": [
         {"대상": "config/ecount_config.json", "방법": "하드링크", "상태": "이어짐"}]}})
-    assert not H.blockers(ok), "이어져 있는데 막았다"
-    assert not H.blockers(dict(base)), "워크트리가 아닌데 워크트리 경고가 뜬다"
+    # ★ **그 갈래만** 본다. `blockers()` 는 스냅샷 사실과 **살아 있는 회차 사실**을
+    #   함께 싣는다(예: [342] 건너뛴 단계) — "목록 전체가 비었나" 로 물으면 그날
+    #   그 기계가 무엇을 했느냐에 따라 빨개진다(2026-08-20 실측: 09:50 회차가
+    #   17단계를 건너뛴 날 이 두 줄이 죽었다). t111 도 같은 이유로 좁혔다.
+    assert not [w for w, _f in H.blockers(ok) if "워크트리" in w], (
+        "이어져 있는데 막았다")
+    assert not [w for w, _f in H.blockers(dict(base)) if "워크트리" in w], (
+        "워크트리가 아닌데 워크트리 경고가 뜬다")
 
     # 루트 지시문 비교가 본체 기준인가 — 워크트리에서 거짓 경보가 뜨던 자리
     hs = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
@@ -20523,7 +20536,12 @@ def t342_a_round_that_skipped_steps_says_so():
         st = {"점유": [], "수집신선도": [], "미푸시": [], "임시파일": [], "큐잔량": 0}
 
         # ② 건너뛴 것이 있으면 **말한다** — 그리고 이름을 댄다
+        # ★ blockers 는 **스냅샷에서** 읽는다(2026-08-20) — 살아 있는 파일을 직접
+        #   보면 합성 st 로 부르는 다른 검증들이 그날 기계 상태에 따라 죽는다.
+        #   담는 자리(snapshot)는 아래 ⑤ 가 따로 지킨다.
         _put(["오기입 확인", "화면 사실대조", "대표보고 검증"])
+        st["건너뜀"] = (H.daily_step_now() or {}).get("건너뜀") or []
+        assert len(st["건너뜀"]) == 3, "진행 파일에서 건너뜀을 못 읽었다"
         hit = [w for w, _f in H.blockers(st) if "건너뛰" in w]
         assert hit, "[342] 건너뛴 회차가 인계에 한 줄도 안 뜬다"
         assert "3단계" in hit[0] and "오기입 확인" in hit[0], (
@@ -20533,6 +20551,13 @@ def t342_a_round_that_skipped_steps_says_so():
 
         # ③ 건너뛴 것이 없으면 **조용하다** — 정상까지 경보하면 아무도 안 본다([170])
         _put([])
+        st["건너뜀"] = (H.daily_step_now() or {}).get("건너뜀") or []
+        # ⑤ 담는 자리가 실재하나 — 없으면 blockers 는 영영 조용하다([328])
+        _sh_src = open(os.path.join(ROOT, "session_handoff.py"),
+                       encoding="utf-8").read()
+        assert (chr(34) + "건너뜀" + chr(34)
+                + ": (daily_step_now() or {})") in _sh_src, (
+            "[342] snapshot 이 건너뜀을 안 담는다 — 그러면 인계에 영영 안 뜬다")
         assert not [w for w, _f in H.blockers(st) if "건너뛰" in w], (
             "[342] 건너뛴 것이 없는 날에도 경보한다")
 
@@ -21028,6 +21053,175 @@ def t347_settle_amounts_are_editable_where_the_ledger_lets_them_be():
     finally:
         S._settle_amount_derive = _real
     print("[347] 정산 금액·PO 는 원장이 허락하는 자리에서만 고쳐진다 OK")
+
+
+def t348_drilling_into_a_record_never_moves_the_ground():
+    """확인 필요 목록에서 한 건을 눌러도 **뒤 화면이 안 바뀌고**, 이미 등록된 기록에
+    **[+ 신규 등록] 을 권하지 않는다.**
+
+    2026-08-20 류지영 보고(형님 전달 · 카톡): "누르면 창이뜨는데 / 목록에서 하나
+    클릭하면 / **정산으로 넘어감**".
+
+    ★ 실측으로 고장은 **둘**이었다:
+      ① `openRecord` 가 `show('settle')` 로 배경 탭을 통째로 옮겼다. 확인 필요는
+         208건짜리 목록이라, 한 건 보고 닫으면 있던 자리를 잃고 처음부터 다시
+         찾아 들어가야 했다. 상세는 **덮개**지 이동이 아니다.
+      ② 같은 캡처에 더 나쁜 것이 있었다 — **완료된 2026-04 점검**(PM-2604-219 ·
+         객관완료근거까지 있는 건)에 "아직 앱 DB에 등록되지 않은 **예정·계획**
+         입니다(상태 **완료**)" 와 **[+ 신규 정기점검 등록]** 이 떴다. 그 문장은
+         그 자체로 앞뒤가 안 맞고, 그 단추를 누르면 **이미 다녀온 현장이 한 번 더
+         등록된다** — 되돌릴 수 없는 쪽이다([172]).
+
+    가르는 근거는 **기록 ID 모양**이다(실측 v608 · get_works):
+      · 버전 없는 정기점검 **70건이 전부 `SCH-`**(류지영 스케줄 원본 예정)
+      · 등록형 ID(PM-/AS-/JS-/FW-)인데 버전이 없는 행 **0건**
+      · 등록형 + 프로젝트NO 를 가진 **384행은 전부 버전이 있다**
+    그러므로 등록형 ID 에 버전이 없다면 그것은 계획이 아니라 **목록이 버전을 못 싣고
+    온 것**이다([296]) — 새로 등록할 일이 아니라 목록을 다시 받을 일이다.
+
+    잠그는 것([39] — 되돌아가면 안 되는 계약):
+      ① 시트가 떠 있으면 탭을 안 바꾼다 · `_lastRows` 도 안 건드린다
+      ② 시트가 없으면 예전 그대로 정산 탭으로 간다(좁히는 것도 고장이다)
+      ③ 등록된 기록에는 [+ 신규 등록] 이 **절대** 안 나오고 중복 경고가 나온다
+      ④ 진짜 예정(SCH-)에는 예전 그대로 [+ 신규 등록] 이 나온다
+      ⑤ 버전이 있는 정상 행은 저장 폼이 그대로 나온다
+      ⑥ 계기 자신도 시험한다([272])
+
+    ★ 글자 검사로는 못 잰다([295]) — node 로 **실행해서** 잰다. 실측 증거 파일은
+      한 글자도 안 건드린다([247]).
+    """
+    import io as _io, shutil as _sh, json as _json
+    import proc_guard
+
+    html = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                    encoding="utf-8", newline="").read()
+    NL2 = chr(10)
+
+    def grab(sig, oneline=False):
+        i = html.index(sig)
+        j = html.index(NL2, i) if oneline else html.index(NL2 + "}", i) + 2
+        return html[i:j]
+
+    # ── 구조: 되돌아가면 안 되는 두 줄 ────────────────────────────────
+    orec = grab("function openRecord(kind, id, project){")
+    assert "if(sheetIsOpen()){" in orec, (
+        "openRecord 가 시트가 떠 있는지 안 본다 — 목록에서 파고들면 배경 탭이 "
+        "정산으로 넘어간다(2026-08-20 류지영 보고)")
+    assert "function openSheet(kind, idx, id, row)" in html, (
+        "openSheet 가 행을 직접 못 받는다 — 그러면 목록에서 파고들 때 _lastRows 를 "
+        "남의 목록으로 바꿔야 하고, 정산 목록의 엑셀·캡처가 그것을 읽는다")
+
+    node = _sh.which("node")
+    if not node:
+        print("[348] 목록 파고들기 — node 가 없어 실행 검사는 건너뜀(구조만) OK")
+        return
+
+    def run(js, tag):
+        with tempfile.NamedTemporaryFile("w", suffix="-" + tag + ".mjs", delete=False,
+                                         encoding="utf-8", newline="") as fh:
+            fh.write(js)
+            path = fh.name
+        try:
+            pr = subprocess.Popen([node, path], stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT,
+                                  **proc_guard.background_popen_kwargs())
+            out = pr.communicate(timeout=90)[0].decode("utf-8", "replace").strip()
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        assert out.startswith("{"), "node 가 답 대신 이것을 줬다: " + repr(out[:400])
+        return _json.loads(out)
+
+    # ── 실행 ①②: 탭·목록을 건드리나 ─────────────────────────────────
+    harness = NL2.join([
+        grab("function openRecord(kind, id, project){"),
+        "var settleRows=[], works={as:[],pm:[{점검ID:'PM-1',프로젝트NO:'UJ1'}]};",
+        "var log=[]; var SHEET=false;",
+        "function sheetIsOpen(){ return SHEET; }",
+        "function show(v){ log.push('show:'+v); }",
+        "function setMode(m){ log.push('mode:'+m); }",
+        "function openByPrj(){ log.push('byPrj'); }",
+        "function projectNoOf(r){ return String(r.프로젝트NO||''); }",
+        "function openSheet(k,i,id,row){ log.push('sheet:'+k+':'+id+':'+(row?'row':'idx')); }",
+        "var window={};",
+        "const out = {};",
+        "SHEET = true; window._lastRows = ['원래목록']; log = [];",
+        "openRecord('pm','PM-1','UJ1');",
+        "out.kept = {log:log.slice(), lastRows:window._lastRows};",
+        "SHEET = false; window._lastRows = ['원래목록']; log = [];",
+        "openRecord('pm','PM-1','UJ1');",
+        "out.moved = {log:log.slice(), lastRowsIsList:(window._lastRows===works.pm)};",
+        "console.log(JSON.stringify(out));",
+    ])
+    got = run(harness, "t348-open")
+    a = got["kept"]
+    assert not [x for x in a["log"] if x.startswith("show:") or x.startswith("mode:")], (
+        "시트가 떠 있는데도 배경 탭을 옮긴다 — 류지영이 자리를 잃는 그 자리다: "
+        + repr(a["log"]))
+    assert a["lastRows"] == ["원래목록"], (
+        "시트에서 파고들며 _lastRows 를 남의 목록으로 바꿨다 — 정산 목록의 "
+        "엑셀·캡처가 그것을 읽는다: " + repr(a["lastRows"]))
+    assert any(x.endswith(":row") for x in a["log"]), (
+        "행을 직접 안 넘겼다 — 그러면 _lastRows 를 바꿔야만 열린다: " + repr(a["log"]))
+    b = got["moved"]
+    assert "show:settle" in b["log"] and "mode:pm" in b["log"], (
+        "시트가 없을 때는 예전처럼 정산 탭으로 가야 한다(좁히는 것도 고장이다): "
+        + repr(b["log"]))
+    assert b["lastRowsIsList"], "시트가 없을 때는 _lastRows 를 그 목록으로 채운다"
+
+    # ── 실행 ③④⑤: 신규 등록을 누구에게 보여 주나 ────────────────────
+    def form_probe(gate=None):
+        body = grab("function inputForm(kind, r, id){")
+        if gate is not None:
+            old = ("const registered = /^(PM|AS|JS|FW)-/i.test(rid) "
+                   "|| !!String(r.프로젝트NO||'').trim();")
+            assert old in body, "갈래 문을 못 찾았다 — 계기 시험이 성립하지 않는다"
+            body = body.replace(old, "const registered = " + gate + ";")
+        return NL2.join([
+            grab("function esc2(s){", True),
+            grab("function recordIdOf(r){"),
+            grab("const INPUT_SPEC = {").replace("const INPUT_SPEC", "var INPUT_SPEC"),
+            body,
+            "function statOf(r){ return r.점검상태||r.진행상태||''; }",
+            "function fieldInput(){ return '<input>'; }",
+            "const cases = {",
+            "  done:    {점검ID:'PM-2604-219', 프로젝트NO:'UJ2600618', 점검상태:'완료'},",
+            "  noPrj:   {접수ID:'AS-2608-610', 진행상태:'작업완료'},",
+            "  prjOnly: {프로젝트NO:'UJ2601321', 점검상태:'예정'},",
+            "  plan:    {점검ID:'SCH-2026Q3-66D0368B76', 점검상태:'예정월'},",
+            "  normal:  {점검ID:'PM-2604-219', 프로젝트NO:'UJ2600618', DB버전:2, _store_id:'x'}",
+            "};",
+            "const out = {};",
+            "for(const [k, r] of Object.entries(cases)){",
+            "  const s = inputForm('pm', r, 'K');",
+            "  out[k] = {신규:s.indexOf('openNewWork(')>=0, 예정계획:s.indexOf('예정·계획')>=0,",
+            "            중복경고:s.indexOf('두 개가 됩니다')>=0, 저장폼:s.indexOf('saveInputs(')>=0};",
+            "}",
+            "console.log(JSON.stringify(out));",
+        ])
+
+    f = run(form_probe(), "t348-form")
+    for key in ("done", "noPrj", "prjOnly"):
+        assert not f[key]["신규"], (
+            key + ": 이미 등록된 기록에 [+ 신규 등록] 이 떴다 — 누르면 이미 다녀온 "
+            "현장이 한 번 더 등록된다")
+        assert not f[key]["예정계획"], (
+            key + ": 등록된 기록을 '예정·계획' 이라 부른다 — 완료 건에 그렇게 적으면 "
+            "그 문장 자체가 앞뒤가 안 맞는다")
+        assert f[key]["중복경고"], key + ": 중복이 생긴다는 말을 안 한다"
+    assert f["plan"]["신규"] and f["plan"]["예정계획"], (
+        "진짜 예정(SCH-)에서 [+ 신규 등록] 이 사라졌다 — 문을 너무 좁힌 것도 고장이다")
+    assert f["normal"]["저장폼"] and not f["normal"]["신규"], (
+        "버전이 있는 정상 행에 저장 폼이 안 나온다: " + repr(f["normal"]))
+
+    # ── ⑥ 계기 자신을 시험한다([272]) ────────────────────────────────
+    broke = run(form_probe(gate="false"), "t348-selftest")
+    assert broke["done"]["신규"], (
+        "계기 시험이 성립하지 않는다 — 갈래 문을 껐는데도 신규 등록이 안 뜬다. "
+        "그렇다면 위 ③ 은 아무것도 재고 있지 않다")
+    print("[348] 목록에서 파고들어도 자리를 안 잃고 중복 등록을 안 권한다 OK")
 
 
 def t345_camp_screen_folds_by_canon_and_hides_nothing():
@@ -27172,6 +27366,7 @@ if __name__ == "__main__":
     t345_camp_screen_folds_by_canon_and_hides_nothing()
     t346_upload_failure_shows_code_and_capture()
     t347_settle_amounts_are_editable_where_the_ledger_lets_them_be()
+    t348_drilling_into_a_record_never_moves_the_ground()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()
