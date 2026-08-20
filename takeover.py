@@ -180,6 +180,58 @@ def notices(rows=None, 왜못함="", repo=None):
     return out
 
 
+def browser_side(now=None):
+    """브라우저 수집은 **계정을 안 따라간다** — 이어받는 쪽에 무엇이 없는지 적는다.
+
+    Claude 확장 연결은 크롬이 아니라 **Claude 계정**에 붙는다(2026-08-12 실측 —
+    크롬·확장·사람 로그인이 하나도 안 바뀌어도 계정이 바뀌면 목록이 빈다).
+    그래서 새 계정은 밴드 탭에 수집기를 **다시 심을 수가 없다.**
+
+    ★ 그러나 **이미 심어 둔 것은 페이지 안에 산다** — 계정과 무관하게 계속 돈다.
+      탭을 새로고침하거나 닫거나 기계가 절전에 들어가면 그때 사라진다.
+    ★ 그러므로 이어받는 쪽에 필요한 것은 "무엇이 막혔나"가 아니라 **확장 없이
+      되는 길**이다 — 로그인된 밴드 탭 콘솔(F12)에 두 줄이면 된다([111]).
+
+    읽기만 한다([168]) — 회차가 써 둔 파일 둘만 본다.  못 읽으면 **0 이 아니라
+    "못 읽음"** 이다([169]): 대기 0 으로 보이면 이어받는 쪽이 할 일이 없는 줄 안다.
+    """
+    now = time.time() if now is None else now
+    out = {"대기": None, "밴드": {}, "왜못함": ""}
+    try:
+        with open(os.path.join(ROOT, "reports", "밴드_수집대기열.json"),
+                  encoding="utf-8") as fh:
+            q = json.load(fh) or {}
+        per = {str(b): len((v or {}).get("nos") or [])
+               for b, v in (q.get("bands") or {}).items()}
+        out["대기"] = sum(per.values())
+        for b, cnt in per.items():
+            out["밴드"][b] = {"대기": cnt, "상태": "?", "조용한분": None}
+    except Exception as exc:
+        out["왜못함"] = "대기열을 못 읽었다: %s" % str(exc)[:80]
+        return out
+    try:
+        with open(os.path.join(ROOT, "reports", "크롬수집_보고.json"),
+                  encoding="utf-8") as fh:
+            rep = json.load(fh) or {}
+        for b, rec in (rep.get("밴드") or {}).items():
+            rec = rec or {}
+            row = out["밴드"].setdefault(str(b), {"대기": 0, "상태": "?", "조용한분": None})
+            row["상태"] = rec.get("state") or "?"
+            ts = rec.get("at") or rec.get("받은시각")
+            try:
+                # ★ 시각대를 맞추지 않으면 몇 시간이 통째로 어긋난다([288]).
+                #   `at` 는 UTC(+00:00)로 오고 `받은시각` 은 이 PC 시각이라
+                #   tzinfo 를 그냥 떼면 9시간이 밀린다 — 실측으로 145분이
+                #   561분으로 나왔다. aware 면 그대로, naive 면 이 PC 시각이다.
+                t = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                row["조용한분"] = max(0.0, (now - t.timestamp()) / 60.0)
+            except Exception:
+                row["조용한분"] = None
+    except Exception as exc:
+        out["왜못함"] = "되보고를 못 읽었다: %s" % str(exc)[:80]
+    return out
+
+
 def card(rows=None, 왜못함="", repo=None):
     """다른 계정이 첫 화면에서 볼 한 장."""
     if rows is None:
@@ -218,7 +270,41 @@ def card(rows=None, 왜못함="", repo=None):
           "- 커밋 안 한 파일: **%s**" % ("못 읽음" if repo["미커밋"] is None else "%d개" % repo["미커밋"]),
           "", "> 폰·웹·다른 PC 는 **밀린 것만** 본다. 미푸시가 남아 있으면 이어받는 쪽은"
           " 그 작업을 아예 못 본다 — '나중에 밀면 되는 것'이 아니다.", ""]
+    L += _browser_lines()
     return "\n".join(L)
+
+
+def _browser_lines(b=None):
+    """브라우저 수집 칸.  **할 일이 없으면 조용하다**([170])."""
+    b = browser_side() if b is None else b
+    if b.get("왜못함"):
+        return ["## 브라우저 수집", "",
+                "> **확인 못 함** — %s" % b["왜못함"], "",
+                "> 0건이 아니라 못 읽은 것이다 — 할 일이 없다는 뜻이 아니다.", ""]
+    if not b.get("대기"):
+        return []
+    L = ["## 브라우저 수집 — **계정을 안 따라간다**", "",
+         "- 지금 대기: **%d건**" % b["대기"], ""]
+    L += ["| 밴드 | 대기 | 마지막 되보고 | 상태 |", "|---|---:|---:|---|"]
+    for band in sorted(b["밴드"]):
+        r = b["밴드"][band]
+        L.append("| %s | %d | %s | %s |" % (
+            band, r.get("대기") or 0,
+            ("%.0f분 전" % r["조용한분"]) if r.get("조용한분") is not None else "없음",
+            r.get("상태") or "?"))
+    L += ["",
+          "> Claude 확장 연결은 크롬이 아니라 **Claude 계정**에 붙는다 — 계정이 바뀌면"
+          " 새 계정은 수집기를 **다시 심을 수 없다**. 이미 심어 둔 것은 페이지 안에"
+          " 살아 있어 계속 돈다(탭 새로고침·닫기·절전 전까지).", "",
+          "**확장 없이 되는 길** — 로그인된 밴드 탭 콘솔(F12)에 이 두 줄:", "",
+          "```js",
+          "const s = await (await fetch('http://127.0.0.1:8899/band_auto_collect.user.js')).text();",
+          "(0,eval)(s);",
+          "```", "",
+          "> 그다음은 **크롬 창을 화면에 보이게** 두기만 하면 된다. 숨은 탭에서는"
+          " 밴드 본문이 안 그려져 수집기가 스스로 멈춘다 — 그 가드를 우회하면"
+          " 실재하는 글에 **되돌릴 수 없는 묘비**가 박힌다(2026-08-19 실사고).", ""]
+    return L
 
 
 def write(text=None):

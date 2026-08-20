@@ -20170,6 +20170,90 @@ def t359_ambiguous_is_not_a_failure_but_never_silent():
     print("[359] 모호는 실패가 아니다 · 그래도 자국은 남는다 OK")
 
 
+
+
+def t362_takeover_says_the_browser_does_not_follow_the_account():
+    """이어받기 카드가 **브라우저 수집은 계정을 안 따라간다**는 것을 말한다.
+
+    Claude 확장 연결은 크롬이 아니라 **Claude 계정**에 붙는다(2026-08-12 실측).
+    그래서 계정이 바뀌면 새 계정은 밴드 탭에 수집기를 다시 심을 수 없다 — 그런데
+    그 사실이 어느 화면에도 없어서, 이어받는 쪽은 "왜 수집이 0건이지"로 시간을 쓴다.
+    확장 없이 되는 길(콘솔 두 줄)까지 같이 준다([289] — 조치를 못 대면 아무도 안 본다).
+    """
+    import importlib
+    T = importlib.import_module("takeover")
+
+    # ① 할 일이 없으면 조용하다([170]) — 정상까지 적으면 아무도 안 읽는다
+    assert T._browser_lines({"대기": 0, "밴드": {}, "왜못함": ""}) == []
+
+    # ② 못 읽은 것을 '0건'이라 하지 않는다([169])
+    L = T._browser_lines({"대기": None, "밴드": {}, "왜못함": "대기열을 못 읽었다: X"})
+    body = chr(10).join(L)
+    assert "확인 못 함" in body and "0건이 아니라" in body, body
+
+    # ③ 대기가 있으면 **확장 없이 되는 길**을 준다
+    L = T._browser_lines({"대기": 494, "왜못함": "",
+                          "밴드": {"84789192": {"대기": 289, "상태": "hidden", "조용한분": 22.0}}})
+    body = chr(10).join(L)
+    assert "494" in body and "289" in body
+    assert "band_auto_collect.user.js" in body and "(0,eval)(s);" in body, (
+        "확장 없이 되는 길을 안 준다 — 새 계정은 다시 심을 수가 없다")
+    assert "계정" in body, "계정이 바뀌면 못 심는다는 사실을 안 적었다"
+    assert "묘비" in body, "숨은 탭 우회의 대가를 안 적었다(2026-08-19)"
+
+    # ④ 시각대를 맞춘다([288]) — UTC 와 이 PC 시각이 **같은 값**으로 읽혀야 한다.
+    #    실측 2026-08-20: tzinfo 를 그냥 떼서 145분이 561분으로 나왔다.
+    #    실측 증거 파일은 한 글자도 안 건드린다([247]) — 임시 경로로만.
+    import datetime as _dt
+    old_root = T.ROOT
+    with tempfile.TemporaryDirectory(prefix="csos-t362-") as td:
+        os.makedirs(os.path.join(td, "reports"))
+        T.ROOT = td
+        try:
+            with open(os.path.join(td, "reports", "밴드_수집대기열.json"), "w",
+                      encoding="utf-8") as fh:
+                json.dump({"bands": {"84789192": {"nos": [1, 2, 3]}}}, fh)
+            now = time.time()
+            ago = now - 22 * 60
+            utc = _dt.datetime.fromtimestamp(ago, _dt.timezone.utc).isoformat()
+            loc = _dt.datetime.fromtimestamp(ago).isoformat(timespec="seconds")
+            for label, ts in (("at", utc), ("받은시각", loc)):
+                with open(os.path.join(td, "reports", "크롬수집_보고.json"), "w",
+                          encoding="utf-8") as fh:
+                    json.dump({"밴드": {"84789192": {"state": "hidden", label: ts}}}, fh)
+                got = T.browser_side(now=now)["밴드"]["84789192"]["조용한분"]
+                assert got is not None and abs(got - 22.0) < 1.5, (
+                    "%s 를 %.0f분 전이라 읽는다 — 22분이 맞다([288])" % (label, got or -1))
+        finally:
+            T.ROOT = old_root
+
+    # ⑤ 계기 자신을 시험한다([272]) — tzinfo 를 떼던 옛 코드면 ④가 잡히나
+    code = open(os.path.join(ROOT, "takeover.py"), encoding="utf-8").read()
+    broken = code.replace(
+        '                t = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))' + chr(10),
+        '                t = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))' + chr(10) +
+        '                if t.tzinfo is not None:' + chr(10) +
+        '                    t = t.replace(tzinfo=None)' + chr(10), 1)
+    assert broken != code, "고장 주입 앵커가 안 맞는다 — 이 자기시험은 아무것도 안 잰다"
+    ns = {"__name__": "tk_broken", "__file__": os.path.join(ROOT, "takeover.py")}
+    exec(compile(broken, "tk_broken", "exec"), ns)
+    with tempfile.TemporaryDirectory(prefix="csos-t362b-") as td:
+        os.makedirs(os.path.join(td, "reports"))
+        ns["ROOT"] = td
+        with open(os.path.join(td, "reports", "밴드_수집대기열.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump({"bands": {"84789192": {"nos": [1]}}}, fh)
+        now = time.time()
+        utc = _dt.datetime.fromtimestamp(now - 22 * 60, _dt.timezone.utc).isoformat()
+        with open(os.path.join(td, "reports", "크롬수집_보고.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump({"밴드": {"84789192": {"state": "hidden", "at": utc}}}, fh)
+        bad = ns["browser_side"](now=now)["밴드"]["84789192"]["조용한분"]
+    assert bad is None or abs(bad - 22.0) >= 1.5, (
+        "tzinfo 를 떼도 22분으로 나온다 — ④는 시각대를 안 재고 있다([272])")
+    print("[362] 이어받기 — 브라우저는 계정을 안 따라간다 · 확장 없이 되는 길 OK")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -28896,6 +28980,7 @@ if __name__ == "__main__":
     t357_userscript_watch_names_the_dead_band()
     t358_cache_copies_never_land_in_the_dump_folder()
     t359_ambiguous_is_not_a_failure_but_never_silent()
+    t362_takeover_says_the_browser_does_not_follow_the_account()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
