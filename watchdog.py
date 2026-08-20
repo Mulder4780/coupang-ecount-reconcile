@@ -766,11 +766,15 @@ def watch_camp_source(dry):
         import camp_contacts
         rec = camp_contacts.sched_stale() if dry else camp_contacts.stale_mark()
         갈래 = rec.get("갈래") or "모름"
+        # ★ 같은 원본이 **달력 예정**도 먹인다(분담판 `[168]`) — 담당자 자료만 보고
+        #   "최신"이라 적으면 달력이 옛 예정을 보여 주는 동안 회차가 조용하다(`[169]`).
+        cal = (rec.get("달력") or {}).get("갈래")
+        tail = "" if cal in (None, "정상") else " · 달력 예정 %s" % cal
         if 갈래 == "정상":
-            return "캠프 원본 최신"
+            return "캠프 원본 최신" + tail
         if 갈래 == "밀림":
-            return "캠프 원본 밀림 %d분" % (rec.get("늦은분") or 0)
-        return "캠프 원본 %s" % 갈래
+            return "캠프 원본 밀림 %d분" % (rec.get("늦은분") or 0) + tail
+        return "캠프 원본 %s" % 갈래 + tail
     except Exception as exc:
         # ★ 못 본 것을 '정상'이라 하지 않는다([169]).
         return "캠프 원본 확인 실패: %s: %s" % (type(exc).__name__, str(exc)[:60])

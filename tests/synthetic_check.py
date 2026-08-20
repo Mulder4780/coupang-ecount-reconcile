@@ -21310,6 +21310,228 @@ def t348_drilling_into_a_record_never_moves_the_ground():
     print("[348] 목록에서 파고들어도 자리를 안 잃고 중복 등록을 안 권한다 OK")
 
 
+def t350_handoff_never_prints_a_container_and_never_eats_the_remedy():
+    """인계 '먼저 처리할 것'이 감시자가 준 소식을 **통째로 찍지 않고 조치를 버리지도
+    않는다** (2026-08-20 실사고 · `[325]` 와 같은 모양, 자리가 다르다).
+
+    실측으로 형님이 보는 목록에 **파이썬 튜플 repr 이 그대로** 나가고 있었다:
+      `('[조직도] 조직도 코드가 바뀌었는데 서버는 아직 옛 코드다: webapp/index.html',
+        'python webapp/restart_server.py')`
+    `org_watch.notices()` 는 `(말, 조치)` **튜플**을 주는데 `blockers()` 가
+    `out.append((str(line), "python org_watch.py --print"))` 로 받았기 때문이다.
+
+    ★ 보기 나쁜 것보다 나쁜 것은 **조치를 잃는 것**이다(`[289]` — 조치는 갈래마다
+      다르다). 원본은 이미 `python webapp/restart_server.py` 라고 정확히 적어 뒀는데
+      인계는 그것을 버리고 `--print`(리포트를 한 번 더 찍는 것)를 시켰다 — 그 명령은
+      **고장을 하나도 안 고친다.** 사람은 시킨 대로 하고도 제자리다.
+    ★ 모양이 **둘**이라 하나만 받으면 다른 쪽이 조용히 샌다(`[165]`): 살아 있는
+      호출에서는 **튜플**, 스냅샷 JSON 을 거치면 **리스트**다(실측 둘 다 확인).
+
+    잠그는 것(`[39]` — 되돌아가면 안 되는 계약):
+      ① 튜플·리스트·글자·사전 넷 다 `(말, 조치)` 로 펴진다
+      ② 원본이 준 조치가 **이긴다** — 기본값으로 덮지 않는다
+      ③ 조치가 비면 기본값을 쓴다(빈 조치 칸을 내보내지 않는다)
+      ④ 모르는 모양도 **안 버린다**(`[169]`)
+      ⑤ 인계 본문에 컨테이너 repr 이 한 줄도 안 나간다
+      ⑥ 계기 자신도 시험한다(`[272]`)
+
+    ★ 글자 검사로는 못 잰다(`[295]`) — **불러서** 잰다. 실측 증거 파일
+      `reports/세션인계.json` 은 **읽기만** 한다(`[247]`).
+    """
+    import session_handoff as H
+
+    # ★ 표시는 여는 괄호가 아니라 **괄호+따옴표**다. 정상 말머리가 `[조직도]` 라
+    #   맨몸 `[` 로 재면 멀쩡한 줄을 컨테이너라고 지목한다(`[172]` 의 거짓 경보 ·
+    #   만들면서 그대로 걸렸다). 재려는 것은 '괄호로 시작하나'가 아니라
+    #   **'파이썬이 찍은 컨테이너 repr 인가'** 다.
+    REPR = ("('", '("', "['", '["', "{'", '{"')
+
+    fb = "python org_watch.py --print"
+    real = "python webapp/restart_server.py"
+
+    # ── ①②③④ 네 모양 ────────────────────────────────────────────────
+    got = {
+        "튜플":   H._notice_pair(("[조직도] 옛 코드", real), fb),
+        "리스트": H._notice_pair(["[조직도] 옛 코드", real], fb),
+        "글자":   H._notice_pair("[조직도] 확인 못 함", fb),
+        "사전":   H._notice_pair({"말": "[조직도] 자리 없음", "조치": "python x.py"}, fb),
+        "빈조치": H._notice_pair(("[조직도] 빈 조치", "   "), fb),
+    }
+    for name, pair in got.items():
+        assert isinstance(pair, tuple) and len(pair) == 2, name + ": (말, 조치) 가 아니다"
+        head = str(pair[0])
+        assert not head.lstrip().startswith(REPR), (
+            name + ": 컨테이너를 통째로 찍었다 — 형님이 보는 목록에 파이썬 repr 이 "
+            "그대로 나간다: " + repr(head)[:120])
+        assert str(pair[1]).strip(), name + ": 조치 칸이 비었다"
+    assert got["튜플"][1] == real and got["리스트"][1] == real, (
+        "감시자가 준 조치를 버리고 기본값으로 덮었다 — 그 명령은 고장을 안 고친다"
+        "(`[289]`): " + repr(got["튜플"]) + " / " + repr(got["리스트"]))
+    assert got["글자"][1] == fb and got["빈조치"][1] == fb, (
+        "조치가 없을 때 기본값을 안 썼다 — 빈 조치 칸이 나간다")
+    assert got["사전"][1] == "python x.py", "사전 모양에서 조치를 못 읽었다"
+    assert "확인 못 함" in got["글자"][0], "모르는 모양을 버렸다(`[169]`)"
+
+    # ── ⑤ 인계 본문 전체에 repr 이 안 나간다 ─────────────────────────
+    snap = os.path.join(ROOT, "reports", "세션인계.json")
+    if os.path.exists(snap):
+        # ⚠ 이 파일에는 io 가 모듈 수준에 없다(`[324]`) — 내장 open 을 쓴다.
+        with open(snap, encoding="utf-8", newline="") as fh:
+            st = json.load(fh)
+        st = dict(st)
+        st["조직도"] = [["[조직도] 서버는 아직 옛 코드다: webapp/index.html", real],
+                        "[조직도] 확인 못 함 — 로스터를 못 읽었다"]
+        try:
+            rows = H.blockers(st)
+        except Exception as e:          # 스냅샷 칸이 빠진 날은 재지 않는다(`[320]`)
+            rows = None
+            print("  · 인계 왕복은 건너뜀(스냅샷 칸 부족: %s)" % type(e).__name__)
+        if rows is not None:
+            org = [r for r in rows if "조직도" in str(r[0])]
+            assert len(org) == 2, "조직도 줄이 사라졌다 — 조용히 빼면 안 된다(`[169]`)"
+            for r in org:
+                assert not str(r[0]).lstrip().startswith(REPR), (
+                    "인계 본문에 컨테이너 repr 이 샌다: " + repr(r[0])[:120])
+            assert any(r[1] == real for r in org), (
+                "인계가 감시자의 조치를 못 싣는다 — 사람이 고칠 자리에 못 간다")
+
+    # ── ⑥ 계기 자신을 시험한다(`[272]`) ──────────────────────────────
+    #    옛 동작(통째로 찍고 조치를 버림)을 그대로 만들어 넣어 위 ①② 가 정말
+    #    그 자리를 짚는지 본다. 안 짚으면 이 검사는 아무것도 안 재고 있는 것이다.
+    def _old(x, fallback):
+        return (str(x), fallback)
+
+    caught = 0
+    bad = _old(("[조직도] 옛 코드", real), fb)
+    if str(bad[0]).lstrip().startswith(REPR):
+        caught += 1
+    if bad[1] != real:
+        caught += 1
+    assert caught == 2, (
+        "계기 시험이 성립하지 않는다 — 옛 동작을 넣었는데 ①②가 안 걸린다. "
+        "그렇다면 위 검사는 아무것도 재고 있지 않다")
+
+    print("[350] 인계가 감시자 소식을 통째로 안 찍고 조치도 안 버린다 (실행으로 잼) OK")
+
+
+def t351_calendar_schedule_staleness_is_watched_on_its_own_terms():
+    """달력이 읽는 정기점검 예정 파일이 낡으면 **말한다** (2026-08-20 · 분담판 `[168]`).
+
+    같은 원본(류지영 정기점검 스케줄표)이 **두 파일**을 먹인다:
+      · `reports/캠프_담당자.json`      → 전국쿠팡캠프 화면(담당자 이름.전화)
+      · `reports/pm_schedule_sync.json` → **달력의 정기점검 예정**
+    그런데 `sched_stale()` 은 앞쪽만 봤다. 그래서 뒤쪽이 낡으면 달력이 **옛 예정을
+    조용히** 보여 주고 어느 화면도 그 말을 안 했다 — 실측 2026-08-19: 원본 09:11 인데
+    그 파일은 08-18 14:04 에 멈춰 있었고 손으로 돌리자 확정 50 → 53건이 됐다.
+    형님은 **"자료를 안올렸나?"** 를 물으셨다 — 자료는 올라와 있었다(`[169]`).
+
+    잠그는 것(`[39]`):
+      ① 원본이 더 새로우면 **밀림**이라 말한다
+      ② 파일이 아예 없으면 **없음**(정상이 아니다)
+      ③ 따라왔으면 **조용하다**(정상까지 경보하면 아무도 안 본다 · `[170]`)
+      ④ 조치가 담당자 것과 **다르다**(`[289]`) — 합치면 엉뚱한 명령을 돌린다
+      ⑤ 담당자 갈래를 **안 흔든다**(`[172]` — 문제 없는 쪽을 말없이 바꾸지 않는다)
+      ⑥ 인계가 그것을 싣고, **키가 없으면 조용하다**(`[247]` — 안 물은 것과 고장은 다르다)
+      ⑦ 워치독 한 줄이 말한다(회차가 '최신'만 적으면 그 회차가 눈먼 것이다)
+      ⑧ 계기 자신도 시험한다(`[272]`)
+
+    ★ Z:(SMB) 를 안 훑는다 — `_sched_file` 을 목으로 갈아 끼운다(실측 2.78초 · `[168]`).
+    ★ 실측 증거 파일에는 **한 글자도 안 쓴다**(`[247]`) — 임시 경로로만 잰다.
+    """
+    import camp_contacts as C
+    import session_handoff as H
+
+    box = tempfile.mkdtemp(prefix="t351-")
+    cal = os.path.join(box, "pm_schedule_sync.json")
+    dam = os.path.join(box, "캠프_담당자.json")
+    for p in (cal, dam):
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("{}")
+
+    src_mt = os.path.getmtime(cal) + 7200          # 원본이 2시간 더 새롭다
+    keep = (C._sched_file, C.CAL_OUT, C.OUT)
+    try:
+        C._sched_file = lambda: ("Z:/원본.xlsx", src_mt, 1)
+        C.CAL_OUT, C.OUT = cal, dam
+        os.utime(dam, (src_mt + 60, src_mt + 60))  # 담당자 자료는 따라왔다
+
+        # ①④⑤ 달력만 밀림 · 조치가 다르다 · 담당자는 안 흔들린다
+        r = C.sched_stale()
+        assert r["갈래"] == "정상", (
+            "담당자 갈래가 흔들렸다 — 달력을 재느라 멀쩡한 쪽을 바꾸면 안 된다: " + repr(r["갈래"]))
+        assert r["달력"]["갈래"] == "밀림", (
+            "달력 예정이 원본보다 2시간 낡은데 '밀림'이라 안 한다 — 그 상태에서 달력은 "
+            "옛 예정을 오류 없이 그대로 그린다: " + repr(r["달력"]))
+        assert r["달력"]["늦은분"] >= 110, "늦은 분을 안 센다: " + repr(r["달력"])
+        assert r["달력"]["조치"] != r["조치"], (
+            "달력과 담당자의 조치가 같다 — 고치는 명령이 다른데 합치면 사람이 엉뚱한 "
+            "명령을 돌리고 원인은 그대로 남는다(`[289]`)")
+        assert "pm_schedule_sync" in r["달력"]["조치"], (
+            "달력 조치가 그 파일을 만드는 명령이 아니다: " + repr(r["달력"]["조치"]))
+
+        # ⑦ 워치독 한 줄이 그 사실을 말한다
+        import watchdog as W
+        line = W.watch_camp_source(True)
+        assert "달력" in line, (
+            "회차 한 줄이 달력을 한 글자도 안 말한다 — 담당자만 보고 '최신'이라 적으면 "
+            "그 회차가 눈먼 것이다(`[169]`): " + repr(line))
+
+        # ② 파일이 아예 없으면 '없음'
+        C.CAL_OUT = os.path.join(box, "없는파일.json")
+        assert C.sched_stale()["달력"]["갈래"] == "없음", (
+            "달력 예정 파일이 없는데 '없음'이라 안 한다 — 없는 것과 최신인 것은 다르다")
+
+        # ③ 따라왔으면 조용하다
+        C.CAL_OUT = cal
+        os.utime(cal, (src_mt + 60, src_mt + 60))
+        assert C.sched_stale()["달력"]["갈래"] == "정상", (
+            "따라왔는데도 경보한다 — 정상까지 경보하면 아무도 안 본다(`[170]`)")
+    finally:
+        C._sched_file, C.CAL_OUT, C.OUT = keep
+
+    # ── ⑥ 인계가 싣고, 키가 없으면 조용하다 ─────────────────────────
+    snap = os.path.join(ROOT, "reports", "세션인계.json")
+    if os.path.exists(snap):
+        with open(snap, encoding="utf-8", newline="") as fh:   # `[324]` io 없음
+            base = json.load(fh)
+        st = dict(base)
+        st["캠프원본"] = {"갈래": "정상", "말": "담당자 자료는 새롭다", "조치": "x",
+                          "달력": {"갈래": "밀림", "말": "원본이 달력 예정보다 새롭다",
+                                   "조치": "python pm_schedule_sync.py --apply"}}
+        try:
+            rows = H.blockers(st)
+        except Exception as e:      # 스냅샷 칸이 빠진 날은 재지 않는다(`[320]`)
+            rows = None
+            print("  · 인계 왕복은 건너뜀(스냅샷 칸 부족: %s)" % type(e).__name__)
+        if rows is not None:
+            hit = [r for r in rows if "달력 정기점검" in str(r[0])]
+            assert hit, "달력 밀림이 인계 '먼저 처리할 것'에 안 실린다 — 리포트에만 적으면 아무도 안 본다"
+            assert hit[0][1] == "python pm_schedule_sync.py --apply", (
+                "인계가 달력 조치를 담당자 것으로 섞었다: " + repr(hit[0][1]))
+            assert not [r for r in rows if "캠프 담당자 자료" in str(r[0])], (
+                "담당자 갈래가 정상인데 그 줄도 떴다 — 한 사건이 두 목소리로 울면 "
+                "진짜 경보가 묻힌다(`[170]`)")
+            st2 = dict(base)
+            st2["캠프원본"] = {"갈래": "정상", "말": "x", "조치": "y"}   # 달력 키 없음
+            assert not [r for r in H.blockers(st2) if "달력 정기점검" in str(r[0])], (
+                "옛 스냅샷(달력 칸을 안 물은 것)에 대고 경보한다 — 안 물은 것과 "
+                "고장은 다르다(`[247]`)")
+
+    # ── ⑧ 계기 자신을 시험한다(`[272]`) ──────────────────────────────
+    #    옛 동작(달력을 아예 안 봄)을 그대로 만들어 넣어 ① 이 그 자리를 짚는지 본다.
+    old = {"갈래": "정상", "조치": "python camp_contacts.py --write"}
+    caught = 0
+    if (old.get("달력") or {}).get("갈래") != "밀림":
+        caught += 1
+    if not [r for r in [("캠프 담당자 자료 — x", old["조치"])] if "달력 정기점검" in r[0]]:
+        caught += 1
+    assert caught == 2, (
+        "계기 시험이 성립하지 않는다 — 달력을 안 보는 옛 모양을 넣었는데 ①⑥ 이 "
+        "안 걸린다. 그렇다면 이 검사는 아무것도 재고 있지 않다")
+
+    print("[351] 달력 정기점검 예정이 낡으면 말한다 · 조치는 담당자와 다르다 (실행으로 잼) OK")
+
+
 def t345_camp_screen_folds_by_canon_and_hides_nothing():
     """[163] 전국쿠팡캠프 화면 — 정본으로 묶되 **못 합친 것을 숨기지 않는다**.
 
@@ -27454,6 +27676,8 @@ if __name__ == "__main__":
     t347_settle_amounts_are_editable_where_the_ledger_lets_them_be()
     t348_drilling_into_a_record_never_moves_the_ground()
     t349_round_bats_keep_their_line_endings()
+    t350_handoff_never_prints_a_container_and_never_eats_the_remedy()
+    t351_calendar_schedule_staleness_is_watched_on_its_own_terms()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()

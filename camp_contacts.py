@@ -949,6 +949,45 @@ def load_changes(limit=30):
 # -----------------------------------------------------------------------------
 STALE_MARK = os.path.join(REPORT_DIR, "캠프원본_밀림.json")
 STALE_SLACK_S = 60        # 회차가 원본을 읽고 쓰는 사이에 나는 잔여 초
+# ★ 같은 원본이 **두 파일**을 먹인다 (2026-08-20 · 분담판 `[168]`).
+#     · `캠프_담당자.json`      → 전국쿠팡캠프 화면(담당자 이름.전화)
+#     · `pm_schedule_sync.json` → **달력의 정기점검 예정**
+#   그런데 감시자는 앞쪽만 봤다. 그래서 뒤쪽이 낡으면 달력이 **옛 예정을 조용히**
+#   보여 주고 어느 화면도 그 말을 안 했다 — 실측 2026-08-19: 원본 09:11 인데
+#   그 파일은 08-18 14:04 에 멈춰 있었고, 손으로 돌리자 확정 50 → 53건이 됐다.
+#   형님은 "자료를 안올렸나?" 를 물으셨다 — **자료는 올라와 있었다.**
+#   ⚠ 조치가 서로 다르므로 갈래를 합치지 않는다(`[289]`): 담당자는
+#     `camp_contacts.py --write`, 달력은 `pm_schedule_sync.py --apply` 다.
+CAL_OUT = os.path.join(REPORT_DIR, "pm_schedule_sync.json")
+CAL_FIX = "python pm_schedule_sync.py --apply"
+
+
+def _cal_stale(mt, name, when, _t):
+    """달력이 읽는 `pm_schedule_sync.json` 이 원본을 따라왔나 (2026-08-20 · `[168]`).
+
+    ★ **이 사고는 빈칸으로 안 나타난다.** 달력은 옛 예정을 멀쩡히 그리고, 오류도
+      안 나고, 개수도 그럴듯하다 — 그래서 형님이 "자료를 안올렸나?" 를 물으실 때까지
+      아무도 몰랐다(실측 2026-08-19: 원본 09:11 · 그 파일 08-18 14:04 · 손으로
+      돌리자 확정 50 → 53건).
+    ★ **담당자 갈래와 합치지 않는다**(`[289]`) — 고치는 명령이 다르다. 합치면 한쪽만
+      낡은 날 사람이 **엉뚱한 명령**을 돌리고 원인은 그대로 남는다(`[172]`).
+    ★ **못 읽은 것을 '정상'이라 하지 않는다**(`[169]`) — Z: 가 끊긴 것과 파일이
+      최신인 것은 다른 사실이다."""
+    fix = CAL_FIX
+    try:
+        rt = os.path.getmtime(CAL_OUT)
+    except Exception:
+        return {"갈래": "없음", "자료시각": "", "늦은분": 0, "조치": fix,
+                "말": ("달력이 읽는 정기점검 예정 파일이 아직 없다 - "
+                       "원본 %s 는 %s 것이다" % (name, when))}
+    if mt <= rt + STALE_SLACK_S:
+        return {"갈래": "정상", "자료시각": _t(rt), "늦은분": 0, "조치": fix,
+                "말": "달력 정기점검 예정이 스케줄 원본보다 새롭다"}
+    late = int((mt - rt) // 60)
+    return {"갈래": "밀림", "자료시각": _t(rt), "늦은분": late, "조치": fix,
+            "말": ("정기점검 스케줄 원본이 **달력 예정**보다 %d분 새롭다 "
+                   "(원본 %s = %s . 달력 자료 %s) - 달력은 그동안 **옛 예정**을 "
+                   "오류 없이 그대로 보여 준다" % (late, name, when, _t(rt)))}
 
 
 def sched_stale():
@@ -963,7 +1002,12 @@ def sched_stale():
 
     out = {"갈래": "모름", "말": "", "원본": "", "원본시각": "", "자료시각": "",
            "늦은분": 0, "조치": "python camp_contacts.py --write",
-           "잰때": _dt.datetime.now().isoformat(timespec="seconds")}
+           "잰때": _dt.datetime.now().isoformat(timespec="seconds"),
+           # ★ 달력 예정은 **다른 파일.다른 조치**다(`[289]`). 원본 시각은 한 번만
+           #   재고 둘이 그것을 나눠 쓴다(`[162]`) — 여기서 또 재면 판정이 갈린다.
+           "달력": {"갈래": "모름", "말": "정기점검 스케줄 원본을 못 읽어 달력 예정이 "
+                                  "최신인지 확인 못 함",
+                    "자료시각": "", "늦은분": 0, "조치": CAL_FIX}}
     try:
         f = _sched_file()
     except Exception as e:
@@ -976,6 +1020,7 @@ def sched_stale():
     path, mt, _sz = f
     out["원본"] = os.path.basename(path)
     out["원본시각"] = _t(mt)
+    out["달력"] = _cal_stale(mt, out["원본"], out["원본시각"], _t)
     try:
         rt = os.path.getmtime(OUT)
     except Exception:
