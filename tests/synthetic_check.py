@@ -21056,6 +21056,91 @@ def t347_settle_amounts_are_editable_where_the_ledger_lets_them_be():
     print("[347] 정산 금액·PO 는 원장이 허락하는 자리에서만 고쳐진다 OK")
 
 
+def t349_round_bats_keep_their_line_endings():
+    """회차 `.bat` 에 **혼자 선 LF** 가 있으면 실패한다 (2026-08-20 분담판 [166]).
+
+    ★ 무엇이 있었나 — `쿠팡업무_원본자료자동정리` 가 09:35 에 **exit 9009**
+      (0x2331 '명령을 찾을 수 없음') 로 죽었고 `reports/source_organizer.log` 에
+      **한 줄도 안 남았다**. python 이 아예 안 떴다는 뜻이라 `[324]` 가 만들어 둔
+      자국도 없다 — 즉 **회차가 왜 죽었는지 어느 화면에도 안 뜬다.**
+      원인은 그 전날 도구 편집이 그 bat 을 **LF 전용**으로 다시 쓴 것이었다.
+
+    ★ 가르는 실측(진짜 회차는 안 돌리고 python 줄만 `cmd /c exit 7` 로 바꾼 사본):
+      ① ASCII bat=7 ② **LF+한글 rem=49(엉뚱)** ③ 같은 내용 CRLF=7
+      ④ LF·한글 rem 제거=7 ⑤ LF·rem 을 ASCII 로=7 ⑥ 고친 뒤 실제 파일=7.
+      **LF 만으로도, 한글만으로도 안 깨진다 — 둘이 같이 있을 때만 깨진다.**
+      cmd 가 배치파일을 바이트 오프셋으로 되읽는데 CP949 해석 길이와 어긋나
+      **줄 중간에서 재개**하기 때문이다.
+
+    ★ 그런데 위험한 것은 '늘 깨진다'가 아니라 **'운에 달렸다'** 는 점이다 —
+      그날 `daily_run.bat` 도 같은 상태였는데 멀쩡히 돌았다. **주석 한 줄만 고쳐도
+      도는 회차가 9009 로 뒤집힌다.** 그래서 `위험`(bare LF·ASCII 뿐)도 실패로 본다:
+      되돌리는 값은 CRLF 한 번이고, 부딪히는 값은 **회차 하나가 통째로 안 도는 것**
+      인데 그것이 **조용하다**(로그가 없어 '안 불렸다'와 구별이 안 된다).
+
+    잠그는 것([39] — 되돌아가면 안 되는 계약):
+      ① 살아 있는 `.bat` 에 혼자 선 LF 가 없다
+      ② 갈래를 가른다 — `깨짐확인`(오늘 깨져 있다) 과 `위험`(내일 깨질 수 있다) 은
+         조치가 아니라 **설명**이 다르다([289])
+      ③ **못 읽은 것을 '안전' 이라 하지 않는다**([169])
+      ④ `--fix` 는 줄끝만 바꾸고 **내용 바이트는 한 톨도 안 바꾼다**
+      ⑤ 계기 자신을 시험한다([272]) — 세 모양을 만들어 넣어 정말 갈리는지 본다
+
+    ★ 실측 증거(진짜 `.bat`)에는 **한 글자도 안 쓴다**([247]) — 자기시험은 임시 폴더로만.
+    """
+    import shutil as _sh
+    import tools.bat_lineending as BL
+
+    # -- 5) 계기 자신을 먼저 시험한다([272]) --------------------------------
+    #    계기가 눈멀어 있으면 아래 1)의 '걸린 것 0개'는 아무 뜻이 없다([169]).
+    box = tempfile.mkdtemp(prefix="t349-")
+    try:
+        cases = {
+            "broken.bat": "@echo off" + chr(10) + "rem 원본 자료 정리" + chr(10) + "python x.py" + chr(10),
+            "risky.bat": "@echo off" + chr(10) + "python x.py" + chr(10),
+            "safe.bat": "@echo off" + chr(13) + chr(10) + "rem 원본 자료 정리" + chr(13) + chr(10),
+        }
+        for name, text in cases.items():
+            open(os.path.join(box, name), "wb").write(text.encode("cp949"))
+        got = {os.path.basename(r["path"]): r["갈래"] for r in BL.scan(box)}
+        assert got.get("broken.bat") == BL.BROKEN, (
+            "계기 시험 — LF + 한글이 섞인 bat 을 못 잡았다(" + repr(got.get("broken.bat"))
+            + "). 그렇다면 아래 '걸린 것 0개' 는 아무것도 안 재고 있다")
+        assert got.get("risky.bat") == BL.RISKY, (
+            "계기 시험 — LF 인데 ASCII 뿐인 bat 이 '위험' 으로 안 갈렸다: "
+            + repr(got.get("risky.bat")))
+        assert got.get("safe.bat") == BL.SAFE, (
+            "계기 시험 — CRLF 인 bat 을 걸었다. 멀쩡한 것을 걸면 경보가 대부분 가짜가 되고 "
+            "그러면 진짜도 아무도 안 본다([170]): " + repr(got.get("safe.bat")))
+
+        # 3) 못 읽은 것을 '안전' 이라 하지 않는다([169])
+        assert BL.UNREAD in BL.BAD, (
+            "못 읽은 bat 이 실패 갈래에 없다 — 계기가 눈먼 채 '이상 없음' 을 말하게 된다")
+
+        # 4) --fix 는 줄끝만 바꾼다 — 내용 바이트는 그대로다
+        target = os.path.join(box, "broken.bat")
+        before = open(target, "rb").read()
+        BL.fix([target])
+        after = open(target, "rb").read()
+        assert after.replace(b"\r\n", b"\n") == before.replace(b"\r\n", b"\n"), (
+            "--fix 가 줄끝 말고 다른 것을 바꿨다 — 회차 내용이 바뀌면 되돌릴 수 없다")
+        assert BL.judge(after)[0] == BL.SAFE, "--fix 뒤에도 여전히 걸린다"
+    finally:
+        _sh.rmtree(box, ignore_errors=True)
+
+    # -- 1) 실제 상태 -------------------------------------------------------
+    rows = BL.scan()
+    assert rows, "살아 있는 .bat 을 한 개도 못 찾았다 — 훑는 자리가 어긋났다([169])"
+    bad = [r for r in rows if r["갈래"] in BL.BAD]
+    if bad:
+        지목 = "; ".join("[%s] %s" % (r["갈래"], os.path.basename(r["path"])) for r in bad[:6])
+        raise AssertionError(
+            "회차 .bat " + str(len(bad)) + "개의 줄끝이 어긋났다 — cmd 가 줄 중간에서 재개해 "
+            "exit 9009 로 죽고 **로그를 한 줄도 안 남긴다**(2026-08-20 실사고): " + 지목
+            + " · 고치려면 python tools/bat_lineending.py --fix")
+    print("[349] 회차 bat " + str(len(rows)) + "개 줄끝 CRLF · 계기 자기시험 통과 OK")
+
+
 def t348_drilling_into_a_record_never_moves_the_ground():
     """확인 필요 목록에서 한 건을 눌러도 **뒤 화면이 안 바뀌고**, 이미 등록된 기록에
     **[+ 신규 등록] 을 권하지 않는다.**
@@ -27368,6 +27453,7 @@ if __name__ == "__main__":
     t346_upload_failure_shows_code_and_capture()
     t347_settle_amounts_are_editable_where_the_ledger_lets_them_be()
     t348_drilling_into_a_record_never_moves_the_ground()
+    t349_round_bats_keep_their_line_endings()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()
