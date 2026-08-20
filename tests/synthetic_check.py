@@ -19839,6 +19839,142 @@ def t353_collect_queue_is_one_list_and_never_silently_drops():
     print("[353] 수집대기열 — 한 목록 · 거르는 문 · 못읽음을 말함 OK")
 
 
+
+
+def t357_userscript_watch_names_the_dead_band():
+    """밴드 하나가 죽어도 옆 밴드가 살아 있으면 한 줄로 덮였다([186]).
+
+    2026-08-19 실측: 84789192 가 열 시간째 죽어 있었는데 90610953 이 방금 보고해서
+    판정이 `가려짐` 이었다 — 그 조치("창을 앞으로 꺼낸다")는 죽은 밴드를 한 건도
+    못 살린다([172] 틀린 지목).  `freshest`(가장 최근 하나)로만 갈랐기 때문이다.
+
+    글자로는 못 잰다([295]) — **불러서** 갈래를 잰다.
+    """
+    import datetime
+    import importlib
+    UW = importlib.import_module("band.userscript_watch")
+    now = UW._now()
+
+    def at(h):
+        return (now - datetime.timedelta(hours=h)).isoformat()
+
+    FRESH, DEAD = 0.05, UW.SILENT_HOURS + 4.0
+    two = {"밴드": {"90610953": {"state": "hidden", "at": at(FRESH)},
+                    "84789192": {"state": "hidden", "at": at(DEAD)}}}
+    일감있음 = {"있음": True, "나이": 0.1, "밴드수": 2, "글수": 494,
+              "밴드별": {"90610953": 205, "84789192": 289}}
+
+    # ① 하나만 죽으면 **그 밴드 이름**을 댄다
+    v = UW.judge(two, "", now=now, plan=일감있음)
+    assert v["갈래"] == "끊김", (
+        "밴드 하나가 %.0f시간째 죽었는데 갈래가 '%s' 다 — 한 줄로 덮였다([186])"
+        % (DEAD, v["갈래"]))
+    assert "84789192" in v["왜"], "죽은 밴드를 이름으로 못 댄다 — 사람이 어디를 볼지 모른다"
+    # ② 살아 있는 밴드를 죽었다고 부르지 않는다([172])
+    assert "90610953" not in v["왜"], "살아 있는 밴드까지 죽었다고 부른다"
+    assert v["밴드"]["84789192"]["갈래"] == "끊김"
+    assert v["밴드"]["90610953"]["갈래"] != "끊김"
+
+    # ③ 일감이 없는 밴드까지 매일 부르면 아무도 안 본다([170]) —
+    #    그래도 **표에서 지우지는 않는다**([169]).
+    일감없음 = {"있음": True, "나이": 0.1, "밴드수": 2, "글수": 205,
+              "밴드별": {"90610953": 205, "84789192": 0}}
+    v2 = UW.judge(two, "", now=now, plan=일감없음)
+    assert v2["갈래"] == "가려짐", "밀린 글이 0인 밴드로 매일 경보를 올린다([170])"
+    assert v2["밴드"]["84789192"]["갈래"] == "끊김", (
+        "경보에서 뺀 것을 표에서도 지웠다 — 조용히 사라지면 아무도 모른다([169])")
+
+    # ④ 대기열을 못 읽은 것을 '일감 없음'으로 치지 않는다([169])
+    v3 = UW.judge(two, "", now=now, plan={"있음": False, "왜": "계획 파일이 없다"})
+    assert v3["갈래"] == "끊김" and "모른다" in v3["왜"], (
+        "대기열을 못 읽었는데 '일감 없음'으로 조용히 넘겼다([169])")
+
+    # ⑤ 멀쩡하면 조용하다 — 정상까지 경보하면 아무도 안 본다([170])
+    fresh2 = {"밴드": {"90610953": {"state": "hidden", "at": at(FRESH)},
+                       "84789192": {"state": "hidden", "at": at(FRESH)}}}
+    assert UW.judge(fresh2, "", now=now, plan=일감있음)["갈래"] == "가려짐"
+
+    # ⑥ 전부 죽은 것과 하나만 죽은 것을 갈라 말한다([289]) — 조치가 다르다
+    dead2 = {"밴드": {"90610953": {"state": "hidden", "at": at(DEAD)},
+                      "84789192": {"state": "hidden", "at": at(DEAD)}}}
+    v4 = UW.judge(dead2, "", now=now, plan=일감있음)
+    assert v4["갈래"] == "끊김" and "만**" not in v4["왜"], (
+        "둘 다 죽었는데 '하나만' 이라 말한다")
+
+    # ⑦ 밀린 글은 **브라우저가 실제로 받는 목록**에서 온다([162]).
+    #    전에는 댓글 갈래 파일 하나만 읽어 84789192 를 0건이라 말했다(실제 289건).
+    #    실측 증거 파일은 한 글자도 안 건드린다([247]) — 임시 경로로만 잰다.
+    CB = importlib.import_module("band.comment_backfill")
+    # ★ 대기열 모듈은 **맨몸 이름**으로 들여온다.  `band.collect_queue` 로
+    #   들여오면 다른 모듈 객체라 QUEUE_PATH 를 임시 경로로 바꿔도 안 먹고,
+    #   이 검사가 **진짜 파일을 읽으면서 통과**해 버린다([247]·[272]).
+    if os.path.join(ROOT, "band") not in sys.path:
+        sys.path.insert(0, os.path.join(ROOT, "band"))
+    CQ = importlib.import_module("collect_queue")
+    old = (UW.PLAN, CB.PLAN_PATH, CQ.QUEUE_PATH)
+    with tempfile.TemporaryDirectory(prefix="csos-t357-") as td:
+        UW.PLAN = os.path.join(td, "plan.json")
+        CB.PLAN_PATH = UW.PLAN
+        CQ.QUEUE_PATH = os.path.join(td, "queue.json")
+        with open(UW.PLAN, "w", encoding="utf-8") as fh:
+            json.dump({"generated": "t", "bands": {"90610953": {"nos": [1, 2]}}}, fh)
+        with open(CQ.QUEUE_PATH, "w", encoding="utf-8") as fh:
+            json.dump({"generated": "t", "bands": {
+                "84789192": {"nos": list(range(500, 789)), "tiers": {}},
+                "90610953": {"nos": [1, 2], "tiers": {}}}}, fh)
+        try:
+            ps = UW.plan_state()
+        finally:
+            UW.PLAN, CB.PLAN_PATH, CQ.QUEUE_PATH = old
+    assert ps.get("있음"), "계획·대기열이 다 있는데 '없음' 이라 한다"
+    per = ps.get("밴드별") or {}
+    assert per.get("84789192") == 289, (
+        "댓글 갈래 파일에만 없다고 밀린 글을 %s 라 한다 — 실제 289건([353])"
+        % per.get("84789192"))
+    assert per.get("90610953") == 2
+
+    # ⑧ 읽는 쪽은 **어떻게 들여왔든 같은 목록**을 준다([162]).  글자로 못 박지
+    #    않는다([39]) — 두 갈래로 들여와 **결과를 대 본다**([295]).
+    #    실측: `band.comment_backfill` 로 들여오면 맨몸 `import collect_queue` 가
+    #    조용히 실패해 합치기가 통째로 빠지고 "댓글 갈래뿐" 인 목록이 나갔다.
+    import importlib as _il
+    _bare_dir = os.path.join(ROOT, "band")
+    if _bare_dir not in sys.path:
+        sys.path.insert(0, _bare_dir)
+    CB2 = _il.import_module("comment_backfill")
+    with tempfile.TemporaryDirectory(prefix="csos-t357b-") as td:
+        old2 = (CB.PLAN_PATH, CB2.PLAN_PATH, CQ.QUEUE_PATH)
+        try:
+            CB.PLAN_PATH = CB2.PLAN_PATH = os.path.join(td, "plan.json")
+            CQ.QUEUE_PATH = os.path.join(td, "queue.json")
+            with open(CB.PLAN_PATH, "w", encoding="utf-8") as fh:
+                json.dump({"generated": "t", "bands": {}}, fh)
+            with open(CQ.QUEUE_PATH, "w", encoding="utf-8") as fh:
+                json.dump({"generated": "t", "bands": {
+                    "84789192": {"nos": [7, 8, 9], "tiers": {}}}}, fh)
+            a = (CB.load_plan("84789192") or {}).get("대기열") or {}
+            b = (CB2.load_plan("84789192") or {}).get("대기열") or {}
+        finally:
+            CB.PLAN_PATH, CB2.PLAN_PATH, CQ.QUEUE_PATH = old2
+    assert a.get("전체") == 3 and b.get("전체") == 3, (
+        "들여온 길에 따라 목록이 달라진다 — 패키지 %s · 맨몸 %s([162])"
+        % (a.get("전체"), b.get("전체")))
+    assert a.get("상태") != "못읽음" and b.get("상태") != "못읽음", (
+        "대기열이 있는데 못읽음이라 한다 — 합치기가 조용히 빠졌다")
+
+    # ⑨ 계기 자신을 시험한다([272]) — 옛 방식으로 되돌리면 ①이 잡히나
+    src = open(os.path.join(ROOT, "band", "userscript_watch.py"), encoding="utf-8").read()
+    broken = src.replace("        if 멈춤 and (남은 is None or 남은 > 0):",
+                         "        if False:")
+    assert broken != src, "고장 주입 앵커가 안 맞는다 — 이 자기시험은 아무것도 안 잰다"
+    ns = {"__name__": "uw_broken", "__file__": os.path.join(ROOT, "band", "userscript_watch.py")}
+    exec(compile(broken, "uw_broken", "exec"), ns)
+    v5 = ns["judge"](two, "", now=now, plan=일감있음)
+    assert v5["갈래"] != "끊김", (
+        "밴드별 판정을 없앴는데도 잡혔다 — ①은 그 문을 재고 있지 않다([272])")
+    print("[357] 죽은 밴드를 이름으로 댄다 · 멀쩡하면 조용하다 OK")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -28476,6 +28612,7 @@ if __name__ == "__main__":
     t353_collect_queue_is_one_list_and_never_silently_drops()
     t354_record_sheet_can_delete_and_tells_which_box_is_missing()
     t355_camp_hide_is_reversible_and_stale_server_alarm_actually_runs()
+    t357_userscript_watch_names_the_dead_band()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

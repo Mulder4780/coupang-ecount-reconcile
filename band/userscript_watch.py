@@ -108,23 +108,81 @@ def load_reports() -> Tuple[Optional[Dict[str, Any]], str]:
         return None, "보고 파일을 못 읽었다: %s" % str(exc)[:120]
 
 
-def plan_state(now: Optional[datetime] = None) -> Dict[str, Any]:
-    """수집 계획의 나이와 건수.  스크립트가 도는데 목록이 낡으면 헛돈다."""
-    if not os.path.exists(PLAN):
-        return {"있음": False, "왜": "계획 파일이 없다"}
+def _read_side():
+    """브라우저가 실제로 받는 목록을 읽는 그 함수를 빌린다([162]).
+
+    합치는 자리는 `comment_backfill.load_plan` **하나**다([353]).  여기서 파일을
+    따로 읽으면 감시자와 브라우저가 **서로 다른 한 장**을 놓고 답한다.
+    """
     try:
-        with open(PLAN, encoding="utf-8") as fh:
-            doc = json.load(fh) or {}
+        from band import comment_backfill as CB
+        return CB, ""
+    except Exception:
+        pass
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import comment_backfill as CB  # type: ignore
+        return CB, ""
     except Exception as exc:
-        return {"있음": False, "왜": "계획을 못 읽었다: %s" % str(exc)[:100]}
-    bands = doc.get("bands") or {}
-    total = sum(len((v or {}).get("nos") or []) for v in bands.values())
+        return None, "읽는 쪽을 못 불렀다: %s" % str(exc)[:100]
+
+
+def plan_state(now: Optional[datetime] = None) -> Dict[str, Any]:
+    """수집 계획의 나이와 건수.  스크립트가 도는데 목록이 낡으면 헛돈다.
+
+    ★ **브라우저가 실제로 받는 목록**을 본다([162]).  전에는 `밴드_수집계획.json`
+    (댓글 갈래 하나)만 읽었는데, 실측 2026-08-20 에 그 파일은 84789192 를 아예
+    담고 있지 않아 이 화면이 그 밴드의 밀린 글을 **0건**이라 말했다 — 그 순간
+    대기열에는 **289건**이 있었다([353]).  그 0 을 근거로 죽은 에이전트를 조용히
+    넘기면 그것이 곧 [169] 다.  판정은 새로 안 만들고 읽는 쪽이 이미 붙여 주는
+    `대기열` 칸(상태·나이·전체)을 그대로 쓴다.
+    """
+    CB, 왜 = _read_side()
+    if CB is None:
+        return {"있음": False, "왜": 왜}
+    names = set()
+    # 밴드 목록은 **두 원천의 합집합**이다 — 한쪽에만 있는 밴드를 빠뜨리면
+    # 그 밴드는 이 화면에서 없는 밴드가 된다([169]).
+    # ★ 대기열 경로를 여기 손으로 적지 않는다([162]) — 적으면 사본이 둘 되어
+    #   대기열이 이사한 날 이 화면만 옛 자리를 본다(검증이 임시 경로로 재려다
+    #   진짜 파일을 읽어 실제로 걸렸다).  정하는 자리는 collect_queue 하나다.
+    큐경로 = None
+    try:
+        import collect_queue as _CQ  # type: ignore
+        큐경로 = _CQ.QUEUE_PATH
+    except Exception:
+        pass
+    for path in [p for p in (PLAN, 큐경로) if p]:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                names.update(str(b) for b in ((json.load(fh) or {}).get("bands") or {}))
+        except Exception:
+            continue
+    if not names:
+        return {"있음": False, "왜": "계획·대기열 어느 쪽도 못 읽었다"}
+    per, total, 만든때, q상태, q나이 = {}, 0, "", "", None
+    for band in sorted(names):
+        p = CB.load_plan(band) or {}
+        q = p.get("대기열") or {}
+        # 한 배치는 상한까지만 실린다 — 밀린 것은 `전체` 가 안다([353]).
+        cnt = int(q.get("전체") or len(p.get("nos") or []))
+        per[band] = cnt
+        total += cnt
+        만든때 = q.get("만든때") or 만든때
+        q상태 = q.get("상태") or q상태
+        if q.get("나이시간") is not None:
+            q나이 = q.get("나이시간")
     return {
         "있음": True,
-        "생성": doc.get("generated") or "",
-        "나이": _age_hours(doc.get("generated"), now),
-        "밴드수": len(bands),
+        "생성": 만든때 or "",
+        # 나이도 읽는 쪽이 잰 것을 쓴다 — 여기서 다시 재면 두 답이 생긴다([162]).
+        "나이": q나이 if q나이 is not None else _age_hours(만든때, now),
+        "대기열상태": q상태 or "모름",
+        "밴드수": len(per),
         "글수": total,
+        # 밴드마다 몇 건이 밀려 있나.  죽은 에이전트가 **일감을 두고** 죽었는지를
+        # 가르는 근거다([186]) — 총계만으로는 어느 밴드가 굶는지 말할 수 없다.
+        "밴드별": per,
     }
 
 
@@ -166,8 +224,41 @@ def judge(doc: Optional[Dict[str, Any]], why: str,
         if age is not None and (freshest is None or age < freshest):
             freshest = age
 
+    # ★ **밴드마다 따로 본다**([186]).  전에는 `freshest`(가장 최근 하나)로만
+    #   갈라서, 한 밴드가 열 시간째 죽어 있어도 옆 밴드가 방금 보고했으면
+    #   가장 최근 값이 작아 **가려짐 한 줄로 덮였다**.  2026-08-19 실측이 그것이다 —
+    #   84789192 가 죽은 채 90610953 만 살아 있었는데 화면은 "창을 앞으로 꺼내라"
+    #   고만 했고, 그 조치는 죽은 밴드를 한 건도 못 살린다([172] 틀린 지목).
+    쉬는밴드 = (plan.get("밴드별") if plan.get("있음") else None)
+    죽은 = []
+    for band, r in rows.items():
+        age = r.get("나이")
+        멈춤 = (age is None) or (age > SILENT_HOURS)
+        r["갈래"] = "끊김" if 멈춤 else (r.get("상태") or "?")
+        # 일감이 없는 밴드까지 매일 부르면 경보가 대부분이 되어 아무도 안 본다([170]).
+        # 그러나 **모르는 것을 "일감 없음"으로 치지도 않는다**([169]) — 대기열을
+        # 못 읽었으면 None 이고, 그때는 조용히 빼지 않고 그 사실을 같이 적는다.
+        남은 = None if 쉬는밴드 is None else int(쉬는밴드.get(band) or 0)
+        r["밀린글"] = 남은
+        if 멈춤 and (남은 is None or 남은 > 0):
+            죽은.append(band)
+
     if freshest is None:
         return {"갈래": "확인못함", "왜": "보고에 시각이 없다", "밴드": rows, "계획": plan}
+    if 죽은:
+        # 전부 죽었나 몇만 죽었나를 갈라 말한다 — 조치가 다르다([289]).
+        전부 = len(죽은) == len(rows)
+        말 = ", ".join(sorted(죽은))
+        if 전부:
+            왜 = ("밴드 %s 되보고가 %.0f시간 넘게 끊겼다"
+                  % (말, SILENT_HOURS))
+        else:
+            왜 = ("**밴드 %s 만** 되보고가 끊겼다(한도 %.0f시간) — 옆 밴드가 살아 있어"
+                  " 지금까지 한 줄로 덮여 있었다" % (말, SILENT_HOURS))
+        if 쉬는밴드 is None:
+            왜 += " · 대기열을 못 읽어 밀린 글이 있는지는 모른다"
+        return {"갈래": "끊김", "왜": 왜, "밴드": rows, "계획": plan,
+                "끊긴밴드": sorted(죽은)}
     if freshest > SILENT_HOURS:
         return {"갈래": "끊김",
                 "왜": "가장 최근 보고가 %.1f시간 전이다(한도 %.0f시간)" % (freshest, SILENT_HOURS),
@@ -552,13 +643,15 @@ def render(st: Dict[str, Any]) -> str:
         # 0 을 '이상 없음'으로 읽히게 두지 않는다([169]).
         buf.append("_한 건도 없다 — 없는 것이 아니라 **아직 아무도 보고하지 않은 것**이다._")
     else:
-        buf.append("| 밴드 | 상태 | 몇 시간 전 | 요청 | 수확 | 비고 |")
-        buf.append("|---|---|---:|---:|---:|---|")
+        buf.append("| 밴드 | 판정 | 상태 | 몇 시간 전 | 밀린 글 | 요청 | 수확 | 비고 |")
+        buf.append("|---|---|---|---:|---:|---:|---:|---|")
         for band, r in sorted(rows.items()):
             age = r.get("나이")
-            buf.append("| %s | %s | %s | %s | %s | %s |" % (
-                band, r.get("상태"),
+            남은 = r.get("밀린글")
+            buf.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
+                band, r.get("갈래") or "?", r.get("상태"),
                 ("%.1f" % age) if age is not None else "?",
+                남은 if 남은 is not None else "모름",
                 r.get("요청") if r.get("요청") is not None else "-",
                 r.get("수확") if r.get("수확") is not None else "-",
                 (r.get("왜") or "")[:60]))

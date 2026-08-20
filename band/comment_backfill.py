@@ -360,11 +360,30 @@ def load_plan(band=None):
     #   2건만 긁고 끝났다 — 오류도 안 나고 화면도 멀쩡하다([169]).
     #   합치는 자리를 **읽는 쪽 하나**로 둔 이유: 쓰는 쪽을 합치면 09:50 회차의
     #   `--write` 와 대기열 회차가 같은 파일을 서로 덮는다([162]).
+    # ★ 부르는 쪽이 어떻게 들여왔든 **같은 목록**이 나와야 한다([162]).
+    #   맨몸 `import collect_queue` 는 `band/` 가 sys.path 에 있을 때만 된다 —
+    #   `band.comment_backfill` 로 들여온 곳에서는 조용히 실패해 합치기가
+    #   통째로 빠지고 "댓글 갈래뿐" 인 목록이 나간다(실측 2026-08-20:
+    #   userscript_watch 가 84789192 의 밀린 글을 0건이라 말했다 — 실제 289건).
+    #   ★ 이름은 **하나**여야 한다.  `band.collect_queue` 와 `collect_queue` 는
+    #   서로 다른 모듈 객체라, 둘 다 실리면 QUEUE_PATH 같은 상태가 갈린다
+    #   (사고 [239] 의 이름공간 함정과 같은 모양이다).  실제로 그렇게 갈려서
+    #   검증 t353 의 임시 경로가 안 먹었다.  그래서 항상 `band/` 를 길에
+    #   올린 뒤 **맨몸 이름 하나**로만 들여온다 — 저장소의 다른 곳
+    #   (app_server·검증)이 이미 쓰는 그 이름이다.
+    _CQ = q = None
+    _here = os.path.dirname(os.path.abspath(__file__))
+    if _here not in sys.path:
+        sys.path.insert(0, _here)
     try:
-        import collect_queue as _CQ
-        q = _CQ.load()
+        import collect_queue as _CQ  # type: ignore
     except Exception:
-        q = None
+        _CQ = None
+    if _CQ is not None:
+        try:
+            q = _CQ.load()
+        except Exception:
+            q = None
     if not q:
         # 못 읽은 것을 **조용히 넘기지 않는다**([169]) — 받는 쪽이 "이게 전부"로 읽으면 안 된다.
         out["대기열"] = {"상태": "못읽음",
