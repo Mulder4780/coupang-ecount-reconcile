@@ -576,7 +576,16 @@ def main():
             cur["comments_full"] = rec["comments_full"]
             new_txt, old_txt = rec["content"] or "", cur.get("content") or ""
             # '…더보기'로 잘린 피드 수집분이 상세 전문을 덮어쓰지 않게 한다.
-            truncated = len(new_txt) < len(old_txt) * 0.9 and old_txt.startswith(new_txt[:200])
+            # ★ 앞 조건만으로는 **영영 참이 안 됐다** (2026-08-20 실측 · [167]).
+            #   잘린 수확은 끝에 '...더보기' 를 **달고** 오는데 그 표시까지 포함해 prefix 를
+            #   대므로 old_txt 는 절대 그것으로 시작하지 않는다. 그래서 90610953/5233 이
+            #   4,288자 → 136자로, 5442 가 214자로 덮였다(둘 다 글쓴이도 빈칸이 됐다).
+            #   가드가 있는데 한 번도 안 걸린 자리다([169] — 계기가 0 을 내면 아무도 의심 안 한다).
+            #   '더보기' 는 밴드가 스스로 '이 글은 접혀 있다'고 적어 준 표시이므로 그 자체가 근거다.
+            #   문은 좁다 — **옛 본문보다 짧을 때만** 이라 최악의 결과가 '긴 본문을 지킨다' 이다.
+            collapsed = new_txt.rstrip().endswith('더보기') and len(new_txt) < len(old_txt)
+            truncated = (len(new_txt) < len(old_txt) * 0.9
+                         and old_txt.startswith(new_txt[:200])) or collapsed
             newer = rec["captured_at"] >= int(cur.get("captured_at") or 0)
             # ★ **아는 시각을 모르는 것으로 되돌리지 않는다** (2026-08-19 · [154]).
             #   아래 갈래들은 본문이 길거나 새로우면 `rec` 로 통째로 갈아 끼운다.
@@ -586,6 +595,11 @@ def main():
             #   시각만은 보존한다.
             if not rec.get("created_at") and cur.get("created_at"):
                 rec["created_at"] = cur["created_at"]
+            # ★ 글쓴이도 같은 규칙이다 — 아는 값을 모르는 것으로 되돌리지 않는다([334]).
+            #   밴드 글에 글쓴이가 없는 일은 없다. 빈 글쓴이는 "지워졌다"가 아니라
+            #   **"이번 수확이 못 읽었다"** 는 뜻이고, 그것으로 덮으면 누가 올린 글인지를 잃는다.
+            if not (rec.get("author") or "").strip() and (cur.get("author") or "").strip():
+                rec["author"] = cur["author"]
             if rec.get("created_at") and not cur.get("created_at"):
                 merged[no] = rec
             elif len(new_txt) > len(old_txt) and not newer:
