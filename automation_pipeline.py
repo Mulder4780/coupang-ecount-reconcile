@@ -426,6 +426,43 @@ def _real_stage_runner(name: str, args: Sequence[str], timeout: int) -> Dict[str
     }
 
 
+_STAGE_REASON_MAX = 400
+
+
+def _stage_reason(stage: Mapping[str, Any], limit: int = _STAGE_REASON_MAX) -> str:
+    """실패한 단계 → **비지 않는** 한 줄. 만드는 자리는 여기 하나다([162]).
+
+    ★ 무엇이 있었나 (2026-08-20 실측) — `_run_source` 가 `stage["summary"]` 하나만
+      담았다. 그 summary 는 자식의 **출력 꼬리**라, `ERP 판매·세금 대조` 가
+      **20분 시간초과(rc=-9)** 로 끊긴 회차의 사유가 파일 이름 3,000자로 나갔다:
+      `… ESD007E (36).xlsx→sale, … 판매 8781건 / 세금계산서 0건` + openpyxl 경고 둘.
+      **겉은 경보인데 왜인지는 못 읽는다**([169]) — '시간초과' 라는 말이 한 글자도
+      안 나오므로 사람은 멀쩡한 코드를 뒤지러 간다([172]).
+
+    ★ 그래서 **비지 않는 것을 먼저 세운다**([292] 와 같은 규칙): 단계 이름과
+      시간초과/종료코드는 절대 비지 않는다. 읽는 쪽이 앞부분만 자르므로([325])
+      사유가 **맨 앞**에 와야 살아남는다.
+
+    ★ 출력 꼬리는 버리지 않는다 — 진짜 트레이스백은 그 **끝**에 있다. 그래서
+      뒤에서부터 싣고 자른 만큼을 숫자로 말한다([169]·[273]).
+    """
+    name = str(stage.get("name") or "이름 없는 단계")
+    if stage.get("timed_out"):
+        secs = round((stage.get("elapsed_ms") or 0) / 1000)
+        head = "%s 실패 — 시간초과(%d초)" % (name, secs)
+    else:
+        head = "%s 실패 — 종료코드 %s" % (name, stage.get("returncode"))
+    tail = " ".join(str(stage.get("summary") or "").split())
+    room = limit - len(head) - 3
+    if not tail or room <= 0:
+        return head[:limit]
+    if len(tail) > room:
+        keep = max(0, room - 24)
+        if not keep:
+            return head[:limit]
+        tail = "…(출력 %d자 중 뒤만) %s" % (len(tail), tail[-keep:])
+    return (head + " · " + tail)[:limit]
+
 def _default_state() -> Dict[str, Any]:
     return {
         "version": PIPELINE_VERSION,
@@ -555,7 +592,7 @@ class AutomationPipeline:
                 source_state.update(
                     {
                         "status": "error",
-                        "error": stage.get("summary") or f"rc={stage.get('returncode')}",
+                        "error": _stage_reason(stage),
                         "last_attempt_at": _now(),
                     }
                 )

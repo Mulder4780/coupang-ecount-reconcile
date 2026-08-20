@@ -16411,6 +16411,103 @@ def t290_permission_and_error_meter_say_which_kind():
           "리소스 실패까지 본다 ✅")
 
 
+def t365_pipeline_failure_says_why():
+    """회차 실패는 **왜인지 말한다** · 앱이 쓰는 감사 전용 칸은 보관될 수 있다
+    (2026-08-20 실측).
+
+    ★ 무엇이 있었나 — `CSOS_AutomationPipeline` 이 exit 1 로 경보를 올리는데 사유
+      칸에 **파일 이름 3,000자**가 들어 있었다: `… ESD007E (36).xlsx→sale, …
+      판매 8781건 / 세금계산서 0건` + openpyxl 경고 둘. `_run_source` 가 stage 의
+      summary(자식 출력 꼬리) 하나만 담았기 때문이다. 그래서 **시간초과라는 말이
+      한 글자도 안 나왔다** — 실제로는 `ERP 판매·세금 대조` 가 1,203초에 끊긴
+      것이었다([169] — 겉은 경보인데 왜인지는 못 읽는다). 게다가 읽는 쪽이
+      앞부분만 자르므로([325]) 사유가 뒤에 있으면 화면에 못 온다.
+
+    ★ 그 봉투를 고치자 **숨어 있던 원인 다섯이 한 번에 드러났다.** 그중 하나가
+      `ArchiveRenderError: 02_돌발AS접수:AS-2606-092 cannot archive unknown field`
+      (칸 이름 청구제외) 였다 — 2026-08-13 류지영 요청으로 담당자 입력칸이
+      생겼는데 `DB_ONLY_ARCHIVE_FIELDS` 에 안 올려서 **보관본 회차가 통째로 죽고
+      있었다.** 저장은 성공하므로 적은 사람은 모른다 — 그 표의 주석이 이미
+      경고해 둔 자리다. 실측 v608: 02시트 44열·04시트 32열(머리글 4행) 어디에도
+      그 열이 없다.
+
+    잠그는 것([39] — 되돌아가면 안 되는 계약):
+      ① 시간초과면 시간초과(N초) 가 **맨 앞**에 온다
+      ② 아니면 종료코드가 맨 앞에 온다
+      ③ 출력이 비어도 사유는 안 빈다
+      ④ 출력 꼬리를 버리지 않는다 — 뒤에서 싣고 자른 만큼을 숫자로 말한다([273])
+      ⑤ 읽는 쪽이 앞 150자만 잘라도 사유가 살아남는다([325])
+      ⑥ `_run_source` 가 summary 를 직접 담지 않는다
+      ⑦ 앱이 쓰는데 시트에 열이 **없는** 칸은 DB 전용 표에 있다
+      ⑧ 계기 자신을 시험한다([272])
+
+    ★ 실측 증거 파일에는 한 글자도 안 쓴다([247]) — 합성 사전만 쓴다.
+    """
+    import automation_pipeline as AP
+    import archive_worker as AW
+
+    cap = AP._STAGE_REASON_MAX
+
+    # ① 시간초과 — 실제로 죽은 그 단계 모양 그대로
+    slow = {
+        "name": "ERP 판매·세금 대조", "ok": False, "returncode": -9,
+        "timed_out": True, "elapsed_ms": 1203000, "summary": "가" * 3000,
+    }
+    got = AP._stage_reason(slow)
+    head = "ERP 판매·세금 대조 실패 — 시간초과(1203초)"
+    assert got.startswith(head), (
+        "시간초과인데 사유가 맨 앞에 없다 — 읽는 쪽이 자르면 통째로 사라진다: "
+        + got[:120])
+    assert len(got) <= cap, "사유가 한도를 넘었다: %d" % len(got)
+
+    # ② 종료코드
+    dead = {
+        "name": "밴드 앱 DB 신규·변경등록", "ok": False, "returncode": 1,
+        "timed_out": False, "elapsed_ms": 27531, "summary": "ambiguous 1건",
+    }
+    got2 = AP._stage_reason(dead)
+    assert got2.startswith("밴드 앱 DB 신규·변경등록 실패 — 종료코드 1"), got2[:120]
+    assert "ambiguous" in got2, "짧은 출력은 통째로 실어야 한다: " + got2
+
+    # ③ 출력이 비어도 사유는 안 빈다([169])
+    bare = {
+        "name": "Excel 보관본 생성·검증", "ok": False, "returncode": 2,
+        "timed_out": False, "elapsed_ms": 10, "summary": "",
+    }
+    got3 = AP._stage_reason(bare)
+    assert got3.strip(), "출력이 없다고 사유가 비면 안 된다"
+    assert "종료코드 2" in got3, got3
+
+    # ④ 꼬리를 버리지 않는다 — 자른 만큼을 숫자로 말한다
+    assert "…(출력 3000자" in got, "자른 만큼을 안 말한다: " + got[:200]
+    assert got.endswith("가"), "꼬리를 뒤에서 실어야 트레이스백이 남는다: " + got[-40:]
+
+    # ⑤ 앞 150자만 잘려도 사유가 살아남는다([325])
+    assert "시간초과" in got[:150], "잘리면 사유가 사라진다: " + got[:150]
+
+    # ⑥ 되돌아가면 안 되는 것 — summary 를 직접 담지 않는다
+    src = open(
+        os.path.join(ROOT, "automation_pipeline.py"), encoding="utf-8").read()
+    assert "\"error\": _stage_reason(stage)," in src, (
+        "_run_source 가 사유를 만드는 자리를 안 거친다 — 봉투가 다시 출력 꼬리가 된다")
+
+    # ⑦ 시트에 열이 **없는** 칸은 DB 전용 표에 있어야 한다
+    #    v608 실측으로 02/04 어디에도 열이 없는 것만 적는다 — 안 잰 것은 안 적는다([169])
+    for name in ("청구제외", "청구제외사유", "미처리사유(담당자)",
+                 "접수취소여부", "객관완료여부"):
+        assert name in AW.DB_ONLY_ARCHIVE_FIELDS, (
+            name + " 가 DB 전용 표에 없다 — 보관본 회차가 통째로 죽는데"
+            " 저장은 성공하므로 적은 사람은 모른다")
+
+    # ⑧ 계기 자신을 시험한다([272]) — 옛 방식이면 ①⑤가 잡혀야 한다
+    old = slow.get("summary") or ("rc=%s" % slow.get("returncode"))
+    assert not old.startswith(head), (
+        "계기 시험 — 옛 방식이 통과한다면 ①은 아무것도 안 재고 있다")
+    assert "시간초과" not in old[:150], (
+        "계기 시험 — 옛 방식에서도 사유가 보이면 ⑤가 무의미하다")
+
+    print("  [365] 회차 실패가 왜인지 말한다(사유 먼저·꼬리 보존) · 앱이 쓰는 감사 칸은 보관 가능 ✅")
+
 def t364_erp_chain_never_stops_without_a_trace():
     """[364] ERP 전화면 몰이가 **자국 없이 멈추지 않는다** (분담판 [84]).
 
@@ -29267,6 +29364,7 @@ if __name__ == "__main__":
     t292_500_never_arrives_wordless()
     t293_yield_is_a_claim_that_gets_audited()
     t364_erp_chain_never_stops_without_a_trace()
+    t365_pipeline_failure_says_why()
     t294_unreadable_source_never_passes_as_read()
     t295_camp_contacts_never_guess_a_phone_number()
     t296_half_list_never_blames_the_person()
