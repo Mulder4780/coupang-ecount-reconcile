@@ -20563,8 +20563,9 @@ def t342_a_round_that_skipped_steps_says_so():
 
         # ④ 계기 자기시험([272]) — 읽는 자리를 지우면 ②가 잡히나
         sh_src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
-        assert 'skipped = (daily_step_now() or {}).get("건너뜀")' in sh_src, (
-            "[342] 인계가 진행 파일의 '건너뜀' 을 안 읽는다 — 그러면 아무 데도 안 뜬다")
+        assert 'skipped = st.get("건너뜀")' in sh_src, (
+            "[342] blockers 가 건너뜀을 스냅샷에서 안 읽는다 — 살아 있는 파일을 "
+            "직접 보면 합성 st 로 부르는 검증들이 그날 기계 상태에 따라 죽는다")
     finally:
         H.REPORT_DIR = real
         _sh.rmtree(tmp, ignore_errors=True)
