@@ -21617,10 +21617,22 @@ def t345_camp_screen_folds_by_canon_and_hides_nothing():
         print("  [345] 캠프 화면 정본 묶기 — 구조만 확인(node 없어 실행 못 함)")
         return
     idx = os.path.join(ROOT, "webapp", "index.html")
-    head_src = ("const h = g.find(y=>String(y.캠프명||" + chr(34) + chr(34)
-                + ") === x) || g.slice().sort(늦은)[0];")
-    assert head_src in _io.open(idx, encoding="utf-8").read(), (
+    # ★ 머리 고르기는 **띄어쓰기를 무시**한다 (2026-08-20 · 분담판 `[165]`).
+    #   묶음 자체는 정규화된 표기맵으로 맺어지는데 머리만 맨몸 `===` 였다 —
+    #   같은 판단을 두 기준으로 하면 언젠가 갈린다(`[162]`). 실측으로 정본
+    #   이름과 행 이름이 **공백만** 다른 곳이 둘이다(`제주1Sub-hub` ↔
+    #   `제주1 Sub-hub` · `송파2MB(중대동) [38-4]` ↔ `…)[38-4]`). 그때 머리가
+    #   최근작업일로 떨어지고, 그 묶음에 **밴드 줄이 하나만 들어와도** 정본
+    #   캠프에 `(글에서 본 것)` 별표가 붙는다 — 정본에는 실제 설치 대수가
+    #   적혀 있는데 화면이 "글에서 본 것"이라 말하게 된다(`[172]`).
+    head_src = ("const h = g.find(y=>_sp(y.캠프명) === _sp(x))"
+                " || g.slice().sort(늦은)[0];")
+    _idx_src = _io.open(idx, encoding="utf-8").read()
+    assert head_src in _idx_src, (
         "머리 고르는 줄을 못 찾았다 — 이 검사의 자기시험이 아무것도 안 잰다")
+    assert "const _sp = s => String(s||" in _idx_src, (
+        "공백을 지우는 자리가 사라졌다 — 정본 이름과 띄어쓰기만 다른 줄이 머리를"
+        " 못 잡으면 그 정본 캠프에 밴드 별표가 붙는다(분담판 `[165]`)")
 
     def 돌려(break_head=False):
         js = (_T345_FOLD_HARNESS
