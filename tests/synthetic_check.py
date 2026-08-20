@@ -7576,12 +7576,23 @@ def t249_entry_save_never_silent():
     assert after_queued.index("return;") < after_queued.index("draftClear(draftKey)"), \
         "queued 갈래가 그대로 흘러 초안을 지운다 — 아직 저장 전인데 입력이 사라진다"
 
-    # 버전 0 이면 서버가 400 을 준다 — 보내기 전에 채우되, 짐작으로 만들지는 않는다
-    assert "freshEntryVersion" in body, "버전이 비었을 때 다시 집지 않는다 — 그대로 400 이 난다"
-    fresh = html[html.index("async function freshEntryVersion("):
-                 html.index("async function saveInputs(")]
+    # 버전 0 이면 서버가 400 을 준다 — 보내기 전에 채우되, 짐작으로 만들지는 않는다.
+    # ★ **얼리는 것은 함수 이름이 아니라 계약이다**([39]). 예전엔 saveInputs 본문에
+    #   `freshEntryVersion` 이라는 글자가 있는지만 봤는데, 2026-08-20 에 그 판단을
+    #   `entryVersion` 관문 한 곳으로 모으자(네 자리가 각자 하던 것을 합쳤다 · [162])
+    #   **계약은 그대로인데 이 검사만 죽었다.** 재려는 것은 "보내기 전에 채우나" 다.
+    assert ("entryVersion(" in body or "freshEntryVersion" in body), (
+        "버전이 비었을 때 다시 집지 않는다 — 그대로 400 이 난다")
+    # 못 집은 버전을 **지어내지 않는다** — 관문과 그 안의 조회 둘 다 본다.
+    _f0 = html.index("async function freshEntryVersion(")
+    fresh = html[_f0:html.index(chr(10) + "}" + chr(10), _f0)]
     assert "return 0" in fresh and "record_version:1" not in fresh.replace(" ", ""), \
         "못 집은 버전을 지어낸다 — 낙관잠금이 무의미해져 남이 고친 값을 말없이 덮는다"
+    if "async function entryVersion(" in html:
+        _g0 = html.index("async function entryVersion(")
+        gate = html[_g0:html.index(chr(10) + "}" + chr(10), _g0)]
+        assert "return v >= 1 ? v : 0" in gate, (
+            "관문이 모르는 버전을 지어낸다 — 0(모른다) 을 그대로 돌려줘야 한다([169])")
 
     # 열쇠 칸 이름은 INPUT_SPEC 에서 읽는다(사본을 만들면 시트가 바뀐 날 한쪽만 고쳐진다)
     keycol = html[html.index("function entryKeyCol("):html.index("async function freshEntryVersion(")]
