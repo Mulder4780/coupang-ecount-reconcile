@@ -20298,6 +20298,22 @@ def t361_deposit_folder_is_not_evidence_of_a_deposit():
     assert "b.xlsx" in d3, (
         "'모름' 을 뺄 목록에 넣었는데도 안 빠졌다 — 위 assert 가 아무것도 안 지킨다")
 
+    # ── 사본이 쌓이던 자리: 오종현 입금 공유 폴더를 **내용으로** 가르나 ──────
+    #   실측 2026-08-20: 그 폴더의 엑셀을 전부 `7. 입금내역` 으로 날라서 회차마다
+    #   `__dup_` 사본이 쌓였다(18개).  분류를 고쳐도 **이미 그 통에 앉은 파일은 안
+    #   움직이므로**, 여기서 안 가르면 내일 또 하나가 들어온다.
+    #   ★ 실행으로 잰 것(임시 공유 폴더): 입금 정리표 -> `7. 입금내역` ·
+    #     PO·청구 대조표 -> `9. 미분류`.  여기서는 그 자리가 **내용을 묻는지**만 얼린다
+    #     ([39] — 되돌아가면 안 되는 것). plan() 전체를 돌리면 Z: 를 훑어 관문이 길어진다.
+    csrc = open(os.path.join(ROOT, "collect_sources.py"), encoding="utf-8").read()
+    i = csrc.find("for folder in RECEIPT_DIRS:")
+    assert i > 0, "collect_sources 의 입금 공유 폴더 고리를 못 찾았다"
+    loop = csrc[i:csrc.find("return jobs", i)]
+    assert "kind_of(" in loop, (
+        "입금 공유 폴더를 **폴더 위치만 보고** 나른다 — PO·청구 대조표가 다시 입금 통에 "
+        "쌓인다(실측 18개). 폴더는 종류의 증거가 아니다(분담판 [91])")
+    assert "billing_status" in loop, "가른 뒤 어디로 보낼지가 그 고리에 없다"
+
     print("[361] 입금 통은 종류의 증거가 아니다 — 대조표는 빼고 '모름' 은 남긴다 (OK)")
 
 
