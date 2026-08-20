@@ -16930,7 +16930,8 @@ def t369_a_file_read_every_request_is_never_called_old_code():
       진짜 경보가 묻힌다.
     ★ **글자로는 못 잰다**(`[295]`) — '워치독이 서버를 내리나'는 실행해야 보인다.
     """
-    import ast
+    import ast, types
+    _real_getmtime = os.path.getmtime
     rs_path = os.path.join(ROOT, "webapp", "restart_server.py")
     src = open(rs_path, encoding="utf-8").read()
 
@@ -16976,16 +16977,32 @@ def t369_a_file_read_every_request_is_never_called_old_code():
     rs = _t369_load(rs_path)
     files = ["webapp/app_server.py", "webapp/index.html", "webapp/tech.html", "ledger_db.py"]
 
+    def _shim(newer):
+        """진짜 `os` 를 **한 톨도 안 건드린다**.
+
+        ⚠ 첫 판이 `rs.os.path.getmtime = ...` 이었다 — `rs.os` 는 **전역 `os` 모듈 그 자체**라
+          그 순간 프로세스 전체의 `getmtime` 이 갈렸고, 뒤따르던 `[351]` 이
+          '담당자 갈래가 흔들렸다'로 죽었다.  검사 하나가 **다른 검사를 눈멀게 하는**
+          자리다(2026-08-19 `t194` 와 같은 모양 · `[169]`).  격리는 모듈 객체까지다.
+        """
+        return types.SimpleNamespace(path=types.SimpleNamespace(
+            join=os.path.join,
+            getmtime=lambda p: (2000.0 if any(
+                p.replace("\\", "/").endswith(n) for n in newer) else 500.0)))
+
     def measure(newer, live_files=None):
         rs.running = lambda: [(999, "08/21/2026 10:00:00")]
         rs._started_epoch = lambda w: 1000.0
         rs.watched_files = lambda *a, **k: (list(files), 0)
-        rs.os.path.getmtime = lambda p: (
-            2000.0 if any(p.replace("\\", "/").endswith(n) for n in newer) else 500.0)
         if live_files is not None:
             rs.LIVE_FILES = live_files
-        s = rs.stale()
-        return (s[2] if s else None), rs.live_changed()
+        real_os = rs.os
+        rs.os = _shim(newer)
+        try:
+            s = rs.stale()
+            return (s[2] if s else None), rs.live_changed()
+        finally:
+            rs.os = real_os
 
     st, lv = measure(["webapp/index.html"])
     assert st is None, "[369] 화면만 바뀌었는데 '옛 코드'라 부른다 — 워치독이 서버를 내린다"
@@ -17013,12 +17030,15 @@ def t369_a_file_read_every_request_is_never_called_old_code():
     rs2.running = lambda: [(999, "08/21/2026 10:00:00")]
     rs2._started_epoch = lambda w: 1000.0
     rs2.watched_files = lambda *a, **k: (list(files), 0)
-    rs2.os.path.getmtime = lambda p: 2000.0 if p.replace("\\", "/").endswith(
-        "webapp/index.html") else 500.0
+    rs2.os = _shim(["webapp/index.html"])
     rs2.LIVE_FILES = ()
     s2 = rs2.stale()
     assert s2 and "webapp/index.html" in s2[2], \
         "[369] 표를 비웠는데도 통과했다 — 이 검사는 아무것도 안 재고 있다"
+
+    # ★ 이 검사가 **다른 검사를 눈멀게 하지 않았나** — 격리가 샜으면 여기서 걸린다.
+    assert os.path.getmtime is _real_getmtime, (
+        "[369] 진짜 os.path.getmtime 이 갈린 채로 끝났다 — 뒤따르는 검사가 통째로 눈이 먼다")
 
     print("✅ [369] 요청마다 읽는 화면 파일 — 가짜 '옛 코드' 경보 없음 · 조용히 빼지도 않음")
 
