@@ -20659,6 +20659,182 @@ def t344_cancel_sync_converges_and_keeps_the_reason():
         _sh344.rmtree(tmp, ignore_errors=True)
     print("[344] 접수취소 sync 는 수렴하고, 실패하면 이유가 리포트까지 간다 ✅")
 
+_T345_FOLD_HARNESS = r"""
+const fs = require('fs');
+const html = fs.readFileSync(__IDX__, "utf8");
+const blk = html.slice(html.indexOf('let CAMPS = null;'),
+                       html.indexOf('function campFieldRows('));
+/* 화면이 쓰는 **진짜** esc2 를 파일에서 읽어 온다 — 스텁을 만들어 주면 화면에 그
+   전역이 없어도 하네스에서는 늘 있어 검증이 고장을 가린다([300]). */
+const e2i = html.indexOf('function esc2(');
+if (e2i < 0) { console.log('FAIL: index.html 에 esc2 정의가 없다'); process.exit(0); }
+const ESC2 = html.slice(e2i, html.indexOf(String.fromCharCode(10), e2i));
+const 상자 = {};
+globalThis.$ = function(id){ if(id==='campQ') return {value:''};
+  if(id==='campPmOnly') return {checked:true};
+  if(id==='campFold') return {checked:globalThis.__FOLD__};
+  return 상자[id]||(상자[id]={innerHTML:'',textContent:''}); };
+globalThis.notice = ()=>{}; globalThis.uxEvent = ()=>{};
+globalThis.api = ()=>{}; globalThis.apiFresh = ()=>{};
+globalThis.exportRowsXlsx = ()=>{};
+globalThis.__FOLD__ = true;
+const 사람 = (n,t)=>({이름:n, 전화:t, 메일:''});
+const DATA = {ok:true, 갱신:'2026-08-20T09:00', rows:[
+  {캠프명:'A옛1', 캠프주소:'같은주소 1', 정기점검:true, 호기:[1], 최근작업일:'2025-01-01',
+   현장책임:사람('옛사람','010-1111-1111'), 안전관리:{}, 담당자:{}},
+  {캠프명:'A정본', 캠프주소:'같은주소 1', 정기점검:true, 호기:[1,2], 최근작업일:'2026-07-01',
+   현장책임:사람('새사람','010-2222-2222'), 안전관리:{}, 담당자:{}},
+  {캠프명:'A옛2', 캠프주소:'같은주소 1', 정기점검:true, 호기:[1], 최근작업일:'2024-01-01',
+   현장책임:사람('옛사람','010-1111-1111'), 안전관리:{}, 담당자:{}},
+  {캠프명:'B옛1', 캠프주소:'딴주소 2', 정기점검:true, 호기:[1], 최근작업일:'2026-01-01',
+   현장책임:사람('나','010-3333-3333'), 안전관리:{}, 담당자:{}},
+  {캠프명:'B옛2', 캠프주소:'딴주소 2', 정기점검:true, 호기:[1], 최근작업일:'2026-05-05',
+   현장책임:사람('나','010-3333-3333'), 안전관리:{}, 담당자:{}},
+  {캠프명:'못붙임1', 캠프주소:'셋째주소 3', 정기점검:true, 호기:[1], 최근작업일:'2026-02-02',
+   현장책임:{}, 안전관리:{}, 담당자:{}}],
+ 정본묶음:{읽음:true, 분기시트:4, 캠프수:2, 현행:1, 합침:3, 모호:0,
+  표기맵:{'A정본':'A정본','A옛1':'A정본','A옛2':'A정본','B옛1':'B정본','B옛2':'B정본'},
+  정보:{'A정본':{근거분기:'2026년 4분기'}, 'B정본':{근거분기:'2026년 3분기'}},
+  못합침:{'못붙임1':'그 주소에 정본 캠프가 2곳이다 — 어느 쪽인지 원본이 안 말한다'}}};
+globalThis.__DATA__ = DATA;
+let 소스 = blk;
+if (globalThis.__BREAK__) 소스 = 소스.replace(__HEAD__, __BROKEN__);
+const 다시 = () => new Function(ESC2 + ';' + 소스
+  + ';CAMPS = globalThis.__DATA__;'
+  + ';return {campRows, renderCampList, campFoldInfo, CAMP_OPEN};')();
+const A = 다시();
+const bad = [];
+const ok = (c, m) => { if(!c) bad.push(m); };
+const 줄 = A.campRows();
+ok(줄.length === 3, '묶은 뒤 3줄이 아니다: ' + 줄.length + ' [' + 줄.map(r=>r.캠프명) + ']');
+const a = 줄.find(r=>r.캠프명==='A정본');
+ok(!!a, '머리가 정본 이름 줄이 아니다: ' + 줄.map(r=>r.캠프명).join(','));
+if(a){ const g = A.campFoldInfo(a);
+  ok(g && g.접힘.length === 2, 'A 접힘이 2개가 아니다');
+  ok(g && g.다름 === true, '담당자 값이 다른데 다름 표시가 없다'); }
+ok(!!줄.find(r=>r.캠프명==='B옛2'),
+   '정본 이름 줄이 없을 때 최근작업일이 새 줄이 머리가 아니다: ' + 줄.map(r=>r.캠프명).join(','));
+const m = 줄.find(r=>r.캠프명==='못붙임1');
+ok(!!m, '못 합친 줄이 사라졌다 — 숨기면 없는 캠프가 된다([169])');
+if(m){ const g = A.campFoldInfo(m);
+  ok(g && g.왜 && g.왜.indexOf('정본 캠프가 2곳') >= 0, '못 합친 이유를 안 싣는다'); }
+A.renderCampList();
+const h1 = 상자.campHost.innerHTML, s1 = 상자.campSum.innerHTML;
+ok(h1.indexOf('확인 필요') > 0, '못 합친 줄에 확인 필요 딱지가 없다');
+ok(h1.indexOf('합친 표기 2개') > 0, '합친 표기 손잡이가 없다');
+ok(h1.indexOf('담당자 다름') > 0, '담당자가 다른데 화면이 말하지 않는다');
+ok(h1.indexOf('4분기 표에 없음') > 0, '가장 새 분기에 없는 캠프를 표시하지 않는다');
+ok(s1.indexOf('정본 캠프') > 0 && s1.indexOf('확인 필요') > 0,
+   '요약이 무엇을 센 것인지 말하지 않는다([169]): ' + s1.slice(0,120));
+const th = (h1.match(/<th[ >]/g)||[]).length;
+const 첫줄 = h1.slice(h1.indexOf('<tbody>'), h1.indexOf('</tr>', h1.indexOf('<tbody>')));
+const td = (첫줄.match(/<td[ >]/g)||[]).length;
+ok(th === td, '칸 수가 머리글 수와 다르다: ' + td + '/' + th);
+if(a){ A.CAMP_OPEN.add(A.campFoldInfo(a).정본); A.renderCampList();
+  const h2 = 상자.campHost.innerHTML;
+  const 늘 = (h2.match(/<tr/g)||[]).length - (h1.match(/<tr/g)||[]).length;
+  ok(늘 === 2, '펴도 접힌 줄이 안 나온다: +' + 늘);
+  const sub = h2.slice(h2.indexOf('campsub'));
+  const std = (sub.slice(0, sub.indexOf('</tr>')).match(/<td[ >]/g)||[]).length;
+  ok(std === th, '펴진 줄 칸 수가 다르다: ' + std + '/' + th); }
+globalThis.__FOLD__ = false;
+ok(다시().campRows().length === 6, '끄면 6줄 그대로가 아니다');
+globalThis.__FOLD__ = true;
+DATA.정본묶음 = {읽음:false, 왜:'시험용'};
+const D = 다시();
+ok(D.campRows().length === 6, '묶음표를 못 읽었는데 묶었다');
+D.renderCampList();
+ok(상자.campSum.innerHTML.indexOf('못 읽어') > 0,
+   '묶음표를 못 읽었는데 화면이 아무 말도 안 한다([169])');
+console.log(bad.length ? ('FAIL: ' + bad.join(' | ')) : 'OK');
+"""
+def t345_camp_screen_folds_by_canon_and_hides_nothing():
+    """[163] 전국쿠팡캠프 화면 — 정본으로 묶되 **못 합친 것을 숨기지 않는다**.
+
+    화면이 `420개 표시` 라 적고 있었는데 그 420 은 캠프 수가 아니라 **표기 수**였다
+    (2026-08-20 형님 지시 "여기에 보기좋게 정리하고 업데이트해"). 세는 것이 바뀌면
+    대표 보고의 수가 그대로 틀어진다 — 그래서 요약이 **무엇을 센 것인지** 말한다.
+
+    ★ **글자 검사로는 못 잰다**([295]) — 몇 줄이 합쳐졌는지, 어느 줄이 머리로
+      섰는지는 실제로 돌려 봐야 안다. 합성 자료로만 잰다([247] — 실측 증거 파일은
+      읽지도 쓰지도 않는다).
+    """
+    import io as _io, shutil as _sh
+
+    # ① 서버는 **읽기만** 한다([162]) — 여기서 다시 합치면 두 곳이 서로 다르게 묶는다.
+    ap = _io.open(os.path.join(ROOT, "webapp", "app_server.py"),
+                  encoding="utf-8").read()
+    assert "def camp_canon_fold():" in ap, "정본 묶음표를 읽는 자리가 없다"
+    seg = ap[ap.index("def camp_canon_fold():"):]
+    seg = seg[:seg.index("def get_orgchart(")]
+    for again in ("addr_key(", "difflib", "SequenceMatcher"):
+        assert again not in seg, (
+            "서버가 캠프를 다시 합치려 한다 — 판정은 camp_units_report 한 곳이다"
+            "([162]): " + again)
+    # 못 읽으면 **못 읽었다고** 돌려준다([169]) — 빈 표를 주면 화면이 조용히 안 묶는다.
+    assert (chr(34) + "읽음" + chr(34) + ": False") in seg, (
+        "못 읽었을 때 그렇게 말하지 않는다")
+    assert "_cd[" + chr(34) + "정본묶음" + chr(34) + "] = camp_canon_fold()" in ap, (
+        "핸들러가 그 함수를 안 부른다 — 만들어만 두면 없는 것과 같다([328])")
+
+    # ② 파일이 없으면 갈래가 갈려야 한다 — 진짜 파일은 안 건드린다([247]).
+    import app_server as _A
+    _old = _A.ROOT
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            _A.ROOT = tmp
+            got = _A.camp_canon_fold()
+        finally:
+            _A.ROOT = _old
+    assert got.get("읽음") is False and got.get("왜"), (
+        "묶음표가 없을 때 조용히 빈 표를 준다([169]): " + repr(got)[:120])
+
+    node = _sh.which("node")
+    if not node:
+        print("  [345] 캠프 화면 정본 묶기 — 구조만 확인(node 없어 실행 못 함)")
+        return
+    idx = os.path.join(ROOT, "webapp", "index.html")
+    head_src = ("const h = g.find(y=>String(y.캠프명||" + chr(34) + chr(34)
+                + ") === x) || g.slice().sort(늦은)[0];")
+    assert head_src in _io.open(idx, encoding="utf-8").read(), (
+        "머리 고르는 줄을 못 찾았다 — 이 검사의 자기시험이 아무것도 안 잰다")
+
+    def 돌려(break_head=False):
+        js = (_T345_FOLD_HARNESS
+              .replace("__IDX__", json.dumps(idx))
+              .replace("__HEAD__", json.dumps(head_src))
+              .replace("__BROKEN__", json.dumps("const h = g[0];")))
+        if break_head:
+            js = js.replace("if (globalThis.__BREAK__)", "if (true)")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, "fold.js")
+            with _io.open(p, "w", encoding="utf-8") as fh:
+                fh.write(js)
+            pr = subprocess.Popen([node, p], stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT,
+                                  creationflags=getattr(subprocess,
+                                      "CREATE_NO_WINDOW", 0))
+            try:
+                out = pr.communicate(timeout=120)[0].decode("utf-8", "replace")
+            except subprocess.TimeoutExpired:
+                pr.kill()
+                pr.communicate(timeout=30)
+                raise AssertionError("[345] node 가 120초 안에 안 끝났다")
+        return out.strip()
+
+    out = 돌려()
+    assert out.endswith("OK"), "[345] 캠프 정본 묶기: " + out[-600:]
+
+    # ③ ★ **계기 자신을 시험한다**([272]) — 머리 고르기를 첫 줄로 되돌리면
+    #    "정본 이름 줄이 이긴다"가 잡혀야 한다. 안 잡히면 이 검사는 아무것도 안 재고
+    #    있고, 그러면 옛 담당자가 대표 보고에 실려도 조용하다([172]).
+    broke = 돌려(break_head=True)
+    assert "FAIL" in broke and "머리가 정본 이름 줄이 아니다" in broke, (
+        "머리 고르기를 망가뜨렸는데도 통과했다 — 이 검사는 아무것도 안 잰다: "
+        + broke[-300:])
+    print("  [345] 캠프 화면 정본 묶기(분담판 163) — 표기 수가 아니라 캠프 수로 · "
+          "못 합친 것 안 숨김 · 못 읽으면 말함 · 계기 자기시험 OK")
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -26622,6 +26798,7 @@ if __name__ == "__main__":
     t342_a_round_that_skipped_steps_says_so()
     t343_band_quiet_evidence_is_looked_up_by_number()
     t344_cancel_sync_converges_and_keeps_the_reason()
+    t345_camp_screen_folds_by_canon_and_hides_nothing()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()

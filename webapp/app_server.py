@@ -7162,6 +7162,64 @@ def _org_flow():
     return {"ok": True, "entries": entries, "chain": chain}
 
 
+def camp_canon_fold():
+    """정본 캠프 묶음 — `camp_units_report.py` 가 써 둔 것을 **읽기만** 한다([162]).
+
+    화면의 `420개 표시` 는 캠프 수가 아니라 **표기 수**였다(2026-08-20, 분담판 [163]) —
+    강서1모바일(가양)/강서1MB(가양)/(가양A)/(가양B) 가 각각 한 줄로 서 있었다.
+    정본(류지영 ★01)은 193곳이고 그중 4분기 현행은 179곳이다.
+
+    ★ 여기서 **다시 판정하지 않는다**([162]) — 주소로 합치는 문(후보 유일할 때만 ·
+      [172])은 그 도구 안에 있다. 여기서 또 합치면 같은 캠프를 두 곳이 서로 다르게
+      묶고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+    ★ **못 읽으면 묶을 것이 없다가 아니라 못 읽었다고 돌려준다**([169]).
+      조용히 빈 표를 주면 화면은 420줄을 그대로 보여 주면서 정본 기준이라 말한다.
+    """
+    path = os.path.join(ROOT, "reports", "쿠팡캠프_호기_정리.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+    except FileNotFoundError:
+        return {"읽음": False,
+                "왜": "아직 만들어지지 않았습니다 — python camp_units_report.py"}
+    except Exception as exc:
+        return {"읽음": False, "왜": str(exc)[:200]}
+    camps = d.get("캠프") or []
+    quarter = d.get("분기시트")
+    names, info = {}, {}
+    for c in camps:
+        name = str(c.get("캠프명") or "").strip()
+        if not name:
+            continue
+        names.setdefault(name, name)
+        # `합친 다른 표기` 는 " | " 로 이어 붙인 옛 이름·다른 표기다.
+        for other in str(c.get("합친 다른 표기") or "").split("|"):
+            other = other.strip()
+            if other:
+                names[other] = name
+        info[name] = {"호기": c.get("호기") or "",
+                      "호기수": c.get("호기수") or 0,
+                      "종류": c.get("종류") or "",
+                      "모델": c.get("모델") or "",
+                      "근거분기": c.get("근거분기") or "",
+                      "밴드에서 본 호기": c.get("밴드에서 본 호기") or ""}
+    app = d.get("앱") or {}
+    miss = {}
+    for m in (app.get("못합침") or []):
+        nm = str(m.get("캠프명") or "").strip()
+        if nm:
+            miss[nm] = str(m.get("왜 못 합쳤나") or "")
+    # ★ 현행은 **가장 새 분기 시트에 이름이 있는 캠프**다. 나머지는 빠진 것인지
+    #   이름이 바뀐 것인지 원본이 말해 주지 않으므로 화면이 따로 표시하고 **지어내지
+    #   않는다**([169]).
+    cur = sum(1 for c in camps
+              if quarter and ("%d분기" % quarter) in str(c.get("근거분기") or ""))
+    return {"읽음": True, "만든때": d.get("만든때") or "",
+            "원본": d.get("원본") or "", "분기시트": quarter,
+            "캠프수": len(camps), "현행": cur,
+            "표기맵": names, "정보": info, "못합침": miss,
+            "합침": app.get("합침") or 0, "모호": app.get("모호") or 0}
+
 def get_orgchart():
     """조직도 — 사무실 책상 배치도(2026-08-12 지시). 각 자리에 누가·역할·상태.
 
@@ -9234,6 +9292,9 @@ self.addEventListener('fetch', e => {
                 #   ★ 회차가 써 둔 판정을 **읽기만** 한다([168]) — 여기서 재면
                 #     웹 요청마다 Z: 를 훑는다(실측 2.78초).
                 _cd["원본밀림"] = _cc.stale_read() or {}
+                # ★ **정본으로 묶는 근거**를 같이 내려 준다(2026-08-20, 분담판 [163]).
+                #   화면이 표기 수를 캠프 수처럼 보여 주면 대표 보고의 수가 틀어진다.
+                _cd["정본묶음"] = camp_canon_fold()
                 return self._send(200, {"ok": True, **_cd})
             except FileNotFoundError:
                 # ★ '없다'가 아니라 **'아직 안 만들었다'** 라고 말한다([169]).

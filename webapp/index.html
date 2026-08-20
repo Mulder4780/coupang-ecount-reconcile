@@ -1224,6 +1224,13 @@ button.auto-node[disabled]{cursor:progress;opacity:.72}
   #campHost .gridwrap table.grid tr.campgrp.g1{border-left-color:var(--warn)}
 }
 .camptag{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+/* 합친 표기를 펴는 손잡이 — 색은 토큰에서만 온다([332]). */
+.camptag .campmore{font:inherit;font-size:12px;cursor:pointer;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);padding:1px 7px;border-radius:999px}
+.camptag .campmore:hover{border-color:var(--brand)}
+/* 접혔다 펴진 옛 표기 줄 — 지운 것이 아니라 접어 둔 것임을 눈으로 알린다([169]). */
+tr.campsub>td{opacity:.8}
+tr.campsub>td:first-child{padding-left:20px}
 .camptag:empty{display:none}
 .automation-loading{grid-column:1/-1;min-height:94px;display:grid;place-items:center;color:var(--ink-3);
   border:1px dashed var(--line);border-radius:13px;background:var(--panel);font-size:13.5px}
@@ -3864,6 +3871,7 @@ body.dash-drag-live #dashGuides{display:grid}
       <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
         <input id="campQ" type="search" placeholder="캠프명·담당자·번호·이메일 검색" oninput="renderCampList()" style="flex:1 1 320px;min-width:260px;font-size:15px;padding:10px 12px">
         <label class="chk"><input id="campPmOnly" type="checkbox" checked onchange="renderCampList()"> 정기점검 캠프만</label>
+        <label class="chk" title="같은 캠프의 옛 이름·다른 표기를 정기점검 스케줄 원본(류지영 정본) 기준으로 한 줄에 모읍니다. 어느 캠프인지 원본이 말해 주지 않는 표기는 합치지 않고 확인 필요로 남깁니다."><input id="campFold" type="checkbox" checked onchange="renderCampList()"> 정본으로 묶기</label>
         <button class="btn primary" onclick="campEditOpen('')" title="새 캠프를 추가합니다"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg>캠프 추가</button>
       </div>
       <div id="campSum" class="note" style="margin-top:8px"></div>
@@ -17329,14 +17337,16 @@ function campRows(){
   const pmOnly = $('campPmOnly') ? $('campPmOnly').checked : true;
   /* ★ 거르고 나서 묶는다 — 화면에 안 나오는 줄까지 세면 '3곳 중 1' 만 보이고
      나머지 둘은 어디에도 없다(그러면 그 숫자가 거짓말이 된다, [169]). */
-  return campGroupSort(rows.filter(r=>{
+  /* ★ **묶고 나서 정렬한다** — 순서를 먼저 잡으면 접혀 사라진 줄까지 세어
+     `주소 1/5` 가 다섯이라 말하는데 화면에는 한 줄만 있게 된다([169]). */
+  return campGroupSort(campFoldApply(rows.filter(r=>{
     if(pmOnly && !r.정기점검) return false;
     if(!q) return true;
     const s = [r.캠프명, r.캠프주소, r.거래처코드]
       .concat(campRoles(r).flatMap(x=>[x.p.이름, x.p.전화, x.p.메일]))
       .join(' ').toLowerCase();
     return s.indexOf(q) >= 0;
-  }));
+  })));
 }
 /* ★ **세 역할을 뭉치지 않는다** (2026-08-18 지시: "담당자1, 담당자2 가 무엇을 의미하는지
    모르겠어"). 전에는 `담당자 ①·②` 로 순서만 보여 줘서 **그게 누구인지 화면이 말해
@@ -17453,34 +17463,147 @@ function campSourceNote(d){
   return ' <span class="norm">· 정기점검 스케줄 원본 반영(캠프 ' + (왜.캠프|0) + '개'
     + (n||m ? ' · 갱신 ' + n + '칸 · 채움 ' + m + '칸' : '') + ')</span>';
 }
+/* 한 사람 = 한 칸(이름·전화·이메일 석 줄). 사람마다 열을 셋씩 두면 아홉 열이 되어
+   좁은 화면에서 표가 무너진다. **없는 칸은 '모름'이라 적는다** — 빈칸으로 두면
+   '적을 것이 없다'인지 '아직 못 찾았다'인지 구별되지 않는다([169]). */
+function campCell(p, label){ p = p || {};
+  /* ★ 이름표(`data-label`)는 **폰에서 카드로 설 때** 머리글을 대신한다.
+     넓은 화면에서는 CSS 가 안 그리므로 표 모양은 한 톨도 안 바뀐다. */
+  const L = ' data-label="'+esc2(label||'')+'"';
+  if(!campHasPerson(p)) return '<td class="norm"'+L+'>모름</td>';
+  return '<td'+L+'><div>'+esc2(p.이름||'이름 모름')+'</div>'
+    + '<div>'+(p.전화 ? '<a href="tel:'+esc2(p.전화)+'">'+esc2(p.전화)+'</a>'
+                     : '<span class="norm">전화 모름</span>')+'</div>'
+    /* 이메일은 **글자로만** 둔다 — 메일 링크(mailto)는 앱에서 밖으로 나가는 길이라 검증 [34] 가
+       막는다(공유는 사람이 수신자를 고르는 navigator.share 만 허용). 전화 tel: 은
+       기기 전화앱을 열 뿐 아무것도 보내지 않아 그대로 둔다. 다시 링크로 바꾸지 말 것. */
+    + '<div>'+(p.메일 ? '<span class="mailtxt">'+esc2(p.메일)+'</span>'
+                     : '<span class="norm">이메일 모름</span>')+'</div></td>'; }
+const chr34b = ' <span class="badge warn" title="WHY">확인 필요</span>';
+const chr34m = ' <button class="badge campmore" data-canon="CANON" onclick="event.stopPropagation();campFoldToggle(this.dataset.canon)" title="LIST">ARROW 합친 표기 NUM개</button>';
+const chr34d = ' <span class="badge warn" title="합친 줄끼리 담당자 값이 다릅니다 — 여기 보이는 것은 정본 이름 줄(또는 가장 최근 작업 줄)의 값입니다. 나머지는 [합친 표기]를 펴서 보십시오.">담당자 다름</span>';
+const chr34q = ' <span class="badge warn" title="TIP">Q 표에 없음</span>';
+const chr34row = '<tr class="campsub" data-camp="CAMPATTR" ondblclick="campEditOpen(this.dataset.camp)" title="줄을 두 번 누르면 고치기가 열립니다"><td class="campname"><div><button class="btn xs campfix" data-camp="CAMPATTR2" onclick="event.stopPropagation();campEditOpen(this.dataset.camp)" title="이 옛 표기 줄의 담당자·연락처를 고칩니다"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>수정</button> ↳ CAMPTEXT</div><div class="camptag"><span class="badge">합쳐진 옛 표기</span></div></td><td data-label="호기">UNIT</td>PEOPLE<td data-label="정기점검 접수 (밴드·카톡 누적 글 수)">CNT</td><td data-label="최근작업일">DAY</td><td data-label="거래처코드">CODE</td></tr>';
+/* ── 정본으로 묶기 (2026-08-20 형님 지시 "여기에 보기좋게 정리하고 업데이트해") ──
+   화면이 `420개 표시` 라 적고 있었는데 그 420 은 **캠프 수가 아니라 표기 수**였다 —
+   같은 주소의 옛 이름이 각각 한 줄로 서 있었다. 세는 것이 바뀌면 대표 보고의 수가
+   그대로 틀어지므로 요약이 **무엇을 센 것인지** 말한다([169]).
+
+   ★ **여기서 합치지 않는다**([162]). 어느 표기가 어느 정본 캠프인지는
+     `camp_units_report.py` 가 **주소로** 정하고(후보가 유일할 때만 · [172]) 서버가
+     그 결과를 `정본묶음` 으로 실어 준다. 화면은 그 답을 읽어 줄을 모을 뿐이다.
+   ★ **못 합친 것을 숨기지 않는다**([169]). 실측 2026-08-20: 정기점검 420줄 중
+     303줄이 정본 193곳에 붙고 **117줄은 안 붙는다**(그중 16줄은 그 주소에 정본이
+     여러 곳이라 어느 쪽인지 원본이 말해 주지 않는다). 그 117줄은 지우지 않고
+     `확인 필요` 로 남는다 — 지어내서 붙이면 엉뚱한 캠프의 담당자가 된다.
+   ⚠ 실측으로 걸린 본보기: 가양동 449-1 에는 정본 캠프가 **둘**이다
+     (`강서1MB(가양A)`·`강서1MB(가양B)`). 그러니 그 주소의 옛 표기 셋은
+     **한 캠프로 합치면 안 된다** — 화면에 넷이 서 있던 것이 다 같은 곳이라는 뜻이
+     아니었다. */
+let CAMP_FOLD = new Map();          /* 머리 행 → {정본, 접힘:[행], 다름, 분기, 왜} */
+const CAMP_OPEN = new Set();        /* 펴 둔 정본 이름 */
+function campFoldOn(){ const el = $('campFold'); return !!(el && el.checked); }
+function campFoldInfo(r){ return CAMP_FOLD.get(r) || null; }
+/* 사람 값이 같은지 보는 자리는 하나다 — 표와 경보가 갈리면 같은 줄이 두 뜻이 된다. */
+function campPeopleKey(r){
+  return CAMP_ROLES.map(([k])=>{ const p = (r && r[k]) || {};
+    return [p.이름||"", p.전화||"", p.메일||""].join("/"); }).join("|");
+}
+function campFoldApply(rows){
+  CAMP_FOLD = new Map();
+  const M = (CAMPS && CAMPS.정본묶음) || null;
+  if(!M || !M.읽음 || !campFoldOn()) return rows;
+  const map = M.표기맵||{}, miss = M.못합침||{}, info = M.정보||{};
+  const bag = new Map(), order = [];
+  rows.forEach(r=>{
+    const c = map[String(r.캠프명||"")] || "";
+    if(!c){ order.push(r);
+      CAMP_FOLD.set(r, {정본:"", 접힘:[], 다름:false, 분기:"",
+                        왜: miss[String(r.캠프명||"")] || ""});
+      return; }
+    if(!bag.has(c)){ bag.set(c, []); order.push(c); }
+    bag.get(c).push(r);
+  });
+  const 늦은 = (a,b)=> String(b.최근작업일||"").localeCompare(String(a.최근작업일||""));
+  return order.map(x=>{
+    if(typeof x !== "string") return x;
+    const g = bag.get(x);
+    /* ★ 머리는 **정본 이름과 같은 줄**이 이긴다 — 그 줄이 정본 명부에서 온 값이다.
+       없으면 최근작업일이 가장 새 줄. 아무 줄이나 세우면 옛 담당자가 대표 보고에
+       실린다([172]) — 실측으로 합친 71묶음 중 55묶음이 서로 다른 담당자를 갖고
+       있었고, 정본 이름 줄이 늘 더 새 값이었다. */
+    const h = g.find(y=>String(y.캠프명||"") === x) || g.slice().sort(늦은)[0];
+    CAMP_FOLD.set(h, {정본:x, 접힘:g.filter(y=>y!==h),
+                      다름:new Set(g.map(campPeopleKey)).size > 1,
+                      분기:String((info[x]||{}).근거분기||""), 왜:""});
+    return h;
+  });
+}
+function campFoldToggle(c){
+  if(!c) return;
+  if(CAMP_OPEN.has(c)) CAMP_OPEN.delete(c); else CAMP_OPEN.add(c);
+  renderCampList();
+}
+/* 딱지를 만드는 자리도 하나다 — 표와 엑셀이 다르게 적으면 같은 줄이 두 뜻이 된다. */
+function campFoldBadges(r){
+  const g = campFoldInfo(r); if(!g) return "";
+  let s = "";
+  if(g.왜) s += chr34b.replace("WHY", esc2(g.왜 + " — 그래서 정본 캠프에 못 붙였습니다. "
+      + "지어내서 붙이면 엉뚱한 캠프의 담당자가 됩니다."));
+  if(g.접힘 && g.접힘.length){
+    s += chr34m.replace("CANON", esc2(g.정본)).replace("LIST",
+         esc2("같은 주소로 확인된 옛 이름·다른 표기입니다: "
+              + g.접힘.map(x=>x.캠프명).join(", ")))
+         .replace("ARROW", CAMP_OPEN.has(g.정본) ? "▾" : "▸")
+         .replace("NUM", String(g.접힘.length));
+    if(g.다름) s += chr34d;
+  }
+  const M = (CAMPS && CAMPS.정본묶음) || null;
+  const q = (M && M.분기시트) ? (M.분기시트 + "분기") : "";
+  if(g.정본 && q && g.분기 && g.분기.indexOf(q) < 0)
+    s += chr34q.replace("TIP", esc2("정기점검 스케줄 원본의 가장 새 시트(" + q
+         + ")에는 이 캠프가 없습니다. 빠진 것인지 이름이 바뀐 것인지 원본이 말해 주지 "
+         + "않습니다 — 지어내지 않았습니다. 근거: " + g.분기)).replace("Q", esc2(q));
+  return s;
+}
+/* 펴 둔 옛 표기 줄 — 칸 수는 머리 줄과 **같아야 한다**([315] 가 th 수와 대 본다). */
+function campFoldChildren(r){
+  const g = campFoldInfo(r);
+  if(!g || !g.정본 || !g.접힘.length || !CAMP_OPEN.has(g.정본)) return "";
+  return g.접힘.map(c => chr34row
+      .replace("CAMPATTR", esc2(String(c.캠프명||"")))
+      .replace("CAMPATTR2", esc2(String(c.캠프명||"")))
+      .replace("CAMPTEXT", esc2(String(c.캠프명||"")))
+      .replace("UNIT", campUnits(c))
+      .replace("PEOPLE", campRoles(c).map(x=>campCell(x.p, x.라벨)).join(""))
+      .replace("CNT", String(c.정기점검건수||0))
+      .replace("DAY", esc2(c.최근작업일||""))
+      .replace("CODE", esc2(c.거래처코드||""))).join("");
+}
 function renderCampList(){
   const host = $('campHost'); if(!host || !CAMPS) return;
   const rows = campRows(), d = CAMPS;
   const noTel = rows.filter(r=>!campRoles(r).some(x=>x.p.전화)).length;
   const noMail = rows.filter(r=>!campRoles(r).some(x=>x.p.메일)).length;
   /* 요약이 **무엇을 못 봤는지**까지 말한다 — 숫자만 있으면 '전부 다 있다'로 읽힌다([169]). */
-  $('campSum').innerHTML = esc2(`${rows.length}개 표시 · 전화 있음 ${rows.length-noTel} · `
-    + `이메일 있음 ${rows.length-noMail} · 아직 모름 ${noTel}`)
+  /* ★ **숫자가 무엇을 센 것인지 말한다**(2026-08-20 형님 지시). 전에는 `420개 표시` 라
+     적었는데 그 420 은 캠프 수가 아니라 **표기 수**였다 — 같은 주소의 옛 이름이 각각
+     한 줄로 서 있었다. 세는 것이 바뀌면 대표 보고의 수가 그대로 틀어진다([169]). */
+  const _F = (d && d.정본묶음) || null, _묶 = campFoldOn() && !!(_F && _F.읽음);
+  const _확인 = rows.filter(r=>{ const g = campFoldInfo(r); return !!(g && g.왜); }).length;
+  const _합침 = rows.reduce((n,r)=>{ const g = campFoldInfo(r);
+    return n + ((g && g.접힘) ? g.접힘.length : 0); }, 0);
+  $('campSum').innerHTML = esc2(_묶
+      ? `${rows.length}줄 — 정본 캠프 ${rows.length-_확인}곳 + 확인 필요 ${_확인}개 (옛 표기 ${_합침}개를 합쳤습니다) · 전화 있음 ${rows.length-noTel} · 이메일 있음 ${rows.length-noMail} · 아직 모름 ${noTel}`
+      : `${rows.length}개 표시 — 밴드에서 본 표기 그대로(안 묶음) · 전화 있음 ${rows.length-noTel} · 이메일 있음 ${rows.length-noMail} · 아직 모름 ${noTel}`)
+    /* ★ 못 읽었으면 **못 읽었다고 말한다**([169]) — 조용히 안 묶으면 화면은 표기 수를
+       캠프 수처럼 보여 주면서 아무 말도 안 한다. */
+    + (_F && !_F.읽음 ? ' <span class="bad">· 정본 묶음표를 못 읽어 표기 그대로 보여 줍니다 — ' + esc2(String(_F.왜||'').slice(0,80)) + '</span>' : '')
     + (d.갱신 ? ' <span class="norm">· 기준 '+esc2(String(d.갱신).replace('T',' '))+'</span>' : '')
     + campSourceNote(d)
     + (noTel ? ' <span class="norm">— \'모름\'은 담당자가 없는 것이 아니라 정기점검 스케줄 원본에도 밴드 접수 글에도 아직 없는 것입니다.</span>' : '');
   if(!rows.length){ host.innerHTML = '<div class="empty">조건에 맞는 캠프가 없습니다.</div>'; return; }
-  /* 한 사람 = 한 칸(이름·전화·이메일 석 줄). 사람마다 열을 셋씩 두면 아홉 열이 되어
-     좁은 화면에서 표가 무너진다. **없는 칸은 '모름'이라 적는다** — 빈칸으로 두면
-     '적을 것이 없다'인지 '아직 못 찾았다'인지 구별되지 않는다([169]). */
-  const cell = (p, label) => { p = p || {};
-    /* ★ 이름표(`data-label`)는 **폰에서 카드로 설 때** 머리글을 대신한다.
-       넓은 화면에서는 CSS 가 안 그리므로 표 모양은 한 톨도 안 바뀐다. */
-    const L = ' data-label="'+esc2(label||'')+'"';
-    if(!campHasPerson(p)) return '<td class="norm"'+L+'>모름</td>';
-    return '<td'+L+'><div>'+esc2(p.이름||'이름 모름')+'</div>'
-      + '<div>'+(p.전화 ? '<a href="tel:'+esc2(p.전화)+'">'+esc2(p.전화)+'</a>'
-                       : '<span class="norm">전화 모름</span>')+'</div>'
-      /* 이메일은 **글자로만** 둔다 — 메일 링크(mailto)는 앱에서 밖으로 나가는 길이라 검증 [34] 가
-         막는다(공유는 사람이 수신자를 고르는 navigator.share 만 허용). 전화 tel: 은
-         기기 전화앱을 열 뿐 아무것도 보내지 않아 그대로 둔다. 다시 링크로 바꾸지 말 것. */
-      + '<div>'+(p.메일 ? '<span class="mailtxt">'+esc2(p.메일)+'</span>'
-                       : '<span class="norm">이메일 모름</span>')+'</div></td>'; };
+  const cell = campCell;
   host.innerHTML = '<div class="gridwrap"><table class="grid"><thead><tr>'
     + '<th>캠프명</th>'
     + '<th title="정기점검 스케줄 원본(류지영 정본)에 있는 캠프는 그 표의 설치 대수입니다. 원본에 없는 캠프는 접수·점검 글에서 본 호기라 사이가 빌 수 있고 별표(*)가 붙습니다.">호기</th>'
@@ -17522,13 +17645,14 @@ function renderCampList(){
           /* 같은 주소로 묶인 줄은 **바로 앞뒤에 있다**. 몇 곳 중 몇 번째인지 적어야
              사람이 '이게 전부인가'를 묻지 않는다([169]). */
           + (g ? '<span class="badge" title="'+esc2(campGroupText(r)+' — 같은 주소: '+(r.캠프주소||''))+'">'+esc2(campGroupText(r,true))+'</span>' : '')
+          + campFoldBadges(r)
           + '</div></td>'
         + '<td data-label="호기">'+campUnits(r)+'</td>'
         + campRoles(r).map(x=>cell(x.p, x.라벨)).join('')
         + '<td data-label="정기점검 접수 (밴드·카톡 누적 글 수)">'+(r.정기점검건수||0)+'</td>'
         + '<td data-label="최근작업일">'+esc2(r.최근작업일||'')+'</td>'
         + '<td data-label="거래처코드">'+esc2(r.거래처코드||'')+'</td>'
-        + '</tr>'; }).join('')
+        + '</tr>' + campFoldChildren(r); }).join('')
     + '</tbody></table></div>';
 }
 
@@ -17654,7 +17778,13 @@ function campReportHead(rows){
   const el = $('campPmOnly'), pm = !!(el && el.checked), n = (rows||[]).length;
   const stamp = new Date().toLocaleString('ko-KR');
   return { title: pm ? '전국 정기점검 캠프 · 담당자' : '전국 쿠팡캠프 · 담당자',
-           count: n, stamp, sub: `총 ${n}개 · 기준 ${stamp}` };
+           count: n, stamp,
+           /* ★ 캡처·엑셀 머리에 **무엇을 센 것인지** 같이 적는다(2026-08-20).
+              묶은 표와 안 묶은 표는 수가 다르다 — 받아 본 사람이 그것을 모르면
+              두 파일을 나란히 놓고 "왜 다르지"가 된다([169]). */
+           sub: `총 ${n}개 · 기준 ${stamp}`
+                + (campFoldOn() ? " · 정기점검 스케줄 원본(정본) 기준으로 옛 표기를 합침"
+                                : " · 밴드에서 본 표기 그대로(안 묶음)") };
 }
 /* 엑셀은 **앱 전체가 쓰는 그 함수**를 그대로 쓴다 — 새로 만들면 사본이 둘 된다([162]). */
 function campsXlsx(){
@@ -17677,10 +17807,17 @@ function campsXlsx(){
       o[x.라벨+' 전화']   = V(x.p.전화);
       o[x.라벨+' 이메일'] = V(x.p.메일);
     });
+    /* ★ 묶은 결과를 **엑셀에도 그대로** 싣는다([162]) — 화면에서 접힌 옛 이름이
+       엑셀에서 통째로 사라지면 그 표만 받은 사람은 없던 캠프로 읽는다([169]). */
+    const _g = campFoldInfo(r) || {};
+    o['합친 옛 표기'] = (_g.접힘||[]).map(x=>x.캠프명).join(' | ')
+      || (campFoldOn() ? '없음' : '묶지 않음');
+    o['정본 근거분기'] = _g.분기 || (_g.왜 ? '정본에 못 붙임' : '모름');
     o['캠프주소'] = V(r.캠프주소); o['거래처코드'] = V(r.거래처코드);
     o['정기점검 접수 글수'] = r.정기점검건수||0; o['최근작업일'] = V(r.최근작업일);
     /* '직책 미상'은 옛 양식이라 원문에 직책이 없는 것이다 — 비고에도 한 번 더 적는다. */
     o['비고'] = [r.이름확인필요 ? '캠프명 확인 필요' : '',
+                 _g.왜 || '',
                  campHasPerson(r.담당자) ? '담당자 직책은 원문에 없음(옛 접수 양식)' : '',
                 ].filter(Boolean).join(' · ') || '특이사항 없음';
     return o;
@@ -17690,13 +17827,15 @@ function campsXlsx(){
        받아 본 사람은 1행부터 `캠프명 | 호기 …` 만 보고 무슨 표인지 알 수 없었다. */
     meta: { title: head.title, sub: head.sub },
     /* ★ **열을 직접 준다.** 안 주면 회신 서식(13칸)에 밀려 들어가 캠프명만 남는다. */
-    columns: ['캠프명','호기','주소묶음','정기점검']
+    columns: ['캠프명','호기','주소묶음','정기점검','합친 옛 표기','정본 근거분기']
       .concat(...CAMP_ROLES.map(([,label])=>[label+' 이름', label+' 전화', label+' 이메일']))
       .concat(['캠프주소','거래처코드','정기점검 접수 글수','최근작업일','비고']),
     /* 낱말 뜻은 파일 안에 같이 간다 — 엑셀만 받아 본 사람도 알아야 한다([169]). */
     guide: [['항목','뜻']]
       .concat(CAMP_ROLES.map(([,label,hint])=>[label, hint]))
-      .concat([['정기점검 접수 글수', '밴드·카톡에서 모은 이 캠프의 정기점검 접수 글 수입니다(누적). 남은 점검 횟수나 호기 대수가 아닙니다.'],
+      .concat([['합친 옛 표기', '같은 주소로 확인돼 이 줄에 합친 옛 이름·다른 표기입니다(정기점검 스케줄 원본 기준). 담당자·전화는 정본 이름 줄의 값입니다.'],
+               ['정본 근거분기', '이 캠프가 실린 정기점검 스케줄 원본의 시트입니다. 가장 새 분기가 아니면 그 시트에서 빠졌거나 이름이 바뀐 것인데, 어느 쪽인지는 원본이 말해 주지 않습니다 — 지어내지 않았습니다.'],
+               ['정기점검 접수 글수', '밴드·카톡에서 모은 이 캠프의 정기점검 접수 글 수입니다(누적). 남은 점검 횟수나 호기 대수가 아닙니다.'],
                ['호기', '이어진 번호는 1~5호기처럼 범위로 줄여 적습니다. 사이가 비면 1~3,5호기처럼 그 자리에 드러납니다. 정기점검 스케줄 원본(류지영 정본)에 있는 캠프는 그 표의 설치 대수이고, 원본에 없는 캠프는 접수·점검 글에서 본 것이라 별표(*)가 붙습니다 — 그때의 빈 자리는 없는 호기가 아니라 글을 못 본 호기입니다.'],
                ['주소묶음', '같은 주소인 캠프끼리 줄을 붙여 놓았습니다. 주소를 모르는 캠프는 묶지 않고 단독으로 둡니다.'],
                ["'모름'", '담당자가 없다는 뜻이 아니라, 밴드 접수 글에서 아직 못 찾았다는 뜻입니다.'],
