@@ -16798,6 +16798,121 @@ def t367_restart_survives_only_with_an_exact_fingerprint():
     print("  [367] 재시작 견디는 디스크 캐시 — 지문 정확일치·build앞 도장·_stale 자리·나이상한·계기 자기시험 ✅")
 
 
+def t369_a_file_read_every_request_is_never_called_old_code():
+    """[191] 요청마다 읽는 화면 파일을 '옛 코드'라 부르지 않는다 — 그러나 조용히 빼지도 않는다.
+
+    ★ 왜 이것을 재나 (2026-08-21 실측).  `restart_server.stale()` 이
+      `webapp/index.html` 을 파이썬 모듈과 똑같이 취급했다.  그런데 그 파일은
+      **요청마다 디스크에서 다시 읽히므로** 서버가 옛 코드로 도는 일이 없다.
+      그 거짓말을 워치독 `heal_stale_server` 가 믿고 **멀쩡한 서버를 내렸고**
+      담당자는 8초씩 502 를 받았다(`[197]` 실측) — 항상 류지영 업무가 우선인데
+      화면을 고칠 때마다 이 가짜 경보가 떴다.  `[170]`: 경보가 대부분 가짜면
+      진짜 경보가 묻힌다.
+    ★ **글자로는 못 잰다**(`[295]`) — '워치독이 서버를 내리나'는 실행해야 보인다.
+    """
+    import ast
+    rs_path = os.path.join(ROOT, "webapp", "restart_server.py")
+    src = open(rs_path, encoding="utf-8").read()
+
+    # ① 표가 실재하고 두 화면 파일이 담겨 있나
+    assert "LIVE_FILES" in src, "[369] LIVE_FILES 표가 없다"
+    ns = {}
+    for line in src.splitlines():
+        if line.startswith("LIVE_FILES"):
+            exec(line, ns)
+    live = ns.get("LIVE_FILES")
+    assert live and "webapp/index.html" in live and "webapp/tech.html" in live, \
+        "[369] LIVE_FILES 에 요청마다 읽는 화면 파일이 없다: %r" % (live,)
+
+    # ② 그 파일들이 **정말** 요청마다 읽히나 — 아니면 이 표가 거짓말이 되고
+    #    [156] 의 그 사고(옛 코드로 200 을 주는 서버)가 되살아난다.
+    app = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    tree = ast.parse(app)
+    for rel in live:
+        base = rel.split("/")[-1]
+        found_in_func = False
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Constant) and node.value == base:
+                    found_in_func = True
+                    break
+            if found_in_func:
+                break
+        assert found_in_func, \
+            "[369] %s 를 함수 안에서 읽는 자리가 없다 — 요청마다 읽는다는 근거가 없다" % base
+    # 모듈 수준에서 내용을 붙들어 두면 그 순간 '요청마다'가 거짓이 된다.
+    for node in tree.body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Constant) and sub.value in \
+                        [r.split("/")[-1] for r in live]:
+                    raise AssertionError(
+                        "[369] 화면 파일을 모듈 수준에서 붙들고 있다 — "
+                        "그러면 재시작이 필요해지므로 LIVE_FILES 에서 빼야 한다")
+
+    # ③~⑤ **실행해서** 잰다 — 실측 증거 파일은 한 글자도 안 건드린다([247]).
+    rs = _t369_load(rs_path)
+    files = ["webapp/app_server.py", "webapp/index.html", "webapp/tech.html", "ledger_db.py"]
+
+    def measure(newer, live_files=None):
+        rs.running = lambda: [(999, "08/21/2026 10:00:00")]
+        rs._started_epoch = lambda w: 1000.0
+        rs.watched_files = lambda *a, **k: (list(files), 0)
+        rs.os.path.getmtime = lambda p: (
+            2000.0 if any(p.replace("\\", "/").endswith(n) for n in newer) else 500.0)
+        if live_files is not None:
+            rs.LIVE_FILES = live_files
+        s = rs.stale()
+        return (s[2] if s else None), rs.live_changed()
+
+    st, lv = measure(["webapp/index.html"])
+    assert st is None, "[369] 화면만 바뀌었는데 '옛 코드'라 부른다 — 워치독이 서버를 내린다"
+    assert lv == ["webapp/index.html"], \
+        "[369] 조용히 뺐다([169]) — live_changed 가 말해야 한다: %r" % (lv,)
+
+    st, lv = measure(["webapp/app_server.py"])
+    assert st == ["webapp/app_server.py"], \
+        "[369] 진짜 옛 코드를 놓쳤다 — 좁히는 것도 고장이다: %r" % (st,)
+    assert lv == [], "[369] 모듈 변경을 '새로고침이면 됨'이라 했다: %r" % (lv,)
+
+    st, lv = measure(["webapp/app_server.py", "webapp/index.html"])
+    assert st == ["webapp/app_server.py"] and lv == ["webapp/index.html"], \
+        "[369] 둘이 섞이면 갈라 담아야 한다: %r / %r" % (st, lv)
+
+    # ⑥ 재는 자리는 하나다([162]) — 각자 mtime 을 다시 재면 두 답이 나온다.
+    for name in ("def stale():", "def live_changed():"):
+        i = src.index(name)
+        body = src[i:src.index("\ndef ", i + 1)]
+        assert "newer_than_server()" in body, \
+            "[369] %s 가 제 손으로 다시 잰다 — 판정은 한 곳이다([162])" % name
+
+    # ⑦ 계기 자기시험([272]) — 표를 비우면(옛 동작) 가짜 경보가 되살아나나
+    rs2 = _t369_load(rs_path)
+    rs2.running = lambda: [(999, "08/21/2026 10:00:00")]
+    rs2._started_epoch = lambda w: 1000.0
+    rs2.watched_files = lambda *a, **k: (list(files), 0)
+    rs2.os.path.getmtime = lambda p: 2000.0 if p.replace("\\", "/").endswith(
+        "webapp/index.html") else 500.0
+    rs2.LIVE_FILES = ()
+    s2 = rs2.stale()
+    assert s2 and "webapp/index.html" in s2[2], \
+        "[369] 표를 비웠는데도 통과했다 — 이 검사는 아무것도 안 재고 있다"
+
+    print("✅ [369] 요청마다 읽는 화면 파일 — 가짜 '옛 코드' 경보 없음 · 조용히 빼지도 않음")
+
+
+def _t369_load(path):
+    """`restart_server` 를 **격리해서** 올린다 — 진짜 모듈 상태를 안 건드린다([247])."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "restart_server_t369_%d" % id(path), path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def t368_screens_fit_without_shrinking_and_tables_line_up():
     """[368] 화면은 줄이지 않아도 다 보이고, 표 정렬은 한 곳에서 온다 (2026-08-21 형님 지시).
 
@@ -29768,6 +29883,7 @@ if __name__ == "__main__":
     t366_permission_never_draws_a_dead_input()
     t367_restart_survives_only_with_an_exact_fingerprint()
     t368_screens_fit_without_shrinking_and_tables_line_up()
+    t369_a_file_read_every_request_is_never_called_old_code()
     t294_unreadable_source_never_passes_as_read()
     t295_camp_contacts_never_guess_a_phone_number()
     t296_half_list_never_blames_the_person()

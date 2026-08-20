@@ -43,6 +43,23 @@ except Exception:
 WATCHED = ("webapp/app_server.py", "webapp/index.html", "webapp/tech.html",
            "ecount_reconcile.py", "ledger_db.py")
 
+#: 서버가 **요청마다 디스크에서 다시 읽는** 파일 — 고쳐도 **재시작이 필요 없다**.
+#:
+#: ★ 2026-08-21 (분담판 `[191]`).  전에는 이 둘을 파이썬 모듈과 똑같이 취급해
+#:   `stale()` 이 '옛 코드'를 올렸고, 워치독 `heal_stale_server` 가 그것을 믿고
+#:   **멀쩡한 서버를 내렸다** — 담당자에게 8초씩 502 다(`[197]` 실측).  화면을
+#:   고칠 때마다 바뀌므로 이 가짜 경보가 **제일 자주** 떴다.
+#: ★ 근거는 셋이고 전부 실측이다:
+#:   ① 요청 핸들러가 `open(...).read()` 한다 — `app_server.py` index 8827 · tech 8799
+#:   ② `build_id()` 는 부를 때마다 `os.stat` 한다 — 프로세스에 캐시되는 값이 없다
+#:   ③ 화면 `checkBuild()` 가 그 값이 달라지면 **스스로 갱신을 제안한다**
+#:      (`index.html` 의 `offerUpdate`) — 사람에게 알리는 일까지 이미 돌고 있다.
+#: ★ 그러므로 **경보에서 뺀다.  다만 조용히 빼지 않는다**(`[169]`) —
+#:   `live_changed()` 가 그대로 돌려주고 `--status` 가 '새로고침하면 됩니다'라 적는다.
+#: ⚠ 이 목록에 넣기 전에 **그 파일을 프로세스가 물고 있지 않은지** 확인한다.
+#:   물고 있는데 넣으면 `[156]` 의 그 사고(옛 코드로 200 을 주는 서버)가 되살아난다.
+LIVE_FILES = ("webapp/index.html", "webapp/tech.html")
+
 #: import 를 찾을 폴더(프로젝트 루트 기준).  `app_server` 는 `sys.path` 에
 #: 루트와 `webapp` 을 넣고 돌므로 그 둘이 먼저다.
 _SEARCH_DIRS = ("", "webapp/", "band/")
@@ -96,15 +113,13 @@ def watched_files(seed=None, start=None, root=None):
     return sorted(out), unread
 
 
-def stale():
-    """서버가 **옛 코드로 돌고 있나**. 돌고 있으면 (pid, 뜬시각, 더 새로운 파일들).
+def newer_than_server():
+    """서버가 뜬 **뒤에 바뀐 파일**을 두 갈래로 재서 한 번에 돌려준다.
 
-    ★ 이것이 오늘(2026-08-08) 반나절을 먹은 조용한 사고다. 서버는 멀쩡히 200 을 주고
-      화면도 숫자를 보여 주는데, 그 코드가 어제 것이었다. 고친 사람만 모르고 있었다.
-      `app_server.main` 도 이 상황을 알아보고 안내를 찍지만 **새로 띄우려 한 사람만**
-      본다 — 폰으로 쓰는 사람에게도, 다음 세션에게도 아무 표시가 없었다.
-    ★ 판단은 **파일 mtime 대 프로세스 시작시각**이다. git 커밋 시각이 아니다 —
-      받아만 놓고 안 띄운 경우(pull 직후)까지 잡아야 한다.
+    돌려주는 것: `(pid, 뜬시각, 재시작필요[], 새로고침이면됨[], 못읽은수)` · 없으면 None.
+
+    ★ 재는 자리는 **여기 하나**다(`[162]`).  `stale()` 과 `live_changed()` 는 이
+      결과를 갈라 보여 줄 뿐이다 — 각자 mtime 을 다시 재면 같은 순간에 두 답이 나온다.
     """
     cur = running()
     if not cur:
@@ -113,7 +128,7 @@ def stale():
     started = _started_epoch(when)
     if started is None:
         return None
-    newer = []
+    newer, live = [], []
     # ★ 목록은 **따라가서 만든다**([162]·분담판 [118]) — 손으로 적은 다섯 개만 보던
     #   때는 나머지를 고쳐도 아무 화면에 안 떴다(실측 5 → 89개).
     files, unread = watched_files()
@@ -121,14 +136,46 @@ def stale():
         p = os.path.join(ROOT, rel)
         try:
             if os.path.getmtime(p) > started + 5:      # 5초는 기동 중 저장 여유
-                newer.append(rel)
+                (live if rel in LIVE_FILES else newer).append(rel)
         except OSError:
             pass
+    return (pid, when, newer, live, unread)
+
+
+def stale():
+    """서버가 **옛 코드로 돌고 있나**. 돌고 있으면 (pid, 뜬시각, 더 새로운 파일들).
+
+    ★ 이것이 2026-08-08 반나절을 먹은 조용한 사고다. 서버는 멀쩡히 200 을 주고
+      화면도 숫자를 보여 주는데, 그 코드가 어제 것이었다. 고친 사람만 모르고 있었다.
+      `app_server.main` 도 이 상황을 알아보고 안내를 찍지만 **새로 띄우려 한 사람만**
+      본다 — 폰으로 쓰는 사람에게도, 다음 세션에게도 아무 표시가 없었다.
+    ★ 판단은 **파일 mtime 대 프로세스 시작시각**이다. git 커밋 시각이 아니다 —
+      받아만 놓고 안 띄운 경우(pull 직후)까지 잡아야 한다.
+    ★ **요청마다 읽는 파일은 여기 안 담는다**(`LIVE_FILES` · 분담판 `[191]`).
+      담으면 '재시작해야 한다'가 **거짓말**이 되고, 그 거짓말을 워치독이 믿고
+      멀쩡한 서버를 내린다 — 담당자에게 8초씩 502 다.  안 담는 대신
+      `live_changed()` 가 말한다(`[169]` — 조용히 빼지 않는다).
+    """
+    m = newer_than_server()
+    if not m:
+        return None
+    pid, when, newer, _live, unread = m
     if unread and newer:
         # ★ **못 읽은 것을 조용히 넘기지 않는다**([169]).  경보가 이미 섰을 때만
         #   덧붙인다 — 아무 일 없는 날까지 말하면 아무도 안 읽는다([170]).
         newer.append("(그 밖에 %d개는 못 읽어 감시 밖)" % unread)
     return (pid, when, newer) if newer else None
+
+
+def live_changed():
+    """**새로고침이면 되는** 화면 파일이 서버보다 새것인가 — 경보가 아니라 사실이다.
+
+    ★ 경보로 올리지 않는다(`[170]`).  화면이 이미 `checkBuild()` 로 사람에게
+      묻고 있으므로 인계 문서까지 매번 같은 말을 하면 진짜 경보가 묻힌다.
+      대신 **묻는 사람에게는 답한다** — `--status` 가 이것을 적는다(`[169]`).
+    """
+    m = newer_than_server()
+    return list(m[3]) if m else []
 
 
 def _started_epoch(when):
@@ -396,6 +443,13 @@ def main(argv=None):
             print("  고쳐도 화면이 안 바뀝니다:  python webapp/restart_server.py")
         elif cur:
             print("  코드는 최신입니다.")
+        live = live_changed()
+        if live:
+            # ★ 재시작이 아니라 **새로고침**이다(분담판 [191]) — 이것을 '옛 코드'라
+            #   부르면 워치독이 멀쩡한 서버를 내린다(담당자에게 8초씩 502).
+            print(f"  화면 파일이 서버보다 새것입니다 — {', '.join(live[:4])}")
+            print("  서버 재시작은 필요 없습니다 — 브라우저 새로고침이면 반영됩니다"
+                  "(앱이 스스로 갱신을 제안합니다).")
         u = in_use()
         if not u["읽음"]:
             print(f"  쓰는 사람 확인 못 함 — {u['왜']}")
