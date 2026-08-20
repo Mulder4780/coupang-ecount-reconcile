@@ -15047,6 +15047,37 @@ function srcWorkLine(r){
     06시트 수식이라 <b>엑셀이 한 번 다시 계산해야</b> 위 칸에 따라옵니다.</div>`;
 }
 
+/* ★ 권한은 **서버 표 하나**가 정한다([162]) — 화면이 다시 적으면 갈리고,
+   갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다. 서버는 `permissions` 를 이미
+   내려 준다(app_server.get_staff_records) — 이 시트만 그걸 한 번도 안 물었다.
+   ★ '키가 없다'와 '빈 목록'은 다른 말이다([247]):
+     · 키 없음  = 아직 안 받았거나 관리자 화면 → **거르지 않는다**(모름을 금지로
+                  치지 않는다, [169]). 거르면 멀쩡한 화면에서 칸이 사라진다([172]).
+     · 빈 목록  = 이 갈래는 아예 못 고친다 → 전부 읽기 전용.
+                  실측 2026-08-20: 김미영 as=0 · pm=0 이라 '비면 안 거른다'로 두면
+                  20칸이 다 뜨고 **누르는 족족 403** 이 난다. */
+function entryAllowedFields(kind){
+  const p = (typeof RYU!=='undefined' && RYU && RYU.permissions) ? RYU.permissions[kind] : undefined;
+  return Array.isArray(p) ? p : null;   // null = 모름(거르지 않음)
+}
+/* 값은 **그대로 보여 준다**([165] — 안 보이는 칸은 빈 칸과 구별이 안 된다).
+   달라지는 것은 '고칠 수 있나' 하나뿐이고, 왜 못 고치는지를 그 자리에 적는다. */
+function lockedField(f, r){
+  let cur='';
+  try{ cur = String(f.cur(r)==null?'':f.cur(r)); }catch(e){ cur=''; }
+  return `<div class="norm" title="이 칸은 권한이 없어 고칠 수 없습니다"
+    style="flex:1;min-width:0;padding:12px 11px;border:1.5px dashed var(--line);border-radius:10px;
+           background:rgba(127,127,127,.06);color:var(--ink-3);font-size:15px">${esc2(cur)||'—'}
+    <span style="margin-left:6px;font-size:12.5px;font-weight:700">🔒 권한 없음</span></div>`;
+}
+function lockedNote(blocked, allBlocked){
+  if(!blocked.length) return '';
+  const names = blocked.map(f=>f.label).join(' · ');
+  return `<div style="margin-top:9px;padding:10px 12px;border-radius:10px;
+      background:rgba(127,127,127,.08);border:1px solid var(--line);font-size:13px;line-height:1.6;color:var(--ink-2)">
+      🔒 <b>${allBlocked?'이 화면에서는 고칠 수 있는 칸이 없습니다':'권한이 없어 못 고치는 칸'}</b> — ${esc2(names)}
+      <div style="margin-top:4px;color:var(--ink-3)">값은 그대로 보여 드립니다. 고쳐야 하면 관리자에게 권한을 요청해 주세요.</div></div>`;
+}
 function inputForm(kind, r, id){
   const spec = INPUT_SPEC[kind];
   if(!spec) return '';
@@ -15089,19 +15120,23 @@ function inputForm(kind, r, id){
       </div>`;
   }
   const fields = spec.fields;
+  const allow = entryAllowedFields(kind);
+  const canEdit = f => !allow || allow.indexOf(f.col) >= 0;
+  const blocked = fields.filter(f => !canEdit(f));
+  const allBlocked = fields.length > 0 && blocked.length === fields.length;
   // data-draft: 입력 초안 자동저장 대상 표시(2026-08-11) — 열쇠가 기록 단위라 남의 기록에 안 덮인다.
   return `<div data-draft="entry:${kind}:${esc2(String(id))}"><div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">확인 내용 입력·정정 → 앱 DB 즉시 저장</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">` +
     fields.map((f,i)=>`<div style="display:flex;gap:8px;align-items:center">
       <span style="width:110px;font-size:14px;color:var(--ink-3);font-weight:600">${f.label}</span>
-      ${fieldInput(f, i, f.cur(r))}
+      ${canEdit(f) ? fieldInput(f, i, f.cur(r)) : lockedField(f, r)}
     </div>`).join('') +
-    `</div><label style="display:block;margin-top:9px;font-size:13px;color:var(--ink-3);font-weight:700">기존 값 정정·삭제 사유
+    `</div>` + lockedNote(blocked, allBlocked) + (allBlocked ? '' : `<label style="display:block;margin-top:9px;font-size:13px;color:var(--ink-3);font-weight:700">기존 값 정정·삭제 사유
       <div id="inp_reason_need" style="display:none;margin-top:5px;padding:9px 11px;border-radius:9px;background:rgba(192,57,43,.10);border:1px solid var(--danger);color:var(--danger);font-weight:700;font-size:13px"></div>
       <textarea id="inp_reason" placeholder="예: 오종현 통화 확인 — 유상 오입력, 실제 무상 건" style="display:block;width:100%;min-height:58px;margin-top:5px;padding:10px;border:1.5px solid var(--line);border-radius:10px;font:inherit"></textarea></label>
     <button onclick="saveInputs('${kind}','${id}',${fields.length},${version})" style="margin-top:10px;width:100%;
       padding:12px;background:var(--brand-btn);color:#fff;border-radius:11px;font-weight:700;font-size:14px">💾 입력 저장</button>
-    <div style="font-size:13px;color:var(--ink-3);margin-top:6px">입력은 한 번에 앱 DB에 반영됩니다. 자동 상태·수식은 직접 바꾸지 않으며 Excel은 단방향 보관본입니다.</div>` +
+    <div style="font-size:13px;color:var(--ink-3);margin-top:6px">입력은 한 번에 앱 DB에 반영됩니다. 자동 상태·수식은 직접 바꾸지 않으며 Excel은 단방향 보관본입니다.</div>`) +
     /* ★ 삭제는 **여기에도** 있어야 한다 (2026-08-20 류지영 요청 · 분담판 [182]).
        서버 길(`/api/staff/work-delete`)도 확인 흐름(`wtDelete`)도 이미 있었는데
        단추가 **업무 카드 목록에만** 있었다 — 상세 창으로 파고든 사람은 고칠

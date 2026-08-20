@@ -16508,6 +16508,121 @@ def t365_pipeline_failure_says_why():
 
     print("  [365] 회차 실패가 왜인지 말한다(사유 먼저·꼬리 보존) · 앱이 쓰는 감사 칸은 보관 가능 ✅")
 
+def t366_permission_never_draws_a_dead_input():
+    """[169] 권한 밖 칸을 **입력칸으로 그리지 않는다** — 눌러도 안 되는 칸은 고장으로 읽힌다.
+
+    실측 2026-08-20: 서버는 `permissions` 를 이미 내려 주는데(get_staff_records)
+    정산 상세 시트만 그것을 한 번도 안 물어, 김미영 화면에 `실제작업공급가액`
+    입력칸이 그려지고 누르면 403 이었다. 담당자 업무센터 편집기(renderRyuEditor)는
+    서버가 걸러 준 schema 를 쓰므로 멀쩡했다 — **한 화면에서 배운 것이 다른
+    화면에 안 와 있었다**([300]).
+
+    글자로는 '정말 안 그려지는가'를 못 잰다([295]) — node 로 **실행해서** 잰다.
+    """
+    import io as _io, shutil as _sh354
+    html = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                    encoding="utf-8", newline="").read()
+
+    # ① 판정은 서버 표 하나에서 온다([162]) — 화면이 권한을 다시 적으면 갈린다.
+    i = html.index("function entryAllowedFields(")
+    fn = html[i:html.index(chr(10) + "}" + chr(10), i)]
+    assert "RYU.permissions" in fn, "화면이 서버 권한표를 안 본다([162])"
+    assert "Array.isArray" in fn, (
+        "'키 없음'과 '빈 목록'을 안 가르면 한쪽이 조용히 뒤집힌다([247])")
+
+    # ② 못 고치는 칸은 입력칸 대신 읽기 전용으로 그린다.
+    inpf = html[html.index("function inputForm(kind, r, id){"):
+                html.index("function entryKeyCol(")]
+    assert "canEdit(f) ? fieldInput(" in inpf and "lockedField(f, r)" in inpf, (
+        "권한 밖 칸에 입력칸을 그리면 누르는 족족 403 이 난다")
+    # 인덱스가 밀리면 saveInputs 가 남의 칸을 읽는다 — 개수는 그대로여야 한다.
+    assert "${fields.length}" in inpf, "저장 인덱스 상한이 fields.length 가 아니다"
+
+    # ③ 서버가 정말 그 칸을 내려 주나 — 이름이 어긋나면 한 건도 안 걸린다([165]).
+    srv = _io.open(os.path.join(ROOT, "webapp", "app_server.py"),
+                   encoding="utf-8", newline="").read()
+    assert 'payload["permissions"] = permissions' in srv, (
+        "서버가 permissions 를 안 내려 주면 이 화면은 영영 모름이다")
+
+    # ④~⑦ 실행으로 잰다([295]).
+    node = _sh354.which(chr(110) + chr(111) + chr(100) + chr(101))
+    if not node:
+        print("  [366] node 없음 — 구조만 확인 (실행 검사 건너뜀)")
+        return
+
+    def _blk(head, end):
+        j = html.index(head)
+        return html[j:html.index(end, j) + len(end)]
+
+    def _fn(name):
+        return _blk("function " + name + "(", chr(10) + "}" + chr(10))
+
+    def run(js_src, extra):
+        js = chr(10).join([
+            _blk("const INPUT_SPEC = {", chr(10) + "};" + chr(10)).replace(
+                "const INPUT_SPEC", "var INPUT_SPEC", 1),
+            _fn("esc2"), _fn("fieldInput"), _fn("recordIdOf"), _fn("statOf"),
+            _fn("entryAllowedFields"), _fn("lockedField"), _fn("lockedNote"),
+            js_src])
+        harness = (
+            "var mode='settle',CODES={},TECHS=[],VERIFY_STATES=[],RYU=null;" + chr(10)
+            + "function byUsage(l){return l||[];}function optList(){return [];}" + chr(10)
+            + js + chr(10)
+            + "function N(h,t){return h.split(t).length-1;}" + chr(10)
+            + extra)
+        with tempfile.TemporaryDirectory(prefix="csos-t366-js-") as jd:
+            jp = os.path.join(jd, "h.js")
+            _io.open(jp, "w", encoding="utf-8", newline="").write(harness)
+            pr = subprocess.Popen(
+                [node, jp], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            try:
+                out, err = pr.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                pr.kill(); out, err = b"", b"timeout"
+        txt = (out or b"").decode("utf-8", "replace").strip()
+        assert txt, "node 가 아무것도 안 돌려줬다: " + (err or b"").decode("utf-8", "replace")[-400:]
+        return json.loads(txt.splitlines()[-1])
+
+    # 입력칸을 셀 때 id="inp_ 로 세지 말 것 — 사유 상자(inp_reason·inp_reason_need)까지 같이 세어
+    # 11 이 13 으로 나온다. data-col= 은 fieldInput 에만 있다.
+    SETTLE = ["PO필요여부", "PO번호", "PO발행일", "거래명세서번호", "거래명세서발행일",
+              "세금계산서발행일", "청구일", "지급예정일", "입금일", "입금액"]
+    ROW = "{_store_id:'w9','DB버전':4,'정산ID':'JS-1','공급가액':'1234567'}"
+    probe = (
+        "var R=" + ROW + ";" + chr(10)
+        + "RYU=null; var ADMIN=inputForm('settle',R,'JS-1');" + chr(10)
+        + "RYU={permissions:{settle:" + json.dumps(SETTLE, ensure_ascii=False) + "}};" + chr(10)
+        + "var PART=inputForm('settle',R,'JS-1');" + chr(10)
+        + "RYU={permissions:{settle:[]}};" + chr(10)
+        + "var NONE=inputForm('settle',R,'JS-1');" + chr(10)
+        + "console.log(JSON.stringify({admin:N(ADMIN,'data-col='),"
+        + "part:N(PART,'data-col='),none:N(NONE,'data-col='),"
+        + "partLock:N(PART,'권한 없음'),val:PART.indexOf('1234567')>=0,"
+        + "partSave:PART.indexOf('saveInputs')>=0,noneSave:NONE.indexOf('saveInputs')>=0,"
+        + "noneSaid:NONE.indexOf('고칠 수 있는 칸이 없습니다')>=0}));")
+
+    got = run(_fn("inputForm"), probe)
+    # ④ 모름(관리자·아직 안 받음)은 **거르지 않는다**([169]) — 거르면 멀쩡한 화면이 빈다([172]).
+    assert got["admin"] == 11, "권한을 모를 때 칸이 사라졌다: %r" % got
+    # ⑤ 한 칸만 막히면 그 칸만 읽기 전용 · 값은 그대로 보인다([165]).
+    assert got["part"] == 10 and got["partLock"] >= 1, "막힌 칸이 입력칸으로 남았다: %r" % got
+    assert got["val"], "못 고치는 칸의 값을 감췄다 — 빈 칸과 구별이 안 된다([165])"
+    assert got["partSave"], "고칠 칸이 남았는데 저장 단추를 없앴다"
+    # ⑥ 빈 목록은 '모름'이 아니다 — 전부 읽기 전용이고 저장 단추가 없다(실측 김미영 as·pm=0).
+    assert got["none"] == 0 and not got["noneSave"], "다 막혔는데 저장 단추가 있다: %r" % got
+    assert got["noneSaid"], "다 막혔다는 사실을 화면이 말하지 않는다([169])"
+
+    # ⑦ 계기 자신을 시험한다([272]) — 거르는 문을 없애면 ⑤가 잡혀야 한다.
+    broken = _fn("inputForm").replace(
+        "canEdit(f) ? fieldInput(f, i, f.cur(r)) : lockedField(f, r)",
+        "fieldInput(f, i, f.cur(r))", 1)
+    bad = run(broken, probe)
+    assert bad["part"] == 11, "고장을 주입했는데 안 달라졌다 — 이 검사는 아무것도 안 재고 있다"
+
+    print("  [366] 권한 밖 칸은 입력칸이 아니다 — 모름 11 · 한 칸 막힘 10 · 다 막힘 0 ✅")
+
+
 def t364_erp_chain_never_stops_without_a_trace():
     """[364] ERP 전화면 몰이가 **자국 없이 멈추지 않는다** (분담판 [84]).
 
@@ -22337,6 +22452,11 @@ def t348_drilling_into_a_record_never_moves_the_ground():
         return NL2.join([
             grab("function esc2(s){", True),
             grab("function recordIdOf(r){"),
+            # inputForm 이 이제 권한을 묻는다([169]) — 떼어 갈 때 같이 떼어 온다.
+            #   스텁으로 때우면 이 하네스는 실제 코드를 안 재게 된다.
+            grab("function entryAllowedFields(kind){"),
+            grab("function lockedField(f, r){"),
+            grab("function lockedNote(blocked, allBlocked){"),
             grab("const INPUT_SPEC = {").replace("const INPUT_SPEC", "var INPUT_SPEC"),
             body,
             "function statOf(r){ return r.점검상태||r.진행상태||''; }",
@@ -28450,6 +28570,7 @@ def t354_record_sheet_can_delete_and_tells_which_box_is_missing():
             _blk("const INPUT_SPEC = {", chr(10) + "};" + chr(10)).replace(
                 "const INPUT_SPEC", "var INPUT_SPEC", 1),
             _fn("esc2"), _fn("fieldInput"), _fn("recordIdOf"), _fn("statOf"),
+            _fn("entryAllowedFields"), _fn("lockedField"), _fn("lockedNote"),
             _fn("inputForm")])
         harness = (
             "var mode='as',CODES={},TECHS=[],VERIFY_STATES=[];" + chr(10)
@@ -29365,6 +29486,7 @@ if __name__ == "__main__":
     t293_yield_is_a_claim_that_gets_audited()
     t364_erp_chain_never_stops_without_a_trace()
     t365_pipeline_failure_says_why()
+    t366_permission_never_draws_a_dead_input()
     t294_unreadable_source_never_passes_as_read()
     t295_camp_contacts_never_guess_a_phone_number()
     t296_half_list_never_blames_the_person()
