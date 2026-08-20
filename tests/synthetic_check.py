@@ -20171,88 +20171,134 @@ def t359_ambiguous_is_not_a_failure_but_never_silent():
 
 
 
+def t361_deposit_folder_is_not_evidence_of_a_deposit():
+    """입금 통에 있다고 입금 원본이 아니다 — 그러나 '모름' 을 '아님' 으로 치지 않는다.
 
-def t362_takeover_says_the_browser_does_not_follow_the_account():
-    """이어받기 카드가 **브라우저 수집은 계정을 안 따라간다**는 것을 말한다.
+    실측 2026-08-20(분담판 [91]): `7. 입금내역` 의 xlsx **11개 중 9개**가 오종현의
+    'CSOS PO관련 누락 및 취소 건 현황'(PO·청구 대조표)이었다.  분류 캐시로 세면
+    receipt 20개 중 **18개**가 그것이다 — 열세 열짜리 표가 입금일·입금액·거래처를
+    가졌다는 이유로 입금 원본이 됐다.
 
-    Claude 확장 연결은 크롬이 아니라 **Claude 계정**에 붙는다(2026-08-12 실측).
-    그래서 계정이 바뀌면 새 계정은 밴드 탭에 수집기를 다시 심을 수 없다 — 그런데
-    그 사실이 어느 화면에도 없어서, 이어받는 쪽은 "왜 수집이 0건이지"로 시간을 쓴다.
-    확장 없이 되는 길(콘솔 두 줄)까지 같이 준다([289] — 조치를 못 대면 아무도 안 본다).
+    ★ **오늘 뽑히는 가짜 입금은 0건이다** — 그 표의 입금일이 전부 '-' 라서일 뿐이고,
+      오종현이 한 칸만 채우면 그 줄이 그대로 입금으로 세어진다(거래처는 'CU141' 같은
+      코드로).  receipt_fill 은 입금일을 06시트에 **써 넣는** 길이라([170]) 돈이 안
+      들어왔는데 들어온 것으로 보이게 된다.  0건은 '없는 것' 이 아니라 '아직 안
+      채워진 것' 이다([169]).
+    ★ 거르는 문은 **'아닌 것만'** 이다.  실측으로 **주 입금 원본
+      `26년도 쿠팡 입금내역.xlsx` 의 판정이 `unknown`** 이다(머리글이 '날짜·거래처·
+      입금액' 이라 receipt 규칙에 안 걸린다) — '맞는 것만 통과' 로 만들었으면 입금
+      101건이 통째로 사라졌다.  못 읽는 파일은 빈칸과 구별되지 않는다([165]).
     """
     import importlib
-    T = importlib.import_module("takeover")
+    I = importlib.import_module("inbox_scan")
+    R = importlib.import_module("receipt_fill")
+    C = importlib.import_module("collect_sources")
+    import source_dirs as S
 
-    # ① 할 일이 없으면 조용하다([170]) — 정상까지 적으면 아무도 안 읽는다
-    assert T._browser_lines({"대기": 0, "밴드": {}, "왜못함": ""}) == []
+    # 실측한 머리글 그대로 (2026-08-13 오종현 파일)
+    STATUS = [["프로젝트 No", "캠프명", "거래처 코드", "PO번호", "PO발행일",
+               "명세서 번호", "명세서 발행일", "세금계산서 발행일", "청구일",
+               "지급예정일", "입금일", "입금액", "기존 값 정정 및 삭제 사유"]]
+    BANK = [["거래일시", "출금", "입금", "거래후 잔액", "거래내용",
+             "상대계좌번호", "상대은행", "메모", "거래구분"]]
+    # 표시가 **하나뿐인** 입금 정리표 — 이것까지 빼앗으면 진짜 입금이 안 읽힌다
+    ONE_MARK = [["입금일", "입금액", "거래처", "세금계산서 발행일"]]
 
-    # ② 못 읽은 것을 '0건'이라 하지 않는다([169])
-    L = T._browser_lines({"대기": None, "밴드": {}, "왜못함": "대기열을 못 읽었다: X"})
-    body = chr(10).join(L)
-    assert "확인 못 함" in body and "0건이 아니라" in body, body
+    got = I.classify_rows(STATUS)
+    assert got == "billing_status", (
+        "PO·청구 대조표가 '%s' 로 잡혔다 — 입금 원본이 아니다(분담판 [91])" % got)
 
-    # ③ 대기가 있으면 **확장 없이 되는 길**을 준다
-    L = T._browser_lines({"대기": 494, "왜못함": "",
-                          "밴드": {"84789192": {"대기": 289, "상태": "hidden", "조용한분": 22.0}}})
-    body = chr(10).join(L)
-    assert "494" in body and "289" in body
-    assert "band_auto_collect.user.js" in body and "(0,eval)(s);" in body, (
-        "확장 없이 되는 길을 안 준다 — 새 계정은 다시 심을 수가 없다")
-    assert "계정" in body, "계정이 바뀌면 못 심는다는 사실을 안 적었다"
-    assert "묘비" in body, "숨은 탭 우회의 대가를 안 적었다(2026-08-19)"
+    got = I.classify_rows(BANK)
+    assert got == "receipt", (
+        "은행 거래내역조회가 '%s' 가 됐다 — 진짜 입금 원본을 빼앗았다([165])" % got)
 
-    # ④ 시각대를 맞춘다([288]) — UTC 와 이 PC 시각이 **같은 값**으로 읽혀야 한다.
-    #    실측 2026-08-20: tzinfo 를 그냥 떼서 145분이 561분으로 나왔다.
-    #    실측 증거 파일은 한 글자도 안 건드린다([247]) — 임시 경로로만.
-    import datetime as _dt
-    old_root = T.ROOT
-    with tempfile.TemporaryDirectory(prefix="csos-t362-") as td:
-        os.makedirs(os.path.join(td, "reports"))
-        T.ROOT = td
-        try:
-            with open(os.path.join(td, "reports", "밴드_수집대기열.json"), "w",
-                      encoding="utf-8") as fh:
-                json.dump({"bands": {"84789192": {"nos": [1, 2, 3]}}}, fh)
-            now = time.time()
-            ago = now - 22 * 60
-            utc = _dt.datetime.fromtimestamp(ago, _dt.timezone.utc).isoformat()
-            loc = _dt.datetime.fromtimestamp(ago).isoformat(timespec="seconds")
-            for label, ts in (("at", utc), ("받은시각", loc)):
-                with open(os.path.join(td, "reports", "크롬수집_보고.json"), "w",
-                          encoding="utf-8") as fh:
-                    json.dump({"밴드": {"84789192": {"state": "hidden", label: ts}}}, fh)
-                got = T.browser_side(now=now)["밴드"]["84789192"]["조용한분"]
-                assert got is not None and abs(got - 22.0) < 1.5, (
-                    "%s 를 %.0f분 전이라 읽는다 — 22분이 맞다([288])" % (label, got or -1))
-        finally:
-            T.ROOT = old_root
+    got = I.classify_rows(ONE_MARK)
+    assert got == "receipt", (
+        "표시가 하나뿐인 입금 정리표가 '%s' 로 빠졌다 — 문이 너무 넓다([172]). "
+        "사람이 '세금계산서 발행일' 한 열만 더해도 입금이 통째로 안 읽힌다" % got)
 
-    # ⑤ 계기 자신을 시험한다([272]) — tzinfo 를 떼던 옛 코드면 ④가 잡히나
-    code = open(os.path.join(ROOT, "takeover.py"), encoding="utf-8").read()
-    broken = code.replace(
-        '                t = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))' + chr(10),
-        '                t = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))' + chr(10) +
-        '                if t.tzinfo is not None:' + chr(10) +
-        '                    t = t.replace(tzinfo=None)' + chr(10), 1)
-    assert broken != code, "고장 주입 앵커가 안 맞는다 — 이 자기시험은 아무것도 안 잰다"
-    ns = {"__name__": "tk_broken", "__file__": os.path.join(ROOT, "takeover.py")}
-    exec(compile(broken, "tk_broken", "exec"), ns)
-    with tempfile.TemporaryDirectory(prefix="csos-t362b-") as td:
-        os.makedirs(os.path.join(td, "reports"))
-        ns["ROOT"] = td
-        with open(os.path.join(td, "reports", "밴드_수집대기열.json"), "w",
-                  encoding="utf-8") as fh:
-            json.dump({"bands": {"84789192": {"nos": [1]}}}, fh)
-        now = time.time()
-        utc = _dt.datetime.fromtimestamp(now - 22 * 60, _dt.timezone.utc).isoformat()
-        with open(os.path.join(td, "reports", "크롬수집_보고.json"), "w",
-                  encoding="utf-8") as fh:
-            json.dump({"밴드": {"84789192": {"state": "hidden", "at": utc}}}, fh)
-        bad = ns["browser_side"](now=now)["밴드"]["84789192"]["조용한분"]
-    assert bad is None or abs(bad - 22.0) >= 1.5, (
-        "tzinfo 를 떼도 22분으로 나온다 — ④는 시각대를 안 재고 있다([272])")
-    print("[362] 이어받기 — 브라우저는 계정을 안 따라간다 · 확장 없이 되는 길 OK")
+    # ── 거르는 문: '아닌 것만' 뺀다 ──────────────────────────────────────
+    verdict = {"a.xlsx": "billing_status", "b.xlsx": "unknown", "c.xlsx": "receipt"}
+    real = I.classify_cached
+    try:
+        I.classify_cached = lambda f: verdict[f]
+        keep, dropped = R._drop_non_deposits(["a.xlsx", "b.xlsx", "c.xlsx"])
+    finally:
+        I.classify_cached = real
+    assert dropped == ["a.xlsx"], "PO·청구 대조표를 안 뺐다: %r" % (dropped,)
+    assert keep == ["b.xlsx", "c.xlsx"], (
+        "'모름' 을 '아님' 으로 쳤다 — 주 입금 원본이 unknown 이라 입금이 통째로 "
+        "사라진다([165]): %r" % (keep,))
 
+    # 못 읽는 파일은 빼지 않는다 — 모름은 아님이 아니다([169])
+    def boom(f):
+        raise IOError("Z: 가 끊겼다")
+    try:
+        I.classify_cached = boom
+        keep, dropped = R._drop_non_deposits(["x.xlsx"])
+    finally:
+        I.classify_cached = real
+    assert dropped == [] and keep == ["x.xlsx"], (
+        "판정이 실패했는데 파일을 뺐다 — 못 읽은 것을 '입금 아님' 으로 치면 안 된다")
+
+    # ── 어느 통으로 가나 ────────────────────────────────────────────────
+    base = C._dest_base("billing_status")
+    assert base == S.MISC_DIR, "billing_status 가 '%s' 로 간다" % base
+    assert base != S.RECEIPT_DIR, "입금 통에 넣으면 receipt_fill 이 도로 읽는다"
+    assert base != S.COUPANG_DIR, (
+        "PO 통에 넣으면 PO 대조가 읽는다 — 그쪽은 06시트에 **쓰는** 길이라 더 나쁘다([170])")
+    assert I.LABEL.get("billing_status"), "갈래에 이름이 없으면 '판별 실패' 로 읽힌다([169])"
+
+    # 규칙을 고쳤으면 판을 올린다 — 안 올리면 캐시가 옛 답을 영원히 붙든다
+    assert I.RULES_VERSION >= 3, (
+        "분류 규칙을 고치고 RULES_VERSION 을 안 올렸다 — 원본이 안 바뀌면 옛 갈래가 "
+        "영원히 이긴다(2026-08-08 사고)")
+
+    # ── 계기 자신을 시험한다([272]) ─────────────────────────────────────
+    #   문턱을 1 로 낮추면 표시 하나짜리 입금 정리표가 빼앗기는가?
+    flat = [c for r in ONE_MARK for c in r if c]
+    has = lambda *ks: any(k in c for c in flat for k in ks)
+    n = sum(1 for m in I.BILLING_PIPELINE_MARKS if has(m))
+    assert n == 1, "표시 세기가 달라졌다(%d개) — 이 검사가 무엇을 재는지 다시 볼 것" % n
+    flat2 = [c for r in STATUS for c in r if c]
+    has2 = lambda *ks: any(k in c for c in flat2 for k in ks)
+    n2 = sum(1 for m in I.BILLING_PIPELINE_MARKS if has2(m))
+    assert n2 >= 2, "PO·청구 대조표의 표시가 %d개뿐이다 — 가름의 근거가 무너졌다" % n2
+
+    #   ① 가름 규칙을 없애면 대조표가 다시 입금으로 잡히는가
+    marks = I.BILLING_PIPELINE_MARKS
+    try:
+        I.BILLING_PIPELINE_MARKS = ()
+        back = I.classify_rows(STATUS)
+    finally:
+        I.BILLING_PIPELINE_MARKS = marks
+    assert back == "receipt", (
+        "가름 규칙을 껐는데도 '%s' 가 나왔다 — 이 검사는 그 규칙을 재고 있지 않다" % back)
+
+    #   ② 거르는 문을 없애면 대조표가 다시 입금 원본으로 읽히는가
+    kinds = R.NOT_DEPOSIT_KINDS
+    try:
+        R.NOT_DEPOSIT_KINDS = ()
+        I.classify_cached = lambda f: verdict[f]
+        k2, d2 = R._drop_non_deposits(["a.xlsx", "b.xlsx", "c.xlsx"])
+    finally:
+        R.NOT_DEPOSIT_KINDS = kinds
+        I.classify_cached = real
+    assert d2 == [] and len(k2) == 3, (
+        "거르는 문을 껐는데도 파일이 빠졌다 — 이 검사는 그 문을 재고 있지 않다")
+
+    #   ③ '모름' 을 빼도록 만들면 주 입금 원본이 사라지는가 (그 assert 에 이빨이 있는가)
+    try:
+        R.NOT_DEPOSIT_KINDS = ("unknown",)
+        I.classify_cached = lambda f: verdict[f]
+        k3, d3 = R._drop_non_deposits(["a.xlsx", "b.xlsx", "c.xlsx"])
+    finally:
+        R.NOT_DEPOSIT_KINDS = kinds
+        I.classify_cached = real
+    assert "b.xlsx" in d3, (
+        "'모름' 을 뺄 목록에 넣었는데도 안 빠졌다 — 위 assert 가 아무것도 안 지킨다")
+
+    print("[361] 입금 통은 종류의 증거가 아니다 — 대조표는 빼고 '모름' 은 남긴다 (OK)")
 
 
 
@@ -29064,7 +29110,7 @@ if __name__ == "__main__":
     t357_userscript_watch_names_the_dead_band()
     t358_cache_copies_never_land_in_the_dump_folder()
     t359_ambiguous_is_not_a_failure_but_never_silent()
-    t362_takeover_says_the_browser_does_not_follow_the_account()
+    t361_deposit_folder_is_not_evidence_of_a_deposit()
     t362_takeover_says_the_browser_does_not_follow_the_account()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

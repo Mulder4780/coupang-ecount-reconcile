@@ -92,11 +92,17 @@ def plan():
 
     # ERP 내보내기 / 쿠팡 목록 — 파일명이 무작위일 수 있어 **내용으로** 가른다
     try:
-        from inbox_scan import classify, LABEL
+        from inbox_scan import classify_cached as classify, LABEL
     except Exception:
         classify, LABEL = None, {}
 
     def kind_of(path):
+        """★ 비싼 열기는 캐시 검사 뒤에 온다([168]).
+
+        예전엔 맨몸 `classify` 라 회차마다 파일을 다시 열었다. 아래에서 **공유 폴더**
+        (`Z:16. Share/…/오종현`)까지 내용으로 가르게 됐으므로 그대로 두면 매 회차
+        네트워크 왕복이 는다. `classify_cached` 는 (크기·수정시각·규칙판)으로 먼저 거른다.
+        """
         try:
             return classify(path) if classify else "unknown"
         except Exception:
@@ -199,8 +205,18 @@ def plan():
         except (OSError, ValueError):
             continue
         for src in sorted(glob.glob(os.path.join(folder, "*.xls*"))):
-            if not os.path.basename(src).startswith("~$"):
-                jobs.append((src, dated_dir(RECEIPT_DIR, src), "오종현 입금내역"))
+            if os.path.basename(src).startswith("~$"):
+                continue
+            # ★ **폴더는 종류의 증거가 아니다**(분담판 [91]). 오종현의 입금 공유 폴더에는
+            #   'CSOS PO관련 누락 및 취소 건 현황'(PO·청구 대조표)이 같이 산다. 예전엔
+            #   그 폴더의 엑셀을 **전부** `7. 입금내역` 으로 날라서 회차마다 `__dup_` 사본이
+            #   쌓였다 — 실측 2026-08-20 그 통의 xlsx 11개 중 9개가 그 표였다.
+            #   여기가 **사본이 늘어나던 자리**다. 갈래를 물어 `9. 미분류` 로 보낸다.
+            k = kind_of(src)
+            base = _dest_base(k) if k == "billing_status" else RECEIPT_DIR
+            jobs.append((src, dated_dir(base, src),
+                         "오종현 PO·청구 대조표(입금 원본 아님)"
+                         if k == "billing_status" else "오종현 입금내역"))
 
     return jobs
 
