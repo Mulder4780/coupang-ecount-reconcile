@@ -20075,6 +20075,88 @@ def t358_cache_copies_never_land_in_the_dump_folder():
     print("[358] 캐시 사본은 덤프 폴더에 안 들어간다 · 격리본을 다시 안 심는다 OK")
 
 
+
+def t359_ambiguous_is_not_a_failure_but_never_silent():
+    """사람이 정해야 하는 것을 **실패로 세지 않는다** — 그러나 잃지도 않는다.
+
+    실측 2026-08-20: `밴드 앱 DB 신규·변경등록` 이 5분 회차마다 rc 1 로 끝나
+    `CSOS_AutomationPipeline` 이 **하루 288번** 실패로 적히고 있었다.  원인은
+    딱 한 건 — `돌발AS/UJ2601394: 앱 DB에 같은 프로젝트가 2건`(목포1 의
+    AS-2608-601·604).  나머지 1,702건은 멀쩡히 처리됐다.
+
+    ★ **안 고치는 것이 옳다**([172]) — 어느 행을 고칠지 원본이 말해 주지 않는다.
+      틀린 행을 고치면 되돌릴 수 없다.  잘못된 것은 **종료코드**였다:
+      늘 켜져 있는 경보는 진짜 실패를 묻는다([170]).
+    ★ 그렇다고 조용히 넘기지 않는다([169]) — 자국을 남기고, 없어지면 지운다([228]).
+    """
+    import importlib
+    A = importlib.import_module("app_store")
+    B = importlib.import_module("band_canonical")
+
+    def rec(project, day="2026-08-01"):
+        return {"프로젝트NO": project, "업무유형": "돌발AS", "캠프명": "M_목포1",
+                "작업일": day, "담당기사": "홍길동", "진행상태": "작업완료",
+                "밴드": "90610953", "게시글": "1", "게시일": day,
+                "비용구분": "유상"}
+
+    with tempfile.TemporaryDirectory(prefix="csos-t359-") as td:
+        store = A.AppStore(os.path.join(td, "app.db")).initialize()
+        # 같은 프로젝트에 행 둘 — 원본이 어느 쪽인지 말해 주지 않는 상태
+        for pid in ("AS-2608-601", "AS-2608-604"):
+            store.create_work(kind="돌발AS", business_key=pid, public_id=pid,
+                              project_no="UJ2601394", camp_name="M_목포1",
+                              status="신규접수", fields={"프로젝트NO": "UJ2601394"},
+                              actor="t359", source="test")
+        out = B.sync_records([rec("UJ2601394")], store=store)
+
+        # ① 모호는 실패가 아니다 — 회차 전체를 빨갛게 만들지 않는다([170])
+        assert out["ambiguous"] == 1, "모호를 못 셌다: %s" % out
+        assert out["ok"] is True, (
+            "사람이 정할 것 하나가 회차 전체를 실패로 만든다 — 5분마다 288번([170])")
+        assert not out["errors"], "모호가 아직 errors 에 들어간다: %s" % out["errors"]
+
+        # ② 그러나 잃지 않는다 — 무엇이 왜 모호한지 그대로 적는다([169])
+        assert out["모호"] and "UJ2601394" in out["모호"][0], out.get("모호")
+        assert "사람이 정한다" in out["모호"][0], "무엇을 해야 하는지 안 적었다([289])"
+
+        # ③ 자국을 남긴다.  실측 증거 파일은 안 건드린다([247]) — 임시 경로로만.
+        trace = os.path.join(td, "reports", "밴드등록_모호.json")
+        assert B.write_ambiguous_trace(out, path=trace) is True
+        doc = json.load(open(trace, encoding="utf-8"))
+        assert doc["건수"] == 1 and "실패가 아니다" in doc["뜻"]
+
+        # ④ 풀리면 지운다([228]) — 옛 자국은 이미 풀린 것을 계속 보고한다
+        assert B.write_ambiguous_trace({"모호": []}, path=trace) is False
+        assert not os.path.exists(trace), "모호가 없어졌는데 자국이 남았다"
+
+        # ⑤ 진짜 오류는 여전히 실패다 — 좁히는 것도 고장이다([172])
+        assert B.sync_records([], store=store)["ok"] is True
+        fake = {"ok": True, "errors": ["뭔가 진짜 오류"], "모호": []}
+        fake["ok"] = not fake["errors"]
+        assert fake["ok"] is False
+
+    # ⑥ 자국 이름을 `*_오류.json` 으로 두지 않는다 — `schedule_watch.traces()` 가
+    #    실패로 모아 다시 경보가 된다([170]).
+    assert not B.AMBIGUOUS_TRACE.endswith("_오류.json"), B.AMBIGUOUS_TRACE
+
+    # ⑦ 계기 자신을 시험한다([272]) — 옛 동작(모호를 errors 로)이면 ①이 잡히나
+    code = open(os.path.join(ROOT, "band_canonical.py"), encoding="utf-8").read()
+    broken = code.replace('result["모호"].append(', 'result["errors"].append(')
+    assert broken != code, "고장 주입 앵커가 안 맞는다 — 이 자기시험은 아무것도 안 잰다"
+    ns = {"__name__": "bc_broken", "__file__": os.path.join(ROOT, "band_canonical.py")}
+    exec(compile(broken, "bc_broken", "exec"), ns)
+    with tempfile.TemporaryDirectory(prefix="csos-t359b-") as td:
+        store = A.AppStore(os.path.join(td, "app.db")).initialize()
+        for pid in ("AS-2608-601", "AS-2608-604"):
+            store.create_work(kind="돌발AS", business_key=pid, public_id=pid,
+                              project_no="UJ2601394", camp_name="M_목포1",
+                              status="신규접수", fields={"프로젝트NO": "UJ2601394"},
+                              actor="t359", source="test")
+        bad = ns["sync_records"]([rec("UJ2601394")], store=store)
+    assert bad["ok"] is False, "모호를 errors 로 되돌렸는데도 ①이 안 잡힌다([272])"
+    print("[359] 모호는 실패가 아니다 · 그래도 자국은 남는다 OK")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -28800,6 +28882,7 @@ if __name__ == "__main__":
     t356_scope_judges_by_code_not_by_prose()
     t357_userscript_watch_names_the_dead_band()
     t358_cache_copies_never_land_in_the_dump_folder()
+    t359_ambiguous_is_not_a_failure_but_never_silent()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

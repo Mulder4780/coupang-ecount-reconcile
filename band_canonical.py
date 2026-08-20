@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import tempfile
@@ -25,6 +26,12 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from app_store import AppStore, VersionConflict, canonical_json, default_store
 
+
+#: 모호한 건(같은 프로젝트에 행이 여럿)을 남기는 자리.  **실패 자국이 아니다** —
+#: 이름을 `*_오류.json` 으로 두면 `schedule_watch.traces()` 가 실패로 모아 다시
+#: 경보가 된다([170]).  사람이 정할 것을 모아 두는 자리다.
+AMBIGUOUS_TRACE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "reports", "밴드등록_모호.json")
 
 MAP: Dict[str, Dict[str, Any]] = {
     "돌발AS": {
@@ -171,6 +178,15 @@ def sync_records(
         "unchanged": 0,
         "ambiguous": 0,
         "unsupported": 0,
+        # ★ **사람이 정해야 하는 것은 실패가 아니다**([170]).  전에는 이것을
+        #   `errors` 에 담아 `ok=False` 로 만들었고, 그러면 5분 회차가
+        #   **하루 288번** 실패로 적혔다 — 실측 2026-08-20: 한 건
+        #   (UJ2601394 · 목포1 에 AS-2608-601·604 두 행)이 매 회차를
+        #   빨갛게 만들고 있었다.  나머지 1,702건은 멀쩡히 처리됐다.
+        #   경보가 늘 켜져 있으면 진짜 실패가 그 안에 묻힌다.
+        #   ⚠ 그렇다고 **조용히 넘기지도 않는다**([169]) — 아래
+        #   `AMBIGUOUS_TRACE` 에 자국을 남기고, 없어지면 지운다([228]).
+        "모호": [],
         "errors": [],
     }
     for row in prepared:
@@ -183,7 +199,9 @@ def sync_records(
         matches = by_project.get((kind, project), [])
         if len(matches) > 1:
             result["ambiguous"] += 1
-            result["errors"].append(f"{kind}/{project}: 앱 DB에 같은 프로젝트가 {len(matches)}건")
+            result["모호"].append(
+                f"{kind}/{project}: 앱 DB에 같은 프로젝트가 {len(matches)}건 —"
+                " 어느 행인지 원본이 말해 주지 않는다(사람이 정한다)")
             continue
 
         desired_status = _status(kind, row)
@@ -326,6 +344,31 @@ def self_test() -> bool:
     return True
 
 
+def write_ambiguous_trace(result, path=None):
+    """모호한 건을 자국으로 남긴다 — 실패로 세지 않는 대신 **잃지도 않는다**([169]).
+
+    없어지면 지운다([228]) — 옛 자국이 남으면 이미 풀린 것을 계속 보고한다.
+    자국을 못 남겨도 회차를 세우지 않는다(그것은 실패가 아니다).
+    """
+    p = AMBIGUOUS_TRACE if path is None else path
+    rows = list(result.get("모호") or [])
+    try:
+        if not rows:
+            if os.path.exists(p):
+                os.remove(p)
+            return False
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with io.open(p, "w", encoding="utf-8", newline="") as fh:
+            json.dump({"적은때": datetime.now().isoformat(timespec="seconds"),
+                       "건수": len(rows), "모호": rows,
+                       "뜻": "실패가 아니다 — 같은 프로젝트에 행이 여럿이라"
+                             " 어느 행을 고칠지 원본이 말해 주지 않는다. 사람이 정한다."},
+                      fh, ensure_ascii=False, indent=1)
+        return True
+    except Exception:
+        return False
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
@@ -338,6 +381,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     result = sync_records(load_records())
     print(json.dumps(result, ensure_ascii=False, indent=1))
+    write_ambiguous_trace(result)
     return 0 if result.get("ok") else 1
 
 
