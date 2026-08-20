@@ -20748,6 +20748,92 @@ ok(상자.campSum.innerHTML.indexOf('못 읽어') > 0,
    '묶음표를 못 읽었는데 화면이 아무 말도 안 한다([169])');
 console.log(bad.length ? ('FAIL: ' + bad.join(' | ')) : 'OK');
 """
+def t346_upload_failure_shows_code_and_capture():
+    """[346] 자료가 안 올라가면 **오류 코드와 설명이 팝업으로** 뜨고 캡처해 보낼 수 있다.
+
+    2026-08-20 형님 지시: "자료가 업로드가 안되거나 문제가 생길 경우 오류 코드와 설명
+    팝업 되어서 나한테 캡처해서 보낼 수 있게 앱 코딩해".
+
+    * **새로 만들지 않았다**([162]) — 팝업과 [캡처해서 보내기] 는 `errorHelp` 가 이미
+      갖고 있었다. 구멍은 **업로드에서 그것을 안 불렀다**는 것이다(함수는 있는데 부르는
+      곳이 없는 자리 — `[328]`·`[297]` 과 같은 모양). 실패는 카드 안 작은 글씨 한 줄로만
+      남아 스크롤 밖으로 밀렸고, 그래서 형님은 무엇이 잘못됐는지 **보낼 수가 없었다**([169]).
+    * **코드는 한 곳에서 만든다**([162]) — `errCode`. 부르는 쪽이 문자열을 지어내면
+      같은 실패가 날마다 다른 코드로 찍혀 코드가 있으나 마나가 된다.
+    * 코드는 **화면에도 그림에도** 실린다 — 화면에만 있으면 캡처 밖으로 잘리고,
+      그림에만 있으면 형님이 지금 무엇을 보내는지 모른다.
+    """
+    import io as _io, json as _json, shutil, subprocess
+    import proc_guard
+    html = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                    encoding="utf-8", newline="").read()
+
+    # (1) 코드를 만드는 자리는 하나다
+    assert html.count("function errCode(") == 1, "오류 코드를 만드는 자리가 하나가 아니다"
+    # (2) 업로드 실패 두 길이 팝업을 부른다 — 구조로 얼린다([39])
+    _rs = html[html.index("async function receiptSubmit(hostId,file,url){"):
+               html.index("function injectOhUpload(){")]
+    assert _rs.count("errorHelp(") == 2, (
+        "입금·증빙 업로드의 실패 두 갈래(서버 거절·연결 실패)가 팝업을 안 띄운다: %d"
+        % _rs.count("errorHelp("))
+    assert "errCode(" in _rs, "업로드 실패에 오류 코드가 안 붙는다"
+    _kk = html[html.index("async function uploadAutomationKakao("):
+               html.index("const SYSTEM_AUDIT_PATH=")]
+    assert "errorHelp(" in _kk and "errCode(" in _kk, (
+        "카톡 원본 업로드 실패가 코드·팝업 없이 카드 글씨로만 끝난다")
+
+    node = shutil.which("node")
+    if not node:
+        print("[346] 업로드 실패 팝업 — node 가 없어 실행 검사는 건너뜀(구조만) OK")
+        return
+
+    # (3) **불러서 잰다**([295]) — 코드 모양과, 팝업 본문·신고문구에 실리는가
+    _blk = html[html.index("/* * **오류 코드는 한 곳에서 만든다**"):
+                html.index("function errorShotCanvas(")]
+    _q = chr(39)
+    _js = ("function esc2(s){return String(s);}"
+           + "let BODY=null,PICK=null;"
+           + "async function dlgAsk(o){BODY=o;return false;}"
+           + "async function fetch(){throw new Error(" + _q + "no net" + _q + ");}"
+           + "let ERR_HELP_AT=0;"
+           + _blk
+           + "(async()=>{"
+           + "const C=[errCode(" + _q + "UPLOAD" + _q + ",400),errCode(" + _q + "UPLOAD" + _q + ",0),"
+           + "errCode(" + _q + "kakao" + _q + ",500),errCode(" + _q + _q + ",undefined)];"
+           + "await errorHelp(" + _q + "입금·증빙 자료 올리기" + _q + "," + _q + "무엇" + _q
+           + ",{code:" + _q + "CSOS-UPLOAD-400" + _q + ",force:true});"
+           + "console.log(JSON.stringify({코드:C,본문:BODY&&BODY.body,단추:(BODY&&BODY.buttons||[])"
+           + ".map(b=>b.label)}));})();")
+    _pr = subprocess.Popen([node, "-e", _js], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, **proc_guard.background_popen_kwargs())
+    _out = _pr.communicate(timeout=60)[0].decode("utf-8", "replace").strip()
+    assert _out.startswith("{"), "node 가 답 대신 이것을 줬다: %r" % _out[:300]
+    _r = _json.loads(_out.splitlines()[-1])
+    assert _r["코드"] == ["CSOS-UPLOAD-400", "CSOS-UPLOAD-NET",
+                         "CSOS-KAKAO-500", "CSOS-APP-NET"], (
+        "오류 코드 모양이 바뀌었다 — 캡처를 받아도 자리를 못 찾는다: %r" % _r["코드"])
+    assert "CSOS-UPLOAD-400" in (_r["본문"] or ""), (
+        "팝업 본문에 오류 코드가 없다 — 캡처해도 무엇인지 안 적힌다")
+    assert "오류 코드" in (_r["본문"] or ""), "코드에 이름표가 없다"
+    assert any("캡처" in b for b in _r["단추"]), (
+        "[캡처해서 보내기] 단추가 없다 — 보고 끝나면 보낼 길이 없다: %r" % _r["단추"])
+    # (4) **도움말을 못 받아도 팝업은 뜬다**([169]) — 위 실행에서 fetch 는 늘 실패한다.
+    #     그런데도 본문이 나왔다는 것이 그 증거다.
+
+    # (5) 계기 자신을 시험한다([272]) — 코드를 안 그리게 되돌리면 잡아야 한다
+    _bad = _blk.replace("${esc2(_code)}", "", 1)
+    assert _bad != _blk, "고장 주입 자리를 못 찾았다"
+    _js2 = _js.replace(_blk, _bad, 1)
+    _pr2 = subprocess.Popen([node, "-e", _js2], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, **proc_guard.background_popen_kwargs())
+    _o2 = _pr2.communicate(timeout=60)[0].decode("utf-8", "replace").strip()
+    _r2 = _json.loads(_o2.splitlines()[-1])
+    assert "CSOS-UPLOAD-400" not in (_r2["본문"] or ""), (
+        "코드 렌더를 없앴는데도 본문에 코드가 있다 — 이 검사는 아무것도 안 재고 있다")
+
+    print("[346] 업로드 실패 — 오류 코드 + 설명 팝업 + 캡처해서 보내기 OK")
+
+
 def t345_camp_screen_folds_by_canon_and_hides_nothing():
     """[163] 전국쿠팡캠프 화면 — 정본으로 묶되 **못 합친 것을 숨기지 않는다**.
 
@@ -26888,6 +26974,7 @@ if __name__ == "__main__":
     t343_band_quiet_evidence_is_looked_up_by_number()
     t344_cancel_sync_converges_and_keeps_the_reason()
     t345_camp_screen_folds_by_canon_and_hides_nothing()
+    t346_upload_failure_shows_code_and_capture()
     t298_as_period_filter_never_shifts_a_day()
     t299_kakao_evidence_reaches_the_capture()
     t300_camp_screen_never_calls_a_missing_helper()
