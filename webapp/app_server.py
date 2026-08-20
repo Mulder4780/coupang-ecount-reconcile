@@ -4484,15 +4484,107 @@ _REFRESHING = {}
 _REFRESH_LOCK = threading.Lock()
 
 
+# ── 재시작을 견디는 디스크 캐시 (2026-08-21 · 분담판 [92]) ───────────────────
+#
+# `_cache` 는 **프로세스 안 dict** 라 서버를 다시 띄우면 통째로 빈다. 그런데 이
+# 프로젝트는 서버를 자주 다시 띄운다(코드 고침 [156] · 워치독 자가치유 · 보호자).
+# 그래서 갓 뜬 서버의 **첫 화면**이 콜드 재계산을 통째로 뒤집어썼다 — 실측
+# works 10.6초 · settle 56.9초(합 67.5초, 웜은 0.01초). ux 는 /api/status 평균
+# 126초·최대 29분이었고 터널은 그 사이 502 로 끊었다. 오종현 님이 "Db를 못
+# 불러오는지 자료가 0건으로 나오네요" 라 한 것의 뒷단이 이것이다.
+#
+# ★ 지문이 **정확히** 같을 때만 읽는다. 무효화 근거는 `_fresh` 가 보는 것을 그대로
+#   빌려 온다([162]) — 하나라도 빠지면 류지영이 앱에서 저장한 값이 재시작 뒤 옛
+#   값으로 보인다. 이 프로젝트가 1순위로 막는 조용한 사고다.
+# ★ 읽어도 **`_stale` 자리에만** 넣는다(`_cache[key]` 가 아니다). 그러면 첫 화면은
+#   즉시 나오고 뒤에서 한 번 다시 계산해 바로잡는다. 굳이 그렇게 하는 이유:
+#   `settle` 은 `erpdocs`(제 TTL 300초)를 거쳐 ERP 계산서를 담는데 **그 부분은
+#   지문에 안 잡힌다.** 지문에 없는 것을 '최신'이라 부르지 않는다([169]).
+# ★ 나이 상한을 둔다. 밤새 꺼 둔 PC 가 아침에 어제 값을 '지금 값'처럼 내밀면 안
+#   된다. 상한을 넘으면 예전처럼 **정직하게 기다린다**.
+# ★ 규칙을 고치면 `_DISK_CACHE_VER` 를 손으로 올린다 — 안 올리면 원본이 안 바뀌는
+#   한 옛 캐시가 영원히 이긴다([244] · `inbox_scan.RULES_VERSION` 과 같은 자리).
+# ★ 못 읽거나 못 써도 화면은 그대로 나온다. 빠르게 만들려다 응답을 죽이지 않는다.
+_DISK_CACHE_VER = 1
+_DISK_CACHE_KEYS = ("works", "settle")
+_DISK_CACHE_MAX_AGE_S = 6 * 3600
+
+
+def _disk_cache_path(key):
+    # reports/ 는 통째로 gitignore 다 — db/source_index_cache.json 106MB 가 저장소
+    # 푸시를 통째로 막은 전례가 있어(검증 157) 캐시를 추적 대상에 두지 않는다.
+    return os.path.join(ROOT, "reports", ".앱캐시_%s.json" % key)
+
+
+def _disk_cache_stamp(key):
+    """`_fresh` 가 무효화에 쓰는 값을 한 줄로 모은다 — 새 판정을 만들지 않는다([162])."""
+    parts = ["v%d" % _DISK_CACHE_VER, "mt=%r" % _master_mtime()]
+    if key in ("works", "settle"):
+        parts.append("app=%r" % (_app_db_stamp(),))
+    if key == "works":
+        try:
+            from ledger_db import DB_PATH
+            parts.append("q=%r" % os.path.getmtime(DB_PATH))
+        except Exception:
+            # 못 읽었으면 '같다'고 하지 않는다 — 매번 다른 값이라 캐시가 안 걸린다([169]).
+            parts.append("q=?%r" % time.time())
+    return "|".join(parts)
+
+
+def _disk_cache_load(key):
+    """지문·판·나이가 **셋 다** 맞을 때만 돌려준다. 아니면 None(모름)."""
+    if DEMO or key not in _DISK_CACHE_KEYS:
+        return None
+    p = _disk_cache_path(key)
+    try:
+        if time.time() - os.path.getmtime(p) > _DISK_CACHE_MAX_AGE_S:
+            return None
+        with io.open(p, encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(d, dict) or d.get("지문") != _disk_cache_stamp(key):
+        return None
+    return d.get("값")
+
+
+def _disk_cache_save(key, value, stamp=None):
+    """★ `stamp` 은 **build() 앞에서** 찍은 것을 받는다.
+
+    `_master_mtime()` 은 30초 TTL 인데 `build()` 는 실측 50~60초를 돈다. 그러니
+    여기서 다시 찍으면, build 도중에 11:00 보관 회차가 새 원장을 쓴 날 **옛 자료에
+    새 원장 이름표**가 붙는다 — 다음 재시작이 그것을 '지금 값'으로 믿는다([169]).
+    build 앞 지문은 '이 값은 원장 상태 X 의 것'이라는 정직한 이름표다.
+    """
+    if DEMO or key not in _DISK_CACHE_KEYS:
+        return
+    p = _disk_cache_path(key)
+    tmp = p + ".tmp"
+    try:
+        with io.open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"지문": stamp or _disk_cache_stamp(key), "값": value},
+                      f, ensure_ascii=False)
+        os.replace(tmp, p)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+
+
 def _compute_locked(key, build):
     """Z: 를 실제로 읽는 자리. 락은 여기서만 잡는다(캐시 조회는 락 없이)."""
     with _readlock:
         c = _fresh(key)
         if c is not None:
             return c
+        # ★ 지문은 **build() 앞에서** 찍는다 — 60초짜리 계산 도중에 원장이 바뀌면
+        #   뒤에서 찍은 지문은 옛 자료에 새 이름표를 다는 셈이 된다([169]).
+        stamp = _disk_cache_stamp(key)
         v = build()
         _store_cache(key, v)
         _cache[key + "_stale"] = v
+        _disk_cache_save(key, v, stamp)
         return v
 
 
@@ -4525,6 +4617,12 @@ def cached_data(key, build):
     if c is not None:
         return c
     stale = _cache.get(key + "_stale")
+    if stale is None:
+        # ★ 재시작 뒤 **첫 화면** — 지문이 정확히 같을 때만 디스크에서 받는다([92]).
+        #   `_fresh` 가 이미 돌아 `_cache["mt"]` 를 세운 뒤라 여기서 넣어야 안 지워진다.
+        stale = _disk_cache_load(key)
+        if stale is not None:
+            _cache[key + "_stale"] = stale
     if stale is not None:
         _spawn_refresh(key, build)
         return stale

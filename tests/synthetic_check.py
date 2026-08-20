@@ -16643,6 +16643,161 @@ def t366_permission_never_draws_a_dead_input():
     print("  [366] 권한 밖 칸은 입력칸이 아니다 — 모름 11 · 한 칸 막힘 10 · 다 막힘 0 ✅")
 
 
+def t367_restart_survives_only_with_an_exact_fingerprint():
+    """[92] 재시작을 견디는 디스크 캐시 — 지문이 **정확히** 같을 때만 · `_stale` 자리에만.
+
+    왜 이 검사가 **실행**이어야 하나([295]): '지문이 틀리면 안 쓴다'는 글자로 못 잰다.
+    그리고 이 캐시가 잘못 걸리면 **류지영이 앱에서 저장한 값이 재시작 뒤 옛 값으로
+    보인다** — 이 프로젝트가 1순위로 막는 조용한 사고다.
+
+    실측 증거(reports/.앱캐시_*.json)에는 한 글자도 안 쓴다([247]) — 임시 ROOT 로만 잰다.
+    """
+    import io as _io367, ast as _ast367
+    p = os.path.join(ROOT, "webapp", "app_server.py")
+    src = _io367.open(p, encoding="utf-8").read()
+    lines = src.splitlines(True)
+    tree = _ast367.parse(src)
+
+    def _fn(name):
+        for n in _ast367.walk(tree):
+            if isinstance(n, _ast367.FunctionDef) and n.name == name:
+                return "".join(lines[n.lineno - 1:n.end_lineno])
+        raise AssertionError("app_server 에 %s 가 없다 — [92] 디스크 캐시가 사라졌나" % name)
+
+    consts = {}
+    for m in re.finditer(r"(?m)^(_DISK_CACHE_[A-Z_]+)\s*=\s*(.+)$", src):
+        consts[m.group(1)] = m.group(2).strip()
+    for want in ("_DISK_CACHE_VER", "_DISK_CACHE_KEYS", "_DISK_CACHE_MAX_AGE_S"):
+        assert want in consts, "[92] %s 가 없다 — 판이 없으면 규칙을 고쳐도 옛 캐시가 이긴다" % want
+
+    def _mk(root, demo=False, ver=None, load_src=None):
+        ns = {"os": os, "io": _io367, "json": json, "time": time,
+              "ROOT": root, "DEMO": demo}
+        ns["_master_mtime"] = lambda: ns["_MT"]
+        ns["_app_db_stamp"] = lambda: ns["_APP"]
+        ns["_MT"], ns["_APP"] = 111.0, (222.0, 333.0)
+        body = (("_DISK_CACHE_VER = %s" % (ver if ver is not None else consts["_DISK_CACHE_VER"])) + chr(10) +
+                ("_DISK_CACHE_KEYS = %s" % consts["_DISK_CACHE_KEYS"]) + chr(10) +
+                ("_DISK_CACHE_MAX_AGE_S = %s" % consts["_DISK_CACHE_MAX_AGE_S"]) + chr(10) +
+                _fn("_disk_cache_path") + chr(10) +
+                _fn("_disk_cache_stamp") + chr(10) +
+                (load_src or _fn("_disk_cache_load")) + chr(10) +
+                _fn("_disk_cache_save") + chr(10))
+        exec(compile(body, "<disk_cache>", "exec"), ns)
+        return ns
+
+    KEY, VAL = "settle", [{"정산ID": "JS-1", "공급가액": 1234567}]
+    assert KEY in eval(consts["_DISK_CACHE_KEYS"]), "[92] settle 이 캐시 대상이 아니다"
+
+    root = tempfile.mkdtemp(prefix="t367_")
+    os.makedirs(os.path.join(root, "reports"), exist_ok=True)
+    try:
+        ns = _mk(root)
+        # ① 지문이 같으면 돌려준다
+        ns["_disk_cache_save"](KEY, VAL)
+        assert ns["_disk_cache_load"](KEY) == VAL, "[92] 지문이 같은데 못 돌려줬다"
+
+        # ② ★ 원장이 바뀌면 안 쓴다 — 바뀐 뒤의 옛 숫자를 '지금 값'처럼 보여 주는 것이
+        #    이 프로젝트가 1순위로 막는 사고다.
+        ns["_MT"] = 999.0
+        assert ns["_disk_cache_load"](KEY) is None, (
+            "[92] 원장이 바뀌었는데 옛 캐시를 돌려줬다 — 재시작 뒤 화면이 옛 숫자를 확언한다")
+        ns["_MT"] = 111.0
+
+        # ③ ★ 앱 DB 가 바뀌면 안 쓴다 — 류지영이 저장한 값이 묻히는 자리다.
+        ns["_APP"] = (222.0, 999.0)
+        assert ns["_disk_cache_load"](KEY) is None, (
+            "[92] 앱 DB 가 바뀌었는데 옛 캐시를 돌려줬다 — 방금 저장한 값이 안 보인다")
+        ns["_APP"] = (222.0, 333.0)
+        assert ns["_disk_cache_load"](KEY) == VAL
+
+        # ④ 판이 다르면 지문이 같아도 안 믿는다([244])
+        assert _mk(root, ver=int(consts["_DISK_CACHE_VER"]) + 1)["_disk_cache_load"](KEY) is None, (
+            "[92] 판이 달라졌는데 옛 캐시를 그대로 썼다 — 규칙을 고쳐도 옛 답이 영원히 이긴다")
+
+        # ⑤ 나이 상한 — 밤새 꺼 둔 PC 가 아침에 어제 값을 '지금 값'처럼 내밀면 안 된다
+        cp = ns["_disk_cache_path"](KEY)
+        old = time.time() - (eval(consts["_DISK_CACHE_MAX_AGE_S"]) + 60)
+        os.utime(cp, (old, old))
+        assert ns["_disk_cache_load"](KEY) is None, "[92] 나이 상한을 넘은 캐시를 썼다"
+        os.utime(cp, None)
+
+        # ⑥ 깨진 파일에도 예외를 안 올린다 — 캐시 하나로 화면을 닫지 않는다
+        _io367.open(cp, "w", encoding="utf-8").write("{깨짐")
+        assert ns["_disk_cache_load"](KEY) is None, "[92] 깨진 캐시를 값으로 읽었다"
+
+        # ⑦ 모르는 키는 안 읽고 안 쓴다
+        assert ns["_disk_cache_load"]("status") is None
+        ns["_disk_cache_save"]("status", VAL)
+        assert not os.path.exists(ns["_disk_cache_path"]("status")), "[92] 캐시 대상 밖 키를 썼다"
+
+        # ⑧ DEMO 는 실캐시를 만지지 않는다 — 합성 자료가 실화면으로 새면 안 된다
+        d = _mk(root, demo=True)
+        d["_disk_cache_save"](KEY, [{"정산ID": "합성"}])
+        assert d["_disk_cache_load"](KEY) is None, "[92] DEMO 가 디스크 캐시를 읽었다"
+    finally:
+        import shutil as _sh367
+        _sh367.rmtree(root, ignore_errors=True)
+
+    # ⑨ ★ 읽어도 **`_stale` 자리에만** 넣는다 — `_cache[key]`(신선) 에 넣으면 지문에
+    #    안 잡히는 ERP(erpdocs)까지 '최신'이라 확언하게 된다([169]).
+    cd = _fn("cached_data")
+    box = {"_cache": {}, "_fresh": lambda k: None,
+           "_disk_cache_load": lambda k: "DISK",
+           "_spawn_refresh": lambda k, b: box.setdefault("spawned", []).append(k),
+           "_compute_locked": lambda k, b: (_ for _ in ()).throw(
+               AssertionError("[92] 디스크 캐시가 있는데 콜드 재계산으로 갔다"))}
+    exec(compile(cd, "<cached_data>", "exec"), box)
+    got = box["cached_data"](KEY, lambda: "BUILD")
+    assert got == "DISK", "[92] 디스크 캐시를 안 돌려줬다"
+    assert box["_cache"].get(KEY + "_stale") == "DISK", "[92] `_stale` 자리에 안 넣었다"
+    assert KEY not in box["_cache"], (
+        "[92] 디스크 값을 `_cache[key]`(신선) 에 넣었다 — 지문에 없는 ERP 까지 최신이라 확언한다")
+    assert box.get("spawned") == [KEY], "[92] 뒤에서 다시 계산하지 않았다 — 옛 값이 그대로 굳는다"
+
+    # ⑩ 계기 자신을 시험한다([272]) — 지문 검사를 없애면 ②가 잡혀야 한다
+    broken = _fn("_disk_cache_load").replace(
+        'd.get("지문") != _disk_cache_stamp(key)', "False")
+    assert broken != _fn("_disk_cache_load"), "[92] 계기 자기시험 앵커가 안 맞는다"
+    root2 = tempfile.mkdtemp(prefix="t367b_")
+    os.makedirs(os.path.join(root2, "reports"), exist_ok=True)
+    try:
+        b = _mk(root2, load_src=broken)
+        b["_disk_cache_save"](KEY, VAL)
+        b["_MT"] = 999.0
+        assert b["_disk_cache_load"](KEY) is not None, (
+            "[92] 지문 검사를 없앴는데도 안 걸렸다 — 이 검사는 아무것도 안 재고 있다")
+    finally:
+        import shutil as _sh367b
+        _sh367b.rmtree(root2, ignore_errors=True)
+
+    # ⑪ ★ 지문은 **build() 앞에서** 찍는다. `_master_mtime()` 은 30초 TTL 인데
+    #    build 는 실측 50~60초다 — 뒤에서 찍으면 build 도중 11:00 보관 회차가 새 원장을
+    #    쓴 날 **옛 자료에 새 원장 이름표**가 붙고, 다음 재시작이 그것을 '지금 값'으로
+    #    믿는다([169]). 이 계약은 글자로 못 잰다 — 실제로 도중에 바꿔 보고 잰다([295]).
+    cl = _fn("_compute_locked")
+    seen = {}
+    box2 = {"_readlock": contextlib.nullcontext(),
+            "_fresh": lambda k: None,
+            "_cache": {},
+            "_store_cache": lambda k, v: v,
+            "_MT": "옛원장"}
+    box2["_disk_cache_stamp"] = lambda k: "mt=%s" % box2["_MT"]
+    box2["_disk_cache_save"] = lambda k, v, stamp=None: seen.update(stamp=stamp)
+
+    def _build_that_straddles_an_archive_round():
+        box2["_MT"] = "새원장"   # 60초 계산 도중에 11:00 회차가 새 원장을 썼다
+        return "VALUE"
+
+    exec(compile(cl, "<compute_locked>", "exec"), box2)
+    box2["_compute_locked"](KEY, _build_that_straddles_an_archive_round)
+    assert seen.get("stamp") == "mt=옛원장", (
+        "[92] 지문을 build() 뒤에 찍었다 — 옛 자료에 새 원장 이름표가 붙어 "
+        "다음 재시작이 그것을 '지금 값'으로 믿는다")
+
+    print("  [367] 재시작 견디는 디스크 캐시 — 지문 정확일치·build앞 도장·_stale 자리·나이상한·계기 자기시험 ✅")
+
+
 def t364_erp_chain_never_stops_without_a_trace():
     """[364] ERP 전화면 몰이가 **자국 없이 멈추지 않는다** (분담판 [84]).
 
@@ -29507,6 +29662,7 @@ if __name__ == "__main__":
     t364_erp_chain_never_stops_without_a_trace()
     t365_pipeline_failure_says_why()
     t366_permission_never_draws_a_dead_input()
+    t367_restart_survives_only_with_an_exact_fingerprint()
     t294_unreadable_source_never_passes_as_read()
     t295_camp_contacts_never_guess_a_phone_number()
     t296_half_list_never_blames_the_person()
