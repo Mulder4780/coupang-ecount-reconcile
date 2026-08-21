@@ -23095,6 +23095,82 @@ def t385_watchdog_gap_is_not_stall_when_the_pc_slept():
 
     print("[385] 워치독 공백 — 잠/멈춤/못읽음 갈래 · 겹침 · 계기 자기시험 통과")
 
+def t388_hung_start_is_not_normal():
+    """[388] `start` 로 매달린 수집을 '정상'이라 하지 않는다 (2026-08-22 실사고).
+
+    ★ 무엇이 났나 — 01:34 에 `start` 로 시작한 밴드 수집이 51분째 그대로였는데
+      감시자의 침묵 한도가 6시간이라 화면은 **"정상 — 가장 최근 보고 0.4시간 전"**
+      이라 말했다.  그동안 수확은 **0건**이었고 덤프도 0개였다.  값이 비면 사람이
+      알아채지만 계기가 '정상'을 내면 아무도 의심하지 않는다(`[169]`).
+    ★ 근거는 지어낼 것이 없다 — 수집기는 회차 한도(`MAX_WAIT_MS`)를 넘기면
+      **반드시** done/partial/save-failed 중 하나를 보낸다.  그러니 그 한도를
+      넘겨 `start` 로 남아 있으면 신호가 끊긴 것이다.
+    ★ 실측 증거 파일(`reports/크롬수집_보고.json`)은 **한 글자도 안 건드린다**
+      (`[247]`) — `judge()` 가 doc·now 를 인자로 받으므로 합성으로만 잰다.
+    """
+    import sys, importlib, io, os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for d in (root, os.path.join(root, "band")):
+        if d not in sys.path:
+            sys.path.insert(0, d)
+    U = importlib.import_module("userscript_watch")
+    from datetime import datetime, timedelta
+
+    지금 = datetime(2026, 8, 22, 2, 30)
+    plan = {"있음": True, "밴드별": {"84789192": 59}, "나이": 1.0}
+
+    def doc(state, 분전):
+        t = (지금 - timedelta(minutes=분전)).strftime("%Y-%m-%dT%H:%M:%S")
+        return {"밴드": {"84789192": {"state": state, "요청": 59, "받은시각": t}},
+                "최근": []}
+
+    # ① 한도를 **수집기 파일에서** 읽는다 — 손으로 적지 않는다(`[162]`)
+    한도 = U._grab_wait_hours()
+    assert 한도 is not None and 0.3 < 한도 < 3.0,         "회차 한도를 수집기에서 못 읽었다(또는 값이 뜻밖이다): %r" % (한도,)
+    src = io.open(os.path.join(root, "band", "userscript_watch.py"),
+                  encoding="utf-8", newline="").read()
+    assert "MAX_WAIT_MS" in src,         "한도를 수집기(MAX_WAIT_MS)에서 안 읽는다 — 값이 갈리면 판정도 갈린다"
+
+    # ② 한도를 넘겨 start 면 **끊김**이다 (이것이 그날 놓친 자리)
+    j = U.judge(doc("start", 60), "", now=지금, plan=plan)
+    assert j["갈래"] == "끊김",         "start 로 60분 매달렸는데 '%s' 라 한다 — 그날 화면이 '정상'을 확언한 자리다" % j["갈래"]
+    assert "매달려" in (j.get("왜") or ""),         "왜 끊겼는지를 안 적었다 — 조치가 갈린다(`[289]`)"
+
+    # ③ **한도 안이면 그대로 정상** — 좁히는 것도 고장이다(`[172]`)
+    j2 = U.judge(doc("start", 5), "", now=지금, plan=plan)
+    assert j2["갈래"] != "끊김",         "5분밖에 안 된 수집을 끊겼다고 한다 — 멀쩡히 도는 수집에 거짓 경보다"
+
+    # ④ 끝난 되보고는 매달림이 아니다
+    for 끝 in ("done", "partial"):
+        j3 = U.judge(doc(끝, 60), "", now=지금, plan=plan)
+        assert "매달려" not in (j3.get("왜") or ""),             끝 + " 인데 매달렸다고 한다 — 끝 신호가 왔으면 매달린 것이 아니다"
+
+    # ⑤ 문구가 **침묵과 매달림을 갈라 적는다**(`[325]`) — 매달림만 있는데
+    #    "6시간 넘게 끊겼다"를 붙이면 오늘에 대해 틀린 말을 확언한다
+    assert "%.0f시간 넘게" % U.SILENT_HOURS not in (j.get("왜") or ""),         "매달린 것에 침묵 문구를 붙였다 — 한 시간짜리를 여섯 시간이라 말한다(`[172]`)"
+
+    # ⑥ **못 읽으면 판정하지 않는다**(`[169]`) — 모름을 근거로 '매달렸다'고
+    #    부르면 멀쩡한 수집을 끊겼다고 말하게 된다
+    _real = U._grab_wait_hours
+    try:
+        U._grab_wait_hours = lambda: None
+        j4 = U.judge(doc("start", 60), "", now=지금, plan=plan)
+        assert "매달려" not in (j4.get("왜") or ""),             "한도를 모르는데 매달렸다고 단정했다(`[169]`)"
+    finally:
+        U._grab_wait_hours = _real
+
+    # ⑦ **계기 자신을 시험한다**(`[272]`) — 판정을 죽이면 ②가 잡히나
+    _real2 = U._grab_wait_hours
+    try:
+        U._grab_wait_hours = lambda: 99.0     # 한도가 아주 크면 매달림이 안 걸린다
+        j5 = U.judge(doc("start", 60), "", now=지금, plan=plan)
+        assert j5["갈래"] != "끊김",             "계기 자기시험: 판정을 죽였는데도 끊김이 나온다 — 이 검사는 아무것도 안 재고 있다"
+    finally:
+        U._grab_wait_hours = _real2
+
+    print("  [388] 매달린 start — 끊김 판정 · 한도는 수집기에서 · 문구 갈라 적기 "
+          "· 모르면 안 함 · 자기시험 OK")
+
 def t387_collect_gate_actually_guards_scripts():
     """[387] 수집 문이 **정말 막나** — 그리고 무인 회차는 **안 막나**.
 
@@ -32033,6 +32109,7 @@ if __name__ == "__main__":
     t384_window_audit_reads_helper_bodies_not_names()
     t385_watchdog_gap_is_not_stall_when_the_pc_slept()
     t387_collect_gate_actually_guards_scripts()
+    t388_hung_start_is_not_normal()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

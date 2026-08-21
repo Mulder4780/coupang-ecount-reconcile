@@ -56,6 +56,44 @@ PLAN = os.path.join(ROOT, "reports", "밴드_수집계획.json")
 #: '살아 있다'를 보내므로(HEARTBEAT_MS) 여섯 시간은 열두 번을 놓친 것이다 —
 #: 한두 번 놓친 것으로 경보를 올리면 아무도 안 본다(`[170]`).
 SILENT_HOURS = 6.0
+#: `start` 되보고 뒤 이만큼이 지나면 **매달린 것**이다.  수집기는 한 회차를
+#: `MAX_WAIT_MS` 까지만 기다리고 그 뒤 반드시 `done`/`partial`/`save-failed` 중
+#: 하나를 보낸다 — 그러니 그 한도를 넘겨 `start` 로 남아 있으면 끊긴 것이다.
+#: ★ 값을 손으로 적지 않는다(`[162]`) — 수집기가 정본이고 여기는 읽기만 한다.
+#:   2026-08-22 실사고: 01:34 에 `start` 로 시작한 수집이 51분째 그대로였는데
+#:   침묵 한도가 6시간이라 화면은 **정상**이라 말했다(수확 0건 · `[169]`).
+#:   6시간은 30분 하트비트를 열두 번 놓친 값이라 옳지만, **매달린 회차는
+#:   30분이면 판정할 수 있다.**
+START_GRACE_MIN = 10.0   # 저장·업로드에 드는 여유
+
+
+def _grab_wait_hours():
+    """수집기의 회차 한도(시간)를 **수집기 파일에서 읽는다**.
+
+    못 읽으면 None — 그때는 이 판정을 **아예 안 한다**(`[169]`).  모르는 것을
+    근거로 '매달렸다'고 부르면 멀쩡히 도는 수집을 끊겼다고 말한다(`[172]`).
+    """
+    import re as _re
+    try:
+        js = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "band_auto_collect.user.js")
+        src = io.open(js, encoding="utf-8", newline="").read()
+        m = _re.search(r"MAX_WAIT_MS\s*=\s*([0-9*\s]+);", src)
+        if not m:
+            return None
+        ms = 1
+        for tok in m.group(1).split("*"):
+            tok = tok.strip()
+            if not tok.isdigit():
+                return None
+            ms *= int(tok)
+        if ms <= 0:
+            return None
+        return ms / 3600000.0 + START_GRACE_MIN / 60.0
+    except Exception:
+        return None
+
+
 #: 계획이 이보다 오래되면 굳은 것으로 본다.  회차는 하루 한 번(09:50) 돌므로
 #: 하루 반이면 한 번을 통째로 걸렀다는 뜻이다.
 PLAN_STALE_HOURS = 36.0
@@ -265,9 +303,20 @@ def judge(doc: Optional[Dict[str, Any]], why: str,
     #   고만 했고, 그 조치는 죽은 밴드를 한 건도 못 살린다([172] 틀린 지목).
     쉬는밴드 = (plan.get("밴드별") if plan.get("있음") else None)
     죽은 = []
+    매달린 = []
+    회차한도 = _grab_wait_hours()
     for band, r in rows.items():
         age = r.get("나이")
         멈춤 = (age is None) or (age > SILENT_HOURS)
+        # ★ **`start` 로 매달린 것을 '정상'이라 하지 않는다** (2026-08-22 실사고).
+        #   수집기는 회차 한도를 넘기면 반드시 끝 신호를 보낸다 — 안 보냈으면
+        #   탭이 가려졌거나 닫혔거나 크롬이 타이머를 얼린 것이다.  침묵 한도를
+        #   기다리는 동안 화면이 '정상'을 확언하면 그만큼 수확 0인 채로
+        #   아무도 모른다(`[169]`).
+        if (not 멈춤) and r.get("상태") == "start" \
+           and age is not None and 회차한도 is not None and age > 회차한도:
+            멈춤 = True
+            매달린.append(band)
         r["갈래"] = "끊김" if 멈춤 else (r.get("상태") or "?")
         # 일감이 없는 밴드까지 매일 부르면 경보가 대부분이 되어 아무도 안 본다([170]).
         # 그러나 **모르는 것을 "일감 없음"으로 치지도 않는다**([169]) — 대기열을
@@ -282,13 +331,28 @@ def judge(doc: Optional[Dict[str, Any]], why: str,
     if 죽은:
         # 전부 죽었나 몇만 죽었나를 갈라 말한다 — 조치가 다르다([289]).
         전부 = len(죽은) == len(rows)
-        말 = ", ".join(sorted(죽은))
-        if 전부:
-            왜 = ("밴드 %s 되보고가 %.0f시간 넘게 끊겼다"
-                  % (말, SILENT_HOURS))
-        else:
-            왜 = ("**밴드 %s 만** 되보고가 끊겼다(한도 %.0f시간) — 옆 밴드가 살아 있어"
-                  " 지금까지 한 줄로 덮여 있었다" % (말, SILENT_HOURS))
+        # ★ **침묵과 매달림을 갈라 적는다** — 뭉치면 오늘에 대해 틀린 말을
+        #   확언한다(`[325]`).  매달린 밴드에 "6시간 넘게 끊겼다"를 붙이면
+        #   실제로는 한 시간인데 여섯 시간이라 말하게 되고, 사람은 없는 것을
+        #   찾아 나선다(`[172]`).  조치도 다르다(`[289]`) — 침묵은 '스크립트가
+        #   안 도는가', 매달림은 '탭이 가려졌는가'다.
+        침묵 = [b for b in 죽은 if b not in 매달린]
+        조각 = []
+        if 침묵:
+            말 = ", ".join(sorted(침묵))
+            if 전부 and not 매달린:
+                조각.append("밴드 %s 되보고가 %.0f시간 넘게 끊겼다"
+                            % (말, SILENT_HOURS))
+            else:
+                조각.append("**밴드 %s 만** 되보고가 끊겼다(한도 %.0f시간) —"
+                            " 옆 밴드가 살아 있어 지금까지 한 줄로 덮여 있었다"
+                            % (말, SILENT_HOURS))
+        if 매달린:
+            조각.append("밴드 %s 가 `start` 로 %.0f분 넘게 매달려 있다(수확 0건) —"
+                        " 수집기는 회차 한도를 넘기면 끝 신호를 보내므로, 안 왔다는"
+                        " 것은 탭이 가려졌거나 닫혔다는 뜻이다"
+                        % (", ".join(sorted(매달린)), (회차한도 or 0) * 60))
+        왜 = "  · ".join(조각)
         if 쉬는밴드 is None:
             왜 += " · 대기열을 못 읽어 밀린 글이 있는지는 모른다"
         return {"갈래": "끊김", "왜": 왜, "밴드": rows, "계획": plan,
