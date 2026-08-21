@@ -174,4 +174,9 @@ def main():
 
 
 if __name__ == "__main__":
+    # ★ 수집 문 — `--apply`(원본을 실제로 옮기는 길)일 때만 본다. 조회까지 막으면
+    #   문제 없는 쪽의 도구를 말없이 빼앗는다([172]). 무인 회차는 그대로 통과한다.
+    if "--apply" in __import__("sys").argv:
+        import collect_gate as _gate
+        _gate.guard("다운로드 원본 흡수")
     raise SystemExit(main())

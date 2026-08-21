@@ -53,6 +53,8 @@ collect_gate.py — 수집을 **누가** 하느냐가 아니라 **지금 자원�
   수집_v2' 세션에서 한다, 너는 다 양보해". 세션 이름은 기계가 못 보므로 그 약속을
   적는 자리는 **차선표**뿐이다. 수집 창은 `python lanes.py --take collect` 로 한 번
   선언하면 그 뒤로 그대로 통과한다.
+  ※ 위 인용은 2026-08-19 당시 세션 이름이다 — **지금은 v1**(`COLLECT_SESSION_NAME`).
+    낡은 이름을 안내에 쓰면 사람이 없는 세션을 찾는다([172]).
 """
 import argparse
 import os
@@ -76,7 +78,7 @@ def _lane_verdict():
     """내 차선이 이 자원을 허락하나 → (갈래, 왜, 주인). 못 읽으면 '모름'.
 
     ★ **차선 밖은 '가능'이 아니라 '모름'이다** (2026-08-19 지시: "리서치 자료 수집 및
-      긁어오기는 'CSOS 리서치 및 자료 수집_v2' 이 세션에서 진행할거에 너는 이쪽으로
+      긁어오기는 'CSOS 리서치 및 자료 수집_v1' 이 세션에서 진행할거에 너는 이쪽으로
       다 양보해"). 세션 **이름**은 기계가 못 본다 — `ai_claim` 은 창 제목을 모르고
       sid 만 안다. 그러므로 "누가 수집 창인가"를 기계가 아는 길은 **차선표 하나**다.
       차선을 안 정한 창은 수집 창인지 코딩 창인지 알 수 없으므로 물러난다:
@@ -206,6 +208,71 @@ def _note(갈래, 왜, 주인=""):
     except Exception as exc:
         print("  ! 자국을 못 남겼습니다: %s" % str(exc)[:80])
         return False
+
+
+COLLECT_SESSION_NAME = "CSOS 리서치 및 자료 수집_v1"
+
+
+def is_unattended():
+    """이 프로세스가 **무인 회차**인가 — 사람 창과 가르는 유일한 근거.
+
+    ★ 왜 가르나 — 이 문을 수집 스크립트에 그냥 달면 **워치독·증분 파이프라인·
+      09:50 회차까지 같이 막힌다**(실측: automation_pipeline·daily_run·watchdog 이
+      convert_dump·band_sync·intake 를 자식으로 부른다). 그러면 형님이 시킨 것은
+      "세션끼리 나눠 하라"인데 결과는 **자동 수집이 통째로 멈추는 것**이 된다 —
+      게다가 그것은 조용하다(회차는 '성공'으로 적히고 수집만 0건이 된다 · [169]).
+    ★ 근거는 **세션 신분 하나**다. 스케줄러가 띄운 프로세스에는 대화 세션 ID 가
+      없다(실측 2026-08-22: 이 창은 CLAUDE_CODE_SESSION_ID 가 있고, 무인 회차는
+      SID_ENV 가 전부 빈다). 목록은 `ai_claim.SID_ENV` **한 곳**에서 온다([162]) —
+      여기 손으로 적으면 Codex 쪽 키가 늘어난 날 그 갈래만 조용히 샌다.
+    """
+    if os.environ.get("COUPANG_UNATTENDED") == "1":
+        return True
+    keys = ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")
+    try:
+        import ai_claim
+        keys = ai_claim.SID_ENV
+    except Exception:
+        pass
+    return not any(os.environ.get(k) for k in keys)
+
+
+def guard(why="", 자원=None):
+    """수집 스크립트 **맨 앞**에서 부른다 — 남의 차선 일을 하는 사람 창만 막는다.
+
+    2026-08-22 형님 지시: "밴드 수집은 'CSOS 리서치 및 자료 수집_v1' 이 세션에서
+    하는거야, 자료 긁어오는것도 전부 여기서 할거야 알고리즘 반영해".
+
+    ★ **이 문이 없던 자리가 진짜 구멍이었다.** [313] 이 만든 `check()`/`run()` 은
+      사람이 손으로 `collect_gate.py --run ...` 이라 쳐야만 돌았고, 실측으로 그것을
+      **부르는 코드가 한 줄도 없었다**(문서 언급뿐). 그래서 코딩 창에서
+      `python band/convert_dump.py` 를 그냥 치면 아무것도 안 막았다 — 규칙은 있는데
+      기계가 지키는 자리가 없었다(2026-08-07 이름 규칙이 샜던 것과 같은 모양).
+
+    ★ 막는 것은 **사람 창**뿐이다(`is_unattended()` 참조).
+    ★ 대화 창인데 판정을 **못 하면 막는다**([169]) — 여기서 '모름'을 통과로 치면
+      차선표가 깨진 날 두 창이 같은 밴드를 긁는다(사고 #27 · 캐시 오염은 되돌릴 수
+      없다). 무인은 이미 위에서 빠졌으므로 막아도 자동화는 안 죽는다.
+    ★ 막을 때 **자국을 남긴다**([293]) — 매일 막히기만 하는 문은 없는 문과 같고,
+      굶주림 판정이 그것을 잡는다.
+    ★ **안내에 세션 이름을 적는다.** 기계는 이름을 못 보지만([313]) 사람은 그것으로
+      어느 창인지 안다. 적는 자리는 `COLLECT_SESSION_NAME` **하나**다.
+    """
+    if is_unattended():
+        return True
+    v = check()
+    if v["갈래"] == "가능":
+        return True
+    _note("양보", v["왜"], v["주인"])
+    이름 = 자원 or RESOURCE
+    print("수집 문이 막았습니다 — 이 창은 수집 창이 아닙니다(자원 '%s')." % 이름)
+    if why:
+        print("  하려던 일: %s" % why)
+    print("  왜: %s" % (v["왜"] or "판정을 못 했습니다"))
+    print("  이 일은 '%s' 세션이 합니다(2026-08-22 형님 지시)." % COLLECT_SESSION_NAME)
+    print("  · 이 창이 그 수집 창이면:  python lanes.py --take collect --who claude")
+    print("  · 무인 회차(워치독·09:50·증분)는 그대로 돕니다 — 자동 수집은 안 멈춥니다.")
+    raise SystemExit(3)
 
 
 def run(command, why="", who="claude"):

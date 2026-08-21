@@ -146,4 +146,11 @@ def main():
     print("수집 완료. 다음: python band_reconcile.py")
 
 if __name__ == "__main__":
+    # ★ 수집 문 — 남의 차선 일을 하는 **사람 창**만 막는다(2026-08-22 형님 지시).
+    #   무인 회차(워치독·09:50·증분)는 그대로 통과한다 — 막으면 자동 수집이
+    #   통째로 멈추면서 회차는 '성공'으로 적힌다([169]).
+    import os as _os, sys as _sys
+    _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+    import collect_gate as _gate
+    _gate.guard("밴드 API 수집")
     main()

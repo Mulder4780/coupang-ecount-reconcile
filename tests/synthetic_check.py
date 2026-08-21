@@ -23084,6 +23084,94 @@ def t385_watchdog_gap_is_not_stall_when_the_pc_slept():
 
     print("[385] 워치독 공백 — 잠/멈춤/못읽음 갈래 · 겹침 · 계기 자기시험 통과")
 
+def t387_collect_gate_actually_guards_scripts():
+    """[387] 수집 문이 **정말 막나** — 그리고 무인 회차는 **안 막나**.
+
+    2026-08-22 형님 지시: "밴드 수집은 'CSOS 리서치 및 자료 수집_v1' 이 세션에서
+    하는거야, 자료 긁어오는것도 전부 여기서 할거야".
+
+    ★ [313] 은 `check()`/`run()` 을 만들었는데 **부르는 코드가 한 줄도 없었다** —
+      규칙은 있고 기계가 지키는 자리가 없었다. 그러므로 여기서 재는 것은 판정이
+      아니라 **배선**이다([328]: 함수만 있고 안 부르면 없는 것과 같다).
+    ★ 글자로는 '정말 멈추나'를 못 잰다 — **실행해서** 잰다([295]).
+    ⚠ `guard()` 는 막을 때 `coordinate` 에 자국을 남긴다. 검증이 그것을 그대로
+      부르면 **실측 증거에 가짜 양보가 박힌다**(2026-08-19 실사고 — 검증이 조율
+      표 40줄 중 38줄을 오염시켰다). 그래서 `_note` 를 목으로 막고 `finally` 로
+      되돌린다([247]·[371] — 모듈 속성은 프로세스 하나뿐이다).
+    """
+    import collect_gate as cg
+    import inspect
+
+    NL = chr(10)   # 관문 모듈 수준에 NL 이 없다([324])
+    real_note, real_check, real_un = cg._note, cg.check, cg.is_unattended
+    노트 = []
+
+    def 재기(무인, 갈래, 왜="합성"):
+        try:
+            cg._note = lambda g, w, o="": 노트.append((g, w)) or True
+            cg.is_unattended = lambda: 무인
+            cg.check = lambda: {"갈래": 갈래, "왜": 왜, "주인": "", "근거": []}
+            try:
+                return cg.guard("시험")
+            except SystemExit as e:
+                return "exit%s" % e.code
+        finally:
+            cg._note, cg.check, cg.is_unattended = real_note, real_check, real_un
+
+    # ① 사람 창 + 남의 차선 → 멈춘다
+    assert 재기(False, "양보") == "exit3", "① 사람 창인데 안 막았다"
+    # ② 무인 회차 → 통과한다. 막으면 자동 수집이 통째로 멈추면서 조용하다([169])
+    assert 재기(True, "양보") is True, "② 무인 회차를 막았다 — 자동 수집이 죽는다"
+    # ③ 대화 창인데 판정을 못 하면 막는다([169] — 모름을 가능으로 치지 않는다)
+    assert 재기(False, "모름") == "exit3", "③ 못 읽었는데 통과시켰다"
+    # ④ 수집 차선이면 그대로 통과
+    assert 재기(False, "가능") is True, "④ 수집 창을 막았다 — 좁히는 것도 고장이다"
+    # ⑤ 막을 때 자국을 남긴다([293])
+    assert any(g == "양보" for g, _ in 노트), "⑤ 막고도 자국을 안 남겼다"
+
+    # ⑥ 무인 판정 근거는 **세션 신분**이고 목록은 ai_claim 한 곳에서 온다([162])
+    src = inspect.getsource(cg.is_unattended)
+    code = NL.join(ln.split("#", 1)[0] for ln in src.splitlines())  # 주석 걷기
+    assert "ai_claim" in code and "SID_ENV" in code, (
+        "⑥ 세션 키 목록을 손으로 적으면 Codex 키가 늘어난 날 조용히 샌다")
+    import os as _os
+    _old = _os.environ.get("COUPANG_UNATTENDED")
+    try:
+        _os.environ["COUPANG_UNATTENDED"] = "1"
+        assert cg.is_unattended() is True, "⑥ UNATTENDED=1 인데 사람 창이라 했다"
+    finally:
+        if _old is None:
+            _os.environ.pop("COUPANG_UNATTENDED", None)
+        else:
+            _os.environ["COUPANG_UNATTENDED"] = _old
+
+    # ⑦ **배선** — 네 수집 스크립트가 실제로 문을 부르나([328])
+    import os
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for rel in ("band/convert_dump.py", "band/band_sync.py",
+                "upload_intake.py", "download_intake.py"):
+        body = io.open(os.path.join(here, *rel.split("/")),
+                       encoding="utf-8", newline="").read()
+        block = body.split('if __name__ == "__main__":')[-1]
+        assert "_gate.guard(" in block, "⑦ %s 가 수집 문을 안 부른다" % rel
+        # 조회까지 막지 않는다([172]) — 원본을 옮기는 --apply 일 때만
+        if rel in ("upload_intake.py", "download_intake.py"):
+            assert "--apply" in block, "⑦ %s 가 조회까지 막는다" % rel
+
+    # ⑧ 세션 이름을 적는 자리는 하나다 — 안내가 틀리면 없는 세션을 찾는다([172])
+    gs = io.open(os.path.join(here, "collect_gate.py"),
+                 encoding="utf-8", newline="").read()
+    assert gs.count('COLLECT_SESSION_NAME = "') == 1, "⑧ 세션 이름 자리가 둘이다"
+    assert '_v1"' in gs.split("COLLECT_SESSION_NAME = ")[1][:40], (
+        "⑧ 안내가 가리키는 세션 이름이 v1 이 아니다")
+    # ⚠ 역사 인용(2026-08-19 지시문)은 **그대로 둔다** — 그때 뭐라 했는지를 잃으면
+    #   왜 이 문이 생겼는지도 같이 잃는다([169]). 재는 것은 사람에게 나가는 안내뿐이다.
+    보이는말 = [ln for ln in gs.splitlines() if "print(" in ln]
+    assert not any("_v2" in ln for ln in 보이는말), "⑧ 안내 문구에 옛 이름이 남았다"
+
+    print("[387] 수집 문 — 사람창 막음 · 무인 통과 · 모름 막음 · 배선 4곳 · 이름 한 자리 통과")
+
+
 def t384_window_audit_reads_helper_bodies_not_names():
     """[384] 창 감사기는 `**헬퍼()` 를 **이름이 아니라 본문**으로 판정한다 (2026-08-21).
 
@@ -31908,6 +31996,7 @@ if __name__ == "__main__":
     t381_row_count_is_cached_and_never_freezes_a_miss()
     t384_window_audit_reads_helper_bodies_not_names()
     t385_watchdog_gap_is_not_stall_when_the_pc_slept()
+    t387_collect_gate_actually_guards_scripts()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
