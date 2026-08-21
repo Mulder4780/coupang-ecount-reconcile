@@ -32,6 +32,64 @@ window.addEventListener('beforeinstallprompt', function(e){
   window.__csosInstallPrompt = e;
   window.dispatchEvent(new Event('csos-install-ready'));
 });
+
+/* ── 반만 내려온 문서를 화면이 스스로 알아챈다 (2026-08-18 실측 · 분담판 [117]) ──
+   그날 류지영 업무센터가 'Uncaught SyntaxError: Unexpected end of input' 3회를 냈다.
+   코드 고장이 아니다 — 인라인 스크립트 4블록 811,725자를 node --check 로 재니 문법
+   오류 0 이었다. **HTML 이 중간에서 끊겨 도착한 것**이다(같은 시각 09:50 회차가 Z: 를
+   훑고 있었고 server_guard 는 '응답 지연'을 적었다).
+   ★ 위험한 자리는 여기다 — 스크립트가 끊기면 앱이 통째로 안 뜨는데 **말하는 코드가
+     그 잘린 스크립트 안에 있다.** 사람에게는 반쪽 화면만 남고 아무 설명이 없다([169]).
+   ★ 그래서 이 검사는 **맨 앞 블록**에 있어야 한다. 이 블록은 <head> 의 열 줄짜리라
+     사실상 언제나 도착한다 — 뒤로 옮기면 정작 필요한 순간에 같이 잘린다.
+   ★ 아무것도 안 빌린다 — 뒤에 오는 함수(toast·errorHelp)도 CSS 클래스도 안 쓴다.
+     그것들이 살아 있으면 이 배너가 필요 없고, 필요한 순간에는 그것들이 없다.
+   ★ 스스로 새로고침하지 않는다 — 물어본다(`offerUpdate` 와 같은 이유: 입력하던
+     중이면 날아간다). 자료가 틀린 것이 아니라는 말을 반드시 같이 적는다([172]) —
+     안 적으면 사람이 멀쩡한 자료를 의심하러 간다. */
+(function(){
+  function cut(){
+    if(document.getElementById('csosDocEnd')) return;   /* 끝까지 왔다 — 조용하다 */
+    if(document.getElementById('csosCutBar')) return;   /* 한 번만 */
+    var bar = document.createElement('div');
+    bar.id = 'csosCutBar';
+    /* 테마 토큰을 안 쓴다 — 이 배너가 필요한 순간에는 뒤쪽 <style> 도 안 왔을 수 있다.
+       칠한 바탕 위 흰 글자라 밝은 화면·어두운 화면 어디서나 읽힌다(명암비 5.9). */
+    bar.setAttribute('style',
+      'position:fixed;left:0;right:0;top:0;z-index:2147483647;'
+      + 'background:#B3261E;color:#fff;padding:12px 14px;'
+      + 'font:14px/1.5 system-ui,-apple-system,"Malgun Gothic",sans-serif;'
+      + 'box-shadow:0 2px 8px rgba(0,0,0,.35)');
+    var msg = document.createElement('div');
+    msg.textContent = '화면이 반만 내려왔습니다 — 앱 파일이 중간에서 끊겨 도착해 일부 '
+      + '기능이 안 뜹니다. 자료가 잘못된 것이 아닙니다.';
+    var sub = document.createElement('div');
+    sub.setAttribute('style', 'opacity:.85;margin-top:4px;font-size:12px');
+    sub.textContent = '오류 코드 CSOS-LOAD-CUT · 새로고침하면 됩니다. 계속 나오면 이 '
+      + '화면을 캡처해 보내 주세요.';
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.textContent = '새로고침';
+    go.setAttribute('style',
+      'margin-top:8px;padding:11px 18px;border:1px solid #fff;border-radius:8px;'   /* 44px 이상 — 폰에서 손가락이 닿아야 한다 */
+      + 'background:transparent;color:#fff;font:inherit;cursor:pointer');
+    go.onclick = function(){ location.reload(); };
+    bar.appendChild(msg); bar.appendChild(sub); bar.appendChild(go);
+    (document.body || document.documentElement).appendChild(bar);
+    /* 자국을 남긴다([169]) — 몇 번 일어나는지 모르면 뿌리(회차가 Z: 를 훑는 동안
+       서버가 늘어지는 것)를 영영 못 잡는다. 실패해도 배너는 그대로다. */
+    try{
+      if(navigator.sendBeacon){
+        navigator.sendBeacon('/api/ux', new Blob([JSON.stringify({events:[{
+          ts:new Date().toISOString(), kind:'error', target:'window',
+          detail:'CSOS-LOAD-CUT 문서가 끝까지 안 내려왔다 — ' + location.pathname,
+          ms:0}]})], {type:'application/json'}));
+      }
+    }catch(_){}
+  }
+  document.addEventListener('DOMContentLoaded', cut);
+  window.addEventListener('load', cut);
+})();
 </script>
 <!-- ★ 구글 폰트 CDN 링크를 여기서 뺐다(2026-07-31). 위 <head> 의 /fonts/nanumgothic.css
      동봉본이 대신한다. 외부 주소는 인터넷이 없는 현장에서 안 뜨고, 밖으로 요청이 나간다.
@@ -22891,5 +22949,8 @@ body.tab-drag-live #tabbar button[data-v]{transition:transform .12s ease}
   }catch(_){}
 })();
 </script>
+<!-- ★ 문서 끝 표식 — 맨 앞 블록의 검사기가 이것을 찾는다(분담판 [117]).
+     이 줄보다 뒤에 무엇을 두지 말 것: 뒤에 두면 그것이 잘려도 '끝까지 왔다'가 된다. -->
+<div id="csosDocEnd" hidden></div>
 </body>
 </html>

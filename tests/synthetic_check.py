@@ -16963,6 +16963,124 @@ def _t370_load():
     return mod
 
 
+def t374_a_half_delivered_page_says_so():
+    """[117] 반만 내려온 문서를 화면이 알아챈다 — 그리고 멀쩡할 때는 조용하다.
+
+    ★ 왜 이것을 재나 (2026-08-18 실측).  류지영 업무센터가
+      `Uncaught SyntaxError: Unexpected end of input` 3회를 냈다.  코드 고장이
+      아니었다 — 인라인 4블록 811,725자를 `node --check` 로 재니 문법 오류 0.
+      **HTML 이 중간에서 끊겨 도착한 것**이다(같은 시각 09:50 회차가 Z: 를 훑고
+      있었고 `server_guard` 는 '응답 지연'을 적었다).
+    ★ 위험한 자리는 여기다 — 스크립트가 끊기면 앱이 통째로 안 뜨는데 **말하는 코드가
+      그 잘린 스크립트 안에 있다.** 사람에게는 반쪽 화면만 남고 아무 설명이 없다(`[169]`).
+    ★ 그래서 얼리는 것은 **자리**다: 검사기는 맨 앞 블록, 표식은 문서 맨 끝.
+      뒤로 옮기면 정작 필요한 순간에 같이 잘려 이 기능이 통째로 없어진다.
+    """
+    import shutil, json, tempfile, subprocess, proc_guard
+    #    ⚠ 이 다섯은 synthetic_check 모듈 수준에 없다 — 안 들여오면 진짜 실패가
+    #      NameError 에 가려진다([324]).
+    p = os.path.join(ROOT, "webapp", "index.html")
+    src = open(p, encoding="utf-8").read()
+
+    # ① 검사기는 **맨 앞 <script> 블록** 안에 있다.
+    first_open = src.index("<script>")
+    first_close = src.index("</script>", first_open)
+    head_block = src[first_open:first_close]
+    assert "csosCutBar" in head_block, (
+        "[117] 잘림 검사기가 맨 앞 블록에 없다 — 뒤에 두면 정작 필요할 때 같이 잘린다")
+
+    # ② 표식은 **마지막 </script> 뒤 · </body> 바로 앞**이다.
+    i_mark = src.index('id="csosDocEnd"')
+    assert i_mark > src.rindex("</script>"), (
+        "[117] 문서 끝 표식이 마지막 스크립트보다 앞이다 — 그 스크립트가 잘려도 "
+        "'끝까지 왔다'가 된다")
+    after = src[i_mark:].split(">", 1)[1]
+    assert after.strip().startswith("</div>") and "</body>" in after, (
+        "[117] 표식 뒤에 다른 것이 있다: " + repr(after[:80]))
+
+    # ③ 검사기는 **아무것도 안 빌린다** — 뒤에 오는 함수·클래스가 살아 있으면 이
+    #    배너가 필요 없고, 필요한 순간에는 그것들이 없다.
+    for borrowed in ("toast(", "errorHelp(", "esc2(", "uxEvent(", "className ="):
+        assert borrowed not in head_block, (
+            "[117] 검사기가 뒤에 오는 것을 빌린다(%s) — 그것도 잘렸을 수 있다" % borrowed)
+
+    # ④ **실행해서** 잰다(`[295]`) — 글자로는 '배너가 뜨나'를 못 잰다.
+    guard = head_block[head_block.index("(function(){"):]
+    node = shutil.which("node")
+    if not node:
+        print("… [374] node 가 없어 실행 확인은 건너뜀(구조 검사만)")
+    else:
+        harness = _T374_HARNESS.replace("__GUARD__", json.dumps(guard))
+        box = tempfile.mkdtemp(prefix="t374-")
+        try:
+            js = os.path.join(box, "run.js")
+            with open(js, "w", encoding="utf-8") as fh:
+                fh.write(harness)
+            pr = subprocess.Popen([node, js], stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT,
+                                  **proc_guard.background_popen_kwargs())
+            try:
+                out = pr.communicate(timeout=60)[0].decode("utf-8", "replace")
+            except subprocess.TimeoutExpired:
+                proc_guard.kill_tree(pr.pid)
+                raise AssertionError("[374] node 하네스가 60초 안에 안 끝났다")
+            assert "HARNESS-OK" in out, "[374] 실행 확인 실패:\n" + out[-1200:]
+        finally:
+            shutil.rmtree(box, ignore_errors=True)
+
+    # ⑤ 스스로 새로고침하지 않는다 — 물어본다(`offerUpdate` 와 같은 이유).
+    before_btn = head_block[:head_block.index("go.onclick")]
+    assert "location.reload" not in before_btn, (
+        "[117] 단추를 누르기 전에 스스로 새로고침한다 — 입력하던 것이 날아간다")
+
+    print("✅ [374] 반만 내려온 문서를 화면이 말한다 · 멀쩡하면 조용하다 (실행으로 잼)")
+
+
+#: node 하네스 — 아주 작은 DOM 흉내만 두고 **진짜 검사기 코드**를 그대로 돌린다.
+#: ★ 계기 자신도 시험한다(`[272]`): 표식을 넣은 판에서 배너가 뜨면 이 검사는
+#:   아무것도 안 재고 있는 것이다.
+_T374_HARNESS = r"""
+const GUARD = __GUARD__;
+function makeDom(hasEnd){
+  const listeners = {};
+  const mk = () => ({children:[], style:{}, attrs:{}, text:'',
+    setAttribute(k,v){ this.attrs[k]=v; }, appendChild(c){ this.children.push(c); return c; },
+    querySelector(){ return this.children.find(c=>c.tag==='button')||null; },
+    set textContent(v){ this.text=v; }, get textContent(){ return this.text; }});
+  const body = mk();
+  const byId = {};
+  if (hasEnd) byId['csosDocEnd'] = mk();
+  const document = {
+    body,
+    documentElement: mk(),
+    getElementById: id => byId[id] || null,
+    createElement: t => { const e = mk(); e.tag=t; Object.defineProperty(e,'id',{
+      set(v){ byId[v]=e; }, get(){ return e.attrs.__id; }}); return e; },
+    addEventListener: (k,f) => { (listeners[k]=listeners[k]||[]).push(f); }
+  };
+  const window = { addEventListener: (k,f) => { (listeners[k]=listeners[k]||[]).push(f); },
+                   location:{ pathname:'/x', reload(){ throw new Error('스스로 새로고침했다'); } } };
+  return {document, window, listeners, byId,
+          navigator:{}, Blob:function(){}, location:window.location};
+}
+function run(hasEnd, fireTwice){
+  const env = makeDom(hasEnd);
+  const fn = new Function('document','window','navigator','Blob','location',GUARD);
+  fn(env.document, env.window, env.navigator, env.Blob, env.location);
+  (env.listeners['DOMContentLoaded']||[]).forEach(f=>f());
+  if (fireTwice) (env.listeners['load']||[]).forEach(f=>f());
+  return env.byId['csosCutBar'] ? env.document.body.children.length : 0;
+}
+const cut = run(false, false);
+const ok  = run(true, false);
+const twice = run(false, true);
+if (cut !== 1) throw new Error('잘린 문서인데 배너가 안 떴다: ' + cut);
+if (ok !== 0)  throw new Error('멀쩡한 문서인데 배너가 떴다 — 거짓 경보: ' + ok);
+if (twice !== 1) throw new Error('두 번 불렀더니 배너가 늘었다: ' + twice);
+console.log('HARNESS-OK cut=' + cut + ' ok=' + ok + ' twice=' + twice);
+"""
+
+
 def t369_a_file_read_every_request_is_never_called_old_code():
     """[191] 요청마다 읽는 화면 파일을 '옛 코드'라 부르지 않는다 — 그러나 조용히 빼지도 않는다.
 
@@ -30484,6 +30602,7 @@ if __name__ == "__main__":
     t368_screens_fit_without_shrinking_and_tables_line_up()
     t369_a_file_read_every_request_is_never_called_old_code()
     t370_a_window_whose_pid_was_replaced_still_owns_its_lane()
+    t374_a_half_delivered_page_says_so()
     t371_a_round_that_is_not_due_yet_is_not_late()
     t373_sheet_is_a_wide_modal_that_esc_slides_down()
     t294_unreadable_source_never_passes_as_read()
