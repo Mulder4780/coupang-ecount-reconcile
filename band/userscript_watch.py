@@ -61,7 +61,41 @@ SILENT_HOURS = 6.0
 PLAN_STALE_HOURS = 36.0
 #: 사람이 크롬에서 여는 자리.  안내 문구가 여기저기 URL 을 손으로 적으면
 #: 포트가 바뀐 날 한쪽만 고쳐진다.
-USER_JS_URL = "http://127.0.0.1:8899/band_auto_collect.user.js"
+def _port():
+    """앱 서버 포트를 **app_server 에서 읽는다** — 손으로 적지 않는다(`[156]`).
+
+    8765 라 적어 뒀다가 실제가 8899 라 "서버가 안 떴다"로 읽힌 전례가 있다.
+    못 읽으면 8899 로 두되, 그때는 안내가 틀릴 수 있다는 뜻이다."""
+    try:
+        import sys as _s
+        if ROOT not in _s.path:
+            _s.path.insert(0, ROOT)
+        from webapp import app_server as _a
+        return int(getattr(_a, "PORT", 8899))
+    except Exception:
+        try:
+            import re as _r
+            with io.open(os.path.join(ROOT, "webapp", "app_server.py"),
+                         encoding="utf-8", errors="replace") as _fh:
+                m = _r.search(r"^PORT\s*=\s*(\d+)", _fh.read(), _r.M)
+            return int(m.group(1)) if m else 8899
+        except Exception:
+            return 8899
+
+
+PORT = _port()
+USER_JS_URL = "http://127.0.0.1:%d/band_auto_collect.user.js" % PORT
+
+#: ★ **확장·Tampermonkey 없이 되는 길** (2026-08-22 형님 지시 "계정이 바뀌어도 크롬
+#: 잘 디버깅해서 잘 붙여서 할 수 있게").  Claude 확장 연결은 크롬이 아니라 **Claude
+#: 계정**에 붙는다 — 계정을 바꾸면 `list_connected_browsers` 가 빈 목록이 되고 AI 는
+#: 수집기를 **심을 수 없다**.  그때 Tampermonkey 를 지목하면 사람이 멀쩡한 확장을
+#: 다시 깔러 간다([172] 틀린 지목 · [149] 로 이미 반증됐다).  이 두 줄은 계정과
+#: 무관하게 언제나 된다 — 크롬은 localhost 를 신뢰 출처로 봐서 https 페이지에서도
+#: http 로 가져온다([217] 에서 실측).
+PASTE_HINT = ("로그인된 밴드 탭에서 F12 → Console 에 이 두 줄을 붙여넣는다: "
+              "const s = await (await fetch('%s')).text(); (0,eval)(s);"
+              "  — 그다음 그 크롬 창을 화면에 보이게 둔다" % USER_JS_URL)
 
 
 def _now() -> datetime:
@@ -285,9 +319,11 @@ def judge(doc: Optional[Dict[str, Any]], why: str,
 FIX = {
     # ★ 이 문구는 **확장이 정말 없을 때**만 쓴다.  깔려 있는데도 이 말을 하면 사람이
     #   이미 한 일을 또 하러 간다(2026-08-18 형님 지적) — 갈래는 `fix_for()` 가 고른다.
-    "안옴": "크롬에 Tampermonkey 를 설치하고 " + USER_JS_URL +
-            " 를 연 뒤, 로그인된 밴드 탭을 보이는 창에 열어 둔다",
-    "끊김": "밴드 탭이 닫혔거나 유저스크립트가 꺼졌다 — 탭을 다시 열고 Tampermonkey 에서 켜져 있는지 본다",
+    # ★ 붙여넣기를 **먼저** 준다 — 계정이 바뀌어도 되는 유일한 길이다.
+    #   Tampermonkey 는 뒤에 선택지로만 둔다([149] 로 원인이 아니라고 반증됐다).
+    "안옴": PASTE_HINT + "  · (한 번 설치해 두려면) Tampermonkey 에 "
+            + USER_JS_URL + " 를 연다",
+    "끊김": "밴드 탭이 닫혔거나 크롬 창·계정이 바뀌었다 — " + PASTE_HINT,
     "가려짐": "크롬 창을 앞으로 꺼낸다(탭만 열려 있으면 부족하다 — 창이 가려지면 모든 탭이 숨은 것으로 잡힌다)",
     "계획굳음": "09:50 회차의 `band/comment_backfill.py --write` 가 도는지 본다(계획을 만드는 자리다)",
     "확인못함": "보고 파일을 사람이 본다 — 못 읽는 것을 '이상 없음'으로 치지 않는다",
