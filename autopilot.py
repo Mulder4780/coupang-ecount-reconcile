@@ -46,6 +46,9 @@ RESOURCE_MARKERS = (
     "z:\\",
     "z:/",
 )
+#: 수집 문(collect_gate.guard)이 거절한 표식. 이것은 고장이 아니라 **남의 차선 일**이다.
+#: 낱말이 바뀌면 여기서 조용히 0건이 되므로 안내문과 같은 글자를 쓴다([165]).
+LANE_MARKERS = ("수집 문이 막았습니다",)
 AUTH_MARKERS = (
     "로그인이 필요", "인증 없음", "not authenticated", "login required",
     "밴드 미인증", "ecount 로그인",
@@ -98,6 +101,11 @@ def classify_failure(output: str) -> str:
     text = " ".join(str(output or "").lower().split())
     if "증분 수집 계속 필요" in text:
         return "incremental"
+    # ★ 수집 문 거절을 `code`(코드가 깨졌다)로 읽으면 조치가 사람을 **멀쩡한
+    #   코드로 보낸다**([172]·[289]). 게다가 세 번 반복되면 `ai_tier` 가 '원인'
+    #   등급(opus/high)을 매겨 **이미 아는 원인**에 비싼 모델을 부른다(실측).
+    if any(x.lower() in text for x in LANE_MARKERS):
+        return "lane"
     if any(x.lower() in text for x in AUTH_MARKERS):
         return "auth"
     if any(x.lower() in text for x in RESOURCE_MARKERS):
@@ -165,7 +173,7 @@ def _due(item: dict[str, Any], now: datetime) -> bool:
 
 def _escalate(item: dict[str, Any]) -> str:
     """같은 안전 작업이 세 번 실패한 경우에만 AI 한 장을 만든다(중복 금지)."""
-    if (item.get("ai_ticket") or item.get("kind") in ("resource", "auth") or
+    if (item.get("ai_ticket") or item.get("kind") in ("resource", "auth", "lane") or
             int(item.get("attempts") or 0) < MAX_ATTEMPTS_BEFORE_AI):
         return ""
     try:
@@ -312,6 +320,7 @@ def selftest() -> None:
     assert classify_failure("FileNotFoundError: 관리대장을 찾을 수 없음: Z:/x") == "resource"
     assert classify_failure("로그인이 필요합니다") == "auth"
     assert classify_failure("시간초과(600s)") == "timeout"
+    assert classify_failure("수집 문이 막았습니다 — 이 창은 수집 창이 아닙니다") == "lane"
     assert classify_failure("AssertionError") == "code"
     assert retry_safe(["read_only.py"])
     assert not retry_safe(["ledger_db.py", "--apply"])

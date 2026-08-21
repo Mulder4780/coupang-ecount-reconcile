@@ -6770,10 +6770,21 @@ def t126_app_font_and_revert():
     #   아래 문구는 그것을 "되돌리기가 다른 것을 건드린다"고 **틀리게 지목한다** —
     #   사람이 멀쩡한 font_switch 를 뒤지러 간다([172]). 그날 실제로 그랬다.
     시작상태 = {s["상태"] for s in F.state()}
+    # ★ **원인을 확언하지 않는다**([172]) — 후보가 둘이고 조치가 정반대다.
+    #   ① 관문이 **겹쳤다**: 이 검사는 진짜 파일 넷을 쓰므로(그것이 요점이다)
+    #      다른 관문이 왕복 중이면 그 중간 상태를 읽는다(분담판 [195]).
+    #      그때 `--modern` 을 돌리면 **도는 관문을 깨뜨린다.**
+    #   ② 누가 `--legacy` 를 돌리고 안 되돌렸다 → 그때만 `--modern` 이 맞다.
+    #   가르는 법을 문구가 직접 준다 — 짐작하지 않게.
     assert 시작상태 == {"기본"}, (
         "왕복 시험 전에 이미 글꼴이 %s 다 — 이 검사가 아니라 **앱 글꼴 자체**가 "
-        "그 상태다. 누가 --legacy 를 돌리고 안 되돌린 것이니 "
-        "`python webapp/font_switch.py --modern` 으로 맞춘 뒤 다시 돌린다"
+        "그 상태다. 원인 후보 둘이고 조치가 다르다: "
+        "① 다른 관문이 지금 이 왕복 시험 중이다(겹침 · 분담판 [195]) — 그러면 "
+        "아무것도 고치지 말고 그 관문이 끝난 뒤 다시 돌린다. "
+        "② 누가 --legacy 를 돌리고 안 되돌렸다 — 그때만 "
+        "`python webapp/font_switch.py --modern` 으로 맞춘다. "
+        "가르는 법: 다른 synthetic_check 프로세스가 도는지 본다 "
+        "(Get-CimInstance Win32_Process | ? CommandLine -like '*synthetic_check*')"
         % ("·".join(sorted(시작상태)) or "확인 못 함"))
     try:
         F.apply("legacy")
@@ -22815,7 +22826,7 @@ def t386_chrome_hint_survives_an_account_change():
       ([172] 틀린 지목 · [149] 로 이미 반증됐다).  붙여넣기 두 줄은 계정과 무관하다.
     ★ 포트를 손으로 적지 않는다([156]) — 8765 라 적어 뒀다가 실제가 8899 라
       "서버가 안 떴다"로 읽힌 전례가 있다."""
-    import sys, importlib
+    import sys, importlib, io
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for d in (root, os.path.join(root, "band")):
         if d not in sys.path:
@@ -23146,7 +23157,7 @@ def t387_collect_gate_actually_guards_scripts():
             _os.environ["COUPANG_UNATTENDED"] = _old
 
     # ⑦ **배선** — 네 수집 스크립트가 실제로 문을 부르나([328])
-    import os
+    import os, io
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for rel in ("band/convert_dump.py", "band/band_sync.py",
                 "upload_intake.py", "download_intake.py"):
@@ -23169,7 +23180,32 @@ def t387_collect_gate_actually_guards_scripts():
     보이는말 = [ln for ln in gs.splitlines() if "print(" in ln]
     assert not any("_v2" in ln for ln in 보이는말), "⑧ 안내 문구에 옛 이름이 남았다"
 
-    print("[387] 수집 문 — 사람창 막음 · 무인 통과 · 모름 막음 · 배선 4곳 · 이름 한 자리 통과")
+    # ⑨ 이 거절은 **고장이 아니라 남의 차선 일**이다 — 갈래가 `code` 면 조치가
+    #   사람을 멀쩡한 코드로 보내고([172]·[289]), 세 번 반복되면 `ai_tier` 가
+    #   '원인'(opus/high)을 매겨 **이미 아는 원인**에 비싼 모델을 부른다.
+    import autopilot as _AP, ai_tier as _AT
+    거절 = "수집 문이 막았습니다 — 이 창은 수집 창이 아닙니다(자원 band)."
+    assert _AP.classify_failure(거절) == "lane", (
+        "⑨ 수집 문 거절이 lane 이 아니다 — 조치가 엉뚱한 곳을 가리킨다")
+    assert _AT.classify(kind="lane", title="밴드 덤프 흡수", args=[], attempts=3) != "원인", (
+        "⑨ 아는 원인에 '원인' 등급이 붙었다 — 값싼 판단으로 끝날 일에 비싼 모델을 쓴다")
+    assert _AP._escalate({"kind": "lane", "attempts": 9, "key": "x", "name": "t"}) == "", (
+        "⑨ 차선 거절을 AI 에게 넘겼다 — 코드로는 못 푼다(사람이 창을 정한다)")
+    # 옆 갈래를 안 삼켰나 — 좁히는 것도 고장이다([172])
+    for 글, 기대 in (("AssertionError", "code"), ("로그인이 필요", "auth"),
+                     ("시간초과(600s)", "timeout"),
+                     ("관리대장을 찾을 수 없음: Z:/x", "resource")):
+        assert _AP.classify_failure(글) == 기대, "⑨ 옆 갈래가 흔들렸다: " + 글
+    # 계기 자신을 시험한다([272]) — 표를 없애면 예전처럼 code 로 떨어지나
+    _real = _AP.LANE_MARKERS
+    try:
+        _AP.LANE_MARKERS = ()
+        assert _AP.classify_failure(거절) == "code", (
+            "⑨ 표를 없애도 lane 이 나온다 — 이 검사는 아무것도 안 재고 있다")
+    finally:
+        _AP.LANE_MARKERS = _real
+
+    print("[387] 수집 문 — 사람창 막음 · 무인 통과 · 모름 막음 · 배선 4곳 · 이름 한 자리 · 갈래 lane 통과")
 
 
 def t384_window_audit_reads_helper_bodies_not_names():
