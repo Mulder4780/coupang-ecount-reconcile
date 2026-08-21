@@ -44,6 +44,15 @@ RE_MO_DATE = re.compile(r"^(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*\S요일\s
 
 def source_paths():
     """카톡 원본 정본+로컬 inbox. 경로 중복과 내용이 같은 사본을 제거한다."""
+    # 신규등록·대표보고와 같은 대화방 최신본 선택기를 쓴다. 카톡 내보내기는
+    # 누적 전체대화라 최신 두 방이면 이력이 모두 있고, Z: 73개를 다시 열 필요가 없다.
+    try:
+        import band_extract
+        latest = band_extract.kakao_source_paths()
+        if len(latest) == 2:
+            return latest
+    except Exception:
+        pass
     sys.path.insert(0, ROOT)
     try:
         from source_dirs import kakao_dirs

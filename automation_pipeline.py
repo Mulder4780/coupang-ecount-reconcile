@@ -358,6 +358,15 @@ def source_signals(root: Path = ROOT) -> Dict[str, Dict[str, Any]]:
     kakao_files = _local_files(root / "kakao" / "dropbox", "*.txt")
     if include_user_drop:
         kakao_files.extend(_desktop_download_files("KakaoTalk*.txt"))
+        # download_intake가 Desktop 파일을 Z: 정본으로 먼저 옮긴 회차라도 다음
+        # 증분 회차가 놓치지 않는다. 예전에는 신호가 Desktop/dropbox만 보아서
+        # 신규 접수는 수동 반영됐는데 완료 보고는 대표화면에 안 들어왔다.
+        try:
+            import band_extract as _kakao_source
+            kakao_files.extend(Path(path) for path in
+                               _kakao_source.kakao_source_paths(dedupe_content=False))
+        except Exception:
+            pass
     kakao_sig, kakao_latest, kakao_count = _metadata_signature(kakao_files)
     band_files = _local_files(root / "band" / "cache", "*.json")
     if include_user_drop:
@@ -622,6 +631,10 @@ class AutomationPipeline:
                 ("카카오톡 원본 흡수·신규등록", [str(root / "kakao_apply.py"), *files], 1500),
                 ("카카오톡 대조", [str(root / "kakao" / "kakao_reconcile.py")], 900),
                 ("카톡·밴드 교차신호", [str(root / "cross_signal.py")], 900),
+                # 카톡 완료 글도 band_extract가 같은 업무 레코드로 읽는다. 신규 접수만
+                # 원장에 넣고 이 단계를 빼면 대표보고만 완료로 바뀌고 담당자 업무센터의
+                # AppStore 상태는 계속 접수로 남는다 — 화면별 판정이 갈리는 사고다.
+                ("카톡 앱 DB 신규·변경등록", [str(root / "band_canonical.py")], 900),
                 # 카톡 접수 글도 `band_extract.load_records()` 가 같은 양식으로 읽는다 —
                 # 캠프 담당자가 카톡으로만 바뀌는 날이 있어 여기서도 다시 뽑는다.
                 ("캠프 담당자", [str(root / "camp_contacts.py"), "--write"], 900),

@@ -8411,6 +8411,50 @@ def t201_upload_intake(tmp):
     for rel in ("kakao_extract.py", os.path.join("kakao", "kakao_reconcile.py")):
         src = open(os.path.join(ROOT, rel), encoding="utf-8").read()
         assert "def source_paths()" in src and "kakao_dirs" in src
+
+    # 대표보고 완료 색인도 같은 공유 정본을 읽어야 한다. 즉시반영은 Desktop 원본을
+    # Z:로 옮기므로 로컬 inbox만 읽으면 신규 접수는 들어가고 완료는 영영 안 들어온다.
+    import band_extract as _KX
+    kakao_root = os.path.join(tmp, "kakao_sources")
+    canonical = os.path.join(kakao_root, "canonical", "2026", "08", "2026-08-21")
+    local = os.path.join(kakao_root, "local")
+    os.makedirs(canonical, exist_ok=True); os.makedirs(local, exist_ok=True)
+    one = ("★UNI★ 쿠팡돌발점검 님과 카카오톡 대화\n"
+           "저장한 날짜 : 2026-08-21 17:14:52\n\n"
+           "--------------- 2026년 8월 21일 금요일 ---------------\n"
+           "[기사] [오후 5:14] ♣ ［ 돌발유료 A/S 완료 ]\n"
+           "● 프로젝트NO : UJ2609901\n● 캠프이름 : 공유정본캠프\n")
+    two = ("★UNI★ 쿠팡정기점검 님과 카카오톡 대화\n"
+           "저장한 날짜 : 2026-08-21 17:15:07\n\n"
+           "--------------- 2026년 8월 21일 금요일 ---------------\n"
+           "[기사] [오후 5:15] ♣ ［ 2026년 03분기 3개월 유료 A/S 완료 ]\n"
+           "● 프로젝트NO : UJ2609902\n● 캠프이름 : 로컬캠프\n")
+    with open(os.path.join(canonical, "shared.txt"), "w", encoding="utf-8") as fh:
+        fh.write(one)
+    with open(os.path.join(local, "same-copy.txt"), "w", encoding="utf-8") as fh:
+        fh.write(one)
+    with open(os.path.join(local, "local.txt"), "w", encoding="utf-8") as fh:
+        fh.write(two)
+    old_kakao_dirs, old_inbox = _SD.kakao_dirs, _KX.KAKAO_INBOX
+    try:
+        _SD.kakao_dirs = lambda: [canonical, local]
+        _KX.KAKAO_INBOX = local
+        assert len(_KX.kakao_source_paths()) == 2, \
+            "공유 정본과 로컬의 같은 카톡 원본을 두 번 읽는다"
+        records = _KX.load_kakao_records()
+    finally:
+        _SD.kakao_dirs, _KX.KAKAO_INBOX = old_kakao_dirs, old_inbox
+    projects = {r.get("프로젝트NO") for r in records}
+    assert {"UJ2609901", "UJ2609902"} <= projects, \
+        "대표보고 완료 색인이 공유 카톡 정본 또는 로컬 보완본을 빠뜨린다"
+    app_src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "kakao_source_paths(dedupe_content=False)" in app_src, \
+        "공유 카톡 정본이 바뀌어도 대표보고 디스크 캐시 지문이 안 바뀐다"
+    pipeline_src = open(os.path.join(ROOT, "automation_pipeline.py"), encoding="utf-8").read()
+    assert "_kakao_source.kakao_source_paths(dedupe_content=False)" in pipeline_src, \
+        "Desktop 원본이 Z:로 먼저 이동되면 다음 증분 회차가 카톡 변경을 놓친다"
+    assert '"카톡 앱 DB 신규·변경등록"' in pipeline_src, \
+        "카톡 완료가 대표보고만 바꾸고 담당자 업무센터 AppStore에는 안 들어간다"
     print("  [201] 단일 업로드 투입함 전량 원본분류·중복방지·30분/전체대조 연결 ✅")
 
 

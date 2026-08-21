@@ -6529,12 +6529,15 @@ def _band_completion_index():
         #   **새 카톡 근거가 영영 안 실린다** — 오류도 안 나고 화면은 멀쩡하다([169]).
         #   근거를 화면에 띄우기로 한 지금은 그 구멍이 곧 '없는 근거'가 된다.
         import band_extract as _bx_fp
-        if os.path.isdir(_bx_fp.KAKAO_INBOX):
-            with os.scandir(_bx_fp.KAKAO_INBOX) as it:
-                for e in it:
-                    if e.name.lower().endswith(".txt"):
-                        st = e.stat()
-                        fp.append("k:%s|%d|%d" % (e.name, st.st_size, int(st.st_mtime)))
+        for path in _bx_fp.kakao_source_paths(dedupe_content=False):
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            # 같은 이름이 날짜별 정본 폴더에 반복될 수 있어 전체 경로를 지문에 넣는다.
+            fp.append("k:%s|%d|%d" %
+                      (os.path.normcase(os.path.abspath(path)), st.st_size,
+                       int(st.st_mtime)))
         fp = hashlib.sha256("\n".join(sorted(fp)).encode()).hexdigest()[:16]
     except Exception:
         fp = ""

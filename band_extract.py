@@ -593,18 +593,123 @@ def load_records():
     return out
 
 
+def kakao_source_paths(dedupe_content=True):
+    """공유 정본과 로컬 inbox에서 대화방별 최신 원본을 돌려준다.
+
+    카톡 즉시반영은 원본을 Z: 정본으로 옮긴다. 여기서 로컬 ``kakao/inbox``만
+    보면 신규 접수는 원장에 들어가도 완료 보고는 대표보고 색인에 영영 안 들어온다.
+    소비자가 제각각 경로를 만들지 않고 ``source_dirs.kakao_dirs()``를 그대로 쓴다.
+
+    카톡 내보내기는 방의 전체 대화를 매번 다시 담는다. 73개 누적본을 Z:에서 전부
+    열면 첫 대표보고가 6분 넘게 멈춘다. 파일 메타데이터로 최신순을 만든 뒤, 알려진
+    두 업무방의 최신본을 찾는 즉시 멈춘다. 보통 파일 두 개만 열고 끝난다.
+
+    대표보고 캐시 지문은 파일 내용까지 읽을 필요가 없으므로
+    ``dedupe_content=False``를 쓴다. 실제 파싱 때만 선택된 최신본끼리 내용 중복을
+    제거한다.
+    """
+    try:
+        from source_dirs import kakao_dirs
+        folders = list(kakao_dirs())
+    except Exception:
+        folders = []
+    if os.path.isdir(KAKAO_INBOX) and KAKAO_INBOX not in folders:
+        folders.append(KAKAO_INBOX)
+
+    # 정상 반영 회차가 남긴 최신 파일명을 먼저 쓴다. 공유폴더 전체를 훑는 것은
+    # 복구용 차선이다. Z:에서 73개 누적본을 열면 6분, 최신 두 개만 열면 수초다.
+    recent_names = []
+    try:
+        base = os.path.dirname(os.path.abspath(__file__))
+        history = json.load(open(os.path.join(base, "reports", "카톡_반영회차.json"),
+                                 encoding="utf-8"))
+        for run in history if isinstance(history, list) else []:
+            names = [os.path.basename(str(name)) for name in (run.get("받은파일") or [])
+                     if str(name).lower().endswith(".txt")]
+            if names:
+                recent_names = names
+                break
+    except (OSError, ValueError, TypeError):
+        pass
+
+    fast_candidates = []
+    for name in recent_names:
+        for folder in folders:
+            direct = [os.path.join(folder, name)]
+            stamp = re.search(r"KakaoTalk_(\d{4})(\d{2})(\d{2})_", name)
+            if stamp:
+                y, m, d = stamp.groups()
+                direct.append(os.path.join(folder, y, m, f"{y}-{m}-{d}", name))
+            for path in direct:
+                if not os.path.isfile(path):
+                    continue
+                try:
+                    fast_candidates.append((os.path.getmtime(path), path))
+                except OSError:
+                    continue
+
+    def choose(candidates):
+        markers = ("쿠팡돌발점검", "쿠팡정기점검")
+        chosen, fallback = {}, []
+        for _, path in sorted(candidates, reverse=True):
+            try:
+                with open(path, encoding="utf-8-sig", errors="replace") as fh:
+                    head = fh.read(400)
+            except OSError:
+                continue
+            marker = next((word for word in markers if word in head), "")
+            if marker:
+                chosen.setdefault(marker, path)
+                if all(word in chosen for word in markers):
+                    break
+            elif not fallback:
+                fallback.append(path)
+        paths = [chosen[word] for word in markers if word in chosen]
+        return paths if paths else fallback
+
+    paths = choose(fast_candidates)
+    if len(paths) < 2:
+        # 보고 자국이 없거나 한 방만 받은 새 PC는 공유 정본에서 스스로 복구한다.
+        candidates, seen_path = list(fast_candidates), set()
+        for _, path in fast_candidates:
+            seen_path.add(os.path.normcase(os.path.abspath(path)))
+        for folder in folders:
+            for path in glob.glob(os.path.join(folder, "**", "*.txt"), recursive=True):
+                key = os.path.normcase(os.path.abspath(path))
+                if key in seen_path:
+                    continue
+                seen_path.add(key)
+                try:
+                    candidates.append((os.path.getmtime(path), path))
+                except OSError:
+                    continue
+        paths = choose(candidates)
+
+    if not dedupe_content:
+        return paths
+    import hashlib
+    out, seen_hash = [], set()
+    for path in paths:
+        try:
+            with open(path, "rb") as fh:
+                digest = hashlib.sha256(fh.read()).digest()
+        except OSError:
+            continue
+        if digest not in seen_hash:
+            seen_hash.add(digest)
+            out.append(path)
+    return out
+
+
 def load_kakao_records():
     """카톡 내보내기(.txt)도 같은 양식(♣ ［…] ● 프로젝트NO / ● 캠프이름)을 쓴다.
 
     밴드에 안 올라오고 카톡에만 보고된 건이 있어(2026-07-27 기준 39건) 함께 읽는다.
     한 메시지에 여러 건이 담기므로 ♣ 로 덩어리를 나눠 게시글처럼 취급한다.
     """
-    inbox = KAKAO_INBOX
-    if not os.path.isdir(inbox):
-        return []
     DAY = re.compile(r"-{3,}\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일")
     out, seen = [], set()
-    for f in sorted(glob.glob(os.path.join(inbox, "*.txt"))):
+    for f in kakao_source_paths():
         room = os.path.splitext(os.path.basename(f))[0]
         try:
             txt = open(f, encoding="utf-8", errors="replace").read()

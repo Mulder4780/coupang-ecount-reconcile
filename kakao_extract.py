@@ -45,6 +45,16 @@ def _load_reconcile():
 
 def source_paths():
     """카톡 로컬 inbox와 원본 정본을 재귀 탐색하고 동일 내용 사본은 한 번만 읽는다."""
+    # 쿠팡 두 업무방의 최신 내보내기는 방 전체 이력을 담는다. 대표보고와 같은
+    # 선택기를 먼저 써서 Z: 누적본 73개를 매번 열지 않는다. 다른 대화방·합성자료는
+    # 아래 범용 경로로 물러나 예전 동작을 보존한다.
+    try:
+        from band_extract import kakao_source_paths
+        latest = kakao_source_paths()
+        if len(latest) == 2:
+            return latest
+    except Exception:
+        pass
     try:
         from source_dirs import kakao_dirs
         folders = kakao_dirs()
