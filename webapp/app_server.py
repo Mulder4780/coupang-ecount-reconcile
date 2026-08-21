@@ -261,7 +261,9 @@ def tech_board(slug, limit=60):
                 "밴드": ""}
         if real:
             최근완료.append(dict(base, 날짜=real))
-        elif plan and plan <= today:
+        # 오늘 예정은 아직 미점검이 아니다. 하루가 끝나기 전부터 기사 지연으로
+        # 분류하면 같은 날 대표 보고에서 사람이 부당하게 책임을 진다.
+        elif plan and plan < today:
             밀린것.append(dict(base, 날짜=plan, 경과일=_daydiff(plan, today)))
         elif plan:
             예정.append(dict(base, 날짜=plan))
@@ -4840,8 +4842,24 @@ def representative_summary(works, settlements, base_date=""):
     서류 미정리는 그 완료행의 사진·완료보고서·ERP 값이 실제로 빠진 경우만 센다.
     """
     today = _report_date(base_date) or date.today()
-    as_rows = list((works or {}).get("as") or [])
+    raw_as_rows = list((works or {}).get("as") or [])
     pm_rows = list((works or {}).get("pm") or [])
+
+    # 접수ID만 다르고 프로젝트·접수일·신청내용이 같은 복제 행은 대표 숫자에서 한 번만
+    # 센다. 내용이 비면 별도 조치일 수 있으므로 합치지 않는다.
+    as_rows, _as_seen = [], set()
+    for row in raw_as_rows:
+        project = _report_project(row).strip().upper()
+        content = re.sub(r"\s+", " ", str(row.get("신청내용") or "").strip()).lower()
+        received = norm_date(row.get("접수일자"))
+        state = bool(_report_complete(row.get("진행상태"), row.get("작업완료일")))
+        key = (project, received, content, state)
+        if project and received and content and key in _as_seen:
+            continue
+        if project and received and content:
+            _as_seen.add(key)
+        as_rows.append(row)
+    as_duplicates = len(raw_as_rows) - len(as_rows)
 
     def as_item(r, *, issue, state):
         received = _report_date(r.get("접수일자"))
@@ -4870,7 +4888,7 @@ def representative_summary(works, settlements, base_date=""):
             grade = ("장기" if age > 30 else "심각" if age > 7 else
                      "경고" if age > 2 else "관심" if age > 1 else "정상")
             backlog.append(as_item(
-                r, issue=f"전산상 미완료 · {age if age >= 0 else '날짜 미상'}일 경과",
+                r, issue=f"완료 근거 확인 대기 · {age if age >= 0 else '날짜 미상'}일 경과",
                 state=grade))
         else:
             missing = []
@@ -4907,8 +4925,9 @@ def representative_summary(works, settlements, base_date=""):
     #   균등 배분(대상×경과일/분기일수)은 "7월에 몰아서 도는" 실제 일정과 어긋나
     #   목표 17 대 실제 44, +27건 같은 무의미한 숫자를 만들었다. 계획은 사람이
     #   예정일로 이미 세워 뒀다 — 오늘까지 예정된 건수가 곧 목표 누계다.
+    # 당일 예정은 하루가 끝나기 전부터 미실행·계획미달로 읽지 않는다.
     expected = sum(1 for r in qrows
-                   if (lambda d: bool(d and d <= today))(_report_date(r.get("점검예정일"))))
+                   if (lambda d: bool(d and d < today))(_report_date(r.get("점검예정일"))))
     actual = len(qdone)
     gap = actual - expected
     shortage_ratio = ((expected - actual) / expected * 100) if expected and actual < expected else 0
@@ -5007,7 +5026,7 @@ def representative_summary(works, settlements, base_date=""):
         (confirmed_policies if item["상태"] == "확정" and item["확정내용"] else policies).append(item)
 
     one_line = (
-        f"전산상 미완료 돌발 AS {len(backlog)}건 중 D+2 초과 {len(d2)}건, "
+        f"완료 근거 확인 대기 돌발 AS {len(backlog)}건 중 D+2 초과 {len(d2)}건, "
         f"현장완료·서류미정리 {len(paperwork)}건입니다. "
         f"{today.month}월 기준 정기점검은 목표 누계 {expected}건 대비 {actual}건"
         f"({gap:+d}건), 거래명세서 미발행 대상은 {len(unissued_rows)}건입니다."
@@ -5016,13 +5035,15 @@ def representative_summary(works, settlements, base_date=""):
         "meta": {
             "집계기준일": today.isoformat(), "적용마감시간": "관리대장 최신 저장 시점",
             "데이터최종갱신일": _data_asof_iso(),
-            "원천업무건수": len(as_rows) + len(pm_rows) + len(settlements or []),
+            "원천업무건수": len(raw_as_rows) + len(pm_rows) + len(settlements or []),
             "검증되지않은건수": len(backlog) + len(paperwork) + len(unissued_rows),
+            "중복접수제외": as_duplicates,
             "필터조건": f"{APP_YEAR}년·정상 상세 기본 접힘",
         },
         "한줄종합보고": one_line,
         "돌발AS": {
             "전산상미완료": len(backlog), "현장완료서류미정리": len(paperwork),
+            "중복접수제외": as_duplicates,
             "D+1초과": len(d1), "D+2초과": len(d2), "7일초과": len(d7),
             "30일초과": len(d30), "대표지속보고": len(d2),
             "미완료목록": backlog, "서류미정리목록": paperwork,
@@ -6987,7 +7008,7 @@ def _calendar_work_events():
         plan = norm_date(r.get("점검예정일"))
         key = str(r.get("프로젝트NO") or r.get("점검ID") or "").strip()
         served = any(d >= plan for d in pm_done_days.get(key, ())) if plan else False
-        if plan and not norm_date(r.get("실제점검일")) and plan <= today and not served:
+        if plan and not norm_date(r.get("실제점검일")) and plan < today and not served:
             days = (datetime.strptime(today, "%Y-%m-%d")
                     - datetime.strptime(plan, "%Y-%m-%d")).days
             bd = _band_done(r, "pm")
@@ -7007,6 +7028,14 @@ def _calendar_work_events():
                  "수집기준": _completion_cutoff(r, bidx),
                  "사람사유": _human_delay_reason(r, cap=0),
                  "기계추정": _machine_why(r, bidx, plan),
+                 "DB버전": r.get("DB버전")})
+        elif plan and not norm_date(r.get("실제점검일")) and not served:
+            # ★ 당일·앞날 예정은 원장에서도 반드시 예정으로 보낸다. 예전에는
+            # `<= today` 조건에 당일을 넣어 00:00부터 미처리로 만들었고, 조건만 `<`로
+            # 고치면 스케줄 동기화 파일에 없는 원장 일정은 아예 사라졌다.
+            add(plan, "pm_plan", f"정기점검 예정 · {camp}", r,
+                {"연결근거": "04_정기점검 원장의 오늘·앞날 예정일",
+                 "점검예정일": plan, "점검상태": r.get("점검상태") or "",
                  "DB버전": r.get("DB버전")})
     return out
 
@@ -7086,6 +7115,54 @@ def _drop_served_pm_plans(events, today=None):
                 moved += 1
         kept.append(event)
     return kept, removed, moved
+
+
+def _dedupe_calendar_pending(events):
+    """같은 원천 업무가 다른 접수ID로 복제돼 경고 숫자가 부풀지 않게 한다.
+
+    완료를 임의로 합치지 않고 대표 보고의 열린 상태만 다룬다. 프로젝트·날짜·종류와
+    내용이 모두 같은 경우만 중복으로 본다. 내용이 비면 서로 다른 현장 조치일 수 있어
+    합치지 않는다. 제거한 ID는 대표 보고 감사 근거로 남긴다.
+    """
+    kept, seen, removed = [], {}, 0
+    for raw in list(events or []):
+        event = dict(raw)
+        kind = str(event.get("분류") or "")
+        project = str(event.get("프로젝트NO") or "").split(" · ")[0].strip().upper()
+        content = str(event.get("신청내용") or event.get("이상발견") or "").strip()
+        content = re.sub(r"\s+", " ", content).lower()
+        if kind not in {"as_open", "pm_overdue", "pm_plan"} or not project or not content:
+            kept.append(event)
+            continue
+        key = (norm_date(event.get("날짜")), kind, project, content)
+        prior = seen.get(key)
+        if prior is None:
+            seen[key] = event
+            kept.append(event)
+            continue
+        ids = list(prior.get("중복원천업무ID") or [])
+        for value in (prior.get("원천업무ID"), event.get("원천업무ID")):
+            value = str(value or "").strip()
+            if value and value not in ids:
+                ids.append(value)
+        prior["중복원천업무ID"] = ids
+        prior["중복제외건수"] = int(prior.get("중복제외건수") or 0) + 1
+        removed += 1
+    return kept, removed
+
+
+def _report_calendar_disposition(event):
+    """대표 캡처에서 '근거 미수집'을 기사 '미처리'로 단정하지 않는 마지막 관문."""
+    kind = str((event or {}).get("분류") or "")
+    if kind not in {"as_open", "pm_overdue"}:
+        return ""
+    if event.get("지난예정이동"):
+        return "일정 확인 대기"
+    if str(event.get("근거갈래") or "") == "못봄":
+        return "실시간 확인 대기"
+    if str(event.get("사람사유") or "").strip():
+        return "담당자 조치 중"
+    return "완료 확인 대기"
 
 
 def get_calendar():
@@ -7195,14 +7272,61 @@ def get_calendar():
     # 완료일이 예정일 이후인 회차만 내리므로, 이미 끝난 지난 회차 뒤의 다음 예정은 보존한다.
     d["일정"], d["점검완료예정제외"], d["지난예정미처리이동"] = \
         _drop_served_pm_plans(d.get("일정") or [])
+    d["일정"], d["중복접수제외"] = _dedupe_calendar_pending(d.get("일정") or [])
 
     # 분류가 없는 옛 일정(Google 원천 등)도 필터에 걸리도록 자리를 준다.
     for e in d.get("일정") or []:
         e.setdefault("분류", "etc")
+        disposition = _report_calendar_disposition(e)
+        if disposition:
+            e["보고판정"] = disposition
+            # 수집되지 않은 완료 근거를 기사 경보로 바꾸지 않는다. 담당자가 실제 사유를
+            # 입력한 건만 기존 지연 판정과 결합해 대표 확인 대상으로 올린다.
+            e["보고경보"] = bool(e.get("경보") and disposition == "담당자 조치 중")
     d["일정"] = sorted(d.get("일정") or [], key=lambda e: (
         str(e.get("날짜") or "9999"), str(e.get("시간") or ""), str(e.get("제목") or "")))
     d["분류목록"] = [{"key": k, "label": l, "color": c} for k, l, c in CAL_KINDS]
     return d
+
+
+def prepare_representative_report(month="", day=""):
+    """'대표 보고 준비' 공통 관문: 최신 AppStore를 다시 읽고 검증된 캘린더를 반환한다."""
+    now = datetime.now()
+    target_day = norm_date(day) or now.strftime("%Y-%m-%d")
+    target_month = str(month or "").strip()[:7]
+    if not re.match(r"^20\d{2}-(?:0[1-9]|1[0-2])$", target_month):
+        target_month = target_day[:7]
+
+    _invalidate_app_data_caches()
+    if isinstance(globals().get("_BAND_EV"), dict):
+        _BAND_EV.update({"at": 0.0, "d": None})
+    calendar = get_calendar()
+    target_rows = [e for e in calendar.get("일정") or []
+                   if str(e.get("날짜") or "")[:7] == target_month]
+    pending = [e for e in target_rows if e.get("분류") in {"as_open", "pm_overdue"}]
+    by_disposition, by_work = {}, {"돌발AS": 0, "정기점검": 0}
+    for event in pending:
+        label = str(event.get("보고판정") or "완료 확인 대기")
+        by_disposition[label] = by_disposition.get(label, 0) + 1
+        work = "돌발AS" if event.get("분류") == "as_open" else "정기점검"
+        by_work[work] += 1
+    result = {
+        "ok": True, "캡처가능": True,
+        "준비시각": now.isoformat(timespec="seconds"),
+        "대상월": target_month, "보고기준일": target_day,
+        "표시원칙": "완료 근거를 아직 수집하지 못한 건은 기사 미처리가 아니라 완료 확인 대기로 표시",
+        "완료확인": {"전체": len(pending), "판정별": by_disposition, "업무별": by_work},
+        "중복접수제외": int(calendar.get("중복접수제외") or 0),
+        "당일예정은미처리제외": True,
+        "원천수집": band_collect_cutoff(),
+        "calendar": calendar,
+    }
+    try:
+        audit = {k: v for k, v in result.items() if k != "calendar"}
+        _atomic_json(os.path.join(ROOT, "reports", "대표보고_준비상태.json"), audit)
+    except Exception:
+        pass
+    return result
 
 
 # ── 프로젝트(현장) 한 곳의 내력 한 벌 ────────────────────────────────────────
@@ -7309,7 +7433,7 @@ def project_history(camp="", pj="", limit=400):
         if real:
             이력.append(item("pm_done", real, "정기점검 완료", r, "점검ID",
                              점검예정일=plan, **common))
-        elif plan and plan <= today:
+        elif plan and plan < today:
             현황.append(item("pm_overdue", plan, "정기점검 미처리", r, "점검ID",
                              경과일=_daydiff(plan, today), **common))
         elif plan:
@@ -9631,6 +9755,10 @@ self.addEventListener('fetch', e => {
                     "근거": "", "클로드문구": q})
         if p == "/api/calendar":
             return self._send(200, get_calendar())
+        if p == "/api/report-prepare":
+            qs = parse_qs(urlsplit(self.path).query)
+            g = lambda k: (qs.get(k, [""])[0] or "").strip()
+            return self._send(200, prepare_representative_report(g("month"), g("day")))
         if p == "/api/suggest":
             # 입력 자동완성. 원장에 이미 있는 값만 돌려준다(문턱은 /api/works 와 같다).
             qs = parse_qs(urlsplit(self.path).query)   # 함수 안 import 금지(윗 주석)

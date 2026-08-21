@@ -17287,6 +17287,71 @@ def t378_existing_watchdog_absorbs_and_audits_new_features():
     print("✅ [378] 신규 기능 자동 편입·단일 등록문·기존 워치독 계약 감시")
 
 
+def t379_representative_prepare_never_blames_unverified_staff():
+    """[379] 대표 보고는 최신 검증 뒤에만 캡처하고 미수집 완료를 기사 과실로 단정하지 않는다."""
+    from datetime import datetime as _dt, timedelta as _td
+    from webapp import app_server as S
+
+    duplicate = {
+        "날짜": "2026-08-03", "분류": "as_open", "프로젝트NO": "UJ2601394",
+        "원천업무ID": "AS-A", "신청내용": "리모컨 교체", "경보": True,
+    }
+    rows, removed = S._dedupe_calendar_pending([
+        duplicate, dict(duplicate, 원천업무ID="AS-B"),
+        dict(duplicate, 원천업무ID="AS-C", 신청내용="도어 센서 교체"),
+    ])
+    assert removed == 1 and len(rows) == 2, (removed, rows)
+    assert set(rows[0]["중복원천업무ID"]) == {"AS-A", "AS-B"}, rows[0]
+    assert S._report_calendar_disposition({"분류": "as_open", "근거갈래": "못봄"}) == "실시간 확인 대기"
+    assert S._report_calendar_disposition({"분류": "as_open", "사람사유": "부품 입고 대기"}) == "담당자 조치 중"
+    assert S._report_calendar_disposition({"분류": "as_open"}) == "완료 확인 대기"
+    assert S._report_calendar_disposition({"분류": "pm_overdue", "지난예정이동": True}) == "일정 확인 대기"
+
+    rep_as = {"접수ID": "AS-R1", "프로젝트NO": "UJ2609999", "캠프명": "대표캠프",
+              "접수일자": "2026-08-03", "신청내용": "리모컨 교체", "진행상태": "접수",
+              "작업완료일": ""}
+    rep = S.representative_summary({"as": [rep_as, dict(rep_as, 접수ID="AS-R2")],
+                                    "pm": [
+                                        {"점검ID": "PM-PREV", "프로젝트NO": "UJ-PREV",
+                                         "점검예정일": "2026-08-20", "실제점검일": ""},
+                                        {"점검ID": "PM-NOW", "프로젝트NO": "UJ-NOW",
+                                         "점검예정일": "2026-08-21", "실제점검일": ""},
+                                    ]}, [], "2026-08-21")
+    assert rep["돌발AS"]["전산상미완료"] == 1 and rep["돌발AS"]["중복접수제외"] == 1, rep["돌발AS"]
+    assert rep["정기점검"]["목표누계"] == 1, rep["정기점검"]
+
+    today = _dt.now().strftime("%Y-%m-%d")
+    yesterday = (_dt.now() - _td(days=1)).strftime("%Y-%m-%d")
+    works = {"as": [], "pm": [
+        {"점검ID": "PM-TODAY", "프로젝트NO": "UJ-TODAY", "캠프명": "오늘캠프",
+         "점검예정일": today, "실제점검일": "", "점검상태": "예정", "이상발견여부": "없음"},
+        {"점검ID": "PM-YDAY", "프로젝트NO": "UJ-YDAY", "캠프명": "어제캠프",
+         "점검예정일": yesterday, "실제점검일": "", "점검상태": "예정", "이상발견여부": "없음"},
+    ]}
+    old_works, old_band = S.get_works, S._band_completion_index
+    try:
+        S.get_works = lambda: works
+        S._band_completion_index = lambda: {
+            "읽음": True, "완료": {}, "언급": set(), "카톡": {},
+            "밴드수집": {"(주)유니버셜리프트 쿠팡AS": yesterday},
+        }
+        events = S._calendar_work_events()
+    finally:
+        S.get_works, S._band_completion_index = old_works, old_band
+    by_id = {e.get("원천업무ID"): e for e in events}
+    assert by_id["PM-TODAY"]["분류"] == "pm_plan", by_id
+    assert by_id["PM-YDAY"]["분류"] == "pm_overdue", by_id
+
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    ui = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert 'if p == "/api/report-prepare":' in server
+    assert "await prepareRepresentativeReport(CAL_MONTH" in ui
+    assert "if(!await reportCaptureGate()) return;" in ui
+    assert "기사 미조치로 확정된 돌발AS가 없습니다" in ui
+    assert "REPORT_PREPARE&&REPORT_PREPARE['중복접수제외']" in ui
+    print("✅ [379] 대표 보고 실시간 관문·중복 제외·당일 예정·기사 보호 판정")
+
+
 def t375_org_capture_is_a_floor_plan_and_icons_are_one_family():
     """[형님 지시 2026-08-21] 조직도 캡처는 **사무실 배치도** · 아이콘은 앱 표준 한 벌.
 
@@ -31072,6 +31137,7 @@ if __name__ == "__main__":
     t376_unfinished_is_split_by_evidence_and_staff_can_close_it()
     t377_one_save_converges_staff_report_calendar_and_capture()
     t378_existing_watchdog_absorbs_and_audits_new_features()
+    t379_representative_prepare_never_blames_unverified_staff()
     t371_a_round_that_is_not_due_yet_is_not_late()
     t373_sheet_is_a_wide_modal_that_esc_slides_down()
     t294_unreadable_source_never_passes_as_read()
