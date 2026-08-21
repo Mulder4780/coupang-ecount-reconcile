@@ -63,7 +63,30 @@ def _flag_var_ok(call: ast.Call, tree) -> bool:
     return False
 
 
-def _has_no_window(call: ast.Call) -> bool:
+def safe_helpers(trees):
+    """`**헬퍼()` 로 펼쳐 쓰는 헬퍼 중 **본문에 `CREATE_NO_WINDOW` 가 있는** 것.
+
+    ★ **이름으로 믿지 않는다 — 본문을 읽는다** (2026-08-21).  전에는
+      `background_popen_kwargs` 라는 **이름 하나를 못 박아** 뒀다.  그래서 같은
+      일을 다른 이름으로 하는 저장소(예: `no_window_kwargs`)는 멀쩡히 깃발을
+      달고도 전부 '못 읽음'으로 쌓였고, 진짜 못 읽은 자리가 그 안에 묻혔다([170]).
+      이름 목록을 늘리면 사본이 되고, 이름만 보고 믿으면 **창이 뜨는데 0곳이라
+      말하는** 자리가 된다([169]) — 그래서 정의를 찾아 본문을 본다.
+    ★ 정의를 못 찾으면(다른 폴더·건너뛴 폴더) 그 자리는 그대로 '모름'이다."""
+    out = set()
+    for _rel, tree in trees:
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            try:
+                if "CREATE_NO_WINDOW" in ast.unparse(node):
+                    out.add(node.name)
+            except Exception:
+                continue
+    return out
+
+
+def _has_no_window(call: ast.Call, helpers=()) -> bool:
     """이 호출이 `CREATE_NO_WINDOW` 를 확실히 달고 있나.
 
     ★ 이름만 본다 — 값을 계산하지 않는다. `flags` 같은 변수에 담아 넘기는 자리는
@@ -78,8 +101,19 @@ def _has_no_window(call: ast.Call) -> bool:
             continue
         # proc_guard 헬퍼를 통째로 펼친 경우(**background_popen_kwargs())
     for kw in call.keywords:
-        if kw.arg is None and "background_popen_kwargs" in ast.unparse(kw.value):
+        if kw.arg is not None:
+            continue
+        try:
+            txt = ast.unparse(kw.value)
+        except Exception:
+            continue
+        # 이 저장소의 정본 헬퍼 — `safe_helpers()` 가 본문을 읽어 저절로 잡지만,
+        # 그 함수를 못 읽는 자리(다른 폴더에서 부를 때)를 위해 이름도 남겨 둔다.
+        if "background_popen_kwargs" in txt:
             return True
+        for name in helpers:
+            if name + "(" in txt:
+                return True
     return False
 
 
@@ -590,41 +624,41 @@ def scan(root=None):
       진행해도" 다. 이 감사기가 제 저장소에만 매여 있으면 다른 세션이 고치는
       프로젝트는 통째로 눈 밖이다. 기본값은 그대로 이 저장소라 동작이 안 바뀐다."""
     root = root or ROOT
-    bad = []
+    # ★ 두 번 훑는다: 먼저 **헬퍼 본문**을 읽어 무엇이 안전한지 정하고, 그다음 호출을
+    #   본다.  한 번에 하면 파일 순서에 따라 **뒤에 정의된 헬퍼를 못 알아본다** —
+    #   그러면 같은 코드가 훑는 순서에 따라 다른 답을 낸다.
+    trees = []
     for base, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for fn in files:
             if not fn.endswith(".py"):
                 continue
             p = os.path.join(base, fn)
-            rel = os.path.relpath(p, root).replace("\\", "/")
+            rel = os.path.relpath(p, root).replace(chr(92), "/")
             if rel.startswith("tools/window_audit"):
                 continue
             try:
-                tree = ast.parse(open(p, encoding="utf-8").read())
-            except (OSError, SyntaxError):
+                trees.append((rel, ast.parse(open(p, encoding="utf-8").read())))
+            except (OSError, SyntaxError, ValueError, RecursionError):
                 continue
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Call):
-                    continue
-                f = node.func
-                if not isinstance(f, ast.Attribute) or f.attr not in SPAWNERS:
-                    continue
-                if not (isinstance(f.value, ast.Name) and f.value.id == "subprocess"):
-                    continue
-                if _has_no_window(node) or _flag_var_ok(node, tree):
-                    continue
-                # ★ **모르는 것을 조용히 넘기지 않는다** (2026-08-14 실사고).
-                #   전에는 무엇을 띄우는지 모르면 `continue` 로 건너뛰고 "0곳"이라
-                #   말했다. 그런데 건너뛴 자리가 **30곳**이었고 그 안에
-                #   `tailscale_serve.run()` 이 있었다 — `server_guard` 가 **60초마다**
-                #   부르는 자리다. 즉 화면에는 1분마다 검은 창이 떴는데 계기는
-                #   "0곳"을 확언했다. 0 이 '없다'인지 '안 봤다'인지 안 가르면
-                #   계기 자신이 눈이 먼다([169]).
-                #   그래서 이제 **모름도 돌려준다**. 지목이 아니라 '못 봤다'는 보고다.
-                bad.append((rel, node.lineno, f.attr, _looks_console(node)))
+    helpers = safe_helpers(trees)
+    bad = []
+    for rel, tree in trees:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            f_ = node.func
+            if not isinstance(f_, ast.Attribute) or f_.attr not in SPAWNERS:
+                continue
+            if not (isinstance(f_.value, ast.Name) and f_.value.id == "subprocess"):
+                continue
+            if _has_no_window(node, helpers) or _flag_var_ok(node, tree):
+                continue
+            bad.append((rel, node.lineno, f_.attr, _looks_console(node)))
     bad.sort()
     return bad
+
+
 
 
 def split(rows=None, root=None):

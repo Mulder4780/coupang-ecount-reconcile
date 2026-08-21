@@ -22956,6 +22956,72 @@ def t381_row_count_is_cached_and_never_freezes_a_miss():
     print("[381] 행수 세기는 캐시 뒤에 · 못 읽은 것은 안 굳힌다 · 구간 자국 살아 있음")
 
 
+def t384_window_audit_reads_helper_bodies_not_names():
+    """[384] 창 감사기는 `**헬퍼()` 를 **이름이 아니라 본문**으로 판정한다 (2026-08-21).
+
+    형님 지시: "어떤 계정 어떤 세션에서 진행해도 팝업은 백그라운드에서".
+    그래서 감사기가 이웃 저장소도 재는데, 저장소마다 창 없는 깃발을 감싼 헬퍼
+    **이름이 다르다**(이 저장소 `background_popen_kwargs` · 이웃 `no_window_kwargs`).
+    전에는 이름 하나를 못 박아 둬서, 멀쩡히 깃발을 단 자리 넷이 전부 '못 읽음'으로
+    쌓였다 — 실측 2026-08-21 UNI Cash Flow 저장소 못읽음 **5곳 → 2곳**.
+    ★ 그 넷이 섞여 있으면 **진짜 못 읽은 자리 둘이 그 안에 묻힌다**([170]).
+    ★ 그렇다고 **이름으로 믿지 않는다** — 정의를 찾아 본문에 `CREATE_NO_WINDOW`
+      가 있을 때만 조용으로 본다.  이름만 보고 믿으면 창이 뜨는데 0곳이라 말하는
+      자리가 된다([169]).
+    ★ 실측 저장소는 한 글자도 안 건드린다([247]) — 임시 폴더에 합성 저장소를 짓는다."""
+    import importlib
+    WA = importlib.import_module("tools.window_audit")
+    # ★ `NL` 은 이 파일 **모듈 수준에 없다**([324] 가 `io`·`shutil` 에서 배운 그 자리) —
+    #   격리 실행에서는 통과하고 관문에서만 NameError 로 죽는다.  여기서 만든다.
+    NL = chr(10)
+    tmp = tempfile.mkdtemp()
+
+    def write(rel, text):
+        p2 = os.path.join(tmp, rel)
+        os.makedirs(os.path.dirname(p2), exist_ok=True)
+        with open(p2, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+
+    Q = chr(34)
+    # (1) 본문에 CREATE_NO_WINDOW 가 있는 헬퍼 → 그것을 펼친 자리는 조용
+    write("helper.py",
+          "import subprocess" + NL +
+          "def quiet_kwargs():" + NL +
+          "    return {'creationflags': subprocess.CREATE_NO_WINDOW}" + NL)
+    write("user.py",
+          "import subprocess" + NL + "from helper import quiet_kwargs" + NL +
+          "subprocess.run(['git', 'status'], **quiet_kwargs())" + NL)
+    rows = WA.scan(root=tmp)
+    assert not rows, ("본문에 깃발이 있는 헬퍼를 못 알아봤다", rows)
+
+    # (2) 본문에 깃발이 **없는** 헬퍼는 이름이 비슷해도 조용이라 하지 않는다
+    write("helper.py",
+          "def quiet_kwargs():" + NL + "    return {}" + NL)
+    rows = WA.scan(root=tmp)
+    assert len(rows) == 1, ("이름만 보고 믿었다 — 창이 뜨는데 0곳이라 말한다", rows)
+    assert rows[0][3] == "git", rows
+
+    # (3) 헬퍼 정의를 아예 못 찾으면 그대로 '모름'이다([169])
+    os.remove(os.path.join(tmp, "helper.py"))
+    rows = WA.scan(root=tmp)
+    assert len(rows) == 1, rows
+
+    # (4) 계기 자기시험([272]) — 본문 판정을 죽이면 (1)이 잡히나
+    write("helper.py",
+          "import subprocess" + NL +
+          "def quiet_kwargs():" + NL +
+          "    return {'creationflags': subprocess.CREATE_NO_WINDOW}" + NL)
+    assert not WA.scan(root=tmp), "시험 준비가 틀렸다"
+    keep = WA.safe_helpers
+    WA.safe_helpers = lambda trees: set()
+    try:
+        assert WA.scan(root=tmp), "[384] 가 아무것도 안 재고 있다"
+    finally:
+        WA.safe_helpers = keep
+    assert not WA.scan(root=tmp), "되돌리기가 안 됐다"
+    print("[384] 창 감사기가 헬퍼 **본문**을 읽는다 · 이름으로는 안 믿는다 · 계기 자기시험 통과")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -31711,6 +31777,7 @@ if __name__ == "__main__":
     t383_login_autorun_is_watched_for_windows()
     t382_session_hooks_never_open_windows()
     t381_row_count_is_cached_and_never_freezes_a_miss()
+    t384_window_audit_reads_helper_bodies_not_names()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
