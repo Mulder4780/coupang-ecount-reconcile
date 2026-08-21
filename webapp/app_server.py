@@ -6368,7 +6368,7 @@ _BAND_EV_TTL = 300
 # 색인 모양을 바꾸면 **이 숫자를 손으로 올린다.** 지문은 원본이 바뀌었나만 보므로,
 # 규칙이 바뀌어도 원본이 그대로면 옛 캐시가 영원히 이긴다(같은 사고 네 번째 —
 # `inbox_scan.RULES_VERSION` 과 같은 자리다).
-_BAND_EV_VER = 3   # 2026-08-21: 한 글의 양식을 전부 읽게 바뀜(band_extract.parse_post_all)
+_BAND_EV_VER = 5   # 2026-08-21: 한 글의 양식을 전부 읽게 바뀜(band_extract.parse_post_all)
 #: ⚠ 파싱 규칙을 고치면 **이 숫자를 손으로 올린다** — 원본이 안 바뀌면 지문이 안
 #:   움직여 옛 색인이 영원히 이긴다(이 프로젝트가 다섯 번 겪은 모양이다).
 
@@ -6479,6 +6479,7 @@ def _band_completion_index():
             pass
 
     out = {"완료": {}, "언급": set(), "카톡": {}, "최신": "", "읽음": False,
+           "밴드수집": {}, "수집최신": "",
            "지문": fp, "판": _BAND_EV_VER}
     try:
         import band_extract
@@ -6490,6 +6491,19 @@ def _band_completion_index():
             when = norm_date(r.get("작업일")) or norm_date(r.get("게시일"))
             if when > out["최신"]:
                 out["최신"] = when
+            # ★ **수집이 어디까지 왔나는 '작업일'이 아니라 '게시일'로 잰다**
+            #   (2026-08-21 실사고). `최신` 은 작업일 최대값이라 **미래 예정일**도
+            #   섞이고, 오래된 작업을 오늘 올린 글도 못 센다. 그래서 색인은
+            #   `2026-08-20 까지 봤다` 고 말했는데 실제로는 밴드 84789192 가
+            #   **08-14 에 멈춰** 있었다 — 계기가 틀린 값을 말하니 일주일치가
+            #   통째로 안 보이는데도 아무 화면에 안 떴다([169]).
+            # ★ **밴드마다 따로** 잰다. 한 밴드만 밀려도 그 밴드에 올라온 완료 글은
+            #   어느 건이든 안 보인다 — 합치면 그 사실이 사라진다.
+            if not str(r.get("밴드") or "").startswith("카톡"):
+                _b = str(r.get("밴드") or "").strip()
+                _pd = norm_date(r.get("게시일"))
+                if _b and _pd and _pd > (out["밴드수집"].get(_b) or ""):
+                    out["밴드수집"][_b] = _pd
             # ★ **카톡에만 적힌 근거를 따로 담는다** (2026-08-18 지시).
             #   `load_records()` 는 밴드와 카톡을 **같은 양식**으로 돌려주므로 지금까지
             #   둘이 한 통에 섞였고, 화면은 '밴드·카톡에 글이 없다'처럼 **뭉쳐서만**
@@ -6515,6 +6529,10 @@ def _band_completion_index():
                 old = out["완료"].get(pj)
                 if not old or (when and when < (norm_date(old.get("작업일")) or "9999")):
                     out["완료"][pj] = r
+        # ★ **가장 늦은 밴드**가 기준이다 — 하나만 밀려도 그 밴드 건은 못 본다.
+        #   빠른 밴드로 말하면 "다 봤다"는 거짓이 된다([169]).
+        if out["밴드수집"]:
+            out["수집최신"] = min(out["밴드수집"].values())
         out["읽음"] = True
     except Exception:
         # 못 읽었으면 **거르지 않고 예전대로** 간다. '못 읽음'을 '근거 없음'으로
@@ -6573,10 +6591,12 @@ def band_collect_cutoff():
         idx = _band_completion_index()
     except Exception as exc:
         return {"읽음": False, "왜": str(exc)[:80]}
-    last = idx.get("최신") or ""
+    # ★ **게시일 기준**이다([169]) — 작업일 최대값으로 말하면 밀린 날을 못 센다.
+    last = idx.get("수집최신") or idx.get("최신") or ""
     today = _today_str()
+    per = dict(idx.get("밴드수집") or {})
     return {"읽음": bool(idx.get("읽음")), "최신": last, "오늘": today,
-            "밀림": bool(last and last < today)}
+            "밴드별": per, "밀림": bool(last and last < today)}
 
 def _open_evidence_class(row, idx, when):
     """왜 미처리로 서 있나 — **기록이 없는 것**과 **안 간 것**을 가른다([169]).
@@ -6596,7 +6616,10 @@ def _open_evidence_class(row, idx, when):
     if not idx.get("읽음"):
         return "못봄"
     pj = str(row.get("프로젝트NO") or "").split(" · ")[0].strip()
-    last = idx.get("최신") or ""
+    # ★ 기준은 **게시일**로 잰 `수집최신` 이다 — `최신`(작업일 최대값)은
+    #   미래 예정일이 섞여 "다 봤다"를 확언한다([169]). 옛 색인에는 그 칸이 없으므로
+    #   없으면 예전 값으로 물러난다(못 읽음을 '다 봤다'로 치지 않는다).
+    last = idx.get("수집최신") or idx.get("최신") or ""
     # ⚠ **수집이 며칠 밀린 것을 건별 갈래에 섞지 않는다** (2026-08-21 실측).
     #   한때 `수집 최신일 < 오늘` 이면 전부 '못봄' 으로 돌렸는데, 그러자 106건이
     #   **전부 한 갈래**가 됐다 — 한 갈래가 전부면 그 갈래는 아무 말도 안 한다([170]).
@@ -6635,7 +6658,10 @@ def _machine_why(row, idx, got):
     if not idx.get("읽음"):
         return "밴드·카톡 기록을 못 읽었다 — 완료 여부를 확인 못 함"
     pj = str(row.get("프로젝트NO") or "").split(" · ")[0].strip()
-    last = idx.get("최신") or ""
+    # ★ 기준은 **게시일**로 잰 `수집최신` 이다 — `최신`(작업일 최대값)은
+    #   미래 예정일이 섞여 "다 봤다"를 확언한다([169]). 옛 색인에는 그 칸이 없으므로
+    #   없으면 예전 값으로 물러난다(못 읽음을 '다 봤다'로 치지 않는다).
+    last = idx.get("수집최신") or idx.get("최신") or ""
 
     # ★ **카톡에 적힌 근거는 갈래와 상관없이 같이 말한다** (2026-08-18 지시).
     #   갈래마다 따로 붙이면 한 갈래에서 빠뜨려도 아무도 모른다 — 근거가 있는데

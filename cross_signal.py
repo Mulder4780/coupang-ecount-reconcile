@@ -94,7 +94,7 @@ def band_signals():
                 cmts = " ".join(str(c.get("content") or "")
                                 for c in (p.get("comments") or []) if isinstance(c, dict))
             camp = camp_core(p.get("camp") or _camp_from(body))
-            project_match = band_extract.RE_PRJ.search(body)
+            project_match = band_extract.form_prj(body)   # 양식 머리 뒤가 주인공
             project = project_match.group(1).upper() if project_match else ""
             for where, text in (("본문", body), ("댓글", cmts)):
                 ev = events_in(text)
@@ -128,8 +128,8 @@ def kakao_signals():
             if not ev:
                 continue
             camp = camp_core(_camp_from(m["text"]))
-            from band_extract import RE_PRJ
-            project_match = RE_PRJ.search(m["text"])
+            from band_extract import form_prj
+            project_match = form_prj(m["text"])
             project = project_match.group(1).upper() if project_match else ""
             if not camp and not project:
                 continue

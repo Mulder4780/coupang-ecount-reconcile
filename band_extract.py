@@ -456,9 +456,39 @@ def parse_post_all(no, p, band):
     return out
 
 
+def form_field(rx, c):
+    """양식 머리(`♣ ［…]`) **뒤**의 값이 그 양식의 주인공이다.
+
+    ★ 2026-08-21 실사고(형님 지시 "처리됐는데 미처리로 뜼는 건 해결").
+      완료 글 머리말에 **참조용 다른 프로젝트NO** 를 적어 두는 일이 있다:
+        `✔️ 동일 캠프 돌발AS와 동시 진행 / ● 프로젝트NO : UJ2600756`
+        `♣ ［ 돌발유료 A/S 완료 ] … ● 프로젝트NO : UJ2600793`
+      그런데 `RE_PRJ.search(c)` 는 **맨 앞 = 참조 번호**를 읽어, 완료 글이
+      **엉뚝한 프로젝트에 붙었다.** 실측 17건 · 그중 15건이 완료 글이다.
+    ★ **두 방향으로 다 틀린다.** 다녀온 현장이 미처리로 서고(형님이 짚으신
+      그 문제) **동시에 안 간 현장이 완료로 찍힌다** — 뒤쪽이 더 나쁘다([172]).
+    ★ **머리 뒤에 값이 없거나 비면 예전 그대로**다 — 빈 값으로 덮으면 알던 것을
+      잃는다([326]). 머리가 없는 글(댓글·메모)도 예전 그대로라 넓히는 것이 아니다.
+    """
+    m = RE_FORM_HEAD.search(c or "")
+    if m:
+        got = rx.search(c, m.end())
+        if got and (got.lastindex is None or (got.group(1) or "").strip()):
+            return got
+    return rx.search(c or "")
+
+
+def form_prj(c):
+    """이 글의 **주인공** 프로젝트NO. 밴드 본문을 읽는 곳은 전부 이것을 쓴다([162]).
+
+    대상이 댓글·카톡처럼 양식 머리가 없으면 `RE_PRJ.search` 와 같다.
+    """
+    return form_field(RE_PRJ, c)
+
+
 def parse_post(no, p, band):
     c = p.get("content") or ""
-    prj = RE_PRJ.search(c)
+    prj = form_prj(c)          # ★ 양식 머리 뒤가 주인공([172])
     title = (RE_TITLE.search(c).group(1).strip() if RE_TITLE.search(c) else "")
     if not prj and not title:
         return None                       # 업무 게시글이 아님(공지·자료 등)
@@ -480,7 +510,8 @@ def parse_post(no, p, band):
     # 게시일을 함께 넘긴다 — 인계 **전** 글은 그때 담당자 그대로 둬야 한다.
     tech = normalize_tech(tech_raw, when=posted)
 
-    camp = (RE_CAMP.search(c).group(1).strip() if RE_CAMP.search(c) else "")
+    _mc = form_field(RE_CAMP, c)   # 서두 메모가 캠프명을 가로챈다(실측 5건)
+    camp = _mc.group(1).strip() if _mc else ""
     camp = re.sub(r"\s*\.{3}더보기.*$", "", camp).strip()
 
     # 업무유형·유상무상·상태

@@ -48,7 +48,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
 from band_extract import (cancel_hit, latest_cancel_event,
-                          cancel_blind_count, RE_PRJ)  # noqa: E402
+                          cancel_blind_count, RE_PRJ, form_prj)  # noqa: E402
 from cancel_resolution import (load_corroborations, outcome_kind, sync_hits)  # noqa: E402
 
 CACHE_DIR = os.path.join(ROOT, "band", "cache")
@@ -93,7 +93,9 @@ def scan_band(quiet=False):
                 continue
             total += 1
             body = p.get("content") or ""
-            m = RE_PRJ.search(body)
+            # ★ 양식 머리 뒤가 이 글의 주인공이다 — 서두의 참조 번호를 읽으면
+            #   **엉뚱한 현장을 취소로 닫는다**(못 잡는 것보다 나쁘다 · [172]).
+            m = form_prj(body)
             if not m:
                 continue                      # 프로젝트NO 가 없으면 원장에 붙일 수 없다
             event = latest_cancel_event(p)
