@@ -6368,7 +6368,9 @@ _BAND_EV_TTL = 300
 # 색인 모양을 바꾸면 **이 숫자를 손으로 올린다.** 지문은 원본이 바뀌었나만 보므로,
 # 규칙이 바뀌어도 원본이 그대로면 옛 캐시가 영원히 이긴다(같은 사고 네 번째 —
 # `inbox_scan.RULES_VERSION` 과 같은 자리다).
-_BAND_EV_VER = 2
+_BAND_EV_VER = 3   # 2026-08-21: 한 글의 양식을 전부 읽게 바뀜(band_extract.parse_post_all)
+#: ⚠ 파싱 규칙을 고치면 **이 숫자를 손으로 올린다** — 원본이 안 바뀌면 지문이 안
+#:   움직여 옛 색인이 영원히 이긴다(이 프로젝트가 다섯 번 겪은 모양이다).
 
 
 _KAKAO_FORM_LABELS = ("프로젝트NO", "캠프이름", "캠프명", "캠프주소", "현장책임",
@@ -6556,6 +6558,26 @@ def _human_delay_reason(row, cap=None):
     return text
 
 
+def _today_str():
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def band_collect_cutoff():
+    """밴드·카톡 수집이 **어디까지 왔나** — 캡처가 이 한 줄을 싣는다.
+
+    ★ 대표 보고가 안 본 날에 대해 '안 했다'고 말하면 안 된다([169]).
+      2026-08-21 실측: 수집 최신 08-19 인데 캡처는 `미처리 106건` 이라고만 적었고
+      본부장·대표는 그것을 "AS팀이 일을 안 한다"로 읽었다.
+    """
+    try:
+        idx = _band_completion_index()
+    except Exception as exc:
+        return {"읽음": False, "왜": str(exc)[:80]}
+    last = idx.get("최신") or ""
+    today = _today_str()
+    return {"읽음": bool(idx.get("읽음")), "최신": last, "오늘": today,
+            "밀림": bool(last and last < today)}
+
 def _open_evidence_class(row, idx, when):
     """왜 미처리로 서 있나 — **기록이 없는 것**과 **안 간 것**을 가른다([169]).
 
@@ -6575,6 +6597,11 @@ def _open_evidence_class(row, idx, when):
         return "못봄"
     pj = str(row.get("프로젝트NO") or "").split(" · ")[0].strip()
     last = idx.get("최신") or ""
+    # ⚠ **수집이 며칠 밀린 것을 건별 갈래에 섞지 않는다** (2026-08-21 실측).
+    #   한때 `수집 최신일 < 오늘` 이면 전부 '못봄' 으로 돌렸는데, 그러자 106건이
+    #   **전부 한 갈래**가 됐다 — 한 갈래가 전부면 그 갈래는 아무 말도 안 한다([170]).
+    #   수집 밀림은 **건별 사실이 아니라 그림 전체의 사실**이라, `band_collect_cutoff()`
+    #   가 캡처에 **한 번** 적는다. 여기는 그 건의 근거만 본다.
     if when and last and str(when) > str(last):
         return "못봄"                      # 수집이 그 날짜까지 안 왔다
     if not pj:
@@ -6794,6 +6821,7 @@ def _calendar_work_events():
                      "경과일": days, "긴급도": r.get("긴급도") or "",
                      "미처리사유": _why_still_open(r, bidx, got),
                      "근거갈래": _open_evidence_class(r, bidx, got),
+                     "수집기준": bidx.get("최신") or "",
                      "사람사유": _human_delay_reason(r, cap=0),
                      "기계추정": _machine_why(r, bidx, got),
                      "DB버전": r.get("DB버전"),
@@ -6857,6 +6885,7 @@ def _calendar_work_events():
                  "경과일": days, "점검상태": r.get("점검상태") or "",
                  "미처리사유": _why_still_open(r, bidx, plan),
                  "근거갈래": _open_evidence_class(r, bidx, plan),
+                 "수집기준": bidx.get("최신") or "",
                  "사람사유": _human_delay_reason(r, cap=0),
                  "기계추정": _machine_why(r, bidx, plan),
                  "DB버전": r.get("DB버전")})

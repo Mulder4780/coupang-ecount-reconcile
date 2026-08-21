@@ -402,6 +402,60 @@ def tech_note(raw, kept):
     return "" if not raw or raw == kept else raw
 
 
+#: 게시 양식의 머리 — `♣ ［ 돌발유료 A/S 완료 ]` 처럼 생겼다.
+RE_FORM_HEAD = re.compile(r"♣\s*[［\[]")
+
+
+def split_forms(c):
+    """한 글에 붙어 있는 **게시 양식마다** 본문을 가른다.
+
+    ★ 2026-08-21 형님 지시("완료건이 자꾸 캘린더 캡처에 표시된다 · AS기사들
+      곤란해지고 있음")에서 나온 뿌리다.  화면 긁기가 이웃 글까지 한 덩어리로 담는
+      일이 있는데(실측 밴드 글 2,214개 중 159개 · 7.2%), `parse_post` 는 프로젝트
+      번호를 **맨 앞 하나만** 읽었다.  그래서 뒤에 붙은 408개 번호가 기계에 아예
+      안 보였고 그중 108개는 그 글에 **'완료' 제목이 있었다** — 다녀와서 밴드에
+      완료를 올렸는데도 미처리로 서고, 그것이 대표 보고에 그대로 실렸다.
+    ★ **양식 머리(`♣ ［…]`)로만 가른다.**  프로젝트 번호로 가르면 '미실시 AS 공유'
+      같은 **목록 글**의 번호들이 저마다 게시글이 되어, 안 한 일이 한 것으로도
+      한 일이 안 한 것으로도 뒤집힌다([172]).  양식이 하나뿐이면 예전 그대로다.
+    ⚠ 두 번째 양식부터는 그 앞에 붙는 문서 표시(`✅판매전표 …`)가 **앞 덩어리 끝에**
+      남는다.  진행상태·프로젝트NO·작업일은 양식 **안**에 있어 정확하지만 `문서상태`
+      는 첫 양식 쪽으로 기운다 — 아는 한계라 여기 적어 둔다([169]).
+    """
+    heads = [m.start() for m in RE_FORM_HEAD.finditer(c or "")]
+    if len(heads) <= 1:
+        return [c]
+    # 첫 덩어리는 머리 앞의 문서 표시까지 안고 간다(0 부터).
+    bounds = [0] + heads[1:] + [len(c)]
+    return [c[a:b] for a, b in zip(bounds[:-1], bounds[1:])]
+
+
+def parse_post_all(no, p, band):
+    """한 글에서 **모든** 게시 양식을 읽는다. 하나뿐이면 `parse_post` 와 같다.
+
+    ★ `parse_post` 의 반환 모양은 한 글자도 안 바꿨다 — 읽는 곳이 여럿이다
+      (`cancel_watch`·`cross_signal`·`app_server` 완료색인 · `comment_backfill`).
+    """
+    c = p.get("content") or ""
+    forms = split_forms(c)
+    if len(forms) <= 1:
+        r = parse_post(no, p, band)
+        return [r] if r else []
+    out, seen = [], set()
+    for i, part in enumerate(forms):
+        q = dict(p)
+        q["content"] = part
+        r = parse_post("%s#%d" % (no, i) if i else no, q, band)
+        if not r:
+            continue
+        key = (r.get("프로젝트NO"), r.get("진행상태"), r.get("작업일"))
+        if key in seen:            # 같은 양식이 두 번 담긴 글 — 한 번만 센다
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
+
+
 def parse_post(no, p, band):
     c = p.get("content") or ""
     prj = RE_PRJ.search(c)
@@ -491,9 +545,9 @@ def load_records():
         d = json.load(open(f, encoding="utf-8"))
         band = d.get("band_name", b)
         for no, p in d.get("posts", {}).items():
-            r = parse_post(no, p, band)
-            if r:
-                out.append(r)
+            # ★ 한 글에 양식이 여럿이면 **전부** 읽는다(2026-08-21) — 맨 앞 하나만
+            #   읽던 때는 뒤에 붙은 완료 글이 기계에 아예 안 보였다.
+            out.extend(parse_post_all(no, p, band))
     out += load_kakao_records()
     out.sort(key=lambda r: (r["작업일"] or r["게시일"], r["프로젝트NO"]))
     return out

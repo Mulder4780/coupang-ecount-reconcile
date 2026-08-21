@@ -16933,6 +16933,15 @@ async function calendarCapture(opt){
      안 간 것으로 읽힌다([169]).  갈래는 **서버가 정한다** — 여기서 사유 문장을
      다시 뜯으면 문구가 바뀌는 날 조용히 0건이 된다([162]·[165]). */
   const recOnly = list => (list||[]).filter(e => e.근거갈래 === '완료글없음').length;
+  /* ★ **안 본 날에 대해 '안 했다'고 말하지 않는다**([169]) — 수집이 어제까지만
+     왔으면 그 뒤 완료 글은 어느 건이든 기계에 안 보인다. 대표 보고가 그 사실을
+     스스로 적는다. 서버가 준 값만 읽는다([162]·[168]). */
+  const calCutoff = () => {
+    const t = new Date(Date.now() - new Date().getTimezoneOffset()*60000)
+      .toISOString().slice(0,10);
+    const c = (rows||[]).map(e => e.수집기준).filter(Boolean).sort().pop() || '';
+    return (c && c < t) ? c : '';
+  };
   const asRecOnly = recOnly(asOpen), pmRecOnly = recOnly(qOverdueRows);
   const pmAlerts=qOverdueRows.slice().sort((a,b)=>Number(b.경과일||0)-Number(a.경과일||0))
     .map(e=>`● ${String(e.날짜).slice(5)} ${calCampOf(e)} · ${e.경과일||0}일 지연 · ${e.미처리사유||'완료 근거 없음'}`);
@@ -16945,13 +16954,15 @@ async function calendarCapture(opt){
       ['확정 일정',`${pmPlanned.size}건 · 캠프와 방문일 협의 완료`],
       ['미확정 잔여',`${unscheduledN}건 · 일정 확정 필요`],
       ['기한 경과',`${qOverdueRows.length}건 · 완료/재일정 근거 확인`],
+      ['수집 기준',calCutoff() ? `밴드 수집이 ${calCutoff()}까지 — 그 뒤 완료 글은 아직 안 보임`
+                              : '밴드 수집 오늘까지 반영됨','#B54708'],
       ['완료 글 미게시',`${pmRecOnly}건 · 접수 기록은 있고 완료 글만 없음`,'#B54708'],
       [`${M}월 말까지`,`${needByMonth}건 추가 · 하루 ${paceMonth}건 필요`],
       ['분기 말까지',`${remainN}건 추가 · 하루 ${paceQuarter}건 필요`]
     ],pmAlerts.length?pmAlerts:['● 기한이 지난 미처리 정기점검이 없습니다.']);
   actionPanel(Mg+panelW+panelGap,'#D92D20',`돌발AS · ${M}월 미처리 판정`,
     asUrgent?`즉시조치 ${asUrgent}건 · 오늘 확인`:'즉시조치 0건 · 장기 미방문 없음',
-    `완료 ${asDone}건 / 미처리 ${asOpen.length}건` + (asRecOnly ? ` (그중 ${asRecOnly}건은 완료 글 미게시)` : '') + ` · 접수 후 2일을 넘기면 근거가 필요`,[
+    `완료 ${asDone}건 / 미처리 ${asOpen.length}건` + (asRecOnly ? ` (그중 ${asRecOnly}건은 완료 글 미게시)` : '') + (calCutoff() ? ` · 밴드 수집 ${calCutoff()}까지` : '') + ` · 접수 후 2일을 넘기면 근거가 필요`,[
       ['정상기한',`${asNormal}건 · 접수 후 2일 이내`],
       ['협의대기',`${asAgreed}건 · 부품/캠프 일정 근거 있음`],
       ['즉시조치',`${asUrgent}건 · 3일 초과, 합의 근거 없음`],
