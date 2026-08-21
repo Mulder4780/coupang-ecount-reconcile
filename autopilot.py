@@ -176,6 +176,15 @@ def _escalate(item: dict[str, Any]) -> str:
     if (item.get("ai_ticket") or item.get("kind") in ("resource", "auth", "lane") or
             int(item.get("attempts") or 0) < MAX_ATTEMPTS_BEFORE_AI):
         return ""
+    # ★ 크레딧 5시간 창이 막혔으면 **표를 만들지 않는다**(2026-08-22 형님 지시).
+    #   여기서 만들어 두면 `ai_ticket` 이 채워져 **다시는 안 만든다** — 충전이 돼도
+    #   영영 안 도는 자리가 된다. 안 만들면 다음 워치독 회차가 그대로 이어받는다.
+    try:
+        from agent_dispatch import ai_paused
+        if ai_paused():
+            return ""
+    except Exception:
+        pass
     try:
         from agent_dispatch import dispatch_async, enqueue
         ticket = enqueue(

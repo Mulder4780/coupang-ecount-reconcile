@@ -23171,6 +23171,129 @@ def t388_hung_start_is_not_normal():
     print("  [388] 매달린 start — 끊김 판정 · 한도는 수집기에서 · 문구 갈라 적기 "
           "· 모르면 안 함 · 자기시험 OK")
 
+def t389_credit_window_pauses_ai_and_resumes_itself():
+    """크레딧 5시간 창 — 소진 중에는 AI 표를 안 만들고, 충전되면 스스로 잇는다.
+
+    2026-08-22 형님 지시: "5시간 크래딧 소진 시 멈췄다가 크래딧 충전되면 자동으로
+    시작하는 알고리즘 앱에 박아놔 · 다른 계정이나 다른 세션에서도 인식하고 자동으로
+    반영되게 코딩해"
+
+    ★ 재는 것은 **글자가 아니라 동작**이다([295]) — 세 상태(소진·충전됨·모름)를
+      합성으로 만들어 실제로 부른다. 실측 자국 파일은 한 글자도 안 건드린다([247]).
+    ★ 방향이 갈래마다 다르다는 것을 함께 잰다: **모름은 막지 않는다**([169] 를 이
+      자리에 맞게 적용한 것 — 소진 중에 부르면 실패 한 번이고 대기열이 되돌리지만,
+      멀쩡한데 막으면 일이 안 된다).
+    """
+    import importlib, sys, time
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    C = importlib.import_module("credit_window")
+    D = importlib.import_module("agent_dispatch")
+    A = importlib.import_module("autopilot")
+    WA = importlib.import_module("worksplit_auto")
+
+    def 소진(남은분=60):
+        return {"갈래": "소진", "resetsAt": int(time.time()) + 남은분 * 60,
+                "남은분": 남은분, "종류": "five_hour", "언제": "", "파일": "x", "왜": ""}
+
+    real_state, real_load = C.state, C.load
+    try:
+        # ① 소진이면 막는다 — 판정도, 그것을 빌리는 쪽도
+        C.state = lambda now=None, dirs=None: 소진()
+        C.load = lambda: 소진()
+        assert C.blocked(), "① 소진인데 blocked 가 거짓이다"
+        assert D.ai_paused(), "① 소진인데 ai_paused 가 거짓이다 — AI 를 계속 부른다"
+
+        # ② **표를 만들기 전에** 막는다 — 만든 뒤 막으면 그 표가 고아가 되어
+        #    충전돼도 영영 안 돈다(부르는 쪽들이 '항목당 하나' 문에 걸린다)
+        assert A._escalate({"kind": "code", "attempts": 9, "key": "k", "name": "n"}) == "", (
+            "② 소진 중에 autopilot 이 AI 표를 만들었다")
+        assert WA._hand_to_ai({"id": "9", "title": "t", "detail": "d"}, {}) == "", (
+            "② 소진 중에 worksplit_auto 가 AI 표를 만들었다")
+
+        # ③ 충전되면 스스로 잇는다 — 막던 문이 저절로 열린다(사람이 안 눌러도 된다)
+        C.state = lambda now=None, dirs=None: {"갈래": "충전됨", "resetsAt": None,
+                                               "남은분": 0, "종류": "", "언제": "",
+                                               "파일": "", "왜": ""}
+        C.load = lambda: {"갈래": "충전됨"}
+        assert not C.blocked() and not D.ai_paused(), "③ 충전됐는데 아직 막고 있다"
+
+        # ④ **모름은 막지 않는다** — 좁히는 것도 고장이다([172])
+        C.state = lambda now=None, dirs=None: {"갈래": "모름", "resetsAt": None,
+                                               "남은분": 0, "종류": "", "언제": "",
+                                               "파일": "", "왜": "폴더 못 찾음"}
+        assert not C.blocked() and not D.ai_paused(), (
+            "④ 확인 못 한 것을 소진으로 쳤다 — 멀쩡한데 일이 멈춘다")
+
+        # ⑤ **판정 로직 자체를 태운다.** 위 ①~④ 는 `state()` 를 통째로 목으로 갈아
+        #    쓰므로 `credit_window` 안의 갈래 판정은 한 줄도 안 탄다 — 계기 자기시험
+        #    ([272])이 그것을 잡았다(문을 없애도 ①이 통과했다). 그래서 여기서는
+        #    **`scan()` 만** 갈아 끼워 진짜 판정을 지나가게 한다.
+        C.state, C.load = real_state, real_load
+        real_scan = C.scan
+        try:
+            def 준다(resets, 종류="five_hour"):
+                return lambda now=None, dirs=None: (
+                    {"resetsAt": resets, "종류": 종류, "언제": "", "파일": "f"}, "")
+            T = 1_700_000_000
+            C.scan = 준다(T + 3600)
+            assert C.state(now=T)["갈래"] == "소진", "⑤ 미래 거절인데 소진이 아니다"
+            assert C.state(now=T)["남은분"] == 60, "⑤ 남은 시간을 잘못 센다"
+            C.scan = 준다(T - 10)
+            assert C.state(now=T)["갈래"] == "충전됨", "⑤ 이미 지난 창을 소진이라 한다"
+            # 모르는 창 종류를 소진이라 우기지 않는다([169])
+            C.scan = 준다(T + 3600, "weekly")
+            assert C.state(now=T)["갈래"] == "모름", (
+                "⑤ 모르는 창 종류를 소진으로 확정했다 — 멀쩡한데 일이 멈춘다")
+            # 훑을 폴더가 없으면 '충전됨'이 아니라 '모름'이다
+            C.scan = real_scan
+            assert C.state(now=T, dirs=[])["갈래"] == "모름", (
+                "⑤ 기록을 못 읽었는데 '충전됨'이라 한다 — 소진 중에 AI 를 계속 부른다")
+        finally:
+            C.scan = real_scan
+    finally:
+        C.state, C.load = real_state, real_load
+
+    # ⑥ 판정은 한 곳이다([162]) — 빌리는 쪽이 제 손으로 기록을 파싱하면 갈린다
+    dsrc = io.open(os.path.join(root, "agent_dispatch.py"),
+                   encoding="utf-8", newline="").read()
+    body = dsrc.split("def ai_paused")[1].split("def dispatch_async")[0]
+    assert "credit_window" in body, "⑥ ai_paused 가 credit_window 를 안 빌린다"
+    assert "quotaLimits" not in body and "resetsAt" not in body, (
+        "⑥ 빌리는 쪽이 기록을 다시 파싱한다 — 같은 순간에 두 답이 나온다")
+
+    # ⑦ 무인 회차에 실제로 물렸나([328] — 함수만 있고 안 부르면 없는 것과 같다)
+    wsrc = io.open(os.path.join(root, "watchdog.py"),
+                   encoding="utf-8", newline="").read()
+    assert "def watch_credit(" in wsrc, "⑦ 워치독에 크레딧 단계가 없다"
+    assert "watch_credit(dry)" in wsrc, "⑦ 단계를 만들어 두고 부르지 않는다"
+    # ⑧ **`watch_takeover` 앞**이어야 한다 — 뒤에 두면 이어받기 카드가 언제나
+    #    30분 전 자국을 싣는다([228] 과 같은 이유)
+    #    ⚠ `index` 를 쓰면 **정의 줄**(`def watch_takeover(dry):`)을 호출부로 착각한다 —
+    #      만들면서 그대로 걸렸다. 호출은 언제나 마지막 등장이다.
+    assert wsrc.rindex("watch_credit(dry)") < wsrc.rindex("watch_takeover(dry)"), (
+        "⑧ 크레딧 자국이 이어받기 카드보다 뒤에 적힌다 — 카드가 낡은 값을 싣는다")
+
+    # ⑨ 인계는 **소진일 때만** 올리고, 여기서 기록을 다시 훑지 않는다([168][170])
+    hsrc = io.open(os.path.join(root, "session_handoff.py"),
+                   encoding="utf-8", newline="").read()
+    blk = hsrc.split("def blockers(")[1][:1600]
+    assert "credit_window" in blk and 'credit_window.load()' in blk, (
+        "⑨ 인계가 크레딧을 안 읽거나, 회차 자국 대신 직접 훑는다")
+    assert '"소진"' in blk, "⑨ 여유 있는 날까지 올린다 — 그러면 아무도 안 읽는다"
+
+    # ⑩ 비싼 읽기를 안 한다([168]) — 꼬리와 최근 파일로 좁힌다
+    csrc = io.open(os.path.join(root, "credit_window.py"),
+                   encoding="utf-8", newline="").read()
+    assert "TAIL_BYTES" in csrc and "FRESH_DAYS" in csrc, "⑩ 훑는 범위를 안 좁혔다"
+    assert "def note(" in csrc and "STATE" in csrc, (
+        "⑩ 자국을 안 남긴다 — 다른 계정·세션이 볼 자리가 없어진다")
+
+    print("[389] 크레딧 창 — 소진 막음 · 충전 자동 재개 · 모름 안 막음 · "
+          "자국은 회차가 · 인계·이어받기 배선 통과")
+
+
 def t387_collect_gate_actually_guards_scripts():
     """[387] 수집 문이 **정말 막나** — 그리고 무인 회차는 **안 막나**.
 
@@ -32109,6 +32232,7 @@ if __name__ == "__main__":
     t384_window_audit_reads_helper_bodies_not_names()
     t385_watchdog_gap_is_not_stall_when_the_pc_slept()
     t387_collect_gate_actually_guards_scripts()
+    t389_credit_window_pauses_ai_and_resumes_itself()
     t388_hung_start_is_not_normal()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

@@ -464,8 +464,31 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
     return record
 
 
+def ai_paused() -> bool:
+    """지금 AI 를 부르면 안 되나 — **크레딧 5시간 창이 막혔나**(2026-08-22 형님 지시).
+
+    ★ **판정을 여기서 만들지 않는다**([162]) — `credit_window.blocked()` 를 빌린다.
+      여기서 다시 세면 같은 순간에 두 답이 나온다.
+    ★ **티켓을 만들기 전에** 물어야 한다. 만든 뒤에 막으면 그 티켓이 `queued` 로
+      고아가 되고, 부르는 쪽들은 "표는 항목당 하나"라 **다시 안 만든다** — 충전이
+      돼도 영영 안 도는 자리가 된다. 그래서 `_escalate`·`_hand_to_ai` 가 이 함수를
+      **맨 앞에서** 부르고, 여기 `dispatch_async` 의 검사는 안전망이다.
+    ★ **못 읽으면 안 막는다**([169] 의 방향을 자리에 맞게 정한 것) — 소진 중에 부르면
+      실패 한 번이고 그것은 대기열이 되돌린다. 멀쩡한데 막으면 일이 안 된다.
+    """
+    try:
+        import credit_window
+        return credit_window.blocked()
+    except Exception:
+        return False
+
+
 def dispatch_async(ticket: dict[str, Any], local_returncode: int = 0) -> bool:
     """앱 서버를 막지 않고 독립 워커가 티켓을 소비하게 한다."""
+    # ★ 안전망 — 새 호출자가 생겨도 소진 중에는 워커를 안 띄운다. 티켓은 그대로
+    #   남으므로 충전 뒤 다음 회차가 이어받는다.
+    if ai_paused():
+        return False
     ticket_path = ticket.get("_path")
     if not ticket_path:
         return False

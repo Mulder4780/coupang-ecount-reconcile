@@ -263,7 +263,12 @@ def _hand_to_ai(row, tickets):
     key = str(row.get("id"))
     if tickets.get(key):
         return ""
-    from agent_dispatch import dispatch_async, enqueue
+    from agent_dispatch import dispatch_async, enqueue, ai_paused
+    # ★ 크레딧 창이 막혔으면 **표를 안 만든다**(2026-08-22 형님 지시). 만들어 두면
+    #   위의 "항목당 하나" 문에 걸려 **다시는 안 만들고**, 충전이 돼도 그 일은 영영
+    #   안 넘어간다. 안 만들면 다음 회차(워치독 30분)가 그대로 이어받는다.
+    if ai_paused():
+        return ""
     ticket = enqueue(
         "worksplit-" + key,
         "세워 둔 일 [%s] 의 막힘이 풀렸다 — %s" % (key, row.get("title") or ""),

@@ -253,10 +253,26 @@ def notices(rows=None, 왜못함="", repo=None):
             continue
         가진것 = (" · 잡은 자원 %s" % ", ".join(r["자원"])) if r["자원"] else ""
         일 = (" · 맡은 일 %s" % " / ".join(r["맡은일"][:2])) if r["맡은일"] else ""
+        # ★ **왜 조용한지를 갈라 말한다**(2026-08-22 지시 · [289] 조치가 다르다).
+        #   예전에는 "크레딧 소진일 수 있다"는 **추정**뿐이라, 창을 닫은 것인지
+        #   자리를 비운 것인지 구별이 안 됐다. 이제 근거가 실재한다 — 대화기록의
+        #   `quotaLimits`(`credit_window`). 자국이 없으면 예전처럼 추정으로 남긴다([169]).
+        try:
+            import credit_window
+            _cw = credit_window.load()
+        except Exception:
+            _cw = {}
+        if _cw.get("갈래") == "소진":
+            왜조용 = ("**크레딧 5시간 창이 찼다** — %d분 뒤 충전되면 그 창이 스스로 "
+                      "이어간다" % (_cw.get("남은분") or 0))
+        elif _cw.get("갈래") == "충전됨":
+            왜조용 = "크레딧은 여유 있다 — 창을 닫았거나 자리를 비운 것으로 보인다"
+        else:
+            왜조용 = "크레딧 소진일 수 있다(창 상태는 확인 못 했다)"
         out.append({"갈래": "끊긴듯", "무엇":
-                    "창 `%s` 이 **%.0f분째 조용하다**(크레딧 소진일 수 있다)%s%s. "
+                    "창 `%s` 이 **%.0f분째 조용하다** — %s%s%s. "
                     "다른 계정에서 이어받을 수 있다 — 뺏지는 않았다"
-                    % (r["sid"], r["조용한분"], 가진것, 일),
+                    % (r["sid"], r["조용한분"], 왜조용, 가진것, 일),
                     "어떻게": "python ecount/session_handoff.py --adopt"})
     repo = repo if repo is not None else repo_state()
     if repo.get("미푸시"):
