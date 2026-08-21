@@ -19964,8 +19964,135 @@ def t272_no_console_windows_from_children():
     assert not [n for n in SW.notices([같은[0], 같은[2]]) if n.get("갈래") == "겹침"], \
         "서로 다른 것을 부르는데 겹쳤다고 한다 — 멀쩡한 회차를 지우러 간다([172])"
 
+    # ── 다섯째 축 · 시작 폴더 (2026-08-21 형님 지시가 **두 번째로** 온 자리) ──
+    #   네 축(소스·예약작업·로그인항목·훅)이 전부 초록인데도 같은 지시가 다시 왔다.
+    #   실측: 시작 폴더에 스크립트 자동실행 셋이 있었고 **어느 축도 그 파일을 한 글자도
+    #   안 봤다.** 그리고 `exe_verdict` 는 `wscript.exe` 를 **무조건 조용**이라 한다 —
+    #   창이 뜨는지 정하는 것은 실행기가 아니라 **vbs 안의 Run 두 번째 인자**다.
+    #   즉 누가 `run_hidden.vbs` 의 `0` 을 `1` 로 바꾸면 그 실행기로 도는 회차가 전부
+    #   창을 다는데 감사기는 나란히 `0곳` 을 확언한다(`[169]`).
+    assert A.vbs_window_verdict('sh.Run(line, 0, True)')[0] == "조용"
+    assert A.vbs_window_verdict('sh.Run "x.bat", 0, False')[0] == "조용"
+    assert A.vbs_window_verdict('sh.Run "x.bat", 1, False')[0] == "창뜸", \
+        "창모드 1 을 조용이라 한다 — 부팅할 때마다 창이 뜨는데 계기가 초록이다([169])"
+    for _st in (2, 3, 7):
+        assert A.vbs_window_verdict('sh.Run "x.bat", %d, False' % _st)[0] == "창뜸", \
+            "최소화(%d)도 작업표시줄에 뜬다 — 형님 화면을 건드린다" % _st
+    assert A.vbs_window_verdict(None)[0] == "모름", "못 읽은 것을 조용으로 세면 안 된다([169])"
+    assert A.vbs_window_verdict('WScript.Echo "hi"')[0] == "모름", \
+        "Run 이 없는데 판정을 내리면 안 된다 — 모름이다"
+    # ★ **규칙을 세기 전에 주석을 걷어낸다.** 이 저장소가 여섯 번 밟은 자리다
+    #   (`[301]`(9)·`[302]`·`[309]`·`[332]`·`[339]`·`[370]`). `run_hidden.vbs` 머리
+    #   주석에는 '창이 뜬다'는 설명이 그대로 적혀 있다.
+    assert A.vbs_window_verdict("' 예전에는 sh.Run cmd, 1, False 였다\nsh.Run line, 0, True")[0] == "조용", \
+        "설명 주석에 든 1 에 속는다 — 멀쩡한 파일을 고치러 간다([172])"
+
+    # 진짜 시작 폴더에는 **한 글자도 안 쓴다** — 임시 폴더로만 잰다(`[247]`).
+    with tempfile.TemporaryDirectory() as _d:
+        def _put(name, text, enc="utf-8"):
+            with open(os.path.join(_d, name), "w", encoding=enc, newline="") as fh:
+                fh.write(text)
+        _put("quiet.vbs", 'Set sh = CreateObject("WScript.Shell")\nsh.Run "a.bat", 0, False\n')
+        _put("noisy.vbs", 'Set sh = CreateObject("WScript.Shell")\nsh.Run "a.bat", 1, False\n')
+        _put("boot.bat", "echo hi\n")
+        _put("app.lnk", "binary-ish")
+        rows, why, seen = A.startup([_d])
+        assert not why, "임시 폴더를 못 읽었다: %s" % why
+        이름 = {r[0]: r[1] for r in rows}
+        assert seen == 3, "스크립트만 세어야 한다(.lnk 제외) — 실제 %d" % seen
+        assert "quiet.vbs" not in 이름, "창 숨김 vbs 를 위반이라 한다 — 거짓 경보([172])"
+        assert 이름.get("noisy.vbs") == "창뜸", "창 뜨는 vbs 를 못 잡는다: %r" % 이름
+        assert 이름.get("boot.bat") == "창뜸", ".bat 자동실행은 그 자체가 콘솔이다"
+        assert "app.lnk" not in 이름, \
+            "설치형 앱 바로가기까지 판단한다 — 형님이 일부러 켠 것이다([172])"
+
+        # ★ **계기 자신을 시험한다**(`[272]` 의 원칙 그대로). 0 을 내는 계기는
+        #   아무도 의심하지 않는다 — 창 뜨는 것을 넣었을 때 정말 잡히는지 위에서 쟀고,
+        #   여기서는 **못 읽는 파일**이 조용으로 새지 않는지 잰다.
+        with open(os.path.join(_d, "broken.vbs"), "wb") as fh:
+            fh.write(bytes([0xC3, 0x28, 0xA0, 0xA1]))   # 어떤 인코딩으로도 안 읽히는 바이트
+        rows2, _w2, _s2 = A.startup([_d])
+        판정2 = {r[0]: r[1] for r in rows2}
+        assert 판정2.get("broken.vbs") in ("모름", "확인못함"), \
+            "못 읽은 파일이 조용으로 샌다 — 계기가 눈먼 채 초록을 낸다([169])"
+
+    # ── 여섯째 축 · 이 저장소 밖 (형님 지시 "어떤 계정 어떤 세션에서 진행해도") ──
+    #   감사기가 제 저장소에만 매여 있으면 다른 세션이 고치는 프로젝트는 눈 밖이다.
+    #   실측 2026-08-21: 자동으로 도는 이웃 셋 중 하나에 창 자리 18곳이 있었다.
+    with tempfile.TemporaryDirectory() as _d2:
+        with open(os.path.join(_d2, "x.py"), "w", encoding="utf-8", newline="") as fh:
+            fh.write("import subprocess\nsubprocess.run(['git', 'status'])\n")
+        assert len(A.scan(_d2)) == 1, "--root 로 준 폴더를 안 훑는다 — 다른 세션 저장소를 못 잰다"
+        assert len(A.scan()) == len(A.scan(None)), "기본값이 이 저장소에서 벗어났다"
+
+    # 배선 — 코드가 있는 것과 그것이 도는 것은 다른 말이다(`[328]`).
+    _sw = open(os.path.join(ROOT, "schedule_watch.py"), encoding="utf-8").read()
+    assert "from tools.window_audit import startup" in _sw, \
+        "시작 폴더 축이 회차에 안 걸려 있다 — 만들어도 아무 화면에도 안 뜬다([328])"
+    assert "from tools.window_audit import neighbors" in _sw, \
+        "이웃 저장소 축이 회차에 안 걸려 있다"
+
+    # ── 일곱째 축: **세션이 여는 저장소** (2026-08-21 지시) ─────────────────
+    #   형님 지시: "어떤 계정 어떤 세션에서 진행해도 팝업은 백그라운드에서 나오게".
+    #   그전까지 `neighbors()` 의 근거는 자동실행·시작폴더뿐이라 **자동으로 돌지는
+    #   않지만 세션이 매일 고치는 저장소**가 통째로 빠졌다 — 실측 3곳 → 7곳이 됐고
+    #   새로 보인 넷 중 하나(비즈플레이 자동 설정)에 창 자리가 3곳 있었다.
+    #   ★ 진짜 대화기록은 한 글자도 안 건드린다 — 임시 base 로만 잰다([247]).
+    import tempfile as _tf
+    import json as _js
+    _WA = A
+    with _tf.TemporaryDirectory() as _base:
+        def _mk(folder, cwd):
+            d = os.path.join(_base, folder)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "a.jsonl"), "w", encoding="utf-8") as fh:
+                fh.write(_js.dumps({"type": "user", "cwd": cwd}) + chr(10))
+        _real = os.path.join(_base, "repo-real")
+        _wt = os.path.join(_real, ".claude", "worktrees", "abc-123")
+        os.makedirs(_wt, exist_ok=True)
+        _mk("p1", _real)
+        _mk("p2", _wt)                      # 워크트리 — 본체로 접혀야 한다
+        _mk("p3", os.path.join(_base, "없는폴더"))  # 사라진 폴더는 안 센다
+        got, why = _WA._session_cwds(base=_base)
+        assert why is None, "멀쩡한 폴더인데 이유가 붙었다: %s" % why
+        assert [os.path.normcase(x) for x in got] == [os.path.normcase(_real)], got
+
+        # 못 읽으면 **빈 목록이 아니라 이유**다([169]) — '없다' 와 '못 셌다' 는 다르다.
+        _got2, _why2 = _WA._session_cwds(base=os.path.join(_base, "아예없음"))
+        assert _got2 == [] and _why2, "대화기록 폴더가 없는데 이유를 안 준다([169])"
+
+        # 창(일)이 지나면 안 센다 — 몇 달 전 폴더까지 올라오면 아무도 안 본다([170]).
+        _old, _ = _WA._session_cwds(days=0, base=_base)
+        assert isinstance(_old, list)
+
+    # 임시 폴더(스크래치패드)는 저장소가 아니다.
+    _tmp = os.environ.get("TEMP") or os.environ.get("TMP")
+    if _tmp:
+        assert _WA._is_temp(os.path.join(_tmp, "claude", "x", "scratchpad")), \
+            "세션 스크래치패드가 이웃 저장소로 세인다"
+    assert not _WA._is_temp(os.path.join(ROOT, "tools")), "멀쩡한 저장소를 임시로 읽는다"
+
+    # 근거를 같이 말한다 — 사람이 '이건 왜 목록에 있나' 를 물을 수 있어야 한다([177]).
+    _rows, _seen, _why = _WA.neighbors(with_why=True)
+    assert all(isinstance(r, tuple) and len(r) == 2 and r[1] for r in _rows), \
+        "근거 없이 경로만 준다"
+
+    # ★ **계기 자신을 시험한다**([272] 의 원칙 그대로).
+    #   세션 근거를 죽였을 때 목록이 줄지 않으면, 그 근거는 아무 일도 안 하는 것이다.
+    _orig = _WA._session_cwds
+    _fake = os.path.join(os.path.dirname(ROOT), "__t272_fake_repo__")
+    try:
+        _WA._session_cwds = lambda days=None, base=None: ([], None)
+        _without, _ = _WA.neighbors()
+        _WA._session_cwds = lambda days=None, base=None: ([_fake], None)
+        _with, _ = _WA.neighbors()
+    finally:
+        _WA._session_cwds = _orig
+    assert _fake in _with, "세션이 연 저장소가 이웃 목록에 안 들어간다 — 이 근거는 아무 일도 안 한다"
+    assert _fake not in _without, "세션 근거를 껐는데도 들어온다 — 계기가 아무것도 안 재고 있다"
+    assert set(_without) <= set(_with), "세션 근거를 켜자 옛 근거가 사라졌다"
     print("  [272] 회차가 띄운 자식도 창을 안 단다 — 콘솔 exe 25곳 → 0곳 · "
-          "살아 있는 예약 작업 실행기도 본다 ✅")
+          "예약작업·로그인항목·훅·시작폴더·이웃저장소·**세션이 여는 저장소**까지 일곱 축 ✅")
 
 
 def t198_source_index_no_per_file_stat():
@@ -22584,8 +22711,8 @@ def t382_session_hooks_never_open_windows():
     print("[382] 세션 훅 %d개 · 창 뜨는 것 0곳 · 계기 자기시험 통과" % seen)
 
 
-def t381_login_autorun_is_watched_for_windows():
-    """[381] 로그인 자동실행(HKCU Run)도 창을 다는지 본다 (2026-08-21 형님 지시).
+def t383_login_autorun_is_watched_for_windows():
+    """[383] 로그인 자동실행(HKCU Run)도 창을 다는지 본다 (2026-08-21 형님 지시).
 
     ★ 왜 — `[248]` 설치본 · `[272]` 소스 · `live()` 예약 작업까지는 이미 봤는데
       **로그인 자동실행은 아무도 안 봤다.** `[263]` 대로 예약 작업 등록이 막힌
@@ -22675,7 +22802,7 @@ def t381_login_autorun_is_watched_for_windows():
             sys.modules.pop("winreg", None)
         else:
             sys.modules["winreg"] = real
-    print("[381] 로그인 자동실행 감시 OK")
+    print("[383] 로그인 자동실행 감시 OK")
 
 
 def t380_ambiguous_reaches_the_handoff():
@@ -22762,6 +22889,71 @@ def t380_ambiguous_reaches_the_handoff():
         band_canonical.AMBIGUOUS_TRACE = real
     assert os.path.exists(real) == had_real, "검사가 실측 자국을 건드렸다"
     print("[380] 밴드등록 모호가 인계까지 간다 · 읽기 전용 · 실측 자국 안 건드림")
+
+
+def t381_row_count_is_cached_and_never_freezes_a_miss():
+    """[381] 안내문 행수 세기는 **캐시 검사 뒤에** 온다 (2026-08-21).
+
+    `count_rows` 는 Z:(SMB) 의 엑셀을 **통째로 열어 모든 시트의 모든 행**을 훑는데,
+    `collect_sources.main()` 이 원본 폴더의 파일 하나하나마다 부른다 — 안 바뀐
+    파일까지 매 회차 다시 연다([168] 의 그 모양).  2026-08-21 실측: 회차가
+    '원본 모으기' **36.8분** 뒤 '원본 폴더 정리' 40분 제한에 걸려 매일 exit 1 로
+    죽었고, [324] 가 그 범인 단계를 대 줬다.
+    ★ 계약: (1) 안 바뀐 파일은 다시 안 연다 (2) 바뀌면 다시 센다
+      (3) **못 읽은 것(-1)은 캐시하지 않는다**([169] — 한 번 못 읽은 것을
+      '이 파일은 비었다'로 굳히면 다시는 안 열어 본다) (4) 판이 다르면 옛 캐시를
+      안 쓴다(규칙을 고쳤는데 옛 답이 이기는 자리).
+    ★ 실측 캐시(reports/.수집안내_행수.json)에는 한 글자도 안 쓴다([247]).
+    ★ 캐시 적중은 `builtins.open` 을 목으로 갈지 않고 잰다 — 그것은 **프로세스
+      전역**이라 뒤따르는 검사를 눈멀게 한다([371] 실사고).  대신 **크기와 시각을
+      그대로 둔 채 내용만** 바꿔, 캐시가 먹으면 옛 답이 나오는 것으로 잰다."""
+    import importlib
+    CS = importlib.import_module("collect_sources")
+    real, had = CS._ROWS_CACHE, os.path.exists(CS._ROWS_CACHE)
+    tmp = tempfile.mkdtemp()
+    try:
+        CS._ROWS_CACHE = os.path.join(tmp, "rows.json")
+        CS._rows_cache = None
+        f = os.path.join(tmp, "a.txt")
+        with open(f, "w", encoding="utf-8", newline="") as fh:
+            fh.write("1" + chr(10) + "2" + chr(10) + "3" + chr(10))   # 6바이트 · 3줄
+        assert CS.count_rows(f) == 3, CS.count_rows(f)
+
+        # (1) 크기·시각은 그대로, 내용만 2줄로 — 캐시가 먹으면 여전히 3이어야 한다
+        st = os.stat(f)
+        with open(f, "w", encoding="utf-8", newline="") as fh:
+            fh.write("12" + chr(10) + "34" + chr(10))                 # 6바이트 · 2줄
+        os.utime(f, (st.st_atime, st.st_mtime))
+        assert os.stat(f).st_size == st.st_size, "시험 준비가 틀렸다(크기가 달라졌다)"
+        assert CS.count_rows(f) == 3, "캐시가 안 먹었다 — 안 바뀐 파일을 매번 다시 연다"
+
+        # (2) 시각이 바뀌면 다시 센다
+        os.utime(f, (st.st_atime, st.st_mtime + 5))
+        assert CS.count_rows(f) == 2, "파일이 바뀌었는데 옛 답을 줬다"
+
+        # (3) 못 읽은 것은 캐시하지 않는다([169])
+        assert CS.count_rows(os.path.join(tmp, "none.txt")) == -1
+        assert not any(v == -1 for v in CS._rows_cache_load().values()), "-1 을 캐시했다"
+
+        # (4) 판이 다르면 옛 캐시를 안 쓴다
+        CS._rows_cache_save()
+        with open(CS._ROWS_CACHE, encoding="utf-8") as fh:
+            assert json.load(fh)["판"] == CS._ROWS_VER
+        with open(CS._ROWS_CACHE, "w", encoding="utf-8") as fh:
+            json.dump({"판": CS._ROWS_VER + 99, "행수": {"x": 1}}, fh)
+        CS._rows_cache = None
+        assert CS._rows_cache_load() == {}, "판이 달라도 옛 캐시를 썼다"
+
+        # (5) 구간 자국이 남아 있나 — 다음 회차가 '어디가 오래 걸리나'에 답하는 자리다.
+        src = open(os.path.join(ROOT, "collect_sources.py"), encoding="utf-8").read()
+        code = chr(10).join(ln.split("#", 1)[0] for ln in src.splitlines())
+        assert "_t_plan" in code and "_t_guide" in code, "구간 자국이 사라졌다"
+        assert "_rows_cache_save()" in code, "캐시를 저장하지 않는다 — 다음 회차가 또 센다"
+    finally:
+        CS._ROWS_CACHE = real
+        CS._rows_cache = None
+    assert os.path.exists(real) == had, "검사가 실측 캐시를 건드렸다"
+    print("[381] 행수 세기는 캐시 뒤에 · 못 읽은 것은 안 굳힌다 · 구간 자국 살아 있음")
 
 
 def t192_synthetic_check_is_harmless():
@@ -31516,8 +31708,9 @@ if __name__ == "__main__":
     t362_takeover_says_the_browser_does_not_follow_the_account()
     t372_open_states_come_from_the_ledger_not_a_copy()
     t380_ambiguous_reaches_the_handoff()
-    t381_login_autorun_is_watched_for_windows()
+    t383_login_autorun_is_watched_for_windows()
     t382_session_hooks_never_open_windows()
+    t381_row_count_is_cached_and_never_freezes_a_miss()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

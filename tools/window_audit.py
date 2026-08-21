@@ -24,6 +24,7 @@ import ast
 import os
 import re
 import sys
+import time
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -339,7 +340,112 @@ def startup(dirs=None):
     return out, why, seen
 
 
-def neighbors():
+# 세션이 최근에 연 저장소를 이웃으로 세는 창(일).
+# 넓히면 몇 달 전에 한 번 열어 본 폴더까지 목록에 올라와 아무도 안 본다([170]).
+NEIGHBOR_DAYS = 30
+
+
+def _claude_projects_dir():
+    home = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+    return os.path.join(home, ".claude", "projects")
+
+
+def _cwd_of(path, limit=65536):
+    """대화기록 한 파일에서 그 세션이 연 폴더를 읽는다 — 앞부분만 본다([168]).
+
+    파일이 수십 MB 라 통째로 읽으면 회차가 그만큼 느려진다. `cwd` 는 첫 줄들에 있다.
+    """
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(limit)
+    except OSError:
+        return None
+    for line in head.decode("utf-8", "replace").split(chr(10)):
+        if chr(34) + "cwd" + chr(34) not in line:
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        cwd = obj.get("cwd") if isinstance(obj, dict) else None
+        if isinstance(cwd, str) and cwd.strip():
+            return cwd.strip()
+    return None
+
+
+def _is_temp(p):
+    """임시 폴더 안인가 — 세션 스크래치패드가 이웃 저장소로 세이는 것을 막는다."""
+    low = os.path.normcase(p)
+    for env in ("TEMP", "TMP"):
+        t = os.environ.get(env)
+        if t and low.startswith(os.path.normcase(t)):
+            return True
+    return os.path.normcase(os.path.join("appdata", "local", "temp")) in low
+
+def _fold_worktree(p):
+    """워크트리는 본체로 접는다 — 같은 저장소를 여러 번 세면 목록만 부푼다."""
+    mark = os.path.normcase(os.path.join(".claude", "worktrees"))
+    i = os.path.normcase(p).find(mark)
+    if i > 0:
+        return p[:i].rstrip(chr(92) + chr(47))
+    return p
+
+
+def _session_cwds(days=NEIGHBOR_DAYS, base=None):
+    """이 PC 의 세션이 **실제로 연 폴더** — 지어내지 않고 대화기록에서 읽는다.
+
+    ★ 왜 자동실행만으로는 모자란가 (2026-08-21 실측). `neighbors()` 의 옛 근거는
+      자동실행·시작폴더가 가리키는 경로뿐이라 **자동으로 돌지는 않지만 세션이 매일
+      고치는 저장소**가 통째로 빠졌다(하늘링고). 형님 지시는 *어떤 계정 **어떤
+      세션**에서 진행해도* 였다 — 자동으로 도는 것만 세면 그 절반을 안 본 것이다.
+    ★ 폴더 **이름**으로 되돌리지 않는다. 한글 경로는 대화기록 폴더 이름에서
+      `C--Users-hueng-Documents------------` 처럼 전부 하이픈으로 뭉개져 복원이
+      불가능하다(실측). 그래서 기록 **안**의 `cwd` 를 읽는다.
+    ★ 폴더마다 **가장 최근 기록 하나**의 앞부분만 연다([168]).
+    ★ 못 읽으면 빈 목록이 아니라 **이유**를 같이 돌려준다([169]) —
+      '이웃이 없다' 와 '못 셌다' 는 다른 사실이다.
+    """
+    base = base or _claude_projects_dir()
+    if not os.path.isdir(base):
+        return [], "대화기록 폴더가 없다: %s" % base
+    cut = time.time() - max(1, int(days)) * 86400
+    out = {}
+    try:
+        names = sorted(os.listdir(base))
+    except OSError as exc:
+        return [], "대화기록 폴더를 못 읽었다(%s)" % type(exc).__name__
+    for name in names:
+        d = os.path.join(base, name)
+        if not os.path.isdir(d):
+            continue
+        newest, newest_m = None, 0.0
+        try:
+            for fn in os.listdir(d):
+                if not fn.endswith(".jsonl"):
+                    continue
+                q = os.path.join(d, fn)
+                try:
+                    m = os.path.getmtime(q)
+                except OSError:
+                    continue
+                if m > newest_m:
+                    newest, newest_m = q, m
+        except OSError:
+            continue
+        if not newest or newest_m < cut:
+            continue
+        cwd = _cwd_of(newest)
+        if not cwd:
+            continue
+        cwd = _fold_worktree(cwd)
+        # 스크래치패드·임시폴더는 저장소가 아니다 — 훑어 봐야 남의 쓰레기다.
+        if _is_temp(cwd):
+            continue
+        if os.path.isdir(cwd):
+            out[os.path.normcase(cwd)] = cwd
+    return sorted(out.values()), None
+
+def neighbors(with_why=False):
     """이 PC 에서 **자동으로 도는 다른 프로젝트 폴더** — 지어내지 않고 읽어서 센다.
 
     ★ 왜 필요한가. 이 감사기는 `ROOT`(이 저장소) 하나만 훑는다. 그런데 형님 지시는
@@ -396,7 +502,25 @@ def neighbors():
             if os.path.isdir(folder) and not mine:
                 found[os.path.normcase(folder)] = folder
     _ = parent
-    return sorted(found.values()), seen
+    why = dict((k, "자동으로 돈다(자동실행·시작폴더가 가리킨다)") for k in found)
+    # ★ 두 번째 근거 — 세션이 최근에 연 저장소(2026-08-21).
+    #   자동으로 돌지 않아도 세션이 매일 고치는 저장소면 거기서 창이 뜬다.
+    sess, sess_why = _session_cwds()
+    me = os.path.normcase(ROOT)
+    for folder in sess:
+        key = os.path.normcase(folder)
+        # 내 저장소(그 위·아래 포함)는 뺀다 — ROOT 로 이미 센다.
+        if me.startswith(key) or key.startswith(me):
+            continue
+        if key in found:
+            why[key] = why[key] + " · 세션도 최근에 열었다"
+            continue
+        found[key] = folder
+        why[key] = "세션이 최근 %d일 안에 열었다" % NEIGHBOR_DAYS
+    dirs = sorted(found.values())
+    if with_why:
+        return [(d, why.get(os.path.normcase(d), "모름")) for d in dirs], seen, sess_why
+    return dirs, seen
 
 
 def _hook_files():
@@ -564,13 +688,17 @@ def main(argv=None):
             print("  %-34s %-8s %s" % (fn, 판정, 근거))
         return 0
     if a.neighbors:
-        rows, seen = neighbors()
+        rows, _seen, why = neighbors(with_why=True)
+        if why:
+            print("세션이 연 저장소를 **확인 못 했다** — %s" % why)
         if not rows:
-            print("자동으로 도는 다른 프로젝트: 0곳 (자동실행 항목 %d개를 읽었다)" % seen)
+            print("이 PC 에서 볼 다른 프로젝트 0곳")
             return 0
-        print("자동으로 도는 다른 프로젝트 %d곳 — 각각 --root 로 잰다" % len(rows))
-        for d in rows:
+        # ★ '자동으로 도는' 이라고만 적으면 틀린 말이 된다 — 근거가 둘이다([169]).
+        print("이 PC 의 다른 프로젝트 %d곳 — 각각 --root 로 잰다" % len(rows))
+        for d, w in rows:
             print("  %s" % d)
+            print("      근거: %s" % w)
         return 0
     if a.live:
         rows, 왜못함 = live()
