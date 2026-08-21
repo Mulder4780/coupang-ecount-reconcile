@@ -178,7 +178,17 @@ def lane_side(rows=None):
             놀고, 왜 = L._idle(cur)
         except Exception:
             놀고, 왜 = False, "놀고 있는지 못 쟀다"
+        # ★ **'적혀 있는 것'과 '지금 막고 있는 것'은 다른 사실이다** (2026-08-21 실사고).
+        #   주인 창이 닫히면 `lanes` 는 그 자리를 '비어 있음(주인 세션 종료)'으로 본다.
+        #   그런데 카드는 기록만 보고 **"살아 있는 창이다 — 빼앗지 않는다"** 라고 적었다
+        #   — 새 계정이 **비어 있는 차선을 피해 간다**(`[172]` 틀린 안내).
+        #   판정을 새로 만들지 않는다(`[162]`) — 비었는지는 `lanes.owner` 하나가 안다.
+        try:
+            비었나 = not L.owner(lane, d)
+        except Exception:
+            비었나 = False          # 못 물었으면 '비었다'고 우기지 않는다(`[169]`)
         out.append({"차선": lane, "이름": label, "who": cur.get("who", "?"), "sid": sid,
+                    "비었나": bool(비었나),
                     "분": int((__import__("time").time() - float(cur.get("at") or 0)) / 60),
                     "왜": cur.get("why", ""), "내것": sid == me,
                     "놀고있나": bool(놀고), "놀이유": 왜,
@@ -202,7 +212,10 @@ def _lane_lines(rows=None, l=None):
     L += ["| 차선 | 선 창 | 얼마나 | 갈래 | 지금 이어받으려면 |",
           "|---|---|---:|---|---|"]
     for r in l["차선"]:
-        if r["내것"]:
+        if r.get("비었나"):
+            길 = ("**비어 있다**(주인 창이 닫혔다) — 바로 `python lanes.py --take %s"
+                  " --who claude`" % r["차선"])
+        elif r["내것"]:
             길 = "이 창이 서 있다 — 접기 전에 `python session_wrapup.py --who claude --leaving`"
         elif r["주인갈래"] == "끊긴듯":
             길 = ("그 창이 끊긴 듯하다 — 그 창에서 `--leaving` 을 못 돌렸으면 "
@@ -214,8 +227,9 @@ def _lane_lines(rows=None, l=None):
             길 = "놀고 있다(%s) — `python lanes.py --reclaim-idle`" % r["놀이유"]
         else:
             길 = "**살아 있는 창이다 — 빼앗지 않는다**(사고 #36). 다른 차선을 잡는다"
+        갈 = "비었음" if r.get("비었나") else r["주인갈래"]
         L.append("| `%s` %s | %s[%s] | %d분 | %s | %s |"
-                 % (r["차선"], r["이름"], r["who"], r["sid"], r["분"], r["주인갈래"], 길))
+                 % (r["차선"], r["이름"], r["who"], r["sid"], r["분"], 갈, 길))
     L += ["", "> 차선 밖이어도 **코딩은 막히지 않는다**(`lanes.can()` 은 차선을 안 정한"
           " 창에 다 허용한다). 막히는 것은 수집 문(`collect_gate`)과 사람의 판단이다.", ""]
     return L

@@ -21670,6 +21670,34 @@ def t363_account_switch_hands_over_the_lane_and_says_so():
     finally:
         L._load, L._me, L._idle = keep2
 
+    # (7) ★ **'적혀 있는 것'과 '지금 막고 있는 것'은 다른 사실이다** (2026-08-21 실사고).
+    #     주인 창이 닫히면 `lanes` 는 그 자리를 비어 있다고 본다. 그런데 카드는 기록만
+    #     보고 **"살아 있는 창이다 — 빼앗지 않는다"** 라고 적었다 — 계정을 바꾼 사람이
+    #     **비어 있는 차선을 피해 간다**(`[172]` 틀린 안내는 못 잡는 것보다 나쁘다).
+    import io as _io, takeover as _TK
+    _keep_side = _TK.lane_side
+    try:
+        _row = {"차선": "build", "이름": "앱·엑셀·코드", "who": "claude", "sid": "aaaa1111",
+                "분": 300, "왜": "", "내것": False, "놀고있나": False, "놀이유": "",
+                "주인갈래": "닫힘", "비었나": True}
+        _TK.lane_side = lambda rows=None: {"차선": [dict(_row)], "왜못함": ""}
+        _txt = "\n".join(_TK._lane_lines())
+        assert "비어 있다" in _txt and "빼앗지 않는다" not in _txt, (
+            "[363] 비어 있는 차선을 '살아 있는 창'이라 한다 — 새 계정이 빈 자리를 피해 간다: %s" % _txt)
+        assert "--take build" in _txt, "[363] 비었으면 바로 잡는 명령을 안 준다"
+        # 살아 있는 창은 예전 그대로 — 좁히는 것도 고장이다(`[172]`)
+        _row["비었나"] = False
+        _TK.lane_side = lambda rows=None: {"차선": [dict(_row)], "왜못함": ""}
+        _txt = "\n".join(_TK._lane_lines())
+        assert "빼앗지 않는다" in _txt, (
+            "[363] 살아 있는 창의 차선까지 '비었다'고 한다 — 두 창이 같은 파일에서 만난다(사고 #36)")
+        # 계기 자기시험(`[272]`) — '비었나' 갈래를 없애면 잡히는가
+        _src = _io.open(os.path.join(ROOT, "takeover.py"), encoding="utf-8", newline="").read()
+        assert 'if r.get("비었나"):' in _src, (
+            "[363] 비어 있는 차선 갈래가 사라졌다 — 옛 안내로 되돌아갔다")
+    finally:
+        _TK.lane_side = _keep_side
+
     print("[363] 계정을 바꿔도 차선이 사람을 8시간 세우지 않는다 (OK)")
 
 
