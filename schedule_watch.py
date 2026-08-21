@@ -646,6 +646,114 @@ def notices(rows, now=None):
                                     "`wscript.exe run_hidden.vbs` 로 등록한다"
                                     % (r["작업"], os.path.basename(a.get("exe") or "?"), 판정),
                             "어떻게": "python tools\\window_audit.py --live"})
+    # ★ **로그인 자동실행도 본다** (2026-08-21 형님 지시). 위 `live()` 는 예약 작업만
+    #   보는데, `[263]` 대로 예약 작업 등록이 막힌 기계에서는 설치기가 HKCU 로그인
+    #   자동실행으로 **스스로 전환**한다. 그 자리는 지금껏 아무도 안 봤다 — 창 뜨는
+    #   실행기가 들어가면 부팅할 때마다 창이 뜨는데 어느 화면에도 안 뜬다(`[169]`).
+    #   읽기 전용이다 — 고치는 것은 사람이 정한다.
+    try:
+        from tools.window_audit import autorun as _autorun
+    except Exception as exc:
+        out.append({"갈래": "확인못함", "작업": "로그인 자동실행",
+                    "무엇": "로그인 자동실행이 창 뜨는 실행기인지 **못 봤다**(%s)"
+                            % type(exc).__name__,
+                    "어떻게": "python tools" + chr(92) + "window_audit.py --autorun"})
+    else:
+        _rows, _why, _seen = _autorun()
+        if _why:
+            out.append({"갈래": "확인못함", "작업": "로그인 자동실행",
+                        "무엇": "로그인 자동실행을 **확인 못 했다** — %s" % _why,
+                        "어떻게": "python tools" + chr(92) + "window_audit.py --autorun"})
+        for _name, _exe, _v in _rows:
+            out.append({"갈래": "창뜸" if _v == "창뜸" else "확인못함",
+                        "작업": "로그인 자동실행: %s" % _name,
+                        "무엇": "**%s** — 로그인 자동실행이 `%s` 로 걸려 있다(%s). "
+                                "부팅할 때마다 검은 창이 뜬다 — `pythonw.exe` 로 바꾼다"
+                                % (_name, os.path.basename(_exe or "?"), _v),
+                        "어떻게": "python tools" + chr(92) + "window_audit.py --autorun"})
+    # ★ **세션 훅도 창을 띄운다 — 그리고 그 자리는 아무도 안 봤다.**
+    #   `[272]` 는 소스를, `live()` 는 예약 작업을, `autorun()` 은 로그인 항목을 본다.
+    #   그런데 훅은 `.claude/settings.json` 에 있어 셋 중 어디에도 안 잡혔다.
+    #   실측 2026-08-21: 훅 여섯이 전부 `python`(콘솔)이었고 그중 `PostToolUse` 는
+    #   **도구를 부를 때마다** 돈다 — 한 응답 동안 창이 수십 번 번쩍이는데 두 감사기는
+    #   나란히 `0곳` 이라 말했다(`[169]`). 읽기 전용이다 — 고치는 것은 사람이 정한다.
+    try:
+        from tools.window_audit import hooks as _hooks
+    except Exception as exc:
+        out.append({"갈래": "확인못함",
+                    "작업": "세션 훅",
+                    "무엇": "세션 훅이 창 뜨는 실행기인지 **못 봤다**(%s)" % type(exc).__name__,
+                    "어떻게": "python tools" + chr(92) + "window_audit.py --hooks"})
+    else:
+        _hrows, _hwhy, _hseen = _hooks()
+        if _hwhy:
+            out.append({"갈래": "확인못함",
+                        "작업": "세션 훅",
+                        "무엇": "세션 훅을 **확인 못 했다** — %s" % _hwhy,
+                        "어떻게": "python tools" + chr(92) + "window_audit.py --hooks"})
+        for _어디, _사건, _exe, _v in _hrows:
+            out.append({"갈래": ("창뜸" if _v == "창뜸" else "확인못함"),
+                        "작업": "세션 훅: %s %s" % (_어디, _사건),
+                        "무엇": "**%s** 훅이 `%s` 로 걸려 있다(%s) — 그 훅이 돌 때마다 검은 창이 뜬다. `pythonw` 로 바꾼다(실측: pythonw 도 파이프 stdout 을 그대로 살려 훅이 내보내는 한 줄을 안 잃는다)." % (_사건, _exe, _v),
+                        "어떻게": "python tools" + chr(92) + "window_audit.py --hooks"})
+    # ★ **다섯째 구멍 — 시작 폴더.** (2026-08-21 형님 지시가 **두 번째로** 온 자리)
+    #   네 축(소스·예약작업·로그인항목·훅)이 전부 초록인데도 같은 지시가 다시 왔다.
+    #   실측: 시작 폴더에 스크립트 자동실행 셋이 있는데 **어느 축도 그 파일을 한 글자도
+    #   안 봤다.** 지금은 셋 다 창 숨김(`Run …, 0`)이지만 그것을 **재는 계기가 없다는
+    #   것**이 문제다 — 하나가 `1` 로 바뀌면 부팅할 때마다 창이 뜨는데 조용하다(`[169]`).
+    #   그리고 `wscript` 를 실행기 이름만 보고 '조용'이라 하면 안 된다. 창이 뜨는지
+    #   정하는 것은 실행기가 아니라 **vbs 안의 Run 두 번째 인자**다.
+    try:
+        from tools.window_audit import startup as _startup
+    except Exception as exc:
+        out.append({"갈래": "확인못함", "작업": "시작 폴더",
+                    "무엇": "시작 폴더 자동실행이 창 뜨는지 **못 봤다**(%s)" % type(exc).__name__,
+                    "어떻게": "python tools" + chr(92) + "window_audit.py --startup"})
+    else:
+        _srows, _swhy, _sseen = _startup()
+        if _swhy:
+            out.append({"갈래": "확인못함", "작업": "시작 폴더",
+                        "무엇": "시작 폴더를 **확인 못 했다** — %s" % _swhy,
+                        "어떻게": "python tools" + chr(92) + "window_audit.py --startup"})
+        for _fn, _v, _why2 in _srows:
+            out.append({"갈래": ("창뜸" if _v == "창뜸" else "확인못함"),
+                        "작업": "시작 폴더: %s" % _fn,
+                        "무엇": "**%s** — 로그인할 때 도는 자동실행이 창을 단다(%s · %s). "
+                                "부팅할 때마다 검은 창이 떠 형님 화면을 가린다."
+                                % (_fn, _v, _why2),
+                        "어떻게": "python tools" + chr(92) + "window_audit.py --startup"})
+    # ★ **여섯째 — 이 저장소 밖.** 형님 지시는 "**어떤 계정 어떤 세션에서 진행해도**" 다.
+    #   그런데 이 감사기는 제 저장소 하나만 훑는다. 실측 2026-08-21: 이 PC 에서 자동으로
+    #   도는 다른 프로젝트가 셋이고 그중 하나(UNI Cash Flow)에 **콘솔 exe 를 깃발 없이
+    #   띄우는 자리 18곳**이 있었다 — 그 앱은 시작 폴더로 부팅마다 도는데 이 저장소의
+    #   어느 계기도 그것을 못 셌다.
+    #   ★ **경보가 아니라 알림이다**(`[170]`·`[172]`). 남의 저장소는 규칙이 다를 수 있고
+    #     여기서 '위반'이라 부르면 거짓 경보가 된다. 고치는 것은 그 세션이 정한다 —
+    #     여기는 **숫자로 말하는 것까지**다(`[169]` — 조용히 빼면 없는 것으로 읽힌다).
+    try:
+        from tools.window_audit import neighbors as _nb, split as _split
+    except Exception:
+        pass
+    else:
+        try:
+            _dirs, _ = _nb()
+        except Exception:
+            _dirs = []
+        for _d in _dirs:
+            try:
+                _sure, _unk = _split(root=_d)
+            except Exception as exc:
+                out.append({"갈래": "확인못함", "작업": "이웃 저장소: %s" % os.path.basename(_d),
+                              "무엇": "창 자리를 **못 셌다**(%s)" % type(exc).__name__,
+                              "어떻게": 'python tools' + chr(92) + 'window_audit.py --root "%s"' % _d})
+                continue
+            if _sure or _unk:
+                out.append({"갈래": "이웃창", "작업": "이웃 저장소: %s" % os.path.basename(_d),
+                              "무엇": "이 PC 에서 자동으로 도는 다른 프로젝트 — 콘솔 exe 를 깃발 없이 "
+                                      "띄우는 자리 **%d곳** · 무엇을 띄우는지 못 읽은 자리 **%d곳**. "
+                                      "둘을 뭉치지 않는다(뒤는 지목이 아니라 못 봤다는 보고다 · [169]). "
+                                      "그 세션이 고칠 자리다 — 여기서는 안 고친다." % (len(_sure), len(_unk)),
+                              "어떻게": 'python tools' + chr(92) + 'window_audit.py --root "%s"' % _d})
     # ★ **같은 회차를 두 작업이 부르면 한쪽은 늘 잠금에 막혀 실패한다.** 그런데 그 실패는
     #   '회차가 고장 났다'로 읽혀서 원인을 엉뚱한 데서 찾게 된다 — 2026-08-07 에
     #   `쿠팡업무_원장일괄반영_15시` 를 지운 것이 바로 이 모양이었고(매일 `결과: 1`),
