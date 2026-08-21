@@ -12752,8 +12752,15 @@ def t155_cancel_and_handover():
     resolution = open(os.path.join(ROOT, "cancel_resolution.py"), encoding="utf-8").read()
     assert "expected_version" in resolution and "_OPEN_STATES" in resolution, \
         "빈칸만 쓰는 옛 큐 대신 열린 상태 CAS가 없으면 취소가 적용되지 않거나 완료를 덮는다"
-    assert "완료일 또는 종료상태가 있어 자동 취소하지 않음" in resolution, \
-        "이미 완료된 업무를 취소로 뒤집는 안전관문이 없다"
+    # ★ 얼릴 것은 **문구가 아니라 판정**이다([39]). 예전에는 사유 문장을 글자로
+    #   못 박아 뒀는데, [187] 로 그 문장을 갈래별로 나누자(완료일 / 종료상태 /
+    #   이미취소 / 모르는 낱말 / 정본 못읽음) **계약은 그대로인데 이 검사만 죽었다**.
+    #   되돌아가면 안 되는 것은 "'완료일이나 종료상태면 자동 취소하지 않는다'" 이고,
+    #   사유가 갈래로 갈리는지는 [372] 가 실행으로 잰다.
+    assert 'str(done_value or "").strip() or current_status not in' in resolution, \
+        "완료일·종료상태를 보는 안전관문이 사라졌다 — 이미 완료된 업무를 취소로 뒤집는다"
+    assert 'closed_reason(' in resolution, \
+        "왜 안 뒤집었는지 말하는 자리가 사라졌다 — 실패를 말하면서 이유를 안 적으면 안 된다([289])"
     # ★ 산문이 아니라 **코드**를 본다. 머리말 설명글은 "convert_dump 가 담는다"처럼
     #   도구 이름을 대는 것이 마땅한데, 그걸 호출로 오해하면 문서를 못 쓰게 된다
     #   (검증이 제 설명글에 걸리는 일은 [157] 에서도 한 번 있었다).
@@ -21510,6 +21517,114 @@ def t363_account_switch_hands_over_the_lane_and_says_so():
     print("[363] 계정을 바꿔도 차선이 사람을 8시간 세우지 않는다 (OK)")
 
 
+
+
+def t372_open_states_come_from_the_ledger_not_a_copy():
+    """[187] 열린 상태 낱말은 **정본에서** 온다 — 열린 행을 '종료상태'라 부르지 않는다.
+
+    2026-08-21 실측: cancel_resolution._OPEN_STATES 는 손으로 적은 표라
+    관리대장 정본 낱말 '신규접수'(10건)·기사배정·일정확정·방문중·재방문예정·
+    보류·일정변경이 **하나도 없었다**. 그래서 열린 행이 충돌로 떨어지고
+    "완료일 또는 종료상태가 있어" 라는 거짓 사유가 리포트에 적혔다 —
+    그날 충돌 4건 중 2건(UJ2601444·UJ2601445)이 그것이었고, 고친 뒤
+    그 둘은 정상적으로 취소 반영됐다(충돌 4 -> 2).
+
+    ★ 실측 증거 파일은 한 글자도 안 건드린다 — work_flow 를 목으로 갈아 끼운다.
+      모듈 속성을 갈 때는 finally 로 반드시 되돌린다(격리는 모듈 객체까지다).
+    """
+    import sys as _sys
+    import cancel_resolution as CR
+
+    class _FakeWF(object):
+        def __init__(self, kinds):
+            self._k = kinds
+
+        def definition(self):
+            return {"갈래": self._k}
+
+    KINDS = {
+        "as": {"이름": "돌발AS", "완료단계": "작업완료", "단계": [
+            {"단계": "신규접수"}, {"단계": "기사배정"}, {"단계": "일정확정"},
+            {"단계": "방문중"}, {"단계": "작업완료"}, {"단계": "재방문예정"},
+            {"단계": "보류"}, {"단계": "취소"},
+        ]},
+        "pm": {"이름": "정기점검", "완료단계": "완료", "단계": [
+            {"단계": "예정"}, {"단계": "완료"}, {"단계": "미점검"},
+            {"단계": "일정변경"}, {"단계": "취소"}, {"단계": "AS전환"},
+        ]},
+    }
+
+    saved = _sys.modules.get("work_flow")
+    try:
+        _sys.modules["work_flow"] = _FakeWF(KINDS)
+        words, unread = CR.open_states()
+        assert not unread, "(1) 정본을 읽었는데 '못읽음'이 붙었다: %s" % unread
+        for w in ("신규접수", "기사배정", "일정확정", "방문중",
+                  "재방문예정", "보류", "일정변경"):
+            assert w in words, "(2) 정본의 열린 단계 '%s' 가 빠졌다 — 그 행이 거짓 충돌로 떨어진다" % w
+        for w in ("작업완료", "완료", "취소", "AS전환"):
+            assert w not in words, "(3) 끝난 단계 '%s' 를 열림으로 셌다 — 끝난 건을 취소로 뒤집는다" % w
+        for w in ("접수", "예정월", "미실시"):
+            assert w in words, "(4) 옛 표의 '%s' 가 사라졌다 — 원장에 이미 쓰인 값이다" % w
+
+        got = CR.closed_reason("작업완료", "2026-08-01", words, "")
+        assert "완료일" in got and "종료상태" not in got, "(5) 완료일 갈래: %s" % got
+        got = CR.closed_reason("작업완료", "", words, "")
+        assert "종료상태" in got, "(6) 종료상태 갈래: %s" % got
+        got = CR.closed_reason("취소", "", words, "")
+        assert "이미 취소" in got, "(7) 이미취소 갈래: %s" % got
+        got = CR.closed_reason("듣도보도못한말", "", words, "")
+        assert "판단할 수 없" in got and "종료상태" not in got, (
+            "(8) 모르는 낱말을 '종료상태'라 확언했다 — 사람이 없는 완료 기록을 찾아 나선다: %s" % got)
+    finally:
+        if saved is None:
+            _sys.modules.pop("work_flow", None)
+        else:
+            _sys.modules["work_flow"] = saved
+
+    class _Broken(object):
+        def definition(self):
+            raise RuntimeError("no ledger")
+
+    saved = _sys.modules.get("work_flow")
+    try:
+        _sys.modules["work_flow"] = _Broken()
+        words2, unread2 = CR.open_states()
+        assert unread2, "(9) 정본을 못 읽었는데 조용히 넘어갔다 — 못 읽음을 정상이라 부르면 안 된다"
+        assert "접수" in words2, "(10) 못 읽었다고 옛 표까지 버렸다 — 전부 종료상태가 된다"
+        got = CR.closed_reason("신규접수", "", words2, unread2)
+        assert "확인 못 함" in got, "(11) 못 읽은 채로 단정했다: %s" % got
+    finally:
+        if saved is None:
+            _sys.modules.pop("work_flow", None)
+        else:
+            _sys.modules["work_flow"] = saved
+
+    code = open(os.path.join(ROOT, "cancel_resolution.py"), encoding="utf-8").read()
+    assert "_CLOSED_EXTRA" in code and "AS전환" in code, (
+        "(12) AS전환을 닫힌 것으로 세는 자리가 사라졌다")
+
+    # ★ 계기 자신을 시험한다 — 옛 동작(손으로 적은 표만 본다)을 넣으면 (2) 가 잡는가.
+    saved = _sys.modules.get("work_flow")
+    try:
+        _sys.modules["work_flow"] = _FakeWF(KINDS)
+        old_words = set(CR._OPEN_STATES)
+        caught = False
+        try:
+            for w in ("신규접수", "기사배정"):
+                assert w in old_words
+        except AssertionError:
+            caught = True
+        assert caught, "(13) 계기가 눈멀었다 — 옛 표만 봐도 이 검사가 통과한다"
+    finally:
+        if saved is None:
+            _sys.modules.pop("work_flow", None)
+        else:
+            _sys.modules["work_flow"] = saved
+
+    print("  [372] 열린 낱말이 정본에서 온다 · 충돌 사유가 갈래로 갈린다")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -30253,6 +30368,7 @@ if __name__ == "__main__":
     t361_deposit_folder_is_not_evidence_of_a_deposit()
     t363_account_switch_hands_over_the_lane_and_says_so()
     t362_takeover_says_the_browser_does_not_follow_the_account()
+    t372_open_states_come_from_the_ledger_not_a_copy()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

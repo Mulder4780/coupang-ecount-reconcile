@@ -28,6 +28,102 @@ _OPEN_STATES = {
     "미실시", "예정", "예정월", "대기", "미점검",
 }
 
+# ★ 여기 적힌 낱말만 보면 **정본을 모른다**([187] · 2026-08-21 실측).
+#   관리대장 10_코드관리 의 돌발AS 목록은 `신규접수`(10건)·기사배정·일정확정·
+#   방문중·재방문예정·보류 이고 정기점검에는 `일정변경` 이 있는데, 위 표에는
+#   그중 하나도 없다. 그래서 **열린 행**이 `not in _OPEN_STATES` 로 떨어져
+#   "완료일 또는 종료상태가 있어" 라는 **거짓 사유**를 리포트에 적었다
+#   (실측 그날 충돌 4건 중 2건이 그것 — UJ2601444·UJ2601445 둘 다 `신규접수`).
+#   경보의 절반이 가짜면 나머지도 아무도 안 본다([170]).
+#
+#   그래서 낱말은 **정본 한 곳**(work_flow.definition)에서 가져온다([162]).
+#   여기 손으로 베껴 적으면 관리대장 드롭다운이 바뀐 날 사본만 낡는다.
+#   위 표는 **지우지 않고 합집합으로 남긴다** — 원장에 이미 쓰인 옛 값이 있다
+#   (`접수` 80건 · `예정월` 69건은 목록 밖 값인데 둘 다 열린 뜻이다).
+#
+# ⚠ 정본은 '이 단계가 끝인가'를 말해 주지 않는다 — 완료단계와 취소류만 안다.
+#   `AS전환` 은 목록에 있지만 **그 정기점검 건은 끝난 것**이다(AS 로 넘어갔다).
+#   열린 것으로 세면 이미 넘어간 건을 접수취소로 뒤집을 수 있다([172]).
+#   그러므로 이 한 낱말만 손으로 적고, 왜 적었는지를 여기 남긴다.
+_CLOSED_EXTRA = {"AS전환"}
+
+
+def open_states():
+    """열린 상태 낱말 — 정본 + 위 표의 합집합. `(낱말들, 못읽은이유)`.
+
+    ★ 못 읽으면 '전부 열림'으로도 '전부 닫힘'으로도 치지 않는다([169]).
+      위 표로 물러나고 **못 읽었다는 사실을 같이 돌려준다** — 부르는 쪽이
+      그것을 사유에 적어야 사람이 왜 이렇게 판정됐는지 알 수 있다.
+    """
+    base = set(_OPEN_STATES)
+    try:
+        import work_flow
+        kinds = (work_flow.definition() or {}).get("갈래") or {}
+    except Exception as exc:
+        return base, "%s: %s" % (type(exc).__name__, str(exc)[:80])
+    if not kinds:
+        return base, "정본 갈래가 비어 있다"
+    for g in kinds.values():
+        if not isinstance(g, dict):
+            continue
+        done = str(g.get("완료단계") or "").strip()
+        for s in g.get("단계") or []:
+            name = str((s or {}).get("단계") or "").strip()
+            if not name or name == done or name in _CLOSED_EXTRA:
+                continue
+            if any(word in name for word in _CANCELLED):
+                continue
+            base.add(name)
+    return base, ""
+
+
+def known_states():
+    """정본에 **적혀 있는** 상태 낱말 전부(열림·닫힘 가리지 않음).
+
+    ★ '종료상태다' 와 '모르는 낱말이다' 는 다른 사실이다([169]).
+      정본 목록에 있는데 열림이 아니면 그것은 진짜 종료상태이고,
+      목록에 아예 없으면 **우리가 모르는 것**이다 — 종료라고 확언하면
+      사람이 없는 완료 기록을 찾아 나선다([172]).
+    """
+    out = set()
+    try:
+        import work_flow
+        kinds = (work_flow.definition() or {}).get("갈래") or {}
+    except Exception:
+        return out
+    for g in kinds.values():
+        if not isinstance(g, dict):
+            continue
+        for s in g.get("단계") or []:
+            name = str((s or {}).get("단계") or "").strip()
+            if name:
+                out.add(name)
+    return out
+
+
+def closed_reason(status, done_value, open_words, unread=""):
+    """왜 자동 취소를 안 했는지 **갈래를 갈라** 말한다([289]).
+
+    예전에는 셋을 한 문장으로 뭉쳤다 — "완료일 또는 종료상태가 있어".
+    그러면 `신규접수` 인 행에도 그 말이 붙어 사람이 **없는 완료일을 찾아
+    나선다**([172]). 조치가 갈래마다 다르므로 문장도 갈라야 한다.
+    """
+    status = str(status or "").strip()
+    if str(done_value or "").strip():
+        return "완료일이 이미 있어 자동 취소하지 않음"
+    if any(word in status for word in _CANCELLED):
+        return "이미 취소 상태라 자동 취소하지 않음"
+    if unread:
+        return ("상태 낱말이 열린 단계인지 확인 못 함(정본을 못 읽었다: %s) — %s"
+                % (unread, status or "(빈칸)"))
+    if status not in open_words:
+        if status and status in known_states():
+            return "종료상태(%s)라 자동 취소하지 않음" % status
+        # 정본 목록에 없는 낱말이다 — 끝난 것인지 아닌지 **모른다**([169]).
+        return ("상태 낱말 '%s' 이 관리대장 목록에 없어 열린 단계인지 판단할 수 없음"
+                % (status or "(빈칸)"))
+    return "자동 취소하지 않음"
+
 SOURCE_SPECS = (
     ("돌발AS", "02_돌발AS접수", "접수ID", "진행상태"),
     ("정기점검", "04_정기점검", "점검ID", "점검상태"),
@@ -281,12 +377,13 @@ def sync_hits(
         already_cancelled = any(word in current_status for word in _CANCELLED)
         # 이후 완료·현장실적을 접수취소 본문 하나로 뒤집으면 실제 작업과 청구를
         # 잃는다. 이미 취소인 행의 근거 보강은 허용하고, 열린 상태만 취소 전환한다.
+        열린낱말, 못읽음 = open_states()
         if (not already_cancelled
-                and (str(done_value or "").strip() or current_status not in _OPEN_STATES)):
+                and (str(done_value or "").strip() or current_status not in 열린낱말)):
             result["conflicts"] += 1
             result["records"].append({
                 "project": project, "work_id": current["id"], "action": "conflict",
-                "reason": "완료일 또는 종료상태가 있어 자동 취소하지 않음",
+                "reason": closed_reason(current_status, done_value, 열린낱말, 못읽음),
                 "current_status": current_status,
             })
             continue
