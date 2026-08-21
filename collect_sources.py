@@ -245,9 +245,62 @@ def copy_one(src, dst_dir, apply=False):
     return state, dst
 
 
+#: 행수 캐시 — **파일이 안 바뀌면 다시 열지 않는다**([168]).
+#: 규칙(무엇을 한 행으로 세나)을 고치면 이 판을 **손으로 올린다** — 안 올리면
+#: 원본이 그대로인 한 옛 답이 영원히 이긴다(이 프로젝트가 여러 번 겪은 모양:
+#: `inbox_scan.RULES_VERSION` · `PM_SCHED_VER` · `_BAND_EV_VER`).
+_ROWS_VER = 1
+_ROWS_CACHE = os.path.join(BASE, "reports", ".수집안내_행수.json")
+_rows_cache = None
+
+
+def _rows_cache_load():
+    global _rows_cache
+    if _rows_cache is None:
+        try:
+            with open(_ROWS_CACHE, encoding="utf-8") as fh:
+                d = json.load(fh)
+            _rows_cache = d.get("행수") or {} if d.get("판") == _ROWS_VER else {}
+        except Exception:
+            _rows_cache = {}
+    return _rows_cache
+
+
+def _rows_cache_save():
+    if _rows_cache is None:
+        return
+    try:
+        os.makedirs(os.path.dirname(_ROWS_CACHE), exist_ok=True)
+        tmp = _ROWS_CACHE + ".tmp"
+        with open(tmp, "w", encoding="utf-8", newline="") as fh:
+            json.dump({"판": _ROWS_VER, "행수": _rows_cache}, fh, ensure_ascii=False)
+        os.replace(tmp, _ROWS_CACHE)
+    except Exception:
+        pass          # 캐시를 못 남겨도 회차를 세우지 않는다 — 다음에 다시 센다
+
+
 def count_rows(path):
-    """엑셀은 행 수를, 텍스트는 줄 수를 센다 — '넣었는데 비어 있는' 파일을 잡기 위해."""
+    """엑셀은 행 수를, 텍스트는 줄 수를 센다 — '넣었는데 비어 있는' 파일을 잡기 위해.
+
+    ★ **비싼 읽기는 캐시 검사 뒤에 온다**([168]).  이 함수는 Z:(SMB) 의 엑셀을
+      **통째로 열어 모든 시트의 모든 행**을 훑는데, `main()` 이 원본 폴더의 파일
+      **하나하나마다** 부른다 — 안 바뀐 파일까지 매 회차 다시 연다.  2026-08-21
+      실측: '원본 모으기' 단계 **36.8분** · 그다음 '원본 폴더 정리'가 40분 제한에
+      걸려 회차가 매일 exit 1 로 죽었다([324] 가 그 범인 단계를 대 줬다).
+      ⚠ 그렇다고 **이것이 36.8분 전부라고 확언하지 않는다**([172]) — 구간 자국을
+      같이 넣었으니 다음 회차가 숫자로 답한다.
+    ★ 못 읽은 것(-1)은 **캐시하지 않는다**([169]) — 그때 한 번 못 읽은 것을
+      '이 파일은 비었다'로 굳히면 다시는 안 열어 본다."""
     ext = os.path.splitext(path)[1].lower()
+    try:
+        st = os.stat(path)
+        key = "%s|%d|%d" % (os.path.abspath(path), st.st_size, int(st.st_mtime))
+    except OSError:
+        return -1
+    cache = _rows_cache_load()
+    hit = cache.get(key)
+    if isinstance(hit, int):
+        return hit
     try:
         if ext.startswith(".xls"):
             import openpyxl
@@ -255,10 +308,13 @@ def count_rows(path):
             n = sum(1 for sn in w.sheetnames for r in w[sn].iter_rows(values_only=True)
                     if sum(1 for x in r if x not in (None, "")) >= 3)
             w.close()
+            cache[key] = n
             return n
         if ext == ".txt":
             with open(path, encoding="utf-8", errors="replace") as f:
-                return sum(1 for _ in f)
+                n = sum(1 for _ in f)
+            cache[key] = n
+            return n
     except Exception:
         pass
     return -1
@@ -315,7 +371,13 @@ def main():
         print(f"원본 폴더에 접근할 수 없습니다(네트워크 드라이브 확인): {ORIGIN_ROOT}")
         return 2
 
+    # * 구간 자국 - **어디가 오래 걸리나**를 회차가 스스로 대게 한다([324] 의 순서:
+    #   짐작으로 제한시간부터 늘리지 않고, 먼저 범인을 대게 만든다).  회차 층에서는
+    #   이미 이름을 댔다(2026-08-21 '원본 모으기' 36.8분) - 이제 단계 **안**이다.
+    time_mod = __import__("time")
+    _t0 = time_mod.time()
     jobs = plan()
+    _t_plan = time_mod.time() - _t0
     print(f"{'복사 실행' if apply else '미리보기(복사 안 함)'} — 대상 {len(jobs)}개\n")
     tally = {}
     for src, dst_dir, kind in jobs:
@@ -323,6 +385,7 @@ def main():
         tally[state] = tally.get(state, 0) + 1
         print(f"  [{state:6s}] {os.path.basename(dst_dir)}/{os.path.basename(dst)}   ({kind})")
 
+    _t_copy = time_mod.time() - _t0 - _t_plan
     print("\n집계: " + ", ".join(f"{k} {v}개" for k, v in sorted(tally.items())))
     if not apply:
         print("\n실제로 복사하려면:  python collect_sources.py --apply")
@@ -347,7 +410,12 @@ def main():
             n = sum(len(f) for _b, _dd, f in os.walk(d))
             rows.append((d, [(f"(하위 폴더 포함 {n}개 파일)", -1)]))
     write_guide(rows)
+    _rows_cache_save()
+    _t_guide = time_mod.time() - _t0 - _t_plan - _t_copy
     print(f"안내문 갱신: {os.path.basename(GUIDE)}")
+    # 이 줄이 다음 회차의 답이다 - 확언 대신 숫자로 말한다.
+    print("  구간(초): 목록 %.1f · 복사 %.1f · 안내문(행수 세기) %.1f"
+          % (_t_plan, _t_copy, _t_guide))
     if empty:
         print(f"\n★ 내용이 비어 있는 파일 {len(empty)}개 — 다시 내보내야 합니다")
         for x in empty:
