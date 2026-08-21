@@ -19,7 +19,7 @@ import os
 import re
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,82 @@ VERSION = 1
 
 def _now() -> datetime:
     return datetime.now().astimezone()
+
+
+def _sleep_minutes_since(minutes_ago: float) -> tuple[float | None, str]:
+    """최근 `minutes_ago` 분 동안 이 PC 가 **Modern Standby 로 자고 있던 분**.
+
+    ★ **'멈춤'과 '기계가 자고 있었다'는 다른 사실이다** (2026-08-22 실사고).
+      워치독 판정이 **로그 나이 하나**뿐이라, 형님이 노트북을 덮어 둔 밤에도
+      `[P0] 워치독 30분 회차가 멈춤` 을 확언했다. 실측: 08-21 22:04 ~ 08-22 01:19
+      **3시간 15분** 잠(Kernel-Power 506 진입 · 507 이탈) — 공백이 정확히 그 안이다.
+      그런데 조치는 *"확인창을 띄우지 말고…"* 라, 그대로 하면 사람이 **멀쩡한
+      워치독 코드**를 고치러 간다([172] — 틀린 지목이 못 잡는 것보다 나쁘다).
+
+    ★ **지어낼 것이 없다** — 이벤트 로그에 그대로 적혀 있다. 실측 조회 **0.41초**라
+      비싼 탐색도 아니다([168]). 창은 안 띄운다(`proc_guard` · [272]).
+
+    ★ **못 읽으면 `None` 이다 — 0 이 아니다**([169]). 0 을 주면 '안 잤다'가 되어
+      **예전과 똑같이 P0** 를 확언하는데, 그것은 '확인했다'는 거짓이다.
+      부르는 쪽이 그 구별을 그대로 사람에게 말한다.
+
+    ⚠ **506/507 은 Modern Standby 뿐이다.** 옛 절전(S3)·최대절전·종료는 다른
+      이벤트라 여기서 안 센다 — 모르는 갈래를 아는 것처럼 세지 않는다([169]).
+    """
+    if os.name != "nt":
+        return None, "윈도우가 아니라 이벤트 로그를 못 본다"
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import proc_guard  # noqa: PLC0415  (늦게 들여온다 — 순환 방지)
+    except Exception as exc:  # pragma: no cover
+        return None, "%s: %s" % (type(exc).__name__, exc)
+    hours = max(1, int(minutes_ago / 60) + 2)
+    ps = ("$ErrorActionPreference='SilentlyContinue';"
+          "Get-WinEvent -FilterHashtable @{LogName='System';"
+          "ProviderName='Microsoft-Windows-Kernel-Power';Id=506,507;"
+          "StartTime=(Get-Date).AddHours(-%d)} |"
+          " ForEach-Object { '{0}|{1}' -f $_.Id, $_.TimeCreated.ToString('s') }" % hours)
+    try:
+        res = proc_guard.run_tree(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=40)
+    except Exception as exc:
+        return None, "%s: %s" % (type(exc).__name__, exc)
+    if res.timed_out:
+        return None, "이벤트 조회가 40초를 넘겼다"
+    if res.returncode != 0:
+        return None, "이벤트 조회 실패(rc=%s)" % res.returncode
+    now = datetime.now()
+    since = now - timedelta(minutes=minutes_ago)
+    events = []
+    for line in (res.stdout or "").splitlines():
+        part = line.strip().split("|")
+        if len(part) != 2:
+            continue
+        try:
+            events.append((int(part[0]), datetime.fromisoformat(part[1])))
+        except ValueError:
+            continue
+    events.sort(key=lambda x: x[1])
+    total = 0.0
+    enter = None
+    for ident, when in events:
+        if ident == 506:
+            enter = when
+        elif ident == 507 and enter is not None:
+            total += _overlap_minutes(enter, when, since, now)
+            enter = None
+    if enter is not None:          # 아직 안 깬 것으로 적혀 있으면 지금까지로 본다
+        total += _overlap_minutes(enter, now, since, now)
+    return total, ""
+
+
+def _overlap_minutes(a0, a1, b0, b1) -> float:
+    """두 구간이 겹치는 분. 잠이 **마지막 로그 이전**에도 있으므로 겹침만 센다."""
+    lo = max(a0, b0)
+    hi = min(a1, b1)
+    if hi <= lo:
+        return 0.0
+    return (hi - lo).total_seconds() / 60.0
 
 
 def _age_minutes(path: Path) -> float | None:
@@ -284,12 +360,40 @@ def build() -> dict[str, Any]:
         last_watchdog_line = next(
             (line for line in reversed(watchdog_tail.splitlines()) if line.strip()), "")
         waiting = "지금 내릴까요" in last_watchdog_line or "(y = 내림" in last_watchdog_line
-        add("watchdog-stale", "P0",
-            "워치독이 입력 대기에서 멈춤" if waiting else "워치독 30분 회차가 멈춤",
-            f"마지막 로그가 {int(watchdog_age)}분 전"
-            + ("이며 끝부분에 사람 답변을 기다리는 문구가 있습니다." if waiting else "입니다."),
-            "무인 회차에서는 확인창을 띄우지 말고 재시작을 보류 기록으로 남기도록 고칩니다.",
-            "reports/watchdog_log.txt")
+        if waiting:
+            # 입력 대기는 잠과 무관한 진짜 멈춤이다 — 한 글자도 안 건드린다([172]).
+            add("watchdog-stale", "P0", "워치독이 입력 대기에서 멈춤",
+                f"마지막 로그가 {int(watchdog_age)}분 전이며 끝부분에 사람 답변을"
+                " 기다리는 문구가 있습니다.",
+                "무인 회차에서는 확인창을 띄우지 말고 재시작을 보류 기록으로"
+                " 남기도록 고칩니다.",
+                "reports/watchdog_log.txt")
+        else:
+            slept, why = _sleep_minutes_since(watchdog_age)
+            sources["watchdog"]["slept_minutes"] = slept
+            sources["watchdog"]["sleep_note"] = why
+            awake = None if slept is None else max(0.0, watchdog_age - slept)
+            if awake is not None and awake <= 75:
+                # 깨어 있던 시간으로는 안 밀렸다 — 경보가 아니라 **알림**이다([170]).
+                # 그래도 조용히 빼지 않는다([169]): 몇 분을 잤는지 숫자로 말한다.
+                add("watchdog-slept", "P2", "워치독 공백은 이 PC 가 잠들어 있던 시간",
+                    f"마지막 로그가 {int(watchdog_age)}분 전이지만 그중"
+                    f" {int(slept)}분은 이 PC 가 Modern Standby 로 자고 있었습니다"
+                    f"(깨어 있던 공백 {int(awake)}분 · 한도 75분)."
+                    " 워치독이 멈춘 것이 아니라 기계가 안 깨어 있었습니다.",
+                    "그대로 두면 됩니다 — 깨어나면 다음 회차가 스스로 돕니다.",
+                    "reports/watchdog_log.txt")
+            else:
+                extra = ("입니다." if slept is not None else
+                         f"입니다. 잠든 시간은 갈라내지 못했습니다({why}) —"
+                         " '자고 있었다'는 뜻이 아닙니다.")
+                if slept:
+                    extra = (f"이고 그중 {int(slept)}분은 잠이었습니다"
+                             f"(깨어 있던 공백 {int(awake)}분 · 한도 75분).")
+                add("watchdog-stale", "P0", "워치독 30분 회차가 멈춤",
+                    f"마지막 로그가 {int(watchdog_age)}분 전" + extra,
+                    "python watchdog.py   # 그 전에 tasklist 로 앞 회차가 도는지 본다",
+                    "reports/watchdog_log.txt")
 
     # 3) 일일 대조 — 실패를 '오늘 실행됨'으로 세지 않는다.
     #

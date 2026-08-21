@@ -22805,6 +22805,57 @@ def t383_login_autorun_is_watched_for_windows():
     print("[383] 로그인 자동실행 감시 OK")
 
 
+def t386_chrome_hint_survives_an_account_change():
+    """[386] 계정이 바뀌어도 크롬에 붙일 수 있게 — 안내가 **붙여넣기 두 줄**을 준다
+    (2026-08-22 형님 지시 "계정이 바뀌어도 크롬 잘 디버깅해서 잘 붙여서 할 수 있게").
+
+    ★ 왜 — Claude 확장 연결은 크롬이 아니라 **Claude 계정**에 붙는다.  계정을 바꾸면
+      `list_connected_browsers` 가 빈 목록이 되어 AI 는 수집기를 **심을 수 없다**.
+      그때 안내가 Tampermonkey 를 지목하면 사람이 멀쩡한 확장을 다시 깔러 간다
+      ([172] 틀린 지목 · [149] 로 이미 반증됐다).  붙여넣기 두 줄은 계정과 무관하다.
+    ★ 포트를 손으로 적지 않는다([156]) — 8765 라 적어 뒀다가 실제가 8899 라
+      "서버가 안 떴다"로 읽힌 전례가 있다."""
+    import sys, importlib
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for d in (root, os.path.join(root, "band")):
+        if d not in sys.path:
+            sys.path.insert(0, d)
+    U = importlib.import_module("userscript_watch")
+
+    # ① 포트는 app_server 에서 온다 — 소스에 못 박지 않는다
+    src = io.open(os.path.join(root, "band", "userscript_watch.py"),
+                  encoding="utf-8", newline="").read()
+    assert 'USER_JS_URL = "http://127.0.0.1:8899' not in src,         "포트를 손으로 적었다 — 포트가 바뀌면 안내가 조용히 틀린다([156])"
+    from webapp import app_server as A
+    assert U.PORT == int(getattr(A, "PORT", 8899)),         "안내 포트가 앱 서버 포트와 다르다 — 사람이 죽은 주소를 붙여넣게 된다"
+
+    # ② 붙여넣기 두 줄이 실제로 들어 있다(계정과 무관한 유일한 길)
+    for key in ("안옴", "끊김"):
+        fix = U.FIX[key]
+        assert "fetch(" in fix and "(0,eval)" in fix,             key + " 안내에 붙여넣기 두 줄이 없다 — 계정이 바뀌면 할 수 있는 것이 없어진다"
+        assert str(U.PORT) in fix, key + " 안내가 실제 포트를 안 담는다"
+
+    # ③ 틀린 지목 회귀 — Tampermonkey 를 **먼저** 시키지 않는다([172]·[149])
+    for key in ("안옴", "끊김"):
+        head = U.FIX[key][:40]
+        assert "Tampermonkey" not in head,             key + " 안내가 아직 Tampermonkey 부터 지목한다 — [149] 로 반증된 원인이다"
+
+    # ④ 계기 자신을 시험한다([272]) — 붙여넣기를 빼면 ②가 잡히나
+    real = U.FIX["끊김"]
+    try:
+        U.FIX["끊김"] = "탭을 다시 열고 Tampermonkey 에서 켜져 있는지 본다"
+        caught = False
+        try:
+            f = U.FIX["끊김"]
+            assert "fetch(" in f and "(0,eval)" in f
+        except AssertionError:
+            caught = True
+        assert caught, "(4) 붙여넣기를 빼도 ②가 통과한다 — 이 검사는 아무것도 안 잰다"
+    finally:
+        U.FIX["끊김"] = real
+    print("[386] 계정이 바뀌어도 붙일 수 있는 안내 OK")
+
+
 def t380_ambiguous_reaches_the_handoff():
     """[188] — [359] 의 나머지 반쪽: 자국을 **읽는 쪽**이 있어야 한다.
 
@@ -22955,6 +23006,83 @@ def t381_row_count_is_cached_and_never_freezes_a_miss():
     assert os.path.exists(real) == had, "검사가 실측 캐시를 건드렸다"
     print("[381] 행수 세기는 캐시 뒤에 · 못 읽은 것은 안 굳힌다 · 구간 자국 살아 있음")
 
+
+def t385_watchdog_gap_is_not_stall_when_the_pc_slept():
+    """[385] 워치독 공백 — **'멈춤'과 '기계가 자고 있었다'를 가른다**.
+
+    2026-08-22 실사고: 판정이 **로그 나이 하나**뿐이라, 형님이 노트북을 덮어 둔 밤에도
+    `[P0] 워치독 30분 회차가 멈춤` 을 확언했다(실측 22:04~01:19 · 3시간 15분 잠 ·
+    Kernel-Power 506/507). 게다가 조치는 입력대기 갈래의 것을 공용으로 써서
+    *"확인창을 띄우지 말고…"* 라 — 그대로 하면 사람이 **멀쩡한 워치독 코드**를
+    고치러 간다([172]).
+
+    글자로는 '정말 갈라지나'를 못 잰다 — **실행해서** 잰다([295]).
+    실측 파일은 한 글자도 안 건드린다(`build()` 는 읽기 전용 · [247]).
+    """
+    import system_audit as sa
+
+    NL = chr(10)   # 관문 모듈 수준에 NL 이 없다([324])
+    real_age = sa._age_minutes
+    real_sleep = sa._sleep_minutes_since
+    real_tail = None
+
+    def rows(sleep_ret, tail_line=""):
+        try:
+            sa._age_minutes = (lambda pth: 127.0
+                               if pth.name == "watchdog_log.txt" else real_age(pth))
+            sa._sleep_minutes_since = lambda m: sleep_ret
+            report = sa.build()
+        finally:
+            # ★ 목은 반드시 되돌린다 — 모듈 속성은 **프로세스 하나뿐**이라
+            #   안 되돌리면 뒤따르는 검사가 눈이 먼다([371]).
+            sa._age_minutes = real_age
+            sa._sleep_minutes_since = real_sleep
+        return [f for f in report["findings"] if "watchdog" in f["id"]]
+
+    # ① 잠이 공백을 덮으면 경보가 아니라 알림이다([170])
+    got = rows((116.0, ""))
+    assert got, "① 워치독 줄이 통째로 사라졌다 — 조용히 빼면 안 된다([169])"
+    assert got[0]["priority"] == "P2", "① 잠든 시간을 뺐는데도 P0 다: %s" % got[0]["priority"]
+    assert got[0]["id"] == "watchdog-slept", got[0]["id"]
+    assert "116" in got[0]["evidence"], "① 몇 분을 잤는지 숫자로 말해야 한다([169])"
+
+    # ② 못 읽으면 '안 잤다'가 아니다 — 예전대로 P0 이고 그 사실을 적는다([169])
+    got = rows((None, "이벤트 조회 실패(rc=1)"))
+    assert got and got[0]["priority"] == "P0", "② 못 읽었는데 완화했다"
+    assert "갈라내지 못했" in got[0]["evidence"], got[0]["evidence"]
+
+    # ③ 안 잤으면 예전 그대로 P0 — 좁히는 것도 고장이다([172])
+    got = rows((0.0, ""))
+    assert got and got[0]["priority"] == "P0", "③ 안 잤는데 P0 가 아니다"
+
+    # ④ 잠이 조금이면 여전히 P0 (깨어 있던 공백이 한도를 넘는다)
+    got = rows((5.0, ""))
+    assert got and got[0]["priority"] == "P0", "④ 5분 자고 122분 깨어 있었는데 완화했다"
+
+    # ⑤ 겹침만 센다 — 잠이 마지막 로그 **이전**에도 있다
+    from datetime import datetime, timedelta
+    now = datetime(2026, 8, 22, 1, 30)
+    since = now - timedelta(minutes=60)
+    before = sa._overlap_minutes(now - timedelta(minutes=300),
+                                 now - timedelta(minutes=200), since, now)
+    assert before == 0.0, "⑤ 창 밖의 잠을 셌다: %s" % before
+    half = sa._overlap_minutes(now - timedelta(minutes=90),
+                               now - timedelta(minutes=30), since, now)
+    assert abs(half - 30.0) < 0.01, "⑤ 겹치는 30분을 %s 로 셌다" % half
+
+    # ⑥ 못 읽으면 0 이 아니라 None ([169])
+    got_val, why = sa._sleep_minutes_since(-1)
+    assert (got_val is None) or isinstance(got_val, float), (got_val, why)
+
+    # ⑦ 계기 자기시험([272]) — 잠 완화를 없앤 옛 동작이면 ①이 잡혀야 한다
+    import inspect
+    code = inspect.getsource(sa.build)
+    code_only = NL.join(ln.split("#", 1)[0] for ln in code.splitlines())
+    assert "watchdog-slept" in code_only, (
+        "⑦ 잠 갈래가 코드에서 사라졌다 — 이 검사는 아무것도 안 재게 된다")
+    assert "_sleep_minutes_since" in code_only, "⑦ 잠을 재는 자리가 없다"
+
+    print("[385] 워치독 공백 — 잠/멈춤/못읽음 갈래 · 겹침 · 계기 자기시험 통과")
 
 def t384_window_audit_reads_helper_bodies_not_names():
     """[384] 창 감사기는 `**헬퍼()` 를 **이름이 아니라 본문**으로 판정한다 (2026-08-21).
@@ -31774,10 +31902,12 @@ if __name__ == "__main__":
     t362_takeover_says_the_browser_does_not_follow_the_account()
     t372_open_states_come_from_the_ledger_not_a_copy()
     t380_ambiguous_reaches_the_handoff()
+    t386_chrome_hint_survives_an_account_change()
     t383_login_autorun_is_watched_for_windows()
     t382_session_hooks_never_open_windows()
     t381_row_count_is_cached_and_never_freezes_a_miss()
     t384_window_audit_reads_helper_bodies_not_names()
+    t385_watchdog_gap_is_not_stall_when_the_pc_slept()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
