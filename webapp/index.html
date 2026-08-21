@@ -5055,7 +5055,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
           <dt>기기 인증</dt><dd id="adminExpiryValue">확인 중…</dd>
         </dl>
         <div class="settings-actions">
-          <button type="button" class="abtn" onclick="loadAdminSettings(true)">↻ 권한 다시 확인</button>
+          <button type="button" class="abtn" onclick="loadAdminSettings(true)"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>권한 다시 확인</button>
           <button type="button" class="abtn settings-danger" id="adminLogoutBtn" onclick="adminModeLogout()">관리자 모드 종료</button>
         </div>
         <div class="settings-safety">화면 표시만 바꿔 관리자 권한을 만들 수 없습니다. 실행·정책·전체 원장 기능은 요청할 때마다 서버가 관리자 세션을 다시 검사합니다.</div>
@@ -5097,7 +5097,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
           <span class="settings-state" id="adminHubState">확인 중</span></div>
         <div class="admin-hub" id="adminHub"><button type="button" class="abtn" disabled>확인 중…</button></div>
         <div class="settings-actions" style="margin-top:10px">
-          <button type="button" class="abtn" onclick="loadSystemAudit(true,true).then(renderSettingsHub)">↻ 다시 진단 읽기</button>
+          <button type="button" class="abtn" onclick="loadSystemAudit(true,true).then(renderSettingsHub)"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>다시 진단 읽기</button>
           <button type="button" class="abtn" onclick="openSystemAudit()">진단 전체 보기</button>
         </div>
         <div class="settings-safety">여기 나오는 것은 <b>진단이 찾은 문제</b>뿐입니다. 아무것도 없으면 "확인할 것이 없습니다" 라고 적고, 진단을 못 읽으면 "이상 없음" 이 아니라 <b>"상태를 못 읽었습니다"</b> 라고 적습니다.</div>
@@ -5192,9 +5192,14 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   #v-org .org-lead{margin:6px 0 0;font-size:0.8125rem;color:#C9D7FA;line-height:1.5}
   #v-org .org-gen{margin-top:8px;font-size:0.71875rem;color:#9FB4E8}
   #v-org .org-tools{display:flex;gap:8px;flex-wrap:wrap;position:relative;z-index:1}
-  #v-org .org-btn{border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:#fff;
-    border-radius:10px;padding:8px 12px;font-size:0.8125rem;font-weight:700;cursor:pointer;
+  /* ★ 아이콘은 앱 표준 스프라이트다(형님 지시 2026-08-21) — 이모지를 쓰지 않는다.
+     이모지는 기기마다 다른 그림으로 그려지고 색을 못 맞춘다. 다만 배경은 .abtn 을
+     안 쓴다 — 여기는 짙은 히어로 위라 surface 배경이면 안 보인다([172]). */
+  #v-org .org-btn{display:inline-flex;align-items:center;gap:6px;
+    border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:#fff;
+    border-radius:10px;padding:9px 13px;font-size:0.8125rem;font-weight:700;cursor:pointer;
     font-family:inherit;transition:background .15s,transform .1s}
+  #v-org .org-btn .bi{width:16px;height:16px;flex:none}
   #v-org .org-btn:hover{background:rgba(255,255,255,.22)} #v-org .org-btn:active{transform:scale(.96)}
   #v-org .org-legend{display:flex;gap:14px;flex-wrap:wrap;padding:2px 4px 10px;font-size:0.75rem;color:var(--org-ink2)}
   #v-org .org-legend b{display:inline-flex;align-items:center;gap:5px;font-weight:600}
@@ -5406,8 +5411,8 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
         <div class="org-gen" id="orgGen">불러오는 중…</div>
       </div>
       <div class="org-tools">
-        <button type="button" class="org-btn" onclick="orgLoad(true)" title="지금 다시 읽기">↻ 새로고침</button>
-        <button type="button" class="org-btn" onclick="orgToPng()" title="카톡으로 보낼 이미지">🖼 이미지 저장</button>
+        <button type="button" class="org-btn" onclick="orgLoad(true)" title="지금 다시 읽기"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>새로고침</button>
+        <button type="button" class="org-btn" onclick="orgToPng()" title="카톡으로 보낼 이미지"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg>이미지 저장</button>
       </div>
     </div>
     <div class="org-legend">
@@ -10459,80 +10464,152 @@ async function orgLoad(force){
 /* 카톡으로 보낼 이미지 — DOM 을 찍지 않고 데이터로 캔버스에 그린다(오프라인·CSP 안전).
    글꼴은 화면과 같은 곳에서 온다(uiFont) — 여기 이름을 손으로 적으면 저장한 이미지만
    옛 글꼴로 남는다([앱 글꼴] 규칙과 같다). */
+/* ── 조직도 캡처 = **사무실 배치도** (2026-08-21 형님 지시) ────────────────────
+   지시: "조직도 이미지 저장 클릭하면 실제 사무실처럼 해서 멋지게 보이게 캡처화면 구성"
+   ★ 전에는 2열 카드 **목록**이었다 — 화면은 책상·의자·모니터로 그리는데 카톡으로
+     나가는 그림만 표가 되어, 받아 본 사람은 같은 자료를 다른 것으로 읽었다.
+   ★ 색·모양을 **화면에서 그대로 빌린다**(`#v-org` 토큰) — 여기서 새 팔레트를 만들면
+     화면과 캡처가 갈리고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다(`[162]`).
+   ★ 사람이 고른 `data-theme` 만 본다(OS 자동 추종 금지 · 검증 `[91]`).
+   ★ **없는 것을 그리지 않는다**(`[169]`) — 자리·이름·역할·상태는 전부 자료 그대로이고,
+     상태 낱말은 화면과 같은 `orgStateLabel()` 이 만든다. 비면 '상태 없음'이라 적는다. */
 function orgToPng(){
   const D=ORG_LAST||ORG_SNAP;
   const FF=(typeof uiFont==='function'?uiFont():"'맑은 고딕',system-ui,sans-serif");
-  // 화면과 같게 — 사람이 고른 data-theme 만 본다(OS 자동 추종 금지, 검증 [91]).
   const dark = document.documentElement.getAttribute('data-theme')==='dark';
   const C=dark
-    ? {bg:'#0A1020',panel:'#111A30',card:'#16223C',ink:'#EAF0FF',ink2:'#9FB0D0',line:'rgba(150,175,225,.20)',wall:'#1E2A45'}
-    : {bg:'#EEF1F7',panel:'#F7F9FC',card:'#FFFFFF',ink:'#0E1B3F',ink2:'#5A6785',line:'rgba(30,50,90,.14)',wall:'#D3DBE8'};
+    ? {floor:'#111A30',wall:'#1E2A45',card:'#16223C',ink:'#EAF0FF',ink2:'#9FB0D0',
+       line:'rgba(150,175,225,.16)',chair:'#2A3A5C',chairLine:'rgba(150,175,225,.20)',
+       mon:'#1B2843',zone:{mgmt:'#152647',field:'#123322',ai:'#231b45'}}
+    : {floor:'#F7F9FC',wall:'#D3DBE8',card:'#FFFFFF',ink:'#0E1B3F',ink2:'#5A6785',
+       line:'rgba(30,50,90,.12)',chair:'#C9D3E4',chairLine:'rgba(30,50,90,.16)',
+       mon:'#EEF2F9',zone:{mgmt:'#EAF2FF',field:'#EAF9F0',ai:'#F1ECFF'}};
   const SC={busy:'#E8890C',idle:'#2B9560',live:'#0062CC',off:'#8A93A6'};
-  const W=780, PAD=26, COLS=2, GAP=12;
-  const cardW=Math.floor((W-PAD*2-GAP*(COLS-1))/COLS), cardH=96;
+
+  const W=1080, PAD=28, GAP=14, COLS=4;
+  const deskH=112, chairH=26, cellH=deskH+chairH+6;
   const zones=(D.zones||[]);
-  // 높이 먼저 계산 — 히어로 + 각 구역(머리+행들)
-  let H=150;
-  zones.forEach(z=>{ const rows=Math.ceil((z.people||[]).length/COLS);
-    H += 40 + rows*(cardH+GAP) + 14; });
-  H += 40;
+  const zoneW=W-PAD*2, innerW=zoneW-28;
+  const cw=Math.floor((innerW-GAP*(COLS-1))/COLS);
+
+  /* 높이를 **먼저** 잰다 — 자리가 모자라 뒤 사람을 조용히 버리면 안 된다(`[273]`). */
+  const HERO=118, LEG=30, ZHEAD=30, ZPADB=16;
+  let H=20+HERO+LEG+14;
+  zones.forEach(z=>{ const rows=Math.max(1,Math.ceil((z.people||[]).length/COLS));
+    H += ZHEAD + rows*cellH + ZPADB + 14; });
+  H += 44;
+
   const dpr=2, cv=document.createElement('canvas');
   cv.width=W*dpr; cv.height=H*dpr;
   const x=cv.getContext('2d'); x.scale(dpr,dpr);
   const rr=(a,b,w,h,r)=>{x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);
     x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath();};
-  const clip=(s,mw,fs)=>{x.font='600 '+fs+'px '+FF; let t=String(s||'');
+  const clip=(s,mw,fs,wt)=>{x.font=(wt||'600')+' '+fs+'px '+FF; let t=String(s||'');
     if(x.measureText(t).width<=mw)return t;
     while(t.length>1&&x.measureText(t+'…').width>mw)t=t.slice(0,-1); return t+'…';};
-  x.fillStyle=C.bg; x.fillRect(0,0,W,H);
-  // 히어로
-  const hg=x.createLinearGradient(0,0,W,120); hg.addColorStop(0,'#0E1B3F'); hg.addColorStop(1,'#2452E6');
-  x.fillStyle=hg; rr(PAD,20,W-PAD*2,110,18); x.fill();
-  x.fillStyle='#AEC2F5'; x.font='700 12px '+FF; x.fillText('CSOS · UNIVERSAL LIFT & HITACHI KOREA', PAD+18, 48);
-  x.fillStyle='#fff'; x.font='850 24px '+FF; x.fillText('조직도 — 사무실 배치도', PAD+18, 82);
-  x.fillStyle='#C9D7FA'; x.font='500 13px '+FF; x.fillText('업데이트 '+(D.gen||'—'), PAD+18, 108);
-  let y=160;
-  zones.forEach(z=>{
-    x.fillStyle=C.ink; x.font='850 15px '+FF; x.fillText(z.title||'', PAD, y+6);
-    x.fillStyle=C.ink2; x.font='700 11px '+FF;
-    const tg=z.tag||''; x.fillText(tg, W-PAD-x.measureText(tg).width, y+6);
-    y+=26;
-    (z.people||[]).forEach((p,i)=>{
-      const cx=PAD+(i%COLS)*(cardW+GAP), cy=y+Math.floor(i/COLS)*(cardH+GAP);
-      const st=p.state||'off', col=SC[st]||SC.off;
-      x.fillStyle=C.card; rr(cx,cy,cardW,cardH,13); x.fill();
-      x.strokeStyle=C.line; x.lineWidth=1; x.stroke();
-      x.fillStyle=col; rr(cx,cy,4,cardH,2); x.fill();          // 상태 색 띠
-      // 아바타
-      x.fillStyle=p.color||'#0062CC'; rr(cx+14,cy+13,32,32,10); x.fill();
-      x.fillStyle='#fff'; x.font='850 14px '+FF; x.textAlign='center';
-      x.fillText(orgInitials(p.name), cx+30, cy+34); x.textAlign='left';
-      // 이름·역할
-      x.fillStyle=C.ink; x.font='850 15px '+FF;
-      let nm=p.name||''; x.fillText(clip(nm,cardW-96,15), cx+54, cy+28);
-      if(p.badge){ const nw=x.measureText(clip(nm,cardW-96,15)).width;
-        x.fillStyle='#0062CC'; rr(cx+60+nw,cy+16,x.measureText(p.badge).width*1+16,16,8); x.fill();
-        x.fillStyle='#fff'; x.font='800 10px '+FF; x.fillText(p.badge, cx+68+nw, cy+28); }
-      x.fillStyle=C.ink2; x.font='500 11px '+FF; x.fillText(clip(p.role||'',cardW-64,11), cx+54, cy+45);
-      // 상태 줄
-      x.fillStyle=col; x.beginPath(); x.arc(cx+20,cy+70,4,0,7); x.fill();
-      x.fillStyle=C.ink; x.font='700 11.5px '+FF; x.fillText(orgStateLabel(st), cx+30, cy+74);
-      const sw=x.measureText(orgStateLabel(st)).width;
-      x.fillStyle=C.ink2; x.font='500 11.5px '+FF;
-      x.fillText(clip(' — '+(p.msg||'상태 없음'),cardW-40-sw,11.5), cx+30+sw, cy+74);
-      if(p.ago){ x.fillStyle=C.ink2; x.font='500 10px '+FF; x.fillText(String(p.ago), cx+30, cy+88); }
+  const shadow=(on)=>{ x.shadowColor = on ? (dark?'rgba(0,0,0,.38)':'rgba(16,30,70,.13)') : 'transparent';
+    x.shadowBlur = on?12:0; x.shadowOffsetY = on?4:0; };
+
+  /* ── 바닥 — 타일 결을 옅게 깔아 '방 안'으로 읽히게 한다 ── */
+  x.fillStyle=C.floor; x.fillRect(0,0,W,H);
+  x.strokeStyle=C.wall; x.globalAlpha=dark?.22:.5; x.lineWidth=1;
+  for(let gx=0; gx<W; gx+=60){ x.beginPath(); x.moveTo(gx+.5,0); x.lineTo(gx+.5,H); x.stroke(); }
+  for(let gy=0; gy<H; gy+=60){ x.beginPath(); x.moveTo(0,gy+.5); x.lineTo(W,gy+.5); x.stroke(); }
+  x.globalAlpha=1;
+
+  /* ── 머리판 ── */
+  const hg=x.createLinearGradient(PAD,20,W-PAD,20+HERO);
+  hg.addColorStop(0,'#0E1B3F'); hg.addColorStop(1,'#2452E6');
+  shadow(true); x.fillStyle=hg; rr(PAD,20,zoneW,HERO,18); x.fill(); shadow(false);
+  x.fillStyle='#AEC2F5'; x.font='700 12px '+FF;
+  x.fillText('CSOS · UNIVERSAL LIFT & HITACHI KOREA', PAD+22, 50);
+  x.fillStyle='#fff'; x.font='850 26px '+FF; x.fillText('조직도 — 사무실 배치도', PAD+22, 86);
+  x.fillStyle='#C9D7FA'; x.font='500 13px '+FF;
+  x.fillText('업데이트 '+(D.gen||'—'), PAD+22, 110);
+
+  /* ── 범례 — 화면과 같은 네 낱말 ── */
+  let lx=PAD+2, ly=20+HERO+22;
+  [['busy','업무 중'],['idle','대기 · 정상'],['live','실시간 세션'],['off','오프라인']]
+    .forEach(pair=>{
+      const k=pair[0], t=pair[1];
+      x.fillStyle=SC[k]; x.beginPath(); x.arc(lx+5,ly-4,5,0,7); x.fill();
+      x.fillStyle=C.ink2; x.font='600 12px '+FF; x.fillText(t, lx+16, ly);
+      lx += 16 + x.measureText(t).width + 20;
     });
-    y+=Math.ceil((z.people||[]).length/COLS)*(cardH+GAP)+14;
+
+  /* ── 방마다 책상을 놓는다 ── */
+  let y=20+HERO+LEG+14;
+  zones.forEach(z=>{
+    const ppl=(z.people||[]), rows=Math.max(1,Math.ceil(ppl.length/COLS));
+    const zh=ZHEAD+rows*cellH+ZPADB;
+    x.fillStyle=(C.zone[z.key]||C.card); rr(PAD,y,zoneW,zh,16); x.fill();
+    x.strokeStyle=C.line; x.lineWidth=1.5; x.setLineDash([6,5]); x.stroke(); x.setLineDash([]);
+    x.fillStyle=C.ink; x.font='850 15px '+FF; x.fillText(z.title||'', PAD+16, y+26);
+    const tg=z.tag||''; if(tg){ x.fillStyle=C.ink2; x.font='700 11px '+FF;
+      x.fillText(tg, W-PAD-16-x.measureText(tg).width, y+26); }
+
+    ppl.forEach((p,i)=>{
+      const dx=PAD+14+(i%COLS)*(cw+GAP), dy=y+ZHEAD+Math.floor(i/COLS)*cellH;
+      const st=p.state||'off', col=SC[st]||SC.off;
+      /* 의자 — 책상 **뒤**에 먼저 그린다(등받이가 책상에 가려야 앉은 것처럼 보인다) */
+      const chx=dx+cw/2-23, chy=dy+deskH-8;
+      x.fillStyle=C.chair; x.strokeStyle=C.chairLine; x.lineWidth=1.5;
+      rr(chx+9,chy-6,28,12,5); x.fill(); x.stroke();
+      rr(chx,chy,46,chairH,10); x.fill(); x.stroke();
+      /* 책상 상판 */
+      shadow(true); x.fillStyle=C.card; rr(dx,dy,cw,deskH,13); x.fill(); shadow(false);
+      x.strokeStyle=C.line; x.lineWidth=1; x.stroke();
+      x.fillStyle=col; rr(dx,dy,4,deskH,2); x.fill();
+      /* 모니터 — 책상 위 오른쪽 */
+      const mw=40, mh=25, mx=dx+cw-mw-14, my=dy+12;
+      x.fillStyle=C.mon; x.strokeStyle=C.line; x.lineWidth=1;
+      rr(mx,my,mw,mh,4); x.fill(); x.stroke();
+      x.fillStyle=C.chair; x.fillRect(mx+mw/2-5,my+mh,10,5);
+      rr(mx+mw/2-11,my+mh+5,22,3,1.5); x.fill();
+      /* 이름표 */
+      x.fillStyle=p.color||'#0062CC'; rr(dx+14,dy+14,34,34,10); x.fill();
+      x.fillStyle='#fff'; x.font='850 14px '+FF; x.textAlign='center';
+      x.fillText(orgInitials(p.name), dx+31, dy+36); x.textAlign='left';
+      const nameW=cw-58-mw-18;
+      x.fillStyle=C.ink; const nm=clip(p.name||'',nameW,15,'850');
+      x.font='850 15px '+FF; x.fillText(nm, dx+56, dy+31);
+      if(p.badge){ const nw=x.measureText(nm).width;
+        x.font='800 10px '+FF; const bw=x.measureText(p.badge).width+14;
+        x.fillStyle='#0062CC'; rr(dx+62+nw,dy+20,bw,15,7.5); x.fill();
+        x.fillStyle='#fff'; x.fillText(p.badge, dx+69+nw, dy+31); }
+      /* 역할도 **이름과 같은 폭**으로 자른다 — cw-70 이면 모니터 자리까지 넘어가
+         글자가 모니터에 겹쳐 읽힌다(실측). 잘린 만큼은 '…' 로 말한다([273]). */
+      x.fillStyle=C.ink2; x.font='500 11px '+FF;
+      x.fillText(clip(p.role||'',nameW,11,'500'), dx+56, dy+47);
+      /* 상태 — 화면과 같은 낱말 */
+      x.fillStyle=col; x.beginPath(); x.arc(dx+20,dy+72,4.5,0,7); x.fill();
+      const lab=orgStateLabel(st);
+      x.fillStyle=C.ink; x.font='700 11.5px '+FF; x.fillText(lab, dx+30, dy+76);
+      const sw=x.measureText(lab).width;
+      x.fillStyle=C.ink2; x.font='500 11.5px '+FF;
+      x.fillText(clip(' — '+(p.msg||'상태 없음'),cw-44-sw,11.5,'500'), dx+30+sw, dy+76);
+      if(p.ago){ x.fillStyle=C.ink2; x.font='500 10px '+FF;
+        x.fillText(clip(String(p.ago),cw-40,10,'500'), dx+30, dy+94); }
+    });
+    y += zh + 14;
   });
-  const done=(blob)=>{ if(!blob){toast&&toast('이미지를 만들지 못했습니다');return;}
+
+  /* ── 맨 아래 한 줄 — 이 그림이 무엇으로 판정했는지 밝힌다([169]).
+       받아 본 사람이 '오프라인'을 '자리에 없다'로 읽으면 안 된다. */
+  x.fillStyle=C.ink2; x.font='500 11px '+FF;
+  x.fillText('온·오프라인은 실제 앱 접속으로만 판정합니다 — 접속 기록이 없으면 '
+    + '오프라인이라 단정하지 않고 상태 모름으로 둡니다.', PAD, y+14);
+
+  const done=(blob)=>{ if(!blob){ try{toast('이미지를 만들지 못했습니다');}catch(_){} return; }
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-    a.download='CSOS_조직도_'+new Date().toISOString().slice(0,10)+'.png';
+    a.download='CSOS_사무실배치도_'+new Date().toISOString().slice(0,10)+'.png';
     a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
     try{ uxEvent('tap','org-png'); }catch(_){}
-    try{ toast('이미지를 저장했습니다'); }catch(_){}
+    try{ toast('사무실 배치도를 저장했습니다'); }catch(_){}
   };
   try{ cv.toBlob(done,'image/png'); }catch(e){ done(null); }
 }
+
 let FLOW_CHART = 'as_legacy', FLOW_CHARTS_LIST = [], FLOW_NOTES = [];
 function flowChartInfo(){
   return FLOW_CHARTS_LIST.find(c=>c.key===FLOW_CHART)

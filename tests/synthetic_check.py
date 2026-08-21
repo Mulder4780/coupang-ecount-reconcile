@@ -16963,6 +16963,123 @@ def _t370_load():
     return mod
 
 
+def t375_org_capture_is_a_floor_plan_and_icons_are_one_family():
+    """[형님 지시 2026-08-21] 조직도 캡처는 **사무실 배치도** · 아이콘은 앱 표준 한 벌.
+
+    지시 둘: "조직도 이미지 저장 클릭하면 실제 사무실처럼 해서 멋지게 보이게 캡처화면
+    구성하게 알고리즘 변경해" · "이런 아이콘과 텍스트 앱 전체적으로 통일해".
+
+    ★ 전에는 캡처가 **2열 카드 목록**이었다 — 화면은 책상·의자·모니터로 그리는데
+      카톡으로 나가는 그림만 표가 되어, 받아 본 사람은 같은 자료를 다른 것으로 읽었다.
+    ★ 얼리는 것은 **되돌아가면 안 되는 것**뿐이다(`[39]`): 방·책상·의자·모니터를 그리는가 ·
+      색을 화면 토큰에서 빌리는가(`[162]`) · 사람이 늘면 그림이 커지는가(아무도 안 잘린다
+      `[273]`) · 이모지 단추가 되살아나는가.
+    """
+    import json, tempfile, shutil, subprocess, proc_guard
+    p = os.path.join(ROOT, "webapp", "index.html")
+    src = open(p, encoding="utf-8").read()
+    i = src.index("function orgToPng(){")
+    body = src[i:src.index("\nfunction ", i + 1)] if "\nfunction " in src[i + 1:] else src[i:i + 9000]
+    body = body[:body.index("\nlet FLOW_CHART")] if "\nlet FLOW_CHART" in body else body
+
+    # ① 방·책상·의자·모니터 — 목록이 아니라 배치도다
+    for want, why in (("setLineDash", "방 테두리(점선)"), ("C.chair", "의자"),
+                      ("C.mon", "모니터"), ("C.zone[z.key]", "방마다 다른 바닥색"),
+                      ("orgStateLabel", "상태 낱말은 화면과 같은 함수")):
+        assert want in body, "[375] 조직도 캡처에 %s 가 없다 — 배치도가 아니라 목록이다" % why
+
+    # ② 색을 **화면 토큰에서 빌린다** — 여기서 새 팔레트를 만들면 화면과 갈린다([162]).
+    css = src[:src.index("function orgToPng(){")]
+    for tok in ("#EAF2FF", "#EAF9F0", "#F1ECFF"):        # 밝은 화면 방 색
+        assert tok in css and tok in body, (
+            "[375] 방 색 %s 가 화면 CSS 와 캡처 중 한쪽에만 있다 — 갈린다" % tok)
+
+    # ③ 이모지 단추가 안 돌아온다 — 앱 표준은 SVG 스프라이트다(형님 지시).
+    for gone in ("🖼 이미지 저장", "↻ 새로고침", "↻ 권한 다시 확인", "↻ 다시 진단 읽기"):
+        assert gone not in src, "[375] 이모지 단추가 되살아났다: %s" % gone
+    org_tools = src[src.index('<div class="org-tools">'):]
+    org_tools = org_tools[:org_tools.index("</div>")]
+    assert org_tools.count('href="#i-') == 2, (
+        "[375] 조직도 머리줄 단추가 앱 표준 스프라이트를 안 쓴다: " + org_tools[:200])
+
+    # ④ **실행해서** 잰다(`[295]`) — 사람이 늘면 그림이 커지고 이름이 다 그려지나.
+    node = shutil.which("node")
+    if not node:
+        print("… [375] node 가 없어 실행 확인은 건너뜀(구조 검사만)")
+    else:
+        box = tempfile.mkdtemp(prefix="t375-")
+        try:
+            js = os.path.join(box, "run.js")
+            with open(js, "w", encoding="utf-8") as fh:
+                fh.write(_T375_HARNESS.replace("__BODY__", json.dumps(body)))
+            pr = subprocess.Popen([node, js], stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT,
+                                  **proc_guard.background_popen_kwargs())
+            try:
+                out = pr.communicate(timeout=60)[0].decode("utf-8", "replace")
+            except subprocess.TimeoutExpired:
+                proc_guard.kill_tree(pr.pid)
+                raise AssertionError("[375] node 하네스가 60초 안에 안 끝났다")
+            assert "HARNESS-OK" in out, "[375] 실행 확인 실패:\n" + out[-1200:]
+        finally:
+            shutil.rmtree(box, ignore_errors=True)
+
+    print("✅ [375] 조직도 캡처 = 사무실 배치도 · 아이콘은 앱 표준 한 벌 (실행으로 잼)")
+
+
+#: node 하네스 — 캔버스를 **기록하는 가짜**로 바꿔 실제 `orgToPng` 를 돌린다.
+#: ★ 계기 자신도 시험한다(`[272]`): 높이를 사람 수와 무관하게 두면 ②가 잡아야 한다.
+_T375_HARNESS = r"""
+const BODY = __BODY__;
+function fakeCanvas(rec){
+  const ctx = new Proxy({}, {get(_, k){
+    if (k === 'measureText') return s => ({width: String(s).length * 6});
+    if (k === 'fillText') return (s) => { rec.texts.push(String(s)); };
+    if (k === 'createLinearGradient') return () => ({addColorStop(){}});
+    if (k === 'setLineDash') return () => { rec.dash++; };
+    if (k === 'fill') return () => { rec.fills++; };
+    if (k === 'arcTo') return () => {};
+    return () => {};
+  }, set(){ return true; }});
+  return {width:0, height:0, getContext: () => ctx,
+          toBlob(cb){ rec.blob = true; cb(null); }, style:{}};
+}
+function draw(nPeople){
+  const rec = {texts:[], fills:0, dash:0, blob:false, canvas:null};
+  const zones = [{key:'mgmt', title:'관리팀', tag:'원장', people:
+    Array.from({length:nPeople}, (_, i) => ({name:'사람'+i, role:'역할', state:'idle',
+      msg:'대기', ago:'1분 전', color:'#0062CC'}))}];
+  const sandbox = {
+    ORG_LAST: {gen:'2026-08-21', zones}, ORG_SNAP: null,
+    orgInitials: n => String(n).slice(0,2),
+    orgStateLabel: s => ({busy:'업무 중', idle:'대기·정상', live:'실시간', off:'오프라인'}[s] || s),
+    uiFont: () => 'sans-serif',
+    toast(){}, uxEvent(){},
+    document: {documentElement:{getAttribute: () => 'light'},
+               createElement(t){ const c = fakeCanvas(rec); if (t === 'canvas') { rec.canvas = c; return c; }
+                                 return {click(){}, set href(v){}, get href(){return '';}, style:{}}; }},
+    URL: {createObjectURL: () => 'blob:x', revokeObjectURL(){}},
+    setTimeout(){}, Math, Date, String, Number, Array, Object, JSON
+  };
+  const fn = new Function('S', 'with(S){' + BODY + '\n return orgToPng; }');
+  fn(sandbox)();
+  return rec;
+}
+const a = draw(3), b = draw(11);
+if (!a.blob) throw new Error('그림을 안 만들었다');
+for (let i = 0; i < 3; i++)
+  if (!a.texts.includes('사람' + i)) throw new Error('사람' + i + ' 이 안 그려졌다');
+for (let i = 0; i < 11; i++)
+  if (!b.texts.includes('사람' + i)) throw new Error('사람이 늘자 ' + i + ' 번이 잘렸다');
+if (!(b.canvas.height > a.canvas.height))
+  throw new Error('사람이 늘었는데 그림이 안 커졌다 — 뒤 사람이 잘린다: '
+    + a.canvas.height + ' -> ' + b.canvas.height);
+if (a.dash < 1) throw new Error('방 테두리(점선)를 안 그렸다 — 배치도가 아니다');
+console.log('HARNESS-OK 사람3=' + a.canvas.height + ' 사람11=' + b.canvas.height
+  + ' 점선=' + a.dash);
+"""
+
+
 def t374_a_half_delivered_page_says_so():
     """[117] 반만 내려온 문서를 화면이 알아챈다 — 그리고 멀쩡할 때는 조용하다.
 
@@ -30603,6 +30720,7 @@ if __name__ == "__main__":
     t369_a_file_read_every_request_is_never_called_old_code()
     t370_a_window_whose_pid_was_replaced_still_owns_its_lane()
     t374_a_half_delivered_page_says_so()
+    t375_org_capture_is_a_floor_plan_and_icons_are_one_family()
     t371_a_round_that_is_not_due_yet_is_not_late()
     t373_sheet_is_a_wide_modal_that_esc_slides_down()
     t294_unreadable_source_never_passes_as_read()
