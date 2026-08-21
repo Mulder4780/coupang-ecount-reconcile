@@ -2233,7 +2233,7 @@ body.ryu-mode .tabbar button[data-v="report"]{display:none}
 .worklog-record .state.warn{background:var(--danger-bg);color:var(--danger)}
 .worklog-empty{padding:30px;text-align:center;color:var(--ink-3);border:1px dashed #C8D2E6;border-radius:13px}
 .tabbar button.staff-worklog-nav{display:none}
-body.staff-ryu .tabbar button.staff-worklog-nav{display:flex}
+body.staff-mode .tabbar button.staff-worklog-nav{display:flex}
 @media(max-width:640px){
   .source-status{grid-template-columns:repeat(2,minmax(0,1fr))}
   .source-drop{min-height:128px;padding:16px}
@@ -4051,7 +4051,7 @@ body.dash-drag-live #dashGuides{display:grid}
 
   <section class="view" id="v-remote">
     <div class="hero-min"><h2>리모컨 관리</h2>
-      <p class="sub" data-help-fold="remote-sub">지점 재고 · AS 담당자 불출 · 현장 납품을 한 화면에서 기록합니다. 입력은 즉시 DB에 저장되어 류지영 매니저 화면과 대표보고에 바로 반영됩니다.</p></div>
+      <p class="sub" data-help-fold="remote-sub">지점 재고 · AS 담당자 불출 · 현장 납품을 한 화면에서 기록합니다. 입력은 즉시 공통 DB에 저장되어 모든 업무센터와 대표보고에 바로 반영됩니다.</p></div>
     <div class="rpt-actions" role="toolbar" aria-label="리모컨 도구">
       <button class="icon-btn primary" onclick="remoteCapture()" title="이미지 저장" aria-label="이미지 저장">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
@@ -4556,13 +4556,13 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 
 	    <div class="ryu-upload-panel" id="ryuUploadPanel">
 	      <form class="card source-upload-card" id="poSubmissionForm" onsubmit="submitPoSubmission(event)" style="display:none">
-	        <h3>PO 원본 등록 <span class="norm">— 오종현 전용 · 원본 보관 후 자동 PO 대조</span></h3>
+        <h3>PO 원본 등록 <span class="norm">— 모든 업무센터 공용 · 원본 보관 후 자동 PO 대조</span></h3>
 	        <div class="source-help" data-help-fold="po-help">
 	          <span>① PO 엑셀을 직접 선택하거나 아래 상자로 끌어 놓습니다.</span>
 	          <span>② 공유 URL 또는 이 PC에서 열 수 있는 파일·폴더 경로를 붙여넣어도 됩니다.</span>
 	          <span>③ 원본은 <b>0. 원본 자료\6. PO 원본</b>에 날짜별로 보존되고, Excel 원본은 PO 대조 대기열로 전달됩니다.</span>
 	        </div>
-	        <input type="hidden" name="staff_slug" value="oh-jonghyeon">
+        <input type="hidden" name="staff_slug" value="oh-jonghyeon">
 	        <div class="ryu-fields">
 	          <label>PO 번호<input name="po_no" placeholder="예: PO371513"></label>
 	          <label>프로젝트번호<input name="project_no" placeholder="예: UJ2601313"></label>
@@ -4696,7 +4696,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	    <div class="ryu-hero">
 	      <div class="eyebrow" style="color:#BFD0FF">DAILY FIELD JOURNAL</div>
 	      <h2>대표보고 일지</h2>
-	      <p>류지영 매니저가 매일 갱신하는 정기점검·돌발AS 일지를 원본으로 보존하고, 관리대장·대시보드·대표보고를 한 번에 다시 검증합니다.</p>
+      <p>업무센터 담당자가 갱신하는 정기점검·돌발AS 일지를 원본으로 보존하고, 관리대장·대시보드·캘린더·대표보고를 한 번에 다시 검증합니다.</p>
 	    </div>
 
 	    <div class="card source-upload-card">
@@ -6988,7 +6988,6 @@ function initStaffCenter(){
   if(!staffSlug) return;
   const center=STAFF_CENTERS[staffSlug];
   document.body.classList.add('staff-mode','ryu-mode');
-  document.body.classList.toggle('staff-ryu',staffSlug==='ryu-jiyeong');
   document.title=center.title+' · CSOS';
   if($('staffCenterTitle')) $('staffCenterTitle').textContent=center.title;
   if($('staffCenterEyebrow')) $('staffCenterEyebrow').textContent=`${center.name} OPERATIONS CENTER`;
@@ -7000,18 +6999,14 @@ function initStaffCenter(){
       onchange="localStorage.setItem('${key}',this.checked?'1':'0')"> ${esc2(x)}</label>`;
   }).join('');
   if($('improvementStaffSlug')) $('improvementStaffSlug').value=staffSlug;
-  if($('poSubmissionForm')) $('poSubmissionForm').style.display=staffSlug==='oh-jonghyeon'?'block':'none';
-  if($('ryuOnlySubmission')) $('ryuOnlySubmission').style.display=['ryu-jiyeong','yoo-hyeonmin'].includes(staffSlug)?'block':'none';
+  document.querySelectorAll('#v-ryu [name="staff_slug"]').forEach(x=>x.value=staffSlug);
+  if($('poSubmissionForm')) $('poSubmissionForm').style.display='block';
+  if($('ryuOnlySubmission')) $('ryuOnlySubmission').style.display='block';
   if($('workLogReportDate')) $('workLogReportDate').value=todayISO();
   document.querySelectorAll('#newWorkForm [name="submitter"]').forEach(x=>x.value=center.name);
   const brand=document.querySelector('.tabbar .brand .bt');
   if(brand) brand.dataset.staff=center.title;
-  if(staffSlug==='ryu-jiyeong') loadWorkLogStatus();
-  /* 김미영 센터의 첫 화면은 **매출 실적**이다 — 그 센터가 하는 일이 그것이다.
-     이미 다른 화면으로 옮겨 갔으면 건드리지 않는다(사람이 고른 화면을 빼앗지 않는다). */
-  if(staffSlug==='kim-miyeong') setTimeout(()=>{
-    const v=curView(); if(['ryu','dash'].includes(v)) applyView('revenue');
-  },300);
+  loadWorkLogStatus();
   setTimeout(()=>maybeShowInstallCard(),1800);
 }
 /* ★ 터널 주소로 들어온 사람에게 **왜 설치가 안 되는지** 한 번 말해 준다(2026-08-13).
@@ -7352,7 +7347,7 @@ async function submitRyuUpload(ev){
         (d.auto_check_queued?'현재 작업이 끝나는 즉시 자동 카톡 대조를 시작합니다.':
          '자동 대조 예약 상태를 확인해 주세요.')}`;
     [...form.querySelectorAll('input[type=file]')].forEach(x=>x.value='');
-    toast('류지영 업무센터 원본 저장 및 자동 대조 접수 완료');
+    toast(`${(STAFF_CENTERS[staffSlug]||{}).name||'업무센터'} 원본 저장 및 자동 대조 접수 완료`);
     loadAutomationStatus(true);
   }catch(e){
     result.className='ryu-result err';result.textContent='업로드 실패 · '+String(e.message||e);
@@ -7507,7 +7502,7 @@ async function submitPoSubmission(ev){
     form.querySelector('[name="po_file"]').value='';
     if($('poFileName')) $('poFileName').textContent='선택된 파일 없음';
     await Promise.all([loadNotifications(),loadRyuRecords(true)]);
-    toast('오종현 PO 원본 저장을 완료했습니다');
+    toast(`${(STAFF_CENTERS[staffSlug]||{}).name||'업무센터'} PO 원본 저장을 완료했습니다`);
   }catch(e){
     result.className='ryu-result err';result.textContent='등록 실패 · '+String(e.message||e);
   }finally{btn.disabled=false;btn.classList.remove('busy')}
@@ -7589,7 +7584,7 @@ async function syncCurrentWorkLog(){
   const result=$('workLogUploadResult');
   try{
     const data=new FormData();
-    data.set('staff_slug','ryu-jiyeong');data.set('use_current','1');
+    data.set('staff_slug',staffSlug);data.set('use_current','1');
     const d=await postWorkLog(data);
     if(result){result.className='ryu-result ok';
       result.textContent=`현재 고정 원본 검증 ${d.auto_check_started?'시작':'대기열 등록'} 완료`;}
@@ -8676,7 +8671,7 @@ async function receiptSubmit(hostId,file,url){
   const log=$(hostId+'Log'), name=file?file.name:url.slice(0,60);
   if(log) log.textContent=`올리는 중 — ${name}`;
   const fd=new FormData();
-  fd.append('staff_slug','oh-jonghyeon');
+  fd.append('staff_slug',staffSlug||'oh-jonghyeon');
   if(file) fd.append('receipt_file', file, file.name);
   if(url) fd.append('source_ref', url);
   try{
@@ -8704,7 +8699,7 @@ async function receiptSubmit(hostId,file,url){
        desc:"고르신 파일은 그대로 있습니다 — 연결이 돌아오면 다시 올려 주세요."});
   }
 }
-/* 오종현 담당자 페이지(/staff/oh-jonghyeon)에도 같은 업로드 존을 붙인다 */
+/* 모든 담당자 페이지에 같은 업로드 존을 붙인다 — 역할마다 사본을 만들지 않는다. */
 function injectOhUpload(){
   const anchor=$('ryuSummaryGrid'); if(!anchor) return;
   const card=document.createElement('div');
@@ -8739,7 +8734,7 @@ function ryuTodoOpen(cat, key){
 }
 function renderRyuTodo(){
   const host = $('ryuTodoHost'); if(!host) return;
-  /* ★ 비어 있는 것과 아직 안 받은 것을 가른다([169]) — 류지영 화면은 캘린더를 안 거치므로
+  /* ★ 비어 있는 것과 아직 안 받은 것을 가른다([169]) — 업무센터 화면은 캘린더를 안 거치므로
      CAL 이 없을 수 있다. 그때 '없습니다'라고 하면 그날 할 일이 통째로 사라진다. */
   if(!CAL){ host.innerHTML = '<p class="sub">일정을 아직 못 받았습니다 — 처리할 것이 없다는 뜻이 아닙니다.</p>'; return; }
   const rows = ryuTodoRows();
@@ -8789,7 +8784,7 @@ async function injectRyuTodo(){
 /* ── 리모컨 관리(2026-08-03 지시) ──
    분출 담당: 부산=오종현 · 시화=안은숙 · 증평=류지영. AS 담당자당 최대 3개.
    승인 단계 없이 기록·관리·보고만 한다(같은 날 개정) — 3개 한도는 서버(ledger_db)가 강제한다.
-   류지영·오종현 업무센터와 관리자 업무센터 탭에 똑같이 들어간다. */
+   모든 업무센터와 관리자 업무센터 탭에 똑같이 들어간다. */
 function injectRemoteCard(){
   const anchor=$('ryuSummaryGrid'); if(!anchor||$('staffRemoteHost')) return;
   const card=document.createElement('div');
@@ -13238,6 +13233,18 @@ const DATA_SECTION_STATE=Object.fromEntries(Object.keys(DATA_SECTION_DEFS).map(k
   key:k,label:DATA_SECTION_DEFS[k].label,path:DATA_SECTION_DEFS[k].path,
   hasGood:false,asOf:'',revision:'',error:null,loading:false,retrying:false,generation:0
 }]));
+/* 새 기능은 동기화 코드를 여러 군데 고치지 않고 이 등록문 하나로 공통 loop에 들어온다.
+   def.apply는 받은 정본을 화면 전역에 넣는 함수다. 등록한 section은 기존 화면뿐 아니라
+   아직 전용 맵이 없는 신규 view에서도 자동 재조회된다(2026-08-21 형님 지시). */
+function registerDataSection(key,def){
+  const k=String(key||'').trim();
+  if(!k||!def||!def.path||typeof def.apply!=='function')
+    throw new Error('자료 기능 등록에는 key·path·apply가 모두 필요합니다');
+  DATA_SECTION_DEFS[k]=def;
+  DATA_SECTION_STATE[k]={key:k,label:def.label||k,path:def.path,hasGood:false,asOf:'',
+    revision:'',error:null,loading:false,retrying:false,generation:0};
+  return k;
+}
 function beginDataSectionRequest(key){
   const s=DATA_SECTION_STATE[key]; if(!s) return 0;
   s.generation=Number(s.generation||0)+1;
@@ -13404,6 +13411,8 @@ async function fetchDataSection(key,opt={}){
   }
 }
 function applyDataSection(key,data){
+  const custom=DATA_SECTION_DEFS[key]&&DATA_SECTION_DEFS[key].apply;
+  if(typeof custom==='function'){ custom(data); return; }
   if(key==='settlements'){
     const rows=Array.isArray(data&&data.rows)?data.rows:[];
     settleRows=rows.filter(r=>rowIs2026(r,'settle')&&!isSideWork(r)).map(hide2025);
@@ -13530,7 +13539,10 @@ function liveDataKeysForView(view){
     daily:['exec','representative','settlements','works','issues','erpdocs'],
     report:['exec','representative']
   };
-  return byView[view]||[];
+  // 새 화면을 맵에 넣지 않았다고 동기화가 조용히 빠지면 안 된다. 전용 맵이 없는
+  // 신규 view는 등록된 모든 자료 section을 받아 안전하게 시작하고, 성능이 필요할 때
+  // 위 맵에 최소 묶음을 추가한다. 데이터 변경 때만 실행하므로 5초마다 받는 것이 아니다.
+  return byView[view]||Object.keys(DATA_SECTION_DEFS);
 }
 function liveViewIsCurrent(view,targetRevision){
   const target=String(targetRevision||''); if(!target) return true;
@@ -22722,10 +22734,10 @@ function bootstrapAuthenticatedData(){
      설치가 막히는 사람은 대부분 **담당자가 아닌** 화면에 있다 — 안내가 필요한 바로
      그 자리에서 안 도는 배선이었다. */
   setTimeout(()=>{ refreshInstallStatus(); noticeIfNotInstallable(); },1900);
-  if(staffSlug==='oh-jonghyeon') injectOhUpload();
-  // 리모컨 관리는 류지영·오종현 업무센터에 똑같이 들어간다(2026-08-03 지시).
-  if(staffSlug==='ryu-jiyeong'||staffSlug==='oh-jonghyeon') injectRemoteCard();
-  if(staffSlug==='ryu-jiyeong') injectRyuTodo();   // 지금 처리할 것(2026-08-19)
+  if(staffSlug) injectOhUpload();
+  // 모든 업무센터는 같은 기능·같은 정본·같은 revision 루프를 쓴다(2026-08-21).
+  if(staffSlug) injectRemoteCard();
+  if(staffSlug) injectRyuTodo();
   const surveyDate=document.querySelector('#ryuUploadForm [name="survey_date"]');
   if(surveyDate&&!surveyDate.value) surveyDate.value=todayISO();
   const newWorkDate=document.querySelector('#newWorkForm [name="work_date"]');

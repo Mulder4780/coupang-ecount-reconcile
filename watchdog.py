@@ -26,6 +26,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 PYW = PY.replace("python.exe", "pythonw.exe")
 LOG = os.path.join(ROOT, "reports", "watchdog_log.txt")
+SYNC_CONTRACT = os.path.join(ROOT, "reports", "화면동기화_감시.json")
 PORT = 8899
 
 
@@ -175,6 +176,116 @@ def heal_server_guard(dry):
         return "서버 관리 에이전트 자동 시작" if ok else "서버 관리 에이전트 시작 실패"
     except Exception as exc:
         return "서버 관리 에이전트 확인 오류: %s" % str(exc)[:60]
+
+
+def sync_contract_checks(server_src, ui_src):
+    """새 기능도 공통 저장→revision→재조회 계약에 들어오는지 싼 정적 계기로 잰다.
+
+    함수·화면 이름을 전부 열거하지 않는다. 새 POST는 기본 편입, 새 자료 GET은
+    registerDataSection 한 곳, 새 view는 전체 section fallback이라는 **구조**를 잰다.
+    그래서 기능이 늘어도 감시 코드를 매번 고치지 않는다.
+    """
+    checks = {
+        "새 자료 POST 기본 편입": (
+            "새 POST는 기본적으로 동기화 대상" in server_src
+            and '_mark_live_mutation(getattr(self, "path", ""))' in server_src
+        ),
+        "전 업무센터 공통 입력": (
+            "STAFF_ENTRY_PERMISSIONS = {" in server_src
+            and "for slug in STAFF_CENTERS" in server_src
+            and "_ALL_STAFF_ENTRY_FIELDS" in server_src
+        ),
+        "대표 브리핑 AppStore overlay": (
+            'data["as"] = list(works.get("as")' in server_src
+            and 'data["pm"] = list(works.get("pm")' in server_src
+            and "*_app_db_stamp()" in server_src
+        ),
+        "신규 자료기능 단일 등록문": (
+            "function registerDataSection(key,def)" in ui_src
+            and "typeof def.apply!=='function'" in ui_src
+            and "DATA_SECTION_STATE[k]=" in ui_src
+        ),
+        "신규 화면 자동 흡수": (
+            "return byView[view]||Object.keys(DATA_SECTION_DEFS);" in ui_src
+        ),
+        "담당자·달력 전용 재조회": (
+            "refreshStaffCenter(targetRevision" in ui_src
+            and "refreshCalendarData(targetRevision" in ui_src
+        ),
+        "전 업무센터 공통 카드": all(x in ui_src for x in (
+            "if(staffSlug) injectOhUpload();",
+            "if(staffSlug) injectRemoteCard();",
+            "if(staffSlug) injectRyuTodo();",
+        )),
+        "5초 백그라운드 revision loop": (
+            "const LIVE_STATE_POLL_MS=5000" in ui_src
+            and "queueLiveViewCatchup(v)" in ui_src
+        ),
+        "무인 감시 revision 응답": (
+            'if p == "/api/sync-health":' in server_src
+            and '"live_write_seq": state.get("live_write_seq")' in server_src
+            and "state = get_live_state()" in server_src
+        ),
+    }
+    return checks
+
+
+def sync_contract_status(probe=True):
+    """기존 워치독이 읽을 앱 전체 동기화 계약 상태. 업무값은 기록하지 않는다."""
+    try:
+        server_src = open(os.path.join(ROOT, "webapp", "app_server.py"),
+                          encoding="utf-8").read()
+        ui_src = open(os.path.join(ROOT, "webapp", "index.html"),
+                      encoding="utf-8").read()
+        checks = sync_contract_checks(server_src, ui_src)
+    except Exception as exc:
+        checks = {"코드 계약 읽기": False}
+        read_error = str(exc)[:180]
+    else:
+        read_error = ""
+    live = {"확인": False, "ok": None, "revision": "", "live_write_seq": None}
+    if probe:
+        try:
+            with urllib.request.urlopen(
+                    f"http://localhost:{PORT}/api/sync-health?t={int(time.time())}",
+                    timeout=6) as response:
+                payload = json.loads(response.read().decode("utf-8", "replace"))
+            live = {"확인": True, "ok": bool(payload.get("ok")),
+                    "revision": str(payload.get("revision") or "")[:24],
+                    "live_write_seq": payload.get("live_write_seq")}
+            checks["실행 서버 revision 응답"] = bool(
+                live["ok"] and live["revision"] and live["live_write_seq"] is not None)
+        except Exception as exc:
+            live = {"확인": False, "ok": False, "revision": "",
+                    "live_write_seq": None, "왜": str(exc)[:180]}
+            checks["실행 서버 revision 응답"] = False
+    problems = [name for name, ok in checks.items() if not ok]
+    return {"ok": not problems, "확인시각": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "검사": checks, "문제": problems, "서버": live,
+            "읽기오류": read_error,
+            "규칙": "새 POST는 자동 편입 · 새 GET은 registerDataSection · 새 view는 전체 section fallback"}
+
+
+def watch_sync_contract(dry):
+    """기존 30분 워치독에 동기화 구조 감시를 얹는다. 창·팝업·브라우저는 열지 않는다."""
+    report = sync_contract_status(probe=not dry)
+    if not dry:
+        os.makedirs(os.path.dirname(SYNC_CONTRACT), exist_ok=True)
+        tmp = SYNC_CONTRACT + ".%d.tmp" % os.getpid()
+        try:
+            with open(tmp, "w", encoding="utf-8") as out:
+                json.dump(report, out, ensure_ascii=False, indent=2)
+            os.replace(tmp, SYNC_CONTRACT)
+        except Exception as exc:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except Exception:
+                pass
+            return "화면동기화 감시 기록 실패: %s" % str(exc)[:60]
+    if report["ok"]:
+        return "화면동기화 계약 정상(%d계기)" % len(report["검사"])
+    return "★ 화면동기화 계약 깨짐: " + ", ".join(report["문제"][:3])
 
 
 def heal_stale_server(dry):
@@ -868,6 +979,7 @@ def main():
     log("워치독 회차 시작" + ("(dry)" if dry else ""))
     results = [run_incremental_pipeline(dry), sync_uploads(dry), sync_worklog(dry),
                sync_cloud_queue(dry), heal_server_guard(dry), heal_server(dry),
+               watch_sync_contract(dry),
                heal_fixed_funnel(dry),
                # ★ 근거 정정이 **붙여넣기 파일 만들기보다 먼저**다 — 목록에 담을 번호를
                #   정하는 것이 그 근거다(2026-08-11, `[223]`).

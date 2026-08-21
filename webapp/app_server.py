@@ -45,6 +45,47 @@ DEMO = "--demo" in sys.argv
 PORT = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else 8899
 WEBCFG = os.path.join(ROOT, "config", "webapp.json")
 
+# 모든 앱 입력이 같은 즉시 동기화 문을 지난다. AppStore 변경은 change_seq가 이미
+# 잡지만, 리모컨·캠프·플로우처럼 별도 정본을 쓰는 화면은 그 번호를 올리지 않아
+# 다른 PC·모바일이 5초 폴링을 해도 갱신할 이유를 못 봤다. 성공한 데이터 POST는
+# `_send()` 한 곳에서 이 세대를 올린다 — 새 입력 API가 생겨도 사람별로 다시
+# 연결하지 않는다. 로그인·상태보고·파일 내보내기처럼 자료를 바꾸지 않는 POST만
+# 명시적으로 제외한다.
+_LIVE_WRITE_LOCK = threading.Lock()
+_LIVE_WRITE_SEQ = 0
+_LIVE_WRITE_AT = ""
+_SERVER_BOOT_REV = secrets.token_hex(8)
+_NON_DATA_POST_PATHS = {
+    "/api/login", "/api/auth/logout", "/api/auth/change-pin", "/api/ux",
+    "/api/staff/activity", "/api/staff/install-shortcut", "/api/archive/export",
+    "/api/export_xlsx", "/api/open",
+}
+
+
+def _mark_live_mutation(path=""):
+    """현재 서버에서 성공한 데이터 입력 세대를 원자적으로 한 번 올린다."""
+    global _LIVE_WRITE_SEQ, _LIVE_WRITE_AT
+    with _LIVE_WRITE_LOCK:
+        _LIVE_WRITE_SEQ += 1
+        _LIVE_WRITE_AT = datetime.now().astimezone().isoformat(timespec="seconds")
+        return {"seq": _LIVE_WRITE_SEQ, "updated_at": _LIVE_WRITE_AT,
+                "path": str(path or "")[:160]}
+
+
+def _is_successful_data_post(method, path, code, body):
+    """자료 변경 성공 응답인가 — 새 POST는 기본적으로 동기화 대상이다."""
+    clean = urlsplit(str(path or "")).path
+    if str(method or "").upper() != "POST" or clean in _NON_DATA_POST_PATHS:
+        return False
+    if clean.startswith("/api/run/") or not (200 <= int(code) < 300):
+        return False
+    if isinstance(body, dict):
+        if body.get("ok") is False or body.get("action") == "no_change":
+            return False
+        if body.get("idempotent_replay") is True:
+            return False
+    return True
+
 # 폰 홈 화면 아이콘이 가리켜야 할 **바뀌지 않는 주소**.
 # 터널 주소(trycloudflare)는 띄울 때마다 새로 받으므로 아이콘에 박으면 안 된다.
 FIXED_ENTRY = "https://mulder4780.github.io/coupang-ecount-reconcile/"
@@ -1016,8 +1057,9 @@ def save_staff_receipt_submission(fields, files, source_ip=""):
 
 def save_staff_work_log_submission(fields, files, source_ip=""):
     from source_dirs import WORK_LOG_DIR
-    if str(fields.get("staff_slug") or "").strip() != "ryu-jiyeong":
-        raise ValueError("대표보고 일지는 류지영 업무센터에서만 등록할 수 있습니다")
+    staff_slug = str(fields.get("staff_slug") or "").strip()
+    if staff_slug not in STAFF_CENTERS:
+        raise ValueError("등록된 업무센터 담당자만 대표보고 일지를 등록할 수 있습니다")
     if str(fields.get("use_current") or "").strip() == "1":
         from work_log_sync import find_latest_source
         current = find_latest_source()
@@ -1025,7 +1067,7 @@ def save_staff_work_log_submission(fields, files, source_ip=""):
     else:
         folder, saved, _manifest = _save_source_submission(
             fields, files, kind="work-log", allowed_exts=WORK_LOG_SOURCE_EXTS,
-            destination_root=WORK_LOG_DIR, upload_field="work_log_file", staff_slug="ryu-jiyeong",
+            destination_root=WORK_LOG_DIR, upload_field="work_log_file", staff_slug=staff_slug,
         )
     started, msg = start_task("work_log")
     queued = False if started else defer_task_until_free("work_log")
@@ -1325,27 +1367,19 @@ RYU_ENTRY_CONFIG = {
 
 # 직원 화면·API·보관본이 같은 열 권한을 본다. 화면에서 입력칸을 숨기는 것은 보안이
 # 아니므로 서버가 이 표 밖의 열을 항상 거부한다. 자동 판정·수식 열은 애초에 넣지 않는다.
+#
+# ★ 2026-08-21 형님 기본 원칙: **모든 업무센터의 입력·수정·변경 기능은 같다.**
+# 사람을 한 명씩 적어 허용표를 만들면 새 업무센터가 생긴 날 화면은 열려도 저장만
+# 403으로 막힌다. 그래서 로스터에 등록된 모든 담당자가 아래 하나의 안전한 입력
+# 스키마를 자동으로 상속한다. 누가 무엇을 바꿨는지는 actor·감사 이벤트·정정 사유로
+# 가르고, 기능 자체는 사람 이름으로 가르지 않는다.
 _ALL_STAFF_ENTRY_FIELDS = {
     category: {field["name"] for field in cfg["fields"]}
     for category, cfg in RYU_ENTRY_CONFIG.items()
 }
 STAFF_ENTRY_PERMISSIONS = {
-    "ryu-jiyeong": {key: set(value) for key, value in _ALL_STAFF_ENTRY_FIELDS.items()},
-    "yoo-hyeonmin": {key: set(value) for key, value in _ALL_STAFF_ENTRY_FIELDS.items()},
-    "oh-jonghyeon": {
-        # 오종현 통화 건처럼 원천 AS/점검의 비용 사실을 바로잡을 수 있다. 06시트
-        # 비용구분은 원천업무를 참조하는 수식이므로 직접 쓰지 않는다.
-        "as": {"유상·무상·보험", "문제내용", "조치내용", "비고"},
-        "pm": {"유상·무상·보험", "문제내용", "조치내용", "비고"},
-        "settle": set(_ALL_STAFF_ENTRY_FIELDS["settle"]),
-    },
-    # 김미영은 **청구·수금 쪽만** 손댄다. 현장 사실(as·pm)은 다녀온 사람이 적는 것이라
-    # 여기서 열어 주면 서류를 보고 현장 기록을 고치게 된다 — 그 순간 근거가 뒤집힌다.
-    "kim-miyeong": {
-        "settle": {"거래명세서번호", "거래명세서발행일", "PO필요여부", "PO번호", "PO발행일",
-                   "세금계산서발행일", "청구일", "지급예정일", "입금일", "입금액",
-                   "문제내용", "조치내용", "비고"},
-    },
+    slug: {key: set(value) for key, value in _ALL_STAFF_ENTRY_FIELDS.items()}
+    for slug in STAFF_CENTERS
 }
 STAFF_REASON_REQUIRED_FIELDS = {
     "유상·무상·보험", "비용구분", "거래명세서번호", "PO번호",
@@ -2339,6 +2373,12 @@ def _invalidate_app_data_caches():
     for key in ("issues", "exec", "status"):
         for suffix in ("", "_ts", "_stale"):
             cache.pop(key + suffix, None)
+    # 대표보고 요약(`/api/brief`)도 같은 AppStore 정본을 본다. 이것을 남겨 두면
+    # 업무센터 저장 직후 캘린더/목록은 바뀌었는데 대표보고 캡처만 옛 Excel 값으로
+    # 남는 조용한 불일치가 생긴다(2026-08-21 형님 지시).
+    brief = globals().get("_brief_cache")
+    if isinstance(brief, dict):
+        brief.update({"key": None, "value": None})
 
 
 def _safety_spool(items, error):
@@ -3942,10 +3982,11 @@ def real_settlements():
     return sort_by_date(app_year_rows(rows, "settle"), "settle", "정산ID")
 
 
-def _overlay_app_store_works(out):
+def _overlay_app_store_works(out, store=None):
     try:
-        from app_store import default_store
-        store = default_store()
+        if store is None:
+            from app_store import default_store
+            store = default_store()
         out["as"] = store.overlay_rows("02_돌발AS접수", out.get("as") or [], "접수ID")
         out["pm"] = store.overlay_rows("04_정기점검", out.get("pm") or [], "점검ID")
         for kind in ("as", "pm"):
@@ -4300,7 +4341,10 @@ def _brief_source_key(day):
         schedule_mt = os.path.getmtime(os.path.join(ROOT, "reports", "pm_schedule_sync.json"))
     except Exception:
         schedule_mt = 0
-    return day, _master_mtime(), work_log_mt, event_mt, ceo_event_mt, schedule_mt
+    # Excel은 보관본이고, 사람이 방금 저장한 AppStore DB가 화면 정본이다.
+    # DB/WAL이 바뀌면 대표보고 캐시도 같은 회차에서 반드시 무효화한다.
+    return (day, _master_mtime(), work_log_mt, event_mt, ceo_event_mt, schedule_mt,
+            *_app_db_stamp())
 
 
 def get_daily_brief(day=None):
@@ -4318,7 +4362,14 @@ def get_daily_brief(day=None):
         if _brief_cache["value"] is not None and _brief_cache["key"] == key:
             return _brief_cache["value"]
         import daily_brief as DB
-        result = DB.brief(day, DB.load()[0])
+        data = dict(DB.load()[0])
+        # daily_brief의 옛 경로는 Excel만 읽었다. AppStore overlay가 적용된 같은
+        # `get_works()`를 대표보고에도 주입해 업무센터·캘린더·대표 캡처가 한 값으로
+        # 수렴하게 한다. Excel 자동 보관본은 이 정본을 뒤따르는 산출물일 뿐이다.
+        works = get_works()
+        data["as"] = list(works.get("as") or [])
+        data["pm"] = list(works.get("pm") or [])
+        result = DB.brief(day, data)
         source_mtime = max((float(v or 0) for v in key[1:]), default=0)
         result["데이터업데이트일시"] = (
             datetime.fromtimestamp(source_mtime).isoformat(timespec="minutes")
@@ -6368,7 +6419,7 @@ _BAND_EV_TTL = 300
 # 색인 모양을 바꾸면 **이 숫자를 손으로 올린다.** 지문은 원본이 바뀌었나만 보므로,
 # 규칙이 바뀌어도 원본이 그대로면 옛 캐시가 영원히 이긴다(같은 사고 네 번째 —
 # `inbox_scan.RULES_VERSION` 과 같은 자리다).
-_BAND_EV_VER = 5   # 2026-08-21: 한 글의 양식을 전부 읽게 바뀜(band_extract.parse_post_all)
+_BAND_EV_VER = 7   # 2026-08-21: 밴드 ID로 출처를 정규화해 원천별 수집 기준을 가름
 #: ⚠ 파싱 규칙을 고치면 **이 숫자를 손으로 올린다** — 원본이 안 바뀌면 지문이 안
 #:   움직여 옛 색인이 영원히 이긴다(이 프로젝트가 다섯 번 겪은 모양이다).
 
@@ -6479,7 +6530,7 @@ def _band_completion_index():
             pass
 
     out = {"완료": {}, "언급": set(), "카톡": {}, "최신": "", "읽음": False,
-           "밴드수집": {}, "수집최신": "",
+           "밴드수집": {}, "수집최신": "", "언급밴드": {},
            "지문": fp, "판": _BAND_EV_VER}
     try:
         import band_extract
@@ -6499,11 +6550,23 @@ def _band_completion_index():
             #   통째로 안 보이는데도 아무 화면에 안 떴다([169]).
             # ★ **밴드마다 따로** 잰다. 한 밴드만 밀려도 그 밴드에 올라온 완료 글은
             #   어느 건이든 안 보인다 — 합치면 그 사실이 사라진다.
-            if not str(r.get("밴드") or "").startswith("카톡"):
-                _b = str(r.get("밴드") or "").strip()
-                _pd = norm_date(r.get("게시일"))
-                if _b and _pd and _pd > (out["밴드수집"].get(_b) or ""):
-                    out["밴드수집"][_b] = _pd
+            _b = ("카톡" if str(r.get("밴드") or "").startswith("카톡")
+                  else str(r.get("밴드") or "").strip())
+            _pd = norm_date(r.get("게시일"))
+            if _b and _pd and _pd > (out["밴드수집"].get(_b) or ""):
+                out["밴드수집"][_b] = _pd
+            # ★ **그 건이 어디서 오는지**를 같이 적는다. 수집 밀림은 원천마다 다르고
+            #   (실측 쿠팡AS 08-19 · 카톡 07-31 · 매출처업무 07-23), 미처리 건은
+            #   `매출처업무` 밴드와 **한 건도 안 겹친다**. 전체 최솟값으로 재면
+            #   상관없는 밴드의 밀림 때문에 멀쩡한 판정이 '못봄'으로 뒤집힌다([172]).
+            # ★ 여기에는 **그 프로젝트가 실제로 관측된 원천**을 적는다. 완료 게시의
+            #   정본은 밴드라서 밴드에서 한 번이라도 보였으면 밴드가 우선한다.
+            #   카톡에만 보인 AS·점검 건의 완료 기준일은 아래 `_completion_cutoff()`가
+            #   쿠팡AS 밴드로 물러난다 — 카톡 수집일을 완료 게시의 기준일로 쓰면 안 된다.
+            if _b:
+                _o = out["언급밴드"].get(pj)
+                if not _o or (_o == "카톡" and _b != "카톡"):
+                    out["언급밴드"][pj] = _b
             # ★ **카톡에만 적힌 근거를 따로 담는다** (2026-08-18 지시).
             #   `load_records()` 는 밴드와 카톡을 **같은 양식**으로 돌려주므로 지금까지
             #   둘이 한 통에 섞였고, 화면은 '밴드·카톡에 글이 없다'처럼 **뭉쳐서만**
@@ -6595,8 +6658,36 @@ def band_collect_cutoff():
     last = idx.get("수집최신") or idx.get("최신") or ""
     today = _today_str()
     per = dict(idx.get("밴드수집") or {})
+    # ★ 원천마다 밀림이 다르다 — 합쳐 말하면 어느 쪽을 채워야 하는지 못 말한다([289]).
     return {"읽음": bool(idx.get("읽음")), "최신": last, "오늘": today,
             "밴드별": per, "밀림": bool(last and last < today)}
+
+
+def _completion_cutoff(row, idx):
+    """AS·정기점검 **완료 게시**를 어디까지 봤나 — 원천 하나의 게시일.
+
+    이 함수가 필요한 이유는 `밴드수집`의 전체 최솟값이 완료 판정 기준이 아니기
+    때문이다. 실측 2026-08-21에는 쿠팡AS가 08-19, 카톡이 07-31,
+    매출처업무가 07-23까지였고, AS·점검 미처리 건은 매출처업무와 한 건도
+    겹치지 않았다. 그 최솟값을 쓰면 목포 같은 8월 건도 7월 이후라서 아직 못 본
+    것으로 뒤집힌다 — 무관한 원천의 밀림이 AS 기사 판정을 오염한 것이다.
+
+    · 접수 글이 어느 밴드에서 관측됐는지는 완료 게시의 원천을 뜻하지 않는다.
+      매출처업무 밴드에 접수된 AS도 완료 글은 `쿠팡AS`에 올라온다.
+    · 그래서 AS·점검 완료의 정본인 `쿠팡AS` 기준일을 항상 먼저 쓴다.
+    · 그 원천 자체를 못 읽은 옛 색인에서만 보수적으로 전체 기준으로 물러난다.
+    """
+    per = dict(idx.get("밴드수집") or {})
+    # 한 기계에서 이름 앞에 회사명이 붙거나 밴드 번호가 함께 붙어도 잡는다.
+    as_days = [day for name, day in per.items() if "쿠팡AS" in str(name) and day]
+    if as_days:
+        # 쿠팡AS 밴드가 둘 이상이면 하나라도 덜 수집된 쪽을 넘겨짚지 않는다.
+        return min(as_days)
+    pj = str((row or {}).get("프로젝트NO") or "").split(" · ")[0].strip()
+    src = (idx.get("언급밴드") or {}).get(pj) or ""
+    if src and per.get(src):
+        return per[src]
+    return idx.get("수집최신") or idx.get("최신") or ""
 
 def _open_evidence_class(row, idx, when):
     """왜 미처리로 서 있나 — **기록이 없는 것**과 **안 간 것**을 가른다([169]).
@@ -6616,10 +6707,11 @@ def _open_evidence_class(row, idx, when):
     if not idx.get("읽음"):
         return "못봄"
     pj = str(row.get("프로젝트NO") or "").split(" · ")[0].strip()
-    # ★ 기준은 **게시일**로 잰 `수집최신` 이다 — `최신`(작업일 최대값)은
-    #   미래 예정일이 섞여 "다 봤다"를 확언한다([169]). 옛 색인에는 그 칸이 없으므로
-    #   없으면 예전 값으로 물러난다(못 읽음을 '다 봤다'로 치지 않는다).
-    last = idx.get("수집최신") or idx.get("최신") or ""
+    # ★ 기준은 **게시일**로 잰 값이고 **그 건이 실제로 오는 곳** 것을 쓴다.
+    #   `최신`(작업일 최대값)은 미래 예정일이 섞여 "다 봤다"를 확언하고([169]),
+    #   전체 최솟값은 상관없는 밴드의 밀림을 뒤집어씌운다([172]).
+    #   옛 색인에는 이 칸들이 없으므로 없으면 예전 값으로 물러난다.
+    last = _completion_cutoff(row, idx)
     # ⚠ **수집이 며칠 밀린 것을 건별 갈래에 섞지 않는다** (2026-08-21 실측).
     #   한때 `수집 최신일 < 오늘` 이면 전부 '못봄' 으로 돌렸는데, 그러자 106건이
     #   **전부 한 갈래**가 됐다 — 한 갈래가 전부면 그 갈래는 아무 말도 안 한다([170]).
@@ -6658,10 +6750,11 @@ def _machine_why(row, idx, got):
     if not idx.get("읽음"):
         return "밴드·카톡 기록을 못 읽었다 — 완료 여부를 확인 못 함"
     pj = str(row.get("프로젝트NO") or "").split(" · ")[0].strip()
-    # ★ 기준은 **게시일**로 잰 `수집최신` 이다 — `최신`(작업일 최대값)은
-    #   미래 예정일이 섞여 "다 봤다"를 확언한다([169]). 옛 색인에는 그 칸이 없으므로
-    #   없으면 예전 값으로 물러난다(못 읽음을 '다 봤다'로 치지 않는다).
-    last = idx.get("수집최신") or idx.get("최신") or ""
+    # ★ 기준은 **게시일**로 잰 값이고 **그 건이 실제로 오는 곳** 것을 쓴다.
+    #   `최신`(작업일 최대값)은 미래 예정일이 섞여 "다 봤다"를 확언하고([169]),
+    #   전체 최솟값은 상관없는 밴드의 밀림을 뒤집어씌운다([172]).
+    #   옛 색인에는 이 칸들이 없으므로 없으면 예전 값으로 물러난다.
+    last = _completion_cutoff(row, idx)
 
     # ★ **카톡에 적힌 근거는 갈래와 상관없이 같이 말한다** (2026-08-18 지시).
     #   갈래마다 따로 붙이면 한 갈래에서 빠뜨려도 아무도 모른다 — 근거가 있는데
@@ -6847,7 +6940,7 @@ def _calendar_work_events():
                      "경과일": days, "긴급도": r.get("긴급도") or "",
                      "미처리사유": _why_still_open(r, bidx, got),
                      "근거갈래": _open_evidence_class(r, bidx, got),
-                     "수집기준": bidx.get("최신") or "",
+                     "수집기준": _completion_cutoff(r, bidx),
                      "사람사유": _human_delay_reason(r, cap=0),
                      "기계추정": _machine_why(r, bidx, got),
                      "DB버전": r.get("DB버전"),
@@ -6911,7 +7004,7 @@ def _calendar_work_events():
                  "경과일": days, "점검상태": r.get("점검상태") or "",
                  "미처리사유": _why_still_open(r, bidx, plan),
                  "근거갈래": _open_evidence_class(r, bidx, plan),
-                 "수집기준": bidx.get("최신") or "",
+                 "수집기준": _completion_cutoff(r, bidx),
                  "사람사유": _human_delay_reason(r, cap=0),
                  "기계추정": _machine_why(r, bidx, plan),
                  "DB버전": r.get("DB버전")})
@@ -8014,6 +8107,12 @@ def get_live_state(*, store=None, state_path=None, lock_path=None):
             return max(candidates, key=sort_key)
 
         last_run = pipeline.get("last_run") or {}
+        # AppStore 밖의 정본(리모컨·캠프·플로우 등)도 같은 세대로 묶는다.
+        # 두 전역을 따로 읽으면 쓰기 사이의 반쪽 상태가 될 수 있어 잠금 안에서
+        # 한 스냅샷으로 잡는다.
+        with _LIVE_WRITE_LOCK:
+            live_write_seq = int(_LIVE_WRITE_SEQ)
+            live_write_at = str(_LIVE_WRITE_AT or "")
         # state JSON은 프로세스가 비정상 종료되면 ``running:true``인 채 남는다.
         # 실제 잠금의 pid+생성시각 지문까지 맞을 때만 실행 중으로 인정한다. 임시
         # state_path를 쓰는 합성검증은 같은 폴더의 잠금만 보므로 운영 잠금을 읽지 않는다.
@@ -8062,6 +8161,8 @@ def get_live_state(*, store=None, state_path=None, lock_path=None):
         )
         stable = {
             "change_seq": int(app.get("change_seq") or 0),
+            "live_write_seq": live_write_seq,
+            "server_boot_revision": _SERVER_BOOT_REV,
             "outbox_pending": int(app.get("outbox_pending") or 0),
             # 실패/실행 중 export의 snapshot 번호를 최신 보관본처럼 내보내면
             # 모든 기기가 보관 완료로 오해한다. 검증이 끝난 마지막 export만 표시한다.
@@ -8081,6 +8182,8 @@ def get_live_state(*, store=None, state_path=None, lock_path=None):
         # 기기마다 7개 대형 API를 단계 수만큼 다시 불러, 바로 이 화면을 또 막는다.
         data_stable = {
             "change_seq": stable["change_seq"],
+            "live_write_seq": stable["live_write_seq"],
+            "server_boot_revision": stable["server_boot_revision"],
             "last_completed_at": stable["last_completed_at"],
         }
         revision = hashlib.sha256(
@@ -8103,6 +8206,7 @@ def get_live_state(*, store=None, state_path=None, lock_path=None):
             app_changed_at,
             export_completed_at,
             last_completed_at,
+            live_write_at,
         )
         state_updated_at = latest_timestamp(
             data_updated_at,
@@ -8115,6 +8219,7 @@ def get_live_state(*, store=None, state_path=None, lock_path=None):
             "revision": revision,
             "state_revision": state_revision,
             "change_seq": stable["change_seq"],
+            "live_write_seq": stable["live_write_seq"],
             "snapshot_seq": stable["snapshot_seq"],
             "phase": phase,
             "label": label,
@@ -8752,6 +8857,12 @@ class H(BaseHTTPRequestHandler):
                 pass
 
     def _send(self, code, body, ctype="application/json; charset=utf-8", headers=None):
+        # ★ 성공한 데이터 입력은 응답을 내보내기 **전에** 공통 세대를 올린다.
+        # 현재 기기가 "저장 완료"를 본 순간 다른 PC·모바일의 다음 5초 폴링도
+        # 같은 변경번호를 보게 한다. 이 한 문이 모든 기존·신규 업무센터에 적용된다.
+        if _is_successful_data_post(
+                getattr(self, "command", ""), getattr(self, "path", ""), code, body):
+            _mark_live_mutation(getattr(self, "path", ""))
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -9077,6 +9188,19 @@ self.addEventListener('fetch', e => {
                 "application/manifest+json")
         if p == "/api/ping":
             return self._send(200, {"app": "coupang-work", "demo": DEMO, "build": build_id()})
+        if p == "/api/sync-health":
+            # 30분 워치독 전용 최소 상태. 업무 데이터는 한 글자도 내보내지 않고
+            # 실행 중인 서버가 공통 revision 세대와 쓰기 번호를 실제로 만들 수
+            # 있는지만 잰다. 사용자 PIN을 자동화 파일에 저장하지 않기 위해 인증
+            # 관문 앞에 두되, 반환값은 해시·정수·시각으로만 제한한다.
+            state = get_live_state()
+            return self._send(200, {
+                "ok": True,
+                "revision": state.get("revision") or "",
+                "live_write_seq": state.get("live_write_seq"),
+                "data_updated_at": state.get("data_updated_at") or "",
+                "build": build_id(),
+            })
         # ── 밴드 자동수집 (2026-08-09 지시: Claude Code 없이 앱이 스스로 수집) ─────────
         #   로그인된 밴드 탭의 유저스크립트가 이 둘을 읽어 스스로 긁는다 — Claude Code 가
         #   수집 루프에서 빠져 크레딧을 안 쓴다. _send 가 이미 CORS(*)·사설망 허용을
@@ -9415,8 +9539,9 @@ self.addEventListener('fetch', e => {
                 return self._send(200, {"total": 0, "buckets": {}, "rows": []})
         if p == "/api/staff/work-log-status":
             actor = self._actor()
-            if actor.get("role") == "staff" and actor.get("staff_slug") != "ryu-jiyeong":
-                return self._send(403, {"ok": False, "error": "류지영 업무센터 전용 기능입니다"})
+            if (actor.get("role") == "staff"
+                    and str(actor.get("staff_slug") or "") not in STAFF_CENTERS):
+                return self._send(403, {"ok": False, "error": "등록되지 않은 업무센터입니다"})
             if actor.get("role") not in ("admin", "staff"):
                 return self._send(403, {"ok": False, "error": "업무센터 세션이 필요합니다"})
             try:
@@ -9689,12 +9814,12 @@ self.addEventListener('fetch', e => {
             actor = self._actor()
             allowed = actor.get("role") == "admin" or (
                 actor.get("role") == "staff"
-                and str(actor.get("staff_slug") or "") == "ryu-jiyeong"
+                and str(actor.get("staff_slug") or "") in STAFF_CENTERS
             )
             if not allowed:
                 return self._send(403, {
                     "ok": False,
-                    "error": "카카오톡 원본은 관리자 또는 류지영 업무센터에서 등록합니다",
+                    "error": "등록된 업무센터 또는 관리자만 카카오톡 원본을 등록합니다",
                 })
             ln = int(self.headers.get("Content-Length", 0) or 0)
             if ln <= 0 or ln > 31_000_000:
@@ -9888,7 +10013,7 @@ self.addEventListener('fetch', e => {
                 _notify_upload_rejected("개선요청", "", self._actor(), str(exc)[:200])
                 return self._send(400, {"ok": False, "error": str(exc)[:260]})
         if p == "/api/staff/po-upload":
-            actor_slug = self._require_staff("oh-jonghyeon")
+            actor_slug = self._require_staff(*STAFF_CENTERS.keys())
             if not actor_slug:
                 return
             ln = int(self.headers.get("Content-Length", 0))
@@ -9910,15 +10035,15 @@ self.addEventListener('fetch', e => {
         if p in ("/api/remote/request", "/api/remote/deliver", "/api/remote/stock",
                  "/api/remote/edit", "/api/remote/delete", "/api/remote/restore"):
             # 리모컨 관리(2026-08-03 지시, 같은 날 개정): 승인 단계 없이 기록·관리·보고만.
-            # 불출·납품은 류지영/오종현 업무센터와 관리자. 3개 한도는 ledger_db 가 강제한다.
+            # 모든 업무센터와 관리자에서 같은 기능을 쓴다. 3개 한도는 ledger_db 가 강제한다.
             actor = self._actor()
             role = str(actor.get("role") or "")
             slug = str(actor.get("staff_slug") or "")
             allowed = role == "admin" or (
-                role == "staff" and slug in ("ryu-jiyeong", "oh-jonghyeon"))
+                role == "staff" and slug in STAFF_CENTERS)
             if not allowed:
                 return self._send(403, {"ok": False,
-                                        "error": "리모컨 관리는 류지영·오종현 업무센터 또는 관리자만"})
+                                        "error": "리모컨 관리는 등록된 업무센터 또는 관리자만"})
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 20_000:
                 return self._send(400, {"ok": False, "error": "리모컨 요청 형식 오류"})
@@ -10004,15 +10129,14 @@ self.addEventListener('fetch', e => {
             except Exception as exc:
                 return self._send(400, {"ok": False, "error": str(exc)[:260]})
         if p == "/api/staff/receipt-upload":
-            # 관리자(업무센터 탭) 또는 오종현 담당자 페이지에서만. 자료는 항상 오종현
-            # 소유로 보관된다 — 입금 원천의 관리 책임이 그쪽이기 때문(2026-07-31).
+            # 어느 업무센터에서 올려도 같은 입금 정본·대조 회차로 들어간다.
             actor = self._actor()
             allowed = actor.get("role") == "admin" or (
                 actor.get("role") == "staff"
-                and str(actor.get("staff_slug") or "") == "oh-jonghyeon")
+                and str(actor.get("staff_slug") or "") in STAFF_CENTERS)
             if not allowed:
                 return self._send(403, {"ok": False,
-                                        "error": "입금 자료는 관리자 또는 오종현 업무센터에서만 등록합니다"})
+                                        "error": "입금 자료는 등록된 업무센터 또는 관리자만 등록합니다"})
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 60_000_000:
                 _notify_upload_rejected("입금내역", "", self._actor(),
@@ -10029,7 +10153,7 @@ self.addEventListener('fetch', e => {
                 _notify_upload_rejected("입금내역", "", self._actor(), str(exc)[:200])
                 return self._send(400, {"ok": False, "error": str(exc)[:320]})
         if p == "/api/staff/work-log-upload":
-            actor_slug = self._require_staff("ryu-jiyeong")
+            actor_slug = self._require_staff(*STAFF_CENTERS.keys())
             if not actor_slug:
                 return
             ln = int(self.headers.get("Content-Length", 0))
@@ -10055,10 +10179,10 @@ self.addEventListener('fetch', e => {
             actor_slug = str(actor.get("staff_slug") or "")
             is_admin = actor.get("role") == "admin"
             if not (is_admin or (actor.get("role") == "staff"
-                                 and actor_slug == "ryu-jiyeong")):
+                                 and actor_slug in STAFF_CENTERS)):
                 return self._send(403, {
                     "ok": False,
-                    "error": "신규 업무는 관리자 또는 류지영 업무센터에서 등록합니다"})
+                    "error": "신규 업무는 등록된 업무센터 또는 관리자만 등록합니다"})
             ln = int(self.headers.get("Content-Length", 0))
             if ln <= 0 or ln > 30_000_000:
                 return self._send(400, {"ok": False, "error": "신규업무·첨부 용량은 합계 30MB 이하여야 합니다"})
@@ -10147,7 +10271,9 @@ self.addEventListener('fetch', e => {
             save_policy_state(key, state)
             return self._send(200, {"ok": True, **state})
         if p == "/api/ryu/upload":
-            actor_slug = self._require_staff("ryu-jiyeong")
+            # 공개 주소는 이전 호환 때문에 `/api/ryu/upload`를 유지하지만 기능은
+            # 모든 업무센터 공통이다. 경로 이름을 권한 이름으로 쓰지 않는다.
+            actor_slug = self._require_staff(*STAFF_CENTERS.keys())
             if not actor_slug:
                 return
             ln = int(self.headers.get("Content-Length", 0))

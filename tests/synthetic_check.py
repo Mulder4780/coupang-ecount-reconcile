@@ -1194,7 +1194,8 @@ def t6_webapp():
         req = urllib.request.Request(base + "/api/login", data=b'{"pin":"0000"}', method="POST")
         assert json.loads(urllib.request.urlopen(req).read())["ok"]
         # 담당자 로그인은 서버 세션에 역할이 고정된다. 공용 PIN을 알고 있어도
-        # 실행·정책·다른 담당자 입력 API를 직접 호출할 수 없어야 한다.
+        # 실행·정책 같은 관리자 API는 호출할 수 없다. 다만 PO·입금·업무일지 등
+        # 공통 입력은 어느 등록 업무센터에서나 같은 정본으로 들어가야 한다([377]).
         staff_opener = urllib.request.build_opener(
             urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         staff_login = urllib.request.Request(
@@ -1215,7 +1216,6 @@ def t6_webapp():
         for path, data in (
             ("/api/run/all", b"{}"),
             ("/api/policy", '{"기준":"x","확정내용":"y"}'.encode("utf-8")),
-            ("/api/staff/po-upload", b""),
         ):
             request = urllib.request.Request(
                 base + path, data=data, headers={"X-Pin": "0000"}, method="POST")
@@ -1224,6 +1224,15 @@ def t6_webapp():
                 assert False, f"담당자 세션이 관리자 API를 호출함: {path}"
             except urllib.error.HTTPError as exc:
                 assert exc.code == 403, (path, exc.code)
+        # 빈 파일이라 400이어야 하며, 권한 때문에 403이면 공통 업무센터 계약 위반이다.
+        request = urllib.request.Request(
+            base + "/api/staff/po-upload", data=b"",
+            headers={"X-Pin": "0000"}, method="POST")
+        try:
+            staff_opener.open(request)
+            assert False, "빈 PO 업로드가 입력 검증 없이 통과됨"
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 400, ("/api/staff/po-upload", exc.code)
         # 인증 상태·정산 API
         h = {"X-Pin": "0000"}
         st = json.loads(urllib.request.urlopen(urllib.request.Request(base + "/api/status", headers=h)).read())
@@ -4411,7 +4420,8 @@ def t96_work_management_tabs():
     assert "save_staff_receipt_submission" in srv and "RECEIPT_DIR" in srv, \
         "입금 자료가 지정 저장소(7. 입금내역)로 가지 않는다"
     blk2 = srv[srv.index('"/api/staff/receipt-upload"'):srv.index('"/api/staff/receipt-upload"') + 900]
-    assert '"admin"' in blk2 and "oh-jonghyeon" in blk2, "관리자·오종현 외에도 업로드가 열려 있다"
+    assert '"admin"' in blk2 and "STAFF_CENTERS" in blk2, \
+        "입금 업로드가 등록된 모든 업무센터와 관리자에게 열리지 않았다"
     # 2026-08-11: 앱 업로드 csv 는 같은 폴더에 xlsx 변환본을 만들어야 한다 —
     # load_deposits 는 *.xlsx 만 읽으므로 변환 없는 csv 는 영영 안 읽힌다([165]).
     blk3 = srv[srv.index("def save_staff_receipt_submission"):]
@@ -4667,7 +4677,7 @@ def t98_remote_control_tracking():
                  "remoteDeliver", "centerRemoteBrief",
                  'id="v-remote"', 'data-v="remote"', "remoteCardBody",
                  "remoteCsv", "remoteCapture",
-                 "if(staffSlug==='ryu-jiyeong'||staffSlug==='oh-jonghyeon') injectRemoteCard()",
+                 "if(staffSlug) injectRemoteCard()",
                  ".remote-grid2 fieldset{border:0;border-radius:16px",
                  "loadRemoteStat", "remote: REMOTE_STAT", "rmtH",
                  "리모컨 현황 — 불출·납품 기록",
@@ -4681,7 +4691,8 @@ def t98_remote_control_tracking():
     assert "/api/remote/status" in srv and "/api/remote/request" in srv
     assert "/api/remote/approve" not in srv, "승인 API가 남아 있다"
     blk = srv[srv.index('"/api/remote/request"'):srv.index('"/api/remote/request"') + 1600]
-    assert '"ryu-jiyeong", "oh-jonghyeon"' in blk, "리모컨 관리가 두 업무센터로 제한되지 않았다"
+    assert "STAFF_CENTERS.keys()" in blk or "in STAFF_CENTERS" in blk, \
+        "리모컨 관리가 등록된 모든 업무센터에 열리지 않았다"
     # 지점 직납·기타 사유(2026-08-11 류지영): 폼이 지점 이름을 안내하고 기타 사유 칸이 있다
     for need in ("DWhyT", "grant_reason_text", "부산공장·시화공장·증평본사"):
         assert need in html, f"지점 직납/기타 사유 UI 누락: {need}"
@@ -14545,13 +14556,13 @@ def t204_staff_finance_entry_is_one_save_and_source_safe():
 
 
 def t205_three_staff_sessions_cannot_forge_actor():
-    """[205] 세 업무센터의 역할은 쿠키로 고정되고 본문 이름으로 바뀌지 않는다."""
+    """[205] 모든 업무센터의 기능은 같고 actor는 쿠키로 고정된다."""
     import inspect
     from pathlib import Path
     import app_store as A
     from webapp import app_server as S
 
-    slugs = ("ryu-jiyeong", "oh-jonghyeon", "yoo-hyeonmin")
+    slugs = ("ryu-jiyeong", "oh-jonghyeon", "yoo-hyeonmin", "kim-miyeong")
     assert set(slugs) <= set(S.STAFF_CENTERS), S.STAFF_CENTERS
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
@@ -14610,8 +14621,8 @@ def t205_three_staff_sessions_cannot_forge_actor():
                 idempotency_key=f"t205-seed-{slug}",
             )
 
-        # 세 센터가 같은 업무를 참고할 수 있어도 수정 가능 열은 서버가 각 세션에
-        # 맞게 내려야 한다. 화면에서 숨기는 것만으로 권한을 대신하면 안 된다.
+        # 모든 센터는 같은 안전 입력 열을 받는다. 사람별 차이는 기능이 아니라
+        # 서명 actor와 감사로그로 남는다(2026-08-21 형님 지시).
         old_legacy_reader = S.get_ryu_records
         try:
             def _no_real_ledger():
@@ -14624,9 +14635,9 @@ def t205_three_staff_sessions_cannot_forge_actor():
             assert view.get("staff_slug") == slug and view.get("staff") == \
                 S.STAFF_CENTERS[slug]["name"], view
             assert isinstance(view.get("permissions", {}).get("pm"), list), view
-        assert "점검상태" in views["ryu-jiyeong"]["permissions"]["pm"]
-        assert "점검상태" in views["yoo-hyeonmin"]["permissions"]["pm"]
-        assert "점검상태" not in views["oh-jonghyeon"]["permissions"]["pm"]
+        for slug in slugs:
+            assert set(views[slug]["permissions"]["pm"]) == \
+                S._ALL_STAFF_ENTRY_FIELDS["pm"], slug
 
         oh_raw = store.get_work(kind="정기점검", business_key=keys["oh-jonghyeon"])
         forged = {
@@ -14647,7 +14658,8 @@ def t205_three_staff_sessions_cannot_forge_actor():
             ).fetchone()[0]
         assert audit_actor == "staff:oh-jonghyeon", audit_actor
 
-        # 오종현 세션이 허용표 밖의 상태를 고치는 것은 helper 단계에서도 막는다.
+        # 오종현이 같은 상태칸도 수정할 수 있어야 한다. 다만 본문에 류지영을 넣어도
+        # 감사 actor는 오종현 세션이어야 한다.
         cross = dict(forged)
         cross.update({
             "key": keys["oh-jonghyeon"],
@@ -14655,15 +14667,17 @@ def t205_three_staff_sessions_cannot_forge_actor():
             "values": {"점검상태": "완료"},
             "idempotency_key": "t205-cross-center",
         })
-        try:
-            S.save_staff_entry(
-                "oh-jonghyeon", cross, store=store, actor=actors["oh-jonghyeon"])
-        except (A.ValidationError, PermissionError) as exc:
-            assert "권한" in str(exc) or "업무센터" in str(exc), str(exc)
-        else:
-            raise AssertionError("오종현 세션이 허용표 밖 점검상태를 수정했다")
+        cross_saved = S.save_staff_entry(
+            "oh-jonghyeon", cross, store=store, actor=actors["oh-jonghyeon"])
+        assert cross_saved.get("ok") and cross_saved["record"]["점검상태"] == "완료"
+        with store.reader() as conn:
+            audit_actor = conn.execute(
+                "SELECT actor FROM change_event WHERE work_id=? ORDER BY id DESC LIMIT 1",
+                (oh_raw["id"],),
+            ).fetchone()[0]
+        assert audit_actor == "staff:oh-jonghyeon", audit_actor
 
-    print("  [205] 류지영·오종현·유현민 세션 격리 · 본문 actor 위조/교차수정 차단 ✅")
+    print("  [205] 전 업무센터 공통 기능 · 세션 actor 위조 차단·감사기록 ✅")
 
 
 def t206_finance_archive_keeps_real_headers_and_formulas():
@@ -16985,7 +16999,8 @@ def t376_unfinished_is_split_by_evidence_and_staff_can_close_it():
     # ① 문장을 파싱하지 않는다 — 사유 문구가 바뀌는 날 조용히 0건이 된다([165]).
     assert "_why_still_open" not in code and "미처리사유" not in code, \
         "[376] 갈래를 사유 문장에서 뜯는다 — 문구가 바뀌면 조용히 안 걸린다"
-    for want in ('idx.get("읽음")', 'idx.get("언급")', 'idx.get("카톡")', 'idx.get("최신")'):
+    for want in ('idx.get("읽음")', 'idx.get("언급")', 'idx.get("카톡")',
+                 '_completion_cutoff(row, idx)'):
         assert want in code, "[376] 색인 %s 를 안 본다" % want
     # ② 셋으로 가르고 '했다'고 단정하지 않는다([172]).
     kinds = set(_re.findall(r'return "([^"]+)"', code))
@@ -17038,22 +17053,238 @@ def t376_unfinished_is_split_by_evidence_and_staff_can_close_it():
     one = "♣ ［ 돌발유료 A/S 완료 ] ● 프로젝트NO : UJ2600005 ● 캠프이름 : 마캠프"
     assert len(_B.split_forms(one)) == 1, "[376] 양식 하나짜리를 쪼갰다"
 
-    # ⑧ **수집 밀림을 건별 갈래에 섞지 않는다** — 만들며 그대로 밟은 자리다.
+    # ⑧ **완료 게시의 수집 기준은 원천마다 다르다** (2026-08-21 실측).
+    #    쿠팡AS 08-19 · 카톡 07-31 · 매출처업무 07-23을 전체 최솟값으로 합치면,
+    #    매출처업무와 무관한 8월 AS까지 '아직 못 봄'으로 뒤집힌다. 프로젝트를
+    #    어디에서도 못 찾았거나 카톡에만 있어도 AS·점검 완료 정본은 쿠팡AS다.
+    import webapp.app_server as _A
+    idx = {"읽음": True, "완료": {}, "언급": set(), "카톡": {},
+           "최신": "2026-08-20", "수집최신": "2026-07-23",
+           "밴드수집": {"(주)유니버셜리프트 매출처업무": "2026-07-23",
+                         "(주)유니버셜리프트 쿠팡AS": "2026-08-19",
+                         "카톡": "2026-07-31"},
+           "언급밴드": {}}
+    no_post = {"프로젝트NO": "UJ2601394"}
+    assert _A._completion_cutoff(no_post, idx) == "2026-08-19", \
+        "[376] 무관한 매출처업무 수집일이 AS 완료 판정을 오염한다"
+    assert _A._open_evidence_class(no_post, idx, "2026-08-04") == "근거없음", \
+        "[376] 수집한 8월 AS를 '아직 못 봄'으로 뒤집었다"
+    kakao_only = {"프로젝트NO": "UJ2601395"}
+    idx["언급"].add("UJ2601395"); idx["카톡"]["UJ2601395"] = {"본문": "접수"}
+    idx["언급밴드"]["UJ2601395"] = "카톡"
+    assert _A._completion_cutoff(kakao_only, idx) == "2026-08-19", \
+        "[376] 접수 카톡 수집일을 밴드 완료 게시 기준으로 썼다"
+    assert _A._open_evidence_class(kakao_only, idx, "2026-08-04") == "완료글없음"
+    sales = {"프로젝트NO": "UJ2601396"}
+    idx["언급밴드"]["UJ2601396"] = "(주)유니버셜리프트 매출처업무"
+    assert _A._completion_cutoff(sales, idx) == "2026-08-19", \
+        "[376] 접수 글이 매출처업무에 있다는 이유로 AS 완료 수집 기준까지 바꿨다"
+
+    # ⑨ **수집 밀림을 건별 갈래에 섞지 않는다** — 만들며 그대로 밟은 자리다.
     #    한때 `수집 최신일 < 오늘` 이면 전부 '못봄' 으로 돌렸는데 106건이 **전부 한
     #    갈래**가 됐다. 한 갈래가 전부면 그 갈래는 아무 말도 안 한다([170]).
     cls_body = ap[ap.index("def _open_evidence_class("):]
     cls_body = cls_body[:cls_body.index("\ndef ", 1)]
     assert "_today_str()" not in cls_body, \
         "[376] 건별 갈래가 '오늘'을 본다 — 수집이 하루만 밀려도 전부 한 갈래가 된다([170])"
-    # ⑨ 대신 **그림 전체가 한 번** 말한다 — 안 본 날에 '안 했다'고 하지 않는다([169]).
+    # ⑩ 대신 **그림 전체가 한 번** 말한다 — 안 본 날에 '안 했다'고 하지 않는다([169]).
     assert "def band_collect_cutoff(" in ap, "[376] 수집 기준을 말하는 자리가 없다"
-    assert '"수집기준": bidx.get("최신")' in ap and ap.count('"수집기준": bidx.get("최신")') == 2, \
+    assert '"수집기준": _completion_cutoff(r, bidx)' in ap and ap.count(\
+        '"수집기준": _completion_cutoff(r, bidx)') == 2, \
         "[376] as_open·pm_overdue 중 한쪽만 수집 기준을 싣는다"
     assert "밴드 수집이 ${calCutoff()}까지" in html and "밴드 수집 ${calCutoff()}까지" in html, \
         "[376] 캡처가 수집 기준을 안 적는다 — 안 본 날에 대해 단정하게 된다"
     assert "c < t" in html, "[376] 수집이 오늘까지 왔는데도 밀렸다고 적는다([170])"
 
     print("✅ [376] 미처리를 근거로 갈라 말하고 사람이 닫는다 (형님 지시)")
+
+
+def t377_one_save_converges_staff_report_calendar_and_capture():
+    """[377] 업무센터 저장 한 번이 모든 담당자·대표보고·달력·캡처로 수렴한다.
+
+    2026-08-21 형님 지시: "저장했는데 대표 보고 화면·캘린더 캡처 등 모든 경로에
+    반영이 안 되면 의미 없다."  저장 응답의 200만 확인하지 않는다. 같은 임시 DB를
+    다른 담당자가 다시 읽고, 대표 집계와 달력 판정이 같이 바뀌며, 옛 `/api/brief`
+    경로도 Excel 사본보다 AppStore overlay를 우선하는지 실행으로 잰다.
+    """
+    from pathlib import Path
+    import app_store as A
+    import daily_brief as D
+    import webapp.app_server as S
+
+    # 사람 이름으로 기능을 가르지 않는다. 새 업무센터도 로스터에 넣는 순간 같은
+    # 안전 스키마를 자동 상속해야 한다.
+    assert set(S.STAFF_ENTRY_PERMISSIONS) == set(S.STAFF_CENTERS)
+    for slug in S.STAFF_CENTERS:
+        assert set(S.STAFF_ENTRY_PERMISSIONS[slug]) == set(S.RYU_ENTRY_CONFIG), slug
+        for category, fields in S._ALL_STAFF_ENTRY_FIELDS.items():
+            assert S._staff_allowed_fields(slug, category) == fields, (slug, category)
+
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for marker in (
+        "body.staff-mode .tabbar button.staff-worklog-nav{display:flex}",
+        "if(staffSlug) injectOhUpload();", "if(staffSlug) injectRemoteCard();",
+        "if(staffSlug) injectRyuTodo();", "data.set('staff_slug',staffSlug)",
+        "document.querySelectorAll('#v-ryu [name=\"staff_slug\"]')",
+    ):
+        assert marker in html, "업무센터 공통 기능 배선 누락: " + marker
+    for old_gate in ("body.staff-ryu .tabbar button.staff-worklog-nav",
+                     "if(staffSlug==='kim-miyeong') setTimeout"):
+        assert old_gate not in html, "사람 이름으로 기능을 막는 옛 배선이 남았다: " + old_gate
+    # 캡처는 별도 계산기가 아니라 같은 대표/브리핑 응답을 받는다.
+    report_fn = html.split("async function openWorkLogReport", 1)[1].split(
+        "async function submitImprovement", 1)[0]
+    assert "/api/exec_report?date=" in report_fn and "/api/brief?date=" in report_fn
+    assert "captureReport()" in report_fn, "대표 화면 값과 캡처 값이 다른 길을 쓴다"
+
+    with tempfile.TemporaryDirectory(prefix="csos-converge-377-") as td:
+        store = A.AppStore(Path(td) / "app.db").initialize()
+        seeded = store.shadow_import(
+            import_id="t377-seed", sheet="02_돌발AS접수",
+            business_key="AS-377", business_key_col="접수ID", row_number=5,
+            kind="돌발AS", public_id="AS-377", project_no="UJ2603770",
+            camp_name="수렴확인캠프", status="접수",
+            fields={"접수ID": "AS-377", "프로젝트NO": "UJ2603770",
+                    "캠프명": "수렴확인캠프", "접수일자": "2026-08-01",
+                    "진행상태": "접수", "작업완료일": ""},
+            source_file="t377.xlsx", source_sha256="7" * 64,
+            apply_if_missing=True, idempotency_key="t377-seed-as",
+        )
+        base = {"as": [], "pm": [], "field": []}
+        before_works = S._overlay_app_store_works(base, store=store)
+        before_rep = S.representative_summary(before_works, [], "2026-08-21")
+        assert before_rep["돌발AS"]["전산상미완료"] == 1, before_rep["돌발AS"]
+
+        old_get_works, old_band = S.get_works, S._band_completion_index
+        try:
+            S.get_works = lambda: before_works
+            S._band_completion_index = lambda: {
+                "읽음": True, "완료": {}, "언급": set(), "카톡": {},
+                "밴드수집": {"(주)유니버셜리프트 쿠팡AS": "2026-08-21"},
+            }
+            before_cal = S._calendar_work_events()
+        finally:
+            S.get_works, S._band_completion_index = old_get_works, old_band
+        assert any(x.get("분류") == "as_open" for x in before_cal), before_cal
+
+        current = store.get_work(work_id=seeded["work_id"])
+        saved = S.save_staff_entry(
+            "kim-miyeong",
+            {"category": "as", "key": "AS-377",
+             "record_version": current["record_version"],
+             "values": {"진행상태": "작업완료", "작업완료일": "2026-08-21"},
+             "reason": "현장 완료 확인", "idempotency_key": "t377-kim-complete"},
+            store=store, actor="staff:kim-miyeong",
+        )
+        assert saved.get("ok") and saved["record"]["작업완료일"] == "2026-08-21", saved
+
+        # 김미영이 저장한 한 행을 류지영·오종현·유현민 포함 전 센터가 같은
+        # 버전으로 다시 읽는다. 실관리대장 fallback은 호출하지 않는다.
+        old_legacy = S.get_ryu_records
+        try:
+            S.get_ryu_records = lambda: (_ for _ in ()).throw(
+                AssertionError("임시 DB 조회가 Excel 원장을 먼저 읽었다"))
+            for slug in S.STAFF_CENTERS:
+                view = S.get_staff_records(slug, store=store)
+                row = next(x for x in view["rows"]["as"] if x.get("key") == "AS-377")
+                assert row["detail"]["작업완료일"] == "2026-08-21", (slug, row)
+                assert row["record_version"] == saved["record_version"], (slug, row)
+        finally:
+            S.get_ryu_records = old_legacy
+
+        after_works = S._overlay_app_store_works(base, store=store)
+        after_rep = S.representative_summary(after_works, [], "2026-08-21")
+        assert after_rep["돌발AS"]["전산상미완료"] == 0, after_rep["돌발AS"]
+
+        old_get_works, old_get_settle = S.get_works, S.get_settlements
+        old_band = S._band_completion_index
+        try:
+            S.get_works = lambda: after_works
+            S.get_settlements = lambda: []
+            S._band_completion_index = lambda: {
+                "읽음": True, "완료": {}, "언급": set(), "카톡": {},
+                "밴드수집": {"(주)유니버셜리프트 쿠팡AS": "2026-08-21"},
+            }
+            routed_rep = S.get_representative_report()
+            after_cal = S._calendar_work_events()
+        finally:
+            S.get_works, S.get_settlements = old_get_works, old_get_settle
+            S._band_completion_index = old_band
+        assert routed_rep["돌발AS"]["전산상미완료"] == 0
+        assert not any(x.get("분류") == "as_open" for x in after_cal), after_cal
+        assert any(x.get("분류") == "as_done" and x.get("원천업무ID") == "AS-377"
+                   for x in after_cal), after_cal
+
+        # 옛 일일 브리핑 경로도 Excel의 빈 완료일을 그대로 내보내지 않는다.
+        old_load, old_brief, old_get_works = D.load, D.brief, S.get_works
+        try:
+            D.load = lambda: ({"as": [{"접수ID": "AS-377", "작업완료일": ""}],
+                               "pm": [], "fw": [], "events": []}, "t377.xlsx")
+            D.brief = lambda day, data: {
+                "기준일": day, "본완료일": data["as"][0].get("작업완료일")}
+            S.get_works = lambda: after_works
+            S._brief_cache.update({"key": None, "value": None})
+            brief = S.get_daily_brief("2026-08-21")
+        finally:
+            D.load, D.brief, S.get_works = old_load, old_brief, old_get_works
+            S._brief_cache.update({"key": None, "value": None})
+        assert brief["본완료일"] == "2026-08-21", brief
+
+        # AppStore 밖의 공통 데이터 POST(리모컨·도면 등)도 같은 변경번호를 올려
+        # 열려 있는 모든 기기의 5초 루프를 깨운다.
+        state = Path(td) / "없는_회차.json"
+        rev1 = S.get_live_state(store=store, state_path=state)
+        S._mark_live_mutation("/api/remote/request")
+        rev2 = S.get_live_state(store=store, state_path=state)
+        assert rev2["live_write_seq"] == rev1["live_write_seq"] + 1
+        assert rev2["revision"] != rev1["revision"], (rev1, rev2)
+        assert S._is_successful_data_post(
+            "POST", "/api/remote/request", 200, b'{"ok":true}')
+        assert not S._is_successful_data_post(
+            "POST", "/api/staff/activity", 200, b'{"ok":true}')
+
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert '_mark_live_mutation(getattr(self, "path", ""))' in server, \
+        "성공한 데이터 POST가 공통 변경번호를 올리지 않는다"
+    assert "data[\"as\"] = list(works.get(\"as\")" in server and \
+           "data[\"pm\"] = list(works.get(\"pm\")" in server, \
+        "대표 브리핑이 업무센터 DB overlay를 건너뛴다"
+    print("✅ [377] 한 번 저장 → 전 업무센터·대표보고·달력·캡처 공통 revision 수렴")
+
+
+def t378_existing_watchdog_absorbs_and_audits_new_features():
+    """[378] 신규 기능은 공통 loop에 기본 편입되고 기존 워치독이 계약을 감시한다."""
+    import watchdog as W
+    server = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    ui = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    checks = W.sync_contract_checks(server, ui)
+    assert checks and all(checks.values()), checks
+
+    # 계기 자기시험 — 핵심 배선을 하나씩 빼면 감시가 실제로 빨개져야 한다.
+    broken_server = server.replace(
+        '_mark_live_mutation(getattr(self, "path", ""))', "", 1)
+    assert not W.sync_contract_checks(broken_server, ui)["새 자료 POST 기본 편입"]
+    broken_ui = ui.replace(
+        "return byView[view]||Object.keys(DATA_SECTION_DEFS);", "return byView[view]||[];", 1)
+    assert not W.sync_contract_checks(server, broken_ui)["신규 화면 자동 흡수"]
+    broken_registry = ui.replace("function registerDataSection(key,def)",
+                                 "function detachedSection(key,def)", 1)
+    assert not W.sync_contract_checks(server, broken_registry)["신규 자료기능 단일 등록문"]
+    broken_probe = server.replace('if p == "/api/sync-health":',
+                                  'if p == "/api/sync-health-broken":', 1)
+    assert not W.sync_contract_checks(broken_probe, ui)["무인 감시 revision 응답"]
+
+    # dry 감시는 브라우저·창·팝업을 열거나 보고서 파일을 쓰지 않는다.
+    assert W.watch_sync_contract(True).startswith("화면동기화 계약 정상"), \
+        W.watch_sync_contract(True)
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    assert "watch_sync_contract(dry)" in wd and \
+           wd.index("watch_sync_contract(dry)") < wd.index("snapshot_handoff(dry)"), \
+        "동기화 감시가 인계 뒤에 있어 같은 회차에 담당 에이전트가 못 본다"
+    for forbidden in ("start ", "os.startfile", "chrome.exe", "msedge.exe"):
+        body = wd.split("def watch_sync_contract", 1)[1].split("\ndef ", 1)[0].lower()
+        assert forbidden not in body, "동기화 감시가 사용자 화면을 연다: " + forbidden
+    print("✅ [378] 신규 기능 자동 편입·단일 등록문·기존 워치독 계약 감시")
 
 
 def t375_org_capture_is_a_floor_plan_and_icons_are_one_family():
@@ -19960,8 +20191,8 @@ def t234_kim_miyeong_center_and_revenue():
     ★ **미발행의 근거는 ERP 진행상태**다. 원장 계산서 칸은 사람 손 입력이라 대부분
       비어 있어, 그 빈 칸을 세면 '미발행 190건' 같은 없는 숫자가 나온다.
     ★ 로스터는 서버가 정본이고 화면은 사본이다 — 한쪽만 고치면 제목과 권한이 갈린다.
-    ★ 서류 담당이 **현장 기록(as·pm)을 고치지 못한다.** 열어 주면 서류를 보고 현장
-      사실을 맞추게 되는데, 그 순간 근거가 뒤집힌다.
+    ★ 2026-08-21 형님 지시로 **모든 업무센터는 같은 안전 입력 스키마**를 쓴다.
+      역할별 기능 제한 대신 actor·감사로그·낙관잠금·정정사유가 오입력을 막는다.
     """
     import json as _json
     import shutil as _shutil
@@ -19994,10 +20225,15 @@ def t234_kim_miyeong_center_and_revenue():
         "새 구역이 저장된 순서 **맨 뒤**로 밀린다 — 사람 카드가 리모컨 밑으로 떨어진다"
 
     perm = A.STAFF_ENTRY_PERMISSIONS.get(slug) or {}
-    assert set(perm) == {"settle"}, "김미영에게 청구·수금 밖의 칸이 열려 있다: %s" % sorted(perm)
+    assert set(perm) == set(A.RYU_ENTRY_CONFIG), \
+        "김미영 업무센터만 공통 입력 기능에서 빠졌다: %s" % sorted(perm)
+    for category in A.RYU_ENTRY_CONFIG:
+        assert A._staff_allowed_fields(slug, category) == A._ALL_STAFF_ENTRY_FIELDS[category], \
+            "김미영 %s 입력 기능이 다른 담당자와 다르다" % category
     assert "세금계산서발행일" in perm["settle"] and "입금일" in perm["settle"]
-    assert A._staff_allowed_fields(slug, "as") == set(), "서류 담당이 현장 기록을 고칠 수 있다"
-    assert A._staff_allowed_fields(slug, "pm") == set(), "서류 담당이 점검 기록을 고칠 수 있다"
+    assert "작업완료일" in perm["as"] and "실제점검일" in perm["pm"]
+    assert "if(staffSlug==='kim-miyeong') setTimeout" not in html, \
+        "김미영만 첫 화면을 강제로 옮겨 공통 업무센터 기능을 가린다"
 
     src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     assert '"/api/revenue"' in src and "get_revenue()" in src, "/api/revenue 길이 없다"
@@ -29775,9 +30011,9 @@ def t333_ryu_center_shows_what_to_do_now():
     body = parts[1].split("async function injectRyuTodo", 1)[0]
     assert "calWhyRowsHTML(e)" in body, \
         "사유 줄을 여기서 다시 짓고 있다 — 대표 캡처와 담당자 화면이 갈린다([162])"
-    # 넓히지 않는다([172]) — 이 판은 류지영 업무센터에만 붙는다.
-    assert "if(staffSlug==='ryu-jiyeong') injectRyuTodo();" in html, \
-        "지금 처리할 것 판을 붙이는 배선이 없다(또는 다른 화면까지 넓혔다)"
+    # 2026-08-21 형님 기본 원칙 — 같은 판이 모든 업무센터에 붙는다.
+    assert "if(staffSlug) injectRyuTodo();" in html, \
+        "지금 처리할 것 판이 등록된 모든 업무센터에 붙지 않는다"
 
     import shutil as _sh333
     node = _sh333.which("node")
@@ -30834,6 +31070,8 @@ if __name__ == "__main__":
     t374_a_half_delivered_page_says_so()
     t375_org_capture_is_a_floor_plan_and_icons_are_one_family()
     t376_unfinished_is_split_by_evidence_and_staff_can_close_it()
+    t377_one_save_converges_staff_report_calendar_and_capture()
+    t378_existing_watchdog_absorbs_and_audits_new_features()
     t371_a_round_that_is_not_due_yet_is_not_late()
     t373_sheet_is_a_wide_modal_that_esc_slides_down()
     t294_unreadable_source_never_passes_as_read()
