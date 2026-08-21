@@ -6765,6 +6765,16 @@ def t126_app_font_and_revert():
     stamps = {r: (lambda s: (s.st_atime, s.st_mtime))(
         os.stat(os.path.join(F.ROOT, r))) for r in F.FILES}
     before = digest()
+    # ★ **시작 상태를 확인하고 나서 잰다** (2026-08-21 실사고). 워킹트리가 이미
+    #   `예전(나눔고딕)` 이면 왕복 뒤 `기본` 이 되어 digest 가 당연히 달라지는데,
+    #   아래 문구는 그것을 "되돌리기가 다른 것을 건드린다"고 **틀리게 지목한다** —
+    #   사람이 멀쩡한 font_switch 를 뒤지러 간다([172]). 그날 실제로 그랬다.
+    시작상태 = {s["상태"] for s in F.state()}
+    assert 시작상태 == {"기본"}, (
+        "왕복 시험 전에 이미 글꼴이 %s 다 — 이 검사가 아니라 **앱 글꼴 자체**가 "
+        "그 상태다. 누가 --legacy 를 돌리고 안 되돌린 것이니 "
+        "`python webapp/font_switch.py --modern` 으로 맞춘 뒤 다시 돌린다"
+        % ("·".join(sorted(시작상태)) or "확인 못 함"))
     try:
         F.apply("legacy")
         assert {s["상태"] for s in F.state()} == {"예전"}, \
@@ -22501,6 +22511,259 @@ def t372_open_states_come_from_the_ledger_not_a_copy():
     print("  [372] 열린 낱말이 정본에서 온다 · 충돌 사유가 갈래로 갈린다")
 
 
+def t382_session_hooks_never_open_windows():
+    """[382] 세션 훅이 창 뜨는 실행기로 걸리지 않는다 (2026-08-21 형님 지시).
+
+    형님 지시: "어떤 계정 어떤 세션에서 진행해도 팝업은 백그라운드에서 내가 PC
+    사용하는데 문제없이 나오게 하게 알고리즘 반영해"
+
+    ★ 왜 여기가 구멍이었나 — `[248]` 설치본 · `[272]` 소스 · `live()` 예약 작업 ·
+      `[381]` 로그인 항목까지 봤는데 **세션 훅은 아무도 안 봤다.** 훅은
+      `.claude/settings.json` 에 있어 네 감사기 어디에도 안 잡힌다.
+      실측 2026-08-21: 훅 여섯이 전부 `python`(콘솔)이었고 그중 `PostToolUse` 는
+      **도구를 부를 때마다** 돈다 — 한 응답 동안 창이 수십 번 번쩍이는데
+      `window_audit` 와 `--live` 는 나란히 `0곳` 이라 말했다(`[169]`).
+    ★ **창을 없애자고 기능을 죽이지 않는다** — 실측으로 콘솔 없는 부모가 띄울 때
+      `python.exe` 는 콘솔창을 실제로 할당하고(핸들 != 0) `pythonw.exe` 는 0 이면서
+      **파이프 stdout 은 그대로 살아 있다**. 그래서 훅이 대화로 내보내는 한 줄
+      (SessionStart 주입 · 컨텍스트 경보)은 하나도 안 잃는다.
+    ★ 계정마다 다른 것은 사용자 설정 하나다 — 그래서 프로젝트 둘 + 사용자 하나를 본다.
+    ★ 판정은 `exe_verdict` 를 빌린다(`[162]`). 여기서 새로 만들면 예약 작업·로그인
+      항목과 갈리고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+    """
+    import importlib, json as _json, tempfile
+    W = importlib.import_module("tools.window_audit")
+
+    # ① 확장자 없는 이름도 판정한다 — 훅은 PATH 로 풀리는 맨 이름을 쓴다(`[165]`).
+    assert W.exe_verdict("pythonw") == "조용", "pythonw(확장자 없음)를 조용으로 못 읽는다"
+    assert W.exe_verdict("python") == "창뜸", "python(확장자 없음)을 창뜸으로 못 읽는다"
+    assert W.exe_verdict("pythonw.exe") == "조용" and W.exe_verdict("python.exe") == "창뜸"
+    assert W.exe_verdict("") == "모름", "빈 값을 조용으로 세면 계기가 눈이 먼다"
+
+    # ② 계기가 옛 상태를 정말 짚는가 — 실측 증거 파일은 한 글자도 안 건드린다(`[247]`).
+    d = tempfile.mkdtemp()
+
+    def _mk(name, cmd):
+        q = os.path.join(d, name)
+        with open(q, "w", encoding="utf-8") as fh:
+            _json.dump({"hooks": {"PostToolUse": [{"hooks": [
+                {"type": "command", "command": cmd}]}]}}, fh)
+        return q
+
+    bad, good = _mk("bad.json", "python"), _mk("good.json", "pythonw")
+    broke = os.path.join(d, "broke.json")
+    with open(broke, "w", encoding="utf-8") as fh:
+        fh.write("{ not json")
+
+    rows, why, seen = W.hooks([(bad, "시험")])
+    assert rows and rows[0][3] == "창뜸" and not why, (
+        "옛 상태(python 훅)를 안 잡는다 — 이 검사는 아무것도 안 재고 있다")
+    rows, why, seen = W.hooks([(good, "시험")])
+    assert not rows and seen == 1, "고친 상태에 거짓 경보가 난다(`[170]`)"
+
+    # ③ **'훅이 없다'와 '설정을 못 읽었다'를 가른다**(`[169]`).
+    rows, why, seen = W.hooks([(broke, "시험")])
+    assert why and seen == 0, "깨진 설정을 '훅 0개'로 세면 계기가 조용히 눈이 먼다"
+    rows, why, seen = W.hooks([(good, "a"), (broke, "b")])
+    assert seen == 1 and any(r[3] == "확인못함" for r in rows), (
+        "하나가 깨졌다고 나머지를 안 보거나, 깨진 사실을 안 적는다")
+
+    # ④ 지금 실제 설정에 창 뜨는 훅이 없다.
+    rows, why, seen = W.hooks()
+    assert not why, "세션 훅을 확인 못 했다 — %s" % why
+    창뜨는훅 = [r for r in rows if r[3] == "창뜸"]
+    assert not 창뜨는훅, (
+        "세션 훅이 창 뜨는 실행기로 걸렸다: %s — pythonw 로 바꾼다" % 창뜨는훅)
+
+    # ⑤ 워치독(30분)이 그 축을 실제로 읽는다 — 안 읽으면 아무 화면에도 안 뜬다(`[328]`).
+    with open(os.path.join(ROOT, "schedule_watch.py"), "r", encoding="utf-8") as fh:
+        sw = fh.read()
+    assert "from tools.window_audit import hooks" in sw, (
+        "워치독이 세션 훅 축을 안 읽는다 — 코드가 있어도 부르는 곳이 없으면 없는 것과 같다")
+    assert "세션 훅" in sw, "워치독 경보에 세션 훅 이름이 없다"
+    print("[382] 세션 훅 %d개 · 창 뜨는 것 0곳 · 계기 자기시험 통과" % seen)
+
+
+def t381_login_autorun_is_watched_for_windows():
+    """[381] 로그인 자동실행(HKCU Run)도 창을 다는지 본다 (2026-08-21 형님 지시).
+
+    ★ 왜 — `[248]` 설치본 · `[272]` 소스 · `live()` 예약 작업까지는 이미 봤는데
+      **로그인 자동실행은 아무도 안 봤다.** `[263]` 대로 예약 작업 등록이 막힌
+      기계에서는 설치기가 그쪽으로 스스로 전환하므로, 거기 창 뜨는 실행기가 들어가면
+      부팅할 때마다 창이 뜨면서 어느 화면에도 안 뜬다(`[169]`).
+    ★ 실제 레지스트리는 **한 글자도 안 건드린다**(`[247]`) — `winreg` 를 목으로 건다.
+    ★ 글자가 아니라 **실행**으로 잰다(`[295]`)."""
+    import sys, types, importlib
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    W = importlib.import_module("tools.window_audit")
+    ours = W.ROOT
+
+    def fake_winreg(values, boom=False):
+        m = types.ModuleType("winreg")
+        m.HKEY_CURRENT_USER = 0
+        class _K:
+            def Close(self): pass
+        def OpenKey(_r, _p):
+            if boom:
+                raise OSError("access denied")
+            return _K()
+        def EnumValue(_k, i):
+            if i >= len(values):
+                raise OSError("no more")
+            return values[i]
+        m.OpenKey = OpenKey
+        m.EnumValue = EnumValue
+        return m
+
+    real = sys.modules.get("winreg")
+    try:
+        # (1) 창 뜨는 실행기가 걸리면 **잡는다**
+        vals = [("CSOS_Bad", chr(34) + "C:" + chr(92) + "Windows" + chr(92) + "system32" + chr(92)
+                 + "cmd.exe" + chr(34) + " " + chr(34) + ours + chr(92) + "run.bat" + chr(34), 1)]
+        sys.modules["winreg"] = fake_winreg(vals)
+        rows, why, seen = W.autorun()
+        assert not why, ("(1) 못 읽었다고 하면 안 된다", why)
+        assert seen == 1 and len(rows) == 1 and rows[0][2] == "창뜸", ("(1) 못 잡았다", rows, seen)
+
+        # (2) pythonw 는 조용 — 멀쩡한 것에 거짓 경보를 내지 않는다(`[172]`)
+        vals = [("CSOS_Guard", chr(34) + "C:" + chr(92) + "Py" + chr(92) + "pythonw.exe" + chr(34)
+                 + " " + chr(34) + ours + chr(92) + "webapp" + chr(92) + "server_guard.py" + chr(34), 1)]
+        sys.modules["winreg"] = fake_winreg(vals)
+        rows, why, seen = W.autorun()
+        assert not why and seen == 1 and rows == [], ("(2) 거짓 경보", rows, seen)
+
+        # (3) 남의 항목은 세지도 판단하지도 않는다(`[172]`)
+        vals = [("KakaoTalk", chr(34) + "C:" + chr(92) + "Kakao" + chr(92) + "KakaoTalk.exe" + chr(34), 1),
+                ("Other", "C:" + chr(92) + "x" + chr(92) + "cmd.exe /c foo", 1)]
+        sys.modules["winreg"] = fake_winreg(vals)
+        rows, why, seen = W.autorun()
+        assert not why and seen == 0 and rows == [], ("(3) 남의 자동실행을 판단했다", rows, seen)
+
+        # (4) 못 읽으면 '0곳'이 아니라 **이유**다(`[169]`)
+        sys.modules["winreg"] = fake_winreg([], boom=True)
+        rows, why, seen = W.autorun()
+        assert why and rows == [] and seen == 0, ("(4) 못 읽은 것을 정상으로 셌다", rows, why)
+
+        # (5) 회차가 그 판정을 **실제로 부른다** — 함수만 있고 안 부르면 없는 것과 같다(`[328]`)
+        SW = importlib.import_module("schedule_watch")
+        real_fn = W.autorun
+        try:
+            W.autorun = lambda: ([("CSOS_Bad", "C:" + chr(92) + "cmd.exe", "창뜸")], "", 1)
+            got = SW.notices([])
+        finally:
+            W.autorun = real_fn
+        hit = [n for n in got if "로그인 자동실행" in str(n.get("작업", ""))]
+        assert hit and hit[0].get("갈래") == "창뜸", ("(5) 회차에 안 실렸다", got[:3])
+
+        # (6) 판정을 새로 만들지 않았다 — `exe_verdict` 하나다(`[162]`)
+        assert W.exe_verdict("cmd.exe") == "창뜸" and W.exe_verdict("pythonw.exe") == "조용"
+
+        # (7) 계기 자신을 시험한다(`[272]`) — 판정 문을 없애면 (1)이 통과해 버리나
+        real_v = W.exe_verdict
+        try:
+            W.exe_verdict = lambda *_a, **_k: "조용"
+            sys.modules["winreg"] = fake_winreg(
+                [("CSOS_Bad", chr(34) + "C:" + chr(92) + "cmd.exe" + chr(34) + " " + ours, 1)])
+            rows2, _w2, _s2 = W.autorun()
+        finally:
+            W.exe_verdict = real_v
+        assert rows2 == [], ("(7) 판정을 죽였는데도 잡혔다 — (1)은 exe_verdict 가 아니라 다른 것을 보고 있다")
+    finally:
+        if real is None:
+            sys.modules.pop("winreg", None)
+        else:
+            sys.modules["winreg"] = real
+    print("[381] 로그인 자동실행 감시 OK")
+
+
+def t380_ambiguous_reaches_the_handoff():
+    """[188] — [359] 의 나머지 반쪽: 자국을 **읽는 쪽**이 있어야 한다.
+
+    [359] 는 모호를 실패에서 빼고 자국으로 남기게 했다(옳다 — 한 건이 5분 회차를
+    하루 288번 빨갛게 만들고 있었다, [170]).  그런데 읽는 쪽이 없으면 기록은 남고
+    **아무 화면에도 안 뜬다** — 사람이 정할 것이 영영 사람 앞에 안 선다([169]).
+    ★ 실측 증거(reports/밴드등록_모호.json)에는 한 글자도 안 쓴다([247]) —
+      임시 경로로만 잰다.
+    ★ 글자 검사로는 '정말 인계에 실리는가'를 못 잰다 — 불러서 잰다([295])."""
+    import band_canonical, session_handoff
+
+    class Snap(dict):
+        # blockers 는 스냅샷을 대괄호로도 읽는다 — 없는 칸은 빈 값으로 준다([320]).
+        def __missing__(self, k):
+            return []
+
+    def blk(d):
+        return session_handoff.blockers(Snap(d))
+
+    real = band_canonical.AMBIGUOUS_TRACE
+    had_real = os.path.exists(real)
+    tmp = tempfile.mkdtemp()
+    try:
+        # (1) 자국이 없으면 조용하다 — 정상까지 경보하면 진짜 경보가 묻힌다([170]).
+        band_canonical.AMBIGUOUS_TRACE = os.path.join(tmp, "none.json")
+        assert session_handoff.band_register_ambiguous() == {}
+        assert blk({"밴드등록모호": {}}) == []
+
+        # (2) 모호가 있으면 인계 '먼저 처리할 것'에 실린다 — 이것이 [188] 이다.
+        good = os.path.join(tmp, "amb.json")
+        with open(good, "w", encoding="utf-8") as fh:
+            json.dump({"적은때": "2026-08-21T20:00:00", "건수": 2,
+                       "모호": ["돌발AS/UJ2601394: 앱 DB에 같은 프로젝트가 2건",
+                                "정기점검/UJ2600001: 앱 DB에 같은 프로젝트가 3건"]},
+                      fh, ensure_ascii=False)
+        band_canonical.AMBIGUOUS_TRACE = good
+        got = session_handoff.band_register_ambiguous()
+        assert got.get("건수") == 2 and len(got.get("모호") or []) == 2, got
+        lines = blk({"밴드등록모호": got})
+        assert len(lines) == 1, lines
+        msg, act = lines[0]
+        assert "2건" in msg and "UJ2601394" in msg, msg
+        # 실패가 아니라는 것을 말해야 한다 — 안 적으면 사람이 회차를 고치러 간다([172]).
+        assert "실패가 아니다" in msg, msg
+        assert act == "python band_canonical.py --ambiguous", act
+
+        # (3) 못 읽은 것을 '없음'으로 치지 않는다([169]).
+        bad = os.path.join(tmp, "bad.json")
+        with open(bad, "w", encoding="utf-8") as fh:
+            fh.write("{" + chr(44) + "broken")
+        band_canonical.AMBIGUOUS_TRACE = bad
+        got = session_handoff.band_register_ambiguous()
+        assert got.get("확인못함"), got
+        msg, _ = blk({"밴드등록모호": got})[0]
+        assert "못 읽었다" in msg and "뜻이 아니다" in msg, msg
+
+        # (4) `--ambiguous` 는 **읽기 전용**이다 — 물어봤을 뿐인데 앱 DB 가 바뀌면 안 된다.
+        src = open(os.path.join(ROOT, "band_canonical.py"), encoding="utf-8").read()
+        head = src.split("def main(", 1)[1]
+        amb = head.split("if args.ambiguous:", 1)[1].split("from band_extract", 1)[0]
+        # ★ 규칙을 세기 전에 **주석을 걷어낸다** — 안 걷으면 이 사고를 적어 둔 주석
+        #   자신("`sync_records()` 를 부르지 않는다")에 걸려 멀쩡한 코드가 빨개진다.
+        #   이 프로젝트가 일곱 번째 밟는 자리다([301]-9·[302]·[309]·[332]·[339]·[370]).
+        code = chr(10).join(ln.split("#", 1)[0] for ln in amb.splitlines())
+        assert "sync_records(" not in code, "--ambiguous 가 등록을 돌린다"
+
+        # (5) 계기 자기시험([272]) — 읽는 자리를 없애면 (2)가 잡히나.
+        keep = session_handoff.band_register_ambiguous
+        session_handoff.band_register_ambiguous = lambda: {}
+        try:
+            band_canonical.AMBIGUOUS_TRACE = good
+            caught = False
+            try:
+                g = session_handoff.band_register_ambiguous()
+                assert g.get("모호")
+            except AssertionError:
+                caught = True
+            assert caught, "[380] 이 아무것도 안 재고 있다"
+        finally:
+            session_handoff.band_register_ambiguous = keep
+    finally:
+        band_canonical.AMBIGUOUS_TRACE = real
+    assert os.path.exists(real) == had_real, "검사가 실측 자국을 건드렸다"
+    print("[380] 밴드등록 모호가 인계까지 간다 · 읽기 전용 · 실측 자국 안 건드림")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -31252,6 +31515,9 @@ if __name__ == "__main__":
     t363_account_switch_hands_over_the_lane_and_says_so()
     t362_takeover_says_the_browser_does_not_follow_the_account()
     t372_open_states_come_from_the_ledger_not_a_copy()
+    t380_ambiguous_reaches_the_handoff()
+    t381_login_autorun_is_watched_for_windows()
+    t382_session_hooks_never_open_windows()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

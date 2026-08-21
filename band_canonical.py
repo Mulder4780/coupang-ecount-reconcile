@@ -372,10 +372,33 @@ def write_ambiguous_trace(result, path=None):
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--ambiguous", action="store_true",
+                        help="모호 자국을 사람 말로 찍는다 — 읽기 전용(등록하지 않는다)")
     args = parser.parse_args(argv)
     if args.self_test:
         self_test()
         print("band_canonical self-test: OK")
+        return 0
+    if args.ambiguous:
+        # ★ 읽기 전용이다 — `sync_records()` 를 부르지 않는다.  물어봤을 뿐인데
+        #   앱 DB 가 바뀌면 안 된다([181] 과 같은 규칙).
+        if not os.path.exists(AMBIGUOUS_TRACE):
+            print("밴드 앱 DB 등록 — 사람이 정할 것 없음(모호 자국이 없다).")
+            return 0
+        try:
+            with io.open(AMBIGUOUS_TRACE, encoding="utf-8") as fh:
+                d = json.load(fh)
+        except Exception as exc:
+            print("모호 자국을 못 읽었다 — %s: %s" % (type(exc).__name__, exc))
+            print("  ('모호가 없다'는 뜻이 아니다: %s)" % AMBIGUOUS_TRACE)
+            return 1
+        rows = list(d.get("모호") or [])
+        print("밴드 앱 DB 등록 — 사람이 정할 것 %d건 (적은때 %s)"
+              % (len(rows), d.get("적은때") or "모름"))
+        print("  실패가 아니다 — 같은 프로젝트에 앱 DB 행이 여럿이라")
+        print("  어느 행을 고칠지 원본이 말해 주지 않는다.  앱에서 그 프로젝트를 열어 사람이 정한다.")
+        for r in rows:
+            print("  - %s" % r)
         return 0
     from band_extract import load_records
 

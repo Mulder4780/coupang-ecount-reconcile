@@ -680,6 +680,8 @@ def collect():
         #   모양이다([169]). 코드가 있는 것과 그것이 도는 것은 다른 말이다.
         "조직도": org_gap(),
         "캠프원본": camp_source_gap(),
+        # [188] — 자국은 [359] 가 남기고 여기서 읽는다(다시 세지 않는다).
+        "밴드등록모호": band_register_ambiguous(),
         "오류사전": _error_book_lines(),
         "시스템진단": _system_audit_lines(),
         "세션자동화": session_auto(),
@@ -1134,6 +1136,34 @@ def org_gap():
         return []
 
 
+def band_register_ambiguous():
+    """`band_canonical` 회차가 써 둔 **모호 자국**을 읽기만 한다 ([188] · [359] 나머지 반쪽).
+
+    [359] 는 모호를 실패에서 빼고 자국으로 남기게 고쳤다 — 그것은 옳다(한 건이
+    5분 회차를 **하루 288번** 빨갛게 만들고 있었다, [170]).  그런데 **읽는 쪽을
+    아무도 안 만들어서** 자국은 남고 어느 화면에도 안 떴다.  실패가 아닌 것을
+    조용히 묻으면 그것이 [169] 다 — 사람이 정할 것이 영영 사람 앞에 안 선다.
+    ★ 여기서 `sync_records()` 를 부르지 않는다 — 그것은 **앱 DB 에 쓰는 길**이라
+      인계 한 장이 밴드 전체를 다시 등록하게 된다([162]·[168]).
+    ★ 갈래 셋을 가른다([247]): 파일 없음(=모호 없음.  회차가 없어지면 지운다 [228]) ·
+      못 읽음(깨졌다 — '확인 못 함') · 목록(사람이 정할 것)."""
+    try:
+        import band_canonical
+        path = band_canonical.AMBIGUOUS_TRACE
+    except Exception:
+        return {}
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            d = json.load(fh)
+        return {"건수": int(d.get("건수") or 0),
+                "모호": [str(x) for x in (d.get("모호") or [])],
+                "적은때": str(d.get("적은때") or "")}
+    except Exception as exc:
+        return {"확인못함": "%s: %s" % (type(exc).__name__, exc)}
+
+
 def camp_source_gap():
     """`watch_camp_source` 회차가 써 둔 판정을 **읽기만** 한다 (2026-08-19, [328]).
 
@@ -1220,6 +1250,20 @@ def blockers(st, for_sol=False):
     #   경보가 아니다 — 잘 따라갔으면 정상이고, 정상까지 경보하면 묻힌다([170]).
     for line in (st.get("조직도") or []):
         out.append(_notice_pair(line, "python org_watch.py --print"))
+    # ★ 밴드 앱 DB 등록에서 **사람이 정해야 하는 것**([188] · [359] 의 나머지 반쪽).
+    #   같은 프로젝트에 앱 DB 행이 여럿이면 어느 행을 고칠지 원본이 말해 주지 않는다 —
+    #   실패가 아니므로 회차는 초록이고, 그래서 여기 안 적히면 **아무 화면에도 안 뜬다**.
+    #   ★ 모호가 없으면 조용하다([170]) — 정상까지 경보하면 진짜 경보가 묻힌다.
+    ba = st.get("밴드등록모호") or {}
+    if ba.get("확인못함"):
+        out.append(("밴드 앱 DB 등록의 모호 자국을 못 읽었다(%s) — '모호가 없다'는 뜻이 아니다"
+                    % ba["확인못함"], "python band_canonical.py --ambiguous"))
+    elif ba.get("모호"):
+        rows = ba["모호"]
+        out.append(("밴드 앱 DB 등록에 **사람이 정할 것 %d건** — 같은 프로젝트에 앱 DB 행이"
+                    " 여럿이라 어느 행인지 원본이 말해 주지 않는다(회차 실패가 아니다): %s"
+                    % (len(rows), " · ".join(rows[:3])),
+                    "python band_canonical.py --ambiguous"))
     # ★ 정기점검 스케줄 원본이 새로 왔는데 앱 담당자 자료가 안 따라갔다 (2026-08-19
     #   실사고 · [328]). 이 사고는 **빈칸이 아니라 '틀린 사람'** 으로 나타나므로
     #   화면만 봐서는 영영 모른다([165]) — 실측 754칸 중 236칸이 옛 담당자였다.
