@@ -8760,7 +8760,8 @@ function renderRyuTodo(){
           + '<div class="ryu-todo-title">' + esc2(e.제목 || e.요청내용 || '제목 없음') + '</div>'
           + (why ? '<dl class="ryu-todo-why">' + why + '</dl>' : '')
           + '<div class="ryu-todo-btns">'
-          + (id ? '<button type="button" class="abtn primary" onclick="calWhyOpen(' + esc4(cat) + ',' + esc4(id) + ')">사유 적기</button>'
+          + (id ? '<button type="button" class="abtn primary" onclick="calDoneOpen(' + esc4(cat) + ',' + esc4(id) + ')">완료로 표시</button>'
+                + '<button type="button" class="abtn" onclick="calWhyOpen(' + esc4(cat) + ',' + esc4(id) + ')">사유 적기</button>'
                 + '<button type="button" class="abtn" onclick="ryuTodoOpen(' + esc4(cat) + ',' + esc4(id) + ')">열기</button>'
                 : '<span class="norm">원장 연결이 없어 열거나 적을 수 없습니다 — 원장에 이 건이 연결돼야 합니다</span>')
           + '</div></div>';
@@ -16158,6 +16159,56 @@ function calWhyBtnHTML(e){
     onclick="calWhyOpen(${esc4(calCatOf(e))},${esc4(e.원천업무ID)})"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>
     ${has?'미처리 사유 고치기':'미처리 사유 적기'}</button></div>`;
 }
+/* ── 담당자가 **그 자리에서** 완료를 찍는다 (2026-08-21 형님 지시) ──────────────
+   지시: "돌발AS나 정기점검 완료건이 있는데 자꾸 캘린더 캡처 화면에 표시되는 문제
+   해결, AS기사들 곤란해지고 있음".
+   ★ 왜 이 길인가 — 실측 106건 전부 **어느 기계 근거에도 완료가 없었다**(원장·앱DB·
+     밴드 완료 글 셋 다 빈칸).  그러니 기계가 카톡 글을 넓게 읽어 자동으로 닫는 길은
+     안 쓴다: 그 71건의 카톡 글은 대부분 **접수 양식**이라 잘못 닫으면 그 현장은
+     아무도 안 가는데 목록에서도 사라진다 — 미처리로 남는 것보다 나쁘다([172]).
+     **사람이 찍는다.** 그러면 근거가 사람이고, 감사로그에 누가·언제가 남는다.
+   ★ 쓰는 길을 새로 만들지 않았다([162]) — `/api/staff/entry` 그대로다.
+     그래서 멱등키·낙관잠금·감사로그가 공짜로 붙는다(2026-08-10 정본 규칙).
+   ★ **완료일만 쓴다.** 상태 낱말은 안 지어낸다([166]) — 관리대장 드롭다운이 정본이고
+     04시트 점검상태는 수식이 스스로 계산한다.  캘린더는 날짜만 보면 내려간다. */
+async function calDoneOpen(cat, id){
+  const e = calEvents().find(x => String(x.원천업무ID || '') === String(id) && calCatOf(x) === cat);
+  if(!e){ notice('이 일정을 지금 목록에서 찾지 못했습니다 — 새로 받은 뒤 다시 눌러 주세요.'); return; }
+  const _wv = await entryVersion(cat, String(id), e.DB버전);
+  if(!(_wv>=1)){ await entryVersionBlocked(cat, String(id)); return; }
+  const fld = cat === 'as' ? '작업완료일' : '실제점검일';
+  const today = new Date(Date.now() - new Date().getTimezoneOffset()*60000)
+    .toISOString().slice(0,10);
+  const when = await askText('언제 끝냈습니까? (YYYY-MM-DD)', today, {
+    title: `${calCampOf(e)} · ${e.프로젝트NO || '프로젝트 미확정'}`,
+    desc: `${fld} 에 적습니다. ${e.경과일 != null ? e.경과일 + '일 지남 · ' : ''}`
+        + `지금 기계가 아는 것: ${String(e.기계추정 || e.미처리사유 || '없음')}`,
+    ph: today, ok: '완료로 저장'});
+  if(when === null) return;                       // 취소 — 아무것도 안 한다
+  const v = String(when || '').trim();
+  /* 모양이 안 맞으면 저장하지 않는다 — 빈 값·엉뚱한 글자가 완료일로 박히면
+     그 뒤 모든 집계가 그 날짜를 사실로 쓴다([169]). */
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(v)){ toast('날짜를 YYYY-MM-DD 로 적어 주세요'); return; }
+  if(v > today){ toast('앞날 날짜로는 완료 처리하지 않습니다'); return; }
+  try{
+    const rid = (crypto.randomUUID ? crypto.randomUUID()
+      : Date.now() + '-' + Math.random().toString(16).slice(2));
+    await api('/api/staff/entry', {method:'POST', headers:{'Idempotency-Key': rid},
+      body: JSON.stringify({category: cat, record_key: String(id),
+        expected_version: _wv, values: {[fld]: v}})});
+    toast('완료로 표시했습니다 — ' + v);
+    try{ uxEvent('tap','cal-done', cat + ':' + id); }catch(_){}
+    /* 화면이 제 손으로 목록에서 빼지 않는다 — 서버가 다시 판정한 것을 받아 그린다.
+       여기서 지우면 저장이 반쯤 실패한 날 화면만 깨끗해 보인다([169]). */
+    await loadCalendar(true);
+    if(typeof renderRyuTodo === 'function') renderRyuTodo();
+  }catch(err){
+    /* 저장 실패를 조용히 넘기지 않는다 — 400/409 는 사유가 다르다([296]). */
+    errorHelp('CSOS-DONE-' + (err && err.status ? err.status : 'NET'),
+      '완료로 표시하지 못했습니다', String((err && err.message) || err));
+  }
+}
+
 async function calWhyOpen(cat, id){
   const e = calEvents().find(x => String(x.원천업무ID || '') === String(id) && calCatOf(x) === cat);
   if(!e){ notice('이 일정을 지금 목록에서 찾지 못했습니다 — 새로 받은 뒤 다시 눌러 주세요.'); return; }
@@ -16875,6 +16926,14 @@ async function calendarCapture(opt){
       x.fillText(clip(t,panelW-25),ox+12,yy);yy+=16;
     });
   };
+  /* ★ 미처리를 **왜 미처리인지**로 갈라 센다 (2026-08-21 형님 지시:
+       '완료건이 자꾸 캡처에 표시된다 · AS기사들 곤란해지고 있음').
+     실측 106건 전부 원장·앱DB·밴드 완료 글 셋 다 빈칸이었다 — 필터 버그가 아니라
+     **완료 글이 안 올라온 것**이다. 그런데 `미처리 N건` 만 적으면 다녀온 기사가
+     안 간 것으로 읽힌다([169]).  갈래는 **서버가 정한다** — 여기서 사유 문장을
+     다시 뜯으면 문구가 바뀌는 날 조용히 0건이 된다([162]·[165]). */
+  const recOnly = list => (list||[]).filter(e => e.근거갈래 === '완료글없음').length;
+  const asRecOnly = recOnly(asOpen), pmRecOnly = recOnly(qOverdueRows);
   const pmAlerts=qOverdueRows.slice().sort((a,b)=>Number(b.경과일||0)-Number(a.경과일||0))
     .map(e=>`● ${String(e.날짜).slice(5)} ${calCampOf(e)} · ${e.경과일||0}일 지연 · ${e.미처리사유||'완료 근거 없음'}`);
   const asUrgentRows=asOpen.filter(e=>e.경보).slice().sort((a,b)=>Number(b.경과일||0)-Number(a.경과일||0));
@@ -16886,15 +16945,17 @@ async function calendarCapture(opt){
       ['확정 일정',`${pmPlanned.size}건 · 캠프와 방문일 협의 완료`],
       ['미확정 잔여',`${unscheduledN}건 · 일정 확정 필요`],
       ['기한 경과',`${qOverdueRows.length}건 · 완료/재일정 근거 확인`],
+      ['완료 글 미게시',`${pmRecOnly}건 · 접수 기록은 있고 완료 글만 없음`,'#B54708'],
       [`${M}월 말까지`,`${needByMonth}건 추가 · 하루 ${paceMonth}건 필요`],
       ['분기 말까지',`${remainN}건 추가 · 하루 ${paceQuarter}건 필요`]
     ],pmAlerts.length?pmAlerts:['● 기한이 지난 미처리 정기점검이 없습니다.']);
   actionPanel(Mg+panelW+panelGap,'#D92D20',`돌발AS · ${M}월 미처리 판정`,
     asUrgent?`즉시조치 ${asUrgent}건 · 오늘 확인`:'즉시조치 0건 · 장기 미방문 없음',
-    `완료 ${asDone}건 / 미처리 ${asOpen.length}건 · 접수 후 2일을 넘기면 근거가 필요`,[
+    `완료 ${asDone}건 / 미처리 ${asOpen.length}건` + (asRecOnly ? ` (그중 ${asRecOnly}건은 완료 글 미게시)` : '') + ` · 접수 후 2일을 넘기면 근거가 필요`,[
       ['정상기한',`${asNormal}건 · 접수 후 2일 이내`],
       ['협의대기',`${asAgreed}건 · 부품/캠프 일정 근거 있음`],
       ['즉시조치',`${asUrgent}건 · 3일 초과, 합의 근거 없음`],
+      ['완료 글 미게시',`${asRecOnly}건 · 접수 기록은 있고 완료 글만 없음`,'#B54708'],
       ['사유 미입력',`${asReasonMissing}건 · 담당자 설명 필요`],
       ['판정 순서','완료 → 정상기한 → 협의대기 → 즉시조치'],
       ['상세 근거','3쪽에서 미처리 전 건의 이유·경과일 확인']

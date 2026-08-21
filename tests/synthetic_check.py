@@ -16963,6 +16963,59 @@ def _t370_load():
     return mod
 
 
+def t376_unfinished_is_split_by_evidence_and_staff_can_close_it():
+    """[형님 지시 2026-08-21] 미처리를 **왜 미처리인지**로 갈라 말하고, 사람이 닫는다.
+
+    지시: "돌발AS나 정기점검 완료건이 있는데 자꾸 캘린더 캡처 화면에 표시되는 문제
+    해결, AS기사들 곤란해지고 있음".
+
+    ★ 실측 2026-08-21(v611): 미처리 106건 **전부** 원장·앱 DB·밴드 완료 글 셋 다
+      빈칸이었다 — 필터 버그가 아니라 **완료 글이 안 올라온 것**이다. 그런데 대표
+      캡처는 `미처리 N건` 만 말하므로 **다녀온 기사가 안 간 것으로 읽힌다**(`[169]`).
+    ★ 얼리는 것(`[39]`): 갈래를 **색인으로** 판정하나(문장 파싱 금지 · `[165]`) ·
+      '했다'고 단정하지 않나(`[172]`) · 캡처가 갈라 적나 · 사람이 닫는 길이
+      **기존 저장 길**을 쓰나(`[162]`) · 상태 낱말을 지어내지 않나(`[166]`).
+    """
+    import re as _re
+    ap = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    i = ap.index("def _open_evidence_class(")
+    body = ap[i:ap.index("\ndef ", i + 1)]
+    code = "\n".join(l.split("#", 1)[0] for l in body.splitlines())
+
+    # ① 문장을 파싱하지 않는다 — 사유 문구가 바뀌는 날 조용히 0건이 된다([165]).
+    assert "_why_still_open" not in code and "미처리사유" not in code, \
+        "[376] 갈래를 사유 문장에서 뜯는다 — 문구가 바뀌면 조용히 안 걸린다"
+    for want in ('idx.get("읽음")', 'idx.get("언급")', 'idx.get("카톡")', 'idx.get("최신")'):
+        assert want in code, "[376] 색인 %s 를 안 본다" % want
+    # ② 셋으로 가르고 '했다'고 단정하지 않는다([172]).
+    kinds = set(_re.findall(r'return "([^"]+)"', code))
+    assert kinds == {"못봄", "완료글없음", "근거없음"}, "[376] 갈래가 어긋났다: %s" % sorted(kinds)
+    assert "완료" not in (kinds - {"완료글없음"}), "[376] '완료했다'로 단정하는 갈래가 있다"
+    # ③ 두 미처리 갈래가 **둘 다** 갈래를 싣는다 — 한쪽만 실으면 그쪽만 조용하다.
+    assert ap.count('"근거갈래": _open_evidence_class(') == 2, \
+        "[376] as_open·pm_overdue 중 한쪽만 갈래를 싣는다"
+
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    # ④ 화면은 **서버가 준 갈래를 읽기만** 한다([162]).
+    assert "e.근거갈래 === '완료글없음'" in html, "[376] 화면이 갈래를 안 읽는다"
+    assert "완료 글 미게시" in html, "[376] 캡처가 갈라 적지 않는다"
+    assert html.count("완료 글 미게시") >= 2, "[376] 정기·돌발 중 한쪽만 적는다"
+    # ⑤ 사람이 닫는 길 — **기존 저장 길**을 쓰고 상태 낱말을 지어내지 않는다.
+    j = html.index("async function calDoneOpen(")
+    fn = html[j:html.index("\nasync function calWhyOpen(", j)]
+    assert "/api/staff/entry" in fn, "[376] 완료 찍기가 새 쓰기 길을 만들었다([162])"
+    assert "Idempotency-Key" in fn and "expected_version" in fn, \
+        "[376] 멱등키·낙관잠금 없이 쓴다(2026-08-10 정본 규칙)"
+    for word in ("작업완료", "완료처리", "점검완료"):
+        assert ("'%s'" % word) not in fn, "[376] 상태 낱말을 지어냈다([166]): %s" % word
+    assert "loadCalendar(true)" in fn, "[376] 화면이 제 손으로 목록에서 뺀다 — 서버가 다시 판정해야 한다"
+    # ⑥ 계기 자기시험([272]) — 갈래를 안 실으면 ③ 이 잡나
+    assert ap.replace('"근거갈래": _open_evidence_class(', "", 1).count(
+        '"근거갈래": _open_evidence_class(') == 1, "[376] 계기가 개수를 안 센다"
+
+    print("✅ [376] 미처리를 근거로 갈라 말하고 사람이 닫는다 (형님 지시)")
+
+
 def t375_org_capture_is_a_floor_plan_and_icons_are_one_family():
     """[형님 지시 2026-08-21] 조직도 캡처는 **사무실 배치도** · 아이콘은 앱 표준 한 벌.
 
@@ -30740,6 +30793,7 @@ if __name__ == "__main__":
     t370_a_window_whose_pid_was_replaced_still_owns_its_lane()
     t374_a_half_delivered_page_says_so()
     t375_org_capture_is_a_floor_plan_and_icons_are_one_family()
+    t376_unfinished_is_split_by_evidence_and_staff_can_close_it()
     t371_a_round_that_is_not_due_yet_is_not_late()
     t373_sheet_is_a_wide_modal_that_esc_slides_down()
     t294_unreadable_source_never_passes_as_read()

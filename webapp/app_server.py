@@ -6556,6 +6556,34 @@ def _human_delay_reason(row, cap=None):
     return text
 
 
+def _open_evidence_class(row, idx, when):
+    """왜 미처리로 서 있나 — **기록이 없는 것**과 **안 간 것**을 가른다([169]).
+
+    ★ 2026-08-21 형님 지시("돌발AS나 정기점검 완료건이 있는데 자꾸 캘린더 캡처 화면에
+      표시되는 문제 해결, AS기사들 곤란해지고 있음").  실측으로 미처리 106건 전부
+      **어느 기계 근거에도 완료가 없었다** — 원장·앱 DB·밴드 완료 글 셋 다 빈칸이다.
+      즉 필터 버그가 아니라 **완료 글이 안 올라온 것**이고, 그런데 대표 캡처는
+      `미처리 N건` 만 말하므로 **다녀온 기사가 안 간 것으로 읽힌다.**
+    ★ 그래서 **문장을 파싱하지 않고**(`[165]`) 색인을 직접 본다 — 사유 문구가 바뀌는
+      날 조용히 한 건도 안 걸리는 자리를 만들지 않는다.
+    ★ 갈래는 셋이고 **'했다'고 단정하지 않는다**(`[172]`):
+      · `못봄`   — 수집이 그 날짜까지만 왔다. 곧 답이 나온다.
+      · `완료글없음` — **접수 기록은 있는데 완료 글만 없다.** 다녀왔을 수 있다.
+      · `근거없음` — 밴드·카톡에 그 프로젝트 글이 아예 없다. 아무 말도 못 한다.
+    """
+    if not idx.get("읽음"):
+        return "못봄"
+    pj = str(row.get("프로젝트NO") or "").split(" · ")[0].strip()
+    last = idx.get("최신") or ""
+    if when and last and str(when) > str(last):
+        return "못봄"                      # 수집이 그 날짜까지 안 왔다
+    if not pj:
+        return "근거없음"
+    if pj in (idx.get("언급") or {}) or pj in (idx.get("카톡") or {}):
+        return "완료글없음"                 # 접수 기록은 있고 완료 글만 없다
+    return "근거없음"
+
+
 def _why_still_open(row, idx, got):
     """화면·캡처에 실리는 한 줄 — **사람 사유가 먼저, 기계 추정은 뒤에**.
 
@@ -6765,6 +6793,7 @@ def _calendar_work_events():
                     {"연결근거": "02_돌발AS접수 — 접수 뒤 작업완료일이 비어 있음",
                      "경과일": days, "긴급도": r.get("긴급도") or "",
                      "미처리사유": _why_still_open(r, bidx, got),
+                     "근거갈래": _open_evidence_class(r, bidx, got),
                      "사람사유": _human_delay_reason(r, cap=0),
                      "기계추정": _machine_why(r, bidx, got),
                      "DB버전": r.get("DB버전"),
@@ -6827,6 +6856,7 @@ def _calendar_work_events():
                 {"연결근거": "04_정기점검 — 예정일이 지났는데 실제점검일이 비어 있음",
                  "경과일": days, "점검상태": r.get("점검상태") or "",
                  "미처리사유": _why_still_open(r, bidx, plan),
+                 "근거갈래": _open_evidence_class(r, bidx, plan),
                  "사람사유": _human_delay_reason(r, cap=0),
                  "기계추정": _machine_why(r, bidx, plan),
                  "DB버전": r.get("DB버전")})
