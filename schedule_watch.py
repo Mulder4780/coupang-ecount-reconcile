@@ -855,6 +855,72 @@ def traces():
     return out
 
 
+def due_state(script, done_at=None, now=None):
+    """그 코드를 돌리는 예약 회차가 **아직 예정이 안 왔나** (2026-08-21 실사고).
+
+    ★ 왜 필요한가 — `session_handoff.daily_run_health` 는 완주 기록의 **나이만** 보고
+      20시간이 지나면 밀림이라 말한다. 그런데 이 회차는 하루 한 번 09:50 이라,
+      어제 12:20 에 완주했으면 **오늘 08:20 부터 09:50 까지** 그 조건이 참이 된다 —
+      회차가 늦은 것이 아니라 **아직 예정이 안 온 것**이다. 실측 2026-08-21 08:47:
+      스케줄러는 `마지막실행 08-20 09:50 · 코드 0 · 다음예정 08-21 09:50` 이라 말하는데
+      인계는 `[P1] 20시간째 완주하지 않았다` 를 올리고 조치로 `python daily_run.py` 를
+      시켰다. 그대로 하면 **63분 뒤 예정된 회차를 잠금으로 막는** 150분짜리 Z: 회차를
+      지금 띄운다 — 그러면 예정 회차는 조용히 건너뛰고 스케줄러는 '성공'이라 적는다.
+      한 문서 안에서 두 줄이 어긋나면 사람은 없는 것을 찾아 나선다(`[172]`·`[325]`).
+    ★ 여기서 스케줄러를 다시 묻지 않는다(`[168]`) — 회차(워치독 30분)가 써 둔 것을 읽는다.
+      판정도 새로 만들지 않는다(`[162]`) — 어느 작업이 그 코드를 돌리는지는
+      `task_scripts` 가 이미 안다. 작업 이름을 손으로 적으면 이름이 바뀐 날
+      **한 건도 안 걸리면서 오류도 안 난다**(`[165]`·`[228]`).
+    ★ **조용한 건너뜀을 놓치지 않는다.** 스케줄러의 마지막 실행이 완주 자국보다
+      **나중**이면 그 회차는 돌았는데 완주를 못 한 것이다 — 그것이 바로 이 경보가
+      원래 잡으려던 사고이므로(2026-08-07) 그때는 밀림 그대로 둔다.
+
+    돌려주는 것 (`[169]` — 못 갈랐으면 '정상'이라 하지 않는다):
+      `None`                    = 못 갈랐다(감시 파일 없음·그 코드를 도는 작업 없음·시각 못 읽음)
+      `{"아직": True,  ...}`    = 마지막 예정 회차는 완주 자국이 설명하고 다음 예정은 미래다
+      `{"아직": False, "왜": …}` = 예정이 지났는데 안 돌았거나, 돌았는데 완주 자국이 없다
+    """
+    st = _read()
+    rows = st.get("작업") or []
+    if not rows:
+        return None
+    now = now or datetime.now()
+    want = str(script).lower()
+    mine = []
+    for r in rows:
+        try:
+            # 저장된 행은 실행기를 `실행기` 에 담는다 — `task_scripts` 는 `act` 로 받는다.
+            files = task_scripts({"act": r.get("실행기") or []})
+        except Exception:
+            continue
+        if any(os.path.basename(f).lower() == want for f in files):
+            mine.append(r)
+    if not mine:
+        return None
+    last, future = None, None
+    for r in mine:
+        t = _dt(r.get("마지막실행"))
+        if t and (last is None or t > last):
+            last = t
+        # ★ 갈래가 '성공' 인 행의 다음 예정만 센다. 꺼져 있거나 죽은 회차의 예정은
+        #   **오지 않는다** — 그것을 '곧 돈다'로 읽으면 진짜 밀림이 조용해진다.
+        if r.get("갈래") == "성공":
+            n = _dt(r.get("다음예정"))
+            if n and n > now and (future is None or n < future):
+                future = n
+    if last is None:
+        return None
+    if done_at is not None and last > done_at:
+        return {"아직": False, "마지막실행": last, "다음예정": future,
+                "왜": "스케줄러는 %s 에 돌았다는데 완주 자국은 그보다 앞이다"
+                      % last.strftime("%m-%d %H:%M")}
+    if future is None:
+        return {"아직": False, "마지막실행": last, "다음예정": None,
+                "왜": "앞으로 예정된 정상 회차가 없다"}
+    return {"아직": True, "마지막실행": last, "다음예정": future,
+            "왜": "다음 예정 %s 가 아직 안 왔다" % future.strftime("%m-%d %H:%M")}
+
+
 def banner():
     """`session_handoff` 가 읽는 한 장. **여기서 스케줄러를 다시 묻지 않는다**(`[168]`) —
     인계 문서는 자주 만들어지고 조회는 비싸다. 회차(워치독 30분)가 써 둔 것을 읽는다."""

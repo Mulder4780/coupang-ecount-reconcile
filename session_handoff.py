@@ -932,9 +932,36 @@ def daily_run_health():
         failed = [s.get("name") for s in (d.get("steps") or []) if not s.get("ok")]
     except (OSError, ValueError, TypeError, AttributeError):
         pass
+    stale = age_h >= DAILY_STALE_H
+    # ★ **늦은 것과 아직 예정이 안 온 것은 다른 사실이다** (2026-08-21 실사고).
+    #   이 회차는 하루 한 번 09:50 이라, 어제 12:20 에 완주했으면 오늘 08:20~09:50 이
+    #   그대로 20시간을 넘는다 — 회차가 늦은 것이 아니라 아직 순서가 안 온 것이다.
+    #   그런데 조치가 `python daily_run.py` 라, 그대로 하면 **63분 뒤 예정된 회차를
+    #   잠금으로 막는** 150분짜리 Z: 회차를 지금 띄운다(그 회차는 조용히 건너뛰고
+    #   스케줄러는 '성공'이라 적는다) — 못 잡는 것보다 나쁜 조치다(`[172]`).
+    #   실측 81개 간격 중 20시간 초과는 8개인데 **그 절반이 이 아침 구간**이었다.
+    # ★ 판정을 새로 만들지 않는다(`[162]`·`[168]`) — 회차가 써 둔 스케줄러 사실을
+    #   `schedule_watch.due_state` 에서 빌린다. 못 갈랐으면(None) **예전 그대로 밀림**
+    #   이다 — '확인 못 함'을 '괜찮음'으로 치면 2026-08-07 사고가 되살아난다(`[169]`).
+    # ★ **중단(aborted)·완주없음은 한 글자도 안 건드린다.** 그것은 시각과 무관한 사실이다.
+    # ⚠ 여기 `not aborted` 는 **비용 절약이지 안전핀이 아니다.** 안전핀은 아래
+    #   `stale or aborted` 다 — 계기 자기시험으로 확인했다(`[272]`): 이 조건을 지워도
+    #   중단은 그대로 밀림이라 검사가 아무 말도 안 한다. 그러니 "검사가 이 줄을
+    #   지킨다"고 여기지 말 것.
+    not_due = None
+    if stale and not aborted:
+        try:
+            import schedule_watch
+            not_due = schedule_watch.due_state(
+                "daily_run.py", done_at=datetime.fromtimestamp(os.path.getmtime(p)))
+        except Exception:
+            not_due = None
+        if not_due and not_due.get("아직"):
+            stale = False
     return {"완주없음": False, "경과시간": round(age_h, 1), "중단": aborted,
             "실패단계": [f for f in failed if f], "진행중": running,
-            "밀림": age_h >= DAILY_STALE_H or aborted}
+            "아직예정": (not_due or {}).get("왜") if (not_due or {}).get("아직") else None,
+            "밀림": stale or aborted}
 
 
 def _progress_owner_alive(d):

@@ -9432,6 +9432,33 @@ def t137_contamination_marked_every_merge():
     print("  [137] 오염 판정이 병합마다 자동 실행 · 날짜 달린 사본만 좁게 · 원본 보존 ✅")
 
 
+def _t138_daily_health(aborted, age_h, due=None):
+    """`daily_run_health` 를 **합성 상태로 실제로 돌린다** — 실측 증거는 안 건드린다(`[247]`).
+
+    `REPORT_DIR` 만 임시 폴더로 돌리고 `finally` 로 되돌린다. 전역 `os` 속성은
+    건드리지 않는다 — 그것을 갈면 뒤따르는 검사가 통째로 눈이 먼다(`[369]` 실사고).
+    """
+    import importlib, io, json, shutil, tempfile, time
+    S = importlib.import_module("session_handoff")
+    import schedule_watch
+    tmp = tempfile.mkdtemp(prefix="t138_")
+    keep_dir, keep_sw = S.REPORT_DIR, schedule_watch.due_state
+    try:
+        S.REPORT_DIR = tmp
+        f = os.path.join(tmp, "agent_status.json")
+        io.open(f, "w", encoding="utf-8").write(
+            json.dumps({"aborted": bool(aborted), "steps": []}, ensure_ascii=False))
+        when = time.time() - age_h * 3600.0
+        os.utime(f, (when, when))
+        # `due` 를 안 주면 '못 갈랐다'(None)이므로 부르는 쪽은 예전 그대로 밀림이다(`[169]`).
+        schedule_watch.due_state = lambda *a, **k: due
+        return S.daily_run_health()
+    finally:
+        S.REPORT_DIR = keep_dir
+        schedule_watch.due_state = keep_sw
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def t138_daily_run_completion_watch():
     """[138] 일일자동대조가 **완주했는지**를 인계 문서가 본다 (2026-08-07 실사고).
 
@@ -9468,10 +9495,17 @@ def t138_daily_run_completion_watch():
     assert not only_daily({"밀림": False, "중단": False, "경과시간": 2.0, "실패단계": []}), \
         "정상인데도 경보를 올린다 — 늘 켜진 경보는 무시된다"
 
-    # 판정기 자체: 중단이면 나이와 무관하게 밀림이다
-    src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
-    assert 'age_h >= DAILY_STALE_H or aborted' in src, \
-        "중단을 나이와 함께 보지 않는다 — 방금 중단한 회차를 정상으로 본다"
+    # 판정기 자체: 중단이면 **나이와 무관하게** 밀림이다.
+    # ★ 예전에는 이 계약을 글자(`age_h >= DAILY_STALE_H or aborted`)로 얼려 뒀다.
+    #   2026-08-21 에 '아직 예정이 안 온 것'을 가르느라 그 식이 두 줄로 갈리자
+    #   **계약은 그대로인데 이 검사만 죽었다** — 글자 검사는 '있어야 할 것'이 아니라
+    #   '되돌아가면 안 되는 것'에 쓴다(`[39]`). 이제 **실행해서** 잰다(`[295]`).
+    for aborted, age_h, want, why in (
+            (True,  0.02, True,  "방금 중단한 회차를 정상으로 본다"),
+            (False, 0.02, False, "정상인데 밀림이라 한다 — 늘 켜진 경보는 경보가 아니다"),
+            (False, 99.0, True,  "나흘째 완주가 없는데 조용하다")):
+        got = _t138_daily_health(aborted=aborted, age_h=age_h)
+        assert got["밀림"] is want, "%s (중단=%s 나이=%s -> %r)" % (why, aborted, age_h, got)
     print("  [138] 일일대조 완주 감시 — 중단·장기 미완주를 '먼저 처리할 것'으로 ✅")
 
 
@@ -17041,6 +17075,132 @@ def t369_a_file_read_every_request_is_never_called_old_code():
         "[369] 진짜 os.path.getmtime 이 갈린 채로 끝났다 — 뒤따르는 검사가 통째로 눈이 먼다")
 
     print("✅ [369] 요청마다 읽는 화면 파일 — 가짜 '옛 코드' 경보 없음 · 조용히 빼지도 않음")
+
+
+def t371_a_round_that_is_not_due_yet_is_not_late():
+    """[371] 늦은 것과 **아직 예정이 안 온 것**은 다른 사실이다 (2026-08-21 실사고).
+
+    일일자동대조는 하루 한 번 09:50 이다. 어제 12:20 에 완주했으면 오늘 08:20~09:50 이
+    그대로 20시간을 넘으므로 나이만 보는 판정은 `[P1] 20시간째 완주하지 않았다` 를
+    올렸고, 조치가 `python daily_run.py` 였다 — 그대로 하면 **63분 뒤 예정된 회차를
+    잠금으로 막는** 150분짜리 Z: 회차를 지금 띄운다. 그러면 예정 회차는 조용히
+    건너뛰고 스케줄러는 '성공'이라 적는다. 못 잡는 것보다 나쁜 조치다(`[172]`).
+    실측 2026-08-21 08:47: 스케줄러는 `마지막실행 08-20 09:50 · 코드 0 · 다음예정
+    08-21 09:50` 이라 말하는데 인계는 반대로 말했다 — 한 문서 안에서 두 줄이
+    어긋나면 사람은 없는 것을 찾아 나선다(`[325]`).
+
+    여기서 얼리는 것은 **계약**이지 글자가 아니다(`[39]`) — 갈래가 실제로 갈리는지를
+    실행으로 잰다(`[295]`). 실측 증거 파일은 한 글자도 안 건드린다(`[247]`).
+    """
+    # ⚠ `io`·`shutil` 은 이 파일 모듈 수준에 없다(`[324]`) — 안 들여오면 진짜 실패가
+    #   `NameError` 에 가려진다.
+    import datetime as _dt, importlib.util, io, shutil
+    _spec = importlib.util.spec_from_file_location(
+        "schedule_watch_t371", os.path.join(ROOT, "schedule_watch.py"))
+    sw = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(sw)          # 격리해서 올린다 — 진짜 모듈 상태를 안 건드린다(`[247]`)
+    real_state = sw.STATE
+    tmp = tempfile.mkdtemp(prefix="t371_")
+    state = os.path.join(tmp, "스케줄러_회차감시.json")
+    runner = os.path.join(ROOT, "daily_run.py")
+    assert os.path.exists(runner), "[371] daily_run.py 가 없다 — 이 검사는 그 파일을 앵커로 쓴다"
+
+    def rows(kind="성공", last="2026-08-20T09:50:01", nxt="2026-08-21T09:50:00",
+             args=None):
+        return {"시각": "2026-08-21T08:30:18", "작업": [{
+            "작업": "합성_일일대조", "갈래": kind, "마지막실행": last, "다음예정": nxt,
+            "실행기": [{"exe": "pythonw.exe",
+                        "args": args if args is not None else ('"' + runner + '"')}]}]}
+
+    def put(d):
+        io.open(state, "w", encoding="utf-8").write(json.dumps(d, ensure_ascii=False))
+
+    now = _dt.datetime(2026, 8, 21, 8, 47)
+    done = _dt.datetime(2026, 8, 20, 12, 20)      # 그 회차의 완주 자국
+    try:
+        sw.STATE = state
+
+        put(rows())
+        r = sw.due_state("daily_run.py", done_at=done, now=now)
+        assert r and r.get("아직") is True, (
+            "[371] 다음 예정이 아직 안 왔는데 '늦었다'로 읽었다 — 그 조치는 예정 회차를 막는다: %r" % (r,))
+
+        # ② 조용한 건너뜀 — 스케줄러는 돌았다는데 완주 자국이 그보다 앞이다.
+        #    이것이 2026-08-07 사고의 본체이므로 **절대 내리면 안 된다**.
+        put(rows(last="2026-08-21T09:50:01", nxt="2026-08-22T09:50:00"))
+        r = sw.due_state("daily_run.py", done_at=done, now=_dt.datetime(2026, 8, 21, 12, 0))
+        assert r and r.get("아직") is False, (
+            "[371] 스케줄러는 돌았다는데 완주 자국이 없다 — 이것은 조용한 건너뜀이라 밀림이어야 한다: %r" % (r,))
+
+        # ③ 다음 예정이 이미 지났다 = 진짜로 안 돈 것이다.
+        put(rows(nxt="2026-08-21T06:00:00"))
+        r = sw.due_state("daily_run.py", done_at=done, now=now)
+        assert r and r.get("아직") is False, "[371] 예정이 지났는데 '아직'이라 했다: %r" % (r,)
+
+        # ④ 갈래가 '성공'이 아니면 그 예정은 오지 않는다(꺼짐·죽음).
+        for kind in ("꺼짐", "죽음", "안돎"):
+            put(rows(kind=kind))
+            r = sw.due_state("daily_run.py", done_at=done, now=now)
+            assert r and r.get("아직") is False, (
+                "[371] 갈래 %s 인 회차의 예정을 '곧 돈다'로 읽었다 — 진짜 밀림이 조용해진다: %r" % (kind, r))
+
+        # ⑤⑥ 모름을 '정상'으로 치지 않는다(`[169]`) — 그 코드를 도는 작업이 없거나
+        #     감시 파일이 없으면 None 이고, 부르는 쪽은 예전대로 밀림이다.
+        put(rows(args='"' + os.path.join(ROOT, "watchdog.py") + '"'))
+        assert sw.due_state("daily_run.py", done_at=done, now=now) is None, (
+            "[371] 그 코드를 도는 작업이 없는데 갈래를 확언했다")
+        os.remove(state)
+        assert sw.due_state("daily_run.py", done_at=done, now=now) is None, (
+            "[371] 감시 파일이 없는데 갈래를 확언했다")
+
+        # ⑦ 계기 자기시험(`[272]`) — 조용한 건너뜀 문을 없애면 ②가 통과해 버리는가.
+        put(rows(last="2026-08-21T09:50:01", nxt="2026-08-22T09:50:00"))
+        keep = sw.due_state
+        try:
+            code = io.open(os.path.join(ROOT, "schedule_watch.py"),
+                           encoding="utf-8", newline="").read()
+            broken = code.replace("if done_at is not None and last > done_at:",
+                                  "if False:", 1)
+            assert broken != code, "[371] 조용한 건너뜀 문을 못 찾았다 — 이 자기시험이 아무것도 안 잰다"
+            # ⚠ 통째로 exec 할 때는 `__file__`·`__name__` 을 준다 — 안 주면 ROOT 계산이
+            #   `NameError` 로 죽고, **그 죽음이 '고장을 잡았다'로 오인된다**.
+            ns = {"__file__": os.path.join(ROOT, "schedule_watch.py"),
+                  "__name__": "schedule_watch_broken"}
+            exec(compile(broken, "schedule_watch_broken", "exec"), ns)
+            ns["STATE"] = state
+            bad = ns["due_state"]("daily_run.py", done_at=done,
+                                  now=_dt.datetime(2026, 8, 21, 12, 0))
+            assert bad and bad.get("아직") is True, (
+                "[371] 문을 없앴는데도 ②가 그대로 잡혔다 — 이 검사는 그 문을 재고 있지 않다")
+        finally:
+            sw.due_state = keep
+    finally:
+        sw.STATE = real_state
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    # ⑧ 부르는 쪽을 **실행해서** 잰다(`[295]`) — 글자로 못 박으면 식이 갈리는 날
+    #    계약은 그대로인데 검사만 죽는다(`t138` 이 오늘 그 자리에서 죽었다 · `[39]`).
+    yes = {"아직": True, "왜": "다음 예정이 아직 안 왔다"}
+    got = _t138_daily_health(aborted=False, age_h=25.0, due=yes)
+    assert got["밀림"] is False and got.get("아직예정"), (
+        "[371] 아직 예정이 안 왔는데 밀림이라 한다 — 그 조치는 예정 회차를 막는다: %r" % (got,))
+    got = _t138_daily_health(aborted=True, age_h=25.0, due=yes)
+    assert got["밀림"] is True, (
+        "[371] 완화가 **중단**까지 삼켰다 — 중단은 나이와 무관한 사실이다(2026-08-06 실측): %r" % (got,))
+    got = _t138_daily_health(aborted=False, age_h=25.0, due=None)
+    assert got["밀림"] is True, (
+        "[371] 못 갈랐는데(None) 조용해졌다 — '확인 못 함'을 '괜찮음'으로 치면 안 된다(`[169]`): %r" % (got,))
+
+    # ⑨ 한 사건을 두 목소리로 울리지 않는다(`[322]`) — `system_audit` 도 같은 판정을 빌린다.
+    sa_src = io.open(os.path.join(ROOT, "system_audit.py"),
+                     encoding="utf-8", newline="").read()
+    i = sa_src.find('add("daily-run-stale"')
+    assert i > 0, "[371] daily-run-stale 규칙이 사라졌다"
+    head = sa_src[max(0, i - 1400):i]
+    assert "due_state(" in head, (
+        "[371] system_audit 이 제 손으로 나이만 보고 판정한다 — 인계와 두 목소리가 된다(`[162]`)")
+
+    print("✅ [371] 아직 예정이 안 온 회차를 '늦었다'라 하지 않음 · 조용한 건너뜀은 그대로 밀림")
 
 
 def _t369_load(path):
@@ -30025,6 +30185,7 @@ if __name__ == "__main__":
     t368_screens_fit_without_shrinking_and_tables_line_up()
     t369_a_file_read_every_request_is_never_called_old_code()
     t370_a_window_whose_pid_was_replaced_still_owns_its_lane()
+    t371_a_round_that_is_not_due_yet_is_not_late()
     t294_unreadable_source_never_passes_as_read()
     t295_camp_contacts_never_guess_a_phone_number()
     t296_half_list_never_blames_the_person()

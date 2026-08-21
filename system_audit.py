@@ -330,9 +330,24 @@ def build() -> dict[str, Any]:
                     "실패한 합성검증을 고친 뒤 일일 대조를 다시 실행합니다.",
                     "reports/.daily_run.progress.json")
         elif daily_age is not None and daily_age > 20 * 60:
-            add("daily-run-stale", "P1", "일일 대조 완주 기록이 하루 가까이 갱신되지 않음",
-                f"마지막 진행 기록이 {daily_age / 60:.1f}시간 전입니다.",
-                "python session_handoff.py --check", "reports/.daily_run.progress.json")
+            # ★ **늦은 것과 아직 예정이 안 온 것은 다른 사실이다** (2026-08-21 실사고).
+            #   이 회차는 하루 한 번 09:50 이라, 어제 12:20 에 끝났으면 오늘 08:20~09:50
+            #   이 그대로 20시간을 넘는다 — 늦은 것이 아니라 순서가 안 온 것이다.
+            #   같은 사건을 인계 문서와 여기가 **두 목소리로** 울리고 있었으므로 판정을
+            #   한 곳에서 빌린다(`[162]`·`[322]`) — 스케줄러 사실은 회차가 이미 써 뒀다.
+            #   **못 갈랐으면(None) 예전 그대로 P1** 이다(`[169]`).
+            not_due = None
+            try:
+                import schedule_watch
+                not_due = schedule_watch.due_state(
+                    "daily_run.py",
+                    done_at=datetime.fromtimestamp(daily_path.stat().st_mtime))
+            except Exception:
+                not_due = None
+            if not (not_due or {}).get("아직"):
+                add("daily-run-stale", "P1", "일일 대조 완주 기록이 하루 가까이 갱신되지 않음",
+                    f"마지막 진행 기록이 {daily_age / 60:.1f}시간 전입니다.",
+                    "python session_handoff.py --check", "reports/.daily_run.progress.json")
 
     # 4) 스케줄러 감시자가 스스로 낡았는지와 마지막 경보.
     schedule_path = REPORTS / "스케줄러_회차감시.json"
