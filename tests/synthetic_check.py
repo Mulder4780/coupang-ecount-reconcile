@@ -1297,7 +1297,7 @@ def t6_webapp():
             assert r.headers.get_content_type() == "image/png" and len(r.read()) > 1000
         # 공통 캡처 도구막대와 류지영 조사실(카톡 2개 방 원본)은 모든 화면에서
         # 같은 저장·복사·엑셀 흐름을 쓴다.
-        for marker in ("media-tools", "icon-btn", "#i-file-spreadsheet",
+        for marker in ("media-tools", "icon-btn", "#i-bootstrap-file-spreadsheet",
                        'id="v-ryu"', 'name="kakao_regular"', 'name="kakao_emergency"',
                        "/api/ryu/upload", "★UNI★ 쿠팡정기점검", "★UNI★ 쿠팡돌발점검",
                        "auto_check_queued"):
@@ -3363,7 +3363,7 @@ def t58_check_hub_detail_and_capture():
     assert "rows:rows.map(checkMetricRow)" in live and "openExecMetric(label)" in live
     assert "현재 목록 보기" in live and "이미지 복사" in live and "이미지 저장" in live
     # 아이콘 참조 방식(<img> → 스프라이트 <use>)이 바뀌어도 깨지지 않게 **아이콘 이름**으로 본다.
-    assert "media-tools" in live and "#i-clipboard-copy" in live
+    assert "media-tools" in live and "#i-bootstrap-copy" in live
     # 모바일 탭바: 크기 **숫자를 고정하지 않는다**(2026-07-30 아이콘을 키우자 이 줄이 깨졌다).
     # 지켜야 하는 것은 ① 좁은 화면용 규칙이 있다 ② 아이콘이 **알아볼 수 있는 크기**다.
     #   사용자 지적: "모바일에서 아이콘이 너무 작아 잘 안 보여" — 탭이 7개로 늘며 좁아진 탓이다.
@@ -6437,7 +6437,7 @@ def t123_calendar_share_tools():
     # ④ 도구 세 개 — 다른 화면과 같은 아이콘
     tools = idx[idx.index('id="calTools"'):]
     tools = tools[:tools.index("</div>")]
-    for icon in ("#i-image-down", "#i-clipboard-copy", "#i-file-spreadsheet"):
+    for icon in ("#i-bootstrap-file-earmark-arrow-down", "#i-bootstrap-copy", "#i-bootstrap-file-spreadsheet"):
         assert icon in tools, "캘린더 도구에 %s 가 없다" % icon
     for fn in ("calendarCapture()", "calCopyList()", "calExportList()"):
         assert fn in tools, "캘린더 도구에 %s 가 연결되지 않았다" % fn
@@ -17002,6 +17002,25 @@ def t375_org_capture_is_a_floor_plan_and_icons_are_one_family():
     assert org_tools.count('href="#i-') == 2, (
         "[375] 조직도 머리줄 단추가 앱 표준 스프라이트를 안 쓴다: " + org_tools[:200])
 
+    # ③-2 **아이콘은 한 집안이다**(형님 지시 2026-08-21: '이미지 아이콘은 다 빼버리고
+    #      부트스트랩 아이콘으로 전부 변경해').  전에는 Bootstrap(16x16 채움)과
+    #      Lucide(24x24 선)가 섞여 **같은 줄의 아이콘이 서로 다른 굵기**로 보였다.
+    import re as _re
+    syms = dict(_re.findall(r'<symbol id="(i-[a-z0-9-]+)"([^>]*)>', src))
+    uses = set(_re.findall(r'href="#(i-[a-z0-9-]+)"', src))
+    assert syms and uses, '[375] 스프라이트를 못 읽었다'
+    off = sorted(k for k in list(syms) + list(uses) if not k.startswith('i-bootstrap-'))
+    assert not off, '[375] 부트스트랩이 아닌 아이콘이 남았다: %s' % off
+    assert not (uses - set(syms)), \
+        '[375] 정의 없는 아이콘을 쓴다(화면에서 그 자리만 빈다): %s' % sorted(uses - set(syms))
+    #    ⚠ 이름만 부트스트랩으로 바꾸고 **그림이 다른 집안**이면 아무 소용이 없다 —
+    #      그래서 낱말이 아니라 **모양**(viewBox·stroke)을 잰다.
+    vbs = sorted({(_re.search(r'viewBox="([^"]+)"', a) or ['', '?'])[1]
+                  for a in syms.values()})
+    assert vbs == ['0 0 16 16'], '[375] 아이콘 격자가 섞였다(굵기가 달라 보인다): %s' % vbs
+    stroked = sorted(k for k, a in syms.items() if 'stroke=' in a)
+    assert not stroked, '[375] 선으로 그린 아이콘이 섞였다(채움 집안과 굵기가 다르다): %s' % stroked
+
     # ④ **실행해서** 잰다(`[295]`) — 사람이 늘면 그림이 커지고 이름이 다 그려지나.
     node = shutil.which("node")
     if not node:
@@ -25941,9 +25960,9 @@ def t281_calendar_done_plan_exclusive_and_full_a4_width():
 def t282_settings_nav_uses_gear_icon():
     """[282] 설정 메뉴는 권한 키가 아니라 톱니바퀴 아이콘으로 표시한다."""
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
-    assert 'symbol id="i-settings-gear"' in live, "톱니바퀴 SVG 심볼이 없다"
+    assert 'symbol id="i-bootstrap-gear"' in live, "톱니바퀴 SVG 심볼이 없다"
     nav = live.split('<button class="settings-nav"', 1)[1].split("</button>", 1)[0]
-    assert 'href="#i-settings-gear"' in nav, "설정 메뉴가 톱니바퀴를 쓰지 않는다"
+    assert 'href="#i-bootstrap-gear"' in nav, "설정 메뉴가 톱니바퀴를 쓰지 않는다"
     assert 'href="#i-bootstrap-key-fill"' not in nav, "설정 메뉴에 열쇠 아이콘이 남아 있다"
     print("[282] 설정 메뉴 톱니바퀴 아이콘 · 열쇠 아이콘 제거 OK")
 

@@ -3378,18 +3378,21 @@ body.dash-drag-live #dashGuides{display:grid}
 </style>
 </head>
 <body>
-<!-- Bootstrap Icons + Lucide 인라인 스프라이트 — 라이선스: webapp/icons/LICENSE-*.txt
+<!-- Bootstrap Icons 인라인 스프라이트 — 라이선스: webapp/icons/LICENSE-bootstrap-icons.txt
+     ★ 2026-08-21 형님 지시로 **한 집안만** 쓴다. 전에는 Bootstrap(16x16 채움)과
+       Lucide(24x24 선)가 섞여 같은 줄의 아이콘이 서로 다른 굵기로 보였다.
+       ⚠ 새 아이콘을 넣을 때 다른 집안에서 가져오지 말 것 — 하나만 섞여도 눈에 띈다.
      ★ 왜 인라인인가: iOS Safari 는 외부 파일의 <use href="a.svg#id"> 를 제대로 렌더하지 않는다.
      ★ 왜 스프라이트인가: <img> 는 currentColor 를 못 받아 선택된 탭·다크모드·경고색에
         아이콘이 반응하지 못했다(원본 svg 에 fill="#344054" 가 박혀 있었다). -->
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><symbol id="i-bootstrap-arrow-counterclockwise" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2z"/><path d="M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308a.25.25 0 0 0 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466"/></symbol><symbol id="i-bootstrap-arrow-repeat" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41m-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9"/><path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5 5 0 0 0 8 3M3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9z"/></symbol><symbol id="i-bootstrap-arrow-up-right" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M14 2.5a.5.5 0 0 0-.5-.5h-6a.5.5 0 0 0 0 1h4.793L2.146 13.146a.5.5 0 0 0 .708.708L13 3.707V8.5a.5.5 0 0 0 1 0z"/></symbol><symbol id="i-bootstrap-box-seam" viewBox="0 0 16 16" fill="currentColor"><path d="M8.186 1.113a.5.5 0 0 0-.372 0L1.846 3.5l2.404.961L10.404 2zm3.564 1.426L5.596 5 8 5.961 14.154 3.5zm3.25 1.7-6.5 2.6v7.922l6.5-2.6V4.24zM7.5 14.762V6.838L1 4.239v7.923zM7.443.184a1.5 1.5 0 0 1 1.114 0l7.129 2.852A.5.5 0 0 1 16 3.5v8.662a1 1 0 0 1-.629.928l-7.185 2.874a.5.5 0 0 1-.372 0L.63 13.09a1 1 0 0 1-.63-.928V3.5a.5.5 0 0 1 .314-.464z"/></symbol><symbol id="i-bootstrap-calendar-event-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M4 .5a.5.5 0 0 0-1 0V1H2a2 2 0 0 0-2 2v1h16V3a2 2 0 0 0-2-2h-1V.5a.5.5 0 0 0-1 0V1H4zM16 14V5H0v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2m-3.5-7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5"/></symbol><symbol id="i-bootstrap-calendar3" viewBox="0 0 16 16" fill="currentColor"><path d="M14 0H2a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2M1 3.857C1 3.384 1.448 3 2 3h12c.552 0 1 .384 1 .857v10.286c0 .473-.448.857-1 .857H2c-.552 0-1-.384-1-.857z"/><path d="M6.5 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2m-9 3a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2m-9 3a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2m3 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2"/></symbol><symbol id="i-bootstrap-camera-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"/>
   <path d="M2 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1.172a2 2 0 0 1-1.414-.586l-.828-.828A2 2 0 0 0 9.172 2H6.828a2 2 0 0 0-1.414.586l-.828.828A2 2 0 0 1 3.172 4zm.5 2a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1m9 2.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"/></symbol><symbol id="i-bootstrap-chat-dots-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M16 8c0 3.866-3.582 7-8 7a9 9 0 0 1-2.347-.306c-.584.296-1.925.864-4.181 1.234-.2.032-.352-.176-.273-.362.354-.836.674-1.95.77-2.966C.744 11.37 0 9.76 0 8c0-3.866 3.582-7 8-7s8 3.134 8 7M5 8a1 1 0 1 0-2 0 1 1 0 0 0 2 0m4 0a1 1 0 1 0-2 0 1 1 0 0 0 2 0m3 1a1 1 0 1 0 0-2 1 1 0 0 0 0 2"/></symbol><symbol id="i-bootstrap-check-lg" viewBox="0 0 16 16" fill="currentColor"><path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425z"/></symbol><symbol id="i-bootstrap-clipboard-data-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 0A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0zm3 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5z"/><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1A2.5 2.5 0 0 1 9.5 5h-3A2.5 2.5 0 0 1 4 2.5zM10 8a1 1 0 1 1 2 0v5a1 1 0 1 1-2 0zm-6 4a1 1 0 1 1 2 0v1a1 1 0 1 1-2 0zm4-3a1 1 0 0 1 1 1v3a1 1 0 1 1-2 0v-3a1 1 0 0 1 1-1"/></symbol><symbol id="i-bootstrap-exclamation-triangle-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5m.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/></symbol><symbol id="i-bootstrap-file-earmark-text-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M9.293 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.707A1 1 0 0 0 13.707 4L10 .293A1 1 0 0 0 9.293 0M9.5 3.5v-2l3 3h-2a1 1 0 0 1-1-1M4.5 9a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1zM4 10.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5m.5 2.5a.5.5 0 0 1 0-1h4a.5.5 0 0 1 0 1z"/></symbol><symbol id="i-bootstrap-flask-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M11.5 0a.5.5 0 0 1 0 1H11v5.358l4.497 7.36c.099.162.16.332.192.503l.013.063.008.083q.006.053.007.107l-.003.09q-.001.047-.005.095-.006.053-.017.106l-.016.079q-.012.049-.028.096l-.028.086a1.5 1.5 0 0 1-.17.322 1.5 1.5 0 0 1-.395.394q-.04.028-.082.054-.045.026-.095.049l-.073.035-.09.033q-.05.02-.103.034-.04.01-.08.017-.053.012-.108.021l-.006.002-.202.013H1.783l-.214-.015a1.503 1.503 0 0 1-1.066-2.268L5 6.359V1h-.5a.499.499 0 0 1-.354-.854A.5.5 0 0 1 4.5 0zm.5 12a.5.5 0 0 0 0 1h1.885l-.61-1zm-1-2a.5.5 0 0 0 0 1h1.664l-.612-1zm-1-2a.5.5 0 0 0 0 1h1.441l-.61-1zM9 6a.5.5 0 0 0 0 1h1.22l-.147-.24A.5.5 0 0 1 10 6.5V6zm0-2a.5.5 0 0 0 0 1h1V4zm0-2a.5.5 0 0 0 0 1h1V2z"/></symbol><symbol id="i-bootstrap-folder2-open" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2.764c.958 0 1.76.56 2.311 1.184C7.985 3.648 8.48 4 9 4h4.5A1.5 1.5 0 0 1 15 5.5v.64c.57.265.94.876.856 1.546l-.64 5.124A2.5 2.5 0 0 1 12.733 15H3.266a2.5 2.5 0 0 1-2.481-2.19l-.64-5.124A1.5 1.5 0 0 1 1 6.14zM2 6h12v-.5a.5.5 0 0 0-.5-.5H9c-.964 0-1.71-.629-2.174-1.154C6.374 3.334 5.82 3 5.264 3H2.5a.5.5 0 0 0-.5.5zm-.367 1a.5.5 0 0 0-.496.562l.64 5.124A1.5 1.5 0 0 0 3.266 14h9.468a1.5 1.5 0 0 0 1.489-1.314l.64-5.124A.5.5 0 0 0 14.367 7z"/></symbol><symbol id="i-bootstrap-hourglass-split" viewBox="0 0 16 16" fill="currentColor"><path d="M2.5 15a.5.5 0 1 1 0-1h1v-1a4.5 4.5 0 0 1 2.557-4.06c.29-.139.443-.377.443-.59v-.7c0-.213-.154-.451-.443-.59A4.5 4.5 0 0 1 3.5 3V2h-1a.5.5 0 0 1 0-1h11a.5.5 0 0 1 0 1h-1v1a4.5 4.5 0 0 1-2.557 4.06c-.29.139-.443.377-.443.59v.7c0 .213.154.451.443.59A4.5 4.5 0 0 1 12.5 13v1h1a.5.5 0 0 1 0 1zm2-13v1c0 .537.12 1.045.337 1.5h6.326c.216-.455.337-.963.337-1.5V2zm3 6.35c0 .701-.478 1.236-1.011 1.492A3.5 3.5 0 0 0 4.5 13s.866-1.299 3-1.48zm1 0v3.17c2.134.181 3 1.48 3 1.48a3.5 3.5 0 0 0-1.989-3.158C8.978 9.586 8.5 9.052 8.5 8.351z"/></symbol><symbol id="i-bootstrap-house-door-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 14.5v-3.505c0-.245.25-.495.5-.495h2c.25 0 .5.25.5.5v3.5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.146-.354L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 7.5v7a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5"/></symbol><symbol id="i-bootstrap-image-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M.002 3a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2zm1 9v1a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5l-3.777-1.947a.5.5 0 0 0-.577.093l-3.71 3.71-2.66-1.772a.5.5 0 0 0-.63.062zm5-6.5a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0"/></symbol><symbol id="i-bootstrap-key-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M3 8a5 5 0 1 1 9.584 2H15a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v-1h-1v-1h-1v-1h-.416A5.001 5.001 0 0 1 3 8m5-3a3 3 0 1 0 2.83 4H15v3h-1v-1h-1v-1h-2.17A3.001 3.001 0 0 0 8 5"/></symbol><symbol id="i-bootstrap-link-45deg" viewBox="0 0 16 16" fill="currentColor"><path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1 1 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4 4 0 0 1-.128-1.287z"/><path d="M6.586 4.672A3 3 0 0 0 7.414 9.5l.775-.776a2 2 0 0 1-.896-3.346L9.12 3.55a2 2 0 1 1 2.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 1 0-4.243-4.243z"/></symbol><symbol id="i-bootstrap-pencil-square" viewBox="0 0 16 16" fill="currentColor"><path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z"/><path fill-rule="evenodd" d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z"/></symbol><symbol id="i-bootstrap-person-badge-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2zm4.5 0a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1zM8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6m5 2.755C12.146 12.825 10.623 12 8 12s-4.146.826-5 1.755V14a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1z"/></symbol><symbol id="i-bootstrap-person-workspace" viewBox="0 0 16 16" fill="currentColor"><path d="M4 16s-1 0-1-1 1-4 5-4 5 3 5 4-1 1-1 1zm4-5.95a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5"/>
-  <path d="M2 1a2 2 0 0 0-2 2v9.5A1.5 1.5 0 0 0 1.5 14h.653a5.4 5.4 0 0 1 1.066-2H1V3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v9h-2.219c.554.654.89 1.373 1.066 2h.653a1.5 1.5 0 0 0 1.5-1.5V3a2 2 0 0 0-2-2z"/></symbol><symbol id="i-bootstrap-play-fill" viewBox="0 0 16 16" fill="currentColor"><path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393"/></symbol><symbol id="i-bootstrap-plus-lg" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2"/></symbol><symbol id="i-bootstrap-receipt" viewBox="0 0 16 16" fill="currentColor"><path d="M1.92.506a.5.5 0 0 1 .434.14L3 1.293l.646-.647a.5.5 0 0 1 .708 0L5 1.293l.646-.647a.5.5 0 0 1 .708 0L7 1.293l.646-.647a.5.5 0 0 1 .708 0L9 1.293l.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .801.13l.5 1A.5.5 0 0 1 15 2v12a.5.5 0 0 1-.053.224l-.5 1a.5.5 0 0 1-.8.13L13 14.707l-.646.647a.5.5 0 0 1-.708 0L11 14.707l-.646.647a.5.5 0 0 1-.708 0L9 14.707l-.646.647a.5.5 0 0 1-.708 0L7 14.707l-.646.647a.5.5 0 0 1-.708 0L5 14.707l-.646.647a.5.5 0 0 1-.708 0L3 14.707l-.646.647a.5.5 0 0 1-.801-.13l-.5-1A.5.5 0 0 1 1 14V2a.5.5 0 0 1 .053-.224l.5-1a.5.5 0 0 1 .367-.27m.217 1.338L2 2.118v11.764l.137.274.51-.51a.5.5 0 0 1 .707 0l.646.647.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.509.509.137-.274V2.118l-.137-.274-.51.51a.5.5 0 0 1-.707 0L12 1.707l-.646.647a.5.5 0 0 1-.708 0L10 1.707l-.646.647a.5.5 0 0 1-.708 0L8 1.707l-.646.647a.5.5 0 0 1-.708 0L6 1.707l-.646.647a.5.5 0 0 1-.708 0L4 1.707l-.646.647a.5.5 0 0 1-.708 0z"/><path d="M3 4.5a.5.5 0 0 1 .5-.5h6a.5.5 0 1 1 0 1h-6a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h6a.5.5 0 1 1 0 1h-6a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h6a.5.5 0 1 1 0 1h-6a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5m8-6a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5"/></symbol><symbol id="i-bootstrap-save-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M8.5 1.5A1.5 1.5 0 0 1 10 0h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h6c-.314.418-.5.937-.5 1.5v7.793L4.854 6.646a.5.5 0 1 0-.708.708l3.5 3.5a.5.5 0 0 0 .708 0l3.5-3.5a.5.5 0 0 0-.708-.708L8.5 9.293z"/></symbol><symbol id="i-bootstrap-upload" viewBox="0 0 16 16" fill="currentColor"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708z"/></symbol><symbol id="i-bootstrap-wrench-adjustable" viewBox="0 0 16 16" fill="currentColor"><path d="M16 4.5a4.5 4.5 0 0 1-1.703 3.526L13 5l2.959-1.11q.04.3.041.61"/><path d="M11.5 9c.653 0 1.273-.139 1.833-.39L12 5.5 11 3l3.826-1.53A4.5 4.5 0 0 0 7.29 6.092l-6.116 5.096a2.583 2.583 0 1 0 3.638 3.638L9.908 8.71A4.5 4.5 0 0 0 11.5 9m-1.292-4.361-.596.893.809-.27a.25.25 0 0 1 .287.377l-.596.893.809-.27.158.475-1.5.5a.25.25 0 0 1-.287-.376l.596-.893-.809.27a.25.25 0 0 1-.287-.377l.596-.893-.809.27-.158-.475 1.5-.5a.25.25 0 0 1 .287.376M3 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2"/></symbol><symbol id="i-clipboard-copy" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/></symbol><symbol id="i-file-spreadsheet" viewBox="0 0 16 16" fill="currentColor"><path d="M9.293 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.707A1 1 0 0 0 13.707 4L10 .293A1 1 0 0 0 9.293 0M9.5 3.5v-2l3 3h-2a1 1 0 0 1-1-1M5.884 6.68 8 9.219l2.116-2.54a.5.5 0 1 1 .768.641L8.651 10l2.233 2.68a.5.5 0 0 1-.768.64L8 10.781l-2.116 2.54a.5.5 0 0 1-.768-.641L7.349 10 5.116 7.32a.5.5 0 1 1 .768-.64"/></symbol><symbol id="i-image-down" viewBox="0 0 16 16" fill="currentColor"><path d="M8.5 6.5a.5.5 0 0 0-1 0v3.793L6.354 9.146a.5.5 0 1 0-.708.708l2 2a.5.5 0 0 0 .708 0l2-2a.5.5 0 0 0-.708-.708L8.5 10.293z"/>
-  <path d="M14 14V4.5L9.5 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2M9.5 3A1.5 1.5 0 0 0 11 4.5h2V14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h5.5z"/></symbol><symbol id="i-printer" viewBox="0 0 16 16" fill="currentColor"><path d="M2.5 8a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1"/>
-  <path d="M5 1a2 2 0 0 0-2 2v2H2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1h1a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V3a2 2 0 0 0-2-2zM4 3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H4zm1 5a2 2 0 0 0-2 2v1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v-1a2 2 0 0 0-2-2zm7 2v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1"/></symbol><symbol id="i-refresh-cw" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
+  <path d="M2 1a2 2 0 0 0-2 2v9.5A1.5 1.5 0 0 0 1.5 14h.653a5.4 5.4 0 0 1 1.066-2H1V3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v9h-2.219c.554.654.89 1.373 1.066 2h.653a1.5 1.5 0 0 0 1.5-1.5V3a2 2 0 0 0-2-2z"/></symbol><symbol id="i-bootstrap-play-fill" viewBox="0 0 16 16" fill="currentColor"><path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393"/></symbol><symbol id="i-bootstrap-plus-lg" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2"/></symbol><symbol id="i-bootstrap-receipt" viewBox="0 0 16 16" fill="currentColor"><path d="M1.92.506a.5.5 0 0 1 .434.14L3 1.293l.646-.647a.5.5 0 0 1 .708 0L5 1.293l.646-.647a.5.5 0 0 1 .708 0L7 1.293l.646-.647a.5.5 0 0 1 .708 0L9 1.293l.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .801.13l.5 1A.5.5 0 0 1 15 2v12a.5.5 0 0 1-.053.224l-.5 1a.5.5 0 0 1-.8.13L13 14.707l-.646.647a.5.5 0 0 1-.708 0L11 14.707l-.646.647a.5.5 0 0 1-.708 0L9 14.707l-.646.647a.5.5 0 0 1-.708 0L7 14.707l-.646.647a.5.5 0 0 1-.708 0L5 14.707l-.646.647a.5.5 0 0 1-.708 0L3 14.707l-.646.647a.5.5 0 0 1-.801-.13l-.5-1A.5.5 0 0 1 1 14V2a.5.5 0 0 1 .053-.224l.5-1a.5.5 0 0 1 .367-.27m.217 1.338L2 2.118v11.764l.137.274.51-.51a.5.5 0 0 1 .707 0l.646.647.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.646.646.646-.646a.5.5 0 0 1 .708 0l.509.509.137-.274V2.118l-.137-.274-.51.51a.5.5 0 0 1-.707 0L12 1.707l-.646.647a.5.5 0 0 1-.708 0L10 1.707l-.646.647a.5.5 0 0 1-.708 0L8 1.707l-.646.647a.5.5 0 0 1-.708 0L6 1.707l-.646.647a.5.5 0 0 1-.708 0L4 1.707l-.646.647a.5.5 0 0 1-.708 0z"/><path d="M3 4.5a.5.5 0 0 1 .5-.5h6a.5.5 0 1 1 0 1h-6a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h6a.5.5 0 1 1 0 1h-6a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h6a.5.5 0 1 1 0 1h-6a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5m8-6a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5m0 2a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5"/></symbol><symbol id="i-bootstrap-save-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M8.5 1.5A1.5 1.5 0 0 1 10 0h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h6c-.314.418-.5.937-.5 1.5v7.793L4.854 6.646a.5.5 0 1 0-.708.708l3.5 3.5a.5.5 0 0 0 .708 0l3.5-3.5a.5.5 0 0 0-.708-.708L8.5 9.293z"/></symbol><symbol id="i-bootstrap-upload" viewBox="0 0 16 16" fill="currentColor"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708z"/></symbol><symbol id="i-bootstrap-wrench-adjustable" viewBox="0 0 16 16" fill="currentColor"><path d="M16 4.5a4.5 4.5 0 0 1-1.703 3.526L13 5l2.959-1.11q.04.3.041.61"/><path d="M11.5 9c.653 0 1.273-.139 1.833-.39L12 5.5 11 3l3.826-1.53A4.5 4.5 0 0 0 7.29 6.092l-6.116 5.096a2.583 2.583 0 1 0 3.638 3.638L9.908 8.71A4.5 4.5 0 0 0 11.5 9m-1.292-4.361-.596.893.809-.27a.25.25 0 0 1 .287.377l-.596.893.809-.27.158.475-1.5.5a.25.25 0 0 1-.287-.376l.596-.893-.809.27a.25.25 0 0 1-.287-.377l.596-.893-.809.27-.158-.475 1.5-.5a.25.25 0 0 1 .287.376M3 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2"/></symbol><symbol id="i-bootstrap-copy" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1z"/></symbol><symbol id="i-bootstrap-file-spreadsheet" viewBox="0 0 16 16" fill="currentColor"><path d="M9.293 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.707A1 1 0 0 0 13.707 4L10 .293A1 1 0 0 0 9.293 0M9.5 3.5v-2l3 3h-2a1 1 0 0 1-1-1M5.884 6.68 8 9.219l2.116-2.54a.5.5 0 1 1 .768.641L8.651 10l2.233 2.68a.5.5 0 0 1-.768.64L8 10.781l-2.116 2.54a.5.5 0 0 1-.768-.641L7.349 10 5.116 7.32a.5.5 0 1 1 .768-.64"/></symbol><symbol id="i-bootstrap-file-earmark-arrow-down" viewBox="0 0 16 16" fill="currentColor"><path d="M8.5 6.5a.5.5 0 0 0-1 0v3.793L6.354 9.146a.5.5 0 1 0-.708.708l2 2a.5.5 0 0 0 .708 0l2-2a.5.5 0 0 0-.708-.708L8.5 10.293z"/>
+  <path d="M14 14V4.5L9.5 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2M9.5 3A1.5 1.5 0 0 0 11 4.5h2V14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h5.5z"/></symbol><symbol id="i-bootstrap-printer" viewBox="0 0 16 16" fill="currentColor"><path d="M2.5 8a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1"/>
+  <path d="M5 1a2 2 0 0 0-2 2v2H2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1h1a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V3a2 2 0 0 0-2-2zM4 3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H4zm1 5a2 2 0 0 0-2 2v1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v-1a2 2 0 0 0-2-2zm7 2v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1"/></symbol><symbol id="i-bootstrap-arrow-clockwise" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
   <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/></symbol><symbol id="i-bootstrap-graph-up-arrow" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M0 0h1v15h15v1H0zm10 3.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0V4.9l-3.613 4.417a.5.5 0 0 1-.74.037L7.06 6.767l-3.656 5.027a.5.5 0 0 1-.808-.588l4-5.5a.5.5 0 0 1 .758-.06l2.609 2.61L13.445 4H10.5a.5.5 0 0 1-.5-.5"/></symbol></svg>
 <!-- 설정은 권한 키가 아니라 화면·운영 환경을 다루는 메뉴이므로 톱니바퀴로 구별한다. -->
-<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><symbol id="i-settings-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.73v.52a2 2 0 0 1-1 1.73l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.73v-.52a2 2 0 0 1 1-1.73l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol></svg>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><symbol id="i-bootstrap-gear" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492M5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115z"/></symbol></svg>
 
 
 <div class="gate" id="gate">
@@ -3668,10 +3671,10 @@ body.dash-drag-live #dashGuides{display:grid}
 	    <div class="card"><h3>내가 확인할 사항 <span class="norm">— 유현민 (관리·청구·원천데이터)</span></h3>
 	      <div class="toplist" id="mylist"><div class="sk sk-row w88"></div><div class="sk sk-row w70"></div><div class="sk sk-row w45"></div></div>
 	      <div class="media-tools" role="toolbar" aria-label="내 확인 목록 도구" style="margin-top:10px">
-	        <button class="icon-btn" onclick="printMine()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>
-	        <button class="icon-btn primary" onclick="captureMine()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
-	        <button class="icon-btn" onclick="copyMineImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
-	        <button class="icon-btn excel" onclick="exportMineXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
+	        <button class="icon-btn" onclick="printMine()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-printer"/></svg></button>
+	        <button class="icon-btn primary" onclick="captureMine()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
+	        <button class="icon-btn" onclick="copyMineImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>
+	        <button class="icon-btn excel" onclick="exportMineXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
 	      </div></div>
     <!-- 구글 캘린더(COUPANG 설치+납품+AS) — 예정된 일이 원장과 맞는가 -->
     <div class="card" id="calcard"><h3>일정 <small id="calsub" style="font-weight:600;color:var(--muted)"></small></h3>
@@ -3686,11 +3689,11 @@ body.dash-drag-live #dashGuides{display:grid}
 	         캡처·인쇄는 대표보고에 쓰이므로 남기고 카드 제목만 바꾼다. -->
 	    <div class="card"><h3>대시보드 저장·인쇄</h3>
 	      <div class="media-tools" role="toolbar" aria-label="대시보드 도구">
-	        <button class="icon-btn" onclick="printDash()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>
-	        <button class="icon-btn primary" onclick="captureDash()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
-	        <button class="icon-btn" onclick="copyDashImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
-	        <button class="icon-btn excel" onclick="exportDashXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
-	        <button class="icon-btn" onclick="reloadHere(this)" title="새로고침" aria-label="새로고침"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg></button>
+	        <button class="icon-btn" onclick="printDash()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-printer"/></svg></button>
+	        <button class="icon-btn primary" onclick="captureDash()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
+	        <button class="icon-btn" onclick="copyDashImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>
+	        <button class="icon-btn excel" onclick="exportDashXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
+	        <button class="icon-btn" onclick="reloadHere(this)" title="새로고침" aria-label="새로고침"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg></button>
 	      </div></div>
   </section>
 
@@ -3975,7 +3978,7 @@ body.dash-drag-live #dashGuides{display:grid}
         <div class="ios-large"><h2>원본 자료</h2>
           <p class="sub" data-help-fold="sources-sub">ERP·밴드·카톡·PO·서류 원본을 한 곳에서 찾습니다. 카드를 누르면 지금 보고 있는 기기에서 바로 열립니다.</p></div>
         <button class="src-refresh" type="button" onclick="loadSources()" title="색인 새로고침" aria-label="색인 새로고침">
-          <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>
+          <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg>
         </button>
       </div>
       <!-- 대표 지시(2026-08-11): "자료갈래 기간 고르기는 항상 펼치고 / 아이콘은 더
@@ -4028,11 +4031,11 @@ body.dash-drag-live #dashGuides{display:grid}
         · 이메일이 <b>현장책임</b> 쪽에 거의 없는 것은 자료가 빠진 것이 아니라 <b>접수 양식이 그 칸을 적지 않기 때문</b>입니다(실측: 두 사람이 다 적힌 글 1,926건 중 현장책임 이메일이 있는 글 4건).</p></div>
     <div class="rpt-actions" role="toolbar" aria-label="캠프 목록 도구">
       <button class="icon-btn primary" onclick="campsCapture()" title="이미지 저장" aria-label="이미지 저장">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
       <button class="icon-btn excel" onclick="campsXlsx()" title="엑셀 저장" aria-label="엑셀 저장">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
       <button class="icon-btn" onclick="renderCamps(true)" title="새로고침" aria-label="새로고침">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg></button>
     </div>
     <div class="card">
       <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
@@ -4051,11 +4054,11 @@ body.dash-drag-live #dashGuides{display:grid}
       <p class="sub" data-help-fold="remote-sub">지점 재고 · AS 담당자 불출 · 현장 납품을 한 화면에서 기록합니다. 입력은 즉시 DB에 저장되어 류지영 매니저 화면과 대표보고에 바로 반영됩니다.</p></div>
     <div class="rpt-actions" role="toolbar" aria-label="리모컨 도구">
       <button class="icon-btn primary" onclick="remoteCapture()" title="이미지 저장" aria-label="이미지 저장">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
       <button class="icon-btn excel" onclick="remoteCsv()" title="엑셀 저장" aria-label="엑셀 저장">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
       <button class="icon-btn" onclick="renderRemoteCard('remoteHost')" title="새로고침" aria-label="새로고침">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg></button>
     </div>
     <div class="card"><div id="remoteHost"></div></div>
   </section>
@@ -4230,7 +4233,7 @@ body.dash-drag-live #dashGuides{display:grid}
           <span>카톡 TXT 바로 올리기</span>
         </button>
         <button class="abtn" id="automationRetryBtn" type="button" onclick="loadAutomationStatus(true,true)">
-          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>
+          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg>
           <span>상태 다시 확인</span>
         </button>
       </div>
@@ -4256,7 +4259,7 @@ body.dash-drag-live #dashGuides{display:grid}
       </div>
       <div class="automation-actions" style="grid-template-columns:1fr">
         <button class="abtn" id="systemAuditRetryBtn" type="button" onclick="loadSystemAudit(true,true)">
-          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>
+          <svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg>
           <span>최신 진단 다시 읽기</span>
         </button>
       </div>
@@ -4368,15 +4371,15 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   <section class="view" id="v-daily">
     <div class="rpt-actions" role="toolbar" aria-label="보고서 도구">
       <button class="icon-btn" onclick="printReport()" title="인쇄" aria-label="인쇄">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-printer"/></svg></button>
       <button class="icon-btn primary" onclick="captureReport()" title="이미지 저장" aria-label="이미지 저장">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
       <button class="icon-btn" onclick="copyReportImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>
       <button class="icon-btn excel" onclick="exportReportXlsx()" title="엑셀 저장" aria-label="엑셀 저장">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
       <button class="icon-btn" onclick="reloadHere(this)" title="새로고침" aria-label="새로고침">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg></button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg></button>
     </div>
     <div class="rpt" id="rpt">보고서 생성 중...</div>
   </section>
@@ -4390,7 +4393,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
         <p>문제유형과 담당자별로 좁혀 보고, 카드를 눌러 미확인 이유·근거·안전등급·다음 행동을 먼저 확인합니다.</p>
       </div>
       <div class="actions">
-        <button class="abtn" onclick="confirmRun('evidence_sync','ERP·PO·계산서 원본을 다시 대조하고, 객관근거가 완결된 건만 완료 DB에 반영할까요? 실제 계산서 발행이나 외부 전송은 하지 않습니다.')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>근거 재대조</button>
+        <button class="abtn" onclick="confirmRun('evidence_sync','ERP·PO·계산서 원본을 다시 대조하고, 객관근거가 완결된 건만 완료 DB에 반영할까요? 실제 계산서 발행이나 외부 전송은 하지 않습니다.')"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg>근거 재대조</button>
         <button class="abtn primary" onclick="openCheckFiltered()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>현재 목록 보기</button>
         <button class="abtn" onclick="showCheckRaw()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>원본표 보기</button>
       </div>
@@ -4508,9 +4511,9 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	          <span>과거 → 최근 · 항목을 누르면 입력 화면이 열립니다</span>
 	        </div>
 	        <div class="media-tools" id="staffListToolbar" role="toolbar" aria-label="담당자 업무 목록 도구" style="margin:0 0 9px">
-	          <button class="icon-btn primary" type="button" onclick="ryuCaptureList()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
-	          <button class="icon-btn" type="button" onclick="ryuCopyList()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
-	          <button class="icon-btn excel" type="button" onclick="ryuExportList()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
+	          <button class="icon-btn primary" type="button" onclick="ryuCaptureList()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
+	          <button class="icon-btn" type="button" onclick="ryuCopyList()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>
+	          <button class="icon-btn excel" type="button" onclick="ryuExportList()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
 	        </div>
 	        <div class="ryu-history-list" id="ryuHistoryList">
 	          <div class="ryu-loading">목록을 불러오는 중입니다.</div>
@@ -4727,7 +4730,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	        <input id="workLogFilterQuery" type="search" placeholder="프로젝트·캠프·담당자·내용 검색"
 	          onkeydown="if(event.key==='Enter'){event.preventDefault();loadWorkLogStatus()}">
 	        <button class="abtn primary" type="button" onclick="loadWorkLogStatus()">
-	          <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>목록 조회
+	          <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg>목록 조회
 	        </button>
 	      </div>
 	      <div class="worklog-kpis" id="workLogRecordSummary">
@@ -4800,11 +4803,11 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     <!-- 저장·전달 도구 — 앱 전체가 쓰는 한 줄(인쇄·이미지 저장·이미지 복사·엑셀).
          캘린더에만 있는 것은 새로고침·링크 복사·앱 설치 셋이다. -->
     <div class="media-tools" id="calTools" role="toolbar" aria-label="캘린더 저장·전달 도구" style="margin:0 0 10px">
-      <button class="icon-btn" type="button" onclick="refreshCalendarPage()" title="새로고침" aria-label="새로고침"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg></button>
+      <button class="icon-btn" type="button" onclick="refreshCalendarPage()" title="새로고침" aria-label="새로고침"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg></button>
       <button class="icon-btn" type="button" onclick="shareCalendarLink()" title="링크 복사 — 지금 보고 있는 달·필터 그대로 여는 주소" aria-label="링크 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-link-45deg"/></svg></button>
-      <button class="icon-btn primary" type="button" onclick="calendarCapture()" title="대표 보고 이미지 저장 (A4 세 장 · 사유 전체)" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
-      <button class="icon-btn" type="button" onclick="calCopyList()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
-      <button class="icon-btn excel" type="button" onclick="calExportList()" title="엑셀(xlsx)로 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
+      <button class="icon-btn primary" type="button" onclick="calendarCapture()" title="대표 보고 이미지 저장 (A4 세 장 · 사유 전체)" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
+      <button class="icon-btn" type="button" onclick="calCopyList()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>
+      <button class="icon-btn excel" type="button" onclick="calExportList()" title="엑셀(xlsx)로 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
       <button class="icon-btn" type="button" id="calInstallBtn" onclick="calInstallApp()" title="홈 화면에 앱으로 설치" aria-label="앱 설치" hidden><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-save-fill"/></svg></button>
     </div>
     <!-- 종류 필터(2026-08-05 지시) — 여러 개를 켜고 끌 수 있다. 하나만 보고 싶을 때는
@@ -4879,7 +4882,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
       <button class="abtn" onclick="loadRevenue(true)" aria-label="다시 읽기">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-repeat"/></svg>다시 읽기</button>
       <button class="abtn" onclick="revExcel()" aria-label="엑셀로 내보내기">
-        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg>엑셀</button>
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg>엑셀</button>
       <button class="abtn" onclick="revCapture()" aria-label="매출 실적 캡처">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-camera-fill"/></svg>캡처</button>
     </div>
@@ -5055,7 +5058,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
           <dt>기기 인증</dt><dd id="adminExpiryValue">확인 중…</dd>
         </dl>
         <div class="settings-actions">
-          <button type="button" class="abtn" onclick="loadAdminSettings(true)"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>권한 다시 확인</button>
+          <button type="button" class="abtn" onclick="loadAdminSettings(true)"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg>권한 다시 확인</button>
           <button type="button" class="abtn settings-danger" id="adminLogoutBtn" onclick="adminModeLogout()">관리자 모드 종료</button>
         </div>
         <div class="settings-safety">화면 표시만 바꿔 관리자 권한을 만들 수 없습니다. 실행·정책·전체 원장 기능은 요청할 때마다 서버가 관리자 세션을 다시 검사합니다.</div>
@@ -5097,7 +5100,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
           <span class="settings-state" id="adminHubState">확인 중</span></div>
         <div class="admin-hub" id="adminHub"><button type="button" class="abtn" disabled>확인 중…</button></div>
         <div class="settings-actions" style="margin-top:10px">
-          <button type="button" class="abtn" onclick="loadSystemAudit(true,true).then(renderSettingsHub)"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>다시 진단 읽기</button>
+          <button type="button" class="abtn" onclick="loadSystemAudit(true,true).then(renderSettingsHub)"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg>다시 진단 읽기</button>
           <button type="button" class="abtn" onclick="openSystemAudit()">진단 전체 보기</button>
         </div>
         <div class="settings-safety">여기 나오는 것은 <b>진단이 찾은 문제</b>뿐입니다. 아무것도 없으면 "확인할 것이 없습니다" 라고 적고, 진단을 못 읽으면 "이상 없음" 이 아니라 <b>"상태를 못 읽었습니다"</b> 라고 적습니다.</div>
@@ -5411,8 +5414,8 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
         <div class="org-gen" id="orgGen">불러오는 중…</div>
       </div>
       <div class="org-tools">
-        <button type="button" class="org-btn" onclick="orgLoad(true)" title="지금 다시 읽기"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>새로고침</button>
-        <button type="button" class="org-btn" onclick="orgToPng()" title="카톡으로 보낼 이미지"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg>이미지 저장</button>
+        <button type="button" class="org-btn" onclick="orgLoad(true)" title="지금 다시 읽기"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg>새로고침</button>
+        <button type="button" class="org-btn" onclick="orgToPng()" title="카톡으로 보낼 이미지"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg>이미지 저장</button>
       </div>
     </div>
     <div class="org-legend">
@@ -5453,7 +5456,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   <button data-v="report" onclick="routeNav('report')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-text-fill"/></svg>기록</button>
   <button data-v="org" onclick="routeNav('org')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-person-badge-fill"/></svg>조직도</button>
   <div class="nav-spacer" aria-hidden="true"></div>
-  <button class="settings-nav" data-v="settings" onclick="routeNav('settings')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-settings-gear"/></svg>설정</button>
+  <button class="settings-nav" data-v="settings" onclick="routeNav('settings')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-gear"/></svg>설정</button>
   <button class="calendar-nav" data-v="calendar" onclick="routeNav('calendar')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>쿠팡 캘린더</button>
 </nav>
 
@@ -19119,7 +19122,7 @@ function briefBlock(){
   return `<div class="ebrief">
     <div class="bhead"><span>읽어 드릴 내용</span>
       <em>숫자가 아니라 무슨 일이 있었는지</em>
-    <button onclick="copyBrief()"><svg class="inline-bi bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg>문장 복사</button></div>
+    <button onclick="copyBrief()"><svg class="inline-bi bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg>문장 복사</button></div>
     ${h}</div>`;
 }
 
@@ -20610,7 +20613,7 @@ function openCheckDrawer(r){
     <details class="check-drawer-raw"><summary>확인 원문 필드 보기</summary>
       <div class="dl">${fields.map(([k,v])=>`<dt>${esc2(k)}</dt><dd>${esc2(checkFieldText(v))}</dd>`).join('')}</div></details>
     <div class="actions sticky check-drawer-actions">
-      <button type="button" class="abtn" onclick="recheckActiveIssue()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>근거 재대조</button>
+      <button type="button" class="abtn" onclick="recheckActiveIssue()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg>근거 재대조</button>
       <button type="button" class="abtn" onclick="openCheckUpload()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-upload"/></svg>자료 올리기</button>
       <button type="button" class="abtn primary" onclick="openCheckRecordFromDrawer()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>${linked?'연결 원장 보기':'원본표 보기'}</button>
       <button type="button" class="abtn" onclick="closeSheetAll()">닫기</button>
@@ -21120,10 +21123,10 @@ function openExecMetric(label){
     <div class="lhead"><b>목록</b><span>${rows.length}건</span></div>
     <div class="slist">${body||'<div class="card">해당 건이 없습니다.</div>'}</div>
 	    <div class="media-tools sticky" role="toolbar" aria-label="목록 도구">
-	      <button class="icon-btn" onclick="printExecMetric()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>
-	      <button class="icon-btn primary" onclick="saveExecMetric()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>
-	      <button class="icon-btn" onclick="copyExecMetric()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>
-	      <button class="icon-btn excel" onclick="exportMetricXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button>
+	      <button class="icon-btn" onclick="printExecMetric()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-printer"/></svg></button>
+	      <button class="icon-btn primary" onclick="saveExecMetric()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
+	      <button class="icon-btn" onclick="copyExecMetric()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>
+	      <button class="icon-btn excel" onclick="exportMetricXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
 	    </div>`);
 }
 
@@ -21216,10 +21219,10 @@ function openAssignee(name, source){
     }).join('') || '<div class="card">항목 없음</div>') + '</div>'+
     (l.length?helpBox(l[0].issue):'')+
 	    '<div class="media-tools sticky" role="toolbar" aria-label="담당자 목록 도구">'+
-	      '<button class="icon-btn" onclick="printAssignee()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>'+
-	      '<button class="icon-btn primary" onclick="captureAssignee()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>'+
-	      '<button class="icon-btn" onclick="copyAssigneeImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>'+
-	      '<button class="icon-btn excel" onclick="exportAssigneeXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button></div>');
+	      '<button class="icon-btn" onclick="printAssignee()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-printer"/></svg></button>'+
+	      '<button class="icon-btn primary" onclick="captureAssignee()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>'+
+	      '<button class="icon-btn" onclick="copyAssigneeImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>'+
+	      '<button class="icon-btn excel" onclick="exportAssigneeXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button></div>');
 }
 
 function openMine(idx){
@@ -21240,10 +21243,10 @@ function openMine(idx){
 	  window._mineIdx = idx;                      // 캡처가 어느 항목인지 알아야 한다
 	  const cap = rows.length
 	    ? '<div class="media-tools" role="toolbar" aria-label="내 확인 상세 목록 도구" style="margin-top:12px">'+
-	      '<button class="icon-btn" onclick="printMineDetail()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-printer"/></svg></button>'+
-	      '<button class="icon-btn primary" onclick="captureMineDetail()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-image-down"/></svg></button>'+
-	      '<button class="icon-btn" onclick="copyMineDetailImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-clipboard-copy"/></svg></button>'+
-	      '<button class="icon-btn excel" onclick="exportMineDetailXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-file-spreadsheet"/></svg></button></div>'
+	      '<button class="icon-btn" onclick="printMineDetail()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-printer"/></svg></button>'+
+	      '<button class="icon-btn primary" onclick="captureMineDetail()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>'+
+	      '<button class="icon-btn" onclick="copyMineDetailImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>'+
+	      '<button class="icon-btn excel" onclick="exportMineDetailXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button></div>'
 	    : '';
   openPane('<h2>'+m.cat+' <span class="chip '+(m.lv==='danger'?'c-danger':'c-warn')+'">'+
     (m.n?m.n+'건':'대기')+'</span></h2><div class="sub">'+m.todo+
