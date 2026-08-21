@@ -1361,19 +1361,48 @@ tr.campsub>td:first-child{padding-left:20px}
    폰에서는 그대로 밑에서 위로 올라온다 — 손이 닿는 자리가 아래이기 때문이다.
    화면이 넓은데도 바닥에 붙여 두면 시선이 아래로 쏠려 내용이 잘 안 읽힌다. */
 @media(min-width:900px){
-  .sheet{left:50%;right:auto;bottom:auto;top:50%;width:min(620px,92vw);
+  /* ★ 좌우로 **더 넓게** 편다 (2026-08-21 형님 지시 "좌우로 더 넓게 펼쳐서 더 많은
+     정보가 표시되게"). 실측 1470px 화면에서 시트가 620px 라 **좌우 빈 여백이
+     850px(58%)** 였고, 12건짜리 목록에서 8건만 보였다.
+     ★ 폭을 정하는 자리는 `--sheet-w` **한 곳**이다([162]) — 여러 곳에 적으면
+       한쪽만 고쳐지고, 그날부터 화면마다 폭이 달라진다. */
+  :root{--sheet-w:1120px}
+  .sheet{left:50%;right:auto;bottom:auto;top:50%;width:min(var(--sheet-w),94vw);
     max-height:84vh;max-height:84dvh;border-radius:20px;
     padding:20px 22px 22px;box-shadow:0 26px 70px rgba(10,20,48,.34);
-    transform:translate(-50%,-46%) scale(.97);opacity:0;
-    transition:transform .2s cubic-bezier(.2,.9,.3,1),opacity .16s ease}
-  .sheet.open{transform:translate(-50%,-50%) scale(1);opacity:1}
+    /* ★ 닫으면 **아래로** 내려간다(같은 지시 "ESC 를 누르면 모달창이 다시 아래로
+       사라지는"). 예전 닫힘은 -46% -> -50%, 곧 31px 만 움직이고 흐려질 뿐이라
+       '내려가 사라진다'로 안 읽혔다. 폰과 같은 방향이 되어 한 앱이 두 가지로
+       움직이지 않는다. `.sheet.full`(0,2,0)·`.sheet.full.open`(0,3,0)은 이 뒤에
+       그대로 있으므로 도면 전체화면은 한 글자도 안 바뀐다([308]). */
+    transform:translate(-50%,calc(50vh + 24px));opacity:1;
+    transition:transform .26s cubic-bezier(.3,1,.4,1),opacity .16s ease}
+  .sheet.open{transform:translate(-50%,-50%);opacity:1}
   .sheet .grip{display:none}          /* 끌어내릴 바닥이 없으니 손잡이도 없앤다 */
   .sheet-actions{margin:0 -22px -22px;padding:12px 22px 14px;border-radius:0 0 20px 20px}
+  /* ★ 넓어진 만큼 **더 많이 보인다** — 시트 안 목록만 단으로 흘린다.
+     ⚠ `auto-fit` 이 아니라 `auto-fill` 이다: 한 건뿐인 날 그 하나가 시트 전체로
+       늘어나면 카드가 우스워진다([368] 에서 같은 자리를 배웠다).
+     ⚠ `min-width:0` 이 없으면 격자 자식의 기본 `min-width:auto` 가 내용 폭을
+       최소폭으로 삼아 **긴 캠프명 하나가 칸을 밀어낸다**([368]).
+     ⚠ `.sheet` 로 좁힌다 — `.slist` 는 정산 본문에서도 쓰는데 그쪽은 문제가 없다([172]). */
+  .sheet .slist{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));
+    gap:9px;align-items:start}
+  .sheet .slist>*{min-width:0}
+  /* ★ 상세도 같은 이유로 두 쌍씩 흘린다. 620px 시절 값 칸이 446px 였는데 넓히기만
+     하면 929px 가 되어 `2026-07-02` 한 줄이 그 칸에 덩그러니 놓인다 — 그건 '더 많은
+     정보'가 아니다. 두 쌍이면 값 칸은 402px(거의 그대로)인데 **같은 높이에 두 배**가 보인다.
+     ⚠ `.sec`(구역 머리)는 `grid-column:1/-1` 이라 그대로 한 줄을 다 쓴다 — 안 그러면
+       '금액' 같은 머리가 반쪽만 차지해 어디까지가 그 구역인지 안 보인다.
+     ⚠ `minmax(0,1fr)` 이다. `1fr` 만 쓰면 긴 값 하나가 칸을 밀어낸다([368]). */
+  .sheet .dl{grid-template-columns:118px minmax(0,1fr) 118px minmax(0,1fr)}
+  .sheet .dl .sec{grid-column:1/-1}
 }
 @media(prefers-reduced-motion:reduce){.sheet{transition:none}}
 /* ★ 넓은 작업면은 **전체 화면**으로 연다 (2026-08-18 지시 '도면 열기를 누르면
-   전체 화면으로 나오게'). 기본 시트는 넓은 화면에서 width:min(620px,92vw) 라
-   1400x820 도면이 손톱만 하게 들어가고 좌우가 잘린다(실측 캡처).
+   전체 화면으로 나오게'). 기본 시트는 넓은 화면에서 min(--sheet-w,94vw)
+   = 실측 1120px 이라 1400x820 도면이 여전히 좌우로 잘린다(2026-08-21 에 620px
+   에서 넓혔지만 도면은 그보다 크다 — 그래서 이 전체화면 갈래가 그대로 남는다).
    ★ `.sheet.full`(0,2,0)은 `.sheet`(0,1,0)보다 특이도가 높아 위 @media 도 이긴다 —
      미디어쿼리 안에 사본을 또 만들지 않는다([162]). 다만 열림 애니메이션의
      transform 은 `.sheet.open`(0,2,0)과 같은 값이라 순서가 정하므로, 이 규칙을
@@ -14931,6 +14960,34 @@ function closeSheetAll(){
   //   n 만큼 세면 그 차이가 남아 **다음 뒤로가기를 통째로 먹는다**(실제로 겪음).
   if(back > 0){ _navSkip += 1; history.go(-back); }
 }
+
+/* ★ ESC 로 모달을 내린다 (2026-08-21 형님 지시 "ESC 를 누르면 모달창이 다시
+   아래로 사라지는 구조"). 닫는 길은 **새로 만들지 않는다**([162]) — X·배경을
+   누를 때와 똑같이 `closeSheet()` 를 부른다. 그래야 뒤로가기 횟수·층 쌓기
+   (`_sheetStack`)·배경 잠금이 어긋나지 않는다.
+   ★ 이 앱에는 ESC 를 이미 쓰는 자리가 셋이라 **빼앗지 않는다**:
+     · 확인창(`dlgCancel`)은 **capture** 로 먼저 잡고 `preventDefault` 한다 —
+       그래서 이 핸들러는 **버블**이고 `defaultPrevented` 면 물러난다.
+     · 도면 편집기는 ESC 가 '화살표·선택 취소' 다. 그 위에서 시트까지 닫으면
+       **저장 안 한 도면을 잃는다** — 그때는 아무것도 안 한다(닫기 단추가 따로 있다).
+     · 대시보드 팔레트(`dashPickCancel`)는 시트가 없을 때 도는 자리다.
+   ★ **한글 조합 중 ESC 는 조합 취소**다(`isComposing`·keyCode 229). 그때 창을
+     닫으면 적던 글자가 통째로 사라진다 — 오류도 안 나고 되돌릴 수도 없다.
+   ★ **입력칸에 커서가 있으면 안 닫는다.** 사유·금액을 적다 ESC 를 누르는 일이
+     잦은데, 닫아 버리면 적던 것을 잃는다([275] 가 지키는 그 값이다). 밖을 한 번
+     누른 뒤 ESC 를 누르면 닫힌다. */
+document.addEventListener('keydown', e=>{
+  if(e.key !== 'Escape' || e.defaultPrevented) return;
+  if(e.isComposing || e.keyCode === 229) return;
+  if(typeof sheetIsOpen !== 'function' || !sheetIsOpen()) return;
+  if(typeof dlgIsOpen === 'function' && dlgIsOpen()) return;
+  const sheet = $('sheet');
+  if(sheet && sheet.querySelector('#flowVisualEditor.in-layer')) return;
+  const t = e.target;
+  if(t && t.closest && t.closest('input,textarea,select,[contenteditable=""],[contenteditable="true"]')) return;
+  e.preventDefault();
+  closeSheet();
+});
 
 /* 버튼 위에서 휠을 돌려도 바로 위 목록이 움직이게 한다. PC와 키보드 접근도 같은 스크롤포트를 쓴다. */
 $('sheetactions').addEventListener('wheel', e=>{

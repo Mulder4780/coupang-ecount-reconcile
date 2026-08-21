@@ -6272,7 +6272,11 @@ def t202_layer_dialogs():
     assert "transform:translateY(100%)" in idx, "밑에서 올라오는 모양이 없다"
     assert ".dlg-wrap.in .dlg{transform:translate(-50%,-50%) scale(1)" in idx, \
         "PC 가운데 모달 모양이 없다"
-    assert ".sheet.open{transform:translate(-50%,-50%) scale(1)" in idx, \
+    # ⚠ 예전에는 이 계약을 **글자**(`... scale(1)`)로 얼려 뒀다. 2026-08-21 에 시트를
+    #   넓히고 닫힘을 아래로 바꾸면서 `scale` 이 빠지자 **계약은 그대로인데 이 검사만
+    #   죽었다** — 글자 검사는 '있어야 할 것'이 아니라 '되돌아가면 안 되는 것'에
+    #   쓴다(`[39]`). 재려는 것은 **가운데로 오는가**이지 그 옆의 scale 이 아니다.
+    assert ".sheet.open{transform:translate(-50%,-50%)" in idx, \
         "상세 시트가 PC 에서도 바닥에 붙어 있다 — 모달로 띄우기로 했다"
     assert 'id="dlgWrap"' in idx and 'id="dlgBody"' in idx and 'id="dlgFoot"' in idx
     # PIN 창(1400)보다 아래, 상세 시트(41)보다 위에 있어야 겹침 순서가 맞다
@@ -17208,6 +17212,158 @@ def t371_a_round_that_is_not_due_yet_is_not_late():
         "[371] system_audit 이 제 손으로 나이만 보고 판정한다 — 인계와 두 목소리가 된다(`[162]`)")
 
     print("✅ [371] 아직 예정이 안 온 회차를 '늦었다'라 하지 않음 · 조용한 건너뜀은 그대로 밀림")
+
+
+def t373_sheet_is_a_wide_modal_that_esc_slides_down():
+    """[373] 시트는 **좌우로 넓은 모달**이고 ESC 로 **아래로** 내려간다 (2026-08-21 지시).
+
+    형님 지시: "이런 팝업 화면 모달로 전부 변경하고 좌우로 더 넓게 펼쳐서 더 많은
+    정보가 표시되게 코딩해, 이 화면에서 ESC 를 누르면 모달창이 다시 아래로 사라지는
+    구조로 코딩해".
+
+    실측(1470x924 · 데모 서버 · 전이를 끄고 잼 — 숨은 탭에서는 전이가 안 끝난다 `[308]`):
+      · 시트 620 -> **1120px** · 좌우 빈 여백 850 -> 350px
+      · 목록이 **3단**(347px) — 한 화면에 보이는 건 **8 -> 18개**
+      · 상세 `.dl` 이 `118px 393.5 118px 393.5` 두 쌍 · 구역머리는 한 줄 전체
+      · 닫힘 top **948**(창 924보다 아래) — 눈에 보이게 내려간다
+      · 폰 375px 은 **한 글자도 안 바뀐다**(폭 375 · `.dl` 한 쌍 · 목록 flex)
+      · 가로 넘침 0 · 도면 전체화면 그대로 0,0,1470x924
+
+    ★ 여기서 얼리는 것은 **계약**이지 픽셀이 아니다(`[39]`) — 폭 값은 취향이라
+      바뀔 수 있다. 되돌아가면 안 되는 것만 잡는다.
+    """
+    import io, json, re, shutil, subprocess, tempfile
+    html = io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read()
+
+    # (1) 폭을 정하는 자리는 한 곳이다(`[162]`)
+    assert re.search(r"--sheet-w\s*:", html), "[373] 시트 폭 토큰(--sheet-w)이 사라졌다"
+    assert "width:min(var(--sheet-w)" in html, (
+        "[373] 시트가 폭을 제 손으로 적는다 — 사본이 둘이면 화면마다 폭이 갈린다(`[162]`)")
+    # ⚠ 규칙을 세기 전에 **주석을 걷는다** — 안 걷으면 옛 폭을 적어 둔 설명 주석
+    #   자신에게 걸린다(이 프로젝트가 되풀이해 밟는 자리 · `[301]`(9)·`[302]`·`[309]`·`[332]`).
+    css_only = re.sub(r"/\*.*?\*/", " ", html, flags=re.S)
+    assert "width:min(620px,92vw)" not in css_only, (
+        "[373] 좁은 폭으로 되돌아갔다 — 실측 1470px 화면에서 좌우 850px 이 빈다")
+
+    # (2) 닫히면 **아래로** 간다
+    # ⚠ 이 파일에는 `@media(min-width:900px)` 덩어리가 **15개**다(실측). 첫 것을 잡으면
+    #   달력 규칙을 재고도 쟀다고 말한다 — **시트가 든 덩어리**를 골라야 한다.
+    m = None
+    for mm in re.finditer(r"@media\(min-width:900px\)\{(.*?)\n\}", html, re.S):
+        if ".sheet{left:50%" in mm.group(1):
+            m = mm
+            break
+    assert m, "[373] 넓은 화면 시트 규칙 덩어리를 못 찾았다"
+    block = re.sub(r"/\*.*?\*/", " ", m.group(1), flags=re.S)   # 규칙을 세기 전에 주석을 걷는다
+    shut = re.search(r"\.sheet\{[^}]*?transform:translate\(-50%,([^)]*\)?[^)]*)\)", block)
+    assert shut, "[373] 닫힘 자리 transform 을 못 찾았다"
+    y = shut.group(1)
+    assert "vh" in y and "-" not in y, (
+        "[373] 닫힘 자리가 화면 아래가 아니다(%r) — 그러면 '아래로 사라진다'가 안 된다" % y)
+
+    # (3) 넓어진 만큼 더 많이 보인다 · 그러나 한 건이 화면을 다 먹지 않는다
+    assert ".sheet .slist{display:grid" in block, "[373] 시트 목록이 단으로 안 흐른다"
+    assert "auto-fill" in block and "auto-fit" not in block, (
+        "[373] `auto-fit` 은 한 건뿐인 날 그 하나를 시트 전체로 늘린다(`[368]`)")
+    assert ".sheet .slist>*{min-width:0}" in block, (
+        "[373] `min-width:0` 이 빠졌다 — 긴 캠프명 하나가 칸을 밀어내 다시 넘친다(`[368]`)")
+    assert ".sheet .dl{grid-template-columns:118px minmax(0,1fr) 118px minmax(0,1fr)}" in block, (
+        "[373] 상세가 두 쌍으로 안 흐른다 — 값 칸이 929px 가 되어 한 줄이 덩그러니 놓인다")
+    assert ".sheet .dl .sec{grid-column:1/-1}" in block, (
+        "[373] 구역 머리가 반쪽만 차지한다 — 어디까지가 그 구역인지 안 보인다")
+
+    # (4) **시트 안으로 좁혀져 있다**(`[172]`) — 본문 목록·상세는 안 건드린다
+    for sel in (".slist{display:grid", ".dl{grid-template-columns:118px minmax"):
+        for mm in re.finditer(re.escape(sel), block):
+            head = block[max(0, mm.start() - 8):mm.start()]
+            assert ".sheet " in head, (
+                "[373] %r 가 시트 밖까지 바꾼다 — 문제 없던 화면을 말없이 바꾸지 않는다" % sel)
+
+    # (5) 도면 전체화면은 그대로다(`[308]` 회귀)
+    assert ".sheet.full.open{transform:none" in html and ".sheet.full{left:0" in html, (
+        "[373] `.sheet.full` 규칙이 사라졌다 — 도면이 좁은 시트 안에 갇힌다")
+    assert html.index(".sheet.full{left:0") > m.start(), (
+        "[373] `.sheet.full` 이 넓은 화면 규칙보다 앞에 왔다 — 특이도가 같은 줄은 순서가 정한다")
+
+    # (6) ESC 는 **실행해서** 잰다(`[295]`) — 글자로는 '정말 안 닫히나'를 못 잰다
+    h = re.search(r"document\.addEventListener\('keydown', e=>\{\s*\n\s*if\(e\.key !== 'Escape'.*?\n\}\);",
+                  html, re.S)
+    assert h, "[373] ESC 핸들러를 못 찾았다"
+    got = _t373_run_esc(h.group(0))
+    assert got["그냥ESC"], "[373] ESC 를 눌러도 안 닫힌다 — 형님이 시킨 그것이다"
+    assert not got["조합중"] and not got["IME229"], (
+        "[373] 한글 조합 중 ESC 로 창이 닫힌다 — 적던 글자가 통째로 사라진다")
+    assert not got["입력칸"], "[373] 입력칸에 커서가 있는데 닫힌다 — 적던 사유·금액을 잃는다"
+    assert not got["시트없음"], "[373] 시트가 없는데 closeSheet 를 부른다"
+    assert not got["확인창위"], "[373] 위에 뜬 확인창보다 시트를 먼저 닫는다"
+    assert not got["도면"], "[373] 도면 편집기 위에서 ESC 가 시트를 닫는다 — 저장 안 한 도면을 잃는다"
+    assert not got["이미처리됨"], "[373] 더 깊은 곳이 이미 처리한 ESC 를 또 먹는다"
+
+    # (7) 닫는 길을 **새로 만들지 않았다**(`[162]`)
+    assert "closeSheet();" in h.group(0) and "classList.remove('open')" not in h.group(0), (
+        "[373] ESC 가 제 손으로 시트를 닫는다 — 뒤로가기 횟수·층 쌓기가 어긋난다")
+
+    # (8) 계기 자기시험(`[272]`) — 문을 하나씩 없애면 정말 잡히는가
+    for why, a, b in (("조합중 문", "if(e.isComposing || e.keyCode === 229) return;", ""),
+                      ("입력칸 문", "if(t && t.closest", "if(false && t && t.closest"),
+                      ("도면 문", "if(sheet && sheet.querySelector", "if(false && sheet && sheet.querySelector")):
+        broken = h.group(0).replace(a, b, 1)
+        assert broken != h.group(0), "[373] %s 을 못 찾았다 — 이 자기시험이 아무것도 안 잰다" % why
+        bad = _t373_run_esc(broken)
+        assert bad["조합중"] or bad["입력칸"] or bad["도면"], (
+            "[373] %s 을 없앴는데도 그대로 잡혔다 — 이 검사는 그 문을 재고 있지 않다" % why)
+
+    print("✅ [373] 넓은 모달 · 목록 단 흐름 · ESC 로 아래로 (조합중·입력칸·도면·확인창은 안 닫음)")
+
+
+def _t373_run_esc(body):
+    """ESC 핸들러를 **node 로 실제로 돌린다** — 창은 안 띄우고(`[272]`) 제한을 건다(`[175]`)."""
+    import io, json, shutil, subprocess, tempfile
+    tmp = tempfile.mkdtemp(prefix="t373_")
+    try:
+        js = os.path.join(tmp, "esc.js")
+        io.open(js, "w", encoding="utf-8").write(_T373_HARNESS.replace("__BODY__", body))
+        # ⚠ 깃발을 변수로 넘기면 창 감사기(`[272]`)가 못 읽는다 — AST 로 훑기 때문이다.
+        #   저장소가 이미 쓰는 관용구를 그대로 쓴다(사본을 만들지 않는다 · `[162]`).
+        pr = subprocess.Popen(["node", js], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        so, se = pr.communicate(timeout=60)
+        assert pr.returncode == 0, "[373] ESC 하네스가 죽었다: %s" % se.decode("utf-8", "replace")[-300:]
+        return json.loads(so.decode("utf-8").strip().splitlines()[-1])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+_T373_HARNESS = r'''
+var closed=0, sheetOpen=true, dlgOpen=false, flow=false;
+function sheetIsOpen(){return sheetOpen}
+function dlgIsOpen(){return dlgOpen}
+function closeSheet(){closed++}
+function $(id){ return id==='sheet' ? {querySelector:function(){ return flow ? {} : null; }} : null; }
+var HANDLER=null;
+var document={addEventListener:function(t,fn){HANDLER=fn;}};
+__BODY__
+function fire(o){
+  var e={key:'Escape',defaultPrevented:false,isComposing:false,keyCode:27,
+         target:o.target||null,preventDefault:function(){this.defaultPrevented=true}};
+  for(var k in o) if(k!=='target') e[k]=o[k];
+  var before=closed; HANDLER(e); return closed>before;
+}
+var inp={closest:function(s){return /input|textarea|select|contenteditable/.test(s)?{}:null}};
+var plain={closest:function(){return null}};
+var out={};
+out['그냥ESC'] = fire({target:plain});
+out['조합중']  = fire({target:plain,isComposing:true});
+out['IME229'] = fire({target:plain,keyCode:229});
+out['입력칸']  = fire({target:inp});
+sheetOpen=false; out['시트없음'] = fire({target:plain}); sheetOpen=true;
+dlgOpen=true;    out['확인창위'] = fire({target:plain}); dlgOpen=false;
+flow=true;       out['도면']     = fire({target:plain}); flow=false;
+var e2={key:'Escape',defaultPrevented:true,target:plain,preventDefault:function(){}};
+var b=closed; HANDLER(e2); out['이미처리됨'] = closed>b;
+console.log(JSON.stringify(out));
+'''
 
 
 def _t369_load(path):
@@ -30301,6 +30457,7 @@ if __name__ == "__main__":
     t369_a_file_read_every_request_is_never_called_old_code()
     t370_a_window_whose_pid_was_replaced_still_owns_its_lane()
     t371_a_round_that_is_not_due_yet_is_not_late()
+    t373_sheet_is_a_wide_modal_that_esc_slides_down()
     t294_unreadable_source_never_passes_as_read()
     t295_camp_contacts_never_guess_a_phone_number()
     t296_half_list_never_blames_the_person()
