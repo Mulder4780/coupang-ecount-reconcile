@@ -2390,14 +2390,40 @@ def _stable_request_key(source, actor, items, record=None, supplied=None):
     return f"client:{clean}:{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:24]}"
 
 
+_APP_DB_STAMP = {"at": 0.0, "v": None}
+_APP_DB_STAMP_TTL = 1.0     # 한 화면이 여러 API 를 부를 때 한 번만 잰다
+
+
 def _app_db_stamp():
+    """`works`·`settle` 캐시를 버릴지 정하는 지문 — **감사로그 끝번호**다.
+
+    2026-08-22 실사고: 예전에는 `(본 DB mtime, WAL mtime)` 이었다. 그런데 WAL 은
+    **자료가 한 톨도 안 바뀌어도** 생겼다 사라진다(다른 프로세스의 쓰기 · checkpoint).
+    실측으로 그때마다 settle 캐시가 버려져 다음 조회가 **27~57초 콜드**였다
+    (ux 실측 `/api/settlements` 평균 88초). [390] 의 ux 와 **같은 모양**이다 —
+    자료는 그대로인데 지문이 흔들려 캐시가 못 산다. 오류는 한 줄도 안 난다.
+
+    ★ 근거를 `change_event` 끝번호로 삼는 이유: 2026-08-10 정본 규칙이
+      **"감사로그 없는 업무 변경은 성공이 아니다"** 라고 못 박았다. 그러니 그 번호가
+      곧 '업무가 바뀌었나'이고, 읽기·checkpoint 로는 한 톨도 안 움직인다.
+    ★ `PRAGMA data_version` 은 안 쓴다 — **새 연결에서는 WAL 커밋을 못 잡는다**
+      (실측 2→2). 그대로 썼으면 캐시가 영영 안 버려져 바뀐 뒤의 옛 값을
+      '지금 값'처럼 보여 줬을 것이다 — 이 프로젝트가 1순위로 막는 사고다.
+    ★ 못 읽으면 **매번 다른 값**을 준다([169]) — 캐시가 버려져 느려질 뿐 정확하다.
+      고정값을 주면 첫 값과 같아져 캐시를 영원히 안 버린다.
+    """
+    now = time.time()
+    if _APP_DB_STAMP["v"] is not None and now - _APP_DB_STAMP["at"] < _APP_DB_STAMP_TTL:
+        return _APP_DB_STAMP["v"]
     try:
         from app_store import default_store
-        path = str(default_store().db_path)
-        return tuple(os.path.getmtime(p) if os.path.exists(p) else 0
-                     for p in (path, path + "-wal"))
+        st = default_store().status()
+        v = ("cs", int(st.get("change_seq") or 0), str(st.get("last_change_at") or ""))
     except Exception:
-        return (0, 0)
+        v = ("err", now, "")
+    _APP_DB_STAMP["at"] = now
+    _APP_DB_STAMP["v"] = v
+    return v
 
 
 def _work_resolution_stamp():
@@ -2431,6 +2457,7 @@ def _work_resolution_stamp():
 
 def _invalidate_app_data_caches():
     """현재 캐시는 무효화하되 DB overlay를 입힌 last-good은 즉시 응답용으로 남긴다."""
+    _APP_DB_STAMP["v"] = None       # 방금 커밋했다 — TTL 을 건너뛰고 다시 잰다
     cache = globals().get("_cache")
     if not isinstance(cache, dict):
         return
@@ -4449,7 +4476,15 @@ def get_daily_brief(day=None):
         data["as"] = list(works.get("as") or [])
         data["pm"] = list(works.get("pm") or [])
         result = DB.brief(day, data)
-        source_mtime = max((float(v or 0) for v in key[1:]), default=0)
+        # ★ 이 열쇠에는 시각이 아닌 값도 섞인다 — 앱 DB 지문은 2026-08-22 부터
+        #   **감사로그 끝번호**다([391]). 숫자로 못 읽는 값은 '시각이 아니다'로 보고
+        #   건너뛴다 — float() 을 그냥 부르면 여기서 통째로 죽는다(실측).
+        def _as_time(v):
+            try:
+                return float(v or 0)
+            except (TypeError, ValueError):
+                return 0.0
+        source_mtime = max((_as_time(v) for v in key[1:]), default=0)
         result["데이터업데이트일시"] = (
             datetime.fromtimestamp(source_mtime).isoformat(timespec="minutes")
             if source_mtime else datetime.now().isoformat(timespec="minutes")

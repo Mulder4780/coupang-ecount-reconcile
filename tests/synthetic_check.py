@@ -23172,6 +23172,121 @@ def t388_hung_start_is_not_normal():
           "· 모르면 안 함 · 자기시험 OK")
 
 
+
+def t391_app_db_stamp_is_audit_seq_not_wal_mtime():
+    """[391] 앱 DB 지문은 **감사로그 끝번호**이지 WAL 파일 시각이 아니다 (2026-08-22).
+
+    실사고: `(본 DB mtime, WAL mtime)` 이었다. WAL 은 **자료가 한 톨도 안 바뀌어도**
+    생겼다 사라진다(다른 프로세스의 쓰기 · checkpoint). 그때마다 settle 캐시가
+    버려져 다음 조회가 27~57초 콜드였다(ux 실측 `/api/settlements` 평균 88초).
+    [390] 의 ux 와 같은 모양 — 자료는 그대로인데 지문이 흔들려 캐시가 못 산다.
+
+    ★ 실행으로 잰다([295]) · 실측 DB 는 한 글자도 안 건드린다([247]) —
+      `default_store` 를 목으로 갈고 `finally` 로 되돌린다([371]).
+    """
+    import importlib, io, os, sys, time
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    wa = os.path.join(root, "webapp")
+    for d in (root, wa):
+        if d not in sys.path:
+            sys.path.insert(0, d)
+    os.environ.setdefault("COUPANG_UNATTENDED", "1")
+    A = importlib.import_module("app_server")
+    S = importlib.import_module("app_store")
+
+    src = io.open(os.path.join(wa, "app_server.py"),
+                  encoding="utf-8", newline="").read()
+    i = src.find("def _app_db_stamp():")
+    assert i > 0, "[391] `_app_db_stamp` 를 못 찾았다"
+    body = src[i:i + 2600]
+    # ⚠ 규칙을 세기 전에 **설명을 걷어낸다** — 이 저장소가 일곱 번째 밟는 자리다
+    #    ([301]⑨·[302]·[309]·[332]·[339]·[370]·여기). 이 함수의 독스트링이 스스로
+    #    "data_version 은 안 쓴다" 라고 적고 있어, 안 걷으면 그 설명이 위반으로 잡힌다.
+    d0 = body.find('"""')
+    if d0 >= 0:
+        d1 = body.find('"""', d0 + 3)
+        if d1 > d0:
+            body = body[:d0] + body[d1 + 3:]
+
+    # ① 되돌아가면 안 되는 것([39]) — WAL 파일 시각을 지문으로 쓰지 않는다.
+    assert '"-wal"' not in body and "'-wal'" not in body, (
+        "[391] 지문이 다시 WAL 파일 시각이다 — checkpoint 한 번에 캐시가 통째로 날아간다")
+    # ② `PRAGMA data_version` 은 새 연결에서 WAL 커밋을 못 잡는다(실측 2→2).
+    #    쓰면 캐시가 영영 안 버려져 '바뀐 뒤의 옛 값'을 지금 값처럼 보여 준다.
+    assert "data_version" not in body, (
+        "[391] data_version 을 지문으로 쓴다 — 새 연결에서는 남의 커밋을 못 잡는다")
+    assert "change_seq" in body, "[391] 감사로그 끝번호를 안 쓴다"
+
+    class FakeStore(object):
+        def __init__(self):
+            self.seq = 100
+            self.at = "2026-08-22T00:00:00"
+            self.calls = 0
+
+        def status(self):
+            self.calls += 1
+            return {"change_seq": self.seq, "last_change_at": self.at}
+
+    fake = FakeStore()
+    real = S.default_store
+    try:
+        S.default_store = lambda: fake
+        A._APP_DB_STAMP["v"] = None
+        s1 = A._app_db_stamp()
+        A._APP_DB_STAMP["v"] = None
+        s2 = A._app_db_stamp()
+        # ③ 업무가 안 바뀌면 지문도 그대로 — 파일이 어떻게 출렁이든 상관없다.
+        assert s1 == s2, "[391] 업무가 그대로인데 지문이 달라진다 — 캐시가 영영 안 산다"
+
+        # ④ 감사로그가 늘면 지문이 바뀐다(저장을 놓치면 옛 값을 보여 준다).
+        fake.seq = 101
+        A._APP_DB_STAMP["v"] = None
+        assert A._app_db_stamp() != s1, "[391] 감사로그가 늘었는데 지문이 같다"
+
+        # ⑤ 한 화면이 여러 API 를 불러도 잦게 안 잰다(TTL) — 그러나 저장 직후엔 다시 잰다.
+        fake.seq = 102
+        before = fake.calls
+        A._app_db_stamp(); A._app_db_stamp()
+        assert fake.calls == before, "[391] TTL 이 없다 — 요청마다 DB 를 다시 연다"
+        # 저장 직후에는 TTL 을 건너뛰고 **새 값**을 봐야 한다 — 옛 지문을 굳히면
+        # 방금 커밋한 것을 못 본다. (무효화 안에서 다시 재므로 v 는 새 값으로 찬다)
+        A._invalidate_app_data_caches()
+        assert A._app_db_stamp()[1] == 102, (
+            "[391] 저장 직후에도 TTL 옛 값을 굳힌다 — 방금 커밋한 것을 못 본다")
+
+        # ⑥ 못 읽으면 '모름'을 같은 값으로 굳히지 않는다([169]).
+        def boom():
+            raise RuntimeError("합성: 앱 DB 못 읽음")
+        S.default_store = boom
+        A._APP_DB_STAMP["v"] = None
+        e1 = A._app_db_stamp()
+        time.sleep(0.01)
+        A._APP_DB_STAMP["v"] = None
+        e2 = A._app_db_stamp()
+        assert e1 != e2, "[391] 못 읽었는데 지문이 고정이다 — 캐시가 영영 안 버려진다"
+    finally:
+        S.default_store = real
+        A._APP_DB_STAMP["v"] = None
+
+    # ⑦ 계기 자신을 시험한다([272]) — 옛 동작(WAL mtime)이면 ③ 이 잡혀야 한다.
+    tmp = os.path.join(root, "reports", ".t391_wal_probe")
+    old_stamp = lambda: tuple(os.path.getmtime(x) if os.path.exists(x) else 0
+                              for x in (tmp, tmp + "-wal"))
+    try:
+        io.open(tmp, "w", encoding="utf-8").write("x")
+        a = old_stamp()
+        io.open(tmp + "-wal", "w", encoding="utf-8").write("y")   # WAL 이 생겼다
+        b = old_stamp()
+        assert a != b, ("[391] 계기 자기시험이 아무것도 안 재고 있다 — 옛 동작에서도 "
+                        "지문이 안 흔들렸다")
+    finally:
+        for x in (tmp, tmp + "-wal"):
+            if os.path.exists(x):
+                os.remove(x)
+
+    print("  [391] 앱 DB 지문 — 감사로그 끝번호 · WAL 출렁임 무시 · TTL · 저장 직후 · 자기시험 OK")
+
+
 def t390_works_cache_stamp_is_table_not_file_mtime():
     """[390] `works` 캐시 지문은 **표 내용**이지 DB 파일 시각이 아니다 (2026-08-22).
 
@@ -32319,6 +32434,7 @@ if __name__ == "__main__":
     t387_collect_gate_actually_guards_scripts()
     t389_credit_window_pauses_ai_and_resumes_itself()
     t390_works_cache_stamp_is_table_not_file_mtime()
+    t391_app_db_stamp_is_audit_seq_not_wal_mtime()
     t388_hung_start_is_not_normal()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
