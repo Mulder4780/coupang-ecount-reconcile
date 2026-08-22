@@ -1651,7 +1651,7 @@ def warm_caches():
         _t.sleep(240)
 
 
-def get_ryu_records():
+def _build_ryu_records():
     """류지영 업무센터: 2026년 업무를 카테고리별 과거→최근 목록으로 제공한다."""
     works = get_works() or {"as": [], "pm": []}
     settlements = get_settlements() or []
@@ -1750,6 +1750,13 @@ def get_ryu_records():
             updated = datetime.now().isoformat(timespec="minutes")
     return {"updated_at": updated, "year": APP_YEAR, "categories": categories,
             "rows": rows, "schema": schema}
+
+
+def get_ryu_records():
+    """모든 업무센터가 함께 쓰는 목록 — 재시작 뒤에도 last-good을 즉시 돌려준다."""
+    if DEMO:
+        return _build_ryu_records()
+    return cached_data("staff_records", _build_ryu_records)
 
 
 def _staff_allowed_fields(staff_slug, category):
@@ -2270,7 +2277,9 @@ def get_staff_records(staff_slug, *, store=None):
     if staff_slug not in STAFF_CENTERS and staff_slug != "admin":
         raise PermissionError("등록되지 않은 업무센터입니다")
     if store is None:
-        payload = get_ryu_records()
+        # 아래에서 역할별 fields·editable을 붙인다. 공용 캐시 원본을 직접 줄이면
+        # 먼저 들어온 담당자의 화면 모양이 다음 담당자에게 남는다.
+        payload = copy.deepcopy(get_ryu_records())
     else:
         # 합성검증·DB 장애 복구 화면은 Excel 없이도 정본 행만 볼 수 있다.
         rows = {}
@@ -2474,7 +2483,7 @@ def _invalidate_app_data_caches():
         cache.pop(key, None)
         cache.pop(key + "_ts", None)
         cache[key + "_app_db_stamp"] = _app_db_stamp()
-    for key in ("issues", "exec", "status"):
+    for key in ("issues", "staff_records", "exec", "status"):
         for suffix in ("", "_ts", "_stale"):
             cache.pop(key + suffix, None)
     # 대표보고 요약(`/api/brief`)도 같은 AppStore 정본을 본다. 이것을 남겨 두면
@@ -4693,7 +4702,11 @@ _REFRESH_LOCK = threading.Lock()
 #   한 옛 캐시가 영원히 이긴다([244] · `inbox_scan.RULES_VERSION` 과 같은 자리).
 # ★ 못 읽거나 못 써도 화면은 그대로 나온다. 빠르게 만들려다 응답을 죽이지 않는다.
 _DISK_CACHE_VER = 1
-_DISK_CACHE_KEYS = ("works", "settle")
+# 직원 업무센터는 works·settle 뒤에 issues까지 한 응답으로 싣는다. 2026-08-23
+# 실측으로 앞의 둘은 디스크 캐시가 받아 줬지만 issues가 관리대장을 다시 열어
+# 첫 응답이 64.88초 걸렸다(실제 건수는 AS 600·정기점검 471·정산 750).
+# 그래서 확인필요도 **정확한 지문이 맞을 때만** last-good을 먼저 싣는다.
+_DISK_CACHE_KEYS = ("works", "settle", "issues", "staff_records")
 _DISK_CACHE_MAX_AGE_S = 6 * 3600
 
 
@@ -4709,13 +4722,52 @@ def _disk_cache_stamp(key):
     if key in ("works", "settle"):
         parts.append("app=%r" % (_app_db_stamp(),))
     if key == "works":
+        # 메모리 캐시와 같은 근거다. ledger_queue.db 전체 mtime을 쓰면 화면 클릭 UX
+        # 기록만 쌓여도 지문이 바뀌어 재시작 캐시가 매번 버려진다.
+        parts.append("work=%r" % _work_resolution_stamp())
+    if key == "issues":
+        # 23시트 위에 앱 DB 취소·청구근거, 객관완료 DB, ERP 색인 둘을 얹는다.
+        # 관리대장 mtime만 보면 이 넷이 바뀐 뒤에도 옛 확인필요 목록이 재시작 뒤
+        # 살아날 수 있다. 못 읽은 의존성은 매번 다른 지문을 돌려 캐시를 포기한다.
+        parts.append("app=%r" % (_app_db_stamp(),))
+        parts.append("issue=%r" % (_issue_dependency_stamp(),))
+    if key == "staff_records":
+        # 직원 목록은 works·settle·issues·현장작업·업로드 이력을 한 응답으로 합친다.
+        # 한 덩어리 last-good을 써야 첫 접속이 64.88초짜리 조립을 기다리지 않는다.
+        parts.append("app=%r" % (_app_db_stamp(),))
+        parts.append("work=%r" % _work_resolution_stamp())
+        parts.append("issue=%r" % (_issue_dependency_stamp(),))
         try:
-            from ledger_db import DB_PATH
-            parts.append("q=%r" % os.path.getmtime(DB_PATH))
-        except Exception:
-            # 못 읽었으면 '같다'고 하지 않는다 — 매번 다른 값이라 캐시가 안 걸린다([169]).
-            parts.append("q=?%r" % time.time())
+            p = os.path.join(ROOT, "reports", "ryu_submissions.jsonl")
+            st = os.stat(p)
+            parts.append("upload=%d:%d" % (st.st_size, st.st_mtime_ns))
+        except OSError:
+            parts.append("upload=none")
     return "|".join(parts)
+
+
+def _issue_dependency_stamp():
+    """확인필요 진실층의 엑셀 밖 의존성을 작게 지문화한다."""
+    try:
+        import ledger_db
+        resolutions = ledger_db.resolutions()
+        raw = json.dumps(resolutions, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":"), default=str).encode("utf-8")
+        parts = ["resolution=" + hashlib.sha256(raw).hexdigest()]
+        for name in ("ERP판매_프로젝트색인.json", "ERP원장대조_상태.json"):
+            p = os.path.join(ROOT, "reports", name)
+            h = hashlib.sha256()
+            with open(p, "rb") as f:
+                while True:
+                    chunk = f.read(256 * 1024)
+                    if not chunk:
+                        break
+                    h.update(chunk)
+            parts.append(name + "=" + h.hexdigest())
+        return "|".join(parts)
+    except Exception:
+        # 모르면 같다고 하지 않는다. 느려질 뿐 옛 목록을 최신이라 확언하지 않는다.
+        return "issue-err:%r" % time.time()
 
 
 def _disk_cache_load(key):

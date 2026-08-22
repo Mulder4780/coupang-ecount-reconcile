@@ -7308,10 +7308,17 @@ async function submitRyuEntry(ev){
     toast(`${(STAFF_CENTERS[staffSlug]||{name:'업무센터'}).name} · ${d.action==='no_change'?'변경 없음':'저장 완료'}`);
     const keepKey=ryuSelected.key, keepCategory=ryuCategory;
     draftClear('ryuEntryForm:'+keepCategory+':'+keepKey);   // 서버 확인 뒤에만(2026-08-11)
-    await loadRyuRecords(true);
-    ryuCategory=keepCategory;
-    ryuSelected=((RYU.rows||{})[keepCategory]||[]).find(x=>x.key===keepKey)||null;
-    renderRyuCenter();renderRyuEditor();
+    /* 저장은 이미 DB에서 끝났다. 여기서 전체 업무센터 2,198건을 다시 받을 때까지
+       기다리면 저장 단추가 20~65초 붙들려 사람이 또 누른다(2026-08-23 실측).
+       응답에 든 권위 레코드·버전을 현재 카드에 즉시 얹고, 전체 대조는 뒤에서 한다. */
+    if(d.record&&ryuSelected){
+      ryuSelected.detail={...(ryuSelected.detail||{}),...d.record};
+      ryuSelected.record_version=Number(d.record_version||d.record.record_version||ryuSelected.record_version||0);
+      const list=((RYU.rows||{})[keepCategory]||[]), at=list.findIndex(x=>x.key===keepKey);
+      if(at>=0) list[at]=ryuSelected;
+    }
+    ryuCategory=keepCategory;renderRyuCenter();renderRyuEditor();
+    loadRyuRecords(true).catch(e=>console.warn('staff background refresh',e));
     const note=form.querySelector('[name="survey_note"]');if(note) note.value='';
     const file=form.querySelector('[name="evidence_file"]');if(file) file.value='';
     // 레이어로 띄워 둔 상태면 저장 뒤 닫아 준다 — 목록으로 바로 돌아간다.

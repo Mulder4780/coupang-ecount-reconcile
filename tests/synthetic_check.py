@@ -23566,6 +23566,61 @@ def t395_status_card_never_rehashes_the_verified_archive():
     print("[395] 자동화 상태 카드 — 검증 증명서만 빠르게 읽음 · "
           "회차/복구 전체 검증 유지 · 파일 존재 확인 OK")
 
+
+def t396_staff_first_open_uses_an_exact_issue_cache():
+    """[396] 직원 첫 화면의 확인필요도 정확한 last-good으로 즉시 연다.
+
+    2026-08-23 실측: 오종현 업무센터 자료는 AS 600·정기점검 471·정산 750건인데
+    첫 응답이 64.88초였다. works·settle은 재시작 캐시가 있었지만 issues가 다시
+    관리대장을 열었기 때문이다. 단순히 issues를 캐시 대상에 넣으면 앱 DB 취소,
+    객관완료, ERP 색인이 바뀐 뒤 옛 확인필요를 보여 주므로 네 지문도 같이 잰다.
+    """
+    import inspect
+    import tempfile
+    import webapp.app_server as A
+    from unittest.mock import patch
+
+    for key in ("issues", "staff_records"):
+        assert key in A._DISK_CACHE_KEYS, "직원 첫 화면이 %s 콜드 계산을 기다린다" % key
+    src = inspect.getsource(A._disk_cache_stamp)
+    assert '_app_db_stamp()' in src and '_issue_dependency_stamp()' in src \
+           and '_work_resolution_stamp()' in src, \
+        "확인필요 캐시가 앱 DB·객관완료·ERP 변경을 못 본다"
+    get_staff = inspect.getsource(A.get_staff_records)
+    assert "copy.deepcopy(get_ryu_records())" in get_staff, \
+        "먼저 들어온 담당자의 권한 모양이 공용 캐시에 남는다"
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    submit = html[html.index("async function submitRyuEntry"):
+                  html.index("async function submitRyuUpload")]
+    assert "await loadRyuRecords(true)" not in submit, \
+        "저장은 끝났는데 전체 목록 재계산을 기다리느라 단추가 붙들린다"
+    assert "loadRyuRecords(true).catch" in submit and "d.record" in submit, \
+        "저장 응답을 즉시 안 보여 주거나 전체 재대조가 뒤에서 안 돈다"
+
+    with tempfile.TemporaryDirectory(prefix="t396_") as td:
+        os.makedirs(os.path.join(td, "reports"), exist_ok=True)
+        value = {"rows": [{"ID": "UJ260001", "문제유형": "확인"}], "cols": ["ID"]}
+
+        def save_or_load(key, app_stamp, issue_stamp, *, save=False):
+            with patch.object(A, "ROOT", td), patch.object(A, "DEMO", False), \
+                 patch.object(A, "_master_mtime", return_value=111.0), \
+                 patch.object(A, "_app_db_stamp", return_value=app_stamp), \
+                 patch.object(A, "_work_resolution_stamp", return_value="work-1"), \
+                 patch.object(A, "_issue_dependency_stamp", return_value=issue_stamp):
+                if save:
+                    A._disk_cache_save(key, value)
+                return A._disk_cache_load(key)
+
+        for key in ("issues", "staff_records"):
+            assert save_or_load(key, ("cs", 7, "now"), "truth-1", save=True) == value, \
+                "정확히 같은 %s 사본을 못 읽는다" % key
+            assert save_or_load(key, ("cs", 7, "now"), "truth-2") is None, \
+                "객관완료·ERP 근거가 바뀌었는데 옛 %s를 보여 준다" % key
+            assert save_or_load(key, ("cs", 8, "later"), "truth-1") is None, \
+                "앱 저장 뒤에도 옛 %s를 보여 준다" % key
+    print("[396] 오종현 업무센터 첫 화면 — 확인필요 exact last-good · "
+          "앱 DB·객관완료·ERP 변경 시 즉시 폐기 OK")
+
 def t393_yield_owner_is_readable_and_sessions_are_not_called_wasted():
     """[393] 양보 주인이 **세션·사람**이면 헛양보라 확언하지 않는다.
 
@@ -33053,6 +33108,7 @@ if __name__ == "__main__":
     t393_yield_owner_is_readable_and_sessions_are_not_called_wasted()
     t394_organizer_leaves_archive_alone_and_can_copy()
     t395_status_card_never_rehashes_the_verified_archive()
+    t396_staff_first_open_uses_an_exact_issue_cache()
     t388_hung_start_is_not_normal()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
