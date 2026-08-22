@@ -29,6 +29,7 @@ import sys
 import glob
 import json
 import shutil
+import time
 from datetime import datetime
 
 try:
@@ -279,7 +280,30 @@ def _rows_cache_save():
         pass          # 캐시를 못 남겨도 회차를 세우지 않는다 — 다음에 다시 센다
 
 
-def count_rows(path):
+#: 중간 저장 주기(초) — ★ **끝에 한 번만 저장하면 죽을 때 통째로 잃는다**([388]).
+#: 실측 2026-08-22: 이 단계가 40분 제한에 걸려 SIGKILL(-9) 로 죽는 바람에
+#: `_rows_cache_save()` 가 **한 번도 안 불렸고** 캐시 파일이 아예 없었다 —
+#: 그래서 다음 회차도 처음부터 세고 또 죽는다. **스스로를 재현하는 고장**이다.
+#: 상한은 개수가 아니라 **시간**으로 정한다 — 엑셀 크기가 제각각이라 개수로는
+#: 시간을 못 잡는다([388] 이 밴드 수집기에서 배운 그대로).
+#: ★ 자주 저장해도 잃는 것이 없다 — 이 캐시는 **버려도 안전한 값**이고
+#:   갈아끼우기는 이미 원자적이다(os.replace · [171]).
+_ROWS_SAVE_EVERY_S = 30.0
+_rows_saved_at = 0.0
+_rows_new = 0          # 이번 실행에서 **새로 센** 개수 — 자국에 숫자로 남긴다
+_rows_hit = 0          # 캐시가 답한 개수
+
+
+def _rows_touch():
+    """새로 센 값을 캐시에 넣은 뒤 부른다 — 주기가 되면 디스크에 남긴다."""
+    global _rows_saved_at
+    now = time.time()
+    if now - _rows_saved_at >= _ROWS_SAVE_EVERY_S:
+        _rows_cache_save()
+        _rows_saved_at = now
+
+
+def count_rows(path, st=None):
     """엑셀은 행 수를, 텍스트는 줄 수를 센다 — '넣었는데 비어 있는' 파일을 잡기 위해.
 
     ★ **비싼 읽기는 캐시 검사 뒤에 온다**([168]).  이 함수는 Z:(SMB) 의 엑셀을
@@ -291,15 +315,21 @@ def count_rows(path):
       같이 넣었으니 다음 회차가 숫자로 답한다.
     ★ 못 읽은 것(-1)은 **캐시하지 않는다**([169]) — 그때 한 번 못 읽은 것을
       '이 파일은 비었다'로 굳히면 다시는 안 열어 본다."""
+    global _rows_new, _rows_hit
     ext = os.path.splitext(path)[1].lower()
     try:
-        st = os.stat(path)
+        # ★ 목록에 딸려 온 stat 을 버리지 않는다([198]) — Z: 에서 `os.stat(경로)` 는
+        #   파일당 왕복 한 번(135~155ms)인데 scandir 항목의 stat 은 0.04ms 다.
+        #   부르는 쪽이 안 주면 예전처럼 스스로 묻는다(옛 호출자를 안 깬다).
+        if st is None:
+            st = os.stat(path)
         key = "%s|%d|%d" % (os.path.abspath(path), st.st_size, int(st.st_mtime))
     except OSError:
         return -1
     cache = _rows_cache_load()
     hit = cache.get(key)
     if isinstance(hit, int):
+        _rows_hit += 1
         return hit
     try:
         if ext.startswith(".xls"):
@@ -309,11 +339,15 @@ def count_rows(path):
                     if sum(1 for x in r if x not in (None, "")) >= 3)
             w.close()
             cache[key] = n
+            _rows_new += 1
+            _rows_touch()
             return n
         if ext == ".txt":
             with open(path, encoding="utf-8", errors="replace") as f:
                 n = sum(1 for _ in f)
             cache[key] = n
+            _rows_new += 1
+            _rows_touch()
             return n
     except Exception:
         pass
@@ -393,29 +427,36 @@ def main():
 
     # 정리 결과를 폴더별로 세어 안내문에 남긴다
     rows, empty = [], []
+    from source_index import walk_stat        # 늦게 — 순환 import 를 만들지 않는다
     for d in (ERP_DIR, COUPANG_DIR, KAKAO_DIR, BAND_DIR, RECEIPT_DIR):
         if not os.path.isdir(d):
             continue
         items = []
-        for base, _dirs, files in os.walk(d):
-            for name in sorted(files):
-                p = os.path.join(base, name)
-                n = count_rows(p)
-                items.append((os.path.relpath(p, d), n))
-                if n == 0:
-                    empty.append(f"{os.path.basename(d)}/{os.path.relpath(p, d)}")
+        # ★ 파일마다 Z: 에 다시 묻지 않는다([198]) — 목록이 크기·시각을 같이 준다.
+        #   ⚠ `skip_dirs=()` 는 **일부러 비운 것**이다. 색인의 기본 목록을 말없이
+        #     물려받으면 `_보관`·`_바로가기` 안의 파일이 안내문에서 조용히 빠지고
+        #     '정리 완료'라고 적힌다 — 그 함수 주석이 경고한 바로 그 자리다.
+        for base, name, st in walk_stat(d, skip_dirs=()):
+            p = os.path.join(base, name)
+            n = count_rows(p, st)
+            items.append((os.path.relpath(p, d), n))
+            if n == 0:
+                empty.append(f"{os.path.basename(d)}/{os.path.relpath(p, d)}")
+        items.sort()      # walk_stat 은 순서를 보장하지 않는다 — 사람이 읽는 목록이다
         rows.append((d, items))
     for d in (PO_DIR,):
         if os.path.isdir(d) and d.startswith(ORIGIN_ROOT):
             n = sum(len(f) for _b, _dd, f in os.walk(d))
             rows.append((d, [(f"(하위 폴더 포함 {n}개 파일)", -1)]))
+    empty.sort()
     write_guide(rows)
     _rows_cache_save()
     _t_guide = time_mod.time() - _t0 - _t_plan - _t_copy
     print(f"안내문 갱신: {os.path.basename(GUIDE)}")
     # 이 줄이 다음 회차의 답이다 - 확언 대신 숫자로 말한다.
     print("  구간(초): 목록 %.1f · 복사 %.1f · 안내문(행수 세기) %.1f"
-          % (_t_plan, _t_copy, _t_guide))
+          "  [행수: 캐시 %d · 새로 셈 %d]"
+          % (_t_plan, _t_copy, _t_guide, _rows_hit, _rows_new))
     if empty:
         print(f"\n★ 내용이 비어 있는 파일 {len(empty)}개 — 다시 내보내야 합니다")
         for x in empty:

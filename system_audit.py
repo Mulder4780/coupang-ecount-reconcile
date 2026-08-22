@@ -88,7 +88,17 @@ def _sleep_minutes_since(minutes_ago: float) -> tuple[float | None, str]:
             events.append((int(part[0]), datetime.fromisoformat(part[1])))
         except ValueError:
             continue
-    events.sort(key=lambda x: x[1])
+    # ★ 같은 초에 506·507 이 둘 다 오면 **시각만으로는 순서를 못 정한다**.
+    #   실측 2026-08-22: `12:05:40` 에 507(이탈)·506(진입)이 같이 있고 그 잠의
+    #   이탈은 `15:26:18` 이다. 시각만으로 정렬하면 파이썬 **안정 정렬**이 입력
+    #   순서(내림차순 조회 결과)를 그대로 두어 `506 → 507` 로 짝지어지고
+    #   **그 3시간 20분이 0분**이 된다. 그날 오후 실제 227분을 이 함수는 **0.0**
+    #   이라 답했다 — 그러면 부르는 쪽은 '안 잤다'로 읽고 **예전과 똑같이 P0**
+    #   를 확언한다([169] — 0 을 내는 계기는 아무도 의심하지 않는다).
+    #   위 독스트링이 '못 읽으면 None 이지 0 이 아니다'를 경고해 뒀는데,
+    #   **틀리게 세어 0 이 되는 갈래**는 막지 못했다.
+    #   같은 초면 **이탈(507)이 먼저**다 — 깼다가 곧바로 다시 잔 것이다.
+    events.sort(key=lambda x: (x[1], 0 if x[0] == 507 else 1))
     total = 0.0
     enter = None
     for ident, when in events:

@@ -23115,11 +23115,67 @@ def t381_row_count_is_cached_and_never_freezes_a_miss():
         code = chr(10).join(ln.split("#", 1)[0] for ln in src.splitlines())
         assert "_t_plan" in code and "_t_guide" in code, "구간 자국이 사라졌다"
         assert "_rows_cache_save()" in code, "캐시를 저장하지 않는다 — 다음 회차가 또 센다"
+
+        # (6) ★ **끝까지 못 가도 진도가 남는다** — 이 검사의 핵심이다.
+        #     실측 2026-08-22: `_rows_cache_save()` 가 모든 세기가 끝난 **뒤**에
+        #     한 번만 불리는데 그 단계가 40분 제한에 걸려 SIGKILL(-9) 로 죽으므로
+        #     **영영 안 불렸다** — 캐시 파일이 아예 없었다. 그래서 다음 회차도
+        #     처음부터 세고 또 죽는다. **스스로를 재현하는 고장**이다.
+        #     위 (5) 는 그 자리에 호출이 있는지만 봐서 **통과하면서 아무것도 안 쟀다**.
+        os.remove(CS._ROWS_CACHE)
+        CS._rows_cache = None
+        g = os.path.join(tmp, 'mid.txt')
+        with open(g, 'w', encoding='utf-8', newline='') as fh:
+            fh.write('a' + chr(10))
+        every, at = CS._ROWS_SAVE_EVERY_S, CS._rows_saved_at
+        try:
+            CS._ROWS_SAVE_EVERY_S = 0.0        # '주기가 됐다' 를 흉내낸다
+            CS._rows_saved_at = 0.0
+            CS.count_rows(g)                  # ★ _rows_cache_save() 를 직접 안 부른다
+            assert os.path.exists(CS._ROWS_CACHE), (
+                '새로 센 값이 디스크에 안 남는다 — 회차가 제한시간에 죽으면 '
+                '진도가 통째로 사라지고 다음 회차도 처음부터 센다')
+        finally:
+            CS._ROWS_SAVE_EVERY_S, CS._rows_saved_at = every, at
+
+        # (7) 딸려 받은 stat 을 **쓴다** — 파일마다 Z: 에 다시 묻지 않는다([198]).
+        #     가짜 크기를 주고 캐시 키가 그 값으로 만들어지는지로 잰다
+        #     (`os.stat` 을 목으로 갈면 프로세스 전역이라 뒤따르는 검사를 눈멀게 한다 · [371]).
+        import types as _ty
+        CS.count_rows(g, _ty.SimpleNamespace(st_size=987654, st_mtime=11.0))
+        assert any('|987654|11' in k for k in CS._rows_cache_load()), (
+            '넘겨준 stat 을 버리고 os.stat 을 다시 불렀다 — Z: 에서 파일당 왕복 한 번이다([198])')
+
+        # (8) 구조 — 되돌아가면 안 되는 것만 얼린다([39]).
+        assert 'skip_dirs=()' in code, (
+            '색인의 기본 SKIP_DIRS 를 말없이 물려받는다 — _보관 안의 파일이 '
+            '안내문에서 조용히 빠지면서 정리 완료라고 적힌다')
+        assert 'items.sort()' in code or 'items = sorted(' in code, (
+            'walk_stat 은 순서를 보장하지 않는다 — 사람이 읽는 안내문이 매번 뒤바뀐다')
+
+        # (9) 계기 자기시험([272]) — 중간 저장을 없애면 (6)이 정말 잡히나.
+        os.remove(CS._ROWS_CACHE)
+        CS._rows_cache = None
+        h = os.path.join(tmp, 'probe.txt')
+        with open(h, 'w', encoding='utf-8', newline='') as fh:
+            fh.write('b' + chr(10))
+        touch, every, at = CS._rows_touch, CS._ROWS_SAVE_EVERY_S, CS._rows_saved_at
+        try:
+            CS._rows_touch = lambda: None      # 옛 동작: 끝에서만 저장
+            CS._ROWS_SAVE_EVERY_S = 0.0
+            CS._rows_saved_at = 0.0
+            CS.count_rows(h)
+            assert not os.path.exists(CS._ROWS_CACHE), (
+                '중간 저장을 없앴는데도 캐시가 남았다 — (6)은 아무것도 안 재고 있다')
+        finally:
+            CS._rows_touch = touch
+            CS._ROWS_SAVE_EVERY_S, CS._rows_saved_at = every, at
     finally:
         CS._ROWS_CACHE = real
         CS._rows_cache = None
     assert os.path.exists(real) == had, "검사가 실측 캐시를 건드렸다"
-    print("[381] 행수 세기는 캐시 뒤에 · 못 읽은 것은 안 굳힌다 · 구간 자국 살아 있음")
+    print("[381] 행수 세기는 캐시 뒤에 · **중간에 저장한다**(죽어도 진도가 남는다) · "
+          "딸려 받은 stat 을 쓴다 · 못 읽은 것은 안 굳힌다 · 구간 자국 살아 있음")
 
 
 def t385_watchdog_gap_is_not_stall_when_the_pc_slept():
@@ -23197,7 +23253,82 @@ def t385_watchdog_gap_is_not_stall_when_the_pc_slept():
         "⑦ 잠 갈래가 코드에서 사라졌다 — 이 검사는 아무것도 안 재게 된다")
     assert "_sleep_minutes_since" in code_only, "⑦ 잠을 재는 자리가 없다"
 
-    print("[385] 워치독 공백 — 잠/멈춤/못읽음 갈래 · 겹침 · 계기 자기시험 통과")
+    # ⑧ ★ **같은 초에 506·507 이 둘 다 오면 짝이 어긋난다** (2026-08-22 실사고).
+    #    실측 그날 오후 227분을 잤는데 이 함수는 **0.0** 을 답했다. 0 은 '안 잤다'로
+    #    읽혀 **예전과 똑같이 P0 를 확언한다** — 독스트링이 '못 읽으면 None 이지 0 이
+    #    아니다'를 경고해 뒀는데 **틀리게 세어 0 이 되는 갈래**는 못 막았다([169]).
+    #    ⚠ 조회 결과는 PowerShell 기본대로 **내림차순**으로 온다 — 사고를 그 모양
+    #      그대로 재현한다. 날짜는 못 박지 않는다(now 기준 상대 · [318]).
+    import types as _ty2
+    from datetime import datetime as _dtm, timedelta as _td
+    _now = _dtm.now()
+    t_in = (_now - _td(minutes=300)).replace(microsecond=0)
+    t_out = (_now - _td(minutes=100)).replace(microsecond=0)
+    #    ★ 재료는 **실제 조회 결과 모양** 그대로다 — 최신순이고, 같은 초에서는
+    #      진입(506)이 이탈(507)보다 앞에 온다. 그 순서가 곧 사고의 씨앗이다.
+    내림 = NL.join(['507|' + t_out.isoformat(timespec='seconds'),
+                    '506|' + t_in.isoformat(timespec='seconds'),
+                    '507|' + t_in.isoformat(timespec='seconds')])
+
+    def _fake_pg(out, rc=0, to=False):
+        return _ty2.SimpleNamespace(run_tree=lambda *a, **k: _ty2.SimpleNamespace(
+            stdout=out, returncode=rc, timed_out=to))
+
+    had_pg = sys.modules.get('proc_guard')
+    try:
+        sys.modules['proc_guard'] = _fake_pg(내림)
+        잔, _w = sa._sleep_minutes_since(400)
+        assert 잔 is not None and 195 <= 잔 <= 205, (
+            '⑧ 같은 초의 506/507 짝이 어긋나 잠을 %r 분이라 한다(200분이어야 한다) — '
+            '0 을 내는 계기는 아무도 의심하지 않는다' % (잔,))
+
+        # ⑩ 못 재면 **0 이 아니라 None** 이다([169]).
+        sys.modules['proc_guard'] = _fake_pg('', rc=1)
+        잔2, 왜2 = sa._sleep_minutes_since(400)
+        assert 잔2 is None and 왜2, '⑩ 못 쟀는데 0 을 줬다 — 안 잤다로 읽힌다'
+    finally:
+        if had_pg is None:
+            sys.modules.pop('proc_guard', None)
+        else:
+            sys.modules['proc_guard'] = had_pg
+
+    # ⑪ 계기 자기시험([272]) — 이 재료가 **옛 방식이면 정말 0** 이 되나.
+    #    안 그러면 ⑧은 통과하면서 아무것도 안 재는 것이다.
+    파싱 = []
+    for _ln in 내림.splitlines():
+        _a, _b = _ln.split('|')
+        파싱.append((int(_a), _dtm.fromisoformat(_b)))
+    옛 = sorted(파싱, key=lambda x: x[1])        # 시각만으로 · 파이썬 안정 정렬
+    총, 든때 = 0.0, None
+    for _i, _w in 옛:
+        if _i == 506:
+            든때 = _w
+        elif _i == 507 and 든때 is not None:
+            총 += (_w - 든때).total_seconds() / 60.0
+            든때 = None
+    assert 총 < 1.0, ('⑪ 이 재료는 옛 방식으로도 잠을 세므로 ⑧이 아무것도 안 잰다: %.1f분' % 총)
+
+    # ⑨ 회차 [안돎] 도 그 사실을 덧붙인다 — **갈래는 안 바꾼다**([300] 을 안 되풀이한다).
+    #    실측 2026-08-22: 정오회차가 12:05:43 에 떠서 종료됐고 절전 진입이 12:05:40 이다.
+    #    '예정이 지났는데 안 돌았다'만 말하면 조치가 코드를 뒤지는 것이 된다([172]).
+    import schedule_watch as _SW
+    real_ss = sa._sleep_minutes_since
+    try:
+        sa._sleep_minutes_since = lambda m: (183.0, '')
+        note = _SW._slept_note(_now - _td(minutes=600), _now)
+        assert '183' in note and '잤다' in note, '⑨ 잠을 잰 것을 안 적는다: %r' % (note,)
+        assert '안돎' not in note and '갈래' not in note, '⑨ 갈래를 바꾸려 든다'
+        sa._sleep_minutes_since = lambda m: (None, '못 읽었다')
+        assert _SW._slept_note(_now - _td(minutes=600), _now) == '', (
+            '⑨ 못 쟀는데 무언가를 확언한다 — 모름을 사실처럼 적으면 안 된다([169])')
+        sa._sleep_minutes_since = lambda m: (0.0, '')
+        assert _SW._slept_note(_now - _td(minutes=600), _now) == '', (
+            '⑨ 안 잤는데도 잠 이야기를 적는다 — 정상까지 말하면 아무도 안 읽는다([170])')
+    finally:
+        sa._sleep_minutes_since = real_ss
+
+    print("[385] 워치독 공백 — 잠/멈춤/못읽음 갈래 · 겹침 · **같은 초 짝짓기** · "
+          "회차 [안돎] 에도 사실을 덧붙임(갈래는 그대로) · 계기 자기시험 통과")
 
 def t388_hung_start_is_not_normal():
     """[388] `start` 로 매달린 수집을 '정상'이라 하지 않는다 (2026-08-22 실사고).
