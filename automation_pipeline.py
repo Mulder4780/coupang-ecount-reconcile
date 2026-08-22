@@ -1115,7 +1115,12 @@ def status(
     try:
         import archive_worker
 
-        excel = archive_worker.status(root=root, store=store_obj)
+        # 상태 카드는 이미 전체 검증을 통과해 승격된 last-good 증명서만 읽는다.
+        # 여기서 보관본 전체를 다시 해시하면 매 화면마다 8~9초가 걸린다. 실제 회차와
+        # 복구 도구는 archive_worker.status 기본값(True)으로 계속 전체 검증한다.
+        excel = archive_worker.status(
+            root=root, store=store_obj, verify_last_good=False,
+        )
     except Exception as exc:
         last = app.get("last_export") or {}
         excel = {

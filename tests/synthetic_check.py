@@ -23410,6 +23410,162 @@ def t388_hung_start_is_not_normal():
 
 
 
+
+def t394_organizer_leaves_archive_alone_and_can_copy():
+    """[394] 원본정리가 남의 정본 자리를 헐지 않고, 복사로도 이사할 수 있다.
+
+    실측 2026-08-22: 이동 대상 95,052개 중 **95,046개**가
+    `4. 밴드 원본/게시글보관/<밴드이름>/YYYY/MM/` 의 게시글이었고, 전부
+    `수집본/2026/08/2026-08-22/` **한 폴더**로 갈 참이었다. 파일 이름의
+    `[3517]_2026-07-08_…` 를 `_file_day` 가 못 읽어 수정시각(=오늘)으로 떨어지기
+    때문이다. 그 폴더는 `band/archive_posts.py` 가 만들고 `source_index` 가
+    `밴드 게시글(보관)` 갈래로 인정하는 자리라, 옮기는 순간 그 갈래가 0건이 된다
+    (2026-08-05 에 같은 모양으로 한 번 겪었다).
+
+    ★ 좁히는 것도 고장이다([172]) — 문서사진·수집본 갈래는 그대로 돌아야 한다.
+    ★ `--copy` 는 사용자 지시(2026-08-22)다: "복사해서 이사, 기존 원본은 변경하지 말고".
+    ⚠ 실측 증거(Z:)는 한 글자도 안 건드린다 — 임시 폴더로만 잰다([247]).
+    """
+    import io
+    import shutil as _sh
+    import tempfile as _tf
+    import source_organizer as so
+
+    root = _tf.mkdtemp(prefix="t394_")
+    band = os.path.join(root, "4. 밴드 원본")
+
+    def put(rel, text="x"):
+        p = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with io.open(p, "w", encoding="utf-8") as f:
+            f.write(text)
+        return p
+
+    # ① 게시글보관 — 게시일로 이미 정리된 자리(남이 관리한다)
+    keep = put(os.path.join("4. 밴드 원본", "게시글보관", "매출처업무",
+                            "2026", "07", "[3517]_2026-07-08_UJ2601205_계단.pdf"))
+    keep2 = put(os.path.join("4. 밴드 원본", "게시글보관", "매출처업무",
+                             "2026", "07", "[3517]_2026-07-08_UJ2601205_계단.txt"), "y")
+    # ② 문서사진 — 날짜 폴더 밖이라 정리 대상이 맞다
+    photo = put(os.path.join("4. 밴드 원본", "문서사진", "날짜미상", "band_1.jpg"), "p")
+    # ③ 브라우저덤프 — 수집본으로 가는 것이 설계다(밴드 JSON)
+    dump = put(os.path.join("4. 밴드 원본", "브라우저덤프", "2026-08-05",
+                            "dump_202608051447_90610953.json"), "d")
+    # 덤프는 파일 이름이 아니라 **수정시각**으로 날짜가 정해진다(`_file_day` 는
+    # `dump_202608051447_…` 의 숫자를 안 읽는다) — 그러니 그 계약을 그대로 잰다.
+    import datetime as _dt, time as _tm
+    _ts = _tm.mktime(_dt.datetime(2026, 8, 5, 14, 47).timetuple())
+    os.utime(dump, (_ts, _ts))
+
+    so._MTIME.clear()
+    so.start_clock(600)
+    try:
+        moves = so.planned_moves(root)
+    finally:
+        so.start_clock(None)
+
+    srcs = {os.path.normcase(m.src) for m in moves}
+
+    # ① 게시글보관은 한 건도 안 담긴다
+    for p in (keep, keep2):
+        assert os.path.normcase(p) not in srcs, (
+            "[394] 게시글보관을 옮기려 한다: %s — 게시일별 정리를 헐어 하루에 쏟고 "
+            "source_index 의 '밴드 게시글(보관)' 갈래가 0건이 된다" % p)
+
+    # ② 좁히는 것도 고장이다 — 다른 갈래는 그대로 담긴다
+    assert os.path.normcase(photo) in srcs, "[394] 문서사진 정리가 같이 죽었다"
+    assert os.path.normcase(dump) in srcs, "[394] 브라우저덤프 정리가 같이 죽었다"
+
+    # ③ 덤프는 **받은 날**이 보존된다 — 오늘 폴더로 뭉개지면 수집일을 잃는다
+    dmove = [m for m in moves if os.path.normcase(m.src) == os.path.normcase(dump)][0]
+    assert "2026-08-05" in dmove.dst, (
+        "[394] 덤프가 오늘 폴더로 간다: %s — 수집일이 뭉개진다" % dmove.dst)
+
+    # ④ --copy 는 원본을 그대로 두고 사본만 만든다(사용자 지시)
+    done, errs = so.apply_moves([dmove], root=root, copy=True)
+    assert not errs, "[394] 복사 실패: %s" % (errs[:2],)
+    assert os.path.isfile(dump), "[394] 복사인데 원본이 사라졌다 — 지시를 어긴다"
+    assert os.path.isfile(dmove.dst), "[394] 사본이 안 만들어졌다"
+
+    # ⑤ 복사는 빈 폴더를 지우지 않는다(지우는 손을 아예 안 댄다)
+    assert os.path.isdir(os.path.dirname(dump)), "[394] 복사인데 폴더를 지웠다"
+
+    # ⑥ 기본값은 예전 그대로 이동이다 — 회차 동작을 말없이 바꾸지 않는다
+    photo_move = [m for m in moves if os.path.normcase(m.src) == os.path.normcase(photo)][0]
+    so.apply_moves([photo_move], root=root)
+    assert not os.path.isfile(photo), "[394] 기본값이 복사로 바뀌었다 — 회차마다 파일이 두 배가 된다"
+    assert os.path.isfile(photo_move.dst), "[394] 이동이 안 됐다"
+
+    # ⑦ 계기 자기시험([272]) — 게시글보관 문을 없애면 ①이 정말 잡히나
+    code = io.open(os.path.join(ROOT, "source_organizer.py"),
+                   encoding="utf-8", newline="").read().replace("\r\n", "\n")
+    broken = code.replace('            elif rel[0] == "게시글보관":', "            elif False:", 1)
+    assert broken != code, "[394] 자기시험 앵커를 못 찾았다 — 이 검사는 아무것도 안 잰다"
+    # ⚠ `@dataclass` 는 `sys.modules[모듈이름]` 을 찾는다 — 그냥 exec 하면 거기서
+    #    죽고, **그 죽음이 '고장을 잡았다'로 오인된다**([371]). 모듈로 올려서 돌리고
+    #    **반드시 되돌린다**(공유 모듈표는 프로세스 전체가 함께 쓴다).
+    import types as _ty
+    _mod = _ty.ModuleType("so_broken")
+    _mod.__file__ = os.path.join(ROOT, "source_organizer.py")
+    sys.modules["so_broken"] = _mod
+    try:
+        exec(compile(broken, _mod.__file__, "exec"), _mod.__dict__)
+        _mod._MTIME.clear()
+        _mod.start_clock(600)
+        try:
+            bad = _mod.planned_moves(root)
+        finally:
+            _mod.start_clock(None)
+    finally:
+        sys.modules.pop("so_broken", None)
+    bad_srcs = {os.path.normcase(m.src) for m in bad}
+    assert os.path.normcase(keep2) in bad_srcs, (
+        "[394] 문을 없앴는데도 게시글보관이 안 잡힌다 — 이 검사는 아무것도 안 재고 있다")
+
+    so._MTIME.clear()
+    _sh.rmtree(root, ignore_errors=True)
+    print("[394] 원본정리가 게시글보관을 안 헐고 복사 이사도 된다 "
+          "(계획 %d건 · 자기시험 잡음)" % len(moves))
+
+
+def t395_status_card_never_rehashes_the_verified_archive():
+    """[395] 담당자 화면 상태 카드는 이미 검증된 보관본 전체를 다시 해시하지 않는다."""
+    import inspect
+    import tempfile
+    from pathlib import Path
+    import archive_worker as AW
+    import automation_pipeline as AP
+    from app_store import AppStore
+
+    assert inspect.signature(AW.status).parameters["verify_last_good"].default is True, (
+        "회차·복구 도구의 전체 검증 기본값을 풀었다")
+    assert inspect.signature(AW.ArchiveWorker.status).parameters[
+        "verify_last_good"
+    ].default is True, "워커의 전체 검증 기본값을 풀었다"
+
+    seen = []
+    real = AW.status
+    try:
+        AW.status = lambda **kw: (
+            seen.append(kw.get("verify_last_good")),
+            {"status": "verified", "last_good_at": "2026-08-22T00:00:00+09:00",
+             "snapshot_seq": 1, "path": "archive.xlsx", "error": ""},
+        )[1]
+        with tempfile.TemporaryDirectory(prefix="t395_") as td:
+            root = Path(td)
+            store = AppStore(root / "db" / "app_store.db").initialize()
+            out = AP.status(root=root, state_path=root / "state.json", store=store)
+        assert out["excel"]["status"] == "verified", out
+    finally:
+        AW.status = real
+    assert seen == [False], (
+        "화면 상태 조회가 보관본 전체 해시를 다시 켰다: %r" % (seen,))
+    src = inspect.getsource(AW.ArchiveWorker.status)
+    assert "archive_path" in src and "manifest_path" in src and "is_file()" in src, (
+        "빠른 상태 조회가 증명서가 가리키는 실제 파일 존재조차 확인하지 않는다")
+    print("[395] 자동화 상태 카드 — 검증 증명서만 빠르게 읽음 · "
+          "회차/복구 전체 검증 유지 · 파일 존재 확인 OK")
+
 def t393_yield_owner_is_readable_and_sessions_are_not_called_wasted():
     """[393] 양보 주인이 **세션·사람**이면 헛양보라 확언하지 않는다.
 
@@ -27931,7 +28087,7 @@ def t278_calendar_current_month_detail_previous_summary_only():
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     cap = live.split("async function calendarCapture(", 1)[1].split("\nasync function ", 1)[0]
     for token in (
-        "const prevRows=calReportRowsExclusive(calendarRows().filter(e=>calMonthOf(e.날짜)===prevMonth",
+        "const prevRows=calendarRows().filter(e=>calMonthOf(e.날짜)===prevMonth",
         "const curPmByKind=new Map", "pmGroups=makeGroups(['pm_done','pm_plan','pm_overdue'],curPmByKind)",
         "const drawPreviousSummary=", "전월 ${prevY}년 ${prevM}월 요약",
         "현재 월만 상세 표시", "drawPreviousSummary(page2)",
@@ -28021,10 +28177,11 @@ def t281_calendar_done_plan_exclusive_and_full_a4_width():
 
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     cap = live.split("async function calendarCapture(", 1)[1].split("\nasync function ", 1)[0]
-    for token in ("calReportRowsExclusive", "done=>done>=plan",
-                  "const rows = calReportRowsExclusive(capWithoutPrediction)",
+    for token in ("const rows = capWithoutPrediction",
                   "Mg = Math.round(W / 21)", "for(let cols=1;cols<=maxCols;cols++)"):
         assert token in cap, "캘린더 캡처 완료중복·1cm·폭 채움 규칙이 빠졌다: " + token
+    for duplicate in ("calReportRowsExclusive", "done=>done>=plan", "pmReportUnit=e=>"):
+        assert duplicate not in cap, "캡처가 서버 완료·미처리 판정을 다시 계산한다: " + duplicate
     assert "detailLayout(groups,top,bottom,cols,fz)" in cap, (
         "상세 목록이 실제 선택한 단 수로 남은 폭을 나누지 않는다")
     print("[281] 완료된 예정 제외 · 다음 회차 보존 · A4 좌우 1cm · 가변 단으로 19cm 폭 채움 OK")
@@ -30613,11 +30770,10 @@ def t318_past_pm_plan_is_not_a_plan():
     ★ **조용히 지우지 않는다**([169]) - 미처리에 짝이 있으면 예정만 내리고, 짝이 없으면
       **미처리로 옮긴다.** 그냥 지우면 그 현장은 아무도 안 가는데 목록에도 없다.
     ★ **예측(pm_pred)은 안 건드린다**([172]) - 예측이 빗나간 것은 미처리가 아니다.
-    ★ **관문이 둘이다**(서버·화면). 화면 쪽은 낡은 응답·오프라인 사본이 대표 보고로 들어오는
-      길이라 같은 판단을 한 번 더 한다([281] 이 세운 구조 그대로). **둘 다** 잰다.
+    ★ **관문은 서버 하나다**([162]). 대표 캡처는 저장 직전에 서버 검증 캘린더를 다시 받고,
+      화면은 그 판정을 그대로 싣는다. 폰 사본은 이 캡처를 못 한다고 명시한다([294]).
     """
-    import io as _io, json as _json, shutil, subprocess
-    import proc_guard
+    import io as _io
     from webapp import app_server as S
 
     오늘 = "2026-08-19"
@@ -30657,37 +30813,18 @@ def t318_past_pm_plan_is_not_a_plan():
     src = inspect.getsource(S._drop_served_pm_plans)
     assert "if plan and plan < today:" in src, "지난 예정 문이 사라졌다"
 
-    # ── 화면 쪽 관문도 **실행해서** 잰다([295]) ──────────────────────
-    node = shutil.which("node")
-    if not node:
-        print("[318] 지난 예정 - node 가 없어 화면 검사는 건너뜀(서버만) OK")
-        return
+    # 화면은 판정하지 않고 서버가 방금 준 캘린더를 그대로 싣는다([162]).
+    # 오프라인 폰 사본은 대표 캡처를 지원하지 않는다고 명시하므로 낡은 값을 재판정할
+    # 두 번째 관문이 필요하지 않다([294]).
     live = _io.open(os.path.join(ROOT, "webapp", "index.html"),
                     encoding="utf-8", newline="").read()
-    블록 = live[live.index("  const pmReportUnit=e=>{"):
-                live.index("  const capAll = calendarRows()")]
-    assert "overdueUnits" in 블록, "화면 관문에 지난 예정 규칙이 없다"
-    준비 = ("function calKindOf(e){ return String((e&&e.분류)||'etc'); }\n"
-            "function calCampOf(e){ return (e&&e.캠프명)||''; }\n"
-            "function todayISO(){ return '%s'; }\n" % 오늘)
-    본 = ("const src=" + _json.dumps(rows, ensure_ascii=False) + ";\n"
-          "const out=calReportRowsExclusive(src);\n"
-          "console.log(JSON.stringify(out.map(r=>[r.분류,r.프로젝트NO,r.경과일||0])));")
-    js = 준비 + 블록.replace("const ", "var ") +본
-    pr = subprocess.Popen([node, "-e", js], stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, **proc_guard.background_popen_kwargs())
-    out = pr.communicate(timeout=90)[0].decode("utf-8", "replace").strip()
-    assert out, "node 가 아무 답도 안 줬다"
-    got = _json.loads(out.splitlines()[-1])
-    화면예정 = {p for k, p, _e in got if k == "pm_plan"}
-    assert 화면예정 == {"UJ2601500"}, "화면 관문이 지난 예정을 예정에 남겼다: %r" % 화면예정
-    화면옮김 = [(p, e) for k, p, e in got if k == "pm_overdue" and p == "UJ2601999"]
-    assert 화면옮김 == [("UJ2601999", 14)], "화면 관문이 짝 없는 지난 예정을 잃었다: %r" % got
-    assert sum(1 for k, p, _e in got if k == "pm_overdue" and p == "UJ2601431") == 1, (
-        "화면 관문에서 같은 현장이 미처리에 두 번 있다")
+    cap = live.split("async function calendarCapture(", 1)[1].split("\nasync function ", 1)[0]
+    assert "const rows = capWithoutPrediction" in cap, "캡처가 서버 캘린더를 그대로 쓰지 않는다"
+    for duplicate in ("calReportRowsExclusive", "pmReportUnit=e=>", "overdueUnits"):
+        assert duplicate not in cap, "화면에 완료·미처리 두 번째 판정이 남았다: " + duplicate
 
-    print("[318] 지난 정기점검 예정 - 예정에 안 남고 · 겹치면 하나만 · "
-          "짝 없으면 미처리로 옮기고 · 예측은 그대로 (서버·화면 둘 다) OK")
+    print("[318] 지난 정기점검 예정 - 서버 한 곳에서 판정 · 화면은 그대로 표시 · "
+          "겹치면 하나만 · 짝 없으면 미처리로 이동 · 예측은 그대로 OK")
 
 
 
@@ -32900,6 +33037,8 @@ if __name__ == "__main__":
     t391_app_db_stamp_is_audit_seq_not_wal_mtime()
     t392_staff_screen_never_calls_admin_only_apis()
     t393_yield_owner_is_readable_and_sessions_are_not_called_wasted()
+    t394_organizer_leaves_archive_alone_and_can_copy()
+    t395_status_card_never_rehashes_the_verified_archive()
     t388_hung_start_is_not_normal()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

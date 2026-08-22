@@ -16910,7 +16910,7 @@ async function calendarCapture(opt){
   const qStart = new Date(Y, q0, 1), qEnd = new Date(Y, q0 + 3, 0);
   const qIso0 = `${Y}-${String(q0 + 1).padStart(2,'0')}-01`;
   const qIso1 = `${Y}-${String(q0 + 3).padStart(2,'0')}-${String(qEnd.getDate()).padStart(2,'0')}`;
-  const allCap = calReportRowsExclusive(calEvents().filter(e => calKindOf(e) !== 'pm_pred'));
+  const allCap = calEvents().filter(e => calKindOf(e) !== 'pm_pred');
   const qPm = allCap.filter(e => ['pm_done','pm_plan','pm_overdue'].includes(calKindOf(e))
     && String(e.날짜) >= qIso0 && String(e.날짜) <= qIso1);
   const unit = e => String(e.원천업무ID || e.프로젝트NO || `${e.날짜}|${calCampOf(e)}`);

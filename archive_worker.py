@@ -1766,7 +1766,7 @@ class ArchiveWorker:
                 setattr(exc, "archive_worker_status", payload)
                 raise
 
-    def status(self) -> Dict[str, Any]:
+    def status(self, *, verify_last_good: bool = True) -> Dict[str, Any]:
         try:
             worker = json.loads(self.status_path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
@@ -1778,7 +1778,18 @@ class ArchiveWorker:
         last_good: Optional[Mapping[str, Any]] = None
         last_good_error = ""
         try:
-            last_good = self.exporter.last_good(verify=True)
+            # 앱의 상태 카드가 열릴 때마다 수십 MB 보관본을 다시 해시하면 화면 한 장이
+            # 8~9초 멈춘다(2026-08-22 실측). last-good.json 자체가 **전체 검증을 통과한
+            # 뒤에만** 승격되는 증명서이므로, 대화형 조회는 그 증명서를 읽고 파일 존재만
+            # 확인한다. 실제 회차·복구 검사는 기본값(True) 그대로 전체 검증한다.
+            last_good = self.exporter.last_good(verify=verify_last_good)
+            if last_good and not verify_last_good:
+                for field in ("archive_path", "manifest_path"):
+                    raw = str(last_good.get(field) or "")
+                    if not raw or not Path(raw).is_file():
+                        raise ArchiveVerificationError(
+                            f"last-good {field} file missing"
+                        )
         except Exception as exc:
             last_good_error = f"{type(exc).__name__}: {exc}"[:1_000]
         store_status = self.store.status()
@@ -1794,6 +1805,7 @@ class ArchiveWorker:
             "last_good": last_good,
             "last_good_error": last_good_error,
             "archive_current": current,
+            "verification_mode": "full" if verify_last_good else "verified-pointer",
             "spool_dir": str(self.spool_dir),
             "external_write_performed": False,
         }
@@ -1886,6 +1898,7 @@ def status(
     store: Optional[AppStore] = None,
     db_path: Optional[os.PathLike[str] | str] = None,
     spool_dir: Optional[os.PathLike[str] | str] = None,
+    verify_last_good: bool = True,
 ) -> Dict[str, Any]:
     """Return the compact archive status contract consumed by the app.
 
@@ -1903,7 +1916,7 @@ def status(
         else:
             store = default_store().initialize()
     worker = ArchiveWorker(store, spool_dir)
-    raw = worker.status()
+    raw = worker.status(verify_last_good=verify_last_good)
     last_good = dict(raw.get("last_good") or {})
     worker_state = dict(raw.get("worker") or {})
     error = str(raw.get("last_good_error") or worker_state.get("error") or "")
@@ -1929,6 +1942,7 @@ def status(
         "error": error,
         "archive_current": bool(raw.get("archive_current")),
         "worker_state": worker_state.get("state") or "idle",
+        "verification_mode": raw.get("verification_mode") or "full",
         "external_write_performed": False,
     }
 
