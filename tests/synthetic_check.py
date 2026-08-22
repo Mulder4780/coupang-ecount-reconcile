@@ -31622,6 +31622,37 @@ def t324_source_tidy_names_the_culprit_step():
                 "자국을 안 남겨도 통과했다 — 이 검사는 아무것도 안 재고 있다")
         finally:
             S._leave_trace = 빌린
+
+        # ⑥ 범인은 **순서가 아니라 걸린 시간**으로 고른다([172]·[162])
+        #    실측 2026-08-22: 40분 먹은 `원본 모으기` 가 범인으로 적히고
+        #    **313분(5.2시간) 먹은 `원본 폴더 정리`** 는 '그 밖 1단계'로 묻혔다.
+        #    인계도 콘솔도 40분짜리를 지목하니 사람은 엉뚱한 단계를 고치러 간다.
+        느림 = [{'단계': '원본 모으기', '분': 40.0, '왜': '제한시간(40분)을 넘겨 끊겼다',
+                 '시간초과': True, '코드': -9},
+                {'단계': '원본 폴더 정리', '분': 313.1, '왜': '제한시간(40분)을 넘겨 끊겼다',
+                 '시간초과': True, '코드': -9}]
+        assert S._worst(느림)['단계'] == '원본 폴더 정리', (
+            '범인을 순서로 고른다: %s' % S._worst(느림))
+        S._leave_trace(느림, 느림)
+        자국2 = _json.load(open(S.CRASH, encoding='utf-8'))
+        assert 자국2['무엇'].startswith('원본 폴더 정리'), (
+            '자국이 오래 걸린 단계를 앞세우지 않는다: %s' % 자국2['무엇'])
+        # ★ 묻힌 단계를 숫자로만 세지 않는다 — 몇 분씩 먹었는지가 다음에 볼 자리다([169])
+        assert '40분' in 자국2['무엇'], (
+            '그 밖 단계의 시간을 안 적는다: %s' % 자국2['무엇'])
+        # ★ 시간 칸이 없어도 죽지 않는다 — 못 읽은 것을 '제일 오래'로 올리지도 않는다
+        assert S._worst([]) is None and S._worst([{'단계': 'x'}])['단계'] == 'x'
+
+        # ⑦ 계기 자기시험([272]) — 옛 동작(순서)을 넣으면 ⑥이 정말 잡히나
+        빌린W = S._worst
+        S._worst = lambda rows: (list(rows) or [None])[0]
+        try:
+            S._leave_trace(느림, 느림)
+            자국3 = _json.load(open(S.CRASH, encoding='utf-8'))
+            assert 자국3['무엇'].startswith('원본 모으기'), (
+                '옛 동작을 넣었는데 자국이 안 바뀐다 — 이 검사는 아무것도 안 재고 있다')
+        finally:
+            S._worst = 빌린W
     finally:
         S.REPORT_DIR, S.LOG, S.CRASH, S.PROGRESS, proc_guard.run_tree = 원
         shutil.rmtree(tmp, ignore_errors=True)
@@ -31637,8 +31668,9 @@ def t324_source_tidy_names_the_culprit_step():
         assert 옛 not in 본문, "bat 이 아직 %s 를 직접 부른다 — 단계 제한이 없어진다" % 옛
     assert "exit /b" in 본문, "종료코드를 안 돌려준다 — 죽은 회차가 성공으로 적힌다([248])"
 
-    print("  [324] 원본 정리 회차 — 단계마다 제한 · 범인을 이름으로 댐 · "
-          "죽어도 다음 단계 · 시간초과를 글자로 짐작 안 함 (실행으로 잼) OK")
+    print("  [324] 원본 정리 회차 — 단계마다 제한 · **가장 오래 걸린** 범인을 "
+          "이름으로 댐 · 죽어도 다음 단계 · 시간초과를 글자로 짐작 안 함 "
+          "(실행으로 잼) OK")
 
 
 def t326_the_master_roster_wins_but_never_erases():

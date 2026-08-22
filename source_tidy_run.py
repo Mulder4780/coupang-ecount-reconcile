@@ -101,9 +101,26 @@ def _kind(text):
         return ""                 # 모르면 '모름' — 지어내지 않는다(`[169]`)
 
 
+def _worst(rows):
+    """가장 오래 걸린 것을 고른다 — 회차를 실제로 잡아먹은 단계다.
+
+    ★ 예전에는 `fails[0]`, 곧 **순서**로 골랐다. 실측 2026-08-22 회차에서
+      40분 먹은 `원본 모으기` 가 범인이 되고 **313분(5.2시간) 먹은
+      `원본 폴더 정리`** 는 '그 밖 1단계'로 묻혔다. 인계도 콘솔도 40분짜리를
+      지목하니 사람은 **엉뚱한 단계를 고치러 간다**(`[172]`) — 실제로 그랬다.
+    ★ 같은 회차를 놓고 `_note` 의 `가장오래`(시간 순)와 자국·콘솔(순서)이
+      **서로 다른 답**을 하고 있었다. 판정은 한 곳이다(`[162]`).
+    ⚠ 시간을 못 읽는 칸은 0 으로 본다 — 못 읽은 것을 '제일 오래'로 올리면
+      그것이 또 하나의 틀린 지목이다(`[169]`).
+    """
+    if not rows:
+        return None
+    return sorted(rows, key=lambda d: -(d.get("분") or 0))[0]
+
+
 def _leave_trace(fails, done):
     """왜 죽었는지 남긴다. `schedule_watch.traces()` 가 `*_오류.json` 을 글로브로 모은다."""
-    첫 = fails[0]
+    첫 = _worst(fails) or fails[0]
     # ★ **아는 것을 짐작으로 덮지 않는다.** 제한시간에 끊긴 것은 `timed_out` 이 이미
     #   말해 준다 — 그런데 자취 글자를 분류기에 물으면 엉뚱한 갈래가 나온다(실측:
     #   시간초과인데 `code` 로 나와 조치가 *"코드가 깨졌다"* 였다). 조치는 갈래마다
@@ -111,7 +128,12 @@ def _leave_trace(fails, done):
     kind = "timeout" if 첫.get("시간초과") else _kind(첫.get("자취"))
     무엇 = "%s 단계가 %s (%.0f분)" % (첫["단계"], 첫["왜"], 첫["분"])
     if len(fails) > 1:
-        무엇 += " · 그 밖 %d단계도 실패" % (len(fails) - 1)
+        # ★ 나머지를 숫자로만 세지 않는다 — 몇 분씩 먹었는지가 다음에 볼 자리다([169]).
+        나머지 = [d for d in fails if d is not 첫]
+        무엇 += " · 그 밖 %d단계도 실패(%s)" % (
+            len(나머지),
+            " · ".join("%s %.0f분" % (d.get("단계"), d.get("분") or 0)
+                       for d in 나머지[:3]))
     try:
         os.makedirs(REPORT_DIR, exist_ok=True)
         with open(CRASH, "w", encoding="utf-8") as fh:
@@ -157,20 +179,28 @@ def main():
             _log("   ─ %s 출력 ─\n%s" % (이름, out.rstrip()))
         if r.timed_out:
             왜 = "제한시간(%d분)을 넘겨 끊겼다" % (STEP_TIMEOUT_S // 60)
+            # ★ 죽였는데도 안 끝난 pid 를 버리지 않는다(`[175]` 가 시킨 그것).
+            #   실측 2026-08-22: 제한이 40분인데 이 단계가 **313분**을 먹었다.
+            #   `run_tree` 는 40분+50초에 반드시 돌아오게 돼 있으므로 그 273분이
+            #   어디로 갔는지가 다음에 물어야 할 것인데, 그 근거를 여기서 버리고
+            #   있었다 — 그러면 다음에도 "왜 313분인지 모른다"로 끝난다(`[169]`).
+            if getattr(r, "stuck_pid", 0):
+                왜 += " · 죽인 뒤에도 안 끝난 pid %s" % r.stuck_pid
         elif r.returncode != 0:
             왜 = "0 이 아닌 값으로 끝났다(코드 %s)" % r.returncode
         else:
             왜 = ""
         _log("◀ %d/%d %s %s · %.1f분" % (i, len(STEPS), 이름, 왜 or "완료", 분))
         칸 = {"단계": 이름, "분": round(분, 1), "왜": 왜, "코드": r.returncode,
-             "시간초과": bool(r.timed_out)}
+             "시간초과": bool(r.timed_out),
+             "안죽은pid": getattr(r, "stuck_pid", 0) or 0}
         done.append(칸)
         if 왜:
             칸["자취"] = out[-4000:]
             fails.append(칸)
             # ★ 다음 단계로 간다(`[175]`) — 하나를 살리자고 회차 전체를 세우지 않는다.
 
-    느린 = sorted(done, key=lambda d: -d["분"])[:1]
+    느린 = [x for x in (_worst(done),) if x]     # 정렬 규칙은 한 곳이다([162])
     _note({"시각": datetime.now().isoformat(timespec="seconds"),
            "지금단계": "(회차 끝)", "상태": "실패" if fails else "완주",
            "끝낸단계": [d["단계"] for d in done], "단계별": done,
@@ -185,7 +215,7 @@ def main():
         느린[0]["단계"] if 느린 else "?", 느린[0]["분"] if 느린 else "?"))
     _say("원본 자료 정리 %s — %d단계 · %.1f분%s" % (
         "실패" if fails else "완주", len(done), (time.time() - 시작) / 60.0,
-        (" · 범인 %s" % fails[0]["단계"]) if fails else ""))
+        (" · 범인 %s" % (_worst(fails) or fails[0])["단계"]) if fails else ""))
     return 1 if fails else 0
 
 
