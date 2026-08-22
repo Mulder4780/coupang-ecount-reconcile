@@ -31568,11 +31568,13 @@ def t324_source_tidy_names_the_culprit_step():
     S.REPORT_DIR, S.LOG = tmp, os.path.join(tmp, "log.txt")
     S.CRASH = os.path.join(tmp, "원본정리_오류.json")
     S.PROGRESS = os.path.join(tmp, "진행.json")
-    호출 = []
+    호출, 호출env = [], []
 
     def 가짜(결과):
         def run_tree(cmd, cwd=None, timeout=600, **kw):
             호출.append((os.path.basename(cmd[1]), timeout))
+            호출env.append((os.path.basename(cmd[1]),
+                          (kw.get("env") or {}).get("SOURCE_ORGANIZER_BUDGET_SEC")))
             return 결과.get(os.path.basename(cmd[1]),
                             proc_guard.ProcessResult(returncode=0, stdout="ok"))
         return run_tree
@@ -31593,6 +31595,33 @@ def t324_source_tidy_names_the_culprit_step():
         assert 호출, "단계를 한 번도 안 불렀다"
         assert all(t == S.STEP_TIMEOUT_S for _, t in 호출), (
             "단계마다 제한이 안 걸렸다 — 한 단계가 회차 전체를 먹는다")
+
+        # ⑧ 자식은 **단계 제한보다 짧은 예산**을 받는다 — 그래야 스스로 멈추며
+        #    "이동 N개째 · 훑은 파일 M개" 를 남긴다. 밖에서 죽이면 그 자국이
+        #    통째로 사라진다(실측 2026-08-22: 313분 먹고 로그 한 줄도 없었다).
+        예산 = dict(호출env)
+        준것 = 예산.get("source_organizer.py")
+        assert 준것 and int(준것) < S.STEP_TIMEOUT_S, (
+            "자식 예산이 단계 제한보다 짧지 않다(%s) — 스스로 멈출 기회가 없다" % 준것)
+        # ★ 안 읽는 자식은 안 건드린다 — 없는 손잡이를 지어내지 않는다([169])
+        assert 예산.get("collect_sources.py") is None, (
+            "예산을 안 읽는 자식에게 예산을 넣는다 — 아무 일도 안 일어난다")
+
+        # ⑨ 계기 자기시험([272]) — 예산 주기를 빼면 ⑧이 정말 잡히나
+        호출env.clear()
+        빌린E = S._child_env
+        S._child_env = lambda _s: None
+        try:
+            proc_guard.run_tree = 가짜({})
+            S.main()
+            assert dict(호출env).get("source_organizer.py") is None, (
+                "예산 주기를 뺐는데도 예산이 간다 — 이 검사는 아무것도 안 재고 있다")
+        finally:
+            S._child_env = 빌린E
+        호출.clear()
+        호출env.clear()
+        proc_guard.run_tree = 가짜({})
+        S.main()
 
         # ② 한 단계가 끊기면 **이름을 대고**, 나머지 단계는 계속 돈다([175])
         호출.clear()

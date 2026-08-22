@@ -48,6 +48,28 @@ PROGRESS = os.path.join(REPORT_DIR, ".원본정리_진행.json")
 #   마지막 단계가 잘리면서 자국도 안 써진다(지금 고치려는 그 모양으로 되돌아간다).
 STEP_TIMEOUT_S = int(os.environ.get("COUPANG_TIDY_STEP_S") or 2400)
 
+# ★ 자식에게는 **더 짧은 예산**을 준다 — 그래야 스스로 멈추며 "이동 N개째 ·
+#   훑은 파일 M개" 를 로그에 남긴다. 밖에서 죽이면(SIGKILL) 그 자국이 통째로
+#   사라진다 — 실측 2026-08-22: `원본 폴더 정리` 가 313분을 먹고 죽었는데
+#   로그에 한 줄도 안 남아 **무엇을 하다 죽었는지 알 길이 없었다**(`[169]`).
+# ★ 그 자식의 기본 예산은 7200초(120분)라 단계 제한 2400초(40분)보다 길다 —
+#   즉 **한 번도 안 쓰이는 규칙**이었다. 짧게 줘야 뜻이 생긴다.
+# ⚠ 예산을 읽는 스크립트는 지금 `source_organizer` **하나뿐**이다. 안 읽는
+#   자식에게 넣어 봐야 아무 일도 안 일어난다 — 없는 손잡이를 지어내지 않는다.
+#   다른 자식이 예산을 읽게 되면 여기 표에 한 줄 더한다.
+STEP_BUDGET_MARGIN_S = int(os.environ.get("COUPANG_TIDY_MARGIN_S") or 300)
+CHILD_BUDGET_ENV = {"source_organizer.py": "SOURCE_ORGANIZER_BUDGET_SEC"}
+
+
+def _child_env(스크립트):
+    """그 자식이 예산을 읽으면 단계 제한보다 짧게 줘서 스스로 멈추게 한다."""
+    키 = CHILD_BUDGET_ENV.get(os.path.basename(스크립트))
+    if not 키:
+        return None                     # 안 읽는 자식은 건드리지 않는다
+    env = dict(os.environ)
+    env[키] = str(max(60, STEP_TIMEOUT_S - STEP_BUDGET_MARGIN_S))
+    return env
+
 STEPS = [
     ("업로드함 흡수", "upload_intake.py"),
     ("원본 모으기", "collect_sources.py"),
@@ -171,7 +193,8 @@ def main():
                "회차분": round((time.time() - 시작) / 60.0, 1)})
         _log("▶ %d/%d %s (%s) 시작" % (i, len(STEPS), 이름, 스크립트))
         r = proc_guard.run_tree([sys.executable, os.path.join(ROOT, 스크립트), "--apply"],
-                                cwd=ROOT, timeout=STEP_TIMEOUT_S)
+                                cwd=ROOT, timeout=STEP_TIMEOUT_S,
+                                env=_child_env(스크립트))
         분 = (time.time() - t0) / 60.0
         out = (r.stdout or "") + (("\n" + r.stderr) if r.stderr else "")
         # ★ 출력을 버리지 않는다 — 창을 없앤 회차는 파일에만 남는다(`[248]`·`[289]`).
