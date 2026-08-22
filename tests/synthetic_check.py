@@ -21874,7 +21874,9 @@ def t353_collect_queue_is_one_list_and_never_silently_drops():
         # ★ 미수집 갈래는 **없는 번호**를 준다(gaps·new) — 그래서 죽은 표시가 붙은
         #   105 는 애초에 그 갈래로 안 들어온다. 거르는 문을 재려면 **있는 번호**를
         #   담는 갈래(오염)에 넣어야 한다. 첫 판이 이걸 몰라 ①이 거저 통과했다.
-        RP.plan = lambda b, p, *a, **k: {"new": [110], "gaps": [111]}
+        _seen = {}
+        RP.plan = lambda b, p, *a, **k: (
+            _seen.update(a=a, k=k) or {"new": [110], "gaps": [111]})
         CQ._dirty_nos = lambda b: [105, 200, 201]
         RC.targets = lambda b, p, *a, **k: ([300, 301], "2026-07-21")
         CB.PLAN_PATH = os.path.join(tmp, "cb.json")
@@ -21958,7 +21960,42 @@ def t353_collect_queue_is_one_list_and_never_silently_drops():
         RP.load = keep["load"]; RP.absent_line = keep["absent"]; RC.targets = keep["targets"]; RP.plan = keep["plan"]
         CB.PLAN_PATH = keep["plan_path"]; CQ.QUEUE_PATH = keep["qpath"]
         shutil.rmtree(tmp, ignore_errors=True)
-    print("[353] 수집대기열 — 한 목록 · 거르는 문 · 못읽음을 말함 OK")
+    # ⑧ **새 글 후보를 실제로 물어본다** (2026-08-23 실측 사고).
+    #    `plan()` 의 인자 기본값은 `ahead=0` 이다. 그대로 부르면 위쪽을
+    #    한 칸도 안 보므로 **새 글이 영영 대기열에 안 들어온다** — 그런데
+    #    대기열은 수십 건이라 그럴듯해 보이고 오류도 안 난다([169]).
+    #    실측: 밴드 둘이 8/14·8/19 에 멈춰 있었는데 자동 경로로는 안 풀렸다.
+    assert _seen, "plan 목이 한 번도 안 불렸다 — 이 검사는 아무것도 안 재고 있다"
+    _ah = _seen["k"].get("ahead")
+    if _ah is None and _seen["a"]:
+        _ah = (list(_seen["a"]) + [None, None])[1]   # plan(band, posts, floor, ahead)
+    assert _ah, ("대기열이 plan() 에 ahead 를 안 넘긴다 — "
+                 "새 글 후보가 영영 0 이 된다")
+    # ★ 값을 검사가 지어내지 않는다 — 사람이 정한 값과 같은 자리에서 온다([162]).
+    assert _ah == RP.default_ahead(),         "대기열이 제 손으로 숫자를 지어냈다 — 기본값은 recheck_plan 한 곳이다"
+    assert RP.default_ahead({}) == 40, "설정이 비었을 때 기본값이 0 이 되면 같은 사고다"
+
+    # ⑨ 계기 자신을 시험한다([272]) — 옆 길로 되돌리면 ⑧ 이 잡는가.
+    #    ★ 옥 동작을 **실제로 주입해** 재다 — build() 를 한 번 더 부르는 것으로는
+    #    아무것도 재지 못한다(지금 코드는 언제나 넘기므로 늘 통과한다).
+    _src = open(os.path.join(ROOT, "band", "collect_queue.py"),
+                encoding="utf-8").read()
+    _old_call = "RP.plan(band, posts, ahead=RP.default_ahead())"
+    assert _old_call in _src, "주입 앵커가 사라졌다 — 이 자기시험은 아무것도 안 재다"
+    _ns = {"__name__": "cq_bad", "__file__": os.path.join(ROOT, "band", "collect_queue.py")}
+    exec(compile(_src.replace(_old_call, "RP.plan(band, posts)"),
+                 "cq_bad", "exec"), _ns)
+    _seen2 = {}
+    RP.plan = lambda b, p, *a, **k: (
+        _seen2.update(a=a, k=k) or {"new": [110], "gaps": [111]})
+    _ns["_cache_bands"] = lambda: [BAND]
+    _ns["_dirty_nos"] = lambda b: [105, 200, 201]
+    _ns["QUEUE_PATH"] = CQ.QUEUE_PATH
+    _ns["build"]()
+    _ah2 = _seen2["k"].get("ahead") or (len(_seen2["a"]) > 1 and _seen2["a"][1])
+    assert not _ah2,         "ahead 를 뺀 옥 코드인데도 ahead 가 넘어왔다 — 주입이 안 먹었다"
+
+    print("[353] 수집대기열 — 한 목록 · 거르는 문 · 새 글 후보 · 못읽음을 말함 OK")
 
 
 

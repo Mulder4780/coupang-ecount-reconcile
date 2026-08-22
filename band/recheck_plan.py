@@ -50,6 +50,30 @@ def scope():
         return {}
 
 
+def default_ahead(sc=None):
+    """위쪽을 몇 개까지 볼까 — 기본값은 **한 곳**이다([162]).
+
+    ★ 2026-08-23 실측 사고. `plan()` 의 인자 기본값이 `ahead=0` 이라,
+      그것을 그대로 부르던 `collect_queue._tiers_for` 는 **새 글 후보를
+      언제나 0 개**로 냈다. 그래서 브라우저가 앱에서 받는 목록에는
+      새 글이 한 번도 안 실렸고, 밴드가 며칠씩 멈춰 있어도 자동 경로로는
+      그것이 영영 안 풀렸다. **오류도 안 나고 대기열은 90건이라
+      그럴듯해 보인다**([169]).
+    ★ 여기서 숫자를 지어내지 않는다 — 사람이 정한 값(collect_scope.json)을
+      `main()` 과 **같은 자리**에서 읽는다. 둘이 각자 적으면 언젠가 갈리고,
+      갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+    ⚠ 근거(없음확인)가 낡았거나 없으면 `plan()` 이 이 값을
+      `PROBE_AHEAD`(5)로 스스로 줄인다 — 없는 번호 40개를 쏟던 사고([217])는
+      그 문이 그대로 막는다. 그래서 여기를 고쳐도 헛짓을은 안 늘어난다.
+    """
+    if sc is None:
+        sc = scope()
+    try:
+        return int(sc.get("ahead") or 40)
+    except Exception:
+        return 40
+
+
 QUIET_LIMIT_DAYS = 1          # 밴드 신선도 한도와 같다(session_handoff.FRESH_LIMIT)
 
 # ★ 근거가 없을 때 **위쪽을 몇 개까지 찔러 볼까** (2026-08-11 실사고).
@@ -306,7 +330,7 @@ def main():
             continue
         floor = a.floor if a.floor is not None else \
             int((sc.get("floor") or {}).get(band, 0) or 0)
-        ahead = a.ahead if a.ahead is not None else int(sc.get("ahead") or 40)
+        ahead = a.ahead if a.ahead is not None else default_ahead(sc)
         p = plan(band, posts, floor, ahead)
         if not p:
             # ★ 한 밴드가 나머지를 죽이면 안 된다 — 유령 밴드의 **빈 캐시**가 그렇다

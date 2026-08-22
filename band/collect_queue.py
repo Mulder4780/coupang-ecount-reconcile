@@ -80,7 +80,11 @@ def _tiers_for(band, posts, missed):
 
     try:
         import recheck_plan as RP
-        pl = RP.plan(band, posts) or {}
+        # ★ `plan()` 의 인자 기본값은 `ahead=0` 이라 그대로 부르면
+        #   **새 글 후보가 언제나 0 건**이다(2026-08-23 실측 사고).
+        #   그러면 브라우저가 받는 목록에 새 글이 영영 안 실려,
+        #   밴드가 며칠씩 멈춰 있어도 자동 경로로는 안 풀린다([169]).
+        pl = RP.plan(band, posts, ahead=RP.default_ahead()) or {}
         out["미수집"] = sorted(set(pl.get("new") or []) | set(pl.get("gaps") or []))
     except Exception as e:
         missed.append({"갈래": "미수집", "왜": "%s: %s" % (type(e).__name__, e)})
