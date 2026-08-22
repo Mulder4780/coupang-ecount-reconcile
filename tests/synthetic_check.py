@@ -23184,7 +23184,7 @@ def t389_credit_window_pauses_ai_and_resumes_itself():
       자리에 맞게 적용한 것 — 소진 중에 부르면 실패 한 번이고 대기열이 되돌리지만,
       멀쩡한데 막으면 일이 안 된다).
     """
-    import importlib, sys, time
+    import importlib, io, sys, time   # io 는 모듈 수준에 없다([324])
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if root not in sys.path:
         sys.path.insert(0, root)
