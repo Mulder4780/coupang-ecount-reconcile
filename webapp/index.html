@@ -7484,12 +7484,63 @@ function setSourceFile(inputId,nameId,file){
   const dt=new DataTransfer();dt.items.add(file);input.files=dt.files;
   if(label) label.textContent=`선택됨 · ${file.name}`;
 }
+/* ═══ 큰 파일은 '못 올린다'가 아니라 '이렇게 올린다' (2026-08-22 형님 지시) ═══
+   류지영 님 PO 첨부가 `PO 첨부는 합계 60MB 이하여야 합니다` 한 줄로 거절됐다.
+   참인 문장이지만 **사람이 할 수 있는 일이 없다** — 그리고 크기 제한이 없는 길이
+   이미 있었다(0. 원본 자료 · 100. 업로드용 자료 투입함 → 증분 파이프라인 5분).
+   ★ 한도·경로를 여기 적지 않는다([162]) — 서버 `/api/upload-limits` 가 정본이다.
+   ★ 못 받으면 **막지 않는다**([169]) — 모르는 것을 근거로 사람의 업로드를 세우면
+     서버가 받을 수 있는 파일까지 못 올린다. 그때는 예전처럼 보내고 서버가 답한다. */
+let UPLOAD_LIMITS=null;
+async function uploadLimits(){
+  if(UPLOAD_LIMITS) return UPLOAD_LIMITS;
+  try{
+    const r=await fetch('/api/upload-limits',{cache:'no-store',headers:{'X-Pin':PIN}});
+    const d=await r.json();
+    if(d&&d.ok) UPLOAD_LIMITS=d;
+  }catch(e){ /* 모르면 그대로 보낸다 */ }
+  return UPLOAD_LIMITS;
+}
+function uploadOverLimit(form,kind,lim){
+  /* 합계를 잰다 — 한도는 본문 전체이므로 파일 하나가 아니라 합이다. */
+  if(!lim||!lim.limits||!lim.limits[kind]) return null;
+  let sum=0, names=[];
+  form.querySelectorAll('input[type=file]').forEach(inp=>{
+    for(const f of (inp.files||[])){ sum+=f.size; names.push(f.name); }
+  });
+  if(!sum||sum<=lim.limits[kind]) return null;
+  return {sum,names,limit:lim.limits[kind],folder:lim.drop_folder||'',
+          label:(lim.labels||{})[kind]||'첨부'};
+}
+function bigFileNoticeHTML(over){
+  const mb=(n)=>(n/1000000).toFixed(1);
+  return `<b>${esc2(over.label)}가 앱 한도를 넘습니다 — ${mb(over.sum)}MB / ${Math.round(over.limit/1000000)}MB</b>
+  <div style="margin:6px 0">${esc2(over.names.slice(0,3).join(' · '))}${over.names.length>3?` 외 ${over.names.length-3}개`:''}</div>
+  <div><b>이 폴더에 넣어 주세요</b> — 5분 안에 자동으로 분류돼 앱에 들어옵니다.</div>
+  <code style="display:block;word-break:break-all;margin:6px 0">${esc2(over.folder||'0. 원본 자료 · 100. 업로드용 자료')}</code>
+  <button type="button" class="btn xs" onclick="copyDropFolder(this)">폴더 경로 복사</button>`;
+}
+async function copyDropFolder(btn){
+  const lim=await uploadLimits();
+  const path=(lim&&lim.drop_folder)||'';
+  if(!path){ toast('폴더 경로를 못 받았습니다 — 서버 연결을 확인해 주세요'); return; }
+  try{ await navigator.clipboard.writeText(path); toast('폴더 경로를 복사했습니다'); }
+  catch(e){ toast('복사가 막혔습니다 — 위 경로를 직접 선택해 주세요'); }
+}
 async function submitPoSubmission(ev){
   ev.preventDefault();
   markStaffInput('upload');
   const form=ev.currentTarget,btn=$('poSubmissionBtn'),result=$('poSubmissionResult');
   btn.disabled=true;btn.classList.add('busy');result.className='ryu-result';result.textContent='';
   try{
+    // 보내기 **전에** 잰다 — 60MB 를 다 보내고 400 을 받으면 그 시간이 그대로 버려진다.
+    const over=uploadOverLimit(form,'po',await uploadLimits());
+    if(over){
+      result.className='ryu-result err';
+      result.innerHTML=bigFileNoticeHTML(over);
+      uxEvent('error','poUpload','한도초과 안내 · '+Math.round(over.sum/1000000)+'MB');
+      return;
+    }
     const r=await fetch('/api/staff/po-upload',{method:'POST',cache:'no-store',
       headers:{'X-Pin':PIN},body:new FormData(form)});
     const d=await r.json();

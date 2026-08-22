@@ -968,6 +968,54 @@ def _save_source_submission(fields, files, *, kind, allowed_exts, destination_ro
     return folder, saved, manifest
 
 
+UPLOAD_LIMITS = {          # 갈래 -> 한 번에 받을 수 있는 본문 바이트
+    # HTTP 로 받은 본문은 통째로 메모리에 올라간다(`self.rfile.read(ln)`).
+    # 그래서 한도가 있는 것이지 '큰 파일은 안 받는다'는 뜻이 아니다 — 큰 것은
+    # 아래 투입함으로 간다. 한도를 여기 한 곳에서 정하고 화면은 읽기만 한다([162]).
+    "po": 60_000_000,
+    "receipt": 60_000_000,
+    "worklog": 60_000_000,
+    "improvement": 30_000_000,
+}
+UPLOAD_KIND_LABEL = {"po": "PO 첨부", "receipt": "입금 자료",
+                     "worklog": "대표보고 일지", "improvement": "개선요청·첨부"}
+
+
+def upload_drop_folder():
+    """큰 파일이 갈 자리 — **이미 있는 단일 투입함**이다(2026-07-31 지시).
+
+    새 길을 만들지 않는다([162]). 이 폴더는 증분 파이프라인(5분)의
+    `업로드함 원본 분류` 단계가 `upload_intake.py --apply` 로 훑어 종류를 가려
+    정본 폴더로 옮긴다 — 즉 **넣어 두면 사람 손 없이 이어진다.**
+    """
+    try:
+        from source_dirs import UPLOAD_DIR
+        return str(UPLOAD_DIR)
+    except Exception:
+        return ""
+
+
+def upload_too_big_msg(kind, size=0):
+    """한도를 넘었을 때 **할 수 있는 일**을 말한다([169]·[346]).
+
+    2026-08-22 실사고: 류지영 님 PO 첨부가 거절되며 남은 말이
+    `PO 첨부는 합계 60MB 이하여야 합니다` 한 줄뿐이었다(파일명도 '(파일명 없음)').
+    그 문장은 **참이지만 사람이 할 수 있는 일이 없다** — 파일을 쪼개거나 포기한다.
+    그런데 이 프로젝트에는 크기 제한이 없는 길이 이미 있었다(투입함).
+    말해 주지 않아 아무도 못 썼을 뿐이다.
+    """
+    limit = UPLOAD_LIMITS.get(kind, 60_000_000)
+    label = UPLOAD_KIND_LABEL.get(kind, "첨부")
+    mb = limit // 1_000_000
+    now = (" (지금 %.1fMB)" % (size / 1_000_000.0)) if size else ""
+    folder = upload_drop_folder()
+    where = folder or "0. 원본 자료 · 100. 업로드용 자료"
+    return ("%s는 앱으로 한 번에 %dMB 까지 보낼 수 있습니다%s — "
+            "더 큰 파일은 이 폴더에 넣어 주세요: %s · "
+            "5분 안에 자동으로 분류돼 앱에 들어옵니다(직접 처리하려면 "
+            "[전체 자동화 상태]의 '지금 처리')." % (label, mb, now, where))
+
+
 def save_staff_po_submission(fields, files, source_ip=""):
     from source_dirs import PO_DIR
     folder, saved, manifest = _save_source_submission(
@@ -2350,6 +2398,35 @@ def _app_db_stamp():
                      for p in (path, path + "-wal"))
     except Exception:
         return (0, 0)
+
+
+def _work_resolution_stamp():
+    """`works` 캐시를 버릴지 정하는 지문 — **표 하나의 내용**이지 DB 파일 시각이 아니다.
+
+    2026-08-22 실사고: 여기가 `os.path.getmtime(ledger_db.DB_PATH)` 였다. 그런데 그
+    DB(`db/ledger_queue.db`)에는 **화면 사용 기록(ux)이 계속 쌓인다** — 실측으로
+    형님이 화면을 만지시는 동안 mtime 이 **3초마다** 바뀌었다. 그래서 works 캐시가
+    끊임없이 버려지고 다음 조회가 **60초 콜드**로 떨어졌다(ux 실측 `/api/works`
+    평균 96초 · `/api/staff/records` 163초). **오류는 한 줄도 안 난다** — 화면은
+    '확인 중'이라고만 하고, 보고하려는 사람은 갱신된 자료를 못 본다([169]).
+
+    ★ `real_works` 가 이 DB 에서 읽는 것은 **`work_resolutions()` 하나뿐**이다(실측).
+      그러니 그 표의 내용만 보면 된다 — 전체를 읽어 해시해도 **5.5ms** 다.
+      요약 한 줄(COUNT/MAX)이 더 싸지만 **UPDATE 를 놓친다** — 바뀐 뒤의 옛 값을
+      '지금 값'처럼 보여 주는 것이 이 프로젝트가 1순위로 막는 조용한 사고다.
+    ★ 못 읽으면 **매번 다른 값**을 준다 — 캐시가 버려져 예전처럼 느려질 뿐 정확하다.
+      `None` 을 주면 첫 값과 같아져 **캐시를 영원히 안 버린다**([169] 의 반대 방향).
+    """
+    try:
+        import hashlib
+        import json as _json
+        from ledger_db import work_resolutions
+        d = work_resolutions()
+        blob = _json.dumps({"%s|%s" % k: v for k, v in sorted(d.items())},
+                           ensure_ascii=False, sort_keys=True).encode("utf-8")
+        return "wr:" + hashlib.sha256(blob).hexdigest()
+    except Exception:
+        return "wr-err:%r" % (time.time(),)
 
 
 def _invalidate_app_data_caches():
@@ -4501,15 +4578,11 @@ def _fresh(key):
                 _cache.pop(key + suffix, None)
             _cache[stamp_key] = app_stamp
     if key == "works":
-        try:
-            from ledger_db import DB_PATH
-            db_mt = os.path.getmtime(DB_PATH)
-        except Exception:
-            db_mt = 0
-        if _cache.get("works_db_mt") != db_mt:
+        stamp = _work_resolution_stamp()
+        if _cache.get("works_db_mt") != stamp:
             _cache.pop("works", None)
             _cache.pop("works_ts", None)
-            _cache["works_db_mt"] = db_mt
+            _cache["works_db_mt"] = stamp
     ttl = {"status": 300, "exec": 300, "issues": 300, "erpdocs": 300,
            "works": 600, "settle": 600}.get(key, 600)
     if key in _cache and time.time() - _cache.get(key + "_ts", 0) > ttl:
@@ -9828,6 +9901,13 @@ self.addEventListener('fetch', e => {
             except Exception as exc:
                 return self._send(200, {"ok": False, "rows": [],
                                         "error": str(exc)[:200]})
+        if p == "/api/upload-limits":
+            # 화면이 **보내기 전에** 크기를 잴 수 있게 한도와 투입함 경로를 준다.
+            # 한도를 화면에 적으면 서버가 바꾼 날 둘이 갈린다([162]) — 여기서만 온다.
+            # 60MB 를 다 보내고 나서 400 을 받으면 그 시간이 그대로 버려진다.
+            return self._send(200, {"ok": True, "limits": dict(UPLOAD_LIMITS),
+                                    "drop_folder": upload_drop_folder(),
+                                    "labels": dict(UPLOAD_KIND_LABEL)})
         if p == "/api/flow-stages":
             # 돌발AS·정기점검 **단계 정의** (2026-08-10 지시). 화면이 단계 낱말을
             # 스스로 적지 않고 여기서 받아 간다 — 두 곳에 적으면 언젠가 갈린다([162]).
@@ -10148,10 +10228,12 @@ self.addEventListener('fetch', e => {
             if not actor_slug:
                 return
             ln = int(self.headers.get("Content-Length", 0))
-            if ln <= 0 or ln > 60_000_000:
-                _notify_upload_rejected("PO 첨부", "", self._actor(),
-                                        "PO 첨부는 합계 60MB 이하여야 합니다")
-                return self._send(400, {"ok": False, "error": "PO 첨부는 합계 60MB 이하여야 합니다"})
+            if ln <= 0 or ln > UPLOAD_LIMITS["po"]:
+                _big = upload_too_big_msg("po", ln)
+                _notify_upload_rejected("PO 첨부", "", self._actor(), _big)
+                return self._send(400, {"ok": False, "error": _big,
+                                        "drop_folder": upload_drop_folder(),
+                                        "limit": UPLOAD_LIMITS["po"]})
             try:
                 fields, files = multipart_parts(self.headers.get("Content-Type", ""),
                                                 self.rfile.read(ln))
@@ -10269,10 +10351,12 @@ self.addEventListener('fetch', e => {
                 return self._send(403, {"ok": False,
                                         "error": "입금 자료는 등록된 업무센터 또는 관리자만 등록합니다"})
             ln = int(self.headers.get("Content-Length", 0))
-            if ln <= 0 or ln > 60_000_000:
-                _notify_upload_rejected("입금내역", "", self._actor(),
-                                        "입금 자료는 합계 60MB 이하여야 합니다")
-                return self._send(400, {"ok": False, "error": "입금 자료는 합계 60MB 이하여야 합니다"})
+            if ln <= 0 or ln > UPLOAD_LIMITS["receipt"]:
+                _big = upload_too_big_msg("receipt", ln)
+                _notify_upload_rejected("입금내역", "", self._actor(), _big)
+                return self._send(400, {"ok": False, "error": _big,
+                                        "drop_folder": upload_drop_folder(),
+                                        "limit": UPLOAD_LIMITS["receipt"]})
             try:
                 fields, files = multipart_parts(self.headers.get("Content-Type", ""),
                                                 self.rfile.read(ln))

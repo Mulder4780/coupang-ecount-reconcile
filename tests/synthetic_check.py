@@ -23171,6 +23171,91 @@ def t388_hung_start_is_not_normal():
     print("  [388] 매달린 start — 끊김 판정 · 한도는 수집기에서 · 문구 갈라 적기 "
           "· 모르면 안 함 · 자기시험 OK")
 
+
+def t390_works_cache_stamp_is_table_not_file_mtime():
+    """[390] `works` 캐시 지문은 **표 내용**이지 DB 파일 시각이 아니다 (2026-08-22).
+
+    실사고: 지문이 `os.path.getmtime(ledger_db.DB_PATH)` 였는데 그 DB 에는
+    **화면 사용 기록(ux)이 계속 쌓인다.** 실측으로 사람이 화면을 만지는 동안
+    mtime 이 3초마다 바뀌었고, 그때마다 works 캐시가 버려져 다음 조회가
+    **60초 콜드**가 됐다(ux 실측 `/api/works` 평균 96초). 오류는 안 나고
+    화면은 '확인 중'이라고만 한다 — 보고하려는 사람이 갱신된 자료를 못 본다.
+
+    ★ 글자가 아니라 **동작**으로 잰다([295]) — mtime 만 흔들고 지문이 그대로인지,
+      표가 바뀌면 지문이 바뀌는지를 실제로 부른다.
+    ★ 실측 DB 는 한 글자도 안 건드린다([247]) — `work_resolutions` 를 목으로 갈고
+      `finally` 로 되돌린다(모듈 전역을 갈아 둔 채 두면 뒤따르는 검사가 눈먼다, [371]).
+    """
+    import importlib, io, os, sys, time   # io 는 모듈 수준에 없다([324])
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    wa = os.path.join(root, "webapp")
+    for d in (root, wa):
+        if d not in sys.path:
+            sys.path.insert(0, d)
+    os.environ.setdefault("COUPANG_UNATTENDED", "1")
+    A = importlib.import_module("app_server")
+    L = importlib.import_module("ledger_db")
+
+    src = io.open(os.path.join(wa, "app_server.py"),
+                  encoding="utf-8", newline="").read()
+
+    # ① 되돌아가면 안 되는 것([39]) — works 갈래에서 파일 mtime 을 지문으로 쓰지 않는다.
+    i = src.find('if key == "works":')
+    assert i > 0, "[390] `_fresh` 의 works 갈래를 못 찾았다"
+    seg = src[i:i + 700]
+    assert "getmtime" not in seg, (
+        "[390] works 캐시 지문이 다시 파일 mtime 이다 — 같은 DB 에 쌓이는 ux 한 줄에도 "
+        "60초 재계산이 터진다")
+    assert "_work_resolution_stamp()" in seg, "[390] 표 내용 지문을 안 쓴다"
+
+    real = L.work_resolutions
+    try:
+        # ② 표가 그대로면 지문도 그대로다 — 파일 시각이 흔들려도 마찬가지.
+        L.work_resolutions = lambda: {("as", "A1"): {"status": "완료"}}
+        s1 = A._work_resolution_stamp()
+        s2 = A._work_resolution_stamp()
+        assert s1 == s2, "[390] 같은 표인데 지문이 달라진다 — 캐시가 영영 안 산다"
+
+        # ③ 값이 바뀌면(UPDATE) 지문도 바뀐다 — 요약 한 줄이면 이걸 놓친다.
+        L.work_resolutions = lambda: {("as", "A1"): {"status": "취소"}}
+        assert A._work_resolution_stamp() != s1, (
+            "[390] 표 값이 바뀌었는데 지문이 같다 — 바뀐 뒤의 옛 값을 '지금 값'처럼 "
+            "보여 주는 자리다")
+
+        # ④ 행이 늘어도 바뀐다.
+        L.work_resolutions = lambda: {("as", "A1"): {"status": "완료"},
+                                      ("pm", "P1"): {"status": "완료"}}
+        assert A._work_resolution_stamp() != s1, "[390] 행이 늘었는데 지문이 같다"
+
+        # ⑤ 못 읽으면 '모름'을 같은 값으로 굳히지 않는다([169]) — 매번 달라
+        #    캐시가 버려진다(느리지만 정확하다). None 이면 첫 값과 같아져 영원히 안 버린다.
+        def boom():
+            raise RuntimeError("합성: DB 못 읽음")
+        L.work_resolutions = boom
+        e1 = A._work_resolution_stamp()
+        time.sleep(0.01)
+        e2 = A._work_resolution_stamp()
+        assert e1 is not None and e2 is not None, "[390] 못 읽었을 때 None 을 주면 안 된다"
+        assert e1 != e2, "[390] 못 읽었는데 지문이 고정이다 — 캐시가 영영 안 버려진다"
+    finally:
+        L.work_resolutions = real
+
+    # ⑥ 계기 자신을 시험한다([272]) — 옛 동작(파일 mtime)이면 ② 가 잡혀야 한다.
+    p2 = os.path.join(root, "db", "ledger_queue.db")
+    if os.path.exists(p2):
+        st = os.stat(p2)
+        old = lambda: "mt:%r" % os.path.getmtime(p2)   # 고치기 전 동작
+        a = old()
+        os.utime(p2, (st.st_atime, st.st_mtime + 7))
+        b = old()
+        os.utime(p2, (st.st_atime, st.st_mtime))       # 실측 파일을 되돌린다([247])
+        assert os.path.getmtime(p2) == st.st_mtime, "[390] 시험이 실측 DB 시각을 안 되돌렸다"
+        assert a != b, ("[390] 계기 자기시험이 아무것도 안 재고 있다 — 옛 동작에서도 "
+                        "지문이 안 흔들렸다")
+
+    print("  [390] works 캐시 지문 — 표 내용 · UPDATE 감지 · 못 읽으면 안 굳힘 · 자기시험 OK")
+
+
 def t389_credit_window_pauses_ai_and_resumes_itself():
     """크레딧 5시간 창 — 소진 중에는 AI 표를 안 만들고, 충전되면 스스로 잇는다.
 
@@ -32233,6 +32318,7 @@ if __name__ == "__main__":
     t385_watchdog_gap_is_not_stall_when_the_pc_slept()
     t387_collect_gate_actually_guards_scripts()
     t389_credit_window_pauses_ai_and_resumes_itself()
+    t390_works_cache_stamp_is_table_not_file_mtime()
     t388_hung_start_is_not_normal()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
