@@ -74,6 +74,15 @@ except Exception:
     pass
 
 
+def _who(rec):
+    """세션 레코드 → 사람이 읽는 이름. 만드는 자리는 여기 하나다(`[162]`)."""
+    if not isinstance(rec, dict):
+        return str(rec or "")[:40]
+    who = str(rec.get("who") or "?")
+    sid = str(rec.get("sid") or "")
+    return "%s[%s]" % (who, sid) if sid else who
+
+
 def _lane_verdict():
     """내 차선이 이 자원을 허락하나 → (갈래, 왜, 주인). 못 읽으면 '모름'.
 
@@ -120,7 +129,12 @@ def _lane_verdict():
                 owner = lanes.owner(name)
                 home = "%s 차선" % label
                 if owner:
-                    home = "%s(%s)" % (home, owner)
+                    # ★ 레코드를 그대로 찍지 않는다 — `lanes.owner()` 는 **사전**이라
+                    #   `%s` 로 쓰면 조율 표·인계에 사전 repr 이 통째로 박힌다
+                    #   (실측 2026-08-22 · `[325]` 와 같은 모양, 자리가 다르다).
+                    #   더 나쁜 것은 그 이름으로는 완주를 못 찾아 **살아 있는 창에게
+                    #   양보한 것이 매일 "헛양보"로 확언**된다는 점이다(`[293]`).
+                    home = "%s(%s)" % (home, _who(owner))
                 break
     except Exception:
         home = ""
@@ -151,7 +165,7 @@ def _claim_verdict():
     if sid and sid == me:
         return "가능", "", ""
     who = str(rec.get("who") or "?")
-    주인 = "%s[%s]" % (who, sid) if sid else who
+    주인 = _who({"who": who, "sid": sid})
     왜 = str(rec.get("why") or "").strip()
     return "양보", ("'%s' 점유를 %s 가 쥐고 있다%s"
                     % (RESOURCE, 주인, (" — " + 왜) if 왜 else "")), 주인

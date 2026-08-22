@@ -23204,6 +23204,93 @@ def t388_hung_start_is_not_normal():
 
 
 
+
+def t393_yield_owner_is_readable_and_sessions_are_not_called_wasted():
+    """[393] 양보 주인이 **세션·사람**이면 헛양보라 확언하지 않는다.
+
+    실측 2026-08-22: `collect_gate` 가 차선 주인을 `lanes.owner()` 레코드 그대로
+    찍어 조율 표에 `자료 수집 차선({'who': 'claude', ...})` 가 박혔다([325] 와 같은
+    모양, 자리가 다르다). 더 나쁜 것은 그 이름으로 완주를 못 찾아 **살아 있는 옆 창
+    (claude[99148c0e])에게 양보한 것이 "그 일은 아무도 안 했다"로 매일 확언**된 것이다.
+    거짓 경보는 진짜 헛양보를 덮는다([170]).
+
+    ★ 접두가 아니라 **구조**로 가른다 — 새 접두가 생기는 날 그 갈래만 조용히
+      헛양보로 떨어지면서 오류는 안 난다([165]).
+    ★ 좁히는 것도 고장이다([172]) — 회차 주인은 그대로 검사돼야 한다.
+    ★ 실측 증거(reports/작업_조율.json)는 한 글자도 안 건드린다([247]) —
+      합성 표를 직접 넘겨 잰다.
+    """
+    import io as _io
+    import os as _os
+    from datetime import datetime as _dt, timedelta as _td
+
+    import collect_gate as _CG
+    import coordinate as _CO
+
+    # ── ① 주인 이름이 사람이 읽는 글자다(사전 repr 이 아니다) ──────────────
+    got = _CG._who({"who": "claude", "sid": "99148c0e", "at": 1.0, "why": ""})
+    assert got == "claude[99148c0e]", "[393] 세션 이름이 어긋났다: %r" % (got,)
+    assert "{" not in got and "'" not in got,         "[393] 주인 이름에 사전 repr 이 샜다: %r" % (got,)
+    assert _CG._who({"who": "claude", "sid": ""}) == "claude",         "[393] sid 가 없을 때 이름이 깨진다"
+    assert "{" not in _CG._who("이미 글자"), "[393] 글자를 그대로 못 돌려준다"
+
+    # 화면에 나가는 자리에서도 레코드를 통째로 찍지 않는다
+    with _io.open(_os.path.join(ROOT, "collect_gate.py"), encoding="utf-8") as f:
+        gsrc = f.read()
+    assert '"%s(%s)" % (home, owner)' not in gsrc,         "[393] 차선 주인을 레코드 그대로 찍는 자리가 돌아왔다 — 조율 표에 사전이 박힌다"
+
+    # ── ② 세션·사람 주인은 헛양보가 아니다 ────────────────────────────────
+    now = _dt(2026, 8, 22, 22, 0, 0)
+    옛 = (now - _td(hours=20)).isoformat(timespec="seconds")
+
+    def 표(주인):
+        return {"수집": [{"갈래": "양보", "주인": 주인, "왜": "차선", "때": 옛}]}
+
+    세션갈래 = 0
+    for 주인 in ("자료 수집 차선(claude[99148c0e])",
+                 "점유:publish(server[8afc88c9])",
+                 "사람"):
+        헛, 못, 점, 뒤 = _CO.audit(표(주인), now=now, 도는중=set())
+        assert not 헛, "[393] 세션·사람에게 양보한 것을 헛양보라 한다: %r" % (주인,)
+        assert len(점) == 1, "[393] 세션·사람 갈래로 안 갔다: %r" % (주인,)
+        세션갈래 += len(점)
+
+    # ── ③ 좁히는 것도 고장이다 — 회차 주인은 그대로 검사한다([172]) ────────
+    d3 = {"수집": [{"갈래": "양보", "주인": "일일대조", "왜": "겹침", "때": 옛}]}
+    헛, 못, 점, 뒤 = _CO.audit(d3, now=now, 도는중=set())
+    assert len(헛) == 1, "[393] 회차에게 양보했는데 아무도 안 끝냈다 — 그것은 헛양보다"
+
+    # 그 회차가 뒤에 끝냈으면 헛양보가 아니다(기존 계약이 그대로 산다)
+    d4 = dict(d3)
+    d4["일일대조"] = [{"갈래": "완주", "왜": "", "때": (now - _td(hours=1)).isoformat(timespec="seconds")}]
+    헛, 못, 점, 뒤 = _CO.audit(d4, now=now, 도는중=set())
+    assert not 헛, "[393] 주인이 끝냈는데도 헛양보라 한다"
+
+    # ── ④ LOCKS 이름은 자국이 없어도 물을 수 있다(락 파일이 곧 그 일의 정체다) ─
+    이름들 = [n for _f, n in _CO.LOCKS]
+    assert 이름들, "[393] LOCKS 가 비었다 — 이 검사는 아무것도 안 잰다"
+    assert _CO._can_ask(이름들[0], {}), "[393] 표에 자국이 없다고 회차를 못 묻는다 하면 안 된다"
+    assert not _CO._can_ask("자료 수집 차선(claude[abc])", {}), "[393] 세션을 회차로 읽는다"
+    assert not _CO._can_ask("", {}), "[393] 빈 주인을 물을 수 있다고 한다"
+
+    # ── ⑤ 주인을 모르면 여전히 '못검사'다([169]) ──────────────────────────
+    헛, 못, 점, 뒤 = _CO.audit(표(""), now=now, 도는중=set())
+    assert len(못) == 1 and not 헛 and not 점,         "[393] 주인을 모르는 양보를 정상으로 세거나 헛양보라 한다"
+
+    # ── ⑥ 계기 자기시험([272]) — 구조 판정을 없애면 ②가 헛양보로 돌아오나 ──
+    _real = _CO._can_ask
+    try:
+        _CO._can_ask = lambda 주인, d: True          # 옛 동작: 전부 물을 수 있다고 침
+        헛2, _못2, 점2, _뒤2 = _CO.audit(표("자료 수집 차선(claude[99148c0e])"),
+                                        now=now, 도는중=set())
+    finally:
+        _CO._can_ask = _real                          # 공유 모듈은 반드시 되돌린다([371])
+    assert 헛2 and not 점2,         "[393] 구조 판정을 없앴는데도 헛양보가 안 난다 — 이 검사는 아무것도 안 재고 있다"
+
+    print("[393] 세션·사람 주인은 헛양보가 아니다 "
+          "(이름 %r · 세션갈래 %d갈래 · 회차는 그대로 검사 · 자기시험 잡음)"
+          % (got, 세션갈래))
+
 def t392_staff_screen_never_calls_admin_only_apis():
     """[392] 담당자 화면은 관리자 전용 API 를 부르지 않는다.
 
@@ -32607,6 +32694,7 @@ if __name__ == "__main__":
     t390_works_cache_stamp_is_table_not_file_mtime()
     t391_app_db_stamp_is_audit_seq_not_wal_mtime()
     t392_staff_screen_never_calls_admin_only_apis()
+    t393_yield_owner_is_readable_and_sessions_are_not_called_wasted()
     t388_hung_start_is_not_normal()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
