@@ -16793,50 +16793,13 @@ async function calendarCapture(opt){
        ⚠ **앱 화면에서는 빼지 않는다** — 형님이 보려고 두는 값이다("제가 보려고").
           빼는 것은 대표에게 나가는 이 한 장뿐이다.
        ⚠ **조용히 빼지 않는다**([169]) — 몇 건을 왜 뺐는지 맨 아래에 적는다. */
-  /* 원본 둘의 ID가 달라도 같은 프로젝트의 완료일이 예정일 이후라면 이미 치른 회차다.
-     서버가 먼저 예정을 내리지만, 재시작 전 옛 응답·오프라인 캐시도 대표 보고에 중복으로
-     들어가지 않도록 캡처 길목에서 한 번 더 상호배타 처리한다. */
-  const pmReportUnit=e=>{
-    const pj=String(e&&e.프로젝트NO||'').split('·')[0].trim().toUpperCase();
-    if(pj)return 'project:'+pj;
-    const camp=String(calCampOf(e)||'').replace(/[^0-9A-Za-z가-힣]/g,'').toLowerCase();
-    return camp?'camp:'+camp:'';
-  };
-  /* ★ **지난 예정은 '예정'이 아니다**(2026-08-19 지시). 서버가 먼저 옮기지만 여기서도
-     같은 판단을 한다 - 낡은 응답·오프라인 사본이 대표 보고로 들어오는 길이기 때문이다.
-     · 미처리에 **같은 현장이 이미 있으면** 예정만 내린다(그쪽이 더 자세히 말한다)
-     · **짝이 없으면 미처리로 옮긴다** - 조용히 지우면 그 현장은 아무도 안 간다([169]) */
-  const calReportRowsExclusive=source=>{
-    const sourceRows=(source||[]).slice(),doneDays=new Map(),overdueUnits=new Set();
-    sourceRows.forEach(e=>{
-      const kind=calKindOf(e),key=pmReportUnit(e);if(!key)return;
-      if(kind==='pm_done'){ const day=String(e.날짜||'').slice(0,10);if(!day)return;
-        if(!doneDays.has(key))doneDays.set(key,[]);doneDays.get(key).push(day); }
-      else if(kind==='pm_overdue') overdueUnits.add(key);
-    });
-    const nowDay=todayISO(),out=[];
-    sourceRows.forEach(e=>{
-      if(calKindOf(e)!=='pm_plan'){ out.push(e); return; }
-      const key=pmReportUnit(e),plan=String(e.날짜||'').slice(0,10);
-      if(key&&plan&&(doneDays.get(key)||[]).some(done=>done>=plan))return;  /* 이미 치른 회차 */
-      if(plan&&plan<nowDay){
-        if(key&&overdueUnits.has(key))return;               /* 미처리가 이미 같은 말을 한다 */
-        const m=Object.assign({},e);
-        m.분류='pm_overdue'; m.업무구분='정기점검 미처리';
-        m.제목='정기점검 미처리 · '+(m.캠프명||m.장소||'캠프 미상');
-        m.점검예정일=plan; m.지난예정이동=true;
-        m.경과일=Math.round((new Date(nowDay)-new Date(plan))/86400000);
-        m.연결근거='예정일이 지났는데 완료 기록이 없다 - 근거는 '+(String(m.연결근거||'').trim()||'류지영 정기점검 스케줄 원본');
-        if(!m.미처리사유) m.미처리사유='원장(04_정기점검)에 이 예정의 짝이 없다 - 스케줄 원본에만 있는 일정이다';
-        out.push(m); return;
-      }
-      out.push(e);
-    });
-    return out;
-  };
+  /* ★ 완료·미처리·지난 예정 판정은 서버 `get_calendar()` 한 곳만 한다([162]).
+     위 `prepareRepresentativeReport()`가 방금 검증한 캘린더를 CAL에 넣었으므로
+     브라우저가 같은 판정을 다시 하면 두 심판이 생긴다. 오프라인 폰 사본은 이 캡처를
+     지원하지 않고 그 사실을 명시한다([294]) — 낡은 값으로 조용히 재판정하지 않는다. */
   const capAll = calendarRows().filter(e => calMonthOf(e.날짜) === CAL_MONTH);
   const capWithoutPrediction = capAll.filter(e => calKindOf(e) !== 'pm_pred');
-  const rows = calReportRowsExclusive(capWithoutPrediction);
+  const rows = capWithoutPrediction;
   if(!rows.length){ if(!opt.toBlob) toast('이 달에 표시할 일정이 없습니다'); return null; }
   const [Y, M] = CAL_MONTH.split('-').map(Number);
   // A4 세로 폭 21cm 중 좌우 각각 정확히 1cm만 비우고 나머지 19cm를 모두 쓴다.
@@ -16960,8 +16923,8 @@ async function calendarCapture(opt){
      그대로 두되, 2·3쪽의 상세 근거에는 현재 월 밖 행이 들어가지 않는다. */
   const prevDate=new Date(Y,M-2,1), prevY=prevDate.getFullYear(),prevM=prevDate.getMonth()+1;
   const prevMonth=`${prevY}-${String(prevM).padStart(2,'0')}`;
-  const prevRows=calReportRowsExclusive(calendarRows().filter(e=>calMonthOf(e.날짜)===prevMonth
-    &&calKindOf(e)!=='pm_pred'));
+  const prevRows=calendarRows().filter(e=>calMonthOf(e.날짜)===prevMonth
+    &&calKindOf(e)!=='pm_pred');
   const priorityRows=(source,doneKey,openKeys)=>{
     const done=uniqRows(source.filter(e=>calKindOf(e)===doneKey));
     const seen=new Set(done.map(unit)),rest={};

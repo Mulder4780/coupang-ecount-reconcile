@@ -251,6 +251,26 @@ def planned_moves(root: str = ORIGIN_ROOT) -> list[Move]:
                     continue
                 target = dated_dir(base, src)
                 reason = "밴드 문서사진 게시일별 보관"
+            elif rel[0] == "게시글보관":
+                # ★ 여기는 **남이 관리하는 정본 자리**다 — 옮기면 안 된다.
+                #   `band/archive_posts.py` 가 `게시글보관/밴드이름/YYYY/MM/` 으로
+                #   **게시일 기준** 정리해 넣고, `source_index` 는 그 폴더를
+                #   `밴드 게시글(보관)` 이라는 **갈래로 인정**하며(2026-08-05 에 그
+                #   갈래가 0건이 된 사고를 겪고 고친 자리다), `source_tidy` 안내문은
+                #   사람에게 그 자리를 알려 주고, 합성검증도 그 구조를 시험한다.
+                # ★ 그런데 아래 `else:` 는 문서사진이 아닌 **모든 것**을 `수집본` 으로
+                #   몰았다. 이 파일 머리글이 스스로 적어 둔 규칙은
+                #   `밴드 JSON: 4. 밴드 원본 / 수집본 / …` 인데 실제로 끌려간 것은
+                #   txt·jpg·pdf 와 `.part-…` 다운로드 조각이었다 —
+                #   **코드가 제 설명을 안 지킨 자리**다.
+                #   실측 2026-08-22: 이동 대상 95,052개 중 **95,046개**가 이것이고,
+                #   전부 `수집본/2026/08/2026-08-22/` **한 폴더**로 갈 참이었다
+                #   (파일 이름의 `2026-07-08` 을 `_file_day` 가 못 읽어 수정시각,
+                #   곧 "오늘"로 떨어진다). 게시일별 정리를 헐어 하루에 쏟는 셈이고,
+                #   그 순간 `source_index` 의 게시글 갈래가 통째로 0건이 된다.
+                # ⚠ 여기를 다시 열려면 **먼저 `_file_day` 가 `[3517]_2026-07-08_…`
+                #   같은 이름을 읽게** 하고, 옮길 곳이 `수집본` 이 맞는지부터 정한다.
+                continue
             else:
                 base = os.path.join(band, "수집본")
                 if rel[0] == "수집본" and _already_dated(src, base):
@@ -411,7 +431,20 @@ def write_rules(root: str = ORIGIN_ROOT):
         f.write("\n".join(lines) + "\n")
 
 
-def apply_moves(moves: list[Move], root: str = ORIGIN_ROOT) -> tuple[int, list[str]]:
+def apply_moves(moves: list[Move], root: str = ORIGIN_ROOT,
+                copy: bool = False) -> tuple[int, list[str]]:
+    """계획대로 옮긴다. `copy=True` 면 **원본을 그대로 두고 사본만** 만든다.
+
+    ★ 사용자 지시(2026-08-22): "복사해서 이사, 기존 원본은 변경하지 말고".
+      되돌릴 수 없는 이사를 되돌릴 수 있게 만드는 손잡이다 — 잘못 옮겨도
+      원본 자리가 그대로 남아 있어 사본만 지우면 끝난다.
+    ★ 복사일 때는 **빈 폴더를 지우지 않는다** — 원본이 그 자리에 그대로 있으므로
+      비지도 않지만, 지우는 손을 아예 안 대는 것이 안전하다.
+    ★ 이력에 갈래를 적는다 — 나중에 되돌릴 때 '옮긴 것'과 '복사한 것'은 조치가
+      다르다(옮긴 것은 제자리로, 복사한 것은 사본을 지운다).
+    ⚠ 기본값은 예전 그대로 **옮기기**다. 매일 도는 회차의 동작을 말없이 바꾸면
+      복사가 회차마다 쌓여 파일이 계속 두 배가 된다.
+    """
     root = os.path.abspath(root)
     done_count = 0
     history_batch: list[tuple[str, str, str]] = []
@@ -425,8 +458,16 @@ def apply_moves(moves: list[Move], root: str = ORIGIN_ROOT) -> tuple[int, list[s
         dst = _collision_target(m.src, m.dst)
         try:
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.move(m.src, dst)
-            history_batch.append((m.src, dst, m.reason))
+            if copy:
+                if not _same_path(m.src, dst):
+                    # 내용이 같으면 `_collision_target` 이 이미 있는 파일을
+                    # 가리킨다 — 그때는 복사 자체를 하지 않는다(사본이 안 는다).
+                    if not os.path.exists(dst):
+                        shutil.copy2(m.src, dst)
+            else:
+                shutil.move(m.src, dst)
+            history_batch.append((m.src, dst,
+                                  m.reason + ("(복사)" if copy else "")))
             done_count += 1
             # 네트워크 드라이브 대량 이동은 오래 걸린다. 중간에 PC가 꺼져도 원래 경로를
             # 대부분 복원할 수 있도록 25개마다 이력을 확정한다.
@@ -440,7 +481,8 @@ def apply_moves(moves: list[Move], root: str = ORIGIN_ROOT) -> tuple[int, list[s
             errors.append(f"{m.src}: {e}")
     if history_batch:
         _append_history(history_batch, root)
-    _remove_empty_dirs(root)
+    if not copy:                     # 복사는 원본을 안 건드리므로 손을 아예 안 댄다
+        _remove_empty_dirs(root)
     write_rules(root)
     return done_count, errors
 
@@ -472,6 +514,8 @@ def _lock_release():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="실제 정리")
+    ap.add_argument("--copy", action="store_true",
+                    help="원본을 그대로 두고 사본만 만든다(2026-08-22 지시)")
     ap.add_argument("--limit", type=int, default=0, help="테스트용 처리 한도")
     ap.add_argument("--budget-min", type=int, default=BUDGET_SEC // 60,
                     help="이 시간을 넘기면 반쪽으로 두지 않고 중단한다(기본 120분)")
@@ -488,7 +532,9 @@ def main():
         return 4
     if args.limit > 0:
         moves = moves[:args.limit]
-    print(f"{'정리 실행' if args.apply else '미리보기'} — 이동 대상 {len(moves)}개")
+    _how = ('복사(원본 유지)' if args.copy else '이동')
+    print(f"{'정리 실행' if args.apply else '미리보기'}"
+          f" — {_how} 대상 {len(moves)}개")
     reasons = {}
     for m in moves:
         reasons[m.reason] = reasons.get(m.reason, 0) + 1
@@ -505,7 +551,7 @@ def main():
         print("다른 원본 정리 작업이 실행 중이라 이번 실행을 건너뜁니다.")
         return 3
     try:
-        done, errors = apply_moves(moves)
+        done, errors = apply_moves(moves, copy=args.copy)
     except TimeBudgetExceeded as e:
         print("중단:", e)
         return 4
