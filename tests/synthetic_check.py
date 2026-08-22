@@ -11125,7 +11125,18 @@ def t217_probe_instead_of_scraping_absent_numbers():
             assert 'get("ghost")' not in s and 'get("dirty")' not in s, \
                 "%s 가 캐시에 없는 낱말로 거른다 — 한 건도 안 걸린다" % f
 
-        # ⑧ 빈 캐시 한 밴드가 나머지를 죽이지 않는다(이름순으로 유령이 앞에 온다)
+        # ⑧ 빈 캐시 한 밴드가 나머지를 죽이지 않는다(이름순으로 84789192 가 앞이다)
+        #    ★ 예전에는 유령 번호(202608082047)를 재료로 썼다. 그런데 2026-08-22 부터
+        #      허용목록 `convert_dump.BAND_IDS` 가 그런 번호를 **목록에서 아예 뺀다** —
+        #      그것이 옳은 동작이라 유령으로는 이 계약을 더 못 잰다(재료가 사라진다).
+        #      계약은 그대로 두고 재료만 **진짜 밴드**로 바꾼다.
+        OTHER = "90610953"
+        with open(os.path.join(rp.CACHE, BAND + ".json"), "w", encoding="utf-8") as fh:
+            json.dump({"band_name": "쿠팡AS", "posts": {}}, fh, ensure_ascii=False)
+        with open(os.path.join(rp.CACHE, OTHER + ".json"), "w", encoding="utf-8") as fh:
+            json.dump({"band_name": "매출처업무", "posts": dead}, fh, ensure_ascii=False)
+        # ★ 같은 실행에서 **허용목록이 유령을 거르는지**도 잰다. 안 재면 그 문을
+        #   없애도 이 검사가 통과해 버린다 — 유령이 스스로를 되살리던 구조로 되돌아간다.
         with open(os.path.join(rp.CACHE, "202608082047.json"), "w", encoding="utf-8") as fh:
             json.dump({"band_name": "유령", "posts": {}}, fh, ensure_ascii=False)
         hold_argv, buf = sys.argv, _io.StringIO()
@@ -11136,8 +11147,10 @@ def t217_probe_instead_of_scraping_absent_numbers():
         finally:
             sys.argv = hold_argv
         out = buf.getvalue()
-        assert "202608082047" in out and BAND in out, \
+        assert BAND in out and OTHER in out, \
             "빈 캐시 한 밴드에서 죽어 **뒤 밴드가 통째로** 안 나온다"
+        assert "202608082047" not in out, \
+            "허용목록 밖 번호가 목록에 들어온다 — 유령이 스스로를 되살린다"
         assert "위쪽 근거" in out, "위쪽을 왜 그만큼만 보는지 사람이 알 수 없다"
 
         # ⑨ **인계 문서도 같은 자리에 물어본다.** 여기에 같은 구멍이 남아 있었다 —

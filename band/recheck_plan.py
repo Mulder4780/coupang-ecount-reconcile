@@ -292,9 +292,13 @@ def main():
     a = ap.parse_args()
     sc = scope()
 
+    # ★ 밴드 목록을 여기서 짐작하지 않는다([162]) — 판정은 convert_dump 한 곳이다.
+    #   예전 `isdigit()` 는 유령 캐시(날짜 꼬리표·시각 도장·해시 앞토막)를 그대로
+    #   통과시켜 **없는 밴드에 붙여넣기 파일을 만들었다**(2026-08-12 실사고).
+    from convert_dump import plausible_band as _ok
     bands = [a.band] if a.band else sorted(
         f[:-5] for f in os.listdir(CACHE)
-        if f.endswith(".json") and f[:-5].isdigit())
+        if f.endswith(".json") and _ok(f[:-5]))
     for band in bands:
         posts = load(band)
         if posts is None:
