@@ -1722,11 +1722,9 @@ def get_ryu_records():
         {"key": "field", "label": "현장작업", "count": len(field_rows),
          "attention": sum(1 for r in field_rows if needs_attention(r, ("완료", "정상")))},
         {"key": "settle", "label": "거래서류·청구", "count": len(settle_rows),
-         "attention": sum(1 for r in settle_rows if needs_attention(
-             # 무상·보험은 청구 대상이 아니라 '조치 필요'가 아니다.
-             # 미입력은 여기 안 넣는다 — 아직 모르는 것이라 사람이 봐야 한다(2026-08-09).
-             r, ("정상", "무상", "보험", "무상/보험", "ERP 계산서(묶음)",
-                 "완료(ERP 수금확인)", "완료(ERP 발행확인)")))},
+         # 정산의 완료·제외·충돌 판정은 `_settlement_display_facts` 한 곳만 쓴다.
+         "attention": sum(1 for r in settle_rows
+                          if bool((r.get("detail") or {}).get("조치필요")))},
         {"key": "issue", "label": "확인 필요", "count": len(issue_rows),
          "attention": len(issue_rows)},
         {"key": "upload", "label": "자료 등록", "count": len(rows["upload"]), "attention": 0},
@@ -3696,6 +3694,34 @@ def _apply_excluded_source_to_settlement(row, outcome):
         row["취소건청구자료충돌"] = False
         row["상태"] = "청구 제외(다녀옴 · 이 건으로는 청구 안 함)"
     return row
+
+
+_SETTLEMENT_NO_ACTION_STATES = {
+    "정상", "무상", "보험", "무상/보험", "ERP 계산서(묶음)",
+}
+
+
+def _settlement_display_facts(row):
+    """정산 화면들이 함께 쓰는 청구대상·조치필요 판정 — 서버 한 곳만 계산한다.
+
+    목록 KPI·담당자 업무센터·대표 화면이 각자 상태 문자열을 다시 해석하면 새 완료
+    상태가 생긴 날 숫자가 갈린다([162]). 원래 행은 보존하고, 화면이 받아 실을 두 개의
+    명시적 사실만 덧붙인다.
+    """
+    item = row
+    billable = item.get("청구대상")
+    if billable is None:
+        billable = not bool(item.get("원천업무취소") or item.get("원천업무청구제외"))
+    item["청구대상"] = bool(billable)
+    state = str(item.get("상태") or "").strip()
+    completed = state.startswith("완료(")
+    excluded_without_conflict = (
+        not item["청구대상"] and not bool(item.get("취소건청구자료충돌"))
+    )
+    item["조치필요"] = not (
+        completed or excluded_without_conflict or state in _SETTLEMENT_NO_ACTION_STATES
+    )
+    return item
 
 
 def _overlay_app_store_settlements(rows, store=None):
@@ -8297,9 +8323,8 @@ def _build_settlements():
 
 
 def get_settlements():
-    if DEMO:
-        return demo_settlements()
-    return cached_data("settle", _build_settlements)
+    rows = demo_settlements() if DEMO else cached_data("settle", _build_settlements)
+    return [_settlement_display_facts(row) for row in (rows or [])]
 
 
 def get_live_state(*, store=None, state_path=None, lock_path=None):

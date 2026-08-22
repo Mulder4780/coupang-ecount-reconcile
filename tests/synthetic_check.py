@@ -26969,10 +26969,24 @@ def t255_delete_is_reversible_and_exclusion_is_not_delete():
             "청구 제외건이 청구 대상에 그대로 남는다"
         assert not settle.get("원천업무취소"), "제외를 취소 딱지로 적었다"
 
-        # 화면이 둘을 가려 읽는가 — 한쪽만 읽으면 제외건이 조용히 청구에 남는다([169]).
+        # 서버가 청구대상·조치필요를 한 번만 판정하고 화면은 그 사실만 읽는가([162]).
+        facts = S._settlement_display_facts(settle)
+        assert facts["청구대상"] is False and facts["조치필요"] is False, facts
+        assert S._settlement_display_facts({"상태": "정상"}) == {
+            "상태": "정상", "청구대상": True, "조치필요": False,
+        }
+        assert S._settlement_display_facts({"상태": "완료(ERP 발행확인)"})[
+            "조치필요"] is False
+        conflict = S._settlement_display_facts({
+            "상태": "취소건 청구자료 존재 — 교차입력 확인",
+            "청구대상": False, "취소건청구자료충돌": True,
+        })
+        assert conflict["조치필요"] is True, "취소건 청구자료 충돌까지 조용히 숨겼다"
         idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
-        assert "!r.원천업무취소 && !r.원천업무청구제외" in idx, \
-            "billableSettleRows 가 청구제외를 안 읽는다 — 제외해도 청구에 남는다"
+        assert "r.청구대상 === true" in idx and "r.조치필요 === true" in idx, \
+            "화면이 서버의 청구대상·조치필요 사실을 그대로 읽지 않는다"
+        assert "!r.원천업무취소 && !r.원천업무청구제외" not in idx, \
+            "화면에 청구대상 두 번째 판정이 남았다"
         for token in ("wtDelete(", "wtExclude(", "wtShowDeleted(", "wtRestore("):
             assert token in idx, f"화면에 {token} 손잡이가 없다"
         assert "청구 제외 = 다녀왔지만 이 건으로는 청구 안 함" in idx, \
