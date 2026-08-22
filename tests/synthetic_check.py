@@ -18459,7 +18459,13 @@ def t293_yield_is_a_claim_that_gets_audited():
     assert len(_확) == 1, "점유 양보까지 경보로 올린다 — 경보가 대부분이면 아무도 안 본다([170])"
     assert "1건" in _확[0]["무엇"], "확인못함 건수에 점유 양보가 섞였다"
     #    ★ 그러나 **조용히 없애지도 않는다**([169]) — 리포트가 숫자로 말해야 한다.
-    assert "점유에 양보한 것" in _CO._md(_d, ""), "점유 양보를 리포트에서 통째로 감춘다 — 안 보이면 '겹친 적 없다'로 읽힌다"
+    #    ★ 낱말이 아니라 **계약**을 얼린다([39]·[355]) — 제목은 뜻이 넓어지면서
+    #      바뀔 수 있다(2026-08-22 `[393]` 에서 "점유에" -> "세션·사람에게").
+    #      물어야 할 것은 "그 구역이 리포트에 **숫자와 함께** 실리는가" 다.
+    _md = _CO._md(_d, "")
+    _줄 = [ln for ln in _md.splitlines() if ln.startswith("## ") and "양보한 것" in ln]
+    assert _줄, "양보한 것을 리포트에서 통째로 감춘다 — 안 보이면 '겹친 적 없다'로 읽힌다"
+    assert "1건" in _md, "양보 건수를 숫자로 안 말한다([169])"
 
     #    ⑫ **주인만 보면 안 된다** — 양보한 쪽이 나중에 스스로 완주하면 그 일은 됐다.
     #    2026-08-19 실측: 수집이 14:05 에 claude[b0b8fd43] 에게 양보했고 그 주인은
@@ -18470,19 +18476,27 @@ def t293_yield_is_a_claim_that_gets_audited():
     _뒤때 = (_dt.datetime.now() - _dt.timedelta(hours=1)).isoformat(timespec="seconds")
     _앞때 = (_dt.datetime.now() - _dt.timedelta(hours=_CO.AUDIT_GRACE_HOURS + 3)).isoformat(timespec="seconds")
 
+    # ★ 주인은 **회차 이름**이어야 이 계약을 잰다. `[393]` 뒤로 세션·사람 주인은
+    #   헛양보가 아니다 — 그 창에는 `record_run` 이 없어 **물을 자국이 없기** 때문이다.
+    #   옛 재료(`남[x1]`)를 그대로 두면 이 검사는 "물을 수 없는 것을 물어 놓고" 답이
+    #   없다고 화내는 셈이 된다. 회차 주인은 그대로 검사된다(`[393]` ③이 같이 잰다).
+    # ★ `도는중=set()` 을 **명시로** 넘긴다 — 안 넘기면 그때 락을 쥔 회차에 따라
+    #   이 검사가 초록·빨강을 오간다(`[272]` 계기는 기계 상태에 기대지 않는다).
+    _주인회차 = _CO.LOCKS[0][1]
+
     def _표(끝갈래=None, 끝때=None):
-        rows = [{"때": _t0, "갈래": "양보", "왜": "겹침", "주인": "남[x1]"}]
+        rows = [{"때": _t0, "갈래": "양보", "왜": "겹침", "주인": _주인회차}]
         if 끝갈래:
             rows.append({"때": 끝때, "갈래": 끝갈래, "왜": "그 일"})
         return {"수집": rows}
 
-    _h, _m, _p, _l = _CO.audit(_표())
+    _h, _m, _p, _l = _CO.audit(_표(), 도는중=set())
     assert len(_h) == 1 and not _l, "양보 뒤 아무것도 없는데 헛양보가 아니라고 한다 — 진짜 헛양보를 놓친다"
-    _h, _m, _p, _l = _CO.audit(_표("완주", _뒤때))
+    _h, _m, _p, _l = _CO.audit(_표("완주", _뒤때), 도는중=set())
     assert not _h and len(_l) == 1, "양보한 쪽이 나중에 스스로 완주했는데도 아무도 안 했다고 말한다([304])"
-    _h, _m, _p, _l = _CO.audit(_표("실패", _뒤때))
+    _h, _m, _p, _l = _CO.audit(_표("실패", _뒤때), 도는중=set())
     assert len(_h) == 1 and not _l, "나중에 실패한 것을 됐다로 센다 — 실패한 회차는 그 일을 못 했다"
-    _h, _m, _p, _l = _CO.audit(_표("완주", _앞때))
+    _h, _m, _p, _l = _CO.audit(_표("완주", _앞때), 도는중=set())
     assert len(_h) == 1 and not _l, "양보보다 앞선 완주를 근거로 쓴다 — 그 완주는 이 양보와 상관이 없다"
     assert not [n for n in _CO.notices(_표("완주", _뒤때)) if n.get("갈래") == "헛양보"], (
         "뒤에 된 것을 경보로 올린다 — 거짓 경보는 진짜 경보를 덮는다([170])")
@@ -19671,6 +19685,66 @@ def t219_noon_round_is_daily_windowed_and_yields():
     assert 'At "12:00"' in ps and "noon_run.py" in ps, "스케줄러가 12시에 이 회차를 안 부른다"
     assert "Minutes 10" in ps and "Minutes 55" in ps, \
         "재시도 반복이 없거나 창(13:00)을 넘는다 — 양보한 날 두 번째 기회가 사라진다"
+
+    # ── 죽어도 자국을 남긴다([228]) ──────────────────────────────────────
+    #   실측 2026-08-22: 12:05:43 에 떠서 `0x00041306`(종료됨)으로 끝났는데 마커는
+    #   전날 12:50 그대로였다 — skips 도 results 도 없다. 즉 **왜 죽었는지 어느
+    #   화면에도 안 뜬다.** 작업 스케줄러 운영 로그도 꺼져 있어 물을 데가 없다.
+    #   ★ 실측 증거(reports/.정오회차.json)는 한 글자도 안 건드린다([247]).
+    import io as _io2
+    import json as _js2
+    import os as _os2
+    import shutil as _sh2
+    import tempfile as _tf2
+    _hold_tr, _hold_mk, _tmp2 = N.TRACE, N.MARKER, _tf2.mkdtemp()
+    try:
+        N.TRACE = _os2.path.join(_tmp2, "정오회차_오류.json")
+        N.MARKER = _os2.path.join(_tmp2, ".정오회차.json")
+        _now2 = _dt.datetime.now()
+        _옛 = (_now2 - _dt.timedelta(hours=10)).isoformat(timespec="seconds")
+
+        # ① 앞 부름이 끝을 못 봤으면 자국을 남긴다
+        N._note_prev_crash({"run_started_at": _옛, "run_pid": 999}, _now2)
+        assert _os2.path.exists(N.TRACE), (
+            "[219] 정오회차가 죽었는데 자국이 없다 — 왜 죽었는지 영영 알 수 없다([228])")
+        _tr = _js2.load(_io2.open(N.TRACE, encoding="utf-8"))
+        assert _tr.get("갈래") == "모름", (
+            "[219] 왜 죽었는지 지목한다 — 틀린 지목은 사람을 멀쩡한 코드로 보낸다([172])")
+        assert len(_tr.get("후보") or []) >= 2, "[219] 후보를 나란히 안 놓는다([169])"
+
+        # ② 앞 부름이 끝까지 갔으면 옛 자국을 내린다([228])
+        N._note_prev_crash({"run_started_at": _옛,
+                            "run_ended_at": (_now2 - _dt.timedelta(hours=9)).isoformat(timespec="seconds")},
+                           _now2)
+        assert not _os2.path.exists(N.TRACE), (
+            "[219] 정상으로 끝났는데 옛 자국이 남는다 — 매일 뜨는 거짓 경보가 된다([170])")
+
+        # ③ 첫 회차(자국 없음)에 **없는 사고를 지어내지 않는다**([169])
+        N._note_prev_crash({}, _now2)
+        assert not _os2.path.exists(N.TRACE), "[219] 첫 회차에 없는 사고를 만든다"
+
+        # ④ 시작 표식이 **디스크에 즉시** 써진다 — 안 그러면 죽었을 때 아무것도 안 남는다
+        _m2 = {}
+        N._mark_start(_m2, _now2)
+        assert _os2.path.exists(N.MARKER), "[219] 시작 표식을 디스크에 안 적는다"
+        _saved = _js2.load(_io2.open(N.MARKER, encoding="utf-8"))
+        assert _saved.get("run_started_at") and not _saved.get("run_ended_at"), (
+            "[219] 시작 표식이 끝 표식과 구별되지 않는다")
+        N._mark_end(_m2, _now2)
+        assert _m2.get("run_ended_at"), "[219] 끝 표식을 안 적는다"
+
+        # ⑤ 계기 자기시험([272]) — 자국 남기기를 없애면 ①이 잡히나
+        _real_note = N._note_prev_crash
+        try:
+            N._note_prev_crash = lambda marker, now: None
+            N._note_prev_crash({"run_started_at": _옛, "run_pid": 999}, _now2)
+            _잡힘 = not _os2.path.exists(N.TRACE)
+        finally:
+            N._note_prev_crash = _real_note    # 공유 모듈은 반드시 되돌린다([371])
+        assert _잡힘, "[219] 자국 남기기를 없앴는데도 자국이 생긴다 — 이 검사는 아무것도 안 잰다"
+    finally:
+        N.TRACE, N.MARKER = _hold_tr, _hold_mk
+        _sh2.rmtree(_tmp2, ignore_errors=True)
 
     print("  [219] 정오 회차 — 창 12~13시·하루 한 번 · 남의 점유 불가침(force 도) · "
           "code 는 합성검증만 건너뜀 · 마지막 기회엔 무거운 단계만 비켜 돎 · "

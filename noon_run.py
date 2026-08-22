@@ -321,6 +321,78 @@ def mark_coord_run(now, marker, bad=None):
     return False
 
 
+TRACE = os.path.join(REPORT_DIR, "정오회차_오류.json")
+
+
+def _mark_start(marker, now):
+    """**일을 시작한다는 사실을 먼저 디스크에 적는다.**
+
+    이 회차는 `pythonw` 로 돌아 트레이스백이 어디에도 안 남는다(`[228]`). 게다가
+    마커는 여태 **끝날 때만** 써서, 도중에 죽으면 그 회차는 흔적이 하나도 없었다
+    — 실측 2026-08-22 12:05:43 시작 → `0x00041306`(종료됨) → 마커는 전날 것 그대로.
+    작업 스케줄러 운영 로그도 꺼져 있어 물을 데가 없다.
+    """
+    marker["run_started_at"] = now.isoformat(timespec="seconds")
+    marker["run_pid"] = os.getpid()
+    marker.pop("run_ended_at", None)
+    try:
+        json.dump(marker, open(MARKER, "w", encoding="utf-8"), ensure_ascii=False)
+    except OSError:
+        pass                              # 자국을 못 남겨도 회차는 돈다
+
+
+def _mark_end(marker, now):
+    """끝을 봤다는 표식. 이것이 없으면 다음 부름이 **죽었다**고 읽는다."""
+    marker["run_ended_at"] = now.isoformat(timespec="seconds")
+
+
+def _note_prev_crash(marker, now):
+    """앞 회차가 **끝을 못 봤나**. 자국을 남기는 것도 지우는 것도 여기 한 곳이다.
+
+    ★ 지우는 자리가 시작인 이유(`[337]`): 끝에서 지우면 이 회차가 만든 자국을 이
+      회차가 도로 지워 아무도 못 본다. 자국이 사라지는 근거는 **다음 부름이 끝까지
+      갔다** 하나다(`[228]` — 옛 자국은 이미 고쳐진 고장을 계속 보고한다).
+    ★ **왜 죽었는지는 지목하지 않는다**(`[169]`·`[172]`). 후보를 나란히 둘 뿐이다
+      — 틀린 지목은 사람을 멀쩡한 코드로 보낸다.
+    """
+    시작 = str(marker.get("run_started_at") or "")
+    끝 = str(marker.get("run_ended_at") or "")
+    죽음 = bool(시작) and (not 끝 or 끝 < 시작)
+    if not 죽음:
+        try:
+            if os.path.exists(TRACE):
+                os.remove(TRACE)          # 앞 부름이 끝까지 갔다 — 옛 자국을 내린다
+        except OSError:
+            pass
+        return
+    limit = ""
+    try:
+        import proc_guard                 # 창을 안 띄운다(`[272]`)
+        out = proc_guard.run_tree(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-ScheduledTask -TaskName '쿠팡업무_정오회차')."
+             "Settings.ExecutionTimeLimit"], timeout=20)
+        limit = (getattr(out, "stdout", "") or "").strip()[:20]
+    except Exception:                     # noqa: BLE001 — 못 물어도 자국은 남긴다
+        limit = ""
+    try:
+        json.dump({
+            "시각": now.isoformat(timespec="seconds"),
+            "명령": "noon_run.py",
+            "갈래": "모름",
+            "무엇": ("앞 부름이 끝을 못 봤다 — %s 에 시작(pid %s)했는데 끝 표식이 없다"
+                    % (시작, marker.get("run_pid"))),
+            "후보": ["작업 제한시간 초과(지금 %s)" % (limit or "확인 못 함"),
+                    "사람·시스템이 종료(스케줄러 0x00041306)",
+                    "이름으로 죽이는 자리가 이 나무를 같이 끊었다"],
+            "조치": ("python noon_run.py --status 로 지금 상태를 보고, "
+                    "다음 창(12:00~13:00)이 남기는 자국을 기다린다. "
+                    "★ 짐작으로 제한시간부터 늘리지 않는다 — 먼저 범인 단계를 대게 한다"),
+        }, open(TRACE, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    except OSError:
+        pass
+
+
 def main():
     now = datetime.now()
     marker = load_marker()
@@ -333,6 +405,10 @@ def main():
               f"오늘 완주 {marker.get('done_date') or '아직'} · 지금 판정 {verdict['kind']}: {verdict['why']}")
         print("컴팩팅 자동화:", compact_settings()["why"])
         return 0
+
+    # ★ 앞 부름이 끝을 못 봤나를 **덮기 전에** 읽고([337]), 그다음 내 시작을 적는다.
+    _note_prev_crash(marker, now)
+    _mark_start(marker, now)
 
     if not verdict["go"]:
         print(f"[{verdict['kind']}] {verdict['why']}")
@@ -355,6 +431,7 @@ def main():
         marker.setdefault("skips", [])
         marker["skips"] = (marker["skips"] + [{"at": now.isoformat(timespec="seconds"),
                                                "kind": verdict["kind"], "why": verdict["why"]}])[-12:]
+        _mark_end(marker, now)
         try:
             json.dump(marker, open(MARKER, "w", encoding="utf-8"), ensure_ascii=False)
         except OSError:
@@ -371,6 +448,7 @@ def main():
     # 양보한 쪽이 "저쪽이 한다"고 적었다 — 그 주장이 지켜졌다는 증거를 여기서 남긴다.
     mark_coord_run(now, marker,
                    [r["step"] for r in results if r["state"].startswith("실패")])
+    _mark_end(marker, now)
     try:
         json.dump(marker, open(MARKER, "w", encoding="utf-8"), ensure_ascii=False)
     except OSError:
