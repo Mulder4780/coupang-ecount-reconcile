@@ -12540,6 +12540,18 @@ function renderSystemAudit(){
 }
 async function loadSystemAudit(force,showToast){
   if(SYSTEM_AUDIT.flight&&!force) return SYSTEM_AUDIT.flight;
+  /* ★ 담당자 화면에서는 부르지 않는다 — 서버가 관리자 전용으로 막으므로(403) 부르면
+     '관리자 전용 기능입니다' 오류만 쌓인다(실측 2026-08-18~20 36건). 업무에는 지장이
+     없지만 담당자는 **고장으로 읽는다**. 부르는 데가 일곱 곳이라 밖에서 막으면 한 곳만
+     고쳐진다([162]) — 판정은 여기 하나다.
+     ★ 조용히 넘기지 않는다([169]) — 왜 비었는지 화면이 적는다. */
+  if(staffSlug){
+    SYSTEM_AUDIT.data={state:'unknown',summary:{},findings:[],
+      error:'시스템 진단은 관리자 화면에서만 볼 수 있습니다.'};
+    SYSTEM_AUDIT.loading=false; renderSystemAudit();
+    if(showToast) toast('시스템 진단은 관리자 화면에서만 볼 수 있습니다');
+    return null;
+  }
   SYSTEM_AUDIT.loading=true;renderSystemAudit();
   SYSTEM_AUDIT.flight=(async()=>{
     try{
@@ -13028,6 +13040,15 @@ function techIntoHub(links){
 }
 async function showTechEntries(){
   const box = $('techButtons'), hint = $('techHint');
+  /* ★ 담당자 화면에서는 부르지 않는다 — 이 길은 관리자만 200 을 준다(위 주석).
+     주석은 '실패하면 조용히'라 적어 뒀지만 실패는 ux 에 오류로 쌓인다(실측 7건).
+     안 부르고 같은 안내를 적는다 — 보이는 결과는 같고 오류만 사라진다. */
+  if(staffSlug){
+    if(box) box.innerHTML = '';
+    if(hint) hint.textContent =
+      'AS 담당기사 주소는 관리자로 로그인했을 때만 보입니다(주소에 열쇠가 붙기 때문입니다).';
+    return;
+  }
   let links = [];
   try{ links = (await api('/api/tech/links')).links || []; }
   catch(e){ links = []; }
@@ -17748,6 +17769,11 @@ async function renderSources(){
 let _ORIG_SEQ = 0;
 function origBox(uj, po, slip){
   const id = 'orig' + (++_ORIG_SEQ);
+  /* ★ 담당자 화면에서는 상자 자체를 안 만든다 — /api/originals 는 관리자 전용이라
+     (어떤 파일이 있는지가 새어 나가면 안 된다) 담당자에게는 '원본 색인을 읽지
+     못했습니다'만 남고 오류가 쌓인다(실측 2026-08-20 하루 28건).
+     바로 위 주석이 이미 말한 그 원칙이다 — 없는 것은 단추를 만들지 않는다. */
+  if(staffSlug) return '';
   setTimeout(()=>fillOrigBox(id, uj, po, slip), 0);
   return `<div class="orig" id="${id}"><span class="orig-wait">원본 찾는 중…</span></div>`;
 }

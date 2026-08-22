@@ -23173,6 +23173,147 @@ def t388_hung_start_is_not_normal():
 
 
 
+
+def t392_staff_screen_never_calls_admin_only_apis():
+    """[392] 담당자 화면은 관리자 전용 API 를 부르지 않는다.
+
+    실측 2026-08-18~20 ux: /api/system-audit 36 · /api/originals 28 ·
+    /api/tech/links 7 이 전부 403 '관리자 전용 기능입니다 — 담당자 화면에서는
+    실행할 수 없습니다'. 서버 판단은 옳다(경로 누출·열쇠 노출) — 화면이 부른 것이
+    잘못이다. 업무에는 지장이 없지만 담당자는 **고장으로 읽는다**([172]).
+
+    ★ 글자 검사로는 '정말 안 부르는가'를 못 잰다([295]) — node 로 실행해서 잰다.
+    ★ 좁히는 것도 고장이다 — 관리자 화면에서는 셋 다 그대로 불려야 한다.
+    """
+    import io                                  # 모듈 수준에 없다([324])
+    import json as _json
+    import os as _os
+    import subprocess as _sp
+    import tempfile as _tf
+
+    html = _os.path.join(ROOT, "webapp", "index.html")
+    with io.open(html, encoding="utf-8", newline="") as f:
+        s = f.read().replace("\r\n", "\n")
+
+    def grab(head, name):
+        i = s.find(head)
+        assert i >= 0, "[392] %s 를 못 찾았다 — 이름이 바뀌었으면 이 검사는 아무것도 안 잰다" % name
+        depth, j, started = 0, i, False
+        while j < len(s):
+            if s[j] == "{":
+                depth += 1
+                started = True
+            elif s[j] == "}":
+                depth -= 1
+                if started and depth == 0:
+                    return s[i:j + 1]
+            j += 1
+        raise AssertionError("[392] %s 의 끝을 못 찾았다" % name)
+
+    fn_audit = grab("async function loadSystemAudit(", "loadSystemAudit")
+    fn_tech = grab("async function showTechEntries(", "showTechEntries")
+    fn_orig = grab("function origBox(", "origBox")
+
+    harness = """
+var CALLS = [];
+function api(p){ CALLS.push(String(p).split('?')[0]); return Promise.resolve({links:[]}); }
+function $(id){ return null; }
+function toast(){}
+function esc2(x){ return String(x==null?'':x); }
+function renderSystemAudit(){}
+function techIntoHub(){}
+function apiErrorText(e){ return String(e && e.message || e); }
+var SYSTEM_AUDIT = {data:null, loading:false, flight:null};
+var SYSTEM_AUDIT_PATH = '/api/system-audit';
+var _ORIG_SEQ = 0;
+var staffSlug = '';
+function fillOrigBox(){}
+setTimeout = function(f){ };            // origBox 의 지연 호출을 여기서 끊는다
+__FN_AUDIT__
+__FN_TECH__
+__FN_ORIG__
+async function run(slug){
+  staffSlug = slug; CALLS = [];
+  SYSTEM_AUDIT = {data:null, loading:false, flight:null};
+  try{ await loadSystemAudit(false, false); }catch(e){}
+  try{ await showTechEntries(); }catch(e){}
+  var box;
+  try{ box = origBox('UJ2600001','PO1','S1'); }catch(e){ box = 'ERR:' + e.message; }
+  return {calls: CALLS.slice(), box: box, auditErr: (SYSTEM_AUDIT.data||{}).error || ''};
+}
+(async function(){
+  var staff = await run('ryu-jiyeong');
+  var admin = await run('');
+  console.log(JSON.stringify({staff: staff, admin: admin}));
+})();
+"""
+    js = (harness.replace("__FN_AUDIT__", fn_audit)
+                 .replace("__FN_TECH__", fn_tech)
+                 .replace("__FN_ORIG__", fn_orig))
+    path = _os.path.join(_tf.gettempdir(), "t392_admin_guard.js")
+    with io.open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(js)
+    kw = {}
+    if _os.name == "nt":
+        kw["creationflags"] = 0x08000000          # CREATE_NO_WINDOW([272])
+    pr = _sp.Popen(["node", path], stdout=_sp.PIPE, stderr=_sp.PIPE, **kw)
+    try:
+        out, err = pr.communicate(timeout=60)     # [175] — 멈춘 자식을 안 기다린다
+    except Exception:
+        try:
+            pr.kill()
+        except Exception:
+            pass
+        raise AssertionError("[392] node 가 60초 안에 안 끝났다")
+    assert pr.returncode == 0, "[392] node 실패: %s" % (err.decode("utf-8", "replace")[:400],)
+    got = _json.loads(out.decode("utf-8", "replace").strip().splitlines()[-1])
+
+    ADMIN_ONLY = ["/api/system-audit", "/api/tech/links", "/api/originals"]
+
+    # ① 담당자 화면 — 셋 중 하나도 안 부른다
+    hit = [p for p in got["staff"]["calls"] if p in ADMIN_ONLY]
+    assert not hit, ("[392] 담당자 화면이 관리자 전용 API 를 불렀다: %s — "
+                     "403 이 오류로 쌓이고 담당자는 고장으로 읽는다" % (hit,))
+
+    # ② 담당자 화면 — 원본 상자를 아예 안 만든다(눌러도 아무 일 없는 자리를 안 그린다)
+    assert got["staff"]["box"] == "", \
+        "[392] 담당자 화면에 원본 상자가 그려졌다: %r" % (got["staff"]["box"],)
+
+    # ③ 조용히 넘기지 않는다([169]) — 왜 비었는지 화면이 적는다
+    assert "관리자" in (got["staff"]["auditErr"] or ""), \
+        "[392] 담당자에게 진단이 왜 비었는지 안 알려 준다: %r" % (got["staff"]["auditErr"],)
+
+    # ④ 좁히는 것도 고장이다([172]) — 관리자 화면에서는 그대로 부른다
+    for p in ["/api/system-audit", "/api/tech/links"]:
+        assert p in got["admin"]["calls"], \
+            "[392] 관리자 화면에서 %s 가 안 불렸다 — 문을 너무 좁혔다" % p
+    assert got["admin"]["box"].startswith("<div"), \
+        "[392] 관리자 화면에서 원본 상자가 안 그려졌다: %r" % (got["admin"]["box"],)
+
+    # ⑤ 계기 자기시험([272]) — 가드를 없애면 ①이 정말 잡히나
+    broken = js.replace("if(staffSlug){", "if(false){")
+    bpath = _os.path.join(_tf.gettempdir(), "t392_broken.js")
+    with io.open(bpath, "w", encoding="utf-8", newline="\n") as f:
+        f.write(broken)
+    pr2 = _sp.Popen(["node", bpath], stdout=_sp.PIPE, stderr=_sp.PIPE, **kw)
+    try:
+        out2, err2 = pr2.communicate(timeout=60)
+    except Exception:
+        try:
+            pr2.kill()
+        except Exception:
+            pass
+        raise AssertionError("[392] 자기시험 node 가 60초 안에 안 끝났다")
+    assert pr2.returncode == 0, "[392] 자기시험 node 실패: %s" % (err2.decode("utf-8", "replace")[:300],)
+    g2 = _json.loads(out2.decode("utf-8", "replace").strip().splitlines()[-1])
+    hit2 = [p for p in g2["staff"]["calls"] if p in ADMIN_ONLY]
+    assert hit2, ("[392] 가드를 없앴는데도 담당자 화면이 아무것도 안 불렀다 — "
+                  "이 검사는 아무것도 안 재고 있다")
+
+    print("[392] 담당자 화면이 관리자 전용 API 를 안 부른다 "
+          "(담당자 %d콜 · 관리자 %d콜 · 자기시험 %d갈래 잡음)"
+          % (len(got["staff"]["calls"]), len(got["admin"]["calls"]), len(hit2)))
+
 def t391_app_db_stamp_is_audit_seq_not_wal_mtime():
     """[391] 앱 DB 지문은 **감사로그 끝번호**이지 WAL 파일 시각이 아니다 (2026-08-22).
 
@@ -32435,6 +32576,7 @@ if __name__ == "__main__":
     t389_credit_window_pauses_ai_and_resumes_itself()
     t390_works_cache_stamp_is_table_not_file_mtime()
     t391_app_db_stamp_is_audit_seq_not_wal_mtime()
+    t392_staff_screen_never_calls_admin_only_apis()
     t388_hung_start_is_not_normal()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
