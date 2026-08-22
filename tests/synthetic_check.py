@@ -20951,10 +20951,27 @@ def t239_idle_lane_reclaims_itself_with_a_record():
     ok, why = lanes._idle(fresh)
     assert not ok and "한도" in why, "갓 잡은 차선을 뺏는다: %s" % why
 
-    # ① 자국이 있으면 안 뺏는다 — 내 대화기록은 지금 자라고 있다
-    mine = {"who": "claude", "sid": me, "at": _t.time() - 99 * 3600, "agent_pid": 0}
-    ok, why = lanes._idle(mine)
-    assert not ok, "지금 일하는 창의 차선을 뺏는다: %s" % why
+    # ① 자국이 있으면 안 뺏는다 — **살아 있는 sid** 로 물어본다
+    #    ★ 예전에는 `me`(내 sid)로 물었다. 그러면 대화 세션에서는 통과하지만
+    #      **무인 회차(pythonw)에서는 그 sid 의 대화기록이 아예 없어 언제나 실패**한다
+    #      — 관문은 daily_run 의 0단계라 그날 09:50 회차가 통째로 죽는다
+    #      (실측 2026-08-22 10:06 · 문구까지 같다). 손으로 돌리면 ALL GREEN 이라
+    #      며칠을 못 찾는다([235] 와 같은 자리).
+    #    ★ 계기는 기계 상태에 기대지 않는다([272]) — 목으로 **계약만** 잰다.
+    _live = session_wrapup.live_sids
+    try:
+        session_wrapup.live_sids = lambda *a, **kw: {"aliveaa1"}
+        mine = {"who": "claude", "sid": "aliveaa1",
+                "at": _t.time() - 99 * 3600, "agent_pid": 0}
+        ok, why = lanes._idle(mine)
+    finally:
+        session_wrapup.live_sids = _live       # 공유 모듈은 반드시 되돌린다([371])
+    assert not ok and "일하는 창" in why, "지금 일하는 창의 차선을 뺏는다: %s" % why
+
+    # ★ 계기 자기시험([272]) — 목을 떼면 같은 rec 가 회수 대상이 되어야 한다.
+    #    안 그러면 위 갈래는 목이 안 먹은 채 통과한 것이고 아무것도 안 잰 것이다.
+    ok_off, _ = lanes._idle(dict(mine))
+    assert ok_off, "목을 뗐는데도 살아 있는 창이라 한다 — 이 검사는 아무것도 안 잰다"
 
     # 오래됐고 자국이 없으면 회수 대상 — 대화기록 폴더를 읽을 수 있을 때만 물어본다
     old = {"who": "claude", "sid": "deadbeef", "at": _t.time() - 99 * 3600, "agent_pid": 0}
