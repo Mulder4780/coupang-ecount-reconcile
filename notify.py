@@ -152,6 +152,10 @@ def channels():
             "kind": str(row.get("kind") or "webhook"),
             "enabled": bool(row.get("enabled")),
             "url": str(row.get("url") or ""),
+            # ★ 토큰은 이 목록에만 담고 **밖으로 내보내지 않는다**. 지금 `channels()` 를
+            #   부르는 곳은 이 파일 안 둘뿐이고(발송·이름 출력) 화면·API 로 안 나간다 —
+            #   그 사실이 깨지는 날 토큰이 그대로 샌다. 검증 `[405]` 가 그것을 지킨다.
+            "token": str(row.get("token") or ""),
             "timeout": float(row.get("timeout") or 5),
         })
     return out
@@ -196,13 +200,69 @@ def external_text(rec):
     return line if not leaks_business_value(line) else "[CSOS] 새 알림"
 
 
+#: 카카오 '나에게 보내기'(기본 텍스트 템플릿).
+_KAKAO_MEMO_URL = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
+#: 그 템플릿의 text 한도. ★ 공식 문서값을 옮겨 적은 것이고 **실측하지 않았다**
+#  (토큰이 없어 못 잰다 · `[169]`). `external_text` 는 `[CSOS] 갈래 · 상태 · N건`
+#  이라 실제로 여기 닿을 일이 거의 없다 — 그래도 조용히 자르지 않는다(`[273]`).
+_KAKAO_TEXT_MAX = 200
+
+
+def _send_kakao_memo(ch, text):
+    """앱 → **형님 자신의 '나와의 채팅'** 한 방향.
+
+    ★ 방향을 헷갈리지 말 것(분담판 `[75]`): 단톡방을 **읽지도 못하고 보내지도 못한다**
+      — 카카오에 대화 읽기 API 자체가 없다. 그래서 이 프로젝트는 예전 그대로 내보내기
+      txt 를 쓴다(`kakao_apply.py`). 여기가 늘리는 것은 '앱 → 형님' 하나뿐이다.
+    ★ 문 셋은 새로 만들지 않았다(`[162]`) — ① 기본 꺼짐은 `enabled` 와 `config/notify.json`
+      부재가 ② 업무값 차단은 `external_text`·`leaks_business_value` 가 ③ '실패를 성공으로
+      안 적는 것' 은 이 함수의 응답 확인이 한다.
+    ⚠ 토큰은 `config/notify.json` 에만 둔다 — 코드·리포트·채팅·git 어디에도 안 적는다.
+    """
+    import urllib.error, urllib.parse, urllib.request
+    token = str(ch.get("token") or "").strip()
+    if not token:
+        return False, "토큰이 없다 — config/notify.json 의 token 을 채운다"
+    body = str(text or "")
+    잘림 = ""
+    if len(body) > _KAKAO_TEXT_MAX:
+        # 조용히 자르지 않는다 — 받는 사람이 그 한 줄이 전부인 줄 안다(`[273]`).
+        잘림 = " · 글이 길어 %d자를 줄였다" % (len(body) - _KAKAO_TEXT_MAX)
+        body = body[:_KAKAO_TEXT_MAX]
+    payload = json.dumps({"object_type": "text", "text": body,
+                          "link": {"web_url": "", "mobile_web_url": ""}},
+                         ensure_ascii=False)
+    data = urllib.parse.urlencode({"template_object": payload}).encode("utf-8")
+    req = urllib.request.Request(_KAKAO_MEMO_URL, data=data, headers={
+        "Authorization": "Bearer " + token,
+        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8"})
+    try:
+        with urllib.request.urlopen(req, timeout=ch.get("timeout") or 5) as resp:
+            code = int(getattr(resp, "status", 0) or resp.getcode() or 0)
+    except urllib.error.HTTPError as e:
+        # ★ 왜인지 말하되 토큰은 한 글자도 안 싣는다. 카카오는 본문에 사유를 준다.
+        why = ""
+        try:
+            why = " " + (e.read() or b"")[:200].decode("utf-8", "replace")
+        except Exception:
+            pass
+        return False, ("HTTP %s%s" % (getattr(e, "code", "?"), why)).replace(token, "***")
+    except Exception as e:
+        return False, ("%s: %s" % (type(e).__name__, e)).replace(token, "***")
+    if 200 <= code < 300:
+        return True, "HTTP %d%s" % (code, 잘림)
+    return False, "HTTP %d" % code
+
+
 def _send_external(ch, rec):
     """한 채널로 보낸다. 성공하면 True. **확인 못 하면 성공이 아니다.**"""
     if not ch.get("enabled"):
         return False, "꺼짐"
+    if ch.get("kind") == "kakao_memo":
+        return _send_kakao_memo(ch, external_text(rec))
     url = str(ch.get("url") or "")
     if ch.get("kind") != "webhook" or not url.startswith("https://"):
-        return False, "보낼 길이 없다(https webhook 만 지원)"
+        return False, "보낼 길이 없다(https webhook · kakao_memo 만 지원)"
     import urllib.request
     body = json.dumps({"text": external_text(rec)}).encode("utf-8")
     req = urllib.request.Request(
