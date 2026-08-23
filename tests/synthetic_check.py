@@ -27243,10 +27243,11 @@ def t402_browser_collect_says_when_it_misses_its_chance():
     import browser_chain as B402
 
     box = _tf402.mkdtemp(prefix="t402-")
-    hold = B402.MISS_TRACE
+    # ★ 자국 자리는 `STATE` 에서 파생된다([247]) — `STATE` 만 돌리면 격리가 따라온다.
+    hold = B402.STATE
     실제 = os.path.join(ROOT, "reports", "브라우저수집_오류.json")
     전 = os.path.getmtime(실제) if os.path.exists(실제) else None
-    B402.MISS_TRACE = os.path.join(box, "브라우저수집_오류.json")
+    B402.STATE = os.path.join(box, "chain.json")
     try:
         오늘 = _dt402.date.today()
         옛날 = (오늘 - _dt402.timedelta(days=12)).isoformat()
@@ -27256,9 +27257,9 @@ def t402_browser_collect_says_when_it_misses_its_chance():
         B402.trace_missed({"마지막": {
             "ERP 전화면 몰이": {"때": 옛날 + " 12:00", "결과": "건너뜀"},
             "점검": {"때": 옛날 + " 12:00", "결과": "할 일 없음"}}})
-        assert os.path.exists(B402.MISS_TRACE), \
+        assert os.path.exists(B402._miss_trace()), \
             "[402] 12일째 못 잡았는데 자국이 없다 — 그러면 아무도 모른다([169])"
-        d = _js402.load(open(B402.MISS_TRACE, encoding="utf-8"))
+        d = _js402.load(open(B402._miss_trace(), encoding="utf-8"))
         assert "12일째" in d["무엇"], "[402] 며칠째인지 안 적는다: " + d["무엇"][:80]
         assert d.get("어떻게"), "[402] 조치가 없다 — 무엇을 하라는 말이 없으면 안 읽는다([289])"
         assert "점검" not in _js402.dumps(d, ensure_ascii=False), \
@@ -27267,16 +27268,16 @@ def t402_browser_collect_says_when_it_misses_its_chance():
         # ② 잡으면 지운다([228] — 옛 자국은 고쳐진 고장을 계속 보고한다)
         B402.trace_missed({"마지막": {"ERP 전화면 몰이": {"때": 오늘.isoformat() + " 12:00",
                                                         "결과": "시작됨"}}})
-        assert not os.path.exists(B402.MISS_TRACE), "[402] 오늘 잡았는데 자국이 안 지워진다"
+        assert not os.path.exists(B402._miss_trace()), "[402] 오늘 잡았는데 자국이 안 지워진다"
 
         # ③ 못 재면 아무 말도 안 한다([169])
         B402.trace_missed({"마지막": {"X": {"때": "", "결과": "건너뜀"}}})
-        assert not os.path.exists(B402.MISS_TRACE), \
+        assert not os.path.exists(B402._miss_trace()), \
             "[402] 시각을 못 읽었는데 경보를 만든다 — 모르는 것으로 만든 경보는 매일 뜬다"
 
         # ④ 하루 이틀은 정상이다([170] · [269] — 정오에 크롬이 앞에 없는 것은 흔하다)
         B402.trace_missed({"마지막": {"Y": {"때": 어제 + " 12:00", "결과": "건너뜀"}}})
-        assert not os.path.exists(B402.MISS_TRACE), "[402] 하루 놓친 것으로 경보가 뜬다"
+        assert not os.path.exists(B402._miss_trace()), "[402] 하루 놓친 것으로 경보가 뜬다"
 
         # ⑤ 계기 자신도 시험한다([272]) — 판정을 죽이면 ①이 잡아야 한다
         원래 = B402.MISS_DAYS
@@ -27284,11 +27285,11 @@ def t402_browser_collect_says_when_it_misses_its_chance():
             B402.MISS_DAYS = 9999                 # 영영 안 걸리게
             B402.trace_missed({"마지막": {"ERP 전화면 몰이": {"때": 옛날 + " 12:00",
                                                             "결과": "건너뜀"}}})
-            assert not os.path.exists(B402.MISS_TRACE), "(자기시험 준비 실패)"
+            assert not os.path.exists(B402._miss_trace()), "(자기시험 준비 실패)"
         finally:
             B402.MISS_DAYS = 원래
     finally:
-        B402.MISS_TRACE = hold
+        B402.STATE = hold
         _sh402.rmtree(box, ignore_errors=True)
 
     # ★ 실측 증거 파일은 한 글자도 안 건드린다([247])
@@ -27297,6 +27298,8 @@ def t402_browser_collect_says_when_it_misses_its_chance():
 
     src = open(os.path.join(ROOT, "band", "browser_chain.py"), encoding="utf-8").read()
     # ⑥ 자국을 남기는 자리를 **실제로 부르는가**([328] — 함수만 있고 안 부르면 없는 것과 같다)
+    # ★ 자국 자리가 STATE 에서 파생되는가([247] — 안 그러면 남의 검사가 진짜 증거를 지운다)
+    assert "os.path.dirname(STATE)" in src,         "[402] 자국 경로를 못 박아 두면 STATE 만 격리한 검사가 진짜 증거 파일을 지운다"
     assert "trace_missed(d)" in src, "[402] trace_missed 를 부르는 곳이 없다"
     # ⑦ 자동 재시도를 넣지 않았다([269] 회귀 — 화면을 뺏는 회차는 하루 한 번이다)
     body = src[src.index("def trace_missed"):src.index("def lock_take")]
