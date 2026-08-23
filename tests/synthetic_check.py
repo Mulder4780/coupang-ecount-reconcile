@@ -1842,9 +1842,29 @@ def t34_capture_and_no_send():
 
     # (6) 자료 유무 판정이 상태 도착 뒤에 다시 그려지는가
     #     (안 그러면 밴드·카톡·PO가 멀쩡한데 '아직 없음'으로 4건이 거짓 표시된다)
-    _ls = idx[idx.index("async function loadStatus()"):][:900]
-    assert "srcStats = s.sources" in _ls and "renderBoard()" in _ls, \
-        "상태를 받은 뒤 확인목록을 다시 그리지 않는다 — 자료가 있어도 '없음'으로 뜬다"
+    # ★ 재려는 것은 **그 함수가 그렇게 하는가**이지 '앞 900자 안에 있는가'가 아니다.
+    #   옛 검사는 창을 900자로 못 박아 뒀는데, 이 함수 앞머리로 자율자동화 안내가
+    #   들어오자 `renderBoard()` 가 창 밖으로 밀려 **계약은 지켜지는데 검사만 죽었다**
+    #   (실측: 900자에선 없고 1200자부터 있다). 관문은 daily_run 의 0단계라 그 순간부터
+    #   09:50 회차가 매일 첫 줄에서 죽는다 — `[39]`·`[355]` 가 배운 그 자리다.
+    def _fn_body(_src, _head):
+        _i = _src.index(_head)
+        _m = re.search(chr(10) + "(?:async )?function ", _src[_i + len(_head):])
+        return _src[_i:_i + len(_head) + _m.start()] if _m else _src[_i:]
+
+    def _status_redraws(_src):
+        _b = _fn_body(_src, "async function loadStatus()")
+        return ("srcStats = s.sources" in _b and "renderBoard()" in _b
+                and _b.index("srcStats = s.sources") < _b.index("renderBoard()"))
+
+    assert _status_redraws(idx), (
+        "상태를 받은 뒤 확인목록을 다시 그리지 않는다 — 자료가 있어도 '없음'으로 뜬다")
+    # 계기 자신을 시험한다(`[272]`) — 다시 그리기를 빼면 정말 잡히는가
+    _ls = _fn_body(idx, "async function loadStatus()")
+    _i0 = idx.index("async function loadStatus()")
+    _bad = idx[:_i0] + _ls.replace("renderBoard()", "noop()") + idx[_i0 + len(_ls):]
+    assert not _status_redraws(_bad), (
+        "이 검사는 아무것도 안 재고 있다 — 다시 그리기를 빼도 통과한다")
     # 앱서버 자동 게시와 사람/다른 AI 수동 게시가 겹치면 같은 Git 커밋이 두 번 생긴다.
     cp = open(os.path.join(ROOT, "cloud_publish.py"), encoding="utf-8").read()
     srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
@@ -16172,6 +16192,19 @@ def t228_scheduler_rounds_are_watched():
             assert got["단계기록"] and got["단계기록"][-1]["단계"] == "느린단계", got.get("단계기록")
             assert "초" in got["단계기록"][-1], "단계마다 걸린 시간이 안 남는다"
             assert got["느린단계"] and got["느린단계"][0]["단계"] == "느린단계", got.get("느린단계")
+            # ★ **회차 끝 표식 뒤에도 살아 있어야 한다** — 인계는 회차가 *끝난 뒤*에 읽는다.
+            #   예전엔 `state == "끝"` 일 때만 담아서, 마지막 기록인 `(회차 끝)` 에서 이 키가
+            #   통째로 사라졌다. 그래서 40단계를 건너뛴 회차조차 무엇이 예산을 먹었는지
+            #   말하지 못했고, 오류도 안 나서 아무도 몰랐다(`[169]`).
+            DR.note_progress("(회차 끝)", "완주")
+            got = json.load(open(DR.PROGRESS, encoding="utf-8"))
+            assert got.get("느린단계"), "회차가 끝나자 '오래 걸린 단계'가 사라졌다 — 인계가 못 읽는다"
+            # ★ **새 회차가 시작하면 비워야 한다** — 안 비우면 `[-60:]` 상한에 걸려 여러
+            #   회차가 섞이고(실측: 합성검증이 5회차분 5번 찍혀 있었다) '이 회차에서
+            #   무엇이 오래 걸렸나'에 남의 회차 값이 답한다.
+            DR.note_progress("(회차 시작)", "시작", {"끝난단계": []})
+            got = json.load(open(DR.PROGRESS, encoding="utf-8"))
+            assert not got.get("단계기록") and not got.get("느린단계"),                 "새 회차인데 지난 회차 시간 기록이 남아 있다: %r" % (got.get("단계기록"),)
         finally:
             DR.PROGRESS = keep
     # ── ⑧ 죽은 회차는 **왜인지도 남긴다**. 스케줄러는 exit 1 을 1 이라고만 말한다.

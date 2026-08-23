@@ -9,6 +9,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+import proc_guard  # noqa: E402  (ROOT 를 경로에 넣은 뒤라야 보인다)
 
 
 def main() -> None:
@@ -23,6 +26,9 @@ def main() -> None:
         errors="strict",
         timeout=30,
         check=False,
+        # 창을 띄우지 않는다(`[272]`) — 이 파일은 09:50 회차가 pythonw 로 돌리므로
+        # 깃발이 없으면 그때마다 검은 창이 뜬다. 잡는 출력은 그대로다(capture_output).
+        **proc_guard.background_popen_kwargs(),
     )
     assert result.returncode == 0, result.stderr
     value = json.loads(result.stdout)
@@ -37,10 +43,16 @@ def main() -> None:
             "raise SystemExit(autopilot.main(['--status']))",
         ],
         cwd=ROOT,
+        # 출력을 잡아 둔다 — 안 잡으면 창을 없애는 순간 **아무 데도 안 남고**(`[248]`)
+        # 실패했을 때 무엇이 나왔는지 말할 수 없다.
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=30,
         check=False,
+        **proc_guard.background_popen_kwargs(),
     )
-    assert background.returncode == 0, background.returncode
+    assert background.returncode == 0, (background.returncode, background.stderr)
     print("autopilot CP949 · pythonw 상태 조회: OK")
 
 

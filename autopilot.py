@@ -333,8 +333,12 @@ def write_status(doc: dict[str, Any] | None = None, *, actions: list[dict[str, A
 #: 출력에서 **오류처럼 보이는 줄**을 고르는 표시.
 #: `실패` 는 넣지 않는다 — 정상 출력에 흔하다(`… 미분류 0건 · 실패 0건`).
 #: 넓히면 멀쩡한 줄을 원인으로 지목하고, 그러면 사람이 엉뚱한 데를 고치러 간다([172]).
+# ★ `시간 초과` 는 **공백이 있는 모양도 실재한다** — 실측으로 `collect_all.py` 와
+#   `agent_dispatch.py` 가 그렇게 적고, `daily_run`·`erp_grab` 등은 붙여 적는다.
+#   한 모양만 알면 다른 쪽 실패는 **표시를 못 찾아 꼬리로 떨어진다**(실측 '미수집 원본'
+#   이 openpyxl 경고를 앞세웠다) — 낱말이 어긋나면 한 건도 안 걸리면서 오류도 안 난다(`[165]`).
 _ERR_MARK = re.compile(
-    r"(Error|Exception|Traceback|HTTP\s*\d{3}|returncode=|시간초과|거부|Not Found)")
+    r"(Error|Exception|Traceback|HTTP\s*\d{3}|returncode=|시간 ?초과|거부|Not Found)")
 
 
 def _why_line(text: str) -> str:
@@ -409,10 +413,21 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
 
 def status() -> dict[str, Any]:
     try:
-        return json.loads(STATUS_PATH.read_text(encoding="utf-8"))
+        d = json.loads(STATUS_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError):
         # 상태 조회/API GET은 읽기 전용이다. 첫 회차 전에는 메모리 요약만 돌려준다.
-        return summary()
+        d = summary()
+    # ★ 사람이 읽는 자리에 **왜인지 한 줄**을 같이 준다.
+    #   인계 '먼저 처리할 것' 이 조치로 `python autopilot.py --status` 를 주는데,
+    #   `last_error` 는 1,200자 **꼬리**라 실측 2026-08-23 '고정 주소 사본 올리기'(26회)가
+    #   맨 끝의 **openpyxl 경고**를 보여 줬다 — 진짜 원인(`HTTP 404`)은 가운데 묻혀 있었다.
+    #   그러면 사람이 멀쩡한 데를 고치러 간다(`[172]`·`[289]` — 조치는 갈래마다 다르다).
+    #   판정을 새로 만들지 않고 `_why_line` 을 빌린다(`[162]`), **원문은 그대로 둔다**
+    #   (기계가 읽는다 · `[169]`) — 옆에 `왜` 를 더할 뿐이다.
+    for _it in (d.get("items") or []):
+        if isinstance(_it, dict) and _it.get("last_error"):
+            _it["왜"] = _why_line(str(_it.get("last_error") or ""))
+    return d
 
 
 def selftest() -> None:
