@@ -27313,6 +27313,66 @@ def t402_browser_collect_says_when_it_misses_its_chance():
 
     print("✅ [402] 브라우저 수집이 기회를 못 잡으면 말한다 · 놓친 회차는 켤 때 따라잡는다 (실행으로 잼)")
 
+
+def t403_soft_delete_is_covered_by_verified_archive():
+    """[403] 삭제 기록도 검증 보관본에 남고 outbox 대기에서 빠진다.
+
+    실사고: 회복 가능한 soft-delete 행 하나가 현행 스냅샷에서 아예
+    빠졌다. 그 결과 같은 outbox 1건이 72번 재시도되고, 5분
+    파이프라인이 매번 ``coverage 미완료``로 종료됐다. 삭제 행을 주
+    시트에서 지우지는 않되 정본 전체 tombstone을 검증 sidecar에
+    보관해, 삭제 사실과 복구 근거를 둘 다 잃지 않는지 잰다.
+    """
+    from pathlib import Path
+    import app_store as A403
+    import archive_worker as W403
+    import automation_pipeline as P403
+
+    with tempfile.TemporaryDirectory(prefix="csos-tombstone-403-") as td:
+        root = Path(td)
+        (root / "reports").mkdir(parents=True)
+        store = A403.AppStore(root / "db" / "app_store.db").initialize()
+        made = store.create_work(
+            kind="돌발AS", business_key="AS-403", public_id="AS-403",
+            project_no="UJ403", camp_name="합성캠프", status="신규접수",
+            fields={"접수ID": "AS-403", "프로젝트NO": "UJ403",
+                    "캠프명": "합성캠프", "진행상태": "신규접수"},
+            actor="synthetic", source="synthetic",
+            idempotency_key="t403-create",
+        )
+        deleted = store.soft_delete_work(
+            made["work"]["id"],
+            expected_version=made["work"]["record_version"],
+            actor="synthetic", reason="합성 삭제 검증",
+            idempotency_key="t403-delete",
+        )
+        assert deleted["work"]["deleted_at"], deleted
+
+        template = root / "template.xlsx"
+        W403._make_selftest_xlsx(template)
+        worker = W403.ArchiveWorker(store, root / "spool")
+        result = worker.run(template)
+        assert result.get("ok") and result.get("state") == "verified", result
+        artifact = Path(result["export"]["artifact_dir"])
+        proof = json.load(open(artifact / "adapter-result.json", encoding="utf-8"))
+        coverage = [
+            row for row in proof.get("record_coverage") or []
+            if row.get("work_id") == made["work"]["id"]
+        ]
+        assert len(coverage) == 1 and coverage[0]["outcome"] == "archived_sidecar", coverage
+        assert coverage[0]["reason"] == "soft-deleted-canonical-record", coverage
+
+        pipeline = P403.AutomationPipeline(
+            root=root, store=store,
+            state_path=root / "reports" / "automation_pipeline_state.json",
+            lock_path=root / "reports" / ".automation_pipeline.lock",
+        )
+        ack = pipeline._ack_archived_outbox()
+        assert ack["complete"] and ack["deferred_uncovered"] == 0, ack
+        assert ack["work_acked"] == 2 and store.status()["outbox_pending"] == 0, ack
+
+    print("✅ [403] soft-delete 도 검증 sidecar 보관 · outbox 무한 재시도 차단")
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -34202,6 +34262,7 @@ if __name__ == "__main__":
     t388_hung_start_is_not_normal()
     t401_erp_grid_reads_what_is_there()
     t402_browser_collect_says_when_it_misses_its_chance()
+    t403_soft_delete_is_covered_by_verified_archive()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

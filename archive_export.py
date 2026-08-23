@@ -266,11 +266,21 @@ class ArchiveExporter:
             }
             records.append(
                 {
-                    "op": "upsert_record",
+                    # Soft-deleted records are still part of the immutable
+                    # canonical snapshot.  The Excel adapter keeps their full
+                    # record in the verified audit sidecar instead of silently
+                    # dropping the deletion event or erasing a recoverable row.
+                    "op": (
+                        "archive_tombstone"
+                        if work.get("deleted_at")
+                        else "upsert_record"
+                    ),
                     "work_id": work["id"],
                     "record_version": work["record_version"],
                     "kind": work["kind"],
                     "business_key": work["business_key"],
+                    "deleted_at": work.get("deleted_at"),
+                    "deleted_by": work.get("deleted_by"),
                     "target": target,
                     "fields": record_fields,
                     "field_meta": work.get("field_meta") or {},
@@ -285,7 +295,7 @@ class ArchiveExporter:
             # The legacy queue can safely patch located rows.  Field keys are
             # column headers; creation/allocation remains the adapter's job via
             # the high-level records list above.
-            if target:
+            if target and not work.get("deleted_at"):
                 for field_key, value in sorted((work.get("fields") or {}).items()):
                     if field_key.startswith("__"):
                         continue
@@ -409,7 +419,10 @@ class ArchiveExporter:
                 raise ArchiveExportError(f"template does not exist: {template}")
             template_sha = sha256_file(template)
             template_name = template.name
-        snapshot, snapshot_sha = self.store.snapshot()
+        # A verified archive must cover deletion tombstones as well as active
+        # rows.  Otherwise one soft-delete outbox message can never be
+        # acknowledged and every five-minute pipeline round ends red forever.
+        snapshot, snapshot_sha = self.store.snapshot(include_deleted=True)
         seq = int(snapshot.get("change_seq", 0))
         template_token = template_sha[:12] if template_sha else "no-template"
         # The coverage suffix prevents a pre-coverage verified artifact with the

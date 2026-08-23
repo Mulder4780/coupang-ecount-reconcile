@@ -1451,13 +1451,23 @@ class ArchiveWorker:
         if template_before != str(plan.get("template", {}).get("sha256") or ""):
             raise ArchiveVerificationError("template copy hash differs from command plan")
         records = list(plan.get("records") or [])
+        active_records = [
+            record
+            for record in records
+            if str(record.get("op") or "upsert_record") != "archive_tombstone"
+        ]
+        tombstone_records = [
+            record
+            for record in records
+            if str(record.get("op") or "") == "archive_tombstone"
+        ]
         with zipfile.ZipFile(template_copy_path, "r") as archive:
             if archive.testzip() is not None:
                 raise ArchiveVerificationError("template ZIP CRC failed")
             shared = _shared_strings(archive)
             sheet_map = ledger_writer.sheet_file_map(archive)
             required_sheets = {
-                _record_sheet(record, sheet_map) for record in records
+                _record_sheet(record, sheet_map) for record in active_records
             }
             states = {
                 name: SheetState(
@@ -1468,7 +1478,30 @@ class ArchiveWorker:
                 )
                 for name in sorted(required_sheets)
             }
-        located, locate_conflicts = _locate_records(records, states, template_before)
+        located, locate_conflicts = _locate_records(
+            active_records, states, template_before
+        )
+        # Deletion is not an upsert.  Preserve the full canonical tombstone in
+        # the audit sidecar, tied to work_id+record_version, and leave the main
+        # sheet untouched so a recoverable deletion never erases evidence.
+        for record in tombstone_records:
+            target = record.get("target") or {}
+            locate_conflicts.append(
+                {
+                    "sheet": str(target.get("sheet") or ""),
+                    "business_key": record.get("business_key"),
+                    "work_id": record.get("work_id"),
+                    "record_version": record.get("record_version"),
+                    "rows": (
+                        [int(target.get("source_row"))]
+                        if int(target.get("source_row") or 0) > 0
+                        else []
+                    ),
+                    "reason": "soft-deleted-canonical-record",
+                    "deleted_at": record.get("deleted_at"),
+                    "deleted_by": record.get("deleted_by"),
+                }
+            )
         counts = {
             "records_inserted": 0,
             "records_updated": 0,
@@ -1484,6 +1517,8 @@ class ArchiveWorker:
                 detail = "template full — no empty row to insert (expand template)"
             elif reason == "row-claimed-by-other":
                 detail = f"row {conflict.get('rows')} already claimed by another record"
+            elif reason == "soft-deleted-canonical-record":
+                detail = "canonical record is soft-deleted; full tombstone archived"
             else:
                 detail = (
                     f"matches multiple rows {conflict.get('rows')} "
