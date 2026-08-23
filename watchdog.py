@@ -154,6 +154,45 @@ def heal_server(dry):
     return "서버 재시작 → 실패(다음 주기 재시도)"
 
 
+def _heal_stale_guard_code(dry):
+    """보호자가 옛 코드로 돌면 **갈아 준다**.  갈 것이 없으면 `None`.
+
+    ★ **앱 서버는 안 내린다** — 바뀌는 것은 감시자뿐이라 류지영·오종현 화면은
+      한 순간도 안 끊긴다(항상 담당자 업무가 먼저다).  감시 공백은 죽이고
+      곧바로 띄우는 몇 초뿐이고, 그동안 터널 감시자가 두 번째 줄로 받친다.
+    ★ **pid 로만 죽인다** — 이름(`CommandLine -like`)으로 죽이면 그 글자를 명령줄에
+      담은 **무관한 프로세스까지** 죽는다(2026-08-13 에 `kill_stale_tunnel` 이
+      내 PowerShell 을 통째로 죽인 그 자리다).
+    ★ **모르면 안 간다**([169]) — 프로세스를 못 찾거나 시각을 못 읽으면 그대로 둔다.
+      멀쩡한 감시자를 헛되이 갈면 그 순간이 앱의 사각지대가 된다.
+    """
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "webapp"))
+        import restart_server as _rs
+        got = _rs.stale_longrunner("server_guard.py", ("webapp/server_guard.py",))
+    except Exception as exc:                       # 판정 실패를 "정상"이라 하지 않는다
+        return "서버 관리 에이전트 코드 나이 확인 못 함: %s" % str(exc)[:50]
+    if not got:
+        return None
+    pid, when, newer, unread = got
+    if not newer:
+        return None
+    if dry:
+        return "서버 관리 에이전트가 옛 코드(%s 외 %d개 · dry)" % (newer[0], len(newer) - 1)
+    try:
+        subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"],
+                       capture_output=True, timeout=30,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        from webapp.tunnel_run import ensure_server_guard
+        # `max_age=-1` 이라야 곧바로 띄운다 — 방금 죽였어도 heartbeat 파일은
+        # 아직 새것이라, 기본값(120)으로 부르면 "살아 있다"고 보고 안 띄운다.
+        ok = ensure_server_guard(max_age=-1)
+    except Exception as exc:
+        return "서버 관리 에이전트 교체 실패: %s" % str(exc)[:50]
+    return ("서버 관리 에이전트를 새 코드로 갈았다(%s 외 %d개)" % (newer[0], len(newer) - 1)
+            if ok else "서버 관리 에이전트 교체 뒤 시작 실패")
+
+
 def heal_server_guard(dry):
     """Third recovery line for the lightweight server manager.
 
@@ -165,7 +204,12 @@ def heal_server_guard(dry):
     try:
         age = time.time() - os.path.getmtime(status)
         if age <= 120:
-            return "서버 관리 에이전트 정상"
+            # 살아 있다 — 그런데 **그 코드가 새것인가**를 여기서 한 번 더 묻는다.
+            # 안 물으면 보호자를 고쳐도 **영영 반영이 안 된다**(2026-08-23 실측:
+            # 파일 13:24 · 프로세스 08-22 20:17 · 하루 전에 붙인 자국이 0건).
+            # heartbeat 만 보던 때는 "정상"이라 답하고, 새로 띄워도 singleton 이
+            # 막으므로 사람이 손으로 죽이기 전에는 안 갈린다([156] 의 보호자 판).
+            return _heal_stale_guard_code(dry) or "서버 관리 에이전트 정상"
     except OSError:
         age = None
     if dry:

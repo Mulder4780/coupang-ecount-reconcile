@@ -142,6 +142,47 @@ def newer_than_server():
     return (pid, when, newer, live, unread)
 
 
+def stale_longrunner(mark, seed, start=None, root=None):
+    """오래 사는 프로세스가 **제 코드보다 낡았나** — (pid, 뜬시각, 새파일[], 못읽은수).
+
+    없거나 못 재면 `None`.  **모르면 안 간다**([169]) — 프로세스를 못 찾거나
+    시작시각을 못 읽으면 갈지 않는다.  잘못 갈면 그 순간 앱이 무방비가 된다.
+
+    ★ 왜 `newer_than_server()` 로 안 되나: 그것은 **앱 서버 전용**이다(씨앗이
+      `app_server.py` 이고 프로세스도 그것만 찾는다).  그런데 이 프로젝트에는
+      앱 서버 말고도 오래 사는 python 프로세스가 있고 — 서버 보호자
+      (`webapp/server_guard.py`) · 터널 감시자(`webapp/tunnel_run.py`) —
+      **그것들은 아무도 안 갈아 준다.**
+    ★ 실측 2026-08-23 (형님 지시 "앱 구동에 문제되는 거 전부 찾아서"):
+      보호자 파일은 13:24 인데 그 프로세스는 **08-22 20:17** 에 떴다 — 17시간 된
+      코드다.  그래서 하루 전에 붙인 자국(`was_alive`)이 **한 줄도 안 찍혔고**,
+      "왜 재시작이 잦은가"를 재려던 계기가 통째로 눈이 멀어 있었다.
+      `[156]`(서버가 옛 코드로 200 을 준다)의 **보호자 판**이고, 자리만 다르다.
+    ★ 더 나쁜 것은 **저절로는 절대 안 갈린다**는 점이다: `heal_server_guard` 는
+      heartbeat 만 보고 "정상"이라 하고, 새로 띄우려 해도 singleton(8978)이
+      막는다.  즉 사람이 손으로 죽이기 전에는 영원히 옛 코드다.
+    ★ 파일 목록은 **따라가서 만든다**([162]·[118]) — 씨앗에서 import 를 재귀로
+      좇으므로 모듈이 늘면 저절로 따라온다.  손으로 적으면 늘 뒤처진다.
+    """
+    cur = running(mark)
+    if not cur:
+        return None
+    pid, when = cur[0]
+    started = _started_epoch(when)
+    if started is None:
+        return None
+    files, unread = watched_files(seed=seed, start=start or list(seed), root=root)
+    base_root = root or ROOT
+    newer = []
+    for rel in files:
+        try:
+            if os.path.getmtime(os.path.join(base_root, rel)) > started + 5:
+                newer.append(rel)
+        except OSError:
+            pass
+    return (pid, when, newer, unread)
+
+
 def stale():
     """서버가 **옛 코드로 돌고 있나**. 돌고 있으면 (pid, 뜬시각, 더 새로운 파일들).
 
@@ -206,11 +247,17 @@ def _port():
     return "8899"
 
 
-def running():
-    """지금 떠 있는 앱 서버 (pid, 뜬 시각) 목록. 나 자신은 빼고 센다."""
+def running(mark="app_server.py"):
+    """명령줄에 `mark` 가 든 python 프로세스 (pid, 뜬 시각) 목록. 나 자신은 뺀다.
+
+    ★ 기본값이 앱 서버라 **옛 호출자는 한 글자도 안 바뀐다**.  인자를 둔 이유는
+      상시 프로세스(서버 보호자·터널 감시자)도 **같은 자리**에서 찾게 하려는
+      것이다([162]) — 찾는 법을 저마다 적으면 한쪽만 고쳐지고, 갈린 뒤에는
+      어느 쪽이 맞는지 아무도 모른다.
+    """
     me = os.getpid()
     ps = ("Get-CimInstance Win32_Process -Filter \"Name like '%python%'\" | "
-          "Where-Object { $_.CommandLine -like '*app_server.py*' } | "
+          "Where-Object { $_.CommandLine -like '*" + mark + "*' } | "
           "ForEach-Object { \"$($_.ProcessId)`t$($_.CreationDate)\" }")
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],

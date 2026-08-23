@@ -17196,6 +17196,227 @@ def t397_missing_collection_never_looks_like_idle_technician():
           "(밀림→대기 · 따라잡으면 경보 · 원천별 · ERP · 자기시험 OK)")
 
 
+
+def t399_longrunner_never_stays_on_old_code():
+    """[399] 오래 사는 프로세스가 **옛 코드로 눌러앉지 못한다**.
+
+    실측 2026-08-23 (형님 지시 "앱 구동에 문제되는 거 전부 찾아서"):
+    `webapp/server_guard.py` 는 13:24 인데 그 프로세스는 **08-22 20:17** 에 떴다 —
+    17시간 된 코드다. 그래서 하루 전에 붙인 자국(`was_alive`)이 **한 줄도 안 찍혔고**,
+    "왜 재시작이 잦은가"를 재려던 계기가 통째로 눈이 멀어 있었다([169]).
+
+    ★ 저절로는 **절대** 안 갈렸다: `heal_server_guard` 는 heartbeat 만 보고 "정상"
+      이라 답하고, 새로 띄우려 해도 singleton(8978)이 막는다. 사람이 손으로 죽이기
+      전에는 영원히 옛 코드다 — `[156]`(서버가 옛 코드로 200 을 준다)의 보호자 판이다.
+    ★ 앱 서버는 `restart_server` 가 갈아 주는데 **보호자 자신은 아무도 안 갈아 줬다.**
+    ⚠ 실측 증거(진짜 프로세스·진짜 파일)는 한 글자도 안 건드린다 — 목과 임시 폴더로만
+      잰다([247]). 모듈 속성은 프로세스 전체의 것이라 `finally` 로 되돌린다([371]).
+    """
+    import shutil as _sh
+    import tempfile as _tf
+    import time as _time
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import restart_server as _rs
+    import watchdog as _wd
+
+    rs_src = open(os.path.join(ROOT, "webapp", "restart_server.py"),
+                  encoding="utf-8").read()
+    wd_src = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    # ⚠ **규칙을 세기 전에 설명을 걷어낸다** — 이 저장소가 여덟 번째 밟는 자리다
+    #   ([301]⑨·[302]·[309]·[332]·[339]·[370]·[272]·여기). 만들면서 그대로 걸렸다:
+    #   ⑧이 `CommandLine` 을 세는데 **"이름으로 죽이지 마라"고 적어 둔 주석 자신**에
+    #   그 글자가 있어 멀쩡한 코드가 빨개졌다. 걷는 자리는 이미 있는 것을 빌린다([162]).
+
+    # ① 기본값은 앱 서버 그대로다 — 인자를 더하면서 옛 호출자를 깨면 안 된다([172]).
+    assert 'def running(mark="app_server.py"):' in rs_src, (
+        "[399] running 의 기본값이 앱 서버가 아니다 — stop()·newer_than_server() 가 "
+        "그 기본값으로 부르므로 바뀌면 앱 서버 감시가 통째로 어긋난다")
+
+    # ② 실행으로 잰다([295]) — 프로세스는 목, 파일은 임시 폴더.
+    tmp = _tf.mkdtemp(prefix="t399_")
+    try:
+        seed = os.path.join(tmp, "webapp")
+        os.makedirs(seed, exist_ok=True)
+        with open(os.path.join(seed, "guard.py"), "w", encoding="utf-8") as fh:
+            fh.write("import helper\n")
+        with open(os.path.join(tmp, "helper.py"), "w", encoding="utf-8") as fh:
+            fh.write("x = 1\n")
+
+        _real_running, _real_started = _rs.running, _rs._started_epoch
+        try:
+            _rs.running = lambda mark="": [(4242, "FAKE")]
+
+            # 프로세스가 **파일보다 나중**에 떴다 — 갈 것이 없다
+            _rs._started_epoch = lambda when: _time.time() + 600
+            got = _rs.stale_longrunner("x", ("webapp/guard.py",), root=tmp)
+            assert got and got[2] == [], (
+                "[399] 프로세스가 파일보다 새것인데 '옛 코드'라 한다 — 멀쩡한 감시자를 "
+                "회차마다 갈면 그 몇 초가 앱의 사각지대가 된다: %r" % (got,))
+
+            # 프로세스가 **파일보다 먼저** 떴다 — 갈아야 한다
+            _rs._started_epoch = lambda when: _time.time() - 3600
+            got = _rs.stale_longrunner("x", ("webapp/guard.py",), root=tmp)
+            assert got, "[399] 판정 자체를 못 했다"
+            assert "webapp/guard.py" in got[2], (
+                "[399] 옛 코드를 못 잡는다 — 이 검사가 막으려는 그 사고다: %r" % (got[2],))
+            # ③ 목록은 따라가서 만든다([162]·[118]) — import 가 늘면 저절로 따라온다
+            assert "helper.py" in got[2], (
+                "[399] import 를 안 따라간다 — 씨앗 하나만 보면 나머지를 고쳐도 "
+                "아무 화면에 안 뜬다(실측 5 → 89개): %r" % (got[2],))
+
+            # ④ **모르면 안 간다**([169]) — 시각을 못 읽으면 판정하지 않는다
+            _rs._started_epoch = lambda when: None
+            assert _rs.stale_longrunner("x", ("webapp/guard.py",), root=tmp) is None, (
+                "[399] 시작시각을 못 읽었는데도 판정한다 — 모름을 근거로 감시자를 죽인다")
+        finally:
+            _rs.running, _rs._started_epoch = _real_running, _real_started
+
+        # ⑤ 프로세스를 못 찾으면 None
+        _real_running = _rs.running
+        try:
+            _rs.running = lambda mark="": []
+            assert _rs.stale_longrunner("x", ("webapp/guard.py",), root=tmp) is None, (
+                "[399] 프로세스가 없는데 판정한다")
+        finally:
+            _rs.running = _real_running
+    finally:
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    # ⑥ **워치독이 실제로 그 판정을 부른다**([328] — 코드가 있는 것과 도는 것은 다르다).
+    _head = _t370_code_only(wd_src.split("def sync_contract_checks", 1)[0])
+    _hb = _head.split("def heal_server_guard(dry):", 1)[-1]
+    assert "_heal_stale_guard_code(dry)" in _hb, (
+        "[399] heal_server_guard 가 코드 나이를 안 묻는다 — heartbeat 만 보면 "
+        "보호자를 고쳐도 영영 반영이 안 된다")
+    assert "age <= 120" in _hb and _hb.index("age <= 120") < _hb.index("_heal_stale_guard_code"), (
+        "[399] 살아 있는지 보기 전에 코드 나이를 묻는다 — 죽은 보호자는 기존 갈래가 살린다")
+
+    # ⑦ `max_age=-1` 이라야 곧바로 띄운다 — 방금 죽였어도 heartbeat 파일은 아직
+    #    새것이라, 기본값(120)으로 부르면 "살아 있다"고 보고 **안 띄운다.**
+    _fn = _t370_code_only(
+        wd_src.split("def _heal_stale_guard_code", 1)[-1].split("\ndef ", 1)[0])
+    assert "ensure_server_guard(max_age=-1)" in _fn, (
+        "[399] 죽인 직후 기본값으로 부른다 — heartbeat 가 아직 새것이라 안 띄우고, "
+        "그러면 보호자 없이 남는다")
+
+    # ⑧ **pid 로만 죽인다** — 이름으로 죽이면 그 글자를 명령줄에 담은 무관한 프로세스까지
+    #    죽는다(2026-08-13 에 kill_stale_tunnel 이 실제로 PowerShell 을 통째로 죽였다).
+    assert '"/PID", str(pid)' in _fn, "[399] pid 로 안 죽인다"
+    assert "CommandLine" not in _fn, (
+        "[399] 이름으로 죽인다 — 그 글자를 명령줄에 담은 남의 프로세스까지 죽는다")
+
+    # ⑨ 계기 자신을 시험한다([272]) — 그 물음을 없애면 옛 코드가 안 잡혀야 한다.
+    _broken = wd_src.replace("return _heal_stale_guard_code(dry) or \"서버 관리 에이전트 정상\"",
+                             "return \"서버 관리 에이전트 정상\"", 1)
+    assert _broken != wd_src, "[399] 자기시험 앵커를 못 찾았다 — 이 검사는 아무것도 안 잰다"
+    _hb2 = (_t370_code_only(_broken.split("def sync_contract_checks", 1)[0])
+            .split("def heal_server_guard(dry):", 1)[-1])
+    assert "_heal_stale_guard_code(dry)" not in _hb2, (
+        "[399] 물음을 없앴는데도 ⑥이 통과한다 — 이 검사는 아무것도 안 재고 있다")
+
+    print("  [399] 상시 프로세스가 옛 코드로 눌러앉지 못한다 — 살아 있어도 코드 나이를 "
+          "묻고, 모르면 안 갈고, pid 로만 죽인다 ✅")
+
+
+def t400_gate_margin_speaks_before_it_dies():
+    """[400] 관문의 **여유가 좁아지면 죽기 전에** 인계가 말한다.
+
+    실측 2026-08-23: 합성검증 **1,350초** · `daily_run.GATE_TIMEOUT_S` **1,500초** —
+    **여유 10%**. 이 관문은 `daily_run` 의 **0단계**라 여기서 넘기면 **그날 회차가
+    통째로 안 돈다**(대조·접수취소·오기입·사실대조·캠프 담당자가 전부 빠진다).
+    그런데 그 여유를 보는 눈이 **한 곳도 없었다** — 죽고 나서야 `exit 1` 다섯 글자로
+    안다([169]).
+
+    ★ 넉넉하면 **아무 말도 안 한다**([170]) · 못 읽으면 **지어내지 않는다**([169]).
+    ⚠ 실측 증거(`reports/합성검증_시간.json`)는 한 글자도 안 건드린다 — 임시 ROOT
+      로만 잰다([247]).
+    """
+    import shutil as _sh
+    import tempfile as _tf
+    import session_handoff as _sh_mod
+
+    # ★ `blockers` 는 스냅샷을 **대괄호로도** 읽는다([320]). 빈 값을 주는 사전을 써서
+    #   다른 갈래를 전부 조용하게 만들고 **이 갈래 하나만** 잰다.
+    class _Blank(dict):
+        def __missing__(self, k):
+            return []
+
+    _st = _Blank()
+
+    def _ask(doc):
+        tmp = _tf.mkdtemp(prefix="t400_")
+        os.makedirs(os.path.join(tmp, "reports"), exist_ok=True)
+        p = os.path.join(tmp, "reports", "합성검증_시간.json")
+        if doc is not None:
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh, ensure_ascii=False)
+        real = _sh_mod.BASE
+        try:
+            _sh_mod.BASE = tmp
+            return [a for a, b in _sh_mod.blockers(_st) if "[관문]" in a]
+        finally:
+            _sh_mod.BASE = real                      # 모듈 속성은 모두의 것이다([371])
+            _sh.rmtree(tmp, ignore_errors=True)
+
+    def _doc(total, limit, margin, slow=120.0):
+        return {"총초": total, "한도초": limit, "여유율": margin,
+                "오래걸린것": [{"초": slow, "무엇": "[6] 데모 웹앱"}]}
+
+    # ① 잰 적이 없으면 **아무 말도 안 한다** — 없는 사고를 지어내지 않는다([169]).
+    assert not _ask(None), "[400] 잰 적이 없는데 여유를 확언한다"
+
+    # ② 좁으면 말한다 — 그것이 이 계약의 전부다.
+    got = _ask(_doc(1350.0, 1500, 0.10))
+    assert got, "[400] 여유 10% 인데 조용하다 — 죽고 나서야 알게 된다"
+    assert "22.5분" in got[0] and "25.0분" in got[0], (
+        "[400] 숫자를 안 말한다 — '좁다'만으로는 사람이 판단할 수 없다: %s" % got[0][:80])
+    assert "데모 웹앱" in got[0], (
+        "[400] 무엇이 오래 걸렸는지 안 말한다 — 그것을 모르면 나눌 수가 없다")
+
+    # ③ 넘겼으면 더 세게 — '곧 죽는다'와 '이미 죽었다'는 다른 사실이다([289]).
+    over = _ask(_doc(1700.0, 1500, -0.133))
+    assert over and "넘겼다" in over[0], "[400] 한도를 넘긴 것을 '좁다'로 뭉갠다"
+
+    # ④ 넉넉하면 조용하다 — 정상까지 경보하면 아무도 안 읽는다([170]).
+    assert not _ask(_doc(600.0, 1500, 0.60)), "[400] 여유 60% 인데도 경보한다"
+
+    # ⑤ 한도를 못 읽으면 조용하다 — 모름을 근거로 확언하지 않는다([169]).
+    assert not _ask({"총초": 1350.0, "한도초": None, "여유율": None, "오래걸린것": []}), (
+        "[400] 한도를 모르는데 여유를 말한다")
+
+    # ⑥ 관문이 **실제로 그 자국을 남긴다**([328] — 코드가 있는 것과 도는 것은 다르다).
+    gate = open(os.path.join(ROOT, "tests", "synthetic_check.py"),
+                encoding="utf-8").read()
+    for must, why in (
+        ("_atexit.register(_gate_write_times)", "죽으면 자국이 안 남는다 — 넘겨 끊긴 "
+                                                "회차야말로 가장 알고 싶은 자리다([180])"),
+        ('"합성검증_시간.json"', "자국 파일 이름이 사라졌다"),
+        ("_dr.GATE_TIMEOUT_S", "한도를 손으로 적는다 — 그 값을 바꾼 날 두 화면이 "
+                               "서로 다른 여유를 말한다([162])"),
+    ):
+        assert must in gate, "[400] " + why
+
+    # ⑦ 계기 자신을 시험한다([272]) — 그 갈래를 없애면 ②가 안 잡혀야 한다.
+    hs = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    broken = hs.replace("elif _m < 0.20:", "elif False:", 1)
+    assert broken != hs, "[400] 자기시험 앵커를 못 찾았다 — 이 검사는 아무것도 안 잰다"
+    ns = {"__name__": "sh_broken", "__file__": os.path.join(ROOT, "session_handoff.py")}
+    exec(compile(broken, "sh_broken", "exec"), ns)
+    tmp = _tf.mkdtemp(prefix="t400b_")
+    try:
+        os.makedirs(os.path.join(tmp, "reports"), exist_ok=True)
+        with open(os.path.join(tmp, "reports", "합성검증_시간.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump(_doc(1350.0, 1500, 0.10), fh, ensure_ascii=False)
+        ns["BASE"] = tmp
+        bad = [a for a, b in ns["blockers"](_Blank()) if "[관문]" in a]
+    finally:
+        _sh.rmtree(tmp, ignore_errors=True)
+    assert not bad, "[400] 그 갈래를 없앴는데도 경보가 뜬다 — 이 검사는 아무것도 안 재고 있다"
+
+    print("  [400] 관문 여유를 죽기 전에 말한다 — 좁으면 숫자로, 넘기면 더 세게, "
+          "넉넉하면 조용히, 모르면 지어내지 않는다 ✅")
+
 def t398_completed_source_never_leaks_as_unprocessed():
     """[398] 카톡·밴드 완료와 겹친 행은 내려가고, 미수집 행도 사람 탓으로 안 보인다.
 
@@ -33188,6 +33409,64 @@ def t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback():
 
 
 if __name__ == "__main__":
+    # ── 관문이 **스스로 시간을 잰다** (2026-08-23 · 형님 지시 "앱 구동에 문제되는 거
+    #    전부 찾아서 · 다시는 반복되지 않게") ────────────────────────────────────
+    # 실측 2026-08-23: 이 관문이 **1,350초(22.5분)** 인데 `daily_run.GATE_TIMEOUT_S`
+    # 는 1,500초다 — **여유가 10%뿐**이다. 그리고 이 관문은 `daily_run` 의 **0단계**라
+    # 여기서 시간을 넘기면 **그날 회차가 통째로 안 돈다**(대조·오기입·사실대조·캠프
+    # 담당자가 전부 빠진다). 그런데 **아무도 그 여유를 안 보고 있었다** — 죽고 나서야
+    # `exit 1` 다섯 글자로 안다([169]).
+    # ★ 400개 호출을 하나씩 감싸지 않는다([162]) — 검사는 끝날 때마다 `✅` 한 줄을
+    #   찍으므로 **그 사이 간격이 곧 그 검사의 시간**이다. 가로채는 자리는 여기 하나다.
+    # ★ `atexit` 으로 남긴다 — **죽어도 남는다. 그게 요점이다**([180]). 시간을 넘겨
+    #   끊긴 회차야말로 "무엇이 오래 걸렸나"를 가장 알고 싶은 자리다.
+    # ★ 한도를 손으로 안 적는다([162]) — `daily_run` 이 정하는 값을 읽는다. 여기 1500
+    #   이라 적어 두면 그 값을 바꾼 날 두 화면이 서로 다른 여유를 말한다.
+    import atexit as _atexit
+    _GATE_T0 = time.time()
+    _GATE_MARK = [time.time()]
+    _GATE_STEPS = []
+    _GATE_REAL_PRINT = print
+
+    def print(*a, **k):                       # noqa: A001  (모듈 전역 — 이 파일 안에서만)
+        _GATE_REAL_PRINT(*a, **k)
+        try:
+            _txt = " ".join(str(x) for x in a)
+            if "\u2705" in _txt:              # 검사가 끝났다는 표시
+                _now = time.time()
+                _GATE_STEPS.append([round(_now - _GATE_MARK[0], 1), _txt.strip()[:90]])
+                _GATE_MARK[0] = _now
+        except Exception:
+            pass                              # 계측이 관문을 죽이지 않는다
+
+    def _gate_write_times():
+        try:
+            _limit = None
+            try:
+                sys.path.insert(0, ROOT)
+                import daily_run as _dr
+                _limit = int(_dr.GATE_TIMEOUT_S)
+            except Exception:
+                _limit = None                 # 못 읽으면 **지어내지 않는다**([169])
+            _total = round(time.time() - _GATE_T0, 1)
+            _slow = sorted(_GATE_STEPS, key=lambda x: -x[0])[:12]
+            _doc = {
+                "잰때": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "총초": _total,
+                "한도초": _limit,
+                "여유율": (round(1 - _total / _limit, 3) if _limit else None),
+                "검사수": len(_GATE_STEPS),
+                "오래걸린것": [{"초": a, "무엇": b} for a, b in _slow],
+            }
+            _p = os.path.join(ROOT, "reports", "합성검증_시간.json")
+            _tmp = _p + ".%d.tmp" % os.getpid()
+            with open(_tmp, "w", encoding="utf-8") as _fh:
+                json.dump(_doc, _fh, ensure_ascii=False, indent=1)
+            os.replace(_tmp, _p)
+        except Exception:
+            pass                              # 자국을 못 남겨도 관문 결과는 그대로다
+
+    _atexit.register(_gate_write_times)
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
         t1_erp_check(tmp)
@@ -33487,6 +33766,8 @@ if __name__ == "__main__":
     t376_unfinished_is_split_by_evidence_and_staff_can_close_it()
     t397_missing_collection_never_looks_like_idle_technician()
     t398_completed_source_never_leaks_as_unprocessed()
+    t399_longrunner_never_stays_on_old_code()
+    t400_gate_margin_speaks_before_it_dies()
     t377_one_save_converges_staff_report_calendar_and_capture()
     t378_existing_watchdog_absorbs_and_audits_new_features()
     t379_representative_prepare_never_blames_unverified_staff()
