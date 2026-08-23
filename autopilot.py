@@ -37,6 +37,18 @@ BASE_BACKOFF_MINUTES = 30
 # 실패 횟수로 세지 않고 waiting으로 유지한다.
 INCREMENTAL_RETURN_CODE = 75
 
+
+def _configure_text_output() -> None:
+    """윈도우 CP949 콘솔과 pythonw 모두에서 상태 출력을 안전하게 만든다."""
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None or not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            # 닫힌 파이프처럼 출력 통로 자체가 없는 경우 상태 판정은 계속한다.
+            pass
+
 RESOURCE_MARKERS = (
     "관리대장을 찾을 수 없음",
     "관리대장 v*.xlsx 를 찾을 수 없습니다",
@@ -416,6 +428,7 @@ def selftest() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_text_output()
     ap = argparse.ArgumentParser()
     ap.add_argument("--heal", action="store_true")
     ap.add_argument("--dry", action="store_true")
