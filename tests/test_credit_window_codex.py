@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """Codex 크래딧 분리·재개 검증 — 실측 reports 를 건드리지 않는다."""
 import json
+import io
 import os
 import tempfile
 import time
 import sys
+from contextlib import redirect_stdout
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -37,6 +39,13 @@ def main():
         combined = credit.combined_state(now=now, dirs=[], report_dir=td)
         assert combined["agents"]["codex"]["갈래"] == "소진", combined
         assert "Codex 소진" in credit.line(combined), credit.line(combined)
+
+        # CLI 사람 출력도 Claude 전용 state()가 아니라 두 에이전트를 함께 보여야 한다.
+        shown = io.StringIO()
+        with patch.object(credit, "combined_state", return_value=combined), \
+             redirect_stdout(shown):
+            assert credit.main([]) == 0
+        assert "Codex 소진" in shown.getvalue(), shown.getvalue()
 
         old_dir, old_status = dispatch.REPORT_DIR, dispatch.STATUS_PATH
         dispatch.REPORT_DIR = root

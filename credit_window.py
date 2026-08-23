@@ -375,7 +375,9 @@ def main(argv=None):
     p.add_argument("--print", action="store_true", help="사람이 읽는 한 줄")
     p.add_argument("--write", action="store_true", help="reports/크레딧_창.json 갱신")
     a = p.parse_args(argv)
-    st = note() if a.write else state()
+    # 사람 출력도 공용 파일·앱과 같은 두 에이전트 판정을 쓴다. Claude만 보면
+    # Codex가 막힌 동안에도 "여유 있음"으로 잘못 안내한다([203]).
+    st = note() if a.write else combined_state()
     print(line(st))
     print(json.dumps({k: v for k, v in st.items() if k != "왜"}, ensure_ascii=False))
     return 0
