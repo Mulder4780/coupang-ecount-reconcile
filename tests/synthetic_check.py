@@ -17474,6 +17474,15 @@ def t398_completed_source_never_leaks_as_unprocessed():
         "완전 복제 완료행을 한 건으로 못 모았다: %s/%s" % (len(as_done), removed)
     assert len(pm_open) == 1, "돌발AS 완료 근거가 정기점검까지 잘못 닫았다"
 
+    # ②-b 완료 DB가 두 원장 행을 모두 닫은 뒤에도 다시 두 건으로 갈라지면 안 된다.
+    # 실측에서는 원장미기입 딱지가 사라지는 순간 UJ2601393이 1건→2건으로 되살아났다.
+    direct = [{"날짜": "2026-08-10", "분류": "as_done", "프로젝트NO": "UJ2601393",
+               "원천업무ID": source, "신청내용": row["신청내용"]}
+              for source in ("AS-2608-600", "AS-2608-603")]
+    direct, direct_removed = A._dedupe_calendar_pending(direct)
+    assert len(direct) == 1 and direct_removed == 1, \
+        "완료 DB 반영 뒤 복제 완료행이 다시 갈라졌다: %s/%s" % (len(direct), direct_removed)
+
     # ③ 서버·오프라인 폴백·업무센터 머리말도 같은 중립 표현을 쓴다.
     py = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()

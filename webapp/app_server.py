@@ -7456,12 +7456,11 @@ def _drop_served_pm_plans(events, today=None):
 def _dedupe_calendar_pending(events):
     """같은 원천 업무가 다른 접수ID로 복제돼 경고 숫자가 부풀지 않게 한다.
 
-    기본은 대표 보고의 열린 상태만 다룬다. 단, **밴드·카톡 완료 근거로 방금 닫힌
-    원장 복제행**은 완료에서도 합친다. 실측 UJ2601393은 접수ID만 다른 완전히 같은
-    행 2줄이라 둘 다 같은 카톡 완료 글을 가리켰다. 프로젝트·날짜·종류·내용이 모두
-    같은 경우만 중복으로 본다. 원장 완료일이 직접 있는 보통 완료는 건드리지 않는다.
-    내용이 비면 서로 다른 현장 조치일 수 있어 합치지 않는다. 제거한 ID는 대표 보고
-    감사 근거로 남긴다.
+    대표 보고의 열린 상태와 완료 상태를 함께 다룬다. 실측 UJ2601393은 접수ID만 다른
+    완전히 같은 행 2줄이라, 카톡 완료를 먼저 읽었을 때는 한 건으로 합쳐졌지만 완료 DB가
+    두 줄을 모두 닫은 직후 다시 완료 두 건으로 갈라졌다. 프로젝트·날짜·종류·내용이 모두
+    같은 경우만 중복으로 본다. 내용이 비면 서로 다른 현장 조치일 수 있어 합치지 않는다.
+    제거한 ID는 대표 보고 감사 근거로 남긴다.
     """
     kept, seen, removed = [], {}, 0
     for raw in list(events or []):
@@ -7470,8 +7469,7 @@ def _dedupe_calendar_pending(events):
         project = str(event.get("프로젝트NO") or "").split(" · ")[0].strip().upper()
         content = str(event.get("신청내용") or event.get("이상발견") or "").strip()
         content = re.sub(r"\s+", " ", content).lower()
-        source_done_copy = bool(kind in {"as_done", "pm_done"} and event.get("원장미기입"))
-        if (kind not in {"as_open", "pm_overdue", "pm_plan"} and not source_done_copy) \
+        if kind not in {"as_open", "pm_overdue", "pm_plan", "as_done", "pm_done"} \
                 or not project or not content:
             kept.append(event)
             continue
