@@ -104,15 +104,25 @@ def load_customers():
                  for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True)
                  if not os.path.basename(p).startswith(("~$", "ESD007E"))]
     pairs.sort(reverse=True)
-    top = pairs[:80]
+    # ★ 거래처등록 정본은 이름(ESA001M)이 알려져 있다. 2026-08-23 실사고:
+    #   ERP 폴더에 파일이 실제로 있었는데 최신 80개 밖으로 밀려 "원본 없음"이 됐고,
+    #   정상 캐시 2,981행까지 0행으로 덮였다. 최신순 80개는 **속도 제한**이지
+    #   정본을 버려도 된다는 뜻이 아니다. 이름으로 확실한 후보를 먼저 합친다.
+    named = [row for row in pairs
+             if re.match(r"(?i)^ESA001M(?:[_\-.]|$)", os.path.basename(row[2]))]
+    named_paths = {os.path.normcase(os.path.abspath(row[2])) for row in named}
+    top = named + [row for row in pairs
+                   if os.path.normcase(os.path.abspath(row[2])) not in named_paths][:80]
     # ★ 후보 80개가 하나도 안 바뀌었으면 워크북을 다시 열지 않는다.
     #   read_only=False 로 SMB 워크북 80개를 매번 여는 것이 남은 시간의 대부분이다.
     #   지문은 (경로·크기·수정시각) 전부 — 하나라도 바뀌면 다시 훑는다.
     fp = [[p, int(sz), round(mt, 2)] for mt, sz, p in top]
+    cached = {}
     try:
-        c = json.load(open(CAND_CACHE, encoding="utf-8"))
-        if c.get("fp") == fp and c.get("rows"):
-            return c["rows"], c.get("src")
+        with open(CAND_CACHE, encoding="utf-8") as fh:
+            cached = json.load(fh)
+        if cached.get("fp") == fp and cached.get("rows"):
+            return cached["rows"], cached.get("src")
     except (OSError, ValueError):
         pass
     best = None
@@ -147,6 +157,10 @@ def load_customers():
         except Exception:
             continue
     rows, src = (best[2], best[0]) if best else ([], None)
+    # ★ 새 스캔 0행은 "거래처가 0개"라는 확정이 아니다. 파일을 잠깐 못 읽었거나
+    #   후보가 밀렸다는 뜻일 수 있으므로 정상 last-good을 0으로 덮지 않는다.
+    if not rows and cached.get("rows"):
+        return cached["rows"], cached.get("src")
     try:
         os.makedirs(os.path.dirname(CAND_CACHE), exist_ok=True)
         from datetime import datetime
@@ -154,7 +168,13 @@ def load_customers():
         json.dump({"fp": fp, "rows": rows, "src": src,
                    "at": datetime.now().astimezone().isoformat(timespec="seconds")},
                   open(tmp, "w", encoding="utf-8"), ensure_ascii=False)
-        os.replace(tmp, CAND_CACHE)
+        if rows:
+            os.replace(tmp, CAND_CACHE)
+        else:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
     except OSError:
         pass                     # 캐시는 지름길일 뿐이다 — 못 써도 결과는 그대로 돌려준다
     return rows, src

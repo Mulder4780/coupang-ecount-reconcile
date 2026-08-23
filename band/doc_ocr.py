@@ -47,11 +47,11 @@ OCR_ENGINE = str(os.environ.get("CSOS_OCR_ENGINE") or "auto").strip().lower()
 OCR_CACHE_VERSION = "paddle-ko-v5" if OCR_ENGINE in ("auto", "paddle") else "windows-v1"
 
 
-def _cache_path(path):
+def _cache_path(path, st=None):
     """같은 사진을 두 번 읽지 않는다. 사진 1,458장 OCR에 25분이 걸려
     daily_run의 600초 제한에 걸렸다(2026-07-26). 파일이 바뀌면 키도 바뀐다."""
     try:
-        st = os.stat(path)
+        st = st or os.stat(path)
         key = f"{OCR_CACHE_VERSION}|{os.path.abspath(path)}|{st.st_size}|{int(st.st_mtime)}"
     except OSError:
         key = os.path.basename(path)
@@ -64,8 +64,8 @@ def ocr_image(path, lang="ko", timeout=120):
     return ocr_images([path], lang=lang, timeout=timeout).get(path, "")
 
 
-def _read_cache(path):
-    cp = _cache_path(path)
+def _read_cache(path, st=None):
+    cp = _cache_path(path, st)
     if os.path.exists(cp):
         try:
             return open(cp, encoding="utf-8").read()
@@ -74,8 +74,8 @@ def _read_cache(path):
     return None
 
 
-def _write_cache(path, text):
-    cp = _cache_path(path)
+def _write_cache(path, text, st=None):
+    cp = _cache_path(path, st)
     try:
         os.makedirs(OCR_CACHE, exist_ok=True)
         open(cp, "w", encoding="utf-8").write(text)

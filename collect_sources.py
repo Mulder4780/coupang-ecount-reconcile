@@ -46,6 +46,7 @@ from source_dirs import (  # noqa: E402
 from source_organizer import dated_dir, po_dir_for  # noqa: E402
 
 GUIDE = os.path.join(ORIGIN_ROOT, "0. 수집안내.txt")
+GUIDE_YEAR_DIRS = {str(y) for y in range(2000, 2100)}
 
 
 def _same(a, b, sa=None, sb=None):
@@ -300,12 +301,30 @@ def copy_one(src, dst_dir, apply=False, st=None):
         if _same(src, dst, st, ents[name]):
             return "동일", dst
         # 내용이 다르면 덮어쓰지 않는다 — 어느 쪽이 맞는지 사람이 봐야 한다
-        stamp = datetime.fromtimestamp(os.path.getmtime(src)).strftime("%y%m%d")
+        # 목록을 만들 때 이미 받은 원본 시각을 다시 Z:에 묻지 않는다([198]).
+        src_mtime = st.st_mtime if st is not None else os.path.getmtime(src)
+        stamp = datetime.fromtimestamp(src_mtime).strftime("%y%m%d")
         root, ext = os.path.splitext(dst)
         dst = f"{root}_{stamp}{ext}"
         name2 = os.path.basename(dst)
-        if name2 in ents and _same(src, dst, st, ents[name2]):
-            return "동일", dst
+        if name2 in ents:
+            if _same(src, dst, st, ents[name2]):
+                return "동일", dst
+            # 밴드 캐시는 운영 정본이 아니라 **하루 한 번 남기는 복구용 사본**이다.
+            # 본문·댓글이 들어올 때마다 두 캐시가 계속 바뀌는데, 같은 날짜 이름을
+            # 매번 덮어쓰면 26MB를 느린 Z:에 반복 전송하며 원본정리 회차를 잡아먹는다.
+            # 개별 글 정본은 `게시글보관`과 DB가 계속 갱신하므로, 오늘 사본이 이미
+            # 있으면 다음 날 새 날짜 사본이 생길 때까지 다시 복사하지 않는다.
+            try:
+                cache_root = os.path.normcase(os.path.abspath(
+                    os.path.join(BAND_DIR, "캐시사본")))
+                here = os.path.normcase(os.path.abspath(dst_dir))
+                is_band_cache_copy = (here == cache_root or
+                                      here.startswith(cache_root + os.sep))
+            except (OSError, ValueError, TypeError):
+                is_band_cache_copy = False
+            if is_band_cache_copy:
+                return "동일", dst
         state = "이름바꿈"
     else:
         state = "복사"
@@ -463,6 +482,9 @@ def write_guide(rows):
         "  · 파일을 지우지 마세요. 옛 자료도 대조 근거로 계속 씁니다.",
         "",
         "■ 현재 보관 현황",
+        "  ※ 아래는 연도 보관함 밖에 남은 신규·미분류 파일입니다. 연도별 과거 정본과",
+        "     밴드 게시글은 다시 나열하지 않습니다. 전체 개별 목록은 앱의 원본 자료/",
+        "     원본색인에서 확인합니다. 새로 들어온 빈 파일 검사는 별도로 계속합니다.",
     ]
     for d, items in rows:
         L.append(f"  [{os.path.basename(d)}]  {len(items)}개")
@@ -475,6 +497,29 @@ def write_guide(rows):
             f.write("\n".join(L) + "\n")
     except OSError as e:
         print(f"  안내문 저장 실패: {e}")
+
+
+def _guide_skip_dirs(folder):
+    """안내문에서 **파일별 재나열하지 않을 과거 보관함**을 돌려준다.
+
+    연도 폴더는 이미 앱 ``원본 자료/원본색인``에서 파일별로 찾는 정본이다. 사람이
+    읽는 ``0. 수집안내.txt``에 그것을 매일 다시 풀어 쓰고 엑셀 6,820개를 전부 열어
+    행 수를 세는 것은 검증이 아니다. 2026-08-23 실측으로 안내문만 12,400,687바이트,
+    밴드 항목 152,547개였고 중간 캐시 1,934개를 만드는 데도 6분 넘게 들었다.
+
+    새로 들어온 파일의 빈 내용 검사는 ``main``의 jobs에서 따로 한다. 따라서 여기를
+    줄여도 '빈 파일을 알아채는 문'은 닫히지 않는다. ``_보관``·``_바로가기``처럼
+    연도가 아닌 다른 폴더는 예전처럼 본다 — 넓게 빼서 자료를 숨기지 않는다.
+    """
+    try:
+        same_band = (os.path.normcase(os.path.abspath(folder)) ==
+                     os.path.normcase(os.path.abspath(BAND_DIR)))
+    except (OSError, ValueError, TypeError):
+        same_band = False
+    skip = set(GUIDE_YEAR_DIRS)
+    if same_band:
+        skip.add("게시글보관")
+    return skip
 
 
 def main():
@@ -492,6 +537,9 @@ def main():
     _t_plan = time_mod.time() - _t0
     print(f"{'복사 실행' if apply else '미리보기(복사 안 함)'} — 대상 {len(jobs)}개\n")
     tally = {}
+    # 새로 들어오는 파일은 연도 보관함으로 곧장 들어가므로, 안내문에서 과거 연도를
+    # 생략하기 **전에** 원본 자체를 검사한다. 그래야 빈 ERP/카톡 파일 경보는 그대로다.
+    job_empty = set()
     for src, dst_dir, kind in jobs:
         # ★ 어제 만든 `st` 인자를 **부르는 쪽이 안 넘기고 있었다** — 그래서
         #   `copy_one` 안의 `_same()` 이 `os.stat(src)` 를 그대로 불렀다.
@@ -499,6 +547,8 @@ def main():
         state, dst = copy_one(src, dst_dir, apply, _SRC_STAT.get(src))
         tally[state] = tally.get(state, 0) + 1
         print(f"  [{state:6s}] {os.path.basename(dst_dir)}/{os.path.basename(dst)}   ({kind})")
+        if apply and count_rows(src, _SRC_STAT.get(src)) == 0:
+            job_empty.add(f"{kind}/{os.path.basename(src)}")
 
     _t_copy = time_mod.time() - _t0 - _t_plan
     print("\n집계: " + ", ".join(f"{k} {v}개" for k, v in sorted(tally.items())))
@@ -507,7 +557,7 @@ def main():
         return 0
 
     # 정리 결과를 폴더별로 세어 안내문에 남긴다
-    rows, empty = [], []
+    rows, empty = [], list(job_empty)
     from source_index import walk_stat        # 늦게 — 순환 import 를 만들지 않는다
     for d in (ERP_DIR, COUPANG_DIR, KAKAO_DIR, BAND_DIR, RECEIPT_DIR):
         if not os.path.isdir(d):
@@ -517,7 +567,12 @@ def main():
         #   ⚠ `skip_dirs=()` 는 **일부러 비운 것**이다. 색인의 기본 목록을 말없이
         #     물려받으면 `_보관`·`_바로가기` 안의 파일이 안내문에서 조용히 빠지고
         #     '정리 완료'라고 적힌다 — 그 함수 주석이 경고한 바로 그 자리다.
-        for base, name, st in walk_stat(d, skip_dirs=()):
+        guide_skip = _guide_skip_dirs(d)
+        # 다른 원본은 예전처럼 **아무 폴더도 말없이 빼지 않는다**. 이 명시적 갈래가
+        # 있어야 색인의 SKIP_DIRS가 섞여 `_보관` 자료가 사라지는 회귀를 막는다.
+        guide_walk = (walk_stat(d, skip_dirs=guide_skip) if guide_skip
+                      else walk_stat(d, skip_dirs=()))
+        for base, name, st in guide_walk:
             p = os.path.join(base, name)
             n = count_rows(p, st)
             items.append((os.path.relpath(p, d), n))

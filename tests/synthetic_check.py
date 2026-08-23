@@ -5994,7 +5994,38 @@ def t118_ocr_crosscheck():
     full = X.compare_ledger(two, led)
     assert X.recheck_reason(two, full, False) == (None, ""), "다 맞는 건까지 두 번 읽고 있다"
 
-    # ⑦ 엔진은 있는 것만 골라 쓴다 — 자동 설치·외부 업로드가 없어야 한다
+    # ⑦ 사진 stat은 목록에서 한 번만 받고 두 캐시가 같이 쓴다. 원본을 지운 뒤에도
+    #    넘겨 받은 stat으로 캐시를 찾으면, 캐시 조회가 Z:에 다시 묻지 않았다는 증거다.
+    with tempfile.TemporaryDirectory(prefix="csos-ocr118-") as td:
+        img = os.path.join(td, "a.jpg")
+        open(img, "wb").write(b"image")
+        imgs, stats = X._image_manifest(td)
+        assert imgs == [img] and img in stats, "사진 목록이 stat을 함께 주지 않는다"
+        old_x, old_p = X.XCACHE, X.doc_ocr.OCR_CACHE
+        try:
+            X.XCACHE = os.path.join(td, "cross")
+            X.doc_ocr.OCR_CACHE = os.path.join(td, "paddle")
+            os.makedirs(X.XCACHE)
+            os.makedirs(X.doc_ocr.OCR_CACHE)
+            open(X._cache_path("windows", img, stats[img]), "w", encoding="utf-8").write("win")
+            open(X.doc_ocr._cache_path(img, stats[img]), "w", encoding="utf-8").write("pad")
+            b = os.path.join(td, "b.jpg")
+            c = os.path.join(td, "c.jpg")
+            open(b, "wb").write(b"b")
+            open(c, "wb").write(b"c")
+            bst, cst = os.stat(b), os.stat(c)
+            plan, deferred = X.recheck_work_plan(
+                [(img, 3), (b, 3), (c, 3)], ["windows"],
+                {img: stats[img], b: bst, c: cst}, budget=1)
+            assert plan == [img, b] and deferred == 1, (
+                "이미 캐시된 앞 사진이 매일 예산을 먹어 뒤 사진이 영원히 밀린다: %s" % plan)
+            os.remove(img)  # 이제 os.stat(path)은 실패한다 — 전달한 stat만이 열쇠다
+            assert X.read_texts("windows", [img], stats=stats)[img] == "win"
+            assert X.read_texts("paddle", [img], stats=stats)[img] == "pad"
+        finally:
+            X.XCACHE, X.doc_ocr.OCR_CACHE = old_x, old_p
+
+    # ⑧ 엔진은 있는 것만 골라 쓴다 — 자동 설치·외부 업로드가 없어야 한다
     src = open(os.path.join(ROOT, "band", "ocr_crosscheck.py"), encoding="utf-8").read()
     for banned in ("pip install", "requests.post", "urllib.request", "http://", "https://"):
         assert banned not in src, "문서를 PC 밖으로 보내거나 자동 설치하는 코드가 있다: %s" % banned
@@ -15464,7 +15495,7 @@ def t210_pid_reuse_is_not_alive_and_customer_scan_is_one_pass():
     ci_src = open(os.path.join(ROOT, "customer_index.py"), encoding="utf-8").read()
     body = ci_src.split("def load_customers", 1)[1].split("\ndef ", 1)[0]
     assert "walk_stat" in body, "거래처 색인이 공용 워커를 버렸다([198] 병 재발)"
-    assert body.index('c.get("fp") == fp') < body.index("openpyxl.load_workbook"), \
+    assert body.index('cached.get("fp") == fp') < body.index("openpyxl.load_workbook"), \
         "캐시 검사가 워크북 열기보다 뒤에 있다 — [168] 병 재발"
     with tempfile.TemporaryDirectory(prefix="csos-210-erp-") as td:
         import warnings
@@ -15477,6 +15508,11 @@ def t210_pid_reuse_is_not_alive_and_customer_scan_is_one_pass():
         ws.append(["거래처코드", "거래처명", "주소", "담당자", "Email", "연락처", "보유장비명"])
         ws.append(["CU177", "강서1MB(가양A)", "서울", "홍길동", "a@b.c", "010", "리프트"])
         wb.save(os.path.join(td, "ESA001M_test.xlsx"))
+        # 정본보다 최신인 다른 ERP 파일 81개 — 옛 top80 규칙이면 정본이 밀린다.
+        for n in range(81):
+            p = os.path.join(td, "ZZZ_%03d.xlsx" % n)
+            open(p, "wb").write(b"not-a-workbook")
+            os.utime(p, (_t.time() + n + 10, _t.time() + n + 10))
         old_dir, old_cache = S.ERP_DIR, CI.CAND_CACHE
         real_load = openpyxl.load_workbook
         try:
@@ -15489,6 +15525,16 @@ def t210_pid_reuse_is_not_alive_and_customer_scan_is_one_pass():
             rows2, _ = CI.load_customers()
             assert rows2 == rows and not calls, \
                 "후보가 하나도 안 바뀌었는데 워크북을 다시 열었다 — 색인이 다시 몇 시간짜리가 된다"
+
+            # 스캔이 일시적으로 0행이어도 정상 last-good을 0으로 덮지 않는다.
+            old_walk = __import__('source_index').walk_stat
+            __import__('source_index').walk_stat = lambda *_a, **_k: iter(())
+            try:
+                rows3, src3 = CI.load_customers()
+            finally:
+                __import__('source_index').walk_stat = old_walk
+            assert rows3 == rows and src3, (
+                "거래처 원본을 잠깐 못 읽자 정상 캐시를 0행으로 덮었다")
         finally:
             S.ERP_DIR, CI.CAND_CACHE = old_dir, old_cache
             openpyxl.load_workbook = real_load
@@ -23647,6 +23693,16 @@ def t381_row_count_is_cached_and_never_freezes_a_miss():
         assert 'skip_dirs=()' in code, (
             '색인의 기본 SKIP_DIRS 를 말없이 물려받는다 — _보관 안의 파일이 '
             '안내문에서 조용히 빠지면서 정리 완료라고 적힌다')
+        assert '게시글보관' in CS._guide_skip_dirs(CS.BAND_DIR), (
+            '안내문이 밴드 게시글보관 9만 건을 매일 파일별로 다시 나열한다')
+        assert '2026' in CS._guide_skip_dirs(CS.BAND_DIR), (
+            '밴드 연도 보관함을 매일 파일별로 다시 나열한다')
+        assert '2026' in CS._guide_skip_dirs(CS.ERP_DIR), (
+            'ERP 과거 엑셀 6,820개를 안내문 때문에 매일 다시 연다')
+        assert '_보관' not in CS._guide_skip_dirs(CS.ERP_DIR), (
+            '연도 보관함을 줄이면서 다른 원본까지 말없이 뺐다')
+        assert 'job_empty' in code and 'count_rows(src, _SRC_STAT.get(src))' in code, (
+            '연도 보관함을 안내문에서 뺐는데 새로 들어온 빈 파일 검사도 같이 사라졌다')
         assert 'items.sort()' in code or 'items = sorted(' in code, (
             'walk_stat 은 순서를 보장하지 않는다 — 사람이 읽는 안내문이 매번 뒤바뀐다')
 
@@ -23727,6 +23783,43 @@ def t381_row_count_is_cached_and_never_freezes_a_miss():
         assert _st6 == "이름바꿈", "[381] 내용이 달라졌는데 '%s' 로 본다" % _st6
         assert open(os.path.join(_dd, "f0.txt"), encoding="utf-8").read() == "x0", (
             "[381] 다른 내용으로 원본을 덮었다 — 어느 쪽이 맞는지는 사람이 본다")
+
+        # 밴드 캐시는 글·댓글 흡수 때마다 바뀌지만 Z: 사본은 **하루 한 벌**이다.
+        # 같은 날짜 사본을 매번 덮으면 느린 공유드라이브로 큰 캐시를 반복 전송해
+        # 원본정리 회차가 다시 40분 제한에 걸린다. 운영 정본(게시글보관·DB)은 별도다.
+        _old_band = CS.BAND_DIR
+        try:
+            CS.BAND_DIR = os.path.join(_tmp381, "band-root")
+            _cache_day = os.path.join(CS.BAND_DIR, "캐시사본", "2026", "08", "2026-08-23")
+            os.makedirs(_cache_day, exist_ok=True)
+            _cache_src = os.path.join(_sd, "84789192.json")
+            with open(_cache_src, "w", encoding="utf-8") as _fh:
+                _fh.write("첫 사본")
+            _base_time = time.time()
+            os.utime(_cache_src, (_base_time, _base_time))
+            CS._DST_ENTRIES.clear()
+            assert CS.copy_one(_cache_src, _cache_day, True, os.stat(_cache_src))[0] == "복사"
+
+            with open(_cache_src, "w", encoding="utf-8") as _fh:
+                _fh.write("그날 두 번째 사본")
+            os.utime(_cache_src, (_base_time + 1, _base_time + 1))
+            CS._DST_ENTRIES.clear()
+            _state2, _daily = CS.copy_one(_cache_src, _cache_day, True, os.stat(_cache_src))
+            assert _state2 == "이름바꿈" and os.path.exists(_daily)
+            _kept = open(_daily, encoding="utf-8").read()
+
+            with open(_cache_src, "w", encoding="utf-8") as _fh:
+                _fh.write("그날 세 번째 변경 — 전송하면 안 됨")
+            os.utime(_cache_src, (_base_time + 2, _base_time + 2))
+            CS._DST_ENTRIES.clear()
+            _state3, _same_daily = CS.copy_one(
+                _cache_src, _cache_day, True, os.stat(_cache_src))
+            assert _state3 == "동일" and _same_daily == _daily, (
+                "[381] 오늘 밴드 캐시 사본을 또 전송한다 — 큰 파일이 바뀔 때마다 회차를 잡아먹는다")
+            assert open(_daily, encoding="utf-8").read() == _kept, (
+                "[381] 복구용 하루 사본을 같은 날 새 내용으로 덮었다")
+        finally:
+            CS.BAND_DIR = _old_band
 
         # ★ 계기 자신을 시험한다([272]) — 폴더 캐시를 없애면 위 셈이 잡히나.
         _real_de = CS._dst_entries
@@ -24075,6 +24168,13 @@ def t394_organizer_leaves_archive_alone_and_can_copy():
                             "2026", "07", "[3517]_2026-07-08_UJ2601205_계단.pdf"))
     keep2 = put(os.path.join("4. 밴드 원본", "게시글보관", "매출처업무",
                              "2026", "07", "[3517]_2026-07-08_UJ2601205_계단.txt"), "y")
+    cache_copy = put(os.path.join("4. 밴드 원본", "캐시사본", "2026", "08",
+                                       "2026-08-22", "90610953.json"), "{}")
+    erp_doc = put(os.path.join("1. ERP 내보내기", "거래명세서_건별", "2026", "08",
+                                    "명세서.pdf"), "statement")
+    erp_dated = put(os.path.join("1. ERP 내보내기", "2026", "08", "2026-08-22",
+                                      "ESA001M.xlsx"), "customers")
+    erp_loose = put(os.path.join("1. ERP 내보내기", "새로받음.xlsx"), "new")
     # ② 문서사진 — 날짜 폴더 밖이라 정리 대상이 맞다
     photo = put(os.path.join("4. 밴드 원본", "문서사진", "날짜미상", "band_1.jpg"), "p")
     # ③ 브라우저덤프 — 수집본으로 가는 것이 설계다(밴드 JSON)
@@ -24100,6 +24200,11 @@ def t394_organizer_leaves_archive_alone_and_can_copy():
         assert os.path.normcase(p) not in srcs, (
             "[394] 게시글보관을 옮기려 한다: %s — 게시일별 정리를 헐어 하루에 쏟고 "
             "source_index 의 '밴드 게시글(보관)' 갈래가 0건이 된다" % p)
+    for p in (cache_copy, erp_doc, erp_dated):
+        assert os.path.normcase(p) not in srcs, (
+            "[394] 다른 도구가 관리하거나 이미 날짜별 정리된 정본을 다시 잡는다: %s" % p)
+    assert os.path.normcase(erp_loose) in srcs, (
+        "[394] 보호 폴더를 줄이면서 ERP 루트의 새 파일까지 놓쳤다")
 
     # ② 좁히는 것도 고장이다 — 다른 갈래는 그대로 담긴다
     assert os.path.normcase(photo) in srcs, "[394] 문서사진 정리가 같이 죽었다"
@@ -24125,11 +24230,39 @@ def t394_organizer_leaves_archive_alone_and_can_copy():
     assert not os.path.isfile(photo), "[394] 기본값이 복사로 바뀌었다 — 회차마다 파일이 두 배가 된다"
     assert os.path.isfile(photo_move.dst), "[394] 이동이 안 됐다"
 
-    # ⑦ 계기 자기시험([272]) — 게시글보관 문을 없애면 ①이 정말 잡히나
+    # ⑦ 잠금은 **30분이 지났다는 이유로 산 작업 것을 빼앗지 않는다**. 계획 전부터
+    #    잠그므로 동시에 두 번 10만 건을 훑는 일도 없다.
+    real_root, real_lock = so.ORIGIN_ROOT, so.LOCK
+    try:
+        so.ORIGIN_ROOT = root
+        so.LOCK = os.path.join(root, ".source_organizer.lock")
+        import pid_alive as _pa394
+        with io.open(so.LOCK, "w", encoding="utf-8") as fh:
+            fh.write("%d %s 2020-01-01T00:00:00\n" % (os.getpid(), _pa394.stamp()))
+        assert so._lock_acquire() is False, "[394] 오래됐다는 이유로 산 주인의 잠금을 빼앗았다"
+        assert os.path.exists(so.LOCK), "[394] 산 주인의 잠금 파일을 지웠다"
+        with io.open(so.LOCK, "w", encoding="utf-8") as fh:
+            fh.write("2147483647 2020-01-01T00:00:00\n")
+        assert so._lock_acquire() is True, "[394] 죽은 주인의 잠금을 회수하지 못했다"
+        so._lock_release()
+    finally:
+        so.ORIGIN_ROOT, so.LOCK = real_root, real_lock
+
+    import inspect as _inspect394
+    assert "os.walk(root" not in _inspect394.getsource(so._remove_empty_dirs), (
+        "[394] 이동 뒤 빈 폴더를 찾겠다며 정본 10만 건을 다시 전수 순회한다")
+
+    # ⑧ 계기 자기시험([272]) — 하강 전 보호와 옛 분기 둘 다 없애면 ①이 잡히나
     code = io.open(os.path.join(ROOT, "source_organizer.py"),
                    encoding="utf-8", newline="").read().replace("\r\n", "\n")
-    broken = code.replace('            elif rel[0] == "게시글보관":', "            elif False:", 1)
-    assert broken != code, "[394] 자기시험 앵커를 못 찾았다 — 이 검사는 아무것도 안 잰다"
+    broken = code.replace('PROTECTED_BAND_DIRS = {"게시글보관", "캐시사본"}',
+                          'PROTECTED_BAND_DIRS = {"캐시사본"}', 1)
+    broken = broken.replace(
+        'for src in _iter_files(band, protected_dirs=PROTECTED_BAND_DIRS, prune_years=True):',
+        'for src in _iter_files(band, protected_dirs=PROTECTED_BAND_DIRS, prune_years=False):', 1)
+    broken = broken.replace('            elif rel[0] == "게시글보관":', "            elif False:", 1)
+    assert broken != code and 'PROTECTED_BAND_DIRS = {"캐시사본"}' in broken, (
+        "[394] 자기시험 앵커를 못 찾았다 — 이 검사는 아무것도 안 잰다")
     # ⚠ `@dataclass` 는 `sys.modules[모듈이름]` 을 찾는다 — 그냥 exec 하면 거기서
     #    죽고, **그 죽음이 '고장을 잡았다'로 오인된다**([371]). 모듈로 올려서 돌리고
     #    **반드시 되돌린다**(공유 모듈표는 프로세스 전체가 함께 쓴다).

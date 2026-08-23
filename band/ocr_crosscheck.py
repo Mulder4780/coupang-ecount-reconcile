@@ -52,10 +52,10 @@ XCACHE = os.path.join(doc_ocr.OCR_CACHE, "cross")
 
 
 # ── 엔진 ────────────────────────────────────────────────────────────────
-def _cache_path(engine, path):
+def _cache_path(engine, path, st=None):
     """엔진마다 따로 저장한다. 같은 사진을 같은 엔진으로 두 번 읽지 않는다."""
     try:
-        st = os.stat(path)
+        st = st or os.stat(path)
         key = "%s|%s|%s|%s" % (engine, os.path.abspath(path), st.st_size, int(st.st_mtime))
     except OSError:
         key = "%s|%s" % (engine, os.path.basename(path))
@@ -120,20 +120,22 @@ def available(want=None):
     return names
 
 
-def read_texts(engine, paths, timeout=120):
+def read_texts(engine, paths, timeout=120, stats=None):
     """엔진 하나로 여러 장 → {경로: 텍스트}. 캐시 먼저, 없는 것만 실제로 읽는다.
 
     paddle 은 doc_ocr 가 이미 1,800장분을 캐시해 두었다 — 그 자리를 그대로 읽는다.
     다시 읽으면 사진 한 장에 28초씩 걸려 하루가 간다.
     """
     out, pending = {}, []
+    stats = stats or {}
     for p in paths:
+        st = stats.get(p)
         if engine == "paddle":
-            t = doc_ocr._read_cache(p)
+            t = doc_ocr._read_cache(p, st)
             if t is not None:
                 out[p] = t
                 continue
-        cp = _cache_path(engine, p)
+        cp = _cache_path(engine, p, st)
         if os.path.exists(cp):
             try:
                 out[p] = open(cp, encoding="utf-8").read()
@@ -143,18 +145,28 @@ def read_texts(engine, paths, timeout=120):
         pending.append(p)
     if pending:
         fn = ENGINES[engine][2]
-        try:
-            got = fn(pending, timeout) or {}
-        except Exception:
-            got = {}
         os.makedirs(XCACHE, exist_ok=True)
-        for p in pending:
-            t = got.get(p, "") or ""
-            out[p] = t
+        if engine == "windows":
+            # Windows OCR은 원래도 한 장씩 PowerShell을 띄운다. 결과를 전부 메모리에
+            # 모았다가 맨 끝에 쓰면 부모가 30분에 끊는 순간 **완료한 장도 0개** 남는다.
+            # 한 장이 끝날 때마다 바로 저장해 다음 회차가 그 자리부터 이어받게 한다.
+            batches = ([p] for p in pending)
+        else:
+            batches = (pending,)
+        for batch in batches:
             try:
-                open(_cache_path(engine, p), "w", encoding="utf-8").write(t)
-            except OSError:
-                pass
+                got = fn(batch, timeout) or {}
+            except Exception:
+                got = {}
+            for p in batch:
+                t = got.get(p, "") or ""
+                out[p] = t
+                try:
+                    with open(_cache_path(engine, p, stats.get(p)), "w",
+                              encoding="utf-8") as fh:
+                        fh.write(t)
+                except OSError:
+                    pass
     return out
 
 
@@ -416,6 +428,32 @@ def recheck_plan(cands, budget=0):
     return must + rest, 0
 
 
+def _engine_cached(engine, path, st=None):
+    """이 엔진이 이 사진을 이미 읽었나 — 원격 사진은 다시 stat하지 않는다."""
+    if engine == "paddle" and os.path.exists(doc_ocr._cache_path(path, st)):
+        return True
+    return os.path.exists(_cache_path(engine, path, st))
+
+
+def recheck_work_plan(cands, engines, stats, budget=0, all_docs=False):
+    """이미 읽은 사진은 예산에서 빼고, **새로 읽을 사진만** 예산만큼 고른다.
+
+    예전에는 매일 같은 앞 300장을 골랐다. 캐시 덕분에 빨리 지나가기는 했지만 그
+    300장이 계속 자리를 차지해 뒤 1,504장은 영원히 선택되지 않았다. 이미 끝난 것은
+    보고에는 포함하되 오늘의 작업 예산은 먹지 않게 해야 실제로 진도가 나간다.
+    """
+    if all_docs or not engines:
+        return recheck_plan(cands, 0 if all_docs else budget)
+    done, pending = [], []
+    for path, priority in cands:
+        if all(_engine_cached(engine, path, stats.get(path)) for engine in engines):
+            done.append(path)
+        else:
+            pending.append((path, priority))
+    fresh, deferred = recheck_plan(pending, budget)
+    return done + fresh, deferred
+
+
 def build_updates(items):
     """원장에 넣을 것을 고른다 (순수 함수 — 합성검증 대상)
 
@@ -448,10 +486,30 @@ def build_updates(items):
 
 
 # ── 실행 ────────────────────────────────────────────────────────────────
-def _images(folder=None):
-    imgs, seen = [], set()
+def _image_manifest(folder=None):
+    """사진 목록과 stat을 **한 번에** 받는다.
+
+    Z:에서 ``os.stat(path)``는 장당 약 0.85초였다. 목록을 만들고 Paddle 캐시,
+    Windows 캐시에서 다시 물어 1,818장 캐시 확인만 약 30분이 됐다. scandir에 이미
+    딸려 온 크기·수정시각을 두 캐시가 함께 쓴다.
+    """
+    imgs, stats, seen = [], {}, set()
     for d in doc_ocr.photo_dirs(folder):
-        for p in sorted(glob.glob(os.path.join(d, "**", "*"), recursive=True)):
+        try:
+            from source_index import walk_stat
+            found = [(os.path.join(base, name), st)
+                     for base, name, st in walk_stat(d, skip_dirs=())
+                     if name.lower().endswith(doc_ocr.IMG_EXT)]
+        except Exception:
+            found = []
+            for p in glob.glob(os.path.join(d, "**", "*"), recursive=True):
+                if not p.lower().endswith(doc_ocr.IMG_EXT):
+                    continue
+                try:
+                    found.append((p, os.stat(p)))
+                except OSError:
+                    continue
+        for p, st in sorted(found, key=lambda row: row[0]):
             if not p.lower().endswith(doc_ocr.IMG_EXT):
                 continue
             n = os.path.basename(p)
@@ -459,7 +517,13 @@ def _images(folder=None):
                 continue
             seen.add(n)
             imgs.append(p)
-    return imgs
+            stats[p] = st
+    return imgs, stats
+
+
+def _images(folder=None):
+    """옛 호출 호환 — 새 실행 경로는 stat까지 받는 ``_image_manifest``를 쓴다."""
+    return _image_manifest(folder)[0]
 
 
 def _find_row(prj, recs):
@@ -484,7 +548,7 @@ def crosscheck(folder=None, engines=None, all_docs=False, apply=False, limit=0,
     primary = usable[0]
     others = usable[1:]
 
-    imgs = _images(folder)
+    imgs, image_stats = _image_manifest(folder)
     if limit:
         imgs = imgs[:limit]
     if not imgs:
@@ -497,7 +561,7 @@ def crosscheck(folder=None, engines=None, all_docs=False, apply=False, limit=0,
         recs = {}
 
     # 1) 기본 엔진으로 전량 (캐시가 있으면 즉시)
-    base_txt = read_texts(primary, imgs, timeout)
+    base_txt = read_texts(primary, imgs, timeout, image_stats)
     first = {p: doc_ocr.parse_doc(base_txt.get(p, ""), p) for p in imgs}
 
     # 2) 재검 대상을 **급한 것부터** 고른다 — "두 번 읽되 다 읽지는 않는다"의 핵심
@@ -513,13 +577,14 @@ def crosscheck(folder=None, engines=None, all_docs=False, apply=False, limit=0,
         if pr is not None:
             cands.append((p, pr))
             why[p] = reason
-    recheck, deferred = recheck_plan(cands, 0 if all_docs else budget)
+    recheck, deferred = recheck_work_plan(
+        cands, others, image_stats, budget=budget, all_docs=all_docs)
 
     # 3) 둘째·셋째 의견
     second = {}
     if others and recheck:
         for e in others:
-            t = read_texts(e, recheck, timeout)
+            t = read_texts(e, recheck, timeout, image_stats)
             for p in recheck:
                 second.setdefault(p, {})[e] = (t.get(p, ""), doc_ocr.parse_doc(t.get(p, ""), p))
 

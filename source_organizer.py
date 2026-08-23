@@ -159,6 +159,13 @@ _SCANNED = 0
 # 훑으면서 딸려 온 수정시각 (경로 → epoch). Z: 에 두 번 묻지 않기 위한 것뿐이다(검증 [198]).
 _MTIME: dict[str, float] = {}
 
+# 다른 도구가 이미 구조와 뜻을 관리하는 하위 보관함. 원본 정리기는 이 안으로
+# **내려가지도 않는다** — 들어가서 9만 건을 읽은 뒤 ``continue`` 하는 것도 매일
+# 40분을 버리는 전수 순회다.
+PROTECTED_ERP_DIRS = {"거래명세서_건별", "세금계산서_건별"}
+PROTECTED_BAND_DIRS = {"게시글보관", "캐시사본"}
+YEAR_DIRS = {f"{y:04d}" for y in range(2000, 2100)}
+
 
 def start_clock(budget_sec: int | None = None) -> None:
     global _DEADLINE, _BUDGET, _SCANNED
@@ -175,7 +182,7 @@ def check_clock(where: str = "") -> None:
             % (_BUDGET // 60, where or "훑는 중", _SCANNED))
 
 
-def _iter_files(folder: str):
+def _iter_files(folder: str, protected_dirs=(), prune_years: bool = False):
     global _SCANNED
     if not os.path.isdir(folder):
         return
@@ -186,7 +193,17 @@ def _iter_files(folder: str):
     #   거를 폴더는 **예전 그대로** 넘긴다 — 색인의 목록(`_보관`·`_바로가기`)을
     #   물려받으면 정리해야 할 폴더를 조용히 안 보게 된다.
     from source_index import walk_stat
-    for base, name, st in walk_stat(folder, skip_dirs={".source_organizer.guard"}):
+    skip = {".source_organizer.guard"} | set(protected_dirs)
+    if prune_years:
+        # 이미 ``YYYY/...`` 아래에 들어간 정본은 다시 계획할 일이 없다. 이름을 본 뒤
+        # 파일 10만 개를 훑고 나서 거르는 대신 **하강 전에** 문을 닫는다.
+        skip |= YEAR_DIRS
+    if not protected_dirs and not prune_years:
+        # 예전 목록 계약을 글자 그대로 남긴다(검증 [198]).
+        iterator = walk_stat(folder, skip_dirs={".source_organizer.guard"})
+    else:
+        iterator = walk_stat(folder, skip_dirs=skip)
+    for base, name, st in iterator:
         if name.startswith("~$") or name in ("Thumbs.db", ".DS_Store"):
             continue
         _SCANNED += 1
@@ -234,7 +251,10 @@ def planned_moves(root: str = ORIGIN_ROOT) -> list[Move]:
         if not os.path.isdir(base):
             continue
         canonical = os.path.join(root, "7. 입금내역") if "입금내역" in label else base
-        for src in _iter_files(base):
+        protected = (PROTECTED_ERP_DIRS
+                     if os.path.normcase(os.path.basename(base)) ==
+                     os.path.normcase(os.path.basename(ERP_DIR)) else ())
+        for src in _iter_files(base, protected_dirs=protected, prune_years=True):
             if _already_dated(src, canonical):
                 continue
             m = _move_for(src, dated_dir(canonical, src), f"{label} 날짜별 보관")
@@ -243,7 +263,7 @@ def planned_moves(root: str = ORIGIN_ROOT) -> list[Move]:
 
     band = os.path.join(root, "4. 밴드 원본")
     if os.path.isdir(band):
-        for src in _iter_files(band):
+        for src in _iter_files(band, protected_dirs=PROTECTED_BAND_DIRS, prune_years=True):
             rel = os.path.relpath(src, band).split(os.sep)
             if rel[0] == "문서사진":
                 base = os.path.join(band, "문서사진")
@@ -285,7 +305,7 @@ def planned_moves(root: str = ORIGIN_ROOT) -> list[Move]:
     for base in (os.path.join(root, "6. 26년도 PO 모음"), os.path.join(root, "6. PO 원본")):
         if not os.path.isdir(base):
             continue
-        for src in _iter_files(base):
+        for src in _iter_files(base, prune_years=base.endswith("6. PO 원본")):
             rel = os.path.relpath(src, os.path.join(root, "6. PO 원본")).split(os.sep)
             if (base.endswith("6. PO 원본") and len(rel) >= 3
                     and re.fullmatch(r"20\d{2}", rel[0] or "")
@@ -309,7 +329,7 @@ def planned_moves(root: str = ORIGIN_ROOT) -> list[Move]:
         if not os.path.isdir(current_dir):
             continue
         candidates = [
-            p for p in _iter_files(current_dir)
+            p for p in _iter_files(current_dir, protected_dirs={"보관"})
             if p.lower().endswith((".xlsx", ".xlsm"))
             and os.path.relpath(p, current_dir).split(os.sep)[0] != "보관"
         ]
@@ -389,8 +409,13 @@ def _append_history(rows: list[tuple[str, str, str]], root: str = ORIGIN_ROOT):
             w.writerow([stamp, src, dst, reason])
 
 
-def _remove_empty_dirs(root: str):
-    """파일이 하나도 없는 하위 폴더만 정리한다. 카테고리 뿌리는 유지한다."""
+def _remove_empty_dirs(root: str, touched_dirs=()):
+    """이번에 파일이 빠져나간 폴더의 빈 조상만 정리한다.
+
+    예전 구현은 파일을 몇 개 옮긴 뒤 빈 폴더를 찾겠다며 정본 전체 10만 건을 다시
+    ``os.walk`` 했다. 이동과 상관없는 폴더를 청소할 이유가 없고, 바로 그 두 번째
+    전수 순회가 40분 제한을 다시 먹을 수 있다.
+    """
     keep = {
         os.path.abspath(root), os.path.abspath(ERP_DIR), os.path.abspath(COUPANG_DIR),
         os.path.abspath(KAKAO_DIR), os.path.abspath(BAND_DIR), os.path.abspath(PM_SCHEDULE_DIR),
@@ -400,14 +425,20 @@ def _remove_empty_dirs(root: str):
         os.path.abspath(MISC_DIR),
         os.path.abspath(UPLOAD_DIR),
     }
-    for base, _dirs, _files in os.walk(root, topdown=False):
-        if os.path.abspath(base) in keep:
-            continue
-        try:
-            if not os.listdir(base):
+    root_abs = os.path.abspath(root)
+    for start in sorted({os.path.abspath(d) for d in touched_dirs},
+                        key=len, reverse=True):
+        base = start
+        while _inside(base, root_abs) and base != root_abs:
+            if base in keep:
+                break
+            try:
+                if os.listdir(base):
+                    break
                 os.rmdir(base)
-        except OSError:
-            pass
+            except OSError:
+                break
+            base = os.path.dirname(base)
 
 
 def write_rules(root: str = ORIGIN_ROOT):
@@ -449,6 +480,7 @@ def apply_moves(moves: list[Move], root: str = ORIGIN_ROOT,
     done_count = 0
     history_batch: list[tuple[str, str, str]] = []
     errors: list[str] = []
+    touched_dirs: set[str] = set()
     for m in moves:
         if not (_inside(m.src, root) and _inside(m.dst, root)):
             errors.append(f"보관소 밖 경로 차단: {m.src} -> {m.dst}")
@@ -466,6 +498,7 @@ def apply_moves(moves: list[Move], root: str = ORIGIN_ROOT,
                         shutil.copy2(m.src, dst)
             else:
                 shutil.move(m.src, dst)
+                touched_dirs.add(os.path.dirname(m.src))
             history_batch.append((m.src, dst,
                                   m.reason + ("(복사)" if copy else "")))
             done_count += 1
@@ -482,7 +515,7 @@ def apply_moves(moves: list[Move], root: str = ORIGIN_ROOT,
     if history_batch:
         _append_history(history_batch, root)
     if not copy:                     # 복사는 원본을 안 건드리므로 손을 아예 안 댄다
-        _remove_empty_dirs(root)
+        _remove_empty_dirs(root, touched_dirs)
     write_rules(root)
     return done_count, errors
 
@@ -492,15 +525,25 @@ def _lock_acquire() -> bool:
     try:
         fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
+        # 시간만 보고 잠금을 빼앗지 않는다. 정상 작업도 40분 넘게 걸리므로 옛 30분
+        # 규칙은 **살아 있는 작업의 잠금을 풀어** 두 정리기가 같은 파일을 만지게 했다.
         try:
-            if time.time() - os.path.getmtime(LOCK) > 30 * 60:
+            import pid_alive
+            with open(LOCK, encoding="utf-8", errors="replace") as fh:
+                words = fh.read().split()
+            owner_pid, fingerprint, born = pid_alive.owner_from_words(words)
+            live = pid_alive.owner_alive(owner_pid, pid_started_at=fingerprint,
+                                         born_before=born)
+            if live is False:                 # **죽었다는 증거**가 있을 때만 회수한다
                 os.unlink(LOCK)
                 return _lock_acquire()
-        except OSError:
+        except (OSError, ValueError):
             pass
         return False
     with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(f"{os.getpid()} {datetime.now():%Y-%m-%d %H:%M:%S}\n")
+        import pid_alive
+        stamp = pid_alive.stamp()
+        f.write(f"{os.getpid()} {stamp} {datetime.now():%Y-%m-%dT%H:%M:%S}\n")
     return True
 
 
@@ -524,12 +567,27 @@ def main():
         print("원본 자료 폴더에 접근할 수 없습니다:", ORIGIN_ROOT)
         return 2
     start_clock(max(1, args.budget_min) * 60)
+    locked = False
+    if args.apply:
+        # 계획을 세우는 전수 순회 **전부터** 잠근다. 예전에는 40분 계획을 둘이 같이
+        # 돌린 뒤 이동 직전에야 잠가서, 중복 실행을 막는 손잡이가 너무 늦었다.
+        if not _lock_acquire():
+            print("다른 원본 정리 작업이 실행 중이라 이번 실행을 건너뜁니다.")
+            return 3
+        locked = True
     try:
         moves = planned_moves()
     except TimeBudgetExceeded as e:
         # 조용히 성공한 척하지 않는다 — 이게 안 보여서 열 시간을 잃었다.
         print("중단:", e)
+        if locked:
+            _lock_release()
         return 4
+    except Exception:
+        # 계획 중 예상 밖 오류가 나도 죽은 잠금을 남기지 않는다.
+        if locked:
+            _lock_release()
+        raise
     if args.limit > 0:
         moves = moves[:args.limit]
     _how = ('복사(원본 유지)' if args.copy else '이동')
@@ -547,16 +605,14 @@ def main():
     if not args.apply:
         print("\n실제 정리: python source_organizer.py --apply")
         return 0
-    if not _lock_acquire():
-        print("다른 원본 정리 작업이 실행 중이라 이번 실행을 건너뜁니다.")
-        return 3
     try:
         done, errors = apply_moves(moves, copy=args.copy)
     except TimeBudgetExceeded as e:
         print("중단:", e)
         return 4
     finally:
-        _lock_release()
+        if locked:
+            _lock_release()
     print(f"완료: {done}개 이동 · 오류 {len(errors)}개")
     for e in errors[:20]:
         print("  오류:", e)
