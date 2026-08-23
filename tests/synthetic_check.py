@@ -27088,6 +27088,95 @@ eq(날짜("2026-08-21"), "2026/08/21", "하이픈");
 console.log("HARNESS-OK");
 """
 
+
+def t402_browser_collect_says_when_it_misses_its_chance():
+    """브라우저 수집이 **기회를 못 잡는 것**이 조용하면 안 된다 (2026-08-23 지시).
+
+    형님 지시: "오래 걸리는 작업들은 pc를 켜면 백그라운드에서 작업하게".
+
+    실측 그날: `reports/브라우저_체인.json` 을 읽는 코드가 **browser_chain.py
+    자신뿐**이라([328]), 12:00 회차가 매일 '전면이 크롬이 아니라 건너뜀'으로 끝나도
+    스케줄러에는 **exit 0(성공)** 으로 적히고 어느 화면에도 안 떴다([169]).
+    `ERP_전화면몰이_상태.json` 이 **12일째 옛것**인 것이 그 값이었고, 밴드 댓글은
+    **11일째** 못 잡고 있었다.
+
+    ★ **자동으로 다시 시도하지 않는다.** 이 회차는 사람 화면을 뺏으므로 [269] 가
+      매일 12:00 한 번으로 정했다 — 여기서 되돌리면 그 지시가 조용히 사라진다.
+      여기는 **보고 말하는 자리**다.
+    """
+    import shutil as _sh402, tempfile as _tf402, json as _js402
+    import datetime as _dt402
+    sys.path.insert(0, os.path.join(ROOT, "band"))
+    import browser_chain as B402
+
+    box = _tf402.mkdtemp(prefix="t402-")
+    hold = B402.MISS_TRACE
+    실제 = os.path.join(ROOT, "reports", "브라우저수집_오류.json")
+    전 = os.path.getmtime(실제) if os.path.exists(실제) else None
+    B402.MISS_TRACE = os.path.join(box, "브라우저수집_오류.json")
+    try:
+        오늘 = _dt402.date.today()
+        옛날 = (오늘 - _dt402.timedelta(days=12)).isoformat()
+        어제 = (오늘 - _dt402.timedelta(days=1)).isoformat()
+
+        # ① 오래 못 잡았으면 자국을 남긴다
+        B402.trace_missed({"마지막": {
+            "ERP 전화면 몰이": {"때": 옛날 + " 12:00", "결과": "건너뜀"},
+            "점검": {"때": 옛날 + " 12:00", "결과": "할 일 없음"}}})
+        assert os.path.exists(B402.MISS_TRACE), \
+            "[402] 12일째 못 잡았는데 자국이 없다 — 그러면 아무도 모른다([169])"
+        d = _js402.load(open(B402.MISS_TRACE, encoding="utf-8"))
+        assert "12일째" in d["무엇"], "[402] 며칠째인지 안 적는다: " + d["무엇"][:80]
+        assert d.get("어떻게"), "[402] 조치가 없다 — 무엇을 하라는 말이 없으면 안 읽는다([289])"
+        assert "점검" not in _js402.dumps(d, ensure_ascii=False), \
+            "[402] '할 일 없음' 자국까지 늦은 것으로 센다 — 매일 뜨는 가짜가 된다([170])"
+
+        # ② 잡으면 지운다([228] — 옛 자국은 고쳐진 고장을 계속 보고한다)
+        B402.trace_missed({"마지막": {"ERP 전화면 몰이": {"때": 오늘.isoformat() + " 12:00",
+                                                        "결과": "시작됨"}}})
+        assert not os.path.exists(B402.MISS_TRACE), "[402] 오늘 잡았는데 자국이 안 지워진다"
+
+        # ③ 못 재면 아무 말도 안 한다([169])
+        B402.trace_missed({"마지막": {"X": {"때": "", "결과": "건너뜀"}}})
+        assert not os.path.exists(B402.MISS_TRACE), \
+            "[402] 시각을 못 읽었는데 경보를 만든다 — 모르는 것으로 만든 경보는 매일 뜬다"
+
+        # ④ 하루 이틀은 정상이다([170] · [269] — 정오에 크롬이 앞에 없는 것은 흔하다)
+        B402.trace_missed({"마지막": {"Y": {"때": 어제 + " 12:00", "결과": "건너뜀"}}})
+        assert not os.path.exists(B402.MISS_TRACE), "[402] 하루 놓친 것으로 경보가 뜬다"
+
+        # ⑤ 계기 자신도 시험한다([272]) — 판정을 죽이면 ①이 잡아야 한다
+        원래 = B402.MISS_DAYS
+        try:
+            B402.MISS_DAYS = 9999                 # 영영 안 걸리게
+            B402.trace_missed({"마지막": {"ERP 전화면 몰이": {"때": 옛날 + " 12:00",
+                                                            "결과": "건너뜀"}}})
+            assert not os.path.exists(B402.MISS_TRACE), "(자기시험 준비 실패)"
+        finally:
+            B402.MISS_DAYS = 원래
+    finally:
+        B402.MISS_TRACE = hold
+        _sh402.rmtree(box, ignore_errors=True)
+
+    # ★ 실측 증거 파일은 한 글자도 안 건드린다([247])
+    후 = os.path.getmtime(실제) if os.path.exists(실제) else None
+    assert 전 == 후, "[402] 검증이 진짜 자국 파일을 건드렸다([247])"
+
+    src = open(os.path.join(ROOT, "band", "browser_chain.py"), encoding="utf-8").read()
+    # ⑥ 자국을 남기는 자리를 **실제로 부르는가**([328] — 함수만 있고 안 부르면 없는 것과 같다)
+    assert "trace_missed(d)" in src, "[402] trace_missed 를 부르는 곳이 없다"
+    # ⑦ 자동 재시도를 넣지 않았다([269] 회귀 — 화면을 뺏는 회차는 하루 한 번이다)
+    body = src[src.index("def trace_missed"):src.index("def lock_take")]
+    for 금지 in ("inject(", "manual_step(", "erp_step("):
+        assert 금지 not in body, \
+            "[402] 자국 자리에서 회차를 다시 띄운다 — [269] 의 '하루 한 번'이 사라진다"
+    # ⑧ 설치본이 따라잡기를 등록하는가(살아 있는 작업만 고치면 기계를 새로 만들 때 되살아난다)
+    ps = open(os.path.join(ROOT, "install_daily_schedule.ps1"), encoding="utf-8").read()
+    assert "-StartWhenAvailable" in ps, \
+        "[402] 일일대조 설치본에 따라잡기가 없다 — PC 가 09:50 에 꺼져 있으면 그날 대조가 통째로 빠진다"
+
+    print("✅ [402] 브라우저 수집이 기회를 못 잡으면 말한다 · 놓친 회차는 켤 때 따라잡는다 (실행으로 잼)")
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -33976,6 +34065,7 @@ if __name__ == "__main__":
     t396_staff_first_open_uses_an_exact_issue_cache()
     t388_hung_start_is_not_normal()
     t401_erp_grid_reads_what_is_there()
+    t402_browser_collect_says_when_it_misses_its_chance()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

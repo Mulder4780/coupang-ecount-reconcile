@@ -121,7 +121,73 @@ def note(d, 무엇, 결과, 왜=""):
     d["단계"] = d["단계"][-40:]
     d.setdefault("마지막", {})[무엇] = {"때": _now(), "결과": 결과, "왜": 왜}
     save(d)
+    trace_missed(d)          # ★ 자국을 남기는 자리와 판정하는 자리를 붙여 둔다([328])
     print("%s · %s — %s %s" % (_now(), 무엇, 결과, 왜))
+
+
+#: 기회를 며칠 못 잡으면 그때부터 자국을 남긴다. 하루 이틀은 정상이다 —
+#: 정오에 크롬이 앞에 없는 것은 흔하고, 매일 뜨는 경보는 진짜 경보를 죽인다([170]).
+MISS_DAYS = 3
+MISS_TRACE = os.path.join(ROOT, "reports", "브라우저수집_오류.json")
+
+
+def _miss_days(d, 무엇):
+    """그 일이 **마지막으로 된 뒤** 며칠인가 — 못 재면 None([169])."""
+    from datetime import datetime as _dt, date as _date   # 이 파일에 없다([355])
+    rec = (d.get("마지막") or {}).get(무엇) or {}
+    when = str(rec.get("때") or "")[:10]
+    if not when:
+        return None
+    try:
+        y, m, dd = (int(x) for x in when.split("-"))
+        return (_dt.now().date() - _date(y, m, dd)).days
+    except Exception:
+        return None
+
+
+def trace_missed(d):
+    """브라우저 수집이 기회를 못 잡고 있으면 `*_오류.json` 으로 말한다.
+
+    ★ 판정은 **'마지막으로 시작된 날'** 하나다. `건너뜀` 을 세지 않는 이유는
+      건너뜀이 정상이기 때문이다([269] — 정오에 ERP 화면이 전면에 없는 것은 정상).
+      물어야 할 것은 "몇 번 건너뛰었나"가 아니라 **"며칠째 못 했나"** 다.
+    ★ **자동으로 다시 시도하지 않는다.** 이 회차는 사람 화면을 뺏으므로 [269] 가
+      매일 12:00 한 번으로 정해 뒀다 — 여기서 되돌리면 그 지시가 조용히 사라진다.
+      여기는 **보고 말하는 자리**다(`typo_watch` 와 같은 자리).
+    ★ 못 재면 아무 말도 안 한다([169]) — 모르는 것으로 경보를 만들면 그것이
+      매일 뜨는 가짜가 된다.
+    """
+    늦은것 = []
+    for 무엇 in sorted((d.get("마지막") or {})):
+        if 무엇 == "점검":                      # 할 일이 없던 날의 자국이다
+            continue
+        n = _miss_days(d, 무엇)
+        rec = (d.get("마지막") or {}).get(무엇) or {}
+        # ★ '시작됨' 도 샌다 — 시작만 하고 끝을 못 본 날이 실측으로 있었다
+        #   (2026-08-23: 12:12 '시작됨' 인데 결과 파일은 12일째 옛것).
+        if n is not None and n >= MISS_DAYS:
+            늦은것.append("%s %d일째(마지막 %s · %s)"
+                          % (무엇, n, str(rec.get("때") or "")[:10], rec.get("결과")))
+    if not 늦은것:
+        # ★ 잡았으면 지운다 — 옛 자국은 고쳐진 고장을 계속 보고한다([228]).
+        try:
+            os.remove(MISS_TRACE)
+        except Exception:
+            pass
+        return
+    try:
+        with io.open(MISS_TRACE, "w", encoding="utf-8") as fh:
+            json.dump({
+                "시각": _now(),
+                "갈래": "기회놓침",
+                "무엇": ("브라우저 수집이 %d일 넘게 기회를 못 잡았다 — %s"
+                         % (MISS_DAYS, " · ".join(늦은것[:4]))),
+                "어떻게": ("허용된 크롬 페이지(밴드 /post 목록 또는 이카운트 ERP)를 "
+                           "**전면**에 두고: python band/browser_chain.py --manual erp"),
+                "늦은것": 늦은것,
+            }, fh, ensure_ascii=False, indent=1)
+    except Exception:
+        pass                                    # 자국 하나 때문에 회차를 세우지 않는다
 
 
 def lock_take():

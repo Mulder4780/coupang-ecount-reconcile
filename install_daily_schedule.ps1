@@ -12,11 +12,17 @@ $ErrorActionPreference = "Stop"
 #   which rounds MUST exist -- could not see it, so its disappearance would raise
 #   no alarm. The settings below were exported from the live task, not invented.
 #
-# NOTE (do not "fix" silently): the live task has StartWhenAvailable = False, so a
-#   day when the PC is asleep at 09:50 is skipped with no trace. That is reproduced
-#   here on purpose -- changing it is a behaviour decision for a human. The missed
-#   day is now visible anyway: schedule_watch reports "not run" when a scheduled
-#   time has passed with no run record.
+# NOTE: StartWhenAvailable is now ON (2026-08-23, on the owner's explicit
+#   instruction: "make long jobs run in the background when the PC is turned on").
+#   Before that the task had it OFF, so a day when the PC was asleep at 09:50 was
+#   skipped with no trace -- and that round is the one that does the daily
+#   reconcile (cancellations, objective completion, billing status, typos, screen
+#   truth check, camp contacts). Losing a whole day of that was the cost.
+#   Windows does the catching-up itself, so we do NOT add code that re-launches
+#   rounds: two hands starting the same task means one of them dies on the lock
+#   and that death reads as "the round is broken" (seen on 2026-08-16).
+#   The live task was changed the same day; backup in
+#   reports/스케줄러_백업_일일자동대조_20260823.xml.
 #
 # NOTE: ExecutionTimeLimit is PT3H while the round measured 292.3 min on
 #   2026-08-11, so it is force-killed (0xC000013A) every day. Work item [38] owns
@@ -58,6 +64,7 @@ $Settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable `
     -ExecutionTimeLimit (New-TimeSpan -Hours 3)
 $Principal = New-ScheduledTaskPrincipal `
     -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) `
