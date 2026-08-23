@@ -17055,6 +17055,147 @@ def _t370_load():
     return mod
 
 
+def t397_missing_collection_never_looks_like_idle_technician():
+    """수집을 못 했다는 이유로 기사에게 경보를 울리지 않는다 (2026-08-23 형님 지시).
+
+    형님 지시: "ERP 밴드 못 긁어와서 AS 담당자 일처리가 안된걸로 나오는데 이 문제
+    절대 안생기게 해결해 앞으로도 쭉".
+
+    왜 이 검사가 있나: `_as_delay_class` 는 **원장 칸만** 봤다(방문예정일·진행상태·
+    신청내용). 그 칸이 빈 이유를 한 번도 안 물어서, 수집이 안 들어왔을 뿐인 건까지
+    `★ 즉시조치 · 경보` 로 나갔고 본부장·대표는 "AS팀이 일을 안 한다"로 읽었다.
+    실측 2026-08-23: 경보 60건 중 **근거가 서는 것은 0건**(완료글없음 56 · 근거없음 2 ·
+    못봄 2). 경보가 전부면 그 경보는 죽는다([170]).
+
+    ★ 재는 것은 '경보가 없다'가 아니라 **'언제 울리나'** 다([172]) — 경보를 없애면
+      진짜 미방문이 숨는다. 그래서 ②가 '수집이 따라잡으면 그대로 울린다'를 잰다.
+    """
+    import app_server as A
+
+    ROW = {"방문예정일": "", "진행상태": "접수", "신청내용": "", "비고": "",
+           "조치내용": "", "완료예정일": ""}
+    GOT, TODAY = "2026-01-05", "2026-08-23"
+
+    # ① 수집이 안 따라왔으면 경보가 아니다 — 그리고 **왜인지 말한다**([169]).
+    d = A._as_delay_class(ROW, GOT, TODAY, "완료글없음", True)
+    assert d["경보"] is False, \
+        "수집이 밀렸는데도 경보를 울린다 — 못 본 것을 기사 미처리로 부른다"
+    assert d["지연구분"] == "완료 확인 대기", "지연구분: " + str(d["지연구분"])
+    assert "기사 미처리라는 뜻이 아니다" in d["지연근거"], \
+        "왜 대기인지를 안 적는다 — 받는 쪽이 '안 갔다'로 읽는다([169])"
+
+    # ② **수집이 따라잡으면 그대로 울린다** — 진짜 미방문을 숨기지 않는다([172]).
+    d2 = A._as_delay_class(ROW, GOT, TODAY, "완료글없음", False)
+    assert d2["경보"] is True and d2["지연구분"] == "즉시조치", \
+        "수집이 최신인데도 경보를 안 울린다 — 진짜 미방문이 숨는다"
+
+    # ③ 그 건의 날짜까지 수집이 안 온 것(`못봄`)도 경보가 아니다.
+    d3 = A._as_delay_class(ROW, GOT, TODAY, "못봄", False)
+    assert d3["경보"] is False, "'못봄' 인데 경보를 울린다"
+
+    # ④ 합의된 대기·기한 안은 **한 글자도 안 바뀐다**([172] — 좁히는 것도 고장이다).
+    d4 = A._as_delay_class(dict(ROW, 방문예정일="2026-09-01"), GOT, TODAY, "완료글없음", False)
+    assert d4["지연구분"] == "협의대기" and d4["경보"] is False, str(d4)
+    d5 = A._as_delay_class(ROW, "2026-08-22", TODAY, "완료글없음", False)
+    assert d5["지연구분"] == "정상기한", str(d5)
+
+    # ⑤ **무관한 원천의 밀림이 AS 경보를 끄면 안 된다**([172]).
+    #    `_collect_behind(row, idx)` 는 그 건의 완료가 오는 원천만 본다.
+    _oc = A._completion_cutoff
+    try:
+        A._completion_cutoff = lambda r, i: A._today_str()
+        assert A._collect_behind({}, {"읽음": True}) is False, \
+            "그 건의 원천이 오늘까지 왔는데 '밀렸다'고 한다 — 진짜 미방문이 숨는다"
+        A._completion_cutoff = lambda r, i: "2026-01-01"
+        assert A._collect_behind({}, {"읽음": True}) is True, \
+            "그 건의 원천이 밀렸는데 안 밀렸다고 한다"
+        def boom(r, i):
+            raise RuntimeError("일부러")
+        A._completion_cutoff = boom
+        assert A._collect_behind({}, {"읽음": True}) is True, \
+            "못 쟀는데 경보를 울린다 — 모르면 되돌릴 수 없는 쪽을 피한다([169])"
+    finally:
+        A._completion_cutoff = _oc
+
+    # ⑥ 부르는 자리가 **실제로 근거를 넘긴다** — 안 넘기면 위 판정이 아무 일도 안 한다.
+    src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    # ⚠ 인자 안에 또 괄호가 있어 non-greedy 로 자르면 첫 `)` 에서 끊긴다 —
+    #   그러면 멀쩡한 코드에 거짓 경보가 난다([172]). 부르는 자리 뒤 한 덩어리를 본다.
+    used = [src[i:i + 300] for i in range(len(src))
+            if src.startswith("_as_delay_class(", i)
+            and not src[max(0, i - 4):i].endswith("def ")]
+    assert len(used) >= 2, "부르는 자리를 못 찾았다 — 이 검사는 아무것도 안 잰다"
+    for c in used:
+        assert "_collect_behind" in c, \
+            "부르는 자리가 수집 밀림을 안 넘긴다 — 못 본 건이 다시 경보가 된다"
+
+    # ⑦ 평소 캘린더 응답도 **수집 기준을 싣는다**([169]) — 예전엔 report-prepare 에만 있었다.
+    gc = src[src.index("def get_calendar("):]
+    gc = gc[:gc.index(chr(10) + "def ", 10)]
+    assert '"원천수집"' in gc, \
+        "평소 캘린더가 수집 기준을 안 싣는다 — 사람이 왜 대기인지 알 길이 없다"
+
+    # ⑧ 계기 자신을 시험한다([272]) — 옛 동작을 넣으면 ①이 잡히나.
+    _bad = None
+    try:
+        A._as_delay_class(ROW, GOT, TODAY)      # 근거를 안 넘기던 옛 호출
+        _bad = A._as_delay_class(ROW, GOT, TODAY)["경보"]
+    except Exception:
+        _bad = None
+    assert _bad is True, \
+        "근거 없이 부르면 경보가 나야 한다 — 안 나면 ①②가 같은 답이라 아무것도 안 잰다"
+
+    # ⑨ **ERP 도 같은 모양이다** — 색인이 밀렸으면 `ERP 전표 없음` 이라 확언하지 않는다.
+    #    실측 2026-08-23: 계산서 판정이 쓰는 `ERP:sales`·`taxstep` 이 3일 밀려 있었다.
+    #    그동안 류지영이 등록한 전표도 색인에 없어 "등록을 안 했다"로 보였다.
+    _os_ = A._erp_behind
+    A._ERP_FRESH_CACHE.update(t=0, v=None)
+    try:
+        import erp_grab as _EG
+        _osur = _EG.survey
+        try:
+            _EG.survey = lambda *a, **k: {"ERP:sales": ("2026-01-01", 1),
+                                          "ERP:taxstep": ("2026-01-01", 1),
+                                          "ERP:tax": ("2026-01-01", 1)}
+            A._ERP_FRESH_CACHE.update(t=0, v=None)
+            behind, last = A._erp_behind()
+            assert behind is True and last == "2026-01-01", str((behind, last))
+            _EG.survey = lambda *a, **k: {"ERP:sales": (A._today_str(), 1),
+                                          "ERP:taxstep": (A._today_str(), 1),
+                                          "ERP:tax": (A._today_str(), 1)}
+            A._ERP_FRESH_CACHE.update(t=0, v=None)
+            assert A._erp_behind()[0] is False, \
+                "ERP 가 오늘까지 왔는데 밀렸다고 한다 — 진짜 미등록이 숨는다([172])"
+            # ★ 무관한 원천(견적서 18일 밀림)이 계산서 판정을 오염하면 안 된다.
+            _EG.survey = lambda *a, **k: {"ERP:sales": (A._today_str(), 1),
+                                          "ERP:taxstep": (A._today_str(), 1),
+                                          "ERP:tax": (A._today_str(), 1),
+                                          "ERP:quote": ("2026-01-01", 1)}
+            A._ERP_FRESH_CACHE.update(t=0, v=None)
+            assert A._erp_behind()[0] is False, \
+                "무관한 원천의 밀림이 계산서 판정을 끈다([172])"
+            # ★ 못 읽으면 '밀렸다' 쪽 — 등록해 둔 사람을 안 했다고 부르지 않는다([169]).
+            def _boom(*a, **k):
+                raise RuntimeError("일부러")
+            _EG.survey = _boom
+            A._ERP_FRESH_CACHE.update(t=0, v=None)
+            assert A._erp_behind()[0] is True, "못 읽었는데 '전표 없음' 이라 확언한다"
+        finally:
+            _EG.survey = _osur
+            A._ERP_FRESH_CACHE.update(t=0, v=None)
+    finally:
+        A._erp_behind = _os_
+
+    # ⑩ 그 판정이 **실제로 그 자리에서 쓰인다** — 안 쓰면 위 검사는 아무것도 안 잰다([328]).
+    seg = src[src.index('_why = "ERP ') - 900:src.index('_why = "ERP ') + 900] \
+        if '_why = "ERP ' in src else src
+    assert "_erp_behind()" in seg, \
+        "미발행 사유가 ERP 신선도를 안 본다 — 밀린 날 '전표 없음' 이라 확언한다"
+
+    print("[397] 못 본 것을 기사 미처리로 안 부른다 "
+          "(밀림→대기 · 따라잡으면 경보 · 원천별 · ERP · 자기시험 OK)")
+
+
 def t376_unfinished_is_split_by_evidence_and_staff_can_close_it():
     """[형님 지시 2026-08-21] 미처리를 **왜 미처리인지**로 갈라 말하고, 사람이 닫는다.
 
@@ -18454,7 +18595,7 @@ def t293_yield_is_a_claim_that_gets_audited():
     _헛, _못, _점, _뒤에 = _CO.audit(_d)
     assert len(_점) == 1, "점유 양보를 따로 안 센다 — 매일 뜨는 확인못함이 된다([170])"
     assert len(_못) == 1, "주인이 정말 없는 양보를 못 가른다 — 그것이 진짜 위험한 자리다([172])"
-    _ns = _CO.notices(_d)
+    _ns = _CO.notices(_d, 도는중=set())
     _확 = [n for n in _ns if n.get("갈래") == "확인못함"]
     assert len(_확) == 1, "점유 양보까지 경보로 올린다 — 경보가 대부분이면 아무도 안 본다([170])"
     assert "1건" in _확[0]["무엇"], "확인못함 건수에 점유 양보가 섞였다"
@@ -18462,7 +18603,7 @@ def t293_yield_is_a_claim_that_gets_audited():
     #    ★ 낱말이 아니라 **계약**을 얼린다([39]·[355]) — 제목은 뜻이 넓어지면서
     #      바뀔 수 있다(2026-08-22 `[393]` 에서 "점유에" -> "세션·사람에게").
     #      물어야 할 것은 "그 구역이 리포트에 **숫자와 함께** 실리는가" 다.
-    _md = _CO._md(_d, "")
+    _md = _CO._md(_d, "", 도는중=set())
     _줄 = [ln for ln in _md.splitlines() if ln.startswith("## ") and "양보한 것" in ln]
     assert _줄, "양보한 것을 리포트에서 통째로 감춘다 — 안 보이면 '겹친 적 없다'로 읽힌다"
     assert "1건" in _md, "양보 건수를 숫자로 안 말한다([169])"
@@ -18501,8 +18642,22 @@ def t293_yield_is_a_claim_that_gets_audited():
     assert not [n for n in _CO.notices(_표("완주", _뒤때)) if n.get("갈래") == "헛양보"], (
         "뒤에 된 것을 경보로 올린다 — 거짓 경보는 진짜 경보를 덮는다([170])")
     #    ★ 그러나 조용히 없애지도 않는다([169]) — 리포트가 숫자로 말해야 한다.
-    assert "뒤에 스스로 된 것" in _CO._md(_표("완주", _뒤때), ""), (
+    assert "뒤에 스스로 된 것" in _CO._md(_표("완주", _뒤때), "", 도는중=set()), (
         "뒤에 된 것을 리포트에서 통째로 감춘다 — 안 보이면 겹친 적 없다로 읽힌다")
+    #    ★ 계기 자신을 시험한다([272]·[235]) — 이 관문은 daily_run 의 0단계라
+    #      **돌 때 그 회차가 제 락을 쥐고 있다**. `도는중` 이 `_md` 안의
+    #      notices/audit 까지 안 가면 판정이 미뤄져 위 칸이 사라지고, 이 검사는
+    #      **회차 안에서는 반드시 빨강 · 손으로 돌리면 반드시 초록**이 된다.
+    #      실측 2026-08-23 09:50 회차가 그 자리에서 통째로 죽었고, 손으로는
+    #      재현이 안 돼 며칠을 잃을 뻔했다. 그러므로 그 상황을 만들어 재 둔다.
+    _real_running = _CO.running
+    try:
+        _CO.running = lambda *a, **k: [_주인회차]      # 그 회차가 지금 돌고 있다
+        assert "뒤에 스스로 된 것" in _CO._md(_표("완주", _뒤때), "", 도는중=set()), (
+            "_md 가 '도는중' 을 notices·audit 에 안 넘긴다 — 회차 안에서 이 관문이 "
+            "매일 첫 줄에서 죽는다([235])")
+    finally:
+        _CO.running = _real_running                    # 모듈 속성은 모두의 것이다([371])
     #    ★ 계기 자신을 시험한다([272]) — 그 문을 없애면 거짓 경보가 되살아나야 한다.
     _real_dl = _CO.done_later
     try:
@@ -23211,6 +23366,86 @@ def t381_row_count_is_cached_and_never_freezes_a_miss():
         CS._ROWS_CACHE = real
         CS._rows_cache = None
     assert os.path.exists(real) == had, "검사가 실측 캐시를 건드렸다"
+    # ── (6) 목적지를 **파일마다 묻지 않는다** ────────────────────────────────
+    #    실측 2026-08-23 로그: 판정 12,786건 중 **12,607건이 `[동일]`**, 곧 이미
+    #    옮겨져 있어 **아무 일도 안 하는** 파일이다. 그런데 그 하나하나마다 Z: 왕복이
+    #    셋이었다(`exists` + 원본 `stat` + 사본 `stat`) — 12,607 x 3 x 0.145초 = 약 91분.
+    #    그래서 '원본 모으기' 가 40분 제한에 걸려 끊기고, 뒤따르는 '원본 폴더 정리'
+    #    까지 같이 못 끝냈다([198] 과 같은 병 · 자리가 다르다).
+    #    ★ 글자로는 '왕복이 줄었나'를 못 잰다([295]) — `os.scandir`·`os.stat` 을
+    #      **세어서** 잰다.
+    import shutil
+    _tmp381 = tempfile.mkdtemp(prefix='t381b_')
+    try:
+        _sd = os.path.join(_tmp381, "s")
+        _dd = os.path.join(_tmp381, "d")
+        os.makedirs(_sd)
+        os.makedirs(_dd)
+        _srcs = []
+        for _i in range(5):
+            _p = os.path.join(_sd, "f%d.txt" % _i)
+            open(_p, "w", encoding="utf-8").write("x%d" % _i)
+            _srcs.append(_p)
+        for _p in _srcs:                       # 먼저 다 옮겨 둔다(= '동일' 이 될 상태)
+            CS.copy_one(_p, _dd, apply=True)
+
+        CS._DST_ENTRIES.clear()             # 다음 회차를 흉내낸다
+        _n_scandir = [0]
+        _n_stat = [0]
+        _real_sd, _real_st = os.scandir, os.stat
+
+        def _cnt_scandir(p, *a, **k):
+            _n_scandir[0] += 1
+            return _real_sd(p, *a, **k)
+
+        def _cnt_stat(p, *a, **k):
+            _n_stat[0] += 1
+            return _real_st(p, *a, **k)
+
+        os.scandir, os.stat = _cnt_scandir, _cnt_stat
+        try:
+            _res = [CS.copy_one(_p, _dd, apply=True, st=_real_st(_p))[0] for _p in _srcs]
+        finally:
+            os.scandir, os.stat = _real_sd, _real_st   # 모듈 속성은 모두의 것이다([371])
+
+        assert _res == ["동일"] * 5, "[381] 이미 옮긴 파일을 '동일' 로 안 본다: %s" % _res
+        assert _n_scandir[0] == 1, (
+            "[381] 목적지 폴더를 %d번 훑는다 — 폴더마다 한 번이어야 한다([198])" % _n_scandir[0])
+        assert _n_stat[0] == 0, (
+            "[381] 파일마다 목적지를 다시 묻는다(%d번) — Z: 에서 그것이 40분이 된다"
+            % _n_stat[0])
+
+        # ★ 좁히는 것도 고장이다([172]) — 내용이 다르면 **여전히 안 덮는다**.
+        open(_srcs[0], "w", encoding="utf-8").write("아주 다른 내용")
+        CS._DST_ENTRIES.clear()
+        _st6, _dst6 = CS.copy_one(_srcs[0], _dd, apply=True)
+        assert _st6 == "이름바꿈", "[381] 내용이 달라졌는데 '%s' 로 본다" % _st6
+        assert open(os.path.join(_dd, "f0.txt"), encoding="utf-8").read() == "x0", (
+            "[381] 다른 내용으로 원본을 덮었다 — 어느 쪽이 맞는지는 사람이 본다")
+
+        # ★ 계기 자신을 시험한다([272]) — 폴더 캐시를 없애면 위 셈이 잡히나.
+        _real_de = CS._dst_entries
+        try:
+            CS._dst_entries = lambda d: {}          # 옛 동작: 목록을 안 만든다
+            _n2 = [0]
+
+            def _cnt2(p, *a, **k):
+                _n2[0] += 1
+                return _real_st(p, *a, **k)
+
+            os.stat = _cnt2
+            try:
+                CS.copy_one(_srcs[1], _dd, apply=True, st=_real_st(_srcs[1]))
+            finally:
+                os.stat = _real_st
+        finally:
+            CS._dst_entries = _real_de
+        assert _n2[0] > 0, (
+            "[381] 폴더 캐시를 없앴는데도 목적지를 안 묻는다 — 이 검사는 아무것도 안 잰다")
+    finally:
+        CS._DST_ENTRIES.clear()
+        shutil.rmtree(_tmp381, ignore_errors=True)
+
     print("[381] 행수 세기는 캐시 뒤에 · **중간에 저장한다**(죽어도 진도가 남는다) · "
           "딸려 받은 stat 을 쓴다 · 못 읽은 것은 안 굳힌다 · 구간 자국 살아 있음")
 
@@ -33118,6 +33353,7 @@ if __name__ == "__main__":
     t374_a_half_delivered_page_says_so()
     t375_org_capture_is_a_floor_plan_and_icons_are_one_family()
     t376_unfinished_is_split_by_evidence_and_staff_can_close_it()
+    t397_missing_collection_never_looks_like_idle_technician()
     t377_one_save_converges_staff_report_calendar_and_capture()
     t378_existing_watchdog_absorbs_and_audits_new_features()
     t379_representative_prepare_never_blames_unverified_staff()

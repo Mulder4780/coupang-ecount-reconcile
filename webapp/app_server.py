@@ -4070,7 +4070,13 @@ def real_settlements():
         elif _erp_state[:2] == "4.":
             _why = "발행 대기(ERP 4단계)"
         elif not _erp_state:
-            _why = "ERP 전표 없음"
+            # ★ **못 받은 것을 안 한 것으로 부르지 않는다** (2026-08-23 형님 지시).
+            #   색인이 며칠 밀리면 류지영이 등록해 둔 전표도 아직 안 들어온다 —
+            #   그런데 화면은 "등록을 안 했다"고 말한다([169]).
+            _behind, _elast = _erp_behind()
+            _why = ("ERP 자료를 " + (_elast or "?") + " 까지만 받았다 — "
+                    "전표 등록 여부를 확인하지 못했다(미등록이라는 뜻이 아니다)"
+                    if _behind else "ERP 전표 없음")
         else:
             _why = "ERP " + _erp_state
         if r.get("원장_공급가액"):
@@ -6853,6 +6859,48 @@ def _today_str():
     return datetime.now().strftime("%Y-%m-%d")
 
 
+_ERP_FRESH_CACHE = {"t": 0.0, "v": None}
+_ERP_FRESH_TTL = 300          # 초 — 행마다 색인(335KB)을 다시 읽으면 안 된다([168])
+# ★ 계산서 판정이 실제로 쓰는 원천만 본다([172]).  견적서·현금출납장이 18일 밀렸다고
+#   계산서 경고를 띄우면 **무관한 원천의 밀림이 남의 판정을 오염한다**.
+_ERP_INVOICE_KINDS = ("ERP:sales", "ERP:taxstep", "ERP:tax")
+
+
+def _erp_behind():
+    """계산서 판정의 근거가 되는 ERP 자료가 **오늘까지 왔나**.
+
+    ★ 2026-08-23 형님 지시("ERP 밴드 못 긁어와서 AS 담당자 일처리가 안된걸로 나온다").
+      `_why` 는 색인에 전표가 없으면 곧장 **`ERP 전표 없음`** 이라 적었다. 그런데
+      색인이 며칠 밀리면 **류지영이 등록한 전표도 아직 안 들어온다** — 그 사이
+      화면은 "등록을 안 했다"고 말한다. 실측 2026-08-23: `ERP:sales`·`taxstep` 이
+      **3일 밀림**(08-20).
+    ★ 판정을 새로 만들지 않는다([162]) — `erp_grab.survey()` 가 이미 종류별 최신일을
+      낸다. 여기서 다시 재면 같은 물음에 두 답이 생긴다.
+    ★ **못 재면 '밀렸다' 쪽으로 기운다**([169]·[172]).  물러나는 값은 경고 한 줄이고,
+      반대로 기울면 **등록해 둔 사람을 안 했다고 부르는** 것이다.
+    돌려주는 것: (밀렸나, 최신일) — 최신일은 화면이 "언제까지 봤나"를 적는 데 쓴다.
+    """
+    import time as _t
+    now = _t.time()
+    if _ERP_FRESH_CACHE["v"] is not None and now - _ERP_FRESH_CACHE["t"] < _ERP_FRESH_TTL:
+        return _ERP_FRESH_CACHE["v"]
+    try:
+        import erp_grab
+        s = erp_grab.survey() or {}
+    except Exception:
+        v = (True, "")
+        _ERP_FRESH_CACHE.update(t=now, v=v)
+        return v
+    days = [str(s[k][0])[:10] for k in _ERP_INVOICE_KINDS if k in s and s[k][0]]
+    if not days:
+        v = (True, "")                     # 아예 못 읽었다 — 없다고 확언하지 않는다
+    else:
+        last = min(days)                   # 하나라도 밀리면 밀린 것이다
+        v = (last < _today_str(), last)
+    _ERP_FRESH_CACHE.update(t=now, v=v)
+    return v
+
+
 def band_collect_cutoff():
     """밴드·카톡 수집이 **어디까지 왔나** — 캡처가 이 한 줄을 싣는다.
 
@@ -6871,6 +6919,46 @@ def band_collect_cutoff():
     # ★ 원천마다 밀림이 다르다 — 합쳐 말하면 어느 쪽을 채워야 하는지 못 말한다([289]).
     return {"읽음": bool(idx.get("읽음")), "최신": last, "오늘": today,
             "밴드별": per, "밀림": bool(last and last < today)}
+
+
+def _collect_behind(row=None, idx=None):
+    """이 건의 **완료 게시를 오늘까지 봤나** — 경보를 울려도 되는지의 기준.
+
+    ★ **전체 최솟값을 쓰지 않는다**([172]).  첫 판이 `band_collect_cutoff()` 의
+      합친 값(실측 07-23 · 매출처업무 밴드)을 썼는데, 그러면 **무관한 원천의
+      밀림이 AS 경보를 통째로 끔다** — 그것은 진짜 미방문을 숨기는 쪽이다.
+      `_completion_cutoff()` 의 주석이 이미 같은 말을 적어 둔 자리다.
+    ★ 그래서 **그 건의 완료가 오는 원천**만 본다(AS·점검 완료는 쿠팡AS 밴드).
+      매출처업무만 밀린 날에는 AS 경보가 **그대로 산다.**
+    """
+    if row is not None and idx is not None:
+        try:
+            last = _completion_cutoff(row, idx)
+        except Exception:
+            return True                     # 못 재면 경보를 안 울린다([169]·[172])
+        if not last:
+            return True
+        return str(last) < str(_today_str())
+    return _collect_behind_any()
+
+
+def _collect_behind_any():
+    """원천을 모를 때 쓰는 거친 판정(합친 최솟값).
+
+    ★ 판정을 새로 만들지 않는다([162]) — `band_collect_cutoff()` 가 이미
+      게시일 기준으로 밀림을 재고 캐시도 그쪽에 있다.  여기서 다시 재면
+      같은 물음에 두 답이 생기고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+    ★ **못 읽으면 '밀렸다' 쪽으로 기울인다**([169]).  여기서 물러나는 값은
+      경보 한 번을 미루는 것이고, 반대로 기울면 **못 본 건을 기사 태만으로
+      부르는** 것이다.  되돌릴 수 없는 쪽을 피한다([172]).
+    """
+    try:
+        cut = band_collect_cutoff()
+    except Exception:
+        return True
+    if not cut.get("읽음"):
+        return True
+    return bool(cut.get("밀림"))
 
 
 def _completion_cutoff(row, idx):
@@ -6997,7 +7085,7 @@ def _machine_why(row, idx, got):
                  else "밴드에는 완료 글이 없다(카톡에는 글이 있다)")
 
 
-def _as_delay_class(row, got, today=None):
+def _as_delay_class(row, got, today=None, 근거갈래=None, 수집밀림=None):
     """돌발AS 미처리를 `정상기한/협의대기/즉시조치`로 가른다.
 
     오래됐다는 이유만으로 전부 경보를 울리면 부품 입고나 캠프 요청으로 날짜를 합의한
@@ -7024,6 +7112,26 @@ def _as_delay_class(row, got, today=None):
         reason = (f"방문예정 {visit}" if visit and visit > today else
                   "부품 수급 또는 캠프 일정의 명시적 협의 대기")
         return {"지연구분": "협의대기", "경보": False, "지연근거": reason}
+    # ★ **못 본 것을 안 한 것으로 부르지 않는다** (2026-08-23 형님 지시:
+    #   "ERP 밴드 못 긁어와서 AS 담당자 일처리가 안된걸로 나오는데 이 문제 절대
+    #   안생기게 해결해 앞으로도 쭉").  이 함수는 원장 칸만 보므로 **그 칸이 빈
+    #   이유**를 한 번도 안 물었다 — 그래서 수집이 안 들어왔을 뿐인 건까지
+    #   `★ 즉시조치 · 경보` 로 나갔고, 본부장·대표는 "AS팀이 일을 안 한다"로 읽었다.
+    #   실측 2026-08-23: 경보 60건 중 **근거가 서는 것은 0건**이었다
+    #   (완료글없음 56 · 근거없음 2 · 못봄 2).  경보가 전부면 그 경보는 죽는다([170]).
+    # ★ **경보를 없애는 것이 아니라 언제 울릴지를 정하는 것**이다([172]).
+    #   근거를 다 보고도 완료가 없으면 그때는 그대로 경보다 — 진짜 미방문을 숨기면
+    #   그것이 더 나쁘다. 수집이 따라잡으면 **저절로** 다시 울린다.
+    # ⚠ 완료 글은 접수보다 **나중**에 올라온다. 그래서 건별 갈래(`못봄`)는 접수일로
+    #   재므로 1월 접수건은 언제나 '봤다'가 된다 — 사실은 그 건의 완료 글이 어제
+    #   올라왔어도 못 봤을 수 있다. 그래서 **수집이 오늘까지 왔나**를 따로 본다.
+    #   판정은 `band_collect_cutoff()` 한 곳에서 빌린다([162]).
+    if 근거갈래 == "못봄" or 수집밀림:
+        why = ("밴드·카톡 수집이 아직 오늘까지 안 왔다 — "
+               "완료 글이 올라왔는지를 확인하지 못했다"
+               if 수집밀림 else "수집이 이 건의 날짜까지 안 왔다")
+        return {"지연구분": "완료 확인 대기", "경보": False,
+                "지연근거": why + " (기사 미처리라는 뜻이 아니다)"}
     return {"지연구분": "즉시조치", "경보": True,
             "지연근거": "접수 3일 초과 · 합의된 대기 근거 없음"}
 
@@ -7143,7 +7251,11 @@ def _calendar_work_events():
                          "진행상태": r.get("진행상태") or "",
                          "신청내용": r.get("신청내용") or ""})
                     continue
-                delay = _as_delay_class(r, got, today)
+                # ★ 경보 판정이 **근거를 보게** 한다(2026-08-23) — 예전에는 갈래를
+                #   갈라 놓고도 그 결과를 경보에 안 넘겨, 못 본 건이 경보로 나갔다.
+                delay = _as_delay_class(r, got, today,
+                                        _open_evidence_class(r, bidx, got),
+                                        _collect_behind(r, bidx))
                 add(got, "as_open", ("★ 즉시조치 · " if delay["경보"] else
                                       "돌발AS 미처리 · ") + camp, r,
                     {"연결근거": "02_돌발AS접수 — 접수 뒤 작업완료일이 비어 있음",
@@ -7475,6 +7587,15 @@ def get_calendar():
     d["일정"] = sorted(d.get("일정") or [], key=lambda e: (
         str(e.get("날짜") or "9999"), str(e.get("시간") or ""), str(e.get("제목") or "")))
     d["분류목록"] = [{"key": k, "label": l, "color": c} for k, l, c in CAL_KINDS]
+    # ★ **안 본 날에 대해 '안 했다'고 말하지 않는다**([169] · 2026-08-23 형님 지시).
+    #   예전에는 이 한 줄이 `/api/report-prepare` 에만 실려서, 평소 캘린더를
+    #   보는 사람은 **왜 대기 중인지를 알 길이 없었다.**  판정은 새로 만들지
+    #   않고 `band_collect_cutoff()` 한 곳을 빌린다([162]).
+    try:
+        d["원천수집"] = band_collect_cutoff()
+    except Exception as exc:
+        # 못 재는 것을 조용히 넘기지 않는다 — 받는 쪽이 "다 봤다"로 읽으면 안 된다.
+        d["원천수집"] = {"읽음": False, "왜": str(exc)[:80]}
     return d
 
 
@@ -7592,7 +7713,13 @@ def project_history(camp="", pj="", limit=400):
             # 앞날이면 '예정'에도 함께 세운다 — 같은 건이 두 칸에 보이는 것이 맞다
             # (지금 밀려 있고, 언제 갈 예정인지는 다른 사실이다).
             if got:
-                delay = _as_delay_class(r, got, today)
+                # ★ 이 화면도 같은 판정을 쓴다([162]) — 한 건이 캘린더에서는
+                #   '완료 확인 대기' 이고 이력에서는 '★ 즉시조치' 면 사람은
+                #   어느 쪽이 맞는지 알 수 없다.
+                _bi = _band_completion_index()
+                delay = _as_delay_class(r, got, today,
+                                        _open_evidence_class(r, _bi, got),
+                                        _collect_behind(r, _bi))
                 현황.append(item("as_open", got,
                                  "★ 즉시조치" if delay["경보"] else "돌발AS 미처리",
                                  r, "접수ID", 경과일=_daydiff(got, today),
