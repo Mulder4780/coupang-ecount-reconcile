@@ -27407,6 +27407,135 @@ def t403_soft_delete_is_covered_by_verified_archive():
     print("✅ [403] soft-delete 도 검증 sidecar 보관 · outbox 무한 재시도 차단")
 
 
+def t405_kakao_memo_channel_never_leaks():
+    """[75] 카톡 '나와의 채팅' 채널 — 기본 꺼짐 · 업무값 차단 · 토큰이 안 샌다.
+
+    **실행으로 잰다**([295]) — 글자 검사로는 '토큰이 실패 사유에 새는가'를 못 잰다.
+    실측 증거 `config/notify.json` 은 한 글자도 안 건드린다([247]) — 임시 경로로만.
+    네트워크도 안 탄다 — urlopen 을 목으로 갈고 **finally 로 되돌린다**([371]:
+    모듈 전역을 갈면 프로세스 전체가 갈려 뒤따르는 검사가 눈먼다).
+    """
+    import importlib
+    import io
+    import shutil
+    import urllib.error
+    import urllib.request
+
+    nf = importlib.import_module("notify")
+    real_conf = nf.CONF
+    real_open = urllib.request.urlopen
+    tmp = tempfile.mkdtemp(prefix="t405_")
+    TOKEN = "aAbB-secret-9876543210"
+    sent = {}
+
+    def fake_open(req, timeout=None):
+        sent["url"] = req.full_url
+        sent["auth"] = req.headers.get("Authorization") or ""
+        sent["body"] = (req.data or b"").decode("utf-8")
+
+        class _R(object):
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def getcode(self):
+                return 200
+
+        return _R()
+
+    def _conf(rows):
+        p = os.path.join(tmp, "notify.json")
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"channels": rows}, f, ensure_ascii=False)
+        nf.CONF = p
+
+    try:
+        # ① 기본 꺼짐 — 설정 파일이 없으면 외부 채널이 하나도 없다.
+        nf.CONF = os.path.join(tmp, "없는파일.json")
+        outs = [c for c in nf.channels() if c.get("kind") != "app"]
+        assert not outs, "설정이 없는데 외부 채널이 생겼다: %r" % (outs,)
+
+        # ② 토큰이 목록에 담긴다 — 안 담기면 발송이 늘 '토큰이 없다'로
+        #    조용히 실패하면서 오류는 안 난다([165]).
+        _conf([{"name": "내톡", "kind": "kakao_memo", "enabled": True, "token": TOKEN}])
+        ch = [c for c in nf.channels() if c["name"] == "내톡"][0]
+        assert ch.get("token") == TOKEN, "channels() 가 토큰을 안 담는다 — 발송이 영영 안 된다"
+
+        # ③ 업무값은 밖으로 안 나간다 — 건수·상태만이다.
+        rec = {"갈래": "업로드", "상태": "끝남", "건수": 3,
+               "제목": "UJ2601321 부산1MB 3,049,310원"}
+        line = nf.external_text(rec)
+        assert not nf.leaks_business_value(line), "외부 문구에 업무값이 섞였다: %r" % (line,)
+        assert "UJ2601321" not in line and "3,049,310" not in line, line
+
+        # ④ 실제로 보내는 것도 그 문구 하나다 — 제목·본문을 그대로 싣지 않는다.
+        urllib.request.urlopen = fake_open
+        ok, why = nf._send_external(ch, rec)
+        assert ok, "정상 발송인데 실패라 한다: %r" % (why,)
+        assert "UJ2601321" not in sent.get("body", ""), sent.get("body")
+        assert sent.get("url") == nf._KAKAO_MEMO_URL, sent.get("url")
+        assert TOKEN in sent.get("auth", ""), "토큰을 헤더에 안 실었다 — 발송이 안 된다"
+
+        # ⑤ 한도를 넘으면 줄이되 **그 사실을 말한다**([273] — 조용히 자르지 않는다).
+        ok, why = nf._send_external(ch, {"갈래": "가" * 400, "상태": "", "건수": 1})
+        assert ok, why
+        assert "줄" in why, "길이를 줄이고도 말하지 않는다: %r" % (why,)
+
+        # ⑥ 토큰이 없으면 **정직하게 실패한다** — 성공이라 하지 않는다([169]).
+        ok, why = nf._send_external(
+            {"name": "내톡", "kind": "kakao_memo", "enabled": True, "token": ""}, rec)
+        assert not ok and "토큰" in why, "토큰이 없는데 성공이라 한다: %r" % (why,)
+
+        # ⑦ 실패 사유에 토큰이 **한 글자도 안 샌다** — 이 검사의 핵심이다.
+        def _boom_http(req, timeout=None):
+            raise urllib.error.HTTPError(
+                nf._KAKAO_MEMO_URL, 401, "Unauthorized " + TOKEN, {}, None)
+
+        urllib.request.urlopen = _boom_http
+        ok, why = nf._send_external(ch, rec)
+        assert not ok, "401 인데 성공이라 한다"
+        assert TOKEN not in why, "실패 사유에 토큰이 그대로 샌다: %r" % (why,)
+
+        def _boom_exc(req, timeout=None):
+            raise RuntimeError("bad token " + TOKEN)
+
+        urllib.request.urlopen = _boom_exc
+        ok, why = nf._send_external(ch, rec)
+        assert not ok and TOKEN not in why, "예외 사유에 토큰이 샌다: %r" % (why,)
+
+        # ⑧ 꺼진 채널·모르는 갈래를 **조용히 성공이라 하지 않는다**([169]).
+        off = dict(ch)
+        off["enabled"] = False
+        ok, why = nf._send_external(off, rec)
+        assert not ok and "꺼짐" in why, why
+        ok, why = nf._send_external({"name": "x", "kind": "sms", "enabled": True}, rec)
+        assert not ok and "보낼 길이 없다" in why, why
+
+        # ★ 계기 자기시험([272]) — 마스킹을 없애면 ⑦이 정말 잡는가.
+        #    소스를 갈아 끼워 **실행해서** 잰다. 안 그러면 이 검사는 마스킹이
+        #    사라진 날에도 초록으로 남는다.
+        with io.open(nf.__file__, encoding="utf-8") as f:
+            _src = f.read()
+        _bad = _src.replace('.replace(token, "***")', "")
+        assert _bad != _src, "마스킹 자리를 못 찾았다 — 이 자기시험은 아무것도 안 잰다"
+        _ns = {"__name__": "notify_t405_bad", "__file__": nf.__file__}
+        exec(compile(_bad, nf.__file__, "exec"), _ns)
+        urllib.request.urlopen = _boom_exc
+        _ok, _why = _ns["_send_external"](ch, rec)
+        assert not _ok and TOKEN in _why, (
+            "마스킹을 없앴는데도 토큰이 안 샌다 — ⑦은 아무것도 안 재고 있다")
+    finally:
+        nf.CONF = real_conf
+        urllib.request.urlopen = real_open
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print("  [405] 카톡 '나와의 채팅' 채널(기본 꺼짐·업무값 차단·토큰 안 샘) OK")
+
+
 def t404_stuck_autorecovery_reaches_the_handoff():
     """자율복구가 **오래 못 푸는 일**이 인계까지 온다 (2026-08-23 형님 지시).
 
@@ -34428,6 +34557,7 @@ if __name__ == "__main__":
     t402_browser_collect_says_when_it_misses_its_chance()
     t403_soft_delete_is_covered_by_verified_archive()
     t404_stuck_autorecovery_reaches_the_handoff()
+    t405_kakao_memo_channel_never_leaks()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
