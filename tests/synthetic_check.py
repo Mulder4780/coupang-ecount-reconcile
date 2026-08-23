@@ -17196,6 +17196,77 @@ def t397_missing_collection_never_looks_like_idle_technician():
           "(밀림→대기 · 따라잡으면 경보 · 원천별 · ERP · 자기시험 OK)")
 
 
+def t398_completed_source_never_leaks_as_unprocessed():
+    """[398] 카톡·밴드 완료와 겹친 행은 내려가고, 미수집 행도 사람 탓으로 안 보인다.
+
+    실측 2026-08-23: UJ2601393은 카톡에 08-10 작업완료가 있었지만, 접수ID만 다른
+    같은 원장 행이 두 줄이라 `열린수 == 2`가 되어 둘 다 미처리로 남았다. 또 서버가
+    경보를 0으로 내려도 API 제목·업무구분에는 옛 '미처리' 낱말이 남아 새 화면이 그
+    값을 그대로 보여 줄 수 있었다. 이 검사는 두 구멍을 함께 막는다.
+    """
+    import app_server as A
+
+    # ① 서버 마지막 관문은 내부 분류를 보존하되 사용자용 세 필드에서 사람 탓을 뺀다.
+    for kind, disposition, alert in (
+            ("as_open", "완료 확인 대기", False),
+            ("as_open", "실시간 확인 대기", False),
+            ("pm_overdue", "일정 확인 대기", False),
+            ("as_open", "담당자 조치 중", True)):
+        e = {"분류": kind, "캠프명": "시험캠프", "보고판정": disposition,
+             "보고경보": alert, "경보": True,
+             "업무구분": "옛 미처리", "제목": "옛 미처리 · 시험캠프"}
+        A._apply_safe_pending_presentation(e)
+        assert e["분류"] == kind, "내부 필터 키를 바꿨다([162])"
+        visible = " ".join(str(e.get(k) or "") for k in ("표시종류", "업무구분", "제목"))
+        assert "미처리" not in visible, "사용자 화면으로 옛 미처리 낱말이 샌다: " + visible
+        assert e["경보"] is alert, "대표와 일반 달력의 안전 경보가 갈린다"
+        assert e["미처리확정"] is False, "원천 글만으로 사람의 태만을 확정했다"
+
+    # ② 접수ID만 다른 완전 복제 두 줄은 열린 업무 한 건이다. 종류가 맞는 카톡 완료가
+    #    있으면 완료 한 건으로 내려가야 한다. AS 완료로 PM까지 닫으면 안 된다([172]).
+    row = {"접수일자": "2026-08-04", "캠프명": "부산3MB(감전동)",
+           "프로젝트NO": "UJ2601393", "신청내용": "방호울 도어 경첩 탈락 보수 요청",
+           "담당기사": "", "진행상태": "접수", "방문예정일": "", "작업완료일": "",
+           "DB버전": 1}
+    rows = [dict(row, 접수ID="AS-2608-600"), dict(row, 접수ID="AS-2608-603")]
+    pm = {"점검ID": "PM-X", "점검예정일": "2026-08-04", "실제점검일": "",
+          "캠프명": row["캠프명"], "프로젝트NO": row["프로젝트NO"], "점검상태": "미점검"}
+    done = {"프로젝트NO": "UJ2601393", "업무유형": "돌발AS", "진행상태": "작업완료",
+            "작업일": "2026-08-10", "게시일": "2026-08-10", "밴드": "카톡 시험"}
+    fake_idx = {"읽음": True, "완료": {"UJ2601393": done},
+                "완료종류": {"as": {"UJ2601393": done}, "pm": {}},
+                "언급": {"UJ2601393"}, "카톡": {}, "밴드수집": {"카톡": A._today_str()},
+                "언급밴드": {"UJ2601393": "카톡"}}
+    old_works, old_idx = A.get_works, A._band_completion_index
+    try:
+        A.get_works = lambda: {"as": rows, "pm": [pm]}
+        A._band_completion_index = lambda: fake_idx
+        made = A._calendar_work_events()
+    finally:
+        A.get_works, A._band_completion_index = old_works, old_idx
+    made, removed = A._dedupe_calendar_pending(made)
+    as_open = [e for e in made if e.get("분류") == "as_open"]
+    as_done = [e for e in made if e.get("분류") == "as_done"]
+    pm_open = [e for e in made if e.get("분류") == "pm_overdue"]
+    assert not as_open, "카톡 완료와 겹친 복제 접수행이 아직 열린 상태다"
+    assert len(as_done) == 1 and removed == 1, \
+        "완전 복제 완료행을 한 건으로 못 모았다: %s/%s" % (len(as_done), removed)
+    assert len(pm_open) == 1, "돌발AS 완료 근거가 정기점검까지 잘못 닫았다"
+
+    # ③ 서버·오프라인 폴백·업무센터 머리말도 같은 중립 표현을 쓴다.
+    py = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    for old in ('("as_open",   "돌발AS 미처리"',
+                '("pm_overdue", "정기점검 미처리"',
+                "{key:'as_open', label:'돌발AS 미처리'",
+                "{key:'pm_overdue', label:'정기점검 미처리'"):
+        assert old not in py + html, "새 화면이 옛 낱말을 되살릴 수 있다: " + old
+    assert "_apply_safe_pending_presentation(e)" in py, \
+        "마지막 관문을 부르지 않는다 — 함수만 있고 화면에는 안 닿는다"
+
+    print("[398] 완료 근거 겹침 0 · 복제행 한 건 · 업무종류 분리 · 사용자용 미처리 낱말 차단 OK")
+
+
 def t376_unfinished_is_split_by_evidence_and_staff_can_close_it():
     """[형님 지시 2026-08-21] 미처리를 **왜 미처리인지**로 갈라 말하고, 사람이 닫는다.
 
@@ -26846,8 +26917,13 @@ def t244_band_evidence_closes_and_says_why():
         {"캠프명": "합성F", "프로젝트NO": "UJ9990011", "접수일자": "2026-08-01",
          "진행상태": "접수", "작업완료일": "", "방문예정일": "", "접수ID": "AS-3"},
     ]
-    가짜 = {"완료": {"UJ9990010": {"작업일": "2026-08-06", "밴드": "합성밴드"},
-                     "UJ9990011": {"작업일": "2026-08-07", "밴드": "합성밴드"}},
+    # 판 8부터 완료 근거는 업무종류까지 함께 맞춘다. 프로젝트 번호만 같은
+    # 정기점검 완료가 돌발AS까지 닫는 사고를 막기 위해 합성 근거에도 종류를 적는다.
+    _완료 = {"UJ9990010": {"작업일": "2026-08-06", "밴드": "합성밴드",
+                             "업무유형": "돌발AS"},
+             "UJ9990011": {"작업일": "2026-08-07", "밴드": "합성밴드",
+                             "업무유형": "돌발AS"}}
+    가짜 = {"완료": _완료, "완료종류": {"as": _완료, "pm": {}},
             "언급": {"UJ9990010", "UJ9990011"}, "최신": "2026-08-31", "읽음": True}
     _ow, _ob = A.get_works, A._band_completion_index
     try:
@@ -33354,6 +33430,7 @@ if __name__ == "__main__":
     t375_org_capture_is_a_floor_plan_and_icons_are_one_family()
     t376_unfinished_is_split_by_evidence_and_staff_can_close_it()
     t397_missing_collection_never_looks_like_idle_technician()
+    t398_completed_source_never_leaks_as_unprocessed()
     t377_one_save_converges_staff_report_calendar_and_capture()
     t378_existing_watchdog_absorbs_and_audits_new_features()
     t379_representative_prepare_never_blames_unverified_staff()

@@ -4704,7 +4704,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	      <div class="source-status" id="workLogStatus">
 	        <div><small>원본</small><strong>확인 중</strong></div>
 	        <div><small>검증 시각</small><strong>-</strong></div>
-	        <div><small>돌발AS 미처리</small><strong>-</strong></div>
+	        <div><small>돌발AS 확인 대기</small><strong>-</strong></div>
 	        <div><small>정기점검 실행</small><strong>-</strong></div>
 	      </div>
 	      <!-- ★ '검증 상태 새로고침'을 없앴다(2026-08-06). syncCurrentWorkLog() 가 끝나면
@@ -7579,7 +7579,7 @@ async function loadWorkLogStatus(){
     box.innerHTML=`
       <div><small>현재 원본</small><strong title="${esc2(d.source_name)}">${esc2(d.source_name||'-')}</strong></div>
       <div><small>마지막 검증</small><strong>${esc2(String(d.verified_at||'-').replace('T',' '))}</strong></div>
-      <div><small>돌발AS 미처리</small><strong>${fmt(as['미처리']||0)}건</strong></div>
+      <div><small>돌발AS 확인 대기</small><strong>${fmt(as['미처리']||0)}건</strong></div>
       <div><small>정기점검 실행</small><strong>${fmt(pm['실행']||0)}건</strong></div>`;
     renderWorkLogRecords(d);
   }catch(e){
@@ -8824,7 +8824,7 @@ async function injectRyuTodo(){
   const anchor = $('ryuSummaryGrid'); if(!anchor || $('ryuTodoHost')) return;
   const card = document.createElement('div');
   card.className = 'card';
-  card.innerHTML = '<h3>지금 처리할 것 <span class="norm">— 돌발AS 미처리 · 지난 정기점검 예정</span></h3>'
+  card.innerHTML = '<h3>지금 확인할 것 <span class="norm">— 돌발AS 완료 확인 · 지난 정기점검 일정 확인</span></h3>'
     + '<div id="ryuTodoHost"><p class="sub">불러오는 중입니다…</p></div>';
   anchor.parentNode.insertBefore(card, anchor.nextSibling);
   try{
@@ -16031,8 +16031,8 @@ const CAL_FALLBACK_KINDS = [
   {key:'as_visit',label:'돌발AS 예정일', color:'#FF9F0A'},   // 주황
   {key:'as_done', label:'돌발AS 완료',   color:'#00A6A0'},   // 청록
   // 미처리(2026-08-06 지시) — 밀린 것이 눈에 띄게 붉은 계열로 확실히 가른다.
-  {key:'as_open', label:'돌발AS 미처리', color:'#FF453A'},   // 빨강
-  {key:'pm_overdue', label:'정기점검 미처리', color:'#C2185B'}, // 자주
+  {key:'as_open', label:'돌발AS 확인 대기', color:'#B45309'},   // 진한 호박색
+  {key:'pm_overdue', label:'정기점검 확인 대기', color:'#475467'}, // 청회색
   {key:'etc',     label:'기타 일정',     color:'#8E8E93'},   // 회색
 ];
 let CAL_OFF = new Set();        // 꺼 둔 종류(기본은 전부 켬)
@@ -16049,8 +16049,8 @@ function calKindMeta(key){
   return calKinds().find(k=>k.key===key) || {key:key, label:key||'기타', color:'#8E8E93'};
 }
 function reportKindMeta(key){
-  if(key==='as_open') return {key, label:'돌발AS 완료 확인 대기', color:'#D97706'};
-  if(key==='pm_overdue') return {key, label:'정기점검 완료 확인 대기', color:'#B7791F'};
+  if(key==='as_open') return {key, label:'돌발AS 완료 확인 대기', color:'#B45309'};
+  if(key==='pm_overdue') return {key, label:'정기점검 완료 확인 대기', color:'#475467'};
   return calKindMeta(key);
 }
 function calendarRows(){        // 필터를 통과한 일정만
@@ -16258,11 +16258,11 @@ function calWhyRowsHTML(e){
   const machine = String((e && (e.기계추정 || e.미처리사유)) || '').trim();
   if(!human && !machine) return '';
   let html = '';
-  if(human) html += `<dt>미처리 사유</dt><dd><b>${esc2(human)}</b> <small>· 담당자가 적음</small></dd>`;
+  if(human) html += `<dt>확인 대기 사유</dt><dd><b>${esc2(human)}</b> <small>· 담당자가 적음</small></dd>`;
   /* ★ **빈 것을 '사유 없음'이라 확정하지 않는다**([169]) — 아직 안 적은 것과
      "없다고 적었다"는 다른 사실이다. 적을 수 있는 건에만 그렇게 말한다. */
-  else if(calWhyEditable(e)) html += `<dt>미처리 사유</dt><dd><small>아직 안 적었습니다 — 아래에서 적을 수 있습니다</small></dd>`;
-  if(machine) html += `<dt>${human?'기계 추정':'왜 미처리인가'}</dt><dd><small>${esc2(machine)}</small>`
+  else if(calWhyEditable(e)) html += `<dt>확인 대기 사유</dt><dd><small>아직 안 적었습니다 — 아래에서 적을 수 있습니다</small></dd>`;
+  if(machine) html += `<dt>${human?'기계 추정':'왜 확인이 필요한가'}</dt><dd><small>${esc2(machine)}</small>`
     + (human ? '' : ` <small>· 기계가 지은 값입니다(우리가 왜 모르는가). 실제 사유는 아래에서 적어 주세요</small>`) + '</dd>';
   return html;
 }
@@ -16271,7 +16271,7 @@ function calWhyBtnHTML(e){
   const has = !!String(e.사람사유 || '').trim();
   return `<div style="margin-top:11px"><button type="button" class="abtn primary" style="width:100%;justify-content:center"
     onclick="calWhyOpen(${esc4(calCatOf(e))},${esc4(e.원천업무ID)})"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>
-    ${has?'미처리 사유 고치기':'미처리 사유 적기'}</button></div>`;
+    ${has?'확인 대기 사유 고치기':'확인 대기 사유 적기'}</button></div>`;
 }
 /* ── 담당자가 **그 자리에서** 완료를 찍는다 (2026-08-21 형님 지시) ──────────────
    지시: "돌발AS나 정기점검 완료건이 있는데 자꾸 캘린더 캡처 화면에 표시되는 문제
@@ -16354,7 +16354,7 @@ async function calWhyOpen(cat, id){
     if(!d || !d.ok) throw new Error((d && d.error) || '저장 실패');
     e.사람사유 = v;                                  // 원문 그대로. 합친 한 줄은 서버가 만든다
     if(d.record_version) e.DB버전 = d.record_version;
-    toast('미처리 사유를 저장했습니다 — 목록을 새로 받는 중입니다');
+    toast('확인 대기 사유를 저장했습니다 — 목록을 새로 받는 중입니다');
     try{
       await loadCalendar(true);
       renderCalendarPage();
@@ -16365,7 +16365,7 @@ async function calWhyOpen(cat, id){
       notice('저장은 됐지만 목록을 다시 받지 못했습니다. 새로 고치면 보입니다 · ' + String(err.message || err));
     }
   }catch(err){
-    notice('미처리 사유 저장 실패 · ' + String(err.message || err));
+    notice('확인 대기 사유 저장 실패 · ' + String(err.message || err));
   }
 }
 
@@ -16561,7 +16561,7 @@ function pjRender(d, camp, pj){
     + pjStat('다음 일정', `<span style="font-size:14px">${다음}</span>`)
     + (s.평균점검주기 ? pjStat('평균 점검주기', s.평균점검주기+'<small>일</small>') : '')
     + ((s.돌발AS미처리||s.정기점검미처리)
-        ? pjStat('미처리', ((s.돌발AS미처리||0)+(s.정기점검미처리||0))+'<small>건</small>', true) : '');
+        ? pjStat('확인 대기', ((s.돌발AS미처리||0)+(s.정기점검미처리||0))+'<small>건</small>', true) : '');
   const 날짜없음 = (d.날짜없음||[]).length
     ? `<div class="pj-sec"><h4>날짜가 비어 있는 행<span class="n">${d.날짜없음.length}건</span></h4>
        <div class="pj-list">${d.날짜없음.map(e=>pjRow(e)).join('')}</div>
@@ -19207,7 +19207,7 @@ function briefBlock(){
     if(blockers.length) h += `<div class="bglab">미실시 사유 구분 · ${blockers.map(x=>`${_e(x.구분)} ${x.건수}건`).join(' · ')}</div>`;
     if(reasons.length) h += `<div class="bneed actionable" role="button" tabindex="0" onclick="openWorkLogBrief('open')"
       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openWorkLogBrief('open')}">
-      <div class="bnh">미처리 사유 <b>${reasons.map(x=>`${_e(x.사유)} ${x.건수}건`).join(' · ')}</b></div>
+      <div class="bnh">확인 대기 사유 <b>${reasons.map(x=>`${_e(x.사유)} ${x.건수}건`).join(' · ')}</b></div>
       <div class="bnd">눌러서 프로젝트번호·캠프·원문 사유 확인 · 이미지 저장·복사</div></div>`;
     if(wla.처리완료일확인) h += `<div class="bnd">※ 처리완료 ${wla.처리완료일확인}건은 원본에 완료일이 없어 임의 입력하지 않았습니다.</div>`;
   }
@@ -22232,7 +22232,7 @@ async function reportToPng(){
         String(x.구분).startsWith('확인')||String(x.구분).startsWith('사유')?'#A63737':'#475467'); y += 20; });
     }
     if(wlReasons.length){
-      txt('미처리 사유', 30, y+8, F(11,800), '#475467'); y += 18;
+      txt('확인 대기 사유', 30, y+8, F(11,800), '#475467'); y += 18;
       wlReasons.forEach(x=>{ txt(`${x.사유} ${x.건수}건`, 40, y+8, F(11.5), '#475467'); y += 20; });
     }
     const detailRows = (title, rows, accent) => {

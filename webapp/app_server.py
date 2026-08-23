@@ -1279,7 +1279,7 @@ RYU_ENTRY_CONFIG = {
             #     02/04 시트에 대응 열이 없으므로 안 올리면 보관본 회차가
             #     `cannot archive unknown field` 로 통째로 죽는다 — 저장은 성공하니
             #     적은 사람은 모르고 11:00·15:00 회차만 죽는다.
-            {"name": "미처리사유(담당자)", "label": "미처리 사유(담당자가 적음)",
+            {"name": "미처리사유(담당자)", "label": "확인 대기 사유(담당자가 적음)",
              "type": "textarea"},
             {"name": "비고", "label": "비고", "type": "textarea"},
         ],
@@ -1335,7 +1335,7 @@ RYU_ENTRY_CONFIG = {
             #     02/04 시트에 대응 열이 없으므로 안 올리면 보관본 회차가
             #     `cannot archive unknown field` 로 통째로 죽는다 — 저장은 성공하니
             #     적은 사람은 모르고 11:00·15:00 회차만 죽는다.
-            {"name": "미처리사유(담당자)", "label": "미처리 사유(담당자가 적음)",
+            {"name": "미처리사유(담당자)", "label": "확인 대기 사유(담당자가 적음)",
              "type": "textarea"},
             {"name": "비고", "label": "비고", "type": "textarea"},
         ],
@@ -6619,10 +6619,13 @@ CAL_KINDS = [
     ("pm_done",  "정기점검 완료",   "#30D158"),   # 초록
     ("as_visit", "돌발AS 예정일",   "#FF9F0A"),   # 주황
     ("as_done",  "돌발AS 완료",     "#00A6A0"),   # 청록 — 초록과 확실히 가른다
-    # ★ 미처리(2026-08-06 지시) — "언제 들어왔는데 아직 안 끝났나"가 달력에 보여야
-    #   밀린 것이 눈에 띈다. 완료·예정과 헷갈리지 않게 붉은 계열로 확실히 가른다.
-    ("as_open",   "돌발AS 미처리",  "#FF453A"),   # 빨강
-    ("pm_overdue", "정기점검 미처리", "#C2185B"),  # 자주 — 빨강과도 갈린다
+    # ★ 열린 원장 행은 **기사 미처리로 확정된 사실이 아니다** (2026-08-23 지시).
+    #   밴드·카톡 완료 글이 아직 수집되지 않았을 수 있으므로, 사용자에게 보이는
+    #   기본 이름은 중립적인 '확인 대기'다. 정말 조치가 필요한지는 건별
+    #   `보고판정`·`보고경보`가 따로 말한다. 내부 키(as_open·pm_overdue)는 유지해
+    #   필터·저장 경로를 깨지 않는다(검증 162).
+    ("as_open",   "돌발AS 확인 대기",  "#B45309"),   # 진한 호박색 — 예정과 가름
+    ("pm_overdue", "정기점검 확인 대기", "#475467"),  # 청회색
     ("etc",      "기타 일정",       "#8E8E93"),   # 회색
 ]
 
@@ -6632,7 +6635,7 @@ _BAND_EV_TTL = 300
 # 색인 모양을 바꾸면 **이 숫자를 손으로 올린다.** 지문은 원본이 바뀌었나만 보므로,
 # 규칙이 바뀌어도 원본이 그대로면 옛 캐시가 영원히 이긴다(같은 사고 네 번째 —
 # `inbox_scan.RULES_VERSION` 과 같은 자리다).
-_BAND_EV_VER = 7   # 2026-08-21: 밴드 ID로 출처를 정규화해 원천별 수집 기준을 가름
+_BAND_EV_VER = 8   # 2026-08-23: 완료 색인을 프로젝트+업무종류로 가름
 #: ⚠ 파싱 규칙을 고치면 **이 숫자를 손으로 올린다** — 원본이 안 바뀌면 지문이 안
 #:   움직여 옛 색인이 영원히 이긴다(이 프로젝트가 다섯 번 겪은 모양이다).
 
@@ -6745,7 +6748,8 @@ def _band_completion_index():
         except Exception:
             pass
 
-    out = {"완료": {}, "언급": set(), "카톡": {}, "최신": "", "읽음": False,
+    out = {"완료": {}, "완료종류": {"as": {}, "pm": {}},
+           "언급": set(), "카톡": {}, "최신": "", "읽음": False,
            "밴드수집": {}, "수집최신": "", "언급밴드": {},
            "지문": fp, "판": _BAND_EV_VER}
     try:
@@ -6803,6 +6807,16 @@ def _band_completion_index():
                         "본문": _kakao_gist(r.get("본문") or ""),
                     }
             if r.get("진행상태") == "작업완료":
+                # ★ 같은 프로젝트NO가 돌발AS와 정기점검에 함께 쓰일 수 있다.
+                #   프로젝트 번호만 키로 두면 AS 완료 글이 점검까지 닫거나 그 반대가
+                #   된다. 업무종류를 함께 보되, 옛 소비자를 위해 `완료`도 유지한다.
+                work_type = str(r.get("업무유형") or "").replace(" ", "").lower()
+                kind = ("pm" if "정기" in work_type else
+                        "as" if ("돌발" in work_type or "as" in work_type) else "")
+                if kind:
+                    old_kind = out["완료종류"][kind].get(pj)
+                    if not old_kind or (when and when < (norm_date(old_kind.get("작업일")) or "9999")):
+                        out["완료종류"][kind][pj] = r
                 # 같은 프로젝트에 완료 글이 여러 번이면 **가장 이른 것**을 쓴다 —
                 # 다시 올라온 글로 완료일이 뒤로 밀리면 안 된다.
                 old = out["완료"].get(pj)
@@ -7178,24 +7192,45 @@ def _calendar_work_events():
     #   여럿이면 어느 건이 끝난 것인지 원본이 말해 주지 않는다 — 짐작으로 닫으면
     #   아무도 안 가는데 목록에도 없다. 그때는 닫지 말고 **이유를 적어 남긴다**.
     bidx = _band_completion_index()
-    열린수 = {}
+    # ★ 완전히 같은 원장 행이 두 번 들어온 것은 '열린 업무 두 건'이 아니다.
+    #   실측 UJ2601393: 접수ID만 다른 동일행 2줄 때문에 카톡 완료가 있는데도 둘 다
+    #   미처리로 남았다. 프로젝트·날짜·캠프·내용이 모두 같은 복제는 한 서명으로 센다.
+    #   내용이 다르면 같은 프로젝트라도 별도 업무이므로 합치지 않는다([172]).
+    열린서명 = {}
+
+    def _open_signature(row, kind):
+        pj = str(row.get("프로젝트NO") or "").split(" · ")[0].strip()
+        when = norm_date(row.get("접수일자" if kind == "as" else "점검예정일"))
+        camp = re.sub(r"\s+", "", str(row.get("캠프명") or "")).lower()
+        content = str(row.get("신청내용" if kind == "as" else "이상발견여부") or "")
+        content = re.sub(r"\s+", " ", content).strip().lower()
+        return (pj, when, camp, content)
+
     for _r in works.get("as") or []:
         if not norm_date(_r.get("작업완료일")) and not work_flow.is_cancelled(_r, "as"):
             _p = str(_r.get("프로젝트NO") or "").split(" · ")[0].strip()
             if _p:
-                열린수[("as", _p)] = 열린수.get(("as", _p), 0) + 1
+                열린서명.setdefault(("as", _p), set()).add(_open_signature(_r, "as"))
     for _r in works.get("pm") or []:
         if not norm_date(_r.get("실제점검일")) and not work_flow.is_cancelled(_r, "pm"):
             _p = str(_r.get("프로젝트NO") or "").split(" · ")[0].strip()
             if _p:
-                열린수[("pm", _p)] = 열린수.get(("pm", _p), 0) + 1
+                열린서명.setdefault(("pm", _p), set()).add(_open_signature(_r, "pm"))
+    열린수 = {k: len(v) for k, v in 열린서명.items()}
 
     def _band_done(row, kind):
         """이 행을 완료로 볼 밴드·카톡 근거 — 없으면 None."""
         pj = str(row.get("프로젝트NO") or "").split(" · ")[0].strip()
         if not pj or 열린수.get((kind, pj), 0) != 1:
             return None
-        ev = bidx.get("완료", {}).get(pj)
+        ev = ((bidx.get("완료종류") or {}).get(kind) or {}).get(pj)
+        if not ev:
+            # 판 8 이전 캐시·시험 자료의 호환. 업무종류가 맞는 근거만 물러난다.
+            candidate = bidx.get("완료", {}).get(pj)
+            work_type = str((candidate or {}).get("업무유형") or "").replace(" ", "").lower()
+            matches = ((kind == "pm" and "정기" in work_type) or
+                       (kind == "as" and ("돌발" in work_type or "as" in work_type)))
+            ev = candidate if matches else None
         if not ev:
             return None
         when = norm_date(ev.get("작업일")) or norm_date(ev.get("게시일"))
@@ -7421,9 +7456,12 @@ def _drop_served_pm_plans(events, today=None):
 def _dedupe_calendar_pending(events):
     """같은 원천 업무가 다른 접수ID로 복제돼 경고 숫자가 부풀지 않게 한다.
 
-    완료를 임의로 합치지 않고 대표 보고의 열린 상태만 다룬다. 프로젝트·날짜·종류와
-    내용이 모두 같은 경우만 중복으로 본다. 내용이 비면 서로 다른 현장 조치일 수 있어
-    합치지 않는다. 제거한 ID는 대표 보고 감사 근거로 남긴다.
+    기본은 대표 보고의 열린 상태만 다룬다. 단, **밴드·카톡 완료 근거로 방금 닫힌
+    원장 복제행**은 완료에서도 합친다. 실측 UJ2601393은 접수ID만 다른 완전히 같은
+    행 2줄이라 둘 다 같은 카톡 완료 글을 가리켰다. 프로젝트·날짜·종류·내용이 모두
+    같은 경우만 중복으로 본다. 원장 완료일이 직접 있는 보통 완료는 건드리지 않는다.
+    내용이 비면 서로 다른 현장 조치일 수 있어 합치지 않는다. 제거한 ID는 대표 보고
+    감사 근거로 남긴다.
     """
     kept, seen, removed = [], {}, 0
     for raw in list(events or []):
@@ -7432,7 +7470,9 @@ def _dedupe_calendar_pending(events):
         project = str(event.get("프로젝트NO") or "").split(" · ")[0].strip().upper()
         content = str(event.get("신청내용") or event.get("이상발견") or "").strip()
         content = re.sub(r"\s+", " ", content).lower()
-        if kind not in {"as_open", "pm_overdue", "pm_plan"} or not project or not content:
+        source_done_copy = bool(kind in {"as_done", "pm_done"} and event.get("원장미기입"))
+        if (kind not in {"as_open", "pm_overdue", "pm_plan"} and not source_done_copy) \
+                or not project or not content:
             kept.append(event)
             continue
         key = (norm_date(event.get("날짜")), kind, project, content)
@@ -7464,6 +7504,38 @@ def _report_calendar_disposition(event):
     if str(event.get("사람사유") or "").strip():
         return "담당자 조치 중"
     return "완료 확인 대기"
+
+
+def _apply_safe_pending_presentation(event):
+    """열린 원장 행을 **기사 미처리처럼 보이지 않게** 사용자용 말로 바꾼다.
+
+    `as_open`·`pm_overdue` 는 내부 계산용 분류다. 원장 완료일이 비었다는 뜻이지,
+    사람이 실제로 일을 안 했다는 증거가 아니다. 밴드·카톡 수집이 늦거나 원장 반영이
+    늦으면 다녀온 현장도 이 분류에 잠시 남는다. 그래서 API의 제목·업무구분까지
+    마지막 관문에서 중립적인 표현으로 덮는다. 화면마다 따로 고치면 새 화면이 생길 때
+    옛말이 다시 새므로 서버 한 곳에서 끝낸다([162]).
+
+    내부 `분류`는 그대로 둔다. `보고경보`가 참인 경우도 사람을 단정하지 않고
+    '담당자 조치 중'으로 표시한다. 그 경보는 담당자가 사유를 직접 적었고 기한 판정도
+    선 경우에만 참이다.
+    """
+    kind = str((event or {}).get("분류") or "")
+    if kind not in {"as_open", "pm_overdue"}:
+        return event
+    base = "돌발AS" if kind == "as_open" else "정기점검"
+    disposition = str(event.get("보고판정") or "완료 확인 대기")
+    if event.get("보고경보"):
+        disposition = "담당자 조치 중"
+    label = f"{base} {disposition}"
+    camp = str(event.get("캠프명") or event.get("장소") or "캠프 미상")
+    event["표시종류"] = label
+    event["업무구분"] = label
+    event["제목"] = f"{label} · {camp}"
+    event["미처리확정"] = False   # 이 앱은 원천 글만으로 사람의 태만을 확정하지 않는다
+    # 일반 달력도 대표 캡처와 같은 안전 경보만 쓴다. 원천 수집이 밀린 날의 오래된
+    # 접수행이 빨갛게 깜빡이면 말만 바꿔도 다시 기사 경보로 읽힌다.
+    event["경보"] = bool(event.get("보고경보"))
+    return event
 
 
 def get_calendar():
@@ -7584,6 +7656,7 @@ def get_calendar():
             # 수집되지 않은 완료 근거를 기사 경보로 바꾸지 않는다. 담당자가 실제 사유를
             # 입력한 건만 기존 지연 판정과 결합해 대표 확인 대상으로 올린다.
             e["보고경보"] = bool(e.get("경보") and disposition == "담당자 조치 중")
+            _apply_safe_pending_presentation(e)
     d["일정"] = sorted(d.get("일정") or [], key=lambda e: (
         str(e.get("날짜") or "9999"), str(e.get("시간") or ""), str(e.get("제목") or "")))
     d["분류목록"] = [{"key": k, "label": l, "color": c} for k, l, c in CAL_KINDS]
@@ -7721,7 +7794,7 @@ def project_history(camp="", pj="", limit=400):
                                         _open_evidence_class(r, _bi, got),
                                         _collect_behind(r, _bi))
                 현황.append(item("as_open", got,
-                                 "★ 즉시조치" if delay["경보"] else "돌발AS 미처리",
+                                 "담당자 조치 중" if delay["경보"] else "돌발AS 완료 확인 대기",
                                  r, "접수ID", 경과일=_daydiff(got, today),
                                  방문예정일=vis, **delay, **common))
             elif not vis:
@@ -7750,7 +7823,7 @@ def project_history(camp="", pj="", limit=400):
             이력.append(item("pm_done", real, "정기점검 완료", r, "점검ID",
                              점검예정일=plan, **common))
         elif plan and plan < today:
-            현황.append(item("pm_overdue", plan, "정기점검 미처리", r, "점검ID",
+            현황.append(item("pm_overdue", plan, "정기점검 완료 확인 대기", r, "점검ID",
                              경과일=_daydiff(plan, today), **common))
         elif plan:
             예정.append(item("pm_plan", plan, "정기점검 예정", r, "점검ID", **common))
