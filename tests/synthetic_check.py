@@ -18733,7 +18733,11 @@ def t293_yield_is_a_claim_that_gets_audited():
     _real_dl = _CO.done_later
     try:
         _CO.done_later = lambda d, 작업, t: None
-        _h2, _m2, _p2, _l2 = _CO.audit(_표("완주", _뒤때))
+        # 실제 일일대조 안에서 이 검사가 돌 때는 `일일대조` 락이 당연히 살아 있다.
+        # 그 기계 상태를 읽으면 audit 이 "주인이 아직 도는 중"으로 판정을 미뤄
+        # done_later 를 죽인 이 자기시험이 아무것도 재지 않는다. 위 네 갈래 검사와
+        # 똑같이 외부 상태를 비운 합성 조건에서 계기 자체를 시험한다([272]).
+        _h2, _m2, _p2, _l2 = _CO.audit(_표("완주", _뒤때), 도는중=set())
         assert len(_h2) == 1 and not _l2, "done_later 를 죽였는데도 헛양보가 안 뜬다 — 이 검사는 아무것도 안 재고 있다"
     finally:
         _CO.done_later = _real_dl
