@@ -48,10 +48,18 @@ from source_organizer import dated_dir, po_dir_for  # noqa: E402
 GUIDE = os.path.join(ORIGIN_ROOT, "0. 수집안내.txt")
 
 
-def _same(a, b):
-    """이미 같은 파일인가 — 크기와 수정시각(초)으로 판단. 느린 드라이브에서 해시는 과하다."""
+def _same(a, b, sa=None, sb=None):
+    """이미 같은 파일인가 — 크기와 수정시각(초)으로 판단. 느린 드라이브에서 해시는 과하다.
+
+    부르는 쪽이 이미 stat 을 갖고 있으면 그것을 준다([198]) — Z:(SMB)에서
+    `os.stat(경로)` 는 파일당 왕복 한 번(135~155ms)이고 목록에 딸려 온 stat 은
+    0.04ms 다. 안 주면 예전처럼 스스로 묻는다(옛 호출자를 안 깬다).
+    """
     try:
-        sa, sb = os.stat(a), os.stat(b)
+        if sa is None:
+            sa = os.stat(a)
+        if sb is None:
+            sb = os.stat(b)
     except OSError:
         return False
     return sa.st_size == sb.st_size and int(sa.st_mtime) == int(sb.st_mtime)
@@ -222,17 +230,53 @@ def plan():
     return jobs
 
 
-def copy_one(src, dst_dir, apply=False):
-    """반환: ('복사'|'동일'|'이름바꿈'|'실패', 대상경로)"""
-    dst = os.path.join(dst_dir, os.path.basename(src))
-    if os.path.exists(dst):
-        if _same(src, dst):
+#: 목적지 폴더 목록 — **폴더마다 한 번만** 훑는다([198]).
+#: ★ 왜 — 예전에는 파일 하나에 Z: 왕복이 **셋**이었다: `os.path.exists(dst)` ·
+#:   `os.stat(src)` · `os.stat(dst)`. 실측 2026-08-23 로그: 판정 12,786건 중
+#:   **12,607건이 `[동일]`**, 곧 이미 옮겨져 있어 **아무 일도 안 하는** 파일이다.
+#:   12,607 x 3 x 0.145초 = 약 91분 — 그래서 이 단계가 40분 제한에 걸려 끊겼고,
+#:   뒤따르는 `원본 폴더 정리` 까지 같이 못 끝냈다.
+#: ★ `scandir` 항목의 stat 은 목록에 딸려 오므로 폴더 하나에 왕복 한 번이면 된다.
+#: ⚠ 회차 한 번 동안만 산다 — 오래 들고 있으면 남이 그 사이에 넣은 파일을 못 본다.
+_DST_ENTRIES = {}
+
+
+def _dst_entries(d):
+    """그 폴더의 {파일이름: stat}. 못 읽으면 빈 사전이다(그러면 예전처럼 묻는다)."""
+    v = _DST_ENTRIES.get(d)
+    if v is None:
+        v = {}
+        try:
+            with os.scandir(d) as it:
+                for e in it:
+                    try:
+                        if e.is_file():
+                            v[e.name] = e.stat()
+                    except OSError:
+                        pass
+        except OSError:
+            pass                      # 아직 없는 폴더 — 그대로 빈 사전
+        _DST_ENTRIES[d] = v
+    return v
+
+
+def copy_one(src, dst_dir, apply=False, st=None):
+    """반환: ('복사'|'동일'|'이름바꿈'|'실패', 대상경로)
+
+    `st` 는 원본의 stat — 부르는 쪽이 목록에서 받아 두었으면 넘긴다([198]).
+    """
+    ents = _dst_entries(dst_dir)
+    name = os.path.basename(src)
+    dst = os.path.join(dst_dir, name)
+    if name in ents:
+        if _same(src, dst, st, ents[name]):
             return "동일", dst
         # 내용이 다르면 덮어쓰지 않는다 — 어느 쪽이 맞는지 사람이 봐야 한다
         stamp = datetime.fromtimestamp(os.path.getmtime(src)).strftime("%y%m%d")
         root, ext = os.path.splitext(dst)
         dst = f"{root}_{stamp}{ext}"
-        if os.path.exists(dst) and _same(src, dst):
+        name2 = os.path.basename(dst)
+        if name2 in ents and _same(src, dst, st, ents[name2]):
             return "동일", dst
         state = "이름바꿈"
     else:
@@ -241,6 +285,12 @@ def copy_one(src, dst_dir, apply=False):
         try:
             os.makedirs(dst_dir, exist_ok=True)
             shutil.copy2(src, dst)          # copy2 = 수정시각까지 보존 (다음 실행에서 '동일' 판정)
+            # 방금 만든 것을 목록에 넣는다 — 같은 회차에 같은 이름이 또 오면
+            # 목록에 없어서 '복사' 로 읽히고, 그러면 같은 파일을 두 번 쓴다.
+            try:
+                ents[os.path.basename(dst)] = os.stat(dst)
+            except OSError:
+                pass
         except OSError as e:
             return f"실패({e.strerror})", dst
     return state, dst
