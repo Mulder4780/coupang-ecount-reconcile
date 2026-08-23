@@ -80,28 +80,72 @@ def base_name(no, post):
     return "_".join(parts), day
 
 
+def _photo_urls(url):
+    """받아 볼 주소를 순서대로 — **원본 먼저**, 그다음 원래 주소.
+
+    밴드가 캐시에 담아 준 주소는 `?type=s75`(75px 썸네일)인 일이 많다. 실측
+    2026-08-24: 그 썸네일은 **1,835바이트**라 아래 2000바이트 문(에러 페이지
+    거르기)에 걸려 영영 저장되지 않았다. 파라미터만 떼면 원본이 온다
+    (5장 실측 20,589 / 60,506 / 116,052 / 144,874 / 592,393 바이트).
+
+    ★ 좁게 잡는다 — `type=` 파라미터가 붙은 것만 뗀다. 서명이 붙은 주소를
+      함부로 자르면 받던 사진까지 못 받는다.
+    """
+    if "type=s" in url:
+        base = url.split("?")[0]
+        if base and base != url:
+            return [base, url]
+    return [url]
+
+
 def fetch_photo(url, path):
     if os.path.exists(path):
         return "skip"
     tmp = path + f".part-{os.getpid()}-{threading.get_ident()}"
+    last = "fail"
     try:
-        req = urllib.request.Request(url, headers=UA)
-        with urllib.request.urlopen(req, timeout=30) as r:
-            data = r.read()
-        if len(data) < 2000:            # 썸네일·에러 페이지
-            return "small"
-        with open(tmp, "wb") as f:
-            f.write(data)
-        os.replace(tmp, path)
-        return "ok"
-    except Exception:
-        return "fail"
+        for u in _photo_urls(url):
+            try:
+                req = urllib.request.Request(u, headers=UA)
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    data = r.read()
+            except Exception:
+                last = "fail"
+                continue
+            if len(data) < 2000:            # 썸네일·에러 페이지
+                last = "small"
+                continue                    # 원본이 남았으면 그것으로 다시
+            with open(tmp, "wb") as f:
+                f.write(data)
+            os.replace(tmp, path)
+            return "ok"
+        return last
     finally:
         try:
             if os.path.exists(tmp):
                 os.remove(tmp)
         except OSError:
             pass
+
+
+UI_ASSET = "/band-web/dres/"      # 밴드 웹 정적 자원 경로 — 사진이 아니다
+
+
+def usable_images(post):
+    """글의 `images` 에서 **사진이 아닌 것**을 걷어낸다 (2026-08-24).
+
+    ★ 거르는 자리는 여기 **하나**다([162]). `archive_paths` 와 `one()` 이 같은
+      목록을 **인덱스로 짝짓기** 때문에, 한쪽만 거르면 사진과 파일 이름이
+      어긋난다. 그래서 `one()` 이 `post["images"]` 자체를 이 값으로 바꾼다.
+
+    실측 2026-08-24: 사진 URL 154,119개 중 밴드 UI 정적 자원이 **8,097개**
+    (loading.gif 8,092 · profile_birth.png 5). 그것이 사진 자리를 차지해
+    `archive_complete` 가 영원히 False 였고 — **사진 있는 글 8,183건이 100%
+    미완**이었다(깨끗한 글 0건). 그래서 145회를 이어 돌고도 보관이 221건이었다.
+
+    `photo_count`(밴드가 말한 사진 수)는 안 건드린다 — 그건 사실이다.
+    """
+    return [u for u in (post.get("images") or []) if UI_ASSET not in u]
 
 
 def archive_paths(root, no, post):
@@ -221,6 +265,10 @@ def archive_band(band, posts, limit, force, stat):
     def one(no):
         post = posts[no]
         post = dict(post)
+        # ★ 사진이 아닌 것(밴드 UI 정적 자원)을 **여기서 한 번만** 거른다.
+        #   아래 archive_paths·urls·archive_complete·render_pdf 가 전부
+        #   이 목록을 본다 — 거르는 자리가 둘이면 파일 이름이 어긋난다([162]).
+        post["images"] = usable_images(post)
         post["_band"] = band
         paths = archive_paths(root, no, post)
         d = paths["folder"]
