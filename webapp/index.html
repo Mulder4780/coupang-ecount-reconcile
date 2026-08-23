@@ -12583,10 +12583,13 @@ async function loadStatus(){
     const label = selected === 'claude' ? 'Claude Code 우선' :
       selected === 'codex' ? 'Claude Code 사용 불가 · Codex 대행' :
       'Claude Code 사용 불가 · Codex 요청 대기';
+    const creditWhy = selected === 'codex_pending'
+      ? String((((route.agents||{}).codex||{}).reason)||route.note||'') : '';
     const auto = s.autopilot || {};
     const active = Number(auto.active || 0);
     const autoLabel = active ? `자동복구 ${active}건 대기·순차 재개 중` : '자동복구 대기 없음';
-    routeEl.innerHTML = `<b>자율자동화</b> ${esc2(autoLabel)} · 결정론적 처리 후 반복 실패만 ${esc2(label)}으로 자동 인계합니다.`;
+    routeEl.innerHTML = `<b>자율자동화</b> ${esc2(autoLabel)} · 결정론적 처리 후 반복 실패만 ${esc2(label)}으로 자동 인계합니다.`+
+      (creditWhy ? `<br><span class="muted">${esc2(creditWhy)} · 충전되면 기존 대기표부터 자동 재개합니다.</span>` : '');
   }
   /* ★ '내가 확인할 사항'은 loadSettle 에서 먼저 그려지는데, 그때는 srcStats 가 아직 비어 있다.
      그대로 두면 밴드·카톡·PO 자료가 멀쩡히 있어도 **'아직 없음' 4건이 거짓으로** 뜬다

@@ -38,8 +38,10 @@ import glob
 import io
 import json
 import os
+import re
 import sys
 import time
+from datetime import datetime
 
 # ★ 무인 회차는 `pythonw` 로 돌아 `sys.stdout` 이 **None** 이고, 콘솔은 cp949 라
 #   `—` 한 글자에 죽는다([235] · `userscript_watch` 가 같은 자리에서 당했다).
@@ -62,6 +64,17 @@ FRESH_DAYS = 3
 MARK = "quotaLimits"
 #: 우리가 아는 창 종류. 모르는 종류는 **소진이라 우기지 않는다**([169]).
 KNOWN_TYPES = ("five_hour",)
+
+#: Codex CLI 는 Claude 기록과 다른 곳에 한도 시각을 남긴다. 실제 실패 문구가
+#: ``try again at Aug 28th, 2026 2:52 PM`` 모양이므로 그 **명시된 시각만** 읽는다.
+#: 조용했던 시간으로 한도를 추정하지 않는다([169]).
+CODEX_FRESH_DAYS = 7
+CODEX_TAIL_BYTES = 64 * 1024
+_CODEX_RESET_RE = re.compile(
+    r"try again at\s+([A-Z][a-z]{2}\s+\d{1,2}(?:st|nd|rd|th),\s+"
+    r"\d{4}\s+\d{1,2}:\d{2}\s+(?:AM|PM))",
+    re.I,
+)
 
 
 def _dirs():
@@ -165,6 +178,84 @@ def scan(now=None, dirs=None):
     return best, ""
 
 
+def _codex_reset_at(text):
+    """Codex 한도 문구에서 로컬 시각을 초로 바꾼다. 없거나 못 읽으면 0."""
+    found = list(_CODEX_RESET_RE.finditer(text or ""))
+    if not found:
+        return 0
+    raw = found[-1].group(1)
+    raw = re.sub(r"(\d{1,2})(?:st|nd|rd|th)", r"\1", raw, flags=re.I)
+    try:
+        # CLI 문구에 시간대가 없으므로 그 문구를 만든 이 PC 의 로컬 시각으로 읽는다.
+        return int(datetime.strptime(raw, "%b %d, %Y %I:%M %p").timestamp())
+    except ValueError:
+        return 0
+
+
+def scan_codex(now=None, report_dir=None):
+    """최근 Codex 실행표에서 **명시된 사용 재개 시각**을 찾는다.
+
+    오래된 실패를 현재 고장으로 되살리지 않기 위해 최근 파일만 보고, JSON 의 잘린
+    오류 대신 원문이 남는 ``.log`` 꼬리도 함께 본다. 결과는 가장 최근에 생긴
+    한도 실패 하나다. 읽을 파일이 없으면 '충전됨'이 아니라 '모름'이다([169]).
+    """
+    now = now or time.time()
+    report_dir = report_dir or os.path.join(REPORTS, "agent_dispatch")
+    if not os.path.isdir(report_dir):
+        return None, "Codex 실행표 폴더를 못 찾았습니다"
+    cutoff = now - CODEX_FRESH_DAYS * 86400
+    best = None
+    본파일 = 0
+    실패 = 0
+    files = glob.glob(os.path.join(report_dir, "*.log"))
+    files += glob.glob(os.path.join(report_dir, "*.json"))
+    for path in files:
+        try:
+            mtime = os.path.getmtime(path)
+            if mtime < cutoff:
+                continue
+            size = os.path.getsize(path)
+            with io.open(path, "rb") as fh:
+                if size > CODEX_TAIL_BYTES:
+                    fh.seek(size - CODEX_TAIL_BYTES)
+                    fh.readline()
+                text = fh.read().decode("utf-8", "replace")
+        except OSError:
+            실패 += 1
+            continue
+        본파일 += 1
+        reset = _codex_reset_at(text)
+        if not reset:
+            continue
+        rec = {"resetsAt": reset, "종류": "codex_usage_limit",
+               "언제": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime)),
+               "파일": os.path.basename(path), "근거시각": mtime}
+        if best is None or mtime > best["근거시각"]:
+            best = rec
+    if 본파일 == 0:
+        return None, "최근 %d일 Codex 실행표가 없습니다(읽기 실패 %d)" % (
+            CODEX_FRESH_DAYS, 실패)
+    return best, ""
+
+
+def _state_from_scan(rec, why, now):
+    """두 수집 갈래가 함께 쓰는 세 상태 판정."""
+    if why:
+        return {"갈래": "모름", "resetsAt": None, "남은분": 0, "종류": "",
+                "언제": "", "파일": "", "왜": why}
+    if rec is None:
+        return {"갈래": "충전됨", "resetsAt": None, "남은분": 0, "종류": "",
+                "언제": "", "파일": "", "왜": "최근 기록에 한도 거절이 없습니다"}
+    남은 = rec["resetsAt"] - now
+    known = rec["종류"] in KNOWN_TYPES or rec["종류"] == "codex_usage_limit"
+    갈래 = "소진" if 남은 > 0 and known else "모름" if 남은 > 0 else "충전됨"
+    return {"갈래": 갈래, "resetsAt": rec["resetsAt"],
+            "남은분": int(max(0, 남은) // 60), "종류": rec["종류"],
+            "언제": rec.get("언제") or "", "파일": rec.get("파일") or "",
+            "왜": "" if 갈래 != "모름" else
+                  "모르는 창 종류입니다: " + (rec["종류"] or "(빈값)")}
+
+
 def state(now=None, dirs=None):
     """지금 크레딧 창이 어떤가 — **판정은 여기 한 곳**이다([162]).
 
@@ -172,34 +263,49 @@ def state(now=None, dirs=None):
     """
     now = now or time.time()
     rec, why = scan(now, dirs)
-    if why:
-        return {"갈래": "모름", "resetsAt": None, "남은분": 0, "종류": "",
-                "언제": "", "파일": "", "왜": why}
-    if rec is None:
-        return {"갈래": "충전됨", "resetsAt": None, "남은분": 0, "종류": "",
-                "언제": "", "파일": "", "왜": "최근 기록에 거절이 없습니다"}
-    남은 = rec["resetsAt"] - now
-    # ⚠ 모르는 창 종류를 소진이라 우기지 않는다 — 그러면 멀쩡한데 일을 멈춘다([169]).
-    if 남은 > 0 and rec["종류"] in KNOWN_TYPES:
+    return _state_from_scan(rec, why, now)
+
+
+def codex_state(now=None, report_dir=None):
+    """Codex 크래딧 상태. Claude 5시간 창과 절대 합쳐 세지 않는다."""
+    now = now or time.time()
+    rec, why = scan_codex(now, report_dir)
+    return _state_from_scan(rec, why, now)
+
+
+def combined_state(now=None, dirs=None, report_dir=None):
+    """화면·공유 파일용 상태 — Claude와 Codex를 **갈라서** 싣는다."""
+    now = now or time.time()
+    agents = {"claude": state(now, dirs), "codex": codex_state(now, report_dir)}
+    exhausted = [name for name, st in agents.items() if st.get("갈래") == "소진"]
+    unknown = [name for name, st in agents.items() if st.get("갈래") == "모름"]
+    if len(exhausted) == len(agents):
         갈래 = "소진"
-    elif 남은 > 0:
+    elif exhausted:
+        갈래 = "제한"
+    elif unknown:
         갈래 = "모름"
     else:
         갈래 = "충전됨"
-    return {"갈래": 갈래, "resetsAt": rec["resetsAt"],
-            "남은분": int(max(0, 남은) // 60),
-            "종류": rec["종류"], "언제": rec["언제"], "파일": rec["파일"],
-            "왜": "" if 갈래 != "모름" else
-                  "모르는 창 종류입니다: " + (rec["종류"] or "(빈값)")}
+    waits = [agents[n].get("남은분") or 0 for n in exhausted]
+    resets = [agents[n].get("resetsAt") for n in exhausted if agents[n].get("resetsAt")]
+    return {"갈래": 갈래, "대상": exhausted, "모름대상": unknown,
+            "resetsAt": max(resets) if resets else None,
+            "남은분": max(waits) if waits else 0, "종류": "multi_agent",
+            "언제": "", "파일": "", "왜": "", "agents": agents}
 
 
-def blocked(now=None):
+def blocked(now=None, agent=None):
     """지금 AI 를 부르면 안 되나. **모름은 막지 않는다** — 멀쩡한데 멈추지 않기 위해서다.
 
     ★ 방향을 이렇게 정한 이유: 소진 중에 부르면 **실패 한 번**이고 그것은 되돌릴 수
       있다(대기열에 남아 다음에 다시 간다). 반대로 멀쩡한데 막으면 **일이 안 된다**.
       그러므로 확실할 때만 막는다.
     """
+    if agent == "codex":
+        return codex_state(now)["갈래"] == "소진"
+    # 인자를 안 준 옛 호출자는 Claude 5시간 창 판정을 그대로 쓴다. 에이전트별
+    # 길 선택은 agent_dispatch 가 ``blocked(agent=...)`` 로 따로 묻는다.
     return state(now)["갈래"] == "소진"
 
 
@@ -212,7 +318,7 @@ def note(now=None):
 
     ★ **못 적어도 판정은 돌려준다** — 자국 하나 때문에 답을 죽이지 않는다.
     """
-    st = state(now)
+    st = combined_state(now)
     st["적은때"] = time.strftime("%Y-%m-%d %H:%M:%S")
     try:
         os.makedirs(REPORTS, exist_ok=True)
@@ -237,7 +343,21 @@ def load():
 
 def line(st=None):
     """사람이 읽는 한 줄. 갈래마다 **조치가 다르다**([289])."""
-    st = st or state()
+    st = st or combined_state()
+    agents = st.get("agents") or {}
+    if agents:
+        parts = []
+        for name, label in (("claude", "Claude"), ("codex", "Codex")):
+            one = agents.get(name) or {}
+            if one.get("갈래") == "소진":
+                when = time.strftime("%m-%d %H:%M", time.localtime(one["resetsAt"]))
+                parts.append("%s 소진(%s 충전 · %d분)" %
+                             (label, when, one.get("남은분") or 0))
+            elif one.get("갈래") == "모름":
+                parts.append("%s 확인못함" % label)
+            else:
+                parts.append("%s 사용 가능" % label)
+        return "크래딧 — " + " · ".join(parts)
     갈 = st.get("갈래")
     if 갈 == "소진":
         when = time.strftime("%H:%M", time.localtime(st["resetsAt"]))

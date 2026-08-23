@@ -201,6 +201,25 @@ def probe_agent(name: str) -> dict[str, str]:
     return {"agent": name, "state": "unavailable", "reason": reason}
 
 
+def _credit_block(name: str) -> tuple[bool, str]:
+    """에이전트별 크래딧 문. 판정은 credit_window 한 곳에서 빌린다([162])."""
+    try:
+        import credit_window
+        # Codex 근거는 **이 분담 큐**에 있다. 합성검증·격리 실행이 REPORT_DIR 을
+        # 바꾸면 그 격리 큐만 읽어야 실측 실패가 시험 결과를 오염시키지 않는다([247]).
+        st = (credit_window.codex_state(report_dir=str(REPORT_DIR))
+              if name == "codex" else credit_window.state())
+        blocked = st.get("갈래") == "소진"
+        if blocked:
+            when = datetime.fromtimestamp(st["resetsAt"]).strftime("%m-%d %H:%M")
+            return True, "%s 크래딧 소진 — %s 이후 자동 재개" % (
+                "Codex" if name == "codex" else "Claude", when)
+    except Exception as exc:
+        # 못 읽었다고 멀쩡한 에이전트를 막지는 않는다. 실제 실행 실패는 표에 남는다.
+        return False, "크래딧 확인못함(%s)" % type(exc).__name__
+    return False, ""
+
+
 def _cached_route() -> dict[str, Any] | None:
     """Reuse a recent probe result so normal status refreshes stay instant."""
     try:
@@ -222,11 +241,19 @@ def route_status(*, force: bool = False) -> dict[str, Any]:
         if cached:
             return cached
     claude = probe_agent("claude")
+    c_blocked, c_why = _credit_block("claude")
+    if c_blocked:
+        claude = {"agent": "claude", "state": "unavailable", "reason": c_why}
     if claude["state"] == "ready":
         selected, note = "claude", "Claude Code 우선"
-        codex = {"agent": "codex", "state": "standby", "reason": "Claude Code 사용 가능 시 대기"}
+        x_blocked, x_why = _credit_block("codex")
+        codex = {"agent": "codex", "state": "unavailable" if x_blocked else "standby",
+                 "reason": x_why or "Claude Code 사용 가능 시 대기"}
     else:
         codex = probe_agent("codex")
+        x_blocked, x_why = _credit_block("codex")
+        if x_blocked:
+            codex = {"agent": "codex", "state": "unavailable", "reason": x_why}
     if claude["state"] != "ready" and codex["state"] == "ready":
         selected, note = "codex", "Claude Code 사용 불가 → Codex 폴백"
     elif claude["state"] != "ready":
@@ -415,7 +442,8 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
         if agent == "claude" and (result.returncode != 0 or not_logged) and (
                 not_logged or _UNAVAILABLE_RE.search(combined)):
             codex_executable = resolve_agent_executable("codex")
-            if codex_executable:
+            codex_blocked, codex_why = _credit_block("codex")
+            if codex_executable and not codex_blocked:
                 claude_output = combined
                 agent = "codex"
                 record.update({
@@ -441,6 +469,17 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
                     + "\n\n[Codex 실행]\n"
                     + codex_output
                 )
+            elif codex_blocked:
+                record.update({
+                    "status": "waiting",
+                    "updated_at": datetime.now().isoformat(timespec="seconds"),
+                    "error": codex_why,
+                    "route_note": "Claude Code 실제 실행 불가 · Codex 크래딧 대기",
+                })
+                log_path.write_text(combined[-200000:], encoding="utf-8")
+                _atomic_json(path, record)
+                _atomic_json(STATUS_PATH, {**route, "last_request": record})
+                return record
         log_path.write_text(combined[-200000:], encoding="utf-8")
         record.update({
             # ★ exit 0 이어도 **로그인 안 됨**이면 성공이 아니다 — 아무 일도 안 했다.
@@ -489,6 +528,8 @@ def dispatch_async(ticket: dict[str, Any], local_returncode: int = 0) -> bool:
     #   남으므로 충전 뒤 다음 회차가 이어받는다.
     if ai_paused():
         return False
+    if route_status(force=True).get("selected") not in ("claude", "codex"):
+        return False
     ticket_path = ticket.get("_path")
     if not ticket_path:
         return False
@@ -501,6 +542,30 @@ def dispatch_async(ticket: dict[str, Any], local_returncode: int = 0) -> bool:
         **background_popen_kwargs(),
     )
     return True
+
+
+def resume_pending(limit: int = 1) -> list[str]:
+    """크래딧·로그인 때문에 못 보낸 표를 다음 회차에서 다시 보낸다.
+
+    새 표를 만들지 않고 기존 ``queued``/``waiting`` 표를 재사용한다. 그래서 크래딧이
+    찬 동안 실패표가 쌓이지 않고, 충전 뒤 watchdog 회차가 가장 오래된 것부터 잇는다.
+    """
+    if route_status(force=True).get("selected") not in ("claude", "codex"):
+        return []
+    sent = []
+    for path in sorted(REPORT_DIR.glob("*.json")):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if record.get("status") not in ("queued", "waiting"):
+            continue
+        record["_path"] = str(path)
+        if dispatch_async(record, int(record.get("local_returncode") or 0)):
+            sent.append(str(record.get("id") or path.stem))
+        if len(sent) >= max(1, int(limit)):
+            break
+    return sent
 
 
 def supersede_queued(reason: str) -> int:

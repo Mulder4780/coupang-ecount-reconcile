@@ -573,6 +573,26 @@ def build() -> dict[str, Any]:
             "Claude Code 설치·로그인을 복구한 뒤 python agent_dispatch.py --route --force",
             "reports/agent_dispatch_status.json")
 
+    # 9-1) Claude 5시간 창과 Codex 사용 한도는 **서로 다른 계기**다. 하나만 보고
+    # 'AI 사용 가능'이라 하면 실패표만 쌓인다([169]). 판정은 credit_window 자국을 읽는다.
+    credit_path = REPORTS / "크레딧_창.json"
+    credit = _read_json(credit_path)
+    sources["credit_window"] = {"age_minutes": _age_minutes(credit_path),
+                                "read": credit is not None}
+    codex_credit = (((credit or {}).get("agents") or {}).get("codex") or {})
+    if codex_credit.get("갈래") == "소진":
+        try:
+            reset = datetime.fromtimestamp(
+                float(codex_credit.get("resetsAt") or 0)).astimezone().strftime("%m-%d %H:%M")
+        except Exception:
+            reset = "확인된 재개 시각"
+        add("codex-credit-exhausted",
+            "P1" if (dispatch or {}).get("selected") == "codex_pending" else "P2",
+            "Codex 자동 인계 크래딧 대기",
+            "Codex 실행표가 사용 재개 시각을 %s 로 명시했습니다." % reset,
+            "새 실패표를 만들지 않고 기존 대기표를 보존합니다. 충전 뒤 30분 회차가 자동 재개합니다.",
+            "reports/크레딧_창.json")
+
     # 10) ERP 공식 조회 API. IP 미등록은 키 오류가 아니며 브라우저 로그인 한 번이
     # 필요한 사람 경계다. 수집이 없다는 사실을 조용히 숨기지 않는다.
     erp_ip_path = REPORTS / "ERP_IP_등록필요.md"

@@ -978,6 +978,8 @@ def watch_credit(dry):
     갈 = st.get("갈래")
     if 갈 == "소진":
         return "크레딧 소진 — %d분 뒤 충전(AI 인계는 그때까지 안 만든다)" % (st.get("남은분") or 0)
+    if 갈 == "제한":
+        return credit_window.line(st)
     if 갈 == "모름":
         return "크레딧 창 확인 못 함: %s" % str(st.get("왜") or "")[:60]
     return "크레딧 창 여유 있음"

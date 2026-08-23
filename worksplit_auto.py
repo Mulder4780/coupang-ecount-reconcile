@@ -263,11 +263,15 @@ def _hand_to_ai(row, tickets):
     key = str(row.get("id"))
     if tickets.get(key):
         return ""
-    from agent_dispatch import dispatch_async, enqueue, ai_paused
+    from agent_dispatch import dispatch_async, enqueue, ai_paused, route_status
     # ★ 크레딧 창이 막혔으면 **표를 안 만든다**(2026-08-22 형님 지시). 만들어 두면
     #   위의 "항목당 하나" 문에 걸려 **다시는 안 만들고**, 충전이 돼도 그 일은 영영
     #   안 넘어간다. 안 만들면 다음 회차(워치독 30분)가 그대로 이어받는다.
     if ai_paused():
+        return ""
+    # Claude 인증과 Codex 크래딧이 둘 다 막혔으면 표도 만들지 않는다. 다음 30분
+    # 회차가 같은 항목을 다시 보므로 충전 뒤 자동으로 이어진다.
+    if route_status(force=True).get("selected") not in ("claude", "codex"):
         return ""
     ticket = enqueue(
         "worksplit-" + key,
@@ -331,7 +335,16 @@ def run(dry=False, ai=True):
 
     # ② 세워 둔 일 — 아무도 없을 때만 AI 에게 넘긴다. 사람이 있으면 인계 문서로 족하다.
     ai_on = ai and os.environ.get("COUPANG_AUTO_AI", "1") != "0"
-    if ready and ai_on and others["수"] == 0 and not dry:
+    resumed = []
+    if ai_on and others["수"] == 0 and not dry:
+        try:
+            from agent_dispatch import resume_pending
+            resumed = resume_pending(limit=1)
+        except Exception:
+            resumed = []
+        if resumed:
+            acts.append("대기 AI 표 재개 %s" % resumed[0])
+    if ready and ai_on and others["수"] == 0 and not dry and not resumed:
         for row in ready:
             if row.get("자원") not in AI_LOCKS:
                 continue
@@ -346,6 +359,13 @@ def run(dry=False, ai=True):
     doc = {"시각": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "세워둔일": rows,
            "풀린것": [r["id"] for r in ready], "살아있는세션": others, "푸시": ps,
            "표": tickets, "한행동": acts, "차선회수": lane_freed}
+    doc["문제해결모드"] = {
+        "상태": ("협업중" if others["수"] else
+                 "대기표 재개" if resumed else
+                 "해결 실행" if ready else "감시중"),
+        "남은문제": len(rows), "지금가능": len(ready),
+        "설명": "Claude·Codex 공용 분담판을 읽고 매 30분 회차에서 이어갑니다.",
+    }
     doc["한줄"] = ("세션자동화: 풀린 일 %d건%s · 미푸시 %d%s"
                    % (len(ready), (" " + ",".join("[%s]" % r["id"] for r in ready[:4])) if ready else "",
                       ps.get("미푸시") or 0,
