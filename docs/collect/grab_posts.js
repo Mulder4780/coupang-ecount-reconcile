@@ -375,7 +375,13 @@
     //   남는 그림은 '덤프 없음' 이라 **한 번도 안 긁은 것과 구별되지 않았다.**
     //   이제 saveEvery 건마다 떨어뜨린다 — 죽음의 값이 배치가 아니라 saveEvery 로 준다.
     //   (덤프가 여러 개로 나뉘는 것은 문제가 아니다: convert_dump 가 재병합하며 댓글을 합친다.)
-    const saveEvery = opt.saveEvery === undefined ? 50 : Number(opt.saveEvery);
+    //   ★ 2026-08-22 실사고로 **50 을 10 으로 낮췄다.** 그날 회차가 66건 중
+    //   **13건까지 갔는데 `saved: 0`** 이었다 — 사람이 탭을 옮기자 `pagehide` 로
+    //   죽었고 50 을 못 채워 **긁은 것이 통째로 사라졌다**(묘비 prevDeath 가 그
+    //   숫자를 그대로 남겼다).  손실 상한을 **시간**으로 보면 뜻이 분명하다 —
+    //   한 건이 최대 21초이므로 50 은 **최악 17분치**이고 10 은 **3.5분치**다.
+    //   파일이 7~12개로 나뉘는 것은 값이 아니다: convert_dump 가 재병합한다(위).
+    const saveEvery = opt.saveEvery === undefined ? 10 : Number(opt.saveEvery);
     // sandbox 가 렌더링을 깨면 **하룻밤이 0 수확**이 된다. 그 모양을 알아보고 되돌린다.
     //   신호: 본문도 껍데기(.postMain/.postWrap)도 없이 이유 없는 fail 만 잇따르는 것.
     //   지운 글(missing)·되돌림(redirect)과 달리 이것은 '아무것도 안 그려졌다'는 뜻이다.

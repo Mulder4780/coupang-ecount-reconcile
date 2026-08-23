@@ -128,7 +128,14 @@ def note(d, 무엇, 결과, 왜=""):
 #: 기회를 며칠 못 잡으면 그때부터 자국을 남긴다. 하루 이틀은 정상이다 —
 #: 정오에 크롬이 앞에 없는 것은 흔하고, 매일 뜨는 경보는 진짜 경보를 죽인다([170]).
 MISS_DAYS = 3
-MISS_TRACE = os.path.join(ROOT, "reports", "브라우저수집_오류.json")
+def _miss_trace():
+    """자국 자리 — **`STATE` 에서 파생시킨다**([247]).
+
+    ★ 검증이 `BC.STATE` 만 임시 폴더로 돌리고 `settle_band()` 를 부르는 자리가
+      있다(t269). 자국 경로를 따로 못 박아 두면 그 검사가 **진짜 증거 파일을
+      지운다** — 실측으로 그렇게 한 번 사라졌다. 파생시키면 격리가 저절로 따라온다.
+    """
+    return os.path.join(os.path.dirname(STATE), "브라우저수집_오류.json")
 
 
 def _miss_days(d, 무엇):
@@ -171,15 +178,16 @@ def trace_missed(d):
     if not 늦은것:
         # ★ 잡았으면 지운다 — 옛 자국은 고쳐진 고장을 계속 보고한다([228]).
         try:
-            os.remove(MISS_TRACE)
+            os.remove(_miss_trace())
         except Exception:
             pass
         return
     try:
-        with io.open(MISS_TRACE, "w", encoding="utf-8") as fh:
+        with io.open(_miss_trace(), "w", encoding="utf-8") as fh:
             json.dump({
                 "시각": _now(),
                 "갈래": "기회놓침",
+                "작업": "CSOS_BrowserChain",
                 "무엇": ("브라우저 수집이 %d일 넘게 기회를 못 잡았다 — %s"
                          % (MISS_DAYS, " · ".join(늦은것[:4]))),
                 "어떻게": ("허용된 크롬 페이지(밴드 /post 목록 또는 이카운트 ERP)를 "
