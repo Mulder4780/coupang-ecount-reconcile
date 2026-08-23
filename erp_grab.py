@@ -292,7 +292,7 @@ window.__ERPGRAB = {단계: '시작', 조회전: null, 조회후: null, 완료: 
   };
   // 격자가 아예 없으면 0 이 나온다 — 그건 "결과 0건"이 아니라 "화면이 안 그려졌다"이므로
   // 아래에서 조회 전후가 **둘 다 0** 이면 성공으로 치지 않는다.
-  const rows = () => { const g = document.querySelector('[id^="grid-"]');
+  const rows = () => { const g = (document.querySelector('[id^="grid-"]') || document.querySelector('.__ecGridContainer'));
                        return g ? g.querySelectorAll('tr').length : 0; };
 
   // ① 사이트맵 → 메뉴. 쓰고 나면 반드시 닫는다(열어 두면 모든 클릭을 가로챈다).
@@ -369,13 +369,27 @@ window.__ERPGRAB = {단계: '시작', 조회전: null, 조회후: null, 완료: 
                                       to:   `${t.getFullYear()-1}/12/31`};
     return {from: back(45), to};              // 모르는 프리셋은 넉넉하게 본다
   })();
-  const g = document.querySelector('[id^="grid-"]');
-  const seen = [...(g ? g.querySelectorAll('tr') : [])]
-    .map(t => ((t.textContent||'').match(/20\d\d\/\d\d\/\d\d/)||[])[0]).filter(Boolean);
+  // ★ 날짜 읽기 — 화면마다 형식이 다르다(2026-08-23 실측).
+  //   · 대부분  `2026/08/03`   · 분개장  `26/08/03-1-1` ← **두 자리 연도**
+  //   네 자리만 찾던 예전 정규식은 **29행이 멀쩡히 있는 분개장**을 "격자에 날짜가
+  //   없다"로 건너뛰었다([169] — 없는 것이 아니라 못 본 것). 그래서 10일 밀렸다.
+  //   ⚠ 월 01~12 · 일 01~31 로 좁힌다 — 안 좁히면 `11-22-33` 같은 숫자가 날짜가 된다([172]).
+  const RE_D = /(?:20)?(\d\d)[\/.\-](0[1-9]|1[0-2])[\/.\-](0[1-9]|[12]\d|3[01])/;
+  const 날짜 = s => { const m = RE_D.exec(s || "");
+                     return m ? ("20" + m[1] + "/" + m[2] + "/" + m[3]) : ""; };
+  const g = (document.querySelector('[id^="grid-"]') || document.querySelector('.__ecGridContainer'));
+  const trs = [...(g ? g.querySelectorAll('tr') : [])];
+  const seen = trs.map(t => 날짜(t.textContent)).filter(Boolean);
   const inRange = seen.filter(d => d >= want.from && d <= want.to);
   say({단계:'조회함', 조회전: before, 조회후: after, 기간: `${want.from} ~ ${want.to}`,
-       날짜찍힌행: seen.length, 기간안: inRange.length});
-  if (!seen.length)   { say({오류:'격자에 날짜가 없다 — 결과 0건이거나 조건이 더 필요한 화면'}); return; }
+       날짜찍힌행: seen.length, 기간안: inRange.length, 격자행: trs.length});
+  if (!seen.length) {
+    // ★ 셋은 서로 다른 사실이다([289]) — 뭉치면 사람이 없는 문제를 고치러 간다([172]).
+    if (!g) { say({오류:'격자가 아예 없다 — 조회가 안 걸렸다'}); return; }
+    if (trs.length <= 2) { say({받을것없음:'격자는 그려졌는데 자료 행이 없다 — 그 기간에 0건이다'}); return; }
+    const 맛 = (trs[1] ? (trs[1].textContent||'') : '').replace(/\s+/g,' ').trim().slice(0,80);
+    say({오류:'격자에 ' + trs.length + '행이 있는데 날짜를 못 읽었다 — 형식이 다를 수 있다. 첫 줄: ' + 맛}); return;
+  }
   if (!inRange.length){ say({오류:'격자 날짜가 요청 기간 밖이다 — 조회가 안 걸렸다. Excel 을 누르지 않는다'}); return; }
 
   // ④ 엑셀
@@ -444,6 +458,19 @@ NEEDS_HUMAN = {
         "왜": "거래처가 필수다. 비우고 검색하면 격자가 **빈 채로** 돌아온다(오류도 안 난다).",
         "요령": "간편검색 '이번기수'(=올해 전체) → 라디오 '건별' + '개별거래처기준' → "
                 "거래처 칸에 '쿠팡' 입력 후 Enter → **거래처검색 창에서 사람이 줄을 클릭** → 검색(F8) → Excel",
+        "2026-08-23 뚫었다": "★ 사람이 손으로 고를 필요가 **없다** — 코드로 좁히면 된다. "
+                   "① 거래처 칸에 아무 말이나 넣고 Enter → `거래처검색` 창이 뜬다 "
+                   "② 그 창의 **`거래처코드` 칸**에 코드를 넣고 `검색(F8)`(창 안 단추) → "
+                   "결과가 **한 줄**로 좁혀진다 ③ 그 줄을 **진짜 마우스로 더블클릭** → "
+                   "거래처 칸이 채워지고 창이 닫힌다 ④ 라디오 `개별거래처기준`(value=IC) "
+                   "⑤ `이번기수` 를 누르면 **그 자체가 조회**다(따로 검색 안 눌러도 격자가 뜬다) "
+                   "⑥ 격자 `#grid-main` · Excel `#outputExcel`. "
+                   "실측: 쿠팡로지스틱스서비스 유한회사 `2548801036` → 36행 · 18,975 바이트 받음.",
+        "아직 사람이 필요한 자리": "★ ③의 더블클릭 하나뿐이다. **합성 이벤트로는 안 된다**"
+                   "(2026-08-23 재확인 — pointerdown·mousedown·mouseup·click·dblclick 를 "
+                   "다 쏴도 창이 안 닫힌다). CDP 가 보내는 **신뢰된 클릭**은 먹는다 — 즉 "
+                   "Claude 가 브라우저 도구로는 할 수 있고 무인 회차는 못 한다. "
+                   "그러므로 이 화면은 **형님이 디버깅을 허락한 세션**에서만 받는다.",
         "막힌 곳": "거래처검색 창의 줄은 합성 이벤트(click·dblclick)로 안 골라진다. "
                    "창에 확인·선택 단추도 없다 — 실제 마우스 클릭이 있어야 한다.",
         "여기까지는 된다": "★ 2026-08-08 실측 — 이 창은 **키보드로 만든 창**이다. 창 안에 "
@@ -710,7 +737,7 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
       if (s) { s.click(); await wait(3000); kill(); await wait(9000); }
       // ⑤ 조회가 **정말** 걸렸는지 — 행 수가 아니라 **격자에 찍힌 날짜**로 잰다.
       //   행 수로 재면 양쪽으로 다 틀린다(옛 결과를 새 기간으로 착각 / 5행→5행을 실패로 오판).
-      const g = document.querySelector('[id^="grid-"]');
+      const g = (document.querySelector('[id^="grid-"]') || document.querySelector('.__ecGridContainer'));
       const seen = [...(g ? g.querySelectorAll('tr') : [])]
         .map(t => ((t.textContent||'').match(/20\d\d\/\d\d\/\d\d/)||[])[0]).filter(Boolean);
       const rng = want(step.프리셋);

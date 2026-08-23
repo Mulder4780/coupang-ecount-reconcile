@@ -26980,6 +26980,114 @@ def t345_camp_screen_folds_by_canon_and_hides_nothing():
     print("  [345] 캠프 화면 정본 묶기(분담판 163) — 표기 수가 아니라 캠프 수로 · "
           "못 합친 것 안 숨김 · 못 읽으면 말함 · 계기 자기시험 OK")
 
+
+def t401_erp_grid_reads_what_is_there():
+    """ERP 격자 — **못 본 것을 없는 것이라 하지 않는다**(2026-08-23 실사고).
+
+    실측(브라우저에서 직접 봤다):
+      · 분개장 E010802     29행인데 날짜가 `26/08/03-1-1` **두 자리 연도**
+                           → 네 자리만 찾던 정규식이 0개 → '건너뜀' → **10일 밀림**
+      · 견적서조회 E040202 격자 id 가 `dataGrid` → `[id^="grid-"]` 로 **영영 못 찾음**
+                           → 27행이 있는데 '건너뜀' → **18일 밀림**
+      · 현금출납장 E010801 머리글+이월잔액 2행 → **진짜 0건**
+    셋이 서로 다른 사실인데 **한 문구**로 뭉쳐 있었다 — 그 말이 사람을
+    "조건이 더 필요한 화면"이라는 **없는 문제**로 보냈다([172]·[289]).
+
+    ★ 판정이 두 곳이라(붙여넣기 JS · erp_grab.py) **같은 모양인지**도 잰다([162]).
+    """
+    import shutil, tempfile, subprocess, json  # 모듈 수준에 없다([324])
+    import proc_guard
+    js = open(os.path.join("band", "ERP_전화면몰이_붙여넣기.js"),
+                 encoding="utf-8-sig").read()
+    py = open("erp_grab.py", encoding="utf-8").read()
+
+    # ① 격자 찾기 — 클래스로도 찾는다(id 는 화면마다 다르다)
+    for 이름, src, 몇 in (("붙여넣기", js, 1), ("erp_grab", py, 3)):
+        n = src.count("document.querySelector('.__ecGridContainer')")
+        assert n >= 몇, ("[401] %s 가 격자를 id 로만 찾는다 — 견적서조회(`dataGrid`)를 "
+                         "영영 못 본다 (찾은 곳 %d)" % (이름, n))
+    # ⚠ 아무 <table> 로 넓히면 조회조건 표까지 격자로 읽는다([172]).
+    assert "querySelectorAll('table')" not in js, \
+        "[401] 아무 표나 격자로 읽으면 엉뚱한 화면을 '조회됨'으로 착각한다"
+
+    # ② 갈래 셋 — 뭉치면 조치가 안 갈린다([289])
+    for 이름, src in (("붙여넣기", js), ("erp_grab", py)):
+        assert "격자가 아예 없다" in src, "[401] %s: '조회가 안 걸렸다' 갈래가 없다" % 이름
+        assert "자료 행이 없다" in src, "[401] %s: '진짜 0건' 갈래가 없다" % 이름
+        assert "날짜를 못 읽었다" in src, "[401] %s: '형식을 못 읽었다' 갈래가 없다" % 이름
+    # 옛 뭉친 문구가 되돌아오면 안 된다([39])
+    assert "0건이거나 조건이 더 필요한 화면" not in js, \
+        "[401] 세 사실을 한 문구로 뭉치던 옛 말이 되돌아왔다"
+    assert "결과 0건이거나 조건이 더 필요한 화면" not in py, \
+        "[401] erp_grab 쪽 옛 뭉친 문구가 되돌아왔다"
+
+    # ③ 정규식은 **실행해서** 잰다([295]) — 글자로는 두 자리 연도를 못 잰다.
+    import re as _re401
+    m = _re401.search(r"const RE_D = (/[^\n]+/);", js)
+    assert m, "[401] 붙여넣기에서 날짜 정규식을 못 찾았다"
+    재 = m.group(1)
+    assert 재 in py, "[401] 두 곳의 날짜 정규식이 다르다 — 갈리면 한쪽만 고쳐진다([162])"
+
+    node = shutil.which("node")
+    if not node:
+        print("… [401] node 가 없어 정규식 실행 확인은 건너뜀(구조 검사만)")
+    else:
+        box = tempfile.mkdtemp(prefix="t401-")
+        try:
+            run = os.path.join(box, "run.js")
+            with open(run, "w", encoding="utf-8") as fh:
+                fh.write(_T401_HARNESS.replace("__RE__", 재))
+            pr = subprocess.Popen([node, run], stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT,
+                                  **proc_guard.background_popen_kwargs())
+            try:
+                out = pr.communicate(timeout=60)[0].decode("utf-8", "replace")
+            except subprocess.TimeoutExpired:
+                proc_guard.kill_tree(pr.pid)
+                raise AssertionError("[401] node 하네스가 60초 안에 안 끝났다")
+            assert "HARNESS-OK" in out, "[401] 정규식 실행 확인 실패:\n" + out[-1200:]
+        finally:
+            shutil.rmtree(box, ignore_errors=True)
+
+    # ④ 계기 자신도 시험한다([272]) — 옛 정규식으로 되돌리면 두 자리를 못 읽는가.
+    if node:
+        box = tempfile.mkdtemp(prefix="t401b-")
+        try:
+            run = os.path.join(box, "run.js")
+            with open(run, "w", encoding="utf-8") as fh:
+                fh.write(_T401_HARNESS.replace("__RE__", r"/20\d\d\/\d\d\/\d\d/"))
+            pr = subprocess.Popen([node, run], stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT,
+                                  **proc_guard.background_popen_kwargs())
+            out = pr.communicate(timeout=60)[0].decode("utf-8", "replace")
+            assert "HARNESS-OK" not in out, \
+                "[401] 옛 정규식으로도 통과한다 — 이 검사는 아무것도 안 재고 있다([272])"
+        finally:
+            shutil.rmtree(box, ignore_errors=True)
+
+    print("✅ [401] ERP 격자 — 두 자리 연도·id 없는 격자·진짜 0건을 갈라 본다 (실행으로 잼)")
+
+
+#: node 하네스 — **소스에서 뽑은 그 정규식**을 실제로 돌린다([295]).
+#:   재료는 브라우저 실측 그대로다(분개장 `26/08/03-1-1` · 견적서 `2026/08/21`).
+_T401_HARNESS = r"""
+const RE_D = __RE__;
+const 날짜 = s => { const m = RE_D.exec(s || "");
+                   return m ? ("20" + m[1] + "/" + m[2] + "/" + m[3]) : ""; };
+const eq = (a, b, why) => { if (a !== b) { console.log("FAIL " + why + ": " + a + " != " + b); process.exit(1); } };
+
+// ① 분개장 — 두 자리 연도(실측 그대로)
+eq(날짜("26/08/03-1-1외상매출금위더스물류572,000"), "2026/08/03", "두자리연도");
+eq(날짜("26/08/05-2-1상품매출"), "2026/08/05", "두자리연도2");
+// ② 견적서·원장 — 네 자리도 그대로
+eq(날짜("2026/08/21 -1UB2601478"), "2026/08/21", "네자리연도");
+eq(날짜("2026-08-21"), "2026/08/21", "하이픈");
+// ③ 오탐 — 금액·번호·잘못된 월일은 날짜가 아니다([172])
+["572,000", "1-1-1", "11-22-33", "26/13/03", "26/08/32", "부가세예수금"]
+  .forEach(x => eq(날짜(x), "", "오탐:" + x));
+console.log("HARNESS-OK");
+"""
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -33867,6 +33975,7 @@ if __name__ == "__main__":
     t395_status_card_never_rehashes_the_verified_archive()
     t396_staff_first_open_uses_an_exact_issue_cache()
     t388_hung_start_is_not_normal()
+    t401_erp_grid_reads_what_is_there()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

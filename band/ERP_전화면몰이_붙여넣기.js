@@ -38,7 +38,9 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: ["ledger", "tax", "sl
   //     (E010301 실사고 — 입력 화면에서 단추를 누르면 진짜 전표가 만들어진다).
   //   ★ 전수 스캔 금지: 후보를 글자로 먼저 좁히고 그 몇 개에만 사각형을 묻는다.
   const expandSearch = async () => {
-    const 손잡이 = ['조회조건', '검색조건', '상세조건', '조건'];
+    // ★ `Search(F3)` 는 견적서조회(E040202) 계열의 손잡이다(2026-08-23 실측).
+    //   그 화면은 조건이 접혀 있으면 프리셋·검색이 DOM 에 아예 없다.
+    const 손잡이 = ['조회조건', '검색조건', '상세조건', '조건', 'Search(F3)'];
     const cand = [...document.querySelectorAll(
         'button,a,span[class*="btn"],div[class*="toggle"],[class*="fold"],[class*="collapse"]')]
       .filter(e => {
@@ -270,13 +272,38 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: ["ledger", "tax", "sl
         // ⑤ 조회가 **정말** 걸렸는지 — 행 수가 아니라 **격자에 찍힌 날짜**로 잰다.
         //   행 수로 재면 양쪽으로 다 틀린다(옛 결과를 새 기간으로 착각 / 5행→5행을 실패로 오판).
         자국('격자확인');
-        const g = document.querySelector('[id^="grid-"]');
-        const seen = [...(g ? g.querySelectorAll('tr') : [])]
-          .map(t => ((t.textContent||'').match(/20\d\d\/\d\d\/\d\d/)||[])[0]).filter(Boolean);
+        // ★ 날짜 읽기 — 화면마다 형식이 다르다(2026-08-23 실측).
+        //   · 대부분  `2026/08/03`   · 분개장  `26/08/03-1-1` ← **두 자리 연도**
+        //   네 자리만 찾던 예전 정규식은 **29행이 멀쩡히 있는 분개장**을 "격자에 날짜가
+        //   없다"로 건너뛰었다([169] — 없는 것이 아니라 못 본 것). 그래서 10일 밀렸다.
+        //   ⚠ 월 01~12 · 일 01~31 로 좁힌다 — 안 좁히면 `11-22-33` 같은 숫자가 날짜가 된다([172]).
+        const RE_D = /(?:20)?(\d\d)[\/.\-](0[1-9]|1[0-2])[\/.\-](0[1-9]|[12]\d|3[01])/;
+        const 날짜 = s => { const m = RE_D.exec(s || "");
+                             return m ? ("20" + m[1] + "/" + m[2] + "/" + m[3]) : ""; };
+        const g = (document.querySelector('[id^="grid-"]') || document.querySelector('.__ecGridContainer'));
+        const trs = [...(g ? g.querySelectorAll('tr') : [])];
+        const seen = trs.map(t => 날짜(t.textContent)).filter(Boolean);
         const rng = want(step.프리셋);
         const inR = seen.filter(d => d >= rng.from && d <= rng.to);
-        if (!seen.length) { done({결과: '건너뜀', 왜: '격자에 날짜가 없다 — 0건이거나 조건이 더 필요한 화면',
-                                  기간: `${rng.from} ~ ${rng.to}`}); return; }
+        if (!seen.length) {
+          // ★ 셋은 **서로 다른 사실**이다 — 뭉치면 조치가 안 갈린다([289]).
+          //   예전에는 하나로 뭉쳐 "조건이 더 필요한 화면일 수 있다"고 말했고,
+          //   그 말이 사람을 **없는 문제**로 보냈다([172]).
+          if (!g) { done({결과: '실패', 왜: '격자가 아예 없다 — 조회가 안 걸렸다',
+                          기간: `${rng.from} ~ ${rng.to}`}); return; }
+          // 머리글 + 합계/이월 줄만 남은 상태(실측 현금출납장 2행: 머리글·이월잔액).
+          if (trs.length <= 2) {
+            done({결과: '받을것없음', 행: trs.length,
+                  왜: '격자는 그려졌는데 자료 행이 없다 — 그 기간에 0건이다(안 받은 것이 아니다)',
+                  기간: `${rng.from} ~ ${rng.to}`}); return;
+          }
+          // 자료는 있는데 날짜를 못 읽었다 — **이것이 진짜 경보다**. 다음 사람이 형식을
+          //   볼 수 있게 첫 자료 줄을 같이 남긴다([169]).
+          const 맛 = (trs[1] ? (trs[1].textContent||'') : '').replace(/\s+/g,' ').trim().slice(0,80);
+          done({결과: '실패', 행: trs.length,
+                왜: '격자에 ' + trs.length + '행이 있는데 날짜를 못 읽었다 — 형식이 다를 수 있다. 첫 줄: ' + 맛,
+                기간: `${rng.from} ~ ${rng.to}`}); return;
+        }
         if (!inR.length)  { done({결과: '실패', 왜: '격자 날짜가 요청 기간 밖 — 조회가 안 걸렸다. Excel 안 누름',
                                   기간: `${rng.from} ~ ${rng.to}`}); return; }
         // ⑥ 엑셀
