@@ -223,7 +223,27 @@ def restart_server(reason: str) -> bool:
         _log("프로세스 확인 실패 — 잘못된 종료를 피하려 재시작 보류", state="inspect-failed")
         return False
     if old:
+        # * **살아 있는 서버를 죽이는 것인지 로그가 말하게 한다** (2026-08-23).
+        #   실측 7일: 재시작 08-18 10회 · 08-20 15회 · **08-21 20회** 인데 그중
+        #   몇 개가 오탐이었는지 **알 길이 없었다** — `old_pids` 는 성공 로그의
+        #   구조화 칸으로만 나가고 그 칸은 STATUS 파일에 **마지막 것만** 남는다.
+        #   그래서 과거 재시작을 되짚을 수 없다([228] 이 회차에 대해 말한 것과
+        #   같은 자리다: 자국이 없으면 왜인지는 영영 모른다).
+        # * 가르는 근거는 **프로세스가 살아 있었나** 하나다. `missing`(프로세스
+        #   없음)은 진짜 죽음이라 재시작이 옳다. 그런데 프로세스가 **살아 있는데**
+        #   ping 만 늦은 것은 죽음이 아니라 **늘어진 것**일 수 있다 — 이 프로젝트는
+        #   회차가 Z:(SMB)를 훑는 동안 앱이 늘어진다. 그때 죽이면 회차도 끊기고
+        #   사람 화면도 끊긴다([197] 실측 9.3초).
+        # ! 동작은 **한 톨도 안 바꾼다** — 재시작은 예전 그대로 한다. 여기서
+        #   문을 새로 달면 진짜 죽었을 때 못 살린다([172] · 되돌릴 수 없는 쪽).
+        #   먼저 **재고**, 오탐이 실제로 많으면 그때 고친다.
+        _log("앱 서버 재시작 — 직전 프로세스가 살아 있었다(pid %s) · %s"
+             % (",".join(str(p) for p in old), reason),
+             state="restarting", old_pids=old, reason=reason, was_alive=True)
         _stop_server(old)
+    else:
+        _log("앱 서버 재시작 — 직전 프로세스가 없었다(진짜 죽음) · %s" % reason,
+             state="restarting", old_pids=[], reason=reason, was_alive=False)
     _start_hidden(SERVER)
     started = time.time()
     while time.time() - started < READY_TIMEOUT:
