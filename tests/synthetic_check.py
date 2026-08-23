@@ -23517,6 +23517,58 @@ def t381_row_count_is_cached_and_never_freezes_a_miss():
         CS._DST_ENTRIES.clear()
         shutil.rmtree(_tmp381, ignore_errors=True)
 
+    # (7) * **인자를 만들었으면 넘기는 자리까지가 한 벌이다** (2026-08-23 실사고).
+    #     위 (6) 은 `copy_one` 에 `st` 를 **손으로 넘겨** 왕복을 쟀다 - 그래서
+    #     "부르는 쪽이 실제로 넘기나" 는 한 번도 안 쟀다. 2026-08-22 에 인자를
+    #     만들어 놓고 `main` 이 `copy_one(src, dst_dir, apply)` 로 그대로 부르는 바람에
+    #     원본 stat 왕복이 남았고, 09:35 회차가 **40분 제한에 그대로 걸려 끊겼다**
+    #     (코드 -9 - 회차 80.7분). 인자는 멀쩡히 있고 오류도 안 났다([165] 모양).
+    _tmp7 = tempfile.mkdtemp(prefix="t381g_")
+    try:
+        _po = os.path.join(_tmp7, "PO", "PO999999")
+        os.makedirs(_po)
+        for _i in range(5):
+            with open(os.path.join(_po, "g%d.pdf" % _i), "w") as _f:
+                _f.write("x" * (_i + 1))
+        _rp, _rr, _ro = CS.PO_DIRS, CS.RECEIPT_DIRS, CS.ORIGIN_ROOT
+        CS.PO_DIRS = [os.path.join(_tmp7, "PO")]
+        CS.RECEIPT_DIRS = []
+        CS.ORIGIN_ROOT = os.path.join(_tmp7, "origin")
+        os.makedirs(CS.ORIGIN_ROOT, exist_ok=True)
+        try:
+            _jobs7 = CS.plan()
+        finally:
+            CS.PO_DIRS, CS.RECEIPT_DIRS, CS.ORIGIN_ROOT = _rp, _rr, _ro
+        _mine7 = [j for j in _jobs7
+                  if os.path.normcase(_po) in os.path.normcase(j[0])]
+        assert len(_mine7) == 5, "[381] plan 이 PO 파일을 다 안 담았다: %d" % len(_mine7)
+        assert all(CS._SRC_STAT.get(j[0]) for j in _mine7), (
+            "[381] plan 이 원본 stat 을 안 담는다 - copy_one 이 파일마다 Z: 를 "
+            "다시 묻는다([198])")
+        # * `jobs` 모양은 **그대로 3튜플**이어야 한다 - `t358` 이
+        #   `for s, d, why in jobs` 로 언패킹한다. 4튜플로 넓히면 그 검사가 죽는다.
+        assert all(len(j) == 3 for j in _jobs7), (
+            "[381] jobs 가 3튜플이 아니다 - t358 이 그날부터 죽는다")
+        # * 부르는 쪽이 정말 넘기나 - **여기가 오늘 사고의 자리다.**
+        _code7 = open(os.path.join(ROOT, "collect_sources.py"),
+                      encoding="utf-8").read()
+        assert "copy_one(src, dst_dir, apply, _SRC_STAT.get(src))" in _code7, (
+            "[381] main 이 딸려 받은 stat 을 copy_one 에 안 넘긴다 - 인자만 있고 "
+            "부르는 쪽이 안 쓰면 왕복이 그대로 남는다(2026-08-23 09:35 이 40분에 끊겼다)")
+        # * plan 은 캐시를 비운다 - 같은 프로세스에서 두 번 부르면 낡은 목록을 쓴다
+        assert "_SRC_STAT.clear()" in _code7 and "_DST_ENTRIES.clear()" in _code7, (
+            "[381] plan 이 캐시를 안 비운다 - 회차 사이에 남이 넣은 파일을 못 본다")
+        # * 계기 자기시험([272]) - 옛 동작을 넣으면 정말 잡히나
+        _bad7 = _code7.replace("copy_one(src, dst_dir, apply, _SRC_STAT.get(src))", "copy_one(src, dst_dir, apply)", 1)
+        assert _bad7 != _code7, (
+            "[381] 자기시험 앵커를 못 찾았다 - 이 검사는 아무것도 안 재고 있다")
+        assert "copy_one(src, dst_dir, apply, _SRC_STAT.get(src))" not in _bad7, (
+            "[381] 옛 동작을 넣었는데도 검사가 통과한다 - 아무것도 안 잰다")
+    finally:
+        CS._SRC_STAT.clear()
+        CS._DST_ENTRIES.clear()
+        shutil.rmtree(_tmp7, ignore_errors=True)
+
     print("[381] 행수 세기는 캐시 뒤에 · **중간에 저장한다**(죽어도 진도가 남는다) · "
           "딸려 받은 stat 을 쓴다 · 못 읽은 것은 안 굳힌다 · 구간 자국 살아 있음")
 

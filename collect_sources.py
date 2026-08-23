@@ -97,6 +97,11 @@ def _dest_base(k):
 
 def plan():
     """[(원본, 대상, 분류)] — 어디서 어디로 갈지. 판단은 여기서만 한다."""
+    # 캐시는 **회차 한 번 동안만** 산다 — 오래 들고 있으면 그 사이 남이 넣은
+    # 파일을 못 본다. 같은 프로세스에서 두 번 부르는 곳(검증·앱 서버)이 있어
+    # 여기서 비운다(2026-08-22 에 만들면서 이 줄을 빠뜨렸다).
+    _SRC_STAT.clear()
+    _DST_ENTRIES.clear()
     jobs = []
 
     # ERP 내보내기 / 쿠팡 목록 — 파일명이 무작위일 수 있어 **내용으로** 가른다
@@ -199,12 +204,30 @@ def plan():
                 continue
         except (OSError, ValueError):
             continue
-        for base, _dirs, files in os.walk(folder):
-            for name in sorted(files):
-                if name.startswith("~$") or name.lower() in ("thumbs.db", ".ds_store"):
-                    continue
-                src = os.path.join(base, name)
-                jobs.append((src, po_dir_for(src), "오종현 PO 원본"))
+        # ★ 목록에 딸려 온 stat 을 버리지 않는다([198]). `os.walk` 는 **이름만**
+        #   주므로 아래 `copy_one` 이 파일마다 `os.stat(src)` 를 다시 부른다 —
+        #   Z:(SMB)에서는 그것이 파일당 왕복 한 번(135~155ms)이고 `scandir`
+        #   항목의 `.stat()` 은 0.04ms 다(3,000배).
+        #   실측 2026-08-23 09:35 회차: 이 폴더에서 온 판정이 **전부 `[동일]`**
+        #   (이미 옮겨져 아무 일도 안 한다)인데 그것만으로 **40분 제한에 걸려
+        #   끊겼다**(코드 -9 · 회차 80.7분). 2026-08-22 에 목적지 쪽 왕복 둘을
+        #   없앴지만 **원본 쪽 하나가 남아** 회차가 그대로 죽었다 — 그날 스스로
+        #   "다음 회차가 답한 뒤에 한다"고 적어 둔 자리이고, 그 회차가 답했다.
+        # ⚠ `skip_dirs=()` 는 **일부러 비운 것**이다 — 색인의 기본 목록을 말없이
+        #   물려받으면 `_보관`·`_바로가기` 안의 파일이 조용히 빠지면서 화면은
+        #   "완료"라고 적는다([198] 의 ⚠). `os.walk` 도 아무것도 안 걸렀다.
+        from source_index import walk_stat    # 늦게 — 순환 import 를 만들지 않는다
+        found = []
+        for base, name, st in walk_stat(folder, skip_dirs=()):
+            if name.startswith("~$") or name.lower() in ("thumbs.db", ".ds_store"):
+                continue
+            found.append((os.path.join(base, name), st))
+        # walk_stat 은 순서를 보장하지 않는다(스택이라 폴더가 역순이다) — 로그는
+        # 사람이 읽는 목록이라 정렬한다. stat 객체는 비교할 수 없으므로 경로만 본다.
+        found.sort(key=lambda t: t[0])
+        for src, st in found:
+            _SRC_STAT[src] = st
+            jobs.append((src, po_dir_for(src), "오종현 PO 원본"))
 
     for folder in RECEIPT_DIRS:
         try:
@@ -239,6 +262,11 @@ def plan():
 #: ★ `scandir` 항목의 stat 은 목록에 딸려 오므로 폴더 하나에 왕복 한 번이면 된다.
 #: ⚠ 회차 한 번 동안만 산다 — 오래 들고 있으면 남이 그 사이에 넣은 파일을 못 본다.
 _DST_ENTRIES = {}
+
+# ★ 목록에 딸려 온 원본 stat 을 여기 담아 `copy_one` 에 넘긴다([198]).
+#   `jobs` 모양은 **그대로 3튜플**이다 — 검증(`t358`)이 `for s, d, why in jobs`
+#   로 언패킹하므로 4튜플로 넓히면 그 검사가 그날부터 죽는다.
+_SRC_STAT = {}
 
 
 def _dst_entries(d):
@@ -465,7 +493,10 @@ def main():
     print(f"{'복사 실행' if apply else '미리보기(복사 안 함)'} — 대상 {len(jobs)}개\n")
     tally = {}
     for src, dst_dir, kind in jobs:
-        state, dst = copy_one(src, dst_dir, apply)
+        # ★ 어제 만든 `st` 인자를 **부르는 쪽이 안 넘기고 있었다** — 그래서
+        #   `copy_one` 안의 `_same()` 이 `os.stat(src)` 를 그대로 불렀다.
+        #   인자를 만들었으면 **넘기는 자리까지가 한 벌**이다.
+        state, dst = copy_one(src, dst_dir, apply, _SRC_STAT.get(src))
         tally[state] = tally.get(state, 0) + 1
         print(f"  [{state:6s}] {os.path.basename(dst_dir)}/{os.path.basename(dst)}   ({kind})")
 
