@@ -27373,6 +27373,137 @@ def t403_soft_delete_is_covered_by_verified_archive():
 
     print("✅ [403] soft-delete 도 검증 sidecar 보관 · outbox 무한 재시도 차단")
 
+
+def t404_stuck_autorecovery_reaches_the_handoff():
+    """자율복구가 **오래 못 푸는 일**이 인계까지 온다 (2026-08-23 형님 지시).
+
+    실측 그날: `reports/자율자동화_상태.md` 가 다섯 건을 시도 횟수·갈래까지 정확히
+    적고 있었는데 **그 파일을 읽는 코드가 한 곳도 없었다**
+    (`session_handoff`·`system_audit` 둘 다 grep 0건 · [328]).
+    그래서 폰이 PC 없이 보는 클라우드 사본이 **9일째 한 번도 안 올라갔는데도**
+    (`cloud_continuity.json` 에 `ok:false · HTTP 404` 가 그대로 있었다)
+    인계 '먼저 처리할 것' 17건 어디에도 안 떴다([169]).
+
+    ★ 실측 증거(`reports/autopilot_queue.json`)는 **한 글자도 안 건드린다**([247]).
+    """
+    import autopilot as AP404
+
+    def 큐(items):
+        return {"version": 1, "items": items}
+
+    def 항목(name, status="retry", attempts=0, kind="code", err=""):
+        return {"name": name, "status": status, "attempts": attempts,
+                "kind": kind, "last_error": err}
+
+    실제 = os.path.join(ROOT, "reports", "autopilot_queue.json")
+    전 = os.path.getmtime(실제) if os.path.exists(실제) else None
+
+    # ① 오래 굳은 것만 올린다 — 대기 자체는 정상이다([170])
+    r = AP404.stuck(큐([항목("갓 시작", attempts=1),
+                        항목("아홉 번", attempts=AP404.STUCK_TRIES - 1),
+                        항목("열 번", attempts=AP404.STUCK_TRIES)]))
+    이름 = [x["이름"] for x in r["굳음"]]
+    assert 이름 == ["열 번"], \
+        "[404] 한도 아래를 올리거나 한도를 넘긴 것을 뺀다 — %r" % 이름
+
+    # ② 끝난 일은 안 올린다(done 을 올리면 경보가 매일 뜬다 · [170])
+    r = AP404.stuck(큐([항목("끝남", status="done", attempts=99)]))
+    assert not r["굳음"], "[404] 끝난 일을 굳었다고 한다"
+
+    # ③ 오래 굳은 순서다 — 사람이 위에서부터 본다
+    r = AP404.stuck(큐([항목("적게", attempts=12), 항목("많이", attempts=30)]))
+    assert [x["이름"] for x in r["굳음"]] == ["많이", "적게"], "[404] 순서가 시도 순이 아니다"
+
+    # ④ ★ 원인이 **가운데** 있어도 싣는다([365] — 앞도 꼬리도 아니다).
+    #    실측 '고정 주소 사본 올리기' 는 앞이 "사본 만드는 중…", 끝이 openpyxl 경고라
+    #    정작 `HTTP 404` 가 둘 사이에 묻혀 있었다.
+    가운데 = ("사본 만드는 중…\n"
+              + "i 관리대장 최신본 자동 탐지: v615.xlsx\n" * 6
+              + "! 클라우드 연속운영 사본 실패: HTTPError: HTTP Error 404: Not Found\n"
+              + "openpyxl UserWarning: Data Validation extension is not supported\n")
+    r = AP404.stuck(큐([항목("사본", attempts=26, err=가운데)]))
+    왜 = r["굳음"][0]["왜"]
+    assert "404" in 왜, "[404] 진짜 원인을 못 싣는다 — 겉은 경보인데 왜인지 못 읽는다: " + 왜[:90]
+
+    # ⑤ 정상 출력의 '실패 0건' 을 원인으로 지목하지 않는다([172] — 오탐이 못 잡는 것보다 나쁘다)
+    assert not AP404._ERR_MARK.search("업로드 원본 분류: 0건 · 미분류 0건 · 실패 0건"), \
+        "[404] 멀쩡한 줄을 오류로 지목한다"
+
+    # ⑥ 오류 표시가 없으면 **꼬리**를 준다 — 빈손으로 돌려보내지 않는다([169])
+    r = AP404.stuck(큐([항목("표시없음", attempts=15, err="가" * 400 + "끝부분")]))
+    assert "끝부분" in r["굳음"][0]["왜"], "[404] 오류 표시가 없다고 아무 말도 안 한다"
+
+    # ⑦ 못 읽으면 '걸린 것 없음' 이 아니라 **못 읽었다**([169])
+    class _깨짐(dict):
+        # ⚠ **빈 dict 는 falsy** 라 `doc or _load_queue()` 가 진짜 큐를 읽는다 —
+        #   그러면 이 검사는 아무것도 안 재면서 통과한다([385]).
+        def get(self, *a, **k):
+            raise RuntimeError("합성: 큐가 깨졌다")
+    깨진큐 = _깨짐()
+    깨진큐["items"] = []                      # truthy 로 만든다
+    r = AP404.stuck(깨진큐)
+    assert r["못읽음"] and not r["굳음"], "[404] 못 읽었는데 '걸린 것 없음' 으로 넘어간다"
+
+    # ⑧ ★ 인계가 **실제로 싣는가**([328] — 함수만 있고 안 부르면 없는 것과 같다).
+    #    이 검사가 이 항목의 핵심이다 — 여태 그 자리가 비어 있어 9일이 조용했다.
+    # ★ **회차가 담고 인계는 읽기만 한다**([291]·[168]). 처음에 `blockers()` 안에서
+    #   `autopilot.stuck()` 을 직접 불렀더니 **합성 스냅샷으로 부르는 t380 이 통째로
+    #   막혔다**(진짜 대기열 4건이 끼어들었다) — [291] 이 t111 에서 이미 겪은 자리다.
+    import session_handoff as SH404
+
+    class _Snap(dict):                      # 없는 칸은 빈 값([320])
+        def __missing__(self, k):
+            return []
+
+    굳음 = {"굳음": [{"이름": "합성작업", "시도": 30, "갈래": "code",
+                     "왜": "HTTPError: HTTP Error 404: Not Found"}],
+            "못읽음": "", "한도": 10}
+    b = SH404.blockers(_Snap({"밴드등록모호": {}, "자율복구굳음": 굳음}))
+    문구 = " ".join(m for m, _ in b)
+    assert "자율복구" in 문구 and "합성작업" in 문구 and "404" in 문구, \
+        "[404] 굳은 일이 인계에 안 실리거나 이름·원인이 빠졌다([169]·[172])"
+
+    # ⑨ 못 읽었으면 **못 읽었다고** 말한다 — 조용히 넘기면 '걸린 것 없음' 으로 읽힌다
+    b = SH404.blockers(_Snap({"밴드등록모호": {}, "자율복구굳음":
+                              {"굳음": [], "못읽음": "합성: 큐가 깨졌다", "한도": 10}}))
+    assert any("못 읽었다" in m for m, _ in b), "[404] 못 읽은 경우를 조용히 넘긴다([169])"
+
+    # ⑩ **키가 아예 없으면 아무 말도 안 한다**([247]) — 안 물어본 것과 빈 것은 다르다.
+    #    이것이 t380 을 살리는 계약이다(합성 스냅샷에 이 칸이 없다).
+    assert SH404.blockers(_Snap({"밴드등록모호": {}})) == [], \
+        "[404] 안 물어본 칸으로 경보를 만든다 — 합성 스냅샷을 쓰는 검증이 통째로 막힌다"
+
+    # ⑪ 인계는 큐를 **직접 읽지 않는다**([162]·[291] 회귀 금지)
+    sh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    blk = sh[sh.index("def blockers("):]
+    blk = blk[:blk.index("\ndef ")]
+    assert "자율복구굳음" in blk, "[404] 인계가 스냅샷 칸을 안 읽는다"
+    # ★ 규칙을 세기 전에 **설명을 걷어낸다** — 이 저장소가 아홉 번 밟은 자리다
+    #   ([301]⑨·[302]·[309]·[332]·[339]·[370]·[272]·[399]·여기). 안 걷으면
+    #   "판정은 `autopilot.stuck()` 한 곳이다" 라는 **주석 자신**이 위반으로 잡힌다.
+    blk = _t370_code_only(blk)
+    for 금지 in ("autopilot_queue.json", "autopilot.stuck()", "_ap.stuck()"):
+        assert 금지 not in blk, \
+            "[404] 인계가 살아 있는 기계를 직접 묻는다 — 합성 스냅샷 검증이 막힌다([291])"
+    # ⑫ 담는 자리는 회차다 — 스냅샷에 실제로 들어가는가([328])
+    snap = sh[sh.index("def collect("):]   # 스냅샷을 만드는 함수 이름이다
+    snap = snap[:snap.index("\ndef ")]
+    assert '"자율복구굳음"' in snap, "[404] 회차가 스냅샷에 안 담는다 — 인계가 영영 못 읽는다"
+
+    # ⑩ 계기 자신을 시험한다([272]) — 한도 문을 없애면 ①이 잡아야 한다
+    보관 = AP404.STUCK_TRIES
+    try:
+        AP404.STUCK_TRIES = 0
+        r = AP404.stuck(큐([항목("갓 시작", attempts=1)]))
+        assert r["굳음"], "(자기시험 준비 실패)"
+    finally:
+        AP404.STUCK_TRIES = 보관
+
+    후 = os.path.getmtime(실제) if os.path.exists(실제) else None
+    assert 전 == 후, "[404] 검증이 진짜 대기열 파일을 건드렸다([247])"
+
+    print("✅ [404] 자율복구가 오래 못 푸는 일이 인계까지 온다 · 원인을 그대로 싣는다 (실행으로 잼)")
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -34263,6 +34394,7 @@ if __name__ == "__main__":
     t401_erp_grid_reads_what_is_there()
     t402_browser_collect_says_when_it_misses_its_chance()
     t403_soft_delete_is_covered_by_verified_archive()
+    t404_stuck_autorecovery_reaches_the_handoff()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

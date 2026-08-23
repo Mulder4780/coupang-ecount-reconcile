@@ -15,6 +15,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 from datetime import datetime, timedelta
@@ -315,6 +316,83 @@ def write_status(doc: dict[str, Any] | None = None, *, actions: list[dict[str, A
                 item.get("kind", "")))
     REPORT_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return value
+
+
+#: 출력에서 **오류처럼 보이는 줄**을 고르는 표시.
+#: `실패` 는 넣지 않는다 — 정상 출력에 흔하다(`… 미분류 0건 · 실패 0건`).
+#: 넓히면 멀쩡한 줄을 원인으로 지목하고, 그러면 사람이 엉뚱한 데를 고치러 간다([172]).
+_ERR_MARK = re.compile(
+    r"(Error|Exception|Traceback|HTTP\s*\d{3}|returncode=|시간초과|거부|Not Found)")
+
+
+def _why_line(text: str) -> str:
+    """실패 출력에서 **왜인지**를 뽑는다 — 못 찾으면 꼬리를 준다([169]).
+
+    ★ 앞을 자르면 안 된다([365]) — 실측 2026-08-23 '고정 주소 사본 올리기' 는
+      앞 160자가 전부 "사본 만드는 중… 관리대장 최신본 자동 탐지" 였다.
+    ★ 그렇다고 꼬리만 실어도 안 된다 — 그 건은 **끝이 openpyxl 경고**라
+      정작 원인인 `HTTP 404` 가 가운데 묻힌다. 그래서 **오류 줄을 먼저 세운다**.
+    ★ 여러 개면 **마지막 것**이다(진짜 원인은 대개 마지막 오류).
+    """
+    lines = [" ".join(l.split()) for l in (text or "").splitlines()]
+    lines = [l for l in lines if l]
+    for l in reversed(lines):
+        if _ERR_MARK.search(l):
+            return l[:200]
+    tail = " ".join(" ".join(lines).split())
+    if len(tail) > 160:
+        tail = "…(앞 %d자 줄임) " % (len(tail) - 160) + tail[-160:]
+    return tail
+
+
+#: 재시도를 이만큼 했는데도 안 풀리면 **사람이 봐야 한다**.
+#: 3회 반복이면 이미 AI 에게 넘긴다([190]) — 그 갑절을 넘겼다는 것은
+#: **AI 인계까지 실패했다**는 뜻이다. 낮추면 정상적으로 여러 회차 걸리는 일
+#: (보관·대량 수집)이 매일 경보가 되어 아무도 안 본다([170]).
+STUCK_TRIES = 10
+
+
+def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
+    """자율복구가 **오래 못 푸는 일**을 돌려준다 — 못 읽으면 그렇게 말한다([169]).
+
+    ★ 왜 필요한가 (2026-08-23 실측): `reports/자율자동화_상태.md` 는 다섯 건을
+      시도 횟수까지 정확히 적고 있었는데 **그 파일을 읽는 코드가 한 곳도 없었다**
+      (`session_handoff`·`system_audit` 둘 다 0건 · [328]). 그래서 폰이 PC 없이
+      보는 클라우드 사본이 **9일째 한 번도 안 올라갔는데** 인계 어디에도 안 떴다.
+      `reports/cloud_continuity.json` 에는 `ok:false · HTTP 404` 가 그대로 있었다.
+
+    ★ **경보 기준은 '대기 건수'가 아니라 '오래 굳었나'** 다. 대기 자체는 정상이고
+      (양이 많아 여러 회차 걸리는 일이 있다) 매일 뜨면 아무도 안 본다([170]).
+
+    ★ **왜인지는 지어내지 않는다**([169]·[289]) — 마지막 오류를 **그대로** 싣는다.
+      갈래마다 조치가 다르므로(`code` 는 코드·설정, `timeout` 은 양, `auth` 는 인증)
+      한 문장으로 뭉치면 사람이 엉뚱한 데를 고치러 간다([172]).
+    """
+    try:
+        doc = doc or _load_queue()
+        items = list(doc.get("items") or [])
+    except Exception as exc:                      # 못 읽었다 ≠ 걸린 것 없다([169])
+        return {"굳음": [], "못읽음": "%s: %s" % (type(exc).__name__, exc)}
+    out = []
+    for x in items:
+        if x.get("status") not in ("retry", "blocked", "manual"):
+            continue
+        try:
+            tries = int(x.get("attempts") or 0)
+        except Exception:
+            tries = 0
+        if tries < STUCK_TRIES:
+            continue
+        # ★ **뒤에서** 싣는다([365]) — 진짜 원인은 출력의 **끝**에 있다.
+        #   실측 2026-08-23: '고정 주소 사본 올리기' 는 앞 160자가 전부
+        #   "사본 만드는 중… 관리대장 최신본 자동 탐지" 라 정작 원인인
+        #   `HTTP 404` 가 안 실렸다 — 겉은 경보인데 왜인지는 못 읽는 자리다([169]).
+        왜 = _why_line(str(x.get("last_error") or ""))
+        out.append({"이름": str(x.get("name") or ""), "시도": tries,
+                    "갈래": str(x.get("kind") or ""),
+                    "왜": 왜})
+    out.sort(key=lambda r: -r["시도"])
+    return {"굳음": out, "못읽음": ""}
 
 
 def status() -> dict[str, Any]:
