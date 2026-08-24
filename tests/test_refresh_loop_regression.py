@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import json
+import io
 import os
 from pathlib import Path
 
@@ -12,6 +13,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RefreshLoopRegressionTests(unittest.TestCase):
+    def test_pipeline_json_output_falls_back_when_cp949_cannot_encode_dash(self):
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="cp949", errors="strict")
+        previous = pipeline.sys.stdout
+        pipeline.sys.stdout = stream
+        try:
+            pipeline._print_json({"summary": "완료 — 실패 0건"})
+            stream.flush()
+        finally:
+            pipeline.sys.stdout = previous
+        rendered = raw.getvalue().decode("cp949")
+        self.assertIn("\\u2014", rendered)
+        self.assertIn("summary", rendered)
+
     def test_kakao_history_ignores_repeat_time_and_never_scans_canonical_share(self):
         with tempfile.TemporaryDirectory(prefix="csos-kakao-signal-") as td:
             root = Path(td)

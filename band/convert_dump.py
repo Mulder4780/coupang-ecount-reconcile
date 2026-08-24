@@ -744,16 +744,23 @@ def _mark_changed(band, nos):
     print(f"  ★ 수정된 글 {len(nos)}건 감지({band}) → reports/밴드_수정글.json")
 
 
-def main():
+def _convert_files(files=None, checkpoint=None, apply_redirect=True):
+    """주어진 덤프를 예전 변환 규칙 그대로 병합한다.
+
+    checkpoint는 **캐시 교체와 로컬 raw 개명까지 끝난 뒤** 호출된다. 상태파일이
+    캐시보다 먼저 앞서가는 일을 막기 위해 증분 실행기가 이 경계를 사용한다.
+    """
     # ★ 리다이렉트 실패는 **회차를 가로질러** 세야 뜻이 생긴다 (분담판 [13]).
     #   한 덤프만 보면 "이번에 실패했다"밖에 모른다. 덤프는 매 실행 전부 재처리되므로
     #   여기 담아 두면 이 한 번의 실행이 곧 '여러 회차를 본 것'이 된다.
     #   {밴드: {번호: {회차 캡처시각, ...}}}
     redirect_rounds = {}
     skipped_cache = skipped_noband = 0
-    for f in dump_files():
+    for f in (dump_files() if files is None else files):
         d = json.load(open(f, encoding="utf-8"))
         if not isinstance(d, dict) or not isinstance(d.get("posts"), (dict, list)):
+            if checkpoint:
+                checkpoint(f, f, "ignored_schema", "", 0, ())
             continue
         # ★ **캐시 사본은 덤프가 아니다** (2026-08-19 실사고 · 분담판 [154]).
         #   Z: 수집본 폴더에 캐시 통사본이 날짜별로 쌓여 있어(8/14~8/19 매일 두 개)
@@ -766,6 +773,8 @@ def main():
         #   수집본까지 걸린다 — **문은 좁은 쪽으로 잡는다**(`[172]`).
         if looks_like_cache(d):
             skipped_cache += 1
+            if checkpoint:
+                checkpoint(f, f, "ignored_cache_copy", "", int(d.get("capturedAt") or 0), ())
             continue
         # ★ 밴드를 못 읽으면 **해시 이름 캐시를 만들지 않는다** (같은 사고의 곁가지).
         #   예전에는 sha256 앞 10자리로 캐시를 만들었는데, 그 파일이 다음 실행에서
@@ -775,6 +784,8 @@ def main():
         band = str(d.get("band") or band_from_name(os.path.basename(f)) or "")
         if not band:
             skipped_noband += 1
+            if checkpoint:
+                checkpoint(f, f, "ignored_no_band", "", int(d.get("capturedAt") or 0), ())
             continue
         cap = d.get("capturedAt")
         posts = {}
@@ -926,10 +937,12 @@ def main():
             merged[no] = rec
         # 이 회차가 리다이렉트로 확인한 번호를 회차 시각과 함께 쌓아 둔다.
         # 판정은 모든 덤프를 다 본 **뒤에** 한다 — 한 회차만 보고 묘비를 세우지 않는다.
+        file_redirect_hits = set()
         try:
             ok_here = sum(1 for p in posts.values() if p.get("created_at"))
             for no in _redirect_hits(d.get("notime") or {}, ok_here):
                 redirect_rounds.setdefault(band, {}).setdefault(no, set()).add(cap_ms)
+                file_redirect_hits.add(no)
         except Exception:
             pass
         if changed:
@@ -981,9 +994,13 @@ def main():
             in_cache = os.path.commonpath([os.path.abspath(f), os.path.abspath(CACHE)]) == os.path.abspath(CACHE)
         except ValueError:  # C: 처리함과 Z: 원본처럼 드라이브가 다르면 공통경로가 없다.
             in_cache = False
-        if in_cache:
+        final_path = f
+        if in_cache and os.path.basename(f).startswith("dump_"):
             raw = os.path.join(CACHE, f"raw_{os.path.basename(f)[5:-5]}.json")
             os.replace(f, raw)
+            final_path = raw
+        if checkpoint:
+            checkpoint(f, final_path, "merged", band, cap_ms, file_redirect_hits)
         # ★ `.get` 이어야 한다 (2026-08-07 실사고). 지운 글의 묘비 기록에는 본문이 없어
         #   `created_at` 키 자체가 없다. 과거글 구간에는 지운 글이 수백 건씩 섞여 있어서,
         #   밤새 모은 6천여 건이 **전부 캐시에 못 들어가고** "덤프 → 캐시 [FAIL]" 한 줄만
@@ -995,6 +1012,18 @@ def main():
     # ── 모든 덤프를 본 뒤에야 리다이렉트 묘비를 세운다 (분담판 [13]) ──────────────
     # 캐시를 다시 열어 고치는 이유는, 판정에 필요한 '서로 다른 회차'가 위 반복문을
     # 다 돌아야 비로소 모이기 때문이다. 회차 하나로는 판정할 수 없다.
+    if apply_redirect:
+        _apply_redirect_rounds(redirect_rounds)
+
+    # ★ **뺀 것은 조용히 빼지 않는다**(`[169]`) — 0건이 '다 봤다'로 읽히면 안 된다.
+    if skipped_cache or skipped_noband:
+        print(f"  · 덤프가 아닌 파일 건너뜀 — 캐시 사본 {skipped_cache}개"
+              f" · 밴드를 못 읽은 파일 {skipped_noband}개 (분담판 [154])")
+    return redirect_rounds
+
+
+def _apply_redirect_rounds(redirect_rounds):
+    """완전 재생이 확인된 때에만 redirect 묘비를 캐시에 적용한다."""
     for band, rounds in redirect_rounds.items():
         ripe = {no: w for no, w in rounds.items()
                 if len(w) >= REDIRECT_ROUNDS_FOR_DELETED}
@@ -1017,10 +1046,112 @@ def main():
         print(f"  · 리다이렉트로 확인된 삭제 글 {n}건 기록({band}) "
               f"— 서로 다른 회차 {REDIRECT_ROUNDS_FOR_DELETED}번 이상. 다시 훑지 않는다")
 
-    # ★ **뺀 것은 조용히 빼지 않는다**(`[169]`) — 0건이 '다 봤다'로 읽히면 안 된다.
-    if skipped_cache or skipped_noband:
-        print(f"  · 덤프가 아닌 파일 건너뜀 — 캐시 사본 {skipped_cache}개"
-              f" · 밴드를 못 읽은 파일 {skipped_noband}개 (분담판 [154])")
+
+def main(explicit_paths=None, budget_sec=None, lock_wait_sec=None):
+    """신규·변경 우선 증분 변환기.
+
+    첫 도입 또는 변환 규칙 변경 때의 과거 파일은 시간예산만큼 처리하고 파일마다
+    이어받기 상태를 남긴다. 신규·변경 파일은 그 대기열보다 먼저 전부 처리한다.
+    """
+    if not _lock_acquire(lock_wait_sec):
+        print("  · 밴드 덤프 변환기가 이미 실행 중입니다 — 이번 호출은 겹쳐 쓰지 않습니다")
+        return 0
+    try:
+        version = converter_version()
+        state = load_state()
+        inventory = dump_inventory(state, explicit_paths=explicit_paths)
+        _prune_state_files(state, inventory)
+        state["target_version"] = version
+
+        # 첫 도입에서 458개를 '신규'로 오해해 시간예산을 무시하지 않도록, 현재
+        # 목록을 pending으로 먼저 원자 저장한다. 캐시 완료 표시는 아직 하나도 아니다.
+        bootstrap = not state.get("files") and not state.get("completed_version")
+        if bootstrap:
+            for key, row in inventory["files"].items():
+                state["files"][key] = _state_entry(row, "", "pending")
+            state["bootstrap_pending"] = True
+            save_state(state)
+
+        fresh, replay = [], []
+        for key, row in inventory["files"].items():
+            entry = state["files"].get(key)
+            if _entry_current(entry, row, version):
+                continue
+            # 지문이 없거나 바뀐 파일은 방금 들어온 자료다. 같은 파일인데 변환기
+            # 버전만 옛것이면 재생 대기열로 보내 시간예산 안에서 이어간다.
+            target = fresh if not entry or not _same_fingerprint(entry, row) else replay
+            target.append((key, row))
+        newest_first = lambda item: (-int(item[1].get("mtime_ns") or 0), item[0])
+        fresh.sort(key=newest_first)
+        replay.sort(key=newest_first)
+
+        current = {"key": None, "row": None}
+
+        def checkpoint(old_path, final_path, status, band, captured_at, redirect_hits):
+            old_key = _norm_path(old_path)
+            row = inventory["files"].get(old_key) or current["row"]
+            if row is None:
+                raise RuntimeError(f"체크포인트 입력을 찾을 수 없습니다: {old_path}")
+            final_key = _norm_path(final_path)
+            final_row = dict(row)
+            if final_key != old_key:
+                st = os.stat(final_path)
+                final_row.update({"path": final_path, "root": _norm_path(CACHE),
+                                  "size": int(st.st_size),
+                                  "mtime_ns": int(getattr(st, "st_mtime_ns",
+                                                          int(st.st_mtime * 1e9))),
+                                  "source_kind": "local_raw"})
+                inventory["files"].pop(old_key, None)
+                state["files"].pop(old_key, None)
+                inventory["files"][final_key] = final_row
+            state["files"][final_key] = _state_entry(
+                final_row, version, status, band, captured_at, redirect_hits)
+            # merged 상태는 캐시 swap 성공 뒤에만 여기 온다. 여기서 상태까지 swap하면
+            # 중간에 죽어도 다음 회차는 정확히 이 다음 파일부터 이어간다.
+            save_state(state)
+
+        processed_fresh = processed_replay = 0
+        for key, row in fresh:
+            current.update(key=key, row=row)
+            _convert_files([row["path"]], checkpoint=checkpoint, apply_redirect=False)
+            processed_fresh += 1
+
+        replay_started = time.monotonic()
+        replay_budget = REPLAY_BUDGET_SEC if budget_sec is None else max(0.0, float(budget_sec))
+        for key, row in replay:
+            if time.monotonic() - replay_started >= replay_budget:
+                break
+            current.update(key=key, row=row)
+            _convert_files([row["path"]], checkpoint=checkpoint, apply_redirect=False)
+            processed_replay += 1
+
+        all_current = all(
+            _entry_current(state["files"].get(key), row, version)
+            for key, row in inventory["files"].items())
+        full_replay = all_current and not inventory["unavailable_roots"]
+        if full_replay:
+            # redirect는 파일별 근거를 상태에서 완전히 다시 조립한다. Z:를 못 본 회차나
+            # 구버전 백로그가 남은 회차는 묘비를 절대 세우지 않는다.
+            _apply_redirect_rounds(redirect_rounds_from_state(state, inventory, version))
+            state["completed_version"] = version
+            state["bootstrap_pending"] = False
+        else:
+            state["bootstrap_pending"] = True
+            why = []
+            if not all_current:
+                why.append("과거 덤프 재생 대기")
+            if inventory["unavailable_roots"]:
+                why.append("원본 루트 확인 불가")
+            print("  · redirect 삭제 판정 보류 — " + " · ".join(why))
+        save_state(state)
+        remaining = sum(
+            not _entry_current(state["files"].get(key), row, version)
+            for key, row in inventory["files"].items())
+        print(f"  · 증분 변환: 신규·변경 {processed_fresh}개 · 과거 재생 {processed_replay}개"
+              f" · 남음 {remaining}개")
+        return 0
+    finally:
+        _lock_release()
 
 
 if __name__ == "__main__":

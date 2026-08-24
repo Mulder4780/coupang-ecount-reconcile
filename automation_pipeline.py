@@ -1509,6 +1509,27 @@ def self_test() -> bool:
     return True
 
 
+def _print_json(payload: Mapping[str, Any], *, indent: Optional[int] = None) -> None:
+    """Write JSON even when Windows stdout is CP949 or absent.
+
+    The scheduled task normally uses ``pythonw`` without a console, while
+    manual checks often inherit CP949.  Completed work must not be reported as
+    failed merely because an operator-facing em dash cannot be encoded.
+    """
+
+    stream = sys.stdout
+    if stream is None:
+        return
+    try:
+        stream.write(
+            json.dumps(payload, ensure_ascii=False, indent=indent, default=str) + "\n"
+        )
+    except UnicodeEncodeError:
+        stream.write(
+            json.dumps(payload, ensure_ascii=True, indent=indent, default=str) + "\n"
+        )
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="CSOS incremental automation pipeline")
     parser.add_argument("--once", action="store_true")
@@ -1525,21 +1546,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("automation_pipeline self-test: OK")
         return 0
     if args.status:
-        print(json.dumps(status(), ensure_ascii=False, indent=1, default=str))
+        _print_json(status(), indent=1)
         return 0
     pipeline = AutomationPipeline()
     if args.prime:
         result = pipeline.prime(trigger=args.trigger or "deployment")
-        print(json.dumps(result, ensure_ascii=False, indent=1, default=str))
+        _print_json(result, indent=1)
         return 0 if result.get("ok") else 1
     if args.watch:
         interval = max(10, min(60, int(args.interval)))
         while True:
             result = pipeline.run_once(trigger=args.trigger or "watch", force=args.force)
-            print(json.dumps(result, ensure_ascii=False, default=str))
+            _print_json(result)
             time.sleep(interval)
     result = pipeline.run_once(trigger=args.trigger, force=args.force)
-    print(json.dumps(result, ensure_ascii=False, indent=1, default=str))
+    _print_json(result, indent=1)
     return 0 if result.get("ok") else 1
 
 
