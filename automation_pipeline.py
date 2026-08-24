@@ -197,6 +197,37 @@ def pipeline_lock_status(path: Path = LOCK_PATH) -> Dict[str, Any]:
     }
 
 
+def daily_run_lock_status(path: Path) -> Dict[str, Any]:
+    """Verify the daily reconciliation owner without reclaiming its lock."""
+
+    lock_path = Path(path)
+    try:
+        owner = json.loads(lock_path.read_text(encoding="utf-8"))
+        stat = lock_path.stat()
+    except FileNotFoundError:
+        return {"exists": False, "alive": False, "path": str(lock_path)}
+    except (OSError, ValueError, TypeError):
+        return {"exists": True, "alive": None, "path": str(lock_path)}
+    try:
+        started_at = datetime.fromisoformat(str(owner.get("started_at") or "")).timestamp()
+    except (TypeError, ValueError):
+        started_at = stat.st_mtime
+    try:
+        pid = int(owner.get("pid") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    verdict = (
+        pid_alive.owner_alive(
+            pid,
+            pid_started_at=owner.get("pid_started_at"),
+            born_before=started_at,
+        )
+        if pid > 0
+        else None
+    )
+    return {"exists": True, "alive": verdict, "pid": pid, "path": str(lock_path)}
+
+
 class LockOwnershipLost(RuntimeError):
     """The current round no longer owns the lock capability."""
 
@@ -1044,6 +1075,18 @@ class AutomationPipeline:
             self._release_run()
 
     def run_once(self, *, trigger: str = "scheduler", force: bool = False) -> Dict[str, Any]:
+        # Daily reconciliation is the reporting gate and gets disk priority.
+        # Starting this pipeline three minutes after that gate began made both
+        # jobs contend on the same network workbooks; a normally 15.8-minute
+        # synthetic check then hit its 25-minute timeout.  Unknown ownership is
+        # conservatively busy, just like the pipeline lock itself.
+        daily = daily_run_lock_status(self.root / "reports" / ".daily_run.lock")
+        if daily.get("exists") and daily.get("alive") is not False:
+            return {
+                "ok": True,
+                "status": "deferred_daily",
+                "message": "일일대조가 원본을 읽는 중이라 증분 갱신을 다음 회차로 미룹니다",
+            }
         if not self._acquire_run():
             return {"ok": True, "status": "already_running", "message": "자동화가 이미 실행 중입니다"}
         started = _now()

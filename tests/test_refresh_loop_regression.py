@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import json
+import os
 from pathlib import Path
 
 import automation_pipeline as pipeline
@@ -112,6 +113,36 @@ class RefreshLoopRegressionTests(unittest.TestCase):
                 self.assertNotEqual(before["fingerprint"], after["fingerprint"])
             finally:
                 worker._release_run()
+
+    def test_daily_reconciliation_has_priority_over_incremental_pipeline(self):
+        with tempfile.TemporaryDirectory(prefix="csos-daily-priority-") as td:
+            root = Path(td)
+            reports = root / "reports"
+            reports.mkdir(parents=True)
+            identity = pipeline.pid_alive.identity()
+            (reports / ".daily_run.lock").write_text(
+                json.dumps(
+                    {
+                        "pid": os.getpid(),
+                        "pid_started_at": identity.get("pid_started_at"),
+                        "token": "test",
+                        "started_at": "2026-08-24T12:00:00+09:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            calls = []
+            worker = pipeline.AutomationPipeline(
+                root=root,
+                state_path=reports / "state.json",
+                lock_path=reports / ".pipeline.lock",
+                store=AppStore(root / "db" / "app.db").initialize(),
+                stage_runner=lambda *args: calls.append(args),
+            )
+            result = worker.run_once(trigger="test-daily-priority", force=True)
+            self.assertEqual(result["status"], "deferred_daily")
+            self.assertEqual(calls, [])
+            self.assertFalse((reports / ".pipeline.lock").exists())
 
     def test_run_view_does_not_show_or_fetch_dashboard_heavy_sections(self):
         html = (ROOT / "webapp" / "index.html").read_text(encoding="utf-8")
