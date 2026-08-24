@@ -122,6 +122,23 @@ def render(row, path):
     return html_to_pdf(html, path)
 
 
+def render_atomic(row, path):
+    """시간 제한 중 끊긴 PDF를 정상 보관본으로 세지 않는다."""
+    tmp = path + f".part-{os.getpid()}"
+    try:
+        made = render(row, tmp)
+        if made and os.path.exists(tmp):
+            os.replace(tmp, path)
+            return path
+        return None
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=400)
@@ -132,9 +149,9 @@ def main():
     os.makedirs(os.path.dirname(OUT_JSON), exist_ok=True)
     json.dump({"count": len(rows), "src": src, "rows": rows},
               open(OUT_JSON, "w", encoding="utf-8"), ensure_ascii=False)
-    root, made, skip, fail = out_root(), 0, 0, 0
+    root, made, skip, fail, attempted = out_root(), 0, 0, 0, 0
     for row in rows:
-        if made >= a.limit:
+        if attempted >= a.limit:
             break
         y, m = row["slip"][:4], row["slip"][5:7]
         uj = (UJ.search(row.get("project") or "") or [None])
@@ -147,8 +164,9 @@ def main():
         if not a.force and os.path.exists(dst):
             skip += 1
             continue
+        attempted += 1
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        if render(row, dst):
+        if render_atomic(row, dst):
             made += 1
         else:
             fail += 1

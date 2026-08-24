@@ -347,6 +347,7 @@ def archive_band(band, posts, limit, force, stat):
             # 영구 실패하는 사진 몇 장이 앞에 있어도 그 글들만 무한 재시도하지 않는다.
             if submitted >= limit and not futs:
                 break
+    return submitted
 
 
 def main():
@@ -360,14 +361,22 @@ def main():
     files = [os.path.join(CACHE, f"{a.band}.json")] if a.band else \
         [f for f in glob.glob(os.path.join(CACHE, "*.json"))
          if os.path.basename(f)[:-5].isdigit()]
+    # `--limit`은 밴드마다가 아니라 **이번 실행 전체** 상한이다. 밴드가 두 개면
+    # 예전 코드는 150을 각각 적용해 최대 300건을 만들었다. 화면에는 150건 회차로
+    # 보이면서 시간이 두 배 걸리는 조용한 오류였다.
+    remaining = max(0, a.limit)
     for f in sorted(files):
+        if remaining <= 0:
+            break
         if not os.path.exists(f):
             continue
         band = os.path.basename(f)[:-5]
-        doc = json.load(open(f, encoding="utf-8"))
+        with open(f, encoding="utf-8") as src:
+            doc = json.load(src)
         posts = doc.get("posts") or {}
         posts["_band_name"] = doc.get("band_name") or band
-        archive_band(band, posts, a.limit, a.force, stat)
+        attempted = archive_band(band, posts, remaining, a.force, stat)
+        remaining -= max(0, int(attempted or 0))
     print(f"밴드 게시글 보관: 새로 {stat['made']}건 · 건너뜀 {stat['skip']} · "
           f"사진 {stat['photo']}장 · 미완 {stat['incomplete']} · "
           f"PDF실패 {stat['pdf_fail']} → {out_root()}")

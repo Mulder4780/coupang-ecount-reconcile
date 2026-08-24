@@ -21,7 +21,7 @@ ecount_reconcile.py — 관리대장 ↔ 이카운트(ECOUNT) 대조기
     python ecount_reconcile.py --selftest # 설정/인증만 점검
 """
 import sys, os, csv, json, time, threading
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -727,11 +727,121 @@ INBOX_DIR = os.path.join(BASE_DIR, "inbox")
 SALE_NEVER = ("ledger_acct", "journal", "cashbook",
               "unknown", "taxstep", "quote", "receipt")
 
+INBOX_HASH_CACHE = os.path.join(REPORT_DIR, "ecount_reconcile_hashes.json")
+INBOX_PARSE_CACHE = os.path.join(REPORT_DIR, "ecount_reconcile_rows.json")
+
+
+def _atomic_json(path, payload):
+    """속도 캐시는 못 써도 본 대조를 막지 않는다."""
+    tmp = path + ".%s.tmp" % os.getpid()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, separators=(",", ":"))
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def _json_cache(path, default):
+    try:
+        data = json.load(open(path, encoding="utf-8"))
+        return data if isinstance(data, dict) else default
+    except Exception:
+        return default
+
+
+def _intake_excel_paths():
+    """이번 회차가 막 옮긴 엑셀 경로. 최근 분류표보다 항상 우선해 합친다."""
+    out = []
+    for name in ("upload_intake.json", "download_intake.json"):
+        data = _json_cache(os.path.join(REPORT_DIR, name), {})
+        for row in data.get("이동", []):
+            path = row.get("목적지") if isinstance(row, dict) else ""
+            if str(path).lower().endswith((".xls", ".xlsx", ".xlsm")):
+                out.append(path)
+    return out
+
+
+def _dated_excel_paths(roots, days=3):
+    """오늘·직전 날짜 폴더만 짧게 본다. ERP 직접 다운로드도 즉시 흡수하기 위함이다."""
+    import glob
+    out = []
+    today = datetime.now().date()
+    for root in roots:
+        if os.path.normcase(os.path.abspath(root)) == os.path.normcase(os.path.abspath(INBOX_DIR)):
+            out.extend(glob.glob(os.path.join(root, "**", "*.xls*"), recursive=True))
+            continue
+        for back in range(max(1, int(days))):
+            d = today - timedelta(days=back)
+            folder = os.path.join(root, f"{d.year}", f"{d.month:02d}", d.isoformat())
+            out.extend(glob.glob(os.path.join(folder, "*.xls*")))
+    return out
+
+
+def _inbox_inventory(roots):
+    """(경로, 내용종류, [크기, 수정초]) 목록.
+
+    원본 전체를 매번 다시 여는 대신 저장 후 불변인 과거 자료는 분류표를 쓰고, 오늘 자료와
+    투입함 이동 결과만 실제 파일 상태를 확인한다. 분류 규칙판이 바뀌거나 캐시가 깨지면
+    기존 전체 훑기로 자동 복귀한다.
+    """
+    import glob
+    from inbox_scan import cached_inventory, classify_cached, SKIP_DIRS
+
+    snap = cached_inventory(roots, max_age_s=366 * 86400)
+    items = {}
+    if snap is None:
+        base_paths = []
+        for root in roots:
+            base_paths.extend(glob.glob(os.path.join(root, "**", "*.xls*"), recursive=True))
+        refresh = base_paths
+    else:
+        for row in snap:
+            if not str(row["path"]).lower().endswith(".xlsx"):
+                continue
+            key = os.path.normcase(os.path.abspath(row["path"]))
+            items[key] = (row["path"], row["kind"], [row["size"], row["mtime"]])
+        refresh = _dated_excel_paths(roots) + _intake_excel_paths()
+
+    for path in refresh:
+        if (not path or os.path.basename(path).startswith("~$")
+                or not str(path).lower().endswith(".xlsx")):
+            continue
+        if any(seg in SKIP_DIRS for seg in path.replace("\\", "/").split("/")):
+            continue
+        key = os.path.normcase(os.path.abspath(path))
+        # 정본 보관소는 같은 경로를 덮어쓰지 않고 충돌 이름을 새로 만든다. 최근 날짜
+        # 폴더에서 이름이 이미 분류표에 있으면 네트워크 stat까지 다시 할 이유가 없다.
+        if key in items:
+            continue
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        sig = [int(st.st_size), int(st.st_mtime)]
+        kind = classify_cached(path)
+        items[key] = (path, kind, sig)
+    return list(items.values()), snap is not None
+
+
+def _sale_kind(classified, name):
+    if classified == "ledger" or classified in SALE_NEVER:
+        return None
+    if classified in ("tax", "taxinv", "hometax"):
+        return "tax_invoice"
+    if classified in ("sales", "stmt", "slips", "po"):
+        return "sale"
+    return "tax_invoice" if ("세금계산서" in name or "계산서" in name) else "sale"
+
 def load_inbox(cfg):
     """이카운트 화면에서 내려받은 판매현황/세금계산서 엑셀을 inbox/에서 읽어
     API 조회 결과와 동일한 형태(CAND 키)로 정규화한다.
     파일 분류: 파일명에 '판매'→sale, '세금계산서' 또는 '계산서'→tax_invoice."""
-    import openpyxl, glob
+    import openpyxl
     # ★ 2026-07-30 수정 이유: 여기는 `INBOX_DIR/*.xlsx` **비재귀** 글롭이라
     #   (1) 원본 자료 폴더(`0. 원본 자료/1. ERP 내보내기/2026/07/2026-07-25/...`)를 아예 못 봤고
     #   (2) 로컬 inbox 의 하위 폴더도 못 봤다. 실제로 판매조회(898행)가 원본 자료 폴더에만
@@ -739,25 +849,32 @@ def load_inbox(cfg):
     #   경로는 source_dirs 한 곳에서만 정한다는 원칙(AGENTS.md)에 맞춰 excel_dirs() 를 쓴다.
     from source_dirs import excel_dirs
     from billing_fill import dedupe_files
-    from inbox_scan import classify
-    cands, seen = [], set()
-    for d in excel_dirs() or [INBOX_DIR]:
-        for f in glob.glob(os.path.join(d, "**", "*.xlsx"), recursive=True):
-            if os.path.basename(f).startswith("~$"):
-                continue
-            key = os.path.normcase(os.path.abspath(f))
-            if key in seen:
-                continue
-            seen.add(key)
-            cands.append(f)
+    roots = excel_dirs() or [INBOX_DIR]
+    inventory, _fast_inventory = _inbox_inventory(roots)
+    typed, sigs, skipped = {}, {}, {}
+    for f, classified, sig in inventory:
+        kind = _sale_kind(classified, os.path.basename(f))
+        if kind is None:
+            if classified in SALE_NEVER:
+                skipped[classified] = skipped.get(classified, 0) + 1
+            continue
+        key = os.path.normcase(os.path.abspath(f))
+        typed[key] = kind
+        sigs[key] = sig
+    cands = [row[0] for row in inventory
+             if os.path.normcase(os.path.abspath(row[0])) in typed]
     # ★ 같은 내용의 사본을 여러 번 읽지 않는다. 판매조회가 SHA256 동일한 3벌 있었고
     #   (2026-07-30 3배 합산 사고) 파일명(`__dup_`)으로 거르면 다음번에 다른 이름으로 뚫린다.
-    files = dedupe_files(cands)
+    files = dedupe_files(cands, cache_path=INBOX_HASH_CACHE, signatures=sigs)
     if not files:
         return None
     out = {"sale": [], "tax_invoice": []}
     used = []
-    skipped = {}
+    parsed = _json_cache(INBOX_PARSE_CACHE, {"schema": 1, "files": {}})
+    if parsed.get("schema") != 1 or not isinstance(parsed.get("files"), dict):
+        parsed = {"schema": 1, "files": {}}
+    parsed_files = parsed["files"]
+    parsed_dirty = False
     for f in files:
         name = os.path.basename(f)
         # 파일명이 무작위인 이카운트 내보내기가 섞여 있다. **내용**으로 종류를 먼저 본다.
@@ -766,29 +883,21 @@ def load_inbox(cfg):
         #   `po` 로 준다(2026-07-30 확인). 여기서 po 를 빼면 정작 필요한 판매 자료가 빠진다.
         #   쿠팡 PO 목록(오더 번호·고객·금액)은 아래 머리글 조건에 '공급가액/합계금액' 이
         #   없어 자연히 걸러진다 — 종류 판정에 이중으로 의존하지 않는다.
-        ck = classify(f)
-        if ck == "ledger":
+        cache_key = os.path.normcase(os.path.abspath(f))
+        kind = typed[cache_key]
+        sig = sigs[cache_key]
+        hit = parsed_files.get(cache_key)
+        if (hit and hit.get("sig") == sig and hit.get("kind") == kind
+                and isinstance(hit.get("rows"), list)):
+            out[kind].extend(hit["rows"])
+            used.append(f"{name}→{kind}")
             continue
-        if ck in ("tax", "taxinv", "hometax"):
-            kind = "tax_invoice"
-        elif ck in ("sales", "stmt", "slips", "po"):
-            # `po` 는 옛 이유로 남긴다(아래 주석) — 머리글 조건이 한 번 더 거른다.
-            kind = "sale"
-        elif ck in SALE_NEVER:
-            # ★ 모르는 것을 '판매'라 부르지 않는다 (2026-08-19 실측).
-            #   예전 마지막 줄은 `else: ... else "sale"` — **갈래를 못 알아본 파일이
-            #   전부 판매 후보**가 됐다. 실측 127개 중 62개(49%)가 판매가 아니었다:
-            #   계정별원장 10 · 분개장 2 · 현금출납장 1 (`[203]` 이 가른 회계 원장류
-            #   넷 중 `ledger` 하나만 걸러 셋이 샜다) · unknown 36 · 세금계산서
-            #   진행단계 9 · 견적 4. 거래처 마스터(`ESA001M`)·채권잔액까지 들어왔다.
-            #   ⚠ 지금은 금액 열쇠가 거의 안 돌아(원장 공급가액이 대부분 빔) 거짓
-            #     '일치'가 안 났을 뿐이다. **금액 사다리를 먼저 고치면 그 순간
-            #     남의 회사 금액에 붙는다** — 미등록으로 남는 것보다 나쁘다(`[172]`).
-            skipped[ck] = skipped.get(ck, 0) + 1
+        try:
+            wb = openpyxl.load_workbook(f, read_only=True, data_only=True)
+        except (OSError, ValueError, KeyError):
+            # 최근 분류표 뒤에 사람이 원본을 지웠다면 다음 전체 훑기까지 옛 행을 쓰지 않는다.
             continue
-        else:
-            kind = "tax_invoice" if ("세금계산서" in name or "계산서" in name) else "sale"
-        wb = openpyxl.load_workbook(f, read_only=True, data_only=True)
+        file_rows = []
         for ws in wb.worksheets:
             rows = list(ws.iter_rows(values_only=True))
             # 머리글 행 탐색: '공급가액' 또는 '합계' + '거래처'류가 있는 행
@@ -823,7 +932,7 @@ def load_inbox(cfg):
                 blob = " ".join(str(c) for c in r if c is not None)
                 if "합계" in blob[:10]:      # 합계행 제외
                     continue
-                out[kind].append({
+                file_rows.append({
                     "SUPPLY_AMT": _num(amt),
                     "IO_DATE": _d(r[j_date]) if j_date is not None else "",
                     "IO_NO": _d(r[j_no]) if j_no is not None else "",
@@ -831,7 +940,15 @@ def load_inbox(cfg):
                     "REMARKS": blob,
                 })
         wb.close()
+        out[kind].extend(file_rows)
+        parsed_files[cache_key] = {"sig": sig, "kind": kind, "rows": file_rows}
+        parsed_dirty = True
         used.append(f"{name}→{kind}")
+    if parsed_dirty:
+        # 현재 원본만 남긴다. 경로를 바꾸거나 삭제한 옛 파일의 행이 캐시에서 되살아나지 않는다.
+        active = {os.path.normcase(os.path.abspath(f)) for f in files}
+        parsed["files"] = {k: v for k, v in parsed_files.items() if k in active}
+        _atomic_json(INBOX_PARSE_CACHE, parsed)
     if not (out["sale"] or out["tax_invoice"]):
         return None
     if skipped:

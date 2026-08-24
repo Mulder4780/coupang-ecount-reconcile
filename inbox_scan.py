@@ -277,7 +277,8 @@ def _cls_load():
     if _CLS_DISK is None:
         try:
             import json as _json
-            _CLS_DISK = _json.load(open(_CLS_FILE, encoding="utf-8"))
+            with open(_CLS_FILE, encoding="utf-8") as fh:
+                _CLS_DISK = _json.load(fh)
         except Exception:
             _CLS_DISK = {}
     return _CLS_DISK
@@ -287,7 +288,10 @@ def _cls_save():
     try:
         import json as _json
         os.makedirs(os.path.dirname(_CLS_FILE), exist_ok=True)
-        _json.dump(_CLS_DISK, open(_CLS_FILE, "w", encoding="utf-8"), ensure_ascii=False)
+        tmp = _CLS_FILE + ".%s.tmp" % os.getpid()
+        with open(tmp, "w", encoding="utf-8") as fh:
+            _json.dump(_CLS_DISK, fh, ensure_ascii=False)
+        os.replace(tmp, _CLS_FILE)
     except Exception:
         pass
 
@@ -329,6 +333,91 @@ SCAN_TTL = 60.0                                 # 초. 한 요청 안의 반복 
 SKIP_DIRS = {"_보관", "_중복사본_보관"}      # 백업 사본 — 새 자료가 아니다
 
 
+def _inside(path, root):
+    """path 가 root 안인가. 드라이브가 다른 Windows 경로도 False 로 안전하게 가른다."""
+    try:
+        p = os.path.normcase(os.path.abspath(path))
+        r = os.path.normcase(os.path.abspath(root))
+        return os.path.commonpath([p, r]) == r
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def cached_inventory(folders, max_age_s=86400):
+    """최근 분류표를 파일 재열기 없이 돌려준다.
+
+    반환값은 ``[{path, kind, size, mtime}, ...]`` 이다. 분류표가 없거나 오래됐거나
+    현재 규칙판과 섞였으면 ``None`` 을 돌려 호출자가 기존 전체 훑기로 물러나게 한다.
+
+    원본 보관소는 업로드 흡수기가 파일을 한 번 저장한 뒤 수정하지 않는 구조다. 그래서
+    매 갱신마다 네트워크 원본 1천여 개를 다시 stat/open 하는 대신, 최근 전체 훑기의
+    (경로·크기·수정시각·종류) 목록을 재사용한다. 새 파일은 intake 보고서와 로컬 inbox를
+    별도로 합치므로 이 빠른 길 때문에 막 들어온 파일이 빠지지 않는다.
+    """
+    roots = [os.path.abspath(p) for p in (folders or []) if p]
+    if not roots:
+        return None
+    try:
+        age = time.time() - os.path.getmtime(_CLS_FILE)
+        # Windows/공유폴더의 파일시각은 현재 시계보다 몇 초 앞서 보일 수 있다. 0초보다
+        # 조금 앞섰다는 이유만으로 방금 만든 정확한 캐시를 버리면 갱신이 다시 전체 훑기로
+        # 떨어진다. 큰 시계 오류만 거부하고 5초 이내 반올림 차이는 받아들인다.
+        if age < -5 or age > float(max_age_s):
+            return None
+        raw = _cls_load()
+        if not isinstance(raw, dict) or not raw:
+            return None
+    except (OSError, TypeError, ValueError):
+        return None
+
+    out = []
+    for path, row in raw.items():
+        if not any(_inside(path, root) for root in roots):
+            continue
+        if any(seg in SKIP_DIRS for seg in path.replace("\\", "/").split("/")):
+            continue
+        if os.path.basename(path).startswith("~$") or not path.lower().endswith((".xls", ".xlsx", ".xlsm")):
+            continue
+        if not isinstance(row, (list, tuple)) or len(row) != 4:
+            return None
+        size, mtime, version, kind = row
+        if version != RULES_VERSION:
+            return None
+        try:
+            out.append({"path": path, "kind": kind,
+                        "size": int(size), "mtime": int(mtime)})
+        except (TypeError, ValueError):
+            return None
+    return out or None
+
+
+def _recent_discovery_paths(folder, days=3):
+    """분류표 뒤에 생긴 파일만 싸게 찾는다(오늘 날짜 폴더 + intake 이동 기록)."""
+    from datetime import date, timedelta
+    out = []
+    if os.path.normcase(os.path.abspath(folder)) == os.path.normcase(os.path.abspath(INBOX_DIR)):
+        out.extend(glob.glob(os.path.join(folder, "**", "*.xls*"), recursive=True))
+    else:
+        today = date.today()
+        for back in range(max(1, int(days))):
+            d = today - timedelta(days=back)
+            out.extend(glob.glob(os.path.join(
+                folder, f"{d.year}", f"{d.month:02d}", d.isoformat(), "*.xls*")))
+    try:
+        import json as _json
+        for report in ("upload_intake.json", "download_intake.json"):
+            path = os.path.join(BASE_DIR, "reports", report)
+            with open(path, encoding="utf-8") as fh:
+                payload = _json.load(fh)
+            for row in payload.get("이동", []):
+                target = row.get("목적지") if isinstance(row, dict) else ""
+                if target and _inside(target, folder) and str(target).lower().endswith((".xls", ".xlsx", ".xlsm")):
+                    out.append(target)
+    except Exception:
+        pass
+    return out
+
+
 def scan(folder=None, ttl=None):
     """[(경로, 종류)] — 임시파일(~$)은 제외. 분류는 캐시, 폴더 훑기는 짧게 메모이즈한다.
 
@@ -342,6 +431,21 @@ def scan(folder=None, ttl=None):
     hit = _SCAN_MEM.get(folder)
     if hit and hit[0] > now:
         return hit[1]
+    snap = cached_inventory([folder], max_age_s=366 * 86400)
+    if snap is not None:
+        out = [(row["path"], row["kind"]) for row in snap]
+        known = {os.path.normcase(os.path.abspath(p)) for p, _ in out}
+        for p in _recent_discovery_paths(folder):
+            key = os.path.normcase(os.path.abspath(p))
+            if key in known or os.path.basename(p).startswith("~$"):
+                continue
+            if any(seg in SKIP_DIRS for seg in p.replace("\\", "/").split("/")):
+                continue
+            out.append((p, classify_cached(p)))
+            known.add(key)
+        out.sort(key=lambda row: row[0])
+        _SCAN_MEM[folder] = (now + ttl, out)
+        return out
     out = []
     for p in sorted(glob.glob(os.path.join(folder, "**", "*.xls*"), recursive=True)):
         if os.path.basename(p).startswith("~$"):

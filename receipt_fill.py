@@ -26,6 +26,7 @@ import os
 import re
 import sys
 import hashlib
+import json
 import collections
 from datetime import date, datetime
 
@@ -34,6 +35,32 @@ REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(BASE_DIR, "rep
 sys.path.insert(0, BASE_DIR)
 
 AMOUNT_TOL = 1          # 원 단위 반올림 차이만 허용
+DEPOSIT_HASH_CACHE = os.path.join(REPORT_DIR, "receipt_hashes.json")
+DEPOSIT_PARSE_CACHE = os.path.join(REPORT_DIR, "receipt_rows.json")
+
+
+def _load_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else default
+    except Exception:
+        return default
+
+
+def _save_json(path, payload):
+    tmp = path + ".%s.tmp" % os.getpid()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, separators=(",", ":"), default=str)
+        os.replace(tmp, path)
+    except OSError:
+        # 속도 캐시를 못 써도 입금 대조 결과까지 실패시키지는 않는다.
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 def _num(v):
@@ -197,13 +224,16 @@ def parse_deposit_list(path):
     return out
 
 
-def _unique_deposit_files(paths):
+def _unique_deposit_files(paths, cache_path=None, signatures=None):
     """여러 정본 경로에 복제된 *같은* 입금 파일은 한 번만 읽는다.
 
     원본 자료 폴더에는 공유 폴더 정본을 날짜별로 보관한 복사본이 함께 있다.
     두 경로를 모두 읽되 내용이 완전히 같은 파일만 SHA-256으로 제거한다.
     파일명이 같아도 내용이 다르면 서로 다른 갱신본일 수 있으므로 보존한다.
     """
+    if cache_path:
+        from billing_fill import dedupe_files
+        return dedupe_files(paths, cache_path=cache_path, signatures=signatures)
     unique, seen = [], set()
     for path in paths:
         digest = hashlib.sha256()
@@ -293,23 +323,64 @@ def load_deposits():
 
     같은 입금이 여러 파일에 겹쳐 있으면 **한 번만** 센다(dedupe_deposits).
     """
-    import glob
     from source_dirs import receipt_dirs
-    out, candidates = [], []
-    for d in receipt_dirs():
-        for f in sorted(glob.glob(os.path.join(d, "**", "*.xlsx"), recursive=True)):
+    from inbox_scan import scan, cached_inventory
+    roots = receipt_dirs()
+    inventory = cached_inventory(roots, max_age_s=366 * 86400) or []
+    signatures = {
+        os.path.normcase(os.path.abspath(row["path"])): [row["size"], row["mtime"]]
+        for row in inventory
+    }
+    out, candidates, candidate_kinds = [], [], {}
+    for d in roots:
+        for f, _kind in scan(d):
+            if not f.lower().endswith(".xlsx"):
+                continue
             if os.path.basename(f).startswith("~$"):
                 continue                      # 엑셀이 열려 있을 때 생기는 잠금 파일
             candidates.append(f)
+            candidate_kinds[os.path.normcase(os.path.abspath(f))] = _kind
     # ★ 뺀 것은 **숫자로 말한다**([169]) — 조용히 빼면 '입금이 원래 이만큼' 으로 읽힌다.
-    candidates, non_deposit = _drop_non_deposits(candidates)
+    non_deposit = [f for f in candidates
+                   if candidate_kinds.get(os.path.normcase(os.path.abspath(f)))
+                   in NOT_DEPOSIT_KINDS]
+    candidates = [f for f in candidates if f not in non_deposit]
     if non_deposit:
         print("  ※ 입금 통에 있지만 입금 원본이 아닌 파일 %d개를 뺐습니다"
               " (PO·청구 대조 현황표 — 예: %s)"
               % (len(non_deposit), os.path.basename(non_deposit[0])))
-    files = _unique_deposit_files(candidates)
+    files = _unique_deposit_files(candidates, cache_path=DEPOSIT_HASH_CACHE,
+                                  signatures=signatures)
+    parsed = _load_json(DEPOSIT_PARSE_CACHE, {"schema": 1, "files": {}})
+    if parsed.get("schema") != 1 or not isinstance(parsed.get("files"), dict):
+        parsed = {"schema": 1, "files": {}}
+    cache_files, dirty = parsed["files"], False
     for f in files:
-        out += parse_deposit_list(f)
+        key = os.path.normcase(os.path.abspath(f))
+        sig = signatures.get(key)
+        if sig is None:
+            try:
+                st = os.stat(f)
+                sig = [int(st.st_size), int(st.st_mtime_ns), int(st.st_ctime_ns)]
+            except OSError:
+                continue
+        hit = cache_files.get(key)
+        if hit and hit.get("sig") == sig and isinstance(hit.get("rows"), list):
+            rows = []
+            for row in hit["rows"]:
+                item = dict(row)
+                item["일자"] = _day(item.get("일자"))
+                if item["일자"] is not None:
+                    rows.append(item)
+        else:
+            rows = parse_deposit_list(f)
+            cache_files[key] = {"sig": sig, "rows": rows}
+            dirty = True
+        out += rows
+    if dirty:
+        active = {os.path.normcase(os.path.abspath(f)) for f in files}
+        parsed["files"] = {k: v for k, v in cache_files.items() if k in active}
+        _save_json(DEPOSIT_PARSE_CACHE, parsed)
     out, dropped = dedupe_deposits(out)
     if dropped:
         print("  ※ 파일이 겹쳐 두 번 세어진 입금 %d건 %s원을 뺐습니다"

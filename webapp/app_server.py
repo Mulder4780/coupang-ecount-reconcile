@@ -4742,7 +4742,7 @@ _DISK_CACHE_VER = 1
 # 실측으로 앞의 둘은 디스크 캐시가 받아 줬지만 issues가 관리대장을 다시 열어
 # 첫 응답이 64.88초 걸렸다(실제 건수는 AS 600·정기점검 471·정산 750).
 # 그래서 확인필요도 **정확한 지문이 맞을 때만** last-good을 먼저 싣는다.
-_DISK_CACHE_KEYS = ("works", "settle", "issues", "staff_records")
+_DISK_CACHE_KEYS = ("works", "settle", "issues", "staff_records", "exec")
 _DISK_CACHE_MAX_AGE_S = 6 * 3600
 
 
@@ -4779,6 +4779,13 @@ def _disk_cache_stamp(key):
             parts.append("upload=%d:%d" % (st.st_size, st.st_mtime_ns))
         except OSError:
             parts.append("upload=none")
+    if key == "exec":
+        # 대표보고는 관리대장뿐 아니라 앱 DB에 즉시 저장된 완료·취소 근거도 붙인다.
+        # 재시작 직후 last-good을 내놓는 용도라도 이 지문이 빠지면 담당자 저장 전의
+        # 보고서를 먼저 보여 줄 수 있다. 정확히 같을 때만 디스크 사본을 허용한다.
+        parts.append("app=%r" % (_app_db_stamp(),))
+        parts.append("work=%r" % _work_resolution_stamp())
+        parts.append("issue=%r" % (_issue_dependency_stamp(),))
     return "|".join(parts)
 
 
@@ -5729,6 +5736,13 @@ def get_exec_report(day=None, _force=False):
         if cached:
             return cached
         stale = _cache.get("exec_stale")
+        if stale is None:
+            # 서버 재시작은 메모리를 비우지만 마지막 정상 대표보고까지 버릴 이유는 없다.
+            # 관리대장·앱 DB·완료근거 지문과 나이가 모두 맞을 때만 먼저 보여 주고,
+            # 같은 순간 뒤에서 새 계산을 한 번 돌려 곧바로 바로잡는다.
+            stale = _disk_cache_load("exec")
+            if stale is not None:
+                _cache["exec_stale"] = stale
         if stale is not None:
             _spawn_refresh("exec", lambda: get_exec_report(None, _force=True))
             return stale
@@ -5797,6 +5811,9 @@ def get_exec_report(day=None, _force=False):
     #   648회로 1등 — 평균 110초. 계산이 무거운 게 아니라 줄을 서 있었던 것이다.
     #   락이 지키는 것은 'Z: 를 동시에 읽지 않는 것'이지 캐시 딕셔너리가 아니다.
     with _readlock:
+        # 계산 전에 붙인 이름표다. 계산 중 원장이나 앱 DB가 바뀌면 옛 값에 새 지문을
+        # 붙이지 않는다([169]). 선택일 보고서는 공용 last-good으로 저장하지 않는다.
+        disk_stamp = _disk_cache_stamp("exec") if not picked_by_user else None
         r = _fresh("exec") if not picked_by_user and not _force else None
         if r:
             return r
@@ -5857,7 +5874,10 @@ def get_exec_report(day=None, _force=False):
         # 옛 값 자리도 같이 채운다 — 이게 없으면 stale 가지가 영영 안 열려
         # TTL 이 끝나는 순간마다 누군가 한 명은 콜드 재계산을 통째로 맞는다.
         _cache["exec_stale"] = r
-        return _store_cache("exec", r)
+        stored = _store_cache("exec", r)
+        if not picked_by_user:
+            _disk_cache_save("exec", stored, disk_stamp)
+        return stored
 
 
 _SRC_IDX = {"at": 0, "doc": None, "kinds": [], "months": []}

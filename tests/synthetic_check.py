@@ -8396,15 +8396,22 @@ def t76_source_organizer():
         assert os.path.isfile(os.path.join(tmp, "0. 정리규칙.txt"))
         assert S.planned_moves(tmp) == [], "두 번째 실행이 멱등이 아니다"
 
-    # 날짜 하위폴더를 만든 뒤에도 각 대조기가 원본을 재귀 탐색해야 한다.
+    # 날짜 하위폴더를 만든 뒤에도 각 대조기가 원본을 놓치면 안 된다. ERP 등록 판정은
+    # 같은 판매 파일을 또 여는 대신, 재귀 탐색·지문 검증을 맡은 공용 색인을 읽는다.
     for path, marker in (
-        ("fill_erp_status.py", 'os.path.join(ERP_DIR, "**", "*.xls*")'),
         ("billing_fill.py", 'os.path.join(ERP_DIR, "**", "판매조회*.xls*")'),
-        ("receipt_fill.py", 'os.path.join(d, "**", "*.xlsx")'),
         ("band/doc_ocr.py", 'os.path.join(d, "**", "*")'),
     ):
         src = open(os.path.join(ROOT, *path.split("/")), encoding="utf-8").read()
         assert marker in src and "recursive=True" in src, f"{path} 재귀 탐색 누락"
+    erp_status_src = open(os.path.join(ROOT, "fill_erp_status.py"), encoding="utf-8").read()
+    assert "from erp_sales_index import build" in erp_status_src and \
+           "index, sources = build()" in erp_status_src, \
+        "fill_erp_status.py가 날짜 하위폴더를 아는 공용 판매 색인을 쓰지 않는다"
+    receipt_src = open(os.path.join(ROOT, "receipt_fill.py"), encoding="utf-8").read()
+    assert "from inbox_scan import scan, cached_inventory" in receipt_src and \
+           "cached_inventory(roots" in receipt_src and "scan(d)" in receipt_src, \
+        "receipt_fill.py가 공용 재귀 색인과 안전한 전체 훑기 차선을 모두 갖지 않는다"
     print("  [76] 원본 자료 유형·연도·월·날짜·PO번호 자동정리와 최신 편집본 보존 ✅")
 
 
@@ -27899,8 +27906,13 @@ def t414_gate_reuses_only_an_exact_green_proof():
 def t415_refresh_reuses_inventory_hash_and_parsed_rows():
     """[415] 자료 갱신은 불변 원본을 매번 네트워크로 다시 읽지 않는다."""
     import billing_fill as _b415
+    import band_extract as _band415
+    import erp_sales_index as _e415
+    import fill_erp_status as _f415
     import inbox_scan as _i415
+    import kakao_extract as _k415
     import shutil as _sh415
+    from datetime import date as _date415
 
     tmp = tempfile.mkdtemp(prefix="t415_")
     old_file, old_disk = _i415._CLS_FILE, _i415._CLS_DISK
@@ -27937,11 +27949,112 @@ def t415_refresh_reuses_inventory_hash_and_parsed_rows():
         src = open(os.path.join(ROOT, "ecount_reconcile.py"), encoding="utf-8").read()
         assert "INBOX_PARSE_CACHE" in src and "hit.get(\"rows\")" in src, (
             "[415] 분류·해시만 기억하고 정규화한 행을 또 읽는다")
+
+        # ERP 프로젝트 색인도 같은 입력판이면 워크북을 한 장도 다시 열지 않는다.
+        idx_out = os.path.join(tmp, "erp_index.json")
+        with open(idx_out, "w", encoding="utf-8") as fh:
+            json.dump({"fingerprint": "exact", "src": ["판매.xlsx"],
+                       "index": {"UJ2600001": {"supply": 10}}}, fh)
+        old_out = _e415.OUT
+        old_paths = _e415.sales_candidate_paths
+        old_stamp = _e415._candidate_stamp
+        old_exports = _e415.sales_exports
+        try:
+            _e415.OUT = idx_out
+            _e415.sales_candidate_paths = lambda: ["판매.xlsx"]
+            _e415._candidate_stamp = lambda _paths: "exact"
+            _e415.sales_exports = lambda *a, **k: (_ for _ in ()).throw(
+                AssertionError("[415] 같은 ERP 입력판을 다시 열었다"))
+            index, sources = _e415.build()
+            assert index["UJ2600001"]["supply"] == 10 and sources == ["판매.xlsx"]
+        finally:
+            _e415.OUT = old_out
+            _e415.sales_candidate_paths = old_paths
+            _e415._candidate_stamp = old_stamp
+            _e415.sales_exports = old_exports
+
+        # ERP 등록 판정도 공용 색인을 버리고 폴더 전체를 별도로 열지 않는다.
+        old_build = _e415.build
+        try:
+            _e415.build = lambda: ({"UJ2600001": {"state": "7.수금완료"}}, ["판매.xlsx"])
+            projects, sources = _f415.erp_projects()
+            assert projects == {"UJ2600001": "7.수금완료"}
+            assert sources == [("판매.xlsx", "공용색인", 0)]
+        finally:
+            _e415.build = old_build
+
+        # 카톡 선택기는 최신 두 방에 더해 과거 구간·로컬 사본을 돌려줄 수 있다.
+        # 정확히 2개가 아니라는 이유로 Z: 전체를 다시 훑던 회귀를 실행으로 막는다.
+        old_selector = _band415.kakao_source_paths
+        old_glob = _k415.glob.glob
+        selected = ["latest-as", "latest-pm", "early-as", "local-unique"]
+        try:
+            _band415.kakao_source_paths = lambda: list(selected)
+            _k415.glob.glob = lambda *a, **k: (_ for _ in ()).throw(
+                AssertionError("[415] 정상 선택 4개를 버리고 전체 재귀 탐색을 했다"))
+            assert _k415.source_paths() == selected
+        finally:
+            _band415.kakao_source_paths = old_selector
+            _k415.glob.glob = old_glob
+
+        # 구조화한 1,805행도 원본·규칙 지문이 같으면 날짜 형식을 보존해 다시 쓴다.
+        old_cache = _k415.EXTRACT_CACHE
+        old_fingerprint = _k415._extract_fingerprint
+        old_parser = _k415._load_reconcile
+        try:
+            _k415.EXTRACT_CACHE = os.path.join(tmp, "kakao_rows.json")
+            _k415._save_extract_cache("exact", [{
+                "프로젝트NO": "UJ2600001", "예정일": _date415(2026, 8, 24),
+                "신청일자": None, "완료일": _date415(2026, 8, 25)}])
+            _k415._extract_fingerprint = lambda _paths: "exact"
+            _k415._load_reconcile = lambda: (_ for _ in ()).throw(
+                AssertionError("[415] 같은 카톡 원본을 다시 파싱했다"))
+            cached = _k415.extract(["immutable-source"])
+            assert cached[0]["예정일"] == _date415(2026, 8, 24)
+            assert cached[0]["완료일"] == _date415(2026, 8, 25)
+        finally:
+            _k415.EXTRACT_CACHE = old_cache
+            _k415._extract_fingerprint = old_fingerprint
+            _k415._load_reconcile = old_parser
+
+        # 서버 재시작 뒤 대표보고도 마지막 정상 디스크 사본을 먼저 돌려주고, 원장 재계산은
+        # 뒤에서 한 번만 건다. 화면을 수십 초 빈 상태로 세우는 회귀를 실행으로 막는다.
+        from webapp import app_server as _a415
+        old_app_cache = dict(_a415._cache)
+        old_fresh = _a415._fresh
+        old_disk_load = _a415._disk_cache_load
+        old_spawn = _a415._spawn_refresh
+        old_demo = _a415.DEMO
+        old_readlock = _a415._readlock
+        spawned = []
+        class _TrapLock415:
+            def __enter__(self):
+                raise AssertionError("[415] 대표보고 디스크 last-good을 두고 원장을 다시 열었다")
+            def __exit__(self, *_args):
+                return False
+        try:
+            last_good = {"meta": {"보고일": "2026-08-24"}, "sections": []}
+            _a415._cache.clear()
+            _a415.DEMO = False
+            _a415._fresh = lambda _key: None
+            _a415._disk_cache_load = lambda _key: last_good
+            _a415._spawn_refresh = lambda key, fn: spawned.append(key)
+            _a415._readlock = _TrapLock415()
+            assert _a415.get_exec_report() is last_good
+            assert spawned == ["exec"]
+        finally:
+            _a415._cache.clear()
+            _a415._cache.update(old_app_cache)
+            _a415._fresh = old_fresh
+            _a415._disk_cache_load = old_disk_load
+            _a415._spawn_refresh = old_spawn
+            _a415.DEMO = old_demo
+            _a415._readlock = old_readlock
     finally:
         _i415._CLS_FILE, _i415._CLS_DISK = old_file, old_disk
         _sh415.rmtree(tmp, ignore_errors=True)
 
-    print("  [415] 최근 분류표·내용 해시·정규화 행 재사용 · 중복 방벽 유지 ✅")
+    print("  [415] 최근 분류표·내용 해시·정규화 행·ERP·카톡·대표보고 캐시 재사용 · 중복 방벽 유지 ✅")
 
 
 

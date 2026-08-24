@@ -30,6 +30,8 @@ from datetime import date
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INBOX_DIR = os.path.join(BASE_DIR, "kakao", "inbox")
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(BASE_DIR, "reports")
+EXTRACT_CACHE = os.path.join(REPORT_DIR, "kakao_extract_rows.json")
+EXTRACT_DATE_FIELDS = ("예정일", "신청일자", "완료일")
 
 sys.path.insert(0, BASE_DIR)
 
@@ -51,7 +53,10 @@ def source_paths():
     try:
         from band_extract import kakao_source_paths
         latest = kakao_source_paths()
-        if len(latest) == 2:
+        # 선택기는 최신 두 방에 더해, 사람이 그 방에 들어오기 전의 이력을 덮는 과거
+        # 구간을 보탤 수 있다. 예전의 `== 2` 계약은 그 정상 결과(현재 6개)를 실패로
+        # 오해해 Z: 전체 75개를 다시 열었다. 선택기가 빈 목록일 때만 범용 복구로 간다.
+        if latest:
             return latest
     except Exception:
         pass
@@ -77,6 +82,81 @@ def source_paths():
             seen_hash.add(digest)
             paths.append(path)
     return paths
+
+
+def _extract_fingerprint(paths):
+    """선택 원본과 판정 규칙의 지문. 못 재면 캐시를 쓰지 않는다.
+
+    카톡 원본은 흡수 뒤 이름이 고정된 보관 파일이다. 전체 내용을 다시 해시하면 그 비용이
+    곧 재파싱 비용이 되므로 크기·수정시각을 쓰고, 판정 코드는 로컬이라 실제 SHA-256을
+    넣는다. 규칙 파일이 한 글자라도 바뀌면 옛 구조화 결과는 자동 폐기된다.
+    """
+    files = []
+    try:
+        for path in paths:
+            st = os.stat(path)
+            files.append([os.path.normcase(os.path.abspath(path)), int(st.st_size),
+                          int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))])
+        rule_hash = hashlib.sha256()
+        for path in (os.path.abspath(__file__),
+                     os.path.join(BASE_DIR, "kakao", "kakao_reconcile.py"),
+                     os.path.join(BASE_DIR, "band_extract.py"),
+                     os.path.join(BASE_DIR, "people_alias.py")):
+            with open(path, "rb") as fh:
+                rule_hash.update(fh.read())
+    except OSError:
+        return None
+    body = json.dumps({"files": files, "rules": rule_hash.hexdigest()},
+                      ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def _load_extract_cache(fingerprint):
+    if not fingerprint:
+        return None
+    try:
+        with open(EXTRACT_CACHE, encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except (OSError, ValueError, TypeError):
+        return None
+    rows = raw.get("rows") if isinstance(raw, dict) and raw.get("fingerprint") == fingerprint else None
+    if not isinstance(rows, list):
+        return None
+    out = []
+    try:
+        for source in rows:
+            row = dict(source)
+            for key in EXTRACT_DATE_FIELDS:
+                value = row.get(key)
+                row[key] = date.fromisoformat(value) if value else None
+            out.append(row)
+    except (TypeError, ValueError):
+        return None
+    return out
+
+
+def _save_extract_cache(fingerprint, rows):
+    if not fingerprint:
+        return
+    serial = []
+    for source in rows:
+        row = dict(source)
+        for key in EXTRACT_DATE_FIELDS:
+            value = row.get(key)
+            row[key] = value.isoformat() if hasattr(value, "isoformat") else (value or None)
+        serial.append(row)
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    tmp = EXTRACT_CACHE + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "fingerprint": fingerprint, "rows": serial}, fh,
+                      ensure_ascii=False, separators=(",", ":"))
+        os.replace(tmp, EXTRACT_CACHE)
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 # 공지 본문은 '● 라벨 : 값' 의 나열이고, parse_export 가 여러 줄을 공백으로 이어 붙인다.
@@ -214,10 +294,14 @@ def status_of(head):
 
 
 def extract(paths=None):
+    paths = source_paths() if paths is None else list(paths)
+    fingerprint = _extract_fingerprint(paths)
+    cached = _load_extract_cache(fingerprint)
+    if cached is not None:
+        return cached
     kr = _load_reconcile()
     from band_extract import normalize_tech      # 기사명 정규화는 한 곳에만 둔다
     import people_alias                          # 그만둔 사람 이름 → 지금 담당자
-    paths = source_paths() if paths is None else paths
     seen, out = {}, []
     for path in paths:
         room = room_of(path)
@@ -296,6 +380,7 @@ def extract(paths=None):
                 merged["글수"] = old.get("글수", 1) + 1
                 out[prev] = merged
     out.sort(key=lambda r: (r["신청일자"] or r["예정일"] or date(1900, 1, 1), r["프로젝트NO"]))
+    _save_extract_cache(fingerprint, out)
     return out
 
 

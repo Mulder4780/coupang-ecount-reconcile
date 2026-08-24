@@ -25,7 +25,6 @@ fill_erp_status.py — 판매조회(ERP)를 근거로 **ERP 등록 여부**를 �
 import os
 import re
 import sys
-import glob
 import zipfile
 from collections import Counter
 
@@ -37,8 +36,6 @@ except Exception:
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
 from workbook_patch import latest_master, sheet_xml_path, esc  # noqa: E402
-from source_dirs import ERP_DIR  # noqa: E402
-from billing_fill import dedupe_files  # noqa: E402
 
 HDR = 4
 ALLOWED = ("완료", "미등록", "해당없음")
@@ -55,44 +52,19 @@ def _s(v):
 
 
 def erp_projects():
-    """판매조회 파일에서 프로젝트코드를 모은다. 여러 개면 전부 합친다."""
-    import openpyxl
-    found, files = {}, []
-    # ★ 2026-07-30: 판매조회 사본이 SHA256 동일한 3벌 있어 958KB 파일을 3번 열고 있었다.
-    #   여기는 프로젝트코드 dict 라 값이 부풀지는 않지만 읽는 시간이 3배다.
-    #   파일명(`__dup_`)이 아니라 **내용 해시**로 거른다 — 이름 규칙은 다음번에 또 뚫린다.
-    for p in dedupe_files(glob.glob(os.path.join(ERP_DIR, "**", "*.xls*"), recursive=True)):
-        if os.path.basename(p).startswith("~$"):
-            continue
-        try:
-            wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
-        except Exception:
-            continue
-        for sn in wb.sheetnames:
-            ws = wb[sn]
-            hdr, hrow = None, 0
-            for i, row in enumerate(ws.iter_rows(min_row=1, max_row=6, values_only=True), start=1):
-                cells = [_s(c) for c in row]
-                if any("프로젝트코드" in c for c in cells):
-                    hdr, hrow = cells, i
-                    break
-            if not hdr:
-                continue
-            ci = next(i for i, h in enumerate(hdr) if "프로젝트코드" in h)
-            si = next((i for i, h in enumerate(hdr) if h == "진행상태"), None)
-            n = 0
-            for row in ws.iter_rows(min_row=hrow + 1, values_only=True):
-                k = _s(row[ci]) if ci < len(row) else ""
-                if not PRJ.match(k):
-                    continue
-                st = _s(row[si]) if si is not None and si < len(row) else ""
-                # 같은 프로젝트가 여러 줄이면 더 진행된 상태를 남긴다
-                if k not in found or st > found[k]:
-                    found[k] = st
-                n += 1
-            if n:
-                files.append((os.path.basename(p), sn, n))
-        wb.close()
+    """공용 판매 색인에서 프로젝트코드를 읽는다.
+
+    예전에는 이 단계만 별도로 ERP 폴더 전체를 재귀 탐색하고 모든 판매 엑셀을 다시
+    열었다. 바로 앞·뒤 단계가 이미 같은 판매 색인을 만들고도 버렸기 때문에 화면의
+    ``자료 갱신 중``이 몇 분씩 멈췄다. 공용 색인은 정확한 입력 지문이 바뀔 때만 원본을
+    다시 읽고, 여러 해의 판매조회와 같은 UJ 중복 우선순위도 한 곳에서 판정한다.
+    """
+    from erp_sales_index import build
+    index, sources = build()
+    found = {uj: _s(row.get("state")) for uj, row in index.items() if PRJ.match(uj)}
+    # 기존 출력 모양은 유지하되 행 수는 공용 색인이 파일별 수를 보관하지 않으므로
+    # 지어내지 않고 0으로 둔다([169]). 판정은 프로젝트 존재 여부만 사용한다.
+    files = [(name, "공용색인", 0) for name in sources]
     return found, files
 
 

@@ -989,15 +989,16 @@ def _run_pipeline():
     # ★ 사용자 지시(2026-08-05) "각 건의 PDF·이미지를 번호로 알아보게 저장":
     #   밴드는 글 단위(PDF+텍스트+사진), ERP 명세서는 전표번호 단위 PDF 로 굳힌다.
     #   회차마다 상한을 둬 daily_run 이 길어지지 않게 한다 — 남은 건 다음 회차가 잇는다.
-    steps.append(run("밴드 게시글 보관(PDF·텍스트·사진)",
-                     [os.path.join(ROOT, "band", "archive_posts.py"), "--limit", "150"],
-                     timeout=1800))
+    # 밴드 게시글 보관은 위의 `미수집 원본·사진·텍스트 보관`(`collect_all.py`)이
+    # 이미 같은 `archive_posts.py`를 **7분 예산·체크포인트**로 실행한다. 여기서 다시
+    # 150건을 돌리면 같은 회차가 최대 30분 더 멈췄다(2026-08-24 실측 1,804초).
+    # 보관 기능을 없애는 것이 아니라, 시간 제한과 이어하기가 있는 한 경로로 합친다.
     steps.append(run("명세서 건별 PDF 보관",
-                     [os.path.join(ROOT, "stmt_archive.py"), "--limit", "150"],
-                     timeout=1800))
+                     [os.path.join(ROOT, "stmt_archive.py"), "--limit", "40"],
+                     timeout=300))
     steps.append(run("세금계산서 건별 PDF 보관",
-                     [os.path.join(ROOT, "tax_archive.py"), "--limit", "150"],
-                     timeout=1800))
+                     [os.path.join(ROOT, "tax_archive.py"), "--limit", "40"],
+                     timeout=300))
     # ★ 원본이 늘면 분석 3종(미발행·불일치·확인필요현황)이 10분을 넘긴다 —
     #   2026-08-04 거래명세서 785건 흡수 후 기본 600초에 셋 다 타임아웃으로 FAIL했다.
     #   단독 재실행은 전부 성공(로직 문제 아님) → 시간만 넉넉히 준다.

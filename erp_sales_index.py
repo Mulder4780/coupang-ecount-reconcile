@@ -16,6 +16,7 @@ erp_sales_index.py — ERP 판매조회를 **프로젝트NO 색인**으로 굳�
 (한 건이라도 미발행이면 그 프로젝트는 아직 안 끝난 것으로 본다 — 낙관 금지).
 """
 import glob
+import hashlib
 import json
 import os
 import re
@@ -35,6 +36,7 @@ ORDER = {"1.미확인": 1, "확인": 2, "2.메일발송": 3, "3.오더처리": 4
          "4.세금계산서발행대기": 5, "5.": 6, "6.세금계산서발행": 7, "7.수금완료": 8,
          "8.무상납품완료": 9}
 ISSUED = ("6.세금계산서발행", "7.수금완료")
+INDEX_RULES_VERSION = 1
 
 
 def rank(state):
@@ -84,33 +86,60 @@ def sales_candidate_paths(limit=60):
     ★ 공용 워커가 없어도 죽지 않는다 — 예전 길로 간다(느릴 뿐 답은 같다).
     """
     import source_dirs as S
+    inventory = None
     try:
-        from source_index import walk_stat
-        pairs = [(st.st_mtime, os.path.join(dp, fn))
-                 for dp, fn, st in walk_stat(S.ERP_DIR, skip_dirs=())
-                 if fn.lower().endswith(".xlsx")
-                 and not fn.startswith(("~$", "ESD007E"))]
+        from inbox_scan import cached_inventory, scan
+        inventory = cached_inventory([S.ERP_DIR], max_age_s=366 * 86400)
+        if inventory is None:
+            raise LookupError("최근 분류표 없음")
+        pairs_by_path = {
+            _path_key(row["path"]): (row["mtime"], row["path"])
+            for row in inventory
+            if row["path"].lower().endswith(".xlsx")
+            and not os.path.basename(row["path"]).startswith(("~$", "ESD007E"))
+        }
+        # 오늘 막 들어와 아직 분류표 전체 목록에 없던 파일만 실제 stat 한다.
+        for path, _kind in scan(S.ERP_DIR):
+            key = _path_key(path)
+            if (key in pairs_by_path or not path.lower().endswith(".xlsx")
+                    or os.path.basename(path).startswith(("~$", "ESD007E"))):
+                continue
+            try:
+                pairs_by_path[key] = (os.stat(path).st_mtime, path)
+            except OSError:
+                continue
+        pairs = list(pairs_by_path.values())
         pairs.sort(key=lambda x: x[0], reverse=True)
         cands = [p for _, p in pairs]
     except Exception:
-        cands = [p for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"),
-                                      recursive=True)
-                 if not os.path.basename(p).startswith(("~$", "ESD007E"))]
-        cands.sort(key=os.path.getmtime, reverse=True)
-    cached_sales = []
-    try:
-        cache_path = os.path.join(ROOT, "reports", "inbox_classify.json")
-        with open(cache_path, encoding="utf-8") as f:
-            cache = json.load(f)
-        cached_sales = [path for path, value in cache.items()
-                        if isinstance(value, list) and len(value) >= 4
-                        and value[3] == "sales"]
-    except Exception:
-        pass
+        try:
+            from source_index import walk_stat
+            pairs = [(st.st_mtime, os.path.join(dp, fn))
+                     for dp, fn, st in walk_stat(S.ERP_DIR, skip_dirs=())
+                     if fn.lower().endswith(".xlsx")
+                     and not fn.startswith(("~$", "ESD007E"))]
+            pairs.sort(key=lambda x: x[0], reverse=True)
+            cands = [p for _, p in pairs]
+        except Exception:
+            cands = [p for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"),
+                                          recursive=True)
+                     if not os.path.basename(p).startswith(("~$", "ESD007E"))]
+            cands.sort(key=os.path.getmtime, reverse=True)
+    cached_sales = [row["path"] for row in (inventory or []) if row["kind"] == "sales"]
+    if not cached_sales:
+        try:
+            cache_path = os.path.join(ROOT, "reports", "inbox_classify.json")
+            with open(cache_path, encoding="utf-8") as f:
+                cache = json.load(f)
+            cached_sales = [path for path, value in cache.items()
+                            if isinstance(value, list) and len(value) >= 4
+                            and value[3] == "sales"]
+        except Exception:
+            pass
     return prioritize_sales_candidates(cands, cached_sales, limit)
 
 
-def sales_exports(limit=60):
+def sales_exports(limit=60, cands=None):
     """판매조회 엑셀을 **전부** 찾는다(새 것부터). 파일명이 무작위라 머리글로 판정한다.
 
     ★ 2026-08-05 — 예전에는 '가장 최근 것 하나'만 읽었다. 그런데 2025 자료를 받으려고
@@ -121,7 +150,7 @@ def sales_exports(limit=60):
     import warnings
     warnings.filterwarnings("ignore")
     import openpyxl
-    cands = sales_candidate_paths(limit)
+    cands = list(cands) if cands is not None else sales_candidate_paths(limit)
     found = []
     for p in cands:
         try:
@@ -169,11 +198,50 @@ def build_one(ws, head):
     return out
 
 
+def _candidate_stamp(paths):
+    """분류표에 적힌 불변 원본 서명으로 판매 색인의 정확한 입력판을 만든다."""
+    try:
+        from inbox_scan import _CLS_FILE, RULES_VERSION
+        with open(_CLS_FILE, encoding="utf-8") as fh:
+            cache = json.load(fh)
+        rows = []
+        for path in paths:
+            row = cache.get(path)
+            if not isinstance(row, list) or len(row) < 4:
+                return ""
+            rows.append([_path_key(path), row[0], row[1], row[2], row[3]])
+        raw = json.dumps([INDEX_RULES_VERSION, RULES_VERSION, rows], ensure_ascii=False,
+                         separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(raw).hexdigest()
+    except Exception:
+        return ""
+
+
+def _save_index(payload):
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    tmp = OUT + ".%s.tmp" % os.getpid()
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, OUT)
+
+
 def build():
     """여러 판매조회를 합친다. **같은 UJ 는 새 파일 것이 이긴다** — 더하지 않는다.
     (더하면 두 내보내기가 겹치는 기간에서 금액이 두 배가 된다)"""
+    paths = sales_candidate_paths()
+    stamp = _candidate_stamp(paths)
+    if stamp:
+        try:
+            with open(OUT, encoding="utf-8") as fh:
+                old = json.load(fh)
+            if (old.get("fingerprint") == stamp and isinstance(old.get("index"), dict)
+                    and isinstance(old.get("src"), list)):
+                return old["index"], old["src"]
+        except Exception:
+            pass
+
     merged, srcs = {}, []
-    found = sales_exports()
+    found = sales_exports(cands=paths)
     for path, ws, head, wb in found:                 # 새 것 → 옛 것 순서
         try:
             one = build_one(ws, head)
@@ -184,14 +252,13 @@ def build():
         srcs.append(os.path.basename(path))
         for uj, v in one.items():
             merged.setdefault(uj, v)                 # 이미 있으면(=더 새 파일) 그대로 둔다
+    _save_index({"src": srcs, "count": len(merged), "index": merged,
+                 "fingerprint": stamp, "rules": INDEX_RULES_VERSION})
     return merged, srcs
 
 
 def main():
     idx, srcs = build()
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    json.dump({"src": srcs, "count": len(idx), "index": idx},
-              open(OUT, "w", encoding="utf-8"), ensure_ascii=False)
     issued = sum(1 for v in idx.values() if str(v["state"]).startswith(ISSUED))
     years = {}
     for v in idx.values():

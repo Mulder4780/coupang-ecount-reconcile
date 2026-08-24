@@ -104,7 +104,33 @@ def to_date(v):
 
 # ── 원천 읽기 ─────────────────────────────────────────────────
 
-def dedupe_files(paths):
+def _load_hash_cache(path):
+    if not path:
+        return {"schema": 1, "files": {}}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if data.get("schema") == 1 and isinstance(data.get("files"), dict):
+            return data
+    except Exception:
+        pass
+    return {"schema": 1, "files": {}}
+
+
+def _save_hash_cache(path, data):
+    if not path:
+        return
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".%s.tmp" % os.getpid()
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def dedupe_files(paths, cache_path=None, signatures=None):
     """내용이 같은 파일은 한 번만 읽는다.
 
     ★ 2026-07-30 실사고: 원본 자료 정리가 `판매조회_....xlsx`, `..__dup_3c94ea24.xlsx`,
@@ -112,16 +138,44 @@ def dedupe_files(paths):
       프로젝트별 공급가액이 **3배**(36억 → 108.6억)로 합산됐다.
       파일명 규칙(`__dup_`)으로 거르면 다음번에 다른 이름으로 다시 뚫린다. 그래서 **내용**으로 판정한다.
     """
-    seen, keep = set(), []
+    # 파일 내용 해시는 정확한 중복 방벽이라 없앨 수 없다. 다만 원본 보관소 파일은
+    # 저장 뒤 바뀌지 않으므로 (크기·수정시각)이 같은 파일의 해시는 디스크에 기억한다.
+    # 그러면 매일 1천여 원본을 네트워크로 다시 읽지 않고도 같은 내용 3배 합산 사고를 막는다.
+    cache = _load_hash_cache(cache_path)
+    known = cache["files"]
+    sigs = signatures or {}
+    seen, keep, dirty = set(), [], False
     for p in sorted(paths):
+        key = os.path.normcase(os.path.abspath(p))
         try:
-            h = hashlib.sha256(open(p, "rb").read()).hexdigest()
+            sig = sigs.get(key) or sigs.get(p)
+            if sig is None:
+                st = os.stat(p)
+                sig = [int(st.st_size), int(st.st_mtime_ns), int(st.st_ctime_ns)]
+            else:
+                sig = [int(v) for v in sig]
         except OSError:
             continue
+        hit = known.get(key)
+        if hit and hit.get("sig") == sig and hit.get("sha256"):
+            h = hit["sha256"]
+        else:
+            try:
+                digest = hashlib.sha256()
+                with open(p, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                h = digest.hexdigest()
+            except OSError:
+                continue
+            known[key] = {"sig": sig, "sha256": h}
+            dirty = True
         if h in seen:
             continue
         seen.add(h)
         keep.append(p)
+    if dirty:
+        _save_hash_cache(cache_path, cache)
     return keep
 
 

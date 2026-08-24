@@ -20,7 +20,7 @@ band_extract.py — 밴드 게시글 → 구조화 업무 레코드 추출 (월�
   python band_extract.py --month 2026-06 --sheet    # + 관리대장 24_밴드업무추출 시트 반영(vN+1)
   python band_extract.py --all                      # 전체 기간
 """
-import sys, os, re, csv, json, glob
+import sys, os, re, csv, json, glob, hashlib
 import time
 from datetime import datetime
 
@@ -599,6 +599,76 @@ KAKAO_SPAN_TRUNCATED = False
 
 _KAKAO_SPAN_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                  "reports", ".카톡_원본구간.json")
+_KAKAO_SELECTION_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                      "reports", ".카톡_원본선택.json")
+
+
+def _kakao_selection_trigger():
+    """새 카톡 흡수·로컬 원본·선택 규칙이 바뀌었는지만 로컬에서 잰다.
+
+    Z: 파일은 날짜·시각 이름으로 보관되어 제자리 수정하지 않는 원본이다. 새 원본은 반드시
+    `download_intake` 또는 `카톡_반영회차` 자국을 남긴다. 그 두 자국과 로컬 inbox,
+    선택 코드가 그대로면 이전 경로 목록도 그대로다. 이 검사를 Z: `stat`보다 먼저 해야
+    화면 갱신 때 SMB 왕복 6회를 되풀이하지 않는다([168]).
+    """
+    base = os.path.dirname(os.path.abspath(__file__))
+    h = hashlib.sha256()
+    try:
+        for path in (os.path.join(base, "reports", "download_intake.json"),
+                     os.path.join(base, "reports", "카톡_반영회차.json"),
+                     os.path.abspath(__file__)):
+            h.update(os.path.basename(path).encode("utf-8"))
+            try:
+                with open(path, "rb") as fh:
+                    h.update(fh.read())
+            except OSError:
+                h.update(b"<missing>")
+        local_rows = []
+        for path in glob.glob(os.path.join(KAKAO_INBOX, "**", "*.txt"), recursive=True):
+            st = os.stat(path)
+            local_rows.append((os.path.normcase(os.path.abspath(path)), int(st.st_size),
+                               int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))))
+        h.update(json.dumps(sorted(local_rows), ensure_ascii=False,
+                            separators=(",", ":")).encode("utf-8"))
+    except OSError:
+        return ""
+    return h.hexdigest()
+
+
+def _load_kakao_selection(trigger, dedupe_content):
+    if not trigger:
+        return None
+    try:
+        with open(_KAKAO_SELECTION_CACHE, encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except (OSError, ValueError, TypeError):
+        return None
+    key = "dedupe" if dedupe_content else "all"
+    row = raw.get(key) if isinstance(raw, dict) and raw.get("trigger") == trigger else None
+    paths = row.get("paths") if isinstance(row, dict) else None
+    return list(paths) if isinstance(paths, list) and paths else None
+
+
+def _save_kakao_selection(trigger, dedupe_content, paths):
+    if not trigger or not paths:
+        return
+    try:
+        with open(_KAKAO_SELECTION_CACHE, encoding="utf-8") as fh:
+            raw = json.load(fh)
+        if not isinstance(raw, dict) or raw.get("trigger") != trigger:
+            raw = {"version": 1, "trigger": trigger}
+    except (OSError, ValueError, TypeError):
+        raw = {"version": 1, "trigger": trigger}
+    key = "dedupe" if dedupe_content else "all"
+    raw[key] = {"paths": list(paths), "saved_at": datetime.now().isoformat(timespec="seconds")}
+    try:
+        os.makedirs(os.path.dirname(_KAKAO_SELECTION_CACHE), exist_ok=True)
+        tmp = _KAKAO_SELECTION_CACHE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(raw, fh, ensure_ascii=False)
+        os.replace(tmp, _KAKAO_SELECTION_CACHE)
+    except OSError:
+        pass
 
 
 def _kakao_span(path, cache):
@@ -677,6 +747,43 @@ def _extend_early(paths, folders, per_room=3):
         # 하나라도 사라졌으면 캐시를 믿지 않는다 — 반쪽 목록은 조용히 자료를 줄인다.
         if len(keep) == len(hit.get("경로") or []) and keep:
             return keep
+
+    # 최신 내보내기 두 파일이 바뀌어도 **과거 구간은 없어지지 않는다**. 이전 결과는
+    # 아래 전수 탐색을 끝낸 때만 저장되므로, 거기에 들어 있던 더 이른 구간을 새 최신본에
+    # 이어 붙이면 Z: 전체를 다시 훑을 이유가 없다. 2026-08-24 실측으로 새 카톡 두 개가
+    # 들어올 때마다 이 재귀 탐색이 60~162초씩 되살아나 세 소비자가 차례로 기다렸다.
+    # 다만 이전 경로가 하나라도 사라졌거나 구간을 못 읽으면 안전하게 기존 전수 탐색으로
+    # 물러난다 — 반쪽 목록을 빠른 정답으로 만들지는 않는다([169]).
+    previous = hit.get("경로") if isinstance(hit, dict) else None
+    if isinstance(previous, list) and previous:
+        candidate = list(out)
+        candidate_seen = set(seen)
+        complete = True
+        for q in previous:
+            qkey = os.path.normcase(os.path.abspath(str(q)))
+            if qkey in candidate_seen:
+                continue
+            rec = _kakao_span(q, cache)
+            if not rec or not rec.get("방") or not rec.get("시작"):
+                complete = False
+                break
+            room, start = rec["방"], rec["시작"]
+            cur = floor.get(room)
+            if cur is None or start < cur:
+                candidate.append(q)
+                candidate_seen.add(qkey)
+                floor[room] = start
+        if complete and all(room in floor for room in KAKAO_ROOM_MARKERS):
+            cache["__결과__"] = {"열쇠": ckey, "때": time.time(), "경로": candidate}
+            try:
+                os.makedirs(os.path.dirname(_KAKAO_SPAN_CACHE), exist_ok=True)
+                tmp = _KAKAO_SPAN_CACHE + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    json.dump(cache, fh, ensure_ascii=False)
+                os.replace(tmp, _KAKAO_SPAN_CACHE)
+            except OSError:
+                pass
+            return candidate
 
     # ★ 로컬 inbox 를 **먼저** 본다. 옛 누적본은 사람이 손으로 여기 넣고,
     #   Z: 정본은 회차가 옮긴 최신본이라 대개 시작일이 같다. 그리고 로컬은 공짜지만
@@ -780,23 +887,58 @@ def kakao_source_paths(dedupe_content=True):
     if os.path.isdir(KAKAO_INBOX) and KAKAO_INBOX not in folders:
         folders.append(KAKAO_INBOX)
 
-    # 정상 반영 회차가 남긴 최신 파일명을 먼저 쓴다. 공유폴더 전체를 훑는 것은
-    # 복구용 차선이다. Z:에서 73개 누적본을 열면 6분, 최신 두 개만 열면 수초다.
-    recent_names = []
+    selection_trigger = _kakao_selection_trigger()
+    selected = _load_kakao_selection(selection_trigger, dedupe_content)
+    if selected is not None:
+        return selected
+
+    # 방금 흡수한 원본의 **정확한 목적지**가 있으면 그것부터 쓴다. 예전에는 파일명만
+    # 읽고 각 이름을 모든 공유폴더 후보에 대입해 `isfile`을 반복했다. SMB 한 번이 수초인
+    # 날에는 최신 파일을 이미 알고도 30초 넘게 주소 찾기만 했다. 목적지는 흡수기가 실제
+    # 저장한 자국이라 추측이 아니며, 두 업무방이 모두 확인되지 않으면 아래 복구 탐색으로
+    # 그대로 물러난다.
+    intake_candidates = []
     try:
         base = os.path.dirname(os.path.abspath(__file__))
-        history = json.load(open(os.path.join(base, "reports", "카톡_반영회차.json"),
-                                 encoding="utf-8"))
-        for run in history if isinstance(history, list) else []:
-            names = [os.path.basename(str(name)) for name in (run.get("받은파일") or [])
-                     if str(name).lower().endswith(".txt")]
-            if names:
-                recent_names = names
-                break
+        intake = json.load(open(os.path.join(base, "reports", "download_intake.json"),
+                                encoding="utf-8"))
+        for row in intake.get("이동") if isinstance(intake, dict) else []:
+            path = str(row.get("목적지") or "") if isinstance(row, dict) else ""
+            if path.lower().endswith(".txt") and os.path.isfile(path):
+                intake_candidates.append((os.path.getmtime(path), path))
     except (OSError, ValueError, TypeError):
         pass
 
-    fast_candidates = []
+    intake_rooms = set()
+    for _, path in intake_candidates:
+        try:
+            with open(path, encoding="utf-8-sig", errors="replace") as fh:
+                head = fh.read(400)
+        except OSError:
+            continue
+        room = next((word for word in KAKAO_ROOM_MARKERS if word in head), "")
+        if room:
+            intake_rooms.add(room)
+    intake_complete = all(room in intake_rooms for room in KAKAO_ROOM_MARKERS)
+
+    # 정상 반영 회차가 남긴 최신 파일명을 먼저 쓴다. 공유폴더 전체를 훑는 것은
+    # 복구용 차선이다. Z:에서 73개 누적본을 열면 6분, 최신 두 개만 열면 수초다.
+    recent_names = []
+    if not intake_complete:
+        try:
+            base = os.path.dirname(os.path.abspath(__file__))
+            history = json.load(open(os.path.join(base, "reports", "카톡_반영회차.json"),
+                                     encoding="utf-8"))
+            for run in history if isinstance(history, list) else []:
+                names = [os.path.basename(str(name)) for name in (run.get("받은파일") or [])
+                         if str(name).lower().endswith(".txt")]
+                if names:
+                    recent_names = names
+                    break
+        except (OSError, ValueError, TypeError):
+            pass
+
+    fast_candidates = list(intake_candidates)
     for name in recent_names:
         for folder in folders:
             direct = [os.path.join(folder, name)]
@@ -851,7 +993,21 @@ def kakao_source_paths(dedupe_content=True):
 
     paths = _extend_early(paths, folders)
 
+    # 로컬 inbox 는 사람이 보존한 두 업무방의 **서로 다른 시점 사본**이다. 시작일이 더
+    # 이른 파일 하나가 나중 구간을 전부 포함한다고 단정할 수 없다. 실측으로
+    # `쿠팡돌발점검_25.txt` 에만 실제 업무 UJ2600067·0068·0189 세 건이 있었고,
+    # 더 일찍 시작한 팀채팅 사본에는 없었다. 로컬 18개는 재귀 탐색 비용이 사실상 없으므로
+    # 전부 포함하고, 아래 내용 해시로 완전 같은 사본만 한 번 센다. 공유 Z: 99개를 전부
+    # 읽는 것보다 빠르면서 실제 업무 세 건을 잃지 않는 경계다([169]·[172]).
+    known = {os.path.normcase(os.path.abspath(path)) for path in paths}
+    for path in sorted(glob.glob(os.path.join(KAKAO_INBOX, "**", "*.txt"), recursive=True)):
+        key = os.path.normcase(os.path.abspath(path))
+        if key not in known:
+            paths.append(path)
+            known.add(key)
+
     if not dedupe_content:
+        _save_kakao_selection(selection_trigger, False, paths)
         return paths
     import hashlib
     out, seen_hash = [], set()
@@ -864,6 +1020,7 @@ def kakao_source_paths(dedupe_content=True):
         if digest not in seen_hash:
             seen_hash.add(digest)
             out.append(path)
+    _save_kakao_selection(selection_trigger, True, out)
     return out
 
 

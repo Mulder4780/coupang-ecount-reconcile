@@ -71,6 +71,27 @@ def render(doc, uj, state, path):
     return html_to_pdf(html, path)
 
 
+def render_atomic(doc, uj, state, path):
+    """완성된 PDF만 정식 이름으로 보인다.
+
+    회차 시간 제한이 크롬을 중간에 끊어도 `.part-*`만 남고, 다음 회차가 정식 파일을
+    다시 만든다. 예전에는 반쪽 PDF도 `exists()`에 걸려 영구 완료로 오인될 수 있었다.
+    """
+    tmp = path + f".part-{os.getpid()}"
+    try:
+        made = render(doc, uj, state, tmp)
+        if made and os.path.exists(tmp):
+            os.replace(tmp, path)
+            return path
+        return None
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=300)
@@ -82,9 +103,9 @@ def main():
     if os.path.exists(LINK):
         for x in json.load(open(LINK, encoding="utf-8")).get("linked", []):
             link[x["slip"]] = x
-    root, made, skip, fail = out_root(), 0, 0, 0
+    root, made, skip, fail, attempted = out_root(), 0, 0, 0, 0
     for d in docs:
-        if made >= a.limit:
+        if attempted >= a.limit:
             break
         slip = d["slip"]                       # 2026/07/14-3
         ym = slip[:7].split("/")
@@ -96,8 +117,9 @@ def main():
         if not a.force and os.path.exists(dst):
             skip += 1
             continue
+        attempted += 1
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        if render(d, uj, info.get("state"), dst):
+        if render_atomic(d, uj, info.get("state"), dst):
             made += 1
         else:
             fail += 1
