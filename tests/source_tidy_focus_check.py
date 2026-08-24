@@ -101,6 +101,14 @@ class SourceTidyFocusCheck(unittest.TestCase):
 
     def test_browser_dump_is_a_protected_band_input(self):
         self.assertIn("브라우저덤프", organizer.PROTECTED_BAND_DIRS)
+        with tempfile.TemporaryDirectory() as tmp:
+            browser_dump = Path(tmp) / "4. 밴드 원본" / "브라우저덤프"
+            browser_dump.mkdir(parents=True)
+            dump = browser_dump / "84789192_20260824.json"
+            dump.write_text("{}", encoding="utf-8")
+            moves = organizer.planned_moves(tmp)
+            self.assertFalse(any(os.path.normcase(m.src) == os.path.normcase(str(dump))
+                                 for m in moves))
 
 
 if __name__ == "__main__":
