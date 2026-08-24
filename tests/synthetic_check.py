@@ -24278,21 +24278,38 @@ def t394_organizer_leaves_archive_alone_and_can_copy():
 
     # ② 좁히는 것도 고장이다 — 다른 갈래는 그대로 담긴다
     assert os.path.normcase(photo) in srcs, "[394] 문서사진 정리가 같이 죽었다"
-    assert os.path.normcase(dump) in srcs, "[394] 브라우저덤프 정리가 같이 죽었다"
 
-    # ③ 덤프는 **받은 날**이 보존된다 — 오늘 폴더로 뭉개지면 수집일을 잃는다
-    dmove = [m for m in moves if os.path.normcase(m.src) == os.path.normcase(dump)][0]
-    assert "2026-08-05" in dmove.dst, (
-        "[394] 덤프가 오늘 폴더로 간다: %s — 수집일이 뭉개진다" % dmove.dst)
+    # ③ ★ **브라우저덤프는 안 건드린다** — 지키는 자리가 옮겨졌다(2026-08-24).
+    #   예전에는 이 검사가 '덤프는 수집본으로 옴겨야 하고 받은 날이 보존돼야
+    #   한다' 를 재었다. 그런데 그것은 `download_intake` 가 날짜 폴더로 직접
+    #   넣기 전의 설계다. 지금 옴기면 `수집본` 과 한 통이 돼 **옛 덤프가 새
+    #   수확을 덮는다** — `[334]`·`[358]` 이 실제로 겪은 그 사고다.
+    #   실측 2026-08-24: 그 폴더 하위 12개가 전부 날짜 폴더 · 루트에 그냥 놓인 파일 0개.
+    assert os.path.normcase(dump) not in srcs, (
+        "[394] 브라우저덤프를 수집본으로 옴긴다 — 두 입력 경로가 한 통이 돼 "
+        "옛 덤프가 새 수확을 덮는다([334])")
+
+    # ★ **계약을 지우지 않고 옮겼다**([169]) — '받은 날 보존'은 이제
+    #   `download_intake` 가 지키므로 **거기서 재다.** 안 재면 그 계약이
+    #   조용히 사라져 덤프가 한 폴더로 뭉개져도 아무도 모른다.
+    _di = io.open(os.path.join(ROOT, "download_intake.py"),
+                  encoding="utf-8", newline="").read()
+    _i394 = _di.find("dump_*.json")
+    assert _i394 > 0, "[394] download_intake 에서 덤프 갈래를 못 찾았다"
+    _seg394 = _di[_i394:_i394 + 400]
+    assert "브라우저덤프" in _seg394 and "%Y-%m-%d" in _seg394, (
+        "[394] 새 덤프가 날짜 폴더로 안 간다 — 수집일이 뭉개진다")
+
+    dmove = [m for m in moves if os.path.normcase(m.src) == os.path.normcase(photo)][0]
 
     # ④ --copy 는 원본을 그대로 두고 사본만 만든다(사용자 지시)
     done, errs = so.apply_moves([dmove], root=root, copy=True)
     assert not errs, "[394] 복사 실패: %s" % (errs[:2],)
-    assert os.path.isfile(dump), "[394] 복사인데 원본이 사라졌다 — 지시를 어긴다"
+    assert os.path.isfile(photo), "[394] 복사인데 원본이 사라졌다 — 지시를 어긴다"
     assert os.path.isfile(dmove.dst), "[394] 사본이 안 만들어졌다"
 
     # ⑤ 복사는 빈 폴더를 지우지 않는다(지우는 손을 아예 안 댄다)
-    assert os.path.isdir(os.path.dirname(dump)), "[394] 복사인데 폴더를 지웠다"
+    assert os.path.isdir(os.path.dirname(photo)), "[394] 복사인데 폴더를 지웠다"
 
     # ⑥ 기본값은 예전 그대로 이동이다 — 회차 동작을 말없이 바꾸지 않는다
     photo_move = [m for m in moves if os.path.normcase(m.src) == os.path.normcase(photo)][0]
