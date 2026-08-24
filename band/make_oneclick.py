@@ -48,7 +48,10 @@ def screen(band, nos, posts=None):
 
     거르는 근거는 둘 다 이미 있는 것이다 — 새로 지어내지 않는다:
       · `reports/밴드_확인시각.json` 의 '없음 확인' 구간(살아 있는 근거일 때만)
-      · 캐시가 달아 둔 삭제·오염·유령 표시(`recheck_plan.DEAD_FLAGS`)
+      · 캐시가 달아 둔 **긁어도 없는** 표시(`recheck_plan.GONE_FLAGS`)
+        ⚠ 오염(`contaminated`)은 여기 **안 들어간다** — 있는데 본문이 안 담긴 글이라
+          다시 긁는 것이 되살리는 유일한 길이다. 2026-08-24 실사고: is_dead 로 걸러
+          609건이 한 건도 안 실렸고 어느 화면에도 안 떴다([169] · 분담판 [221]).
     """
     if posts is None:
         posts = RP.load(band) or {}
@@ -59,8 +62,8 @@ def screen(band, nos, posts=None):
         if cut is not None and n >= cut:
             dropped.setdefault("없음 확인 구간(%s↑)" % cut, []).append(n)
             continue
-        if RP.is_dead(posts.get(str(n))):
-            dropped.setdefault("삭제·오염·유령 표시", []).append(n)
+        if RP.is_gone(posts.get(str(n))):
+            dropped.setdefault("삭제·없는 번호·유령 표시", []).append(n)
             continue
         keep.append(n)
     return keep, dropped, why

@@ -56,9 +56,22 @@ def _cache_bands():
     return out
 
 
-def _dirty_nos(band):
-    """UI 오염 목록. 파일 이름에 날짜가 붙으므로 글로브로 모은다 — 목록을 손으로 안 적는다."""
+def _dirty_nos(band, posts=None):
+    """UI 오염 목록 — 근거는 **지금 캐시가 단 표시**다.
+
+    ★ 2026-08-24 실사고(분담판 [221]): 예전에는 `reports/밴드_UI오염글_*.json`
+      **만** 읽었는데 그 리포트는 한 번 만들어지고 안 갱신된다. 실측으로 8/20자
+      74건만 실렸고 그것들은 **이미 되살아나** 오염 표시가 없었다 — 정작 지금
+      오염인 **609건**은 어느 길에도 안 실렸고 화면에도 안 떴다([169]).
+    ★ 리포트도 버리지 않는다 — 캐시에 **기록 자체가 없는** 번호는 리포트만 안다.
+    """
     nos = set()
+    for k, v in (posts or {}).items():
+        if isinstance(v, dict) and v.get("contaminated"):
+            try:
+                nos.add(int(k))
+            except (TypeError, ValueError):
+                pass
     for p in glob.glob(os.path.join(ROOT, "reports", "밴드_UI오염글_*.json")):
         try:
             d = json.load(io.open(p, encoding="utf-8"))
@@ -90,7 +103,7 @@ def _tiers_for(band, posts, missed):
         missed.append({"갈래": "미수집", "왜": "%s: %s" % (type(e).__name__, e)})
 
     try:
-        out["오염"] = _dirty_nos(band)
+        out["오염"] = _dirty_nos(band, posts)
     except Exception as e:
         missed.append({"갈래": "오염", "왜": "%s: %s" % (type(e).__name__, e)})
 

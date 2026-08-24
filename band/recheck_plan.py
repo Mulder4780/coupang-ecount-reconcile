@@ -97,6 +97,29 @@ def is_dead(v):
     return isinstance(v, dict) and any(v.get(f) for f in DEAD_FLAGS)
 
 
+# ★ '다시 훑을 대상이 아니다'(is_dead)와 '긁어도 아무것도 안 온다'(is_gone)는
+#   **다른 말이다** (2026-08-24 실사고 · 분담판 [221]).
+#   오염(`contaminated`)은 **있는데 본문이 안 담긴** 글이다 — 실측 609건이 전부
+#   `본문 0자 · 시각 None` 이었고, 다시 긁는 것이 그 글을 되살리는 유일한 길이다.
+#   그런데 `make_oneclick.screen` 이 is_dead 로 걸러 **609건이 붙여넣기 파일에
+#   한 건도 안 실렸다**. 오류도 안 나고 파일도 만들어지므로 아무도 몰랐다([169]) —
+#   옆 세션이 손으로 우회 파일을 만들어야 했다(band/오염복구_*.js).
+#   ⚠ `DEAD_FLAGS`·`is_dead` 는 한 글자도 안 건드린다([172]). 계획을 세우는 쪽
+#     (comment_plan·comment_backfill)은 오염 글을 제 갈래에서 뽑으면 안 된다 —
+#     오염 갈래가 이미 뽑고, 다시 긁으면 본문과 댓글이 같이 온다.
+GONE_FLAGS = ("deleted", "absent", "ghost")
+
+
+def is_gone(v):
+    """긁어도 아무것도 안 오는가(삭제·없는 번호·유령).
+
+    **파일로 나가는 길목**(`make_oneclick.screen`)이 쓰는 판정이다. 없는 번호를
+    사람 손에 들려 보내면 한 개당 21초를 꽉 채우고 수확이 0 이다([130]·[217]).
+    오염은 여기 안 들어간다 — 그것은 있는 글이다.
+    """
+    return isinstance(v, dict) and any(v.get(f) for f in GONE_FLAGS)
+
+
 def _rec(band):
     """근거 한 줄 — `reports/밴드_확인시각.json` 의 그 밴드 항목."""
     try:

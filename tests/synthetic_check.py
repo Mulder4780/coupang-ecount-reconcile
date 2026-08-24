@@ -11188,16 +11188,41 @@ def t217_probe_instead_of_scraping_absent_numbers():
         #    (screen·build 는 시계를 보므로 근거를 **오늘 날짜**로 둔다)
         evidence(3560, _dt.now().strftime("%Y-%m-%d"))
         dead = dict(posts)
-        dead["3536"] = {"contaminated": True}           # 캐시가 실제로 다는 표시
-        kept, dropped, _why = MO.screen(BAND, [3538, 3536, 3600], dead)
-        assert kept == [3538], "죽은 번호·없음 구간이 붙여넣기 파일에 들어간다"
+        dead["3536"] = {"contaminated": True}           # 있는데 본문이 안 담긴 글
+        dead["3535"] = {"deleted": True}                # 긁어도 아무것도 안 오는 글
+        kept, dropped, _why = MO.screen(BAND, [3538, 3536, 3535, 3600], dead)
+        # ★ 오염은 **거르지 않는다** (2026-08-24 실사고 · 분담판 [221]).
+        #   `contaminated` 는 '있는데 본문이 안 담긴' 글이라 **다시 긁는 것이
+        #   되살리는 유일한 길**이다 — 실측 609건이 전부 `본문 0자 · 시각 None`
+        #   이었는데 예전 검사는 `is_dead` 로 거르는 것을 계약으로 얼려 뒀다.
+        #   그래서 609건이 붙여넣기 파일에 **한 건도 안 실리고** 어느 화면에도
+        #   안 떴다([169]) — 옆 세션이 손으로 우회 파일을 만들어야 했다.
+        assert kept == [3538, 3536], \
+            "오염 글이 붙여넣기 파일에서 빠진다 — 되살릴 길이 없어진다([221])"
+        assert 3535 not in kept and 3600 not in kept, \
+            "죽은 번호·없음 구간이 붙여넣기 파일에 들어간다"
         assert any("삭제" in k for k in dropped) and any("없음" in k for k in dropped), \
             "왜 뺐는지가 안 남는다 — 다음 사람이 그대로 다시 넣는다"
 
+        # ★ 계기 자기시험([272]) — 오염을 다시 '긁어도 없는 것'으로 치면 잡히는가.
+        #   ⚠ 모듈 전역이라 프로세스 전체의 것이다 — finally 로 되돌린다([371]).
+        _gone = rp.GONE_FLAGS
+        try:
+            rp.GONE_FLAGS = tuple(_gone) + ("contaminated",)
+            k3, _d3, _w3 = MO.screen(BAND, [3538, 3536], dead)
+            assert k3 == [3538], \
+                "자기시험이 아무것도 안 재고 있다 — 오염을 걸러도 이 검사가 통과한다"
+        finally:
+            rp.GONE_FLAGS = _gone
+
         with open(os.path.join(rp.CACHE, BAND + ".json"), "w", encoding="utf-8") as fh:
             json.dump({"band_name": "매출처업무", "posts": dead}, fh, ensure_ascii=False)
-        js, note = MO.build(BAND, 100, nos=[3538, 3536, 3600], why="시험")
-        assert js and "const ROUNDS = [[3538]]" in js, "붙여넣기 파일에 없는 번호가 실렸다"
+        js, note = MO.build(BAND, 100, nos=[3538, 3536, 3535, 3600], why="시험")
+        _rounds = js.split("const ROUNDS = ", 1)[1].split(";", 1)[0] if js and "const ROUNDS = " in js else ""
+        assert "3538" in _rounds and "3536" in _rounds, \
+            "붙여넣기 파일에 오염 글이 안 실렸다 — 되살릴 길이 없다([221])"
+        assert "3535" not in _rounds and "3600" not in _rounds, \
+            "붙여넣기 파일에 없는 번호가 실렸다"
         assert "제외" in note, "뺀 것을 말하지 않는다 — 조용히 빼면 아무도 모른다"
 
         # ⑦ 댓글 계획도 **같은 낱말**로 거른다. 예전엔 `ghost`·`dirty` 로만 물어서
@@ -22497,7 +22522,7 @@ def t353_collect_queue_is_one_list_and_never_silently_drops():
         _seen = {}
         RP.plan = lambda b, p, *a, **k: (
             _seen.update(a=a, k=k) or {"new": [110], "gaps": [111]})
-        CQ._dirty_nos = lambda b: [105, 200, 201]
+        CQ._dirty_nos = lambda b, p=None: [105, 200, 201]   # posts 인자는 [221] 에서 늘었다
         RC.targets = lambda b, p, *a, **k: ([300, 301], "2026-07-21")
         CB.PLAN_PATH = os.path.join(tmp, "cb.json")
         with open(CB.PLAN_PATH, "w", encoding="utf-8") as fh:
@@ -22508,7 +22533,10 @@ def t353_collect_queue_is_one_list_and_never_silently_drops():
 
         # ① 죽은 표시가 붙은 번호는 목록에 없다 — 없는 번호를 손에 들려 보내지 않는다([223])
         assert 105 not in b["nos"], "죽은 표시 105 가 대기열에 들어갔다 — 거르는 문이 죽었다"
-        assert "삭제·오염·유령 표시" in (b["거른것"] or {}), "뺀 것을 숫자로 말하지 않는다([169])"
+        # ★ 키 낱말을 글자로 못 박지 않는다([39]) — 재려는 것은 '뺀 것을 숫자로
+        #   말하는가'이지 낱말이 아니다. 2026-08-24 에 오염을 통과시키며 키가
+        #   '삭제·없는 번호·유령 표시' 로 바뀌자 이 검사만 죽었다([221]).
+        assert sum((b["거른것"] or {}).values()) >= 1, "뺀 것을 숫자로 말하지 않는다([169])"
 
         # ② 한 번호가 두 갈래에 들어가지 않는다
         assert len(b["nos"]) == len(set(b["nos"])), "같은 번호가 두 번 들어갔다"
