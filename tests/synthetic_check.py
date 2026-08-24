@@ -21114,8 +21114,17 @@ def t235_unattended_rounds_survive_pythonw():
                 continue
             for m in _re.finditer(r"^(?P<ind>[ \t]*)sys\.stdout\.reconfigure", src, _re.M):
                 before = [b.strip() for b in src[:m.start()].splitlines()[-6:]]
+                # ★ **얼릴 것은 방법이 아니라 계약이다**([39]·[219] · 2026-08-24).
+                #   `if sys.stdout is not None:` 도 **정당한 방방어**다 — pythonw 에서
+                #   그 값은 실제로 `None` 이라 이 `if` 가 사이를 열어 준다.
+                #   오늘 codex 가 그렇게 쓴 새 파일(`schedule_recover.py`)에 이 검사가
+                #   거짓 실패를 냈고, 관문은 daily_run 의 0단계라 아침 회차가 통째로
+                #   안 돌았다([192] 모양). 막으려는 것은 **맨몸 호출** 하나다.
                 guarded = bool(m.group("ind")) and any(
-                    b.startswith("try:") or "hasattr(sys.stdout" in b for b in before)
+                    b.startswith("try:")
+                    or "hasattr(sys.stdout" in b
+                    or "sys.stdout is not None" in b
+                    for b in before)
                 if not guarded:
                     bad.append("%s:%d" % (os.path.relpath(path, ROOT).replace("\\", "/"),
                                           src[:m.start()].count("\n") + 1))
