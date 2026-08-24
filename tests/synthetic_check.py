@@ -8372,6 +8372,9 @@ def t76_source_organizer():
 
 def t201_upload_intake(tmp):
     """단일 투입함의 전량 보존·내용 분류·중복방지·전체 대조 선행 순서."""
+    import io
+    import pathlib
+    import shutil as _sh201
     import upload_intake as U
     import source_dirs as SD
 
@@ -8522,9 +8525,41 @@ def t201_upload_intake(tmp):
     app_src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
     assert "kakao_source_paths(dedupe_content=False)" in app_src, \
         "공유 카톡 정본이 바뀌어도 대표보고 디스크 캐시 지문이 안 바뀐다"
-    pipeline_src = open(os.path.join(ROOT, "automation_pipeline.py"), encoding="utf-8").read()
-    assert "_kakao_source.kakao_source_paths(dedupe_content=False)" in pipeline_src, \
-        "Desktop 원본이 Z:로 먼저 이동되면 다음 증분 회차가 카톡 변경을 놓친다"
+    # ★ **증분 회차가 카톡 변경을 놓치지 않는가 — 글자가 아니라 실행으로 재다**([295]).
+    #   예전에는 `kakao_source_paths(dedupe_content=False)` 라는 **글자**를 얼렸는데,
+    #   그것은 Z: 정본을 전수 훑는 방법이어서 네트워크 공유를 **5분마다 30초**씩
+    #   읽었다([168]). 옆 세션이 그것을 반영 이력 지문으로 바꾸자 관문이 통째로
+    #   빨개졌다([39]·[192] 모양) — 관문은 `daily_run` 의 **0단계**라 그날 아침
+    #   회차가 통째로 안 돌았다. 얼릴 것은 방법이 아니라 **계약**이다.
+    import importlib as _il201
+    _ap201 = _il201.import_module("automation_pipeline")
+    _tmp201 = tempfile.mkdtemp(prefix="t201sig_")
+    try:
+        _rep201 = os.path.join(_tmp201, "reports")
+        os.makedirs(_rep201, exist_ok=True)
+        _hist201 = os.path.join(_rep201, "카톡_반영회차.json")
+        io.open(_hist201, "w", encoding="utf-8").write(
+            '[{"시각": "2026-08-24T01:00:00", "받은파일": ["a.txt"]}]')
+        _a201 = _ap201.source_signals(pathlib.Path(_tmp201))["kakao"]
+        # Desktop 원본이 Z: 로 옮겨지면 `kakao_apply` 가 이 이력에 적는다.
+        io.open(_hist201, "w", encoding="utf-8").write(
+            '[{"시각": "2026-08-24T01:00:00", "받은파일": ["a.txt"]},'
+            ' {"시각": "2026-08-24T02:00:00", "받은파일": ["b.txt"]}]')
+        _b201 = _ap201.source_signals(pathlib.Path(_tmp201))["kakao"]
+        assert _a201.get("fingerprint") != _b201.get("fingerprint"), (
+            "Desktop 원본이 Z:로 먼저 이동되면 다음 증분 회차가 카톡 변경을 놓친다 "
+            "— 카톡 지문이 반영 이력을 안 본다")
+        # ★ 좁히는 것도 고장이다([172]) — 아무것도 안 바뀌면 지문도 그대로여야
+        #   한다. 안 그러면 회차마다 '새 자료'로 읽혀 5분마다 헛돈다.
+        _c201 = _ap201.source_signals(pathlib.Path(_tmp201))["kakao"]
+        assert _b201.get("fingerprint") == _c201.get("fingerprint"), (
+            "카톡 지문이 부를 때마다 바뀜다 — 매 회차가 '새 자료'로 읽힌다")
+    finally:
+        _sh201.rmtree(_tmp201, ignore_errors=True)
+    pipeline_src = open(os.path.join(ROOT, "automation_pipeline.py"),
+                        encoding="utf-8").read()
+    _unused201 = \
+        "(재는 자리가 위로 옮겨졌다)"
     assert '"카톡 앱 DB 신규·변경등록"' in pipeline_src, \
         "카톡 완료가 대표보고만 바꾸고 담당자 업무센터 AppStore에는 안 들어간다"
     print("  [201] 단일 업로드 투입함 전량 원본분류·중복방지·30분/전체대조 연결 ✅")
