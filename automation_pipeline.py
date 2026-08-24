@@ -329,6 +329,108 @@ def _local_files(folder: Path, pattern: str) -> List[Path]:
         return []
 
 
+def _unique_paths(paths: Iterable[Path]) -> List[Path]:
+    """Return existing candidates once without touching their contents."""
+
+    found: Dict[str, Path] = {}
+    for raw in paths:
+        path = Path(raw)
+        try:
+            key = str(path.resolve()).lower()
+        except OSError:
+            key = str(path.absolute()).lower()
+        found.setdefault(key, path)
+    return list(found.values())
+
+
+def _content_marker_signature(paths: Iterable[Path]) -> Tuple[str, Optional[float], int]:
+    """Fingerprint deterministic semantic outputs by bytes, never by rewrite time.
+
+    Some collectors rewrite their derived JSON even when the underlying ERP rows
+    did not change.  Metadata-only fingerprints therefore made the pipeline
+    trigger itself forever.  A content digest is safe for the small deterministic
+    markers used here: an identical rewrite stays identical, while a real row
+    change still wakes the pipeline.
+    """
+
+    rows: List[Tuple[str, str, int]] = []
+    latest: Optional[float] = None
+    for path in _unique_paths(paths):
+        try:
+            stat = path.stat()
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            continue
+        rows.append((path.name.lower(), digest, int(stat.st_size)))
+        latest = stat.st_mtime if latest is None else max(latest, stat.st_mtime)
+    rows.sort()
+    digest = hashlib.sha256(
+        json.dumps(rows, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return digest, latest, len(rows)
+
+
+def _kakao_applied_signature(path: Path) -> Tuple[str, Optional[float], int]:
+    """Semantic Kakao history signal, ignoring the timestamp of repeated runs."""
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        latest = path.stat().st_mtime
+    except (OSError, ValueError, TypeError):
+        return hashlib.sha256(b"[]").hexdigest(), None, 0
+    names = sorted(
+        {
+            Path(str(name)).name.lower()
+            for run in payload if isinstance(payload, list) and isinstance(run, Mapping)
+            for name in (run.get("받은파일") or [])
+            if str(name).lower().endswith(".txt")
+        }
+    )
+    digest = hashlib.sha256(
+        json.dumps(names, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return digest, latest, len(names)
+
+
+def _combine_signatures(*parts: Tuple[str, Optional[float], int]) -> Tuple[str, Optional[float], int]:
+    rows = [(signature, int(count)) for signature, _latest, count in parts]
+    latest_values = [latest for _signature, latest, _count in parts if latest is not None]
+    return (
+        hashlib.sha256(
+            json.dumps(rows, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+        max(latest_values) if latest_values else None,
+        sum(int(count) for _signature, _latest, count in parts),
+    )
+
+
+def _band_input_files(root: Path) -> List[Path]:
+    """Only browser/API input dumps; canonical cache outputs are not inputs."""
+
+    cache = root / "band" / "cache"
+    return _unique_paths(
+        [*_local_files(cache, "dump_*.json"), *_local_files(cache, "raw*.json")]
+    )
+
+
+def _erp_drop_files(root: Path, *, include_user_drop: bool) -> List[Path]:
+    """Cheap ERP intake edges only; never recurse through the 160k-file archive."""
+
+    files: List[Path] = []
+    for suffix in ("*.xlsx", "*.xlsm", "*.xls", "*.csv"):
+        files.extend(_local_files(root / "inbox", suffix))
+    if include_user_drop:
+        try:
+            import source_dirs as _source_dirs
+
+            for folder in _source_dirs.upload_dirs():
+                for suffix in ("*.xlsx", "*.xlsm", "*.xls", "*.csv"):
+                    files.extend(_local_files(Path(folder), suffix))
+        except Exception:
+            pass
+    return _unique_paths(files)
+
+
 def _desktop_download_files(pattern: str) -> List[Path]:
     home = Path.home()
     folders = (
@@ -358,34 +460,40 @@ def source_signals(root: Path = ROOT) -> Dict[str, Dict[str, Any]]:
     kakao_files = _local_files(root / "kakao" / "dropbox", "*.txt")
     if include_user_drop:
         kakao_files.extend(_desktop_download_files("KakaoTalk*.txt"))
-        # download_intake가 Desktop 파일을 Z: 정본으로 먼저 옮긴 회차라도 다음
-        # 증분 회차가 놓치지 않는다. 예전에는 신호가 Desktop/dropbox만 보아서
-        # 신규 접수는 수동 반영됐는데 완료 보고는 대표화면에 안 들어왔다.
-        try:
-            import band_extract as _kakao_source
-            kakao_files.extend(Path(path) for path in
-                               _kakao_source.kakao_source_paths(dedupe_content=False))
-        except Exception:
-            pass
-    kakao_sig, kakao_latest, kakao_count = _metadata_signature(kakao_files)
-    band_files = _local_files(root / "band" / "cache", "*.json")
+    kakao_files = _unique_paths(kakao_files)
+    # The full canonical folder can contain years of cumulative exports and is
+    # a network share.  Scanning it every five minutes took over 30 seconds.
+    # The apply history already records which canonical files were absorbed;
+    # fingerprint its normalized filenames and watch only the live intake edge.
+    kakao_sig, kakao_latest, kakao_count = _combine_signatures(
+        _metadata_signature(kakao_files),
+        _kakao_applied_signature(root / "reports" / "카톡_반영회차.json"),
+    )
+    # Canonical ``84789192.json`` / ``90610953.json`` are outputs of
+    # convert_dump.  Watching them made every successful run look like a new
+    # input.  Only raw browser/API dumps belong to the change signal.
+    band_files = _band_input_files(root)
     if include_user_drop:
         band_files.extend(_desktop_download_files("dump_*.json"))
     band_sig, band_latest, band_count = _metadata_signature(band_files)
-    erp_markers = [
-        root / "reports" / "download_intake.json",
-        root / "reports" / "upload_intake.json",
-        root / "reports" / "ERP_판매프로젝트색인.json",
-        root / "reports" / "ERP원장_대조.csv",
-    ]
+    # Intake status JSON and reconciliation CSV are pipeline outputs and carry
+    # a fresh timestamp on every run.  They must never be used as input clocks.
+    # The sales index is deterministic business content, so hash its bytes and
+    # combine it with the actual intake edges instead of its mtime.
+    erp_files = _erp_drop_files(root, include_user_drop=include_user_drop)
+    erp_content_markers = [root / "reports" / "ERP판매_프로젝트색인.json"]
     erp_name = re.compile(
         r"(?i)^(?:[A-Za-z0-9]{12,20}|E[A-Z]*\d{3,6}[A-Z]?|ECTAX\d+[A-Z]?)\.xlsx$"
     )
     if include_user_drop:
-        erp_markers.extend(
+        erp_files.extend(
             path for path in _desktop_download_files("*.xlsx") if erp_name.fullmatch(path.name)
         )
-    erp_sig, erp_latest, erp_count = _metadata_signature(erp_markers)
+    erp_files = _unique_paths(erp_files)
+    erp_sig, erp_latest, erp_count = _combine_signatures(
+        _metadata_signature(erp_files),
+        _content_marker_signature(erp_content_markers),
+    )
 
     def row(signature: str, latest: Optional[float], count: int) -> Dict[str, Any]:
         return {
@@ -607,10 +715,21 @@ class AutomationPipeline:
                 )
                 self._save()
                 return False
+        # Commands may move an intake file or rebuild a deterministic cache.
+        # Store the signal *after* that work.  Keeping the pre-run signal made
+        # the very next scheduler tick see our own move/rewrite as new input
+        # and start the same 75-minute chain again.
+        try:
+            settled_signal = source_signals(self.root).get(source, signal)
+        except Exception:
+            settled_signal = signal
         source_state.update(
             {
                 "status": "ok",
-                "fingerprint": signal.get("fingerprint") or "",
+                "fingerprint": settled_signal.get("fingerprint") or "",
+                "latest_record_at": (
+                    settled_signal.get("latest_mtime") or signal.get("latest_mtime")
+                ),
                 "last_success_at": _now(),
                 "last_attempt_at": _now(),
                 "error": "",
@@ -955,6 +1074,19 @@ class AutomationPipeline:
                     continue
                 commands = self._commands_for(source, signal)
                 if not commands:
+                    # A semantic marker may be written by another completed
+                    # collector while there is no local drop left to ingest.
+                    # Acknowledge that observed baseline; otherwise every
+                    # five-minute tick rediscovers the same no-op forever.
+                    source_state = self.state["sources"].setdefault(source, {})
+                    source_state.update(
+                        {
+                            "fingerprint": signal.get("fingerprint") or "",
+                            "latest_record_at": signal.get("latest_mtime"),
+                            "error": "",
+                        }
+                    )
+                    self._save()
                     continue
                 changed.append(source)
                 if not self._run_source(source, signal, commands):

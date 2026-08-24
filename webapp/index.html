@@ -13362,7 +13362,14 @@ function dataStampText(raw){
 }
 function renderDataHealth(){
   const host=$('dataHealth'), chip=$('dataSyncChip'); if(!host&&!chip) return;
-  const states=Object.values(DATA_SECTION_STATE).filter(s=>s.error||s.loading||s.retrying);
+  const view=curView(), inRun=view==='run';
+  const relevant=new Set(liveDataKeysForView(view));
+  /* 화면을 옮긴 뒤에도 이전 화면의 느린 요청은 안전하게 끝까지 받는다. 다만 그 요청을
+     현재 화면의 '갱신 중' 카드로 보여 주지는 않는다. 대표보고를 뒤에서 읽는 동안 실행
+     화면에 '대표보고 확인 중'이 떠 사용자가 멈춘 것으로 오인했던 실제 사고다. 오류는
+     어느 화면에서든 숨기지 않고, 진행 표시는 현재 화면에 필요한 묶음만 남긴다. */
+  const states=Object.values(DATA_SECTION_STATE).filter(s=>
+    s.error||(relevant.has(s.key)&&(s.loading||s.retrying)));
   const failed=states.filter(s=>s.error).length;
   const active=states.filter(s=>s.loading||s.retrying).length;
   const swrBusy=(typeof SWR_UI!=='undefined')&&SWR_UI.visible&&!SWR_UI.failed;
@@ -13370,8 +13377,8 @@ function renderDataHealth(){
   const pipelineBusy=!!(LIVE_SYNC.running||LIVE_SYNC.phase==='updating');
   const archivePending=LIVE_SYNC.phase==='archive_pending';
   const isError=!!(NET_OFFLINE||failed||swrFailed||LIVE_SYNC.error);
-  const isBusy=!!(active||LIVE_SYNC.refreshFlight||swrBusy||pipelineBusy||(!LIVE_SYNC.initialized&&PIN));
-  const view=curView(), inRun=view==='run';
+  const isBusy=!!(active||(!inRun&&LIVE_SYNC.refreshFlight)||(!inRun&&swrBusy)||
+    pipelineBusy||(!LIVE_SYNC.initialized&&PIN));
   document.body.classList.toggle('sync-detail-view',inRun);
 
   /* 실행 밖에서는 이 pill 하나만 보인다. revision과 시각은 모두 서버 응답에서 왔고,
@@ -13618,12 +13625,16 @@ async function refreshCalendarData(targetRevision=''){
 }
 function liveDataKeysForView(view){
   const byView={
-    dash:Object.keys(DATA_SECTION_DEFS),
+    // 대시보드는 실제 카드가 쓰는 네 묶음만 받는다. 예전에는 대표보고·ERP서류·
+    // 4원천검증까지 일곱 API를 모두 열어 첫 화면이 가장 느린 화면이 됐다.
+    dash:['settlements','works','issues','representative'],
     as:['works'],pm:['works'],center:['works'],
     settle:['settlements','erpdocs'],
     check:['issues','checks'],
     daily:['exec','representative','settlements','works','issues','erpdocs'],
-    report:['exec','representative']
+    report:['exec','representative'],
+    // 아래 화면은 각자의 경량 API를 직접 읽는다. 공용 대용량 묶음을 얹지 않는다.
+    run:[],revenue:[],sources:[],remote:[],flow:[],org:[],settings:[],worklog:[],camps:[]
   };
   // 새 화면을 맵에 넣지 않았다고 동기화가 조용히 빠지면 안 된다. 전용 맵이 없는
   // 신규 view는 등록된 모든 자료 section을 받아 안전하게 시작하고, 성능이 필요할 때
@@ -13660,7 +13671,8 @@ async function refreshLiveViewData(targetRevision,force=false){
       {path:AUTOMATION_STATUS_PATH,code:'AUTOMATION_REFRESH_ERROR'});
     return true;
   }
-  const keys=view==='dash'?Object.keys(DATA_SECTION_DEFS):liveDataKeysForView(view);
+  const registered=Object.keys(DATA_SECTION_DEFS);
+  const keys=liveDataKeysForView(view).filter(k=>registered.includes(k));
   return refreshDataKeys(keys,targetRevision);
 }
 async function retryDataSection(key){

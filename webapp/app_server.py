@@ -4415,7 +4415,7 @@ def demo_works():
     return {"as": a, "pm": p}
 
 
-_MT = {"at": 0.0, "v": 0}
+_MT = {"at": 0.0, "v": 0, "path": ""}
 _MT_TTL = 30.0
 _MT_LOCK = threading.Lock()
 
@@ -4440,13 +4440,33 @@ def _master_mtime():
         now = time.time()
         if now - _MT["at"] < _MT_TTL:
             return _MT["v"]
+        path = ""
         try:
             from ecount_reconcile import load_config, resolve_master
-            v = os.path.getmtime(resolve_master(load_config()["reconcile"]["master_xlsx"]))
+            path = resolve_master(load_config()["reconcile"]["master_xlsx"])
+            v = os.path.getmtime(path)
         except Exception:
             v = 0
-        _MT["at"], _MT["v"] = now, v
+        _MT["at"], _MT["v"], _MT["path"] = now, v, path
         return v
+
+
+def _live_master_meta():
+    """캘린더에 합친 **실제 업무원장**의 버전·저장시각.
+
+    ``gcal_events.json``의 ``관리대장``과 ``갱신``은 Google 수집 파일을 만들던 때의
+    꼬리표다. ``get_calendar``는 요청할 때 최신 원장을 다시 합치는데도 그 옛 꼬리표를
+    그대로 돌려, v616 내용이 v614라고 보이는 사고가 났다. 데이터와 표찰을 같은
+    `_master_mtime` 결과에서 만든다.
+    """
+    mt = _master_mtime()
+    path = str(_MT.get("path") or "")
+    match = re.search(r"_v(\d+)\.xlsx$", os.path.basename(path), re.IGNORECASE)
+    return {
+        "버전": int(match.group(1)) if match else 0,
+        "파일": os.path.basename(path) if path else "",
+        "저장시각": datetime.fromtimestamp(mt).isoformat(timespec="seconds") if mt else "",
+    }
 
 
 def _data_asof_iso():
@@ -7543,7 +7563,8 @@ def get_calendar():
     폰에서 열 때 구글을 기다리면 화면이 멈추고, 터널이 죽으면 통째로 안 뜬다."""
     p = os.path.join(ROOT, "reports", "gcal_events.json")
     try:
-        d = json.load(open(p, encoding="utf-8"))
+        with open(p, encoding="utf-8") as fh:
+            d = json.load(fh)
     except Exception:
         d = {"갱신": "", "일정": [], "원천": ["Google Calendar 아직 수집되지 않음"], "안내":
              "Google Calendar 원천은 아직 없으며, 정기점검 원본의 공식·예측 일정은 아래 앱 캘린더에 표시합니다."}
@@ -7552,8 +7573,9 @@ def get_calendar():
     # 동일 장비 과거 점검일 기반 예측일을 앱 캐시에만 합친다. 예측은 제목·근거에서
     # 명확히 구분하며 사용자가 Google Calendar 초안 화면에서 저장하기 전에는 외부 일정이 아니다.
     try:
-        pm = json.load(open(os.path.join(ROOT, "reports", "pm_schedule_sync.json"),
-                            encoding="utf-8"))
+        with open(os.path.join(ROOT, "reports", "pm_schedule_sync.json"),
+                  encoding="utf-8") as fh:
+            pm = json.load(fh)
         events = list(d.get("일정") or [])
 
         def event_key(event):
@@ -7644,6 +7666,15 @@ def get_calendar():
     d["일정"], d["점검완료예정제외"], d["지난예정미처리이동"] = \
         _drop_served_pm_plans(d.get("일정") or [])
     d["일정"], d["중복접수제외"] = _dedupe_calendar_pending(d.get("일정") or [])
+
+    # ★ Google 캐시의 옛 판번호가 아니라 **방금 합친 업무원장**의 판번호를 적는다.
+    #   내용은 v616인데 꼬리표는 v614인 상태도 거짓 최신성이다([169]). Google 원천의
+    #   수집시각은 별도 칸으로 보존한다.
+    live_master = _live_master_meta()
+    d["달력원천갱신"] = d.get("갱신") or ""
+    d["업무원장갱신"] = live_master["저장시각"]
+    d["관리대장"] = live_master["버전"]
+    d["관리대장파일"] = live_master["파일"]
 
     # 분류가 없는 옛 일정(Google 원천 등)도 필터에 걸리도록 자리를 준다.
     for e in d.get("일정") or []:

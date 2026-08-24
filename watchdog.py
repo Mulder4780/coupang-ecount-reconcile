@@ -787,30 +787,31 @@ def sync_worklog(dry):
 
 
 def run_incremental_pipeline(dry):
-    """Five-minute task의 안전망 — 새 원본이면 앱 DB와 보관본까지 끝낸다.
+    """Five-minute task의 안전망 — **시작만 요청하고 기다리지 않는다.**
 
     별도 작업 스케줄러가 주 경로다. 워치독에도 맨 앞에 두는 이유는 스케줄러가
     비활성화되거나 PC가 예약 시각에 꺼져 있었어도 다음 30분 회차에서 복구하기
     위해서다. 파이프라인 자체 PID 잠금과 지문 멱등성이 중복 실행을 막는다.
+
+    ★ 2026-08-24 실사고: 워치독이 이 자리에서 파이프라인 종료를 기다리다 **130분**
+      멈췄다. 그동안 서버·터널·회차 감시도 함께 멈췄다. 감시자는 일을 시키되 그 일과
+      같이 갇히면 안 된다. Task Scheduler의 ``IgnoreNew`` 에 맡기고 바로 다음 눈으로 간다.
     """
     if dry:
-        return "증분 자동화(dry)"
+        return "증분 자동화 시작 예행(dry)"
     result = run_tree(
-        [PY, os.path.join(ROOT, "automation_pipeline.py"), "--once", "--trigger", "watchdog"],
-        cwd=ROOT,
-        timeout=1500,
-        drain_timeout=30,
-        output_limit=100_000,
+        ["schtasks.exe", "/Run", "/TN", "CSOS_AutomationPipeline"],
+        cwd=ROOT, timeout=20, drain_timeout=5, output_limit=20_000,
     )
     if result.timed_out:
-        return "증분 자동화 시간초과 — 자식나무 정리·다음 회차 재시도"
+        return "증분 자동화 시작 요청 시간초과 — 다음 워치독이 재시도"
     if result.returncode != 0:
         tail = [line for line in (result.stdout or "").splitlines() if line.strip()][-1:]
-        return "증분 자동화 실패(rc=%d)%s" % (
+        return "증분 자동화 시작 실패(rc=%d)%s" % (
             result.returncode,
             (" · " + tail[0][:80]) if tail else "",
         )
-    return "증분 자동화 완료"
+    return "증분 자동화 시작 요청 전달(완료는 5분 회차 자국이 확인)"
 
 
 def resume_parked(dry):
@@ -857,6 +858,19 @@ def watch_schedules(dry):
             len(st.get("작업") or []), " · 알림 %d건" % no if no else "")
     return "스케줄러 경보 %d건: %s" % (
         len(al), ", ".join("%s %s" % (a["갈래"], a["작업"]) for a in al[:4]))
+
+
+def recover_missed_schedules(dry):
+    """작업 스케줄러가 놓친 일일 회차를 한 건씩 되살린다.
+
+    판정은 바로 앞 ``watch_schedules``가 만든 파일을 읽고, 쓰는 손은 별도 모듈에 둔다.
+    감시자의 읽기 전용 계약을 깨지 않으며 한 번에 하나만 시작한다.
+    """
+    try:
+        import schedule_recover
+        return schedule_recover.run(dry=dry)
+    except Exception as exc:
+        return "놓친 회차 자동복구 실패: %s: %s" % (type(exc).__name__, str(exc)[:70])
 
 
 def watch_coordination(dry):
@@ -1062,6 +1076,9 @@ def main():
                # ★ 스케줄러 판정이 **인계 스냅샷보다 먼저**다 — 뒤에 두면 인계 문서가
                #   언제나 30분 전 판정을 싣는다(2026-08-12, `[228]`).
                watch_schedules(dry),
+               # ★ StartWhenAvailable=True 인데도 08-24 일일 세 회차가 빠졌다.
+               #   판정을 만든 **뒤** 한 건만 시작하고 다음 감시를 계속한다.
+               recover_missed_schedules(dry),
                # ★ 브라우저 쪽 눈도 인계보다 먼저다 — 같은 이유(2026-08-13, `[247]`).
                watch_userscript(dry),
                # ★ 이어받기 준비도 인계보다 먼저다 — 크레딧이 떨어진 창은 훅이 없어
