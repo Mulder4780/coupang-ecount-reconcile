@@ -4,7 +4,7 @@ convert_dump.py — 브라우저 수집 덤프(dump_*.json) → 대조 캐시(<b
 게시일 파싱 우선순위: 본문 1행 절대시각 → timeText 절대시각 → 상대시각(수집시각 기준).
 변환 후 덤프는 raw_*.json 으로 개명 보존.
 """
-import sys, os, re, json, glob
+import sys, os, re, json, glob, time
 import hashlib
 from datetime import datetime, timedelta
 
@@ -14,6 +14,13 @@ except Exception:
     pass
 
 CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATE = os.path.join(ROOT, "reports", "밴드덤프_변환상태.json")
+LOCK = os.path.join(CACHE, ".convert_dump.lock")
+STATE_SCHEMA = 1
+# 자동 파이프라인이 900초에 자른다. 신규·변경은 먼저 전부 반영하고, 코드가 바뀌어
+# 다시 보는 과거 덤프만 이 예산 안에서 끊어 다음 회차가 이어받는다.
+REPLAY_BUDGET_SEC = int(os.environ.get("BAND_CONVERT_REPLAY_BUDGET_SEC", "600"))
 ABS = re.compile(r"(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*(오전|오후)?\s*(\d{1,2}):(\d{2})")
 # ★ 밴드는 시각을 **네 가지 모양**으로 적는다 (2026-08-12 실측). ABS 하나만 보던
 #   동안 댓글은 한 건도 캐시에 못 들어왔다 — 수집기가 6건을 멀쩡히 읽어 덤프에
@@ -79,6 +86,255 @@ def swap_in(tmp, dst, tries=6, wait=0.5):
             if i == tries - 1:
                 raise
             time.sleep(wait * (i + 1))       # 0.5s → 1.0s → … 물러서며 기다린다
+
+
+def _norm_path(path):
+    return os.path.normcase(os.path.abspath(path))
+
+
+def converter_version():
+    """덤프 해석 규칙의 지문.
+
+    변환기 본문과 오염 판정기가 바뀌면 과거 덤프도 새 규칙으로 다시 봐야 한다.
+    수동 버전 숫자는 올리는 것을 잊을 수 있어 실제 두 파일의 바이트를 해싱한다.
+    """
+    h = hashlib.sha256()
+    for path in (__file__, os.path.join(os.path.dirname(__file__), "clean_contaminated.py")):
+        try:
+            with open(path, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                    h.update(chunk)
+        except OSError:
+            h.update(("<missing>" + os.path.basename(path)).encode("utf-8"))
+    return h.hexdigest()[:16]
+
+
+def _atomic_json(path, doc):
+    """JSON을 정본 옆 임시파일에 완성한 뒤 한 번에 갈아끼운다."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = tmp_path(path)
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh, ensure_ascii=False, indent=1)
+        fh.flush()
+        try:
+            os.fsync(fh.fileno())
+        except OSError:
+            pass
+    swap_in(tmp, path)
+
+
+def load_state(path=None):
+    path = path or STATE
+    try:
+        doc = json.load(open(path, encoding="utf-8"))
+        if not isinstance(doc, dict) or doc.get("schema") != STATE_SCHEMA:
+            raise ValueError("state schema")
+        if not isinstance(doc.get("files"), dict):
+            raise ValueError("state files")
+        return doc
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {"schema": STATE_SCHEMA, "target_version": "", "completed_version": "",
+                "files": {}, "updated_at": ""}
+
+
+def save_state(state, path=None):
+    state["schema"] = STATE_SCHEMA
+    state["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _atomic_json(path or STATE, state)
+
+
+def _scan_json_root(root, recursive=True, local_dump_only=False):
+    """한 루트의 JSON과 stat을 한 번에 받는다 → (행, 완전스캔 여부)."""
+    rows, complete = {}, True
+    stack = [root]
+    while stack:
+        folder = stack.pop()
+        try:
+            with os.scandir(folder) as it:
+                entries = list(it)
+        except OSError:
+            complete = False
+            continue
+        for entry in entries:
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    if recursive:
+                        stack.append(entry.path)
+                    continue
+                if not entry.is_file(follow_symlinks=False):
+                    continue
+                name = entry.name
+                if local_dump_only:
+                    if not (name.startswith("dump_") and name.endswith(".json")):
+                        continue
+                elif not name.endswith(".json"):
+                    continue
+                st = entry.stat()
+            except OSError:
+                complete = False
+                continue
+            key = _norm_path(entry.path)
+            rows[key] = {"path": entry.path, "root": _norm_path(root),
+                         "size": int(st.st_size),
+                         "mtime_ns": int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))),
+                         "source_kind": "local_dump" if local_dump_only else "z_dump"}
+    return rows, complete
+
+
+def dump_inventory(state=None, explicit_paths=None):
+    """덤프 목록과 **루트별 완전스캔 여부**를 함께 돌려준다.
+
+    Z:가 끊겼는데 빈 목록을 '전부 없어짐'으로 읽으면 파일별 redirect 근거가 통째로
+    사라진다. 그래서 못 본 루트는 따로 남기고 그 루트의 상태는 가지치지 않는다.
+    """
+    files, complete_roots, unavailable_roots = {}, set(), set()
+    if explicit_paths is not None:
+        roots = {}
+        for path in explicit_paths:
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            root = _norm_path(os.path.dirname(path))
+            key = _norm_path(path)
+            files[key] = {"path": path, "root": root, "size": int(st.st_size),
+                          "mtime_ns": int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))),
+                          "source_kind": "explicit"}
+            roots[root] = True
+        complete_roots.update(roots)
+        return {"files": files, "complete_roots": complete_roots,
+                "unavailable_roots": unavailable_roots}
+
+    os.makedirs(CACHE, exist_ok=True)
+    local, ok = _scan_json_root(CACHE, recursive=False, local_dump_only=True)
+    files.update(local)
+    (complete_roots if ok else unavailable_roots).add(_norm_path(CACHE))
+
+    configured = []
+    try:
+        sys.path.insert(0, ROOT)
+        import source_dirs
+        configured = [os.path.join(source_dirs.BAND_DIR, "수집본"),
+                      os.path.join(source_dirs.BAND_DIR, "브라우저덤프")]
+        band_parent_visible = os.path.isdir(source_dirs.BAND_DIR)
+    except Exception:
+        band_parent_visible = False
+    for root in configured:
+        key = _norm_path(root)
+        if os.path.isdir(root):
+            rows, ok = _scan_json_root(root, recursive=True)
+            files.update(rows)
+            (complete_roots if ok else unavailable_roots).add(key)
+        elif band_parent_visible:
+            # 상위 밴드 폴더가 보이는데 이 갈래만 없으면 '빈 루트'를 끝까지 본 것이다.
+            complete_roots.add(key)
+        else:
+            unavailable_roots.add(key)
+
+    # 로컬 dump는 처리 뒤 raw_로 이름을 바꾼다. 그 파일에서 얻은 redirect 근거가
+    # 다음 회차에 사라지지 않도록 **이 상태가 이미 아는 raw 별칭만** 다시 목록에 넣는다.
+    for key, entry in ((state or {}).get("files") or {}).items():
+        if entry.get("source_kind") != "local_raw" or key in files:
+            continue
+        path = entry.get("path") or key
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        files[key] = {"path": path, "root": _norm_path(CACHE), "size": int(st.st_size),
+                      "mtime_ns": int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))),
+                      "source_kind": "local_raw"}
+    return {"files": files, "complete_roots": complete_roots,
+            "unavailable_roots": unavailable_roots}
+
+
+def _same_fingerprint(entry, row):
+    return (int(entry.get("size") or -1) == int(row.get("size") or -2)
+            and int(entry.get("mtime_ns") or -1) == int(row.get("mtime_ns") or -2))
+
+
+def _entry_current(entry, row, version):
+    return bool(entry and _same_fingerprint(entry, row)
+                and entry.get("converter_version") == version)
+
+
+def _prune_state_files(state, inventory):
+    """끝까지 본 루트에서 실제로 사라진 파일만 상태에서도 뺀다."""
+    current = inventory["files"]
+    complete = set(inventory["complete_roots"])
+    for key, entry in list((state.get("files") or {}).items()):
+        if key in current:
+            continue
+        if entry.get("source_kind") == "local_raw" and os.path.isfile(entry.get("path") or key):
+            continue
+        if entry.get("root") in complete:
+            state["files"].pop(key, None)
+
+
+def _state_entry(row, version, status, band="", captured_at=0, redirect_hits=()):
+    return {"path": row["path"], "root": row["root"], "size": int(row["size"]),
+            "mtime_ns": int(row["mtime_ns"]), "source_kind": row.get("source_kind") or "",
+            "converter_version": version, "status": status, "band": str(band or ""),
+            "captured_at": int(captured_at or 0),
+            "redirect_hits": sorted({str(n) for n in (redirect_hits or ())},
+                                    key=lambda x: (len(x), x))}
+
+
+def redirect_rounds_from_state(state, inventory, version):
+    """현재 실제 파일·현재 코드에 해당하는 redirect 근거만 다시 조립한다."""
+    rounds = {}
+    for key, row in inventory["files"].items():
+        entry = (state.get("files") or {}).get(key)
+        if not _entry_current(entry, row, version) or entry.get("status") != "merged":
+            continue
+        band, cap = str(entry.get("band") or ""), int(entry.get("captured_at") or 0)
+        if not band:
+            continue
+        for no in entry.get("redirect_hits") or []:
+            rounds.setdefault(band, {}).setdefault(int(no), set()).add(cap)
+    return rounds
+
+
+def _lock_acquire(wait_sec=None):
+    """캐시 read-modify-write와 상태 체크포인트를 한 변환기만 수행하게 한다."""
+    wait_sec = float(os.environ.get("BAND_CONVERT_LOCK_WAIT_SEC", "120")
+                     if wait_sec is None else wait_sec)
+    os.makedirs(os.path.dirname(LOCK), exist_ok=True)
+    end = time.monotonic() + max(0.0, wait_sec)
+    while True:
+        try:
+            fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            dead = False
+            try:
+                import pid_alive
+                words = open(LOCK, encoding="utf-8", errors="replace").read().split()
+                pid, fingerprint, born = pid_alive.owner_from_words(words)
+                dead = pid_alive.owner_alive(pid, pid_started_at=fingerprint,
+                                             born_before=born) is False
+            except (OSError, ValueError):
+                dead = False
+            if dead:
+                try:
+                    os.unlink(LOCK)
+                    continue
+                except OSError:
+                    pass
+            if time.monotonic() >= end:
+                return False
+            time.sleep(0.25)
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            import pid_alive
+            fh.write(f"{os.getpid()} {pid_alive.stamp()} {datetime.now():%Y-%m-%dT%H:%M:%S}\n")
+        return True
+
+
+def _lock_release():
+    try:
+        os.unlink(LOCK)
+    except OSError:
+        pass
 
 
 def _hour24(ap, h):
@@ -295,21 +551,11 @@ def _ui_junk(txt):
 
 def dump_files():
     """로컬 처리함과 0. 원본 자료의 밴드 JSON 정본을 함께 읽는다."""
-    paths = list(glob.glob(os.path.join(CACHE, "dump_*.json")))
-    try:
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from source_dirs import band_dump_dirs
-        for folder in band_dump_dirs():
-            paths.extend(glob.glob(os.path.join(folder, "**", "*.json"), recursive=True))
-    except Exception:
-        pass
-    out, seen = [], set()
-    for path in paths:
-        key = os.path.normcase(os.path.abspath(path))
-        if key not in seen:
-            seen.add(key)
-            out.append(path)
-    return sorted(out)
+    inventory = dump_inventory(load_state())
+    # raw_는 파일별 redirect 근거를 보존하려고 내부 inventory에만 되살린다.
+    # 이 공개 함수는 예전 계약대로 실제 입력 덤프만 돌려준다.
+    return sorted(row["path"] for row in inventory["files"].values()
+                  if row.get("source_kind") != "local_raw")
 
 
 CHANGED_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
