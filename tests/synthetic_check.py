@@ -27641,6 +27641,81 @@ def t412_hand_run_gate_yields_to_a_running_round():
     print("  [412] 사람 관문은 회차에 양보 · 회차·강제·죽은잠금·깨진잠금은 그대로 돈다")
 
 
+def shutil_which_node():
+    import shutil as _s
+    return _s.which("node")
+
+
+def t413_calendar_says_whether_it_is_today_and_capture_ready():
+    """[413] 화면이 오늘 자료인지 · 캡처해도 되는지를 그 자리에서 말한다.
+
+    2026-08-24 형님 지시: "오늘 날짜 반영됐는지 표시해주고 캡처 준비가 되었는지
+    표시해야 내가 캡처하지". 그날 화면은 `갱신 2026-08-23T14:30:06` 을 작은 회색
+    글씨로만 적고 있었다 — **하루 지난 자료인데 아무도 그렇게 말하지 않았고**,
+    그대로 캡처하면 어제 것이 대표께 나간다.
+
+    글자로는 못 잰다([295]) — node 로 실제 함수를 돌려 결과로 잰다.
+    """
+    import shutil as _sh413
+    import subprocess as _sp413
+    node = shutil_which_node()
+    if not node:
+        print("  [413] node 가 없어 건너뜀 (구조만 확인)")
+    html = open(os.path.join(ROOT, "webapp", "index.html"),
+                encoding="utf-8", newline="").read().replace(chr(13) + chr(10), chr(10))
+
+    # ① 판정은 한 곳이다([162]) — 딱지와 캐프체 안내가 같은 답을 본다
+    assert html.count("function calFreshness(){") == 1, "[413] 판정 함수가 하나가 아니다"
+    assert "const _fr = calFreshness();" in html, "[413] 요약줄이 그 판정을 안 쓴다"
+
+    # ② 딱지 모양은 **이미 있는 것**을 쓴다([310]) — CSS 가 없는 클래스를
+    #    새로 만들면 브라우저 기본 글씨로 그려진다.
+    for cls in ("c-ok", "c-warn", "c-danger", "cal2-ready"):
+        assert (".chip." + cls in html) or ("." + cls + "{" in html), (
+            "[413] 딱지 클래스 %s 에 CSS 가 없다" % cls)
+
+    if not node:
+        print("  [413] 오늘/낡음/모름 갈래 · 딱지 CSS · 판정 한 곳 (node 없이 구조만)")
+        return
+
+    tmp = tempfile.mkdtemp(prefix="t413_")
+    try:
+        i = html.index("function calFreshness(){")
+        j = html.index("async function calendarCapture(opt){", i)
+        tail = (
+            "function pad(n){ return String(n).padStart(2,'0'); }" + chr(10) +
+            "function show(t){ CAL = t===null ? null : {갱신: t};" + chr(10) +
+            "  var r = calFreshness(); return [r.갈래, r.색].join(chr124); }" + chr(10) +
+            "var chr124=String.fromCharCode(124);" + chr(10) +
+            "var n=new Date();" + chr(10) +
+            "var td=n.getFullYear()+'-'+pad(n.getMonth()+1)+'-'+pad(n.getDate());" + chr(10) +
+            "var y=new Date(n.getTime()-86400000);" + chr(10) +
+            "var yd=y.getFullYear()+'-'+pad(y.getMonth()+1)+'-'+pad(y.getDate());" + chr(10) +
+            "console.log(show(td+'T'+pad(n.getHours())+':00:00'));" + chr(10) +
+            "console.log(show(yd+'T14:30:06'));" + chr(10) +
+            "console.log(show(null));" + chr(10) +
+            "console.log(show('nonsense'));" + chr(10))
+        js = os.path.join(tmp, "t.js")
+        with open(js, "w", encoding="utf-8", newline="") as fh:
+            fh.write("var CAL=null;" + chr(10) + html[i:j] + tail)
+        p = _sp413.Popen([node, js], stdout=_sp413.PIPE, stderr=_sp413.PIPE,
+                         text=True, encoding="utf-8", errors="replace",
+                         **__import__("proc_guard").background_popen_kwargs())
+        out, err = p.communicate(timeout=90)
+        got = [l.strip() for l in (out or "").strip().splitlines() if l.strip()]
+        assert len(got) == 4, "[413] node 결과가 4줄이 아니다: %r %r" % (out, err)
+        assert got[0].split("|")[1] == "c-ok", "[413] 오늘 자료를 오늘이라 안 한다: %s" % got[0]
+        assert got[1].split("|")[1] == "c-danger", "[413] 어제 자료를 낡았다고 안 한다: %s" % got[1]
+        # ③ 모르면 '오늘'이라 하지 않는다([169])
+        for k in (2, 3):
+            assert got[k].split("|")[1] == "c-warn", (
+                "[413] 갱신 시각을 못 읽었는데 오늘/낡음으로 단정한다: %s" % got[k])
+    finally:
+        _sh413.rmtree(tmp, ignore_errors=True)
+
+    print("  [413] 오늘=초록·캡처가능 · 낡음=빨강·새로고침 · 모르면 단정 안 함")
+
+
 def t411_child_writes_utf8_so_reasons_stay_readable():
     """[411] 자식이 cp949 로 쓰면 실패 사유가 인계 문서에서 읽을 수 없게 된다.
 
@@ -35351,6 +35426,7 @@ if __name__ == "__main__":
     t410_do_not_defer_restart_for_a_blocked_person()
     t411_child_writes_utf8_so_reasons_stay_readable()
     t412_hand_run_gate_yields_to_a_running_round()
+    t413_calendar_says_whether_it_is_today_and_capture_ready()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

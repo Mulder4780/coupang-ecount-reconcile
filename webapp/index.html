@@ -433,6 +433,7 @@ svg.bi{width:1.05em;height:1.05em;flex:none;fill:currentColor;vertical-align:-.1
    iframe 이 화면 절반을 먹고 오른쪽에 900건이 한 줄로 늘어서던 구조였다. */
 .calendar-hint{margin:0;padding:10px 17px 14px;color:var(--muted);font-size:0.84375rem;line-height:1.55;border-top:1px solid var(--line)}
 .calendar-meta{font-size:0.875rem;color:var(--muted);margin:-3px 0 12px}
+.cal2-ready{color:var(--ok);font-weight:800}
 .cal2-warn{color:var(--warn);font-weight:750}
 .cal2-allbtn{appearance:none;cursor:pointer;margin-left:6px;padding:5px 11px;border-radius:999px;
   border:1px solid var(--brand);background:var(--brand-btn);color:#fff;font:inherit;font-size:0.8125rem;font-weight:750}
@@ -16791,6 +16792,39 @@ function calWhyOf(e){
 }
 /* opt.toBlob 이면 저장하지 않고 이미지를 돌려준다 — '복사' 가 같은 그림을 쓰려고
    똑같은 그리기 코드를 두 벌 두면 한쪽만 고쳐지는 날이 온다(2026-08-06). */
+/* ★ 지금 보이는 캘린더가 **오늘 자료인가** — 그리고 캡처해도 되는가.
+   2026-08-24 형님 지시: "오늘 날짜 반영됐는지 표시해주고 캡처 준비가 되었는지
+   표시해야 내가 캡처하지". 그날 화면은 `갱신 2026-08-23T14:30:06` 을 **작은 회색
+   글씨**로만 적고 있었다 — **하루 지난 자료인데 아무도 그렇게 말하지 않았다.**
+   그대로 캡처해 보내면 어제 것이 대표께 나간다([169] · [184] '만든 시각을 항상
+   같이 띄운다' 의 다음 걸음이다 — 시각을 적는 것과 **그것이 낡았다고 말하는 것**은
+   다른 일이다).
+   ★ 판정은 여기 한 곳이다([162]) — 딱지와 캡처 안내가 같은 답을 봐야 한다.
+   ★ 못 읽으면 '오늘'이라 하지 않는다([169]) — 모르면 모른다고 적는다.
+   ★ 딱지 모양은 **이미 있는 것**을 쓴다(`chip c-ok/c-warn/c-danger`) — 새 클래스를
+     만들면 CSS 를 빠뜨려 브라우저 기본 글씨로 그려진다([310] 의 그 사고). */
+function calFreshness(){
+  const raw = (typeof CAL === 'object' && CAL && CAL.갱신) ? String(CAL.갱신) : '';
+  const day = a => a.getFullYear() + '-'
+      + String(a.getMonth()+1).padStart(2,'0') + '-'
+      + String(a.getDate()).padStart(2,'0');
+  if(!raw) return {갈래:'모름', 색:'c-warn',
+                   말:'갱신 시각을 모릅니다 — 오늘 자료인지 확인하지 못했습니다'};
+  const d = new Date(raw.replace(' ', 'T'));
+  if(isNaN(d.getTime())) return {갈래:'모름', 색:'c-warn',
+                   말:'갱신 시각을 못 읽었습니다 — 오늘 자료인지 확인하지 못했습니다'};
+  const now = new Date(), 오늘 = day(now), 자료일 = day(d);
+  if(자료일 === 오늘){
+    const 분 = Math.max(0, Math.round((now - d) / 60000));
+    const 언제 = 분 < 1 ? '방금' : (분 < 60 ? 분 + '분 전' : Math.round(분/60) + '시간 전');
+    return {갈래:'오늘', 색:'c-ok', 분:분, 말:'오늘 자료 · ' + 언제 + ' 갱신'};
+  }
+  const 일 = Math.max(1, Math.round(
+      (new Date(오늘 + 'T00:00:00') - new Date(자료일 + 'T00:00:00')) / 86400000));
+  return {갈래:'낡음', 색:'c-danger', 일:일,
+          말:일 + '일 지난 자료입니다 (' + 자료일 + ')'};
+}
+
 async function calendarCapture(opt){
   opt = opt || {};
   if(!CAL_MONTH) CAL_MONTH = calDefaultMonth();
@@ -17428,7 +17462,16 @@ function renderCalendarPage(){
   }
   const all=calEvents(), rows=calendarRows(), hidden=calHiddenCount();
   const unmatched=rows.filter(e=>!e.원천업무ID).length;
-  meta.innerHTML = esc2(`갱신 ${(CAL&&CAL.갱신)||'-'} · 전체 ${all.length}건 중 ${rows.length}건 표시`
+  // ★ 오늘 자료인가 · 캡처해도 되는가를 **맨 앞에 크게** 말한다([413]).
+  //   시각만 작게 적어 두면 사람은 그것을 안 읽고 그대로 캡처한다(2026-08-24 실화면).
+  const _fr = calFreshness();
+  meta.innerHTML =
+    `<span class="chip ${_fr.색}">${esc2(_fr.말)}</span> `
+    + (_fr.갈래 === '오늘'
+        ? `<b class="cal2-ready">캡처해도 됩니다</b> `
+        : `<b class="cal2-warn">캡처 전에 새로고침하세요</b> `
+          + `<button type="button" class="cal2-allbtn" onclick="refreshCalendarPage()">새로고침</button> `)
+    + esc2(`· 갱신 ${(CAL&&CAL.갱신)||'-'} · 전체 ${all.length}건 중 ${rows.length}건 표시`
     + (unmatched ? ` · 원장 미연결 ${unmatched}건` : '')
     + ((CAL&&CAL.예측일정수) ? ` · 과거 이력 예측 ${CAL.예측일정수}건` : '')
     + (hidden ? ` · 철거·납품 ${hidden}건은 관리대장 보관` : ''))
