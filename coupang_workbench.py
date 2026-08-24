@@ -110,7 +110,7 @@ def status_text(st):
             lines.append(f"AI 실행 연계: {route_label(st['agent_dispatch'])}")
     except Exception:
         pass
-    lines.append(f"자동입력 대기: {st['pending_updates']}건 / ERP inbox: {st['inbox']}개 / 카톡 inbox: {st['kakao']}개 / 밴드: {'인증됨' if st['band_auth'] else '심사 대기'}")
+    lines.append(f"자동입력 대기: {st['pending_updates']}건 / ERP inbox: {st['inbox']}개 / 카톡 inbox: {st['kakao']}개 / 밴드: {'인증됨' if st['band_auth'] else '크롬 F12 수집(공식 API 폐기 · 분담판 221)'}")
     return "\n".join(lines)
 
 
