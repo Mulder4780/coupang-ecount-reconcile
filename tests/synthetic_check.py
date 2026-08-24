@@ -27578,6 +27578,11 @@ def t412_hand_run_gate_yields_to_a_running_round():
         _put(999_999_990)
         assert _ran(), "[412] 죽은 잠금을 보고 물러졌다"
 
+        # ⑤-2 잠금 주인이 **내 부모**면 그것은 내 회차다 — 표시가 빠져도 안 막는다.
+        #     회차가 제 자신에게 양보하면 그날 대조가 통째로 안 돈다([156] 모양).
+        _put(os.getppid())
+        assert _ran(), "[412] 잠금 주인이 내 부모인데도 물러났다 — 회차가 제 자신에게 양보한다"
+
         # ⑥ 모양이 깨졌으면 그냥 돌다 — 관문을 못 돌리는 것이 더 나쁘다
         with open(os.path.join(tmp, "reports", ".daily_run.lock"), "w",
                   encoding="utf-8") as fh:
@@ -34833,6 +34838,16 @@ def _yield_to_running_round():
         if not _dr._pid_alive(info.get("pid"), born_before=born,
                               pid_started_at=info.get("pid_started_at")):
             return
+        # ★ 두 번째 겹 — **잠금 주인이 내 부모면 그것은 내 회차다**.
+        #   표시(`COUPANG_GATE_OWNER`)는 빠질 수 있지만 부모 관계는 못 속인다.
+        #   실측 2026-08-24: 표시를 넣기 **전에 뜬 회차**가 새 관문을 만나
+        #   제 잠금을 보고 물러나 그날 대조가 또 죽었다([156] 의 모양) —
+        #   회차가 제 자신에게 양보하는 것은 어떤 경우에도 고장이다.
+        try:
+            if int(info.get("pid") or 0) == os.getppid():
+                return
+        except (TypeError, ValueError, OSError):
+            pass
         started = str(info.get("started_at") or "")[:19].replace("T", " ")
     except Exception:
         return
