@@ -9120,13 +9120,17 @@ function remoteBranchIssuer(hostId){
 function remoteToKind(hostId){
   const s=window.__REMOTE||{}, to=($(hostId+'To')||{}).value||'';
   const toBranch = to==='공장·지사';
+  /* 나눠주라고 주는 몫도 개인 한도가 뜻이 없다([408]) — 서버가 이미 그렇게
+     받는데 화면만 3으로 막으면 손잡이가 없는 것과 같다([169]).
+     낱말은 서버 표에서 온다([162]) — 여기 적으면 표를 고친 날 한쪽만 바뀐다. */
+  const isBulk = !!s.bulk_kind && to===s.bulk_kind;
   const tech=$(hostId+'Tech'), qty=$(hostId+'Qty'), box=$(hostId+'EqBox'), why=$(hostId+'Why');
   if(tech) tech.placeholder = toBranch
     ? ('받는 공장·지사 ('+Object.values(s.branch_labels||{}).join('·')+')')
     : 'AS 담당자 이름';
   /* 3개 한도는 사람에게만 뜻이 있다 — 공장으로 30개를 옮기는 길을 막던 자리다.
      한도를 **넓히는 것이 아니라** 이 갈래에서만 안 거는 것이다([172]). */
-  if(qty){ if(toBranch) qty.removeAttribute('max'); else qty.max=s.limit||3; }
+  if(qty){ if(toBranch||isBulk) qty.removeAttribute('max'); else qty.max=s.limit||3; }
   if(box) box.style.display = toBranch ? 'none' : '';   /* 공장에는 물을 설비가 없다 */
   if(why && toBranch && (s.reasons||[]).indexOf('공장·지사 이동')>=0) why.value='공장·지사 이동';
   remoteWhy(hostId);

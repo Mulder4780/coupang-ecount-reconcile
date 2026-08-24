@@ -27444,6 +27444,107 @@ def t403_soft_delete_is_covered_by_verified_archive():
     print("✅ [403] soft-delete 도 검증 sidecar 보관 · outbox 무한 재시도 차단")
 
 
+def t408_bulk_handout_is_not_personal_holding():
+    """[408] 나눠주라고 준 몫은 개인 보유가 아니다 — 한도는 그대로 산다.
+
+    2026-08-24 오종현 신고: "8월 21일에 권오철 기사에게 ver4 12세트를 불출했습니다 ·
+    각 기사님들께 3개씩 나눠주라는 명목 … 각 기사별로 3개초과 시 불출 입력이 안돼고
+    한 기사에게 12개 불출도 되지 않아". 실측으로 **일괄 배포는 원래 있던 업무**다
+    (김준형 2026-07-27 20개). 그런데 코드가 그것을 개인 보유와 구별 못 해
+    **기록 자체가 안 남았다** — 그 12세트가 어느 화면에도 없다([169]).
+
+    ★ **한도를 넓히지 않았다는 것**을 먼저 잰다([172]·[319]) — 좁히는 것도 고장이지만
+      푸는 것은 더 나쁘다(부사장 승인 규칙이 조용히 사라진다).
+    ★ 실측 DB 는 한 글자도 안 건드린다([247]) — 임시 DB 로만.
+    """
+    import importlib
+    import shutil
+
+    L = importlib.import_module("ledger_db")
+    real_db = L.DB_PATH
+    tmp = tempfile.mkdtemp(prefix="t408_")
+    try:
+        L.DB_PATH = os.path.join(tmp, "t.db")
+        with L.conn():
+            pass
+        L.remote_stock_adjust("부산", 60, "add", "시험", "오종현", version="VER.4")
+
+        # ① 평소 한도는 **한 글자도 안 바뀐다** — 12개를 그냥 넣으면 여전히 막힌다.
+        try:
+            L.remote_request("부산", "권오철", 12, "오종현",
+                             version="VER.4", reason="신규설치")
+            raise AssertionError("AS담당자로 12개가 들어갔다 — 한도가 풀렸다")
+        except ValueError as e:
+            # ★ 막되 **길을 알려 준다**([169]·[172]) — 막혔다는 말만 하면 사람은
+            #   기록을 아예 못 남긴다(그것이 이 사고다).
+            assert L.REMOTE_BULK_KIND in str(e), (
+                "막기만 하고 어떻게 하라는 말이 없다: %r" % (str(e),))
+
+        # ② 갈래를 고르면 들어간다 — 그리고 **경보가 안 뜬다**([170]).
+        L.remote_request("부산", "권오철", 12, "오종현", version="VER.4",
+                         reason="신규설치", to_kind=L.REMOTE_BULK_KIND,
+                         note="각 기사 3개씩 · ver4 테스트")
+        with L.conn() as c:
+            h = L._remote_holdings(c)["권오철"]
+            assert h["holding"] == 12 and h["bulk"] == 12, h
+            assert not L._remote_problems(c), (
+                "나눠줄 몫이 '한도 초과' 경보가 됐다 — 매일 뜨면 진짜 초과가 묻힌다: %r"
+                % (L._remote_problems(c),))
+
+        # ③ 배포를 받은 뒤에도 **평소 불출이 된다** — 안 되면 그 기사는 영영 못 받는다.
+        L.remote_request("부산", "권오철", 3, "오종현",
+                         version="VER.4", reason="신규설치")
+
+        # ④ 그래도 평소 한도는 **그대로 막힌다**(좁히는 것도 고장이다 · [172]).
+        try:
+            L.remote_request("부산", "권오철", 1, "오종현",
+                             version="VER.4", reason="신규설치")
+            raise AssertionError("4개째가 들어갔다 — 개인 한도가 무너졌다")
+        except ValueError:
+            pass
+
+        # ⑤ 사유는 일괄배포에도 그대로 필수다 — 왜 일괄인지가 남아야 한다.
+        try:
+            L.remote_request("부산", "김필우", 9, "오종현", version="VER.4",
+                             to_kind=L.REMOTE_BULK_KIND)
+            raise AssertionError("사유 없이 일괄배포가 들어갔다")
+        except ValueError:
+            pass
+
+        # ⑥ 화면이 낱말을 제 손으로 적지 않는다([162]) — 서버 표에서 온다.
+        with L.conn() as c:
+            snap = L.remote_board(c) if hasattr(L, "remote_board") else None
+        if snap is not None:
+            assert snap.get("bulk_kind") == L.REMOTE_BULK_KIND, "화면에 갈래를 안 내려 준다"
+        with io.open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8") as f:
+            _idx = f.read()
+        assert "s.bulk_kind" in _idx, "화면이 서버가 준 갈래를 안 읽는다"
+        assert "toBranch||isBulk" in _idx.replace(" ", ""), (
+            "화면 수량 칸이 여전히 3으로 막는다 — 서버는 받는데 손잡이가 없다([169])")
+        assert L.REMOTE_BULK_KIND not in _idx, (
+            "화면이 갈래 낱말을 직접 적었다 — 표를 고친 날 한쪽만 바뀐다([162])")
+
+        # ★ 계기 자기시험([272]) — 갈래 문을 없애면 ②가 정말 막히는가.
+        _src = io.open(L.__file__, encoding="utf-8").read()
+        _bad = _src.replace('elif why["to_kind"] == REMOTE_BULK_KIND:',
+                            'elif False:')
+        assert _bad != _src, "갈래 문을 못 찾았다 — 이 자기시험은 아무것도 안 잰다"
+        _ns = {"__name__": "ledger_db_t408_bad", "__file__": L.__file__}
+        exec(compile(_bad, L.__file__, "exec"), _ns)
+        _ns["DB_PATH"] = L.DB_PATH
+        try:
+            _ns["remote_request"]("부산", "차동호", 12, "오종현", version="VER.4",
+                                  reason="신규설치", to_kind=L.REMOTE_BULK_KIND)
+            raise AssertionError("갈래 문을 없앴는데도 12개가 들어간다 — ②는 아무것도 안 잰다")
+        except ValueError:
+            pass
+    finally:
+        L.DB_PATH = real_db
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print("  [408] 나눠줄 몫은 개인 보유가 아니다 — 한도는 그대로 · 길을 알려 준다 OK")
+
+
 def t406_archive_keep_keeps_progress():
     """[406] 복구용 보관이 **진도를 잃지 않는다** — 색인을 중간에 남긴다.
 
@@ -34722,6 +34823,7 @@ if __name__ == "__main__":
     t404_stuck_autorecovery_reaches_the_handoff()
     t405_kakao_memo_channel_never_leaks()
     t406_archive_keep_keeps_progress()
+    t408_bulk_handout_is_not_personal_holding()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

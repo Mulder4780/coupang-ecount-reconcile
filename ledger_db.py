@@ -399,7 +399,18 @@ REMOTE_EQUIP_KINDS = ("고정식", "이동식")
 # AS기사님들만 있는거같아요"). 빈칸인 옛 기록은 전부 AS담당자다.
 # ★ AS 담당자 3개 한도는 **넓히지 않는다**([172]) — 그것은 부사장 승인 규칙이다.
 #   갈래를 하나 더하는 것이지 한도를 푸는 것이 아니다.
-REMOTE_TO_KINDS = ("AS담당자", "공장·지사")
+# ★ **나눠주라고 준 몫은 개인 보유가 아니다**(2026-08-24 오종현 신고: "8월 21일에
+#   권오철 기사에게 ver4 12세트를 불출했습니다 · 각 기사님들께 3개씩 나눠주라는
+#   명목 … 각 기사별로 3개초과 시 불출 입력이 안돼고 한 기사에게 12개 불출도
+#   되지 않아"). 실측으로 **일괄 배포는 원래 있던 업무**다 — 김준형에게 2026-07-27
+#   에 20개가 나갔다. 3개 한도는 **평소 개인 보유** 한도이지 배포를 막는 규칙이
+#   아닌데, 코드가 그 둘을 구별하지 못해 **기록 자체가 안 남았다**([169] — 없는
+#   기록은 빈칸보다 나쁘다. 그 12세트가 어느 화면에도 없다).
+#   ★ 여기서도 **한도를 넓히지 않는다**([172]) — AS담당자 길의 두 검사는 한 글자도
+#     안 바뀐다. 갈래를 더할 뿐이다(공장·지사 때와 같은 방식).
+REMOTE_TO_KINDS = ("AS담당자", "AS담당자(일괄배포)", "공장·지사")
+#: 나눠주라고 준 몫 — 사람이 들고 있지만 **개인 한도에는 안 센다**.
+REMOTE_BULK_KIND = "AS담당자(일괄배포)"
 REMOTE_TO_DEFAULT = "AS담당자"
 
 
@@ -1265,6 +1276,13 @@ def _remote_holdings(c):
     issued = {row[0]: row[1] for row in c.execute(
         "SELECT technician,SUM(qty) FROM remote_issue"
         " WHERE status IN ('불출완료','기초보유')" + MINE + " GROUP BY technician")}
+    # ★ 나눠주라고 준 몫은 **보유로는 세되**(물건은 그 사람이 들고 있다) 개인 한도
+    #   에서는 뺀다([408]). 안 빼면 배포를 적는 순간 매일 '한도 초과' 가 떠서
+    #   진짜 초과가 묻힌다([170]).
+    bulk = {row[0]: int(row[1] or 0) for row in c.execute(
+        "SELECT technician,SUM(qty) FROM remote_issue"
+        " WHERE status IN ('불출완료','기초보유') AND COALESCE(to_kind,'')=?"
+        " GROUP BY technician", (REMOTE_BULK_KIND,))}
     delivered = {row[0]: row[1] for row in c.execute(
         "SELECT technician,SUM(qty) FROM remote_delivery GROUP BY technician")}
     by_ver = {}
@@ -1287,6 +1305,8 @@ def _remote_holdings(c):
             continue
         got, used = int(issued.get(tech) or 0), int(delivered.get(tech) or 0)
         out[tech] = {"issued": got, "delivered": used, "holding": got - used,
+                     # 나눠주라고 준 몫([408]) — 보유에는 들어 있지만 개인 한도에서는 뺀다.
+                     "bulk": int(bulk.get(tech) or 0),
                      # 0 이나 음수는 버린다 — 버전을 안 적고 납품만 잡힌 옛 기록 탓에
                      # 음수가 나오면 화면에서 "-2개 보유"로 읽혀 더 헷갈린다
                      "versions": {k: v for k, v in sorted((by_ver.get(tech) or {}).items())
@@ -1517,16 +1537,28 @@ def remote_request(branch, technician, qty, requested_by, note="",
             raise ValueError("보내는 지점과 받는 곳이 같습니다 — 옮길 것이 없습니다")
         if qty < 1:
             raise ValueError("수량은 1개 이상이어야 합니다")
+    elif why["to_kind"] == REMOTE_BULK_KIND:
+        # ★ 나눠주라고 준 몫 — 개인 한도가 뜻이 없다([408]). **한도를 푼 것이
+        #   아니라 갈래를 나눈 것**이고, 아래 AS담당자 길의 두 검사는 그대로다.
+        #   대신 사유가 이미 필수다(remote_purpose) — 왜 일괄인지가 남는다.
+        if qty < 1:
+            raise ValueError("수량은 1개 이상이어야 합니다")
     elif not 1 <= qty <= REMOTE_HOLD_LIMIT:
-        raise ValueError(f"수량은 1~{REMOTE_HOLD_LIMIT}개여야 합니다")
+        raise ValueError(
+            f"수량은 1~{REMOTE_HOLD_LIMIT}개여야 합니다 — 여러 기사에게 나눠주라고 "
+            f"주는 몫이면 받는 곳을 '{REMOTE_BULK_KIND}' 로 고르세요")
     now = datetime.now().isoformat(timespec="seconds")
     with conn() as c:
-        if to_branch is None:
-            hold = _remote_holdings(c).get(technician) or {"holding": 0}
-            if hold["holding"] + qty > REMOTE_HOLD_LIMIT:
+        if to_branch is None and why["to_kind"] != REMOTE_BULK_KIND:
+            hold = _remote_holdings(c).get(technician) or {"holding": 0, "bulk": 0}
+            # 나눠줄 몫은 빼고 센다([408]) — 안 빼면 배포를 받은 기사가 그 뒤로
+            # 평소 불출을 **영영 못 받는다**.
+            mine = int(hold["holding"]) - int(hold.get("bulk") or 0)
+            if mine + qty > REMOTE_HOLD_LIMIT:
                 raise ValueError(
-                    f"{technician} 보유 {hold['holding']}개에 {qty}개를 더하면 "
-                    f"한도 {REMOTE_HOLD_LIMIT}개를 넘습니다")
+                    f"{technician} 보유 {mine}개에 {qty}개를 더하면 "
+                    f"한도 {REMOTE_HOLD_LIMIT}개를 넘습니다 — 여러 기사에게 "
+                    f"나눠주라고 주는 몫이면 받는 곳을 '{REMOTE_BULK_KIND}' 로 고르세요")
         stock = _remote_branch_stock(c)[branch]
         if stock["tracked"] and stock["stock"] < qty:
             raise ValueError(
@@ -1677,8 +1709,10 @@ def _remote_problems(c):
     for tech, h in _remote_holdings(c).items():
         if h["holding"] < 0:
             out[f"{tech} 보유가 음수"] = -h["holding"]
-        elif h["holding"] > REMOTE_HOLD_LIMIT:
-            out[f"{tech} 보유 한도({REMOTE_HOLD_LIMIT}개) 초과"] = h["holding"]
+        elif h["holding"] - int(h.get("bulk") or 0) > REMOTE_HOLD_LIMIT:
+            # 나눠줄 몫은 빼고 본다([408]) — 안 빼면 배포 기록이 곧 가짜 경보다([170]).
+            out[f"{tech} 보유 한도({REMOTE_HOLD_LIMIT}개) 초과"] = (
+                h["holding"] - int(h.get("bulk") or 0))
     for br, s in _remote_branch_stock(c).items():
         if s["tracked"] and s["stock"] < 0:
             out[f"{s['label']} 재고가 음수"] = -s["stock"]
@@ -1857,6 +1891,8 @@ def remote_status(limit=60):
             "reason_detail": list(REMOTE_REASON_NEEDS_DETAIL),
             "equip_kinds": list(REMOTE_EQUIP_KINDS),
             "to_kinds": list(REMOTE_TO_KINDS), "to_default": REMOTE_TO_DEFAULT,
+            # 화면이 낱말을 제 손으로 적으면 표를 고친 날 한쪽만 바뀐다([162]).
+            "bulk_kind": REMOTE_BULK_KIND,
             "branch_labels": REMOTE_BRANCH_LABELS, "branch_stock": branch_stock,
             "holdings": holdings, "issues": issues, "deliveries": deliveries,
             "moves": moves, "over_limit": over,
