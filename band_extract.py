@@ -21,6 +21,7 @@ band_extract.py — 밴드 게시글 → 구조화 업무 레코드 추출 (월�
   python band_extract.py --all                      # 전체 기간
 """
 import sys, os, re, csv, json, glob
+import time
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -593,6 +594,169 @@ def load_records():
     return out
 
 
+KAKAO_ROOM_MARKERS = ("쿠팡돌발점검", "쿠팡정기점검")
+KAKAO_SPAN_TRUNCATED = False
+
+_KAKAO_SPAN_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "reports", ".카톡_원본구간.json")
+
+
+def _kakao_span(path, cache):
+    """그 원본이 **어느 방의 언제부터**를 담고 있나 — 앞부분만 읽는다.
+
+    카톡 내보내기는 '방의 전체 대화'가 아니라 **내보낸 사람이 그 방에 들어온 뒤**를
+    담는다. 실측 2026-08-24: 같은 `쿠팡돌발점검` 방인데 `쿠팡돌발점검_25.txt` 는
+    2025-12-08 부터, 형님이 오늘 내보낸 것은 **2026-07-20**(그 방에 초대된 날)부터다.
+    그래서 '방별 최신 하나'만 고르면 그 이전이 통째로 사라지는데 **오류도 안 나고
+    건수도 나온다**([169]). 실측 피해: 카톡 완료 근거 130 -> 901 · 미처리 83건 중
+    '카톡에 글이 있다'가 20 -> 79 였다(59건이 '글이 없다'로 잘못 분류돼 있었다).
+
+    비싼 것은 파일 열기다(Z: 는 파일당 왕복 한 번) — 캐시 검사가 먼저다([168]).
+    """
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = os.path.normcase(os.path.abspath(path))
+    sig = [st.st_size, int(st.st_mtime)]
+    hit = cache.get(key)
+    if isinstance(hit, dict) and hit.get("sig") == sig:
+        return hit
+    try:
+        with open(path, encoding="utf-8-sig", errors="replace") as fh:
+            head = fh.read(4000)
+    except OSError:
+        return None
+    room = next((w for w in KAKAO_ROOM_MARKERS if w in head), "")
+    m = re.search(r"-{3,}\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일", head)
+    rec = {"sig": sig, "방": room,
+           "시작": ("%s-%02d-%02d" % (m.group(1), int(m.group(2)), int(m.group(3)))
+                    if m else "")}
+    cache[key] = rec
+    return rec
+
+
+def _extend_early(paths, folders, per_room=3):
+    """방마다 **더 이른 구간**을 덮는 원본을 보탠다.
+
+    최신본은 그대로 둔다(끝이 가장 늦다). 시작일이 더 이른 것을 최신순으로 보태되
+    보탤 때마다 그 방의 '가장 이른 시작일'을 낮춘다 — 이미 덮인 구간은 안 보탠다.
+
+    ★ 시작일을 **못 읽은 파일은 안 보탠다**([169]). 모르는 것을 '더 이르다'고
+      우기면 엉뚱한 누적본이 딸려 들어와 대조가 남의 방 글을 읽는다([172]).
+    ★ 방마다 `per_room` 개까지만 — 누적본이 쌓인 폴더에서 폭주하지 않게.
+    """
+    if not folders:
+        return paths
+    try:
+        cache = json.load(open(_KAKAO_SPAN_CACHE, encoding="utf-8"))
+        if not isinstance(cache, dict):
+            cache = {}
+    except (OSError, ValueError):
+        cache = {}
+    before = dict(cache)
+
+    floor, out, seen = {}, list(paths), set()
+    for p in paths:
+        seen.add(os.path.normcase(os.path.abspath(p)))
+        rec = _kakao_span(p, cache)
+        if rec and rec.get("방") and rec.get("시작"):
+            cur = floor.get(rec["방"])
+            if cur is None or rec["시작"] < cur:
+                floor[rec["방"]] = rec["시작"]
+
+    # 비싼 것은 파일 열기가 아니라 **Z: 재귀 glob** 이다 — 실측 2026-08-24 로
+    # 구간 캐시가 다 찬 뒤에도 162초였다. 그래서 **결과 자체**를 캐시한다.
+    # 입력이 같으면 결과도 같고, 새 원본이 들어오면 회차 자국이 바뀌어 입력이
+    # 바뀌므로 저절로 무효가 된다([168] — 비싼 탐색은 캐시 검사 뒤에).
+    ckey = "|".join(sorted(os.path.normcase(os.path.abspath(p)) for p in paths))
+    hit = cache.get("__결과__")
+    if (isinstance(hit, dict) and hit.get("열쇠") == ckey
+            and time.time() - float(hit.get("때") or 0) < 86400):
+        keep = [q for q in (hit.get("경로") or []) if os.path.isfile(q)]
+        # 하나라도 사라졌으면 캐시를 믿지 않는다 — 반쪽 목록은 조용히 자료를 줄인다.
+        if len(keep) == len(hit.get("경로") or []) and keep:
+            return keep
+
+    # ★ 로컬 inbox 를 **먼저** 본다. 옛 누적본은 사람이 손으로 여기 넣고,
+    #   Z: 정본은 회차가 옮긴 최신본이라 대개 시작일이 같다. 그리고 로컬은 공짜지만
+    #   Z: 는 파일 하나가 SMB 왕복 한 번이다([198]).
+    local = os.path.normcase(os.path.abspath(KAKAO_INBOX))
+    order = sorted(folders,
+                   key=lambda f: 0 if os.path.normcase(os.path.abspath(f)) == local else 1)
+
+    # ★ **예산 안에서만 훑는다**([180]·[324]). 첫 실행은 캐시가 비어 파일을 다 열어야
+    #   하는데 실측 2026-08-24 로 Z: 79개에 10분이 넘었다 — 그대로 두면 09:50 회차와
+    #   앱 요청이 거기서 죽는다(사고 #29). 넘으면 그만 보되 **캐시는 남기므로**
+    #   다음 회차가 이어받아 저절로 수렴한다([406] 과 같은 모양).
+    budget = 400.0
+    try:
+        budget = float(os.environ.get("COUPANG_KAKAO_SPAN_BUDGET_S", "400"))
+    except ValueError:
+        pass
+    t0 = time.time()
+    global KAKAO_SPAN_TRUNCATED
+    KAKAO_SPAN_TRUNCATED = False
+
+    added = {}
+    for folder in order:
+        # ★ 검사는 glob **앞**에 온다. Z: 재귀 glob 은 한 번 시작하면 못 멈추고
+        #   실측 60~140초다 — 파일 루프 안에서만 보면 예산이 아무것도 안 막는다.
+        if time.time() - t0 > budget:
+            KAKAO_SPAN_TRUNCATED = True
+            break
+        cand = []
+        try:
+            found = glob.glob(os.path.join(folder, "**", "*.txt"), recursive=True)
+        except OSError:
+            continue
+        for p in found:
+            key = os.path.normcase(os.path.abspath(p))
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                cand.append((os.path.getmtime(p), p))
+            except OSError:
+                continue
+        for _, p in sorted(cand, reverse=True):
+            if time.time() - t0 > budget:
+                # ★ 조용히 멈추지 않는다([169]) — 다 못 봤다는 사실을 남긴다.
+                KAKAO_SPAN_TRUNCATED = True
+                break
+            rec = _kakao_span(p, cache)
+            if not rec:
+                continue
+            room, start = rec.get("방"), rec.get("시작")
+            if not room or not start:
+                continue
+            if added.get(room, 0) >= per_room:
+                continue
+            cur = floor.get(room)
+            if cur is not None and start >= cur:
+                continue
+            out.append(p)
+            floor[room] = start
+            added[room] = added.get(room, 0) + 1
+        if KAKAO_SPAN_TRUNCATED:
+            break
+
+    # 다 못 본 회차의 결과는 캐시하지 않는다 — 반쪽을 하루 동안 정답으로 쓰게 된다.
+    if not KAKAO_SPAN_TRUNCATED:
+        cache["__결과__"] = {"열쇠": ckey, "때": time.time(), "경로": list(out)}
+
+    if cache != before:
+        try:
+            os.makedirs(os.path.dirname(_KAKAO_SPAN_CACHE), exist_ok=True)
+            tmp = _KAKAO_SPAN_CACHE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(cache, fh, ensure_ascii=False)
+            os.replace(tmp, _KAKAO_SPAN_CACHE)
+        except OSError:
+            pass
+    return out
+
+
 def kakao_source_paths(dedupe_content=True):
     """공유 정본과 로컬 inbox에서 대화방별 최신 원본을 돌려준다.
 
@@ -649,7 +813,7 @@ def kakao_source_paths(dedupe_content=True):
                     continue
 
     def choose(candidates):
-        markers = ("쿠팡돌발점검", "쿠팡정기점검")
+        markers = KAKAO_ROOM_MARKERS
         chosen, fallback = {}, []
         for _, path in sorted(candidates, reverse=True):
             try:
@@ -684,6 +848,8 @@ def kakao_source_paths(dedupe_content=True):
                 except OSError:
                     continue
         paths = choose(candidates)
+
+    paths = _extend_early(paths, folders)
 
     if not dedupe_content:
         return paths

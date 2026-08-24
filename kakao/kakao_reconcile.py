@@ -49,7 +49,7 @@ def source_paths():
     try:
         import band_extract
         latest = band_extract.kakao_source_paths()
-        if len(latest) == 2:
+        if latest:
             return latest
     except Exception:
         pass
