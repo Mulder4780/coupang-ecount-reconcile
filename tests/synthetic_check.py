@@ -28022,6 +28022,80 @@ def t416_restore_lists_stay_one_row_wide():
 
     print("  [416] 되살리기 목록 가로 한 줄 · 짝 없는 .ui-card 0곳 · 자기시험 통과")
 
+
+def t417_excel_archive_runs_once_a_week():
+    """[417] 엑셀 보관본은 **주 1회**다 — 업무 정본은 DB 이므로 안전하다.
+
+    형님 지시(2026-08-24): "앞으로 모든 자료는 DB로 관리할거야 DB가 우선이고
+    엑셀은 그냥 보관용으로만 정리해 (엑셀 저장은 1주일에 1회만 진행하도록
+    알고리즘 변경해)".
+
+    실측(batch 표 · 최근 10일): 하루 **1~4회**(대개 2회) = 주 14~20회였다.
+
+    ★ 판정은 `ledger_db.weekly_blocked` **한 곳**이다([162]) — 스케줄러 경로
+      (`eligible_slot`)와 **5분마다** 도는 증분 경로(`automation_pipeline
+      ._needs_archive`)가 둘 다 그것을 빌린다. 5분 경로를 안 막으면 "주 1회"가
+      그냥 거짓이 된다([169]).
+    ★ 스케줄러 트리거(11:00·15:00)는 안 건드린다 — 계속 불리되 그 주 **첫
+      부름**에서만 만든다. 시각으로 막으면 그 시각에 PC 가 꺼진 주는 통째로
+      건너뛴다.
+    ★ 사람이 누른 즉시 생성은 **그대로 통과**한다(2026-08-07 지시) — 막으면
+      형님이 내린 다른 지시를 조용히 되돌리는 것이다.
+    """
+    import importlib as _il
+    _ldb = _il.import_module("ledger_db")
+    from datetime import datetime as D   # [324] 이 파일 모듈 수준에는 없다
+
+    # (1) 주차 읽기 — `(강제)` 꼬리가 붙어도 읽고, 못 읽으면 None 이다([169]).
+    assert _ldb.iso_week("2026-08-24 11:00") == "2026-W35"
+    assert _ldb.iso_week("2026-08-24 11:00(강제)") == "2026-W35"
+    assert _ldb.iso_week("nope") is None, (
+        "주차를 못 읽었는데 값을 지어냈다 — 서로 다른 주가 같은 주로 보이면 "
+        "그 주 보관본이 통째로 빠진다([169])")
+
+    mon, tue = D(2026, 8, 24, 11, 5), D(2026, 8, 25, 11, 5)
+    nxt = D(2026, 8, 31, 11, 5)
+    done = ["2026-08-24 11:00"]
+
+    # (2) 그 주 첫 부름은 만든다
+    assert _ldb.eligible_slot(mon, []) == "2026-08-24 11:00"
+
+    # (3) 같은 주 두 번째 부름은 물러난다 — 이것이 이 변경의 전부다
+    assert _ldb.eligible_slot(tue, done) is None, (
+        "같은 주에 보관본을 또 만든다 — 형님 지시는 **1주일에 1회**다([417])")
+
+    # (4) 다음 주는 다시 만든다 — 좁히는 것도 고장이다([172])
+    assert _ldb.eligible_slot(nxt, done) == "2026-08-31 11:00", (
+        "다음 주 회차까지 막혔다 — 그러면 보관본이 영영 안 생긴다")
+
+    # (5) 사람이 누른 즉시 생성은 그대로 통과한다(2026-08-07 지시)
+    assert _ldb.eligible_slot(tue, done, force=True), (
+        "사람 지시 즉시 생성까지 막혔다 — 형님의 다른 지시를 조용히 되돌린 것이다")
+
+    # (6) 사람이 그 주에 이미 만들었으면 자동 회차는 물러난다
+    assert _ldb.eligible_slot(tue, ["2026-08-24 11:00(강제)"]) is None
+
+    # (7) 되돌리기 한 줄이 산다([126] 과 같은 보호장치)
+    src = _il.import_module("inspect").getsource(_ldb)
+    assert "COUPANG_ARCHIVE_WEEKLY" in src, (
+        "되돌리는 손잡이가 사라졌다 — 주 1회가 틀린 것으로 밝혀져도 되돌릴 길이 없다")
+
+    # (8) **5분 경로도 같은 문을 탄다** — 여기가 안 막히면 위 전부가 뜻이 없다
+    ap = open(os.path.join(ROOT, "automation_pipeline.py"),
+              encoding="utf-8").read()
+    head = ap[ap.index("def _needs_archive"):]
+    head = head[:head.index("\n    def ", 10)]
+    assert "weekly_blocked" in head, (
+        "`_needs_archive` 가 주 1회 문을 안 탄다 — 이 회차는 **5분마다** 불리므로 "
+        "스케줄러만 막아 봐야 보관본은 예전처럼 쏟아진다([169])")
+
+    # (9) 판정을 두 곳에서 하지 않는다([162])
+    assert "isocalendar" not in ap, (
+        "`automation_pipeline` 이 주차를 **직접** 센다 — 판정이 둘이면 언젠가 갈리고, "
+        "갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다([162])")
+
+    print("  [417] 엑셀 보관본 주 1회 · 사람 지시는 통과 · 5분 경로도 같은 문")
+
 def t410_do_not_defer_restart_for_a_blocked_person():
     """[410] 쓰는 중과 **막혀 있는 중**은 다른 사실이다 (2026-08-24 오종현 실사고).
 
@@ -35666,6 +35740,7 @@ if __name__ == "__main__":
     t414_gate_reuses_only_an_exact_green_proof()
     t415_refresh_reuses_inventory_hash_and_parsed_rows()
     t416_restore_lists_stay_one_row_wide()
+    t417_excel_archive_runs_once_a_week()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

@@ -861,11 +861,26 @@ class AutomationPipeline:
     def _needs_archive(self) -> bool:
         status = self.store.status()
         last_export = status.get("last_export") or {}
-        return bool(
+        need = bool(
             int(status.get("outbox_pending") or 0) > 0
             or int(last_export.get("snapshot_seq") or 0) < int(status.get("change_seq") or 0)
             or last_export.get("status") != "verified"
         )
+        if not need:
+            return False
+        # ★ 주 1회(2026-08-24 지시) — 이 회차는 **5분마다** 불리므로 여기서 막지
+        #   않으면 "주 1회"가 거짓이 된다([169]). 판정은 `ledger_db` 한 곳에서
+        #   빌린다([162]) — 여기서 따로 세면 스케줄러 경로와 언젠가 갈린다.
+        #   ⚠ 못 읽으면 **예전처럼 만든다**: 보관본이 하나 더 생기는 것은 되돌릴 수
+        #     있지만, 그 주 스냅샷이 통째로 없는 것은 되돌릴 수 없다.
+        try:
+            import ledger_db as _ldb
+            _, _, _done = _ldb.counts()
+            if _ldb.weekly_blocked(datetime.now(), _done):
+                return False
+        except Exception:
+            pass
+        return need
 
     def _ack_archived_outbox(self) -> Dict[str, Any]:
         status = self.store.status()

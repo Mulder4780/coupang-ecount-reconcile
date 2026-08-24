@@ -597,6 +597,49 @@ def json_queue_lock(path, timeout=30):
             pass
 
 
+# ── 주 1회 (2026-08-24 형님 지시) ────────────────────────────
+#   "엑셀 저장은 1주일에 1회만 진행하도록 알고리즘 변경해"
+#   업무 정본은 앱 뒤 SQLite 다(2026-08-10) — 엑셀은 **보관용**이라 회차를 줄여도
+#   업무값은 예전 그대로 저장 즉시 확정된다. 줄어드는 것은 스냅샷 빈도뿐이다.
+#   ★ 되돌리려면 `COUPANG_ARCHIVE_WEEKLY=0` 한 줄이다([126] 과 같은 보호장치).
+WEEKLY_ARCHIVE = os.environ.get("COUPANG_ARCHIVE_WEEKLY", "1") != "0"
+
+
+def iso_week(s):
+    """회차 이름에서 ISO 주차를 뽑는다(`2026-08-24 11:00` · `…(강제)` 둘 다).
+
+    못 읽으면 **None** 이다 — 0 이나 빈 문자열로 뭉개면 서로 다른 주가 같은 주로
+    보여 그 주 보관본이 통째로 빠진다([169])."""
+    try:
+        y, m, d = (int(x) for x in str(s)[:10].split("-"))
+        yy, ww, _ = datetime(y, m, d).isocalendar()
+        return "%04d-W%02d" % (yy, ww)
+    except (TypeError, ValueError):
+        return None
+
+
+def weekly_blocked(now, done_slots):
+    """이번 주에 이미 보관본을 만들었나 — 주 1회의 **유일한 판정**([162]).
+
+    스케줄러 경로(`eligible_slot`)와 5분 증분 경로(`automation_pipeline`)가
+    둘 다 이것을 빌린다. 각자 세면 언젠가 갈리고, 갈린 뒤에는 어느 쪽이 맞는지
+    아무도 모른다.
+
+    ★ 사람이 누른 즉시 생성(`--force`)도 `done_slots` 에 남으므로 그 주는 끝난
+      것으로 센다 — 이미 그 주 스냅샷이 있다.
+    ★ 주차를 못 읽은 회차는 **없는 것으로 치지 않는다**: 그 회차 이름만 건너뛴다.
+    """
+    if not WEEKLY_ARCHIVE:
+        return None
+    this = iso_week(f"{now:%Y-%m-%d}")
+    if not this:
+        return None                      # 오늘을 못 읽으면 막지 않는다([169])
+    for s in (done_slots or []):
+        if iso_week(s) == this:
+            return this
+    return None
+
+
 # ── 시각 판정 (순수 함수 — 합성 검증 대상) ──────────────────────
 def slot_of(now, windows=WINDOWS, grace=GRACE_MIN):
     """지금이 어느 반영 회차인가. 아니면 None.
@@ -645,6 +688,9 @@ def eligible_slot(now, done_slots, force=False):
         return f"{now:%Y-%m-%d %H:%M}(강제)"
     slot = slot_of(now)
     if not slot or slot in set(done_slots or []):
+        return None
+    # ★ 주 1회 — 그 주에 이미 만들었으면 나머지 부름은 조용히 물러난다([417]).
+    if weekly_blocked(now, done_slots):
         return None
     return slot
 
