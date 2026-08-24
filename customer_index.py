@@ -85,6 +85,22 @@ def bare(s):
 CAND_CACHE = os.path.join(ROOT, "reports", ".거래처등록_캐시.json")
 
 
+def prioritize_customer_sources(pairs, limit=80):
+    """거래처등록 정본(ESA001M)을 최근 파일 수 제한보다 먼저 돌려준다.
+
+    ``limit`` 은 이름을 모르는 ERP 파일을 머리글로 판별할 때의 속도 제한이다.
+    파일 종류가 이미 알려진 ESA001M까지 이 제한에 넣으면, 다른 내려받기 파일이
+    많아진 날 정본이 조용히 후보 밖으로 밀린다.
+    """
+    ordered = sorted(pairs, reverse=True)
+    named = [row for row in ordered
+             if re.match(r"(?i)^ESA001M(?:[_\-.]|$)", os.path.basename(row[2]))]
+    named_paths = {os.path.normcase(os.path.abspath(row[2])) for row in named}
+    recent_unknown = [row for row in ordered
+                      if os.path.normcase(os.path.abspath(row[2])) not in named_paths][:limit]
+    return named + recent_unknown
+
+
 def load_customers():
     import warnings
     warnings.filterwarnings("ignore")
@@ -103,16 +119,11 @@ def load_customers():
         pairs = [(os.path.getmtime(p), 0, p)
                  for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True)
                  if not os.path.basename(p).startswith(("~$", "ESD007E"))]
-    pairs.sort(reverse=True)
     # ★ 거래처등록 정본은 이름(ESA001M)이 알려져 있다. 2026-08-23 실사고:
     #   ERP 폴더에 파일이 실제로 있었는데 최신 80개 밖으로 밀려 "원본 없음"이 됐고,
     #   정상 캐시 2,981행까지 0행으로 덮였다. 최신순 80개는 **속도 제한**이지
     #   정본을 버려도 된다는 뜻이 아니다. 이름으로 확실한 후보를 먼저 합친다.
-    named = [row for row in pairs
-             if re.match(r"(?i)^ESA001M(?:[_\-.]|$)", os.path.basename(row[2]))]
-    named_paths = {os.path.normcase(os.path.abspath(row[2])) for row in named}
-    top = named + [row for row in pairs
-                   if os.path.normcase(os.path.abspath(row[2])) not in named_paths][:80]
+    top = prioritize_customer_sources(pairs, limit=80)
     # ★ 후보 80개가 하나도 안 바뀌었으면 워크북을 다시 열지 않는다.
     #   read_only=False 로 SMB 워크북 80개를 매번 여는 것이 남은 시간의 대부분이다.
     #   지문은 (경로·크기·수정시각) 전부 — 하나라도 바뀌면 다시 훑는다.

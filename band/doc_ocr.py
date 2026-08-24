@@ -45,6 +45,9 @@ PADDLE_PY = os.environ.get("CSOS_PADDLE_PY") or os.path.join(
 PADDLE_WORKER = os.path.join(HERE, "paddle_ocr_worker.py")
 OCR_ENGINE = str(os.environ.get("CSOS_OCR_ENGINE") or "auto").strip().lower()
 OCR_CACHE_VERSION = "paddle-ko-v5" if OCR_ENGINE in ("auto", "paddle") else "windows-v1"
+# 새 사진이 많아도 한 번에 전부 들고 가지 않는다. 부모 회차가 중간에 끊겨도
+# 이 묶음까지는 캐시에 남아 다음 회차가 이어받는다.
+OCR_BATCH_SIZE = max(1, int(os.environ.get("CSOS_OCR_BATCH_SIZE", "8")))
 
 
 def _cache_path(path, st=None):
@@ -76,11 +79,20 @@ def _read_cache(path, st=None):
 
 def _write_cache(path, text, st=None):
     cp = _cache_path(path, st)
+    tmp = cp + ".%s.tmp" % os.getpid()
     try:
         os.makedirs(OCR_CACHE, exist_ok=True)
-        open(cp, "w", encoding="utf-8").write(text)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, cp)
     except OSError:
         pass
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def _paddle_batch(paths, timeout):
@@ -112,22 +124,27 @@ def _paddle_batch(paths, timeout):
             return {}
 
 
-def ocr_images(paths, lang="ko", timeout=120):
+def ocr_images(paths, lang="ko", timeout=120, stats=None):
     """여러 장을 로컬 PaddleOCR 한 번의 모델 로딩으로 처리하고 실패한 장만 Windows로 폴백."""
     out, pending = {}, []
+    stats = stats or {}
     for path in paths:
-        cached = _read_cache(path)
+        cached = _read_cache(path, stats.get(path))
         if cached is None:
             pending.append(path)
         else:
             out[path] = cached
-    paddle = _paddle_batch(pending, timeout) if pending else {}
-    for path in pending:
-        text = paddle.get(path, "")
-        if not text:
-            text = _ocr_run(path, lang, timeout)
-        out[path] = text
-        _write_cache(path, text)
+    for start in range(0, len(pending), OCR_BATCH_SIZE):
+        batch = pending[start:start + OCR_BATCH_SIZE]
+        paddle = _paddle_batch(batch, timeout)
+        for path in batch:
+            text = paddle.get(path, "")
+            if not text:
+                text = _ocr_run(path, lang, timeout)
+            out[path] = text
+            # 결과가 나온 가장 이른 자리에서 원자적으로 굳힌다. 다음 묶음 중간에
+            # 회차가 끊겨도 이 사진을 다시 OCR 하지 않는다.
+            _write_cache(path, text, stats.get(path))
     return out
 
 
@@ -317,18 +334,41 @@ def photo_dirs(folder=None):
     return dirs or [INBOX]
 
 
-def scan(folder=None, apply=False):
-    dirs = photo_dirs(folder)
-    imgs, seen = [], set()
-    for d in dirs:
-        for p in sorted(glob.glob(os.path.join(d, "**", "*"), recursive=True)):
-            if not p.lower().endswith(IMG_EXT):
-                continue
+def image_manifest(folder=None):
+    """사진 경로와 크기·수정시각을 같은 폴더 조회에서 한 번에 받는다.
+
+    Z:에서 이름만 받은 뒤 ``os.stat(path)``를 다시 부르면 파일마다 서버 왕복이
+    생긴다. 캐시 열쇠를 만드는 Paddle·교차검증 모두 이 stat을 그대로 재사용한다.
+    """
+    imgs, stats, seen = [], {}, set()
+    for d in photo_dirs(folder):
+        try:
+            from source_index import walk_stat
+            found = [(os.path.join(base, name), st)
+                     for base, name, st in walk_stat(d, skip_dirs=())
+                     if name.lower().endswith(IMG_EXT)]
+        except Exception:
+            found = []
+            for p in glob.glob(os.path.join(d, "**", "*"), recursive=True):
+                if not p.lower().endswith(IMG_EXT):
+                    continue
+                try:
+                    found.append((p, os.stat(p)))
+                except OSError:
+                    continue
+        for p, st in sorted(found, key=lambda row: row[0]):
             name = os.path.basename(p)
             if name in seen:          # 서버·로컬 양쪽에 같은 파일이 있으면 한 번만 본다
                 continue
             seen.add(name)
             imgs.append(p)
+            stats[p] = st
+    return imgs, stats
+
+
+def scan(folder=None, apply=False):
+    dirs = photo_dirs(folder)
+    imgs, image_stats = image_manifest(folder)
     if not imgs:
         os.makedirs(INBOX, exist_ok=True)
         print("이미지 없음 — 아래 중 한 곳에 밴드에서 저장한 명세서·계산서 사진을 넣으세요")
@@ -342,7 +382,7 @@ def scan(folder=None, apply=False):
     except Exception as e:
         print(f"관리대장을 읽지 못함: {e}")
         recs = {}
-    texts = ocr_images(imgs)
+    texts = ocr_images(imgs, stats=image_stats)
     rows = []
     for p in imgs:
         rec = parse_doc(texts.get(p, ""), p)

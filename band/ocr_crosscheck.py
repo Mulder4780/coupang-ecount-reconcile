@@ -62,6 +62,25 @@ def _cache_path(engine, path, st=None):
     return os.path.join(XCACHE, hashlib.md5(key.encode()).hexdigest() + ".txt")
 
 
+def _write_engine_cache(engine, path, text, st=None):
+    """한 장 결과를 원자적으로 굳힌다 — 반쪽 파일을 캐시 적중으로 세지 않는다."""
+    cp = _cache_path(engine, path, st)
+    tmp = cp + ".%s.tmp" % os.getpid()
+    try:
+        os.makedirs(XCACHE, exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, cp)
+    except OSError:
+        pass
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def _run_paddle(paths, timeout):
     return doc_ocr._paddle_batch(paths, timeout)
 
@@ -146,13 +165,10 @@ def read_texts(engine, paths, timeout=120, stats=None):
     if pending:
         fn = ENGINES[engine][2]
         os.makedirs(XCACHE, exist_ok=True)
-        if engine == "windows":
-            # Windows OCR은 원래도 한 장씩 PowerShell을 띄운다. 결과를 전부 메모리에
-            # 모았다가 맨 끝에 쓰면 부모가 30분에 끊는 순간 **완료한 장도 0개** 남는다.
-            # 한 장이 끝날 때마다 바로 저장해 다음 회차가 그 자리부터 이어받게 한다.
-            batches = ([p] for p in pending)
-        else:
-            batches = (pending,)
+        # Windows/Tesseract는 원래 한 장씩 실행한다. Paddle은 모델 재로딩 비용을 줄이되
+        # 작은 묶음마다 굳힌다. 전량을 끝낸 뒤 한꺼번에 쓰면 30분 제한에서 0장이 남는다.
+        size = doc_ocr.OCR_BATCH_SIZE if engine == "paddle" else 1
+        batches = (pending[i:i + size] for i in range(0, len(pending), size))
         for batch in batches:
             try:
                 got = fn(batch, timeout) or {}
@@ -161,12 +177,7 @@ def read_texts(engine, paths, timeout=120, stats=None):
             for p in batch:
                 t = got.get(p, "") or ""
                 out[p] = t
-                try:
-                    with open(_cache_path(engine, p, stats.get(p)), "w",
-                              encoding="utf-8") as fh:
-                        fh.write(t)
-                except OSError:
-                    pass
+                _write_engine_cache(engine, p, t, stats.get(p))
     return out
 
 
@@ -493,32 +504,7 @@ def _image_manifest(folder=None):
     Windows 캐시에서 다시 물어 1,818장 캐시 확인만 약 30분이 됐다. scandir에 이미
     딸려 온 크기·수정시각을 두 캐시가 함께 쓴다.
     """
-    imgs, stats, seen = [], {}, set()
-    for d in doc_ocr.photo_dirs(folder):
-        try:
-            from source_index import walk_stat
-            found = [(os.path.join(base, name), st)
-                     for base, name, st in walk_stat(d, skip_dirs=())
-                     if name.lower().endswith(doc_ocr.IMG_EXT)]
-        except Exception:
-            found = []
-            for p in glob.glob(os.path.join(d, "**", "*"), recursive=True):
-                if not p.lower().endswith(doc_ocr.IMG_EXT):
-                    continue
-                try:
-                    found.append((p, os.stat(p)))
-                except OSError:
-                    continue
-        for p, st in sorted(found, key=lambda row: row[0]):
-            if not p.lower().endswith(doc_ocr.IMG_EXT):
-                continue
-            n = os.path.basename(p)
-            if n in seen:
-                continue
-            seen.add(n)
-            imgs.append(p)
-            stats[p] = st
-    return imgs, stats
+    return doc_ocr.image_manifest(folder)
 
 
 def _images(folder=None):
