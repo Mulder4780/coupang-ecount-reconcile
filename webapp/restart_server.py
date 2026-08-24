@@ -402,6 +402,112 @@ def _note_defer(why, u):
         pass
 
 
+# ── 막혀 있는 중인가 ────────────────────────────────────────────────────────
+# ★ **쓰는 중과 막혀 있는 중은 다른 사실이다** (2026-08-24 오종현 실사고).
+#   서버가 옛 코드로 4시간 반을 돌았고 그 사이 담당자가 리모컨 불출을 못 했다.
+#   워치독은 `guard()` 의 '누가 쓰고 있다' 하나로 재시작을 미뤘는데 —
+#   **그 사람이 쓰고 있던 것이 아니라 막혀서 같은 단추를 계속 누르고 있었다.**
+#   그러면 '쓰는 중' 신호가 오히려 세지고 → 더 안 갈리고 → 더 막힌다.
+#   **스스로를 강화하는 고장**이라 시간이 갈수록 확신에 차서 틀린다.
+#   실측 기록: 11:38 `/api/remote/request · HTTP_ERROR:400 · "…한도 3개를 넘습니다"`
+#   (뒤에 길안내가 없다 = 옛 코드) · 코드는 11:05 에 고쳐져 있었다.
+BLOCK_CODES = ("400", "409", "422", "500")
+# ★ **502·503·504·네트워크 끊김은 절대 안 센다.** 그것은 재시작 **자체가** 만드는
+#   오류다([197] 실측 6.7초). 세는 순간 재시작 → 오류 → 또 재시작 이 되어
+#   담당자 화면이 영원히 끊긴다 — 고치려던 것보다 나쁘다([172]).
+# ★ 401·403 도 안 센다 — 권한은 코드를 갈아도 안 풀린다([290]).
+BLOCK_SKIP_TARGETS = ("/api/live-state", "/api/ping", "/api/sync-health",
+                      "/api/error_help")
+BLOCK_MIN = 15           # 최근 이만큼 안에 맞은 거절만 센다
+FORCE_COOLDOWN_MIN = 20  # 이 갈래로 한 번 갈면 이만큼은 다시 안 간다
+
+
+def _http_code(detail):
+    """`HTTP_ERROR:400 · …` 에서 코드만. 못 읽으면 None(모름 · [169])."""
+    s = str(detail or "")
+    i = s.find("HTTP_ERROR:")
+    if i < 0:
+        return None
+    d = s[i + 11:i + 14]
+    return d if d.isdigit() else None
+
+
+def blocked_now(minutes=BLOCK_MIN):
+    """담당자가 **쓰는 길에서 거절을 맞고 있나**.
+
+    돌려주는 것: {"읽음": bool, "건수": int, "표본": [str], "왜": str}
+    ★ **못 읽으면 '안 막혔다'가 아니다**([169]) — `읽음=False` 면 부르는 쪽은
+      예전대로 미룬다. 모름을 근거로 남의 화면을 끊지 않는다.
+    """
+    try:
+        if ROOT not in sys.path:
+            sys.path.insert(0, ROOT)
+        import ledger_db
+        with ledger_db.conn() as c:
+            rows = c.execute(
+                "SELECT ts,target,detail FROM ux WHERE kind='error' "
+                "ORDER BY id DESC LIMIT 300").fetchall()
+        cut, n, sample = time.time() - minutes * 60, 0, []
+        for ts, target, detail in rows:
+            e = _ts_epoch(ts)
+            if e is None or e < cut:
+                continue
+            tgt = str(target or "")
+            if any(tgt.startswith(x) for x in BLOCK_SKIP_TARGETS):
+                continue
+            if _http_code(detail) not in BLOCK_CODES:
+                continue
+            n += 1
+            if len(sample) < 3:
+                sample.append(("%s %s" % (tgt, str(detail or "")))[:150])
+        return {"읽음": True, "건수": n, "표본": sample, "왜": ""}
+    except Exception as exc:
+        return {"읽음": False, "건수": 0, "표본": [], "왜": str(exc)[:120]}
+
+
+def _forced_recently(minutes=FORCE_COOLDOWN_MIN):
+    """이 갈래로 방금 갈았나 — 냉각. 못 읽으면 **갈았다고 친다**(안전한 쪽)."""
+    import json
+    from datetime import datetime
+    try:
+        hist = json.load(open(DEFER_LOG, encoding="utf-8"))
+        if not isinstance(hist, list):
+            return False
+        for rec in reversed(hist[-30:]):
+            if not isinstance(rec, dict) or rec.get("갈래") != "막힘":
+                continue
+            t = datetime.fromisoformat(str(rec.get("때")))
+            return (datetime.now() - t).total_seconds() < minutes * 60
+        return False
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return True
+
+
+def _note_forced(b, st, u):
+    """미루지 **않은** 것도 자국으로 남긴다 — 왜 그 사람 화면이 끊겼는지."""
+    import json
+    from datetime import datetime
+    try:
+        os.makedirs(os.path.dirname(DEFER_LOG), exist_ok=True)
+        try:
+            hist = json.load(open(DEFER_LOG, encoding="utf-8"))
+        except Exception:
+            hist = []
+        hist = (hist if isinstance(hist, list) else [])[-49:]
+        hist.append({"때": datetime.now().isoformat(timespec="seconds"),
+                     "갈래": "막힘",
+                     "왜": "쓰는 중이지만 거절을 맞고 있고 서버가 옛 코드다 — 미루지 않았다",
+                     "거절건수": b.get("건수"), "표본": b.get("표본"),
+                     "옛코드": list(st[2])[:6] if st and len(st) > 2 else [],
+                     "최근활동": u.get("건수")})
+        json.dump(hist, open(DEFER_LOG, "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=1)
+    except Exception:
+        pass
+
+
 def guard(force=False):
     """죽이기 **전에** 부른다. 내려도 되면 None, 미뤄야 하면 사람 말로 된 이유."""
     if force:
@@ -411,6 +517,17 @@ def guard(force=False):
         return ("지금 누가 쓰고 있는지 확인하지 못했습니다(%s). "
                 "확인 못 한 것을 '아무도 없다'로 치지 않습니다 — 그대로 둡니다." % (u["왜"] or "이유 모름"))
     if u["건수"] > 0:
+        # ★ **막혀 있는 사람에게 미루는 것은 오히려 해롭다** (2026-08-24 오종현 실사고).
+        #   두 조건이 같이 설 때만 간다 — 하나만으로는 근거가 안 선다:
+        #     ① 사람이 **쓰는 길에서 거절을 맞고 있다**(400/409/422/500)
+        #     ② 서버가 **옛 코드**다 — 갈면 달라질 수 있다는 뜻
+        #   ②가 없으면 갈아도 같은 거절이 난다 — 그때 내리면 **멀줦한 사람 화면만
+        #   8초 끊기고 문제는 그대로 남는다**([172] 의 틀린 지목).
+        b = blocked_now()
+        st = stale()
+        if b["읽음"] and b["건수"] > 0 and st and not _forced_recently():
+            _note_forced(b, st, u)
+            return None
         ago = "방금" if (u["분전"] or 0) < 1 else "%.0f분 전" % u["분전"]
         return ("%s까지 누가 앱을 쓰고 있었습니다(최근 %d분 안에 %d번). "
                 "지금 내리면 그 사람 화면이 %d초쯤 끊깁니다."

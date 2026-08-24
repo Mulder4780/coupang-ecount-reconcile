@@ -24325,13 +24325,22 @@ def t394_organizer_leaves_archive_alone_and_can_copy():
     # ⑧ 계기 자기시험([272]) — 하강 전 보호와 옛 분기 둘 다 없애면 ①이 잡히나
     code = io.open(os.path.join(ROOT, "source_organizer.py"),
                    encoding="utf-8", newline="").read().replace("\r\n", "\n")
-    broken = code.replace('PROTECTED_BAND_DIRS = {"게시글보관", "캐시사본"}',
-                          'PROTECTED_BAND_DIRS = {"캐시사본"}', 1)
+    # ★ **앵커를 목록 내용에 매지 않는다**([39] · 2026-08-24 실측).
+    #   예전에는 `{"게시글보관", "캐시사본"}` 를 글자 그대로 찾았는데, 옆 세션이
+    #   `"브라우저덤프"` 를 **정상적으로** 더하자 관문이 통째로 빨개졌다([192] 모양).
+    #   그 관문은 `daily_run` 의 **0단계**라 그날 아침 회차가 통째로 안 돌다.
+    #   자기시험 앵커는 **고장을 주입하려는 것**이지 글자를 얼리려는 것이 아니다.
+    import re as _re394
+    _m394 = _re394.search(r"^PROTECTED_BAND_DIRS = \{.*\}$", code, _re394.M)
+    assert _m394 and "게시글보관" in _m394.group(0), (
+        "[394] 보호 목록 줄을 못 찾았다")
+    _hurt394 = _m394.group(0).replace('"게시글보관", ', "").replace(', "게시글보관"', "")
+    broken = code.replace(_m394.group(0), _hurt394, 1)
     broken = broken.replace(
         'for src in _iter_files(band, protected_dirs=PROTECTED_BAND_DIRS, prune_years=True):',
         'for src in _iter_files(band, protected_dirs=PROTECTED_BAND_DIRS, prune_years=False):', 1)
     broken = broken.replace('            elif rel[0] == "게시글보관":', "            elif False:", 1)
-    assert broken != code and 'PROTECTED_BAND_DIRS = {"캐시사본"}' in broken, (
+    assert broken != code and "게시글보관" not in _hurt394, (
         "[394] 자기시험 앵커를 못 찾았다 — 이 검사는 아무것도 안 잰다")
     # ⚠ `@dataclass` 는 `sys.modules[모듈이름]` 을 찾는다 — 그냥 exec 하면 거기서
     #    죽고, **그 죽음이 '고장을 잡았다'로 오인된다**([371]). 모듈로 올려서 돌리고
@@ -27442,6 +27451,105 @@ def t403_soft_delete_is_covered_by_verified_archive():
         assert ack["work_acked"] == 2 and store.status()["outbox_pending"] == 0, ack
 
     print("✅ [403] soft-delete 도 검증 sidecar 보관 · outbox 무한 재시도 차단")
+
+
+def t410_do_not_defer_restart_for_a_blocked_person():
+    """[410] 쓰는 중과 **막혀 있는 중**은 다른 사실이다 (2026-08-24 오종현 실사고).
+
+    서버가 옛 코드로 4시간 반을 돌았고 그 사이 담당자가 리모컨 불출을 못 했다.
+    워치독은 `guard()` 의 '누가 쓰고 있다' 하나로 재시작을 미뤘는데 — **그 사람이
+    쓰고 있던 것이 아니라 막혀서 같은 단추를 계속 누르고 있었다.** 그러면 '쓰는 중'
+    신호가 오히려 세지고 → 더 안 갈리고 → 더 막힌다. **스스로를 강화하는 고장**이라
+    시간이 갈수록 확신에 차서 틀린다([169]).
+    실측 기록: 11:38 `/api/remote/request · HTTP_ERROR:400` · 코드는 11:05 에 고쳐져 있었다.
+
+    ★ 제일 위험한 자리는 **502 를 세는 것**이다 — 그것은 재시작 자체가 만드는 오류라
+      (실측 6.7초) 세는 순간 재시작 → 오류 → 또 재시작 이 된다. 그래서 (6)이 그것을 잰다.
+    ★ 실측 자국(`reports/앱서버_재시작보류.json`)은 한 글자도 안 건드린다([247]).
+    """
+    import importlib
+    import io
+    import json
+    import shutil
+
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+    wp = os.path.join(ROOT, "webapp")
+    if wp not in sys.path:
+        sys.path.insert(0, wp)
+    rs = importlib.import_module("restart_server")
+
+    tmp = tempfile.mkdtemp(prefix="t410_")
+    keep = (rs.DEFER_LOG, rs.in_use, rs.blocked_now, rs.stale)
+    try:
+        rs.DEFER_LOG = os.path.join(tmp, "d.json")
+        # 목은 **모듈 속성**이라 프로세스 전체의 것이다 — finally 로 되돌린다([371]).
+        rs.in_use = lambda *a, **k: {"읽음": True, "건수": 97, "분전": 0.2, "왜": ""}
+
+        def _run(blocked, stale_v):
+            rs.blocked_now = lambda *a, **k: blocked
+            rs.stale = lambda: stale_v
+            return rs.guard()
+
+        B_YES = {"읽음": True, "건수": 2,
+                 "표본": ["/api/remote/request HTTP_ERROR:400"], "왜": ""}
+        B_NO = {"읽음": True, "건수": 0, "표본": [], "왜": ""}
+        B_UNK = {"읽음": False, "건수": 0, "표본": [], "왜": "db locked"}
+        ST = (49748, "08/24 07:03", ["ledger_db.py"])
+
+        # (1) 막힘 + 옛코드 → **미루지 않는다**(오종현 사고 그 자리)
+        assert _run(B_YES, ST) is None, (
+            "[410] 막혀 있는데도 재시작을 미뤘다 — 그 사람은 계속 못 쓴다")
+
+        # (2) 막힘인데 **최신 코드** → 미룬다. 갈아도 같은 거절이 난다 —
+        #     그때 내리면 멀쩡한 사람 화면만 8초 끊기고 문제는 그대로다([172]).
+        assert _run(B_YES, None) is not None, (
+            "[410] 갈아도 안 풀리는데 내렸다 — 틀린 지목이다([172])")
+
+        # (3) 그냥 쓰는 중(거절 없음) → 미룬다. 류지영 우선이 그대로 산다([354]).
+        assert _run(B_NO, ST) is not None, (
+            "[410] 멀쩡히 쓰는 사람 화면을 끊었다 — 좁히는 것도 고장이다")
+
+        # (4) 못 읽음 → 미룬다. **모름을 '막혔다'로 치지 않는다**([169]).
+        assert _run(B_UNK, ST) is not None, "[410] 모름을 근거로 남의 화면을 끊었다"
+
+        # (5) 냉각 — (1)이 이미 갈았으므로 곧바로 또 갈면 재시작이 되풀이된다.
+        assert _run(B_YES, ST) is not None, "[410] 냉각이 안 산다 — 재시작이 되풀이된다"
+
+        # 자국이 남았나 — 왜 그 사람 화면이 끊겼는지 나중에 물을 사람이 있다([169]).
+        hist = json.load(io.open(rs.DEFER_LOG, encoding="utf-8"))
+        forced = [h for h in hist if h.get("갈래") == "막힘"]
+        assert len(forced) == 1, "[410] 안 미룬 자국이 %d개" % len(forced)
+        assert forced[0].get("표본"), "[410] 무엇에 막혔는지가 자국에 없다"
+
+        # (6) **502·503·504·네트워크 끊김은 안 센다** — 재시작이 만드는 오류다.
+        assert rs._http_code("HTTP_ERROR:502 x") == "502", "[410] 코드를 못 읽는다"
+        for bad in ("502", "503", "504", "401", "403"):
+            assert bad not in rs.BLOCK_CODES, (
+                "[410] %s 를 '막힘'으로 센다 — 재시작→오류→재시작 고리가 되거나"
+                " 코드로 안 풀리는 것을 재시작으로 고치려 든다" % bad)
+        assert "/api/live-state" in rs.BLOCK_SKIP_TARGETS, (
+            "[410] 폴링 경로를 세면 재시작마다 '막힘'이 된다")
+
+        # ★ 계기 자기시험([272]) — 막힘 갈래를 없애면 (1)이 정말 잡히나.
+        code = io.open(rs.__file__, encoding="utf-8", newline="").read()
+        hurt = code.replace(
+            'if b["읽음"] and b["건수"] > 0 and st and not _forced_recently():',
+            "if False:", 1)
+        assert hurt != code, "[410] 자기시험 앵커를 못 찾았다 — 이 검사는 아무것도 안 잰다"
+        ns = {"__name__": "rs_t410_bad", "__file__": rs.__file__}
+        exec(compile(hurt, rs.__file__, "exec"), ns)
+        ns["DEFER_LOG"] = rs.DEFER_LOG
+        ns["in_use"] = rs.in_use
+        ns["blocked_now"] = lambda *a, **k: B_YES
+        ns["stale"] = lambda: ST
+        assert ns["guard"]() is not None, (
+            "[410] 막힘 갈래를 없앴는데도 안 미룬다 — (1)은 아무것도 안 잰다")
+    finally:
+        rs.DEFER_LOG, rs.in_use, rs.blocked_now, rs.stale = keep
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print("  [410] 막혀 있는 사람에게는 안 미룬다 · 502 는 안 센다 · 냉각 OK")
 
 
 def t409_sales_candidates_keep_the_stat_they_were_given():
@@ -34906,6 +35014,7 @@ if __name__ == "__main__":
     t406_archive_keep_keeps_progress()
     t408_bulk_handout_is_not_personal_holding()
     t409_sales_candidates_keep_the_stat_they_were_given()
+    t410_do_not_defer_restart_for_a_blocked_person()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
