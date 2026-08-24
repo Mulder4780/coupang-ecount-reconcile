@@ -17432,10 +17432,47 @@ def t400_gate_margin_speaks_before_it_dies():
         real = _sh_mod.BASE
         try:
             _sh_mod.BASE = tmp
-            return [a for a, b in _sh_mod.blockers(_st) if "[관문]" in a]
+            # ★ 인계는 **스냅샷만** 읽는다([407]) — 재는 것은 collect 쪽 gate_budget 이고
+            #   blockers 는 그 결과를 받는다. 여기서 파일을 직접 읽게 두면 합성
+            #   스냅샷으로 부르는 t380 이 통째로 막힌다(2026-08-24 실측).
+            _snap = _Blank({"관문시간": _sh_mod.gate_budget()})
+            return [a for a, b in _sh_mod.blockers(_snap) if "[관문]" in a]
         finally:
             _sh_mod.BASE = real                      # 모듈 속성은 모두의 것이다([371])
             _sh.rmtree(tmp, ignore_errors=True)
+
+    # ── [407] 인계는 **스냅샷만** 읽는다 ────────────────────────────────
+    #   2026-08-24 실측: 관문이 36.4분(한도 25분)이 되자 **t380 이 죽었다** —
+    #   빈 스냅샷으로 부르는데 blockers 가 진짜 파일을 읽어 이 경보를 끼워 넣었다.
+    #   [291] 이 t111 에서, [404] 가 자율복구에서 이미 겪은 자리다. 되돌아가면
+    #   안 되는 것이므로 글자로도 얼린다([39]).
+    import inspect as _insp
+    _blk_src = _insp.getsource(_sh_mod.blockers)
+    assert "합성검증_시간.json" not in _blk_src, (
+        "blockers 가 관문 자국 파일을 다시 직접 읽는다 — 합성 스냅샷 검증이 막힌다")
+    _tmp407 = _tf.mkdtemp(prefix="t407_")
+    try:
+        os.makedirs(os.path.join(_tmp407, "reports"), exist_ok=True)
+        with open(os.path.join(_tmp407, "reports", "합성검증_시간.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump({"여유율": -0.5, "총초": 2000.0, "한도초": 1500,
+                       "오래걸린것": [{"초": 900.0, "무엇": "[X] 느린 것"}]}, fh,
+                      ensure_ascii=False)
+        _real407 = _sh_mod.BASE
+        try:
+            _sh_mod.BASE = _tmp407
+            # 파일은 있는데 스냅샷에 안 담겼다 → **조용해야 한다**(그것이 계약이다).
+            assert not [a for a, b in _sh_mod.blockers(_Blank()) if "[관문]" in a], (
+                "스냅샷에 없는데도 경보가 뜬다 — blockers 가 파일을 직접 읽는다")
+            # 담으면 그대로 산다 — 좁히는 것도 고장이다([172]).
+            _g407 = _sh_mod.gate_budget()
+            assert _g407, "gate_budget 이 자국을 못 읽는다"
+            assert [a for a, b in _sh_mod.blockers(_Blank({"관문시간": _g407}))
+                    if "[관문]" in a], "담았는데도 경보가 안 뜬다"
+        finally:
+            _sh_mod.BASE = _real407              # 모듈 속성은 모두의 것이다([371])
+    finally:
+        _sh.rmtree(_tmp407, ignore_errors=True)
 
     def _doc(total, limit, margin, slow=120.0):
         return {"총초": total, "한도초": limit, "여유율": margin,
@@ -27407,6 +27444,132 @@ def t403_soft_delete_is_covered_by_verified_archive():
     print("✅ [403] soft-delete 도 검증 sidecar 보관 · outbox 무한 재시도 차단")
 
 
+def t406_archive_keep_keeps_progress():
+    """[406] 복구용 보관이 **진도를 잃지 않는다** — 색인을 중간에 남긴다.
+
+    실측 2026-08-24: 담을 파일 6,840개인데 그날 폴더에 130개(2%)뿐이고 **색인은
+    네 날 다 없었다**. 30분 제한에 SIGKILL(-9) 로 끊기는데 색인을 **맨 끝에 한 번**
+    만 써서 그 줄에 영영 못 갔고, 색인이 없으니 다음 회차는 파일마다 Z: 를 다시
+    찔러(파일당 SMB 왕복 ~145ms · [198]) 또 끊겼다 — **스스로를 재생산하는 고장**이다.
+
+    **실행으로 잰다**([295]) — 글자 검사로는 '죽었을 때 남는가'를 못 잰다.
+    진짜 Z: 보관 폴더는 한 글자도 안 건드린다([247]) — 임시 ROOT·임시 day_dir 로만.
+    """
+    import importlib
+    import shutil
+
+    ak = importlib.import_module("archive_keep")
+    real_root, real_every = ak.ROOT, ak._INDEX_SAVE_EVERY_S
+    real_copy = shutil.copy2
+    tmp = tempfile.mkdtemp(prefix="t406_")
+
+    def _make(src, n=20):
+        os.makedirs(os.path.join(src, "reports"), exist_ok=True)
+        for i in range(n):
+            with open(os.path.join(src, "reports", "f%02d.md" % i), "w",
+                      encoding="utf-8") as f:
+                f.write("x" * 10)
+
+    try:
+        src = os.path.join(tmp, "src")
+        _make(src)
+        ak.ROOT = src
+        ak._INDEX_SAVE_EVERY_S = 0        # 30초를 안 기다린다(간격 자체는 ⑤가 잰다)
+
+        # ① 죽어도 색인이 남는다 — 그게 요점이다([381]).
+        day1 = os.path.join(tmp, "day1")
+        cnt = [0]
+
+        def _boom(a, b):
+            cnt[0] += 1
+            if cnt[0] > 12:
+                raise KeyboardInterrupt("강제 종료 흉내")
+            return real_copy(a, b)
+
+        shutil.copy2 = _boom
+        try:
+            ak.collect(day1)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            shutil.copy2 = real_copy
+        idx1 = ak.load_index(day1)
+        assert idx1 and len(idx1) >= 10, (
+            "죽었더니 색인이 안 남았다 — 다음 회차가 처음부터 Z: 를 찌른다: %r" % (idx1,))
+
+        # ② 색인에 **없는** 파일을 조용히 '바뀜'으로 단정하지 않는다([169]).
+        #    앞 회차가 반쪽으로 끊겼을 수 있으므로 저쪽에 한 번 물어본다.
+        p = os.path.join(src, "reports", "f19.md")          # 색인에 없는 파일
+        st = os.stat(p)
+        prev_copy = os.path.join(tmp, "prev_f19.md")
+        real_copy(p, prev_copy)
+        assert ak.unchanged(st, prev_copy, idx1, "reports/f19.md"), (
+            "색인에 없다고 '바뀐 것'으로 단정한다 — 반쪽 색인이면 전부 다시 복사한다")
+        assert not ak.unchanged(st, os.path.join(tmp, "없는파일.md"),
+                                idx1, "reports/f19.md"), "없는 파일을 같다고 한다"
+
+        # ③ 색인에 **있으면** 저쪽을 안 찌른다(그것이 빨라지는 이유다).
+        seen = []
+        real_stat = os.stat
+
+        def _spy(path, *a, **k):
+            seen.append(path)
+            return real_stat(path, *a, **k)
+
+        os.stat = _spy
+        try:
+            rel = sorted(idx1.keys())[0]
+            got = ak.unchanged(real_stat(os.path.join(src, rel)),
+                               os.path.join(tmp, "저쪽", rel), idx1, rel)
+        finally:
+            os.stat = real_stat
+        assert got is True and not seen, "색인에 있는데도 저쪽을 찔렀다: %r" % (seen,)
+
+        # ④ 완주하면 전부 담기고 색인도 그만큼이다.
+        day2 = os.path.join(tmp, "day2")
+        n, _size, _sk, _li = ak.collect(day2)
+        idx2 = ak.load_index(day2)
+        assert len(idx2) == n == 20, "완주인데 %d개 담고 색인 %d개" % (n, len(idx2))
+
+        # ⑤ 간격은 **시간**으로 정한다 — 개수로는 파일 크기가 제각각이라 못 잡는다.
+        assert isinstance(ak._INDEX_SAVE_EVERY_S, (int, float)), "간격 상수가 없다"
+
+        # ⑥ dry 는 아무것도 안 쓴다(무엇을 담을지만 본다).
+        day3 = os.path.join(tmp, "day3")
+        ak.collect(day3, dry=True)
+        assert not os.path.exists(day3), "dry 인데 폴더를 만들었다"
+
+        # ★ 계기 자기시험([272]) — 중간 저장을 없애면 ①이 정말 잡는가.
+        with io.open(ak.__file__, encoding="utf-8") as f:
+            _src = f.read()
+        _nl = chr(10)
+        _mark = ("        shutil.copy2(path, dst)" + _nl
+                 + "        _index_touch()" + _nl)
+        _bad = _src.replace(_mark, "        shutil.copy2(path, dst)" + _nl)
+        assert _bad != _src, "중간 저장 자리를 못 찾았다 — 이 자기시험은 아무것도 안 잰다"
+        _ns = {"__name__": "archive_keep_t406_bad", "__file__": ak.__file__}
+        exec(compile(_bad, ak.__file__, "exec"), _ns)
+        _ns["ROOT"] = src
+        _ns["_INDEX_SAVE_EVERY_S"] = 0
+        day4 = os.path.join(tmp, "day4")
+        cnt[0] = 0
+        shutil.copy2 = _boom
+        try:
+            _ns["collect"](day4)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            shutil.copy2 = real_copy
+        assert not ak.load_index(day4), (
+            "중간 저장을 없앴는데도 색인이 남는다 — ①은 아무것도 안 재고 있다")
+    finally:
+        ak.ROOT, ak._INDEX_SAVE_EVERY_S = real_root, real_every
+        shutil.copy2 = real_copy
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print("  [406] 복구용 보관 진도 보존(죽어도 색인 남김·반쪽 색인 폴백) OK")
+
+
 def t405_kakao_memo_channel_never_leaks():
     """[75] 카톡 '나와의 채팅' 채널 — 기본 꺼짐 · 업무값 차단 · 토큰이 안 샌다.
 
@@ -34558,6 +34721,7 @@ if __name__ == "__main__":
     t403_soft_delete_is_covered_by_verified_archive()
     t404_stuck_autorecovery_reaches_the_handoff()
     t405_kakao_memo_channel_never_leaks()
+    t406_archive_keep_keeps_progress()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

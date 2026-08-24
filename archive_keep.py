@@ -35,7 +35,7 @@ archive_keep.py — 나중에 **복구하거나 이어서 코딩할 때** 필요
   python archive_keep.py --dry      # 무엇을 담을지만 보기
   python archive_keep.py --self-test
 """
-import sys, os, re, json, glob, shutil, subprocess, hashlib
+import sys, os, re, json, glob, shutil, subprocess, hashlib, time
 from datetime import datetime, date, timedelta
 
 try:
@@ -216,6 +216,9 @@ def prev_day_dir(day_dir):
 
 
 INDEX_NAME = ".index.json"
+#: 색인 중간 저장 간격(초). 개수가 아니라 **시간**으로 정한다 — 파일 크기가
+#: 제각각이라 개수로는 시간을 못 잡는다([381] 과 같은 이유).
+_INDEX_SAVE_EVERY_S = 30
 
 
 def load_index(day_dir):
@@ -241,9 +244,11 @@ def unchanged(src_st, prev_path, prev_index=None, rel=None):
        시각 해상도를 감안해 2초까지는 같은 것으로 본다."""
     if prev_index is not None:
         rec = prev_index.get(rel)
-        if not rec:
-            return False
-        return rec[0] == src_st.st_size and abs(rec[1] - src_st.st_mtime) < 2
+        if rec:
+            return rec[0] == src_st.st_size and abs(rec[1] - src_st.st_mtime) < 2
+        # ★ 색인에 없다고 '바뀐 것'으로 단정하지 않는다([169]). 앞 회차가 시간에
+        #   끊겼으면 색인은 **반쪽**이라, 여기서 단정하면 이미 저쪽에 있는 파일까지
+        #   전부 다시 복사해 더 느려진다. 모르면 Z: 에 한 번 물어보고 링크를 살린다.
     try:
         ps = os.stat(prev_path)
     except OSError:
@@ -271,6 +276,34 @@ def collect(day_dir, dry=False):
     prev = prev_day_dir(day_dir) if not dry else None
     prev_index = load_index(prev) if prev else None
     index = {}
+    last_save = [time.time()]
+
+    def _index_touch(force=False):
+        """★ 색인을 **중간에** 남긴다 — 죽어도 남는다. 그게 요점이다([381]).
+
+        예전에는 맨 끝에 한 번만 썼다. 그런데 이 회차는 30분 제한에 걸려 SIGKILL
+        (-9)로 끊기므로 **그 줄에 영영 못 갔고**, 색인이 없으니 다음 회차는 파일
+        6,840개마다 Z: 를 다시 찔러(파일당 SMB 왕복 ~145ms · [198]) 또 끊겼다 —
+        **스스로를 재생산하는 고장**이다(실측 2026-08-24: 네 날 색인 0개 · 오늘 130/6,840).
+
+        상한을 **개수가 아니라 시간**으로 정한 이유도 [381] 과 같다 — 파일 크기가
+        제각각이라 개수로는 시간을 못 잡는다. 자주 써도 잃는 것이 없다:
+        버려도 안전한 값이고(못 읽으면 예전처럼 stat 으로 돈다) 갈아끼우기는
+        원자적이다([171]).
+        """
+        if dry:
+            return
+        if not force and time.time() - last_save[0] < _INDEX_SAVE_EVERY_S:
+            return
+        last_save[0] = time.time()
+        try:
+            os.makedirs(day_dir, exist_ok=True)
+            tmp = os.path.join(day_dir, INDEX_NAME + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(index, f)
+            os.replace(tmp, os.path.join(day_dir, INDEX_NAME))
+        except OSError:
+            pass                              # 못 남겨도 다음 회차는 stat 으로 돈다
     for path in glob.glob(os.path.join(ROOT, "**", "*"), recursive=True):
         if not os.path.isfile(path) or not wanted(path, ROOT):
             continue
@@ -299,18 +332,13 @@ def collect(day_dir, dry=False):
             try:
                 os.link(prev_path, dst)
                 linked += 1
+                _index_touch()
                 continue
             except OSError:
                 pass                          # 링크가 안 되면 그냥 복사한다
         shutil.copy2(path, dst)
-    if not dry:
-        # 다음 회차가 이걸 읽어 파일마다 Z: 를 찔러 보지 않아도 되게 한다.
-        try:
-            os.makedirs(day_dir, exist_ok=True)
-            with open(os.path.join(day_dir, INDEX_NAME), "w", encoding="utf-8") as f:
-                json.dump(index, f)
-        except OSError:
-            pass                              # 목록을 못 남겨도 다음 회차는 stat 으로 돈다
+        _index_touch()
+    _index_touch(force=True)              # 다음 회차가 이걸 읽어 Z: 를 안 찌른다
     return n, size, skipped, linked
 
 

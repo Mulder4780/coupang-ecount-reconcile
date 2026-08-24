@@ -683,6 +683,9 @@ def collect():
         #   ⚠ `blockers()` 안에서 직접 부르면 **합성 스냅샷으로 부르는 검증이 통째로
         #     막힌다**(t380 실측 — [291] 이 t111 에서 이미 겪은 자리다).
         "자율복구굳음": _autopilot_stuck(),
+        # ★ 관문 여유도 여기서 담는다 — blockers 가 파일을 직접 읽으면
+        #   합성 스냅샷 검증이 막힌다(t380 실측 · [291]·[404] 와 같은 자리).
+        "관문시간": gate_budget(),
         "조직도": org_gap(),
         "캠프원본": camp_source_gap(),
         # [188] — 자국은 [359] 가 남기고 여기서 읽는다(다시 세지 않는다).
@@ -1218,6 +1221,30 @@ def _notice_pair(x, fallback):
     return (str(x), fallback)
 
 
+def gate_budget():
+    """관문(합성검증)이 한도에 얼마나 붙었나 — 회차가 써 둔 자국을 **읽기만** 한다.
+
+    ⚠ 이 값을 `blockers()` 안에서 직접 읽으면 **합성 스냅샷으로 부르는 검증이
+      통째로 막힌다** — 실측 2026-08-24: 관문이 36.4분(한도 25분)이 된 날
+      `t380` 이 죽었다(빈 스냅샷인데 이 경보가 끼어들었다). [291] 이 `t111` 에서,
+      [404] 가 자율복구에서 이미 겪은 자리다 — **인계는 스냅샷만 읽는다**([162]).
+    ★ 못 읽으면 지어내지 않는다({}) · 사흘 넘게 낡은 값으로는 확언하지 않는다([169]).
+    """
+    try:
+        p = os.path.join(BASE, "reports", "합성검증_시간.json")
+        with open(p, encoding="utf-8") as fh:
+            g = json.load(fh)
+        age_h = (datetime.now().timestamp() - os.path.getmtime(p)) / 3600.0
+        m, tot, lim = g.get("여유율"), g.get("총초"), g.get("한도초")
+        if m is None or not tot or not lim or age_h > 72:
+            return {}
+        slow = (g.get("오래걸린것") or [{}])[0]
+        return {"여유율": m, "총초": tot, "한도초": lim,
+                "가장오래": (slow.get("무엇") or "?")[:60], "그초": slow.get("초")}
+    except Exception:
+        return {}
+
+
 def _autopilot_stuck():
     """자율복구가 오래 못 푸는 일 — 판정은 `autopilot.stuck()` 한 곳이다([162]).
 
@@ -1289,14 +1316,11 @@ def blockers(st, for_sol=False):
     # ★ 넉넉하면 **아무 말도 안 한다**([170]) · 못 읽으면 지어내지 않는다([169]).
     # ★ 답은 늘리는 것이 아니라 **나누는 것**이다 — 검증은 계속 늘고, 한도만 늘리면
     #   같은 사고가 더 큰 값에서 되풀이된다(지시문이 [318] 에서 정해 둔 그대로다).
-    try:
-        _gt = os.path.join(BASE, "reports", "합성검증_시간.json")
-        with open(_gt, encoding="utf-8") as _fh:
-            _g = json.load(_fh)
-        _age_h = (datetime.now().timestamp() - os.path.getmtime(_gt)) / 3600.0
+    _g = st.get("관문시간") or {}
+    if isinstance(_g, dict) and _g:
         _m, _tot, _lim = _g.get("여유율"), _g.get("총초"), _g.get("한도초")
-        if _m is not None and _tot and _lim and _age_h <= 72:
-            _slow = (_g.get("오래걸린것") or [{}])[0]
+        if _m is not None and _tot and _lim:
+            _slow = {"무엇": _g.get("가장오래"), "초": _g.get("그초")}
             if _m < 0:
                 out.append((
                     "[관문] 합성검증이 한도를 **넘겼다** — %.1f분 / 한도 %.1f분. 이 관문은 "
@@ -1312,8 +1336,6 @@ def blockers(st, for_sol=False):
                     % (round(_m * 100), _tot / 60.0, _lim / 60.0,
                        (_slow.get("무엇") or "?")[:60], _slow.get("초")),
                     "python tests/synthetic_check.py   # 그 검사를 나눈다(한도를 먼저 늘리지 말 것)"))
-    except Exception:
-        pass
     # ★ **원본이 실제로 실렸을 때만** 건너뛴다(`[169]`). 스케줄러 감시를 못 읽은 날
     #   빼 버리면 그 경보가 통째로 사라진다 — '다른 데 있겠지'는 근거가 아니다.
     borrowed_ok = bool((st.get("스케줄러") or {}).get("경보"))
