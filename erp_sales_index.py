@@ -70,11 +70,33 @@ def prioritize_sales_candidates(cands, cached_sales=(), limit=60):
 
 
 def sales_candidate_paths(limit=60):
-    """Return recent exports plus cached sales exports, newest first."""
+    """Return recent exports plus cached sales exports, newest first.
+
+    ★ **목록에 딸려 온 stat 을 버리지 않는다**([198]). 예전에는 `glob` 로 이름만 받아
+      온 뒤 `cands.sort(key=os.path.getmtime)` 로 **파일마다 Z: 를 다시 찔렀다.**
+      실측 2026-08-24: glob 14.2초 + **정렬 124.4초**(xlsx 170개 · 파일당 731.9ms).
+      `os.scandir` 항목의 stat 은 목록을 받을 때 딸려 오므로 그 왕복이 통째로 없어진다.
+      이것이 관문 `[7] 쿠팡 PO 대조` 가 3분 ↔ 121분을 오가던 큰 조각이다(분담판 [211]).
+    ★ **`skip_dirs=()` 는 일부러 비운 것이다.** 공용 워커의 기본값은 *색인의* 목록
+      (`_보관`·`_바로가기`)인데, 그것을 말없이 물려받으면 거기 든 판매조회가
+      **조용히 빠지면서 오류도 안 난다**([198] 의 ⚠ · [165]). glob 은 아무것도 안
+      걸렀으므로 여기서도 안 거른다 — **결과가 한 톨도 바뀌면 안 된다.**
+    ★ 공용 워커가 없어도 죽지 않는다 — 예전 길로 간다(느릴 뿐 답은 같다).
+    """
     import source_dirs as S
-    cands = [p for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True)
-             if not os.path.basename(p).startswith(("~$", "ESD007E"))]
-    cands.sort(key=os.path.getmtime, reverse=True)
+    try:
+        from source_index import walk_stat
+        pairs = [(st.st_mtime, os.path.join(dp, fn))
+                 for dp, fn, st in walk_stat(S.ERP_DIR, skip_dirs=())
+                 if fn.lower().endswith(".xlsx")
+                 and not fn.startswith(("~$", "ESD007E"))]
+        pairs.sort(key=lambda x: x[0], reverse=True)
+        cands = [p for _, p in pairs]
+    except Exception:
+        cands = [p for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"),
+                                      recursive=True)
+                 if not os.path.basename(p).startswith(("~$", "ESD007E"))]
+        cands.sort(key=os.path.getmtime, reverse=True)
     cached_sales = []
     try:
         cache_path = os.path.join(ROOT, "reports", "inbox_classify.json")

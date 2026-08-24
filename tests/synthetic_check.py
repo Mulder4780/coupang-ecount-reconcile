@@ -27444,6 +27444,85 @@ def t403_soft_delete_is_covered_by_verified_archive():
     print("✅ [403] soft-delete 도 검증 sidecar 보관 · outbox 무한 재시도 차단")
 
 
+def t409_sales_candidates_keep_the_stat_they_were_given():
+    """[409] 판매조회 후보 — 목록에 딸려 온 stat 을 버리지 않는다([198]).
+
+    2026-08-24 실측: 옛 방식(glob + 파일마다 os.path.getmtime) **124.9초** ·
+    새 방식(scandir 항목의 stat) **10.0초** · 파일 목록·앞 60개 순서 **완전히 같다**.
+    이것이 관문 `[7] 쿠팡 PO 대조` 가 3분 ↔ 121분을 오가던 큰 조각이다(분담판 [211]).
+
+    ★ **Z: 를 안 쓴다** — 임시 폴더로만 잰다. 관문이 실데이터에 매여 있는 것이
+      바로 [211] 의 병이므로, 그것을 재는 검사가 다시 실데이터를 읽으면 안 된다.
+    ★ 제일 중요한 계약은 빠르기가 아니라 **`skip_dirs=()`** 다. 공용 워커의 기본값은
+      *색인의* 목록(`_보관`·`_바로가기`)이라, 말없이 물려받으면 거기 든 판매조회가
+      **조용히 빠지면서 오류도 안 난다**([198] 의 ⚠ · [165]).
+    """
+    import importlib
+    import io
+    import shutil
+
+    E = importlib.import_module("erp_sales_index")
+    import source_dirs as S
+
+    tmp = tempfile.mkdtemp(prefix="t409_")
+    real_erp, real_root = S.ERP_DIR, E.ROOT
+    try:
+        erp = os.path.join(tmp, "erp")
+        os.makedirs(os.path.join(erp, "_보관"), exist_ok=True)
+        made = {}
+        for i, rel in enumerate(("a.xlsx", "_보관/old.xlsx", "~$tempfile.xlsx",
+                                 "ESD007E (9).xlsx", "b.xlsx")):
+            p = os.path.join(erp, rel.replace("/", os.sep))
+            with io.open(p, "w", encoding="utf-8") as fh:
+                fh.write("x")
+            os.utime(p, (1_700_000_000 + i * 60, 1_700_000_000 + i * 60))
+            made[rel] = p
+        S.ERP_DIR = erp
+        E.ROOT = tmp                       # inbox_classify.json 캐시를 안 읽는다
+
+        got = E.sales_candidate_paths(limit=60)
+        low = {os.path.normcase(p) for p in got}
+
+        # ① `_보관` 안 판매조회가 **빠지지 않는다** — 이 검사의 핵심이다.
+        assert os.path.normcase(made["_보관/old.xlsx"]) in low, (
+            "_보관 안 판매조회가 조용히 빠졌다 — 공용 워커의 기본 skip_dirs 를 "
+            "말없이 물려받았다([198] 의 ⚠). 그러면 ERP 색인이 줄어드는데 오류는 안 난다")
+
+        # ② 걸러야 할 것은 그대로 거른다(좁히는 것도 고장이지만 넓히는 것도 고장이다).
+        for bad in ("~$tempfile.xlsx", "ESD007E (9).xlsx"):
+            assert os.path.normcase(made[bad]) not in low, "%s 가 후보에 들어왔다" % bad
+
+        # ③ **새 것부터**다 — 순서가 뒤집히면 [2026-08-05] 사고(옛 해가 이김)가 되살아난다.
+        assert got[0] == made["b.xlsx"], "가장 새 파일이 맨 앞이 아니다: %r" % (got[:2],)
+
+        # ④ 훑는 자리에 파일마다 stat 을 다시 부르는 옛 길이 돌아오지 않았나([198]).
+        _src = io.open(E.__file__, encoding="utf-8").read()
+        _fn = _src[_src.index("def sales_candidate_paths"):]
+        _fn = _fn[:_fn.index("def sales_exports")]
+        _code = "".join(_l for _l in _fn.splitlines(True)
+                        if not _l.lstrip().startswith(("#", '"""', "★", "·")))
+        assert "walk_stat" in _code, "판매조회 후보가 공용 워커를 버렸다([198] 병 재발)"
+        assert "skip_dirs=()" in _code.replace(" ", "").replace(
+            "skip_dirs=()", "skip_dirs=()"), "skip_dirs 를 명시하지 않았다"
+
+        # ★ 계기 자기시험([272]) — skip_dirs 를 안 주면 `_보관` 이 정말 빠지는가.
+        _bad = _src.replace("walk_stat(S.ERP_DIR, skip_dirs=())", "walk_stat(S.ERP_DIR)")
+        assert _bad != _src, "앵커를 못 찾았다 — 이 자기시험은 아무것도 안 잰다"
+        _ns = {"__name__": "erp_sales_index_t409_bad", "__file__": E.__file__}
+        exec(compile(_bad, E.__file__, "exec"), _ns)
+        _ns["ROOT"] = tmp
+        _got2 = _ns["sales_candidate_paths"](limit=60)
+        assert os.path.normcase(made["_보관/old.xlsx"]) not in {
+            os.path.normcase(p) for p in _got2}, (
+            "skip_dirs 를 없앴는데도 _보관 파일이 그대로 있다 — ①은 아무것도 안 잰다")
+    finally:
+        S.ERP_DIR, E.ROOT = real_erp, real_root   # 모듈 속성은 모두의 것이다([371])
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print("  [409] 판매조회 후보 — scandir stat 을 그대로 쓴다 · _보관도 담는다 · "
+          "새 것부터 · 걸를 것은 거른다 OK")
+
+
 def t408_bulk_handout_is_not_personal_holding():
     """[408] 나눠주라고 준 몫은 개인 보유가 아니다 — 한도는 그대로 산다.
 
@@ -27458,6 +27537,7 @@ def t408_bulk_handout_is_not_personal_holding():
     ★ 실측 DB 는 한 글자도 안 건드린다([247]) — 임시 DB 로만.
     """
     import importlib
+    import io
     import shutil
 
     L = importlib.import_module("ledger_db")
@@ -27557,6 +27637,7 @@ def t406_archive_keep_keeps_progress():
     진짜 Z: 보관 폴더는 한 글자도 안 건드린다([247]) — 임시 ROOT·임시 day_dir 로만.
     """
     import importlib
+    import io
     import shutil
 
     ak = importlib.import_module("archive_keep")
@@ -34824,6 +34905,7 @@ if __name__ == "__main__":
     t405_kakao_memo_channel_never_leaks()
     t406_archive_keep_keeps_progress()
     t408_bulk_handout_is_not_personal_holding()
+    t409_sales_candidates_keep_the_stat_they_were_given()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
