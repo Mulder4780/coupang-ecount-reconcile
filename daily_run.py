@@ -10,7 +10,7 @@ reports/종합리포트_*.md 한 장으로 요약한다. Windows 작업 스케�
   - ERP 쓰기(--post)는 절대 자동 실행하지 않음 — 전송 대기 건수만 보고
   - 각 단계는 데이터가 없으면 조용히 건너뜀(스킵 사유 기록) — 있는 데이터만큼 검증
 """
-import sys, os, glob, json, re, subprocess, time, uuid
+import sys, os, glob, json, re, subprocess, time, uuid, hashlib
 from datetime import datetime
 from operation_window import input_window_label, is_input_window
 
@@ -509,6 +509,174 @@ def _run_once(name, args, timeout):
 # 0단계 관문(합성검증)에 주는 시간. 실측 395.7초(2026-08-19, 한가한 기계) 대비
 # 약 3.8배. `run()` 기본값 600초로는 바쁜 아침에 관문이 회차를 죽였다.
 GATE_TIMEOUT_S = int(os.environ.get("COUPANG_GATE_TIMEOUT_S") or 1500)
+GATE_PROOF_SCHEMA = 1
+GATE_PROOF_NAME = "합성검증_통과증명.json"
+GATE_SOURCE_EXTENSIONS = {
+    ".py", ".js", ".html", ".css", ".ps1", ".bat", ".vbs", ".sql",
+    ".toml", ".yaml", ".yml",
+}
+GATE_SOURCE_EXCLUDED_DIRS = {
+    ".git", "__pycache__", "reports", "tmp", "outputs", "inbox",
+    "archive_spool", ".pytest_cache", ".mypy_cache",
+}
+
+
+def _gate_proof_path(root=ROOT):
+    return os.path.join(os.fspath(root), "reports", GATE_PROOF_NAME)
+
+
+def _gate_source_files(root=ROOT):
+    """검증 대상 코드 목록. 보고서·수집자료는 빼고 코드와 테스트만 센다.
+
+    `git ls-files --others` 도 같이 보므로 아직 커밋하지 않은 새 기능도 빠지지 않는다.
+    git 을 못 쓰는 설치본에서는 같은 확장자를 직접 훑되, 실데이터 폴더는 건드리지
+    않는다. 파일 내용만 지문에 넣고 수정시각은 넣지 않는다 — 복사만 다시 했다고
+    긴 검사를 재실행하지 않기 위해서다.
+    """
+    root = os.path.abspath(os.fspath(root))
+    names = None
+    try:
+        # 공용 무창 실행기를 쓴다. `git.exe` 를 그냥 띄우면 담당자 화면에 검은 창이
+        # 번쩍일 수 있고, `subprocess.run(timeout=)` 은 Windows 에서 종료 뒤에도
+        # 매달릴 수 있다([175]·[272]).
+        from proc_guard import run_tree
+        got = run_tree(
+            ["git", "-C", root, "ls-files", "--cached", "--others",
+             "--exclude-standard", "-z"],
+            timeout=15,
+        )
+        if got.returncode == 0:
+            names = [x for x in got.stdout.split("\0") if x]
+    except (OSError, subprocess.SubprocessError):
+        names = None
+
+    if names is None:
+        names = []
+        for base, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if d not in GATE_SOURCE_EXCLUDED_DIRS]
+            for name in files:
+                names.append(os.path.relpath(os.path.join(base, name), root))
+
+    out = []
+    for rel in names:
+        rel = rel.replace("\\", "/").lstrip("./")
+        parts = [p for p in rel.split("/") if p]
+        if not parts or any(p in GATE_SOURCE_EXCLUDED_DIRS for p in parts[:-1]):
+            continue
+        if os.path.splitext(parts[-1])[1].lower() not in GATE_SOURCE_EXTENSIONS:
+            continue
+        path = os.path.join(root, *parts)
+        if os.path.isfile(path):
+            out.append((rel, path))
+    return sorted(set(out))
+
+
+def _gate_fingerprint(root=ROOT):
+    """코드·테스트 내용의 결정적 SHA-256과 근거 수를 돌려준다."""
+    digest = hashlib.sha256()
+    count = 0
+    size = 0
+    for rel, path in _gate_source_files(root):
+        try:
+            with open(path, "rb") as fh:
+                body = fh.read()
+        except OSError:
+            # 목록을 만든 뒤 사라진 파일도 '검증 중 코드 변경'으로 잡히게 이름은 남긴다.
+            body = b"<missing>"
+        raw_name = rel.encode("utf-8", "surrogateescape")
+        digest.update(len(raw_name).to_bytes(4, "big"))
+        digest.update(raw_name)
+        digest.update(len(body).to_bytes(8, "big"))
+        digest.update(body)
+        count += 1
+        size += len(body)
+    return {"fingerprint": digest.hexdigest(), "files": count, "bytes": size}
+
+
+def _load_gate_proof(root=ROOT):
+    try:
+        with open(_gate_proof_path(root), encoding="utf-8") as fh:
+            proof = json.load(fh)
+        return proof if isinstance(proof, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _gate_proof_matches(proof, stamp):
+    return bool(
+        isinstance(proof, dict)
+        and proof.get("schema") == GATE_PROOF_SCHEMA
+        and proof.get("result") == "ALL GREEN"
+        and proof.get("fingerprint") == stamp.get("fingerprint")
+        and proof.get("files") == stamp.get("files")
+    )
+
+
+def _save_gate_proof(stamp, duration_s, root=ROOT):
+    """실제 ALL GREEN 뒤에만 합격증을 원자적으로 저장한다."""
+    path = _gate_proof_path(root)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    proof = {
+        "schema": GATE_PROOF_SCHEMA,
+        "result": "ALL GREEN",
+        "fingerprint": stamp["fingerprint"],
+        "files": stamp["files"],
+        "bytes": stamp["bytes"],
+        "verified_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "duration_s": round(float(duration_s), 3),
+        "command": "python tests/synthetic_check.py",
+    }
+    tmp = "%s.tmp-%s-%s" % (path, os.getpid(), uuid.uuid4().hex)
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(proof, fh, ensure_ascii=False, indent=1)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+    return proof
+
+
+def _run_gate(root=ROOT, runner=None):
+    """코드가 같으면 최근 합격증을 쓰고, 바뀌었을 때만 전체 합성검증을 돈다.
+
+    실패·시간초과는 옛 합격증을 덮어쓰지 않는다. 검증 도중 코드가 바뀌면 그 결과는
+    어느 판을 검사한 것인지 알 수 없으므로 합격으로 인정하지 않는다.
+    """
+    runner = runner or run
+    started = time.monotonic()
+    before = _gate_fingerprint(root)
+    proof = _load_gate_proof(root)
+    if _gate_proof_matches(proof, before):
+        age = proof.get("verified_at") or "시각 없음"
+        return {
+            "name": "합성검증",
+            "ok": True,
+            "returncode": 0,
+            "cached": True,
+            "out": ("ALL GREEN — 검증서 재사용 · 코드 %d개 · 최근 전체검증 %s"
+                    % (before["files"], age)),
+        }
+
+    step = runner(
+        "합성검증", [os.path.join(os.fspath(root), "tests", "synthetic_check.py")],
+        timeout=GATE_TIMEOUT_S, retry=0,
+    )
+    if step.get("ok") and "ALL GREEN" in str(step.get("out") or ""):
+        after = _gate_fingerprint(root)
+        if after != before:
+            step = dict(step)
+            step["ok"] = False
+            step["out"] = (str(step.get("out") or "")
+                           + "\n검증 도중 코드가 바뀌었습니다 — 바뀐 판을 다시 검사합니다.")
+            return step
+        _save_gate_proof(after, time.monotonic() - started, root)
+    return step
 
 
 def _run_pipeline():
@@ -526,8 +694,7 @@ def _run_pipeline():
     #   실측이 이 값의 절반을 넘으면 그때는 늘릴 것이 아니라 **검증을 나눌 때**다.
     # ⚠ 회차 예산(`ROUND_BUDGET_MIN` 150분)보다 훨씬 작아야 한다. 관문 하나가 예산을
     #   다 먹으면 완주해도 남는 단계가 없다([180]).
-    s = run("합성검증", [os.path.join(ROOT, "tests", "synthetic_check.py")],
-            timeout=GATE_TIMEOUT_S)
+    s = _run_gate()
     steps.append(s)
     if not s["ok"] or "ALL GREEN" not in s["out"]:
         # ★ **왜 막혔는지를 남긴다** — 이 단계는 자율복구 대기열에 안 들어가므로

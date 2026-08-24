@@ -27836,6 +27836,66 @@ def t411_child_writes_utf8_so_reasons_stay_readable():
     print("  [411] 자식이 UTF-8 로 써서 실패 사유가 읽힌다 · 부르는 쪽이 정한 값은 안 덮는다")
 
 
+def t414_gate_reuses_only_an_exact_green_proof():
+    """[414] 자료 갱신은 같은 코드의 ALL GREEN 합격증만 재사용한다.
+
+    2026-08-24 실사고: 자료를 갱신할 때마다 300개 넘는 전체 합성검증을 다시 돌려
+    실제 자료 처리가 10분 넘게 시작되지 않았다. 그중 PC가 절전한 회차는 실제 CPU
+    작업이 약 205초였는데 벽시계 21,685초로 기록돼 1,500초 제한 실패가 됐다.
+    """
+    import daily_run as _d414
+    import shutil as _sh414
+
+    tmp = tempfile.mkdtemp(prefix="t414_")
+    try:
+        os.makedirs(os.path.join(tmp, "reports"))
+        os.makedirs(os.path.join(tmp, "tests"))
+        app = os.path.join(tmp, "app.py")
+        with open(app, "w", encoding="utf-8") as fh:
+            fh.write("VALUE = 1\n")
+        with open(os.path.join(tmp, "tests", "synthetic_check.py"), "w", encoding="utf-8") as fh:
+            fh.write("print('ALL GREEN')\n")
+
+        first = _d414._gate_fingerprint(tmp)
+        _d414._save_gate_proof(first, 10, tmp)
+        calls = []
+        reused = _d414._run_gate(tmp, runner=lambda *a, **k: calls.append(1))
+        assert reused.get("ok") and reused.get("cached"), (
+            "[414] 같은 코드의 ALL GREEN 합격증을 재사용하지 않는다")
+        assert calls == [], "[414] 합격증이 같은데 긴 검사를 다시 돌렸다"
+
+        # 코드 한 글자가 바뀌면 옛 합격증은 효력을 잃고 실제 검사를 돈다.
+        with open(app, "w", encoding="utf-8") as fh:
+            fh.write("VALUE = 2\n")
+        ran = []
+        green = _d414._run_gate(
+            tmp,
+            runner=lambda *a, **k: ran.append(1) or {
+                "name": "합성검증", "ok": True, "returncode": 0, "out": "ALL GREEN"})
+        assert green.get("ok") and ran == [1], (
+            "[414] 코드가 바뀌었는데 옛 합격증으로 통과했다")
+        proof = _d414._load_gate_proof(tmp)
+        assert proof.get("fingerprint") == _d414._gate_fingerprint(tmp).get("fingerprint"), (
+            "[414] 실제 ALL GREEN 뒤의 새 코드 지문을 저장하지 않았다")
+
+        # 실패·시간초과는 마지막 합격증을 덮지 않는다. 다음 실행이 원인을 볼 수 있어야 한다.
+        saved = open(_d414._gate_proof_path(tmp), "rb").read()
+        with open(app, "w", encoding="utf-8") as fh:
+            fh.write("VALUE = 3\n")
+        failed = _d414._run_gate(
+            tmp,
+            runner=lambda *a, **k: {
+                "name": "합성검증", "ok": False, "returncode": 1,
+                "out": "시간초과(1500s)"})
+        assert not failed.get("ok"), "[414] 실패 검증을 합격으로 기록했다"
+        assert open(_d414._gate_proof_path(tmp), "rb").read() == saved, (
+            "[414] 실패가 마지막 실제 합격증을 덮었다")
+    finally:
+        _sh414.rmtree(tmp, ignore_errors=True)
+
+    print("  [414] 같은 코드의 ALL GREEN만 재사용 · 변경은 재검사 · 실패는 합격증 보존 ✅")
+
+
 def t410_do_not_defer_restart_for_a_blocked_person():
     """[410] 쓰는 중과 **막혀 있는 중**은 다른 사실이다 (2026-08-24 오종현 실사고).
 
@@ -35477,6 +35537,7 @@ if __name__ == "__main__":
     t411_child_writes_utf8_so_reasons_stay_readable()
     t412_hand_run_gate_yields_to_a_running_round()
     t413_calendar_says_whether_it_is_today_and_capture_ready()
+    t414_gate_reuses_only_an_exact_green_proof()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
