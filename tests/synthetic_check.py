@@ -27514,6 +27514,100 @@ def t403_soft_delete_is_covered_by_verified_archive():
     print("✅ [403] soft-delete 도 검증 sidecar 보관 · outbox 무한 재시도 차단")
 
 
+def t412_hand_run_gate_yields_to_a_running_round():
+    """[412] 관문 둘이 겹치면 서로를 25분 밖으로 밀어낸다 — 사람 쪽이 물러난다.
+
+    2026-08-24 실사고: 회차 관문(11:53~12:18)과 사람이 확인하려고 돌린 관문이
+    통째로 겹쳐 둘 다 Z: 를 훑었고, 회차가 제한을 넘겨 그날 대조가 안 돌았다.
+    글자로는 못 잰다([295]) — 잠금을 실제로 놓고 함수를 불러 결과로 잰다.
+    """
+    import shutil as _sh412
+    g = globals()
+    tmp = tempfile.mkdtemp(prefix="t412_")
+    old_root = g["ROOT"]
+    keep_env = {k: os.environ.get(k) for k in ("COUPANG_GATE_OWNER", "COUPANG_GATE_FORCE")}
+
+    def _put(pid, started_at=None):
+        os.makedirs(os.path.join(tmp, "reports"), exist_ok=True)
+        # 날짜를 못 박지 않는다([318]) — 그리고 이 검사 프로세스가 잠금
+        # 시각보다 **앞**에 태어나야 한다(daily_run 의 pid 재사용 방지).
+        from datetime import datetime as _dt412
+        rec = {"pid": pid,
+               "started_at": _dt412.now().astimezone().isoformat(timespec="seconds")}
+        if started_at is not None:
+            rec["pid_started_at"] = started_at
+        with open(os.path.join(tmp, "reports", ".daily_run.lock"), "w",
+                  encoding="utf-8") as fh:
+            json.dump(rec, fh)
+
+    def _ran():
+        """물러났으면 False, 그대로 돌면 True."""
+        try:
+            g["_yield_to_running_round"]()
+            return True
+        except SystemExit as e:
+            assert e.code == 3, "[412] 물러날 때 종료코드가 3 이 아니다: %r" % (e.code,)
+            return False
+
+    try:
+        g["ROOT"] = tmp
+        for k in keep_env:
+            os.environ.pop(k, None)
+
+        # ① 잠금이 없으면 그대로 돌아야 한다
+        assert _ran(), "[412] 잠금도 없는데 물러졌다"
+
+        # ② 살아 있는 회차가 있으면 **사람은 물러난다**
+        _put(os.getpid())
+        assert not _ran(), (
+            "[412] 회차가 관문을 돌리는데도 사람이 같이 돌았다 "
+            "— 둘 다 25분 제한을 넘겨 그날 대조가 통째로 안 돌다")
+
+        # ③ 회차가 부른 관문은 **절대 안 막는다**([172])
+        #    막으면 매일 아침 대조가 통째로 안 돌다 — 고치려던 것보다 나쁘다.
+        os.environ["COUPANG_GATE_OWNER"] = "daily_run"
+        assert _ran(), "[412] 회차가 부른 관문을 막았다"
+        os.environ.pop("COUPANG_GATE_OWNER", None)
+
+        # ④ 급하면 사람이 넘길 수 있다
+        os.environ["COUPANG_GATE_FORCE"] = "1"
+        assert _ran(), "[412] 강제로도 못 넘어간다"
+        os.environ.pop("COUPANG_GATE_FORCE", None)
+
+        # ⑤ 죽은 잠금은 근거가 아니다([169])
+        _put(999_999_990)
+        assert _ran(), "[412] 죽은 잠금을 보고 물러졌다"
+
+        # ⑥ 모양이 깨졌으면 그냥 돌다 — 관문을 못 돌리는 것이 더 나쁘다
+        with open(os.path.join(tmp, "reports", ".daily_run.lock"), "w",
+                  encoding="utf-8") as fh:
+            fh.write("{ 깨진 json")
+        assert _ran(), "[412] 깨진 잠금을 보고 물러났다"
+
+        # ⑦ 계기 자신을 시험한다([272])
+        _put(os.getpid())
+        os.environ["COUPANG_GATE_OWNER"] = "daily_run"
+        assert _ran(), "[412] 자기시험 준비가 어긋났다"
+        os.environ.pop("COUPANG_GATE_OWNER", None)
+        assert not _ran(), "[412] 표시를 없앴는데도 안 물러났다 — 이 검사는 아무것도 안 잰다"
+    finally:
+        g["ROOT"] = old_root
+        for k, v in keep_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        _sh412.rmtree(tmp, ignore_errors=True)
+
+    # ⑧ 배선이 있어야 돌다([328]) — daily_run 이 표시를 안 주면
+    #    회차의 관문이 스스로 물러나 매일 아침 대조가 안 돌다.
+    dr = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert '"COUPANG_GATE_OWNER": "daily_run"' in dr, (
+        "[412] daily_run 이 회차 표시를 안 준다 — 회차의 관문이 스스로 물러난다")
+
+    print("  [412] 사람 관문은 회차에 양보 · 회차·강제·죽은잠금·깨진잠금은 그대로 돈다")
+
+
 def t411_child_writes_utf8_so_reasons_stay_readable():
     """[411] 자식이 cp949 로 쓰면 실패 사유가 인계 문서에서 읽을 수 없게 된다.
 
@@ -34687,7 +34781,73 @@ def t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback():
           "— PC 앱 · 폰 사본 · 공유 달력 셋 다 OK")
 
 
+def _yield_to_running_round():
+    """사람이 손으로 돌린 관문은 **회차가 도는 중이면 물러난다**.
+
+    2026-08-24 실사고: 09:50 회차가 관문(0단계)을 11:53 에 시작했는데, 사람이
+    "고쳤으니 확인하자" 며 돌린 관문이 11:41~12:33 에 **통째로 겹쳐 돌았다**.
+    둘 다 Z:(SMB)를 훑으므로 서로를 느리게 만들고, 회차 쪽이 25분 제한을 넘겨
+    `합성검증 실패 — 전체 중단` 으로 **그날 대조가 통째로 안 돌았다**
+    (접수취소·객관완료·청구상태·오기입·사실대조·캠프 담당자 전부).
+
+    ★ **스스로를 재생산하는 고장이다**([410] 과 같은 모양, 자리가 다르다):
+      관문이 빨개진다 → 사람이 고치고 관문을 돌린다 → 그 사이 회차가 뜬다 →
+      겹쳐서 회차가 죽는다 → 인계에 '관문 실패'가 또 뜬다 → 사람이 또 돌린다.
+
+    ★ **회차가 이긴다.** 사람은 몇 분 기다리면 되지만 회차가 죽으면 **그날
+      업무가 통째로 빠진다**. 그래서 물러나는 쪽은 언제나 사람이다.
+    ★ **회차가 부른 관문은 절대 안 막는다** — `COUPANG_GATE_OWNER` 표시가 그 증거다.
+      막으면 매일 아침 대조가 통째로 안 돈다(고치려던 것보다 나쁘다 · [172]).
+    ★ **죽은 잠금은 근거가 아니다**([169]) — pid 생존은 `ai_claim._is_dead` 를
+      빌린다([162]). 여기서 새로 판정하면 `daily_run` 과 갈린다.
+    ★ **못 읽으면 그냥 돈다.** 관문을 못 돌리면 실작업 관문이 통째로 없어진다 —
+      겹침의 값(회차 한 번 늦음)보다 크다. 모를 때 기우는 방향이 자리마다 다르다.
+    ★ 급하면 `COUPANG_GATE_FORCE=1` 로 넘긴다(그때 겹침의 값은 사람이 진다).
+    """
+    if os.environ.get("COUPANG_GATE_OWNER") == "daily_run":
+        return
+    if os.environ.get("COUPANG_GATE_FORCE") == "1":
+        return
+    try:
+        lock = os.path.join(ROOT, "reports", ".daily_run.lock")
+        if not os.path.exists(lock):
+            return
+        with open(lock, encoding="utf-8") as fh:
+            info = json.load(fh)
+        if not isinstance(info, dict) or not info.get("pid"):
+            return
+        # 죽은 잠금은 근거가 아니다([169]). 판정은 daily_run 것을 그대로
+        # 빌린다([162]) — ai_claim._is_dead 는 `host` 칸이 있어야 답하는데
+        # 이 잠금 파일에는 그 칸이 없어 **언제나 '살아 있다'** 로 답한다(실측).
+        # 그대로 뒀으면 죽은 잠금 하나가 사람 관문을 영원히 막았다.
+        import daily_run as _dr
+        from datetime import datetime as _dt
+        born = None
+        try:
+            born = _dt.fromisoformat(str(info.get("started_at"))).timestamp()
+        except (TypeError, ValueError):
+            try:
+                born = os.path.getmtime(lock)
+            except OSError:
+                pass
+        if not _dr._pid_alive(info.get("pid"), born_before=born,
+                              pid_started_at=info.get("pid_started_at")):
+            return
+        started = str(info.get("started_at") or "")[:19].replace("T", " ")
+    except Exception:
+        return
+    print("관문을 돌리지 않았습니다 - 일일대조 회차가 지금 관문을 돌리고 있습니다"
+          " (pid %s - %s 시작)." % (info.get("pid"), started or "?"))
+    print("  둘이 같이 돌면 Z: 를 함께 훑어 서로를 느리게 만들고,")
+    print("  회차 쪽이 25분 제한을 넘기면 그날 대조가 통째로 안 돕니다(2026-08-24 실사고).")
+    print("  · 그 회차가 끝나면 그 결과가 곧 ALL GREEN 확인입니다:"
+          " type reports" + chr(92) + "종합리포트.md")
+    print("  · 꼭 지금 돌려야 하면: set COUPANG_GATE_FORCE=1")
+    sys.exit(3)
+
+
 if __name__ == "__main__":
+    _yield_to_running_round()
     # ── 관문이 **스스로 시간을 잰다** (2026-08-23 · 형님 지시 "앱 구동에 문제되는 거
     #    전부 찾아서 · 다시는 반복되지 않게") ────────────────────────────────────
     # 실측 2026-08-23: 이 관문이 **1,350초(22.5분)** 인데 `daily_run.GATE_TIMEOUT_S`
@@ -35147,6 +35307,7 @@ if __name__ == "__main__":
     t409_sales_candidates_keep_the_stat_they_were_given()
     t410_do_not_defer_restart_for_a_blocked_person()
     t411_child_writes_utf8_so_reasons_stay_readable()
+    t412_hand_run_gate_yields_to_a_running_round()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

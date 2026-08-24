@@ -22,7 +22,13 @@ except Exception:
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 REPORT_DIR = os.path.join(ROOT, "reports")
-ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+# ★ 관문(합성검증)은 이 표시를 보고 **회차가 부른 것인지** 안다([412]).
+#   사람이 손으로 돌린 관문은 회차가 도는 중이면 물러난다 — 둘이 같이
+#   Z: 를 훑으면 서로를 25분 제한 밖으로 밀어내 그날 대조가 통째로 안 돈다
+#   (2026-08-24 실사고). **이 표시가 빠지면 회차의 관문이 스스로 물러나
+#   매일 아침 대조가 안 돈다** — 고치려던 것보다 나쁘다.
+ENV = {**os.environ, "PYTHONIOENCODING": "utf-8",
+       "COUPANG_GATE_OWNER": "daily_run"}
 RUN_LOCK = os.path.join(REPORT_DIR, ".daily_run.lock")
 # 조율 표에서 이 회차를 부르는 이름. **양보한 쪽과 완주한 쪽이 같은 이름을 써야**
 # `coordinate.audit()` 이 "양보했는데 주인이 끝냈나"를 이을 수 있다(둘이 갈리면
