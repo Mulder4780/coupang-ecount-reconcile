@@ -27,6 +27,40 @@ class RefreshLoopRegressionTests(unittest.TestCase):
         self.assertIn("\\u2014", rendered)
         self.assertIn("summary", rendered)
 
+    def test_prime_never_moves_a_source_freshness_backwards(self):
+        with tempfile.TemporaryDirectory(prefix="csos-prime-freshness-") as td:
+            root = Path(td)
+            reports = root / "reports"
+            cache = root / "band" / "cache"
+            reports.mkdir(parents=True)
+            cache.mkdir(parents=True)
+            stale_raw = cache / "raw_90610953.json"
+            stale_raw.write_text("{}", encoding="utf-8")
+            os.utime(stale_raw, (1_700_000_000, 1_700_000_000))
+            state = pipeline._default_state()
+            state["sources"]["band"].update(
+                {
+                    "last_success_at": "2026-08-24T01:52:55+00:00",
+                    "latest_record_at": "2026-08-24T01:50:55+00:00",
+                }
+            )
+            state_path = reports / "pipeline.json"
+            pipeline._atomic_json(state_path, state)
+            app_store = AppStore(root / "app.db").initialize()
+            worker = pipeline.AutomationPipeline(
+                root=root,
+                state_path=state_path,
+                lock_path=reports / ".pipeline.lock",
+                store=app_store,
+            )
+            result = worker.prime(trigger="test")
+            self.assertEqual("primed", result["status"])
+            saved = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                "2026-08-24T01:52:55+00:00",
+                saved["sources"]["band"]["latest_record_at"],
+            )
+
     def test_kakao_history_ignores_repeat_time_and_never_scans_canonical_share(self):
         with tempfile.TemporaryDirectory(prefix="csos-kakao-signal-") as td:
             root = Path(td)

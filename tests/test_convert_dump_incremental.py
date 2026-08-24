@@ -66,19 +66,23 @@ class ConvertDumpIncrementalTest(unittest.TestCase):
         return path
 
     def state(self):
-        return json.load(open(os.path.join(self.reports, "밴드덤프_변환상태.json"),
-                              encoding="utf-8"))
+        with open(os.path.join(self.reports, "밴드덤프_변환상태.json"),
+                  encoding="utf-8") as fh:
+            return json.load(fh)
 
     def cache_doc(self):
-        return json.load(open(os.path.join(self.cache, "90610953.json"), encoding="utf-8"))
+        with open(os.path.join(self.cache, "90610953.json"), encoding="utf-8") as fh:
+            return json.load(fh)
 
     def test_unchanged_files_are_skipped_and_new_file_is_merged_first(self):
         first = self.dump("90610953_first.json", 1_800_000_000_000, "1", "첫 글")
         with self.isolated("v1"):
             self.assertEqual(cd.main(budget_sec=30, lock_wait_sec=0), 0)
-            before = open(os.path.join(self.cache, "90610953.json"), "rb").read()
+            with open(os.path.join(self.cache, "90610953.json"), "rb") as fh:
+                before = fh.read()
             self.assertEqual(cd.main(budget_sec=30, lock_wait_sec=0), 0)
-            self.assertEqual(open(os.path.join(self.cache, "90610953.json"), "rb").read(), before)
+            with open(os.path.join(self.cache, "90610953.json"), "rb") as fh:
+                self.assertEqual(fh.read(), before)
 
             second = self.dump("90610953_second.json", 1_800_000_010_000, "2", "둘째 글")
             self.assertEqual(cd.main(budget_sec=0, lock_wait_sec=0), 0)
@@ -94,15 +98,20 @@ class ConvertDumpIncrementalTest(unittest.TestCase):
         with self.isolated("v1"):
             cd.main(budget_sec=30, lock_wait_sec=0)
 
+        # 같은 경로의 내용·지문이 바뀐 것도 구버전 재생보다 먼저 처리돼야 한다.
+        self.dump("90610953_old2.json", 1_800_000_015_000, "2", "수정된 옛 글 2")
+        st = os.stat(old2)
+        os.utime(old2, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
         fresh = self.dump("90610953_fresh.json", 1_800_000_020_000, "3", "새 글")
         with self.isolated("v2"):
             cd.main(budget_sec=0, lock_wait_sec=0)
             state = self.state()
             self.assertEqual(state["files"][cd._norm_path(fresh)]["converter_version"], "v2")
+            self.assertEqual(state["files"][cd._norm_path(old2)]["converter_version"], "v2")
             self.assertEqual(state["files"][cd._norm_path(old1)]["converter_version"], "v1")
-            self.assertEqual(state["files"][cd._norm_path(old2)]["converter_version"], "v1")
             self.assertEqual(state["completed_version"], "v1")
             self.assertIn("3", self.cache_doc()["posts"])
+            self.assertEqual(self.cache_doc()["posts"]["2"]["content"], "수정된 옛 글 2")
 
             cd.main(budget_sec=30, lock_wait_sec=0)
             state = self.state()
@@ -157,6 +166,12 @@ class ConvertDumpIncrementalTest(unittest.TestCase):
                 fh.write(f"{os.getpid()} {pid_alive.stamp()} 2026-08-24T12:00:00\n")
             self.assertFalse(cd._lock_acquire(wait_sec=0))
             self.assertTrue(os.path.isfile(attrs["LOCK"]))
+            os.unlink(attrs["LOCK"])
+            with open(attrs["LOCK"], "w", encoding="utf-8") as fh:
+                fh.write("99999999 2026-08-24T12:00:00\n")
+            self.assertTrue(cd._lock_acquire(wait_sec=0))
+            cd._lock_release()
+            self.assertFalse(os.path.exists(attrs["LOCK"]))
 
 
 if __name__ == "__main__":

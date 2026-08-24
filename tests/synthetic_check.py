@@ -1439,10 +1439,41 @@ def t28_resolve():
     assert P.mint("AS", "", 100) == "AS-%s-096" % datetime.now().strftime("%y%m")
     assert P.mint("AS", None, 100).endswith("-096")
 
-    # (3) 실제 원장 수식과 대조 — 규칙을 코드에만 적어 두면 시트가 바뀌어도 모른다
+    # (3) 독립된 원장 계약과 대조 — 합성검증은 Z: 실관리대장을 열지 않는다.
+    # 예약작업에서는 네트워크 드라이브가 잠깐 안 보일 수 있다. 그때 코드 검증까지
+    # 5분 기다렸다 실패하면 실제 자료 반영 단계가 한 줄도 시작되지 않는다([169]).
     import openpyxl, re as _re
-    from ecount_reconcile import load_config, resolve_master
-    m = resolve_master(load_config()["reconcile"]["master_xlsx"])
+    from openpyxl.utils import column_index_from_string as _colnum
+    import expand_rows as E
+    _formula_contract = {
+        "02_돌발AS접수":       ("접수ID", "AS", "D", "접수일자"),
+        "03_현장작업실적":     ("작업ID", "FW", "E", "작업일자"),
+        "04_정기점검":         ("점검ID", "PM", "D", "점검예정일"),
+        "05_신규납품설치":     ("업무ID", "NS", "E", "요청일"),
+        "06_거래서류청구수금": ("정산ID", "JS", "F", "작업완료일"),
+    }
+    _td28 = tempfile.mkdtemp(prefix="t28_ledger_")
+    m = os.path.join(_td28, "합성_프로젝트코드_원장.xlsx")
+    _wb28 = openpyxl.Workbook()
+    _wb28.remove(_wb28.active)
+    for _sh28, (_id28, _pfx28, _dc28, _date28) in _formula_contract.items():
+        _ws28 = _wb28.create_sheet(_sh28)
+        _ws28.cell(4, 1, _id28)
+        _ws28.cell(4, 2, "프로젝트NO")
+        _ws28.cell(4, 3, "캠프명")
+        _ws28.cell(4, _colnum(_dc28), _date28)
+        for _r28 in (5, 6):
+            _ws28.cell(
+                _r28, 1,
+                f'=IF($B{_r28}="","","{_pfx28}-"&TEXT(IF(${_dc28}{_r28}="",TODAY(),'
+                f'${_dc28}{_r28}),"yymm")&"-"&TEXT(ROW()-4,"000"))',
+            )
+        if _sh28 == "02_돌발AS접수":
+            _ws28.cell(5, 2, "UJ2601138")
+            _ws28.cell(5, 3, "합성캠프")
+            _ws28.cell(5, _colnum(_dc28), "2026-06-03")
+    _wb28.save(m)
+    _wb28.close()
     wb = openpyxl.load_workbook(m, data_only=False)
     for sh, (idc, pfx, _dc, _kc) in P.SHEET_ID.items():
         if sh not in wb.sheetnames:
@@ -1463,7 +1494,6 @@ def t28_resolve():
         # ★ 행을 늘릴 때 새 행에도 같은 채번 수식이 심겨야 한다. expand_rows 의 표에서
         #   빠진 시트는 늘려도 ID가 영영 빈칸이다(03_현장작업실적이 실제로 그랬다 —
         #   120행을 늘려 놓고도 '여유 0'인 채였다, 2026-07-27).
-        import expand_rows as E
         assert sh in E.ID_FORMULA, f"{sh} 가 expand_rows.ID_FORMULA 에 없다 — 늘려도 채번이 안 된다"
         _col, _name, _pfx, _dcol = E.ID_FORMULA[sh]
         assert _pfx == pfx, f"{sh} expand_rows 접두어 {_pfx} != 시트 {pfx}"
@@ -1475,7 +1505,13 @@ def t28_resolve():
     wb.close()
 
     # (4) 리졸브 — 이미 등록된 코드는 새로 만들지 않고 그 행을 가리켜야 한다
-    ev = P.evidence(m)
+    import camp_fill as _CF28
+    _real_book28 = _CF28.camp_book
+    try:
+        _CF28.camp_book = lambda: {}
+        ev = P.evidence(m)
+    finally:
+        _CF28.camp_book = _real_book28
     known = next(iter(ev["ledger"]))
     r = P.resolve(known, ev)
     assert r["ok"] and r["state"] == "등록됨" and r.get("row"), r
@@ -1505,6 +1541,8 @@ def t28_resolve():
     # 업무유형을 모르면 **찍지 말고 멈춰야** 한다
     ev2["band"][fake] = dict(ev2["band"][fake], kind="기타")
     assert not P.resolve(fake, ev2)["ok"], "시트를 모르면서 등록하면 엉뚱한 시트에 들어간다"
+    import shutil as _sh28
+    _sh28.rmtree(_td28, ignore_errors=True)
     print("  [28] 프로젝트코드 리졸브(정규화·채번=수식·빈행 배치·ID열 보호) ✅")
 
 
@@ -11200,7 +11238,8 @@ def t217_probe_instead_of_scraping_absent_numbers():
         assert kept == [3538, 3536], \
             "오염 글이 붙여넣기 파일에서 빠진다 — 되살릴 길이 없어진다([221])"
         assert 3535 not in kept and 3600 not in kept, \
-            "죽은 번호·없음 구간이 붙여넣기 파일에 들어간다"
+            "죽은 번호·없음 구간이 붙여넣기 파일에 들어간다: kept=%r dropped=%r why=%r" % \
+            (kept, dropped, _why)
         assert any("삭제" in k for k in dropped) and any("없음" in k for k in dropped), \
             "왜 뺐는지가 안 남는다 — 다음 사람이 그대로 다시 넣는다"
 
@@ -22443,11 +22482,15 @@ def t334_cache_copies_are_not_dumps():
     with open(os.path.join(ROOT, "band", "convert_dump.py"),
               encoding="utf-8", newline="") as _fh:
         src = _fh.read()
-    body = src.split("def main(", 1)[1]
+    convert_body = src.split("def _convert_files(", 1)[1].split("\ndef ", 1)[0]
+    main_body = src.split("def main(", 1)[1]
 
-    # ② main 이 그 판정을 실제로 쓴다 — 함수만 있고 안 부르면 아무 일도 안 일어난다([328])
-    assert "looks_like_cache(d)" in body, (
-        "main 이 looks_like_cache 를 안 부른다 — 판정이 있어도 도는 곳이 없으면 없는 것과 같다")
+    # ② 증분 main → 파일 변환기 → 판정까지 실제 실행선이 이어져야 한다.
+    #    2026-08-24 부터 main 은 파일별 체크포인트를 위해 _convert_files 로 분리됐다.
+    assert "_convert_files(" in main_body and "looks_like_cache(d)" in convert_body, (
+        "증분 main 에서 캐시 사본 판정까지 실행선이 끊겼다 — 판정이 있어도 도는 곳이 없으면 없는 것과 같다")
+
+    body = convert_body
 
     # ③ 밴드를 못 읽으면 **해시 이름 캐시를 만들지 않는다**.
     #    예전 sha256 폴백이 만든 파일이 다음 실행에 또 덤프로 읽혀
@@ -27771,7 +27814,14 @@ def t411_child_writes_utf8_so_reasons_stay_readable():
         # ⑤ 계기 자신을 시험한다([272]) — 옛 동작을 넣으면 ①이 잡히나
         real = _pg411._child_env
         try:
-            _pg411._child_env = lambda env: (dict(env) if env is not None else None)
+            # 부모 회차 자체가 UTF-8 로 떠도 자기시험이 무력화되지 않게, 사고 당시의
+            # Windows 자식(cp949)을 명시적으로 재현한다. 환경을 그냥 빼기만 하면
+            # 부모의 PYTHONIOENCODING 을 물려받아 옛 동작도 멀쩡한 척할 수 있다.
+            def _old_child_env(env):
+                base = dict(env) if env is not None else dict(os.environ)
+                base["PYTHONIOENCODING"] = "cp949"
+                return base
+            _pg411._child_env = _old_child_env
             r3 = _pg411.run_tree([sys.executable, kid], timeout=60)
             broke = ("�" in (r3.stdout or "")) or (
                 (r3.stdout or "").strip().splitlines()[:1] != [han])

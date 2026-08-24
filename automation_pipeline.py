@@ -42,6 +42,23 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _newest_iso(*values: Any) -> Optional[str]:
+    """Return the newest valid timestamp without moving freshness backwards."""
+
+    parsed: List[Tuple[datetime, str]] = []
+    for value in values:
+        if not value:
+            continue
+        try:
+            stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            parsed.append((stamp.astimezone(timezone.utc), str(value)))
+        except (TypeError, ValueError):
+            continue
+    return max(parsed, key=lambda item: item[0])[1] if parsed else None
+
+
 def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -1025,11 +1042,19 @@ class AutomationPipeline:
             for source in ("kakao", "band", "erp"):
                 signal = signals[source]
                 source_state = self.state["sources"].setdefault(source, {})
+                newest_observation = _newest_iso(
+                    source_state.get("latest_record_at"),
+                    source_state.get("last_success_at"),
+                    signal.get("latest_mtime"),
+                )
                 source_state.update(
                     {
                         "status": "baseline",
                         "fingerprint": signal.get("fingerprint") or "",
-                        "latest_record_at": signal.get("latest_mtime"),
+                        # A deployment baseline is not a collection event.  An
+                        # old raw file left at the intake edge must not make a
+                        # source that succeeded this morning look six days old.
+                        "latest_record_at": newest_observation,
                         "baseline_at": primed_at,
                         "error": "",
                     }

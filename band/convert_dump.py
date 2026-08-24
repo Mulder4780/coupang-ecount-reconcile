@@ -4,7 +4,7 @@ convert_dump.py — 브라우저 수집 덤프(dump_*.json) → 대조 캐시(<b
 게시일 파싱 우선순위: 본문 1행 절대시각 → timeText 절대시각 → 상대시각(수집시각 기준).
 변환 후 덤프는 raw_*.json 으로 개명 보존.
 """
-import sys, os, re, json, glob, time
+import sys, os, re, json, time
 import hashlib
 from datetime import datetime, timedelta
 
@@ -14,9 +14,11 @@ except Exception:
     pass
 
 CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
+DEFAULT_CACHE = CACHE
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE = os.path.join(ROOT, "reports", "밴드덤프_변환상태.json")
 LOCK = os.path.join(CACHE, ".convert_dump.lock")
+DEFAULT_STATE, DEFAULT_LOCK = STATE, LOCK
 STATE_SCHEMA = 1
 # 자동 파이프라인이 900초에 자른다. 신규·변경은 먼저 전부 반영하고, 코드가 바뀌어
 # 다시 보는 과거 덤프만 이 예산 안에서 끊어 다음 회차가 이어받는다.
@@ -92,6 +94,20 @@ def _norm_path(path):
     return os.path.normcase(os.path.abspath(path))
 
 
+def _runtime_state_path():
+    # 합성검증·도구가 CACHE만 임시폴더로 바꾸던 기존 계약을 지킨다. 그때 실제
+    # reports 진행표를 섞으면 테스트가 실데이터의 완료 상태를 바꿔 버린다.
+    if _norm_path(CACHE) != _norm_path(DEFAULT_CACHE) and STATE == DEFAULT_STATE:
+        return os.path.join(CACHE, ".convert_dump.state.json")
+    return STATE
+
+
+def _runtime_lock_path():
+    if _norm_path(CACHE) != _norm_path(DEFAULT_CACHE) and LOCK == DEFAULT_LOCK:
+        return os.path.join(CACHE, ".convert_dump.lock")
+    return LOCK
+
+
 def converter_version():
     """덤프 해석 규칙의 지문.
 
@@ -124,9 +140,10 @@ def _atomic_json(path, doc):
 
 
 def load_state(path=None):
-    path = path or STATE
+    path = path or _runtime_state_path()
     try:
-        doc = json.load(open(path, encoding="utf-8"))
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
         if not isinstance(doc, dict) or doc.get("schema") != STATE_SCHEMA:
             raise ValueError("state schema")
         if not isinstance(doc.get("files"), dict):
@@ -140,7 +157,7 @@ def load_state(path=None):
 def save_state(state, path=None):
     state["schema"] = STATE_SCHEMA
     state["updated_at"] = datetime.now().isoformat(timespec="seconds")
-    _atomic_json(path or STATE, state)
+    _atomic_json(path or _runtime_state_path(), state)
 
 
 def _scan_json_root(root, recursive=True, local_dump_only=False):
@@ -214,9 +231,16 @@ def dump_inventory(state=None, explicit_paths=None):
     try:
         sys.path.insert(0, ROOT)
         import source_dirs
-        configured = [os.path.join(source_dirs.BAND_DIR, "수집본"),
-                      os.path.join(source_dirs.BAND_DIR, "브라우저덤프")]
-        band_parent_visible = os.path.isdir(source_dirs.BAND_DIR)
+        canonical = [os.path.join(source_dirs.BAND_DIR, "수집본"),
+                     os.path.join(source_dirs.BAND_DIR, "브라우저덤프")]
+        reported = list(source_dirs.band_dump_dirs())
+        # 기존 호출자와 합성검증은 band_dump_dirs를 임시 원본으로 바꾼다. 정본 아래
+        # 경로라면 빠진 갈래까지 확인하고, 정본 밖의 명시적 대체면 그 목록만 따른다.
+        canonical_keys = {_norm_path(p) for p in canonical}
+        configured = (reported if reported and
+                      any(_norm_path(p) not in canonical_keys for p in reported)
+                      else canonical)
+        band_parent_visible = bool(reported) or os.path.isdir(source_dirs.BAND_DIR)
     except Exception:
         band_parent_visible = False
     for root in configured:
@@ -299,16 +323,18 @@ def _lock_acquire(wait_sec=None):
     """캐시 read-modify-write와 상태 체크포인트를 한 변환기만 수행하게 한다."""
     wait_sec = float(os.environ.get("BAND_CONVERT_LOCK_WAIT_SEC", "120")
                      if wait_sec is None else wait_sec)
-    os.makedirs(os.path.dirname(LOCK), exist_ok=True)
+    lock_path = _runtime_lock_path()
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
     end = time.monotonic() + max(0.0, wait_sec)
     while True:
         try:
-            fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
             dead = False
             try:
                 import pid_alive
-                words = open(LOCK, encoding="utf-8", errors="replace").read().split()
+                with open(lock_path, encoding="utf-8", errors="replace") as fh:
+                    words = fh.read().split()
                 pid, fingerprint, born = pid_alive.owner_from_words(words)
                 dead = pid_alive.owner_alive(pid, pid_started_at=fingerprint,
                                              born_before=born) is False
@@ -316,7 +342,7 @@ def _lock_acquire(wait_sec=None):
                 dead = False
             if dead:
                 try:
-                    os.unlink(LOCK)
+                    os.unlink(lock_path)
                     continue
                 except OSError:
                     pass
@@ -332,7 +358,7 @@ def _lock_acquire(wait_sec=None):
 
 def _lock_release():
     try:
-        os.unlink(LOCK)
+        os.unlink(_runtime_lock_path())
     except OSError:
         pass
 
@@ -688,7 +714,8 @@ def _record_probe(band, name, merged, missing, cap_ms, notime=None):
     if not when:
         return
     try:
-        doc = json.load(open(PROBE_LOG, encoding="utf-8"))
+        with open(PROBE_LOG, encoding="utf-8") as fh:
+            doc = json.load(fh)
     except Exception:
         doc = {}
     prev = doc.get(str(band)) or {}
@@ -727,7 +754,8 @@ def _mark_changed(band, nos):
     """
     doc = {"갱신": datetime.now().isoformat(timespec="seconds"), "밴드": {}}
     try:
-        old = json.load(open(CHANGED_LOG, encoding="utf-8"))
+        with open(CHANGED_LOG, encoding="utf-8") as fh:
+            old = json.load(fh)
         if isinstance(old.get("밴드"), dict):
             doc["밴드"] = old["밴드"]
     except Exception:
@@ -738,7 +766,8 @@ def _mark_changed(band, nos):
     doc["합계"] = sum(len(v) for v in doc["밴드"].values())
     try:
         os.makedirs(os.path.dirname(CHANGED_LOG), exist_ok=True)
-        json.dump(doc, open(CHANGED_LOG, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        with open(CHANGED_LOG, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, ensure_ascii=False, indent=1)
     except Exception:
         pass
     print(f"  ★ 수정된 글 {len(nos)}건 감지({band}) → reports/밴드_수정글.json")
@@ -757,7 +786,8 @@ def _convert_files(files=None, checkpoint=None, apply_redirect=True):
     redirect_rounds = {}
     skipped_cache = skipped_noband = 0
     for f in (dump_files() if files is None else files):
-        d = json.load(open(f, encoding="utf-8"))
+        with open(f, encoding="utf-8") as fh:
+            d = json.load(fh)
         if not isinstance(d, dict) or not isinstance(d.get("posts"), (dict, list)):
             if checkpoint:
                 checkpoint(f, f, "ignored_schema", "", 0, ())
@@ -824,7 +854,8 @@ def _convert_files(files=None, checkpoint=None, apply_redirect=True):
         merged, before = {}, 0
         if os.path.exists(dst):
             try:
-                old = json.load(open(dst, encoding="utf-8"))
+                with open(dst, encoding="utf-8") as fh:
+                    old = json.load(fh)
                 merged = old.get("posts") or {}
                 before = len(merged)
             except Exception:
@@ -1031,7 +1062,8 @@ def _apply_redirect_rounds(redirect_rounds):
             continue
         dst = os.path.join(CACHE, f"{band}.json")
         try:
-            doc = json.load(open(dst, encoding="utf-8"))
+            with open(dst, encoding="utf-8") as fh:
+                doc = json.load(fh)
         except Exception:
             continue
         merged = doc.get("posts") or {}
