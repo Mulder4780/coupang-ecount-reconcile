@@ -28094,6 +28094,15 @@ def t417_excel_archive_runs_once_a_week():
         "`automation_pipeline` 이 주차를 **직접** 센다 — 판정이 둘이면 언젠가 갈리고, "
         "갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다([162])")
 
+    # (10) 빈도 문구를 두 곳에서 짓지 않는다([162]) — 화면은 서버가 준 한 줄을 싣는다.
+    idx = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "보관본안내" in idx, (
+        "화면이 서버가 준 보관본 안내를 안 읽는다 — 빈도를 바꾼 날 화면만 옛말을 "
+        "하고, 그것을 본 사람은 앱이 거짓을 말한다고 여긴다([169])")
+    assert "하루 두 번 — " not in idx.replace("('하루 두 번 — ' + ", ""), (
+        "화면이 빈도를 **직접** 적는다 — 판정은  "
+        "한 곳이다([162])")
+
     print("  [417] 엑셀 보관본 주 1회 · 사람 지시는 통과 · 5분 경로도 같은 문")
 
 def t410_do_not_defer_restart_for_a_blocked_person():

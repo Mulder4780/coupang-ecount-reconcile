@@ -62,6 +62,16 @@ _NON_DATA_POST_PATHS = {
 }
 
 
+
+def _archive_when():
+    """보관본 시점 문구 — 판정은 `ledger_db` 한 곳에서 빌린다([162]).
+    못 읽으면 시각을 **지어내지 않는다**([169])."""
+    try:
+        import ledger_db as _l
+        return _l.archive_when_text()
+    except Exception:
+        return "보관 회차"
+
 def _mark_live_mutation(path=""):
     """현재 서버에서 성공한 데이터 입력 세대를 원자적으로 한 번 올린다."""
     global _LIVE_WRITE_SEQ, _LIVE_WRITE_AT
@@ -308,7 +318,7 @@ def tech_report(slug, wid, when, note):
         idempotency_key=f"tech:{slug}:{wid}:{when}")
     return {**saved, "건": wid, "완료일": when,
             "메모기록": bool(note),
-            "안내": ("앱 DB 저장 완료 · Excel 보관본은 11:00·15:00 회차에 생성됩니다."
+            "안내": ("앱 DB 저장 완료 · Excel 보관본 생성: " + _archive_when()
                    if saved.get("ok") else saved.get("msg"))}
 
 
@@ -3153,7 +3163,7 @@ def enqueue_codes(codes):
         return {"ok": True, "queued": 0, "applied": 0, "skipped": skip}
     queued = enqueue_for_scheduled_apply(items, source="phone-reservation")
     runner["log"].append(
-        f"[폰 예약] {len(done)}건 DB 저장 — Excel은 다음 11:00·15:00 보관본 생성")
+        f"[폰 예약] {len(done)}건 DB 저장 — Excel 보관본 생성: {_archive_when()}")
     return {"ok": True, "applied": 0, "codes": done, "skipped": skip, **queued}
 
 
@@ -6610,7 +6620,8 @@ def get_apply_window():
                 os.path.join(ROOT, "reports", "반영대기.json"), encoding="utf-8"))
         except Exception:
             return {"대기": 0, "다음반영": "", "남은분": 0,
-                    "반영시각": ["11:00", "15:00"]}
+                    "반영시각": ["11:00", "15:00"],
+                    "보관본안내": _archive_when()}
 
 
 def get_recalc_pending():

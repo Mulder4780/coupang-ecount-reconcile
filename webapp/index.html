@@ -15945,9 +15945,9 @@ function renderApplyWindow(w){
       onclick="applyExcelNow()">지금 보관본 준비</button>`;
   $('applywinmsg').innerHTML = (n
     ? `앱에는 이미 반영된 <b>${n.toLocaleString()}건</b>을 <b>${esc2(when)}</b>에 Excel 보관본으로 만듭니다 (약 ${left} 뒤).<br>
-       <span style="color:var(--muted)">보관본 생성은 하루 두 번 — ${esc2((w.보관본시각||w.반영시각||[]).join(' · '))}. 업무는 앱에서 계속 처리하면 됩니다.</span>`
+       <span style="color:var(--muted)">보관본 생성은 ${esc2(w.보관본안내 || ('하루 두 번 — ' + (w.보관본시각||w.반영시각||[]).join(' · ')))}. 업무는 앱에서 계속 처리하면 됩니다.</span>`
     : `보관본 대기 없음 · 다음 생성 <b>${esc2(when)}</b> (약 ${left} 뒤)<br>
-       <span style="color:var(--muted)">보관본 생성은 하루 두 번 — ${esc2((w.보관본시각||w.반영시각||[]).join(' · '))}</span>`) + nowBtn;
+       <span style="color:var(--muted)">보관본 생성은 ${esc2(w.보관본안내 || ('하루 두 번 — ' + (w.보관본시각||w.반영시각||[]).join(' · ')))}</span>`) + nowBtn;
 }
 
 function renderRecalc(rc){

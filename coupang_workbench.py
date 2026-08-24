@@ -27,6 +27,16 @@ CONFIG_PATH = os.path.join(ROOT, "config", "ecount_config.json")
 
 
 # ───────────────────────── 상태 수집 ─────────────────────────
+
+def _archive_when():
+    """보관본 시점 문구 — 판정은 `ledger_db` 한 곳에서 빌린다([162]).
+    못 읽으면 시각을 **지어내지 않는다**([169])."""
+    try:
+        import ledger_db as _l
+        return _l.archive_when_text()
+    except Exception:
+        return "보관 회차"
+
 def get_status():
     st = {"time": datetime.now().strftime("%H:%M:%S")}
     try:
@@ -210,7 +220,8 @@ def gui():
         ("💬 카톡 inbox 폴더", lambda: open_path(os.path.join(ROOT, "kakao", "inbox"))),
         ("✏ 자동입력 미리보기", lambda: run_bg("자동입력 미리보기", [os.path.join(ROOT, "ledger_writer.py")])),
         ("✏ 입력 DB 적재", lambda: run_bg("입력 DB 적재", [os.path.join(ROOT, "ledger_db.py"), "--intake"],
-                                        confirm="확정 대기 항목을 입력 DB에 저장합니다.\nExcel은 다음 11시·15시 회차에 반영됩니다. 진행할까요?")),
+                                        confirm="확정 대기 항목을 입력 DB에 저장합니다.\nExcel 보관본 생성: "
+                                                + _archive_when() + ". 진행할까요?")),
         ("🧾 전표 전송대기 확인", lambda: run_bg("전표 dry-run", [os.path.join(ROOT, "ecount_upload.py")])),
         # 전표 실전송 버튼 제거(2026-08-05 사용자 지시) — ERP 실제 등록은 사람이 ERP에서 한다.
         ("📊 리포트 폴더", lambda: open_path(os.path.join(ROOT, "reports"))),

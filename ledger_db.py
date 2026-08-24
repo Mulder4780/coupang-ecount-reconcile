@@ -618,6 +618,18 @@ def iso_week(s):
         return None
 
 
+def archive_when_text():
+    """'보관본이 언제 만들어지나'를 말하는 **유일한 자리**([162]).
+
+    화면·콘솔·저장 안내가 다 이것을 빌린다 — 사본을 두면 빈도를 바꾼 날 한쪽만
+    고쳐져 **앱이 거짓을 말한다**([169]). 2026-08-24 에 실제로 그랬다: 회차를
+    주 1회로 바꿨는데 화면은 그대로 "하루 두 번"이라고 적고 있었다."""
+    hhmm = " · ".join("%02d:%02d" % (w.hour, w.minute) for w in WINDOWS)
+    if WEEKLY_ARCHIVE:
+        return "주 1회 — 그 주 첫 %s 회차" % hhmm
+    return "하루 두 번 — %s" % hhmm
+
+
 def weekly_blocked(now, done_slots):
     """이번 주에 이미 보관본을 만들었나 — 주 1회의 **유일한 판정**([162]).
 
@@ -2243,6 +2255,7 @@ def status(now=None):
            "지금회차": slot_of(now), "밀린회차": missed_slots(now, done),
            "반영시각": windows,         # 옛 앱 호환 별칭
            "보관본시각": windows,
+           "보관본안내": archive_when_text(),   # 화면이 그대로 싣는다([162])
            "정본": "SQLite", "Excel역할": "단방향 보관본"}
     os.makedirs(os.path.dirname(STATUS_CACHE), exist_ok=True)
     json.dump(doc, open(STATUS_CACHE, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -3014,7 +3027,7 @@ def main():
     if deferred.get("slots"):
         print("  ★ 엑셀 열림으로 연기된 회차:", ", ".join(deferred["slots"]),
               "— 저장(닫힘) 감지 후 자동 반영")
-    print(f"  반영 시각: 매일 {' · '.join(d['반영시각'])} (하루 두 번)")
+    print(f"  보관본 생성: {archive_when_text()}")
 
 
 if __name__ == "__main__":
