@@ -2612,6 +2612,22 @@ fieldset.remote-edit>input{margin:0 0 9px}
    버튼만 늘어놓으면 무엇을 하는 작업인지 눌러 봐야 안다. 아이폰 설정 앱처럼
    **아이콘 + 제목 + 한 줄 설명**을 한 카드에 담아 누르기 전에 알 수 있게 한다.
    .ui-cards 안에 .ui-card 를 넣으면 어느 화면에서나 같은 모양이 된다. */
+/* ★ 되살리기 목록 — 한 줄에 **가로로** 흐른다(2026-08-24 형님 지시).
+   ⚠ 여기에 `.ui-card` 를 쓰지 않는다. 그것은 **아이콘 + 글 두 조각** 전용이고
+   글이 안 눌리는 이유는 `.ui-card-tx{min-width:0;flex:1}` 하나뿐이다. 그 짝 없이
+   자식을 여럿 넣으면 210px 격자 칸에서 각 자식이 **최소 콘텐츠 폭**까지 눌려
+   한글이 한 글자씩 세로로 흐른다 — 오류도 안 나고 값도 다 있다([310]·[416]). */
+.rst-list{display:flex;flex-direction:column;gap:8px}
+.rst-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;
+  border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface)}
+/* ★ 번호·이름은 안 끊는다 — 두 줄로 갈라지면 **잘린 것처럼 읽힌다**([315]). */
+.rst-row>b{white-space:nowrap;font-size:0.9375rem;font-weight:800}
+.rst-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:26ch;font-weight:600}
+.rst-meta{color:var(--ink-3);font-size:0.84375rem;white-space:nowrap}
+/* ★ 사유만 남는 자리를 갖고 줄바꿈한다 — `min-width:0` 이 없으면 위 사고가 그대로 재발한다. */
+.rst-why{flex:1 1 260px;min-width:0;color:var(--ink-3);font-size:0.84375rem;line-height:1.45}
+.rst-row .wt-open,.rst-row .btn{margin-left:auto;flex:none}
+@media(max-width:560px){.rst-why{flex-basis:100%}.rst-row .wt-open,.rst-row .btn{margin-left:0}}
 .ui-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
 .ui-card{display:flex;align-items:flex-start;gap:11px;text-align:left;cursor:pointer;
   background:var(--surface);border:.5px solid var(--line);border-radius:15px;
@@ -8426,11 +8442,11 @@ async function wtShowDeleted(k){
     showSheet(`<h3>삭제된 건 (${rows.length}건)</h3>`+
       `<p class="muted">삭제해도 기록은 남아 있습니다. [되살리기] 를 누르면 목록에 다시 보입니다.</p>`+
       (rows.length
-      ? `<div class="ui-cards">`+rows.map(r=>`<div class="ui-card">
-           <b>${esc2(r.프로젝트NO||r.key)}</b> <span class="camp">${esc2(r.캠프명||'')}</span>
-           <div class="meta"><span>${esc2(r.key)}</span><span>${esc2(r.상태||'')}</span>
-             <span>${esc2(r.담당기사||'')}</span></div>
-           <div class="muted">${esc2(String(r.삭제근거||'').slice(0,120))}</div>
+      ? `<div class="rst-list">`+rows.map(r=>`<div class="rst-row">
+           <b>${esc2(r.프로젝트NO||r.key)}</b>
+           <span class="rst-name" title="${esc2(r.캠프명||'')}">${esc2(r.캠프명||'')}</span>
+           <span class="rst-meta">${esc2([r.key,r.상태,r.담당기사].filter(Boolean).join(' · '))}</span>
+           <span class="rst-why">${esc2(String(r.삭제근거||''))}</span>
            <button class="wt-open" onclick="wtRestore('${esc2(r.category)}',${esc4(r.key)},${r.record_version})">되살리기</button>
          </div>`).join('')+`</div>`
       : `<p class="muted">삭제된 건이 없습니다.</p>`));
@@ -18633,12 +18649,13 @@ function campHiddenSheet(){
     + '<p class="norm">숨겨도 기록은 남습니다 — 밴드 접수 글·정기점검 스케줄 원본은'
     + ' 한 글자도 안 지웠습니다. [되살리기]를 누르면 목록에 다시 보입니다.</p>'
     + (rows.length
-      ? '<div class="ui-cards">' + rows.map(function(x){
+      ? '<div class="rst-list">' + rows.map(function(x){
           const h = x.숨김 || {};
-          return '<div class="ui-card"><b>' + esc2(x.캠프명||'') + '</b>'
-            + '<div class="norm">' + esc2(String(h.왜||'').slice(0,140)) + '</div>'
-            + '<div class="norm">' + esc2(String(h.때||'').replace('T',' ')) + ' · '
-            + esc2(String(h.누가||'')) + '</div>'
+          const when = String(h.때||'').replace('T',' ');
+          return '<div class="rst-row"><b>' + esc2(x.캠프명||'') + '</b>'
+            + '<span class="rst-meta">'
+            + esc2([when, String(h.누가||'')].filter(Boolean).join(' · ')) + '</span>'
+            + '<span class="rst-why">' + esc2(String(h.왜||'')) + '</span>'
             + '<button type="button" class="btn xs" data-camp="' + esc2(x.캠프명||'') + '"'
             + ' onclick="campRestore(this.dataset.camp)">되살리기</button></div>';
         }).join('') + '</div>'

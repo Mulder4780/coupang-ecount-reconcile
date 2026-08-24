@@ -27896,6 +27896,132 @@ def t414_gate_reuses_only_an_exact_green_proof():
     print("  [414] 같은 코드의 ALL GREEN만 재사용 · 변경은 재검사 · 실패는 합격증 보존 ✅")
 
 
+def t415_refresh_reuses_inventory_hash_and_parsed_rows():
+    """[415] 자료 갱신은 불변 원본을 매번 네트워크로 다시 읽지 않는다."""
+    import billing_fill as _b415
+    import inbox_scan as _i415
+    import shutil as _sh415
+
+    tmp = tempfile.mkdtemp(prefix="t415_")
+    old_file, old_disk = _i415._CLS_FILE, _i415._CLS_DISK
+    try:
+        source = os.path.join(tmp, "source")
+        os.makedirs(source)
+        a = os.path.join(source, "판매조회_a.xlsx")
+        b = os.path.join(source, "판매조회_b.xlsx")
+        with open(a, "wb") as fh:
+            fh.write(b"same")
+        with open(b, "wb") as fh:
+            fh.write(b"same")
+        st = os.stat(a)
+        cache = os.path.join(tmp, "inbox_classify.json")
+        with open(cache, "w", encoding="utf-8") as fh:
+            json.dump({a: [st.st_size, int(st.st_mtime), _i415.RULES_VERSION, "sales"],
+                       b: [st.st_size, int(st.st_mtime), _i415.RULES_VERSION, "sales"]}, fh)
+        _i415._CLS_FILE, _i415._CLS_DISK = cache, None
+        rows = _i415.cached_inventory([source], max_age_s=60)
+        assert rows and len(rows) == 2 and all(r["kind"] == "sales" for r in rows), (
+            "[415] 최근 분류표를 재사용하지 못했다")
+
+        hash_cache = os.path.join(tmp, "hashes.json")
+        first = _b415.dedupe_files([a, b], cache_path=hash_cache)
+        assert first == [a], "[415] 빠른 길에서 같은 내용 중복 방벽이 풀렸다"
+        real_sha = _b415.hashlib.sha256
+        try:
+            _b415.hashlib.sha256 = lambda *a, **k: (_ for _ in ()).throw(
+                AssertionError("[415] 변하지 않은 내용을 다시 해시했다"))
+            assert _b415.dedupe_files([a, b], cache_path=hash_cache) == [a]
+        finally:
+            _b415.hashlib.sha256 = real_sha
+
+        src = open(os.path.join(ROOT, "ecount_reconcile.py"), encoding="utf-8").read()
+        assert "INBOX_PARSE_CACHE" in src and "hit.get(\"rows\")" in src, (
+            "[415] 분류·해시만 기억하고 정규화한 행을 또 읽는다")
+    finally:
+        _i415._CLS_FILE, _i415._CLS_DISK = old_file, old_disk
+        _sh415.rmtree(tmp, ignore_errors=True)
+
+    print("  [415] 최근 분류표·내용 해시·정규화 행 재사용 · 중복 방벽 유지 ✅")
+
+
+
+def t416_restore_lists_stay_one_row_wide():
+    """[416] 되살리기 목록은 **가로 한 줄**이다 — `.ui-card` 를 짝 없이 쓰지 않는다.
+
+    2026-08-24 형님 캡처: '삭제된 건 (1건)' 시트에서 `제이엠씨물류(V_창녕1)` 이
+    **한 글자씩 세로로** 흘렀다. 값은 다 있고 오류도 안 났다 — 화면을 연 사람만 안다.
+
+    원인은 `.ui-card{display:flex}` 가 **아이콘(.ui-card-ic) + 글(.ui-card-tx)** 두
+    조각 전용이라는 것이다. 글이 안 눌리는 이유는 `.ui-card-tx{min-width:0;flex:1}`
+    하나뿐인데, 그 짝 없이 자식을 넷·다섯 넣으면 210px 격자 칸에서 각 자식이
+    **최소 콘텐츠 폭(한글은 한 글자)** 까지 눌린다([310] 모양).
+
+    실측(브라우저 · 시트 폭 1120px): 행 높이 **720px → 50px** ·
+    캠프명 칸 폭 **21px → 149px** · 사유 칸 **18px 폭 694px 높이 → 558px 폭 20px 높이**.
+    숨긴 캠프 224px → 56px · 폰(343px) 274px → 153px · 넘침은 전후 모두 0.
+
+    ★ 레이아웃은 **글자로 못 잰다**([295]) — 위 숫자는 브라우저로 쟀고 여기 적었다.
+      관문은 브라우저를 못 띄우므로, 얼리는 것은 **되돌아가면 안 되는 것**뿐이다([39]):
+      ① 짝 없는 `.ui-card` 가 다시 생기지 않는다 ② 새 클래스에 CSS 가 실재한다([310])
+      ③ 눌림을 막는 `min-width:0` 이 남아 있다 ④ 번호·이름을 안 끊는다([315]).
+    """
+    import io as _io
+    import re as _re
+
+    src = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read().replace("\r\n", "\n")
+
+    # ---- (1) 짝 없는 `.ui-card` 가 0곳인가 -------------------------------------
+    def _lonely(text):
+        out = []
+        for m in _re.finditer(r'class="ui-card(?![a-z-])[^"]*"', text):
+            seg = text[m.start():m.start() + 900]
+            if "ui-card-tx" not in seg:
+                out.append(text[:m.start()].count("\n") + 1)
+        return out
+
+    lonely = _lonely(src)
+    assert not lonely, (
+        "`.ui-card` 를 `.ui-card-tx` 짝 없이 쓴 자리가 %d곳 있다(줄 %s) — 그 카드는 "
+        "210px 격자 안에서 자식이 한 글자씩 세로로 눌린다. 목록을 가로로 늘어놓으려면 "
+        "`.rst-list`/`.rst-row` 를 쓴다([416])" % (len(lonely), lonely[:6]))
+
+    # ---- 계기 자신을 시험한다([272]) ------------------------------------------
+    hurt = src.replace('<div class="rst-row">',
+                       '<div class="ui-card">', 1)
+    assert _lonely(hurt), (
+        "짝 없는 `.ui-card` 를 일부러 넣었는데 (1)이 안 잡았다 — 이 검사는 아무것도 "
+        "안 재고 있다([272])")
+
+    # ---- (2) 마크업만 넣고 CSS 를 안 만들지 않았나([310]) ----------------------
+    css = "\n".join(m.group(1) for m in
+                    _re.finditer(r"<style[^>]*>(.*?)</style>", src, _re.S))
+    for cls in (".rst-list", ".rst-row", ".rst-name", ".rst-meta", ".rst-why"):
+        assert _re.search(r"(^|[,\s}])" + _re.escape(cls) + r"[\s,{:.>]", css, _re.M), (
+            "%s 를 마크업에서 쓰는데 CSS 규칙이 없다 — 브라우저 기본 모양으로 그려지면서 "
+            "오류는 안 난다([310])" % cls)
+
+    # ---- (3) 눌림을 막는 문이 남아 있나 ---------------------------------------
+    why = _re.search(r"^\.rst-why\{([^}]*)\}", css, _re.M)
+    assert why and "min-width:0" in why.group(1), (
+        "`.rst-why` 에서 `min-width:0` 이 사라졌다 — flex 아이템의 기본 최소폭은 "
+        "**내용 폭**이라, 그 한 줄이 없으면 사유 칸이 다시 한 글자씩 세로로 흐른다([416])")
+
+    # ---- (4) 번호·이름은 안 끊는다([315]) -------------------------------------
+    for sel in (r"\.rst-row>b", r"\.rst-name"):
+        rule = _re.search(r"^" + sel + r"\{([^}]*)\}", css, _re.M)
+        assert rule and "white-space:nowrap" in rule.group(1), (
+            "%s 가 줄바꿈을 허용한다 — 번호·이름이 두 줄로 갈라지면 **잘린 것처럼 "
+            "읽힌다**([315])" % sel)
+
+    # ---- (5) 되살리기 두 자리가 실제로 그 목록을 쓰나 --------------------------
+    assert src.count('class="rst-list"') >= 2, (
+        "되살리기 목록이 두 곳(삭제된 건 · 숨긴 캠프)인데 `.rst-list` 를 쓰는 자리가 "
+        "%d곳뿐이다 — 한쪽만 고치면 다른 쪽은 그대로 눌린다([300])"
+        % src.count('class="rst-list"'))
+
+    print("  [416] 되살리기 목록 가로 한 줄 · 짝 없는 .ui-card 0곳 · 자기시험 통과")
+
 def t410_do_not_defer_restart_for_a_blocked_person():
     """[410] 쓰는 중과 **막혀 있는 중**은 다른 사실이다 (2026-08-24 오종현 실사고).
 
@@ -35538,6 +35664,8 @@ if __name__ == "__main__":
     t412_hand_run_gate_yields_to_a_running_round()
     t413_calendar_says_whether_it_is_today_and_capture_ready()
     t414_gate_reuses_only_an_exact_green_proof()
+    t415_refresh_reuses_inventory_hash_and_parsed_rows()
+    t416_restore_lists_stay_one_row_wide()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
