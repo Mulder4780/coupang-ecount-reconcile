@@ -27514,6 +27514,76 @@ def t403_soft_delete_is_covered_by_verified_archive():
     print("✅ [403] soft-delete 도 검증 sidecar 보관 · outbox 무한 재시도 차단")
 
 
+def t411_child_writes_utf8_so_reasons_stay_readable():
+    """[411] 자식이 cp949 로 쓰면 실패 사유가 인계 문서에서 읽을 수 없게 된다.
+
+    2026-08-24 실사고: `proc_guard.run_tree` 는 `encoding="utf-8"` 로 **읽는데**
+    자식 env 를 안 챙겨서 윈도우 자식 파이썬이 cp949 로 **썼다**. 그래서
+    자율복구 대기열의 조치 문구가 인계에 `?????? ... [IP???]` 로 박혔다 —
+    실패는 적혔는데 **사람이 못 읽는다**.
+
+    글자로는 못 잰다([295]) — 진짜 자식을 띄워 결과로 잰다.
+    """
+    import importlib
+    import shutil as _sh411
+    import proc_guard as _pg411
+    importlib.reload(_pg411)
+
+    tmp = tempfile.mkdtemp(prefix="t411_")
+    try:
+        kid = os.path.join(tmp, "kid.py")
+        # 한글을 그대로 안 적는다 — 이 파일이 어떤 인코딩으로 저장돼도 시험이 성립해야 한다.
+        han = chr(0xC774) + chr(0xCE74) + chr(0xC6B4) + chr(0xD2B8)
+        with open(kid, "w", encoding="utf-8") as fh:
+            fh.write("import sys" + chr(10))
+            fh.write("print(%r)" % han + chr(10))
+            fh.write("print(sys.stdout.encoding)" + chr(10))
+
+        # ① 한글이 안 깨진다
+        r = _pg411.run_tree([sys.executable, kid], timeout=60)
+        lines = (r.stdout or "").strip().splitlines()
+        assert len(lines) >= 2, "[411] 자식 출력을 못 받았다: %r" % (r.stdout,)
+        assert lines[0] == han, (
+            "[411] 자식의 한글이 깨졌다 — 실패 사유가 인계 문서에서 "
+            "읽힐 수 없게 된다: %r" % (lines[0],))
+        assert "�" not in (r.stdout or ""), "[411] 대체문자가 섞였다"
+
+        # ② 자식이 실제로 UTF-8 로 쓴다
+        assert lines[1].lower().replace("-", "") == "utf8", (
+            "[411] 자식 stdout 인코딩이 UTF-8 이 아니다: %s" % lines[1])
+
+        # ③ 부르는 쪽이 이미 정했으면 안 덮는다([172] — 좁히는 것도 고장이다)
+        ask = os.path.join(tmp, "ask.py")
+        with open(ask, "w", encoding="utf-8") as fh:
+            fh.write("import sys" + chr(10) + "print(sys.stdout.encoding)" + chr(10))
+        r2 = _pg411.run_tree([sys.executable, ask], timeout=60,
+                             env=dict(os.environ, PYTHONIOENCODING="cp949"))
+        assert (r2.stdout or "").strip().lower() == "cp949", (
+            "[411] 부르는 쪽이 정한 값을 덮었다: %r" % (r2.stdout,))
+
+        # ④ 읽는 쪽·쓰는 쪽이 **같은 자리**에서 온다([162])
+        pg_src = open(os.path.join(ROOT, "proc_guard.py"), encoding="utf-8").read()
+        assert "encoding=CHILD_IO_ENCODING" in pg_src, (
+            "[411] 읽는 쪽이 상수를 안 본다 — 둘이 갈리면 이 사고가 되살아난다")
+
+        # ⑤ 계기 자신을 시험한다([272]) — 옛 동작을 넣으면 ①이 잡히나
+        real = _pg411._child_env
+        try:
+            _pg411._child_env = lambda env: (dict(env) if env is not None else None)
+            r3 = _pg411.run_tree([sys.executable, kid], timeout=60)
+            broke = ("�" in (r3.stdout or "")) or (
+                (r3.stdout or "").strip().splitlines()[:1] != [han])
+        finally:
+            _pg411._child_env = real
+        assert broke, (
+            "[411] 자식 환경을 안 챙겨도 한글이 멀줦했다 — "
+            "이 검사는 아무것도 안 재고 있다")
+    finally:
+        _sh411.rmtree(tmp, ignore_errors=True)
+
+    print("  [411] 자식이 UTF-8 로 써서 실패 사유가 읽힌다 · 부르는 쪽이 정한 값은 안 덮는다")
+
+
 def t410_do_not_defer_restart_for_a_blocked_person():
     """[410] 쓰는 중과 **막혀 있는 중**은 다른 사실이다 (2026-08-24 오종현 실사고).
 
@@ -35076,6 +35146,7 @@ if __name__ == "__main__":
     t408_bulk_handout_is_not_personal_holding()
     t409_sales_candidates_keep_the_stat_they_were_given()
     t410_do_not_defer_restart_for_a_blocked_person()
+    t411_child_writes_utf8_so_reasons_stay_readable()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
