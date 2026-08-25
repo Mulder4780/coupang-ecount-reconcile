@@ -31505,7 +31505,9 @@ const tick=()=>new Promise(r=>setTimeout(r,20));
         return _j.loads(line[-1])
 
     try:
-        subprocess.run(["node", "-v"], capture_output=True)
+        # node 존재 확인도 창 없는 자리를 거친다([272]) — 맨 subprocess 는 콘솔을 띄운다.
+        import proc_guard as _pg
+        _pg.run_tree(["node", "-v"], timeout=20)
     except Exception:
         print("\u2b1c [435] node 없음 — 실행 검사 건너뜀")
         return
