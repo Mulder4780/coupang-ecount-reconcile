@@ -31079,6 +31079,16 @@ def t432_menu_says_how_many_before_you_click():
     assert got["줄어든뒤_값"] == "1", "[432] 자료가 줄었는데 옛 숫자가 남는다"
     assert got["비운뒤_배지"] is False, "[432] 0 이 됐는데 배지가 안 사라진다"
 
+    # ⑧ **자료가 들어온 뒤에도 맞춘다** — 이것이 없으면 앱을 처음 열었을 때
+    #    works·settleRows 가 아직 비어 배지가 **하나도 안 뜬다**(실측: 대시보드를
+    #    15초 열어 둬도 0개 · 자료는 다 와 있었는데도). 곧 사람은 "아무것도
+    #    안 바뀌었네" 라고 본다. 브라우저 없이는 못 재므로 **되돌아가면 안 되는
+    #    것**으로 얼린다([39]).
+    _i = html.index("function renderSettleDependents(")
+    dep = html[_i:html.index(chr(10) + chr(125), _i) + 2]
+    assert "navCounts()" in dep, (
+        "[432] 자료를 받은 뒤 배지를 안 맞춘다 — 앱을 처음 열면 배지가 하나도 안 뜬다")
+
     # ⑧ 계기 자기시험([272]) — 문을 없애면 정말 잡히는가.
     #    안 잡히면 이 검사는 아무것도 안 재고 있는 것이다.
     broken = html.replace("if(n===null || n===0){ if(el) el.remove(); return; }",
