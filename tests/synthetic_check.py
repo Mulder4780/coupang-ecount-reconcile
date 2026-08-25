@@ -31530,6 +31530,150 @@ const tick=()=>new Promise(r=>setTimeout(r,20));
     print("\u2705 [435] 캘린더 캡처는 안 기다리고 일일보고만 기다린다 (실행으로 잼)")
 
 
+def t436_autopilot_skips_what_it_can_never_finish():
+    """[436] 자율복구는 **이 회차 예산으로 못 끝내는 일**을 부르지 않는다.
+
+    ★ 왜 (2026-08-26 실측). 워치독은 `heal(limit=2, budget_seconds=600)` 으로 부르는데
+      선언 제한이 그보다 큰 일감은 `timeout = min(선언, 예산-쓴것)` 에 눌려 **언제나
+      같은 자리에서 SIGKILL** 된다. 그렇게 다섯 일감이 **63회**를 버렸다(전체 대조 11 ·
+      복구용 보관 31 · 미수집 보관 9 · Z폴더 스캔 7 · Z폴더 서류 5 — 전부 `returncode=124`).
+      값은 경보 하나가 아니다: 10분마다 Z: 를 물고 진짜 회차와 다투고, 3회를 넘겨 **AI
+      인계 표까지 만들어 크레딧을 쓰고**, 인계 맨 위를 *"N회 재시도해도 안 풀린다"* 로
+      채워 **진짜 경보를 덮는다**([170]).
+
+    ★ **글자로는 못 잰다**([295]) — 진짜로 안 부르는지 · 시도가 안 늘어나는지 ·
+      **자리를 안 뺏는지**는 불러서 결과로 잰다.
+    ★ 실측 증거(`reports/autopilot_queue.json`·상태 파일)에는 **한 글자도 안 쓴다**([247]).
+    """
+    import ast, io as _io, pathlib, types
+    import autopilot as ap
+    import session_handoff as sh
+
+    class _R:                                     # run_tree 가 돌려주는 모양
+        def __init__(self, rc=0, to=False):
+            self.returncode, self.timed_out = rc, to
+            self.stdout = self.stderr = ""
+            self.stuck_pid = None
+
+    def _queue(path):
+        doc = {"version": 1, "updated_at": "2026-08-26T00:00:00+09:00", "items": [
+            {"key": "a", "name": "예산밖·예산을 안 읽는다",
+             "args": [os.path.join(ROOT, "daily_run.py")], "timeout": 9000,
+             "attempts": 11, "status": "retry", "kind": "timeout",
+             "next_attempt": "2020-01-01T00:00:00+09:00"},
+            {"key": "b", "name": "예산밖이지만 예산을 읽는다",
+             "args": [os.path.join(ROOT, "band", "archive_posts.py")], "timeout": 1800,
+             "attempts": 0, "status": "retry", "kind": "timeout",
+             "next_attempt": "2020-01-01T00:00:00+09:00"},
+            {"key": "c", "name": "예산 안에 든다",
+             "args": [os.path.join(ROOT, "erp_api_collect.py")], "timeout": 300,
+             "attempts": 36, "status": "retry", "kind": "code",
+             "next_attempt": "2020-01-01T00:00:00+09:00"}]}
+        _io.open(path, "w", encoding="utf-8").write(json.dumps(doc, ensure_ascii=False))
+
+    def _run(mod, budget, limit=2):
+        """목은 **모듈 속성**이라 프로세스 전체의 것이다 — `finally` 로 되돌린다([371])."""
+        calls = []
+        d = tempfile.mkdtemp()
+        q = os.path.join(d, "q.json")
+        _queue(q)
+        keys = ("QUEUE_PATH", "STATUS_PATH", "run_tree", "write_status", "_escalate")
+        old = tuple(getattr(mod, k) for k in keys)
+        try:
+            mod.QUEUE_PATH = pathlib.Path(q)
+            mod.STATUS_PATH = pathlib.Path(os.path.join(d, "s.json"))
+            mod.run_tree = lambda cmd, **kw: (
+                calls.append(os.path.basename(str(cmd[-1]))), _R(0))[1]
+            mod.write_status = lambda doc=None, **kw: {}
+            mod._escalate = lambda item: ""
+            res = mod.heal(limit=limit, budget_seconds=budget)
+            return calls, res, json.load(_io.open(q, encoding="utf-8"))
+        finally:
+            for k, v in zip(keys, old):
+                setattr(mod, k, v)
+
+    # ① 예산 밖이고 예산을 안 읽는 일감은 **아예 안 부른다** · 시도가 안 늘어난다
+    calls, res, doc = _run(ap, 600)
+    byname = {x["name"]: x for x in doc["items"]}
+    assert "daily_run.py" not in calls, ("예산으로 못 끝낼 일을 또 불렀다", calls)
+    assert byname["예산밖·예산을 안 읽는다"]["attempts"] == 11, (
+        "부른 적이 없는데 시도로 셌다 — 헛된 AI 인계가 생긴다")
+    assert byname["예산밖·예산을 안 읽는다"].get("예산밖"), (
+        "왜 안 불렀는지 자국이 없다 — 조용히 빼면 '걸린 것 없음'으로 읽힌다([169])")
+    # ② **자리를 안 뺏는다** — 그 자리를 쓰면 돌 수 있는 일이 안 돈다
+    assert len(calls) == 2, ("예산 밖 일감이 limit 자리를 먹었다", calls)
+    # ③ 예산을 **읽는** 자식은 선언이 커도 돈다([427] — 스스로 멈추고 진도를 남긴다)
+    assert "archive_posts.py" in calls, "예산을 읽는 자식의 이어하기를 막았다([427])"
+    # ④ 예산 안에 드는 것은 **예전 그대로** 돈다([172] — 좁히는 것도 고장이다)
+    assert "erp_api_collect.py" in calls, "예산 안에 드는 일감까지 막았다"
+    assert res.get("예산밖") and len(res["예산밖"]) == 1, ("부르는 쪽에 안 알렸다", res)
+
+    # ⑤ 사람이 제한을 크게 주면 그대로 돈다 — 탈출구가 없으면 영영 못 돈다
+    calls2, res2, _ = _run(ap, 9000)
+    assert "daily_run.py" in calls2, ("--budget 을 크게 줘도 안 돈다", calls2)
+    assert not (res2.get("예산밖") or []), "예산이 충분한데 예산 밖이라 했다"
+
+    # ⑥ `stuck()` 이 갈라 담는다 — **시도 한도와 무관하게**(그 횟수는 실패가 아니다)
+    d = tempfile.mkdtemp()
+    q = os.path.join(d, "q.json")
+    _queue(q)
+    doc3 = json.load(_io.open(q, encoding="utf-8"))
+    doc3["items"][0]["예산밖"] = "이 회차 예산 600초로는 못 끝낸다(9000초 선언)"
+    doc3["items"][1]["attempts"] = 3           # 한도 아래 · 예산밖 표시 없음 → 어디에도 안 실린다
+    _io.open(q, "w", encoding="utf-8").write(json.dumps(doc3, ensure_ascii=False))
+    _oldq = ap.QUEUE_PATH
+    try:
+        ap.QUEUE_PATH = pathlib.Path(q)
+        st = ap.stuck()
+    finally:
+        ap.QUEUE_PATH = _oldq
+    assert [r["이름"] for r in st["예산밖"]] == ["예산밖·예산을 안 읽는다"], (
+        "예산 밖인 일을 '굳음' 과 한 통에 담았다 — 조치가 달라진다([289])", st)
+    assert any(r["시도"] == 36 for r in st["굳음"]), (
+        "예산 안에서 진짜로 굳은 일이 경보에서 사라졌다", st)
+    assert len(st["굳음"]) == 1, ("한도 아래를 굳음으로 셌다", st)
+
+    # ⑦ 인계가 그 줄을 **적는다** — 조용히 빼면 그 일은 영영 안 돈다([169])
+    #   ⚠ `blockers()` 는 스냅샷 칸을 대괄호로 읽어 합성 dict 로는 죽는다([320]·[424]).
+    #      그래서 **실측 스냅샷을 읽기만** 하고 칸 하나만 갈아 끼운다([247]).
+    snap = None
+    for cand in ("reports/세션인계.json", "reports/session_handoff.json"):
+        try:
+            snap = json.load(_io.open(os.path.join(ROOT, cand), encoding="utf-8"))
+            break
+        except Exception:
+            continue
+    if snap is None:
+        print("   [436] 스냅샷을 못 읽어 인계 문구는 못 쟀다 — 통과라는 뜻이 아니다")
+    else:
+        stx = dict(snap)
+        stx["자율복구굳음"] = {"굳음": [], "자원회복": [], "못읽음": "", "한도": 10,
+                               "예산밖": [{"이름": "전체 대조 실행", "시도": 11,
+                                           "선언": 9000, "예산밖": "이 회차 예산 600초로는"}]}
+        lines = [t for t, _ in sh.blockers(stx)]
+        assert any("예산보다 오래 걸리는 일" in t for t in lines), (
+            "예산 밖 일감이 인계에서 조용히 사라진다")
+        assert not any("안 풀린다" in t for t in lines), (
+            "부른 적도 없는 것을 '재시도해도 안 풀린다' 경보로 적는다([172])")
+
+    # ⑧ 계기 자기시험([272]) — 막는 문을 없애면 ①이 잡히는가
+    src = _io.open(os.path.join(ROOT, "autopilot.py"), encoding="utf-8").read()
+    bad = src.replace("over = _over_budget(args, item, budget_seconds)", 'over = ""', 1)
+    assert bad != src, "[436] 자기시험 앵커가 안 맞는다 — 이 검사는 아무것도 안 잰다"
+    ast.parse(bad)                              # 문법이 깨진 죽음을 '잡았다'로 읽지 않는다([385])
+    ghost = types.ModuleType("autopilot_t436_ghost")
+    ghost.__file__ = os.path.join(ROOT, "autopilot.py")
+    exec(compile(bad, ghost.__file__, "exec"), ghost.__dict__)
+    calls3, _, doc3b = _run(ghost, 600)
+    assert "daily_run.py" in calls3, (
+        "[436] 막는 문을 없앴는데도 안 불렀다 — 이 검사는 아무것도 안 재고 있다", calls3)
+    # ⚠ 목이 성공을 돌려주므로 시도는 안 늘고 **상태가 바뀐다** — 재려는 것은
+    #   ‘정말 불렸나’ 이므로 상태로 잰다(기대를 틀리게 잡으면 아무것도 안 잰다).
+    assert {x["name"]: x for x in doc3b["items"]}["예산밖·예산을 안 읽는다"]["status"] != "retry", (
+        "[436] 옛 동작에서 상태가 안 바뀌었다 — 자기시험이 옛 자리를 못 짚는다")
+    print(chr(9989) + " [436] 자율복구 — 예산으로 못 끝낼 일은 부르지 않는다")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -38654,6 +38798,7 @@ if __name__ == "__main__":
     t431_status_survives_a_restart()
     t424_resource_failures_that_already_passed()
     t435_calendar_capture_does_not_wait_for_what_it_never_reads()
+    t436_autopilot_skips_what_it_can_never_finish()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

@@ -258,11 +258,49 @@ def _escalate(item: dict[str, Any]) -> str:
     return ""
 
 
+def _over_budget(args: list[str], item: dict[str, Any], budget_seconds: int) -> str:
+    """이 회차 예산으로 **구조적으로 못 끝내는** 일인가 — 그러면 왜인지 한 줄로.
+
+    ★ 왜 필요한가 (2026-08-26 실측). 워치독은 `heal(limit=2, budget_seconds=600)` 으로
+      부르는데, 선언 제한이 그보다 큰 일감은 `timeout = min(선언, 예산-쓴것)` 에 눌려
+      **언제나 같은 자리에서 SIGKILL** 된다. 그래서 다섯 일감이 **63회**를 버렸다
+      (전체 대조 11 · 복구용 보관 31 · 미수집 보관 9 · Z폴더 스캔 7 · Z폴더 서류 5 —
+      전부 `returncode=124`). 값은 경보 하나가 아니다: 10분마다 Z: 를 물고 진짜
+      회차와 다투고, 3회를 넘겨 **AI 인계 표까지 만들어 크레딧을 쓴다**. 그리고
+      인계 맨 위가 *"N회 재시도해도 안 풀린다"* 로 차 **진짜 경보가 묻힌다**([170]).
+
+    ★ **예산을 읽는 자식은 여기 안 걸린다**([427]). 그쪽은 스스로 멈추고 보고서를
+      남기므로 다시 부르는 것이 곧 이어하기다 — 실측으로 `밴드 게시글 보관` 은 같은
+      1800초 선언인데 `kind=incremental` 로 시도 **0회**다. 걸리는 것은 **진도가 0인**
+      일뿐이다. 여기를 넓히면 그 이어하기가 통째로 멈춘다([172] — 좁히는 것도 고장이다).
+
+    ★ **막는 것이 아니라 미룬다.** 예약 회차는 제 제한으로 돌고, 사람이 `--budget` 을
+      크게 주면 그대로 돈다. 조용히 빼지도 않는다([169]) — 부르는 쪽이 숫자로 말한다.
+
+    ★ 비교는 **쓴 것을 뺀 나머지가 아니라 예산 전체**와 한다. 나머지로 재면 같은 일감이
+      순서에 따라 됐다 안 됐다 해서 사람이 무엇이 참인지 알 수 없다.
+    """
+    try:
+        need = int(item.get("timeout") or 600)
+        have = max(1, int(budget_seconds))
+    except (TypeError, ValueError):
+        return ""                                   # 모르면 안 막는다([169])
+    if need <= have:
+        return ""
+    for a in args:
+        if os.path.basename(str(a)) in CHILD_BUDGET_ENV:
+            return ""                               # 스스로 멈추고 진도를 남긴다([427])
+    return ("이 회차 예산 %d초로는 못 끝낸다(이 일감은 %d초를 선언했다) — 다시 불러도 "
+            "매번 같은 자리에서 끊겨 진도가 0이다. 예약 회차가 하거나 사람이 제한 없이 "
+            "돌린다: python autopilot.py --heal --limit 1 --budget %d" % (have, need, need))
+
+
 def heal(*, limit: int = 2, budget_seconds: int = 600, dry: bool = False) -> dict[str, Any]:
     """워치독 회차에서 만기 항목을 조금씩 재개한다. 한 항목이 회차를 독점하지 않는다."""
     doc = _load_queue()
     now = _now()
     actions: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
     spent = 0
     for item in doc["items"]:
         if len(actions) >= max(0, int(limit)) or spent >= max(1, int(budget_seconds)):
@@ -273,6 +311,18 @@ def heal(*, limit: int = 2, budget_seconds: int = 600, dry: bool = False) -> dic
         if not retry_safe(args):
             item.update({"status": "manual", "last_error": "자동 재실행 금지 플래그 포함"})
             continue
+        # ★ 이 회차 예산으로 **구조적으로 못 끝내는** 일은 부르지 않는다([436]).
+        #   부른 적이 없으니 **시도로 세지 않고**(그래야 헛된 AI 인계가 안 생긴다)
+        #   `limit` 자리도 안 쓴다 — 그 자리를 쓰면 **돌 수 있는 일이 안 돈다**.
+        over = _over_budget(args, item, budget_seconds)
+        if over:
+            if not dry:                   # --dry 는 판단만 한다
+                item["예산밖"] = over
+            skipped.append({"이름": item.get("name"), "왜": over,
+                            "선언": int(item.get("timeout") or 600)})
+            continue
+        if not dry:
+            item.pop("예산밖", None)      # 예산이 커지면 스스로 풀린다
         if dry:
             actions.append({"name": item.get("name"), "result": "dry"})
             continue
@@ -317,11 +367,11 @@ def heal(*, limit: int = 2, budget_seconds: int = 600, dry: bool = False) -> dic
         actions.append({"name": item.get("name"), "result": outcome})
     if dry:
         # --dry는 판단만 한다. 상태 파일의 시각까지 바꾸면 '실행했다'는 거짓 자국이다.
-        return {**summary(doc), "actions": actions}
+        return {**summary(doc), "actions": actions, "예산밖": skipped}
     doc["updated_at"] = _now().isoformat(timespec="seconds")
     _atomic_json(QUEUE_PATH, doc)
     status_value = write_status(doc, actions=actions)
-    return {**status_value, "actions": actions}
+    return {**status_value, "actions": actions, "예산밖": skipped}
 
 
 def summary(doc: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -363,9 +413,15 @@ def write_status(doc: dict[str, Any] | None = None, *, actions: list[dict[str, A
         lines.append("- 없음")
     else:
         for item in value["items"]:
-            lines.append("- **%s** · %s · 시도 %s회 · %s" % (
+            # ★ **이 회차 예산 밖**이면 그 말을 같이 적는다([436]·[289]) — 인계가
+            #   가리키는 조치가 이 리포트인데, 안 적으면 사람이 `시도 11회 · timeout`
+            #   만 보고 **멀쩡한 코드를 의심한다**([172]). 그 시도 횟수는 '실패'가
+            #   아니라 **부르자마자 끊긴 횟수**다.
+            _over = str(item.get("예산밖") or "")
+            lines.append("- **%s** · %s · 시도 %s회 · %s%s" % (
                 item.get("name"), item.get("status"), item.get("attempts", 0),
-                item.get("kind", "")))
+                item.get("kind", ""),
+                ("\n  - ★ 이 회차에서는 안 부른다: " + _over) if _over else ""))
     REPORT_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return value
 
@@ -483,8 +539,9 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
         doc = doc or _load_queue()
         items = list(doc.get("items") or [])
     except Exception as exc:                      # 못 읽었다 ≠ 걸린 것 없다([169])
-        return {"굳음": [], "자원회복": [], "못읽음": "%s: %s" % (type(exc).__name__, exc)}
-    out, back = [], []
+        return {"굳음": [], "자원회복": [], "예산밖": [],
+                "못읽음": "%s: %s" % (type(exc).__name__, exc)}
+    out, back, over = [], [], []
     for x in items:
         if x.get("status") not in ("retry", "blocked", "manual"):
             continue
@@ -492,8 +549,6 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
             tries = int(x.get("attempts") or 0)
         except Exception:
             tries = 0
-        if tries < STUCK_TRIES:
-            continue
         # ★ **뒤에서** 싣는다([365]) — 진짜 원인은 출력의 **끝**에 있다.
         #   실측 2026-08-23: '고정 주소 사본 올리기' 는 앞 160자가 전부
         #   "사본 만드는 중… 관리대장 최신본 자동 탐지" 라 정작 원인인
@@ -502,6 +557,18 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
         갈래 = str(x.get("kind") or "")
         rec = {"이름": str(x.get("name") or ""), "시도": tries,
                "갈래": 갈래, "왜": _why_line(raw)}
+        # ★ **여기 예산 밖**인 일은 굳은 것이 아니다([289]) — 그 시도 횟수는 '실패'가
+        #   아니라 **부르자마자 끊긴 횟수**다. 한 통에 담으면 사람이 멀쩡한 코드를
+        #   고치러 가고([172]) 진짜 경보가 묻힌다([170]).
+        # ★ **시도 한도(STUCK_TRIES)와 무관하게 싣는다** — 그 횟수는 실패가 아니므로
+        #   한도로 거르면 진짜 못 도는 일이 조용해진다([169]).
+        if x.get("예산밖"):
+            rec["예산밖"] = str(x.get("예산밖"))
+            rec["선언"] = int(x.get("timeout") or 600)
+            over.append(rec)
+            continue
+        if tries < STUCK_TRIES:
+            continue
         # ★ 자원 실패는 **지나간 사고**일 수 있다 — 그 자원이 지금 살아 있으면
         #   경보가 아니라 알림이다(다음 재시도가 저절로 푼다). 조용히 빼지는
         #   않는다([169]) — `자원회복` 으로 세어 인계가 한 줄 적는다.
@@ -512,7 +579,8 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
         out.append(rec)
     out.sort(key=lambda r: -r["시도"])
     back.sort(key=lambda r: -r["시도"])
-    return {"굳음": out, "자원회복": back, "못읽음": ""}
+    over.sort(key=lambda r: -r["시도"])
+    return {"굳음": out, "자원회복": back, "예산밖": over, "못읽음": ""}
 
 
 def status() -> dict[str, Any]:

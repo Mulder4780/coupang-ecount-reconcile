@@ -722,12 +722,16 @@ def heal_autopilot(dry):
         import autopilot
         result = autopilot.heal(limit=2, budget_seconds=600, dry=dry)
         actions = result.get("actions") or []
+        # ★ 이 회차 예산 밖이라 **안 부른 것**을 조용히 넘기지 않는다([169]·[436]) —
+        #   안 적으면 다 건너뛴 회차가 '대기 없음'으로 보인다.
+        over = result.get("예산밖") or []
+        tail = (" · 이 회차 예산 밖 %d건(예약 회차·사람 몫)" % len(over)) if over else ""
         if not actions:
-            return "자율복구 대기 없음" if not result.get("active") else (
-                "자율복구 %d건 대기(재시도 시각 전·인증 대기)" % result.get("active", 0))
+            return ("자율복구 대기 없음" if not result.get("active") else (
+                "자율복구 %d건 대기(재시도 시각 전·인증 대기)" % result.get("active", 0))) + tail
         done = sum(1 for x in actions if x.get("result") == "done")
-        return "자율복구 %d건 실행 · 완료 %d · 남음 %d" % (
-            len(actions), done, result.get("active", 0))
+        return "자율복구 %d건 실행 · 완료 %d · 남음 %d%s" % (
+            len(actions), done, result.get("active", 0), tail)
     except Exception as exc:
         return "자율복구 점검 실패(%s)" % type(exc).__name__
 

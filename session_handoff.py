@@ -1257,7 +1257,8 @@ def _autopilot_stuck():
         d["한도"] = autopilot.STUCK_TRIES
         return d
     except Exception as exc:
-        return {"굳음": [], "자원회복": [], "못읽음": "%s: %s" % (type(exc).__name__, exc), "한도": 0}
+        return {"굳음": [], "자원회복": [], "예산밖": [],
+                "못읽음": "%s: %s" % (type(exc).__name__, exc), "한도": 0}
 
 
 def blockers(st, for_sol=False):
@@ -1318,6 +1319,19 @@ def blockers(st, for_sol=False):
                         "**지금은 살아 있다**. 코드 문제가 아니라 바쁜 시각에 못 잡은 것이며 "
                         "다음 재시도가 저절로 풀 수 있다(그렇다고 '고쳐졌다'는 뜻은 아니다): %s"
                         % (len(_bk), _bh),
+                        "python autopilot.py --status"))
+        # ★ **여기 예산 밖**인 일은 굳은 것이 아니다([436]) — 조치가 다르다([289]).
+        #   그 시도 횟수는 '실패'가 아니라 **부르자마자 끊긴 횟수**라, 한 통에 담으면
+        #   사람이 멀쩡한 코드를 고치러 간다([172]). 조용히 빼지도 않는다([169]).
+        _ob = _st.get("예산밖")
+        if _ob:
+            _oh = " · ".join("%s(%s초 선언·%s회)" % (r.get("이름"), r.get("선언") or "?",
+                                                     r.get("시도")) for r in _ob[:4])
+            _o1 = next((r.get("예산밖") for r in _ob if r.get("예산밖")), "")
+            out.append(("[자율복구·알림] %d건은 **워치독 회차 예산보다 오래 걸리는 일**이라 "
+                        "여기서는 안 돌린다 — 코드가 깨진 것이 아니고, 다시 불러도 매번 "
+                        "같은 자리에서 끊겨 진도가 0이다: %s%s"
+                        % (len(_ob), _oh, (" · " + _o1) if _o1 else ""),
                         "python autopilot.py --status"))
     # ★ 관문(합성검증)의 **여유가 좁아지면 죽기 전에 말한다** (2026-08-23 형님 지시
     #   "앱 구동에 문제되는 거 전부 찾아서 · 다시는 반복되지 않게").
