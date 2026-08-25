@@ -12663,7 +12663,13 @@ def t160_master_book_cache():
     # ②③ 합성 워크북으로 값·오류를 확인한다(실데이터 없이)
     import openpyxl
     from ecount_reconcile import master_book
-    tmp = os.path.join(ROOT, "reports", "_t160_synth.xlsx")
+    # ★ **실측 폴더에 안 쓴다**([247]) — 2026-08-25 실사고: 관문 둘이 겹치자
+    #   한쪽이 반쯤 쓴 `reports/_t160_synth.xlsx` 를 다른 쪽이 읽어
+    #   `zipfile.BadZipFile: File is not a zip file` 로 죽었다. **코드 고장이
+    #   아니라 겹침**이다(앞선 두 실행은 같은 코드로 통과했다 · [67]).
+    #   임시 폴더면 겹쳐도 서로 안 밟는다 — 관문에 잠금을 새로 다는 것보다 좁다([172]).
+    _t160_dir = tempfile.mkdtemp(prefix="t160_")
+    tmp = os.path.join(_t160_dir, "_t160_synth.xlsx")
     wbw = openpyxl.Workbook()
     ws = wbw.active
     ws.title = "시트가"
@@ -12693,10 +12699,8 @@ def t160_master_book_cache():
         except ValueError:
             pass
     finally:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
+        import shutil as _sh
+        _sh.rmtree(_t160_dir, ignore_errors=True)
     print("  [160] 관리대장 한 번만 파싱 — 행만 캐시·값 동일·셀 개체 거부·mtime 무효화 ✅")
 
 
