@@ -32990,12 +32990,68 @@ def t310_button_classes_always_have_a_look():
         "규칙이 있는데 없다고 한다 — 멀쩡한 코드에 거짓 경보를 낸다"
 
     # ③ 손가락이 닿는 크기 — 실측(브라우저) 캠프 추가 44px · 표 안 수정 36px
-    def 값(sel, prop):
-        m = re.search(re.escape(sel) + r"\{([^}]*)\}", css)
-        assert m, "%s 규칙이 없다" % sel
-        v = re.search(prop + r"\s*:\s*(\d+)px", m.group(1))
-        assert v, "%s 에 %s 가 없다" % (sel, prop)
-        return int(v.group(1))
+    # ★ **`.btn{` 를 글자로 찾으면 안 된다** — 2026-08-25 실사고(분담판 [232]).
+    #   옛 판은 `re.search(r"\.btn\{([^}]*)\}")` 라 **파일에서 제일 먼저 나오는**
+    #   `.btn{` 를 집었다. 그런데 `[416]` 이 넣은 `.rst-row .wt-open,.rst-row .btn{
+    #   margin-left:auto}` 가 그 앞에 서면서 **그 꼬리**를 집었고, 그 규칙에는
+    #   min-height 가 없으니 검사가 *"`.btn` 에 min-height 가 없다"* 라고 말했다 —
+    #   **진짜 `.btn` 규칙에는 44px 가 멀쩡히 있는데도.**
+    #   틀린 지목은 못 잡는 것보다 나쁘다([172]): 관문은 09:50 회차의 **0단계**라
+    #   그날 대조가 통째로 안 돌고, 사람은 멀쩡한 `.btn` 을 고치러 간다.
+    #   ⚠ **여러 줄은 원래 잘 읽혔다**(`[^}]` 가 줄바꿈을 넘는다) — 처음에 '여러 줄을
+    #     못 읽는다'고 적었던 것은 **틀린 진단**이었다. 재고 나서 적는다([67]).
+    def 규칙들(sheet):
+        """(선택자, 본문) 목록 — `@media` 같은 덩어리는 **안쪽 규칙까지 편다**.
+
+        안 펴면 좁은 화면에서만 단추를 30px 로 줄여 놔도 이 검사가 못 본다([169]).
+        """
+        out, sel, i, n = [], [], 0, len(sheet)
+        while i < n:
+            ch = sheet[i]
+            if ch == "{":
+                head = "".join(sel).strip(); sel = []
+                d, j = 1, i + 1
+                while j < n and d:
+                    if sheet[j] == "{": d += 1
+                    elif sheet[j] == "}": d -= 1
+                    j += 1
+                body = sheet[i + 1:j - 1]
+                if "{" in body:
+                    out.extend(규칙들(body))        # @media·@supports·@keyframes
+                else:
+                    out.append((head, body))
+                i = j
+                continue
+            if ch == "}":
+                sel = []; i += 1; continue
+            sel.append(ch); i += 1
+        return out
+
+    # 규칙을 세기 전에 **주석을 걷는다** — 안 걷으면 설명 속 중괄호가 규칙을 가른다
+    # (이 저장소가 되풀이해 밟는 자리 · [332])
+    _규칙 = 규칙들(re.sub(r"/\*[\s\S]*?\*/", " ", css))
+
+    def 값(sel, prop, rules=None):
+        """그 선택자를 **정확히** 선언한 규칙에서 값을 읽는다 — 꼬리로 걸린 것은 안 센다.
+
+        여럿이면 **제일 작은 값**이다(좁은 화면에서만 줄여 놓은 것도 잡힌다).
+        """
+        vals = []
+        for head, body in (_규칙 if rules is None else rules):
+            if any(part.strip() == sel for part in head.split(",")):
+                v = re.search(prop + r"\s*:\s*(\d+)px", body)
+                if v:
+                    vals.append(int(v.group(1)))
+        assert vals, "%s 를 **정확히** 선언한 규칙에서 %s 를 못 찾는다" % (sel, prop)
+        return min(vals)
+
+    # ★ 계기 자신을 시험한다([272]) — 옛 방식(맨 앞 `.btn{`)이면 둘 다 여기서 걸린다
+    assert 값(".btn", "min-height", 규칙들(
+        ".x .wt-open,.x .btn{margin-left:auto}.btn{min-height:44px}")) == 44, \
+        "꼬리로 걸린 `.x .btn` 을 집는다 — 멀쩡한 단추를 '작다'고 지목한다([232])"
+    assert 값(".btn", "min-height", 규칙들(
+        ".btn{min-height:44px}@media (max-width:560px){.btn{min-height:30px}}")) == 30, \
+        "좁은 화면에서 줄여 놓은 것을 못 본다 — @media 안쪽을 안 편다"
     assert 값(".btn", "min-height") >= 44, "동작 단추가 손가락 크기(44px)보다 작다"
     assert 값(".btn.xs", "min-height") >= 32, "표 안 단추가 너무 작다 — 담당자가 못 찾는다"
     assert 값(".chk", "min-height") == 값(".btn", "min-height"), \
@@ -35059,6 +35115,29 @@ function calWhyRowsHTML(e){
 }
 function selectRyuCategory(k){ }
 function selectRyuRecord(i){ selected = i; }
+/* 화면이 새로 기대게 된 함수는 **진짜를 떼어 온다** — 사본을 적으면 그 함수가 바뀐 날
+   하네스만 옛 뜻으로 남아 조용히 안 맞는다([162]·[366]).
+   2026-08-25 실사고: 옆 세션이 `renderRyuTodo` 안에 `calSaveKey(e)` 를 넣자
+   이 하네스가 `ReferenceError` 로 죽어 **관문이 통째로 빨개졌다** — 관문은
+   `daily_run` 의 0단계라 그날 아침 대조가 안 돈다.
+   ⚠ **스텁으로 때우지 말 것**([366]) — 스텁을 넣으면 이 검사는 그날부터 진짜 코드를
+     안 재면서 초록으로 남는다. 끝은 이름이 아니라 **중괄호 짝**으로 찾는다([39]). */
+function grabFn(name){
+  const a = html.indexOf('function ' + name + '(');
+  if (a < 0) return null;
+  let d = 0;
+  for (let j = html.indexOf('{', a); j < html.length; j++){
+    if (html[j] === '{') d++;
+    else if (html[j] === '}') { d--; if (!d) return html.slice(a, j + 1); }
+  }
+  return null;
+}
+const _needed = ['calSaveKey'];
+for (const nm of _needed){
+  const t = grabFn(nm);
+  if (!t) { console.log('GRAB MISS: ' + nm); process.exit(1); }
+  eval(t);
+}
 eval(src);
 
 const fail = [];
