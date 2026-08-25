@@ -26177,6 +26177,19 @@ def t427_archive_posts_stops_itself_before_the_kill():
         "[427] 표에 없는 자식까지 건드린다 — `collect_all` 은 이미 제 예산으로 스스로 "
         "멈춘다([172] 문제 없는 호출자를 안 건드린다 · [324])")
 
+    # ── ①-2 명세서 PDF 도 같은 표를 탄다 · **안 넣기로 한 둘**은 그대로 ─────
+    #   실측 2026-08-25: `tax_archive` 는 PDF 한 장 전에 collect() 가 193.7초를 써서
+    #   예산 60초면 **0건 만들고 75 로 돌아오기를 영원히** 되풀이한다([199] 모양).
+    #   `zscan` 은 스캔이라 중간에 끊으면 **겉모습만 완전한 반쪽 리포트**가 된다([169]).
+    stmt_env = PA._child_env([os.path.join(ROOT, "stmt_archive.py"), "--limit", "150"], 1800)
+    assert (stmt_env or {}).get("STMT_ARCHIVE_BUDGET_SEC") == "1500", (
+        "[427] 명세서 건별 PDF 보관에 예산을 안 준다(%r) — 실측 시도 4회가 전부 "
+        "`returncode=-9` 였다" % (stmt_env or {}).get("STMT_ARCHIVE_BUDGET_SEC"))
+    for _안넣은것 in ("tax_archive.py", "zscan.py"):
+        assert PA._child_env([os.path.join(ROOT, _안넣은것)], 600) is None, (
+            "[427] %s 에 예산을 줬다 — 재 보고 **일부러 안 넣은 것**이다. 그 이유는 "
+            "`autopilot.CHILD_BUDGET_ENV` 주석에 적혀 있다([172])" % _안넣은것)
+
     tmp = tempfile.mkdtemp(prefix="t427_")
     keep = (A.CACHE, A.out_root, A.render_pdf, A.fetch_photo, A.POST_WORKERS,
             os.environ.get(A.BUDGET_ENV), list(sys.argv))
@@ -26268,7 +26281,71 @@ def t427_archive_posts_stops_itself_before_the_kill():
         else:
             os.environ[A.BUDGET_ENV] = _e
         shutil.rmtree(tmp, ignore_errors=True)
-    print("  [427] 밴드 게시글 보관이 바깥에서 죽기 전에 스스로 멈추고 "
+
+    # ── ⑤ 같은 계약을 `stmt_archive` 에서도 **실행으로** 잰다([295]) ─────────
+    #   진짜 Z: 는 한 글자도 안 건드린다([247]) — DETAIL·out_root·render_atomic 목.
+    import stmt_archive as SA
+    keepS = (SA.DETAIL, SA.LINK, SA.out_root, SA.render_atomic,
+             os.environ.get(SA.BUDGET_ENV))
+    tmpS = tempfile.mkdtemp(prefix="t427s_")
+    try:
+        outS = os.path.join(tmpS, "out")
+        os.makedirs(outS)
+        detail = os.path.join(tmpS, "d.json")
+        with open(detail, "w", encoding="utf-8") as fh3:
+            json.dump({"docs": [{"slip": "2026/07/%02d-1" % (n + 1),
+                                 "cust": "시험%d" % n, "amount": 1000 * n,
+                                 "items": []} for n in range(POSTS)]},
+                      fh3, ensure_ascii=False)
+
+        def _slow(doc, uj, state, path):
+            _time.sleep(SLEEP_S)          # 예산보다 길게 — 짧으면 아무것도 안 잰다
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as fh4:
+                fh4.write(b"%PDF t427")
+            return path
+
+        SA.DETAIL, SA.LINK = detail, os.path.join(tmpS, "nolink.json")
+        SA.out_root = lambda: outS
+        SA.render_atomic = _slow
+
+        def 명세서만든것():
+            return [n for _r, _d, fs in os.walk(outS) for n in fs if n.endswith(".pdf")]
+
+        def 명세서돌린다(budget):
+            for _r, _d, fs in os.walk(outS):
+                for n in fs:
+                    os.remove(os.path.join(_r, n))
+            if budget:
+                os.environ[SA.BUDGET_ENV] = str(budget)
+            else:
+                os.environ.pop(SA.BUDGET_ENV, None)
+            sys.argv = ["stmt_archive.py", "--limit", str(POSTS)]
+            buf2 = _io.StringIO()
+            with contextlib.redirect_stdout(buf2):
+                rc = SA.main()
+            return rc, buf2.getvalue()
+
+        rcS, outS1 = 명세서돌린다(BUDGET_S)
+        assert rcS == SA.INCREMENTAL_RETURN_CODE and len(명세서만든것()) < POSTS, (
+            "[427] 명세서 PDF 가 예산이 다 됐는데 안 멈춘다(rc=%r · %d개) — 그러면 "
+            "제한시간에 SIGKILL 로 끊겨 자국이 `returncode=-9` 다섯 글자만 남는다"
+            % (rcS, len(명세서만든것())))
+        assert "시간 예산" in outS1 and "이어서 한다" in outS1, (
+            "[427] 명세서 PDF 가 멈춘 사실을 말하지 않는다([169]): %r" % outS1[-200:])
+        rcS2, outS2 = 명세서돌린다(0)
+        assert rcS2 == 0 and "시간 예산" not in outS2 and len(명세서만든것()) == POSTS, (
+            "[427] 명세서 PDF 가 예산 없이도 안 끝까지 간다(rc=%r · %d개) — "
+            "좁히는 것도 고장이다([172])" % (rcS2, len(명세서만든것())))
+    finally:
+        (SA.DETAIL, SA.LINK, SA.out_root, SA.render_atomic, _eS) = keepS
+        if _eS is None:
+            os.environ.pop(SA.BUDGET_ENV, None)
+        else:
+            os.environ[SA.BUDGET_ENV] = _eS
+        shutil.rmtree(tmpS, ignore_errors=True)
+
+    print("  [427] 밴드 게시글·명세서 PDF 보관이 바깥에서 죽기 전에 스스로 멈추고 "
           "보고서를 쓴다 — 예산 자식 표·증분 반환·예산 없으면 예전 그대로 ✅")
 
 def t426_camp_code_reaches_the_screen():
