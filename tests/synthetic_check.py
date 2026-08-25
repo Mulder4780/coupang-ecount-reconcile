@@ -25740,8 +25740,8 @@ def t421_settle_po_and_invoice_filter():
 
     print("  [421] 정산에서 PO 로 찾고 계산서로 좁힌다 — 다른 탭은 안 건드린다")
 
-def t421_kakao_cache_follows_report_dir():
-    """[421] 카톡 캐시 두 자리가 **REPORT_DIR 을 따라온다** (2026-08-25 실사고 · [227]).
+def t422_kakao_cache_follows_report_dir():
+    """[422] 카톡 캐시 두 자리가 **REPORT_DIR 을 따라온다** (2026-08-25 실사고 · [227]).
 
     무엇이 잘못됐었나
       `_KAKAO_SPAN_CACHE`·`_KAKAO_SELECTION_CACHE` 가 모듈 상수로 `BASE_DIR/reports` 를
@@ -25867,7 +25867,7 @@ def t421_kakao_cache_follows_report_dir():
     assert any(str(p) in (far_a, far_b) for p in leaked),         "자기시험이 아무것도 안 재고 있다 — 자리를 굳혀도 밖의 경로가 안 섞인다([272])"
 
     shutil.rmtree(tmp, ignore_errors=True)
-    print("  [421] 카톡 캐시 자리가 REPORT_DIR 을 따라온다 — 관문이 실데이터를 안 읽는다 ✅")
+    print("  [422] 카톡 캐시 자리가 REPORT_DIR 을 따라온다 — 관문이 실데이터를 안 읽는다 ✅")
 
 
 def t192_synthetic_check_is_harmless():
@@ -36410,7 +36410,7 @@ if __name__ == "__main__":
     t419_staff_force_complete_reaches_report()
     t420_delete_says_why_and_hides_dead_buttons()
     t421_settle_po_and_invoice_filter()
-    t421_kakao_cache_follows_report_dir()
+    t422_kakao_cache_follows_report_dir()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
