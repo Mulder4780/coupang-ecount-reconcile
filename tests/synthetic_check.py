@@ -17024,21 +17024,36 @@ def t367_restart_survives_only_with_an_exact_fingerprint():
     for want in ("_DISK_CACHE_VER", "_DISK_CACHE_KEYS", "_DISK_CACHE_MAX_AGE_S"):
         assert want in consts, "[92] %s 가 없다 — 판이 없으면 규칙을 고쳐도 옛 캐시가 이긴다" % want
 
-    def _mk(root, demo=False, ver=None, load_src=None):
+    def _mk(root, demo=False, ver=None, patch=None):
+        # ★ 갈아 끼울 자리를 **이름으로 받는다** — 지문 검사가 어느 함수에
+        #   사는지는 바뀔 수 있고(2026-08-25 실측), 그때 자기시험이 옛 자리를
+        #   죽이면 아무것도 안 재면서 통과한다([272]).
         ns = {"os": os, "io": _io367, "json": json, "time": time,
               "ROOT": root, "DEMO": demo}
         ns["_master_mtime"] = lambda: ns["_MT"]
         ns["_app_db_stamp"] = lambda: ns["_APP"]
         ns["_MT"], ns["_APP"] = 111.0, (222.0, 333.0)
-        body = (("_DISK_CACHE_VER = %s" % (ver if ver is not None else consts["_DISK_CACHE_VER"])) + chr(10) +
-                ("_DISK_CACHE_KEYS = %s" % consts["_DISK_CACHE_KEYS"]) + chr(10) +
-                ("_DISK_CACHE_MAX_AGE_S = %s" % consts["_DISK_CACHE_MAX_AGE_S"]) + chr(10) +
-                _fn("_disk_cache_path") + chr(10) +
-                _fn("_disk_cache_stamp") + chr(10) +
-                (load_src or _fn("_disk_cache_load")) + chr(10) +
-                _fn("_disk_cache_save") + chr(10))
+        # ★ 이름을 넷으로 못 박지 않는다([328]). 2026-08-25 실측 — 그날
+        #   `_disk_cache_load` 가 `_disk_cache_read` 로 쪼개지자 이 검사가
+        #   `NameError` 로 죽었다. **구현은 멀쩡했고 검사만 눈이 멀었다.**
+        #   재려는 것은 '어느 함수가 있나'가 아니라 **캐시가 지문대로 도는가**다.
+        parts = [("_DISK_CACHE_VER = %s" % (ver if ver is not None else consts["_DISK_CACHE_VER"])),
+                 ("_DISK_CACHE_KEYS = %s" % consts["_DISK_CACHE_KEYS"]),
+                 ("_DISK_CACHE_MAX_AGE_S = %s" % consts["_DISK_CACHE_MAX_AGE_S"])]
+        for _n in _ast367.walk(tree):
+            if not (isinstance(_n, _ast367.FunctionDef)
+                    and _n.name.startswith("_disk_cache_")):
+                continue
+            parts.append((patch or {}).get(_n.name)
+                         or "".join(lines[_n.lineno - 1:_n.end_lineno]))
+        body = chr(10).join(parts) + chr(10)
         exec(compile(body, "<disk_cache>", "exec"), ns)
         return ns
+
+    # 핵심 넷이 통째로 사라지면 그것은 진짜 회귀다([92]) — 존재만 따로 확인한다.
+    for _core in ("_disk_cache_path", "_disk_cache_stamp",
+                  "_disk_cache_load", "_disk_cache_save"):
+        _fn(_core)
 
     KEY, VAL = "settle", [{"정산ID": "JS-1", "공급가액": 1234567}]
     assert KEY in eval(consts["_DISK_CACHE_KEYS"]), "[92] settle 이 캐시 대상이 아니다"
@@ -17096,8 +17111,14 @@ def t367_restart_survives_only_with_an_exact_fingerprint():
     # ⑨ ★ 읽어도 **`_stale` 자리에만** 넣는다 — `_cache[key]`(신선) 에 넣으면 지문에
     #    안 잡히는 ERP(erpdocs)까지 '최신'이라 확언하게 된다([169]).
     cd = _fn("cached_data")
+    # ★ 목은 **지금 구현이 부르는 이름**으로 건다([328]) — 2026-08-25 에
+    #   `cached_data` 가 `_disk_cache_load` 대신 `_disk_cache_read`(값,지문맞음)를
+    #   부르게 쪼개졌고, 옛 이름으로 걸어 둔 이 목이 그 자리에서 NameError 로 죽었다.
+    #   계약 넷은 한 글자도 안 바꿨다 — 목 이름만 맞춘다([172]).
     box = {"_cache": {}, "_fresh": lambda k: None,
+           "_disk_cache_read": lambda k: ("DISK", True),
            "_disk_cache_load": lambda k: "DISK",
+           "_note_stale_serve": lambda k: box.setdefault("stale_note", []).append(k),
            "_spawn_refresh": lambda k, b: box.setdefault("spawned", []).append(k),
            "_compute_locked": lambda k, b: (_ for _ in ()).throw(
                AssertionError("[92] 디스크 캐시가 있는데 콜드 재계산으로 갔다"))}
@@ -17110,13 +17131,19 @@ def t367_restart_survives_only_with_an_exact_fingerprint():
     assert box.get("spawned") == [KEY], "[92] 뒤에서 다시 계산하지 않았다 — 옛 값이 그대로 굳는다"
 
     # ⑩ 계기 자신을 시험한다([272]) — 지문 검사를 없애면 ②가 잡혀야 한다
-    broken = _fn("_disk_cache_load").replace(
-        'd.get("지문") != _disk_cache_stamp(key)', "False")
-    assert broken != _fn("_disk_cache_load"), "[92] 계기 자기시험 앵커가 안 맞는다"
+    # ★ 지문 검사가 **어느 함수에 사는지**를 찾아 그 자리를 죽인다 — 이름을 못
+    #   박으면 2026-08-25 처럼 쪼개진 날 앵커가 안 맞아 검사 전체가 죽는다([328]).
+    _hit = [(nm, _fn(nm)) for nm in ("_disk_cache_read", "_disk_cache_load")
+            if "_disk_cache_stamp(key)" in _fn(nm)]
+    assert _hit, "[92] 지문 검사가 어디에도 없다 — 캐시가 지문을 안 본다"
+    _stub_name, _stub_src = _hit[0]
+    broken = (_stub_src.replace('d.get("지문") == _disk_cache_stamp(key)', "True")
+                       .replace('d.get("지문") != _disk_cache_stamp(key)', "False"))
+    assert broken != _stub_src, "[92] 계기 자기시험 앵커가 안 맞는다"
     root2 = tempfile.mkdtemp(prefix="t367b_")
     os.makedirs(os.path.join(root2, "reports"), exist_ok=True)
     try:
-        b = _mk(root2, load_src=broken)
+        b = _mk(root2, patch={_stub_name: broken})
         b["_disk_cache_save"](KEY, VAL)
         b["_MT"] = 999.0
         assert b["_disk_cache_load"](KEY) is not None, (

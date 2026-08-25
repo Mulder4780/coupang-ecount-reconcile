@@ -28,6 +28,12 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from app_store import AppStore, VersionConflict, canonical_json, default_store
 
 
+#: 모호는 코드가 못 푼다 — **무엇을 해야 하는지** 같이 적는다([289]).
+#: ★ 2026-08-25 실측: `erp_pick` 이 돌려주는 다섯 문구는 **왜 모호한지**만
+#:   말하고 조치가 없었다. 그러면 읽는 사람은 "그래서 뭘 하라는 거지" 로 끝난다.
+#:   조치는 갈래마다 다르므로 그 말이 없으면 자국이 반쪽이다.
+AMBIGUOUS_FIX = "앱에서 그 프로젝트를 열어 사람이 정한다"
+
 #: 모호한 건(같은 프로젝트에 행이 여럿)을 남기는 자리.  **실패 자국이 아니다** —
 #: 이름을 `*_오류.json` 으로 두면 `schedule_watch.traces()` 가 실패로 모아 다시
 #: 경보가 된다([170]).  사람이 정할 것을 모아 두는 자리다.
@@ -289,7 +295,8 @@ def sync_records(
             else:
                 result["ambiguous"] += 1
                 result["모호"].append(
-                    f"{kind}/{project}: 앱 DB에 같은 프로젝트가 {len(matches)}건 — {why}")
+                    f"{kind}/{project}: 앱 DB에 같은 프로젝트가 {len(matches)}건"
+                    f" — {why} · {AMBIGUOUS_FIX}")
                 continue
 
         desired_status = _status(kind, row)
