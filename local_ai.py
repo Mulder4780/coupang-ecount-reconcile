@@ -647,7 +647,15 @@ def a_where(q):
                 if k not in keys:
                     keys.append(k)
     if not keys:
-        return None          # 지어내지 않는다 — 모름으로 떨어져 클로드 문구를 받는다
+        # ★ **폰 꾸러미는 갈래마다 답이 하나다**([184]) — `answer_pack()` 이
+        #   `fn("")` 로 대표 답을 만든다. 예전에는 여기서 None 이 나가 폰에서
+        #   이 갈래가 **조용히 비어 있었다**(실측: 꾸러미의 `어디서보나` = null).
+        #   빈 질문의 대표 답은 **표 전체**가 맞다 — 폰에서 사람이 보고 고른다.
+        if not t.strip():
+            keys = list(WHERE_SCREENS)
+        else:
+            return None      # 지어내지 않는다 — 모름으로 떨어져 클로드 문구를 받는다
+    whole = len(keys) == len(WHERE_SCREENS)
     names = " · ".join("**[%s]**" % WHERE_SCREENS[k][0] for k in keys)
     lines = []
     for k in keys:
@@ -659,7 +667,9 @@ def a_where(q):
     if any(k in WHERE_BADGE for k in keys):
         lines.append("  · 메뉴 이름 옆 숫자가 **지금 손이 필요한 건수**입니다"
                      "(0이면 안 붙습니다).")
-    return {"답": "%s 화면에서 봅니다." % names,
+    head = ("무엇을 어디서 보는지 — 왼쪽 메뉴에서 고릅니다." if whole
+            else "%s 화면에서 봅니다." % names)
+    return {"답": head,
             "다음": "\n".join(lines),
             # 이 답의 근거는 **화면 구성**이라 자료 날짜와 무관하다 — 낡을 것이 없다.
             "근거": "앱 화면 구성(자료 날짜와 무관합니다)", "확신": "높"}

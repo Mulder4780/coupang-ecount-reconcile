@@ -31333,7 +31333,18 @@ def t434_where_answers_which_screen():
     # ⑦ 이 답은 **자료 날짜와 무관하다** — 화면 구성이 근거라 낡을 것이 없다
     assert "무관" in (r2.get("근거") or ""), "[434] 근거를 안 밝힌다"
 
-    # ⑧ 계기 자기시험([272]) — 갈래를 `지금할일` 뒤로 되돌리면 잡히는가
+    # ⑧ **폰 꾸러미에 답이 실린다**([184]) — 폰은 갈래마다 답이 하나이고
+    #    `answer_pack()` 이 `fn("")` 로 만든다. 예전에는 여기서 None 이 나가
+    #    폰에서 이 갈래가 **조용히 비어 있었다**(실측: 꾸러미의 `어디서보나` = null).
+    pack = L.answer_pack()
+    got = (pack.get("답") or {}).get("어디서보나")
+    assert got and got.get("답"), (
+        "[434] 폰 꾸러미에 이 갈래의 답이 안 실린다 — 폰에서 조용히 답이 없다([169])")
+    for key in L.WHERE_SCREENS:
+        assert L.WHERE_SCREENS[key][0] in got["다음"], (
+            "[434] 폰 대표 답에 화면 %r 가 빠졌다 — 폰에서 그 화면은 없는 화면이 된다" % key)
+
+    # ⑨ 계기 자기시험([272]) — 갈래를 `지금할일` 뒤로 되돌리면 잡히는가
     names = [n for n, _p, _f in L.INTENTS]
     assert names.index("어디서보나") < names.index("지금할일"), (
         "[434] `어디서보나` 가 `지금할일` 뒤에 있다 — `미처리` 가 먼저 걸려 "
