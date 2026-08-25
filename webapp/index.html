@@ -7435,6 +7435,24 @@ function calCatOf(e){
   if(/^as/.test(k)) return 'as';
   return String(e&&e.업무구분||'').indexOf('정기점검')>=0 ? 'pm' : 'as';
 }
+/* ★ 저장할 때 쓰는 열쇠 — **한 곳에서 정한다**([162]).
+   원장 ID 채번은 접수보다 늦어서 이달 접수분은 `원천업무ID` 가 빈 채로 온다
+   (실측 2026-08-25: 8월 미처리 19건 중 10건). 그러면 예전 화면은 [완료로 표시]
+   단추 자체를 안 그렸고, 담당자가 완료했는데 보고에는 미처리로 남았다.
+   서버가 `저장키` 를 실어 준다(앱 DB 의 `_business_key` = 프로젝트NO). 저장 API 는
+   이미 그 키로 찾는다 — 실측으로 그 13건이 전부 유일하게 찾힌다.
+   ⚠ 못 실려 온 옛 응답도 있으므로 `원천업무ID` 로 물러난다([169]). */
+function calSaveKey(e){
+  if(!e) return '';
+  return String(e.저장키 || e.원천업무ID || '').trim();
+}
+/* 저장키로도 원천업무ID로도 찾는다 — 한쪽만 보면 그 갈래가 조용히 안 걸린다([165]). */
+function calFindByKey(cat, id){
+  const want = String(id || '').trim();
+  if(!want) return null;
+  return calEvents().find(x => calCatOf(x) === cat &&
+    (calSaveKey(x) === want || String(x.원천업무ID || '').trim() === want)) || null;
+}
 function calNewJob(){
   const day=CAL_DAY||todayISO();
   calCloseSheet();
@@ -8821,7 +8839,7 @@ function renderRyuTodo(){
   host.innerHTML = '<p class="sub">' + rows.length + '건 — 오래 지난 것부터입니다'
     + (when ? ' · 기준 ' + esc2(when) : '') + '. 대표 보고가 읽는 그 자료와 같습니다.</p>'
     + rows.map(e => {
-        const cat = calCatOf(e), id = String(e.원천업무ID || ''), why = calWhyRowsHTML(e);
+        const cat = calCatOf(e), id = calSaveKey(e), why = calWhyRowsHTML(e);
         return '<div class="ryu-todo-row"><div class="ryu-todo-head">'
           + '<b>' + esc2(calCampOf(e) || '캠프 미상') + '</b>'
           + '<span class="norm">' + esc2(calendarWhen(e)) + '</span>'
@@ -16341,7 +16359,7 @@ function calWhyBtnHTML(e){
    ★ **완료일만 쓴다.** 상태 낱말은 안 지어낸다([166]) — 관리대장 드롭다운이 정본이고
      04시트 점검상태는 수식이 스스로 계산한다.  캘린더는 날짜만 보면 내려간다. */
 async function calDoneOpen(cat, id){
-  const e = calEvents().find(x => String(x.원천업무ID || '') === String(id) && calCatOf(x) === cat);
+  const e = calFindByKey(cat, id);
   if(!e){ notice('이 일정을 지금 목록에서 찾지 못했습니다 — 새로 받은 뒤 다시 눌러 주세요.'); return; }
   const _wv = await entryVersion(cat, String(id), e.DB버전);
   if(!(_wv>=1)){ await entryVersionBlocked(cat, String(id)); return; }
@@ -16379,7 +16397,7 @@ async function calDoneOpen(cat, id){
 }
 
 async function calWhyOpen(cat, id){
-  const e = calEvents().find(x => String(x.원천업무ID || '') === String(id) && calCatOf(x) === cat);
+  const e = calFindByKey(cat, id);
   if(!e){ notice('이 일정을 지금 목록에서 찾지 못했습니다 — 새로 받은 뒤 다시 눌러 주세요.'); return; }
   /* ★ 버전이 없으면 저장이 400 으로 막힌다 — 그런데 안내가 '새로고침'이면 사람은
      같은 반쪽을 다시 받는다([296]). 그러니 **누르기 전에** 갈라 말한다. */
