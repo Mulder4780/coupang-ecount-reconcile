@@ -199,6 +199,40 @@ def _read_side():
         return None, "읽는 쪽을 못 불렀다: %s" % str(exc)[:100]
 
 
+def _split_tiers(건수, 전체):
+    """대기열 건수를 **할 일**과 **되살아나기 어려운 것**으로 가른다.
+
+    ★ 낱말을 여기 손으로 적지 않는다([162]) — 어느 갈래가 느린지는
+      `collect_queue.SLOW_REVIVE` 하나가 정한다. 적어 두면 갈래가 늘어난 날
+      이 화면만 옛 표를 보면서 **오류도 안 낸다**([165]).
+    ★ **못 읽으면 0 이라 하지 않는다**([169]) — 건수 칸이 없으면 갈래를 모르는
+      것이지 "느린 것이 없다"가 아니다. 그때는 None 을 돌려주고 화면이
+      예전처럼 한 덩어리로만 말한다.
+    """
+    if not isinstance(건수, dict) or not 건수:
+        return None
+    느린이름 = ("오염",)
+    try:
+        import collect_queue as _CQ  # type: ignore
+        느린이름 = tuple(getattr(_CQ, "SLOW_REVIVE", 느린이름) or 느린이름)
+    except Exception:
+        pass
+    느림 = 0
+    할일 = 0
+    for k, v in 건수.items():
+        try:
+            n = int(v or 0)
+        except (TypeError, ValueError):
+            continue
+        if str(k) in 느린이름:
+            느림 += n
+        else:
+            할일 += n
+    # ⚠ 건수 합과 `전체` 가 어긋날 수 있다(배치 상한·거른 것). **맞추려고
+    #   숫자를 지어내지 않는다**([169]) — 있는 그대로 주고 화면이 그렇게 적는다.
+    return {"할일": 할일, "느림": 느림, "합": 할일 + 느림, "느린갈래": list(느린이름)}
+
+
 def plan_state(now: Optional[datetime] = None) -> Dict[str, Any]:
     """수집 계획의 나이와 건수.  스크립트가 도는데 목록이 낡으면 헛돈다.
 
@@ -233,6 +267,11 @@ def plan_state(now: Optional[datetime] = None) -> Dict[str, Any]:
     if not names:
         return {"있음": False, "왜": "계획·대기열 어느 쪽도 못 읽었다"}
     per, total, 만든때, q상태, q나이 = {}, 0, "", "", None
+    # ★ 갈래별로도 센다 — "남은 건수" 한 덩어리는 며칠이 지나도 안 줄어
+    #   사람이 "왜 완료가 안 되나"로 읽는다(2026-08-25 형님 물음).
+    #   실측: 782건 중 **오염이 661건(85%)** 이고 실제 할 일은 121건이었다.
+    #   판정은 새로 안 만든다([162]) — `건수` 는 collect_queue 가 이미 적어 둔 것이다.
+    갈래별 = {}
     for band in sorted(names):
         p = CB.load_plan(band) or {}
         q = p.get("대기열") or {}
@@ -240,6 +279,7 @@ def plan_state(now: Optional[datetime] = None) -> Dict[str, Any]:
         cnt = int(q.get("전체") or len(p.get("nos") or []))
         per[band] = cnt
         total += cnt
+        갈래별[band] = _split_tiers(q.get("건수"), cnt)
         만든때 = q.get("만든때") or 만든때
         q상태 = q.get("상태") or q상태
         if q.get("나이시간") is not None:
@@ -255,6 +295,9 @@ def plan_state(now: Optional[datetime] = None) -> Dict[str, Any]:
         # 밴드마다 몇 건이 밀려 있나.  죽은 에이전트가 **일감을 두고** 죽었는지를
         # 가르는 근거다([186]) — 총계만으로는 어느 밴드가 굶는지 말할 수 없다.
         "밴드별": per,
+        # 갈래를 갈라 둔다 — 받는 쪽이 "할 일"과 "되살아나기 어려운 것"을
+        # 한 덩어리로 읽으면 며칠이 지나도 안 줄어 보인다([169]).
+        "밴드별갈래": 갈래별,
     }
 
 
@@ -323,6 +366,11 @@ def judge(doc: Optional[Dict[str, Any]], why: str,
         # 못 읽었으면 None 이고, 그때는 조용히 빼지 않고 그 사실을 같이 적는다.
         남은 = None if 쉬는밴드 is None else int(쉬는밴드.get(band) or 0)
         r["밀린글"] = 남은
+        # 갈래도 같이 싣는다 — 표가 "782" 한 덩어리로 적으면 며칠이 지나도
+        # 안 줄어 보인다(2026-08-25 형님 물음). 없으면 안 싣는다([169]).
+        _g = (plan.get("밴드별갈래") or {}).get(band) if plan.get("있음") else None
+        if _g:
+            r["밀린갈래"] = _g
         if 멈춤 and (남은 is None or 남은 > 0):
             죽은.append(band)
 
@@ -714,10 +762,25 @@ def render(st: Dict[str, Any]) -> str:
         age = plan.get("나이")
         buf.append("## 수집 계획")
         buf.append("")
-        buf.append("- 생성 %s%s · 밴드 %s개 · 글 %s건" % (
+        _tot = {"할일": 0, "느림": 0}
+        for _v in (plan.get("밴드별갈래") or {}).values():
+            if _v:
+                _tot["할일"] += int(_v.get("할일") or 0)
+                _tot["느림"] += int(_v.get("느림") or 0)
+        buf.append("- 생성 %s%s · 밴드 %s개 · 글 %s건%s" % (
             plan.get("생성") or "?",
             (" (%.1f시간 전)" % age) if age is not None else "",
-            plan.get("밴드수"), plan.get("글수")))
+            plan.get("밴드수"), plan.get("글수"),
+            ("  ← **할 일 %s건** · 오염 %s건" % (_tot["할일"], _tot["느림"]))
+            if _tot["느림"] else ""))
+        if _tot["느림"]:
+            # 뺀 것이 아니라 **뒤로 미룬 것**이라고 말한다([172]) — 조용히 빼면
+            # 그 번호들은 어느 화면에도 안 뜬다(2026-08-24 실사고 609건).
+            buf.append("")
+            buf.append("  > 오염은 **맨 뒤에서 긁는다**([177] 순서가 곧 우선순위). "
+                       "다시 긁어야 되살아나므로 목록에서 빼지 않는다 — 다만 "
+                       "실측으로 되살아난 적이 드물어(10회 긁은 번호 4개가 그대로) "
+                       "**이 숫자가 안 줄어드는 것은 고장이 아니다**.")
     else:
         buf.append("## 수집 계획")
         buf.append("")
@@ -752,10 +815,18 @@ def render(st: Dict[str, Any]) -> str:
         for band, r in sorted(rows.items()):
             age = r.get("나이")
             남은 = r.get("밀린글")
+            # ★ 한 덩어리로 적지 않는다 — 오염이 85%%인 날 그 숫자는 며칠이
+            #   지나도 안 줄어 "완료가 안 된다"로 읽힌다(2026-08-25 형님 물음).
+            _g = r.get("밀린갈래") or {}
+            if _g and _g.get("느림"):
+                남은글 = "%s (할일 %s · 오염 %s)" % (
+                    남은 if 남은 is not None else "?", _g.get("할일"), _g.get("느림"))
+            else:
+                남은글 = 남은 if 남은 is not None else "모름"
             buf.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
                 band, r.get("갈래") or "?", r.get("상태"),
                 ("%.1f" % age) if age is not None else "?",
-                남은 if 남은 is not None else "모름",
+                남은글,
                 r.get("요청") if r.get("요청") is not None else "-",
                 r.get("수확") if r.get("수확") is not None else "-",
                 (r.get("왜") or "")[:60]))

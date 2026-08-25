@@ -2871,7 +2871,14 @@ def t47_back_nav():
 
     # 화면 전환과 기록을 분리했는가 — applyView 는 기록을 안 남기고, show 는 남긴다
     assert "function applyView(" in live and "function show(v){" in live, "applyView/show 분리 누락"
-    assert "navPush({t:'tab', from:from})" in live, "탭 이동이 뒤로가기 기록에 안 쌓인다"
+    # ★ 얼리는 것은 **계약**이지 방법이 아니다([39]·[219]). 걸음의 **모양**은 바뀔 수
+    #   있다 — 2026-08-25 에 `{t:'tab', from}` 이 `{t:'view', view, mode}` 가 됐다(하위
+    #   갈래까지 함께 되돌리려고 · [428]). 여기서 재려는 것은 **탭을 옮기면 걸음이
+    #   쌓이는가** 하나다. 모양까지 못 박으면 계약을 지킨 변경이 관문을 빨갛게 만들고,
+    #   관문은 daily_run 의 0단계라 그날 아침 대조가 통째로 안 돈다.
+    import re as _re47
+    _show47 = _re47.search(r"function show\(v\)\{.*?\n\}", live, _re47.S)
+    assert _show47 and "navPush(" in _show47.group(0), "탭 이동이 뒤로가기 기록에 안 쌓인다"
     assert "navPush({t:'sheet'})" in live, "시트가 뒤로가기 기록에 안 쌓인다"
 
     # 홈 판정과 종료
@@ -26258,6 +26265,191 @@ const DATA = {ok:true, rows:[
 
 
 
+def t428_back_goes_one_step_at_a_time():
+    """[428] 각 화면에서 뒤로 가기 = **바로 전 단계** (형님 지시 2026-08-25).
+
+    형님 지시: **"각 화면에서 뒤로 가기를 누르면 바로 전단계로 이동하게 코딩해"**.
+
+    실측(데모 · 브라우저 · 고치기 전): 정산 탭 -> 돌발AS -> 정기점검 으로 **두 번**
+    옮겼는데 걸음은 `tab:dash` **한 칸**이었고 뒤로가기 한 번에 **대시보드로 통째로
+    나갔다**. 탭 전환(show)과 시트(showSheet)는 걸음을 쌓는데 **하위 갈래(setMode)만
+    안 쌓았다** — 화면은 멀쩡히 바뀌므로 오류도 안 난다([165]).
+
+    실측(고친 뒤 · 실제 클릭): 정기점검 -> 돌발AS -> 정산·청구 -> 대시보드.
+    켠 단추까지 따라온다.
+
+    ★ 여기서 얼리는 것은 **계약**이다([39]) — 걸음 수와 되돌아간 자리를 결과로 잰다.
+    """
+    import io, json, re, shutil, subprocess, tempfile
+    html = io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read()
+
+    def grab(pat, why):
+        m = re.search(pat, html, re.S)
+        assert m, "[428] %s 를 못 찾았다" % why
+        return m.group(0)
+
+    # 걸음 스택 선언까지 **실제 코드에서** 가져온다 — 가짜로 채우면 그 선언이
+    # 사라져도 이 검사가 통과한다([272]).
+    decl = grab(r"const _nav = \[\];.*?let _navRestoring = [^\n]*", "걸음 스택 선언")
+    push = grab(r"function navPush\(entry\)\{.*?\n\}", "navPush")
+    rest = grab(r"function navRestore\(e\)\{.*?\n\}", "navRestore")
+    show = grab(r"function show\(v\)\{.*?\n\}", "show")
+    pop = grab(r"window\.addEventListener\('popstate', \(\)=>\{.*?\n\}\);", "popstate 핸들러")
+    smd = grab(r"function setMode\(m\)\{.*?\n  mode = m;", "setMode 머리") + "\n}"
+
+    # (1) 하위 갈래가 걸음을 쌓는다 — **이번 고침의 본체**
+    assert "navPush({t:'view'" in smd, (
+        "[428] setMode 가 걸음을 안 쌓는다 — 정산 안에서 갈래를 옮긴 뒤 뒤로가기를 "
+        "누르면 대시보드로 통째로 나간다(형님이 짚으신 그것)")
+    assert "mode:mode" in smd, (
+        "[428] setMode 가 **바뀌기 전** 갈래를 안 넘긴다 — navPush 가 채우면 "
+        "이미 바뀐 값이 쌓여 한 걸음 어긋난다")
+
+    # (2) 되돌리기는 화면과 갈래를 **함께** 되돌린다
+    assert "applyView(e.view)" in rest and "setMode(e.mode)" in rest, (
+        "[428] 되돌리기가 하나만 되돌린다 — '정산 탭인데 돌발AS 목록'이 남는다")
+
+    # (3) 옛 모양('tab')도 받는다 — 코드가 바뀐 채 열려 있던 창([169])
+    assert "e.t === 'tab'" in pop, (
+        "[428] 옛 걸음 모양을 안 받는다 — 열어 둔 채였던 창이 뒤로가기 한 번에 홈으로 튄다")
+
+    got = _t428_run_nav(decl, push, rest, show, pop, smd)
+
+    # (4) 한 걸음씩 되돌아간다
+    assert got["갈래걸음"] == 1 and got["갈래걸음2"] == 2, (
+        "[428] 갈래를 옮겨도 걸음이 안 쌓인다: %r" % got)
+    assert got["뒤로1"] == ["settle", "as"], "[428] 뒤로 1회가 바로 전 갈래로 안 간다: %r" % got
+    assert got["뒤로2"] == ["settle", "settle"], "[428] 뒤로 2회가 어긋난다: %r" % got
+    assert got["뒤로3"] == ["dash", "settle"], "[428] 뒤로 3회가 홈으로 안 간다: %r" % got
+
+    # (5) **한 사람 동작 = 한 걸음**([172] 의 반대편 — 뒤로가기를 두 번 누르게 하면 안 된다)
+    assert got["한동작"] == 1, (
+        "[428] 한 번 눌렀는데 걸음이 %d 개다 — 사람이 뒤로가기를 그만큼 눌러야 한다" % got["한동작"])
+
+    # (6) 시트는 **접지 않는다** — 상세를 닫는 뒤로가기가 따로 필요하다
+    assert got["시트포함"] == 2, "[428] 시트가 접혔다 — 상세가 뒤로가기로 안 닫힌다: %r" % got
+
+    # (7) 되돌리는 중에는 다시 안 쌓인다(무한루프)
+    assert got["되돌린뒤걸음"] == 0, (
+        "[428] 되돌리기가 새 걸음으로 쌓인다 — 뒤로가기를 눌러도 제자리를 맴돈다")
+
+    # (8) 좁히는 것도 고장이다([172]) — 옛 동작이 안 깨졌다
+    assert got["옛모양"] == "run", "[428] 옛 걸음 모양이 안 먹는다: %r" % got
+    assert got["홈종료"] == 1, "[428] 홈에서 뒤로 눌러도 종료를 안 묻는다"
+
+    # (9) 계기 자기시험([272]) — 문을 하나씩 없애면 정말 잡히는가
+    for why, src, a, b, key, want in (
+            ("갈래 걸음", "smd", "if(m !== mode) navPush", "if(false) navPush", "갈래걸음", 0),
+            ("한 동작 접기", "push", "if(_navTick) return;", "", "한동작", 2),
+            ("되돌리는 중 잠금", "push", "if(_navRestoring) return;", "", "되돌린뒤걸음", 1)):
+        parts = {"push": push, "rest": rest, "show": show, "pop": pop, "smd": smd}
+        broken = parts[src].replace(a, b, 1)
+        assert broken != parts[src], "[428] %s 문을 못 찾았다 — 이 자기시험이 아무것도 안 잰다" % why
+        parts[src] = broken
+        bad = _t428_run_nav(decl, parts["push"], parts["rest"], parts["show"],
+                            parts["pop"], parts["smd"])
+        assert bad[key] == want, (
+            "[428] %s 을 없앴는데도 그대로였다(%s=%r) — 이 검사는 그 문을 재고 있지 않다"
+            % (why, key, bad[key]))
+
+    print("✅ [428] 뒤로가기 한 걸음씩 (하위 갈래 · 한 동작=한 걸음 · 시트는 따로 · 홈은 종료)")
+
+
+def _t428_run_nav(decl, push, rest, show, pop, smd):
+    """뒤로가기 코드를 **node 로 실제로 돌린다** — 창은 안 띄우고([272]) 제한을 건다([175])."""
+    import io, json, os, shutil, subprocess, tempfile
+    tmp = tempfile.mkdtemp(prefix="t428_")
+    try:
+        js = os.path.join(tmp, "nav.js")
+        body = (_T428_HARNESS.replace("__NAVSTATE__", decl).replace("__NAVPUSH__", push)
+                .replace("__NAVRESTORE__", rest).replace("__SHOW__", show)
+                .replace("__POPSTATE__", pop).replace("__SETMODE__", smd))
+        io.open(js, "w", encoding="utf-8").write(body)
+        # ⚠ 깃발을 변수로 넘기면 창 감사기([272])가 못 읽는다 — AST 로 훑기 때문이다.
+        pr = subprocess.Popen(["node", js], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        so, se = pr.communicate(timeout=60)
+        _err = se.decode("utf-8", "replace")
+        assert pr.returncode == 0, (
+            "[428] 하네스가 죽었다: %s" % (_err[:600] if len(_err) < 1200 else _err[:600] + " … " + _err[-300:]))
+        return json.loads(so.decode("utf-8").strip().splitlines()[-1])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+_T428_HARNESS = r'''
+var view='dash', mode='settle', POP=null;
+var _hist=[{}], closedSheet=0, guarded=0, exited=0;
+var history={
+  get length(){ return _hist.length; },
+  pushState:function(st){ _hist.push(st); },
+  back:function(){ if(_hist.length>1) _hist.pop(); if(POP) POP(); }
+};
+var window={ addEventListener:function(t,fn){ if(t==='popstate') POP=fn; } };
+function applyView(v){ view=v; }
+function curView(){ return view; }
+function closeSheet(){ closedSheet++; }
+function navGuard(){ guarded++; history.pushState({csosNav:'guard'},''); }
+function exitApp(){ exited++; }
+__NAVSTATE__
+__NAVPUSH__
+__NAVRESTORE__
+__SHOW__
+__SETMODE__
+__POPSTATE__
+(async function(){
+  var tick=function(){ return new Promise(function(r){ setTimeout(r,0); }); };
+  var out={}, reset=function(v,m){ _nav.length=0; view=v; mode=m; _hist=[{}]; };
+
+  // 하위 갈래 전환이 걸음을 쌓나 (tick 을 넘겨 '다른 동작'으로 만든다)
+  reset('settle','settle');
+  await tick(); setMode('as');  out['갈래걸음']  = _nav.length;
+  await tick(); setMode('pm');  out['갈래걸음2'] = _nav.length;
+  history.back(); out['뒤로1'] = [view, mode];
+  history.back(); out['뒤로2'] = [view, mode];
+
+  // 그 앞에 탭 걸음을 하나 두고 세 번째 뒤로가기까지 본다
+  reset('dash','settle');
+  await tick(); show('settle');
+  await tick(); setMode('as');
+  await tick(); setMode('pm');
+  history.back(); history.back(); history.back();
+  out['뒤로3'] = [view, mode];
+
+  // 한 사람 동작 = 한 걸음 (openRecord 모양: show 와 setMode 가 잇달아)
+  reset('dash','settle');
+  await tick(); show('settle'); setMode('as');
+  out['한동작'] = _nav.length;
+
+  // 시트는 접지 않는다
+  reset('dash','settle');
+  await tick(); show('settle'); navPush({t:'sheet'});
+  out['시트포함'] = _nav.length;
+
+  // 되돌리는 중에는 다시 안 쌓인다
+  reset('settle','pm');
+  _nav.push({t:'view', view:'dash', mode:'settle'}); history.pushState({csosNav:1},'');
+  await tick(); history.back();
+  out['되돌린뒤걸음'] = _nav.length - guarded * 0;   // guard 는 _nav 에 안 쌓인다
+  out['되돌린뒤'] = [view, mode];
+
+  // 옛 모양('tab')
+  reset('settle','settle');
+  _nav.push({t:'tab', from:'run'}); history.pushState({csosNav:1},'');
+  await tick(); history.back();
+  out['옛모양'] = view;
+
+  // 홈에서 뒤로 = 종료를 묻는다
+  reset('dash','settle'); exited=0;
+  await tick(); history.back();
+  out['홈종료'] = exited;
+
+  console.log(JSON.stringify(out));
+})();
+'''
+
+
 def t427_archive_posts_stops_itself_before_the_kill():
     """[427] 밴드 게시글 보관이 **바깥에서 죽기 전에 스스로 멈추고 보고서를 쓰는가**.
 
@@ -30423,6 +30615,104 @@ def t404_stuck_autorecovery_reaches_the_handoff():
     assert 전 == 후, "[404] 검증이 진짜 대기열 파일을 건드렸다([247])"
 
     print("✅ [404] 자율복구가 오래 못 푸는 일이 인계까지 온다 · 원인을 그대로 싣는다 (실행으로 잼)")
+
+def t429_queue_says_what_is_actually_left():
+    """[429] 대기열 "남은 건수"를 **갈래로 갈라** 말한다 (2026-08-25 형님 물음).
+
+    형님 물음: "몇날 몇일 수집하는데 왜 완료가 안되나?"
+    실측이 답했다 — 대기열 782건 중 **오염이 661건(85%)** 인데 화면은 그것을
+    "밀린 글 782" 한 덩어리로만 말했다. 그러니 며칠이 지나도 숫자가 안 줄고,
+    실제로 할 일이 121건뿐이라는 사실이 어디에도 안 떴다([169]).
+
+    ★ 판정을 새로 만들지 않는다([162]) — 갈래별 건수는 collect_queue 가 이미
+      `건수` 로 적어 두고 load_plan 이 실어 준다. 화면이 안 읽고 있었을 뿐이다.
+    ★ **글자로는 못 잰다**([295]) — 갈라 세는지, 표에 실제로 적히는지는
+      불러서 결과로 잰다. 실측 증거 파일은 한 글자도 안 건드린다([247]).
+    """
+    import importlib
+    band_dir = os.path.join(ROOT, "band")
+    if band_dir not in sys.path:
+        sys.path.insert(0, band_dir)
+    W = importlib.import_module("userscript_watch")
+    CQ = importlib.import_module("collect_queue")
+
+    # ① 갈래를 갈라 센다 — 오염만 "느림", 나머지는 "할일"
+    g = W._split_tiers({"미수집": 5, "재수집": 102, "댓글": 1, "오염": 505}, 613)
+    assert g and g["할일"] == 108 and g["느림"] == 505, (
+        "[429] 갈래를 안 가른다: %r" % (g,))
+
+    # ② 느린 갈래 낱말은 collect_queue 한 곳에서 온다([162]).
+    #    여기 손으로 적어 두면 갈래가 늘어난 날 이 화면만 옛 표를 본다([165]).
+    old = CQ.SLOW_REVIVE
+    try:
+        CQ.SLOW_REVIVE = ("재수집",)          # 표를 갈아 끼우면 판정이 따라와야 한다
+        g2 = W._split_tiers({"재수집": 7, "오염": 3}, 10)
+        assert g2["느림"] == 7 and g2["할일"] == 3, (
+            "[429] 느린 갈래 낱말이 collect_queue 표를 안 따라간다: %r" % (g2,))
+    finally:
+        CQ.SLOW_REVIVE = old                  # 모듈 속성은 프로세스 전체의 것이다([371])
+
+    # ③ **못 읽으면 0 이라 하지 않는다**([169]) — 건수 칸이 없으면 갈래를
+    #    모르는 것이지 "느린 것이 없다"가 아니다. 그때는 한 덩어리로 되돌아간다.
+    assert W._split_tiers(None, 10) is None, "[429] 건수를 모르는데 갈래를 지어낸다"
+    assert W._split_tiers({}, 10) is None, "[429] 빈 건수를 0 으로 읽는다"
+
+    # ④ judge 가 밴드마다 갈래를 같이 싣는다 — 합성 plan 으로 **실행해서** 잰다.
+    #    judge 는 plan 을 인자로 받으므로 진짜 파일이 안 끼어든다.
+    from datetime import datetime, timedelta
+    now = datetime(2026, 8, 25, 22, 0, 0)
+    저 = (now - timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M:%S")
+    doc = {"밴드": {"84789192": {"state": "start", "at": 저, "요청": 172}}}
+    plan = {"있음": True, "생성": "2026-08-25T20:10:14", "나이": 2.0,
+            "대기열상태": "정상", "밴드수": 1, "글수": 169,
+            "밴드별": {"84789192": 169},
+            "밴드별갈래": {"84789192": {"할일": 13, "느림": 156, "합": 169,
+                                      "느린갈래": ["오염"]}}}
+    st = W.judge(doc, "", now=now, plan=plan)
+    r = (st.get("밴드") or {}).get("84789192") or {}
+    assert (r.get("밀린갈래") or {}).get("느림") == 156, (
+        "[429] judge 가 갈래를 안 싣는다: %r" % (r.get("밀린갈래"),))
+
+    # ⑤ 표·요약이 실제로 갈라 적는다 — render 를 불러 결과 글자로 잰다.
+    st["크롬쪽"] = {"확장": "모름", "스크립트": "모름", "판": None,
+                    "프로필": None, "왜": "시험", "지문": None}
+    md = W.render(st)
+    assert "할일 13" in md and "오염 156" in md, (
+        "[429] 표가 갈래를 안 적는다 — 한 덩어리로만 말하면 며칠이 지나도 "
+        "안 줄어 보인다")
+    assert "할 일 13건" in md, "[429] 요약이 할 일 건수를 안 적는다"
+
+    # ⑥ **정상까지 말하지 않는다**([170]) — 오염이 0 이면 조용해야 한다.
+    plan2 = dict(plan, 밴드별갈래={"84789192": {"할일": 13, "느림": 0, "합": 13,
+                                              "느린갈래": ["오염"]}})
+    st2 = W.judge(doc, "", now=now, plan=plan2)
+    st2["크롬쪽"] = st["크롬쪽"]
+    md2 = W.render(st2)
+    # ⚠ 맨몸 "할 일" 로 재면 안 된다 — 리포트에는 원래 `- 할 일:` 이라는 **조치 줄**이
+    #   있어서 이 고침과 무관하게 언제나 걸린다(만들면서 그대로 밟았다 · [309]:
+    #   검증이 빨개지면 코드부터 의심하기 전에 기대를 확인한다).
+    assert "오염 0" not in md2 and "할 일 13건" not in md2 and "할일 13" not in md2, (
+        "[429] 오염이 0 인데도 갈래를 떠든다 — 정상까지 말하면 아무도 안 읽는다")
+
+    # ⑦ 계기 자신을 시험한다([272]) — 가르는 문을 없애면 잡혀야 한다.
+    real = W._split_tiers
+    try:
+        W._split_tiers = lambda 건수, 전체: None      # 옛 동작(한 덩어리)
+        plan3 = W.plan_state.__wrapped__ if hasattr(W.plan_state, "__wrapped__") else None
+        g3 = W._split_tiers({"오염": 5}, 5)
+        assert g3 is None, "[429] 목이 안 걸렸다"
+        st3 = W.judge(doc, "", now=now,
+                      plan=dict(plan, 밴드별갈래={"84789192": None}))
+        st3["크롬쪽"] = st["크롬쪽"]
+        md3 = W.render(st3)
+        assert "할일 13" not in md3, (
+            "[429] 계기 자기시험: 갈래를 없앴는데도 표가 갈라 적는다 — "
+            "이 검사는 아무것도 안 재고 있다")
+    finally:
+        W._split_tiers = real
+
+    print("  [429] 대기열이 할 일과 오염을 갈라 말한다(며칠이 지나도 "
+          "안 줄어드는 숫자의 정체) " + chr(9989))
 
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
@@ -37519,6 +37809,8 @@ if __name__ == "__main__":
     t425_reharvest_that_bounces_back_says_so()
     t426_camp_code_reaches_the_screen()
     t427_archive_posts_stops_itself_before_the_kill()
+    t428_back_goes_one_step_at_a_time()
+    t429_queue_says_what_is_actually_left()
     t424_resource_failures_that_already_passed()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

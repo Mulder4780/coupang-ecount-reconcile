@@ -9843,7 +9843,7 @@ async function revCapture(){
 
 function show(v){
   const from = curView();
-  if(v !== from) navPush({t:'tab', from:from});
+  if(v !== from) navPush({t:'view', view:from});
   applyView(v);
 }
 function routeNav(v){
@@ -13837,6 +13837,11 @@ async function loadSettleOnce(fresh){
   return results.every(x=>x.ok&&x.accepted);
 }
 function setMode(m){
+  /* ★ 하위 갈래도 한 걸음이다 (형님 지시 2026-08-25: "각 화면에서 뒤로 가기를 누르면
+     바로 전단계로 이동"). 예전에는 정산 → 돌발AS → 정기점검 으로 옮긴 뒤 뒤로가기를
+     누르면 **대시보드로 통째로 나갔다** — 실측으로 nav 에 탭 한 칸만 쌓여 있었다.
+     ★ 바꾸기 **전** 갈래를 명시로 넘긴다 — navPush 가 채우면 이미 바뀐 값이 쌓인다. */
+  if(m !== mode) navPush({t:'view', view:curView(), mode:mode});
   mode = m;
   document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on', b.dataset.m===m));
   resetSort();                       // 탭을 바꾸면 항상 기본 순서(과거→최근)로 복귀
@@ -14679,10 +14684,39 @@ let _bgScroll = null;        // 배경을 잠글 때 저장한 스크롤 위치
      종료할지 물어볼 기회조차 없어진다.                                        */
 const _nav = [];             // 우리가 history 에 쌓아 둔 것들(뒤로가기 1회 = 1개 되돌리기)
 let _navSkip = 0;            // history.go(-n) 이 부를 popstate 를 그만큼 무시한다
+let _navTick = false;        // 한 동작 안에서 화면이 여러 번 바뀌어도 되돌아갈 곳은 하나다
+let _navRestoring = false;   // 되돌리는 중에는 다시 쌓지 않는다(무한루프)
 
+/* 화면 한 걸음을 쌓는다.
+
+   ★ **한 사람 동작 = 한 걸음이다.** openRecord 처럼 탭과 하위 갈래를 잇달아 바꾸는
+     자리가 있어(show → setMode) 그대로 쌓으면, 사람은 한 번 눌렀는데 뒤로가기를
+     두 번 눌러야 제자리로 온다 — 그건 "바로 전 단계"가 아니다. 되돌아갈 곳은
+     **그 동작을 시작하기 전의 화면 하나**이므로 같은 tick 의 두 번째 전환부터
+     접는다. 시트('sheet')는 접지 않는다 — 상세를 닫는 뒤로가기가 따로 필요하다.
+
+   ★ 하위 갈래(mode)를 **같은 칸에** 담는다. 따로 두면 되돌릴 때 "정산 탭인데
+     돌발AS 목록" 같은 어긋난 화면이 남는다.                                     */
 function navPush(entry){
+  if(_navRestoring) return;
+  if(entry.t === 'view'){
+    if(_navTick) return;
+    _navTick = true;
+    queueMicrotask(()=>{ _navTick = false; });
+    if(entry.mode === undefined) entry.mode = mode;
+  }
   _nav.push(entry);
   history.pushState({csosNav:_nav.length}, '');
+}
+
+/* 화면과 하위 갈래를 **함께** 되돌린다. 되돌리는 동안은 navPush 가 막혀 있어
+   되돌리기 자체가 새 걸음으로 쌓이지 않는다. */
+function navRestore(e){
+  _navRestoring = true;
+  try{
+    if(e.view) applyView(e.view);
+    if(e.mode && e.mode !== mode) setMode(e.mode);
+  }finally{ _navRestoring = false; }
 }
 function navGuard(){ history.pushState({csosNav:'guard'}, ''); }
 
@@ -14701,7 +14735,10 @@ window.addEventListener('popstate', ()=>{
   if(_navSkip > 0){ _navSkip--; return; }
   const e = _nav.pop();
   if(e && e.t === 'sheet'){ closeSheet(true); navGuard(); return; }
-  if(e && e.t === 'tab'){ applyView(e.from); navGuard(); return; }
+  if(e && e.t === 'view'){ navRestore(e); navGuard(); return; }
+  /* 옛 모양('tab') — 코드가 바뀐 뒤에도 **열어 둔 채였던 창**의 뒤로가기가 안 깨지게
+     받는다. 안 받으면 그 창은 뒤로가기 한 번에 홈으로 튄다([169]). */
+  if(e && e.t === 'tab'){ navRestore({view:e.from}); navGuard(); return; }
   // 되돌릴 게 없다 — 홈(대시보드)이 아니면 홈으로, 홈이면 종료를 묻는다.
   if(curView() !== 'dash'){ applyView('dash'); navGuard(); return; }
   exitApp();
