@@ -1374,6 +1374,31 @@ def status(
 
 
 def self_test() -> bool:
+    # ★ 주 1회 문([417])을 이 검사 안에서만 연다 — 2026-08-25 실사고.
+    #   `_needs_archive` 는 합성 root·store 를 받고도 **진짜 `ledger_db`** 를 읽는다
+    #   (`_ldb.counts()` 는 모듈에 굳은 db 경로다). 그래서 이번 주 보관본이 한 번
+    #   만들어지면 그 뒤로 이 검사가 **요일에 따라** 빨개졌다 — 형님이 시킨 일을
+    #   했다고 관문이 빨개지는 자리다([170]). 그 관문은 `daily_run` 의 **0단계**라
+    #   그날 아침 대조가 통째로 안 돈다(실측 2026-08-25 09:59). 그리고 검사는
+    #   실측 증거를 읽지 않는다([247]) — [227] 과 같은 모양이고 자리만 다르다.
+    # ★ 재는 것을 바꾸지 않았다([172]): 여기서 묻는 것은 "자료가 바뀌면 단계가 도는가"
+    #   이고 주 1회 규칙은 다른 축이다. 그 규칙은 [417] 이 따로 잰다.
+    # ⚠ 모듈 전역이라 프로세스 전체의 것이다 — finally 로 되돌린다([371]).
+    _weekly_guard_isolated = None
+    try:
+        import ledger_db as _ldb_iso
+        _weekly_guard_isolated = _ldb_iso.weekly_blocked
+        _ldb_iso.weekly_blocked = lambda *a, **k: False
+    except Exception:
+        _ldb_iso = None
+    try:
+        return _self_test_body()
+    finally:
+        if _ldb_iso is not None and _weekly_guard_isolated is not None:
+            _ldb_iso.weekly_blocked = _weekly_guard_isolated
+
+
+def _self_test_body() -> bool:
     with tempfile.TemporaryDirectory(prefix="automation-pipeline-") as temp:
         root = Path(temp)
         for folder in (
