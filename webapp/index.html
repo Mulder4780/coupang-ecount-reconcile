@@ -421,7 +421,14 @@ button:focus-visible,.topitem:focus-visible,.srow:focus-visible,.check-kpi:focus
 /* 사이드바(≥900px)는 가로 배치라 오른쪽 끝에 세운다. 폰 하단바는 세로라 위 기본값
    (오른쪽 위 모서리)이 그대로 맞다 — 한 규칙으로 둘 다 되게 둔다. */
 @media(min-width:900px){
-  .tabbar button .nav-n{position:static;margin-left:auto;flex:0 0 auto}
+  /* ★ 사이드바는 **테마와 무관하게 짙은 남색**이다(실측 rgb(14,27,63)) — 그래서
+     위의 '글자색' 방식이 여기서는 안 맞는다(실측 명암비 **2.87** 미달). 이 자리는
+     테마가 안 바뀌므로 **한 색 짝**을 못 박는 것이 옳고, 바로 위 `.tabbar button`
+     규칙도 같은 이유로 `color:#93A5D6` 을 쓴다. 흰 글자 on #C7362B = **5.23**.
+     ([332] 가 막는 것은 *테마 토큰에 굳은 폴백을 다는 것*이지, 테마가 없는 자리에
+      한 색을 정하는 것이 아니다 — 여기 토큰을 쓰면 오히려 한쪽 테마가 무너진다.) */
+  .tabbar button .nav-n{position:static;margin-left:auto;flex:0 0 auto;
+    background:#C7362B;color:#fff}
 }
 /* iOS 탭바는 선택을 막대가 아니라 **색**으로 알린다. 막대는 안드로이드/웹 관습이다.
    데스크톱 사이드바(≥861px)에서는 왼쪽 레일 표시를 유지한다 — 그건 macOS 의 결이다. */

@@ -31012,6 +31012,184 @@ def t429_queue_says_what_is_actually_left():
     print("  [429] 대기열이 할 일과 오염을 갈라 말한다(며칠이 지나도 "
           "안 줄어드는 숫자의 정체) " + chr(9989))
 
+def t432_menu_says_how_many_before_you_click():
+    """[432] 메뉴가 **누르기 전에** 몇 건인지 말한다 (형님 2026-08-25 지시).
+
+    형님 지시: "앱이 최적화 되어있었으면 좋겠어 기능도 고도화되고 **사용자가
+    이해하고 사용하기 쉽게 구성** 내가 사용할거야".
+
+    ★ 근거는 짐작이 아니라 실측이다([67]). 최근 7일 화면 이동 **982회** 중
+      10초 안에 되돌아온 왕복이 **70회**였고 그중 13회는 그 화면에서
+      **아무것도 안 눌렀다**. 나머지도 누른 것이 메뉴 이동뿐이다 — 곧
+      **눌러 보기 전에는 그 화면에 무엇이 있는지 몰라서** 들어갔다 나온 것이다
+      (`돌발AS↔정기점검` 은 중앙값 **2초** · 화면을 읽을 시간도 안 된다).
+      그때 메뉴 17개에는 숫자가 **하나도 없었다**.
+
+    실측(고친 뒤 · 브라우저): 정기점검 지연 **2** · 확인 필요 **13** 배지 ·
+    돌발AS 0건은 **조용** · 나머지 16개 메뉴는 안 붙음 · 명암비 **5.26**(두 테마).
+
+    ★ **글자로는 못 잰다**([295]) — 못 세는 것과 0 을 가르는지, 0 이면 정말
+      조용한지는 불러서 결과로 잰다.
+    """
+    import io, os, re
+    html = io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read()
+
+    # ① CSS 규칙이 **실재한다** — 마크업만 넣고 규칙이 없으면 아무 일도
+    #    안 일어나면서 코드에는 class 가 적혀 있어 있는 줄 안다([310]).
+    css = re.sub(r"/\*.*?\*/", " ", html, flags=re.S)   # 규칙을 세기 전에 주석을 걷는다([332])
+    assert ".tabbar button .nav-n{" in css, (
+        "[432] 배지 CSS 가 없다 — 숫자를 붙여도 화면에 안 보인다([310])")
+    m = re.search(r"@media\s*\(min-width:900px\)\s*{[^}]*\.nav-n{([^}]*)}", css)
+    assert m, "[432] 사이드바(≥900px) 배지 규칙이 없다 — 가로 배치라 자리가 다르다"
+    assert "background:#C7362B" in m.group(1) and "color:#fff" in m.group(1), (
+        "[432] 사이드바 배지가 글자색 방식으로 돌아갔다 — 사이드바 바탕은 테마와 "
+        "무관하게 짙은 남색이라 글자색 방식은 명암비 2.87 로 미달이었다([310])")
+
+    got = _t432_run_nav(html)
+
+    # ② **판정을 새로 만들지 않는다**([162]) — 화면이 이미 쓰는 함수를 빌린다.
+    #    여기서 다시 세면 툴바 `지연 N` 과 사이드바가 다른 숫자를 말한다.
+    # 물어야 할 것은 **빌리는가**이지 몇 번 불렀나가 아니다 — navCounts 는 화면을
+    # 바꿀 때마다 불리므로 횟수를 못 박으면 그 검사는 계약이 아니라 구현을 얼린다([39]).
+    assert sorted(set(got["빌린판정"])) == ["needAction", "wtLateFn:as", "wtLateFn:pm"], (
+        "[432] 판정을 빌리지 않고 제 손으로 센다: %r" % (got["빌린판정"],))
+
+    # ③ **못 세면 0 이 아니라 모름이다**([169]) — 자료가 아직 안 온 것과
+    #    할 일이 없는 것은 다른 사실이다. 0 으로 적으면 화면이 거짓을 확언한다.
+    assert got["안온것"] is None, "[432] 자료가 안 왔는데 0 이라 말한다"
+    assert got["안온것_배지"] is False, "[432] 모르는데 배지를 붙였다"
+
+    # ④ **0 이면 조용하다**([170]) — 정상까지 말하면 아무도 안 읽는다.
+    assert got["영_배지"] is False, "[432] 0 건인데 배지를 붙인다"
+
+    # ⑤ **손이 필요한 것만** 센다([172]) — 리모컨·캠프에 몇 건을 붙이면
+    #    그것이 할 일처럼 보인다(없는 일을 만드는 쪽이라 더 나쁘다).
+    assert got["남의메뉴"] == [None, None, None], (
+        "[432] 손이 필요하지 않은 메뉴에까지 숫자를 붙인다: %r" % (got["남의메뉴"],))
+
+    # ⑥ 숫자가 뜨고 **무슨 숫자인지 말한다**([177]).
+    assert got["지연_값"] == "3", "[432] 지연 건수가 안 뜬다: %r" % (got["지연_값"],)
+    assert "지난 미완료" in (got["지연_설명"] or ""), (
+        "[432] 무슨 숫자인지 안 말한다 — 접수인지 지연인지 아무도 모른다([177])")
+    assert got["확인_값"] == "2", "[432] 확인 필요 건수가 안 뜬다"
+
+    # ⑦ 자료가 **줄면 배지도 줄고 0 이 되면 사라진다** — 낡은 숫자가 남으면
+    #    그것이 곧 화면이 거짓을 말하는 자리다([169]).
+    assert got["줄어든뒤_값"] == "1", "[432] 자료가 줄었는데 옛 숫자가 남는다"
+    assert got["비운뒤_배지"] is False, "[432] 0 이 됐는데 배지가 안 사라진다"
+
+    # ⑧ 계기 자기시험([272]) — 문을 없애면 정말 잡히는가.
+    #    안 잡히면 이 검사는 아무것도 안 재고 있는 것이다.
+    broken = html.replace("if(n===null || n===0){ if(el) el.remove(); return; }",
+                          "if(false){ if(el) el.remove(); return; }", 1)
+    assert broken != html, "[432] 자기시험 앵커를 못 찾았다 — 이 검사가 헛돈다"
+    bad = _t432_run_nav(broken)
+    assert bad["영_배지"] is True or bad["안온것_배지"] is True, (
+        "[432] 계기 자기시험: 조용히 하는 문을 없앴는데도 통과한다 — "
+        "이 검사는 아무것도 안 재고 있다")
+
+    print("  [432] 메뉴가 누르기 전에 몇 건인지 말한다(0이면 조용·모르면 조용) " + chr(9989))
+
+
+def _t432_run_nav(html):
+    """`navCountFor`·`navCounts` 를 **node 로 실제로 돌린다**([295])."""
+    import io, json, os, re, shutil, subprocess, tempfile
+    parts = []
+    for pat, why in ((r"const NAV_N_WHY = {.*?};", "설명 표"),
+                     (r"function navCountFor\(v\){.*?\n}", "navCountFor"),
+                     (r"function navCounts\(\){.*?\n}", "navCounts")):
+        m = re.search(pat, html, re.S)
+        assert m, "[432] %s 를 못 찾았다" % why
+        parts.append(m.group(0))
+    tmp = tempfile.mkdtemp(prefix="t432_")
+    try:
+        js = os.path.join(tmp, "nav.js")
+        io.open(js, "w", encoding="utf-8").write(
+            _T432_HARNESS.replace("__PARTS__", chr(10).join(parts)))
+        pr = subprocess.Popen(["node", js], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        so, se = pr.communicate(timeout=60)
+        _err = se.decode("utf-8", "replace")
+        assert pr.returncode == 0, "[432] 하네스가 죽었다: %s" % _err[:700]
+        return json.loads(so.decode("utf-8").strip().splitlines()[-1])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+_T432_HARNESS = r'''
+// 가짜 DOM — 진짜 화면 없이 계약만 잰다.
+var CALLS = [];
+function mkSpan(){
+  var a = {}; var self = {
+    className: '', textContent: '', _parent: null,
+    setAttribute: function(k,v){ a[k]=v; }, getAttribute: function(k){ return k in a ? a[k] : null; },
+    remove: function(){ if(self._parent) self._parent._kids = self._parent._kids.filter(function(x){return x!==self;}); }
+  };
+  return self;
+}
+function mkBtn(v){
+  var attrs = {}; var self = {
+    dataset: {v: v}, _kids: [],
+    querySelector: function(sel){
+      var found = self._kids.filter(function(k){ return k.className === 'nav-n'; });
+      return found.length ? found[0] : null;
+    },
+    appendChild: function(k){ k._parent = self; self._kids.push(k); },
+    setAttribute: function(k,val){ attrs[k]=val; },
+    getAttribute: function(k){ return k in attrs ? attrs[k] : null; },
+    get title(){ return attrs.title; }, set title(x){ attrs.title = x; }
+  };
+  return self;
+}
+var BTNS = [];
+var document = {
+  querySelectorAll: function(){ return BTNS; },
+  createElement: function(){ return mkSpan(); }
+};
+// 화면이 이미 쓰는 판정 — 목으로 갈아 끼워 **빌리는지**를 잰다([162]).
+var works = {};
+var settleRows = [];
+function wtLateFn(k){ CALLS.push('wtLateFn:' + k); return function(r){ return !!r.late; }; }
+function needAction(r){ if(CALLS.indexOf('needAction') < 0) CALLS.push('needAction'); return !!r.need; }
+__PARTS__
+(function(){
+  var out = {};
+  var badge = function(v){
+    var b = BTNS.filter(function(x){ return x.dataset.v === v; })[0];
+    return b ? b.querySelector('.nav-n') : null;
+  };
+  BTNS = ['pm','as','check','remote','camps','settle'].map(mkBtn);
+
+  // (가) 자료가 아직 안 왔다 — 0 이 아니라 모름이어야 한다
+  works = {}; settleRows = [];
+  out['안온것'] = navCountFor('as');
+  navCounts();
+  out['안온것_배지'] = !!badge('as');
+
+  // (나) 자료는 왔는데 지연이 0 — 조용해야 한다
+  works = { as: [{late:false},{late:false}], pm: [{late:true},{late:true},{late:true}] };
+  settleRows = [{need:true},{need:true},{need:false}];
+  CALLS = [];
+  navCounts();
+  out['영_배지'] = !!badge('as');
+  out['지연_값'] = badge('pm') ? badge('pm').textContent : null;
+  out['지연_설명'] = BTNS.filter(function(x){return x.dataset.v==='pm';})[0].getAttribute('title');
+  out['확인_값'] = badge('check') ? badge('check').textContent : null;
+  out['빌린판정'] = CALLS;
+  out['남의메뉴'] = ['remote','camps','settle'].map(function(v){ return navCountFor(v); });
+
+  // (다) 자료가 줄면 숫자도 줄고, 0 이 되면 사라진다
+  works.pm = [{late:true}];
+  navCounts();
+  out['줄어든뒤_값'] = badge('pm') ? badge('pm').textContent : null;
+  works.pm = [{late:false}];
+  navCounts();
+  out['비운뒤_배지'] = !!badge('pm');
+
+  console.log(JSON.stringify(out));
+})();
+'''
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -38109,6 +38287,7 @@ if __name__ == "__main__":
     t427_archive_posts_stops_itself_before_the_kill()
     t428_back_goes_one_step_at_a_time()
     t429_queue_says_what_is_actually_left()
+    t432_menu_says_how_many_before_you_click()
     t430_slow_buttons_show_that_they_were_pressed()
     t431_status_survives_a_restart()
     t424_resource_failures_that_already_passed()
