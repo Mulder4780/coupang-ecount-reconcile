@@ -20531,7 +20531,16 @@ def t219_noon_round_is_daily_windowed_and_yields():
             N.MARKER = os.path.join(td, "marker.json")
             N.REPORT_MD = os.path.join(td, "report.md")
             sys.argv = ["noon_run.py"]                 # 창 밖 시각이라 go=False 경로로 간다
-            os.environ["COUPANG_NOON_WINDOW"] = "00:00-00:01"
+            # ★ **창 밖은 지금 시각에서 멀리 떨어진 값으로 고른다.** 예전에는
+            #   `"00:00-00:01"` 을 못 박아 뒀는데, 진짜 자정 직후에 관문이 돌면
+            #   그것이 **창 안**이 되어 회차가 돌고 `done_date` 가 적혔다 —
+            #   곧 **하루 1분 동안 반드시 죽는 검사**였다(2026-08-26 00:0x 실측).
+            #   이 관문은 `daily_run` 의 0단계라 그 1분에 걸린 회차는 **그날 대조가
+            #   통째로 안 돈다**([412] 와 같은 값). 게다가 사람은 "정오회차가
+            #   깨졌다"로 읽어 **멀쩡한 `noon_run` 을 고치러 간다**([172]).
+            #   얼릴 것은 계약("양보를 완주로 적지 않는다")이지 특정 시각이 아니다([39]).
+            _far_h = (_dt.datetime.now().hour + 6) % 24
+            os.environ["COUPANG_NOON_WINDOW"] = "%02d:00-%02d:01" % (_far_h, _far_h)
             assert N.main() == 0
             saved = json.load(open(N.MARKER, encoding="utf-8"))
             assert "done_date" not in saved and saved.get("skips"), \
