@@ -718,8 +718,8 @@ def apply_codes(rows, path=None):
             r.setdefault("추정코드", "")
             r["코드갈래"] = "못읽음"
             r["코드근거"] = "대조표를 못 읽었다: %s" % str(e)[:60]
-        return {"코드못읽음": "%s: %s" % (type(e).__name__, str(e)[:60]),
-                "코드붙임": {}, "코드충돌": 0}
+        # 건수는 `summarize` 가 행에서 센다 — 여기서 또 세면 사본이 둘이 된다([162]).
+        return {"코드못읽음": "%s: %s" % (type(e).__name__, str(e)[:60])}
 
     by = {}
     for m in 대조:
@@ -731,7 +731,6 @@ def apply_codes(rows, path=None):
             if k2:
                 by.setdefault(k2, m)
 
-    붙임, 충돌 = {}, 0
     for r in rows:
         후보 = []
         for name in [r.get("캠프명")] + list(r.get("다른표기") or []):
@@ -764,7 +763,6 @@ def apply_codes(rows, path=None):
             # 조용히 덮지도 무시하지도 않는다([169]) — 사람이 고른다.
             r["코드갈래"] = "충돌"
             r["코드근거"] = "이미 적힌 %s 와 대조표 %s 가 다르다" % (기존, 확정)
-            충돌 += 1
             continue
         if 확정 and not 기존:
             r["거래처코드"] = 확정
@@ -773,8 +771,7 @@ def apply_codes(rows, path=None):
         r["코드갈래"] = 낱말 if (m or 기존) else "모름"
         근거 = str((m or {}).get("추정근거") or "").strip()
         r["코드근거"] = (뜻 + (" · " + 근거 if (낱말 == "추정" and 근거) else "")) if m else 뜻
-        붙임[r["코드갈래"]] = 붙임.get(r["코드갈래"], 0) + 1
-    return {"코드붙임": 붙임, "코드충돌": 충돌, "코드못읽음": ""}
+    return {"코드못읽음": ""}
 
 
 def build():
@@ -968,12 +965,22 @@ def sort_rows(rows):
 
 def summarize(rows):
     tel = sum(1 for r in rows if has_tel(r))
+    # ★ 코드 건수도 **행에서 센다**([162]). `apply_codes` 가 제 손으로 세면 그 숫자는
+    #   **회차가 만든 그 순간의 것**이라, 사람이 코드를 확인해 주거나(`camp_edit`)
+    #   캠프를 숨겨도 머리글은 안 따라간다 — 화면과 머리글이 서로 다른 말을 한다([169]).
+    #   세는 자리가 하나면 `camp_edit.overlay` 가 이 함수를 부르는 것만으로 따라온다.
+    갈래 = {}
+    for r in rows:
+        k = str(r.get("코드갈래") or "모름")
+        갈래[k] = 갈래.get(k, 0) + 1
     return {
         "캠프수": len(rows),
         "정기점검캠프수": sum(1 for r in rows if r.get("정기점검")),
         "전화있음": tel,
         "전화모름": len(rows) - tel,
         "이름확인필요": sum(1 for r in rows if r.get("이름확인필요")),
+        "코드붙임": 갈래,
+        "코드충돌": 갈래.get("충돌", 0),
     }
 
 

@@ -18513,7 +18513,11 @@ function campCodeText(r){
   r = r || {};
   const 확정 = String(r.거래처코드||'').trim(), 추정 = String(r.추정코드||'').trim();
   const 갈래 = String(r.코드갈래||'');
-  if(확정) return 확정;
+  /* ★ 확정도 종류가 있다([169]) — 기계가 이름으로 맞춘 것(A·C)과 사람이 확인해
+     준 것(사람확인)과 서로 어긋난 것(충돌)은 근거의 세기가 다르다. 코드만 적으면
+     받아 본 사람이 셋을 구별 못 한다. */
+  if(확정) return 확정 + (갈래==='사람확인' ? ' (사람 확인)'
+                       : 갈래==='충돌' ? ' (충돌 — 확인 필요)' : '');
   if(추정) return 추정 + ' (추정)';
   return CAMP_CODE_WORD[갈래] || '모름';
 }
@@ -18527,7 +18531,9 @@ function campCode(r){
     + ' onclick="event.stopPropagation();campCodeCopy(this.dataset.code)"'
     + ' title="'+esc2((근거||'ERP 거래처코드')+' — 눌러서 복사')+'">'+esc2(v)+'</button>';
   if(확정) return copy(확정)
-    + (갈래==='충돌' ? ' <span class="badge warn" title="'+esc2(근거)+'">충돌</span>' : '');
+    + (갈래==='충돌' ? ' <span class="badge warn" title="'+esc2(근거)+'">충돌</span>'
+     : 갈래==='사람확인' ? ' <span class="badge" title="'+esc2(근거)+'">사람 확인</span>'
+     : '');
   if(추정) return copy(추정)
     + ' <span class="badge warn" title="'+esc2(근거||'이름·주소로 지목한 것 — 확정이 아닙니다')+'">추정</span>';
   return '<span class="norm" title="'+esc2(근거||'대조표에 이 캠프가 없습니다')+'">'
@@ -18771,7 +18777,11 @@ let CAMP_EDIT = null;                    // {행, 판, 자동지문, 바뀐칸:S
 function campFieldRows(r){
   /* 칸 목록은 `CAMP_ROLES` 에서 만든다 — 역할을 늘리면 폼도 저절로 따라간다([162]). */
   const out = [['캠프명','캠프명','text'], ['캠프주소','캠프주소','text'],
-               ['거래처코드','거래처코드','text']];
+               ['거래처코드','거래처코드','text'],
+               /* ★ 사람이 코드를 확인해 줬으면 **근거를 같이 적는다**([235]-4).
+                  이 표는 유니웍스에 코드를 적는 사람이 읽으므로, 기계가 이름으로
+                  맞춘 것과 사람이 확인해 준 것은 갈라 보여야 한다. */
+               ['거래처코드근거','거래처코드 근거 (예: 노승용 매니저 확인 2026-08-25)','text']];
   CAMP_ROLES.forEach(([k,label])=>{
     ['이름','전화','메일'].forEach(sub=>{
       out.push([k+'.'+sub, label+' '+(sub==='메일'?'이메일':sub), sub==='전화'?'tel':'text']);
