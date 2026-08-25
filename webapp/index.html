@@ -16243,7 +16243,7 @@ function renderRecalc(rc){
 }
 
 var CAL = null, CAL_REQUEST_GENERATION = 0;   // let 이면 applyView 가 먼저 불릴 때 TDZ 로 죽는다
-let REPORT_PREPARE = null, REPORT_PREPARE_FLIGHT = null;
+let REPORT_PREPARE = null, REPORT_PREPARE_FLIGHT = null, REPORT_WARM_FLIGHT = null;
 /* '대표 보고 준비'는 화면 저장 버튼의 앞단에 있는 공통 관문이다. AppStore 저장분과
    캘린더를 다시 읽고, 서버가 중복·당일 예정·수집 공백을 판정한 뒤에만 그림을 만든다. */
 async function prepareRepresentativeReport(month='', day=''){
@@ -16265,12 +16265,27 @@ async function prepareRepresentativeReport(month='', day=''){
     const refresh=[];
     try{ refresh.push(Promise.resolve(warmReport(true))); }catch(e){}
     try{ refresh.push(Promise.resolve(loadBrief(targetDay))); }catch(e){}
-    if(refresh.length) await Promise.race([
-      Promise.allSettled(refresh), new Promise(r=>setTimeout(r,25000))
-    ]);
+    /* ★ 재조회는 **언제나 시작**하되, 기다리는 것은 그 자료를 **읽는 쪽**뿐이다([246]).
+       실측 2026-08-26: 캘린더 캐처(calendarCapture)는 이 재조회가 채우는 값
+       (BRIEF·SETTLE·REMOTE_STAT)을 **한 군데도 안 읽는다** — 행을 뿑은 뒤로는 CAL 도
+       다시 안 읽고 남은 await 는 캔버스 하나뿐이라 **그려지는 그림이 안 바뀐다**.
+       그런데도 25초를 기다려 '이미지 저장이 바로 안 된다'를 겪었다.
+       일일보고(reportCaptureGate)는 renderDaily 가 BRIEF 를 읽으므로 **그쪽만**
+       awaitReportWarm() 으로 기다린다.
+       ⚠ 단일 비행(REPORT_PREPARE_FLIGHT)이 두 길을 합치므로 **기다림을 인자로 가르면
+          안 된다** — 캘린더가 먼저 시작한 비행에 보고가 올라타면 보고가 조용히 옛
+          BRIEF 로 그려진다([169]). 그래서 시작은 언제나 여기서 하고 기다림만 밖으로 뺀다. */
+    REPORT_WARM_FLIGHT = refresh.length
+      ? Promise.race([Promise.allSettled(refresh), new Promise(r=>setTimeout(r,25000))])
+      : Promise.resolve();
     return data;
   })().finally(()=>{ REPORT_PREPARE_FLIGHT=null; });
   return REPORT_PREPARE_FLIGHT;
+}
+/* 재조회가 채우는 값(BRIEF·SETTLE·REMOTE_STAT)을 **읽는 쪽만** 이것을 기다린다([246]).
+   못 기다려도 캡처를 막지 않는다 — 25초 상한은 이미 위에 있다. */
+async function awaitReportWarm(){
+  try{ if(REPORT_WARM_FLIGHT) await REPORT_WARM_FLIGHT; }catch(e){}
 }
 /* 캘린더도 같은 관문을 지난다 — 철거·납품 일정은 원장(05시트)에 계속 쌓이지만 화면에선 뺀다.
    SHOW_SIDE_WORK 를 켜면 여기도 자동으로 같이 나온다. 목록·카운트·시트 전부 이 함수만 쓴다. */
@@ -23102,6 +23117,9 @@ function reportExcelRows(){
 async function reportCaptureGate(){
   try{
     await prepareRepresentativeReport(CAL_MONTH||'',REPORT_PREVIEW_DATE||todayISO());
+    /* ★ 일일보고는 renderDaily 가 BRIEF 를 읽는다 — **여기만** 재조회를 기다린다([246]).
+       캘린더 캐처는 그 값을 안 쓰므로 안 기다린다. */
+    await awaitReportWarm();
     return true;
   }catch(e){
     toast('실시간 자료 검증이 끝나지 않아 대표 보고 출력을 멈췄습니다.');

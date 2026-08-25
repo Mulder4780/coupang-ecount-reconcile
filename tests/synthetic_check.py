@@ -31371,6 +31371,135 @@ def t434_where_answers_which_screen():
 
     print("  [434] '어디서 확인해?' 에 어느 화면인지 답한다(모르면 안 지어낸다) " + chr(9989))
 
+def t435_calendar_capture_does_not_wait_for_what_it_never_reads():
+    """[435] 캘린더 캡처가 **안 쓰는 자료**를 25초 기다리지 않는다 (2026-08-26).
+
+    형님 지시(2026-08-25): "이미지 저장이 바로바로 안돼 … 전부 해결해".
+    [430] 이 **누른 티**를 냈다면 여기는 **기다림 자체**를 줄인다.
+
+    실측 2026-08-26(webapp/index.html 을 직접 훑어서):
+      · `prepareRepresentativeReport` 를 부르는 곳은 **둘뿐** — `calendarCapture` 와
+        `reportCaptureGate`.
+      · 캡처 본문 425줄에 BRIEF·SETTLE·REMOTE_STAT 참조 **0곳**, 직접 부르는 함수
+        80개 중 그 값을 읽는 것도 **0개**. `loadBrief`·`warmReport` 로 가는 길은
+        **그 25초 대기 자신** 하나뿐이다.
+      · 행을 뽑은 뒤로는 `CAL` 을 **다시 안 읽고** 남은 await 는 `cv.toBlob` 하나뿐이라
+        재조회가 도중에 끝나도 **그려지는 그림이 안 바뀐다**.
+      · ux(느린 것만 기록): `/api/settlements` 평균 22.8초 · `/api/brief` 8.9초 —
+        둘이 병렬이라 대개 25초 상한에 걸린다.
+
+    ★ 재는 것은 **글자가 아니라 동작**이다([295]) — 캘린더 길은 재조회를 안 기다리고
+      보고 길은 기다리는가를 node 로 **실행해서** 잰다.
+    ★ 좁히는 것도 고장이다([172]) — 보고 길이 안 기다리게 되면 renderDaily 가 **옛
+      BRIEF** 로 그려진다. 그 방향도 같이 잰다.
+    """
+    import re, subprocess, sys, tempfile, os, io as _io
+
+    live = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                    encoding="utf-8", newline="").read()
+
+    def grab(pat, tag):
+        m = re.search(pat, live, re.S)
+        assert m, "[435] %s 를 못 찾았다 — 검사가 아무것도 안 재게 된다" % tag
+        return m.group(0)
+
+    decl = grab(r"let REPORT_PREPARE = null[^\n]*;", "선언")
+    assert "REPORT_WARM_FLIGHT" in decl, "[435] 재조회 비행을 담을 자리가 없다"
+    prep = grab(r"async function prepareRepresentativeReport\(.*?\n\}", "prepare")
+    warm = grab(r"async function awaitReportWarm\(\)\{.*?\n\}", "awaitReportWarm")
+    gate = grab(r"async function reportCaptureGate\(\)\{.*?\n\}", "reportCaptureGate")
+
+    # ① 시작은 **언제나** 한다 — 안 그러면 보고가 옛 자료로 그려진다
+    assert "warmReport(true)" in prep and "loadBrief(targetDay)" in prep, (
+        "[435] 재조회를 아예 시작하지 않는다 — 일일보고가 옛 자료로 그려진다")
+    assert "25000" in prep, "[435] 25초 상한이 사라졌다 — 보고 길이 영영 매달릴 수 있다"
+
+    # ② 캘린더 캡처는 **안 기다린다**(글자로 못 박는 것은 이 한 줄뿐 · [39])
+    cap = grab(r"async function calendarCapture\(opt\)\{.*?\n  const capAll", "capture 머리")
+    assert "awaitReportWarm" not in cap, (
+        "[435] 캘린더 캡처가 안 쓰는 자료를 다시 기다린다 — 형님이 겪은 그 25초다")
+
+    HARNESS = r"""
+let CAL=null, CAL_MONTH='2026-08', CAL_REQUEST_GENERATION=0, REPORT_PREVIEW_DATE='';
+__DECL__
+__PREP__
+__WARM__
+__GATE__
+let warmDone=false, releaseWarm=null, WARMP=null;
+function makeWarm(){ warmDone=false; return new Promise(r=>{ releaseWarm=()=>{ warmDone=true; r(true); }; }); }
+function warmReport(){ return WARMP; }
+function loadBrief(){ return WARMP; }
+function todayISO(){ return '2026-08-26'; }
+function toast(){}
+function $(){ return null; }
+function renderCalendarPage(){}
+async function api(){ return {ok:true, '\uce90\uc7a5\uac00\ub2a5':true, calendar:{'\uc77c\uc815':[]}}; }
+const tick=()=>new Promise(r=>setTimeout(r,20));
+(async()=>{
+  const out={};
+  // \u2460 \uce98\ub9b0\ub354 \uae38 \u2014 \uae30\ub2e4\ub9ac\uba74 \uc548 \ub41c\ub2e4
+  WARMP=makeWarm(); REPORT_PREPARE_FLIGHT=null; REPORT_WARM_FLIGHT=null;
+  await prepareRepresentativeReport('2026-08','2026-08-26');
+  out.calendarWaited = warmDone;
+  releaseWarm(); await tick();
+  // \u2461 \ubcf4\uace0 \uae38 \u2014 \uae30\ub2e4\ub824\uc57c \ud55c\ub2e4
+  WARMP=makeWarm(); REPORT_PREPARE_FLIGHT=null; REPORT_WARM_FLIGHT=null;
+  let settled=false;
+  const p=reportCaptureGate().then(v=>{ settled=true; return v; });
+  await tick();
+  out.reportSettledEarly = settled;
+  releaseWarm();
+  out.reportOk = await p;
+  out.reportWaited = warmDone;
+  console.log(JSON.stringify(out));
+  process.exit(0);
+})().catch(e=>{ console.log('ERR '+(e&&e.stack||e)); process.exit(3); });
+"""
+    js = (HARNESS.replace("__DECL__", decl).replace("__PREP__", prep)
+          .replace("__WARM__", warm).replace("__GATE__", gate))
+
+    def run(src):
+        fd, path = tempfile.mkstemp(suffix=".js")
+        os.close(fd)
+        _io.open(path, "w", encoding="utf-8", newline="").write(src)
+        try:
+            import proc_guard
+            r = proc_guard.run_tree(["node", path], timeout=60)
+            txt = (r.stdout or "") + (r.stderr or "")
+        finally:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+        line = [x for x in txt.splitlines() if x.strip().startswith("{")]
+        assert line, "[435] node 가 결과를 못 냈다: %s" % txt[:600]
+        import json as _j
+        return _j.loads(line[-1])
+
+    try:
+        subprocess.run(["node", "-v"], capture_output=True)
+    except Exception:
+        print("\u2b1c [435] node 없음 — 실행 검사 건너뜀")
+        return
+
+    got = run(js)
+    assert got["calendarWaited"] is False, (
+        "[435] 캘린더 길이 여전히 재조회를 기다린다 — 25초가 그대로다")
+    assert got["reportSettledEarly"] is False, (
+        "[435] 일일보고 길이 재조회를 안 기다린다 — renderDaily 가 옛 BRIEF 로 그려진다")
+    assert got["reportWaited"] is True and got["reportOk"] is True, (
+        "[435] 일일보고 관문이 재조회를 끝까지 못 기다렸다: %r" % got)
+
+    # ③ 계기 자기시험([272]) — 보고 길의 기다림을 없애면 정말 잡히는가
+    broke = js.replace("    await awaitReportWarm();\n", "")
+    assert broke != js, "[435] 자기시험 앵커가 안 맞는다 — 이 검사가 아무것도 안 잰다"
+    bad = run(broke)
+    assert bad["reportSettledEarly"] is True, (
+        "[435] 보고 길의 기다림을 없앴는데도 통과한다 — 이 검사가 아무것도 안 잰다")
+
+    print("\u2705 [435] 캘린더 캡처는 안 기다리고 일일보고만 기다린다 (실행으로 잼)")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -38479,6 +38608,7 @@ if __name__ == "__main__":
     t430_slow_buttons_show_that_they_were_pressed()
     t431_status_survives_a_restart()
     t424_resource_failures_that_already_passed()
+    t435_calendar_capture_does_not_wait_for_what_it_never_reads()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
