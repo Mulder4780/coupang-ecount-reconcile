@@ -5491,26 +5491,138 @@ def read_exec_details(master, base_date=""):
                 status=r.get("청구상태"), source="거래명세서")
          for r in s06 if is_2026_settlement(r) and norm_date(r.get("거래명세서발행일")) == base_date],
         f"06_거래서류청구수금 · 거래명세서발행일={base_date} · 거래명세서합계", "amount")
-    add("세금계산서 발행액 (당일)",
-        [detail(r, when="세금계산서발행일", amount=r.get("세금계산서합계"),
-                status=r.get("청구상태"), source="세금계산서")
-         for r in s06 if is_2026_settlement(r) and norm_date(r.get("세금계산서발행일")) == base_date],
-        f"06_거래서류청구수금 · 세금계산서발행일={base_date} · 세금계산서합계", "amount")
+    # ★ 세금계산서 발행액(당일) — **ERP 가 실제로 끊은 계산서**가 근거다([233] ·
+    #   형님 2026-08-25 지시 "대표 보고 금액 4개를 ERP 기준으로 센다").
+    #   06시트 `세금계산서합계` 는 사람 손 입력이라 750행 중 **0행**이 채워져 있어
+    #   이 지표는 **구조적으로 언제나 0** 이었다([339]). 그런데 화면은 매일 그 0 을
+    #   확언했다 — '안 끊었다'가 아니라 **'못 셈'** 이었다([169]).
+    # ★ 원천은 25_ERP매출서류(`get_erpdocs`)이고 전표번호가 `2026/01/10-2` 처럼
+    #   **일 단위 날짜**를 갖는다(실측 96건). 판정을 새로 만들지 않는다([162]).
+    _docs = {} if DEMO else (get_erpdocs() or {})
+    _docs_ok = bool(_docs.get("rows")) and not _docs.get("error")
+    if _docs_ok:
+        _tax_rows, _tax_last = [], ""
+        for _d in (_docs.get("rows") or []):
+            _slip = str(_d.get("전표") or "")
+            _day = norm_date(_slip.split("-")[0])
+            if _day and _day > _tax_last:
+                _tax_last = _day          # 이 표가 어디까지 왔나(정직한 0인지 묻는 근거)
+            if not _day or _day != base_date:
+                continue
+            _tax_rows.append({
+                "프로젝트NO": "", "ID": _slip, "레코드ID": "", "종류": "",
+                "프로젝트명": str(_d.get("유형") or ""),
+                "캠프명": str(_d.get("거래처") or ""),
+                "일자": _day, "금액": _metric_number(_d.get("공급가액")),
+                "문제": "", "상태": str(_d.get("판정") or ""),
+                "담당자": "", "출처": "ERP 매출계산서",
+            })
+        add("세금계산서 발행액 (당일)", _tax_rows,
+            "25_ERP매출서류(이카운트가 실제로 끊은 계산서) · 전표일자=%s · 공급가액"
+            % base_date, "amount")
+        _tax = details["세금계산서 발행액 (당일)"]
+        _tax["근거갈래"] = "ERP"
+        _tax["근거"] = {"원천": "25_ERP매출서류",
+                       "계산서행": len(_docs.get("rows") or []),
+                       "마지막계산서": _tax_last}
+        # ★ **'0' 이 정직한 0인지 묻는다**([169]). 이 표가 기준일까지 안 왔으면
+        #   '안 끊었다'가 아니라 **'그 자료가 아직 안 들어왔다'** 이다 — 대표는
+        #   그 0 을 '이번 달 계산서가 없다'로 읽는다.
+        if not _tax_last:
+            _경 = ("25_ERP매출서류에서 전표 날짜를 한 건도 못 읽었다 — 이 숫자는 "
+                  "'0원'이 아니라 **'못 셈'** 이다")
+        elif base_date > _tax_last:
+            _경 = ("25_ERP매출서류의 마지막 계산서가 **%s** 다 — 기준일 %s 까지의 "
+                  "자료가 아직 안 들어왔다. 이 0 은 '안 끊었다'가 아니라 "
+                  "**'못 셈'** 이다" % (_tax_last, base_date))
+        else:
+            _경 = ""
+        if _경:
+            _tax["근거경고"] = _경
+            _tax["basis"] += " · ⚠ " + _경
+    else:
+        # ★ 못 읽었으면 **예전 자리에 그대로 두고** 못 셈이라 말하게 둔다([169]).
+        add("세금계산서 발행액 (당일)",
+            [detail(r, when="세금계산서발행일", amount=r.get("세금계산서합계"),
+                    status=r.get("청구상태"), source="세금계산서")
+             for r in s06 if is_2026_settlement(r) and norm_date(r.get("세금계산서발행일")) == base_date],
+            f"06_거래서류청구수금 · 세금계산서발행일={base_date} · 세금계산서합계", "amount")
     add("입금액 (당일)",
         [detail(r, when="입금일", amount=r.get("입금액"),
                 status=r.get("청구상태"), source="입금")
          for r in s06 if is_2026_settlement(r) and norm_date(r.get("입금일")) == base_date],
         f"06_거래서류청구수금 · 입금일={base_date} · 입금액", "amount")
-    add("잔여 미청구액",
-        [detail(r, amount=r.get("미청구액"), issue=r.get("문제내용"),
-                status=r.get("청구상태"), source="미청구")
-         for r in s06 if is_2026_settlement(r) and _metric_number(r.get("미청구액")) > 0],
-        "06_거래서류청구수금 · 2026년 정산ID 보유 · 미청구액>0", "amount")
-    add("잔여 미수금액",
-        [detail(r, amount=r.get("미수금액"), issue=r.get("문제내용"),
-                status=r.get("청구상태"), source="미수")
-         for r in s06 if is_2026_settlement(r) and _metric_number(r.get("미수금액")) > 0],
-        "06_거래서류청구수금 · 2026년 정산ID 보유 · 미수금액>0", "amount")
+    # ★ 잔여 금액 둘 — **ERP 진행상태**가 근거다([233]). 06시트 `미청구액` 은 값이
+    #   있는 행이 1/750, `미수금액` 은 **0/750** 이라 화면이 '잔여 미수금액 0' 을
+    #   확언하고 있었다 — 그 0 은 '못 받을 돈이 없다'가 아니라 '못 셈'이다([169]).
+    # ★ 낱말 판정을 새로 만들지 않는다([162]) — `ISSUED_STATES` 를 그대로 쓴다.
+    #   김미영 화면의 `_revenue_unissued()` 와 **같은 기준**이라 두 화면이 서로 다른
+    #   답을 하지 않는다(범위만 다르다 — 저쪽은 돌발AS·정기점검으로 좁힌다).
+    _erp_idx, _erp_when = ((None, "") if DEMO else _erp_state_index())
+    _erp_seen, _unbilled, _unpaid = set(), [], []
+    _erp_missing, _vague_n, _vague_sum = 0, 0, 0
+    if _erp_idx is not None:
+        for _r in s06:
+            if not is_2026_settlement(_r):
+                continue
+            _prj = str(_r.get("프로젝트NO") or "").strip()
+            _rec = _erp_idx.get(_prj) if _prj else None
+            if not _rec:
+                # ★ ERP 전표가 아직 없는 행은 **안 센다**([169]) — 모르는 것을 잔액이라
+                #   부르면 대표 보고가 없는 돈을 말하게 된다.
+                _erp_missing += 1
+                continue
+            if _prj in _erp_seen:      # 한 프로젝트에 정산행이 여럿이면 금액은 한 번만
+                continue
+            _erp_seen.add(_prj)
+            _st = str(_rec.get("state") or "")
+            if _st.startswith(PAID_STATES):   # 7.수금완료 · 8.무상납품완료 — 받을 돈이 아니다
+                continue
+            _row = detail(_r, amount=int(_rec.get("supply") or 0),
+                          issue=_r.get("문제내용"), status=_st, source="ERP " + _st)
+            if _st.startswith(UNPAID_STATE):
+                _unpaid.append(_row)
+            else:
+                _unbilled.append(_row)
+                # ★ 단계 번호가 없는 낱말이 실재한다(실측 '확인' 2건 875,200원).
+                #   미청구로 세되 **몇 건인지 말한다**([169]).
+                if not _st.startswith(("1.", "2.", "3.", "4.", "5.")):
+                    _vague_n += 1
+                    _vague_sum += int(_rec.get("supply") or 0)
+    if _erp_idx is None:
+        # ★ 색인을 못 읽었으면 **예전 계산을 그대로 둔다** — 그러면 근거 열 검사가
+        #   '못 셈'이라 말한다([169]). 조용히 0 을 내놓지 않는다.
+        add("잔여 미청구액",
+            [detail(r, amount=r.get("미청구액"), issue=r.get("문제내용"),
+                    status=r.get("청구상태"), source="미청구")
+             for r in s06 if is_2026_settlement(r) and _metric_number(r.get("미청구액")) > 0],
+            "06_거래서류청구수금 · 2026년 정산ID 보유 · 미청구액>0", "amount")
+        add("잔여 미수금액",
+            [detail(r, amount=r.get("미수금액"), issue=r.get("문제내용"),
+                    status=r.get("청구상태"), source="미수")
+             for r in s06 if is_2026_settlement(r) and _metric_number(r.get("미수금액")) > 0],
+            "06_거래서류청구수금 · 2026년 정산ID 보유 · 미수금액>0", "amount")
+    else:
+        add("잔여 미청구액", _unbilled,
+            "ERP 진행상태가 6·7·8 이 아닌 건 · ERP 공급가액(프로젝트 중복 제거) · "
+            "색인 %s" % (_erp_when or "시각 모름"), "amount")
+        add("잔여 미수금액", _unpaid,
+            "ERP 진행상태 6.세금계산서발행(끊었고 아직 수금 전) · ERP 공급가액 · "
+            "색인 %s" % (_erp_when or "시각 모름"), "amount")
+        for _lbl in ("잔여 미청구액", "잔여 미수금액"):
+            details[_lbl]["근거갈래"] = "ERP"
+            details[_lbl]["근거"] = {"원천": "ERP 판매 프로젝트 색인",
+                                    "색인시각": _erp_when,
+                                    "ERP전표없음": _erp_missing}
+        if _erp_missing:
+            # ★ 두 지표 다 그 행을 건너뛴다 — 한쪽에만 적으면 다른 화면이 '전부 셌다'로 읽힌다([169]).
+            for _lbl in ("잔여 미청구액", "잔여 미수금액"):
+                details[_lbl]["basis"] += (
+                    " · ERP 전표가 아직 없는 정산행 %d건은 **안 셌다**" % _erp_missing)
+        if _vague_n:
+            details["잔여 미청구액"]["basis"] += (
+                " · 그중 단계 낱말이 모호한 %d건(%s원)이 섞여 있다"
+                % (_vague_n, format(_vague_sum, ",")))
 
     # ★ **근거 열이 비어 있으면 숫자를 확언하지 않는다** (2026-08-13 형님 지적
     #   "잔여 미청구액 22000원 이거 오류인것 같은데" · 분담판 [78] · [169]).
@@ -5524,6 +5636,10 @@ def read_exec_details(master, base_date=""):
         for _label, _col in _G.MONEY_COLUMNS.items():
             _d = details.get(_label)
             if not _d:
+                continue
+            if _d.get("근거갈래") == "ERP":
+                # ★ 이 지표는 06시트 열을 **더 안 쓴다**([233]). 죽은 열로 경보하면
+                #   거짓 경보가 되어 진짜 경보를 덮는다([170]).
                 continue
             _h = _G.column_health(s06, _col)
             _d["근거"] = _h
@@ -5548,10 +5664,22 @@ def read_exec_details(master, base_date=""):
         for _label, _d in list(details.items()):
             if not isinstance(_d, dict) or _d.get("kind") != "amount":
                 continue
+            if _d.get("근거갈래") == "ERP":
+                continue          # 06시트 열과 무관하다([233])
             _d["근거"] = None
             _d["근거경고"] = ("근거 열을 못 쟀다(%s) — 이 숫자를 확언하지 말 것"
                             % type(_e).__name__)
             _d["basis"] = _d["basis"] + " · ⚠ " + _d["근거경고"]
+    # ★ 넷째 `입금액 (당일)` 은 **ERP 로도 못 센다** — 판매 색인에 입금일이 없다([169]).
+    #   지어내지 않고 06시트에 그대로 두되 **왜 못 세는지**를 같이 적는다([289] —
+    #   조치가 다르면 갈래도 달라야 한다).
+    _dep = details.get("입금액 (당일)")
+    if isinstance(_dep, dict) and _dep.get("근거경고"):
+        _더 = (" · ERP 판매 색인에는 **입금일이 없어** ERP 로도 못 센다 — 이 숫자를 "
+              "세려면 `7. 입금내역`이 날짜와 금액을 구조화해 내놔야 한다")
+        _dep["근거경고"] += _더
+        _dep["basis"] += _더
+
     add("작업금액 불일치 (현재)",
         [detail(r, amount=r.get("작업대비거래명세서차액"), issue=r.get("문제내용"),
                 status=r.get("검증결과"), source="금액 불일치")
@@ -6525,7 +6653,11 @@ ERP_PRJ_INDEX = os.path.join(ROOT, "reports", "ERP판매_프로젝트색인.json
 # (무상·보험은 애초에 계산서가 없다 — 발행월 집계에서는 둘이 같은 것을 가리킨다).
 KIM_KIND_MAP = {"정기점검": "정기점검", "유료AS": "돌발AS"}
 REVENUE_KIND_ORDER = ["정기점검", "돌발AS", "신규납품", "철거", "계단", "기타"]
-ISSUED_STATES = ("6.", "7.", "8.")      # 8.무상납품완료 는 청구가 없는 완료다
+# ★ 낱말은 **한 곳에서** 만든다([162]). `잔여 미수금액` 은 6 만, `잔여 미청구액` 은
+#   6·7·8 이 아닌 것이라 셋을 따로 부를 수 있어야 한다([233]).
+UNPAID_STATE = "6."                     # 계산서는 끊었고 아직 수금 전 — **받을 돈**
+PAID_STATES = ("7.", "8.")              # 7.수금완료 · 8.무상납품완료(청구가 없는 완료)
+ISSUED_STATES = (UNPAID_STATE,) + PAID_STATES
 LEDGER_KINDS = ("돌발AS", "정기점검")   # 관리대장 원장이 담는 업무 둘([154])
 
 

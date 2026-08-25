@@ -177,7 +177,16 @@ def build(day: Optional[str] = None) -> Dict[str, Any]:
     for label, col in MONEY_COLUMNS.items():
         amount, count, _rows = _amount_of(details, label)
         health = column_health(rows06, col)
-        out["잰것"][label] = {"보고값": amount, "건수": count, "근거열": health}
+        기준 = str((details.get(label) or {}).get("근거갈래") or "")
+        out["잰것"][label] = {"보고값": amount, "건수": count,
+                             "근거열": health, "근거갈래": 기준 or "06시트"}
+        if 기준 == "ERP":
+            # ★ 이 지표는 **06시트 열을 더 안 쓴다**([233] · 형님 2026-08-25 지시).
+            #   죽은 열로 경보하면 거짓 경보가 되어 진짜 P1 을 덮는다([170]).
+            #   그렇다고 조용히 빼지 않는다([169]) — 무엇으로 세는지 '잰것'에 남긴다.
+            # ★ 표에 적어 두지 않고 **집계기가 실제로 붙인 표시**를 본다 — 나중에
+            #   06시트로 되돌아가면 이 표시가 사라져 경보가 저절로 살아난다.
+            continue
         if health.get("없는열"):
             # ★ 이것은 원장 문제가 아니라 **이 감시자의 표가 틀린 것**이다 —
             #   '먼저볼것'에 넣으면 사람이 없는 열을 채우러 간다(`[172]`).

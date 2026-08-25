@@ -2946,6 +2946,72 @@ def t48_excel_2026_stats_and_verified_completion():
     print("  [48] Excel 2026-only statistics and evidence-gated completion OK")
 
 
+def _t233_erp_paths(A, path):
+    """[233] ERP 기준 금액 — **합성 색인으로만** 잰다(진짜 자료는 안 읽는다 · [247]).
+
+    합성 06시트에는 2026년 정산행이 둘이다(UJ260001 · UJ260002). 색인에 하나만
+    넣어 **ERP 전표가 없는 행은 안 센다**([169])는 것까지 같이 잰다.
+    """
+    def idx(state, supply=500000):
+        A._erp_state_index = lambda: ({"UJ260001": {"supply": supply, "state": state,
+                                                    "cust": "합성1캠프"}}, "합성색인")
+        return A.read_exec_details(path, "2026-07-28")
+
+    def docs(rows):
+        A.get_erpdocs = lambda: {"rows": rows}
+
+    docs([{"전표": "2026/07/28-1", "월": "2026/07", "유형": "돌발AS",
+           "공급가액": 700000, "거래처": "합성거래처", "판정": "확정(합성)"}])
+
+    # ⓐ 아직 계산서를 안 끊은 단계 → **미청구**
+    e = idx("3.오더처리")
+    assert e["잔여 미청구액"]["근거갈래"] == "ERP", "ERP 를 읽고도 06시트로 셌다"
+    assert e["잔여 미청구액"]["amount"] == 500000, ("ERP 공급가액을 안 쓴다", e["잔여 미청구액"])
+    assert e["잔여 미수금액"]["amount"] == 0, "안 끊은 건을 받을 돈이라 센다"
+    assert "안 셌다" in e["잔여 미청구액"]["basis"], \
+        "ERP 전표가 없는 행을 조용히 넘겼다 — 몇 건인지 말해야 한다([169])"
+    assert "안 셌다" in e["잔여 미수금액"]["basis"], \
+        "미수금 쪽에는 안 적었다 — 한쪽만 적으면 '전부 셌다'로 읽힌다([169])"
+
+    # ⓑ 끊었고 아직 수금 전 → **미수금**(받을 돈)
+    f = idx("6.세금계산서발행")
+    assert f["잔여 미수금액"]["amount"] == 500000, ("6 단계를 미수금으로 안 센다", f["잔여 미수금액"])
+    assert f["잔여 미청구액"]["amount"] == 0, "이미 끊은 건을 미청구라 센다"
+
+    # ⓒ 수금완료·무상납품완료 → 둘 다 아니다
+    for _st in ("7.수금완료", "8.무상납품완료"):
+        g = idx(_st)
+        assert g["잔여 미청구액"]["amount"] == 0 and g["잔여 미수금액"]["amount"] == 0, \
+            ("%s 인데 아직 받을 돈이라 센다" % _st)
+
+    # ⓓ 단계 낱말이 모호하면 **미청구로 세되 몇 건인지 말한다**([169] · 실측 '확인' 2건)
+    h = idx("확인")
+    assert h["잔여 미청구액"]["amount"] == 500000, "모르는 낱말을 조용히 버렸다"
+    assert "모호한" in h["잔여 미청구액"]["basis"], "모호한 낱말이 섞인 것을 안 말한다"
+
+    # ⓔ 계산서 당일 — ERP 가 실제로 끊은 전표일로 센다
+    assert h["세금계산서 발행액 (당일)"]["근거갈래"] == "ERP", "계산서를 06시트로 센다"
+    assert h["세금계산서 발행액 (당일)"]["amount"] == 700000, \
+        ("ERP 계산서 전표를 안 센다", h["세금계산서 발행액 (당일)"])
+    assert not h["세금계산서 발행액 (당일)"].get("근거경고"), \
+        "기준일까지 자료가 왔는데 '못 셈'이라 말한다([170] — 정상까지 경보하면 아무도 안 본다)"
+
+    # ⓕ ★ **그 표가 기준일까지 안 왔으면 '0' 을 확언하지 않는다**([169]).
+    #    실측 2026-08-25: 25_ERP매출서류의 마지막 계산서가 2026-07-25 였다.
+    docs([{"전표": "2026/06/30-1", "월": "2026/06", "유형": "돌발AS",
+           "공급가액": 900000, "거래처": "합성거래처", "판정": "확정(합성)"}])
+    i = idx("3.오더처리")
+    assert i["세금계산서 발행액 (당일)"]["amount"] == 0
+    assert "못 셈" in (i["세금계산서 발행액 (당일)"].get("근거경고") or ""), \
+        "자료가 기준일까지 안 왔는데 0 을 확언한다"
+    assert "2026-06-30" in (i["세금계산서 발행액 (당일)"].get("근거경고") or ""), \
+        "마지막 계산서가 언제인지 안 말한다"
+
+    # ⓖ 입금액은 **ERP 로도 못 센다** — 그 이유를 적는다([289])
+    assert "입금일이 없어" in (i["입금액 (당일)"].get("근거경고") or ""), \
+        "ERP 로도 못 세는 이유를 안 적는다 — 사람이 ERP 를 뒤지러 간다([172])"
+
+
 def t49_exec_metric_drilldown_and_sheet_scroll(tmp):
     """[49] 대표보고 3·4절은 숫자와 동일한 원천행을 열고, 긴 목록은 끝까지 스크롤된다."""
     path = os.path.join(tmp, "exec_metric.xlsx")
@@ -2998,12 +3064,25 @@ def t49_exec_metric_drilldown_and_sheet_scroll(tmp):
 
     sys.path.insert(0, os.path.join(ROOT, "webapp"))
     import app_server as A
-    d = A.read_exec_details(path, "2026-07-28")
+    # ★ 합성 워크북 검사가 **진짜 ERP 자료를 읽으면 안 된다**([247]·[409]).
+    #   [233] 뒤로 잔여 둘과 계산서 당일은 ERP 가 근거이므로, 여기서는 그 원천을
+    #   꺼서 **06시트 폴백**(= ERP 를 못 읽었을 때의 길)을 잰다.
+    _erp_real, _docs_real = A._erp_state_index, A.get_erpdocs
+    try:
+        A._erp_state_index = lambda: (None, "")
+        A.get_erpdocs = lambda: {}
+        d = A.read_exec_details(path, "2026-07-28")
+        _t233_erp_paths(A, path)
+    finally:
+        A._erp_state_index, A.get_erpdocs = _erp_real, _docs_real
     assert d["청구액 (당일)"]["count"] == 1 and d["청구액 (당일)"]["amount"] == 11000
     assert d["세금계산서 발행액 (당일)"]["count"] == 1
     assert d["입금액 (당일)"]["count"] == 1
     assert d["잔여 미청구액"]["amount"] == 22000
     assert d["잔여 미수금액"]["amount"] == 33000
+    # ★ ERP 를 못 읽으면 **06시트로 돌아가고 그 사실이 근거에 남는다**([169]).
+    assert d["잔여 미청구액"].get("근거갈래") != "ERP", "ERP 를 못 읽었는데 ERP 라 적었다"
+    assert "06_거래서류청구수금" in d["잔여 미청구액"]["basis"], "폴백 근거를 안 밝힌다"
     assert d["작업금액 불일치 (현재)"]["count"] == 1, "신규납품·2025가 섞였다"
     assert d["문제 업무 건수(중복 제거)"]["count"] == 1
     assert d["문제 프로젝트 / 문제 행"]["count"] == 2
@@ -20295,6 +20374,38 @@ def t223_superseded_evidence_heals_itself():
           "낡음은 보존 · 워치독 선행 ✅")
 
 
+def _t303_enclosing_func(src, needle):
+    """`needle` 이 든 **함수 전체**를 돌려준다.
+
+    ★ **글자 수로 창을 못 박지 않는다**([39]). 예전에는 그 자리에서 3,000자만 잘라
+      봤는데 사이에 코드가 자라자 판정이 창 밖으로 밀려나 **서버는 멀쩡한데 검사만
+      빨개졌다**(2026-08-25 실측: 판정까지 거리 **4,108** 대 창 **3,000**).
+      관문은 회차의 0단계라 여기서 죽으면 **그날 대조가 통째로 안 돈다**.
+      창을 늘리는 것은 같은 사고를 더 큰 값에서 되풀이할 뿐이다([318]).
+    ★ 그래도 **범위는 좁게 둔다** — 파일 전체를 보면 남의 함수에 있는 낱말까지 세어
+      **아무것도 안 재면서 통과한다**([272]).
+    ★ 못 찾으면 **빈 문자열**이다 — 부르는 쪽 assert 가 그대로 잡는다([169]).
+    ⚠ `ast` 는 이 파일 **모듈 수준에 없다**([324]) — 함수 안에서 들여온다.
+    """
+    import ast
+    i = src.find(needle)
+    if i < 0:
+        return ""
+    ln = src[:i].count(chr(10)) + 1
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return ""
+    best = None
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if n.lineno <= ln <= (n.end_lineno or n.lineno):
+                if best is None or n.lineno > best.lineno:
+                    best = n
+    if best is None:
+        return ""
+    return chr(10).join(src.splitlines()[best.lineno - 1:best.end_lineno])
+
 def t303_exec_report_never_asserts_an_unfilled_column():
     """[78] 대표보고가 **아무도 안 채운 열**을 근거로 금액을 확언하면 안 된다.
 
@@ -20322,7 +20433,7 @@ def t303_exec_report_never_asserts_an_unfilled_column():
     assert (거의0["값있음"] / 거의0["채워짐"]) < G.MOSTLY_ZERO_RATIO, "거의 0 을 못 가른다"
     # 서버가 그 판정을 실제로 실어 보내는가 — 집계는 Z: 를 훑어 비싸므로 글자로 잰다([168]).
     src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
-    블록 = src[src.find("잔여 미수금액"):src.find("잔여 미수금액") + 3000]
+    블록 = _t303_enclosing_func(src, "잔여 미수금액")
     assert "column_health(" in 블록, "근거 열의 채움을 안 잰다 — 화면이 0 을 확언한다"
     assert "MONEY_COLUMNS" in 블록, "열 이름을 부르는 쪽에 적었다(사본이 둘 된다)"
     assert "근거경고" in 블록, "근거가 약하다는 사실을 화면에 안 내려보낸다"
