@@ -47,10 +47,26 @@ def erp_customers():
     warnings.filterwarnings("ignore")
     import openpyxl
     import source_dirs as S
+    # ★ **캐시 검사가 먼저다**([168]·[162]) — 2026-08-25 실측: 이 함수가 그날
+    #   ERP 를 **한 건도 못 읽어** 캠프마스터 198행의 출처가 전부 `원장+밴드` 가 됐고,
+    #   그래서 `캠프_담당자.json` 739행의 거래처코드가 통째로 **0건**이었다.
+    #   그런데 같은 날 `customer_index` 캐시에는 **2,981건(CU 356)** 이 멀쩡히 있었다 —
+    #   **같은 사실을 두 곳이 각자 읽고 서로 다른 답을 한 것**이다.
+    #   판정을 새로 만들지 않고 `camp_code_match._erp_customers` 를 그대로 빌린다
+    #   (칸도 같다: code·name·addr·manager·tel·email·equip).
+    try:
+        from camp_code_match import _erp_customers as _cache_rows
+        _rows, _why = _cache_rows()
+        if _rows:
+            return _rows, (_why.get("출처") or "ESA001M")
+    except Exception as _e:                      # noqa: BLE001
+        # 캐시가 없거나 못 읽었을 뿐이다 — 아래 원본 길로 간다([169]).
+        _why = {"길": "캐시 못 읽음: %s" % str(_e)[:60]}
+
     cands = [p for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True)
              if not os.path.basename(p).startswith(("~$", "ESD007E"))]
     cands.sort(key=os.path.getmtime, reverse=True)
-    best = None
+    best, errs = None, []
     for p in cands[:80]:
         try:
             wb = openpyxl.load_workbook(p, read_only=False, data_only=True)
@@ -75,9 +91,19 @@ def erp_customers():
             wb.close()
             if not best or len(out) > len(best[1]):
                 best = (os.path.basename(p), out)
-        except Exception:
+        except Exception as e:                   # noqa: BLE001
+            # ★ 조용히 넘기지 않는다([169]) — 한 파일이 깨진 것과 Z: 가 통째로
+            #   끊긴 것은 다른 사실이고 조치가 다르다([289]). 전에는 `continue`
+            #   하나라 `src=None` 만 남고 **왜인지 알 길이 없었다.**
+            errs.append("%s: %s" % (os.path.basename(p), str(e)[:60]))
             continue
-    return (best[1], best[0]) if best else ([], None)
+    if best:
+        return best[1], best[0]
+    # 하나도 못 읽었다 — 그 사실을 **이름에 담아** 돌려준다(부르는 쪽이 적는다).
+    why = "후보 %d개를 다 열어 봤지만 거래처등록 표를 못 찾았다" % len(cands[:80])
+    if errs:
+        why = "%s · 오류 %d건: %s" % (why, len(errs), " / ".join(errs[:3]))
+    return [], why
 
 
 def ledger_camps():
