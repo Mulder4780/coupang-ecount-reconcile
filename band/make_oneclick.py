@@ -37,6 +37,38 @@ BATCH_MAX = 250
 MISS_SEC = 21
 
 
+WASTED_MIN_ROUNDS = 2      # 한 번은 우연일 수 있다 — 두 번부터 근거로 본다
+
+
+def wasted_nos(band, min_rounds=WASTED_MIN_ROUNDS):
+    """**다시 긁어도 같았던** 번호 — 근거는 `convert_dump` 가 쌓아 둔 실측이다([425]).
+
+    ★ 오염을 통째로 빼지 않는다([172]) — 다시 긁는 것이 되살리는 유일한 길이고,
+      2026-08-24 에 통째로 걸렀다가 609건이 어느 화면에도 안 뜬 적이 있다([169]).
+      여기서 빼는 것은 **긁어 봤더니 또 이웃 글을 베껴 왔다**는 자국이
+      `min_rounds` 회 이상 쌓인 번호뿐이다.
+    ★ 못 읽으면 **빈 집합**이다 — 모름을 근거로 빼면 실재하는 글을 영영 안 긁는다([169]).
+    ★ 경로는 `convert_dump._runtime_wasted_path()` 를 빌린다([162]) — 여기 적으면
+      CACHE 를 옮기는 검증에서 사본이 갈린다([247]).
+    """
+    try:
+        import convert_dump as CD
+        with open(CD._runtime_wasted_path(), encoding="utf-8") as fh:
+            d = json.load(fh)
+    except Exception:
+        return set()
+    b = d.get(str(band))
+    if not isinstance(b, dict):
+        return set()
+    out = set()
+    for k, v in b.items():
+        if isinstance(v, dict) and len(v.get("회차") or []) >= min_rounds:
+            try:
+                out.add(int(k))
+            except (TypeError, ValueError):
+                pass
+    return out
+
 def screen(band, nos, posts=None):
     """붙여넣기 파일에 **없는 번호가 들어가지 않게** 하는 마지막 문 (2026-08-11).
 
@@ -56,9 +88,14 @@ def screen(band, nos, posts=None):
     if posts is None:
         posts = RP.load(band) or {}
     cut, why = RP.absent_line(band, posts)
+    wasted = wasted_nos(band)
     keep, dropped = [], {}
     for n in nos:
         n = int(n)
+        if n in wasted:
+            dropped.setdefault("다시 긁어도 같았던 번호(%d회 이상)" % WASTED_MIN_ROUNDS,
+                               []).append(n)
+            continue
         if cut is not None and n >= cut:
             dropped.setdefault("없음 확인 구간(%s↑)" % cut, []).append(n)
             continue
