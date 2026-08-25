@@ -30616,6 +30616,208 @@ def t404_stuck_autorecovery_reaches_the_handoff():
 
     print("✅ [404] 자율복구가 오래 못 푸는 일이 인계까지 온다 · 원인을 그대로 싣는다 (실행으로 잼)")
 
+def t430_slow_buttons_show_that_they_were_pressed():
+    """[430] 오래 걸리는 단추는 **누른 티가 난다** (형님 지시 2026-08-25).
+
+    형님 지시: **"이미지 저장이 바로바로 안돼 다른 부분도 그럴 것 같은데 전부 해결해
+    그리고 다시는 이런 일 발생되지 않게 정리해"**.
+
+    실측(데모·브라우저 · 고치기 전): 캘린더 [이미지 저장]을 누르면 **30초가 지나도
+    화면에 아무 표시가 없다**. 누르면 곧바로 그림을 그리는 것이 아니라
+    `/api/report-prepare` 서버 검증과 재조회 대기(**최대 25초** · [379] 가 낡은 그림이
+    대표에게 나가는 것을 막으려고 일부러 둔 문)를 먼저 거치기 때문이다. 그러면 사람은
+    안 눌린 줄 알고 **또 누르고**, 같은 일이 두 번 돌아 **더 느려진다**.
+
+    실측(고친 뒤 · 진짜 캘린더 단추): 누른 지 **1초**에 단추 잠김 · 스피너 돎 ·
+    커서 progress · 토스트 '만드는 중입니다…' · 4초 뒤 한 번 더 알림.
+    감싼 단추 **22개 · 빠진 것 0**.
+
+    ★ 기다리는 것을 **줄이지 않았다**([172]) — 여기서 재는 것은 '기다린다는 사실을
+      보여 주는가' 하나다. 그 대기는 낡은 그림이 대표에게 나가는 것을 막는 문이다.
+    """
+    import io, os, re
+    html = io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read()
+
+    # (1) CSS 규칙이 **실재한다** — 클래스만 붙이고 규칙이 없으면 아무 일도 안 일어난다([310])
+    css = re.sub(r"/\*.*?\*/", " ", html, flags=re.S)   # 규칙을 세기 전에 주석을 걷는다([332])
+    assert 'button[aria-busy="true"]::after' in css, (
+        "[430] 스피너 규칙이 없다 — 표시를 붙여도 화면에 아무것도 안 보인다([310])")
+    assert "@keyframes csosBusySpin" in css, "[430] 스피너 애니가 없다"
+    assert "prefers-reduced-motion" in css, "[430] '동작 줄이기'를 켠 사람 배려가 빠졌다"
+
+    m = re.search(r"function installBusyButtons\(\)\{.*?\n\}", html, re.S)
+    assert m, "[430] installBusyButtons 를 못 찾았다"
+    inst = m.group(0)
+
+    # (2) 이름을 **손으로 안 적는다**([340]) — 마크업에서 읽는다
+    assert "querySelectorAll('[onclick]')" in inst, (
+        "[430] 저장류 단추 이름을 손으로 적는다 — 새 단추가 생기면 조용히 빠진다([340])")
+    assert not re.search(r"['\"](?:calendarCapture|captureDash|orgToPng)['\"]", inst), (
+        "[430] 함수 이름 목록이 코드에 박혔다 — 사본은 늘 뒤처진다([162])")
+
+    # (3) 라벨을 **이어 붙여** 본다 — `||` 로 첫 값만 보면 조용히 빠진다([169])
+    assert ".filter(Boolean).join(' ')" in inst, (
+        "[430] 라벨을 이어 붙이지 않는다 — 실측으로 조직도 [이미지 저장]은 title 이 "
+        "'카톡으로 보낼 이미지' 라 혼자 빠졌다")
+
+    got = _t430_run_busy(html)
+
+    # (4) 저장류만 감싼다 — 좁히는 것도 고장이고 넓히는 것도 고장이다([172])
+    assert got["감쌈_이미지저장"], "[430] 이미지 저장 단추가 안 감싸졌다"
+    assert got["감쌈_조직도"], (
+        "[430] title 이 다른 단추(조직도)가 빠졌다 — 라벨을 이어 붙여 봐야 한다")
+    assert not got["감쌈_보통단추"], "[430] 저장과 무관한 단추까지 감쌌다"
+
+    # (5) 누르면 곧바로 티가 난다
+    assert got["누른뒤_잠김"] and got["누른뒤_표시"] == "true", (
+        "[430] 눌러도 단추에 아무 표시가 없다 — 형님이 짚으신 그것이다: %r" % got)
+    assert "만드는 중" in got["첫토스트"], "[430] 만드는 중이라고 말하지 않는다"
+
+    # (6) **두 번 눌러도 한 번만 돈다** — 두 번 돌면 더 느려진다
+    assert got["돈횟수"] == 1, "[430] 두 번 눌러 두 번 돌았다(%r)" % got["돈횟수"]
+    assert "이미 만드는 중" in got["두번째토스트"], "[430] 이미 도는 중이라고 안 알린다"
+
+    # (7) 끝나면 **반드시** 되돌린다 — 실패해도
+    assert not got["끝난뒤_잠김"] and got["끝난뒤_표시"] is None, "[430] 끝났는데 잠긴 채다"
+    assert not got["실패뒤_잠김"] and got["실패뒤_표시"] is None, (
+        "[430] 실패하면 잠긴 채 남는다 — 그 화면은 영영 못 쓴다")
+    assert got["실패예외"], "[430] 실패를 삼켰다 — 사람이 왜 안 됐는지 못 안다([169])"
+
+    # (8) 코드가 안에서 부른 것(인자 있음)은 안 감싼다 — 표시가 두 벌 뜬다
+    assert got["인자호출_표시없음"], "[430] 내부 호출까지 감싸 엉뚱한 단추가 잠긴다"
+
+    # (9) 계기 자기시험([272]) — 문을 하나씩 없애면 정말 잡히는가
+    for why, a, b, key, want in (
+            ("중복 막기", "if(el && el.getAttribute && el.getAttribute('aria-busy') === 'true'){",
+             "if(false){", "돈횟수", 2),
+            ("되돌리기", "clearTimeout(nag);\n    undo();", "clearTimeout(nag);",
+             "실패뒤_잠김", True)):
+        broken = html.replace(a, b, 1)
+        assert broken != html, "[430] %s 문을 못 찾았다 — 이 자기시험이 아무것도 안 잰다" % why
+        bad = _t430_run_busy(broken)
+        assert bad[key] == want, (
+            "[430] %s 을 없앴는데도 그대로였다(%s=%r) — 이 검사는 그 문을 재고 있지 않다"
+            % (why, key, bad[key]))
+
+    print("✅ [430] 오래 걸리는 단추는 누른 티가 난다 (잠금·스피너·중복 막기·실패해도 되돌림)")
+
+
+def _t430_run_busy(html):
+    """`withBusy`·`installBusyButtons` 를 **node 로 실제로 돌린다**([295])."""
+    import io, json, os, re, shutil, subprocess, tempfile
+    parts = []
+    for pat, why in ((r"const BUSY_LABEL_RE = [^\n]*", "라벨 규칙"),
+                     (r"const BUSY_NAG_MS = [^\n]*", "다시 알림 간격"),
+                     (r"const _busyWrapped = [^\n]*", "감싼 목록"),
+                     (r"let _busyBtn = [^\n]*", "누른 단추"),
+                     # 어느 단추를 눌렀는지 기억하는 리스너 — 안 뽑으면 하네스가
+                     # `_listeners.pointerdown is not a function` 으로 죽는다.
+                     # 가짜로 채우지 않는다([272]) — 사라지면 이 검사가 통과해 버린다.
+                     (r"document\.addEventListener\('pointerdown', e=>\{.*?\n\}, true\);",
+                      "누른 단추 기억"),
+                     (r"function _busyTarget\(\)\{.*?\n\}", "_busyTarget"),
+                     (r"async function withBusy\(el, label, fn\)\{.*?\n\}", "withBusy"),
+                     (r"function installBusyButtons\(\)\{.*?\n\}", "installBusyButtons")):
+        m = re.search(pat, html, re.S)
+        assert m, "[430] %s 를 못 찾았다" % why
+        parts.append(m.group(0))
+    tmp = tempfile.mkdtemp(prefix="t430_")
+    try:
+        js = os.path.join(tmp, "busy.js")
+        io.open(js, "w", encoding="utf-8").write(
+            _T430_HARNESS.replace("__PARTS__", "\n".join(parts)))
+        # 깃발을 변수로 넘기면 창 감사기([272])가 못 읽는다 — AST 로 훑기 때문이다.
+        pr = subprocess.Popen(["node", js], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        so, se = pr.communicate(timeout=60)
+        _err = se.decode("utf-8", "replace")
+        assert pr.returncode == 0, "[430] 하네스가 죽었다: %s" % _err[:700]
+        return json.loads(so.decode("utf-8").strip().splitlines()[-1])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+_T430_HARNESS = r'''
+var toasts = [];
+function toast(m){ toasts.push(String(m)); }
+var window = {};
+var _listeners = {};
+function mkEl(onclick, attrs, text){
+  var a = Object.assign({onclick: onclick}, attrs || {});
+  return {
+    disabled: false, textContent: text || '', _a: a,
+    getAttribute: function(k){ return (k in a && a[k] != null) ? a[k] : null; },
+    setAttribute: function(k, v){ a[k] = v; },
+    removeAttribute: function(k){ delete a[k]; }
+  };
+}
+var ELS = [];
+var document = {
+  addEventListener: function(t, fn){ _listeners[t] = fn; },
+  querySelectorAll: function(){ return ELS; }
+};
+__PARTS__
+(async function(){
+  var wait = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
+  var out = {};
+  var ran = 0;
+  window.saveImg = async function(){ ran++; await wait(120); return 'ok'; };
+  window.orgToPng = async function(){ await wait(10); };
+  window.plainBtn = function(){ return 1; };
+  window.failImg = async function(){ throw new Error('일부러'); };
+
+  var b1 = mkEl('saveImg()', {'aria-label': '이미지 저장'}, '');
+  // 실측한 조직도 모양: aria-label 이 없고 title 이 다르다 — 본문 글자로만 잡힌다
+  var bOrg = mkEl('orgToPng()', {title: '카톡으로 보낼 이미지'}, '이미지 저장');
+  var bPlain = mkEl('plainBtn()', {'aria-label': '새로고침'}, '새로고침');
+  var bFail = mkEl('failImg()', {'aria-label': '이미지 저장'}, '');
+  ELS = [b1, bOrg, bPlain, bFail];
+  installBusyButtons();
+
+  out['감쌈_이미지저장'] = _busyWrapped.has('saveImg');
+  out['감쌈_조직도']     = _busyWrapped.has('orgToPng');
+  out['감쌈_보통단추']   = _busyWrapped.has('plainBtn');
+
+  // 사람이 누른 것처럼 — pointerdown 이 있어야 어느 단추인지 안다
+  var press = function(el){ _listeners['pointerdown']({target: {closest: function(){ return el; }}}); };
+
+  press(b1);
+  var p1 = window.saveImg();
+  await wait(20);
+  out['누른뒤_잠김'] = b1.disabled;
+  out['누른뒤_표시'] = b1.getAttribute('aria-busy');
+  out['첫토스트'] = toasts[toasts.length - 1] || '';
+
+  press(b1);
+  var p2 = window.saveImg();          // 도는 중에 또 누른다
+  await wait(20);
+  out['두번째토스트'] = toasts[toasts.length - 1] || '';
+  await Promise.all([p1, p2]);
+  await wait(20);
+  out['돈횟수'] = ran;
+  out['끝난뒤_잠김'] = b1.disabled;
+  out['끝난뒤_표시'] = b1.getAttribute('aria-busy');
+
+  // 실패해도 되돌린다
+  press(bFail);
+  try{ await window.failImg(); out['실패예외'] = ''; }
+  catch(e){ out['실패예외'] = String(e.message); }
+  await wait(20);
+  out['실패뒤_잠김'] = bFail.disabled;
+  out['실패뒤_표시'] = bFail.getAttribute('aria-busy');
+
+  // 코드가 안에서 부른 것(인자 있음)은 안 감싼다
+  var before = toasts.length;
+  press(b1);
+  await window.saveImg({toBlob: true});
+  out['인자호출_표시없음'] = (toasts.length === before) && !b1.disabled;
+
+  console.log(JSON.stringify(out));
+})();
+'''
+
+
 def t429_queue_says_what_is_actually_left():
     """[429] 대기열 "남은 건수"를 **갈래로 갈라** 말한다 (2026-08-25 형님 물음).
 
@@ -37811,6 +38013,7 @@ if __name__ == "__main__":
     t427_archive_posts_stops_itself_before_the_kill()
     t428_back_goes_one_step_at_a_time()
     t429_queue_says_what_is_actually_left()
+    t430_slow_buttons_show_that_they_were_pressed()
     t424_resource_failures_that_already_passed()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

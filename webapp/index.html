@@ -3411,6 +3411,25 @@ body.dash-drag-live #dashGuides{display:grid}
 .sheetfoot{display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;
   padding:12px 0 4px;margin-top:8px;background:var(--surface);color:var(--ink);
   border-top:1px solid var(--line)}
+
+/* ── 오래 걸리는 단추는 **누른 티가 난다** (형님 지시 2026-08-25 · [430]) ──────
+   실측: 캘린더 [이미지 저장]은 누른 뒤 자료 검증·재조회(최대 25초 · [379])를
+   거치고서야 그림을 그린다. 그동안 표시가 없으면 사람은 안 눌린 줄 알고 또 누르고,
+   그러면 두 번 돌아 **더 느려진다**.
+   ★ 마크업에 클래스만 붙이고 규칙을 안 만들면 아무 일도 안 일어난다([310]). */
+button[aria-busy="true"], .abtn[aria-busy="true"], .icon-btn[aria-busy="true"]{
+  position:relative; opacity:.55; cursor:progress;
+}
+button[aria-busy="true"]::after{
+  content:''; position:absolute; left:50%; top:50%; width:15px; height:15px;
+  margin:-8px 0 0 -8px; border:2px solid currentColor; border-right-color:transparent;
+  border-radius:50%; animation:csosBusySpin .7s linear infinite; pointer-events:none;
+}
+@keyframes csosBusySpin{ to{ transform:rotate(360deg); } }
+/* 운영체제에서 '동작 줄이기'를 켠 사람은 돌지 않게 — 대신 흐림만 남는다 */
+@media (prefers-reduced-motion: reduce){
+  button[aria-busy="true"]::after{ animation:none; opacity:.5; }
+}
 </style>
 </head>
 <body>
@@ -9595,6 +9614,9 @@ function wtCsv(k){
 
 /* 화면만 바꾼다 — 뒤로가기 기록은 건드리지 않는다(복귀·popstate 처리에서 쓴다). */
 function applyView(v){
+  /* 저장류 단추 감싸기 — 화면을 열 때 만들어지는 단추까지 잡는다([430]).
+     이미 감싼 이름은 건너뛰므로 값이 거의 안 든다. */
+  try{ installBusyButtons(); }catch(e){}
   if(CAL_ONLY) v='calendar';        // 전용 모드에서는 어떤 경로로 불려도 캘린더뿐이다
   if(v==='settings' && staffSlug) v='ryu'; // 담당자 주소에서 관리자 설정을 URL로 우회하지 못한다
   // 조직도는 .shell 밖의 body 직속 화면이다. 조직도를 열었는데 빈 .shell을 남기면
@@ -23173,6 +23195,105 @@ async function shareReport(){
   }catch(e){ if(e.name==='AbortError') return; }
   captureReport();     // 공유 미지원 → 저장/새창 경로로 폴백
 }
+/* ══ 오래 걸리는 단추는 **누른 티가 난다** (형님 지시 2026-08-25) ═════════════
+   형님 지시: **"이미지 저장이 바로바로 안돼 다른 부분도 그럴 것 같은데 전부 해결해
+   그리고 다시는 이런 일 발생되지 않게 정리해"**.
+
+   무슨 일이 있었나 — 실측 2026-08-25(데모·브라우저): 캘린더 [이미지 저장]을 누르면
+   **30초가 지나도 화면에 아무 표시가 없다**. 누르면 곧바로 그림을 그리는 것이 아니라
+   `/api/report-prepare` 서버 검증과 재조회 대기(**최대 25초**)를 먼저 거치기 때문이다.
+
+   왜 나빴나 — 사람은 안 눌린 줄 알고 **또 누른다**. 그러면 같은 일이 두 번 돌아
+   **더 느려진다**. 그리고 이 저장류 단추는 화면 곳곳에 **28개**나 있다(실측) —
+   한 곳만 고치면 나머지 27개는 그대로 산다([300]).
+
+   ★ 기다리는 것을 **줄이지 않는다**([172]) — 그 대기는 낡은 그림이 대표에게 나가는
+     것을 막는 문이다([379]). 여기서 하는 것은 기다린다는 사실을 보여 주는 것뿐이다.
+   ★ 이름을 손으로 적지 않는다([340]) — 마크업의 저장류 단추가 부르는 함수를 그대로
+     읽는다. 새 단추가 생기면 **저절로 따라온다**.
+   ★ 끝나면 **반드시** 되돌린다(finally). 실패했는데 잠긴 채로 남으면 그 화면은
+     영영 못 쓴다 — 고치려다 더 나쁘게 만드는 자리다.
+   ★ 28개 함수는 **한 글자도 안 고친다**([172]) — 감싸는 자리 하나만 둔다.
+   ───────────────────────────────────────────────────────────────────────── */
+const BUSY_LABEL_RE = /이미지 저장|이미지 복사|엑셀 저장|캡처|내려받기/;
+const BUSY_NAG_MS = 4000;          // 토스트는 2.6초면 사라진다 — 오래 걸리면 한 번 더 말한다
+const _busyWrapped = new Set();
+let _busyBtn = null, _busyBtnAt = 0;
+
+/* 어느 단추를 눌렀는지 기억한다 — 감싼 함수는 제가 어느 단추에서 불렸는지 모른다.
+   ★ 방금 눌린 것만 쓴다. 코드가 안에서 부른 경우까지 잠그면 **엉뚱한 단추**가
+     잠긴 채 남는다. */
+document.addEventListener('pointerdown', e=>{
+  const b = (e.target && e.target.closest) ? e.target.closest('button') : null;
+  if(b){ _busyBtn = b; _busyBtnAt = Date.now(); }
+}, true);
+
+function _busyTarget(){
+  return (Date.now() - _busyBtnAt < 1500) ? _busyBtn : null;
+}
+
+async function withBusy(el, label, fn){
+  /* 이미 도는 중이면 **다시 안 돈다** — 두 번 누르면 두 번 돌아 더 느려진다. */
+  if(el && el.getAttribute && el.getAttribute('aria-busy') === 'true'){
+    toast(label + ' — 이미 만드는 중입니다. 잠시만 기다려 주세요');
+    return;
+  }
+  let undo = ()=>{};
+  if(el && el.setAttribute){
+    const had = el.disabled;
+    el.setAttribute('aria-busy', 'true');
+    el.disabled = true;
+    undo = ()=>{ el.removeAttribute('aria-busy'); el.disabled = had; };
+  }
+  toast(label + ' — 만드는 중입니다…');
+  const nag = setTimeout(()=>toast(
+    label + ' — 아직 만드는 중입니다. 최신 자료를 확인하는 중이라 30초쯤 걸릴 수 있습니다'),
+    BUSY_NAG_MS);
+  try{
+    /* 화면이 스피너를 **한 번 그리게** 양보한다 — 그리기를 안 양보하면 동기 작업
+       (엑셀 만들기 등)은 끝날 때까지 화면이 멈춰 표시가 아예 안 보인다. */
+    await new Promise(r=>setTimeout(r, 0));
+    return await fn();
+  }finally{
+    clearTimeout(nag);
+    undo();
+  }
+}
+
+/* 저장류 단추가 부르는 전역 함수를 감싼다. 이미 감싼 것은 건너뛰므로 여러 번 불러도
+   안전하다(화면을 처음 열 때 만들어지는 단추까지 잡으려고 화면 전환에서도 부른다). */
+function installBusyButtons(){
+  const found = new Map();
+  document.querySelectorAll('[onclick]').forEach(el=>{
+    const m = String(el.getAttribute('onclick') || '')
+      .match(/^\s*([A-Za-z_$][\w$]*)\(\s*\)\s*;?\s*$/);
+    if(!m) return;
+    /* ★ 라벨을 **이어 붙여** 본다 — `||` 로 첫 값만 보면 title 이 다른 단추가
+       조용히 빠진다([169]). 실측 2026-08-25: 조직도 [이미지 저장]은
+       title 이 '카톡으로 보낼 이미지' 라 **혼자 빠졌다**. */
+    const seen = [el.getAttribute('aria-label'), el.getAttribute('title'), el.textContent]
+      .filter(Boolean).join(' ');
+    if(!BUSY_LABEL_RE.test(seen)) return;
+    /* 보여 줄 말은 짧은 것부터 — 사람이 읽는 글자다. */
+    const label = (el.getAttribute('aria-label') || el.getAttribute('title')
+                   || el.textContent || '만들기').trim();
+    if(!found.has(m[1])) found.set(m[1], label.split('—')[0].trim() || '만들기');
+  });
+  for(const [name, label] of found){
+    if(_busyWrapped.has(name)) continue;
+    const orig = window[name];
+    if(typeof orig !== 'function') continue;
+    _busyWrapped.add(name);
+    window[name] = function(...args){
+      /* 인자를 받은 호출은 **코드가 안에서 부른 것**이다(단추는 전부 `fn()`) —
+         그때는 감싸지 않는다. 안 그러면 대표 보고 한 번에 표시가 두 벌 뜬다. */
+      if(args.length) return orig.apply(this, args);
+      return withBusy(_busyTarget(), label, ()=>orig.apply(this, args));
+    };
+  }
+  return _busyWrapped.size;
+}
+
 function toast(msg){
   let t = document.getElementById('_toast');
   if(!t){ t = document.createElement('div'); t.id='_toast';
