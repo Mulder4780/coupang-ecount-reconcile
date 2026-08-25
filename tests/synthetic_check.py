@@ -25636,6 +25636,227 @@ def t420_delete_says_why_and_hides_dead_buttons():
 
     print("  [420] 삭제 실패가 사유를 말하고, 안 되는 단추는 안 그린다")
 
+
+def t421_settle_po_and_invoice_filter():
+    """[421] 정산·청구에서 PO 로 찾고 계산서로 좁힌다 (2026-08-25 형님 지시).
+
+    지시: "상단에 PO로 검색할 수 있게 하나 더 추가해서 관리 확인할 수 있게 정리해 /
+    계산서 확인용으로 하나 더 만들어"
+
+    ★ 전체 검색칸(#q)은 **모든 칸을 이어 붙여** 찾는다 — 실측 2026-08-25(750행):
+      "발행" 한 낱말에 **750건 전부**가 걸린다(계산서 칸 값에 그 글자가 다 있다).
+      그래서 계산서는 치는 것이 아니라 **고르는 것**이어야 뜻이 있다.
+    ★ PO 는 부분일치다 — 707건 중 661건이 `PO327948/PR461621` 처럼 PR 이 붙어 있어,
+      정확히 같은 값만 받으면 사람이 아는 번호로는 한 건도 못 찾는다.
+    ★ 돌발AS·정기점검 행에는 그 칸이 **아예 없다** — 그 탭에서 걸러 버리면 목록이
+      통째로 빈다([172]).
+    """
+    import io                  # [324] 이 파일 모듈 수준에는 없다
+    import shutil              # [324]
+    import subprocess as _sp421
+    import tempfile as _tf421
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # (1) 되돌아가면 안 되는 것만 얼린다([39])
+    assert ".settle-only[hidden]{display:none}" in html, (
+        "display:contents 가 브라우저 기본 [hidden] 보다 세다 — 숨김 규칙을 지우면 "
+        "다른 탭에서도 PO·계산서 칸이 그대로 보인다([237] 이 접기에서 겪은 자리)")
+    assert "['PO번호','PO'],['계산서','계산서']" in html, (
+        "묶음 기준에서 PO별·계산서별이 빠졌다 — 한 PO 에 평균 14건이 붙어(실측 "
+        "707건/고유 50개) 묶어 보는 것이 곧 '관리 확인'이다")
+
+    # (2) 정말 걸러지는가는 **실행으로** 잰다([295]) — 글자로는 못 잰다
+    node = shutil.which("node")
+    if not node:
+        print("  [421] node 없음 — 실행 검사 건너뜀")
+        return
+    grab = lambda a, b: html[html.index(a):html.index(b, html.index(a))]
+    nl = chr(10)
+    parts = nl.join([
+        grab("function settleExtraPass(r){", nl + "/* 켜 둔 좁히기를"),
+        grab("function settleExtraLabels(){", nl + "function clearSettleExtra("),
+        grab("function fillSettleFilters(){", nl + "function renderSettle("),
+    ])
+    # 실측 자료가 아니라 **합성**으로 잰다 — 실데이터로 재면 자료가 바뀌는 날
+    # 검사가 흔들리고, 그 흔들림을 코드 고장으로 읽게 된다([247]·[309])
+    rows = ('[{"PO번호":"PO327948/PR461621","계산서":"미발행"},'
+            '{"PO번호":"PO327948/PR461621","계산서":"발행"},'
+            '{"PO번호":"PO999111","계산서":"발행(ERP확인)"},'
+            '{"PO번호":"","계산서":"미발행"}]')
+    harness = nl.join([
+        "function esc2(s){return String(s==null?'':s);}",
+        "var EL={fpo:{value:''},fbill:{value:''},polist:{innerHTML:''}};",
+        "function $(id){return EL[id];}",
+        "var mode='settle';",
+        "var settleRows=" + rows + ";",
+        parts,
+        "function pass(){return settleRows.filter(settleExtraPass).length;}",
+        "var o={};",
+        "o.all=pass();",
+        "EL.fpo.value='327948'; o.po_digits=pass();",
+        "EL.fpo.value='po327948'; o.po_lower=pass();",
+        "EL.fpo.value='없는번호'; o.po_none=pass();",
+        "EL.fpo.value='';",
+        "EL.fbill.value='발행'; o.bill_exact=pass();",
+        "EL.fbill.value=''; o.labels_off=settleExtraLabels().length;",
+        "EL.fpo.value='327948'; EL.fbill.value='미발행';",
+        "o.both=pass(); o.labels_on=settleExtraLabels().length;",
+        "mode='as'; o.other_tab=pass(); o.other_labels=settleExtraLabels().length;",
+        "mode='settle'; EL.fbill.value='미발행'; fillSettleFilters();",
+        "o.po_options=(EL.polist.innerHTML.match(/<option/g)||[]).length;",
+        "o.bill_options=(EL.fbill.innerHTML.match(/<option/g)||[]).length;",
+        "o.bill_keeps=EL.fbill.value;",
+        "console.log(JSON.stringify(o));",
+    ])
+    with _tf421.TemporaryDirectory(prefix="csos-421n-") as td:
+        p = os.path.join(td, "h.js")
+        io.open(p, "w", encoding="utf-8").write(harness)
+        proc = _sp421.Popen([node, p], stdout=_sp421.PIPE, stderr=_sp421.PIPE,
+                            creationflags=getattr(_sp421, "CREATE_NO_WINDOW", 0))
+        so, se = proc.communicate(timeout=60)
+    assert proc.returncode == 0, se.decode("utf-8", "replace")[:400]
+    got = json.loads(so.decode("utf-8", "replace").strip().splitlines()[-1])
+
+    assert got["all"] == 4, ("빈 필터인데 걸러진다 — 좁히는 것도 고장이다([172])", got)
+    assert got["po_digits"] == 2 and got["po_lower"] == 2, (
+        "PO 부분일치·대소문자가 안 된다 — 실측 661건이 PR 이 붙은 모양이라 "
+        "정확일치만 받으면 사람이 아는 번호로는 한 건도 못 찾는다", got)
+    assert got["po_none"] == 0, ("없는 PO 인데 건이 남는다", got)
+    assert got["bill_exact"] == 1, (
+        "계산서가 부분일치다 — '발행' 이 '발행(ERP확인)' 까지 삼키면 고르는 뜻이 "
+        "없어진다(실측 750건 중 552건이 걸린다)", got)
+    assert got["both"] == 1, ("PO+계산서가 교집합이 아니다", got)
+    assert got["labels_off"] == 0 and got["labels_on"] == 2, (
+        "켜 둔 좁히기를 화면이 안 말한다 — 안 적으면 자료가 사라진 줄 안다([169])", got)
+    assert got["other_tab"] == 4 and got["other_labels"] == 0, (
+        "정산이 아닌 탭에서도 걸러진다 — 그 탭에는 PO·계산서 칸이 아예 없어 "
+        "목록이 통째로 빈다([172])", got)
+    assert got["po_options"] == 2, ("PO 목록이 실제 고유 값에서 안 온다", got)
+    assert got["bill_options"] == 4, (
+        "계산서 목록이 '전체 + 실제로 쓰인 값' 이 아니다 — 낱말을 지어내지 "
+        "않는다([166]). `승인번호` 는 750건 전부 비어 열쇠가 못 된다([165])", got)
+    assert got["bill_keeps"] == "미발행", (
+        "다시 채울 때 고른 것을 잃는다 — 사람은 필터가 스스로 풀린 줄 안다", got)
+
+    print("  [421] 정산에서 PO 로 찾고 계산서로 좁힌다 — 다른 탭은 안 건드린다")
+
+def t421_kakao_cache_follows_report_dir():
+    """[421] 카톡 캐시 두 자리가 **REPORT_DIR 을 따라온다** (2026-08-25 실사고 · [227]).
+
+    무엇이 잘못됐었나
+      `_KAKAO_SPAN_CACHE`·`_KAKAO_SELECTION_CACHE` 가 모듈 상수로 `BASE_DIR/reports` 를
+      직접 적어 뒀다. 같은 모듈의 지문(`_kakao_selection_trigger`)과 빠른 길은
+      `REPORT_DIR` 을 읽는데 캐시만 옛 자리를 봤다 — **한 모듈 안에서 리포트 자리가
+      둘로 갈렸다**([162]).
+
+    그림이 나쁜 자리
+      `_extend_early` 는 구간 캐시의 `__결과__` 에서 **이전 경로를 이어 붙인다**
+      (Z: 재귀 탐색 162초를 안 되풀이하려고 · 옳은 최적화다). 그런데 그 캐시가 실제
+      자리를 보므로, 검사가 `REPORT_DIR`·`kakao_dirs`·`KAKAO_INBOX` 를 **셋 다**
+      격리해도 **실데이터가 섞여 들어왔다**(2026-08-25 실측 합성 2 + 실제 6 = 8).
+      그래서 형님이 그날 카톡을 올리기만 해도 `t201` 이 빨개졌고, 그 관문은
+      `daily_run` 의 **0단계**라 그날 아침 대조가 통째로 안 돌았다.
+      자료를 넣었다고 빨개지는 관문은 아무도 안 믿는다([170]·[247]).
+
+    재는 것 — 글자가 아니라 **실행**이다([295])
+      ① 자리가 `REPORT_DIR` 을 따라오는가
+      ② 기본값은 그대로인가(좁히는 것도 고장이다 · [172])
+      ③ 실제 캐시에 `__결과__` 가 차 있어도 격리하면 **모래상자 밖 경로가 안 섞이는가**
+      ④ 실측 증거 파일을 한 글자도 안 건드리는가([247])
+      ⑤ 계기 자기시험 — 옛 동작(상수로 굳힌 자리)을 되살리면 잡히는가([272])
+    """
+    import io, shutil          # 이 파일 모듈 수준에 없다([324])
+    import band_extract as B
+
+    # ① 자리를 옮기면 따라오는가 — 상수면 import 때 굳어 안 따라온다([371]).
+    old_report = B.REPORT_DIR
+    tmp = tempfile.mkdtemp(prefix="t421_")
+    try:
+        moved = os.path.join(tmp, "reports-옮김")
+        B.REPORT_DIR = moved
+        assert os.path.dirname(B._span_cache_path()) == moved,             "구간 캐시 자리가 REPORT_DIR 을 안 따라온다 — 지문과 캐시가 갈린다([227])"
+        assert os.path.dirname(B._selection_cache_path()) == moved,             "선택 캐시 자리가 REPORT_DIR 을 안 따라온다([227])"
+    finally:
+        B.REPORT_DIR = old_report
+
+    # ② 기본값은 한 글자도 안 바뀐다 — 넓히는 것만큼 좁히는 것도 고장이다([172]).
+    assert B._span_cache_path() == os.path.join(B.REPORT_DIR, ".카톡_원본구간.json")
+    assert B._selection_cache_path() == os.path.join(B.REPORT_DIR, ".카톡_원본선택.json")
+
+    # ③ 진짜 재현 — 구간 캐시에 **모래상자 밖 경로**가 든 `__결과__` 를 채워 두고
+    #    격리한 채 부른다. 옛 코드는 그것을 이어 붙여 밖의 경로를 돌려줬다.
+    import source_dirs as SD
+    room_a, room_b = B.KAKAO_ROOM_MARKERS[0], B.KAKAO_ROOM_MARKERS[1]
+    outside = os.path.join(tmp, "밖")
+    sand = os.path.join(tmp, "모래상자")
+    os.makedirs(outside, exist_ok=True)
+    os.makedirs(sand, exist_ok=True)
+
+    def _talk(room, prj, day):
+        return ("★UNI★ %s 님과 카카오톡 대화" % room + chr(10)
+                + "저장한 날짜 : %s 09:00:00" % day + chr(10) + chr(10)
+                + "--------------- 2026년 8월 1일 토요일 ---------------" + chr(10)
+                + "[기사] [오전 9:00] ♣ ［ 돌발유료 A/S 완료 ]" + chr(10)
+                + "● 프로젝트NO : %s" % prj + chr(10) + "● 캠프이름 : 시험캠프" + chr(10))
+
+    far_a = os.path.join(outside, "밖_돌발.txt")
+    far_b = os.path.join(outside, "밖_정기.txt")
+    open(far_a, "w", encoding="utf-8").write(_talk(room_a, "UJ2699001", "2026-01-02"))
+    open(far_b, "w", encoding="utf-8").write(_talk(room_b, "UJ2699002", "2026-01-02"))
+    in_a = os.path.join(sand, "안_돌발.txt")
+    in_b = os.path.join(sand, "안_정기.txt")
+    open(in_a, "w", encoding="utf-8").write(_talk(room_a, "UJ2699003", "2026-08-21"))
+    open(in_b, "w", encoding="utf-8").write(_talk(room_b, "UJ2699004", "2026-08-21"))
+
+    fake_reports = os.path.join(tmp, "reports-가짜")
+    os.makedirs(fake_reports, exist_ok=True)
+    seeded = {"__결과__": {"열쇠": "안맞는열쇠", "때": time.time(),
+                          "경로": [far_a, far_b]}}
+    with io.open(os.path.join(fake_reports, ".카톡_원본구간.json"),
+                 "w", encoding="utf-8") as fh:
+        json.dump(seeded, fh, ensure_ascii=False)
+
+    real_span, real_sel = B._span_cache_path(), B._selection_cache_path()
+    before = [(p, os.path.getmtime(p)) for p in (real_span, real_sel) if os.path.isfile(p)]
+
+    old_dirs, old_inbox = SD.kakao_dirs, B.KAKAO_INBOX
+    try:
+        B.REPORT_DIR = fake_reports
+        SD.kakao_dirs = lambda: [sand]
+        B.KAKAO_INBOX = sand
+        got = B.kakao_source_paths()
+    finally:
+        B.REPORT_DIR = old_report
+        SD.kakao_dirs, B.KAKAO_INBOX = old_dirs, old_inbox
+
+    stray = [p for p in got if not os.path.normcase(os.path.abspath(str(p)))
+             .startswith(os.path.normcase(os.path.abspath(sand)))]
+    assert not stray,         "격리했는데 모래상자 밖 경로가 섞였다 — 구간 캐시가 실제 자리를 본다([227]): %r" % (stray[:3],)
+    assert got, "격리하면 아무것도 못 읽는다 — 좁히는 것도 고장이다([172])"
+
+    # ④ 실측 증거는 한 글자도 안 건드린다([247]).
+    for path, mtime in before:
+        assert os.path.getmtime(path) == mtime,             "검사가 실측 카톡 캐시를 덮었다 — 그 파일은 더 이상 실측이 아니다([247]): %s" % path
+
+    # ⑤ 계기 자기시험([272]) — 옛 동작(자리를 상수로 굳힘)을 되살리면 잡히는가.
+    #    ⚠ 모듈 전역이라 프로세스 전체의 것이다 — finally 로 되돌린다([371]).
+    _real_span_fn = B._span_cache_path
+    try:
+        B._span_cache_path = lambda: os.path.join(fake_reports, ".카톡_원본구간.json")
+        B.REPORT_DIR = os.path.join(tmp, "reports-없음2")
+        SD.kakao_dirs = lambda: [sand]
+        B.KAKAO_INBOX = sand
+        leaked = B.kakao_source_paths()
+    finally:
+        B._span_cache_path = _real_span_fn
+        B.REPORT_DIR = old_report
+        SD.kakao_dirs, B.KAKAO_INBOX = old_dirs, old_inbox
+    assert any(str(p) in (far_a, far_b) for p in leaked),         "자기시험이 아무것도 안 재고 있다 — 자리를 굳혀도 밖의 경로가 안 섞인다([272])"
+
+    shutil.rmtree(tmp, ignore_errors=True)
+    print("  [421] 카톡 캐시 자리가 REPORT_DIR 을 따라온다 — 관문이 실데이터를 안 읽는다 ✅")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -36175,6 +36396,8 @@ if __name__ == "__main__":
     t418_report_red_never_paints_what_we_have_not_seen()
     t419_staff_force_complete_reaches_report()
     t420_delete_says_why_and_hides_dead_buttons()
+    t421_settle_po_and_invoice_filter()
+    t421_kakao_cache_follows_report_dir()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

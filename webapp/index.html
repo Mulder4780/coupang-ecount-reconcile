@@ -873,6 +873,17 @@ body.calendar-only .cal2-only-note{display:block}
   border-radius:11px;font-size:0.875rem;background:var(--surface);transition:border .15s;color:var(--ink)}
 .toolbar input:focus,.toolbar select:focus{outline:none;border-color:var(--brand)}
 .toolbar #fsort{flex:0 0 auto;min-width:104px}
+/* ★ display:contents 라야 안의 input·select 가 툴바의 직접 자식처럼 배치된다.
+   그러면 브라우저 기본 [hidden]{display:none} 보다 이 규칙이 세서 **안 숨는다** —
+   [237] 이 접기에서 그대로 겪은 자리다. 그래서 숨김 규칙을 명시한다. */
+.settle-only{display:contents}
+.settle-only[hidden]{display:none}
+.toolbar #fpo{flex:0 0 auto;min-width:150px}
+.toolbar #fbill{flex:0 0 auto;min-width:132px}
+.fclear{border:1px solid var(--line);background:var(--panel);color:var(--brand);
+  border-radius:8px;padding:2px 9px;font-family:inherit;font-size:0.8125rem;
+  font-weight:700;cursor:pointer;margin-left:6px}
+.fclear:hover,.fclear:focus-visible{background:var(--brand-tint);outline:none}
 .toolbar #fperiod{flex:0 0 auto;min-width:112px}
 .fdates{display:none;gap:6px;align-items:center;flex:1 1 100%}
 .fdates.on{display:flex}
@@ -4166,6 +4177,20 @@ body.dash-drag-live #dashGuides{display:grid}
     </div>
     <div class="toolbar">
       <input id="q" placeholder="검색: ID·캠프·기사·프로젝트" oninput="renderSettle()">
+      <!-- ★ PO·계산서는 **정산에만 있는 칸**이다 — 실측 2026-08-25: 돌발AS·정기점검
+           행에는 그 칸이 아예 없다. 그 탭에서 그리면 눌러도 아무 일이 없는 손잡이가
+           되어 고장으로 읽힌다([172]). 그래서 정산에서만 보인다.
+           ★ 전체 검색칸(#q)과 자리가 겹치지 않는다 — 그쪽은 **모든 칸을 이어 붙여**
+             찾으므로 "발행" 한 낱말에 750건 전부가 걸린다(실측). 그래서 계산서는
+             치는 것이 아니라 **고르는 것**이어야 뜻이 있다. -->
+      <span class="settle-only" id="fsettleonly">
+        <input id="fpo" list="polist" placeholder="PO번호로 찾기" oninput="renderSettle()"
+          title="PO번호 칸만 봅니다 — PO327948 도 327948 도 걸립니다">
+        <datalist id="polist"></datalist>
+        <select id="fbill" onchange="renderSettle()" title="계산서 확인">
+          <option value="">계산서 전체</option>
+        </select>
+      </span>
       <select id="fstat" onchange="renderSettle()"><option value="">상태 전체</option></select>
       <select id="fsort" onchange="sortPick()" title="정렬 기준">
         <option value="__date">날짜순</option>
@@ -13798,6 +13823,9 @@ function setMode(m){
   mode = m;
   document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on', b.dataset.m===m));
   resetSort();                       // 탭을 바꾸면 항상 기본 순서(과거→최근)로 복귀
+  // PO·계산서 칸은 정산에만 있다 — 다른 탭에서는 감춘다(값은 지우지 않는다:
+  // 지우면 돌아왔을 때 "왜 초기화됐지"가 된다)
+  const only = $('fsettleonly'); if(only) only.hidden = (m !== 'settle');
   fillStatOptions(); renderSettle();
 }
 function kTap(el){ el.classList.remove('tapped'); void el.offsetWidth; el.classList.add('tapped'); }
@@ -14000,14 +14028,23 @@ function workPeriodRange(){
 }
 function showPeriodNote(pr, shown, undated){
   const el = $('fnote'); if(!el) return;
-  if(!pr){ el.innerHTML = ''; return; }
-  const label = {m0:'이번 달', m1:'지난 달', m3:'최근 3개월', y0:'올해',
-                 custom:'직접 지정'}[$('fperiod').value] || '';
-  // 날짜 없는 건이 조용히 사라지지 않게 몇 건이 빠졌는지 반드시 알린다
-  el.innerHTML = `기간 <b>${label} (${pr[0]} ~ ${pr[1]})</b> · ${shown}건 표시` +
-    (undated ? ` · <b>날짜 없는 ${undated}건은 제외</b>` : '');
+  const parts = [];
+  if(pr){
+    const label = {m0:'이번 달', m1:'지난 달', m3:'최근 3개월', y0:'올해',
+                   custom:'직접 지정'}[$('fperiod').value] || '';
+    // 날짜 없는 건이 조용히 사라지지 않게 몇 건이 빠졌는지 반드시 알린다
+    parts.push(`기간 <b>${label} (${pr[0]} ~ ${pr[1]})</b> · ${shown}건 표시` +
+      (undated ? ` · <b>날짜 없는 ${undated}건은 제외</b>` : ''));
+  }
+  /* PO·계산서 좁히기도 같은 자리에서 말한다 — fnote 의 주인은 이 함수 하나다([162]).
+     끄는 길을 같이 준다: 막기만 하고 길을 안 알려 주면 없는 안내다([172]). */
+  const ex = settleExtraLabels();
+  if(ex.length) parts.push(ex.join(' · ') +
+    ' <button type="button" class="fclear" onclick="clearSettleExtra()">좁히기 끄기</button>');
+  el.innerHTML = parts.join('<br>');
 }
 function fillStatOptions(){
+  fillSettleFilters();               // 같은 때에 채운다 — 자료가 온 뒤 한 번 더 불린다
   const stats = [...new Set(curRows().map(statOf).filter(Boolean))];
   $('fstat').innerHTML = '<option value="">상태 전체</option>' + stats.map(s=>`<option>${s}</option>`).join('');
 }
@@ -14235,7 +14272,7 @@ function foldSetup(root){
      몇 건이 접혔는지 말하지 않으면 '0건' 과 구별되지 않는다.
    ★ 전체 목록도 한 번 눌러 그대로 되돌릴 수 있다(기억한다) — 표로 훑던 사람의 길을 막지 않는다. */
 const GROUP_BY = {
-  settle: [['__stat','상태'],['업무구분','업무구분'],['캠프명','캠프']],
+  settle: [['__stat','상태'],['업무구분','업무구분'],['캠프명','캠프'],['PO번호','PO'],['계산서','계산서']],
   as:     [['__stat','진행상태'],['담당기사','담당기사'],['캠프명','캠프']],
   pm:     [['__stat','점검상태'],['담당기사','담당기사'],['캠프명','캠프']],
   check:  [['__stat','문제 유형'],['담당자','담당자'],['캠프명','캠프']]
@@ -14354,6 +14391,54 @@ function openListGroup(name){
     basis:`현재 ${modeLabel()} 화면의 검색·상태·기간 필터 결과 중 ${label} = ${name}`}};
   openExecMetric(title);
 }
+/* ★ PO·계산서로 좁히기 — 판정은 **여기 한 곳**이다([162]). 목록·표·KPI·엑셀·
+   캡처가 전부 걸러진 `rows` 를 보므로 여기서 한 번 거르면 저절로 따라온다.
+   ★ 전체 검색칸과 달리 **그 칸만** 본다 — 실측 2026-08-25: 전체 검색에 "발행"을
+     넣으면 750건 **전부**가 걸린다(계산서 칸 값에 그 글자가 다 들어 있다).
+   ★ PO 는 부분일치다 — 실측 707건 중 661건이 PO327948/PR461621 처럼 PR 이 붙어
+     있어, 정확히 같은 값만 받으면 사람이 아는 번호로는 한 건도 못 찾는다. */
+function settleExtraPass(r){
+  if(mode!=='settle') return true;            // 그 탭에는 이 칸이 아예 없다
+  const po = (($('fpo')||{}).value||'').trim().toLowerCase();
+  if(po && String(r.PO번호||'').toLowerCase().indexOf(po) < 0) return false;
+  const bill = (($('fbill')||{}).value||'');
+  if(bill && String(r.계산서||'').trim() !== bill) return false;
+  return true;
+}
+/* 켜 둔 좁히기를 화면이 말한다([169]) — 안 적으면 "왜 몇 건밖에 안 보이지"가 되고
+   사람은 자료가 사라진 줄 안다. */
+function settleExtraLabels(){
+  if(mode!=='settle') return [];
+  const out = [];
+  const po = (($('fpo')||{}).value||'').trim();
+  const bill = (($('fbill')||{}).value||'');
+  if(po) out.push('PO <b>' + esc2(po) + '</b> 로 좁힘');
+  if(bill) out.push('계산서 <b>' + esc2(bill) + '</b> 만');
+  return out;
+}
+function clearSettleExtra(){
+  if($('fpo')) $('fpo').value = '';
+  if($('fbill')) $('fbill').value = '';
+  renderSettle();
+}
+/* 고를 값은 **자료에서 만든다**([166]) — 낱말을 지어내지 않는다. 실측 2026-08-25:
+   계산서 칸은 발행(ERP확인)·미발행·발행·발행(근거확인) 넷뿐이고 승인번호 는
+   750건 전부 비어 있어 열쇠가 못 된다([165]). */
+function fillSettleFilters(){
+  const dl = $('polist'), bill = $('fbill');
+  if(!dl || !bill) return;
+  const rows = settleRows || [];
+  const pos = [...new Set(rows.map(r=>String(r.PO번호||'').trim()).filter(Boolean))].sort();
+  dl.innerHTML = pos.map(p=>'<option value="' + esc2(p) + '">').join('');
+  const cnt = {};
+  rows.forEach(r=>{ const b=String(r.계산서||'').trim(); if(b) cnt[b]=(cnt[b]||0)+1; });
+  const keep = bill.value;
+  const bs = Object.keys(cnt).sort();
+  bill.innerHTML = '<option value="">계산서 전체</option>' +
+    bs.map(b=>'<option value="' + esc2(b) + '">' + esc2(b) + ' · ' + cnt[b] + '건</option>').join('');
+  // 다시 채워도 고른 것을 잃지 않는다 — 잃으면 사람은 필터가 스스로 풀린 줄 안다
+  if(bs.indexOf(keep) >= 0) bill.value = keep;
+}
 function renderSettle(){
   const q = ($('q').value||'').toLowerCase(), f = $('fstat').value;
   const pr = workPeriodRange();
@@ -14364,6 +14449,7 @@ function renderSettle(){
     // (2026-08-04 지시). 상태 필터로 그 상태를 직접 고르면 여전히 보인다.
     if(!f && /^완료\(/.test(statOf(r)||'')) return false;
     if(q && !Object.values(r).join('').toLowerCase().includes(q)) return false;
+    if(!settleExtraPass(r)) return false;
     if(pr){
       const d = dateOf(r, mode);
       if(!d){ undated++; return false; }     // 날짜 없는 건은 기간으로 판단 불가 → 제외하고 아래에 알림
