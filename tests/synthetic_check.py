@@ -25795,7 +25795,9 @@ def t421_kakao_cache_follows_report_dir():
     def _talk(room, prj, day):
         return ("★UNI★ %s 님과 카카오톡 대화" % room + chr(10)
                 + "저장한 날짜 : %s 09:00:00" % day + chr(10) + chr(10)
-                + "--------------- 2026년 8월 1일 토요일 ---------------" + chr(10)
+                # 시작일은 **본문 구분선**에서 온다(_kakao_span). 네 파일이 같은 날짜면
+                # 밖의 것이 "이미 덮인 구간"이 되어 안 보태진다 — 자기시험이 눈이 먼다.
+                + "--------------- %s년 %s월 %s일 금요일 ---------------" % tuple(day.split("-")) + chr(10)
                 + "[기사] [오전 9:00] ♣ ［ 돌발유료 A/S 완료 ]" + chr(10)
                 + "● 프로젝트NO : %s" % prj + chr(10) + "● 캠프이름 : 시험캠프" + chr(10))
 
@@ -25816,12 +25818,18 @@ def t421_kakao_cache_follows_report_dir():
                  "w", encoding="utf-8") as fh:
         json.dump(seeded, fh, ensure_ascii=False)
 
+    # `fake_reports` 는 **실제 리포트 자리의 대역**이다 — 옛 코드가 상수로 굳혀
+    # 보던 그 자리. 격리 대상은 아래 `clean_reports`(빈 자리)다. 둘을 가르지 않으면
+    # 씨앗을 격리 대상에 심어 놓고 "밖이 새면 안 된다" 고 묻는 셈이 된다.
+    clean_reports = os.path.join(tmp, "reports-깨끗")
+    os.makedirs(clean_reports, exist_ok=True)
+
     real_span, real_sel = B._span_cache_path(), B._selection_cache_path()
     before = [(p, os.path.getmtime(p)) for p in (real_span, real_sel) if os.path.isfile(p)]
 
     old_dirs, old_inbox = SD.kakao_dirs, B.KAKAO_INBOX
     try:
-        B.REPORT_DIR = fake_reports
+        B.REPORT_DIR = clean_reports
         SD.kakao_dirs = lambda: [sand]
         B.KAKAO_INBOX = sand
         got = B.kakao_source_paths()
@@ -25840,6 +25848,11 @@ def t421_kakao_cache_follows_report_dir():
 
     # ⑤ 계기 자기시험([272]) — 옛 동작(자리를 상수로 굳힘)을 되살리면 잡히는가.
     #    ⚠ 모듈 전역이라 프로세스 전체의 것이다 — finally 로 되돌린다([371]).
+    #    3 이 그 가짜 캐시를 **덮어썼다** — 씨앗을 다시 심지 않으면 5 는 아무것도
+    #    안 재면서 빨개진다(2026-08-25 실측). 계기가 틀린 것이지 코드가 아니다([309]).
+    with io.open(os.path.join(fake_reports, ".카톡_원본구간.json"),
+                 "w", encoding="utf-8") as fh:
+        json.dump(seeded, fh, ensure_ascii=False)
     _real_span_fn = B._span_cache_path
     try:
         B._span_cache_path = lambda: os.path.join(fake_reports, ".카톡_원본구간.json")

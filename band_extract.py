@@ -597,10 +597,31 @@ def load_records():
 KAKAO_ROOM_MARKERS = ("쿠팡돌발점검", "쿠팡정기점검")
 KAKAO_SPAN_TRUNCATED = False
 
-_KAKAO_SPAN_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                 "reports", ".카톡_원본구간.json")
-_KAKAO_SELECTION_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                      "reports", ".카톡_원본선택.json")
+def _span_cache_path():
+    """카톡 원본 구간 캐시의 자리. **`REPORT_DIR` 에서 온다.**
+
+    2026-08-25 실사고(분담판 [227]): 여기가 `BASE_DIR/reports` 를 직접 적어 두어
+    `REPORT_DIR` 을 **안 봤다.** 그래서 한 모듈 안에서 리포트 자리가 둘로 갈렸다 —
+    지문(`_kakao_selection_trigger`)과 빠른 길은 `REPORT_DIR` 을 읽는데 캐시만
+    옛 자리를 읽고 썼다. 결과가 둘이다:
+      · 운영: `COUPANG_REPORT_DIR` 로 자리를 옮기면 새 자리의 지문에 **옛 자리의
+        결과**가 조용히 실린다 — 오류도 안 나고 목록도 그럴듯하다([165]).
+      · 관문: `t201` 이 `REPORT_DIR` 을 격리해도 `_extend_early` 가 **실제** 구간
+        캐시의 `__결과__` 에서 이전 경로를 이어 붙여 **실데이터가 섞였다**
+        (2026-08-25 실측 합성 2 + 실제 6 = 8). 그래서 형님이 그날 카톡을 올리기만
+        해도 관문이 빨개졌고, 그 관문은 `daily_run` 의 0단계라 **그날 아침 대조가
+        통째로 안 돌았다**. 자료를 넣었다고 빨개지는 관문은 아무도 안 믿는다
+        ([170]) — 그리고 검사가 실측 증거를 읽고 쓰면 안 된다([247]).
+    ★ **상수가 아니라 함수여야 한다.** 모듈 상수는 import 때 굳어서, 부르는 쪽이
+      `REPORT_DIR` 을 옮겨도 따라오지 못한다([371] — 모듈 전역은 프로세스의 것이다).
+    ★ 기본값은 한 글자도 안 바뀐다 — `REPORT_DIR` 의 기본이 `BASE_DIR/reports` 다([172]).
+    """
+    return os.path.join(REPORT_DIR, ".카톡_원본구간.json")
+
+
+def _selection_cache_path():
+    """카톡 원본 선택 캐시의 자리. 근거는 `_span_cache_path` 와 같다([227])."""
+    return os.path.join(REPORT_DIR, ".카톡_원본선택.json")
 
 
 def _kakao_selection_trigger():
@@ -639,7 +660,7 @@ def _load_kakao_selection(trigger, dedupe_content):
     if not trigger:
         return None
     try:
-        with open(_KAKAO_SELECTION_CACHE, encoding="utf-8") as fh:
+        with open(_selection_cache_path(), encoding="utf-8") as fh:
             raw = json.load(fh)
     except (OSError, ValueError, TypeError):
         return None
@@ -653,7 +674,7 @@ def _save_kakao_selection(trigger, dedupe_content, paths):
     if not trigger or not paths:
         return
     try:
-        with open(_KAKAO_SELECTION_CACHE, encoding="utf-8") as fh:
+        with open(_selection_cache_path(), encoding="utf-8") as fh:
             raw = json.load(fh)
         if not isinstance(raw, dict) or raw.get("trigger") != trigger:
             raw = {"version": 1, "trigger": trigger}
@@ -662,11 +683,11 @@ def _save_kakao_selection(trigger, dedupe_content, paths):
     key = "dedupe" if dedupe_content else "all"
     raw[key] = {"paths": list(paths), "saved_at": datetime.now().isoformat(timespec="seconds")}
     try:
-        os.makedirs(os.path.dirname(_KAKAO_SELECTION_CACHE), exist_ok=True)
-        tmp = _KAKAO_SELECTION_CACHE + ".tmp"
+        os.makedirs(os.path.dirname(_selection_cache_path()), exist_ok=True)
+        tmp = _selection_cache_path() + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(raw, fh, ensure_ascii=False)
-        os.replace(tmp, _KAKAO_SELECTION_CACHE)
+        os.replace(tmp, _selection_cache_path())
     except OSError:
         pass
 
@@ -719,7 +740,7 @@ def _extend_early(paths, folders, per_room=3):
     if not folders:
         return paths
     try:
-        cache = json.load(open(_KAKAO_SPAN_CACHE, encoding="utf-8"))
+        cache = json.load(open(_span_cache_path(), encoding="utf-8"))
         if not isinstance(cache, dict):
             cache = {}
     except (OSError, ValueError):
@@ -776,11 +797,11 @@ def _extend_early(paths, folders, per_room=3):
         if complete and all(room in floor for room in KAKAO_ROOM_MARKERS):
             cache["__결과__"] = {"열쇠": ckey, "때": time.time(), "경로": candidate}
             try:
-                os.makedirs(os.path.dirname(_KAKAO_SPAN_CACHE), exist_ok=True)
-                tmp = _KAKAO_SPAN_CACHE + ".tmp"
+                os.makedirs(os.path.dirname(_span_cache_path()), exist_ok=True)
+                tmp = _span_cache_path() + ".tmp"
                 with open(tmp, "w", encoding="utf-8") as fh:
                     json.dump(cache, fh, ensure_ascii=False)
-                os.replace(tmp, _KAKAO_SPAN_CACHE)
+                os.replace(tmp, _span_cache_path())
             except OSError:
                 pass
             return candidate
@@ -854,11 +875,11 @@ def _extend_early(paths, folders, per_room=3):
 
     if cache != before:
         try:
-            os.makedirs(os.path.dirname(_KAKAO_SPAN_CACHE), exist_ok=True)
-            tmp = _KAKAO_SPAN_CACHE + ".tmp"
+            os.makedirs(os.path.dirname(_span_cache_path()), exist_ok=True)
+            tmp = _span_cache_path() + ".tmp"
             with open(tmp, "w", encoding="utf-8") as fh:
                 json.dump(cache, fh, ensure_ascii=False)
-            os.replace(tmp, _KAKAO_SPAN_CACHE)
+            os.replace(tmp, _span_cache_path())
         except OSError:
             pass
     return out
