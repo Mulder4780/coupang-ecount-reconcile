@@ -31266,6 +31266,81 @@ def t433_busy_says_what_is_running():
 
     print("  [433] 거절이 무엇이 몇 분째 도는지 말한다(모르면 지어내지 않는다) " + chr(9989))
 
+def t434_where_answers_which_screen():
+    """[434] "어디서 확인해?" 에 **어느 화면인지** 답한다 (2026-08-25).
+
+    `reports/앱_자문기록.json` 실측: 형님이 `미처리건은 어디서 확인해?` 를 **3회**,
+    `미실시건 어디서 확인해?` 를 **2회** 물으셨다. 앞의 셋은 `지금할일` 로 가서
+    **개발자용 대기열 25건**(`python autopilot.py --status` …)을 받았고, 뒤의 둘은
+    **모름**이었다. 형님이 물으신 것은 "AS·정기점검 미처리를 **어느 화면**에서 보나"
+    이지 개발 대기열이 아니다 — **틀린 답은 못 하는 것보다 나쁘다**([172]).
+
+    ★ [320] 이 고친 것은 *답의 내용*(낡은 발췌를 읊던 것)이고 그 고침은 그대로 산다.
+      여기서 바꾼 것은 **갈래**뿐이고, 가르는 낱말은 "어디" 하나다.
+    ★ `지금할일` 은 **한 글자도 안 건드렸다**([172]) — 좁히는 것도 고장이다.
+    """
+    import importlib, io, os, re, sys as _sys
+    if ROOT not in _sys.path:
+        _sys.path.insert(0, ROOT)
+    L = importlib.import_module("local_ai")
+
+    # ① 형님이 실제로 물으신 문장이 **화면**을 답한다
+    for q in ("미처리건은 어디서 확인해?", "미실시건 어디서 확인해?"):
+        name, fn = L.classify(q)
+        assert name == "어디서보나", "[434] %r 가 %s 로 간다 — 형님이 다섯 번 물으신 그것이다" % (q, name)
+        r = fn(q)
+        assert r and "돌발 AS" in r["답"] and "정기점검" in r["답"], (
+            "[434] 종류를 안 밝힌 물음에 한쪽만 댄다 — 다른 쪽 현장이 조용히 빠진다([169]): %r" % (r,))
+
+    # ② **`지금할일` 을 안 넓혔다**([172]) — "어디"가 없으면 예전 그대로다
+    name, _ = L.classify("지금 미처리된건 정리")
+    assert name == "지금할일", "[434] 어디가 없는 물음까지 가져갔다: %s" % name
+
+    # ③ 아무 화면도 안 걸리면 **모름**이다([169]) — 아무 화면이나 대면
+    #    사람이 엉뚱한 데를 뒤진다(이 갈래를 만든 이유 그 자체다)
+    assert L.a_where("이건 어디서 확인해?") is None, (
+        "[434] 무엇을 묻는지 모르는데 화면을 지어낸다")
+
+    # ④ 배지가 **없는** 화면에는 "메뉴 옆 숫자" 라 말하지 않는다([169])
+    r = L.a_where("리모컨 어느 화면에서 봐")
+    assert r and "리모컨" in r["답"], "[434] 리모컨을 못 짚는다"
+    assert "메뉴 이름 옆 숫자" not in r["다음"], (
+        "[434] 배지가 안 붙는 화면인데 메뉴 옆 숫자를 보라고 한다 — 거짓이다([169])")
+    r2 = L.a_where("돌발AS 어디서 봐")
+    assert "메뉴 이름 옆 숫자" in r2["다음"], (
+        "[434] 배지가 붙는 화면인데 그 말을 안 한다 — 좁히는 것도 고장이다([172])")
+
+    html = io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read()
+
+    # ⑤ **화면 이름이 실제 메뉴와 같다**([162]) — 여기 손으로 적어 두면
+    #    메뉴가 바뀐 날 이 답이 **없는 화면**을 가리키면서 오류는 안 난다([165]).
+    for key, (label, _how) in L.WHERE_SCREENS.items():
+        m = re.search(r'data-v="%s"[^>]*>(.*?)</button>' % re.escape(key), html, re.S)
+        assert m, "[434] 사이드바에 data-v=%r 메뉴가 없다 — 없는 화면을 가리킨다" % key
+        shown = re.sub(r"<[^>]+>", "", m.group(1)).strip()
+        assert shown == label, (
+            "[434] 화면 이름이 메뉴와 다르다: 표 %r · 실제 %r" % (label, shown))
+
+    # ⑥ **배지 목록이 화면 쪽과 같다**([162]) — 파이썬과 JS 라 한 곳에 못 두므로
+    #    여기서 대 본다. 갈리면 이 답이 없는 숫자를 가리킨다.
+    m = re.search(r"const NAV_N_WHY = {(.*?)};", html, re.S)
+    assert m, "[434] 화면 쪽 NAV_N_WHY 를 못 찾았다"
+    js_keys = set(re.findall(r"(\w+)\s*:", m.group(1)))
+    assert js_keys == set(L.WHERE_BADGE), (
+        "[434] 배지가 붙는 화면 목록이 갈렸다: 화면 %r · 답변기 %r" % (sorted(js_keys), sorted(L.WHERE_BADGE)))
+
+    # ⑦ 이 답은 **자료 날짜와 무관하다** — 화면 구성이 근거라 낡을 것이 없다
+    assert "무관" in (r2.get("근거") or ""), "[434] 근거를 안 밝힌다"
+
+    # ⑧ 계기 자기시험([272]) — 갈래를 `지금할일` 뒤로 되돌리면 잡히는가
+    names = [n for n, _p, _f in L.INTENTS]
+    assert names.index("어디서보나") < names.index("지금할일"), (
+        "[434] `어디서보나` 가 `지금할일` 뒤에 있다 — `미처리` 가 먼저 걸려 "
+        "형님이 받으셨던 그 개발자 대기열이 다시 나간다([292] 순서)")
+
+    print("  [434] '어디서 확인해?' 에 어느 화면인지 답한다(모르면 안 지어낸다) " + chr(9989))
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -36161,7 +36236,12 @@ def t320_chatbot_never_stamps_a_fresh_time_on_old_text():
 
     # ★ 갈래는 안 건드렸다([172]) — '미처리' 질문이 지금할일로 가는 것은 설계다
     probes = dict((q, w) for q, w in A.PROBES)
-    for q in ("미처리건은 어디서 확인해?", "지금 미처리된건 정리"):
+    # ★ 얼릴 것은 **계약**이지 예시가 아니다([39]·[219]). 이 검사가 재는 계약은
+    #   "낡은 발췌를 읊지 않는다" 이고, 그 계약은 `지금할일` 로 가는 아무 질문으로나
+    #   잰다. `미처리건은 어디서 확인해?` 는 2026-08-25 에 `어디서보나` 로 옮겼다 —
+    #   형님이 물으신 것이 *장소*였기 때문이고([434]), 여기에 못 박아 두면 그 고침이
+    #   이 검사를 빨갛게 만든다(옆 세션이 t367 에서 겪은 그 자리다).
+    for q in ("지금 미처리된건 정리",):
         assert probes.get(q) == "지금할일", (
             "PROBES 에서 %r 갈래가 사라졌다 — 갈래가 바뀌면 이 고침이 통째로 "
             "안 걸린다([181])" % q)
@@ -38365,6 +38445,7 @@ if __name__ == "__main__":
     t429_queue_says_what_is_actually_left()
     t432_menu_says_how_many_before_you_click()
     t433_busy_says_what_is_running()
+    t434_where_answers_which_screen()
     t430_slow_buttons_show_that_they_were_pressed()
     t431_status_survives_a_restart()
     t424_resource_failures_that_already_passed()
