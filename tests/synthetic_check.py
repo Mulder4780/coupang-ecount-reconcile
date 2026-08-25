@@ -25440,6 +25440,136 @@ def t418_report_red_never_paints_what_we_have_not_seen():
     print("[418] 대표 캡처 빨강 · 못 본 것은 안 칠함 OK")
 
 
+
+def t419_staff_force_complete_reaches_report():
+    """[419] 담당자가 앱에서 **강제 완료 처리**하면 보고 자료까지 간다.
+
+    2026-08-25 형님 지시: "앱에서 김미영이나, 류지영이 강제 완료 처리하면 보고
+    자료에도 반영하게끔 알고리즘 변경해".
+
+    ★ 실측으로 **원장 행이 있는 건은 이미 잘 갔다**(AS·PM 둘 다) — 고칠 것이 없는
+      자리를 고치면 안 된다([172]). 안 가던 것은 **원장 ID 채번 전**의 건이다:
+      실측 2026-08-25 8월 미처리 19건 중 **10건에 원천업무ID 가 없었고**, 화면은
+      그때 "원장 연결이 없어 열거나 적을 수 없습니다"라 적으며 **[완료로 표시]
+      단추 자체를 안 그렸다.** 담당자는 완료했는데 보고에는 미처리로 남는다.
+    ★ 그런데 그 행은 앱 DB 에 `_business_key`(= 프로젝트NO)로 실재하고, 저장 API
+      (`_staff_store_row`)가 **이미 그 키로 찾는다** — 실측 13건이 전부 유일하게
+      찾힌다(여러 건이면 서버가 거절한다. 그것은 옳다).
+    ★ 새 판정을 만들지 않았다([162]) — 서버가 `저장키` 한 칸을 더 실어 주고 화면이
+      그것을 쓴다. `원천업무ID` 는 한 글자도 안 바꾼다(캘린더 중복 키가 그 값을 쓴다).
+    """
+    import tempfile as _tf
+    from pathlib import Path as _P
+    import shutil            # [324] 이 파일 모듈 수준에는 없다
+    import app_store as _A
+    import webapp.app_server as _S
+    _nl = chr(10)
+
+    def _band():
+        return {"읽음": True, "완료": {}, "완료종류": {}, "언급": set(),
+                "카톡": {}, "밴드수집": {"(주)유니버셜리프트 쿠팡AS": "2026-08-25"}}
+
+    def _cal(works):
+        ow, ob = _S.get_works, _S._band_completion_index
+        try:
+            _S.get_works = lambda: works
+            _S._band_completion_index = _band
+            return _S._calendar_work_events()
+        finally:
+            _S.get_works, _S._band_completion_index = ow, ob
+
+    row = {"프로젝트NO": "UJ2604190", "접수ID": "", "_business_key": "UJ2604190",
+           "캠프명": "채번전캠프", "접수일자": "2026-08-05", "진행상태": "접수",
+           "작업완료일": "", "DB버전": 3}
+    ev = [e for e in _cal({"as": [row], "pm": [], "field": []})
+          if e.get("분류") == "as_open"]
+    assert len(ev) == 1, ev
+    # (1) 원장 ID 가 없어도 **저장할 열쇠**는 실려 나간다
+    assert not str(ev[0].get("원천업무ID") or "").strip()
+    assert ev[0].get("저장키") == "UJ2604190", (
+        "원장 ID 채번 전 건에 저장 열쇠가 없다 — 담당자가 완료 처리할 길이 없고, "
+        "그 건은 보고에 계속 미처리로 남는다([419])")
+
+    # (2) ID 가 있으면 그대로 그것이다 — 좁히는 것도 고장이다([172])
+    row2 = dict(row, 접수ID="AS-419")
+    ev2 = [e for e in _cal({"as": [row2], "pm": [], "field": []})
+           if e.get("분류") == "as_open"]
+    assert ev2[0].get("원천업무ID") == "AS-419", ev2[0]
+    assert ev2[0].get("저장키") == "AS-419", (
+        "원장 ID 가 있는데 저장 열쇠가 다른 값이 됐다 — 캘린더 중복 키와 어긋난다")
+
+    # (3) 그 열쇠로 실제 저장이 되고 **캘린더·대표보고가 따라온다**(임시 DB · [247])
+    with _tf.TemporaryDirectory(prefix="csos-419-") as td:
+        store = _A.AppStore(_P(td) / "app.db").initialize()
+        seeded = store.shadow_import(
+            import_id="s419", sheet="02_돌발AS접수",
+            business_key="UJ2604190", business_key_col="프로젝트NO", row_number=5,
+            kind="돌발AS", public_id="UJ2604190", project_no="UJ2604190",
+            camp_name="채번전캠프", status="접수",
+            fields={"접수ID": "", "프로젝트NO": "UJ2604190", "캠프명": "채번전캠프",
+                    "접수일자": "2026-08-05", "진행상태": "접수", "작업완료일": ""},
+            source_file="s419.xlsx", source_sha256="9" * 64,
+            apply_if_missing=True, idempotency_key="s419-as")
+        cur = store.get_work(work_id=seeded["work_id"])
+        saved = _S.save_staff_entry(
+            "kim-miyeong",
+            {"category": "as", "key": ev[0]["저장키"],
+             "record_version": cur["record_version"],
+             "values": {"진행상태": "작업완료", "작업완료일": "2026-08-25"},
+             "reason": "현장 완료 확인", "idempotency_key": "s419-done"},
+            store=store, actor="staff:kim-miyeong")
+        assert saved.get("ok") and saved["record"]["작업완료일"] == "2026-08-25", (
+            "저장 열쇠로 완료 처리가 안 된다 — 화면에 단추만 생기고 눌러도 막힌다")
+        after = _S._overlay_app_store_works({"as": [], "pm": [], "field": []},
+                                            store=store)
+        kinds = sorted(e.get("분류") for e in _cal(after))
+        assert "as_done" in kinds and "as_open" not in kinds, kinds
+        rep = _S.representative_summary(after, [], "2026-08-25")
+        assert rep["돌발AS"].get("전산상미완료") == 0, rep["돌발AS"]
+
+    # (4) 화면 배선 — 되돌아가면 안 되는 것만 얼린다([39])
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "const cat = calCatOf(e), id = calSaveKey(e)" in html, (
+        "지금 확인할 것 카드가 옛 열쇠(원천업무ID)로 돌아갔다 — 채번 전 건에서 "
+        "단추가 다시 사라진다")
+    for fn in ("async function calDoneOpen(cat, id){" + _nl + "  const e = calFindByKey(cat, id);",
+               "async function calWhyOpen(cat, id){" + _nl + "  const e = calFindByKey(cat, id);"):
+        assert fn in html, "완료·사유 창이 저장 열쇠로 못 찾는다: " + fn[:40]
+
+    # (5) 열쇠 고르기·찾기는 **실행으로** 잰다([295])
+    node = shutil.which("node")
+    if node:
+        head = html.split("function calCatOf(e){", 1)[1]
+        head = "function calCatOf(e){" + head.split("function calNewJob(", 1)[0]
+        harness = _nl.join([
+            "function calKindOf(e){return String((e&&e.분류)||%s);}" % repr(""),
+            head,
+            "var EV=[{분류:%s,저장키:%s,원천업무ID:%s}," % (repr("as_open"), repr("UJ2604190"), repr("")),
+            " {분류:%s,저장키:%s,원천업무ID:%s}];" % (repr("pm_overdue"), repr("PM-9"), repr("PM-9")),
+            "function calEvents(){return EV;}",
+            "var r={saveKeyNoId:calSaveKey(EV[0]),",
+            " fallback:calSaveKey({원천업무ID:%s})," % repr("AS-1"),
+            " bySave:!!calFindByKey(%s,%s)," % (repr("as"), repr("UJ2604190")),
+            " bySrc:!!calFindByKey(%s,%s)," % (repr("pm"), repr("PM-9")),
+            " empty:calFindByKey(%s,%s)};" % (repr("as"), repr("")),
+            "console.log(JSON.stringify(r));",
+        ])
+        with _tf.TemporaryDirectory(prefix="csos-419n-") as td:
+            p = os.path.join(td, "h.js")
+            open(p, "w", encoding="utf-8").write(harness)
+            proc = subprocess.Popen([node, p], stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            so, se = proc.communicate(timeout=60)
+        assert proc.returncode == 0, se.decode("utf-8", "replace")[:400]
+        got = json.loads(so.decode("utf-8", "replace").strip().splitlines()[-1])
+        assert got["saveKeyNoId"] == "UJ2604190", got
+        assert got["fallback"] == "AS-1", ("옛 응답(저장키 없음)에서 물러나지 못한다", got)
+        assert got["bySave"] and got["bySrc"], ("두 열쇠 다로 찾아야 한다", got)
+        assert got["empty"] is None, ("빈 열쇠로 아무 줄이나 집으면 안 된다", got)
+
+    print("  [419] 채번 전 건도 완료 처리 → 캘린더·대표보고까지 수렴")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -35977,6 +36107,7 @@ if __name__ == "__main__":
     t416_restore_lists_stay_one_row_wide()
     t417_excel_archive_runs_once_a_week()
     t418_report_red_never_paints_what_we_have_not_seen()
+    t419_staff_force_complete_reaches_report()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
