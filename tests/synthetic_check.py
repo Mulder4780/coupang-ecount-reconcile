@@ -8556,13 +8556,23 @@ def t201_upload_intake(tmp):
     with open(os.path.join(local, "local.txt"), "w", encoding="utf-8") as fh:
         fh.write(two)
     old_kakao_dirs, old_inbox = _SD.kakao_dirs, _KX.KAKAO_INBOX
+    # ★ 흔수 자국까지 격리한다 — 안 하면 이 검사가 **실제 카톡 원본**을 읽는다.
+    #   `kakao_source_paths` 는 빠른 길로 `reports/download_intake.json` ·
+    #   `reports/카톡_반영회차.json` 의 **목적지**를 먼저 쓴다. 그랬면
+    #   합성 폴더만 목으로 갈아끼워 두어도 실제 파일이 섞여 들어온다.
+    #   2026-08-25 실측: 그날 카톡을 반영하자 이 검사가 2 대신 **4**를 받아
+    #   관문이 빨개졌다 — 검사는 그대로인데 사람이 자료를 넣었다고 빨개지면
+    #   아무도 그 관문을 안 믿는다([170]·[247]).
+    old_report_dir = _KX.REPORT_DIR
     try:
         _SD.kakao_dirs = lambda: [canonical, local]
         _KX.KAKAO_INBOX = local
+        _KX.REPORT_DIR = os.path.join(tmp, "reports-없음")
         assert len(_KX.kakao_source_paths()) == 2, \
             "공유 정본과 로컬의 같은 카톡 원본을 두 번 읽는다"
         records = _KX.load_kakao_records()
     finally:
+        _KX.REPORT_DIR = old_report_dir
         _SD.kakao_dirs, _KX.KAKAO_INBOX = old_kakao_dirs, old_inbox
     projects = {r.get("프로젝트NO") for r in records}
     assert {"UJ2609901", "UJ2609902"} <= projects, \
@@ -25327,6 +25337,109 @@ def t384_window_audit_reads_helper_bodies_not_names():
     print("[384] 창 감사기가 헬퍼 **본문**을 읽는다 · 이름으로는 안 믿는다 · 계기 자기시험 통과")
 
 
+def t418_report_red_never_paints_what_we_have_not_seen():
+    """[418] 대표 캡처의 빨강은 **우리가 보고도 완료 근거가 없는 것**에만 칠한다.
+
+    2026-08-25 형님 지시: "안된건은 빨간색으로 표시해 (근거 남기고)".
+    그런데 **전부** 빨갛게 하면 그것이 곧 2026-08-21 에 지적받은 사고다([397]) —
+    수집이 아직 안 닿은 건(`못봄`)은 '안 된 것'이 아니라 '못 본 것'이고,
+    빨간 목록을 받아 본 본부장·대표는 그것을 '기사가 안 갔다'로 읽는다.
+
+    그리고 **일상 캘린더 색은 안 건드린다**([172]) — 2026-08-23 에 옆 세션이
+    류지영 통화("완료한 것도 안 했다고 나온다")를 근거로 일부러 빨강을 뺐다.
+    한쪽만 고치면 담당자 화면이 다시 빨개진다.
+
+    ★ 글자로는 못 잰다([295]) — node 로 그 함수를 **실행해** 색을 결과로 본다.
+    """
+    import io, shutil                     # 모듈 수준에 없다([324])
+    idx = os.path.join(ROOT, "webapp", "index.html")
+    src = io.open(idx, encoding="utf-8", newline="").read()
+
+    m = re.search(r"const REPORT_RED='([^']+)';", src)
+    assert m, "대표 캡처 빨강이 사라졌다 — 안 끝난 건이 눈에 안 띈다([418])"
+    red = m.group(1)
+
+    head = "function reportKindMeta(key, e){"
+    assert head in src, "reportKindMeta 가 이벤트를 안 받는다 — 근거별로 색을 못 가른다"
+    i = src.index(head); j = src.index("{", i); d = 0
+    for k in range(j, len(src)):
+        if src[k] == "{":
+            d += 1
+        elif src[k] == "}":
+            d -= 1
+            if d == 0:
+                fn = src[i:k + 1]; break
+    else:
+        raise AssertionError("reportKindMeta 본문을 못 읽었다")
+
+    # ★ 일상 캘린더 표에 빨강이 새어 들어왔나 — 08-23 결정이 되돌아가면 잡는다.
+    fb = re.search(r"const CAL_FALLBACK_KINDS\s*=\s*\[(.*?)\];", src, re.S)
+    assert fb, "일상 캘린더 색 표를 못 읽었다"
+    for key in ("as_open", "pm_overdue"):
+        line = [l for l in fb.group(1).split(chr(10)) if "'" + key + "'" in l]
+        assert line, "일상 캘린더 표에서 " + key + " 가 사라졌다"
+        assert red not in line[0], (
+            key + " 가 **일상 캘린더**에서 빨개졌다 — 담당자 화면은 2026-08-23 에 "
+            "일부러 빨강을 뺐다([172]). 캡처에서만 빨갛게 한다.")
+
+    harness = (
+        "const REPORT_RED='" + red + "';" + chr(10) + fn + chr(10) +
+        "function calKindMeta(k){return {key:k,label:k,color:'#8E8E93'};}" + chr(10) +
+        "const C=(w)=>reportKindMeta('as_open',{근거갈래:w}).color;" + chr(10) +
+        "console.log(JSON.stringify({" + chr(10) +
+        " 완료글없음:C('완료글없음'), 근거없음:C('근거없음')," + chr(10) +
+        " 못봄:C('못봄'), 빈값:C('')," + chr(10) +
+        " 범례as:reportKindMeta('as_open').color," + chr(10) +
+        " 범례pm:reportKindMeta('pm_overdue').color," + chr(10) +
+        " 정기점검:reportKindMeta('pm_overdue',{근거갈래:'완료글없음'}).color," + chr(10) +
+        " 완료는그대로:reportKindMeta('as_done',{근거갈래:'완료글없음'}).color}));")
+
+    d = tempfile.mkdtemp(prefix="t418_")
+    try:
+        f = os.path.join(d, "h.js")
+        io.open(f, "w", encoding="utf-8", newline="").write(harness)
+        # ★ 깃발은 **호출 자리에 직접** 적는다 — `**kw` 로 넘기면 창 감사([272])가
+        #   글자로 못 읽어 위반으로 잡는다(2026-08-25 관문이 실제로 잡았다).
+        pr = subprocess.Popen(["node", f], stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        try:
+            out, err = pr.communicate(timeout=120)   # 멈춘 자식이 관문을 못 세운다([175])
+        except subprocess.TimeoutExpired:
+            pr.kill(); pr.communicate(timeout=30)
+            print("[418] node 시간초과 — 건너뜀"); return
+        if pr.returncode != 0:
+            print("[418] node 없음/실패 — 구조만 확인함"); return
+        got = json.loads(out.decode("utf-8", "replace"))
+
+        assert got["완료글없음"] == red and got["근거없음"] == red, (
+            "완료 근거가 없는 건이 안 빨갛다 — 대표 보고에서 안 끝난 것이 안 보인다")
+        assert got["정기점검"] == red, "정기점검 쪽만 빨강에서 빠졌다"
+        assert got["못봄"] != red, (
+            "★ **아직 수집이 안 닿은 건까지 빨갛게 칠했다** — 그것은 '안 된 것'이 "
+            "아니라 '못 본 것'이다([397]·[169]). 빨간 목록은 기사 태만으로 읽힌다.")
+        assert got["빈값"] != red, "근거를 모르는 건까지 빨갛게 칠했다([169])"
+        assert got["범례as"] != red and got["범례pm"] != red, (
+            "이벤트 없이 부른 범례까지 빨개졌다 — 범례는 갈래를 모른다")
+        assert got["완료는그대로"] != red, "완료된 건이 빨개졌다"
+
+        # ★ 계기 자기시험([272]) — '못봄' 문을 없애면 이 검사가 잡는가.
+        broken = harness.replace("if(why==='완료글없음'||why==='근거없음')",
+                                 "if(true)")
+        assert broken != harness, "자기시험 앵커가 안 맞는다 — 아무것도 안 재고 있다"
+        f2 = os.path.join(d, "b.js")
+        io.open(f2, "w", encoding="utf-8", newline="").write(broken)
+        pr2 = subprocess.Popen(["node", f2], stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        out2, _e2 = pr2.communicate(timeout=120)
+        if pr2.returncode == 0:
+            g2 = json.loads(out2.decode("utf-8", "replace"))
+            assert g2["못봄"] == red, (
+                "자기시험이 아무것도 안 재고 있다 — 문을 없애도 '못봄'이 안 빨개진다")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+    print("[418] 대표 캡처 빨강 · 못 본 것은 안 칠함 OK")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -35863,6 +35976,7 @@ if __name__ == "__main__":
     t415_refresh_reuses_inventory_hash_and_parsed_rows()
     t416_restore_lists_stay_one_row_wide()
     t417_excel_archive_runs_once_a_week()
+    t418_report_red_never_paints_what_we_have_not_seen()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

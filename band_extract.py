@@ -614,8 +614,8 @@ def _kakao_selection_trigger():
     base = os.path.dirname(os.path.abspath(__file__))
     h = hashlib.sha256()
     try:
-        for path in (os.path.join(base, "reports", "download_intake.json"),
-                     os.path.join(base, "reports", "카톡_반영회차.json"),
+        for path in (os.path.join(REPORT_DIR, "download_intake.json"),
+                     os.path.join(REPORT_DIR, "카톡_반영회차.json"),
                      os.path.abspath(__file__)):
             h.update(os.path.basename(path).encode("utf-8"))
             try:
@@ -900,7 +900,7 @@ def kakao_source_paths(dedupe_content=True):
     intake_candidates = []
     try:
         base = os.path.dirname(os.path.abspath(__file__))
-        intake = json.load(open(os.path.join(base, "reports", "download_intake.json"),
+        intake = json.load(open(os.path.join(REPORT_DIR, "download_intake.json"),
                                 encoding="utf-8"))
         for row in intake.get("이동") if isinstance(intake, dict) else []:
             path = str(row.get("목적지") or "") if isinstance(row, dict) else ""
@@ -927,7 +927,7 @@ def kakao_source_paths(dedupe_content=True):
     if not intake_complete:
         try:
             base = os.path.dirname(os.path.abspath(__file__))
-            history = json.load(open(os.path.join(base, "reports", "카톡_반영회차.json"),
+            history = json.load(open(os.path.join(REPORT_DIR, "카톡_반영회차.json"),
                                      encoding="utf-8"))
             for run in history if isinstance(history, list) else []:
                 names = [os.path.basename(str(name)) for name in (run.get("받은파일") or [])

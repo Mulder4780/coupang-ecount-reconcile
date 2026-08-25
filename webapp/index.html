@@ -16084,9 +16084,28 @@ function calKindOf(e){ return String((e&&e.분류)||'etc'); }
 function calKindMeta(key){
   return calKinds().find(k=>k.key===key) || {key:key, label:key||'기타', color:'#8E8E93'};
 }
-function reportKindMeta(key){
-  if(key==='as_open') return {key, label:'돌발AS 완료 확인 대기', color:'#B45309'};
-  if(key==='pm_overdue') return {key, label:'정기점검 완료 확인 대기', color:'#475467'};
+// 대표 보고 캡처에서 '아직 안 끝난 건'을 눈에 띄게 하는 빨강.
+// ★ 이 색은 **캡처에만** 쓴다. 일상 캘린더 색(CAL_FALLBACK_KINDS)은 한 글자도
+//   안 건드린다 — 2026-08-23 에 옆 세션이 류지영 통화("완료한 것도 안 했다고
+//   나온다")를 근거로 일부러 빨강을 뺐고, 그 판단은 그 화면에서 옳다([172]).
+const REPORT_RED='#B42318';
+function reportKindMeta(key, e){
+  // 2026-08-25 형님 지시: "안된건은 빨간색으로 표시해 (근거 남기고)".
+  // ★ 그렇다고 **전부** 빨갛게 하지 않는다([169]·[397]). 수집이 아직 안 닿은 건은
+  //   '안 된 것'이 아니라 '못 본 것'이다 — 그것을 빨갛게 칠하는 순간 그것이 곧
+  //   기사 오인이고, 이 앱이 8월 21일에 지적받은 바로 그 사고가 된다.
+  //   그래서 **우리가 실제로 보고도 완료 근거가 없는 것**만 빨강이다.
+  // ★ 이름표는 그대로 '완료 확인 대기'다 — 색은 "아직 안 끝났다"를 말하고
+  //   이름표는 "기사가 안 갔다"를 말하지 않는다. 둘은 다른 말이다.
+  if(key==='as_open'||key==='pm_overdue'){
+    const base = key==='as_open'
+      ? {key, label:'돌발AS 완료 확인 대기', color:'#B45309'}
+      : {key, label:'정기점검 완료 확인 대기', color:'#475467'};
+    const why = e ? String(e.근거갈래||'') : '';
+    if(why==='완료글없음'||why==='근거없음')
+      return Object.assign({}, base, {color:REPORT_RED, 안끝남:true});
+    return base;
+  }
   return calKindMeta(key);
 }
 function calendarRows(){        // 필터를 통과한 일정만
@@ -16944,7 +16963,7 @@ async function calendarCapture(opt){
       x.font = F(8.5);
       const room = 3;
       evs.slice(0, room).forEach((e, i) => {
-        const k = reportKindMeta(calKindOf(e));
+        const k = reportKindMeta(calKindOf(e), e);
         x.fillStyle = k.color || '#475467';
         x.fillRect(cx + 6, cy + 24 + i * 15, 3, 3);
         x.fillStyle = '#344054';
@@ -17219,7 +17238,7 @@ async function calendarCapture(opt){
   };
   const drawDetail=(plan)=>{
     plan.pos.forEach(b=>{
-      const ox=Mg+b.col*(plan.colW+plan.gap),k=reportKindMeta(b.key);
+      const ox=Mg+b.col*(plan.colW+plan.gap),k=reportKindMeta(b.key,b.e);
       if(b.t==='gap') return;
       if(b.t==='head'||b.t==='cont'){
         x.fillStyle=k.color||'#475467';x.fillRect(ox,b.y+1,plan.colW,1);
@@ -17229,7 +17248,8 @@ async function calendarCapture(opt){
       }
       let yy=b.y+plan.lh;
       x.fillStyle=k.color||'#98A2B3';x.fillRect(ox,b.y+3,2.5,Math.max(5,b.h-8));
-      x.font=b.titleFont;x.fillStyle='#101828';
+      // 제목도 같이 빨갛게 — 2.5px 막대만으로는 A4 로 뽑았을 때 안 보인다.
+      x.font=b.titleFont;x.fillStyle=k.안끝남?REPORT_RED:'#101828';
       b.titleLines.forEach(line=>{x.fillText(line,ox+6,yy);yy+=plan.lh;});
       x.font=b.reasonFont;x.fillStyle=b.e.경보?'#B42318':'#667085';
       b.reasonLines.forEach(line=>{x.fillText(line,ox+6,yy);yy+=plan.lh;});
