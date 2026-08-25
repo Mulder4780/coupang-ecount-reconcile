@@ -8359,6 +8359,18 @@ function wtCard(k,r){
      · 청구 제외 = 다녀왔지만 이 건으로는 청구 안 함 → **기록은 남는다**
      · 삭제      = 잘못 등록된 건 → 목록·집계·청구에서 뺀다(되살리기 가능) */
 function wtRowActions(k,id,r){
+  /* ★ 앱 DB 에 행이 없으면 **두 단추 다 안 그린다** — 눌러도 안 되는 단추는
+     고장으로 읽힌다([172]). 삭제는 `_staff_work_target` 이, 청구 제외는
+     낙관잠금 버전이 막는다([296]) — **둘 다** 못 한다.
+     ★ 근거는 이름(`SCH-`)이 아니라 **DB버전**이다 — 이름 규칙에 기대면 규칙이
+       바뀌는 날 조용히 어긋난다([165]). 실측 2026-08-25: 정기점검 471건 중
+       `SCH-` 70건이 전부 DB버전 없음 · 나머지 401건은 전부 있음으로 깨끗이 갈린다.
+     ★ 조용히 빼지 않고 **왜 안 되는지 적는다**([169]) — 안 적으면 이번에는
+       단추가 사라졌다고 여긴다. */
+  if(!Number(r.DB버전||r._record_version||0))
+    return `<div class="wt-acthint">이 건은 아직 <b>앱에 등록되지 않은 예정</b>입니다
+      (류지영 정기점검 스케줄 원본에서 온 일정) — 관리대장·앱 DB 에 행이 없어
+      청구 제외도 삭제도 할 수 없습니다. 목록에서 빼는 길은 아직 없습니다 — 형님께 말씀해 주세요.</div>`;
   const off = String(r.청구제외||'')==='예';
   return `<div class="wt-acts">
     ${off
@@ -8442,7 +8454,17 @@ async function wtDelete(k,id,confirmDocs,verHint){
     renderWorkTab(k);   // 그 탭이 안 그려져 있으면 스스로 물러난다(첫 줄 가드)
     try{ await refreshDataKeys(['works','settlements']); }catch(e){}
     return true;
-  }catch(e){ toast('삭제 실패 — 잠시 후 다시 시도'); return false; }
+  }catch(e){
+    /* ★ 서버가 준 사유를 **버리지 않는다**([289]·[365]). "잠시 후 다시 시도"는
+       **틀린 지목**이라 사람이 영영 안 될 일을 되풀이한다([172]) — 실측
+       2026-08-25 류지영: `SCH-` 예정을 지우려 했는데 그 70건은 앱 DB 에 행이
+       없어 몇 번을 눌러도 같은 자리에서 막혔다.
+       ⚠ 4xx 본문은 `e.data` 에 온다([354]) — 문장을 뜯지 않는다([165]). */
+    const why=String((e&&e.data&&e.data.error)||(e&&e.message)||'').trim();
+    toast(why?('삭제 실패 — '+why):'삭제 실패 — 잠시 후 다시 시도');
+    try{ uxEvent('error','/api/staff/work-delete',why||'삭제 실패'); }catch(_e){}
+    return false;
+  }
 }
 /* 상세 창에서 삭제 — 판정·확인·API 는 위 `wtDelete` 하나가 한다([162]).
    여기서 더하는 것은 둘뿐이다: ① 목록에 없는 기록의 버전을 넘겨준다
