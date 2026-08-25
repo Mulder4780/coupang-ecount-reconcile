@@ -766,30 +766,41 @@ def notices(rows, now=None):
     #   ★ **경보가 아니라 알림이다**(`[170]`·`[172]`). 남의 저장소는 규칙이 다를 수 있고
     #     여기서 '위반'이라 부르면 거짓 경보가 된다. 고치는 것은 그 세션이 정한다 —
     #     여기는 **숫자로 말하는 것까지**다(`[169]` — 조용히 빼면 없는 것으로 읽힌다).
-    try:
-        from tools.window_audit import neighbors as _nb, split as _split
-    except Exception:
-        pass
-    else:
+    # ★ 2026-08-25 형님 지시: **"csos 앱 관련 사항이 아니면 끊어"** — 그래서 이 축은
+    #   **기본이 꺼짐**이다. 남의 저장소 소식은 이 앱의 일이 아니고, 매일 뜨면
+    #   진짜 경보가 묻힌다([170]).
+    #   ★ **재는 것과 말하는 것을 가른다**([169]) — 도구는 그대로 산다:
+    #     `python tools/window_audit.py --neighbors` · `--root "<폴더>"` 는 여전히
+    #     답한다. 끊은 것은 **이 회차가 인계에 올리는 길** 하나다.
+    #   ★ 되돌리기는 한 줄이다([126] 의 보호장치):
+    #     `COUPANG_NEIGHBOR_WINDOW_AUDIT=1`
+    #   ⚠ **이 저장소 안의 여섯 축은 한 글자도 안 바뀐다**([172]) — 소스·예약작업·
+    #     로그인항목·훅·시작폴더가 그대로 돈다. 끊은 것은 **이웃 저장소 하나**다.
+    if os.environ.get("COUPANG_NEIGHBOR_WINDOW_AUDIT") == "1":
         try:
-            _dirs, _ = _nb()
+            from tools.window_audit import neighbors as _nb, split as _split
         except Exception:
-            _dirs = []
-        for _d in _dirs:
+            pass
+        else:
             try:
-                _sure, _unk = _split(root=_d)
-            except Exception as exc:
-                out.append({"갈래": "확인못함", "작업": "이웃 저장소: %s" % os.path.basename(_d),
-                              "무엇": "창 자리를 **못 셌다**(%s)" % type(exc).__name__,
-                              "어떻게": 'python tools' + chr(92) + 'window_audit.py --root "%s"' % _d})
-                continue
-            if _sure or _unk:
-                out.append({"갈래": "이웃창", "작업": "이웃 저장소: %s" % os.path.basename(_d),
-                              "무엇": "이 PC 에서 자동으로 도는 다른 프로젝트 — 콘솔 exe 를 깃발 없이 "
-                                      "띄우는 자리 **%d곳** · 무엇을 띄우는지 못 읽은 자리 **%d곳**. "
-                                      "둘을 뭉치지 않는다(뒤는 지목이 아니라 못 봤다는 보고다 · [169]). "
-                                      "그 세션이 고칠 자리다 — 여기서는 안 고친다." % (len(_sure), len(_unk)),
-                              "어떻게": 'python tools' + chr(92) + 'window_audit.py --root "%s"' % _d})
+                _dirs, _ = _nb()
+            except Exception:
+                _dirs = []
+            for _d in _dirs:
+                try:
+                    _sure, _unk = _split(root=_d)
+                except Exception as exc:
+                    out.append({"갈래": "확인못함", "작업": "이웃 저장소: %s" % os.path.basename(_d),
+                                  "무엇": "창 자리를 **못 셌다**(%s)" % type(exc).__name__,
+                                  "어떻게": 'python tools' + chr(92) + 'window_audit.py --root "%s"' % _d})
+                    continue
+                if _sure or _unk:
+                    out.append({"갈래": "이웃창", "작업": "이웃 저장소: %s" % os.path.basename(_d),
+                                  "무엇": "이 PC 에서 자동으로 도는 다른 프로젝트 — 콘솔 exe 를 깃발 없이 "
+                                          "띄우는 자리 **%d곳** · 무엇을 띄우는지 못 읽은 자리 **%d곳**. "
+                                          "둘을 뭉치지 않는다(뒤는 지목이 아니라 못 봤다는 보고다 · [169]). "
+                                          "그 세션이 고칠 자리다 — 여기서는 안 고친다." % (len(_sure), len(_unk)),
+                                  "어떻게": 'python tools' + chr(92) + 'window_audit.py --root "%s"' % _d})
     # ★ **같은 회차를 두 작업이 부르면 한쪽은 늘 잠금에 막혀 실패한다.** 그런데 그 실패는
     #   '회차가 고장 났다'로 읽혀서 원인을 엉뚱한 데서 찾게 된다 — 2026-08-07 에
     #   `쿠팡업무_원장일괄반영_15시` 를 지운 것이 바로 이 모양이었고(매일 `결과: 1`),

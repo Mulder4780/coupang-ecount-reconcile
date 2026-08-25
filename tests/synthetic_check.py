@@ -20821,6 +20821,30 @@ def t272_no_console_windows_from_children():
         "시작 폴더 축이 회차에 안 걸려 있다 — 만들어도 아무 화면에도 안 뜬다([328])"
     assert "from tools.window_audit import neighbors" in _sw, \
         "이웃 저장소 축이 회차에 안 걸려 있다"
+    # ★ 2026-08-25 형님 지시(**"csos 앱 관련 사항이 아니면 끊어"**) — 이웃 저장소
+    #   소식은 **기본이 꺼짐**이다. 그러면 위 글자 검사만으로는 **아무것도 안 재는**
+    #   검사가 된다([169]) — 그래서 계약을 갱신한다:
+    #     ① 되돌리기 스위치가 있다([126]) ② 이웃 블록이 그 스위치 **안**에 있다
+    #     ③ 도구는 안 막혔다 — `neighbors()` 는 사람이 부르면 여전히 답한다
+    _SWITCH = "COUPANG_NEIGHBOR_WINDOW_AUDIT"
+    assert _SWITCH in _sw, (
+        "이웃 축을 되돌릴 스위치가 없다 — 끄면 되살릴 길이 있어야 한다([126])")
+    _tree_sw = _ast.parse(_sw)
+    _gated = False
+    for _n in _ast.walk(_tree_sw):
+        if not isinstance(_n, _ast.If):
+            continue
+        if _SWITCH not in _ast.dump(_n.test):
+            continue
+        for _c in _ast.walk(_n):
+            if isinstance(_c, _ast.ImportFrom) and _c.module == "tools.window_audit":
+                _gated = True
+    assert _gated, (
+        "이웃 저장소 알림이 스위치 밖에 있다 — 남의 집 소식이 매일 인계에 뜨면 "
+        "진짜 경보가 묻힌다([170])")
+    from tools import window_audit as _WAchk
+    assert callable(getattr(_WAchk, "neighbors", None)), (
+        "도구까지 없앴다 — 끊은 것은 **인계에 올리는 길** 하나여야 한다([169])")
 
     # ── 일곱째 축: **세션이 여는 저장소** (2026-08-21 지시) ─────────────────
     #   형님 지시: "어떤 계정 어떤 세션에서 진행해도 팝업은 백그라운드에서 나오게".
