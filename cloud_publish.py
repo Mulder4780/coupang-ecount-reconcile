@@ -318,12 +318,29 @@ def upload_cloud_snapshot(sealed, generated_at, content_sha256):
         except Exception:
             # 상태 확인이 실패하면 생략하지 않고 실제 업로드를 시도한다.
             pass
-    out = _cloud_request(
-        url,
-        token,
-        "/api/snapshot",
-        {"payload": sealed, "generatedAt": generated_at},
-    )
+    try:
+        out = _cloud_request(
+            url,
+            token,
+            "/api/snapshot",
+            {"payload": sealed, "generatedAt": generated_at},
+        )
+    except urllib.error.HTTPError as exc:
+        # ★ 404 는 "자료가 없다" 가 아니라 **떠 있는 판에 그 길이 아직 없다** 는 뜻이다.
+        #   실측 2026-08-26: /api/ping 은 200(version 1 · snapshot 칸 없음)인데
+        #   /api/snapshot 만 404 다. 그런데 **소스에는 있다** —
+        #   csos_cloud_queue_site/app/api/snapshot/route.ts (커밋 90fd7cf · 2026-08-14).
+        #   곧 배포본이 그보다 낡았고, **재시도로는 영영 안 풀린다.**
+        #   예전에는 "HTTP Error 404: Not Found" 만 남아 32회를 재시도하며 사람에게
+        #   무엇을 하라는 말이 없었다 — 조치는 갈래마다 다르다([289]).
+        if exc.code == 404:
+            raise RuntimeError(
+                "클라우드 워커에 /api/snapshot 이 없다 — 떠 있는 판이 낡았다. "
+                "소스(csos_cloud_queue_site/app/api/snapshot/route.ts)에는 있으니 "
+                "재시도가 아니라 워커 재배포가 필요하다(/api/ping 은 200 이다). "
+                "GitHub Pages 사본은 그대로 올라간다 — 폰이 못 보는 것은 D1 최신본뿐이다."
+            ) from exc
+        raise
     if not out.get("ok"):
         raise RuntimeError(str(out.get("error") or "클라우드 사본 거부"))
     result = {
