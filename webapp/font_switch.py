@@ -39,6 +39,7 @@
 import os
 import re
 import sys
+import time
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -184,9 +185,37 @@ def _read(path):
         return f.read()
 
 
-def _write(path, text):
-    with open(os.path.join(ROOT, path), "w", encoding="utf-8", newline="") as f:
+def _write(path, text, tries=6, wait=0.25):
+    """글꼴 파일을 쓴다 — **읽는 쪽이 물고 있으면 물러서며 다시 건다**([171] 과 같은 자리).
+
+    ★ 실측 2026-08-25: 앱이 `index.html` 을 읽는 동안 쓰면 **25번 중 22번**
+      `[Errno 22] Invalid argument` 로 실패한다. [369] 뒤로 이 파일은 **요청마다**
+      디스크에서 읽히므로 부딪히는 창이 늘 열려 있다. 그래서 관문의 글꼴 왕복
+      시험이 죽으면서 **앱 화면과 캡처를 옛 글꼴로 남겨 놨다** — 되돌리는 사람이
+      없으면 그대로 남고, 화면을 열어 보기 전에는 아무도 모른다([126]).
+    ★ **`PermissionError` 만 잡으면 한 건도 안 걸린다** — 실측된 것은 `EINVAL`(22)
+      이라 그 갈래가 아니다. `convert_dump.swap_in` 을 그대로 베끼면 여기서 샌다([165]).
+    ★ **반쪽 파일을 만들지 않는다** — 임시 파일에 다 쓰고 `os.replace` 로 갈아끼운다.
+      `open(..., "w")` 는 **먼저 비우므로** 그 뒤에 실패하면 빈 화면 파일이 남는다.
+    ★ 끝내 안 되면 **예외를 올린다**([171]) — 조용히 넘어가면 네 파일 중 한쪽만
+      바뀐 채 남는다. 그것이 [126] 이 막으려는 바로 그 모양이다.
+    """
+    dst = os.path.join(ROOT, path)
+    tmp = dst + ".fonttmp-%d" % os.getpid()
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
         f.write(text)
+    for i in range(tries):
+        try:
+            os.replace(tmp, dst)
+            return
+        except OSError:
+            if i == tries - 1:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                raise
+            time.sleep(wait * (i + 1))   # 0.25s → 0.5s → … 물러서며 기다린다
 
 
 def _active(text):
