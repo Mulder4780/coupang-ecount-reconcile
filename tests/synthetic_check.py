@@ -25896,7 +25896,7 @@ def t422_kakao_cache_follows_report_dir():
 
 
 
-def t424_reharvest_that_bounces_back_says_so():
+def t425_reharvest_that_bounces_back_says_so():
     """[225] 다시 긁어 온 것이 **받자마자 오염으로 되돌아가면** 그렇게 말하는가.
 
     2026-08-25 실사고 — 오염 번호를 다시 긁으면 밴드가 **이웃 글의 본문**을 그대로
@@ -26014,7 +26014,8 @@ def t424_reharvest_that_bounces_back_says_so():
             "[225] 말을 없앴는데도 그 줄이 나온다 — 이 검사는 아무것도 안 재고 있다([272])")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-    ok(424)
+    print("  [425] 다시 긁어 온 것이 받자마자 오염으로 되돌아가면 그렇게 말한다 "
+          "— 다시 긁어도 같다는 근거를 쌓는다(reports/밴드_헛수확.json)")
 
 def t423_erp_breaks_the_tie_for_duplicate_projects():
     """[423] 같은 프로젝트에 앱 DB 행이 여럿이면 **ERP 가 가른다** (2026-08-25 형님 지시).
@@ -36849,7 +36850,7 @@ if __name__ == "__main__":
     t421_settle_po_and_invoice_filter()
     t422_kakao_cache_follows_report_dir()
     t423_erp_breaks_the_tie_for_duplicate_projects()
-    t424_reharvest_that_bounces_back_says_so()
+    t425_reharvest_that_bounces_back_says_so()
     t424_resource_failures_that_already_passed()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

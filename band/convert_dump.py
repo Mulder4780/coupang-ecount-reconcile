@@ -108,6 +108,18 @@ def _runtime_lock_path():
     return LOCK
 
 
+def _runtime_wasted_path():
+    """헛수확 기록도 **CACHE 를 옮기면 같이 따라간다**.
+
+    위 둘과 같은 계약이다([247]) — 검증이 CACHE 만 임시폴더로 바꾸는데 이 파일만
+    진짜 reports 를 가리키면, 합성 자료가 실측 증거에 섞인다. 2026-08-19 에
+    `t194` 가 조율표를 그렇게 오염시켰고 그때는 40줄 중 38줄이 가짜였다.
+    """
+    if _norm_path(CACHE) != _norm_path(DEFAULT_CACHE) and WASTED_LOG == DEFAULT_WASTED:
+        return os.path.join(CACHE, "밴드_헛수확.json")
+    return WASTED_LOG
+
+
 def converter_version():
     """덤프 해석 규칙의 지문.
 
@@ -594,6 +606,67 @@ CHANGED_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 #   '없음'의 증거가 되지 못한다. 증거를 좁게 잡는 편이 거짓 안심보다 낫다.
 PROBE_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                          "reports", "밴드_확인시각.json")
+# ★ 다시 긁었는데 **받자마자 오염으로 되돌아간** 번호 (2026-08-25 · 분담판 [225]).
+#   그 자리에서 세지 않으면 "3건 반영" 한 줄만 남아 성공처럼 읽힌다([169]).
+WASTED_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "reports", "밴드_헛수확.json")
+DEFAULT_WASTED = WASTED_LOG
+
+
+def _twin_index(merged):
+    """살아남은 글의 본문 지문 → 번호. 되돌아간 것이 **누구를 베껴 왔는지** 대기 위해서다."""
+    idx = {}
+    for k, v in merged.items():
+        if not isinstance(v, dict) or v.get("contaminated") or v.get("deleted"):
+            continue
+        sig = (v.get("content") or "")[:120]
+        if sig and sig not in idx:
+            idx[sig] = k
+    return idx
+
+
+def _note_wasted(band, dup, twins, cap_ms):
+    """헛수확을 회차 시각과 함께 쌓아 둔다 → 이 회차에 새로 쌓인 수.
+
+    왜 세는가 (2026-08-25 실사고 · 분담판 [225])
+      오염 번호를 다시 긁으면 밴드가 **이웃 글의 본문**을 그대로 돌려준다. 그러면
+      `clean_contaminated.find` 이 그것을 정확히 가짜로 잡아 도로 오염으로 표시한다 —
+      **그 판정은 맞다.** 잘못은 그다음이다: 아무도 그 사실을 안 적어서 다음 회차가
+      같은 번호를 또 뽑고, 브라우저는 번호 하나에 20초를 또 쓴다.
+      실측 2026-08-25: 269건을 긁어 **되살아난 것 0건**(84789192 3건은 받자마자
+      되돌아갔고 90610953 237건은 시각이 없어 버려졌다).
+
+    ★ 여기서 아무것도 거르지 않는다([172]) — 세어서 말할 뿐이다. 이것을 근거로
+      묘비를 세우면 실재하는 글이 유령이 된다(되돌릴 수 없는 쪽 · [217]·[334]).
+    ★ 못 적어도 흡수는 그대로 간다 — 기록 하나로 회차를 세우지 않는다.
+    """
+    if not dup:
+        return 0
+    try:
+        path = _runtime_wasted_path()
+        doc = {}
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as fh:
+                doc = json.load(fh) or {}
+        book = doc.setdefault(str(band), {})
+        n = 0
+        for no in dup:
+            row = book.setdefault(str(no), {"회차": [], "베낀번호": ""})
+            if cap_ms and cap_ms not in row["회차"]:
+                row["회차"].append(cap_ms)
+                row["회차"] = sorted(row["회차"])[-10:]
+                n += 1
+            if twins.get(no):
+                row["베낀번호"] = twins[no]
+        doc["갱신"] = cap_ms
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, ensure_ascii=False)
+        os.replace(tmp, path)
+        return n
+    except Exception as e:
+        print(f"  · 헛수확 기록 실패({band}): {e}")
+        return 0
 
 
 def _absent_above(top, missing, notime):
@@ -988,6 +1061,7 @@ def _convert_files(files=None, checkpoint=None, apply_redirect=True):
                           cap_ms, d.get("notime") or {})
         except Exception:
             pass
+        dup_now = {}
         # ★ 오염 표시는 **병합 때마다** 다시 매긴다 (2026-08-07 두 번째 실사고).
         #   위 226행 가드는 '이미 표시된 것'을 지켜 줄 뿐, **새로 들어온 가짜**는 못 막는다.
         #   그래서 아침에 621건을 손으로 표시해 두었는데 15:32 회차에 새 덤프가 유령 22건을
@@ -1000,7 +1074,13 @@ def _convert_files(files=None, checkpoint=None, apply_redirect=True):
             if _here not in sys.path:
                 sys.path.insert(0, _here)
             import clean_contaminated
-            for no in clean_contaminated.find(merged):
+            _found = clean_contaminated.find(merged)
+            # ★ 방금 받아 온 것이 **그 자리에서** 되돌아갔는지 먼저 붙잡는다([169]).
+            #   표시한 뒤에 물으면 옛 오염과 구별할 수 없다 — 그러면 "3건 반영" 한 줄만
+            #   남아 성공처럼 읽힌다(분담판 [225] · 2026-08-25).
+            _twins = _twin_index(merged)
+            dup_now = {no: _twins.get(_found[no], "") for no in _found if no in posts}
+            for no in _found:
                 merged[no] = {"contaminated": True,
                               "captured_at": (merged.get(no) or {}).get("captured_at") or cap_ms,
                               "why": "iframe 리다이렉트로 피드 본문이 잡힌 가짜 기록(병합 시 자동 판정)"}
@@ -1039,6 +1119,15 @@ def _convert_files(files=None, checkpoint=None, apply_redirect=True):
         dated = sum(1 for p in merged.values() if p.get("created_at"))
         print(f"{d.get('name', band)}: {len(posts)}건 반영 → 캐시 {before}→{len(merged)}건 "
               f"(날짜 있는 글 {dated}건)")
+        # ★ 받자마자 되돌아간 것을 **숫자로 말한다**(분담판 [225] · 2026-08-25).
+        #   안 적으면 "N건 반영" 이 성공으로 읽힌다 — 이 저장소가 되풀이해 당한 모양이다([169]).
+        if dup_now:
+            _n = _note_wasted(band, list(dup_now), dup_now, cap_ms)
+            _ex = ", ".join((f"{k}(={v}와 같은 글)" if v else k)
+                            for k, v in list(dup_now.items())[:4])
+            print(f"  · 그중 {len(dup_now)}건은 **받자마자 오염으로 되돌아갔다** "
+                  f"— 다른 번호와 같은 글이다({_ex}). "
+                  f"다시 긁어도 같다 → reports/밴드_헛수확.json (이번 회차 새로 {_n}건)")
 
     # ── 모든 덤프를 본 뒤에야 리다이렉트 묘비를 세운다 (분담판 [13]) ──────────────
     # 캐시를 다시 열어 고치는 이유는, 판정에 필요한 '서로 다른 회차'가 위 반복문을
