@@ -3097,7 +3097,7 @@ TASK_TIMEOUTS = {"daily": 9000, "automation": 1800, "ledger_now": 1800,
                  "synthetic": 1200, "evidence_sync": 4500,
                  "band_docs": 2400, "band_docs_apply": 2400, "work_log": 2400}
 runner = {"busy": False, "task": "", "log": deque(maxlen=3000), "done_at": None,
-          "agent_route": ""}
+          "agent_route": "", "started_at": None}
 _rlock = threading.Lock()
 
 
@@ -3167,10 +3167,46 @@ def enqueue_codes(codes):
     return {"ok": True, "applied": 0, "codes": done, "skipped": skip, **queued}
 
 
+def _busy_reason():
+    """지금 무엇이 몇 분째 도는지 한 줄로 말한다.
+
+    ★ 예전에는 `"다른 작업 실행 중"` 여섯 글자뿐이었다. 그러면 누른 사람은
+      **무엇이 도는지·얼마나 기다려야 하는지·다시 눌러도 되는지**를 하나도 모른다.
+      실측 2026-08-25 15:41 에 형님이 [전체 대조]를 누르셨다가 그 말만 받으셨다.
+      실패는 **왜인지 말한다**([289]) — 조치가 갈래마다 다르기 때문이다.
+    ★ **모르면 지어내지 않는다**([169]). 작업 이름이나 시작 시각을 못 읽으면
+      예전 문구 그대로 둔다 — 없는 이름을 적으면 사람이 없는 것을 찾아 나선다([172]).
+    """
+    base = "다른 작업 실행 중"
+    try:
+        name = str(runner.get("task") or "").strip()
+        if not name:
+            return base
+        started = runner.get("started_at")
+        mins = None
+        if started:
+            try:
+                mins = int((datetime.now() - datetime.fromisoformat(str(started))).total_seconds() // 60)
+            except Exception:
+                mins = None
+        # ★ **시작 시각을 모르면 "방금"이라 하지 않는다**([169]). 만들면서 그대로
+        #   밟았다 — 시각이 없는데 "방금 시작해"라고 지어내고 있었다. 몇 시간째
+        #   매달린 회차를 "방금"이라 부르면 사람이 그대로 기다린다([172]).
+        if mins is None:
+            when = ''
+        elif mins >= 1:
+            when = "%d분째 " % mins
+        else:
+            when = '방금 시작해 '
+        return ("%s — 지금 '%s' 이(가) %s돌고 있습니다. "
+                "끝나면 바로 됩니다(실행 화면에서 진행 상황이 보입니다)." % (base, name, when))
+    except Exception:
+        return base
+
 def start_task(key):
     with _rlock:
         if runner["busy"]:
-            return False, "다른 작업 실행 중"
+            return False, _busy_reason()
         # ERP 실전송은 앱에서 하지 않는다(2026-08-05 사용자 지시). 옛 화면·캐시가
         # 이 키를 보내도 여기서 끊는다 — 되돌릴 수 없는 등록을 버튼 하나로 만들지 않는다.
         if key == "upload_post":
@@ -3184,6 +3220,7 @@ def start_task(key):
         # 세 번 실패했을 때만 autopilot이 AI 티켓을 만든다(크레딧 절약 + 중복 작업 방지).
         runner["agent_route"] = "결정론적 로컬 실행 · 반복 실패만 AI 인계"
         runner["busy"], runner["task"] = True, TASKS[key][0]
+        runner["started_at"] = datetime.now().isoformat()   # 얼마나 됐는지 말하려면 필요하다
         runner["log"].clear()
 
     def work():

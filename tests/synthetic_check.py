@@ -31190,6 +31190,82 @@ __PARTS__
 })();
 '''
 
+def t433_busy_says_what_is_running():
+    """[433] "다른 작업 실행 중" 이 **무엇이 몇 분째**인지 말한다 (2026-08-25).
+
+    실측 2026-08-25 15:41 · 오류 2건: 형님이 [전체 대조]를 누르셨다가
+    `runTask · daily:다른 작업 실행 중` 여섯 글자만 받으셨다. 그러면 누른 사람은
+    **무엇이 도는지 · 얼마나 기다려야 하는지 · 다시 눌러도 되는지**를 하나도 모른다.
+    실패는 **왜인지 말한다**([289]) — 조치가 갈래마다 다르기 때문이다.
+
+    ★ 이것은 **고장이 아니다** — 무거운 작업을 하나만 돌리는 것은 설계다.
+      그래서 사전에 **막음을 안 붙인다**([292]·[170]) — 붙이면 정상 동작이
+      매일 "★회귀"로 올라와 아무도 안 본다("관리자만 되는 일" 과 같은 자리다).
+    ★ **모르면 지어내지 않는다**([169]). 만들면서 그대로 밟았다 — 시작 시각이
+      없는데 "방금 시작해"라고 적고 있었다. 몇 시간째 매달린 회차를 "방금"이라
+      부르면 사람이 그대로 기다린다([172]).
+    """
+    import importlib, sys as _sys
+    from datetime import datetime, timedelta
+    wa = os.path.join(ROOT, "webapp")
+    if wa not in _sys.path:
+        _sys.path.insert(0, wa)
+    A = importlib.import_module("app_server")
+    EB = importlib.import_module("error_book")
+
+    # ⚠ runner 는 **모듈 전역**이라 프로세스 전체의 것이다 — finally 로 되돌린다([371]).
+    keep = (A.runner.get("task"), A.runner.get("started_at"))
+    try:
+        def say(task, started):
+            A.runner["task"], A.runner["started_at"] = task, started
+            return A._busy_reason()
+
+        # ① 이름을 모르면 예전 문구 그대로 — 없는 이름을 적으면 사람이 없는 것을 찾는다([172])
+        assert say("", None) == "다른 작업 실행 중", "[433] 이름을 모르는데 뭔가 지어낸다"
+
+        # ② 무엇이 도는지 말한다
+        now = say("전체 대조 실행", datetime.now().isoformat())
+        assert "전체 대조 실행" in now, "[433] 무엇이 도는지 안 말한다: %r" % now
+        assert "방금 시작해" in now, "[433] 방금 시작한 것을 안 말한다"
+
+        # ③ 몇 분째인지 말한다
+        old = say("전체 대조 실행", (datetime.now() - timedelta(minutes=7)).isoformat())
+        assert "7분째" in old, "[433] 몇 분째인지 안 말한다: %r" % old
+
+        # ④ **시각을 모르면 지어내지 않는다**([169]) — 이 건의 핵심이다
+        for bad_start in (None, "이상한값"):
+            r = say("전체 대조 실행", bad_start)
+            assert "전체 대조 실행" in r, "[433] 아는 것(이름)까지 버렸다"
+            assert ("방금" not in r) and ("분째" not in r), (
+                "[433] 시작 시각을 모르는데 시간을 지어낸다(%r): %r" % (bad_start, r))
+
+        # ⑤ 사전이 그 문구를 **풀어 말해 준다**([292] — 고쳤으면 낱말을 다는 것까지가 한 벌)
+        ent = EB.look_up("runTask", "daily:다른 작업 실행 중")
+        assert ent and ent.get("이름") == "다른 작업이 먼저 돌고 있다", (
+            "[433] 사전에 없다 — 사람에게 무엇 때문인지 말해 줄 말이 없다")
+        assert ent.get("막음") is None, (
+            "[433] 정상 동작에 막음을 붙였다 — 매일 회귀로 올라와 아무도 안 본다([170])")
+
+        # ⑥ **옆 갈래를 안 삼킨다**([172]) — 더 좁은 규칙이 먼저 와야 한다
+        for tgt, det, want in (("/api/live-state", "NETWORK_ERROR", "서버가 잠깐 끊김"),
+                               ("/api/originals", "HTTP_ERROR:403 · 관리자 전용 기능입니다",
+                                "관리자만 되는 일"),
+                               ("window", "Unexpected end of input", "화면이 반만 내려왔다")):
+            got = EB.look_up(tgt, det)
+            assert got and got.get("이름") == want, (
+                "[433] 새 낱말이 옆 갈래를 삼켰다: %s → %r" % (det[:24], got and got.get("이름")))
+
+        # ⑦ 계기 자기시험([272]) — 지어내지 않는 문을 없애면 정말 잡히는가
+        import io as _io, re as _re
+        src = _io.open(os.path.join(ROOT, "webapp", "app_server.py"),
+                       encoding="utf-8", newline="").read()
+        assert "if mins is None:" in src, (
+            "[433] 시각을 모를 때 갈래가 사라졌다 — 그러면 '방금' 을 지어내던 옛 동작으로 돌아간다")
+    finally:
+        A.runner["task"], A.runner["started_at"] = keep
+
+    print("  [433] 거절이 무엇이 몇 분째 도는지 말한다(모르면 지어내지 않는다) " + chr(9989))
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -38288,6 +38364,7 @@ if __name__ == "__main__":
     t428_back_goes_one_step_at_a_time()
     t429_queue_says_what_is_actually_left()
     t432_menu_says_how_many_before_you_click()
+    t433_busy_says_what_is_running()
     t430_slow_buttons_show_that_they_were_pressed()
     t431_status_survives_a_restart()
     t424_resource_failures_that_already_passed()
