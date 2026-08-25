@@ -77,6 +77,13 @@ def over_budget():
 
 
 
+PHOTO_WORKERS = 8      # 한 글 안에서만 겹친다 — 밴드에 한꺼번에 몰지 않는다
+UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.band.us/"}
+UJ = re.compile(r"UJ\d{7}")
+KIND = [("정기점검", "정기점검"), ("돌발", "돌발AS"), ("납품", "신규납품"),
+        ("설치", "설치"), ("철거", "철거"), ("계단", "계단"), ("점검", "점검")]
+
+
 def out_root():
     import source_dirs as S
     return os.path.join(S.BAND_DIR, "게시글보관")
