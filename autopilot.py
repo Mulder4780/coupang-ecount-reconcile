@@ -361,6 +361,61 @@ def _why_line(text: str) -> str:
     return tail
 
 
+#: 자원 실패 문구에서 **경로**를 뽑는 두 모양(실측 2026-08-25).
+#:   · `[WinError 53] … : 'Z:\\'`               ← 작은따옴표 안(파이썬 repr)
+#:   · `관리대장을 찾을 수 없음: Z:/… .xlsx (…)`  ← 확장자로 끝난다
+#: ⚠ **오류 줄에서만** 뽑는다 — 트레이스백 프레임(File "C:/…/x.py")까지 세면
+#:   후보가 넷이 되어 '유일할 때만' 문이 아무것도 안 걸린다(실측).
+#: ⚠ 큰따옴표로 감싼 경로는 일부러 안 잡는다 — 못 잡으면 **모름**이라 경보가
+#:   그대로 유지된다(틀려도 안전한 쪽으로만 틀린다).
+_RES_PATH_RE = (
+    re.compile(r"'([A-Za-z]:[\\/][^'\n]*)'"),
+    re.compile(r"([A-Za-z]:[\\/][^\n']*?\.(?:xlsx|xlsm|xls|json|csv|txt|db|bundle))"),
+)
+
+
+def resource_back(text):
+    """자원 실패가 가리키던 경로가 **지금** 살아 있나 — 모르면 None([169]).
+
+    ★ 왜 필요한가 (2026-08-25 실측): `고정 주소 사본 올리기` 가 **31회 실패**로
+      인계 맨 위에 서 있었는데, 그 마지막 시도(14:59:18)가 죽은 뒤
+      **같은 일이 15:05 에 다른 길로 성공**했다(커밋 af683a5 · docs/data.enc 가
+      13분마다 갱신된다). 오류는 둘 다 `Z:` 가 그 순간 끊긴 것이었다
+      (`[WinError 53]` · `폴더에 v*.xlsx 없음`). 곧 **코드가 깨진 것이 아니라
+      바쁜 시각에 공유폴더를 못 잡은 것**이고, 한가할 때는 저절로 된다.
+      그런데 판정이 `attempts` 만 보아 "AI 인계까지 실패했다" 로 올렸다 —
+      그 조치는 코드를 뒤지는 것이라 사람을 **멀쩡한 코드로 보낸다**([172]·[289]).
+      그리고 가짜가 맨 위를 차지하면 진짜 경보가 묻힌다([170]).
+
+    ★ **지어낼 것이 없다** — 경로는 오류 문구에 그대로 적혀 있다.
+    ★ **후보가 유일할 때만** 답한다(이 저장소가 여러 곳에서 쓰는 그 문).
+    ★ **틀려도 안전한 쪽으로만 틀린다** — 경로를 못 뽑거나 이스케이프가 어긋나면
+      `isdir` 이 False 라 경보가 그대로 남는다.
+    ★ **'고쳐졌다'고 말하지 않는다**([322]) — 말할 수 있는 것은
+      "자원이 지금은 살아 있다" 까지이고, 답은 다음 재시도가 낸다.
+    """
+    lines = [" ".join(l.split()) for l in (text or "").splitlines()]
+    errs = [l for l in lines if l and _ERR_MARK.search(l)]
+    if not errs:
+        return None
+    cands = []
+    for rx in _RES_PATH_RE:
+        for m in rx.finditer(errs[-1]):
+            p = m.group(1).strip()
+            if p and p not in cands:
+                cands.append(p)
+    if len(cands) != 1:                # 없거나 여럿이면 **모름**이다([169])
+        return None
+    path = cands[0]
+    probe = path if os.path.splitext(path)[1] == "" else os.path.dirname(path)
+    if not probe:
+        return None
+    try:
+        return bool(os.path.isdir(probe))
+    except Exception:
+        return None
+
+
 #: 재시도를 이만큼 했는데도 안 풀리면 **사람이 봐야 한다**.
 #: 3회 반복이면 이미 AI 에게 넘긴다([190]) — 그 갑절을 넘겼다는 것은
 #: **AI 인계까지 실패했다**는 뜻이다. 낮추면 정상적으로 여러 회차 걸리는 일
@@ -388,8 +443,8 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
         doc = doc or _load_queue()
         items = list(doc.get("items") or [])
     except Exception as exc:                      # 못 읽었다 ≠ 걸린 것 없다([169])
-        return {"굳음": [], "못읽음": "%s: %s" % (type(exc).__name__, exc)}
-    out = []
+        return {"굳음": [], "자원회복": [], "못읽음": "%s: %s" % (type(exc).__name__, exc)}
+    out, back = [], []
     for x in items:
         if x.get("status") not in ("retry", "blocked", "manual"):
             continue
@@ -403,12 +458,21 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
         #   실측 2026-08-23: '고정 주소 사본 올리기' 는 앞 160자가 전부
         #   "사본 만드는 중… 관리대장 최신본 자동 탐지" 라 정작 원인인
         #   `HTTP 404` 가 안 실렸다 — 겉은 경보인데 왜인지는 못 읽는 자리다([169]).
-        왜 = _why_line(str(x.get("last_error") or ""))
-        out.append({"이름": str(x.get("name") or ""), "시도": tries,
-                    "갈래": str(x.get("kind") or ""),
-                    "왜": 왜})
+        raw = str(x.get("last_error") or "")
+        갈래 = str(x.get("kind") or "")
+        rec = {"이름": str(x.get("name") or ""), "시도": tries,
+               "갈래": 갈래, "왜": _why_line(raw)}
+        # ★ 자원 실패는 **지나간 사고**일 수 있다 — 그 자원이 지금 살아 있으면
+        #   경보가 아니라 알림이다(다음 재시도가 저절로 푼다). 조용히 빼지는
+        #   않는다([169]) — `자원회복` 으로 세어 인계가 한 줄 적는다.
+        if 갈래 == "resource" and resource_back(raw) is True:
+            rec["다음시도"] = str(x.get("next_attempt") or "")
+            back.append(rec)
+            continue
+        out.append(rec)
     out.sort(key=lambda r: -r["시도"])
-    return {"굳음": out, "못읽음": ""}
+    back.sort(key=lambda r: -r["시도"])
+    return {"굳음": out, "자원회복": back, "못읽음": ""}
 
 
 def status() -> dict[str, Any]:

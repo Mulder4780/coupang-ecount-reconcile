@@ -25895,6 +25895,127 @@ def t422_kakao_cache_follows_report_dir():
 
 
 
+
+def t424_reharvest_that_bounces_back_says_so():
+    """[225] 다시 긁어 온 것이 **받자마자 오염으로 되돌아가면** 그렇게 말하는가.
+
+    2026-08-25 실사고 — 오염 번호를 다시 긁으면 밴드가 **이웃 글의 본문**을 그대로
+    돌려준다. `clean_contaminated.find` 은 그것을 정확히 가짜로 잡아 도로 표시한다.
+    **그 판정은 맞다.** 잘못은 그다음이다: 흡수기가 "3건 반영" 한 줄만 적어서
+    성공처럼 읽혔고, 그래서 다음 회차가 같은 번호를 또 뽑아 브라우저가 번호 하나에
+    20초를 또 썼다. 실측 그날 269건을 긁어 **되살아난 것 0건**.
+
+    ★ 여기서 아무것도 거르지 않는다([172]) — 세어서 말할 뿐이다. 이것을 근거로
+      묘비를 세우면 실재하는 글이 유령이 된다(되돌릴 수 없는 쪽 · [217]·[334]).
+    ★ 글자로는 못 잰다([295]) — 진짜 흡수기를 **합성 캐시·합성 덤프로 돌려** 결과로 잰다.
+    ★ 실측 증거(진짜 캐시·reports)는 한 글자도 안 건드린다([247]) — CACHE 만 옮기면
+      나머지가 따라오는지까지 여기서 잰다(⑤).
+    """
+    import datetime, shutil, io as _io
+    band_dir = os.path.join(ROOT, "band")
+    if band_dir not in sys.path:
+        sys.path.insert(0, band_dir)
+    import convert_dump as cd
+
+    ms = int(datetime.datetime(2021, 11, 10, 13, 17, 0).timestamp() * 1000)
+    같은글 = "[시험캠프 산업용리프트 정기점검신청] 일정을 만들었습니다."
+    다른글 = "[다른캠프 산업용리프트 정기점검신청] 일정을 만들었습니다."
+
+    def 캐시(tmp):
+        posts = {
+            "10": {"created_at": ms, "author": "가", "content": 같은글,
+                   "photo_count": 0, "comment_count": 0, "comments": [],
+                   "comments_full": False, "images": [], "captured_at": 1},
+            "11": {"contaminated": True, "captured_at": 1, "why": "옛 표시"},
+            "12": {"contaminated": True, "captured_at": 1, "why": "옛 표시"},
+        }
+        with open(os.path.join(tmp, "12345678.json"), "w", encoding="utf-8") as fh:
+            json.dump({"band_name": "시험밴드", "posts": posts}, fh, ensure_ascii=False)
+
+    def 덤프(tmp, no, 본문, cap):
+        p = os.path.join(tmp, "dump_%d_12345678.json" % cap)
+        with open(p, "w", encoding="utf-8") as fh:
+            json.dump({"band": "12345678", "name": "시험밴드", "capturedAt": cap,
+                       "posts": {no: {"author": "가",
+                                      "timeText": "2021년 11월 10일 오후 1:17",
+                                      "content": 본문, "photo_count": 0,
+                                      "comment_count": 0, "comments": [],
+                                      "comments_full": True, "images": []}},
+                       "missing": [], "failed": [], "notime": {}}, fh, ensure_ascii=False)
+        return p
+
+    def 돌린다(tmp, path, fn=None):
+        buf = _io.StringIO()
+        real = cd.CACHE
+        cd.CACHE = tmp
+        try:
+            with contextlib.redirect_stdout(buf):
+                (fn or cd.main)(explicit_paths=[path])
+        finally:
+            cd.CACHE = real
+        return buf.getvalue()
+
+    진짜기록 = cd.DEFAULT_WASTED
+    전 = os.path.getmtime(진짜기록) if os.path.exists(진짜기록) else None
+
+    tmp = tempfile.mkdtemp(prefix="t424_")
+    try:
+        # ── ①② 되돌아간 것을 세고, 누구를 베꼈는지 댄다 ────────────────
+        캐시(tmp)
+        out = 돌린다(tmp, 덤프(tmp, "11", 같은글, 1700000000000))
+        assert "받자마자 오염으로 되돌아갔다" in out, (
+            "[225] 되돌아간 수확을 말하지 않는다 — 'N건 반영' 만 남아 성공으로 "
+            "읽힌다([169])" + chr(10) + out)
+        assert "11(=10" in out, (
+            "[225] 어느 번호를 베꼈는지 안 댄다 — 사람이 확인할 길이 없다" + chr(10) + out)
+
+        # ── ③ 근거가 회차 시각·베낀번호와 함께 쌓인다 ──────────────────
+        기록 = os.path.join(tmp, "밴드_헛수확.json")
+        assert os.path.exists(기록), "[225] 헛수확 근거를 안 남긴다 — 다음 회차가 또 뽑는다"
+        with open(기록, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        row = (doc.get("12345678") or {}).get("11") or {}
+        assert row.get("베낀번호") == "10", "[225] 베낀 번호를 안 적는다: %r" % row
+        assert 1700000000000 in (row.get("회차") or []), "[225] 회차 시각을 안 적는다: %r" % row
+
+        # ── ④ 되돌아간 것이 없으면 조용하다([170]) ─────────────────────
+        tmp2 = tempfile.mkdtemp(prefix="t424b_")
+        try:
+            캐시(tmp2)
+            out2 = 돌린다(tmp2, 덤프(tmp2, "12", 다른글, 1700000001000))
+            assert "받자마자 오염으로 되돌아갔다" not in out2, (
+                "[225] 멀쩡히 되살아난 회차에도 말한다 — 정상까지 경보하면 아무도 "
+                "안 본다([170])" + chr(10) + out2)
+            with open(os.path.join(tmp2, "12345678.json"), encoding="utf-8") as fh:
+                got = json.load(fh)["posts"]["12"]
+            assert not got.get("contaminated") and got.get("created_at"), (
+                "[225] 진짜로 되살아난 글까지 오염으로 막았다 — 좁히는 것도 "
+                "고장이다([172]): %r" % got)
+        finally:
+            shutil.rmtree(tmp2, ignore_errors=True)
+
+        # ── ⑤ CACHE 만 옮겨도 실측 증거를 안 건드린다([247]) ───────────
+        후 = os.path.getmtime(진짜기록) if os.path.exists(진짜기록) else None
+        assert 후 == 전, "[225] 검증이 실측 헛수확 기록에 썼다 — 합성 행이 실측에 섞인다([247])"
+
+        # ── ⑥ 계기 자기시험([272]) — 그 말을 없애면 잡히는가 ───────────
+        src = open(os.path.join(band_dir, "convert_dump.py"), encoding="utf-8").read()
+        조각 = "        if dup_now:"
+        assert src.count(조각) == 1, "[225] 자기시험 앵커가 %d개다" % src.count(조각)
+        broken = src.replace(조각, "        if False and dup_now:", 1)
+        g = {"__name__": "cd_t424", "__file__": os.path.join(band_dir, "convert_dump.py")}
+        exec(compile(broken, "convert_dump_broken", "exec"), g)
+        캐시(tmp)
+        buf = _io.StringIO()
+        g["CACHE"] = tmp
+        with contextlib.redirect_stdout(buf):
+            g["main"](explicit_paths=[덤프(tmp, "11", 같은글, 1700000002000)])
+        assert "받자마자 오염으로 되돌아갔다" not in buf.getvalue(), (
+            "[225] 말을 없앴는데도 그 줄이 나온다 — 이 검사는 아무것도 안 재고 있다([272])")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    ok(424)
+
 def t423_erp_breaks_the_tie_for_duplicate_projects():
     """[423] 같은 프로젝트에 앱 DB 행이 여럿이면 **ERP 가 가른다** (2026-08-25 형님 지시).
 
@@ -25973,6 +26094,111 @@ def t423_erp_breaks_the_tie_for_duplicate_projects():
         "느려진다([168]). 회차가 만들어 둔 파일만 읽는다")
 
     print("  [423] 같은 프로젝트 행이 여럿이면 ERP 가 가른다 — 못 가르면 '중복' 이라 말한다")
+
+
+def t424_resource_failures_that_already_passed():
+    """[424] **지나간 자원 실패**를 '굳었다'고 부르지 않는다 (2026-08-25 실측).
+
+    실측: `고정 주소 사본 올리기` 가 **31회 실패**로 인계 맨 위에 서 있었는데,
+    그 마지막 시도(14:59:18)가 죽은 뒤 **같은 일이 15:05 에 다른 길로 성공**했다
+    (커밋 af683a5 · `docs/data.enc` 는 13분마다 갱신된다). 오류는 둘 다 그 순간
+    `Z:` 가 끊긴 것이었다(`[WinError 53]` · `폴더에 v*.xlsx 없음`).
+    곧 **코드가 깨진 것이 아니라 바쁜 시각에 공유폴더를 못 잡은 것**이다.
+
+    그런데 `stuck()` 이 `attempts` 만 보아 "AI 인계까지 실패했다" 로 올렸다 —
+    그 조치는 코드를 뒤지는 것이라 사람을 **멀쩡한 코드로 보내고**([172]·[289])
+    가짜가 맨 위를 차지하면 진짜 경보가 묻힌다([170]).
+
+    ★ **좁히는 것도 고장이다**([172]) — `code`·`timeout` 과 **지금도 죽어 있는**
+      자원은 예전대로 경보다. 검사가 그 방향을 같이 잰다.
+    ★ **조용히 빼지 않는다**([169]) — 알림으로 한 줄 남는다.
+    ★ 글자로는 '정말 갈리는가' 를 못 잰다([295]) — 합성 대기열로 **실행해서** 잰다.
+    ★ 실측 큐·인계 파일에는 **한 글자도 안 쓴다**([247]) — 스냅샷은 읽기만 한다.
+    """
+    import io as _io
+    import autopilot as ap
+    import session_handoff as sh
+
+    ALIVE = ROOT
+    DEAD = os.path.join("Q:" + os.sep, "없는드라이브", "없는폴더")
+
+    def item(name, kind, err, tries=30):
+        return {"name": name, "kind": kind, "status": "retry", "attempts": tries,
+                "last_error": err, "next_attempt": "2026-08-25T22:59:18+09:00"}
+
+    def doc(*items):
+        return {"items": list(items)}
+
+    frame = 'Traceback (most recent call last):\n  File "C:/x/y.py", line 1, in <module>\n'
+    E_ALIVE = frame + "FileNotFoundError: [WinError 53] path: '%s'" % ALIVE
+    E_DEAD = frame + "FileNotFoundError: [WinError 53] path: '%s'" % DEAD
+    E_XLSX = "FileNotFoundError: 관리대장을 찾을 수 없음: %s (폴더에 v*.xlsx 없음)" % \
+             os.path.join(ALIVE, "a_v20.xlsx")
+    E_FRAME = frame + '  File "C:/x/z.py", line 2, in run\nRuntimeError: broke'
+
+    # ① 자원이 지금 살아 있으면 경보가 아니라 알림이다
+    d = ap.stuck(doc(item("살아있는자원", "resource", E_ALIVE)))
+    assert not d["굳음"] and len(d["자원회복"]) == 1, ("지나간 자원 실패가 아직 경보다", d)
+
+    # ② 지금도 죽어 있으면 **경보 그대로** (좁히는 것도 고장이다)
+    d = ap.stuck(doc(item("죽은자원", "resource", E_DEAD)))
+    assert len(d["굳음"]) == 1 and not d["자원회복"], ("죽은 자원을 완화했다", d)
+
+    # ③ 경로가 파일이면 그 **폴더**를 잰다
+    d = ap.stuck(doc(item("관리대장", "resource", E_XLSX)))
+    assert len(d["자원회복"]) == 1, ("확장자 모양을 못 읽었다", d)
+
+    # ④ code·timeout 은 자원이 살아 있어도 완화하지 않는다
+    d = ap.stuck(doc(item("코드", "code", E_ALIVE), item("시간초과", "timeout", E_ALIVE)))
+    assert len(d["굳음"]) == 2 and not d["자원회복"], ("갈래를 넘어 완화했다", d)
+
+    # ⑤⑥ 경로를 못 뽑거나 후보가 여럿이면 **모름** → 경보 유지([169])
+    d = ap.stuck(doc(item("프레임만", "resource", E_FRAME)))
+    assert len(d["굳음"]) == 1, ("경로가 없는데 완화했다", d)
+    two = "OSError: '%s' and '%s' both failed" % (ALIVE, os.path.join(ALIVE, "reports"))
+    d = ap.stuck(doc(item("둘", "resource", two)))
+    assert len(d["굳음"]) == 1, ("후보가 여럿인데 골랐다", d)
+
+    # ⑦ 한도 아래는 애초에 안 센다
+    d = ap.stuck(doc(item("적음", "resource", E_ALIVE, tries=2)))
+    assert not d["굳음"] and not d["자원회복"], ("한도 아래를 셌다", d)
+
+    # ⑧⑨⑩ 인계가 알림을 **조용히 빼지 않는다**([169]) · 진짜 굳음은 예전대로 경보
+    #   ⚠ `blockers()` 는 스냅샷 칸을 대괄호로 읽어 합성 dict 로는 죽는다([320]).
+    #      그래서 **실측 스냅샷을 읽기만** 하고 칸 하나만 갈아 끼운다([247]).
+    snap = None
+    for cand in ("reports/세션인계.json", "reports/session_handoff.json"):
+        try:
+            snap = json.load(_io.open(os.path.join(ROOT, cand), encoding="utf-8"))
+            break
+        except Exception:
+            continue
+    if snap is None:
+        print("   [424] 스냅샷을 못 읽어 인계 문구는 못 쟀다 — 통과라는 뜻이 아니다")
+    else:
+        st = dict(snap)
+        st["자율복구굳음"] = {"굳음": [], "한도": 10, "못읽음": "",
+                              "자원회복": [{"이름": "고정 주소 사본 올리기", "시도": 31}]}
+        lines = [t for t, _ in sh.blockers(st)]
+        assert any("자율복구·알림" in t for t in lines), "자원회복 건이 인계에서 조용히 사라진다"
+        assert not any("안 풀린다" in t for t in lines), "알림을 '안 풀린다' 경보로 적는다"
+        st2 = dict(snap)
+        st2["자율복구굳음"] = {"굳음": [{"이름": "ERP", "시도": 34, "갈래": "code", "왜": "x"}],
+                               "자원회복": [], "못읽음": "", "한도": 10}
+        lines2 = [t for t, _ in sh.blockers(st2)]
+        assert any("안 풀린다" in t for t in lines2), "진짜 굳음이 경보에서 사라졌다"
+
+    # ⑪ 계기 자기시험([272]) — 문을 없애면 ①이 다시 경보가 되는가
+    real = ap.resource_back
+    try:
+        ap.resource_back = lambda t: None
+        d = ap.stuck(doc(item("살아있는자원", "resource", E_ALIVE)))
+        assert len(d["굳음"]) == 1 and not d["자원회복"], \
+            "계기 자기시험 실패 — 문을 없애도 통과한다(이 검사는 아무것도 안 재고 있다)"
+    finally:
+        ap.resource_back = real
+
+    print("✅ [424] 지나간 자원 실패는 알림 · 지금도 죽어 있으면 경보 그대로")
 
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
@@ -36623,6 +36849,8 @@ if __name__ == "__main__":
     t421_settle_po_and_invoice_filter()
     t422_kakao_cache_follows_report_dir()
     t423_erp_breaks_the_tie_for_duplicate_projects()
+    t424_reharvest_that_bounces_back_says_so()
+    t424_resource_failures_that_already_passed()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

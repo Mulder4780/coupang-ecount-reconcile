@@ -1257,7 +1257,7 @@ def _autopilot_stuck():
         d["한도"] = autopilot.STUCK_TRIES
         return d
     except Exception as exc:
-        return {"굳음": [], "못읽음": "%s: %s" % (type(exc).__name__, exc), "한도": 0}
+        return {"굳음": [], "자원회복": [], "못읽음": "%s: %s" % (type(exc).__name__, exc), "한도": 0}
 
 
 def blockers(st, for_sol=False):
@@ -1305,6 +1305,19 @@ def blockers(st, for_sol=False):
                         "실패했다는 뜻이다(회차가 고장 난 것은 아니다): %s%s"
                         % (len(_g), _st.get("한도") or "여러", _head,
                            (" · 마지막 오류: " + _why) if _why else ""),
+                        "python autopilot.py --status"))
+        # ★ **지나간 자원 실패는 경보가 아니라 알림이다**([424]) — 그러나
+        #   조용히 빼지 않는다([169]). 실측 2026-08-25: `고정 주소 사본 올리기` 는
+        #   14:59 에 죽고 **같은 일이 15:05 에 다른 길로 성공**했다. 그것을 P0 로
+        #   올리면 사람이 멀쩡한 코드를 고치러 가고([172]) 진짜 경보가 묻힌다([170]).
+        # ★ '고쳐졌다'고 말하지 않는다([322]) — 다음 재시도가 답한다.
+        _bk = _st.get("자원회복") if isinstance(_st, dict) else None
+        if _bk:
+            _bh = " · ".join("%s(%s회)" % (r.get("이름"), r.get("시도")) for r in _bk[:4])
+            out.append(("[자율복구·알림] 자원이 끊겨 실패했던 %d건 — 그 자원(공유폴더 등)이 "
+                        "**지금은 살아 있다**. 코드 문제가 아니라 바쁜 시각에 못 잡은 것이며 "
+                        "다음 재시도가 저절로 풀 수 있다(그렇다고 '고쳐졌다'는 뜻은 아니다): %s"
+                        % (len(_bk), _bh),
                         "python autopilot.py --status"))
     # ★ 관문(합성검증)의 **여유가 좁아지면 죽기 전에 말한다** (2026-08-23 형님 지시
     #   "앱 구동에 문제되는 거 전부 찾아서 · 다시는 반복되지 않게").
