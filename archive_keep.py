@@ -37,6 +37,7 @@ archive_keep.py — 나중에 **복구하거나 이어서 코딩할 때** 필요
 """
 import sys, os, re, json, glob, shutil, subprocess, hashlib, time
 from datetime import datetime, date, timedelta
+import proc_guard
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -111,10 +112,52 @@ def wanted(path, root):
     return rel in ("AGENTS.md", "INCIDENTS.md", "CLAUDE.md")
 
 
-def bundle_action(head, current_marker, dst_exists, previous_heads):
-    """오늘 bundle을 유지/교체/생성/생략할지 정한다(순수 함수)."""
+#: ★ 번들을 **같은 날 안에서** 다시 만드는 최소 간격(초).
+#  이 저장소는 자동 커밋이 12분마다 돌아 HEAD 가 쉬지 않고 움직인다. 그런데 번들은
+#  265MB 이고 보관 자리는 Z:(SMB) 다 — 회선이 느린 시각에는 순차 쓰기가 **0.2MB/s**
+#  까지 떨어진다(실측 2026-08-26 07:3x · 20MB 에 102초). 그래서 HEAD 가 움직일 때마다
+#  다시 만들면 **한 회차가 통째로 번들에만 쓰이고 collect() 에는 한 번도 못 간다.**
+#  실측 2026-08-26 00:08 회차: 30분을 다 쓰고 색인 갱신 0건 · manifest 없음.
+#  ★ 지금도 하루 한 번을 못 하고 있다 — 매번 시도해서 매번 죽기 때문이다. 간격을
+#    두는 것은 **덜 하는 것이 아니라 실제로 되게 하는 것**이다([169] — 못 하는 것을
+#    조용히 시도해서 매번 죽지 말고, 무엇을 미뤘는지 말한다).
+#  0 으로 두면 예전처럼 HEAD 가 움직일 때마다 다시 만든다.
+BUNDLE_MIN_INTERVAL_S = int(os.environ.get("ARCHIVE_BUNDLE_MIN_INTERVAL_S") or 6 * 3600)
+
+#: 번들 하나에 주는 시간(초). 넘으면 **옛 번들을 그대로 두고** 그 사실을 적는다.
+BUNDLE_TIMEOUT_S = int(os.environ.get("ARCHIVE_BUNDLE_TIMEOUT_S") or 600)
+
+
+def _commits_behind(marker, head):
+    """옛 번들 뒤로 커밋이 몇 개인가. **못 세면 None 이다 — 지어내지 않는다([169]).**"""
+    if not marker or not head:
+        return None
+    if marker == head:
+        return 0
+    try:
+        r = subprocess.run(["git", "rev-list", "--count", marker + ".." + head],
+                           cwd=ROOT, capture_output=True, text=True, timeout=60,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return int((r.stdout or "").strip()) if r.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def bundle_action(head, current_marker, dst_exists, previous_heads,
+                  bundle_age_s=None, min_interval_s=0):
+    """오늘 bundle을 유지/교체/생성/생략할지 정한다(순수 함수).
+
+    ★ `keep-aged` 는 '오늘 번들이 있는데 HEAD 만 움직였고, 다시 만들기에는 아직
+      이르다' 는 뜻이다. 나이를 안 주면(`bundle_age_s=None`) **예전 그대로 replace**
+      라, 옛 호출자와 self_test 는 한 톨도 안 바뀐다([172] — 좁히는 것도 고장이다).
+    """
     if dst_exists:
-        return "keep" if current_marker == head else "replace"
+        if current_marker == head:
+            return "keep"
+        if (min_interval_s and bundle_age_s is not None
+                and bundle_age_s < min_interval_s):
+            return "keep-aged"
+        return "replace"
     if head in set(previous_heads or []):
         return "skip"
     return "create"
@@ -146,11 +189,23 @@ def git_bundle(dst, dry=False):
                 previous.append(value)
         except OSError:
             pass
-    action = bundle_action(head, current, os.path.isfile(dst), previous)
+    try:
+        age = time.time() - os.path.getmtime(dst)
+    except OSError:
+        age = None                    # 나이를 모르면 예전대로 replace 다([169])
+    action = bundle_action(head, current, os.path.isfile(dst), previous,
+                           bundle_age_s=age, min_interval_s=BUNDLE_MIN_INTERVAL_S)
     if dry:
         return None, f"bundle {action} 예정 (HEAD {head[:8]})"
     if action == "keep":
         return dst, f"bundle 최신 유지 (HEAD {head[:8]})"
+    if action == "keep-aged":
+        behind = _commits_behind(current, head)
+        return dst, ("bundle 유지 — %.1f시간 전 것이고 그 뒤 커밋 %s "
+                     "(Z: 에 265MB 를 매번 다시 밀면 회차가 통째로 죽는다 · "
+                     "매번 만들려면 ARCHIVE_BUNDLE_MIN_INTERVAL_S=0)"
+                     % ((age or 0) / 3600.0,
+                        ("%d개" % behind) if behind is not None else "몇 개인지 못 셈"))
     if action == "skip":
         return None, f"bundle 생략 — 이전 보관과 같은 HEAD {head[:8]}"
 
@@ -160,8 +215,16 @@ def git_bundle(dst, dry=False):
     try:
         if os.path.exists(temp):
             os.unlink(temp)
-        r = subprocess.run(["git", "bundle", "create", temp, "--all"], cwd=ROOT,
-                           capture_output=True, text=True, timeout=900, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        # ★ `subprocess.run(timeout=)` 을 쓰지 않는다([175]). 이 자식은 **Z:(SMB) 에
+        #   쓴다** — CPython 은 시간이 넘으면 kill 뒤 윈도우에서만 **시간제한 없는**
+        #   communicate() 를 한 번 더 부르므로, 끊기지 않는 SMB 대기에 걸리면 거기서
+        #   안 끝난다. 실측 2026-08-26 00:08 회차가 그렇게 30분을 다 먹고 -9 로
+        #   끊겼고 collect() 에는 **한 번도 못 갔다**(manifest 없음 · 색인 갱신 0건).
+        r = proc_guard.run_tree(["git", "bundle", "create", temp, "--all"],
+                                cwd=ROOT, timeout=BUNDLE_TIMEOUT_S)
+        if r.timed_out:
+            return None, ("bundle 시간초과(%d초) — 옛 번들을 그대로 둔다"
+                          % BUNDLE_TIMEOUT_S)
         if r.returncode != 0 or not os.path.exists(temp):
             return None, f"bundle 실패: {(r.stderr or '')[:80]}"
         # 기존 bundle은 새 파일 생성이 완전히 끝난 뒤 한 번에 교체한다.
@@ -427,6 +490,14 @@ def self_test():
         (bundle_action("new", "old", True, []), "replace"),
         (bundle_action("new", "", False, ["new"]), "skip"),
         (bundle_action("new", "", False, ["old"]), "create"),
+        # ★ 나이를 안 주면 예전 그대로다 — 옛 호출자를 안 깬다([172]).
+        (bundle_action("new", "old", True, [], None, 3600), "replace"),
+        # 오늘 번들이 있고 아직 이르면 유지한다(그래야 회차가 collect 까지 간다).
+        (bundle_action("new", "old", True, [], 60, 3600), "keep-aged"),
+        # 간격을 지나면 다시 만든다 — 영영 안 만드는 것이 아니다.
+        (bundle_action("new", "old", True, [], 7200, 3600), "replace"),
+        # 간격을 0 으로 두면 예전 동작 그대로다.
+        (bundle_action("new", "old", True, [], 60, 0), "replace"),
     ):
         if got != want:
             print(f"  [FAIL] bundle 갱신 판정 {got} != {want}"); bad += 1
