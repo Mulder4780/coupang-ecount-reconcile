@@ -17186,9 +17186,16 @@ def t367_restart_survives_only_with_an_exact_fingerprint():
         assert ns["_disk_cache_load"](KEY) is None, "[92] 깨진 캐시를 값으로 읽었다"
 
         # ⑦ 모르는 키는 안 읽고 안 쓴다
-        assert ns["_disk_cache_load"]("status") is None
-        ns["_disk_cache_save"]("status", VAL)
-        assert not os.path.exists(ns["_disk_cache_path"]("status")), "[92] 캐시 대상 밖 키를 썼다"
+        # ★ 본보기는 **목록에서 확실히 벗어난 이름**이어야 한다. 예전에는 "status" 를
+        #   썼는데, [431] 이 그것을 캐시 대상으로 넣자 이 검사가 **계약이 아니라
+        #   예시**를 얼리고 있었다는 것이 드러났다([219]). 이름을 짐작하지 말고
+        #   **목록에 물어본다**([340]).
+        _unknown = "없는키_t92"
+        assert _unknown not in ns["_DISK_CACHE_KEYS"], (
+            "[92] 본보기로 고른 이름이 캐시 대상이 됐다 — 이 검사가 아무것도 안 잴다")
+        assert ns["_disk_cache_load"](_unknown) is None
+        ns["_disk_cache_save"](_unknown, VAL)
+        assert not os.path.exists(ns["_disk_cache_path"](_unknown)), "[92] 캐시 대상 밖 키를 썼다"
 
         # ⑧ DEMO 는 실캐시를 만지지 않는다 — 합성 자료가 실화면으로 새면 안 된다
         d = _mk(root, demo=True)
