@@ -32483,6 +32483,34 @@ def t304_dead_round_says_why_and_stops_crying_wolf():
     # 낱말 경계가 살아 있나 — 'output()' 같은 것을 검증 이름으로 읽으면 안 된다
     assert DR._gate_which_test("print(); output(); assert1()") == "", \
         "검증 이름이 아닌 것을 검증으로 읽는다"
+    # ★ **진짜 사고 모양**(2026-08-25) — 프레임이 둘 이상이면 호출부는 **바깥**이고
+    #   진짜 터진 자리는 안쪽 `in tNNN` 이다(괄호가 없다). 위 재료는 프레임이
+    #   하나뿐이라 이 고장이 **구조상 안 걸렸다** — 그날 자국이 `t202_layer_dialogs`
+    #   를 댔는데 범인은 `t201_upload_intake` 였고, 조치가 '그 검증부터 본다' 라
+    #   사람이 **멀쩡한 t202 를 뒤진다**([172]).
+    _q = chr(34)
+    두프레임 = chr(10).join([
+        "Traceback (most recent call last):",
+        '  File ' + _q + 'x/tests/synthetic_check.py' + _q + ', line 35795, in <module>',
+        "    t202_layer_dialogs()",
+        '  File ' + _q + 'x/tests/synthetic_check.py' + _q + ', line 8571, in t201_upload_intake',
+        "AssertionError: 공유 정본과 로컬의 같은 카톡 원본을 두 번 읽는다",
+    ])
+    assert DR._gate_which_test(두프레임) == "t201_upload_intake", \
+        "호출부(바깥 프레임)를 범인이라 적는다 — 사람이 멀쩡한 검증을 뒤진다([172])"
+    # 가장 안쪽이 헬퍼면 그 **바깥의 마지막 t프레임**이 답이다
+    헬퍼 = chr(10).join([
+        '  File ' + _q + 'x.py' + _q + ', line 1, in <module>',
+        "    t8_findings()",
+        '  File ' + _q + 'x.py' + _q + ', line 20, in t8_findings',
+        '  File ' + _q + 'x.py' + _q + ', line 30, in book',
+        "ValueError: 1",
+    ])
+    assert DR._gate_which_test(헬퍼) == "t8_findings", \
+        "가장 안쪽 헬퍼 이름을 검증이라 적는다"
+    # 아는 이름을 **조치에 안 적으면** 사람이 그것을 다시 찾는다
+    assert "t201_upload_intake" in DR._gate_fix("code", "t201_upload_intake"), \
+        "조치가 검증 이름을 안 싣는다"
 
     # ② 갈래는 **빌린다** — 사본을 만들면 언젠가 갈린다(`[162]`)
     assert AP.classify_failure(자원) == "resource", "판정기가 자원 실패를 못 가른다"

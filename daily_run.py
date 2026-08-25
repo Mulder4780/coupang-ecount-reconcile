@@ -1236,8 +1236,23 @@ def _gate_headline(out):
 
 
 def _gate_which_test(out):
-    """어느 검증에서 죽었나 — 트레이스백의 `tNNN...()` 호출. 없으면 빈 값이다."""
-    hits = re.findall(r"\b(t\d+[A-Za-z0-9_]*)\(\)", str(out or ""))
+    """어느 검증에서 죽었나 — 트레이스백의 **마지막 t프레임**.
+
+    2026-08-25 실사고: 예전에는 `tNNN...()` 라는 **호출 글자**만 찾았다. 그런데
+    파이썬 트레이스백에서 호출 줄은 **바깥 프레임**이고 진짜 터진 자리는
+    `File ..., line N, in tNNN...` 이라 **괄호가 없다.** 그래서 자국이
+    `t202_layer_dialogs` 를 대는데 실제 범인은 `t201_upload_intake` 였다 —
+    조치가 "그 검증부터 본다" 이므로 사람이 **멀쩡한 t202 를 뒤진다**([172]).
+    ★ 마지막 프레임이 헬퍼(`in book`)면 그 바깥의 **마지막 t프레임**이 답이다.
+    ★ 폴백은 남긴다([172]) — 트레이스백 없이 요약만 있는 자취도 있다.
+    """
+    text = str(out or "")
+    frames = re.findall(
+        r'^\s*File "[^"]*", line \d+, in (t\d+[A-Za-z0-9_]*)\s*$',
+        text, re.M)
+    if frames:
+        return frames[-1]
+    hits = re.findall(r"\b(t\d+[A-Za-z0-9_]*)\(\)", text)
     return hits[-1] if hits else ""
 
 
