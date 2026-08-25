@@ -1338,6 +1338,14 @@ button.auto-node[disabled]{cursor:progress;opacity:.72}
 /* 합친 표기를 펴는 손잡이 — 색은 토큰에서만 온다([332]). */
 .camptag .campmore{font:inherit;font-size:0.75rem;cursor:pointer;border:1px solid var(--line);
   background:var(--surface);color:var(--ink);padding:1px 7px;border-radius:999px}
+/* ERP 거래처코드 배지 — **누르면 복사된다**(노승용 매니저 요구의 실체가
+   "카톡·밴드에 코드를 적어 달라"이므로 손이 짧아야 한다).
+   ★ 굳은 색을 쓰지 않는다([332]) — 테마 토큰만. 밝은 화면·어두운 화면 둘 다 산다.
+   ★ 마크업만 넣고 CSS 를 빠뜨리면 브라우저 기본 단추가 되어 회색 글씨가 된다([310]). */
+.campcode{font:inherit;font-size:0.78rem;font-weight:600;cursor:pointer;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  padding:1px 7px;border-radius:6px;letter-spacing:.02em;white-space:nowrap}
+.campcode:hover,.campcode:focus-visible{border-color:var(--brand);color:var(--brand)}
 .camptag .campmore:hover{border-color:var(--brand)}
 /* 접혔다 펴진 옛 표기 줄 — 지운 것이 아니라 접어 둔 것임을 눈으로 알린다([169]). */
 tr.campsub>td{opacity:.8}
@@ -18406,6 +18414,58 @@ function campSourceNote(d){
 /* 한 사람 = 한 칸(이름·전화·이메일 석 줄). 사람마다 열을 셋씩 두면 아홉 열이 되어
    좁은 화면에서 표가 무너진다. **없는 칸은 '모름'이라 적는다** — 빈칸으로 두면
    '적을 것이 없다'인지 '아직 못 찾았다'인지 구별되지 않는다([169]). */
+/* ─────────────────────────────────────────────────────────────────────────
+   ERP 거래처코드 — **갈래와 함께** 말한다 (노승용 매니저 2026-08-25 요구)
+
+   "쿠팡관련 카톡·밴드의 캠프 정보가 ERP 등록과 달라 DB 관리에 시간이 너무 든다.
+    거래처코드+거래처명만 맞아도 관리가 200,000% 쉬워진다."
+
+   ★ **확정과 추정을 갈라 적는다**([172]). 추정을 확정처럼 보이면 사람이 그 코드를
+     그대로 카톡·유니웍스에 적는다 — 틀린 코드가 박히면 **빈 칸보다 나쁘다**.
+   ★ **빈칸으로 두지 않는다**([169]) — '없다'인지 '못 찾았다'인지 구별이 안 된다.
+   ★ **화면이 판정하지 않는다**([162]) — 갈래도 근거도 서버(`camp_contacts.apply_codes`)
+     가 실어 준 것을 읽기만 한다. 여기 있는 표는 **표시 낱말**일 뿐이다.
+   ───────────────────────────────────────────────────────────────────────── */
+const CAMP_CODE_WORD = {
+  '후보여럿': '후보 여럿',
+  '없음':     'ERP에 없음',
+  '코드빔':   '코드 칸 빔',
+  '모름':     '모름',
+  '못읽음':   '못 읽음',
+};
+
+function campCodeText(r){
+  /* 엑셀·캡처가 쓰는 **글자만** 돌려준다(배지 없이). 판정은 하지 않는다. */
+  r = r || {};
+  const 확정 = String(r.거래처코드||'').trim(), 추정 = String(r.추정코드||'').trim();
+  const 갈래 = String(r.코드갈래||'');
+  if(확정) return 확정;
+  if(추정) return 추정 + ' (추정)';
+  return CAMP_CODE_WORD[갈래] || '모름';
+}
+
+function campCode(r){
+  r = r || {};
+  const 확정 = String(r.거래처코드||'').trim(), 추정 = String(r.추정코드||'').trim();
+  const 갈래 = String(r.코드갈래||''), 근거 = String(r.코드근거||'');
+  /* 눌러서 복사 — 요구의 실체가 "카톡·밴드에 적어 달라"이므로 손이 짧아야 한다. */
+  const copy = v => '<button class="badge campcode" data-code="'+esc2(v)+'"'
+    + ' onclick="event.stopPropagation();campCodeCopy(this.dataset.code)"'
+    + ' title="'+esc2((근거||'ERP 거래처코드')+' — 눌러서 복사')+'">'+esc2(v)+'</button>';
+  if(확정) return copy(확정)
+    + (갈래==='충돌' ? ' <span class="badge warn" title="'+esc2(근거)+'">충돌</span>' : '');
+  if(추정) return copy(추정)
+    + ' <span class="badge warn" title="'+esc2(근거||'이름·주소로 지목한 것 — 확정이 아닙니다')+'">추정</span>';
+  return '<span class="norm" title="'+esc2(근거||'대조표에 이 캠프가 없습니다')+'">'
+    + esc2(CAMP_CODE_WORD[갈래] || '모름') + '</span>';
+}
+
+async function campCodeCopy(v){
+  if(!v) return;
+  try{ await navigator.clipboard.writeText(v); toast('거래처코드 '+v+' 를 복사했습니다'); }
+  catch(e){ toast('복사하지 못했습니다 — 코드는 '+v+' 입니다'); }
+}
+
 function campCell(p, label){ p = p || {};
   /* ★ 이름표(`data-label`)는 **폰에서 카드로 설 때** 머리글을 대신한다.
      넓은 화면에서는 CSS 가 안 그리므로 표 모양은 한 톨도 안 바뀐다. */
@@ -18617,7 +18677,8 @@ function renderCampList(){
         + campRoles(r).map(x=>cell(x.p, x.라벨)).join('')
         + '<td data-label="정기점검 접수 (밴드·카톡 누적 글 수)">'+(r.정기점검건수||0)+'</td>'
         + '<td data-label="최근작업일">'+esc2(r.최근작업일||'')+'</td>'
-        + '<td data-label="거래처코드">'+esc2(r.거래처코드||'')+'</td>'
+        /* ★ 빈칸으로 두지 않는다([169]) — 확정·추정·없음을 갈라 말한다. */
+        + '<td data-label="거래처코드">'+campCode(r)+'</td>'
         + '</tr>' + campFoldChildren(r); }).join('')
     + '</tbody></table></div>';
 }
@@ -18855,7 +18916,13 @@ function campsXlsx(){
     o['합친 옛 표기'] = (_g.접힘||[]).map(x=>x.캠프명).join(' | ')
       || (campFoldOn() ? '없음' : '묶지 않음');
     o['정본 근거분기'] = _g.분기 || (_g.왜 ? '정본에 못 붙임' : '모름');
-    o['캠프주소'] = V(r.캠프주소); o['거래처코드'] = V(r.거래처코드);
+    o['캠프주소'] = V(r.캠프주소);
+    /* ★ 유니웍스에 그대로 붙여넣는 칸이라 **확정만** 담는다([172]) — 추정을 섞으면
+       받아 본 사람이 그것을 확정으로 등록한다. 추정은 옆 칸에 따로 둔다. */
+    o['거래처코드'] = V(r.거래처코드);
+    o['추정 거래처코드'] = V(r.추정코드);
+    o['코드확실성'] = campCodeText(r);
+    o['코드근거'] = V(r.코드근거);
     o['정기점검 접수 글수'] = r.정기점검건수||0; o['최근작업일'] = V(r.최근작업일);
     /* '직책 미상'은 옛 양식이라 원문에 직책이 없는 것이다 — 비고에도 한 번 더 적는다. */
     o['비고'] = [r.이름확인필요 ? '캠프명 확인 필요' : '',

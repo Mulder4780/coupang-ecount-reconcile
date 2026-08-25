@@ -738,16 +738,26 @@ def apply_codes(rows, path=None):
             m = by.get(_norm(name))
             if m and m not in 후보:
                 후보.append(m)
-        # ★ 서로 다른 코드를 주는 후보가 섞이면 **모른다**([172]).
-        코드들 = {(str(m.get("거래처코드") or "").strip(),
-                   str(m.get("추정코드") or "").strip()) for m in 후보}
-        if len(코드들) > 1:
-            후보 = []
-        m = 후보[0] if 후보 else None
+        # ★ 갈리는지는 **코드값**으로 본다 — 갈래로 보면 안 된다.
+        #   실측 2026-08-25: `송파1캠프(동남권물류단지 E동)`(A·CU086)과 그 다른표기
+        #   `송파1캠프`(G·추정 CU086)는 **같은 CU086 을 가리키는데** 갈래가 달라
+        #   '갈린다'로 읽혔다. 그래서 확정 174 중 102 만 붙고 91 이 '모름'이 됐다.
+        #   못 붙이는 것도 고장이다([172]) — 물어야 할 것은 '어느 코드인가'다.
+        확정들 = {str(m.get("거래처코드") or "").strip() for m in 후보} - {""}
+        추정들 = {str(m.get("추정코드") or "").strip() for m in 후보} - {""}
+        if len(확정들) > 1:                      # 확정이 둘이면 **모른다**([172])
+            후보, 확정들, 추정들 = [], set(), set()
+        확정 = next(iter(확정들), "")
+        # 확정이 서면 추정은 안 싣는다 — 한 줄에 두 코드가 있으면 사람이 못 고른다.
+        추정 = "" if 확정 else (next(iter(추정들)) if len(추정들) == 1 else "")
+        m = (next((x for x in 후보 if str(x.get("거래처코드") or "").strip() == 확정), None)
+             if 확정 else
+             next((x for x in 후보 if str(x.get("추정코드") or "").strip() == 추정), None)
+             if 추정 else (후보[0] if 후보 else None))
         갈래 = str((m or {}).get("갈래") or "")
         낱말, 뜻 = CODE_STATE.get(갈래, ("모름", "대조표에 이 캠프가 없다"))
-        확정 = str((m or {}).get("거래처코드") or "").strip()
-        추정 = str((m or {}).get("추정코드") or "").strip()
+        if 후보 and not m:
+            낱말, 뜻 = "모름", "표기마다 다른 코드를 가리킨다 — 사람이 고른다"
         r.setdefault("추정코드", "")
         기존 = str(r.get("거래처코드") or "").strip()
         if 확정 and 기존 and 확정 != 기존:

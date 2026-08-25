@@ -7545,8 +7545,24 @@ def t252_po_shape_matches_reality_and_restart_asks_first():
         "못 읽는 시각을 0(=아주 옛날)으로 치면 '아무도 없음'이 된다"
 
     # 갈래 넷 — 특히 '못 읽음'이 '아무도 없다'로 새면 안 된다([169])
+    # * 목은 `in_use` 하나로 모자란다 — `guard()` 는 [410] 갈래에서 `blocked_now()`,
+    #   `stale()` 도 본다. 그 둘을 안 옮기면 이 검사가 **살아 있는 기계 상태**를 읽어
+    #   기계의 기분에 따라 초록·빨강을 오간다(2026-08-25 실사고: 관문이 바로 이 줄에서
+    #   죽어 그날 09:50 대조가 통째로 안 돌았다). 게다가 그 갈래는 `_note_forced()` 로
+    #   **실측 자국에 쓴다** — 검증이 증거를 오염시키는 자리다([247] · 그날 두 줄이 박혔다).
+    #   격리 모양은 `[410]` 이 이미 세워 둔 것을 그대로 빌린다([162]·[371]).
+    import shutil as _shutil
+    _tmp = tempfile.mkdtemp(prefix="t252_")
+    _real_defer = RS.DEFER_LOG
+    _mt = os.path.getmtime(_real_defer) if os.path.exists(_real_defer) else None
+    keep = (RS.DEFER_LOG, RS.in_use, RS.blocked_now, RS.stale)
     orig = RS.in_use
     try:
+        RS.DEFER_LOG = os.path.join(_tmp, "d.json")
+        # 여기서 재려는 것은 **'그냥 쓰는 중'이면 미루나** 하나다.
+        # 막힘 갈래는 `[410]` 이 따로 잰다 — 두 곳에서 재면 언젠가 갈린다([162]).
+        RS.blocked_now = lambda *a, **k: {"읽음": True, "건수": 0, "표본": [], "왜": ""}
+        RS.stale = lambda: None
         RS.in_use = lambda minutes=10: {"읽음": False, "건수": 0, "분전": None, "왜": "잠김"}
         assert RS.guard() is not None, "활동을 못 읽었는데 그냥 내린다([169])"
         assert RS.guard(force=True) is None, "--force 로도 못 내린다"
@@ -7555,7 +7571,13 @@ def t252_po_shape_matches_reality_and_restart_asks_first():
         RS.in_use = lambda minutes=10: {"읽음": True, "건수": 0, "분전": 900.0, "왜": ""}
         assert RS.guard() is None, "아무도 안 쓰는데 못 내린다 — 그러면 고쳐도 화면이 안 바뀐다"
     finally:
+        RS.DEFER_LOG, RS.in_use, RS.blocked_now, RS.stale = keep
         RS.in_use = orig
+        _shutil.rmtree(_tmp, ignore_errors=True)
+    # * 실측 자국은 한 글자도 안 건드린다([247]).
+    _now = os.path.getmtime(_real_defer) if os.path.exists(_real_defer) else None
+    assert _now == _mt, (
+        "[252] 검증이 실측 재시작보류 기록에 썼다 — 합성 행이 실측 증거에 섞인다([247])")
 
     # 미룬 것을 '실패'라고 적지 않는다 — 진짜 실패와 구별이 안 된다([169])
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
@@ -26017,6 +26039,152 @@ def t425_reharvest_that_bounces_back_says_so():
     print("  [425] 다시 긁어 온 것이 받자마자 오염으로 되돌아가면 그렇게 말한다 "
           "— 다시 긁어도 같다는 근거를 쌓는다(reports/밴드_헛수확.json)")
 
+
+_T426_HARNESS = """
+const esc2 = x => String(x==null?'':x).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+__BLK__
+let bad=[];
+function chk(c,msg){ if(!c) bad.push(msg); }
+const A={거래처코드:'CU086',추정코드:'',코드갈래:'확정',코드근거:'ERP 거래처명과 정확히 같다'};
+const G={거래처코드:'',추정코드:'CU086',코드갈래:'추정',코드근거:'주소'};
+const E={거래처코드:'',추정코드:'',코드갈래:'없음',코드근거:'후보가 없다'};
+const H={거래처코드:'',추정코드:'',코드갈래:'후보여럿',코드근거:'x'};
+const X={거래처코드:'CU111',추정코드:'',코드갈래:'충돌',코드근거:'다르다'};
+let h=campCode(A);
+chk(h.indexOf('CU086')>=0 && h.indexOf('추정')<0, '확정에 추정 글자가 붙는다');
+h=campCode(G);
+chk(h.indexOf('CU086')>=0 && h.indexOf('추정')>=0, '추정을 확정처럼 보여 준다');
+chk(campCode(E).indexOf('ERP에 없음')>=0, '없음을 빈칸으로 둔다');
+chk(campCode(H).indexOf('후보 여럿')>=0, '후보여럿을 빈칸으로 둔다');
+chk(campCode({}).indexOf('모름')>=0, '갈래를 모를 때 빈칸으로 둔다');
+h=campCode(X);
+chk(h.indexOf('CU111')>=0 && h.indexOf('충돌')>=0, '충돌을 조용히 넘긴다');
+chk(campCodeText(A)==='CU086', '엑셀 글자가 확정을 안 낸다');
+chk(campCodeText(G)==='CU086 (추정)', '엑셀 글자가 추정임을 안 밝힌다');
+chk(campCodeText(E)==='ERP에 없음', '엑셀 글자가 없음을 빈칸으로 둔다');
+h=campCode({거래처코드:'CU1',코드갈래:'확정',코드근거:'a"b<c>'});
+chk(h.indexOf('&quot;')>=0, '근거를 esc2 로 안 감싼다 — 속성이 끊긴다');
+console.log(JSON.stringify(bad));
+"""
+
+
+def t426_camp_code_reaches_the_screen():
+    """[235] ERP 거래처코드가 **캠프 화면까지** 이어지고, 추정이 확정으로 안 굳는다.
+
+    ★ 왜 (노승용 매니저 2026-08-25 카톡): 카톡·밴드 접수 글의 캠프 정보가 ERP 등록과
+      달라 유현민·전상희 매니저가 **하나하나 조회해 매칭**하고 있다.
+      "거래처코드+거래처명만 맞아도 관리가 200,000% 쉬워진다."
+      실측 그날 — `캠프_담당자.json` 739행의 `거래처코드` 칸이 **있는데 값은 0건**
+      이었다(뿌리는 `캠프마스터.json` 이 그날 ERP 를 한 건도 못 읽은 것). 그런데
+      **대조표는 답을 갖고 있었다**(확정 175 · 추정 182) — 곧 **대조표와 캠프 화면이
+      안 이어져 있는 것**이 전부였다([165] 의 그 모양: 칸이 있어 화면은 멀쩡해 보인다).
+
+    ★ **여기서 제일 위험한 것은 추정이 확정으로 굳는 것이다**([172]).
+      `camp_code_match.build()` 는 다음 회차에 **이 파일의 `거래처코드` 를 확정으로
+      읽는다** — 추정을 그 칸에 넣으면 되돌릴 수 없다. 그래서 추정은 `추정코드` 라는
+      다른 칸에 담고, 검사가 그 문을 먼저 잰다.
+
+    ★ **빈칸으로 두지 않는다**([169]) — 화면·엑셀 모두 '없음'인지 '못 찾았다'인지 말한다.
+    ★ 글자로는 '정말 갈리는가' 를 못 잰다([295]) — 서버는 합성 대조표로, 화면은 node 로
+      **실행해서** 잰다. 실측 리포트 파일에는 **한 글자도 안 쓴다**([247]).
+    """
+    import io as _io
+    import camp_contacts as cc
+
+    tmp = tempfile.mkdtemp(prefix="t426_")
+
+    def 표(*ms):
+        p = os.path.join(tmp, "m%d.json" % len(os.listdir(tmp)))
+        json.dump({"rows": list(ms)}, _io.open(p, "w", encoding="utf-8"),
+                  ensure_ascii=False)
+        return p
+
+    def m(n, g, c="", e="", 다른표기=(), 근거=""):
+        return {"캠프명": n, "갈래": g, "거래처코드": c, "추정코드": e,
+                "다른표기": list(다른표기), "추정근거": 근거}
+
+    def row(n, 표기=(), 코드=""):
+        return {"캠프명": n, "다른표기": list(표기), "거래처코드": 코드}
+
+    # ① A 는 확정 칸에
+    r = [row("가")]
+    cc.apply_codes(r, 표(m("가", "A", c="CU086")))
+    assert r[0]["거래처코드"] == "CU086" and r[0]["코드갈래"] == "확정", ("A 가 확정으로 안 붙는다", r)
+
+    # ② ★ G 는 **확정 칸을 비운다** — 다음 회차가 확정으로 굳히면 안 된다
+    r = [row("가")]
+    cc.apply_codes(r, 표(m("가", "G", e="CU086", 근거="주소")))
+    assert r[0]["거래처코드"] == "" and r[0]["추정코드"] == "CU086", \
+        ("추정이 확정 칸에 들어갔다 — 다음 회차가 확정으로 굳힌다", r)
+    assert "주소" in (r[0].get("코드근거") or ""), "추정 근거를 안 싣는다"
+
+    # ③ 같은 코드를 확정·추정으로 가리키면 **확정**으로 (못 붙이는 것도 고장이다)
+    r = [row("가", ["나"])]
+    cc.apply_codes(r, 표(m("가", "A", c="CU086"), m("나", "G", e="CU086")))
+    assert r[0]["거래처코드"] == "CU086" and not r[0]["추정코드"], \
+        ("같은 코드인데 못 붙였다", r)
+
+    # ④ 확정이 갈리면 **모름**([172])
+    r = [row("가", ["나"])]
+    cc.apply_codes(r, 표(m("가", "A", c="CU001"), m("나", "A", c="CU999")))
+    assert not r[0]["거래처코드"] and r[0]["코드갈래"] == "모름", ("코드가 갈리는데 골랐다", r)
+
+    # ⑤ 이미 있는 값과 다르면 덮지 않고 **충돌**로 적는다([169])
+    r = [row("가", 코드="CU111")]
+    d = cc.apply_codes(r, 표(m("가", "A", c="CU222")))
+    assert r[0]["거래처코드"] == "CU111" and r[0]["코드갈래"] == "충돌" and d["코드충돌"] == 1, \
+        ("이미 있는 코드를 조용히 덮었다", r, d)
+
+    # ⑥ 못 읽으면 '없다'가 아니라 '못읽음'([169])
+    r = [row("가")]
+    d = cc.apply_codes(r, os.path.join(tmp, "없는파일.json"))
+    assert r[0]["코드갈래"] == "못읽음" and d["코드못읽음"], ("못 읽은 것을 '없다'로 쳤다", r, d)
+
+    # ⑦ build() 가 실제로 그 함수를 부르는가 — 함수만 있고 안 부르면 없는 것과 같다([328])
+    body = _io.open(os.path.join(ROOT, "camp_contacts.py"), encoding="utf-8").read()
+    assert "apply_codes(rows)" in body, "build() 가 apply_codes 를 안 부른다"
+
+    # ⑧ 화면 — 빈칸을 안 남기고 확정·추정을 가른다(node 로 실행 · [295])
+    html = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                    encoding="utf-8", newline="").read()
+    b0 = html.find("const CAMP_CODE_WORD")
+    b1 = html.find("async function campCodeCopy")
+    assert b0 > 0 and b1 > b0, "campCode 블록을 못 찾았다"
+    blk = html[b0:b1]
+    assert ".campcode{" in html, "campcode 배지에 CSS 가 없다 — 브라우저 기본 단추가 된다([310])"
+    js = os.path.join(tmp, "h.js")
+    _io.open(js, "w", encoding="utf-8").write(_T426_HARNESS.replace("__BLK__", blk))
+    try:
+        p = subprocess.Popen(["node", js], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        out, err = p.communicate(timeout=120)
+    except FileNotFoundError:
+        print("   [426] node 가 없어 화면 계약은 못 쟀다 — 통과라는 뜻이 아니다")
+    else:
+        assert p.returncode == 0, ("node 실패", (err or b"").decode("utf-8", "replace")[:400])
+        bad = json.loads((out or b"[]").decode("utf-8", "replace").strip().splitlines()[-1])
+        assert not bad, ("화면 계약이 깨졌다", bad)
+
+    # ⑨ 계기 자기시험([272]) — 추정을 확정 칸에 넣는 옛 동작을 주입하면 ②가 잡히는가
+    real = cc.apply_codes
+    try:
+        def 옛(rows, path=None):
+            out = real(rows, path)
+            for x in rows:                       # 추정을 확정 칸으로 옮긴다(그 사고)
+                if x.get("추정코드") and not x.get("거래처코드"):
+                    x["거래처코드"] = x["추정코드"]
+            return out
+        cc.apply_codes = 옛
+        r = [row("가")]
+        cc.apply_codes(r, 표(m("가", "G", e="CU086")))
+        assert r[0]["거래처코드"] == "CU086", "자기시험 준비가 안 됐다"
+        잡힘 = (r[0]["거래처코드"] != "")
+        assert 잡힘, "계기 자기시험 실패 — 추정을 확정 칸에 넣어도 이 검사가 못 잡는다"
+    finally:
+        cc.apply_codes = real
+
+    print("✅ [235] 거래처코드가 캠프 화면까지 이어진다 · 추정은 확정으로 안 굳는다")
+
 def t423_erp_breaks_the_tie_for_duplicate_projects():
     """[423] 같은 프로젝트에 앱 DB 행이 여럿이면 **ERP 가 가른다** (2026-08-25 형님 지시).
 
@@ -29169,6 +29337,9 @@ def t410_do_not_defer_restart_for_a_blocked_person():
                 " 코드로 안 풀리는 것을 재시작으로 고치려 든다" % bad)
         assert "/api/live-state" in rs.BLOCK_SKIP_TARGETS, (
             "[410] 폴링 경로를 세면 재시작마다 '막힘'이 된다")
+        assert "/api/run/" in rs.BLOCK_SKIP_TARGETS, (
+            "[410] 회차를 띄우는 길의 409(=이미 도는 중)를 '막힘'으로 센다 — "
+            "그 잠금은 다른 프로세스가 쥔 것이라 앱 서버를 갈아도 안 풀린다([172])")
 
         # ★ 계기 자기시험([272]) — 막힘 갈래를 없애면 (1)이 정말 잡히나.
         code = io.open(rs.__file__, encoding="utf-8", newline="").read()
@@ -36851,6 +37022,7 @@ if __name__ == "__main__":
     t422_kakao_cache_follows_report_dir()
     t423_erp_breaks_the_tie_for_duplicate_projects()
     t425_reharvest_that_bounces_back_says_so()
+    t426_camp_code_reaches_the_screen()
     t424_resource_failures_that_already_passed()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
