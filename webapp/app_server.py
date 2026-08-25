@@ -4813,21 +4813,58 @@ def _issue_dependency_stamp():
         return "issue-err:%r" % time.time()
 
 
-def _disk_cache_load(key):
-    """지문·판·나이가 **셋 다** 맞을 때만 돌려준다. 아니면 None(모름)."""
+_STALE_NOTE = os.path.join(ROOT, "reports", "앱_옛사본제공.json")
+_STALE_NOTE_EVERY_S = 60
+
+
+def _note_stale_serve(key):
+    """지문이 안 맞는 사본을 내보냈다는 자국.
+
+    ★ **조용히 하지 않는다**([169]·[296] 의 `앱DB_폴백.json` 과 같은 자리) —
+      지금 화면이 멀쩡해 보여도 방금 **옛 숫자**가 나갔을 수 있다. 그 사실은
+      여기 말고는 어디에도 안 남는다.
+    ★ 자국을 못 남겨도 **화면은 그대로 뜬다** — 빠르게 만들려던 것이 목적이다.
+    """
+    try:
+        if time.time() - os.path.getmtime(_STALE_NOTE) < _STALE_NOTE_EVERY_S:
+            return
+    except Exception:
+        pass
+    try:
+        with io.open(_STALE_NOTE, "w", encoding="utf-8") as f:
+            json.dump({"때": datetime.now().isoformat(timespec="seconds"),
+                       "무엇": key,
+                       "왜": "지문이 달라 옛 사본을 즉시 내보냈다(뒤에서 다시 계산 중)"},
+                      f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def _disk_cache_read(key):
+    """디스크 사본을 읽는다 — `(값, 지문맞음)`.  못 읽으면 `(None, False)`.
+
+    ★ **판단하지 않는다** — 지문이 맞는지만 알려 준다. 무엇을 쓸지는 부르는 쪽이
+      정한다([162] — 같은 판단을 두 곳에서 하면 언젠가 갈린다).
+    """
     if DEMO or key not in _DISK_CACHE_KEYS:
-        return None
+        return None, False
     p = _disk_cache_path(key)
     try:
         if time.time() - os.path.getmtime(p) > _DISK_CACHE_MAX_AGE_S:
-            return None
+            return None, False
         with io.open(p, encoding="utf-8") as f:
             d = json.load(f)
     except Exception:
-        return None
-    if not isinstance(d, dict) or d.get("지문") != _disk_cache_stamp(key):
-        return None
-    return d.get("값")
+        return None, False
+    if not isinstance(d, dict) or "값" not in d:
+        return None, False
+    return d.get("값"), d.get("지문") == _disk_cache_stamp(key)
+
+
+def _disk_cache_load(key):
+    """지문·판·나이가 **셋 다** 맞을 때만 돌려준다. 아니면 None(모름)."""
+    value, fresh = _disk_cache_read(key)
+    return value if fresh else None
 
 
 def _disk_cache_save(key, value, stamp=None):
@@ -4900,11 +4937,29 @@ def cached_data(key, build):
         return c
     stale = _cache.get(key + "_stale")
     if stale is None:
-        # ★ 재시작 뒤 **첫 화면** — 지문이 정확히 같을 때만 디스크에서 받는다([92]).
-        #   `_fresh` 가 이미 돌아 `_cache["mt"]` 를 세운 뒤라 여기서 넣어야 안 지워진다.
-        stale = _disk_cache_load(key)
+        # ★ 재시작 뒤 **첫 화면** — `_fresh` 가 이미 돌아 `_cache["mt"]` 를 세운 뒤라
+        #   여기서 넣어야 안 지워진다.
+        #
+        # 2026-08-25 형님 지시: **"클릭하면 바로바로 뜨게 · 다시는 이런 문제 발생
+        # 안되게"**. 예전에는 **지문이 정확히 같을 때만** 디스크 사본을 썼다. 그런데
+        # 지문에는 관리대장 mtime 이 들어 있어, **11:00·15:00 보관 회차가 새 원장을
+        # 만들거나 서버를 다시 띄우면** 사본을 통째로 버리고 그때 화면을 연 사람이
+        # `_compute_locked` 를 끝까지 기다렸다 — 실측 `/api/staff/records`
+        # 2026-08-19 평균 **226초** · 오늘도 최대 **135초**다.
+        #
+        # ★ 지금은 **지문이 달라도 즉시 준다 — 다만 옛 값이라고 말한다.**
+        #   이 프로젝트는 메모리 `_stale` 에 대해 이미 그 절충을 받아들였고([367]),
+        #   디스크만 더 엄격해서 재시작·보관 회차 직후에 구멍이 났다.
+        #   · 뒤에서 곧바로 다시 계산한다(`_spawn_refresh`) — 낡은 채로 안 머문다
+        #   · 나이 상한 `_DISK_CACHE_MAX_AGE_S`(6시간)는 **그대로**다([172])
+        #   · `updated_at` 이 그 사본을 만든 때를 그대로 말한다 — 화면이 '지금 값'
+        #     이라고 확언하지 않는다([169] · 이 프로젝트가 1순위로 막는 사고다)
+        #   · 자국을 남긴다 — 나중에 "왜 옛 숫자가 보였나"를 물을 사람이 있다
+        stale, _stamp_ok = _disk_cache_read(key)
         if stale is not None:
             _cache[key + "_stale"] = stale
+            if not _stamp_ok:
+                _note_stale_serve(key)
     if stale is not None:
         _spawn_refresh(key, build)
         return stale
