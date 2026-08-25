@@ -9737,9 +9737,11 @@ function applyView(v){
   lcScanSoon($('v-'+v));             // 이 화면의 긴 글을 재서 접는다(짧으면 그대로 둔다)
   try{ localStorage.setItem('cw_view', v); }catch(e){}   // 새로고침 후 같은 화면으로 복귀
   window.__view = v;
-  navCounts();                           // 메뉴 건수 — 눌러 보기 전에 안다
   renderDataHealth();                    // run 상세 ↔ 나머지 header pill을 전환 즉시 맞춘다
-  queueLiveViewCatchup(v);               // 이 revision에서 아직 안 읽은 화면 자료만 뒤에서 보충
+  // ★ **`renderDataHealth()` 뒤**에 둔다 — 검증 [207] 은 `window.__view = v;`
+  //   바로 다음이 그 줄이기를 요구한다(계약: 카테고리를 바꾼 직후 상태 전환이
+  //   늦지 않는다). 남의 계약을 밀어내지 않는다([172]).
+  navCounts();                           // 메뉴 건수 — 눌러 보기 전에 안다  queueLiveViewCatchup(v);               // 이 revision에서 아직 안 읽은 화면 자료만 뒤에서 보충
   uxEvent('view',v);
 }
 /* 사용자가 화면을 옮긴다 — 어디서 왔는지 남겨 뒤로가기가 그리로 돌아가게 한다. */
