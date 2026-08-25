@@ -26091,7 +26091,41 @@ chk(campCodeText(G)==='CU086 (추정)', '엑셀 글자가 추정임을 안 밝�
 chk(campCodeText(E)==='ERP에 없음', '엑셀 글자가 없음을 빈칸으로 둔다');
 h=campCode({거래처코드:'CU1',코드갈래:'확정',코드근거:'a"b<c>'});
 chk(h.indexOf('&quot;')>=0, '근거를 esc2 로 안 감싼다 — 속성이 끊긴다');
-console.log(JSON.stringify(bad));
+
+/* ── 신규 접수 등록 폼([235]-3) — 요구의 실체가 여기다 ─────────────────
+   "카톡이나 밴드 등에 넣으실 때 꼭 기입 요청드립니다" — 접수를 적는 그 자리에서
+   코드가 보여야 적을 수 있다. 못 받은 것을 '코드 없음'으로 적지 않는다([169]). */
+let CAMPS = null, FAIL = false;
+const BOX = {innerHTML:''}, DL = {innerHTML:''};
+function $(id){ return id==='nwCampCode' ? BOX : (id==='nwCampNames' ? DL : null); }
+async function api(u){ if(FAIL) throw new Error('끊김'); return DATA; }
+__NWBLK__
+const DATA = {ok:true, rows:[
+  {캠프명:'송파1캠프(동남권물류단지 E동)', 다른표기:['송파1_E동MB'], 정기점검:true,
+   거래처코드:'CU086', 추정코드:'', 코드갈래:'확정', 코드근거:'같다'},
+  {캠프명:'송파1캠프', 다른표기:[], 정기점검:false,
+   거래처코드:'', 추정코드:'CU086', 코드갈래:'추정', 코드근거:'주소'},
+]};
+(async ()=>{
+  await nwCampCode({value:'송파1캠프(동남권물류단지 E동)'});
+  chk(BOX.innerHTML.indexOf('CU086')>=0, '신규 폼이 확정 코드를 안 보여 준다');
+  await nwCampCode({value:'송파1_E동MB'});
+  chk(BOX.innerHTML.indexOf('CU086')>=0, '신규 폼이 다른표기로 못 찾는다');
+  await nwCampCode({value:'아무렇게나적은이름'});
+  chk(BOX.innerHTML.indexOf('못 찾았습니다')>=0 && BOX.innerHTML.indexOf('매니저')>=0,
+      '못 찾았을 때 무엇을 할지 안 적는다([289])');
+  BOX.innerHTML='xx'; await nwCampCode({value:'  '});
+  chk(BOX.innerHTML==='', '빈 입력에 말을 얹는다');
+  await nwCampList();
+  chk(DL.innerHTML.indexOf('<option')>=0, '캠프 후보 목록이 안 채워진다');
+  CAMPS=null; FAIL=true;
+  await nwCampCode({value:'송파1캠프'});
+  chk(BOX.innerHTML.indexOf('없다는 뜻이 아닙니다')>=0,
+      '못 받은 것을 "코드 없음"으로 적는다([169])');
+  DL.innerHTML='keep'; await nwCampList();
+  chk(DL.innerHTML==='keep', '못 받았는데 후보 목록을 지운다');
+  console.log(JSON.stringify(bad));
+})();
 """
 
 
@@ -26179,8 +26213,15 @@ def t426_camp_code_reaches_the_screen():
     assert b0 > 0 and b1 > b0, "campCode 블록을 못 찾았다"
     blk = html[b0:b1]
     assert ".campcode{" in html, "campcode 배지에 CSS 가 없다 — 브라우저 기본 단추가 된다([310])"
+    n0 = html.find("async function campsData()")
+    n1 = html.find("async function renderCamps(force)")
+    assert n0 > 0 and n1 > n0, "신규 접수 폼의 거래처코드 블록을 못 찾았다"
+    # ★ 함수만 있고 **부르는 곳이 없으면 없는 것과 같다**([328]).
+    assert "nwCampList();" in html, "폼이 열릴 때 캠프 후보를 안 채운다"
+    assert 'list="nwCampNames"' in html, "캠프명 칸에 후보 목록이 안 붙었다"
     js = os.path.join(tmp, "h.js")
-    _io.open(js, "w", encoding="utf-8").write(_T426_HARNESS.replace("__BLK__", blk))
+    _io.open(js, "w", encoding="utf-8").write(
+        _T426_HARNESS.replace("__BLK__", blk).replace("__NWBLK__", html[n0:n1]))
     try:
         p = subprocess.Popen(["node", js], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -26189,7 +26230,10 @@ def t426_camp_code_reaches_the_screen():
         print("   [426] node 가 없어 화면 계약은 못 쟀다 — 통과라는 뜻이 아니다")
     else:
         assert p.returncode == 0, ("node 실패", (err or b"").decode("utf-8", "replace")[:400])
-        bad = json.loads((out or b"[]").decode("utf-8", "replace").strip().splitlines()[-1])
+        _lines = [l for l in (out or b"[]").decode("utf-8", "replace").splitlines()
+                  if l.strip().startswith("[")]
+        assert _lines, ("node 가 결과를 안 냈다", (out or b"").decode("utf-8", "replace")[:300])
+        bad = json.loads(_lines[-1])
         assert not bad, ("화면 계약이 깨졌다", bad)
 
     # ⑨ 계기 자기시험([272]) — 추정을 확정 칸에 넣는 옛 동작을 주입하면 ②가 잡히는가
