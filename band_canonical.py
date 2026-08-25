@@ -147,6 +147,81 @@ def _is_done(value: Any) -> bool:
     return "완료" in _text(value)
 
 
+_ERP_IDX = None
+ERP_INDEX = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "reports", "ERP판매_프로젝트색인.json")
+
+
+def _erp_index():
+    """ERP 판매 프로젝트 색인 — **회차가 만들어 둔 파일만** 읽는다.
+
+    여기서 `erp_sales_index.build()` 를 부르면 Z: 를 재귀로 훑어(실측 수십 초 · [409])
+    5분 회차가 그만큼 느려진다([168] — 비싼 탐색은 캐시 검사 뒤에).
+    ★ 못 읽으면 **빈 것**이다 — 그러면 아래 문이 하나도 안 열려 예전과 똑같이
+      '사람이 정한다' 로 남는다([169] — 못 읽은 것을 '가릴 수 있다' 로 치지 않는다).
+    """
+    global _ERP_IDX
+    if _ERP_IDX is None:
+        try:
+            with open(ERP_INDEX, encoding="utf-8") as fh:
+                _ERP_IDX = json.load(fh).get("index") or {}
+        except Exception:
+            _ERP_IDX = {}
+    return _ERP_IDX
+
+
+def _erp_day(value):
+    """ERP `date` 는 `20260810-4`(일자-No.) 다 — 앞 여덟 자리만 날짜다."""
+    digits = "".join(ch for ch in _text(value) if ch.isdigit())[:8]
+    if len(digits) != 8:
+        return ""
+    return "%s-%s-%s" % (digits[:4], digits[4:6], digits[6:])
+
+
+def _done_day(work):
+    """그 행의 작업완료일 — `YYYY-MM-DD` 앞 열 글자만 본다."""
+    fields = work.get("fields") or {}
+    for key in ("작업완료일", "점검완료일", "완료일"):
+        day = _text(fields.get(key))[:10]
+        if len(day) == 10:
+            return day
+    return ""
+
+
+def erp_pick(project, matches):
+    """ERP 가 가려 주면 그 행을, 아니면 `(None, 왜)` 를 돌려준다.
+
+    형님 지시(2026-08-25): **"erp 기준으로 판단해"**
+
+    ★ **원본이 말하게 한다**([170] 의 유형E 와 같은 자리). 실측 2026-08-25:
+      UJ2601393·UJ2601394 는 앱 DB 에 행이 **2건**인데 ERP 판매전표는 **각각 1건**이다
+      — 곧 하나가 중복이다. 그 사실만으로도 사람의 조치가 달라진다([289]):
+      '어느 행인지 앱에서 정한다' 가 아니라 **'중복으로 보인다'** 다.
+
+    ★ 문은 좁다([172]) — 잘못 고르면 **엉뚱한 행에 완료가 박히고** 그것은
+      되돌리기 어렵다. 둘 다 맞을 때만 고른다:
+        ① ERP 판매전표가 **정확히 1건**
+        ② 그 전표 날짜와 같은 **완료일을 가진 행이 정확히 하나**
+      실측 UJ2601393 이 그 자리다(ERP `20260810-4` = `AS-2608-603` 완료일 2026-08-10).
+      UJ2601394 는 두 행이 **완전히 같아**(캠프·접수일·신청내용·완료일 없음) 못 고른다 —
+      그때는 **안 고르고 근거를 적는다**([169]).
+    """
+    entry = _erp_index().get(_text(project).upper())
+    if not entry:
+        return None, "ERP 색인에 이 프로젝트가 없다"
+    rows = entry.get("rows")
+    if rows != 1:
+        return None, "ERP 판매전표가 %s건이라 1건으로 못 좁힌다" % rows
+    day = _erp_day(entry.get("date"))
+    if not day:
+        return None, "ERP 판매전표 1건인데 그 날짜를 못 읽었다"
+    hit = [w for w in matches if _done_day(w) == day]
+    if len(hit) == 1:
+        return hit[0], "ERP 판매전표 1건 · 그 날짜(%s)와 맞는 행이 하나다" % day
+    return None, ("ERP 판매전표는 **1건**인데 앱 DB 는 %d건이다 — 하나가 중복으로 보인다"
+                  " (ERP 날짜 %s 와 맞는 행 %d개)" % (len(matches), day, len(hit)))
+
+
 def _prepare(records: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
     # Reuse the proven grouping/enrichment rules without invoking its Excel
     # row allocator or writer queue.
@@ -187,6 +262,9 @@ def sync_records(
         #   ⚠ 그렇다고 **조용히 넘기지도 않는다**([169]) — 아래
         #   `AMBIGUOUS_TRACE` 에 자국을 남기고, 없어지면 지운다([228]).
         "모호": [],
+        # ERP 가 가려 준 것 — 왜 그렇게 골랐는지 근거를 같이 남긴다
+        "erp선택": 0,
+        "erp근거": [],
         "errors": [],
     }
     for row in prepared:
@@ -198,11 +276,20 @@ def sync_records(
             continue
         matches = by_project.get((kind, project), [])
         if len(matches) > 1:
-            result["ambiguous"] += 1
-            result["모호"].append(
-                f"{kind}/{project}: 앱 DB에 같은 프로젝트가 {len(matches)}건 —"
-                " 어느 행인지 원본이 말해 주지 않는다(사람이 정한다)")
-            continue
+            # ★ **ERP 가 가른다**(2026-08-25 형님 지시 "erp 기준으로 판단해").
+            #   원본이 직접 말한 것이라 근거가 세다 — 짐작으로 고르지 않는다.
+            picked, why = erp_pick(project, matches)
+            if picked is not None:
+                result["erp선택"] += 1
+                result["erp근거"].append(
+                    "%s/%s: %s -> %s" % (kind, project, why,
+                                        picked.get("public_id") or "?"))
+                matches = [picked]
+            else:
+                result["ambiguous"] += 1
+                result["모호"].append(
+                    f"{kind}/{project}: 앱 DB에 같은 프로젝트가 {len(matches)}건 — {why}")
+                continue
 
         desired_status = _status(kind, row)
         # Broad extraction may contain a cancellation word.  Creating it as a

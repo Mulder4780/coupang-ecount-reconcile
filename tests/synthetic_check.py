@@ -25894,6 +25894,86 @@ def t422_kakao_cache_follows_report_dir():
     print("  [422] 카톡 캐시 자리가 REPORT_DIR 을 따라온다 — 관문이 실데이터를 안 읽는다 ✅")
 
 
+
+def t423_erp_breaks_the_tie_for_duplicate_projects():
+    """[423] 같은 프로젝트에 앱 DB 행이 여럿이면 **ERP 가 가른다** (2026-08-25 형님 지시).
+
+    지시: "erp 기준으로 판단해"
+
+    실측 2026-08-25 (v617 · 앱 DB):
+      · UJ2601393 — 앱 DB 2건(AS-2608-600 · 603) · ERP 판매전표 **1건**(20260810-4)
+        603 에만 완료일 2026-08-10 이 있어 **ERP 날짜와 정확히 맞는다** -> 603
+      · UJ2601394 — 앱 DB 2건(AS-2608-601 · 604) · ERP 판매전표 **1건**(20260805-2)
+        두 행이 **완전히 같다**(캠프·접수일·신청내용 같고 완료일 없음) -> 못 고른다
+
+    ★ **문은 좁다**([172]) — 잘못 고르면 엉뚱한 행에 완료가 박히고 그것은 되돌리기
+      어렵다. 둘 다 맞을 때만 고른다: ① ERP 전표가 정확히 1건 ② 그 날짜와 같은
+      완료일을 가진 행이 **정확히 하나**.
+    ★ **못 골라도 값이 있다**([289]) — "어느 행인지 원본이 말해 주지 않는다" 와
+      "**ERP 는 1건인데 앱 DB 는 2건이라 하나가 중복으로 보인다**" 는 조치가 다르다.
+    ★ **못 읽으면 안 고른다**([169]) — 색인이 없거나 깨졌을 때 '가릴 수 있다' 로
+      치면 그때가 바로 엉뚱한 행에 완료가 박히는 순간이다.
+    """
+    import band_canonical as BC
+
+    def work(pid, done=""):
+        return {"public_id": pid, "kind": "돌발AS", "project_no": "UJ2600001",
+                "fields": ({"작업완료일": done} if done else {})}
+
+    두행 = [work("AS-1", "2026-08-10"), work("AS-2")]
+    real = BC._ERP_IDX
+    try:
+        # ① ERP 1건 + 그 날짜와 맞는 행이 하나 -> **고른다**
+        BC._ERP_IDX = {"UJ2600001": {"rows": 1, "date": "20260810-4"}}
+        picked, why = BC.erp_pick("UJ2600001", 두행)
+        assert picked is not None and picked["public_id"] == "AS-1", (picked, why)
+        assert "1건" in why, ("왜 골랐는지 안 적는다 — 근거 없는 선택은 못 믿는다", why)
+
+        # ② ERP 1건인데 그 날짜와 맞는 행이 **없다** -> 안 고르되 '중복' 이라 말한다
+        BC._ERP_IDX = {"UJ2600001": {"rows": 1, "date": "20260805-2"}}
+        picked, why = BC.erp_pick("UJ2600001", 두행)
+        assert picked is None, ("근거 없이 골랐다 — 엉뚱한 행에 완료가 박힌다([172])", why)
+        assert "중복" in why, (
+            "'중복으로 보인다' 를 안 말한다 — 조치가 달라지는 사실이다([289])", why)
+
+        # ③ 날짜와 맞는 행이 **둘** -> 안 고른다(후보가 유일할 때만 · [172])
+        둘다 = [work("AS-1", "2026-08-10"), work("AS-2", "2026-08-10")]
+        BC._ERP_IDX = {"UJ2600001": {"rows": 1, "date": "20260810-4"}}
+        picked, _ = BC.erp_pick("UJ2600001", 둘다)
+        assert picked is None, "날짜가 같은 행이 둘인데 골랐다 — 후보가 유일할 때만 고른다"
+
+        # ④ ERP 전표가 여럿 -> 안 고른다(진짜 두 건일 수 있다)
+        BC._ERP_IDX = {"UJ2600001": {"rows": 2, "date": "20260810-4"}}
+        picked, why = BC.erp_pick("UJ2600001", 두행)
+        assert picked is None and "2건" in why, (picked, why)
+
+        # ⑤ 색인에 없다 / ⑥ 색인이 비었다(못 읽음) -> 안 고른다([169])
+        BC._ERP_IDX = {"UJ2609999": {"rows": 1, "date": "20260810-4"}}
+        assert BC.erp_pick("UJ2600001", 두행)[0] is None, "색인에 없는데 골랐다"
+        BC._ERP_IDX = {}
+        picked, why = BC.erp_pick("UJ2600001", 두행)
+        assert picked is None, (
+            "색인을 못 읽었는데 골랐다 — 못 읽은 것을 '가릴 수 있다' 로 치면 안 된다([169])", why)
+    finally:
+        BC._ERP_IDX = real          # 모듈 전역은 프로세스의 것이다([371])
+
+    # ⑦ ERP `일자-No.` 에서 날짜만 읽는다 — `-4` 를 날짜로 읽으면 한 건도 안 걸린다
+    assert BC._erp_day("20260810-4") == "2026-08-10", BC._erp_day("20260810-4")
+    assert BC._erp_day("") == "" and BC._erp_day("2026") == "", "짧은 값에서 날짜를 지어낸다"
+
+    # ⑧ 회차가 이 문을 **실제로 부르는가** — 함수만 있고 안 부르면 없는 것과 같다([328])
+    _src = open(os.path.join(ROOT, "band_canonical.py"), encoding="utf-8").read()
+    assert "erp_pick(project, matches)" in _src, "ERP 문을 회차가 안 부른다"
+    # ★ **규칙을 세기 전에 설명을 걷는다** — 이 저장소가 여덟 번째 밟는 자리다
+    #   ([301]-9·[302]·[309]·[332]·[339]·[370]·[272]·[399]). 안 걷으면 위 독스트링의
+    #   "`erp_sales_index.build()` 를 부르면 …" 이라는 **경고 문장 자체**가 위반으로 잡힌다.
+    _code = _t370_code_only(_src)
+    assert "erp_sales_index" not in _code, (
+        "회차가 ERP 색인을 **다시 만든다** — Z: 를 재귀로 훑으면 5분 회차가 그만큼 "
+        "느려진다([168]). 회차가 만들어 둔 파일만 읽는다")
+
+    print("  [423] 같은 프로젝트 행이 여럿이면 ERP 가 가른다 — 못 가르면 '중복' 이라 말한다")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -36542,6 +36622,7 @@ if __name__ == "__main__":
     t420_delete_says_why_and_hides_dead_buttons()
     t421_settle_po_and_invoice_filter()
     t422_kakao_cache_follows_report_dir()
+    t423_erp_breaks_the_tie_for_duplicate_projects()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
