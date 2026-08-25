@@ -20,6 +20,7 @@ import hashlib
 import io
 import json
 import os
+import sys
 import tempfile
 from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -457,6 +458,14 @@ def write_ambiguous_trace(result, path=None):
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    # ★ 콘솔은 cp949 라 `—` 한 글자에 죽고, 무인 회차는 `sys.stdout` 이 **None** 이다
+    #   ([235]). 인계 문서가 알려 주는 그 명령(`--ambiguous`)이 실측으로 여기서
+    #   `UnicodeEncodeError` 로 죽었다 — 사람이 붙여넣으면 그 오류만 본다.
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--ambiguous", action="store_true",
