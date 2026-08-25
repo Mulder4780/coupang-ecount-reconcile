@@ -38171,20 +38171,7 @@ if __name__ == "__main__":
     #   이라 적어 두면 그 값을 바꾼 날 두 화면이 서로 다른 여유를 말한다.
     import atexit as _atexit
     _GATE_T0 = time.time()
-    _GATE_MARK = [time.time()]
     _GATE_STEPS = []
-    _GATE_REAL_PRINT = print
-
-    def print(*a, **k):                       # noqa: A001  (모듈 전역 — 이 파일 안에서만)
-        _GATE_REAL_PRINT(*a, **k)
-        try:
-            _txt = " ".join(str(x) for x in a)
-            if "\u2705" in _txt:              # 검사가 끝났다는 표시
-                _now = time.time()
-                _GATE_STEPS.append([round(_now - _GATE_MARK[0], 1), _txt.strip()[:90]])
-                _GATE_MARK[0] = _now
-        except Exception:
-            pass                              # 계측이 관문을 죽이지 않는다
 
     def _gate_write_times():
         try:
@@ -38214,6 +38201,34 @@ if __name__ == "__main__":
             pass                              # 자국을 못 남겨도 관문 결과는 그대로다
 
     _atexit.register(_gate_write_times)
+
+    # ★ **✅ 를 안 찍는 검사가 119개다**(실측 2026-08-26 · 호출 397개 중 30%).
+    #   print 를 가로채 재면 그 시간이 전부 **다음에 ✅ 를 찍는 검사**에 붙는다.
+    #   실측: [401] 이 746.5초로 적혔는데 홀로 돌리면 **0.2초**다 — 앞의
+    #   [387]·[389]·[390]·[391]·[392]·[393]·[394]·[395]·[396]·[388] 이 '통과·OK·
+    #   잡음' 으로 끝나 ✅ 를 안 찍기 때문이다. 그러면 사람이 **0.2초짜리를 고치러
+    #   간다**([172] 틀린 지목은 못 잡는 것보다 나쁘다). 이 관문은 daily_run 의
+    #   0단계라 '무엇이 오래 걸렸나' 를 틀리게 짚으면 그날 회차를 못 살린다.
+    # ★ 그래서 재는 자리를 **검사 함수 자체**로 옮긴다 — 한 곳이고([162]) 새 검사도
+    #   저절로 따라온다([340] 과 같은 생각: 목록을 손으로 안 적는다).
+    # ★ 실패해도 잰다(`finally`) — 넘겨 끊긴 회차야말로 알고 싶은 자리다([180]).
+    def _gate_timed(_fn, _label):
+        def _wrapped(*a, **k):
+            _t0 = time.time()
+            try:
+                return _fn(*a, **k)
+            finally:
+                _GATE_STEPS.append([round(time.time() - _t0, 1), _label])
+        _wrapped.__name__ = getattr(_fn, '__name__', 'test')
+        _wrapped.__doc__ = _fn.__doc__
+        return _wrapped
+
+    for _nm in [x for x in list(globals()) if re.match(r'^t[0-9]+[A-Za-z0-9_]*$', x)]:
+        _fn = globals()[_nm]
+        if not callable(_fn):
+            continue
+        _doc = ((_fn.__doc__ or '').strip().splitlines() or [''])[0].strip()
+        globals()[_nm] = _gate_timed(_fn, (_nm + ' — ' + _doc)[:90] if _doc else _nm)
     print("합성데이터 검증 시작 (실데이터·실서버 접촉 없음)")
     with tempfile.TemporaryDirectory() as tmp:
         t1_erp_check(tmp)
