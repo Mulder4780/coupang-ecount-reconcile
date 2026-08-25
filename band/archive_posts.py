@@ -34,6 +34,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
+import child_budget
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -60,31 +61,20 @@ POST_WORKERS = 5       # 동시에 띄우는 크롬 수 — 글당 크롬 하나
 #   (`autopilot.CHILD_BUDGET_ENV` · [324] 와 같은 모양) `collect_all` 경로는
 #   한 톨도 안 바뀐다([172] — 문제 없는 호출자를 안 건드린다).
 BUDGET_ENV = "ARCHIVE_POSTS_BUDGET_SEC"
-# 자율복구·회차가 아는 값 — `autopilot.INCREMENTAL_RETURN_CODE` 와 같아야 한다
-# (`source_tidy.py` 도 같은 모양으로 제자리에 적어 둔다).
-INCREMENTAL_RETURN_CODE = 75
-_DEADLINE = None
+# ★ **판정은 `child_budget` 한 곳이다**([162]) — 여기서 다시 적으면, 규칙이 바뀐 날
+#   이 파일만 옛 규칙으로 남으면서 **오류도 안 난다**([165]).
+INCREMENTAL_RETURN_CODE = child_budget.INCREMENTAL_RETURN_CODE
 
 
 def set_budget():
     """바깥이 준 시간 예산을 읽는다 — **안 주면 무제한**(예전 그대로)이다."""
-    global _DEADLINE
-    try:
-        sec = int(os.environ.get(BUDGET_ENV) or 0)
-    except (TypeError, ValueError):
-        sec = 0                # 못 읽으면 '예산 없음' 이다 — 지어내지 않는다([169])
-    _DEADLINE = (time.monotonic() + sec) if sec > 0 else None
-    return sec if sec > 0 else 0
+    return child_budget.start(BUDGET_ENV)
 
 
 def over_budget():
     """예산이 다 됐나 — 예산이 없으면 언제나 거짓이다."""
-    return _DEADLINE is not None and time.monotonic() >= _DEADLINE
-PHOTO_WORKERS = 8      # 한 글 안에서만 겹친다 — 밴드에 한꺼번에 몰지 않는다
-UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.band.us/"}
-UJ = re.compile(r"UJ\d{7}")
-KIND = [("정기점검", "정기점검"), ("돌발", "돌발AS"), ("납품", "신규납품"),
-        ("설치", "설치"), ("철거", "철거"), ("계단", "계단"), ("점검", "점검")]
+    return child_budget.over()
+
 
 
 def out_root():

@@ -46,7 +46,20 @@ INCREMENTAL_RETURN_CODE = 75
 # ★ **표에 없는 자식은 안 건드린다**([324] · [169] 없는 손잡이를 지어내지 않는다).
 #   그래서 `collect_all.py` 를 거쳐 도는 같은 스크립트는 한 톨도 안 바뀐다 —
 #   그쪽은 이미 제 예산(7분)으로 스스로 멈춘다([172]).
-CHILD_BUDGET_ENV = {"archive_posts.py": "ARCHIVE_POSTS_BUDGET_SEC"}
+CHILD_BUDGET_ENV = {
+    "archive_posts.py": "ARCHIVE_POSTS_BUDGET_SEC",
+    "stmt_archive.py": "STMT_ARCHIVE_BUDGET_SEC",
+    # ⚠ 여기 이름을 더하려면 **그 스크립트가 그 열쇠를 실제로 읽어야** 한다.
+    #    안 읽는 자식에게 넣어 봐야 아무 일도 안 일어난다([169] 없는 손잡이).
+    # ⚠ 실측 2026-08-25 로 **일부러 안 넣은 것 둘** — 재 보고 안 맞아서다([172]):
+    #    · `tax_archive.py` — `collect()` 가 PDF 한 장 만들기 **전에 193.7초**를 쓴다
+    #      (Z: 재귀 glob + xlsx 80개를 `read_only=False` 로 연다). 예산이 60초면
+    #      루프에 닿기도 전에 다 되어 **0건 만들고 75 로 돌아오는 것을 영원히**
+    #      되풀이한다([199] 무한루프와 같은 모양). 그 194초를 먼저 줄여야 한다.
+    #    · `zscan.py` — **스캔**이라 중간에 끊으면 리포트가 반쪽인데 겉모습은 완전하다
+    #      ("서류 PDF N개" 의 N 만 줄어든다). 여기 예산을 주면 **조용히 틀린 리포트**를
+    #      매 회차 만든다([169]) — 예산이 아니라 다른 고침이 필요하다.
+}
 CHILD_BUDGET_MARGIN_S = 300      # 보고서를 쓰고 돌아올 여유
 
 

@@ -26,6 +26,7 @@ import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
+import child_budget
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -33,6 +34,16 @@ except Exception:
 
 DETAIL = os.path.join(ROOT, "reports", "거래명세서_상세.json")
 LINK = os.path.join(ROOT, "reports", "명세서_프로젝트_매칭.json")
+
+# ── 시간 예산 — **바깥에서 죽기 전에 스스로 멈춘다** (2026-08-25 · [427] 과 같은 자리)
+# ★ 자율복구 대기표가 이 파일을 `--limit 150` 으로 부르는데 예산이 없어 제한시간에
+#   **SIGKILL(-9)** 로 끊겼다(실측 시도 4회 · 자국이 `returncode=-9` 다섯 글자뿐).
+#   파이썬 stdout 은 파이프에 물리면 **블록 버퍼**라 그때까지 찍은 줄이 버퍼째 사라진다.
+# ★ **일은 되고 있었다** — PDF 는 한 건씩 `os.replace` 로 굳고 다음 회차가 그대로
+#   이어받는다(`os.path.exists` 로 건너뛴다). 잃은 것은 '얼마나 했나' 였다([169]).
+# ★ 실측 2026-08-25: 원본 812건 · 이미 보관 211 → **남음 601건**.
+BUDGET_ENV = "STMT_ARCHIVE_BUDGET_SEC"
+INCREMENTAL_RETURN_CODE = child_budget.INCREMENTAL_RETURN_CODE
 
 
 def out_root():
@@ -103,10 +114,13 @@ def main():
     if os.path.exists(LINK):
         for x in json.load(open(LINK, encoding="utf-8")).get("linked", []):
             link[x["slip"]] = x
+    budget = child_budget.start(BUDGET_ENV)
     root, made, skip, fail, attempted = out_root(), 0, 0, 0, 0
+    cut, seen = 0, 0
     for d in docs:
         if attempted >= a.limit:
             break
+        seen += 1
         slip = d["slip"]                       # 2026/07/14-3
         ym = slip[:7].split("/")
         info = link.get(slip) or {}
@@ -117,6 +131,9 @@ def main():
         if not a.force and os.path.exists(dst):
             skip += 1
             continue
+        if child_budget.over():   # ★ 예산이 다 되면 **새로 안 만든다**
+            cut = 1
+            break
         attempted += 1
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         if render_atomic(d, uj, info.get("state"), dst):
@@ -124,6 +141,13 @@ def main():
         else:
             fail += 1
     print(f"거래명세서 건별 PDF: 새로 {made}건 · 건너뜀 {skip} · 실패 {fail} → {root}")
+    if cut:
+        # ★ **멈춘 사실과 숫자를 말한다.** 조용히 돌아가면 부르는 쪽은 실패인지
+        #   완료인지 구별할 수 없다([169]). 건너뜀 숫자는 여기까지 본 것뿐이다.
+        print(f"  ★ 시간 예산({budget}초)이 다 되어 여기까지 하고 돌아온다 — "
+              f"원본 {len(docs):,}건 중 앞에서부터 {seen:,}건까지 봤다. "
+              "남은 것은 다음 회차가 이어서 한다(PDF 는 한 건씩 저장돼 있다).")
+        return INCREMENTAL_RETURN_CODE
     return 0
 
 
