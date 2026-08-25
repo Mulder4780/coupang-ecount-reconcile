@@ -31433,7 +31433,7 @@ function todayISO(){ return '2026-08-26'; }
 function toast(){}
 function $(){ return null; }
 function renderCalendarPage(){}
-async function api(){ return {ok:true, '\uce90\uc7a5\uac00\ub2a5':true, calendar:{'\uc77c\uc815':[]}}; }
+async function api(){ return {ok:true, '캡처가능':true, calendar:{'일정':[]}}; }
 const tick=()=>new Promise(r=>setTimeout(r,20));
 (async()=>{
   const out={};
