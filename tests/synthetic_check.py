@@ -25570,6 +25570,72 @@ def t419_staff_force_complete_reaches_report():
 
     print("  [419] 채번 전 건도 완료 처리 → 캘린더·대표보고까지 수렴")
 
+
+def t420_delete_says_why_and_hides_dead_buttons():
+    """[420] 삭제가 안 되면 **왜인지 말한다** · 안 되는 단추는 안 그린다.
+
+    류지영 매니저(2026-08-25 10:49): "삭제가안돼용". 정기점검 목록의 [삭제] 가
+    `삭제 실패 — 잠시 후 다시 시도` 만 냈다.
+
+    ★ 그 건들은 `pm_schedule_sync` 가 만든 `SCH-` 예정이라 **앱 DB 에 행이 없다** —
+      실측 2026-08-25: 화면 정기점검 471건 중 70건이 그렇고 그 70건은 **전부**
+      `DB버전` 이 없다(나머지 401건은 전부 있다). 몇 번을 눌러도 영원히 안 된다.
+    ★ "잠시 후 다시 시도"는 **틀린 지목**이라 사람이 안 될 일을 되풀이한다([172]).
+    ★ 근거는 이름(`SCH-`)이 아니라 **DB버전**이다 — 이름 규칙에 기대면 규칙이
+      바뀌는 날 조용히 어긋난다([165]).
+    """
+    import io                  # [324] 이 파일 모듈 수준에는 없다
+    import shutil              # [324]
+    import subprocess as _sp420
+    import tempfile as _tf420
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    # (1) 서버가 준 사유를 버리지 않는다 — 되돌아가면 안 되는 것만 얼린다([39])
+    assert "toast('삭제 실패 — 잠시 후 다시 시도'); return false; }" not in html, (
+        "삭제 실패가 다시 사유를 버린다 — 사람이 영영 안 될 일을 되풀이한다([172])")
+    assert "(e&&e.data&&e.data.error)" in html, (
+        "4xx 본문(e.data)에서 사유를 꺼내지 않는다 — 문장을 뜯으면 서버가 말투를 "
+        "바꾸는 날 조용히 안 알아본다([165]·[354])")
+
+    # (2) 단추를 그리는가는 **실행으로** 잰다([295]) — 글자로는 못 잰다
+    node = shutil.which("node")
+    if not node:
+        print("  [420] node 없음 — 실행 검사 건너뜀")
+        return
+    i = html.index("function wtRowActions(k,id,r){")
+    j = html.index(chr(10) + "function wtVer(", i)
+    harness = chr(10).join([
+        "function esc2(x){return String(x==null?'':x);}",
+        "function esc4(x){return JSON.stringify(String(x==null?'':x));}",
+        html[i:j],
+        "var a=wtRowActions('pm','SCH-1',{점검ID:'SCH-1'});",
+        "var b=wtRowActions('pm','PM-1',{점검ID:'PM-1',DB버전:3});",
+        "var c=wtRowActions('pm','PM-2',{점검ID:'PM-2',_record_version:2});",
+        "console.log(JSON.stringify({",
+        "  noRow_del:a.indexOf('wtDelete')>=0, noRow_ex:a.indexOf('wtExclude')>=0,",
+        "  noRow_why:a.indexOf('등록되지 않은 예정')>=0,",
+        "  has_del:b.indexOf('wtDelete')>=0, has_ex:b.indexOf('wtExclude')>=0,",
+        "  old_del:c.indexOf('wtDelete')>=0}));",
+    ])
+    with _tf420.TemporaryDirectory(prefix="csos-420n-") as td:
+        p = os.path.join(td, "h.js")
+        io.open(p, "w", encoding="utf-8").write(harness)
+        proc = _sp420.Popen([node, p], stdout=_sp420.PIPE, stderr=_sp420.PIPE,
+                            creationflags=getattr(_sp420, "CREATE_NO_WINDOW", 0))
+        so, se = proc.communicate(timeout=60)
+    assert proc.returncode == 0, se.decode("utf-8", "replace")[:400]
+    got = json.loads(so.decode("utf-8", "replace").strip().splitlines()[-1])
+    assert not got["noRow_del"] and not got["noRow_ex"], (
+        "앱 DB 에 행이 없는 건에 아직 단추가 그려진다 — 눌러도 안 되는 단추는 "
+        "고장으로 읽힌다([172])", got)
+    assert got["noRow_why"], (
+        "조용히 뺐다 — 왜 안 되는지 안 적으면 단추가 사라진 줄 안다([169])", got)
+    assert got["has_del"] and got["has_ex"], (
+        "멀쩡한 건의 단추까지 사라졌다 — 좁히는 것도 고장이다([172])", got)
+    assert got["old_del"], ("옛 칸 이름(_record_version)으로 온 행이 막힌다", got)
+
+    print("  [420] 삭제 실패가 사유를 말하고, 안 되는 단추는 안 그린다")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -36108,6 +36174,7 @@ if __name__ == "__main__":
     t417_excel_archive_runs_once_a_week()
     t418_report_red_never_paints_what_we_have_not_seen()
     t419_staff_force_complete_reaches_report()
+    t420_delete_says_why_and_hides_dead_buttons()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
