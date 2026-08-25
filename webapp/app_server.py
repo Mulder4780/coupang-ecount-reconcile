@@ -4742,8 +4742,16 @@ _DISK_CACHE_VER = 1
 # 실측으로 앞의 둘은 디스크 캐시가 받아 줬지만 issues가 관리대장을 다시 열어
 # 첫 응답이 64.88초 걸렸다(실제 건수는 AS 600·정기점검 471·정산 750).
 # 그래서 확인필요도 **정확한 지문이 맞을 때만** last-good을 먼저 싣는다.
-_DISK_CACHE_KEYS = ("works", "settle", "issues", "staff_records", "exec")
+# ★ `status` 는 **옛 값 자리(`_stale`)** 로만 들어간다 — 아래 `_disk_cache_stale`.
+#   실측 2026-08-25: `get_status()` 콜드 **94.21초**인데 화면은 오늘만 **99번** 불렀다.
+#   서버를 다시 띄우면(코드 고침 [156]·워치독·보호자) `_stale` 까지 비어 **첫 사람이
+#   94초를 정직하게 기다린다** — [367] 이 works·settle 에서 고친 그 병이 여기만
+#   남아 있었다([300]).
+_DISK_CACHE_KEYS = ("works", "settle", "issues", "staff_records", "exec", "status")
 _DISK_CACHE_MAX_AGE_S = 6 * 3600
+# 옛 값 자리로만 쓰는 것은 **더 짧게** 본다 — 밤새 꺼 둔 PC 가 아침에 어제 화면을
+# 내밀면 안 된다. 뒤에서 곧바로 다시 계산하므로 잠깐만 살면 된다.
+_DISK_CACHE_STALE_MAX_AGE_S = 2 * 3600
 
 
 def _disk_cache_path(key):
@@ -4865,6 +4873,31 @@ def _disk_cache_load(key):
     """지문·판·나이가 **셋 다** 맞을 때만 돌려준다. 아니면 None(모름)."""
     value, fresh = _disk_cache_read(key)
     return value if fresh else None
+
+
+def _disk_cache_stale(key, max_age=None):
+    """재시작 뒤 **옛 값 자리**를 이어받는다 — '지금 값'이 아니다.
+
+    ★ `_disk_cache_load` 와 **자리가 다르다**. 저쪽은 지문이 정확히 맞을 때만 주고
+      그 값이 `_cache`(= 지금 값)로 들어간다. 여기는 `_stale`(= 옛 값)이고, SWR 이
+      **곧바로 뒤에서 다시 계산한다** — 그래서 지문이 달라도 받되 **나이를 좁힌다**.
+      자리가 다르면 규칙도 다르다.
+    ★ 그래도 나이는 반드시 본다([169]) — 어제 값을 오늘 화면에 '지금'처럼 내밀면
+      그것이 이 프로젝트가 1순위로 막는 조용한 사고다. 못 읽으면 None(모름)이다.
+    """
+    if DEMO or key not in _DISK_CACHE_KEYS:
+        return None
+    p = _disk_cache_path(key)
+    try:
+        if time.time() - os.path.getmtime(p) > (max_age or _DISK_CACHE_STALE_MAX_AGE_S):
+            return None
+        with io.open(p, encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(d, dict) or "값" not in d:
+        return None
+    return d.get("값")
 
 
 def _disk_cache_save(key, value, stamp=None):
@@ -9041,6 +9074,13 @@ def get_status():
     #   실측: /api/status 1,550회 호출에 평균 5.2초 — 만료 순간마다 Z: 재계산이 요청을
     #   통째로 잡고 있었다. 원장이 바뀌면 _fresh 가 stale 까지 비우므로 낡은 값이 남지 않는다.
     stale = _cache.get("status_stale")
+    if stale is None:
+        # ★ 서버를 다시 띄우면 여기가 비어 **첫 사람이 94초를 기다린다**(실측
+        #   2026-08-25). 재시작을 견디는 사본으로 그 자리를 이어받는다 — 그 값은
+        #   '지금 값'이 아니라 **옛 값**이고, 바로 아래에서 다시 계산한다.
+        stale = _disk_cache_stale("status")
+        if stale is not None:
+            _cache["status_stale"] = stale
     if stale:
         _spawn_status_refresh()
         return stale
@@ -9055,10 +9095,14 @@ def _refresh_status_now():
         c = _fresh("status")
         if c:
             return c
+        # ★ 지문은 **계산 앞에서** 찍는다([367]) — 94초짜리 계산 도중에 원장이 바뀌면
+        #   뒤에서 찍은 지문은 옛 자료에 새 이름표를 다는 셈이 된다([169]).
+        stamp = _disk_cache_stamp("status")
         c = _compute_status()
         if "error" not in c:
             _store_cache("status", c)
             _cache["status_stale"] = c
+            _disk_cache_save("status", c, stamp)
         return c
 
 

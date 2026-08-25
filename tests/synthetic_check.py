@@ -30818,6 +30818,95 @@ __PARTS__
 '''
 
 
+def t431_status_survives_a_restart():
+    """[431] 서버를 다시 띄워도 **첫 사람이 94초를 안 기다린다** (2026-08-25).
+
+    형님 지시: "자고 일어났을 때 앱이 최적화 되어있었으면 좋겠어".
+
+    실측 2026-08-25(프로세스 안에서 직접): `get_status()` **94.21초**. 그런데 나머지는
+    [367] 디스크 캐시 덕에 이미 빠르다 — `get_ryu_records` 0.00 · `get_staff_records`
+    0.06 · `get_works` 0.05 · `get_settlements` 0.02초. 그리고 화면은 `/api/status` 를
+    **오늘만 99번** 부른다(ux 실측 · 평균 9.2초 · 최대 149초).
+
+    즉 [367] 이 works·settle 에서 고친 병이 **status 에만 남아 있었다**([300]).
+    이 앱은 서버를 자주 다시 띄우므로([156] 코드 고침 · 워치독 · 보호자) 그때마다
+    `_stale` 까지 비어 **첫 사람이 94초를 정직하게 기다렸다**.
+
+    ★ `status` 는 **옛 값 자리(`_stale`)** 로만 들어간다 — `_cache`(지금 값)가 아니다.
+      SWR 이 곧바로 뒤에서 다시 계산하므로 지문이 달라도 받되 **나이를 좁힌다**(2시간).
+      자리가 다르면 규칙도 다르다 — 그러나 **나이는 반드시 본다**([169]).
+    """
+    import io, json, os, re, shutil, sys, tempfile, time
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+
+    src = io.open(os.path.join(ROOT, "webapp", "app_server.py"),
+                  encoding="utf-8", newline="").read()
+
+    # (1) 목록에 들어갔나 — 안 들어가면 읽기·쓰기 둘 다 조용히 아무 일도 안 한다
+    m = re.search(r"_DISK_CACHE_KEYS = \(([^)]*)\)", src)
+    assert m and '"status"' in m.group(1), (
+        "[431] status 가 디스크 캐시 목록에 없다 — 재시작마다 94초를 다시 기다린다")
+
+    # (2) `get_status` 가 **실제로 부르나**([328] — 함수만 있고 안 부르면 없는 것과 같다)
+    g = re.search(r"def get_status\(\):.*?\n    return _refresh_status_now\(\)", src, re.S)
+    assert g, "[431] get_status 를 못 찾았다"
+    assert "_disk_cache_stale(" in g.group(0), (
+        "[431] get_status 가 재시작 사본을 안 읽는다 — 만들어 두고 안 부르면 없는 것과 같다")
+
+    # (3) 계산이 끝나면 **저장한다** — 안 하면 다음 재시작이 또 94초다
+    r = re.search(r"def _refresh_status_now\(\):.*?\n        return c", src, re.S)
+    assert r, "[431] _refresh_status_now 를 못 찾았다"
+    body = r.group(0)
+    assert "_disk_cache_save(" in body, "[431] 계산 결과를 디스크에 안 남긴다"
+    # ★ 지문은 **계산 앞에서** 찍는다([367]) — 94초 도중에 원장이 바뀌면 뒤에서 찍은
+    #   지문은 옛 자료에 새 이름표를 다는 셈이다([169]).
+    assert body.index("_disk_cache_stamp(") < body.index("_compute_status()"), (
+        "[431] 지문을 계산 **뒤에** 찍는다 — 옛 자료에 새 원장 이름표가 붙는다")
+
+    # (4) 옛 값 자리는 **나이를 반드시 본다** — 실행으로 잰다([295])
+    import app_server as A
+    tmp = tempfile.mkdtemp(prefix="t431_")
+    _root, _demo = A.ROOT, A.DEMO
+    try:
+        os.makedirs(os.path.join(tmp, "reports"), exist_ok=True)
+        A.ROOT, A.DEMO = tmp, False          # 실측 증거는 한 글자도 안 건드린다([247])
+        p = A._disk_cache_path("status")
+        io.open(p, "w", encoding="utf-8").write(
+            json.dumps({"지문": "아무거나", "값": {"표": "합성"}}, ensure_ascii=False))
+
+        got = A._disk_cache_stale("status")
+        assert got == {"표": "합성"}, (
+            "[431] 지문이 달라도 옛 값 자리는 받아야 한다(SWR 이 곧 다시 계산한다): %r" % got)
+
+        os.utime(p, (time.time() - 3 * 3600, time.time() - 3 * 3600))   # 3시간 전
+        assert A._disk_cache_stale("status") is None, (
+            "[431] 낡은 사본을 옛 값으로 쓴다 — 밤새 꺼 둔 PC 가 아침에 어제 화면을 내민다")
+
+        # 깨진 파일은 조용히 넘긴다 — 캐시 하나로 응답을 죽이지 않는다
+        io.open(p, "w", encoding="utf-8").write("{깨짐")
+        assert A._disk_cache_stale("status") is None, "[431] 깨진 사본에서 죽는다"
+
+        # DEMO 는 안 만진다 — 합성 자료가 실화면 캐시로 새면 안 된다
+        io.open(p, "w", encoding="utf-8").write(
+            json.dumps({"지문": "x", "값": {"표": "합성"}}, ensure_ascii=False))
+        A.DEMO = True
+        assert A._disk_cache_stale("status") is None, "[431] DEMO 자료를 실화면 캐시로 쓴다"
+        A.DEMO = False
+
+        # 목록 밖 이름은 안 준다 — 새 키를 넣으려면 목록부터 늘려야 한다
+        assert A._disk_cache_stale("아무키") is None, "[431] 목록 밖 이름을 그냥 받는다"
+
+        # (5) 계기 자기시험([272]) — 나이 문을 없애면 정말 잡히는가
+        os.utime(p, (time.time() - 9 * 3600, time.time() - 9 * 3600))
+        assert A._disk_cache_stale("status", max_age=10 * 3600) == {"표": "합성"}, (
+            "[431] max_age 를 넓혀도 안 받는다 — 이 검사가 나이를 재고 있지 않다")
+    finally:
+        A.ROOT, A.DEMO = _root, _demo
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print("✅ [431] status 도 재시작을 견딘다 (옛 값 자리 · 나이 2시간 · 지문은 계산 앞에서)")
+
+
 def t429_queue_says_what_is_actually_left():
     """[429] 대기열 "남은 건수"를 **갈래로 갈라** 말한다 (2026-08-25 형님 물음).
 
@@ -38014,6 +38103,7 @@ if __name__ == "__main__":
     t428_back_goes_one_step_at_a_time()
     t429_queue_says_what_is_actually_left()
     t430_slow_buttons_show_that_they_were_pressed()
+    t431_status_survives_a_restart()
     t424_resource_failures_that_already_passed()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
