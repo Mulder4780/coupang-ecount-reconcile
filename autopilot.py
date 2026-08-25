@@ -37,6 +37,32 @@ BASE_BACKOFF_MINUTES = 30
 # 실패 횟수로 세지 않고 waiting으로 유지한다.
 INCREMENTAL_RETURN_CODE = 75
 
+# ★ **그 자식이 예산을 읽으면 바깥 제한보다 짧게 줘서 스스로 멈추게 한다**
+#   (2026-08-25 실사고 · `source_tidy_run.CHILD_BUDGET_ENV` 와 같은 모양 · [324]).
+#   예산이 없으면 `run_tree` 가 제한시간에 나무를 끊는데(SIGKILL), 그러면 자식의
+#   stdout 버퍼가 통째로 사라져 **자국이 `returncode=-9` 다섯 글자뿐**이 된다.
+#   실측: `밴드 게시글 보관` 27회 시도가 전부 그 상태였고, 그래서 일이 되고
+#   있는데도 *"10회 넘게 재시도해도 안 풀린다"* 라는 가짜 경보가 매일 섰다([170]).
+# ★ **표에 없는 자식은 안 건드린다**([324] · [169] 없는 손잡이를 지어내지 않는다).
+#   그래서 `collect_all.py` 를 거쳐 도는 같은 스크립트는 한 톨도 안 바뀐다 —
+#   그쪽은 이미 제 예산(7분)으로 스스로 멈춘다([172]).
+CHILD_BUDGET_ENV = {"archive_posts.py": "ARCHIVE_POSTS_BUDGET_SEC"}
+CHILD_BUDGET_MARGIN_S = 300      # 보고서를 쓰고 돌아올 여유
+
+
+def _child_env(args, timeout):
+    """표에 있는 자식에게만 예산을 얹은 env 를 준다 — 아니면 `None`(그대로 물려줌)."""
+    key = None
+    for a in args:
+        key = CHILD_BUDGET_ENV.get(os.path.basename(str(a)))
+        if key:
+            break
+    if not key:
+        return None
+    env = dict(os.environ)
+    env[key] = str(max(60, int(timeout) - CHILD_BUDGET_MARGIN_S))
+    return env
+
 
 def _configure_text_output() -> None:
     """윈도우 CP949 콘솔과 pythonw 모두에서 상태 출력을 안전하게 만든다."""
@@ -239,7 +265,8 @@ def heal(*, limit: int = 2, budget_seconds: int = 600, dry: bool = False) -> dic
             continue
         timeout = min(int(item.get("timeout") or 600), max(30, budget_seconds - spent))
         started = _now()
-        result = run_tree([PY, *args], cwd=ROOT, timeout=timeout, drain_timeout=30)
+        result = run_tree([PY, *args], cwd=ROOT, timeout=timeout, drain_timeout=30,
+                          env=_child_env(args, timeout))
         spent += max(1, int((_now() - started).total_seconds()))
         combined = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
         item["last_attempt"] = _now().isoformat(timespec="seconds")

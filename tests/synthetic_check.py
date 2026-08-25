@@ -26129,6 +26129,144 @@ const DATA = {ok:true, rows:[
 """
 
 
+
+def t427_archive_posts_stops_itself_before_the_kill():
+    """[427] 밴드 게시글 보관이 **바깥에서 죽기 전에 스스로 멈추고 보고서를 쓰는가**.
+
+    2026-08-25 실사고 — 자율복구 대기표의 `밴드 게시글 보관(PDF·텍스트·사진)` 은 이
+    스크립트를 `--limit 150 · 제한 1800초` 로 부르는데 **예산이 없어 늘 1800초에
+    SIGKILL(-9)** 로 끊겼다. 파이썬 stdout 은 파이프에 물리면 블록 버퍼라 그때까지
+    찍은 줄이 **버퍼째 사라진다** — 그래서 27회 시도의 자국이 `returncode=-9`
+    다섯 글자뿐이었고, 자율복구는 그것을 *"10회 넘게 재시도해도 안 풀린다 · AI
+    인계까지 실패했다"* 로 읽어 매일 가짜 경보를 세웠다([170]).
+    **실제로는 일이 되고 있었다** — 파일은 글 하나마다 저장되고 다음 회차가 이어받는다.
+    잃은 것은 일이 아니라 **'얼마나 했나'** 였다([169]).
+    옆 작업 `collect_all.py` 는 같은 시간초과에도 진도를 남긴다(`이어감 145`) —
+    제 예산(7분)을 두고 **보고서를 쓰고 돌아오기** 때문이다. 차이는 예산 하나였다.
+    같은 자리를 이 저장소가 이미 두 번 겪었다([381] 행수 캐시 · [406] 보관 색인).
+
+    ★ 글자로는 '정말 멈추나'를 못 잰다([295]) — **불러서 결과로** 잰다.
+    ★ 진짜 캐시·진짜 보관 폴더(Z:)는 한 글자도 안 건드린다([247]) — 임시 폴더로만.
+    ★ 크롬·네트워크를 안 쓴다 — 모듈 속성을 목으로 갈아 끼우고 `finally` 로
+      되돌린다(모듈 객체는 프로세스에 하나뿐이다 · [371]).
+    ★ 예산은 **부를 때부터** 재는 값이라, 다 쓰게 하려면 일이 그보다 오래 걸려야 한다.
+      그래서 크롬 대신 넣은 목이 예산보다 길게 잔다 — 짧게 잡으면 이 검사는 일이
+      먼저 끝나 **아무것도 안 재면서 통과한다**([272] 가 막으려는 그 모양이다).
+    """
+    import shutil, time as _time, io as _io
+    band_dir = os.path.join(ROOT, "band")
+    if band_dir not in sys.path:
+        sys.path.insert(0, band_dir)
+    import archive_posts as A
+    import autopilot as PA
+
+    BUDGET_S, SLEEP_S, POSTS = 1, 1.2, 4      # 잠 > 예산 이어야 예산이 도중에 소진된다
+
+    # ── ① 표에 있는 자식에게만 예산을 준다([324]) ──────────────────────
+    env = PA._child_env([os.path.join(ROOT, "band", "archive_posts.py"),
+                         "--limit", "150"], 1800)
+    got = (env or {}).get(A.BUDGET_ENV)
+    assert got == "1500", (
+        "[427] 표에 있는 자식에게 예산을 안 준다(%r) — 그러면 바깥이 죽일 때까지 돌아 "
+        "자국이 `returncode=-9` 다섯 글자만 남는다" % got)
+    assert PA._child_env([os.path.join(ROOT, "collect_all.py"), "--run"], 1200) is None, (
+        "[427] 표에 없는 자식까지 건드린다 — `collect_all` 은 이미 제 예산으로 스스로 "
+        "멈춘다([172] 문제 없는 호출자를 안 건드린다 · [324])")
+
+    tmp = tempfile.mkdtemp(prefix="t427_")
+    keep = (A.CACHE, A.out_root, A.render_pdf, A.fetch_photo, A.POST_WORKERS,
+            os.environ.get(A.BUDGET_ENV), list(sys.argv))
+    try:
+        cache = os.path.join(tmp, "cache")
+        out = os.path.join(tmp, "out")
+        os.makedirs(cache)
+        os.makedirs(out)
+        posts = {}
+        for n in range(11, 11 + POSTS):
+            posts[str(n)] = {"created_at": 1700000000000 + n * 1000, "author": "가",
+                             "content": "시험 글 %d" % n, "photo_count": 0,
+                             "comment_count": 0, "images": []}
+        with open(os.path.join(cache, "12345678.json"), "w", encoding="utf-8") as fh:
+            json.dump({"band_name": "시험밴드", "posts": posts}, fh, ensure_ascii=False)
+
+        def _pdf(*a, **k):
+            _time.sleep(SLEEP_S)              # 크롬 대신 — 예산보다 길게 잔다
+            p = k.get("pdf_path") or a[-1]
+            with open(p, "wb") as fh2:
+                fh2.write(b"%PDF-1.4 t427")
+            return True
+
+        A.CACHE = cache
+        A.out_root = lambda: out
+        A.render_pdf = _pdf
+        A.fetch_photo = lambda url, path: "skip"
+        A.POST_WORKERS = 2                    # 한 번에 다 안 넣게 — 예산이 물 자리를 만든다
+
+        def 비운다():
+            shutil.rmtree(out, ignore_errors=True)
+            os.makedirs(out)
+
+        def 돌린다(budget, fn=None):
+            if budget:
+                os.environ[A.BUDGET_ENV] = str(budget)
+            else:
+                os.environ.pop(A.BUDGET_ENV, None)
+            sys.argv = ["archive_posts.py", "--limit", str(POSTS)]
+            buf = _io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = (fn or A.main)()
+            return rc, buf.getvalue()
+
+        def 만든것():
+            return [n for _r, _d, fs in os.walk(out) for n in fs if n.endswith(".pdf")]
+
+        # ── ② 예산이 다 됐으면 **멈추고 · 말하고 · 증분으로 돌아온다** ──────
+        rc, out1 = 돌린다(BUDGET_S)
+        assert rc == A.INCREMENTAL_RETURN_CODE, (
+            "[427] 예산이 다 됐는데 증분(%d)이 아니라 %r 로 돌아온다 — 자율복구가 "
+            "이것을 실패로 세어 '10회 넘게 재시도해도 안 풀린다'는 가짜 경보를 "
+            "매일 낸다([170])" % (A.INCREMENTAL_RETURN_CODE, rc))
+        assert "시간 예산" in out1 and "이어서 한다" in out1, (
+            "[427] 멈춘 사실을 말하지 않는다 — 부르는 쪽은 실패인지 완료인지 "
+            "구별할 수 없다([169]): %r" % out1[-200:])
+        만든수 = len(만든것())
+        assert 만든수 < POSTS, (
+            "[427] 예산이 다 됐는데 끝까지 갔다(%d/%d) — 멈추지 않았다" % (만든수, POSTS))
+
+        # ── ③ 좁히는 것도 고장이다([172]) — 예산이 없으면 예전 그대로 ───────
+        비운다()
+        rc2, out2 = 돌린다(0)
+        assert rc2 == 0, (
+            "[427] 예산이 없는데 증분으로 돌아온다(%r) — 옛 호출자가 실패로 읽는다" % rc2)
+        assert "시간 예산" not in out2, "[427] 예산이 없는데 멈췄다고 말한다([169])"
+        assert len(만든것()) == POSTS, (
+            "[427] 예산이 없을 때 다 안 만들었다: %d/%d" % (len(만든것()), POSTS))
+
+        # ── ④ 계기 자기시험([272]) — 멈추는 문을 없애면 잡히는가 ────────────
+        src = open(os.path.join(band_dir, "archive_posts.py"), encoding="utf-8").read()
+        조각 = "                if over_budget():"
+        assert src.count(조각) == 1, "[427] 자기시험 앵커가 %d개다" % src.count(조각)
+        broken = src.replace(조각, "                if False and over_budget():", 1)
+        g = {"__name__": "ap_t427", "__file__": os.path.join(band_dir, "archive_posts.py")}
+        exec(compile(broken, "archive_posts_broken", "exec"), g)
+        g.update({"CACHE": cache, "out_root": lambda: out, "render_pdf": _pdf,
+                  "fetch_photo": lambda url, path: "skip", "POST_WORKERS": 2})
+        비운다()
+        rc3, _out3 = 돌린다(BUDGET_S, fn=g["main"])
+        assert rc3 != A.INCREMENTAL_RETURN_CODE and len(만든것()) == POSTS, (
+            "[427] 멈추는 문을 없앴는데도 증분으로 돌아온다(%r · %d개) — 이 검사는 "
+            "아무것도 안 재고 있다([272])" % (rc3, len(만든것())))
+    finally:
+        (A.CACHE, A.out_root, A.render_pdf, A.fetch_photo, A.POST_WORKERS,
+         _e, sys.argv) = keep
+        if _e is None:
+            os.environ.pop(A.BUDGET_ENV, None)
+        else:
+            os.environ[A.BUDGET_ENV] = _e
+        shutil.rmtree(tmp, ignore_errors=True)
+    print("  [427] 밴드 게시글 보관이 바깥에서 죽기 전에 스스로 멈추고 "
+          "보고서를 쓴다 — 예산 자식 표·증분 반환·예산 없으면 예전 그대로 ✅")
+
 def t426_camp_code_reaches_the_screen():
     """[235] ERP 거래처코드가 **캠프 화면까지** 이어지고, 추정이 확정으로 안 굳는다.
 
@@ -37094,6 +37232,7 @@ if __name__ == "__main__":
     t423_erp_breaks_the_tie_for_duplicate_projects()
     t425_reharvest_that_bounces_back_says_so()
     t426_camp_code_reaches_the_screen()
+    t427_archive_posts_stops_itself_before_the_kill()
     t424_resource_failures_that_already_passed()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

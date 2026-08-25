@@ -41,6 +41,45 @@ except Exception:
 
 CACHE = os.path.join(HERE, "cache")
 POST_WORKERS = 5       # 동시에 띄우는 크롬 수 — 글당 크롬 하나가 PDF 를 만든다
+
+# ── 시간 예산 — **바깥에서 죽기 전에 스스로 멈춘다** (2026-08-25 실사고) ──────
+# ★ 자율복구 대기표의 `밴드 게시글 보관(PDF·텍스트·사진)` 은 이 파일을
+#   `--limit 150 · 제한 1800초` 로 부르는데 예산이 없어 **늘 1800초에
+#   SIGKILL(-9)** 로 끊겼다. 파이썬 stdout 은 파이프에 물리면 블록 버퍼라
+#   그때까지 찍은 줄이 **버퍼째 사라진다** — 그래서 27회 시도의 자국이
+#   `returncode=-9` 다섯 글자뿐이었고, 자율복구는 그것을 *"10회 넘게 재시도해도
+#   안 풀린다 · AI 인계까지 실패했다"* 로 읽었다. **실제로는 일이 되고 있었다** —
+#   파일은 글 하나마다 `os.replace` 로 저장되고 다음 회차가 그대로 이어받는다.
+#   즉 잃은 것은 일이 아니라 **'얼마나 했나'** 였다([169] 계기가 0 을 내면 아무도
+#   의심하지 않는다 · [170] 경보가 가짜면 진짜 경보가 묻힌다).
+# ★ 옆 작업 `collect_all.py` 는 같은 시간초과에도 진도를 남긴다 — 제 예산(7분)을
+#   두고 **보고서를 쓰고 돌아오기** 때문이다(`이어감 145`). 차이는 예산 하나였다.
+#   같은 자리를 이 저장소가 이미 두 번 겪었다([381] 행수 캐시 · [406] 보관 색인):
+#   **끝에 한 번만 저장하면 죽을 때 통째로 잃는다.**
+# ★ **안 주면 예전 그대로 무제한이다.** 예산을 주는 것은 표에 적은 부르는 쪽뿐이라
+#   (`autopilot.CHILD_BUDGET_ENV` · [324] 와 같은 모양) `collect_all` 경로는
+#   한 톨도 안 바뀐다([172] — 문제 없는 호출자를 안 건드린다).
+BUDGET_ENV = "ARCHIVE_POSTS_BUDGET_SEC"
+# 자율복구·회차가 아는 값 — `autopilot.INCREMENTAL_RETURN_CODE` 와 같아야 한다
+# (`source_tidy.py` 도 같은 모양으로 제자리에 적어 둔다).
+INCREMENTAL_RETURN_CODE = 75
+_DEADLINE = None
+
+
+def set_budget():
+    """바깥이 준 시간 예산을 읽는다 — **안 주면 무제한**(예전 그대로)이다."""
+    global _DEADLINE
+    try:
+        sec = int(os.environ.get(BUDGET_ENV) or 0)
+    except (TypeError, ValueError):
+        sec = 0                # 못 읽으면 '예산 없음' 이다 — 지어내지 않는다([169])
+    _DEADLINE = (time.monotonic() + sec) if sec > 0 else None
+    return sec if sec > 0 else 0
+
+
+def over_budget():
+    """예산이 다 됐나 — 예산이 없으면 언제나 거짓이다."""
+    return _DEADLINE is not None and time.monotonic() >= _DEADLINE
 PHOTO_WORKERS = 8      # 한 글 안에서만 겹친다 — 밴드에 한꺼번에 몰지 않는다
 UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.band.us/"}
 UJ = re.compile(r"UJ\d{7}")
@@ -260,6 +299,9 @@ def archive_band(band, posts, limit, force, stat):
         paths = archive_paths(root, no, post)
         if force or not archive_complete(paths, present):
             todo.append(no)
+    # 이번 회차가 보관 대상으로 고른 글 수 — 예산에 걸렸을 때 보고서가 이 숫자를
+    # 그대로 적는다. 짐작한 '남음'을 지어내지 않는다([169]).
+    stat["todo"] = int(stat.get("todo") or 0) + len(todo)
     lock = threading.Lock()
 
     def one(no):
@@ -335,6 +377,9 @@ def archive_band(band, posts, limit, force, stat):
         submitted = 0
         while True:
             while len(futs) < POST_WORKERS and submitted < limit:
+                if over_budget():      # ★ 예산이 다 되면 **새로 안 넣는다**
+                    stat["cut"] = 1    #   도는 것은 끝까지 두고 보고서를 쓴다
+                    break
                 try:
                     futs.add(ex.submit(one, next(it)))
                     submitted += 1
@@ -357,7 +402,9 @@ def main():
     ap.add_argument("--force", action="store_true")
     a = ap.parse_args()
 
-    stat = {"made": 0, "skip": 0, "photo": 0, "pdf_fail": 0, "incomplete": 0}
+    budget = set_budget()      # 바깥이 준 예산 — 없으면 0(무제한)
+    stat = {"made": 0, "skip": 0, "photo": 0, "pdf_fail": 0, "incomplete": 0,
+            "todo": 0, "cut": 0}
     files = [os.path.join(CACHE, f"{a.band}.json")] if a.band else \
         [f for f in glob.glob(os.path.join(CACHE, "*.json"))
          if os.path.basename(f)[:-5].isdigit()]
@@ -365,6 +412,7 @@ def main():
     # 예전 코드는 150을 각각 적용해 최대 300건을 만들었다. 화면에는 150건 회차로
     # 보이면서 시간이 두 배 걸리는 조용한 오류였다.
     remaining = max(0, a.limit)
+    submitted_total = 0
     for f in sorted(files):
         if remaining <= 0:
             break
@@ -376,10 +424,18 @@ def main():
         posts = doc.get("posts") or {}
         posts["_band_name"] = doc.get("band_name") or band
         attempted = archive_band(band, posts, remaining, a.force, stat)
+        submitted_total += max(0, int(attempted or 0))
         remaining -= max(0, int(attempted or 0))
     print(f"밴드 게시글 보관: 새로 {stat['made']}건 · 건너뜀 {stat['skip']} · "
           f"사진 {stat['photo']}장 · 미완 {stat['incomplete']} · "
           f"PDF실패 {stat['pdf_fail']} → {out_root()}")
+    if stat.get("cut"):
+        # ★ 여기서 **멈춘 사실과 숫자를 말한다**. 조용히 돌아가면 부르는 쪽은
+        #   실패인지 완료인지 구별할 수 없다([169]).
+        print(f"  ★ 시간 예산({budget}초)이 다 되어 여기까지 하고 돌아온다 — "
+              f"이번 회차가 고른 글 {stat['todo']:,}건 중 {submitted_total:,}건에 손댔다. "
+              "남은 것은 다음 회차가 이어서 한다(파일은 글 하나마다 저장돼 있다).")
+        return INCREMENTAL_RETURN_CODE
     return 0
 
 
