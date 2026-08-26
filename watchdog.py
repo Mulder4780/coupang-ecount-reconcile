@@ -1070,6 +1070,103 @@ def watch_userscript(dry):
     return "크롬수집 %s: %s" % (kind or "?", (st.get("왜") or "")[:60])
 
 
+def heal_band_bridge(dry):
+    """사람 탭이 **없을 때** 전용 크롬이 대신 긁는다 (2026-08-27 지시).
+
+    형님 지시: "매번 불편하게 계속 안잡힌다 뭐해라뭐해라 하지말고 **알아서 좀 해봐**".
+    실측 2026-08-27: 매출처업무 밴드가 **6일째** 멈춰 있었고, 그동안 어느 회차도
+    대신해 주지 않았다 — 다리를 부르는 코드가 **한 줄도 없었다**([328]).
+
+    ★ **창을 내려 둔 채로 돈다**(2026-08-27 실측).  최소화된 창에서
+      `Emulation.setFocusEmulationEnabled` 뒤 `document.hidden=false` ·
+      3초 타이머가 **3009ms**(안 조여진다).  그러므로 형님 화면을 한 번도 안 뺏는다.
+      ⚠ 속이는 것이 아니다 — 크롬 자신의 손잡이다([457]).
+
+    ★ **사람 탭이 살아 있는 밴드는 안 건드린다.**  두 창이 같은 밴드를 긁으면
+      캐시가 오염된다(사고 #27 — 되돌릴 수 없는 쪽).  그래서 가져가는 것은
+      `끊김`(6시간 넘게 조용) · `안옴`(한 번도 안 옴) **둘뿐**이다.
+      ⚠ `가려짐` 은 **일부러 뺐다** — 그 창의 스크립트는 살아 있어 형님이 탭을
+        바꾸는 순간 시작한다.  겹치는 값이 되돌릴 수 없으므로 안 가져간다([172]).
+        (한 창에서는 밴드 하나만 긁힌다 — 2026-08-25 실측.  그 자리를 메우려면
+        양쪽이 함께 보는 잠금이 있어야 하고, 그것은 재고 나서 한다([67]).)
+
+    ★ **판정을 새로 만들지 않는다**([162]) — `userscript_watch.check()` 가 이미
+      밴드마다 갈래를 매긴다.  여기서 다시 재면 두 화면이 다른 답을 한다.
+
+    ★ **한 회차에 한 밴드만** · 기다림은 짧게(`BRIDGE_STEP_WAIT_S`).  수집기는
+      10건마다 저장하므로([388]) 짧은 창에서도 진도가 남고 다음 회차가 이어받는다.
+      길게 잡으면 워치독 예산을 통째로 먹는다([436]).
+    """
+    if dry:
+        return "밴드 다리: --dry 라 안 긁음"
+    try:
+        from band import userscript_watch
+        st = userscript_watch.check(write=False)
+    except Exception as exc:
+        return "밴드 다리: 갈래를 못 읽음 — %s" % str(exc)[:60]
+
+    TAKE = ("끊김", "안옴")
+    cand = [b for b, v in (st.get("밴드") or {}).items()
+            if str(v.get("갈래") or "") in TAKE]
+    # 되보고가 **한 번도 없는** 밴드도 사람 탭이 없는 것이다 — 대기열에는 있는데
+    # 보고가 없으면 아무도 안 긁고 있다는 뜻이다([169]).
+    try:
+        from band import collect_queue as CQ
+        with open(CQ.QUEUE_PATH, encoding="utf-8") as fh:
+            q = json.load(fh)
+        for b in (q.get("bands") or {}):
+            if b not in (st.get("밴드") or {}) and b not in cand:
+                cand.append(b)
+    except Exception:
+        pass                      # 대기열을 못 읽는 것으로 이 눈을 세우지 않는다
+    if not cand:
+        return ""                 # 사람 탭이 다 살아 있다 — 조용하다([170])
+
+    band = sorted(cand)[0]        # 한 회차에 하나만
+    try:
+        from band import browser_bridge as BB
+    except Exception as exc:
+        return "밴드 다리: 못 들여옴 — %s" % str(exc)[:60]
+    if not BB.alive():
+        r = BB.up()
+        if r.get("오류"):
+            return "밴드 다리: 크롬을 못 띄움 — %s" % str(r["오류"])[:60]
+        _bridge_minimize(BB)
+    wait = int(os.environ.get("BRIDGE_STEP_WAIT_S", "420"))
+    try:
+        out = BB.collect_band(band, wait_s=wait)
+    except Exception as exc:
+        return "밴드 다리(%s): 실패 — %s" % (band, str(exc)[:60])
+    try:
+        BB.note(out)
+        _bridge_minimize(BB)      # 다 하고 다시 내려 둔다 — 화면을 안 가린다
+    except Exception:
+        pass
+    결과 = out.get("결과")
+    if 결과 == "사람대기":
+        # ★ **로그인은 대신 안 한다**(절대규칙 3) — 그 사실만 말한다([169]).
+        return ("밴드 다리(%s): 전용 크롬 로그인 한 번 필요 — "
+                "python band/browser_bridge.py --up" % band)
+    상태 = out.get("상태") or {}
+    return "밴드 다리(%s): %s · 수확 %s · 실패 %s" % (
+        band, 결과, 상태.get("ok"), 상태.get("failed"))
+
+
+def _bridge_minimize(BB):
+    """다리 창을 내려 둔다 — 못 내려도 수집은 돈다(focusEmulation 이 본체다)."""
+    try:
+        t = (BB.tabs() or [None])[0]
+        if not t:
+            return
+        with BB._conn(t) as ws:
+            w = BB._call(ws, "Browser.getWindowForTarget")
+            BB._call(ws, "Browser.setWindowBounds",
+                     {"windowId": w.get("windowId"),
+                      "bounds": {"windowState": "minimized"}})
+    except Exception:
+        pass
+
+
 def close_upload_notices(dry):
     """올린 것의 **결과**를 뒤따라 알린다 (2026-08-14 지시).
 
@@ -1127,6 +1224,9 @@ def main():
                recover_missed_schedules(dry),
                # ★ 브라우저 쪽 눈도 인계보다 먼저다 — 같은 이유(2026-08-13, `[247]`).
                watch_userscript(dry),
+               # ★ 사람 탭이 없는 밴드는 전용 크롬이 대신 긁는다 (2026-08-27).
+               #   `watch_userscript` **뒤**다 — 그 갈래를 근거로 쓴다([162]).
+               heal_band_bridge(dry),
                # ★ 이어받기 준비도 인계보다 먼저다 — 크레딧이 떨어진 창은 훅이 없어
                #   스스로 인계를 못 남긴다(2026-08-17, `[291]`).
                # ★ 크레딧 창은 **`watch_takeover` 앞**이다 — 이어받기 카드가 '끊긴듯'

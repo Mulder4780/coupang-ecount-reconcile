@@ -28926,6 +28926,120 @@ def t459_archive_spool_prune_never_deletes_what_is_in_use():
     print(chr(9989) + " [459] 보관본 창고 정리 — 쓰는 것·도는 회차·모름은 안 지운다")
 
 
+def _t460_run(step_src=None):
+    """워치독 다리 단계를 **불러서** 잰다 — 크롬도 진짜 보고 파일도 안 건드린다([211]·[247])."""
+    import watchdog as W
+    from band import userscript_watch as UW
+    from band import browser_bridge as BB
+
+    if step_src is not None:                      # 계기 자기시험용 — 고장을 넣은 사본
+        import types
+        m = types.ModuleType("_wd460")
+        m.__file__ = W.__file__
+        exec(compile(step_src, W.__file__, "exec"), m.__dict__)
+        W = m
+
+    calls = []
+    real = (UW.check, BB.collect_band, BB.alive, BB.note, BB.up)
+
+    def fake_collect(band, wait_s=None, **k):
+        calls.append((band, wait_s))
+        return {"결과": "완주", "상태": {"ok": 5, "failed": 0}}
+
+    def verdict(d):
+        UW.check = lambda write=False: {"밴드": d}
+
+    try:
+        BB.collect_band = fake_collect
+        BB.alive = lambda: "Chrome/x"
+        BB.note = lambda r: None
+        BB.up = lambda *a, **k: {"이미": True}
+
+        # ① --dry 는 한 글자도 안 긁는다
+        verdict({"1111111": {"갈래": "끊김"}})
+        calls[:] = []
+        line = W.heal_band_bridge(True)
+        assert not calls, "[460] --dry 인데 긁었다"
+        assert "dry" in line or "안 긁" in line, "[460] --dry 라고 말하지 않는다: %r" % line
+
+        # ② 사람 탭이 살아 있는 밴드는 **안 건드린다**(사고 #27 — 되돌릴 수 없다)
+        for bad in ("start", "가려짐", "정상", "헛돎", "매달림"):
+            verdict({"1111111": {"갈래": bad}})
+            calls[:] = []
+            W.heal_band_bridge(False)
+            assert not calls, (
+                "[460] 갈래 %r 인 밴드를 가져갔다 — 두 창이 같은 밴드를 긁으면"
+                " 캐시가 오염된다(사고 #27)" % bad)
+
+        # ③ 사람 탭이 없으면 가져간다 — 안 가져가면 이 단계가 있으나 마나다([172])
+        for good in ("끊김", "안옴"):
+            verdict({"1111111": {"갈래": good}})
+            calls[:] = []
+            W.heal_band_bridge(False)
+            assert calls, "[460] 갈래 %r 인데 안 가져간다 — 좁히는 것도 고장이다" % good
+
+        # ④ 한 회차에 **하나만** — 여러 밴드를 한꺼번에 물면 워치독이 통째로 늘어진다
+        verdict({"1111111": {"갈래": "끊김"}, "2222222": {"갈래": "안옴"},
+                 "3333333": {"갈래": "끊김"}})
+        calls[:] = []
+        W.heal_band_bridge(False)
+        assert len(calls) == 1, "[460] 한 회차에 %d밴드를 물었다 — 하나여야 한다" % len(calls)
+
+        # ⑤ 기다림은 **워치독 예산 안**이다([436] — 선언이 예산보다 크면 아예 안 불린다).
+        #    숫자를 못 박지 않는다([39]) — 보증만 얼린다.
+        wait = calls[0][1]
+        assert isinstance(wait, int) and 0 < wait < 600, (
+            "[460] 다리 기다림이 %r 초다 — 워치독 예산(600초) 안이어야 한다" % wait)
+
+        # ⑥ 로그인이 필요하면 **성공이라 안 적는다**([169]) · 대신 칠 수도 없다(절대규칙 3)
+        BB.collect_band = lambda band, wait_s=None, **k: {"결과": "사람대기", "왜": "로그인 화면"}
+        verdict({"1111111": {"갈래": "끊김"}})
+        line = W.heal_band_bridge(False)
+        assert "완주" not in line and "로그인" in line, (
+            "[460] 로그인 대기를 정직하게 안 적는다: %r" % line)
+    finally:
+        UW.check, BB.collect_band, BB.alive, BB.note, BB.up = real
+
+
+def t460_bridge_takes_over_only_when_the_human_tab_is_gone():
+    """[460] 사람 탭이 없을 때만 전용 크롬이 대신 긁는다 (2026-08-27 지시).
+
+    형님 지시: "뭐해라뭐해라 하지말고 **알아서 좀 해봐**".  그런데 대신 긁는 것과
+    **같이** 긁는 것은 다르다 — 두 창이 같은 밴드를 긁으면 캐시가 오염되고
+    그것은 되돌릴 수 없다(사고 #27).  그 경계를 여기서 얼린다.
+    """
+    import io as _io
+    _t460_run()
+
+    # ★ 배선이 없으면 이 단계는 **없는 것과 같다**([328]).
+    wd = _io.open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8", newline="").read()
+    code = _t370_code_only(wd)
+    assert "heal_band_bridge(dry)," in code, (
+        "[460] 워치독 main() 이 다리 단계를 안 부른다 — 함수만 있고 안 부르면 없는 것과 같다([328])")
+    # 판정은 **빌린다**([162]) — 여기서 다시 재면 두 화면이 다른 답을 한다.
+    body = code[code.index("def heal_band_bridge"):code.index("def _bridge_minimize")]
+    assert "userscript_watch" in body, "[460] 갈래를 빌리지 않고 새로 잰다([162])"
+
+    # ★ 계기 자신을 시험한다([272]) — 문을 없애면 정말 잡히는지.
+    hurts = [
+        ("살아 있는 탭도 가져감",
+         wd.replace('TAKE = ("끊김", "안옴")', 'TAKE = ("끊김", "안옴", "가려짐", "start")')),
+        ("한 회차에 여러 밴드",
+         wd.replace("band = sorted(cand)[0]", "band = sorted(cand)[0]" + chr(10) +
+                    "    for _b in sorted(cand)[1:]:" + chr(10) +
+                    "        BB.collect_band(_b, wait_s=1)")),
+    ]
+    for name, bad in hurts:
+        assert bad != wd, "[460] 자기시험 재료가 안 바뀌었다: " + name
+        try:
+            _t460_run(bad)
+        except AssertionError:
+            continue
+        raise AssertionError("[460] 계기가 눈멀었다 — " + name + " 를 넣었는데 못 잡는다")
+
+    print(chr(9989) + " [460] 사람 탭이 없을 때만 다리가 대신 긁는다"
+          " (겹치면 캐시가 오염된다 · 자기시험 2/2)")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -41640,6 +41754,7 @@ if __name__ == "__main__":
     t457_browser_bridge_never_fakes_and_never_types_a_password()
     t458_phone_copy_pushes_only_when_business_changed()
     t459_archive_spool_prune_never_deletes_what_is_in_use()
+    t460_bridge_takes_over_only_when_the_human_tab_is_gone()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
