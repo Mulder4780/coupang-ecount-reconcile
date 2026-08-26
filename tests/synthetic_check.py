@@ -38870,6 +38870,79 @@ def t332_css_tokens_are_defined_and_never_hardcode_a_theme_fallback():
           "— PC 앱 · 폰 사본 · 공유 달력 셋 다 OK")
 
 
+def t443_ledger_missing_does_not_blame_the_workbook():
+    """"관리대장이 없다" 와 "Z: 에 못 닿았다" 는 **다른 사실이다**([169]·[289]).
+
+    예전 문구는 언제나 `(폴더에 v*.xlsx 없음)` 이라 **사람을 관리대장을 찾으러
+    보냈다.** 2026-08-26 실측: 그날 자율복구 큐에서 이 문구를 단 실패가 10건인데
+    진짜 원인은 Z: 가 안 붙은 것이었다(같은 회차의 `원본 색인 갱신` 이 "원본
+    폴더에 **하나도 닿지 못했습니다**" 라 적었다 · `os.path.isdir("Z:")` 한 번에
+    **43~156초** · 평소 0.15초). **틀린 지목은 못 잡는 것보다 나쁘다**([172]).
+
+    ★ 재는 것은 **셋**이다 — 사람에게 무엇을 말하나 · **기계 동작이 안 바뀌나** ·
+      그리고 그 둘이 서로를 안 깨나. 뒤엣것이 이 검사의 요점이다:
+      괄호에서 `v*.xlsx` 를 빼면 `autopilot._RES_PATH_RE` 후보가 1개 → **0개**가
+      되어 `resource_back` 이 영영 `None`(모름)이 되고 [424] 의 완화가 통째로
+      죽는다(지나간 자원 실패가 경보에 계속 남는다).
+    ★ **Z: 를 한 글자도 안 건드린다** — 임시 폴더로만 잰다([247]).
+    """
+    import tempfile as _tf
+    import ecount_reconcile as _ER
+    import autopilot as _AP
+
+    def _cands(text):
+        line = " ".join(str(text).split())
+        out = []
+        for rx in _AP._RES_PATH_RE:
+            for m in rx.finditer(line):
+                p = m.group(1).strip()
+                if p and p not in out:
+                    out.append(p)
+        return out
+
+    # (1) 진짜로 그 예외가 그 문구로 오른다 — 글자 검사가 아니라 **불러서** 잰다([295])
+    _d = _tf.mkdtemp()
+    try:
+        _ER._resolve_master_uncached(os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v1.xlsx"))
+        raise AssertionError("관리대장이 없는데 예외가 안 난다")
+    except FileNotFoundError as e:
+        _msg = str(e)
+
+    # (2) 앞머리는 그대로다 — `autopilot` 이 그 글자로 `resource` 를 가른다([165])
+    assert _msg.startswith("관리대장을 찾을 수 없음:"), (
+        "앞머리가 바뀌었다 — classify_failure 가 이 실패를 resource 로 못 가른다: " + _msg)
+    assert _AP.classify_failure("FileNotFoundError: " + _msg) == "resource", (
+        "갈래가 resource 가 아니다 — 사람을 멀쩡한 코드로 보낸다([289]): " + _msg)
+
+    # (3) **단정하지 않는다**([169]) — 폴더에 못 닿았을 가능성을 같이 말한다
+    assert "못 닿" in _msg, (
+        "'폴더에 못 닿았을 수 있다'를 안 말한다 — Z: 가 끊긴 날 사람을 "
+        "관리대장을 찾으러 보낸다([172]): " + _msg)
+    assert "(폴더에 v*.xlsx 없음)" not in _msg, (
+        "옛 문구로 되돌아갔다 — 그것은 확인하지 않은 단정이다")
+
+    # (4) ★ **기계 동작이 한 톨도 안 바뀐다** — 후보 **정확히 1개**여야 하고
+    #     찔러 볼 폴더가 옛 문구와 같아야 한다. 0개가 되면 [424] 완화가 죽는다.
+    _F = ("Z:/2. Cost/쿠팡 업무 폴더/1000. 프로젝트/00. 대시보드/"
+          "00. 쿠팡 통합업무 일일보고")
+    _old = "관리대장을 찾을 수 없음: %s (폴더에 v*.xlsx 없음)" % _F
+    _new = _msg.replace(os.path.join(_d, "쿠팡_통합업무_일일보고_관리대장_v1.xlsx"), _F)
+    _co, _cn = _cands(_old), _cands(_new)
+    assert len(_cn) == 1, (
+        "resource_back 이 답할 수 없다(후보 %d개) — 지나간 자원 실패가 경보에 "
+        "영영 남는다([424]): %s" % (len(_cn), _cn))
+    assert os.path.dirname(_co[0]) == os.path.dirname(_cn[0]), (
+        "찔러 보는 폴더가 달라졌다 — 완화 판정이 옛 문구와 다른 답을 한다")
+
+    # (5) 계기 자신을 시험한다([272]) — `v*.xlsx` 를 빼면 (4)가 정말 잡나
+    _bad = ("관리대장을 찾을 수 없음: %s"
+            " (그 폴더에 못 닿았거나 폴더에 그 파일이 없다)") % _F
+    assert len(_cands(_bad)) == 0, (
+        "확장자를 뺐는데도 후보가 남는다 — (4)가 아무것도 안 재고 있다")
+
+    print(chr(9989) + " [259] 관리대장을 못 찾으면 — 관리대장 탓이라 단정하지 않는다")
+
+
 def _yield_to_running_round():
     """사람이 손으로 돌린 관문은 **회차가 도는 중이면 물러난다**.
 
@@ -39552,6 +39625,7 @@ if __name__ == "__main__":
     t442_band_path_ingests_browser_downloads()
     t438_ceo_directive_id_is_not_tied_to_room()
     t439_two_gates_never_overwrite_each_others_fonts()
+    t443_ledger_missing_does_not_blame_the_workbook()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
