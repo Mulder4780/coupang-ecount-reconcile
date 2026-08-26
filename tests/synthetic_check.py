@@ -12439,9 +12439,17 @@ def t189_worklog_reflects_without_hands():
         "워치독이 일지를 안 본다 — 오후에 올린 일지는 다음 날 09:50 까지 안 간다"
     assert 'work_log_sync.py"), "--queue"' in wd.replace("'", '"') or \
         '"work_log_sync.py"), "--queue"' in wd, "대조를 큐로 넣지 않는다"
-    assert "--apply" not in wd.split("def sync_worklog(")[1].split("def main(")[0], \
+    # * **그 함수만** 본다 — 예전에는 `def main(` 까지 통째로 잘라 봤는데 그 조각이
+    #   **13,877자**(함수 자신은 2,320자)라 그 사이에 선 남의 함수까지 세었다. 실제로
+    #   2026-08-26 에 `_heal_pm_calendar` 의 **설명 글**이 그 안에 들어와
+    #   *"워치독이 엑셀을 직접 연다"* 는 **거짓 경보**가 났다(`[172]`) — 관문은 회차의
+    #   0단계라 그대로 두면 그날 대조가 통째로 안 돈다.
+    # * **규칙을 세기 전에 설명을 걷는다**(`[301]`(9) 계열 · 이 저장소가 열두 번째 밟은 자리).
+    # * 뽑는 법을 새로 만들지 않는다(`[162]`) — `_t303_enclosing_func` 을 빌린다.
+    body = _t370_code_only(_t303_enclosing_func(wd, "def sync_worklog("))
+    assert body, "워치독에서 sync_worklog 함수를 못 찾았다 — 검사가 눈멀었다([169])"
+    assert "--apply" not in body, \
         "워치독이 엑셀을 직접 연다 — 하루 두 번 규칙이 깨진다"
-    body = wd.split("def sync_worklog(")[1].split("def main(")[0]
     assert "newest <= seen" in body, "안 바뀐 일지도 매 30분 대조한다 — Z: 가 붐빈다([168])"
     # ★ 실패했는데 자국을 남기면 **다시는 안 본다** — 그 일지는 영영 반영되지 않는다
     assert body.index("returncode != 0") < body.index("json.dump"), \
@@ -13989,7 +13997,12 @@ def t191_confirmation_truth_and_fast_refresh():
     start_task_src = server.split("def start_task(key):", 1)[1].split(
         "# ── 마지막 실행 시각", 1)[0]
     assert "run_tree([PY] + args" in start_task_src and "enqueue_agent" not in start_task_src
-    sync_src = watch.split("def sync_worklog(dry):", 1)[1].split("def main():", 1)[0]
+    # * `t189` 와 같은 자리다 — `def main():` 까지 통째로 자르면 그 사이에 선
+    #   남의 함수까지 세고, **설명 글**에 적힌 낱말이 위반으로 잡힌다.
+    #   실측 2026-08-26: `_heal_pm_calendar` 의 독스트링이 그 안에 들어와
+    #   *`subprocess.run` 을 쓴다* 는 **거짓 경보**가 났다(`[172]`·`[301]`(9) 계열).
+    sync_src = _t370_code_only(_t303_enclosing_func(watch, "def sync_worklog(dry):"))
+    assert sync_src, "워치독에서 sync_worklog 함수를 못 찾았다 — 검사가 눈멀었다([169])"
     assert "run_tree(" in sync_src and "subprocess.run" not in sync_src
     assert "AVG(ms)" in ledger
     print("  [191] 확인필요 근거 분리 · PO묶음 안전완료 · 단일 갱신 · 캐시 선조회 · 유한 실행 OK")
@@ -27742,6 +27755,107 @@ def t452_tap_records_which_button_and_which_screen():
         "전역 클릭 리스너가 curView() 를 부른다 — DEEP_VIEW 를 훔쳐 간다([172])")
     print(chr(9989), "[452] 눌린 단추 이름과 화면이 기록에 남는다 (사다리 끝에 글자·detail 에 화면키)")
 
+def t453_stale_calendar_is_rebuilt_by_the_watchdog():
+    """달력 정기점검 예정이 밀리면 30분 회차가 **그 자리에서 다시 만든다** (2026-08-26).
+
+    * 실측: `pm_schedule_sync.py` 를 부르는 회차가 **09:50 하루 한 번뿐**이라
+      류지영이 11:58 에 원본을 저장하면 다음 날까지 **22시간** 동안 대표 보고 달력이
+      옛 예정을 오류 없이 보여 준다. 다시 만드는 값은 **3.3초**다.
+    * 여기서 재는 것은 **`--apply` 를 안 쓰는가**가 제일 중요하다 — 그것은 관리대장
+      vN+1 을 만든다(주 1회 보관 · 사람이 정한다).
+    * 진짜 Z: 도 진짜 리포트도 안 건드린다(`[247]`) — 목으로만 잰다.
+    * 모듈 속성은 프로세스 전체의 것이라 `finally` 로 되돌린다(`[371]`).
+    """
+    import watchdog as W
+    import camp_contacts as C
+    import inspect
+
+    class _R:
+        def __init__(self, rc=0, to=False):
+            self.returncode = rc; self.timed_out = to; self.stdout = ""; self.stderr = ""
+
+    real_rt, real_ss, real_sm = W.run_tree, C.sched_stale, getattr(C, "stale_mark", None)
+    calls = []
+    try:
+        W.run_tree = lambda a, **k: (calls.append(list(a)), _R())[1]
+        C.sched_stale = lambda: {"달력": {"갈래": "정상"}}
+
+        # (1) 밀렸으면 다시 만든다 — 그리고 **다시 재서** 말한다(`[322]`)
+        got = W._heal_pm_calendar(False, "밀림")
+        assert len(calls) == 1, "[453] 밀렸는데 다시 안 만들었다: %r" % got
+        assert "정상" in got, "[453] 다시 만든 뒤 상태를 안 말한다: %r" % got
+
+        # (2) ★ `--apply` 를 **절대 안 쓴다** — 관리대장 vN+1 은 사람이 정한다
+        assert "--apply" not in calls[0], "[453] 관리대장을 쓰는 깃발을 썼다: %r" % calls[0]
+        assert any("pm_schedule_sync.py" in str(x) for x in calls[0]), (
+            "[453] 엉뚱한 것을 불렀다: %r" % calls[0])
+
+        # (3) 정상·모름이면 **아무것도 안 부른다**(`[168]`·`[169]`)
+        calls.clear()
+        assert W._heal_pm_calendar(False, "정상") == ""
+        assert W._heal_pm_calendar(False, "모름") == ""
+        assert not calls, "[453] 안 밀렸는데 Z: 를 물었다: %r" % calls
+
+        # (4) dry 는 안 고친다
+        assert "dry" in W._heal_pm_calendar(True, "밀림")
+        assert not calls, "[453] dry 인데 고쳤다"
+
+        # (5) 실패를 성공처럼 적지 않는다(`[169]`)
+        W.run_tree = lambda a, **k: _R(rc=2)
+        assert "실패" in W._heal_pm_calendar(False, "밀림")
+        W.run_tree = lambda a, **k: _R(to=True)
+        assert "시간초과" in W._heal_pm_calendar(False, "밀림")
+        W.run_tree = lambda a, **k: _R()
+        C.sched_stale = lambda: {"달력": {"갈래": "밀림"}}
+        out = W._heal_pm_calendar(False, "밀림")
+        assert "정상" not in out, "[453] 안 고쳐졌는데 정상이라 한다: %r" % out
+
+        # (6) ★ 회차가 **실제로 부르나**(`[328]` — 함수만 있고 안 부르면 없는 것과 같다)
+        # (5) 에서 세는 목을 갈아 끼웠으므로 **다시 건다** — 안 걸면 이 검사는
+        # 아무것도 안 재면서 빨개진다(`[309]`).
+        W.run_tree = lambda a, **k: (calls.append(list(a)), _R())[1]
+        calls.clear()
+        rec = {"갈래": "정상", "달력": {"갈래": "밀림"}}
+        C.sched_stale = lambda: rec
+        C.stale_mark = lambda: rec
+        line = W.watch_camp_source(False)
+        assert len(calls) == 1, "[453] 회차가 자가치유를 안 부른다: %r" % line
+        assert "달력 예정" in line and "다시 만들" in line, (
+            "[453] 회차가 무엇을 했는지 말하지 않는다: %r" % line)
+    finally:
+        W.run_tree, C.sched_stale = real_rt, real_ss
+        if real_sm is not None:
+            C.stale_mark = real_sm
+
+    # (7) 계기 자기시험(`[272]`) — 문 둘을 없애면 정말 잡히나
+    fn = inspect.getsource(W._heal_pm_calendar)
+    for bad, why in ((fn.replace(
+                          "os.path.join(ROOT, " + chr(34) + "pm_schedule_sync.py" + chr(34) + ")",
+                          "os.path.join(ROOT, " + chr(34) + "pm_schedule_sync.py" + chr(34) + "), " + chr(34) + "--apply" + chr(34)),
+                      "--apply 를 넣었는데 (2) 가 안 잡았다"),
+                     (fn.replace(
+                          "if kind != " + chr(34) + "밀림" + chr(34) + ":",
+                          "if False:"),
+                      "밀림 문을 없앴는데 (3) 이 안 잡았다")):
+        ns = {"os": os, "ROOT": W.ROOT, "PY": W.PY,
+              "run_tree": lambda a, **k: (calls.append(list(a)), _R())[1]}
+        exec(compile(bad, "<t453-self>", "exec"), ns)
+        broken = ns["_heal_pm_calendar"]
+        calls.clear()
+        caught = False
+        try:
+            broken(False, "밀림")
+            assert "--apply" not in calls[0]
+            calls.clear()
+            broken(False, "정상")
+            assert not calls
+        except (AssertionError, IndexError):
+            caught = True
+        assert caught, "[453] 계기가 눈멀었다 — " + why
+
+    print(chr(9989) + " [453] 달력 예정이 밀리면 30분 회차가 다시 만든다 (관리대장은 안 쓴다)")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -40395,6 +40509,7 @@ if __name__ == "__main__":
     t450_kakao_hold_is_never_reported_as_success()
     t451_applyview_calls_are_not_swallowed_by_a_comment()
     t452_tap_records_which_button_and_which_screen()
+    t453_stale_calendar_is_rebuilt_by_the_watchdog()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

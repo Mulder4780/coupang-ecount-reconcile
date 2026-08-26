@@ -921,6 +921,47 @@ def watch_orgchart(dry):
         return "조직도 확인 실패: %s: %s" % (type(exc).__name__, str(exc)[:60])
 
 
+def _heal_pm_calendar(dry, kind):
+    """달력 정기점검 예정이 **밀렸으면** 그 자리에서 다시 만든다 (2026-08-26).
+
+    * 왜 여기까지 하나 — 같은 원본이 **둘**을 먹이는데(`[351]`) 고치는 값이 하늘과 땅이다:
+      담당자 자료(`camp_contacts --write`)는 밴드 전체를 다시 파싱해 수십 초라 사람이
+      명령한다. 달력(`pm_schedule_sync.py`)은 **실측 3.3초**다. 그런데 그것을 부르는
+      회차가 **09:50 하루 한 번뿐**이다 — 실측 2026-08-26: 5분 증분 파이프라인 단계에
+      그 이름이 없고, 정기점검 스케줄 원본은 신호 갈래(kakao/band/erp) **어디에도 안 든다**.
+      그래서 류지영이 11:58 에 저장하면 다음 날 09:50 까지 **22시간** 동안 대표 보고
+      달력이 **옛 예정**을 오류 없이 그대로 보여 준다(`[169]`·`[376]` 과 같은 모양).
+    * **`--apply` 를 쓰지 않는다.** 그것은 관리대장 vN+1 을 만든다. 여기서 만드는 것은
+      `reports/pm_schedule_sync.json` 하나이고 화면·대표 캡처는 그것을 읽는다.
+      원장을 언제 쓸지는 **사람이 정한다**(주 1회 보관 · 2026-08-24 지시).
+    * **밀렸을 때만** 한다(`[169]`) — 모름은 못 잰 것이지 밀린 것이 아니고, 정상까지
+      돌리면 30분마다 Z: 를 헛되이 문다(`[168]`·`[170]`).
+    * **담당자 자료는 안 건드린다**(`[172]`) — 값이 다르므로 조치도 다르다(`[289]`).
+    * `subprocess.run(timeout=)` 을 쓰지 않는다(`[175]`) — Z: 대기에 걸리면 윈도우에서 안 끝난다.
+    * 실패를 성공처럼 적지 않는다(`[169]`).
+    """
+    if kind != "밀림":
+        return ""
+    if dry:
+        return "(dry — 안 고침)"
+    try:
+        r = run_tree([PY, os.path.join(ROOT, "pm_schedule_sync.py")],
+                     cwd=ROOT, timeout=300, drain_timeout=15)
+    except Exception as exc:
+        return " -> 다시 만들기 실패: %s" % type(exc).__name__
+    if getattr(r, "timed_out", False):
+        return " -> 다시 만들기 시간초과(300초)"
+    if r.returncode != 0:
+        return " -> 다시 만들기 실패(코드 %s)" % r.returncode
+    # * 돌았다고 고쳐졌다 하지 않는다(`[322]`) — **다시 재서** 말한다.
+    try:
+        import camp_contacts
+        again = (camp_contacts.sched_stale().get("달력") or {}).get("갈래")
+    except Exception:
+        return " -> 다시 만들었다(그 뒤 상태는 못 쟀다)"
+    return " -> 다시 만들어 정상" if again == "정상" else " -> 다시 만들었는데 %s" % again
+
+
 def watch_camp_source(dry):
     """정기점검 스케줄 원본이 새로 왔는데 **앱 담당자 자료가 안 따라갔나**
     (2026-08-19 실사고, 분담판 `[151]` · `[328]`).
@@ -942,7 +983,8 @@ def watch_camp_source(dry):
         # ★ 같은 원본이 **달력 예정**도 먹인다(분담판 `[168]`) — 담당자 자료만 보고
         #   "최신"이라 적으면 달력이 옛 예정을 보여 주는 동안 회차가 조용하다(`[169]`).
         cal = (rec.get("달력") or {}).get("갈래")
-        tail = "" if cal in (None, "정상") else " · 달력 예정 %s" % cal
+        tail = ("" if cal in (None, "정상")
+                else " · 달력 예정 %s%s" % (cal, _heal_pm_calendar(dry, cal)))
         if 갈래 == "정상":
             return "캠프 원본 최신" + tail
         if 갈래 == "밀림":
