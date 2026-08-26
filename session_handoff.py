@@ -684,6 +684,7 @@ def collect():
         #     막힌다**(t380 실측 — [291] 이 t111 에서 이미 겪은 자리다).
         "자율복구굳음": _autopilot_stuck(),
         "카톡보류": _kakao_held(),
+        "클라우드사본": _cloud_snapshot_gap(),
         # ★ 관문 여유도 여기서 담는다 — blockers 가 파일을 직접 읽으면
         #   합성 스냅샷 검증이 막힌다(t380 실측 · [291]·[404] 와 같은 자리).
         "관문시간": gate_budget(),
@@ -1300,6 +1301,30 @@ def _kakao_held():
             '파일': [str(x) for x in (rec.get('받은파일') or [])]}
 
 
+def _cloud_snapshot_gap():
+    """폰이 1순위로 읽는 D1 최신 사본이 막혔나 (2026-08-26 지시).
+
+    ★ **경보가 아니라 알림**이다([170]). 폰이 읽는 순서는
+      `D1 최신 → GitHub Pages → 기기 사본`([271])이라, D1 이 없으면 Pages 로
+      떨어지는 것이 **설계다**. 실제로 Pages 사본은 10분마다 올라간다.
+      그런데 이 사실이 **아무 화면에도 안 뜨면**([328]) 폰에서 등록 예약이
+      늦게 반영되는 이유를 아무도 모른다.
+    ★ 키가 아예 없으면 아무 말도 안 한다([247]) — 한 번도 안 돌았을 뿐이다.
+    """
+    p = os.path.join(REPORT_DIR, 'cloud_continuity.json')
+    if not os.path.exists(p):
+        return {}
+    try:
+        with open(p, encoding='utf-8') as f:
+            d = json.load(f)
+    except Exception as e:
+        return {'못읽음': '%s: %s' % (type(e).__name__, str(e)[:80])}
+    if not isinstance(d, dict) or d.get('ok'):
+        return {}                       # 되고 있으면 조용하다([170])
+    return {'왜': str(d.get('error') or '')[:200],
+            '언제': str(d.get('checked_at') or d.get('generated_at') or '')[:19]}
+
+
 def _autopilot_stuck():
     """자율복구가 오래 못 푸는 일 — 판정은 `autopilot.stuck()` 한 곳이다([162]).
 
@@ -1345,6 +1370,19 @@ def blockers(st, for_sol=False):
     #   가른다([247]) — 안 물어본 것을 '걸린 것 없음'으로 세면 그것이 거짓이다.
     # ★ 카톡 반영 보류([251]) — 회차는 "성공" 으로 끝나므로 여기서 말하지 않으면
     #   형님이 주신 접수가 **조용히 사라진다**. 판정은 kakao_apply 가 한다([162]).
+    # 폰이 1순위로 읽는 D1 사본이 막혔나 — **알림**이다(Pages 가 대신 돌고 있다).
+    _cs = st.get("클라우드사본")
+    if isinstance(_cs, dict) and _cs:
+        if _cs.get("못읽음"):
+            out.append(("[클라우드·알림] 폰 사본 상태를 못 읽었다 — %s"
+                        % _cs["못읽음"], "type reports/cloud_continuity.json"))
+        elif _cs.get("왜"):
+            out.append((
+                "[클라우드·알림] 폰이 1순위로 읽는 D1 최신 사본이 막혀 있다"
+                " — GitHub Pages 사본으로 떨어져 **폰은 그대로 열린다**(설계 · [271])."
+                " 다만 폰에서 넣은 등록 예약이 늦게 반영될 수 있다. 왜: %s"
+                % _cs["왜"][:150],
+                "python cloud_publish.py --push   # Pages 는 이것으로 즉시 갱신된다"))
     _kh = st.get("카톡보류")
     if isinstance(_kh, dict):
         if _kh.get("못읽음"):

@@ -450,6 +450,20 @@ def _main():
     raw = json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     stable = dict(d)
     stable.pop("gen", None)
+    # * 지문에서 **그때그때 달라지는 값**을 뺀다 ([170] 이 밴드 재수집에서 배운 그 자리).
+    #   실측 2026-08-26: `gen` 만 빼고 재니 지문이 **매번 달랐다** — `ask.만든때`
+    #   ([184] 가 일부러 넣은 값: 폰이 "이 답이 언제 것인지" 보여 준다) 가 남아 있었다.
+    #   그래서 업무가 하나도 안 바뀐 회차도 늘 '바뀜'이 되어 하루 77~97번 밀었다.
+    #   ★ **페이로드에는 그대로 남긴다** — 빼는 것은 지문에서다([170] 과 같은 규칙).
+    #   ★ 넓게 빼지 않는다([172]) — 실측으로 다른 칸은 이것 하나였다.
+    #   실측으로 `ask` 는 **통째로** 빼야 했다. 그 꾸러미에는 `만든때` 말고도
+    #   "(실패 · ?분째)" 같은 **상대 시각**이 들어 있어 **분마다 달라진다**.
+    #   ★ 빼도 진짜 변경을 안 놓친다 — `ask` 는 미리 만든 **답**이고 그 근거는
+    #     `codes`·`issues`·`as`·`pm`·`settle`·`erp` 다. 그것들이 바뀌면 지문이
+    #     바뀌므로 사본은 그때 새로 나간다.
+    #   ⚠ 다만 **답 만드는 규칙만 고쳤을 때**는 지문이 안 움직인다 —
+    #     그때는 `python cloud_publish.py --push --force` 로 한 번 민다.
+    stable.pop("ask", None)
     content_sha256 = hashlib.sha256(
         json.dumps(stable, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
     ).hexdigest()
