@@ -255,7 +255,8 @@ def main(argv):
     tail = "\n".join([l for l in out.splitlines() if l.strip()][-12:])
     print("\n② 등록 후보 추출·큐 적재 (%s)" % ("성공" if rc == 0 else "실패 rc=%d" % rc))
     print(tail)
-    step.append({"단계": "추출·큐", "rc": rc, "요약": tail[-800:]})
+    held = _held_lines(out)
+    step.append({"단계": "추출·큐", "rc": rc, "보류": held, "요약": tail[-800:]})
     if rc != 0:
         print("멈춤: 추출이 실패해 엑셀로 넘기지 않습니다 — "
               "실패한 채로 반영하면 없는 것이 반영된 것처럼 보입니다.")
@@ -266,6 +267,7 @@ def main(argv):
     if not apply_flag:
         print("\n③ 엑셀 반영은 하지 않았습니다 — 11:00·15:00 회차가 가져갑니다.")
         print("   지금 넣으시려면 같은 명령에 --now 를 붙이십시오.")
+        _say_held(held)
         _save(step, given, now_flag)
         return 0
 
@@ -277,8 +279,41 @@ def main(argv):
     print("\n③ 엑셀 반영 (%s)" % ("성공" if rc2 == 0 else "실패 rc=%d" % rc2))
     print(tail2)
     step.append({"단계": "엑셀 반영", "rc": rc2, "즉시": now_flag, "요약": tail2[-1200:]})
+    _say_held(held)
     _save(step, given, now_flag)
     return 0 if rc2 == 0 else 1
+
+
+# ② 추출 출력에서 '[보류]' 줄만 뽑는다 — **출력 전체**에서 센다.
+#   tail(마지막 14줄)이 아니라 out 전체를 본다. 보류가 많으면 tail 밖으로
+#   밀려나고, 그러면 이 계기 자신이 눈이 먼다([169]).
+#   낱말 '[보류]' 는 kakao_extract 가 찍는 그 글자다([162]) — 어긋나면
+#   한 건도 안 걸리면서 오류도 안 난다([165]). 검증이 그 계약을 얼린다.
+def _held_lines(out):
+    return [l.strip() for l in (out or '').splitlines() if '[보류]' in l]
+
+
+# 보류를 **마지막에 다시** 적는다 — 끝 줄이 거짓말하지 않게.
+#   왜 다시 적나: ② 에서 이미 찍었지만 그 뒤 '③ 엑셀 반영 (성공)' 이 오면
+#   사람은 마지막 줄만 읽는다. 실측 2026-08-26 — 형님이 주신 카톡에서 새 접수
+#   4건을 정확히 뽑고도 02_돌발AS접수 여유가 2행뿐이라 전량 보류였는데,
+#   끝 줄은 '성공' 이고 exit 0 이었다([169]: 숫자도 나오고 오류도 안 난다).
+#   ★ exit 코드는 **안 바꾼다**([172]). 부르는 곳이 automation_pipeline 하나인데
+#   rc!=0 이면 그 갈래가 실패로 적혀 **지문이 안 커밋되고 같은 파일을 무한
+#   재처리한다.** 보류는 파일 문제가 아니라 시트 여유행 문제라 다시 처리해도 같다.
+#   대신 자국(reports/카톡_반영회차.json)과 인계 문서가 말한다.
+def _say_held(held):
+    if not held:
+        return
+    print()
+    print('★ 보류 %d건 — 그만큼은 원장에 **안 들어갔습니다**(반쯤 넣는 것보다 낫습니다).'
+          % len(held))
+    for h in held[:6]:
+        print('   ', h)
+    if len(held) > 6:
+        print('    ... 그 밖 %d건' % (len(held) - 6))
+    print('   여유행이 모자란 것이면 expand_rows 로 늘린 뒤 다시 부릅니다 —')
+    print('   ★ 자동으로 늘리지 않습니다: 관리대장 구조를 바꾸는 일은 사람이 정합니다.')
 
 
 def _save(step, given, now_flag):

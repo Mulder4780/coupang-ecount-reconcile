@@ -683,6 +683,7 @@ def collect():
         #   ⚠ `blockers()` 안에서 직접 부르면 **합성 스냅샷으로 부르는 검증이 통째로
         #     막힌다**(t380 실측 — [291] 이 t111 에서 이미 겪은 자리다).
         "자율복구굳음": _autopilot_stuck(),
+        "카톡보류": _kakao_held(),
         # ★ 관문 여유도 여기서 담는다 — blockers 가 파일을 직접 읽으면
         #   합성 스냅샷 검증이 막힌다(t380 실측 · [291]·[404] 와 같은 자리).
         "관문시간": gate_budget(),
@@ -1268,6 +1269,37 @@ def gate_budget():
         return {}
 
 
+# ★ 카톡 반영이 **보류한 것**을 인계로 올린다(2026-08-26 · 분담판 [251]).
+#   실측: 형님이 주신 카톡에서 새 접수 4건을 정확히 뽑고도 02_돌발AS접수 여유가
+#   2행뿐이라 전량 보류였는데, 끝 줄은 '③ 엑셀 반영 (성공)' 이고 exit 0 이었다.
+#   사람이 옆에 있으면 보류 줄을 읽지만 **무인 회차·앱 단추로 부르면 '성공' 만
+#   남는다**([169] 의 그 모양: 숫자도 나오고 오류도 안 난다).
+#   ★ 전량 보류 자체는 옳다 — 반쯤 넣는 것이 더 나쁘다. 고칠 것은 **말 안 하는 것**이다.
+#   ★ 여기서 다시 판정하지 않는다([162]) — kakao_apply 가 자국에 적어 둔 것을 읽기만 한다.
+#   ★ 못 읽으면 '없다'가 아니라 '못 읽음' 이다([169]).
+#   ⚠ blockers() 에서 직접 부르지 않는다 — 합성 스냅샷 검증이 막힌다([291]·[404]·[407]).
+def _kakao_held():
+    p = os.path.join(REPORT_DIR, '카톡_반영회차.json')
+    if not os.path.exists(p):
+        return {}                       # 한 번도 안 돌았다 — 아무 말도 안 한다([247])
+    try:
+        with open(p, encoding='utf-8') as f:
+            recs = json.load(f)
+    except Exception as e:
+        return {'못읽음': '%s: %s' % (type(e).__name__, str(e)[:80])}
+    if not isinstance(recs, list) or not recs:
+        return {}
+    rec = recs[0] if isinstance(recs[0], dict) else {}   # _save 가 insert(0,..) — 맨 앞이 최신
+    held = []
+    for s in (rec.get('단계') or []):
+        if isinstance(s, dict) and s.get('보류'):
+            held.extend([str(x) for x in s['보류']])
+    if not held:
+        return {}                       # 보류 없음 — 조용하다([170])
+    return {'보류': held, '때': rec.get('시각') or '',
+            '파일': [str(x) for x in (rec.get('받은파일') or [])]}
+
+
 def _autopilot_stuck():
     """자율복구가 오래 못 푸는 일 — 판정은 `autopilot.stuck()` 한 곳이다([162]).
 
@@ -1311,6 +1343,22 @@ def blockers(st, for_sol=False):
     #   갈래·시도·마지막 오류를 **그대로** 실어 조치가 갈리게 한다([289]).
     # ⚠ **키가 아예 없는 것**(옛 스냅샷 — 회차가 아직 안 물었다)과 **빈 것**을
     #   가른다([247]) — 안 물어본 것을 '걸린 것 없음'으로 세면 그것이 거짓이다.
+    # ★ 카톡 반영 보류([251]) — 회차는 "성공" 으로 끝나므로 여기서 말하지 않으면
+    #   형님이 주신 접수가 **조용히 사라진다**. 판정은 kakao_apply 가 한다([162]).
+    _kh = st.get("카톡보류")
+    if isinstance(_kh, dict):
+        if _kh.get("못읽음"):
+            out.append(("[카톡] 반영 자국을 **못 읽었다** — 보류된 접수가 있는지 확인하지 "
+                        "못했다(없다는 뜻이 아니다): " + str(_kh["못읽음"]),
+                        "python kakao_apply.py --find"))
+        elif _kh.get("보류"):
+            _hl = list(_kh["보류"])
+            _more = (" · 그 밖 %d건" % (len(_hl) - 1)) if len(_hl) > 1 else ""
+            out.append(("[카톡] 반영이 **%d건을 보류했다 — 그만큼은 원장에 안 들어갔다**"
+                        "(회차는 '성공' 으로 끝난다): %s%s · 자국 %s"
+                        % (len(_hl), _hl[0][:110], _more, _kh.get("때") or "?"),
+                        "python expand_rows.py --sheet 02_돌발AS접수 --add 12"))
+
     _st = st.get("자율복구굳음")
     if isinstance(_st, dict):
         if _st.get("못읽음"):

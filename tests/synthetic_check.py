@@ -27536,6 +27536,109 @@ def t449_handoff_says_how_old_the_diagnosis_is():
           "모르면 지어내지 않는다")
 
 
+def t450_kakao_hold_is_never_reported_as_success():
+    """[251] 카톡 반영이 보류하면 **끝 줄이 그 사실을 말한다**.
+
+    실측 2026-08-26 — 형님이 주신 카톡에서 새 접수 4건을 정확히 뽑고도
+    02_돌발AS접수 여유가 2행뿐이라 전량 보류였는데, 끝 줄은
+    '③ 엑셀 반영 (성공)' 이고 exit 0 이었다([169] 의 그 모양).
+
+    ★ 전량 보류 자체는 옳다 — 반쯤 넣는 것이 더 나쁘다. 재는 것은 **말하는가**다.
+    ★ exit 코드는 **안 바꾼다**([172]) — 부르는 곳이 automation_pipeline 하나인데
+      rc!=0 이면 그 갈래가 실패로 적혀 지문이 안 커밋되고 같은 파일을 무한 재처리한다.
+    ★ 실측 자국에는 한 글자도 안 쓴다([247]) — 임시 REPORT_DIR 로만 잰다.
+    """
+    import io as _io, json as _json, os as _os, shutil as _sh, tempfile as _tf
+    import kakao_apply as KA
+    import session_handoff as SH
+
+    # (1) 보류 줄은 **출력 전체**에서 센다 — tail(마지막 14줄) 밖으로 밀려도 잡아야 한다.
+    #     안 그러면 보류가 많을수록 이 계기가 눈이 먼다([169]).
+    far = chr(10).join(["[보류] 첫 줄 — 여유 부족"] + ["채움 %d" % i for i in range(40)])
+    assert len(KA._held_lines(far)) == 1, "출력 앞쪽 보류를 놓쳤다(tail 만 보고 있다)"
+    assert KA._held_lines("") == [] and KA._held_lines(None) == []
+
+    # (2) 말하는가 / 없으면 조용한가([170])
+    import contextlib as _cl
+    def _say(h):
+        buf = _io.StringIO()
+        with _cl.redirect_stdout(buf):
+            KA._say_held(h)
+        return buf.getvalue()
+    said = _say(["[보류] 02_돌발AS접수: 4건 필요 / 여유 2행"])
+    assert "보류" in said and "안 들어갔" in said, said[:200]
+    assert _say([]) == "", "보류가 없는데 말했다 — 매번 뜨면 아무도 안 본다([170])"
+
+    # (3) 부르는 자리가 **둘** 이다 — --now 없이 끝나는 갈래와 끝까지 간 갈래.
+    #     한쪽만 부르면 그 길로 온 사람은 영영 못 듣는다([39] 되돌아가면 안 되는 것).
+    _ka = _io.open(_os.path.join(ROOT, "kakao_apply.py"), encoding="utf-8").read()
+    import re as _re450
+    # ⚠ 통글자로 세면 **정의 줄(def _say_held(held):)까지** 세어 3이 된다 —
+    #   만들면서 그대로 밟았다([309] · 검증이 빨개지면 기대부터 확인한다).
+    #   재려는 것은 **부르는 자리**이므로 줄 하나가 통째로 호출인 것만 센다.
+    _calls = len(_re450.findall(r"(?m)^[ ]+_say_held\(held\)[ ]*$", _ka))
+    assert _calls == 2, _calls
+    # exit 코드를 바꾸지 않았다([172]) — 부르는 쪽(automation_pipeline)을 안 깨뜨린다.
+    assert "return 0 if rc2 == 0 else 1" in _ka, "종료코드 계약이 바뀌었다"
+
+    # (4) 인계가 자국을 읽는다 — 네 갈래
+    tmp = _tf.mkdtemp(prefix="t450_")
+    real = SH.REPORT_DIR
+    try:
+        SH.REPORT_DIR = tmp
+        p = _os.path.join(tmp, "카톡_반영회차.json")
+        rec = {"시각": "2026-08-26T14:00:00", "받은파일": ["k.txt"],
+               "단계": [{"단계": "추출·큐", "rc": 0,
+                        "보류": ["[보류] 02_돌발AS접수: 4건 필요 / 여유 2행"]}]}
+        with _io.open(p, "w", encoding="utf-8") as f:
+            _json.dump([rec], f, ensure_ascii=False)
+        assert len(SH._kakao_held().get("보류") or []) == 1
+        rec2 = {"시각": "x", "단계": [{"단계": "추출·큐", "rc": 0, "보류": []}]}
+        with _io.open(p, "w", encoding="utf-8") as f:
+            _json.dump([rec2], f, ensure_ascii=False)
+        assert SH._kakao_held() == {}, "보류가 없는데 말했다([170])"
+        _io.open(p, "w", encoding="utf-8").write("{망가짐")
+        assert "못읽음" in SH._kakao_held(), "깨진 자국을 조용히 넘겼다([169])"
+        _os.remove(p)
+        assert SH._kakao_held() == {}, "파일이 없는데 없는 사고를 지어냈다([247])"
+    finally:
+        SH.REPORT_DIR = real
+        _sh.rmtree(tmp, ignore_errors=True)
+    assert SH.REPORT_DIR == real, "격리가 샜다([371])"
+
+    # (5) blockers 가 실제로 그 줄을 낸다([328] — 함수만 있고 안 부르면 없는 것과 같다).
+    #     ⚠ blockers 는 스냅샷 칸을 대괄호로 읽어 합성 dict 로는 죽는다([320]) —
+    #       실측 스냅샷을 **읽기만** 하고 칸 하나만 갈아 끼운다([247]·[424] 와 같은 방식).
+    snap = _os.path.join(SH.REPORT_DIR, "세션인계.json")
+    if _os.path.exists(snap):
+        st = _json.load(_io.open(snap, encoding="utf-8"))
+        st_hold = dict(st)
+        st_hold["카톡보류"] = {"보류": ["[보류] 02_돌발AS접수: 4건 필요 / 여유 2행"],
+                              "때": "2026-08-26T14:00:00", "파일": []}
+        got = [l for l, _a in (SH.blockers(st_hold) or []) if "[카톡]" in l]
+        assert got and "안 들어갔" in got[0], got[:1]
+        st_none = dict(st)
+        st_none.pop("카톡보류", None)
+        assert not [l for l, _a in (SH.blockers(st_none) or []) if "[카톡]" in l], (
+            "키가 없는데 말했다 — 안 물어본 것을 사고로 세면 안 된다([247])")
+
+    # (6) 계기 자기시험([272]) — 말하는 문을 없애면 (2) 가 정말 잡히나.
+    #     0 을 내는 계기는 아무도 의심하지 않는다.
+    caught = False
+    _real_say = KA._say_held
+    try:
+        KA._say_held = lambda h: None          # 옛 동작: 아무 말도 안 한다
+        try:
+            said2 = _say(["[보류] x"])
+            assert "보류" in said2
+        except AssertionError:
+            caught = True
+    finally:
+        KA._say_held = _real_say
+    assert caught, "말하는 문을 없앴는데도 통과했다 — 이 검사는 아무것도 안 재고 있다"
+    assert KA._say_held is _real_say, "목을 안 되돌렸다([371])"
+    print(chr(9989), "[450] 카톡 보류를 성공이라 적지 않는다 — 끝 줄·자국·인계가 말한다")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -40186,6 +40289,7 @@ if __name__ == "__main__":
     t446_board_survives_records_written_by_hand()
     t448_advice_points_at_commands_that_exist()
     t449_handoff_says_how_old_the_diagnosis_is()
+    t450_kakao_hold_is_never_reported_as_success()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
