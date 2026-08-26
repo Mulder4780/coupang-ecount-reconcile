@@ -27358,6 +27358,128 @@ def t446_board_survives_records_written_by_hand():
           "보여 줄 때만 읽고 판은 안 고친다")
 
 
+def t448_advice_points_at_commands_that_exist():
+    """[448] **조치 칸이 없는 깃발을 알려 주고 있었다** (2026-08-26).
+
+    오늘 우연히 둘을 찾았다 — `python daily_run.py --status`(그 파일에는 인자 처리가
+    한 줄도 없어 **116분짜리 회차가 통째로 돈다**) · `type reports/종합리포트.md`
+    (실제 이름은 `종합리포트_YYYYMMDD_HHMM.md` 라 **아무것도 안 나온다**).
+    **우연히 찾는 것은 자동화가 아니라 운이다** — 저장소를 훑으니 셋이 더 나왔다:
+    `webapp/server_guard.py --once`(×2 · 깃발이 무시되고 감시 루프가 사람 창에서
+    영원히 돈다. 보호자가 살아 있으면 singleton 에 막혀 **조용히 exit 0**) ·
+    `agent_dispatch.py --route --force`(argparse 가 `unrecognized arguments` 로 죽인다).
+
+    ★ **조치 칸에는 붙여넣어 도는 명령만 넣는다**(`[247]`). 안 도는 명령은 오류를
+      안 내고 **더 나쁜 일을 조용히 한다** — 사람은 시킨 대로 하고도 제자리다(`[289]`).
+    ★ **설명(문서화 문자열)은 걷어낸다**(`[301]`-9) — 거기엔 옛 명령과 역사가 적혀
+      있다. 안 걷으면 이 저장소의 지시문투 주석이 전부 위반으로 잡힌다.
+    ★ **어디서 부르라는 말인지는 적힌 자리가 정한다** — 저장소 뿌리 · 그 위(문서가
+      `ecount/…` 라 적는 자리) · **그 파일이 사는 폴더**(`band/x.py` 가
+      `python band_sync.py` 라 적으면 `band/` 에서 부르라는 뜻이다). 실측으로 이
+      셋을 다 안 보면 `band/*` 다섯 개가 거짓 경보가 된다(`[172]`).
+    ★ 실측 449파일 · 명령 172개 · **3.3초** — 비싼 검사가 아니다(로컬만 읽는다).
+    """
+    import ast as _ast, io as _io, os as _os, re as _re
+
+    ROOT448 = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    UP448 = _os.path.dirname(ROOT448)
+    CMD448 = _re.compile(r"python\s+((?:[\w.-]+/)*[\w.-]+\.py)((?:\s+--[\w-]+)*)")
+
+    def _docstrings(tree):
+        out = set()
+        for node in _ast.walk(tree):
+            if isinstance(node, (_ast.Module, _ast.ClassDef,
+                                 _ast.FunctionDef, _ast.AsyncFunctionDef)):
+                b = getattr(node, "body", None)
+                if (b and isinstance(b[0], _ast.Expr)
+                        and isinstance(b[0].value, _ast.Constant)
+                        and isinstance(b[0].value.value, str)):
+                    out.add(id(b[0].value))
+        return out
+
+    bodies = {}
+
+    def _body(path):
+        if path not in bodies:
+            try:
+                bodies[path] = _io.open(path, encoding="utf-8", errors="replace").read()
+            except OSError:
+                bodies[path] = None
+        return bodies[path]
+
+    def scan(pairs):
+        bad, seen = [], set()
+        for path, src in pairs:
+            try:
+                tree = _ast.parse(src)
+            except SyntaxError:
+                continue
+            docs = _docstrings(tree)
+            rel = _os.path.relpath(path, ROOT448)
+            for node in _ast.walk(tree):
+                if not isinstance(node, _ast.Constant) or not isinstance(node.value, str):
+                    continue
+                if id(node) in docs:
+                    continue
+                for m in CMD448.finditer(node.value.replace(chr(92), chr(47))):
+                    script, flags = m.group(1), m.group(2).split()
+                    key = (rel, script, tuple(flags))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    sub = script.replace("/", _os.sep)
+                    cand = [_os.path.join(ROOT448, sub), _os.path.join(UP448, sub),
+                            _os.path.join(_os.path.dirname(path), sub)]
+                    hit = next((c for c in cand if _os.path.exists(c)), None)
+                    if hit is None:
+                        bad.append("%s:%d  python %s  ← 그 파일이 없다"
+                                   % (rel, node.lineno, script))
+                        continue
+                    tb = _body(hit) or ""
+                    for f in flags:
+                        if ('"%s"' % f) not in tb and ("'%s'" % f) not in tb:
+                            bad.append("%s:%d  python %s %s  ← 그 깃발을 안 읽는다"
+                                       % (rel, node.lineno, script, f))
+        return bad, len(seen)
+
+    files = []
+    for base, dirs, names in _os.walk(ROOT448):
+        dirs[:] = [d for d in dirs
+                   if d not in ("__pycache__", ".git", ".claude", "tests")]
+        for n in names:
+            if n.endswith(".py"):
+                p = _os.path.join(base, n)
+                src = _body(p)
+                if src is not None:
+                    files.append((p, src))
+    assert len(files) > 100, "훑은 파일이 %d개뿐이다 — 계기가 눈멀었다([169])" % len(files)
+
+    bad, count = scan(files)
+    assert not bad, (
+        "조치가 **안 도는 명령**을 알려 준다 — 사람은 시킨 대로 하고도 제자리다([247]):"
+        + chr(10) + chr(10).join("  " + b for b in bad))
+    assert count > 50, "찾은 명령이 %d개뿐이다 — 정규식이 죽었다([169])" % count
+
+    # ★ 계기 자기시험([272]) — 일부러 나쁜 조치를 만들어 넣으면 둘 다 잡혀야 한다.
+    #   진짜 파일에는 한 글자도 안 쓴다([247]) — 메모리 위에서만 잰다.
+    fake = _os.path.join(ROOT448, "__t448_ghost.py")
+    probe = ('X = "python daily_run.py --없는깃발"' + chr(10)
+             + 'Y = "python 없는파일_t448.py"' + chr(10))
+    bad2, _ = scan([(fake, probe)])
+    assert len(bad2) == 2, (
+        "일부러 넣은 나쁜 조치를 못 잡는다 — 이 검사는 아무것도 안 재고 있다([272]): %r"
+        % bad2)
+
+    # 설명(문서화 문자열)은 걷는다 — 안 걷으면 역사를 적어 둔 주석이 전부 위반이 된다
+    _q3 = chr(34) * 3
+    doc_only = (_q3 + "옛 조치는 python daily_run.py --status 였다" + _q3 + chr(10))
+    bad3, _ = scan([(fake, doc_only)])
+    assert not bad3, "설명에 적어 둔 옛 명령을 위반으로 잡는다([301]-9): %r" % bad3
+
+    print(chr(9989) + " [448] 조치는 실재하는 명령만 가리킨다 — %d개 훑음(설명은 걷어냄)"
+          % count)
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -40006,6 +40128,7 @@ if __name__ == "__main__":
     t444_work_board_numbers_never_collide()
     t445_daily_run_completed_is_not_aborted()
     t446_board_survives_records_written_by_hand()
+    t448_advice_points_at_commands_that_exist()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

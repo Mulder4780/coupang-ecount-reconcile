@@ -371,7 +371,14 @@ def build() -> dict[str, Any]:
     if guard is None:
         add("server-guard-unreadable", "P0", "앱 서버 보호 상태를 읽지 못함",
             "server_guard_status.json이 없거나 손상되었습니다.",
-            "python webapp/server_guard.py --once", "reports/server_guard_status.json")
+            # ⚠ 옛 조치는 `python webapp/server_guard.py --once` 였는데 그 파일에는
+            #   **인자 처리가 한 줄도 없다** — 깃발은 무시되고 `while True` 감시 루프가
+            #   사람 창에서 영원히 돈다. 게다가 보호자가 이미 살아 있으면 singleton 에
+            #   막혀 **조용히 exit 0** 이라 *"돌렸는데 아무 일도 안 났다"* 가 된다(`[169]`).
+            #   되살리는 진짜 자리는 워치독의 `heal_server_guard` 다(`[263]`).
+            "작업 스케줄러의 CSOS_AppServerGuard 와 reports/server_guard.log 를 확인합니다"
+            " — 워치독 30분 회차가 스스로 다시 세웁니다.",
+            "reports/server_guard_status.json")
     elif guard_age is None or guard_age > 5:
         add("server-guard-stale", "P0", "앱 서버 보호자 심박이 끊김",
             f"마지막 보호 기록이 {int(guard_age or 0)}분 전입니다(정상 한도 5분).",
@@ -384,7 +391,10 @@ def build() -> dict[str, Any]:
         if verdict["priority"]:
             add(verdict["id"], verdict["priority"], verdict["title"],
                 verdict["evidence"],
-                "python webapp/server_guard.py --once",
+                # ★ 이 갈래에서 보호자는 **돌고 있다**(그래서 이 경보를 썼다) —
+                #   다시 띄우면 singleton 에 막혀 아무 일도 안 한다. 볼 것은 로그다.
+                "reports/server_guard.log 의 마지막 줄을 봅니다"
+                " — 보호자는 돌고 있으므로 다시 띄우지 않습니다.",
                 "reports/server_guard_status.json")
 
     # 2) 30분 워치독 — 입력 질문에 걸려도 로그가 오래 멈춘 것으로 잡는다.
@@ -660,7 +670,10 @@ def build() -> dict[str, Any]:
         claude = (dispatch.get("agents") or {}).get("claude") or {}
         add("claude-fallback", "P2", "Claude Code 인계가 Codex 폴백 상태",
             str(claude.get("reason") or dispatch.get("note") or "Claude Code 사용 불가"),
-            "Claude Code 설치·로그인을 복구한 뒤 python agent_dispatch.py --route --force",
+            # ⚠ `agent_dispatch.py` 의 깃발은 `--run-ticket`·`--local-returncode`·
+            #   `--supersede-queued`·`--status` 넷뿐이다 — `--route --force` 는
+            #   argparse 가 `unrecognized arguments` 로 **바로 죽인다**(`[247]`).
+            "Claude Code 설치·로그인을 복구한 뒤 python agent_dispatch.py --status",
             "reports/agent_dispatch_status.json")
 
     # 9-1) Claude 5시간 창과 Codex 사용 한도는 **서로 다른 계기**다. 하나만 보고
