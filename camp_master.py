@@ -63,9 +63,29 @@ def erp_customers():
         # 캐시가 없거나 못 읽었을 뿐이다 — 아래 원본 길로 간다([169]).
         _why = {"길": "캐시 못 읽음: %s" % str(_e)[:60]}
 
-    cands = [p for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True)
-             if not os.path.basename(p).startswith(("~$", "ESD007E"))]
-    cands.sort(key=os.path.getmtime, reverse=True)
+    # ★ **목록을 받을 때 딸려 온 stat 을 버리지 않는다**([198]·[409]).  예전에는
+    #   `glob` 이 **이름만** 주고 `cands.sort(key=os.path.getmtime)` 가 파일마다
+    #   Z: 를 **다시 찔렀다** — SMB 에서 그것은 파일 하나가 왕복 한 번이다.
+    #   같은 폴더(`S.ERP_DIR`)에서 [409] 가 잰 값: **124.9초 -> 10.0초**
+    #   (파일 170개 · 파일당 731.9ms 왕복이 사라졌다 · **목록·순서는 그대로**).
+    #   여기는 ERP 거래처등록(ESA001M)을 찾는 자리다.
+    # ⚠ **`skip_dirs=()` 를 반드시 적는다**([198]).  공용 워커의 기본값은 *색인의*
+    #   목록(`_보관`·`_바로가기`)이라, 말없이 물려받으면 거기 든 엑셀이 **조용히
+    #   빠지면서 오류도 안 난다**([165]).  옛 `glob` 은 아무것도 안 걸렀으므로
+    #   여기서도 안 거른다 — **결과가 한 톨도 바뀌면 안 된다**.
+    try:
+        from source_index import walk_stat
+        pairs = [(st.st_mtime, os.path.join(dp, fn))
+                 for dp, fn, st in walk_stat(S.ERP_DIR, skip_dirs=())
+                 if fn.lower().endswith(".xlsx")
+                 and not fn.startswith(("~$", "ESD007E"))]
+        pairs.sort(key=lambda x: x[0], reverse=True)
+        cands = [p for _, p in pairs]
+    except Exception:
+        # 공용 워커를 못 쓰면 예전 길로 간다 — 느릴 뿐 답은 같다([169]).
+        cands = [p for p in glob.glob(os.path.join(S.ERP_DIR, "**", "*.xlsx"), recursive=True)
+                 if not os.path.basename(p).startswith(("~$", "ESD007E"))]
+        cands.sort(key=os.path.getmtime, reverse=True)
     best, errs = None, []
     for p in cands[:80]:
         try:

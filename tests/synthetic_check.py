@@ -31979,8 +31979,8 @@ def t439_two_gates_never_overwrite_each_others_fonts():
     print(chr(9989) + " [439] 관문 둘이 겹치면 뒤에 온 쪽이 물러난다 — 앱 글꼴을 안 덮는다")
 
 
-def t438_blank_round_is_not_normal():
-    """[438] **헛돈 회차를 '정상'이라 하지 않는다** (2026-08-26 실사고).
+def t440_blank_round_is_not_normal():
+    """[440] **헛돈 회차를 '정상'이라 하지 않는다** (2026-08-26 실사고).
 
     84789192 가 `요청 87 · 수확 0` 을 **48초**에 끝냈다(건당 0.55초 — 밴드 글
     화면이 그려질 시간이 아니다).  그런데 그 `done` 기록이 `idle`(간격 대기)
@@ -32021,17 +32021,17 @@ def t438_blank_round_is_not_normal():
     # ① 헛돈 회차 — 실측 그대로(87건 · 48초 · 건당 0.55초)
     v = UW.judge(_doc(87, 0, 48), '', now=now, plan=_plan(169))
     assert v['갈래'] == '헛돎', (
-        '[438] 87건을 48초에 전부 놓쳤는데 갈래가 %r 이다 — 헛돎이어야 한다' % v['갈래'])
-    assert '0.55' in (v.get('왜') or ''), '[438] 건당 초를 숫자로 안 말한다(`[169]`)'
-    assert '87' in (v.get('왜') or ''), '[438] 요청 건수를 안 말한다'
+        '[440] 87건을 48초에 전부 놓쳤는데 갈래가 %r 이다 — 헛돎이어야 한다' % v['갈래'])
+    assert '0.55' in (v.get('왜') or ''), '[440] 건당 초를 숫자로 안 말한다(`[169]`)'
+    assert '87' in (v.get('왜') or ''), '[440] 요청 건수를 안 말한다'
     assert '모른다' in (v.get('왜') or ''), (
-        '[438] 원인을 확언한다 — 아는 것은 아무것도 안 그려졌다 까지다(`[172]`)')
+        '[440] 원인을 확언한다 — 아는 것은 아무것도 안 그려졌다 까지다(`[172]`)')
 
     # ② ★ **정당한 `수확 0` 은 그대로 정상**이다(`[172]` — 좁히는 것도 고장이다).
     #    실측: 250건 1,801초 = 건당 7.20초.  오염·없는 번호만 든 배치는 시간을 꽉 쓴다.
     v2 = UW.judge(_doc(250, 0, 1801), '', now=now, plan=_plan(500))
     assert v2['갈래'] != '헛돎', (
-        '[438] 건당 7.2초짜리 정당한 회차를 헛돎이라 부른다 — 거짓 경보다(`[170]`)')
+        '[440] 건당 7.2초짜리 정당한 회차를 헛돎이라 부른다 — 거짓 경보다(`[170]`)')
 
     # ③ 한 건이라도 얻었으면 조용하다
     assert UW.judge(_doc(87, 1, 48), '', now=now, plan=_plan(169))['갈래'] != '헛돎'
@@ -32043,7 +32043,7 @@ def t438_blank_round_is_not_normal():
     assert UW.judge(_doc(87, 0, 48), '', now=now, plan=_plan(0))['갈래'] != '헛돎'
     _nop = {'있음': False}
     assert UW.judge(_doc(87, 0, 48), '', now=now, plan=_nop)['갈래'] == '헛돎', (
-        '[438] 대기열을 못 읽었다고 조용해진다 — 모름을 일감 없음으로 쳤다(`[169]`)')
+        '[440] 대기열을 못 읽었다고 조용해진다 — 모름을 일감 없음으로 쳤다(`[169]`)')
 
     # ⑥ **`걸린초` 를 못 읽으면 안 부른다**(`[169]`)
     assert UW.judge(_doc(87, 0, None), '', now=now, plan=_plan(169))['갈래'] != '헛돎'
@@ -32054,15 +32054,15 @@ def t438_blank_round_is_not_normal():
 
     # ⑧ 조치가 있고, 거기서도 원인을 확언하지 않는다(`[172]`)
     fix = UW.fix_for('헛돎')
-    assert fix and len(fix) > 20, '[438] 헛돎에 조치가 없다 — 말만 하고 길을 안 준다'
-    assert '헛돎' in UW.FIX, '[438] FIX 표에 갈래가 빠졌다'
+    assert fix and len(fix) > 20, '[440] 헛돎에 조치가 없다 — 말만 하고 길을 안 준다'
+    assert '헛돎' in UW.FIX, '[440] FIX 표에 갈래가 빠졌다'
 
     # ⑨ 문턱이 **실측**에서 왔는가 — 지어낸 값이면 언젠가 조용히 틀린다
     assert UW.BLANK_ROUND_SEC_PER_POST < 2.64, (
-        '[438] 문턱(%s)이 실측 최저 정상치 2.64초/건 위다 — 정상 회차를 죽인다'
+        '[440] 문턱(%s)이 실측 최저 정상치 2.64초/건 위다 — 정상 회차를 죽인다'
         % UW.BLANK_ROUND_SEC_PER_POST)
     assert UW.BLANK_ROUND_SEC_PER_POST > 0.55, (
-        '[438] 문턱(%s)이 실측 헛돎 0.55초/건 아래다 — 그 사고를 못 잡는다'
+        '[440] 문턱(%s)이 실측 헛돎 0.55초/건 아래다 — 그 사고를 못 잡는다'
         % UW.BLANK_ROUND_SEC_PER_POST)
 
     # ⑩ 계기 자기시험(`[272]`) — **시간 문**을 없애면 ②가 거짓 경보가 되는가
@@ -32075,9 +32075,126 @@ def t438_blank_round_is_not_normal():
         caught = bad['갈래'] == '헛돎'   # 시간을 안 보면 정당한 회차가 잡힌다
     finally:
         UW._blank_round = _real
-    assert caught, '[438] 계기가 옛 동작(수확만 보기)을 못 잡는다'
+    assert caught, '[440] 계기가 옛 동작(수확만 보기)을 못 잡는다'
 
-    print('  [438] 헛돈 회차를 정상이라 하지 않는다(정당한 수확 0 은 그대로) ' + chr(9989))
+    print('  [440] 헛돈 회차를 정상이라 하지 않는다(정당한 수확 0 은 그대로) ' + chr(9989))
+
+def t441_erp_scanners_keep_the_stat_they_were_given():
+    """[441] `[409]` 가 고친 Z: 병이 **두 곳 더** 있었다 — camp_master · tax_archive.
+
+    셋이 글자까지 같은 코드였다: `glob` 이 **이름만** 주고
+    `cands.sort(key=os.path.getmtime)` 가 파일마다 Z: 를 **다시 찔렀다**.
+    SMB 에서 그것은 파일 하나가 왕복 한 번이다([198]).  같은 폴더에서 [409] 가 잰 값은
+    **124.9초 -> 10.0초**(파일 170개 · 파일당 731.9ms)이고 **목록·순서는 그대로**였다.
+    `erp_sales_index` 만 고쳐졌고 나머지 둘은 남아 있었다 —
+    **한 곳에서 배운 것을 다른 곳이 모른다**([300]).
+
+    ★ **Z: 를 안 쓴다** — 임시 폴더로만 잰다([409] 와 같은 이유).
+    ★ 제일 중요한 계약은 빠르기가 아니라 **`skip_dirs=()`** 다.  공용 워커의 기본값은
+      *색인의* 목록(`_보관`·`_바로가기`)이라, 말없이 물려받으면 거기 든 엑셀이
+      **조용히 빠지면서 오류도 안 난다**([198] 의 ⚠ · [165]).
+    ★ 글자로는 '정말 그 파일을 훑나'를 못 잰다([295]) — `openpyxl.load_workbook` 을
+      목으로 갈아 **실제로 받은 경로와 순서**로 잰다.
+    """
+    import importlib
+    import io
+    import shutil
+
+    import openpyxl
+    import source_dirs as S
+
+    자리 = (('camp_master', 'erp_customers'), ('tax_archive', 'collect'))
+    tmp = tempfile.mkdtemp(prefix='t439_')
+    real_erp = S.ERP_DIR
+    real_load = openpyxl.load_workbook
+    try:
+        erp = os.path.join(tmp, 'erp')
+        os.makedirs(os.path.join(erp, '_보관'), exist_ok=True)
+        made = {}
+        for i, rel in enumerate(('a.xlsx', '_보관/old.xlsx', '~$tempfile.xlsx',
+                                 'ESD007E (9).xlsx', 'b.xlsx')):
+            p = os.path.join(erp, rel.replace('/', os.sep))
+            with io.open(p, 'w', encoding='utf-8') as fh:
+                fh.write('x')
+            os.utime(p, (1_700_000_000 + i * 60, 1_700_000_000 + i * 60))
+            made[rel] = p
+        S.ERP_DIR = erp
+
+        본것 = []
+        def _spy(path, *a, **k):
+            본것.append(path)
+            raise ValueError('시험용 — 진짜 워크북이 아니다')
+        openpyxl.load_workbook = _spy
+
+        # ★ camp_master.erp_customers 는 **캐시를 먼저 본다**([168]) — 캐시가 살아
+        #   있으면 일찍 돌아가 glob 길에 아예 안 온다.  그러면 이 검사는 **아무것도
+        #   안 재면서 빨개진다**([309] — 코드가 아니라 기대가 틀린 자리).  그 문을
+        #   닫아 훑는 길만 잰다.  ⚠ 모듈 속성은 모두의 것이라 finally 로 되돌린다([371]).
+        import camp_code_match as _CCM
+        real_cache = _CCM._erp_customers
+        def _no_cache():
+            raise RuntimeError('시험용 — 캐시를 안 쓴다')
+        _CCM._erp_customers = _no_cache
+
+        for mod, fname in 자리:
+            M = importlib.import_module(mod)
+            del 본것[:]
+            try:
+                getattr(M, fname)()
+            except Exception:
+                pass          # 워크북이 가짜라 안에서 터지는 것은 정상이다
+            low = {os.path.normcase(p) for p in 본것}
+
+            # ① `_보관` 안 엑셀이 **빠지지 않는다** — 이 검사의 핵심이다.
+            assert os.path.normcase(made['_보관/old.xlsx']) in low, (
+                '%s.%s 가 _보관 안 엑셀을 조용히 뺐다 — 공용 워커의 기본 skip_dirs 를 '
+                '말없이 물려받았다([198] 의 ⚠)' % (mod, fname))
+
+            # ② 걸러야 할 것은 그대로 거른다(넓히는 것도 고장이다 · [172]).
+            for bad in ('~$tempfile.xlsx', 'ESD007E (9).xlsx'):
+                assert os.path.normcase(made[bad]) not in low, (
+                    '%s.%s 후보에 %s 가 들어왔다' % (mod, fname, bad))
+
+            # ③ **새 것부터**다 — 순서가 뒤집히면 옛 파일이 이긴다.
+            assert 본것 and 본것[0] == made['b.xlsx'], (
+                '%s.%s 가 가장 새 파일부터 안 본다: %r' % (mod, fname, 본것[:2]))
+
+            # ④ 파일마다 stat 을 다시 부르는 옛 길이 돌아오지 않았나([198]).
+            _src = io.open(M.__file__, encoding='utf-8').read()
+            _fn = _src[_src.index('def ' + fname):]
+            _code = ''.join(_l for _l in _fn.splitlines(True)
+                            if not _l.lstrip().startswith(('#', chr(34) * 3)))
+            assert 'walk_stat' in _code, (
+                '%s.%s 가 공용 워커를 버렸다([198] 병 재발)' % (mod, fname))
+            assert 'skip_dirs=()' in _code.replace(' ', ''), (
+                '%s.%s 가 skip_dirs 를 명시하지 않았다' % (mod, fname))
+
+        # ★ 계기 자기시험([272]) — skip_dirs 를 안 주면 `_보관` 이 정말 빠지는가.
+        M = importlib.import_module('tax_archive')
+        _src = io.open(M.__file__, encoding='utf-8').read()
+        _bad = _src.replace('walk_stat(S.ERP_DIR, skip_dirs=())', 'walk_stat(S.ERP_DIR)')
+        assert _bad != _src, '앵커를 못 찾았다 — 이 자기시험은 아무것도 안 잰다'
+        _ns = {'__name__': 'tax_archive_t439_bad', '__file__': M.__file__}
+        exec(compile(_bad, M.__file__, 'exec'), _ns)
+        del 본것[:]
+        try:
+            _ns['collect']()
+        except Exception:
+            pass
+        assert os.path.normcase(made['_보관/old.xlsx']) not in {
+            os.path.normcase(p) for p in 본것}, (
+            'skip_dirs 를 없앴는데도 _보관 파일이 그대로 있다 — ①은 아무것도 안 잰다')
+    finally:
+        # 모듈 속성은 **모두의 것**이다([371]) — 반드시 되돌린다.
+        S.ERP_DIR = real_erp
+        openpyxl.load_workbook = real_load
+        try:
+            _CCM._erp_customers = real_cache
+        except NameError:
+            pass
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print('  [441] camp_master · tax_archive 도 scandir stat 을 그대로 쓴다(_보관도 담는다 · 새 것부터) ' + chr(9989))
 
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
@@ -39294,7 +39411,8 @@ if __name__ == "__main__":
     t435_calendar_capture_does_not_wait_for_what_it_never_reads()
     t436_autopilot_skips_what_it_can_never_finish()
     t437_batch_is_capped_by_time_not_count()
-    t438_blank_round_is_not_normal()
+    t440_blank_round_is_not_normal()
+    t441_erp_scanners_keep_the_stat_they_were_given()
     t438_ceo_directive_id_is_not_tied_to_room()
     t439_two_gates_never_overwrite_each_others_fonts()
     t192_synthetic_check_is_harmless()
