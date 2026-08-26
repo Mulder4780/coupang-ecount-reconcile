@@ -31930,10 +31930,25 @@ def t439_two_gates_never_overwrite_each_others_fonts():
         _gate_lock_free()
         assert os.path.exists(_lk), "남의 잠금을 지웠다"
 
+        # ⑧ **회차가 부른 관문은 절대 안 막는다**([412] 가 못 박은 자리) —
+        #    막으면 사람이 관문을 도는 중에 09:50 이 뜰 때 **그날 대조가
+        #    통째로 안 돈다**(고치려던 것보다 나쁘다 · [172]). 다만 잠금은
+        #    만들어야 사람 관문이 그것을 보고 물러난다.
+        _js.dump({"pid": 999999, "started_at": "2026-08-26T10:00:00"},
+                 open(_lk, "w", encoding="utf-8"))
+        _dr._pid_alive = lambda *a, **k: True
+        os.environ["COUPANG_GATE_OWNER"] = "daily_run"
+        assert _run() == "ok", "회차가 부른 관문까지 막는다 — 그날 대조가 통째로 안 돈다"
+        _lockpid = _js.load(open(_lk, encoding="utf-8")).get("pid")
+        assert _lockpid == os.getpid(), "회차가 잠금을 안 남긴다 — 사람 관문이 겹친다"
+        os.environ.pop("COUPANG_GATE_OWNER", None)
+
         # ⑦ 계기 자신을 시험한다([272]) — 물러나는 문을 없애면 ③이 잡히나
+        _ANCH = ("            if alive and not _round:" + chr(10)
+                 + "                started = str(")
         _src = _io.open(os.path.join(ROOT, "tests", "synthetic_check.py"),
                        encoding="utf-8").read()
-        _bad = _src.replace("            if alive:", "            if False:", 1)
+        _bad = _src.replace(_ANCH, "            if False:" + chr(10)                             + "                started = str(", 1)
         assert _bad != _src, "고장을 주입할 자리를 못 찾았다 — 이 검사가 헛돈다"
         _g = _ty.ModuleType("g")
         _g.__file__ = os.path.join(ROOT, "tests", "synthetic_check.py")
@@ -31954,6 +31969,7 @@ def t439_two_gates_never_overwrite_each_others_fonts():
         assert _hit == "ok", "고장을 넣었는데도 막혔다 — 이 검사는 아무것도 안 재고 있다"
     finally:                              # 모듈 전역은 프로세스 전체의 것이다([371])
         globals()["_GATE_LOCK"] = _old_lock
+        os.environ.pop("COUPANG_GATE_OWNER", None)
         _dr._pid_alive = _old_alive
         if _old_force is None:
             os.environ.pop("COUPANG_GATE_FORCE", None)
@@ -38628,6 +38644,12 @@ def _gate_lock_or_yield():
     """
     if os.environ.get("COUPANG_GATE_FORCE") == "1":
         return
+    # ★ **회차가 부른 관문은 절대 안 막는다**([412] 가 못 박은 자리) — 막으면
+    #   사람이 관문을 도는 중에 09:50 이 뜰 때 **그날 대조가 통째로 안 돈다**
+    #   (접수취소·객관완료·청구상태·오기입·사실대조·캠프 담당자 전부).
+    #   고치려던 것보다 나쁘다([172]). 다만 **잠금은 만든다** — 그래야
+    #   사람 관문이 그것을 보고 물러난다.
+    _round = os.environ.get("COUPANG_GATE_OWNER") == "daily_run"
     info = None
     try:
         if os.path.exists(_GATE_LOCK):
@@ -38648,7 +38670,7 @@ def _gate_lock_or_yield():
                                        pid_started_at=info.get("pid_started_at"))
             except Exception:
                 alive = False          # 못 읽으면 그냥 돈다([169])
-            if alive:
+            if alive and not _round:
                 started = str(info.get("started_at") or "")[:19].replace("T", " ")
                 print("관문을 돌리지 않았습니다 - 다른 관문이 이미 돌고 있습니다"
                       " (pid %s - %s 시작)." % (info.get("pid"), started or "?"))
