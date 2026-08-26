@@ -328,6 +328,185 @@ def collect_band(band, wait_s=None, app_base="http://127.0.0.1:8899"):
     return out
 
 
+# -- ERP ----------------------------------------------------------------------
+#
+# 형님 지시(2026-08-26): "자동으로 붙이는 프로그램 만들어서 니가 알아서 밴드랑 **ERP**
+#   데이터 긁어오게 코딩해".  밴드 반쪽만 만들고 다 됐다고 적으면 안 된다([169]).
+#
+# * 이 길이 `browser_chain` 과 다른 점 — **형님 화면을 안 뺏는다.**  저쪽은 전면 크롬에
+#   키를 넣으므로 [269] 가 '지정 3페이지 · 정오 한 번' 으로 묶어 뒀다.  여기는 전용
+#   크롬 안에서 CDP 로만 돌아 **어느 창이 앞에 있든 상관이 없다** — 그 제약이 막으려던
+#   위험(엉뚱한 앱에 키가 들어가는 것)이 구조적으로 없다.
+#
+# * **로그인을 대신하지 않는다**(절대규칙 3).  안 됐으면 그 사실만 말하고 멈춘다.
+#   쿠키를 복제해 오지도 않는다.
+
+ERP_URL = "https://loginab.ecount.com/ec5/view/erp"
+ERP_APP_HOST = "https://loginab.ecount.com"
+ERP_LOGIN_HOST = "https://login.ecount.com"
+
+
+def erp_login_state(ws):
+    """로그인이 됐나 -> ('ok'|'need-login'|'unknown', 설명).
+
+    * 짐작이 아니라 **실측**이다(2026-08-26 · 전용 크롬).  로그인이 안 된 채
+      `/ec5/view/erp` 를 열면 이카운트가 **`login.ecount.com` 으로 튕긴다** —
+      제목 `이카운트 로그인 | ECOUNT` · 아이디 칸 `com_code`/`id`.  그래서 DOM 을
+      짐작할 필요가 없다.
+    * 근거를 **둘**로 둔다: 튕긴 주소 · 로그인 폼의 회사코드 칸.  주소만 보면
+      언젠가 같은 주소에서 폼을 주는 날 조용히 통과한다([165]).
+    * 로그인 칸을 **채우지 않는다** — 있는지만 센다.  채우는 것은 형님 몫이다.
+    """
+    try:
+        v = _eval(ws, """(() => {
+          const href = location.href;
+          const code = document.querySelectorAll('input[name=com_code]').length;
+          return { href: href.slice(0, 140), code: code,
+                   title: (document.title || '').slice(0, 60) };
+        })()""", timeout=30)
+    except Exception as e:
+        return "unknown", "확인 못 함: %s" % str(e)[:120]
+    if not isinstance(v, dict):
+        return "unknown", "확인 못 함(응답 모양)"
+    href = v.get("href") or ""
+    if href.startswith(ERP_LOGIN_HOST) or (v.get("code") or 0) > 0:
+        return "need-login", "로그인 화면이다 — 그 창에서 한 번 로그인하십시오"
+    if href.startswith(ERP_APP_HOST):
+        return "ok", "로그인 화면이 아니다 (%s)" % (v.get("title") or href)
+    return "unknown", "이카운트 주소가 아니다 (%s)" % href
+
+
+def _dl_dirs():
+    """내려받기가 떨어질 폴더 — **흡수기가 보는 그 목록**을 빌린다([162]).
+
+    여기 손으로 적으면 흡수기가 폴더를 늘린 날 갈린다 — 그러면 파일은 왔는데
+    '안 왔다'고 말한다([165]).
+    """
+    try:
+        import download_intake as DI
+        return [d for d in DI._sources() if os.path.isdir(d)]
+    except Exception:
+        home = os.path.expanduser("~")
+        return [d for d in (os.path.join(home, "Downloads"),) if os.path.isdir(d)]
+
+
+def _xlsx_snap(dirs):
+    """지금 그 폴더에 있는 엑셀 -> {경로: 수정시각}."""
+    out = {}
+    for d in dirs:
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for n in names:
+            if n.startswith("~$"):
+                continue
+            low = n.lower()
+            if not (low.endswith(".xlsx") or low.endswith(".xls")):
+                continue
+            p = os.path.join(d, n)
+            try:
+                out[p] = os.path.getmtime(p)
+            except OSError:
+                pass
+    return out
+
+
+def collect_erp(keys=None, wait_s=None, app_base="http://127.0.0.1:8899"):
+    """ERP 화면을 돈다 -> 결과 dict.
+
+    수집기는 **앱이 내려 주는 것을 그대로** 쓴다([162]) — 여기서 화면 이름을 새로
+    적지 않는다.  붙여넣기가 하던 그 두 줄을 대신할 뿐이다.
+
+    * **'받음'을 파일 도착이라 적지 않는다**([94]).  수집기 자신이 그렇게 말한다 —
+      한 화면의 결과가 `다운로드요청 · 디스크확인 false` 이고 `다음: download_intake
+      의 새 XLSX 도착 확인 필요` 다.  그래서 여기서 **폴더를 앞뒤로 세어** 몇 개가
+      실제로 떨어졌는지 따로 적는다.  '완주' 는 **화면을 다 돌았다**는 뜻이고
+      파일이 왔는지는 `디스크확인` 이 말한다 — 뭉치면 0건을 '다 받았다'로 읽는다.
+    """
+    wait_s = wait_s or COLLECT_WAIT_S
+    out = {"무엇": "ERP", "화면": list(keys) if keys else None,
+           "시작": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    t = ensure_tab(ERP_URL, prefix=ERP_APP_HOST)
+    if not t:
+        # 로그인이 안 되면 이카운트가 **다른 주소로 튕긴다**(실측) — 그때 '탭을 못
+        # 열었다'고 적으면 사람이 크롬을 고치러 간다([172]).  튕긴 자리를 찾아
+        # 아래에서 '사람대기'라고 정확히 말한다.
+        t = find_tab(ERP_LOGIN_HOST)
+    if not t:
+        out["결과"] = "실패"
+        out["왜"] = "ERP 탭을 못 열었다"
+        return out
+    with _conn(t) as ws:
+        activate(ws)
+        state, why = erp_login_state(ws)
+        out["로그인"] = state
+        if state != "ok":
+            out["결과"] = "사람대기" if state == "need-login" else "모름"
+            out["왜"] = why
+            return out
+        # 내려받기가 **흡수기가 보는 폴더**로 떨어지게 못 박는다.  못 정했으면 그
+        # 사실을 적는다 — 그래야 아래 '새 파일 0개' 를 잘못 읽지 않는다([169]).
+        dirs = _dl_dirs()
+        if dirs:
+            try:
+                _call(ws, "Browser.setDownloadBehavior",
+                      {"behavior": "allow", "downloadPath": dirs[0]})
+                out["내려받기폴더"] = dirs[0]
+            except Exception as e:
+                out["내려받기폴더"] = "못 정함: %s" % str(e)[:100]
+        before = _xlsx_snap(dirs)
+        qs = ("?keys=" + urllib.parse.quote(",".join(keys))) if keys else ""
+        src = _eval(ws, """(async () => {
+          const r = await fetch('%s/erp_grab.js%s', { cache: 'no-store' });
+          if (!r.ok) return { ok: false, why: 'HTTP ' + r.status };
+          const s = await r.text();
+          if (!s) return { ok: false, why: '빈 스크립트' };
+          (0, eval)(s);
+          return { ok: true, len: s.length };
+        })()""" % (app_base, qs), timeout=90)
+        if not isinstance(src, dict) or not src.get("ok"):
+            out["결과"] = "실패"
+            out["왜"] = "수집기를 못 실었다: %s" % (src or {}).get("why", "?")
+            return out
+        out["실은크기"] = src.get("len")
+        t0 = time.time()
+        last = None
+        while time.time() - t0 < wait_s:
+            time.sleep(10)
+            try:
+                st = _eval(ws, "(window.__ERPALL || null)", timeout=30, await_promise=False)
+            except Exception as e:
+                # 화면 중에는 **다른 프로그램**이라 눌리는 순간 페이지가 다시 뜨는 것이
+                # 있다(홈택스자료조회 · [364]).  그러면 이 읽기가 죽는다 — 실패로 접지
+                # 말고 한 번 더 본다.  수집기는 sessionStorage 자국으로 이어서 돈다.
+                out["끊김"] = str(e)[:120]
+                time.sleep(5)
+                try:
+                    st = _eval(ws, "(window.__ERPALL || null)", timeout=30, await_promise=False)
+                except Exception:
+                    out["결과"] = "실패"
+                    out["왜"] = "상태를 못 읽었다: %s" % out["끊김"]
+                    return out
+            if isinstance(st, dict):
+                last = st
+                if st.get("완료"):
+                    break
+        out["걸린초"] = round(time.time() - t0, 1)
+        out["상태"] = last
+        after = _xlsx_snap(dirs)
+        떨어진 = [p for p, m in after.items() if before.get(p) != m]
+        out["디스크확인"] = {"새파일": len(떨어진),
+                        "어디": [os.path.basename(p) for p in 떨어진[:12]],
+                        "봤나": [os.path.basename(d) or d for d in dirs]}
+        if last and last.get("완료"):
+            out["결과"] = "완주"
+        else:
+            out["결과"] = "시간초과"
+            out["왜"] = "%d초 안에 안 끝났다 — 끝낸 화면은 자국에 남아 다음에 이어서 돈다" % wait_s
+    return out
+
+
 # ── 자국 ──────────────────────────────────────────────────────────────────────
 
 def note(rec):
@@ -364,6 +543,8 @@ def main():
     ap.add_argument("--up", action="store_true")
     ap.add_argument("--collect", metavar="밴드번호")
     ap.add_argument("--collect-all", action="store_true")
+    # 화면 이름을 안 주면 등록부 전부 — 이름은 `erp_grab.SCREENS` 가 정한다([162]).
+    ap.add_argument("--collect-erp", nargs="?", const="", metavar="화면들")
     ap.add_argument("--wait", type=int, default=COLLECT_WAIT_S)
     a = ap.parse_args()
 
@@ -371,13 +552,15 @@ def main():
         print(json.dumps(status(), ensure_ascii=False, indent=1))
         return 0
 
-    if a.up or a.collect or a.collect_all:
+    erp = a.collect_erp is not None
+
+    if a.up or a.collect or a.collect_all or erp:
         r = up()
         print("크롬:", json.dumps(r, ensure_ascii=False))
         if r.get("오류"):
             return 1
 
-    if a.up and not (a.collect or a.collect_all):
+    if a.up and not (a.collect or a.collect_all or erp):
         t = ensure_tab("https://www.band.us/", prefix="https://www.band.us/")
         print("★ 그 창에서 밴드에 **한 번** 로그인하십시오 — 다음부터는 안 물어봅니다.")
         print("   (비밀번호는 제가 대신 치지 않습니다.)")
@@ -408,6 +591,15 @@ def main():
         print(json.dumps(r, ensure_ascii=False))
         if r.get("결과") not in ("완주", "안돎"):
             rc = 1
+
+    if erp:
+        ks = [k.strip() for k in (a.collect_erp or "").split(",") if k.strip()] or None
+        r = collect_erp(ks, wait_s=a.wait)
+        note(r)
+        print(json.dumps(r, ensure_ascii=False))
+        if r.get("결과") != "완주":
+            rc = 1
+
     return rc
 
 
@@ -420,10 +612,12 @@ if __name__ == "__main__":
         #   **한 줄도 안 건드린다**(0곳) — 곧 `--status`(조회)와 `--up`(빈 크롬을
         #   띄워 형님이 로그인하실 자리를 여는 것)은 사고 #27(두 창이 같은 밴드를
         #   긁어 캐시가 오염되는 것)을 **구조적으로 못 일으킨다.**
-        #   막는 것은 실제로 긁는 `--collect`·`--collect-all` 뿐이다.
-        if not ({"--status", "--up"} & set(sys.argv[1:])):
+        #   막는 것은 실제로 긁는 `--collect`·`--collect-all`·`--collect-erp` 뿐이다.
+        #   `--help` 도 조회다 — 막으면 형님이 **어떤 깃발이 있는지조차** 못 보고,
+        #   "수집 문이 막았습니다" 라는 엉뚱한 답을 받는다([169]·[289]).
+        if not ({"--status", "--up", "--help", "-h"} & set(sys.argv[1:])):
             import collect_gate
-            collect_gate.guard("브라우저 다리로 밴드 수집")
+            collect_gate.guard("브라우저 다리로 밴드·ERP 수집")
     except SystemExit:
         raise
     except Exception:
