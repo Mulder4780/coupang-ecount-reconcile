@@ -306,6 +306,56 @@ def _save_cloud_report(result):
 #     그 사고는 폰 화면이 멀쩡해 보여서 아무도 모른다.
 PAGES_MARK = os.path.join(os.path.dirname(CLOUD_REPORT), "폰사본_지문.json")
 
+# ── 지문에서 **빼는 칸은 여기 하나**다([162]) ────────────────────────────
+#   ★ 페이로드에는 **그대로 남긴다** — 빼는 것은 지문에서다([170] 재수집 `hash_on` 과 같은 규칙).
+#     폰은 "이 자료가 언제 것인지"를 그 값으로 보여 준다([184]).
+#   ⚠ **연달아 두 번 불러서는 못 잡는다.** 이 값들은 **분 단위**라 같은 분 안에서는
+#     같게 나온다 — 2026-08-26 실측으로 [458] 이 그렇게 통과하고도 12분마다 밀었다.
+#     새 칸을 의심할 때는 `clocklike_paths()` 로 **모양**을 본다.
+CLOCK_KEYS = (
+    "gen",      # 사본을 만든 때
+    "ask",      # 미리 만든 답 — 만든때([184])와 "(실패 · N분째)" 같은 상대 시각이 들어 있다
+    "기준",     # mobile_snapshot.collect() 의 `datetime.now()` — 분마다 달라진다
+)
+
+#   오늘 날짜+시:분 · "N분째/N분 전" · "N시간째/N시간 전" 처럼 **시간이 지나면 달라지는** 모양.
+#   ⚠ 지우는 데 쓰지 않는다([172]) — 업무 날짜까지 지우면 진짜 변경을 놓친다.
+#     **자국에 적어 두는 진단**이고, 다음에 "왜 매번 밀지"를 물을 사람이 이것을 본다([228]).
+_CLOCKLIKE = re.compile(
+    r"\d{4}[-/]\d\d[-/]\d\d[T ]\d\d:\d\d|\d+분(?:째| 전)|\d+시간(?:째| 전)")
+
+
+def stable_payload(d):
+    """지문을 만들 몸통 — **시계가 든 칸을 뺀 사본**을 돌려준다(원본은 안 건드린다)."""
+    stable = dict(d)
+    for k in CLOCK_KEYS:
+        stable.pop(k, None)
+    return stable
+
+
+def clocklike_paths(obj, limit=8):
+    """지문 몸통에 **아직 남은 시각 값**의 경로 — 진단용이다(경보가 아니다)."""
+    out = []
+
+    def walk(o, path):
+        if len(out) >= limit:
+            return
+        if isinstance(o, dict):
+            for k, v in o.items():
+                walk(v, path + "." + str(k))
+        elif isinstance(o, list):
+            for i, v in enumerate(o[:40]):
+                walk(v, path + "[]")
+        elif isinstance(o, str) and _CLOCKLIKE.search(o):
+            if path not in out:
+                out.append(path)
+
+    try:
+        walk(obj, "")
+    except Exception:
+        pass
+    return out
+
 
 def pages_unchanged(content_sha256, out_path=None, mark_path=None):
     """지난번 민 것과 **업무 내용이 같고** 사본 파일도 그대로 있으면 참."""
@@ -323,15 +373,21 @@ def pages_unchanged(content_sha256, out_path=None, mark_path=None):
         return False                # 못 읽으면 민다
 
 
-def remember_pages(content_sha256, generated_at, mark_path=None):
+def remember_pages(content_sha256, generated_at, mark_path=None, clocklike=None):
     """민 뒤에 지문을 남긴다. **못 남겨도 조용히 넘어간다** — 다음에 한 번 더 밀 뿐이다."""
+    clocklike = clocklike or []
     mark_path = mark_path or PAGES_MARK
     try:
         os.makedirs(os.path.dirname(mark_path), exist_ok=True)
         tmp = mark_path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"content_sha256": content_sha256, "generated_at": generated_at,
-                       "at": datetime.now().isoformat(timespec="seconds")},
+                       "at": datetime.now().isoformat(timespec="seconds"),
+                       # ★ **지운 것이 아니라 적어 둔 것**이다([169]·[172]) — 다음에
+                       #   "왜 매번 밀지"를 물을 사람이 이 줄을 본다. 대부분은 정당한
+                       #   업무 시각(어제 갱신·오늘 생성)이고, **매 회차 달라지는 것만**
+                       #   범인이다. 그 판단은 사람이 한다.
+                       "남은시각값": clocklike},
                       f, ensure_ascii=False)
         os.replace(tmp, mark_path)
     except Exception:
@@ -410,7 +466,17 @@ def git_publish(message, runner=subprocess.run):
         detail = ((r.stderr or "") + "\n" + (r.stdout or "")).strip()
         if r.returncode:
             # 변경이 없는 재실행은 오류가 아니다. 이미 커밋된 미푸시분은 계속 push한다.
-            if cmd[1] == "commit" and "nothing to commit" in detail.lower():
+            #   ⚠ git 은 **작업 폴더에 다른 미커밋이 있으면 다른 말을 한다** —
+            #     깨끗하면 `nothing to commit, working tree clean`,
+            #     남의 미커밋이 있으면 `no changes added to commit`.
+            #     이 저장소는 세션끼리 작업 폴더를 공유하고 회차가 계속 도니
+            #     **미커밋이 거의 항상 있다**([104]) — 그래서 뒤 문구가 실제로 자주 나온다.
+            #     실측 2026-08-26: 사본을 안 쓰게 만들자 이 갈래로 떨어져 **여전히
+            #     exit 1** 이 됐다 — 자율복구가 그대로 실패로 세고 10분마다 재시도한다.
+            #   ★ 넓혀도 진짜 실패를 안 놓친다([172]) — 충돌·훅 거부는 다른 문구다.
+            if cmd[1] == "commit" and (
+                    "nothing to commit" in detail.lower()
+                    or "no changes added to commit" in detail.lower()):
                 continue
             return False, cmd[1], detail[:300]
     return True, "", ""
@@ -448,22 +514,13 @@ def _main():
     print("사본 만드는 중…")
     d = payload()
     raw = json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    stable = dict(d)
-    stable.pop("gen", None)
     # * 지문에서 **그때그때 달라지는 값**을 뺀다 ([170] 이 밴드 재수집에서 배운 그 자리).
-    #   실측 2026-08-26: `gen` 만 빼고 재니 지문이 **매번 달랐다** — `ask.만든때`
-    #   ([184] 가 일부러 넣은 값: 폰이 "이 답이 언제 것인지" 보여 준다) 가 남아 있었다.
-    #   그래서 업무가 하나도 안 바뀐 회차도 늘 '바뀜'이 되어 하루 77~97번 밀었다.
-    #   ★ **페이로드에는 그대로 남긴다** — 빼는 것은 지문에서다([170] 과 같은 규칙).
-    #   ★ 넓게 빼지 않는다([172]) — 실측으로 다른 칸은 이것 하나였다.
-    #   실측으로 `ask` 는 **통째로** 빼야 했다. 그 꾸러미에는 `만든때` 말고도
-    #   "(실패 · ?분째)" 같은 **상대 시각**이 들어 있어 **분마다 달라진다**.
-    #   ★ 빼도 진짜 변경을 안 놓친다 — `ask` 는 미리 만든 **답**이고 그 근거는
-    #     `codes`·`issues`·`as`·`pm`·`settle`·`erp` 다. 그것들이 바뀌면 지문이
-    #     바뀌므로 사본은 그때 새로 나간다.
-    #   ⚠ 다만 **답 만드는 규칙만 고쳤을 때**는 지문이 안 움직인다 —
+    #   빼는 칸은 `CLOCK_KEYS` **한 곳**이 정한다([162]) — 여기서 손으로 빼면 사본이 둘 된다.
+    #   실측 2026-08-26: `gen` 만 빼니 `ask.만든때`([184])가 남았고, 그것도 빼니
+    #   최상위 `기준`(= `datetime.now()`)이 남아 **12분마다 밀었다**.
+    #   ⚠ **답 만드는 규칙만 고쳤을 때**는 지문이 안 움직인다 —
     #     그때는 `python cloud_publish.py --push --force` 로 한 번 민다.
-    stable.pop("ask", None)
+    stable = stable_payload(d)
     content_sha256 = hashlib.sha256(
         json.dumps(stable, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
     ).hexdigest()
@@ -539,7 +596,7 @@ def _main():
         print(f"  git {stage} 실패:", detail)
         sys.exit(1)
     if write_pages_copy:
-        remember_pages(content_sha256, d["gen"])
+        remember_pages(content_sha256, d["gen"], clocklike=clocklike_paths(stable))
     if cloud_error:
         # ★ **성공한 반쪽을 실패로 세지 않는다** (2026-08-26 지시).
         #   폰이 읽는 순서는 `D1 최신 → GitHub Pages → 기기 사본`([271])이라

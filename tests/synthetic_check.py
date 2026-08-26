@@ -28431,9 +28431,12 @@ def _t457_check(src):
     assert len(lines) == 1, "[457] 문을 건너뛰는 갈래를 못 읽었다 — 줄이 %d개다" % len(lines)
     import re as _re
     exempt = set(_re.findall('"([^"]+)"', lines[0]))
-    assert exempt == {"--status", "--up"}, (
+    # 문을 안 거치는 것은 **조회뿐**이다: `--status`(상태 보기) · `--up`(빈 크롬을 띄워
+    # 형님이 로그인하실 자리를 여는 것) · `--help`/`-h`(깃발 목록).  셋 다 한 글자도
+    # 안 긁는다.  긁는 길이 여기 들어오면 두 창이 같은 밴드를 긁는다(사고 #27).
+    assert exempt == {"--status", "--up", "--help", "-h"}, (
         "[457] 문을 안 거치는 깃발이 달라졌다: " + repr(sorted(exempt)) +
-        " — 긁는 길(--collect·--collect-all)은 반드시 문을 거친다")
+        " — 긁는 길(--collect·--collect-all·--collect-erp)은 반드시 문을 거친다")
 
     # ④ 콘솔 창을 안 띄우되 **이름으로** 넘긴다([272] 실측: `**kw` 는 감사기가 못 읽는다).
     popens = [n for n in ast.walk(tree)
@@ -28469,10 +28472,99 @@ def _t457_check(src):
             "[457] 다리가 " + bad + " 를 건드린다 — 그러면 --up 을 문에서 빼 둔 근거가 무너진다."
             " 문을 다시 넓히거나 그 코드를 빼야 한다(사고 #27: 두 창이 같은 밴드를 긁으면 캐시가 오염된다)")
 
+    # ⑩ ERP 화면 이름을 **여기서 적지 않는다**([162]) — 등록부(`erp_grab.SCREENS`)가
+    #    정한다.  적어 두면 등록부가 늘어난 날 이 길만 옛 목록을 보면서 오류도 안 낸다([165]).
+    for bad in ('"ledger"', '"tax"', '"slips"', '"taxinv"'):
+        assert bad not in code, (
+            "[457] ERP 화면 이름을 다리가 손으로 적는다: " + bad + " — 등록부에서 와야 한다([162])")
+
     # ⑨ `urllib.parse` 를 실제로 들여온다 — `urllib.request` 가 속으로 올려 주는 것에
     #    기대면 파이썬 판이 바뀌는 날 조용히 죽는다.
     assert "import urllib.parse" in code, "[457] urllib.parse 를 안 들여온다"
 
+
+def _t457_erp_run(src):
+    """ERP 반쪽을 **불러서** 잰다([295]) — 크롬도 앱 서버도 안 띄운다([211]).
+
+    글자 검사로는 '정말 로그인 전에 안 긁나' 를 못 잰다.  그래서 모듈을 떼어
+    올리고 목으로 갈아 끼워 **결과로** 잰다.
+    """
+    import types
+    m = types.ModuleType("_bb457")
+    m.__file__ = os.path.join(ROOT, "band", "browser_bridge.py")
+    exec(compile(src, m.__file__, "exec"), m.__dict__)
+
+    # ⚠ 진짜 `time` 을 건드리면 프로세스 전체가 눈이 먼다([371]).  이 모듈의
+    #   이름칸만 갈아 끼운다.
+    m.time = types.SimpleNamespace(sleep=lambda _s: None, time=time.time,
+                                   strftime=time.strftime)
+
+    def _fixed(v):
+        def _e(ws, expr, timeout=60, await_promise=True):
+            return v
+        return _e
+
+    # (1) 로그인 판정 — 2026-08-26 실측 세 모양(튕긴 주소 · 앱 주소 · 남의 주소)
+    m._eval = _fixed({"href": "https://login.ecount.com/", "code": 2,
+                      "title": "이카운트 로그인 | ECOUNT"})
+    assert m.erp_login_state(None)[0] == "need-login", (
+        "[457] 로그인 화면으로 튕겼는데 로그인됐다고 한다")
+    m._eval = _fixed({"href": "https://loginab.ecount.com/ec5/view/erp", "code": 0,
+                      "title": "ERP"})
+    assert m.erp_login_state(None)[0] == "ok", (
+        "[457] 로그인된 화면을 로그인 안 됐다고 한다 — 좁히는 것도 고장이다([172])")
+    m._eval = _fixed({"href": "https://example.com/", "code": 0, "title": ""})
+    assert m.erp_login_state(None)[0] == "unknown", (
+        "[457] 남의 주소를 아는 것처럼 말한다([169])")
+
+    class _WS(object):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    m.ensure_tab = lambda *a, **k: {"webSocketDebuggerUrl": "ws://x"}
+    m.find_tab = lambda *a, **k: None
+    m._conn = lambda t, timeout=30: _WS()
+    m.activate = lambda ws: None
+    m._call = lambda ws, meth, params=None, timeout=60: {}
+    m._dl_dirs = lambda: []
+
+    # (2) 로그인 전에는 **한 글자도 안 긁는다** — 비밀번호는 형님 몫이다(절대규칙 3)
+    seen = []
+
+    def _e2(ws, expr, timeout=60, await_promise=True):
+        seen.append(expr)
+        return None
+
+    m._eval = _e2
+    m.erp_login_state = lambda ws: ("need-login", "로그인 화면이다")
+    r = m.collect_erp(wait_s=30)
+    assert r.get("결과") == "사람대기", (
+        "[457] 로그인 전인데 '%s' 라 적는다 — 사람대기여야 한다([169])" % r.get("결과"))
+    assert not any("erp_grab.js" in c for c in seen), (
+        "[457] 로그인 전인데 수집기를 실었다 — 로그인 화면에서 긁으면 0건을 '다 받았다'로 읽는다")
+
+    # (3) '완주' 는 **화면을 다 돌았다**는 뜻이고 파일 도착은 따로 적는다([94]).
+    #     수집기 자신이 `다운로드요청 · 디스크확인 false` 라고 말한다 — 뭉치면
+    #     파일이 한 개도 안 왔는데 '다 받았다'로 읽는다.
+    m.erp_login_state = lambda ws: ("ok", "")
+    seq = [{"ok": True, "len": 16103},
+           {"완료": True, "끝난것": [{"키": "tax", "결과": "다운로드요청"}]}]
+
+    def _e3(ws, expr, timeout=60, await_promise=True):
+        return seq.pop(0) if seq else {"완료": True}
+
+    m._eval = _e3
+    r = m.collect_erp(wait_s=30)
+    assert r.get("결과") == "완주", "[457] 화면을 다 돌았는데 '%s' 라 적는다" % r.get("결과")
+    d = r.get("디스크확인")
+    assert isinstance(d, dict) and "새파일" in d, (
+        "[457] 파일이 실제로 떨어졌는지를 안 적는다([94]) — 화면이 '받음'이라 적어도"
+        " 디스크에 왔는지는 따로 봐야 한다")
+    assert d["새파일"] == 0, (
+        "[457] 한 개도 안 떨어졌는데 %r 개라 센다" % d["새파일"])
 
 def t457_browser_bridge_never_fakes_and_never_types_a_password():
     """[457] 브라우저 다리 — 속이지 않고, 비밀번호를 안 치고, 긁는 길에만 문을 건다.
@@ -28492,7 +28584,7 @@ def t457_browser_bridge_never_fakes_and_never_types_a_password():
         ("깃발을 **kw 로", src.replace("creationflags=flags", "**{'creationflags': flags}")),
         ("JS 에 hidden 속임수", src.replace("const href = location.href;",
                                         "Object.defineProperty(document,'hidden',{get:()=>false});")),
-        ("긁는 길을 문에서 뺌", src.replace('{"--status", "--up"}', '{"--status", "--up", "--collect"}')),
+        ("긁는 길을 문에서 뺌", src.replace('"--up", "--help"', '"--up", "--collect", "--help"')),
     ]
     for name, bad in hurts:
         assert bad != src, "[457] 자기시험 재료가 안 바뀌었다 — 이 검사는 아무것도 안 잰다: " + name
@@ -28502,7 +28594,209 @@ def t457_browser_bridge_never_fakes_and_never_types_a_password():
             continue
         raise AssertionError("[457] 계기가 눈멀었다 — " + name + " 를 넣었는데 못 잡는다")
 
-    print(chr(9989) + " [457] 브라우저 다리 — 안 속이고 · 비밀번호 안 치고 · 긁는 길에만 문(자기시험 4/4)")
+    # ★ ERP 반쪽은 **불러서** 잰다([295]) — 글자로는 '정말 안 긁나'를 못 잰다.
+    _t457_erp_run(src)
+    Q = chr(34)
+    erp_hurts = [
+        ("ERP 가 로그인 전에 긁는다", src.replace('        if state != ' + Q + 'ok' + Q + ':',
+                                          '        if False:')),
+        ("파일 도착 확인을 안 적는다", src.replace('out[' + Q + '디스크확인' + Q + '] = {',
+                                          'out[' + Q + '_안적음' + Q + '] = {')),
+    ]
+    for name, bad in erp_hurts:
+        assert bad != src, "[457] ERP 자기시험 재료가 안 바뀌었다: " + name
+        try:
+            _t457_erp_run(bad)
+        except AssertionError:
+            continue
+        raise AssertionError("[457] 계기가 눈멀었다 — " + name + " 를 넣었는데 못 잡는다")
+
+    print(chr(9989) + " [457] 브라우저 다리(밴드+ERP) — 안 속이고 · 비밀번호 안 치고 ·"
+          " 긁는 길에만 문 · 받음≠도착(자기시험 6/6)")
+
+
+def t458_phone_copy_pushes_only_when_business_changed():
+    """[458] 폰 사본 — 성공한 반쪽을 실패로 안 세고, 안 바뀌면 안 민다 (2026-08-26 지시).
+
+    * 재는 것은 **계약**이지 그때 쓴 숫자가 아니다([39]).
+    * 실측 증거(`reports/폰사본_지문.json`·`docs/data.enc`)에는 **한 글자도 안 쓴다**([247])
+      — 임시 경로로만 잰다.
+    * 목은 `finally` 로 되돌린다([371] — 모듈 속성은 프로세스 전체의 것이다).
+    """
+    import ast
+    import cloud_publish as CP
+    import session_handoff as SH
+
+    cp_src = open(os.path.join(ROOT, "cloud_publish.py"), encoding="utf-8").read()
+
+    # ── (1) 지문에 **시계가 안 들어간다** ────────────────────────────────
+    #   ⚠ **연달아 두 번 부르는 것으로는 못 잡는다** — 그 값들은 분 단위라 같은 분
+    #     안에서는 같다. 실측 2026-08-26: [458] 이 그렇게 통과하고도 **12분마다 밀었다**
+    #     (최상위 `기준` = `mobile_snapshot.py` 의 `datetime.now()`).
+    #     그래서 여기서는 **분이 바뀐 상황을 만들어** 잰다.
+    #   빼는 칸은 `CLOCK_KEYS` **한 곳**이 정한다([162]) — 검사가 이름을 손으로 적지 않는다.
+    assert callable(getattr(CP, "stable_payload", None)), \
+        "지문 몸통을 만드는 자리가 없다 — 빼는 칸이 흩어지면 새 시각 칸이 조용히 샌다([162])"
+    for k in ("gen", "ask", "기준"):
+        assert k in CP.CLOCK_KEYS, "CLOCK_KEYS 에 %s 가 없다 — 그 칸은 매 회차 달라진다" % k
+
+    def _fp(d):
+        return hashlib.sha256(json.dumps(
+            CP.stable_payload(d), ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")).hexdigest()
+
+    base = {"gen": "2026-08-26 23:10", "기준": "2026-08-26 23:10",
+            "codes": ["UJ1"], "issues": [],
+            "ask": {"만든때": "2026-08-26 23:10", "지금할일": "(실패 · 3분째)"}}
+    later = {"gen": "2026-08-26 23:22", "기준": "2026-08-26 23:22",
+             "codes": ["UJ1"], "issues": [],
+             "ask": {"만든때": "2026-08-26 23:22", "지금할일": "(실패 · 15분째)"}}
+    changed = dict(later, codes=["UJ1", "UJ2"])
+    assert _fp(base) == _fp(later), \
+        "12분 뒤인데 지문이 달라진다 — 업무가 그대로인데 밀게 된다(하루 77~97 커밋 · 그 사고)"
+    assert _fp(base) != _fp(changed), "업무가 바뀌었는데 지문이 같다 — 새 자료가 폰에 영영 안 간다"
+
+    #   ★ **원본은 안 건드린다** — 페이로드에는 그대로 남아야 폰이 "언제 것인지" 보여 준다([184]).
+    assert "기준" in base and "ask" in base, "stable_payload 가 원본 사전을 건드렸다"
+
+    #   ★ 남은 시각 값은 **적어 두는 진단**이지 지우는 문이 아니다([172]).
+    got = CP.clocklike_paths({"a": {"b": "2026-08-26 23:10"}, "c": "3분째", "d": "UJ2601394"})
+    assert ".a.b" in got and ".c" in got, "시각처럼 보이는 값을 못 찾는다"
+    assert ".d" not in got, "업무 번호를 시각이라 부른다 — 그러면 자국이 시끄러워 아무도 안 본다([170])"
+
+    # ── (2) `pages_unchanged` 다섯 갈래 — 실행으로([295]) ────────────────
+    with tempfile.TemporaryDirectory() as td:
+        out = os.path.join(td, "data.enc")
+        mark = os.path.join(td, "폰사본_지문.json")
+        open(out, "w", encoding="utf-8").write("x")
+        with open(mark, "w", encoding="utf-8") as f:
+            json.dump({"content_sha256": "AAA"}, f)
+
+        assert CP.pages_unchanged("AAA", out, mark) is True, "같은데 다르다고 한다 — 헛 커밋이 계속된다"
+        assert CP.pages_unchanged("BBB", out, mark) is False, "다른데 같다고 한다 — 새 자료가 폰에 안 간다"
+        assert CP.pages_unchanged("AAA", os.path.join(td, "없다.enc"), mark) is False, \
+            "사본 파일이 없는데 '같다'고 한다 — 폰이 읽을 파일이 영영 안 생긴다"
+        assert CP.pages_unchanged("AAA", out, os.path.join(td, "없다.json")) is False, \
+            "자국이 없는데 '같다'고 한다([169] — 모름을 '같다'로 치면 안 된다)"
+        open(mark, "w", encoding="utf-8").write("{깨진 json")
+        assert CP.pages_unchanged("AAA", out, mark) is False, \
+            "못 읽었는데 '같다'고 한다 — 그 사고는 폰 화면이 멀쩡해 보여 아무도 모른다([169])"
+        assert CP.pages_unchanged("", out, mark) is False, "지문이 비었는데 '같다'고 한다"
+
+        # ── (3) `remember_pages` 가 남기고, 그 뒤로 '같다'가 된다 ────────
+        mark2 = os.path.join(td, "새자국.json")
+        assert CP.pages_unchanged("CCC", out, mark2) is False
+        CP.remember_pages("CCC", "2026-08-26 23:10", mark2)
+        assert CP.pages_unchanged("CCC", out, mark2) is True, "지문을 남겼는데 다음 회차가 못 읽는다"
+        with open(mark2, encoding="utf-8") as f:
+            got = json.load(f)
+        assert got.get("content_sha256") == "CCC" and got.get("at"), "자국에 지문·시각이 안 남는다"
+
+    # ── (4) Pages 가 됐으면 **성공으로 끝낸다** ([39] 얼리기) ────────────
+    #   전체 회차를 돌리면 Z: 를 읽으므로([211]) 여기서는 그 갈래만 구조로 본다.
+    #   ⚠ 함수 이름을 못 박지 않는다([39]·[309] — 실측으로 그 갈래는 `main` 이 아니라
+    #     `_main` 안에 있었다. 이름으로 찾으면 이름이 바뀌는 날 **멀쩡한 코드를 지목한다**).
+    tree = ast.parse(cp_src)
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.If) and isinstance(node.test, ast.Name)
+                and node.test.id == "cloud_error"):
+            for inner in ast.walk(node):
+                if (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute)
+                        and inner.func.attr == "exit"):
+                    raise AssertionError(
+                        "D1 만 실패했는데 exit 로 끝난다 — 자율복구가 **성공한 Pages 푸시를 실패로 세고**"
+                        " 10분마다 재시도한다(하루 77~97 커밋 · 진짜 경보를 덮는다 · [170])")
+            break
+    else:
+        raise AssertionError("cloud_error 갈래가 사라졌다 — D1 실패를 아무도 안 말하게 된다([169])")
+
+    # ── (5) 폰이 보는 자료의 나이 — 두 주기가 같아야 한다 ────────────────
+    aps = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    def _every(name):
+        m = re.search(r"^%s\s*=\s*([0-9]+)\s*\*\s*([0-9]+)" % name, aps, re.M)
+        assert m, "%s 를 못 읽었다" % name
+        return int(m.group(1)) * int(m.group(2))
+    assert _every("PAGES_PUBLISH_EVERY") == _every("CLOUD_PUBLISH_EVERY"), \
+        "폰이 읽는 Pages 사본 주기가 D1 과 다르다 — D1 이 막힌 지금 형님이 보시는 자료가 그만큼 낡는다"
+
+    # ── (6) 인계가 그 자국을 **읽는다**([328]) — 네 갈래 ──────────────────
+    _old_rd = SH.REPORT_DIR
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            SH.REPORT_DIR = td
+            p = os.path.join(td, "cloud_continuity.json")
+
+            assert SH._cloud_snapshot_gap() == {}, \
+                "자국이 아예 없는데 말한다([247] — 한 번도 안 돌았을 뿐이다)"
+
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump({"ok": True, "checked_at": "2026-08-26T23:10:00"}, f)
+            assert SH._cloud_snapshot_gap() == {}, "되고 있는데 경보한다([170] — 정상까지 말하면 아무도 안 본다)"
+
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump({"ok": False, "error": "HTTP Error 404: Not Found",
+                           "checked_at": "2026-08-26T23:10:00"}, f)
+            g = SH._cloud_snapshot_gap()
+            assert "404" in g.get("왜", ""), "막혔는데 왜인지 안 싣는다([289] — 조치가 갈린다)"
+
+            open(p, "w", encoding="utf-8").write("{깨진")
+            g = SH._cloud_snapshot_gap()
+            assert g.get("못읽음"), "못 읽었는데 '이상 없음'이라 한다([169])"
+    finally:
+        SH.REPORT_DIR = _old_rd
+
+    # ── (7) collect 가 담고 blockers 는 읽기만 한다([291]·[404]·[407]) ────
+    sh_src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert '"클라우드사본": _cloud_snapshot_gap(),' in sh_src, \
+        "collect() 가 안 담는다 — 함수만 있고 부르는 곳이 없으면 없는 것과 같다([328])"
+    bl = _t303_enclosing_func(sh_src, 'st.get("클라우드사본")')
+    assert "_cloud_snapshot_gap()" not in bl, \
+        "blockers() 가 직접 잰다 — 합성 스냅샷으로 부르는 검사가 통째로 막힌다([291])"
+
+    # ── (8) '커밋할 것 없음'을 **두 문구 다** 받는가 ─────────────────────
+    #   ⚠ git 은 작업 폴더 상태에 따라 다른 말을 한다 — 깨끗하면
+    #     `nothing to commit, working tree clean`, 남의 미커밋이 있으면
+    #     `no changes added to commit`. 이 저장소는 세션끼리 작업 폴더를
+    #     공유하고 회차가 계속 도니 **미커밋이 거의 항상 있다**([104]).
+    #     실측 2026-08-26: 뒤 문구를 안 받아 사본을 안 밀 때마다 **exit 1** 이 됐고,
+    #     자율복구가 그것을 실패로 세고 10분마다 재시도했다.
+    for detail, want in (
+            ("nothing to commit, working tree clean", True),
+            ("no changes added to commit (use \"git add\" and/or \"git commit -a\")", True),
+            ("error: could not apply — merge conflict", False)):
+        seen = []
+
+        def _runner(cmd, **kw):
+            seen.append(cmd[1])
+            rc = 1 if cmd[1] == "commit" else 0
+            return type("R", (), {"returncode": rc, "stdout": detail if rc else "",
+                                  "stderr": ""})()
+
+        ok, stage, _d = CP.git_publish("시험", runner=_runner)
+        assert ok is want, \
+            ("git 이 '%s' 라 했는데 %s 로 끝난다 — %s"
+             % (detail[:40], "실패" if not ok else "성공",
+                "자율복구가 실패로 세고 10분마다 재시도한다" if want
+                else "진짜 실패를 성공으로 삼킨다"))
+        if want:
+            assert "push" in seen, "커밋할 것이 없다고 push 까지 건너뛴다 — 미푸시분이 영영 안 간다"
+
+    # ── (9) 계기 자신을 시험한다([272]) ──────────────────────────────────
+    #   옛 동작(`ask` 를 안 뺀다)이면 (1)이 정말 잡는가.
+    for missing in ("ask", "기준"):
+        def _fp_old(d, _m=missing):
+            stable = dict(d)
+            for k in CP.CLOCK_KEYS:
+                if k != _m:
+                    stable.pop(k, None)   # 그 한 칸만 안 뺀 옛 동작
+            return hashlib.sha256(json.dumps(
+                stable, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            ).encode("utf-8")).hexdigest()
+        assert _fp_old(base) != _fp_old(later), \
+            ("계기 자기시험 실패 — %s 를 안 빼도 지문이 같다면 이 검사는 아무것도 안 재고 있다"
+             % missing)
+
+    print(chr(9989) + " [458] 폰 사본 — 안 바뀌면 안 밀고, 성공한 반쪽을 실패로 안 센다")
 
 
 def t192_synthetic_check_is_harmless():
@@ -41217,6 +41511,7 @@ if __name__ == "__main__":
     t455_camp_code_is_leftmost_and_shown_on_work_cards()
     t456_lego_features_and_light_transfer()
     t457_browser_bridge_never_fakes_and_never_types_a_password()
+    t458_phone_copy_pushes_only_when_business_changed()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
