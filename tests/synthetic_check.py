@@ -35402,8 +35402,25 @@ def t271_pc_off_cloud_snapshot_and_lossless_return():
     assert _writes(["--force"]), (
         "[271] 아무 회차도 추적 사본을 못 쓰게 됐다 — 그러면 폰이 영영 옛 사본을 본다")
     assert '"/api/snapshot"' in publisher and '"Authorization": "Bearer " + token' in publisher
-    assert "CLOUD_PUBLISH_EVERY = 10 * 60" in server
-    assert "PAGES_PUBLISH_EVERY = 3 * 3600" in server
+    # ★ 숫자가 아니라 **보증**을 얼린다([219]·[39]).  2026-08-26 형님 지시로 폰
+    #   사본 주기가 3시간 → **10분**이 됐다([458]) — 계약은 좋아졌는데 그때 쓴
+    #   숫자를 못 박아 둔 이 검사만 죽었다.  얼릴 것은
+    #   **"클라우드 사본은 10분 안에, 폰이 읽는 사본은 3시간 안에 반드시 갱신된다"** 이다.
+    #   더 자주 도는 것은 계약을 지키는 것이지 어기는 것이 아니다.
+    _iv = {}
+    for _n in _a.walk(_a.parse(server)):
+        if not isinstance(_n, _a.Assign):
+            continue
+        for _t in _n.targets:
+            if isinstance(_t, _a.Name) and _t.id in ("CLOUD_PUBLISH_EVERY", "PAGES_PUBLISH_EVERY"):
+                _iv[_t.id] = eval(compile(
+                    _a.fix_missing_locations(_a.Expression(_n.value)), "<t271>", "eval"), {})
+    assert set(_iv) == {"CLOUD_PUBLISH_EVERY", "PAGES_PUBLISH_EVERY"}, (
+        "[271] 사본 주기를 정하는 자리를 못 찾았다: " + repr(sorted(_iv)))
+    assert 0 < _iv["CLOUD_PUBLISH_EVERY"] <= 10 * 60, (
+        "[271] 클라우드 최신 사본의 최대 지연이 10분을 넘는다: %r" % _iv["CLOUD_PUBLISH_EVERY"])
+    assert 0 < _iv["PAGES_PUBLISH_EVERY"] <= 3 * 3600, (
+        "[271] 폰이 읽는 사본이 3시간 안에 안 갱신된다: %r" % _iv["PAGES_PUBLISH_EVERY"])
     loop = server.split("def publish_loop():", 1)[1].split("\n\nclass _Server", 1)[0]
     assert "cloud_queue_sync.py" in loop and loop.index("cloud_queue_sync.py") < loop.index("cloud_publish.py"), \
         "PC 복귀 예약 합류보다 새 사본 게시가 먼저 돈다"
