@@ -66,6 +66,21 @@ SILENT_HOURS = 6.0
 #:   30분이면 판정할 수 있다.**
 START_GRACE_MIN = 10.0   # 저장·업로드에 드는 여유
 
+#: 헛돈 회차를 알아보는 문턱 — **건당 초**.
+#:
+#: ★ 지어낸 값이 아니라 **실측**이다(2026-08-26 · 되보고 `최근` 의 끝난 회차 열):
+#:     정상 = 2.64 · 3.52 · 4.32 · 7.20 · 7.30 · 10.78 · 12.03 · 24.82 초/건
+#:     그날 헛돈 회차 = **0.55 초/건**(요청 87건을 48초에 전부 실패)
+#:   가장 빠른 정상치(2.64)의 **절반도 안 되는** 자리에 선을 긋는다.
+#: ★ **`수확 0` 만으로 부르면 안 된다**([172]).  같은 표에 **정당한 `수확 0` 이 둘**
+#:   있다(250건 1,825초 · 250건 1,801초) — 오염·없는 번호만 든 배치라 건당 7초를
+#:   꽉 썼다([217]).  그것까지 부르면 경보가 대부분이 되어 아무도 안 본다([170]).
+#:   **가르는 것은 수확이 아니라 시간**이다.
+BLANK_ROUND_SEC_PER_POST = 1.0
+
+#: 너무 작은 배치는 건당 시간이 흔들린다 — 그때는 아무 말도 안 한다([169]).
+BLANK_ROUND_MIN_REQ = 5
+
 
 def _grab_wait_hours():
     """수집기의 회차 한도(시간)를 **수집기 파일에서 읽는다**.
@@ -301,6 +316,48 @@ def plan_state(now: Optional[datetime] = None) -> Dict[str, Any]:
     }
 
 
+def _last_rounds(doc: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """밴드마다 **마지막으로 끝난 회차**를 `최근` 에서 찾는다.
+
+    ★ `밴드` 칸은 **가장 최근 한 줄**뿐이라 `idle`(간격 대기) 하트비트가 회차 결과를
+      **덮는다**.  2026-08-26 실측이 그것이다 — 84789192 가 `done · 요청 87 · 수확 0`
+      으로 끝난 뒤 47분 만에 `idle` 이 그 자리를 차지했고 판정은 **`정상`** 이었다
+      (`[169]` — 실패가 성공처럼 보이는 자리).
+    ⚠ `최근` 은 100줄에서 잘린다(`app_server.COLLECT_REPORT_KEEP`).  그보다 오래된
+      회차는 여기서 안 보인다 — **못 보는 것을 '없다'고 하지 않는다**([169]).
+    """
+    out = {}
+    for row in (doc.get("최근") or []):
+        if not isinstance(row, dict):
+            continue
+        if row.get('state') not in ('done', 'partial', 'save-failed'):
+            continue
+        b = str(row.get('band') or '')
+        if b:
+            out[b] = row
+    return out
+
+
+def _blank_round(row: Dict[str, Any]) -> Optional[float]:
+    """그 회차가 **헛돌았으면** 건당 초를, 아니면 None.
+
+    헛돎 = 요청은 있었는데 **한 건도 못 얻었고**, 걸린 시간이 화면이 그려질 수
+    없을 만큼 짧다.  **둘 다** 맞을 때만이다 — 하나만 보면 정당한 회차를 죽인다([172]).
+    """
+    try:
+        req = int(row.get('요청') or 0)
+        got = int(row.get('수확') or 0)
+        sec = row.get('걸린초')
+        sec = None if sec is None else float(sec)
+    except (TypeError, ValueError):
+        return None
+    # 걸린초를 못 읽으면 **부르지 않는다** — 모르는 것을 고장이라 하지 않는다([169]).
+    if req < BLANK_ROUND_MIN_REQ or got > 0 or sec is None or sec < 0:
+        return None
+    per = sec / float(req)
+    return per if per < BLANK_ROUND_SEC_PER_POST else None
+
+
 def judge(doc: Optional[Dict[str, Any]], why: str,
           now: Optional[datetime] = None,
           plan: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -422,6 +479,34 @@ def judge(doc: Optional[Dict[str, Any]], why: str,
         return {"갈래": "계획굳음",
                 "왜": "수집 계획이 %.1f시간째 그대로다 — 크롬은 도는데 긁을 목록이 안 온다" % pa,
                 "밴드": rows, "계획": plan}
+    # ★ **헛돈 회차를 '정상'이라 하지 않는다**(2026-08-26 실사고).
+    #   84789192 가 `요청 87 · 수확 0` 을 **48초**에 끝냈는데(건당 0.55초 — 밴드 글
+    #   화면이 그려질 시간이 아니다) 그 `done` 기록이 `idle` 하트비트에 덮여 판정은
+    #   **`정상`** 이었고, 밀린 글 169건은 그대로 남았다(`[169]`).
+    #   ★ 맨 뒤에 둔다 — 앞의 갈래(끊김·가려짐·계획굳음)가 더 급하고, 그것들이
+    #     이미 잡은 것을 덮지 않는다([203] 과 반대 방향이다).
+    헛돈 = []
+    for band, row in _last_rounds(doc).items():
+        per = _blank_round(row)
+        if per is None:
+            continue
+        # 일감이 없으면 조용하다([170]).  다만 **모르면 안 뺀다**([169]) —
+        # 대기열을 못 읽었으면 `밀린글` 이 None 이고 그때는 그대로 부른다.
+        남은 = (rows.get(band) or {}).get('밀린글')
+        if 남은 is not None and 남은 <= 0:
+            continue
+        헛돈.append((band, row, per))
+        rows.setdefault(band, {})['헛돎'] = round(per, 2)
+    if 헛돈:
+        말 = '  · '.join(
+            '밴드 %s 가 요청 %s건을 **한 건도 못 받고** %s초에 끝냈다(건당 %.2f초 — 정상은 %.1f초 위다)'
+            % (b, r.get('요청'), r.get('걸린초'), p, BLANK_ROUND_SEC_PER_POST)
+            for b, r, p in sorted(헛돈))
+        # ★ **원인은 지목하지 않는다**([169]·[172]) — 아는 것은 '아무것도 안
+        #   그려졌다' 까지다.  확언하면 사람이 멀쩡한 것을 고치러 간다.
+        return {'갈래': '헛돎', '왜': 말 + ' · **원인은 아직 모른다**',
+                '밴드': rows, '계획': plan,
+                '헛돈밴드': sorted(b for b, _r, _p in 헛돈)}
     return {"갈래": "정상", "왜": "가장 최근 보고 %.1f시간 전" % freshest,
             "밴드": rows, "계획": plan}
 
@@ -443,6 +528,14 @@ FIX = {
     "가려짐": "크롬 창을 앞으로 꺼낸다(탭만 열려 있으면 부족하다 — 창이 가려지면 모든 탭이 숨은 것으로 잡힌다). 밴드 탭이 여럿이면 한 창에서는 **앞 탭 하나만** 긁힌다 — 탭을 창 밖으로 끌어내 두 창을 나란히 두거나 한 밴드씩 차례로 한다",
     "계획굳음": "09:50 회차의 `band/comment_backfill.py --write` 가 도는지 본다(계획을 만드는 자리다)",
     "확인못함": "보고 파일을 사람이 본다 — 못 읽는 것을 '이상 없음'으로 치지 않는다",
+    # ★ **원인을 지목하지 않는다**([172]).  2026-08-26 실측으로 되돌림(로그인 튕김)이
+    #   아니었고(`notime` 이 비었다 — 되돌림은 거기 지문을 남긴다) sandbox 도 아니었다
+    #   (수집기가 `BLANK_GIVEUP` 으로 스스로 되돌리고도 전부 실패했다).  그러니
+    #   **가르는 법**만 준다 — 짐작으로 지목하면 사람이 멀쩡한 것을 고치러 간다.
+    "헛돎": "그 밴드 탭에서 아무 글이나 하나 열어 본다 — 안 열리면 로그인·차단이고, "
+            "열리면 크롬이 액자(iframe)를 막은 것이다.  F12 는 **화면 아래 도킹**으로 "
+            "연다(별도 창으로 띄우면 그 탭이 가려진 것으로 잡힌다).  두 밴드를 한꺼번에 "
+            "긁고 있었으면 **한 밴드씩 차례로** 해 본다",
     "정상": "",
 }
 

@@ -31979,6 +31979,106 @@ def t439_two_gates_never_overwrite_each_others_fonts():
     print(chr(9989) + " [439] 관문 둘이 겹치면 뒤에 온 쪽이 물러난다 — 앱 글꼴을 안 덮는다")
 
 
+def t438_blank_round_is_not_normal():
+    """[438] **헛돈 회차를 '정상'이라 하지 않는다** (2026-08-26 실사고).
+
+    84789192 가 `요청 87 · 수확 0` 을 **48초**에 끝냈다(건당 0.55초 — 밴드 글
+    화면이 그려질 시간이 아니다).  그런데 그 `done` 기록이 `idle`(간격 대기)
+    하트비트에 **덮여** 판정은 **`정상`** 이었고, 밀린 글 169건은 그대로 남았다.
+    이 저장소가 되풀이해 겪는 **실패가 성공처럼 보이는 자리**다(`[169]`).
+
+    ★ **`수확 0` 만으로 부르면 안 된다**(`[172]`).  같은 표에 **정당한 `수확 0` 이
+      둘** 있다(250건 1,825초 · 250건 1,801초 — 오염·없는 번호만 든 배치라 건당
+      7초를 꽉 썼다 · `[217]`).  그것까지 부르면 경보가 대부분이 되어 아무도 안
+      본다(`[170]`).  **가르는 것은 수확이 아니라 시간**이다 — ②가 그것을 잰다.
+    """
+    import importlib, sys as _sys
+    from datetime import datetime, timedelta
+    _band = os.path.join(ROOT, 'band')
+    if _band not in _sys.path:
+        _sys.path.insert(0, _band)
+    UW = importlib.import_module('userscript_watch')
+
+    now = datetime(2026, 8, 26, 10, 40, 0)
+    def _at(minutes_ago):
+        return (now - timedelta(minutes=minutes_ago)).strftime('%Y-%m-%dT%H:%M:%S')
+
+    def _plan(remain):
+        # judge 는 계획을 **인자로** 받는다 — 여기서 진짜 파일을 안 읽는다(`[247]`).
+        return {'있음': True, '나이': 0.5, '밴드수': 1, '글수': remain,
+                '밴드별': {'84789192': remain}, '밴드별갈래': {}}
+
+    def _doc(req, got, sec, tail_idle=True):
+        done = {'state': 'done', 'at': _at(50), 'band': '84789192',
+                'url': '/band/84789192/post', '요청': req, '수확': got, '걸린초': sec}
+        idle = {'state': 'idle', 'at': _at(1), 'band': '84789192',
+                'url': '/band/84789192/post', 'why': '간격 대기 중'}
+        recent = [dict(done)] + ([dict(idle)] if tail_idle else [])
+        # ★ `밴드` 칸은 **가장 최근 한 줄**뿐이다 — 그것이 이 사고의 모양이다.
+        last = dict(idle) if tail_idle else dict(done)
+        return {'밴드': {'84789192': last}, '최근': recent}
+
+    # ① 헛돈 회차 — 실측 그대로(87건 · 48초 · 건당 0.55초)
+    v = UW.judge(_doc(87, 0, 48), '', now=now, plan=_plan(169))
+    assert v['갈래'] == '헛돎', (
+        '[438] 87건을 48초에 전부 놓쳤는데 갈래가 %r 이다 — 헛돎이어야 한다' % v['갈래'])
+    assert '0.55' in (v.get('왜') or ''), '[438] 건당 초를 숫자로 안 말한다(`[169]`)'
+    assert '87' in (v.get('왜') or ''), '[438] 요청 건수를 안 말한다'
+    assert '모른다' in (v.get('왜') or ''), (
+        '[438] 원인을 확언한다 — 아는 것은 아무것도 안 그려졌다 까지다(`[172]`)')
+
+    # ② ★ **정당한 `수확 0` 은 그대로 정상**이다(`[172]` — 좁히는 것도 고장이다).
+    #    실측: 250건 1,801초 = 건당 7.20초.  오염·없는 번호만 든 배치는 시간을 꽉 쓴다.
+    v2 = UW.judge(_doc(250, 0, 1801), '', now=now, plan=_plan(500))
+    assert v2['갈래'] != '헛돎', (
+        '[438] 건당 7.2초짜리 정당한 회차를 헛돎이라 부른다 — 거짓 경보다(`[170]`)')
+
+    # ③ 한 건이라도 얻었으면 조용하다
+    assert UW.judge(_doc(87, 1, 48), '', now=now, plan=_plan(169))['갈래'] != '헛돎'
+
+    # ④ 너무 작은 배치는 건당 시간이 흔들린다 — 아무 말도 안 한다(`[169]`)
+    assert UW.judge(_doc(4, 0, 2), '', now=now, plan=_plan(169))['갈래'] != '헛돎'
+
+    # ⑤ 일감이 없으면 조용하다(`[170]`) — 그러나 **모르면 안 뺀다**(`[169]`)
+    assert UW.judge(_doc(87, 0, 48), '', now=now, plan=_plan(0))['갈래'] != '헛돎'
+    _nop = {'있음': False}
+    assert UW.judge(_doc(87, 0, 48), '', now=now, plan=_nop)['갈래'] == '헛돎', (
+        '[438] 대기열을 못 읽었다고 조용해진다 — 모름을 일감 없음으로 쳤다(`[169]`)')
+
+    # ⑥ **`걸린초` 를 못 읽으면 안 부른다**(`[169]`)
+    assert UW.judge(_doc(87, 0, None), '', now=now, plan=_plan(169))['갈래'] != '헛돎'
+
+    # ⑦ `idle` 이 덮지 않았어도 같은 답이어야 한다(덮임 여부에 안 매인다)
+    v7 = UW.judge(_doc(87, 0, 48, tail_idle=False), '', now=now, plan=_plan(169))
+    assert v7['갈래'] == '헛돎'
+
+    # ⑧ 조치가 있고, 거기서도 원인을 확언하지 않는다(`[172]`)
+    fix = UW.fix_for('헛돎')
+    assert fix and len(fix) > 20, '[438] 헛돎에 조치가 없다 — 말만 하고 길을 안 준다'
+    assert '헛돎' in UW.FIX, '[438] FIX 표에 갈래가 빠졌다'
+
+    # ⑨ 문턱이 **실측**에서 왔는가 — 지어낸 값이면 언젠가 조용히 틀린다
+    assert UW.BLANK_ROUND_SEC_PER_POST < 2.64, (
+        '[438] 문턱(%s)이 실측 최저 정상치 2.64초/건 위다 — 정상 회차를 죽인다'
+        % UW.BLANK_ROUND_SEC_PER_POST)
+    assert UW.BLANK_ROUND_SEC_PER_POST > 0.55, (
+        '[438] 문턱(%s)이 실측 헛돎 0.55초/건 아래다 — 그 사고를 못 잡는다'
+        % UW.BLANK_ROUND_SEC_PER_POST)
+
+    # ⑩ 계기 자기시험(`[272]`) — **시간 문**을 없애면 ②가 거짓 경보가 되는가
+    _real = UW._blank_round
+    try:
+        UW._blank_round = lambda row: (
+            0.0 if (int(row.get('요청') or 0) >= UW.BLANK_ROUND_MIN_REQ
+                    and int(row.get('수확') or 0) == 0) else None)
+        bad = UW.judge(_doc(250, 0, 1801), '', now=now, plan=_plan(500))
+        caught = bad['갈래'] == '헛돎'   # 시간을 안 보면 정당한 회차가 잡힌다
+    finally:
+        UW._blank_round = _real
+    assert caught, '[438] 계기가 옛 동작(수확만 보기)을 못 잡는다'
+
+    print('  [438] 헛돈 회차를 정상이라 하지 않는다(정당한 수확 0 은 그대로) ' + chr(9989))
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -39194,6 +39294,7 @@ if __name__ == "__main__":
     t435_calendar_capture_does_not_wait_for_what_it_never_reads()
     t436_autopilot_skips_what_it_can_never_finish()
     t437_batch_is_capped_by_time_not_count()
+    t438_blank_round_is_not_normal()
     t438_ceo_directive_id_is_not_tied_to_room()
     t439_two_gates_never_overwrite_each_others_fonts()
     t192_synthetic_check_is_harmless()
