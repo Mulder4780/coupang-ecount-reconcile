@@ -46,7 +46,19 @@
   var APP_CANDIDATES = ['http://127.0.0.1:8899', 'http://localhost:8899'];
   // PC 가 꺼져 있으면 로컬 앱이 없다 — 그때는 게시 사본에서 계획·수집기를 받는다.
   var PAGES_BASE = 'https://mulder4780.github.io/coupang-ecount-reconcile/collect';
-  var GAP_MS = 3 * 60 * 60 * 1000;      // 밴드당 최소 간격(몰아 긁기 방지)
+  // -- 간격: **할 일이 있으면 빨리, 없으면 쉰다** (2026-08-26 지시)
+  //   형님 지시: "전부 긁고 다음부터 바로바로 긁어올 수 있게 알고리즘 구현해".
+  //   * 예전에는 갈래를 안 보고 **언제나 3시간**이었다.  그래서 새 글이 올라와도
+  //     최대 3시간 뒤에 들어왔고, 오염 602건은 한 배치(약 27분)씩 3시간마다라
+  //     다 긁는 데 **여러 날**이 걸렸다.
+  //   * 그렇다고 늘 짧게 두면 몰아 긁기가 된다 - 3시간은 그것을 막으려던 값이다.
+  //     그래서 **남은 일감으로 정한다**: 할 일이 없으면 예전 그대로 3시간이고,
+  //     일감은 유한하므로 다 긁으면 저절로 3시간으로 돌아간다.
+  var GAP_MS = 3 * 60 * 60 * 1000;      // 할 일이 없을 때(예전 그대로)
+  var GAP_NEW_MS = 5 * 60 * 1000;       // **새 글**이 있으면 - 바로바로
+  var GAP_WORK_MS = 30 * 60 * 1000;     // 남은 일(재수집/댓글/오염)이 있으면
+  var PROBE_GAP_MS = 5 * 60 * 1000;     // 계획을 물어보는 최소 간격(앱을 쪼지 않는다)
+  var TICK_MS = 60 * 1000;              // 확인 주기 - 실제로 긁을지는 위 간격이 정한다
   var HEARTBEAT_MS = 30 * 60 * 1000;    // 긁을 게 없어도 이 간격마다 '살아 있다'를 알린다
   var POLL_MS = 4000;
   var MAX_WAIT_MS = 30 * 60 * 1000;
@@ -66,6 +78,19 @@
   }
   function keyLast(band) { return 'coupangAutoCollect.last.' + band; }
   function keyBeat(band) { return 'coupangAutoCollect.beat.' + band; }
+  function keyProbe(band) { return 'coupangAutoCollect.probe.' + band; }
+
+  // 남은 일감으로 이번 간격을 정한다.
+  //   * **모르면 예전 그대로 3시간이다**([169]) - 계획을 못 읽었는데 짧은 간격을
+  //     쓰면 앱이 죽은 밤에 1분마다 헛돈다.  모름을 '할 일 있음'으로 치지 않는다.
+  //   * 새 글(미수집)이 하나라도 있으면 **그것이 이긴다** - 형님이 말씀하신
+  //     "바로바로"가 이 한 줄이다.  오염이 아무리 많아도 새 글을 안 밀어낸다.
+  function gapFor(counts) {
+    if (!counts) return GAP_MS;
+    if ((counts['미수집'] || 0) > 0) return GAP_NEW_MS;
+    var work = (counts['재수집'] || 0) + (counts['댓글'] || 0) + (counts['오염'] || 0);
+    return work > 0 ? GAP_WORK_MS : GAP_MS;
+  }
   function getTs(k) { return parseInt(localStorage.getItem(k) || '0', 10) || 0; }
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
@@ -131,6 +156,9 @@
             return {
               collector: base + '/grab_posts.js',
               nos: (plan && plan.nos) || [],
+              // * 남은 일감 - 이번 간격을 정하는 근거다.  대기열이 이미 세어
+              //   내려 주므로 **여기서 다시 세지 않는다**([162]).
+              건수: (plan && plan['대기열'] && plan['대기열']['건수']) || null,
               생성: (plan && plan.generated) || '',
               출처: 'app'
             };
@@ -143,7 +171,9 @@
           var b = (doc.bands || {})[String(band)] || {};
           return {
             collector: PAGES_BASE + '/grab_posts.js',
-            nos: b.nos || [], 생성: doc.generated || '', 출처: 'pages'
+            nos: b.nos || [], 생성: doc.generated || '',
+            건수: b['건수'] || null,      // 없으면 null -> 예전 간격(3시간)
+            출처: 'pages'
           };
         })
         .catch(function () { return null; });
@@ -166,24 +196,29 @@
       return;
     }
 
-    var due = (Date.now() - getTs(keyLast(band))) >= GAP_MS;
-    if (!due) {
-      // 아직 간격 전이라도 **살아 있다는 것은 알린다** — 이 한 줄이 없으면
-      // '설치 안 됨' 과 '설치했고 방금 긁어서 쉬는 중' 이 똑같이 조용하다([169]).
-      if (Date.now() - getTs(keyBeat(band)) >= HEARTBEAT_MS) {
-        localStorage.setItem(keyBeat(band), String(Date.now()));
-        report(band, 'idle', { why: '간격 대기 중', 다음: getTs(keyLast(band)) + GAP_MS });
-      }
-      return;
-    }
+    // * **계획을 물어보는 것에도 최소 간격을 둔다.**  틱이 1분이라 이것이 없으면
+    //   앱 `/api/ping` 을 1분마다 두드린다.  `keyLast` 는 **긁을 때만** 찍히므로
+    //   그것으로는 못 막는다 - 안 긁는 동안 계속 커지기 때문이다.
+    if (Date.now() - getTs(keyProbe(band)) < PROBE_GAP_MS) return;
+    localStorage.setItem(keyProbe(band), String(Date.now()));
 
-    // 시작 표시를 **먼저** 찍는다 — 실패해도 다음 로드에서 곧바로 또 긁지 않게.
-    localStorage.setItem(keyLast(band), String(Date.now()));
-    localStorage.setItem(keyBeat(band), String(Date.now()));
+    var since = Date.now() - getTs(keyLast(band));
 
     resolveSource(band).then(function (src) {
       if (!src) {
         return report(band, 'no-source', { why: '앱도 게시 사본도 못 찾았다' });
+      }
+      // * 간격 판정이 **계획을 받은 뒤**로 왔다 - 남은 일감을 알아야 정할 수 있다.
+      var gap = gapFor(src['건수']);
+      if (since < gap) {
+        // 아직 간격 전이라도 **살아 있다는 것은 알린다** - 이 한 줄이 없으면
+        // '설치 안 됨' 과 '설치했고 방금 긁어서 쉬는 중' 이 똑같이 조용하다([169]).
+        if (Date.now() - getTs(keyBeat(band)) >= HEARTBEAT_MS) {
+          localStorage.setItem(keyBeat(band), String(Date.now()));
+          report(band, 'idle', { why: '간격 대기 중', 다음: getTs(keyLast(band)) + gap,
+                                 간격분: Math.round(gap / 60000), 건수: src['건수'] || null });
+        }
+        return;
       }
       if (!src.nos.length) {
         // 긁을 게 없는 것과 계획이 낡은 것은 다르다 — 생성 시각을 같이 보낸다.
@@ -191,6 +226,11 @@
         // 안 갱신돼 크롬이 아무리 돌아도 긁을 게 없던 일이 있었다).
         return report(band, 'no-plan', { 계획생성: src.생성, 출처: src.출처 });
       }
+      // 시작 표시를 **긁기 직전에** 찍는다 - 실패해도 곧바로 또 긁지 않게.
+      //   (예전에는 계획을 받기 전에 찍었다.  간격 판정이 계획 뒤로 오면서
+      //    여기로 내려왔다 - 안 옮기면 안 긁고도 간격이 소모된다.)
+      localStorage.setItem(keyLast(band), String(Date.now()));
+      localStorage.setItem(keyBeat(band), String(Date.now()));
       return loadCollector(src.collector).then(function () {
         return startAndSave(band, src.nos, src);
       }).catch(function (e) {
@@ -262,5 +302,8 @@
     if (document.visibilityState === 'visible') setTimeout(run, 2000);
   });
   // 긴 세션에서도 소식이 끊기지 않게 — 탭을 며칠 열어 두는 것이 이 설계의 전제다.
-  setInterval(run, HEARTBEAT_MS);
+  //   * 틱은 1분이고 **실제로 긁을지는 `gapFor` 가 정한다.**  예전에는 30분마다만
+  //     확인해서, 간격을 5분으로 줄여도 30분에 한 번밖에 안 봤다.
+  //     되보고는 그대로 30분마다다(`HEARTBEAT_MS` 로 거른다).
+  setInterval(run, TICK_MS);
 })();
