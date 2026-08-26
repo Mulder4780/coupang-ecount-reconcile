@@ -29024,10 +29024,13 @@ def t460_bridge_takes_over_only_when_the_human_tab_is_gone():
     hurts = [
         ("살아 있는 탭도 가져감",
          wd.replace('TAKE = ("끊김", "안옴")', 'TAKE = ("끊김", "안옴", "가려짐", "start")')),
+        # ⚠ 재료는 **BB 가 이미 있는 자리**에 넣는다 — 앞에 넣으면 UnboundLocalError
+        #   로 죽어서 '문이 잡은 것'과 구별이 안 된다([272] · 만들며 그대로 밟았다).
         ("한 회차에 여러 밴드",
-         wd.replace("band = sorted(cand)[0]", "band = sorted(cand)[0]" + chr(10) +
-                    "    for _b in sorted(cand)[1:]:" + chr(10) +
-                    "        BB.collect_band(_b, wait_s=1)")),
+         wd.replace("        out = BB.collect_band(band, wait_s=wait)",
+                    "        out = BB.collect_band(band, wait_s=wait)" + chr(10) +
+                    "        for _b in sorted(cand)[1:]:" + chr(10) +
+                    "            BB.collect_band(_b, wait_s=1)")),
     ]
     for name, bad in hurts:
         assert bad != wd, "[460] 자기시험 재료가 안 바뀌었다: " + name

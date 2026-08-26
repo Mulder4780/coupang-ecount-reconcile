@@ -1108,17 +1108,11 @@ def heal_band_bridge(dry):
     TAKE = ("끊김", "안옴")
     cand = [b for b, v in (st.get("밴드") or {}).items()
             if str(v.get("갈래") or "") in TAKE]
-    # 되보고가 **한 번도 없는** 밴드도 사람 탭이 없는 것이다 — 대기열에는 있는데
-    # 보고가 없으면 아무도 안 긁고 있다는 뜻이다([169]).
-    try:
-        from band import collect_queue as CQ
-        with open(CQ.QUEUE_PATH, encoding="utf-8") as fh:
-            q = json.load(fh)
-        for b in (q.get("bands") or {}):
-            if b not in (st.get("밴드") or {}) and b not in cand:
-                cand.append(b)
-    except Exception:
-        pass                      # 대기열을 못 읽는 것으로 이 눈을 세우지 않는다
+    # ⚠ 대기열을 여기서 다시 보지 않는다([162]).  처음엔 "대기열에 있는데 보고가
+    #   없으면 아무도 안 긁는 것" 이라는 예비 경로를 뒀는데, 그것이 곧 **판정을
+    #   두 곳에서** 하는 것이라 **살아 있는 탭까지 가져갔다**(검증 [460] 이 잡았다).
+    #   보고에 없는 밴드는 `userscript_watch` 가 `안옴` 으로 말해야 한다 — 안 말하면
+    #   고칠 자리는 여기가 아니라 거기다.
     if not cand:
         return ""                 # 사람 탭이 다 살아 있다 — 조용하다([170])
 
