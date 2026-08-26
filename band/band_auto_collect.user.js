@@ -240,7 +240,14 @@
         return report(band, saved ? (timedOut ? 'partial' : 'done') : 'save-failed', {
           요청: nos.length,
           수확: st.ok != null ? st.ok : null,
-          실패: st.fail != null ? st.fail : null,
+          // ★ `__grabStatus()` 가 내놓는 이름은 **`failed`** 다(`grab_posts.js`).
+          //   여기가 `st.fail` 을 읽고 있어서 되보고의 `실패` 는 **늘 null** 이었다 —
+          //   낱말이 어긋나면 한 건도 안 걸리면서 오류도 안 난다([165]).
+          //   2026-08-26 에 87건이 전부 실패한 회차를 뜯어보고서야 드러났다.
+          //   ⚠ 이 값으로 **헛돎을 판정하지 않는다**([440]) — 없는 번호만 든 배치도
+          //     정당하게 `실패 == 요청` 이다.  가르는 것은 시간이다.  여기는 **사실을
+          //     그대로 적는 자리**이고, 사람이 뒤져 볼 때 쓰인다.
+          실패: st.failed != null ? st.failed : (st.fail != null ? st.fail : null),
           걸린초: Math.round((Date.now() - t0) / 1000),
           why: why || (timedOut ? '시간이 넘어 도중까지만 저장했다' : '')
         });

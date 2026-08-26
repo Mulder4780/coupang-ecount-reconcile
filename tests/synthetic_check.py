@@ -16567,6 +16567,19 @@ def t229_band_liveness_contract():
     for k in ("tried", "saves", "prevDeath", "prevBeat", "sandboxFellBack"):
         ck("__grabStatus 가 %s 를 내놓는다" % k, k in js, True)
 
+    # ★ **되보고가 읽는 이름이 수집기가 내놓는 이름과 같은가**([165]·[162]).
+    #   2026-08-26 실측: `__grabStatus()` 는 `failed` 를 내놓는데 되보고는 `st.fail`
+    #   을 읽고 있었다 — 그래서 `실패` 칸이 **늘 null** 이었고, 87건이 전부 실패한
+    #   회차를 뒤질 때 덤프를 직접 열어야 알 수 있었다.  오류는 한 줄도 안 났다.
+    _us = rd(os.path.join(ROOT, "band", "band_auto_collect.user.js"))
+    _m = re.search(r"실패:\s*(st\.[^,]+)", _us)
+    #   ⚠ 앵커를 `실패:` 로만 잡으면 **다른 문자열**(`저장 실패: `)이 먼저 걸린다 —
+    #     그러면 이 검사는 멀쩡한 코드를 지목한다([309]). `st.` 까지 붙여 좁힌다.
+    ck("되보고에 실패 칸이 있다", bool(_m), True)
+    if _m:
+        ck("되보고가 수집기의 `failed` 를 읽는다(`st.fail` 만 보면 늘 null 이다)",
+           "st.failed" in _m.group(1), True)
+
     # ── ⑤ `NO __GRAB` 은 **파일 셋이 공유하는 계약**이다 — 이름이 갈리면 죽음을 못 알아본다
     st = rd(os.path.join(ROOT, "band", "band_dump_state.js"))
     ck("탐침이 NO __GRAB 을 그대로 말한다", "NO __GRAB" in st, True)
