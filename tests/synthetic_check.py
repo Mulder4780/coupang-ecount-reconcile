@@ -27681,6 +27681,67 @@ def t451_applyview_calls_are_not_swallowed_by_a_comment():
 def _os_path_join451():
     return os.path.join(ROOT, "webapp", "index.html")
 
+def t452_tap_records_which_button_and_which_screen():
+    """[247] 눌린 것이 무엇이고 **어느 화면인지** 기록에 남는다.
+
+    실측 2026-08-26 — 최근 7일 button 204건·a 94건이 target 이 태그 이름뿐이라
+    '새로고침을 왜 그렇게 자주 누르나' 를 못 밝혔다(계기 자신이 눈이 멀어 있었다).
+    detail 은 아예 안 넘기고 있었다(uxEvent 의 세 번째 인자).
+
+    ★ 글자 검사로는 못 잰다([295]) — 사다리를 **실제로 굴려** 결과로 잰다.
+    """
+    import io as _io452, json as _j452, os as _os452, tempfile as _tf452
+    import re as _re452
+    import proc_guard as _pg452
+    HARNESS = 'const fs=require(\'fs\');\nconst html=fs.readFileSync(process.argv[2],\'utf8\');\nconst A=" const call=(hit.getAttribute(" + String.fromCharCode(39) + "onclick" + String.fromCharCode(39) + ")";\nconst B="uxEvent(\'tap\',target,window.__view||\'\');";\nconst i=html.indexOf(A), j=html.indexOf(B,i);\nif(i<0||j<0){ console.log(JSON.stringify({err:\'앵커 없음 i=\'+i+\' j=\'+j})); process.exit(0); }\nconst body=html.slice(i, j+B.length);\nconst mk=(o)=>({dataset:(o.dataset||{}), id:(o.id||\'\'), textContent:(o.text||\'\'),\n  tagName:(o.tag||\'BUTTON\'),\n  getAttribute:(n)=>((o.attrs&&o.attrs[n]!==undefined)?o.attrs[n]:null)});\nfunction pick(hit, view){\n  let got=null;\n  const uxEvent=(k,t,d)=>{ got={target:t, detail:d}; };\n  const window={__view:view};\n  eval(body);\n  return got;\n}\nconst out={};\nout.txt   = pick(mk({text:\'새로고침\'}), \'settle\');\nout.tag   = pick(mk({text:\'\'}), \'dash\');\nout.dv    = pick(mk({dataset:{v:\'camps\'}, text:\'딴글자\'}), \'dash\');\nout.call  = pick(mk({attrs:{onclick:\'reloadAll()\'}, text:\'글자\'}), \'run\');\nout.long  = pick(mk({text:\'가\'.repeat(60)}), \'dash\');\nout.multi = pick(mk({text:\'  새로\'+String.fromCharCode(10)+\'고침  \'}), \'dash\');\nconsole.log(JSON.stringify(out));\nprocess.exit(0);'
+    idx = _os452.path.join(ROOT, "webapp", "index.html")
+    fd, path = _tf452.mkstemp(suffix=".js")
+    _os452.close(fd)
+    try:
+        _io452.open(path, "w", encoding="utf-8", newline="").write(HARNESS)
+        r = _pg452.run_tree(["node", path, idx], timeout=60)
+        txt = (r.stdout or "") + (r.stderr or "")
+    finally:
+        try:
+            _os452.remove(path)
+        except Exception:
+            pass
+    line = [x for x in txt.splitlines() if x.strip().startswith("{")]
+    assert line, "[452] node 가 결과를 못 냈다: %s" % txt[:500]
+    o = _j452.loads(line[-1])
+    assert not o.get("err"), o.get("err")
+
+    # (1) 이름표가 하나도 없으면 **사람이 읽는 글자**를 쓴다 — 이것이 이 고침의 핵심이다.
+    assert o["txt"]["target"] == "새로고침", o["txt"]
+    # (2) 어느 화면인지 같이 남는다(detail) — 같은 새로고침이라도 화면마다 뜻이 다르다.
+    assert o["txt"]["detail"] == "settle", o["txt"]
+    # (3) 글자마저 없으면 예전처럼 태그 이름 — 폴백을 없애면 그 클릭이 통째로 사라진다([172]).
+    assert o["tag"]["target"] == "button", o["tag"]
+    # (4) 사다리 순서는 그대로 — data-v 가 글자를 이긴다.
+    assert o["dv"]["target"] == "camps", o["dv"]
+    # (5) onclick 함수명이 글자보다 먼저 — 유일해서 더 정확하다.
+    assert o["call"]["target"] == "reloadAll", o["call"]
+    # (6) 카드 전체를 감싼 <a> 는 본문이 통째로 들어온다 — 40자로 자른다.
+    assert len(o["long"]["target"]) == 40, len(o["long"]["target"])
+    # (7) 줄바꿈·연속 공백은 한 칸으로 — 안 그러면 같은 단추가 여러 갈래로 세인다([165]).
+    assert o["multi"]["target"] == "새로 고침", o["multi"]
+
+    # (8) curView() 를 부르지 않는다 — 그 함수는 DEEP_VIEW 를 읽고 **비운다**(부작용).
+    #     클릭마다 부르면 그 값을 기다리던 코드가 못 받는다([172]). 글자로 얼린다([39]).
+    _html = _io452.open(idx, encoding="utf-8").read()
+    _i = _html.index("const hit=e.target.closest(")
+    _j = _html.index("uxEvent('tap',target,window.__view", _i)
+    # ⚠ **규칙을 세기 전에 주석을 걷는다** — 이 저장소가 열한 번째 밟는 자리다
+    #   ([301]-9·[302]·[309]·[332]·[339]·[370]·[272]·[399]·[404]·[410]·여기).
+    #   만들면서 그대로 걸렸다: 그 함정을 적어 둔 **내 주석**에 curView( 가 있어
+    #   멀쩡한 코드가 빨개졌다.
+    _seg = _html[_i:_j]
+    _seg = _re452.sub(r"/\*.*?\*/", "", _seg, flags=_re452.S)   # 블록 주석
+    _seg = _re452.sub(r"//[^" + chr(10) + r"]*", "", _seg)                 # 줄 주석
+    assert "curView(" not in _seg, (
+        "전역 클릭 리스너가 curView() 를 부른다 — DEEP_VIEW 를 훔쳐 간다([172])")
+    print(chr(9989), "[452] 눌린 단추 이름과 화면이 기록에 남는다 (사다리 끝에 글자·detail 에 화면키)")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -40333,6 +40394,7 @@ if __name__ == "__main__":
     t449_handoff_says_how_old_the_diagnosis_is()
     t450_kakao_hold_is_never_reported_as_success()
     t451_applyview_calls_are_not_swallowed_by_a_comment()
+    t452_tap_records_which_button_and_which_screen()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
