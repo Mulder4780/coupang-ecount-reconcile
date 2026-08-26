@@ -701,13 +701,36 @@ def collect():
     }
 
 
+#: 진단은 앱 서버가 **15분마다** 다시 만든다 — 두 회차를 놓치면 낡은 것이다.
+_AUDIT_STALE_MIN = 30
+
+
 def _system_audit_lines():
-    """앱·Claude Code·Codex 공용 진단의 **캐시**만 인계에 싣는다."""
+    """앱·Claude Code·Codex 공용 진단의 **캐시**만 인계에 싣는다.
+
+    ★ **그 캐시가 몇 분 된 것인지 같이 싣는다** (2026-08-26 실사고 · `[320]` 과
+      같은 모양, 자리가 다르다). 실측 19:59:16 — 인계가
+      *"`[P0]` 워치독 30분 회차가 멈춤 — 마지막 로그가 **282분 전**"* 을 실었는데
+      그 순간 워치독 로그는 **1.4분 전**이었고(19:57:58) **3초 뒤** 다시 만들어진
+      진단에는 그 경보가 **아예 없다.** 곧 낡은 글에 새 시각을 찍은 것이다.
+      그대로 두면 사람이 **이미 풀린 고장을 고치러 간다**(`[172]`).
+    ★ **조용히 빼지 않는다**(`[169]`) — 낡았어도 싣되 **몇 분 된 것인지 말한다**.
+      빼 버리면 진짜 P0 가 통째로 사라진다.
+    ★ **못 읽으면 지어내지 않는다**(`[169]`) — 나이를 모르면 `None` 을 그대로 싣고
+      부르는 쪽이 '언제 것인지 못 읽었다'고 적는다.
+    """
     try:
         import system_audit
         report = system_audit.read_cached()
-        return [row for row in (report.get("findings") or [])
-                if row.get("priority") in ("P0", "P1")]
+        age = report.get("report_age_minutes")
+        rows = []
+        for row in (report.get("findings") or []):
+            if row.get("priority") not in ("P0", "P1"):
+                continue
+            row = dict(row)
+            row["진단나이분"] = age
+            rows.append(row)
+        return rows
     except Exception:
         return []
 
@@ -1369,8 +1392,17 @@ def blockers(st, for_sol=False):
     for row in (st.get("시스템진단") or []):
         if borrowed_ok and row.get("id") in _AUDIT_DUP_IDS:
             continue
-        out.append(("[%s] %s — %s" % (row.get("priority", ""), row.get("title", ""),
-                                      str(row.get("evidence") or "")[:150]),
+        # ★ 낡은 진단을 **지금 사실처럼** 적지 않는다(`[449]`) — 싣되 나이를 말한다.
+        _age = row.get("진단나이분")
+        if _age is None:
+            _note = " · ⚠ 이 진단이 언제 것인지 못 읽었다"
+        elif _age > _AUDIT_STALE_MIN:
+            _note = (" · ⚠ 이 진단은 %d분 전 것이다 — 그 뒤에 풀렸을 수 있다"
+                     % int(_age))
+        else:
+            _note = ""
+        out.append(("[%s] %s — %s%s" % (row.get("priority", ""), row.get("title", ""),
+                                        str(row.get("evidence") or "")[:150], _note),
                     row.get("action") or "python system_audit.py --print"))
     # ★ 화면이 조용히 틀린 값을 보여 주는 것 (2026-08-13 지시: "위 같은 문제 잡아내는
     #   기능 AI 추가해"). 그날 둘 다 **사람이 전화로 지적하고 나서야** 알았다 —

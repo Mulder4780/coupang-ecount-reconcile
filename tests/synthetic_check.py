@@ -27480,6 +27480,62 @@ def t448_advice_points_at_commands_that_exist():
           % count)
 
 
+def t449_handoff_says_how_old_the_diagnosis_is():
+    """[449] **인계가 몇 시간 된 진단을 지금 사실처럼 실었다** (2026-08-26 실사고).
+
+    실측 19:59:16 — 인계가 *"`[P0]` 워치독 30분 회차가 멈춤 — 마지막 로그가
+    **282분 전**"* 을 실었는데 그 순간 워치독 로그는 **1.4분 전**이었고(19:57:58)
+    **3초 뒤** 다시 만들어진 진단에는 그 경보가 **아예 없다**. 곧 인계가 읽은
+    캐시가 282분 낡은 것이었고 그 나이를 **버리고** 실었다 —
+    `[320]` 과 같은 모양이고 자리만 다르다(`[300]`).
+
+    ★ 그대로 두면 사람이 **이미 풀린 고장을 고치러 간다**(`[172]`).
+    ★ **조용히 빼지 않는다**(`[169]`) — 낡았어도 싣되 나이를 말한다.
+    ★ **못 읽으면 지어내지 않는다**(`[169]`).
+    ★ 실측 스냅샷은 **읽기만** 하고 칸 하나만 갈아 끼운다(`[247]`·`[320]`).
+    """
+    import types as _t449
+    import session_handoff as SH
+
+    ROW = {"id": "watchdog-stalled", "priority": "P0",
+           "title": "워치독 30분 회차가 멈춤",
+           "evidence": "마지막 로그가 282분 전입니다.",
+           "action": "python schedule_watch.py --print"}
+
+    _SNAP449 = SH.collect()
+
+    def say(age):
+        rows = [dict(ROW, 진단나이분=age)]
+        st = dict(_SNAP449, 시스템진단=rows)
+        return " ".join("%s | %s" % (a, b) for a, b in SH.blockers(st))
+
+    fresh, stale, unknown = say(3.0), say(282.0), say(None)
+    for name, body in (("신선", fresh), ("낡음", stale), ("모름", unknown)):
+        assert "워치독 30분 회차가 멈춤" in body, (
+            "%s 인데 경보가 통째로 빠졌다 — 조용히 빼면 진짜 P0 가 사라진다([169])" % name)
+    assert "분 전 것이다" not in fresh, "신선한 진단에 낡았다는 꼬리표를 붙인다([170])"
+    assert "282분 전 것이다" in stale, (
+        "낡은 진단을 지금 사실처럼 적는다 — 사람이 이미 풀린 고장을 고치러 간다([172])")
+    assert "언제 것인지 못 읽었다" in unknown, (
+        "나이를 못 읽었는데 아무 말도 안 한다([169])")
+
+    # ★ 계기 자기시험([272]) — 나이를 버리던 옛 동작을 넣으면 (2) 가 잡혀야 한다
+    src = SH.__file__
+    text = open(src, encoding="utf-8").read()
+    mark = "elif _age > _AUDIT_STALE_MIN:"
+    assert text.count(mark) == 1, "자기시험 앵커가 %d개다" % text.count(mark)
+    ghost = _t449.ModuleType("session_handoff_t449_old")
+    ghost.__file__ = src
+    exec(compile(text.replace(mark, "elif False:", 1), src, "exec"), ghost.__dict__)
+    st = dict(_SNAP449, 시스템진단=[dict(ROW, 진단나이분=282.0)])
+    old = " ".join("%s | %s" % (a, b) for a, b in ghost.blockers(st))
+    assert "282분 전 것이다" not in old and "워치독 30분 회차가 멈춤" in old, (
+        "나이를 버리던 옛 동작을 넣었는데도 (2) 가 통과한다 — 이 검사는 아무것도 안 재고 있다([272])")
+
+    print(chr(9989) + " [449] 인계가 진단이 몇 분 된 것인지 말한다 — 낡아도 안 빼고, "
+          "모르면 지어내지 않는다")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -40129,6 +40185,7 @@ if __name__ == "__main__":
     t445_daily_run_completed_is_not_aborted()
     t446_board_survives_records_written_by_hand()
     t448_advice_points_at_commands_that_exist()
+    t449_handoff_says_how_old_the_diagnosis_is()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
