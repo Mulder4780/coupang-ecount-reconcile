@@ -28799,6 +28799,133 @@ def t458_phone_copy_pushes_only_when_business_changed():
     print(chr(9989) + " [458] 폰 사본 — 안 바뀌면 안 밀고, 성공한 반쪽을 실패로 안 센다")
 
 
+def t459_archive_spool_prune_never_deletes_what_is_in_use():
+    """[459] 보관본 창고 정리 — 쓰는 것·도는 회차·모름은 절대 안 지운다 (2026-08-27).
+
+    * **지우는 도구**라 계약을 글자가 아니라 **실행으로** 잰다([295]).
+    * 실측 증거(진짜 `tmp/archive_spool`)에는 **한 글자도 안 쓴다**([247]) — 임시 폴더로만.
+    * 목은 `finally` 로 되돌린다([371] — 모듈 속성은 프로세스 전체의 것이다).
+    """
+    import archive_spool_prune as SP
+
+    def _mk(root, name, mb=1, age_h=100.0):
+        d = os.path.join(root, name)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "db-snapshot.sqlite3"), "wb") as f:
+            f.write(b"x" * (mb * 1024))
+        t = time.time() - age_h * 3600
+        os.utime(d, (t, t))
+        return d
+
+    old = (SP.SPOOL, SP.EXPORTS, SP.LOCK)
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            SP.SPOOL = td
+            SP.EXPORTS = os.path.join(td, "exports")
+            SP.LOCK = os.path.join(td, "archive-worker.lock")
+            os.makedirs(SP.EXPORTS)
+
+            names = ["exp-%012d-aaa-bbb" % i for i in range(1, 9)]
+            for i, n in enumerate(names):
+                _mk(SP.EXPORTS, n, mb=1, age_h=200 - i * 10)
+            _mk(SP.EXPORTS, ".exp-dead.123.abc.tmp", mb=1, age_h=300)   # 만들다 만 것(오래됨)
+            _mk(SP.EXPORTS, ".exp-now.999.zzz.tmp", mb=1, age_h=0.1)    # 지금 만드는 중
+
+            live = names[-1]
+            with open(os.path.join(td, "last-good.json"), "w", encoding="utf-8") as f:
+                json.dump({"archive_path": os.path.join(SP.EXPORTS, live, "archive.xlsx")}, f)
+
+            # ① 지금 쓰는 것은 **최근 N 밖이어도** 안 지운다
+            p = SP.plan(keep=1)
+            victims = {v["이름"] for v in p["지울것"]}
+            assert live not in victims, "지금 쓰는 보관본을 지우려 한다 — 되돌릴 수 없다"
+
+            # ② 최근 keep 개는 남는다
+            p = SP.plan(keep=3)
+            victims = {v["이름"] for v in p["지울것"]}
+            for n in names[-3:]:
+                assert n not in victims, "최근 %d개에 든 %s 를 지우려 한다" % (3, n)
+            assert names[0] in victims, "오래된 것을 안 지운다 — 그러면 창고가 계속 큰다"
+
+            # ③ 만들다 만 것: 오래된 것만 · **지금 만드는 중은 안 건드린다**([171])
+            assert ".exp-dead.123.abc.tmp" in victims, "죽은 회차의 찌꺼기를 안 치운다"
+            assert ".exp-now.999.zzz.tmp" not in victims, \
+                "지금 만드는 중인 것을 지우려 한다 — 도는 회차가 통째로 죽는다"
+
+            # ④ 회차가 도는 중이면 **아무것도 안 고른다**
+            with open(SP.LOCK, "w", encoding="utf-8") as f:
+                f.write("pid")
+            assert SP.plan(keep=3)["지울것"] == [], "보관 회차가 도는데 지우려 한다"
+            assert "회차" in SP.plan(keep=3)["왜못함"], "왜 안 지웠는지 말하지 않는다([169])"
+            os.remove(SP.LOCK)
+
+            # ⑤ 지금 무엇을 쓰는지 **못 읽으면 아무것도 안 지운다**([169])
+            with open(os.path.join(td, "last-good.json"), "w", encoding="utf-8") as f:
+                f.write("{깨진")
+            assert SP.in_use() is None, "깨진 파일을 읽고도 '안 쓴다'고 답한다"
+            p = SP.plan(keep=3)
+            assert p["지울것"] == [] and p["왜못함"], \
+                "지금 무엇을 쓰는지 모르는데 지우려 한다 — 되돌릴 수 없는 쪽이다([169])"
+
+            # ⑥ `--apply` 없이는 **한 개도 안 지운다**
+            before = set(os.listdir(SP.EXPORTS))
+            SP.main(["--keep", "3"])
+            assert set(os.listdir(SP.EXPORTS)) == before, \
+                "미리보기인데 지웠다 — 이 도구의 기본은 읽기 전용이다"
+
+            # ⑦ 창고 밖 경로는 무슨 일이 있어도 안 지운다
+            outside = os.path.join(td, "밖에있는것")
+            os.makedirs(outside)
+            assert SP._within(os.path.join(SP.EXPORTS, "x"), SP.EXPORTS)
+            assert not SP._within(outside, SP.EXPORTS), "창고 밖을 안이라고 한다"
+            _freed, _gone, failed = SP.apply([{"이름": "..\\밖에있는것", "크기": 0}])
+            assert os.path.isdir(outside), "창고 밖 폴더를 지웠다"
+            assert failed, "창고 밖을 지우려 했는데 말하지 않는다"
+
+            # ⑧ 넘칠 때만 말한다([170]) · 모르면 아무 말도 안 한다([169])
+            #    크기는 파일로 못 늘리니 `plan` 을 갈아 끼워 **실행으로** 잰다([295]).
+            with open(os.path.join(td, "last-good.json"), "w", encoding="utf-8") as f:
+                json.dump({"archive_path": os.path.join(SP.EXPORTS, live, "archive.xlsx")}, f)
+            _real_plan = SP.plan
+            try:
+                SP.plan = lambda **kw: {"지울것": [{"이름": "x", "크기": 1 * 1024 ** 3}],
+                                        "왜못함": "", "잰것": {"합": 2 * 1024 ** 3}}
+                assert SP.notice() is None, "1GB 로 인계에 올린다 — 매일 뜨면 아무도 안 본다([170])"
+                SP.plan = lambda **kw: {"지울것": [{"이름": "x", "크기": 40 * 1024 ** 3}],
+                                        "왜못함": "", "잰것": {"합": 60 * 1024 ** 3}}
+                n = SP.notice()
+                assert n and "GB" in n[0], "40GB 가 남았는데 아무 말도 안 한다([169])"
+                assert "--apply" in n[1], "조치가 사람에게 지우는 법을 안 알려 준다"
+                SP.plan = lambda **kw: {"지울것": [], "왜못함": "못 읽음",
+                                        "잰것": {"합": 0}}
+                assert SP.notice() is None, "모르는데 인계에 올린다([169])"
+            finally:
+                SP.plan = _real_plan
+
+            # ⑨ 실제로 지우면 그만큼 준다 — **다른 것은 그대로**
+            p = SP.plan(keep=3)
+            v = p["지울것"]
+            assert v, "지울 것을 못 골랐다"
+            _freed, gone, failed = SP.apply(v)
+            assert gone == len(v) and not failed, "지운다고 해 놓고 못 지웠다: %s" % failed
+            left = set(os.listdir(SP.EXPORTS))
+            for n in names[-3:]:
+                assert n in left, "남기기로 한 %s 가 사라졌다" % n
+            assert ".exp-now.999.zzz.tmp" in left, "지금 만드는 중인 것이 사라졌다"
+
+        # ⑩ 계기 자신을 시험한다([272]) — '쓰는 것 지키기' 문을 없애면 잡히는가
+        src_sp = open(os.path.join(ROOT, "archive_spool_prune.py"), encoding="utf-8").read()
+        guard = 'if r["이름"] in s["쓰는것"]:'
+        assert guard in src_sp, "지금 쓰는 것을 지키는 문이 사라졌다"
+        assert 'if p["왜못함"]' in src_sp or "왜못함" in src_sp, "모를 때 멈추는 자리가 사라졌다"
+        assert '"--apply"' in src_sp, "사람이 직접 줄 때만 지우는 문이 사라졌다"
+
+    finally:
+        SP.SPOOL, SP.EXPORTS, SP.LOCK = old
+
+    print(chr(9989) + " [459] 보관본 창고 정리 — 쓰는 것·도는 회차·모름은 안 지운다")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -41512,6 +41639,7 @@ if __name__ == "__main__":
     t456_lego_features_and_light_transfer()
     t457_browser_bridge_never_fakes_and_never_types_a_password()
     t458_phone_copy_pushes_only_when_business_changed()
+    t459_archive_spool_prune_never_deletes_what_is_in_use()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
