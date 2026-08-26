@@ -29698,6 +29698,55 @@ def t412_hand_run_gate_yields_to_a_running_round():
             fh.write("{ 깨진 json")
         assert _ran(), "[412] 깨진 잠금을 보고 물러났다"
 
+        # ★ [447] **'회차가 돈다'와 '회차가 지금 관문을 돌린다'는 다른 사실이다**
+        #   (2026-08-26). `.daily_run.lock` 은 회차가 **116분 내내** 쥐는데(실측)
+        #   관문은 0단계라 그중 11~25분뿐이다 — 옛 문구는 90분 넘게 **틀린 말을
+        #   확언**했고 사람은 "몇 분 뒤면 끝나겠지" 로 읽는다(`[172]`).
+        import io as _io412
+        import contextlib as _ctx412
+
+        def _say(step_value):
+            """물러날 때 사람에게 뭐라고 말하나 — 실행해서 잰다(`[295]`)."""
+            prog = os.path.join(tmp, "reports", ".daily_run.progress.json")
+            if step_value is None:
+                if os.path.exists(prog):
+                    os.remove(prog)
+            else:
+                with open(prog, "w", encoding="utf-8") as fh:
+                    json.dump({"단계": step_value}, fh, ensure_ascii=False)
+            buf = _io412.StringIO()
+            try:
+                with _ctx412.redirect_stdout(buf):
+                    g["_yield_to_running_round"]()
+            except SystemExit:
+                pass
+            return buf.getvalue()
+
+        _put(os.getpid())
+        said = _say("합성검증")
+        assert "관문을 돌리고 있습니다" in said, (
+            "[447] 회차가 정말 관문을 도는데 그렇게 말하지 않는다: %r" % said[:200])
+
+        said = _say("입금 대조·자동입력")
+        assert "입금 대조·자동입력" in said and "관문은 이미 지났습니다" in said, (
+            "[447] 관문을 이미 지난 회차를 '지금 관문을 돌린다'고 확언한다([172]): %r"
+            % said[:200])
+
+        said = _say(None)
+        assert "못 읽었습니다" in said, (
+            "[447] 진행 자국을 못 읽었는데 단계를 지어낸다([169]): %r" % said[:200])
+
+        # 없는 파일을 열라고 시키지 않는다([247]) — 실제 이름은 종합리포트_날짜_시각.md 다
+        for probe in (chr(92) + "종합리포트.md", "/종합리포트.md"):
+            assert probe not in said, (
+                "[447] 없는 파일을 열라고 시킨다 — 붙여넣으면 아무것도 안 나온다: %r" % probe)
+
+        # ★ 계기 자기시험([272]) — 글자를 세지 않고 **갈래가 정말 갈리는지** 잰다.
+        #   고정 문구로 되돌리면 셋이 같아져 여기서 잡힌다.
+        a, b, c = _say("합성검증"), _say("입금 대조·자동입력"), _say(None)
+        assert len({a, b, c}) == 3, (
+            "[447] 단계가 달라도 같은 말을 한다 — 이 검사는 아무것도 안 재고 있다([272])")
+
         # ⑦ 계기 자신을 시험한다([272])
         _put(os.getpid())
         os.environ["COUPANG_GATE_OWNER"] = "daily_run"
@@ -39311,12 +39360,37 @@ def _yield_to_running_round():
         started = str(info.get("started_at") or "")[:19].replace("T", " ")
     except Exception:
         return
-    print("관문을 돌리지 않았습니다 - 일일대조 회차가 지금 관문을 돌리고 있습니다"
-          " (pid %s - %s 시작)." % (info.get("pid"), started or "?"))
+    # ★ **'회차가 돈다'와 '회차가 지금 관문을 돌린다'는 다른 사실이다**(2026-08-26).
+    #   근거인 `.daily_run.lock` 은 회차가 **116분 내내** 쥐고 있는데(실측) 관문은
+    #   0단계라 그중 11~25분뿐이다. 그러니 옛 문구는 **90분 넘게 틀린 말을 확언**했고
+    #   사람은 "몇 분 뒤면 끝나겠지" 로 읽는다(`[172]`).
+    # ★ 어느 단계인지는 **회차가 이미 써 뒀다**(`[162]`) — 진행 자국을 읽기만 한다.
+    #   **못 읽으면 단계를 지어내지 않는다**(`[169]`).
+    # ★ 물러나는 판단은 **한 글자도 안 바꿨다**(`[172]`) — 관문이든 다른 단계든
+    #   둘 다 Z: 를 훑는다. 바뀐 것은 **무엇이 도는지 말하는 것**뿐이다.
+    step = ""
+    try:
+        with open(os.path.join(ROOT, "reports", ".daily_run.progress.json"),
+                  encoding="utf-8") as fh:
+            step = str((json.load(fh) or {}).get("단계") or "")
+    except Exception:
+        step = ""
+    if step == "합성검증":
+        doing = "지금 관문을 돌리고 있습니다"
+    elif step and step != "(회차 끝)":
+        doing = "지금 '%s' 단계를 돌고 있습니다(관문은 이미 지났습니다)" % step
+    else:
+        doing = "지금 돌고 있습니다(어느 단계인지는 못 읽었습니다)"
+    print("관문을 돌리지 않았습니다 - 일일대조 회차가 %s (pid %s - %s 시작)."
+          % (doing, info.get("pid"), started or "?"))
     print("  둘이 같이 돌면 Z: 를 함께 훑어 서로를 느리게 만들고,")
     print("  회차 쪽이 25분 제한을 넘기면 그날 대조가 통째로 안 돕니다(2026-08-24 실사고).")
-    print("  · 그 회차가 끝나면 그 결과가 곧 ALL GREEN 확인입니다:"
-          " type reports" + chr(92) + "종합리포트.md")
+    # ⚠ 옛 안내는 `type reports/종합리포트.md` 였는데 그 이름의 파일은 **없다**
+    #   (실제는 `종합리포트_YYYYMMDD_HHMM.md`) — 붙여넣으면 아무것도 안 나온다(`[247]`).
+    #   대신 **있고 없고로 답이 나는** 자국을 가리킨다(`[304]`).
+    print("  · 그 회차가 끝나면 그 결과가 곧 ALL GREEN 확인입니다.")
+    print("    관문이 막히면 reports/일일대조_오류.json 이 생깁니다 -"
+          " 없으면 통과한 것입니다.")
     print("  · 꼭 지금 돌려야 하면: set COUPANG_GATE_FORCE=1")
     sys.exit(3)
 
