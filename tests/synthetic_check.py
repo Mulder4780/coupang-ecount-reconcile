@@ -31880,12 +31880,12 @@ def t439_two_gates_never_overwrite_each_others_fonts():
 
     `t126` 은 진짜 네 파일(`font_switch.FILES`)을 legacy 로 썼다 되돌린다([126]).
     관문 A 가 legacy 로 쓴 순간 관문 B 가 그 파일을 읽어 제 '원본'으로 저장하면
-    **A 가 되돌려도 B 가 그 옛 사본으로 도로 덮는다.** 그러면 자동 커밋이
-    (`git add -A` · [104]) 그것을 쓸어 담아 **원격까지 민다** — 2026-08-26 08:41
-    실측(커밋 461f99b · `docs/app.html`·`docs/cal.html` 둘이 나눔고딕으로 밀려
-    폰 앱이 그 글꼴로 나갔다). 물러서기(retry)로는 못 막는다 — 쓰기가 실패한
-    것이 아니라 **성공했는데 옛 원본으로 덮은** 것이다.
+    **A 가 되돌려도 B 가 그 옛 사본으로 도로 덮는다.** 자동 커밋이(`git add -A` ·
+    [104]) 그것을 쓸어 담아 **원격까지 민다** — 2026-08-26 08:41 실측(461f99b).
 
+    ★ 재는 것은 **둘**이다: **물러나나**(겹침 방지)와 **알리나**(잠금을 남기나).
+      뒤엣것이 2026-08-26 실사고다 — force 가 곧바로 돌아가 잠금을 안 남기는 바람에
+      뒤에 온 관문 둘이 못 보고 올라타 **셋이 같이 돌았다**(`Z:` 한 번에 155.9초).
     ★ 실측 증거(`reports/.gate.lock`)에는 **한 글자도 안 쓴다**([247]).
     ★ 모듈 전역·환경변수는 `finally` 로 되돌린다([371] — 프로세스 전체의 것이다).
     """
@@ -31896,100 +31896,140 @@ def t439_two_gates_never_overwrite_each_others_fonts():
     import types as _ty
 
     _old_lock = _GATE_LOCK
-    _old_force = os.environ.get("COUPANG_GATE_FORCE")
     _d = _tf.mkdtemp()
     _lk = os.path.join(_d, "g.lock")
     import daily_run as _dr
     _old_alive = _dr._pid_alive
+    _SRC = os.path.join(ROOT, "tests", "synthetic_check.py")
+
+    def _foreign():
+        _js.dump({"pid": 999999, "started_at": "2026-08-26T10:00:00"},
+                 open(_lk, "w", encoding="utf-8"))
+
+    def _lockpid():
+        if not os.path.exists(_lk):
+            return None
+        return _js.load(open(_lk, encoding="utf-8")).get("pid")
+
+    def _run():
+        try:
+            _gate_lock_or_yield()
+            return "ok"
+        except SystemExit as e:          # noqa: PERF203
+            return "exit%s" % e.code
+
     try:
         globals()["_GATE_LOCK"] = _lk
         os.environ.pop("COUPANG_GATE_FORCE", None)
+        os.environ.pop("COUPANG_GATE_OWNER", None)
 
-        def _run():
-            try:
-                _gate_lock_or_yield()
-                return "ok"
-            except SystemExit as e:      # noqa: PERF203
-                return "exit%s" % e.code
-
-        # ① 잠금이 없으면 그냥 돌고 **내 잠금을 남긴다**
+        # (1) 잠금이 없으면 그냥 돌고 **내 잠금을 남긴다**
         assert _run() == "ok", "잠금이 없는데 물러났다 — 관문이 아예 못 돈다"
-        assert os.path.exists(_lk), "잠금을 안 남긴다 — 뒤에 오는 관문이 겹친다"
-        assert _js.load(open(_lk, encoding="utf-8")).get("pid") == os.getpid(), \
-            "남의 pid 를 적었다"
+        assert _lockpid() == os.getpid(), "잠금을 안 남긴다 — 뒤에 오는 관문이 겹친다"
 
-        # ② **내 잠금은 나를 막지 않는다**([272] — 안 그러면 관문이 늘 물러난다)
+        # (2) **내 잠금은 나를 막지 않는다**([272] — 안 그러면 관문이 늘 물러난다)
         assert _run() == "ok", "제 잠금을 보고 물러난다 — 관문이 한 번도 못 돈다"
 
-        # ③ 살아 있는 **남의** 관문이면 물러난다
-        _js.dump({"pid": 999999, "started_at": "2026-08-26T10:00:00"},
-                 open(_lk, "w", encoding="utf-8"))
-        _dr._pid_alive = lambda *a, **k: True
+        # (3) 살아 있는 **남의** 관문이면 물러난다
+        _foreign()
+        _dr._pid_alive = lambda *ar, **kw: True
         assert _run() == "exit3", "다른 관문이 도는데 겹쳐서 돈다 — [195] 가 되살아난다"
 
-        # ④ **죽은 잠금은 근거가 아니다**([169]) — 그러면 관문이 영원히 막힌다
-        _dr._pid_alive = lambda *a, **k: False
+        # (4) **죽은 잠금은 근거가 아니다**([169]) — 그러면 관문이 영원히 막힌다
+        _dr._pid_alive = lambda *ar, **kw: False
         assert _run() == "ok", "죽은 잠금 하나가 관문을 영원히 막는다"
+        assert _lockpid() == os.getpid(), "죽은 잠금을 안 덮는다 — 그 자리가 영원히 남는다"
 
-        # ⑤ 급할 때 넘길 문이 있다
-        _js.dump({"pid": 999999, "started_at": "2026-08-26T10:00:00"},
-                 open(_lk, "w", encoding="utf-8"))
-        _dr._pid_alive = lambda *a, **k: True
+        # (5) force 는 살아 있는 남의 잠금에도 **지나간다** — 그러나 **안 덮는다**
+        _foreign()
+        _dr._pid_alive = lambda *ar, **kw: True
         os.environ["COUPANG_GATE_FORCE"] = "1"
         assert _run() == "ok", "COUPANG_GATE_FORCE 가 안 먹는다"
+        assert _lockpid() == 999999, (
+            "force 가 남의 살아 있는 잠금을 덮었다 — 내가 끝나며 그것을 지우면 "
+            "아직 도는 그 관문이 무방비가 된다")
+
+        # (6) ★ force 인데 **잠금이 없으면 제 잠금을 남긴다**(2026-08-26 실사고) —
+        #     안 남기면 뒤에 오는 관문이 나를 **못 보고 올라탄다**. 실제로 그날
+        #     셋이 같이 돌아 `Z:` 한 번 읽는 데 155.9초가 걸렸다.
+        os.remove(_lk)
+        assert _run() == "ok", "force 인데 물러났다"
+        assert _lockpid() == os.getpid(), (
+            "force 가 잠금을 안 남긴다 — 뒤에 오는 관문이 못 보고 올라탄다([195])")
         os.environ.pop("COUPANG_GATE_FORCE", None)
 
-        # ⑥ **남의 잠금은 안 지운다** — 지우면 그 관문이 무방비가 된다
+        # (7) **회차가 부른 관문은 절대 안 막는다**([412]) — 그러나 남의 잠금은
+        #     안 덮는다(덮으면 내가 끝나며 지워 그 관문이 무방비가 된다)
+        _foreign()
+        _dr._pid_alive = lambda *ar, **kw: True
+        os.environ["COUPANG_GATE_OWNER"] = "daily_run"
+        assert _run() == "ok", "회차가 부른 관문까지 막는다 — 그날 대조가 통째로 안 돈다"
+        assert _lockpid() == 999999, "회차가 남의 살아 있는 잠금을 덮었다"
+
+        # (8) 회차인데 잠금이 없으면 제 잠금을 남긴다 — 사람 관문이 그것을 보고 물러난다
+        os.remove(_lk)
+        assert _run() == "ok", "회차가 물러났다"
+        assert _lockpid() == os.getpid(), "회차가 잠금을 안 남긴다 — 사람 관문이 겹친다"
+        os.environ.pop("COUPANG_GATE_OWNER", None)
+
+        # (9) **남의 잠금은 안 지운다** — 지우면 그 관문이 무방비가 된다
+        _foreign()
         _gate_lock_free()
         assert os.path.exists(_lk), "남의 잠금을 지웠다"
 
-        # ⑧ **회차가 부른 관문은 절대 안 막는다**([412] 가 못 박은 자리) —
-        #    막으면 사람이 관문을 도는 중에 09:50 이 뜰 때 **그날 대조가
-        #    통째로 안 돈다**(고치려던 것보다 나쁘다 · [172]). 다만 잠금은
-        #    만들어야 사람 관문이 그것을 보고 물러난다.
-        _js.dump({"pid": 999999, "started_at": "2026-08-26T10:00:00"},
-                 open(_lk, "w", encoding="utf-8"))
-        _dr._pid_alive = lambda *a, **k: True
-        os.environ["COUPANG_GATE_OWNER"] = "daily_run"
-        assert _run() == "ok", "회차가 부른 관문까지 막는다 — 그날 대조가 통째로 안 돈다"
-        _lockpid = _js.load(open(_lk, encoding="utf-8")).get("pid")
-        assert _lockpid == os.getpid(), "회차가 잠금을 안 남긴다 — 사람 관문이 겹친다"
-        os.environ.pop("COUPANG_GATE_OWNER", None)
+        # (10) 계기 자신을 시험한다([272]) — 물러나는 문을 없애면 (3)이 잡히나.
+        #      앵커는 **이어 붙여** 만든다 — 통글자로 적으면 이 함수가 파일에서
+        #      먼저 나오므로 `replace` 가 **제 글자를 바꾸고 바꿨다고 여긴다**([301]-9).
+        _src = _io.open(_SRC, encoding="utf-8").read()
 
-        # ⑦ 계기 자신을 시험한다([272]) — 물러나는 문을 없애면 ③이 잡히나
-        _ANCH = ("            if alive and not _round:" + chr(10)
-                 + "                started = str(")
-        _src = _io.open(os.path.join(ROOT, "tests", "synthetic_check.py"),
-                       encoding="utf-8").read()
-        _bad = _src.replace(_ANCH, "            if False:" + chr(10)                             + "                started = str(", 1)
+        def _ghost(bad):
+            _g = _ty.ModuleType("g")
+            _g.__file__ = _SRC
+            _g.__name__ = "g"
+            _t = _ast.parse(bad)
+            _t.body = [n for n in _t.body
+                       if not (isinstance(n, _ast.FunctionDef)
+                               and n.name.startswith("t") and n.name[1:2].isdigit())]
+            exec(compile(_t, _g.__file__, "exec"), _g.__dict__)
+            _g._GATE_LOCK = _lk
+            return _g
+
+        _A = ("    if foreign_alive and not _round and not _force:" + chr(10)
+              + "        started = str(")
+        _bad = _src.replace(_A, "    if False:" + chr(10)
+                            + "        started = str(", 1)
         assert _bad != _src, "고장을 주입할 자리를 못 찾았다 — 이 검사가 헛돈다"
-        _g = _ty.ModuleType("g")
-        _g.__file__ = os.path.join(ROOT, "tests", "synthetic_check.py")
-        _g.__name__ = "g"
-        _tree = _ast.parse(_bad)
-        _tree.body = [n for n in _tree.body
-                      if not (isinstance(n, _ast.FunctionDef)
-                              and n.name.startswith("t") and n.name[1:2].isdigit())]
-        exec(compile(_tree, _g.__file__, "exec"), _g.__dict__)
-        _g._GATE_LOCK = _lk
-        _js.dump({"pid": 999999, "started_at": "2026-08-26T10:00:00"},
-                 open(_lk, "w", encoding="utf-8"))
+        _foreign()
         try:
-            _g._gate_lock_or_yield()
+            _ghost(_bad)._gate_lock_or_yield()
             _hit = "ok"
         except SystemExit as e:
             _hit = "exit%s" % e.code
         assert _hit == "ok", "고장을 넣었는데도 막혔다 — 이 검사는 아무것도 안 재고 있다"
+
+        # (11) 계기 자기시험 2 — **옛 동작**(force 면 곧바로 돌아간다)을 넣으면
+        #      (6)이 잡히나. 이것이 2026-08-26 에 실제로 있던 코드다.
+        _B = ('    _force = os.environ.get("COUPANG_GATE'
+              + '_FORCE") == "1"' + chr(10) + "    #")
+        _old = _src.replace(_B, _B.rstrip("#").rstrip()
+                            + chr(10) + "    if _force:" + chr(10)
+                            + "        return" + chr(10) + "    #", 1)
+        assert _old != _src, "옛 동작을 넣을 자리를 못 찾았다 — 이 검사가 헛돈다"
+        if os.path.exists(_lk):
+            os.remove(_lk)
+        os.environ["COUPANG_GATE_FORCE"] = "1"
+        _g2 = _ghost(_old)
+        _g2._gate_lock_or_yield()
+        assert not os.path.exists(_lk), (
+            "옛 동작을 넣었는데도 잠금이 남았다 — (6)이 아무것도 안 재고 있다")
+        os.environ.pop("COUPANG_GATE_FORCE", None)
     finally:                              # 모듈 전역은 프로세스 전체의 것이다([371])
         globals()["_GATE_LOCK"] = _old_lock
-        os.environ.pop("COUPANG_GATE_OWNER", None)
         _dr._pid_alive = _old_alive
-        if _old_force is None:
-            os.environ.pop("COUPANG_GATE_FORCE", None)
-        else:
-            os.environ["COUPANG_GATE_FORCE"] = _old_force
+        os.environ.pop("COUPANG_GATE_OWNER", None)
+        os.environ.pop("COUPANG_GATE_FORCE", None)
 
-    print(chr(9989) + " [439] 관문 둘이 겹치면 뒤에 온 쪽이 물러난다 — 앱 글꼴을 안 덮는다")
+    print(chr(9989) + " [195] 관문 둘이 겹치면 물러난다 — force·회차도 반드시 알린다")
 
 
 def t440_blank_round_is_not_normal():
@@ -38870,15 +38910,22 @@ def _gate_lock_or_yield():
     ★ **내 자신은 안 센다**([272]) — 안 그러면 관문이 제 잠금을 보고 물러난다.
     ★ **못 읽으면 그냥 돈다** — 관문을 못 돌리면 실작업 관문이 통째로 없어진다.
       겹침의 값(관문 한 번 늦음)보다 크다. **모를 때 기우는 방향은 자리마다 다르다.**
+    ★ **force 는 '안 물러난다'는 뜻이지 '안 알린다'는 뜻이 아니다**(2026-08-26 실사고).
+      예전에는 force 면 여기서 곧바로 돌아가 **잠금을 한 글자도 안 남겼다** — 그래서
+      11:00 에 force 로 돈 관문을 11:18·11:20 관문 둘이 **못 보고 올라타** 셋이 같이
+      돌았고, `Z:` 한 번 읽는 데 **155.9초**가 걸렸다(실측 · 그날 09:50 회차는 100분째
+      돌고 있었다). **탈출구 하나가 남을 위해 문을 열어 두는 셈이었다.**
+    ★ **남의 살아 있는 잠금은 안 덮는다.** 덮으면 내가 끝날 때 `_gate_lock_free()` 가
+      그것을 지워 **아직 도는 그 관문이 무방비가 된다** — 그 뒤에 오는 사람 관문이
+      겹쳐 돌면 바로 [195] 다. **지나가는 것**(회차·force)과 **자리를 빼앗는 것**은
+      다른 말이다.
     ★ 급하면 `COUPANG_GATE_FORCE=1` (그때 겹침의 값은 사람이 진다).
     """
-    if os.environ.get("COUPANG_GATE_FORCE") == "1":
-        return
+    _force = os.environ.get("COUPANG_GATE_FORCE") == "1"
     # ★ **회차가 부른 관문은 절대 안 막는다**([412] 가 못 박은 자리) — 막으면
     #   사람이 관문을 도는 중에 09:50 이 뜰 때 **그날 대조가 통째로 안 돈다**
     #   (접수취소·객관완료·청구상태·오기입·사실대조·캠프 담당자 전부).
-    #   고치려던 것보다 나쁘다([172]). 다만 **잠금은 만든다** — 그래야
-    #   사람 관문이 그것을 보고 물러난다.
+    #   고치려던 것보다 나쁘다([172]).
     _round = os.environ.get("COUPANG_GATE_OWNER") == "daily_run"
     info = None
     try:
@@ -38887,6 +38934,7 @@ def _gate_lock_or_yield():
                 info = json.load(fh)
     except Exception:
         info = None
+    foreign_alive = False
     if isinstance(info, dict) and info.get("pid"):
         try:
             mine = int(info.get("pid")) == os.getpid()
@@ -38895,20 +38943,23 @@ def _gate_lock_or_yield():
         if not mine:
             try:
                 import daily_run as _dr
-                alive = _dr._pid_alive(info.get("pid"),
-                                       born_before=os.path.getmtime(_GATE_LOCK),
-                                       pid_started_at=info.get("pid_started_at"))
+                foreign_alive = _dr._pid_alive(
+                    info.get("pid"),
+                    born_before=os.path.getmtime(_GATE_LOCK),
+                    pid_started_at=info.get("pid_started_at"))
             except Exception:
-                alive = False          # 못 읽으면 그냥 돈다([169])
-            if alive and not _round:
-                started = str(info.get("started_at") or "")[:19].replace("T", " ")
-                print("관문을 돌리지 않았습니다 - 다른 관문이 이미 돌고 있습니다"
-                      " (pid %s - %s 시작)." % (info.get("pid"), started or "?"))
-                print("  둘이 겹치면 t126 이 왕복시키는 네 파일을 서로의 옛 사본으로 덮어")
-                print("  앱 글꼴이 나눔고딕으로 남고 자동 커밋이 원격까지 밉니다([195]).")
-                print("  · 그 관문이 끝나면 그 결과가 곧 ALL GREEN 확인입니다.")
-                print("  · 꼭 지금 돌려야 하면: set COUPANG_GATE_FORCE=1")
-                sys.exit(3)
+                foreign_alive = False   # 못 읽으면 그냥 돈다([169])
+    if foreign_alive and not _round and not _force:
+        started = str(info.get("started_at") or "")[:19].replace("T", " ")
+        print("관문을 돌리지 않았습니다 - 다른 관문이 이미 돌고 있습니다"
+              " (pid %s - %s 시작)." % (info.get("pid"), started or "?"))
+        print("  둘이 겹치면 t126 이 왕복시키는 네 파일을 서로의 옛 사본으로 덮어")
+        print("  앱 글꼴이 나눔고딕으로 남고 자동 커밋이 원격까지 밉니다([195]).")
+        print("  · 그 관문이 끝나면 그 결과가 곧 ALL GREEN 확인입니다.")
+        print("  · 꼭 지금 돌려야 하면: set COUPANG_GATE_FORCE=1")
+        sys.exit(3)
+    if foreign_alive:
+        return                          # 지나가되 남의 자리를 안 뺏는다
     try:
         import atexit
         os.makedirs(os.path.dirname(_GATE_LOCK), exist_ok=True)
