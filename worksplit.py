@@ -159,10 +159,37 @@ def _owner_state(it, me=""):
     return who, False
 
 
+def _next_id(d):
+    """번호는 `seq` 와 **실제 쓰인 번호** 중 큰 것에서 나온다.
+
+    ★ 2026-08-26 실사고: 옆 창이 판을 **직접 써서** `id 259` 를 만들고 `seq` 는
+      258 로 두자, 여기서 `seq + 1` 이 또 259 가 되어 **같은 번호가 둘**이 됐다.
+      그러면 `--done 259` 가 **먼저 걸린 남의 항목**을 완료로 찍는다(실제로 그랬고,
+      하마터면 옆 창이 아직 하는 일을 끝난 것으로 남길 뻔했다 · [104]).
+    ★ 판이 깨끗하면 예전과 **같은 번호**가 나온다 — 넓히는 것이 아니다([172]).
+    """
+    used = [int(x.get("id") or 0) for x in (d.get("items") or [])]
+    return max([int(d.get("seq") or 0)] + used) + 1
+
+
+def _dup(d, wid):
+    """그 번호가 여럿이면 **아무것도 안 한다**([169]·[172]).
+
+    어느 것인지 원본이 안 말해 주므로 고르면 남의 일을 건드린다 —
+    **못 고치는 것보다 나쁘다.** 사람이 번호를 갈라 준 뒤에 한다.
+    """
+    n = sum(1 for x in (d.get("items") or []) if x.get("id") == wid)
+    if n > 1:
+        print(f"★ [{wid}] 이 {n}개입니다 — 어느 것인지 몰라 손대지 않습니다."
+              " (판을 직접 쓴 창이 있으면 번호가 겹칩니다)")
+        return True
+    return False
+
+
 def add(title, detail="", lock="", human=False, who=""):
     with guard():
         d = _read()
-        d["seq"] += 1
+        d["seq"] = _next_id(d)
         it = {"id": d["seq"], "title": title, "detail": detail, "lock": lock or "",
               "state": HOLD if human else WAIT, "who": "", "sid": "",
               "at": datetime.now().strftime("%Y-%m-%d %H:%M"), "at_ts": time.time(),
@@ -176,6 +203,8 @@ def add(title, detail="", lock="", human=False, who=""):
 def take(who, wid):
     with guard():
         d = _read()
+        if _dup(d, wid):
+            return False
         for it in d["items"]:
             if it["id"] != wid:
                 continue
@@ -216,6 +245,8 @@ def _lock_hint(lock, who):
 def finish(who, wid, note="", state=DONE):
     with guard():
         d = _read()
+        if _dup(d, wid):
+            return False
         for it in d["items"]:
             if it["id"] != wid:
                 continue

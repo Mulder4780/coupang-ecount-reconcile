@@ -38940,7 +38940,73 @@ def t443_ledger_missing_does_not_blame_the_workbook():
     assert len(_cands(_bad)) == 0, (
         "확장자를 뺐는데도 후보가 남는다 — (4)가 아무것도 안 재고 있다")
 
-    print(chr(9989) + " [259] 관리대장을 못 찾으면 — 관리대장 탓이라 단정하지 않는다")
+    print(chr(9989) + " [443] 관리대장을 못 찾으면 — 관리대장 탓이라 단정하지 않는다")
+
+
+def t444_work_board_numbers_never_collide():
+    """분담판 번호가 겹치면 `--done` 이 **남의 일을 완료로 찍는다**.
+
+    2026-08-26 실사고: 옆 창이 판을 **직접 써서** `id 259` 를 만들고 `seq` 는
+    **258** 로 두었다. 그 상태에서 `add()` 가 `seq + 1` 로 번호를 주니 또 259 가
+    나와 **같은 번호가 둘**이 됐고, `--done 259` 가 **먼저 걸린 남의 항목**을
+    완료로 찍었다 — 옆 창이 아직 하는 일이 끝난 것으로 남을 뻔했다([104]).
+
+    ★ 재는 것은 **셋**이다: 안 겹치게 주나 · 이미 겹쳤으면 **손을 떼나** ·
+      그리고 **깨끗한 판에서는 예전과 같은 번호**인가(넓히는 것이 아니다 · [172]).
+    ★ 진짜 분담판에는 **한 글자도 안 쓴다** — 임시 판으로만 잰다([247]).
+    ★ 모듈 전역은 `finally` 로 되돌린다([371] — 프로세스 전체의 것이다).
+    """
+    import io as _io
+    import json as _js
+    import tempfile as _tf
+    import worksplit as _W
+
+    _d = _tf.mkdtemp()
+    _old = (_W.BOARD, _W.GUARD)
+    try:
+        _W.BOARD = os.path.join(_d, "b.json")
+        _W.GUARD = os.path.join(_d, "b.lock")
+
+        def _put(items, seq):
+            _io.open(_W.BOARD, "w", encoding="utf-8").write(
+                _js.dumps({"items": items, "seq": seq}, ensure_ascii=False))
+
+        def _ids():
+            return [x["id"] for x in
+                    _js.load(_io.open(_W.BOARD, encoding="utf-8"))["items"]]
+
+        # (1) 깨끗한 판에서는 **예전과 같은 번호**다 — 넓히는 것이 아니다([172])
+        _put([{"id": 1, "title": "a", "state": _W.WAIT}], 1)
+        assert _W.add("새 일") == 2, "깨끗한 판인데 번호가 달라졌다"
+
+        # (2) ★ 2026-08-26 에 실제로 있던 모양 — 직접 쓴 id 가 `seq + 1` 과 같다
+        _put([{"id": 259, "title": "옆 창이 직접 쓴 것", "state": _W.WAIT}], 258)
+        _n = _W.add("내 일")
+        assert _n != 259, (
+            "옆 창이 쓴 번호와 겹친다 — --done 이 남의 일을 완료로 찍는다([104])")
+        assert len(_ids()) == len(set(_ids())), "판에 같은 번호가 둘이다: %s" % _ids()
+
+        # (3) 이미 겹쳐 있으면 **아무것도 안 한다**([169]·[172]) —
+        #     어느 것인지 원본이 안 말해 주므로 고르면 남의 일을 건드린다
+        _put([{"id": 7, "title": "남의 것", "state": _W.WAIT, "who": ""},
+              {"id": 7, "title": "내 것", "state": _W.WAIT, "who": ""}], 7)
+        assert _W.finish("claude", 7, "완료", _W.DONE) is False, "겹친 번호를 완료로 찍었다"
+        assert _W.take("claude", 7) is False, "겹친 번호를 맡았다"
+        _st = [x["state"] for x in
+               _js.load(_io.open(_W.BOARD, encoding="utf-8"))["items"]]
+        assert _st == [_W.WAIT, _W.WAIT], "손대지 않는다고 해 놓고 바꿨다: %s" % _st
+
+        # (4) 계기 자신을 시험한다([272]) — **옛 방식(seq + 1)이면 (2)가 정말 겹치나.**
+        #     재현이 안 되는 재료로는 아무것도 못 잰다([309]) — 직접 쓴 번호가
+        #     `seq + 1` 과 **같아야** 겹친다(9 와 seq 5 로는 안 겹친다).
+        _put([{"id": 259, "title": "옆 창", "state": _W.WAIT}], 258)
+        _doc = _js.load(_io.open(_W.BOARD, encoding="utf-8"))
+        assert int(_doc["seq"]) + 1 in [x["id"] for x in _doc["items"]], (
+            "옛 방식으로도 안 겹치는 재료다 — (2)가 아무것도 안 재고 있다")
+    finally:                              # 모듈 전역은 프로세스 전체의 것이다([371])
+        _W.BOARD, _W.GUARD = _old
+
+    print(chr(9989) + " [444] 분담판 번호가 겹치면 남의 일을 완료로 찍는다 — 안 겹치게 주고, 겹쳤으면 손 뗀다")
 
 
 def _yield_to_running_round():
@@ -39626,6 +39692,7 @@ if __name__ == "__main__":
     t438_ceo_directive_id_is_not_tied_to_room()
     t439_two_gates_never_overwrite_each_others_fonts()
     t443_ledger_missing_does_not_blame_the_workbook()
+    t444_work_board_numbers_never_collide()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
