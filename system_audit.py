@@ -191,6 +191,53 @@ def _daily_step_reasons(names):
     return out
 
 
+def _steps_resource_recovered(reasons, names):
+    """실패한 단계가 **전부 자원 탓**이고 그 자원이 **지금 살아 있나** — 모르면 None.
+
+    ★ 왜 필요한가 (2026-08-27 실측): 어제 11:46 회차가 **끝까지 돌고** 단계 13개만
+      실패했는데, 그 사유가 **13개 전부 같은 것**이었다 — `관리대장을 찾을 수 없음:
+      Z:/…`. 곧 코드가 깨진 것이 아니라 **그 순간 공유폴더를 못 잡은 것**이고
+      (핫스팟 회선 · `[443]`) 지금 재면 Z: 는 0.3초로 멀쩡하다. 그런데 판정이
+      그것을 묻지 않아 **매일 아침 P0 가 인계 맨 위**를 차지했다 — 그 조치는
+      사람을 멀쩡한 코드로 보내고(`[172]`) 진짜 경보를 덮는다(`[170]`).
+      `[424]` 가 자율복구에서 배운 그 자리인데 **여기에는 안 와 있었다**(`[300]`).
+
+    ★ **판정을 새로 만들지 않는다**(`[162]`) — 갈래는 `autopilot.classify_failure`,
+      살아 있나는 `autopilot.resource_back` 을 그대로 빌린다.
+    ★ **안전핀은 갈래다** — 하나라도 `resource` 가 아니면 **모름**이다.
+      코드 고장이 섞였을 수 있고, 그것을 P2 로 내리면 못 잡는 것보다 나쁘다.
+    ★ **사유를 못 읽은 단계가 있으면 모름**이다(`[169]`) — 안 본 것을 회복이라
+      부르지 않는다.
+    ★ **살아난 것이 하나도 없으면 모름**이다 — `resource_back` 은 문구에 오류
+      표시가 없으면 `None` 을 준다(실측 넷 중 둘). 그 `None` 만으로는
+      "자원이 돌아왔다" 고 말할 근거가 없다.
+
+    돌려주는 값: True 회복 · False 아직 죽어 있음 · None 못 갈랐다.
+    """
+    if not names:
+        return None
+    try:
+        from autopilot import classify_failure, resource_back
+    except Exception:
+        return None
+    alive = False
+    for name in names:
+        why = reasons.get(name)
+        if not why:
+            return None
+        try:
+            if classify_failure(why) != "resource":
+                return None
+            back = resource_back(why)
+        except Exception:
+            return None
+        if back is False:
+            return False
+        if back is True:
+            alive = True
+    return True if alive else None
+
+
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -498,6 +545,10 @@ def build() -> dict[str, Any]:
                 #   *"한 가지 원인이 열세 단계를 죽였다"* 는 **더 참된 사실**을 말한다.
                 # ★ **조용히 자르지 않는다**(`[273]`) — 못 실은 묶음은 숫자로 적는다.
                 reasons = _daily_step_reasons(steps_failed)
+                # ★ **지나간 자원 실패를 '굳었다'고 부르지 않는다**(`[424]`).
+                #   갈래가 전부 `resource` 이고 그 자원이 지금 살아 있으면
+                #   사람이 지금 할 일이 없다 — **다음 회차가 답한다**.
+                recovered = _steps_resource_recovered(reasons, steps_failed)
                 groups = {}
                 for nm in steps_failed:
                     groups.setdefault((reasons.get(nm) or "")[:90], []).append(nm)
@@ -522,6 +573,7 @@ def build() -> dict[str, Any]:
                           "   # 사유 전문은 reports/종합리포트_*.md 의 그 단계 블록에 있다")
                 source = "reports/.daily_run.progress.json"
             else:
+                recovered = None
                 title = "오늘 일일 대조가 중단됨"
                 why = "%s · 실패 원인: %s" % (
                     daily.get("시각") or "시각 없음",
@@ -539,6 +591,15 @@ def build() -> dict[str, Any]:
                     "%s · %s" % (why, verdict.get("말") or "스케줄러 감시자가 그렇게 봤습니다"),
                     "python schedule_watch.py --print   # 다음 예정 회차가 답한다",
                     "reports/스케줄러_회차감시.json")
+            elif recovered is True:
+                # ★ **자원이 그때 끊긴 것이다** — 코드가 깨진 것이 아니다(`[424]`).
+                #   조용히 빼지 않는다(`[169]`): 실패 사실과 사유는 그대로 싣고
+                #   무게만 내린다. **"고쳐졌다"고 말하지 않는다**(`[322]`) —
+                #   말할 수 있는 것은 "그 자원이 지금은 살아 있다" 까지다.
+                add("daily-run-resource-back", "P2",
+                    "일일 대조 단계 실패는 그때 공유폴더를 못 잡은 것이다",
+                    "%s · 실패한 단계가 **모두 자원 탓**이고 그 자원은 **지금 살아 있다** — 코드가 깨진 것이 아니다. 다음 회차가 답한다." % why,
+                    action, source)
             else:
                 # ★ 무게는 **안 내린다**(`[172]`) — 단계 13개가 안 돈 것은
                 #   그 자체로 P0 다. 고친 것은 **무엇이·왜·어디를 보라**뿐이다.
