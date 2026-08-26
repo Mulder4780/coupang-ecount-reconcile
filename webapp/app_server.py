@@ -1026,6 +1026,101 @@ def upload_too_big_msg(kind, size=0):
             "[전체 자동화 상태]의 '지금 처리')." % (label, mb, now, where))
 
 
+
+def upload_body_missing_msg(kind):
+    """본문이 안 온 것을 **'너무 크다'라고 말하지 않는다**([289] — 조치가 정반대다).
+
+    2026-08-26 실사고: 류지영 님 PO 첨부가 09:31·09:59 **두 번** 거절됐는데 알림이
+    `(파일명 없음)` 이고 크기도 안 적혔다 — `upload_too_big_msg` 는 `size` 가 있을
+    때만 `(지금 N.NMB)` 를 붙이므로 **그것이 곧 길이를 몰랐다는 증거**다. 즉
+    60MB 초과가 아니었다. 그런데 조건이 `ln <= 0 or ln > 한도` 로 **한 문구에
+    묶여** 있어 화면은 크기를 탓했고, 사람은 파일을 쪼개거나 포기한다([172]).
+    """
+    folder = upload_drop_folder()
+    label = UPLOAD_KIND_LABEL.get(kind, "첨부")
+    where = folder or "0. 원본 자료 · 100. 업로드용 자료"
+    return ("%s 내용이 서버에 도착하지 않았습니다 — 파일이 커서가 아닙니다. "
+            "보내는 도중에 끊겼을 수 있습니다. "
+            "· 파일을 다시 고른 뒤 한 번 더 보내 주세요. "
+            "· 그래도 안 되면 이 폴더에 넣어 주세요: %s "
+            "(5분 안에 자동으로 분류돼 앱에 들어옵니다)." % (label, where))
+
+
+def request_body_len(headers):
+    """본문 길이를 잰다 — **chunked 는 -1**(길이는 모르지만 본문은 있다).
+
+    ★ 이 서버는 `Transfer-Encoding: chunked` 를 **한 곳도 안 다뤘다**(실측 0곳).
+      터널을 거치면 프록시가 그렇게 바꿔 보낼 수 있는데, 그러면 `Content-Length`
+      가 없어 `int(...or 0)` 이 0 이 되고 **크기와 무관하게 언제나 거절**된다.
+    ★ 이것이 오늘 사고의 원인이라고 **확언하지 않는다**([169]) — 헤더 자국이
+      없어 못 갈랐다. 다만 지금은 아예 못 받으므로 받게 넓힌다(한도는 지킨다).
+    """
+    te = str(headers.get("Transfer-Encoding", "") or "").lower()
+    if "chunked" in te:
+        return -1
+    try:
+        return int(headers.get("Content-Length", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def read_request_body(rfile, headers, limit):
+    """본문을 읽는다 — chunked 도 받되 **한도를 넘으면 멈춘다**.
+
+    한도가 없으면 메모리를 통째로 먹는다. 넓히는 것과 문을 여는 것은 다르다.
+    """
+    ln = request_body_len(headers)
+    if ln >= 0:
+        return rfile.read(ln)
+    out = bytearray()
+    while True:
+        line = rfile.readline(80)
+        if not line:
+            break
+        head = line.strip().split(b";")[0]
+        if not head:
+            continue
+        try:
+            size = int(head, 16)
+        except ValueError:
+            raise ValueError("본문(chunked)을 읽지 못했습니다")
+        if size == 0:
+            rfile.readline()
+            break
+        if len(out) + size > limit:
+            raise ValueError("본문이 한도를 넘었습니다")
+        out += rfile.read(size)
+        rfile.readline()
+    return bytes(out)
+
+
+def note_upload_reject(kind, headers, why):
+    """왜 본문이 안 왔는지 **다음에는 알 수 있게** 자국을 남긴다([228]).
+
+    ★ 파일 내용·개인정보는 한 글자도 안 적는다 — 헤더 요약만이다.
+    ★ 자국을 못 남겨도 접수를 막지 않는다.
+    """
+    try:
+        path = os.path.join(ROOT, "reports", "업로드_거절.json")
+        rows = []
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as fh:
+                rows = json.load(fh) or []
+        rows.append({
+            "때": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "갈래": kind,
+            "왜": str(why)[:120],
+            "Content-Length": str(headers.get("Content-Length", "") or "(없음)"),
+            "Transfer-Encoding": str(headers.get("Transfer-Encoding", "") or "(없음)"),
+            "Content-Type": str(headers.get("Content-Type", "") or "")[:60],
+            "User-Agent": str(headers.get("User-Agent", "") or "")[:80],
+        })
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(rows[-60:], fh, ensure_ascii=False, indent=1)
+    except Exception:
+        pass
+
+
 def save_staff_po_submission(fields, files, source_ip=""):
     from source_dirs import PO_DIR
     folder, saved, manifest = _save_source_submission(
@@ -10881,16 +10976,28 @@ self.addEventListener('fetch', e => {
             actor_slug = self._require_staff(*STAFF_CENTERS.keys())
             if not actor_slug:
                 return
-            ln = int(self.headers.get("Content-Length", 0))
-            if ln <= 0 or ln > UPLOAD_LIMITS["po"]:
+            # ★ **본문이 안 온 것과 너무 큰 것을 가른다**([289]) — 조치가
+            #   정반대다. 2026-08-26 실사고: 류지영 님 PO 첨부 두 번이
+            #   길이를 모른 채 "60MB 초과"로 거절됐다([172] 틀린 지목).
+            ln = request_body_len(self.headers)
+            if ln > UPLOAD_LIMITS["po"]:
                 _big = upload_too_big_msg("po", ln)
+                note_upload_reject("PO 첨부", self.headers, "한도 초과")
                 _notify_upload_rejected("PO 첨부", "", self._actor(), _big)
                 return self._send(400, {"ok": False, "error": _big,
                                         "drop_folder": upload_drop_folder(),
                                         "limit": UPLOAD_LIMITS["po"]})
+            if ln == 0:
+                _gone = upload_body_missing_msg("po")
+                note_upload_reject("PO 첨부", self.headers, "본문 없음")
+                _notify_upload_rejected("PO 첨부", "", self._actor(), _gone)
+                return self._send(400, {"ok": False, "error": _gone,
+                                        "drop_folder": upload_drop_folder(),
+                                        "limit": UPLOAD_LIMITS["po"]})
             try:
-                fields, files = multipart_parts(self.headers.get("Content-Type", ""),
-                                                self.rfile.read(ln))
+                fields, files = multipart_parts(
+                    self.headers.get("Content-Type", ""),
+                    read_request_body(self.rfile, self.headers, UPLOAD_LIMITS["po"]))
                 fields["staff_slug"] = actor_slug
                 result = save_staff_po_submission(fields, files, ip)
                 _notify_upload_received("PO 첨부", _first_filename(files), self._actor(),
@@ -11004,16 +11111,28 @@ self.addEventListener('fetch', e => {
             if not allowed:
                 return self._send(403, {"ok": False,
                                         "error": "입금 자료는 등록된 업무센터 또는 관리자만 등록합니다"})
-            ln = int(self.headers.get("Content-Length", 0))
-            if ln <= 0 or ln > UPLOAD_LIMITS["receipt"]:
+            # ★ **본문이 안 온 것과 너무 큰 것을 가른다**([289]) — 조치가
+            #   정반대다. 2026-08-26 실사고: 류지영 님 PO 첨부 두 번이
+            #   길이를 모른 채 "60MB 초과"로 거절됐다([172] 틀린 지목).
+            ln = request_body_len(self.headers)
+            if ln > UPLOAD_LIMITS["receipt"]:
                 _big = upload_too_big_msg("receipt", ln)
+                note_upload_reject("입금내역", self.headers, "한도 초과")
                 _notify_upload_rejected("입금내역", "", self._actor(), _big)
                 return self._send(400, {"ok": False, "error": _big,
                                         "drop_folder": upload_drop_folder(),
                                         "limit": UPLOAD_LIMITS["receipt"]})
+            if ln == 0:
+                _gone = upload_body_missing_msg("receipt")
+                note_upload_reject("입금내역", self.headers, "본문 없음")
+                _notify_upload_rejected("입금내역", "", self._actor(), _gone)
+                return self._send(400, {"ok": False, "error": _gone,
+                                        "drop_folder": upload_drop_folder(),
+                                        "limit": UPLOAD_LIMITS["receipt"]})
             try:
-                fields, files = multipart_parts(self.headers.get("Content-Type", ""),
-                                                self.rfile.read(ln))
+                fields, files = multipart_parts(
+                    self.headers.get("Content-Type", ""),
+                    read_request_body(self.rfile, self.headers, UPLOAD_LIMITS["receipt"]))
                 result = save_staff_receipt_submission(fields, files, ip)
                 _notify_upload_received("입금내역", _first_filename(files), self._actor(),
                                         extra="입금 자료가 들어왔습니다 — 대조는 입금 대조 회차가 합니다.")

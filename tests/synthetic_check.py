@@ -31862,6 +31862,107 @@ def t438_ceo_directive_id_is_not_tied_to_room():
     print(chr(9989) + " [438] 대표 지시 레코드ID 는 방에 안 매인다 — 확인이 안 풀린다")
 
 
+def t439_two_gates_never_overwrite_each_others_fonts():
+    """관문 **둘이 겹치면** 뒤에 온 쪽이 물러난다 — [195] 의 뿌리를 막는 문.
+
+    `t126` 은 진짜 네 파일(`font_switch.FILES`)을 legacy 로 썼다 되돌린다([126]).
+    관문 A 가 legacy 로 쓴 순간 관문 B 가 그 파일을 읽어 제 '원본'으로 저장하면
+    **A 가 되돌려도 B 가 그 옛 사본으로 도로 덮는다.** 그러면 자동 커밋이
+    (`git add -A` · [104]) 그것을 쓸어 담아 **원격까지 민다** — 2026-08-26 08:41
+    실측(커밋 461f99b · `docs/app.html`·`docs/cal.html` 둘이 나눔고딕으로 밀려
+    폰 앱이 그 글꼴로 나갔다). 물러서기(retry)로는 못 막는다 — 쓰기가 실패한
+    것이 아니라 **성공했는데 옛 원본으로 덮은** 것이다.
+
+    ★ 실측 증거(`reports/.gate.lock`)에는 **한 글자도 안 쓴다**([247]).
+    ★ 모듈 전역·환경변수는 `finally` 로 되돌린다([371] — 프로세스 전체의 것이다).
+    """
+    import ast as _ast
+    import io as _io
+    import json as _js
+    import tempfile as _tf
+    import types as _ty
+
+    _old_lock = _GATE_LOCK
+    _old_force = os.environ.get("COUPANG_GATE_FORCE")
+    _d = _tf.mkdtemp()
+    _lk = os.path.join(_d, "g.lock")
+    import daily_run as _dr
+    _old_alive = _dr._pid_alive
+    try:
+        globals()["_GATE_LOCK"] = _lk
+        os.environ.pop("COUPANG_GATE_FORCE", None)
+
+        def _run():
+            try:
+                _gate_lock_or_yield()
+                return "ok"
+            except SystemExit as e:      # noqa: PERF203
+                return "exit%s" % e.code
+
+        # ① 잠금이 없으면 그냥 돌고 **내 잠금을 남긴다**
+        assert _run() == "ok", "잠금이 없는데 물러났다 — 관문이 아예 못 돈다"
+        assert os.path.exists(_lk), "잠금을 안 남긴다 — 뒤에 오는 관문이 겹친다"
+        assert _js.load(open(_lk, encoding="utf-8")).get("pid") == os.getpid(), \
+            "남의 pid 를 적었다"
+
+        # ② **내 잠금은 나를 막지 않는다**([272] — 안 그러면 관문이 늘 물러난다)
+        assert _run() == "ok", "제 잠금을 보고 물러난다 — 관문이 한 번도 못 돈다"
+
+        # ③ 살아 있는 **남의** 관문이면 물러난다
+        _js.dump({"pid": 999999, "started_at": "2026-08-26T10:00:00"},
+                 open(_lk, "w", encoding="utf-8"))
+        _dr._pid_alive = lambda *a, **k: True
+        assert _run() == "exit3", "다른 관문이 도는데 겹쳐서 돈다 — [195] 가 되살아난다"
+
+        # ④ **죽은 잠금은 근거가 아니다**([169]) — 그러면 관문이 영원히 막힌다
+        _dr._pid_alive = lambda *a, **k: False
+        assert _run() == "ok", "죽은 잠금 하나가 관문을 영원히 막는다"
+
+        # ⑤ 급할 때 넘길 문이 있다
+        _js.dump({"pid": 999999, "started_at": "2026-08-26T10:00:00"},
+                 open(_lk, "w", encoding="utf-8"))
+        _dr._pid_alive = lambda *a, **k: True
+        os.environ["COUPANG_GATE_FORCE"] = "1"
+        assert _run() == "ok", "COUPANG_GATE_FORCE 가 안 먹는다"
+        os.environ.pop("COUPANG_GATE_FORCE", None)
+
+        # ⑥ **남의 잠금은 안 지운다** — 지우면 그 관문이 무방비가 된다
+        _gate_lock_free()
+        assert os.path.exists(_lk), "남의 잠금을 지웠다"
+
+        # ⑦ 계기 자신을 시험한다([272]) — 물러나는 문을 없애면 ③이 잡히나
+        _src = _io.open(os.path.join(ROOT, "tests", "synthetic_check.py"),
+                       encoding="utf-8").read()
+        _bad = _src.replace("            if alive:", "            if False:", 1)
+        assert _bad != _src, "고장을 주입할 자리를 못 찾았다 — 이 검사가 헛돈다"
+        _g = _ty.ModuleType("g")
+        _g.__file__ = os.path.join(ROOT, "tests", "synthetic_check.py")
+        _g.__name__ = "g"
+        _tree = _ast.parse(_bad)
+        _tree.body = [n for n in _tree.body
+                      if not (isinstance(n, _ast.FunctionDef)
+                              and n.name.startswith("t") and n.name[1:2].isdigit())]
+        exec(compile(_tree, _g.__file__, "exec"), _g.__dict__)
+        _g._GATE_LOCK = _lk
+        _js.dump({"pid": 999999, "started_at": "2026-08-26T10:00:00"},
+                 open(_lk, "w", encoding="utf-8"))
+        try:
+            _g._gate_lock_or_yield()
+            _hit = "ok"
+        except SystemExit as e:
+            _hit = "exit%s" % e.code
+        assert _hit == "ok", "고장을 넣었는데도 막혔다 — 이 검사는 아무것도 안 재고 있다"
+    finally:                              # 모듈 전역은 프로세스 전체의 것이다([371])
+        globals()["_GATE_LOCK"] = _old_lock
+        _dr._pid_alive = _old_alive
+        if _old_force is None:
+            os.environ.pop("COUPANG_GATE_FORCE", None)
+        else:
+            os.environ["COUPANG_GATE_FORCE"] = _old_force
+
+    print(chr(9989) + " [439] 관문 둘이 겹치면 뒤에 온 쪽이 물러난다 — 앱 글꼴을 안 덮는다")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -39072,6 +39173,7 @@ if __name__ == "__main__":
     t436_autopilot_skips_what_it_can_never_finish()
     t437_batch_is_capped_by_time_not_count()
     t438_ceo_directive_id_is_not_tied_to_room()
+    t439_two_gates_never_overwrite_each_others_fonts()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
