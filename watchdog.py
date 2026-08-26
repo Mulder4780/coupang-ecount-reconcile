@@ -1122,10 +1122,13 @@ def heal_band_bridge(dry):
     except Exception as exc:
         return "밴드 다리: 못 들여옴 — %s" % str(exc)[:60]
     if not BB.alive():
-        r = BB.up()
-        if r.get("오류"):
-            return "밴드 다리: 크롬을 못 띄움 — %s" % str(r["오류"])[:60]
-        _bridge_minimize(BB)
+        # ★ 형님 지시(2026-08-27): **"새로 띄우지 말고 기존 크롬창 지금 떠있는
+        #   크롬창으로해"**.  그래서 여기서 크롬을 **안 띄운다** — 창이 하나 더
+        #   뜨는 것이 그 지시가 막는 것이다.  붙을 크롬이 없으면 **그 사실만 적고
+        #   물러난다**([169] — 못 한 것을 한 것처럼 적지 않는다).
+        return ("밴드 다리(%s): 디버깅 문이 열린 크롬이 없다 — 형님 크롬을 한 번만 "
+                "`python band/browser_bridge.py --adopt-mine --yes` 로 다시 켜면 "
+                "그 뒤로는 창 하나로 자동입니다(로그인·탭 그대로)" % band)
     wait = int(os.environ.get("BRIDGE_STEP_WAIT_S", "420"))
     try:
         out = BB.collect_band(band, wait_s=wait)
@@ -1133,7 +1136,6 @@ def heal_band_bridge(dry):
         return "밴드 다리(%s): 실패 — %s" % (band, str(exc)[:60])
     try:
         BB.note(out)
-        _bridge_minimize(BB)      # 다 하고 다시 내려 둔다 — 화면을 안 가린다
     except Exception:
         pass
     결과 = out.get("결과")

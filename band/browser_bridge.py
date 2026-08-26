@@ -149,6 +149,97 @@ def up(wait_s=30):
     return {"오류": "크롬이 %d초 안에 디버깅 포트를 안 열었다" % wait_s}
 
 
+# ── 형님 크롬을 **그대로** 쓰는 길 (2026-08-27 지시) ──────────────────────────
+#
+# 형님 지시: **"새로 띄우지 말고 기존 크롬창 지금 떠있는 크롬창으로해"**
+#
+# ★ **지금 떠 있는 크롬에는 못 붙는다 — 구조다.**  크롬은 디버깅 문을
+#   `--remote-debugging-port` 로 **켤 때만** 연다.  실측 2026-08-27: 형님 크롬
+#   pid 21684 · 포트 **없음** · 기본 프로필.  이미 도는 크롬에 그 문을 나중에
+#   달 수는 없다(같은 프로필로 두 번째로 띄우면 크롬이 **기존 인스턴스로
+#   넘겨 버리고 깃발을 무시한다**).
+#
+# 그래서 남는 길은 **그 크롬을 한 번만 다시 켜는 것**이다.  프로필이 그대로라
+# **로그인도 탭도 그대로**고, 창은 여전히 **하나**다 — 형님이 싫어하신 '창 두 개'가
+# 없어진다.
+#
+# ⚠ **이 함수는 워치독이 절대 안 부른다**(검증 [457] 이 지킨다).  형님 브라우저를
+#   닫는 일이고, 디버깅 문은 **이 PC 안의 다른 프로그램도 그 크롬을 조종할 수 있게**
+#   한다 — 되돌리기 어려운 쪽이라 **사람이 명령할 때만** 돈다.
+#
+# ⚠ 실측: 형님 크롬은 `restore_on_startup` 이 안 정해져 있어(기본=새 탭) 그냥
+#   닫으면 탭을 잃는다.  그래서 다시 켤 때 `--restore-last-session` 을 준다.
+
+MY_PROFILE = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome",
+                          "User Data")
+
+
+def my_chrome_pids():
+    """형님이 지금 쓰는 크롬 창의 pid (자식 프로세스 `--type=` 은 뺀다)."""
+    if os.name != "nt":
+        return []
+    ps = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+          "Where-Object { $_.CommandLine -notmatch '--type=' -and "
+          "$_.CommandLine -notmatch 'chrome_bridge' } | "
+          "Select-Object -ExpandProperty ProcessId")
+    try:
+        import proc_guard
+        r = proc_guard.run_tree(["powershell", "-NoProfile", "-Command", ps], timeout=30)
+        out = (r.stdout or "")
+    except Exception:
+        return []
+    return [int(x) for x in out.split() if x.strip().isdigit()]
+
+
+def adopt_mine(dry=True, wait_s=40):
+    """형님 크롬을 **한 번만** 디버깅 문과 함께 다시 켠다.
+
+    창은 하나 그대로, 프로필도 그대로다 — **로그인을 다시 하실 일이 없다.**
+    `dry=True` 면 **아무것도 안 하고** 무엇을 할지만 말한다.
+    """
+    exe = chrome_exe()
+    if not exe:
+        return {"오류": "크롬을 못 찾았다"}
+    pids = my_chrome_pids()
+    plan = {"프로필": MY_PROFILE, "포트": PORT, "지금pid": pids,
+            "할일": ["그 크롬을 곱게 닫는다(세션 저장)",
+                   "같은 프로필로 다시 켠다 — 디버깅 문 %d · 지난 탭 복원" % PORT]}
+    if dry:
+        plan["안했음"] = "미리보기다 — 실제로 하려면 --adopt-mine --yes"
+        return plan
+    if alive():
+        plan["이미"] = "디버깅 문이 이미 열려 있다 — 아무것도 안 했다"
+        return plan
+    if pids:
+        try:
+            import proc_guard
+            proc_guard.run_tree(["taskkill", "/PID", str(pids[0])], timeout=30)
+        except Exception as exc:
+            plan["오류"] = "크롬을 못 닫았다: %s" % str(exc)[:80]
+            return plan
+        t0 = time.time()
+        while time.time() - t0 < 20 and my_chrome_pids():
+            time.sleep(1)
+        if my_chrome_pids():
+            plan["오류"] = ("크롬이 안 닫혔다 — 저장 안 한 것이 있으면 크롬이 물어봅니다."
+                         " 그 창을 보고 답해 주십시오")
+            return plan
+    args = [exe, "--remote-debugging-port=%d" % PORT, "--restore-last-session"]
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    subprocess.Popen(args, creationflags=flags)
+    t0 = time.time()
+    while time.time() - t0 < wait_s:
+        time.sleep(1)
+        b = alive()
+        if b:
+            plan["됨"] = True
+            plan["브라우저"] = b
+            plan["초"] = round(time.time() - t0, 1)
+            return plan
+    plan["오류"] = "크롬이 %d초 안에 디버깅 문을 안 열었다" % wait_s
+    return plan
+
+
 # ── CDP ───────────────────────────────────────────────────────────────────────
 
 def _conn(tab, timeout=30):
@@ -211,17 +302,51 @@ def find_tab(prefix):
     return None
 
 
-def ensure_tab(url, prefix=None, wait_s=25):
-    """그 주소 탭이 있으면 쓰고, 없으면 연다."""
+def _tab_by_id(tid):
+    for t in tabs():
+        if t.get("id") == tid:
+            return t
+    return None
+
+
+def ensure_tab(url, prefix=None, wait_s=25, alt=()):
+    """그 주소 탭이 있으면 쓰고, 없으면 연다.
+
+    ★ **새로 열기 전에 `alt`(튕겨 간 자리)도 본다.**  로그인 전에는 밴드·ERP 가
+      로그인 주소로 튕기므로 `prefix` 로는 **영영 못 찾는다** — 그러면 회차마다
+      탭을 새로 열고, 그 탭도 또 튕긴다.  실측 2026-08-26: 같은 로그인 탭이
+      **7개** 쌓여 전체 16개가 됐다(제가 만든 결함이다).
+      찾으면 **그 탭을 제자리로 돌려보낸다** — 새로 열지 않는다.  그래야 형님이
+      로그인하신 뒤 다음 회차가 **그 탭 그대로** 밴드·ERP 로 들어간다.
+
+    ⚠ **`alt` 를 넓히지 않는다**([172]).  실측된 튕김 자리만 적는다 —
+      `https://www.band.us` 처럼 넓게 잡으면 **지금 긁고 있는 다른 밴드 탭**을
+      찾아 딴 데로 보내 버린다(수집이 통째로 끊긴다).
+    ⚠ 돌려보내도 로그인 전이면 또 튕긴다 — 그것이 정상이고, 여기서 지키는 것은
+      **탭이 안 는다**는 것 하나다.  로그인 판정은 부르는 쪽이 따로 한다([162]).
+    """
     t = find_tab(prefix or url)
     if t:
         return t
+    for a in alt:
+        t = find_tab(a)
+        if not t:
+            continue
+        try:
+            with _conn(t, timeout=15) as ws:
+                _call(ws, "Page.navigate", {"url": url}, timeout=30)
+            time.sleep(3)
+        except Exception:
+            pass          # 못 돌려보내도 **그 탭을 그대로 쓴다** — 새로 열지 않는다
+        return find_tab(prefix or url) or _tab_by_id(t.get("id")) or t
     open_tab(url)
     t0 = time.time()
+    where = [prefix or url] + list(alt)
     while time.time() - t0 < wait_s:
-        t = find_tab(prefix or url)
-        if t:
-            return t
+        for p in where:
+            t = find_tab(p)
+            if t:
+                return t
         time.sleep(1)
     return None
 
@@ -229,6 +354,9 @@ def ensure_tab(url, prefix=None, wait_s=25):
 # ── 밴드 ──────────────────────────────────────────────────────────────────────
 
 BAND_URL = "https://www.band.us/band/%s"
+# 로그인 전에 밴드가 튕겨 가는 자리(실측 2026-08-26).  ⚠ 여기를 넓히지 말 것 —
+# `https://www.band.us` 로 잡으면 **지금 긁고 있는 다른 밴드 탭**까지 끌고 간다([172]).
+BAND_REDIRECTS = ("https://auth.band.us", "https://www.band.us/about")
 
 
 def band_login_state(ws):
@@ -263,7 +391,8 @@ def collect_band(band, wait_s=None, app_base="http://127.0.0.1:8899"):
     """
     wait_s = wait_s or COLLECT_WAIT_S
     out = {"밴드": str(band), "시작": time.strftime("%Y-%m-%dT%H:%M:%S")}
-    t = ensure_tab(BAND_URL % band, prefix="https://www.band.us/band/%s" % band)
+    t = ensure_tab(BAND_URL % band, prefix="https://www.band.us/band/%s" % band,
+                   alt=BAND_REDIRECTS)
     if not t:
         # ⚠ 로그인 전에는 밴드가 **딴 주소로 튕긴다**(실측 `/about/kr/intro`) — 그때
         #   "탭을 못 열었다"고 적으면 사람이 **멀쩡한 크롬을 고치러 간다**([172]).
@@ -433,7 +562,7 @@ def collect_erp(keys=None, wait_s=None, app_base="http://127.0.0.1:8899"):
     wait_s = wait_s or COLLECT_WAIT_S
     out = {"무엇": "ERP", "화면": list(keys) if keys else None,
            "시작": time.strftime("%Y-%m-%dT%H:%M:%S")}
-    t = ensure_tab(ERP_URL, prefix=ERP_APP_HOST)
+    t = ensure_tab(ERP_URL, prefix=ERP_APP_HOST, alt=(ERP_LOGIN_HOST,))
     if not t:
         # 로그인이 안 되면 이카운트가 **다른 주소로 튕긴다**(실측) — 그때 '탭을 못
         # 열었다'고 적으면 사람이 크롬을 고치러 간다([172]).  튕긴 자리를 찾아
@@ -552,11 +681,20 @@ def main():
     # 화면 이름을 안 주면 등록부 전부 — 이름은 `erp_grab.SCREENS` 가 정한다([162]).
     ap.add_argument("--collect-erp", nargs="?", const="", metavar="화면들")
     ap.add_argument("--wait", type=int, default=COLLECT_WAIT_S)
+    # 형님 크롬을 **그대로** 쓰는 길(2026-08-27 지시).  `--yes` 없이는 미리보기다 —
+    # 형님 브라우저를 닫는 일이라 **사람이 명령할 때만** 돈다.
+    ap.add_argument("--adopt-mine", action="store_true")
+    ap.add_argument("--yes", action="store_true")
     a = ap.parse_args()
 
     if a.status:
         print(json.dumps(status(), ensure_ascii=False, indent=1))
         return 0
+
+    if a.adopt_mine:
+        r = adopt_mine(dry=not a.yes)
+        print(json.dumps(r, ensure_ascii=False, indent=1))
+        return 1 if r.get("오류") else 0
 
     erp = a.collect_erp is not None
 
@@ -621,7 +759,7 @@ if __name__ == "__main__":
         #   막는 것은 실제로 긁는 `--collect`·`--collect-all`·`--collect-erp` 뿐이다.
         #   `--help` 도 조회다 — 막으면 형님이 **어떤 깃발이 있는지조차** 못 보고,
         #   "수집 문이 막았습니다" 라는 엉뚱한 답을 받는다([169]·[289]).
-        if not ({"--status", "--up", "--help", "-h"} & set(sys.argv[1:])):
+        if not ({"--status", "--up", "--help", "-h", "--adopt-mine"} & set(sys.argv[1:])):
             import collect_gate
             collect_gate.guard("브라우저 다리로 밴드·ERP 수집")
     except SystemExit:

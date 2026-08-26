@@ -28431,21 +28431,37 @@ def _t457_check(src):
     assert len(lines) == 1, "[457] 문을 건너뛰는 갈래를 못 읽었다 — 줄이 %d개다" % len(lines)
     import re as _re
     exempt = set(_re.findall('"([^"]+)"', lines[0]))
-    # 문을 안 거치는 것은 **조회뿐**이다: `--status`(상태 보기) · `--up`(빈 크롬을 띄워
-    # 형님이 로그인하실 자리를 여는 것) · `--help`/`-h`(깃발 목록).  셋 다 한 글자도
-    # 안 긁는다.  긁는 길이 여기 들어오면 두 창이 같은 밴드를 긁는다(사고 #27).
-    assert exempt == {"--status", "--up", "--help", "-h"}, (
+    # 문을 안 거치는 것은 **안 긁는 길뿐**이다: `--status`(상태 보기) · `--up`(빈
+    # 크롬을 띄워 형님이 로그인하실 자리를 여는 것) · `--help`/`-h`(깃발 목록) ·
+    # `--adopt-mine`(형님 크롬을 디버깅 문과 함께 다시 켜는 것 — 크롬을 켤 뿐
+    # 밴드 캐시도 Z: 도 한 글자 안 건드린다).  긁는 길이 여기 들어오면 두 창이
+    # 같은 밴드를 긁는다(사고 #27).
+    assert exempt == {"--status", "--up", "--help", "-h", "--adopt-mine"}, (
         "[457] 문을 안 거치는 깃발이 달라졌다: " + repr(sorted(exempt)) +
         " — 긁는 길(--collect·--collect-all·--collect-erp)은 반드시 문을 거친다")
+
+    # ★ 형님 크롬을 다시 켜는 것은 **사람이 명령할 때만**이다(2026-08-27).
+    #   브라우저를 닫는 일이고, 디버깅 문은 이 PC 의 다른 프로그램도 그 크롬을
+    #   조종할 수 있게 한다 — 되돌리기 어려운 쪽이라 **미리보기가 기본**이어야 한다.
+    fns = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    am = fns.get("adopt_mine")
+    assert am is not None, "[457] adopt_mine 이 없다"
+    _dry = [(a.arg, d) for a, d in zip(am.args.args[-len(am.args.defaults):],
+                                       am.args.defaults)] if am.args.defaults else []
+    assert any(a == "dry" and getattr(d, "value", None) is True for a, d in _dry), (
+        "[457] adopt_mine 의 기본이 미리보기가 아니다 — 부르는 순간 형님 브라우저가 닫힌다")
 
     # ④ 콘솔 창을 안 띄우되 **이름으로** 넘긴다([272] 실측: `**kw` 는 감사기가 못 읽는다).
     popens = [n for n in ast.walk(tree)
               if isinstance(n, ast.Call) and _bb_dotted(n.func) == "subprocess.Popen"]
-    assert len(popens) == 1, "[457] 크롬을 띄우는 자리가 %d곳이다 — 하나여야 한다" % len(popens)
-    kws = [k.arg for k in popens[0].keywords]
-    assert "creationflags" in kws, "[457] 크롬을 띄울 때 CREATE_NO_WINDOW 를 안 단다([272])"
-    assert None not in kws, (
-        "[457] 깃발을 **kw 로 넘기면 감사기가 '무엇을 띄우는지 모름'으로 읽어 관문이 막힌다([272])")
+    assert popens, "[457] 크롬을 띄우는 자리가 없다"
+    for pn in popens:                       # 개수가 아니라 **계약**을 얼린다([39])
+        kws = [k.arg for k in pn.keywords]
+        assert "creationflags" in kws, (
+            "[457] %d줄 — 크롬을 띄울 때 CREATE_NO_WINDOW 를 안 단다([272])" % pn.lineno)
+        assert None not in kws, (
+            "[457] %d줄 — 깃발을 **kw 로 넘기면 감사기가 '무엇을 띄우는지 모름'으로"
+            " 읽어 관문이 막힌다([272])" % pn.lineno)
 
     # ⑤ `/json/new` 는 **PUT** 이다 — 크롬 151 은 GET 에 405 를 준다(2026-08-26 실측).
     ot = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "open_tab"]
@@ -28498,6 +28514,44 @@ def _t457_erp_run(src):
     #   이름칸만 갈아 끼운다.
     m.time = types.SimpleNamespace(sleep=lambda _s: None, time=time.time,
                                    strftime=time.strftime)
+
+    # (0) 탭이 안 는다 — **로그인 전에는 밴드·ERP가 딴 주소로 튕긴다**([300]).
+    #     그때 `prefix` 로는 영영 못 찾아 회차마다 탭을 새로 열었다(실측 2026-08-26:
+    #     같은 로그인 탭 7개 · 전체 16개).  글자로는 '정말 안 여나' 를 못 잰다([295]).
+    opened = []
+    m.open_tab = lambda url: opened.append(url)
+    m.tabs = lambda: [{"type": "page", "id": "T1",
+                       "url": "https://auth.band.us/login?next_url=x",
+                       "webSocketDebuggerUrl": "ws://x"}]
+
+    class _WS0(object):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    m._conn = lambda t, timeout=30: _WS0()
+    m._call = lambda ws, meth, params=None, timeout=60: {}
+    got = m.ensure_tab("https://www.band.us/band/999",
+                       prefix="https://www.band.us/band/999", alt=m.BAND_REDIRECTS)
+    assert opened == [], (
+        "[457] 튕겨 간 탭이 이미 있는데 **새 탭을 또 열었다** — 회차마다 하나씩 쌓인다")
+    assert got and got.get("id") == "T1", (
+        "[457] 튕겨 간 탭을 못 쓰고 %r 를 돌려준다" % (got,))
+
+    # (0-2) 그렇다고 **아예 안 여는 것도 고장이다**([172] — 좁히는 것도 고장이다).
+    opened[:] = []
+    m.tabs = lambda: []
+    m.ensure_tab("https://www.band.us/band/999",
+                 prefix="https://www.band.us/band/999", alt=m.BAND_REDIRECTS,
+                 wait_s=0)
+    assert opened, "[457] 탭이 하나도 없는데 안 연다 — 그러면 아무것도 못 긁는다"
+
+    # (0-3) ⚠ `alt` 를 넓히면 **지금 긁고 있는 다른 밴드 탭**을 끌고 간다.
+    assert "https://www.band.us" not in m.BAND_REDIRECTS, (
+        "[457] 튕김 자리에 밴드 주소를 통째로 넣었다 — 수집 중인 다른 밴드 탭을"
+        " 딴 데로 보낸다([172])")
 
     def _fixed(v):
         def _e(ws, expr, timeout=60, await_promise=True):
@@ -28597,6 +28651,8 @@ def t457_browser_bridge_never_fakes_and_never_types_a_password():
         ("JS 에 hidden 속임수", src.replace("const href = location.href;",
                                         "Object.defineProperty(document,'hidden',{get:()=>false});")),
         ("긁는 길을 문에서 뺌", src.replace('"--up", "--help"', '"--up", "--collect", "--help"')),
+        ("형님 크롬을 묻지도 않고 닫음",
+         src.replace("def adopt_mine(dry=True", "def adopt_mine(dry=False")),
     ]
     for name, bad in hurts:
         assert bad != src, "[457] 자기시험 재료가 안 바뀌었다 — 이 검사는 아무것도 안 잰다: " + name
@@ -28614,6 +28670,7 @@ def t457_browser_bridge_never_fakes_and_never_types_a_password():
                                           '        if False:')),
         ("파일 도착 확인을 안 적는다", src.replace('out[' + Q + '디스크확인' + Q + '] = {',
                                           'out[' + Q + '_안적음' + Q + '] = {')),
+        ("튕긴 탭을 안 찾고 새로 연다", src.replace("    for a in alt:", "    for a in ():")),
     ]
     for name, bad in erp_hurts:
         assert bad != src, "[457] ERP 자기시험 재료가 안 바뀌었다: " + name
@@ -28624,7 +28681,7 @@ def t457_browser_bridge_never_fakes_and_never_types_a_password():
         raise AssertionError("[457] 계기가 눈멀었다 — " + name + " 를 넣었는데 못 잡는다")
 
     print(chr(9989) + " [457] 브라우저 다리(밴드+ERP) — 안 속이고 · 비밀번호 안 치고 ·"
-          " 긁는 길에만 문 · 받음≠도착(자기시험 6/6)")
+          " 긁는 길에만 문 · 받음≠도착(자기시험 7/7)")
 
 
 def t458_phone_copy_pushes_only_when_business_changed():
@@ -29017,6 +29074,24 @@ def _t460_run(step_src=None):
         line = W.heal_band_bridge(False)
         assert "밴드 탭을 못 열었다" in line, (
             "[460] 실패인데 왜인지를 버렸다: %r" % line)
+
+        # ⑧ **크롬을 새로 안 띄운다** (2026-08-27 지시: "새로 띄우지 말고 기존
+        #    크롬창 지금 떠있는 크롬창으로해").  창이 하나 더 뜨는 것이 그 지시가
+        #    막는 것이다 — 붙을 크롬이 없으면 **그 사실만 적고 물러난다**([169]).
+        upped = []
+        BB.up = lambda *a, **k: (upped.append(1), {"이미": True})[1]
+        BB.alive = lambda: ""
+        BB.collect_band = fake_collect
+        verdict({"1111111": {"갈래": "끊김"}})
+        calls[:] = []
+        line = W.heal_band_bridge(False)
+        assert not upped, (
+            "[460] 붙을 크롬이 없다고 **새 크롬을 띄웠다** — 형님이 하지 말라 하신 것이다")
+        assert not calls, "[460] 크롬도 없는데 긁으러 갔다"
+        assert "adopt-mine" in line, (
+            "[460] 무엇을 하면 되는지 안 적는다 — 막기만 하는 안내는 없는 안내다([408]): %r"
+            % line)
+        BB.alive = lambda: "Chrome/x"
     finally:
         UW.check, BB.collect_band, BB.alive, BB.note, BB.up = real
 
@@ -29051,6 +29126,10 @@ def t460_bridge_takes_over_only_when_the_human_tab_is_gone():
                     "        out = BB.collect_band(band, wait_s=wait)" + chr(10) +
                     "        for _b in sorted(cand)[1:]:" + chr(10) +
                     "            BB.collect_band(_b, wait_s=1)")),
+        ("붙을 크롬이 없으면 새로 띄움",
+         wd.replace('        return ("밴드 다리(%s): 디버깅 문이 열린 크롬이 없다',
+                    '        BB.up()' + chr(10) +
+                    '        return ("밴드 다리(%s): 디버깅 문이 열린 크롬이 없다')),
     ]
     for name, bad in hurts:
         assert bad != wd, "[460] 자기시험 재료가 안 바뀌었다: " + name
@@ -29061,7 +29140,120 @@ def t460_bridge_takes_over_only_when_the_human_tab_is_gone():
         raise AssertionError("[460] 계기가 눈멀었다 — " + name + " 를 넣었는데 못 잡는다")
 
     print(chr(9989) + " [460] 사람 탭이 없을 때만 다리가 대신 긁는다"
-          " (겹치면 캐시가 오염된다 · 자기시험 2/2)")
+          " (겹치면 캐시가 오염된다 · 자기시험 3/3)")
+
+def t461_daily_run_resource_recovered():
+    """일일 대조 단계 실패가 **자원 탓**이면 P0 가 아니라 P2 다 — 실행으로 잰다([295]).
+
+    ★ 왜 (2026-08-27 실측): 어제 11:46 회차가 **끝까지 돌고** 단계 13개만 실패했는데
+      그 사유가 **13개 전부 같은 것**이었다 — `관리대장을 찾을 수 없음: Z:/…`.
+      곧 코드가 깨진 것이 아니라 그 순간 공유폴더를 못 잡은 것이고, 지금 재면 Z: 는
+      0.3초로 멀쩡하다. 그런데 판정이 그것을 묻지 않아 **매일 아침 P0 가 인계 맨 위**
+      를 차지했다 — 사람을 멀쩡한 코드로 보내고([172]) 진짜 경보를 덮는다([170]).
+    ★ **안전핀이 이 검사의 요점이다** — 코드 고장이 하나라도 섞이면 완화가 안 걸려야
+      하고, 자원이 아직 죽어 있으면 P0 그대로여야 한다(좁히는 것도 고장이다 · [172]).
+    ★ 실측 증거에는 **한 글자도 안 쓴다**([247]) — 임시 REPORTS 로만 잰다.
+    ★ 목은 `finally` 로 되돌린다([371]) — 모듈 속성은 프로세스 전체의 것이다.
+    """
+    import json
+    import tempfile
+    from pathlib import Path
+
+    import system_audit as SA
+
+    steps = ["가단계", "나단계", "다단계"]
+
+    def _why(path):
+        return "FileNotFoundError: 관리대장을 찾을 수 없음: " + path
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        live = str(tmp / "x.xlsx").replace(chr(92), "/")
+        dead = "Q:/없는폴더_" + tmp.name + "/x.xlsx"
+
+        good = {n: _why(live) for n in steps}
+        assert SA._steps_resource_recovered(good, steps) is True, (
+            "[461] 전부 자원이고 그 자원이 살아 있는데 회복이라 안 한다")
+
+        mixed = dict(good)
+        mixed[steps[0]] = "NameError: name 'x' is not defined"
+        assert SA._steps_resource_recovered(mixed, steps) is None, (
+            "[461] 코드 고장이 섞였는데 완화한다 — 안전핀이 없다")
+
+        miss = dict(good)
+        miss.pop(steps[0])
+        assert SA._steps_resource_recovered(miss, steps) is None, (
+            "[461] 사유를 못 읽은 단계가 있는데 회복이라 한다")
+
+        halfdead = dict(good)
+        halfdead[steps[0]] = _why(dead)
+        assert SA._steps_resource_recovered(halfdead, steps) is False, (
+            "[461] 아직 죽어 있는 자원이 있는데 그렇게 말하지 않는다")
+
+        unknown = {n: "[stderr] 관리대장 v*.xlsx 를 찾을 수 없습니다." for n in steps}
+        assert SA._steps_resource_recovered(unknown, steps) is None, (
+            "[461] 살아난 근거가 하나도 없는데 회복이라 한다")
+
+        # ── build 갈래: 임시 REPORTS 로만 잰다([247])
+        def _stage(reports, why_map, ran_through=True):
+            reports.mkdir(parents=True, exist_ok=True)
+            prog = {"상태": "실패", "시각": "2026-08-27T00:00:00+09:00",
+                    "경과분": 10, "실패단계": steps}
+            if ran_through:
+                prog["끝까지실행"] = True
+            else:
+                prog["오류"] = "부트 실패"
+            (reports / ".daily_run.progress.json").write_text(
+                json.dumps(prog, ensure_ascii=False), encoding="utf-8")
+            body = ""
+            for n in steps:
+                body += chr(10) + "## " + n + chr(10) + (why_map.get(n) or "") + chr(10)
+            (reports / "종합리포트_20260827_0000.md").write_text(body, encoding="utf-8")
+
+        def _find(prefix):
+            got = SA.build()
+            return [f for f in got["findings"] if str(f["id"]).startswith(prefix)]
+
+        real = SA.REPORTS
+        try:
+            SA.REPORTS = tmp / "rep_ok"
+            _stage(SA.REPORTS, good)
+            hits = _find("daily-run")
+            assert len(hits) == 1, "[461] daily-run 갈래가 %d 개다" % len(hits)
+            assert hits[0]["id"] == "daily-run-resource-back", (
+                "[461] 자원 회복인데 갈래가 %s 다" % hits[0]["id"])
+            assert hits[0]["priority"] == "P2", (
+                "[461] 자원 회복인데 등급이 %s 다" % hits[0]["priority"])
+            assert "관리대장을 찾을 수 없음" in hits[0]["evidence"], (
+                "[461] 무게만 내리고 **사유를 버렸다**([169])")
+
+            SA.REPORTS = tmp / "rep_dead"
+            _stage(SA.REPORTS, halfdead)
+            hits = _find("daily-run")
+            assert hits and hits[0]["priority"] == "P0", (
+                "[461] 자원이 아직 죽어 있는데 P0 가 아니다 — 좁히는 것도 고장이다")
+
+            SA.REPORTS = tmp / "rep_abort"
+            _stage(SA.REPORTS, good, ran_through=False)
+            hits = _find("daily-run")
+            assert hits and hits[0]["priority"] == "P0", (
+                "[461] 중단 갈래를 건드렸다 — 한 글자도 안 바꿔야 한다([172])")
+
+            # 계기 자기시험([272]) — 완화를 없애면 (6)이 P0 로 돌아와야 한다
+            keep = SA._steps_resource_recovered
+            try:
+                SA._steps_resource_recovered = lambda *a, **k: None
+                SA.REPORTS = tmp / "rep_ok"
+                hits = _find("daily-run")
+                assert hits and hits[0]["priority"] == "P0", (
+                    "[461] 완화를 없앴는데도 P2 다 — 이 검사는 아무것도 안 재고 있다")
+            finally:
+                SA._steps_resource_recovered = keep
+        finally:
+            SA.REPORTS = real
+
+    print(chr(9989) + " [461] 일일 대조 자원 회복 — 완화 1 · 안전핀 4 · 갈래 3 · 자기시험 1")
+
 
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
@@ -41778,6 +41970,7 @@ if __name__ == "__main__":
     t458_phone_copy_pushes_only_when_business_changed()
     t459_archive_spool_prune_never_deletes_what_is_in_use()
     t460_bridge_takes_over_only_when_the_human_tab_is_gone()
+    t461_daily_run_resource_recovered()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
