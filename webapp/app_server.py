@@ -14,6 +14,7 @@ PC에서 실행하면 같은 와이파이의 휴대폰·다른 PC가 브라우�
 """
 import sys, os, re, json, glob, time, threading, random, hashlib, io, shutil, secrets, copy, subprocess
 import base64, hmac
+import gzip
 import ipaddress
 import socket
 from collections import deque
@@ -9792,6 +9793,63 @@ def error_reason(exc, limit=300):
 
 
 # ───────────────────────── HTTP ─────────────────────────
+
+# ── 응답 압축 (2026-08-26 형님 지시 "앱을 가볍게") ──────────────────────
+#   실측 2026-08-26: webapp/index.html 이 **1,637,278 바이트(1.56MB)** 인데
+#   압축이 한 줄도 없었다. gzip 을 켜면 **512,116 바이트(69% 감소)** 다.
+#   그 파일은 요청마다 디스크에서 새로 읽히므로([369]) 매번 압축하면 53ms 를
+#   또 쓴다 — 그래서 **같은 내용이면 다시 압축하지 않는다**([168] 비싼 것은
+#   캐시 검사 뒤에). 열쇠는 내용 지문이라 [369] 계약(요청마다 새 코드)은
+#   한 톨도 안 깨진다: 파일이 바뀌면 지문이 바뀌어 저절로 다시 압축한다.
+GZIP_MIN_BYTES = 1024          # 이보다 작으면 압축이 오히려 손해다(헤더가 더 크다)
+GZIP_LEVEL = 6                 # 실측 lvl6 0.49MB/53ms · lvl1 0.61MB/22ms — 캐시하므로 6
+_GZIP_CACHE_MIN = 65536        # 이보다 큰 것만 캐시한다(작은 API 응답은 매번 압축이 싸다)
+_GZIP_CACHE_MAX = 4            # index.html 정도만 담는다 — 메모리를 많이 안 쓴다
+_GZIP_TYPES = ("text/", "application/json", "application/javascript",
+               "image/svg+xml", "application/manifest+json")
+_gz_cache = {}
+_gz_lock = threading.Lock()
+
+
+def _gzip_ok(headers, ctype, size):
+    """이 응답을 압축해도 되나 — 셋이 **다** 맞을 때만.
+
+    * 작으면 안 한다 — gzip 머리글이 본문보다 커진다.
+    * png/jpg/webp 는 **이미 압축돼 있다** — CPU만 쓰고 안 줄어든다.
+    * 브라우저가 받겠다고 말한 때만 한다(`Accept-Encoding`).
+    """
+    if size < GZIP_MIN_BYTES:
+        return False
+    c = str(ctype or "")
+    if not any(c.startswith(t) for t in _GZIP_TYPES):
+        return False
+    try:
+        ae = str(headers.get("Accept-Encoding") or "").lower()
+    except Exception:
+        return False
+    return "gzip" in ae
+
+
+def _gzip_bytes(data):
+    """같은 내용이면 다시 압축하지 않는다.
+
+    ★ 지문(길이+md5)이 열쇠다 — 파일이 바뀌면 저절로 무효가 되므로
+      '옛 코드를 계속 내려주는' 사고([156])가 안 생긴다.
+    """
+    if len(data) < _GZIP_CACHE_MIN:
+        return gzip.compress(data, GZIP_LEVEL)
+    key = (len(data), hashlib.md5(data).hexdigest())
+    with _gz_lock:
+        hit = _gz_cache.get(key)
+    if hit is not None:
+        return hit
+    out = gzip.compress(data, GZIP_LEVEL)
+    with _gz_lock:
+        if len(_gz_cache) >= _GZIP_CACHE_MAX:
+            _gz_cache.clear()
+        _gz_cache[key] = out
+    return out
+
 class H(BaseHTTPRequestHandler):
     def handle_one_request(self):
         # 어떤 예외도 소켓을 조용히 죽이지 않게(ERR_EMPTY_RESPONSE 방지) 전역 가드
@@ -9813,9 +9871,23 @@ class H(BaseHTTPRequestHandler):
                 getattr(self, "command", ""), getattr(self, "path", ""), code, body):
             _mark_live_mutation(getattr(self, "path", ""))
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
+        # ★ 압축은 **길이를 재기 전에** 한다 — Content-Length 는 실제로 보내는
+        #   바이트 수여야 한다. 압축이 실패하면 **원본을 그대로 보낸다**([169]) —
+        #   압축 하나로 응답을 죽이지 않는다.
+        enc = None
+        if _gzip_ok(self.headers, ctype, len(data)):
+            try:
+                data = _gzip_bytes(data)
+                enc = "gzip"
+            except Exception:
+                enc = None
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        if enc:
+            self.send_header("Content-Encoding", enc)
+        # ★ 중간 캐시가 압축본을 **압축을 못 받는 클라이언트에게** 주면 안 된다.
+        self.send_header("Vary", "Accept-Encoding")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Private-Network", "true")
