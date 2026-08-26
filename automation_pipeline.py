@@ -499,12 +499,22 @@ def _desktop_download_files(pattern: str) -> List[Path]:
     return list(found.values())
 
 
-def source_signals(root: Path = ROOT) -> Dict[str, Dict[str, Any]]:
-    include_user_drop = (
+def _user_drop_enabled(root: Path = ROOT) -> bool:
+    """사람이 브라우저로 내려받는 폴더(바탕화면·다운로드)를 볼 것인가.
+
+    ★ 판정을 한 곳에 둔다([162]) — 신호를 만드는 쪽과 그것을 옮기는 단계를 고르는
+      쪽이 **서로 다르게 판단하면**, 신호에는 잡히는데 옮기는 단계는 안 붙는
+      2026-08-26 사고가 모양만 바꿔 되풀이된다.
+    """
+    return (
         Path(root).resolve() == ROOT.resolve()
         and os.environ.get("CSOS_SYNTHETIC") != "1"
         and os.environ.get("COUPANG_SYNTHETIC_MODE") != "1"
     )
+
+
+def source_signals(root: Path = ROOT) -> Dict[str, Dict[str, Any]]:
+    include_user_drop = _user_drop_enabled(root)
     kakao_files = _local_files(root / "kakao" / "dropbox", "*.txt")
     if include_user_drop:
         kakao_files.extend(_desktop_download_files("KakaoTalk*.txt"))
@@ -808,6 +818,23 @@ class AutomationPipeline:
             ]
         if source == "band":
             commands: List[Tuple[str, Sequence[str], int]] = []
+            # ★ **다운로드 폴더의 덤프를 Z: 로 옮기는 자리가 없었다**(2026-08-26 실사고).
+            #   `source_signals` 는 `~/Downloads` 의 `dump_*.json` 을 **신호에는 담는다**
+            #   — 그래서 이 갈래가 깨어난다.  그런데 옮기는 단계(`download_intake`)는
+            #   **ERP 갈래에만** 있었다.  그러면 회차가 '봤다'고 지문만 갱신하고
+            #   덤프는 **09:50 까지 그대로 남는다** — 형님이 낮에 붙여넣은 수확이
+            #   하루를 기다리는데 **어느 화면에도 안 뜬다**([169]).
+            #   실측 2026-08-26: 09:53·10:22 에 받은 덤프 둘이 12:02 회차를 그냥
+            #   지나갔고 `밴드 덤프 흡수` 는 '신규·변경 0개' 라고 적었다.
+            # ⚠ **덤프가 실제로 있을 때만** 붙인다 — 이 단계는 실측 **93초**라
+            #   (Z: 를 훑어 갈 자리를 정한다) Z: 쪽만 바뀐 회차에 매번 달면
+            #   그만큼 회차가 길어진다([168]).
+            # ⚠ **맨 앞이어야 한다** — 뒤에 두면 `밴드 덤프 흡수` 가 옮기기 **전의**
+            #   Z: 를 읽어 이번 회차도 '0개' 로 끝난다(그러면 고친 뜻이 없다).
+            if _user_drop_enabled(root) and _desktop_download_files("dump_*.json"):
+                commands.append(
+                    ("다운로드 원본 흡수",
+                     [str(root / "download_intake.py"), "--apply"], 900))
             if (root / "band" / ".band_token.json").is_file():
                 commands.append(("밴드 인증수집", [str(root / "band" / "band_sync.py")], 1200))
             commands.extend(

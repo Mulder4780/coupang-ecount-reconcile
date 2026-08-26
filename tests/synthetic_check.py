@@ -32249,6 +32249,78 @@ def t441_erp_scanners_keep_the_stat_they_were_given():
 
     print('  [441] camp_master · tax_archive 도 scandir stat 을 그대로 쓴다(_보관도 담는다 · 새 것부터) ' + chr(9989))
 
+def t442_band_path_ingests_browser_downloads():
+    """[442] 신호에는 담는데 **옮기는 자리가 없었다** (2026-08-26 실사고).
+
+    `source_signals` 는 `~/Downloads` 의 `dump_*.json` 을 밴드 신호에 담는다 —
+    그래서 새 덤프가 오면 밴드 갈래가 깨어난다.  그런데 그것을 Z: 로 옮기는
+    `download_intake` 단계는 **ERP 갈래에만** 있었다.  그러면 회차가 '봤다'고
+    지문만 갱신하고 덤프는 **09:50 까지 그대로 남는다**(`[169]` 조용한 사고).
+    실측: 09:53·10:22 에 받은 덤프 둘이 12:02 회차를 그냥 지나갔고
+    `밴드 덤프 흡수` 는 '신규·변경 0개' 라고 적었다.
+
+    ★ **맨 앞이어야 한다** — 뒤에 두면 `밴드 덤프 흡수` 가 옮기기 **전의** Z: 를
+      읽어 이번 회차도 0개로 끝난다(고친 뜻이 없다).
+    ★ **덤프가 있을 때만** 붙인다 — 실측 93초라 Z: 쪽만 바뀐 회차에 매번 달면
+      그만큼 회차가 길어진다(`[168]`).  좁히는 것도 고장이므로 둘 다 잰다(`[172]`).
+    ★ 진짜 다운로드 폴더는 **한 글자도 안 건드린다**(`[247]`) — 목으로만 잰다.
+    """
+    import importlib
+    import io
+    AP = importlib.import_module('automation_pipeline')
+    C = AP.AutomationPipeline
+    inst = C.__new__(C)
+    inst.root = AP.ROOT
+
+    real_dl, real_en = AP._desktop_download_files, AP._user_drop_enabled
+    try:
+        # ① 덤프가 있으면 **맨 앞**에 옮기는 단계가 선다
+        AP._user_drop_enabled = lambda root=None: True
+        AP._desktop_download_files = lambda pat: (
+            [AP.Path('dump_202608260953_84789192.json')] if 'dump_' in pat else [])
+        names = [n for n, _a, _t in C._commands_for(inst, 'band', {})]
+        assert names and names[0] == '다운로드 원본 흡수', (
+            '[442] 밴드 갈래 맨 앞에 다운로드 흡수가 없다 — 덤프가 Z: 로 안 간다: %r'
+            % (names[:3],))
+        args = [a for n, a, _t in C._commands_for(inst, 'band', {})
+                if n == '다운로드 원본 흡수'][0]
+        assert any('download_intake' in str(x) for x in args), (
+            '[442] 옮기는 도구가 download_intake 가 아니다 — 새 판정을 만들었다([162])')
+        assert '--apply' in [str(x) for x in args], (
+            '[442] --apply 가 없다 — 미리보기만 하고 아무것도 안 옮긴다')
+
+        # ② 덤프가 없으면 **안 붙인다**(93초를 헛되이 쓰지 않는다 · [168])
+        AP._desktop_download_files = lambda pat: []
+        n2 = [n for n, _a, _t in C._commands_for(inst, 'band', {})]
+        assert '다운로드 원본 흡수' not in n2, (
+            '[442] 덤프가 없는데도 93초짜리 단계를 붙인다 — 회차가 그만큼 길어진다')
+
+        # ③ 합성 모드에서는 사람 폴더를 안 본다(`_user_drop_enabled` 를 존중한다)
+        AP._user_drop_enabled = lambda root=None: False
+        AP._desktop_download_files = lambda pat: [AP.Path('dump_x.json')]
+        n3 = [n for n, _a, _t in C._commands_for(inst, 'band', {})]
+        assert '다운로드 원본 흡수' not in n3, (
+            '[442] 합성 모드인데 사람 다운로드 폴더를 본다')
+
+        # ④ 판정이 **한 곳**인가([162]) — 신호 만드는 쪽도 같은 함수를 쓴다
+        src = io.open(AP.__file__, encoding='utf-8').read()
+        code = ''.join(l for l in src.splitlines(True)
+                       if not l.lstrip().startswith(('#', chr(34) * 3)))
+        assert code.count('_user_drop_enabled(') >= 2, (
+            '[442] 사람 폴더 판정이 한 곳에서 안 온다 — 사본이 갈리면 이 사고가 되풀이된다')
+
+        # ★ 계기 자기시험([272]) — 맨 앞 조건을 없애면 ①이 정말 잡히는가
+        AP._user_drop_enabled = lambda root=None: True
+        AP._desktop_download_files = lambda pat: []   # 옛 동작 = 아예 안 붙는다
+        n4 = [n for n, _a, _t in C._commands_for(inst, 'band', {})]
+        assert not n4 or n4[0] != '다운로드 원본 흡수', (
+            '[442] 목을 껐는데도 단계가 남았다 — ①은 아무것도 안 잰다')
+    finally:
+        # 모듈 속성은 **모두의 것**이다([371])
+        AP._desktop_download_files, AP._user_drop_enabled = real_dl, real_en
+
+    print('  [442] 밴드 갈래가 다운로드 덤프를 맨 앞에서 Z: 로 옮긴다(없으면 안 붙인다) ' + chr(9989))
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -39477,6 +39549,7 @@ if __name__ == "__main__":
     t437_batch_is_capped_by_time_not_count()
     t440_blank_round_is_not_normal()
     t441_erp_scanners_keep_the_stat_they_were_given()
+    t442_band_path_ingests_browser_downloads()
     t438_ceo_directive_id_is_not_tied_to_room()
     t439_two_gates_never_overwrite_each_others_fonts()
     t192_synthetic_check_is_harmless()
