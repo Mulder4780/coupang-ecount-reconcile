@@ -27257,6 +27257,107 @@ def t445_daily_run_completed_is_not_aborted():
           "사유를 묶어 싣고, 없는 깃발을 조치로 주지 않는다")
 
 
+def t446_board_survives_records_written_by_hand():
+    """[446] **판을 직접 쓴 `None` 이 분담판 화면을 통째로 죽였다** (2026-08-26 실사고).
+
+    실측: `python worksplit.py` 가
+    `TypeError: unsupported format string passed to NoneType.__format__` 로 죽었다.
+    `dict.get(k, "")` 의 기본값은 **키가 없을 때만** 쓰이는데, 판을 **직접 쓴 창**은
+    `add()` 가 넣는 `""` 대신 `None` 을 남긴다(`[263]` 과 같은 뿌리 — 실측
+    `lock` 2건 · `title` 1건). 그 `None` 이 그대로 f-string 에 갔다.
+
+    ★ **하필 그 명령이 "새 일을 시작하기 전에 누가 뭘 하는지 본다" 는 그 명령이다**
+      (`[104]`). 죽으면 사람도 AI 도 남은 일을 못 보고, 두 창이 같은 일을 맡는다(사고 #36).
+    ★ **값을 고치지 않는다**(`[169]`) — 판은 실측 증거다. **보여 줄 때만** 읽는다.
+    ★ 멀쩡한 기록의 모양은 **한 톨도 안 바뀐다**(`[172]` — 좁히는 것도 고장이다).
+    ★ 진짜 판에는 한 글자도 안 쓴다(`[247]`) — 임시 판으로만 잰다.
+    """
+    import io as _io, json as _json, os as _os, tempfile, types as _types
+    D, Q = chr(34), chr(39)
+    import worksplit as W
+
+    NORMAL = {"id": 1, "state": W.WAIT, "title": "멀쩡한 일", "who": "claude",
+              "sid": "", "by": "", "lock": "code", "at": "2026-08-26 10:00",
+              "note": "", "detail": ""}
+    HANDWRITTEN = {"id": 2, "state": W.WAIT, "title": None, "who": None,
+                   "sid": None, "by": None, "lock": None, "at": None, "note": None}
+    DONE_HAND = {"id": 3, "state": W.DONE, "title": None, "who": None,
+                 "lock": None, "at": None, "note": None}
+
+    def board_with(mod=W):
+        tmp = tempfile.mkdtemp(prefix="csos_t446_")
+        path = _os.path.join(tmp, "worksplit.json")
+        md = _os.path.join(tmp, "작업분담.md")
+        _io.open(path, "w", encoding="utf-8").write(_json.dumps(
+            {"seq": 3, "items": [dict(NORMAL), dict(HANDWRITTEN), dict(DONE_HAND)]},
+            ensure_ascii=False))
+        before = _io.open(path, "rb").read()
+        keep = (mod.BOARD, mod.GUARD, mod.OUT_MD)
+        buf = []
+        try:
+            mod.BOARD = path
+            mod.GUARD = _os.path.join(tmp, ".guard")
+            mod.OUT_MD = md
+            mod.print = lambda *a, **k: buf.append(" ".join(str(x) for x in a))
+            mod.board()
+            mod.render_md()
+        finally:                      # 모듈 속성은 프로세스 전체의 것이다(`[371]`)
+            (mod.BOARD, mod.GUARD, mod.OUT_MD) = keep
+            try:
+                del mod.print
+            except AttributeError:
+                pass
+        after = _io.open(path, "rb").read()
+        text = _io.open(md, encoding="utf-8").read()
+        return chr(10).join(buf), text, before, after
+
+    out, md, before, after = board_with()
+
+    # (1) 안 죽는다 — 여기까지 왔으면 그것이 증거다. (2) 그리고 조용히 빼지 않는다([169])
+    assert "멀쩡한 일" in out, "멀쩡한 기록이 화면에서 사라졌다"
+    assert " 2 " in out or out.count("2") >= 1, "직접 쓴 기록이 화면에서 통째로 빠졌다([169])"
+
+    # (3) 사람이 읽는 자리에 맨몸 None 을 찍지 않는다
+    for name, body in (("화면", out), ("작업분담.md", md)):
+        assert "None" not in body, (
+            "%s 에 맨몸 None 이 찍힌다 — 값이 없는 것과 'None' 이라는 값은 다르다([169])"
+            % name)
+
+    # (4) 판은 한 글자도 안 바뀐다([169] — 보여 줄 때만 읽는다)
+    assert before == after, "보여 주면서 판을 고쳤다 — 판은 실측 증거다([247])"
+
+    # (5) 멀쩡한 기록의 자원 이름은 예전 그대로다([172])
+    assert "코드" in out, "멀쩡한 기록의 자원 이름이 안 나온다 — 좁히는 것도 고장이다"
+
+    # (6) ★ 계기 자기시험([272]) — 옛 동작을 넣으면 그 자리에서 죽어야 한다
+    src = _io.open(W.__file__, encoding="utf-8").read()
+    # ★ **두 줄을 다 되돌려야 한다** — 한 줄만 되돌리면 다른 한 줄이 `None` 을 씻어 내
+    #   **아무것도 안 재면서 통과한다**(만들면서 그대로 밟았다 · `[272]`·`[309]`).
+    pairs = [
+        (D + chr(123) + "_cell(LOCK_LABEL.get(lock, lock), " + Q * 2 + "):<8" + chr(125) + " " + D,
+         D + chr(123) + "LOCK_LABEL.get(lock, lock):<8" + chr(125) + " " + D),
+        ("_cell(x.get(" + D + "lock" + D + "), " + D * 2 + ")",
+         "x.get(" + D + "lock" + D + ", " + D * 2 + ")"),
+    ]
+    bad = src
+    for mark, was in pairs:
+        assert bad.count(mark) == 1, "자기시험 앵커 %r 이 %d개다" % (mark, bad.count(mark))
+        bad = bad.replace(mark, was, 1)
+    ghost = _types.ModuleType("worksplit_t446_old")
+    ghost.__file__ = W.__file__
+    exec(compile(bad, W.__file__, "exec"), ghost.__dict__)
+    broke = False
+    try:
+        board_with(ghost)
+    except TypeError:
+        broke = True
+    assert broke, (
+        "옛 동작을 넣었는데도 (1) 이 통과한다 — 이 검사는 아무것도 안 재고 있다([272])")
+
+    print(chr(9989) + " [446] 판을 직접 쓴 None 이 분담판 화면을 죽이지 않는다 — "
+          "보여 줄 때만 읽고 판은 안 고친다")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -39830,6 +39931,7 @@ if __name__ == "__main__":
     t443_ledger_missing_does_not_blame_the_workbook()
     t444_work_board_numbers_never_collide()
     t445_daily_run_completed_is_not_aborted()
+    t446_board_survives_records_written_by_hand()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

@@ -54,6 +54,23 @@ OUT_MD = os.path.join(_BOARD_DIR, "작업분담.md")
 
 WAIT, DOING, DONE, HOLD = "대기", "진행", "완료", "사람대기"
 # 이 일을 하려면 어떤 자원 잠금이 필요한가(ai_claim 의 이름과 같게 쓴다).
+def _cell(value, blank="—"):
+    """판에 적힌 값을 **보여 줄 때만** 빈칸으로 읽는다 — 원본은 안 고친다(`[169]`).
+
+    ★ 왜 필요한가 (2026-08-26 실사고): `python worksplit.py` 가
+      `TypeError: unsupported format string passed to NoneType.__format__` 로
+      **통째로 죽었다.** 판을 **직접 쓴 창**은 `add()` 가 넣는 `""` 대신 `None` 을
+      남기는데(`[263]` 과 같은 뿌리 · 실측 `lock` 2건 · `title` 1건),
+      `dict.get(k, "")` 의 기본값은 **키가 없을 때만** 쓰이므로 `None` 이 그대로
+      f-string 에 갔다.
+    ★ 하필 그 명령이 **"새 일을 시작하기 전에 누가 뭘 하는지 본다"** 는 그 명령이다
+      (`[104]`) — 죽으면 두 창이 같은 일을 맡는다(사고 #36).
+    ★ 값을 고치지 않는다(`[169]`) — 판은 실측 증거다. 보여 줄 때만 읽는다.
+    """
+    text = "" if value is None else str(value)
+    return text if text.strip() else blank
+
+
 LOCK_LABEL = {"ledger": "관리대장", "band": "밴드", "publish": "게시", "code": "코드",
               "erp": "ERP 화면", "": "없음"}
 
@@ -287,8 +304,11 @@ def board(items=None, only=None, who=None):
     print("번호 상태     주인            자원      할 일")
     for x in rows:
         shown, _ = _owner_state(x)
-        print(f"{x['id']:>3}  {x['state']:<7} {shown:<14} "
-              f"{LOCK_LABEL.get(x.get('lock', ''), x.get('lock')):<8} {x['title']}")
+        lock = _cell(x.get("lock"), "")
+        print(f"{_cell(x.get('id'), '?'):>3}  {_cell(x.get('state')):<7} "
+              f"{_cell(shown, ''):<14} "
+              f"{_cell(LOCK_LABEL.get(lock, lock), ''):<8} "
+              f"{_cell(x.get('title'), '(제목 없음 — 판을 직접 쓴 기록)')}")
     return rows
 
 
@@ -321,13 +341,16 @@ def render_md():
     for x in sorted(live, key=lambda x: (order.get(x["state"], 9), x["id"])):
         shown, _ = _owner_state(x)
         L.append(f"| {x['id']} | {x['state']} | {shown or '—'} | "
-                 f"{LOCK_LABEL.get(x.get('lock', ''), x.get('lock'))} | "
-                 f"{x['title']}{(' — ' + x['detail']) if x.get('detail') else ''} | "
-                 f"{x.get('note', '')} |")
+                 f"{_cell(LOCK_LABEL.get(_cell(x.get('lock'), ''), _cell(x.get('lock'), '')), '')} | "
+                 f"{_cell(x.get('title'), '(제목 없음 — 판을 직접 쓴 기록)')}"
+                 f"{(' — ' + _cell(x.get('detail'), '')) if x.get('detail') else ''} | "
+                 f"{_cell(x.get('note'), '')} |")
     if done:
         L += ["", "## 최근 끝낸 일", ""]
         for x in done:
-            L.append(f"- [{x['id']}] {x['title']} — {x.get('who', '')} ({x['at']})"
+            L.append(f"- [{x['id']}] "
+                     f"{_cell(x.get('title'), '(제목 없음 — 판을 직접 쓴 기록)')} — "
+                     f"{_cell(x.get('who'), '주인 안 적힘')} ({_cell(x.get('at'), '시각 없음')})"
                      + (f" · {x['note']}" if x.get("note") else ""))
     os.makedirs(os.path.dirname(OUT_MD), exist_ok=True)
     open(OUT_MD, "w", encoding="utf-8").write("\n".join(L) + "\n")
