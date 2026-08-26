@@ -28374,6 +28374,137 @@ def t456_lego_features_and_light_transfer():
     print(chr(9989) + " [456] 레고 조각 표(18개) · 응답 압축(1.6MB→0.5MB) · 안 바뀌면 0바이트")
 
 
+def _bb_dotted(fn):
+    """`subprocess.Popen` 처럼 점으로 이어진 이름을 글자로 되돌린다."""
+    import ast
+    out = []
+    while isinstance(fn, ast.Attribute):
+        out.append(fn.attr)
+        fn = fn.value
+    if isinstance(fn, ast.Name):
+        out.append(fn.id)
+    return ".".join(reversed(out))
+
+
+def _t457_check(src):
+    """브라우저 다리의 계약 아홉을 잰다 — **크롬을 안 띄운다**([211]).
+
+    관문이 실데이터·실브라우저에 매이면 그것 자체가 고장이다.  여기서 재는 것은
+    **글로 확정할 수 있는 것**뿐이고, 실제로 도는지는 사람이 `--status` 로 본다.
+    """
+    import ast
+    tree = ast.parse(src)
+
+    # 설명 글(독스트링)은 걷어낸다 — 거기 적힌 낱말이 위반으로 잡히면 **멀쩡한
+    # 코드가 빨개진다**([301]-9 · 이 저장소가 열한 번 밟은 자리).  다만 JS 는
+    # `"""` 안에 사는 **인자**라 남겨야 한다 — 속임수가 숨을 자리가 거기다.
+    docs = set()
+    holders = [tree] + [n for n in ast.walk(tree)
+                        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
+    for node in holders:
+        body = getattr(node, "body", None)
+        if (body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            docs.add(id(body[0].value))
+    lits = [n.value for n in ast.walk(tree)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs]
+    blob = chr(10).join(lits)
+    code = _t370_code_only(src)
+
+    # ① 화면 상태를 **속이지 않는다** — 2026-08-19 에 속였다가 실재하는 글에
+    #    가짜 묘비를 박았다(되돌릴 수 없는 쪽이다).
+    for bad in ("defineProperty", "__defineGetter__", "visibilityState =", "document.hidden ="):
+        assert bad not in blob, "[457] 다리가 화면 상태를 속인다: " + bad
+    assert "Emulation.setFocusEmulationEnabled" in code, (
+        "[457] 정직한 길(focusEmulation)이 사라졌다 — 속이지 않고 되는 유일한 길이다")
+
+    # ② 로그인을 **대신하지 않는다**(절대규칙).  쿠키 복제도 안 한다.
+    low = blob.lower()
+    for bad in ("password", "setcookie", "input.dispatchkeyevent", "input.inserttext"):
+        assert bad not in low, "[457] 다리가 로그인을 대신하려 한다: " + bad
+
+    # ③ 수집 문은 **긁는 길에만** 건다([387] + [172]).
+    tail = code[code.rindex("__main__"):]
+    assert "collect_gate.guard(" in tail, "[457] 수집 문이 __main__ 에서 빠졌다([387])"
+    lines = [ln for ln in tail.splitlines() if "set(sys.argv" in ln]
+    assert len(lines) == 1, "[457] 문을 건너뛰는 갈래를 못 읽었다 — 줄이 %d개다" % len(lines)
+    import re as _re
+    exempt = set(_re.findall('"([^"]+)"', lines[0]))
+    assert exempt == {"--status", "--up"}, (
+        "[457] 문을 안 거치는 깃발이 달라졌다: " + repr(sorted(exempt)) +
+        " — 긁는 길(--collect·--collect-all)은 반드시 문을 거친다")
+
+    # ④ 콘솔 창을 안 띄우되 **이름으로** 넘긴다([272] 실측: `**kw` 는 감사기가 못 읽는다).
+    popens = [n for n in ast.walk(tree)
+              if isinstance(n, ast.Call) and _bb_dotted(n.func) == "subprocess.Popen"]
+    assert len(popens) == 1, "[457] 크롬을 띄우는 자리가 %d곳이다 — 하나여야 한다" % len(popens)
+    kws = [k.arg for k in popens[0].keywords]
+    assert "creationflags" in kws, "[457] 크롬을 띄울 때 CREATE_NO_WINDOW 를 안 단다([272])"
+    assert None not in kws, (
+        "[457] 깃발을 **kw 로 넘기면 감사기가 '무엇을 띄우는지 모름'으로 읽어 관문이 막힌다([272])")
+
+    # ⑤ `/json/new` 는 **PUT** 이다 — 크롬 151 은 GET 에 405 를 준다(2026-08-26 실측).
+    ot = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "open_tab"]
+    assert ot, "[457] open_tab 이 없다"
+    ot_src = ast.get_source_segment(src, ot[0]) or ""
+    assert 'method="PUT"' in ot_src, (
+        "[457] /json/new 를 GET 으로 부른다 — 크롬 151 은 405 Method Not Allowed 를 준다")
+
+    # ⑥ **실패를 완주로 안 적는다**([169]).
+    cb = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "collect_band"]
+    assert cb, "[457] collect_band 가 없다"
+    cb_src = _t370_code_only(ast.get_source_segment(src, cb[0]) or "")
+    assert cb_src.count('"완주"') == 1, "[457] 완주라 적는 자리가 하나가 아니다"
+    assert '"완주" if out.get("저장")' in cb_src, (
+        "[457] 저장이 안 됐는데 완주로 적는다 — 실패가 성공처럼 보이는 자리다([169])")
+
+    # ⑦ 전용 프로필은 **저장소 밖**이다([406] — 복구용 보관이 통째로 쓸어 담는다).
+    assert "LOCALAPPDATA" in code, "[457] 전용 프로필이 저장소 안으로 들어왔다([406])"
+
+    # ⑧ ★ 이 다리는 **밴드 캐시도 Z: 도 한 줄도 안 건드린다.**
+    #    그것이 `--up` 을 문에서 빼 둔 근거다(③) — 여기가 무너지면 ③도 같이 무너진다.
+    for bad in ("band/cache", "convert_dump", "datalake", "source_dirs", "Z:"):
+        assert bad not in code and bad not in blob, (
+            "[457] 다리가 " + bad + " 를 건드린다 — 그러면 --up 을 문에서 빼 둔 근거가 무너진다."
+            " 문을 다시 넓히거나 그 코드를 빼야 한다(사고 #27: 두 창이 같은 밴드를 긁으면 캐시가 오염된다)")
+
+    # ⑨ `urllib.parse` 를 실제로 들여온다 — `urllib.request` 가 속으로 올려 주는 것에
+    #    기대면 파이썬 판이 바뀌는 날 조용히 죽는다.
+    assert "import urllib.parse" in code, "[457] urllib.parse 를 안 들여온다"
+
+
+def t457_browser_bridge_never_fakes_and_never_types_a_password():
+    """[457] 브라우저 다리 — 속이지 않고, 비밀번호를 안 치고, 긁는 길에만 문을 건다.
+
+    붙여넣기를 대신하는 다리다.  사람 손이 하던 두 줄을 기계가 하므로, **하지
+    말아야 할 것**을 여기서 얼린다.  크롬은 안 띄운다([211]).
+    """
+    import io
+    p = os.path.join(ROOT, "band", "browser_bridge.py")
+    src = io.open(p, encoding="utf-8", newline="").read()
+    _t457_check(src)
+
+    # ★ 계기 자신을 시험한다([272]) — 고장을 넣어 **정말 잡히는지** 본다.
+    #   0 을 내는 계기는 아무도 의심하지 않는다.
+    hurts = [
+        ("PUT 을 GET 으로", src.replace('method="PUT"', 'method="GET"')),
+        ("깃발을 **kw 로", src.replace("creationflags=flags", "**{'creationflags': flags}")),
+        ("JS 에 hidden 속임수", src.replace("const href = location.href;",
+                                        "Object.defineProperty(document,'hidden',{get:()=>false});")),
+        ("긁는 길을 문에서 뺌", src.replace('{"--status", "--up"}', '{"--status", "--up", "--collect"}')),
+    ]
+    for name, bad in hurts:
+        assert bad != src, "[457] 자기시험 재료가 안 바뀌었다 — 이 검사는 아무것도 안 잰다: " + name
+        try:
+            _t457_check(bad)
+        except AssertionError:
+            continue
+        raise AssertionError("[457] 계기가 눈멀었다 — " + name + " 를 넣었는데 못 잡는다")
+
+    print(chr(9989) + " [457] 브라우저 다리 — 안 속이고 · 비밀번호 안 치고 · 긁는 길에만 문(자기시험 4/4)")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -35238,8 +35369,38 @@ def t271_pc_off_cloud_snapshot_and_lossless_return():
     assert "candidates.push({enc:await r.json(), source:'pages'" in app
     assert "클라우드 연속운영 정상" in app and "중복 없이 자동 반영" in app
     assert "data.enc" in sw and "continuity-v2" in sw
-    assert 'write_pages_copy = "--cloud" not in sys.argv' in publisher, \
-        "10분 클라우드 회차가 추적 중인 data.enc를 매번 더럽힌다"
+    # ★ 글자가 아니라 **계약**을 얼린다([219]·[39]).  2026-08-26 23:02 에 그 줄이
+    #   괄호를 달자([458]) 계약은 한 톨도 안 바뀌었는데 **이 검사만 죽었고**,
+    #   관문은 `daily_run` 의 0단계라 그날 아침 대조가 통째로 안 돌 뻔했다.
+    #   계약: **`--cloud` 회차는 추적 중인 `docs/data.enc` 를 안 쓴다.**
+    #   글자로는 못 잰다 — **실행해서** 잰다([295]).
+    #   ⚠ `cloud_publish.py` 는 한 글자도 안 건드렸다 — 그 코드는 계약을 지킨다([172]).
+    _a = __import__("ast")
+    _asg = [n for n in _a.walk(_a.parse(publisher))
+            if isinstance(n, _a.Assign)
+            and any(isinstance(t, _a.Name) and t.id == "write_pages_copy" for t in n.targets)]
+    assert len(_asg) == 1, (
+        "[271] write_pages_copy 를 정하는 자리가 %d곳이다 — 하나여야 한다" % len(_asg))
+    _pub_code = compile(_a.fix_missing_locations(_a.Expression(_asg[0].value)), "<t271>", "eval")
+
+    class _T271Sys(object):
+        argv = []
+
+    class _T271NS(dict):
+        # 모르는 이름은 False 로 둔다 — 저쪽이 판단에 값을 하나 더 쓰더라도
+        # **이 검사가 그 이유로 죽지는 않게** 한다(재는 것은 계약뿐이다).
+        def __missing__(self, k):
+            return False
+
+    def _writes(argv):
+        _T271Sys.argv = ["cloud_publish.py"] + list(argv)
+        return bool(eval(_pub_code, _T271NS(sys=_T271Sys)))
+
+    assert not _writes(["--cloud"]), (
+        "10분 클라우드 회차가 추적 중인 data.enc를 매번 더럽힌다")
+    # 좁히는 것도 고장이다([172]) — 사람이 부르는 회차는 **쓸 수 있어야** 한다.
+    assert _writes(["--force"]), (
+        "[271] 아무 회차도 추적 사본을 못 쓰게 됐다 — 그러면 폰이 영영 옛 사본을 본다")
     assert '"/api/snapshot"' in publisher and '"Authorization": "Bearer " + token' in publisher
     assert "CLOUD_PUBLISH_EVERY = 10 * 60" in server
     assert "PAGES_PUBLISH_EVERY = 3 * 3600" in server
@@ -41038,6 +41199,7 @@ if __name__ == "__main__":
     t454_collect_interval_follows_remaining_work()
     t455_camp_code_is_leftmost_and_shown_on_work_cards()
     t456_lego_features_and_light_transfer()
+    t457_browser_bridge_never_fakes_and_never_types_a_password()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
