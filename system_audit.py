@@ -155,6 +155,42 @@ def _normalize(value: Any) -> Any:
     return value
 
 
+def _daily_step_reasons(names):
+    """실패한 단계의 **사유**를 종합리포트에서 읽는다 — 못 읽으면 빈 표다(`[169]`).
+
+    ★ 왜 필요한가 (2026-08-26 실사고): 진행 자국에는 실패한 **단계 이름**만 있고
+      왜인지는 종합리포트의 `## <단계>` 블록에 있다. 이름만 실으면 사람은 파일을
+      열어야 하고, 열지 않으면 **조치가 답을 안 준 것**이다(`[289]`).
+    ★ **뽑는 법을 새로 만들지 않는다**(`[162]`) — `autopilot._why_line` 을 빌린다.
+      그것은 트레이스백 꼬리가 아니라 **오류 줄을 앞세운다**(`[365]`).
+    ★ 진행 자국과 종합리포트는 **같은 회차가 같은 순간에** 쓴다(`finish()` 와
+      `note_progress("(회차 끝)")`) — 그래서 **가장 새 리포트**가 곧 이 자국의 짝이다.
+    ★ 못 읽으면 **지어내지 않는다**(`[169]`) — 빈 표를 주면 부르는 쪽이 이름만 싣는다.
+    """
+    if not names:
+        return {}
+    try:
+        picks = sorted(REPORTS.glob("종합리포트_*.md"))
+        if not picks:
+            return {}
+        text = picks[-1].read_text(encoding="utf-8", errors="replace")
+        from autopilot import _why_line
+    except Exception:
+        return {}
+    out = {}
+    for name in names:
+        head = chr(10) + "## " + str(name) + chr(10)
+        i = text.find(head)
+        if i < 0:
+            continue
+        j = text.find(chr(10) + "## ", i + len(head))
+        body = text[i + len(head): j if j > 0 else len(text)]
+        why = _why_line(body.replace("```", " "))
+        if why:
+            out[str(name)] = why
+    return out
+
+
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -421,13 +457,67 @@ def build() -> dict[str, Any]:
     if daily is None:
         add("daily-run-unreadable", "P1", "일일 대조 진행 자국을 읽지 못함",
             "마지막 완주·실패 단계를 판정할 근거가 없습니다.",
-            "python daily_run.py --status", "reports/.daily_run.progress.json")
+            # ⚠ `daily_run.py` 에는 **인자 처리가 한 줄도 없다**(실측 2026-08-26) —
+            #   `--status` 를 붙여 부르면 그 깃발이 무시되고 **회차가 통째로 돈다**.
+            #   임의 시각에 116분짜리 Z: 회차를 띄우면 예약 회차와 부딪혀 한쪽이
+            #   잠금에 막혀 죽는다(2026-08-16 겹침 사고). 조치 칸에는 **붙여넣어
+            #   도는 명령만** 넣는다(`[247]`) — 여기서는 읽기 전용 감시자를 준다.
+            "python schedule_watch.py --print   # 회차가 실제로 돌았는지부터 본다",
+            "reports/.daily_run.progress.json")
     else:
         state = str(daily.get("상태") or "")
         if state == "실패":
-            why = "%s · 실패 원인: %s" % (
-                daily.get("시각") or "시각 없음",
-                daily.get("오류") or daily.get("오류유형") or "원인 없음")
+            # ★ **'중단'과 '완주했지만 단계가 실패'는 다른 사실이다** (2026-08-26 실사고).
+            #   실측: 회차가 **116.1분을 끝까지 돌고**(`끝까지실행: True` · 단계
+            #   `(회차 끝)`) 단계 13개만 실패했는데 화면은
+            #   *"오늘 일일 대조가 **중단됨** · 실패 원인: **원인 없음**"* 이라 말하고
+            #   조치로 *"실패한 합성검증을 고쳐라"* 를 줬다. **셋 다 틀렸다** —
+            #   ① 중단이 아니다 ② 원인은 바로 그 파일의 `실패단계` 에 이름으로 다
+            #   적혀 있다 ③ 합성검증은 **0단계**라 그것이 막히면 회차가 거기서
+            #   끝난다(`[304]`) — 47단계를 지났다는 것이 곧 **관문은 통과했다**는
+            #   증거다. 그러니 사람은 **멀쩡한 검증을 고치러 간다**(`[172]`).
+            #   봉투에 답이 들어 있는데 판정 코드가 버리는 자리다(`[365]`·`[289]`).
+            # ★ 예외로 죽은 갈래(`오류`·`오류유형` 이 있고 `끝까지실행` 이 없다)는
+            #   **한 글자도 안 바꿨다**(`[172]` — 좁히는 것도 고장이다).
+            steps_failed = [str(x) for x in (daily.get("실패단계") or []) if str(x)]
+            ran_through = bool(daily.get("끝까지실행")) and bool(steps_failed)
+            if ran_through:
+                # ★ **같은 사유를 열세 번 늘어놓지 않는다**(`[170]` — 길면 안 읽히고,
+                #   안 읽히면 없는 설명이다). 실측 2026-08-26 은 13개가 **전부 같은
+                #   이유**(Z: 를 그 순간 못 잡았다)였다 — 묶어서 세면 짧아지면서
+                #   *"한 가지 원인이 열세 단계를 죽였다"* 는 **더 참된 사실**을 말한다.
+                # ★ **조용히 자르지 않는다**(`[273]`) — 못 실은 묶음은 숫자로 적는다.
+                reasons = _daily_step_reasons(steps_failed)
+                groups = {}
+                for nm in steps_failed:
+                    groups.setdefault((reasons.get(nm) or "")[:90], []).append(nm)
+                order = sorted(groups.items(), key=lambda kv: -len(kv[1]))
+                bits, left = [], 0
+                for key, members in order:
+                    if len(bits) >= 3:
+                        left += len(members)
+                        continue
+                    names = ", ".join(members[:4])
+                    if len(members) > 4:
+                        names += " 외 %d개" % (len(members) - 4)
+                    bits.append(("%s ← %d개(%s)" % (key, len(members), names))
+                                if key else "사유 못 읽음 %d개(%s)" % (len(members), names))
+                title = "일일 대조가 완주했지만 단계 %d개가 실패했다" % len(steps_failed)
+                why = "%s · 회차는 %s분 만에 **끝까지 돌았다**(관문은 통과했다) · %s%s" % (
+                    daily.get("시각") or "시각 없음",
+                    daily.get("경과분") if daily.get("경과분") is not None else "?",
+                    " / ".join(bits),
+                    (" / 그 밖 %d개는 여기 못 실었다" % left) if left else "")
+                action = ("python schedule_watch.py --print"
+                          "   # 사유 전문은 reports/종합리포트_*.md 의 그 단계 블록에 있다")
+                source = "reports/.daily_run.progress.json"
+            else:
+                title = "오늘 일일 대조가 중단됨"
+                why = "%s · 실패 원인: %s" % (
+                    daily.get("시각") or "시각 없음",
+                    daily.get("오류") or daily.get("오류유형") or "원인 없음")
+                action = "실패한 합성검증을 고친 뒤 일일 대조를 다시 실행합니다."
+                source = "reports/.daily_run.progress.json"
             verdict = _schedule_verdict("쿠팡업무_일일자동대조") or {}
             kind = str(verdict.get("갈래") or "")
             if kind in ("고침대기", "뒤에됨"):
@@ -440,9 +530,9 @@ def build() -> dict[str, Any]:
                     "python schedule_watch.py --print   # 다음 예정 회차가 답한다",
                     "reports/스케줄러_회차감시.json")
             else:
-                add("daily-run-failed", "P0", "오늘 일일 대조가 중단됨", why,
-                    "실패한 합성검증을 고친 뒤 일일 대조를 다시 실행합니다.",
-                    "reports/.daily_run.progress.json")
+                # ★ 무게는 **안 내린다**(`[172]`) — 단계 13개가 안 돈 것은
+                #   그 자체로 P0 다. 고친 것은 **무엇이·왜·어디를 보라**뿐이다.
+                add("daily-run-failed", "P0", title, why, action, source)
         elif daily_age is not None and daily_age > 20 * 60:
             # ★ **늦은 것과 아직 예정이 안 온 것은 다른 사실이다** (2026-08-21 실사고).
             #   이 회차는 하루 한 번 09:50 이라, 어제 12:20 에 끝났으면 오늘 08:20~09:50

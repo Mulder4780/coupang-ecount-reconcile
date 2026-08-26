@@ -27121,6 +27121,142 @@ def t424_resource_failures_that_already_passed():
 
     print("✅ [424] 지나간 자원 실패는 알림 · 지금도 죽어 있으면 경보 그대로")
 
+def t445_daily_run_completed_is_not_aborted():
+    """[445] **'중단'과 '완주했지만 단계가 실패'는 다른 사실이다** (2026-08-26 실사고).
+
+    실측: 회차가 **116.1분을 끝까지 돌고**(진행 자국 `끝까지실행: True` · 단계
+    `(회차 끝)`) 단계 13개만 실패했는데 화면은 *"오늘 일일 대조가 **중단됨** ·
+    실패 원인: **원인 없음**"* 이라 말하고 조치로 *"실패한 합성검증을 고쳐라"* 를
+    줬다. **셋 다 틀렸다** — ① 중단이 아니다 ② 원인은 그 파일의 `실패단계` 에
+    이름으로 다 적혀 있다 ③ 합성검증은 **0단계**라 그것이 막히면 회차가 거기서
+    끝난다(`[304]`) — 47단계를 지났다는 것이 곧 **관문은 통과했다**는 증거다.
+    그러니 사람은 **멀쩡한 검증을 고치러 간다**(`[172]`). 봉투에 답이 들어 있는데
+    판정 코드가 버리는 자리다(`[365]`·`[289]`).
+
+    ★ 예외로 죽은 갈래는 **한 글자도 안 바꿨다**(`[172]` — 좁히는 것도 고장이다).
+    ★ 같은 사유를 열세 번 늘어놓지 않는다(`[170]`) — 묶어서 세면 짧아지면서
+      *"한 가지 원인이 열세 단계를 죽였다"* 는 **더 참된 사실**을 말한다.
+    ★ 사유를 못 읽으면 **지어내지 않는다**(`[169]`) — 이름만 싣는다.
+    ★ 실측 증거 파일은 한 글자도 안 건드린다(`[247]`) — 임시 폴더로만 잰다.
+      **진짜 종합리포트도 안 읽는다** — 관문이 실데이터에 매이면 그것이 곧
+      `[211]` 의 병이다. 합성 리포트를 지어 놓고 잰다.
+    """
+    import json as _json, tempfile, types as _types
+    from pathlib import Path as _Path
+    import system_audit as SA
+
+    STEPS = ["캠프명 ERP 표준화", "보험 입금 확인", "입금 대조·자동입력",
+             "카톡 신규 접수 등록", "구글 캘린더 대조", "청구 근거 갱신(06시트)"]
+    RAN = {"상태": "실패", "시각": "2026-08-26T11:46:08+09:00", "단계": "(회차 끝)",
+           "끝까지실행": True, "경과분": 116.1, "실패단계": list(STEPS)}
+    CRASH = {"상태": "실패", "시각": "2026-08-19T10:00:03",
+             "오류": "합성검증 실패 — 전체 중단"}
+
+    def report():
+        TICK = chr(96) * 3
+        # 앞 넷은 같은 사유 · 뒤 둘은 다른 사유 → 묶으면 두 덩어리여야 한다
+        out = ["# 합성 종합리포트", ""]
+        for i, nm in enumerate(STEPS):
+            why = ("FileNotFoundError: 관리대장을 찾을 수 없음: Z:/합성"
+                   if i < 4 else "TimeoutError: 시간 초과(600s)")
+            out += ["## " + nm, TICK, "준비 중…", why, TICK, ""]
+        return chr(10).join(out)
+
+    def run(progress, with_report=True, watch=None, mod=SA):
+        tmp = _Path(tempfile.mkdtemp(prefix="csos_t445_"))
+        (tmp / ".daily_run.progress.json").write_text(
+            _json.dumps(progress, ensure_ascii=False), encoding="utf-8")
+        if with_report:
+            (tmp / "종합리포트_20260826_1146.md").write_text(report(), encoding="utf-8")
+        if watch is not None:
+            (tmp / "스케줄러_회차감시.json").write_text(
+                _json.dumps(watch, ensure_ascii=False), encoding="utf-8")
+        keep = mod.REPORTS
+        try:
+            mod.REPORTS = tmp
+            rows = mod.build().get("findings") or []
+        finally:                          # 모듈 속성은 프로세스 전체의 것이다(`[371]`)
+            mod.REPORTS = keep
+        return {str(r.get("id")): r for r in rows}
+
+    # (1) 완주+단계실패 — 중단이라 하지 않고, 원인 없음이라 하지 않고,
+    #     합성검증을 고치라 하지 않는다
+    row = run(RAN).get("daily-run-failed")
+    assert row, "완주+단계실패인데 아무 말도 안 한다"
+    body = " ".join(str(v) for v in row.values())
+    assert "중단" not in str(row.get("title")), (
+        "회차가 끝까지 돌았는데 '중단' 이라 말한다: %r" % row.get("title"))
+    assert "원인 없음" not in body, (
+        "실패단계에 이름이 다 적혀 있는데 '원인 없음' 이라 말한다([365])")
+    assert "합성검증" not in str(row.get("action")), (
+        "관문은 0단계라 통과한 것이 증명됐는데 그것을 고치라 한다 — "
+        "사람이 멀쩡한 코드를 고치러 간다([172]): %r" % row.get("action"))
+
+    # (2) 무게는 안 내린다([172]) — 단계가 안 돈 것은 그 자체로 P0 다
+    assert row.get("priority") == "P0", (
+        "완주 갈래에서 무게를 내렸다 — 좁히는 것도 고장이다: %r" % row.get("priority"))
+
+    # (3) 실패한 단계 이름과 사유가 실린다([289] 조치가 답해야 한다)
+    assert STEPS[0] in body, "실패한 단계 이름이 안 실렸다"
+    assert "FileNotFoundError" in body, "사유를 읽어 놓고 안 실었다([365])"
+
+    # (4) 같은 사유는 묶는다([170]) — 여섯을 여섯 줄로 늘어놓지 않는다
+    assert body.count("FileNotFoundError") == 1, (
+        "같은 사유를 되풀이한다 — 길면 안 읽히고 안 읽히면 없는 설명이다([170])")
+    assert "4개" in body, "묶은 개수를 안 적는다([169] 숫자로 말한다)"
+
+    # (5) 사유를 못 읽으면 지어내지 않는다([169]) — 이름만
+    row2 = run(RAN, with_report=False).get("daily-run-failed")
+    body2 = " ".join(str(v) for v in row2.values())
+    assert STEPS[0] in body2, "사유를 못 읽었다고 이름까지 빠뜨렸다"
+    assert "FileNotFoundError" not in body2, (
+        "종합리포트가 없는데 사유를 지어냈다([169])")
+
+    # (6) 예외 갈래는 예전 그대로([172])
+    row3 = run(CRASH, with_report=False).get("daily-run-failed")
+    b3 = " ".join(str(v) for v in row3.values())
+    assert "중단" in str(row3.get("title")) and "합성검증" in str(row3.get("action")), (
+        "예외로 죽은 갈래가 바뀌었다 — 좁히는 것도 고장이다: %r" % row3)
+    assert "합성검증 실패" in b3, "실패 사실이 사라졌다([169])"
+
+    # (7) 고침대기는 완주 갈래에서도 여전히 P2 다([322] 를 안 깨뜨린다)
+    fixed = {"작업": [{"작업": "쿠팡업무_일일자동대조", "갈래": "고침대기",
+                       "말": "그 뒤 코드가 바뀌었다"}]}
+    got = run(RAN, watch=fixed)
+    assert "daily-run-failed" not in got and got.get("daily-run-fix-pending"), (
+        "완주 갈래에서 [322] 의 완화가 죽었다")
+
+    # (8) 없는 깃발을 조치로 주지 않는다 — `daily_run.py` 에는 인자 처리가 한 줄도
+    #     없어 `--status` 를 붙이면 **회차가 통째로 돈다**(2026-08-16 겹침 사고)
+    src_dr = _Path(SA.ROOT / "daily_run.py").read_text(encoding="utf-8", errors="replace")
+    assert "add_argument" not in src_dr and "sys.argv" not in src_dr, (
+        "daily_run.py 에 인자 처리가 생겼다 — 그러면 이 검사의 전제가 바뀐다")
+    tmp = _Path(tempfile.mkdtemp(prefix="csos_t445b_"))
+    keep = SA.REPORTS
+    try:
+        SA.REPORTS = tmp
+        rows = SA.build().get("findings") or []
+    finally:
+        SA.REPORTS = keep
+    un = {str(r.get("id")): r for r in rows}.get("daily-run-unreadable")
+    assert un and "daily_run.py --status" not in str(un.get("action")), (
+        "없는 깃발을 조치로 준다 — 붙여넣으면 116분짜리 회차가 통째로 돈다([247])")
+
+    # (9) ★ 계기 자기시험([272]) — `끝까지실행` 을 안 보던 옛 동작을 넣으면 잡힌다
+    src = _Path(SA.__file__).read_text(encoding="utf-8", errors="replace")
+    mark = 'bool(daily.get("끝까지실행"))'
+    assert src.count(mark) == 1, "자기시험 앵커가 %d개다" % src.count(mark)
+    ghost = _types.ModuleType("system_audit_t445_old")
+    ghost.__file__ = SA.__file__
+    exec(compile(src.replace(mark, "False", 1), SA.__file__, "exec"), ghost.__dict__)
+    old = run(RAN, mod=ghost).get("daily-run-failed")
+    assert old and "중단" in str(old.get("title")), (
+        "옛 동작을 넣었는데도 (1) 이 통과한다 — 이 검사는 아무것도 안 재고 있다([272])")
+
+    print(chr(9989) + " [445] 완주했지만 단계가 실패한 회차를 '중단'이라 하지 않는다 — "
+          "사유를 묶어 싣고, 없는 깃발을 조치로 주지 않는다")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -39693,6 +39829,7 @@ if __name__ == "__main__":
     t439_two_gates_never_overwrite_each_others_fonts()
     t443_ledger_missing_does_not_blame_the_workbook()
     t444_work_board_numbers_never_collide()
+    t445_daily_run_completed_is_not_aborted()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
