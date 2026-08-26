@@ -27856,6 +27856,269 @@ def t453_stale_calendar_is_rebuilt_by_the_watchdog():
     print(chr(9989) + " [453] 달력 예정이 밀리면 30분 회차가 다시 만든다 (관리대장은 안 쓴다)")
 
 
+
+_T454_HARNESS = r"""
+__CONSTS__
+__GAPFOR__
+console.log(JSON.stringify({
+  새글: gapFor({'미수집': 1, '재수집': 0, '댓글': 0, '오염': 500}),
+  남은일: gapFor({'미수집': 0, '재수집': 87, '댓글': 1, '오염': 505}),
+  오염만: gapFor({'미수집': 0, '재수집': 0, '댓글': 0, '오염': 505}),
+  할일없음: gapFor({'미수집': 0, '재수집': 0, '댓글': 0, '오염': 0}),
+  모름: gapFor(null),
+  빈것: gapFor(undefined),
+  GAP_MS: GAP_MS, GAP_NEW_MS: GAP_NEW_MS, GAP_WORK_MS: GAP_WORK_MS,
+  PROBE_GAP_MS: PROBE_GAP_MS, TICK_MS: TICK_MS
+}));
+"""
+
+
+def _t454_run(js_src, gap_body=None):
+    """상수와 `gapFor` 를 떼어 **node 로 실제로 돌린다**(`[295]`).
+
+    글자로는 '5분이 나오는가'를 못 잰다.  창은 안 띄우고(`[272]`) 제한을 건다(`[175]`).
+    """
+    import io, json, re, shutil, subprocess, tempfile
+    consts = re.findall(
+        r"^\s*var (?:GAP_MS|GAP_NEW_MS|GAP_WORK_MS|PROBE_GAP_MS|TICK_MS) = [^;]+;",
+        js_src, re.M)
+    assert len(consts) == 5, "[454] 간격 상수 5개를 못 찾았다 (찾은 것 %d)" % len(consts)
+    if gap_body is None:
+        i = js_src.index("function gapFor(counts) {")
+        j = js_src.index("\n  }", i) + 4
+        gap_body = js_src[i:j]
+    body = (_T454_HARNESS.replace("__CONSTS__", "\n".join(c.strip() for c in consts))
+                         .replace("__GAPFOR__", gap_body))
+    tmp = tempfile.mkdtemp(prefix="t454_")
+    try:
+        js = os.path.join(tmp, "gap.js")
+        io.open(js, "w", encoding="utf-8").write(body)
+        pr = subprocess.Popen(["node", js], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        so, se = pr.communicate(timeout=60)
+        assert pr.returncode == 0, ("[454] 하네스가 죽었다: %s"
+                                    % se.decode("utf-8", "replace")[-300:])
+        return json.loads(so.decode("utf-8").strip().splitlines()[-1])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def t454_collect_interval_follows_remaining_work():
+    """수집 간격이 **남은 일감**을 따른다 (2026-08-26 지시).
+
+    형님 지시: "전부 긁고 다음부터 바로바로 긁어올 수 있게 알고리즘 구현해".
+
+    예전에는 갈래를 안 보고 **언제나 3시간**이었다.  그래서 새 글이 올라와도 최대
+    3시간 뒤에 들어왔고, 오염 602건은 한 배치(약 27분)씩 3시간마다라 다 긁는 데
+    여러 날이 걸렸다.  그렇다고 늘 짧게 두면 몰아 긁기가 된다 — 3시간은 그것을
+    막으려던 값이다.  그래서 **남은 일감으로 정한다**.
+
+    ★ 얼리는 것은 **계약**이지 그때 쓴 숫자가 아니다(`[39]`·`[219]`) — 새 글이
+      가장 짧고, 남은 일이 그다음이고, 할 일이 없으면 가장 길다는 **순서**를 잰다.
+    """
+    import io
+    p = os.path.join(ROOT, "band", "band_auto_collect.user.js")
+    js = io.open(p, encoding="utf-8").read()
+
+    # ① 순서 계약 — 새 글 < 남은 일 < 할 일 없음
+    r = _t454_run(js)
+    assert r["새글"] < r["남은일"] < r["할일없음"], (
+        "[454] 간격 순서가 어긋났다 — 새글 %s · 남은일 %s · 할일없음 %s"
+        % (r["새글"], r["남은일"], r["할일없음"]))
+
+    # ② 새 글이 **오염에 안 밀린다** — 오염 500건이 같이 있어도 새 글 간격이다.
+    #    이것이 형님이 말씀하신 "바로바로"의 실체다.
+    assert r["새글"] == r["GAP_NEW_MS"], "[454] 새 글이 있는데 새 글 간격이 아니다"
+    assert r["오염만"] == r["GAP_WORK_MS"], "[454] 오염만 남았는데 일감 간격이 아니다"
+
+    # ③ **모르면 예전 그대로**(`[169]`) — 계획을 못 읽었을 때 짧은 간격을 쓰면
+    #    앱이 죽은 밤에 1분마다 헛돈다.  모름을 '할 일 있음'으로 치지 않는다.
+    assert r["모름"] == r["GAP_MS"], "[454] 계획을 모르는데 짧은 간격을 쓴다"
+    assert r["빈것"] == r["GAP_MS"], "[454] 계획이 비었는데 짧은 간격을 쓴다"
+    assert r["할일없음"] == r["GAP_MS"], "[454] 할 일이 없는데 예전 간격이 아니다"
+
+    # ④ 틱이 간격보다 촘촘해야 뜻이 있다 — 예전에는 30분마다만 확인해서
+    #    간격을 5분으로 줄여도 30분에 한 번밖에 안 봤다.
+    assert r["TICK_MS"] <= r["GAP_NEW_MS"], (
+        "[454] 확인 주기(%s)가 새 글 간격(%s)보다 길다 — 줄여도 그만큼만 본다"
+        % (r["TICK_MS"], r["GAP_NEW_MS"]))
+    assert "setInterval(run, TICK_MS)" in js, "[454] 틱이 TICK_MS 로 안 걸려 있다"
+
+    # ⑤ 계획을 물어보는 것에도 최소 간격이 있다 — 없으면 1분 틱이 앱을 쫀다.
+    #    `keyLast` 는 긁을 때만 찍히므로 그것으로는 못 막는다.
+    assert "keyProbe" in js and "PROBE_GAP_MS" in js, "[454] 계획 묻기 최소 간격이 없다"
+    # ⚠ **run() 안에서만 본다** — 파일 앞쪽에 `function resolveSource(band)` 정의가
+    #   있어서 파일 전체로 찾으면 그 정의를 먼저 집는다([309] — 검증이 빨개지면
+    #   코드보다 기대를 먼저 확인한다.  만들면서 그대로 밟았다).
+    _run = js[js.index("function run() {"):]
+    assert _run.index("getTs(keyProbe(band)) < PROBE_GAP_MS") < _run.index("resolveSource(band).then"), (
+        "[454] 계획 묻기 제한이 resolveSource 호출 뒤에 있다 — 그러면 아무것도 안 막는다")
+
+    # ⑥ **건수를 여기서 다시 세지 않는다**(`[162]`) — 대기열이 이미 세어 내려 준다.
+    assert "plan['대기열']['건수']" in js, "[454] 건수를 대기열에서 안 읽는다"
+
+    # ⑦ 시작 표시가 **긁기 직전**에 찍힌다 — 간격 판정이 계획 뒤로 왔으므로,
+    #    예전 자리(계획 받기 전)에 두면 안 긁고도 간격이 소모된다.
+    assert js.index("var gap = gapFor(") < js.index("localStorage.setItem(keyLast(band)"), (
+        "[454] 시작 표시가 간격 판정보다 앞이다 — 안 긁고도 간격이 소모된다")
+
+    # ⑧ 계기 자기시험(`[272]`) — 옛 동작(언제나 3시간)을 넣으면 ①이 잡아야 한다.
+    old = "function gapFor(counts) {\n    return GAP_MS;\n  }"
+    r2 = _t454_run(js, gap_body=old)
+    assert not (r2["새글"] < r2["남은일"] < r2["할일없음"]), (
+        "[454] 옛 동작(언제나 3시간)을 넣었는데 검사가 통과했다 — 아무것도 안 재고 있다")
+
+    print("\u2705 [454] 수집 간격이 남은 일감을 따른다 "
+          "(새글 %d분 · 남은일 %d분 · 할일없음 %d분 · 틱 %d분)"
+          % (r["새글"] / 60000, r["남은일"] / 60000,
+             r["할일없음"] / 60000, r["TICK_MS"] / 60000))
+
+def t455_camp_code_is_leftmost_and_shown_on_work_cards():
+    """거래처코드가 **맨 왼쪽**이고 카드에도 **반드시** 표기된다 (2026-08-26 형님 지시).
+
+    * 지시 둘: "거래처 코드가 맨 왼쪽으로 가게 처리해" ·
+      "거래처 코드가 반드시 표기되게 알고리즘 구현해(변경 수정 입력 삭제 저장등의 기능 추가)".
+    * 실측 2026-08-26: 정기점검·돌발AS 카드 어디에도 코드가 없었고, `as` 20칸 ·
+      `pm` 22칸 편집 목록에도 그 이름이 **없었다**.
+    * ★ **건별 칸으로 만들지 않는다** — 거래처코드는 ERP 거래처 마스터의 **캠프별**
+      값이라 건마다 열면 같은 캠프에 서로 다른 코드가 박히고 그것이 유니웍스로
+      나간다(되돌릴 수 없는 쪽 · `[172]`). 표시는 카드에서, 고치기는 캠프 창에서 한다.
+    * 순서 자체가 계약이라 A 는 글자로 얼리고(`[39]`) 카드 동작은 실행으로 잰다(`[295]`).
+    """
+    import re
+    import json as _j
+    import sys as _sys
+    import tempfile
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    def _fn(name):
+        """JS 함수 한 덩어리 — `_t303_enclosing_func` 은 **파이썬 전용**이라 여기선 못 쓴다."""
+        i = live.find("function " + name + "(")
+        if i < 0:
+            return ""
+        depth, started = 0, False
+        for k in range(i, len(live)):
+            if live[k] == "{":
+                depth += 1
+                started = True
+            elif live[k] == "}":
+                depth -= 1
+                if started and depth == 0:
+                    return live[i:k + 1]
+        return ""
+
+    def _nocomment(t):
+        """JS·CSS 주석을 걷는다 — 규칙을 세기 전에 하는 일이다(`[301]`(9) 계열)."""
+        t = re.sub(r"/\*.*?\*/", " ", t, flags=re.S)
+        return N_LINE.join(ln.split("//", 1)[0] for ln in t.splitlines())
+
+    N_LINE = chr(10)
+    TD_CAMP = '<td class="campname">'
+    TD_CODE = 'data-label="거래처코드">'
+
+    # ── A. 캠프 표: 거래처코드가 맨 왼쪽 ────────────────────────────────────
+    head = _fn("renderCampList")
+    assert head, "[455] renderCampList 를 못 찾았다 — 검사가 눈멀었다([169])"
+    i_code, i_camp = head.find("거래처코드</th>"), head.find("<th>캠프명</th>")
+    assert 0 <= i_code < i_camp, (
+        "[455] 머리글에서 거래처코드가 캠프명보다 앞이 아니다(%d 대 %d)" % (i_code, i_camp))
+    b_code, b_camp = head.find(TD_CODE), head.find(TD_CAMP)
+    assert 0 <= b_code < b_camp, (
+        "[455] 본문 줄에서 거래처코드 칸이 캠프명 칸보다 앞이 아니다(%d 대 %d)" % (b_code, b_camp))
+    assert head.count(TD_CODE) == 1, "[455] 본문에 거래처코드 칸이 둘이다 — 칸 수가 머리글과 어긋난다([165])"
+
+    # 접힌 옛 표기 줄도 같은 순서여야 한다 — 어긋나면 칸이 통째로 밀린다
+    sub = _fn("campSubRow")
+    assert sub, "[455] campSubRow 를 못 찾았다"
+    s_code, s_camp = sub.find(TD_CODE), sub.find(TD_CAMP)
+    assert 0 <= s_code < s_camp, "[455] 접힌 옛 표기 줄의 칸 순서가 본문과 다르다"
+    assert sub.count("</td></tr>") == 1, "[455] 자식줄 끝이 깨졌다"
+
+    # ── CSS: 자리(순서)가 아니라 **그 칸이 무엇인지**로 건다(`[162]`) ───────
+    css = _nocomment(live)
+    for bad in ("tr.campgrp>td:first-child", "tr.campsub>td:first-child",
+                "table.grid td:first-child{min-width:150px}"):
+        assert bad not in css, (
+            "[455] CSS 가 아직 첫 칸 **자리**로 캠프명 스타일을 건다(%s) — 순서를 바꿨으니"
+            " 그 규칙은 이제 거래처코드 칸에 붙는다" % bad)
+
+    # ── 엑셀도 같은 순서(`[327]` — 화면과 엑셀이 다르면 받아 본 사람이 헷갈린다) ─
+    xls = _fn("campsXlsx")
+    m = re.search(r"columns:\s*\[\s*'([^']+)'", xls)
+    assert m and m.group(1) == "거래처코드", (
+        "[455] 엑셀 첫 열이 거래처코드가 아니다: %r" % (m.group(1) if m else None))
+    # 값 만드는 자리(`o['거래처코드']=...`)에도 같은 낱말이 있다 — **열 목록 안**만 센다
+    _cols = xls[xls.find("columns:"):]
+    _cols = _cols[:_cols.find("guide:")] if "guide:" in _cols else _cols
+    assert _cols.count("'거래처코드'") == 1, "[455] 엑셀 열 목록에 거래처코드가 둘이다"
+
+    # ── B. 카드가 실제로 부르나(`[328]`) · 모양이 있나(`[310]`) ─────────────
+    assert "${wtCampCode(r.캠프명)}" in live, (
+        "[455] 카드가 거래처코드를 안 부른다 — 함수만 있고 안 부르면 없는 것과 같다([328])")
+    assert ".wtcode{" in live, (
+        "[455] .wtcode 에 CSS 가 없다 — 클래스만 넣으면 아무 일도 안 일어난다([310])")
+
+    # ── B. 카드 동작 — 실행으로 잰다(`[295]`) ──────────────────────────────
+
+    word = re.search(r"const CAMP_CODE_WORD\s*=\s*\{.*?\};", live, re.S)
+    js = "\n".join([
+        "function esc2(s){return String(s==null?'':s);}",
+        (word.group(0) if word else "const CAMP_CODE_WORD={};"),
+        _fn("nwCampFind"), _fn("campCode"), _fn("wtCampCode"),
+        "let CAMPS=null;const O=[];",
+        "O.push(wtCampCode('가캠프'));",
+        "CAMPS={rows:[{캠프명:'가캠프',거래처코드:'CU177'},{캠프명:'나캠프'},"
+        "{캠프명:'다캠프',거래처코드:'CU175',다른표기:['다른이름']}]};",
+        "O.push(wtCampCode('가캠프'));O.push(wtCampCode('나캠프'));",
+        "O.push(wtCampCode('없는캠프'));O.push(wtCampCode('다른이름'));O.push(wtCampCode(''));",
+        "console.log(JSON.stringify(O));",
+    ])
+    from proc_guard import run_tree
+    with tempfile.TemporaryDirectory() as td:
+        f = os.path.join(td, "t455.js")
+        with open(f, "w", encoding="utf-8", newline="") as fh:
+            fh.write(js)
+        r = run_tree(["node", f], timeout=60, drain_timeout=10)
+    assert r.returncode == 0, "[455] 카드 하네스가 죽었다: %s" % (r.stderr or "")[:200]
+    o = _j.loads((r.stdout or "[]").strip().splitlines()[-1])
+    assert len(o) == 6, o
+    # ① 목록을 못 받았으면 **'코드 없음'이라 하지 않는다**(`[169]`) — 조치가 다르다(`[289]`)
+    assert "확인 못 함" in o[0] and "코드 고치기" not in o[0], o[0]
+    # ② 코드가 있으면 코드와 **고치는 길**을 같이 준다
+    assert "CU177" in o[1] and "코드 고치기" in o[1], o[1]
+    assert "campEditOpen" in o[1], "[455] 고치는 길이 없다 — 표시만 하면 지시의 반쪽이다"
+    # ③ 코드가 없어도 **입력할 길**이 있다(형님 지시: 입력·변경·삭제·저장)
+    assert "코드 고치기" in o[2], o[2]
+    # ④ 캠프 목록에 아예 없는 표기면 캠프부터 추가한다
+    assert "캠프 추가" in o[3], o[3]
+    # ⑤ 다른표기로도 찾는다 — 같은 캠프를 달리 적어도 코드가 뜬다
+    assert "CU175" in o[4], o[4]
+    # ⑥ 캠프명이 없으면 아무것도 안 그린다(빈 배지를 만들지 않는다)
+    assert o[5] == "", o[5]
+
+    # ── ★ 건별 편집칸을 만들지 않았다(`[172]`) ─────────────────────────────
+    _wp = os.path.join(ROOT, "webapp")
+    if _wp not in _sys.path:
+        _sys.path.insert(0, _wp)
+    import app_server as _A
+    for _k in ("as", "pm"):
+        assert "거래처코드" not in _A._ALL_STAFF_ENTRY_FIELDS[_k], (
+            "[455] %s 에 거래처코드를 **건별 칸**으로 만들었다 — 같은 캠프에 서로 다른"
+            " 코드가 박히고 그것이 유니웍스로 나간다([172])" % _k)
+
+    # ── 계기 자기시험(`[272]`) — 문을 없애면 정말 잡히나 ───────────────────
+    _row_code = head[b_code - 20:b_code + 40]
+    _old = head.replace(TD_CODE, "", 1)          # 맨 앞 코드 칸을 뺀 것 = 옛 모양
+    assert not (0 <= _old.find(TD_CODE) < _old.find(TD_CAMP)), (
+        "[455] 계기가 눈멀었다 — 코드 칸을 앞에서 빼도 순서 검사가 통과한다")
+    _oldcss = css + " tr.campgrp>td:first-child{border-left:3px solid var(--brand)}"
+    assert "tr.campgrp>td:first-child" in _oldcss, (
+        "[455] 계기가 눈멀었다 — 옛 CSS 를 넣어도 못 잡는다")
+    assert "${wtCampCode(" in live and live.count("function wtCampCode(") == 1, (
+        "[455] 카드 코드 함수가 둘이거나 없다 — 표시 규칙이 갈린다([162])")
+    print(chr(9989) + " [455] 거래처코드가 맨 왼쪽 · 카드에도 반드시 표기(없으면 그 자리에서 입력)")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -37098,11 +37361,11 @@ const 표=줄.map(r=>({이름:r.캠프명,묶음:campGroupText(r),g:campGroupOf(
 renderCampList();
 const 표HTML=상자.campHost.innerHTML;
 campsXlsx();
-console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTML,
-  엑셀칸:Object.keys(XL.rows[0]).slice(0,3),
+console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,8),표HTML:표HTML,
+  엑셀칸:Object.keys(XL.rows[0]).slice(0,8),
   엑셀묶음:XL.rows.map(o=>o['주소묶음']),
   엑셀머리:XL.opt.meta,
-  머리:[...표HTML.matchAll(/<th(?: [^>]*)?>([^<]*)/g)].map(m=>m[1]).slice(0,2),
+  머리:[...표HTML.matchAll(/<th(?: [^>]*)?>([^<]*)/g)].map(m=>m[1]).slice(0,4),   /* 앞 넷 — 자리를 못 박지 않는다([39]) */
   줄표시:(표HTML.match(/class="campgrp g[01]"/g)||[]).length}));
 """
 
@@ -37186,9 +37449,16 @@ console.log(JSON.stringify({표:표,열:XL.opt.columns.slice(0,4),표HTML:표HTM
         "주소를 모르는 캠프끼리 묶였다 — '모름'은 같은 곳이라는 뜻이 아니다: %r" % 묶음
 
     # ④ 호기는 캠프명 **바로 옆**이다(표·엑셀 둘 다)
-    assert g["머리"][:2] == ["캠프명", "호기"], "표에서 호기가 캠프명 옆이 아니다: %r" % g["머리"]
-    assert g["열"][:3] == ["캠프명", "호기", "주소묶음"], "엑셀 열 순서가 다르다: %r" % g["열"]
-    assert g["엑셀칸"][:3] == ["캠프명", "호기", "주소묶음"]
+    #    ★ **자리를 못 박지 않는다**([39]·[219]). 계약은 "캠프명 다음이 호기"이지
+    #      "첫 칸이 캠프명"이 아니다 — 2026-08-26 에 거래처코드가 맨 왼쪽으로 오자
+    #      계약은 한 톨도 안 바뀌었는데 이 검사만 죽었다. 자리는 [455] 가 따로 잰다.
+    def _next_to(seq, a, b, why):
+        assert a in seq and b in seq, "%s: %r" % (why, seq)
+        assert seq.index(b) == seq.index(a) + 1, "%s: %r" % (why, seq)
+    _next_to(g["머리"], "캠프명", "호기", "표에서 호기가 캠프명 옆이 아니다")
+    _next_to(g["열"], "캠프명", "호기", "엑셀에서 호기가 캠프명 옆이 아니다")
+    _next_to(g["열"], "호기", "주소묶음", "엑셀에서 주소묶음이 호기 옆이 아니다")
+    _next_to(g["엑셀칸"], "캠프명", "호기", "엑셀 칸에서 호기가 캠프명 옆이 아니다")
     assert set(g["엑셀묶음"]) >= {"단독"} and any("곳 중" in v for v in g["엑셀묶음"]), \
         "엑셀이 묶음을 안 적는다: %r" % g["엑셀묶음"]
     assert g["줄표시"] == 3, "묶인 줄에 표시가 없다(%r개)" % g["줄표시"]
@@ -40510,6 +40780,8 @@ if __name__ == "__main__":
     t451_applyview_calls_are_not_swallowed_by_a_comment()
     t452_tap_records_which_button_and_which_screen()
     t453_stale_calendar_is_rebuilt_by_the_watchdog()
+    t454_collect_interval_follows_remaining_work()
+    t455_camp_code_is_leftmost_and_shown_on_work_cards()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

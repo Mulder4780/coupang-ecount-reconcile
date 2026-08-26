@@ -1291,8 +1291,8 @@ button.auto-node[disabled]{cursor:progress;opacity:.72}
 /* 같은 주소로 묶인 줄 — **줄 색을 바꾸지 않고 왼쪽 선만** 준다(2026-08-19 지시).
    줄 배경을 칠하면 이미 있는 얼룩무늬(짝수 줄)와 겹쳐 어느 것이 묶음인지 흐려진다.
    묶음이 이어지면 색을 번갈아 써 **어디서 다음 묶음이 시작되는지** 보이게 한다. */
-.grid tr.campgrp>td:first-child{border-left:3px solid var(--brand)}
-.grid tr.campgrp.g1>td:first-child{border-left-color:var(--warn)}
+.grid tr.campgrp>td.campname{border-left:3px solid var(--brand)}
+.grid tr.campgrp.g1>td.campname{border-left-color:var(--warn)}
 /* ★ **캠프 표는 줄바꿈을 허용한다**(2026-08-19 지시 "축소를 해야만 다 보이는데
    확대해도 다 보이게"). 공용 규칙 `.gridwrap table.grid td{white-space:nowrap}` 은
    열이 아홉인 이 표에서 표를 화면 밖으로 밀어낸다. **열을 감추지 않고 접는다**([169]).
@@ -1301,7 +1301,7 @@ button.auto-node[disabled]{cursor:progress;opacity:.72}
 #campHost .gridwrap table.grid td{white-space:normal;word-break:keep-all}
 #campHost .gridwrap table.grid td a{white-space:nowrap}
 #campHost .gridwrap table.grid td .mailtxt{overflow-wrap:anywhere}
-#campHost .gridwrap table.grid td:first-child{min-width:150px}
+#campHost .gridwrap table.grid td.campname{min-width:150px}
 /* * **넓은 화면에서도 표를 상자 안에 넣는다**(2026-08-20 지시 "확대하고 줄여도
    내용 다 보이게"). 공용 규칙 `.gridwrap>table.grid{min-width:max-content}` 은 표를
    내용 폭 그대로 두므로 이 표는 1,604px 가 되고, 상자는 936px 라 **669px 이 상자
@@ -1356,7 +1356,7 @@ button.auto-node[disabled]{cursor:progress;opacity:.72}
      서므로 첫 칸 왼쪽 선이 이름 옆 짧은 막대가 되어 뜻이 안 보인다. */
   /* 카드 테두리 규칙(`… table.grid tr`)이 더 특이해서 묶음 선을 1px 로 눌렀다 —
      **선은 있는데 두께가 같아 묶음인지 구별이 안 됐다**(실측). 같은 자리에서 이긴다. */
-  #campHost .gridwrap table.grid tr.campgrp>td:first-child{border-left:0}
+  #campHost .gridwrap table.grid tr.campgrp>td.campname{border-left:0}
   #campHost .gridwrap table.grid tr.campgrp{border-left:3px solid var(--brand)}
   #campHost .gridwrap table.grid tr.campgrp.g1{border-left-color:var(--warn)}
 }
@@ -1364,6 +1364,11 @@ button.auto-node[disabled]{cursor:progress;opacity:.72}
 /* 합친 표기를 펴는 손잡이 — 색은 토큰에서만 온다([332]). */
 .camptag .campmore{font:inherit;font-size:0.75rem;cursor:pointer;border:1px solid var(--line);
   background:var(--surface);color:var(--ink);padding:1px 7px;border-radius:999px}
+/* 카드(정기점검·돌발AS)의 거래처코드 자리 — 캠프명 옆에 선다(2026-08-26 형님 지시).
+   굳은 색을 쓰지 않는다([332]) — 토큰만 쓴다. */
+.wtcode{display:inline-flex;align-items:center;gap:6px;margin-left:8px;
+  padding:2px 0;vertical-align:middle;flex-wrap:wrap}
+.wtcode.norm{color:var(--ink-3);font-size:0.8125rem}
 /* ERP 거래처코드 배지 — **누르면 복사된다**(노승용 매니저 요구의 실체가
    "카톡·밴드에 코드를 적어 달라"이므로 손이 짧아야 한다).
    ★ 굳은 색을 쓰지 않는다([332]) — 테마 토큰만. 밝은 화면·어두운 화면 둘 다 산다.
@@ -1375,7 +1380,7 @@ button.auto-node[disabled]{cursor:progress;opacity:.72}
 .camptag .campmore:hover{border-color:var(--brand)}
 /* 접혔다 펴진 옛 표기 줄 — 지운 것이 아니라 접어 둔 것임을 눈으로 알린다([169]). */
 tr.campsub>td{opacity:.8}
-tr.campsub>td:first-child{padding-left:20px}
+tr.campsub>td.campname{padding-left:20px}
 .camptag:empty{display:none}
 .automation-loading{grid-column:1/-1;min-height:94px;display:grid;place-items:center;color:var(--ink-3);
   border:1px dashed var(--line);border-radius:13px;background:var(--panel);font-size:0.84375rem}
@@ -8411,6 +8416,10 @@ function renderWorkTab(k){
     (remain?`<button type="button" class="auto-more" onclick="wtShowMore('${k}',this)" aria-label="업무 ${Math.min(WT_RENDER_STEP,remain)}건 더 보기">
       현재 ${visible.length}건 표시 · ${Math.min(WT_RENDER_STEP,remain)}건 더 보기 (남은 ${remain}건)</button>`:'');
   try{ navCounts(); }catch(e){}   // 자료가 들어온 뒤 메뉴 숫자를 맞춘다
+  /* * 거래처코드를 그리려면 캠프 목록이 있어야 한다 — 없으면 한 번 받아 **다시 그린다**.
+     비동기라 첫 그림에는 '확인 못 함'이 뜨고 곧 코드로 바뀐다([169] — 조용히 비우지 않는다).
+     이미 받았으면 아무 일도 안 한다(`campsData` 가 캐시다). */
+  if(!CAMPS){ campsData().then(d=>{ if(d) renderWorkTab(k); }).catch(()=>{}); }
 }
 function wtShowMore(k,button){
   WT_RENDER_LIMIT[k]=Math.max(WT_RENDER_STEP,Number(WT_RENDER_LIMIT[k]||0))+WT_RENDER_STEP;
@@ -8430,6 +8439,36 @@ function wtReset(k){
     sortBy:cfg.dateCol,sortOrder:'desc'};
   WT_RENDER_LIMIT[k]=WT_RENDER_STEP; wtSave(); renderWorkTab(k);
 }
+/* == 카드에 ERP 거래처코드 (2026-08-26 형님 지시) ==========================
+   "거래처 코드가 반드시 표기되게 알고리즘 구현해(변경 수정 입력 삭제 저장등의 기능 추가)"
+
+   * 실측 2026-08-26: 정기점검·돌발AS 카드 어디에도 거래처코드가 없었고, 고칠 수도
+     없었다 — `_ALL_STAFF_ENTRY_FIELDS` 의 as 20칸·pm 22칸에 그 이름이 **없다**.
+     노승용 매니저 요구의 실체가 "카톡·밴드에 코드를 적어 달라"인데, 접수를 보는
+     그 자리에 코드가 없으면 적을 수가 없다.
+   * ** 건별 칸으로 만들지 않았다**([172]). 거래처코드는 ERP 거래처 마스터의
+     **캠프별** 값이라 같은 캠프의 모든 AS·점검이 같은 코드를 쓴다. 건마다 열면
+     같은 캠프에 **서로 다른 코드**가 박히고 그것이 유니웍스로 나간다 —
+     되돌릴 수 없는 쪽이다. 그래서 표시는 여기서 하고 **고치기는 캠프 창**으로
+     보낸다(이미 있는 `campEditOpen` — 입력·변경·삭제·저장·사람확인 근거가 다 있다 · [162]).
+   * 표시 규칙도 새로 만들지 않는다([162]) — 캠프 표가 쓰는 `campCode` 그대로다.
+     확정·추정·충돌·사람확인을 갈라 말하는 그 규칙이 카드에서도 같아야 한다.
+   * **못 받은 것을 '코드 없음'이라 하지 않는다**([169]) — 서버가 잠깐 끊긴 것과
+     ERP 에 없는 것은 다른 사실이고 조치가 다르다([289]).
+   ======================================================================== */
+function wtCampCode(name){
+  const nm = String(name||'').trim();
+  if(!nm) return '';
+  if(!CAMPS || !CAMPS.rows)
+    return '<span class="wtcode norm" title="캠프 목록을 아직 못 받았습니다 — 코드가 없다는 뜻이 아닙니다">거래처코드 확인 못 함</span>';
+  /* 이름 찾기도 빌린다([162]) — `다른표기` 까지 보는 그 함수다. */
+  const row = nwCampFind(nm, CAMPS);
+  if(!row)
+    return '<button type="button" class="wtcode btn xs" onclick="event.stopPropagation();campEditOpen()" title="이 표기가 캠프 목록에 없습니다 — 눌러서 캠프를 추가하고 거래처코드를 입력합니다">거래처코드 없음 · 캠프 추가</button>';
+  return '<span class="wtcode">' + campCode(row)
+    + ' <button type="button" class="btn xs" data-camp="' + esc2(row.캠프명||'')
+    + '" onclick="event.stopPropagation();campEditOpen(this.dataset.camp)" title="이 캠프의 거래처코드를 입력·변경·삭제하고 저장합니다"><svg class=\"bi\" aria-hidden=\"true\" focusable=\"false\"><use href=\"#i-bootstrap-pencil-square\"/></svg>코드 고치기</button></span>';
+}
 function wtCard(k,r){
   const cfg=WT_CFG[k], id=String(r[cfg.idCol]||'').trim();
   const stv=wtStatus(k,r);
@@ -8437,7 +8476,7 @@ function wtCard(k,r){
   const editing=wtIsEditing(k,id),dirty=Object.keys(wtDraftOf(k,id)).length>0;
   return `<div class="wt-card${editing?' is-editing':''}${dirty?' is-dirty':''}" data-wt-key="${esc2(wtDraftKey(k,id))}">
     <div class="top"><b class="prjno">${esc2(r.프로젝트NO||id||'-')}</b>
-      <span class="camp">${esc2(r.캠프명||'캠프 미상')}</span>${stChip}
+      <span class="camp">${esc2(r.캠프명||'캠프 미상')}</span>${stChip}${wtCampCode(r.캠프명)}
       <div class="wt-card-actions">
         <button class="wt-open wt-modify" onclick="wtBeginEdit('${k}',${esc4(id)})">${editing?'수정 중':'수정'}</button>
         <button class="wt-open wt-save" onclick="wtSaveCard('${k}',${esc4(id)})" ${editing?'':'disabled'}>${dirty?'저장 · 변경됨':'저장'}</button>
@@ -18738,14 +18777,14 @@ const chr34q = ' <span class="badge warn" title="TIP">Q 표에 없음</span>';
    글자에 esc2 가 안 보이면 그 검사가 아무것도 못 잰다. */
 function campSubRow(c){
   return '<tr class="campsub" data-camp="' + esc2(String(c.캠프명||"")) + '" ondblclick="campEditOpen(this.dataset.camp)" title="줄을 두 번 누르면 고치기가 열립니다">'
+    + '<td data-label="거래처코드">' + esc2(c.거래처코드||"") + '</td>'
     + '<td class="campname"><div><button class="btn xs campfix" data-camp="' + esc2(String(c.캠프명||"")) + '" onclick="event.stopPropagation();campEditOpen(this.dataset.camp)" title="이 옛 표기 줄의 담당자·연락처를 고칩니다">'
     + '<svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>수정</button> ↳ ' + esc2(String(c.캠프명||"")) + '</div>'
     + '<div class="camptag"><span class="badge">합쳐진 옛 표기</span></div></td>'
     + '<td data-label="호기">' + campUnits(c) + '</td>'
     + campRoles(c).map(x=>campCell(x.p, x.라벨)).join("")
     + '<td data-label="정기점검 접수 (밴드·카톡 누적 글 수)">' + String(c.정기점검건수||0) + '</td>'
-    + '<td data-label="최근작업일">' + esc2(c.최근작업일||"") + '</td>'
-    + '<td data-label="거래처코드">' + esc2(c.거래처코드||"") + '</td></tr>';
+    + '<td data-label="최근작업일">' + esc2(c.최근작업일||"") + '</td></tr>';
 }
 /* ── 정본으로 묶기 (2026-08-20 형님 지시 "여기에 보기좋게 정리하고 업데이트해") ──
    화면이 `420개 표시` 라 적고 있었는데 그 420 은 **캠프 수가 아니라 표기 수**였다 —
@@ -18878,6 +18917,7 @@ function renderCampList(){
   if(!rows.length){ host.innerHTML = '<div class="empty">조건에 맞는 캠프가 없습니다.</div>'; return; }
   const cell = campCell;
   host.innerHTML = '<div class="gridwrap"><table class="grid"><thead><tr>'
+    + '<th title="ERP 거래처코드입니다. 유니웍스에 등록할 때 쓰는 열쇠라 맨 왼쪽에 둡니다(2026-08-26 형님 지시). 누르면 복사됩니다.">거래처코드</th>'
     + '<th>캠프명</th>'
     + '<th title="정기점검 스케줄 원본(류지영 정본)에 있는 캠프는 그 표의 설치 대수입니다. 원본에 없는 캠프는 접수·점검 글에서 본 호기라 사이가 빌 수 있고 별표(*)가 붙습니다.">호기</th>'
     + CAMP_ROLES.map(([,label,hint])=>'<th title="'+esc2(hint)+'">'+esc2(label)
@@ -18891,7 +18931,7 @@ function renderCampList(){
        "축소 안 해도 오른쪽 맨 끝에 메뉴까지 다 보이게"). 열이 아홉이라 그 단추가
        화면 밖으로 나가 사람이 브라우저를 축소해야 눌렀다 — **안 보이는 단추는 없는
        단추와 같다**([169]). 이제 캠프명 칸 안에 있어 가로 스크롤 없이 늘 보인다. */
-    + '<th>최근작업일</th><th>거래처코드</th></tr></thead><tbody>'
+    + '<th>최근작업일</th></tr></thead><tbody>'
     /* ★ **줄을 두 번 누르면 고치기가 열린다** (2026-08-19 형님 지시). 새 창을
        만들지 않았다([162]) — 이미 있는 `campEditOpen` 이 `showSheet` 로 **아래서
        위로** 뜬다. 폰에서는 두 번 누르기가 확대와 겹치므로 캠프명 옆 [수정] 단추가
@@ -18905,6 +18945,10 @@ function renderCampList(){
            그것이 `onclick="…"` 속성을 그 자리에서 끊는다. 캠프명에 괄호·따옴표가
            들어 있는 이 목록에서는 단추가 **오류도 없이 안 눌린다**(실측: 류지영
            "수정하기가 안눌려요"). 값은 `data-` 로 넘기고 esc2 로 감싼다. */
+        /* * 거래처코드가 **맨 왼쪽**이다(2026-08-26 형님 지시) — 유니웍스에
+           등록할 때 쓰는 열쇠라 눈이 먼저 닿아야 한다. 표시 규칙은
+           `campCode` 한 곳이다([162]) — 카드도 같은 함수를 쓴다. */
+        + '<td data-label="거래처코드">'+campCode(r)+'</td>'
         + '<td class="campname"><div><button class="btn xs campfix" data-camp="'+esc2(r.캠프명||'')+'"'
           + ' onclick="event.stopPropagation();campEditOpen(this.dataset.camp)"'
           + ' title="이 캠프의 담당자·연락처를 고칩니다 (줄을 두 번 눌러도 열립니다)">'
@@ -18924,8 +18968,6 @@ function renderCampList(){
         + campRoles(r).map(x=>cell(x.p, x.라벨)).join('')
         + '<td data-label="정기점검 접수 (밴드·카톡 누적 글 수)">'+(r.정기점검건수||0)+'</td>'
         + '<td data-label="최근작업일">'+esc2(r.최근작업일||'')+'</td>'
-        /* ★ 빈칸으로 두지 않는다([169]) — 확정·추정·없음을 갈라 말한다. */
-        + '<td data-label="거래처코드">'+campCode(r)+'</td>'
         + '</tr>' + campFoldChildren(r); }).join('')
     + '</tbody></table></div>';
 }
@@ -19046,6 +19088,10 @@ async function campEditSave(){
     toast('저장 완료 — ' + name + ' · ' + (Object.keys(values).length + clear.length) + '개 항목');
     CAMP_EDIT = null; closeSheet();
     await renderCamps(true);            // 서버가 겹쳐 준 결과를 다시 받는다
+    /* * 카드(정기점검·돌발AS)에도 거래처코드가 떠 있다 — 저장한 값이 **그 자리에서**
+       바뀌어야 한다([377] 화면동기화 계약). `renderCamps` 는 캠프 화면만 그리므로
+       여기서 카드도 다시 그린다. 화면이 없으면 조용히 넘어간다. */
+    try{ ['as','pm'].forEach(k2=>{ if($(k2+'Body')) renderWorkTab(k2); }); }catch(e){}
   }catch(e){
     notice('저장하지 못했습니다 — ' + ((e && e.message) || e));
   }
@@ -19187,9 +19233,10 @@ function campsXlsx(){
        받아 본 사람은 1행부터 `캠프명 | 호기 …` 만 보고 무슨 표인지 알 수 없었다. */
     meta: { title: head.title, sub: head.sub },
     /* ★ **열을 직접 준다.** 안 주면 회신 서식(13칸)에 밀려 들어가 캠프명만 남는다. */
-    columns: ['캠프명','호기','주소묶음','정기점검','합친 옛 표기','정본 근거분기']
+    columns: ['거래처코드','추정 거래처코드','코드확실성','코드근거',
+              '캠프명','호기','주소묶음','정기점검','합친 옛 표기','정본 근거분기']
       .concat(...CAMP_ROLES.map(([,label])=>[label+' 이름', label+' 전화', label+' 이메일']))
-      .concat(['캠프주소','거래처코드','정기점검 접수 글수','최근작업일','비고']),
+      .concat(['캠프주소','정기점검 접수 글수','최근작업일','비고']),
     /* 낱말 뜻은 파일 안에 같이 간다 — 엑셀만 받아 본 사람도 알아야 한다([169]). */
     guide: [['항목','뜻']]
       .concat(CAMP_ROLES.map(([,label,hint])=>[label, hint]))
