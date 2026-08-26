@@ -1965,6 +1965,12 @@ button.check-row{display:block;width:100%;min-height:44px;text-align:left;color:
   .tabbar button.on{color:#fff;background:rgba(91,140,255,.16)}
   .tabbar button.on::before{top:auto;left:-10px;width:3.5px;height:22px;border-radius:0 4px 4px 0}
   .tabbar .nav-spacer{display:block;flex:1 1 auto}
+  /* 레고 — 형님이 끈 조각은 메뉴에서 뺀다 (2026-08-26 지시).
+     * `!important` 가 필요하다 — `body.staff-mode .tabbar button.staff-worklog-nav
+       {display:flex}` 처럼 **더 특이한 규칙**이 이미 있어 특이도로는 못 이긴다.
+       안 박으면 손잡이만 꺼진 것처럼 보이고 메뉴는 그대로 남는다([237] 이 겪은 자리).
+     * 마크업은 **그대로 둔다** — JS 가 죽어도 메뉴는 보인다([172] · 더 나빠지지 않는다). */
+  .tabbar button.feat-off{display:none!important}
   .tabbar button.calendar-nav{margin-bottom:18px;background:rgba(255,255,255,.05);border:1px solid rgba(143,163,214,.22)}
   .tabbar button.calendar-nav.on{background:rgba(91,140,255,.22);border-color:rgba(143,163,255,.42)}
   .shell{margin-left:var(--nav-w);padding:24px 30px 48px;max-width:none}
@@ -5052,6 +5058,19 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   #v-settings .settings-danger{color:var(--danger)!important;border-color:color-mix(in srgb,var(--danger) 45%,var(--line))!important}
   #v-settings .settings-safety{margin-top:14px;padding:12px 14px;border-radius:12px;
     background:var(--panel);border:1px solid var(--line);font-size:0.8125rem;line-height:1.6;color:var(--muted)}
+  /* [기능 구성] 카드 — 레고 조각을 켜고 끄는 자리 (2026-08-26 지시).
+     ★ 클래스만 넣고 규칙을 안 만들면 아무 일도 안 일어난다([310]).
+     ★ 굳은 색을 쓰지 않는다([332]) — 테마 토큰만 쓴다. */
+  .feat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;margin:6px 0 14px}
+  .feat-item{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:start;
+             padding:10px 12px;border:1px solid var(--line);border-radius:10px;
+             background:var(--surface);cursor:pointer;min-width:0}
+  .feat-item.on{border-color:var(--brand);background:var(--brand-tint)}
+  .feat-item.need{cursor:default;opacity:.85}
+  .feat-item input{grid-row:1/3;margin-top:3px;width:17px;height:17px;accent-color:var(--brand)}
+  .feat-name{font-weight:700;color:var(--ink-1);min-width:0;overflow-wrap:anywhere}
+  .feat-need{font-style:normal;font-size:.75rem;font-weight:600;color:var(--ink-3)}
+  .feat-desc{grid-column:2;font-size:.8125rem;color:var(--ink-3);line-height:1.45;overflow-wrap:anywhere}
   .tabbar button.settings-nav{display:none}
   @media(min-width:900px){.tabbar button.settings-nav{display:flex}}
   body.staff-mode .tabbar button.settings-nav{display:none!important}
@@ -5116,6 +5135,29 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
           <button type="button" class="abtn" onclick="resetDeviceSettings()">이 기기 설정 전체 초기화</button>
         </div>
         <div class="settings-safety">배치를 <b>고치는 것</b>은 그 화면에서 합니다(업무센터 [화면 구성] · 조직도 길게 누르기) — 카드를 보면서 옮기는 것이 자연스럽기 때문입니다. 여기에는 <b>되돌리기</b>만 둡니다.<br>초기화는 글꼴·밝기·카드 배치·접기 상태만 지웁니다. <b>로그인(PIN·기기 인증)은 건드리지 않습니다</b> — 그건 설정이 아니라 인증이라, 같이 지우면 "글꼴 초기화"가 로그아웃이 됩니다.</div>
+      </article>
+
+      <!-- == 레고 - 기능 구성 (2026-08-26 형님 지시) ======================
+           지시: "이 앱의 카테고링만 따로 떼서 관리할 수 있고 따로 떼서 별도의
+           앱을 만들 수 있고 다른 기능들을 넣었다 뺐다 할 수 있는 레고 같은 앱".
+           * 조각 목록은 **서버 표 하나**가 정한다(app_server.FEATURES) - 여기는
+             그리기만 한다([162]).
+           * 끄고 켜기는 이 브라우저 설정이라 **업무 자료는 한 글자도 안 바뀐다.**
+           * 못 끄는 조각(대시보드·설정)은 체크를 못 푼다 - 끄면 **다시 켤 자리가
+             없어진다.** -->
+      <article class="settings-card wide">
+        <div class="settings-card-head"><div><h3>기능 구성</h3>
+          <p>필요한 조각만 켜 두면 메뉴가 그만큼 짧아집니다. 이 브라우저에서만 바뀌고 업무 자료는 하나도 바뀌지 않습니다.</p></div>
+          <span class="norm" id="featCount">읽는 중</span></div>
+        <div id="featHost"></div>
+        <div class="set-sub">구성 파일</div>
+        <p class="norm">지금 켜 둔 조각 목록을 파일로 내보내고, 다른 기기나 다른 앱에서 가져올 수 있습니다. 업무 자료는 들어 있지 않습니다.</p>
+        <div class="ui-row">
+          <button class="btn" onclick="featExport()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg>구성 내보내기</button>
+          <button class="btn" onclick="featImportPick()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-folder2-open"/></svg>구성 가져오기</button>
+          <button class="btn" onclick="featAllOn()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg>모두 켜기</button>
+          <input type="file" id="featFile" accept="application/json,.json" hidden onchange="featImportFile(this)">
+        </div>
       </article>
 
       <!-- ══ B. 화면 표시 ═════════════════════════════════════════════════════
@@ -10005,7 +10047,11 @@ function routeNav(v){
   if(v==='camps') renderCamps();
   /* 설정도 **열 때마다** 다시 읽는다. 여기 갈래가 없어서 예전에는 한 번 채운 값이
      그대로 낡은 채 남았다 — 오류가 안 나므로 아무도 몰랐다([165] 와 같은 모양). */
-  if(v==='settings'){ if(!staffSlug) loadAdminSettings(); loadSettingsPanel(); }
+  if(v==='settings'){ if(!staffSlug) loadAdminSettings(); loadSettingsPanel();
+    /* 레고 조각 목록도 **열 때마다** 다시 그린다 - 표를 아직 못 받았을 수
+       있고, 그때는 카드가 '못 받았다'고 말한다([169]). */
+    if(!FEATCAT) featLoad().then(function(){ renderFeaturePanel(); });
+    else renderFeaturePanel(); }
 }
 
 // 통합 관제 허브의 '시스템 진단' 타일 — 실행 탭의 진단 카드로 곧장 데려간다.
@@ -23902,6 +23948,177 @@ body.tab-drag-live #tabbar button[data-v]{transition:transform .12s ease}
       location.reload();
     };
   }catch(_){}
+})();
+
+/* == 레고 - 기능 구성 (2026-08-26 형님 지시) =============================
+   지시: "이 앱의 카테고링만 따로 떼서 관리할 수 있고 따로 떼서 별도의 앱을
+   만들 수 있고 다른 기능들을 넣었다 뺐다 할 수 있는 레고 같은 앱으로".
+
+   * 조각 목록(이름·묶음·못 끄는지)은 **서버 표 하나**가 정한다(app_server.FEATURES).
+     화면이 제 손으로 적으면 사본이 둘 되고, 갈린 뒤에는 어느 쪽이 맞는지 아무도
+     모른다([162]). 여기는 **읽기만** 한다.
+   * 끄고 켜기는 **이 브라우저의 설정**이다 - localStorage. 업무 자료는 한 글자도
+     안 바뀐다(2026-08-10 정본 규칙의 허용 범위 - 대시보드 [화면 구성]과 같은 자리).
+   * 표를 **못 받으면 아무것도 안 끈다**([169]) - 모름을 '꺼짐'으로 치면 멀쩡한
+     메뉴가 통째로 사라지고, 그러면 다시 켤 자리조차 없다.
+   * 권한은 여기서 판정하지 않는다 - 그것은 서버가 이미 한다([162]). */
+const FEAT_KEY = 'csos_features_off_v1';
+let FEATCAT = null;          // 서버가 준 조각 목록. null 이면 **아직 모름**
+
+function featOffSet(){
+  /* 형님이 끈 조각. 못 읽거나 깨졌으면 **빈 집합**이다([169]). */
+  try{
+    const v = JSON.parse(localStorage.getItem(FEAT_KEY) || '[]');
+    return new Set(Array.isArray(v) ? v.filter(x => typeof x === 'string') : []);
+  }catch(e){ return new Set(); }
+}
+function featRequired(){
+  /* 못 끄는 조각 - **표가 정한다**([162]). 표를 못 받았으면 빈 집합이지만,
+     그때는 featApply 가 아예 아무것도 안 끄므로 안전하다. */
+  return new Set((FEATCAT && FEATCAT.필수) || []);
+}
+function featIsOn(key){
+  if(featRequired().has(key)) return true;
+  return !featOffSet().has(key);
+}
+function featApply(){
+  /* 메뉴를 켜고 끈다. **표를 못 받았으면 아무것도 안 한다**([169]). */
+  if(!FEATCAT) return;
+  const off = featOffSet(), req = featRequired();
+  document.querySelectorAll('.tabbar button[data-v]').forEach(b => {
+    const k = b.dataset.v;
+    if(!k) return;
+    b.classList.toggle('feat-off', off.has(k) && !req.has(k));
+  });
+  /* 지금 보고 있는 화면을 껐으면 첫 화면으로 데려간다 - 안 그러면 메뉴에서
+     사라진 화면에 갇혀 돌아갈 길이 없다. */
+  const now = window.__view;
+  if(now && off.has(now) && !req.has(now)){ try{ show('dash'); }catch(e){} }
+  try{ navCounts(); }catch(e){}
+}
+async function featLoad(){
+  try{
+    const d = await api('/api/features');
+    if(d && d.목록){ FEATCAT = d; featApply(); }
+  }catch(e){ /* 못 받으면 아무것도 안 끈다([169]) */ }
+}
+function featSetOff(nextSet){
+  try{ localStorage.setItem(FEAT_KEY, JSON.stringify(Array.from(nextSet))); }
+  catch(e){ try{ toast('이 브라우저에 저장하지 못했습니다'); }catch(_){} return false; }
+  featApply();
+  try{ renderFeaturePanel(); }catch(e){}
+  return true;
+}
+function featToggle(key){
+  if(featRequired().has(key)){
+    try{ toast('이 조각은 끌 수 없습니다 - 끄면 다시 켤 자리가 없어집니다'); }catch(e){}
+    try{ renderFeaturePanel(); }catch(e){}
+    return;
+  }
+  const off = featOffSet();
+  if(off.has(key)) off.delete(key); else off.add(key);
+  if(featSetOff(off)){
+    try{ uxEvent('tap', 'feature-toggle', key + '=' + (off.has(key) ? 'off' : 'on')); }catch(e){}
+  }
+}
+function featAllOn(){
+  if(featSetOff(new Set())){ try{ toast('모든 조각을 켰습니다'); }catch(e){} }
+}
+
+function renderFeaturePanel(){
+  const host = document.getElementById('featHost');
+  if(!host) return;
+  if(!FEATCAT){
+    /* 못 받은 것을 '조각이 없다'고 하지 않는다([169]). */
+    host.innerHTML = '<p class="norm">기능 목록을 못 받았습니다 - 조각이 없다는 뜻이 아닙니다. 잠시 뒤 다시 열어 주세요.</p>';
+    const hd0 = document.getElementById('featCount');
+    if(hd0) hd0.textContent = '확인 못 함';
+    return;
+  }
+  const off = featOffSet(), req = featRequired();
+  let onCount = 0, total = 0, h = '';
+  (FEATCAT.목록 || []).forEach(blk => {
+    h += '<div class="set-sub">' + esc2(blk.묶음) + '</div><div class="feat-grid">';
+    (blk.조각 || []).forEach(c => {
+      total++;
+      const need = req.has(c.열쇠);
+      const on = need || !off.has(c.열쇠);
+      if(on) onCount++;
+      const arg = "'" + String(c.열쇠).split("'").join("") + "'";
+      h += '<label class="feat-item' + (on ? ' on' : '') + (need ? ' need' : '') + '">'
+        + '<input type="checkbox"' + (on ? ' checked' : '') + (need ? ' disabled' : '')
+        + ' onchange="featToggle(' + arg + ')">'
+        + '<span class="feat-name">' + esc2(c.이름)
+        + (need ? ' <em class="feat-need">항상 켬</em>' : '') + '</span>'
+        + '<span class="feat-desc">' + esc2(c.설명 || '') + '</span>'
+        + '</label>';
+    });
+    h += '</div>';
+  });
+  const hd = document.getElementById('featCount');
+  if(hd) hd.textContent = '켜진 조각 ' + onCount + ' / ' + total + '개';
+  host.innerHTML = h;
+}
+
+/* -- 따로 떼서 별도의 앱 - 구성 파일로 내보내고 가져온다 ------------------
+   * 지금 내보내는 것은 **조립도**(어느 조각을 쓰나)이지 앱 자체가 아니다.
+     그 파일을 다른 기기·다른 앱에 넣으면 같은 구성이 된다.
+   * 화면 코드까지 떼어 내는 것은 아직 못 한다 - **못 하는 것을 한다고 적지
+     않는다**([169]). 실측 2026-08-26: 화면 마크업은 전체의 7.8%(100,930자)뿐이고
+     JS 70.4% · CSS 19.5% 는 한 덩어리라 조각별로 못 가른다. */
+function featExport(){
+  if(!FEATCAT){ try{ toast('기능 목록을 아직 못 받았습니다'); }catch(e){} return; }
+  const off = featOffSet(), req = featRequired();
+  const on = [];
+  (FEATCAT.목록 || []).forEach(blk => (blk.조각 || []).forEach(c => {
+    if(req.has(c.열쇠) || !off.has(c.열쇠)) on.push({열쇠: c.열쇠, 이름: c.이름, 묶음: blk.묶음});
+  }));
+  const doc = {
+    형식: 'csos-features', 판: 1,
+    만든때: new Date().toISOString(),
+    켜진조각: on,
+    끈조각: Array.from(off),
+    안내: '이 파일을 [기능 구성]에서 가져오면 같은 구성이 됩니다. 업무 자료는 들어 있지 않습니다.'
+  };
+  const name = 'CSOS_기능구성_' + new Date().toISOString().slice(0, 10) + '.json';
+  try{
+    const blob = new Blob([JSON.stringify(doc, null, 2)], {type: 'application/json'});
+    saveOrOpen(blob, name);
+    toast('기능 구성을 내려받았습니다 - 조각 ' + on.length + '개');
+  }catch(e){ try{ toast('내보내지 못했습니다'); }catch(_){} }
+}
+function featImportPick(){
+  const el = document.getElementById('featFile');
+  if(el) el.click();
+}
+function featImportFile(input){
+  const f = input && input.files && input.files[0];
+  if(!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    let d = null;
+    try{ d = JSON.parse(String(rd.result || '')); }catch(e){ d = null; }
+    /* 모르는 파일을 조용히 받지 않는다([169]) - 받으면 형님 구성이 통째로 날아간다. */
+    if(!d || d.형식 !== 'csos-features' || !Array.isArray(d.끈조각)){
+      try{ toast('이 앱의 기능 구성 파일이 아닙니다'); }catch(e){}
+      input.value = ''; return;
+    }
+    const req = featRequired();
+    const off = new Set(d.끈조각.filter(x => typeof x === 'string' && !req.has(x)));
+    if(featSetOff(off)){ try{ toast('기능 구성을 가져왔습니다'); }catch(e){} }
+    input.value = '';
+  };
+  rd.onerror = () => { try{ toast('파일을 못 읽었습니다'); }catch(e){} input.value = ''; };
+  rd.readAsText(f);
+}
+
+/* 부팅 - 표를 받아 메뉴를 맞춘다. 실패해도 화면은 그대로 열린다. */
+(function(){
+  try{
+    if(document.readyState === 'loading')
+      document.addEventListener('DOMContentLoaded', function(){ featLoad(); });
+    else featLoad();
+  }catch(e){}
 })();
 </script>
 <!-- ★ 문서 끝 표식 — 맨 앞 블록의 검사기가 이것을 찾는다(분담판 [117]).
