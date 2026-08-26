@@ -153,9 +153,22 @@ def _directive(room, msg):
     text = str(msg.get("text") or "")
     day = msg["date"].isoformat()
     stamp = "%s %s" % (day, msg.get("time") or "")
+    # ★ 지문에 **방을 넣지 않는다** — 합치기 열쇠와 같은 것을 본다([162]).
+    #   같은 지시가 돌발·정기 두 방에 동시에 올라오면 `extract` 의 dedup 이
+    #   **먼저 나온 방** 하나만 남기는데(그 열쇠는 날짜·시각·게시자·본문이라
+    #   방을 안 본다), 지문에만 방이 들어 있으면 **원본을 읽는 순서가 바뀔 때
+    #   대표 방이 바뀌어 레코드ID 가 통째로 달라진다.** 그러면 사람이 확인해
+    #   둔 것이 조용히 풀려 **완료한 지시가 대표 보고에 다시 올라온다**([169]) —
+    #   2026-08-26 실측: 같은 3항목을 8/14 에 이미 확인했는데 다른 ID 로 또
+    #   올라와 사람이 두 번 확인했다. 오류도 안 나고 화면도 멀쩡하다.
+    body = stamp + "\0" + _space(msg.get("sender")) + "\0" + text
     fingerprint = hashlib.sha256(
-        (room + "\0" + stamp + "\0" + _space(msg.get("sender")) + "\0" + text)
-        .encode("utf-8", errors="replace")
+        body.encode("utf-8", errors="replace")
+    ).hexdigest()[:16]
+    # ★ **옛 지문(방 포함)을 같이 들고 간다** — 안 그러면 이 고침 자체가 이미
+    #   해 둔 확인을 풀어 버린다([352] 의 '옛 열쇠 이어받기' 와 같은 자리).
+    old_fingerprint = hashlib.sha256(
+        (room + "\0" + body).encode("utf-8", errors="replace")
     ).hexdigest()[:16]
     items = [dict(row, 상태="결과 미확인") for row in DIRECTIVE_ITEMS]
     return {
@@ -167,6 +180,7 @@ def _directive(room, msg):
         "항목": items,
         "근거": f"{stamp} 카카오톡 · {room}",
         "레코드ID": "CEO-DIR-" + fingerprint,
+        "옛레코드ID": "CEO-DIR-" + old_fingerprint,
         "레코드종류": "ceo_directive",
         "출처파일": str(msg.get("_source") or ""),
         "방": room,
@@ -218,6 +232,10 @@ def apply_ack(directives, acks=None):
     out = []
     for row in directives:
         got = acks.get(str(row.get("레코드ID") or "")) if isinstance(row, dict) else None
+        if not isinstance(got, dict) and isinstance(row, dict):
+            # ★ 옛 지문(방 포함)으로 해 둔 확인을 이어받는다 — 지문을 고친 날
+            #   완료한 지시가 통째로 되살아나면 사람이 또 확인해야 한다([169]).
+            got = acks.get(str(row.get("옛레코드ID") or ""))
         if not isinstance(got, dict):
             out.append(row)
             continue
@@ -240,8 +258,11 @@ def save_ack(record_id, who="관리자", why="", path=None, remove=False):
     record_id = str(record_id or "").strip()
     if not record_id:
         raise ValueError("레코드ID 가 비어 있습니다")
-    known = {str(r.get("레코드ID")) for r in (load_cached().get("directives") or [])
-             if isinstance(r, dict)}
+    # 옛 지문으로 적힌 확인도 되돌릴 수 있어야 한다([169] — 한쪽만 받으면
+    # 그 기록은 아무도 못 지운다).
+    known = {str(r.get(k)) for r in (load_cached().get("directives") or [])
+             if isinstance(r, dict) for k in ("레코드ID", "옛레코드ID")
+             if r.get(k)}
     if known and record_id not in known and not remove:
         raise ValueError("리포트에 없는 레코드ID 입니다: %s\n  → python ceo_events.py --list"
                          % record_id)
