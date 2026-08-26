@@ -172,6 +172,8 @@ def up(wait_s=30):
 
 MY_PROFILE = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome",
                           "User Data")
+# 크롬이 디버깅을 막는 그 자리 — 위 `adopt_mine` 이 여기와 같으면 아예 거절한다.
+DEFAULT_PROFILE = MY_PROFILE
 
 
 def my_chrome_pids():
@@ -201,9 +203,24 @@ def adopt_mine(dry=True, wait_s=40):
     if not exe:
         return {"오류": "크롬을 못 찾았다"}
     pids = my_chrome_pids()
-    plan = {"프로필": MY_PROFILE, "포트": PORT, "지금pid": pids,
-            "할일": ["그 크롬을 곱게 닫는다(세션 저장)",
-                   "같은 프로필로 다시 켠다 — 디버깅 문 %d · 지난 탭 복원" % PORT]}
+    plan = {"프로필": MY_PROFILE, "포트": PORT, "지금pid": pids}
+    # ★★ **크롬이 거부한다 — 이 길은 막혔다** (2026-08-27 실측).
+    #   크롬 136판부터 **기본 프로필(default user-data-dir)에서는 원격 디버깅을
+    #   막는다.**  실측 Chrome/151.0.7922.174: 깃발을 달고 다시 켰더니 프로세스는
+    #   그 깃발을 달고 살아 있는데(pid 8864) 포트 9422 는 **연결 거부**이고
+    #   `<프로필>/DevToolsActivePort` 가 **아예 안 생겼다** — 곧 문을 연 적이 없다.
+    #   ⚠ 그때 '40초 안에 안 열었다'고 적었더니 **시간 문제로 읽혀** 다시 하고
+    #     싶어진다([172]·[289]).  게다가 그 사이 **형님 브라우저를 헛되이 닫았다.**
+    #   그래서 이제 **아무것도 하기 전에 거절한다.**
+    if os.path.normcase(os.path.abspath(MY_PROFILE)) == os.path.normcase(
+            os.path.abspath(DEFAULT_PROFILE)):
+        plan["막힘"] = ("크롬이 기본 프로필에서는 디버깅 문을 안 연다(크롬 136판부터). "
+                     "형님 브라우저는 한 글자도 안 건드렸다.")
+        plan["대신"] = ("전용 프로필로 한 번만 로그인하십시오: "
+                     "python band/browser_bridge.py --up")
+        return plan
+    plan["할일"] = ["그 크롬을 곱게 닫는다(세션 저장)",
+                  "같은 프로필로 다시 켠다 — 디버깅 문 %d · 지난 탭 복원" % PORT]
     if dry:
         plan["안했음"] = "미리보기다 — 실제로 하려면 --adopt-mine --yes"
         return plan

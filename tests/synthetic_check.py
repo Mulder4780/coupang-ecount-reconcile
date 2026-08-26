@@ -28553,6 +28553,41 @@ def _t457_erp_run(src):
         "[457] 튕김 자리에 밴드 주소를 통째로 넣었다 — 수집 중인 다른 밴드 탭을"
         " 딴 데로 보낸다([172])")
 
+    # (4) 기본 프로필이면 **아무것도 하기 전에 거절한다** (2026-08-27 실측: 크롬
+    #     136판부터 기본 프로필에서는 디버깅 문이 안 열린다).  안 거절하면 형님
+    #     브라우저를 **헛되이 닫는다** — 실제로 한 번 닫았다([172]).
+    #     글자로는 못 잰다([295]) — 죽이는 자리를 목으로 갈아 **결과로** 잰다.
+    import proc_guard as _PG
+    _real_run = _PG.run_tree
+    _killed = []
+    try:
+        _PG.run_tree = lambda args, **k: (
+            _killed.append(list(args)),
+            types.SimpleNamespace(stdout="", stderr="", returncode=0,
+                                  timed_out=False, stuck_pid=None))[1]
+        m.chrome_exe = lambda: "chrome.exe"
+        m.my_chrome_pids = lambda: [424242]
+        m.alive = lambda: ""
+        m.subprocess = types.SimpleNamespace(
+            Popen=lambda *a, **k: None,
+            CREATE_NO_WINDOW=0)
+        r4 = m.adopt_mine(dry=False)
+        assert not _killed, (
+            "[457] 기본 프로필은 크롬이 디버깅을 막는데 **형님 브라우저를 닫았다** —"
+            " 헛되이 닫는 자리다([172])")
+        assert r4.get("막힘"), "[457] 막힌 줄 알면서 그 사실을 안 적는다([169]): %r" % r4
+        assert "--up" in str(r4.get("대신") or ""), (
+            "[457] 막기만 하고 되는 길을 안 알려 준다([408]): %r" % r4)
+
+        # (4-2) 전용 프로필이면 **그대로 진행한다** — 좁히는 것도 고장이다([172])
+        m.DEFAULT_PROFILE = "___다른자리___"
+        _killed[:] = []
+        m.adopt_mine(dry=False)
+        assert _killed, "[457] 전용 프로필인데도 아무것도 안 한다 — 좁히는 것도 고장이다"
+    finally:
+        _PG.run_tree = _real_run          # 모듈 전역은 프로세스 전체의 것이다([371])
+        m.DEFAULT_PROFILE = m.MY_PROFILE
+
     def _fixed(v):
         def _e(ws, expr, timeout=60, await_promise=True):
             return v
@@ -28668,6 +28703,9 @@ def t457_browser_bridge_never_fakes_and_never_types_a_password():
     erp_hurts = [
         ("ERP 가 로그인 전에 긁는다", src.replace('        if state != ' + Q + 'ok' + Q + ':',
                                           '        if False:')),
+        ("막힌 줄 알면서 형님 브라우저를 닫음",
+         src.replace("    if os.path.normcase(os.path.abspath(MY_PROFILE)) == os.path.normcase(",
+                     "    if False and os.path.normcase(os.path.abspath(MY_PROFILE)) == os.path.normcase(")),
         ("파일 도착 확인을 안 적는다", src.replace('out[' + Q + '디스크확인' + Q + '] = {',
                                           'out[' + Q + '_안적음' + Q + '] = {')),
         ("튕긴 탭을 안 찾고 새로 연다", src.replace("    for a in alt:", "    for a in ():")),
@@ -29088,9 +29126,9 @@ def _t460_run(step_src=None):
         assert not upped, (
             "[460] 붙을 크롬이 없다고 **새 크롬을 띄웠다** — 형님이 하지 말라 하신 것이다")
         assert not calls, "[460] 크롬도 없는데 긁으러 갔다"
-        assert "adopt-mine" in line, (
-            "[460] 무엇을 하면 되는지 안 적는다 — 막기만 하는 안내는 없는 안내다([408]): %r"
-            % line)
+        assert "--up" in line and "adopt-mine" not in line, (
+            "[460] 무엇을 하면 되는지 안 적거나, **막힌 길**(--adopt-mine — 크롬 136판부터"
+            " 기본 프로필에서는 디버깅 문이 안 열린다)을 가리킨다([172]·[408]): %r" % line)
         BB.alive = lambda: "Chrome/x"
     finally:
         UW.check, BB.collect_band, BB.alive, BB.note, BB.up = real
