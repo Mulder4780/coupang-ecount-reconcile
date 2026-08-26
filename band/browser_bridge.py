@@ -265,6 +265,12 @@ def collect_band(band, wait_s=None, app_base="http://127.0.0.1:8899"):
     out = {"밴드": str(band), "시작": time.strftime("%Y-%m-%dT%H:%M:%S")}
     t = ensure_tab(BAND_URL % band, prefix="https://www.band.us/band/%s" % band)
     if not t:
+        # ⚠ 로그인 전에는 밴드가 **딴 주소로 튕긴다**(실측 `/about/kr/intro`) — 그때
+        #   "탭을 못 열었다"고 적으면 사람이 **멀쩡한 크롬을 고치러 간다**([172]).
+        #   ERP 쪽에서 이미 고친 자리인데 여기만 남아 있었다([300]).  튕긴 자리를
+        #   찾아 아래 로그인 판정이 '사람대기'라고 정확히 말하게 한다.
+        t = find_tab("https://www.band.us") or find_tab("https://auth.band.us")
+    if not t:
         out["결과"] = "실패"
         out["왜"] = "밴드 탭을 못 열었다"
         return out

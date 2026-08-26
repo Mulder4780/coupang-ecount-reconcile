@@ -28546,6 +28546,18 @@ def _t457_erp_run(src):
     assert not any("erp_grab.js" in c for c in seen), (
         "[457] 로그인 전인데 수집기를 실었다 — 로그인 화면에서 긁으면 0건을 '다 받았다'로 읽는다")
 
+    # (2-2) 밴드도 로그인 전에는 **딴 주소로 튕긴다** — 그때 '탭을 못 열었다'고 적으면
+    #       사람이 멀쩡한 크롬을 고치러 간다([172]·[300]).
+    m.ensure_tab = lambda *a, **k: None
+    m.find_tab = lambda *a, **k: {"webSocketDebuggerUrl": "ws://x"}
+    m.band_login_state = lambda ws: ("need-login", "로그인 화면이다")
+    rb = m.collect_band("1111111", wait_s=30)
+    assert rb.get("결과") == "사람대기", (
+        "[457] 밴드가 로그인 화면으로 튕겼는데 '%s' 라 적는다 — 사람대기여야 한다"
+        % rb.get("결과"))
+    m.ensure_tab = lambda *a, **k: {"webSocketDebuggerUrl": "ws://x"}
+    m.find_tab = lambda *a, **k: None
+
     # (3) '완주' 는 **화면을 다 돌았다**는 뜻이고 파일 도착은 따로 적는다([94]).
     #     수집기 자신이 `다운로드요청 · 디스크확인 false` 라고 말한다 — 뭉치면
     #     파일이 한 개도 안 왔는데 '다 받았다'로 읽는다.
@@ -28997,6 +29009,14 @@ def _t460_run(step_src=None):
         line = W.heal_band_bridge(False)
         assert "완주" not in line and "로그인" in line, (
             "[460] 로그인 대기를 정직하게 안 적는다: %r" % line)
+
+        # ⑦ 완주가 아니면 **왜인지를 싣는다**([365]·[289]) — '실패' 다섯 글자만 남기면
+        #    겉은 경보인데 고칠 자리를 영영 못 찾는다.
+        BB.collect_band = lambda band, wait_s=None, **k: {
+            "결과": "실패", "왜": "밴드 탭을 못 열었다"}
+        line = W.heal_band_bridge(False)
+        assert "밴드 탭을 못 열었다" in line, (
+            "[460] 실패인데 왜인지를 버렸다: %r" % line)
     finally:
         UW.check, BB.collect_band, BB.alive, BB.note, BB.up = real
 
