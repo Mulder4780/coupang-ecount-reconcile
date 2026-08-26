@@ -31784,6 +31784,84 @@ def t437_batch_is_capped_by_time_not_count():
 
     print('  [437] 배치 상한이 개수가 아니라 시간이다(신규 먼저 · 끊기지 않음) ' + chr(9989))
 
+def t438_ceo_directive_id_is_not_tied_to_room():
+    """대표 지시 레코드ID 가 **방 이름에 매이면** 사람 확인이 조용히 풀린다.
+
+    2026-08-26 실측: 같은 3항목(부품 사전신청·긴급구매 승인·재고 운영)을 8/14 에
+    `CEO-DIR-d30040804853c1cb` 로 이미 확인했는데 오늘 다른 ID 로 **또 올라와**
+    사람이 두 번 확인했다. 원인은 어긋남 하나다 — `extract` 의 합치기 열쇠는
+    (날짜·시각·게시자·본문)이라 **방을 안 보는데**, 지문에는 방이 들어 있어
+    **원본을 읽는 순서가 바뀌면 대표 방이 바뀌고 ID 가 통째로 달라진다.**
+    오류도 안 나고 화면도 멀쩡하다([169]) — 완료한 지시가 대표 보고에 다시 뜬다.
+
+    ★ **접수(_event)는 방을 보존한다** — 어느 방에 온 접수인지가 업무 사실이다.
+      좁히는 것도 넓히는 것도 고장이라([172]) 그 방향을 같이 잰다.
+    ★ **옛 지문을 이어받는다** — 안 그러면 이 고침 자체가 해 둔 확인을 푼다([352]).
+    ★ 실측 증거(`reports/대표지시_확인.json`)에는 **한 글자도 안 쓴다**([247]).
+    """
+    import datetime as _dt
+    import tempfile as _tf
+    import json as _js
+    import ceo_events as CE
+
+    _msg = {"text": "쿠팡 AS 업무 운영 정비 지시. 8/14 10:00 까지 보고.",
+            "date": _dt.date(2026, 8, 4), "time": "15:54", "sender": "유수비"}
+    a = CE._directive("★UNI★ 쿠팡돌발점검", _msg)
+    b = CE._directive("★UNI★ 쿠팡정기점검", _msg)
+
+    # ① 방이 달라도 같은 지시면 레코드ID 가 같다
+    assert a["레코드ID"] == b["레코드ID"], (
+        "같은 지시인데 방이 다르다고 레코드ID 가 갈린다 — 원본 읽는 순서가 바뀌면 "
+        "사람 확인이 조용히 풀린다: %s vs %s" % (a["레코드ID"], b["레코드ID"]))
+
+    # ② 옛 지문(방 포함)은 방마다 달라야 한다 — 그래야 옛 기록을 정확히 집는다
+    assert a["옛레코드ID"] != b["옛레코드ID"], "옛 지문이 방을 안 본다 — 이어받기가 헛돈다"
+
+    # ③ 접수(_event)는 방을 그대로 보존한다([172] 좁히는 것도 고장)
+    _f = CE.fields_of(_msg["text"]) or {}
+    ea = CE._event("★UNI★ 쿠팡돌발점검", _msg, _f)
+    eb = CE._event("★UNI★ 쿠팡정기점검", _msg, _f)
+    if ea and eb:
+        assert ea["레코드ID"] != eb["레코드ID"], (
+            "접수 지문까지 방을 뺐다 — 두 방에 온 접수가 한 건이 된다")
+
+    # ④ 옛 지문으로 해 둔 확인을 이어받는다
+    _d = _tf.mkdtemp()
+    _p = _js.dumps  # noqa: F841  (아래에서 파일로 쓴다)
+    _ackp = _d + "/ack.json"
+    with open(_ackp, "w", encoding="utf-8") as fh:
+        _js.dump({"확인": {a["옛레코드ID"]: {"who": "관리자",
+                  "when": "2026-08-14T15:29:33", "why": "3항목 처리 완료"}}},
+                 fh, ensure_ascii=False)
+    got = CE.apply_ack([dict(a)], acks=CE.load_ack(path=_ackp))
+    assert got[0]["상태"] == CE.ACK_STATE, (
+        "옛 지문으로 해 둔 확인을 못 이어받는다 — 지문을 고친 날 완료한 지시가 "
+        "통째로 되살아나 사람이 또 확인해야 한다")
+    assert all(it.get("상태") == CE.ACK_STATE for it in got[0].get("항목") or []), \
+        "이어받았는데 항목은 '결과 미확인' 그대로다 — 캡처에 그대로 뜬다"
+
+    # ⑤ 새 지문으로 한 확인도 그대로 먹는다(좁히지 않았다)
+    with open(_ackp, "w", encoding="utf-8") as fh:
+        _js.dump({"확인": {a["레코드ID"]: {"who": "관리자",
+                  "when": "2026-08-26T09:41:04", "why": "사람 확인"}}},
+                 fh, ensure_ascii=False)
+    got2 = CE.apply_ack([dict(a)], acks=CE.load_ack(path=_ackp))
+    assert got2[0]["상태"] == CE.ACK_STATE, "새 지문으로 한 확인이 안 먹는다"
+
+    # ⑥ 확인이 없으면 그대로 올라온다 — 조용히 완료로 만들지 않는다([169])
+    got3 = CE.apply_ack([dict(a)], acks={})
+    assert got3[0]["상태"] != CE.ACK_STATE, "확인이 없는데 완료로 내렸다"
+
+    # ⑦ 계기 자신을 시험한다([272]) — 지문에 방을 도로 넣으면 ①이 잡히나
+    _room_in = CE.hashlib.sha256(
+        ("★UNI★ 쿠팡돌발점검" + chr(0) + "2026-08-04 15:54").encode("utf-8")).hexdigest()[:16]
+    _room_in2 = CE.hashlib.sha256(
+        ("★UNI★ 쿠팡정기점검" + chr(0) + "2026-08-04 15:54").encode("utf-8")).hexdigest()[:16]
+    assert _room_in != _room_in2, "이 검사가 아무것도 안 재고 있다 — 방이 지문을 안 바꾼다"
+
+    print(chr(9989) + " [438] 대표 지시 레코드ID 는 방에 안 매인다 — 확인이 안 풀린다")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -38408,8 +38486,91 @@ def _yield_to_running_round():
     sys.exit(3)
 
 
+
+_GATE_LOCK = os.path.join(ROOT, "reports", ".gate.lock")
+
+
+def _gate_lock_free():
+    """내 잠금만 지운다 — 남의 것은 안 건드린다."""
+    try:
+        with open(_GATE_LOCK, encoding="utf-8") as fh:
+            if int(json.load(fh).get("pid") or 0) != os.getpid():
+                return
+        os.remove(_GATE_LOCK)
+    except Exception:
+        pass
+
+
+def _gate_lock_or_yield():
+    """관문 **둘이 겹치면** 뒤에 온 쪽이 물러난다 — [195] 의 뿌리다.
+
+    [412] 는 **회차**가 도는 중일 때만 물러나게 했다. 그런데 **사람 관문 둘이
+    겹치는 것**은 아무도 안 막았고, 그 겹침이 앱 글꼴을 나눔고딕으로 남긴다:
+    `t126` 은 진짜 네 파일(`font_switch.FILES`)을 legacy 로 썼다 되돌리는데([126]),
+    관문 A 가 legacy 로 쓴 순간 관문 B 가 그 파일을 읽어 제 '원본'으로 저장하면
+    **A 가 되돌려도 B 가 그 옛 사본으로 도로 덮는다.** 그러면 자동 커밋이
+    (`git add -A` · [104]) 그것을 쓸어 담아 **원격까지 민다** — 2026-08-26 08:41
+    실측(커밋 461f99b · `docs/app.html`·`docs/cal.html` 둘이 나눔고딕으로 밀렸고
+    폰 앱이 그 글꼴로 나갔다).
+
+    ★ **물러서기(retry)로는 못 막는다** — 쓰기가 실패한 것이 아니라 **성공했는데
+      옛 원본으로 덮은** 것이다(codex `1e0d44c` 로 재시도를 넣은 뒤에도 다시 났다).
+    ★ **회차가 부른 관문은 [412] 가 이미 가른다** — 여기는 사람 관문끼리다.
+      그래서 이 문은 그 뒤에 온다(회차 판정을 두 곳에서 하지 않는다 · [162]).
+    ★ **죽은 잠금은 근거가 아니다**([169]) — pid 생존은 `daily_run._pid_alive` 를
+      빌린다([162]). `ai_claim._is_dead` 는 `host` 칸이 있어야 답하므로 여기서는
+      **언제나 '살아 있다'** 로 답한다(2026-08-24 실측 · [412] 가 그대로 밟았다).
+    ★ **내 자신은 안 센다**([272]) — 안 그러면 관문이 제 잠금을 보고 물러난다.
+    ★ **못 읽으면 그냥 돈다** — 관문을 못 돌리면 실작업 관문이 통째로 없어진다.
+      겹침의 값(관문 한 번 늦음)보다 크다. **모를 때 기우는 방향은 자리마다 다르다.**
+    ★ 급하면 `COUPANG_GATE_FORCE=1` (그때 겹침의 값은 사람이 진다).
+    """
+    if os.environ.get("COUPANG_GATE_FORCE") == "1":
+        return
+    info = None
+    try:
+        if os.path.exists(_GATE_LOCK):
+            with open(_GATE_LOCK, encoding="utf-8") as fh:
+                info = json.load(fh)
+    except Exception:
+        info = None
+    if isinstance(info, dict) and info.get("pid"):
+        try:
+            mine = int(info.get("pid")) == os.getpid()
+        except (TypeError, ValueError):
+            mine = False
+        if not mine:
+            try:
+                import daily_run as _dr
+                alive = _dr._pid_alive(info.get("pid"),
+                                       born_before=os.path.getmtime(_GATE_LOCK),
+                                       pid_started_at=info.get("pid_started_at"))
+            except Exception:
+                alive = False          # 못 읽으면 그냥 돈다([169])
+            if alive:
+                started = str(info.get("started_at") or "")[:19].replace("T", " ")
+                print("관문을 돌리지 않았습니다 - 다른 관문이 이미 돌고 있습니다"
+                      " (pid %s - %s 시작)." % (info.get("pid"), started or "?"))
+                print("  둘이 겹치면 t126 이 왕복시키는 네 파일을 서로의 옛 사본으로 덮어")
+                print("  앱 글꼴이 나눔고딕으로 남고 자동 커밋이 원격까지 밉니다([195]).")
+                print("  · 그 관문이 끝나면 그 결과가 곧 ALL GREEN 확인입니다.")
+                print("  · 꼭 지금 돌려야 하면: set COUPANG_GATE_FORCE=1")
+                sys.exit(3)
+    try:
+        import atexit
+        os.makedirs(os.path.dirname(_GATE_LOCK), exist_ok=True)
+        with open(_GATE_LOCK, "w", encoding="utf-8") as fh:
+            json.dump({"pid": os.getpid(),
+                       "started_at": time.strftime("%Y-%m-%dT%H:%M:%S")},
+                      fh, ensure_ascii=False)
+        atexit.register(_gate_lock_free)
+    except Exception:
+        pass                            # 잠금 하나로 관문을 죽이지 않는다
+
+
 if __name__ == "__main__":
     _yield_to_running_round()
+    _gate_lock_or_yield()
     # ── 관문이 **스스로 시간을 잰다** (2026-08-23 · 형님 지시 "앱 구동에 문제되는 거
     #    전부 찾아서 · 다시는 반복되지 않게") ────────────────────────────────────
     # 실측 2026-08-23: 이 관문이 **1,350초(22.5분)** 인데 `daily_run.GATE_TIMEOUT_S`
@@ -38910,6 +39071,7 @@ if __name__ == "__main__":
     t435_calendar_capture_does_not_wait_for_what_it_never_reads()
     t436_autopilot_skips_what_it_can_never_finish()
     t437_batch_is_capped_by_time_not_count()
+    t438_ceo_directive_id_is_not_tied_to_room()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
