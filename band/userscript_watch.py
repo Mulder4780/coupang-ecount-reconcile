@@ -214,6 +214,30 @@ def _read_side():
         return None, "읽는 쪽을 못 불렀다: %s" % str(exc)[:100]
 
 
+def _queue_path():
+    """대기열 파일 자리를 `collect_queue` 에게 물어본다([162]).
+
+    ★ **`band/` 를 길에 올린 뒤 맨몸 이름 하나로** 들여온다([353]) —
+      `band.collect_queue` 와 `collect_queue` 는 **서로 다른 모듈 객체**라
+      섞으면 상태가 갈린다.
+    ⚠ 2026-08-26 실측: 예전에는 맨몸 `import collect_queue` 만 했는데,
+      `from band import userscript_watch` 로 불린 **첫 호출**에서는 `band/` 가
+      길에 없어 그것이 **조용히 실패했다**.  그러면 대기열을 못 읽고 옛 계획
+      (`밴드_수집계획.json`)만 보므로 84789192 의 밀린 글이 **169 → 0** 이 됐다 —
+      `plan_state` 가 제 독스트링에 적어 둔 [353] 사고가 **첫 호출에서만**
+      되살아난 것이다.  그리고 **인계 문서는 언제나 첫 호출**이라 매번 그 값을
+      실었다([169] — 오류는 한 줄도 안 난다).
+    """
+    d = os.path.dirname(os.path.abspath(__file__))
+    if d not in sys.path:
+        sys.path.insert(0, d)
+    try:
+        import collect_queue as _CQ  # type: ignore
+        return _CQ.QUEUE_PATH
+    except Exception:
+        return None
+
+
 def _split_tiers(건수, 전체):
     """대기열 건수를 **할 일**과 **되살아나기 어려운 것**으로 가른다.
 
@@ -267,12 +291,7 @@ def plan_state(now: Optional[datetime] = None) -> Dict[str, Any]:
     # ★ 대기열 경로를 여기 손으로 적지 않는다([162]) — 적으면 사본이 둘 되어
     #   대기열이 이사한 날 이 화면만 옛 자리를 본다(검증이 임시 경로로 재려다
     #   진짜 파일을 읽어 실제로 걸렸다).  정하는 자리는 collect_queue 하나다.
-    큐경로 = None
-    try:
-        import collect_queue as _CQ  # type: ignore
-        큐경로 = _CQ.QUEUE_PATH
-    except Exception:
-        pass
+    큐경로 = _queue_path()
     for path in [p for p in (PLAN, 큐경로) if p]:
         try:
             with open(path, encoding="utf-8") as fh:
@@ -492,7 +511,12 @@ def judge(doc: Optional[Dict[str, Any]], why: str,
             continue
         # 일감이 없으면 조용하다([170]).  다만 **모르면 안 뺀다**([169]) —
         # 대기열을 못 읽었으면 `밀린글` 이 None 이고 그때는 그대로 부른다.
-        남은 = (rows.get(band) or {}).get('밀린글')
+        # ★ **'모름'을 '0'으로 뭉개지 않는다**([169]).  위 `밀린글` 은 계획에 그
+        #   밴드가 **없으면** 0 을 준다 — 그것은 '일감이 없다'가 아니라 '못 봤다'다.
+        #   그 0 을 근거로 조용해지면 죽은 회차가 그대로 묻힌다.
+        남은 = None
+        if 쉬는밴드 is not None and band in 쉬는밴드:
+            남은 = int(쉬는밴드.get(band) or 0)
         if 남은 is not None and 남은 <= 0:
             continue
         헛돈.append((band, row, per))
