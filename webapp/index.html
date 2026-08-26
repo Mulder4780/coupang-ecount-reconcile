@@ -9831,6 +9831,9 @@ function applyView(v){
   try{ localStorage.setItem('cw_view', v); }catch(e){}   // 새로고침 후 같은 화면으로 복귀
   window.__view = v;
   renderDataHealth();                    // run 상세 ↔ 나머지 header pill을 전환 즉시 맞춘다
+  /* 레고 조각 목록은 인증 뒤에야 받을 수 있다 - 부팅 때 401 로 못 받았으면
+     여기서 한 번 잡는다. `FEATCAT` 이 차면 다시 안 부른다(값이 안 든다). */
+  if(!FEATCAT && PIN) featLoad();
   // ★ **`renderDataHealth()` 뒤**에 둔다 — 검증 [207] 은 `window.__view = v;`
   //   바로 다음이 그 줄이기를 요구한다(계약: 카테고리를 바꾼 직후 상태 전환이
   //   늦지 않는다). 남의 계약을 밀어내지 않는다([172]).
@@ -23997,8 +24000,15 @@ function featApply(){
   try{ navCounts(); }catch(e){}
 }
 async function featLoad(){
+  /* * `api()` 를 **안 쓴다**. 그 함수는 401 을 만나면 `PIN` 을 지우고 잠금 화면을
+       띄우는데(6193행), 부팅 시점에는 아직 인증 전일 수 있다 - 그러면 이 조각
+       목록 하나 때문에 **멀쩡한 사람에게 잠금 화면이 뜬다**([172]).
+     * 401 이면 조용히 넘어가고 `FEATCAT` 은 null 로 남는다 - 그러면 featApply 가
+       **아무것도 안 끈다**([169]). 인증이 생기면 applyView 가 다시 부른다. */
   try{
-    const d = await api('/api/features');
+    const r = await fetch('/api/features', {cache: 'no-store'});
+    if(!r.ok) return;
+    const d = await r.json();
     if(d && d.목록){ FEATCAT = d; featApply(); }
   }catch(e){ /* 못 받으면 아무것도 안 끈다([169]) */ }
 }

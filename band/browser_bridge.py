@@ -134,10 +134,12 @@ def up(wait_s=30):
             "--window-size=560,420", "--window-position=1340,620",
             "about:blank"]
     # ★ 콘솔 창을 안 띄운다([272]).  크롬은 GUI 앱이라 창 자체는 필요하다.
-    kw = {}
-    if os.name == "nt":
-        kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    subprocess.Popen(args, **kw)
+    #   ⚠ 깃발을 `**kw` 로 넘기면 감사기가 **못 읽는다** — 그러면 멀쩡히 깃발을 단
+    #     코드가 '무엇을 띄우는지 모름'으로 남아 관문이 막힌다(2026-08-26 실측:
+    #     `t272` 가 여기서 죽었다). 감사기는 `creationflags=<이름>` 을 따라가므로
+    #     **이름 그대로** 넘긴다 — 동작은 한 톨도 안 바뀐다.
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    subprocess.Popen(args, creationflags=flags)
     t0 = time.time()
     while time.time() - t0 < wait_s:
         time.sleep(1)

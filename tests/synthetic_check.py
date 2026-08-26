@@ -28119,6 +28119,261 @@ def t455_camp_code_is_leftmost_and_shown_on_work_cards():
     print(chr(9989) + " [455] 거래처코드가 맨 왼쪽 · 카드에도 반드시 표기(없으면 그 자리에서 입력)")
 
 
+def t456_lego_features_and_light_transfer():
+    """레고 조각 표 · 응답 압축 · 안 바뀌면 0바이트 (2026-08-26 형님 지시).
+
+    * 지시 둘: "카테고링만 따로 떼서 관리 … 넣었다 뺐다 할 수 있는 레고 같은 앱" ·
+      "앱이 너무 무거운데 … 가볍게 최적화".
+    * 실측 2026-08-26: `webapp/index.html` **1,637,278 바이트**인데 압축이 한 줄도
+      없었다. gzip 을 켜자 **516,252 바이트**, 다시 열 때는 **0 바이트(304)**.
+    * 레고 표는 **서버 한 곳**이 정한다(`FEATURES`) — 열쇠가 화면 id·메뉴 `data-v`
+      와 어긋나면 그 조각만 조용히 안 걸린다(`[165]`). 셋을 매번 대 본다.
+    * 화면 동작은 **글자로 못 잰다** — node 로 실행해서 잰다(`[295]`).
+    """
+    import io
+    import json as _j
+    import re
+    import sys as _sys
+    import tempfile
+
+    _wp = os.path.join(ROOT, "webapp")
+    if _wp not in _sys.path:
+        _sys.path.insert(0, _wp)
+    import app_server as _A
+
+    live = io.open(os.path.join(_wp, "index.html"), encoding="utf-8", newline="").read()
+    srv = io.open(os.path.join(_wp, "app_server.py"), encoding="utf-8", newline="").read()
+
+    # ── A. 압축 — 셋이 다 맞을 때만 (실행으로 잰다) ────────────────────
+    class _H:
+        def __init__(self, ae):
+            self.ae = ae
+
+        def get(self, k, d=None):
+            return self.ae if k == "Accept-Encoding" else d
+
+    cases = [
+        ("작은 응답은 안 한다(머리글이 본문보다 커진다)", (_H("gzip"), "application/json", 500), False),
+        ("큰 JSON 은 한다", (_H("gzip"), "application/json", 5000), True),
+        ("HTML 은 한다", (_H("gzip"), "text/html; charset=utf-8", 5000), True),
+        ("PNG 은 안 한다(이미 압축돼 있다)", (_H("gzip"), "image/png", 500000), False),
+        ("브라우저가 안 받겠다면 안 한다", (_H("deflate"), "text/html", 5000), False),
+        ("헤더를 못 읽으면 안 한다", (_H(None), "text/html", 5000), False),
+    ]
+    for why, args, want in cases:
+        got = _A._gzip_ok(*args)
+        assert got == want, "[456] 압축 문이 어긋났다 — %s: %s (기대 %s)" % (why, got, want)
+
+    # ── B. 압축 캐시 — 같은 내용은 다시 안 압축, 바뀌면 저절로 무효 ────
+    big = ("가벼운 앱" * 20000).encode("utf-8")
+    a = _A._gzip_bytes(big)
+    b = _A._gzip_bytes(big)
+    assert a == b, "[456] 같은 내용인데 압축본이 다르다"
+    assert len(a) < len(big) // 2, "[456] 압축이 거의 안 됐다: %d -> %d" % (len(big), len(a))
+    c = _A._gzip_bytes(big + b"x")
+    assert c != a, (
+        "[456] 한 글자 바뀌었는데 같은 압축본을 준다 — 옛 코드를 계속 내려주는"
+        " 사고가 여기서 되살아난다([156])")
+    n0 = len(_A._gz_cache)
+    _A._gzip_bytes(b"x" * 2000)
+    assert len(_A._gz_cache) == n0, "[456] 작은 것까지 캐시하면 메모리만 쓴다"
+
+    # ── C. 부르는 쪽 Cache-Control 을 안 덮는다 ───────────────────────
+    assert 'if not any(str(k).lower() == "cache-control" for k in (headers or {})):' in srv, (
+        "[456] _send 가 부르는 쪽 캐시 규칙을 덮는다 — 같은 헤더가 둘 나가면"
+        " 브라우저마다 어느 것을 따를지 갈린다")
+    assert srv.count('self.send_header("Vary", "Accept-Encoding")') >= 2, (
+        "[456] Vary 가 빠졌다 — 중간 캐시가 압축본을 압축 못 받는 쪽에 준다")
+
+    # ── D. index.html 에 ETag + 304 ───────────────────────────────────
+    for need, why in [
+            ('etag = \'"%s"\' % hashlib.md5(body).hexdigest()', "ETag 를 내용 지문으로 만든다"),
+            ('if (self.headers.get("If-None-Match") or "").strip() == etag:', "304 갈래"),
+            ('"Cache-Control": "no-cache"', "no-store 가 아니라 no-cache — 캐시하되 매번 물어본다")]:
+        assert need in srv, "[456] %s 가 없다" % why
+    i_etag = srv.find("etag = ")
+    i_tech = srv.find('BASE, "tech.html"')
+    assert i_tech > 0 and i_etag > i_tech, (
+        "[456] ETag 가 tech.html 자리로 옮겨 갔다 — index.html(1.6MB) 하나만 고친다([172])")
+
+    # ── E. 레고 표 — 열쇠가 화면·메뉴와 어긋나면 조용히 안 걸린다([165]) ─
+    views = set(re.findall(r'id="v-([a-zA-Z0-9_-]+)"', live))
+    i = live.find('class="tabbar"')
+    j = live.find("</nav>", i)
+    assert 0 < i < j, "[456] 메뉴 마크업을 못 찾았다"
+    menus = set(re.findall(r'data-v="([a-zA-Z0-9_-]+)"', live[i:j]))
+    feats = set(_A.FEATURES)
+    assert not (feats - views), (
+        "[456] 표에는 있는데 화면이 없는 조각: %s — 죽은 조각이다" % sorted(feats - views))
+    assert not (menus - feats), (
+        "[456] 메뉴에 있는데 표에 없는 조각: %s — 그 조각은 영영 못 끈다" % sorted(menus - feats))
+    req = set(_A.feature_catalog()["필수"])
+    assert req == {"dash", "settings"}, (
+        "[456] 못 끄는 조각이 바뀌었다: %s — 대시보드를 끄면 첫 화면이 없고 설정을"
+        " 끄면 **다시 켤 자리가 없다**" % sorted(req))
+    cat = _A.feature_catalog()
+    assert cat["묶음차례"] and cat["목록"], "[456] 조각 목록이 비었다"
+    assert sum(len(b["조각"]) for b in cat["목록"]) == len(feats), (
+        "[456] 묶음으로 나누다 조각을 흘렸다 — 조용히 빼면 그 화면은 없는 화면이 된다([169])")
+
+    # ── F. /api/features 는 **인증 관문 뒤**다 ────────────────────────
+    g = srv.find("def do_GET")
+    gate = srv.find("self._auth()", g)
+    feat = srv.find('if p == "/api/features":', g)
+    assert 0 < gate < feat, (
+        "[456] /api/features 가 인증 관문 **앞**에 있다 — 화면 목록이 밖으로 샌다")
+
+    # ── G. 꺼진 조각을 정말 감추는 CSS 가 있나(`[310]`) ────────────────
+    css = _t370_code_only(live)
+    assert ".tabbar button.feat-off{display:none!important}" in css, (
+        "[456] .feat-off 규칙이 없거나 !important 가 빠졌다 — 더 특이한 규칙이"
+        " 이미 있어 손잡이만 꺼진 것처럼 보이고 메뉴는 그대로 남는다([237])")
+    for cls in (".feat-grid{", ".feat-item{", ".feat-name{", ".feat-desc{"):
+        assert cls in css, "[456] %s 에 CSS 가 없다 — 클래스만 넣으면 아무 일도 안 난다([310])" % cls
+
+    # ── H. 화면 동작 — **실행으로** 잰다(`[295]`) ─────────────────────
+    def _fn(name):
+        for pat in ("function " + name + "(", "async function " + name + "("):
+            k = live.find(pat)
+            if k < 0:
+                continue
+            depth, started = 0, False
+            for x in range(k, len(live)):
+                if live[x] == "{":
+                    depth += 1
+                    started = True
+                elif live[x] == "}":
+                    depth -= 1
+                    if started and depth == 0:
+                        return live[k:x + 1]
+        return ""
+
+    names = ["featOffSet", "featRequired", "featIsOn", "featApply",
+             "featSetOff", "featToggle", "featAllOn", "renderFeaturePanel", "featExport"]
+    parts = []
+    for n in names:
+        s = _fn(n)
+        assert s, "[456] 화면 함수를 못 찾았다: %s" % n
+        parts.append(s)
+
+    CAT = {
+        "묶음차례": ["홈", "현장", "관리"],
+        "목록": [
+            {"묶음": "홈", "조각": [{"열쇠": "dash", "이름": "대시보드", "설명": "첫 화면", "필수": True}]},
+            {"묶음": "현장", "조각": [
+                {"열쇠": "pm", "이름": "정기점검", "설명": "점검", "필수": False},
+                {"열쇠": "as", "이름": "돌발 AS", "설명": "AS", "필수": False}]},
+            {"묶음": "관리", "조각": [{"열쇠": "settings", "이름": "설정", "설명": "설정", "필수": True}]},
+        ],
+        "필수": ["dash", "settings"],
+    }
+    head = "\n".join([
+        "const STORE={};",
+        "globalThis.localStorage={getItem:k=>(k in STORE?STORE[k]:null),"
+        "setItem:(k,v)=>{STORE[k]=String(v)},removeItem:k=>{delete STORE[k]}};",
+        "const BTN=['dash','pm','as','settings'].map(v=>({dataset:{v},cls:new Set(),"
+        "classList:{toggle(c,on){on?this._o.cls.add(c):this._o.cls.delete(c)}}}));",
+        "BTN.forEach(b=>b.classList._o=b);",
+        "const EL={};",
+        "globalThis.document={querySelectorAll:s=>(s.indexOf('tabbar')>=0?BTN:[]),"
+        "getElementById:id=>(EL[id]||null)};",
+        "globalThis.window={__view:'dash'};",
+        "const SHOWN=[]; globalThis.show=v=>{SHOWN.push(v);window.__view=v;};",
+        "const TOAST=[]; globalThis.toast=m=>TOAST.push(String(m));",
+        "globalThis.navCounts=()=>{}; globalThis.uxEvent=()=>{};",
+        "globalThis.esc2=s=>String(s==null?'':s);",
+        "const SAVED=[]; globalThis.saveOrOpen=(b,n)=>SAVED.push({name:n,text:b.__t});",
+        "globalThis.Blob=function(a){this.__t=a.join('');};",
+        "let FEATCAT=null; const FEAT_KEY='csos_features_off_v1';",
+    ])
+    tail = "\n".join([
+        "const O={}; const CAT=" + _j.dumps(CAT, ensure_ascii=False) + ";",
+        "STORE[FEAT_KEY]=JSON.stringify(['pm','as']); featApply();",
+        "O.표없음=BTN.filter(b=>b.cls.has('feat-off')).map(b=>b.dataset.v);",
+        "FEATCAT=CAT; featApply();",
+        "O.표받음=BTN.filter(b=>b.cls.has('feat-off')).map(b=>b.dataset.v);",
+        "STORE[FEAT_KEY]=JSON.stringify(['dash','settings','pm']); featApply();",
+        "O.필수보호=BTN.filter(b=>b.cls.has('feat-off')).map(b=>b.dataset.v);",
+        "SHOWN.length=0; window.__view='as'; STORE[FEAT_KEY]=JSON.stringify(['as']); featApply();",
+        "O.안갇힘=SHOWN.slice();",
+        "TOAST.length=0; featToggle('settings');",
+        "O.필수말함=TOAST.length>0; O.필수저장=JSON.parse(STORE[FEAT_KEY]);",
+        "STORE[FEAT_KEY]='[]'; featToggle('pm'); O.끔=JSON.parse(STORE[FEAT_KEY]);",
+        "featToggle('pm'); O.켬=JSON.parse(STORE[FEAT_KEY]);",
+        "STORE[FEAT_KEY]='{깨진 값'; O.깨짐=Array.from(featOffSet());",
+        "STORE[FEAT_KEY]=JSON.stringify(['pm']);",
+        "EL.featHost={innerHTML:''}; EL.featCount={textContent:''}; renderFeaturePanel();",
+        "O.카드수=(EL.featHost.innerHTML.match(/class=\"feat-item/g)||[]).length;",
+        "O.카드필수=(EL.featHost.innerHTML.match(/disabled/g)||[]).length;",
+        "FEATCAT=null; renderFeaturePanel();",
+        "O.카드모름=EL.featHost.innerHTML.indexOf('못 받았습니다')>=0;",
+        "FEATCAT=CAT; STORE[FEAT_KEY]=JSON.stringify(['pm']); SAVED.length=0; featExport();",
+        "const doc=SAVED[0]?JSON.parse(SAVED[0].text):{};",
+        "O.형식=doc.형식; O.켜진=(doc.켜진조각||[]).map(x=>x.열쇠); O.끈것=doc.끈조각;",
+        "featAllOn(); O.모두켬=JSON.parse(STORE[FEAT_KEY]);",
+        "console.log(JSON.stringify(O));",
+    ])
+    from proc_guard import run_tree
+    with tempfile.TemporaryDirectory() as td:
+        f = os.path.join(td, "t456.js")
+        with io.open(f, "w", encoding="utf-8", newline="") as fh:
+            fh.write(head + "\n" + "\n".join(parts) + "\n" + tail)
+        r = run_tree(["node", f], timeout=90, drain_timeout=15)
+    assert r.returncode == 0, "[456] 화면 하네스가 죽었다: %s" % (r.stderr or "")[:400]
+    o = _j.loads((r.stdout or "{}").strip().splitlines()[-1])
+
+    # ★ 표를 못 받으면 **아무것도 안 끈다** — 모름을 '꺼짐'으로 치면 멀쩡한 메뉴가
+    #   통째로 사라지고, 그러면 다시 켤 자리조차 없다([169]).
+    assert o["표없음"] == [], "[456] 표를 못 받았는데 메뉴를 껐다: %s" % o["표없음"]
+    assert sorted(o["표받음"]) == ["as", "pm"], o["표받음"]
+    # ★ 필수는 껐다고 적혀 있어도 안 꺼진다
+    assert o["필수보호"] == ["pm"], "[456] 못 끄는 조각이 꺼졌다: %s" % o["필수보호"]
+    # ★ 지금 보는 화면을 끄면 첫 화면으로 — 사라진 화면에 갇히지 않는다
+    assert o["안갇힘"] == ["dash"], o["안갇힘"]
+    assert o["필수말함"] and o["필수저장"] == ["as"], "[456] 필수를 끄려는데 조용하다"
+    assert o["끔"] == ["pm"] and o["켬"] == [], (o["끔"], o["켬"])
+    # ★ 저장이 깨져도 빈 집합 — 메뉴가 통째로 사라지지 않는다
+    assert o["깨짐"] == [], "[456] 저장이 깨졌는데 그것을 '꺼짐'으로 읽는다: %s" % o["깨짐"]
+    assert o["카드수"] == 4 and o["카드필수"] == 2, (o["카드수"], o["카드필수"])
+    # ★ 못 받은 것을 '조각 없음'이라 하지 않는다([169])
+    assert o["카드모름"], "[456] 표를 못 받았는데 카드가 그 말을 안 한다"
+    assert o["형식"] == "csos-features", o["형식"]
+    assert sorted(o["켜진"]) == ["as", "dash", "settings"] and o["끈것"] == ["pm"], (o["켜진"], o["끈것"])
+    assert o["모두켬"] == [], o["모두켬"]
+
+    # ── I. 계기 자기시험(`[272]`) — 문을 없애면 정말 잡히나 ────────────
+    bad = live.replace("  if(!FEATCAT) return;\n", "", 1)
+    assert bad != live, "[456] 자기시험 재료를 못 만들었다 — 검사가 눈멀었다"
+    parts2 = []
+    for n in names:
+        k = bad.find("function " + n + "(")
+        if k < 0:
+            k = bad.find("async function " + n + "(")
+        depth, started, got = 0, False, ""
+        for x in range(k, len(bad)):
+            if bad[x] == "{":
+                depth += 1
+                started = True
+            elif bad[x] == "}":
+                depth -= 1
+                if started and depth == 0:
+                    got = bad[k:x + 1]
+                    break
+        parts2.append(got)
+    with tempfile.TemporaryDirectory() as td:
+        f2 = os.path.join(td, "t456b.js")
+        with io.open(f2, "w", encoding="utf-8", newline="") as fh:
+            fh.write(head + "\n" + "\n".join(parts2) + "\n" + tail)
+        r2 = run_tree(["node", f2], timeout=90, drain_timeout=15)
+    assert r2.returncode == 0, (r2.stderr or "")[:300]
+    o2 = _j.loads((r2.stdout or "{}").strip().splitlines()[-1])
+    assert o2["표없음"] != [], (
+        "[456] 계기 자기시험 실패 — '표를 못 받으면 아무것도 안 끈다' 문을 없앴는데도"
+        " 이 검사가 통과한다. 그러면 이 검사는 아무것도 안 재고 있다([272])")
+
+    print(chr(9989) + " [456] 레고 조각 표(18개) · 응답 압축(1.6MB→0.5MB) · 안 바뀌면 0바이트")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -40782,6 +41037,7 @@ if __name__ == "__main__":
     t453_stale_calendar_is_rebuilt_by_the_watchdog()
     t454_collect_interval_follows_remaining_work()
     t455_camp_code_is_leftmost_and_shown_on_work_cards()
+    t456_lego_features_and_light_transfer()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

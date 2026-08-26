@@ -10127,10 +10127,6 @@ class H(BaseHTTPRequestHandler):
             if p == "/api/tech/board":
                 return self._send(200, tech_board(tslug))
             return self._send(404, {"error": "no route"})
-        if p == "/api/features":
-            # 레고 조각 목록 — 화면이 메뉴를 켜고 끌 때 읽는다(읽기 전용).
-            # ★ 여기서 권한을 판정하지 않는다(`[162]`) — 그것은 이미 다른 자리가 한다.
-            return self._send(200, feature_catalog())
         if p in ("/", "/index.html", "/ryu") or staff_slug:
             html = open(os.path.join(BASE, "index.html"), encoding="utf-8").read()
             if staff_slug:
@@ -10456,6 +10452,13 @@ self.addEventListener('fetch', e => {
                                                 f"도움말 실패: {str(exc)[:160]}"})
         if not self._auth():
             return self._send(401, {"error": "PIN"})
+        if p == "/api/features":
+            # 레고 조각 목록 — 화면이 메뉴를 켜고 끌 때 읽는다(읽기 전용).
+            # ★ **인증 관문 뒤**다. 업무값은 안 실리지만 화면 목록도 밖에 내보일
+            #   이유가 없고, 부르는 쪽은 이미 인증된 화면이다([250]-6 과 같은 판단 —
+            #   거기는 '보내는 쪽이 인증을 못 싣는 자리'라 앞에 뒀고 여기는 아니다).
+            # ★ 여기서 권한을 판정하지 않는다([162]) — 그것은 이미 다른 자리가 한다.
+            return self._send(200, feature_catalog())
         if p == "/api/live-state":
             return self._send(200, get_live_state())
         if p == "/api/system-audit":
