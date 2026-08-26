@@ -9972,7 +9972,10 @@ class H(BaseHTTPRequestHandler):
             self.send_header("Content-Encoding", enc)
         # ★ 중간 캐시가 압축본을 **압축을 못 받는 클라이언트에게** 주면 안 된다.
         self.send_header("Vary", "Accept-Encoding")
-        self.send_header("Cache-Control", "no-store")
+        # * 부르는 쪽이 제 캐시 규칙을 줬으면 **기본값을 안 박는다** — 같은 헤더가
+        #   둘 나가면 브라우저마다 어느 것을 따를지 갈린다.
+        if not any(str(k).lower() == "cache-control" for k in (headers or {})):
+            self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Private-Network", "true")
         for key, value in (headers or {}).items():
@@ -10145,7 +10148,27 @@ class H(BaseHTTPRequestHandler):
                 html = html.replace('<link rel="manifest" href="/manifest.json">', "")
                 html = html.replace("navigator.serviceWorker.register('/sw.js')",
                                     "Promise.reject()")
-            return self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
+            # -- 안 바뀌었으면 **0바이트**로 답한다 (2026-08-26 형님 지시 "가볍게") --
+            #   실측 2026-08-26: 이 응답은 1,637,278 바이트(gzip 512,116)인데
+            #   `no-store` 라 화면을 다시 열 때마다 **통째로 다시 받았다**.
+            #   ETag 는 **내용 지문**이라 파일이 바뀌면 저절로 달라진다 — 그래서
+            #   [156](옛 코드를 계속 내려주는 사고)이 안 생기고, 화면의
+            #   `checkBuild()` 가 새 판을 알아채 갱신을 제안하는 길도 그대로다.
+            #   * `no-store` 가 아니라 **`no-cache`** 다: 캐시는 하되 **매번 서버에
+            #     물어본다**. 담당자가 새로고침하면 언제나 최신을 받는다.
+            #   * 담당자 슬러그·터널 여부에 따라 본문이 달라지는데, 지문을 **그
+            #     바뀐 본문에서** 뽑으므로 서로 섞이지 않는다.
+            body = html.encode("utf-8")
+            etag = '"%s"' % hashlib.md5(body).hexdigest()
+            if (self.headers.get("If-None-Match") or "").strip() == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Vary", "Accept-Encoding")
+                self.end_headers()
+                return
+            return self._send(200, body, "text/html; charset=utf-8",
+                              {"ETag": etag, "Cache-Control": "no-cache"})
         if p.startswith("/brand/"):                    # 고객사 CI(쿠팡 로고) — 로컬 파일만 서빙
             fn = os.path.basename(p)
             fp = os.path.join(BASE, "brand", fn)
