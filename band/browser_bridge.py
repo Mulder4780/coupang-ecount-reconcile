@@ -191,9 +191,16 @@ def activate(ws):
 
 
 def open_tab(url):
-    urllib.request.urlopen(
+    """새 탭을 연다.
+
+    ⚠ **PUT 이어야 한다.**  크롬은 `/json/new` 의 GET 을 막았다 — 실측
+      2026-08-26 · Chrome/151.0.7922.174: GET 은 **405 Method Not Allowed**,
+      PUT 은 200 이다.  `urlopen(url)` 은 GET 이라 그대로 죽는다.
+    """
+    req = urllib.request.Request(
         "http://127.0.0.1:%d/json/new?%s" % (PORT, urllib.parse.quote(url, safe=":/?=&")),
-        timeout=15).read()
+        method="PUT")
+    urllib.request.urlopen(req, timeout=15).read()
     time.sleep(3)
 
 
@@ -408,9 +415,13 @@ if __name__ == "__main__":
     # ★ 수집 문을 거친다([387]) — 두 창이 같은 밴드를 동시에 긁으면 캐시가
     #   오염된다(사고 #27).  무인 회차는 그대로 통과한다.
     try:
-        # ★ 조회()는 문을 안 거친다([172]) — 상태를 보는 것까지 막으면
-        #   무엇이 막혔는지도 못 본다.
-        if not ({"--status"} & set(sys.argv[1:])):
+        # ★ 문은 **긁는 길에만** 건다([172]) — `upload_intake` 가 `--apply` 일
+        #   때만 거치는 것과 같은 자리다.  실측으로 이 파일은 밴드 캐시도 Z: 도
+        #   **한 줄도 안 건드린다**(0곳) — 곧 `--status`(조회)와 `--up`(빈 크롬을
+        #   띄워 형님이 로그인하실 자리를 여는 것)은 사고 #27(두 창이 같은 밴드를
+        #   긁어 캐시가 오염되는 것)을 **구조적으로 못 일으킨다.**
+        #   막는 것은 실제로 긁는 `--collect`·`--collect-all` 뿐이다.
+        if not ({"--status", "--up"} & set(sys.argv[1:])):
             import collect_gate
             collect_gate.guard("브라우저 다리로 밴드 수집")
     except SystemExit:

@@ -297,6 +297,47 @@ def _save_cloud_report(result):
     os.replace(tmp, CLOUD_REPORT)
 
 
+# ── 폰 사본을 **정말 바뀐 때만** 민다 (2026-08-26 형님 지시 "최적으로") ──
+#   실측 2026-08-26: `docs/data.enc` 커밋이 **하루 77~97개**인데 커밋 메시지의
+#   업무 숫자가 전부 같았다 — **자료가 안 바뀌었는데 밀고 있었다.**
+#   ★ 그 파일 자체로는 못 가른다. 암호화 salt·IV 가 매번 무작위라 **내용이 같아도
+#     바이트가 다르다.** 그래서 `gen`(만든 때)을 뺀 **업무 내용 지문**으로 가른다.
+#   ★ **못 읽으면 민다**([169]) — 모름을 '같다'로 치면 자료가 영영 안 올라가고,
+#     그 사고는 폰 화면이 멀쩡해 보여서 아무도 모른다.
+PAGES_MARK = os.path.join(os.path.dirname(CLOUD_REPORT), "폰사본_지문.json")
+
+
+def pages_unchanged(content_sha256, out_path=None, mark_path=None):
+    """지난번 민 것과 **업무 내용이 같고** 사본 파일도 그대로 있으면 참."""
+    out_path = out_path or OUT
+    mark_path = mark_path or PAGES_MARK
+    if not content_sha256:
+        return False
+    try:
+        if not os.path.exists(out_path):
+            return False            # 사본이 없으면 만들어야 한다
+        with open(mark_path, encoding="utf-8") as f:
+            prev = json.load(f)
+        return str(prev.get("content_sha256") or "") == str(content_sha256)
+    except Exception:
+        return False                # 못 읽으면 민다
+
+
+def remember_pages(content_sha256, generated_at, mark_path=None):
+    """민 뒤에 지문을 남긴다. **못 남겨도 조용히 넘어간다** — 다음에 한 번 더 밀 뿐이다."""
+    mark_path = mark_path or PAGES_MARK
+    try:
+        os.makedirs(os.path.dirname(mark_path), exist_ok=True)
+        tmp = mark_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"content_sha256": content_sha256, "generated_at": generated_at,
+                       "at": datetime.now().isoformat(timespec="seconds")},
+                      f, ensure_ascii=False)
+        os.replace(tmp, mark_path)
+    except Exception:
+        pass
+
+
 def upload_cloud_snapshot(sealed, generated_at, content_sha256):
     """암호문만 외부 D1에 보관한다. 같은 업무 내용이면 쓰기를 생략한다."""
     url, token = _cloud_config()
@@ -426,7 +467,13 @@ def _main():
     sealed_bytes = json.dumps(sealed, separators=(",", ":")).encode("utf-8")
     # 10분 클라우드 회차는 git 추적 파일을 건드리지 않는다. GitHub Pages 백업을
     # 갱신하는 기본/--push 회차만 data.enc를 교체해 작업트리가 늘 깨끗하게 남는다.
-    write_pages_copy = "--cloud" not in sys.argv or "--push" in sys.argv
+    # * 업무 내용이 **지난번과 같으면 사본을 새로 쓰지 않는다** (2026-08-26 지시).
+    #   안 쓰면 git 이 `nothing to commit` 으로 넘어가 **커밋이 0**이 된다 —
+    #   그런데 `git_publish` 는 그대로 부르므로 **미푸시분은 계속 밀린다**.
+    #   실측 2026-08-26: 하루 77~97개 커밋이 전부 같은 업무 숫자였다.
+    same_as_before = pages_unchanged(content_sha256)
+    write_pages_copy = (("--cloud" not in sys.argv or "--push" in sys.argv)
+                        and ("--force" in sys.argv or not same_as_before))
     if write_pages_copy:
         os.makedirs(DOCS, exist_ok=True)
         tmp_out = OUT + ".tmp"
@@ -441,6 +488,9 @@ def _main():
           f"AS {len(d['as'])} · 점검 {len(d['pm'])} · 정산 {len(d['settle'])} · 계산서 {len(d['erp'])}")
     print(f"  {rkb:.0f}KB → 줄여서 {len(packed)/1024:.0f}KB → 잠근 뒤 {kb:.0f}KB  ({OUT})")
     print(f"  미청구 {len(d.get('unbilled', []))}건 — 잠긴 사본 안에(앱 상단에 뜹니다)")
+    if same_as_before and not write_pages_copy:
+        # * 조용히 넘어가지 않는다([169]) — '안 올렸다'와 '올릴 것이 없었다'는 다른 사실이다.
+        print("  폰 사본은 그대로 둡니다 — 지난번과 업무 내용이 같습니다(커밋하지 않습니다).")
 
     cloud_error = ""
     if "--cloud" in sys.argv or "--push" in sys.argv:
@@ -474,9 +524,19 @@ def _main():
     if not ok:
         print(f"  git {stage} 실패:", detail)
         sys.exit(1)
+    if write_pages_copy:
+        remember_pages(content_sha256, d["gen"])
     if cloud_error:
-        print("  GitHub Pages 백업은 반영됐지만 클라우드 최신 사본은 실패했습니다.")
-        sys.exit(1)
+        # ★ **성공한 반쪽을 실패로 세지 않는다** (2026-08-26 지시).
+        #   폰이 읽는 순서는 `D1 최신 → GitHub Pages → 기기 사본`([271])이라
+        #   D1 이 없으면 **Pages 로 떨어지는 것이 설계**다. 그런데 예전에는 여기서
+        #   `exit 1` 을 해서 자율복구가 **실패로 세고 10분마다 재시도**했고,
+        #   재시도마다 관리대장 2MB 를 다시 읽고 git 을 또 밀었다(하루 77~97 커밋).
+        #   게다가 그 가짜 실패가 매일 인계 맨 위를 차지해 **진짜 경보를 덮었다**([170]).
+        #   ★ 조용히 넘어가지도 않는다([169]) — `reports/cloud_continuity.json` 에
+        #     그대로 남고 인계가 그것을 읽어 **알림**으로 올린다([328]).
+        print("  GitHub Pages 사본은 반영됐습니다 — 폰은 그것으로 읽습니다.")
+        print("  (D1 최신 사본만 실패: 재시도로는 안 풀립니다 — 워커 재배포가 필요합니다.)")
     print("\n고정 주소에 반영했습니다 — PC를 꺼도 폰에서 열립니다.")
     print("  https://mulder4780.github.io/coupang-ecount-reconcile/")
 
