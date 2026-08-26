@@ -27639,6 +27639,48 @@ def t450_kakao_hold_is_never_reported_as_success():
     assert KA._say_held is _real_say, "목을 안 되돌렸다([371])"
     print(chr(9989), "[450] 카톡 보류를 성공이라 적지 않는다 — 끝 줄·자국·인계가 말한다")
 
+def t451_applyview_calls_are_not_swallowed_by_a_comment():
+    """화면을 옮길 때 도는 핵심 호출이 **주석에 먹히지 않는다**.
+
+    실사고 2026-08-26 — 커밋 9be6f98([432] 메뉴 건수)에서 줄바꿈 하나가 빠져
+      navCounts();   // 메뉴 건수 ...  queueLiveViewCatchup(v);   // ...
+    가 **한 줄**이 됐다. 그러면 뒤엣것이 통째로 주석이라 화면을 옮겨도
+    자료 보충이 안 돈다([377] 계약) — **오류도 안 나고 화면도 멀쩡해서**
+    아무도 몰랐다([169]). 문법 검사(node --check)도 통과한다.
+
+    ★ 넓게 재지 않는다([172]) — "주석 뒤에 호출처럼 생긴 글자" 를 세면
+      설명 주석이 전부 걸려 거짓 경보가 된다. **꼭 불려야 하는 넷**만 본다.
+    """
+    import io as _io451, re as _re451
+    src = _io451.open(_os_path_join451(), encoding="utf-8").read()
+    i = src.index("function applyView(")
+    j = src.index(chr(10) + "}", i)
+    body = src[i:j]
+    # 줄 주석을 걷어낸다 — 먹힌 호출은 여기서 사라진다([370] 과 같은 근거)
+    code = _re451.sub(r"//[^" + chr(10) + r"]*", "", body)
+    must = ("renderDataHealth", "navCounts", "queueLiveViewCatchup", "uxEvent")
+    for fn in must:
+        n_code = len(_re451.findall(_re451.escape(fn) + r"[ ]*\(", code))
+        n_all = len(_re451.findall(_re451.escape(fn) + r"[ ]*\(", body))
+        assert n_code >= 1, (
+            "applyView 안에서 %s(...) 가 **주석에 먹혔다** — 화면을 옮겨도 안 돈다"
+            % fn)
+        assert n_all >= n_code
+
+    # 계기 자기시험([272]) — 옛 모양(줄바꿈이 빠져 먹힌 것)을 넣으면 정말 잡히나.
+    hurt = body.replace(chr(10) + "  queueLiveViewCatchup(v);",
+                        "  queueLiveViewCatchup(v);")
+    assert hurt != body, "자기시험 재료를 못 만들었다 — 앵커가 어긋났다"
+    hurt_code = _re451.sub(r"//[^" + chr(10) + r"]*", "", hurt)
+    assert not _re451.findall(r"queueLiveViewCatchup[ ]*\(", hurt_code), (
+        "옛 모양을 넣었는데도 주석 걷기가 그 호출을 살려 뒀다 — 이 검사는 "
+        "아무것도 안 재고 있다")
+    print(chr(9989), "[451] 화면 전환 핵심 호출이 주석에 안 먹힌다 (실사고 9be6f98 회귀 감시)")
+
+
+def _os_path_join451():
+    return os.path.join(ROOT, "webapp", "index.html")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -40290,6 +40332,7 @@ if __name__ == "__main__":
     t448_advice_points_at_commands_that_exist()
     t449_handoff_says_how_old_the_diagnosis_is()
     t450_kakao_hold_is_never_reported_as_success()
+    t451_applyview_calls_are_not_swallowed_by_a_comment()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
