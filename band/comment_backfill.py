@@ -398,7 +398,29 @@ def load_plan(band=None):
             merged.append(n)
     # ★ 한 배치는 수집기가 정한 한도까지다 — 넘겨 보내면 수집기가 통째로 거절한다.
     #   나머지는 사라지는 것이 아니라 **다음 번 폴링**이 받아 간다(남은 수를 같이 적는다).
-    out["nos"] = merged[:BATCH_MAX]
+    # ★ **개수가 아니라 시간으로 자른다** (2026-08-26 형님 지시 · [437]).
+    #   예전에는 `merged[:BATCH_MAX]` 였는데, 갈래마다 건당 시간이 5배 달라
+    #   같은 250건이 어떤 날은 8분이고 어떤 날은 53분이었다. 53분짜리는
+    #   수집기 한도(30분)에 끊겨 `partial` 로 남고, 다음 폴링이 같은 목록을
+    #   다시 받는다 — **진도가 안 쌓인다**.
+    #   `BATCH_MAX` 는 안전망으로 남긴다(그 위로는 렌더러가 언다 · 실측).
+    _budget = None
+    try:
+        _budget = _CQ.batch_budget_s()
+    except Exception:
+        _budget = None
+    # ★ 배치 계산에는 **대기열의 갈래표만** 쓴다. 댓글 계획의 `tiers` 는
+    #   같은 이름이지만 **우선순위별 건수**라 섞으면 뜻이 무너진다([165]).
+    #   나가는 `out["tiers"]` 는 예전 그대로 둔다 — 받는 쪽을 안 깨뜨린다([172]).
+    _tiers_now = dict(qb.get("tiers") or {})
+    try:
+        picked, 예상초, 남은수 = _CQ.pack_batch(
+            merged, _tiers_now, budget_s=_budget, count_max=BATCH_MAX)
+    except Exception:
+        # ★ 못 하면 **예전 그대로** 간다([169]) — 여기서 빈 목록을 주면
+        #   수집이 통째로 멈추는데 화면은 멀쩡해 보인다.
+        picked, 예상초, 남은수 = merged[:BATCH_MAX], None, max(0, len(merged) - BATCH_MAX)
+    out["nos"] = picked
     out["tiers"] = dict(qb.get("tiers") or {}, **out["tiers"])
     # ★ 낡은 것을 정상이라 부르지 않는다([169]·[184]). 대기열은 자료가 바뀔 때마다
     #   5분 회차가 다시 만든다 — 하루가 넘도록 안 바뀌었으면 그 회차가 안 도는 것이다.
@@ -427,7 +449,11 @@ def load_plan(band=None):
     else:
         상태, 왜 = "정상", ""   # 정상까지 말하면 아무도 안 읽는다([170])
     out["대기열"] = {"상태": 상태, "나이시간": 나이, "전체": len(merged),
-                    "남은": max(0, len(merged) - BATCH_MAX),
+                    "남은": 남은수,
+                    # ★ 얼마나 걸릴지 **숫자로 말한다**([169]) — 받는 쪽이
+                    #   '이게 전부'로 읽지 않게. 못 쟀으면 None 이지 0 이 아니다.
+                    "예상초": 예상초,
+                    "예산초": _budget,
                     "만든때": q.get("generated"),
                     "왜": 왜,
                     "건수": qb.get("건수") or {},

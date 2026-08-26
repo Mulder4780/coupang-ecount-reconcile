@@ -22863,7 +22863,15 @@ def t353_collect_queue_is_one_list_and_never_silently_drops():
         with open(CQ.QUEUE_PATH, "w", encoding="utf-8") as fh:
             json.dump(big, fh)
         out = CB.load_plan(BAND)
-        assert len(out["nos"]) == CB.BATCH_MAX, "한도를 넘겨 내려보낸다 — 수집기가 통째로 거절한다"
+        # ★ **얼릴 것은 계약이지 숫자가 아니다**([39]·[219]). 2026-08-26 에
+        #   [437] 이 배치 상한을 개수(250)에서 **시간**(1,620초)으로 바꾸자
+        #   이 줄이 죽었다 — 계약('한도를 넘겨 내려보내지 않는다')은 한 톨도
+        #   안 바뀌었는데 `== 250` 이라 못 박혀 있었기 때문이다.
+        #   이 합성은 `tiers` 가 비어 갈래를 모르므로 한 건을 21초로 세고
+        #   (모르면 느린 쪽 · [169]) 1,620 / 21 = 77건이 담긴다.
+        #   재야 할 것은 둘이다 — **한도를 안 넘는가** · **빈 목록을 안 주는가**
+        #   (빈 목록을 주면 수집이 영영 안 돈다 · [169]).
+        assert 0 < len(out["nos"]) <= CB.BATCH_MAX, "한도를 넘겨 내려보낸다 — 수집기가 통째로 거절한다"
         assert out["대기열"]["남은"] > 0, "남은 수를 안 적는다 — 받는 쪽이 '이게 전부'로 읽는다"
 
         # ⑥ 대기열을 못 읽으면 **못읽음이라 말한다** — 조용히 댓글 갈래만 주지 않는다
@@ -31674,6 +31682,108 @@ def t436_autopilot_skips_what_it_can_never_finish():
     print(chr(9989) + " [436] 자율복구 — 예산으로 못 끝낼 일은 부르지 않는다")
 
 
+def t437_batch_is_capped_by_time_not_count():
+    """[437] 한 배치의 상한은 **개수가 아니라 시간**이다 (2026-08-26 형님 지시).
+
+    형님: "신규 자료는 최대한 빨리 긁어올 수 있는 구조로 알고리즘 업데이트하고,
+    긁어오는데 시간 줄이는 알고리즘 구현해"
+
+    왜 — 갈래마다 건당 시간이 **5배** 다르다. 실측(되보고 start->done 쌍):
+    완주한 배치 셋이 250건 1,079초(건당 4.3초) · 66건 232초(3.5초) ·
+    59건 156초(2.6초)인데 **끊긴 배치 다섯은 전부 1,801~1,843초**, 곧
+    수집기 한도(MAX_WAIT_MS 30분)에 걸린 것이다. 오염·없는 번호가
+    iframe 9초 + 본문 12초를 꽉 채우기 때문이다([217]).
+    그래서 250건이 '할 일 121 + 오염 129' 면 3,193초(53분)가 되어 끊긴다 —
+    끊기면 `partial` 로 남고 다음 폴링이 같은 목록을 다시 받아 **진도가 안 쌓인다**.
+
+    ★ 이 저장소가 **네 번째** 배우는 규칙이다([388]·[406]·[427]·여기).
+    """
+    import importlib, sys as _sys
+    _band = os.path.join(ROOT, 'band')
+    if _band not in _sys.path:
+        _sys.path.insert(0, _band)
+    CQ = importlib.import_module('collect_queue')
+
+    # ① **예산이 수집기 한도를 넘으면 이 고침은 아무것도 안 막는다**([169]).
+    #    실측 2026-08-26: 여유를 안 빼서 2,220초가 나왔고 한도는 1,800초였다.
+    import userscript_watch as _UW
+    hours = _UW._grab_wait_hours()
+    budget = CQ.batch_budget_s()
+    if hours and budget:
+        pure = float(hours) * 3600 - float(getattr(_UW, 'START_GRACE_MIN', 0) or 0) * 60
+        assert budget <= pure, (
+            '[437] 배치 예산(%s초)이 수집기 한도(%s초)보다 크다 — 배치가 그대로 끊긴다'
+            % (budget, int(pure)))
+        assert budget > 0
+
+    # ② 갈래가 섞여도 **예산 안**에 들어간다
+    fast = list(range(1, 200))            # 5초짜리
+    slow = list(range(1000, 1200))        # 21초짜리
+    tiers = {'미수집': fast, '오염': slow}
+    picked, sec, rest = CQ.pack_batch(fast + slow, tiers, budget_s=1620, count_max=250)
+    assert sec <= 1620, '[437] 예산 1620초를 넘겨 담았다: %d초' % sec
+    assert rest == len(fast) + len(slow) - len(picked)
+    # 빠른 갈래가 앞이므로 **199건 전부** 들어가야 한다 — 신규가 먼저다([428])
+    assert set(fast) <= set(picked), '[437] 빠른 갈래(신규)가 배치에서 빠졌다'
+
+    # ③ **좁히는 것도 고장이다**([172]) — 전부 빠른 갈래면 예전만큼 담는다
+    only_fast = list(range(1, 400))
+    p2, s2, _r2 = CQ.pack_batch(only_fast, {'미수집': only_fast},
+                                budget_s=1620, count_max=250)
+    assert len(p2) == 250, (
+        '[437] 빠른 갈래만인데 %d건만 담았다 — 예전(250)보다 좁아졌다' % len(p2))
+
+    # ④ **빈 배치를 주지 않는다**([169]) — 예산이 한 건도 못 담을 만큼 작아도
+    p3, _s3, _r3 = CQ.pack_batch([1000, 1001], {'오염': [1000, 1001]},
+                                 budget_s=1, count_max=250)
+    assert len(p3) == 1, '[437] 예산이 아주 작을 때 빈 배치를 준다 — 수집이 영영 안 돈다'
+
+    # ⑤ **모르는 갈래는 느린 쪽으로 친다**([169]) — 짧게 잡으면 배치가 끊긴다
+    p4, s4, _r4 = CQ.pack_batch([7, 8, 9], {}, budget_s=1620, count_max=250)
+    assert s4 == 3 * CQ.UNKNOWN_TIER_SECONDS, (
+        '[437] 갈래를 모르는 번호를 빠른 쪽으로 셌다: %d초' % s4)
+    assert CQ.UNKNOWN_TIER_SECONDS >= max(CQ.TIER_SECONDS.values())
+
+    # ⑥ **같은 이름 `tiers` 가 두 뜻이라 섞여 들어온다**([165] · 2026-08-26 실사고).
+    #    대기열은 {'미수집': [번호...]} 인데 댓글 계획은 {'1': 3} 곧 우선순위별
+    #    **건수**다. 섞이면 `for n in 3` 이 되어 터지고, 터지면 부르는 쪽이
+    #    예전 길로 물러나 이 고침이 **조용히 없어진다**.
+    mixed = dict(tiers)
+    mixed['1'] = 3
+    mixed['3'] = 5
+    p5, s5, _r5 = CQ.pack_batch(fast + slow, mixed, budget_s=1620, count_max=250)
+    assert p5 == picked and s5 == sec, (
+        '[437] 우선순위 건수가 섞이자 배치가 달라졌다 — 두 뜻을 안 가른다')
+
+    # ⑦ **예산을 못 읽으면 예전처럼 개수로만** 자른다([169])
+    p6, _s6, _r6 = CQ.pack_batch(fast + slow, tiers, budget_s=None, count_max=250)
+    assert len(p6) == 250, '[437] 예산이 없을 때 개수 상한을 안 지킨다: %d' % len(p6)
+
+    # ⑧ 값은 **한 곳**에서 온다([162]) — 수집기 파일이 정본이다
+    cq_src = open(os.path.join(ROOT, 'band', 'collect_queue.py'),
+                  encoding='utf-8').read()
+    assert '1800' not in cq_src.split('def batch_budget_s')[1].split('def ')[0], (
+        '[437] 수집기 한도를 손으로 적었다 — 수집기가 바꾸면 조용히 갈린다([162])')
+
+    # ⑨ 부르는 쪽이 **실제로** 시간으로 자르는가([328] — 함수만 있고 안 부르면 없는 것과 같다)
+    cb_src = open(os.path.join(ROOT, 'band', 'comment_backfill.py'),
+                  encoding='utf-8').read()
+    assert 'pack_batch' in cb_src and 'batch_budget_s' in cb_src, (
+        '[437] load_plan 이 시간 예산을 안 쓴다 — 개수로 되돌아갔다')
+
+    # ⑩ 계기 자기시험([272]) — 시간 문을 없애면 정말 잡히는가
+    _real = CQ.pack_batch
+    try:
+        CQ.pack_batch = lambda nos, tiers=None, budget_s=None, count_max=None: (
+            [int(n) for n in nos][:(count_max or 250)], 0, 0)
+        bad, badsec, _ = CQ.pack_batch(fast + slow, tiers, budget_s=1620, count_max=250)
+        caught = len(bad) == 250      # 옛 동작이면 250건(53분치)을 그대로 담는다
+    finally:
+        CQ.pack_batch = _real
+    assert caught, '[437] 계기가 옛 동작(개수로 자르기)을 못 잡는다'
+
+    print('  [437] 배치 상한이 개수가 아니라 시간이다(신규 먼저 · 끊기지 않음) ' + chr(9989))
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -38799,6 +38909,7 @@ if __name__ == "__main__":
     t424_resource_failures_that_already_passed()
     t435_calendar_capture_does_not_wait_for_what_it_never_reads()
     t436_autopilot_skips_what_it_can_never_finish()
+    t437_batch_is_capped_by_time_not_count()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

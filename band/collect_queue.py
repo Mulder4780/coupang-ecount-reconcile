@@ -68,6 +68,102 @@ TIER_ORDER = ["미수집", "재수집", "댓글", "오염"]
 #   609건이 어느 화면에도 안 뜬다([169]).
 SLOW_REVIVE = ("오염",)
 
+# ★ **한 배치의 상한은 개수가 아니라 시간이다** (2026-08-26 형님 지시).
+#   왜 — 갈래마다 건당 시간이 **5배** 다르다. 실측(되보고 start->done 쌍):
+#   완주한 배치 셋이 250건 1,079초(건당 4.3초) · 66건 232초(3.5초) ·
+#   59건 156초(2.6초)인데, **끊긴 배치 다섯은 전부 1,801~1,843초** 곧
+#   수집기 한도(MAX_WAIT_MS 30분)에 걸린 것이다.
+#   가르는 것은 오염·없는 번호다 — 그것들은 iframe 9초 + 본문 12초를
+#   **꽉 채운다**([217]). 본문이 안 그려지거나 이웃 글 것이 와서 대기가
+#   끝까지 간다.
+#   그래서 250건이 '할 일 121 + 오염 129' 면 484 + 2,709 = **3,193초(53분)**
+#   가 되어 30분에 끊긴다. 끊기면 되보고가 `partial` 로 남고 다음 폴링이
+#   같은 목록을 다시 받는다 — 진도가 안 쌓인다([406] 과 같은 모양).
+#   ★ 이 저장소가 **네 번째** 배우는 규칙이다([388] 밴드 중간저장 ·
+#     [406] 복구용 보관 색인 · [427] 게시글 보관 예산 · 여기).
+TIER_SECONDS = {"미수집": 5, "재수집": 5, "댓글": 5, "오염": 21}
+
+# ★ **모르는 갈래는 느린 쪽으로 친다**([169]). 짧게 잡으면 배치가 예산을
+#   넘겨 통째로 끊기고, 그 값은 회차 하나가 아니라 **진도 전부**다.
+UNKNOWN_TIER_SECONDS = 21
+
+# 저장·업로드·마지막 한 건이 넘칠 여유. 없으면 딱 맞게 채웠다가 끊긴다.
+BATCH_MARGIN_S = 180
+
+
+def batch_budget_s():
+    """한 배치에 쓸 수 있는 초 — **수집기 파일이 정본**이다([162]).
+
+    값을 여기 손으로 적지 않는다. 수집기가 한도를 바꾼 날 두 곳이 갈리면
+    배치가 매번 끊기는데 **오류는 한 줄도 안 난다**([165]).
+
+    ★ 못 읽으면 `None` — 그때는 부르는 쪽이 **예전처럼 개수로** 자른다.
+      모르는 값으로 배치를 좁히면 멀쩡한 수집이 매번 반쪽이 된다([172]).
+    """
+    try:
+        import userscript_watch as _UW   # 함수 안에서 늦게 — 순환을 피한다
+    except Exception:
+        return None
+    try:
+        hours = _UW._grab_wait_hours()
+    except Exception:
+        return None
+    if not hours:
+        return None
+    # ★ 그 함수가 주는 것은 **'매달렸다'고 판정하는 한도**라 저장·업로드 여유
+    #   (`START_GRACE_MIN`)가 이미 더해져 있다. 배치 예산은 그 여유를 **빼야**
+    #   수집기가 실제로 일할 수 있는 시간(`MAX_WAIT_MS`)이 된다.
+    #   실측 2026-08-26: 안 빼면 2,220초가 나와 한도 1,800초를 넘겼다 —
+    #   예산이 한도보다 크면 이 고침이 **아무것도 안 막는다**([169]).
+    grace = float(getattr(_UW, 'START_GRACE_MIN', 0) or 0) * 60.0
+    return max(60, int(float(hours) * 3600 - grace) - BATCH_MARGIN_S)
+
+
+def tier_index(tiers):
+    """갈래별 번호목록을 **번호 -> 갈래** 로 뒤집는다. 모르면 그 번호가 빠진다.
+
+    ⚠ **`tiers` 라는 이름이 이 저장소에 두 뜻으로 있다**(2026-08-26 실측).
+      대기열(`collect_queue`)의 것은 `{"미수집": [번호...]}` 곧 갈래별 목록인데,
+      댓글 계획(`밴드_수집계획.json`)의 것은 `{"1": 3, "3": 5}` 곧 **우선순위별
+      건수**다([177]). 둘이 섞여 들어오면 `for n in 3` 이 되어 터진다 —
+      터지면 부르는 쪽이 예전 길로 물러나 이 고침이 **조용히 없어진다**([165]).
+      그래서 목록이 아닌 값은 **세지 않고 건너뛴다**([169] — 모르면 안 센다).
+    """
+    out = {}
+    for t, nos in (tiers or {}).items():
+        if not isinstance(nos, (list, tuple, set)):
+            continue
+        for n in nos:
+            try:
+                out[int(n)] = t
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def pack_batch(nos, tiers=None, budget_s=None, count_max=None):
+    """시간 예산으로 배치를 채운다 -> (담은목록, 예상초, 남은수).
+
+    ★ **좁히는 것도 고장이다**([172]) — 예산이 남으면 계속 담는다. 그래서
+      할 일만 있는 날에는 예전과 **같은 개수**가 담긴다(전부 5초짜리라).
+    ★ **빈 배치를 주지 않는다** — 예산이 한 건도 못 담을 만큼 작아도 하나는
+      담는다. 빈 목록을 주면 수집이 영영 안 돈다([169]).
+    ★ 예산을 모르면(`None`) 예전 그대로 **개수로만** 자른다.
+    """
+    nos = [int(n) for n in (nos or [])]
+    idx = tier_index(tiers)
+    picked, spent = [], 0
+    for n in nos:
+        if count_max is not None and len(picked) >= count_max:
+            break
+        cost = TIER_SECONDS.get(idx.get(n), UNKNOWN_TIER_SECONDS)
+        if budget_s is not None and picked and spent + cost > budget_s:
+            break
+        picked.append(n)
+        spent += cost
+    return picked, spent, max(0, len(nos) - len(picked))
+
+
 
 def _cache_bands():
     """캐시에 실재하는 밴드만. 유령 번호는 담지 않는다(2026-08-12 실사고)."""
