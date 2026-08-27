@@ -1246,6 +1246,43 @@ def _notice_pair(x, fallback):
     return (str(x), fallback)
 
 
+# ★ 관문이 오래 걸렸을 때 **왜인지**를 가른다 (2026-08-27 실사고).
+#   예전 조치는 언제나 "그 검사를 나눈다" 하나였다. 그런데 실측으로 `t31_tech` 가
+#   3569초로 적힌 그 검사가 실제로 하는 일은 **16.3초**였다 — 코드가 아니라 그때
+#   Z: 를 무는 다른 일이었다(09:35 원본정리가 40분을 물고 있었다).
+#   **틀린 지목은 못 잡는 것보다 나쁘다**([172]) — 사람이 멀쩡한 검사를 쪼개러 간다.
+#   ★ 조치가 갈린다([289]): 공유폴더가 붐볐으면 **회차 겹침**을 보고, 멀쩡했으면
+#     그때야 검사를 나눈다. **못 쟀으면 아무 말도 안 한다**([169]).
+#   ★ 여기서 Z: 를 다시 묻지 않는다([168]) — 관문이 그때 재 둔 값을 읽기만 한다.
+_GATE_SHARE_SLOW_S = 5.0        # 한가할 때 1초 미만(실측 0.98초)이라 5초면 붐빈 것이다
+
+
+def gate_share_note(rows):
+    """관문 자국의 '공유폴더' 를 읽어 (덧붙일 말, 조치) 를 돌려준다.
+
+    못 가르면 ("", None) 이다 — 지어내지 않는다([169])."""
+    if not isinstance(rows, list) or not rows:
+        return "", None                 # 안 쟀다
+    try:
+        got = [r for r in rows if isinstance(r, dict)]
+        if not got:
+            return "", None
+        worst = max(float(r.get("공유초") or 0) for r in got)
+        dead = any(r.get("닿음") is False for r in got)
+    except Exception:
+        return "", None
+    look = "python schedule_watch.py --print   # 그 시각에 무엇이 돌았는지 본다"
+    if dead:
+        return (" · 그때 공유폴더에 **닿지 못했다** — 그 검사가 느린 것이 아니다."
+                " 네트워크 드라이브 연결부터 확인한다", look)
+    if worst >= _GATE_SHARE_SLOW_S:
+        return (" · 그때 공유폴더 응답이 **%.1f초**였다(한가할 때 1초 미만) —"
+                " 그 검사가 느린 것이 아니라 **다른 일이 공유폴더를 물고 있었다**."
+                " 검사를 나누기 전에 회차가 겹치는지 본다" % worst, look)
+    return (" · 그때 공유폴더 응답은 %.1f초로 멀쩡했다 — 그 검사가 정말 느리다"
+            % worst, None)
+
+
 def gate_budget():
     """관문(합성검증)이 한도에 얼마나 붙었나 — 회차가 써 둔 자국을 **읽기만** 한다.
 
@@ -1265,7 +1302,9 @@ def gate_budget():
             return {}
         slow = (g.get("오래걸린것") or [{}])[0]
         return {"여유율": m, "총초": tot, "한도초": lim,
-                "가장오래": (slow.get("무엇") or "?")[:60], "그초": slow.get("초")}
+                "가장오래": (slow.get("무엇") or "?")[:60], "그초": slow.get("초"),
+                # 왜 오래 걸렸나 — 없으면 안 담는다([169])
+                "공유폴더": (g.get("공유폴더") or None)}
     except Exception:
         return {}
 
@@ -1457,21 +1496,25 @@ def blockers(st, for_sol=False):
         _m, _tot, _lim = _g.get("여유율"), _g.get("총초"), _g.get("한도초")
         if _m is not None and _tot and _lim:
             _slow = {"무엇": _g.get("가장오래"), "초": _g.get("그초")}
+            # ★ **왜** 오래 걸렸는지까지 말한다([289] — 조치가 갈린다).
+            #   못 쟀으면 예전 그대로다([169] — 모름을 확언하지 않는다).
+            _why, _act = gate_share_note(_g.get("공유폴더"))
+            _fix = _act or "python tests/synthetic_check.py   # 그 검사를 나눈다(한도를 먼저 늘리지 말 것)"
             if _m < 0:
                 out.append((
                     "[관문] 합성검증이 한도를 **넘겼다** — %.1f분 / 한도 %.1f분. 이 관문은 "
                     "일일대조의 0단계라 여기서 끊기면 **그날 회차가 통째로 안 돈다**. "
-                    "가장 오래 걸린 것: %s (%s초)"
+                    "가장 오래 걸린 것: %s (%s초)%s"
                     % (_tot / 60.0, _lim / 60.0, (_slow.get("무엇") or "?")[:60],
-                       _slow.get("초")),
-                    "python tests/synthetic_check.py   # 그 검사를 나눈다(한도를 먼저 늘리지 말 것)"))
+                       _slow.get("초"), _why),
+                    _fix))
             elif _m < 0.20:
                 out.append((
                     "[관문] 합성검증 여유가 %d%% 뿐이다 — %.1f분 / 한도 %.1f분. 바쁜 아침에는 "
-                    "넘겨 **그날 회차가 첫 줄에서 죽는다**. 가장 오래 걸린 것: %s (%s초)"
+                    "넘겨 **그날 회차가 첫 줄에서 죽는다**. 가장 오래 걸린 것: %s (%s초)%s"
                     % (round(_m * 100), _tot / 60.0, _lim / 60.0,
-                       (_slow.get("무엇") or "?")[:60], _slow.get("초")),
-                    "python tests/synthetic_check.py   # 그 검사를 나눈다(한도를 먼저 늘리지 말 것)"))
+                       (_slow.get("무엇") or "?")[:60], _slow.get("초"), _why),
+                    _fix))
     # ★ **원본이 실제로 실렸을 때만** 건너뛴다(`[169]`). 스케줄러 감시를 못 읽은 날
     #   빼 버리면 그 경보가 통째로 사라진다 — '다른 데 있겠지'는 근거가 아니다.
     borrowed_ok = bool((st.get("스케줄러") or {}).get("경보"))

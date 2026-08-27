@@ -29637,6 +29637,147 @@ def t464_origin_mirror_copies_and_never_flips_the_address_early():
     print(chr(9989) + " [464] 원본 이전 — 순서 3 · 안전핀 5 · 실행 6 · 배선 2")
 
 
+def t465_gate_trace_says_why_not_just_how_long():
+    """[465] 관문이 오래 걸렸을 때 **왜**인지까지 적는다 — 안 그러면 조치가 늘 틀린 쪽이다.
+
+    2026-08-27 실사고: 09:50 회차에서 `t31_tech` 가 **3569.2초(59.5분)** 로 적혔고
+    인계는 그것 하나만 보고 "그 검사를 나눈다"라고 했다. 그런데 그 검사가 실제로
+    하는 일은 **16.3초**다(Z: 탐색 6.9 + 워크북 4.8 + 계산 3.1). 같은 관문을 한가할
+    때 돌리니 **전체 9.0분 · t31 은 오래 걸린 것 목록에도 안 올랐다.**
+    느리게 만든 것은 코드가 아니라 그때 Z: 를 40분 물고 있던 09:35 원본정리였다.
+    그 조치를 따랐으면 **16초짜리를 쪼개러 갔다**([172] 틀린 지목은 못 잡는 것보다 나쁘다).
+
+    ★ 글자로는 '정말 갈리는가'를 못 잰다([295]) — 불러서 결과로 잰다.
+    ★ 진짜 공유폴더는 한 글자도 안 만진다([247]) — `os` 를 가짜 이름칸으로 준다([371]).
+    """
+    import types, textwrap, io as _io   # ⚠ 이 이름들은 모듈 수준에 없다([324]·[406])
+    _NL = chr(10)
+    import session_handoff as H
+
+    # (1) 갈래가 정말 갈리는가 — 여섯
+    got = {}
+    for name, rows in (("안쟀다", None), ("빈목록", []), ("깨짐", ["이상한값"]),
+                       ("멀쩡", [{"공유초": 0.9, "닿음": True}]),
+                       ("붐빔", [{"공유초": 41.3, "닿음": True}]),
+                       ("못닿음", [{"공유초": 156.0, "닿음": False}])):
+        got[name] = H.gate_share_note(rows)
+    for q in ("안쟀다", "빈목록", "깨짐"):
+        assert got[q] == ("", None), (q, got[q])      # 모름을 확언하지 않는다([169])
+    assert got["멀쩡"][0] and got["멀쩡"][1] is None, got["멀쩡"]
+    assert got["붐빔"][1] and "schedule_watch" in got["붐빔"][1], got["붐빔"]
+    assert got["못닿음"][1] and "schedule_watch" in got["못닿음"][1], got["못닿음"]
+    assert got["붐빔"][0] != got["멀쩡"][0], "붐빈 것과 멀쩡한 것이 같은 말을 한다"
+
+    # (2) 관문 쪽 — 느린 검사 뒤에만, 상한을 지키며 찌른다
+    src = open(os.path.join(ROOT, "tests", "synthetic_check.py"), encoding="utf-8").read()
+    # ⚠ **이 검사 자신의 코드가 파일 앞쪽에 있다** — 그냥 찾으면 제 글자를 집는다([309]).
+    base = src.rindex("    _GATE_T0 = time." + "time()")   # 관문 블록은 파일 맨 끝이다
+    i0 = src.index("    _GATE_SHARE = []", base)
+    i1 = src.index('"공유초": round(time.time() - _t, 1), "닿음": _ok})', i0)
+    blk = textwrap.dedent(src[i0:src.index(_NL, i1) + 1])
+    j0 = src.index("    def _gate_timed(_fn, _label):", base)
+    j1 = src.index("        return _wrapped", j0)
+    blk += textwrap.dedent(src[j0:src.index(_NL, j1) + 1])
+
+    calls = []
+
+    def _fake_isdir(_p):
+        calls.append(_p)
+        time.sleep(0.01)
+        return True
+
+    ns = {"time": time, "os": types.SimpleNamespace(
+        path=types.SimpleNamespace(isdir=_fake_isdir, splitdrive=os.path.splitdrive),
+        sep=os.sep)}
+    exec(compile(blk, "<gate-share>", "exec"), ns)
+    ns["_GATE_STEPS"] = []
+    ns["_GATE_SLOW_SEC"] = 0.05                       # 재는 동안만 낮춘다
+
+    fast = ns["_gate_timed"](lambda: None, "빠른검사")
+    slow = ns["_gate_timed"](lambda: time.sleep(0.08), "느린검사")
+    fast(); fast(); fast()
+    assert not ns["_GATE_SHARE"], "빠른 검사 뒤에도 찔렀다 — 397번이면 관문이 그만큼 늘어난다"
+    slow()
+    assert ns["_GATE_SHARE"], ("느린 검사 뒤에도 안 찔렀다 — 왜 느렸는지 영영 모른다")
+    for _ in range(5):
+        slow()
+    assert len(ns["_GATE_SHARE"]) == 3, (
+        "상한(3)을 안 지킨다 — 죽은 공유폴더를 여러 번 물면 관문을 더 밀어낸다: %r"
+        % (ns["_GATE_SHARE"],))
+    assert all(r.get("공유초") is not None and r.get("닿음") is True
+               for r in ns["_GATE_SHARE"]), ns["_GATE_SHARE"]
+    assert calls and all(c.rstrip("/" + os.sep).endswith(":") for c in calls), calls
+
+    # (3) 실패한 검사에도 남는다([180] — 넘겨 끊긴 회차야말로 알고 싶은 자리다)
+    ns["_GATE_SHARE"][:] = []
+    ns["_GATE_STEPS"][:] = []
+
+    def _boom():
+        time.sleep(0.08)
+        raise AssertionError("일부러")
+    bad = ns["_gate_timed"](_boom, "죽는검사")
+    try:
+        bad()
+    except AssertionError:
+        pass
+    assert ns["_GATE_STEPS"] and ns["_GATE_SHARE"], "죽은 검사의 시간·근거가 안 남는다"
+
+    # (4) 자국에 칸이 실리고, 안 쟀으면 안 실린다([169])
+    w = src[src.index('def _gate_write_times():', base):]
+    w = w[:w.index("_atexit.register")]
+    assert '"공유폴더": (_GATE_SHARE or None),' in w, "자국에 공유폴더 칸이 없다"
+
+    # (5) 인계가 그 값을 실어 넘긴다 — 여기서 다시 재지 않는다([162]·[168])
+    gb = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    g = gb[gb.index("def gate_budget():"):]
+    g = g[:g.index(_NL + "def ", 10)]
+    assert '"공유폴더": (g.get("공유폴더") or None)' in g, "gate_budget 이 그 값을 버린다"
+    assert "isdir" not in g and "os.stat" not in g, "인계가 공유폴더를 다시 묻는다([168])"
+
+    # (6) blockers 가 조치를 갈아 끼운다 — **실행으로** 잰다([295])
+    #   ⚠ `blockers()` 는 스냅샷 칸을 대괄호로 읽어 합성 dict 로는 죽는다([320]).
+    #      그래서 **실측 스냅샷을 읽기만** 하고 칸 하나만 갈아 끼운다([247]).
+    snap = None
+    for cand in ("reports/세션인계.json", "reports/session_handoff.json"):
+        try:
+            snap = json.load(_io.open(os.path.join(ROOT, cand), encoding="utf-8"))
+            break
+        except Exception:
+            continue
+    if snap is None:
+        print("   [465] 스냅샷을 못 읽어 인계 문구는 못 쟀다 — 통과라는 뜻이 아니다")
+    else:
+        base = {"여유율": -1.45, "총초": 3678.0, "한도초": 1500,
+                "가장오래": "t31_tech", "그초": 3569.2}
+
+        def _ask(gate):
+            st = dict(snap)
+            st["관문시간"] = gate
+            rows = [r for r in H.blockers(st) if "[관문]" in str(r[0])]
+            return rows[0] if rows else None
+
+        r_none = _ask(dict(base))
+        r_busy = _ask(dict(base, 공유폴더=[{"공유초": 41.3, "닿음": True}]))
+        r_ok = _ask(dict(base, 공유폴더=[{"공유초": 0.9, "닿음": True}]))
+        assert r_none and r_busy and r_ok, (r_none, r_busy, r_ok)
+        assert "synthetic_check" in r_none[1], "못 쟀는데 조치가 바뀌었다([169])"
+        assert "synthetic_check" in r_ok[1], "멀쩡했는데 조치가 바뀌었다([172] 좁히는 것도 고장)"
+        assert "schedule_watch" in r_busy[1], "붐볐는데도 '검사를 나눈다'로 보낸다([172])"
+        assert "공유폴더" in r_busy[0], r_busy[0]
+
+        # (7) 계기 자기시험([272]) — 갈래 판정을 없애면 (6)이 잡히는가
+        _real = H.gate_share_note
+        try:
+            H.gate_share_note = lambda rows: ("", None)     # 옛 동작
+            r = _ask(dict(base, 공유폴더=[{"공유초": 41.3, "닿음": True}]))
+            assert r and "synthetic_check" in r[1], (
+                "옛 동작인데 (6)이 안 잡는다 — 계기가 눈멀었다")
+        finally:
+            H.gate_share_note = _real       # 모듈 속성은 프로세스 전체다([371])
+        assert H.gate_share_note is _real
+    print("  [465] 관문 자국이 '왜'까지 적는다(공유폴더 붐빔·못닿음·멀쩡·모름 갈림) \u2705")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -41846,6 +41987,41 @@ if __name__ == "__main__":
     import atexit as _atexit
     _GATE_T0 = time.time()
     _GATE_STEPS = []
+    # ★ **한 검사가 오래 걸렸다고 그 검사가 느린 것이 아니다** (2026-08-27 실사고).
+    #   이 자국은 '얼마나 걸렸나'만 적고 **'왜'를 안 적었다** — 그래서 인계의 조치가
+    #   언제나 "그 검사를 나눈다"였다. 실측: 09:50 회차에서 `t31_tech` 가
+    #   **3569.2초(59.5분)** 로 적혔는데, 그 검사가 실제로 하는 일은 **16.3초**다
+    #   (Z: 탐색 6.9 + 워크북 4.8 + 계산 3.1). 같은 관문을 한가할 때 돌리니
+    #   **전체가 9.0분 · t31 은 오래 걸린 것 목록에도 안 올랐다.** 곧 코드가 아니라
+    #   **그때 Z: 를 무는 다른 일**이었다 — 09:35 원본정리의 '원본 모으기' 가
+    #   09:42~10:22 에 40분을 물고 있었다(`reports/원본정리_오류.json`).
+    #   그 조치를 따랐으면 **16초짜리를 쪼개러 갔다**([172] 틀린 지목은 못 잡는 것보다 나쁘다).
+    # ★ 그래서 느린 검사가 나오면 **그때 공유폴더가 어땠는지** 한 번 찔러 적는다.
+    #   비싸지 않다 — 느린 검사 뒤에만, 최대 3번. 살아 있으면 1초 미만이고(실측 0.98초)
+    #   죽어 있으면 그 40~156초가 **곧 답이다**([443]).
+    # ★ 못 재면 지어내지 않는다([169]) — 칸을 안 만든다. '모름'을 '멀쩡했다'로 치면
+    #   그때부터 이 자국이 조용히 틀린 조치를 준다.
+    _GATE_SHARE = []
+    _GATE_SLOW_SEC = 60.0        # 이보다 오래 걸린 검사 뒤에 한 번 찌른다
+    _GATE_SHARE_MAX = 3          # 상한 — 죽은 Z: 를 여러 번 물면 관문을 더 밀어낸다
+
+    def _gate_probe_share(_sec, _label):
+        """느린 검사 뒤에 공유폴더 응답을 한 번 잰다(위 설명 참조)."""
+        if len(_GATE_SHARE) >= _GATE_SHARE_MAX:
+            return
+        try:
+            import source_dirs as _sd
+            _drv = os.path.splitdrive(_sd.LEDGER_DIR)[0]   # 경로를 손으로 안 적는다([162])
+            _root = (_drv + os.sep) if _drv else _sd.LEDGER_DIR
+        except Exception:
+            return                    # 어디를 재야 할지 모르면 지어내지 않는다([169])
+        _t = time.time()
+        try:
+            _ok = bool(os.path.isdir(_root))
+        except Exception:
+            _ok = False
+        _GATE_SHARE.append({"검사": _label[:60], "검사초": _sec,
+                            "공유초": round(time.time() - _t, 1), "닿음": _ok})
 
     def _gate_write_times():
         try:
@@ -41865,6 +42041,8 @@ if __name__ == "__main__":
                 "여유율": (round(1 - _total / _limit, 3) if _limit else None),
                 "검사수": len(_GATE_STEPS),
                 "오래걸린것": [{"초": a, "무엇": b} for a, b in _slow],
+                # 안 쟀으면 칸을 안 만든다 — '모름'과 '멀쩡했다'는 다른 사실이다([169])
+                "공유폴더": (_GATE_SHARE or None),
             }
             _p = os.path.join(ROOT, "reports", "합성검증_시간.json")
             _tmp = _p + ".%d.tmp" % os.getpid()
@@ -41892,7 +42070,10 @@ if __name__ == "__main__":
             try:
                 return _fn(*a, **k)
             finally:
-                _GATE_STEPS.append([round(time.time() - _t0, 1), _label])
+                _el = round(time.time() - _t0, 1)
+                _GATE_STEPS.append([_el, _label])
+                if _el >= _GATE_SLOW_SEC:
+                    _gate_probe_share(_el, _label)
         _wrapped.__name__ = getattr(_fn, '__name__', 'test')
         _wrapped.__doc__ = _fn.__doc__
         return _wrapped
@@ -42356,6 +42537,7 @@ if __name__ == "__main__":
     t462_exec_guard_reason_is_answerable()
     t463_cleanup_runs_and_never_decides_the_rollback_keep()
     t464_origin_mirror_copies_and_never_flips_the_address_early()
+    t465_gate_trace_says_why_not_just_how_long()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
