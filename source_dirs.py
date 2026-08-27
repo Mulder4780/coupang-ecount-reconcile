@@ -167,6 +167,47 @@ def doc_photo_dirs():
     return existing(DOC_PHOTO_DIRS)
 
 
+
+def probe_share():
+    """공유폴더(Z:)가 **지금** 얼마나 걸리나 — `(초, 닿음)` · 못 재면 `None`.
+
+    ★ 왜 이것이 필요한가 (2026-08-27 실측).  같은 일이 어떤 회차에는 51초,
+      어떤 회차에는 1,980초다 — 40배로 널뛴다.  그러니 "이 단계가 903초 걸렸다"
+      한 줄만 남기면 그것이 **코드 탓인지 공유폴더 탓인지 아무도 모른다.**
+      실제로 `밴드 앱 DB 신규·변경등록` 이 636회 실패하는 동안 남은 것은 그
+      한 줄뿐이었고, 조용할 때 재 보니 **41초**였다.
+      [465] 가 관문에서 배운 것과 같은 자리다([300] — 한 곳에서 배운 것을
+      다른 곳이 모른다).
+
+    ★ **판정하지 않는다.**  낱말(닿지 못했다 / 붐볐다 / 멀쩡했다)은
+      `session_handoff.gate_share_note` 한 곳이 정한다([162]) — 여기는
+      숫자만 돌려준다.
+
+    ★ **못 재면 지어내지 않는다**([169]) — 어디를 재야 할지 모르면 `None` 이다.
+      '모름'을 '멀쩡했다'로 치면 그때부터 이 자국이 조용히 틀린 조치를 준다.
+
+    ⚠ **비싸다.**  죽은 공유폴더는 `isdir` 한 번이 40~156초다([443]).
+      그러니 부르는 쪽이 **느렸을 때만·회차당 몇 번만** 부른다.
+
+    ⚠ 관문(`tests/synthetic_check.py` 의 `_gate_probe_share`)도 같은 것을 잰다 —
+      그쪽은 **검증 파일 안**이라 지금은 이 함수를 못 빌린다.  옮길 때는
+      `_GATE_SHARE` 자국 모양(`{검사, 검사초, 공유초, 닿음}`)을 그대로 두어야
+      `t465` 와 `gate_share_note` 가 안 깨진다.
+    """
+    import time
+    try:
+        drv = os.path.splitdrive(LEDGER_DIR)[0]      # 경로를 손으로 안 적는다([162])
+        root = (drv + os.sep) if drv else LEDGER_DIR
+    except Exception:
+        return None
+    t = time.time()
+    try:
+        ok = bool(os.path.isdir(root))
+    except Exception:
+        ok = False
+    return round(time.time() - t, 1), ok
+
+
 if __name__ == "__main__":
     import sys, glob
     try:

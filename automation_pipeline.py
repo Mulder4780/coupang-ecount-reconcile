@@ -604,6 +604,47 @@ def _real_stage_runner(name: str, args: Sequence[str], timeout: int) -> Dict[str
 _STAGE_REASON_MAX = 400
 
 
+#: 한 회차에 몇 번까지 공유폴더를 찔러 보나.  죽은 Z: 는 `isdir` 한 번이
+#: 40~156초라([443]) 여러 번 물면 그 회차를 더 밀어낸다.
+_SHARE_PROBE_MAX = 2
+_SHARE_SLOW_MS = 60_000          # 이보다 오래 걸린 단계 뒤에만 잰다
+_SHARE_PROBES = 0
+
+
+def _share_note(stage: Mapping[str, Any]) -> str:
+    """느리게 죽은 단계 뒤에 '그때 공유폴더 응답' 을 한 줄 붙인다.
+
+    ★ 무엇이 있었나 (2026-08-27 실측).  `밴드 앱 DB 신규·변경등록` 이
+      **636회** `시간초과(903초)` 로 죽는 동안 남은 것은 **그 한 줄뿐**이었다.
+      조용할 때 재 보니 그 단계는 **41초**이고 쓸 것도 하나도 없었다(그대로 1,733).
+      같은 회차의 다른 단계들은 같은 날 **51초 ~ 1,980초**로 널뛴다.
+      곧 그 903초는 코드가 아니라 **그때 공유폴더가 느렸던 것**으로 보이는데,
+      **자국이 없어 확언할 수 없었다** — 그래서 사람이 멀쩡한 코드를 뒤지러 간다([172]).
+
+    ★ **판정하지 않는다**([162]·[169]) — 숫자와 닿았는지만 적는다.  '느리다'
+      '멀쩡하다' 를 여기서 단정하면 그 낱말이 `gate_share_note` 와 갈린다.
+
+    ★ **느렸을 때만·회차당 %d번까지**.  안 그러면 이 자국이 회차를 더 밀어낸다.
+    ★ 못 재면 **아무 말도 안 한다**([169]) — 빈 문자열이다.
+    """ % _SHARE_PROBE_MAX
+    global _SHARE_PROBES
+    try:
+        slow = bool(stage.get("timed_out")) or (stage.get("elapsed_ms") or 0) >= _SHARE_SLOW_MS
+        if not slow or _SHARE_PROBES >= _SHARE_PROBE_MAX:
+            return ""
+        import source_dirs as _sd
+        got = _sd.probe_share()
+        if not got:
+            return ""
+        _SHARE_PROBES += 1
+        secs, alive = got
+        if not alive:
+            return " · 그때 공유폴더에 **닿지 못했다**(%.1f초)" % secs
+        return " · 그때 공유폴더 응답 **%.1f초**" % secs
+    except Exception:
+        return ""                    # 자국 하나로 회차를 안 죽인다
+
+
 def _stage_reason(stage: Mapping[str, Any], limit: int = _STAGE_REASON_MAX) -> str:
     """실패한 단계 → **비지 않는** 한 줄. 만드는 자리는 여기 하나다([162]).
 
@@ -767,7 +808,7 @@ class AutomationPipeline:
                 source_state.update(
                     {
                         "status": "error",
-                        "error": _stage_reason(stage),
+                        "error": _stage_reason(stage) + _share_note(stage),
                         "last_attempt_at": _now(),
                     }
                 )

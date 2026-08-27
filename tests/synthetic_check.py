@@ -16978,8 +16978,15 @@ def t365_pipeline_failure_says_why():
     # ⑥ 되돌아가면 안 되는 것 — summary 를 직접 담지 않는다
     src = open(
         os.path.join(ROOT, "automation_pipeline.py"), encoding="utf-8").read()
-    assert "\"error\": _stage_reason(stage)," in src, (
+    # ⚠ **얼릴 것은 계약이지 그때 쓴 글자가 아니다**([39]·[219]).  2026-08-27 에
+    #   `[469]` 가 뒤에 ` + _share_note(stage)` 를 붙이자(느리게 죽었을 때 그 시각
+    #   공유폴더를 같이 적는다) **계약은 한 톨도 안 바뀌었는데 이 검사만 죽었다** —
+    #   그리고 이 관문은 daily_run 의 0단계라 그날 대조가 통째로 안 돈다.
+    #   재려는 것은 *봉투가 다시 출력 꼬리가 되지 않는가* 이므로 그것만 잰다.
+    assert "\"error\": _stage_reason(stage)" in src, (
         "_run_source 가 사유를 만드는 자리를 안 거친다 — 봉투가 다시 출력 꼬리가 된다")
+    assert "\"error\": stage" not in src, (
+        "사유 자리에 봉투를 통째로 담는다 — 파일 이름 3,000자가 다시 나간다")
 
     # ⑦ 시트에 열이 **없는** 칸은 DB 전용 표에 있어야 한다
     #    v608 실측으로 02/04 어디에도 열이 없는 것만 적는다 — 안 잰 것은 안 적는다([169])
@@ -30191,6 +30198,97 @@ def t468_terminated_says_limit_and_sleep_without_asserting_why():
     print(chr(9989) + " [468] 중단됨이 제한시간·절전을 나란히 두고 확언하지 않는다 — 모르면 아무 말도 안 한다")
 
 
+def t469_slow_stage_says_share():
+    """[469] 느리게 죽은 갈래 단계가 **그때 공유폴더가 어땠나**를 같이 적는다.
+
+    무엇이 있었나(2026-08-27 실측): `밴드 앱 DB 신규·변경등록` 이 **636회**
+    `시간초과(903초)` 로 죽는 동안 남은 것은 그 한 줄뿐이었다.  조용할 때 재 보니
+    그 단계는 **41초**이고 쓸 것도 없었다(그대로 1,733).  같은 날 다른 단계들은
+    **51초 ~ 1,980초**로 널뛴다 — 곧 코드가 아니라 공유폴더 탓으로 보이는데
+    **자국이 없어 확언할 수 없었다**([169]).  그러면 사람이 멀쩡한 코드를 뒤진다([172]).
+
+    ★ 진짜 공유폴더는 **한 글자도 안 건드린다**([247]) — 목으로만([371]).
+    ★ 글자로는 '정말 찌르나' 를 못 잰다 — **불러서** 잰다([295]).
+    """
+    import automation_pipeline as AP, source_dirs as SD
+
+    slow = {"name": "밴드 앱 DB 신규·변경등록", "timed_out": True,
+            "elapsed_ms": 903000, "returncode": -9, "summary": "x"}
+    fast = {"name": "빠른 단계", "timed_out": False,
+            "elapsed_ms": 1200, "returncode": 1, "summary": "y"}
+
+    _real = SD.probe_share
+    try:
+        # (1) 느리게 죽으면 숫자로 말한다
+        SD.probe_share = lambda: (68.4, True)
+        AP._SHARE_PROBES = 0
+        got = AP._share_note(slow)
+        assert "68.4" in got and "공유폴더" in got, "느리게 죽었는데 아무 말도 안 한다: %r" % got
+
+        # (2) 빨리 죽은 것에는 안 찌른다 — 넓히면 이 자국이 회차를 더 밀어낸다([443])
+        AP._SHARE_PROBES = 0
+        assert AP._share_note(fast) == "", "빠른 실패에도 공유폴더를 찌른다"
+
+        # (3) 상한을 지킨다 — 죽은 Z: 는 한 번이 40~156초다
+        cnt = []
+        SD.probe_share = lambda: (cnt.append(1), (5.0, True))[1]
+        AP._SHARE_PROBES = 0
+        for _ in range(AP._SHARE_PROBE_MAX + 3):
+            AP._share_note(slow)
+        assert len(cnt) == AP._SHARE_PROBE_MAX, (
+            "상한(%d)을 안 지킨다 — %d번 찔렀다" % (AP._SHARE_PROBE_MAX, len(cnt)))
+
+        # (4) 못 재면 **아무 말도 안 한다**([169]) — 모름을 '멀쩡했다'로 치지 않는다
+        SD.probe_share = lambda: None
+        AP._SHARE_PROBES = 0
+        assert AP._share_note(slow) == "", "못 쟀는데 무언가 적었다"
+
+        # (5) 못 닿았으면 그렇게 말한다 — 붐빈 것과 끊긴 것은 조치가 다르다([289])
+        SD.probe_share = lambda: (120.0, False)
+        AP._SHARE_PROBES = 0
+        got = AP._share_note(slow)
+        assert "닿지 못했다" in got, "끊긴 것을 붐빈 것처럼 말한다: %r" % got
+
+        # (6) `_stage_reason` 은 한 글자도 안 바뀐다 — t365 가 재는 그것이고,
+        #     거기서 Z: 를 찌르면 관문이 실데이터에 매인다([211]).
+        r = AP._stage_reason(slow)
+        assert "공유폴더" not in r, "_stage_reason 이 오염됐다 — 검증이 실데이터에 매인다"
+
+        # (7) 배선 — 만들어 놓고 안 부르면 없는 것과 같다([328])
+        src = open(AP.__file__, encoding="utf-8", errors="replace").read()
+        assert "_stage_reason(stage) + _share_note(stage)" in src, (
+            "실패 처리가 공유폴더 자국을 안 거친다")
+
+        # (8) 경로를 손으로 안 적는다([162]) — 드라이브가 바뀌면 저절로 따라와야 한다
+        sd_src = open(SD.__file__, encoding="utf-8", errors="replace").read()
+        head = sd_src.split("def probe_share(", 1)[1].split(chr(10) + "def ", 1)[0]
+        head = _t370_code_only(head)
+        assert "LEDGER_DIR" in head, "probe_share 가 재는 자리를 손으로 적었다"
+        assert "Z:" not in head, "probe_share 안에 드라이브 글자가 박혀 있다"
+
+        # (9) 계기 자기시험([272]) — 느림 문을 없애면 (2) 가 잡히나
+        _real_note = AP._share_note
+
+        def _old_note(stage):
+            import source_dirs as _s
+            got = _s.probe_share()
+            return (" · 그때 공유폴더 응답 **%.1f초**" % got[0]) if got else ""
+
+        SD.probe_share = lambda: (5.0, True)
+        try:
+            AP._share_note = _old_note
+            assert AP._share_note(fast) != "", (
+                "옛 동작(느림 문 없음)인데도 조용하다 — 이 검사는 아무것도 안 재고 있다")
+        finally:
+            AP._share_note = _real_note
+    finally:
+        SD.probe_share = _real          # 모듈 속성은 모두의 것이다([371])
+    assert SD.probe_share is _real, "목을 안 되돌렸다([371])"
+
+    print("[469] 느리게 죽은 갈래가 그때 공유폴더를 같이 적는다 — 느릴 때만·상한·"
+          "모르면 조용·_stage_reason 무오염·배선 " + chr(9989))
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -42969,6 +43067,7 @@ if __name__ == "__main__":
     t466_unregistered_plan_gets_a_way_not_a_dead_button()
     t467_ledger_missing_message_does_not_blame_the_file()
     t468_terminated_says_limit_and_sleep_without_asserting_why()
+    t469_slow_stage_says_share()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
