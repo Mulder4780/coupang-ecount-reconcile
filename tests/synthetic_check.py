@@ -30289,6 +30289,81 @@ def t469_slow_stage_says_share():
           "모르면 조용·_stage_reason 무오염·배선 " + chr(9989))
 
 
+def t470_rev_says_what_changed():
+    """[470] 바뀐 원본이 **무엇이** 바뀌었는지 남긴다 — 지문만으로는 못 읽는다.
+
+    무엇이 있었나(2026-08-27 실측): 재수집 회차가 `바뀐 글 25건` 을 인계 맨 위에
+    올리는데 `record_rev` 에 남는 것은 **지문(sha1) 한 쌍**뿐이라 리포트가 할 수
+    있는 말이 `본문 바뀜` 네 글자였다.  그래서 사람이 **밴드 글 25개를 하나씩**
+    열어 봐야 했다 — 열어 보니 20건이 첫 줄의 서류 처리 표시였다.
+
+    ★ 진짜 DB 는 **한 글자도 안 건드린다**([247]) — 임시 DB 로만.
+    ★ 글자로는 '정말 남나' 를 못 잰다 — **불러서** 잰다([295]).
+    """
+    import tempfile
+    import datalake as DL
+
+    # (1) 갈래 — 못 가르면 지어내지 않는다([169])
+    J = lambda d: __import__("json").dumps(d, ensure_ascii=False)
+    got = DL.rev_note(J({"본문": "가", "사진수": 1}), J({"본문": "나", "사진수": 1}))
+    assert got and "본문" in got[0] and "가" in got[0] and "나" in got[1], (
+        "무엇이 바뀌었는지 안 남는다: %r" % (got,))
+    assert DL.rev_note(J({"본문": "가"}), J({"본문": "가"})) is None, "안 바뀐 것을 바뀌었다 한다"
+    assert DL.rev_note(None, None) is None, "못 가르는데 지어냈다"
+    assert DL.rev_note("첫줄A" + chr(10) + "몸통", "첫줄A" + chr(10) + "다른몸통") is None, (
+        "JSON 이 아니고 첫 줄도 같은데 무언가 적었다")
+
+    # (2) 사람이 알고 싶은 것은 본문이다 — 가나다순으로 고르면 숫자 칸이 앞선다
+    got = DL.rev_note(J({"본문": "가", "댓글수": 0}), J({"본문": "나", "댓글수": 2}))
+    assert "가" in got[0] and "나" in got[1], "본문을 안 앞세운다: %r" % (got,)
+
+    # (3) 상한 — 본문 전체를 남기면 record_rev 가 원본만큼 커진다([273])
+    big = "x" * (DL.REV_NOTE_MAX * 3)
+    got = DL.rev_note(J({"본문": "짧다"}), J({"본문": big}))
+    assert len(got[1]) < DL.REV_NOTE_MAX * 2, "상한을 안 지킨다(%d자)" % len(got[1])
+    assert "자)" in got[1], "자른 것을 말 안 한다([273])"
+
+    # (4) 배선 — 만들어 놓고 안 부르면 없는 것과 같다([328]).  임시 DB 로만([247]).
+    tmp = os.path.join(tempfile.mkdtemp(prefix="t470_"), "t.db")
+    con = DL.connect(tmp)
+    try:
+        key = "90610953/5484"
+        DL.put_record(con, "band_post", key, {"본문": "♣ 돌발유료"},
+                      biz_date="2026-08-21", why="재수집 회차")
+        DL.put_record(con, "band_post", key, {"본문": "✅판매전표" + chr(10) + "♣ 돌발유료"},
+                      biz_date="2026-08-21", why="재수집 회차")
+        _rid, how = DL.put_record(con, "band_post", key,
+                                  {"본문": "✅판매전표" + chr(10) + "♣ 돌발유료"},
+                                  biz_date="2026-08-21", why="재수집 회차")
+        con.commit()
+        assert how == "same", "안 바뀐 것을 바뀌었다 한다: %s" % how
+        n = con.execute("SELECT count(*) FROM record_rev WHERE field='바뀐칸'").fetchone()[0]
+        assert n == 1, "자국이 %d줄 — put_record 가 무엇이 바뀌었는지 안 남긴다" % n
+
+        # (5) **한 글은 한 줄**이다 — 지문 줄과 바뀐칸 줄이 둘 다 실리면 25건이 50줄이 된다
+        ch = DL.record_changes(con, kind="band_post")
+        assert len(ch) == 1, "한 글이 %d줄로 나온다" % len(ch)
+        assert "판매전표" in ch[0]["어떻게"], (
+            "리포트가 무엇이 바뀌었는지 못 싣는다: %r" % ch[0]["어떻게"])
+
+        # (6) 계기 자기시험([272]) — 자국을 안 남기던 옛 동작이면 (5) 가 잡히나
+        con.execute("DELETE FROM record_rev WHERE field='바뀐칸'")
+        con.commit()
+        ch2 = DL.record_changes(con, kind="band_post")
+        assert ch2 and ch2[0]["어떻게"] == "본문 바뀜", (
+            "옛 동작인데도 무언가 적혔다 — 이 검사는 아무것도 안 재고 있다: %r" % ch2)
+    finally:
+        con.close()
+
+    # (7) 콘솔은 줄이되 자른 것은 말한다([273]) — JSON·인계에는 온전히 간다
+    rc = open(os.path.join(ROOT, "band", "recollect.py"), encoding="utf-8",
+              errors="replace").read()
+    assert "_how[:150]" in rc and "자)" in rc, "재수집 콘솔이 긴 줄을 안 줄인다"
+
+    print("[470] 바뀐 원본이 무엇이 바뀌었는지 남긴다 — 본문 우선·상한·한 글 한 줄·"
+          "모르면 지문만 " + chr(9989))
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -43068,6 +43143,7 @@ if __name__ == "__main__":
     t467_ledger_missing_message_does_not_blame_the_file()
     t468_terminated_says_limit_and_sleep_without_asserting_why()
     t469_slow_stage_says_share()
+    t470_rev_says_what_changed()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

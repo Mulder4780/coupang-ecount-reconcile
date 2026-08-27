@@ -266,6 +266,62 @@ def note(area, action, ok=True, detail=None, ref_kind=None, ref_id=None, actor=N
 _REC_TRACK = ("biz_date", "party", "amount", "status")
 
 
+#: 자국 한 칸에 담는 글자 상한 — 본문 전체를 남기면 record_rev 가 원본만큼 커진다.
+REV_NOTE_MAX = 180
+
+
+def rev_note(old_body, new_body):
+    """바뀐 원본의 **무엇이** 바뀌었나 — `(옛 요약, 새 요약)` · 못 가르면 `None`.
+
+    ★ 무엇이 있었나 (2026-08-27 실측).  재수집 회차가 *바뀐 글 25건* 을 인계 맨 위에
+      올리는데 남는 자국은 **지문(sha1) 한 쌍**뿐이라, 리포트가 할 수 있는 말이
+      `본문 바뀜` 네 글자였다.  그래서 사람이 **밴드 글 25개를 하나씩 열어** 봐야 했다.
+      실제로 열어 보니 **20건이 첫 줄의 서류 처리 표시**(`판매전표 +거래명세서 …`)였다 —
+      한 줄만 있었으면 눈으로 끝날 일이다.
+
+    ★ **지어낼 것이 없다** — 옛 본문은 `UPDATE` 직전까지 `record.payload` 에 그대로 있다.
+
+    ★ **바뀐 칸 이름을 먼저 세운다**([292] 와 같은 규칙) — 그것이 비지 않는다.
+      본문처럼 긴 칸은 **달라진 첫 줄**만 붙인다(둘 다 %d자 상한 · [273] — 자른 것은
+      말한다).
+
+    ★ **못 가르면 `None` 이다**([169]) — JSON 이 아니거나 칸이 안 맞으면 지문 자국만
+      남는다(예전 그대로).  모르는 것을 아는 것처럼 적지 않는다.
+    """ % REV_NOTE_MAX
+    import json as _j
+
+    def _cut(v):
+        t = "" if v is None else str(v)
+        t = t.strip().replace(chr(10), " | ")
+        return (t[:REV_NOTE_MAX] + "…(%d자)" % len(t)) if len(t) > REV_NOTE_MAX else t
+
+    try:
+        a = _j.loads(old_body or "")
+        b = _j.loads(new_body or "")
+    except Exception:
+        a = b = None
+    if isinstance(a, dict) and isinstance(b, dict):
+        keys = [k for k in b if _s(a.get(k)) != _s(b.get(k))]
+        keys += [k for k in a if k not in b]
+        keys = sorted(set(keys))
+        if not keys:
+            return None
+        # 사람이 알고 싶은 것은 본문이다 — 가나다순으로 고르면 `댓글수` 같은
+        # 숫자 칸이 앞서 정작 무엇이 바뀜는지가 안 보인다(실측 25건 중 20건이
+        # 본문 첫 줄이었다).  본문이 바뀜으면 그것을 앞세운다.
+        head = next((k for k in ("본문", "content", "요약") if k in keys), keys[0])
+        return ("[%s] %s" % (",".join(keys[:6]), _cut(a.get(head))),
+                "[%s] %s" % (",".join(keys[:6]), _cut(b.get(head))))
+    # JSON 이 아니면 첫 줄만 대 본다 — 그것도 못 가르면 지어내지 않는다
+    oa, ob = str(old_body or "").strip(), str(new_body or "").strip()
+    if not oa or not ob or oa == ob:
+        return None
+    fa, fb = oa.split(chr(10))[0], ob.split(chr(10))[0]
+    if fa == fb:
+        return None
+    return (_cut(fa), _cut(fb))
+
+
 def put_record(con, kind, natural_key, payload, biz_date=None, party="",
                amount=None, status="", asset_id=None, why="", actor=None,
                hash_on=None):
@@ -314,6 +370,22 @@ def put_record(con, kind, natural_key, payload, biz_date=None, party="",
     # 본문이 바뀐 것도 남긴다(어느 칸인지 모를 때가 대부분이다 — 해시로 사실만 적는다)
     con.execute("INSERT INTO record_rev(record_id,at,who,field,old,new,why)"
                 " VALUES(?,?,?,?,?,?,?)", (rid, ts, w, "payload", old_hash, h, why))
+    # ★ **무엇이 바뀌었는지도 한 줄 남긴다** — 지문만 남기면 사람이 원본을
+    #   일일이 열어 봐야 한다(2026-08-27 실측: 바뀜 글 25건에 대해 리포트가
+    #   할 수 있는 말이 `본문 바뀜` 네 글자였다).  옛 본문은 아래 UPDATE 직전
+    #   까지 살아 있으므로 **지어낼 것이 없다**.
+    #   ⚠ **바뀜 것이 확인된 뒤에만** 옛 payload 를 읽는다 — 위 SELECT 에 넣으면
+    #     안 바뀐 대부분(same)까지 본문을 통째로 읽어 회차가 느려진다([168]).
+    #   ⚠ 자국 하나로 흡수를 죽이지 않는다 — 못 가르면 지문 자국만 남는다([169]).
+    try:
+        _prev = con.execute("SELECT payload FROM record WHERE id=?", (rid,)).fetchone()
+        _note = rev_note(_prev[0] if _prev else "", body)
+    except Exception:
+        _note = None
+    if _note:
+        con.execute("INSERT INTO record_rev(record_id,at,who,field,old,new,why)"
+                    " VALUES(?,?,?,?,?,?,?)",
+                    (rid, ts, w, "바뀐칸", _note[0], _note[1], why))
     con.execute("UPDATE record SET asset_id=COALESCE(?,asset_id),biz_date=?,party=?,"
                 "amount=?,status=?,payload=?,hash=?,updated_at=? WHERE id=?",
                 (asset_id, biz_date, party or "", amount, status or "", body, h, ts, rid))
@@ -746,11 +818,22 @@ def record_changes(con, kind=None, at_since=None, limit=200):
         q += " WHERE " + " AND ".join(w)
     q += " ORDER BY v.at DESC, v.id DESC LIMIT ?"
     args.append(int(limit))
+    rows = con.execute(q, args).fetchall()
+    # ★ **한 글은 한 줄이다** — `payload`(지문)과 `바뀐칸`(무엇이)은
+    #   같은 변경의 두 자국이라, 둘 다 담으면 바뀜 글 25건이 50줄로 보인다.
+    #   ⚠ `바뀐칸` 자국이 limit 에 잘려 안 보이면 예전대로 `본문 바뀜` 다
+    #     — 모르는 것을 지어내지 않는다([169]).
+    _detail = {(r["natural_key"], r["at"]): (r["old"], r["new"])
+               for r in rows if r["field"] == "바뀐칸"}
     out = []
-    for r in con.execute(q, args).fetchall():
+    for r in rows:
         d = dict(r)
+        if d["field"] == "바뀐칸":
+            continue                 # 아래 payload 줄에 붙여 보여 준다
         if d["field"] == "payload":
-            d["어떻게"] = "본문 바뀜"
+            _got = _detail.get((d["natural_key"], d["at"]))
+            d["어떻게"] = (("본문 바뀜 · %s → %s" % _got) if _got
+                             else "본문 바뀜")
         else:
             d["어떻게"] = "%s: %s → %s" % (d["field"], d["old"] or "(빈칸)",
                                            d["new"] or "(빈칸)")
