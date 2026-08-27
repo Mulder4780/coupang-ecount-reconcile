@@ -29426,6 +29426,217 @@ def t462_exec_guard_reason_is_answerable():
     print(chr(9989) + " [462] 대표보고 실패 문구 — 갈래 2 · 판정 2 · build 3 · 자기시험 1")
 
 
+def t463_cleanup_runs_and_never_decides_the_rollback_keep():
+    """쓸데없는 파일 정리가 **회차에서 실제로 돌고**, 되돌리기 증거는 **사람 몫**이다.
+
+    ★ 왜 (2026-08-27 지시 "용량 커지지 않게"): 도구는 있는데 **부르는 회차가 한 곳도
+      없었다**(실측 grep 0곳) — 코드가 있는 것과 그것이 도는 것은 다른 말이다([328]).
+    ★ **제일 위험한 자리는 자동 갈래를 넓히는 것이다**([172]). `보관본` 하나는
+      DB rollback 관문의 증거이고(2026-08-10 정본 규칙 ④) 실측으로 **하나에
+      750~850MB**(그중 `db-snapshot.sqlite3` 595MB)라 `keep` 한 칸이 곧 **8GB** 다 —
+      기계가 정할 값이 아니다. 넣으면 여기서 잡힌다.
+    ★ 실측 증거(진짜 `tmp/`·`reports/`)에는 **한 글자도 안 쓴다**([247]) —
+      `plan` 을 목으로 갈아 합성으로만 잰다. 목은 `finally` 로 되돌린다([371]).
+    """
+    import cleanup_files as CFL
+    import watchdog as WD
+
+    # (1) 자동 갈래 이름이 **표에 실재**하나 — 없는 이름은 조용히 아무것도 안 지운다([165])
+    names = {r[0] for r in CFL.RULES}
+    for n in CFL.AUTO_RULES:
+        assert n in names, "[463] AUTO_RULES 의 '%s' 가 RULES 에 없다 — 조용히 안 돈다" % n
+
+    # (2) 되돌리기 증거는 사람 몫이다 — 자동에 들어오면 8GB 를 기계가 정하게 된다
+    assert "보관본" not in CFL.AUTO_RULES, (
+        "[463] 보관본이 자동 갈래에 있다 — DB rollback 증거를 기계가 지운다([172])")
+
+    # (3)(4) 합성 계획으로 **실행해서** 잰다([295])
+    made = {"불림": 0, "받은갈래": None}
+
+    def _fake_plan(only=None):
+        return {"갈래": [{"이름": "회차산출물", "왜안전": "", "크기": 30, "개수": 3,
+                          "지울것": [{"경로": "a", "크기": 10, "왜": "x"}] * 3},
+                         {"이름": "보관본", "왜안전": "", "크기": 8_000_000_000, "개수": 9,
+                          "지울것": [{"경로": "b", "크기": 888_888_888, "왜": "y"}] * 9}],
+                "합": 8_000_000_030, "개수": 12, "못읽음": []}
+
+    def _fake_apply(p):
+        made["불림"] += 1
+        made["받은갈래"] = [g["이름"] for g in p["갈래"]]
+        return sum(v["크기"] for g in p["갈래"] for v in g["지울것"]), 3, [], 3, ""
+
+    real_plan, real_apply = CFL.plan, CFL.apply
+    try:
+        CFL.plan, CFL.apply = _fake_plan, _fake_apply
+        out = CFL.sweep(dry=True)
+        assert made["불림"] == 0, "[463] dry 인데 실제로 지웠다"
+        assert "보관본" in out and "사람 몫" in out, (
+            "[463] 자동에서 뺀 갈래를 **숫자로 안 말한다**([169]): %s" % out)
+
+        made["불림"] = 0
+        CFL.sweep(dry=False)
+        assert made["불림"] == 1, "[463] apply 를 안 불렀다"
+        assert made["받은갈래"] == ["회차산출물"], (
+            "[463] 자동 아닌 갈래까지 지운다: %s" % made["받은갈래"])
+
+        # (6) 못 읽어도 회차를 안 죽인다 — 그러나 조용히 넘기지도 않는다([169])
+        def _boom(only=None):
+            raise OSError("Z: 끊김")
+        CFL.plan = _boom
+        assert "못 함" in CFL.sweep(dry=True), "[463] 못 읽었는데 그렇게 말하지 않는다"
+
+        # 계기 자기시험([272]) — 보관본을 자동에 넣으면 (2)(4) 가 잡아야 한다
+        keep = CFL.AUTO_RULES
+        try:
+            CFL.AUTO_RULES = ("회차산출물", "보관본")
+            CFL.plan, CFL.apply = _fake_plan, _fake_apply
+            made["불림"] = 0
+            CFL.sweep(dry=False)
+            assert "보관본" in (made["받은갈래"] or []), (
+                "[463] 보관본을 자동에 넣었는데도 안 넘어간다 — 이 검사는 아무것도 안 잰다")
+        finally:
+            CFL.AUTO_RULES = keep
+    finally:
+        CFL.plan, CFL.apply = real_plan, real_apply
+
+    # (5) 워치독이 **실제로 부르나**([328]) — 함수만 있고 안 부르면 없는 것과 같다
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    code = _t370_code_only(wd)
+    assert "def sweep_files(" in code, "[463] 워치독에 파일 정리 단계가 없다"
+    # ★ 통글자로 세면 **정의 줄까지 세어진다**([309]) — `def sweep_files(dry):` 안에
+    #   그 글자가 그대로 있어, 호출을 빼도 통과했다(2026-08-27 자기시험이 잡았다).
+    #   그래서 **단계 목록이 있는 함수 안**에서만 본다.
+    wmain = _t303_enclosing_func(code, "results = [run_incremental_pipeline")
+    assert "sweep_files(dry)" in wmain, "[463] 워치독 단계 목록에서 안 부른다([328])"
+    assert "cleanup_files" in code, "[463] 워치독이 정리 도구를 안 들여온다"
+    # 갈래 이름을 워치독이 제 손으로 적으면 사본이 되어 한쪽만 고쳐진다([162])
+    for n in ("회차산출물", "파이썬캐시", "찌꺼기"):
+        assert ('"%s"' % n) not in code and ("'%s'" % n) not in code, (
+            "[463] 워치독이 갈래 이름('%s')을 직접 적는다 — 표는 한 곳이다([162])" % n)
+
+    print(chr(9989) + " [463] 파일 정리 회차 — 표 1 · 안전핀 2 · 실행 3 · 배선 4 · 자기시험 1")
+
+
+def t464_origin_mirror_copies_and_never_flips_the_address_early():
+    """원본 이전 — **복사만** 하고, 주소는 **다 채워진 뒤에** 바꾼다(2026-08-27 지시).
+
+    ★ 왜 순서가 전부인가: 원본 폴더 이름을 **직접 쓰는 곳이 194곳**이라 주소 한 줄이면
+      전부 따라온다. 그런데 **복사 전에 바꾸면 그 194곳이 빈 폴더를 보고 "0건"이라고
+      조용히 확언한다**([169]) — 이사 갈 집 주소만 먼저 알린 셈이다.
+      그래서 이 검사가 **`ORIGIN_ROOT` 가 아직 옛 자리인지**를 먼저 본다.
+      ⚠ 복사가 끝나 주소를 바꾸는 날, 이 (1) 은 **읽기 호환**(옛 자리를 계속 읽는가)
+        으로 바꿔 적는다 — 그때 이 줄이 그 사실을 알려 준다.
+    ★ **원본을 한 글자도 안 지운다** — 형님이 "복사" 라 하셨고 지우는 것은 되돌릴 수 없다.
+    ★ 실측 Z: 는 **한 글자도 안 건드린다**([247]) — 임시 폴더로만 잰다.
+      모듈 속성 목은 `finally` 로 되돌린다([371]).
+    """
+    import shutil
+    import tempfile
+    import time as _t
+
+    import data_mirror as DM
+    import source_dirs as SD
+
+    # (1) 주소를 아직 안 바꿨나 — 복사가 끝나기 전에 바꾸면 194곳이 빈 폴더를 본다
+    assert SD.ORIGIN_ROOT.endswith("0. 원본 자료"), (
+        "[464] ORIGIN_ROOT 가 벌써 새 자리다 — 복사가 끝났으면 이 검사를 "
+        "**읽기 호환**(옛 자리도 계속 읽는가)으로 바꿔 적는다")
+    assert "CSOS DATA" in SD.CSOS_DATA_ROOT, "[464] 새 정본 자리가 없다"
+    for name in ("ERP_DIR", "COUPANG_DIR", "KAKAO_DIR", "BAND_DIR"):
+        assert getattr(SD, name).startswith(SD.ORIGIN_ROOT), (
+            "[464] %s 가 원본 뿌리 밖을 가리킨다 — 주소 한 줄로 못 옮긴다" % name)
+
+    # (2) 경로는 `source_dirs` 한 곳이 정한다([162]) — 이전 도구가 직접 적으면 사본이 된다
+    dm = open(os.path.join(ROOT, "data_mirror.py"), encoding="utf-8").read()
+    code = _t370_code_only(dm)
+    assert "CSOS DATA" not in code, (
+        "[464] data_mirror 가 새 자리 경로를 직접 적는다 — 경로는 한 곳이다([162])")
+    assert "SD.CSOS_DATA_ROOT" in code and "SD.ORIGIN_ROOT" in code, (
+        "[464] 이전 도구가 source_dirs 에서 경로를 안 가져온다")
+
+    # (3) 원본을 지우거나 옮기지 않는다 — 되돌릴 수 없는 쪽이다
+    for bad in ("os.remove", "shutil.rmtree", "os.unlink", "shutil.move", "os.rename"):
+        assert bad not in code, "[464] 이전 도구에 '%s' 가 있다 — 복사만 한다" % bad
+
+    # (4) 딸려 온 stat 을 버리지 않고([198]) 거를 폴더를 말없이 물려받지 않는다([198]-⚠)
+    assert "walk_stat" in code, "[464] walk_stat 을 안 쓴다 — 파일마다 Z: 왕복이 는다([198])"
+    assert "skip_dirs=()" in code, (
+        "[464] skip_dirs 를 명시 안 한다 — 색인의 목록을 물려받아 `_보관` 이 "
+        "조용히 빠지면서 '완료'라고 적는다([198]-⚠))")
+    # (5) 같은 파일 판정을 새로 만들지 않는다([162])
+    assert "_same" in code, "[464] 같은 파일 판정을 새로 만들었다([162])"
+
+    # ── 실행으로 잰다([295]) — 임시 폴더로만
+    with tempfile.TemporaryDirectory() as td:
+        old_src, old_dst = SD.ORIGIN_ROOT, SD.CSOS_DATA_ROOT
+        old_state = DM.STATE
+        try:
+            SD.ORIGIN_ROOT = os.path.join(td, "옛")
+            SD.CSOS_DATA_ROOT = os.path.join(td, "새")
+            DM.STATE = os.path.join(td, "진도.json")
+            deep = os.path.join(SD.ORIGIN_ROOT, "1. ERP 내보내기", "2026", "08")
+            os.makedirs(deep)
+            os.makedirs(os.path.join(SD.ORIGIN_ROOT, "9. 미분류"))
+            for i in range(3):
+                with open(os.path.join(deep, "a%d.txt" % i), "w",
+                          encoding="utf-8") as fh:
+                    fh.write("x" * (10 + i))
+            with open(os.path.join(SD.ORIGIN_ROOT, "9. 미분류", "b.txt"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("bb")
+
+            r = DM.run(apply=True)
+            assert r["복사"] == 4, "[464] 4개를 옮겨야 하는데 %d개다" % r["복사"]
+            # (6) 번호 폴더 구조가 그대로인가
+            got = os.path.join(SD.CSOS_DATA_ROOT, "1. ERP 내보내기", "2026", "08", "a0.txt")
+            assert os.path.isfile(got), "[464] 번호 폴더 구조가 안 지켜졌다"
+            # (7) 원본이 그대로 남아 있나
+            assert os.path.isfile(os.path.join(deep, "a0.txt")), "[464] 원본이 사라졌다"
+
+            # (8) 두 번째는 **아무것도 안 옮긴다**(이미 있음) — 회차마다 다시 나르면 안 된다
+            r2 = DM.run(apply=True)
+            assert r2["복사"] == 0 and r2["동일"] == 4, (
+                "[464] 같은 파일을 또 옮긴다: 복사 %d · 동일 %d" % (r2["복사"], r2["동일"]))
+
+            # (9) 내용이 다르면 **안 덮는다** — 둘 다 남는다
+            with open(os.path.join(deep, "a0.txt"), "w", encoding="utf-8") as fh:
+                fh.write("완전히 다른 내용")
+            os.utime(os.path.join(deep, "a0.txt"), (_t.time() + 5, _t.time() + 5))
+            r3 = DM.run(apply=True)
+            assert r3["이름바꿈"] == 1, "[464] 다른 내용을 덮었다(이름바꿈 %d)" % r3["이름바꿈"]
+            with open(got, encoding="utf-8") as fh:
+                assert fh.read() == "x" * 10, "[464] 먼저 있던 사본을 덮어썼다"
+
+            # (10) 예산이 다 되면 멈추고 **진도를 남긴다**([427])
+            DM.run(apply=True, budget_s=-1)
+            r4 = DM.run(apply=True, budget_s=-1)
+            assert r4["예산끝"] and r4["남은폴더"], "[464] 예산이 다 됐는데 안 멈춘다"
+            assert r4["복사"] == 0, "[464] 예산이 끝났는데 %d개를 옮겼다" % r4["복사"]
+
+            # (11) 옛 자리에 못 닿으면 **그렇게 말한다**([169]) — '0건 완료'가 아니다
+            SD.ORIGIN_ROOT = os.path.join(td, "없는폴더")
+            r5 = DM.run(apply=False)
+            assert r5["왜못함"], "[464] 원본에 못 닿았는데 조용히 0건이라 한다"
+            assert "못 함" in DM.line(r5), "[464] 못 했다고 말하지 않는다"
+        finally:
+            SD.ORIGIN_ROOT, SD.CSOS_DATA_ROOT = old_src, old_dst
+            DM.STATE = old_state
+            del shutil
+
+    # (12) 워치독이 **실제로 부르나**([328]) — 정의 줄이 아니라 단계 목록 안에서 본다([309])
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    wcode = _t370_code_only(wd)
+    assert "def mirror_originals(" in wcode, "[464] 워치독에 원본 이전 단계가 없다"
+    wmain = _t303_enclosing_func(wcode, "results = [run_incremental_pipeline")
+    assert "mirror_originals(dry)" in wmain, "[464] 워치독 단계 목록에서 안 부른다([328])"
+    # (13) 도는 회차에는 양보한다 — Z: 를 같이 긁으면 양쪽이 다 느려진다([313])
+    wmir = _t303_enclosing_func(wcode, "def mirror_originals(")
+    assert "coordinate" in wmir and "running()" in wmir, (
+        "[464] 도는 회차에 양보하지 않는다([313])")
+
+    print(chr(9989) + " [464] 원본 이전 — 순서 3 · 안전핀 5 · 실행 6 · 배선 2")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -42143,6 +42354,8 @@ if __name__ == "__main__":
     t460_bridge_takes_over_only_when_the_human_tab_is_gone()
     t461_daily_run_resource_recovered()
     t462_exec_guard_reason_is_answerable()
+    t463_cleanup_runs_and_never_decides_the_rollback_keep()
+    t464_origin_mirror_copies_and_never_flips_the_address_early()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

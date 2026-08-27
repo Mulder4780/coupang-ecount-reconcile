@@ -260,6 +260,56 @@ def notice():
             "python cleanup_files.py            # 먼저 보기 · 실제로 지우려면 --apply")
 
 
+# ── 회차가 스스로 도는 갈래 ─────────────────────────────────────────────────
+# ★ **되돌릴 수 있는 것만** 자동이다([172]). `보관본` 은 일부러 뺐다 —
+#   그것은 DB rollback 관문의 증거이고(2026-08-10 정본 규칙 ④) 몇 개를 남길지는
+#   **업무 판단**이다. 실측 2026-08-27: 하나에 750~850MB(그중 `db-snapshot.sqlite3`
+#   가 595MB)라 `keep` 한 칸이 곧 **8GB** 다 — 기계가 정할 값이 아니다.
+#   사람이 정리할 때는 `python cleanup_files.py --only 보관본 --apply`.
+# ★ 표가 한 곳이다([162]) — 갈래를 자동으로 돌리려면 여기 이름을 더한다.
+#   `RULES` 에 없는 이름을 적으면 **조용히 아무것도 안 지운다**([165]).
+AUTO_RULES = ("회차산출물", "파이썬캐시", "찌꺼기")
+
+
+def sweep(dry=False):
+    """회차가 부르는 자리 — **자동 갈래만** 지우고 한 줄로 말한다.
+
+    ★ 왜 (2026-08-27 지시 "용량 커지지 않게"): 이 도구를 **부르는 회차가 한 곳도
+      없었다**(실측 grep 0곳) — 코드가 있는 것과 그것이 도는 것은 다른 말이다([328]).
+      그래서 `tmp/archive_spool/exports` 가 285GB 까지 갔다가 정리된 뒤에도
+      회차 산출물이 다시 312.9MB 쌓였다.
+    ★ **`plan`·`apply` 는 한 글자도 안 고친다**([172]) — 여기서 갈래만 걸러 넘긴다.
+      `plan(only=)` 은 하나만 받으므로 넓히면 `main()` 과 검사가 같이 흔들린다.
+    ★ **못 읽은 갈래를 조용히 넘기지 않는다**([169]) — 숫자로 말한다.
+    ★ 실측 2026-08-27: `plan()` **3.2초** · 자동 갈래 **321.7MB / 5,781개**.
+      Z: 를 한 번도 안 만진다(로컬만) — 회차 예산을 안 먹는다([168]).
+    """
+    try:
+        p = plan()
+    except Exception as e:
+        return "파일 정리 못 함(%s)" % type(e).__name__
+    auto = [g for g in p["갈래"] if g["이름"] in AUTO_RULES]
+    size = sum(g["크기"] for g in auto)
+    cnt = sum(g["개수"] for g in auto)
+    left = [g for g in p["갈래"] if g["이름"] not in AUTO_RULES and g["개수"]]
+    tail = ""
+    if left:
+        # ★ 자동에서 뺀 것을 **숫자로 말한다**([169]) — 안 적으면 '다 지웠다'로 읽힌다.
+        tail = " · 사람 몫 " + " ".join(
+            "%s %d개 %.0fMB" % (g["이름"], g["개수"], _mb(g["크기"])) for g in left)
+    if p["못읽음"]:
+        tail += " · 못읽음 %d갈래" % len(p["못읽음"])
+    if not cnt:
+        return "파일 정리 없음" + tail
+    if dry:
+        return "파일 정리 %d개 %.0fMB(dry)%s" % (cnt, _mb(size), tail)
+    freed, gone, failed, _noted, _err = apply({"갈래": auto})
+    out = "파일 정리 %d개 %.0fMB" % (gone, _mb(freed))
+    if failed:
+        out += " · 못 지움 %d개" % len(failed)
+    return out + tail
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="쓸데없는 파일 정리(기본은 읽기 전용)")
     ap.add_argument("--only", help="한 갈래만 (%s)" % ", ".join(r[0] for r in RULES))

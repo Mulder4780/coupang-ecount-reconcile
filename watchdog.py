@@ -648,6 +648,75 @@ def clean_reports(dry):
     return f"오래된 리포트 {len(targets)}개 정리{'(dry)' if dry else ''}"
 
 
+def sweep_files(dry):
+    """쓸데없는 파일을 지운다 — **되돌릴 수 있는 갈래만**(2026-08-27 지시).
+
+    형님 지시: "DB 및 앱 관련 데이터는 … 여기서 계속 관리하고 **(용량 커지지 않게)**".
+
+    ★ 빠져 있던 것은 도구가 아니라 **부르는 자리**였다([328]) — `cleanup_files.py` 는
+      있는데 부르는 코드가 **한 곳도 없어서**(실측 grep 0곳) 회차 산출물이 다시
+      312.9MB 쌓였다. 코드가 있는 것과 그것이 도는 것은 다른 말이다.
+    ★ **무엇을 지울지는 여기서 안 정한다**([162]) — `cleanup_files.AUTO_RULES` 한 곳이다.
+      여기에 갈래 이름을 적으면 사본이 되어 한쪽만 고쳐진다.
+    ★ **새 스케줄 작업을 안 만들었다** — 이미 도는 자리에 한 단계를 더한다([297]).
+    ★ 실측 2026-08-27: **3.2초 · 321.7MB / 5,781개** · Z: 를 한 번도 안 만진다([168]).
+    """
+    try:
+        import cleanup_files as CFL
+    except Exception as e:
+        return "파일 정리 못 함(%s)" % type(e).__name__
+    try:
+        return CFL.sweep(dry=dry)
+    except Exception as e:
+        # 청소 하나로 회차를 죽이지 않는다 — 그러나 조용히 넘기지도 않는다([169]).
+        return "파일 정리 실패(%s: %s)" % (type(e).__name__, str(e)[:60])
+
+
+MIRROR_BUDGET_S = int(os.environ.get("COUPANG_MIRROR_BUDGET_S") or 240)
+
+
+def mirror_originals(dry):
+    """원본 자료를 새 정본 자리로 **복사**한다 — 예산 안에서 (2026-08-27 지시).
+
+    형님 지시: "`…\\2. CSOS DATA` 이 폴더에 원본데이터 폴더 번호 순서대로 계속
+    저장하고 **기존 자료도 이쪽으로 전부 복사**해서 가져와서 관리해".
+
+    ★ **한 회차에 다 안 한다** — 회선이 느려(실측 폴더 확인 1.3~28.9초 · ERP 폴더
+      훑기만 102.2초) 한 번에 하려다 끊기면 **진도가 0** 이 된다([388]·[406]·[427]).
+      예산이 다 되면 멈추고 다음 회차가 잇는다 — 일감은 유한하므로 **수렴한다**.
+    ★ **도는 회차에는 양보한다**([313]) — 09:35 원본정리·09:50 대조가 Z: 를 통째로
+      훑는 동안 같이 물면 **양쪽이 다 느려진다**(실측 2026-08-27: 겹쳤을 때 폴더 확인
+      한 번이 **28.9초**, 한가할 때 **1.3초**). 물러나는 값은 회차 한 번이다.
+    ★ **판정을 새로 만들지 않는다**([162]) — 무엇을 옮길지는 `data_mirror` 가 정하고
+      도는 회차는 `coordinate.running()` 이 안다.
+    ★ **원본을 한 글자도 안 지운다** — 형님이 "복사" 라 하셨다.
+    """
+    try:
+        import data_mirror as DM
+    except Exception as e:
+        return "원본 이전 못 함(%s)" % type(e).__name__
+    try:
+        import coordinate as CO
+        busy = CO.running()
+    except Exception:
+        busy = None
+    if busy:
+        # ★ 양보는 **주장이므로 자국을 남긴다**([293]) — 매일 양보만 하는 단계는
+        #   없는 단계와 같고, 굶주림 판정이 그것을 잡는다.
+        try:
+            CO.record_yield("원본이전", " · ".join(sorted(busy))[:60],
+                            "Z: 를 같이 긁지 않는다")
+        except Exception:
+            pass
+        return "원본 이전 양보(%s 도는 중)" % " · ".join(sorted(busy))[:40]
+    try:
+        res = DM.run(apply=not dry, budget_s=MIRROR_BUDGET_S)
+        return DM.line(res) + ("(dry)" if dry else "")
+    except Exception as e:
+        # 이전 하나로 회차를 안 죽인다 — 그러나 조용히 넘기지도 않는다([169]).
+        return "원본 이전 실패(%s: %s)" % (type(e).__name__, str(e)[:60])
+
+
 def publish_endpoint(dry):
     """터널 주소가 바뀌면 고정 주소(GitHub Pages)에 자동 게시 — 폰 북마크 불변"""
     if dry:
@@ -1219,6 +1288,13 @@ def main():
                heal_autopilot(dry),
                resume_parked(dry),
                heal_tunnel(dry), publish_endpoint(dry), clean_reports(dry),
+               # ★ 쓸데없는 파일 정리 — `clean_reports`(30일 넘은 리포트) 뒤다.
+               #   그쪽은 **날짜 도장이 없는 옛 파일**을 지우고 이쪽은 **도장이
+               #   있는 것**을 묶음마다 남긴다 — 기준이 달라 둘 다 필요하다([172]).
+               sweep_files(dry),
+               # ★ 원본을 새 정본 자리로 복사 — 예산 안에서 조금씩,
+               #   도는 회차에는 양보한다(2026-08-27 지시 · `[464]`).
+               mirror_originals(dry),
                # ★ 스케줄러 판정이 **인계 스냅샷보다 먼저**다 — 뒤에 두면 인계 문서가
                #   언제나 30분 전 판정을 싣는다(2026-08-12, `[228]`).
                watch_schedules(dry),
