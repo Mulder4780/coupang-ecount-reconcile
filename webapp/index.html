@@ -8273,6 +8273,16 @@ const WT_EDITING = new Set();             // "pm|점검ID" / "as|접수ID"
 const WT_DRAFTS = {};                     // 같은 키 → {열: 바꾼 값}
 const WT_EDIT_VERSIONS = {};              // 수정 시작 때 본 버전 — 갱신돼도 몰래 덮지 않는다
 const wtDraftKey=(k,id)=>k+'|'+id;
+/* ★ 카드 열쇠 — **한 곳**이 정한다([162]).  관리대장 ID 칸이 빈 줄이 있다
+   (실측 2026-08-27: 돌발AS 609 중 28 · 정기점검 471 중 17 · 전부 08-10~08-25 접수분).
+   그 줄들을 `id` 로만 세면 **열쇠가 하나로 겹쳐** [수정] 한 번에 28개가 다 편집
+   모드가 되고 초안이 섞이고 `find` 가 첫 줄을 집는다 — 저장은 서버 400 이 막아 줬다.
+   ★ 프로젝트NO 로 물러선다: 서버 `_staff_store_row` 가 이미 `_business_key` 로 찾고
+     실측 as 87/87 · pm 59/59 가 **유일**하다(겹침 0).  고친 뒤 609/609 · 471/471 유일.
+   ⚠ 뿌리는 관리대장 ID 채번이 엑셀 수식이라는 것이다([212] 이관 대기) — 이 고침은
+     그 이관 전까지 담당자가 **일을 할 수 있게** 하는 것이다. */
+const wtRowId=(k,r)=>String((r||{})[WT_CFG[k].idCol]||'').trim()
+                    ||String((r||{}).프로젝트NO||'').trim();
 function wtDraftOf(k,id){ return WT_DRAFTS[wtDraftKey(k,id)]||{}; }
 function wtIsEditing(k,id){ return WT_EDITING.has(wtDraftKey(k,id)); }
 function wtStatus(k,r){ return String(r[WT_CFG[k].stCol]||'').trim() || '미기입'; }
@@ -8512,7 +8522,7 @@ function wtCampCode(name){
     + '" onclick="event.stopPropagation();campEditOpen(this.dataset.camp)" title="이 캠프의 거래처코드를 입력·변경·삭제하고 저장합니다"><svg class=\"bi\" aria-hidden=\"true\" focusable=\"false\"><use href=\"#i-bootstrap-pencil-square\"/></svg>코드 고치기</button></span>';
 }
 function wtCard(k,r){
-  const cfg=WT_CFG[k], id=String(r[cfg.idCol]||'').trim();
+  const cfg=WT_CFG[k], id=wtRowId(k,r);
   const stv=wtStatus(k,r);
   const stChip = chip(stv);
   const editing=wtIsEditing(k,id),dirty=Object.keys(wtDraftOf(k,id)).length>0;
@@ -8579,7 +8589,7 @@ function entryRowOf(kind, id){
    ★ 이것이 이 고침의 값어치다. 안 넘기면 사람이 다섯 칸을 **두 번** 채운다.
    ★ 자동으로 등록하지 않는다 — 폼에서 사람이 보고 저장한다(되돌릴 수 없는 쪽이다). */
 function wtRegisterFromPlan(k,id){
-  const cfg=WT_CFG[k], row=(cfg&&cfg.rows().find(r=>String(r[cfg.idCol]||'').trim()===id))||null;
+  const cfg=WT_CFG[k], row=(cfg&&cfg.rows().find(r=>wtRowId(k,r)===id))||null;
   if(!row){ toast('선택한 예정을 목록에서 찾지 못했습니다'); return; }
   const draft=wtDraftOf(k,id)||{};
   const pick=c=>String((draft[c]!==undefined?draft[c]:row[c])||'').trim();
@@ -8627,7 +8637,7 @@ function wtRowActions(k,id,r){
     삭제 = 잘못 등록된 건(되살릴 수 있음)</div>`;
 }
 function wtVer(k,id){
-  const cfg=WT_CFG[k], row=cfg.rows().find(x=>String(x[cfg.idCol]||'').trim()===id);
+  const cfg=WT_CFG[k], row=cfg.rows().find(x=>wtRowId(k,x)===id);
   return {row, ver:Number((row||{}).DB버전||(row||{})._record_version||0)};
 }
 async function wtExclude(k,id,on){
@@ -8691,7 +8701,7 @@ async function wtDelete(k,id,confirmDocs,verHint){
     /* 지운 행을 화면에서도 곧바로 뺀다 — 서버가 다시 내려줄 때까지 남아 있으면
        사람이 "안 지워졌다"고 여기고 한 번 더 누른다. */
     const cfg=WT_CFG[k], arr=(works&&works[k])||[];
-    const at=arr.findIndex(x=>String(x[cfg.idCol]||'').trim()===id);
+    const at=arr.findIndex(x=>wtRowId(k,x)===id);
     if(at>=0) arr.splice(at,1);
     renderWorkTab(k);   // 그 탭이 안 그려져 있으면 스스로 물러난다(첫 줄 가드)
     try{ await refreshDataKeys(['works','settlements']); }catch(e){}
@@ -8794,7 +8804,7 @@ function wtBeginEdit(k,id){
 function wtDraftChange(k,id,col,value,el){
   value=String(value||'').trim();
   const cfg=WT_CFG[k];
-  const row=cfg.rows().find(r=>String(r[cfg.idCol]||'').trim()===id);
+  const row=cfg.rows().find(r=>wtRowId(k,r)===id);
   const before=String((row||{})[col]||'').trim();
   if(!wtIsEditing(k,id)){ if(el)el.value=before; toast('먼저 수정 버튼을 눌러 주세요'); return; }
   if(!value){ if(el)el.value=before; toast('빈 값은 저장하지 않습니다 — 기존 값으로 되돌렸습니다'); return; }
@@ -8807,7 +8817,7 @@ function wtDraftChange(k,id,col,value,el){
   toast(value===before?`${col}을 기존 값으로 되돌렸습니다`:`${col} 변경됨 — 아직 저장 전입니다`);
 }
 async function wtPersistValues(k,id,values,reason,expectedVersion){
-  const cfg=WT_CFG[k],row=cfg.rows().find(r=>String(r[cfg.idCol]||'').trim()===id);
+  const cfg=WT_CFG[k],row=cfg.rows().find(r=>wtRowId(k,r)===id);
   if(!row) throw new Error('선택한 업무를 현재 목록에서 찾지 못했습니다');
   /* 반쪽 목록이면 여기 버전이 0 이다 — 보내기 전에 다시 집고, 못 집으면 멈춘다([162]). */
   const _ver = await entryVersion(k, id, (expectedVersion==null
@@ -8830,7 +8840,7 @@ async function wtSaveCard(k,id){
   const key=wtDraftKey(k,id),draft=Object.assign({},WT_DRAFTS[key]||{});
   if(!WT_EDITING.has(key)){ toast('먼저 수정 버튼을 눌러 주세요'); return; }
   if(!Object.keys(draft).length){ toast('변경된 내용이 없습니다'); return; }
-  const cfg=WT_CFG[k],row=cfg.rows().find(r=>String(r[cfg.idCol]||'').trim()===id);
+  const cfg=WT_CFG[k],row=cfg.rows().find(r=>wtRowId(k,r)===id);
   let reason='';
   if(Object.prototype.hasOwnProperty.call(draft,'유상·무상·보험')){
     const before=String((row||{})['유상·무상·보험']||'').trim(),value=draft['유상·무상·보험'];
