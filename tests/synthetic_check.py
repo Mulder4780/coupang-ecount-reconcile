@@ -19376,6 +19376,66 @@ def t293_yield_is_a_claim_that_gets_audited():
     finally:
         _CO.done_later = _real_dl
 
+    # ⑫ **원본이전도 완주를 남긴다** (2026-08-27 실사고 · [300] — ⑪ 을 여기가 몰랐다).
+    #    실측: 워치독의 원본이전 단계가 17:56 부터 실제로 돌아 79개를 복사했는데
+    #    조율 표는 `마지막 돎: 없음` · `5회 연속 양보` · **`한 번도 돈 적이 없다`**
+    #    라고 확언했다 — `record_yield` 만 있고 `record_run` 이 0곳이었다.
+    #    가짜 coordinate·가짜 data_mirror 로 갈아 끼워 **실행해서** 잰다([295]·[247]).
+    import watchdog as _WD, data_mirror as _DM
+    _wd_src = open(_WD.__file__, encoding="utf-8", errors="replace").read()
+    assert "_mark_mirror_run(" in _wd_src, "원본이전이 완주를 조율 표에 안 남긴다"
+    assert _wd_src.count('record_yield("' + '원본이전' + '"') == 0, (
+        "이름을 손으로 적었다 — 양보와 완주가 갈리면 audit 이 짝을 못 찾는다([293])")
+
+    _mirror_rows = []
+
+    class _FakeCoord2:
+        def record_run(self, 작업, 상태, 왜=""):
+            _mirror_rows.append((작업, 상태, 왜)); return True
+        def record_yield(self, *a, **k):
+            return True
+        def running(self):
+            return set()
+
+    _real_run, _real_co2 = _DM.run, sys.modules.get("coordinate")
+    try:
+        sys.modules["coordinate"] = _FakeCoord2()
+        # (a) 정상 회차(예산 끝도 완주다 — 설계된 이어하기다)
+        _DM.run = lambda **k: {"복사": 3, "이름바꿈": 0, "바이트": 0, "동일": 78,
+                               "실패": 0, "예산끝": True, "남은폴더": ["a"] * 16}
+        _WD.mirror_originals(False)
+        assert len(_mirror_rows) == 1 and _mirror_rows[0][1] == "완주", (
+            "돌았는데 완주를 안 남긴다 — 연속양보가 영원히 안 풀린다: %r" % (_mirror_rows,))
+        assert _mirror_rows[0][0] == _WD.MIRROR_JOB, "완주 자국의 이름이 어긋난다"
+        # (b) Z: 에 못 닿았으면 실패다 — 그때는 일이 안 됐다
+        _DM.run = lambda **k: {"왜못함": "옛 원본 자리에 못 닿았다"}
+        _WD.mirror_originals(False)
+        assert _mirror_rows[-1][1] == "실패", "못 닿은 회차를 완주라 적는다([169])"
+        # (c) dry 는 안 적는다 — 미리보기는 그 일을 한 것이 아니다([169])
+        _n = len(_mirror_rows)
+        _DM.run = lambda **k: {"복사": 0, "이름바꿈": 0, "바이트": 0, "동일": 1,
+                               "실패": 0, "예산끝": False, "남은폴더": []}
+        _WD.mirror_originals(True)
+        assert len(_mirror_rows) == _n, "dry 인데 조율 표에 적었다"
+        # (d) 계기 자기시험([272]) — 안 적던 옛 동작이면 (a) 가 잡히나
+        _mirror_rows.clear()
+        _real_mark = _WD._mark_mirror_run
+        try:
+            _WD._mark_mirror_run = lambda 상태, 왜: None
+            _DM.run = lambda **k: {"복사": 1, "이름바꿈": 0, "바이트": 0, "동일": 0,
+                                   "실패": 0, "예산끝": False, "남은폴더": []}
+            _WD.mirror_originals(False)
+            assert not _mirror_rows, "옛 동작인데도 자국이 남았다 — 이 검사는 아무것도 안 재고 있다"
+        finally:
+            _WD._mark_mirror_run = _real_mark
+    finally:
+        _DM.run = _real_run                            # 모듈 속성은 모두의 것이다([371])
+        if _real_co2 is not None:
+            sys.modules["coordinate"] = _real_co2
+        else:
+            sys.modules.pop("coordinate", None)
+    assert _DM.run is _real_run, "목을 안 되돌렸다([371])"
+
     print("  [293] 겹치면 조율한다 — 양보는 주장이고 audit 이 되묻는다(헛양보·뒤에됨·굶주림) · "
           "완주도 그날 한 번 남긴다 · 이름은 LOCKS 한 곳 · 읽기 전용 ✅")
 

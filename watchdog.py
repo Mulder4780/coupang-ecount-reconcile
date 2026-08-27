@@ -675,6 +675,27 @@ def sweep_files(dry):
 MIRROR_BUDGET_S = int(os.environ.get("COUPANG_MIRROR_BUDGET_S") or 240)
 
 
+#: 조율 표에 적는 이름 — **한 곳**이다([293]).  양보와 완주가 다른 이름으로 적히면
+#: `audit()` 이 짝을 못 찾아 **한 건도 안 걸리면서 오류도 안 난다**([165]).
+MIRROR_JOB = "원본이전"
+
+
+def _mark_mirror_run(상태, 왜):
+    """조율 표에 '이 회차에 돌았다'를 남긴다([293]).
+
+    ★ **양보만 넘기고 완주를 안 넘기면 연속이 영원히 안 풀린다.**  실측 2026-08-27:
+      17:56 부터 실제로 돌아 79개를 복사하고 있었는데 표는 `마지막 돎: 없음 ·
+      5회 연속 양보` 라고 확언했고, 그 거짓이 매일 인계 맨 위에 올라왔다([170]).
+      한쪽만 적는 표는 시간이 갈수록 더 확신에 차서 틀린다.
+    ★ **자국을 못 남겨도 회차는 안 죽인다** — 이전 하나로 30분 회차를 세우지 않는다.
+    """
+    try:
+        import coordinate as CO
+        CO.record_run(MIRROR_JOB, 상태, 왜)
+    except Exception:
+        pass
+
+
 def mirror_originals(dry):
     """원본 자료를 새 정본 자리로 **복사**한다 — 예산 안에서 (2026-08-27 지시).
 
@@ -704,16 +725,26 @@ def mirror_originals(dry):
         # ★ 양보는 **주장이므로 자국을 남긴다**([293]) — 매일 양보만 하는 단계는
         #   없는 단계와 같고, 굶주림 판정이 그것을 잡는다.
         try:
-            CO.record_yield("원본이전", " · ".join(sorted(busy))[:60],
+            CO.record_yield(MIRROR_JOB, " · ".join(sorted(busy))[:60],
                             "Z: 를 같이 긁지 않는다")
         except Exception:
             pass
         return "원본 이전 양보(%s 도는 중)" % " · ".join(sorted(busy))[:40]
     try:
         res = DM.run(apply=not dry, budget_s=MIRROR_BUDGET_S)
-        return DM.line(res) + ("(dry)" if dry else "")
+        msg = DM.line(res) + ("(dry)" if dry else "")
+        # ★ **돌았으면 돌았다고 적는다**([293]) — 예산 끝도 **완주**다(설계된
+        #   이어하기다: 진도가 남고 다음 회차가 잇는다).  Z: 에 못 닿은 것만
+        #   실패로 적는다 — 그때는 일이 안 됐다.
+        # ★ **dry 는 안 적는다**([169]) — 미리보기는 그 일을 한 것이 아니다.
+        if not dry:
+            _mark_mirror_run("실패" if res.get("왜못함") else "완주",
+                             str(res.get("왜못함") or msg)[:80])
+        return msg
     except Exception as e:
         # 이전 하나로 회차를 안 죽인다 — 그러나 조용히 넘기지도 않는다([169]).
+        if not dry:
+            _mark_mirror_run("실패", "%s: %s" % (type(e).__name__, str(e)[:60]))
         return "원본 이전 실패(%s: %s)" % (type(e).__name__, str(e)[:60])
 
 
