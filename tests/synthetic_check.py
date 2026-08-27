@@ -8333,7 +8333,7 @@ def t212_hand_edit_detection():
       · 인계: session_handoff 가 싼 신호만 읽어([168] 해시 금지) '먼저 처리할 것'에 올린다.
     """
     import sys as _s, tempfile
-    from datetime import datetime
+    from datetime import datetime, timezone, timedelta
     _s.path.insert(0, ROOT)
     import realtime_monitor as RM
     import ledger_db as L
@@ -8385,6 +8385,18 @@ def t212_hand_edit_detection():
             n = len(rows)
             L.human_editing()                      # 30분 안 같은 잠금 — 한 번만 적는다
             assert len(json.load(open(log, encoding="utf-8"))) == n, "중복 기록(경보 남발)"
+            # ★ **마지막 기록에 타임존이 붙어 있어도 안 죽는다**(2026-08-27 실사고).
+            #   쓰는 손이 둘인데 모양이 다르다 — realtime_monitor 는
+            #   `korea_now()`(타임존 있음), 여기는 `datetime.now()`(없음).
+            #   예전 코드는 파싱은 되고 **빼기에서** TypeError 가 났는데
+            #   `except ValueError` 가 그것을 못 받아 부르는 쪽까지 죽었다.
+            rows = json.load(open(log, encoding="utf-8"))
+            rows[-1]["시각"] = datetime.now(timezone(timedelta(hours=9))).isoformat(
+                timespec="seconds")
+            json.dump(rows, open(log, "w", encoding="utf-8"), ensure_ascii=False)
+            L.human_editing()            # 예전에는 여기서 TypeError 로 죽었다
+            assert len(json.load(open(log, encoding="utf-8"))) == len(rows), (
+                "타임존 붙은 마지막 기록에서 30분 중복 방지가 깨졌다")
         finally:
             L._hand_edit_blocked = old_gate
             L.HAND_EDIT_LOG, L._master_folder = old_log, old_mf
@@ -8408,6 +8420,65 @@ def t212_hand_edit_detection():
                       open(p, "w", encoding="utf-8"), ensure_ascii=False)
             sig = SH.hand_edit_signal()
             assert sig and sig["최근24h"] == 1, sig
+
+            # ★ **타임존 붙은 시각도 센다**(2026-08-27 실사고 · 이날 실제로 죽었다).
+            #   realtime_monitor 가 `korea_now()` 로 적은 첫 기록이 들어온 순간
+            #   이 함수가 TypeError 로 죽어 **인계 문서가 통째로 안 나왔고**,
+            #   그 자리는 `daily_run` 의 **0단계**(관문)까지 죽였다 —
+            #   손입력을 알리려던 기능이 화면을 없앤 셈이다([169]).
+            # ⚠ 옛 검사는 **타임존 없는 시각만** 넣어 재서 한 번도 안 잡혔다([309]) —
+            #   재료가 실제로 쓰이는 모양이 아니면 그 검사는 아무것도 안 잰다.
+            kst = datetime.now(timezone(timedelta(hours=9))).isoformat(timespec="seconds")
+            json.dump([{"시각": kst, "종류": "내용변경", "파일": "대장_v9.xlsx"}],
+                      open(p, "w", encoding="utf-8"), ensure_ascii=False)
+            sig = SH.hand_edit_signal()
+            assert sig and sig["최근24h"] == 1, (
+                "타임존 붙은 시각을 못 센다 — 쓰는 손이 둘이다: %r" % (sig,))
+
+            # 섞여 있어도 **둘 다** 센다 — 한쪽만 세면 조용히 절반이 사라진다([169]).
+            json.dump([{"시각": kst, "종류": "내용변경", "파일": "대장_v9.xlsx"},
+                       {"시각": fresh, "종류": "열림감지", "잠금": "~$대장.xlsx"}],
+                      open(p, "w", encoding="utf-8"), ensure_ascii=False)
+            assert SH.hand_edit_signal()["최근24h"] == 2, "섞이면 한쪽만 센다"
+
+            # 못 읽는 값이 섞여도 **죽지 않는다** — 인계 한 장을 통째로 잃지 않는다.
+            json.dump([{"시각": "쓰레기"},
+                       {"시각": kst, "종류": "내용변경", "파일": "대장_v9.xlsx"}],
+                      open(p, "w", encoding="utf-8"), ensure_ascii=False)
+            assert SH.hand_edit_signal()["최근24h"] == 1, "못 읽는 값 하나에 통째로 죽는다"
+
+            # 24시간 밖이면 타임존이 붙었어도 **조용하다**([170] — 좁히는 것도 고장이다).
+            old_kst = (datetime.now(timezone(timedelta(hours=9)))
+                       - timedelta(days=3)).isoformat(timespec="seconds")
+            json.dump([{"시각": old_kst, "종류": "내용변경", "파일": "대장_v9.xlsx"}],
+                      open(p, "w", encoding="utf-8"), ensure_ascii=False)
+            assert SH.hand_edit_signal() is None, "3일 전 기록으로 경보 — 아무도 안 본다"
+
+            # ★ **정규화를 못 빌려도 인계를 안 죽인다**([169]) — 이것이 안전망이다.
+            #   `_naive_iso` 가 원본을 그대로 돌려주는 상황(error_book 을 못
+            #   들여온 때)을 만들어 본다.  그때 비교에서 TypeError 가 나는데,
+            #   `except ValueError` 만 있으면 **인계 한 장이 통째로 사라진다.**
+            #   덜 세는 것은 견딜 수 있고, 화면이 없어지는 것은 못 견딘다.
+            _real_norm = SH._naive_iso
+            try:
+                SH._naive_iso = lambda ts: str(ts or "")
+                json.dump([{"시각": kst, "종류": "내용변경", "파일": "대장_v9.xlsx"}],
+                          open(p, "w", encoding="utf-8"), ensure_ascii=False)
+                SH.hand_edit_signal()      # 여기서 죽으면 안 된다
+            finally:
+                SH._naive_iso = _real_norm       # 모듈 속성은 모두의 것이다([371])
+            assert SH._naive_iso is _real_norm, "목을 안 되돌렸다([371])"
+
+            # ★ 정규화는 **한 곳**을 빌린다([162]) — 여기서 다시 적으면 갈린다.
+            _sh_src = open(os.path.join(ROOT, "session_handoff.py"),
+                           encoding="utf-8").read()
+            assert "error_book" in _sh_src.split("def _naive_iso")[1][:400], (
+                "시각 정규화를 제 손으로 다시 적었다 — 판정이 두 곳이 된다([162])")
+            _ld_src = open(os.path.join(ROOT, "ledger_db.py"), encoding="utf-8").read()
+            assert "_EB.to_local(last.get" in _ld_src, (
+                "ledger_db 가 정본 정규화를 안 빌린다([162])")
+            assert "except (ValueError, TypeError, ImportError):" in _ld_src, (
+                "ledger_db 가 다시 ValueError 만 받는다 — 타임존에서 죽는다")
         finally:
             SH.HAND_EDIT_LOG = old_p
     bl = SH.blockers({"큐잔량": 0, "임시파일": [], "점유": [], "미커밋": [], "미푸시": [],

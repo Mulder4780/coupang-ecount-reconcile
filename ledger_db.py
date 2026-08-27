@@ -2484,11 +2484,18 @@ def _note_hand_edit(entry):
             if (last.get("종류") == entry.get("종류")
                     and last.get("잠금") == entry.get("잠금")):
                 try:
-                    ago = (datetime.now()
-                           - datetime.fromisoformat(last.get("시각", ""))).total_seconds()
+                    # ★ 타임존이 붙은 기록도 받는다(2026-08-27 실사고) —
+                    #   realtime_monitor 는 `korea_now()` 로 적는다.
+                    #   `except ValueError` 로는 못 받는다: 파싱은 되고
+                    #   **빼기에서** TypeError 가 난다.  판정은 한 곳을
+                    #   빌린다([162] — error_book.to_local).  ⚠ 핵심 모듈이
+                    #   보고 모듈(session_handoff)을 들여오면 층이 뒤집힌다.
+                    import error_book as _EB
+                    ago = (datetime.now() - datetime.fromisoformat(
+                        _EB.to_local(last.get("시각", "")))).total_seconds()
                     if ago < 1800:
                         return
-                except ValueError:
+                except (ValueError, TypeError, ImportError):
                     pass
         prev.append(entry)
         os.makedirs(os.path.dirname(HAND_EDIT_LOG), exist_ok=True)

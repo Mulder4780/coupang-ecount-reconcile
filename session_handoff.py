@@ -140,11 +140,36 @@ HAND_EDIT_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              "reports", "엑셀_손입력_감지.json")
 
 
+def _naive_iso(ts):
+    """어느 시계로 적힌 시각이든 **이 PC 시각**(타임존 없음)으로 옮긴다.
+
+    ★ 판정은 `error_book.to_local` **한 곳**을 빌린다([162]) — 여기서 다시 적으면
+      같은 물음에 두 답이 생기고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+    ★ 못 빌리면 **원본 그대로** 돌려준다 — 부르는 쪽이 `ValueError`·`TypeError` 를
+      받아 그 기록만 건너뛴다.  인계 한 장을 통째로 죽이는 것보다 낫다([169]).
+    """
+    try:
+        import error_book
+        return error_book.to_local(ts)
+    except Exception:                            # noqa: BLE001
+        return str(ts or "")
+
+
 def hand_edit_signal():
     """손입력 감지 기록의 싼 요약([168] — 여기서 해시 계산 금지, 읽기만).
 
     쓰는 쪽은 둘이다: realtime_monitor(내용 변경)·ledger_db.human_editing(열림).
-    여기는 마지막 항목과 24시간 안 건수만 읽어 인계 문서에 올린다."""
+    여기는 마지막 항목과 24시간 안 건수만 읽어 인계 문서에 올린다.
+
+    ★ **그 두 손이 시각을 서로 다른 모양으로 적는다**(2026-08-27 실사고).
+      realtime_monitor 는 `korea_now()`(타임존 있음), ledger_db 는
+      `datetime.now()`(없음)다.  예전에는 타임존 없는 것만 받아서, **손입력이
+      처음 감지된 그날** 이 함수가 `TypeError` 로 죽고 **인계 문서가 통째로
+      안 나왔다** — 알리려던 기능이 화면을 없앤 셈이다([169]).
+      그리고 그 자리는 `daily_run` 의 **0단계**(관문)까지 죽였다.
+    ⚠ `except ValueError` 로는 못 받는다 — 그것은 **비교**에서 나는 오류다.
+      파싱은 성공하고 `>=` 에서 터진다.
+    """
     try:
         rows = json.load(open(HAND_EDIT_LOG, encoding="utf-8"))
         if not isinstance(rows, list) or not rows:
@@ -153,9 +178,9 @@ def hand_edit_signal():
         fresh = 0
         for r in rows:
             try:
-                if datetime.fromisoformat(str(r.get("시각", ""))) >= cut:
+                if datetime.fromisoformat(_naive_iso(r.get("시각", ""))) >= cut:
                     fresh += 1
-            except ValueError:
+            except (ValueError, TypeError):
                 continue
         last = rows[-1]
         return {"최근24h": fresh, "마지막": last} if fresh else None
