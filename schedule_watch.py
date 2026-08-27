@@ -230,6 +230,61 @@ def declared():
     return names, unreadable
 
 
+def _slept_between(a, b, now):
+    """구간 [a, b] 에서 이 PC 가 잠들어 있던 분 — 못 재면 None([169]).
+
+    ★ **판정을 새로 만들지 않는다**([162]) — `_slept_note` 가 쓰는 그
+      `system_audit._sleep_minutes_since` 를 빌린다. 그것은 '최근 N분 중 잔 분'
+      만 주므로 **두 번 재서 뺀다**(a 이후 − b 이후).
+    ★ 실측 한 번에 0.41초라([385]) `중단됨` 갈래에서만 부른다([168]).
+    """
+    try:
+        from system_audit import _sleep_minutes_since   # 늦게 — 순환 import 를 안 만든다
+        sa, _wa = _sleep_minutes_since((now - a).total_seconds() / 60.0)
+        sb, _wb = _sleep_minutes_since((now - b).total_seconds() / 60.0)
+    except Exception:
+        return None
+    if sa is None or sb is None:
+        return None
+    return max(0.0, sa - sb)
+
+
+def _terminated_note(task, last, now):
+    """`중단됨`(0x00041306) 에 **사실 하나를 덧붙인다** — 확언하지 않는다([169]).
+
+    ★ 무슨 일이 있었나 (2026-08-27 실측) — 인계에 `[중단됨]` 이 셋 떴는데 말은
+      셋 다 *"끝내기 요청을 받고 멈췄다"* 뿐이었다. 그러면 **시간이 모자랐는지
+      사람이 껐는지 절전이었는지** 하나도 안 갈린다 — 조치가 갈래마다 다른데
+      ([289]) 한 문구로 뭉치면 사람이 엉뚱한 데를 고치러 간다([172]).
+      그날 세 창을 재 보니 **서로 달랐다**:
+        · CSOS_BrowserChain 12:00 (제한 20분) → 그 창의 잠 **0분**
+        · 쿠팡업무_정오회차   12:20 (제한 30분) → 그 창의 잠 **24.9분**
+        · 쿠팡업무_실시간문제감시 17:43 (제한 4분) → 그 창의 잠 **0분**
+      곧 정오회차는 **절전**이고 나머지 둘은 **시간이 모자란** 쪽이다.
+
+    ★ **갈래는 안 바꾼다**([385] 가 `안돎` 에서 지킨 그 규칙). `중단됨` 은 그대로
+      DEAD 다 — 여기서 하는 것은 **사실 하나를 덧붙이는 것**까지다.
+    ★ **확언하지 않는다**([169]) — 스케줄러는 '누가 끝내라 했는지'를 안 알려 주고
+      이 기계는 작업 스케줄러 운영 로그가 꺼져 있다([219] 실측). 우리가 아는 것은
+      **제한시간이 얼마인지**와 **그 창에서 잤는지**뿐이다.
+    ★ **못 재면 아무 말도 안 한다** — '안 잤다'로 치지 않는다.
+    ★ 5분 미만 잠은 안 적는다([385] 와 같은 문턱) — 전부 적으면 아무도 안 읽는다([170]).
+    """
+    limit = _dur(task.get("limit"))
+    if limit is None or last is None:
+        return ''
+    분 = int(round(limit.total_seconds() / 60.0))
+    if 분 <= 0:
+        return ''
+    out = (' · 이 작업의 제한시간은 %d분이다(그 시간을 다 써서 스케줄러가 끊었을 수'
+           ' 있다 — 사람이 끈 것일 수도 있다)' % 분)
+    끝 = last + limit
+    잔 = _slept_between(last, 끝, now)
+    if 잔 is not None and 잔 >= 5:
+        out += (' · 그 창(%s~%s)에서 이 PC 가 %d분 잤다 — 절전 때문일 수도 있다'
+                % (last.strftime('%H:%M'), 끝.strftime('%H:%M'), int(round(잔))))
+    return out
+
 # ─────────────────────────────────────────────────────────── 예정 시각 계산
 def _dur(text):
     """ISO8601 기간(`PT3H`·`PT10M`·`P1D`) → timedelta. 못 읽으면 None."""
@@ -520,6 +575,9 @@ def judge(task, now, before=None):
                % (late.strftime("%m-%d %H:%M"),
                   last.strftime("%m-%d %H:%M") if last else "없음"))
         say += _slept_note(late, now)
+    if kind == "중단됨":
+        # ★ 갈래는 안 바꾸고 **사실 하나만** 덧붙인다([385]·[289]).
+        say += _terminated_note(task, last, now)
 
     # ★ 죽었는데 **그 코드가 마지막 실행 뒤에 바뀌었다** — 실패한 코드는 이미 안 돈다.
     #   실측 2026-08-16: `CSOS_BrowserChain` 마지막 실행 08-15 12:00 exit 1 인데 그
