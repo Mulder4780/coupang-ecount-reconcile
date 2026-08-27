@@ -58,7 +58,13 @@ STEP_TIMEOUT_S = int(os.environ.get("COUPANG_TIDY_STEP_S") or 2400)
 #   자식에게 넣어 봐야 아무 일도 안 일어난다 — 없는 손잡이를 지어내지 않는다.
 #   다른 자식이 예산을 읽게 되면 여기 표에 한 줄 더한다.
 STEP_BUDGET_MARGIN_S = int(os.environ.get("COUPANG_TIDY_MARGIN_S") or 300)
-CHILD_BUDGET_ENV = {"source_organizer.py": "SOURCE_ORGANIZER_BUDGET_SEC"}
+CHILD_BUDGET_ENV = {"source_organizer.py": "SOURCE_ORGANIZER_BUDGET_SEC",
+                    "collect_sources.py": "SOURCE_COLLECT_BUDGET_SEC"}
+
+#: 자식이 **예산이 다 돼 스스로 멈췄다**는 뜻 — 실패가 아니다([427]).
+#  값은 `child_budget` 한 곳에서 온다([162]).
+import child_budget                                     # noqa: E402
+INCREMENTAL_RETURN_CODE = child_budget.INCREMENTAL_RETURN_CODE
 
 
 def _child_env(스크립트):
@@ -196,6 +202,7 @@ def main():
                                 cwd=ROOT, timeout=STEP_TIMEOUT_S,
                                 env=_child_env(스크립트))
         분 = (time.time() - t0) / 60.0
+        이어감 = False
         out = (r.stdout or "") + (("\n" + r.stderr) if r.stderr else "")
         # ★ 출력을 버리지 않는다 — 창을 없앤 회차는 파일에만 남는다(`[248]`·`[289]`).
         if out.strip():
@@ -209,12 +216,23 @@ def main():
             #   있었다 — 그러면 다음에도 "왜 313분인지 모른다"로 끝난다(`[169]`).
             if getattr(r, "stuck_pid", 0):
                 왜 += " · 죽인 뒤에도 안 끝난 pid %s" % r.stuck_pid
+        elif r.returncode == INCREMENTAL_RETURN_CODE:
+            # ★ **실패가 아니다** — 예산이 다 돼 스스로 멈췄고 진도가 남는다
+            #   ([427]).  실패로 세면 매일 가짜 경보가 되어 진짜를 덮는다([170]).
+            # ★ 그렇다고 **조용히 완료라 적지도 않는다**([450]) — 로그와
+            #   진행 자국이 '이어감'이라고 말한다.
+            왜 = ""
+            이어감 = True
         elif r.returncode != 0:
             왜 = "0 이 아닌 값으로 끝났다(코드 %s)" % r.returncode
         else:
             왜 = ""
-        _log("◀ %d/%d %s %s · %.1f분" % (i, len(STEPS), 이름, 왜 or "완료", 분))
+        _log("◀ %d/%d %s %s · %.1f분"
+             % (i, len(STEPS), 이름,
+                왜 or ("예산이 다 돼 이어간다(다음 회차가 잇는다)" if 이어감
+                       else "완료"), 분))
         칸 = {"단계": 이름, "분": round(분, 1), "왜": 왜, "코드": r.returncode,
+             "이어감": bool(이어감),
              "시간초과": bool(r.timed_out),
              "안죽은pid": getattr(r, "stuck_pid", 0) or 0}
         done.append(칸)

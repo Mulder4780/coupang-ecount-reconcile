@@ -24530,6 +24530,110 @@ def t381_row_count_is_cached_and_never_freezes_a_miss():
         CS._DST_ENTRIES.clear()
         shutil.rmtree(_tmp7, ignore_errors=True)
 
+    # ★ **예산이 다 되면 스스로 멈춘다**(2026-08-27 실사고 · [427]·[406]).
+    #   실측: 이 단계가 40분 제한에 **SIGKILL(-9)** 로 끊겼고 자취가 **빈 문자열**
+    #   이었다 — 파이썬 stdout 은 파이프에 물리면 블록 버퍼라 그때까지 찍은 줄이
+    #   통째로 사라진다.  같은 회차가 8/23 에는 **2.8분**이었다.
+    # ★★ 제일 위험한 자리는 **안내문을 반쪽으로 쓰는 것**이다([198]) — 다 못 센
+    #    채로 쓰면 있는 파일이 목록에서 조용히 빠지면서 '정리 완료'라 적힌다([169]).
+    # ⚠ 진짜 Z: 는 한 글자도 안 건드린다([247]) — 목과 임시 폴더로만 잰다.
+    import tempfile as _tf
+    import shutil as _sh
+    import child_budget as _CB
+
+    def _budget_run(over_after, walkable=True):
+        """임시 폴더로 `main('--apply')` 를 돌린다.
+
+        `over_after` — `over()` 가 몇 번째 물음부터 참이 되나.  **문이 둘이라
+        (복사 루프·안내문 루프) 반환값만 보면 서로를 가린다** — 어느 하나를
+        빼도 다른 쪽이 75 를 낸다(실측 자기시험 1/4).  그래서 **복사된 개수**로
+        갈라 잰다.
+        ⚠ 진짜 Z: 는 한 글자도 안 건드린다([247]) — 목과 임시 폴더로만.
+        """
+        d = _tf.mkdtemp(prefix="t381b_")
+        wrote, calls = [], [0]
+        keep = {k: getattr(CS, k) for k in
+                ("plan", "write_guide", "count_rows", "_rows_cache_save",
+                 "ORIGIN_ROOT", "ERP_DIR", "COUPANG_DIR", "KAKAO_DIR",
+                 "BAND_DIR", "RECEIPT_DIR", "PO_DIR")}
+        old_argv, old_env = list(sys.argv), os.environ.get(CS.BUDGET_ENV)
+        real_over = _CB.over
+
+        def fake_over():
+            calls[0] += 1
+            return calls[0] > over_after
+
+        try:
+            src_dir, dst_dir = os.path.join(d, "src"), os.path.join(d, "dst")
+            os.makedirs(src_dir)
+            os.makedirs(dst_dir)
+            jobs = []
+            for i in range(3):
+                q = os.path.join(src_dir, "f%d.xlsx" % i)
+                open(q, "wb").write(b"x" * 10)
+                jobs.append((q, dst_dir, "시험"))
+            CS.plan = lambda: jobs
+            CS.write_guide = lambda rows: wrote.append(len(rows))
+            CS.count_rows = lambda p, st=None: 1
+            CS._rows_cache_save = lambda: None
+            # `walkable=False` — 안내문이 훑을 것이 **하나도 없는** 상황.
+            #   그때는 안내문 루프가 예산을 한 번도 안 물어보므로,
+            #   복사가 잘린 뒤 **일찍 돌아가는 문**이 없으면
+            #   반쪽 안내문이 그대로 써진다([198] — 조용한 손실).
+            _walk = d if walkable else os.path.join(d, "empty")
+            os.makedirs(_walk, exist_ok=True)
+            for k in ("ORIGIN_ROOT", "ERP_DIR", "COUPANG_DIR", "KAKAO_DIR",
+                      "BAND_DIR", "RECEIPT_DIR", "PO_DIR"):
+                setattr(CS, k, _walk)
+            os.environ[CS.BUDGET_ENV] = "600"
+            sys.argv = ["collect_sources.py", "--apply"]
+            _CB.over = fake_over
+            rc = CS.main()
+            return rc, bool(wrote), len(os.listdir(dst_dir))
+        finally:
+            _CB.over = real_over               # 모듈 전역이다([371])
+            for k, v in keep.items():
+                setattr(CS, k, v)
+            sys.argv = old_argv
+            if old_env is None:
+                os.environ.pop(CS.BUDGET_ENV, None)
+            else:
+                os.environ[CS.BUDGET_ENV] = old_env
+            _CB.clear()
+            _sh.rmtree(d, ignore_errors=True)
+
+    # (a) 예산이 넉넉하면 **예전 그대로** — 셋 다 옮기고 안내문을 쓴다([172]).
+    got = _budget_run(10 ** 6)
+    assert got == (0, True, 3), (
+        "예산이 넉넉한데 예전과 다르게 끝났다 — 좁히는 것도 고장이다([172]): %r" % (got,))
+
+    # (b) **복사 도중** 다 되면 새로 안 넣고, 안내문도 **안 쓴다**([198]).
+    got = _budget_run(0)
+    assert got == (CS.INCREMENTAL_RETURN_CODE, False, 0), (
+        "복사 도중 예산이 다 됐는데 (증분코드, 안내문 안 씀, 0개 복사)가 아니다: %r" % (got,))
+
+    # (c) **안내문 세기 도중** 다 되면 — 복사는 끝났는데 **안내문을 안 쓴다.**
+    #     ★★ 여기가 제일 위험한 자리다([198]): 다 못 센 채로 쓰면 있는 파일이
+    #     목록에서 조용히 빠지면서 화면은 '정리 완료'라고 적는다([169]).
+    got = _budget_run(3)
+    assert got == (CS.INCREMENTAL_RETURN_CODE, False, 3), (
+        "안내문 세기 도중 예산이 다 됐는데 반쪽 안내문을 썼거나 코드가 다르다: %r" % (got,))
+
+    # (d) ★★ **복사가 잘렸으면 안내문을 아예 안 쓴다** — 훑을 것이 없어
+    #     안내문 루프가 예산을 한 번도 안 물어보는 상황이 그 시험대다.
+    #     여기서 일찍 안 돌아가면 **반쪽 안내문**이 써지고, 있는 파일이
+    #     목록에서 조용히 빠지면서 화면은 '정리 완료'라 적는다([198]·[169]).
+    got = _budget_run(0, walkable=False)
+    assert got == (CS.INCREMENTAL_RETURN_CODE, False, 0), (
+        "복사가 잘렸는데 안내문을 썼다 — 있는 파일이 조용히 빠진다([198]): %r"
+        % (got,))
+
+    # 값은 `child_budget` 한 곳에서 온다([162]) — 제 손으로 적으면 갈린다.
+    _csrc = open(os.path.join(ROOT, "collect_sources.py"), encoding="utf-8").read()
+    assert "INCREMENTAL_RETURN_CODE = child_budget." in _csrc, (
+        "증분 코드를 제 손으로 적었다 — 값이 갈리면 회차가 실패로 센다([162])")
+    assert "child_budget.start(BUDGET_ENV)" in _csrc, "예산을 안 읽는다"
+
     print("[381] 행수 세기는 캐시 뒤에 · **중간에 저장한다**(죽어도 진도가 남는다) · "
           "딸려 받은 stat 을 쓴다 · 못 읽은 것은 안 굳힌다 · 구간 자국 살아 있음")
 
@@ -41294,6 +41398,19 @@ def t324_source_tidy_names_the_culprit_step():
     for 옛 in ("upload_intake.py", "collect_sources.py", "source_organizer.py"):
         assert 옛 not in 본문, "bat 이 아직 %s 를 직접 부른다 — 단계 제한이 없어진다" % 옛
     assert "exit /b" in 본문, "종료코드를 안 돌려준다 — 죽은 회차가 성공으로 적힌다([248])"
+
+    # ★ **자식이 예산이 다 돼 멈춘 것(75)을 실패로 세지 않는다**([427]).
+    #   실패로 세면 매일 가짜 경보가 되어 진짜를 덮는다([170]).  그렇다고
+    #   **조용히 완료라 적지도 않는다**([450]) — 로그와 자국이 '이어감'이라 말한다.
+    _tsrc = open(os.path.join(ROOT, "source_tidy_run.py"), encoding="utf-8").read()
+    assert "INCREMENTAL_RETURN_CODE = child_budget." in _tsrc, (
+        "증분 코드를 제 손으로 적었다 — 자식과 값이 갈리면 조용히 실패로 센다([162])")
+    assert "r.returncode == INCREMENTAL_RETURN_CODE" in _tsrc, (
+        "회차가 증분(75)을 실패로 센다 — 매일 가짜 경보가 된다([170])")
+    assert "예산이 다 돼 이어간다" in _tsrc, (
+        "이어간 것을 '완료'라고만 적는다 — 덜 했는데 성공으로 읽힌다([450])")
+    assert '"collect_sources.py": "SOURCE_COLLECT_BUDGET_SEC"' in _tsrc, (
+        "원본 모으기에 예산을 안 준다 — 40분에 SIGKILL 되어 진도도 자취도 안 남는다")
 
     print("  [324] 원본 정리 회차 — 단계마다 제한 · **가장 오래 걸린** 범인을 "
           "이름으로 댐 · 죽어도 다음 단계 · 시간초과를 글자로 짐작 안 함 "

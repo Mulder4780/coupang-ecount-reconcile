@@ -26,11 +26,22 @@ PC가 꺼지거나 사람이 바뀌면 **무엇이 원본인지 아무도 모른
 """
 import os
 import sys
+import child_budget
 import glob
 import json
 import shutil
 import time
 from datetime import datetime
+
+#: 바깥(회차)이 주는 시간 예산 — **안 주면 무제한**(예전 그대로)이다.
+#  ★ 왜 필요한가(2026-08-27 실사고): 이 단계가 40분 제한에 **SIGKILL(-9)** 로
+#    끊겼는데 자취가 **빈 문자열**이었다.  파이썬 stdout 은 파이프에 물리면
+#    블록 버퍼라 그때까지 찍은 줄이 **버퍼째 사라진다** — 그래서 무엇을 하다
+#    죽었는지 알 길이 없었다([169]).  같은 회차가 8/23 에는 2.8분이었다.
+#  ★ 판정은 `child_budget` **한 곳**에서 온다([162]) — 여기서 다시 적으면
+#    '못 읽으면 예산 없음' 규칙이 갈리는 날 이 파일만 조용히 예전처럼 죽는다.
+BUDGET_ENV = "SOURCE_COLLECT_BUDGET_SEC"
+INCREMENTAL_RETURN_CODE = child_budget.INCREMENTAL_RETURN_CODE
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -533,6 +544,7 @@ def main():
     #   이미 이름을 댔다(2026-08-21 '원본 모으기' 36.8분) - 이제 단계 **안**이다.
     time_mod = __import__("time")
     _t0 = time_mod.time()
+    budget = child_budget.start(BUDGET_ENV)   # 안 주면 0 = 무제한
     jobs = plan()
     _t_plan = time_mod.time() - _t0
     print(f"{'복사 실행' if apply else '미리보기(복사 안 함)'} — 대상 {len(jobs)}개\n")
@@ -540,7 +552,14 @@ def main():
     # 새로 들어오는 파일은 연도 보관함으로 곧장 들어가므로, 안내문에서 과거 연도를
     # 생략하기 **전에** 원본 자체를 검사한다. 그래야 빈 ERP/카톡 파일 경보는 그대로다.
     job_empty = set()
-    for src, dst_dir, kind in jobs:
+    남은복사 = 0
+    for _i, (src, dst_dir, kind) in enumerate(jobs):
+        if child_budget.over():
+            # ★ **새로 안 넣는다** — 도는 것은 끝까지 둔다([427]).
+            #   복사는 이미 멱등이라(`_same` 이 같은 파일을 건너뛴다)
+            #   다음 회차가 그대로 이어받는다 — 진도가 남는다.
+            남은복사 = len(jobs) - _i
+            break
         # ★ 어제 만든 `st` 인자를 **부르는 쪽이 안 넘기고 있었다** — 그래서
         #   `copy_one` 안의 `_same()` 이 `os.stat(src)` 를 그대로 불렀다.
         #   인자를 만들었으면 **넘기는 자리까지가 한 벌**이다.
@@ -556,11 +575,22 @@ def main():
         print("\n실제로 복사하려면:  python collect_sources.py --apply")
         return 0
 
+    if 남은복사:
+        # ★★ **안내문을 반쪽으로 쓰지 않는다**([198]) — 이것이 이 고침에서
+        #    제일 위험한 자리다.  다 못 센 채로 쓰면 있는 파일이 목록에서
+        #    조용히 빠지면서 화면은 '정리 완료'라고 적는다([169]).
+        _rows_cache_save()          # 센 것은 남긴다([381] — 진도)
+        print("\n★ 시간 예산(%d초)이 다 되어 %d개를 다음 회차로 넘긴다."
+              % (budget, 남은복사))
+        print("  안내문은 **안 고쳤다** — 반쪽으로 쓰면 없는 파일이 조용히 빠진다.")
+        return INCREMENTAL_RETURN_CODE
+
     # 정리 결과를 폴더별로 세어 안내문에 남긴다
     rows, empty = [], list(job_empty)
     from source_index import walk_stat        # 늦게 — 순환 import 를 만들지 않는다
+    안내잘림 = False
     for d in (ERP_DIR, COUPANG_DIR, KAKAO_DIR, BAND_DIR, RECEIPT_DIR):
-        if not os.path.isdir(d):
+        if 안내잘림 or not os.path.isdir(d):
             continue
         items = []
         # ★ 파일마다 Z: 에 다시 묻지 않는다([198]) — 목록이 크기·시각을 같이 준다.
@@ -573,6 +603,9 @@ def main():
         guide_walk = (walk_stat(d, skip_dirs=guide_skip) if guide_skip
                       else walk_stat(d, skip_dirs=()))
         for base, name, st in guide_walk:
+            if child_budget.over():
+                안내잘림 = True
+                break
             p = os.path.join(base, name)
             n = count_rows(p, st)
             items.append((os.path.relpath(p, d), n))
@@ -585,6 +618,14 @@ def main():
             n = sum(len(f) for _b, _dd, f in os.walk(d))
             rows.append((d, [(f"(하위 폴더 포함 {n}개 파일)", -1)]))
     empty.sort()
+    if 안내잘림:
+        # ★ 위와 같은 이유 — **반쪽 안내문·반쪽 경보를 안 낸다**([169]).
+        #   '빈 파일 3개' 같은 숫자가 다 센 것처럼 읽힌다.
+        _rows_cache_save()
+        print("\n★ 시간 예산(%d초)이 다 되어 **안내문은 안 고쳤다** — "
+              "다음 회차가 이어서 센다." % budget)
+        print("  [행수: 캐시 %d · 새로 셈 %d]" % (_rows_hit, _rows_new))
+        return INCREMENTAL_RETURN_CODE
     write_guide(rows)
     _rows_cache_save()
     _t_guide = time_mod.time() - _t0 - _t_plan - _t_copy
