@@ -39,7 +39,31 @@ def latest_master():
         return int(m.group(1)) if m else -1
     cands = [c for c in cands if ver(c) >= 0 and "~$" not in c]
     if not cands:
-        sys.exit("관리대장 v*.xlsx 를 찾을 수 없습니다.")
+        # ★ **'관리대장이 없다' 와 'Z: 에 못 닿았다' 는 다른 사실이다**([169]·[289]).
+        #   옛 문구는 `v*.xlsx 를 찾을 수 없습니다` 뿐이라 **폴더는 열렸는데 파일이
+        #   없다**로 읽혔다 — 2026-08-27 실측: 그날 관문이 이 문구로 죽었는데 진짜
+        #   원인은 이 PC 가 사무실 망 밖(핫스팟)이라 `\\172.30.1.250\data` 에 못
+        #   닿은 것이었다(ping 100% 손실 · `Get-SmbMapping` Status=Reconnecting).
+        #   그 문구를 따르면 사람은 **관리대장을 찾으러 간다**([172] 틀린 지목).
+        #   `ecount_reconcile` 이 [443] 에서 고친 것과 **같은 병**인데 여기만
+        #   안 따라와 있었다([300] — 한 곳에서 배운 것을 다른 곳이 모른다).
+        # ★ **여기서 다시 물어보지 않는다**([168]·[443]) — 못 닿는 Z: 는 `isdir`
+        #   한 번에 11~156초다(2026-08-27 실측 11.7초 · 평소 0.15초).
+        # ★ 앞머리 `관리대장을 찾을 수 없음:` 과 `v*.xlsx` 는 **안 바꾼다** —
+        #   `autopilot.RESOURCE_MARKERS`·`_RES_PATH_RE` 가 그 글자로 `resource`
+        #   갈래와 경로 후보를 만든다. 어긋나면 한 건도 안 걸리면서 오류도 안
+        #   난다([165]). 실측(고친 뒤): 갈래 `resource` · 경로 후보 **0 → 1**.
+        # ⚠ **`sys.exit` 를 `raise` 로 바꾸지 말 것**(2026-08-27 실측). `SystemExit`
+        #   는 `except Exception` 이 **안 잡는데** `latest_master()` 를 try 안에서
+        #   부르는 다섯 곳(archive_export×2·archive_keep·session_handoff·관문)이
+        #   전부 `except Exception` 이다 — 바꾸면 **지금 드러나던 실패가 조용히
+        #   넘어간다**([355]·[169]). 그 대가로 `resource_back` 은 여기서 `None`
+        #   (모름)이다 — 이 문구에는 오류 표시(`Error`·`Exception`…)가 없어
+        #   `_ERR_MARK` 에 안 걸리기 때문이고, 그래서 [424] 의 완화도 안 걸린다.
+        #   **못 하는 것을 한 것처럼 적지 않는다**([169]).
+        sys.exit("관리대장을 찾을 수 없음: %s"
+                 " (v*.xlsx 를 못 찾았다 — 그 폴더에 못 닿았거나 폴더에 그 파일이"
+                 " 없다. 네트워크 드라이브 연결부터 확인한다)" % folder)
     best = max(cands, key=ver)
     # 구 버전은 말 안 해도 OLD 로 접는다(사용자 지시 2026-07-28). 최신본은 손대지 않는다.
     try:

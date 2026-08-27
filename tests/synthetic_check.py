@@ -30029,6 +30029,85 @@ def t466_unregistered_plan_gets_a_way_not_a_dead_button():
     print("  [466] 등록 안 된 예정에 저장 단추 대신 등록 길(값까지 넘긴다) \u2705")
 
 
+def t467_ledger_missing_message_does_not_blame_the_file():
+    """[467] **'관리대장이 없다' 와 'Z: 에 못 닿았다' 는 다른 사실이다** (2026-08-27 실사고)
+
+    ★ 무슨 일이 있었나 — 그날 관문이 `관리대장 v*.xlsx 를 찾을 수 없습니다` 로
+      죽었다. 그 문구는 **폴더는 열렸는데 파일이 없다**로 읽힌다. 진짜 원인은
+      이 PC 가 사무실 망 밖(핫스팟)이라 파일서버에 못 닿은 것이었다
+      (ping 100% 손실 · `Get-SmbMapping` Status=Reconnecting · `isdir` 11.7초).
+      그 문구를 따르면 사람은 **관리대장을 찾으러 간다**([172] 틀린 지목).
+      `ecount_reconcile` 이 [443] 에서 고친 것과 같은 병인데 `workbook_patch`
+      만 안 따라와 있었다([300]).
+
+    ★ **Z: 를 한 번도 안 건드린다**([211]·[409]) — 관문이 실데이터에 매이는 것이
+      바로 그 병이다. 문구는 **소스에서 AST 로 뽑아** 가짜 경로를 끼워 잰다.
+    ★ 계기 자신도 시험한다([272]).
+    """
+    import ast as _ast, io as _io, os as _os
+    import autopilot as AP
+
+    src = _io.open(_os.path.join(ROOT, "workbook_patch.py"), encoding="utf-8").read()
+    tree = _ast.parse(src)
+    fn = next((n for n in _ast.walk(tree)
+               if isinstance(n, _ast.FunctionDef) and n.name == "latest_master"), None)
+    assert fn is not None, "[467] workbook_patch.latest_master 가 사라졌다"
+
+    # (1) 실패를 알리는 자리가 **SystemExit 그대로**인가.
+    #     `raise` 로 바꾸면 `except Exception` 이 잡아 **조용히 넘어간다** —
+    #     실측 2026-08-27: latest_master 를 try 안에서 부르는 다섯 곳이 전부
+    #     `except Exception` 이다(archive_export×2·archive_keep·session_handoff·관문).
+    exits = [n for n in _ast.walk(fn)
+             if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Attribute)
+             and n.func.attr == "exit"]
+    raises = [n for n in _ast.walk(fn) if isinstance(n, _ast.Raise)]
+    assert exits, "[467] latest_master 가 sys.exit 로 알리지 않는다 — raise 로 바꾸면 조용히 삼켜진다([355])"
+    assert not raises, "[467] latest_master 가 raise 를 쓴다 — except Exception 다섯 곳이 삼킨다([355])"
+
+    # (2) 문구를 소스에서 뽑는다(가짜 경로를 끼운다 — Z: 는 안 만진다).
+    FAKE = "Q:" + _os.sep + "가짜폴더" + _os.sep + "관리대장"
+    node = exits[0].args[0]
+    if isinstance(node, _ast.BinOp) and isinstance(node.op, _ast.Mod):
+        msg = _ast.literal_eval(node.left) % FAKE
+    else:
+        msg = _ast.literal_eval(node)
+    assert FAKE in msg, "[467] 실패 문구에 **폴더 경로가 없다** — 그러면 어디를 봐야 할지 아무도 모른다([169])"
+
+    # (3) 앞머리를 손으로 안 적는다([162]) — autopilot 이 그 글자로 갈래를 가른다.
+    head = "관리대장을 찾을 수 없음"
+    assert head in AP.RESOURCE_MARKERS, "[467] autopilot 표시에서 앞머리가 사라졌다"
+    assert msg.startswith(head), (
+        "[467] 실패 문구가 '%s' 로 시작하지 않는다 — 갈래가 resource 가 아니게 되어 "
+        "조치가 사람을 멀쩡한 코드로 보낸다([165]·[289])" % head)
+
+    # (4) 갈래는 **실행으로** 잰다([295]).
+    assert AP.classify_failure(msg) == "resource", "[467] 갈래가 resource 가 아니다"
+
+    # (5) 경로 후보가 **정확히 하나**여야 resource_back 이 물어볼 수 있다([424]).
+    #     0 이면 영영 '모름' 이고 여럿이면 그것도 '모름' 이다([169]).
+    def _cands(text):
+        out = []
+        for rx in AP._RES_PATH_RE:
+            for m in rx.finditer(text):
+                p = m.group(1).strip()
+                if p and p not in out:
+                    out.append(p)
+        return out
+    assert len(_cands(msg)) == 1, "[467] 경로 후보가 %d개다 — 1개여야 한다" % len(_cands(msg))
+
+    # (6) **원인을 단정하지 않는다**([169]) — 둘을 나란히 놓고 싼 확인을 먼저 가리킨다.
+    assert "못 닿" in msg and "네트워크" in msg, (
+        "[467] 문구가 원인을 단정한다 — '못 닿았거나 파일이 없다' 를 나란히 놓고 "
+        "네트워크 연결부터 확인하라고 적어야 한다([443])")
+
+    # (7) 계기 자기시험([272]) — 옛 문구(경로 없음)로 되돌리면 (5)가 잡히나.
+    old = "관리대장 v*.xlsx 를 " + "찾을 수 없습니다."
+    assert len(_cands(old)) == 0, "[467] 계기가 눈멀었다 — 옛 문구에서도 경로 후보가 생긴다"
+    assert AP.classify_failure(old) == "resource", "[467] 옛 자국의 갈래까지 깨면 안 된다"
+
+    print(chr(9989) + " [467] '관리대장이 없다' 와 'Z: 에 못 닿았다' 를 갈라 말한다 — 경로 후보 1개 · 갈래 resource 유지")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -42805,6 +42884,7 @@ if __name__ == "__main__":
     t464_origin_mirror_copies_and_never_flips_the_address_early()
     t465_gate_trace_says_why_not_just_how_long()
     t466_unregistered_plan_gets_a_way_not_a_dead_button()
+    t467_ledger_missing_message_does_not_blame_the_file()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
