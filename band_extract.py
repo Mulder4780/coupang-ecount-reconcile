@@ -959,7 +959,20 @@ def kakao_source_paths(dedupe_content=True):
         except (OSError, ValueError, TypeError):
             pass
 
+    # ★ **쓰는 쪽이 실제로 넣는 자리를 빌린다**([162]).  흡수기는
+    #   `<카톡폴더>/2026/<이름>` 에 넣는데 아래 `direct` 는 그 자리를 안 봤다 —
+    #   실측 2026-08-27 자국이 말한 이름 **2개 중 0개**를 잡았다([277]).
+    #   ⚠ 자리를 여기 손으로 적으면 흡수기가 옮긴 날 **그때부터 또 조용히 빠진다.**
+    #   ⚠ `create=False` — 읽기가 폴더를 만들면 안 된다.
+    canon = ""
+    try:
+        import kakao_apply
+        canon = kakao_apply.canon_dir(create=False) or ""
+    except Exception:
+        canon = ""
+
     fast_candidates = list(intake_candidates)
+    named_hits = set()
     for name in recent_names:
         for folder in folders:
             direct = [os.path.join(folder, name)]
@@ -967,6 +980,8 @@ def kakao_source_paths(dedupe_content=True):
             if stamp:
                 y, m, d = stamp.groups()
                 direct.append(os.path.join(folder, y, m, f"{y}-{m}-{d}", name))
+            if canon:
+                direct.append(os.path.join(canon, name))
             for path in direct:
                 if not os.path.isfile(path):
                     continue
@@ -974,6 +989,7 @@ def kakao_source_paths(dedupe_content=True):
                     fast_candidates.append((os.path.getmtime(path), path))
                 except OSError:
                     continue
+                named_hits.add(name)
 
     def choose(candidates):
         markers = KAKAO_ROOM_MARKERS
@@ -995,7 +1011,15 @@ def kakao_source_paths(dedupe_content=True):
         return paths if paths else fallback
 
     paths = choose(fast_candidates)
-    if len(paths) < 2:
+    # ★ **자국이 말한 이름을 다 못 찾았으면 그 답을 믿지 않는다**([169]).
+    #   예전 문은 `len(paths) < 2` 하나였다 — 옛 파일들이 두 방을 다 채우면 새 원본이
+    #   통째로 빠져도 이 문이 안 열리고, 그 덜 읽은 답이 캐시에 박힌다.  실측
+    #   2026-08-27 이 그 모양이었다: 자국 2개 중 0개를 잡았는데 옛 파일 여섯이 두 방을
+    #   채워 복구 탐색이 안 돌았다 — **오류도 안 나고 개수도 그럴듯했다**([165]).
+    #   ⚠ 물러나는 값은 복구 탐색 한 번(실측 144초)이고, 부딪히는 값은 **오늘 자료가
+    #     통째로 빠진 채 아무 화면에도 안 뜨는 것**이다.  위 (A)가 맞으면 거의 안 열린다.
+    named_blind = bool(recent_names) and len(named_hits) < len(recent_names)
+    if len(paths) < 2 or named_blind:
         # 보고 자국이 없거나 한 방만 받은 새 PC는 공유 정본에서 스스로 복구한다.
         candidates, seen_path = list(fast_candidates), set()
         for _, path in fast_candidates:

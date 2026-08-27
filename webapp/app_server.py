@@ -2063,8 +2063,16 @@ def save_staff_entry(staff_slug, body, *, store=None, actor=None):
     if requested == "issue":
         category = str(body.get("target_category") or "").strip()
         record_key = str(body.get("target_key") or "").strip()
-    if category not in RYU_ENTRY_CONFIG or not record_key:
+    if category not in RYU_ENTRY_CONFIG:
         raise ValueError("카테고리와 업무를 먼저 선택해 주세요")
+    if not record_key:
+        # ★ **사람을 탓하지 않는다**([289]·[172]).  예전에는 위 문구를 같이 냈는데,
+        #   사람은 이미 카드를 골랐고 빈 것은 **관리대장 ID 칸**이다 — 실측
+        #   2026-08-27 14:30 에 그 문구를 보고 40초 동안 12번 다시 눌렀다([278]).
+        #   화면은 이제 ID 가 비면 프로젝트NO 를 열쇠로 보낸다(wtRowId) — 이 갈래는
+        #   그래도 열쇠를 못 만든 때의 안전망이다.
+        raise ValueError("이 업무의 관리대장 ID 칸이 비어 있어 저장 열쇠를 못 만들었습니다 "
+                         "— 목록을 새로고침해 주세요(그래도 안 되면 관리자에게 알려 주세요)")
     if staff_slug not in STAFF_CENTERS and staff_slug != "admin":
         raise PermissionError("등록되지 않은 업무센터입니다")
     allowed = _staff_allowed_fields(staff_slug, category)

@@ -64,18 +64,29 @@ def drop_dirs():
     return [d for d in out if os.path.isdir(d)]
 
 
-def canon_dir():
-    """정본 자리 — 없으면 로컬 inbox 로 물러선다(Z: 가 안 붙는 PC 도 있다)."""
+def canon_dir(create=True):
+    """정본 자리 — 없으면 로컬 inbox 로 물러선다(Z: 가 안 붙는 PC 도 있다).
+
+    ★ `create=False` 는 **읽는 쪽**이 쓴다(`band_extract.kakao_source_paths`).
+      자리만 알려 주고 폴더는 안 만든다 — 읽기가 폴더를 만들면 Z: 가 잠깐 끊긴 날
+      빈 폴더가 생겨 다음 사람이 "여기 있어야 하는데 왜 비었지"로 간다([169]).
+      기본값이 True 라 **옛 호출자는 한 글자도 안 바뀐다**([172]).
+
+    ⚠ 이 자리를 읽는 쪽이 **손으로 베껴 적으면** 그날부터 갈린다 — 2026-08-27 에
+      실제로 그렇게 새어 오늘 카톡 두 개가 통째로 안 읽혔다([277]).  물어보게 한다([162]).
+    """
     try:
         import source_dirs as S
         d = os.path.join(S.KAKAO_DIR, "2026")
         if os.path.isdir(S.KAKAO_DIR):
-            os.makedirs(d, exist_ok=True)
+            if create:
+                os.makedirs(d, exist_ok=True)
             return d
     except Exception:
         pass
     d = os.path.join(ROOT, "kakao", "inbox")
-    os.makedirs(d, exist_ok=True)
+    if create:
+        os.makedirs(d, exist_ok=True)
     return d
 
 
