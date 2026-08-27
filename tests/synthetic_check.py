@@ -30108,6 +30108,89 @@ def t467_ledger_missing_message_does_not_blame_the_file():
     print(chr(9989) + " [467] '관리대장이 없다' 와 'Z: 에 못 닿았다' 를 갈라 말한다 — 경로 후보 1개 · 갈래 resource 유지")
 
 
+def t468_terminated_says_limit_and_sleep_without_asserting_why():
+    """[468] `중단됨` 이 **왜인지 후보를 나란히 둔다** — 확언하지 않는다 (2026-08-27)
+
+    ★ 무슨 일이 있었나 — 인계에 `[중단됨]` 이 셋 떴는데 말은 셋 다
+      *"끝내기 요청을 받고 멈췄다"* 뿐이었다. **시간이 모자랐는지 사람이 껐는지
+      절전이었는지** 하나도 안 갈린다 — 조치는 갈래마다 다른데([289]) 뭉치면
+      사람이 엉뚱한 데를 고치러 간다([172]). 그날 재 보니 셋이 서로 달랐다:
+      BrowserChain(제한 20분) 잠 0분 · 정오회차(30분) 잠 24.9분 · 실시간감시(4분) 잠 0분.
+
+    ★ **진짜 이벤트 로그를 안 건드린다**([247]) — 절전 계기를 목으로 갈아
+      **실행으로** 잰다([295]). 목은 `finally` 로 되돌린다([371] — 모듈 속성은
+      프로세스 전체의 것이다).
+    """
+    import datetime as _dt
+    import schedule_watch as SW
+    import system_audit as SA
+
+    real = SA._sleep_minutes_since
+    now = _dt.datetime(2026, 8, 27, 20, 0, 0)
+    last = _dt.datetime(2026, 8, 27, 12, 20, 0)
+
+    def mock(minutes, _at=None):
+        """창 [12:20, 12:50] 안에서만 25분 잤다고 답한다."""
+        since = now - _dt.timedelta(minutes=minutes)
+        a, b = _dt.datetime(2026, 8, 27, 12, 20), _dt.datetime(2026, 8, 27, 12, 50)
+        if since <= a:
+            return 25.0, ""
+        if since >= b:
+            return 0.0, ""
+        return (b - since).total_seconds() / 60.0, ""
+
+    try:
+        SA._sleep_minutes_since = mock
+
+        # (1) 제한시간을 **사람 말로** 적는다 — 그것이 첫 후보다.
+        say = SW._terminated_note({"limit": "PT30M"}, last, now)
+        assert "제한시간은 30분" in say, "[468] 제한시간을 안 적는다 — 후보가 하나도 없다([289])"
+
+        # (2) **확언하지 않는다**([169]) — 스케줄러는 누가 끝냈는지 안 알려 준다.
+        assert "수 있다" in say, "[468] 원인을 단정한다 — '…였을 수 있다' 까지여야 한다([169])"
+
+        # (3) 그 창에서 잤으면 **그 사실도** 나란히 둔다.
+        assert "잤다" in say and "12:20~12:50" in say, "[468] 그 창의 절전을 안 적는다"
+
+        # (4) 잠이 없는 창이면 잠 이야기를 **안 한다**([170] — 정상까지 말하면 아무도 안 읽는다).
+        quiet = SW._terminated_note({"limit": "PT20M"},
+                                    _dt.datetime(2026, 8, 27, 18, 0), now)
+        assert "제한시간은 20분" in quiet, "[468] 제한시간은 언제나 적어야 한다"
+        assert "잤다" not in quiet, "[468] 안 잔 창에까지 절전을 적는다 — 거짓 지목이다([172])"
+
+        # (5) **모르면 아무 말도 안 한다**([169]) — '안 잤다'로도 '시간 초과'로도 치지 않는다.
+        assert SW._terminated_note({"limit": ""}, last, now) == "", "[468] 제한시간을 모르는데 말한다"
+        assert SW._terminated_note({"limit": "PT30M"}, None, now) == "", "[468] 마지막 실행을 모르는데 말한다"
+
+        # (6) 절전 계기가 죽어도 **제한시간은 그대로 적는다**([169] — 하나 못 재도 아는 것은 말한다).
+        def boom(*a, **k):
+            raise RuntimeError("이벤트 로그 못 읽음")
+        SA._sleep_minutes_since = boom
+        half = SW._terminated_note({"limit": "PT30M"}, last, now)
+        assert "제한시간은 30분" in half and "잤다" not in half, \
+            "[468] 절전을 못 쟀는데 아무 말도 안 하거나, 못 잰 것을 잤다고 한다"
+    finally:
+        SA._sleep_minutes_since = real
+
+    # (7) **갈래는 안 바꿨다**([385] 가 `안돎` 에서 지킨 그 규칙) — 사실 하나를 덧붙일 뿐이다.
+    assert "중단됨" in SW.DEAD, "[468] 중단됨이 DEAD 에서 빠졌다 — 경보가 조용해진다"
+    assert SW.RESULT[267014][0] == "중단됨", "[468] 0x00041306 갈래 이름이 바뀌었다"
+
+    # (8) 계기 자기시험([272]) — 덧붙이는 자리가 사라지면 잡힌다.
+    import io as _io, os as _os
+    code = _io.open(_os.path.join(ROOT, "schedule_watch.py"), encoding="utf-8").read()
+    # ⚠ **정의 줄을 세면 안 된다**([463] 이 배운 자리 - 만들면서 그대로 밟았다).
+    #    `def _terminated_note(task, last, now):` 에도 그 글자가 그대로 있어서,
+    #    부르는 자리를 통째로 빼도 검사가 **통과했다**. 재려는 것은 **호출**이다.
+    _seg = code[code.index("if kind == " + chr(34) + "중단됨" + chr(34)):][:400]
+    assert "_terminated_note(" in _seg, \
+        "[468] 중단됨 갈래에서 _terminated_note 를 안 부른다 - 함수만 있고 안 부르면 없는 것과 같다([328])"
+    assert "say += _terminated_note(" in code, \
+        "[468] 덧붙이는 자리가 사라졌다 — 정의만 남으면 아무 말도 안 하면서 오류도 안 난다([165])"
+
+    print(chr(9989) + " [468] 중단됨이 제한시간·절전을 나란히 두고 확언하지 않는다 — 모르면 아무 말도 안 한다")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -42885,6 +42968,7 @@ if __name__ == "__main__":
     t465_gate_trace_says_why_not_just_how_long()
     t466_unregistered_plan_gets_a_way_not_a_dead_button()
     t467_ledger_missing_message_does_not_blame_the_file()
+    t468_terminated_says_limit_and_sleep_without_asserting_why()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
