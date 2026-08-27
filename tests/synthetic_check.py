@@ -25901,6 +25901,12 @@ def t420_delete_says_why_and_hides_dead_buttons():
     harness = chr(10).join([
         "function esc2(x){return String(x==null?'':x);}",
         "function esc4(x){return JSON.stringify(String(x==null?'':x));}",
+        # ★ wtRowActions 가 갈래 판정을 빌린다([466]) — **스텁이 아니라 실제 소스**를
+        #   넣는다([366] — 스텁을 넣으면 이 하네스는 그날부터 실제 코드를 안 잰다).
+        html[html.index("function wtUnregistered(r){"):
+             html.index(chr(10) + "/* 그 기록의 화면 행을")],
+        html[html.index("function recordIdOf(r){"):
+             html.index(chr(10) + "function isInternalNo(")],
         html[i:j],
         "var a=wtRowActions('pm','SCH-1',{점검ID:'SCH-1'});",
         "var b=wtRowActions('pm','PM-1',{점검ID:'PM-1',DB버전:3});",
@@ -29778,6 +29784,149 @@ def t465_gate_trace_says_why_not_just_how_long():
     print("  [465] 관문 자국이 '왜'까지 적는다(공유폴더 붐빔·못닿음·멀쩡·모름 갈림) \u2705")
 
 
+def t466_unregistered_plan_gets_a_way_not_a_dead_button():
+    """[466] 앱에 등록되지 않은 예정에 **저장 단추를 주지 않는다** — 갈 길을 준다.
+
+    2026-08-27 류지영 실사고: `SCH-2026Q3-25D510AD97` 일산2MB(당산동) 카드에서
+    담당기사·점검상태(완료)·점검예정일·실제점검일·비용구분 **다섯 칸을 다 채우고**
+    저장을 눌렀더니 "목록이 **반쪽으로** 온 것일 수 있습니다" 가 떴다.
+    그 건은 반쪽이 아니라 **스케줄 원본에서만 온 예정**이라 앱 DB에 행이 처음부터 없다.
+      · 틀린 이유를 대면 사람이 **없는 문제**를 찾는다([172])
+      · 카드가 위아래로 다른 말을 했다 — 아래는 "등록 안 돼서 아무것도 못 한다",
+        위는 수정·저장·완료 단추. 그래서 다섯 칸을 채우고 **나서야** 막혔다(헛수고)
+      · 상세 시트는 [348] 로 이미 갈라 놨는데 **카드 목록만 안 갈랐다**([300])
+
+    ★ 되돌릴 수 없는 쪽을 막는다 — 등록형 ID(PM-/AS-/JS-/FW-)나 프로젝트NO 가 있으면
+      **등록 단추를 안 준다**. 그것은 계획이 아니라 반쪽 목록이고, 새로 등록하면
+      **같은 기록이 두 개가 된다**([348]).
+    ★ 좁히는 것도 고장이다([172]) — 등록된 행은 수정·저장·완료가 예전 그대로여야 한다.
+    ★ 글자로는 '단추가 뜨는가'를 못 잰다([295]) — node 로 **실제로 그려** 잰다.
+    """
+    import re as _re, io as _io, tempfile as _tf
+    import proc_guard as _pg                     # 창 없이 자식을 띄운다([270]·[272])
+
+    src = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read()
+    _NL = chr(10)
+
+    def _fn(name):
+        """`function name(` 부터 **중괄호 짝**까지 — 끝을 이름으로 찾지 않는다([39])."""
+        m = _re.search(r"(?m)^(?:async\s+)?function\s+" + _re.escape(name) + r"\s*\(", src)
+        assert m, "함수를 못 찾았다: " + name
+        i = src.index("{", m.end() - 1)
+        d, j, instr, esc = 0, i, None, False
+        while j < len(src):
+            c = src[j]
+            if instr:
+                if esc:
+                    esc = False
+                elif c == chr(92):
+                    esc = True
+                elif c == instr:
+                    instr = None
+            elif c in "\"'" + "'" + "`":
+                instr = c
+            elif c == "{":
+                d += 1
+            elif c == "}":
+                d -= 1
+                if d == 0:
+                    return src[m.start():j + 1]
+            j += 1
+        raise AssertionError("중괄호가 안 맞는다: " + name)
+
+    need = ["wtUnregistered", "entryRowOf", "wtRegisterFromPlan", "wtRowActions",
+            "wtCard", "wtDraftOf", "wtIsEditing", "recordIdOf", "entryKeyCol"]
+    arrow = [l for l in src.splitlines() if l.startswith("const wtDraftKey=")]
+    assert len(arrow) == 1, "wtDraftKey 를 못 찾았다 — 스텁으로 때우지 않는다([366])"
+
+    harness = _NL.join([
+        "const WT_DRAFTS={}, WT_EDITING=new Set();",
+        "let works={pm:[],as:[]}, settleRows=[];",
+        "const INPUT_SPEC={pm:{key_col:'점검ID'},as:{key_col:'접수ID'}};",
+        "function esc2(v){return String(v==null?'':v);}",
+        "function esc4(v){return JSON.stringify(String(v==null?'':v));}",
+        "function chip(v){return '<span class=chip>'+esc2(v)+'</span>';}",
+        "function wtStatus(k,r){return String((k==='pm'?r.점검상태:r.진행상태)||'');}",
+        "function wtField(){return '<label>칸</label>';}",
+        "function wtCampCode(){return '';}",
+        "const LOG=[];",
+        "function toast(m){LOG.push(m);}",
+        "function uxEvent(){}",
+        "function loadSettle(){return Promise.resolve();}",
+        "let OPENED=null;",
+        "function openNewWork(k,p){OPENED={k:k,p:p};}",
+    ] + arrow + [_fn(n) for n in need] + [
+        "const WT_CFG={pm:{idCol:'점검ID',dateCol:'점검예정일',doneCol:'실제점검일',stCol:'점검상태',",
+        "  rows:()=>works.pm||[],edit:[['담당기사','tech']]},",
+        " as:{idCol:'접수ID',dateCol:'방문예정일',doneCol:'작업완료일',stCol:'진행상태',",
+        "  rows:()=>works.as||[],edit:[['담당기사','tech']]}};",
+        "const plan={점검ID:'SCH-2026Q3-25D510AD97',캠프명:'일산2MB(당산동)',점검상태:'예정월',",
+        "  점검예정일:'2026-09-01',실제점검일:'',담당기사:'',프로젝트NO:''};",
+        "const half={점검ID:'PM-2604-219',캠프명:'양주2MB',점검상태:'완료',프로젝트NO:'UJ2601234',",
+        "  점검예정일:'2026-04-01',실제점검일:'2026-04-03',담당기사:'김필우'};",
+        "const done={점검ID:'PM-2608-001',캠프명:'구리MB',점검상태:'예정',DB버전:3,_store_id:'x',",
+        "  점검예정일:'2026-08-20',실제점검일:'',담당기사:'김준형',프로젝트NO:'UJ2601999'};",
+        "works.pm=[plan,half,done];",
+        "const out={};",
+        "out.갈래=[wtUnregistered(plan),wtUnregistered(half),wtUnregistered(done)];",
+        "const hP=wtCard('pm',plan), hH=wtCard('pm',half), hD=wtCard('pm',done);",
+        "const has=(h,s)=>h.indexOf(s)>=0;",
+        "out.plan=[has(hP,'wtRegisterFromPlan'),has(hP,'wtSaveCard'),has(hP,'wtBeginEdit'),",
+        "  has(hP,'wtComplete'),has(hP,'등록하고 완료 처리')];",
+        "out.half=[has(hH,'wtRegisterFromPlan'),has(hH,'wtSaveCard'),has(hH,'두 개가 됩니다')];",
+        "out.done=[has(hD,'wtRegisterFromPlan'),has(hD,'wtSaveCard'),has(hD,'wtBeginEdit'),",
+        "  has(hD,'wtComplete')];",
+        "WT_DRAFTS[wtDraftKey('pm','SCH-2026Q3-25D510AD97')]={담당기사:'김필우',점검상태:'완료',",
+        "  점검예정일:'2026-08-21',실제점검일:'2026-08-21','유상·무상·보험':'유상'};",
+        "wtRegisterFromPlan('pm','SCH-2026Q3-25D510AD97');",
+        "out.넘김=OPENED;",
+        "console.log(JSON.stringify(out));",
+    ])
+
+    tmp = _tf.mkdtemp()
+    f = os.path.join(tmp, "t466.js")
+    _io.open(f, "w", encoding="utf-8", newline=_NL).write(harness)
+    r = _pg.run_tree(["node", f], timeout=180)
+    if r.returncode != 0 and "not recognized" in ((r.stderr or "") + (r.stdout or "")):
+        print("   [466] node 가 없어 화면 동작은 못 쟀다 — 통과라는 뜻이 아니다")
+        return
+    assert r.returncode == 0, (r.stdout or "") + (r.stderr or "")
+    got = json.loads((r.stdout or "").strip().splitlines()[-1])
+
+    assert got["갈래"] == ["plan", "half", ""], got["갈래"]
+    # ① 등록 안 된 예정: 등록 길만 준다 — 눌러도 안 되는 단추를 안 준다
+    assert got["plan"] == [True, False, False, False, True], (
+        "등록 안 된 예정에 저장·수정·완료 단추가 남아 있다 — 다섯 칸을 채우고 나서야 막힌다: %r"
+        % (got["plan"],))
+    # ② 반쪽 목록: **등록 단추를 절대 안 준다**(같은 기록이 두 개가 된다 · 되돌릴 수 없다)
+    assert got["half"][0] is False, "반쪽 목록에 등록 단추가 떴다 — 같은 기록이 두 개가 된다([348])"
+    assert got["half"][1] is False and got["half"][2] is True, got["half"]
+    # ③ 등록된 행은 예전 그대로 — 좁히는 것도 고장이다([172])
+    assert got["done"] == [False, True, True, True], (
+        "등록된 행의 수정·저장·완료가 사라졌다([172] 좁히는 것도 고장): %r" % (got["done"],))
+    # ④ 적어 둔 값이 등록 폼으로 넘어간다 — 안 넘기면 사람이 다섯 칸을 두 번 채운다
+    pf = (got["넘김"] or {}).get("p") or {}
+    assert (got["넘김"] or {}).get("k") == "pm", got["넘김"]
+    for k_, v_ in (("camp_name", "일산2MB(당산동)"), ("assignee", "김필우"),
+                   ("cost_type", "유상"), ("status", "완료"), ("date", "2026-08-21")):
+        assert pf.get(k_) == v_, ("등록 폼에 %s 가 안 넘어갔다: %r" % (k_, pf))
+    assert "SCH-2026Q3-25D510AD97" in str(pf.get("description") or ""), pf
+
+    # ⑤ 저장 관문도 갈래를 말한다 — 다른 목록(캘린더·확인필요)에서 들어와도 같다
+    blk = _fn("entryVersionBlocked")
+    assert "wtUnregistered(entryRowOf(kind, id))==='plan'" in blk, (
+        "저장 관문이 갈래를 안 가른다 — 예정에도 '목록이 반쪽' 이라 말한다([172])")
+    assert "반쪽" in blk, "반쪽 목록 갈래가 사라졌다([172] 좁히는 것도 고장)"
+
+    # ⑥ 판정은 한 곳이다([162]) — 상세 시트가 제 사본을 두면 한쪽만 고쳐진다
+    ipf = _fn("inputForm")
+    assert "wtUnregistered(r)==='half'" in ipf, "상세 시트가 판정 사본을 들고 있다([162])"
+    assert len(_re.findall(r"\(PM\|AS\|JS\|FW\)-", src)) == 1, (
+        "등록형 ID 판정이 두 곳에 있다([162]) — 한쪽만 고쳐진다")
+    print("  [466] 등록 안 된 예정에 저장 단추 대신 등록 길(값까지 넘긴다) \u2705")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -31407,13 +31556,16 @@ def t348_drilling_into_a_record_never_moves_the_ground():
     def form_probe(gate=None):
         body = grab("function inputForm(kind, r, id){")
         if gate is not None:
-            old = ("const registered = /^(PM|AS|JS|FW)-/i.test(rid) "
-                   "|| !!String(r.프로젝트NO||'').trim();")
+            # 판정이  한 곳으로 옮겨졌다([466]) — 앵커도 따라간다.
+            #   얼릴 것은 **계약**이지 그때 쓴 글자가 아니다([39]·[219]).
+            old = "const registered = wtUnregistered(r)==='half';"
             assert old in body, "갈래 문을 못 찾았다 — 계기 시험이 성립하지 않는다"
             body = body.replace(old, "const registered = " + gate + ";")
         return NL2.join([
             grab("function esc2(s){", True),
             grab("function recordIdOf(r){"),
+            # 갈래 판정도 실제 소스로 떼어 온다([466]·[366] — 스텁이면 실제 코드를 안 잰다)
+            grab("function wtUnregistered(r){"),
             # inputForm 이 이제 권한을 묻는다([169]) — 떼어 갈 때 같이 떼어 온다.
             #   스텁으로 때우면 이 하네스는 실제 코드를 안 재게 된다.
             grab("function entryAllowedFields(kind){"),
@@ -42538,6 +42690,7 @@ if __name__ == "__main__":
     t463_cleanup_runs_and_never_decides_the_rollback_keep()
     t464_origin_mirror_copies_and_never_flips_the_address_early()
     t465_gate_trace_says_why_not_just_how_long()
+    t466_unregistered_plan_gets_a_way_not_a_dead_button()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

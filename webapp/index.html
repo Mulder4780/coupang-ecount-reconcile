@@ -8516,13 +8516,21 @@ function wtCard(k,r){
   const stv=wtStatus(k,r);
   const stChip = chip(stv);
   const editing=wtIsEditing(k,id),dirty=Object.keys(wtDraftOf(k,id)).length>0;
+  /* 못 하는 일에 단추를 주지 않는다 — 눌러도 안 되는 단추는 고장으로 읽힌다([310]·[348]). */
+  const unreg=wtUnregistered(r);
   return `<div class="wt-card${editing?' is-editing':''}${dirty?' is-dirty':''}" data-wt-key="${esc2(wtDraftKey(k,id))}">
     <div class="top"><b class="prjno">${esc2(r.프로젝트NO||id||'-')}</b>
       <span class="camp">${esc2(r.캠프명||'캠프 미상')}</span>${stChip}${wtCampCode(r.캠프명)}
       <div class="wt-card-actions">
-        <button class="wt-open wt-modify" onclick="wtBeginEdit('${k}',${esc4(id)})">${editing?'수정 중':'수정'}</button>
-        <button class="wt-open wt-save" onclick="wtSaveCard('${k}',${esc4(id)})" ${editing?'':'disabled'}>${dirty?'저장 · 변경됨':'저장'}</button>
-        ${/완료|취소/.test(stv)?'':`<button class="wt-open wt-done" onclick="wtComplete('${k}',${esc4(id)})">✓ 완료 처리</button>`}
+        ${unreg==='plan'
+          ? `<button class="wt-open wt-modify" onclick="wtRegisterFromPlan('${k}',${esc4(id)})"
+               title="이 예정은 앱 DB에 행이 없습니다. 실제로 다녀왔다면 정식 등록해야 저장됩니다 — 적어 두신 값은 그대로 넘어갑니다.">+ 등록하고 완료 처리</button>`
+          : unreg==='half'
+          ? `<button class="wt-open" onclick="loadSettle(true).then(()=>toast('목록을 다시 받았습니다 — 이 건을 다시 봐 주세요'))"
+               title="이미 등록된 기록인데 목록이 앱 DB 버전을 싣지 못하고 왔습니다. 새로 등록하지 마세요.">목록 다시 받기</button>`
+          : `<button class="wt-open wt-modify" onclick="wtBeginEdit('${k}',${esc4(id)})">${editing?'수정 중':'수정'}</button>
+             <button class="wt-open wt-save" onclick="wtSaveCard('${k}',${esc4(id)})" ${editing?'':'disabled'}>${dirty?'저장 · 변경됨':'저장'}</button>
+             ${/완료|취소/.test(stv)?'':`<button class="wt-open wt-done" onclick="wtComplete('${k}',${esc4(id)})">✓ 완료 처리</button>`}`}
         <button class="wt-open" onclick="openRecord('${k}',${esc4(id)},${esc4(String(r.프로젝트NO||''))})">상세</button>
       </div></div>
     <div class="meta"><span class="sid">${esc2(id)}</span>
@@ -8539,6 +8547,52 @@ function wtCard(k,r){
      다녀온 현장을 지워 버린다 — 되살릴 수는 있어도 그 사이 아무도 안 간다.
      · 청구 제외 = 다녀왔지만 이 건으로는 청구 안 함 → **기록은 남는다**
      · 삭제      = 잘못 등록된 건 → 목록·집계·청구에서 뺀다(되살리기 가능) */
+/* ═══ 앱 DB에 행이 없는 갈래를 가른다 — **조치가 정반대다** (2026-08-27 류지영 실사고) ═══
+   류지영 카드: `SCH-2026Q3-25D510AD97` 일산2MB(당산동) 에 담당기사·점검상태(완료)·
+   점검예정일·실제점검일·비용구분 **다섯 칸을 다 채우고** 저장을 눌렀더니
+   "목록이 **반쪽으로** 온 것일 수 있습니다" 가 떴다. 그 건은 반쪽이 아니라
+   **스케줄 원본에서만 온 예정**이라 앱 DB에 행이 처음부터 없다 — **틀린 지목**([172]).
+   ★ 더 나쁜 것은 카드가 **위아래로 서로 다른 말**을 한 것이다: 아래 안내는
+     "앱에 등록되지 않아 청구제외도 삭제도 못 한다" 고 적으면서 위에는 수정·저장·
+     완료 처리 단추를 준다. 그래서 다섯 칸을 채우고 **나서야** 막혔다 — 헛수고다.
+   ★ 판정은 `inputForm` 이 이미 하고 있었다([348]) — 여기로 **옮겨** 셋이 같이 쓴다([162]).
+     사본을 두면 한쪽만 고쳐지고, 그때 되돌릴 수 없는 단추가 엉뚱한 행에 뜬다.
+   ★ 근거는 **기록 ID 모양과 프로젝트NO** 다(실측 v608: 버전 없는 정기점검 70건이
+     전부 `SCH-` · 등록형 ID 에 버전 없는 행은 0건). 등록형인데 버전이 없다면
+     그것은 계획이 아니라 **목록이 반쪽으로 온 것**이고, 새로 등록하면
+     **같은 기록이 두 개가 된다**(되돌릴 수 없는 쪽).
+   '' = 등록됨 · 'plan' = 스케줄 원본 예정(등록하면 된다) · 'half' = 목록이 반쪽 */
+function wtUnregistered(r){
+  if(!r) return '';
+  const ver=Number(r.DB버전||r._record_version||r.record_version||0);
+  if(r._store_id || ver>=1) return '';
+  const rid=String(recordIdOf(r)||'').trim();
+  return (/^(PM|AS|JS|FW)-/i.test(rid) || String(r.프로젝트NO||'').trim()) ? 'half' : 'plan';
+}
+/* 그 기록의 화면 행을 집는다 — 버전·갈래를 물을 때 쓰는 자리가 하나다([162]). */
+function entryRowOf(kind, id){
+  const col=entryKeyCol(kind); if(!col) return null;
+  const pool = kind==='settle' ? (settleRows||[]) : ((works||{})[kind]||[]);
+  return pool.find(r=>String(r[col]||'').trim()===String(id||'').trim())||null;
+}
+/* 스케줄 원본 예정을 **정식 등록**으로 보낸다 — 적어 둔 값을 그대로 들고 간다.
+   ★ 이것이 이 고침의 값어치다. 안 넘기면 사람이 다섯 칸을 **두 번** 채운다.
+   ★ 자동으로 등록하지 않는다 — 폼에서 사람이 보고 저장한다(되돌릴 수 없는 쪽이다). */
+function wtRegisterFromPlan(k,id){
+  const cfg=WT_CFG[k], row=(cfg&&cfg.rows().find(r=>String(r[cfg.idCol]||'').trim()===id))||null;
+  if(!row){ toast('선택한 예정을 목록에서 찾지 못했습니다'); return; }
+  const draft=wtDraftOf(k,id)||{};
+  const pick=c=>String((draft[c]!==undefined?draft[c]:row[c])||'').trim();
+  const done=pick(cfg.doneCol), plan=pick(cfg.dateCol);
+  const nm=(k==='pm')?'정기점검':'돌발AS';
+  openNewWork(k,{camp_name:String(row.캠프명||'').trim(), assignee:pick('담당기사'),
+    cost_type:pick('유상·무상·보험'), status:pick(cfg.stCol),
+    date:String(done||plan||'').slice(0,10),
+    description:'스케줄 원본 예정 '+id+' 에서 등록',
+    title:nm+' 신규 등록 — 예정 '+id,
+    sub:'적어 두신 값을 그대로 옮겼습니다. 확인하고 저장하시면 앱 DB 정본에 남습니다.'});
+  uxEvent('tap','wt-register-plan-'+k,id);
+}
 function wtRowActions(k,id,r){
   /* ★ 앱 DB 에 행이 없으면 **두 단추 다 안 그린다** — 눌러도 안 되는 단추는
      고장으로 읽힌다([172]). 삭제는 `_staff_work_target` 이, 청구 제외는
@@ -8548,10 +8602,17 @@ function wtRowActions(k,id,r){
        `SCH-` 70건이 전부 DB버전 없음 · 나머지 401건은 전부 있음으로 깨끗이 갈린다.
      ★ 조용히 빼지 않고 **왜 안 되는지 적는다**([169]) — 안 적으면 이번에는
        단추가 사라졌다고 여긴다. */
-  if(!Number(r.DB버전||r._record_version||0))
+  const _unreg = wtUnregistered(r);
+  if(_unreg==='plan')
     return `<div class="wt-acthint">이 건은 아직 <b>앱에 등록되지 않은 예정</b>입니다
-      (류지영 정기점검 스케줄 원본에서 온 일정) — 관리대장·앱 DB 에 행이 없어
-      청구 제외도 삭제도 할 수 없습니다. 목록에서 빼는 길은 아직 없습니다 — 형님께 말씀해 주세요.</div>`;
+      (스케줄 원본에서 온 일정) — 관리대장·앱 DB 에 행이 없어 <b>여기서는 저장도
+      청구 제외도 삭제도 할 수 없습니다.</b> 실제로 다녀오셨으면 위
+      <b>[+ 등록하고 완료 처리]</b> 를 눌러 주세요 — <b>적어 두신 값은 그대로 넘어갑니다.</b></div>`;
+  if(_unreg==='half')
+    return `<div class="wt-acthint">이 건은 <b>이미 등록된 기록</b>인데 이 목록이
+      <b>앱 DB 버전을 싣지 못하고 왔습니다</b> — 그래서 여기서는 저장할 수 없어요.
+      <b style="color:var(--danger)">새로 등록하지 마세요 — 같은 기록이 두 개가 됩니다.</b>
+      위 [목록 다시 받기] 를 눌러 보고, 같으면 [실행] 화면에서 앱 DB 상태를 확인해 주세요.</div>`;
   const off = String(r.청구제외||'')==='예';
   return `<div class="wt-acts">
     ${off
@@ -15842,7 +15903,8 @@ function inputForm(kind, r, id){
        ★ 모르면 안전한 쪽으로 간다: 둘 중 하나라도 '등록된 기록' 이라 말하면
          되돌릴 수 없는 단추를 안 보여 준다. */
     const rid=String(recordIdOf(r)||'').trim();
-    const registered = /^(PM|AS|JS|FW)-/i.test(rid) || !!String(r.프로젝트NO||'').trim();
+    /* 판정은 `wtUnregistered` 한 곳이다([162]) — 사본을 두면 한쪽만 고쳐진다. */
+    const registered = wtUnregistered(r)==='half';
     if(registered) return `<div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">확인 내용 입력</div>
       <div style="margin-top:8px;padding:12px 14px;border-radius:11px;background:rgba(127,127,127,.08);border:1px solid var(--line);font-size:13.5px;line-height:1.6;color:var(--ink-2)">
         이 건은 <b>이미 등록된 기록</b>입니다(내부기록 ${esc2(rid||'-')}). 그런데 이 목록이
@@ -15901,9 +15963,7 @@ function entryKeyCol(kind){ return ((INPUT_SPEC[kind]||{}).key_col)||''; }
 async function freshEntryVersion(kind, id){
   try{
     await loadSettle(true);
-    const col=entryKeyCol(kind); if(!col) return 0;
-    const pool = kind==='settle' ? (settleRows||[]) : ((works||{})[kind]||[]);
-    const hit = pool.find(r=>String(r[col]||'').trim()===String(id||'').trim());
+    const hit = entryRowOf(kind, id);          // 행 찾기는 한 곳이다([162])
     return hit ? Number(hit.DB버전||hit._record_version||hit.record_version||0) : 0;
   }catch(e){ return 0; }
 }
@@ -15933,6 +15993,17 @@ async function entryVersion(kind, id, hint){
 /* 못 집었을 때 **누르기 전에** 하는 말 — 서버 400 을 기다리지 않는다.
    갈래를 뭉치지 않는다([257]): '새로고침' 만 말하면 사람은 같은 반쪽을 또 받는다. */
 async function entryVersionBlocked(kind, id){
+  /* ★ 갈래를 뭉치지 않는다([257]·[289] — 조치가 정반대다). 2026-08-27 류지영:
+     스케줄 원본 예정(`SCH-`)인데 '목록이 반쪽' 이라 말해 사람이 **없는 문제**를
+     찾게 했다([172]). 그 건은 반쪽이 아니라 앱 DB에 행이 처음부터 없다. */
+  if(wtUnregistered(entryRowOf(kind, id))==='plan'){
+    await notice('이 건은 아직 <b>앱 DB에 등록되지 않은 예정</b>입니다(스케줄 원본에서 온 일정).'
+      + String.fromCharCode(10) + '목록이 반쪽으로 온 것이 아니라 <b>행이 처음부터 없어서</b> 저장할 수 없습니다.'
+      + String.fromCharCode(10) + '실제로 다녀오셨으면 그 카드의 <b>[+ 등록하고 완료 처리]</b> 로 정식 등록해 주세요 —'
+      + ' 적으신 값은 그대로 넘어갑니다.', {title:'아직 등록되지 않은 예정입니다', html:true});
+    try{ uxEvent('error','/api/staff/entry','PLAN_NOT_REGISTERED:'+kind+':'+id); }catch(e){}
+    return;
+  }
   await notice('이 건의 앱 DB 버전을 화면이 알지 못해 저장하지 못했습니다.'
     + String.fromCharCode(10) + '목록이 **반쪽으로** 온 것일 수 있습니다 — 목록을 다시 받아도'
     + ' 같으면 [실행] 화면에서 앱 DB 상태를 먼저 확인해 주세요.'
