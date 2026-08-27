@@ -27677,6 +27677,45 @@ def t450_kakao_hold_is_never_reported_as_success():
         KA._say_held = _real_say
     assert caught, "말하는 문을 없앴는데도 통과했다 — 이 검사는 아무것도 안 재고 있다"
     assert KA._say_held is _real_say, "목을 안 되돌렸다([371])"
+    # (7) 조치가 **문구가 말한 그 시트**를 가리킨다 (2026-08-27 실사고).
+    #     실측: 조치가 `--sheet 02_돌발AS접수 --add 12` 고정이었는데 그날 보류된
+    #     것은 05_신규납품설치였다 — 붙여넣으면 엉뚱한 시트를 늘리고 보류는
+    #     그대로 남는다([172]). `--apply` 도 빠져 아무것도 안 늘어난다([408]).
+    line5 = ("[보류] 05_신규납품설치: 2건 필요 / 여유 0행 — 전량 보류 "
+             "(python expand_rows.py --sheet 05_신규납품설치 --add 12 --apply 후 재실행)")
+    cmd5 = SH.held_fix(line5)
+    assert cmd5 and "05_신규납품설치" in cmd5, ("문구가 말한 시트를 안 뽑았다: %r" % cmd5)
+    assert "--apply" in cmd5, "미리보기만 되는 명령을 조치로 준다([408])"
+    assert "02_돌발AS접수" not in cmd5, "고정 시트 이름이 남아 있다"
+    # 지어내지 않는다([169]) — 못 뽑거나 없는 파일이면 None
+    assert SH.held_fix("[보류] 말만 있는 줄") is None
+    assert SH.held_fix("(python 없는파일_zzz.py --add 1 후 재실행)") is None, (
+        "없는 파일을 가리키면 그것도 틀린 조치다([448])")
+    assert SH.held_fix(None) is None and SH.held_fix("") is None
+    # blockers 가 실제로 그 명령을 싣는다([328])
+    if _os.path.exists(snap):
+        st7 = dict(_json.load(_io.open(snap, encoding="utf-8")))
+        st7["카톡보류"] = {"보류": [line5], "때": "2026-08-27T17:56:34", "파일": []}
+        act = [a for l, a in (SH.blockers(st7) or []) if "[카톡]" in l]
+        assert act and "05_신규납품설치" in act[0] and "--apply" in act[0], (
+            "인계 조치가 문구를 안 따라간다: %r" % act[:1])
+    # 계기 자기시험([272]) — 고정 문자열로 되돌리면 잡히나
+    caught7 = False
+    _real_fix = SH.held_fix
+    try:
+        SH.held_fix = lambda _l: None          # 옛 동작: 문구를 안 읽는다
+        if _os.path.exists(snap):
+            st8 = dict(_json.load(_io.open(snap, encoding="utf-8")))
+            st8["카톡보류"] = {"보류": [line5], "때": "x", "파일": []}
+            act8 = [a for l, a in (SH.blockers(st8) or []) if "[카톡]" in l]
+            if not (act8 and "05_신규납품설치" in act8[0]):
+                caught7 = True
+        else:
+            caught7 = True                     # 스냅샷이 없으면 이 갈래는 못 잰다
+    finally:
+        SH.held_fix = _real_fix
+    assert caught7, "문구를 안 읽어도 통과했다 — 이 검사는 아무것도 안 재고 있다"
+    assert SH.held_fix is _real_fix, "목을 안 되돌렸다([371])"
     print(chr(9989), "[450] 카톡 보류를 성공이라 적지 않는다 — 끝 줄·자국·인계가 말한다")
 
 def t451_applyview_calls_are_not_swallowed_by_a_comment():

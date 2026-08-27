@@ -1340,6 +1340,32 @@ def _kakao_held():
             '파일': [str(x) for x in (rec.get('받은파일') or [])]}
 
 
+# ★ 보류 문구가 **스스로 적어 둔 명령**을 그대로 쓴다([162] · 2026-08-27).
+#   실측: 인계 조치가 `--sheet 02_돌발AS접수 --add 12` **고정 문자열**이었는데
+#   그날 보류된 것은 **05_신규납품설치** 였다. 붙여넣으면 엉뚱한 시트를 늘리고
+#   보류는 그대로 남는다([172] 틀린 지목). 게다가 `--apply` 가 빠져 있어
+#   **아무것도 안 늘어난다** — 막기만 하는 안내는 없는 안내다([408]).
+#   kakao_extract 는 어느 시트를 몇 행 늘려야 하는지 **이미 알고** 괄호 안에
+#   그 명령을 넣어 둔다. 읽는 쪽이 다시 지으면 그것이 사본이고 언젠가 갈린다.
+_HELD_CMD = re.compile(r"\(\s*(python\s+[^)]+?)\s*(?:후\s*재실행)?\s*\)")
+
+
+def held_fix(line):
+    """보류 한 줄에서 붙여넣어 도는 명령을 뽑는다. 못 뽑으면 None([169])."""
+    m = _HELD_CMD.search(str(line or ""))
+    if not m:
+        return None
+    cmd = " ".join(m.group(1).split())
+    parts = cmd.split()
+    # 없는 파일을 가리키면 그것도 틀린 조치다([448]) — 지어내느니 안 준다.
+    if len(parts) < 2 or not parts[1].endswith(".py"):
+        return None
+    if not os.path.exists(os.path.join(BASE, parts[1].replace("/", os.sep))):
+        return None
+    return cmd
+
+
+
 def _cloud_snapshot_gap():
     """폰이 1순위로 읽는 D1 최신 사본이 막혔나 (2026-08-26 지시).
 
@@ -1434,7 +1460,7 @@ def blockers(st, for_sol=False):
             out.append(("[카톡] 반영이 **%d건을 보류했다 — 그만큼은 원장에 안 들어갔다**"
                         "(회차는 '성공' 으로 끝난다): %s%s · 자국 %s"
                         % (len(_hl), _hl[0][:110], _more, _kh.get("때") or "?"),
-                        "python expand_rows.py --sheet 02_돌발AS접수 --add 12"))
+                        held_fix(_hl[0]) or "type reports\\카톡_반영회차.json"))
 
     _st = st.get("자율복구굳음")
     if isinstance(_st, dict):
