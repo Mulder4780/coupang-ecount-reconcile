@@ -702,9 +702,29 @@ def build() -> dict[str, Any]:
                 " · ".join(str(x)[:170] for x in warnings[:3]),
                 "python exec_report_guard.py --print", "reports/대표보고_검증.json")
         if unknown:
-            add("executive-guard-unknown", "P1", "대표 보고 검증이 일부 근거를 못 읽음",
-                " · ".join(str(x)[:170] for x in unknown[:2]),
-                "python exec_report_guard.py --print", "reports/대표보고_검증.json")
+            # ★ **지나간 자원 실패를 오늘 P1 로 올리지 않는다**(`[424]`·`[461]`).
+            #   실측 2026-08-27: 이 P1 의 사유가 `관리대장을 찾을 수 없음: Z:/…` 인데
+            #   그 순간 공유폴더를 못 잡은 것이고 **지금 재면 Z: 는 멀쩡하다.**
+            #   그 조치는 사람을 멀쩡한 코드로 보내고(`[172]`) 진짜 경보를 덮는다(`[170]`).
+            # ★ **판정을 새로 만들지 않는다**(`[162]`) — `_steps_resource_recovered`
+            #   를 그대로 빌린다. 그 함수는 **사유 목록**이면 되고 그것이 단계 이름인지
+            #   검증 문구인지는 안 따진다. 안전핀(코드 고장 섞임·못 읽음·아직 죽음)도
+            #   그대로 물려받는다.
+            keys = [str(i) for i in range(len(unknown))]
+            back = _steps_resource_recovered(
+                {k: str(v) for k, v in zip(keys, unknown)}, keys)
+            why_line = " · ".join(str(x)[:170] for x in unknown[:2])
+            if back is True:
+                # ★ 조용히 빼지 않는다(`[169]`) — 사유는 그대로 싣고 **무게만** 내린다.
+                #   **"고쳐졌다"고 말하지 않는다**(`[322]`).
+                add("executive-guard-resource-back", "P2",
+                    "대표 보고 검증이 못 읽은 것은 그때 공유폴더를 못 잡은 것이다",
+                    "%s · 못 읽은 근거가 **모두 자원 탓**이고 그 자원은 **지금 살아 있다** — 코드가 깨진 것이 아니다. 다음 회차가 답한다." % why_line,
+                    "python exec_report_guard.py --print", "reports/대표보고_검증.json")
+            else:
+                add("executive-guard-unknown", "P1", "대표 보고 검증이 일부 근거를 못 읽음",
+                    why_line,
+                    "python exec_report_guard.py --print", "reports/대표보고_검증.json")
 
     # 8) 댓글 사각지대는 0건이 아니라 '아직 안 본 건'이다.
     cancel_path = REPORTS / "접수취소_확인.md"

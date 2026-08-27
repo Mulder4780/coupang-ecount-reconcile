@@ -137,6 +137,36 @@ def _amount_of(details: Dict[str, Any], label: str) -> Any:
     return d.get("amount"), d.get("count"), (d.get("rows") or [])
 
 
+def _exc_line(exc, mod=None, limit=300):
+    """예외 -> **비지 않는** 한 줄. 갈래 이름을 절대 안 뺀다(`[292]`).
+
+    ★ 왜 (2026-08-27 실측): 예전에는 `str(exc)[:120]` 뿐이라 **둘이 한꺼번에**
+      무너졌다 — ① 갈래 이름(`FileNotFoundError`)이 없어 `autopilot._ERR_MARK`
+      (`Error|Exception|Traceback|…`)가 오류 줄을 못 찾고 ② 120자에서 잘려
+      **경로 끝의 `.xlsx` 가 사라진다**(실측: 그 경로는 `.xlsx` 까지 152자다).
+      그러면 `autopilot.resource_back` 이 경로를 못 뽑아 영영 `None`(모름)이고,
+      **지나간 자원 실패가 매일 아침 P1 로 인계 맨 위에 남는다**(`[461]` 이
+      "안 고쳤다"고 적어 둔 자리다).
+
+    ★ **둘 다 필요하다** — 실측으로 갈래 이름만 세우면 152자가 잘려 여전히
+      `None` 이고, 자름만 늘리면 `_ERR_MARK` 가 못 찾아 여전히 `None` 이다.
+      둘을 같이 하면 `True`(그 자원은 지금 살아 있다)가 나온다.
+    ★ **만드는 자리는 하나다**(`[162]`) — `app_server.error_reason` 을 빌린다.
+      그것은 갈래 이름과 **터진 자리**까지 세운다. 그 모듈을 못 부르는 갈래
+      (import 자체가 실패한 자리)에서만 같은 계약으로 최소한을 만든다.
+    """
+    try:
+        m = mod
+        if m is None:
+            import app_server as m  # noqa: PLC0415 - 오류 갈래에서만 늦게 부른다
+        return m.error_reason(exc, limit)
+    except Exception:  # noqa: BLE001 - 사유를 만들다 죽으면 사유가 통째로 없어진다
+        kind = type(exc).__name__ or "Exception"
+        why = str(exc).strip()
+        line = ("%s: %s" % (kind, why)) if why else ("%s (사유 문구 없는 예외)" % kind)
+        return line[:limit]
+
+
 def build(day: Optional[str] = None) -> Dict[str, Any]:
     """대표보고를 **화면과 같은 길로** 받아 다섯 가지를 묻는다."""
     out: Dict[str, Any] = {"만든때": datetime.now().isoformat(timespec="seconds"),
@@ -148,7 +178,7 @@ def build(day: Optional[str] = None) -> Dict[str, Any]:
         warnings.filterwarnings("ignore")
         import app_server as A
     except Exception as exc:
-        out["못물어봄"].append("집계기를 못 불렀다: %s" % str(exc)[:120])
+        out["못물어봄"].append("집계기를 못 불렀다: %s" % _exc_line(exc))
         return out
 
     if getattr(A, "DEMO", False):
@@ -160,7 +190,7 @@ def build(day: Optional[str] = None) -> Dict[str, Any]:
     try:
         rep = A.get_exec_report(day)
     except Exception as exc:
-        out["못물어봄"].append("대표보고 집계가 실패했다: %s" % str(exc)[:120])
+        out["못물어봄"].append("대표보고 집계가 실패했다: %s" % _exc_line(exc, A))
         return out
 
     details = rep.get("details") or {}

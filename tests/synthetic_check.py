@@ -23145,12 +23145,33 @@ def t358_cache_copies_never_land_in_the_dump_folder():
             with open(os.path.join(base, "band", "cache", name), "w",
                       encoding="utf-8") as fh:
                 json.dump(doc, fh)
-        old = (CS.BASE, CS.BAND_DIR, SD.BAND_DIR)
+        # ★ **Z: 공유폴더와 Downloads 를 끈다**([211] · 2026-08-27 실측).
+        #   `plan()` 은 `PO_DIRS`·`RECEIPT_DIRS`(전부 Z:)와 `DOWNLOADS` 를
+        #   통째로 훑고 그 안 엑셀을 **열어서** 갈래를 가른다(`classify_cached`).
+        #   이 검사가 재는 것은 **`band/cache` 안 파일의 목적지**뿐이다
+        #   (`mine` 이 그 밖의 일감을 이미 버린다). 그래서 끄면 **재는 것이
+        #   한 톨도 안 줄고** 시간만 없어진다 — 실측 244.4초(관문의 14.9%)이고
+        #   회선이 느린 날에는 더 길어져 **관문이 한도를 넘긴다**. 관문은
+        #   `daily_run` 의 0단계라 그날 대조가 통째로 안 돈다.
+        # ★ 목은 `finally` 로 되돌린다([371]) — 모듈 속성은 프로세스 전체의 것이다.
+        empty = os.path.join(td, "빈폴더")
+        os.makedirs(empty)
+        old = (CS.BASE, CS.BAND_DIR, SD.BAND_DIR, CS.PO_DIRS, CS.RECEIPT_DIRS,
+               CS.DOWNLOADS)
+        t0 = time.time()
         try:
             CS.BASE, CS.BAND_DIR, SD.BAND_DIR = base, band, band
+            CS.PO_DIRS, CS.RECEIPT_DIRS, CS.DOWNLOADS = (), (), empty
             jobs = CS.plan()
         finally:
-            CS.BASE, CS.BAND_DIR, SD.BAND_DIR = old
+            (CS.BASE, CS.BAND_DIR, SD.BAND_DIR, CS.PO_DIRS, CS.RECEIPT_DIRS,
+             CS.DOWNLOADS) = old
+        took = time.time() - t0
+    # ★ 격리가 깨지면 여기서 잡힌다 — 실데이터를 훑으면 240초대다(임시만이면 0.1초).
+    #   한도는 아주 넉넉히 둔다: 거짓 실패는 그날 아침 대조를 죽인다([172]).
+    assert took < 60, (
+        "[358] plan() 이 %.1f초 걸렸다 — 검사가 다시 실데이터(Z:·Downloads)를 "
+        "훑고 있다([211])" % took)
 
     mine = [(s, d, why) for s, d, why in jobs
             if os.path.join("band", "cache") in s]
@@ -29291,6 +29312,118 @@ def t461_daily_run_resource_recovered():
             SA.REPORTS = real
 
     print(chr(9989) + " [461] 일일 대조 자원 회복 — 완화 1 · 안전핀 4 · 갈래 3 · 자기시험 1")
+
+
+def t462_exec_guard_reason_is_answerable():
+    """대표보고 실패 문구가 **판정에 답할 수 있어야** 한다 — 실행으로 잰다([295]).
+
+    ★ 왜 (2026-08-27 실측): 그 문구가 `str(exc)[:120]` 뿐이라 **둘이 한꺼번에**
+      무너졌다 — 갈래 이름이 없어 `autopilot._ERR_MARK` 가 오류 줄을 못 찾고,
+      120자에서 잘려 **경로 끝 `.xlsx` 가 사라져** `_RES_PATH_RE` 가 경로를 못 뽑는다.
+      그래서 `resource_back` 이 영영 `None`(모름)이고 **지나간 자원 실패가 매일
+      아침 P1 로 인계 맨 위**에 남았다([461] 이 "안 고쳤다"고 적어 둔 자리다).
+    ★ **둘 다 필요하다** — (4) 가 그것을 잰다: 옛 방식이면 `None` 이어야 한다.
+      안 그러면 이 검사는 아무것도 안 재면서 통과한다([272]).
+    ★ **좁히는 것도 고장이다**([172]) — 자원이 아직 죽어 있거나 코드 고장이 섞이면
+      **P1 그대로**여야 한다. (6)(7) 이 그 방향을 잰다.
+    ★ 실측 증거에는 **한 글자도 안 쓴다**([247]) — 임시 REPORTS 로만 잰다.
+    ★ 목은 `finally` 로 되돌린다([371]).
+    """
+    import json
+    import tempfile
+    from pathlib import Path
+
+    import autopilot as AP
+    import exec_report_guard as G
+    import system_audit as SA
+
+    LONG = ("관리대장을 찾을 수 없음: Z:/2. Cost/aaaaaaaaaaaaaaaaaaaaaaaaa/"
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/cccccccccccccccccccccccccccccc/"
+            "dddddddddddddddddddddddddddddd/ledger_v20.xlsx")
+    assert LONG.index(".xlsx") + 5 > 120, (
+        "[462] 재료가 짧아 자름을 안 넘는다 — 이 검사는 아무것도 안 잰다")
+
+    # (1)(2) 갈래 이름을 절대 안 뺀다([292])
+    line = G._exc_line(FileNotFoundError(LONG))
+    assert line.startswith("FileNotFoundError:"), (
+        "[462] 갈래 이름이 앞에 없다 — _ERR_MARK 가 오류 줄을 못 찾는다")
+    assert G._exc_line(Exception()).strip(), (
+        "[462] 사유 문구 없는 예외에 **빈 줄**을 준다([292])")
+
+    # (3) 지금 방식이면 판정이 답한다
+    now_ok = AP.resource_back("대표보고 집계가 실패했다: " + line)
+    assert now_ok is not None, (
+        "[462] 새 문구인데도 resource_back 이 모름이다 — 경로가 잘렸거나 갈래가 없다")
+
+    # (4) ★ 계기 자기시험([272]) — 옛 방식이면 모름이어야 한다
+    old = "대표보고 집계가 실패했다: %s" % str(FileNotFoundError(LONG))[:120]
+    assert AP.resource_back(old) is None, (
+        "[462] 옛 방식으로도 판정이 답한다 — (3) 은 아무것도 안 재고 있다")
+
+    # (5)(6)(7)(8) build 갈래 — 임시 REPORTS 로만([247])
+    def _stage(reports, unknown):
+        reports.mkdir(parents=True, exist_ok=True)
+        (reports / "대표보고_검증.json").write_text(
+            json.dumps({"먼저볼것": [], "못물어봄": unknown, "잰것": {}},
+                       ensure_ascii=False), encoding="utf-8")
+
+    def _guard_hits():
+        return [f for f in SA.build()["findings"]
+                if str(f["id"]).startswith("executive-guard")]
+
+    dead_line = "FileNotFoundError: 관리대장을 찾을 수 없음: Q:/없는폴더_t462/ledger_v20.xlsx"
+
+    real = SA.REPORTS
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        # ★ 살아 있는 자원은 **실재하는** 폴더여야 한다 — `resource_back` 은
+        #   그 경로의 상위 폴더를 실제로 찔러 본다. 없는 폴더를 재료로 쓰면
+        #   False 가 나와 이 검사가 **엉뚱한 것을 지목한다**([309] · 만들며 밟았다).
+        #   그리고 그 길이가 옛 자름(120)을 넘어야 이 검사가 뜻을 갖는다.
+        deep = tmp / ("a" * 40) / ("b" * 40) / ("c" * 40)
+        deep.mkdir(parents=True, exist_ok=True)
+        live_path = str(deep / "ledger_v20.xlsx").replace(chr(92), "/")
+        live_line = "FileNotFoundError: 관리대장을 찾을 수 없음: " + live_path
+        assert live_path.index(".xlsx") + 5 > 120, (
+            "[462] 살아 있는 재료가 짧아 자름을 안 넘는다 — 아무것도 안 잰다")
+        try:
+            SA.REPORTS = tmp / "back"
+            _stage(SA.REPORTS, ["대표보고 집계가 실패했다: " + live_line])
+            hits = _guard_hits()
+            assert len(hits) == 1, "[462] 대표보고 갈래가 %d 개다" % len(hits)
+            assert hits[0]["id"] == "executive-guard-resource-back", (
+                "[462] 자원 회복인데 갈래가 %s 다" % hits[0]["id"])
+            assert hits[0]["priority"] == "P2", (
+                "[462] 자원 회복인데 등급이 %s 다" % hits[0]["priority"])
+            assert "관리대장을 찾을 수 없음" in hits[0]["evidence"], (
+                "[462] 무게만 내리고 **사유를 버렸다**([169])")
+
+            SA.REPORTS = tmp / "dead"
+            _stage(SA.REPORTS, ["대표보고 집계가 실패했다: " + dead_line])
+            hits = _guard_hits()
+            assert hits and hits[0]["priority"] == "P1", (
+                "[462] 자원이 아직 죽어 있는데 P1 이 아니다 — 좁히는 것도 고장이다")
+
+            SA.REPORTS = tmp / "mixed"
+            _stage(SA.REPORTS, ["대표보고 집계가 실패했다: " + live_line,
+                                "집계기를 못 불렀다: NameError: name 'x' is not defined"])
+            hits = _guard_hits()
+            assert hits and hits[0]["priority"] == "P1", (
+                "[462] 코드 고장이 섞였는데 완화한다 — 안전핀이 없다")
+
+            keep = SA._steps_resource_recovered
+            try:
+                SA._steps_resource_recovered = lambda *a, **k: None
+                SA.REPORTS = tmp / "back"
+                hits = _guard_hits()
+                assert hits and hits[0]["priority"] == "P1", (
+                    "[462] 완화를 없앴는데도 P2 다 — 이 검사는 아무것도 안 재고 있다")
+            finally:
+                SA._steps_resource_recovered = keep
+        finally:
+            SA.REPORTS = real
+
+    print(chr(9989) + " [462] 대표보고 실패 문구 — 갈래 2 · 판정 2 · build 3 · 자기시험 1")
 
 
 def t192_synthetic_check_is_harmless():
@@ -42009,6 +42142,7 @@ if __name__ == "__main__":
     t459_archive_spool_prune_never_deletes_what_is_in_use()
     t460_bridge_takes_over_only_when_the_human_tab_is_gone()
     t461_daily_run_resource_recovered()
+    t462_exec_guard_reason_is_answerable()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
