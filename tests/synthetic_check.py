@@ -30364,6 +30364,120 @@ def t470_rev_says_what_changed():
           "모르면 지문만 " + chr(9989))
 
 
+def t471_no_lone_cr_in_tracked_text():
+    """[471] 홀로 선 CR 한 글자가 git 을 눈멀게 한다 (2026-08-27 실사고 · 내가 냈다).
+
+    무슨 일이 있었나 — [470] 을 지시문에 적으며 `newline=` 뒤 값을 쓰려다
+    패치 스크립트에서 **역슬래시가 풀려 진짜 CR 이 문서 본문에 들어갔다**.
+    그 한 글자가 둘을 한꺼번에 냈다:
+      ① 문서가 **틀린 내용**을 말한다(다음 사람이 그 줄을 보고 뭘 할지 모른다)
+      ② git 이 1MB 지시문을 **텍스트가 아니라고** 본다 — 실측 `i/-text w/-text`.
+         그래서 `core.autocrlf=true` 가 줄끝을 안 고쳐 **CRLF 가 저장소에 박혔고**,
+         그 커밋 하나가 11,000줄짜리 가짜 차이를 만들어 **진짜 변경을 덮었다**.
+
+    ★ **왜 CR 하나가 그러나** — git 의 `convert_is_binary()` 는 `lonecr` 를 보면
+      곧바로 이진 파일로 친다.  임시 저장소에서 재서 확인했다([67]):
+      같은 파일도 **앞 990,000바이트까지는 `i/lf`** 로 정상 변환되고, 그 CR 이
+      든 구간까지 담으면 **`i/-text`** 가 된다.
+    ★ **조용하다** — 오류도 안 나고 파일도 멀쩡히 열린다.  git 이 그 문서를
+      이진으로 보기 시작한 것은 어느 화면에도 안 뜬다([169]).
+
+    ⚠ **섞인 줄끝(CRLF 안의 홀로 LF)은 안 막는다**([172]) — 실측 43개가 있고
+      git 은 그것을 정상 변환한다(`i/lf w/crlf`).  넓히면 거짓 경보가 된다.
+      막는 것은 **홀로 CR** 하나다.
+    ⚠ 실측 증거 파일에는 한 글자도 안 쓴다([247]) — 자기시험은 바이트열로만.
+    """
+    import io as _io
+    import subprocess as _sp
+    import proc_guard as _PG
+
+    CR = chr(13).encode("ascii")
+    LF = chr(10).encode("ascii")
+
+    def _lone_cr(b):
+        """NUL 든 진짜 이진 파일은 뺀다 — 거기 CR 은 자료지 줄끝이 아니다."""
+        if b.count(0):
+            return 0
+        return b.count(CR) - b.count(CR + LF)
+
+    # (1) 지시문 세 파일 — 사고가 난 자리이고, 이진으로 읽히면 **지시문 변경을
+    #     아무도 검토 못 한다**.  세 파일은 바이트까지 같아야 한다([318]).
+    up = os.path.dirname(ROOT)
+    docs = [os.path.join(ROOT, "CLAUDE.md"),
+            os.path.join(up, "CLAUDE.md"),
+            os.path.join(up, "AGENTS.md")]
+    def _scan(paths):
+        """파일을 읽어 홀로 CR 이 있는 것만 돌려준다.
+
+        ★ 자기시험이 **이 길을 그대로 탄다**([272]) — 탐지 함수만 재면
+          누가 아래 `assert` 를 지워도 검사가 조용히 통과한다.
+        """
+        out = []
+        for q in paths:
+            try:
+                n = _lone_cr(_io.open(q, "rb").read())
+            except Exception:
+                continue           # 못 읽은 것은 '없다'가 아니다([169])
+            if n:
+                out.append((q, n))
+        return out
+
+    raw = []
+    for d in docs:
+        assert os.path.exists(d), "지시문 사본이 없다: " + d
+        raw.append(_io.open(d, "rb").read())
+        n = _lone_cr(raw[-1])
+        assert n == 0, (
+            "지시문에 홀로 선 CR 이 %d 개 있다 — git 이 이 파일을 텍스트가 아니라고 "
+            "보고 줄끝을 안 고친다(%s)" % (n, os.path.basename(d)))
+    assert len(set(raw)) == 1, (
+        "지시문 세 파일이 바이트까지 같지 않다 — 줄끝만 달라도 다른 파일이다([318])")
+
+    # (2) 추적 파일 전부 — 목록은 손으로 안 적고 git 에게 묻는다([162]·[340]).
+    #     ★ 창을 안 띄운다([272]) — 관문이 제 손으로 검은 창을 만들면 안 된다.
+    listed = None
+    try:
+        got = _PG.run_tree(["git", "ls-files", "-z"], cwd=ROOT, timeout=60)
+        if got.returncode == 0:
+            listed = [f for f in got.stdout.split(chr(0)) if f]
+    except Exception:
+        listed = None
+    if listed:
+        bad = _scan(os.path.join(ROOT, f) for f in listed)
+        assert not bad, (
+            "추적 파일에 홀로 선 CR 이 있다 — 그 파일은 git 에게 이진이 된다: "
+            + ", ".join(os.path.basename(q) for q, _ in bad[:5]))
+    # listed 가 None 이면 (1) 만으로 끝난다 — git 을 못 물었다는 이유로
+    # '이상 없음'이라 하지 않는다([169]).  아래 문구가 그것을 말한다.
+
+    # (3) 계기 자기시험([272]) — 홀로 CR 을 넣으면 정말 잡히나.
+    sample = b"abc" + CR + LF + b"def" + CR + LF
+    assert _lone_cr(sample) == 0, "멀쩡한 CRLF 를 홀로 CR 이라 부른다 — 거짓 경보"
+    assert _lone_cr(sample[:3] + CR + sample[3:]) == 1, (
+        "홀로 CR 을 넣었는데 못 잡는다 — 이 검사는 아무것도 안 재고 있다")
+    assert _lone_cr(b"a" + CR) == 1, "파일 끝의 홀로 CR 을 못 잡는다"
+    assert _lone_cr(b"a" + chr(0).encode("ascii") + CR) == 0, (
+        "진짜 이진 파일까지 잡는다 — 거짓 경보가 된다([172])")
+
+    # 파일을 읽는 길도 시험한다 — 진짜 파일에는 한 글자도 안 쓴다([247]).
+    import tempfile as _tf
+    _d = _tf.mkdtemp(prefix="t471_")
+    try:
+        _good = os.path.join(_d, "good.md")
+        _bad = os.path.join(_d, "bad.md")
+        _io.open(_good, "wb").write(sample)
+        _io.open(_bad, "wb").write(sample[:3] + CR + sample[3:])
+        assert _scan([_good]) == [], "멀쩡한 파일에 거짓 경보가 난다"
+        assert [q for q, _ in _scan([_good, _bad])] == [_bad], (
+            "홀로 CR 이 든 파일을 못 잡는다 — 이 검사는 아무것도 안 재고 있다")
+    finally:
+        import shutil as _sh
+        _sh.rmtree(_d, ignore_errors=True)
+
+    print("[471] 홀로 선 CR 이 지시문·소스를 git 에게 이진으로 만들지 않는다 "
+          "(추적 %s) %s" % ("전부" if listed else "못 물음", chr(9989)))
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -43144,6 +43258,7 @@ if __name__ == "__main__":
     t468_terminated_says_limit_and_sleep_without_asserting_why()
     t469_slow_stage_says_share()
     t470_rev_says_what_changed()
+    t471_no_lone_cr_in_tracked_text()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
