@@ -17051,7 +17051,7 @@ def t366_permission_never_draws_a_dead_input():
         js = chr(10).join([
             _blk("const INPUT_SPEC = {", chr(10) + "};" + chr(10)).replace(
                 "const INPUT_SPEC", "var INPUT_SPEC", 1),
-            _fn("esc2"), _fn("fieldInput"), _fn("recordIdOf"), _fn("statOf"),
+            _fn("esc2"), _fn("fieldInput"), _fn("recordIdOf"), _fn("wtUnregistered"), _fn("statOf"),
             _fn("entryAllowedFields"), _fn("lockedField"), _fn("lockedNote"),
             js_src])
         harness = (
@@ -29835,10 +29835,14 @@ def t466_unregistered_plan_gets_a_way_not_a_dead_button():
             j += 1
         raise AssertionError("중괄호가 안 맞는다: " + name)
 
-    need = ["wtUnregistered", "entryRowOf", "wtRegisterFromPlan", "wtRowActions",
+    need = ["wtUnregistered", "entryRowOf", "wtRegisterFromPlan", "wtRowActions", "wtStatus",
             "wtCard", "wtDraftOf", "wtIsEditing", "recordIdOf", "entryKeyCol"]
-    arrow = [l for l in src.splitlines() if l.startswith("const wtDraftKey=")]
-    assert len(arrow) == 1, "wtDraftKey 를 못 찾았다 — 스텁으로 때우지 않는다([366])"
+    def _arrow(nm):
+        """화살표 함수는 `fn()` 이 못 잡는다 — `const 이름=` 부터 세미콜론까지."""
+        i = src.index("const " + nm + "=")
+        return src[i:src.index(";", i) + 1]
+
+    arrow = [_arrow("wtDraftKey"), _arrow("wtRowId")]
 
     harness = _NL.join([
         "const WT_DRAFTS={}, WT_EDITING=new Set();",
@@ -29847,7 +29851,6 @@ def t466_unregistered_plan_gets_a_way_not_a_dead_button():
         "function esc2(v){return String(v==null?'':v);}",
         "function esc4(v){return JSON.stringify(String(v==null?'':v));}",
         "function chip(v){return '<span class=chip>'+esc2(v)+'</span>';}",
-        "function wtStatus(k,r){return String((k==='pm'?r.점검상태:r.진행상태)||'');}",
         "function wtField(){return '<label>칸</label>';}",
         "function wtCampCode(){return '';}",
         "const LOG=[];",
@@ -41155,7 +41158,7 @@ def t354_record_sheet_can_delete_and_tells_which_box_is_missing():
         js = chr(10).join([
             _blk("const INPUT_SPEC = {", chr(10) + "};" + chr(10)).replace(
                 "const INPUT_SPEC", "var INPUT_SPEC", 1),
-            _fn("esc2"), _fn("fieldInput"), _fn("recordIdOf"), _fn("statOf"),
+            _fn("esc2"), _fn("fieldInput"), _fn("recordIdOf"), _fn("wtUnregistered"), _fn("statOf"),
             _fn("entryAllowedFields"), _fn("lockedField"), _fn("lockedNote"),
             _fn("inputForm")])
         harness = (
@@ -41253,7 +41256,19 @@ def t354_record_sheet_can_delete_and_tells_which_box_is_missing():
     if node:
         gi = html.index("async function entryVersion(")
         gate = html[gi:html.index(NLC + "/* ═══ 상세시트", gi)]
-        h2 = ("var FRESH=0, TOLD=[];" + NLC
+        # ★ entryVersionBlocked 가 갈래 판정을 빌린다([466]) — 떼어 갈 때 같이 떼어 온다.
+        #   스텁으로 때우면 이 하네스는 그날부터 실제 코드를 안 잰다([366]).
+        def _cut(a, b):
+            i = html.index(a)
+            return html[i:html.index(b, i)]
+
+        gate_deps = NLC.join([
+            _cut("function recordIdOf(r){", NLC + "function isInternalNo("),
+            _cut("function entryKeyCol(kind){", NLC + "/* 목록을 다시 받아"),
+            _cut("function wtUnregistered(r){", NLC + "/* 그 기록의 화면 행을"),
+            _cut("function entryRowOf(kind, id){", NLC + "/* 스케줄 원본 예정을"),
+        ])
+        h2 = ("var FRESH=0, TOLD=[], works={}, settleRows=[], INPUT_SPEC={};" + NLC + gate_deps + NLC
               + "async function freshEntryVersion(k,id){ return FRESH; }" + NLC
               + "async function notice(m,o){ TOLD.push(String(m)); }" + NLC
               + "function uxEvent(){}" + NLC + gate + NLC
