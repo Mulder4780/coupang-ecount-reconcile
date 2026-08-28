@@ -32018,7 +32018,69 @@ def t338_a_finished_round_is_never_called_still_running():
     finally:
         H.REPORT_DIR, H._progress_owner_alive = real_dir, real_alive
         _sh.rmtree(tmp, ignore_errors=True)
-    print("[338] 끝난 회차를 「도는 중」이라 말하지 않는다 — 갈래 4 + 자기시험 ✅")
+    # ── ⑤ 한 줄이 **서로 다른 두 회차**를 말하지 않는다 (2026-08-28 실사고) ──────
+    #   위 ①~④ 는 `_step_hint()` 안을 잰다.  그런데 실측 인계 문구는
+    #   `일일자동대조 — 마지막 회차가 **중단**으로 끝났다 · 지금 단계: **Z폴더 …**
+    #   (시작) 22분째` 였다 — 「끝났다」와 「22분째」를 **같이 말한다.**
+    #   `중단` 은 회차가 **끝날 때** 쓰는 `agent_status.json` 에서 오고(= 앞 회차),
+    #   단계 줄은 **지금 도는** 회차의 자국이라 **두 회차가 한 문장에 섞인 것**이다.
+    #   ★ 글자로는 못 잰다([295]) — `blockers()` 를 **불러서** 잰다.
+    #   ★ 합성 dict 로 부르면 죽는다([320]·[424] — 스냅샷 칸을 대괄호로 읽는다).
+    #     **실측 스냅샷을 읽기만** 하고 `일일대조` 칸 하나만 갈아 끼운다([247]).
+        import io as _io, json as _json, os as _os   # [406] 모듈에 없는 이름을 안 쓴다
+    snap = _os.path.join(ROOT, "reports", "세션인계.json")
+    if _os.path.exists(snap):
+        base = _json.load(_io.open(snap, encoding="utf-8"))
+
+        def _daily_line(dr):
+            st2 = dict(base)
+            st2["일일대조"] = dr
+            for b in H.blockers(st2):
+                말 = str(b[0] if isinstance(b, (list, tuple)) else b)
+                조치 = str(b[1]) if isinstance(b, (list, tuple)) and len(b) > 1 else ""
+                # ⚠ 앞선 `회차 [고침대기] 쿠팡업무_일일자동대조 …` 줄도 그 낱말을
+                #   담는다 — 줄 **머리**로 고른다([309] · 만들며 그대로 밟았다).
+                if 말.startswith("일일자동대조 —"):
+                    return 말, 조치
+            return "", ""
+
+        _b = {"완주없음": False, "경과시간": 30.0, "실패단계": [], "밀림": True}
+        말, 조치 = _daily_line(dict(_b, 중단=True, 진행중=1.2))
+        assert "**앞** 회차가" in 말 and "그다음 회차" in 말,             "[338]⑤ 도는 회차가 있는데 앞 회차 판정을 '마지막 회차'라 말한다 — 한 줄이 두 회차를 섞는다"
+        assert "마지막 회차가 **중단**" not in 말, "[338]⑤ 옛 문구가 그대로 남았다"
+        assert "기다린다" in 조치, "[338]⑤ 도는 중인데 조치가 '기다린다'가 아니다"
+
+        # ★ **좁히는 것도 고장이다**([172]) — 안 도는 갈래는 한 글자도 안 바뀐다.
+        말2, 조치2 = _daily_line(dict(_b, 중단=True, 진행중=None))
+        assert "마지막 회차가 **중단**으로 끝났다" in 말2 and "**앞** 회차가" not in 말2,             "[338]⑤ 안 도는 갈래까지 바꿨다"
+        assert "daily_run.py" in 조치2, "[338]⑤ 안 도는 갈래의 조치가 바뀌었다"
+
+        # ★ `완주없음`·`N시간째` 갈래는 어긋나지 않는다 — 안 건드린다.
+        말3, _ = _daily_line(dict(_b, 중단=False, 진행중=1.2))
+        assert "시간째 완주하지 않았다" in 말3 and "회차가 **중단**" not in 말3,             "[338]⑤ 완주없음 갈래가 바뀌었다"
+
+        # ── 계기 자기시험([272]) — 옛 동작이면 ⑤가 잡아야 한다 ──────────────
+        hsrc = _io.open(_os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+        # ★ 앵커는 **소스에서 직접 떠 온다** — 손으로 지으면 따옴표·공백 한 칸이
+        #   안 맞으면서 오류도 안 난다([309] · 만들며 그대로 밟았다).
+        옛 = '마지막 회차가 **중단**으로 끝났다'
+        _s = hsrc.index('why = ((')
+        _e = hsrc.index(chr(10), hsrc.index('if run_h is not None else', _s))
+        bad = hsrc.replace(hsrc[_s:_e], 'why = (' + chr(34) + 옛 + chr(34), 1)
+        assert bad != hsrc, "[338]⑤ 자기시험이 바꿀 자리를 못 찾았다 — 아무것도 안 잰다"
+        ns = {"__name__": "sh_bad", "__file__": _os.path.join(ROOT, "session_handoff.py")}
+        exec(compile(bad, "<t338-bad5>", "exec"), ns)
+        st2 = dict(base)
+        st2["일일대조"] = dict(_b, 중단=True, 진행중=1.2)
+        옛말 = ""
+        for b in ns["blockers"](st2):
+            m = str(b[0] if isinstance(b, (list, tuple)) else b)
+            if m.startswith("일일자동대조 —"):
+                옛말 = m
+                break
+        assert "마지막 회차가 **중단**으로 끝났다" in 옛말,             "[338]⑤ 옛 동작을 되살렸는데도 통과한다 — 이 검사는 아무것도 안 잰다"
+
+    print("[338] 끝난 회차를 「도는 중」이라 말하지 않는다 — 갈래 4 + 두 회차 섞임 + 자기시험 ✅")
 
 
 def t339_the_exec_guard_measures_every_money_metric():
