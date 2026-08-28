@@ -32,6 +32,9 @@
     running: false, startedAt: null, total: 0, stop: false,
   });
   if (!S.notime) S.notime = {};        // 옛 탭에서 이어받을 때도 자리가 있게
+  // ★ 실패 이유를 **번호마다** 적는다 (2026-08-28).  `S.notime` 은 뒤 둘만 담아
+  //   `no-doc`(iframe 문서가 아예 안 옴) · `error`(예외)는 아무 데도 안 남았다.
+  if (!S.failedWhy) S.failedWhy = {};
 
   /* ★ 최상위 문서가 넘어가면 이 스크립트는 그 자리에서 죽는다 (사고 #35, 2026-08-11 실측)
    *
@@ -395,6 +398,13 @@
         else if (r.status === 'missing') { S.missing.push(no); S.blank = 0; }
         else {
           S.failed.push(no);
+          // ★ 옛 `S.failed` 배열 모양은 한 글자도 안 바꾼다([441]·[165] —
+          //   `band_auto_collect.user.js` 와 `userscript_watch` 가 그것을 읽는다).
+          //   값어치: 90610953 이 31회차 2,515건에 19건만 받았는데(0.8%) 그 실패가
+          //   `no-doc` 이면 헛수확 로그([425])에 안 쌓여 영영 안 걸러진다.
+          // ⚠ **`S.blank` 셈은 안 건드린다** — `!r.reason` 이 sandbox 되돌림
+          //   (BLANK_GIVEUP)의 방아쇠다.  reason 을 채워 넣으면 그 문이 죽는다([172]).
+          S.failedWhy[no] = r.reason || (r.error ? 'error' : 'no-doc');
           if ((r.reason === 'no-time' || r.reason === 'redirect') && r.sig) S.notime[no] = r.sig;
           if (!r.reason) S.blank = (S.blank || 0) + 1; else S.blank = 0;
         }
@@ -431,6 +441,7 @@
         if (S.stop) break;
         const i = S.failed.indexOf(no);
         if (i >= 0) S.failed.splice(i, 1);
+        delete S.failedWhy[no];   // 다시 거니 옛 이유는 버린다(안 버리면 성공해도 남는다)
         await runOne(no);
         window.__grabBeat();
         await sleep(opt.gapMs || 300);
@@ -459,6 +470,9 @@
     last: S.done[S.done.length - 1] || null,
     saves: S.saves || 0,
     sandbox: S.sandbox !== false,
+    // 실패 이유 **셈**만 싣는다 — 목록은 덤프에 있다(여기는 폴링이 읽는 창구다).
+    failedWhy: (function () { const t = {}, w = S.failedWhy || {};
+      for (const k in w) t[w[k]] = (t[w[k]] || 0) + 1; return t; })(),
     sandboxFellBack: S.sandboxFellBack || null,
     // 앞선 회차의 마지막 심장 소리·죽은 자리. 이것이 '한 번도 안 함'과 '죽음'을 가른다.
     prevDeath: S.prevDeath || null,
@@ -473,6 +487,7 @@
       band: S.band, name: document.title.split('|')[0].replace('게시글 :', '').trim(),
       capturedAt: Date.now(), posts: S.posts,
       missing: S.missing, failed: S.failed, notime: S.notime,
+      failedWhy: S.failedWhy || {},
     };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(doc)], { type: 'application/json' }));
