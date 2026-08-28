@@ -571,9 +571,16 @@ def _gate_source_files(root=ROOT):
     return sorted(set(out))
 
 
-def _gate_fingerprint(root=ROOT):
-    """코드·테스트 내용의 결정적 SHA-256과 근거 수를 돌려준다."""
+def _gate_fingerprint(root=ROOT, detail=False):
+    """코드·테스트 내용의 결정적 SHA-256과 근거 수를 돌려준다.
+
+    `detail=True` 면 `map: {상대경로: sha256}` 을 **더한다** — 검증 도중 코드가
+    바뀌었을 때 **어느 파일이 바뀌었는지**를 대기 위해서다. 기존 반환 키
+    (`fingerprint`·`files`·`bytes`)는 한 톨도 안 바뀐다([172]) — 합격증도 옛 검사도
+    그대로다. 실측 0.37초(파일 296개·10.3MB)라 비싸지 않다.
+    """
     digest = hashlib.sha256()
+    per = {} if detail else None
     count = 0
     size = 0
     for rel, path in _gate_source_files(root):
@@ -588,9 +595,34 @@ def _gate_fingerprint(root=ROOT):
         digest.update(raw_name)
         digest.update(len(body).to_bytes(8, "big"))
         digest.update(body)
+        if per is not None:
+            per[rel] = hashlib.sha256(body).hexdigest()
         count += 1
         size += len(body)
-    return {"fingerprint": digest.hexdigest(), "files": count, "bytes": size}
+    out = {"fingerprint": digest.hexdigest(), "files": count, "bytes": size}
+    if per is not None:
+        out["map"] = per
+    return out
+
+
+def _gate_same(a, b):
+    """두 지문이 **같은 판**인가. `map` 유무에 안 흔들리게 키를 명시한다.
+
+    ⚠ `a != b` 로 dict 를 통째로 비교하면 한쪽에만 `map` 이 있을 때 **언제나 다르다** —
+      그러면 관문이 매번 "검증 도중 코드가 바뀌었다"로 죽는다. 만들면서 그 자리를
+      먼저 막았다. `fingerprint` 가 같으면 `bytes` 도 같다(같은 내용이다).
+    """
+    return (a.get("fingerprint") == b.get("fingerprint")
+            and a.get("files") == b.get("files"))
+
+
+def _gate_changed(before, after):
+    """검증 도중 **바뀐 파일 이름**을 준다. 못 가르면 빈 목록이다([169] — 지어내지 않는다)."""
+    a = before.get("map") or {}
+    b = after.get("map") or {}
+    if not a or not b:
+        return []
+    return sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
 
 
 def _load_gate_proof(root=ROOT):
@@ -650,7 +682,7 @@ def _run_gate(root=ROOT, runner=None):
     """
     runner = runner or run
     started = time.monotonic()
-    before = _gate_fingerprint(root)
+    before = _gate_fingerprint(root, detail=True)
     proof = _load_gate_proof(root)
     if _gate_proof_matches(proof, before):
         age = proof.get("verified_at") or "시각 없음"
@@ -667,17 +699,38 @@ def _run_gate(root=ROOT, runner=None):
         "합성검증", [os.path.join(os.fspath(root), "tests", "synthetic_check.py")],
         timeout=GATE_TIMEOUT_S, retry=0,
     )
+    # ★ **실패 갈래도 같은 것을 묻는다** (2026-08-28 실사고).
+    #   성공 갈래는 오래전부터 "검증 도중 코드가 바뀌면 어느 판을 검사한 것인지 알 수
+    #   없다"고 묻는데 **실패 갈래는 안 물었다.** 그래서 반쯤 고친 코드를 시험한 실패가
+    #   `code`(= 검증이 실제로 빨갛다)로 확언되고, 조치는 *"그 검증부터 본다"* 로
+    #   나간다 — 사람을 **멀쩡한 검증으로** 보낸다([172]·[289]).
+    #   실측 2026-08-28 09:50: 회차가 관문을 도는 동안 사람이 `app_server.py` 를
+    #   고치는 중이었고, 그 반쪽을 시험한 `t49` 실패가 그대로 P0 가 됐다. 커밋 시각
+    #   (10:37)이 실패(09:50)보다 **뒤**라는 것을 손으로 대 보고서야 갈렸다.
+    # ⚠ 지문은 **한 번만** 잰다 — 성공·실패 어느 쪽으로 가든 같은 사실이다.
+    after = _gate_fingerprint(root, detail=True)
+    edited = not _gate_same(after, before)
+    changed = _gate_changed(before, after) if edited else []
+
     if step.get("ok") and "ALL GREEN" in str(step.get("out") or ""):
-        after = _gate_fingerprint(root)
-        if after != before:
+        if edited:
             step = dict(step)
             step["ok"] = False
+            step["소스바뀜"] = True
+            step["바뀐파일"] = changed
             step["out"] = (str(step.get("out") or "")
                            + "\n검증 도중 코드가 바뀌었습니다 — 바뀐 판을 다시 검사합니다.")
             return step
-        _save_gate_proof(after, time.monotonic() - started, root)
-    return step
+        # ⚠ 합격증에는 `map` 을 안 담는다 — 파일만 커지고 읽는 쪽이 없다.
+        _save_gate_proof({k: v for k, v in after.items() if k != "map"},
+                         time.monotonic() - started, root)
+        return step
 
+    if edited:
+        step = dict(step)
+        step["소스바뀜"] = True
+        step["바뀐파일"] = changed
+    return step
 
 def _run_pipeline():
     steps = []
@@ -1265,6 +1318,12 @@ _GATE_FIX = {
     "timeout":  ("시간을 넘겼다 — 기계가 바쁘면 `[6]`·`[192]` 처럼 그때만 빨갛다. 다시 돌려 본다."),
     "code":     ("자원·인증 표시가 없었다 — **검증이 실제로 빨갈 가능성이 높다**. "
                  "`python tests/synthetic_check.py > out.txt 2>&1` 로 돌려 ALL GREEN 글자를 눈으로 본다."),
+    # ★ 이 갈래는 **검증이 빨갛다는 뜻이 아니다** — 그래서 조치도 다르다([289]).
+    "편집중":    ("이 회차가 관문을 **도는 동안 소스가 바뀌었다** — 그 결과는 어느 판을 "
+                 "검사한 것인지 알 수 없다([412]). **검증이 빨갛다는 뜻이 아니고 "
+                 "고칠 코드가 없을 수 있다.** 지금 코드로 "
+                 "`python tests/synthetic_check.py > out.txt 2>&1` 를 다시 돌려 "
+                 "ALL GREEN 글자를 눈으로 본다 — 초록이면 이 자국은 지나간 것이다."),
 }
 
 
@@ -1376,6 +1435,13 @@ def _leave_gate_trace(step):
     #   다르므로(`[289]`) 그 한 줄이 사람을 엉뚱한 데로 보낸다(`[172]`).
     #   실측 2026-08-19 17:17: 진짜 원인은 `t326` 이 목을 잃고 진짜 Z: 를 읽은 것인데
     #   자국은 `갈래=timeout`·조치 "다시 돌려 본다" 라고 적어 두고 있었다.
+    # ★ **소스가 바뀐 것은 갈래를 뒤집는 사실이다** (2026-08-28 실사고 · 위 `_run_gate`).
+    #   `code` 는 "검증이 실제로 빨갛다"는 **주장**인데, 도중에 소스가 바뀌었으면 그
+    #   주장이 성립하지 않는다 — 반쪽을 시험한 것이다.
+    # ⚠ **좁게 뒤집는다**([172]): `timeout`(시간을 넘긴 것은 소스와 무관한 사실이다) ·
+    #   `resource`(Z: 를 못 읽었다) · `auth`(로그인이 필요하다)는 **한 글자도 안 건드린다.**
+    #   넓히면 진짜 자원 실패를 "편집중"으로 덮어 못 잡는 것보다 나빠진다.
+    edited = bool(step.get("소스바뀜"))
     if out.startswith("시간초과("):
         kind = "timeout"                           # `run()` 이 준 결정적 증거
     else:
@@ -1388,6 +1454,8 @@ def _leave_gate_trace(step):
             # 시간초과가 아닌 것이 확실하다(위에서 갈렸다) — 낱말에 걸린 것이다.
             # 자원·인증 표시가 없었다는 뜻이므로 그것이 곧 `code` 갈래의 뜻이다.
             kind = "code"
+        if edited and kind in ("code", ""):
+            kind = "편집중"
     head = _gate_headline(out)
     which = _gate_which_test(out)
     무엇 = "합성검증이 막았다"
@@ -1395,6 +1463,13 @@ def _leave_gate_trace(step):
         무엇 += " · %s" % which
     if head:
         무엇 += " · %s" % head
+    # ★ **조용히 갈래만 바꾸지 않는다**([169]) — 무엇이 바뀌었는지 이름을 댄다.
+    #   못 가렸으면(빈 목록) 그 사실만 적고 이름을 지어내지 않는다.
+    if edited:
+        names = [str(x) for x in (step.get("바뀐파일") or [])]
+        말 = (", ".join(names[:4]) + (" 외 %d개" % (len(names) - 4) if len(names) > 4 else "")
+              ) if names else "어느 파일인지는 못 가렸다"
+        무엇 += " · ⚠ 이 회차가 관문을 도는 동안 소스가 바뀌었다(%s)" % 말
     try:
         os.makedirs(REPORT_DIR, exist_ok=True)
         with open(GATE_CRASH, "w", encoding="utf-8") as fh:

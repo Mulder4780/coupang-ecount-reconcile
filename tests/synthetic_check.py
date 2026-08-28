@@ -31091,6 +31091,161 @@ def t473_deposit_metric_reads_a_file_and_asks_if_zero_is_honest():
     print(chr(9989), "[473] 입금액(당일) — `7. 입금내역` 근거 · 자료가 안 왔으면 '못 셈'이라 말한다")
 
 
+def t476_gate_failure_asks_if_source_changed():
+    """[476] 관문이 **도는 동안 소스가 바뀌면** 그 실패를 '코드가 깨졌다'고 안 부른다.
+
+    ★ 2026-08-28 실사고 — 09:50 회차가 `t49` 에서 죽고 자국이 `갈래=code` ·
+      조치 *"그 검증부터 본다"* 라고 적었다. 그런데 그 실패는 **사람이 소스를 반쯤
+      고친 상태**를 시험한 것이었다(커밋 시각 10:37 > 실패 09:50). 조치를 따르면
+      **멀쩡한 검증을 고치러 간다**([172]·[289]). 그리고 그 P0 가 인계 맨 위를
+      차지해 진짜 경보를 덮는다([170]).
+    ★ **성공 갈래는 오래전부터 같은 것을 묻고 있었다** — *"검증 도중 코드가 바뀌면 그
+      결과는 어느 판을 검사한 것인지 알 수 없다"*. 실패 갈래만 안 물었다. 이 검사는
+      **그 대칭**을 지킨다.
+    ★ 그리고 `traces()` 가 `어떻게` 만 읽어 `조치` 로 적는 회차(daily_run·noon_run·
+      camp_contacts·erp_api_collect)의 조치는 **한 번도 인계에 안 실렸다**([165]).
+
+    ⚠ 진짜 자국 파일(`reports/일일대조_오류.json`)과 진짜 저장소에는 **한 글자도 안
+      쓴다**([247]) — 임시 REPORT_DIR·임시 root 로만 잰다.
+    """
+    import io as _io, shutil as _sh, tempfile as _tf
+    import daily_run as D, schedule_watch as SW
+
+    # ── 지문 계약 ───────────────────────────────────────────────────────────
+    a, b = D._gate_fingerprint(), D._gate_fingerprint(detail=True)
+    assert set(a) == {"fingerprint", "files", "bytes"}, \
+        "[476] 기존 반환 키가 바뀌었다 — 합격증·옛 검사가 같이 흔들린다([172]): %s" % sorted(a)
+    assert a["fingerprint"] == b["fingerprint"] and "map" in b and len(b["map"]) == b["files"], \
+        "[476] detail=True 가 파일별 지문을 안 준다"
+    assert D._gate_same(a, b) and D._gate_same(b, a), \
+        "[476] map 유무로 '다른 판'이 된다 — 그러면 관문이 매번 '도중에 바뀌었다'로 죽는다"
+    assert not D._gate_same(a, {"fingerprint": "x", "files": a["files"]}), \
+        "[476] 내용이 달라도 같다고 한다"
+
+    b2 = {"fingerprint": "z", "files": b["files"], "map": dict(b["map"])}
+    k = sorted(b2["map"])[0]
+    b2["map"][k] = "다른값"
+    assert D._gate_changed(b, b2) == [k], "[476] 바뀐 파일 이름을 못 댄다"
+    assert D._gate_changed({"map": {}}, b2) == [], \
+        "[476] 못 가렸는데 이름을 지어낸다([169])"
+
+    # ── _run_gate 가 실제로 표시를 다나 ([328] — 만들어 두고 안 부르면 없는 것과 같다)
+    def 재기(고치기, 결과, src=None):
+        root = _tf.mkdtemp(prefix="gate476_")
+        try:
+            os.makedirs(os.path.join(root, "reports"), exist_ok=True)
+            p = os.path.join(root, "a.py")
+            _io.open(p, "w", encoding="utf-8").write("x = 1\n")
+
+            def runner(*_a, **_k):
+                if 고치기:
+                    _io.open(p, "a", encoding="utf-8").write("y = 2\n")
+                return dict(결과)
+
+            fn = D._run_gate
+            if src is not None:                       # 계기 자기시험용 격리 모듈
+                # ⚠ **`ns` 를 그대로 쓴다** — `type(sys)(...)` 로 모듈 객체를 만들어
+                #   `__dict__.update(ns)` 하면 그것은 **복사본**이고, 함수의
+                #   `__globals__` 는 여전히 `ns` 다. 그래서 `mod.GATE_CRASH` 를 임시로
+                #   바꿔도 함수는 **진짜 경로**에 쓴다 — 만들면서 그대로 밟아 실측
+                #   자국(09:50)을 시험 값으로 덮었다([247]).
+                ns = {"__name__": "daily_run_t476", "__file__": D.__file__}
+                exec(compile(src, D.__file__, "exec"), ns)
+                fn = ns["_run_gate"]
+            return fn(root=root, runner=runner)
+        finally:
+            _sh.rmtree(root, ignore_errors=True)
+
+    실패 = {"ok": False, "out": "AssertionError: 뭔가 틀렸다\n  t49_x(tmp)\n"}
+    성공 = {"ok": True, "out": "ALL GREEN"}
+
+    s = 재기(True, 실패)
+    assert s.get("소스바뀜") is True and s.get("바뀐파일") == ["a.py"], \
+        "[476] 실패 갈래가 '도중에 소스가 바뀌었나'를 안 묻는다 — 그러면 반쪽을 시험한 " \
+        "실패가 '코드가 깨졌다'로 확언된다: %s" % s
+    assert not 재기(False, 실패).get("소스바뀜"), \
+        "[476] 안 바뀌었는데 바뀌었다고 한다 — 거짓 완화는 진짜 코드 고장을 덮는다([172])"
+    s = 재기(True, 성공)
+    assert s.get("ok") is False and "검증 도중 코드가 바뀌" in str(s.get("out")), \
+        "[476] 성공 갈래의 옛 문(어느 판인지 모르는 합격을 안 인정한다)이 사라졌다"
+    assert 재기(False, 성공).get("ok") is True, "[476] 멀쩡한 성공이 막힌다([172])"
+
+    # ── 갈래·조치 ───────────────────────────────────────────────────────────
+    tmp = _tf.mkdtemp(prefix="gate476t_")
+    real = (D.REPORT_DIR, D.GATE_CRASH, SW.ROOT)
+    try:
+        D.REPORT_DIR = tmp
+        D.GATE_CRASH = os.path.join(tmp, "일일대조_오류.json")
+
+        def 자국(step, src=None):
+            fn = D._leave_gate_trace
+            if src is not None:
+                ns = {"__name__": "daily_run_t476b", "__file__": D.__file__}
+                exec(compile(src, D.__file__, "exec"), ns)
+                # ⚠ 함수가 보는 전역은 `ns` 다 — 여기를 안 바꾸면 **진짜 자국 파일**에 쓴다([247]).
+                ns["REPORT_DIR"], ns["GATE_CRASH"] = D.REPORT_DIR, D.GATE_CRASH
+                fn = ns["_leave_gate_trace"]
+            fn(step)
+            return json.load(_io.open(D.GATE_CRASH, encoding="utf-8"))
+
+        d = 자국(dict(실패))
+        assert d["갈래"] == "code", "[476] 안 바뀐 실패의 갈래가 달라졌다([172]): %s" % d["갈래"]
+
+        d = 자국(dict(실패, **{"소스바뀜": True, "바뀐파일": ["webapp/app_server.py", "b.py"]}))
+        assert d["갈래"] == "편집중", "[476] 도중에 바뀐 실패를 아직 code 라 한다: %s" % d["갈래"]
+        assert "검증이 빨갛다는 뜻이 아니" in d["조치"] and "그 검증부터 본다" not in d["조치"], \
+            "[476] 조치가 아직 사람을 검증으로 보낸다([289]): %s" % d["조치"]
+        assert "webapp/app_server.py" in d["무엇"], "[476] 무엇이 바뀌었는지 이름을 안 댄다([169])"
+        assert "못 가렸다" in 자국(dict(실패, **{"소스바뀜": True, "바뀐파일": []}))["무엇"], \
+            "[476] 이름을 못 가렸을 때 그 사실을 안 적는다([169])"
+
+        자원 = {"ok": False,
+                "out": "FileNotFoundError: 관리대장을 찾을 수 없음: Z:/x (폴더에 v*.xlsx 없음)"}
+        assert 자국(dict(자원, **{"소스바뀜": True}))["갈래"] == "resource", \
+            "[476] 자원 실패를 '편집중'으로 덮는다 — 진짜 자원 고장을 놓친다([172])"
+        assert 자국({"ok": False, "out": "시간초과(1500s)", "소스바뀜": True})["갈래"] == "timeout", \
+            "[476] 시간초과를 '편집중'으로 덮는다([172])"
+
+        # ── traces() 가 `조치` 도 읽나 ([165] — 이름이 갈리면 조치가 인계에 안 간다)
+        os.makedirs(os.path.join(tmp, "reports"), exist_ok=True)
+        for 이름, 키 in (("가1_오류.json", "조치"), ("가2_오류.json", "어떻게")):
+            json.dump({"시각": "t", "무엇": "m", 키: "python 무엇인가.py"},
+                      _io.open(os.path.join(tmp, "reports", 이름), "w", encoding="utf-8"),
+                      ensure_ascii=False)
+        SW.ROOT = tmp
+        got = {t["파일"]: t["어떻게"] for t in SW.traces()}
+        assert got.get("가1_오류.json") == "python 무엇인가.py", \
+            "[476] traces 가 `조치` 를 안 읽는다 — 조치가 인계에 한 번도 안 실린다([165]): %s" % got
+        assert got.get("가2_오류.json") == "python 무엇인가.py", \
+            "[476] `어떻게` 를 못 읽게 됐다([172])"
+
+        # ── ★ 계기 자기시험 ([272]) — 옛 동작을 넣으면 정말 잡히나 ────────────
+        원본 = _io.open(D.__file__, encoding="utf-8", newline="").read()
+        잡음 = 0
+
+        옛1 = 원본.replace('    if edited:\n'
+                          '        step = dict(step)\n'
+                          '        step["소스바뀜"] = True\n'
+                          '        step["바뀐파일"] = changed\n'
+                          '    return step', '    return step', 1)
+        assert 옛1 != 원본, "[476] 자기시험 재료가 안 맞는다 — 아무것도 안 재고 있다([309])"
+        if not 재기(True, 실패, src=옛1).get("소스바뀜"):
+            잡음 += 1               # 옛 코드는 실패 갈래에 표시를 안 단다
+
+        옛2 = 원본.replace('        if edited and kind in ("code", ""):\n'
+                          '            kind = "편집중"\n', "", 1)
+        assert 옛2 != 원본, "[476] 자기시험 재료가 안 맞는다(갈래)"
+        if 자국(dict(실패, **{"소스바뀜": True, "바뀐파일": ["x.py"]}), src=옛2)["갈래"] == "code":
+            잡음 += 1
+
+        assert 잡음 == 2, "[476] 계기가 옛 동작을 못 잡는다 — 이 검사는 아무것도 안 잰다: %d/2" % 잡음
+    finally:
+        D.REPORT_DIR, D.GATE_CRASH, SW.ROOT = real
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    print(chr(9989) + " [476] 관문 실패가 '도중에 소스가 바뀌었나'를 묻는다 · traces 가 조치를 읽는다")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -44111,6 +44266,7 @@ if __name__ == "__main__":
     t473_deposit_metric_reads_a_file_and_asks_if_zero_is_honest()
     t474_excel_is_archive_only_readonly_lock()
     t475_hand_edit_alarm_tells_values_from_formulas()
+    t476_gate_failure_asks_if_source_changed()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
