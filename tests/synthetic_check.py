@@ -36422,14 +36422,14 @@ def t474_excel_is_archive_only_readonly_lock():
         _sh.rmtree(d, ignore_errors=True)
 
     # (8) 배선 — 코드가 있어도 부르는 곳이 없으면 없는 것과 같다([328])
-    lw = _t370_code_only(io.open(os.path.join(ROOT, "ledger_writer.py"),
+    lw = _t370_code_only(open(os.path.join(ROOT, "ledger_writer.py"),
                                  encoding="utf-8").read())
     i_final = lw.find("os.replace(dst, final_dst)")
     i_lock = lw.find("archive_lock.lock(")
     assert i_final > 0, "[474] ledger_writer 의 정본 확정 자리를 못 찾았다"
     assert i_lock > i_final, "[474] 새 정본을 만든 뒤 잠그지 않는다([328])"
 
-    lv = _t370_code_only(io.open(os.path.join(ROOT, "ledger_versions.py"),
+    lv = _t370_code_only(open(os.path.join(ROOT, "ledger_versions.py"),
                                  encoding="utf-8").read())
     i_move = lv.find("shutil.move(source,")
     i_un = lv.find("archive_lock.unlock(")
@@ -36437,11 +36437,11 @@ def t474_excel_is_archive_only_readonly_lock():
     assert 0 < i_un < i_move, "[474] 옮기기 전에 안 푼다 — 옛 버전 정리가 조용히 죽는다"
 
     # (9) 화면이 그 사실을 말하는가 — 안 적으면 사람이 고장으로 읽는다([169])
-    html = io.open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     assert "읽기 전용 보관본" in html, "[474] 관리대장 열기 안내에 읽기 전용이라 안 적혀 있다"
 
     # (10) 계기 자기시험([272]) — 잠금을 없앤 사본이면 (2)가 잡혀야 한다
-    _src = io.open(os.path.join(ROOT, "archive_lock.py"), encoding="utf-8").read()
+    _src = open(os.path.join(ROOT, "archive_lock.py"), encoding="utf-8").read()
     _broken = _src.replace("        os.chmod(path, mode & ~stat.S_IWRITE)",
                            "        pass", 1)
     assert _broken != _src, "[474] 자기시험 재료를 못 만들었다"
