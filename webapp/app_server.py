@@ -2344,6 +2344,14 @@ def delete_staff_work(staff_slug, body, *, store=None, actor=None):
     if len(reason) < 2:
         # 사유 없는 삭제는 몇 달 뒤 아무도 설명하지 못한다.
         raise ValueError("삭제 사유를 적어 주세요 (예: 잘못 등록 — 같은 건이 두 번 접수됨)")
+    # ★ **스케줄 원본에서 온 예정(`SCH-`)은 다른 길로 간다** (2026-08-28 류지영
+    #   요청 "이것도 삭제가능하게 해주세여"). 그 건은 앱 DB(`work_item`)에 행이
+    #   **아예 없어** `soft_delete_work` 가 못 돈다. 그리고 원본을 지워도 다음
+    #   회차가 도로 만든다 — 그래서 **숨긴다**([355] 캠프 숨김과 같은 생각).
+    # ★ **새 엔드포인트를 안 만들었다**([162]) — 이 길이 이미 권한·멱등키·409·
+    #   사유 검사를 다 지난다. 화면도 이미 있는 `wtDelete` 를 그대로 쓴다.
+    if _plan_hide_target(record_key):
+        return _hide_plan_row(record_key, True, body, staff_slug, actor, reason)
     if store is None:
         from app_store import default_store
         store = default_store()
@@ -2375,6 +2383,39 @@ def delete_staff_work(staff_slug, body, *, store=None, actor=None):
             "msg": "삭제했습니다 — [삭제된 건 보기]에서 되살릴 수 있습니다"}
 
 
+def _plan_hide_target(record_key):
+    """이 열쇠가 **스케줄 원본에서 온 예정**인가. 모듈을 못 읽으면 False."""
+    try:
+        import pm_plan_hide
+        return pm_plan_hide.valid_id(record_key)
+    except Exception:
+        return False
+
+
+def _hide_plan_row(record_key, hidden, body, staff_slug, actor, reason=""):
+    """`SCH-` 예정 하나를 숨기거나 되살린다.
+
+    ⚠ **낙관잠금은 사실상 없다** — 화면이 앱 DB 판을 보내는데 이 예정에는 그 판이
+      없기 때문이다. 그래서 서버가 현재 판을 읽어 곧바로 쓴다. 그래도 안전한 이유:
+      결과가 **멱등**이고(숨김은 숨김) 멱등키가 중복을 막는다. 두 사람이 같은
+      예정을 동시에 지워도 결과가 같다. `set_hidden` 의 낙관잠금은 다른
+      호출자(스크립트)를 위해 그대로 둔다([169] 아는 한계를 적는다).
+    """
+    import pm_plan_hide
+    _before, ver = pm_plan_hide.get_one(record_key)
+    who = str(actor or ("staff:" + str(staff_slug)))[:200]
+    res = pm_plan_hide.set_hidden(
+        record_key, hidden, actor=who, reason=reason, expected_version=ver,
+        idempotency_key=str(body.get("idempotency_key") or "").strip() or None,
+        camp=str(body.get("camp") or ""), plan_date=str(body.get("plan_date") or ""))
+    _invalidate_app_data_caches()
+    return {"ok": True, "committed": True,
+            "action": ("deleted" if hidden else "restored"),
+            "key": record_key, "category": "pm", "plan_hidden": bool(hidden),
+            "record_version": int(res.get("판") or 0), "documents": [],
+            "msg": res.get("msg") or ""}
+
+
 def restore_staff_work(staff_slug, body, *, store=None, actor=None):
     """삭제한 업무를 되살린다. 삭제와 같은 문을 거꾸로 지난다."""
     category = str(body.get("category") or "").strip()
@@ -2385,6 +2426,9 @@ def restore_staff_work(staff_slug, body, *, store=None, actor=None):
         raise PermissionError("등록되지 않은 업무센터입니다")
     if not _staff_allowed_fields(staff_slug, category):
         raise PermissionError("이 업무센터에서는 이 업무를 되살릴 수 없습니다")
+    # 삭제와 **같은 문을 거꾸로** 지난다 — `SCH-` 는 숨김을 푼다([162]).
+    if _plan_hide_target(record_key):
+        return _hide_plan_row(record_key, False, body, staff_slug, actor)
     if store is None:
         from app_store import default_store
         store = default_store()
@@ -4515,7 +4559,13 @@ def real_works():
         d = norm_date(r.get("점검예정일") or r.get("실제점검일"))
         if d and r.get("캠프명"):
             represented.add((pm_camp_key(r.get("캠프명")), d[:7]))
+    _hidden_plans = _hidden_plan_ids()
     for s in source_schedule:
+        # ★ 사람이 지운 예정은 안 싣는다 (2026-08-28 류지영 요청).
+        #   ⚠ 원본(27시트·스케줄 원본)은 **한 글자도 안 건드린다** — 다음 회차가
+        #     도로 만들어도 숨김이 이긴다([355] 캠프 숨김과 같은 생각).
+        if str(s.get("일정ID") or "").strip().upper() in _hidden_plans:
+            continue
         month = str(s.get("예정월") or "")[:7]
         key = (pm_camp_key(s.get("캠프명")), month)
         if not month.startswith(APP_YEAR + "-") or not key[0] or key in represented:
@@ -5222,6 +5272,22 @@ def cached_data(key, build):
         _spawn_refresh(key, build)
         return stale
     return _compute_locked(key, build)
+
+
+def _hidden_plan_ids():
+    """사람이 목록에서 **지운** 정기점검 예정(`SCH-`). 못 읽으면 빈 집합.
+
+    ★ **판정은 `pm_plan_hide` 한 곳이고 여기는 빌리기만 한다**([162]).
+    ★ **못 읽으면 안 거른다**([169]·[172]) — 이것 하나 때문에 정기점검 목록이
+      통째로 비면 고치려던 것보다 나쁘다. 못 읽었을 때 나는 일은 '지운 예정이
+      잠깐 다시 보인다' 뿐이고, 그것은 되돌릴 수 있다.
+    ★ 실측 0.009초라 캐시가 필요 없다([168]).
+    """
+    try:
+        import pm_plan_hide
+        return pm_plan_hide.hidden_ids()
+    except Exception:
+        return set()
 
 
 def get_works():
@@ -8158,7 +8224,11 @@ def get_calendar():
 
         existing = {event_key(e) for e in events}
         added = predicted_count = 0
+        _hidden_plans = _hidden_plan_ids()
         for row in pm.get("schedule") or []:
+            # 카드에서 지운 예정이 달력에 그대로 남으면 "삭제가 안 된다"로 읽힌다.
+            if str(row.get("일정ID") or "").strip().upper() in _hidden_plans:
+                continue
             official = norm_date(row.get("점검예정일"))
             predicted = norm_date(row.get("예측점검일"))
             when = official or predicted
@@ -8437,7 +8507,10 @@ def project_history(camp="", pj="", limit=400):
     try:
         pm = json.load(open(os.path.join(ROOT, "reports", "pm_schedule_sync.json"),
                             encoding="utf-8"))
+        _hidden_plans = _hidden_plan_ids()
         for row in pm.get("schedule") or []:
+            if str(row.get("일정ID") or "").strip().upper() in _hidden_plans:
+                continue
             if not mine(row) and not (ck and _camp_key(row.get("캠프명")) == ck):
                 continue
             official, pred = norm_date(row.get("점검예정일")), norm_date(row.get("예측점검일"))
