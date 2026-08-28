@@ -31505,6 +31505,95 @@ def t478_hand_edit_alarm_reads_what_the_writer_split():
     print(chr(9989) + " [478] 손입력 경보 — 기계 줄/정정 갈라내기 · 아홉 갈래 · 계기 자기시험 1/1")
 
 
+def t485_stale_dirty_report_does_not_resurrect_ghosts():
+    """[485] **낡은 오염 리포트가 유령을 되살린다** (2026-08-28 실사고).
+
+    84789192 가 15:56 에 **868초(14.5분)를 써서 59건을 하나도 안 빠뜨리고**
+    받아 왔다(수확 59 · 실패 0).  그런데 16:12 대기열이 **같은 59건을 또 실었고**
+    16:14 에 또 돌았다 — 회차마다 14.5분을 헛돈다.
+
+    범인은 `_dirty_nos` 가 둘을 **합집합**으로 쓴 것이다:
+      ① 캐시 `contaminated` 표시 — 살아 있는 근거(옳다)
+      ② `reports/밴드_UI오염글_*.json` — **한 번 만들어지고 안 갱신된다**
+    그 함수 주석이 ②를 남긴 근거를 스스로 적어 뒀다 —
+    *"캐시에 **기록 자체가 없는** 번호는 리포트만 안다"*.  그런데 실측 그날
+    그런 번호는 **0건**이었고, ②가 하는 일은 유령을 만드는 것뿐이었다:
+
+      | 밴드 | 대기열 | 캐시가 지금 오염이라 함 | 리포트에서 온 유령 |
+      |---|---:|---:|---:|
+      | 84789192 | 59 | **4** | **59** |
+      | 90610953 | 203 | 189 | **15** |
+
+    ★ **넓히는 것이 아니라 주석이 이미 정해 둔 조건대로 좁히는 것이다.**
+      캐시가 지금 `contaminated` 라 하는 것은 ①이 그대로 담는다(`[172]`).
+    ★ `posts` 를 못 읽으면 **예전처럼 리포트를 그대로 쓴다**(`[169]`) —
+      모름을 '깨끗함'으로 치면 진짜 오염이 조용히 빠진다.
+    ★ **글자로는 못 잰다**(`[295]`) — `_dirty_nos` 를 **불러서** 잰다.
+    ★ 진짜 리포트 폴더는 **한 글자도 안 건드린다**(`[247]`) — 임시 ROOT 로만.
+    """
+    import io as _io
+    import shutil as _sh
+    import glob as _glob   # 모듈 수준에 없다([324])
+
+    _src = open(os.path.join(ROOT, "band", "collect_queue.py"),
+                encoding="utf-8").read()
+    _body = _t303_enclosing_func(_src, "def _dirty_nos(")
+    assert _body, "[485] _dirty_nos 를 못 찾았다"
+
+    def _load(body):
+        """함수 조각만 떼어 돌린다 — 모듈 수준 import 에 안 매인다(`[211]`)."""
+        ns = {"os": os, "io": _io, "json": json, "glob": _glob, "ROOT": None}
+        exec(compile(body, "<dirty>", "exec"), ns)
+        return ns
+
+    def _run(body, posts, nos_in_report=(100, 200, 300)):
+        tmp = tempfile.mkdtemp(prefix="t485_")
+        try:
+            os.makedirs(os.path.join(tmp, "reports"))
+            rep = os.path.join(tmp, "reports", "밴드_UI오염글_20260820.json")
+            with open(rep, "w", encoding="utf-8") as fh:
+                json.dump({"84789192": {"글": [{"번호": n} for n in nos_in_report]}},
+                          fh, ensure_ascii=False)
+            ns = _load(body)
+            ns["ROOT"] = tmp
+            return set(ns["_dirty_nos"]("84789192", posts))
+        finally:
+            _sh.rmtree(tmp, ignore_errors=True)
+
+    # 캐시: 100 은 되살아났다(표시없음) · 200 은 지금도 오염 · 300 은 기록 자체가 없다
+    POSTS = {"100": {"content": "살아난 글", "created_at": 1}, "200": {"contaminated": True}}
+
+    got = _run(_body, POSTS)
+
+    # ① **되살아난 번호는 다시 안 뽑는다** — 이것이 이 사고의 본체다
+    assert 100 not in got, (
+        "[485] 캐시가 깨끗하다는 글(100)을 낡은 리포트가 도로 뽑는다 — "
+        "회차마다 헛돈다(2026-08-28 실측 59건)")
+
+    # ② **캐시가 지금 오염이라 하는 것은 그대로 뽑힌다**(`[172]` — 좁히는 것도 고장)
+    assert 200 in got, "[485] 진짜 오염(200)이 빠졌다 — 그러면 영영 안 되살아난다"
+
+    # ③ **캐시에 기록 자체가 없는 번호는 리포트만 안다** — 그 값어치는 남긴다
+    assert 300 in got, (
+        "[485] 캐시가 모르는 번호(300)까지 뺐다 — 리포트를 남겨 둔 근거가 사라진다")
+
+    # ④ `posts` 를 못 읽으면 **예전 그대로**다(`[169]`)
+    assert _run(_body, None) == {100, 200, 300}, (
+        "[485] posts 를 못 읽었는데 리포트를 걸렀다 — 모름을 깨끗함으로 쳤다")
+    assert _run(_body, {}) == {100, 200, 300}, (
+        "[485] 빈 캐시를 '다 되살아났다'로 읽었다 — 모름과 빈 것을 갈라야 한다")
+
+    # ⑤ ★ 계기 자신을 시험한다(`[272]`) — 옛 동작(무조건 담기)이면 ①이 잡히는가
+    _old = _body.replace("if 아는글 and str(n) in 아는글:", "if False:")
+    assert _old != _body, "[485] 옛 동작을 주입할 자리를 못 찾았다 — 이 시험은 아무것도 안 잰다"
+    import ast as _ast
+    _ast.parse(_old)          # 문법이 깨지면 그 죽음이 '잡았다'로 오인된다(`[371]`)
+    assert 100 in _run(_old, POSTS), (
+        "[485] 계기가 옛 동작을 못 잡는다 — 아무것도 안 재는 검사다(`[272]`)")
+
+    print("  [485] 낡은 오염 리포트가 유령을 되살리지 않는다(기록 없는 번호는 그대로) "
+          + chr(9989))
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -36612,9 +36701,19 @@ def t440_blank_round_is_not_normal():
     assert UW.BLANK_ROUND_SEC_PER_POST < 2.64, (
         '[440] 문턱(%s)이 실측 최저 정상치 2.64초/건 위다 — 정상 회차를 죽인다'
         % UW.BLANK_ROUND_SEC_PER_POST)
-    assert UW.BLANK_ROUND_SEC_PER_POST > 0.55, (
-        '[440] 문턱(%s)이 실측 헛돎 0.55초/건 아래다 — 그 사고를 못 잡는다'
+    assert UW.BLANK_ROUND_SEC_PER_POST > 1.22, (
+        '[440] 문턱(%s)이 실측 헛돎 최대 1.22초/건 아래다 — 그 사고를 못 잡는다'
         % UW.BLANK_ROUND_SEC_PER_POST)
+
+    # ⑧-2 ★ **2026-08-28 실측으로 다시 쟀다** — 문턱 1.0 은 이 둘을 놓쳤다.
+    #    되보고 `최근` 100줄을 겹침 뺀 35회차로 재니 **틈이 넓다**:
+    #      헛돎  5개 = 0.10 · 0.14 · 0.14 · **1.16** · **1.22** 초/건
+    #      정상 30개 = **2.86** · 2.92 · 3.85 … 14.71 · 22.91 초/건
+    #    2.86 은 84789192 의 `수확 59/59 · 실패 0` — 완전히 성공한 회차다.
+    assert UW.judge(_doc(79, 0, 92), '', now=now, plan=_plan(200))['갈래'] == '헛돎', (
+        '[440] 건당 1.16초짜리 헛돈 회차를 못 잡는다 — 2026-08-28 실측')
+    assert UW.judge(_doc(59, 59, 169), '', now=now, plan=_plan(200))['갈래'] != '헛돎', (
+        '[440] 건당 2.86초에 59건을 다 받은 회차를 헛돎이라 부른다([172] — 좁히는 것도 고장)')
 
     # ⑩ 계기 자기시험(`[272]`) — **시간 문**을 없애면 ②가 거짓 경보가 되는가
     _real = UW._blank_round
@@ -45654,6 +45753,7 @@ if __name__ == "__main__":
     t482_error_popup_keeps_the_server_reason()
     t483_schedule_plan_is_hidden_not_deleted()
     t484_handoff_says_the_pc_rebooted()
+    t485_stale_dirty_report_does_not_resurrect_ghosts()
     t486_demo_reject_trace_stays_out_of_evidence()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
