@@ -1446,6 +1446,15 @@ tr.campsub>td.campname{padding-left:20px}
   box-shadow:0 -12px 40px rgba(10,20,48,.3)}
 .sheet.open{transform:none}
 .sheet .grip{flex:none;width:38px;height:4.5px;background:var(--line);border-radius:99px;margin:0 auto 15px}
+/* 닫기(✕) — 캘린더 시트의 `.cal2-sheet-x` 와 같은 크기·모양으로 맞춘다. 한 앱에서
+   같은 뜻의 단추가 화면마다 다르게 생기면 사람이 그때마다 다시 찾는다([300]).
+   ⚠ 색을 굳혀 적지 않는다 — 테마 토큰만 쓴다([332]). */
+.sheet .sheet-x{position:absolute;top:10px;right:12px;z-index:2;
+  width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
+  font-size:15px;line-height:1;cursor:pointer;padding:0}
+.sheet .sheet-x:hover{background:var(--panel);color:var(--ink-1)}
+.sheet .sheet-x:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 #sheetbody{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
   overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;
   scrollbar-gutter:stable;padding:0 2px 8px 0}
@@ -4294,6 +4303,14 @@ button[aria-busy="true"]::after{
   <div class="sheet-bg" id="sheetbg" onclick="closeSheetAll()"></div>
   <div class="sheet" id="sheet" role="dialog" aria-modal="true">
     <div class="grip"></div>
+    <!-- ★ 닫기 단추 (2026-08-28 형님 지시 "모달 창에 닫기 버튼을 추가").
+         같은 앱인데 캘린더·프로젝트 시트에는 `cal2-sheet-x` 가 있고 **여기만
+         없었다**([300] — 한 곳에서 배운 것을 다른 곳이 모른다). 배경 클릭과
+         ESC 는 이미 있었지만, 둘 다 **눈에 안 보이는 손잡이**다.
+         ⚠ `closeSheet()` 다 — 배경(`closeSheetAll`)과 다르다. 목록→상세로
+         파고들었으면 **한 겹만** 되돌아가야 자리를 안 잃는다([417] 류지영 보고). -->
+    <button type="button" class="sheet-x" onclick="closeSheet()"
+            aria-label="닫기" title="닫기 (ESC)">✕</button>
     <div id="sheetbody" tabindex="0"></div>
     <div class="sheet-actions" id="sheetactions"></div>
   </div>
@@ -9051,6 +9068,12 @@ async function receiptSubmit(hostId,file,url){
       uxEvent('tap','receipt-upload');
     } else {
       if(log) log.textContent=`✗ ${name} — ${d.error||('HTTP '+r.status)}`;
+      /* ★ **자국을 남긴다**([169]). 2026-08-28 실사고: 형님이 400 을 받으셨는데
+         ux 기록에 **한 줄도 안 남아** 캡처를 보내 주시기 전까지 무슨 일인지
+         알 길이 없었다. 성공 갈래에는 `uxEvent('tap','receipt-upload')` 가
+         있는데 실패 갈래에만 없었다 — 몇 번 나는지 모르면 뿌리를 영영 못 잡는다. */
+      try{ uxEvent('error','/api/staff/receipt-upload',
+                   'HTTP '+r.status+' · '+String(d.error||'').slice(0,160)); }catch(_e){}
       /* * 작은 글씨 한 줄만 남기면 형님은 **무엇이 잘못됐는지 보낼 수가 없다**([169]).
          팝업으로 세우고 코드를 붙인다 — [캡처해서 보내기] 는 errorHelp 가 이미 갖고 있다. */
       await errorHelp("입금·증빙 자료 올리기", d.error||("HTTP "+r.status),
@@ -9060,6 +9083,8 @@ async function receiptSubmit(hostId,file,url){
     }
   }catch(e){
     if(log) log.textContent=`✗ ${name} — 연결 실패(오프라인이면 자동 보관됨)`;
+    try{ uxEvent('error','/api/staff/receipt-upload',
+                 'NETWORK · '+String((e&&e.message)||'').slice(0,160)); }catch(_e){}
     await errorHelp("입금·증빙 자료 올리기", String((e&&e.message)||"연결 실패"),
       {code:errCode("UPLOAD", 0), force:true,
        title:"자료가 올라가지 않았습니다",
@@ -15226,6 +15251,17 @@ async function errorHelp(target, detail, opt){
         padding:2px 7px;font-size:.95em;user-select:all">${esc2(_code)}</code></p>` : "")
     + `<p style="margin:.2em 0 .6em;font-weight:700">${esc2(h.쉬운말||'')}</p>`
     + (h.왜 ? `<p class="norm" style="margin:.2em 0 .8em">${esc2(h.왜)}</p>` : '')
+    /* ★ **서버가 준 사유를 버리지 않는다** (2026-08-28 형님 캡처 · [289]·[365]).
+       그날 `CSOS-UPLOAD-400` 팝업은 "앱이 처음 보는 오류입니다" 만 말했다 —
+       서버는 이유를 **정확히** 보냈는데(`str(exc)[:320]`) 이 화면이 그것을
+       `신고문구` 에만 담고 본문에는 한 글자도 안 실었다. 곧 **겉은 오류인데
+       왜인지는 못 읽는 자리**였고, 사전에 없는 오류일수록 그 한 줄이 유일한
+       단서다([169]).
+       ⚠ 사전에 있으면 쉬운말이 먼저다 — 기술 문구는 그 **뒤에 작게** 둔다.
+         앞에 세우면 사람이 읽어야 할 말이 영어·코드에 묻힌다([170]). */
+    + (detail ? `<p class="norm" style="margin:.2em 0 .8em;padding:.5em .7em;
+        background:var(--panel);border:1px solid var(--line);border-radius:8px;
+        word-break:break-all"><b>서버가 알려 준 이유</b><br>${esc2(String(detail).slice(0,400))}</p>` : '')
     + `<p style="margin:.2em 0 .3em;font-weight:700">이렇게 하세요</p>`
     + `<ol style="margin:.2em 0 .8em;padding-left:1.2em">${steps}</ol>`
     + (h.앎===false
@@ -15685,17 +15721,37 @@ function closeSheetAll(){
    ★ **입력칸에 커서가 있으면 안 닫는다.** 사유·금액을 적다 ESC 를 누르는 일이
      잦은데, 닫아 버리면 적던 것을 잃는다([275] 가 지키는 그 값이다). 밖을 한 번
      누른 뒤 ESC 를 누르면 닫힌다. */
+/* ★ **무엇을 닫을지는 여기 한 곳이 정한다**([162]) — 2026-08-28 형님 지시
+   "ESC 눌러도 창이 닫히는 구조로 앱전체 반영". 재 보니 ESC 는 상세 시트에만
+   걸려 있었고 **캘린더·프로젝트 시트는 ESC 로 안 닫혔다**([300]).
+   ⚠ 시트마다 제 핸들러를 달면 셋이 서로 먼저 잡으려 다투고, 어느 것이 닫혔는지
+     사람도 코드도 모른다. 그래서 **닫는 함수를 고르기만** 하고 실제로 닫는 것은
+     그 시트가 원래 쓰던 함수다(`closeSheet`·`calCloseSheet`·`pjCloseSheet`).
+   ★ **위에 뜬 것부터** 닫는다 — `.cal2-sheet-wrap` 은 z-index 60 이라 상세 시트
+     위에 뜰 수 있다. 아래 것을 먼저 닫으면 위에 뜬 창이 그대로 남는다. */
+function _escCloser(){
+  const pj = $('pjSheet'), cal = $('calSheet');
+  if(pj && pj.classList.contains('open') && typeof pjCloseSheet === 'function') return pjCloseSheet;
+  if(cal && cal.classList.contains('open') && typeof calCloseSheet === 'function') return calCloseSheet;
+  if(typeof sheetIsOpen === 'function' && sheetIsOpen()){
+    const sheet = $('sheet');
+    // 도면 편집기 위에서는 ESC 가 '선택 취소' 다 — 시트까지 닫으면 저장 안 한
+    // 도면을 잃는다. 그때는 아무것도 안 한다(닫기 단추가 따로 있다).
+    if(sheet && sheet.querySelector('#flowVisualEditor.in-layer')) return null;
+    return closeSheet;
+  }
+  return null;
+}
 document.addEventListener('keydown', e=>{
   if(e.key !== 'Escape' || e.defaultPrevented) return;
   if(e.isComposing || e.keyCode === 229) return;
-  if(typeof sheetIsOpen !== 'function' || !sheetIsOpen()) return;
   if(typeof dlgIsOpen === 'function' && dlgIsOpen()) return;
-  const sheet = $('sheet');
-  if(sheet && sheet.querySelector('#flowVisualEditor.in-layer')) return;
   const t = e.target;
   if(t && t.closest && t.closest('input,textarea,select,[contenteditable=""],[contenteditable="true"]')) return;
+  const closer = _escCloser();
+  if(!closer) return;
   e.preventDefault();
-  closeSheet();
+  closer();
 });
 
 /* 버튼 위에서 휠을 돌려도 바로 위 목록이 움직이게 한다. PC와 키보드 접근도 같은 스크롤포트를 쓴다. */
