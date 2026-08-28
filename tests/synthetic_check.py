@@ -24786,9 +24786,14 @@ def t385_watchdog_gap_is_not_stall_when_the_pc_slept():
     t_out = (_now - _td(minutes=100)).replace(microsecond=0)
     #    ★ 재료는 **실제 조회 결과 모양** 그대로다 — 최신순이고, 같은 초에서는
     #      진입(506)이 이탈(507)보다 앞에 온다. 그 순서가 곧 사고의 씨앗이다.
+    #    ★ 2026-08-28 — 조회 스크립트가 끝까지 갔다는 **표식**(`__CSOS_OK__`)을
+    #      같이 찍는다. 재료에 그것이 없으면 계기는 '못 읽음'으로 답하고 ⑧ 은
+    #      **아무것도 안 재면서 빨개진다**([309] — 재료가 실제 모양이 아니면 그
+    #      검사는 계약이 아니라 옛 모양을 지키는 것이 된다).
     내림 = NL.join(['507|' + t_out.isoformat(timespec='seconds'),
                     '506|' + t_in.isoformat(timespec='seconds'),
-                    '507|' + t_in.isoformat(timespec='seconds')])
+                    '507|' + t_in.isoformat(timespec='seconds'),
+                    '__CSOS_OK__'])
 
     def _fake_pg(out, rc=0, to=False):
         return _ty2.SimpleNamespace(run_tree=lambda *a, **k: _ty2.SimpleNamespace(
@@ -24803,9 +24808,36 @@ def t385_watchdog_gap_is_not_stall_when_the_pc_slept():
             '0 을 내는 계기는 아무도 의심하지 않는다' % (잔,))
 
         # ⑩ 못 재면 **0 이 아니라 None** 이다([169]).
+        #    ⚠ 표식이 없으면 조회가 끝까지 못 간 것이다 — rc 는 근거가 못 된다(⑫).
         sys.modules['proc_guard'] = _fake_pg('', rc=1)
         잔2, 왜2 = sa._sleep_minutes_since(400)
         assert 잔2 is None and 왜2, '⑩ 못 쟀는데 0 을 줬다 — 안 잤다로 읽힌다'
+
+        # ⑫ **'잠이 없었다'와 '못 읽었다'는 다른 사실이다** (2026-08-28 실사고).
+        #    `Get-WinEvent` 는 **결과가 0건이면 rc=1** 로 끝난다. 그래서 예전
+        #    판정(`rc != 0` → 못 읽음)은 **잠이 한 번도 없던 구간을 전부 '못 읽음'**
+        #    으로 적었고, `[385]`·`[468]` 의 완화가 그 구간에 통째로 죽어 있었다
+        #    (실측: 최근 4시간 0건이라 None · 같은 계기가 24시간에는 221.1분).
+        #    ★ 가르는 근거는 낱말이 아니라 **`FullyQualifiedErrorId`** 다([165]) —
+        #      `run_tree` 를 거치면 PowerShell 이 예외 메시지를 **cp949 로 써서**
+        #      `No events...` 도 `찾을 수 없...` 도 안 걸린다(물음표 범벅으로 온다).
+        sys.modules['proc_guard'] = _fake_pg(
+            NL.join(['__CSOS_NOEV0__', '__CSOS_OK__']), rc=1)
+        잔3, 왜3 = sa._sleep_minutes_since(400)
+        assert 잔3 == 0.0, (
+            '⑫ 잠이 0건인데 %r 라 한다 — 0건과 못 읽음을 가르지 못하면 '
+            '잠 없는 구간에서 완화가 통째로 죽는다' % (잔3,))
+        #    ★ 진짜 오류는 여전히 **못 읽음**이다([169] · 좁히는 것도 고장이다).
+        sys.modules['proc_guard'] = _fake_pg(
+            NL.join(['__CSOS_ERR__|Access is denied', '__CSOS_OK__']), rc=1)
+        잔4, 왜4 = sa._sleep_minutes_since(400)
+        assert 잔4 is None and 왜4, '⑫ 진짜 오류를 0 분으로 읽었다'
+        #    ★ 계기 자기시험([272]) — 표식을 안 보던 옛 판정이면 ⑪ 이 잡혀야 한다.
+        import io as _io2  # noqa: PLC0415  (이 함수에 io 가 없다 · [406])
+        _본문 = _io2.open(sa.__file__, encoding='utf-8').read()
+        _본문 = _본문.split('def _sleep_minutes_since(')[1].split(NL + 'def ')[0]
+        assert 'returncode != 0' not in _본문, (
+            '⑫ rc 로 못 읽음을 판정하는 옛 줄이 돌아왔다 — 0건이 다시 못 읽음이 된다')
     finally:
         if had_pg is None:
             sys.modules.pop('proc_guard', None)
@@ -24816,6 +24848,8 @@ def t385_watchdog_gap_is_not_stall_when_the_pc_slept():
     #    안 그러면 ⑧은 통과하면서 아무것도 안 재는 것이다.
     파싱 = []
     for _ln in 내림.splitlines():
+        if '|' not in _ln:      # `__CSOS_OK__` 같은 표식 줄은 자료가 아니다
+            continue
         _a, _b = _ln.split('|')
         파싱.append((int(_a), _dtm.fromisoformat(_b)))
     옛 = sorted(파싱, key=lambda x: x[1])        # 시각만으로 · 파이썬 안정 정렬
@@ -37061,6 +37095,123 @@ def t477_watchdog_locks_the_archive_net():
     print(chr(9989) + " [477] 잠금 그물 — 회차 배선 · 일곱 갈래 · 계기 자기시험 2/2")
 
 
+def t479_daily_run_names_the_reboot():
+    """[479] **'죽었다'와 'PC 가 꺼졌다'는 다른 사실이다** (2026-08-28 실사고).
+
+    일일대조가 140.5분째 60단계를 끝내고 61번째(`ERP PDF 사본 만들기`)에서
+    사라졌다. 그런데 자국(`[140]`)이 댈 수 있는 것은 '어느 단계였나'까지라
+    후보로 **워치독·이름으로 죽이는 자리**만 적었다. 실제로는 그 3.5분 뒤
+    **사람이 시작 메뉴에서 전원 끄기를 누른 것**이었다(이벤트 1074 13:58:13 ·
+    커널 109 13:58:48 · 재부팅 13:59:22 · 빠른 시작이라 40초 만에 돌아왔다).
+    그 조치를 따랐으면 **멀쩡한 워치독 코드를 뒤진다**([172]).
+
+    ★ **글자로는 못 잰다**([295]) — `_note_prev_crash` 를 **불러서** 잰다.
+    ★ 진짜 자국·진짜 진행 파일은 **한 글자도 안 건드린다**([247]) — 임시 경로로만.
+      부팅 시각은 목으로 갈아 끼운다: 진짜 PowerShell 을 부르면 이 검사가
+      **실데이터에 매인다**([211]) · 모듈 표는 프로세스 전체의 것이라
+      `finally` 로 되돌린다([371]).
+    ⚠ `datetime`·`shutil` 은 이 파일 모듈 수준에 **없다**([324]) — 함수 안에서.
+    """
+    from datetime import datetime as _dt   # 모듈 수준에 없다([324]·[406])
+    import shutil as _sh
+
+    sys.path.insert(0, ROOT)
+    import daily_run as DR                 # noqa: PLC0415
+    import system_audit as SA              # noqa: PLC0415
+
+    dr_src = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+
+    # (1) 배선 — 함수만 있고 안 부르면 **없는 것과 같다**([328]).
+    body = _t303_enclosing_func(dr_src, "def _note_prev_crash(")
+    assert body and "_reboot_note(" in body, (
+        "[479] _note_prev_crash 가 재부팅을 안 묻는다 — 함수만 있으면 안 돈다([328])")
+
+    # (2) **재는 자리는 한 곳이다**([162]) — daily_run 이 제 손으로 안 묻는다.
+    #     ⚠ 규칙을 세기 전에 설명을 걷어낸다 — 이 저장소가 열두 번 밟은 자리([301]-9).
+    code = _t370_code_only(dr_src)
+    for word in ("LastBootUpTime", "Win32_OperatingSystem"):
+        assert word not in code, (
+            "[479] daily_run 이 부팅 시각을 제 손으로 묻는다(%s) — 같은 물음에"
+            " 두 답이 생긴다([162]). `system_audit._boot_time` 을 빌린다." % word)
+
+    PREV = {"시각": "2026-08-28T13:54:42+09:00", "단계": "ERP PDF 사본 만들기",
+            "상태": "시작", "경과분": 140.5, "단계경과초": 0, "pid": 63700,
+            "끝난단계": ["a"] * 60, "느린단계": []}
+
+    def _run(prev, boot, window=None):
+        """임시 경로로만 돌린다 — 진짜 자국은 안 건드린다([247])."""
+        tmp = tempfile.mkdtemp(prefix="t479_")
+        keep = (DR.PROGRESS, DR.STEP_CRASH, DR.REPORT_DIR,
+                SA._boot_time, DR.REBOOT_WINDOW_MIN)
+        try:
+            DR.REPORT_DIR = tmp
+            DR.PROGRESS = os.path.join(tmp, "prog.json")
+            DR.STEP_CRASH = os.path.join(tmp, "crash.json")
+            SA._boot_time = lambda: (boot, "" if boot else "못 읽었다")
+            if window is not None:
+                DR.REBOOT_WINDOW_MIN = window
+            with open(DR.PROGRESS, "w", encoding="utf-8") as fh:
+                json.dump(prev, fh, ensure_ascii=False)
+            DR._note_prev_crash()
+            if not os.path.exists(DR.STEP_CRASH):
+                return None
+            with open(DR.STEP_CRASH, encoding="utf-8") as fh:
+                return json.load(fh)
+        finally:
+            (DR.PROGRESS, DR.STEP_CRASH, DR.REPORT_DIR,
+             SA._boot_time, DR.REBOOT_WINDOW_MIN) = keep
+            _sh.rmtree(tmp, ignore_errors=True)
+
+    BOOT = _dt(2026, 8, 28, 13, 59, 22)          # 실측 그날 부팅
+
+    # (3) 창 안에서 부팅했으면 **그것이 답이고 맨 앞에 선다**.
+    #     `schedule_watch.traces()` 는 `무엇` 을 120자에서 자른다 — 뒤에 붙이면
+    #     정작 원인이 잘려 안 보인다([292]·[325]).
+    d = _run(PREV, BOOT)
+    assert d, "[479] 자국을 안 남겼다"
+    assert d.get("갈래") == "재부팅", "[479] 부팅이 확인됐는데 갈래가 '%s'" % d.get("갈래")
+    head = str(d.get("무엇") or "")[:120]
+    assert "부팅했다" in head, "[479] 부팅 사실이 120자 안에 없다 — traces() 가 자른다"
+    assert "코드 고장이 아니다" in head, "[479] 코드 탓이 아니라는 말이 잘렸다"
+    assert "코드를 뒤지지 않는다" in str(d.get("조치") or ""), (
+        "[479] 조치가 여전히 코드를 뒤지라 한다 — 틀린 지목이다([172])")
+
+    # (4) **창 밖 부팅은 원인이라 말할 근거가 없다** — 예전 문구 그대로([172]).
+    d = _run(PREV, _dt(2026, 8, 28, 18, 0, 0))
+    assert d and d.get("갈래") == "모름", "[479] 한참 뒤 부팅까지 재부팅으로 지목했다"
+    assert "워치독" in str(d.get("조치") or ""), "[479] 예전 후보가 사라졌다(좁히는 것도 고장)"
+
+    # (5) 자국보다 **앞선** 부팅은 이 죽음과 무관하다.
+    d = _run(PREV, _dt(2026, 8, 28, 13, 0, 0))
+    assert d and d.get("갈래") == "모름", "[479] 앞선 부팅을 원인이라 했다"
+
+    # (6) **못 재면 아무 말도 안 한다**([169]).
+    d = _run(PREV, None)
+    assert d and d.get("갈래") == "모름", "[479] 못 쟀는데 재부팅이라 했다"
+    assert not d.get("부팅"), "[479] 못 쟀는데 부팅 시각을 지어냈다"
+
+    # (7) `(회차 끝)` 이면 **아무 자국도 안 남긴다** — 없는 사고를 만들지 않는다.
+    quiet = dict(PREV, **{"단계": "(회차 끝)"})
+    assert _run(quiet, BOOT) is None, "[479] 완주한 회차에 자국을 남겼다([170])"
+
+    # (8) ★ 계기 자신을 시험한다([272]).
+    caught = 0
+    #   (a) 창 문을 없애면 — 한참 뒤 부팅까지 재부팅으로 지목한다
+    d = _run(PREV, _dt(2026, 8, 28, 18, 0, 0), window=10 ** 9)
+    if d and d.get("갈래") == "재부팅":
+        caught += 1
+    #   (b) 뒤에 붙이면 120자에서 잘려 안 보인다 — 그래서 맨 앞이다([292])
+    tail = ("앞 회차가 'ERP PDF 사본 만들기' 단계에서 사라졌다 — `(회차 끝)` 표식을"
+            " 못 찍었다 (끝낸 단계 60개 · 그 단계에서 0분 · 회차 140.5분째 ·"
+            " pid 63700) · 이 PC 가 08-28 13:59 에 부팅했다")
+    if "부팅" not in tail[:120]:
+        caught += 1
+    assert caught == 2, (
+        "[479] 계기가 옛 동작을 못 잡는다(%d/2) — 아무것도 안 재는 검사다([272])" % caught)
+
+    print(chr(9989) + " [479] 재부팅 지목 — 배선 · 재는 자리 한 곳 · 네 갈래 · 계기 자기시험 2/2")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -44613,6 +44764,7 @@ if __name__ == "__main__":
     t476_gate_failure_asks_if_source_changed()
     t477_watchdog_locks_the_archive_net()
     t478_hand_edit_alarm_reads_what_the_writer_split()
+    t479_daily_run_names_the_reboot()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

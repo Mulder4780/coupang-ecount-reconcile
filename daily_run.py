@@ -1339,6 +1339,61 @@ def _gate_fix(kind, which):
     return fix
 
 
+# ★ 마지막 자국에서 이만큼 안에 부팅했을 때만 "꺼져서 죽었다"고 말한다.
+#   가장 긴 단계가 30분(단계 제한시간)이고 종료·부팅에 몇 분이 든다.
+REBOOT_WINDOW_MIN = 45
+
+
+def _reboot_note(last_iso):
+    """앞 회차 자국 **뒤에** 이 PC 가 부팅했으면 그 시각을 짧게 돌려준다(아니면 "").
+
+    ★ 2026-08-28 실사고 — 일일대조가 140.5분째 61번째 단계에서 사라졌는데 자국은
+      후보로 **워치독·이름으로 죽이는 자리**만 적었다. 실제로는 그 3.5분 뒤 사람이
+      시작 메뉴에서 **전원 끄기**를 누른 것이었다(재부팅 13:59:22 · 빠른 시작이라
+      40초 만에 돌아왔다). 그 조치를 따랐으면 **멀쩡한 코드를 뒤진다**([172]).
+
+    ★ **부팅은 자는 것과 다르다** — 반드시 모든 프로세스를 죽인다. 그래서
+      `[385]`·`[468]` 의 절전 '완화'와 달리 여기서는 원인이 **확정**된다.
+
+    ★ **못 재면 아무 말도 안 한다**([169]) · **자국보다 앞선 부팅은 근거가 아니다**.
+    ⚠ 재는 자리는 `system_audit._boot_time` **한 곳**이다([162]) — 여기서 다시
+      물으면 같은 물음에 두 답이 생긴다. 순환을 피해 **늦게 들여온다**.
+    """
+    if not last_iso:
+        return ""
+    try:
+        if ROOT not in sys.path:
+            sys.path.insert(0, ROOT)
+        import system_audit          # noqa: PLC0415  (늦게 들여온다 — 순환 방지)
+        boot, _why = system_audit._boot_time()
+    except Exception:                # noqa: BLE001
+        return ""                    # 못 재면 지어내지 않는다([169])
+    if boot is None:
+        return ""
+    try:
+        last = datetime.fromisoformat(str(last_iso))
+    except (TypeError, ValueError):
+        return ""
+    # ⚠ 자국은 `+09:00` 이 붙은 값이고 부팅 시각은 **로컬 naive** 다. 그냥 비교하면
+    #   `TypeError` 로 죽는다 — [212] 가 시각 모양에서 겪은 그 자리이고, 그때는
+    #   인계 문서가 통째로 안 나왔다. 둘 다 이 PC 시각이므로 tz 만 떼면 된다.
+    if last.tzinfo is not None:
+        last = last.replace(tzinfo=None)
+    # ★ **부팅했다는 것만으로 원인이라 단정하지 않는다**([172]). 그 사실이 말해
+    #   주는 것은 '언젠가 PC 가 꺼졌다'까지다 — 코드 고장으로 먼저 죽고 **몇 시간
+    #   뒤** 사람이 PC 를 끈 경우까지 재부팅 탓으로 돌리면, 그것이 곧 이 고침이
+    #   막으려던 **틀린 지목**이 된다.
+    #   창은 실측에서 나온다: 이 회차의 가장 긴 단계가 **30분**(단계 제한시간)이고
+    #   종료·부팅에 몇 분이 든다. 그러므로 종료가 죽인 경우는 마지막 자국에서
+    #   `REBOOT_WINDOW_MIN` 안에 들어온다(실측 2026-08-28 은 **3.5분**).
+    gap = (boot - last).total_seconds() / 60.0
+    if gap <= 0:
+        return ""                    # 자국보다 앞선 부팅은 이 죽음과 무관하다
+    if gap > REBOOT_WINDOW_MIN:
+        return ""                    # 한참 뒤 부팅 — 원인이라 말할 근거가 없다([169])
+    return boot.strftime("%m-%d %H:%M")
+
+
 def _note_prev_crash():
     """앞 회차가 **단계 도중에** 사라졌으면 그 단계 이름을 자국으로 남긴다 (분담판 [140]).
 
@@ -1384,20 +1439,37 @@ def _note_prev_crash():
     if not step or step == "(회차 끝)":
         return                            # 끝을 봤다 — 여기서 할 말이 없다
     done = list(prev.get("끝난단계") or [])
-    무엇 = ("앞 회차가 '%s' 단계에서 사라졌다 — `(회차 끝)` 표식을 못 찍었다"
-            " (끝낸 단계 %d개 · 그 단계에서 %d분 · 회차 %s분째 · pid %s)"
-            % (step, len(done), int((prev.get("단계경과초") or 0) // 60),
-               prev.get("경과분"), prev.get("pid") or prev.get("주인pid") or "?"))
-    조치 = ("그 단계를 직접 돌려 본다 — 멀쩡히 끝나면 단계가 터진 것이 아니라"
-            " **밖에서 죽은 것**이다. 그때 볼 후보 둘: 워치독 30분 회차가 무엇을"
-            " 죽였나 · 이름으로 죽이는 자리가 남의 나무를 같이 끊었나."
-            " 확언하지 말 것 — 지금 아는 것은 '어느 단계였나'까지다.")
+    pid = prev.get("pid") or prev.get("주인pid") or "?"
+    # ★ **부팅했으면 그것이 답이다 — 그리고 맨 앞에 세운다** (2026-08-28 실사고).
+    #   `schedule_watch.traces()` 는 `무엇` 을 **120자에서 자른다** — 뒤에 붙이면
+    #   정작 원인이 잘려 안 보인다([292]·[325] — 비지 않는 것을 맨 앞에 세운다).
+    booted = _reboot_note(prev.get("시각"))
+    if booted:
+        무엇 = ("이 PC 가 %s 에 **부팅했다** — 앞 회차는 그때 꺼져서 죽었다"
+                "(코드 고장이 아니다). '%s' 단계 · 끝낸 %d개 · %s분째 · pid %s"
+                % (booted, step, len(done), prev.get("경과분"), pid))
+        조치 = ("**코드를 뒤지지 않는다**([172]) — 워치독도 이름으로 죽이는 자리도"
+                " 무관하다. 다음 예정 회차가 처음부터 다시 돈다."
+                " 예정을 보려면 `python schedule_watch.py --print`.")
+    else:
+        무엇 = ("앞 회차가 '%s' 단계에서 사라졌다 — `(회차 끝)` 표식을 못 찍었다"
+                " (끝낸 단계 %d개 · 그 단계에서 %d분 · 회차 %s분째 · pid %s)"
+                % (step, len(done), int((prev.get("단계경과초") or 0) // 60),
+                   prev.get("경과분"), pid))
+        조치 = ("그 단계를 직접 돌려 본다 — 멀쩡히 끝나면 단계가 터진 것이 아니라"
+                " **밖에서 죽은 것**이다. 그때 볼 후보 둘: 워치독 30분 회차가 무엇을"
+                " 죽였나 · 이름으로 죽이는 자리가 남의 나무를 같이 끊었나."
+                " 확언하지 말 것 — 지금 아는 것은 '어느 단계였나'까지다.")
     try:
         os.makedirs(REPORT_DIR, exist_ok=True)
         with open(STEP_CRASH, "w", encoding="utf-8") as fh:
             json.dump({"시각": datetime.now().isoformat(timespec="seconds"),
                        "명령": "daily_run.py (%s 단계)" % step,
-                       "갈래": "모름",
+                       # ★ 부팅이 확인되면 그것은 **모름이 아니다**. 이 칸을 읽는
+                       #   코드는 없지만(실측), 사람이 JSON 을 열었을 때 '모름'
+                       #   이라 적혀 있으면 그 자체가 틀린 말이 된다([169]).
+                       "갈래": "재부팅" if booted else "모름",
+                       "부팅": booted or "",
                        "단계": step,
                        "무엇": 무엇,
                        "조치": 조치,

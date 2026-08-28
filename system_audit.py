@@ -63,11 +63,26 @@ def _sleep_minutes_since(minutes_ago: float) -> tuple[float | None, str]:
     except Exception as exc:  # pragma: no cover
         return None, "%s: %s" % (type(exc).__name__, exc)
     hours = max(1, int(minutes_ago / 60) + 2)
+    # ★ **'잠이 없었다'와 '못 읽었다'는 다른 사실이다** (2026-08-28 실사고).
+    #   `Get-WinEvent` 는 **결과가 0건이면 오류로 끝난다**(rc=1). 그래서 예전
+    #   판정(`rc != 0` → 못 읽음)은 **잠이 한 번도 없던 구간을 전부 '못 읽음'**
+    #   으로 적었다 — 실측 2026-08-28: 최근 4시간 506/507 **0건**(rc=1) ·
+    #   최근 24시간 **14건**. 곧 이 노트북은 자주 자는데도 잠이 없는 구간에서는
+    #   계기가 언제나 '확인 못 했다'고 말했고, `[385]`·`[468]` 의 완화가 그 구간에
+    #   통째로 죽어 있었다. 위 독스트링이 *"못 읽으면 None 이다 — 0 이 아니다"* 를
+    #   경고해 뒀는데 **거꾸로 0 인 것을 못 읽음으로 적고 있었다**([169]).
+    # ★ 그래서 **끝까지 갔다는 표식**으로 가른다 — rc 로는 못 가른다.
+    #   0건 예외는 `System.Exception` 이고 메시지가 (한국어 윈도우에서도)
+    #   `No events were found ...` 다(실측). 형식으로는 못 가르므로 메시지를 본다.
+    # ⚠ 메시지를 못 알아보면 **'못 읽음'으로 기운다** — 그때는 예전과 같은 상태라
+    #   나빠지지 않는다([169] · 모르는 것을 아는 것처럼 세지 않는다).
     ps = ("$ErrorActionPreference='SilentlyContinue';"
-          "Get-WinEvent -FilterHashtable @{LogName='System';"
+          "try { $e = @(Get-WinEvent -FilterHashtable @{LogName='System';"
           "ProviderName='Microsoft-Windows-Kernel-Power';Id=506,507;"
-          "StartTime=(Get-Date).AddHours(-%d)} |"
-          " ForEach-Object { '{0}|{1}' -f $_.Id, $_.TimeCreated.ToString('s') }" % hours)
+          "StartTime=(Get-Date).AddHours(-%d)} -ErrorAction Stop) }"
+          " catch { $e = @(); if ($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*') { Write-Output '__CSOS_NOEV0__' } else { Write-Output ('__CSOS_ERR__|' + $_.Exception.Message) } };"
+          " $e | ForEach-Object { '{0}|{1}' -f $_.Id, $_.TimeCreated.ToString('s') };"
+          " Write-Output '__CSOS_OK__'" % hours)
     try:
         res = proc_guard.run_tree(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=40)
@@ -75,8 +90,20 @@ def _sleep_minutes_since(minutes_ago: float) -> tuple[float | None, str]:
         return None, "%s: %s" % (type(exc).__name__, exc)
     if res.timed_out:
         return None, "이벤트 조회가 40초를 넘겼다"
-    if res.returncode != 0:
+    out = res.stdout or ""
+    if "__CSOS_OK__" not in out:
+        # 표식이 없다 = 조회가 끝까지 못 갔다. rc 는 0건일 때도 1 이라 근거가 못 된다.
         return None, "이벤트 조회 실패(rc=%s)" % res.returncode
+    if "__CSOS_ERR__" in out:
+        # 진짜 오류다(권한·로그 없음 등). 0건과 갈라 말한다.
+        err = [ln for ln in out.splitlines() if ln.startswith("__CSOS_ERR__")]
+        msg = (err[0].split("|", 1) + [""])[1] if err else ""
+        return None, "이벤트 조회 오류: %s" % msg[:120]
+    # `__CSOS_NOEV0__` 이 있으면 **정말 0건**이다 — 그 구간에 잠이 없었다.
+    # ★ 가르는 근거는 낱말이 아니라 **`FullyQualifiedErrorId`** 다([165]).
+    #   실측: `run_tree` 를 거치면 PowerShell 이 예외 메시지를 **cp949 로 써서**
+    #   `No events...` 도 `찾을 수 없...` 도 안 걸린다(물음표 범벅으로 온다).
+    #   식별자 `NoMatchingEventsFound` 는 **언어·인코딩과 무관**하다.
     now = datetime.now()
     since = now - timedelta(minutes=minutes_ago)
     events = []
@@ -111,6 +138,53 @@ def _sleep_minutes_since(minutes_ago: float) -> tuple[float | None, str]:
         total += _overlap_minutes(enter, now, since, now)
     return total, ""
 
+
+def _boot_time():
+    """이 PC 가 **마지막으로 부팅한 때**(로컬 naive) 또는 `None`.
+
+    ★ **'죽었다'와 'PC 가 꺼졌다'는 다른 사실이다** (2026-08-28 실사고).
+      일일대조가 140.5분째 60단계를 끝내고 61번째(`ERP PDF 사본 만들기`)에서
+      사라졌는데, 자국이 댈 수 있는 것은 '어느 단계였나'까지라 후보로
+      **워치독·이름으로 죽이는 자리**만 적었다. 실제로는 그 3.5분 뒤
+      **사람이 시작 메뉴에서 전원 끄기를 누른 것**이었다(이벤트 1074 13:58:13 ·
+      커널 109 13:58:48 · 재부팅 13:59:22). 그 조치를 그대로 따르면 **멀쩡한
+      워치독 코드를 뒤진다**([172] — 틀린 지목이 못 잡는 것보다 나쁘다).
+
+    ★ **지어낼 것이 없다** — `Win32_OperatingSystem.LastBootUpTime` 하나다.
+      마지막 자국보다 **나중에** 부팅했으면 그 사이에 PC 가 꺼진 것이고,
+      부팅은 **반드시** 모든 프로세스를 죽인다. 자고 깨는 것(`[385]`)과 달리
+      여기서는 원인이 **확정**된다 — 그래서 완화가 아니라 지목이다.
+
+    ★ **못 읽으면 `None` 이다**([169]) — 모름을 '재부팅 아님'으로도 '재부팅'으로도
+      치지 않는다. 부르는 쪽은 그때 **아무 말도 안 한다**.
+
+    ⚠ 창은 안 띄운다(`proc_guard` · [272]) · 부르는 쪽이 **자국을 남길 때만**
+      부른다(평소 회차는 한 번도 안 부른다 · [168] · 실측 0.4초).
+    """
+    if os.name != "nt":
+        return None, "윈도우가 아니라 부팅 시각을 못 본다"
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import proc_guard  # noqa: PLC0415  (늦게 들여온다 — 순환 방지)
+    except Exception as exc:  # pragma: no cover
+        return None, "%s: %s" % (type(exc).__name__, exc)
+    ps = ("$ErrorActionPreference='SilentlyContinue';"
+          "(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToString('s')")
+    try:
+        res = proc_guard.run_tree(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=30)
+    except Exception as exc:
+        return None, "%s: %s" % (type(exc).__name__, exc)
+    if res.timed_out:
+        return None, "부팅 시각 조회가 30초를 넘겼다"
+    if res.returncode != 0:
+        return None, "부팅 시각 조회 실패(rc=%s)" % res.returncode
+    for line in (res.stdout or "").splitlines():
+        try:
+            return datetime.fromisoformat(line.strip()), ""
+        except ValueError:
+            continue
+    return None, "부팅 시각을 못 읽었다"
 
 def _overlap_minutes(a0, a1, b0, b1) -> float:
     """두 구간이 겹치는 분. 잠이 **마지막 로그 이전**에도 있으므로 겹침만 센다."""
