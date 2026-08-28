@@ -560,6 +560,21 @@ def _main():
     os.replace(dst, final_dst)      # 여기서 처음으로 정본이 된다(원자적)
     dst = final_dst
 
+    # ★ 저장용으로만 쓴다 — 새 정본을 **읽기 전용**으로 잠근다(2026-08-28 지시).
+    #   여기가 유일한 자리다: Z: 에 vN+1 을 놓는 것은 이 함수 하나뿐이고
+    #   `archive_worker` 는 로컬 새 파일만 만든다(2026-08-10 규칙).
+    #   ⚠ 못 잠가도 보관본을 안 죽인다 — 그러나 **못 잠갔으면 말한다**([169]).
+    try:
+        import archive_lock
+        _lk_ok, _lk_why = archive_lock.lock(dst)
+        if _lk_ok:
+            if _lk_why != "이미":
+                print("  보관본을 읽기 전용으로 잠갔습니다 — 값은 앱에서 고칩니다.")
+        elif not _lk_why.startswith("꺼짐"):
+            print("  ! 보관본을 못 잠갔습니다(%s) — 손으로 고칠 수 있는 상태입니다." % _lk_why)
+    except Exception as _lk_exc:
+        print("  ! 읽기 전용 잠금을 못 걸었습니다: %s" % _lk_exc)
+
     # 큐 정리·보관
     os.makedirs(UPD_DIR, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")

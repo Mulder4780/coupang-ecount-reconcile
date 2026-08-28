@@ -98,6 +98,13 @@ def _move_preserving(source, dst, origin="중복"):
     if not os.path.isfile(source) or os.path.basename(source).startswith("~$"):
         return False
     os.makedirs(dst, exist_ok=True)
+    # ★ 읽기 전용 보관본은 윈도우에서 **옮기는 것도 막힌다** — 옮기기 직전에 푼다.
+    #   안 풀면 옛 버전 정리가 그날부터 조용히 죽는다([172] · 2026-08-28).
+    try:
+        import archive_lock
+        archive_lock.unlock(source)
+    except Exception:
+        pass          # 못 풀어도 옮기기는 시도한다 — 원래 안 잠겼을 수도 있다
     shutil.move(source, _collision_safe_target(dst, source, origin))
     return True
 

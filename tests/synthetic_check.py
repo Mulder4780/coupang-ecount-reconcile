@@ -36343,6 +36343,124 @@ def t442_band_path_ingests_browser_downloads():
 
     print('  [442] 밴드 갈래가 다운로드 덤프를 맨 앞에서 Z: 로 옮긴다(없으면 안 붙인다) ' + chr(9989))
 
+
+def t474_excel_is_archive_only_readonly_lock():
+    """[474] 엑셀은 저장용이다 — 보관본을 읽기 전용으로 잠근다 (2026-08-28 지시).
+
+    형님 지시: "이제 엑셀은 저장용으로만 쓰고 모든건 앱으로 관리하게 알고리즘 변경해"
+
+    말과 실제가 어긋나 있었다 — 화면·주석은 "단방향 보관본"이라 적는데 **파일은
+    누구나 고칠 수 있었다**(실측 v622 쓰기가능=True). 그래서 2026-08-27 21:43 에
+    손입력이 났고 그 값은 역수입 금지라 형님이 앱에 한 번 더 넣으셔야 했다.
+
+    ★ 여기서 제일 위험한 것은 **읽기까지 막는 것**이다 — 그러면 앱이 통째로 죽는다.
+      그래서 (3)이 잠근 뒤에도 열리는지를 **실행으로** 잰다([295]).
+    ⚠ 진짜 관리대장은 한 글자도 안 건드린다([247]) — 임시 파일로만 잰다."""
+    import tempfile as _tf, shutil as _sh, stat as _st, zipfile as _zip
+    import archive_lock as AL
+
+    d = _tf.mkdtemp(prefix="t474_")
+    try:
+        f = os.path.join(d, "쿠팡_통합업무_일일보고_관리대장_v999.xlsx")
+        with _zip.ZipFile(f, "w") as z:
+            z.writestr("[Content_Types].xml", "<x/>")
+
+        # (1) 되돌리기 한 줄이 사는가 — 끄면 아무것도 안 한다
+        _old = os.environ.get(AL.ENV)
+        os.environ[AL.ENV] = "0"
+        try:
+            ok, why = AL.lock(f)
+            assert ok is False and "꺼짐" in why, ("[474] 끄기가 안 먹는다: %s" % why)
+            assert AL.is_locked(f) is False, "[474] 껐는데 잠갔다"
+        finally:
+            if _old is None:
+                os.environ.pop(AL.ENV, None)
+            else:
+                os.environ[AL.ENV] = _old
+
+        # (2) 켜면 잠근다
+        ok, why = AL.lock(f)
+        assert ok is True, ("[474] 못 잠갔다: %s" % why)
+        assert AL.is_locked(f) is True, "[474] 잠갔다는데 안 잠겼다"
+
+        # (3) ★ 잠긴 뒤에도 읽기는 그대로 된다 — 막히면 앱이 통째로 죽는다
+        with _zip.ZipFile(f) as z:
+            assert z.namelist(), "[474] 잠근 뒤 zip 을 못 읽는다 — 앱이 죽는다"
+        with open(f, "rb") as fh:
+            assert fh.read(2) == b"PK", "[474] 잠근 뒤 파일을 못 읽는다"
+
+        # (4) 두 번 잠가도 성공이라 말한다(회차마다 시끄럽지 않게)
+        ok2, why2 = AL.lock(f)
+        assert ok2 is True and why2 == "이미", ("[474] 두 번째 잠금: %s" % why2)
+
+        # (5) 우리 코드는 풀 수 있다 — 안 그러면 옛 버전 정리가 죽는다([172])
+        ok3, _ = AL.unlock(f)
+        assert ok3 is True and AL.is_locked(f) is False, "[474] 못 푼다 — 정리가 막힌다"
+        os.remove(f)   # 푼 뒤에는 지워진다(윈도우는 읽기 전용 삭제를 막는다)
+
+        # (6) 없는 파일: 예외를 안 올리고 모름/실패로 말한다([169])
+        ghost = os.path.join(d, "없는파일.xlsx")
+        assert AL.is_locked(ghost) is None, "[474] 못 읽은 것을 False 라 한다([169])"
+        okg, whyg = AL.lock(ghost)
+        assert okg is False and whyg, "[474] 없는 파일에 성공이라 한다"
+
+        # (7) 사람이 손으로 잠글 때만 '쓰는 중' 을 본다
+        f2 = os.path.join(d, "쓰는중_v1000.xlsx")
+        with open(f2, "wb") as fh:
+            fh.write(b"PK")
+        _real_in_use = AL.in_use
+        try:
+            AL.in_use = lambda _p: True
+            ok4, why4 = AL.lock(f2, check_in_use=True)
+            assert ok4 is False and "쓰는 중" in why4, ("[474] 쓰는 중인데 잠갔다: %s" % why4)
+            ok5, _ = AL.lock(f2)          # 회차 경로(기본값)는 그 문을 안 본다
+            assert ok5 is True, "[474] 회차가 새 정본을 못 잠근다 — 영영 안 잠긴다"
+        finally:
+            AL.in_use = _real_in_use
+            AL.unlock(f2)
+    finally:
+        _sh.rmtree(d, ignore_errors=True)
+
+    # (8) 배선 — 코드가 있어도 부르는 곳이 없으면 없는 것과 같다([328])
+    lw = _t370_code_only(io.open(os.path.join(ROOT, "ledger_writer.py"),
+                                 encoding="utf-8").read())
+    i_final = lw.find("os.replace(dst, final_dst)")
+    i_lock = lw.find("archive_lock.lock(")
+    assert i_final > 0, "[474] ledger_writer 의 정본 확정 자리를 못 찾았다"
+    assert i_lock > i_final, "[474] 새 정본을 만든 뒤 잠그지 않는다([328])"
+
+    lv = _t370_code_only(io.open(os.path.join(ROOT, "ledger_versions.py"),
+                                 encoding="utf-8").read())
+    i_move = lv.find("shutil.move(source,")
+    i_un = lv.find("archive_lock.unlock(")
+    assert i_move > 0, "[474] ledger_versions 의 옮기는 자리를 못 찾았다"
+    assert 0 < i_un < i_move, "[474] 옮기기 전에 안 푼다 — 옛 버전 정리가 조용히 죽는다"
+
+    # (9) 화면이 그 사실을 말하는가 — 안 적으면 사람이 고장으로 읽는다([169])
+    html = io.open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "읽기 전용 보관본" in html, "[474] 관리대장 열기 안내에 읽기 전용이라 안 적혀 있다"
+
+    # (10) 계기 자기시험([272]) — 잠금을 없앤 사본이면 (2)가 잡혀야 한다
+    _src = io.open(os.path.join(ROOT, "archive_lock.py"), encoding="utf-8").read()
+    _broken = _src.replace("        os.chmod(path, mode & ~stat.S_IWRITE)",
+                           "        pass", 1)
+    assert _broken != _src, "[474] 자기시험 재료를 못 만들었다"
+    ns = {"__name__": "_t474_broken",
+          "__file__": os.path.join(ROOT, "archive_lock.py")}
+    exec(compile(_broken, "<t474-broken>", "exec"), ns)
+    d2 = _tf.mkdtemp(prefix="t474b_")
+    try:
+        g = os.path.join(d2, "x.xlsx")
+        with open(g, "wb") as fh:
+            fh.write(b"PK")
+        okb, whyb = ns["lock"](g)
+        assert okb is False, "[474] 잠금을 없앴는데도 성공이라 한다 — 이 검사는 아무것도 안 잰다"
+    finally:
+        _sh.rmtree(d2, ignore_errors=True)
+
+    print(chr(9989) + " [474] 엑셀은 저장용 — 보관본 읽기 전용 잠금(읽기는 그대로 · 배선 · 자기시험)")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -43890,6 +44008,7 @@ if __name__ == "__main__":
     t471_no_lone_cr_in_tracked_text()
     t472_watchdog_step_trace()
     t473_deposit_metric_reads_a_file_and_asks_if_zero_is_honest()
+    t474_excel_is_archive_only_readonly_lock()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
