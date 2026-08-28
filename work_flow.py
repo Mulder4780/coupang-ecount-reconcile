@@ -204,6 +204,112 @@ def _read_master():
     return out if out["갈래"] else None
 
 
+EXTRA_KEY = "work_flow_extra:"      # app_setting 열쇠 접두 — 갈래마다 한 줄
+
+
+def extra_stages(kind):
+    """사람이 **앱에서 더한** 단계 낱말. `([낱말...], 못읽은이유)`.
+
+    ★ **관리대장 시트를 안 건드린다** (2026-08-28 형님 지시 "현재단계 진행상태에
+      '택배발송' 추가"). 넣을 자리는 `10_코드관리!G13`(비어 있다)이지만
+      2026-08-10 정본 규칙이 **새 Excel 직접 mutator 를 금지**하고, 2026-08-24
+      지시가 *"엑셀은 저장용으로만"* 이다. 그러므로 낱말을 더하는 길은 앱 DB 뿐이고
+      그것이 `[196]` 이 이관 대기 목록에 적어 둔 방향 그대로다.
+
+    ★ **`app_setting` 표를 빌린다**([162]) — 낙관잠금·감사로그가 공짜로 붙는다.
+
+    ⚠ **엑셀을 열어 보는 사람에게는 안 보인다**([169]). 관리대장 드롭다운은
+      `10_코드관리` 열을 그대로 읽으므로 여기 더한 낱말이 거기엔 없다. 엑셀은
+      이제 읽기 전용 보관본이라([212]·[474]) 그 칸을 사람이 고르지 않지만,
+      **모르는 채로 두지 않기 위해** 리포트가 그 사실을 적는다.
+
+    ★ **못 읽으면 빈 목록이다** — 이것 하나 때문에 단계 정의가 통째로 안 만들어지면
+      새 접수가 등록조차 안 된다([172]). 대신 **이유를 같이 돌려준다**([169]).
+    """
+    key = str(kind or "").strip()
+    if not key:
+        return [], ""
+    try:
+        from app_store import default_store
+        rec = default_store().get_setting(EXTRA_KEY + key)
+    except Exception as exc:
+        return [], "%s: %s" % (type(exc).__name__, exc)
+    val = rec.get("value")
+    if not isinstance(val, dict):
+        return [], ""
+    out, seen = [], set()
+    for item in (val.get("낱말") or []):
+        w = str((item or {}).get("단계") or "").strip()
+        if w and w not in seen:
+            seen.add(w)
+            out.append(w)
+    return out, ""
+
+
+def _extra_raw(kind):
+    from app_store import default_store
+    rec = default_store().get_setting(EXTRA_KEY + str(kind))
+    val = rec.get("value")
+    return ({} if not isinstance(val, dict) else val), int(rec.get("record_version") or 0)
+
+
+def add_stage(kind, word, *, actor="app", why=""):
+    """단계 낱말 하나를 더한다. 이미 있으면 아무것도 안 한다(멱등).
+
+    ★ **관리대장에 있는 낱말은 안 받는다** — 같은 낱말이 두 출처로 들어오면
+      화면이 그것을 두 번 보여 주고, 어느 쪽이 정본인지 아무도 모른다([162]).
+    ★ **되돌릴 수 있다** — `remove_stage` 가 짝이다. 되살리기 없는 추가는
+      잘못 넣은 순간 사람이 할 수 있는 일이 없어진다.
+    """
+    if kind not in KINDS:
+        raise ValueError("모르는 갈래입니다: %s (%s 중 하나)"
+                         % (kind, " · ".join(sorted(KINDS))))
+    w = str(word or "").strip()
+    if not (1 <= len(w) <= 30):
+        raise ValueError("단계 낱말을 1~30자로 적어 주세요")
+    d = definition(refresh=True)
+    official = [s["단계"] for s in ((d.get("갈래") or {}).get(kind) or {}).get("단계") or []
+                if s.get("출처") == "관리대장 목록"]
+    if w in official:
+        return {"ok": True, "더함": False,
+                "msg": "'%s' 은(는) 이미 관리대장 목록에 있습니다" % w}
+    cur, ver = _extra_raw(kind)
+    words = list(cur.get("낱말") or [])
+    if any(str((x or {}).get("단계") or "") == w for x in words):
+        return {"ok": True, "더함": False, "msg": "'%s' 은(는) 이미 더해져 있습니다" % w}
+    words.append({"단계": w, "때": datetime.now().isoformat(timespec="seconds"),
+                  "누가": str(actor or "app")[:80], "왜": str(why or "")[:200]})
+    from app_store import default_store
+    default_store().set_setting(
+        EXTRA_KEY + kind, {"낱말": words},
+        expected_version=(None if ver == 0 else ver),
+        actor=actor or "app", source="app-work-flow-extra",
+        evidence="단계 낱말 추가: %s" % w)
+    return {"ok": True, "더함": True, "낱말수": len(words),
+            "msg": "'%s' 을(를) %s 단계에 더했습니다" % (w, KINDS[kind]["이름"])}
+
+
+def remove_stage(kind, word, *, actor="app"):
+    """더했던 낱말을 뺀다. **관리대장 낱말은 못 뺀다** — 그것은 원본의 몫이다."""
+    if kind not in KINDS:
+        raise ValueError("모르는 갈래입니다: %s" % kind)
+    w = str(word or "").strip()
+    cur, ver = _extra_raw(kind)
+    words = [x for x in (cur.get("낱말") or [])
+             if str((x or {}).get("단계") or "") != w]
+    if len(words) == len(cur.get("낱말") or []):
+        return {"ok": True, "뺌": False,
+                "msg": "'%s' 은(는) 앱에서 더한 낱말이 아닙니다" % w}
+    from app_store import default_store
+    default_store().set_setting(
+        EXTRA_KEY + kind, {"낱말": words},
+        expected_version=(None if ver == 0 else ver),
+        actor=actor or "app", source="app-work-flow-extra",
+        evidence="단계 낱말 제거: %s" % w)
+    return {"ok": True, "뺌": True, "낱말수": len(words),
+            "msg": "'%s' 을(를) 뺐습니다" % w}
+
+
 def _used_words():
     """원장에 **실제로 쓰인** 값과 건수. 목록 밖 낱말을 찾기 위해서만 본다."""
     used = {}
@@ -270,11 +376,22 @@ def build():
                            + (" (%s)" % master_err if master_err else ""))
     for key, cfg in KINDS.items():
         words_cfg = ((master or {}).get("갈래") or {}).get(key) or {}
-        official = list(words_cfg.get("낱말") or [])
+        # ★ **관리대장 목록과 앱에서 더한 낱말을 갈라 둔다**([166]).
+        #   기본단계·완료단계는 **관리대장에서만** 와야 한다 — 앱 추가분이 그
+        #   자리를 차지하면 Z: 가 끊긴 날 새 접수가 엉뚱한 단계로 박힌다.
+        master_words = list(words_cfg.get("낱말") or [])
+        added, add_why = extra_stages(key)
+        if add_why:
+            out["경고"].append("%s — 앱에서 더한 단계 낱말을 못 읽었습니다: %s"
+                               % (cfg["이름"], add_why))
+        # 더한 낱말은 **맨 뒤**에 붙인다 — 중간에 끼우면 기본단계가 밀린다.
+        official = master_words + [w for w in added if w not in master_words]
         counts = used.get(key) or {}
         stages = []
         for w in official:
-            item = {"단계": w, "출처": "관리대장 목록", "쓰인건수": counts.get(w, 0)}
+            item = {"단계": w,
+                    "출처": ("관리대장 목록" if w in master_words else "앱에서 더함"),
+                    "쓰인건수": counts.get(w, 0)}
             link = _link(w, flow)
             if link:
                 item.update(link)
@@ -301,7 +418,8 @@ def build():
             # 2026-08-18 실측: Z: 가 끊기자 그 자리가 **'취소'** 가 됐다. 그대로
             # 등록하면 새 접수가 취소로 박혀 미처리에서 사라진다([243]).
             # 못 읽으면 빈칸이다 — 부르는 쪽이 '모른다'를 보고 멈춘다([166]·[172]).
-            "기본단계": (official[0] if official else ""),
+            # ★ 앱 추가분은 여기 못 온다 — `master_words` 만 본다([166]).
+            "기본단계": (master_words[0] if master_words else ""),
             "완료단계": (done[0] if len(done) == 1 else ""),
             "목록밖": extra,
             "흐름연결": sum(1 for s in stages if s.get("흐름단계")),
@@ -310,6 +428,13 @@ def build():
             out["경고"].append(
                 "%s — '완료'로 읽을 단계를 하나로 못 정했습니다(후보 %d개). "
                 "원클릭 완료 단추를 감춥니다." % (cfg["이름"], len(done)))
+        app_added = [w for w in official if w not in master_words]
+        if app_added:
+            out["경고"].append(
+                "%s — 앱에서 더한 단계 %s. 앱 드롭다운에는 나오지만 "
+                "**관리대장(엑셀)을 열어 보는 사람에게는 안 보입니다** — "
+                "엑셀은 읽기 전용 보관본입니다."
+                % (cfg["이름"], " · ".join(app_added)))
         if extra:
             out["경고"].append(
                 "%s — 목록에 없는 낱말이 원장에 쓰여 있습니다: %s. "
@@ -454,6 +579,26 @@ def main(argv=None):
         ack()
         print("업무 흐름 변경 알림을 내렸습니다")
         return 0
+    # 단계 낱말 더하기·빼기 — **사람이 명령할 때만** 돈다(무인 회차는 안 부른다).
+    for flag, fn, verb in (("--add", add_stage, "더함"), ("--remove", remove_stage, "뺌")):
+        if flag in argv:
+            i = argv.index(flag)
+            rest = [a for a in argv[i + 1:] if not a.startswith("-")]
+            if len(rest) < 2:
+                print("쓰기: python work_flow.py %s <as|pm> <낱말> [사유]" % flag)
+                return 2
+            kw = {"actor": "사람"} if flag == "--remove" else {
+                "actor": "사람", "why": " ".join(rest[2:])}
+            try:
+                r = fn(rest[0], rest[1], **kw)
+            except Exception as exc:
+                print("못 했습니다 — %s" % exc)
+                return 2
+            print(r.get("msg") or "")
+            if r.get(verb):
+                print("  → 앱 드롭다운에 곧바로 나옵니다. "
+                      "관리대장(엑셀)에는 안 들어갑니다 — 엑셀은 보관본입니다.")
+            return 0
     if "--check" in argv:
         r = check(write=True)
         if r.get("바뀜"):

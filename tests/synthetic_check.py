@@ -21545,8 +21545,27 @@ def t225_session_auto_resumes_parked_and_pushes():
          "who": "", "sid": "", "at_ts": time.time()},
         {"id": 2, "title": "남이 하는 중", "detail": "", "lock": "code", "state": worksplit.DOING,
          "who": "claude", "sid": "sib00001", "at_ts": time.time()}]}
+    # ★ `agent_dispatch.resume_pending` 을 **반드시 목으로 건다** (2026-08-28 실사고).
+    #   `run()` 의 ② 갈래가 함수 안에서 그것을 들여와 부르는데, 목이 없으면 진짜
+    #   `reports/agent_dispatch/*.json` 을 읽어 **queued 표를 실제로 보낸다** —
+    #   곧 ① 검사가 실데이터에 매이고([211]) ② **검증이 실측 증거를 바꾸며**([247])
+    #   ③ **관문 한 번에 크레딧을 한 장씩 태운다**. 실측: 디스크에 queued 13 ·
+    #   waiting 1 이 있었고 gate4·gate5 가 돈 14:56:54 · 14:59:08 에 표 둘이
+    #   `queued -> failed` 로 바뀌었다. 그리고 표가 하나라도 남아 있으면 `resumed`
+    #   가 참이라 `_hand_to_ai` 를 **아예 안 부르므로** 이 검사는 언제나 빨갛다.
+    import agent_dispatch as _AD                     # noqa: PLC0415
+
+    def _ticket_fp():
+        """진짜 표 폴더의 지문 — 검증은 **여기에 한 글자도 안 쓴다**([247])."""
+        try:
+            return sorted((p.name, p.stat().st_mtime_ns)
+                          for p in _AD.REPORT_DIR.glob("*.json"))
+        except OSError:
+            return None
+
+    fp0 = _ticket_fp()
     real = (worksplit.load, A.ai_claim.load, A.ai_claim._is_dead, A.live_others,
-            A._git, A.STATE, A._hand_to_ai)
+            A._git, A.STATE, A._hand_to_ai, _AD.resume_pending)
     calls, handed = [], []
 
     def fake_git(*a, **kw):
@@ -21574,18 +21593,14 @@ def t225_session_auto_resumes_parked_and_pushes():
         A.ai_claim.load = lambda: {}
         assert A.parked()[0]["가능"] is True, "막던 것이 사라졌는데 '가능'이라 말하지 않는다"
 
-        # ⚠ **고정 경로의 자국을 지우고 시작한다** (2026-08-28 실측).
-        #   `worksplit_auto` 는 이 자국에 '이미 넘긴 일'을 적어 두고 다음
-        #   회차에 같은 항목을 **다시 안 넘긴다**([225] — 회차마다 새 표를
-        #   만들면 크레딧이 새고 큰가 쓰레기가 된다). 그러니 앞 관문이 남긴
-        #   파일이 있으면 이 검사는 `handed == []` 로 빨개졌다 — 곳 **관문을 두 번
-        #   연달아 돌리면 죽는 검사**였다. 관문은 회차의 **0단계**라 그대로
-        #   두면 그날 대조가 통째로 안 돌다. 재려는 것은 '풀린 일을 넘기나'이지
-        #   '앞 관문이 뭐를 남겼나'가 아니다([247] 의 사촌 — 검사가 **제 자국**에 매인 자리).
-        _t225_state = os.path.join(tempfile.gettempdir(), "t225_state.json")
-        if os.path.exists(_t225_state):
-            os.remove(_t225_state)
-        A._git, A.STATE = fake_git, _t225_state
+        # ⚠ 앞서 이 자리를 '임시 STATE 자국 탓'이라 진단했는데 **틀렸다** —
+        #   `_hand_to_ai` 가 목이라 `tickets` 는 아무 일도 안 한다. 진짜 원인은
+        #   위의 `resume_pending` 이었다([309] — 검사가 빨개지면 기대부터 의심한다).
+        pend = []                       # 대기표 — 기본은 없다(목이 이것을 준다)
+        seen = []                       # 그 목이 **정말 불렸나**([272])
+        _AD.resume_pending = lambda limit=1: (seen.append(1) or list(pend))
+        A._git, A.STATE = fake_git, os.path.join(tempfile.gettempdir(),
+                                                 "t225_state.json")
         A._hand_to_ai = lambda row, tickets: (handed.append(row.get("id")) or "ticket-fake")
         A.run(dry=False)                                  # 옆 세션이 살아 있다
         assert not any(x[0] == "push" for x in calls), "옆 세션이 살아 있는데 밀었다"
@@ -21596,6 +21611,17 @@ def t225_session_auto_resumes_parked_and_pushes():
         A.run(dry=False)                                  # 아무도 없다
         assert any(x[0] == "push" for x in calls), "아무도 없는데 보류를 계속한다 — 폰에서는 없는 코드다"
         assert handed == [1], "풀린 일을 AI 에게 넘기지 않았다: %r" % handed
+        assert seen, (
+            "대기표를 한 번도 안 물었다 — 이 검사가 그 갈래를 안 지난다([272])")
+
+        # ★ **대기표가 있으면 그 회차는 새로 안 넘긴다**(회차당 하나 · [225]).
+        #   목이 없던 시절에는 이 갈래가 **실데이터에 매여** 우연히 참이었다.
+        handed.clear()
+        pend.append("ticket-old")
+        A.run(dry=False)
+        assert not handed, (
+            "대기표를 재개하는 회차인데 새 표까지 만들었다 — 표가 쌓이면 아무도 안 본다")
+        pend.clear()
 
         calls.clear()
 
@@ -21621,7 +21647,12 @@ def t225_session_auto_resumes_parked_and_pushes():
         assert not any(x[0] == "push" for x in calls), "범위를 '못 읽음'인데 '깨끗함'으로 쳤다"
     finally:
         (worksplit.load, A.ai_claim.load, A.ai_claim._is_dead, A.live_others,
-         A._git, A.STATE, A._hand_to_ai) = real
+         A._git, A.STATE, A._hand_to_ai, _AD.resume_pending) = real
+
+    # ★ 검증이 **실측 증거를 바꾸면 안 된다**([247]). 목이 사라지는 날 여기서 잡힌다 —
+    #   2026-08-28 에는 관문 한 번이 진짜 표를 하나씩 `queued -> failed` 로 태웠다.
+    assert fp0 is None or _ticket_fp() == fp0, (
+        "[225] 검증이 진짜 AI 표 폴더를 건드렸다 — 크레딧을 태우고 실측 증거를 바꾼다([247])")
 
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
     assert "def resume_parked(" in wd and "resume_parked" in _t_wd_steps(wd), \
